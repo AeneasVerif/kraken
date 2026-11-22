@@ -254,6 +254,8 @@ def main():
     ap.add_argument("--fast-c3b", help="Path to C3b PrintCpp-native-mem FullFast bench_main binary")
     ap.add_argument("--m3-c4", help="Path to C4 native x64 FullM3 bench_main binary")
     ap.add_argument("--m3-c3b", help="Path to C3b PrintCpp-native-mem FullM3 bench_main binary")
+    ap.add_argument("--m4-c4", help="Path to C4 native x64 FullM4 bench_main binary")
+    ap.add_argument("--m4-c3b", help="Path to C3b PrintCpp-native-mem FullM4 bench_main binary")
     ap.add_argument("--kissat", help="Optional path to upstream Kissat 4.0.4 binary")
     ap.add_argument("--work-bytes", type=int, default=67108864, help="Workspace bytes (default 64 MiB)")
     ap.add_argument("--fuel", type=int, default=200000000, help="Solver fuel budget")
@@ -265,10 +267,13 @@ def main():
     ap.add_argument("--filter", default="", help="Substring filter on canary filename")
     args = ap.parse_args()
 
-    if not any([args.full_c4, args.full_c3b, args.fast_c4, args.fast_c3b, args.m3_c4, args.m3_c3b]):
+    if not any([
+        args.full_c4, args.full_c3b, args.fast_c4, args.fast_c3b,
+        args.m3_c4, args.m3_c3b, args.m4_c4, args.m4_c3b,
+    ]):
         ap.error(
             "specify at least one solver binary "
-            "(--full-c4/--full-c3b/--fast-c4/--fast-c3b/--m3-c4/--m3-c3b)"
+            "(--full-c4/--full-c3b/--fast-c4/--fast-c3b/--m3-c4/--m3-c3b/--m4-c4/--m4-c3b)"
         )
 
     kissat_bin = None
@@ -309,6 +314,10 @@ def main():
         configs.append(("FullM3_C4", args.m3_c4, True))
     if args.m3_c3b:
         configs.append(("FullM3_C3b", args.m3_c3b, True))
+    if args.m4_c4:
+        configs.append(("FullM4_C4", args.m4_c4, True))
+    if args.m4_c3b:
+        configs.append(("FullM4_C3b", args.m4_c3b, True))
 
     results = {}
     hard_fails = []
@@ -332,7 +341,9 @@ def main():
         if k_rec is not None:
             row["c1"] = k_rec
             if k_rec.get("k_status") == 10:
-                hard_fails.append(f"{fname} [C1]: SOUNDNESS BUG: got SAT (10) on UNSAT canary {fname}!")
+                hard_fails.append(
+                    f"{fname} [C1]: SOUNDNESS BUG: got SAT (10) on UNSAT canary {fname}!"
+                )
 
         for name, bpath, is_m2 in configs:
             rec = run_one(bpath, cpath, args.work_bytes, args.fuel, args.per_timeout, is_m2)
@@ -352,7 +363,10 @@ def main():
             print(line)
             base_rec = None
             if baseline and fname in baseline.get("canaries", {}):
-                base_rec = baseline["canaries"][fname].get("runs", {}).get(name)
+                base_runs = baseline["canaries"][fname].get("runs", {})
+                base_rec = base_runs.get(name)
+                if base_rec is None and name.startswith("FullM4_"):
+                    base_rec = base_runs.get(name.replace("FullM4_", "FullM3_", 1))
             issues, gaps = evaluate_canary(entry, rec, base_rec, args.strict_gaps, kissat_rec=k_rec)
             for msg in issues:
                 hard_fails.append(f"{fname} [{name}]: {msg}")
@@ -360,7 +374,7 @@ def main():
                 all_gaps.append(f"{fname} [{name}]: {msg}")
 
         # Bit-identical work parity check: C4 == C3b
-        for base_mod in ("Full", "FullFast", "FullM3"):
+        for base_mod in ("Full", "FullFast", "FullM3", "FullM4"):
             c4_k, c3b_k = f"{base_mod}_C4", f"{base_mod}_C3b"
             if c4_k in row["runs"] and c3b_k in row["runs"]:
                 diffs = check_parity(base_mod, row["runs"][c4_k], row["runs"][c3b_k])
@@ -376,7 +390,7 @@ def main():
         tot_ms = sum(r["runs"][name]["ms"] for r in results.values())
         print(f"  {name:<14}: {solved:2d}/{tot} UNSAT solved  (total {tot_ms:.1f} ms)")
 
-    for base_mod in ("Full", "FullFast", "FullM3"):
+    for base_mod in ("Full", "FullFast", "FullM3", "FullM4"):
         c4_k, c3b_k = f"{base_mod}_C4", f"{base_mod}_C3b"
         if any(c4_k in r["runs"] and c3b_k in r["runs"] for r in results.values()):
             matched = 0
@@ -405,7 +419,7 @@ def main():
             f"  C1 (Kissat)   : {c1_solved:2d}/{tot} UNSAT solved"
             f"  (total {c1_tot_ms:.1f} ms, solved-only {c1_solved_ms:.1f} ms)"
         )
-        for base_mod in ("Full", "FullFast", "FullM3"):
+        for base_mod in ("Full", "FullFast", "FullM3", "FullM4"):
             c3b_k, c4_k = f"{base_mod}_C3b", f"{base_mod}_C4"
             has_c3b = any(c3b_k in r["runs"] for r in results.values())
             has_c4 = any(c4_k in r["runs"] for r in results.values())

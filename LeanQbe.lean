@@ -7,6 +7,7 @@ public import LeanQbe.T.LeanLRC.Hub
 public import LeanQbe.T.Examples.Hub
 public import LeanQbe.T.Examples.Kissat.BaseHub
 public import LeanQbe.T.Examples.Kissat.M3Hub
+public import LeanQbe.T.Examples.Kissat.M4Hub
 
 set_option autoImplicit false
 

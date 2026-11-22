@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Build a native `kissat-leanqbe` binary from the verified LeanQbe Kissat solver.
 #
-#   bash bench/kissat/build_solver.sh [--module Full|FullFast|FullM3|Plain] [--arch x64|arm64] \
-#     [--inline-max <N>] [--debug|-g] [--keep-asm] [--save-asm <path>] [-o <output_bin>]
+#   bash bench/kissat/build_solver.sh [--module Full|FullFast|FullM3|FullM4|Plain] \
+#     [--arch x64|arm64] [--inline-max <N>] [--debug|-g] [--keep-asm] \
+#     [--save-asm <path>] [-o <output_bin>]
 #
 # 1. `lake build`s the solver module `LeanQbe.T.Examples.Kissat.<Module>` and the code generator
 #    (skipped when `STAGE_LEAN_PATH` is set).
@@ -30,7 +31,7 @@ SAVE_ASM=""
 
 usage() {
   echo "usage: bash bench/kissat/build_solver.sh" \
-    "[--module Full|FullFast|FullM3|Plain] [--arch x64|arm64]" \
+    "[--module Full|FullFast|FullM3|FullM4|Plain] [--arch x64|arm64]" \
     "[--inline-max <N>] [--debug|-g] [--keep-asm] [--save-asm <path>] [-o <output_bin>]"
 }
 
@@ -57,8 +58,11 @@ case "${MODULE,,}" in
   full) MODULE=Full; EXPR=LeanQbe.T.Examples.Kissat.Full.fullModule ;;
   fullfast) MODULE=FullFast; EXPR=LeanQbe.T.Examples.Kissat.FullFast.fastModule ;;
   fullm3|m3) MODULE=FullM3; EXPR=LeanQbe.T.Examples.Kissat.FullM3.m3Module ;;
+  fullm4|m4) MODULE=FullM4; EXPR=LeanQbe.T.Examples.Kissat.FullM4.m4Module ;;
   plain) MODULE=Plain; EXPR=LeanQbe.T.Examples.Kissat.Plain.plainModule ;;
-  *) echo "ERROR: unknown module '$MODULE' (expected Full | FullFast | FullM3 | Plain)" >&2; exit 2 ;;
+  *)
+    echo "ERROR: unknown module '$MODULE' (expected Full|FullFast|FullM3|FullM4|Plain)" >&2
+    exit 2 ;;
 esac
 case "${ARCH,,}" in
   x64|amd64|x86_64) ARCH=x64; SUFFIX="" ;;

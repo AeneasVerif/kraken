@@ -1,0 +1,13 @@
+# One per line: <module to import> <fully qualified constant>.
+# Kissat M4 (`FullM4`, 231/231 unconditional source-level `ModuleOk` + `Mem 64` NV).
+LeanQbe.T.Examples.Kissat.FullM4Proof LeanQbe.T.Examples.Kissat.FullM4.mkM4Env_moduleOk
+LeanQbe.T.Examples.Kissat.FullM4Proof LeanQbe.T.Examples.Kissat.FullM4.m4Env_moduleOk
+LeanQbe.T.Examples.Kissat.FullM4Proof LeanQbe.T.Examples.Kissat.FullM4.m4UnsatEnv_moduleOk
+LeanQbe.T.Examples.Kissat.FullM4Proof1 LeanQbe.T.Examples.Kissat.FullM4.m4_solve_bytes_correct
+LeanQbe.T.Examples.Kissat.FullM4Proof1 LeanQbe.T.Examples.Kissat.FullM4.m4_unsat_nonvacuous
+LeanQbeTest.T.KissatAuditSpec audit_m4_wf
+LeanQbeTest.T.KissatAuditSpec audit_m4_acyc
+LeanQbeTest.T.KissatAuditSpec audit_m4_modok
+LeanQbeTest.T.KissatAuditSpec audit_m4_umodok
+LeanQbeTest.T.KissatAuditSpec audit_m4_ok
+LeanQbeTest.T.KissatAuditSpec audit_m4_nv

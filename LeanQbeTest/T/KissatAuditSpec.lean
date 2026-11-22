@@ -28,6 +28,7 @@ public import LeanQbe.T.Examples.Kissat.FullKittenLemmas
 public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastProof
 public import LeanQbe.T.Examples.Kissat.FullM3Proof
+public import LeanQbe.T.Examples.Kissat.FullM4Proof
 meta import LeanQbe.T.Examples.Kissat.PlainLemmas
 meta import LeanQbe.T.Examples.Kissat.FullSpec
 meta import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7
@@ -38,6 +39,7 @@ meta import LeanQbe.T.Examples.Kissat.FullDeduce1UipLemmas
 meta import LeanQbe.T.Examples.Kissat.FullProof
 meta import LeanQbe.T.Examples.Kissat.FullFast
 meta import LeanQbe.T.Examples.Kissat.FullM3
+meta import LeanQbe.T.Examples.Kissat.FullM4
 import all Std.Sat.CNF.Basic
 import all Std.Sat.CNF.Sat
 
@@ -901,7 +903,54 @@ theorem _root_.audit_m3_nv :
 
 end M3FullM3Audit
 
-/-! ## 13. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
+/-! ## 13. `D-Full M4` (`FullM4Proof`, `231/231` unconditional, UNSAT-only) -/
+
+section M4FullM4Audit
+
+open Std.Sat Std.ExtHashMap LeanQbe.T LeanQbe.T.Examples.LratBytes
+open LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.Kissat.FullM4
+
+#guard m4Fns.length == 231
+#guard m4Module.checkAcyclic == true
+
+theorem _root_.audit_m4_wf : ∀ f ∈ m4Fns, f.Wf := m4Fns_wf
+
+theorem _root_.audit_m4_acyc : m4Module.checkAcyclic = true := m4_acyclic
+
+theorem _root_.audit_m4_modok : ModuleOk m4Env m4Module := m4Env_moduleOk
+
+theorem _root_.audit_m4_umodok : ModuleOk m4UnsatEnv m4Module := m4UnsatEnv_moduleOk
+
+theorem _root_.audit_m4_ok
+    {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8} {wlen : Nat}
+    {R : Mem 64 → Prop} {m : Mem 64} {X : XPost}
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m) :
+    Func.wp m4Env FullM4.kissat_solve_bytes_body
+      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ()) m
+      (fun (r, ()) m' =>
+        (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+        (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') X :=
+  m4_solve_bytes_correct hcfit hwfit hm
+
+theorem _root_.audit_m4_nv :
+    let m0 : Mem 64 := (fullPayload fullNvUnsatBytes).At fullNvCnfPtr
+    Func.wp m4UnsatEnv FullM4.kissat_solve_bytes_body
+      (fullNvCnfPtr, BitVec.ofNat 64 fullNvUnsatBytes.length,
+        fullNvWorkPtr fullNvUnsatBytes, 4096#64, 16#64, ()) m0
+      (fun (r, ()) m' =>
+        r = 20#64 ∧ fullNvUnsatCnf.Unsat ∧
+        (bytes fullNvCnfPtr fullNvUnsatBytes ⋆
+          region (fullNvWorkPtr fullNvUnsatBytes) 4096 ⋆ emp) m')
+      (fun _ _ _ _ => False) :=
+  m4_unsat_nonvacuous
+
+end M4FullM4Audit
+
+/-! ## 14. `#print axioms` (one line each, `⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms audit_unsat_def
 #print axioms audit_sat_def
@@ -975,3 +1024,9 @@ end M3FullM3Audit
 #print axioms audit_m3_umodok
 #print axioms audit_m3_ok
 #print axioms audit_m3_nv
+#print axioms audit_m4_wf
+#print axioms audit_m4_acyc
+#print axioms audit_m4_modok
+#print axioms audit_m4_umodok
+#print axioms audit_m4_ok
+#print axioms audit_m4_nv

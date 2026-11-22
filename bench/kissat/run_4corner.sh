@@ -22,7 +22,7 @@ export PYTHONDONTWRITEBYTECODE=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-MODULES=(Full FullFast FullM3)
+MODULES=(Full FullFast FullM3 FullM4)
 WORK_BYTES="${WORK_BYTES:-67108864}"
 FUEL="${FUEL:-200000000}"
 PER_TIMEOUT="${PER_TIMEOUT:-5}"
@@ -37,9 +37,10 @@ FILTER=""
 usage() {
   cat <<'EOF'
 usage: bench/kissat/run_4corner.sh [options]
-  --module <Full|FullFast|FullM3|Both|All>  Module(s) to benchmark (default: All)
+  --module <Full|FullFast|FullM3|FullM4|Both|All>
+                                            Module(s) to benchmark (default: All)
   --kissat <bin>                            Optional upstream Kissat 4.0.4 binary (C1)
-  --no-kissat                               Disable C1 comparison even if kissat is in PATH/KISSAT_BIN
+  --no-kissat                               Disable C1 even if kissat is in PATH/KISSAT_BIN
   --work-bytes <N>                          Workspace bytes (default: 67108864)
   --fuel <N>                                Fuel budget (default: 200000000)
   --per-timeout <sec>                       Per-CNF timeout seconds (default: 5)
@@ -59,8 +60,9 @@ while [ $# -gt 0 ]; do
         full) MODULES=(Full) ;;
         fullfast) MODULES=(FullFast) ;;
         fullm3|m3) MODULES=(FullM3) ;;
+        fullm4|m4) MODULES=(FullM4) ;;
         both) MODULES=(Full FullFast) ;;
-        all) MODULES=(Full FullFast FullM3) ;;
+        all) MODULES=(Full FullFast FullM3 FullM4) ;;
         *) echo "ERROR: unknown module '$2'" >&2; exit 2 ;;
       esac
       shift 2
@@ -123,6 +125,7 @@ mod_expr() {
     Full) echo "LeanQbe.T.Examples.Kissat.Full.fullModule" ;;
     FullFast) echo "LeanQbe.T.Examples.Kissat.FullFast.fastModule" ;;
     FullM3) echo "LeanQbe.T.Examples.Kissat.FullM3.m3Module" ;;
+    FullM4) echo "LeanQbe.T.Examples.Kissat.FullM4.m4Module" ;;
   esac
 }
 
@@ -216,6 +219,7 @@ CPP
     Full) CHECK_ARGS+=(--full-c4 "$OUT/c4_Full" --full-c3b "$OUT/c3b_Full") ;;
     FullFast) CHECK_ARGS+=(--fast-c4 "$OUT/c4_FullFast" --fast-c3b "$OUT/c3b_FullFast") ;;
     FullM3) CHECK_ARGS+=(--m3-c4 "$OUT/c4_FullM3" --m3-c3b "$OUT/c3b_FullM3") ;;
+    FullM4) CHECK_ARGS+=(--m4-c4 "$OUT/c4_FullM4" --m4-c3b "$OUT/c3b_FullM4") ;;
   esac
 done
 
