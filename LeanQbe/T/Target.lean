@@ -742,7 +742,7 @@ structure FrameSpec {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
       array64 (M.getGpr s f.sp + BitVec.ofNat 64 (8 * i)) (rs.map (M.getGpr s₀)) ⋆ G) →
     M.FallsTo condReads h k (fn i rs) (rs ++ f.scratch) [] FlagMask.none s
       (fun s' => (∀ r ∈ rs, M.getGpr s' r = M.getGpr s₀ r) ∧ M.mem s' = M.mem s) post := by
-    intro _ _ _ _ _ _ _ _ _ _ _ h; cases h
+    intro _ _ _ _ _ _ _ _ _ h; cases h
 
 structure FrameTarget {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
     (condReads : C → FlagMask) : Type extends FramePreds M where
