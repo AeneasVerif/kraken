@@ -1408,37 +1408,37 @@ elab "c0_hsplit" : tactic => do
     let _ ← headStepsLoop { unrollGroup := false, splitJnz := false } 2000
     let _ ← headStepOnce { unrollGroup := false, splitJnz := true, pruneJnz := false }
 
+private meta partial def c0SplitLoop (fuel : Nat) : TacticM Unit := do
+  if fuel = 0 then return
+  let g0 ← getMainGoal
+  let (g, ty) ← unwrapGoalMData g0
+  if g != g0 then replaceMainGoal [g]
+  if isWpHeadExpr ty ``LeanQbe.T.Expr.jnz then
+    let _ ← LeanQbe.T.C0Step.stepOnce
+    return
+  if ← LeanQbe.T.C0Step.stepOnce then c0SplitLoop (fuel - 1)
+
+private meta partial def c0ToGroupLoop (fuel : Nat) : TacticM Unit := do
+  if fuel = 0 then return
+  let mut out : Array MVarId := #[]
+  for g in ← getUnsolvedGoals do
+    if ← g.isAssigned then continue
+    let (g, ty) ← unwrapGoalMData g
+    setGoals [g]
+    if isWpHeadExpr ty ``LeanQbe.T.Expr.group then
+      out := out.push g
+    else if ← LeanQbe.T.C0Step.stepOnce then
+      c0ToGroupLoop (fuel - 1)
+      out := out ++ (← getUnsolvedGoals)
+    else out := out.push g
+  setGoals out.toList
+
 /-- Step straight-line ops on the main goal via `C0Step.stepOnce` (unwrapping `MData`) until the
 next `Expr.jnz`, then split it once. -/
-elab "c0_split" : tactic => do
-  let rec go (fuel : Nat) : TacticM Unit := do
-    if fuel = 0 then return
-    let g0 ← getMainGoal
-    let (g, ty) ← unwrapGoalMData g0
-    if g != g0 then replaceMainGoal [g]
-    if isWpHeadExpr ty ``LeanQbe.T.Expr.jnz then
-      let _ ← LeanQbe.T.C0Step.stepOnce
-      return
-    if ← LeanQbe.T.C0Step.stepOnce then go (fuel - 1)
-  go 100
+elab "c0_split" : tactic => c0SplitLoop 100
 
 /-- Step all goals via `C0Step.stepOnce` (unwrapping `MData`), stopping each branch at
 `Expr.group`. -/
-elab "c0_to_group" : tactic => do
-  let rec go (fuel : Nat) : TacticM Unit := do
-    if fuel = 0 then return
-    let mut out : Array MVarId := #[]
-    for g in ← getUnsolvedGoals do
-      if ← g.isAssigned then continue
-      let (g, ty) ← unwrapGoalMData g
-      setGoals [g]
-      if isWpHeadExpr ty ``LeanQbe.T.Expr.group then
-        out := out.push g
-      else if ← LeanQbe.T.C0Step.stepOnce then
-        go (fuel - 1)
-        out := out ++ (← getUnsolvedGoals)
-      else out := out.push g
-    setGoals out.toList
-  go 500
+elab "c0_to_group" : tactic => c0ToGroupLoop 500
 
 end LeanQbe.T.C0HeadStep
