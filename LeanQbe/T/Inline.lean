@@ -141,7 +141,91 @@ def Func.inline (cands : List Fn) {as rs : List Ty} (f : Func as rs) : Func as r
 def Fn.inline (cands : List Fn) (fn : Fn) : Fn :=
   ⟨fn.name, fn.as, fn.rs, Func.inline cands fn.body⟩
 
-/-! ## Module-level acyclic small-callee inliner -/
+/-! ## Module-level acyclic small-callee and policy-driven inliner -/
+
+/-- Increment the static call-site count for `sym` in an association list. -/
+def incCallSite : List (Sym × Nat) → Sym → List (Sym × Nat)
+  | [], s => [(s, 1)]
+  | (k, n) :: rest, s =>
+      if k == s then (k, n + 1) :: rest else (k, n) :: incCallSite rest s
+
+/-- Look up the static call-site count for `sym` (`0` if absent). -/
+def lookupCallSite : List (Sym × Nat) → Sym → Nat
+  | [], _ => 0
+  | (k, n) :: rest, s => if k == s then n else lookupCallSite rest s
+
+mutual
+/-- Count static `.call` occurrences per callee symbol inside `Expr`. -/
+def exprCallSites {rs : List Ty} (acc : List (Sym × Nat)) :
+    Expr (fun _ => Unit) (fun _ => Unit) rs → List (Sym × Nat)
+  | .let_ _ k => exprCallSites acc (k (Tup.units _))
+  | .load _ _ k => exprCallSites acc (k ())
+  | .store _ _ k => exprCallSites acc k
+  | .call f (bs := bs) _ k =>
+      exprCallSites (incCallSite acc f) (k (Tup.units bs))
+  | .jnz _ t e => exprCallSites (exprCallSites acc t) e
+  | .jump _ _ | .ret _ | .exit _ _ | .hlt => acc
+  | .group (sig := sig) bodies k =>
+      exprCallSites (blocksCallSites acc (bodies (Tup.units sig))) (k (Tup.units sig))
+
+/-- Block-list companion of `exprCallSites`. -/
+def blocksCallSites {rs : List Ty} (acc : List (Sym × Nat)) :
+    {sig : List (List Ty)} → Blocks (fun _ => Unit) (fun _ => Unit) rs sig →
+    List (Sym × Nat)
+  | _, .nil => acc
+  | _, .cons b bs => blocksCallSites (exprCallSites acc (b (Tup.units _))) bs
+end
+
+/-- Count static `.call` occurrences for every callee across a function list. -/
+def fnsCallSites (fns : List Fn) : List (Sym × Nat) :=
+  fns.foldl
+    (fun acc fn =>
+      exprCallSites acc (fn.body (fun _ => Unit) (fun _ => Unit) (Tup.units fn.as)))
+    []
+
+/-- Policy controlling per-callee size budgets and single-call-site elevation. -/
+structure InlinePolicy where
+  /-- Base IR node-count budget per callee symbol. -/
+  budget : Sym → Nat := fun _ => 40
+  /-- Elevated node-count cap when a callee has exactly 1 static call site (`0` off). -/
+  singleSiteMax : Nat := 0
+
+/-- Constant-budget policy matching the legacy `maxSize : Nat` threshold. -/
+def InlinePolicy.const (maxSize : Nat := 40) : InlinePolicy :=
+  { budget := fun _ => maxSize, singleSiteMax := 0 }
+
+/-- Effective size budget for `sym` given its static call-site count `sites`. -/
+def InlinePolicy.effectiveBudget (policy : InlinePolicy) (sites : Nat) (sym : Sym) : Nat :=
+  if policy.singleSiteMax > 0 && sites == 1 then
+    Nat.max (policy.budget sym) policy.singleSiteMax
+  else
+    policy.budget sym
+
+/-- True iff `fn` satisfies `policy`'s effective size budget and `checkCallsOk`. -/
+def inlineCandidateOkPolicy (policy : InlinePolicy) (sites : Nat)
+    (allowed : List SigEntry) (exits : List Sym) (fn : Fn) : Bool :=
+  Nat.ble fn.size (policy.effectiveBudget sites fn.name) && fn.checkCallsOk allowed exits
+
+/-- Incrementally inline prior eligible callees across a callee-first function list under
+`policy` and precomputed `siteCounts`, keeping the original function order and signatures. -/
+def inlineFnsPolicy (policy : InlinePolicy) (siteCounts : List (Sym × Nat))
+    (extSigs : List SigEntry) (exits : List Sym) :
+    List SigEntry → List Fn → List Fn → List Fn
+  | _, _, [] => []
+  | seenSigs, cands, fn :: rest =>
+      let fn' := fn.inline cands
+      let allowed := seenSigs ++ extSigs
+      let sites := lookupCallSite siteCounts fn'.name
+      let cands' :=
+        if inlineCandidateOkPolicy policy sites allowed exits fn' then fn' :: cands else cands
+      fn' :: inlineFnsPolicy policy siteCounts extSigs exits (seenSigs ++ [fn.sig]) cands' rest
+
+/-- Run acyclic policy-driven inlining on `M`, preserving function order, signatures,
+`externs`, `exits`, `sigs`, and `namesNodup`. -/
+def Module.inlinePolicy (M : Module) (policy : InlinePolicy := {}) : Module :=
+  let siteCounts := if policy.singleSiteMax > 0 then fnsCallSites M.fns else []
+  { M with
+    fns := inlineFnsPolicy policy siteCounts (M.externs.map Extern.sig) M.exits [] [] M.fns }
 
 /-- True iff `fn` has body size `≤ maxSize` and only calls/exits within `(allowed, exits)`. -/
 def inlineCandidateOk (maxSize : Nat) (allowed : List SigEntry) (exits : List Sym)
@@ -151,17 +235,12 @@ def inlineCandidateOk (maxSize : Nat) (allowed : List SigEntry) (exits : List Sy
 /-- Incrementally inline prior small safe callees across a callee-first function list, keeping
 the original function order and signatures. -/
 def inlineFns (maxSize : Nat) (extSigs : List SigEntry) (exits : List Sym) :
-    List SigEntry → List Fn → List Fn → List Fn
-  | _, _, [] => []
-  | seenSigs, cands, fn :: rest =>
-      let fn' := fn.inline cands
-      let allowed := seenSigs ++ extSigs
-      let cands' := if inlineCandidateOk maxSize allowed exits fn' then fn' :: cands else cands
-      fn' :: inlineFns maxSize extSigs exits (seenSigs ++ [fn.sig]) cands' rest
+    List SigEntry → List Fn → List Fn → List Fn :=
+  inlineFnsPolicy (InlinePolicy.const maxSize) [] extSigs exits
 
 /-- Run acyclic small-callee inlining on `M` with node-size threshold `maxSize` (default `40`),
 preserving function order, signatures, `externs`, `exits`, `sigs`, and `namesNodup`. -/
 def Module.inline (M : Module) (maxSize : Nat := 40) : Module :=
-  { M with fns := inlineFns maxSize (M.externs.map Extern.sig) M.exits [] [] M.fns }
+  M.inlinePolicy (InlinePolicy.const maxSize)
 
 end LeanQbe.T

@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.InlineLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.OptLemmas
+public import LeanQbe.T.MainInline
 
 /-!
 # Tests of `LeanQbe.T.Inline` (`O-M1`)
@@ -536,16 +537,133 @@ theorem singleRet_earlyOpt_inlined_spec (a : BitVec 64) (m : Mem 64) :
       (singleRet_wf fnAdd1Caller (List.mem_cons_of_mem _ List.mem_cons_self))
   · exact singleRet_caller_spec a m _ _ ⟨rfl, rfl⟩
 
-/-! ## 6. Axiom Audit -/
+/-! ## 6. Policy-driven inlining (`budget : Sym → Nat` & `singleSiteMax`) -/
+
+def fnSingleSiteBig : Fn := ⟨"singleBig", [i64], [i64], fun _ _ (x, ()) =>
+  addChain 10 (.var x)⟩
+
+def fnMultiSiteBig : Fn := ⟨"multiBig", [i64], [i64], fun _ _ (x, ()) =>
+  addChain 10 (.var x)⟩
+
+def fnPolicyCaller1 : Fn := ⟨"pcaller1", [i64], [i64], fun _ _ (x, ()) =>
+  .call "singleBig" (as := [i64]) (bs := [i64]) (.var x, ()) fun (a, ()) =>
+  .call "multiBig" (as := [i64]) (bs := [i64]) (.var a, ()) fun (b, ()) =>
+  .ret (.var b, ())⟩
+
+def fnPolicyCaller2 : Fn := ⟨"pcaller2", [i64], [i64], fun _ _ (x, ()) =>
+  .call "multiBig" (as := [i64]) (bs := [i64]) (.var x, ()) fun (b, ()) =>
+  .ret (.var b, ())⟩
+
+def policyMod : Module where
+  fns := [fnSingleSiteBig, fnMultiSiteBig, fnPolicyCaller1, fnPolicyCaller2]
+
+def singleSitePolicy : InlinePolicy :=
+  { budget := fun _ => 5, singleSiteMax := 15 }
+
+def symBudgetPolicy : InlinePolicy :=
+  { budget := fun s => if s == "multiBig" then 15 else 5, singleSiteMax := 0 }
+
+theorem policyMod_checkAcyclic : policyMod.checkAcyclic = true := by rfl
+
+theorem policyMod_wf : ∀ fn ∈ policyMod.fns, fn.Wf := by
+  intro fn hfn
+  simp only [policyMod, List.mem_cons, List.not_mem_nil, or_false] at hfn
+  rcases hfn with rfl | rfl | rfl | rfl <;> (unfold Fn.Wf; t_wf_reify)
+
+def policyΓ : Env
+  | "singleBig", [.bits 64], [.bits 64], (x, ()), m, Q, _ => Q (x + 10#64, ()) m
+  | "multiBig", [.bits 64], [.bits 64], (x, ()), m, Q, _ => Q (x + 10#64, ()) m
+  | "pcaller1", [.bits 64], [.bits 64], (x, ()), m, Q, _ => Q (x + 20#64, ()) m
+  | "pcaller2", [.bits 64], [.bits 64], (x, ()), m, Q, _ => Q (x + 10#64, ()) m
+  | _, _, _, _, _, _, _ => False
+
+theorem policyMod_modOk : ModuleOk policyΓ policyMod := by
+  refine Module.moduleOk_of_checkAcyclic policyMod_checkAcyclic policyMod_wf ?_
+  intro fn hfn xs m Q X hΓ
+  simp only [policyMod, List.mem_cons, List.not_mem_nil, or_false] at hfn
+  rcases hfn with rfl | rfl | rfl | rfl
+  · rcases xs with ⟨x, ⟨⟩⟩; exact addChain_wp policyΓ 10 x m Q X hΓ
+  · rcases xs with ⟨x, ⟨⟩⟩; exact addChain_wp policyΓ 10 x m Q X hΓ
+  · rcases xs with ⟨x, ⟨⟩⟩
+    refine ⟨fun r m' => r = (x + 10#64, ()) ∧ m' = m, fun _ _ _ _ => False,
+      ⟨rfl, rfl⟩, ?_, fun _ _ _ _ h => h.elim⟩
+    rintro ⟨a, ⟨⟩⟩ m1 ⟨ha, hm1⟩; subst hm1
+    have ha' : a = x + 10#64 := (Prod.ext_iff.mp ha).1; subst ha'
+    refine ⟨fun r m' => r = ((x + 10#64) + 10#64, ()) ∧ m' = m1, fun _ _ _ _ => False,
+      ⟨rfl, rfl⟩, ?_, fun _ _ _ _ h => h.elim⟩
+    rintro ⟨b, ⟨⟩⟩ m2 ⟨hb, hm2⟩; subst hm2
+    have hb' : b = (x + 10#64) + 10#64 := (Prod.ext_iff.mp hb).1; subst hb'
+    have h20 : (x + 10#64) + 10#64 = x + 20#64 := by rw [BitVec.add_assoc]; rfl
+    rwa [h20]
+  · rcases xs with ⟨x, ⟨⟩⟩
+    refine ⟨fun r m' => r = (x + 10#64, ()) ∧ m' = m, fun _ _ _ _ => False,
+      ⟨rfl, rfl⟩, ?_, fun _ _ _ _ h => h.elim⟩
+    rintro ⟨b, ⟨⟩⟩ m1 ⟨hb, hm1⟩; subst hm1
+    have hb' : b = x + 10#64 := (Prod.ext_iff.mp hb).1; subst hb'
+    exact hΓ
+
+theorem policy_const_eq_rfl :
+    singleRetMod.inline 40 = singleRetMod.inlinePolicy (InlinePolicy.const 40) := rfl
+
+theorem policy_optInline_const_eq_rfl :
+    singleRetMod.optInline 40 = singleRetMod.optInlinePolicy (InlinePolicy.const 40) := rfl
+
+/-- Under `singleSitePolicy`, `"singleBig"` (1 call site) is inlined while `"multiBig"`
+(2 call sites) remains a `.call`. -/
+theorem policy_singleSite_inlines_only_single :
+    let body :=
+      ((policyMod.inlinePolicy singleSitePolicy).fns.getD 2 dummyFn).body
+        (fun _ => Unit) (fun _ => Unit) (Tup.units [i64])
+    Expr.checkCallsOk [⟨"multiBig", [i64], [i64]⟩] [] body = true ∧
+      Expr.checkCallsOk [] [] body = false := by
+  decide
+
+/-- Under `symBudgetPolicy`, `"multiBig"` (per-symbol budget 15) is inlined while `"singleBig"`
+(budget 5) remains a `.call`. -/
+theorem policy_symBudget_selects_multiBig :
+    let body :=
+      ((policyMod.inlinePolicy symBudgetPolicy).fns.getD 2 dummyFn).body
+        (fun _ => Unit) (fun _ => Unit) (Tup.units [i64])
+    Expr.checkCallsOk [⟨"singleBig", [i64], [i64]⟩] [] body = true ∧
+      Expr.checkCallsOk [] [] body = false := by
+  decide
+
+theorem policy_singleSite_modOk :
+    ModuleOk policyΓ (policyMod.inlinePolicy singleSitePolicy) :=
+  Module.inlinePolicy_ok singleSitePolicy policyMod_modOk
+
+theorem policy_singleSite_optInline_modOk :
+    ModuleOk policyΓ (policyMod.optInlinePolicy singleSitePolicy) :=
+  Module.optInlinePolicy_ok singleSitePolicy policyMod_modOk
+
+theorem policy_singleSite_checkAcyclic :
+    (policyMod.optInlinePolicy singleSitePolicy).checkAcyclic = true :=
+  Module.optInlinePolicy_checkAcyclic singleSitePolicy policyMod_checkAcyclic policyMod_wf
+
+theorem policy_symBudget_optInline_modOk :
+    ModuleOk policyΓ (policyMod.optInlinePolicy symBudgetPolicy) :=
+  Module.optInlinePolicy_ok symBudgetPolicy policyMod_modOk
+
+/-! ## 7. Axiom Audit -/
 
 #print axioms LeanQbe.T.spliceRet_wp
 #print axioms LeanQbe.T.inline_wp
 #print axioms LeanQbe.T.inline_wf
 #print axioms LeanQbe.T.inline_callsOk
 #print axioms LeanQbe.T.Module.inline_ok
+#print axioms LeanQbe.T.Module.inlinePolicy_ok
 #print axioms LeanQbe.T.Module.inline_checkAcyclic
+#print axioms LeanQbe.T.Module.inlinePolicy_checkAcyclic
 #print axioms LeanQbe.T.Func.renorm_callsOk
 #print axioms LeanQbe.T.Module.optInline_ok
+#print axioms LeanQbe.T.Module.optInlinePolicy_ok
+#print axioms LeanQbe.T.Module.optInlinePolicy_checkAcyclic
+#print axioms LeanQbe.T.Module.optInlinePolicy_wf
+#print axioms LeanQbe.T.compile_sound_optInlinePolicy
+#print axioms LeanQbe.T.optInlinePolicy_sound
+#print axioms LeanQbe.T.Compiled.fnSpec_optInlinePolicy
+#print axioms LeanQbe.T.Compiled.fnSpec_host_optInlinePolicy
+#print axioms LeanQbe.T.Compiled.fnSpec_noExit_id_optInlinePolicy
 #print axioms singleRet_inline_modOk
 #print axioms singleRet_optInline_modOk
 #print axioms multiBlock_inline_modOk
@@ -553,5 +671,9 @@ theorem singleRet_earlyOpt_inlined_spec (a : BitVec 64) (m : Mem 64) :
 #print axioms nested_optInline_modOk
 #print axioms threshold_inline_modOk
 #print axioms singleRet_earlyOpt_inlined_spec
+#print axioms policy_singleSite_modOk
+#print axioms policy_singleSite_optInline_modOk
+#print axioms policy_singleSite_checkAcyclic
+#print axioms policy_symBudget_optInline_modOk
 
 end LeanQbeTest.T.InlineTest

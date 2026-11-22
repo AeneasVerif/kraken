@@ -417,35 +417,61 @@ theorem Fn.inline_spec {Γ : Env} {cands : List Fn} (hcands : CandsWpOk Γ cands
     (h : Func.spec Γ fn.body xs m Q X) : Func.spec Γ (fn.inline cands).body xs m Q X :=
   Func.inline_spec hcands fn.body h
 
-/-! ## Module signature, name uniqueness, and `Module.inline_ok` -/
+/-! ## Module signature, name uniqueness, and `Module.inlinePolicy_ok` -/
 
-private theorem inlineFns_map_sig (maxSize : Nat) (extSigs : List SigEntry) (exits : List Sym) :
+private theorem inlineFnsPolicy_map_sig (policy : InlinePolicy)
+    (siteCounts : List (Sym × Nat)) (extSigs : List SigEntry) (exits : List Sym) :
     ∀ seenSigs cands fns,
-    (inlineFns maxSize extSigs exits seenSigs cands fns).map Fn.sig = fns.map Fn.sig
+    (inlineFnsPolicy policy siteCounts extSigs exits seenSigs cands fns).map Fn.sig =
+      fns.map Fn.sig
   | _, _, [] => rfl
   | seenSigs, cands, fn :: rest => by
-      dsimp only [inlineFns, Fn.inline, Fn.sig]; simp only [List.map_cons]
-      exact congrArg (_ :: ·) (inlineFns_map_sig maxSize extSigs exits _ _ rest)
+      dsimp only [inlineFnsPolicy, Fn.inline, Fn.sig]; simp only [List.map_cons]
+      exact congrArg (_ :: ·) (inlineFnsPolicy_map_sig policy siteCounts extSigs exits _ _ rest)
 
-private theorem inlineFns_map_name (maxSize : Nat) (extSigs : List SigEntry) (exits : List Sym) :
+private theorem inlineFnsPolicy_map_name (policy : InlinePolicy)
+    (siteCounts : List (Sym × Nat)) (extSigs : List SigEntry) (exits : List Sym) :
     ∀ seenSigs cands fns,
-    (inlineFns maxSize extSigs exits seenSigs cands fns).map Fn.name = fns.map Fn.name
+    (inlineFnsPolicy policy siteCounts extSigs exits seenSigs cands fns).map Fn.name =
+      fns.map Fn.name
   | _, _, [] => rfl
   | seenSigs, cands, fn :: rest => by
-      dsimp only [inlineFns, Fn.inline]; simp only [List.map_cons]
-      exact congrArg (_ :: ·) (inlineFns_map_name maxSize extSigs exits _ _ rest)
+      dsimp only [inlineFnsPolicy, Fn.inline]; simp only [List.map_cons]
+      exact congrArg (_ :: ·) (inlineFnsPolicy_map_name policy siteCounts extSigs exits _ _ rest)
+
+theorem Module.inline_eq_inlinePolicy (M : Module) (maxSize : Nat := 40) :
+    M.inline maxSize = M.inlinePolicy (InlinePolicy.const maxSize) :=
+  rfl
+
+theorem Module.inlinePolicy_sigs (M : Module) (policy : InlinePolicy := {}) :
+    (M.inlinePolicy policy).sigs = M.sigs := by
+  simp only [Module.sigs, Module.inlinePolicy, inlineFnsPolicy_map_sig]
+
+theorem Module.inlinePolicy_names (M : Module) (policy : InlinePolicy := {}) :
+    (M.inlinePolicy policy).names = M.names := by
+  simp only [Module.names, Module.inlinePolicy, inlineFnsPolicy_map_name]
+
+theorem Module.inlinePolicy_namesNodup (M : Module) (policy : InlinePolicy := {}) :
+    (M.inlinePolicy policy).namesNodup = M.namesNodup := by
+  simp only [Module.namesNodup, Module.inlinePolicy_names]
+
+theorem Module.inlinePolicy_externs (M : Module) (policy : InlinePolicy := {}) :
+    (M.inlinePolicy policy).externs = M.externs := rfl
+
+theorem Module.inlinePolicy_exits (M : Module) (policy : InlinePolicy := {}) :
+    (M.inlinePolicy policy).exits = M.exits := rfl
 
 theorem Module.inline_sigs (M : Module) (maxSize : Nat := 40) :
-    (M.inline maxSize).sigs = M.sigs := by
-  simp only [Module.sigs, Module.inline, inlineFns_map_sig]
+    (M.inline maxSize).sigs = M.sigs :=
+  Module.inlinePolicy_sigs M (InlinePolicy.const maxSize)
 
 theorem Module.inline_names (M : Module) (maxSize : Nat := 40) :
-    (M.inline maxSize).names = M.names := by
-  simp only [Module.names, Module.inline, inlineFns_map_name]
+    (M.inline maxSize).names = M.names :=
+  Module.inlinePolicy_names M (InlinePolicy.const maxSize)
 
 theorem Module.inline_namesNodup (M : Module) (maxSize : Nat := 40) :
-    (M.inline maxSize).namesNodup = M.namesNodup := by
-  simp only [Module.namesNodup, Module.inline_names]
+    (M.inline maxSize).namesNodup = M.namesNodup :=
+  Module.inlinePolicy_namesNodup M (InlinePolicy.const maxSize)
 
 theorem Module.inline_externs (M : Module) (maxSize : Nat := 40) :
     (M.inline maxSize).externs = M.externs := rfl
@@ -453,8 +479,8 @@ theorem Module.inline_externs (M : Module) (maxSize : Nat := 40) :
 theorem Module.inline_exits (M : Module) (maxSize : Nat := 40) :
     (M.inline maxSize).exits = M.exits := rfl
 
-private theorem inlineFns_ok {Γ : Env} (maxSize : Nat) (extSigs : List SigEntry)
-    (exits : List Sym) :
+private theorem inlineFnsPolicy_ok {Γ : Env} (policy : InlinePolicy)
+    (siteCounts : List (Sym × Nat)) (extSigs : List SigEntry) (exits : List Sym) :
     ∀ (seenSigs : List SigEntry) (cands rest : List Fn),
     CandsWpOk Γ cands →
     CandsCallsOk (seenSigs ++ extSigs) exits cands →
@@ -462,11 +488,12 @@ private theorem inlineFns_ok {Γ : Env} (maxSize : Nat) (extSigs : List SigEntry
       fn.Wf ∧ fn.callsOk ((seenSigs ++ pre.map Fn.sig) ++ extSigs) exits ∧
       ∀ xs m Q X, Γ fn.name fn.as fn.rs xs m Q X → Func.wp Γ fn.body xs m Q X) →
     ∀ pre' fn' post',
-      inlineFns maxSize extSigs exits seenSigs cands rest = pre' ++ fn' :: post' →
+      inlineFnsPolicy policy siteCounts extSigs exits seenSigs cands rest =
+        pre' ++ fn' :: post' →
       fn'.Wf ∧ fn'.callsOk ((seenSigs ++ pre'.map Fn.sig) ++ extSigs) exits ∧
       ∀ xs m Q X, Γ fn'.name fn'.as fn'.rs xs m Q X → Func.wp Γ fn'.body xs m Q X
   | _, _, [], _, _, _, pre', _, _, hsplit => by
-      cases pre' <;> (dsimp only [inlineFns] at hsplit; simp at hsplit)
+      cases pre' <;> (dsimp only [inlineFnsPolicy] at hsplit; simp at hsplit)
   | seenSigs, cands, fn :: rest, hwp, hcalls, hrest, pre', fn', post', hsplit => by
       have ⟨hfn_wf, hfn_calls, hfn_spec⟩ := hrest [] fn rest rfl
       simp only [List.map_nil, List.append_nil] at hfn_calls
@@ -478,7 +505,9 @@ private theorem inlineFns_ok {Γ : Env} (maxSize : Nat) (extSigs : List SigEntry
           Func.wp Γ fn0.body xs m Q X :=
         fun xs m Q X hg => Func.inline_spec hwp fn.body (hfn_spec xs m Q X hg)
       let allowed := seenSigs ++ extSigs
-      let cands' := if inlineCandidateOk maxSize allowed exits fn0 then fn0 :: cands else cands
+      let sites := lookupCallSite siteCounts fn0.name
+      let cands' :=
+        if inlineCandidateOkPolicy policy sites allowed exits fn0 then fn0 :: cands else cands
       have hwp' : CandsWpOk Γ cands' := by
         dsimp only [cands']
         split
@@ -510,25 +539,33 @@ private theorem inlineFns_ok {Γ : Env} (maxSize : Nat) (extSigs : List SigEntry
         simpa [List.append_assoc] using h
       cases pre' with
       | nil =>
-          dsimp only [inlineFns] at hsplit; simp only [List.nil_append, List.cons.injEq] at hsplit
+          dsimp only [inlineFnsPolicy] at hsplit
+          simp only [List.nil_append, List.cons.injEq] at hsplit
           rcases hsplit with ⟨rfl, _⟩
           simpa [List.append_nil] using And.intro hfn0_wf (And.intro hfn0_calls hfn0_spec)
       | cons hd tl =>
-          dsimp only [inlineFns] at hsplit; simp only [List.cons_append, List.cons.injEq] at hsplit
+          dsimp only [inlineFnsPolicy] at hsplit
+          simp only [List.cons_append, List.cons.injEq] at hsplit
           rcases hsplit with ⟨rfl, htl⟩
           have hsig : (fn.inline cands).sig = fn.sig := rfl
-          have ih := inlineFns_ok maxSize extSigs exits (seenSigs ++ [fn.sig]) cands' rest
-            hwp' hcalls' hrest' tl fn' post' htl
+          have ih := inlineFnsPolicy_ok policy siteCounts extSigs exits (seenSigs ++ [fn.sig])
+            cands' rest hwp' hcalls' hrest' tl fn' post' htl
           simpa [hsig, List.append_assoc] using ih
 
-/-- Flagship module correctness theorem: acyclic small-callee inlining preserves `ModuleOk Γ`. -/
-theorem Module.inline_ok {Γ : Env} {M : Module} (maxSize : Nat := 40) :
-    ModuleOk Γ M → ModuleOk Γ (M.inline maxSize) := fun hM => by
-  refine ⟨(Module.inline_namesNodup M maxSize).symm ▸ hM.nodup, fun pre fn post hsplit => ?_⟩
-  exact inlineFns_ok maxSize (M.externs.map Extern.sig) M.exits [] [] M.fns
+/-- Flagship module correctness theorem for policy-driven acyclic inlining. -/
+theorem Module.inlinePolicy_ok {Γ : Env} {M : Module} (policy : InlinePolicy := {}) :
+    ModuleOk Γ M → ModuleOk Γ (M.inlinePolicy policy) := fun hM => by
+  refine ⟨(Module.inlinePolicy_namesNodup M policy).symm ▸ hM.nodup, fun pre fn post hsplit => ?_⟩
+  exact inlineFnsPolicy_ok policy (if policy.singleSiteMax > 0 then fnsCallSites M.fns else [])
+    (M.externs.map Extern.sig) M.exits [] [] M.fns
     (fun _ h => nomatch h) (fun _ h => nomatch h)
     (fun pre0 fn0 post0 hsp0 => by simpa using hM.fnsOk pre0 fn0 post0 hsp0)
     pre fn post hsplit
+
+/-- Flagship module correctness theorem: acyclic small-callee inlining preserves `ModuleOk Γ`. -/
+theorem Module.inline_ok {Γ : Env} {M : Module} (maxSize : Nat := 40) :
+    ModuleOk Γ M → ModuleOk Γ (M.inline maxSize) :=
+  Module.inlinePolicy_ok (InlinePolicy.const maxSize)
 
 private theorem Blocks.checkCallsOk_of_get {allowed : List SigEntry} {exits : List Sym}
     {rs : List Ty} :
@@ -583,16 +620,23 @@ private theorem checkFnsCallsOk_of_forall (exits : List Sym) (extSigs : List Sig
       simp only [Module.checkFnsCallsOk, Bool.and_eq_true]
       exact ⟨Expr.checkCallsOk_of_callsOk _ hhd, htl⟩
 
-/-- `Module.inline` preserves the decidable `Module.checkAcyclic` certificate when all functions
-are well-formed. -/
-theorem Module.inline_checkAcyclic {M : Module} (maxSize : Nat := 40)
+/-- `Module.inlinePolicy` preserves the decidable `Module.checkAcyclic` certificate when all
+functions are well-formed. -/
+theorem Module.inlinePolicy_checkAcyclic {M : Module} (policy : InlinePolicy := {})
     (hchk : M.checkAcyclic = true) (hwf : ∀ fn ∈ M.fns, fn.Wf) :
-    (M.inline maxSize).checkAcyclic = true := by
-  have hm : ModuleOk (fun _ _ _ _ _ _ _ => False) (M.inline maxSize) :=
-    Module.inline_ok maxSize
+    (M.inlinePolicy policy).checkAcyclic = true := by
+  have hm : ModuleOk (fun _ _ _ _ _ _ _ => False) (M.inlinePolicy policy) :=
+    Module.inlinePolicy_ok policy
       (Module.moduleOk_of_checkAcyclic hchk hwf (fun _ _ _ _ _ _ h => h.elim))
   simp only [Module.checkAcyclic, Bool.and_eq_true]
   refine ⟨listNodup_iff.mpr hm.nodup, checkFnsCallsOk_of_forall _ _ [] _ fun pre fn post hsp => ?_⟩
   simpa using (hm.fnsOk pre fn post hsp).2.1
+
+/-- `Module.inline` preserves the decidable `Module.checkAcyclic` certificate when all functions
+are well-formed. -/
+theorem Module.inline_checkAcyclic {M : Module} (maxSize : Nat := 40)
+    (hchk : M.checkAcyclic = true) (hwf : ∀ fn ∈ M.fns, fn.Wf) :
+    (M.inline maxSize).checkAcyclic = true :=
+  Module.inlinePolicy_checkAcyclic (InlinePolicy.const maxSize) hchk hwf
 
 end LeanQbe.T
