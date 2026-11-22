@@ -9,8 +9,9 @@ Direct structural lowering of `Expr VNat LNat rs` / `Blocks VNat LNat rs sig` (z
 consuming untrusted literal `LeanQbe.T.Trie` `Hints`: bounded `regs`, `O(log N)` multi-granule
 `slots : Trie SlotEntry` with 15-granule overlap clearing, lexical `defs : Trie DefFact` (`L9`) and
 `vecWidths : Trie SlotWidth`, sequential `nv` (`h.dest` keyed by `x : Nat`), `entryScopeOk nv`,
-read-only flag cache (`L3`–`L6`), `PreStep.clearFlags` (`L7`), `canonAbi`, pure `Bool` comparisons,
-and monotone `nl` label counter.
+read-only flag cache (`L3`–`L6`), `PreStep.clearFlags` (`L7`), `canonAbi` (skipped by `abiSkips`
+for canonical `.gprZ`/exact-immediate registers), `loadSext` fusion, pure `Bool` comparisons, and
+monotone `nl` label counter.
 -/
 
 set_option autoImplicit false
@@ -463,10 +464,32 @@ def abiTargets (I : Isa) :
     | some sa, some rest => some ((sa, match loc with | .gpr r => .gpr r | .vec v => .vec v) :: rest)
     | _, _ => none
 
-def canonAbiCode (I : Isa) : {ts : List Ty} → Tup (AbiReg I.Reg I.VReg) ts → List I.Directive
-  | [], () => []
-  | t :: _, (.gpr r, locs) => (I.frame.canonAbi t r).1 ++ canonAbiCode I locs
-  | _ :: _, (.vec _, locs) => canonAbiCode I locs
+/-- `true` when `R` proves GPR `r` already holds the canonical (zero-extended ABI) form of `sa`:
+a `.gprZ r` variable, or an exact 64-bit immediate equal to the zero-extended constant. -/
+def abiHeld (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) (r : I.Reg) :
+    SymArg → Bool
+  | .var x => R.any fun (sa', rl) => symArgEq sa' (.var x) && regLocEq rl (.gprZ r)
+  | .immBits _ c => R.any fun (sa', rl) => symArgEq sa' (.immBits 64 c) && regLocMatchesGpr rl r
+  | .immBool b => R.any fun (sa', rl) =>
+    symArgEq sa' (.immBits 64 (if b then 1#64 else 0#64)) && regLocMatchesGpr rl r
+  | .immVec _ _ => false
+
+/-- Per-position `canonAbi` skip flags of ABI targets `args`/`locs` against post-shuffle `R`. -/
+def abiSkips (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) :
+    {ts : List Ty} → Tup (Arg VNat) ts → Tup (AbiReg I.Reg I.VReg) ts → List Bool
+  | [], (), () => []
+  | t :: _, (a, as), (loc, locs) =>
+    (match loc, toSymArg I t a with
+     | .gpr r, some sa => abiHeld I R r sa
+     | _, _ => false) :: abiSkips I R as locs
+
+/-- ABI canonicalization code, skipping GPR positions flagged in `sk` (see `abiSkips`). -/
+def canonAbiCode (I : Isa) :
+    {ts : List Ty} → Tup (AbiReg I.Reg I.VReg) ts → List Bool → List I.Directive
+  | [], (), _ => []
+  | t :: _, (.gpr r, locs), sk =>
+    (if sk.headD false then [] else (I.frame.canonAbi t r).1) ++ canonAbiCode I locs sk.tail
+  | _ :: _, (.vec _, locs), sk => canonAbiCode I locs sk.tail
 
 def saveCs (I : Isa) (base : Nat) : List I.Reg → List I.Directive
   | [] => [] | r :: rs => I.frame.slotSt base r ++ saveCs I (base + 1) rs
@@ -617,11 +640,12 @@ def hasVarGprZ (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond))
     (x : Nat) (rd : I.Reg) : Bool :=
   R.any fun (sa, rl) => symArgEq sa (.var x) && regLocEq rl (.gprZ rd)
 
+/-- `.zext m n` of a `.gprZ rd` (canonical zero-extended) input into the same `rd` is a no-op. -/
 def elideZext32? (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) :
     {sig ts : List Ty} → OpCode sig ts → Tup (Arg VNat) sig →
     Tup (PDst I.Reg I.VReg I.Cond) ts → Bool
-  | _, _, .zext m n, (.var x, ()), (.gpr rd, ()) =>
-    Nat.beq m 32 && Nat.beq n 64 && I.gpr.elideZext32 && hasVarGprZ I R x rd
+  | _, _, .zext _ n, (.var x, ()), (.gpr rd, ()) =>
+    Nat.ble n 64 && I.gpr.elideZext32 && hasVarGprZ I R x rd
   | _, _, _, _, _ => false
 
 def opProducesZ32 (I : Isa) {sig : List Ty} : {rs : List Ty} → OpCode sig rs →
@@ -773,6 +797,18 @@ def tryFuseCmp (I : Isa) (st : SymState I) (vh : VariantHint) {sig ts : List Ty}
       tFuse <|> eFuse <|> mFuse
   | _, _, _, _, _ => none
 
+/-- Fused `sext m n` of an elided `load (.bits m)` (`memDefs`) into one sign-extending load. -/
+def tryLoadSext (I : Isa) (st : SymState I) (vh : VariantHint) {sig ts : List Ty}
+    (code : OpCode sig ts) (args : Tup (Arg VNat) sig) (dsts : Tup (PDst I.Reg I.VReg I.Cond) ts) :
+    Option (List I.Directive × FlagMask) :=
+  match sig, ts, code, args, dsts with
+  | _, _, .sext m n, (.var x, ()), (.gpr rd, ()) =>
+    match st.memDefs.find? x with
+    | some (.bits m', addr) =>
+      if Nat.beq m' m && Nat.ble n 64 then tryAddr I st vh addr (I.gpr.loadSext m n rd) else none
+    | _ => none
+  | _, _, _, _, _ => none
+
 def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List Ty}
     (op : Op VNat ts) : Option (List I.Directive × SymState I) :=
   if h.elide.getD ip false then
@@ -783,10 +819,19 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
     (resolveDsts I h ts nv).bind fun dsts =>
       let vh := h.variant.getD ip .default
       let dstGprs := tupDstGprs dsts; let dstVecs := tupDstVecs dsts
-      (if elideZext32? I st1.regs op.code op.args dsts then
-        some ([], FlagMask.none, false, false)
+      let defs1 := match recordDef st1.defs op.code op.args with
+        | some df => st1.defs.insert nv df
+        | none => st1.defs
+      if elideZext32? I st1.regs op.code op.args dsts then
+        -- no code: every register fact survives and the result shares `rd` canonically
+        let regs1 := match ts, dsts with
+          | [_], (.gpr rd, ()) => (.var nv, RegLoc.gprZ rd) :: st1.regs
+          | _, _ => st1.regs
+        some ([], { st1 with regs := regs1, defs := defs1 })
       else
-        ((tryFuseCmp I st1 vh op.code op.args dsts).map fun (c, cl) =>
+        ((((tryFuseCmp I st1 vh op.code op.args dsts).map fun (c, cl) =>
+          (c, cl, false, false)) <|>
+        ((tryLoadSext I st1 vh op.code op.args dsts).map fun (c, cl) =>
           (c, cl, false, false)) <|>
         pickPArgs I st1 (tupDstFlags dsts) op.args fun pas =>
           if dstVecs.isEmpty && (tupArgVecs pas).isEmpty then
@@ -794,7 +839,8 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
               (c, cl, false, opProducesZ32 I op.code pas dsts)) <|>
             ((I.vec.vop op.code pas dsts vh).map fun (c, cl) => (c, cl, true, false))
           else (I.vec.vop op.code pas dsts vh).map fun (c, cl) =>
-            (c, cl, true, false)).map fun (code, clob, isVec, z32) =>
+            (c, cl, true, false)) : Option (List I.Directive × FlagMask × Bool × Bool)).map
+          fun (code, clob, isVec, z32) =>
           let vClob := if isVec then dstVecs ++ I.vec.vecScratch else []
           let killed := killRegs I (dstGprs ++ I.frame.scratch) vClob clob st1.regs
           let (regs1, vw1) :=
@@ -803,9 +849,6 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
               | [.bits 32], (.gpr rd, ()) => ((.var nv, RegLoc.gprZ rd) :: killed, st1.vecWidths)
               | _, _ => bindDsts I dsts nv (killed, st1.vecWidths)
             else bindDsts I dsts nv (killed, st1.vecWidths)
-          let defs1 := match recordDef st1.defs op.code op.args with
-            | some df => st1.defs.insert nv df
-            | none => st1.defs
           (code, { st1 with regs := regs1, defs := defs1, vecWidths := vw1 })
 
 /-! ## Block Entry, Jumps, and Core PHOAS Lowering -/
@@ -850,8 +893,7 @@ def bindAbiParams (I : Isa) : {ts : List Ty} → Tup (AbiReg I.Reg I.VReg) ts �
   | [], (), _, st => some st
   | t :: _, (.gpr r, locs), nv, st =>
     if isGprTy I t then
-      let rl := if tyEq t (.bits 32) then RegLoc.gprZ r else .gpr r
-      bindAbiParams I locs (nv + 1) { st with regs := (.var nv, rl) :: st.regs }
+      bindAbiParams I locs (nv + 1) { st with regs := (.var nv, .gprZ r) :: st.regs }
     else none
   | t :: _, (.vec v, locs), nv, st => (vecWidth? I t).bind fun w =>
     bindAbiParams I locs (nv + 1) { st with regs := (.var nv, .vec v) :: st.regs, vecWidths := st.vecWidths.insert nv w }
@@ -930,9 +972,75 @@ def lowerStore (I : Isa) (st1 : SymState I) (vh : VariantHint) :
     else (tryArg I st1 [] t v fun pa => tryAddr I st1 vh addr (I.gpr.store t pa)).map fun (c, clob) =>
       (c, { st1 with regs := killRegs I I.frame.scratch [] clob st1.regs, memDefs := .empty })
 
-def lowerLoad (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) (t : Ty) (a : Arg VNat i64) :
-    Option (List I.Directive × SymState I) :=
-  if h.elide.getD ip false then
+/-- `some (m, n, x)` when the operation is `sext m n (.var x)`. -/
+def sextVar? : {sig ts : List Ty} → OpCode sig ts → Tup (Arg VNat) sig → Option (Nat × Nat × Nat)
+  | _, _, .sext m n, (.var x, ()) => some (m, n, x)
+  | _, _, _, _ => none
+
+/-- `some x` when the operation is `cmp co (.var x) (.imm _)` or `cmp co (.imm _) (.var x)`. -/
+def cmpVarImm? : {sig ts : List Ty} → OpCode sig ts → Tup (Arg VNat) sig → Option Nat
+  | _, _, .cmp _ (.bits _) .bool _, (.var x, .imm _, ()) => some x
+  | _, _, .cmp _ (.bits _) .bool _, (.imm _, .var x, ()) => some x
+  | _, _, _, _ => none
+
+/-- `true` when variable `x` occurs among the arguments `args`. -/
+def argsHaveVar : {ts : List Ty} → Tup (Arg VNat) ts → Nat → Bool
+  | [], (), _ => false
+  | _ :: _, (a, as), x =>
+    (match a with | .var y => Nat.beq y x | .imm _ => false) || argsHaveVar as x
+
+/-- `true` when `e` is a jump whose target entry and arguments never mention variable `x`. -/
+def jumpAvoids {rs : List Ty} {I : Isa} (h : I.Hints) (x : Nat) : Expr VNat LNat rs → Bool
+  | .jump j args => !argsHaveVar args x &&
+    match h.entry.find? j with
+    | some en => en.live.all fun (sa, _) => !symArgEq sa (.var x)
+    | none => false
+  | _ => false
+
+/-- `true` when `op` (results from `nv'`, at `ip'`, no pre-step, not elided) lowers through a
+memory-operand fusion (`tryFuseCmp`/`tryLoadSext`) in state `st`. -/
+def fusesLoad {ts : List Ty} (I : Isa) (h : I.Hints) (st : SymState I) (nv' ip' : Nat)
+    (op : Op VNat ts) : Bool :=
+  (h.pre.find? ip').isNone && !(h.elide.getD ip' false) &&
+    match resolveDsts I h ts nv' with
+    | some dsts =>
+      let vh := h.variant.getD ip' .default
+      (tryFuseCmp I st vh op.code op.args dsts).isSome ||
+        (tryLoadSext I st vh op.code op.args dsts).isSome
+    | none => false
+
+/-- Untrusted lookahead deferring `load t a` (var `nv`, at `ip`) to its memory-operand consumers:
+an immediately following `sext m n (.var nv)` into the same register (`tryLoadSext`), or
+`cmp (.var nv) imm` into a flag (`tryFuseCmp`) feeding a `jnz` whose one arm is such a `sext` and
+whose other arm is a jump never mentioning `nv`. Soundness is checked by the consumers. -/
+def loadSextNext {rs : List Ty} (I : Isa) (h : I.Hints) (nv ip : Nat) (st : SymState I) (t : Ty)
+    (a : Arg VNat i64) (e : Expr VNat LNat rs) : Bool :=
+  let st' := { st with memDefs := st.memDefs.insert nv (t, a) }
+  let sextAt : Nat → Nat → Expr VNat LNat rs → Bool := fun ip' nv' e' =>
+    match e' with
+    | .let_ op _ =>
+      match sextVar? op.code op.args with
+      | some (_, _, x) =>
+        Nat.beq x nv && h.dest.find? nv' == h.dest.find? nv && fusesLoad I h st' nv' ip' op
+      | none => false
+    | _ => false
+  isGprTy I t && (sextAt (ip + 1) (nv + 1) e ||
+    match e with
+    | .let_ op k =>
+      cmpVarImm? op.code op.args == some nv &&
+        (match h.dest.find? (nv + 1) with | some (.flag _) => true | _ => false) &&
+        fusesLoad I h st' (nv + 1) (ip + 1) op &&
+        match k (Tup.levels _ (nv + 1)) with
+        | .jnz (.var cx) tt ee =>
+          Nat.beq cx (nv + 1) && (h.pre.find? (ip + 2)).isNone &&
+            ((jumpAvoids h nv tt && sextAt (ip + 3) (nv + 2) ee) ||
+              (jumpAvoids h nv ee && sextAt (ip + 4) (nv + 2) tt))
+        | _ => false
+    | _ => false)
+
+def lowerLoad (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) (t : Ty) (a : Arg VNat i64)
+    (fuse : Bool := false) : Option (List I.Directive × SymState I) :=
+  if h.elide.getD ip false || fuse then
     if isGprTy I t then
       some ([], { st1 with memDefs := st1.memDefs.insert nv (t, a) })
     else none
@@ -942,7 +1050,8 @@ def lowerLoad (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) (t : Ty) 
     | some (.gpr d) =>
       if !(isAllocGpr I h.saved d && isGprTy I t) then none
       else (tryAddr I st1 vh a (I.gpr.load t d)).map fun (c, clob) =>
-        let rl := if I.gpr.zeroUpper32Load && tyEq t (.bits 32) then RegLoc.gprZ d else .gpr d
+        let rl := if I.gpr.zeroExtLoad || (I.gpr.zeroUpper32Load && tyEq t (.bits 32)) then
+          RegLoc.gprZ d else .gpr d
         (c, { st1 with
               regs := (.var nv, rl) :: killRegs I (d :: I.frame.scratch) [] clob st1.regs })
     | some (.vec vd) => (vecWidth? I t).bind fun w =>
@@ -977,9 +1086,9 @@ def lowerTail {ts : List Ty} (I : Isa) (h : I.Hints) (E : Ext) (st1 : SymState I
   | none => .error "tail: imm"
   | some tgts => match shuffle I h.nslots h.saved st1 tgts with
     | none => .error "tail: shuffle"
-    | some (sc, _) =>
-      .ok (mc ++ sc ++ canonAbiCode I locs ++ restoreCs I h.nslots h.saved ++
-        fnEpilogue I h E ++ tail, nv, nl, ip + 1)
+    | some (sc, st') =>
+      .ok (mc ++ sc ++ canonAbiCode I locs (abiSkips I st'.regs args locs) ++
+        restoreCs I h.nslots h.saved ++ fnEpilogue I h E ++ tail, nv, nl, ip + 1)
 
 mutual
 def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
@@ -993,7 +1102,8 @@ def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
   | .load t a k, nv, nl, ip, st, ft =>
     match stepPre I h ip st with
     | none => .error "load: pre"
-    | some (mc, st1) => match lowerLoad I h nv ip st1 t a with
+    | some (mc, st1) =>
+      match lowerLoad I h nv ip st1 t a (loadSextNext I h nv ip st1 t a (k nv)) with
       | none => .error "load: dst/addr"
       | some (c, st2) => prepend (mc ++ c) (lowerExpr I h E fn (k nv) (nv + 1) nl (ip + 1) st2 ft)
   | .store (t := t) v a k, nv, nl, ip, st, ft =>
@@ -1015,7 +1125,8 @@ def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
             | some (sc, st2) => match bindAbiParams I retLocs nv (afterCallState I h.saved st2) with
               | none => .error "call: ret bind"
               | some st4 =>
-                prepend (mc ++ sc ++ canonAbiCode I argLocs ++ I.frame.call f)
+                prepend (mc ++ sc ++ canonAbiCode I argLocs (abiSkips I st2.regs args argLocs) ++
+                    I.frame.call f)
                   (lowerExpr I h E fn (k (Tup.levels bs nv)) (nv + bs.length) nl (ip + 1) st4 ft)
         | _, _ => .error "call: abi"
   | .jnz (.imm b) t e, nv, nl, ip, st, ft =>
@@ -1121,6 +1232,8 @@ structure LabelClean (I : Isa) : Prop where
     by intro _ _ _ _ _ _ _ h; cases h
   testMem : ∀ w neg a pb pd c cl, I.gpr.testMem w neg a pb pd = some (c, cl) → NoLab I c :=
     by intro _ _ _ _ _ _ _ h; cases h
+  loadSext : ∀ m n r a c cl, I.gpr.loadSext m n r a = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ _ h; cases h
   (load : ∀ t r a c cl, I.gpr.load t r a = some (c, cl) → NoLab I c)
   (store : ∀ t pa a c cl, I.gpr.store t pa a = some (c, cl) → NoLab I c)
   (clearFlags : NoLab I I.gpr.clearFlags) (vmov : ∀ w d s, NoLab I (I.vec.vmov w d s))

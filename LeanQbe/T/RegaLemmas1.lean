@@ -30,8 +30,9 @@ abbrev VCtx : Type := Ctx Val VNat
 
 /-! ## 1. Semantic content of symbolic arguments -/
 
-def SymZ32 (G : VCtx) (w : BitVec 64) : SymArg → Prop
-  | .var x => ∀ v : BitVec 32, ⟨.bits 32, v, x⟩ ∈ G → w = v.setWidth 64
+/-- `w` holds the canonical zero-extended (ABI) form of every context value of `sa`. -/
+def SymZ (G : VCtx) (w : BitVec 64) : SymArg → Prop
+  | .var x => ∀ t v, ⟨t, v, x⟩ ∈ G → AbiGprHolds w t v
   | _ => True
 
 def FlagHolds (b : Bool) : (t : Ty) → Val t → Prop
@@ -68,7 +69,7 @@ def slice (σ : List (BitVec 64)) (i k : Nat) : List (BitVec 64) := (σ.drop i).
 def SlotOk (G : VCtx) (σ : List (BitVec 64)) (i : Nat) : SlotEntry → Prop
   | .gpr sas => ∃ w, σ[i]? = some w ∧ ∀ sa ∈ sas, GprSym G w sa
   | .gprZ sas => ∃ w, σ[i]? = some w ∧
-    ∀ p ∈ sas, GprSym G w p.1 ∧ (p.2 = true → SymZ32 G w p.1)
+    ∀ p ∈ sas, GprSym G w p.1 ∧ (p.2 = true → SymZ G w p.1)
   | .vec sw sas => ∃ bv, slice σ i sw.slots = unpackSlotWords sw bv ∧ ∀ sa ∈ sas, VecSym G sw bv sa
 
 section Mach
@@ -76,7 +77,7 @@ variable {R V C D : Type} (M : Machine R V C D)
 
 def RegLocOk (G : VCtx) (s : M.MData) (sa : SymArg) : RegLoc R V C → Prop
   | .gpr r => GprSym G (M.getGpr s r) sa
-  | .gprZ r => GprSym G (M.getGpr s r) sa ∧ SymZ32 G (M.getGpr s r) sa
+  | .gprZ r => GprSym G (M.getGpr s r) sa ∧ SymZ G (M.getGpr s r) sa
   | .vec v => VecSym G .w512 (M.getVec s v) sa
   | .flag c => FlagSym G (M.evalCond s c) sa
 
@@ -426,9 +427,9 @@ include hT
 
 theorem GprSym.tr {w : BitVec 64} (h : GprSym G' w sa) : GprSym G w sa := by
   cases sa <;> first | exact h | exact fun t v hm => h t v (hT _ rfl t v hm)
-theorem SymZ32.tr {w : BitVec 64} (h : SymZ32 G' w sa) : SymZ32 G w sa := by
+theorem SymZ.tr {w : BitVec 64} (h : SymZ G' w sa) : SymZ G w sa := by
   cases sa with
-  | var x => exact fun v hm => h v (hT x rfl (.bits 32) v hm)
+  | var x => exact fun t v hm => h t v (hT x rfl t v hm)
   | _ => trivial
 theorem VecSym.tr {sw : SlotWidth} {bv : BitVec 512} (h : VecSym G' sw bv sa) : VecSym G sw bv sa := by
   cases sa <;> first | exact h | exact fun t v hm => h t v (hT _ rfl t v hm)
@@ -440,7 +441,7 @@ theorem RegLocOk.tr {R V C D : Type} {M : Machine R V C D} {s : M.MData} {rl : R
     (h : RegLocOk M G' s sa rl) : RegLocOk M G s sa rl := by
   cases rl with
   | gpr _ => exact GprSym.tr hT h
-  | gprZ _ => exact ⟨GprSym.tr hT h.1, SymZ32.tr hT h.2⟩
+  | gprZ _ => exact ⟨GprSym.tr hT h.1, SymZ.tr hT h.2⟩
   | vec _ => exact VecSym.tr hT h
   | flag _ => exact FlagSym.tr hT h
 end Tr
@@ -454,7 +455,7 @@ theorem SlotOk.tr {G G' : VCtx} {i : Nat} {se : SlotEntry}
     obtain ⟨w, h1, h2⟩ := h
     refine ⟨w, h1, fun p hp => ?_⟩
     have hmem : p.1 ∈ SlotEntry.sas (.gprZ sas) := List.mem_map.mpr ⟨p, hp, rfl⟩
-    exact ⟨GprSym.tr (hT p.1 hmem) (h2 p hp).1, fun hz => SymZ32.tr (hT p.1 hmem) ((h2 p hp).2 hz)⟩
+    exact ⟨GprSym.tr (hT p.1 hmem) (h2 p hp).1, fun hz => SymZ.tr (hT p.1 hmem) ((h2 p hp).2 hz)⟩
   | vec sw sas => obtain ⟨w, h1, h2⟩ := h; exact ⟨w, h1, fun sa hsa => VecSym.tr (hT sa hsa) (h2 sa hsa)⟩
 
 theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', p ∈ G ∨ nv ≤ p.2.2)
@@ -881,7 +882,7 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
       have hsc := rsc (mem_gprTaggedEntries hsa)
       cases z
       · exact ⟨by show GprSym G (T.mach.getGpr s1 d) sa; rw [hd1]; exact hm, hsc⟩
-      · exact ⟨by show GprSym G (T.mach.getGpr s1 d) sa ∧ SymZ32 G (T.mach.getGpr s1 d) sa
+      · exact ⟨by show GprSym G (T.mach.getGpr s1 d) sa ∧ SymZ G (T.mach.getGpr s1 d) sa
                   rw [hd1]; exact hm, hsc⟩
   | movi d c =>
     peel he hg : isMoveGpr T.toIsa hints.saved d = true; fin he
@@ -911,7 +912,7 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
         hA.slots_lt i _ hf sa (List.mem_map.mpr ⟨(sa, z), hsa, rfl⟩)
       cases z
       · exact ⟨by show GprSym G (T.mach.getGpr s1 d) sa; rw [hd1]; exact (hall _ hsa).1, hsc⟩
-      · exact ⟨by show GprSym G (T.mach.getGpr s1 d) sa ∧ SymZ32 G (T.mach.getGpr s1 d) sa
+      · exact ⟨by show GprSym G (T.mach.getGpr s1 d) sa ∧ SymZ G (T.mach.getGpr s1 d) sa
                   rw [hd1]; exact ⟨(hall _ hsa).1, (hall _ hsa).2 rfl⟩, hsc⟩
     · simp at hp
   | st i r =>
@@ -1416,22 +1417,12 @@ theorem bindAbiParams_aux {s : T.mach.MData} {σ : List (BitVec 64)} :
     | gpr r =>
       simp only [bindAbiParams] at hb; split at hb
       · rename_i hg
-        by_cases h32 : tyEq t (.bits 32) = true
-        · have ht32 : t = .bits 32 := by cases t <;> simp [tyEq] at h32; subst h32; rfl
-          subst ht32
-          simp only [h32, ↓reduceIte] at hb
-          exact fin _ hb ((hA.bindSame x (not_pair_of_isGprTy hg)).pushReg (rl := .gprZ r)
-            ⟨fun t' v' hm => mem_head_cases hA.ctx_lt hm
-                (fun t v => GprHolds (T.mach.getGpr s r) t v) (AbiGprHolds.toGprHolds hr0),
-              fun v' hm => mem_head_cases hA.ctx_lt hm
-                (fun u v => ∀ hu : u = .bits 32, T.mach.getGpr s r = (hu ▸ v).setWidth 64)
-                (fun _ => hr0.2) rfl⟩
-            (scope_nv nv))
-        · simp only [h32, Bool.false_eq_true, ↓reduceIte] at hb
-          exact fin _ hb ((hA.bindSame x (not_pair_of_isGprTy hg)).pushReg (rl := .gpr r)
-            (fun t' v' hm => mem_head_cases hA.ctx_lt hm
-              (fun t v => GprHolds (T.mach.getGpr s r) t v) (AbiGprHolds.toGprHolds hr0))
-            (scope_nv nv))
+        exact fin _ hb ((hA.bindSame x (not_pair_of_isGprTy hg)).pushReg (rl := .gprZ r)
+          ⟨fun t' v' hm => mem_head_cases hA.ctx_lt hm
+              (fun t v => GprHolds (T.mach.getGpr s r) t v) (AbiGprHolds.toGprHolds hr0),
+            fun t' v' hm => mem_head_cases hA.ctx_lt hm
+              (fun t v => AbiGprHolds (T.mach.getGpr s r) t v) hr0⟩
+          (scope_nv nv))
       · simp at hb
     | vec v =>
       simp only [bindAbiParams, Option.bind_eq_some_iff] at hb

@@ -677,10 +677,13 @@ theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
   load_spec := x64Gpr_load_spec; store_spec := x64Gpr_store_spec
   load_zero32 := fun h0 {_ _ _ _ _ _ s post v} hc hrd ha hlv =>
     x64Gpr_load_zero32 h0 (s := s) (post := post) (v := v) hc hrd ha hlv
+  load_zext := fun _ {_ _ _ _ _ _ _ v s post} hc hrd ha hlv =>
+    x64Gpr_load_zext (v := v) (s := s) (post := post) hc hrd ha hlv
   op_zero32 := x64Gpr_op_zero32
   testOp_spec := x64Gpr_testOp_spec
   cmpMem_spec := x64Gpr_cmpMem_spec
   testMem_spec := x64Gpr_testMem_spec
+  loadSext_spec := x64Gpr_loadSext_spec
 
 end
 

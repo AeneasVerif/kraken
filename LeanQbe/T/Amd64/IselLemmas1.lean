@@ -227,6 +227,10 @@ theorem x64Gpr_testMem_noLab {w : Nat} {neg : Bool} {a : AddrArg Reg64}
     {c : List Directive} {clob : FlagMask} (h : x64Gpr.testMem w neg a pb pd = some (c, clob)) :
     ∀ l, Kraken.Directive.label l ∉ c :=
   emitCleanPair_noLab h
+theorem x64Gpr_loadSext_noLab {m n : Nat} {rd : Reg64} {a : AddrArg Reg64} {c : List Directive}
+    {clob : FlagMask} (h : x64Gpr.loadSext m n rd a = some (c, clob)) :
+    ∀ l, Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h
 
 /-! ## 3. Shared BitVec, Register, Flag-Frame, `subFlags`, and Memory Helpers -/
 
@@ -979,6 +983,14 @@ private def loadTailDir (t : Ty) (rd : Reg64) (addr : AddrExpr) (dir : Directive
   | .bits 64 => dir = ins (.mov (.reg (q rd)) (.mem addr))
   | _ => False
 
+private theorem setWidth_widen_64 {w l : Nat} (x : BitVec w) (h : w ≤ l) :
+    (x.setWidth l).setWidth 64 = x.setWidth 64 := by
+  apply BitVec.eq_of_getLsbD_eq; intro j hj
+  simp only [BitVec.getLsbD_setWidth]
+  by_cases hjw : j < w
+  · simp [hjw, show j < l by omega]
+  · simp [BitVec.getLsbD_of_ge x j (by omega)]
+
 private theorem wp_load_tail [Host] {E : Int64 → MachineData → Prop} (s : MachineData) (t : Ty)
     (rd : Reg64) (addr : AddrExpr) (addrVal : BitVec 64) (v : Val t)
     (haddr : ∀ [Labels] (p : Std.Rco Int64),
@@ -986,7 +998,7 @@ private theorem wp_load_tail [Host] {E : Int64 → MachineData → Prop} (s : Ma
     (hlv : loadVal s.dmem t addrVal = some v)
     (dir : Directive) (hd : loadTailDir t rd addr dir) :
     _root_.Program.wp [dir] (fun s' =>
-      GprHolds (s'.regs.get64 rd) t v ∧
+      AbiGprHolds (s'.regs.get64 rd) t v ∧
       (∀ r, r ≠ rd → s'.regs.get64 r = s.regs.get64 r) ∧
       s'.dmem = s.dmem ∧ s'.zmms = s.zmms ∧ s'.status = s.status) E s := by
   cases t with
@@ -998,7 +1010,7 @@ private theorem wp_load_tail [Host] {E : Int64 → MachineData → Prop} (s : Ma
       haddr, hi]
     refine Or.inl ⟨trivial, ⟨?_, fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm,
       trivial, trivial, trivial⟩⟩
-    simp only [GprHolds, Reg64s.get64_set64_same, BitVec.zeroExtend_eq_setWidth]
+    simp only [AbiGprHolds, Reg64s.get64_set64_same, BitVec.zeroExtend_eq_setWidth]
     rcases h01 with rfl | rfl <;> rfl
   | bits n =>
     rcases (by omega : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64 ∨ (n ≠ 8 ∧ n ≠ 16 ∧ n ≠ 32 ∧ n ≠ 64)) with
@@ -1008,49 +1020,47 @@ private theorem wp_load_tail [Host] {E : Int64 → MachineData → Prop} (s : Ma
       refine _root_.Program.wp_singleton fun k _ => ?_
       simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
         haddr, hi]
-      refine Or.inl ⟨trivial, ⟨(GprHolds.bits_iff .W8 _ _).2 ?_,
+      refine Or.inl ⟨trivial, ⟨⟨by decide, ?_⟩,
         fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, trivial, trivial, trivial⟩⟩
       simp only [Reg64s.get64_set64_same, BitVec.zeroExtend_eq_setWidth, Width.bits]
-      rw [BitVec.setWidth_setWidth_of_le _ (by decide), BitVec.setWidth_setWidth_of_le _ (by decide),
-        BitVec.setWidth_eq]
+      exact setWidth_widen_64 _ (by decide)
     · dsimp only [loadTailDir] at hd; subst hd
       obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec (Or.inr (Or.inl rfl)) hlv
       refine _root_.Program.wp_singleton fun k _ => ?_
       simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
         haddr, hi]
-      refine Or.inl ⟨trivial, ⟨(GprHolds.bits_iff .W16 _ _).2 ?_,
+      refine Or.inl ⟨trivial, ⟨⟨by decide, ?_⟩,
         fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, trivial, trivial, trivial⟩⟩
       simp only [Reg64s.get64_set64_same, BitVec.zeroExtend_eq_setWidth, Width.bits]
-      rw [BitVec.setWidth_setWidth_of_le _ (by decide), BitVec.setWidth_setWidth_of_le _ (by decide),
-        BitVec.setWidth_eq]
+      exact setWidth_widen_64 _ (by decide)
     · dsimp only [loadTailDir] at hd; subst hd
       obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec (Or.inr (Or.inr (Or.inl rfl))) hlv
       refine _root_.Program.wp_singleton fun k _ => ?_
       simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
         haddr, hi]
-      refine Or.inl ⟨trivial, ⟨(GprHolds.bits_iff .W32 _ _).2 ?_,
+      refine Or.inl ⟨trivial, ⟨⟨by decide, ?_⟩,
         fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, trivial, trivial, trivial⟩⟩
       simp only [Reg64s.get64_set64_same, BitVec.zeroExtend_eq_setWidth, Width.bits]
-      rw [BitVec.setWidth_setWidth_of_le _ (by decide), BitVec.setWidth_eq]
     · dsimp only [loadTailDir] at hd; subst hd
       obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec (Or.inr (Or.inr (Or.inr rfl))) hlv
       refine _root_.Program.wp_singleton fun k _ => ?_
       simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
         haddr, hi]
-      refine Or.inl ⟨trivial, ⟨(GprHolds.bits_iff .W64 _ _).2 ?_,
+      refine Or.inl ⟨trivial, ⟨⟨by decide, ?_⟩,
         fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, trivial, trivial, trivial⟩⟩
       simp only [Reg64s.get64_set64_same, Width.bits, BitVec.setWidth_eq]
     · simp [loadTailDir, hne.1, hne.2.1, hne.2.2.1, hne.2.2.2] at hd
   | float _ | pair _ _ => cases hd
 
-theorem x64Gpr_load_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg64} {a : AddrArg Reg64}
+/-- Every x64 scalar load (`movzbl`/`movzwl`/`movl`/`movq`) leaves canonical zero-extended form. -/
+theorem x64Gpr_load_zext {h : Host} {k : Nat} {t : Ty} {rd : Reg64} {a : AddrArg Reg64}
     {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData}
     {post : MachineState → Prop}
     (hl0 : x64Gpr.load t rd a = some (c, clob))
     (hrd : rd ∉ x64Scratch) (ha : ∀ r ∈ a.regs, r ∉ x64Scratch)
     (hlv : loadVal s.dmem t (a.eval s.regs.get64) = some v) :
     x64Mach.FallsTo x64Gpr.condReads h k c (rd :: x64Scratch) [] clob s
-      (fun s' => GprHolds (s'.regs.get64 rd) t v ∧ s'.dmem = s.dmem) post := by
+      (fun s' => AbiGprHolds (s'.regs.get64 rd) t v ∧ s'.dmem = s.dmem) post := by
   have _ := hrd
   dsimp only [x64Gpr, x64Load] at hl0
   obtain ⟨ci, hl, rfl⟩ := emitCleanPair_eq_some.mp hl0
@@ -1094,6 +1104,17 @@ theorem x64Gpr_load_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg64} {a : AddrArg
     simp only [hst2]
     exact hf1 cc hdisj
 
+theorem x64Gpr_load_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg64} {a : AddrArg Reg64}
+    {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData}
+    {post : MachineState → Prop}
+    (hl0 : x64Gpr.load t rd a = some (c, clob))
+    (hrd : rd ∉ x64Scratch) (ha : ∀ r ∈ a.regs, r ∉ x64Scratch)
+    (hlv : loadVal s.dmem t (a.eval s.regs.get64) = some v) :
+    x64Mach.FallsTo x64Gpr.condReads h k c (rd :: x64Scratch) [] clob s
+      (fun s' => GprHolds (s'.regs.get64 rd) t v ∧ s'.dmem = s.dmem) post :=
+  fun hinf kont => x64Gpr_load_zext hl0 hrd ha hlv hinf fun s' ⟨h1, h2⟩ hfr =>
+    kont s' ⟨h1.toGprHolds, h2⟩ hfr
+
 /-- Narrow `i32` load specification strengthening `GprHolds` to full 64-bit upper-zero. -/
 theorem x64Gpr_load_zero32 (_ : x64Gpr.zeroUpper32Load = true) {h : Host} {k : Nat}
     {rd : Reg64} {a : AddrArg Reg64} {c : List Directive} {clob : FlagMask} {v : BitVec 32}
@@ -1130,6 +1151,74 @@ theorem x64Gpr_load_zero32 (_ : x64Gpr.zeroUpper32Load = true) {h : Host} {k : N
   refine ⟨⟨hhold, hm2.trans hm1⟩, x64_frame_of_eq ?_ (hz2.trans hz1) ?_⟩
   · intro r hr; simp only [List.mem_cons, not_or] at hr; rw [hr2 r hr.1, hr1 r hr.2.1]
   · intro cc hdisj; simp only [hst2]; exact hf1 cc hdisj
+
+private theorem x64_loadSext_core {h : Host} {k : Nat} (w : Width) {rd : Reg64}
+    {a : AddrArg Reg64} {v : BitVec w.bits} {s : MachineData} {post : MachineState → Prop}
+    (hw : w = .W8 ∨ w = .W16 ∨ w = .W32) (ha : ∀ r ∈ a.regs, r ∉ x64Scratch)
+    (hlv : loadVal s.dmem (.bits w.bits) (a.eval s.regs.get64) = some v) :
+    x64Mach.FallsTo x64Gpr.condReads h k
+      ((addrToExpr a).1 ++ [ins (.movsx (.reg (q rd)) (.mem (addrToExpr a).2.1 : RegOrMem w))])
+      (rd :: x64Scratch) [] (addrToExpr a).2.2 s
+      (fun s' => s'.regs.get64 rd = v.signExtend 64 ∧ s'.dmem = s.dmem) post := by
+  refine x64_fallsTo_of_wp fun {_} _ => ?_
+  refine Program.wp.append (wp_addrToExpr s s a ha fun _ _ => rfl) ?_
+  rintro s1 ⟨_, hr1, hm1, hz1, haddr1, hf1⟩
+  have hb : w.bits = 8 ∨ w.bits = 16 ∨ w.bits = 32 ∨ w.bits = 64 := by
+    rcases hw with rfl | rfl | rfl <;> simp [Width.bits]
+  obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec hb (hm1 ▸ hlv)
+  refine Program.wp.mono (Q := fun s2 => s2.regs.get64 rd = (BitVec.ofInt w.bits i).signExtend 64 ∧
+      (∀ r, r ≠ rd → s2.regs.get64 r = s1.regs.get64 r) ∧
+      s2.dmem = s1.dmem ∧ s2.zmms = s1.zmms ∧ s2.status = s1.status)
+    (_root_.Program.wp_singleton fun _ _ => ?_) ?_
+  · rcases hw with rfl | rfl | rfl <;>
+    · simp only [Width.bits] at hi ⊢
+      simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
+        haddr1 s1.regs (fun _ _ => rfl), hi, Reg64s.get64_set64_same]
+      exact Or.inl ⟨trivial, trivial, fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm,
+        trivial, trivial, trivial⟩
+  rintro s2 ⟨hhold, hr2, hm2, hz2, hst2⟩
+  refine ⟨⟨hhold, hm2.trans hm1⟩, x64_frame_of_eq ?_ (hz2.trans hz1) ?_⟩
+  · intro r hr; simp only [List.mem_cons, not_or] at hr; rw [hr2 r hr.1, hr1 r hr.2.1]
+  · intro cc hdisj; simp only [hst2]; exact hf1 cc hdisj
+
+/-- Fused sign-extending load `movs{b,w,l}q (addr), %rd`. -/
+theorem x64Gpr_loadSext_spec {h : Host} {k m n : Nat} {rd : Reg64} {a : AddrArg Reg64}
+    {c : List Directive} {clob : FlagMask} {v : BitVec m} {s : MachineData}
+    {post : MachineState → Prop}
+    (hl0 : x64Gpr.loadSext m n rd a = some (c, clob))
+    (_hrd : rd ∉ x64Scratch) (ha : ∀ r ∈ a.regs, r ∉ x64Scratch)
+    (hlv : loadVal s.dmem (.bits m) (a.eval s.regs.get64) = some v) :
+    x64Mach.FallsTo x64Gpr.condReads h k c (rd :: x64Scratch) [] clob s
+      (fun s' => s'.regs.get64 rd = v.signExtend 64 ∧ s'.dmem = s.dmem) post := by
+  dsimp only [x64Gpr, x64LoadSext] at hl0
+  obtain ⟨ci, hl, rfl⟩ := emitCleanPair_eq_some.mp hl0
+  unfold x64LoadSextIns at hl
+  split at hl
+  · simp at hl
+  rcases (by omega : m = 8 ∨ m = 16 ∨ m = 32 ∨ (m ≠ 8 ∧ m ≠ 16 ∧ m ≠ 32)) with
+    rfl | rfl | rfl | hne
+  · simp only [Option.some.injEq, Prod.mk.injEq] at hl
+    rcases hl with ⟨rfl, rfl⟩
+    rw [show emitClean ((addrToExprIns a).1 ++
+          [x64InsI .W64 (.movsx (.reg (q rd)) (.mem (addrToExprIns a).2.1 : RegOrMem .W8))]) =
+        (addrToExpr a).1 ++ [ins (.movsx (.reg (q rd)) (.mem (addrToExpr a).2.1 : RegOrMem .W8))]
+        by simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil]]
+    exact x64_loadSext_core .W8 (Or.inl rfl) ha hlv
+  · simp only [Option.some.injEq, Prod.mk.injEq] at hl
+    rcases hl with ⟨rfl, rfl⟩
+    rw [show emitClean ((addrToExprIns a).1 ++
+          [x64InsI .W64 (.movsx (.reg (q rd)) (.mem (addrToExprIns a).2.1 : RegOrMem .W16))]) =
+        (addrToExpr a).1 ++ [ins (.movsx (.reg (q rd)) (.mem (addrToExpr a).2.1 : RegOrMem .W16))]
+        by simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil]]
+    exact x64_loadSext_core .W16 (Or.inr (Or.inl rfl)) ha hlv
+  · simp only [Option.some.injEq, Prod.mk.injEq] at hl
+    rcases hl with ⟨rfl, rfl⟩
+    rw [show emitClean ((addrToExprIns a).1 ++
+          [x64InsI .W64 (.movsx (.reg (q rd)) (.mem (addrToExprIns a).2.1 : RegOrMem .W32))]) =
+        (addrToExpr a).1 ++ [ins (.movsx (.reg (q rd)) (.mem (addrToExpr a).2.1 : RegOrMem .W32))]
+        by simp [addrToExpr, emitClean_append, emitClean_cons, emitClean_nil]]
+    exact x64_loadSext_core .W32 (Or.inr (Or.inr rfl)) ha hlv
+  · simp [hne.1, hne.2.1, hne.2.2] at hl
 
 theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm CondCode t}
     {a : AddrArg Reg64} {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData}

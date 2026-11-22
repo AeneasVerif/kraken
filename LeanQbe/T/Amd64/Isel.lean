@@ -1165,6 +1165,23 @@ def x64LoadIns (t : Ty) (rd : Reg64) (a : AddrArg Reg64) : Option (List Instr ×
 def x64Load (t : Ty) (rd : Reg64) (a : AddrArg Reg64) : Option (List Directive × FlagMask) :=
   emitCleanPair (x64LoadIns t rd a)
 
+/-- Lower a fused sign-extending load `rd := (load (.bits m) a).signExtend 64` (`movs{b,w,l}q`). -/
+def x64LoadSextIns (m n : Nat) (rd : Reg64) (a : AddrArg Reg64) :
+    Option (List Instr × FlagMask) :=
+  if !(x64AddrValid a && Nat.blt m n && Nat.ble n 64) then none else
+  let pre := (addrToExprIns a).1
+  let addr := (addrToExprIns a).2.1
+  let clob := (addrToExprIns a).2.2
+  match m with
+  | 8 => some (pre ++ [x64InsI .W64 (.movsx (.reg (q rd)) (.mem addr : RegOrMem .W8))], clob)
+  | 16 => some (pre ++ [x64InsI .W64 (.movsx (.reg (q rd)) (.mem addr : RegOrMem .W16))], clob)
+  | 32 => some (pre ++ [x64InsI .W64 (.movsx (.reg (q rd)) (.mem addr : RegOrMem .W32))], clob)
+  | _ => none
+
+/-- Lower a fused sign-extending load (see `x64LoadSextIns`). -/
+def x64LoadSext (m n : Nat) (rd : Reg64) (a : AddrArg Reg64) : Option (List Directive × FlagMask) :=
+  emitCleanPair (x64LoadSextIns m n rd a)
+
 /-- Lower a scalar memory store of type `t` (instruction list). -/
 def x64StoreIns : (t : Ty) → PArg Reg64 RegMm CondCode t → AddrArg Reg64 →
     Option (List Instr × FlagMask)
@@ -1419,10 +1436,12 @@ def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   supportsScalarOp := x64SupportsScalarOp
   cmpFlags := [.z, .nz, .l, .ge, .le, .g, .be, .a]
   zeroUpper32Load := true
+  zeroExtLoad := true
   zeroUpper32Op := x64ZeroUpper32Op
   elideZext32 := true
   testOp := x64TestOp
   cmpMem := x64CmpMem
   testMem := x64TestMem
+  loadSext := x64LoadSext
 
 end LeanQbe.T.Amd64

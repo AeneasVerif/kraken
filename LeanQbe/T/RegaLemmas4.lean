@@ -549,7 +549,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
     | none => simp [hp] at hl
     | some p1 =>
       obtain ⟨mc, st1⟩ := p1
-      cases hll : lowerLoad T.toIsa hints nv ip st1 t a₂ with
+      cases hll : lowerLoad T.toIsa hints nv ip st1 t a₂
+          (loadSextNext T.toIsa hints nv ip st1 t a₂ (k₂ nv)) with
       | none => simp [hp, hll] at hl
       | some p2 =>
         obtain ⟨co, st2⟩ := p2
@@ -802,8 +803,9 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
             obtain ⟨hsc, hc3⟩ := List.IsInfixAt.append hc2
             simp only [wp] at hwp
             refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
-            refine shuffle_ok hy.spE hsh hsc hA1 hI1 fun s2 σ2 hok _ hI2 => ?_
-            exact ret_ok hy hvs hrl htg (by simpa only [List.append_assoc] using hc3) hok hI2 hwp
+            refine shuffle_ok hy.spE hsh hsc hA1 hI1 fun s2 σ2 hok hA2 hI2 => ?_
+            exact ret_ok hy hvs hrl htg (by simpa only [List.append_assoc] using hc3) hok hA2 hI2
+              hwp
   · -- exit
     intro G D f as args₁ args₂ hargs nv nl ip st ft c nv' nl' ip' k s σ m hl hc hft hD hA _hM hI hwp
     simp only [lowerExpr] at hl
@@ -833,8 +835,9 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
             obtain ⟨hsc, hc3⟩ := List.IsInfixAt.append hc2
             simp only [wp] at hwp
             refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
-            refine shuffle_ok hy.spE hsh hsc hA1 hI1 fun s2 σ2 hok _ hI2 => ?_
-            exact exit_ok hy hargs hex hal htg (by simpa only [List.append_assoc] using hc3) hok hI2 hwp
+            refine shuffle_ok hy.spE hsh hsc hA1 hI1 fun s2 σ2 hok hA2 hI2 => ?_
+            exact exit_ok hy hargs hex hal htg (by simpa only [List.append_assoc] using hc3) hok hA2
+              hI2 hwp
   · -- hlt
     intro G D nv nl ip st ft c nv' nl' ip' k s σ m _ _ _ _ _ _ _ hwp
     exact absurd hwp (by simp [wp])
