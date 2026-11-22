@@ -1,5 +1,10 @@
 module
 
+public import LeanQbe.T.Examples.Kissat.FullM5KittenDefFix
+public import LeanQbe.T.Examples.Kissat.FullM5KittenDefFixProof
+public import LeanQbe.T.Examples.Kissat.FullM5KittenDefFixProof1
+public import LeanQbe.T.Examples.Kissat.FullM5KittenDefFixProof2
+public import LeanQbe.T.Examples.Kissat.FullM5KittenDefFixProof3
 public import LeanQbe.T.Examples.Kissat.FullM5ProbeProp
 public import LeanQbe.T.Examples.Kissat.FullM5ProbePropProof
 public import LeanQbe.T.Examples.Kissat.FullM5Sched
