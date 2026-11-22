@@ -153,31 +153,92 @@ def parseDimacs (bs : List UInt8) : Option (CNF Nat) := do
 
 /-! ### DIMACS and Binary LRAT encoders (for callers and concrete test witnesses) -/
 
+/-- ASCII space `' '` (`32 : UInt8`). -/
+abbrev asciiSpace : UInt8 := ' '.toNat.toUInt8
+
+/-- ASCII newline `'\n'` (`10 : UInt8`). -/
+abbrev asciiNewline : UInt8 := '\n'.toNat.toUInt8
+
+/-- ASCII minus `'-'` (`45 : UInt8`). -/
+abbrev asciiMinus : UInt8 := '-'.toNat.toUInt8
+
+/-- ASCII digit zero `'0'` (`48 : UInt8`). -/
+abbrev asciiZero : UInt8 := '0'.toNat.toUInt8
+
+/-- ASCII `'p'` (`112 : UInt8`). -/
+abbrev asciiP : UInt8 := 'p'.toNat.toUInt8
+
+/-- ASCII `'c'` (`99 : UInt8`). -/
+abbrev asciiC : UInt8 := 'c'.toNat.toUInt8
+
+/-- ASCII `'n'` (`110 : UInt8`). -/
+abbrev asciiN : UInt8 := 'n'.toNat.toUInt8
+
+/-- ASCII `'f'` (`102 : UInt8`). -/
+abbrev asciiF : UInt8 := 'f'.toNat.toUInt8
+
+/-- DIMACS problem header prefix `"p cnf "` (`[112, 32, 99, 110, 102, 32] : List UInt8`). -/
+abbrev dimacsHeaderPrefix : List UInt8 :=
+  [asciiP, asciiSpace, asciiC, asciiN, asciiF, asciiSpace]
+
+/-- Structural helper for decimal ASCII integer encoding `natToBytes`.
+Recursively emits decimal digits of `n` in base 10 into accumulator `acc`.
+Terminates via `fuel = n + 1`: since `n / 10 < n` for all `n > 0`
+(and `n = 0` terminates in 1 step), `n + 1` steps strictly exceed the number of decimal digits
+`⌊log₁₀(n)⌋ + 1` for any `n : Nat`.
+Emits no leading zeros for `n > 0`, and produces `['0']` (`[asciiZero]`) for `n = 0`. -/
 def natToBytesAux : Nat → Nat → List UInt8 → List UInt8
   | 0, _, acc => acc
   | fuel + 1, n, acc =>
-    let d : UInt8 := (48 + n % 10).toUInt8
+    let d : UInt8 := (asciiZero.toNat + n % 10).toUInt8
     if n < 10 then d :: acc
     else natToBytesAux fuel (n / 10) (d :: acc)
 
-/-- Decimal ASCII encoding of `n`. -/
+/-- Decimal ASCII representation of `n : Nat`
+(e.g. `0` ↦ `"0"` / `[48]`, `42` ↦ `"42"` / `[52, 50]`).
+Always supplies `fuel = n + 1` to `natToBytesAux`, guaranteeing termination without digit
+truncation and without leading zeros for `n > 0`. -/
 def natToBytes (n : Nat) : List UInt8 :=
   natToBytesAux (n + 1) n []
 
+/-- Encode a single `Std.Sat.Literal Nat = Nat × Bool` as standard DIMACS ASCII bytes with
+trailing space:
+- `(v, true)`  ↦ `"<v> "`  (positive literal: variable `v` in decimal ASCII followed by `' '`)
+- `(v, false)` ↦ `"-<v> "` (negative literal: `'-'` followed by variable `v` in decimal ASCII
+  and `' '`)
+Polarity convention: `l.2 = true` indicates positive polarity (no minus sign),
+while `l.2 = false` indicates negated literal (prefixed with `asciiMinus = '-'`). -/
 def encodeDimacsLit (l : Literal Nat) : List UInt8 :=
-  (if l.2 then [] else [45]) ++ natToBytes l.1 ++ [32]
+  (if l.2 then [] else [asciiMinus]) ++ natToBytes l.1 ++ [asciiSpace]
 
+/-- Encode a `CNF.Clause Nat` as standard DIMACS ASCII clause bytes terminated with `"0\n"`:
+`<lit₁> <lit₂> ... <litₖ> 0\n`
+Empty clause `CNF.Clause.ofLiterals []` encodes as `"0\n"` (`[asciiZero, asciiNewline]`). -/
 def encodeDimacsClause (cl : CNF.Clause Nat) : List UInt8 :=
-  (cl.literals.flatMap encodeDimacsLit) ++ [48, 10]
+  (cl.literals.flatMap encodeDimacsLit) ++ [asciiZero, asciiNewline]
 
+/-- Compute the maximum variable index appearing across all literals in `cnf`.
+Returns `0` if `cnf` contains no literals (e.g. empty CNF or only empty clauses). -/
 def cnfMaxVar (cnf : CNF Nat) : Nat :=
   cnf.clauses.foldl (fun m cl => cl.literals.foldl (fun m' l => Nat.max m' l.1) m) 0
 
-/-- Canonical ASCII DIMACS encoding of a `CNF Nat`. -/
+/-- Canonical ASCII DIMACS encoding of a `CNF Nat` into standard DIMACS CNF format bytes.
+Exact byte layout:
+```text
+p cnf <maxVar> <numClauses>\n
+<clause_1_lit_1> ... <clause_1_lit_k> 0\n
+...
+<clause_m_lit_1> ... <clause_m_lit_j> 0\n
+```
+Header prefix `"p cnf "`
+(`dimacsHeaderPrefix = [asciiP, asciiSpace, asciiC, asciiN, asciiF, asciiSpace]`),
+followed by `<maxVar>` in decimal ASCII, space (`asciiSpace`), `<numClauses>`
+(`cnf.clauses.size`) in decimal ASCII, newline (`asciiNewline`), and all encoded clauses
+in sequence. -/
 def encodeDimacs (cnf : CNF Nat) : List UInt8 :=
-  [112, 32, 99, 110, 102, 32] ++
-    natToBytes (cnfMaxVar cnf) ++ [32] ++
-    natToBytes cnf.clauses.size ++ [10] ++
+  dimacsHeaderPrefix ++
+    natToBytes (cnfMaxVar cnf) ++ [asciiSpace] ++
+    natToBytes cnf.clauses.size ++ [asciiNewline] ++
     (cnf.clauses.toList.flatMap encodeDimacsClause)
 
 def encodeLeb128Aux : Nat → Nat → List UInt8

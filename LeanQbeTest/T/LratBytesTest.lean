@@ -27,6 +27,7 @@ namespace LeanQbeTest.T.LratBytesTest
 open LeanQbe.T
 open LeanQbe.T.PrintCpp
 open LeanQbe.T.Examples.LratBytes
+open Std.Sat
 
 -- ============================================================================
 -- 1. Test vectors (untrusted DIMACS + binary LRAT bytes)
@@ -136,6 +137,70 @@ def diffCases : List DiffCase :=
 #guard runLratCheckBytes oobVarDimacs nvLratAcceptBytes 512 == false
 #guard runLratCheckBytes sat2Dimacs nvLratAcceptBytes 512 == false
 #guard runLratCheckBytes nvDimacsBytes badTagPrf 512 == false
+
+-- Skeptical-Auditor Ground-Truth Grounded Checks on `encodeDimacs`
+example : asciiSpace = (32 : UInt8) := rfl
+example : asciiNewline = (10 : UInt8) := rfl
+example : asciiMinus = (45 : UInt8) := rfl
+example : asciiZero = (48 : UInt8) := rfl
+example : dimacsHeaderPrefix = [112, 32, 99, 110, 102, 32] := rfl
+example : [asciiZero, asciiNewline] = [48, 10] := rfl
+
+private def cnfEmpty : CNF Nat := CNF.empty
+
+private def cnfMultiDigit : CNF Nat :=
+  (CNF.empty.add (CNF.Clause.ofLiterals [(1, true), (12, false)])).add
+    (CNF.Clause.ofLiterals [(1, false)])
+
+private def cnf3Var : CNF Nat :=
+  ((CNF.empty.add (CNF.Clause.ofLiterals [(1, true), (2, false), (3, true)])).add
+    (CNF.Clause.ofLiterals [(2, true), (3, false)])).add
+    (CNF.Clause.ofLiterals [(1, false)])
+
+private def cnfEmptyClause : CNF Nat :=
+  CNF.empty.add (CNF.Clause.ofLiterals [])
+
+private def cnfLargeVar : CNF Nat :=
+  CNF.empty.add (CNF.Clause.ofLiterals [(100, true), (250, false)])
+
+private def cnfLits (cnf : CNF Nat) : List (List (Nat × Bool)) :=
+  cnf.clauses.toList.map (·.literals)
+
+#guard String.fromUTF8? (encodeDimacs cnfEmpty).toByteArray == some "p cnf 0 0\n"
+#guard String.fromUTF8? (encodeDimacs nvBytesCnf).toByteArray == some "p cnf 1 2\n1 0\n-1 0\n"
+#guard String.fromUTF8? (encodeDimacs cnfMultiDigit).toByteArray ==
+  some "p cnf 12 2\n1 -12 0\n-1 0\n"
+#guard String.fromUTF8? (encodeDimacs cnf3Var).toByteArray ==
+  some "p cnf 3 3\n1 -2 3 0\n2 -3 0\n-1 0\n"
+#guard String.fromUTF8? (encodeDimacs cnfEmptyClause).toByteArray == some "p cnf 0 1\n0\n"
+#guard String.fromUTF8? (encodeDimacs cnfLargeVar).toByteArray ==
+  some "p cnf 250 1\n100 -250 0\n"
+
+#guard encodeDimacs cnfEmpty == ("p cnf 0 0\n").toUTF8.toList
+#guard encodeDimacs nvBytesCnf == ("p cnf 1 2\n1 0\n-1 0\n").toUTF8.toList
+#guard encodeDimacs cnfMultiDigit == ("p cnf 12 2\n1 -12 0\n-1 0\n").toUTF8.toList
+#guard encodeDimacs cnf3Var == ("p cnf 3 3\n1 -2 3 0\n2 -3 0\n-1 0\n").toUTF8.toList
+#guard encodeDimacs cnfEmptyClause == ("p cnf 0 1\n0\n").toUTF8.toList
+#guard encodeDimacs cnfLargeVar == ("p cnf 250 1\n100 -250 0\n").toUTF8.toList
+
+#guard match parseDimacs (encodeDimacs cnfEmpty) with
+  | some res => cnfLits res == cnfLits cnfEmpty
+  | none => false
+#guard match parseDimacs (encodeDimacs nvBytesCnf) with
+  | some res => cnfLits res == cnfLits nvBytesCnf
+  | none => false
+#guard match parseDimacs (encodeDimacs cnfMultiDigit) with
+  | some res => cnfLits res == cnfLits cnfMultiDigit
+  | none => false
+#guard match parseDimacs (encodeDimacs cnf3Var) with
+  | some res => cnfLits res == cnfLits cnf3Var
+  | none => false
+#guard match parseDimacs (encodeDimacs cnfEmptyClause) with
+  | some res => cnfLits res == cnfLits cnfEmptyClause
+  | none => false
+#guard match parseDimacs (encodeDimacs cnfLargeVar) with
+  | some res => cnfLits res == cnfLits cnfLargeVar
+  | none => false
 
 -- `PrintCpp` codegen checks (pre-Legal `ppTModule` + all `LegalTarget`s)
 #guard (ppTModule lratBytesModule).isOk

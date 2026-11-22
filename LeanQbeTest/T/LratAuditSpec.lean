@@ -235,6 +235,92 @@ private def badTagPrf : List UInt8 :=
 #guard runLratCheckBytes oobVarDimacs nvLratAcceptBytes 512 == false
 #guard runLratCheckBytes nvDimacsBytes badTagPrf 512 == false
 
+/-! ### Skeptical-Auditor Ground-Truth Checks on `encodeDimacs` -/
+
+-- Ground-truth ASCII constant definitional equality verified by the Lean kernel:
+example : asciiSpace = (32 : UInt8) := rfl
+example : asciiNewline = (10 : UInt8) := rfl
+example : asciiMinus = (45 : UInt8) := rfl
+example : asciiZero = (48 : UInt8) := rfl
+example : dimacsHeaderPrefix = [112, 32, 99, 110, 102, 32] := rfl
+example : [asciiZero, asciiNewline] = [48, 10] := rfl
+
+-- Test CNF 1: Empty formula (0 clauses, maxVar 0) ↦ "p cnf 0 0\n"
+def cnfEmpty : CNF Nat := CNF.empty
+
+-- Test CNF 2: Multi-digit variable (12 ≥ 10) & mixed polarities ((1 ∨ ¬12) ∧ ¬1)
+def cnfMultiDigit : CNF Nat :=
+  (CNF.empty.add (CNF.Clause.ofLiterals [(1, true), (12, false)])).add
+    (CNF.Clause.ofLiterals [(1, false)])
+
+-- Test CNF 3: 3 variables, 3 clauses ((1 ∨ ¬2 ∨ 3) ∧ (2 ∨ ¬3) ∧ ¬1)
+def cnf3Var : CNF Nat :=
+  ((CNF.empty.add (CNF.Clause.ofLiterals [(1, true), (2, false), (3, true)])).add
+    (CNF.Clause.ofLiterals [(2, true), (3, false)])).add
+    (CNF.Clause.ofLiterals [(1, false)])
+
+-- Test CNF 4: Empty clause in CNF (immediate UNSAT clause 0\n)
+def cnfEmptyClause : CNF Nat :=
+  CNF.empty.add (CNF.Clause.ofLiterals [])
+
+-- Test CNF 5: Large variable indices (≥ 100)
+def cnfLargeVar : CNF Nat :=
+  CNF.empty.add (CNF.Clause.ofLiterals [(100, true), (250, false)])
+
+-- Helper: extract structural literal lists for deep equality checking
+def cnfLits (cnf : CNF Nat) : List (List (Nat × Bool)) :=
+  cnf.clauses.toList.map (·.literals)
+
+-- 1. Exact UTF-8 string decoding checks (human-readable standard DIMACS text)
+#guard String.fromUTF8? (encodeDimacs cnfEmpty).toByteArray == some "p cnf 0 0\n"
+#guard String.fromUTF8? (encodeDimacs nvBytesCnf).toByteArray == some "p cnf 1 2\n1 0\n-1 0\n"
+#guard String.fromUTF8? (encodeDimacs cnfMultiDigit).toByteArray ==
+  some "p cnf 12 2\n1 -12 0\n-1 0\n"
+#guard String.fromUTF8? (encodeDimacs cnf3Var).toByteArray ==
+  some "p cnf 3 3\n1 -2 3 0\n2 -3 0\n-1 0\n"
+#guard String.fromUTF8? (encodeDimacs cnfEmptyClause).toByteArray == some "p cnf 0 1\n0\n"
+#guard String.fromUTF8? (encodeDimacs cnfLargeVar).toByteArray ==
+  some "p cnf 250 1\n100 -250 0\n"
+
+-- 2. Exact byte-list equality against String.toUTF8.toList
+#guard encodeDimacs cnfEmpty == ("p cnf 0 0\n").toUTF8.toList
+#guard encodeDimacs nvBytesCnf == ("p cnf 1 2\n1 0\n-1 0\n").toUTF8.toList
+#guard encodeDimacs cnfMultiDigit == ("p cnf 12 2\n1 -12 0\n-1 0\n").toUTF8.toList
+#guard encodeDimacs cnf3Var == ("p cnf 3 3\n1 -2 3 0\n2 -3 0\n-1 0\n").toUTF8.toList
+#guard encodeDimacs cnfEmptyClause == ("p cnf 0 1\n0\n").toUTF8.toList
+#guard encodeDimacs cnfLargeVar == ("p cnf 250 1\n100 -250 0\n").toUTF8.toList
+
+-- 3. Exact symbolic evaluation proofs on ground-truth concrete outputs
+theorem cnfEmpty_dimacs_eq :
+    encodeDimacs cnfEmpty = [112, 32, 99, 110, 102, 32, 48, 32, 48, 10] := by
+  simp [cnfEmpty, encodeDimacs, cnfMaxVar, natToBytes, natToBytesAux, CNF.empty]
+
+theorem nvBytesCnf_dimacs_eq :
+    encodeDimacs nvBytesCnf =
+      [112, 32, 99, 110, 102, 32, 49, 32, 50, 10, 49, 32, 48, 10, 45, 49, 32, 48, 10] := by
+  simp [nvBytesCnf, encodeDimacs, cnfMaxVar, encodeDimacsClause, encodeDimacsLit,
+    natToBytes, natToBytesAux, CNF.empty, CNF.add]
+
+-- 4. Round-trip parser/encoder consistency with structural literal extraction
+#guard match parseDimacs (encodeDimacs cnfEmpty) with
+  | some res => cnfLits res == cnfLits cnfEmpty
+  | none => false
+#guard match parseDimacs (encodeDimacs nvBytesCnf) with
+  | some res => cnfLits res == cnfLits nvBytesCnf
+  | none => false
+#guard match parseDimacs (encodeDimacs cnfMultiDigit) with
+  | some res => cnfLits res == cnfLits cnfMultiDigit
+  | none => false
+#guard match parseDimacs (encodeDimacs cnf3Var) with
+  | some res => cnfLits res == cnfLits cnf3Var
+  | none => false
+#guard match parseDimacs (encodeDimacs cnfEmptyClause) with
+  | some res => cnfLits res == cnfLits cnfEmptyClause
+  | none => false
+#guard match parseDimacs (encodeDimacs cnfLargeVar) with
+  | some res => cnfLits res == cnfLits cnfLargeVar
+  | none => false
+
 /-! ## 5. Logical Foundations Audit (`#print axioms`) -/
 
 #print axioms audit_wf

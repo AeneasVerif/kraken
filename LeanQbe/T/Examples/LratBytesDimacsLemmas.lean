@@ -1342,8 +1342,8 @@ private theorem encodeDimacsLit_length_ge_2 (l : Literal Nat) :
 private theorem parseClauseAux_encodeLits {ls : List (Literal Nat)} {fuel mv : Nat}
     {acc : List (Literal Nat)} {rest : List UInt8}
     (hmv : mv < dimacsBound) (hls : ∀ l ∈ ls, 1 ≤ l.1 ∧ l.1 ≤ mv)
-    (hfuel : (ls.flatMap encodeDimacsLit ++ ([48, 10] ++ rest)).length < fuel) :
-    parseClauseAux fuel mv acc (ls.flatMap encodeDimacsLit ++ ([48, 10] ++ rest)) =
+    (hfuel : (ls.flatMap encodeDimacsLit ++ ([asciiZero, asciiNewline] ++ rest)).length < fuel) :
+    parseClauseAux fuel mv acc (ls.flatMap encodeDimacsLit ++ ([asciiZero, asciiNewline] ++ rest)) =
       some (CNF.Clause.ofLiterals (acc.reverse ++ ls), 10 :: rest) := by
   induction ls generalizing fuel acc with
   | nil =>
@@ -1360,7 +1360,7 @@ private theorem parseClauseAux_encodeLits {ls : List (Literal Nat)} {fuel mv : N
       obtain ⟨hv1, hvm⟩ := hls (v, pol) (by simp)
       have hv_lt : v < dimacsBound := Nat.lt_of_le_of_lt hvm hmv
       have hls' : ∀ x ∈ ls, 1 ≤ x.1 ∧ x.1 ≤ mv := fun x hx => hls x (by simp [hx])
-      let tail := ls.flatMap encodeDimacsLit ++ ([48, 10] ++ rest)
+      let tail := ls.flatMap encodeDimacsLit ++ ([asciiZero, asciiNewline] ++ rest)
       have hlen_lit := encodeDimacsLit_length_ge_2 (v, pol)
       have hfuel' : tail.length < fuel := by grind
       simp only [List.flatMap_cons, List.append_assoc]
