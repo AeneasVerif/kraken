@@ -2,8 +2,6 @@ module
 
 public import LeanQbe.T.Legal
 public import LeanQbe.T.LegalEmit
-public import LeanQbe.T.WPLemmas
-public import LeanQbe.T.FlatLemmas
 
 /-!
 # Correctness and legality proofs for `LeanQbe.T.Legal` (`T5`, `G13`)
@@ -21,7 +19,7 @@ Proves the three main theorems for `Func.legal` using `Wf.induct`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -345,6 +343,7 @@ termination_by b => b
 
 /-! ## Section 2: Tuple, list relation, encoding, and cast lemmas -/
 
+@[expose]
 def leafVals (target : LegalTarget) : (t : Ty) → Val t → Tup Val (target.leafTys t)
   | .bool, b => (b, ())
   | .bits n, x => (x.setWidth (target.widenWidth n), ())
@@ -598,11 +597,13 @@ variable (target : LegalTarget)
 
 /-- `CGood target G LG` holds iff every pair `⟨t, lv₁, lv₂⟩ ∈ LG` has all underlying target
 operands `ArgRel G`-related. -/
+@[expose]
 def CGood {V₁ V₂ : Ty → Type} (G : Ctx V₁ V₂) (LG : Ctx (LVar target V₁) (LVar target V₂)) : Prop :=
   ∀ t lv₁ lv₂, ⟨t, lv₁, lv₂⟩ ∈ LG → TRel (ArgRel G) lv₁ lv₂
 
 /-- `DGood target D LD` holds iff every label pair in `LD` corresponds to a legalized-signature
 label pair in `D`. -/
+@[expose]
 def DGood {L₁ L₂ : List Ty → Type} (D : Ctx L₁ L₂) (LD : Ctx (LLab target L₁) (LLab target L₂)) :
   Prop :=
   ∀ ts l₁ l₂, ⟨ts, l₁, l₂⟩ ∈ LD → ⟨target.legalSig ts, l₁, l₂⟩ ∈ D
@@ -791,7 +792,7 @@ theorem unpackToLeaves_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
   | .bool, _, _, _, _, hx, _, _, hk =>
     hk (fun _ h => h) _ _ (TRel.single hx)
   | .bits n, G, D, x₁, x₂, hx, k₁, k₂, hk => by
-    simp only [unpackToLeaves]
+    dsimp only [unpackToLeaves]
     split
     · next h => exact hk (fun _ hp => hp) _ _ (TRel.single (castArgBits_rel h hx))
     · split
@@ -804,7 +805,7 @@ theorem unpackToLeaves_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
     cases hx with
     | imm c => exact hk (fun _ hp => hp) _ _ (leafImm_rel target (.pair a b) c)
     | var hm =>
-      simp only [unpackToLeaves]
+      dsimp only [unpackToLeaves]
       refine .let_ (.mk (.unpair a b) (.cons (.var hm) .nil)) fun (va₁, vb₁, ()) (va₂, vb₂, ()) =>
         ?_
       refine unpackToLeaves_wf a (.var List.mem_cons_self) fun hG1 la₁ la₂ hla => ?_
@@ -823,7 +824,7 @@ theorem unpackToLegal_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type
   | .bool, _, _, _, _, hx, _, _, hk =>
     hk (fun _ h => h) _ _ (TRel.single hx)
   | .bits n, _, _, _, _, hx, _, _, hk => by
-    simp only [unpackToLegal]
+    dsimp only [unpackToLegal]
     split
     · next h => exact hk (fun _ hp => hp) _ _ (TRel.single (castArgBits_rel h hx))
     · split
@@ -833,7 +834,7 @@ theorem unpackToLegal_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type
   | .float _, _, _, _, _, hx, _, _, hk =>
     hk (fun _ h => h) _ _ (TRel.single hx)
   | .pair a b, G, D, x₁, x₂, hx, k₁, k₂, hk => by
-    simp only [unpackToLegal]
+    dsimp only [unpackToLegal]
     split
     · next h => exact hk (fun _ hp => hp) _ _ (tupToPacked_rel h (.cons hx .nil))
     · next h =>
@@ -862,7 +863,7 @@ theorem packFromLegal_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type
   | .bits n, _, _, xs₁, xs₂, hxs, _, _, hk => by
     rcases xs₁ with ⟨x₁, ⟨⟩⟩; rcases xs₂ with ⟨x₂, ⟨⟩⟩
     cases hxs with | cons hx _ =>
-    simp only [packFromLegal]
+    dsimp only [packFromLegal]
     split
     · next h => exact hk (fun _ hp => hp) _ _ (castArgBits_rel h.symm hx)
     · split
@@ -872,7 +873,7 @@ theorem packFromLegal_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type
     rcases xs₁ with ⟨x₁, ⟨⟩⟩; rcases xs₂ with ⟨x₂, ⟨⟩⟩
     cases hxs with | cons hx _ => exact hk (fun _ h => h) _ _ hx
   | .pair a b, _, _, xs₁, xs₂, hxs, k₁, k₂, hk => by
-    simp only [packFromLegal]
+    dsimp only [packFromLegal]
     split
     · next h =>
       obtain ⟨h1, _⟩ := TRel.cons_iff.1 (packedToTup_rel h hxs)
@@ -896,7 +897,7 @@ theorem splitLegalToLeaves_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty →
   | .bits _, _, _, _, _, hxs, _, _, hk => hk (fun _ h => h) _ _ hxs
   | .float _, _, _, _, _, hxs, _, _, hk => hk (fun _ h => h) _ _ hxs
   | .pair a b, _, _, xs₁, xs₂, hxs, k₁, k₂, hk => by
-    simp only [splitLegalToLeaves]
+    dsimp only [splitLegalToLeaves]
     split
     · next h =>
       obtain ⟨h1, _⟩ := TRel.cons_iff.1 (packedToTup_rel h hxs)
@@ -919,7 +920,7 @@ theorem packLeavesToLegal_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → 
   | .bits _, _, _, _, _, hxs, _, _, hk => hk (fun _ h => h) _ _ hxs
   | .float _, _, _, _, _, hxs, _, _, hk => hk (fun _ h => h) _ _ hxs
   | .pair a b, _, _, xs₁, xs₂, hxs, k₁, k₂, hk => by
-    simp only [packLeavesToLegal]
+    dsimp only [packLeavesToLegal]
     obtain ⟨h1, h2⟩ := TRel_tupSplit hxs
     split
     · next h =>

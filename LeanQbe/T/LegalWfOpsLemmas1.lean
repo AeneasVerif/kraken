@@ -8,7 +8,7 @@ public import LeanQbe.T.LegalWfBaseLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -60,7 +60,7 @@ theorem legalUnaryTree_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
     cases hxs with | cons hx _ =>
     exact hf f hx fun hG' y₁ y₂ hy => hk hG' _ _ (TRel.single hy)
   | .pair t1 t2, G, D, xs₁, xs₂, hxs, k₁, k₂, hk => by
-    simp only [legalUnaryTree]
+    dsimp only [legalUnaryTree]
     split
     · next h =>
       obtain ⟨h1, _⟩ := TRel.cons_iff.1 (packedToTup_rel h hxs)
@@ -119,7 +119,7 @@ theorem legalBswapTree_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
       (∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, TRel (ArgRel G') y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) →
       Wf G D (legalBswapTree target t xs₁ k₁) (legalBswapTree target t xs₂ k₂) := by
   intro t G D xs₁ xs₂ hxs k₁ k₂ hk
-  simp only [legalBswapTree]
+  dsimp only [legalBswapTree]
   split
   · exact .hlt
   · refine legalUnaryTree_wf target .bswap (fun _ => false)
@@ -202,7 +202,7 @@ theorem legalTernaryTree_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
     cases hxs with | cons ha _ => cases hys with | cons hb' _ => cases hzs with | cons hc _ =>
     exact hf f ha hb' hc fun hG' y₁ y₂ hy => hk hG' _ _ (TRel.single hy)
   | .pair t1 t2, G, D, xs₁, xs₂, ys₁, ys₂, zs₁, zs₂, hxs, hys, hzs, k₁, k₂, hk => by
-    simp only [legalTernaryTree]
+    dsimp only [legalTernaryTree]
     split
     · next h =>
       obtain ⟨hx1, _⟩ := TRel.cons_iff.1 (packedToTup_rel h hxs)
@@ -271,6 +271,7 @@ theorem legalTernaryTree_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
             hk (sub_trans hG1 hG2) _ _
               (tupToSplit_rel hff (TRel_tupAppend (TRel_argRel_weaken' hG2 hr1) hr2))
 
+@[expose]
 def OptRhsRel {V₁ V₂ : Ty → Type} (LG : Ctx (LVar target V₁) (LVar target V₂)) (t : Ty) :
     Option (Arg (LVar target V₁) t) → Option (Arg (LVar target V₂) t) → Prop
   | none, none => True
@@ -492,16 +493,16 @@ theorem legalBitsArith_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
     (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂,
       ArgRel G' (.bits (target.widenWidth n)) y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
     Wf G D (legalBitsArith target n code a₁ b₁ k₁) (legalBitsArith target n code a₂ b₂ k₂) := by
-  simp only [legalBitsArith]
+  dsimp only [legalBitsArith]
   split
   · exact hk (fun _ p => p) _ _ (.imm _)
-  · cases code <;> simp only
+  · cases code
     all_goals first
     | exact .hlt
     | exact Wf.let2 _ ha hb fun h1 r₁ r₂ hr =>
         emitMaskToN_wf n (target.widenWidth n) hr fun h2 y₁ y₂ hy => hk (sub_trans h1 h2) y₁ y₂ hy
     | exact Wf.let2 _ ha hb hk
-    | (split
+    | (simp only; split
        · exact Wf.let2 _ ha hb hk
        · first
          | exact emitCountMod_wf n (target.widenWidth n) hb fun h1 c₁ c₂ hc =>
@@ -540,7 +541,7 @@ theorem legalCmpTree_goMask_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty �
     rcases fx₁ with ⟨a₁, ⟨⟩⟩; rcases fx₂ with ⟨a₂, ⟨⟩⟩
     rcases fy₁ with ⟨b₁, ⟨⟩⟩; rcases fy₂ with ⟨b₂, ⟨⟩⟩
     cases hfx with | cons ha _ => cases hfy with | cons hb _ =>
-    simp only [legalCmpTree.goMask]
+    dsimp only [legalCmpTree.goMask]
     split
     · exact Wf.let2 _ ha hb fun h1 r₁ r₂ hr => hc h1 _ _ (TRel.single hr)
     · exact emitBoolCmp_wf o ha hb fun hG' r₁ r₂ hr => hc hG' _ _ (TRel.single hr)
@@ -548,7 +549,7 @@ theorem legalCmpTree_goMask_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty �
     rcases fx₁ with ⟨a₁, ⟨⟩⟩; rcases fx₂ with ⟨a₂, ⟨⟩⟩
     rcases fy₁ with ⟨b₁, ⟨⟩⟩; rcases fy₂ with ⟨b₂, ⟨⟩⟩
     cases hfx with | cons ha _ => cases hfy with | cons hb _ =>
-    simp only [legalCmpTree.goMask]
+    dsimp only [legalCmpTree.goMask]
     split
     · exact hc (fun _ p => p) _ _ (TRel.single (ArgRel.imm _))
     · split
@@ -562,7 +563,7 @@ theorem legalCmpTree_goMask_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty �
                   hc (sub_trans h1 (sub_trans h2 h3)) _ _ (TRel.single hr)
   | .float _, _, _, _, _, _, _, _, _, _, _, _ => .hlt
   | .pair u1 u2, _, _, fx₁, fx₂, fy₁, fy₂, hfx, hfy, c₁, c₂, hc => by
-    simp only [legalCmpTree.goMask]
+    dsimp only [legalCmpTree.goMask]
     obtain ⟨hx1, hx2⟩ := TRel_tupSplit hfx
     obtain ⟨hy1, hy2⟩ := TRel_tupSplit hfy
     refine legalCmpTree_goMask_wf o u1 hx1 hy1 fun h1 m1₁ m1₂ hm1 => ?_
@@ -584,7 +585,7 @@ theorem legalCmpTree_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
     rcases xs₁ with ⟨a₁, ⟨⟩⟩; rcases xs₂ with ⟨a₂, ⟨⟩⟩
     rcases ys₁ with ⟨b₁, ⟨⟩⟩; rcases ys₂ with ⟨b₂, ⟨⟩⟩
     cases hxs with | cons ha _ => cases hys with | cons hb _ =>
-    simp only [legalCmpTree]
+    dsimp only [legalCmpTree]
     split
     · exact Wf.let2 _ ha hb fun h1 r₁ r₂ hr => hk h1 _ _ (TRel.single hr)
     · exact emitBoolCmp_wf o ha hb fun hG' r₁ r₂ hr => hk hG' _ _ (TRel.single hr)
@@ -592,7 +593,7 @@ theorem legalCmpTree_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
     rcases xs₁ with ⟨a₁, ⟨⟩⟩; rcases xs₂ with ⟨a₂, ⟨⟩⟩
     rcases ys₁ with ⟨b₁, ⟨⟩⟩; rcases ys₂ with ⟨b₂, ⟨⟩⟩
     cases hxs with | cons ha _ => cases hys with | cons hb _ =>
-    simp only [legalCmpTree]
+    dsimp only [legalCmpTree]
     split
     · exact hk (fun _ p => p) _ _ (TRel.single (ArgRel.imm _))
     · split
@@ -627,7 +628,7 @@ theorem legalSelectTree_goSel_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty 
     rcases fx₁ with ⟨a₁, ⟨⟩⟩; rcases fx₂ with ⟨a₂, ⟨⟩⟩
     rcases fy₁ with ⟨b₁, ⟨⟩⟩; rcases fy₂ with ⟨b₂, ⟨⟩⟩
     cases hfx with | cons ha _ => cases hfy with | cons hb _ =>
-    simp only [legalSelectTree.goSel]
+    dsimp only [legalSelectTree.goSel]
     split
     · exact Wf.let3 _ hc ha hb fun h1 r₁ r₂ hr => hk h1 _ _ (TRel.single hr)
     · exact emitBoolSelect_wf hc ha hb fun hG' r₁ r₂ hr => hk hG' _ _ (TRel.single hr)
@@ -663,7 +664,7 @@ theorem legalSelectTree_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Ty
     rcases xs₁ with ⟨a₁, ⟨⟩⟩; rcases xs₂ with ⟨a₂, ⟨⟩⟩
     rcases ys₁ with ⟨b₁, ⟨⟩⟩; rcases ys₂ with ⟨b₂, ⟨⟩⟩
     cases hxs with | cons ha _ => cases hys with | cons hb _ =>
-    simp only [legalSelectTree]
+    dsimp only [legalSelectTree]
     split
     · exact Wf.let3 _ hc ha hb fun h1 r₁ r₂ hr => hk h1 _ _ (TRel.single hr)
     · exact emitBoolSelect_wf hc ha hb fun hG' r₁ r₂ hr => hk hG' _ _ (TRel.single hr)
@@ -701,7 +702,7 @@ theorem legalBlendTree_goBlend_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty
     rcases fx₁ with ⟨a₁, ⟨⟩⟩; rcases fx₂ with ⟨a₂, ⟨⟩⟩
     rcases fy₁ with ⟨b₁, ⟨⟩⟩; rcases fy₂ with ⟨b₂, ⟨⟩⟩
     cases hfm with | cons hc _ => cases hfx with | cons ha _ => cases hfy with | cons hb _ =>
-    simp only [legalBlendTree.goBlend]
+    dsimp only [legalBlendTree.goBlend]
     split
     · exact Wf.let3 _ hc ha hb fun h1 r₁ r₂ hr => hk h1 _ _ (TRel.single hr)
     · exact emitBoolSelect_wf hc ha hb fun hG' r₁ r₂ hr => hk hG' _ _ (TRel.single hr)
@@ -741,7 +742,7 @@ theorem legalBlendTree_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
     rcases xs₁ with ⟨a₁, ⟨⟩⟩; rcases xs₂ with ⟨a₂, ⟨⟩⟩
     rcases ys₁ with ⟨b₁, ⟨⟩⟩; rcases ys₂ with ⟨b₂, ⟨⟩⟩
     cases hms with | cons hc _ => cases hxs with | cons ha _ => cases hys with | cons hb _ =>
-    simp only [legalBlendTree]
+    dsimp only [legalBlendTree]
     split
     · exact Wf.let3 _ hc ha hb fun h1 r₁ r₂ hr => hk h1 _ _ (TRel.single hr)
     · exact emitBoolSelect_wf hc ha hb fun hG' r₁ r₂ hr => hk hG' _ _ (TRel.single hr)
@@ -953,12 +954,12 @@ theorem legalShufd_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {
   intro t G D xs₁ xs₂ hxs k₁ k₂ hk
   induction t generalizing G with
   | bool | bits _ | float _ =>
-    simp only [legalShufd]
+    dsimp only [legalShufd]
     split
     · exact .hlt
     · exact legalSimdScalar128_wf target h128 _ hxs hxs hk
   | pair a b iha ihb =>
-    simp only [legalShufd]
+    dsimp only [legalShufd]
     split
     · exact .hlt
     · split
@@ -991,13 +992,13 @@ theorem legalBlendw_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} 
   intro t G D xs₁ xs₂ ys₁ ys₂ hxs hys k₁ k₂ hk
   induction t generalizing G with
   | bool | bits _ | float _ =>
-    simp only [legalBlendw]
+    dsimp only [legalBlendw]
     split
     · exact .hlt
     · exact legalSimdScalar128_wf target (fun ha0 ha1 ha2 ha3 hb0 hb1 hb2 hb3 cont =>
         scalarBlendw128_wf imm ha0 ha1 ha2 ha3 hb0 hb1 hb2 hb3 cont) _ hxs hys hk
   | pair a b iha ihb =>
-    simp only [legalBlendw]
+    dsimp only [legalBlendw]
     split
     · exact .hlt
     · split
@@ -1034,13 +1035,13 @@ theorem legalAlignr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} 
   intro t G D xs₁ xs₂ ys₁ ys₂ hxs hys k₁ k₂ hk
   induction t generalizing G with
   | bool | bits _ | float _ =>
-    simp only [legalAlignr]
+    dsimp only [legalAlignr]
     split
     · exact .hlt
     · exact legalSimdScalar128_wf target (fun hh0 hh1 hh2 hh3 hl0 hl1 hl2 hl3 cont =>
         scalarAlignr128_wf imm hh0 hh1 hh2 hh3 hl0 hl1 hl2 hl3 cont) _ hxs hys hk
   | pair a b iha ihb =>
-    simp only [legalAlignr]
+    dsimp only [legalAlignr]
     split
     · exact .hlt
     · split
@@ -1076,13 +1077,13 @@ theorem legalShufb_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {
   intro t G D xs₁ xs₂ ys₁ ys₂ hxs hys k₁ k₂ hk
   induction t generalizing G with
   | bool | bits _ | float _ =>
-    simp only [legalShufb]
+    dsimp only [legalShufb]
     split
     · exact .hlt
     · exact legalSimdScalar128_wf target (fun ha0 ha1 ha2 ha3 hm0 hm1 hm2 hm3 cont =>
         scalarShufb128_wf ha0 ha1 ha2 ha3 hm0 hm1 hm2 hm3 cont) _ hxs hys hk
   | pair a b iha ihb =>
-    simp only [legalShufb]
+    dsimp only [legalShufb]
     split
     · exact .hlt
     · split
@@ -1117,7 +1118,7 @@ theorem legalFloatBit2_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
       :
     Wf G D (legalFloatBit2 target mkOp mkFOp f x₁ y₁ k₁)
            (legalFloatBit2 target mkOp mkFOp f x₂ y₂ k₂) := by
-  simp only [legalFloatBit2]
+  dsimp only [legalFloatBit2]
   split
   · exact Wf.let2 (mkFOp f) hx hy hk
   · exact Wf.let1 _ hx fun h1 bx₁ bx₂ hbx =>

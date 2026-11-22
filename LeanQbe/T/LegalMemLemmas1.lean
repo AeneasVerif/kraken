@@ -9,7 +9,7 @@ import all Kraken.Mem
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -551,7 +551,7 @@ private theorem emitStoreBits_go_wp (target : LegalTarget) (_hv : target.valid =
         (Int.toBytes cs.sum ((v.val.toNat : Int) / (256 : Int) ^ byteOff))) →
       wp Γ Q X (emitStoreBits.go w v ptr k byteOff cs) m
   | [], byteOff, m, _, _, _, hk => by
-    rw [emitStoreBits.go.eq_1]
+    dsimp only [emitStoreBits.go]
     simpa [List.sum_nil, Int.toBytes, memWp_storeBytes_nil] using hk
   | c :: rest, byteOff, m, hcs, hsum, hOk, hk => by
     have hcmem := hcs c List.mem_cons_self
@@ -566,8 +566,7 @@ private theorem emitStoreBits_go_wp (target : LegalTarget) (_hv : target.valid =
     have hOkC : storeOk m (.bits (8 * c)) (ptr.val + BitVec.ofNat 64 byteOff) := by
       apply memWp_storeOk_of_loadBytes
       simpa [Ty.bytes, Ty.size, show (8 * c + 7) / 8 = c by omega] using hLoadC
-    rw [emitStoreBits.go.eq_2]
-    dsimp only
+    dsimp only [emitStoreBits.go]
     have hShifted : ∀ (cont : Arg Val (.bits w) → Expr Val Cont rs),
         (∀ sv : Arg Val (.bits w), sv.val = v.val >>> (8 * byteOff) → wp Γ Q X (cont sv) m) →
         wp Γ Q X (if byteOff == 0 then cont v
@@ -958,7 +957,7 @@ private theorem loadByteChunksToWords64_wp (target : LegalTarget) (_hv : target.
   | [], byteOff, ws, acc, accBits, _, hsum, hS, k, hk => by
     simp only [List.sum_nil, Nat.add_zero] at hsum
     subst hsum
-    rw [loadByteChunksToWords64.eq_1]
+    dsimp only [loadByteChunksToWords64]
     have ⟨hBits, _, _⟩ := Words64Stream.finish hS
     by_cases h0 : accBits = 0
     · simp only [h0, beq_self_eq_true, ↓reduceIte] at hBits ⊢
@@ -977,8 +976,7 @@ private theorem loadByteChunksToWords64_wp (target : LegalTarget) (_hv : target.
         some (BitVec.ofInt (8 * c) (Int.ofBytes bs2)) := by
       apply memWp_loadVal_bits_of_loadBytes
       simpa [Ty.bytes, Ty.size, show (8 * c + 7) / 8 = c by omega] using h2
-    rw [loadByteChunksToWords64.eq_2]
-    dsimp only
+    dsimp only [loadByteChunksToWords64]
     refine emitLoadChunk64_wp c byteOff hcw64 hLoadChunk
       (fun wd => pushLeafWord64 (min (8 * c) 64) wd ws acc accBits fun ws' acc' bits' =>
         loadByteChunksToWords64 ptr (byteOff + c) rest ws' acc' bits' k)
@@ -1019,7 +1017,7 @@ private theorem storeByteChunksFromWords64_wp (target : LegalTarget) (_hv : targ
         (Int.toBytes cs.sum ((vec.toNat : Int) / (256 : Int) ^ byteOff))) →
       wp Γ Q X (storeByteChunksFromWords64 words ptr byteOff cs k) m
   | [], byteOff, m, _, _, _, hk => by
-    rw [storeByteChunksFromWords64.eq_1]
+    dsimp only [storeByteChunksFromWords64]
     simpa [List.sum_nil, Int.toBytes, memWp_storeBytes_nil] using hk
   | c :: rest, byteOff, m, hcs, hsum, hOk, hk => by
     have hcmem := hcs c List.mem_cons_self
@@ -1032,8 +1030,7 @@ private theorem storeByteChunksFromWords64_wp (target : LegalTarget) (_hv : targ
     have hOkC : storeOk m (.bits (8 * c)) (ptr.val + BitVec.ofNat 64 byteOff) := by
       apply memWp_storeOk_of_loadBytes
       simpa [Ty.bytes, Ty.size, show (8 * c + 7) / 8 = c by omega] using hLoadC
-    rw [storeByteChunksFromWords64.eq_2]
-    dsimp only
+    dsimp only [storeByteChunksFromWords64]
     refine extractBitsFromWords64_wp (by omega)
       (bits := fun j => vec.getLsbD (8 * byteOff + j))
       (fun j hj => hWords (8 * byteOff + j) (by omega))
@@ -1153,12 +1150,12 @@ theorem legalLoad_wp (target : LegalTarget) (hv : target.valid = true)
           (∀ r : LVar target Val t, valsTup r = encodeVal target t v → wp Γ Q X (k r) m) →
           wp Γ Q X (legalLoad target t ptr k) m
   | .bool, _, _, m, ptr, v, hLoad, k, hk => by
-    rw [legalLoad.eq_1, wp_load]
+    dsimp only [legalLoad]
+    rw [wp_load]
     exact ⟨v, hLoad,
       hk _ (by dsimp only [LegalTarget.legalTys, encodeVal]; rw [valsTup_single]; rfl)⟩
   | .bits n, hSup, _, m, ptr, v, hLoad, k, hk => by
-    rw [legalLoad.eq_2]
-    dsimp only
+    dsimp only [legalLoad]
     by_cases hnw : n = target.widenWidth n
     · have hbeq : (n == target.widenWidth n) = true := beq_iff_eq.mpr hnw
       simp only [hbeq, ↓reduceIte]
@@ -1180,12 +1177,12 @@ theorem legalLoad_wp (target : LegalTarget) (hv : target.valid = true)
       rw [valsTup_single]
       exact congrArg (·, ()) hr
   | .float f, _, _, m, ptr, v, hLoad, k, hk => by
-    rw [legalLoad.eq_3, wp_load]
+    dsimp only [legalLoad]
+    rw [wp_load]
     exact ⟨v, hLoad,
       hk _ (by dsimp only [LegalTarget.legalTys, encodeVal]; rw [valsTup_single]; rfl)⟩
   | .pair a b, hSup, hble, m, ptr, v, hLoad, k, hk => by
-    rw [legalLoad.eq_4]
-    dsimp only
+    dsimp only [legalLoad]
     by_cases hp : target.keepsPacked (.pair a b) = true
     · simp only [hp, ↓reduceDIte, wp_load]
       refine ⟨v, hLoad, hk _ (valsTup_tupToPacked_encode target hp (by rw [valsTup_single]; rfl))⟩
@@ -1251,14 +1248,14 @@ theorem legalStore_wp (target : LegalTarget) (hv : target.valid = true)
     dsimp only [encodeVal, LegalTarget.legalTys] at hxs
     rw [valsTup_single] at hxs
     have hvx : vx.val = v := congrArg Prod.fst hxs
-    rw [legalStore.eq_1, wp_store, hvx]
+    dsimp only [legalStore]
+    rw [wp_store, hvx]
     exact ⟨hOk, hk⟩
   | .bits n, hSup, _, m, (vx, ()), ptr, v, hxs, hOk, k, hk => by
     dsimp only [encodeVal, LegalTarget.legalTys] at hxs
     rw [valsTup_single] at hxs
     have hvx : vx.val = v.setWidth (target.widenWidth n) := congrArg Prod.fst hxs
-    rw [legalStore.eq_2]
-    dsimp only
+    dsimp only [legalStore]
     by_cases hnw : n = target.widenWidth n
     · have hbeq : (n == target.widenWidth n) = true := beq_iff_eq.mpr hnw
       simp only [hbeq, ↓reduceIte]
@@ -1276,11 +1273,11 @@ theorem legalStore_wp (target : LegalTarget) (hv : target.valid = true)
     dsimp only [encodeVal, LegalTarget.legalTys] at hxs
     rw [valsTup_single] at hxs
     have hvx : vx.val = v := congrArg Prod.fst hxs
-    rw [legalStore.eq_3, wp_store, hvx]
+    dsimp only [legalStore]
+    rw [wp_store, hvx]
     exact ⟨hOk, hk⟩
   | .pair a b, hSup, hble, m, xs, ptr, (va, vb), hxs, hOk, k, hk => by
-    rw [legalStore.eq_4]
-    dsimp only
+    dsimp only [legalStore]
     by_cases hp : target.keepsPacked (.pair a b) = true
     · simp only [hp, ↓reduceDIte, wp_store]
       have hpx := valsTup_packedToTup_encode target hp hxs

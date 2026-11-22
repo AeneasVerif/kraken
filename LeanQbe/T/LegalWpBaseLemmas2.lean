@@ -8,7 +8,7 @@ public import LeanQbe.T.LegalWpBaseLemmas1
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -242,7 +242,8 @@ theorem legalBitsArith_wp (target : LegalTarget) {Γ : Env} {rs : List Ty}
     have ha0 : a = 0#0 := bitVec0_eq_zero a
     have hb0 : b = 0#0 := bitVec0_eq_zero b
     subst ha0; subst hb0
-    simp only [beq_self_eq_true, ↓reduceIte]
+    split
+    case isFalse h => exact absurd rfl h
     have h0 : ∀ v : BitVec 0, v.setWidth (target.widenWidth 0) = 0#(target.widenWidth 0) :=
       fun v => by rw [bitVec0_eq_zero v, BitVec.setWidth_zero _ 0]
     cases c <;> try exact hc.elim
@@ -253,7 +254,8 @@ theorem legalBitsArith_wp (target : LegalTarget) {Γ : Env} {rs : List Ty}
       exact hk (.imm 0#(target.widenWidth 0)) (by simp [h0])
   · have hn0pos : 0 < n := Nat.pos_of_ne_zero hn0
     have hn0f : (n == 0) = false := beq_false_of_ne hn0
-    simp only [hn0f, Bool.false_eq_true, ↓reduceIte]
+    split
+    case isTrue h => exact absurd (hn0f.symm.trans h) Bool.false_ne_true
     cases c with
     | add _ =>
       dsimp only

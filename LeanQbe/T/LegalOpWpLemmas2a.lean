@@ -8,14 +8,14 @@ public import LeanQbe.T.LegalOpWpLemmas1
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
 section LegalWp
 
 /-- Partition predicate splitting `OpCode` cases across Part 1 (`copy`..`smulw`) and Part 2. -/
-def isLegalOpPart2 : {as rs : List Ty} → OpCode as rs → Bool
+@[expose] def isLegalOpPart2 : {as rs : List Ty} → OpCode as rs → Bool
   | _, _, .udiv _ | _, _, .sdiv _ | _, _, .urem _ | _, _, .srem _
   | _, _, .udiv0 _ | _, _, .sdiv0 _ | _, _, .mkpair _ _ | _, _, .unpair _ _
   | _, _, .bitcast _ _ _ | _, _, .shufd _ _ | _, _, .shufb _
@@ -50,7 +50,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rw [OpCode.wp_udiv] at hw
     rcases hw with ⟨hb0, hwP⟩
     have hn0 : n ≠ 0 := by intro h; subst h; exact hb0 (Subsingleton.elim _ _)
-    rw [legalOp.eq_35]
+    dsimp only [legalOp]
     dsimp only [Tup, LVar, LegalTarget.legalTys] at k ⊢
     have ha_val := valsTup_legalArg target hG ha
     have hb_val := valsTup_legalArg target hG hb
@@ -85,9 +85,11 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rw [OpCode.wp_sdiv] at hw
     rcases hw with ⟨hsdef, hwP⟩
     have hb0 : b₁.val ≠ 0 := by
-      unfold sdivDefined at hsdef; simp only [Bool.and_eq_true, bne_iff_ne] at hsdef; exact hsdef.1
+      dsimp only [sdivDefined] at hsdef
+      simp only [Bool.and_eq_true, bne_iff_ne] at hsdef
+      exact hsdef.1
     have hn0 : n ≠ 0 := by intro h; subst h; exact hb0 (Subsingleton.elim _ _)
-    rw [legalOp.eq_36]
+    dsimp only [legalOp]
     dsimp only [Tup, LVar, LegalTarget.legalTys] at k ⊢
     have ha_val := valsTup_legalArg target hG ha
     have hb_val := valsTup_legalArg target hG hb
@@ -124,7 +126,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rw [OpCode.wp_urem] at hw
     rcases hw with ⟨hb0, hwP⟩
     have hn0 : n ≠ 0 := by intro h; subst h; exact hb0 (Subsingleton.elim _ _)
-    rw [legalOp.eq_37]
+    dsimp only [legalOp]
     dsimp only [Tup, LVar, LegalTarget.legalTys] at k ⊢
     have ha_val := valsTup_legalArg target hG ha
     have hb_val := valsTup_legalArg target hG hb
@@ -159,9 +161,11 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rw [OpCode.wp_srem] at hw
     rcases hw with ⟨hsdef, hwP⟩
     have hb0 : b₁.val ≠ 0 := by
-      unfold sdivDefined at hsdef; simp only [Bool.and_eq_true, bne_iff_ne] at hsdef; exact hsdef.1
+      dsimp only [sdivDefined] at hsdef
+      simp only [Bool.and_eq_true, bne_iff_ne] at hsdef
+      exact hsdef.1
     have hn0 : n ≠ 0 := by intro h; subst h; exact hb0 (Subsingleton.elim _ _)
-    rw [legalOp.eq_38]
+    dsimp only [legalOp]
     dsimp only [Tup, LVar, LegalTarget.legalTys] at k ⊢
     have ha_val := valsTup_legalArg target hG ha
     have hb_val := valsTup_legalArg target hG hb
@@ -196,7 +200,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, b₁, b₂, _, _, hb, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_udiv0] at hw
-    rw [legalOp.eq_39]
+    dsimp only [legalOp]
     dsimp only [Tup, LVar, LegalTarget.legalTys] at k ⊢
     have ha_val := valsTup_legalArg target hG ha
     have hb_val := valsTup_legalArg target hG hb
@@ -244,7 +248,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, b₁, b₂, _, _, hb, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_sdiv0] at hw
-    rw [legalOp.eq_40]
+    dsimp only [legalOp]
     dsimp only [Tup, LVar, LegalTarget.legalTys] at k ⊢
     have ha_val := valsTup_legalArg target hG ha
     have hb_val := valsTup_legalArg target hG hb
@@ -302,10 +306,9 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, b₁, b₂, _, _, hb, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_mkpair] at hw
-    rw [legalOp.eq_41]
+    dsimp only [legalOp]
     dsimp only [LegalTarget.supportsOpCode] at hsupp
     simp only [Bool.and_eq_true] at hsupp
-    dsimp only
     by_cases hkp : target.keepsPacked (a.pair b) = true
     · simp only [hkp, ↓reduceDIte]
       refine packFromLegal_wp target a hsupp.1 (legalArg target a₂) a₁.val
@@ -324,10 +327,9 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, hp, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_unpair] at hw
-    rw [legalOp.eq_42]
+    dsimp only [legalOp]
     dsimp only [LegalTarget.supportsOpCode] at hsupp
     simp only [Bool.and_eq_true] at hsupp
-    dsimp only
     by_cases hkp : target.keepsPacked (a.pair b) = true
     · simp only [hkp, ↓reduceDIte]
       have hlp := valsTup_legalArg target hG hp
@@ -359,10 +361,9 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_bitcast] at hw
-    rw [legalOp.eq_43]
+    dsimp only [legalOp]
     dsimp only [LegalTarget.supportsOpCode] at hsupp
     simp only [Bool.and_eq_true] at hsupp
-    dsimp only
     by_cases heq : t = u
     · subst heq; simp only [↓reduceDIte]
       have hid : ofBits t (BitVec.cast rfl (toBits t a₁.val)) = a₁.val := ofBits_toBits t a₁.val
@@ -414,7 +415,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_shufd] at hw
     rcases hw with ⟨hne, hmod, hwP⟩
-    rw [legalOp.eq_44]
+    dsimp only [legalOp]
     exact legalShufd_wp target hv imm t hsupp hne hmod (legalArg target a₂) a₁.val
       (valsTup_legalArg target hG ha) (fun res => k (res, ())) m fun res hres =>
         hk _ _ (TRel.cons hres TRel.nil) hwP
@@ -425,7 +426,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_shufb] at hw
     rcases hw with ⟨hne, hmod, hwP⟩
-    rw [legalOp.eq_45]
+    dsimp only [legalOp]
     exact legalShufb_wp target hv t hsupp hne hmod (legalArg target a₂) (legalArg target b₂) a₁.val
       b₁.val
       (valsTup_legalArg target hG ha) (valsTup_legalArg target hG hb) (fun res => k (res, ())) m
@@ -437,7 +438,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_alignr] at hw
     rcases hw with ⟨hne, hmod, hwP⟩
-    rw [legalOp.eq_46]
+    dsimp only [legalOp]
     exact legalAlignr_wp target hv imm t hsupp hne hmod (legalArg target a₂) (legalArg target b₂)
       a₁.val b₁.val
       (valsTup_legalArg target hG ha) (valsTup_legalArg target hG hb) (fun res => k (res, ())) m
@@ -449,7 +450,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_blendw] at hw
     rcases hw with ⟨hne, hmod, hwP⟩
-    rw [legalOp.eq_47]
+    dsimp only [legalOp]
     exact legalBlendw_wp target hv imm t hsupp hne hmod (legalArg target a₂) (legalArg target b₂)
       a₁.val b₁.val
       (valsTup_legalArg target hG ha) (valsTup_legalArg target hG hb) (fun res => k (res, ())) m
@@ -461,7 +462,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     have hsupp := (Bool.and_eq_true _ _ |>.mp hsupp).1
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_sha256rnds2] at hw
-    rw [legalOp.eq_48]
+    dsimp only [legalOp]
     have hc_val := valsTup_legalArg target hG hc'
     have ha_val := valsTup_legalArg target hG ha
     have hw_val := valsTup_legalArg target hG hw'
@@ -507,7 +508,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     have hsupp := (Bool.and_eq_true _ _ |>.mp hsupp).1
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_sha256msg1] at hw
-    rw [legalOp.eq_49]
+    dsimp only [legalOp]
     have ha_val := valsTup_legalArg target hG ha
     have hb_val := valsTup_legalArg target hG hb
     split
@@ -546,7 +547,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     have hsupp := (Bool.and_eq_true _ _ |>.mp hsupp).1
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_sha256msg2] at hw
-    rw [legalOp.eq_50]
+    dsimp only [legalOp]
     have ha_val := valsTup_legalArg target hG ha
     have hb_val := valsTup_legalArg target hG hb
     split
@@ -582,25 +583,25 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
   | fadd t =>
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩
     rcases hargs with _ | @⟨_, _, b₁, b₂, _, _, hb, hargs⟩; cases hargs
-    rw [legalOp.eq_51]
+    dsimp only [legalOp]
     exact legalOp_floatBin_wp target hG OpCode.fadd Float.Model.UnpackedFloat.add
       (fun u x y p => OpCode.wp_fadd u (x, y, ()) p) (fun _ => rfl) hsupp ha hb hw hk
   | fsub t =>
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩
     rcases hargs with _ | @⟨_, _, b₁, b₂, _, _, hb, hargs⟩; cases hargs
-    rw [legalOp.eq_52]
+    dsimp only [legalOp]
     exact legalOp_floatBin_wp target hG OpCode.fsub Float.Model.UnpackedFloat.sub
       (fun u x y p => OpCode.wp_fsub u (x, y, ()) p) (fun _ => rfl) hsupp ha hb hw hk
   | fmul t =>
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩
     rcases hargs with _ | @⟨_, _, b₁, b₂, _, _, hb, hargs⟩; cases hargs
-    rw [legalOp.eq_53]
+    dsimp only [legalOp]
     exact legalOp_floatBin_wp target hG OpCode.fmul Float.Model.UnpackedFloat.mul
       (fun u x y p => OpCode.wp_fmul u (x, y, ()) p) (fun _ => rfl) hsupp ha hb hw hk
   | fdiv t =>
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩
     rcases hargs with _ | @⟨_, _, b₁, b₂, _, _, hb, hargs⟩; cases hargs
-    rw [legalOp.eq_54]
+    dsimp only [legalOp]
     exact legalOp_floatBin_wp target hG OpCode.fdiv Float.Model.UnpackedFloat.div
       (fun u x y p => OpCode.wp_fdiv u (x, y, ()) p) (fun _ => rfl) hsupp ha hb hw hk
   | ffma t =>
@@ -609,7 +610,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, c₁, c₂, _, _, hc', hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_ffma] at hw
-    rw [legalOp.eq_55]
+    dsimp only [legalOp]
     cases hft : t.isFloatTree
     · simp [hft] at hw
     · simp only [hft, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw ⊢
@@ -647,7 +648,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_fsqrt] at hw
-    rw [legalOp.eq_56]
+    dsimp only [legalOp]
     cases hft : t.isFloatTree
     · simp [hft] at hw
     · simp only [hft, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw ⊢
@@ -682,7 +683,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_fneg] at hw
-    rw [legalOp.eq_57]
+    dsimp only [legalOp]
     cases hft : t.isFloatTree
     · simp [hft] at hw
     · simp only [hft, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw ⊢
@@ -710,7 +711,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_fabs] at hw
-    rw [legalOp.eq_58]
+    dsimp only [legalOp]
     cases hft : t.isFloatTree
     · simp [hft] at hw
     · simp only [hft, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw ⊢
@@ -741,7 +742,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     cases hm
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_fcmp] at hw
-    rw [legalOp.eq_59]
+    dsimp only [legalOp]
     cases hft : t.isFloatTree
     · simp [hft] at hw
     · simp only [hft, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hw ⊢
@@ -753,7 +754,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_fptoui] at hw
-    rw [legalOp.eq_60]
+    dsimp only [legalOp]
     have ha_val := valsTup_legalArg target hG ha
     split
     · next a' hpa =>
@@ -793,7 +794,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_fptosi] at hw
     rcases hw with ⟨hn0, hw⟩
-    rw [legalOp.eq_61]
+    dsimp only [legalOp]
     have ha_val := valsTup_legalArg target hG ha
     split
     · next a' hpa =>
@@ -845,7 +846,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_uitofp] at hw
-    rw [legalOp.eq_62]
+    dsimp only [legalOp]
     have ha_val := valsTup_legalArg target hG ha
     split
     · next a' hpa =>
@@ -873,7 +874,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_sitofp] at hw
-    rw [legalOp.eq_63]
+    dsimp only [legalOp]
     have ha_val := valsTup_legalArg target hG ha
     split
     · next a' hpa =>
@@ -900,7 +901,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     rcases hargs with _ | @⟨_, _, a₁, a₂, _, _, ha, hargs⟩; cases hargs
     dsimp only [Op.wp, vals] at hw
     rw [OpCode.wp_fcvt] at hw
-    rw [legalOp.eq_64]
+    dsimp only [legalOp]
     have ha_val := valsTup_legalArg target hG ha
     rcases hpa : legalArg target a₂ with ⟨a', ⟨⟩⟩; rw [hpa] at ha_val
     have haeq : a'.val = a₁.val := (Prod.mk.inj ha_val).1
@@ -908,7 +909,7 @@ theorem legalOp_wp_part2 (target : LegalTarget) (hv : target.valid = true)
     have hmono : ∀ (src dst : Fmt) (b : BitVec src.width) {p q : BitVec dst.width → Prop},
         (∀ r, p r → q r) → convertFloat src dst b p → convertFloat src dst b q := by
       intro src dst b p q hpq hcf
-      unfold convertFloat at hcf ⊢
+      dsimp only [convertFloat] at hcf ⊢
       cases huf : unpackFloat src b with
       | notANumber => simp only [huf] at hcf; exact fun r hr => hpq r (hcf r hr)
       | _ => simp only [huf] at hcf; exact hpq _ hcf

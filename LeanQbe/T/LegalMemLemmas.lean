@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.LegalMemLemmas1
-import all Kraken.Mem
 
 /-!
 # Legalization `legalExpr_wp`, `Func.legal_wp`, and `Func.legal_spec` (`T5`, Part 4b)
@@ -9,7 +8,7 @@ import all Kraken.Mem
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -66,55 +65,51 @@ private theorem exprSupports_of_wf_toTFlat (target : LegalTarget) :
   induction hwf using Wf.induct with
   | @let_ G D ts op₁ op₂ k₁ k₂ hop hk ih =>
     intro nv nl hs
-    rw [toTFlat.eq_1] at hs
-    simp only [TFlat.supportsSource, Bool.and_eq_true] at hs
+    dsimp only [toTFlat, TFlat.supportsSource] at hs
+    simp only [Bool.and_eq_true] at hs
     rcases hop with ⟨code, _⟩
     exact ExprSupports.let_ _ k₂ hs.1 fun xs =>
       ih (Tup.levels ts nv) xs (nv + ts.length) nl hs.2
   | @load G D t a₁ a₂ k₁ k₂ ha hk ih =>
     intro nv nl hs
-    rw [toTFlat.eq_2] at hs
-    simp only [TFlat.supportsSource, Bool.and_eq_true, decide_eq_true_eq] at hs
+    dsimp only [toTFlat, TFlat.supportsSource] at hs
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hs
     exact ExprSupports.load t a₂ k₂ hs.1.1 hs.1.2 fun v => ih nv v (nv + 1) nl hs.2
   | @store G D t v₁ v₂ a₁ a₂ k₁ k₂ hv ha hk ih =>
     intro nv nl hs
-    rw [toTFlat.eq_3] at hs
-    simp only [TFlat.supportsSource, Bool.and_eq_true, decide_eq_true_eq] at hs
+    dsimp only [toTFlat, TFlat.supportsSource] at hs
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hs
     exact ExprSupports.store v₂ a₂ k₂ hs.1.1 hs.1.2 (ih nv nl hs.2)
   | @call G D f as bs args₁ args₂ k₁ k₂ hargs hk ih =>
     intro nv nl hs
-    rw [toTFlat.eq_4] at hs
-    simp only [TFlat.supportsSource, Bool.and_eq_true] at hs
+    dsimp only [toTFlat, TFlat.supportsSource] at hs
+    simp only [Bool.and_eq_true] at hs
     exact ExprSupports.call f args₂ k₂ hs.1.1 hs.1.2 fun xs =>
       ih (Tup.levels bs nv) xs (nv + bs.length) nl hs.2
   | @jnz G D c₁ c₂ t₁ t₂ e₁ e₂ hc ht he iht ihe =>
     intro nv nl hs
-    rw [toTFlat.eq_5] at hs
-    simp only [TFlat.supportsSource, Bool.and_eq_true] at hs
+    dsimp only [toTFlat, TFlat.supportsSource] at hs
+    simp only [Bool.and_eq_true] at hs
     exact ExprSupports.jnz c₂ t₂ e₂ (iht nv nl hs.1) (ihe nv nl hs.2)
   | @jump G D ts j₁ j₂ args₁ args₂ hj hargs =>
     intro nv nl hs
-    rw [toTFlat.eq_6] at hs
-    simp only [TFlat.supportsSource] at hs
+    dsimp only [toTFlat, TFlat.supportsSource] at hs
     exact ExprSupports.jump (rs := rs) j₂ args₂ hs
   | @ret G D vs₁ vs₂ hvs =>
     intro nv nl hs
-    rw [toTFlat.eq_7] at hs
-    simp only [TFlat.supportsSource] at hs
+    dsimp only [toTFlat, TFlat.supportsSource] at hs
     exact ExprSupports.ret vs₂ hs
   | @exit G D f as args₁ args₂ hargs =>
     intro nv nl hs
-    rw [toTFlat.eq_8] at hs
-    simp only [TFlat.supportsSource] at hs
+    dsimp only [toTFlat, TFlat.supportsSource] at hs
     exact ExprSupports.exit (rs := rs) f args₂ hs
   | @hlt G D =>
     intro _ _ _
     exact ExprSupports.hlt
   | @group G D sig b₁ b₂ k₁ k₂ hb hk ihb ihk =>
     intro nv nl hs
-    rw [toTFlat.eq_10] at hs
-    dsimp only at hs
-    simp only [TFlat.supportsSource, Bool.and_eq_true] at hs
+    dsimp only [toTFlat, TFlat.supportsSource] at hs
+    simp only [Bool.and_eq_true] at hs
     refine ExprSupports.group b₂ k₂ hs.1.1 (fun Js ts i xs => ?_) (fun Js => ?_)
     · have hget := toTBlocks_get target (b₁ (Tup.levels sig nl)) i nv (nl + sig.length) hs.1.2
       exact ihb (Tup.levels sig nl) Js i (Tup.levels ts nv) xs (nv + ts.length) (nl + sig.length)
@@ -156,7 +151,7 @@ private theorem legalExpr_wp (target : LegalTarget) (hv : target.valid = true)
   | @let_ G D ts op₁ op₂ k₁ k₂ hop hk ih =>
     intro hG hD hSupp Q X m hwp
     rw [wp_let] at hwp
-    rw [legalExpr.eq_1]
+    dsimp only [legalExpr]
     cases hSupp with | let_ _ _ hs_op hs_k =>
     refine legalOp_wp target hv hG hop hs_op hwp fun r lr hrel hr => ?_
     exact ih r lr (CGoodWp.pushTRel target hG hrel) hD (hs_k r) hr
@@ -169,7 +164,8 @@ private theorem legalExpr_wp (target : LegalTarget) (hv : target.valid = true)
       simp only [LegalTarget.valid, Bool.and_eq_true, decide_eq_true_eq] at hv
       exact hv.1.1.2
     have h64 : target.widenWidth 64 = 64 := widenWidth_eq_self_of_mem target h64mem
-    rw [legalExpr.eq_2, dite_eq_left h64]
+    dsimp only [legalExpr]
+    rw [dite_eq_left h64]
     have hap : (castArgBits h64 (legalArg target a₂).fst).val = a₁.val :=
       cast_legalArg_i64_val target hv hG ha h64
     refine legalLoad_wp target hv t hst hble (ptr := castArgBits h64 (legalArg target a₂).fst)
@@ -188,7 +184,8 @@ private theorem legalExpr_wp (target : LegalTarget) (hv : target.valid = true)
       simp only [LegalTarget.valid, Bool.and_eq_true, decide_eq_true_eq] at hv
       exact hv.1.1.2
     have h64 : target.widenWidth 64 = 64 := widenWidth_eq_self_of_mem target h64mem
-    rw [legalExpr.eq_3, dite_eq_left h64]
+    dsimp only [legalExpr]
+    rw [dite_eq_left h64]
     have hap : (castArgBits h64 (legalArg target a₂).fst).val = a₁.val :=
       cast_legalArg_i64_val target hv hG ha h64
     refine legalStore_wp target hv t hst hble (xs := legalArg target v₂)
@@ -199,7 +196,7 @@ private theorem legalExpr_wp (target : LegalTarget) (hv : target.valid = true)
   | @call G D f as bs args₁ args₂ k₁ k₂ hargs hk ih =>
     intro hG hD hSupp Q X m hwp
     cases hSupp with | call _ _ _ _ _ hs_k =>
-    rw [legalExpr.eq_4]
+    dsimp only [legalExpr]
     dsimp only [wp, wp._f] at hwp ⊢
     rcases hwp with ⟨P, E, hCall, hPost, hExit⟩
     refine ⟨legalPost target P, legalXPost target E, ?_, ?_, ?_⟩
@@ -217,7 +214,8 @@ private theorem legalExpr_wp (target : LegalTarget) (hv : target.valid = true)
     intro hG hD hSupp Q X m hwp
     cases hSupp with | jnz _ _ _ hst hse =>
     rw [wp_jnz] at hwp
-    rw [legalExpr.eq_5, wp_jnz]
+    dsimp only [legalExpr]
+    rw [wp_jnz]
     have hcv := valsTup_legalArg target hG hc
     dsimp only [encodeVal, LegalTarget.legalTys, valsTup, Tup.map] at hcv
     have hceq : (legalArg target c₂).fst.val = c₁.val := congrArg Prod.fst hcv
@@ -226,7 +224,8 @@ private theorem legalExpr_wp (target : LegalTarget) (hv : target.valid = true)
   | @jump G D ts j₁ j₂ args₁ args₂ hj hargs =>
     intro hG hD _ Q X m hwp
     rw [wp_jump] at hwp
-    rw [legalExpr.eq_6, wp_jump]
+    dsimp only [legalExpr]
+    rw [wp_jump]
     have hJoin := valsTup_joinArgs target hG hargs
     rw [valsTup_eq_vals, valsTup_eq_vals] at hJoin
     rw [hJoin]
@@ -234,14 +233,16 @@ private theorem legalExpr_wp (target : LegalTarget) (hv : target.valid = true)
   | @ret G D vs₁ vs₂ hvs =>
     intro hG _ _ Q X m hwp
     rw [wp_ret] at hwp
-    rw [legalExpr.eq_7, wp_ret]
+    dsimp only [legalExpr]
+    rw [wp_ret]
     have hJoin := valsTup_joinArgs target hG hvs
     rw [valsTup_eq_vals, valsTup_eq_vals] at hJoin
     exact ⟨vals vs₁, hJoin.symm, hwp⟩
   | @exit G D f as args₁ args₂ hargs =>
     intro hG _ _ Q X m hwp
     rw [wp_exit] at hwp
-    rw [legalExpr.eq_8, wp_exit]
+    dsimp only [legalExpr]
+    rw [wp_exit]
     have hJoin := valsTup_joinArgs target hG hargs
     rw [valsTup_eq_vals, valsTup_eq_vals] at hJoin
     exact ⟨as, rfl, vals args₁, hJoin.symm, hwp⟩
@@ -251,7 +252,7 @@ private theorem legalExpr_wp (target : LegalTarget) (hv : target.valid = true)
   | @group G D sig b₁ b₂ k₁ k₂ hb hk ihb ihk =>
     intro hG hD hSupp Q X m hwp
     cases hSupp with | group _ _ _ hs_b hs_k =>
-    rw [legalExpr.eq_10]
+    dsimp only [legalExpr]
     dsimp only [wp, wp._f] at hwp ⊢
     intro Js2 hClosed2
     have hD' :
@@ -284,7 +285,7 @@ theorem Func.legal_wp_of_refines (target : LegalTarget) {as rs : List Ty} (f : F
   have hv : target.valid = true := by
     simp only [Func.supportsSource, Bool.and_eq_true] at hsupp
     exact hsupp.1.1.1
-  unfold Func.wp Func.legal
+  dsimp only [Func.wp, Func.legal]
   exact legalExpr_wp target hv hEnv
     (hf Val (LVar target Val) Cont (LLab target Cont) xs
       (splitParams target as (encodeTup target as xs)))

@@ -8,7 +8,7 @@ public import LeanQbe.T.LegalWfOpsLemmas1
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -1183,7 +1183,7 @@ theorem legalLoad_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {r
     Wf.load1 .bool hp fun h1 y₁ y₂ hy =>
       hk h1 _ _ (TRel.single hy)
   | .bits n, _, _, _, _, hp, _, _, hk => by
-    simp only [legalLoad]
+    dsimp only [legalLoad]
     split
     · exact Wf.load1 (.bits (target.widenWidth n)) hp fun h1 y₁ y₂ hy =>
         hk h1 _ _ (TRel.single hy)
@@ -1193,7 +1193,7 @@ theorem legalLoad_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {r
     Wf.load1 (.float f) hp fun h1 y₁ y₂ hy =>
       hk h1 _ _ (TRel.single hy)
   | .pair a b, G, D, p₁, p₂, hp, k₁, k₂, hk => by
-    simp only [legalLoad]
+    dsimp only [legalLoad]
     split
     · next h =>
       exact Wf.load1 (.pair a b) hp fun h1 v₁ v₂ hv =>
@@ -1244,7 +1244,7 @@ theorem legalStore_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {
   | .bits n, _, _, xs₁, xs₂, _, _, hxs, hp, _, _, hk => by
     rcases xs₁ with ⟨v₁, ⟨⟩⟩; rcases xs₂ with ⟨v₂, ⟨⟩⟩
     cases hxs with | cons hv _ =>
-    simp only [legalStore]
+    dsimp only [legalStore]
     split
     · exact .store hv hp (hk (fun _ q => q))
     · exact emitStoreBits_wf target.bitWidths n (target.widenWidth n) hv hp hk
@@ -1252,7 +1252,7 @@ theorem legalStore_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {
     rcases xs₁ with ⟨v₁, ⟨⟩⟩; rcases xs₂ with ⟨v₂, ⟨⟩⟩
     cases hxs with | cons hv _ => exact .store hv hp (hk (fun _ q => q))
   | .pair a b, G, D, xs₁, xs₂, p₁, p₂, hxs, hp, k₁, k₂, hk => by
-    simp only [legalStore]
+    dsimp only [legalStore]
     split
     · next h =>
       obtain ⟨h1, _⟩ := TRel.cons_iff.1 (packedToTup_rel h hxs)
@@ -1308,7 +1308,7 @@ theorem legalBlocks_wf_aux {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Ty
       WfB G D (legalBlocks target b₁) (legalBlocks target b₂)
   | [], .nil, .nil, _, _, _ => .nil
   | _ :: _, .cons _ _, .cons _ _, _, _, ih => by
-    simp only [legalBlocks]
+    dsimp only [legalBlocks]
     exact .cons (fun ys₁ ys₂ => ih .here ys₁ ys₂)
       (legalBlocks_wf_aux fun i ys₁ ys₂ => ih (.there i) ys₁ ys₂)
 
@@ -1325,18 +1325,18 @@ theorem legalExpr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {r
       CGood target G LG' → DGood target D LD' →
       Wf G D (legalExpr target e₁') (legalExpr target e₂')) ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ hwf
   · intro LG LD ts op₁ op₂ k₁ k₂ hop hk ihk G D hc hd
-    simp only [legalExpr]
+    dsimp only [legalExpr]
     exact legalOp_wf target hc hop fun hG' y₁ y₂ hy =>
       ihk y₁ y₂ (CGood.pushTRel target (CGood.weaken target hG' hc) hy) hd
   · intro LG LD t a₁ a₂ k₁ k₂ ha hk ihk G D hc hd
-    simp only [legalExpr]
+    dsimp only [legalExpr]
     split
     · next h64 =>
       refine legalLoad_wf target t (castArgBits_rel h64 (legalArg_bits_fst_rel target hc ha))
         fun hG' y₁ y₂ hy => ihk y₁ y₂ (CGood.cons target (CGood.weaken target hG' hc) hy) hd
     · exact .hlt
   · intro LG LD t v₁ v₂ a₁ a₂ k₁ k₂ hv ha hk ihk G D hc hd
-    simp only [legalExpr]
+    dsimp only [legalExpr]
     split
     · next h64 =>
       exact legalStore_wf target t (legalArg_rel target hc hv)
@@ -1344,27 +1344,27 @@ theorem legalExpr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {r
         fun hG' => ihk (CGood.weaken target hG' hc) hd
     · exact .hlt
   · intro LG LD f as bs args₁ args₂ k₁ k₂ hargs hk ihk G D hc hd
-    simp only [legalExpr]
+    dsimp only [legalExpr]
     exact .call f (joinArgs_rel target hc hargs) fun res₁ res₂ =>
       ihk (splitParams target bs res₁) (splitParams target bs res₂)
         (CGood.pushSplit target hc bs res₁ res₂) hd
   · intro LG LD c₁ c₂ t₁ t₂ e₁ e₂ hcd ht he iht ihe G D hc hd
-    simp only [legalExpr]
+    dsimp only [legalExpr]
     exact .jnz (legalArg_bool_fst_rel target hc hcd) (iht hc hd) (ihe hc hd)
   · intro LG LD ts j₁ j₂ args₁ args₂ hj hargs G D hc hd
-    simp only [legalExpr]
+    dsimp only [legalExpr]
     exact .jump (hd ts j₁ j₂ hj) (joinArgs_rel target hc hargs)
   · intro LG LD vs₁ vs₂ hvs G D hc hd
-    simp only [legalExpr]
+    dsimp only [legalExpr]
     exact .ret (joinArgs_rel target hc hvs)
   · intro LG LD f as args₁ args₂ hargs G D hc hd
-    simp only [legalExpr]
+    dsimp only [legalExpr]
     exact .exit f (joinArgs_rel target hc hargs)
   · intro LG LD G D _ _
-    simp only [legalExpr]
+    dsimp only [legalExpr]
     exact .hlt
   · intro LG LD sig b₁ b₂ k₁ k₂ hb hk ihb ihk G D hc hd
-    simp only [legalExpr]
+    dsimp only [legalExpr]
     refine .group (fun Js₁ Js₂ => legalBlocks_wf_aux target fun i ys₁ ys₂ =>
       ihb (tupLiftMap target.legalSig _ Js₁) (tupLiftMap target.legalSig _ Js₂) i
         (splitParams target _ ys₁) (splitParams target _ ys₂)

@@ -8,7 +8,7 @@ public import LeanQbe.T.LegalWpSimdLemmas1
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -24,18 +24,17 @@ private theorem scalarShufb128_muxBytes_wp {Γ : Env} {rs : List Ty} {Q : Post r
         wp Γ Q X (k r) m) →
       wp Γ Q X (scalarShufb128.muxBytes idx bs j k) m
   | [], j, k, m, hk => by
-    rw [scalarShufb128.muxBytes.eq_def]
+    dsimp only [scalarShufb128.muxBytes]
     exact hk (.imm 0#8) (fun hne _ _ => absurd rfl hne)
   | [b], j, k, m, hk => by
-    rw [scalarShufb128.muxBytes.eq_def]
+    dsimp only [scalarShufb128.muxBytes]
     apply hk b
     intro _ hle hlt
     simp only [List.length_singleton] at hlt
     have hsub : idx.val.toNat - j = 0 := by omega
     simp [hsub]
   | b :: b' :: bs, j, k, m, hk => by
-    rw [scalarShufb128.muxBytes.eq_def]
-    dsimp only
+    dsimp only [scalarShufb128.muxBytes]
     apply scalarShufb128_muxBytes_wp idx (b' :: bs) (j + 1)
     intro rest hRest
     dsimp only [wp, Op.wp, op2, op3, vals]
@@ -741,7 +740,7 @@ private theorem simdPair_split_shuffleDwords (a b : Ty) (ha : a.size ≠ 0 ∧ a
     ofBits (.pair a b) (shuffleDwords (toBits (.pair a b) x) imm) =
       (ofBits a (shuffleDwords (toBits a x.1) imm),
        ofBits b (shuffleDwords (toBits b x.2) imm)) := by
-  rw [ofBits.eq_4]
+  dsimp only [ofBits]
   congr 1
   · congr 1
     apply BitVec.eq_of_getLsbD_eq; intro j hj
@@ -792,7 +791,7 @@ private theorem simdPair_split_blendWords (a b : Ty) (ha : a.size ≠ 0 ∧ a.si
     ofBits (.pair a b) (blendWords (toBits (.pair a b) x) (toBits (.pair a b) y) imm) =
       (ofBits a (blendWords (toBits a x.1) (toBits a y.1) imm),
        ofBits b (blendWords (toBits b x.2) (toBits b y.2) imm)) := by
-  rw [ofBits.eq_4]
+  dsimp only [ofBits]
   congr 1
   · congr 1
     apply BitVec.eq_of_getLsbD_eq; intro j hj
@@ -835,7 +834,7 @@ private theorem simdPair_split_alignBytes (a b : Ty) (ha : a.size ≠ 0 ∧ a.si
     ofBits (.pair a b) (alignBytes (toBits (.pair a b) hi) (toBits (.pair a b) lo) imm) =
       (ofBits a (alignBytes (toBits a hi.1) (toBits a lo.1) imm),
        ofBits b (alignBytes (toBits b hi.2) (toBits b lo.2) imm)) := by
-  rw [ofBits.eq_4]
+  dsimp only [ofBits]
   congr 1
   · congr 1
     apply BitVec.eq_of_getLsbD_eq; intro j hj
@@ -900,7 +899,7 @@ private theorem simdPair_split_shuffleBytes (a b : Ty) (ha : a.size ≠ 0 ∧ a.
     ofBits (.pair a b) (shuffleBytes (toBits (.pair a b) x) (toBits (.pair a b) m)) =
       (ofBits a (shuffleBytes (toBits a x.1) (toBits a m.1)),
        ofBits b (shuffleBytes (toBits b x.2) (toBits b m.2))) := by
-  rw [ofBits.eq_4]
+  dsimp only [ofBits]
   congr 1
   · congr 1
     apply BitVec.eq_of_getLsbD_eq; intro j hj
@@ -975,10 +974,9 @@ theorem legalShufd_wp (target : LegalTarget) (hv : target.valid = true)
           wp Γ Q X (k res) m) →
         wp Γ Q X (legalShufd target imm t xs k) m
   | t, ht, hNe, hMod, xs, x, hx, k, m, hk => by
-    rw [legalShufd.eq_def]
-    have hBad : (t.size == 0 || t.size % 128 != 0) = false := by
-      simp [beq_false_of_ne hNe, hMod]
-    simp only [hBad, Bool.false_eq_true, ↓reduceIte]
+    have hBad : ∀ {u : Ty}, u.size ≠ 0 → u.size % 128 = 0 →
+        (u.size == 0 || u.size % 128 != 0) = false := fun h1 h2 => by
+      simp [beq_false_of_ne h1, h2]
     have hOn128 : ∀ {a0 a1 a2 a3 b0 b1 b2 b3 : Arg Val i32} {u _v : BitVec 128}
         (cont : Arg Val i32 → Arg Val i32 → Arg Val i32 → Arg Val i32 → Expr Val Cont rs)
           (mem : Mem 64),
@@ -999,12 +997,15 @@ theorem legalShufd_wp (target : LegalTarget) (hv : target.valid = true)
       exact hcont _ _ _ _ h0 h1 h2 h3
     cases t with
     | bool | bits _ | float _ =>
+      dsimp only [legalShufd]
+      simp only [hBad hNe hMod, Bool.false_eq_true, ↓reduceIte]
       exact legalSimdScalar128_wp target hv _ (fun u _ => shuffleDwords u imm) hOn128
         _ ht ⟨hNe, hMod⟩ xs xs x x hx hx _
         (fun q hq j hj => extractLsb_128_shuffleDwords hMod (toBits _ x) q hq imm j hj)
         k m hk
     | pair a b =>
-      dsimp only
+      dsimp only [legalShufd]
+      simp only [hBad hNe hMod, Bool.false_eq_true, ↓reduceIte]
       by_cases hPack : target.keepsPacked (.pair a b) = true
       · simp only [hPack, ↓reduceDIte]
         by_cases hVec : target.vecIntOpSupported (.shufd (.pair a b) imm) (.pair a b) false = true
@@ -1066,10 +1067,9 @@ theorem legalBlendw_wp (target : LegalTarget) (hv : target.valid = true)
           wp Γ Q X (k res) m) →
         wp Γ Q X (legalBlendw target imm t xs ys k) m
   | t, ht, hNe, hMod, xs, ys, x, y, hx, hy, k, m, hk => by
-    rw [legalBlendw.eq_def]
-    have hBad : (t.size == 0 || t.size % 128 != 0) = false := by
-      simp [beq_false_of_ne hNe, hMod]
-    simp only [hBad, Bool.false_eq_true, ↓reduceIte]
+    have hBad : ∀ {u : Ty}, u.size ≠ 0 → u.size % 128 = 0 →
+        (u.size == 0 || u.size % 128 != 0) = false := fun h1 h2 => by
+      simp [beq_false_of_ne h1, h2]
     have hOn128 : ∀ {a0 a1 a2 a3 b0 b1 b2 b3 : Arg Val i32} {u v : BitVec 128}
         (cont : Arg Val i32 → Arg Val i32 → Arg Val i32 → Arg Val i32 → Expr Val Cont rs)
           (mem : Mem 64),
@@ -1088,12 +1088,15 @@ theorem legalBlendw_wp (target : LegalTarget) (hv : target.valid = true)
         scalarBlendw128_wp imm ha0 ha1 ha2 ha3 hb0 hb1 hb2 hb3 hcont
     cases t with
     | bool | bits _ | float _ =>
+      dsimp only [legalBlendw]
+      simp only [hBad hNe hMod, Bool.false_eq_true, ↓reduceIte]
       exact legalSimdScalar128_wp target hv _ (fun u v => blendWords u v imm) hOn128
         _ ht ⟨hNe, hMod⟩ xs ys x y hx hy _
         (fun q hq j hj => extractLsb_128_blendWords hMod (toBits _ x) (toBits _ y) q hq imm j hj)
         k m hk
     | pair a b =>
-      dsimp only
+      dsimp only [legalBlendw]
+      simp only [hBad hNe hMod, Bool.false_eq_true, ↓reduceIte]
       by_cases hPack : target.keepsPacked (.pair a b) = true
       · simp only [hPack, ↓reduceDIte]
         by_cases hVec : target.vecIntOpSupported (.blendw (.pair a b) imm) (.pair a b) false = true
@@ -1167,10 +1170,9 @@ theorem legalAlignr_wp (target : LegalTarget) (hv : target.valid = true)
           wp Γ Q X (k res) m) →
         wp Γ Q X (legalAlignr target imm t xs ys k) m
   | t, ht, hNe, hMod, xs, ys, x, y, hx, hy, k, m, hk => by
-    rw [legalAlignr.eq_def]
-    have hBad : (t.size == 0 || t.size % 128 != 0) = false := by
-      simp [beq_false_of_ne hNe, hMod]
-    simp only [hBad, Bool.false_eq_true, ↓reduceIte]
+    have hBad : ∀ {u : Ty}, u.size ≠ 0 → u.size % 128 = 0 →
+        (u.size == 0 || u.size % 128 != 0) = false := fun h1 h2 => by
+      simp [beq_false_of_ne h1, h2]
     have hOn128 : ∀ {a0 a1 a2 a3 b0 b1 b2 b3 : Arg Val i32} {u v : BitVec 128}
         (cont : Arg Val i32 → Arg Val i32 → Arg Val i32 → Arg Val i32 → Expr Val Cont rs)
           (mem : Mem 64),
@@ -1189,12 +1191,15 @@ theorem legalAlignr_wp (target : LegalTarget) (hv : target.valid = true)
         scalarAlignr128_wp imm ha0 ha1 ha2 ha3 hb0 hb1 hb2 hb3 hcont
     cases t with
     | bool | bits _ | float _ =>
+      dsimp only [legalAlignr]
+      simp only [hBad hNe hMod, Bool.false_eq_true, ↓reduceIte]
       exact legalSimdScalar128_wp target hv _ (fun u v => alignBytes u v imm) hOn128
         _ ht ⟨hNe, hMod⟩ xs ys x y hx hy _
         (fun q hq j hj => extractLsb_128_alignBytes hMod (toBits _ x) (toBits _ y) q hq imm j hj)
         k m hk
     | pair a b =>
-      dsimp only
+      dsimp only [legalAlignr]
+      simp only [hBad hNe hMod, Bool.false_eq_true, ↓reduceIte]
       by_cases hPack : target.keepsPacked (.pair a b) = true
       · simp only [hPack, ↓reduceDIte]
         by_cases hVec : target.vecIntOpSupported (.alignr (.pair a b) imm) (.pair a b) false = true
@@ -1268,10 +1273,9 @@ theorem legalShufb_wp (target : LegalTarget) (hv : target.valid = true)
           wp Γ Q X (k res) m) →
         wp Γ Q X (legalShufb target t xs ys k) m
   | t, ht, hNe, hMod, xs, ys, x, y, hx, hy, k, m, hk => by
-    rw [legalShufb.eq_def]
-    have hBad : (t.size == 0 || t.size % 128 != 0) = false := by
-      simp [beq_false_of_ne hNe, hMod]
-    simp only [hBad, Bool.false_eq_true, ↓reduceIte]
+    have hBad : ∀ {u : Ty}, u.size ≠ 0 → u.size % 128 = 0 →
+        (u.size == 0 || u.size % 128 != 0) = false := fun h1 h2 => by
+      simp [beq_false_of_ne h1, h2]
     have hOn128 : ∀ {a0 a1 a2 a3 b0 b1 b2 b3 : Arg Val i32} {u v : BitVec 128}
         (cont : Arg Val i32 → Arg Val i32 → Arg Val i32 → Arg Val i32 → Expr Val Cont rs)
           (mem : Mem 64),
@@ -1290,12 +1294,15 @@ theorem legalShufb_wp (target : LegalTarget) (hv : target.valid = true)
         scalarShufb128_wp ha0 ha1 ha2 ha3 hb0 hb1 hb2 hb3 hcont
     cases t with
     | bool | bits _ | float _ =>
+      dsimp only [legalShufb]
+      simp only [hBad hNe hMod, Bool.false_eq_true, ↓reduceIte]
       exact legalSimdScalar128_wp target hv _ shuffleBytes hOn128
         _ ht ⟨hNe, hMod⟩ xs ys x y hx hy _
         (fun q hq j hj => extractLsb_128_shuffleBytes hMod (toBits _ x) (toBits _ y) q hq j hj)
         k m hk
     | pair a b =>
-      dsimp only
+      dsimp only [legalShufb]
+      simp only [hBad hNe hMod, Bool.false_eq_true, ↓reduceIte]
       by_cases hPack : target.keepsPacked (.pair a b) = true
       · simp only [hPack, ↓reduceDIte]
         by_cases hVec : target.vecIntOpSupported (.shufb (.pair a b)) (.pair a b) false = true

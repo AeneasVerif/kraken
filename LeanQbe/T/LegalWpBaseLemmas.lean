@@ -8,7 +8,7 @@ public import LeanQbe.T.LegalWpBaseLemmas2
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -16,6 +16,7 @@ section LegalWp
 
 /-! ### Relational tree weakest-precondition specs -/
 
+@[expose]
 def TreeRel1 (onB : Bool → (Bool → Prop) → Prop)
     (onBits : ∀ n, BitVec n → (BitVec n → Prop) → Prop)
     (onF : ∀ (f : Fmt), BitVec f.width → (BitVec f.width → Prop) → Prop) :
@@ -40,6 +41,7 @@ theorem TreeRel1.mono {onB onBits onF}
     TreeRel1.mono (u := a) hB hBits hF (fun r1 h2 =>
       TreeRel1.mono (u := b) hB hBits hF (fun r2 hr2 => hpq (r1, r2) hr2) h2) h
 
+@[expose]
 def TreeRel2 (onB : Bool → Bool → (Bool → Prop) → Prop)
     (onBits : ∀ n, BitVec n → BitVec n → (BitVec n → Prop) → Prop)
     (onF : ∀ (f : Fmt), BitVec f.width → BitVec f.width → (BitVec f.width → Prop) → Prop) :
@@ -65,6 +67,7 @@ theorem TreeRel2.mono {onB onBits onF}
     TreeRel2.mono (u := a) hB hBits hF (fun r1 h2 =>
       TreeRel2.mono (u := b) hB hBits hF (fun r2 hr2 => hpq (r1, r2) hr2) h2) h
 
+@[expose]
 def TreeRel3 (onB : Bool → Bool → Bool → (Bool → Prop) → Prop)
     (onBits : ∀ n, BitVec n → BitVec n → BitVec n → (BitVec n → Prop) → Prop)
     (onF : ∀ (f : Fmt), BitVec f.width → BitVec f.width → BitVec f.width → (BitVec f.width → Prop) →
@@ -1250,7 +1253,8 @@ private theorem legalFCmpTree_goFCmp_wp (target : LegalTarget) {Γ : Env} {rs : 
     replace ha := congrArg Prod.fst ha
     replace hb := congrArg Prod.fst hb
     dsimp only at ha hb
-    simp only [legalFCmpTree.goFCmp, wp, Op.wp, OpCode.wp, op2, vals, Ty.isFloatTree,
+    dsimp only [legalFCmpTree.goFCmp]
+    simp only [wp, Op.wp, OpCode.wp, op2, vals, Ty.isFloatTree,
       Bool.not_true, Bool.false_eq_true, ↓reduceIte, liftFCmp]
     exact hk _ (by
       dsimp only [Ty.mask, LegalTarget.leafTys, leafVals]
@@ -1295,7 +1299,8 @@ theorem legalFCmpTree_wp (target : LegalTarget) {Γ : Env} {rs : List Ty}
     replace ha := congrArg Prod.fst ha
     replace hb := congrArg Prod.fst hb
     dsimp only at ha hb
-    simp only [legalFCmpTree, wp, Op.wp, OpCode.wp, op2, vals, Ty.isFloatTree,
+    dsimp only [legalFCmpTree]
+    simp only [wp, Op.wp, OpCode.wp, op2, vals, Ty.isFloatTree,
       Bool.not_true, Bool.false_eq_true, ↓reduceIte, liftFCmp]
     exact hk _ (by
       dsimp only [Ty.mask, LegalTarget.legalTys, LegalTarget.leafTys, encodeVal]

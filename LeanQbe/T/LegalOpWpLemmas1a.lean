@@ -8,7 +8,7 @@ public import LeanQbe.T.LegalWpSimdLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 

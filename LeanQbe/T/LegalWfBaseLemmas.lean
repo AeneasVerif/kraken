@@ -8,7 +8,7 @@ public import LeanQbe.T.LegalWfBaseLemmas1
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -78,7 +78,7 @@ theorem packLeavesToWords64_go_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty
   | .bits n, _, _, xs₁, xs₂, hxs, _, _, hws, _, _, hacc, _, _, _, hk => by
     rcases xs₁ with ⟨x₁, ⟨⟩⟩; rcases xs₂ with ⟨x₂, ⟨⟩⟩
     cases hxs with | cons hx _ =>
-    simp only [packLeavesToWords64.go]
+    dsimp only [packLeavesToWords64.go]
     split
     · exact hk (fun _ h => h) _ _ _ _ _ hws hacc
     · split
@@ -93,7 +93,7 @@ theorem packLeavesToWords64_go_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty
   | .float f, G, _, xs₁, xs₂, hxs, _, _, hws, _, _, hacc, _, _, _, hk => by
     rcases xs₁ with ⟨x₁, ⟨⟩⟩; rcases xs₂ with ⟨x₂, ⟨⟩⟩
     cases hxs with | cons hx _ =>
-    simp only [packLeavesToWords64.go]
+    dsimp only [packLeavesToWords64.go]
     refine .let_ (.mk (.bitcast (.float f) (.bits f.width) rfl) (.cons hx .nil)) fun bi₁ bi₂ => ?_
     have h1 : ∀ p ∈ G, p ∈ ⟨.bits f.width, bi₁.fst, bi₂.fst⟩ :: G := fun _ hp =>
       List.mem_cons_of_mem _ hp
@@ -110,7 +110,7 @@ theorem packLeavesToWords64_go_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty
         pushLeafWord64_wf _ hw (listRel_weaken hs hws) (hacc.weaken hs) _
           fun h3 lws₁ lws₂ a₁ a₂ b hl ha => hk (sub_trans hs h3) lws₁ lws₂ a₁ a₂ b hl ha
   | .pair a b, _, _, xs₁, xs₂, hxs, _, _, hws, _, _, hacc, _, _, _, hk => by
-    simp only [packLeavesToWords64.go]
+    dsimp only [packLeavesToWords64.go]
     obtain ⟨ha, hb⟩ := TRel_tupSplit hxs
     refine packLeavesToWords64_go_wf a ha hws hacc _ fun h1 ws1' ws2' a1' a2' b1 hws1 hacc1 => ?_
     exact packLeavesToWords64_go_wf b (TRel_argRel_weaken' h1 hb) hws1 hacc1 b1
@@ -182,7 +182,7 @@ theorem unpackWords64ToLeaves_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty 
       Wf.let2 _ hraw (.imm _) fun h2 b₁ b₂ hb =>
         hk (sub_trans h1 h2) _ _ (TRel.single hb)
   | .bits n, _, _, ws₁, ws₂, hws, off, k₁, k₂, hk => by
-    simp only [unpackWords64ToLeaves]
+    dsimp only [unpackWords64ToLeaves]
     split
     · exact hk (fun _ h => h) _ _ (TRel.single (ArgRel.imm _))
     · refine extractBitsFromWords64_wf hws off (min n 64) fun h1 raw₁ raw₂ hraw => ?_
@@ -191,7 +191,7 @@ theorem unpackWords64ToLeaves_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty 
       · split <;> exact Wf.let1 _ hraw fun h2 r₁ r₂ hr =>
           hk (sub_trans h1 h2) _ _ (TRel.single hr)
   | .float f, _, _, ws₁, ws₂, hws, off, k₁, k₂, hk => by
-    simp only [unpackWords64ToLeaves]
+    dsimp only [unpackWords64ToLeaves]
     refine extractBitsFromWords64_wf hws off (min f.width 64) fun h1 raw₁ raw₂ hraw => ?_
     split
     · exact Wf.let1 _ hraw fun h2 r₁ r₂ hr =>
@@ -200,7 +200,7 @@ theorem unpackWords64ToLeaves_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty 
         Wf.let1 _ hbi fun h3 r₁ r₂ hr =>
           hk (sub_trans h1 (sub_trans h2 h3)) _ _ (TRel.single hr)
   | .pair a b, _, _, ws₁, ws₂, hws, off, k₁, k₂, hk => by
-    simp only [unpackWords64ToLeaves]
+    dsimp only [unpackWords64ToLeaves]
     refine unpackWords64ToLeaves_wf a hws off fun h1 fa₁ fa₂ hfa => ?_
     refine unpackWords64ToLeaves_wf b (listRel_weaken h1 hws) (off + a.size) fun h2 fb₁ fb₂ hfb =>
       ?_
@@ -220,12 +220,12 @@ theorem loadByteChunksToWords64_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List T
       Wf G D (loadByteChunksToWords64 p₁ byteOff cs ws₁ acc₁ accBits k₁)
              (loadByteChunksToWords64 p₂ byteOff cs ws₂ acc₂ accBits k₂)
   | [], _, _, _, _, _, _, hws, _, _, hacc, _, _, _, hk => by
-    simp only [loadByteChunksToWords64]
+    dsimp only [loadByteChunksToWords64]
     split
     · exact hk (fun _ h => h) _ _ hws
     · exact hk (fun _ h => h) _ _ (hws.append (.cons hacc .nil))
   | c :: cs, G, D, hp, byteOff, ws₁, ws₂, hws, acc₁, acc₂, hacc, accBits, k₁, k₂, hk => by
-    simp only [loadByteChunksToWords64]
+    dsimp only [loadByteChunksToWords64]
     have hstep : ∀ {G' : Ctx V₁ V₂} {hG' : ∀ q ∈ G, q ∈ G'} {ap₁ : Arg V₁ i64} {ap₂ : Arg V₂ i64},
         ArgRel G' i64 ap₁ ap₂ →
         Wf G' D
@@ -296,7 +296,7 @@ theorem storeByteChunksFromWords64_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : Lis
              (storeByteChunksFromWords64 ws₂ p₂ byteOff cs k₂)
   | [], _, _, _, _, _, _, _, _, _, hk => hk (fun _ h => h)
   | c :: cs, G, D, ws₁, ws₂, hws, hp, byteOff, k₁, k₂, hk => by
-    simp only [storeByteChunksFromWords64]
+    dsimp only [storeByteChunksFromWords64]
     refine extractBitsFromWords64_wf hws (8 * byteOff) (min (8 * c) 64) fun h1 raw₁ raw₂ hraw => ?_
     have hvalstep :
       ∀ {G' : Ctx V₁ V₂} {hG' : ∀ q ∈ G, q ∈ G'} {val₁ : Arg V₁ (.bits (8 * c))}
@@ -412,13 +412,13 @@ theorem emitLoadBits_go_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Ty
       Wf G D (emitLoadBits.go n w p₁ k₁ byteOff cs acc₁)
              (emitLoadBits.go n w p₂ k₂ byteOff cs acc₂)
   | _, [], _, _, _, o₁, o₂, ho, _, _, hk => by
-    simp only [emitLoadBits.go]
+    dsimp only [emitLoadBits.go]
     cases o₁ <;> cases o₂ <;> first
       | exact False.elim ho | exact hk (fun _ h => h) _ _ (.imm _)
       | exact emitMaskToN_wf n w ho hk
   | byteOff, c :: rest, G, D, hp, o₁, o₂, ho, k₁, k₂, hk => by
     cases o₁ <;> cases o₂
-    · simp only [emitLoadBits.go]
+    · dsimp only [emitLoadBits.go]
       split
       · exact emitLoadBits_step_wf w byteOff c true hp fun hG' sv₁ sv₂ hsv =>
           emitLoadBits_go_wf n w (byteOff + c) rest (hp.weaken hG') (acc₁ := some sv₁)
@@ -431,7 +431,7 @@ theorem emitLoadBits_go_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Ty
               fun h2 y₁ y₂ hy => hk (sub_trans h1 (sub_trans hG' h2)) y₁ y₂ hy
     · exact False.elim ho
     · exact False.elim ho
-    · simp only [emitLoadBits.go]
+    · dsimp only [emitLoadBits.go]
       split
       · exact emitLoadBits_step_wf w byteOff c true hp fun hG' sv₁ sv₂ hsv =>
           Wf.let2 _ (ho.weaken hG') hsv fun h2 u₁ u₂ hu =>
@@ -453,7 +453,7 @@ theorem emitLoadBits_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
     (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits w) y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂))
       :
     Wf G D (emitLoadBits ws n w p₁ k₁) (emitLoadBits ws n w p₂ k₂) := by
-  simp only [emitLoadBits]
+  dsimp only [emitLoadBits]
   split
   · exact hk (fun _ h => h) _ _ (.imm _)
   · exact emitLoadBits_go_wf n w 0 (chunkBytes ws ((n + 7) / 8)) hp trivial hk
@@ -467,7 +467,7 @@ theorem emitStoreBits_go_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
       Wf G D (emitStoreBits.go w v₁ p₁ k₁ byteOff cs) (emitStoreBits.go w v₂ p₂ k₂ byteOff cs)
   | _, [], _, _, _, _, _, _, hk => hk (fun _ h => h)
   | byteOff, c :: rest, G, D, hv, hp, k₁, k₂, hk => by
-    simp only [emitStoreBits.go]
+    dsimp only [emitStoreBits.go]
     let mkAddrStore {V L} (p : Arg V i64) (v : Arg V (.bits w)) (val : Arg V (.bits (8 * c)))
         (k : Expr V L rs) : Expr V L rs :=
       if byteOff == 0 then .store val p (emitStoreBits.go w v p k (byteOff + c) rest)
@@ -525,7 +525,7 @@ theorem emitStoreBits_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type
     {k₁ : Expr V₁ L₁ rs} {k₂ : Expr V₂ L₂ rs}
     (hk : ∀ {G'}, (∀ q ∈ G, q ∈ G') → Wf G' D k₁ k₂) :
     Wf G D (emitStoreBits ws n w v₁ p₁ k₁) (emitStoreBits ws n w v₂ p₂ k₂) := by
-  simp only [emitStoreBits]
+  dsimp only [emitStoreBits]
   split
   · exact hk (fun _ h => h)
   · exact emitStoreBits_go_wf w 0 (chunkBytes ws ((n + 7) / 8)) hv hp hk
@@ -769,7 +769,7 @@ theorem scalarShufb128_mux_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty →
   | [], [], .nil, _, _, _, hk => hk (fun _ p => p) _ _ (.imm _)
   | [b₁], [b₂], .cons hb .nil, _, _, _, hk => hk (fun _ p => p) b₁ b₂ hb
   | b₁ :: c₁ :: cs₁, b₂ :: c₂ :: cs₂, .cons hb (.cons hc hcs), j, k₁, k₂, hk => by
-    simp only [scalarShufb128.muxBytes]
+    dsimp only [scalarShufb128.muxBytes]
     refine scalarShufb128_mux_wf hidx (.cons hc hcs) (j + 1) fun h1 r₁ r₂ hr => ?_
     exact Wf.let2 _ (hidx.weaken h1) (.imm _) fun h2 eq₁ eq₂ heq =>
       Wf.let3 _ heq (hb.weaken (sub_trans h1 h2)) (hr.weaken h2) fun h3 res₁ res₂ hres =>

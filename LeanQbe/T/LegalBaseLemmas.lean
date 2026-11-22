@@ -22,7 +22,7 @@ Provides the `LegalBase`-only helpers sitting strictly below `LegalEmit`, `Legal
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -94,6 +94,7 @@ theorem ternaryLogic_zero {w : Nat} (a b c : BitVec w) :
 
 /-! ## Tuple evaluation and `Wf` single-op combinators -/
 
+@[expose]
 def valsTup {ts : List Ty} (xs : Tup (Arg Val) ts) : Tup Val ts :=
   xs.map (fun _ a => a.val)
 
@@ -151,6 +152,7 @@ theorem pushNormal_length (ts : List Ty) (Γ : List (Ty × VarKind)) :
     (pushNormal ts Γ).length = ts.length + Γ.length := by
   simp only [pushNormal, pushTypes_length, List.length_map]
 
+@[expose]
 def OpCode.isPackBridge : {as rs : List Ty} → OpCode as rs → Bool
   | _, _, .unpair _ _ => true
   | _, _, .mkpair _ _ => true
@@ -167,6 +169,7 @@ theorem TFlat.isLegal_let_of_normal (target : LegalTarget) (Γ : List (Ty × Var
     (try (dsimp only [OpCode.isPackBridge] at hne; contradiction)) <;>
     dsimp only [TFlat.isLegal, TFlat.isLegal._f]
 
+@[expose]
 def CtxExtends {α : Type} (Γ Γ' : List α) : Prop :=
   ∃ ext : List α, Γ' = ext ++ Γ
 
@@ -189,6 +192,7 @@ theorem CtxExtends.pushNormal (ts : List Ty) (Γ : List (Ty × VarKind)) :
     CtxExtends Γ (LeanQbe.T.pushNormal ts Γ) :=
   CtxExtends.pushTypes _ Γ
 
+@[expose]
 def LvlOk (Γ : List (Ty × VarKind)) (t : Ty) (allowed : VarKind → Bool) (lvl : Nat) : Prop :=
   lvl < Γ.length ∧ ∃ k, listGet? Γ (Γ.length - 1 - lvl) = some (t, k) ∧ allowed k = true
 
@@ -234,6 +238,7 @@ theorem LvlOk.of_head {Γ : List (Ty × VarKind)} {t : Ty} {k : VarKind} {allowe
   have h0 : ((t, k) :: Γ).length - 1 - Γ.length = 0 := by simp
   rw [h0]; rfl
 
+@[expose]
 def ArgNormal (target : LegalTarget) (Γ : List (Ty × VarKind)) (t : Ty) : Arg K t → Prop
   | .var lvl => LvlNormal Γ t lvl ∧ target.isLegalTy t = true
   | .imm _ => target.isLegalTy t = true
@@ -267,6 +272,7 @@ theorem ArgNormal.cast {target : LegalTarget} {Γ : List (Ty × VarKind)} {m n :
     ArgNormal target Γ (.bits n) (castArgBits h x) := by
   subst h; exact hx
 
+@[expose]
 def ArgsNormal (target : LegalTarget) (Γ : List (Ty × VarKind)) :
     {ts : List Ty} → Tup (Arg K) ts → Prop
   | [], () => True

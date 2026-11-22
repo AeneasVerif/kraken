@@ -8,7 +8,7 @@ public import LeanQbe.T.LegalOpWpLemmas1a
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -1149,7 +1149,9 @@ theorem legalOp_bitwiseBin_wp (target : LegalTarget)
   · intro n hsn a' b' a b cont m' ha' hb' hpre
     refine legalBitsArith_wp target hsn (mkCode (Ty.bits n)) ?_ a' b' a b ha' hb'
       (by dsimp only [Op.wp, vals]; rw [hwp]; simpa [lift2] using hpre)
-    have h := hcok n; cases hmc : mkCode (Ty.bits n) <;> simp [hmc] at h <;> exact h
+    have h := hcok n
+    cases hmc : mkCode (Ty.bits n) <;>
+      (rw [hmc] at h; first | exact True.intro | exact (h : False).elim)
   · intro fmt _ a' b' a b cont m' ha' hb' hpre
     exact legalFloatBit2_wp target (fun w => mkCode (Ty.bits w)) (fun fmt => mkCode (Ty.float fmt))
       fmt f (fun x y post => by simp [hwp, lift2]) (fun x y post => by simp [hwp, lift2])
@@ -1338,9 +1340,10 @@ theorem opWp_words64_two (ws : List (Arg Val i64)) (v : BitVec 128)
   constructor <;> apply BitVec.eq_of_getLsbD_eq <;> intro i hi
   · rw [BitVec.getLsbD_extractLsb', decide_eq_true hi, Bool.true_and, Nat.zero_add,
       ← hbits i (by omega)]
-    simp only [words64GetLsb, Nat.div_eq_of_lt hi, Nat.mod_eq_of_lt hi]
+    dsimp only [words64GetLsb]; simp only [Nat.div_eq_of_lt hi, Nat.mod_eq_of_lt hi]
   · rw [BitVec.getLsbD_extractLsb', decide_eq_true hi, Bool.true_and, ← hbits (64 + i) (by omega)]
-    simp only [words64GetLsb, show (64 + i) / 64 = 1 by omega, show (64 + i) % 64 = i by omega]
+    dsimp only [words64GetLsb]
+    simp only [show (64 + i) / 64 = 1 by omega, show (64 + i) % 64 = i by omega]
 
 theorem dite_true_wp {α : Sort _} {P : α → Prop} {c : Prop} [Decidable c]
     {t : c → α} {e : ¬ c → α} (hc : c) (ht : P (t hc)) : P (dite c t e) := by
@@ -1350,7 +1353,7 @@ theorem dite_false_wp {α : Sort _} {P : α → Prop} {c : Prop} [Decidable c]
     {t : c → α} {e : ¬ c → α} (hc : ¬ c) (he : P (e hc)) : P (dite c t e) := by
   rw [dite_eq_right hc]; exact he
 
-def isNatTy (target : LegalTarget) : Ty → Bool
+@[expose] def isNatTy (target : LegalTarget) : Ty → Bool
   | .bits n => target.isLegalTy (.bits n) && (target.widenWidth n == n)
   | t => target.isLegalTy t
 

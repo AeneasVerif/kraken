@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.LegalWfBaseLemmas
-public import LeanQbe.T.LegalEmit
 
 /-!
 # Legalization semantic preservation base and tree lemmas (`T5`, Part 1)
@@ -9,7 +8,7 @@ public import LeanQbe.T.LegalEmit
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -206,10 +205,12 @@ theorem legalPost_of_isLegal (target : LegalTarget) {t : Ty} (ht : target.isLega
 /-! ### Value and label relations for `legalExpr_wp` -/
 
 /-- Value context invariant during `legalExpr_wp`. -/
+@[expose]
 def CGoodWp (target : LegalTarget) (G : Ctx Val (LVar target Val)) : Prop :=
   ∀ t v lv, ⟨t, v, lv⟩ ∈ G → valsTup lv = encodeVal target t v
 
 /-- Label context invariant during `legalExpr_wp`. -/
+@[expose]
 def DGoodWp (target : LegalTarget) (D : Ctx Cont (LLab target Cont)) : Prop :=
   ∀ ts j₁ j₂, ⟨ts, j₁, j₂⟩ ∈ D → ∀ xs m, j₁ xs m → j₂ (encodeTup target ts xs) m
 
@@ -259,6 +260,7 @@ theorem CGoodWp.pushSplit (target : LegalTarget) {G : Ctx Val (LVar target Val)}
     · exact CGoodWp.pushSplit target hc us xs _ _ _ htail
 
 /-- Lift target continuations into source continuations via `encodeTup`. -/
+@[expose]
 def unlegalTupCont (target : LegalTarget) :
     {sig : List (List Ty)} → Tup Cont (sig.map target.legalSig) → Tup Cont sig
   | [], () => ()
@@ -321,7 +323,7 @@ private theorem unpackToLeaves_wp (target : LegalTarget) {Γ : Env} {rs : List T
       refine hk _ ?_
       dsimp only [LegalTarget.leafTys]
       rw [valsTup_single, val_castArgBits, leafVals, cast_eq_setWidth heq]
-    · simp only [wp, Op.wp, OpCode.wp]
+    · dsimp only [wp, Op.wp, OpCode.wp]
       exact ⟨hnw, hk _ rfl⟩
   | .float _, _, a, k, _, hk => hk (a, ()) rfl
   | .pair a b, ht, p, k, m, hk => by
@@ -353,7 +355,7 @@ theorem unpackToLegal_wp (target : LegalTarget) {Γ : Env} {rs : List Ty} {Q : P
       refine hk _ ?_
       dsimp only [LegalTarget.legalTys]
       rw [valsTup_single, val_castArgBits, encodeVal, cast_eq_setWidth heq]
-    · simp only [wp, Op.wp, OpCode.wp]
+    · dsimp only [wp, Op.wp, OpCode.wp]
       exact ⟨hnw, hk _ rfl⟩
   | .float _, _, a, k, _, hk => hk (a, ()) rfl
   | .pair a b, ht, p, k, m, hk => by
@@ -389,7 +391,7 @@ theorem packFromLegal_wp (target : LegalTarget) {Γ : Env} {rs : List Ty} {Q : P
       refine hk _ ?_
       rw [val_castArgBits, ha, cast_eq_setWidth heq.symm, BitVec.setWidth_setWidth_of_le _ hnw,
         BitVec.setWidth_eq]
-    · simp only [wp, Op.wp, OpCode.wp]
+    · dsimp only [wp, Op.wp, OpCode.wp]
       refine ⟨hnw, hk _ ?_⟩
       change (a.val).setWidth n = x
       rw [ha, BitVec.setWidth_setWidth_of_le _ hnw, BitVec.setWidth_eq]

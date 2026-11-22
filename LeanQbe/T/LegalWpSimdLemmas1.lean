@@ -8,16 +8,18 @@ public import LeanQbe.T.LegalWpBaseLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
 section LegalWp
 
 
+@[expose]
 def words64GetLsb (ws : List (Arg Val i64)) (i : Nat) : Bool :=
   (ws.getD (i / 64) (.imm 0#64)).val.getLsbD (i % 64)
 
+@[expose]
 def Words64Stream (ws : List (Arg Val i64)) (acc : Arg Val i64)
     (accBits totalBits : Nat) (bits : Nat → Bool) : Prop :=
   accBits < 64 ∧
@@ -302,7 +304,7 @@ private theorem packLeavesToWords64_go_wp (target : LegalTarget) (hv : target.va
   | .bool, _, fx, v, ws, acc, accBits, totalBits, bits, bits', hFx, hS, hAgree, hNew, k, m, hk => by
     dsimp only [LegalTarget.leafTys] at fx hFx
     rcases fx with ⟨b, ⟨⟩⟩
-    rw [packLeavesToWords64.go.eq_1]
+    dsimp only [packLeavesToWords64.go]
     dsimp only [wp, Op.wp, op1, vals]
     rw [OpCode.wp_ofBool]
     dsimp only [Arg.val_var]
@@ -331,7 +333,7 @@ private theorem packLeavesToWords64_go_wp (target : LegalTarget) (hv : target.va
       hk => by
     dsimp only [LegalTarget.leafTys] at fx hFx
     rcases fx with ⟨x, ⟨⟩⟩
-    rw [packLeavesToWords64.go.eq_2]
+    dsimp only [packLeavesToWords64.go]
     have hx : x.val = BitVec.setWidth (target.widenWidth n) v := by
       rw [valsTup_single] at hFx
       dsimp only [leafVals] at hFx
@@ -397,7 +399,7 @@ private theorem packLeavesToWords64_go_wp (target : LegalTarget) (hv : target.va
       hk => by
     dsimp only [LegalTarget.leafTys] at fx hFx
     rcases fx with ⟨x, ⟨⟩⟩
-    rw [packLeavesToWords64.go.eq_3]
+    dsimp only [packLeavesToWords64.go]
     have hx : x.val = v := by
       rw [valsTup_single] at hFx
       dsimp only [leafVals] at hFx
@@ -443,7 +445,7 @@ private theorem packLeavesToWords64_go_wp (target : LegalTarget) (hv : target.va
       · simpa [Ty.size] using hk
   | .pair a b, hSup, fx, v, ws, acc, accBits, totalBits, bits, bits', hFx, hS, hAgree, hNew, k, m,
       hk => by
-    rw [packLeavesToWords64.go.eq_4]
+    dsimp only [packLeavesToWords64.go]
     have hSupPair : target.supportsTy a = true ∧ target.supportsTy b = true := by
       simpa [LegalTarget.supportsTy] using hSup
     dsimp only [LegalTarget.leafTys] at fx hFx
@@ -674,7 +676,7 @@ theorem unpackWords64ToLeaves_wp (target : LegalTarget) (hv : target.valid = tru
           wp Γ Q X (k fres) m) →
         wp Γ Q X (unpackWords64ToLeaves target words off u k) m
   | .bool, _, words, off, v, hW, k, m, hk => by
-    rw [unpackWords64ToLeaves.eq_1]
+    dsimp only [unpackWords64ToLeaves]
     apply extractBitsFromWords64_wp (by omega) (fun i hi => hW i (by simp [Ty.size]; omega))
     intro raw hRaw
     dsimp only [wp, Op.wp, op2, vals]
@@ -697,7 +699,7 @@ theorem unpackWords64ToLeaves_wp (target : LegalTarget) (hv : target.valid = tru
     rw [hEqVal]
     cases v <;> decide
   | .bits n, hSup, words, off, v, hW, k, m, hk => by
-    rw [unpackWords64ToLeaves.eq_2]
+    dsimp only [unpackWords64ToLeaves]
     have hn64 : n ≤ 64 := (supportsTy_bits_iff.mp hSup).2
     have hnW : n ≤ target.widenWidth n := le_widenWidth_of_supports hSup
     have hWle64 := widenWidth_le_64_of_supports hv hSup
@@ -751,7 +753,7 @@ theorem unpackWords64ToLeaves_wp (target : LegalTarget) (hv : target.valid = tru
         rw [BitVec.getLsbD_setWidth, BitVec.getLsbD_setWidth, BitVec.getLsbD_setWidth]
         simp [hiW, show i < 64 by omega]
   | .float f, hSup, words, off, v, hW, k, m, hk => by
-    rw [unpackWords64ToLeaves.eq_3]
+    dsimp only [unpackWords64ToLeaves]
     have hSupAnd : f ∈ target.floatFmts ∧ f.width ≤ 64 := by
       simpa [LegalTarget.supportsTy] using hSup
     have hFwSpec := valid_bitWidth_spec hv (valid_float_spec hv hSupAnd.1).1
@@ -801,7 +803,7 @@ theorem unpackWords64ToLeaves_wp (target : LegalTarget) (hv : target.valid = tru
       rw [BitVec.getLsbD_cast, BitVec.getLsbD_setWidth, BitVec.getLsbD_setWidth]
       simp [hif, show i < 64 by omega]
   | .pair a b, hSup, words, off, v, hW, k, m, hk => by
-    rw [unpackWords64ToLeaves.eq_4]
+    dsimp only [unpackWords64ToLeaves]
     have hSupPair : target.supportsTy a = true ∧ target.supportsTy b = true := by
       simpa [LegalTarget.supportsTy] using hSup
     apply unpackWords64ToLeaves_wp target hv a hSupPair.1 (v := v.1)
