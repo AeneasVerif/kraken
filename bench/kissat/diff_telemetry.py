@@ -393,7 +393,9 @@ def load_benchmarks(args, tmp_dir, bench_dir):
     else:
         gen_cmd = ["timeout", "60", sys.executable, "-B",
                    os.path.join(bench_dir, "gen_canary_cnfs.py"), tmp_dir]
-        if args.include_c11:
+        if args.c11_only:
+            gen_cmd.append("--c11-only")
+        elif args.include_c11:
             gen_cmd.append("--include-c11")
         subprocess.run(gen_cmd, check=True)
         with open(os.path.join(tmp_dir, "manifest.json"), "r", encoding="utf-8") as f:
@@ -404,6 +406,8 @@ def load_benchmarks(args, tmp_dir, bench_dir):
                 "path": os.path.join(tmp_dir, e["file"]),
                 "work_bytes": args.work_bytes,
             })
+    if args.c11_only:
+        cases = [c for c in cases if c["name"].startswith("c11_")]
     if args.filter:
         cases = [c for c in cases if args.filter in c["name"]]
     if args.max_cases > 0:
@@ -460,6 +464,7 @@ def main():
     ap.add_argument("--pv35-manifest", default="", help="PV-35 / Hard-24 manifest JSON")
     ap.add_argument("--cnf-dir", default="", help="Custom directory of .cnf files")
     ap.add_argument("--include-c11", action="store_true", help="Include c11_* regression canaries")
+    ap.add_argument("--c11-only", action="store_true", help="Run only c11_* regression canaries")
     ap.add_argument("--filter", default="", help="Substring filter on benchmark name")
     ap.add_argument("--max-cases", type=int, default=0, help="Limit number of benchmarks")
     ap.add_argument("--work-bytes", type=int, default=32 * 1024 * 1024, help="Default C3b work_cap")
@@ -472,6 +477,10 @@ def main():
     ap.add_argument("--json-out", default="", help="Output JSON report path")
     ap.add_argument("--md-out", default="", help="Output Markdown table path")
     ap.add_argument("--fail-on-alarm", action="store_true", help="Exit 1 if any drift alarm fires")
+    ap.add_argument(
+        "--fail-on-critical", action="store_true",
+        help="Exit 1 on soundness failure, verdict mismatch, or OOM",
+    )
     args = ap.parse_args()
 
     if not args.gen_hpp and not args.c3b_bin:
@@ -532,7 +541,20 @@ def main():
                     f, indent=2,
                 )
 
+        sound_alarms = [
+            (r["name"], a) for r in results for a in r["alarms"]
+            if a.startswith("WITNESS_CHECK_FAIL") or a.startswith("VERDICT_MISMATCH")
+        ]
+        crit_alarms = [
+            (r["name"], a) for r in results for a in r["alarms"]
+            if a == "C3B_OOM"
+        ]
+        triggered = list(sound_alarms) + (list(crit_alarms) if args.fail_on_critical else [])
         print(f"Summary: cases={len(results)} total_alarms={total_alarms}")
+        if triggered:
+            for cname, al in triggered:
+                print(f"CRITICAL: {cname}: {al}", file=sys.stderr)
+            sys.exit(1)
         if args.fail_on_alarm and total_alarms > 0:
             sys.exit(1)
 

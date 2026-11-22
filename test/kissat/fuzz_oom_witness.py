@@ -527,8 +527,10 @@ def main():
                 },
                 "sweeps": len(sweep_caps),
                 "sat": 0, "unsat": 0, "fuel_exhausted": 0,
-                "witness_check_fail": 0, "flips": 0, "oom_mono_fail": 0, "crashes": 0,
+                "witness_check_fail": 0, "flips": 0, "oom_mono_fail": 0,
+                "inv_fail": 0, "crashes": 0,
                 "witness_fail_caps": [],
+                "inv_err_samples": [],
             }
             for wb in sweep_caps:
                 rec = invoke(case["path"], wb, args.fuel, args.timeout)
@@ -558,14 +560,19 @@ def main():
                     case_res["oom_mono_fail"] += 1
                     summary["totals"]["oom_monotone_fail"] += 1
                 if rec.get("inv_ok", 1) == 0:
+                    case_res["inv_fail"] += 1
                     summary["totals"]["inv_fail"] += 1
+                    if len(case_res["inv_err_samples"]) < 5:
+                        case_res["inv_err_samples"].append(
+                            {"work_bytes": wb, "err": rec.get("inv_err", "")}
+                        )
             summary["cases"].append(case_res)
             print(
                 f"{case['name']:<26} exp={case['expected']:<5} min={min_solve//1024:>4}K "
                 f"sweeps={len(sweep_caps):>3} sat={case_res['sat']:>2} "
                 f"unsat={case_res['unsat']:>2} fuel={case_res['fuel_exhausted']:>2} "
                 f"WFAIL={case_res['witness_check_fail']:>2} flips={case_res['flips']} "
-                f"oom_mono_fail={case_res['oom_mono_fail']}",
+                f"oom_mono={case_res['oom_mono_fail']} inv_fail={case_res['inv_fail']}",
                 flush=True,
             )
 

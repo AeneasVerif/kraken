@@ -242,8 +242,8 @@ inline bool check_2wl_impl(const View& v, uint64_t hdr, std::string* err) {
       }
       uint32_t chdr = rd_u32(v, arena, cr);
       uint32_t csz = rd_u32(v, arena, cr + 2ULL);
-      if ((chdr & kPhGarb) != 0u || csz < 3u || static_cast<uint64_t>(cr) + 3ULL + csz > alen) {
-        return fail(err, "watch points to garbage or invalid clause");
+      if (csz < 3u || static_cast<uint64_t>(cr) + 3ULL + csz > alen) {
+        return fail(err, "watch points to invalid clause");
       }
       uint32_t l0 = rd_u32(v, arena, cr + 3ULL);
       uint32_t l1 = rd_u32(v, arena, cr + 4ULL);
@@ -252,7 +252,8 @@ inline bool check_2wl_impl(const View& v, uint64_t hdr, std::string* err) {
         return fail(err, "large watch mismatched/duplicate for cref " + std::to_string(cr));
       }
       watch_mask[cr] |= bit;
-      if (check_val_lvl) {
+      // Lazy PH_GARB deletion (OTFS/reduce) keeps watches until prop/compact; skip blk checks.
+      if (check_val_lvl && (chdr & kPhGarb) == 0u) {
         if (bit == 1u) blk0[cr] = blk;
         else blk1[cr] = blk;
       }

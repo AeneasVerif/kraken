@@ -434,6 +434,95 @@ def compile_c3b_gen_hpp(spec, tmp_dir):
     return label, bin_path
 
 
+BASELINE_FALLBACKS = {
+    "FullM6_": ("FullM5_", "FullM4_", "FullM3_"),
+    "FullM5_": ("FullM4_", "FullM3_"),
+    "FullM4_": ("FullM3_",),
+}
+
+
+def lookup_baseline_run(base_runs, name):
+    """Look up baseline run record for `name` with M6->M5->M4->M3 fallback."""
+    rec = base_runs.get(name)
+    if rec is not None:
+        return rec
+    for prefix, fallbacks in BASELINE_FALLBACKS.items():
+        if name.startswith(prefix):
+            for fb in fallbacks:
+                cand = base_runs.get(name.replace(prefix, fb, 1))
+                if cand is not None:
+                    return cand
+            break
+    return None
+
+
+def collect_parity_models(configs):
+    """Return ordered list of model prefixes that have configs configured."""
+    seen = set()
+    mods = []
+    for name, _, _ in configs:
+        for suf in ("_C4", "_C3b"):
+            if name.endswith(suf):
+                mod = name[: -len(suf)]
+                if mod not in seen:
+                    seen.add(mod)
+                    mods.append(mod)
+    return mods
+
+
+def merge_baseline_doc(existing, results, configs, args):
+    """Merge newly measured canaries into an existing baseline without clobbering."""
+    prev = existing or {}
+    merged_canaries = {
+        k: dict(v) for k, v in prev.get("canaries", {}).items()
+    }
+    for fname, row in results.items():
+        old = merged_canaries.get(fname, {})
+        merged_runs = dict(old.get("runs", {}))
+        merged_runs.update(row.get("runs", {}))
+        entry = {
+            "family": row.get("family", old.get("family", "")),
+            "expected_gap": row.get("expected_gap", old.get("expected_gap", "")),
+            "runs": merged_runs,
+        }
+        if "c1" in row:
+            entry["c1"] = row["c1"]
+        elif "c1" in old:
+            entry["c1"] = old["c1"]
+        if "c2" in row:
+            entry["c2"] = row["c2"]
+        elif "c2" in old:
+            entry["c2"] = old["c2"]
+        merged_canaries[fname] = entry
+
+    cfg_names = []
+    for c in list(prev.get("configs", [])) + [c[0] for c in configs]:
+        if c not in cfg_names:
+            cfg_names.append(c)
+
+    out_doc = {
+        "schema_version": 1,
+        "base_commit": prev.get("base_commit", "") if args.c11_only else (
+            args.commit or prev.get("base_commit", "")
+        ),
+        "work_bytes": args.work_bytes,
+        "fuel": args.fuel,
+        "per_timeout_sec": args.per_timeout,
+        "configs": cfg_names,
+    }
+    if "c11_base_commit" in prev or args.c11_only or args.include_c11:
+        c11_sha = (
+            args.commit if ((args.c11_only or args.include_c11) and args.commit)
+            else prev.get("c11_base_commit", "")
+        )
+        if c11_sha:
+            out_doc["c11_base_commit"] = c11_sha
+    if "c11_c1_version" in prev:
+        out_doc["c11_c1_version"] = prev["c11_c1_version"]
+    out_doc["canaries"] = merged_canaries
+    return out_doc
+
+
 def main():
     ap = argparse.ArgumentParser(description="Run and verify 10-family Kissat UNSAT canaries.")
     ap.add_argument("--cnf-dir", help="Directory with generated canaries (auto-generated if omitted)")
@@ -445,6 +534,10 @@ def main():
     ap.add_argument("--m3-c3b", help="Path to C3b PrintCpp-native-mem FullM3 bench_main binary")
     ap.add_argument("--m4-c4", help="Path to C4 native x64 FullM4 bench_main binary")
     ap.add_argument("--m4-c3b", help="Path to C3b PrintCpp-native-mem FullM4 bench_main binary")
+    ap.add_argument("--m5-c4", help="Path to C4 native x64 FullM5 bench_main binary")
+    ap.add_argument("--m5-c3b", help="Path to C3b PrintCpp-native-mem FullM5 bench_main binary")
+    ap.add_argument("--m6-c4", help="Path to C4 native x64 FullM6 bench_main binary")
+    ap.add_argument("--m6-c3b", help="Path to C3b PrintCpp-native-mem FullM6 bench_main binary")
     ap.add_argument("--kissat", help="Optional path to upstream Kissat 4.0.4 binary")
     ap.add_argument("--c2-flags", default="", help="Optional C2 flag-matched Kissat flags")
     ap.add_argument("--work-bytes", type=int, default=67108864, help="Workspace bytes (default 64 MiB)")
@@ -469,11 +562,12 @@ def main():
 
     if not any([
         args.full_c4, args.full_c3b, args.fast_c4, args.fast_c3b,
-        args.m3_c4, args.m3_c3b, args.m4_c4, args.m4_c3b, args.c3b_gen_hpp,
+        args.m3_c4, args.m3_c3b, args.m4_c4, args.m4_c3b,
+        args.m5_c4, args.m5_c3b, args.m6_c4, args.m6_c3b, args.c3b_gen_hpp,
     ]):
         ap.error(
             "specify at least one solver binary or --c3b-gen-hpp "
-            "(--full-c4/--full-c3b/--fast-c4/--fast-c3b/--m3-c4/--m3-c3b/--m4-c4/--m4-c3b)"
+            "(--full-*/--fast-*/--m3-*/--m4-*/--m5-*/--m6-*)"
         )
 
     kissat_bin = None
@@ -505,10 +599,11 @@ def main():
     if args.filter:
         manifest = [e for e in manifest if args.filter in e["file"]]
 
-    baseline = None
-    if not args.update_baseline and os.path.exists(args.baseline):
+    existing_baseline = None
+    if os.path.exists(args.baseline):
         with open(args.baseline, encoding="utf-8") as f:
-            baseline = json.load(f)
+            existing_baseline = json.load(f)
+    baseline = None if args.update_baseline else existing_baseline
 
     c3b_tmp_ctx = None
     configs = []
@@ -528,6 +623,14 @@ def main():
         configs.append(("FullM4_C4", args.m4_c4, True))
     if args.m4_c3b:
         configs.append(("FullM4_C3b", args.m4_c3b, True))
+    if args.m5_c4:
+        configs.append(("FullM5_C4", args.m5_c4, True))
+    if args.m5_c3b:
+        configs.append(("FullM5_C3b", args.m5_c3b, True))
+    if args.m6_c4:
+        configs.append(("FullM6_C4", args.m6_c4, True))
+    if args.m6_c3b:
+        configs.append(("FullM6_C3b", args.m6_c3b, True))
     if args.c3b_gen_hpp:
         c3b_tmp_ctx = tempfile.TemporaryDirectory(prefix="kissat-c3b-harness-")
         for spec in args.c3b_gen_hpp:
@@ -538,6 +641,7 @@ def main():
     hard_fails = []
     parity_fails = []
     all_gaps = []
+    base_c1_checked = 0
 
     hdr = (
         f"{'Canary':<28} {'Cfg':<12} {'St':>3} {'ms':>8} {'Confl':>8} "
@@ -594,19 +698,26 @@ def main():
                     line += f" | {c2s:>5} {c2_rec['k_ms']:>8.2f} {c2c:>8}"
             print(line)
             base_rec = None
+            base_c1 = None
             if baseline and fname in baseline.get("canaries", {}):
-                base_runs = baseline["canaries"][fname].get("runs", {})
-                base_rec = base_runs.get(name)
-                if base_rec is None and name.startswith("FullM4_"):
-                    base_rec = base_runs.get(name.replace("FullM4_", "FullM3_", 1))
-            issues, gaps = evaluate_canary(entry, rec, base_rec, args.strict_gaps, kissat_rec=k_rec)
+                base_entry = baseline["canaries"][fname]
+                base_runs = base_entry.get("runs", {})
+                base_rec = lookup_baseline_run(base_runs, name)
+                base_c1 = base_entry.get("c1")
+            eval_k = k_rec if k_rec is not None else base_c1
+            if k_rec is None and base_c1 is not None:
+                base_c1_checked += 1
+            issues, gaps = evaluate_canary(
+                entry, rec, base_rec, args.strict_gaps, kissat_rec=eval_k,
+            )
             for msg in issues:
                 hard_fails.append(f"{fname} [{name}]: {msg}")
             for msg in gaps:
                 all_gaps.append(f"{fname} [{name}]: {msg}")
 
         # Bit-identical work parity check: C4 == C3b
-        for base_mod in ("Full", "FullFast", "FullM3", "FullM4"):
+        parity_mods = collect_parity_models(configs)
+        for base_mod in parity_mods:
             c4_k, c3b_k = f"{base_mod}_C4", f"{base_mod}_C3b"
             if c4_k in row["runs"] and c3b_k in row["runs"]:
                 diffs = check_parity(base_mod, row["runs"][c4_k], row["runs"][c3b_k])
@@ -623,8 +734,10 @@ def main():
         tot_ms = sum(r["runs"][name]["ms"] for r in results.values())
         extra = f", WFAIL={wfail}" if wfail else ""
         print(f"  {name:<14}: {solved:2d}/{tot} UNSAT solved{extra}  (total {tot_ms:.1f} ms)")
+    if base_c1_checked > 0:
+        print(f"  C1 baseline ceiling enforced from JSON on {base_c1_checked} run(s)")
 
-    for base_mod in ("Full", "FullFast", "FullM3", "FullM4"):
+    for base_mod in collect_parity_models(configs):
         c4_k, c3b_k = f"{base_mod}_C4", f"{base_mod}_C3b"
         if any(c4_k in r["runs"] and c3b_k in r["runs"] for r in results.values()):
             matched = 0
@@ -705,15 +818,7 @@ def main():
             print(f"  ... ({len(all_gaps) - 25} more)")
 
     if args.update_baseline:
-        out_doc = {
-            "schema_version": 1,
-            "base_commit": args.commit,
-            "work_bytes": args.work_bytes,
-            "fuel": args.fuel,
-            "per_timeout_sec": args.per_timeout,
-            "configs": [c[0] for c in configs],
-            "canaries": results,
-        }
+        out_doc = merge_baseline_doc(existing_baseline, results, configs, args)
         with open(args.baseline, "w", encoding="utf-8") as f:
             json.dump(out_doc, f, indent=2)
             f.write("\n")
