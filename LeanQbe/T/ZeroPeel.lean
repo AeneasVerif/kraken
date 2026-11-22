@@ -46,8 +46,8 @@ structure ZeroPeelConfig where
   (default `true`). -/
   peelImmOnly : Bool := true
   /-- Skip rewriting functions with `zpSize tf ≥ maxFnSize` to bound compile time and code
-  size (default `600`). -/
-  maxFnSize : Nat := 600
+  size (default `4000`). -/
+  maxFnSize : Nat := 4000
   deriving Repr, DecidableEq, Inhabited
 
 namespace ZeroPeel
@@ -518,7 +518,7 @@ def Func.zeroPeelWith (cfg : ZeroPeelConfig := {}) {as rs : List Ty} (f : Func a
     f
 
 /-- Apply default `ZeroPeel` (`unrollN := 8`, `peelBudget := 36`, `peelImmOnly := true`,
-`maxFnSize := 600`) to a closed `Func`. -/
+`maxFnSize := 4000`) to a closed `Func`. -/
 def Func.zeroPeel {as rs : List Ty} (f : Func as rs) (cfg : ZeroPeelConfig := {}) :
     Func as rs :=
   Func.zeroPeelWith cfg f

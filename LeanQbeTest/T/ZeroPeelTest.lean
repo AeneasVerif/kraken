@@ -368,6 +368,46 @@ theorem sampleModule_ok :
     · have hlen := congrArg List.length hsplit
       simp at hlen
 
+/-! ## 5. Regression: `> 600`-node fill function widened under default `maxFnSize` (`4000`) -/
+
+/-- Balanced `.jnz` tree of depth `d` embedding `mainE` alongside `altE` (`> 600` nodes at depth
+`9`, keeping AST recursion depth `O(d)`). -/
+def padBranch {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    Nat → Expr V L rs → Expr V L rs → Expr V L rs
+  | 0, mainE, _ => mainE
+  | n + 1, mainE, altE =>
+    .jnz (.imm false) (padBranch n altE altE) (padBranch n mainE altE)
+
+private theorem padBranch_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
+    (n : Nat) {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
+    {m₁ a₁ : Expr V₁ L₁ rs} {m₂ a₂ : Expr V₂ L₂ rs}
+    (hm : Wf G D m₁ m₂) (ha : Wf G D a₁ a₂) :
+    Wf G D (padBranch n m₁ a₁) (padBranch n m₂ a₂) := by
+  induction n generalizing m₁ m₂ a₁ a₂ with
+  | zero => exact hm
+  | succ _ ih => exact .jnz (.imm _) (ih ha ha) (ih hm ha)
+
+/-- Byte zero-fill loop embedded in a `> 600`-node body (`zpSize > 600`, depth `< 25`). -/
+public def bigMemsetZero8 : Func [i64, i64] [i64] := fun V L (ptr, n, ()) =>
+  padBranch 9 (memsetZero8 V L (ptr, n, ())) (.ret (.imm 0, ()))
+
+theorem bigMemsetZero8_wf : bigMemsetZero8.Wf :=
+  fun _ _ _ _ _ _ =>
+    padBranch_wf 9 (memsetZero8_wf _ _ _ _ _ _) (.ret (.cons (.imm _) .nil))
+
+theorem bigMemsetZero8_size_gt_600 :
+    ZeroPeel.zpSize (reifyFunc bigMemsetZero8) > 600 := by decide
+
+theorem bigMemsetZero8_cap600_unchanged :
+    ZeroPeel.zpLoops (reifyFunc (Func.zeroPeelWith { maxFnSize := 600 } bigMemsetZero8)) = 1 := by
+  decide
+
+theorem bigMemsetZero8_widens_loops :
+    ZeroPeel.zpLoops (reifyFunc (Func.zeroPeel bigMemsetZero8)) = 2 := by decide
+
+public theorem bigMemsetZero8_zeroPeel_wf : (Func.zeroPeel bigMemsetZero8).Wf :=
+  Func.zeroPeel_wf bigMemsetZero8_wf
+
 #print axioms LeanQbe.T.TFlat.wfCheck_zeroPeelWith
 #print axioms LeanQbe.T.Func.zeroPeelWith_wf
 #print axioms LeanQbe.T.Func.zeroPeelWith_spec
@@ -381,5 +421,6 @@ theorem sampleModule_ok :
 #print axioms LeanQbe.T.Module.zeroPeel_ok
 #print axioms LeanQbe.T.ZeroPeelTest.readByteLoop_peel_fast_spec
 #print axioms LeanQbe.T.ZeroPeelTest.memsetZero8_zeroPeel_array_spec
+#print axioms LeanQbe.T.ZeroPeelTest.bigMemsetZero8_zeroPeel_wf
 
 end LeanQbe.T.ZeroPeelTest
