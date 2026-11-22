@@ -355,7 +355,7 @@ def classify_module(mod: str, legacy_re: re.Pattern[str]) -> str | None:
             return "LeanQbe.T.Examples.Kissat.M3Hub"
         if sub.startswith("FullM4"):
             return "LeanQbe.T.Examples.Kissat.M4Hub"
-        if sub.startswith("FullM5"):
+        if sub.startswith(("FullM5", "FullM6")):
             return "LeanQbe.T.Examples.Kissat.M5Hub"
         return "LeanQbe.T.Examples.Kissat.BaseHub"
     if mod.startswith("LeanQbe.T.Examples."):
