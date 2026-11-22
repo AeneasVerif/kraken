@@ -77,6 +77,8 @@ public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3a
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3b
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3b1
+public import LeanQbe.T.Examples.Kissat.FullM6SatNv
+public import LeanQbe.T.Examples.Kissat.FullM6SatSound
 public import LeanQbe.T.Examples.Kissat.FullM6Tiers
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof0
