@@ -944,6 +944,98 @@ scoped elab_rules : command
       addCertDef certNm certTy certVal
       addCertDef (certNm ++ `exportedExt) listExtTy inp.finalExtLit
 
+/-- Evaluates `evalOneFn` in order over `fs` starting from `ext0`, returning the literal
+`List (SigEntry × Nat)` expression `(sig, b) :: acc` matching `compileModule`'s accumulator. -/
+def evalPrefixExt (I : Isa) (lt : LegalTarget) (raBytes : Nat)
+    (ext0 : List (SigEntry × Nat)) (exits : List Sym) (nX maxBound : Nat)
+    (fs : List Fn) : Except String Lean.Expr := do
+  let rec go (acc : List (SigEntry × Nat)) :
+      List Fn → Except String (List (SigEntry × Nat))
+    | [] => .ok acc
+    | f :: rest => do
+      let (_, _, b, sig) ← evalOneFn I lt raBytes exits nX maxBound acc f
+      go ((sig, b) :: acc) rest
+  let out ← go ext0 fs
+  pure (Lean.toExpr out)
+
+def parsePrefixExtOptions (optKeys : TSyntaxArray `ident) (optVals : TSyntaxArray `term) :
+    CommandElabM (Option Term × Option Term × Option Term × Option Term) := do
+  let mut maxBT? : Option Term := none
+  let mut extT? : Option Term := none
+  let mut exitsT? : Option Term := none
+  let mut nXT? : Option Term := none
+  for i in [:optKeys.size] do
+    let k := optKeys[i]!.getId
+    let v := optVals[i]!
+    match k with
+    | `maxBound => maxBT? := some v
+    | `ext => extT? := some v
+    | `exits => exitsT? := some v
+    | `nX => nXT? := some v
+    | _ =>
+      throwErrorAt optKeys[i]!
+        "eval_prefix_ext!: unknown option '{k}'; expected maxBound, ext, exits, nX"
+  return (maxBT?, extT?, exitsT?, nXT?)
+
+def elabAndEvalPrefixExt (targT ltT fnsT : Term)
+    (maxBT? extT? exitsT? nXT? : Option Term) : TermElabM (Lean.Expr × Lean.Expr) := do
+  let targE ← Term.elabTerm targT (some (Lean.mkConst ``LeanQbe.T.Target))
+  let ltE ← Term.elabTerm ltT (some (Lean.mkConst ``LeanQbe.T.LegalTarget))
+  let listFnTy := mkApp (Lean.mkConst ``List [1]) (Lean.mkConst ``LeanQbe.T.Fn)
+  let fnsE ← Term.elabTerm fnsT (some listFnTy)
+  let sigEntryNatTy :=
+    mkApp2 (Lean.mkConst ``Prod [.zero, .zero])
+      (Lean.mkConst ``LeanQbe.T.SigEntry) (Lean.mkConst ``Nat)
+  let listExtTy := mkApp (Lean.mkConst ``List [.zero]) sigEntryNatTy
+  let listSymTy := mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.Sym)
+  let ext0E ← match extT? with
+    | some t => Term.elabTerm t (some listExtTy)
+    | none => pure (mkApp (Lean.mkConst ``List.nil [.zero]) sigEntryNatTy)
+  let exitsE ← match exitsT? with
+    | some t => Term.elabTerm t (some listSymTy)
+    | none => pure (mkApp (Lean.mkConst ``List.nil [.zero]) (Lean.mkConst ``LeanQbe.T.Sym))
+  let nXE ← match nXT? with
+    | some t => Term.elabTerm t (some (Lean.mkConst ``Nat))
+    | none => pure (mkNatLit 0)
+  let maxBE ← match maxBT? with
+    | some t => Term.elabTerm t (some (Lean.mkConst ``Nat))
+    | none => pure (mkNatLit 2048)
+  Term.synthesizeSyntheticMVarsNoPostponing
+  let targE ← instantiateMVars targE
+  let ltE ← instantiateMVars ltE
+  let fnsE ← instantiateMVars fnsE
+  let ext0E ← instantiateMVars ext0E
+  let exitsE ← instantiateMVars exitsE
+  let nXE ← instantiateMVars nXE
+  let maxBE ← instantiateMVars maxBE
+  let isaE := mkApp (Lean.mkConst ``LeanQbe.T.Target.toIsa) targE
+  let frameE ← mkAppM ``LeanQbe.T.Isa.frame #[isaE]
+  let raE ← mkAppM ``LeanQbe.T.FrameIsa.raBytes #[frameE]
+  let callE ← instantiateMVars (mkAppN (Lean.mkConst ``LeanQbe.T.evalPrefixExt)
+    #[isaE, ltE, raE, ext0E, exitsE, nXE, maxBE, fnsE])
+  let outTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String)
+    (Lean.mkConst ``Lean.Expr)
+  let evalRes ← unsafe evalExpr (Except String Lean.Expr) outTy callE
+  match evalRes with
+  | .error e => throwError "eval_prefix_ext!: {e}"
+  | .ok extLit => return (listExtTy, extLit)
+
+/-- `eval_prefix_ext! extName target legalTarget fnsExpr [(ext := ...)] [(exits := ...)]
+[(nX := ...)] [(maxBound := ...)]` runs `evalOneFn` in compiled meta code over `fnsExpr` starting
+from `ext` (default `[]`) and emits `def extName : List (SigEntry × Nat) := <literal>` matching
+`compileModule`'s `(sig, bound) :: acc` order. -/
+scoped syntax "eval_prefix_ext! " ident
+    term:arg term:arg term:arg
+    ("(" ident " := " term ")")* : command
+
+scoped elab_rules : command
+  | `(eval_prefix_ext! $extId $targT $ltT $fnsT $[($optKeys := $optVals)]*) => do
+    let extNm := (← getCurrNamespace) ++ extId.getId
+    let (maxBT?, extT?, exitsT?, nXT?) ← parsePrefixExtOptions optKeys optVals
+    let (listExtTy, extLit) ← liftTermElabM <|
+      elabAndEvalPrefixExt targT ltT fnsT maxBT? extT? exitsT? nXT?
+    liftCoreM <| addCertDef extNm listExtTy extLit
+
 end
 
 end LeanQbe.T
