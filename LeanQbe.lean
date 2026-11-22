@@ -308,6 +308,7 @@ public import LeanQbe.T.LeanLRC.Basic
 public import LeanQbe.T.LeanLRC.Runtime
 public import LeanQbe.T.LeanLRC.ToT
 public import LeanQbe.T.LeanLCNF.Basic
+public import LeanQbe.T.LeanLCNF.Coverage
 public import LeanQbe.T.LeanLCNF.Lower
 public import LeanQbe.T.LeanLCNF.Lower1
 public import LeanQbe.T.LeanLCNF.Demo

@@ -27,40 +27,11 @@
 #define l_LeanQbe_T_LeanLCNF_Demo_Probe_reuse l_LeanQbe_T_LeanLCNF_Probe_reuse
 
 #ifdef LCNF_TQBE
-typedef ::tqbe::bits<64> W;
-static ::tqbe::Mem g_mem;
-#define RT_ADDR 0x10000ULL
-static u64 g_rt = RT_ADDR;
-static W w(u64 x) { return W(x); }
-/* Runtime entry points with the PrintCpp calling convention. */
-W lcnf_alloc(::tqbe::Mem &, W rt, W sz) { return w(rt_lcnf_alloc(rt.word(0), sz.word(0))); }
-std::tuple<> lcnf_dec_ref_cold(::tqbe::Mem &, W rt, W o) {
-  rt_lcnf_dec_ref_cold(rt.word(0), o.word(0));
-  return {};
-}
-std::tuple<> lcnf_free_obj(::tqbe::Mem &, W rt, W o) {
-  rt_lcnf_free_obj(rt.word(0), o.word(0));
-  return {};
-}
-std::tuple<> lcnf_mark_persistent(::tqbe::Mem &, W rt, W o) {
-  rt_lcnf_mark_persistent(rt.word(0), o.word(0));
-  return {};
-}
-W lcnf_nat_slow(::tqbe::Mem &, W rt, W op, W a, W b) {
-  return w(rt_lcnf_nat_slow(rt.word(0), op.word(0), a.word(0), b.word(0)));
-}
-W lcnf_clo_under(::tqbe::Mem &, W rt, W f, W k) {
-  return w(rt_lcnf_clo_under(rt.word(0), f.word(0), k.word(0)));
-}
+#include "lcnf_tqbe_wrappers.h"
 #define CALL1(f, a) DEMO(f)(g_mem, w(g_rt), w(a)).word(0)
 #define CALL2(f, a, b) DEMO(f)(g_mem, w(g_rt), w(a), w(b)).word(0)
 #define CALL3(f, a, b, c) DEMO(f)(g_mem, w(g_rt), w(a), w(b), w(c)).word(0)
 #define CALL4(f, a, b, c, d) DEMO(f)(g_mem, w(g_rt), w(a), w(b), w(c), w(d)).word(0)
-static void rt_setup(void) {
-  lcnf_tqbe_mem = &g_mem;
-  g_mem.alloc(RT_ADDR, LCNF_RT_T_BYTES, 0);
-  lcnf_rt_init(g_rt);
-}
 #else
 u64 DEMO(rbBench)(u64 rt, u64 n);
 u64 DEMO(rbPersist)(u64 rt, u64 n);

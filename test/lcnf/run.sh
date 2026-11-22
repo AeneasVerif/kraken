@@ -28,8 +28,9 @@ trap cleanup EXIT
 mkdir -p "$OUT/bin" "$OUT/obj" "$OUT/trace"
 echo "outputs in $OUT"
 
-echo "== 1. build LeanLCNF + LeanLCNFTest (Func.Wf theorems, #guards) =="
-timeout 600 lake build --wfail LeanQbe.T.LeanLCNF.Demo LeanQbeTest.T.LeanLCNFTest \
+echo "== 1. build LeanLCNF + tests (Func.Wf theorems, #guards) =="
+timeout 600 lake build --wfail LeanQbe.T.LeanLCNF.Demo LeanQbe.T.LeanLCNF.Coverage \
+  LeanQbeTest.T.LeanLCNFTest LeanQbeTest.T.LcnfP5Test LeanQbeTest.T.LcnfAudit \
   LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ 2>&1 | tail -n 3
 
 echo "== 2. native emitters =="
@@ -65,15 +66,17 @@ native_exe() {
   timeout 300 leanc -o "$OUT/bin/$exe" "${objs[@]}"
 }
 native_exe emit_x64 "$T/emit_x64.lean" LeanQbe.T.LeanLCNF.Lower1 LeanQbe.T.LeanLCNF.Demo \
-  LeanQbe.T.Driver LeanQbe.T.Amd64.Targ Kraken.X64.PrintATT
+  LeanQbe.T.LeanLCNF.Coverage LeanQbe.T.Driver LeanQbe.T.Amd64.Targ Kraken.X64.PrintATT
 native_exe emit_arm64 "$T/emit_arm64.lean" LeanQbe.T.LeanLCNF.Lower1 LeanQbe.T.LeanLCNF.Demo \
-  LeanQbe.T.Driver LeanQbe.T.Arm64.Targ Kraken.AArch64.Print
+  LeanQbe.T.LeanLCNF.Coverage LeanQbe.T.Driver LeanQbe.T.Arm64.Targ Kraken.AArch64.Print
 native_exe lcnf_test - LeanQbeTest.T.LeanLCNFTest
+native_exe lcnf_p5_test - LeanQbeTest.T.LcnfP5Test
 
 echo "== 3. PrintCpp TU, x86-64 / Arm64 assembly, stage-by-stage traces =="
 timeout 120 "$OUT/bin/lcnf_test" "$OUT"
-timeout 120 "$OUT/bin/emit_x64" "$OUT/lcnf_x64.s"
-timeout 120 "$OUT/bin/emit_arm64" "$OUT/lcnf_arm64.s"
+timeout 120 "$OUT/bin/lcnf_p5_test" "$OUT"
+timeout 120 "$OUT/bin/emit_x64" "$OUT/lcnf_x64.s" "$OUT/lcnf_p5_x64.s"
+timeout 120 "$OUT/bin/emit_arm64" "$OUT/lcnf_arm64.s" "$OUT/lcnf_p5_arm64.s"
 # One function of an assembly file: from its label to the next function label.
 asm_fn() {
   awk -v s="$1:" '$0 == s {p = 1} p && /^[A-Za-z_][A-Za-z0-9_]*:$/ && $0 != s {exit} p' "$2"
@@ -120,13 +123,13 @@ check_run() { # <name> <stdout> <stderr> <expected>
 
 echo "== 4b. x86-64 (LeanQbe.T x64Target + gcc -O2) =="
 timeout 120 gcc $CFLAGS_RT -no-pie "$T/lcnf_main.c" "$T/lcnf_rt.c" "$OUT/lcnf_x64.s" \
-  -o "$OUT/lcnf_x64"
+  -lm -o "$OUT/lcnf_x64"
 run_err "$OUT/x64.err" timeout 60 "$OUT/lcnf_x64" > "$OUT/x64.out"
 check_run x64 "$OUT/x64.out" "$OUT/x64.err" "$OUT/ref.out"
 
 echo "== 4c. Arm64 (LeanQbe.T armTarget + aarch64-linux-gnu-gcc -O2 + qemu-aarch64) =="
 timeout 120 aarch64-linux-gnu-gcc $CFLAGS_RT "$T/lcnf_main.c" "$T/lcnf_rt.c" \
-  "$OUT/lcnf_arm64.s" -o "$OUT/lcnf_arm64" 2>&1 | { grep -v -e 'SFrame' || true; }
+  "$OUT/lcnf_arm64.s" -lm -o "$OUT/lcnf_arm64" 2>&1 | { grep -v -e 'SFrame' || true; }
 run_err "$OUT/arm64.err" timeout 120 qemu-aarch64 -L /usr/aarch64-linux-gnu \
   "$OUT/lcnf_arm64" > "$OUT/arm64.out"
 check_run arm64 "$OUT/arm64.out" "$OUT/arm64.err" "$OUT/ref.out"
@@ -134,10 +137,38 @@ check_run arm64 "$OUT/arm64.out" "$OUT/arm64.err" "$OUT/ref.out"
 echo "== 4d. PrintCpp + clang++ -std=c++20 -O2 -fsanitize=address,undefined (reduced sizes) =="
 timeout 300 clang++ -std=c++20 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined \
   -fno-sanitize-recover=all -DLCNF_TQBE -I"$ROOT/LeanQbe/T/Runtime" -I"$OUT" -I"$T" \
-  -x c++ "$T/lcnf_main.c" -o "$OUT/lcnf_cpp"
+  -x c++ "$T/lcnf_main.c" -lm -o "$OUT/lcnf_cpp"
 run_err "$OUT/cpp.err" timeout 120 "$OUT/lcnf_cpp" quick > "$OUT/cpp.out"
 check_run printcpp-asan "$OUT/cpp.out" "$OUT/cpp.err" "$OUT/ref_quick.out"
 if grep -E 'ERROR: AddressSanitizer|runtime error' "$OUT/cpp.err"; then exit 1; fi
+
+echo "== 4e. P5 Coverage (strings, big Nats, Array, ByteArray, Float) across all 4 backends =="
+{ echo "namespace LeanQbe.T.LeanLCNF.Coverage"
+  sed -n '/^-- BEGIN LCNF COVERAGE$/,/^-- END LCNF COVERAGE$/p' LeanQbe/T/LeanLCNF/Coverage.lean
+  echo "end LeanQbe.T.LeanLCNF.Coverage"
+  cat "$T/ref_p5.lean"; } > "$OUT/ref_p5_full.lean"
+(cd "$OUT" && timeout 120 lean -c ref_p5.c ref_p5_full.lean)
+timeout 120 leanc -O2 "$OUT/ref_p5.c" -o "$OUT/ref_p5"
+timeout 60 "$OUT/ref_p5" > "$OUT/ref_p5.out"
+timeout 60 "$OUT/ref_p5" quick > "$OUT/ref_p5_quick.out"
+
+timeout 120 gcc $CFLAGS_RT -no-pie "$T/lcnf_p5_main.c" "$T/lcnf_rt.c" "$OUT/lcnf_p5_x64.s" \
+  -lm -o "$OUT/lcnf_p5_x64"
+run_err "$OUT/p5_x64.err" timeout 60 "$OUT/lcnf_p5_x64" > "$OUT/p5_x64.out"
+check_run p5-x64 "$OUT/p5_x64.out" "$OUT/p5_x64.err" "$OUT/ref_p5.out"
+
+timeout 120 aarch64-linux-gnu-gcc $CFLAGS_RT "$T/lcnf_p5_main.c" "$T/lcnf_rt.c" \
+  "$OUT/lcnf_p5_arm64.s" -lm -o "$OUT/lcnf_p5_arm64" 2>&1 | { grep -v -e 'SFrame' || true; }
+run_err "$OUT/p5_arm64.err" timeout 120 qemu-aarch64 -L /usr/aarch64-linux-gnu \
+  "$OUT/lcnf_p5_arm64" > "$OUT/p5_arm64.out"
+check_run p5-arm64 "$OUT/p5_arm64.out" "$OUT/p5_arm64.err" "$OUT/ref_p5.out"
+
+timeout 300 clang++ -std=c++20 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -fno-sanitize-recover=all -DLCNF_TQBE -I"$ROOT/LeanQbe/T/Runtime" -I"$OUT" -I"$T" \
+  -x c++ "$T/lcnf_p5_main.c" -lm -o "$OUT/lcnf_p5_cpp"
+run_err "$OUT/p5_cpp.err" timeout 120 "$OUT/lcnf_p5_cpp" quick > "$OUT/p5_cpp.out"
+check_run p5-printcpp-asan "$OUT/p5_cpp.out" "$OUT/p5_cpp.err" "$OUT/ref_p5_quick.out"
+if grep -E 'ERROR: AddressSanitizer|runtime error' "$OUT/p5_cpp.err"; then exit 1; fi
 
 echo "== 5. benchmark: LeanQbe.T x86-64 vs leanc -O2 (wall clock ms) =="
 timeout 120 "$OUT/ref_lean" bench > "$OUT/bench_ref.out"

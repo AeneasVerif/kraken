@@ -2,12 +2,14 @@ module
 
 public import LeanQbe.T.LeanLCNF.Lower1
 public import LeanQbe.T.LeanLCNF.Demo
+public import LeanQbe.T.LeanLCNF.Coverage
 public import LeanQbe.T.LeanLRC.ToT
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.LeanLCNF.Lower1
 meta import LeanQbe.T.LeanLCNF.Demo
+meta import LeanQbe.T.LeanLCNF.Coverage
 meta import LeanQbe.T.LeanLRC.ToT
 meta import LeanQbe.T.FlatLemmas
 meta import LeanQbe.T.PrintCpp
@@ -77,6 +79,18 @@ theorem audit_tflat_wf (tfs : List TFlatFn) :
 theorem audit_lcnf_demo_wf :
     ∀ f ∈ demoFns, f.Wf :=
   LeanLRC.tflatFnsToFns_wf demoTfs
+
+/-- Lowered `TFlatFn` list for `Coverage.covProgram` (verified non-error by `#guard` below). -/
+def covTfs : List TFlatFn :=
+  (lowerModule Coverage.covProgram).toOption.getD []
+
+/-- Reified `LeanQbe.T.Fn` list for `Coverage.covProgram`. -/
+def covFns : List Fn :=
+  LeanLRC.tflatFnsToFns covTfs
+
+theorem audit_lcnf_cov_wf :
+    ∀ f ∈ covFns, f.Wf :=
+  LeanLRC.tflatFnsToFns_wf covTfs
 
 private theorem wf_is_scalar : Func.Wf lean_is_scalar_body := by t_wf_reify
 private theorem wf_box : Func.Wf lean_box_body := by t_wf_reify
@@ -167,6 +181,11 @@ theorem audit_lrc_mod_wf (tfs : List TFlatFn) :
 #guard demoFns.all fun f => Func.checkTFlat f.body
 #guard (demoFns.map (·.name)).contains "lcnf_apply_3"
 #guard (PrintCpp.ppTModule (lcnfTModule demoTfs)).isOk
+#guard (lowerModule Coverage.covProgram).isOk
+#guard !covFns.isEmpty
+#guard covFns.all fun f => Func.checkTFlat f.body
+#guard (PrintCpp.ppTModule (lcnfTModule covTfs)).isOk
+#guard (PrintQbe.module (lcnfTModule covTfs)).isOk
 
 -- LeanLRC runtime, benchmark modules, real spliced Lean.IR, and codegen.
 #guard LeanLRC.rtBase_fns.length == 28
@@ -189,6 +208,7 @@ theorem audit_lrc_mod_wf (tfs : List TFlatFn) :
 
 #print axioms audit_tflat_wf
 #print axioms audit_lcnf_demo_wf
+#print axioms audit_lcnf_cov_wf
 #print axioms audit_lrc_rt_wf
 #print axioms audit_lrc_mod_wf
 

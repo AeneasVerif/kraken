@@ -32,12 +32,12 @@ namespace LeanQbe.T.LeanLCNF
 /-- Mirror of `Lean.Compiler.LCNF.ImpureType`. -/
 inductive LcTy where
   | object | tobject | tagged | erased | void
-  | uint8 | uint16 | uint32 | uint64 | usize
+  | uint8 | uint16 | uint32 | uint64 | usize | float
   deriving Repr, BEq, DecidableEq, Inhabited
 
 /-- Unboxed scalar types. -/
 def LcTy.isScalar : LcTy → Bool
-  | .uint8 | .uint16 | .uint32 | .uint64 | .usize => true
+  | .uint8 | .uint16 | .uint32 | .uint64 | .usize | .float => true
   | _ => false
 
 /-- Bit width of the machine representation (`64` for every object word). -/
@@ -235,6 +235,7 @@ def xTy (e : Lean.Expr) : Except String LcTy :=
   | ImpureType.uint32 => pure .uint32
   | ImpureType.uint64 => pure .uint64
   | ImpureType.usize => pure .usize
+  | ImpureType.float => pure .float
   | _ => throw s!"LeanLCNF: unsupported impure type {e}"
 
 /-- Lift an `Except` into `XM`. -/
@@ -333,18 +334,18 @@ def xDecl (d : Decl .impure) : Except String LcDecl := do
 
 /-- Meta copy of `LcTy.isScalar`. -/
 def mIsScalar : LcTy → Bool
-  | .uint8 | .uint16 | .uint32 | .uint64 | .usize => true
+  | .uint8 | .uint16 | .uint32 | .uint64 | .usize | .float => true
   | _ => false
 
 /-- `ImpureType.boxed`. -/
 def mBoxed : LcTy → LcTy
-  | .object | .uint64 => .object
+  | .object | .uint64 | .float => .object
   | .void | .tagged | .uint8 | .uint16 => .tagged
   | _ => .tobject
 
 /-- Is the boxed form of `t` a definite heap object? -/
 def mBoxedIsObj : LcTy → Bool
-  | .uint64 | .usize => true
+  | .uint64 | .usize | .float => true
   | _ => false
 
 mutual
@@ -403,7 +404,7 @@ def eTy (t : LcTy) : Lean.Expr :=
     | .object => ``LcTy.object | .tobject => ``LcTy.tobject | .tagged => ``LcTy.tagged
     | .erased => ``LcTy.erased | .void => ``LcTy.void | .uint8 => ``LcTy.uint8
     | .uint16 => ``LcTy.uint16 | .uint32 => ``LcTy.uint32 | .uint64 => ``LcTy.uint64
-    | .usize => ``LcTy.usize
+    | .usize => ``LcTy.usize | .float => ``LcTy.float
 
 def eArg : LcArg → Lean.Expr
   | .erased => mkConst ``LcArg.erased

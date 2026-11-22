@@ -34,6 +34,8 @@ structure LEnv where
   decls : Std.HashMap String LcDecl
   funIds : Std.HashMap String Nat
   globals : Std.HashMap String Nat
+  strLits : Std.HashMap String Nat
+  bigNatLits : Std.HashMap Nat Nat
 
 /-- Per-function lowering context. -/
 structure LCtx where
@@ -97,13 +99,51 @@ def callFn (rt : LArg) (sym : Sym) (args : List (LArg × Ty)) (ret : Ty)
 
 /-! ## Values -/
 
-/-- Read a closed constant through its `rt->globals` once-cell. -/
-def readConst (rt : LArg) (sym : Sym) (slot : Nat) (k : LArg → LM LExpr) : LM LExpr :=
+/-- Pack a UTF-8 `ByteArray` into 64-bit little-endian words (zero-padded). -/
+def packBytesLE (bs : ByteArray) : List Nat :=
+  let nw := (bs.size + 7) / 8
+  (List.range nw).map fun k =>
+    (List.range 8).foldl (fun acc b =>
+      let idx := 8 * k + b
+      let byte := if h : idx < bs.size then (bs[idx]'h).toNat else 0
+      acc + byte * 2 ^ (8 * b)) 0
+
+/-- Split a non-negative `Nat` into 64-bit little-endian limbs (`[]` for `0`). -/
+def natToLimbs (n : Nat) : List Nat :=
+  if h : n == 0 then []
+  else (n % 2 ^ 64) :: natToLimbs (n / 2 ^ 64)
+termination_by n
+decreasing_by
+  have hpos : 0 < n := Nat.pos_of_ne_zero (by simpa using h)
+  exact Nat.div_lt_self hpos (by decide)
+
+/-- Initialize and read a `rt->globals` once-cell, marking the built object persistent. -/
+def readOnceCell (rt : LArg) (slot : Nat) (build : (LArg → LM LExpr) → LM LExpr)
+    (k : LArg → LM LExpr) : LM LExpr :=
   let off := rtGlobalsOff + 8 * slot
   loadAt i64 rt off fun g => withJoin1 i64 k fun j => do
-    let init ← call1 sym [i64] i64 [rt] fun r =>
+    let init ← build fun r =>
       call0 "lcnf_mark_persistent" [i64, i64] [rt, r] (storeAt i64 r rt off (pure (j r)))
     cmpOp .eq 64 g (imm64 0) fun z => pure (.jnz z init (j g))
+
+/-- Read a closed constant through its `rt->globals` once-cell. -/
+def readConst (rt : LArg) (sym : Sym) (slot : Nat) (k : LArg → LM LExpr) : LM LExpr :=
+  readOnceCell rt slot (call1 sym [i64] i64 [rt]) k
+
+/-- Materialize a string literal into its `rt->globals` once-cell. -/
+def readStrLit (rt : LArg) (slot : Nat) (s : String) (k : LArg → LM LExpr) : LM LExpr :=
+  let bs := s.toUTF8
+  let words := (packBytesLE bs).map imm64
+  readOnceCell rt slot (fun done =>
+    call1 "lcnf_str_alloc" [i64, i64, i64] i64 [rt, imm64 bs.size, imm64 s.length] fun p =>
+      storeFields p 32 words (done p)) k
+
+/-- Materialize a big `Nat` literal (`≥ 2^63`) into its `rt->globals` once-cell. -/
+def readBigNatLit (rt : LArg) (slot n : Nat) (k : LArg → LM LExpr) : LM LExpr :=
+  let limbs := (natToLimbs n).map imm64
+  readOnceCell rt slot (fun done =>
+    call1 "lcnf_nat_alloc" [i64, i64] i64 [rt, imm64 limbs.length] fun p =>
+      storeFields p 16 limbs (done p)) k
 
 /-- `fap f as`. -/
 def lowerFap (env : LEnv) (c : LCtx) (f : String) (as : List LcArg) (ty : LcTy)
@@ -168,9 +208,14 @@ def lowerVal (env : LEnv) (c : LCtx) (ty : LcTy) (v : LcVal) (k : LArg → LM LE
   match v with
   | .lit (.nat n) =>
     if n < 2 ^ 63 then k (imm64 (2 * n + 1))
-    else lfail s!"LeanLCNF ({c.fn}): big Nat literal {n} unsupported"
+    else match env.bigNatLits[n]? with
+      | some slot => readBigNatLit c.rt slot n k
+      | none => lfail s!"LeanLCNF ({c.fn}): big Nat literal {n} has no global slot"
   | .lit (.scalar n) => k (imm w n)
-  | .lit (.str _) => lfail s!"LeanLCNF ({c.fn}): string literals unsupported"
+  | .lit (.str s) =>
+    match env.strLits[s]? with
+    | some slot => readStrLit c.rt slot s k
+    | none => lfail s!"LeanLCNF ({c.fn}): string literal has no global slot"
   | .erased => k (imm w (if ty.isScalar then 0 else 1))
   | .ap f as =>
     let (fa, _) ← c.var f
@@ -192,13 +237,13 @@ def lowerVal (env : LEnv) (c : LCtx) (ty : LcTy) (v : LcVal) (k : LArg → LM LE
   | .box t x =>
     let (xa, _) ← c.var x
     match t with
-    | .uint64 | .usize => boxU64 c.rt xa k
+    | .uint64 | .usize | .float => boxU64 c.rt xa k
     | .uint8 | .uint16 | .uint32 => convW t.width 64 xa fun x64 => boxSmall x64 k
     | _ => k xa
   | .unbox x =>
     let (xa, _) ← c.var x
     match ty with
-    | .uint64 | .usize => loadAt i64 xa 8 k
+    | .uint64 | .usize | .float => loadAt i64 xa 8 k
     | _ => lshr64 xa (imm64 1) fun u => convW 64 w u k
   | .isShared x => do
     loadAt i32 (← c.var x).1 0 fun rc => cmpOp .ne 32 rc (imm 32 1) fun b => boolToU8 b k
@@ -417,17 +462,58 @@ def LcModule.cloTargets (m : LcModule) : Except String (List CloTarget) :=
       else throw s!"LeanLCNF: closure target {f} is not boxed"
     | none => throw s!"LeanLCNF: closure target {f} has no code"
 
+mutual
+/-- Collect `(string literals, big Nat literals ≥ 2^63)` in a code tree. -/
+def LcCode.lits : LcCode → List String × List Nat
+  | .let_ _ _ v k =>
+    let (ss, ns) := k.lits
+    match v with
+    | .lit (.str s) => (s :: ss, ns)
+    | .lit (.nat n) => if n < 2 ^ 63 then (ss, ns) else (ss, n :: ns)
+    | _ => (ss, ns)
+  | .jp _ _ b k =>
+    let (s1, n1) := b.lits
+    let (s2, n2) := k.lits
+    (s1 ++ s2, n1 ++ n2)
+  | .cases _ alts => LcCode.altsLits alts
+  | .oset _ _ _ k | .uset _ _ _ k | .sset _ _ _ _ _ k | .setTag _ _ k
+  | .inc _ _ _ k | .dec _ _ _ k | .del _ k => k.lits
+  | .jmp _ _ | .ret _ | .unreach => ([], [])
+
+/-- `LcCode.lits` over `cases` alternatives. -/
+def LcCode.altsLits : List (LcPat × LcCode) → List String × List Nat
+  | [] => ([], [])
+  | (_, b) :: rest =>
+    let (s1, n1) := b.lits
+    let (s2, n2) := LcCode.altsLits rest
+    (s1 ++ s2, n1 ++ n2)
+end
+
+/-- Deduplicate `Nat` preserving first occurrences. -/
+def dedupNat (xs : List Nat) : List Nat :=
+  xs.foldl (fun acc x => if acc.contains x then acc else acc ++ [x]) []
+
 /-- Lower a whole impure LCNF module (functions + `lcnf_apply_1..k`). -/
 def lowerModule (m : LcModule) : Except String (List TFlatFn) := do
   let targets ← m.cloTargets
   let consts := m.decls.filter fun d => d.params.isEmpty && !d.retTy.isScalar
-  if consts.length > rtGlobalSlots then throw "LeanLCNF: too many closed constants"
+  let allLits := m.decls.map (·.body.lits)
+  let strs := dedupStr (allLits.flatMap (·.1))
+  let bigNats := dedupNat (allLits.flatMap (·.2))
+  let totalGlobals := consts.length + strs.length + bigNats.length
+  if totalGlobals > rtGlobalSlots then throw "LeanLCNF: too many closed constants/literals"
+  let strBase := consts.length
+  let natBase := strBase + strs.length
   let env : LEnv :=
     { decls := m.decls.foldl (fun s d => s.insert d.name d) {}
       funIds := m.papTargets.zip (List.range m.papTargets.length) |>.foldl
         (fun s (f, i) => s.insert f i) {}
       globals := consts.zip (List.range consts.length) |>.foldl
-        (fun s (d, i) => s.insert d.name i) {} }
+        (fun s (d, i) => s.insert d.name i) {}
+      strLits := strs.zip (List.range strs.length) |>.foldl
+        (fun s (x, i) => s.insert x (strBase + i)) {}
+      bigNatLits := bigNats.zip (List.range bigNats.length) |>.foldl
+        (fun s (x, i) => s.insert x (natBase + i)) {} }
   let fns ← m.decls.mapM (lowerDecl env)
   let maxK := if targets.isEmpty then m.maxAp else Nat.max 1 m.maxAp
   let applies ← (List.range maxK).mapM fun i => genApply (i + 1) targets
