@@ -24,7 +24,7 @@ echo "outputs in $OUT"
 echo "== 1. build LeanLRC modules and generate C++20 / QBE artifacts =="
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   timeout 300 lake build --wfail LeanQbe.T.LeanLRC.ToT LeanQbe.T.Driver LeanQbe.T.Amd64.Targ \
-    LeanQbe.T.Arm64.Targ LeanQbeTest.T.LeanLRCTest
+    LeanQbe.T.Amd64.PrintATTAlign LeanQbe.T.Arm64.Targ LeanQbeTest.T.LeanLRCTest
 else
   echo "SKIP_BUILD=1: skipping lake build LeanLRC modules"
 fi

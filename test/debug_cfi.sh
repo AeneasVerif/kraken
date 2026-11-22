@@ -37,8 +37,10 @@ build_lean_path() {
   local ov="$TMP/lean_ov"
   mkdir -p "$ov"
   cp -rs "$parent/LeanQbe" "$ov/LeanQbe"
-  rm -f "$ov/LeanQbe/T/Amd64"/DebugAsm.* "$ov/LeanQbe/T/Arm64"/DebugAsm.* 2>/dev/null || true
+  rm -f "$ov/LeanQbe/T/Amd64"/DebugAsm.* "$ov/LeanQbe/T/Amd64"/PrintATTAlign.* \
+    "$ov/LeanQbe/T/Arm64"/DebugAsm.* 2>/dev/null || true
   ln -sf "$wt/LeanQbe/T/Amd64"/DebugAsm.* "$ov/LeanQbe/T/Amd64/"
+  ln -sf "$wt/LeanQbe/T/Amd64"/PrintATTAlign.* "$ov/LeanQbe/T/Amd64/"
   ln -sf "$wt/LeanQbe/T/Arm64"/DebugAsm.* "$ov/LeanQbe/T/Arm64/"
   local lp="$ov"
   [ -d "$kraken" ] && lp="$lp:$kraken"

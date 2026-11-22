@@ -222,4 +222,57 @@ private def dbgLoopCheck : Bool :=
 
 #guard dbgLoopCheck
 
+-- 8. Mutual & self tail-call regression: function-entry labels never trigger .p2align,
+--    matching DebugAsm's per-function alignment parity.
+private def myEvenFn : Fn := tqbe $my_even(%n:l) -> l {
+  %w =w trunc %n
+  %z =b ceqw %w, 0
+  jnz %z, {
+    %r =l call $c_probe(%n)
+    ret %r
+  }, {
+    %m =l sub %n, 1
+    exit $my_odd(%m)
+  }
+}
+
+private def myOddFn : Fn := tqbe $my_odd(%n:l) -> l {
+  %w =w trunc %n
+  %z =b ceqw %w, 0
+  jnz %z, {
+    %r =l call $c_probe(%n)
+    ret %r
+  }, {
+    %m =l sub %n, 1
+    exit $my_even(%m)
+  }
+}
+
+private def mySelfTailFn : Fn := tqbe $my_self(%n:l) -> l {
+  %w =w trunc %n
+  %z =b ceqw %w, 0
+  jnz %z, {
+    %r =l call $c_probe(%n)
+    ret %r
+  }, {
+    %m =l sub %n, 1
+    exit $my_self(%m)
+  }
+}
+
+private def tailCallParityCheck (fns : List Fn) : Bool :=
+  let hs := fns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
+  let ex := fns.map (·.name)
+  match compile x64Target.toIsa x64LegalTarget fns hs with
+  | .error _ => false
+  | .ok dirs =>
+    let hdrs := detectLoopHeaders dirs
+    match emitX64DebugAsmChecked fns dirs (some hs) ex false true with
+    | .error _ => false
+    | .ok dbg =>
+      hdrs.isEmpty && countAligns (toATTAligned dirs) == 0 && countAligns dbg == 0
+
+#guard tailCallParityCheck [myEvenFn, myOddFn]
+#guard tailCallParityCheck [mySelfTailFn]
+
 end LeanQbeTest.T.PrintATTAlignX64Test

@@ -36,7 +36,8 @@ run_lean() {
 echo "== 1. build Kissat Solver/Test and generate C++20 / QBE / corpus artifacts =="
 if [ -z "${STAGE_LEAN_PATH:-}" ] && [ "${SKIP_BUILD:-0}" != "1" ]; then
   timeout 600 lake build --wfail LeanQbe.T.Examples.Kissat.Solver LeanQbe.T.Driver \
-    LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ LeanQbeTest.T.KissatC0Test
+    LeanQbe.T.Amd64.Targ LeanQbe.T.Amd64.PrintATTAlign LeanQbe.T.Arm64.Targ \
+    LeanQbeTest.T.KissatC0Test
 fi
 run_lean 120 --run LeanQbeTest/T/KissatC0Test.lean "$OUT"
 

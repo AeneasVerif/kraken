@@ -33,12 +33,18 @@ private def jmpTarget? : Directive → Option Label
   | .instr (.regular _ _ (.jmp (.rel (.sub (.label l) .after_current_instruction)))) => some l
   | _ => none
 
-/-- Collect the set of labels targeted by at least one backward jump/branch in `p`. -/
+/-- True iff `l` is a function-local block label (`.L*` or `{fn}.L*`) rather than a function
+entry label. Resetting `seen` at function-entry labels prevents cross-function and self
+tail-calls (`jmp fn`) from being misclassified as intra-function loop headers. -/
+private def isLocalLabel (l : Label) : Bool :=
+  l.startsWith ".L" || (l.splitOn ".L").length > 1
+
+/-- Collect labels targeted by at least one intra-function backward jump/branch in `p`. -/
 private def loopHeaderSet (p : List Directive) : HashSet Label :=
   let (_, hdrs) := p.foldl (init := (({} : HashSet Label), ({} : HashSet Label)))
     fun (seen, hdrs) d =>
       match d with
-      | .label l => (seen.insert l, hdrs)
+      | .label l => if isLocalLabel l then (seen.insert l, hdrs) else ({}, hdrs)
       | _ =>
         match jmpTarget? d with
         | some tgt => if seen.contains tgt then (seen, hdrs.insert tgt) else (seen, hdrs)
