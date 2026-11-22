@@ -1,12 +1,12 @@
 module
 
+public import LeanQbe.T.MainCert
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Examples.LratBytesLemmas
-public import LeanQbe.T.MainSplice
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
-meta import LeanQbe.T.MainSplice
+meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.LratBytes
 
@@ -15,8 +15,9 @@ meta import LeanQbe.T.Examples.LratBytes
 
 Instantiates the typed-IR 6-function untrusted-bytes DIMACS + Binary LRAT checker module
 `lratBytesModule` on `x64Target` (`x64LegalTarget`, `x64Layout`, `x64LabelClean`) with:
-* `lratBytesHints` via `splice_module_hints`;
-* `compiled_check : checkCompile ... = true` proved in a single kernel reduction (`t_kernel_rfl`);
+* `lratCert` via chunked `compile_linked_chunks!` (eliminating monolithic kernel peak RSS);
+* `lratBytesHints`, `compiled_check : checkCompile ... = true`, and literal-backed `compiled`
+  derived directly from `lratCert`;
 * `lrat_bytes_module_fnspec` over arbitrary Kraken `Host` instances;
 * closed Kraken x64 correctness theorems `lrat_check_bytes_x64_of_fnspec`,
   `lrat_check_bytes_x64_correct`, and `lrat_check_bytes_x64_unsat`;
@@ -33,25 +34,76 @@ namespace LeanQbe.T.Amd64.LratBytes
 open Std Std.ExtHashMap Std.Sat
 open LeanQbe.T LeanQbe.T.Examples.LratBytes LeanQbe.T.Amd64 Kraken
 
-splice_module_hints lratBytesHints (x64Target.toIsa) x64LegalTarget lratBytesFns
+open scoped LeanQbe.T in
+compile_linked_chunks! lratCert
+  x64Target x64Layout x64LegalTarget x64LabelClean lratBytesModule 1
+
+/-- Concatenated register-allocation hints across all chunks of `lratCert`. -/
+def lratBytesHints : List x64Target.toIsa.Hints :=
+  chunksHints lratCert.chunks
+
+theorem compiled_compileModule :
+    compileModule x64Target.toIsa x64LegalTarget x64Target.frame.raBytes [] [] 0
+      lratBytesFns lratBytesHints = .ok (lratCert.code, lratCert.bounds) := by
+  rw [show lratBytesFns = chunksFns lratCert.chunks from lratCert.fns_eq]
+  exact lratCert.compiled.compileModule_eq
+
+private theorem lookupFnBound_of_mem_nodup :
+    ∀ {bs : List (Sym × Nat)} {nm : Sym} {b : Nat},
+      (bs.map Prod.fst).Nodup → (nm, b) ∈ bs → lookupFnBound bs nm = some b
+  | [], _, _, _, h => nomatch h
+  | (k, v) :: bs, nm, b, hnd, hmem => by
+    simp only [List.map_cons, List.nodup_cons] at hnd
+    simp only [lookupFnBound, List.find?]
+    rcases List.mem_cons.mp hmem with ⟨rfl, rfl⟩ | hmem'
+    · simp
+    · have hne : (k == nm) = false := beq_false_of_ne fun e =>
+        hnd.1 (e ▸ List.mem_map_of_mem (f := Prod.fst) hmem')
+      simp only [hne]
+      exact lookupFnBound_of_mem_nodup hnd.2 hmem'
+
+theorem compiled_checkLit :
+    checkCompileLit x64Target.frame.label x64Layout.progSmall
+      lratCert.code lratCert.bounds (lratBytesFns.map Fn.name) [] 2048 = true := by
+  have hlink := lratCert.linkCheck
+  simp only [checkLinkList, Bool.and_eq_true] at hlink
+  have hfns : lratBytesFns = chunksFns lratCert.chunks := lratCert.fns_eq
+  have hnd : (lratCert.compiled.bounds.map Prod.fst).Nodup := by
+    rw [compileModule_bounds_names lratCert.compiled.compileModule_eq]
+    exact (List.nodup_append.mp (checkLinkList_parts lratCert.linkCheck).2.2.2.1).1
+  simp only [checkCompileLit, checkCompileResult, Bool.and_eq_true]
+  refine ⟨⟨⟨⟨⟨?_, rfl⟩, ?_⟩, ?_⟩, ?_⟩, ?_⟩
+  · rw [hfns]; exact hlink.1.1.1.2
+  · rw [hfns]; exact hlink.1.2
+  · exact hlink.2
+  · refine List.all_eq_true.mpr fun p hp => Nat.ble_eq.mpr ?_
+    have hlk := lookupFnBound_of_mem_nodup hnd hp
+    have hle := lratCert.bound_le_max p.1
+    simpa [LinkedCert.bound, Compiled.bound, hlk] using hle
+  · rw [hfns]
+    refine List.all_eq_true.mpr fun nm hnm => ?_
+    cases hlk : lookupFnBound lratCert.bounds nm with
+    | some _ => rfl
+    | none =>
+      simp only [lookupFnBound, Option.map_eq_none_iff, List.find?_eq_none] at hlk
+      exact absurd (beq_self_eq_true nm) (hlk _ (lratCert.compiled.bound_mem hnm))
 
 theorem compiled_check :
     checkCompile x64Target x64Layout x64LegalTarget [] [] 0 lratBytesFns lratBytesHints 2048 =
       true := by
-  t_kernel_rfl
+  unfold checkCompile
+  rw [compiled_compileModule]
+  exact compiled_checkLit
 
-/-- Single kernel evaluation of the compiler on `lratBytesFns` for SysV x64. -/
+/-- Chunk-linked literal-backed compilation certificate on `lratBytesFns` for SysV x64. -/
 def compiled : Compiled x64Target x64LegalTarget [] [] 0 lratBytesFns lratBytesHints 2048 :=
-  compileChecked x64Target x64Layout x64LegalTarget x64LabelClean [] [] 0
-    lratBytesFns lratBytesHints 2048 compiled_check
-
-private theorem lratBytesFns_supportsSource_all :
-    lratBytesFns.all (fun f => (f.earlyOpt).body.supportsSource x64LegalTarget) = true := by
-  t_kernel_rfl
+  compileCheckedLit x64Target x64Layout x64LegalTarget x64LabelClean [] [] 0
+    lratBytesFns lratBytesHints 2048 lratCert.code lratCert.bounds
+    compiled_compileModule compiled_checkLit
 
 theorem lratBytesFns_supportsSource :
     ∀ f ∈ lratBytesModule.fns, (f.earlyOpt).body.supportsSource x64LegalTarget = true :=
-  supportsAll_to_forall lratBytesFns_supportsSource_all
+  lratCert.supportsAll
 
 section Generic
 variable [hh : Host]
