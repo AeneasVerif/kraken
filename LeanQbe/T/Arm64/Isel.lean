@@ -184,6 +184,20 @@ def armImm12? {n : Nat} (c : BitVec n) : Option ExtOrImmReg :=
     some (.imm { imm := .int64 (Int64.ofNat (c.toNat / 4096)), shift := .S12 })
   else none
 
+/-- 12-bit immediate add/sub instruction, flipping sign via `ADD_e`/`SUB_e` for negative imms. -/
+def armAddSubImmI? {n : Nat} (isSub : Bool) (w : RegWidth) (d rx : XReg) (c : BitVec n) :
+    Option Instr :=
+  match armImm12? c with
+  | some ei =>
+    some (armIselInsI (if isSub then .SUB_e (.low (.reg d) w) (.low (.reg rx) w) ei
+      else .ADD_e (.low (.reg d) w) (.low (.reg rx) w) ei))
+  | none =>
+    match armImm12? (-c) with
+    | some ei =>
+      some (armIselInsI (if isSub then .ADD_e (.low (.reg d) w) (.low (.reg rx) w) ei
+        else .SUB_e (.low (.reg d) w) (.low (.reg rx) w) ei))
+    | none => none
+
 /-- Logical immediate `n - 1` (`7`, `15`, `31`, or `63`) for shift/bit masks. -/
 def armShiftMaskConst (n : Nat) : ConstExpr :=
   .int64 (Int64.ofNat (n - 1))
@@ -263,6 +277,12 @@ def armJnzGpr (r : Reg) (l : Sym) : List Directive × FlagMask :=
 def armFitsScaledOff (scale : Nat) (disp : Int64) : Bool :=
   Nat.ble disp.toBitVec.toNat (4095 * scale) && (disp.toBitVec.toNat % scale == 0)
 
+/-- True iff `[rb, ri, sc, disp]` lowers via `armSetupAddrIns` using at most `.X16`. -/
+def armAddrIdxValid (scale : Nat) (sc : AddrScale) (disp : Int64) : Bool :=
+  (disp != 0 && armFitsScaledOff scale disp) ||
+  ((armMemExtendAmount scale sc).isSome &&
+    (disp == 0 || (armImm12? disp.toBitVec).isSome || (armImm12? (-disp.toBitVec)).isSome))
+
 /-- Compute effective `AddrExpr` using scratch `.X16` only (`Instr` builder). -/
 def armSetupAddrIns (scale : Nat) : AddrArg Reg → List Instr × AddrExpr
   | .imm addr => (armMovImmI .X16 addr, atReg .X16)
@@ -280,10 +300,18 @@ def armSetupAddrIns (scale : Nat) : AddrArg Reg → List Instr × AddrExpr
         [armIselInsI (w := .W64) (.ADD_e (.low (.reg .X16) .W64) (.low .SP .W64)
           (.ext { reg := ⟨.W64, zr .X16 .W64⟩, ext := { type := .UXTX, amount := .E0 } }))],
         atReg .X16)
-  | .baseIdxDisp (.reg rb) (.reg ri) sc _ =>
-    match armMemExtendAmount scale sc with
+  | .baseIdxDisp (.reg rb) (.reg ri) sc disp =>
+    match (if disp == 0 then armMemExtendAmount scale sc else none) with
     | some amt => ([], armAtIdxScale rb ri amt)
-    | none => ([], atReg .X16)
+    | none =>
+      if armFitsScaledOff scale disp then
+        ([armIselInsI (.ADD_s (zr .X16 .W64) (zr rb .W64)
+          { reg := zr ri .W64, amount := Int64.ofNat sc.shift, shift := .LSL })],
+         armAtDisp .X16 disp)
+      else
+        match armMemExtendAmount scale sc, armAddSubImmI? false .W64 .X16 rb disp.toBitVec with
+        | some amt, some addIns => ([addIns], armAtIdxScale .X16 ri amt)
+        | _, _ => ([], atReg .X16)
   | .baseIdxDisp .. => ([], atReg .X16)
 
 /-- Byte scale of a scalar memory access type, or `none` if unsupported. -/
@@ -314,8 +342,7 @@ def armStoreDirI (t : Ty) (s : XReg) (addr : AddrExpr) : Option Instr :=
 
 /-- Address validity gate for AArch64 scalar loads/stores at byte access size `scale`. -/
 def armAddrValid (scale : Nat) : AddrArg Reg → Bool
-  | .baseIdxDisp (.reg _) (.reg _) sc disp =>
-    disp == 0 && (armMemExtendAmount scale sc).isSome
+  | .baseIdxDisp (.reg _) (.reg _) sc disp => armAddrIdxValid scale sc disp
   | .baseIdxDisp .. => false
   | _ => true
 
@@ -488,20 +515,6 @@ abbrev armLogicImmDirI (k : ArmBinK) (w : RegWidth) (d ra : XReg) (imm : Int64) 
   | .or => some (armIselInsI (.ORR_i (.low (.reg d) w) (zr ra w) (.int64 imm)))
   | .xor => some (armIselInsI (.EOR_i (.low (.reg d) w) (zr ra w) (.int64 imm)))
   | _ => none
-
-/-- 12-bit immediate add/sub instruction, flipping sign via `ADD_e`/`SUB_e` for negative imms. -/
-def armAddSubImmI? {n : Nat} (isSub : Bool) (w : RegWidth) (d rx : XReg) (c : BitVec n) :
-    Option Instr :=
-  match armImm12? c with
-  | some ei =>
-    some (armIselInsI (if isSub then .SUB_e (.low (.reg d) w) (.low (.reg rx) w) ei
-      else .ADD_e (.low (.reg d) w) (.low (.reg rx) w) ei))
-  | none =>
-    match armImm12? (-c) with
-    | some ei =>
-      some (armIselInsI (if isSub then .ADD_e (.low (.reg d) w) (.low (.reg rx) w) ei
-        else .SUB_e (.low (.reg d) w) (.low (.reg rx) w) ei))
-    | none => none
 
 def armBinOpIns (k : ArmBinK) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n)) (d : XReg) :
     Option (List Instr × FlagMask) := do
@@ -911,6 +924,83 @@ def armFunnelOpIns (isLeft : Bool) (n : Nat) (pa pb pc : PArg Reg Empty ArmCond 
       some (ca ++ cb ++ body, maskNZCV)
     | .gpr .SP => none
 
+/-- Emit `ANDS` setting flags for `va &&& vb` at `[8, 16, 32, 64]` without clobbering GPRs
+other than `.X16`/`.X17`. -/
+def armTestDirectIns (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n)) :
+    Option (List Instr) :=
+  if n == 32 || n == 64 then
+    let w := armWidthOf n
+    let regImm (rx : XReg) (cy : BitVec n) : Option (List Instr) :=
+      let c64 := cy.setWidth 64
+      if armIsValidLogicalImm w c64 then
+        some [armIselInsI (.ANDS_i (xzr w) (zr rx w) (.int64 (Int64.ofBitVec c64)))]
+      else if cy == ~~~0#n then
+        some [armIselInsI (.ANDS_s (xzr w) (zr rx w) (sh rx))]
+      else if cy == 0#n then
+        some [armIselInsI (.ANDS_s (xzr w) (xzr w)
+          { reg := xzr w, amount := 0, shift := .LSL })]
+      else do
+        let (cb, ry) ← armArgInIns .X17 (.imm cy)
+        some (cb ++ [armIselInsI (.ANDS_s (xzr w) (zr rx w) (sh ry))])
+    match pa, pb with
+    | .gpr (.reg rx), .gpr (.reg ry) =>
+      some [armIselInsI (.ANDS_s (xzr w) (zr rx w) (sh ry))]
+    | .gpr (.reg rx), .imm cy => regImm rx cy
+    | .imm cx, .gpr (.reg ry) => regImm ry cx
+    | .imm _, .imm _ => do
+      let (ca, rx) ← armArgInIns .X16 pa
+      let (cb, ry) ← armArgInIns .X17 pb
+      some (ca ++ cb ++ [armIselInsI (.ANDS_s (xzr w) (zr rx w) (sh ry))])
+    | _, _ => none
+  else
+    let regImm816 (rx : XReg) (cy : BitVec n) : Option (List Instr) :=
+      let c64 := cy.setWidth 64
+      if armIsValidLogicalImm .W32 c64 then
+        some [armIselInsI (.ANDS_i (xzr .W32) (zr rx .W32) (.int64 (Int64.ofBitVec c64)))]
+      else if cy == 0#n then
+        some [armIselInsI (.ANDS_s (xzr .W32) (xzr .W32)
+          { reg := xzr .W32, amount := 0, shift := .LSL })]
+      else
+        some (armMovImmI .X17 c64 ++
+          [armIselInsI (.ANDS_s (xzr .W32) (zr rx .W32) (sh .X17))])
+    match pa, pb with
+    | .gpr (.reg rx), .gpr (.reg ry) =>
+      some [armExt32I false n .X16 rx,
+        armIselInsI (.ANDS_s (xzr .W32) (zr .X16 .W32) (sh ry))]
+    | .gpr (.reg rx), .imm cy => regImm816 rx cy
+    | .imm cx, .gpr (.reg ry) => regImm816 ry cx
+    | .imm cx, .imm cy =>
+      some (armMovImmI .X16 (cx.setWidth 64) ++ armMovImmI .X17 (cy.setWidth 64) ++
+        [armIselInsI (.ANDS_s (xzr .W32) (zr .X16 .W32) (sh .X17))])
+    | _, _ => none
+
+/-- Lower fused `(pa &&& pb) ==/!= 0` bit-test (`neg = false` -> `== 0`, `true` -> `!= 0`). -/
+def armTestOpIns (n : Nat) (neg : Bool) (pa pb : PArg Reg Empty ArmCond (.bits n))
+    (pd : PDst Reg Empty ArmCond .bool) : Option (List Instr × FlagMask) :=
+  if ![8, 16, 32, 64].contains n then none
+  else
+    let wantCond : ArmCond := if neg then .ne else .eq
+    match pd with
+    | .gpr (.reg d) =>
+      match pa, pb with
+      | .imm cx, .imm cy =>
+        let res := (if neg then CmpOp.ne else CmpOp.eq).evalBits (cx &&& cy) 0#n
+        some (armMovImmI d (BitVec.ofNat 64 res.toNat), maskNone)
+      | _, _ => do
+        let tst ← armTestDirectIns n pa pb
+        some (tst ++ [armCset64I d wantCond], maskNZCV)
+    | .flag c =>
+      if c == wantCond then do
+        let tst ← armTestDirectIns n pa pb
+        some (tst, maskNZCV)
+      else none
+    | .gpr .SP | .vec _ => none
+
+/-- Lower fused `(pa &&& pb) ==/!= 0` bit-test into AArch64 directives. -/
+def armTestOp (n : Nat) (neg : Bool) (pa pb : PArg Reg Empty ArmCond (.bits n))
+    (pd : PDst Reg Empty ArmCond .bool) : Option (List Directive × FlagMask) :=
+  emitCleanPair (armTestOpIns n neg pa pb pd)
+
 /-- Scalar `OpCode` lowering for AArch64 (`Instr` builder). -/
 def armOpIns {sig rs : List Ty} (code : OpCode sig rs) (pas : Tup (PArg Reg Empty ArmCond) sig)
     (dsts : Tup (PDst Reg Empty ArmCond) rs) (vh : VariantHint) : Option (List Instr × FlagMask) :=
@@ -1072,5 +1162,6 @@ def armZeroUpper32Op : {sig rs : List Ty} → OpCode sig rs →
   zeroExtLoad := true
   zeroUpper32Op := armZeroUpper32Op
   elideZext32 := true
+  testOp := armTestOp
 
 end LeanQbe.T.Arm64

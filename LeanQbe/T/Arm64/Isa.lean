@@ -26,12 +26,12 @@ def armSupportsAddrDisp (t : Ty) (d : BitVec 64) : Bool :=
   | some sc => armFitsScaledOff sc (Int64.ofBitVec d)
   | none => false
 
-/-- True iff `armLoad`/`armStore` encodes `[base, idx, lsl #k]` (`disp = 0`, `scale ∈ {1, 2, 4, 8}`
-matching access size or `1`). -/
+/-- True iff `armLoad`/`armStore` encodes `[base + idx*scale + disp]` using `armSetupAddrIns`
+and scratch `.X16` only. -/
 def armSupportsAddrIdx (t : Ty) (sc : AddrScale) (d : BitVec 64) : Bool :=
-  d == 0#64 && match armMemScale t with
-    | some memSc => (armMemExtendAmount memSc sc).isSome
-    | none => false
+  match armMemScale t with
+  | some scale => armAddrIdxValid scale sc (Int64.ofBitVec d)
+  | none => false
 
 /-- Pure AAPCS64 Arm64 scalar `Isa` (`VecIsa.empty`, zero `*Lemmas*` imports). -/
 @[reducible] def armIsa : Isa where
@@ -44,6 +44,7 @@ def armSupportsAddrIdx (t : Ty) (sc : AddrScale) (d : BitVec 64) : Bool :=
   frame := armFrame
   supportsAddrDisp := armSupportsAddrDisp
   supportsAddrIdx := armSupportsAddrIdx
+  supportsTestFuse := true
 
 /-- AArch64 scalar legalization capability record (`LegalTarget.aarch64`, no vectors/floats). -/
 def armLegalTarget : LegalTarget := LegalTarget.aarch64

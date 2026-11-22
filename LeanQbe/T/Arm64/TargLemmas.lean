@@ -44,6 +44,7 @@ theorem armLabelClean : Rega.LabelClean armTarget.toIsa where
   jcc := armJcc_noLab
   jnzGpr := armJnzGpr_noLab
   op _ _ _ _ _ _ h l := armOp_noLab h l
+  testOp _ _ _ _ _ _ _ h l := armTestOp_noLab h l
   load _ _ _ _ _ h l := armLoad_noLab h l
   store _ _ _ _ _ h l := armStore_noLab h l
   clearFlags := armClearFlags_noLab

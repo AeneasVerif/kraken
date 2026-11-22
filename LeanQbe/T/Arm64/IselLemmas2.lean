@@ -770,7 +770,7 @@ private theorem armAddSubImmI_wp [Host] {n : Nat} (hn : n ≤ 64) {w : RegWidth}
           simp [BitVec.toNat_add, Nat.mod_mod_of_dvd _ (Nat.pow_dvd_pow 2 hw)]
         rw [hadd, BitVec.sub_eq_add_neg]
 
-private theorem int64_toInt_ofBitVec_setWidth (w : RegWidth) (c64 : BitVec 64) :
+theorem int64_toInt_ofBitVec_setWidth (w : RegWidth) (c64 : BitVec 64) :
     BitVec.ofInt w.bits (Int64.toInt (Int64.ofBitVec c64)) = c64.setWidth w.bits := by
   rw [Int64.toInt_ofBitVec]
   cases w

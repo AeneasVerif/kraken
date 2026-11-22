@@ -794,17 +794,17 @@ theorem armTarget_addrIdx_rfl :
     armTarget.toIsa.supportsAddrIdx (.bits 16) .s2 0 = true ∧
     armTarget.toIsa.supportsAddrIdx (.bits 32) .s4 0 = true ∧
     armTarget.toIsa.supportsAddrIdx (.bits 64) .s8 0 = true ∧
-    armTarget.toIsa.supportsAddrIdx (.bits 32) .s4 4 = false ∧
+    armTarget.toIsa.supportsAddrIdx (.bits 32) .s4 5001 = false ∧
     armTarget.toIsa.supportsAddrIdx (.bits 64) .s4 0 = false ∧
     armTarget.toIsa.supportsAddrIdx (.bits 8) .s2 0 = false := by
   exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 theorem armLoadStore_addrIdx_neg_rfl :
-    armGpr.load i32 (.reg .X0) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 4) = none ∧
+    armGpr.load i32 (.reg .X0) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 5001) = none ∧
     armGpr.load i32 (.reg .X0) (.baseIdxDisp .SP (.reg .X2) .s4 0) = none ∧
     armGpr.load i32 (.reg .X0) (.baseIdxDisp (.reg .X1) .SP .s4 0) = none ∧
     armGpr.load i64 (.reg .X0) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 0) = none ∧
-    armGpr.store i32 (.gpr (.reg .X0)) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 4) = none ∧
+    armGpr.store i32 (.gpr (.reg .X0)) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 5001) = none ∧
     armGpr.store i64 (.gpr (.reg .X0)) (.baseIdxDisp .SP (.reg .X2) .s8 0) = none ∧
     (armGpr.load i32 (.reg .X0) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 0)).isSome = true ∧
     (armGpr.store i64 (.gpr (.reg .X0))

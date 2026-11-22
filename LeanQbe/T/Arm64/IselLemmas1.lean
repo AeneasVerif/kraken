@@ -831,6 +831,82 @@ private theorem armAtIdxScale_eval [Labels] (s : MachineData) (rb ri : XReg)
       Reg64s.getRegOrSp_reg64, Reg64s.getRegOrZr64, RegOrZr.base, AddrScale.shift]
     exact congrArg (·, s) (hsh 3 _ _)
 
+private theorem armSetupAddr_addS_wp [Host] (rb ri : XReg) (sc : AddrScale)
+    (disp : Int64) (s : MachineData) :
+    _root_.Program.wp (emitClean [armIselInsI (.ADD_s (zr .X16 .W64) (zr rb .W64)
+      { reg := zr ri .W64, amount := Int64.ofNat sc.shift, shift := .LSL })])
+      (fun s' =>
+        (∀ [Labels] p, (armAtDisp .X16 disp).eval s' p =
+          ((AddrArg.baseIdxDisp (.reg rb) (.reg ri) sc disp).eval (get s), s')) ∧
+        (∀ x, x ≠ .X16 → s'.regs.getXReg x = s.regs.getXReg x) ∧
+        s'.regs.SP = s.regs.SP ∧ s'.dmem = s.dmem ∧ s'.status = s.status ∧
+        armMach.Frame armCondReads s s' [.reg .X16] [] maskNone)
+      (fun _ _ => False) s := by
+  simp only [emitClean_cons, emitClean_nil]
+  refine armWp_mono (armDirFallsTo_wp fun {_} p next jmp Q hk => by
+    simp only [t_step_simp, RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq]
+    rw [show (Int64.ofNat sc.shift).toInt.toNat = sc.shift by cases sc <;> decide]
+    exact hk _ rfl) ?_
+  rintro s' rfl
+  refine ⟨?_, fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm,
+    rfl, rfl, rfl, frame_wr .X16 _ List.mem_cons_self maskNone⟩
+  intro _ p
+  rw [armAtDisp_eval]
+  simp only [AddrArg.eval, get_reg, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec]
+
+private theorem armSetupAddr_addImm_wp [Host] (rb ri : XReg) (hri16 : ri ≠ .X16)
+    {scale : Nat} {sc : AddrScale} {amt : MemExtendAmount}
+    (hamt : armMemExtendAmount scale sc = some amt) (disp : Int64) {addIns : Instr}
+    (hadd : armAddSubImmI? false .W64 .X16 rb disp.toBitVec = some addIns)
+    (s : MachineData) :
+    _root_.Program.wp (emitClean [addIns]) (fun s' =>
+      (∀ [Labels] p, (armAtIdxScale .X16 ri amt).eval s' p =
+        ((AddrArg.baseIdxDisp (.reg rb) (.reg ri) sc disp).eval (get s), s')) ∧
+      (∀ x, x ≠ .X16 → s'.regs.getXReg x = s.regs.getXReg x) ∧
+      s'.regs.SP = s.regs.SP ∧ s'.dmem = s.dmem ∧ s'.status = s.status ∧
+      armMach.Frame armCondReads s s' [.reg .X16] [] maskNone)
+      (fun _ _ => False) s := by
+  have hwp : _root_.Program.wp (emitClean [addIns])
+      (fun s' => s' = wr s .X16 ((s.regs.getXReg rb).toBitVec + disp.toBitVec))
+      (fun _ _ => False) s := by
+    dsimp only [armAddSubImmI?] at hadd
+    cases h1 : armImm12? disp.toBitVec with
+    | some ei =>
+      simp only [h1, Option.some.injEq] at hadd; subst hadd
+      simp only [emitClean_cons, emitClean_nil]
+      exact armDirFallsTo_wp fun {_} p next jmp Q hk => by
+        have himm := armImm12_some (by decide : 64 ≤ 64) h1 .W64 p s.regs
+        dsimp only [ExtOrImmReg.interp] at himm
+        simp only [↓reduceIte, Bool.false_eq_true, t_step_simp, Reg64s.setRegOrSp_reg64,
+          Reg64s.getRegOrSp_reg64] at himm ⊢
+        rw [himm]
+        simp only [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq]
+        exact hk _ rfl
+    | none =>
+      cases h2 : armImm12? (-disp.toBitVec) with
+      | none => simp [h1, h2] at hadd
+      | some ei =>
+        simp only [h1, h2, Option.some.injEq] at hadd; subst hadd
+        simp only [emitClean_cons, emitClean_nil]
+        exact armDirFallsTo_wp fun {_} p next jmp Q hk => by
+          have himm := armImm12_some (by decide : 64 ≤ 64) h2 .W64 p s.regs
+          dsimp only [ExtOrImmReg.interp] at himm
+          simp only [↓reduceIte, Bool.false_eq_true, t_step_simp, Reg64s.setRegOrSp_reg64,
+            Reg64s.getRegOrSp_reg64] at himm ⊢
+          rw [himm]
+          simp only [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq, BitVec.sub_neg]
+          exact hk _ rfl
+  refine armWp_mono hwp ?_
+  rintro s' rfl
+  refine ⟨?_, fun x hx => Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx.symm,
+    rfl, rfl, rfl, frame_wr .X16 _ List.mem_cons_self maskNone⟩
+  intro _ p
+  rw [armAtIdxScale_eval _ .X16 ri hamt p]
+  simp only [AddrArg.eval, get_reg, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
+    Reg64s.getXReg_setXReg_of_ne _ _ _ _ hri16.symm]
+  congr 1
+  rw [BitVec.add_assoc, BitVec.add_comm disp.toBitVec, ← BitVec.add_assoc]
+
 theorem armSetupAddr_wp [Host] (scale : Nat) (a : AddrArg Reg) (s : MachineData)
     (haregs : ∀ r ∈ a.regs, r ∉ armScratch)
     (hva : armAddrValid scale a = true) :
@@ -849,15 +925,44 @@ theorem armSetupAddr_wp [Host] (scale : Nat) (a : AddrArg Reg) (s : MachineData)
       cases idx with
       | SP => simp [armAddrValid] at hva
       | reg ri =>
-        simp only [armAddrValid, Bool.and_eq_true, beq_iff_eq, Option.isSome_iff_exists] at hva
-        rcases hva with ⟨hdisp0, ⟨amt, hamt⟩⟩
-        have hd : disp.toBitVec = 0#64 := by subst hdisp0; rfl
+        have hri16 : ri ≠ .X16 :=
+          fun h => haregs (.reg ri) (by simp [AddrArg.regs]) (by simp [h, armScratch])
+        dsimp only [armAddrValid, armAddrIdxValid] at hva
         dsimp only [armSetupAddrIns]
-        rw [hamt]
-        refine ⟨⟨rb, rfl⟩, armWp_nil ⟨?_, fun _ _ => rfl, rfl, rfl, rfl,
-          Machine.Frame.refl (M := armMach) armCondReads s [.reg .X16] [] maskNone⟩⟩
-        intro _ p
-        rw [armAtIdxScale_eval s rb ri hamt p, AddrArg.eval, hd, BitVec.add_zero, get_reg, get_reg]
+        by_cases hdisp0 : disp == 0
+        · simp only [hdisp0, ↓reduceIte]
+          cases hamt : armMemExtendAmount scale sc with
+          | some amt =>
+            have hd : disp.toBitVec = 0#64 := by
+              have := beq_iff_eq.mp hdisp0; subst this; rfl
+            refine ⟨⟨rb, rfl⟩, armWp_nil ⟨?_, fun _ _ => rfl, rfl, rfl, rfl,
+              Machine.Frame.refl (M := armMach) armCondReads s [.reg .X16] [] maskNone⟩⟩
+            intro _ p
+            rw [armAtIdxScale_eval s rb ri hamt p, AddrArg.eval, hd, BitVec.add_zero,
+              get_reg, get_reg]
+          | none =>
+            rw [beq_iff_eq] at hdisp0; subst hdisp0
+            simp [hamt] at hva
+        · simp only [hdisp0, Bool.false_eq_true, ↓reduceIte]
+          by_cases hfit : armFitsScaledOff scale disp
+          · simp only [hfit, ↓reduceIte]
+            exact ⟨⟨.X16, rfl⟩, armSetupAddr_addS_wp rb ri sc disp s⟩
+          · simp only [hfit, Bool.false_eq_true, ↓reduceIte]
+            have hidx : (armMemExtendAmount scale sc).isSome = true ∧
+                ((armImm12? disp.toBitVec).isSome = true ∨
+                  (armImm12? (-disp.toBitVec)).isSome = true) := by
+              simpa [bne, hfit, hdisp0, Bool.and_eq_true, Bool.or_eq_true] using hva
+            obtain ⟨amt, hamt⟩ := Option.isSome_iff_exists.mp hidx.1
+            have hadd : ∃ addIns,
+                armAddSubImmI? false .W64 .X16 rb disp.toBitVec = some addIns := by
+              dsimp only [armAddSubImmI?]
+              rcases hidx.2 with h1 | h2
+              · obtain ⟨ei, hei⟩ := Option.isSome_iff_exists.mp h1; simp [hei]
+              · obtain ⟨ei, hei⟩ := Option.isSome_iff_exists.mp h2
+                cases h1 : armImm12? disp.toBitVec <;> simp [hei]
+            obtain ⟨addIns, hadd⟩ := hadd
+            rw [hamt, hadd]
+            exact ⟨⟨.X16, rfl⟩, armSetupAddr_addImm_wp rb ri hri16 hamt disp hadd s⟩
   | imm addr =>
     simp only [armSetupAddrIns]
     refine ⟨⟨.X16, rfl⟩, armWp_mono (armMovImm_wp .X16 addr s) ?_⟩
@@ -1645,6 +1750,13 @@ theorem armLoad_noLab {t : Ty} {rd : Reg} {a : AddrArg Reg} {c : List Directive}
 
 theorem armStore_noLab {t : Ty} {pa : PArg Reg Empty ArmCond t} {a : AddrArg Reg}
     {c : List Directive} {clob : FlagMask} (hc : armGpr.store t pa a = some (c, clob)) (l : Sym) :
+    Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab hc l
+
+theorem armTestOp_noLab {w : Nat} {neg : Bool}
+    {pa pb : PArg Reg Empty ArmCond (.bits w)} {pd : PDst Reg Empty ArmCond .bool}
+    {c : List Directive} {clob : FlagMask}
+    (hc : armGpr.testOp w neg pa pb pd = some (c, clob)) (l : Sym) :
     Kraken.Directive.label l ∉ c :=
   emitCleanPair_noLab hc l
 

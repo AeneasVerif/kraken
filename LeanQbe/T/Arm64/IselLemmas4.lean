@@ -1252,6 +1252,9 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
   load_zero32 _ {h k rd a c clob s post v} := @armLoad_zero32 h k rd a c clob v s post
   load_zext _ {h k t rd a c clob v s post} := @armLoad_zext rfl h k t rd a c clob v s post
   op_zero32 := @armOp_zero32
+  testOp_spec := fun hc hga hgd hpa hpb =>
+    armFallsTo_of_wp (armWp_mono (armTestOp_wp _ _ _ _ hc hga hgd hpa hpb)
+      fun _ ⟨h1, h2, h3⟩ => ⟨⟨h1, h2⟩, h3⟩)
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/
 
@@ -1349,6 +1352,22 @@ theorem parser_opt_c6_rfl :
         (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 0)).elim [] Prod.fst ++
       (armGpr.store i64 (.gpr (.reg .X0))
         (.baseIdxDisp (.reg .X1) (.reg .X2) .s8 0)).elim [] Prod.fst := rfl
+
+theorem parser_opt_a2_a3_rfl :
+    ⸨prog|
+      ands xzr, x1, #0x80000000
+      ands wzr, w1, w2
+      add x16, x1, x2, lsl #2
+      ldr w0, [x16, #4]
+      sub x16, x1, #4
+      ldr w0, [x16, x2, lsl #2]
+    ⸩ =
+      (armGpr.testOp 64 true (.gpr (.reg .X1)) (.imm 0x80000000#64) (.flag .ne)).elim [] Prod.fst ++
+      (armGpr.testOp 32 false (.gpr (.reg .X1)) (.gpr (.reg .X2)) (.flag .eq)).elim [] Prod.fst ++
+      (armGpr.load i32 (.reg .X0)
+        (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 4)).elim [] Prod.fst ++
+      (armGpr.load i32 (.reg .X0)
+        (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 (-4))).elim [] Prod.fst := rfl
 
 end ParserChecks
 
