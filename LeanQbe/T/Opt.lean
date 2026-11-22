@@ -13,6 +13,8 @@ public import LeanQbe.T.IfOpt
 public import LeanQbe.T.SimplifyGroupPlan
 public import LeanQbe.T.Licm
 public import LeanQbe.T.LoopRotate
+public import LeanQbe.T.ZeroPeel
+public import LeanQbe.T.AssumeBits
 public import LeanQbe.T.Inline
 public import LeanQbe.T.Module
 
@@ -20,16 +22,17 @@ public import LeanQbe.T.Module
 # The Staged Typed-IR Mid-End Pipeline (`T6`, `O-M1`, `O-M2`)
 
 * `Func.opt`: legacy `T6` mid-end (`fold → copy → gvn → copy → fold → dceP`).
-* `Func.earlyOpt`: pre-`Legal` pipeline (`renorm → fold → canon → copy → gvn → copy → fold →
-  renorm → simplifyGroupPlan → peel → dceP → renorm`), simplifying source and inlined bodies and
-  peeling bounded loops while preserving `C4`–`C9` widening arithmetic (`addc`/`subb`/`mulx`
-  chains).
-* `Func.lateOpt`: post-`Legal` pipeline (`renorm → fold → canon → divConst → copy → memLoad →
-  gvn → renorm → simplifyGroupPlan → ifOptBits → simplifyGroupPlan → deadLoadElim → assumeElim →
-  renorm → licm → dceP → loopRotate → renorm`), running target-safe scalar division reduction,
-  memory load forwarding, machine-width if-conversion, loop-invariant code motion, CFG loop
-  rotation, and cleanup on legalized IR.
-* `Fn.renorm` / `Module.optInline`: acyclic small-callee inlining followed by AST renormalization.
+* `Func.earlyOpt`: pre-`Legal` pipeline (`fold → canon → copy → gvn → copy → fold →
+  simplifyGroupFast → peelFast 24 → zeroPeelWith { peelBudget := 24 } → copy → fold → dceP →
+  renorm`), simplifying source and inlined bodies, widening constant-fill loops, and peeling
+  bounded loops while preserving `C4`–`C9` widening arithmetic (`addc`/`subb`/`mulx` chains).
+* `Func.lateOpt`: post-`Legal` pipeline (`fold → canon → divConst → copy → renorm → memLoad →
+  gvn → assumeBits → fold → renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
+  assumeElim → fold → gvn → renorm → licm → dceP → loopRotate → renorm`), running target-safe
+  scalar division reduction, memory load forwarding, known-bits simplification, machine-width
+  if-conversion, loop-invariant code motion, CFG loop rotation, and cleanup on legalized IR.
+* `Fn.renorm` / `Module.optInline`: acyclic small-callee inlining followed by materialized
+  AST renormalization.
 
 Correctness (`LeanQbe/T/OptLemmas.lean`): `Func.opt_wf`, `Func.opt_spec`, `Func.earlyOpt_wf`,
 `Func.earlyOpt_spec`, `Func.lateOpt_wf`, `Func.lateOpt_spec`, `Module.optInline_ok`.
@@ -133,22 +136,24 @@ def Func.peelFast {as rs : List Ty} (f : Func as rs) (budget : Nat := 24) : Func
 def Func.earlyCore {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.fold (Func.copy (Func.gvn (Func.copy (Func.canon (Func.fold f)))))
 
-/-- Stage 1 (`earlyOpt`, pre-`Legal`): simplify source/inlined bodies and peel compact
-single-loop functions while keeping PHOAS closures flat via `Func.renorm` for `Legal`. -/
+/-- Stage 1 (`earlyOpt`, pre-`Legal`): simplify source/inlined bodies, peel compact single-loop
+functions, widen constant-fill loops / peel small single-iter loops (`ZeroPeel`), clean `.copy`
+bindings, and keep PHOAS closures flat via `Func.renorm` for `Legal`. -/
 def Func.earlyOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.renorm (Func.dceP (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24))
+  Func.renorm (Func.dceP (Func.fold (Func.copy (Func.zeroPeelWith { peelBudget := 24 }
+    (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24)))))
 
 /-- Post-`Legal` value/memory optimization core (`fold → canon → divConst → copy → renorm →
-memLoad → gvn → fold`). -/
+memLoad → gvn → assumeBits → fold`). -/
 def Func.lateCore {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.fold (Func.gvn (Func.memLoad (Func.renorm (Func.copy (Func.divConst (Func.canon
-    (Func.fold f)))))))
+  Func.fold (Func.assumeBits (Func.gvn (Func.memLoad (Func.renorm (Func.copy
+    (Func.divConst (Func.canon (Func.fold f))))))))
 
 /-- Post-`Legal` CFG/cleanup core (`renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
-assumeElim → renorm → licm → dceP`). -/
+assumeElim → fold → gvn → renorm → licm → dceP`). -/
 def Func.lateCfg {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.dceP (Func.licm (Func.renorm (Func.assumeElim (Func.deadLoadElim
-    (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f)))))))
+  Func.dceP (Func.licm (Func.renorm (Func.gvn (Func.fold (Func.assumeElim
+    (Func.deadLoadElim (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f)))))))))
 
 /-- Stage 2 (`lateOpt`, post-`Legal`): strength-reduce constant division, forward memory loads,
 run machine-width `.bits` if-conversion (`ifOptBits`), clean up dead loads/blocks, hoist
@@ -157,6 +162,21 @@ renormalize before `Rega`. -/
 def Func.lateOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.renorm (Func.loopRotate (Func.lateCfg (Func.lateCore f)))
 
+theorem Func.simplifyGroupFast_eq {as rs : List Ty} (f : Func as rs) :
+    Func.simplifyGroupFast f =
+      let tf := reifyFunc f
+      if hasSimpGroup (tflatLoops tf ≤ 1) tf then
+        Func.renorm (Func.simplifyGroupPlan (denoteFunc tf))
+      else denoteFunc tf :=
+  rfl
+
+theorem Func.peelFast_eq {as rs : List Ty} (f : Func as rs) (budget : Nat := 24) :
+    Func.peelFast f budget =
+      let tf := reifyFunc f
+      if tflatLoops tf ≤ 1 && tflatSize tf ≤ 40 then Func.renorm (Func.peel (denoteFunc tf) budget)
+      else denoteFunc tf :=
+  rfl
+
 theorem Func.earlyCore_eq {as rs : List Ty} (f : Func as rs) :
     Func.earlyCore f =
       Func.fold (Func.copy (Func.gvn (Func.copy (Func.canon (Func.fold f))))) :=
@@ -164,30 +184,33 @@ theorem Func.earlyCore_eq {as rs : List Ty} (f : Func as rs) :
 
 theorem Func.earlyOpt_eq {as rs : List Ty} (f : Func as rs) :
     Func.earlyOpt f =
-      Func.renorm (Func.dceP (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24)) :=
+      Func.renorm (Func.dceP (Func.fold (Func.copy (Func.zeroPeelWith { peelBudget := 24 }
+        (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24))))) :=
   rfl
 
 theorem Func.lateCore_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateCore f =
-      Func.fold (Func.gvn (Func.memLoad (Func.renorm (Func.copy (Func.divConst (Func.canon
-        (Func.fold f))))))) :=
+      Func.fold (Func.assumeBits (Func.gvn (Func.memLoad (Func.renorm (Func.copy
+        (Func.divConst (Func.canon (Func.fold f)))))))) :=
   rfl
 
 theorem Func.lateCfg_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateCfg f =
-      Func.dceP (Func.licm (Func.renorm (Func.assumeElim (Func.deadLoadElim
-        (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f))))))) :=
+      Func.dceP (Func.licm (Func.renorm (Func.gvn (Func.fold (Func.assumeElim
+        (Func.deadLoadElim (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f))))))))) :=
   rfl
 
 theorem Func.lateOpt_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateOpt f = Func.renorm (Func.loopRotate (Func.lateCfg (Func.lateCore f))) :=
   rfl
 
+attribute [irreducible] Func.simplifyGroupFast Func.peelFast
 attribute [irreducible] Func.earlyCore Func.earlyOpt Func.lateCore Func.lateCfg Func.lateOpt
 
-/-- Renormalize a named function's body to flat canonical AST form, preserving metadata. -/
+/-- Renormalize a named function's body to flat canonical AST form once, preserving metadata. -/
 def Fn.renorm (fn : Fn) : Fn :=
-  ⟨fn.name, fn.as, fn.rs, Func.renorm fn.body⟩
+  let tf := reifyFunc fn.body
+  ⟨fn.name, fn.as, fn.rs, denoteFunc tf⟩
 
 /-- Run acyclic small-callee inlining on `M` and renormalize every function body. -/
 def Module.optInline (M : Module) (maxSize : Nat := 40) : Module :=

@@ -4,7 +4,6 @@ public import LeanQbe.T.ZeroPeel
 public import LeanQbe.T.Module
 import all LeanQbe.T.ZeroPeel
 import LeanQbe.T.ZeroPeelLemmas1
-import LeanQbe.T.OptLemmas
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.OpsLemmas
@@ -2357,6 +2356,86 @@ private theorem map_eq_append_split {α : Type _} {β : Type _} (f : α → β) 
     obtain ⟨pre₀, x₀, post₀, hxs, hpre, hy, hpost⟩ := map_eq_append_split f h.2
     exact ⟨x :: pre₀, x₀, post₀, by rw [hxs]; rfl, by rw [hpre, ← h.1]; rfl, hy, hpost⟩
 
+private theorem denoteB_toTBlocks_callsOk {allowed : List SigEntry} {exits : List Sym}
+    {rs : List Ty} (nv nl : Nat) (vs : List ((_t : Ty) × Unit))
+    (ls : List ((_ts : List Ty) × Unit)) :
+    {sig : List (List Ty)} → {bs : Blocks K KL rs sig} →
+    (∀ {ts} (i : Member ts sig),
+      (denote (fun _ => Unit) (fun _ => Unit)
+        (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl)
+        (pushTup (Tup.units ts) vs) ls).callsOk allowed exits) →
+    (denoteB (fun _ => Unit) (fun _ => Unit) (toTBlocks bs nv nl) vs ls).callsOk allowed exits
+  | _, .nil, _ => trivial
+  | _, .cons _ _, h =>
+      ⟨h .here, denoteB_toTBlocks_callsOk nv nl vs ls fun i => h (.there i)⟩
+
+private theorem denote_toTFlat_callsOk {allowed : List SigEntry} {exits : List Sym}
+    {rs : List Ty} {G : Ctx K (fun _ => Unit)} {D : Ctx KL (fun _ => Unit)}
+    {e₁ : Expr K KL rs} {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
+    (hwf : Wf G D e₁ e₂) :
+    ∀ (nv nl : Nat) (vs : List ((_t : Ty) × Unit)) (ls : List ((_ts : List Ty) × Unit)),
+      e₂.callsOk allowed exits →
+      (denote (fun _ => Unit) (fun _ => Unit) (toTFlat e₁ nv nl) vs ls).callsOk allowed exits := by
+  induction hwf using Wf.induct with
+  | @let_ G D ts op₁ op₂ k₁ k₂ _ _ ih =>
+    intro nv nl vs ls hc
+    dsimp only [toTFlat, denote]
+    cases denoteArgs vs (idxArgs nv op₁.args) with
+    | none => trivial
+    | some _ => exact ih (Tup.levels ts nv) (Tup.units ts) (nv + ts.length) nl _ ls hc
+  | load _ _ _ ih =>
+    intro nv nl vs ls hc
+    dsimp only [toTFlat, denote]
+    cases denoteArg vs (idxArg nv _) with
+    | none => trivial
+    | some _ => exact ih nv () (nv + 1) nl _ ls hc
+  | store _ _ _ ih =>
+    intro nv nl vs ls hc
+    dsimp only [toTFlat, denote]
+    cases denoteArg vs _ <;> cases denoteArg vs _ <;> first | trivial | exact ih nv nl vs ls hc
+  | call _ _ _ ih =>
+    intro nv nl vs ls ⟨hf, hc⟩
+    dsimp only [toTFlat, denote]
+    cases denoteArgs vs _ with
+    | none => trivial
+    | some _ =>
+      exact ⟨hf, ih (Tup.levels _ nv) (Tup.units _) (nv + _) nl _ ls hc⟩
+  | jnz _ _ _ iht ihe =>
+    intro nv nl vs ls ⟨ht, he⟩
+    dsimp only [toTFlat, denote]
+    cases denoteArg vs _ with
+    | none => trivial
+    | some _ => exact ⟨iht nv nl vs ls ht, ihe nv nl vs ls he⟩
+  | jump _ _ =>
+    intro nv nl vs ls _
+    dsimp only [toTFlat, denote]
+    cases lookupL ls _ _ <;> cases denoteArgs vs _ <;> trivial
+  | ret _ =>
+    intro nv nl vs ls _
+    dsimp only [toTFlat, denote]
+    cases denoteArgs vs _ <;> trivial
+  | exit _ _ =>
+    intro nv nl vs ls hf
+    dsimp only [toTFlat, denote]
+    cases denoteArgs vs _ <;> trivial
+  | hlt => intro _ _ _ _ _; trivial
+  | @group _ _ sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
+    intro nv nl vs ls ⟨hb, hk⟩
+    dsimp only [toTFlat, denote, Expr.callsOk]
+    refine ⟨denoteB_toTBlocks_callsOk nv (nl + sig.length) vs _ fun i => ?_,
+            ihk (Tup.levels sig nl) (Tup.units sig) nv (nl + sig.length) vs _ hk⟩
+    exact ihb (Tup.levels sig nl) (Tup.units sig) i (Tup.levels _ nv) (Tup.units _)
+      (nv + _) (nl + sig.length) _ _ (Blocks.callsOk_get hb i)
+
+private theorem renorm_callsOk {allowed : List SigEntry} {exits : List Sym}
+    {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
+    ((Func.renorm f) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits := by
+  simpa [Func.renorm, denoteFunc, reifyFunc] using
+    denote_toTFlat_callsOk
+      (hf K (fun _ => Unit) KL (fun _ => Unit) (Tup.levels as 0) (Tup.units as))
+      as.length 0 (pushTup (Tup.units as) []) [] hc
+
 end ZeroPeel
 
 public section
@@ -2403,7 +2482,7 @@ theorem Func.zeroPeelWith_callsOk (cfg : ZeroPeelConfig := {})
   split
   · rename_i hcond
     rw [Bool.and_eq_true] at hcond
-    have hRen := Func.renorm_callsOk hf hc
+    have hRen := ZeroPeel.renorm_callsOk hf hc
     have hSyn := ZeroPeel.callsOkTF_of_denote allowed exits (reifyFunc f)
       (pushTypes as []) [] (pushTup (Tup.units as) []) [] hcond.1
       (ZeroPeel.CtxTypes_pushTup (Tup.units as) .nil) .nil hRen

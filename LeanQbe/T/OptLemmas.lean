@@ -18,6 +18,8 @@ import LeanQbe.T.IfOptLemmas
 import LeanQbe.T.SimplifyGroupPlanLemmas
 import LeanQbe.T.LicmLemmas
 import LeanQbe.T.LoopRotateLemmas
+import LeanQbe.T.ZeroPeelLemmas
+import LeanQbe.T.AssumeBitsLemmas
 
 /-!
 # Correctness of the Staged Typed-IR Mid-End Pipeline (`T6`, `O-M1`, `O-M2`)
@@ -55,7 +57,8 @@ theorem Func.opt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
 /-- `Func.simplifyGroupFast` preserves well-formedness. -/
 theorem Func.simplifyGroupFast_wf {as rs : List Ty} (f : Func as rs) :
     (Func.simplifyGroupFast f).Wf := by
-  dsimp only [Func.simplifyGroupFast]
+  rw [Func.simplifyGroupFast_eq]
+  dsimp only
   by_cases h : hasSimpGroup (tflatLoops (reifyFunc f) ≤ 1) (reifyFunc f) <;>
     simp only [h, ↓reduceIte, Bool.false_eq_true]
   · exact Func.renorm_wf _
@@ -67,7 +70,8 @@ theorem Func.simplifyGroupFast_spec {as rs : List Ty} {f : Func as rs} (hf : f.W
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.simplifyGroupFast f) xs m Q X := by
   have hwf := Func.renorm_wf f
   have hsp := Func.renorm_spec hf h
-  dsimp only [Func.simplifyGroupFast]
+  rw [Func.simplifyGroupFast_eq]
+  dsimp only
   by_cases hc : hasSimpGroup (tflatLoops (reifyFunc f) ≤ 1) (reifyFunc f) <;>
     simp only [hc, ↓reduceIte, Bool.false_eq_true]
   · exact Func.renorm_spec (Func.simplifyGroupPlan_wf hwf) (Func.simplifyGroupPlan_spec hwf hsp)
@@ -76,7 +80,8 @@ theorem Func.simplifyGroupFast_spec {as rs : List Ty} {f : Func as rs} (hf : f.W
 /-- `Func.peelFast` preserves well-formedness. -/
 theorem Func.peelFast_wf {as rs : List Ty} (f : Func as rs) (budget : Nat := 24) :
     (Func.peelFast f budget).Wf := by
-  dsimp only [Func.peelFast]
+  rw [Func.peelFast_eq f budget]
+  dsimp only
   by_cases h : (tflatLoops (reifyFunc f) ≤ 1 && tflatSize (reifyFunc f) ≤ 40) = true <;>
     simp only [h, ↓reduceIte, Bool.false_eq_true]
   · exact Func.renorm_wf _
@@ -88,7 +93,8 @@ theorem Func.peelFast_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.peelFast f budget) xs m Q X := by
   have hwf := Func.renorm_wf f
   have hsp := Func.renorm_spec hf h
-  dsimp only [Func.peelFast]
+  rw [Func.peelFast_eq f budget]
+  dsimp only
   by_cases hc : (tflatLoops (reifyFunc f) ≤ 1 && tflatSize (reifyFunc f) ≤ 40) = true <;>
     simp only [hc, ↓reduceIte, Bool.false_eq_true]
   · exact Func.renorm_spec (Func.peel_wf hwf budget) (Func.peel_spec hwf budget hsp)
@@ -124,28 +130,42 @@ theorem Func.earlyOpt_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
   rw [Func.earlyOpt_eq]
   exact Func.renorm_wf _
 
+private theorem renorm_spec' {as rs : List Ty} {Γ : Env} {f : Func as rs} (h : f.Wf)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (hw : Func.spec Γ f xs m Q X) :
+    Func.spec Γ (Func.renorm f) xs m Q X :=
+  Func.renorm_spec h hw
+
+private theorem earlyOpt_tail_spec {as rs : List Ty} {g : Func as rs} (hg : g.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ g xs m Q X) :
+    Func.spec Γ (Func.renorm (Func.dceP (Func.fold (Func.copy
+      (Func.zeroPeelWith { peelBudget := 24 } g))))) xs m Q X := by
+  have hf10 := Func.zeroPeelWith_wf { peelBudget := 24 } hg
+  have hs10 := Func.zeroPeelWith_spec { peelBudget := 24 } hg h
+  have hf11 := Func.copy_wf hf10
+  have hs11 := Func.copy_spec hf10 hs10
+  have hf12 := Func.fold_wf hf11
+  have hs12 := Func.fold_spec hf11 hs11
+  have hf13 := Func.dceP_wf hf12
+  have hs13 := Func.dceP_spec hf12 hs12
+  exact renorm_spec' hf13 hs13
+
 /-- Stage 1 (`Func.earlyOpt`) refines function contracts across every pre-`Legal` pass. -/
 theorem Func.earlyOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.earlyOpt f) xs m Q X := by
   rw [Func.earlyOpt_eq]
-  have hfc := Func.earlyCore_wf hf
-  have hsc := Func.earlyCore_spec hf h
-  let f8 := Func.simplifyGroupFast (Func.earlyCore f)
-  have hf8 := Func.simplifyGroupFast_wf (Func.earlyCore f)
-  have hs8 := Func.simplifyGroupFast_spec hfc hsc
-  let f9 := Func.peelFast f8 24
-  have hf9 := Func.peelFast_wf f8 24
-  have hs9 := Func.peelFast_spec hf8 24 hs8
-  have hf10 := Func.dceP_wf hf9
-  have hs10 := Func.dceP_spec hf9 hs9
-  exact Func.renorm_spec hf10 hs10
+  apply earlyOpt_tail_spec (Func.peelFast_wf _ 24)
+  apply Func.peelFast_spec (Func.simplifyGroupFast_wf _) 24
+  apply Func.simplifyGroupFast_spec (Func.earlyCore_wf hf)
+  exact Func.earlyCore_spec hf h
 
 /-- `Func.lateCore` preserves well-formedness. -/
 theorem Func.lateCore_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.lateCore f).Wf := by
   rw [Func.lateCore_eq]
-  exact Func.fold_wf (Func.gvn_wf (Func.memLoad_wf (Func.renorm_wf _)))
+  exact Func.fold_wf (Func.assumeBits_wf (Func.gvn_wf (Func.memLoad_wf (Func.renorm_wf _))))
 
 /-- `Func.lateCore` refines function contracts. -/
 theorem Func.lateCore_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
@@ -167,7 +187,9 @@ theorem Func.lateCore_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
   have hs5 := Func.memLoad_spec hf4r hs4r
   have hf6 := Func.gvn_wf hf5
   have hs6 := Func.gvn_spec hf5 hs5
-  exact Func.fold_spec hf6 hs6
+  have hf7 := Func.assumeBits_wf hf6
+  have hs7 := Func.assumeBits_spec hf6 hs6
+  exact Func.fold_spec hf7 hs7
 
 /-- `Func.lateCfg` preserves well-formedness. -/
 theorem Func.lateCfg_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
@@ -175,27 +197,34 @@ theorem Func.lateCfg_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
   rw [Func.lateCfg_eq]
   exact Func.dceP_wf (Func.licm_wf (Func.renorm_wf _))
 
+private theorem lateCfg_tail_spec {as rs : List Ty} {g : Func as rs} (hg : g.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ g xs m Q X) :
+    Func.spec Γ (Func.dceP (Func.licm (Func.renorm (Func.gvn (Func.fold
+      (Func.assumeElim g)))))) xs m Q X := by
+  have hf1 := Func.assumeElim_wf hg
+  have hs1 := Func.assumeElim_spec hg h
+  have hf2 := Func.fold_wf hf1
+  have hs2 := Func.fold_spec hf1 hs1
+  have hf3 := Func.gvn_wf hf2
+  have hs3 := Func.gvn_spec hf2 hs2
+  have hf4 := Func.renorm_wf (Func.gvn (Func.fold (Func.assumeElim g)))
+  have hs4 := renorm_spec' hf3 hs3
+  have hf5 := Func.licm_wf hf4
+  have hs5 := Func.licm_spec hf4 hs4
+  exact Func.dceP_spec hf5 hs5
+
 /-- `Func.lateCfg` refines function contracts. -/
 theorem Func.lateCfg_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCfg f) xs m Q X := by
   rw [Func.lateCfg_eq]
-  have hf0 := Func.renorm_wf f
-  have hs0 := Func.renorm_spec hf h
-  have hf2 := Func.ifOptBits_wf hf0
-  have hs2 := Func.ifOptBits_spec hf0 hs0
-  have hf3 := Func.simplifyGroupFast_wf (Func.ifOptBits (Func.renorm f))
-  have hs3 := Func.simplifyGroupFast_spec hf2 hs2
-  have hf4 := Func.deadLoadElim_wf hf3
-  have hs4 := Func.deadLoadElim_spec hf3 hs3
-  have hf5 := Func.assumeElim_wf hf4
-  have hs5 := Func.assumeElim_spec hf4 hs4
-  have hf5r := Func.renorm_wf
-    (Func.assumeElim (Func.deadLoadElim (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f)))))
-  have hs5r := Func.renorm_spec hf5 hs5
-  have hf6 := Func.licm_wf hf5r
-  have hs6 := Func.licm_spec hf5r hs5r
-  exact Func.dceP_spec hf6 hs6
+  apply lateCfg_tail_spec
+  · exact Func.deadLoadElim_wf (Func.simplifyGroupFast_wf (Func.ifOptBits (Func.renorm f)))
+  · apply Func.deadLoadElim_spec (Func.simplifyGroupFast_wf (Func.ifOptBits (Func.renorm f)))
+    apply Func.simplifyGroupFast_spec (Func.ifOptBits_wf (Func.renorm_wf f))
+    apply Func.ifOptBits_spec (Func.renorm_wf f)
+    exact renorm_spec' hf h
 
 /-- Stage 2 (`Func.lateOpt`) preserves well-formedness. -/
 theorem Func.lateOpt_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
@@ -301,8 +330,9 @@ theorem denote_toTFlat_callsOk {allowed : List SigEntry} {exits : List Sym} {rs 
 theorem Func.renorm_callsOk {allowed : List SigEntry} {exits : List Sym}
     {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
     (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
-    ((Func.renorm f) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits := by
-  simpa [Func.renorm, denoteFunc, reifyFunc] using
+    ((denoteFunc (reifyFunc f)) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk
+      allowed exits := by
+  simpa [denoteFunc, reifyFunc] using
     denote_toTFlat_callsOk
       (hf K (fun _ => Unit) KL (fun _ => Unit) (Tup.levels as 0) (Tup.units as))
       as.length 0 (pushTup (Tup.units as) []) [] hc
