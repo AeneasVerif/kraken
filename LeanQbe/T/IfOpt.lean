@@ -74,12 +74,13 @@ def dummyIVals {V : Ty → Type} : (ts : List Ty) → Nat → Tup (IVal V) ts
 def isSafeOp {sig rs : List Ty} : OpCode sig rs → Bool
   | .copy _ => true
   | .add t | .sub t | .mul t | .neg t => !t.hasFloat
-  | .and _ | .or _ | .xor _ | .not _ => true
+  | .and _ | .or _ | .xor _ | .not _ | .ternlog _ _ => true
   | .shl t | .lshr t | .ashr t | .rotl t | .rotr t => !t.hasFloat
   | .fshl _ | .fshr _ => true
   | .clz _ | .cls _ | .rbit _ | .ctz _ | .popcnt _ => true
+  | .bswap t => t.bswapOk
   | .cmp _ t _ _ => !t.hasFloat
-  | .select _ => true
+  | .select _ | .blend _ _ _ => true
   | .ofBool _ => true
   | .addc _ | .subb _ | .umulw _ | .smulw _ => true
   | .udiv0 _ | .sdiv0 _ => true
@@ -87,6 +88,8 @@ def isSafeOp {sig rs : List Ty} : OpCode sig rs → Bool
   | .zext m n | .sext m n => Nat.ble m n
   | .trunc m n => Nat.ble n m
   | .bitcast _ _ _ => true
+  | .shufd t _ | .shufb t | .alignr t _ | .blendw t _ => t.size != 0 && t.size % 128 == 0
+  | .sha256rnds2 | .sha256msg1 | .sha256msg2 => true
   | _ => false
 
 /-- Type eligible for `select` conversion (leaves are `.bool` and `.bits`, no floats). -/

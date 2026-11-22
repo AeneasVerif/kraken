@@ -68,6 +68,11 @@ structure CanonDef (V : Ty → Type) (t : Ty) : Type where
   op : AssocOp
   base : Arg V t
   imm : Val t
+  isSub : Bool := false
+
+/-- Leaf-wise additive inverse (`-x` on bitvectors/floats, `id` on booleans). -/
+def negVal (t : Ty) (a : Val t) : Val t :=
+  lift1 (- ·) id t a
 
 /-- Input value representation in `canon`: output operand, lexical key, and optional constant-chain
 provenance. -/
@@ -136,7 +141,7 @@ def canonAssocCore {V : Ty → Type} (next : Nat) (aop : AssocOp) (t : Ty)
         if d.op == aop then (d.base, aop.eval t d.imm c₂) else (a'.cnout, c₂)
       | none => (a'.cnout, c₂)
     ⟨op2 (aop.toOpCode t) base (.imm c),
-      fun (r, ()) => (⟨.var r, .var next, some ⟨aop, base, c⟩⟩, ())⟩
+      fun (r, ()) => (⟨.var r, .var next, some ⟨aop, base, c, false⟩⟩, ())⟩
   | none =>
     ⟨op2 (aop.toOpCode t) a'.cnout b'.cnout,
       fun (r, ()) => (CanonVal.fresh r next, ())⟩
@@ -155,10 +160,52 @@ def canonAssocStepIf {V : Ty → Type} (next : Nat) (aop : AssocOp) (t : Ty)
     ⟨op2 (aop.toOpCode t) a.cnout b.cnout, fun xs => freshCanonVals [t] xs next⟩
   else canonAssocStep next aop t a b
 
+/-- Canonicalize non-float `.sub t a b`:
+collapse `(x + c₁) - c₂ -> x + (c₁ - c₂)`, `(x - c₁) - c₂ -> x - (c₁ + c₂)`, and
+`c₁ - (x ± c₂) -> (c₁ ∓ c₂) - x`, while preserving standalone `x - c₂` with `.add` provenance. -/
+def canonSubCore {V : Ty → Type} (next : Nat) (t : Ty)
+    (a' b' : Arg (CanonVal V) t) : CanonLetStep V [t] :=
+  match b'.cnout.imm? with
+  | some c₂ =>
+    match a'.cndef? with
+    | some d =>
+      if d.op == .add then
+        let c := AssocOp.eval .add t d.imm (negVal t c₂)
+        if d.isSub then
+          ⟨op2 (.sub t) d.base (.imm (negVal t c)),
+            fun (r, ()) => (⟨.var r, .var next, some ⟨.add, d.base, c, true⟩⟩, ())⟩
+        else
+          ⟨op2 (.add t) d.base (.imm c),
+            fun (r, ()) => (⟨.var r, .var next, some ⟨.add, d.base, c, false⟩⟩, ())⟩
+      else
+        ⟨op2 (.sub t) a'.cnout (.imm c₂),
+          fun (r, ()) => (⟨.var r, .var next, some ⟨.add, a'.cnout, negVal t c₂, true⟩⟩, ())⟩
+    | none =>
+      ⟨op2 (.sub t) a'.cnout (.imm c₂),
+        fun (r, ()) => (⟨.var r, .var next, some ⟨.add, a'.cnout, negVal t c₂, true⟩⟩, ())⟩
+  | none =>
+    match a'.cnout.imm?, b'.cndef? with
+    | some c₁, some d =>
+      if d.op == .add then
+        ⟨op2 (.sub t) (.imm (AssocOp.eval .add t c₁ (negVal t d.imm))) d.base,
+          fun (r, ()) => (CanonVal.fresh r next, ())⟩
+      else
+        ⟨op2 (.sub t) a'.cnout b'.cnout, fun (r, ()) => (CanonVal.fresh r next, ())⟩
+    | _, _ =>
+      ⟨op2 (.sub t) a'.cnout b'.cnout, fun (r, ()) => (CanonVal.fresh r next, ())⟩
+
+/-- Canonicalize `.sub t a b` when `!t.hasFloat`; otherwise preserve operands. -/
+def canonSubStepIf {V : Ty → Type} (next : Nat) (t : Ty)
+    (a b : Arg (CanonVal V) t) : CanonLetStep V [t] :=
+  if t.hasFloat then
+    ⟨op2 (.sub t) a.cnout b.cnout, fun xs => freshCanonVals [t] xs next⟩
+  else canonSubCore next t a b
+
 /-- Lower one `OpCode` with canonicalized operands in `canon`. -/
 def OpCode.canonLet {V : Ty → Type} :
     {sig ts : List Ty} → OpCode sig ts → Tup (Arg (CanonVal V)) sig → Nat → CanonLetStep V ts
   | _, _, .add t, (a, b, ()), next => canonAssocStepIf next .add t a b
+  | _, _, .sub t, (a, b, ()), next => canonSubStepIf next t a b
   | _, _, .mul t, (a, b, ()), next => canonAssocStepIf next .mul t a b
   | _, _, .and t, (a, b, ()), next => canonAssocStepIf next .and t a b
   | _, _, .or t, (a, b, ()), next => canonAssocStepIf next .or t a b
