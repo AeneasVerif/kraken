@@ -100,42 +100,6 @@ def armNonZeroChunks (v : BitVec 64) : List (Nat × MovShift .W64) :=
     ((n >>> 32) &&& 0xFFFF, .LSL32),
     ((n >>> 48) &&& 0xFFFF, .LSL48)]).filter fun p => p.1 != 0
 
-/-- Materialize 64-bit constant `c` into `x_d` via `MOVZ`, `MOVN`, 2-insn `MOVZ+MOVK` /
-`MOVN+MOVK`, or literal-pool `LDR` fallback (`3..4` non-trivial chunks). -/
-def armMovImmI (d : XReg) (c : BitVec 64) : List Instr :=
-  if c == 0#64 then [armMovzI d 0 .LSL0]
-  else match armNonZeroChunks c with
-    | [(k, sh)] => [armMovzI d k sh]
-    | _ => match armNonZeroChunks (~~~c) with
-      | [(k, sh)] => [armMovnI d k sh]
-      | _ => match armNonZeroChunks c with
-        | [(k1, sh1), (k2, sh2)] => [armMovzI d k1 sh1, armMovkI d k2 sh2]
-        | _ => match armNonZeroChunks (~~~c) with
-          | [(k1, sh1), (k2, sh2)] => [armMovnI d k1 sh1, armMovkI d (k2 ^^^ 0xFFFF) sh2]
-          | _ => [armIselLdrPoolBvI d c]
-
-/-- Load unsigned `n`-bit operand into `tmp` if immediate, or return its GP `XReg` (`Instr`). -/
-def armArgInIns {n : Nat} (tmp : XReg) :
-    PArg Reg Empty ArmCond (.bits n) → Option (List Instr × XReg)
-  | .gpr (.reg r) => some ([], r)
-  | .gpr .SP => none
-  | .imm c => some (armMovImmI tmp (c.setWidth 64), tmp)
-
-/-- Load a `.bool` operand into `tmp` if immediate/flag, or return its GP `XReg` (`Instr`). -/
-def armBoolArgInIns (tmp : XReg) : PArg Reg Empty ArmCond .bool → Option (List Instr × XReg)
-  | .gpr (.reg r) => some ([], r)
-  | .gpr .SP => none
-  | .imm b => some (armMovImmI tmp (BitVec.ofNat 64 b.toNat), tmp)
-  | .flag c => some ([armCset64I tmp c], tmp)
-
-/-- 12-bit unsigned arithmetic immediate (`S0` or `S12`). -/
-def armImm12? {n : Nat} (c : BitVec n) : Option ExtOrImmReg :=
-  if Nat.blt c.toNat 4096 then
-    some (.imm { imm := .int64 (Int64.ofNat c.toNat), shift := .S0 })
-  else if Nat.blt c.toNat 16777216 && (c.toNat % 4096 == 0) then
-    some (.imm { imm := .int64 (Int64.ofNat (c.toNat / 4096)), shift := .S12 })
-  else none
-
 def armIsContiguousOnes (v E : Nat) : Bool :=
   v > 0 && v < ((1 <<< E) - 1) && ((v + 1) &&& v) == 0
 
@@ -177,6 +141,48 @@ def armIsValidLogicalImm (w : RegWidth) (v : BitVec 64) : Bool :=
     sizes.any fun E =>
       let pat := vNat &&& ((1 <<< E) - 1)
       vNat == armRepeatElement pat wBits E && armIsRotatedRunOfOnesAux pat E E
+
+/-- Materialize 64-bit constant `c` into `x_d` via `MOVZ`, `MOVN`, 1-insn logical `ORR`,
+2-insn `MOVZ+MOVK` / `MOVN+MOVK`, or literal-pool `LDR` fallback (`3..4` non-trivial chunks). -/
+def armMovImmI (d : XReg) (c : BitVec 64) : List Instr :=
+  if c == 0#64 then [armMovzI d 0 .LSL0]
+  else if c == ~~~0#64 then [armMovnI d 0 .LSL0]
+  else match armNonZeroChunks c with
+    | [(k, sh)] => [armMovzI d k sh]
+    | _ => match armNonZeroChunks (~~~c) with
+      | [(k, sh)] => [armMovnI d k sh]
+      | _ =>
+        if armIsValidLogicalImm .W64 c then
+          [armIselInsI
+            (.ORR_i (.low (.reg d) .W64) (xzr .W64) (.int64 (Int64.ofBitVec c)))]
+        else match armNonZeroChunks c with
+          | [(k1, sh1), (k2, sh2)] => [armMovzI d k1 sh1, armMovkI d k2 sh2]
+          | _ => match armNonZeroChunks (~~~c) with
+            | [(k1, sh1), (k2, sh2)] =>
+              [armMovnI d k1 sh1, armMovkI d (k2 ^^^ 0xFFFF) sh2]
+            | _ => [armIselLdrPoolBvI d c]
+
+/-- Load unsigned `n`-bit operand into `tmp` if immediate, or return its GP `XReg` (`Instr`). -/
+def armArgInIns {n : Nat} (tmp : XReg) :
+    PArg Reg Empty ArmCond (.bits n) → Option (List Instr × XReg)
+  | .gpr (.reg r) => some ([], r)
+  | .gpr .SP => none
+  | .imm c => some (armMovImmI tmp (c.setWidth 64), tmp)
+
+/-- Load a `.bool` operand into `tmp` if immediate/flag, or return its GP `XReg` (`Instr`). -/
+def armBoolArgInIns (tmp : XReg) : PArg Reg Empty ArmCond .bool → Option (List Instr × XReg)
+  | .gpr (.reg r) => some ([], r)
+  | .gpr .SP => none
+  | .imm b => some (armMovImmI tmp (BitVec.ofNat 64 b.toNat), tmp)
+  | .flag c => some ([armCset64I tmp c], tmp)
+
+/-- 12-bit unsigned arithmetic immediate (`S0` or `S12`). -/
+def armImm12? {n : Nat} (c : BitVec n) : Option ExtOrImmReg :=
+  if Nat.blt c.toNat 4096 then
+    some (.imm { imm := .int64 (Int64.ofNat c.toNat), shift := .S0 })
+  else if Nat.blt c.toNat 16777216 && (c.toNat % 4096 == 0) then
+    some (.imm { imm := .int64 (Int64.ofNat (c.toNat / 4096)), shift := .S12 })
+  else none
 
 /-- Logical immediate `n - 1` (`7`, `15`, `31`, or `63`) for shift/bit masks. -/
 def armShiftMaskConst (n : Nat) : ConstExpr :=
@@ -483,6 +489,20 @@ abbrev armLogicImmDirI (k : ArmBinK) (w : RegWidth) (d ra : XReg) (imm : Int64) 
   | .xor => some (armIselInsI (.EOR_i (.low (.reg d) w) (zr ra w) (.int64 imm)))
   | _ => none
 
+/-- 12-bit immediate add/sub instruction, flipping sign via `ADD_e`/`SUB_e` for negative imms. -/
+def armAddSubImmI? {n : Nat} (isSub : Bool) (w : RegWidth) (d rx : XReg) (c : BitVec n) :
+    Option Instr :=
+  match armImm12? c with
+  | some ei =>
+    some (armIselInsI (if isSub then .SUB_e (.low (.reg d) w) (.low (.reg rx) w) ei
+      else .ADD_e (.low (.reg d) w) (.low (.reg rx) w) ei))
+  | none =>
+    match armImm12? (-c) with
+    | some ei =>
+      some (armIselInsI (if isSub then .ADD_e (.low (.reg d) w) (.low (.reg rx) w) ei
+        else .SUB_e (.low (.reg d) w) (.low (.reg rx) w) ei))
+    | none => none
+
 def armBinOpIns (k : ArmBinK) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n)) (d : XReg) :
     Option (List Instr × FlagMask) := do
   if ![8, 16, 32, 64].contains n then none
@@ -490,23 +510,29 @@ def armBinOpIns (k : ArmBinK) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n
     let w := armWidthOf n
     match k, pa, pb with
     | .add, .gpr (.reg ra), .imm cb =>
-      match armImm12? cb with
-      | some ei => some ([armIselInsI (.ADD_e (.low (.reg d) w) (.low (.reg ra) w) ei)], maskNone)
+      match armAddSubImmI? false w d ra cb with
+      | some dir => some ([dir], maskNone)
       | none =>
         let (cb', rb) ← armArgInIns .X17 pb
         some (cb' ++ [armBinDirI k w d ra rb], maskNone)
     | .add, .imm ca, .gpr (.reg rb) =>
-      match armImm12? ca with
-      | some ei => some ([armIselInsI (.ADD_e (.low (.reg d) w) (.low (.reg rb) w) ei)], maskNone)
+      match armAddSubImmI? false w d rb ca with
+      | some dir => some ([dir], maskNone)
       | none =>
         let (ca', ra) ← armArgInIns .X16 pa
         some (ca' ++ [armBinDirI k w d ra rb], maskNone)
     | .sub, .gpr (.reg ra), .imm cb =>
-      match armImm12? cb with
-      | some ei => some ([armIselInsI (.SUB_e (.low (.reg d) w) (.low (.reg ra) w) ei)], maskNone)
+      match armAddSubImmI? true w d ra cb with
+      | some dir => some ([dir], maskNone)
       | none =>
         let (cb', rb) ← armArgInIns .X17 pb
         some (cb' ++ [armBinDirI k w d ra rb], maskNone)
+    | .sub, .imm ca, .gpr (.reg rb) =>
+      if ca == 0#n then
+        some ([armIselInsI (.SUB_s (zr d w) (xzr w) (sh rb))], maskNone)
+      else
+        let (ca', ra) ← armArgInIns .X16 pa
+        some (ca' ++ [armBinDirI k w d ra rb], maskNone)
     | .and, .gpr (.reg ra), .imm cb
     | .or, .gpr (.reg ra), .imm cb
     | .xor, .gpr (.reg ra), .imm cb =>
@@ -651,6 +677,17 @@ def armDivRemOpIns (k : ArmDivK) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bit
       else
         some (ca ++ cb ++ prep ++ [divD], maskNone)
 
+/-- Immediate compare sequence for `w`-bit register `rx` against `imm`, using `SUBS_e`,
+`ADDS_e` (`CMN`) for non-zero negated 12-bit immediates, or `none` if literal load is needed. -/
+def armCmpImmIns? {m : Nat} (w : RegWidth) (rx : XReg) (imm : BitVec m) : Option (List Instr) :=
+  match armImm12? imm with
+  | some ei => some [armIselInsI (.SUBS_e (xzr w) (.low (.reg rx) w) ei)]
+  | none =>
+    if imm == 0#m then none
+    else match armImm12? (-imm) with
+      | some ei => some [armIselInsI (.ADDS_e (xzr w) (.low (.reg rx) w) ei)]
+      | none => none
+
 /-- Integer comparisons `cmp o (.bits n)` targeting `.flag c` or `.gpr d` (`Instr` builder). -/
 def armCmpOpIns (o : CmpOp) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n))
     (dst : PDst Reg Empty ArmCond .bool) : Option (List Instr × FlagMask) := do
@@ -665,15 +702,14 @@ def armCmpOpIns (o : CmpOp) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n))
       let w := armWidthOf n
       match pa, pb with
       | .gpr (.reg ra), .imm cb =>
-        match armImm12? cb with
-        | some ei => finish [armIselInsI (.SUBS_e (xzr w) (.low (.reg ra) w) ei)] (armCmpCond o)
+        match armCmpImmIns? w ra cb with
+        | some cmp => finish cmp (armCmpCond o)
         | none =>
           let (cb', rb) ← armArgInIns .X17 pb
           finish (cb' ++ [armIselInsI (.SUBS_s (xzr w) (zr ra w) (sh rb))]) (armCmpCond o)
       | .imm ca, .gpr (.reg rb) =>
-        match armImm12? ca with
-        | some ei =>
-          finish [armIselInsI (.SUBS_e (xzr w) (.low (.reg rb) w) ei)] (armCmpCond o.swap)
+        match armCmpImmIns? w rb ca with
+        | some cmp => finish cmp (armCmpCond o.swap)
         | none =>
           let (ca', ra) ← armArgInIns .X16 pa
           finish (ca' ++ [armIselInsI (.SUBS_s (xzr w) (zr ra w) (sh rb))]) (armCmpCond o)
@@ -683,10 +719,21 @@ def armCmpOpIns (o : CmpOp) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n))
         finish (ca ++ cb ++ [armIselInsI (.SUBS_s (xzr w) (zr ra w) (sh rb))]) (armCmpCond o)
     else
       let sgn := armIsSignedCmp o
-      let (ca, ra) ← armArgInIns .X16 pa
-      let (cb, rb) ← armArgInIns .X17 pb
-      finish (ca ++ cb ++ [armExt32I sgn n .X16 ra, armExt32I sgn n .X17 rb,
-        armIselInsI (.SUBS_s (xzr .W32) (zr .X16 .W32) (sh .X17))]) (armCmpCond o)
+      let cmpSubRegImm (r : XReg) (c : BitVec n) : List Instr :=
+        let c32 := if sgn then c.signExtend 32 else c.setWidth 32
+        let ext := armExt32I sgn n .X16 r
+        match armCmpImmIns? .W32 .X16 c32 with
+        | some cmp => ext :: cmp
+        | none => ext :: armMovImmI .X17 (c32.setWidth 64) ++
+            [armIselInsI (.SUBS_s (xzr .W32) (zr .X16 .W32) (sh .X17))]
+      match pa, pb with
+      | .gpr (.reg ra), .imm cb => finish (cmpSubRegImm ra cb) (armCmpCond o)
+      | .imm ca, .gpr (.reg rb) => finish (cmpSubRegImm rb ca) (armCmpCond o.swap)
+      | _, _ =>
+        let (ca, ra) ← armArgInIns .X16 pa
+        let (cb, rb) ← armArgInIns .X17 pb
+        finish (ca ++ cb ++ [armExt32I sgn n .X16 ra, armExt32I sgn n .X17 rb,
+          armIselInsI (.SUBS_s (xzr .W32) (zr .X16 .W32) (sh .X17))]) (armCmpCond o)
 
 /-- Branchless `CSEL` conditional select at `[8, 16, 32, 64]` (`Instr` builder). -/
 def armSelectOpIns (n : Nat) (pc : PArg Reg Empty ArmCond .bool)
@@ -1022,6 +1069,7 @@ def armZeroUpper32Op : {sig rs : List Ty} → OpCode sig rs →
   supportsScalarOp := armSupportsScalarOp
   cmpFlags := [.eq, .ne, .lt, .ge, .le, .gt, .ls, .hi]
   zeroUpper32Load := true
+  zeroExtLoad := true
   zeroUpper32Op := armZeroUpper32Op
   elideZext32 := true
 

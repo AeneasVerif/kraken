@@ -1250,6 +1250,7 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
   load_spec := @armLoad_spec
   store_spec := @armStore_spec
   load_zero32 _ {h k rd a c clob s post v} := @armLoad_zero32 h k rd a c clob v s post
+  load_zext _ {h k t rd a c clob v s post} := @armLoad_zext rfl h k t rd a c clob v s post
   op_zero32 := @armOp_zero32
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/

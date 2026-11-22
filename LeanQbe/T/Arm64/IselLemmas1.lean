@@ -430,6 +430,15 @@ private theorem movk_not_pair_comp {c : BitVec 64} {k1 k2 s1 s2 : Nat}
   · have hlt : decide (i < s2) = true := decide_eq_true (by omega)
     simp [hlt]
 
+private theorem armOrrImm64_wp [Host] (d : XReg) (c : BitVec 64) (s : MachineData) :
+    _root_.Program.wp
+      [ins (.ORR_i (.low (.reg d) .W64) (xzr .W64) (.int64 (Int64.ofBitVec c)))]
+      (fun s' => s' = wr s d c) (fun _ _ => False) s :=
+  armDirFallsTo_wp fun {_} p next jmp P hk => by
+    simp only [t_step_simp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64]
+    rw [ofInt_toInt_ofBitVec, BitVec.zero_or]
+    exact hk _ rfl
+
 theorem armMovImm_wp [Host] (d : XReg) (c : BitVec 64) (s : MachineData) :
     _root_.Program.wp (emitClean (armMovImmI d c))
       (fun s' => s' = wr s d c) (fun _ _ => False) s := by
@@ -442,41 +451,51 @@ theorem armMovImm_wp [Host] (d : XReg) (c : BitVec 64) (s : MachineData) :
     exact armWp_mono (armMovz_wp d 0 (by decide) .LSL0 s) fun _ hs' => by
       simpa [BitVec.shiftLeft_zero] using hs'
   · split
-    · rename_i k sh h1
-      obtain ⟨hk, heq⟩ := armMovz1_eq h1
+    · rename_i hcm1
+      have hneg1 : c = ~~~0#64 := beq_iff_eq.mp hcm1
+      subst hneg1
       simp only [emitClean_cons, emitClean_nil]
-      exact armWp_mono (armMovz_wp d k hk sh s) fun _ hs' => by simpa [heq] using hs'
+      exact armWp_mono (armMovn_wp d 0 (by decide) .LSL0 s) fun _ hs' => by
+        simpa [BitVec.shiftLeft_zero] using hs'
     · split
       · rename_i k sh h1
         obtain ⟨hk, heq⟩ := armMovz1_eq h1
         simp only [emitClean_cons, emitClean_nil]
-        exact armWp_mono (armMovn_wp d k hk sh s) fun _ hs' => by
-          rw [heq, BitVec.not_not] at hs'; exact hs'
+        exact armWp_mono (armMovz_wp d k hk sh s) fun _ hs' => by simpa [heq] using hs'
       · split
-        · rename_i k1 sh1 k2 sh2 h2
-          obtain ⟨hk1, hk2, heq⟩ := armMovz2_eq h2
+        · rename_i k sh h1
+          obtain ⟨hk, heq⟩ := armMovz1_eq h1
           simp only [emitClean_cons, emitClean_nil]
-          refine armWp_cons (armMovz_wp d k1 hk1 sh1 s) ?_
-          rintro s₁ rfl
-          refine armWp_mono (armMovk_wp d k2 hk2 sh2 (wr s d _)) ?_
-          rintro s₂ rfl
-          simp only [Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec, wr_wr_same, heq]
+          exact armWp_mono (armMovn_wp d k hk sh s) fun _ hs' => by
+            rw [heq, BitVec.not_not] at hs'; exact hs'
         · split
-          · rename_i k1 sh1 k2 sh2 h2
-            obtain ⟨hk1, hk2, heq⟩ := armMovz2_eq h2
-            have hk2' : k2 ^^^ 0xFFFF < 65536 := by
-              rw [← Nat.mod_eq_of_lt hk2]
-              exact Nat.xor_lt_two_pow (n := 16) (Nat.mod_lt k2 (by decide)) (by decide)
-            simp only [emitClean_cons, emitClean_nil]
-            refine armWp_cons (armMovn_wp d k1 hk1 sh1 s) ?_
-            rintro s₁ rfl
-            refine armWp_mono (armMovk_wp d (k2 ^^^ 0xFFFF) hk2' sh2 (wr s d _)) ?_
-            rintro s₂ rfl
-            have hs2 : sh2.toNat < 64 := by cases sh2 <;> decide
-            simp only [Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec, wr_wr_same,
-              movk_not_pair_comp hk2 hs2 heq]
           · simp only [emitClean_cons, emitClean_nil]
-            exact armLdrPoolBv_wp d c s
+            exact armOrrImm64_wp d c s
+          · split
+            · rename_i k1 sh1 k2 sh2 h2
+              obtain ⟨hk1, hk2, heq⟩ := armMovz2_eq h2
+              simp only [emitClean_cons, emitClean_nil]
+              refine armWp_cons (armMovz_wp d k1 hk1 sh1 s) ?_
+              rintro s₁ rfl
+              refine armWp_mono (armMovk_wp d k2 hk2 sh2 (wr s d _)) ?_
+              rintro s₂ rfl
+              simp only [Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec, wr_wr_same, heq]
+            · split
+              · rename_i k1 sh1 k2 sh2 h2
+                obtain ⟨hk1, hk2, heq⟩ := armMovz2_eq h2
+                have hk2' : k2 ^^^ 0xFFFF < 65536 := by
+                  rw [← Nat.mod_eq_of_lt hk2]
+                  exact Nat.xor_lt_two_pow (n := 16) (Nat.mod_lt k2 (by decide)) (by decide)
+                simp only [emitClean_cons, emitClean_nil]
+                refine armWp_cons (armMovn_wp d k1 hk1 sh1 s) ?_
+                rintro s₁ rfl
+                refine armWp_mono (armMovk_wp d (k2 ^^^ 0xFFFF) hk2' sh2 (wr s d _)) ?_
+                rintro s₂ rfl
+                have hs2 : sh2.toNat < 64 := by cases sh2 <;> decide
+                simp only [Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec, wr_wr_same,
+                  movk_not_pair_comp hk2 hs2 heq]
+              · simp only [emitClean_cons, emitClean_nil]
+                exact armLdrPoolBv_wp d c s
 
 theorem armImm12_some {n : Nat} {c : BitVec n} {ei : ExtOrImmReg}
     (_hn : n ≤ 64) (h : armImm12? c = some ei) :
@@ -935,7 +954,7 @@ private theorem armLoadDir_wp [Host] {t : Ty} {d : XReg} {addr : AddrExpr} {a : 
     (hdir : armLoadDirI t d addr = some dir) (hnoSp : ∃ rx, addr.base = .low (.reg rx) .W64)
     (heval : ∀ [Labels] p, addr.eval s p = (a, s)) (hload : loadVal s.dmem t a = some v) :
     _root_.Program.wp [.instr dir] (fun s' =>
-      ∃ w64 : BitVec 64, s' = wr s d w64 ∧ GprHolds w64 t v) (fun _ _ => False) s := by
+      ∃ w64 : BitVec 64, s' = wr s d w64 ∧ AbiGprHolds w64 t v) (fun _ _ => False) s := by
   obtain ⟨rx, hrx⟩ := hnoSp
   simp only [loadVal, Option.bind_eq_some_iff] at hload
   rcases hload with ⟨i, hi, hv⟩
@@ -953,7 +972,7 @@ private theorem armLoadDir_wp [Host] {t : Ty} {d : XReg} {addr : AddrExpr} {a : 
         MachineData.setRegOrZr, setRegOrZr_zr, MemWidth.bits, RegWidth.bits, Effects.All]
       refine hk _ ⟨_, rfl, ?_⟩
       simp only [Bool.or_eq_true, beq_iff_eq] at hb
-      simp only [GprHolds, zeroExtend_setWidth_low (by decide : 8 ≤ 32) (by decide)]
+      simp only [AbiGprHolds]
       rcases hb with rfl | rfl <;> decide)
   | bits n =>
     have hns : (n = 8 ∨ n = 16) ∨ (n = 32 ∨ n = 64) := by
@@ -976,16 +995,17 @@ private theorem armLoadDir_wp [Host] {t : Ty} {d : XReg} {addr : AddrExpr} {a : 
            MemWidth.bits, Effects.All]
          refine hk _ ⟨_, rfl, by decide, ?_⟩
          first
-         | exact zeroExtend_setWidth_low (by decide : _ ≤ 32) (by decide) _
+         | (rw [BitVec.zeroExtend]; exact (BitVec.setWidth_setWidth_of_le _ (by decide)).symm)
          | simp))
   | float _ | pair _ _ => simp [armLoadDirI] at hdir
 
-theorem armLoad_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg} {a : AddrArg Reg}
-    {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData} {post : MachineState → Prop}
-    (hc_in : armLoad t rd a = some (c, clob)) (_ : rd ∉ armScratch)
-    (haregs : ∀ r ∈ a.regs, r ∉ armScratch) (hv : loadVal (armMach.mem s) t (a.eval (get s)) = some v) :
+theorem armLoad_zext (_ : armGpr.zeroExtLoad = true) {h : Host} {k : Nat} {t : Ty} {rd : Reg}
+    {a : AddrArg Reg} {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData}
+    {post : MachineState → Prop} (hc_in : armLoad t rd a = some (c, clob)) (_ : rd ∉ armScratch)
+    (haregs : ∀ r ∈ a.regs, r ∉ armScratch)
+    (hv : loadVal (armMach.mem s) t (a.eval (get s)) = some v) :
     armMach.FallsTo armCondReads h k c (rd :: armScratch) [] clob s
-      (fun s' => GprHolds (armMach.getGpr s' rd) t v ∧ armMach.mem s' = armMach.mem s) post := by
+      (fun s' => AbiGprHolds (armMach.getGpr s' rd) t v ∧ armMach.mem s' = armMach.mem s) post := by
   letI := h
   obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
   dsimp only [armLoadIns] at hc
@@ -1039,6 +1059,16 @@ theorem armLoad_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg} {a : AddrArg Reg}
           simp only [get_reg, Reg64s_getXReg_setSP',
             Reg64s.getXReg_setXReg_of_ne _ _ _ _ hx16.symm]
           exact congrArg UInt64.toBitVec h1
+
+theorem armLoad_spec {h : Host} {k : Nat} {t : Ty} {rd : Reg} {a : AddrArg Reg}
+    {c : List Directive} {clob : FlagMask} {v : Val t} {s : MachineData}
+    {post : MachineState → Prop} (hc_in : armLoad t rd a = some (c, clob))
+    (hrd : rd ∉ armScratch) (haregs : ∀ r ∈ a.regs, r ∉ armScratch)
+    (hv : loadVal (armMach.mem s) t (a.eval (get s)) = some v) :
+    armMach.FallsTo armCondReads h k c (rd :: armScratch) [] clob s
+      (fun s' => GprHolds (armMach.getGpr s' rd) t v ∧ armMach.mem s' = armMach.mem s) post :=
+  fun hc hk => armLoad_zext rfl hc_in hrd haregs hv hc fun s' ⟨h1, h2⟩ hfr =>
+    hk s' ⟨h1.toGprHolds, h2⟩ hfr
 
 private theorem armLoadDir32_wp [Host] {d : XReg} {addr : AddrExpr} {a : BitVec 64}
     {v : BitVec 32} {s : MachineData} {dir : Instr}
