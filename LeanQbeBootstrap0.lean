@@ -18,6 +18,9 @@ public import LeanQbe.T.Bootstrap0.CertA
 public import LeanQbe.T.Bootstrap0.CertB
 public import LeanQbe.T.Bootstrap0.CertBounds
 public import LeanQbe.T.Bootstrap0.CertC
+public import LeanQbe.T.Bootstrap0.Codec0
+public import LeanQbe.T.Bootstrap0.Codec0Lemmas
+public import LeanQbe.T.Bootstrap0.Codec0Lemmas1
 public import LeanQbe.T.Bootstrap0.Compiler0
 public import LeanQbe.T.Bootstrap0.Dummies0
 public import LeanQbe.T.Bootstrap0.Mod0
