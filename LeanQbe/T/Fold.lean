@@ -50,6 +50,11 @@ inductive ExtKind
   | zext
   deriving DecidableEq, Repr
 
+/-- Opcode corresponding to an `ExtKind`. -/
+def ExtKind.toOpCode : ExtKind → (m n : Nat) → OpCode [.bits m] [.bits n]
+  | .sext, m, n => .sext m n
+  | .zext, m, n => .zext m n
+
 /-- Provenance recording that a `.bits n` value was produced by `sext m n` or `zext m n` with
 `0 < m < n`. -/
 structure BitsExt (V : Ty → Type) (n : Nat) : Type where
@@ -70,16 +75,30 @@ def ExtDef.none {V : Ty → Type} : {t : Ty} → ExtDef V t
   | .bits _ => Option.none
   | .bool | .float _ | .pair _ _ => ()
 
-/-- Input representation of a value in `fold`: replacement operand, symbolic key, and optional
-extension provenance. -/
+/-- Kind of unary involution tracked by `UnInv`. -/
+inductive InvKind
+  | not_
+  | bswap
+  | rbit
+  deriving DecidableEq, Repr
+
+/-- Provenance recording that a value was produced by a pure unary involution on `src`. -/
+structure UnInv (V : Ty → Type) (t : Ty) : Type where
+  kind : InvKind
+  src : Arg V t
+  srcKey : FKey t
+
+/-- Input representation of a value in `fold`: replacement operand, symbolic key, optional
+extension provenance, and optional unary-involution provenance. -/
 structure FVal (V : Ty → Type) (t : Ty) : Type where
   out : Arg V t
   key : FKey t
   ext : ExtDef V t := .none
+  inv : Option (UnInv V t) := none
 
-/-- Wrap a fresh bound output variable `v` with symbolic key `next` and no extension provenance. -/
+/-- Wrap a fresh bound output variable `v` with symbolic key `next` and no provenance. -/
 def FVal.fresh {V : Ty → Type} {t : Ty} (v : V t) (next : Nat) : FVal V t :=
-  ⟨.var v, .var next, .none⟩
+  ⟨.var v, .var next, .none, none⟩
 
 /-- Output operand of an input operand. -/
 def Arg.fout {V : Ty → Type} {t : Ty} : Arg (FVal V) t → Arg V t
@@ -108,8 +127,13 @@ def Arg.fext {V : Ty → Type} {t : Ty} : Arg (FVal V) t → ExtDef V t
   | .var p => p.ext
   | .imm _ => .none
 
+/-- Involution provenance of an input operand. -/
+def Arg.finv {V : Ty → Type} {t : Ty} : Arg (FVal V) t → Option (UnInv V t)
+  | .var p => p.inv
+  | .imm _ => none
+
 /-- Constant `FVal` carrying immediate `c`. -/
-def fimm {V : Ty → Type} {t : Ty} (c : Val t) : FVal V t := ⟨.imm c, .imm c, .none⟩
+def fimm {V : Ty → Type} {t : Ty} (c : Val t) : FVal V t := ⟨.imm c, .imm c, .none, none⟩
 
 /-- Promote an `Arg (FVal V) t` to `FVal V t`, preserving extension provenance on variables. -/
 def Arg.fpair {V : Ty → Type} {t : Ty} : Arg (FVal V) t → FVal V t
@@ -554,9 +578,12 @@ def Op.simpAct {V : Ty → Type} {rs : List Ty} (op : Op (FVal V) rs) : Option (
       else if imm == 0xcc#8 then some (.arg (.there .here), ())
       else if imm == 0xaa#8 then some (.arg (.there (.there .here)), ())
       else none
-    | .shl t, (_, b, ()) | .lshr t, (_, b, ()) | .ashr t, (_, b, ())
-    | .rotl t, (_, b, ()) | .rotr t, (_, b, ()) =>
-      if !t.hasFloat && isZeroArg? b.fout then some (.arg .here, ()) else none
+    | .shl t, (a, b, ()) | .lshr t, (a, b, ()) | .ashr t, (a, b, ())
+    | .rotl t, (a, b, ()) | .rotr t, (a, b, ()) =>
+      if t.hasFloat then none
+      else if isZeroArg? b.fout then some (.arg .here, ())
+      else if isZeroArg? a.fout then some (.imm (zeroVal t), ())
+      else none
     | .cmp o (.bits n) _ h, (a, b, ()) =>
       let nc := narrowCmp o n a b
       if nc.lhsKey == nc.rhsKey then
@@ -568,11 +595,17 @@ def Op.simpAct {V : Ty → Type} {rs : List Ty} (op : Op (FVal V) rs) : Option (
       if !t.hasFloat && a.fkey == b.fkey then
         some (.imm (cast (congrArg Val h.symm) (splatMaskVal t o.isRefl)), ())
       else none
-    | .select _, (c, a, b, ()) =>
+    | .select t, (c, a, b, ()) =>
       match c.fout.imm? with
       | some true => some (.arg (.there .here), ())
       | some false => some (.arg (.there (.there .here)), ())
-      | none => if a.fkey == b.fkey then some (.arg (.there .here), ()) else none
+      | none =>
+        if a.fkey == b.fkey then some (.arg (.there .here), ())
+        else match t with
+        | .bool =>
+          if a.fout.imm? == some true && b.fout.imm? == some false then some (.arg .here, ())
+          else none
+        | _ => none
     | .blend t _ h, (c, a, b, ()) =>
       match c.fout.imm? with
       | some mc =>
@@ -661,8 +694,67 @@ def Op.rewrite {V : Ty → Type} {rs : List Ty} (op : Op V rs) : Op V rs :=
     | none => ⟨.urem n, (a, b, ())⟩
   | code, args => ⟨code, args⟩
 
+/-- Collapse chained widening `ext k m n (ext k e.m m x) -> ext k e.m n x` when `m < n`,
+otherwise record `BitsExt` for `(m, a.fout, a.fkey)` when `0 < m < n`. -/
+def extTarget {V : Ty → Type} (k : ExtKind) {m n : Nat}
+    (a : Arg (FVal V) (.bits m)) : Option (BitsExt V n) :=
+  if hm : m < n then
+    match a.fext with
+    | some e =>
+      if e.kind == k then some ⟨k, e.m, e.hpos, Nat.lt_trans e.hlt hm, e.src, e.srcKey⟩
+      else if hpos : 0 < m then some ⟨k, m, hpos, hm, a.fout, a.fkey⟩
+      else none
+    | none =>
+      if hpos : 0 < m then some ⟨k, m, hpos, hm, a.fout, a.fkey⟩ else none
+  else none
+
+/-- Rewrite target for `trunc m n` applied to an extended `.bits m` operand when `n < m`. -/
+inductive TruncTarget (V : Ty → Type) (m n : Nat) : Type
+  | narrow (w : Nat) (hle : n ≤ w) (src : Arg V (.bits w))
+  | lift (ext : BitsExt V n)
+
+/-- When `n < m` and `a` comes from `sext`/`zext e.m m x`, collapse `trunc m n a` to
+`trunc e.m n x` (when `n ≤ e.m`) or `sext`/`zext e.m n x` (when `e.m < n`). -/
+def truncTarget? {V : Ty → Type} (m n : Nat)
+    (a : Arg (FVal V) (.bits m)) : Option (TruncTarget V m n) :=
+  if _ : n < m then
+    match a.fext with
+    | some e =>
+      if hle : n ≤ e.m then some (.narrow e.m hle e.src)
+      else some (.lift ⟨e.kind, e.m, e.hpos, Nat.lt_of_not_ge hle, e.src, e.srcKey⟩)
+    | none => none
+  else none
+
+/-- Provenance-driven instruction elimination for involutions (`not`, `bswap`, `rbit`) and
+round-trip `trunc m n (ext n m x) -> x`. -/
+def Op.simpProv? {V : Ty → Type} {rs : List Ty} (op : Op (FVal V) rs) :
+    Option (Tup (FVal V) rs) :=
+  let ⟨code, args⟩ := op
+  match code, args with
+  | .not _, (a, ()) =>
+    match a.finv with
+    | some iv => if iv.kind == .not_ then some (⟨iv.src, iv.srcKey, .none, none⟩, ()) else none
+    | none => none
+  | .bswap t, (a, ()) =>
+    if t.bswapOk then
+      match a.finv with
+      | some iv =>
+        if iv.kind == .bswap then some (⟨iv.src, iv.srcKey, .none, none⟩, ()) else none
+      | none => none
+    else none
+  | .rbit _, (a, ()) =>
+    match a.finv with
+    | some iv => if iv.kind == .rbit then some (⟨iv.src, iv.srcKey, .none, none⟩, ()) else none
+    | none => none
+  | .trunc _ n, (a, ()) =>
+    match a.fext with
+    | some e => if h : e.m = n then some (⟨h ▸ e.src, h ▸ e.srcKey, .none, none⟩, ()) else none
+    | none => none
+  | _, _ => none
+
 /-- Rewrite a kept `Op (FVal V) rs` into an output `Op V rs`, applying compare narrowing/
-immediate canonicalization and delegating all other opcodes to `Op.rewrite`. -/
+immediate canonicalization, boolean `select false true -> not`, extension chains, and
+delegating all other opcodes to `Op.rewrite`. -/
 def Op.foldRewrite {V : Ty → Type} {rs : List Ty} (op : Op (FVal V) rs) : Op V rs :=
   let ⟨code, args⟩ := op
   match code, args with
@@ -679,26 +771,53 @@ def Op.foldRewrite {V : Ty → Type} {rs : List Ty} (op : Op (FVal V) rs) : Op V
       op2 (.cmp o.swap t m h) b.fout a.fout
     else
       op2 (.cmp o t m h) a.fout b.fout
+  | .select .bool, (c, a, b, ()) =>
+    if a.fout.imm? == some false && b.fout.imm? == some true then op1 (.not .bool) c.fout
+    else op3 (.select .bool) c.fout a.fout b.fout
+  | .sext m n, (a, ()) =>
+    match extTarget (n := n) .sext a with
+    | some tg => op1 (.sext tg.m n) tg.src
+    | none => op1 (.sext m n) a.fout
+  | .zext m n, (a, ()) =>
+    match extTarget (n := n) .zext a with
+    | some tg => op1 (.zext tg.m n) tg.src
+    | none => op1 (.zext m n) a.fout
+  | .trunc m n, (a, ()) =>
+    match truncTarget? m n a with
+    | some (.narrow w _ src) => op1 (.trunc w n) src
+    | some (.lift tg) => op1 (tg.kind.toOpCode tg.m n) tg.src
+    | none => op1 (.trunc m n) a.fout
   | code, args => (⟨code, tupMapArg (fun _ => Arg.fout) args⟩ : Op V rs).rewrite
 
-/-- Wrap the output binders of a kept `let_` operation into `FVal V`s, recording `sext`/`zext`
-provenance when `0 < m < n`. -/
+/-- Wrap the output binders of a kept `let_` operation into `FVal V`s, recording extension
+and unary-involution provenances. -/
 def Op.foldWrap {V : Ty → Type} {ts : List Ty} (op : Op (FVal V) ts) (next : Nat)
     (xs : Tup V ts) : Tup (FVal V) ts :=
   let ⟨code, args⟩ := op
   match code, args, xs with
-  | .sext m n, (a, ()), (r, ()) =>
-    if hpos : 0 < m then
-      if hlt : m < n then
-        (⟨.var r, .var next, some ⟨.sext, m, hpos, hlt, a.fout, a.fkey⟩⟩, ())
-      else freshFVals [.bits n] (r, ()) next
-    else freshFVals [.bits n] (r, ()) next
-  | .zext m n, (a, ()), (r, ()) =>
-    if hpos : 0 < m then
-      if hlt : m < n then
-        (⟨.var r, .var next, some ⟨.zext, m, hpos, hlt, a.fout, a.fkey⟩⟩, ())
-      else freshFVals [.bits n] (r, ()) next
-    else freshFVals [.bits n] (r, ()) next
+  | .sext _ n, (a, ()), (r, ()) =>
+    match extTarget (n := n) .sext a with
+    | some tg => (⟨.var r, .var next, some tg, none⟩, ())
+    | none => freshFVals [.bits n] (r, ()) next
+  | .zext _ n, (a, ()), (r, ()) =>
+    match extTarget (n := n) .zext a with
+    | some tg => (⟨.var r, .var next, some tg, none⟩, ())
+    | none => freshFVals [.bits n] (r, ()) next
+  | .trunc m n, (a, ()), (r, ()) =>
+    match truncTarget? m n a with
+    | some (.lift tg) => (⟨.var r, .var next, some tg, none⟩, ())
+    | _ => freshFVals [.bits n] (r, ()) next
+  | .not _, (a, ()), (r, ()) =>
+    (⟨.var r, .var next, .none, some ⟨.not_, a.fout, a.fkey⟩⟩, ())
+  | .bswap t, (a, ()), (r, ()) =>
+    if t.bswapOk then (⟨.var r, .var next, .none, some ⟨.bswap, a.fout, a.fkey⟩⟩, ())
+    else freshFVals [t] (r, ()) next
+  | .rbit _, (a, ()), (r, ()) =>
+    (⟨.var r, .var next, .none, some ⟨.rbit, a.fout, a.fkey⟩⟩, ())
+  | .select .bool, (c, a, b, ()), (r, ()) =>
+    if a.fout.imm? == some false && b.fout.imm? == some true then
+      (⟨.var r, .var next, .none, some ⟨.not_, c.fout, c.fkey⟩⟩, ())
+    else freshFVals [.bool] (r, ()) next
   | _, _, xs => freshFVals ts xs next
 
 /-! ## PHOAS `fold` pass -/
@@ -710,7 +829,10 @@ def fold {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (next : Nat) :
     match op.simpAct with
     | some act => fold next (k (act.apply op.args))
     | none =>
-      .let_ op.foldRewrite fun xs => fold (next + ts.length) (k (op.foldWrap next xs))
+      match op.simpProv? with
+      | some res => fold next (k res)
+      | none =>
+        .let_ op.foldRewrite fun xs => fold (next + ts.length) (k (op.foldWrap next xs))
   | .load t a k =>
     .load t a.fout fun v => fold (next + 1) (k (FVal.fresh v next))
   | .store v a k =>

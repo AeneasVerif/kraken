@@ -283,4 +283,126 @@ theorem vecBitcastFpProg_wf : vecBitcastFpProg.Wf := by t_wf_reify
 theorem fold_vecBitcastFpProg_wf : (Func.fold vecBitcastFpProg).Wf :=
   Func.fold_wf vecBitcastFpProg_wf
 
+/-! ## 6. Involutions, boolean `select`, shift-zero LHS, and extension chains -/
+
+/-- `select c true false -> c`, `select c false true -> not c`,
+`not (select c false true) -> c`, `not (not x) -> x`, `bswap (bswap y) -> y`,
+`rbit (rbit y) -> y`. -/
+def invSelectProg : Func [.bool, i64, i32] [.bool, i32, i64, i32, .bool] := fun _ _ p =>
+  let c := p.1
+  let x := p.2.1
+  let y := p.2.2.1
+  .let_ (op3 (.select .bool) (.var c) (.imm true) (.imm false)) fun s0 =>
+  .let_ (op3 (.select .bool) (.var c) (.imm false) (.imm true)) fun s1 =>
+  .let_ (op1 (.not .bool) (.var s1.1)) fun ns1 =>
+  .let_ (op1 (.not i64) (.var x)) fun nx0 =>
+  .let_ (op1 (.not i64) (.var nx0.1)) fun nx1 =>
+  .let_ (op1 (.bswap i32) (.var y)) fun bs0 =>
+  .let_ (op1 (.bswap i32) (.var bs0.1)) fun bs1 =>
+  .let_ (op1 (.rbit 32) (.var bs1.1)) fun rb0 =>
+  .let_ (op1 (.rbit 32) (.var rb0.1)) fun rb1 =>
+  .ret (.var s0.1, .var rb1.1, .var nx1.1, .var y, .var ns1.1, ())
+
+theorem invSelectProg_fold_out : Func.fold invSelectProg = fun _ _ p =>
+    let c := p.1
+    let x := p.2.1
+    let y := p.2.2.1
+    .let_ (op1 (.not .bool) (.var c)) fun _ =>
+    .let_ (op1 (.not i64) (.var x)) fun _ =>
+    .let_ (op1 (.bswap i32) (.var y)) fun _ =>
+    .let_ (op1 (.rbit 32) (.var y)) fun _ =>
+    .ret (.var c, .var y, .var x, .var y, .var c, ()) := by
+  t_kernel_rfl
+
+theorem invSelectProg_wf : invSelectProg.Wf := by t_wf_reify
+
+theorem invSelectProg_fold_wf : (Func.fold invSelectProg).Wf :=
+  Func.fold_wf invSelectProg_wf
+
+theorem invSelectProg_fold_spec (Γ : Env) (c : Bool) (x : BitVec 64) (y : BitVec 32)
+    (m : Mem 64) :
+    Func.spec Γ (Func.fold invSelectProg) (c, x, y, ()) m
+      (fun (r0, r1, r2, r3, r4, ()) m' =>
+        r0 = c ∧ r1 = y ∧ r2 = x ∧ r3 = y ∧ r4 = c ∧ m' = m)
+      (fun _ _ _ _ => False) := by
+  apply Func.fold_spec invSelectProg_wf
+  dsimp only [Func.spec, Func.wp, invSelectProg]
+  wp_unfold
+  cases c <;> simp [bswapBits_bswapBits]
+
+/-- Non-byte-multiple `bswap` (UB) MUST be preserved, not cancelled. -/
+def bswapBadProg : Func [.bits 12] [.bits 12] := fun _ _ p =>
+  .let_ (op1 (.bswap (.bits 12)) (.var p.1)) fun a =>
+  .let_ (op1 (.bswap (.bits 12)) (.var a.1)) fun b =>
+  .ret (.var b.1, ())
+
+theorem bswapBadProg_fold_out : Func.fold bswapBadProg = bswapBadProg := by
+  t_kernel_rfl
+
+theorem bswapBadProg_wf : bswapBadProg.Wf := by t_wf_reify
+
+theorem bswapBadProg_fold_wf : (Func.fold bswapBadProg).Wf :=
+  Func.fold_wf bswapBadProg_wf
+
+/-- Left-hand zero shifts/rotates (`0 op y -> 0`) and `zext`/`sext`/`trunc` chains. -/
+def shiftExtProg : Func [i64, .bool, i16] [i64, i64, i64, .bool, i64, i16, i32, i64, i8] :=
+  fun _ _ p =>
+  let y := p.1
+  let b := p.2.1
+  let x := p.2.2.1
+  .let_ (op2 (.shl i64) (.imm 0) (.var y)) fun s0 =>
+  .let_ (op2 (.lshr i64) (.imm 0) (.var y)) fun s1 =>
+  .let_ (op2 (.ashr i64) (.imm 0) (.var y)) fun s2 =>
+  .let_ (op2 (.rotl .bool) (.imm false) (.var b)) fun s3 =>
+  .let_ (op2 (.rotr i64) (.imm 0) (.var y)) fun s4 =>
+  .let_ (op1 (.zext 16 64) (.var x)) fun zx =>
+  .let_ (op1 (.trunc 64 16) (.var zx.1)) fun rt =>
+  .let_ (op1 (.sext 16 64) (.var x)) fun sx0 =>
+  .let_ (op1 (.trunc 64 32) (.var sx0.1)) fun sx1 =>
+  .let_ (op1 (.zext 16 32) (.var x)) fun zx0 =>
+  .let_ (op1 (.zext 32 64) (.var zx0.1)) fun zx1 =>
+  .let_ (op1 (.sext 16 32) (.var x)) fun sx2 =>
+  .let_ (op1 (.trunc 32 8) (.var sx2.1)) fun tr =>
+  .ret (.var s0.1, .var s1.1, .var s2.1, .var s3.1, .var s4.1,
+    .var rt.1, .var sx1.1, .var zx1.1, .var tr.1, ())
+
+theorem shiftExtProg_fold_out : Func.fold shiftExtProg = fun _ _ p =>
+    let x := p.2.2.1
+    .let_ (op1 (.zext 16 64) (.var x)) fun _ =>
+    .let_ (op1 (.sext 16 64) (.var x)) fun _ =>
+    .let_ (op1 (.sext 16 32) (.var x)) fun sx1 =>
+    .let_ (op1 (.zext 16 32) (.var x)) fun _ =>
+    .let_ (op1 (.zext 16 64) (.var x)) fun zx1 =>
+    .let_ (op1 (.sext 16 32) (.var x)) fun _ =>
+    .let_ (op1 (.trunc 16 8) (.var x)) fun tr =>
+    .ret (.imm 0, .imm 0, .imm 0, .imm false, .imm 0,
+      .var x, .var sx1.1, .var zx1.1, .var tr.1, ()) := by
+  t_kernel_rfl
+
+theorem shiftExtProg_wf : shiftExtProg.Wf := by t_wf_reify
+
+theorem shiftExtProg_fold_wf : (Func.fold shiftExtProg).Wf :=
+  Func.fold_wf shiftExtProg_wf
+
+theorem shiftExtProg_fold_spec (Γ : Env) (y : BitVec 64) (b : Bool) (x : BitVec 16)
+    (m : Mem 64) :
+    Func.spec Γ (Func.fold shiftExtProg) (y, b, x, ()) m
+      (fun (r0, r1, r2, r3, r4, r5, r6, r7, r8, ()) m' =>
+        r0 = 0#64 ∧ r1 = 0#64 ∧ r2 = 0#64 ∧ r3 = false ∧ r4 = 0#64 ∧
+        r5 = x ∧ r6 = x.signExtend 32 ∧ r7 = x.setWidth 64 ∧ r8 = x.setWidth 8 ∧ m' = m)
+      (fun _ _ _ _ => False) := by
+  apply Func.fold_spec shiftExtProg_wf
+  dsimp only [Func.spec, Func.wp, shiftExtProg]
+  wp_unfold
+  refine ⟨by simp, by simp, by simp, ?_, ?_, ?_, ?_, ?_⟩
+  · ext i _; simp [BitVec.rotateRight, BitVec.rotateRightAux]
+  · rw [setWidth_setWidth_le (by omega) x, BitVec.setWidth_eq]
+  · exact setWidth_signExtend_of_mid (by omega) (by omega) x
+  · exact setWidth_setWidth_trans (by omega) (by omega) x
+  · exact setWidth_signExtend_of_narrow (by omega) (by omega) x
+
+#print axioms LeanQbe.T.FoldTest.invSelectProg_fold_spec
+#print axioms LeanQbe.T.FoldTest.bswapBadProg_fold_wf
+#print axioms LeanQbe.T.FoldTest.shiftExtProg_fold_spec
+
 end LeanQbe.T.FoldTest

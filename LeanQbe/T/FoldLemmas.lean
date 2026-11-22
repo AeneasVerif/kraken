@@ -795,7 +795,127 @@ theorem cmpOp_evalBits_setWidth {m n : Nat} (hlt : m < n) (o : CmpOp) (x y : Bit
     simp [CmpOp.evalBits, CmpOp.toUnsigned, BitVec.ult, BitVec.ule, BitVec.slt, BitVec.sle,
       hxn, hyn, hxi, hyi, hinj]
 
+/-! ## Unary involution and extension-chain bitvector lemmas -/
+
+private theorem lift1_not_not : ∀ (t : Ty) (x : Val t),
+    lift1 (~~~ ·) (! ·) t (lift1 (~~~ ·) (! ·) t x) = x
+  | .bool, x => Bool.not_not x
+  | .bits _, _ | .float _, _ => by simp [lift1]
+  | .pair s u, (x₁, x₂) => Prod.ext (lift1_not_not s x₁) (lift1_not_not u x₂)
+
+private theorem bswapBits_go_getLsbD {w : Nat} (x : BitVec w) :
+    ∀ (m i : Nat), i < 8 * m → 8 * m ≤ w →
+      (bswapBits.go x m).getLsbD i = x.getLsbD (8 * (m - 1 - i / 8) + i % 8)
+  | 0, _, hi, _ => by omega
+  | m + 1, i, hi, hm => by
+    have hd : i / 8 < m + 1 := Nat.div_lt_of_lt_mul hi
+    simp only [bswapBits.go, BitVec.getLsbD_cast, BitVec.getLsbD_append]
+    by_cases hlt : i < 8
+    · have hdiv : i / 8 = 0 := Nat.div_eq_of_lt hlt
+      have hmod : i % 8 = i := Nat.mod_eq_of_lt hlt
+      simp [hlt, hdiv, hmod, show 8 * m + i < w by omega]
+    · have ih := bswapBits_go_getLsbD x m (i - 8) (by omega) (by omega)
+      have hdiv : (i - 8) / 8 + 1 = i / 8 := by omega
+      have hmod : (i - 8) % 8 = i % 8 := by omega
+      simp [hlt, ih]
+      congr 1
+      omega
+
+private theorem bswapBits_getLsbD {w : Nat} (hw : w % 8 = 0) (x : BitVec w) {i : Nat}
+    (hi : i < w) :
+    (bswapBits x).getLsbD i = x.getLsbD (8 * (w / 8 - 1 - i / 8) + i % 8) := by
+  have hmul : 8 * (w / 8) = w := by omega
+  dsimp only [bswapBits]
+  simp only [BitVec.getLsbD_setWidth, hi, decide_true, Bool.true_and]
+  exact bswapBits_go_getLsbD x (w / 8) i (by omega) (by omega)
+
+theorem bswapBits_bswapBits {w : Nat} (hw : w % 8 = 0) (x : BitVec w) :
+    bswapBits (bswapBits x) = x := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  have hdiv : i / 8 < w / 8 := Nat.div_lt_of_lt_mul (by omega)
+  have hmod : i % 8 < 8 := Nat.mod_lt i (by decide)
+  have hj : 8 * (w / 8 - 1 - i / 8) + i % 8 < w := by omega
+  rw [bswapBits_getLsbD hw (bswapBits x) hi, bswapBits_getLsbD hw x hj]
+  have hdj : (8 * (w / 8 - 1 - i / 8) + i % 8) / 8 = w / 8 - 1 - i / 8 := by
+    rw [Nat.mul_add_div (by decide), Nat.div_eq_of_lt hmod]; omega
+  have hmj : (8 * (w / 8 - 1 - i / 8) + i % 8) % 8 = i % 8 := by
+    rw [Nat.mul_add_mod, Nat.mod_eq_of_lt hmod]
+  rw [hdj, hmj]
+  have hsub : w / 8 - 1 - (w / 8 - 1 - i / 8) = i / 8 := by omega
+  rw [hsub, Nat.div_add_mod i 8]
+
+private theorem lift1_bswap_bswap : ∀ (t : Ty), t.bswapOk = true →
+    ∀ (x : Val t), lift1 bswapBits id t (lift1 bswapBits id t x) = x
+  | .bool, h, _ | .float _, h, _ => by simp [Ty.bswapOk] at h
+  | .bits _, h, x => bswapBits_bswapBits (eq_of_beq h) x
+  | .pair s u, h, (x₁, x₂) => by
+    simp only [Ty.bswapOk, Bool.and_eq_true] at h
+    exact Prod.ext (lift1_bswap_bswap s h.1 x₁) (lift1_bswap_bswap u h.2 x₂)
+
+private theorem reverse_reverse {n : Nat} (x : BitVec n) : x.reverse.reverse = x := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i _hi
+  simp
+
+theorem setWidth_setWidth_le {w m n : Nat} (hnm : n ≤ m) (x : BitVec w) :
+    (x.setWidth m).setWidth n = x.setWidth n := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_setWidth, hi, show i < m by omega, decide_true, Bool.true_and]
+
+theorem setWidth_setWidth_trans {w m n : Nat} (hwm : w ≤ m) (_hmn : m ≤ n)
+    (x : BitVec w) : (x.setWidth m).setWidth n = x.setWidth n := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  by_cases hw : i < w
+  · simp only [BitVec.getLsbD_setWidth, hi, show i < m by omega, decide_true, Bool.true_and]
+  · rw [← BitVec.setWidth_eq x]
+    simp only [BitVec.getLsbD_setWidth, hi, hw, decide_false, Bool.false_and, Bool.and_false]
+
+theorem setWidth_signExtend_of_narrow {w m n : Nat} (hnw : n ≤ w) (hwm : w ≤ m)
+    (x : BitVec w) : (x.signExtend m).setWidth n = x.setWidth n := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_setWidth, BitVec.getLsbD_signExtend, hi,
+    show i < m by omega, show i < w by omega, decide_true, Bool.true_and, ↓reduceIte]
+
+theorem setWidth_signExtend_of_mid {w m n : Nat} (_hwn : w ≤ n) (hnm : n ≤ m)
+    (x : BitVec w) : (x.signExtend m).setWidth n = x.signExtend n := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_setWidth, BitVec.getLsbD_signExtend, hi,
+    show i < m by omega, decide_true, Bool.true_and]
+
+private theorem signExtend_signExtend_of_le {w m n : Nat} (hpos : 0 < w) (hwm : w ≤ m)
+    (_hmn : m ≤ n) (x : BitVec w) : (x.signExtend m).signExtend n = x.signExtend n := by
+  have hmsb : (x.signExtend m).msb = x.msb := by
+    rw [BitVec.msb_eq_getLsbD_last, BitVec.msb_eq_getLsbD_last, BitVec.getLsbD_signExtend]
+    simp only [show m - 1 < m by omega, decide_true, Bool.true_and]
+    split
+    · simp only [show m - 1 = w - 1 by omega]
+    · exact BitVec.msb_eq_getLsbD_last x
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  simp only [BitVec.getLsbD_signExtend, hi, decide_true, Bool.true_and, hmsb]
+  by_cases hm : i < m
+  · simp only [hm, decide_true, Bool.true_and, ↓reduceIte]
+  · simp only [hm, show ¬ i < w by omega, ↓reduceIte]
+
 /-! ## Context invariants and `SimpAct` soundness -/
+
+/-- Operation matching an `InvKind`. -/
+def invOpVal : InvKind → (t : Ty) → Val t → Val t
+  | .not_, t, x => lift1 (~~~ ·) (! ·) t x
+  | .bswap, t, x => lift1 bswapBits id t x
+  | .rbit, .bits _, x => x.reverse
+  | .rbit, _, x => x
+
+/-- Well-formedness side condition for `InvKind` at type `t`. -/
+def invOpOk : InvKind → Ty → Prop
+  | .not_, _ => True
+  | .bswap, t => t.bswapOk = true
+  | .rbit, _ => True
 
 /-- Semantic invariant for extension provenance `BitsExt Val n`. -/
 def BitsExtGood (ρ : (t : Ty) → Nat → Val t) (b : Nat) {n : Nat}
@@ -812,6 +932,14 @@ def ExtDefGood (ρ : (t : Ty) → Nat → Val t) (b : Nat) :
   | .bits _, none, _ => True
   | .bool, _, _ | .float _, _, _ | .pair _ _, _, _ => True
 
+/-- Semantic invariant for unary-involution provenance `Option (UnInv Val t)`. -/
+def UnInvOptGood (ρ : (t : Ty) → Nat → Val t) (b : Nat) {t : Ty} :
+    Option (UnInv Val t) → Val t → Prop
+  | some iv, v =>
+    invOpOk iv.kind t ∧ v = invOpVal iv.kind t iv.src.val ∧
+    iv.srcKey.fev ρ = iv.src.val ∧ iv.srcKey.FLt b
+  | none, _ => True
+
 theorem ExtDefGood.none {ρ : (t : Ty) → Nat → Val t} {b : Nat} {t : Ty} {v : Val t} :
     ExtDefGood ρ b (ExtDef.none (t := t)) v := by
   cases t <;> trivial
@@ -826,9 +954,17 @@ theorem ExtDefGood.upd_all {ρ : (t : Ty) → Nat → Val t} {b : Nat} {ts : Lis
     | some e => exact ⟨he.1, (FKey.fev_fupdTup xs he.2.2).trans he.2.1, he.2.2.add⟩
   | bool | float _ | pair _ _ => trivial
 
+theorem UnInvOptGood.upd_all {ρ : (t : Ty) → Nat → Val t} {b : Nat} {ts : List Ty} (xs : Tup Val ts)
+    {t : Ty} {iv : Option (UnInv Val t)} {v : Val t} (hi : UnInvOptGood ρ b iv v) :
+    UnInvOptGood (fupdTup ρ b xs) (b + ts.length) iv v := by
+  cases iv with
+  | none => trivial
+  | some _ => exact ⟨hi.1, hi.2.1, (FKey.fev_fupdTup xs hi.2.2.2).trans hi.2.2.1, hi.2.2.2.add⟩
+
 /-- Value invariant for one `FVal Val t` entry in `FGood`. -/
 def FValGood (ρ : (t : Ty) → Nat → Val t) (b : Nat) {t : Ty} (r : FVal Val t) (v : Val t) : Prop :=
-  r.out.val = v ∧ r.key.fev ρ = v ∧ r.key.FLt b ∧ ExtDefGood ρ b r.ext v
+  r.out.val = v ∧ r.key.fev ρ = v ∧ r.key.FLt b ∧
+  ExtDefGood ρ b r.ext v ∧ UnInvOptGood ρ b r.inv v
 
 /-- Every input variable in `G` satisfies `FValGood`. -/
 def FGood (ρ : (t : Ty) → Nat → Val t) (b : Nat) (G : Ctx (FVal Val) Val) : Prop :=
@@ -844,8 +980,8 @@ theorem FGood.cons {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G : Ctx (FVal Va
 theorem FGood.upd_all {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G : Ctx (FVal Val) Val}
     (hG : FGood ρ b G) {ts : List Ty} (xs : Tup Val ts) :
     FGood (fupdTup ρ b xs) (b + ts.length) G := fun p hp =>
-  let ⟨h1, h2, h3, h4⟩ := hG p hp
-  ⟨h1, (FKey.fev_fupdTup xs h3).trans h2, h3.add, h4.upd_all xs⟩
+  let ⟨h1, h2, h3, h4, h5⟩ := hG p hp
+  ⟨h1, (FKey.fev_fupdTup xs h3).trans h2, h3.add, h4.upd_all xs, h5.upd_all xs⟩
 
 theorem FGood.append {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G₁ G₂ : Ctx (FVal Val) Val}
     (h1 : FGood ρ b G₁) (h2 : FGood ρ b G₂) : FGood ρ b (G₁ ++ G₂) := fun p hp =>
@@ -860,7 +996,7 @@ private theorem FGood.freshFVals_only (ρ : (t : Ty) → Nat → Val t) :
     intro p hp
     cases hp with
     | head =>
-      refine ⟨rfl, ?_, by simp [FVal.fresh, FKey.FLt], ExtDefGood.none⟩
+      refine ⟨rfl, ?_, by simp [FVal.fresh, FKey.FLt], ExtDefGood.none, trivial⟩
       simp only [FVal.fresh, FKey.fev]
       rw [fupdTup_lt (fupd ρ b x) xs (by omega), fupd_eq]
     | tail _ hp =>
@@ -877,7 +1013,8 @@ theorem FGood.freshOne {ρ : (t : Ty) → Nat → Val t} {b : Nat} {G : Ctx (FVa
     (hG : FGood ρ b G) {t : Ty} (v : Val t) :
     FGood (fupd ρ b v) (b + 1) (⟨t, FVal.fresh v b, v⟩ :: G) :=
   (hG.upd_all (ts := [t]) (v, ())).cons
-    ⟨rfl, by simp [FVal.fresh, FKey.fev, fupdTup, fupd_eq], Nat.lt_succ_self b, ExtDefGood.none⟩
+    ⟨rfl, by simp [FVal.fresh, FKey.fev, fupdTup, fupd_eq],
+      Nat.lt_succ_self b, ExtDefGood.none, trivial⟩
 
 def SimpAct.vals {sig : List Ty} (vs : Tup Val sig) :
     {rs : List Ty} → SimpAct sig rs → Tup Val rs
@@ -924,14 +1061,20 @@ theorem ArgRel.fkey_FLt {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val 
 theorem ArgRel.fext_good {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t} {b : Nat}
     (hG : FGood ρ b G) {t : Ty} {a₁ : Arg (FVal Val) t} {a₂ : Arg Val t} :
     ArgRel G t a₁ a₂ → ExtDefGood ρ b a₁.fext a₂.val
-  | .var h => (hG _ h).2.2.2
+  | .var h => (hG _ h).2.2.2.1
   | .imm _ => ExtDefGood.none
+
+theorem ArgRel.finv_good {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t} {b : Nat}
+    (hG : FGood ρ b G) {t : Ty} {a₁ : Arg (FVal Val) t} {a₂ : Arg Val t} :
+    ArgRel G t a₁ a₂ → UnInvOptGood ρ b a₁.finv a₂.val
+  | .var h => (hG _ h).2.2.2.2
+  | .imm _ => trivial
 
 private theorem ArgRel.fpair_good {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t} {b : Nat}
     (hG : FGood ρ b G) {t : Ty} {a₁ : Arg (FVal Val) t} {a₂ : Arg Val t} :
     ArgRel G t a₁ a₂ → FValGood ρ b a₁.fpair a₂.val
   | .var hmem => hG _ hmem
-  | .imm _ => ⟨rfl, rfl, trivial, ExtDefGood.none⟩
+  | .imm _ => ⟨rfl, rfl, trivial, ExtDefGood.none, trivial⟩
 
 theorem FGood.apply_simpAct {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t} {b : Nat}
     (hG : FGood ρ b G) {sig : List Ty} {as₁ : Tup (Arg (FVal Val)) sig}
@@ -945,7 +1088,7 @@ theorem FGood.apply_simpAct {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → 
     | imm c =>
       intro p hp
       cases hp with
-      | head => exact ⟨rfl, rfl, trivial, ExtDefGood.none⟩
+      | head => exact ⟨rfl, rfl, trivial, ExtDefGood.none, trivial⟩
       | tail _ hp => exact ih p hp
     | arg i =>
       have hi : ArgRel G r (as₁.get i) (as₂.get i) := TRel.get i has
@@ -990,23 +1133,33 @@ private theorem SimpAct.vals_simpImms {sig : List Ty} (vs : Tup Val sig) :
   | _ :: _, (_, res) => congrArg (_, ·) (SimpAct.vals_simpImms vs res)
 
 private theorem simpAct_shift_zero {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t}
-    {b : Nat} (hG : FGood ρ b G) {t : Ty} {b₁ : Arg (FVal Val) t} {a₂ b₂ : Arg Val t}
-    (hb : ArgRel G t b₁ b₂) (f : ∀ {n}, BitVec n → BitVec n → BitVec n)
-    (hf : ∀ {n} (x : BitVec n), f x 0#n = x)
+    {b : Nat} (hG : FGood ρ b G) {t : Ty} {a₁ b₁ : Arg (FVal Val) t} {a₂ b₂ : Arg Val t}
+    (ha : ArgRel G t a₁ a₂) (hb : ArgRel G t b₁ b₂)
+    (f : ∀ {n}, BitVec n → BitVec n → BitVec n)
+    (hf : ∀ {n} (x : BitVec n), f x 0#n = x) (hf0 : ∀ {n} (y : BitVec n), f 0#n y = 0#n)
     {act : SimpAct [t, t] [t]}
-    (hact : (if !t.hasFloat && isZeroArg? b₁.fout then some (.arg .here, ()) else none) =
-      some act)
+    (hact : (if t.hasFloat then none
+      else if isZeroArg? b₁.fout then some (.arg .here, ())
+      else if isZeroArg? a₁.fout then some (.imm (zeroVal t), ()) else none) = some act)
     {P : Tup Val [t] → Prop}
     (hw : if t.hasFloat then False else P (lift2 f (fun x _ => x) t a₂.val b₂.val, ())) :
     P (SimpAct.vals (vals (a₂, b₂, ())) act) := by
   split at hact
-  · rename_i hcond; cases hact
-    simp only [Bool.and_eq_true, Bool.not_eq_true'] at hcond
-    have hz := hb.isZero hG hcond.2
-    have hsh := lift2_law false f (fun x _ => x) (fun _ x => x) (fun t _ => zeroVal t)
-      (fun _ x => x) t (fun _ => hcond.1) a₂.val (fun x => hf x) (hbool := fun _ => rfl)
-    simpa [SimpAct.vals, Tup.get, hcond.1, vals, hz, hsh] using hw
   · cases hact
+  · next hnf =>
+    have hnf0 : t.hasFloat = false := Bool.eq_false_iff.mpr hnf
+    split at hact
+    · cases hact; next hbz =>
+      have hsh := lift2_law false f (fun x _ => x) (fun _ x => x) (fun t _ => zeroVal t)
+        (fun _ x => x) t (fun _ => hnf0) a₂.val (fun x => hf x) (hbool := fun _ => rfl)
+      simpa [SimpAct.vals, Tup.get, hnf0, vals, hb.isZero hG hbz, hsh] using hw
+    · split at hact
+      · cases hact; next haz =>
+        have hsh := lift2_law false f (fun x _ => x) (fun t _ => zeroVal t) (fun _ x => x)
+          (fun t _ => zeroVal t) t (fun _ => hnf0) b₂.val (fun y => hf0 y)
+          (hbool := fun _ => rfl)
+        simpa [SimpAct.vals, hnf0, vals, ha.isZero hG haz, hsh] using hw
+      · cases hact
 
 private theorem simpAct_bin_zero_add {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t}
     {b : Nat} (hG : FGood ρ b G) {t : Ty} {a₁ b₁ : Arg (FVal Val) t} {a₂ b₂ : Arg Val t}
@@ -1332,25 +1485,30 @@ theorem OpRel.simpAct_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → 
                 · cases hact
       | shl t =>
         rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only at hact
-        exact simpAct_shift_zero hG hb (fun {n} x y => x <<< (y.toNat % n)) (fun x => by simp)
+        exact simpAct_shift_zero hG ha hb (fun {n} x y => x <<< (y.toNat % n))
+          (fun x => by simp) (fun y => by simp)
           hact (by simpa [OpCode.wp_shl, vals] using hw)
       | lshr t =>
         rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only at hact
-        exact simpAct_shift_zero hG hb (fun {n} x y => x >>> (y.toNat % n)) (fun x => by simp)
+        exact simpAct_shift_zero hG ha hb (fun {n} x y => x >>> (y.toNat % n))
+          (fun x => by simp) (fun y => by simp)
           hact (by simpa [OpCode.wp_lshr, vals] using hw)
       | ashr t =>
         rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only at hact
-        exact simpAct_shift_zero hG hb (fun {n} x y => x.sshiftRight (y.toNat % n))
-          (fun x => by simp) hact (by simpa [OpCode.wp_ashr, vals] using hw)
+        exact simpAct_shift_zero hG ha hb (fun {n} x y => x.sshiftRight (y.toNat % n))
+          (fun x => by simp) (fun y => by simp [BitVec.zero_sshiftRight])
+          hact (by simpa [OpCode.wp_ashr, vals] using hw)
       | rotl t =>
         rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only at hact
-        exact simpAct_shift_zero hG hb (fun {n} x y => x.rotateLeft (y.toNat % n))
+        exact simpAct_shift_zero hG ha hb (fun {n} x y => x.rotateLeft (y.toNat % n))
           (fun x => by ext i _; simp [BitVec.rotateLeft, BitVec.rotateLeftAux])
+          (fun y => by ext i _; simp [BitVec.rotateLeft, BitVec.rotateLeftAux])
           hact (by simpa [OpCode.wp_rotl, vals] using hw)
       | rotr t =>
         rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩; dsimp only at hact
-        exact simpAct_shift_zero hG hb (fun {n} x y => x.rotateRight (y.toNat % n))
+        exact simpAct_shift_zero hG ha hb (fun {n} x y => x.rotateRight (y.toNat % n))
           (fun x => by ext i _; simp [BitVec.rotateRight, BitVec.rotateRightAux])
+          (fun y => by ext i _; simp [BitVec.rotateRight, BitVec.rotateRightAux])
           hact (by simpa [OpCode.wp_rotr, vals] using hw)
       | cmp o t _ h =>
         subst h
@@ -1399,7 +1557,7 @@ theorem OpRel.simpAct_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → 
             simpa [SimpAct.vals, Tup.get, OpCode.wp_cmp, hcond.1, vals, hveq,
               liftCmp_self o _ _ hcond.1] using hw
           · cases hact
-      | select _ =>
+      | select t =>
         rcases args₁ with ⟨c₁, a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨c₂, a₂, b₂, ⟨⟩⟩
         rcases hargs with _ | ⟨hc, _ | ⟨ha, _ | ⟨hb, _⟩⟩⟩; dsimp only at hact
         cases hci : c₁.fout.imm? with
@@ -1414,7 +1572,17 @@ theorem OpRel.simpAct_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → 
           · rename_i heq; cases hact
             have hveq := ha.fkey_beq_val hG hb heq
             simpa [SimpAct.vals, Tup.get, OpCode.wp_select, vals, hveq] using hw
-          · cases hact
+          · cases t with
+            | bool =>
+              dsimp only at hact
+              split at hact
+              · rename_i htf; cases hact
+                simp only [Bool.and_eq_true, beq_iff_eq] at htf
+                have hav := ha.fout_imm?_val hG htf.1
+                have hbv := hb.fout_imm?_val hG htf.2
+                simpa [SimpAct.vals, Tup.get, OpCode.wp_select, vals, hav, hbv] using hw
+              · cases hact
+            | _ => cases hact
       | blend t _ h =>
         subst h; rcases args₁ with ⟨c₁, a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨c₂, a₂, b₂, ⟨⟩⟩
         rcases hargs with _ | ⟨hc, _ | ⟨ha, _ | ⟨hb, _⟩⟩⟩; dsimp only at hact
@@ -1556,6 +1724,144 @@ theorem OpRel.simpAct_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → 
           simpa [SimpAct.vals, Tup.get, OpCode.wp_bitcast, vals, ofBits_toBits] using hw
       | _ => cases hact
 
+theorem OpRel.simpProv?_sound {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t} {b : Nat}
+    (hG : FGood ρ b G) {sig ts : List Ty} {code : OpCode sig ts}
+    {args₁ : Tup (Arg (FVal Val)) sig} {args₂ : Tup (Arg Val) sig}
+    (hargs : TRel (ArgRel G) args₁ args₂) {res : Tup (FVal Val) ts}
+    (hprov : ({ code := code, args := args₁ } : Op (FVal Val) ts).simpProv? = some res)
+    {P : Tup Val ts → Prop} (hw : code.wp (vals args₂) P) :
+    ∃ xs, P xs ∧ FGood ρ b (Tup.zip res xs ++ G) := by
+  cases code with
+  | not t =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.simpProv?] at hprov
+    cases hinv : a₁.finv with
+    | none => simp [hinv] at hprov
+    | some iv =>
+      simp only [hinv] at hprov
+      split at hprov
+      · rename_i hkind; cases hprov
+        have hgood := ha.finv_good hG
+        rw [hinv] at hgood
+        obtain ⟨_, hv, hsk, hflt⟩ := hgood
+        have hke : iv.kind = .not_ := eq_of_beq hkind
+        have hv' : lift1 (~~~ ·) (! ·) t a₂.val = iv.src.val := by
+          rw [hv, hke]; exact lift1_not_not t iv.src.val
+        refine ⟨(lift1 (~~~ ·) (! ·) t a₂.val, ()), ?_, ?_⟩
+        · simpa [OpCode.wp_not, vals] using hw
+        · exact hG.cons ⟨hv'.symm, hv' ▸ hsk, hflt, ExtDefGood.none, trivial⟩
+      · cases hprov
+  | bswap t =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.simpProv?] at hprov
+    split at hprov
+    · rename_i hok
+      cases hinv : a₁.finv with
+      | none => simp [hinv] at hprov
+      | some iv =>
+        simp only [hinv] at hprov
+        split at hprov
+        · rename_i hkind; cases hprov
+          have hgood := ha.finv_good hG
+          rw [hinv] at hgood
+          obtain ⟨_, hv, hsk, hflt⟩ := hgood
+          have hke : iv.kind = .bswap := eq_of_beq hkind
+          have hv' : lift1 bswapBits id t a₂.val = iv.src.val := by
+            rw [hv, hke]; exact lift1_bswap_bswap t hok iv.src.val
+          refine ⟨(lift1 bswapBits id t a₂.val, ()), ?_, ?_⟩
+          · simpa [OpCode.wp_bswap, hok, vals] using hw
+          · exact hG.cons ⟨hv'.symm, hv' ▸ hsk, hflt, ExtDefGood.none, trivial⟩
+        · cases hprov
+    · cases hprov
+  | rbit n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.simpProv?] at hprov
+    cases hinv : a₁.finv with
+    | none => simp [hinv] at hprov
+    | some iv =>
+      simp only [hinv] at hprov
+      split at hprov
+      · rename_i hkind; cases hprov
+        have hgood := ha.finv_good hG
+        rw [hinv] at hgood
+        obtain ⟨_, hv, hsk, hflt⟩ := hgood
+        have hke : iv.kind = .rbit := eq_of_beq hkind
+        have hv' : a₂.val.reverse = iv.src.val := by
+          rw [hv, hke]; exact reverse_reverse iv.src.val
+        refine ⟨(a₂.val.reverse, ()), ?_, ?_⟩
+        · simpa [OpCode.wp_rbit, vals] using hw
+        · exact hG.cons ⟨hv'.symm, hv' ▸ hsk, hflt, ExtDefGood.none, trivial⟩
+      · cases hprov
+  | trunc m n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.simpProv?] at hprov
+    cases hf : a₁.fext with
+    | none => simp [hf] at hprov
+    | some e =>
+      simp only [hf] at hprov
+      split at hprov
+      · rename_i hm; rcases e with ⟨ek, em, hpos, hlt, esrc, eskey⟩
+        dsimp only at hm; cases hm; cases hprov
+        have hgood := ha.fext_good hG
+        rw [hf] at hgood
+        obtain ⟨hv, hsk, hflt⟩ := hgood
+        have hv' : a₂.val.setWidth n = esrc.val := by
+          cases ek <;> dsimp only at hv <;> rw [hv]
+          · exact setWidth_signExtend_of_le (Nat.le_of_lt hlt) esrc.val
+          · rw [setWidth_setWidth_le (Nat.le_of_lt hlt) esrc.val, BitVec.setWidth_eq]
+        refine ⟨(a₂.val.setWidth n, ()), ?_, ?_⟩
+        · simpa [OpCode.wp_trunc, vals] using hw.2
+        · exact hG.cons ⟨hv'.symm, hv' ▸ hsk, hflt, ExtDefGood.none, trivial⟩
+      · cases hprov
+  | _ => cases hprov
+
+private theorem extTarget_good {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t} {b : Nat}
+    (hG : FGood ρ b G) (k : ExtKind) {m n : Nat} {a₁ : Arg (FVal Val) (.bits m)}
+    {a₂ : Arg Val (.bits m)} (ha : ArgRel G (.bits m) a₁ a₂) {tg : BitsExt Val n}
+    (htg : extTarget (n := n) k a₁ = some tg) :
+    tg.kind = k ∧ tg.srcKey.fev ρ = tg.src.val ∧ tg.srcKey.FLt b ∧
+    (k = .sext → tg.src.val.signExtend n = a₂.val.signExtend n) ∧
+    (k = .zext → tg.src.val.setWidth n = a₂.val.setWidth n) := by
+  dsimp only [extTarget] at htg
+  split at htg
+  · rename_i hm
+    cases hf : a₁.fext with
+    | none =>
+      rw [hf] at htg; dsimp only at htg
+      split at htg
+      · cases htg
+        exact ⟨rfl, (ha.fkey_ev hG).trans (ha.fout_val hG).symm, ha.fkey_FLt hG,
+          fun _ => congrArg (BitVec.signExtend n) (ha.fout_val hG),
+          fun _ => congrArg (BitVec.setWidth n) (ha.fout_val hG)⟩
+      · cases htg
+    | some e =>
+      rw [hf] at htg; dsimp only at htg
+      split at htg
+      · rename_i heq; cases htg
+        have hk : e.kind = k := eq_of_beq heq
+        have hgood := ha.fext_good hG; rw [hf] at hgood
+        obtain ⟨hev, hsk, hflt⟩ := hgood
+        refine ⟨rfl, hsk, hflt, fun hks => ?_, fun hkz => ?_⟩
+        · have hek : e.kind = .sext := hk.trans hks
+          rw [hek] at hev; dsimp only at hev; rw [hev]
+          exact (signExtend_signExtend_of_le e.hpos (Nat.le_of_lt e.hlt) (Nat.le_of_lt hm)
+            e.src.val).symm
+        · have hek : e.kind = .zext := hk.trans hkz
+          rw [hek] at hev; dsimp only at hev; rw [hev]
+          exact (setWidth_setWidth_trans (Nat.le_of_lt e.hlt) (Nat.le_of_lt hm)
+            e.src.val).symm
+      · split at htg
+        · cases htg
+          exact ⟨rfl, (ha.fkey_ev hG).trans (ha.fout_val hG).symm, ha.fkey_FLt hG,
+            fun _ => congrArg (BitVec.signExtend n) (ha.fout_val hG),
+            fun _ => congrArg (BitVec.setWidth n) (ha.fout_val hG)⟩
+        · cases htg
+  · cases htg
+
 theorem OpRel.foldRewrite_wp {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat → Val t} {b : Nat}
     (hG : FGood ρ b G) {sig ts : List Ty} {code : OpCode sig ts}
     {args₁ : Tup (Arg (FVal Val)) sig} {args₂ : Tup (Arg Val) sig}
@@ -1605,42 +1911,152 @@ theorem OpRel.foldRewrite_wp {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat →
         simpa only [Op.wp, op2, OpCode.wp_cmp, hcond.1.1, Bool.false_eq_true, ↓reduceIte,
           vals, cast_eq, ha.fout_val hG, hb.fout_val hG, liftCmp_swap] using hw
       · simpa only [Op.wp, op2, vals, ha.fout_val hG, hb.fout_val hG] using hw
+  | select t =>
+    cases t with
+    | bool =>
+      rcases args₁ with ⟨c₁, a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨c₂, a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨hc, _ | ⟨ha, _ | ⟨hb, _⟩⟩⟩
+      dsimp only [Op.foldRewrite, Op.foldWrap]
+      split
+      · rename_i hft
+        simp only [Bool.and_eq_true, beq_iff_eq] at hft
+        have hav := ha.fout_imm?_val hG hft.1
+        have hbv := hb.fout_imm?_val hG hft.2
+        simp only [Op.wp, op1, OpCode.wp_not, OpCode.wp_select, vals,
+          hc.fout_val hG, hav, hbv] at hw ⊢
+        have hnot : (if c₂.val then false else true) = lift1 (~~~ ·) (! ·) .bool c₂.val := by
+          cases c₂.val <;> rfl
+        refine ⟨hnot ▸ hw, ?_⟩
+        refine (hG.upd_all (ts := [.bool]) (lift1 (~~~ ·) (! ·) .bool c₂.val, ())).cons ?_
+        refine ⟨rfl, ?_, Nat.lt_succ_self b, ExtDefGood.none, trivial, ?_, ?_, ?_⟩
+        · simp [FKey.fev, fupdTup, fupd_eq]
+        · rw [hc.fout_val hG]; rfl
+        · rw [FKey.fev_fupdTup _ (hc.fkey_FLt hG), hc.fkey_ev hG, hc.fout_val hG]
+        · exact (hc.fkey_FLt hG).add
+      · refine hdef _ ?_
+        simpa [Op.wp, op3, OpCode.wp_select, vals, hc.fout_val hG, ha.fout_val hG,
+          hb.fout_val hG] using hw
+    | _ =>
+      exact hdef _ (Op.rewrite_wp _ _ ((OpRel.mk _ hargs).fout_wp hG hw))
   | sext m n =>
     rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _⟩
-    dsimp only [Op.foldRewrite, Op.rewrite, Op.wp, tupMapArg, vals]; simp only [OpCode.wp_sext,
-      ha.fout_val hG] at hw ⊢
-    refine ⟨hw.1, hw.2, ?_⟩
-    dsimp only [Op.foldWrap]
-    split
-    · rename_i hpos
-      split
-      · rename_i hlt
-        refine (hG.upd_all (ts := [.bits n]) (a₂.val.signExtend n, ())).cons ?_
-        refine ⟨rfl, ?_, Nat.lt_succ_self b, ?_⟩
-        · simp [FKey.fev, fupdTup, fupd_eq]
-        · refine ⟨(ha.fout_val hG).symm ▸ rfl, ?_, (ha.fkey_FLt hG).add⟩
-          rw [FKey.fev_fupdTup _ (ha.fkey_FLt hG), ha.fkey_ev hG, ha.fout_val hG]
-      · exact hG.freshFVals _
-    · exact hG.freshFVals _
+    cases htg : extTarget (n := n) .sext a₁ with
+    | none =>
+      dsimp only [Op.foldRewrite, Op.foldWrap]
+      rw [htg]
+      exact hdef _ (by simpa [Op.wp, op1, vals, ha.fout_val hG] using hw)
+    | some tg =>
+      obtain ⟨hk, hsk, hflt, hs, _⟩ := extTarget_good hG .sext ha htg
+      dsimp only [Op.foldRewrite, Op.foldWrap]
+      rw [htg]
+      dsimp only [Op.wp, op1, vals]
+      simp only [OpCode.wp_sext] at hw ⊢
+      refine ⟨Nat.le_of_lt tg.hlt, ?_, ?_⟩
+      · rw [hs rfl]; exact hw.2
+      · refine (hG.upd_all (ts := [.bits n]) (tg.src.val.signExtend n, ())).cons ?_
+        refine ⟨rfl, by simp [FKey.fev, fupdTup, fupd_eq], Nat.lt_succ_self b, ?_, trivial⟩
+        refine ⟨by rw [hk], (FKey.fev_fupdTup _ hflt).trans hsk, hflt.add⟩
   | zext m n =>
     rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _⟩
-    dsimp only [Op.foldRewrite, Op.rewrite, Op.wp, tupMapArg, vals]; simp only [OpCode.wp_zext,
-      ha.fout_val hG] at hw ⊢
-    refine ⟨hw.1, hw.2, ?_⟩
-    dsimp only [Op.foldWrap]
-    split
-    · rename_i hpos
-      split
-      · rename_i hlt
-        refine (hG.upd_all (ts := [.bits n]) (a₂.val.setWidth n, ())).cons ?_
-        refine ⟨rfl, ?_, Nat.lt_succ_self b, ?_⟩
-        · simp [FKey.fev, fupdTup, fupd_eq]
-        · refine ⟨(ha.fout_val hG).symm ▸ rfl, ?_, (ha.fkey_FLt hG).add⟩
-          rw [FKey.fev_fupdTup _ (ha.fkey_FLt hG), ha.fkey_ev hG, ha.fout_val hG]
-      · exact hG.freshFVals _
-    · exact hG.freshFVals _
+    cases htg : extTarget (n := n) .zext a₁ with
+    | none =>
+      dsimp only [Op.foldRewrite, Op.foldWrap]
+      rw [htg]
+      exact hdef _ (by simpa [Op.wp, op1, vals, ha.fout_val hG] using hw)
+    | some tg =>
+      obtain ⟨hk, hsk, hflt, _, hz⟩ := extTarget_good hG .zext ha htg
+      dsimp only [Op.foldRewrite, Op.foldWrap]
+      rw [htg]
+      dsimp only [Op.wp, op1, vals]
+      simp only [OpCode.wp_zext] at hw ⊢
+      refine ⟨Nat.le_of_lt tg.hlt, ?_, ?_⟩
+      · rw [hz rfl]; exact hw.2
+      · refine (hG.upd_all (ts := [.bits n]) (tg.src.val.setWidth n, ())).cons ?_
+        refine ⟨rfl, by simp [FKey.fev, fupdTup, fupd_eq], Nat.lt_succ_self b, ?_, trivial⟩
+        refine ⟨by rw [hk], (FKey.fev_fupdTup _ hflt).trans hsk, hflt.add⟩
+  | trunc m n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.foldRewrite, Op.foldWrap]
+    cases htg : truncTarget? m n a₁ with
+    | none =>
+      exact hdef _ (Op.rewrite_wp _ _ ((OpRel.mk _ (.cons ha .nil)).fout_wp hG hw))
+    | some tgt =>
+      dsimp only [truncTarget?] at htg
+      split at htg
+      · rename_i hnm
+        cases hf : a₁.fext with
+        | none => simp [hf] at htg
+        | some e =>
+          have hgood := ha.fext_good hG; rw [hf] at hgood
+          obtain ⟨hv, hsk, hflt⟩ := hgood
+          rw [hf] at htg; dsimp only at htg
+          split at htg
+          · rename_i hle; cases htg
+            dsimp only [Op.wp, op1, OpCode.wp_trunc, vals] at hw ⊢
+            have hsw : e.src.val.setWidth n = a₂.val.setWidth n := by
+              cases ek : e.kind <;> rw [ek] at hv <;> dsimp only at hv <;> rw [hv]
+              · exact (setWidth_signExtend_of_narrow hle (Nat.le_of_lt e.hlt) e.src.val).symm
+              · exact (setWidth_setWidth_le (Nat.le_of_lt hnm) e.src.val).symm
+            exact ⟨hle, hsw ▸ hw.2, hG.freshFVals _⟩
+          · rename_i hnle; cases htg
+            have hlt : e.m < n := Nat.lt_of_not_ge hnle
+            cases ek : e.kind <;> dsimp only [ExtKind.toOpCode, Op.wp, op1, vals]
+            · rw [ek] at hv; dsimp only at hv
+              simp only [OpCode.wp_trunc, OpCode.wp_sext] at hw ⊢
+              have hsw : e.src.val.signExtend n = a₂.val.setWidth n := by
+                rw [hv]; exact (setWidth_signExtend_of_mid (Nat.le_of_lt hlt)
+                  (Nat.le_of_lt hnm) e.src.val).symm
+              refine ⟨Nat.le_of_lt hlt, hsw ▸ hw.2, ?_⟩
+              refine (hG.upd_all (ts := [.bits n]) (e.src.val.signExtend n, ())).cons ?_
+              refine ⟨rfl, by simp [FKey.fev, fupdTup, fupd_eq], Nat.lt_succ_self b, ?_, trivial⟩
+              refine ⟨rfl, (FKey.fev_fupdTup _ hflt).trans hsk, hflt.add⟩
+            · rw [ek] at hv; dsimp only at hv
+              simp only [OpCode.wp_trunc, OpCode.wp_zext] at hw ⊢
+              have hsw : e.src.val.setWidth n = a₂.val.setWidth n := by
+                rw [hv]; exact (setWidth_setWidth_le (Nat.le_of_lt hnm) e.src.val).symm
+              refine ⟨Nat.le_of_lt hlt, hsw ▸ hw.2, ?_⟩
+              refine (hG.upd_all (ts := [.bits n]) (e.src.val.setWidth n, ())).cons ?_
+              refine ⟨rfl, by simp [FKey.fev, fupdTup, fupd_eq], Nat.lt_succ_self b, ?_, trivial⟩
+              refine ⟨rfl, (FKey.fev_fupdTup _ hflt).trans hsk, hflt.add⟩
+      · cases htg
+  | not t =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.foldRewrite, Op.rewrite, Op.foldWrap, Op.wp, tupMapArg, vals]
+    simp only [OpCode.wp_not, ha.fout_val hG] at hw ⊢
+    refine ⟨hw, ?_⟩
+    refine (hG.upd_all (ts := [t]) (lift1 (~~~ ·) (! ·) t a₂.val, ())).cons ?_
+    refine ⟨rfl, by simp [FKey.fev, fupdTup, fupd_eq], Nat.lt_succ_self b, ExtDefGood.none, ?_⟩
+    refine ⟨trivial, by rw [ha.fout_val hG]; rfl, ?_, (ha.fkey_FLt hG).add⟩
+    rw [FKey.fev_fupdTup _ (ha.fkey_FLt hG), ha.fkey_ev hG, ha.fout_val hG]
+  | bswap t =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.foldRewrite, Op.rewrite, Op.foldWrap, Op.wp, tupMapArg, vals]
+    simp only [OpCode.wp_bswap, ha.fout_val hG] at hw ⊢
+    split at hw
+    · cases hw
+    · rename_i hnok
+      have hok : t.bswapOk = true := by cases h : t.bswapOk <;> simp_all
+      simp only [hok, ↓reduceIte, Bool.not_true, Bool.false_eq_true]
+      refine ⟨hw, ?_⟩
+      refine (hG.upd_all (ts := [t]) (lift1 bswapBits id t a₂.val, ())).cons ?_
+      refine ⟨rfl, by simp [FKey.fev, fupdTup, fupd_eq], Nat.lt_succ_self b, ExtDefGood.none, ?_⟩
+      refine ⟨hok, by rw [ha.fout_val hG]; rfl, ?_, (ha.fkey_FLt hG).add⟩
+      rw [FKey.fev_fupdTup _ (ha.fkey_FLt hG), ha.fkey_ev hG, ha.fout_val hG]
+  | rbit n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.foldRewrite, Op.rewrite, Op.foldWrap, Op.wp, tupMapArg, vals]
+    simp only [OpCode.wp_rbit, ha.fout_val hG] at hw ⊢
+    refine ⟨hw, ?_⟩
+    refine (hG.upd_all (ts := [.bits n]) (a₂.val.reverse, ())).cons ?_
+    refine ⟨rfl, by simp [FKey.fev, fupdTup, fupd_eq], Nat.lt_succ_self b, ExtDefGood.none, ?_⟩
+    refine ⟨trivial, by rw [ha.fout_val hG]; rfl, ?_, (ha.fkey_FLt hG).add⟩
+    rw [FKey.fev_fupdTup _ (ha.fkey_FLt hG), ha.fkey_ev hG, ha.fout_val hG]
   | _ =>
     all_goals
       exact hdef _ (Op.rewrite_wp _ _ ((OpRel.mk _ hargs).fout_wp hG hw))
@@ -1676,16 +2092,41 @@ theorem ExtDefRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p �
   | .bits _, some _, Option.none, h | .bits _, Option.none, some _, h => False.elim h
   | .bool, _, _, _ | .float _, _, _, _ | .pair _ _, _, _, _ => trivial
 
+/-- Relational invariant for unary-involution provenance `UnInv`. -/
+inductive UnInvRel (G' : Ctx V₁ V₂) {t : Ty} : UnInv V₁ t → UnInv V₂ t → Prop
+  | mk (kind : InvKind) {s₁ : Arg V₁ t} {s₂ : Arg V₂ t} {sk : FKey t}
+      (hs : ArgRel G' t s₁ s₂) :
+      UnInvRel G' ⟨kind, s₁, sk⟩ ⟨kind, s₂, sk⟩
+
+theorem UnInvRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂) {t : Ty}
+    {iv₁ : UnInv V₁ t} {iv₂ : UnInv V₂ t} : UnInvRel G₁ iv₁ iv₂ → UnInvRel G₂ iv₁ iv₂
+  | .mk kind hs => .mk kind (hs.weaken hsub)
+
+/-- Relational invariant for `Option (UnInv V t)`. -/
+def UnInvOptRel (G' : Ctx V₁ V₂) {t : Ty} :
+    Option (UnInv V₁ t) → Option (UnInv V₂ t) → Prop
+  | none, none => True
+  | some iv₁, some iv₂ => UnInvRel G' iv₁ iv₂
+  | _, _ => False
+
+theorem UnInvOptRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂) {t : Ty} :
+    {iv₁ : Option (UnInv V₁ t)} → {iv₂ : Option (UnInv V₂ t)} →
+    UnInvOptRel G₁ iv₁ iv₂ → UnInvOptRel G₂ iv₁ iv₂
+  | Option.none, Option.none, _ => trivial
+  | some _, some _, h => UnInvRel.weaken hsub h
+  | some _, Option.none, h | Option.none, some _, h => False.elim h
+
 /-- Value relation for `FVal` entries in `FRelG`. -/
 def FValRel (G' : Ctx V₁ V₂) {t : Ty} (w₁ : FVal V₁ t) (w₂ : FVal V₂ t) : Prop :=
-  ArgRel G' t w₁.out w₂.out ∧ w₁.key = w₂.key ∧ ExtDefRel G' w₁.ext w₂.ext
+  ArgRel G' t w₁.out w₂.out ∧ w₁.key = w₂.key ∧
+  ExtDefRel G' w₁.ext w₂.ext ∧ UnInvOptRel G' w₁.inv w₂.inv
 
 theorem FValRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂)
     {t : Ty} {w₁ : FVal V₁ t} {w₂ : FVal V₂ t} (h : FValRel G₁ w₁ w₂) :
     FValRel G₂ w₁ w₂ :=
-  ⟨h.1.weaken hsub, h.2.1, h.2.2.weaken hsub⟩
+  ⟨h.1.weaken hsub, h.2.1, h.2.2.1.weaken hsub, h.2.2.2.weaken hsub⟩
 
-/-- Two `FVal` contexts are related when output operands, keys, and extension provenances match. -/
+/-- Two `FVal` contexts are related when output operands, keys, and provenances match. -/
 def FRelG (G' : Ctx V₁ V₂) (G : Ctx (FVal V₁) (FVal V₂)) : Prop :=
   ∀ p ∈ G, FValRel G' p.2.1 p.2.2
 
@@ -1709,7 +2150,7 @@ private theorem FRelG.freshFVals_only {ts : List Ty} (xs₁ : Tup V₁ ts) (xs�
     (fun {t} x n => FVal.fresh (t := t) x n)
     (P := fun G' _ w₁ w₂ => FValRel G' w₁ w₂)
     (fun hsub _ _ _ h => h.weaken hsub)
-    (fun _ _ _ => ⟨.var List.mem_cons_self, rfl, ExtDefRel.none⟩)
+    (fun _ _ _ => ⟨.var List.mem_cons_self, rfl, ExtDefRel.none, trivial⟩)
     xs₁ xs₂ b
 
 theorem FRelG.freshFVals (hG : FRelG G' G) {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts)
@@ -1720,7 +2161,7 @@ theorem FRelG.freshFVals (hG : FRelG G' G) {ts : List Ty} (xs₁ : Tup V₁ ts) 
 
 theorem FRelG.freshOne (hG : FRelG G' G) {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) (b : Nat) :
     FRelG (⟨t, v₁, v₂⟩ :: G') (⟨t, FVal.fresh v₁ b, FVal.fresh v₂ b⟩ :: G)
-  | _, .head _ => ⟨.var List.mem_cons_self, rfl, ExtDefRel.none⟩
+  | _, .head _ => ⟨.var List.mem_cons_self, rfl, ExtDefRel.none, trivial⟩
   | p, .tail _ hp => (hG p hp).weaken fun _ hq => List.mem_cons_of_mem _ hq
 
 theorem ArgRel.imm?_eq {t : Ty} {a₁ : Arg V₁ t} {a₂ : Arg V₂ t} :
@@ -1746,7 +2187,11 @@ theorem ArgRel.fkey_eq (hG : FRelG G' G) {t : Ty} {a₁ : Arg (FVal V₁) t} {a�
 
 theorem ArgRel.fext_rel (hG : FRelG G' G) {t : Ty} {a₁ : Arg (FVal V₁) t} {a₂ : Arg (FVal V₂) t} :
     ArgRel G t a₁ a₂ → ExtDefRel G' a₁.fext a₂.fext
-  | .var h => (hG _ h).2.2 | .imm _ => ExtDefRel.none
+  | .var h => (hG _ h).2.2.1 | .imm _ => ExtDefRel.none
+
+theorem ArgRel.finv_rel (hG : FRelG G' G) {t : Ty} {a₁ : Arg (FVal V₁) t} {a₂ : Arg (FVal V₂) t} :
+    ArgRel G t a₁ a₂ → UnInvOptRel G' a₁.finv a₂.finv
+  | .var h => (hG _ h).2.2.2 | .imm _ => trivial
 
 /-- Relational invariant for `narrowCmp`. -/
 inductive NarrowCmpRel (G' : Ctx V₁ V₂) : NarrowCmp V₁ → NarrowCmp V₂ → Prop
@@ -1877,7 +2322,12 @@ theorem OpRel.simpAct_eq (hG : FRelG G' G) :
         | mk _ hr => simp only [hr.imm?_eq]
       | _ =>
         simp only [ha.fkey_eq hG, hb.fkey_eq hG]
-    | select _ | blend _ _ _ | addc _ | subb _ =>
+    | select t =>
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _ | ⟨hc, _⟩⟩⟩
+      have ha' := ha.fout hG; have hb' := hb.fout hG; have hc' := hc.fout hG
+      cases t <;> simp only [ha'.imm?_eq, hb'.imm?_eq, hc'.imm?_eq,
+        hb.fkey_eq hG, hc.fkey_eq hG]
+    | blend _ _ _ | addc _ | subb _ =>
       rcases hargs with _ | ⟨ha, _ | ⟨hb, _ | ⟨hc, _⟩⟩⟩
       have ha' := ha.fout hG
       have hb' := hb.fout hG
@@ -1890,7 +2340,7 @@ private theorem ArgRel.fpair_rel (hG : FRelG G' G) {t : Ty}
     {a₁ : Arg (FVal V₁) t} {a₂ : Arg (FVal V₂) t} :
     ArgRel G t a₁ a₂ → FValRel G' a₁.fpair a₂.fpair
   | .var hmem => hG _ hmem
-  | .imm c => ⟨.imm c, rfl, ExtDefRel.none⟩
+  | .imm c => ⟨.imm c, rfl, ExtDefRel.none, trivial⟩
 
 theorem FRelG.apply_simpAct (hG : FRelG G' G) :
     {sig rs : List Ty} → {as₁ : Tup (Arg (FVal V₁)) sig} → {as₂ : Tup (Arg (FVal V₂)) sig} →
@@ -1903,7 +2353,7 @@ theorem FRelG.apply_simpAct (hG : FRelG G' G) :
     | imm c =>
       intro p hp
       cases hp with
-      | head => exact ⟨.imm c, rfl, ExtDefRel.none⟩
+      | head => exact ⟨.imm c, rfl, ExtDefRel.none, trivial⟩
       | tail _ hp => exact ih p hp
     | arg i =>
       have hi : ArgRel G r (as₁.get i) (as₂.get i) := TRel.get i has
@@ -1956,6 +2406,169 @@ theorem OpRel.rewrite {rs : List Ty} {o₁ : Op V₁ rs} {o₂ : Op V₂ rs} (ho
         | none => exact .mk _ (.cons ha (.cons (.imm cb) .nil))
     | _ => exact .mk _ hargs
 
+private theorem extTarget_rel (hG : FRelG G' G) (k : ExtKind) {m n : Nat}
+    {a₁ : Arg (FVal V₁) (.bits m)} {a₂ : Arg (FVal V₂) (.bits m)}
+    (ha : ArgRel G (.bits m) a₁ a₂) :
+    ExtDefRel G' (t := .bits n) (extTarget (n := n) k a₁) (extTarget (n := n) k a₂) := by
+  dsimp only [extTarget]
+  split
+  · rename_i hm
+    have hf := ha.fext_rel hG
+    cases hf₁ : a₁.fext with
+    | none =>
+      cases hf₂ : a₂.fext with
+      | none =>
+        dsimp only; split
+        · rw [ha.fkey_eq hG]; exact .mk k _ hm (ha.fout hG)
+        · trivial
+      | some _ => rw [hf₁, hf₂] at hf; exact False.elim hf
+    | some e₁ =>
+      cases hf₂ : a₂.fext with
+      | none => rw [hf₁, hf₂] at hf; exact False.elim hf
+      | some e₂ =>
+        rw [hf₁, hf₂] at hf
+        cases hf with
+        | mk ek hpos hlt hs =>
+          dsimp only; split
+          · exact .mk k hpos (Nat.lt_trans hlt hm) hs
+          · split
+            · rw [ha.fkey_eq hG]; exact .mk k _ hm (ha.fout hG)
+            · trivial
+  · trivial
+
+private inductive TruncTargetRel (G' : Ctx V₁ V₂) {m n : Nat} :
+    Option (TruncTarget V₁ m n) → Option (TruncTarget V₂ m n) → Prop
+  | none : TruncTargetRel G' Option.none Option.none
+  | narrow (w : Nat) (hle : n ≤ w) {s₁ : Arg V₁ (.bits w)} {s₂ : Arg V₂ (.bits w)}
+      (hs : ArgRel G' (.bits w) s₁ s₂) :
+      TruncTargetRel G' (some (.narrow w hle s₁)) (some (.narrow w hle s₂))
+  | lift {t₁ : BitsExt V₁ n} {t₂ : BitsExt V₂ n} (ht : BitsExtRel G' t₁ t₂) :
+      TruncTargetRel G' (some (.lift t₁)) (some (.lift t₂))
+
+private theorem truncTarget?_rel (hG : FRelG G' G) (m n : Nat)
+    {a₁ : Arg (FVal V₁) (.bits m)} {a₂ : Arg (FVal V₂) (.bits m)}
+    (ha : ArgRel G (.bits m) a₁ a₂) :
+    TruncTargetRel G' (truncTarget? m n a₁) (truncTarget? m n a₂) := by
+  dsimp only [truncTarget?]
+  split
+  · have hf := ha.fext_rel hG
+    cases hf₁ : a₁.fext with
+    | none =>
+      cases hf₂ : a₂.fext with
+      | none => exact .none
+      | some _ => rw [hf₁, hf₂] at hf; exact False.elim hf
+    | some e₁ =>
+      cases hf₂ : a₂.fext with
+      | none => rw [hf₁, hf₂] at hf; exact False.elim hf
+      | some e₂ =>
+        rw [hf₁, hf₂] at hf
+        cases hf with
+        | mk ek hpos hlt hs =>
+          dsimp only; split
+          · exact .narrow _ _ hs
+          · exact .lift (.mk ek hpos _ hs)
+  · exact .none
+
+theorem OpRel.simpProv?_rel (hG : FRelG G' G) :
+    ∀ {sig ts : List Ty} {code : OpCode sig ts}
+      {args₁ : Tup (Arg (FVal V₁)) sig} {args₂ : Tup (Arg (FVal V₂)) sig},
+      TRel (ArgRel G) args₁ args₂ →
+      match ({ code := code, args := args₁ } : Op (FVal V₁) ts).simpProv?,
+            ({ code := code, args := args₂ } : Op (FVal V₂) ts).simpProv? with
+      | some res₁, some res₂ => FRelG G' (Tup.zip res₁ res₂ ++ G)
+      | none, none => True
+      | _, _ => False := by
+  intro sig ts code args₁ args₂ hargs
+  cases code with
+  | not _ =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.simpProv?]; have hi := ha.finv_rel hG
+    cases hi₁ : a₁.finv with
+    | none =>
+      cases hi₂ : a₂.finv with
+      | none => trivial
+      | some _ => rw [hi₁, hi₂] at hi; exact False.elim hi
+    | some _ =>
+      cases hi₂ : a₂.finv with
+      | none => rw [hi₁, hi₂] at hi; exact False.elim hi
+      | some _ =>
+        rw [hi₁, hi₂] at hi; dsimp only
+        cases hi with
+        | mk kind hs =>
+          dsimp only
+          by_cases hk : (kind == .not_) = true
+          · simp only [hk, ↓reduceIte]; exact hG.cons ⟨hs, rfl, ExtDefRel.none, trivial⟩
+          · simp only [hk, Bool.false_eq_true, ↓reduceIte]
+  | bswap t =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.simpProv?]
+    by_cases hok : t.bswapOk = true
+    · simp only [hok, ↓reduceIte]; have hi := ha.finv_rel hG
+      cases hi₁ : a₁.finv with
+      | none =>
+        cases hi₂ : a₂.finv with
+        | none => trivial
+        | some _ => rw [hi₁, hi₂] at hi; exact False.elim hi
+      | some _ =>
+        cases hi₂ : a₂.finv with
+        | none => rw [hi₁, hi₂] at hi; exact False.elim hi
+        | some _ =>
+          rw [hi₁, hi₂] at hi; dsimp only
+          cases hi with
+          | mk kind hs =>
+            dsimp only
+            by_cases hk : (kind == .bswap) = true
+            · simp only [hk, ↓reduceIte]; exact hG.cons ⟨hs, rfl, ExtDefRel.none, trivial⟩
+            · simp only [hk, Bool.false_eq_true, ↓reduceIte]
+    · simp only [hok, Bool.false_eq_true, ↓reduceIte]
+  | rbit _ =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.simpProv?]; have hi := ha.finv_rel hG
+    cases hi₁ : a₁.finv with
+    | none =>
+      cases hi₂ : a₂.finv with
+      | none => trivial
+      | some _ => rw [hi₁, hi₂] at hi; exact False.elim hi
+    | some _ =>
+      cases hi₂ : a₂.finv with
+      | none => rw [hi₁, hi₂] at hi; exact False.elim hi
+      | some _ =>
+        rw [hi₁, hi₂] at hi; dsimp only
+        cases hi with
+        | mk kind hs =>
+          dsimp only
+          by_cases hk : (kind == .rbit) = true
+          · simp only [hk, ↓reduceIte]; exact hG.cons ⟨hs, rfl, ExtDefRel.none, trivial⟩
+          · simp only [hk, Bool.false_eq_true, ↓reduceIte]
+  | trunc _ n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.simpProv?]
+    have hf := ha.fext_rel hG
+    cases hf₁ : a₁.fext with
+    | none =>
+      cases hf₂ : a₂.fext with
+      | none => trivial
+      | some _ => rw [hf₁, hf₂] at hf; exact False.elim hf
+    | some e₁ =>
+      cases hf₂ : a₂.fext with
+      | none => rw [hf₁, hf₂] at hf; exact False.elim hf
+      | some e₂ =>
+        rw [hf₁, hf₂] at hf
+        cases hf with
+        | mk ek hpos hlt hs =>
+          rename_i m' _ _ _
+          dsimp only
+          by_cases hm : m' = n
+          · cases hm
+            simp only [↓reduceDIte]
+            exact hG.cons ⟨hs, rfl, ExtDefRel.none, trivial⟩
+          · simp [hm]
+  | _ => all_goals trivial
+
 theorem OpRel.foldRewrite_rel (hG : FRelG G' G) {sig rs : List Ty} {code : OpCode sig rs}
     {args₁ : Tup (Arg (FVal V₁)) sig} {args₂ : Tup (Arg (FVal V₂)) sig}
     (hargs : TRel (ArgRel G) args₁ args₂) :
@@ -1984,6 +2597,67 @@ theorem OpRel.foldRewrite_rel (hG : FRelG G' G) {sig rs : List Ty} {code : OpCod
       split
       · exact .mk _ (.cons hb' (.cons ha' .nil))
       · exact .mk _ (.cons ha' (.cons hb' .nil))
+  | select t =>
+    cases t with
+    | bool =>
+      rcases args₁ with ⟨c₁, a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨c₂, a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨hc, _ | ⟨ha, _ | ⟨hb, _⟩⟩⟩
+      have hc' := hc.fout hG; have ha' := ha.fout hG; have hb' := hb.fout hG
+      dsimp only [Op.foldRewrite]; rw [ha'.imm?_eq, hb'.imm?_eq]
+      split
+      · exact .mk _ (.cons hc' .nil)
+      · exact .mk _ (.cons hc' (.cons ha' (.cons hb' .nil)))
+    | _ =>
+      dsimp only [Op.foldRewrite]
+      exact OpRel.rewrite (.mk _ (TRel.fout hG hargs))
+  | sext m n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.foldRewrite]
+    have htg := extTarget_rel hG .sext (n := n) ha
+    cases h₁ : extTarget (n := n) .sext a₁ with
+    | none =>
+      cases h₂ : extTarget (n := n) .sext a₂ with
+      | none => exact .mk _ (.cons (ha.fout hG) .nil)
+      | some _ => rw [h₁, h₂] at htg; exact False.elim htg
+    | some tg₁ =>
+      cases h₂ : extTarget (n := n) .sext a₂ with
+      | none => rw [h₁, h₂] at htg; exact False.elim htg
+      | some tg₂ =>
+        rw [h₁, h₂] at htg
+        cases htg with
+        | mk _ _ _ hs => exact .mk _ (.cons hs .nil)
+  | zext m n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.foldRewrite]
+    have htg := extTarget_rel hG .zext (n := n) ha
+    cases h₁ : extTarget (n := n) .zext a₁ with
+    | none =>
+      cases h₂ : extTarget (n := n) .zext a₂ with
+      | none => exact .mk _ (.cons (ha.fout hG) .nil)
+      | some _ => rw [h₁, h₂] at htg; exact False.elim htg
+    | some tg₁ =>
+      cases h₂ : extTarget (n := n) .zext a₂ with
+      | none => rw [h₁, h₂] at htg; exact False.elim htg
+      | some tg₂ =>
+        rw [h₁, h₂] at htg
+        cases htg with
+        | mk _ _ _ hs => exact .mk _ (.cons hs .nil)
+  | trunc m n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    dsimp only [Op.foldRewrite]
+    have ht := truncTarget?_rel hG m n ha
+    cases h₁ : truncTarget? m n a₁ <;> cases h₂ : truncTarget? m n a₂ <;> rw [h₁, h₂] at ht
+    · exact .mk _ (.cons (ha.fout hG) .nil)
+    · cases ht
+    · cases ht
+    · cases ht with
+      | narrow _ _ hs => exact .mk _ (.cons hs .nil)
+      | lift hte =>
+        cases hte with
+        | mk _ _ _ hs => exact .mk _ (.cons hs .nil)
   | _ =>
     all_goals
       (dsimp only [Op.foldRewrite]
@@ -1995,21 +2669,103 @@ theorem FRelG.foldWrap (hG : FRelG G' G) {sig ts : List Ty} {code : OpCode sig t
     FRelG (Tup.zip xs₁ xs₂ ++ G')
       (Tup.zip (({ code := code, args := args₁ } : Op (FVal V₁) ts).foldWrap b xs₁)
                (({ code := code, args := args₂ } : Op (FVal V₂) ts).foldWrap b xs₂) ++ G) := by
+  have hsub : ∀ {u : Ty} {r₁ : V₁ u} {r₂ : V₂ u},
+      ∀ p ∈ G', p ∈ (Tup.zip (as := [u]) (r₁, ()) (r₂, ()) ++ G') :=
+    fun _ hq => List.mem_cons_of_mem _ hq
   cases code with
-  | sext m n | zext m n =>
+  | sext m n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+    dsimp only [Op.foldWrap]
+    have htg := extTarget_rel hG .sext (n := n) ha
+    cases h₁ : extTarget (n := n) .sext a₁ with
+    | none =>
+      cases h₂ : extTarget (n := n) .sext a₂ with
+      | none => exact hG.freshFVals (ts := [.bits n]) (r₁, ()) (r₂, ()) b
+      | some _ => rw [h₁, h₂] at htg; exact False.elim htg
+    | some tg₁ =>
+      cases h₂ : extTarget (n := n) .sext a₂ with
+      | none => rw [h₁, h₂] at htg; exact False.elim htg
+      | some tg₂ =>
+        rw [h₁, h₂] at htg
+        exact (hG.weaken hsub).cons
+          ⟨.var List.mem_cons_self, rfl, ExtDefRel.weaken hsub htg, trivial⟩
+  | zext m n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+    dsimp only [Op.foldWrap]
+    have htg := extTarget_rel hG .zext (n := n) ha
+    cases h₁ : extTarget (n := n) .zext a₁ with
+    | none =>
+      cases h₂ : extTarget (n := n) .zext a₂ with
+      | none => exact hG.freshFVals (ts := [.bits n]) (r₁, ()) (r₂, ()) b
+      | some _ => rw [h₁, h₂] at htg; exact False.elim htg
+    | some tg₁ =>
+      cases h₂ : extTarget (n := n) .zext a₂ with
+      | none => rw [h₁, h₂] at htg; exact False.elim htg
+      | some tg₂ =>
+        rw [h₁, h₂] at htg
+        exact (hG.weaken hsub).cons
+          ⟨.var List.mem_cons_self, rfl, ExtDefRel.weaken hsub htg, trivial⟩
+  | trunc m n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+    dsimp only [Op.foldWrap]
+    have ht := truncTarget?_rel hG m n ha
+    cases h₁ : truncTarget? m n a₁ <;> cases h₂ : truncTarget? m n a₂ <;> rw [h₁, h₂] at ht
+    · exact hG.freshFVals (ts := [.bits n]) (r₁, ()) (r₂, ()) b
+    · cases ht
+    · cases ht
+    · cases ht with
+      | narrow _ _ _ => exact hG.freshFVals (ts := [.bits n]) (r₁, ()) (r₂, ()) b
+      | lift hte =>
+        exact (hG.weaken hsub).cons
+          ⟨.var List.mem_cons_self, rfl, ExtDefRel.weaken hsub hte, trivial⟩
+  | not t =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+    dsimp only [Op.foldWrap]
+    refine (hG.weaken hsub).cons ⟨.var List.mem_cons_self, rfl, ExtDefRel.none, ?_⟩
+    rw [ha.fkey_eq hG]
+    exact .mk .not_ ((ha.fout hG).weaken hsub)
+  | bswap t =>
     rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
     rcases hargs with _ | ⟨ha, _⟩
     rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
     dsimp only [Op.foldWrap]
     split
-    · split
-      · have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [.bits n]) (r₁, ()) (r₂, ()) ++ G') :=
-          fun _ hq => List.mem_cons_of_mem _ hq
-        refine (hG.weaken hsub).cons ⟨.var List.mem_cons_self, rfl, ?_⟩
-        rw [ha.fkey_eq hG]
-        exact .mk _ _ _ ((ha.fout hG).weaken hsub)
-      · exact hG.freshFVals (ts := [.bits n]) (r₁, ()) (r₂, ()) b
-    · exact hG.freshFVals (ts := [.bits n]) (r₁, ()) (r₂, ()) b
+    · refine (hG.weaken hsub).cons ⟨.var List.mem_cons_self, rfl, ExtDefRel.none, ?_⟩
+      rw [ha.fkey_eq hG]
+      exact .mk .bswap ((ha.fout hG).weaken hsub)
+    · exact hG.freshFVals (ts := [t]) (r₁, ()) (r₂, ()) b
+  | rbit n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+    dsimp only [Op.foldWrap]
+    refine (hG.weaken hsub).cons ⟨.var List.mem_cons_self, rfl, ExtDefRel.none, ?_⟩
+    rw [ha.fkey_eq hG]
+    exact .mk .rbit ((ha.fout hG).weaken hsub)
+  | select t =>
+    cases t with
+    | bool =>
+      rcases args₁ with ⟨c₁, a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨c₂, a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨hc, _ | ⟨ha, _ | ⟨hb, _⟩⟩⟩
+      rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+      have ha' := ha.fout hG; have hb' := hb.fout hG
+      dsimp only [Op.foldWrap]; rw [ha'.imm?_eq, hb'.imm?_eq]
+      split
+      · refine (hG.weaken hsub).cons ⟨.var List.mem_cons_self, rfl, ExtDefRel.none, ?_⟩
+        rw [hc.fkey_eq hG]
+        exact .mk .not_ ((hc.fout hG).weaken hsub)
+      · exact hG.freshFVals (ts := [.bool]) (r₁, ()) (r₂, ()) b
+    | _ =>
+      dsimp only [Op.foldWrap]
+      exact hG.freshFVals xs₁ xs₂ b
   | _ =>
     all_goals
       (dsimp only [Op.foldWrap]
@@ -2033,9 +2789,12 @@ private theorem fold_let {V : Ty → Type} {L : List Ty → Type} {ts rs : List 
       match op.simpAct with
       | some act => fold next (k (act.apply op.args))
       | none =>
-        .let_ op.foldRewrite fun xs => fold (next + ts.length) (k (op.foldWrap next xs)) := by
+        match op.simpProv? with
+        | some res => fold next (k res)
+        | none =>
+          .let_ op.foldRewrite fun xs => fold (next + ts.length) (k (op.foldWrap next xs)) := by
   delta fold; dsimp only [Expr.brecOn, Expr.rec, fold._f]
-  cases op.simpAct <;> rfl
+  cases op.simpAct <;> cases op.simpProv? <;> rfl
 
 theorem fold_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {G : Ctx (FVal Val) Val} {D : Ctx Cont Cont}
@@ -2055,10 +2814,15 @@ theorem fold_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         obtain ⟨hk2, hfg⟩ := OpRel.simpAct_sound hG hargs hact hw
         exact ih (act.apply args₁) (SimpAct.vals (vals args₂) act) hD b ρ hfg m hk2
       | none =>
-        dsimp only [wp]
-        have hw' := OpRel.foldRewrite_wp hG hargs hw
-        exact Op.wp_mono (fun xs ⟨hxs, hG'⟩ =>
-          ih _ xs hD (b + ts.length) (fupdTup ρ b xs) hG' m hxs) hw'
+        cases hprov : ({ code := code, args := args₁ } : Op (FVal Val) ts).simpProv? with
+        | some res =>
+          obtain ⟨xs, hk2, hfg⟩ := OpRel.simpProv?_sound hG hargs hprov hw
+          exact ih res xs hD b ρ hfg m hk2
+        | none =>
+          dsimp only [wp]
+          have hw' := OpRel.foldRewrite_wp hG hargs hw
+          exact Op.wp_mono (fun xs ⟨hxs, hG'⟩ =>
+            ih _ xs hD (b + ts.length) (fupdTup ρ b xs) hG' m hxs) hw'
   | load t ha _ ih =>
     intro hD b ρ hG m hw; dsimp only [wp, fold] at hw ⊢; rcases hw with ⟨v, hv, hk⟩
     exact ⟨v, ha.fout_val hG ▸ hv,
@@ -2111,8 +2875,18 @@ theorem fold_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : L
       cases hact : ({ code := code, args := args₂ } : Op (FVal V₂) ts).simpAct with
       | some act => exact ih _ _ (hG.apply_simpAct hargs act) b
       | none =>
-        exact .let_ (OpRel.foldRewrite_rel hG hargs) fun xs₁ xs₂ =>
-          ih _ _ (hG.foldWrap hargs b xs₁ xs₂) (b + ts.length)
+        have hpr := OpRel.simpProv?_rel hG hargs (code := code)
+        cases hp₁ : ({ code := code, args := args₁ } : Op (FVal V₁) ts).simpProv? with
+        | some res₁ =>
+          cases hp₂ : ({ code := code, args := args₂ } : Op (FVal V₂) ts).simpProv? with
+          | some res₂ => rw [hp₁, hp₂] at hpr; exact ih res₁ res₂ hpr b
+          | none => rw [hp₁, hp₂] at hpr; exact False.elim hpr
+        | none =>
+          cases hp₂ : ({ code := code, args := args₂ } : Op (FVal V₂) ts).simpProv? with
+          | some res₂ => rw [hp₁, hp₂] at hpr; exact False.elim hpr
+          | none =>
+            exact .let_ (OpRel.foldRewrite_rel hG hargs) fun xs₁ xs₂ =>
+              ih _ _ (hG.foldWrap hargs b xs₁ xs₂) (b + ts.length)
   | load t ha _ ih =>
     intro _ hG b; exact .load t (ha.fout hG) fun v₁ v₂ => ih _ _ (hG.freshOne v₁ v₂ b) (b + 1)
   | store hv ha _ ih => intro _ hG b; exact .store (hv.fout hG) (ha.fout hG) (ih hG b)
@@ -2123,8 +2897,8 @@ theorem fold_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : L
     intro _ hG b; dsimp only [fold]
     cases hc with
     | @var v₁ v₂ h =>
-      rcases v₁ with ⟨a₁, κ₁, ex₁⟩; rcases v₂ with ⟨a₂, κ₂, ex₂⟩
-      obtain ⟨h', _, _⟩ := hG _ h; dsimp only at h' ⊢
+      rcases v₁ with ⟨a₁, κ₁, ex₁, iv₁⟩; rcases v₂ with ⟨a₂, κ₂, ex₂, iv₂⟩
+      obtain ⟨h', _, _, _⟩ := hG _ h; dsimp only at h' ⊢
       cases h' with
       | var hm => exact .jnz (.var hm) (iht hG b) (ihe hG b)
       | imm bv => cases bv <;> first | exact iht hG b | exact ihe hG b
