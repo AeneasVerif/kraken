@@ -123,6 +123,9 @@ public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2b
 public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2c
 public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2d
 public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProofWatch
+public import LeanQbe.T.Examples.Kissat.FullM7CongHash
+public import LeanQbe.T.Examples.Kissat.FullM7CongHashProof
+public import LeanQbe.T.Examples.Kissat.FullM7CongHashProof0
 public import LeanQbe.T.Examples.Kissat.FullM7CongIte
 public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof0
 public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof1
