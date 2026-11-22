@@ -1,306 +1,35 @@
 module
 
-public import LeanQbe.T.Amd64.KissatPlain
-public import LeanQbe.T.Amd64.KissatM3
-meta import LeanQbe.T.Examples.Kissat.PlainLemmas
-meta import LeanQbe.T.Examples.Kissat.FullM3
+public import LeanQbeTest.T.KissatM4AuditX64
 
 /-!
 # Kissat audit, part 2: SysV x86-64 machine-code theorems
 
-This file is meant to be read by a human auditor. It restates, with every hypothesis and
-postcondition written out in full (no wrapper `abbrev`s introduced here), the end-to-end theorems
-about the **x86-64 machine code** that the `LeanQbe.T` compiler emits for `kissat_solve_bytes`,
-and proves each restatement by the corresponding library theorem. It imports `Kraken.X64` only
-(never `Kraken.AArch64`); `KissatAuditArm64.lean` is the AArch64 mirror, and
-`KissatAuditSpec.lean` audits `parseDimacs`, `CNF.Unsat` and `CNF.Sat`.
+This file is the active top-level SysV x86-64 Kissat machine-code audit entry point. It
+re-exports the active **`D-Full M4`** (`LeanQbe.T.Amd64.KissatM4`, `231` functions) theorem suite
+from `LeanQbeTest.T.KissatM4AuditX64` (`audit_m4_x64_fnspec`, `audit_m4_x64_unsat`,
+`audit_m4_x64_sound`, `audit_m4_x64_nv`, and `audit_m4_x64_nv_closed`).
 
-## How to read the statements
-
-* `[Host]` is an arbitrary program image with its memory layout (`Host.prog`, `Host.exe`).
-  `hc : cert.code.IsInfixAt Host.prog k₀` says the kernel-checked compiler output `cert.code` is
-  linked somewhere inside it; `hu : Host.LabelsUnique` says its labels are unique. So the
-  theorems hold for *any* executable that contains the compiled solver.
-* `s : MachineData` is the register file and data memory at the call; execution starts at
-  `Labels.label "kissat_solve_bytes"`. The SysV argument registers carry the C prototype
-  `kissat_solve_bytes(cnf_ptr, cnf_len, work_ptr, work_len, fuel)`: `rdi, rsi, rdx, rcx, r8`.
-  `hsp` is the SysV stack alignment at the call (`rsp + 8 ≡ 0 mod 16`).
-* `hmem` describes memory in separation logic (`⋆` = disjoint union, `s.dmem =⋆ P` = `P` holds
-  of the whole memory): the DIMACS bytes `bytes cnf_ptr cnfBytes`, a workspace of arbitrary
-  content `region work_ptr wlen`, `bound` bytes of stack below `rsp` plus the return-address cell
-  `cell64 rsp ra`, and an **arbitrary frame `R`** (everything else the caller owns).
-* `Eventually (step1 Host.exe) P ⟨s, pc⟩`: every execution of the Kraken x86-64 semantics from
-  `s` at `pc` reaches, after finitely many steps, a state satisfying `P` (no undefined behaviour,
-  no getting stuck, termination for every fuel value).
-* Postconditions: `st.pc = ra` (returned to the caller); `rax ∈ {0, 10, 20}`; `20 →` the input
-  parses to an unsatisfiable CNF; (`D-Plain` only) `10 →` it parses to a satisfiable CNF; the
-  callee-saved registers `rbx, rbp, r12..r15` are restored; `rsp` is popped by 8 (`ret`); the
-  input bytes are unchanged (read-only), the workspace is again a `region`, the stack frame is
-  again a `region`, and `R` is untouched.
+`KissatAuditArm64.lean` is the AArch64 mirror, and `KissatAuditSpec.lean` audits `parseDimacs`,
+`CNF.Unsat`, `CNF.Sat`, and generic source-level solver invariants.
 
 ## Active vs. legacy solver status
 
-This file audits the two **active** native Kissat x86-64 builds:
-* **`D-Plain`** (`LeanQbe.T.Amd64.KissatPlain`, `59` functions): **SAT (`10`) and UNSAT (`20`)**
-  soundness + closed concrete-host non-vacuity (`plainCert.host`), unconditional.
-* **`D-Full M3`** (`LeanQbe.T.Amd64.KissatM3`, `204` functions): **UNSAT (`20`)** soundness +
-  both arbitrary-host and closed concrete-host (`kissatM3_compiled_x64.host`) non-vacuity,
-  unconditional. Model reconstruction after inprocessing is intentionally unverified, so `10` is
-  not certified; `bench/kissat/kissat_cli.c` compiles with `-DKISSAT_UNSAT_ONLY=1` and reports
-  `s UNKNOWN` (exit `0`) if `10` is returned.
-
-Retired **`D-Full`** (`166` functions) and **`D-Full M2 Fast`** (`196` functions) machine-code
-theorems live in `LeanQbeLegacyTest/KissatLegacyAuditX64.lean` (checked when `INCLUDE_LEGACY=1`).
-**`D-Full M4`** (`231` functions) has source-level `ModuleOk` in `KissatAuditSpec.lean` only and
-no native `LinkedCert` yet.
+* **`D-Full M4`** (`LeanQbe.T.Amd64.KissatM4`, `231` functions): **active** flagship native build,
+  **UNSAT (`20`)** soundness + both arbitrary-host and closed concrete-host
+  (`kissatM4_compiled_x64.host`) non-vacuity, unconditional.
+* Retired machine-code theorems live under `LeanQbeLegacyTest/` (checked when `INCLUDE_LEGACY=1`):
+  **`D-Full`** (`166` fns) and **`D-Full M2 Fast`** (`196` fns) in
+  `LeanQbeLegacyTest/KissatLegacyAuditX64.lean`; **`D-Plain`** (`59` fns) and **`D-Full M3`**
+  (`204` fns) in `LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean`.
 -/
 
 set_option autoImplicit false
 
 public section
 
-open Std.Sat
-open LeanQbe.T LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat
-open LeanQbe.T.Amd64 Kraken
-
-/-! ## 1. `D-Plain` (59 functions, CDCL): SAT and UNSAT, unconditional -/
-
-/-- **`D-Plain` x86-64 end-to-end correctness** (`KissatPlain.solve_x64_correct`): for any host
-containing the compiled module and any well-formed SysV call, the machine code returns to `ra`
-with `rax ∈ {0, 10, 20}`; `20` certifies UNSAT and `10` certifies SAT of `parseDimacs cnfBytes`;
-`rbx, rbp, r12..r15` are preserved, `rsp` is `+8`, `cnfBytes` are read-only, the workspace and
-stack frame are restored as `region`s, and the frame `R` is preserved. -/
-theorem audit_plain_x64_correct [Host] (k₀ : Nat)
-    (hc : KissatPlainCert.plainCert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
-    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
-    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
-    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
-    (hrdi : s.regs.get64 .rdi = cnf_ptr)
-    (hrsi : s.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length)
-    (hrdx : s.regs.get64 .rdx = work_ptr)
-    (hrcx : s.regs.get64 .rcx = BitVec.ofNat 64 wlen)
-    (hr8 : s.regs.get64 .r8 = fuel)
-    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
-    (hmem : s.dmem =⋆
-      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆
-      (region (s.regs.get64 .rsp -
-            BitVec.ofNat 64 (KissatPlainCert.plainCert.bound "kissat_solve_bytes"))
-          (KissatPlainCert.plainCert.bound "kissat_solve_bytes") ⋆
-        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :
-    Eventually (step1 Host.exe)
-      (fun st =>
-        st.pc = ra ∧
-        (st.data.regs.get64 .rax = 0#64 ∨
-          st.data.regs.get64 .rax = 10#64 ∨
-          st.data.regs.get64 .rax = 20#64) ∧
-        (st.data.regs.get64 .rax = 20#64 →
-          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
-        (st.data.regs.get64 .rax = 10#64 →
-          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α) ∧
-        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
-          st.data.regs.get64 r = s.regs.get64 r) ∧
-        st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
-        (st.data.dmem =⋆
-          (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆
-          region (s.regs.get64 .rsp -
-              BitVec.ofNat 64 (KissatPlainCert.plainCert.bound "kissat_solve_bytes"))
-            (KissatPlainCert.plainCert.bound "kissat_solve_bytes" + 8) ⋆ R))
-      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  KissatPlain.solve_x64_correct k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit s ra R
-    hrdi hrsi hrdx hrcx hr8 hsp hmem
-
-/-- **`D-Plain` x86-64 UNSAT non-vacuity** (`KissatPlain.x64_unsat_nonvacuous`): in the concrete
-host `plainCert.host`, starting from the standard initial state with `p cnf 1 2 / 1 0 / -1 0` at
-`0x1000`, a 2048-byte workspace right after it, fuel 16 and return address `0x1234`, the machine
-code really returns `rax = 20`, and the input really parses to an unsatisfiable CNF. -/
-theorem audit_plain_x64_unsat_nonvacuous :
-    letI : Host := KissatPlainCert.plainCert.host
-    Eventually (step1 Host.exe)
-      (fun st =>
-        st.pc = 0x1234 ∧ st.data.regs.get64 .rax = 20#64 ∧
-        parseDimacs Plain.plainNvUnsatBytes = some Plain.plainNvUnsatCnf ∧
-        Plain.plainNvUnsatCnf.Unsat)
-      ⟨x64Init.initState (as := [i64, i64, i64, i64, i64])
-          (KissatPlainCert.plainCert.bound "kissat_solve_bytes")
-          (Plain.plainNvUnsatBytes ++ List.replicate 2048 0)
-          (0x1000#64, BitVec.ofNat 64 Plain.plainNvUnsatBytes.length,
-            0x1000#64 + BitVec.ofNat 64 Plain.plainNvUnsatBytes.length, 2048#64, 16#64, ()),
-        Labels.label "kissat_solve_bytes"⟩ :=
-  eventually_weaken _ _ _ _ (fun _ ⟨hpc, hrax, hu⟩ => ⟨hpc, hrax, Plain.parseDimacs_plainUnsat, hu⟩)
-    KissatPlain.x64_unsat_nonvacuous
-
-/-- **`D-Plain` x86-64 SAT non-vacuity** (`KissatPlain.x64_sat_nonvacuous`): same setting with
-`p cnf 1 1 / 1 0`; the machine code really returns `rax = 10`, and the input really parses to a
-satisfiable CNF. -/
-theorem audit_plain_x64_sat_nonvacuous :
-    letI : Host := KissatPlainCert.plainCert.host
-    Eventually (step1 Host.exe)
-      (fun st =>
-        st.pc = 0x1234 ∧ st.data.regs.get64 .rax = 10#64 ∧
-        parseDimacs Plain.plainNvSatBytes = some Plain.plainNvSatCnf ∧
-        ¬ Plain.plainNvSatCnf.Unsat ∧ ∃ α, Plain.plainNvSatCnf.Sat α)
-      ⟨x64Init.initState (as := [i64, i64, i64, i64, i64])
-          (KissatPlainCert.plainCert.bound "kissat_solve_bytes")
-          (Plain.plainNvSatBytes ++ List.replicate 2048 0)
-          (0x1000#64, BitVec.ofNat 64 Plain.plainNvSatBytes.length,
-            0x1000#64 + BitVec.ofNat 64 Plain.plainNvSatBytes.length, 2048#64, 16#64, ()),
-        Labels.label "kissat_solve_bytes"⟩ :=
-  eventually_weaken _ _ _ _
-    (fun _ ⟨hpc, hrax, hnu, hs⟩ => ⟨hpc, hrax, Plain.parseDimacs_plainSat, hnu, hs⟩)
-    KissatPlain.x64_sat_nonvacuous
-
-/-! ## 2. `D-Full M3` (`Amd64.KissatM3`, `204` fns): UNSAT soundness, unconditional -/
-
-section M3X64
-
-open Std.Sat LeanQbe.T LeanQbe.T.Amd64 Kraken
-open LeanQbe.T.Examples.LratBytes
-open LeanQbe.T.Examples.Kissat.FullM3 (m3Env m3Module)
-open LeanQbe.T.Amd64.KissatM3
-  (kissatM3_compiled_x64 m3_module_fnspec m3_solve_bytes_unsat_x64
-    m3_solve_bytes_unsat_sound_x64 m3_x64_unsat_nonvacuous)
-
-/-- **`D-Full M3` x86-64 whole-module `Defined` + `FnSpec`** (`204/204`, unconditional). -/
-theorem audit_m3_x64_fnspec [hh : Host] (k₀ : Nat)
-    (hc : kissatM3_compiled_x64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    {f : Fn} (hf : f ∈ m3Module.fns) :
-    x64Target.Defined hh f.name ∧
-      x64Target.FnSpec hh f.name (m3Env f.name f.as f.rs)
-        (kissatM3_compiled_x64.bound f.name) 0 :=
-  m3_module_fnspec k₀ hc hu hf
-
-/-- **`D-Full M3` x86-64 end-to-end UNSAT soundness + framing** (`204` fns, unconditional). -/
-theorem audit_m3_x64_unsat [hh : Host] (k₀ : Nat)
-    (hc : kissatM3_compiled_x64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
-    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
-    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
-    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
-    (hrdi : s.regs.get64 .rdi = cnf_ptr)
-    (hrsi : s.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length)
-    (hrdx : s.regs.get64 .rdx = work_ptr)
-    (hrcx : s.regs.get64 .rcx = BitVec.ofNat 64 wlen)
-    (hr8 : s.regs.get64 .r8 = fuel)
-    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
-    (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
-      (region (s.regs.get64 .rsp - BitVec.ofNat 64
-          (kissatM3_compiled_x64.bound "kissat_solve_bytes"))
-        (kissatM3_compiled_x64.bound "kissat_solve_bytes") ⋆
-      cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem) :
-    Eventually (step1 Host.exe)
-      (fun st =>
-        st.pc = ra ∧
-        (st.data.regs.get64 .rax = 0#64 ∨
-          st.data.regs.get64 .rax = 10#64 ∨
-          st.data.regs.get64 .rax = 20#64) ∧
-        (st.data.regs.get64 .rax = 20#64 →
-          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
-        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
-          st.data.regs.get64 r = s.regs.get64 r) ∧
-        st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
-        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
-          region (s.regs.get64 .rsp - BitVec.ofNat 64
-              (kissatM3_compiled_x64.bound "kissat_solve_bytes"))
-            (kissatM3_compiled_x64.bound "kissat_solve_bytes" + 8) ⋆ R)
-          st.data.dmem)
-      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  m3_solve_bytes_unsat_x64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
-    s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem
-
-/-- **`D-Full M3` x86-64 answer-only UNSAT soundness** (`204` fns, unconditional). -/
-theorem audit_m3_x64_sound [hh : Host] (k₀ : Nat)
-    (hc : kissatM3_compiled_x64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
-    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
-    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
-    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
-    (hrdi : s.regs.get64 .rdi = cnf_ptr)
-    (hrsi : s.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length)
-    (hrdx : s.regs.get64 .rdx = work_ptr)
-    (hrcx : s.regs.get64 .rcx = BitVec.ofNat 64 wlen)
-    (hr8 : s.regs.get64 .r8 = fuel)
-    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
-    (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
-      (region (s.regs.get64 .rsp - BitVec.ofNat 64
-          (kissatM3_compiled_x64.bound "kissat_solve_bytes"))
-        (kissatM3_compiled_x64.bound "kissat_solve_bytes") ⋆
-      cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem) :
-    Eventually (step1 Host.exe)
-      (fun st =>
-        st.pc = ra ∧
-        (st.data.regs.get64 .rax = 0#64 ∨
-          st.data.regs.get64 .rax = 10#64 ∨
-          st.data.regs.get64 .rax = 20#64) ∧
-        (st.data.regs.get64 .rax = 20#64 →
-          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))
-      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  m3_solve_bytes_unsat_sound_x64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
-    s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem
-
-/-- **`D-Full M3` x86-64 UNSAT non-vacuity** (`204` fns, unconditional). -/
-theorem audit_m3_x64_nv [hh : Host] (k₀ : Nat)
-    (hc : kissatM3_compiled_x64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
-    ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
-      (s : MachineData) (ra : Int64) (R : Mem 64 → Prop),
-      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧
-      work_ptr.toNat + wlen < 2 ^ 64 ∧
-      s.regs.get64 .rdi = cnf_ptr ∧
-      s.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length ∧
-      s.regs.get64 .rdx = work_ptr ∧
-      s.regs.get64 .rcx = BitVec.ofNat 64 wlen ∧
-      s.regs.get64 .r8 = fuel ∧
-      (s.regs.get64 .rsp + 8#64).toNat % 16 = 0 ∧
-      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
-        (region (s.regs.get64 .rsp - BitVec.ofNat 64
-              (kissatM3_compiled_x64.bound "kissat_solve_bytes"))
-            (kissatM3_compiled_x64.bound "kissat_solve_bytes") ⋆
-          cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem ∧
-      Eventually (step1 Host.exe)
-        (fun st => st.pc = ra ∧ st.data.regs.get64 .rax = 20#64 ∧
-          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)
-        ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  m3_x64_unsat_nonvacuous k₀ hc hu
-
-/-- **`D-Full M3` x86-64 closed concrete-host UNSAT non-vacuity** (`204` fns): instantiates
-`audit_m3_x64_nv` on the concrete compiled host `kissatM3_compiled_x64.host` (`k₀ = 0`). -/
-theorem audit_m3_x64_nv_closed :
-    letI : Host := kissatM3_compiled_x64.host
-    ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
-      (s : MachineData) (ra : Int64) (R : Mem 64 → Prop),
-      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧
-      work_ptr.toNat + wlen < 2 ^ 64 ∧
-      s.regs.get64 .rdi = cnf_ptr ∧
-      s.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length ∧
-      s.regs.get64 .rdx = work_ptr ∧
-      s.regs.get64 .rcx = BitVec.ofNat 64 wlen ∧
-      s.regs.get64 .r8 = fuel ∧
-      (s.regs.get64 .rsp + 8#64).toNat % 16 = 0 ∧
-      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
-        (region (s.regs.get64 .rsp - BitVec.ofNat 64
-              (kissatM3_compiled_x64.bound "kissat_solve_bytes"))
-            (kissatM3_compiled_x64.bound "kissat_solve_bytes") ⋆
-          cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem ∧
-      Eventually (step1 Host.exe)
-        (fun st => st.pc = ra ∧ st.data.regs.get64 .rax = 20#64 ∧
-          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)
-        ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  letI : Host := kissatM3_compiled_x64.host
-  m3_x64_unsat_nonvacuous 0
-    kissatM3_compiled_x64.code_infix_host kissatM3_compiled_x64.labelsUnique
-
-end M3X64
-
-/-! ## 3. Module shapes and `#print axioms` (one line each, standard axioms only) -/
-
-#guard Plain.plainFns.length == 59
-#guard FullM3.m3Fns.length == 204
-
-#print axioms audit_plain_x64_correct
-#print axioms audit_plain_x64_unsat_nonvacuous
-#print axioms audit_plain_x64_sat_nonvacuous
-#print axioms audit_m3_x64_fnspec
-#print axioms audit_m3_x64_unsat
-#print axioms audit_m3_x64_sound
-#print axioms audit_m3_x64_nv
-#print axioms audit_m3_x64_nv_closed
+#print axioms audit_m4_x64_fnspec
+#print axioms audit_m4_x64_unsat
+#print axioms audit_m4_x64_sound
+#print axioms audit_m4_x64_nv
+#print axioms audit_m4_x64_nv_closed
