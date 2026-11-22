@@ -91,6 +91,18 @@ def Arg.fkey {V : Ty → Type} {t : Ty} : Arg (FVal V) t → FKey t
   | .var p => p.key
   | .imm c => .imm c
 
+/-- Monomorphic equality decision procedure for `FKey t` without boxed `Nat` closures. -/
+@[inline] def fkeyDecEq {t : Ty} : (a b : FKey t) → Decidable (a = b)
+  | .var x, .var y =>
+    if h : x = y then isTrue (h ▸ rfl) else isFalse (fun e => by cases e; exact h rfl)
+  | .imm x, .imm y =>
+    letI := Val.decEq t
+    if h : x = y then isTrue (h ▸ rfl) else isFalse (fun e => by cases e; exact h rfl)
+  | .var _, .imm _ => isFalse (fun e => by cases e)
+  | .imm _, .var _ => isFalse (fun e => by cases e)
+
+instance (priority := high) {t : Ty} : DecidableEq (FKey t) := fkeyDecEq
+
 /-- Extension provenance of an input operand. -/
 def Arg.fext {V : Ty → Type} {t : Ty} : Arg (FVal V) t → ExtDef V t
   | .var p => p.ext

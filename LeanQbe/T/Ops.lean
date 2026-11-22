@@ -44,7 +44,7 @@ def Arg.vars {V : Ty → Type} {t : Ty} : Arg V t → List ((u : Ty) × V u)
   | .var v => [⟨t, v⟩]
   | .imm _ => []
 
-instance {V : Ty → Type} {t : Ty} [DecidableEq (V t)] : DecidableEq (Arg V t)
+@[inline] instance {V : Ty → Type} {t : Ty} [DecidableEq (V t)] : DecidableEq (Arg V t)
   | .var x, .var y =>
     if h : x = y then isTrue (h ▸ rfl) else isFalse (fun e => by cases e; exact h rfl)
   | .imm x, .imm y =>
