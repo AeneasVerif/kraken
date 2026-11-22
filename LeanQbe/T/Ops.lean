@@ -72,6 +72,12 @@ def CmpOp.swap : CmpOp → CmpOp
   | .ult => .ugt | .ule => .uge | .ugt => .ult | .uge => .ule
   | .slt => .sgt | .sle => .sge | .sgt => .slt | .sge => .sle
 
+/-- Negate an integer comparison predicate so `a (o.neg) b = !(a o b)`. -/
+def CmpOp.neg : CmpOp → CmpOp
+  | .eq => .ne | .ne => .eq
+  | .ult => .uge | .ule => .ugt | .ugt => .ule | .uge => .ult
+  | .slt => .sge | .sle => .sgt | .sgt => .sle | .sge => .slt
+
 /-- IEEE floating-point comparison predicates.
 `eq`, `lt`, `le`, `gt`, `ge` are ordered (returning `false` if either operand is NaN);
 `ne` is unordered-or-not-equal (`true` on `lt`, `gt`, or when either operand is NaN, matching

@@ -1235,6 +1235,362 @@ theorem armOp_zero32 {h : Host} {k : Nat} {sig : List Ty} {code : OpCode sig [.b
     | fsqrt _ | fneg _ | fabs _ | fcmp _ _ _ _ | fptoui _ _ | fptosi _ _ =>
       dsimp only [armOpIns] at hc; cases hc
 
+/-! ## 2b. `armCmpZeroJcc_spec` and `armTestJcc_spec` (`CBZ`/`CBNZ`/`TBZ`/`TBNZ`) -/
+
+private theorem find?_some_prop {α : Type} (p : α → Bool) :
+    ∀ {l : List α} {a : α}, l.find? p = some a → p a = true
+  | [], _, h => by simp at h
+  | x :: xs, a, h => by
+    simp only [List.find?] at h
+    split at h
+    · cases h; assumption
+    · exact find?_some_prop p h
+
+private theorem bv_slt_zero_eq_getLsbD {n : Nat} (_hn : 0 < n) (v : BitVec n) :
+    v.slt 0#n = v.getLsbD (n - 1) := by
+  have h1 : v.slt 0#n = v.msb := by
+    simp only [BitVec.slt, BitVec.toInt_eq_msb_cond,
+      BitVec.msb_zero, BitVec.toNat_zero, Bool.false_eq_true, ↓reduceIte]
+    have hlt : (v.toNat : Int) < (2 : Int) ^ n := by exact_mod_cast v.isLt
+    have h0 : (0 : Int) ≤ v.toNat := Int.natCast_nonneg _
+    cases hv : v.msb
+    · simp
+    · simp; omega
+  rw [h1, BitVec.msb_eq_getLsbD_last]
+
+private theorem bv_and_singleBit_eq_zero {n k : Nat} (hk : k < n) (v : BitVec n) :
+    ((v &&& (1#n <<< k)) == 0#n) = !v.getLsbD k := by
+  cases hbit : v.getLsbD k
+  · have hzero : v &&& (1#n <<< k) = 0#n := by
+      apply BitVec.eq_of_getLsbD_eq; intro i hi
+      simp only [BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_zero]
+      by_cases hik : i = k
+      · subst hik; simp [hbit]
+      · have hle : i < k ∨ k < i := Nat.lt_or_gt_of_ne hik
+        rcases hle with h | h
+        · simp [Nat.not_le.mpr h]
+        · have hne : i - k ≠ 0 := by omega
+          simp [BitVec.getLsbD_one, hne]
+    simp [hzero]
+  · have hne : v &&& (1#n <<< k) ≠ 0#n := by
+      intro heq
+      have hg := congrArg (fun z => z.getLsbD k) heq
+      simp only [BitVec.getLsbD_and, BitVec.getLsbD_shiftLeft, hk, decide_true,
+        Nat.lt_irrefl, Bool.true_and, Nat.sub_self, BitVec.getLsbD_one,
+        Nat.zero_lt_of_ne_zero (by omega : n ≠ 0), Bool.and_true, hbit,
+        BitVec.getLsbD_zero] at hg
+      cases hg
+    simp [hne]
+
+private theorem eval_cbz_cbnz {h : Host} {k j : Nat} (w : RegWidth) (isNz : Bool)
+    (x : XReg) (l : Sym) {s : MachineData} {post : MachineState → Prop}
+    (hc : [ins (w := w) (if isNz then .CBNZ (zr x w) (.label l)
+        else .CBZ (zr x w) (.label l))].IsInfixAt (armMach.prog h) k)
+    (hl : armMach.labelAddr h l = armMach.addrOf h j)
+    (hk : ((if isNz then (s.regs.getXReg x).toBitVec.setWidth w.bits != 0#w.bits
+        else (s.regs.getXReg x).toBitVec.setWidth w.bits == 0#w.bits) = true →
+        armMach.Run h j s post) ∧
+      ((if isNz then (s.regs.getXReg x).toBitVec.setWidth w.bits != 0#w.bits
+        else (s.regs.getXReg x).toBitVec.setWidth w.bits == 0#w.bits) = false →
+        armMach.Run h (k + 1) s post)) :
+    armMach.Run h k s post := by
+  letI := h
+  refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
+  have hl' : Labels.label l = Host.addrOf j := hl
+  have h1 := hk.1
+  have h2 := hk.2
+  cases w <;> cases isNz <;> simp only [t_step_simp, RegWidth.bits, MemWidth.bits,
+      Bool.false_eq_true, ↓reduceIte, hl'] at h1 h2 ⊢
+  all_goals
+    split <;> simp only [Effects.All]
+    · rename_i hc'; first
+        | exact h1 hc'
+        | exact h1 (by simp_all [beq_iff_eq, bne_iff_ne])
+        | exact h2 (by simp_all [beq_iff_eq, bne_iff_ne])
+    · rename_i hc'; first
+        | exact h2 (by simp_all [beq_iff_eq, bne_iff_ne])
+        | exact h1 (by simp_all [beq_iff_eq, bne_iff_ne])
+
+private theorem eval_tbz_tbnz {h : Host} {k j : Nat} (w : RegWidth) (isNz : Bool)
+    (x : XReg) (bit : Nat) (l : Sym) {s : MachineData} {post : MachineState → Prop}
+    (hblt : bit < w.bits)
+    (hc : [ins (w := w) (if isNz then .TBNZ (zr x w) bit (.label l)
+        else .TBZ (zr x w) bit (.label l))].IsInfixAt (armMach.prog h) k)
+    (hl : armMach.labelAddr h l = armMach.addrOf h j)
+    (hk : ((if isNz then ((s.regs.getXReg x).toBitVec.setWidth w.bits).getLsbD bit
+        else !((s.regs.getXReg x).toBitVec.setWidth w.bits).getLsbD bit) = true →
+        armMach.Run h j s post) ∧
+      ((if isNz then ((s.regs.getXReg x).toBitVec.setWidth w.bits).getLsbD bit
+        else !((s.regs.getXReg x).toBitVec.setWidth w.bits).getLsbD bit) = false →
+        armMach.Run h (k + 1) s post)) :
+    armMach.Run h k s post := by
+  letI := h
+  refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
+  have hl' : Labels.label l = Host.addrOf j := hl
+  have h1 := hk.1
+  have h2 := hk.2
+  cases w <;> cases isNz <;> simp only [t_step_simp, RegWidth.bits, MemWidth.bits,
+      Bool.false_eq_true, ↓reduceIte, hl'] at h1 h2 ⊢
+  · by_cases hbit : ((s.regs.getXReg x).toBitVec.setWidth 32).getLsbD bit = true <;>
+      simp [hbit] at h1 h2 ⊢
+    · exact h2
+    · exact h1
+  · by_cases hbit : ((s.regs.getXReg x).toBitVec.setWidth 32).getLsbD bit = true <;>
+      simp [hbit] at h1 h2 ⊢
+    · exact h1
+    · exact h2
+  · have hsw : ((s.regs.getXReg x).toBitVec.setWidth 64).getLsbD bit =
+        (s.regs.getXReg x).toBitVec.getLsbD bit := by
+      rw [BitVec.getLsbD_setWidth]; have : bit < 64 := hblt; simp [this]
+    by_cases hbit : (s.regs.getXReg x).toBitVec.getLsbD bit = true <;>
+      simp [hbit] at h1 h2 ⊢
+    · exact h2
+    · exact h1
+  · have hsw : ((s.regs.getXReg x).toBitVec.setWidth 64).getLsbD bit =
+        (s.regs.getXReg x).toBitVec.getLsbD bit := by
+      rw [BitVec.getLsbD_setWidth]; have : bit < 64 := hblt; simp [this]
+    by_cases hbit : (s.regs.getXReg x).toBitVec.getLsbD bit = true <;>
+      simp [hbit] at h1 h2 ⊢
+    · exact h1
+    · exact h2
+
+theorem armCmpZeroJcc_spec {h : Host} {k j : Nat} {co : CmpOp} {n : Nat} {r : Reg} {l : Sym}
+    {c : List Directive} {clob : FlagMask} {v : BitVec n} {s : MachineData}
+    {post : MachineState → Prop}
+    (hins : armGpr.cmpZeroJcc co n r l = some (c, clob))
+    (hc : c.IsInfixAt (armMach.prog h) k) (hl : armMach.labelAddr h l = armMach.addrOf h j)
+    (_ : r ∉ armScratch) (hv : GprHolds (armMach.getGpr s r) (.bits n) v)
+    (hk : ∀ s', armMach.Frame armCondReads s s' armScratch [] clob → s'.dmem = s.dmem →
+      (co.evalBits v 0#n = true → armMach.Run h j s' post) ∧
+      (co.evalBits v 0#n = false → armMach.Run h (k + c.length) s' post)) :
+    armMach.Run h k s post := by
+  letI := h
+  obtain ⟨⟨insns, cl'⟩, hcins, rfl, rfl⟩ := Option.map_eq_some_iff.mp hins
+  dsimp only [armCmpZeroJccIns] at hcins
+  split at hcins; · simp at hcins
+  rename_i hn_mem
+  have hn_mem' : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64 := by
+    simp only [Bool.not_eq_true'] at hn_mem
+    by_cases h8 : n = 8
+    · exact Or.inl h8
+    · by_cases h16 : n = 16
+      · exact Or.inr (Or.inl h16)
+      · by_cases h32 : n = 32
+        · exact Or.inr (Or.inr (Or.inl h32))
+        · by_cases h64 : n = 64
+          · exact Or.inr (Or.inr (Or.inr h64))
+          · exfalso; simp [h8, h16, h32, h64] at hn_mem
+  have hle64 : n ≤ 64 := by rcases hn_mem' with rfl | rfl | rfl | rfl <;> omega
+  cases r with
+  | SP => simp at hcins
+  | reg x =>
+    have hvx : (s.regs.getXReg x).toBitVec.setWidth n = v := by
+      simpa [GprHolds, armMach, get_reg, hle64] using hv
+    have run_cb (isNz : Bool)
+        (hco : co.evalBits v 0#n = if isNz then (v != 0#n) else (v == 0#n))
+        (heq : insns = armCmpZeroCbIns isNz n x l)
+        (hcl : clob = maskNone) : armMach.Run h k s post := by
+      subst heq; subst hcl
+      have hrun :=
+        hk s (Machine.Frame.refl (M := armMach) armCondReads s armScratch [] maskNone) rfl
+      by_cases h3264 : n = 32 ∨ n = 64
+      · have hcond : (n == 32 || n == 64) = true := by rcases h3264 with rfl | rfl <;> rfl
+        dsimp only [armCmpZeroCbIns] at hc hrun
+        simp only [hcond, ↓reduceIte, emitClean_cons, emitClean_nil,
+          List.length_singleton] at hc hrun
+        refine eval_cbz_cbnz (armWidthOf n) isNz x l hc hl
+          ⟨fun ht => hrun.1 ?_, fun hf => hrun.2 ?_⟩
+        · rw [hco]; clear hrun
+          cases isNz <;> rcases h3264 with rfl | rfl <;> simp_all [armWidthOf]
+        · rw [hco]; clear hrun
+          cases isNz <;> rcases h3264 with rfl | rfl <;> simp_all [armWidthOf]
+      · have h816 : n = 8 ∨ n = 16 := by rcases hn_mem' with rfl | rfl | rfl | rfl <;> simp_all
+        have hcond : (n == 32 || n == 64) = false := by rcases h816 with rfl | rfl <;> rfl
+        dsimp only [armCmpZeroCbIns] at hc hrun
+        simp only [hcond, Bool.false_eq_true, ↓reduceIte] at hc hrun
+        have hn0 : 0 < n := by rcases h816 with rfl | rfl <;> omega
+        have hn32 : n ≤ 32 := by rcases h816 with rfl | rfl <;> omega
+        simp only [emitClean_cons, emitClean_nil] at hc
+        rw [show [armExt32 false n .X16 x, ins (w := .W32) (if isNz then
+            .CBNZ (zr .X16 .W32) (.label l) else .CBZ (zr .X16 .W32) (.label l))] =
+          [armExt32 false n .X16 x] ++ [ins (w := .W32) (if isNz then
+            .CBNZ (zr .X16 .W32) (.label l) else .CBZ (zr .X16 .W32) (.label l))] from rfl] at hc
+        have hpair := hc.append
+        have hwp1 := armExt32_wp false hn0 hn32 .X16 x s v hvx
+        refine eventually_trans _ _ _ _ (hwp1 k hpair.1) ?_
+        rintro ⟨s₁, a⟩ (⟨ha, rfl⟩ | hf)
+        · dsimp only at ha; subst ha
+          have hfr : armMach.Frame armCondReads s
+              (wr s .X16 ((v.setWidth 32).setWidth 64)) armScratch [] maskNone :=
+            frame_wr .X16 _ List.mem_cons_self maskNone
+          have hrun1 := hk _ hfr rfl
+          dsimp only [armCmpZeroCbIns] at hrun1
+          simp only [hcond, Bool.false_eq_true, ↓reduceIte, emitClean_cons, emitClean_nil,
+            List.length_cons, List.length_nil] at hrun1
+          have hx16 :
+              ((wr s .X16 ((v.setWidth 32).setWidth 64)).regs.getXReg .X16).toBitVec.setWidth 32 =
+              v.setWidth 32 := by
+            rw [← get_reg, get_wr_same, BitVec.setWidth_setWidth_of_le _ (by decide),
+              BitVec.setWidth_setWidth_of_le _ (Nat.le_refl _)]
+          have hv0 : (v.setWidth 32 == 0#32) = (v == 0#n) := by
+            rw [Bool.eq_iff_iff]; simp only [beq_iff_eq]; constructor
+            · intro he32
+              apply BitVec.eq_of_getLsbD_eq; intro i hi
+              have hg := congrArg (fun x => x.getLsbD i) he32
+              have hi32 : i < 32 := Nat.lt_of_lt_of_le hi hn32
+              simpa [BitVec.getLsbD_setWidth, hi, hi32] using hg
+            · intro h0; subst h0; simp
+          refine eval_cbz_cbnz .W32 isNz .X16 l hpair.2 hl ⟨fun ht => ?_, fun hf => ?_⟩
+          · refine hrun1.1 ?_; rw [hco]
+            cases isNz <;> dsimp only at ht ⊢
+            · rw [← hv0]; simpa [RegWidth.bits, hx16] using ht
+            · simpa [RegWidth.bits, hx16, hv0, bne] using ht
+          · have hnext : armMach.Run h (k + (0 + 1 + 1))
+                (wr s .X16 ((v.setWidth 32).setWidth 64)) post := by
+              refine hrun1.2 ?_; rw [hco]
+              cases isNz <;> dsimp only at hf ⊢
+              · rw [← hv0]; simpa [RegWidth.bits, hx16] using hf
+              · simpa [RegWidth.bits, hx16, hv0, bne] using hf
+            simpa [Nat.add_assoc] using hnext
+        · exact False.elim hf
+    cases co with
+    | eq =>
+      have hp := Prod.mk.inj (Option.some.inj hcins)
+      exact run_cb false (Bool.eq_iff_iff.mpr (by simp [CmpOp.evalBits]))
+        hp.1.symm hp.2.symm
+    | ne =>
+      have hp := Prod.mk.inj (Option.some.inj hcins)
+      exact run_cb true (Bool.eq_iff_iff.mpr (by simp [CmpOp.evalBits]))
+        hp.1.symm hp.2.symm
+    | ule =>
+      have hp := Prod.mk.inj (Option.some.inj hcins)
+      exact run_cb false (Bool.eq_iff_iff.mpr (by
+        simp only [CmpOp.evalBits, BitVec.ule, Nat.le_zero, BitVec.toNat_zero,
+          decide_eq_true_eq, Bool.false_eq_true, ↓reduceIte]
+        rw [beq_iff_eq]
+        exact ⟨fun h => BitVec.eq_of_toNat_eq (by rw [h]; simp), fun h => by simp [h]⟩))
+        hp.1.symm hp.2.symm
+    | ugt =>
+      have hp := Prod.mk.inj (Option.some.inj hcins)
+      exact run_cb true (Bool.eq_iff_iff.mpr (by
+        simp only [CmpOp.evalBits, ↓reduceIte, bne_iff_ne]
+        constructor
+        · intro h he; subst he; simp [BitVec.ult] at h
+        · intro hne
+          have hpos : 0 < v.toNat := Nat.pos_of_ne_zero fun hz =>
+            hne (BitVec.eq_of_toNat_eq (by simpa using hz))
+          simpa [BitVec.ult] using hpos))
+        hp.1.symm hp.2.symm
+    | slt =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hcins
+      obtain ⟨rfl, rfl⟩ := hcins
+      simp only at hk
+      have hrun :=
+        hk s (Machine.Frame.refl (M := armMach) armCondReads s armScratch [] maskNone) rfl
+      have hn0 : 0 < n := by rcases hn_mem' with rfl | rfl | rfl | rfl <;> omega
+      have hnw : n ≤ (armWidthOf n).bits := by rcases hn_mem' with rfl | rfl | rfl | rfl <;> decide
+      have hblt : n - 1 < (armWidthOf n).bits :=
+        Nat.lt_of_lt_of_le (Nat.sub_lt hn0 Nat.zero_lt_one) hnw
+      have hbit : ((s.regs.getXReg x).toBitVec.setWidth (armWidthOf n).bits).getLsbD (n - 1) =
+          v.getLsbD (n - 1) := by
+        rw [← hvx, BitVec.getLsbD_setWidth, BitVec.getLsbD_setWidth]
+        have : n - 1 < n := Nat.sub_lt hn0 Nat.zero_lt_one
+        simp_all
+      refine eval_tbz_tbnz (armWidthOf n) true x (n - 1) l hblt hc hl
+        ⟨fun ht => hrun.1 ?_, fun hf => hrun.2 ?_⟩
+      · simpa [CmpOp.evalBits, bv_slt_zero_eq_getLsbD hn0, hbit] using ht
+      · simpa [CmpOp.evalBits, bv_slt_zero_eq_getLsbD hn0, hbit] using hf
+    | sge =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hcins
+      obtain ⟨rfl, rfl⟩ := hcins
+      simp only at hk
+      have hrun :=
+        hk s (Machine.Frame.refl (M := armMach) armCondReads s armScratch [] maskNone) rfl
+      have hn0 : 0 < n := by rcases hn_mem' with rfl | rfl | rfl | rfl <;> omega
+      have hnw : n ≤ (armWidthOf n).bits := by rcases hn_mem' with rfl | rfl | rfl | rfl <;> decide
+      have hblt : n - 1 < (armWidthOf n).bits :=
+        Nat.lt_of_lt_of_le (Nat.sub_lt hn0 Nat.zero_lt_one) hnw
+      have hbit : ((s.regs.getXReg x).toBitVec.setWidth (armWidthOf n).bits).getLsbD (n - 1) =
+          v.getLsbD (n - 1) := by
+        rw [← hvx, BitVec.getLsbD_setWidth, BitVec.getLsbD_setWidth]
+        have : n - 1 < n := Nat.sub_lt hn0 Nat.zero_lt_one
+        simp_all
+      have hsge : CmpOp.sge.evalBits v 0#n = !v.getLsbD (n - 1) := by
+        have hneg := CmpOp.neg_evalBits .slt v 0#n
+        have hslt : CmpOp.slt.evalBits v 0#n = v.getLsbD (n - 1) := by
+          simpa [CmpOp.evalBits] using bv_slt_zero_eq_getLsbD hn0 v
+        simpa [CmpOp.neg, hslt] using hneg
+      refine eval_tbz_tbnz (armWidthOf n) false x (n - 1) l hblt hc hl
+        ⟨fun ht => hrun.1 ?_, fun hf => hrun.2 ?_⟩
+      · simpa [hsge, hbit] using ht
+      · simpa [hsge, hbit] using hf
+    | _ => dsimp only at hcins; cases hcins
+
+theorem armTestJcc_spec {h : Host} {k j : Nat} {neg : Bool} {n : Nat} {r : Reg}
+    {mask : BitVec n} {l : Sym} {c : List Directive} {clob : FlagMask} {v : BitVec n}
+    {s : MachineData} {post : MachineState → Prop}
+    (hins : armGpr.testJcc neg n r mask l = some (c, clob))
+    (hc : c.IsInfixAt (armMach.prog h) k) (hl : armMach.labelAddr h l = armMach.addrOf h j)
+    (_ : r ∉ armScratch) (hv : GprHolds (armMach.getGpr s r) (.bits n) v)
+    (hk : ∀ s', armMach.Frame armCondReads s s' armScratch [] clob → s'.dmem = s.dmem →
+      ((if neg then CmpOp.ne else CmpOp.eq).evalBits (v &&& mask) 0#n = true →
+        armMach.Run h j s' post) ∧
+      ((if neg then CmpOp.ne else CmpOp.eq).evalBits (v &&& mask) 0#n = false →
+        armMach.Run h (k + c.length) s' post)) :
+    armMach.Run h k s post := by
+  letI := h
+  obtain ⟨⟨insns, cl'⟩, hcins, rfl, rfl⟩ := Option.map_eq_some_iff.mp hins
+  dsimp only [armTestJccIns] at hcins
+  split at hcins; · simp at hcins
+  rename_i hn_mem
+  have hn_mem' : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64 := by
+    simp only [Bool.not_eq_true'] at hn_mem
+    by_cases h8 : n = 8
+    · exact Or.inl h8
+    · by_cases h16 : n = 16
+      · exact Or.inr (Or.inl h16)
+      · by_cases h32 : n = 32
+        · exact Or.inr (Or.inr (Or.inl h32))
+        · by_cases h64 : n = 64
+          · exact Or.inr (Or.inr (Or.inr h64))
+          · exfalso; simp [h8, h16, h32, h64] at hn_mem
+  have hle64 : n ≤ 64 := by rcases hn_mem' with rfl | rfl | rfl | rfl <;> omega
+  have hnw : n ≤ (armWidthOf n).bits := by rcases hn_mem' with rfl | rfl | rfl | rfl <;> decide
+  cases r with
+  | SP => simp at hcins
+  | reg x =>
+    cases hsb : armSingleBit? n mask with
+    | none => simp [hsb] at hcins
+    | some bit =>
+      simp only [hsb, Option.some.injEq, Prod.mk.injEq] at hcins
+      obtain ⟨rfl, rfl⟩ := hcins
+      simp only [emitClean_cons, emitClean_nil, List.length_singleton] at hc hk
+      have hfind : (List.range n).find? (fun k => mask == (1#n <<< k)) = some bit := hsb
+      have hmem := List.mem_of_find?_eq_some hfind
+      have hlt : bit < n := List.mem_range.mp hmem
+      have hmask : mask = 1#n <<< bit :=
+        beq_iff_eq.mp (find?_some_prop (fun k => mask == (1#n <<< k)) hfind)
+      have hvx : (s.regs.getXReg x).toBitVec.setWidth n = v := by
+        simpa [GprHolds, armMach, get_reg, hle64] using hv
+      have hbw : bit < (armWidthOf n).bits := Nat.lt_of_lt_of_le hlt hnw
+      have hbit : ((s.regs.getXReg x).toBitVec.setWidth (armWidthOf n).bits).getLsbD bit =
+          v.getLsbD bit := by
+        rw [← hvx, BitVec.getLsbD_setWidth, BitVec.getLsbD_setWidth]
+        simp [hlt, hbw]
+      have hrun :=
+        hk s (Machine.Frame.refl (M := armMach) armCondReads s armScratch [] maskNone) rfl
+      have hev : (if neg then CmpOp.ne else CmpOp.eq).evalBits (v &&& mask) 0#n =
+          (if neg then v.getLsbD bit else !v.getLsbD bit) := by
+        rw [hmask]
+        have h0 : (v &&& (1#n <<< bit) = 0#n) ↔ v.getLsbD bit = false := by
+          rw [← beq_iff_eq, bv_and_singleBit_eq_zero hlt v]
+          cases v.getLsbD bit <;> simp
+        cases hvb : v.getLsbD bit <;> cases neg <;> simp [CmpOp.evalBits, h0, hvb]
+      refine eval_tbz_tbnz (armWidthOf n) neg x bit l hbw hc hl
+        ⟨fun ht => hrun.1 ?_, fun hf => hrun.2 ?_⟩
+      · simpa [hev, hbit] using ht
+      · simpa [hev, hbit] using hf
+
 /-- Verified AArch64 scalar `GprTarget` specification (`T9`). -/
 theorem armGprSpec : GprTarget armMach armGpr armScratch where
   negCond_reads := armNegCond_reads
@@ -1255,6 +1611,8 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
   testOp_spec := fun hc hga hgd hpa hpb =>
     armFallsTo_of_wp (armWp_mono (armTestOp_wp _ _ _ _ hc hga hgd hpa hpb)
       fun _ ⟨h1, h2, h3⟩ => ⟨⟨h1, h2⟩, h3⟩)
+  cmpZeroJcc_spec := @armCmpZeroJcc_spec
+  testJcc_spec := @armTestJcc_spec
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/
 
@@ -1264,6 +1622,18 @@ theorem armOp_noLab {sig rs : List Ty} {code : OpCode sig rs}
     (hc : armGpr.op code pas dsts vh = some (c, clob)) (l : Sym) :
     Kraken.Directive.label l ∉ c :=
   emitCleanPair_noLab hc l
+
+theorem armCmpZeroJcc_noLab {co : CmpOp} {n : Nat} {r : Reg} {l : Sym}
+    {c : List Directive} {clob : FlagMask}
+    (hc : armGpr.cmpZeroJcc co n r l = some (c, clob)) (lab : Sym) :
+    Kraken.Directive.label lab ∉ c :=
+  emitCleanPair_noLab hc lab
+
+theorem armTestJcc_noLab {neg : Bool} {n : Nat} {r : Reg} {mask : BitVec n} {l : Sym}
+    {c : List Directive} {clob : FlagMask}
+    (hc : armGpr.testJcc neg n r mask l = some (c, clob)) (lab : Sym) :
+    Kraken.Directive.label lab ∉ c :=
+  emitCleanPair_noLab hc lab
 
 /-! ## 4. Kernel `rfl` `ParserChecks` against `Kraken.AArch64.Parser` -/
 
@@ -1368,6 +1738,21 @@ theorem parser_opt_a2_a3_rfl :
         (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 4)).elim [] Prod.fst ++
       (armGpr.load i32 (.reg .X0)
         (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 (-4))).elim [] Prod.fst := rfl
+
+theorem parser_opt_s2_rfl :
+    ⸨prog|
+      cbz w0, L_tgt
+      cbnz x1, L_tgt
+      ubfm w16, w2, #0, #7
+      cbz w16, L_tgt
+      tbz x2, #5, L_tgt
+      tbnz w3, #31, L_tgt
+    ⸩ =
+      (armGpr.cmpZeroJcc .eq 32 (.reg .X0) "L_tgt").elim [] Prod.fst ++
+      (armGpr.cmpZeroJcc .ne 64 (.reg .X1) "L_tgt").elim [] Prod.fst ++
+      (armGpr.cmpZeroJcc .eq 8 (.reg .X2) "L_tgt").elim [] Prod.fst ++
+      (armGpr.testJcc false 64 (.reg .X2) 32#64 "L_tgt").elim [] Prod.fst ++
+      (armGpr.testJcc true 32 (.reg .X3) 0x80000000#32 "L_tgt").elim [] Prod.fst := rfl
 
 end ParserChecks
 

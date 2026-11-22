@@ -31,6 +31,15 @@ theorem CmpOp.swap_evalBits {n : Nat} (o : CmpOp) (a b : BitVec n) :
     o.swap.evalBits b a = o.evalBits a b := by
   cases o <;> dsimp only [CmpOp.swap, CmpOp.evalBits] <;> simp [eq_comm]
 
+theorem CmpOp.neg_evalBits {n : Nat} (o : CmpOp) (a b : BitVec n) :
+    o.neg.evalBits a b = !(o.evalBits a b) := by
+  cases o <;> simp [CmpOp.neg, CmpOp.evalBits, BitVec.ult, BitVec.ule, BitVec.slt, BitVec.sle]
+  all_goals first
+    | (by_cases h : a.toNat < b.toNat <;> simp [h] <;> omega)
+    | (by_cases h : a.toNat ≤ b.toNat <;> simp [h] <;> omega)
+    | (by_cases h : a.toInt < b.toInt <;> simp [h] <;> omega)
+    | (by_cases h : a.toInt ≤ b.toInt <;> simp [h] <;> omega)
+
 theorem CmpOp.swap_evalBool (o : CmpOp) (a b : Bool) :
     o.swap.evalBool b a = o.evalBool a b := by
   cases o <;> cases a <;> cases b <;> rfl

@@ -100,7 +100,8 @@ private theorem defOk_addVarImm {G : VCtx} {nv x : Nat} {vx c : BitVec 64}
       obtain ⟨vb, vi, hb, hi, hvx⟩ := hdx vx hm
       exact ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi,
         by simp [hvx, BitVec.add_assoc]⟩
-    | andVarVar _ _ _ | andVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _ =>
+    | andVarVar _ _ _ | andVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _
+    | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
       intro v hv; cases mem_cons_top hlt hv
       exact ⟨vx, List.mem_cons_of_mem _ hm, rfl⟩
 
@@ -354,7 +355,7 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
                 exact ⟨vi, List.mem_cons_of_mem _ hi, by simp [hvx, bv_shiftLeft_shiftLeft]⟩
               · cases hd
             | addrSum _ _ _ _ | andVarVar _ _ _ | andVarImm _ _ _
-            | sextVar _ _ _ | zextVar _ _ _ =>
+            | sextVar _ _ _ | zextVar _ _ _ | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
               cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
               cases mem_cons_top hlt hv
               exact ⟨_, List.mem_cons_of_mem _ hm, by simp⟩
@@ -408,7 +409,8 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
             intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
             obtain ⟨vb, vi, hb, hi, hvx⟩ := h' _ hm
             exact ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi, hvx⟩
-          | andVarVar _ _ _ | andVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _ =>
+          | andVarVar _ _ _ | andVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _
+    | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
             simp only [DefFact.isAddr, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hd
             subst hd
             intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
@@ -1520,11 +1522,159 @@ private theorem tryLoadSext_ok {zl : Bool} {G : VCtx} {nv k : Nat} {vh : Variant
           · simp at h
         | _ => simp [hmd] at h
 
+private theorem normZeroCmp_evalBits {n : Nat} (o : CmpOp) (a : BitVec n) :
+    (normZeroCmp o).evalBits a 0#n = o.evalBits a 0#n := by
+  cases o
+  all_goals first
+    | rfl
+    | (simp only [normZeroCmp, CmpOp.evalBits, BitVec.ult, BitVec.ule, BitVec.toNat_zero]
+       by_cases h : a = 0#n
+       · subst h; simp
+       · have hpos : 0 < a.toNat :=
+           Nat.pos_of_ne_zero fun hz => h (BitVec.eq_of_toNat_eq (by simpa using hz))
+         have hne : a.toNat ≠ 0 := Nat.ne_of_gt hpos
+         simp [h, hpos, hne])
+
+private theorem deferBoolDef_ok {G : VCtx} {nv : Nat} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {co : CmpOp} {n : Nat}
+    {a₁ b₁ : Arg Val (.bits n)} {a b : Arg VNat (.bits n)}
+    (hlt : ∀ p ∈ G, p.2.2 < nv) (hn : n ≤ 64) {co0 : CmpOp} {t : Nat}
+    (hpair : (match a, b with
+      | .var t, .imm c => if c == 0#n then some (normZeroCmp co, t) else none
+      | .imm c, .var t => if c == 0#n then some (normZeroCmp co.swap, t) else none
+      | _, _ => none) = some (co0, t))
+    (h1 : ArgRel G (.bits n) a₁ a) (h2 : ArgRel G (.bits n) b₁ b) :
+    let res := co.evalBits a₁.val b₁.val
+    let df := match defs.find? t with
+      | some (.andVarImm w x mask) =>
+        if (co0 == .eq || co0 == .ne) && Nat.beq w n then
+          DefFact.testBitVar (co0 == .ne) w x mask
+        else .cmpZeroVar co0 n t
+      | some (.sextVar m n' x) =>
+        if Nat.beq n' n && Nat.blt 0 m && Nat.blt m n && cmpIsSignedOrEq co0 then
+          .cmpZeroVar co0 m x
+        else .cmpZeroVar co0 n t
+      | some (.zextVar m n' x) =>
+        if Nat.beq n' n && Nat.blt 0 m && Nat.blt m n && cmpIsUnsignedOrEq co0 then
+          .cmpZeroVar co0 m x
+        else .cmpZeroVar co0 n t
+      | _ => .cmpZeroVar co0 n t
+    DefOk (⟨Ty.bool, res, nv⟩ :: G) nv df := by
+  intro res df
+  have hbase : ∃ vt : BitVec n, ⟨.bits n, vt, t⟩ ∈ G ∧ res = co0.evalBits vt 0#n := by
+    cases a <;> cases b <;> simp only at hpair
+    · cases hpair
+    · split at hpair
+      · next hc =>
+        simp only [Option.some.injEq, Prod.mk.injEq] at hpair
+        obtain ⟨rfl, rfl⟩ := hpair
+        cases h1 with | var hm => cases h2 with | imm =>
+        rw [beq_iff_eq] at hc; subst hc
+        exact ⟨_, hm, by dsimp [res]; rw [normZeroCmp_evalBits]⟩
+      · simp at hpair
+    · split at hpair
+      · next hc =>
+        simp only [Option.some.injEq, Prod.mk.injEq] at hpair
+        obtain ⟨rfl, rfl⟩ := hpair
+        cases h1 with | imm => cases h2 with | var hm =>
+        rw [beq_iff_eq] at hc; subst hc
+        exact ⟨_, hm, by dsimp [res]; rw [← CmpOp.swap_evalBits, normZeroCmp_evalBits]⟩
+      · simp at hpair
+    · cases hpair
+  obtain ⟨vt, hmt, hres⟩ := hbase
+  have hCmpT : DefOk (⟨Ty.bool, res, nv⟩ :: G) nv (.cmpZeroVar co0 n t) := by
+    refine ⟨hn, fun cv hcv => ?_⟩
+    cases mem_cons_top hlt hcv
+    exact ⟨vt, List.mem_cons_of_mem _ hmt, hres⟩
+  dsimp only [df]
+  cases hdx : defs.find? t with
+  | none => exact hCmpT
+  | some d =>
+    have hdok := hdefs t d hdx
+    cases d with
+    | andVarImm w x mask =>
+      dsimp only; split
+      · rename_i hc
+        simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq, Nat.beq_eq] at hc
+        obtain ⟨hco, rfl⟩ := hc
+        obtain ⟨hw, hx⟩ := hdok
+        obtain ⟨vx, hmx, rfl⟩ := hx vt hmt
+        refine ⟨hw, fun cv hcv => ?_⟩
+        cases mem_cons_top hlt hcv
+        refine ⟨vx, List.mem_cons_of_mem _ hmx, ?_⟩
+        rw [hres]; rcases hco with rfl | rfl <;> simp
+      · exact hCmpT
+    | sextVar m n' x =>
+      dsimp only; split
+      · rename_i hc
+        simp only [Bool.and_eq_true, Nat.beq_eq, Nat.blt_eq] at hc
+        obtain ⟨⟨⟨rfl, hm0⟩, hmn⟩, hco⟩ := hc
+        obtain ⟨_, _, _, hx⟩ := hdok
+        obtain ⟨vx, hmx, rfl⟩ := hx vt hmt
+        refine ⟨by omega, fun cv hcv => ?_⟩
+        cases mem_cons_top hlt hcv
+        refine ⟨vx, List.mem_cons_of_mem _ hmx, ?_⟩
+        have htr : ((0#n').truncate m).signExtend n' = 0#n' := by
+          apply BitVec.eq_of_toInt_eq
+          rw [BitVec.toInt_signExtend_of_le (Nat.le_of_lt hmn)]
+          simp [BitVec.truncate]
+        have hev := cmpOp_evalBits_signExtend hm0 hmn hco vx 0#n' htr
+        have h0m : (0#n').truncate m = 0#m := BitVec.eq_of_toNat_eq (by simp [BitVec.truncate])
+        rw [hres, hev, h0m]
+      · exact hCmpT
+    | zextVar m n' x =>
+      dsimp only; split
+      · rename_i hc
+        simp only [Bool.and_eq_true, Nat.beq_eq, Nat.blt_eq] at hc
+        obtain ⟨⟨⟨rfl, hm0⟩, hmn⟩, hco⟩ := hc
+        obtain ⟨_, _, _, hx⟩ := hdok
+        obtain ⟨vx, hmx, rfl⟩ := hx vt hmt
+        refine ⟨by omega, fun cv hcv => ?_⟩
+        cases mem_cons_top hlt hcv
+        refine ⟨vx, List.mem_cons_of_mem _ hmx, ?_⟩
+        have htr : ((0#n').truncate m).zeroExtend n' = 0#n' := by
+          apply BitVec.eq_of_toNat_eq; simp [BitVec.truncate]
+        have hev := cmpOp_evalBits_zeroExtend hmn hco vx 0#n' htr
+        have h0m : (0#n').truncate m = 0#m := BitVec.eq_of_toNat_eq (by simp [BitVec.truncate])
+        rw [hres, hev, h0m]
+      · exact hCmpT
+    | _ => exact hCmpT
+
+private theorem recordBoolDef_ok {G : VCtx} {nv : Nat} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {sig rs : List Ty}
+    {code : OpCode sig rs} {args₁ : Tup (Arg Val) sig} {args : Tup (Arg VNat) sig}
+    (hrel : TRel (ArgRel G) args₁ args) (hlt : ∀ p ∈ G, p.2.2 < nv) {P : Tup Val rs → Prop}
+    (hwp : code.wp (vals args₁) P) {df : DefFact}
+    (hd : recordBoolDef defs code args = some df) :
+    ∃ (_h : rs = [.bool]) (rvs : Tup Val rs), P rvs ∧
+      DefOk (Tup.zip rvs (Tup.levels rs nv) ++ G) nv df := by
+  cases code with
+  | cmp co ty mty hty =>
+    cases ty with
+    | bits n =>
+      cases mty with
+      | bool =>
+        rcases args with ⟨a, b, ⟨⟩⟩; rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩
+        rcases hrel with _ | ⟨ha, _ | ⟨hb, -⟩⟩
+        dsimp only [recordBoolDef] at hd
+        split at hd; · simp at hd
+        rename_i hn
+        have hnle : n ≤ 64 := Nat.ble_eq.mp (by cases hb : n.ble 64 <;> simp_all)
+        obtain ⟨⟨co0, t⟩, hpair, hd⟩ := Option.map_eq_some_iff.mp hd
+        subst hd
+        simp only [OpCode.wp, liftCmp, vals] at hwp
+        exact ⟨rfl, (co.evalBits a₁.val b₁.val, ()), hwp,
+          deferBoolDef_ok hdefs hlt hnle hpair ha hb⟩
+      | _ => simp [recordBoolDef] at hd
+    | _ => simp [recordBoolDef] at hd
+  | _ => simp [recordBoolDef] at hd
+
 theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     (hsv : ∀ r ∈ hints.saved, r ∈ T.frame.calleeSaved) {G : VCtx} {nv ip : Nat}
     {st st' : SymState T.toIsa} {c : List T.Directive} {k : Nat} {s : T.mach.MData}
     {σ : List (BitVec 64)} {m : Mem 64} {ts : List Ty} {op₁ : Op Val ts} {op : Op VNat ts}
-    (hop : OpRel G op₁ op) (hl : lowerOp T.toIsa hints nv ip st op = some (c, st'))
+    {deferFuse : Bool}
+    (hop : OpRel G op₁ op) (hl : lowerOp T.toIsa hints nv ip st op deferFuse = some (c, st'))
     (hc : c.IsInfixAt (T.mach.prog host) k)
     (hA : Agree T G nv st s σ) (hM : MemDefsOk G m nv st.memDefs)
     (hI : Inv T hints s₀ ra n Rf m s σ zl)
@@ -1544,6 +1694,30 @@ theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
       (fun p hp => (zip_levels_mem hp).imp id (·.1))
       (fun _ h => List.mem_append_right _ h)
   unfold lowerOp at hl
+  split at hl
+  · obtain ⟨df, hrb, rfl, rfl⟩ := Option.map_eq_some_iff.mp hl
+    obtain ⟨hrs, rvs, hP, hdef⟩ := recordBoolDef_ok hA.defs hargs hA.ctx_lt hwp hrb
+    subst hrs
+    rcases rvs with ⟨rv, ⟨⟩⟩
+    have hvw0 : ∀ x < nv, st.vecWidths.find? x = st.vecWidths.find? x := fun _ _ => rfl
+    have hvw : ∀ sw, st.vecWidths.find? nv = some sw →
+        Ty.bool.size ≤ sw.bits ∧ ∃ a b, Ty.bool = .pair a b := fun sw hw =>
+      absurd (hA.vw_lt _ _ hw) (Nat.lt_irrefl _)
+    have hvw1 : ∀ x, nv < x → st.vecWidths.find? x = none := fun x hx =>
+      Option.eq_none_iff_forall_ne_some.mpr fun sw hw =>
+        absurd (hA.vw_lt _ _ hw) (Nat.not_lt.mpr (Nat.le_of_lt hx))
+    have hA1 := hA.push .bool rv st.vecWidths hvw0 hvw hvw1 (by intro _ a b h; cases h)
+    exact kont (rv, ()) s hP
+      { hA1 with
+        defs := fun x d hx => by
+          rw [Trie.find?_insert] at hx; split at hx
+          · cases hx; subst_vars; exact hdef
+          · exact hA1.defs x d hx
+        defs_lt := fun x d hx => by
+          rw [Trie.find?_insert] at hx; split at hx
+          · subst_vars; exact Nat.lt_succ_self _
+          · exact hA1.defs_lt x d hx }
+      (hMgrow (rv, ())) hI
   split at hl
   · cases hd : recordDef st.defs code args with
     | none => simp [hd] at hl
@@ -2168,9 +2342,12 @@ private theorem tryLoadSext_clean {st : SymState I} {vh : VariantHint} {sig ts :
         | _ => simp [hmd] at h
 
 theorem lowerOp_clean {h : I.Hints} {nv ip : Nat} {st st' : SymState I} {ts : List Ty}
-    {op : Op VNat ts} {c : List I.Directive} (hl : lowerOp I h nv ip st op = some (c, st')) :
+    {op : Op VNat ts} {deferFuse : Bool} {c : List I.Directive}
+    (hl : lowerOp I h nv ip st op deferFuse = some (c, st')) :
     NoLab I c := by
   unfold lowerOp at hl
+  split at hl
+  · obtain ⟨df, -, rfl, -⟩ := Option.map_eq_some_iff.mp hl; exact NoLab.nil
   split at hl
   · cases hd : recordDef st.defs op.code op.args <;> simp [hd] at hl
     rcases hl with ⟨rfl, -⟩; exact NoLab.nil
@@ -2314,6 +2491,56 @@ theorem LabOk.jnz (hcl : LabelClean I) {fn : Sym} {nl a b d : Nat} {br c₁ c₂
   · exact three h₂ h₁ (fun l h => lrange_mono h (by omega) (Nat.le_refl _))
       (fun l h => lrange_mono h (Nat.le_refl _) (by omega)) (fun l h1 h2 => lrange_disj h1 h2 (by omega))
 
+private theorem fuseJnzChoice_clean {I : Isa} {h : I.Hints} {fn : Sym} {nl ipT ipE : Nat}
+    {rs : List Ty} {st1 : SymState I} {t e : Expr VNat LNat rs} {ft : Option Nat}
+    {emit : Bool → Sym → Option (List I.Directive × FlagMask)}
+    (hem : ∀ inv l c cl, emit inv l = some (c, cl) → NoLab I c)
+    {inv : Bool} {tgt : Option Nat} {br : List I.Directive} {stBr : SymState I}
+    (hf : fuseJnzChoice I h fn nl ipT ipE st1 t e ft emit = some (inv, tgt, br, stBr)) :
+    NoLab I br := by
+  unfold fuseJnzChoice at hf
+  obtain ⟨⟨brNl, clNl⟩, heNl, hm⟩ := Option.map_eq_some_iff.mp hf
+  have hArm : ∀ {inv0 ip0} {arm0 : Expr VNat LNat rs} {j b s},
+      threadFusedArm I h fn ip0 st1 (emit inv0) arm0 = some (j, b, s) → NoLab I b := by
+    intro inv0 ip0 arm0 j b s ha
+    unfold threadFusedArm at ha
+    split at ha
+    · simp only [Option.bind_eq_some_iff] at ha
+      obtain ⟨⟨b', c'⟩, h1, h2⟩ := ha
+      split at h2
+      · simp only [Option.some.injEq, Prod.mk.injEq] at h2
+        obtain ⟨-, rfl, -⟩ := h2; exact hem _ _ _ _ h1
+      · simp at h2
+    · simp at ha
+  cases hfwd : threadFusedArm I h fn ipT st1 (emit false) t <;>
+    cases hinv : threadFusedArm I h fn ipE st1 (emit true) e
+  · rw [hfwd, hinv] at hm; cases hm; exact hem _ _ _ _ heNl
+  · rw [hfwd, hinv] at hm; cases hm; exact hArm hinv
+  · rw [hfwd, hinv] at hm; cases hm; exact hArm hfwd
+  · rw [hfwd, hinv] at hm; dsimp only at hm
+    split at hm <;> cases hm
+    · exact hArm hinv
+    · exact hArm hfwd
+
+private theorem jnzSetup_clean (hcl : LabelClean I) {h : I.Hints} {fn : Sym} {nl ipT ipE : Nat}
+    {rs : List Ty} {st1 : SymState I} {t e : Expr VNat LNat rs} {ft : Option Nat} {cond : JnzCond I}
+    {inv : Bool} {tgt : Option Nat} {br : List I.Directive} {stBr : SymState I}
+    (hj : jnzSetup I h fn nl ipT ipE st1 t e ft cond = some (inv, tgt, br, stBr)) :
+    NoLab I br := by
+  cases cond with
+  | flag cc =>
+    simp only [jnzSetup, Option.some.injEq, Prod.mk.injEq] at hj
+    cases hj.2.2.1; exact hcl.jcc _ _
+  | gpr r =>
+    simp only [jnzSetup, Option.some.injEq, Prod.mk.injEq] at hj
+    cases hj.2.2.1; exact hcl.jnzGpr _ _
+  | cmpZero co w r =>
+    dsimp only [jnzSetup] at hj
+    exact fuseJnzChoice_clean (fun _ _ _ _ he => hcl.cmpZeroJcc _ _ _ _ _ _ he) hj
+  | testImm neg w r mask =>
+    dsimp only [jnzSetup] at hj
+    exact fuseJnzChoice_clean (fun _ _ _ _ he => hcl.testJcc _ _ _ _ _ _ _ he) hj
+
 mutual
 /-- `lowerExpr` is monotone in `nv`/`nl`, and (for a `LabelClean` ISA) its labels are distinct
 `lname fn j` with `nl ≤ j < nl'`. -/
@@ -2349,6 +2576,8 @@ theorem lowerExpr_labels {h : I.Hints} {E : Ext} {fn : Sym} {rs : List Ty} :
     split at he <;> try (simp at he; done)
     split at he <;> try (simp at he; done)
     split at he <;> try (simp at he; done)
+    rename_i _ inv tgt br stBr hj
+    split at he <;> try (simp at he; done)
     rename_i _ ce nv₁ nl₁ ip₁ he₁
     split at he <;> try (simp at he; done)
     rename_i _ ct nv₂ nl₂ ip₂ he₂
@@ -2356,13 +2585,13 @@ theorem lowerExpr_labels {h : I.Hints} {E : Ext} {fn : Sym} {rs : List Ty} :
     obtain ⟨a1, a2, a3⟩ := lowerExpr_labels _ _ _ _ _ _ _ _ _ _ he₁
     obtain ⟨b1, b2, b3⟩ := lowerExpr_labels _ _ _ _ _ _ _ _ _ _ he₂
     rcases ite_cases hr with hr | hr <;> obtain ⟨rfl, rfl, hc⟩ := finishJnz_ok hr
-    · refine ⟨by omega, by omega, fun hcl => (LabOk.jnz hcl ?_ ⟨Nat.lt_succ_self _, a2, b2⟩ (a3 hcl)
-        (b3 hcl) (hc.elim (fun h => Or.inr (Or.inr (Or.inl h))) fun h => Or.inr (Or.inr (Or.inr h)))).pre
+    · refine ⟨by omega, by omega, fun hcl => (LabOk.jnz hcl (jnzSetup_clean hcl hj)
+        ⟨Nat.lt_succ_self _, a2, b2⟩ (a3 hcl) (b3 hcl)
+        (hc.elim (fun h => Or.inr (Or.inr (Or.inl h))) fun h => Or.inr (Or.inr (Or.inr h)))).pre
         (stepPre_clean hcl ‹_›)⟩
-      first | (cases ‹Sum I.Cond I.Reg› <;> simp only [jnzSetup] <;> first | exact hcl.jcc _ _ | exact hcl.jnzGpr _ _) | (split <;> first | exact hcl.jcc _ _ | exact hcl.jnzGpr _ _)
-    · refine ⟨by omega, by omega, fun hcl => (LabOk.jnz hcl ?_ ⟨Nat.lt_succ_self _, a2, b2⟩ (a3 hcl)
-        (b3 hcl) (hc.elim Or.inl fun h => Or.inr (Or.inl h))).pre (stepPre_clean hcl ‹_›)⟩
-      first | (cases ‹Sum I.Cond I.Reg› <;> simp only [jnzSetup] <;> first | exact hcl.jcc _ _ | exact hcl.jnzGpr _ _) | (split <;> first | exact hcl.jcc _ _ | exact hcl.jnzGpr _ _)
+    · refine ⟨by omega, by omega, fun hcl => (LabOk.jnz hcl (jnzSetup_clean hcl hj)
+        ⟨Nat.lt_succ_self _, a2, b2⟩ (a3 hcl) (b3 hcl)
+        (hc.elim Or.inl fun h => Or.inr (Or.inl h))).pre (stepPre_clean hcl ‹_›)⟩
   | .jump j args, nv, nl, ip, st, ft, c, nv', nl', ip', he => by
     simp only [lowerExpr] at he
     repeat' (split at he <;> try (simp at he; done))

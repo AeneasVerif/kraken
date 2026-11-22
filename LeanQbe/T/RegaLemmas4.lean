@@ -135,14 +135,45 @@ theorem findSome_mem {α β : Type} {f : α → Option β} :
     | none => rw [ha] at h; obtain ⟨a', ha', h'⟩ := findSome_mem h; exact ⟨a', .tail _ ha', h'⟩
     | some b' => rw [ha] at h; cases h; exact ⟨a, .head _, ha⟩
 
+private theorem findGprFor_var_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
+    {σ : List (BitVec 64)} (hA : Agree T G nv st s σ) {x : Nat} {g : T.Reg}
+    (hg : findGprFor T.toIsa true st.regs (.var x) = some g) :
+    g ∉ T.frame.scratch ∧ GprSym G (T.mach.getGpr s g) (.var x) := by
+  unfold findGprFor at hg
+  obtain ⟨⟨sa, rl⟩, hp, he⟩ := findSome_mem hg
+  cases rl with
+  | gpr g' =>
+    simp only at he; split at he
+    · cases he; rename_i hc
+      simp only [Bool.and_eq_true] at hc
+      have h1 := hA.regs _ hp
+      simp only [RegLocOk, symArgMatchesGpr_var hc.2] at h1
+      exact ⟨fun hm => by simp [hm] at hc, h1⟩
+    · cases he
+  | gprZ g' =>
+    simp only at he; split at he
+    · cases he; rename_i hc
+      simp only [Bool.and_eq_true] at hc
+      have h1 := (hA.regs _ hp).1
+      simp only [symArgMatchesGpr_var hc.2] at h1
+      exact ⟨fun hm => by simp [hm] at hc, h1⟩
+    · cases he
+  | _ => simp at he
+
 /-- `jnz` condition lookup. -/
 theorem findJnzCond_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
     {σ : List (BitVec 64)} (hA : Agree T G nv st s σ) {cv : Bool} {cx : Nat}
     (hmem : (⟨.bool, cv, cx⟩ : (t : Ty) × Val t × VNat t) ∈ G) :
-    ∀ {r}, findJnzCond T.toIsa st.regs cx = some r →
+    ∀ {r}, findJnzCond T.toIsa st cx = some r →
     match r with
-    | .inl c => T.mach.evalCond s c = cv
-    | .inr g => g ∉ T.frame.scratch ∧ GprHolds (T.mach.getGpr s g) .bool cv := by
+    | .flag c => T.mach.evalCond s c = cv
+    | .gpr g => g ∉ T.frame.scratch ∧ GprHolds (T.mach.getGpr s g) .bool cv
+    | .cmpZero co w g =>
+      g ∉ T.frame.scratch ∧ ∃ va : BitVec w, GprHolds (T.mach.getGpr s g) (.bits w) va ∧
+        cv = co.evalBits va 0#w
+    | .testImm neg w g mask =>
+      g ∉ T.frame.scratch ∧ ∃ va : BitVec w, GprHolds (T.mach.getGpr s g) (.bits w) va ∧
+        cv = (if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& mask) 0#w := by
   intro r hr
   unfold findJnzCond at hr
   cases hf : findFlagFor T.toIsa st.regs (.var cx) with
@@ -152,50 +183,43 @@ theorem findJnzCond_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach
     obtain ⟨⟨sa, rl⟩, hp, he⟩ := findSome_mem hf
     cases rl with
     | flag c' =>
-      simp only at he
-      split at he
+      simp only at he; split at he
       · cases he
         have h1 := hA.regs _ hp
         simp only [RegLocOk, symArgEq_var ‹_›, FlagSym] at h1
-        have := h1 _ _ hmem
-        simp only [FlagHolds] at this
-        exact this.symm
+        exact (h1 _ _ hmem).symm
       · cases he
     | _ => simp at he
   | none =>
     rw [hf] at hr; simp only [Option.map_none] at hr
     cases hg : findGprFor T.toIsa true st.regs (.var cx) with
-    | none => rw [hg] at hr; cases hr
     | some g =>
       rw [hg] at hr; cases hr
-      unfold findGprFor at hg
-      obtain ⟨⟨sa, rl⟩, hp, he⟩ := findSome_mem hg
-      cases rl with
-      | gpr g' =>
-        simp only at he
-        split at he
-        · cases he
-          rename_i hc
-          simp only [Bool.and_eq_true] at hc
-          obtain ⟨hc1, hc2⟩ := hc
-          refine ⟨fun hm => by simp [hm] at hc1, ?_⟩
-          have h1 := hA.regs _ hp
-          simp only [RegLocOk, symArgMatchesGpr_var hc2, GprSym] at h1
-          exact h1 _ _ hmem
-        · cases he
-      | gprZ g' =>
-        simp only at he
-        split at he
-        · cases he
-          rename_i hc
-          simp only [Bool.and_eq_true] at hc
-          obtain ⟨hc1, hc2⟩ := hc
-          refine ⟨fun hm => by simp [hm] at hc1, ?_⟩
-          have h1 := (hA.regs _ hp).1
-          simp only [symArgMatchesGpr_var hc2, GprSym] at h1
-          exact h1 _ _ hmem
-        · cases he
-      | _ => simp at he
+      have ⟨hns, hsym⟩ := findGprFor_var_ok hA hg
+      exact ⟨hns, hsym _ _ hmem⟩
+    | none =>
+      rw [hg] at hr
+      simp only [HOrElse.hOrElse, OrElse.orElse, Option.orElse] at hr
+      cases hd : st.defs.find? cx with
+      | none => simp [hd] at hr
+      | some df =>
+        have hdef := hA.defs cx df hd
+        cases df with
+        | cmpZeroVar co w y =>
+          simp only [hd] at hr
+          obtain ⟨g, hgy, heq⟩ := Option.map_eq_some_iff.mp hr
+          subst heq
+          have ⟨hns, hsym⟩ := findGprFor_var_ok hA hgy
+          obtain ⟨va, hmy, hcv⟩ := hdef.2 cv hmem
+          exact ⟨hns, va, hsym _ _ hmy, hcv⟩
+        | testBitVar neg w y c =>
+          simp only [hd] at hr
+          obtain ⟨g, hgy, heq⟩ := Option.map_eq_some_iff.mp hr
+          subst heq
+          have ⟨hns, hsym⟩ := findGprFor_var_ok hA hgy
+          obtain ⟨va, hmy, hcv⟩ := hdef.2 cv hmem
+          exact ⟨hns, va, hsym _ _ hmy, hcv⟩
+        | _ => simp [hd] at hr
 
 end Basic
 
@@ -411,19 +435,87 @@ theorem finishJnzBranch_none {I : Isa} {fn : Sym} {nl : Nat} {b : Expr VNat LNat
   simp only [finishJnzBranch, Except.ok.injEq, Prod.mk.injEq] at h
   exact ⟨by rw [← h.1]; simp [List.append_assoc], h.2.1.symm, h.2.2.1.symm, h.2.2.2.symm⟩
 
+private theorem threadFusedArm_spec {I : Isa} {h : I.Hints} {fn : Sym} {ipA : Nat}
+    {st1 : SymState I} {emit : Sym → Option (List I.Directive × FlagMask)}
+    {arm : Expr VNat LNat rs} {j : Nat} {br : List I.Directive} {stB : SymState I}
+    (ht : threadFusedArm I h fn ipA st1 emit arm = some (j, br, stB)) :
+    zeroMoveJump? I h ipA stB arm = some j ∧ stB.memDefs = st1.memDefs ∧
+      ∃ cl, emit (lname fn j) = some (br, cl) ∧
+        stB = { st1 with regs := killRegs I I.frame.scratch [] cl st1.regs } := by
+  unfold threadFusedArm at ht
+  split at ht
+  · simp only [Option.bind_eq_some_iff] at ht
+    obtain ⟨⟨br', cl'⟩, hem, hif⟩ := ht
+    split at hif
+    · rename_i hzm
+      simp only [Option.some.injEq, Prod.mk.injEq] at hif
+      obtain ⟨rfl, rfl, rfl⟩ := hif
+      rw [beq_iff_eq] at hzm
+      exact ⟨hzm, rfl, cl', hem, rfl⟩
+    · simp at hif
+  · simp at ht
+
+private theorem fuseJnzChoice_spec {I : Isa} {h : I.Hints} {fn : Sym} {nl ipT ipE : Nat}
+    {st1 : SymState I} {t e : Expr VNat LNat rs} {ft : Option Nat}
+    {emit : Bool → Sym → Option (List I.Directive × FlagMask)} {inv : Bool}
+    {tgt : Option Nat} {br : List I.Directive} {stBr : SymState I}
+    (hf : fuseJnzChoice I h fn nl ipT ipE st1 t e ft emit = some (inv, tgt, br, stBr)) :
+    stBr.memDefs = st1.memDefs ∧
+    (∃ cl, emit inv (lname fn (tgt.getD nl)) = some (br, cl) ∧
+      stBr = { st1 with regs := killRegs I I.frame.scratch [] cl st1.regs }) ∧
+    (∀ j, tgt = some j →
+      (inv = false → zeroMoveJump? I h ipT stBr t = some j) ∧
+      (inv = true → zeroMoveJump? I h ipE stBr e = some j)) := by
+  unfold fuseJnzChoice at hf
+  obtain ⟨⟨brNl, clNl⟩, heNl, hm⟩ := Option.map_eq_some_iff.mp hf
+  cases hfwd : threadFusedArm I h fn ipT st1 (emit false) t with
+  | none =>
+    cases hinv : threadFusedArm I h fn ipE st1 (emit true) e with
+    | none =>
+      rw [hfwd, hinv] at hm; simp only [Prod.mk.injEq] at hm
+      obtain ⟨rfl, rfl, rfl, rfl⟩ := hm
+      exact ⟨rfl, ⟨clNl, heNl, rfl⟩, fun _ hj => nomatch hj⟩
+    | some pE =>
+      obtain ⟨je, brI, stI⟩ := pE
+      rw [hfwd, hinv] at hm; simp only [Prod.mk.injEq] at hm
+      obtain ⟨rfl, rfl, rfl, rfl⟩ := hm
+      have hs := threadFusedArm_spec hinv
+      exact ⟨hs.2.1, hs.2.2, fun j hj => by
+        cases hj; exact ⟨(fun h => nomatch h), fun _ => hs.1⟩⟩
+  | some pF =>
+    obtain ⟨jt, brF, stF⟩ := pF
+    cases hinv : threadFusedArm I h fn ipE st1 (emit true) e with
+    | none =>
+      rw [hfwd, hinv] at hm; simp only [Prod.mk.injEq] at hm
+      obtain ⟨rfl, rfl, rfl, rfl⟩ := hm
+      have hs := threadFusedArm_spec hfwd
+      exact ⟨hs.2.1, hs.2.2, fun j hj => by
+        cases hj; exact ⟨fun _ => hs.1, (fun h => nomatch h)⟩⟩
+    | some pE =>
+      obtain ⟨je, brI, stI⟩ := pE
+      rw [hfwd, hinv] at hm
+      dsimp only at hm; split at hm <;> simp only [Prod.mk.injEq] at hm <;>
+        obtain ⟨rfl, rfl, rfl, rfl⟩ := hm
+      · have hs := threadFusedArm_spec hinv
+        exact ⟨hs.2.1, hs.2.2, fun j hj => by
+          cases hj; exact ⟨(fun h => nomatch h), fun _ => hs.1⟩⟩
+      · have hs := threadFusedArm_spec hfwd
+        exact ⟨hs.2.1, hs.2.2, fun j hj => by
+          cases hj; exact ⟨fun _ => hs.1, (fun h => nomatch h)⟩⟩
+
 theorem jnzSetup_thread {I : Isa} {h : I.Hints} {nl ipT ipE : Nat} {st1 : SymState I}
-    {t e : Expr VNat LNat rs} {ft : Option Nat} {cond : Sum I.Cond I.Reg} {inv : Bool} {j : Nat}
+    {t e : Expr VNat LNat rs} {ft : Option Nat} {cond : JnzCond I} {inv : Bool} {j : Nat}
     {br : List I.Directive} {stBr : SymState I}
-    (hs : jnzSetup I h fn nl ipT ipE st1 t e ft cond = (inv, some j, br, stBr)) :
+    (hs : jnzSetup I h fn nl ipT ipE st1 t e ft cond = some (inv, some j, br, stBr)) :
     (inv = false → zeroMoveJump? I h ipT stBr t = some j) ∧
     (inv = true → zeroMoveJump? I h ipE stBr e = some j) := by
   cases cond with
-  | inl cc =>
-    simp only [jnzSetup, Prod.mk.injEq] at hs
+  | flag cc =>
+    simp only [jnzSetup, Option.some.injEq, Prod.mk.injEq] at hs
     obtain ⟨h1, h2, -, rfl⟩ := hs
     exact jnzMode_spec (Prod.ext h1 h2)
-  | inr r =>
-    simp only [jnzSetup, Prod.mk.injEq] at hs
+  | gpr r =>
+    simp only [jnzSetup, Option.some.injEq, Prod.mk.injEq] at hs
     obtain ⟨rfl, h2, -, rfl⟩ := hs
     refine ⟨fun _ => ?_, fun h => nomatch h⟩
     rw [h2]
@@ -445,24 +537,32 @@ theorem jnzSetup_thread {I : Isa} {h : I.Hints} {nl ipT ipE : Nat} {st1 : SymSta
               split at h2 <;> simp_all
       subst hj; exact h2
     · cases h2
+  | cmpZero co w r =>
+    simp only [jnzSetup] at hs
+    exact (fuseJnzChoice_spec hs).2.2 j rfl
+  | testImm neg w r mask =>
+    simp only [jnzSetup] at hs
+    exact (fuseJnzChoice_spec hs).2.2 j rfl
 
 theorem jnzSetup_memDefs {I : Isa} {h : I.Hints} {nl ipT ipE : Nat} {st1 : SymState I}
-    {t e : Expr VNat LNat rs} {ft : Option Nat} {cond : Sum I.Cond I.Reg} {inv : Bool}
+    {t e : Expr VNat LNat rs} {ft : Option Nat} {cond : JnzCond I} {inv : Bool}
     {tgt : Option Nat} {br : List I.Directive} {stBr : SymState I}
-    (hs : jnzSetup I h fn nl ipT ipE st1 t e ft cond = (inv, tgt, br, stBr)) :
+    (hs : jnzSetup I h fn nl ipT ipE st1 t e ft cond = some (inv, tgt, br, stBr)) :
     stBr.memDefs = st1.memDefs := by
-  cases cond <;> simp only [jnzSetup, Prod.mk.injEq] at hs <;> rw [← hs.2.2.2]
+  cases cond with
+  | flag _ | gpr _ => simp only [jnzSetup, Option.some.injEq, Prod.mk.injEq] at hs; rw [← hs.2.2.2]
+  | cmpZero _ _ _ | testImm _ _ _ _ => simp only [jnzSetup] at hs; exact (fuseJnzChoice_spec hs).1
 
-/-- Branch on the `jnz` condition (`jcc` on a flag or `jnzGpr` on a GPR). -/
+/-- Branch on the `jnz` condition (`jcc`, `jnzGpr`, `cmpZeroJcc`, or `testJcc`). -/
 theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx}
     {nv nl ipT ipE : Nat} {st1 stBr : SymState T.toIsa} {s1 : T.mach.MData}
     {σ1 : List (BitVec 64)} {m : Mem 64} {cv : Bool} {cx : Nat}
     (hmem : (⟨.bool, cv, cx⟩ : (t : Ty) × Val t × VNat t) ∈ G)
     (hA1 : Agree T G nv st1 s1 σ1) (hI1 : Inv T hints s₀ ra n Rf m s1 σ1 zl)
-    {cond : Sum T.Cond T.Reg} (hfc : findJnzCond T.toIsa st1.regs cx = some cond)
+    {cond : JnzCond T.toIsa} (hfc : findJnzCond T.toIsa st1 cx = some cond)
     {t e : Expr VNat LNat rs} {ft : Option Nat} {inv : Bool} {tgt : Option Nat}
     {br : List T.Directive}
-    (hs : jnzSetup T.toIsa hints fn nl ipT ipE st1 t e ft cond = (inv, tgt, br, stBr))
+    (hs : jnzSetup T.toIsa hints fn nl ipT ipE st1 t e ft cond = some (inv, tgt, br, stBr))
     {kb kT : Nat} {post : T.mach.State → Prop} (hbr : br.IsInfixAt (T.mach.prog host) kb)
     (hlab : (T.mach.prog host)[kT]? = some (T.frame.label (lname fn (tgt.getD nl))))
     (kont : ∀ s', Agree T G nv stBr s' σ1 → Inv T hints s₀ ra n Rf m s' σ1 zl →
@@ -472,9 +572,9 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
   have hc := findJnzCond_ok hA1 hmem hfc
   have hla := labelAddr_of_unique hy.unique hlab
   cases cond with
-  | inl cc =>
+  | flag cc =>
     simp only at hc
-    simp only [jnzSetup, Prod.mk.injEq] at hs
+    simp only [jnzSetup, Option.some.injEq, Prod.mk.injEq] at hs
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hs
     refine T.gprSpec.jcc_spec hbr hla fun s' hfr hm => ?_
     have := kont s' (hA1.kill hfr) (hI1.keep hm (keep_of_frame_scratch hfr))
@@ -486,13 +586,34 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
         then !cv else cv) := by
       split <;> simp_all [T.gprSpec.negCond_eval]
     rw [hev]; exact this
-  | inr r =>
+  | gpr r =>
     simp only at hc
-    simp only [jnzSetup, Prod.mk.injEq] at hs
+    simp only [jnzSetup, Option.some.injEq, Prod.mk.injEq] at hs
     obtain ⟨rfl, rfl, rfl, rfl⟩ := hs
     refine T.gprSpec.jnzGpr_spec hbr hla hc.1 hc.2 fun s' hfr hm => ?_
     have := kont s' (hA1.kill hfr) (hI1.keep hm (keep_of_frame_scratch hfr))
     simpa using this
+  | cmpZero co w r =>
+    obtain ⟨hns, va, hgp, hcv⟩ := hc
+    simp only [jnzSetup] at hs
+    obtain ⟨-, ⟨cl, hem, rfl⟩, -⟩ := fuseJnzChoice_spec hs
+    refine T.gprSpec.cmpZeroJcc_spec hem hbr hla hns hgp fun s' hfr hm => ?_
+    have := kont s' (hA1.kill hfr) (hI1.keep hm (keep_of_frame_scratch hfr))
+    cases inv <;> simp only [Bool.false_eq_true, ↓reduceIte] at this ⊢
+    · rw [← hcv]; exact this
+    · rw [CmpOp.neg_evalBits, ← hcv]; exact this
+  | testImm neg w r mask =>
+    obtain ⟨hns, va, hgp, hcv⟩ := hc
+    simp only [jnzSetup] at hs
+    obtain ⟨-, ⟨cl, hem, rfl⟩, -⟩ := fuseJnzChoice_spec hs
+    refine T.gprSpec.testJcc_spec hem hbr hla hns hgp fun s' hfr hm => ?_
+    have := kont s' (hA1.kill hfr) (hI1.keep hm (keep_of_frame_scratch hfr))
+    cases inv <;>
+      simp only [Bool.false_eq_true, ↓reduceIte] at this ⊢
+    · rw [← hcv]; exact this
+    · have hflip : (if !neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& mask) 0#w = !cv := by
+        rw [hcv]; cases neg <;> simp [CmpOp.evalBits]
+      rw [hflip]; exact this
 
 theorem lowerBlocks_labelPos {I : Isa} {h : I.Hints} {E : Ext} {prog : List I.Directive} :
     ∀ {sig : List (List Ty)} (bs : Blocks VNat LNat rs sig) (lid nv nl ip : Nat) (defs : Trie DefFact)
@@ -534,7 +655,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
     | none => simp [hp] at hl
     | some p1 =>
       obtain ⟨mc, st1⟩ := p1
-      cases hlop : lowerOp T.toIsa hints nv ip st1 op₂ with
+      cases hlop : lowerOp T.toIsa hints nv ip st1 op₂
+          (deferJnzNext T.toIsa hints fn nv nl ip st1 op₂ (k₂ (Tup.levels ts nv))) with
       | none => simp [hp, hlop] at hl
       | some p2 =>
         obtain ⟨co, st2⟩ := p2
@@ -671,12 +793,16 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
       | none => simp [hp] at hl
       | some p1 =>
         obtain ⟨mc, st1⟩ := p1
-        cases hfc : findJnzCond T.toIsa st1.regs cx with
+        cases hfc : findJnzCond T.toIsa st1 cx with
         | none => simp [hp, hfc] at hl
         | some cond =>
-          rcases hs : jnzSetup T.toIsa hints fn nl
-              (jnzIpT nv nl ip t₂ e₂) (ip + 1) st1 t₂ e₂ ft cond with
-            ⟨inv, tgt, br, stBr⟩
+          obtain ⟨inv, tgt, br, stBr, hs⟩ : ∃ inv tgt br stBr,
+              jnzSetup T.toIsa hints fn nl (jnzIpT nv nl ip t₂ e₂) (ip + 1)
+                st1 t₂ e₂ ft cond = some (inv, tgt, br, stBr) := by
+            cases h : jnzSetup T.toIsa hints fn nl (jnzIpT nv nl ip t₂ e₂) (ip + 1)
+                st1 t₂ e₂ ft cond
+            · simp [hp, hfc, h] at hl
+            · exact ⟨_, _, _, _, rfl⟩
           simp only [hp, hfc, hs] at hl
           split at hl; · simp at hl
           rename_i ce nv1 nl1 ip1 hle

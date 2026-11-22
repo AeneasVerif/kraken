@@ -1001,6 +1001,58 @@ def armTestOp (n : Nat) (neg : Bool) (pa pb : PArg Reg Empty ArmCond (.bits n))
     (pd : PDst Reg Empty ArmCond .bool) : Option (List Directive × FlagMask) :=
   emitCleanPair (armTestOpIns n neg pa pb pd)
 
+/-- Return bit index `k < n` iff `mask == 1#n <<< k`. -/
+def armSingleBit? (n : Nat) (mask : BitVec n) : Option Nat :=
+  (List.range n).find? fun k => mask == (1#n <<< k)
+
+/-- Emit `CBZ`/`CBNZ` sequence for `n ∈ {8, 16, 32, 64}` (zero-extending `8`/`16` via `.X16`). -/
+def armCmpZeroCbIns (isNz : Bool) (n : Nat) (x : XReg) (l : Sym) : List Instr :=
+  let w := armWidthOf n
+  let op : Operation w := if isNz then .CBNZ (zr x w) (.label l) else .CBZ (zr x w) (.label l)
+  if n == 32 || n == 64 then [armIselInsI (w := w) op]
+  else
+    let op32 : Operation .W32 :=
+      if isNz then .CBNZ (zr .X16 .W32) (.label l) else .CBZ (zr .X16 .W32) (.label l)
+    [armExt32I false n .X16 x, armIselInsI (w := .W32) op32]
+
+/-- Fused compare-against-zero branch (`CBZ`/`CBNZ` for `== 0`/`!= 0`, `TBZ`/`TBNZ`
+for signed `< 0`/`>= 0`). -/
+def armCmpZeroJccIns (co : CmpOp) (n : Nat) (r : Reg) (l : Sym) :
+    Option (List Instr × FlagMask) :=
+  if ![8, 16, 32, 64].contains n then none
+  else match r with
+    | .SP => none
+    | .reg x =>
+      let w := armWidthOf n
+      match co with
+      | .eq | .ule => some (armCmpZeroCbIns false n x l, maskNone)
+      | .ne | .ugt => some (armCmpZeroCbIns true n x l, maskNone)
+      | .slt => some ([armIselInsI (w := w) (.TBNZ (zr x w) (n - 1) (.label l))], maskNone)
+      | .sge => some ([armIselInsI (w := w) (.TBZ (zr x w) (n - 1) (.label l))], maskNone)
+      | _ => none
+
+/-- Lower fused compare-against-zero branch into AArch64 directives. -/
+def armCmpZeroJcc (co : CmpOp) (n : Nat) (r : Reg) (l : Sym) :
+    Option (List Directive × FlagMask) :=
+  emitCleanPair (armCmpZeroJccIns co n r l)
+
+/-- Fused `(r &&& (1 <<< k)) ==/!= 0` single-bit branch (`TBZ`/`TBNZ`). -/
+def armTestJccIns (neg : Bool) (n : Nat) (r : Reg) (mask : BitVec n) (l : Sym) :
+    Option (List Instr × FlagMask) :=
+  if ![8, 16, 32, 64].contains n then none
+  else match r, armSingleBit? n mask with
+    | .reg x, some k =>
+      let w := armWidthOf n
+      let op : Operation w :=
+        if neg then .TBNZ (zr x w) k (.label l) else .TBZ (zr x w) k (.label l)
+      some ([armIselInsI (w := w) op], maskNone)
+    | _, _ => none
+
+/-- Lower fused single-bit `(r &&& mask) ==/!= 0` branch into AArch64 directives. -/
+def armTestJcc (neg : Bool) (n : Nat) (r : Reg) (mask : BitVec n) (l : Sym) :
+    Option (List Directive × FlagMask) :=
+  emitCleanPair (armTestJccIns neg n r mask l)
+
 /-- Scalar `OpCode` lowering for AArch64 (`Instr` builder). -/
 def armOpIns {sig rs : List Ty} (code : OpCode sig rs) (pas : Tup (PArg Reg Empty ArmCond) sig)
     (dsts : Tup (PDst Reg Empty ArmCond) rs) (vh : VariantHint) : Option (List Instr × FlagMask) :=
@@ -1163,5 +1215,7 @@ def armZeroUpper32Op : {sig rs : List Ty} → OpCode sig rs →
   zeroUpper32Op := armZeroUpper32Op
   elideZext32 := true
   testOp := armTestOp
+  cmpZeroJcc := armCmpZeroJcc
+  testJcc := armTestJcc
 
 end LeanQbe.T.Arm64

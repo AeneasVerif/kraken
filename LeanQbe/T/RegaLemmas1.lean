@@ -121,6 +121,11 @@ def DefOk (G : VCtx) (x : Nat) : DefFact → Prop
     ∃ va : BitVec m, ⟨.bits m, va, a⟩ ∈ G ∧ v = va.signExtend n
   | .zextVar m n a => 0 < m ∧ m < n ∧ n ≤ 64 ∧ ∀ v : BitVec n, ⟨.bits n, v, x⟩ ∈ G →
     ∃ va : BitVec m, ⟨.bits m, va, a⟩ ∈ G ∧ v = va.zeroExtend n
+  | .cmpZeroVar co w a => w ≤ 64 ∧ ∀ cv : Bool, ⟨.bool, cv, x⟩ ∈ G →
+    ∃ va : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧ cv = co.evalBits va 0#w
+  | .testBitVar neg w a c => w ≤ 64 ∧ ∀ cv : Bool, ⟨.bool, cv, x⟩ ∈ G →
+    ∃ va : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧
+      cv = (if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& c.setWidth w) 0#w
 
 /-- Validity of straight-line elided-load memory definitions against abstract heap `m`. -/
 def MemDefsOk (G : VCtx) (m : Mem 64) (nv : Nat) (md : Trie (Ty × Arg VNat i64)) : Prop :=
@@ -484,6 +489,14 @@ theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', 
   | zextVar m n a =>
     refine ⟨h.1, h.2.1, h.2.2.1, fun v hv => ?_⟩
     obtain ⟨va, h1, h2⟩ := h.2.2.2 v (hm _ _ hv)
+    exact ⟨va, hsub _ h1, h2⟩
+  | cmpZeroVar co w a =>
+    refine ⟨h.1, fun cv hcv => ?_⟩
+    obtain ⟨va, h1, h2⟩ := h.2 cv (hm _ _ hcv)
+    exact ⟨va, hsub _ h1, h2⟩
+  | testBitVar neg w a c =>
+    refine ⟨h.1, fun cv hcv => ?_⟩
+    obtain ⟨va, h1, h2⟩ := h.2 cv (hm _ _ hcv)
     exact ⟨va, hsub _ h1, h2⟩
 
 theorem execMove_memDefs {I : Isa} {nslots : Nat} {saved : List I.Reg} {mv : I.Move}

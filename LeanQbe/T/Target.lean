@@ -288,6 +288,12 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
   /-- Fused sign-extending load `rd := (load (.bits m) addr).signExtend 64` for `sext m n`. -/
   loadSext : (m n : Nat) → Reg → AddrArg Reg → Option (List Directive × FlagMask) :=
     fun _ _ _ _ => none
+  /-- Fused compare-against-zero branch: jump to `l` iff `co.evalBits val 0#w`. -/
+  cmpZeroJcc : (co : CmpOp) → (w : Nat) → Reg → Sym → Option (List Directive × FlagMask) :=
+    fun _ _ _ _ => none
+  /-- Fused `(val &&& mask) ==/!= 0` branch (`neg = true` jumps on `!= 0`). -/
+  testJcc : (neg : Bool) → (w : Nat) → Reg → BitVec w → Sym →
+    Option (List Directive × FlagMask) := fun _ _ _ _ _ => none
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -639,6 +645,23 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
     M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
       (fun s' => M.getGpr s' rd = v.signExtend 64 ∧ M.mem s' = M.mem s) post :=
     by intros; contradiction
+  cmpZeroJcc_spec : ∀ {h k j co w r l c clob} {v : BitVec w} {s post},
+    g.cmpZeroJcc co w r l = some (c, clob) →
+    c.IsInfixAt (M.prog h) k → M.labelAddr h l = M.addrOf h j →
+    r ∉ scratch → GprHolds (M.getGpr s r) (.bits w) v →
+    (∀ s', M.Frame g.condReads s s' scratch [] clob → M.mem s' = M.mem s →
+      (co.evalBits v 0#w = true → M.Run h j s' post) ∧
+      (co.evalBits v 0#w = false → M.Run h (k + c.length) s' post)) →
+    M.Run h k s post := by intros; contradiction
+  testJcc_spec : ∀ {h k j neg w r mask l c clob} {v : BitVec w} {s post},
+    g.testJcc neg w r mask l = some (c, clob) →
+    c.IsInfixAt (M.prog h) k → M.labelAddr h l = M.addrOf h j →
+    r ∉ scratch → GprHolds (M.getGpr s r) (.bits w) v →
+    (∀ s', M.Frame g.condReads s s' scratch [] clob → M.mem s' = M.mem s →
+      ((if neg then CmpOp.ne else CmpOp.eq).evalBits (v &&& mask) 0#w = true → M.Run h j s' post) ∧
+      ((if neg then CmpOp.ne else CmpOp.eq).evalBits (v &&& mask) 0#w = false →
+        M.Run h (k + c.length) s' post)) →
+    M.Run h k s post := by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where
   RetAddr : BitVec 64 → M.Addr → Mem 64 → Prop

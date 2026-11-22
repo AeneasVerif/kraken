@@ -71,6 +71,11 @@ meta def isSubsDir : Directive → Bool
   | .instr { operation := .SUBS_s .., .. } => true
   | _ => false
 
+meta def isTbzOrTbnzDir : Directive → Bool
+  | .instr { operation := .TBZ .., .. }
+  | .instr { operation := .TBNZ .., .. } => true
+  | _ => false
+
 meta def isAddScaledDir : Directive → Bool
   | .instr { operation := .ADD_s (.low (.reg .X16) .W64) _ _, .. } => true
   | _ => false
@@ -188,10 +193,24 @@ meta def baseIdxNegDispFn : Fn :=
     .load i32 (.var p1) fun v =>
     .ret (.var v, ())⟩
 
+/-- Multi-bit mask test `(x & 0x6) != 0` emits 1 `ANDS_i` (not single-bit `TBZ`/`TBNZ`). -/
+meta def bitTestMultiImm32Fn : Fn :=
+  ⟨"bitTestMultiImm32", [i32, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
+    .let_ (op2 (.and i32) (.var x) (.imm 0x6)) fun (t, ()) =>
+    .let_ (op2 (.cmp .ne i32) (.var t) (.imm 0)) fun (c, ()) =>
+    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+
 #guard chk [bitTestImm32Fn]
-#guard countDirs isAndsImmDir (codeOf [bitTestImm32Fn]) == 1
+#guard countDirs isTbzOrTbnzDir (codeOf [bitTestImm32Fn]) == 1
+#guard countDirs isAndsImmDir (codeOf [bitTestImm32Fn]) == 0
 #guard countDirs isAndDir (codeOf [bitTestImm32Fn]) == 0
 #guard countDirs isSubsDir (codeOf [bitTestImm32Fn]) == 0
+
+#guard chk [bitTestMultiImm32Fn]
+#guard countDirs isAndsImmDir (codeOf [bitTestMultiImm32Fn]) == 1
+#guard countDirs isTbzOrTbnzDir (codeOf [bitTestMultiImm32Fn]) == 0
+#guard countDirs isAndDir (codeOf [bitTestMultiImm32Fn]) == 0
+#guard countDirs isSubsDir (codeOf [bitTestMultiImm32Fn]) == 0
 
 #guard chk [bitTestReg64Fn]
 #guard countDirs isAndsRegDir (codeOf [bitTestReg64Fn]) == 1
@@ -199,7 +218,8 @@ meta def baseIdxNegDispFn : Fn :=
 #guard countDirs isSubsDir (codeOf [bitTestReg64Fn]) == 0
 
 #guard chk [leb128Bit7Fn]
-#guard countDirs isAndsImmDir (codeOf [leb128Bit7Fn]) == 1
+#guard countDirs isTbzOrTbnzDir (codeOf [leb128Bit7Fn]) == 1
+#guard countDirs isAndsImmDir (codeOf [leb128Bit7Fn]) == 0
 #guard countDirs isExtDir (codeOf [leb128Bit7Fn]) == 0
 #guard countDirs isSubsDir (codeOf [leb128Bit7Fn]) == 0
 
@@ -224,7 +244,7 @@ meta def m4BcpEx : List (SigEntry × Nat) :=
 #guard countDirs isAddScaledDir (codeOf Examples.Kissat.FullM4Bcp.m4Bcp_fns m4BcpEx) ≥ 1
 
 #guard chk Examples.LratBytes.lratBytesFns
-#guard countDirs isAndsDir (codeOf Examples.LratBytes.lratBytesFns) ≥ 1
+#guard countDirs isTbzOrTbnzDir (codeOf Examples.LratBytes.lratBytesFns) ≥ 14
 
 /-! ## 4. Axiom audit -/
 

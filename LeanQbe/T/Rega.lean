@@ -46,6 +46,8 @@ inductive DefFact where
   | andVarImm (w x : Nat) (c : BitVec 64)
   | sextVar (m n x : Nat)
   | zextVar (m n x : Nat)
+  | cmpZeroVar (co : CmpOp) (w x : Nat)
+  | testBitVar (neg : Bool) (w x : Nat) (c : BitVec 64)
   deriving DecidableEq, Repr
 
 def DefFact.isAddr : DefFact → Bool
@@ -823,9 +825,44 @@ def tryLoadSext (I : Isa) (st : SymState I) (vh : VariantHint) {sig ts : List Ty
     | _ => none
   | _, _, _, _, _ => none
 
+def normZeroCmp : CmpOp → CmpOp
+  | .ugt => .ne
+  | .ule => .eq
+  | o => o
+
+def recordBoolDef (defs : Trie DefFact) {sig ts : List Ty} (code : OpCode sig ts)
+    (args : Tup (Arg VNat) sig) : Option DefFact :=
+  match sig, ts, code, args with
+  | _, _, .cmp co (.bits n) .bool _, (a, b, ()) =>
+    if !Nat.ble n 64 then none
+    else
+      let pair? := match a, b with
+        | .var t, .imm c => if c == 0#n then some (normZeroCmp co, t) else none
+        | .imm c, .var t => if c == 0#n then some (normZeroCmp co.swap, t) else none
+        | _, _ => none
+      pair?.map fun (co0, t) =>
+        match defs.find? t with
+        | some (.andVarImm w x mask) =>
+          if (co0 == .eq || co0 == .ne) && Nat.beq w n then
+            .testBitVar (co0 == .ne) w x mask
+          else .cmpZeroVar co0 n t
+        | some (.sextVar m n' x) =>
+          if Nat.beq n' n && Nat.blt 0 m && Nat.blt m n && cmpIsSignedOrEq co0 then
+            .cmpZeroVar co0 m x
+          else .cmpZeroVar co0 n t
+        | some (.zextVar m n' x) =>
+          if Nat.beq n' n && Nat.blt 0 m && Nat.blt m n && cmpIsUnsignedOrEq co0 then
+            .cmpZeroVar co0 m x
+          else .cmpZeroVar co0 n t
+        | _ => .cmpZeroVar co0 n t
+  | _, _, _, _ => none
+
 def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List Ty}
-    (op : Op VNat ts) : Option (List I.Directive × SymState I) :=
-  if h.elide.getD ip false then
+    (op : Op VNat ts) (deferFuse : Bool := false) : Option (List I.Directive × SymState I) :=
+  if deferFuse then
+    (recordBoolDef st1.defs op.code op.args).map fun df =>
+      ([], { st1 with defs := st1.defs.insert nv df })
+  else if h.elide.getD ip false then
     match recordDef st1.defs op.code op.args with
     | some df => some ([], { st1 with defs := st1.defs.insert nv df })
     | none => none
@@ -931,8 +968,22 @@ def calleeAllowed (E : Ext) (f : Sym) (as bs : List Ty) : Bool :=
   E.callees.any fun (g, gas, gbs) => g == f && listTyEq gas as && listTyEq gbs bs
 def prepend {I : Isa} (pre : List I.Directive) : Res I → Res I
   | .ok (c, nv, nl, ip) => .ok (pre ++ c, nv, nl, ip) | .error e => .error e
-def findJnzCond (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) (x : Nat) : Option (Sum I.Cond I.Reg) :=
-  (findFlagFor I R (.var x)).map .inl <|> (findGprFor I true R (.var x)).map .inr
+/-- Condition representation for `jnz`: flag, GPR bool, or deferred compare/bit-test fusion. -/
+inductive JnzCond (I : Isa) where
+  | flag (c : I.Cond)
+  | gpr (r : I.Reg)
+  | cmpZero (co : CmpOp) (w : Nat) (r : I.Reg)
+  | testImm (neg : Bool) (w : Nat) (r : I.Reg) (mask : BitVec w)
+
+def findJnzCond (I : Isa) (st : SymState I) (x : Nat) : Option (JnzCond I) :=
+  (findFlagFor I st.regs (.var x)).map .flag <|>
+    (findGprFor I true st.regs (.var x)).map .gpr <|>
+    match st.defs.find? x with
+    | some (.cmpZeroVar co w y) =>
+      (findGprFor I true st.regs (.var y)).map fun r => .cmpZero co w r
+    | some (.testBitVar neg w y c) =>
+      (findGprFor I true st.regs (.var y)).map fun r => .testImm neg w r (c.setWidth w)
+    | _ => none
 
 /-- `true` when `h.pre` at `ip` emits no moves or flag clears. -/
 def preEmpty {I : Isa} (h : I.Hints) (ip : Nat) : Bool :=
@@ -965,18 +1016,50 @@ def gprThread? {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (ipT : Nat) (st
       (.jump j args)
   | _ => none
 
+def threadFusedArm {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (ipA : Nat)
+    (st1 : SymState I) (emit : Sym → Option (List I.Directive × FlagMask))
+    (arm : Expr VNat LNat rs) : Option (Nat × List I.Directive × SymState I) :=
+  match arm with
+  | .jump j _ =>
+    (emit (lname fn j)).bind fun (br, cl) =>
+      let stB := { st1 with regs := killRegs I I.frame.scratch [] cl st1.regs }
+      if zeroMoveJump? I h ipA stB arm == some j then some (j, br, stB) else none
+  | _ => none
+
+def fuseJnzChoice {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat)
+    (st1 : SymState I) (t e : Expr VNat LNat rs) (ft : Option Nat)
+    (emit : Bool → Sym → Option (List I.Directive × FlagMask)) :
+    Option (Bool × Option Nat × List I.Directive × SymState I) :=
+  (emit false (lname fn nl)).map fun (brNl, clNl) =>
+    let stNl := { st1 with regs := killRegs I I.frame.scratch [] clNl st1.regs }
+    let fwd? := threadFusedArm I h fn ipT st1 (emit false) t
+    let inv? := threadFusedArm I h fn ipE st1 (emit true) e
+    match fwd?, inv? with
+    | some (jt, brF, stF), some (je, brI, stI) =>
+      if ft == some jt then (true, some je, brI, stI) else (false, some jt, brF, stF)
+    | some (jt, brF, stF), none => (false, some jt, brF, stF)
+    | none, some (je, brI, stI) => (true, some je, brI, stI)
+    | none, none => (false, none, brNl, stNl)
+
 /-- Branch selection for `jnz`: `(inverted?, threaded target, branch code, state after branch)`. -/
 def jnzSetup {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat)
     (st1 : SymState I) (t e : Expr VNat LNat rs) (ft : Option Nat) :
-    Sum I.Cond I.Reg → Bool × Option Nat × List I.Directive × SymState I
-  | .inl cc =>
+    JnzCond I → Option (Bool × Option Nat × List I.Directive × SymState I)
+  | .flag cc =>
     let stB := { st1 with regs := killRegs I I.frame.scratch [] FlagMask.none st1.regs }
     let p := jnzMode I h ipT ipE stB true t e ft
-    (p.1, p.2, I.gpr.jcc (if p.1 then I.gpr.negCond cc else cc) (lname fn (p.2.getD nl)), stB)
-  | .inr r =>
+    some (p.1, p.2, I.gpr.jcc (if p.1 then I.gpr.negCond cc else cc)
+      (lname fn (p.2.getD nl)), stB)
+  | .gpr r =>
     let tg := gprThread? I h fn ipT st1 r t
     let p := I.gpr.jnzGpr r (lname fn (tg.getD nl))
-    (false, tg, p.1, { st1 with regs := killRegs I I.frame.scratch [] p.2 st1.regs })
+    some (false, tg, p.1, { st1 with regs := killRegs I I.frame.scratch [] p.2 st1.regs })
+  | .cmpZero co w r =>
+    fuseJnzChoice I h fn nl ipT ipE st1 t e ft fun inv l =>
+      I.gpr.cmpZeroJcc (if inv then co.neg else co) w r l
+  | .testImm neg w r mask =>
+    fuseJnzChoice I h fn nl ipT ipE st1 t e ft fun inv l =>
+      I.gpr.testJcc (if inv then !neg else neg) w r mask l
 
 def finishJnzBranch {rs : List Ty} (I : Isa) (fn : Sym) (nl : Nat) (tgt? : Option Nat)
     (b_taken : Expr VNat LNat rs) (br c_ft c_taken : List I.Directive) (nv2 nl2 ip2 : Nat) : Res I :=
@@ -1010,11 +1093,13 @@ def cmpVarImm? : {sig ts : List Ty} → OpCode sig ts → Tup (Arg VNat) sig →
   | _, _, .cmp _ (.bits _) .bool _, (.imm _, .var x, ()) => some x
   | _, _, _, _ => none
 
+def argHasVar {t : Ty} (a : Arg VNat t) (x : Nat) : Bool :=
+  match a with | .var y => Nat.beq y x | .imm _ => false
+
 /-- `true` when variable `x` occurs among the arguments `args`. -/
 def argsHaveVar : {ts : List Ty} → Tup (Arg VNat) ts → Nat → Bool
   | [], (), _ => false
-  | _ :: _, (a, as), x =>
-    (match a with | .var y => Nat.beq y x | .imm _ => false) || argsHaveVar as x
+  | _ :: _, (a, as), x => argHasVar a x || argsHaveVar as x
 
 /-- `true` when `e` is a jump whose target entry and arguments never mention variable `x`. -/
 def jumpAvoids {rs : List Ty} {I : Isa} (h : I.Hints) (x : Nat) : Expr VNat LNat rs → Bool
@@ -1162,14 +1247,68 @@ def jnzIpT {rs : List Ty} (nv nl ip : Nat) (t e : Expr VNat LNat rs) : Nat :=
   | _ => ip + 1
 
 mutual
+def exprFreeOfVar {I : Isa} (h : I.Hints) (x : Nat) {rs : List Ty} :
+    Expr VNat LNat rs → Nat → Bool
+  | .let_ (ts := ts) op k, nv =>
+    !argsHaveVar op.args x && exprFreeOfVar h x (k (Tup.levels ts nv)) (nv + ts.length)
+  | .load _ a k, nv =>
+    !argHasVar a x && exprFreeOfVar h x (k nv) (nv + 1)
+  | .store v a k, nv =>
+    !argHasVar v x && !argHasVar a x && exprFreeOfVar h x k nv
+  | .call (bs := bs) _ args k, nv =>
+    !argsHaveVar args x && exprFreeOfVar h x (k (Tup.levels bs nv)) (nv + bs.length)
+  | .jnz c t e, nv =>
+    !argHasVar c x && exprFreeOfVar h x t nv && exprFreeOfVar h x e nv
+  | .jump j args, _ =>
+    !argsHaveVar args x &&
+      match h.entry.find? j with
+      | some en => en.live.all fun (sa, _) => !symArgEq sa (.var x)
+      | none => true
+  | .ret vs, _ => !argsHaveVar vs x
+  | .exit _ args, _ => !argsHaveVar args x
+  | .hlt, _ => true
+  | .group (sig := sig) bodies k, nv =>
+    let ls := Tup.levels sig 0
+    exprFreeOfVar h x (k ls) nv && blocksFreeOfVar h x (bodies ls) nv
+
+def blocksFreeOfVar {I : Isa} (h : I.Hints) (x : Nat) {rs : List Ty} :
+    {sig : List (List Ty)} → Blocks VNat LNat rs sig → Nat → Bool
+  | _, .nil, _ => true
+  | _, .cons (ts := ts) b bs, nv =>
+    exprFreeOfVar h x (b (Tup.levels ts nv)) (nv + ts.length) && blocksFreeOfVar h x bs nv
+end
+
+/-- Lookahead deferring `.cmp` against `0`/bit-test feeding a single-use `.jnz` via
+`I.gpr.cmpZeroJcc` / `I.gpr.testJcc`. -/
+def deferJnzNext {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nv nl ip : Nat)
+    (st1 : SymState I) {ts : List Ty} (op : Op VNat ts) (k' : Expr VNat LNat rs) : Bool :=
+  match ts, k' with
+  | [.bool], .jnz (.var cx) t e =>
+    Nat.beq cx nv && exprFreeOfVar h nv t (nv + 1) && exprFreeOfVar h nv e (nv + 1) &&
+      match lowerOp I h nv ip st1 op true with
+      | some (_, st2) =>
+        match stepPre I h (ip + 1) st2 with
+        | some (_, stAfter) =>
+          match findJnzCond I stAfter nv with
+          | some (.cmpZero co w r) => (I.gpr.cmpZeroJcc co w r (lname fn nl)).isSome
+          | some (.testImm neg w r mask) => (I.gpr.testJcc neg w r mask (lname fn nl)).isSome
+          | _ => false
+        | none => false
+      | none => false
+  | _, _ => false
+
+mutual
 def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
     Expr VNat LNat rs → Nat → Nat → Nat → SymState I → Option Nat → Res I
   | .let_ (ts := ts) op k, nv, nl, ip, st, ft =>
     match stepPre I h ip st with
     | none => .error "let: pre"
-    | some (mc, st1) => match lowerOp I h nv ip st1 op with
+    | some (mc, st1) =>
+      let k' := k (Tup.levels ts nv)
+      match lowerOp I h nv ip st1 op (deferJnzNext I h fn nv nl ip st1 op k') with
       | none => .error "let: op"
-      | some (c, st2) => prepend (mc ++ c) (lowerExpr I h E fn (k (Tup.levels ts nv)) (nv + ts.length) nl (ip + 1) st2 ft)
+      | some (c, st2) =>
+        prepend (mc ++ c) (lowerExpr I h E fn k' (nv + ts.length) nl (ip + 1) st2 ft)
   | .load t a k, nv, nl, ip, st, ft =>
     match stepPre I h ip st with
     | none => .error "load: pre"
@@ -1208,20 +1347,22 @@ def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
   | .jnz (.var cx) t e, nv, nl, ip, st, ft =>
     match stepPre I h ip st with
     | none => .error "jnz: pre"
-    | some (mc, st1) => match findJnzCond I st1.regs cx with
+    | some (mc, st1) => match findJnzCond I st1 cx with
       | none => .error "jnz: cond"
       | some cond =>
-        let (inv, tgt?, br, stBr) :=
-          jnzSetup I h fn nl (jnzIpT nv nl ip t e) (ip + 1) st1 t e ft cond
-        let ftT := match tgt? with | some j => some j | none => ft
-        let ftF := match tgt? with | some _ => ft | none => none
-        match lowerExpr I h E fn e nv (nl + 1) (ip + 1) stBr (if inv then ftT else ftF) with
-        | .error err => .error err
-        | .ok (ce, nv1, nl1, ip1) => match lowerExpr I h E fn t nv1 nl1 ip1 stBr (if inv then ftF else ftT) with
+        match jnzSetup I h fn nl (jnzIpT nv nl ip t e) (ip + 1) st1 t e ft cond with
+        | none => .error "jnz: cond"
+        | some (inv, tgt?, br, stBr) =>
+          let ftT := match tgt? with | some j => some j | none => ft
+          let ftF := match tgt? with | some _ => ft | none => none
+          match lowerExpr I h E fn e nv (nl + 1) (ip + 1) stBr (if inv then ftT else ftF) with
           | .error err => .error err
-          | .ok (ct, nv2, nl2, ip2) =>
-            prepend mc (if inv then finishJnzBranch I fn nl tgt? e br ct ce nv2 nl2 ip2
-                        else finishJnzBranch I fn nl tgt? t br ce ct nv2 nl2 ip2)
+          | .ok (ce, nv1, nl1, ip1) =>
+            match lowerExpr I h E fn t nv1 nl1 ip1 stBr (if inv then ftF else ftT) with
+            | .error err => .error err
+            | .ok (ct, nv2, nl2, ip2) =>
+              prepend mc (if inv then finishJnzBranch I fn nl tgt? e br ct ce nv2 nl2 ip2
+                          else finishJnzBranch I fn nl tgt? t br ce ct nv2 nl2 ip2)
   | .jump j args, nv, nl, ip, st, ft =>
     match stepPre I h ip st, h.entry.find? j with
     | some (mc, st1), some en => match jumpTargets I args en.ploc with
@@ -1306,6 +1447,10 @@ structure LabelClean (I : Isa) : Prop where
     by intro _ _ _ _ _ _ _ h; cases h
   loadSext : ∀ m n r a c cl, I.gpr.loadSext m n r a = some (c, cl) → NoLab I c :=
     by intro _ _ _ _ _ _ h; cases h
+  cmpZeroJcc : ∀ co w r l c cl, I.gpr.cmpZeroJcc co w r l = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ _ h; cases h
+  testJcc : ∀ neg w r mask l c cl, I.gpr.testJcc neg w r mask l = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ _ _ h; cases h
   (load : ∀ t r a c cl, I.gpr.load t r a = some (c, cl) → NoLab I c)
   (store : ∀ t pa a c cl, I.gpr.store t pa a = some (c, cl) → NoLab I c)
   (clearFlags : NoLab I I.gpr.clearFlags) (vmov : ∀ w d s, NoLab I (I.vec.vmov w d s))
