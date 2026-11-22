@@ -26,7 +26,7 @@ from pathlib import Path
 LEGACY_CERT_DEFAULT = (
     r"^LeanQbe\.T\.(Amd64|Arm64)\."
     r"(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*"
-    r"|KissatPlain.*|KissatM3.*)$"
+    r"|KissatPlain.*|KissatM3.*|KissatM4.*)$"
 )
 
 IMPORT_LINE_RE = re.compile(
@@ -65,8 +65,8 @@ HUB_DOCSTRINGS: dict[str, str] = {
         "`LeanQbe.T.Amd64.*` modules. -/"
     ),
     "LeanQbeArm64": (
-        "/-! Root of the active AArch64 library: imports `Kraken.AArch64` and "
-        "active `LeanQbe.T.Arm64.*` modules. -/"
+        "/-!\nRoot of the active AArch64 library: imports `Kraken.AArch64` and "
+        "active `LeanQbe.T.Arm64.*`\nmodules.\n-/"
     ),
     "LeanQbeLegacyAmd64": (
         "/-! Root of the optional legacy x64 Kissat certificate library. -/"

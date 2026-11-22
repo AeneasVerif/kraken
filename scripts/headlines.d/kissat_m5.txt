@@ -26,6 +26,11 @@ LeanQbeTest.T.KissatM5AuditX64 audit_m5_x64_unsat
 LeanQbeTest.T.KissatM5AuditX64 audit_m5_x64_sound
 LeanQbeTest.T.KissatM5AuditX64 audit_m5_x64_nv
 LeanQbeTest.T.KissatM5AuditX64 audit_m5_x64_nv_closed
+LeanQbeTest.T.KissatM5SoundAuditX64 audit_m5_x64_sat_fnspec
+LeanQbeTest.T.KissatM5SoundAuditX64 audit_m5_x64_model
+LeanQbeTest.T.KissatM5SoundAuditX64 audit_m5_x64_sat_sound
+LeanQbeTest.T.KissatM5SoundAuditX64 audit_m5_x64_model_only
+LeanQbeTest.T.KissatM5SoundAuditX64 audit_m5_x64_sound_only
 LeanQbe.T.Arm64.KissatM5CertLink LeanQbe.T.Arm64.KissatM5CertLink.m5_legalSig
 LeanQbe.T.Arm64.KissatM5CertLink LeanQbe.T.Arm64.KissatM5CertLink.mk_module_fnspec
 LeanQbe.T.Arm64.KissatM5CertLink LeanQbe.T.Arm64.KissatM5CertLink.solve_arm64_of_fnspec
@@ -39,3 +44,8 @@ LeanQbeTest.T.KissatM5AuditArm64 audit_m5_arm_unsat
 LeanQbeTest.T.KissatM5AuditArm64 audit_m5_arm_sound
 LeanQbeTest.T.KissatM5AuditArm64 audit_m5_arm_nv
 LeanQbeTest.T.KissatM5AuditArm64 audit_m5_arm_nv_closed
+LeanQbeTest.T.KissatM5SoundAuditArm64 audit_m5_arm_sat_fnspec
+LeanQbeTest.T.KissatM5SoundAuditArm64 audit_m5_arm_model
+LeanQbeTest.T.KissatM5SoundAuditArm64 audit_m5_arm_sat_sound
+LeanQbeTest.T.KissatM5SoundAuditArm64 audit_m5_arm_model_only
+LeanQbeTest.T.KissatM5SoundAuditArm64 audit_m5_arm_sound_only
