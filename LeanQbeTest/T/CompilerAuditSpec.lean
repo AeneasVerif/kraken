@@ -177,7 +177,7 @@ theorem audit_rec_elide {G : Rega.VCtx} {nv : Nat} {defs : Trie Rega.DefFact}
     (hrel : TRel (ArgRel G) args₁ args) (hlt : ∀ p ∈ G, p.2.2 < nv)
     {P : Tup Val rs → Prop} (hwp : code.wp (vals args₁) P) {df : Rega.DefFact}
     (hd : Rega.recordDef defs code args = some df) :
-    ∃ (rvs : Tup Val rs), P rvs ∧ rs = [i64] ∧
+    ∃ (w : Nat) (_h : rs = [.bits w]) (rvs : Tup Val rs), P rvs ∧
       Rega.DefOk (Tup.zip rvs (Tup.levels rs nv) ++ G) nv df :=
   Rega.recordDef_elide_ok hdefs hrel hlt hwp hd
 

@@ -77,7 +77,10 @@ theorem audit_x64_to_isa :
       { Reg := Reg64, VReg := RegMm, Cond := CondCode, Directive := Directive,
         gpr := x64Gpr, vec := x64Vec, frame := x64Frame,
         supportsAddrDisp := x64SupportsAddrDisp,
-        supportsAddrIdx := x64SupportsAddrIdx } :=
+        supportsAddrIdx := x64SupportsAddrIdx,
+        supportsTestFuse := true,
+        supportsCmpMem := x64SupportsCmpMem,
+        supportsTestMem := x64SupportsCmpMem } :=
   x64Target_toIsa
 
 theorem audit_parity (t : Ty) (hp : x64LegalTarget.keepsPacked t = true) (imm : BitVec 8)
