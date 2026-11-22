@@ -158,7 +158,8 @@ theorem Func.earlyOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
   rw [Func.earlyOpt_eq]
   apply earlyOpt_tail_spec (Func.peelFast_wf _ 24)
   apply Func.peelFast_spec (Func.simplifyGroupFast_wf _) 24
-  apply Func.simplifyGroupFast_spec (Func.earlyCore_wf hf)
+  apply Func.simplifyGroupFast_spec (Func.ifOpt_wf (Func.earlyCore_wf hf))
+  apply Func.ifOpt_spec (Func.earlyCore_wf hf)
   exact Func.earlyCore_spec hf h
 
 /-- `Func.lateCorePre` preserves well-formedness. -/

@@ -197,8 +197,8 @@ theorem scaleLive250_opt_wf : (Func.opt scaleLive250).Wf :=
 
 /-! ## 6. Staged `O-M2` pipelines (`Func.earlyOpt`, `Func.lateOpt`, `simplifyGroupFast`) -/
 
-/-- Diamond join (`if x <s y then a + 10 else a - 10`) collapses under `lateOpt` via
-`ifOptBits → simplifyGroupFast`. -/
+/-- Diamond join (`if x <s y then a + 10 else a - 10`) collapses under `earlyOpt` via
+`ifOpt → simplifyGroupFast` and stays collapsed under `lateOpt`. -/
 def stagedDiamond : Func [i64, i64, i64] [i64] := fun _ _ (x, y, a, ()) =>
   .let_ (op2 (.cmp .slt i64) (.var x) (.var y)) fun (c, ()) =>
   .group (sig := [[i64]])
@@ -210,12 +210,10 @@ def stagedDiamond : Func [i64, i64, i64] [i64] := fun _ _ (x, y, a, ()) =>
 
 theorem stagedDiamond_earlyOpt_out : Func.earlyOpt stagedDiamond = fun _ _ (x, y, a, ()) =>
     .let_ (op2 (.cmp .slt i64) (.var x) (.var y)) fun (c, ()) =>
-    .group (sig := [[i64]])
-      (fun _ => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
-      (fun (J, ()) =>
-        .jnz (.var c)
-          (.let_ (op2 (.add i64) (.var a) (.imm 10)) fun (t, ()) => .jump J (.var t, ()))
-          (.let_ (op2 (.sub i64) (.var a) (.imm 10)) fun (e, ()) => .jump J (.var e, ()))) := by
+    .let_ (op2 (.add i64) (.var a) (.imm 10)) fun (t, ()) =>
+    .let_ (op2 (.sub i64) (.var a) (.imm 10)) fun (e, ()) =>
+    .let_ (op3 (.select i64) (.var c) (.var t) (.var e)) fun (s, ()) =>
+    .ret (.var s, ()) := by
   t_kernel_rfl
 
 theorem stagedDiamond_lateOpt_out :

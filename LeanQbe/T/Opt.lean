@@ -22,10 +22,11 @@ public import LeanQbe.T.Module
 # The Staged Typed-IR Mid-End Pipeline (`T6`, `O-M1`, `O-M2`)
 
 * `Func.opt`: legacy `T6` mid-end (`fold → copy → gvn → copy → fold → dceP`).
-* `Func.earlyOpt`: pre-`Legal` pipeline (`fold → canon → copy → gvn → copy → fold →
+* `Func.earlyOpt`: pre-`Legal` pipeline (`fold → canon → copy → gvn → copy → fold → ifOpt →
   simplifyGroupFast → peelFast 24 → zeroPeelWith { peelBudget := 24 } → copy → fold → dceP →
-  renorm`), simplifying source and inlined bodies, widening constant-fill loops, and peeling
-  bounded loops while preserving `C4`–`C9` widening arithmetic (`addc`/`subb`/`mulx` chains).
+  renorm`), simplifying source and inlined bodies, if-converting branch diamonds, widening
+  constant-fill loops, and peeling bounded loops while preserving `C4`–`C9` widening
+  arithmetic (`addc`/`subb`/`mulx` chains).
 * `Func.lateOpt`: post-`Legal` pipeline (`fold → canon → divConst → copy → renorm → memLoad →
   gvn → assumeBits → fold → renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
   assumeElim → fold → gvn → renorm → licm → dceP → loopRotate → renorm`), running target-safe
@@ -141,7 +142,7 @@ functions, widen constant-fill loops / peel small single-iter loops (`ZeroPeel`)
 bindings, and keep PHOAS closures flat via `Func.renorm` for `Legal`. -/
 def Func.earlyOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.renorm (Func.dceP (Func.fold (Func.copy (Func.zeroPeelWith { peelBudget := 24 }
-    (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24)))))
+    (Func.peelFast (Func.simplifyGroupFast (Func.ifOpt (Func.earlyCore f))) 24)))))
 
 /-- Post-`Legal` pre-`renorm` value core (`fold → canon → divConst → copy`). -/
 def Func.lateCorePre {as rs : List Ty} (f : Func as rs) : Func as rs :=
@@ -205,7 +206,7 @@ theorem Func.earlyCore_eq {as rs : List Ty} (f : Func as rs) :
 theorem Func.earlyOpt_eq {as rs : List Ty} (f : Func as rs) :
     Func.earlyOpt f =
       Func.renorm (Func.dceP (Func.fold (Func.copy (Func.zeroPeelWith { peelBudget := 24 }
-        (Func.peelFast (Func.simplifyGroupFast (Func.earlyCore f)) 24))))) :=
+        (Func.peelFast (Func.simplifyGroupFast (Func.ifOpt (Func.earlyCore f))) 24))))) :=
   rfl
 
 theorem Func.lateCorePre_eq {as rs : List Ty} (f : Func as rs) :
