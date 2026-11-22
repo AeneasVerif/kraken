@@ -1,12 +1,12 @@
 module
 
+public import LeanQbe.T.MainCert
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Examples.Kissat.SolverLemmas
-public import LeanQbe.T.MainSplice
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
-meta import LeanQbe.T.MainSplice
+meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Examples.Kissat.Solver
@@ -16,8 +16,9 @@ meta import LeanQbe.T.Examples.Kissat.Solver
 
 Instantiates the 25-function typed-IR Kissat SAT solver module `kissatModule`
 (`dimacs_fns ++ solver_fns`) on `x64Target` (`x64LegalTarget`, `x64Layout`, `x64LabelClean`) with:
-* `kissatHints` via `splice_module_hints`;
-* `compiled_check : checkCompile ... = true` proved in a single kernel reduction (`t_kernel_rfl`);
+* `kissatCert` via chunked `compile_linked_chunks!` (eliminating monolithic kernel peak RSS);
+* `kissatHints`, `compiled_check : checkCompile ... = true`, and literal-backed `compiled`
+  derived directly from `kissatCert`;
 * `kissatFns_supportsSource` and `kissatFns_legalSig` over all 25 functions;
 * `mk_kissat_module_fnspec` and closed `kissat_module_fnspec` over arbitrary `Host` instances;
 * closed Kraken-x64 `Eventually` theorems `kissat_solve_bytes_x64_of_fnspec`,
@@ -35,25 +36,77 @@ namespace LeanQbe.T.Amd64.Kissat
 open Std Std.ExtHashMap Std.Sat
 open LeanQbe.T LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.LratBytes LeanQbe.T.Amd64 Kraken
 
-splice_module_hints kissatHints (x64Target.toIsa) x64LegalTarget kissatFns
+open scoped LeanQbe.T in
+compile_linked_chunks! kissatCert
+  x64Target x64Layout x64LegalTarget x64LabelClean kissatModule 1
+
+/-- Concatenated register-allocation hints across all chunks of `kissatCert`. -/
+def kissatHints : List x64Target.toIsa.Hints :=
+  chunksHints kissatCert.chunks
+
+theorem compiled_compileModule :
+    compileModule x64Target.toIsa x64LegalTarget x64Target.frame.raBytes [] [] 0
+      kissatFns kissatHints = .ok (kissatCert.code, kissatCert.bounds) := by
+  rw [show kissatFns = chunksFns kissatCert.chunks from kissatCert.fns_eq]
+  exact kissatCert.compiled.compileModule_eq
+
+private theorem lookupFnBound_of_mem_nodup :
+    ∀ {bs : List (Sym × Nat)} {nm : Sym} {b : Nat},
+      (bs.map Prod.fst).Nodup → (nm, b) ∈ bs → lookupFnBound bs nm = some b
+  | [], _, _, _, h => nomatch h
+  | (k, v) :: bs, nm, b, hnd, hmem => by
+    simp only [List.map_cons, List.nodup_cons] at hnd
+    simp only [lookupFnBound, List.find?]
+    rcases List.mem_cons.mp hmem with ⟨rfl, rfl⟩ | hmem'
+    · simp
+    · have hne : (k == nm) = false := beq_false_of_ne fun e =>
+        hnd.1 (e ▸ List.mem_map_of_mem (f := Prod.fst) hmem')
+      simp only [hne]
+      exact lookupFnBound_of_mem_nodup hnd.2 hmem'
+
+theorem compiled_checkLit :
+    checkCompileLit x64Target.frame.label x64Layout.progSmall
+      kissatCert.code kissatCert.bounds (kissatFns.map Fn.name) [] 2048 = true := by
+  have hlink := kissatCert.linkCheck
+  simp only [checkLinkList, Bool.and_eq_true] at hlink
+  have hfns : kissatFns = chunksFns kissatCert.chunks := kissatCert.fns_eq
+  have hnd : (kissatCert.compiled.bounds.map Prod.fst).Nodup := by
+    rw [compileModule_bounds_names kissatCert.compiled.compileModule_eq]
+    exact (List.nodup_append.mp (checkLinkList_parts kissatCert.linkCheck).2.2.2.1).1
+  simp only [checkCompileLit, checkCompileResult, Bool.and_eq_true]
+  refine ⟨⟨⟨⟨⟨?_, rfl⟩, ?_⟩, ?_⟩, ?_⟩, ?_⟩
+  · rw [hfns]; exact hlink.1.1.1.2
+  · rw [hfns]; exact hlink.1.2
+  · exact hlink.2
+  · refine List.all_eq_true.mpr fun p hp => Nat.ble_eq.mpr ?_
+    have hlk := lookupFnBound_of_mem_nodup hnd hp
+    have hle := kissatCert.bound_le_max p.1
+    simpa [LinkedCert.bound, Compiled.bound, hlk] using hle
+  · rw [hfns]
+    refine List.all_eq_true.mpr fun nm hnm => ?_
+    cases hlk : lookupFnBound kissatCert.bounds nm with
+    | some _ => rfl
+    | none =>
+      simp only [lookupFnBound, Option.map_eq_none_iff, List.find?_eq_none] at hlk
+      exact absurd (beq_self_eq_true nm) (hlk _ (kissatCert.compiled.bound_mem hnm))
 
 theorem compiled_check :
     checkCompile x64Target x64Layout x64LegalTarget [] [] 0 kissatFns kissatHints 2048 =
       true := by
-  t_kernel_rfl
+  unfold checkCompile
+  rw [compiled_compileModule]
+  exact compiled_checkLit
 
-/-- Single kernel evaluation of the compiler on `kissatFns` (25 functions) for SysV x64. -/
+/-- Chunk-linked literal-backed compilation certificate on `kissatFns` (25 functions) for
+SysV x64. -/
 def compiled : Compiled x64Target x64LegalTarget [] [] 0 kissatFns kissatHints 2048 :=
-  compileChecked x64Target x64Layout x64LegalTarget x64LabelClean [] [] 0
-    kissatFns kissatHints 2048 compiled_check
-
-private theorem kissatFns_supportsSource_all :
-    kissatFns.all (fun f => (f.earlyOpt).body.supportsSource x64LegalTarget) = true := by
-  t_kernel_rfl
+  compileCheckedLit x64Target x64Layout x64LegalTarget x64LabelClean [] [] 0
+    kissatFns kissatHints 2048 kissatCert.code kissatCert.bounds
+    compiled_compileModule compiled_checkLit
 
 theorem kissatFns_supportsSource :
     ∀ f ∈ kissatModule.fns, (f.earlyOpt).body.supportsSource x64LegalTarget = true :=
-  supportsAll_to_forall kissatFns_supportsSource_all
+  kissatCert.supportsAll
 
 private theorem kissatFns_legalSig_all :
     kissatFns.all (fun f =>

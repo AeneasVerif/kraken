@@ -1,12 +1,12 @@
 module
 
+public import LeanQbe.T.MainCert
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Examples.Kissat.CorePlusLemmas
-public import LeanQbe.T.MainSplice
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
-meta import LeanQbe.T.MainSplice
+meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Examples.Kissat.CorePlus
@@ -16,8 +16,9 @@ meta import LeanQbe.T.Examples.Kissat.CorePlus
 
 Instantiates the 36-function typed-IR Kissat `D-Core+` SAT solver module `coreplusModule`
 (`dimacs_fns ++ coreplus_fns`) on `x64Target` (`x64LegalTarget`, `x64Layout`, `x64LabelClean`) with:
-* `cpHints` via `splice_module_hints`;
-* `compiled_check : checkCompile ... = true` proved in a single kernel reduction (`t_kernel_rfl`);
+* `cpCert` via chunked `compile_linked_chunks!` (eliminating monolithic kernel peak RSS);
+* `cpHints`, `compiled_check : checkCompile ... = true`, and literal-backed `compiled`
+  derived directly from `cpCert`;
 * `cp_supportsSource` and `cp_legalSig` over all 36 functions;
 * `mk_module_fnspec` and closed `module_fnspec` over arbitrary `Host` instances;
 * closed Kraken-x64 `Eventually` theorems `solve_x64_of_fnspec`, `solve_x64_correct`, and
@@ -37,25 +38,77 @@ open Std Std.ExtHashMap Std.Sat
 open LeanQbe.T LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Amd64 Kraken
 
-splice_module_hints cpHints (x64Target.toIsa) x64LegalTarget coreplusFns
+open scoped LeanQbe.T in
+compile_linked_chunks! cpCert
+  x64Target x64Layout x64LegalTarget x64LabelClean coreplusModule 1
+
+/-- Concatenated register-allocation hints across all chunks of `cpCert`. -/
+def cpHints : List x64Target.toIsa.Hints :=
+  chunksHints cpCert.chunks
+
+theorem compiled_compileModule :
+    compileModule x64Target.toIsa x64LegalTarget x64Target.frame.raBytes [] [] 0
+      coreplusFns cpHints = .ok (cpCert.code, cpCert.bounds) := by
+  rw [show coreplusFns = chunksFns cpCert.chunks from cpCert.fns_eq]
+  exact cpCert.compiled.compileModule_eq
+
+private theorem lookupFnBound_of_mem_nodup :
+    ∀ {bs : List (Sym × Nat)} {nm : Sym} {b : Nat},
+      (bs.map Prod.fst).Nodup → (nm, b) ∈ bs → lookupFnBound bs nm = some b
+  | [], _, _, _, h => nomatch h
+  | (k, v) :: bs, nm, b, hnd, hmem => by
+    simp only [List.map_cons, List.nodup_cons] at hnd
+    simp only [lookupFnBound, List.find?]
+    rcases List.mem_cons.mp hmem with ⟨rfl, rfl⟩ | hmem'
+    · simp
+    · have hne : (k == nm) = false := beq_false_of_ne fun e =>
+        hnd.1 (e ▸ List.mem_map_of_mem (f := Prod.fst) hmem')
+      simp only [hne]
+      exact lookupFnBound_of_mem_nodup hnd.2 hmem'
+
+theorem compiled_checkLit :
+    checkCompileLit x64Target.frame.label x64Layout.progSmall
+      cpCert.code cpCert.bounds (coreplusFns.map Fn.name) [] 2048 = true := by
+  have hlink := cpCert.linkCheck
+  simp only [checkLinkList, Bool.and_eq_true] at hlink
+  have hfns : coreplusFns = chunksFns cpCert.chunks := cpCert.fns_eq
+  have hnd : (cpCert.compiled.bounds.map Prod.fst).Nodup := by
+    rw [compileModule_bounds_names cpCert.compiled.compileModule_eq]
+    exact (List.nodup_append.mp (checkLinkList_parts cpCert.linkCheck).2.2.2.1).1
+  simp only [checkCompileLit, checkCompileResult, Bool.and_eq_true]
+  refine ⟨⟨⟨⟨⟨?_, rfl⟩, ?_⟩, ?_⟩, ?_⟩, ?_⟩
+  · rw [hfns]; exact hlink.1.1.1.2
+  · rw [hfns]; exact hlink.1.2
+  · exact hlink.2
+  · refine List.all_eq_true.mpr fun p hp => Nat.ble_eq.mpr ?_
+    have hlk := lookupFnBound_of_mem_nodup hnd hp
+    have hle := cpCert.bound_le_max p.1
+    simpa [LinkedCert.bound, Compiled.bound, hlk] using hle
+  · rw [hfns]
+    refine List.all_eq_true.mpr fun nm hnm => ?_
+    cases hlk : lookupFnBound cpCert.bounds nm with
+    | some _ => rfl
+    | none =>
+      simp only [lookupFnBound, Option.map_eq_none_iff, List.find?_eq_none] at hlk
+      exact absurd (beq_self_eq_true nm) (hlk _ (cpCert.compiled.bound_mem hnm))
 
 theorem compiled_check :
     checkCompile x64Target x64Layout x64LegalTarget [] [] 0 coreplusFns cpHints 2048 =
       true := by
-  t_kernel_rfl
+  unfold checkCompile
+  rw [compiled_compileModule]
+  exact compiled_checkLit
 
-/-- Single kernel evaluation of the compiler on `coreplusFns` (36 functions) for SysV x64. -/
+/-- Chunk-linked literal-backed compilation certificate on `coreplusFns` (36 functions) for
+SysV x64. -/
 def compiled : Compiled x64Target x64LegalTarget [] [] 0 coreplusFns cpHints 2048 :=
-  compileChecked x64Target x64Layout x64LegalTarget x64LabelClean [] [] 0
-    coreplusFns cpHints 2048 compiled_check
-
-private theorem cpFns_supportsSource_all :
-    coreplusFns.all (fun f => (f.earlyOpt).body.supportsSource x64LegalTarget) = true := by
-  t_kernel_rfl
+  compileCheckedLit x64Target x64Layout x64LegalTarget x64LabelClean [] [] 0
+    coreplusFns cpHints 2048 cpCert.code cpCert.bounds
+    compiled_compileModule compiled_checkLit
 
 theorem cp_supportsSource :
     ∀ f ∈ coreplusModule.fns, (f.earlyOpt).body.supportsSource x64LegalTarget = true :=
-  supportsAll_to_forall cpFns_supportsSource_all
+  cpCert.supportsAll
 
 private theorem cpFns_legalSig_all :
     coreplusFns.all (fun f =>
