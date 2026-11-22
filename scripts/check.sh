@@ -654,7 +654,8 @@ for r in "${closure_roots[@]}"; do
   if grep -q "^$r$" "$TMP/closure_$r.txt"; then :; else err "could not compute the closure of $r"; fi
 done
 legacy_cert_re='^LeanQbe\.T\.(Amd64|Arm64)\.'
-legacy_cert_re+='(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*)$'
+legacy_cert_re+='(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*'
+legacy_cert_re+='|KissatPlain.*|KissatM3.*)$'
 if [ "$RESOLVED_SCOPE" != "arm64" ] \
    && grep -E "$legacy_cert_re" "$TMP/closure_LeanQbeAmd64.txt"; then
   err "active LeanQbeAmd64 closure imports legacy Kissat certs (modules above)"
@@ -885,12 +886,12 @@ if [ "${CHECK_TIMES:-0}" = "1" ]; then
   [ "$RESOLVED_SCOPE" != "arm64" ] && cand_arches+=(Amd64)
   [ "$RESOLVED_SCOPE" != "x64" ] && cand_arches+=(Arm64)
   for arch in "${cand_arches[@]}"; do
-    for mod in LratBytes KissatPlainCert1 KissatPlainCert KissatPlain \
-        KissatM3Cert1a KissatM3Cert KissatM3; do
+    for mod in LratBytes KissatM4Cert1 KissatM4Cert KissatM4CertLink KissatM4; do
       [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
     done
     if [ "$INCLUDE_LEGACY" = "1" ]; then
-      for mod in Kissat KissatCorePlus; do
+      for mod in Kissat KissatCorePlus KissatPlainCert1 KissatPlainCert KissatPlain \
+          KissatM3Cert1a KissatM3Cert KissatM3; do
         [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
       done
     fi

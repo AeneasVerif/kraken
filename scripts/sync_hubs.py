@@ -25,7 +25,8 @@ from pathlib import Path
 
 LEGACY_CERT_DEFAULT = (
     r"^LeanQbe\.T\.(Amd64|Arm64)\."
-    r"(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*)$"
+    r"(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*"
+    r"|KissatPlain.*|KissatM3.*)$"
 )
 
 IMPORT_LINE_RE = re.compile(

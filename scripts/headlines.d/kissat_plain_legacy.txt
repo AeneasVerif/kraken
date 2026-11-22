@@ -1,5 +1,5 @@
 # One per line: <module to import> <fully qualified constant>.
-# Active flagship SAT+UNSAT Kissat Plain solver specs, lemmas, and native certs.
+# Retired legacy SAT+UNSAT Kissat Plain solver specs, lemmas, and native certs — audited in Tier 3.
 LeanQbe.T.Examples.Kissat.Plain1 LeanQbe.T.Examples.Kissat.Plain.plain1_fns_wf
 LeanQbe.T.Examples.Kissat.Plain1 LeanQbe.T.Examples.Kissat.Plain.plain1_acyclic
 LeanQbe.T.Examples.Kissat.Plain1 LeanQbe.T.Examples.Kissat.Plain.plain_prop_lit_wf
@@ -38,9 +38,9 @@ LeanQbe.T.Amd64.KissatPlain LeanQbe.T.Amd64.KissatPlain.solve_x64_correct
 LeanQbe.T.Amd64.KissatPlain LeanQbe.T.Amd64.KissatPlain.solve_x64_sound
 LeanQbe.T.Amd64.KissatPlain LeanQbe.T.Amd64.KissatPlain.x64_unsat_nonvacuous
 LeanQbe.T.Amd64.KissatPlain LeanQbe.T.Amd64.KissatPlain.x64_sat_nonvacuous
-LeanQbeTest.T.KissatAuditX64 audit_plain_x64_correct
-LeanQbeTest.T.KissatAuditX64 audit_plain_x64_unsat_nonvacuous
-LeanQbeTest.T.KissatAuditX64 audit_plain_x64_sat_nonvacuous
+LeanQbeLegacyTest.KissatM3PlainLegacyAuditX64 audit_plain_x64_correct
+LeanQbeLegacyTest.KissatM3PlainLegacyAuditX64 audit_plain_x64_unsat_nonvacuous
+LeanQbeLegacyTest.KissatM3PlainLegacyAuditX64 audit_plain_x64_sat_nonvacuous
 LeanQbe.T.Arm64.KissatPlainCert LeanQbe.T.Arm64.KissatPlainCert.plain_legalSig
 LeanQbe.T.Arm64.KissatPlainCert LeanQbe.T.Arm64.KissatPlainCert.mk_module_fnspec
 LeanQbe.T.Arm64.KissatPlainCert LeanQbe.T.Arm64.KissatPlainCert.solve_arm64_of_fnspec
@@ -49,6 +49,6 @@ LeanQbe.T.Arm64.KissatPlain LeanQbe.T.Arm64.KissatPlain.solve_arm64_correct
 LeanQbe.T.Arm64.KissatPlain LeanQbe.T.Arm64.KissatPlain.solve_arm64_sound
 LeanQbe.T.Arm64.KissatPlain LeanQbe.T.Arm64.KissatPlain.arm64_unsat_nonvacuous
 LeanQbe.T.Arm64.KissatPlain LeanQbe.T.Arm64.KissatPlain.arm64_sat_nonvacuous
-LeanQbeTest.T.KissatAuditArm64 audit_plain_arm64_correct
-LeanQbeTest.T.KissatAuditArm64 audit_plain_arm64_unsat_nonvacuous
-LeanQbeTest.T.KissatAuditArm64 audit_plain_arm64_sat_nonvacuous
+LeanQbeLegacyTest.KissatM3PlainLegacyAuditArm64 audit_plain_arm64_correct
+LeanQbeLegacyTest.KissatM3PlainLegacyAuditArm64 audit_plain_arm64_unsat_nonvacuous
+LeanQbeLegacyTest.KissatM3PlainLegacyAuditArm64 audit_plain_arm64_sat_nonvacuous
