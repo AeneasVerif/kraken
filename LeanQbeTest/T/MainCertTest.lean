@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.MainCert
+public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 public meta import Lean
-public meta import LeanQbe.T.MainCert
+public meta import LeanQbe.T.MainCertElab
 public meta import LeanQbe.T.Amd64.Targ
 
 /-!
@@ -265,12 +265,13 @@ compile_linked_chunks! x64AdaptiveCert
 
 compile_linked_chunks! x64Part1
   x64Target x64Layout x64LegalTarget x64LabelClean part1Mod 2
+  (compileExt := true)
 
 compile_linked_chunks! x64Part2
   x64Target x64Layout x64LegalTarget x64LabelClean part2Mod 2
   (ext := x64Part1.exportedExt)
 
-def x64AppendedCert :
+noncomputable def x64AppendedCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean certMod [] [] 0
       (Nat.max 2048 2048) :=
   x64Part1.append x64Part2 rfl (by t_kernel_rfl)

@@ -5,7 +5,6 @@ public import LeanQbe.T.Bootstrap0.Cert10
 public import LeanQbe.T.Bootstrap0.Cert11
 public import LeanQbe.T.Bootstrap0.Cert12
 meta import Lean
-meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Bootstrap0.Mod0
 
@@ -43,7 +42,7 @@ private theorem drop_take_dropC {l : List Fn} {a b : Nat} :
 @[expose] def certCMod : Module := { fns := leanqbe0Mod0.fns.drop 86 }
 
 /-- Linked certificate for `[86, 105)`. -/
-@[expose] def tail910Cert :
+@[expose] noncomputable def tail910Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       tail910Mod (extBefore0 86) rtExitSyms 64 2048 :=
   cert9.append cert10
@@ -51,7 +50,7 @@ private theorem drop_take_dropC {l : List Fn} {a b : Nat} :
     (by t_kernel_rfl)
 
 /-- Linked certificate for `[86, 116)`. -/
-@[expose] def tail911Cert :
+@[expose] noncomputable def tail911Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       tail911Mod (extBefore0 86) rtExitSyms 64 2048 :=
   tail910Cert.append cert11
@@ -59,7 +58,7 @@ private theorem drop_take_dropC {l : List Fn} {a b : Nat} :
     (by t_kernel_rfl)
 
 /-- Linked certificate `certC` covering `[86, 124)` (`38` functions). -/
-@[expose] def certC :
+@[expose] noncomputable def certC :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       certCMod (extBefore0 86) rtExitSyms 64 2048 :=
   tail911Cert.append cert12

@@ -261,11 +261,11 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
     lines = [
         "module",
         "",
-        "public import LeanQbe.T.MainCert",
+        "public import LeanQbe.T.Main",
         f"public import {arch.targ_mod}",
         f"public import {cfg.source_mod}",
         "meta import Lean",
-        "meta import LeanQbe.T.MainCert",
+        "meta import LeanQbe.T.MainCertElab",
         f"meta import {arch.targ_mod}",
         f"meta import {cfg.source_mod}",
         "",
@@ -309,7 +309,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
     uses_ext = sl.index > 1
 
     pub_imports = [
-        "public import LeanQbe.T.MainCert",
+        "public import LeanQbe.T.MainCertCore",
         f"public import {arch.lemmas_mod}",
     ]
     if uses_ext:
@@ -318,7 +318,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
 
     meta_imports = [
         "meta import Lean",
-        "meta import LeanQbe.T.MainCert",
+        "meta import LeanQbe.T.MainCertElab",
         f"meta import {arch.targ_mod}",
     ]
     if uses_ext:
@@ -411,8 +411,11 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
     )
 
     pub_imports = [
-        f"public import {arch.ns_prefix}.{cfg.prefix}Cert{sl.index}"
-        for sl in cfg.slices
+        "public import LeanQbe.T.MainCertProof",
+        *[
+            f"public import {arch.ns_prefix}.{cfg.prefix}Cert{sl.index}"
+            for sl in cfg.slices
+        ],
     ]
     pub_imports.append(f"public import {cfg.source_mod}")
 
@@ -435,7 +438,7 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
             [
                 f"/-- Full kernel-checked cert covering `{cfg.total_fns}` "
                 f"functions in `{cfg.mod}` on {arch.isa_title}. -/",
-                f"def {cfg.cert_name} :",
+                f"noncomputable def {cfg.cert_name} :",
                 f"    {ty_full} :=",
                 "  cert1",
                 "",
@@ -473,7 +476,7 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
                 ladder_defs.extend(
                     [
                         doc,
-                        f"def {def_name} :",
+                        f"noncomputable def {def_name} :",
                         f"    {ty_line} :=",
                         f"  {lhs_cert}.append {rhs_cert}",
                         f"    {proof}",
@@ -485,7 +488,7 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
                 ladder_defs.extend(
                     [
                         doc,
-                        f"def {def_name} :",
+                        f"noncomputable def {def_name} :",
                         f"    {ty_line} :=",
                         append_line,
                         "    (by t_kernel_rfl)",
@@ -498,7 +501,6 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
         *pub_imports,
         "meta import Lean",
-        "meta import LeanQbe.T.MainCert",
         f"meta import {arch.targ_mod}",
         f"meta import {cfg.source_mod}",
         "",
@@ -742,7 +744,7 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
             f"/-- Compiled `LinkedCert` for `{cfg.mod}` (`{cfg.total_fns}` "
             f"functions) on {arch.isa_title}. -/"
         ),
-        f"@[reducible] def {compiled_name} :",
+        f"@[reducible] noncomputable def {compiled_name} :",
         f"    {compiled_ty} :=",
         f"  {cfg.prefix}Cert.{cfg.cert_name}",
         "",

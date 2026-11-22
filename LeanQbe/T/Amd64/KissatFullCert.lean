@@ -1,5 +1,6 @@
 module
 
+public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Amd64.KissatFullCert1
 public import LeanQbe.T.Amd64.KissatFullCert2
 public import LeanQbe.T.Amd64.KissatFullCert3
@@ -10,7 +11,6 @@ public import LeanQbe.T.Amd64.KissatFullCert7
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
-meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.Full
 
@@ -51,38 +51,38 @@ def pref5Mod : Module := { fns := fullFns.take 128 }
 def pref6Mod : Module := { fns := fullFns.take 147 }
 
 /-- Linked certificate for prefix `[0, 67)`. -/
-def cert12 :
+noncomputable def cert12 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref2Mod [] [] 0 2048 :=
   cert1.append cert2 (by exact List.take_add (l := fullFns) (i := 38) (j := 29))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 88)`. -/
-def cert123 :
+noncomputable def cert123 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref3Mod [] [] 0 2048 :=
   cert12.append cert3 (by exact List.take_add (l := fullFns) (i := 67) (j := 21))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 111)`. -/
-def cert1234 :
+noncomputable def cert1234 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref4Mod [] [] 0 2048 :=
   cert123.append cert4 (by exact List.take_add (l := fullFns) (i := 88) (j := 23))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 128)`. -/
-def cert12345 :
+noncomputable def cert12345 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref5Mod [] [] 0 2048 :=
   cert1234.append cert5 (by exact List.take_add (l := fullFns) (i := 111) (j := 17))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 147)`. -/
-def cert123456 :
+noncomputable def cert123456 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref6Mod [] [] 0 2048 :=
   cert12345.append cert6 (by exact List.take_add (l := fullFns) (i := 128) (j := 19))
     (by t_kernel_rfl)
 
 /-- Full kernel-checked native compilation certificate covering all `166` functions in
 `fullModule` on SysV x64. -/
-def fullCert :
+noncomputable def fullCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean fullModule [] [] 0 2048 :=
   cert123456.append cert7 (by exact (List.take_append_drop 147 fullFns).symm) (by t_kernel_rfl)
 

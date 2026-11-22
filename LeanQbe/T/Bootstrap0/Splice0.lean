@@ -2,11 +2,11 @@ module
 
 public import LeanQbe.T.LeanLCNF.Lower1
 public import LeanQbe.T.Frontend.C0.Elab
-public import LeanQbe.T.MainCert
-meta import Lean
-meta import LeanQbe.T.LeanLCNF.Lower1
-meta import LeanQbe.T.Frontend.C0.Elab
-meta import LeanQbe.T.MainCert
+public import LeanQbe.T.Main
+public meta import Lean
+public meta import LeanQbe.T.LeanLCNF.Lower1
+public meta import LeanQbe.T.Frontend.C0.Elab
+public meta import LeanQbe.T.MainCertElab
 
 /-!
 # Topological Splicer for Lowered `LeanLCNF` Modules (`Bootstrap0`)

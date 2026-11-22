@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.MainCert
+public import LeanQbe.T.MainCertCore
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Examples.Kissat.Full
 meta import Lean
-meta import LeanQbe.T.MainCert
+meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.Full
 

@@ -1,5 +1,6 @@
 module
 
+public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Amd64.KissatM3Cert1a
 public import LeanQbe.T.Amd64.KissatM3Cert1b
 public import LeanQbe.T.Amd64.KissatM3Cert1c
@@ -24,7 +25,6 @@ public import LeanQbe.T.Amd64.KissatM3Cert17b
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
-meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.FullM3
 
@@ -114,122 +114,122 @@ def pref16Mod : Module := { fns := m3Fns.take 195 }
 def pref17aMod : Module := { fns := m3Fns.take 199 }
 
 /-- Linked certificate for prefix `[0, 32)`. -/
-def pref1bCert :
+noncomputable def pref1bCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref1bMod [] [] 0 2048 :=
   cert1a.append cert1b (by exact List.take_add (l := m3Fns) (i := 16) (j := 16))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 47)`. -/
-def pref1cCert :
+noncomputable def pref1cCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref1cMod [] [] 0 2048 :=
   pref1bCert.append cert1c (by exact List.take_add (l := m3Fns) (i := 32) (j := 15))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 48)`. -/
-def pref2aCert :
+noncomputable def pref2aCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref2aMod [] [] 0 2048 :=
   pref1cCert.append cert2a (by exact List.take_add (l := m3Fns) (i := 47) (j := 1))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 59)`. -/
-def pref2Cert :
+noncomputable def pref2Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref2Mod [] [] 0 2048 :=
   pref2aCert.append cert2b (by exact List.take_add (l := m3Fns) (i := 48) (j := 11))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 68)`. -/
-def pref3Cert :
+noncomputable def pref3Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref3Mod [] [] 0 2048 :=
   pref2Cert.append cert3 (by exact List.take_add (l := m3Fns) (i := 59) (j := 9))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 80)`. -/
-def pref4Cert :
+noncomputable def pref4Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref4Mod [] [] 0 2048 :=
   pref3Cert.append cert4 (by exact List.take_add (l := m3Fns) (i := 68) (j := 12))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 91)`. -/
-def pref5Cert :
+noncomputable def pref5Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref5Mod [] [] 0 2048 :=
   pref4Cert.append cert5 (by exact List.take_add (l := m3Fns) (i := 80) (j := 11))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 103)`. -/
-def pref6Cert :
+noncomputable def pref6Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref6Mod [] [] 0 2048 :=
   pref5Cert.append cert6 (by exact List.take_add (l := m3Fns) (i := 91) (j := 12))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 111)`. -/
-def pref7Cert :
+noncomputable def pref7Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref7Mod [] [] 0 2048 :=
   pref6Cert.append cert7 (by exact List.take_add (l := m3Fns) (i := 103) (j := 8))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 119)`. -/
-def pref8Cert :
+noncomputable def pref8Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref8Mod [] [] 0 2048 :=
   pref7Cert.append cert8 (by exact List.take_add (l := m3Fns) (i := 111) (j := 8))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 129)`. -/
-def pref9Cert :
+noncomputable def pref9Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref9Mod [] [] 0 2048 :=
   pref8Cert.append cert9 (by exact List.take_add (l := m3Fns) (i := 119) (j := 10))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 140)`. -/
-def pref10Cert :
+noncomputable def pref10Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref10Mod [] [] 0 2048 :=
   pref9Cert.append cert10 (by exact List.take_add (l := m3Fns) (i := 129) (j := 11))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 152)`. -/
-def pref11Cert :
+noncomputable def pref11Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref11Mod [] [] 0 2048 :=
   pref10Cert.append cert11 (by exact List.take_add (l := m3Fns) (i := 140) (j := 12))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 158)`. -/
-def pref12Cert :
+noncomputable def pref12Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref12Mod [] [] 0 2048 :=
   pref11Cert.append cert12 (by exact List.take_add (l := m3Fns) (i := 152) (j := 6))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 167)`. -/
-def pref13Cert :
+noncomputable def pref13Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref13Mod [] [] 0 2048 :=
   pref12Cert.append cert13 (by exact List.take_add (l := m3Fns) (i := 158) (j := 9))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 175)`. -/
-def pref14Cert :
+noncomputable def pref14Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref14Mod [] [] 0 2048 :=
   pref13Cert.append cert14 (by exact List.take_add (l := m3Fns) (i := 167) (j := 8))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 183)`. -/
-def pref15Cert :
+noncomputable def pref15Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref15Mod [] [] 0 2048 :=
   pref14Cert.append cert15 (by exact List.take_add (l := m3Fns) (i := 175) (j := 8))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 195)`. -/
-def pref16Cert :
+noncomputable def pref16Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref16Mod [] [] 0 2048 :=
   pref15Cert.append cert16 (by exact List.take_add (l := m3Fns) (i := 183) (j := 12))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 199)`. -/
-def pref17aCert :
+noncomputable def pref17aCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref17aMod [] [] 0 2048 :=
   pref16Cert.append cert17a (by exact List.take_add (l := m3Fns) (i := 195) (j := 4))
     (by t_kernel_rfl)
 
 /-- Full kernel-checked native compilation certificate covering all `204` functions in
 `m3Module` on SysV x64. -/
-def m3Cert :
+noncomputable def m3Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean m3Module [] [] 0 2048 :=
   pref17aCert.append cert17b (by exact (List.take_append_drop 199 m3Fns).symm)
     (by t_kernel_rfl)

@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.MainCert
+public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Examples.LratBytesLemmas
 import LeanQbe.T.Logic.MemLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
-meta import LeanQbe.T.MainCert
+meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.LratBytes
 
@@ -40,7 +40,7 @@ compile_linked_chunks! lratCert
   armTarget armLayout armLegalTarget armLabelClean lratBytesModule 1
 
 /-- Concatenated register-allocation hints across all chunks of `lratCert`. -/
-def lratBytesHints : List armTarget.toIsa.Hints :=
+noncomputable def lratBytesHints : List armTarget.toIsa.Hints :=
   chunksHints lratCert.chunks
 
 theorem compiled_compileModule :
@@ -97,7 +97,8 @@ theorem compiled_check :
   exact compiled_checkLit
 
 /-- Chunk-linked literal-backed compilation certificate on `lratBytesFns` for AArch64. -/
-def compiled : Compiled armTarget armLegalTarget [] [] 0 lratBytesFns lratBytesHints 2048 :=
+noncomputable def compiled :
+    Compiled armTarget armLegalTarget [] [] 0 lratBytesFns lratBytesHints 2048 :=
   compileCheckedLit armTarget armLayout armLegalTarget armLabelClean [] [] 0
     lratBytesFns lratBytesHints 2048 lratCert.code lratCert.bounds
     compiled_compileModule compiled_checkLit
@@ -309,7 +310,7 @@ end Generic
 
 /-! ## Concrete AArch64 Executions in `compiled.host` (`x0 = 1` and `x0 = 0`) -/
 
-abbrev lratBytesHost : Host := compiled.host
+noncomputable abbrev lratBytesHost : Host := compiled.host
 attribute [local instance] lratBytesHost
 
 def lratBytesArgs (cnfBytes prfBytes : List UInt8) :
@@ -318,12 +319,12 @@ def lratBytesArgs (cnfBytes prfBytes : List UInt8) :
    nvPrfPtr cnfBytes, BitVec.ofNat 64 prfBytes.length,
    nvWorkPtr cnfBytes prfBytes, 512#64, ())
 
-def lratBytesState (cnfBytes prfBytes : List UInt8) : MachineData :=
+noncomputable def lratBytesState (cnfBytes prfBytes : List UInt8) : MachineData :=
   armInit.initState (as := [i64, i64, i64, i64, i64, i64])
     (compiled.bound "lrat_check_bytes")
     (lratBytesPayload cnfBytes prfBytes) (lratBytesArgs cnfBytes prfBytes)
 
-def lratBytesAcceptState0 : MachineData :=
+noncomputable def lratBytesAcceptState0 : MachineData :=
   lratBytesState nvDimacsBytes nvLratAcceptBytes
 
 /-- Concrete accepting execution of compiled `lrat_check_bytes` on Kraken AArch64. -/
@@ -352,7 +353,7 @@ theorem lrat_check_bytes_arm64_accepts :
     simpa [armInit, get_reg] using armInit.retsIn_singleton 1 _ hrets
   · exact hx.elim
 
-def lratBytesRejectState0 : MachineData :=
+noncomputable def lratBytesRejectState0 : MachineData :=
   lratBytesState nvDimacsBytes nvLratRejectBytes
 
 /-- Concrete rejecting execution of compiled `lrat_check_bytes` on Kraken AArch64. -/

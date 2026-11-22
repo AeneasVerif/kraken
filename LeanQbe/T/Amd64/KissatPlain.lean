@@ -162,19 +162,19 @@ end Generic
 
 /-! ## Concrete SysV x64 Non-Vacuous Executions in `plainCert.host` (`rax = 20` and `rax = 10`) -/
 
-abbrev plainHost : Host := plainCert.host
+noncomputable abbrev plainHost : Host := plainCert.host
 attribute [local instance] plainHost
 
 def plainArgs (cnfBytes : List UInt8) : Tup Val [i64, i64, i64, i64, i64] :=
   (plainNvCnfPtr, BitVec.ofNat 64 cnfBytes.length,
     plainNvWorkPtr cnfBytes, 2048#64, 16#64, ())
 
-def plainMachState (cnfBytes : List UInt8) : MachineData :=
+noncomputable def plainMachState (cnfBytes : List UInt8) : MachineData :=
   x64Init.initState (as := [i64, i64, i64, i64, i64])
     (plainCert.bound "kissat_solve_bytes")
     (plainPayload cnfBytes) (plainArgs cnfBytes)
 
-def plainUnsatState0 : MachineData :=
+noncomputable def plainUnsatState0 : MachineData :=
   plainMachState plainNvUnsatBytes
 
 /-- Concrete UNSAT execution of compiled `kissat_solve_bytes` on Kraken x64 (`rax = 20`). -/
@@ -199,7 +199,7 @@ theorem x64_unsat_nonvacuous :
   · exact ⟨hpc, x64Init.retsIn_singleton 20#64 _ hrets, hu⟩
   · exact hx.elim
 
-def plainSatState0 : MachineData :=
+noncomputable def plainSatState0 : MachineData :=
   plainMachState plainNvSatBytes
 
 /-- Concrete SAT execution of compiled `kissat_solve_bytes` on Kraken x64 (`rax = 10`). -/

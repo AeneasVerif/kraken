@@ -6,7 +6,6 @@ public import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.Bootstrap0.Compiler0
 meta import LeanQbe.T.Bootstrap0.Splice0
 meta import LeanQbe.T.Amd64.Targ
-meta import LeanQbe.T.MainCert
 
 /-!
 # Spliced Kernel `T.Module` (`leanqbe0Mod0`) for `leanqbe0Compile`

@@ -27,7 +27,7 @@ open LeanQbe.T.Examples.Kissat.Full LeanQbe.T.Examples.Kissat.FullM3
 open LeanQbe.T.Examples.LratBytes LeanQbe.T.Arm64 Kraken
 
 /-- Compiled `LinkedCert` for `m3Module` (`204` functions) on AAPCS64 Arm64. -/
-@[reducible] def kissatM3_compiled_arm64 :
+@[reducible] noncomputable def kissatM3_compiled_arm64 :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean m3Module :=
   KissatM3Cert.m3Cert
 

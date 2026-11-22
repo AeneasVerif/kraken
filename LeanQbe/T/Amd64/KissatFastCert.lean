@@ -1,5 +1,6 @@
 module
 
+public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Amd64.KissatFastCert1
 public import LeanQbe.T.Amd64.KissatFastCert2
 public import LeanQbe.T.Amd64.KissatFastCert3
@@ -12,7 +13,6 @@ public import LeanQbe.T.Amd64.KissatFastCert9
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
-meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.FullFast
 
@@ -60,50 +60,50 @@ def pref7Mod : Module := { fns := fastFns.take 166 }
 def pref8Mod : Module := { fns := fastFns.take 184 }
 
 /-- Linked certificate for prefix `[0, 56)`. -/
-def cert12 :
+noncomputable def cert12 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref2Mod [] [] 0 2048 :=
   cert1.append cert2 (by exact List.take_add (l := fastFns) (i := 36) (j := 20))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 78)`. -/
-def cert123 :
+noncomputable def cert123 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref3Mod [] [] 0 2048 :=
   cert12.append cert3 (by exact List.take_add (l := fastFns) (i := 56) (j := 22))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 100)`. -/
-def cert1234 :
+noncomputable def cert1234 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref4Mod [] [] 0 2048 :=
   cert123.append cert4 (by exact List.take_add (l := fastFns) (i := 78) (j := 22))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 122)`. -/
-def cert12345 :
+noncomputable def cert12345 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref5Mod [] [] 0 2048 :=
   cert1234.append cert5 (by exact List.take_add (l := fastFns) (i := 100) (j := 22))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 144)`. -/
-def cert123456 :
+noncomputable def cert123456 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref6Mod [] [] 0 2048 :=
   cert12345.append cert6 (by exact List.take_add (l := fastFns) (i := 122) (j := 22))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 166)`. -/
-def cert1234567 :
+noncomputable def cert1234567 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref7Mod [] [] 0 2048 :=
   cert123456.append cert7 (by exact List.take_add (l := fastFns) (i := 144) (j := 22))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 184)`. -/
-def cert12345678 :
+noncomputable def cert12345678 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref8Mod [] [] 0 2048 :=
   cert1234567.append cert8 (by exact List.take_add (l := fastFns) (i := 166) (j := 18))
     (by t_kernel_rfl)
 
 /-- Full kernel-checked native compilation certificate covering all `196` functions in
 `fastModule` on SysV x64. -/
-def fastCert :
+noncomputable def fastCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean fastModule [] [] 0 2048 :=
   cert12345678.append cert9 (by exact (List.take_append_drop 184 fastFns).symm)
     (by t_kernel_rfl)

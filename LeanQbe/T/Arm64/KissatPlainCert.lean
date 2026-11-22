@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.MainCert
+public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Arm64.KissatPlainCert1
@@ -12,7 +12,6 @@ public import LeanQbe.T.Arm64.KissatPlainCert6
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
-meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.Kissat.Plain
 
@@ -54,31 +53,31 @@ def pref4Mod : Module := { fns := plainFns.take 47 }
 def pref5Mod : Module := { fns := plainFns.take 52 }
 
 /-- Linked certificate for prefix `[0, 29)`. -/
-def pref2Cert :
+noncomputable def pref2Cert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean pref2Mod [] [] 0 2048 :=
   cert1.append cert2 (by exact List.take_add (l := plainFns) (i := 15) (j := 14))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 40)`. -/
-def pref3Cert :
+noncomputable def pref3Cert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean pref3Mod [] [] 0 2048 :=
   pref2Cert.append cert3 (by exact List.take_add (l := plainFns) (i := 29) (j := 11))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 47)`. -/
-def pref4Cert :
+noncomputable def pref4Cert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean pref4Mod [] [] 0 2048 :=
   pref3Cert.append cert4 (by exact List.take_add (l := plainFns) (i := 40) (j := 7))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 52)`. -/
-def pref5Cert :
+noncomputable def pref5Cert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean pref5Mod [] [] 0 2048 :=
   pref4Cert.append cert5 (by exact List.take_add (l := plainFns) (i := 47) (j := 5))
     (by t_kernel_rfl)
 
 /-- Full 59-function kernel-checked native AArch64 compilation certificate for `plainModule`. -/
-def plainCert :
+noncomputable def plainCert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
       plainModule [] [] 0 2048 :=
   pref5Cert.append cert6 (by exact (List.take_append_drop 52 plainFns).symm)

@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.MainCert
+public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Examples.Kissat.CorePlusLemmas
 import LeanQbe.T.Logic.MemLemmas
@@ -8,7 +8,7 @@ import LeanQbe.T.AbiLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
-meta import LeanQbe.T.MainCert
+meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Examples.Kissat.CorePlus
@@ -45,7 +45,7 @@ compile_linked_chunks! cpCert
   armTarget armLayout armLegalTarget armLabelClean coreplusModule 1
 
 /-- Concatenated register-allocation hints across all chunks of `cpCert`. -/
-def cpHints : List armTarget.toIsa.Hints :=
+noncomputable def cpHints : List armTarget.toIsa.Hints :=
   chunksHints cpCert.chunks
 
 theorem compiled_compileModule :
@@ -103,7 +103,7 @@ theorem compiled_check :
 
 /-- Chunk-linked literal-backed compilation certificate on `coreplusFns` (36 functions) for
 AArch64. -/
-def compiled : Compiled armTarget armLegalTarget [] [] 0 coreplusFns cpHints 2048 :=
+noncomputable def compiled : Compiled armTarget armLegalTarget [] [] 0 coreplusFns cpHints 2048 :=
   compileCheckedLit armTarget armLayout armLegalTarget armLabelClean [] [] 0
     coreplusFns cpHints 2048 cpCert.code cpCert.bounds
     compiled_compileModule compiled_checkLit
@@ -311,19 +311,19 @@ end Generic
 
 /-! ## Concrete AArch64 Non-Vacuous Executions in `compiled.host` (`X0 = 20` and `X0 = 10`) -/
 
-abbrev cpHost : Host := compiled.host
+noncomputable abbrev cpHost : Host := compiled.host
 attribute [local instance] cpHost
 
 def cpArgs (cnfBytes : List UInt8) : Tup Val [i64, i64, i64, i64, i64] :=
   (corePlusNvCnfPtr, BitVec.ofNat 64 cnfBytes.length,
     corePlusNvWorkPtr cnfBytes, 1024#64, 16#64, ())
 
-def cpState (cnfBytes : List UInt8) : MachineData :=
+noncomputable def cpState (cnfBytes : List UInt8) : MachineData :=
   armInit.initState (as := [i64, i64, i64, i64, i64])
     (compiled.bound "kissat_solve_bytes")
     (corePlusPayload cnfBytes) (cpArgs cnfBytes)
 
-def cpUnsatState0 : MachineData :=
+noncomputable def cpUnsatState0 : MachineData :=
   cpState cpNvUnsatBytes
 
 /-- Concrete UNSAT execution of compiled `kissat_solve_bytes` on Kraken AArch64 (`X0 = 20`). -/
@@ -349,7 +349,7 @@ theorem arm64_unsat_nonvacuous :
     simpa [armInit, get_reg] using armInit.retsIn_singleton 20#64 _ hrets
   · exact hx.elim
 
-def cpSatState0 : MachineData :=
+noncomputable def cpSatState0 : MachineData :=
   cpState cpNvSatBytes
 
 /-- Concrete SAT execution of compiled `kissat_solve_bytes` on Kraken AArch64 (`X0 = 10`). -/

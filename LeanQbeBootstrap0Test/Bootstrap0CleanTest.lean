@@ -59,9 +59,10 @@ private def totalGlobalsCount : Nat :=
 #guard leanqbe0Mod0.fns.all fun f => Func.checkTFlat f.body
 #guard leanqbe0Mod0.checkAcyclic
 
-#guard leanqbe0Cert.bounds.length == 124
-#guard leanqbe0Cert.numChunks > 0 && leanqbe0Cert.bounds.all fun p => p.2 <= 2048
-#guard !leanqbe0Cert.code.isEmpty
+example : leanqbe0Cert.bounds.length = 124 := leanqbe0Cert_bounds_len
+example : leanqbe0Cert.numChunks > 0 := leanqbe0Cert_numChunks_pos
+example : leanqbe0Cert.bounds.all (fun p => Nat.ble p.2 2048) = true := leanqbe0Cert_bounds_le
+example : (!leanqbe0Cert.code.isEmpty) = true := leanqbe0Cert_code_nonempty
 
 #guard match leanqbe0Compile dummyAddMod0 with | .ok _ _ => true | .err _ _ => false
 #guard match leanqbe0Compile dummyLoopMod0 with | .ok _ _ => true | .err _ _ => false

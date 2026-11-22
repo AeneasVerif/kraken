@@ -1,5 +1,6 @@
 module
 
+public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Amd64.KissatFullCert1
 public import LeanQbe.T.Amd64.KissatFastSchedCert2
 public import LeanQbe.T.Amd64.KissatFastSchedCert3
@@ -11,7 +12,6 @@ public import LeanQbe.T.Examples.Kissat.FullFastSched
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
-meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.FullFastSched
 
@@ -60,7 +60,7 @@ def pref5Mod : Module := { fns := schedSplicedFns.take 130 }
 def pref6Mod : Module := { fns := schedSplicedFns.take 152 }
 
 /-- Linked certificate for prefix `[0, 61)` reusing `KissatFullCert1.cert1`. -/
-def cert12 :
+noncomputable def cert12 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref2Mod [] [] 0 2048 :=
   cert1.append cert2 (by
     change schedSplicedFns.take 61 =
@@ -70,32 +70,32 @@ def cert12 :
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 84)`. -/
-def cert123 :
+noncomputable def cert123 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref3Mod [] [] 0 2048 :=
   cert12.append cert3 (by exact List.take_add (l := schedSplicedFns) (i := 61) (j := 23))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 107)`. -/
-def cert1234 :
+noncomputable def cert1234 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref4Mod [] [] 0 2048 :=
   cert123.append cert4 (by exact List.take_add (l := schedSplicedFns) (i := 84) (j := 23))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 130)`. -/
-def cert12345 :
+noncomputable def cert12345 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref5Mod [] [] 0 2048 :=
   cert1234.append cert5 (by exact List.take_add (l := schedSplicedFns) (i := 107) (j := 23))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 152)`. -/
-def cert123456 :
+noncomputable def cert123456 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref6Mod [] [] 0 2048 :=
   cert12345.append cert6 (by exact List.take_add (l := schedSplicedFns) (i := 130) (j := 22))
     (by t_kernel_rfl)
 
 /-- Full kernel-checked native compilation certificate covering all `173` functions in
 `schedModule` on SysV x64. -/
-def schedCert :
+noncomputable def schedCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean schedModule [] [] 0 2048 :=
   cert123456.append cert7 (by exact (List.take_append_drop 152 schedSplicedFns).symm)
     (by t_kernel_rfl)

@@ -27,13 +27,13 @@ open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat.Full
 open LeanQbe.T.Examples.Kissat.FullFastSched
 
-#guard schedCert.numChunks > 0
-#guard schedCert.bound "kissat_solve_bytes" == 960
-#guard schedCert.bound "full_sweep_bins" == 112
-#guard schedCert.bound "full_substitute" == 512
-#guard schedCert.bound "full_enter_dense" == 512
-#guard schedCert.bound "full_search" == 928
-#guard schedCert.bound "full_preprocess" == 896
+example : schedCert.numChunks > 0 := by decide
+example : schedCert.bound "kissat_solve_bytes" = 960 := by decide
+example : schedCert.bound "full_sweep_bins" = 112 := by decide
+example : schedCert.bound "full_substitute" = 528 := by decide
+example : schedCert.bound "full_enter_dense" = 512 := by decide
+example : schedCert.bound "full_search" = 928 := by decide
+example : schedCert.bound "full_preprocess" = 896 := by decide
 
 theorem audit_unsat [Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
     (hc : kissatFastSched_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)

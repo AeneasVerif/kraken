@@ -27,7 +27,7 @@ open LeanQbe.T.Examples.Kissat.Full LeanQbe.T.Examples.Kissat.FullFast
 open LeanQbe.T.Examples.LratBytes LeanQbe.T.Amd64 Kraken
 
 /-- Compiled `LinkedCert` for `fastModule` (`196` functions) on SysV x64. -/
-@[reducible] def kissatFast_compiled_x64 :
+@[reducible] noncomputable def kissatFast_compiled_x64 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean fastModule :=
   KissatFastCert.fastCert
 

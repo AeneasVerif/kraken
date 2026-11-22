@@ -11,7 +11,7 @@ set_option autoImplicit false
 namespace LeanQbe.T.Amd64.KissatFull
 open Std Std.Sat Std.ExtHashMap LeanQbe.T LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Full LeanQbe.T.Examples.LratBytes LeanQbe.T.Amd64 Kraken
-@[reducible] def kissatFull_compiled_x64 :
+@[reducible] noncomputable def kissatFull_compiled_x64 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean fullModule :=
   KissatFullCert.fullCert
 private theorem solve_in_fullModule : Full.kissat_solve_bytes ∈ fullModule.fns := by

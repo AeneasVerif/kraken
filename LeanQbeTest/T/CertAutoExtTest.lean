@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.MainCert
+public import LeanQbe.T.MainCertCore
 public import LeanQbe.T.Amd64.TargLemmas
 import LeanQbe.T.FlatLemmas
 meta import Lean
-meta import LeanQbe.T.MainCert
+meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.Amd64.Targ
 
 /-!
@@ -85,12 +85,12 @@ compile_linked_chunks! cert3
   x64Target x64Layout x64LegalTarget x64LabelClean slice3Mod 1
   (ext := ext2) (maxBound := 1024)
 
-def pref2Cert :
+noncomputable def pref2Cert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean pref2Mod [] [] 0 2048 :=
   cert1.append cert2 (by exact List.take_add (l := autoFns) (i := 2) (j := 2))
     (by t_kernel_rfl)
 
-def fullCert :
+noncomputable def fullCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean fullMod [] [] 0 2048 :=
   pref2Cert.append cert3 (by exact (List.take_append_drop 4 autoFns).symm)
     (by t_kernel_rfl)

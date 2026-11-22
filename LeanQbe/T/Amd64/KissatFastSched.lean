@@ -28,7 +28,7 @@ open LeanQbe.T.Examples.Kissat.Full LeanQbe.T.Examples.Kissat.FullFastSched
 open LeanQbe.T.Examples.LratBytes LeanQbe.T.Amd64 Kraken
 
 /-- Compiled `LinkedCert` for `schedModule` (`173` functions) on SysV x64. -/
-@[reducible] def kissatFastSched_compiled_x64 :
+@[reducible] noncomputable def kissatFastSched_compiled_x64 :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean schedModule :=
   KissatFastSchedCert.schedCert
 

@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.MainCert
+public import LeanQbe.T.Main
 import LeanQbe.T.Amd64.Targ
 import LeanQbe.T.Bootstrap0.Mod0
 meta import Lean
-meta import LeanQbe.T.MainCert
+meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Bootstrap0.Mod0
 
