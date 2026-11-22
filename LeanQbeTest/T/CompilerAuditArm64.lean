@@ -73,7 +73,8 @@ theorem audit_arm_to_isa :
     armTarget.toIsa =
       { Reg := Reg, VReg := Empty, Cond := ArmCond, Directive := Directive,
         gpr := armGpr, vec := VecIsa.empty Reg ArmCond Directive, frame := armFrame,
-        supportsAddrDisp := armSupportsAddrDisp } :=
+        supportsAddrDisp := armSupportsAddrDisp,
+        supportsAddrIdx := armSupportsAddrIdx } :=
   armTarget_toIsa
 
 theorem audit_parity (t : Ty) (f : Fmt) (n : Nat)

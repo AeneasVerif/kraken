@@ -200,7 +200,7 @@ meta def addrSkipArm64Fn : Fn :=
 
 meta def isArmAddSubShlOrPoolDir (d : armTarget.toIsa.Directive) : Bool :=
   let s := Kraken.AArch64.Print.directive d
-  !(s.startsWith "add sp," || s.startsWith "sub sp,") &&
+  !(s.startsWith "add sp," || s.startsWith "sub sp," || s.endsWith ", #0") &&
     (s.startsWith "add " || s.startsWith "sub " || s.startsWith "lsl " || s.contains '=')
 
 meta def isArmSibDir (d : armTarget.toIsa.Directive) : Bool :=
@@ -246,6 +246,10 @@ meta def sibSkipArm64Fn : Fn :=
     .ret (.var sum, ())⟩
 
 #guard chk [sibIdx64Fn]
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget sibIdx64Fn).elide.getD 1 false == true
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget sibIdx64Fn).elide.getD 2 false == true
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget sibIdx64Fn).elide.getD 5 false == true
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget sibIdx64Fn).elide.getD 6 false == true
 #guard countDirs isArmAddSubShlOrPoolDir (codeOf [sibIdx64Fn]) == 0
 #guard countDirs isCsetDir (codeOf [sibIdx64Fn]) == 0
 #guard countDirs isArmSibDir (codeOf [sibIdx64Fn]) == 2

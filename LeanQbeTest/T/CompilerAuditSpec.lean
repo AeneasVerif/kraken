@@ -170,14 +170,16 @@ theorem audit_legal_ok (target : LegalTarget) {as rs : List Ty} (f : Func as rs)
 
 /-! ## 3. Register Allocation Lowering & ABI Composition -/
 
-theorem audit_rec_elide {G : Rega.VCtx} {nv : Nat} {sig rs : List Ty} {code : OpCode sig rs}
+theorem audit_rec_elide {G : Rega.VCtx} {nv : Nat} {defs : Trie Rega.DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → Rega.DefOk G x d)
+    {sig rs : List Ty} {code : OpCode sig rs}
     {args₁ : Tup (Arg Val) sig} {args : Tup (Arg Rega.VNat) sig}
     (hrel : TRel (ArgRel G) args₁ args) (hlt : ∀ p ∈ G, p.2.2 < nv)
     {P : Tup Val rs → Prop} (hwp : code.wp (vals args₁) P) {df : Rega.DefFact}
-    (hd : Rega.recordDef code args = some df) :
+    (hd : Rega.recordDef defs code args = some df) :
     ∃ (rvs : Tup Val rs), P rvs ∧ rs = [i64] ∧
       Rega.DefOk (Tup.zip rvs (Tup.levels rs nv) ++ G) nv df :=
-  Rega.recordDef_elide_ok hrel hlt hwp hd
+  Rega.recordDef_elide_ok hdefs hrel hlt hwp hd
 
 theorem audit_lower_fn (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints)
     (E : Rega.Ext) (f : Fn) (Γ : Env) (n nX : Nat) (bound : Sym → Nat)
