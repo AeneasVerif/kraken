@@ -36,7 +36,7 @@ Covers:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.IfOptLoopRotB5Test
 
@@ -96,9 +96,8 @@ theorem bvaHop1Diamond_spec (Γ : Env) (ol sl dst : BitVec 32) (m : Mem 64) :
           m' = m)
       (fun _ _ _ _ => False) := by
   apply ifSimpBits_spec bvaHop1Diamond_wf
-  dsimp only [Func.spec, Func.wp, bvaHop1Diamond]
-  simp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, liftCmp, lift2, CmpOp.evalBits, i32,
-    Closed]
+  dsimp only [Func.spec, Func.wp, bvaHop1Diamond, wp, Op.wp, OpCode.wp, op2, vals, Arg.val,
+    liftCmp, lift2, CmpOp.evalBits, i32, Closed]
   intro ⟨J, ⟨⟩⟩ hJ
   refine ⟨fun hc1 => ?_, fun hc1 => ?_⟩
   · have h1 : ol ≠ sl := of_decide_eq_true hc1
@@ -145,9 +144,8 @@ theorem propLitRawClamp_spec (Γ : Env) (fl unass : BitVec 32) (m : Mem 64) :
              else unass) ∧ m' = m)
       (fun _ _ _ _ => False) := by
   apply ifSimpBits_spec propLitRawClamp_wf
-  dsimp only [Func.spec, Func.wp, propLitRawClampDiamond]
-  simp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, liftCmp, lift2, CmpOp.evalBits, i32,
-    Closed]
+  dsimp only [Func.spec, Func.wp, propLitRawClampDiamond, wp, Op.wp, OpCode.wp, op2, vals, Arg.val,
+    liftCmp, lift2, CmpOp.evalBits, i32, Closed]
   intro ⟨J, ⟨⟩⟩ hJ
   refine ⟨fun hc1 => ?_, fun hc1 => ?_⟩
   · have h1 : fl &&& 1#32 ≠ 0#32 := of_decide_eq_true hc1
@@ -332,8 +330,9 @@ theorem partialTailLoop_spec (Γ : Env) (n : BitVec 64) (m : Mem 64) (X : XPost)
         (if n == 0#64 then 0#64 else n - 1#64)) ?_ ?_
   · rintro J k ⟨i, acc, ⟨⟩⟩ m' hJ ⟨hk, rfl, hinv⟩
     dsimp only at hk hinv
-    simp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, liftCmp, lift2, CmpOp.evalBits, i64,
-      Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
+    dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, liftCmp, lift2, CmpOp.evalBits, i64,
+      Ty.hasFloat]
+    simp only [Bool.false_eq_true, ↓reduceIte]
     by_cases hz : i = 0#64
     · subst hz
       simp at hinv ⊢
@@ -492,10 +491,15 @@ def m4MidFns : List Fn :=
 #guard m4MidFns.all fun fn =>
   let rf := fn.loopRotate LoopRotate.defaultRotConfig
   rf.body.checkTFlat
-#guard (m4MidFns.filter fun fn => fn.name == "full_prop_lit_raw").all fun fn =>
+#guard (m4MidFns.filter fun fn =>
+    fn.name == "full_prop_lit" || fn.name == "full_probe_prop_lit").all fun fn =>
   let plan := LoopRotate.buildRotPlan (as := fn.as) LoopRotate.defaultRotConfig
     (reifyFunc fn.body)
   isPartialPlan plan
+#guard (m4MidFns.filter fun fn => fn.name == "full_prop_lit_raw").all fun fn =>
+  let plan := LoopRotate.buildRotPlan (as := fn.as) LoopRotate.defaultRotConfig
+    (reifyFunc fn.body)
+  !isPartialPlan plan && plan.hasRot
 
 /-! ## 4. Axiom audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 
