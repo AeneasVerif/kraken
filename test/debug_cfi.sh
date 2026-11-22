@@ -106,15 +106,20 @@ def loopBranch : Fn := tqbe $loop_branch(%n:l, %acc:l) -> l {
   }
 }
 
+def withExtraSaved {R V C : Type} [BEq R] (h : Hints R V C) (extra : List R) :
+    Hints R V C :=
+  let add (acc : List R) (r : R) : List R := if acc.contains r then acc else acc ++ [r]
+  { h with saved := extra.foldl add h.saved }
+
 def main (args : List String) : IO Unit := do
   let outDir := args[0]!
   let baseFns := [spill10, evenodd, nested, sumcall]
   let meHint : X64Hints :=
-    { Fn.computeHints x64Target.toIsa x64LegalTarget multiExit with
-      saved := [.rbx, .rbp, .r12, .r13] }
+    withExtraSaved (Fn.computeHints x64Target.toIsa x64LegalTarget multiExit)
+      [.rbx, .rbp, .r12, .r13]
   let dcHint : X64Hints :=
-    { Fn.computeHints x64Target.toIsa x64LegalTarget deepCaller with
-      saved := [.rbx, .r12, .r14] }
+    withExtraSaved (Fn.computeHints x64Target.toIsa x64LegalTarget deepCaller)
+      [.rbx, .r12, .r14]
   let fns := baseFns ++ [multiExit, deepCaller, loopBranch]
   let hs := baseFns.map (Fn.computeHints x64Target.toIsa x64LegalTarget) ++
     [meHint, dcHint, Fn.computeHints x64Target.toIsa x64LegalTarget loopBranch]
@@ -188,15 +193,20 @@ def leafSimple : Fn := tqbe $big_pool_fn(%a:l, %b:l) -> l {
   ret %c
 }
 
+def withExtraSaved {R V C : Type} [BEq R] (h : Hints R V C) (extra : List R) :
+    Hints R V C :=
+  let add (acc : List R) (r : R) : List R := if acc.contains r then acc else acc ++ [r]
+  { h with saved := extra.foldl add h.saved }
+
 def main (args : List String) : IO Unit := do
   let outDir := args[0]!
   let baseFns := [spill10, evenodd, nested, sumcall]
   let meHint : Arm64Hints :=
-    { Fn.computeHints armTarget.toIsa armLegalTarget multiExit with
-      saved := [.reg .X19, .reg .X20, .reg .X21, .reg .X29] }
+    withExtraSaved (Fn.computeHints armTarget.toIsa armLegalTarget multiExit)
+      [.reg .X19, .reg .X20, .reg .X21, .reg .X29]
   let dcHint : Arm64Hints :=
-    { Fn.computeHints armTarget.toIsa armLegalTarget deepCaller with
-      saved := [.reg .X19, .reg .X22, .reg .X28] }
+    withExtraSaved (Fn.computeHints armTarget.toIsa armLegalTarget deepCaller)
+      [.reg .X19, .reg .X22, .reg .X28]
   let fns := baseFns ++ [multiExit, deepCaller, loopBranch]
   let hs := baseFns.map (Fn.computeHints armTarget.toIsa armLegalTarget) ++
     [meHint, dcHint, Fn.computeHints armTarget.toIsa armLegalTarget loopBranch]
