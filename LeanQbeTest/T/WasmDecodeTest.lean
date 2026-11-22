@@ -176,6 +176,65 @@ def unsupportedOpBytes : ByteArray := ⟨#[
 ]⟩
 #guard !(decodeWasmBytes unsupportedOpBytes).isOk
 
+-- 2.11 5-byte negative s33 LEB128 decoding (-1 and -2^32)
+#guard match decodeS33 ⟨⟨#[0xff, 0xff, 0xff, 0xff, 0x7f]⟩, 0⟩ with
+  | .ok (v, r) => v == -1 && r.remaining == 0
+  | .error _ => false
+
+#guard match decodeS33 ⟨⟨#[0x80, 0x80, 0x80, 0x80, 0x70]⟩, 0⟩ with
+  | .ok (v, r) => v == -4294967296 && r.remaining == 0
+  | .error _ => false
+
+-- 2.12 Standard conversion opcodes: 0xA7 (wrap_i64), 0xAC (extend_i32_s), 0xAD (extend_i32_u)
+#guard match decodeOneInstr 10 0xa7 ⟨⟨#[]⟩, 0⟩ with
+  | .ok (.wrap_i64, r) => r.remaining == 0
+  | _ => false
+
+#guard match decodeOneInstr 10 0xac ⟨⟨#[]⟩, 0⟩ with
+  | .ok (.extend_i32_s, r) => r.remaining == 0
+  | _ => false
+
+#guard match decodeOneInstr 10 0xad ⟨⟨#[]⟩, 0⟩ with
+  | .ok (.extend_i32_u, r) => r.remaining == 0
+  | _ => false
+
+-- 2.13 Rejection of unsupported float / saturating opcodes (0xA6, 0xA8, 0xFC 0..4)
+#guard !(decodeOneInstr 10 0xa6 ⟨⟨#[]⟩, 0⟩).isOk
+#guard !(decodeOneInstr 10 0xa8 ⟨⟨#[]⟩, 0⟩).isOk
+#guard !(decodeOneInstr 10 0xfc ⟨⟨#[0x00]⟩, 0⟩).isOk
+#guard !(decodeOneInstr 10 0xfc ⟨⟨#[0x01]⟩, 0⟩).isOk
+#guard !(decodeOneInstr 10 0xfc ⟨⟨#[0x02]⟩, 0⟩).isOk
+
+-- 2.14 Mismatched global type (i64 declared with i32.const init)
+def badGlobalInitBytes : ByteArray := ⟨#[
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  0x06, 0x06, 0x01, 0x7e, 0x00, 0x41, 0x00, 0x0b
+]⟩
+#guard !(decodeWasmBytes badGlobalInitBytes).isOk
+
+-- 2.15 Memory section count 0 with trailing garbage bytes
+def badMemTrailingBytes : ByteArray := ⟨#[
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  0x05, 0x02, 0x00, 0xaa
+]⟩
+#guard !(decodeWasmBytes badMemTrailingBytes).isOk
+
+-- 2.16 Export section with invalid UTF-8 export symbol name
+def badExportUtf8Bytes : ByteArray := ⟨#[
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  0x07, 0x05, 0x01, 0x01, 0xff, 0x00, 0x00
+]⟩
+#guard !(decodeWasmBytes badExportUtf8Bytes).isOk
+
+-- 2.17 Code section with malicious locCnt = 0xFFFFFFFF (DoS prevention)
+def maliciousLocCntBytes : ByteArray := ⟨#[
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+  0x03, 0x02, 0x01, 0x00,
+  0x0a, 0x0a, 0x01, 0x08, 0x01, 0xff, 0xff, 0xff, 0xff, 0x0f, 0x7f, 0x0b
+]⟩
+#guard !(decodeWasmBytes maliciousLocCntBytes).isOk
+
 /-! ## 3. Hand-Assembled Binary Modules (All Opcode Families) -/
 
 /-! ### 3.1 Control Flow Module: `br_table`, nested blocks, loop, if/else -/

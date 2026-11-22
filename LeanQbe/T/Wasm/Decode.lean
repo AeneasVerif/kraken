@@ -165,7 +165,7 @@ def decodeS33 (r : Reader) : Except String (Int × Reader) := do
         if !signBit && padBits != 0 then
           return ← .error s!"invalid s33 LEB128 zero padding at offset {cur.pos - 1}"
       let signExt := (b.toNat &&& 0x40) != 0
-      if signExt && shift < 33 then
+      if signExt then
         let val : Int := (res : Int) - ((1 : Int) <<< shift)
         return (val, cur)
       else
@@ -433,23 +433,14 @@ def decodeOneInstr (fuel : Nat) (opByte : UInt8) (r : Reader) :
     | 0x88 => .ok (.binop .i64 .shr_u, r)
     | 0x89 => .ok (.binop .i64 .rotl, r)
     | 0x8A => .ok (.binop .i64 .rotr, r)
-    | 0xA6 => .ok (.wrap_i64, r)
-    | 0xA7 => .ok (.extend_i32_s, r)
-    | 0xA8 => .ok (.extend_i32_u, r)
+    | 0xA7 => .ok (.wrap_i64, r)
+    | 0xAC => .ok (.extend_i32_s, r)
+    | 0xAD => .ok (.extend_i32_u, r)
     | 0xC0 => .ok (.unop .i32 .extend8_s, r)
     | 0xC1 => .ok (.unop .i32 .extend16_s, r)
     | 0xC2 => .ok (.unop .i64 .extend8_s, r)
     | 0xC3 => .ok (.unop .i64 .extend16_s, r)
     | 0xC4 => .ok (.unop .i64 .extend32_s, r)
-    | 0xFC =>
-      let (subOp, r1) ← decodeU32 r
-      match subOp with
-      | 0 | 0xC0 => .ok (.unop .i32 .extend8_s, r1)
-      | 1 | 0xC1 => .ok (.unop .i32 .extend16_s, r1)
-      | 2 | 0xC2 => .ok (.unop .i64 .extend8_s, r1)
-      | 3 | 0xC3 => .ok (.unop .i64 .extend16_s, r1)
-      | 4 | 0xC4 => .ok (.unop .i64 .extend32_s, r1)
-      | _ => .error s!"unsupported 0xFC extension opcode {subOp} at offset {r.pos}"
     | _ => .error s!"unsupported WebAssembly opcode {opByte} at offset {r.pos}"
 end
 
@@ -488,24 +479,26 @@ def decodeFuncSection (r : Reader) : Except String (List Nat) := do
 def decodeMemorySection (r : Reader) : Except String (Option WMemSpec) := do
   let (count, cur) ← decodeU32 r
   if count == 0 then
+    if cur.remaining != 0 then
+      throw s!"trailing {cur.remaining} bytes in memory section"
     return none
   else if count > 1 then
-    return ← .error s!"multiple memories ({count}) unsupported in WebAssembly 1.0/2.0 sandbox"
+    throw s!"multiple memories ({count}) unsupported in WebAssembly 1.0/2.0 sandbox"
   let (flag, r1) ← cur.readU8
   let (minPages, r2) ← decodeU32 r1
   match flag with
   | 0x00 =>
     if r2.remaining != 0 then
-      .error s!"trailing {r2.remaining} bytes in memory section"
+      throw s!"trailing {r2.remaining} bytes in memory section"
     else
       .ok (some ⟨minPages.toNat, none⟩)
   | 0x01 =>
     let (maxPages, r3) ← decodeU32 r2
     if r3.remaining != 0 then
-      .error s!"trailing {r3.remaining} bytes in memory section"
+      throw s!"trailing {r3.remaining} bytes in memory section"
     else
       .ok (some ⟨minPages.toNat, some maxPages.toNat⟩)
-  | _ => .error s!"invalid memory limits flag {flag} at offset {r1.pos}"
+  | _ => throw s!"invalid memory limits flag {flag} at offset {r1.pos}"
 
 /-- Parse Global section (id 6): declarations with `i32.const`/`i64.const` initializer. -/
 def decodeGlobalSection (r : Reader) : Except String (List WGlobalDecl) := do
@@ -515,23 +508,29 @@ def decodeGlobalSection (r : Reader) : Except String (List WGlobalDecl) := do
   for _ in [0:count.toNat] do
     let (ty, rTy) ← decodeValTy cur
     let (mutByte, rMut) ← rTy.readU8
-    let isMut := mutByte != 0
+    if mutByte != 0 && mutByte != 1 then
+      throw s!"invalid global mutability byte {mutByte} at offset {rTy.pos}"
+    let isMut := mutByte == 1
     let (initOp, rInit) ← rMut.readU8
     let (initVal, rEndByte) ← match initOp with
       | 0x41 =>
+        if ty != .i32 then
+          throw s!"mismatched global type {repr ty} with i32.const initializer"
         let (v, next) ← decodeS32 rInit
-        .ok (v.setWidth 64, next)
+        pure (v.setWidth 64, next)
       | 0x42 =>
+        if ty != .i64 then
+          throw s!"mismatched global type {repr ty} with i64.const initializer"
         let (v, next) ← decodeS64 rInit
-        .ok (v, next)
-      | _ => .error s!"unsupported global init opcode {initOp} at offset {rInit.pos}"
+        pure (v, next)
+      | _ => throw s!"unsupported global init opcode {initOp} at offset {rInit.pos}"
     let (endByte, rNext) ← rEndByte.readU8
     if endByte != 0x0B then
-      return ← .error s!"global init expr missing trailing 0x0B (got {endByte})"
+      throw s!"global init expr missing trailing 0x0B (got {endByte})"
     globals := ⟨ty, isMut, initVal⟩ :: globals
     cur := rNext
   if cur.remaining != 0 then
-    .error s!"trailing {cur.remaining} bytes in global section"
+    throw s!"trailing {cur.remaining} bytes in global section"
   else
     .ok globals.reverse
 
@@ -543,14 +542,17 @@ def decodeExportSection (r : Reader) : Except String (List (Nat × String)) := d
   for _ in [0:count.toNat] do
     let (nameLen, rNameLen) ← decodeU32 cur
     let (nameBytes, rKind) ← rNameLen.readBytes nameLen.toNat
-    let nameStr := (String.fromUTF8? nameBytes).getD ""
+    let some nameStr := String.fromUTF8? nameBytes
+      | throw s!"invalid UTF-8 in export name at offset {cur.pos}"
     let (kind, rIdx) ← rKind.readU8
+    if kind > 0x03 then
+      throw s!"invalid export kind {kind} at offset {rKind.pos}"
     let (itemIdx, rNext) ← decodeU32 rIdx
     if kind == 0x00 then
       fnExports := (itemIdx.toNat, nameStr) :: fnExports
     cur := rNext
   if cur.remaining != 0 then
-    .error s!"trailing {cur.remaining} bytes in export section"
+    throw s!"trailing {cur.remaining} bytes in export section"
   else
     .ok fnExports.reverse
 
@@ -559,7 +561,7 @@ def decodeCodeSection (r : Reader) (fnCount : Nat) (typeIndices : List Nat)
     (fnNames : List (Nat × String)) : Except String (List WFunc) := do
   let (count, r1) ← decodeU32 r
   if count.toNat != fnCount then
-    return ← .error s!"function section count ({fnCount}) != code section count ({count})"
+    throw s!"function section count ({fnCount}) != code section count ({count})"
   let mut funcs : List WFunc := []
   let mut cur := r1
   for i in [0:fnCount] do
@@ -568,24 +570,29 @@ def decodeCodeSection (r : Reader) (fnCount : Nat) (typeIndices : List Nat)
     cur := rNext
     let bodyReader : Reader := ⟨bodyBytes, 0⟩
     let (localDeclsCount, rLocCount) ← decodeU32 bodyReader
+    if localDeclsCount.toNat > 65536 then
+      throw s!"function {i} exceeds local declarations cap (65536)"
     let mut locals : List WValTy := []
+    let mut totalLocals : Nat := 0
     let mut curLoc := rLocCount
     for _ in [0:localDeclsCount.toNat] do
       let (locCnt, rNextCnt) ← decodeU32 curLoc
       let (locTy, rNextTy) ← decodeValTy rNextCnt
-      for _ in [0:locCnt.toNat] do
-        locals := locTy :: locals
+      if totalLocals + locCnt.toNat > 65536 then
+        throw s!"function {i} exceeds locals cap (65536)"
+      totalLocals := totalLocals + locCnt.toNat
+      locals := locals ++ List.replicate locCnt.toNat locTy
       curLoc := rNextTy
     let (body, endedElse, rEnd) ← decodeInstrSeq (bodyReader.remaining + 1) false curLoc
     if endedElse then
-      return ← .error s!"function {i} code body terminated with unexpected 'else'"
+      throw s!"function {i} code body terminated with unexpected 'else'"
     if rEnd.remaining != 0 then
-      return ← .error s!"function {i} code body has {rEnd.remaining} trailing unparsed bytes"
+      throw s!"function {i} code body has {rEnd.remaining} trailing unparsed bytes"
     let tIdx := typeIndices[i]? |>.getD 0
     let fnName := (fnNames.find? (·.1 == i)).map (·.2) |>.getD s!"wasm_fn_{i}"
-    funcs := ⟨fnName, tIdx, locals.reverse, body⟩ :: funcs
+    funcs := ⟨fnName, tIdx, locals, body⟩ :: funcs
   if cur.remaining != 0 then
-    .error s!"trailing {cur.remaining} bytes in code section"
+    throw s!"trailing {cur.remaining} bytes in code section"
   else
     .ok funcs.reverse
 
@@ -597,15 +604,15 @@ Rejects invalid headers, unknown/unsupported sections, out-of-order sections,
 overlong integers, and malformed instruction trees with clean error messages. -/
 def decodeWasmBytes (bs : ByteArray) : Except String WModule := do
   if bs.size < 8 then
-    return ← .error s!"binary too short ({bs.size} bytes < 8-byte wasm header)"
+    throw s!"binary too short ({bs.size} bytes < 8-byte wasm header)"
   let magic := bs.extract 0 4
   if magic.get! 0 != 0x00 || magic.get! 1 != 0x61 ||
       magic.get! 2 != 0x73 || magic.get! 3 != 0x6D then
-    return ← .error "invalid WebAssembly magic header (expected '\\0asm')"
+    throw "invalid WebAssembly magic header (expected '\\0asm')"
   let ver := bs.extract 4 8
   if ver.get! 0 != 0x01 || ver.get! 1 != 0x00 ||
       ver.get! 2 != 0x00 || ver.get! 3 != 0x00 then
-    return ← .error "unsupported WebAssembly binary version (expected version 1)"
+    throw "unsupported WebAssembly binary version (expected version 1)"
   let mut cur : Reader := ⟨bs, 8⟩
   let mut lastSectionId : Nat := 0
   let mut types : List WFuncTy := []
@@ -618,7 +625,7 @@ def decodeWasmBytes (bs : ByteArray) : Except String WModule := do
   let mut fuel := bs.size + 100
   while cur.pos < bs.size do
     if fuel == 0 then
-      return ← .error "section loop fuel exhausted"
+      throw "section loop fuel exhausted"
     fuel := fuel - 1
     let (secId, r1) ← cur.readU8
     let (secLen, r2) ← decodeU32 r1
@@ -630,26 +637,37 @@ def decodeWasmBytes (bs : ByteArray) : Except String WModule := do
       continue
     else
       if secId.toNat ≤ lastSectionId then
-        return ← .error s!"section {secId} out of order (previous section was {lastSectionId})"
+        throw s!"section {secId} out of order (previous section was {lastSectionId})"
       lastSectionId := secId.toNat
       match secId with
-      | 1 => types ← decodeTypeSection secReader
-      | 2 => return ← .error "import section (id 2) unsupported in verified sandbox"
-      | 3 => typeIndices ← decodeFuncSection secReader
-      | 4 => return ← .error "table section (id 4) unsupported in verified sandbox"
-      | 5 => memory ← decodeMemorySection secReader
-      | 6 => globals ← decodeGlobalSection secReader
-      | 7 => fnExports ← decodeExportSection secReader
-      | 8 => return ← .error "start section (id 8) unsupported in verified sandbox"
-      | 9 => return ← .error "element section (id 9) unsupported in verified sandbox"
+      | 1 =>
+        let t ← decodeTypeSection secReader
+        types := t
+      | 2 => throw "import section (id 2) unsupported in verified sandbox"
+      | 3 =>
+        let ti ← decodeFuncSection secReader
+        typeIndices := ti
+      | 4 => throw "table section (id 4) unsupported in verified sandbox"
+      | 5 =>
+        let mem ← decodeMemorySection secReader
+        memory := mem
+      | 6 =>
+        let g ← decodeGlobalSection secReader
+        globals := g
+      | 7 =>
+        let ex ← decodeExportSection secReader
+        fnExports := ex
+      | 8 => throw "start section (id 8) unsupported in verified sandbox"
+      | 9 => throw "element section (id 9) unsupported in verified sandbox"
       | 10 =>
-        funcs ← decodeCodeSection secReader typeIndices.length typeIndices fnExports
+        let fs ← decodeCodeSection secReader typeIndices.length typeIndices fnExports
+        funcs := fs
         seenCode := true
-      | 11 => return ← .error "data section (id 11) unsupported in verified sandbox"
-      | 12 => return ← .error "datacount section (id 12) unsupported in verified sandbox"
-      | _ => return ← .error s!"unknown section id {secId}"
+      | 11 => throw "data section (id 11) unsupported in verified sandbox"
+      | 12 => throw "datacount section (id 12) unsupported in verified sandbox"
+      | _ => throw s!"unknown section id {secId}"
   if !typeIndices.isEmpty && !seenCode then
-    return ← .error "function section present without corresponding code section"
+    throw "function section present without corresponding code section"
   .ok { types := types, funcs := funcs, memory := memory, globals := globals }
 
 /-! ## Verified End-to-End Entry Point & Universal Soundness Theorem -/
