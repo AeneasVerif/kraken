@@ -423,7 +423,7 @@ theorem partialWrapCall_rot_checkTFlat :
 theorem partialWrapCall_rot_wf : (Func.loopRotate partialWrapCallLoop).Wf :=
   Func.loopRotate_wf (by t_wf_reify)
 
-theorem partialWrapCall_rot_callsOk :
+theorem pWrap_rot_callsOk :
     ((Func.loopRotate partialWrapCallLoop) (fun _ => Unit) (fun _ => Unit)
       (Tup.units [i64, i64])).callsOk [⟨"step", [i64], [i64]⟩] [] :=
   Func.loopRotate_callsOk (by t_wf_reify) defaultRotConfig (by
@@ -483,8 +483,10 @@ def targetM4Names : List String :=
   ["full_bva_hop1", "full_prop_lit_raw", "full_prop_lit", "full_arena_sweep", "full_probe_prop_lit"]
 
 def m4MidFns : List Fn :=
-  ((m4Module.optInline 40).fns.filter fun fn => targetM4Names.contains fn.name).map
-    (Fn.mid LegalTarget.x64AVX512)
+  ((m4Module.optInline 40).fns.filter fun fn => targetM4Names.contains fn.name).map fun f =>
+    let lf := (f.earlyOpt).legal LegalTarget.x64AVX512
+    let body := Func.lateCfg (Func.lateCore lf.body)
+    ⟨lf.name, lf.as, lf.rs, let tf := reifyFunc body; denoteFunc tf⟩
 
 #guard m4MidFns.length == 5
 #guard m4MidFns.all fun fn =>
@@ -510,6 +512,6 @@ def m4MidFns : List Fn :=
 #print axioms LeanQbeTest.T.IfOptLoopRotB5Test.propLitRawClamp_spec
 #print axioms LeanQbeTest.T.IfOptLoopRotB5Test.threeLevelCall_callsOk
 #print axioms LeanQbeTest.T.IfOptLoopRotB5Test.partialTailLoop_rot_spec
-#print axioms LeanQbeTest.T.IfOptLoopRotB5Test.partialWrapCall_rot_callsOk
+#print axioms LeanQbeTest.T.IfOptLoopRotB5Test.pWrap_rot_callsOk
 
 end LeanQbeTest.T.IfOptLoopRotB5Test
