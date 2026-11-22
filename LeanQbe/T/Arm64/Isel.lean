@@ -68,25 +68,115 @@ abbrev armAtIdx (rb idx : XReg) : AddrExpr :=
   { base := .low (.reg rb) .W64,
     off := .reg { reg := ⟨.W64, zr idx .W64⟩, ext := { type := .UXTX, amount := .E0 } } }
 
+/-- Memory extension shift amount for `AddrScale` at byte access size `scale`. -/
+def armMemExtendAmount (scale : Nat) : AddrScale → Option MemExtendAmount
+  | .s1 => some .E0
+  | .s2 => if scale == 2 then some .E1 else none
+  | .s4 => if scale == 4 then some .E2 else none
+  | .s8 => if scale == 8 then some .E3 else none
+
+/-- Memory operand `[rb, ri, lsl #amt]`. -/
+abbrev armAtIdxScale (rb ri : XReg) (amt : MemExtendAmount) : AddrExpr :=
+  { base := .low (.reg rb) .W64,
+    off := .reg { reg := ⟨.W64, zr ri .W64⟩, ext := { type := .UXTX, amount := amt } } }
+
+/-- `MOVZ x_d, #k, lsl #sh` (`Instr`). -/
+abbrev armMovzI (d : XReg) (k : Nat) (sh : MovShift .W64) : Instr :=
+  armIselInsI (w := .W64) (.MOVZ (zr d .W64) (.int64 (Int64.ofNat k)) sh)
+
+/-- `MOVN x_d, #k, lsl #sh` (`Instr`). -/
+abbrev armMovnI (d : XReg) (k : Nat) (sh : MovShift .W64) : Instr :=
+  armIselInsI (w := .W64) (.MOVN (zr d .W64) (.int64 (Int64.ofNat k)) sh)
+
+/-- `MOVK x_d, #k, lsl #sh` (`Instr`). -/
+abbrev armMovkI (d : XReg) (k : Nat) (sh : MovShift .W64) : Instr :=
+  armIselInsI (w := .W64) (.MOVK (zr d .W64) (.int64 (Int64.ofNat k)) sh)
+
+/-- Non-zero `(chunk16, shift)` pairs of a 64-bit constant. -/
+def armNonZeroChunks (v : BitVec 64) : List (Nat × MovShift .W64) :=
+  let n := v.toNat
+  ([(n &&& 0xFFFF, .LSL0),
+    ((n >>> 16) &&& 0xFFFF, .LSL16),
+    ((n >>> 32) &&& 0xFFFF, .LSL32),
+    ((n >>> 48) &&& 0xFFFF, .LSL48)]).filter fun p => p.1 != 0
+
+/-- Materialize 64-bit constant `c` into `x_d` via `MOVZ`, `MOVN`, 2-insn `MOVZ+MOVK` /
+`MOVN+MOVK`, or literal-pool `LDR` fallback (`3..4` non-trivial chunks). -/
+def armMovImmI (d : XReg) (c : BitVec 64) : List Instr :=
+  if c == 0#64 then [armMovzI d 0 .LSL0]
+  else match armNonZeroChunks c with
+    | [(k, sh)] => [armMovzI d k sh]
+    | _ => match armNonZeroChunks (~~~c) with
+      | [(k, sh)] => [armMovnI d k sh]
+      | _ => match armNonZeroChunks c with
+        | [(k1, sh1), (k2, sh2)] => [armMovzI d k1 sh1, armMovkI d k2 sh2]
+        | _ => match armNonZeroChunks (~~~c) with
+          | [(k1, sh1), (k2, sh2)] => [armMovnI d k1 sh1, armMovkI d (k2 ^^^ 0xFFFF) sh2]
+          | _ => [armIselLdrPoolBvI d c]
+
 /-- Load unsigned `n`-bit operand into `tmp` if immediate, or return its GP `XReg` (`Instr`). -/
 def armArgInIns {n : Nat} (tmp : XReg) :
     PArg Reg Empty ArmCond (.bits n) → Option (List Instr × XReg)
   | .gpr (.reg r) => some ([], r)
   | .gpr .SP => none
-  | .imm c => some ([armIselLdrPoolBvI tmp (c.setWidth 64)], tmp)
+  | .imm c => some (armMovImmI tmp (c.setWidth 64), tmp)
 
 /-- Load a `.bool` operand into `tmp` if immediate/flag, or return its GP `XReg` (`Instr`). -/
 def armBoolArgInIns (tmp : XReg) : PArg Reg Empty ArmCond .bool → Option (List Instr × XReg)
   | .gpr (.reg r) => some ([], r)
   | .gpr .SP => none
-  | .imm b => some ([armIselLdrPoolBvI tmp (BitVec.ofNat 64 b.toNat)], tmp)
+  | .imm b => some (armMovImmI tmp (BitVec.ofNat 64 b.toNat), tmp)
   | .flag c => some ([armCset64I tmp c], tmp)
 
-/-- 12-bit unsigned arithmetic immediate if `c.toNat < 4096`. -/
+/-- 12-bit unsigned arithmetic immediate (`S0` or `S12`). -/
 def armImm12? {n : Nat} (c : BitVec n) : Option ExtOrImmReg :=
   if Nat.blt c.toNat 4096 then
     some (.imm { imm := .int64 (Int64.ofNat c.toNat), shift := .S0 })
+  else if Nat.blt c.toNat 16777216 && (c.toNat % 4096 == 0) then
+    some (.imm { imm := .int64 (Int64.ofNat (c.toNat / 4096)), shift := .S12 })
   else none
+
+def armIsContiguousOnes (v E : Nat) : Bool :=
+  v > 0 && v < ((1 <<< E) - 1) && ((v + 1) &&& v) == 0
+
+def armIsRotatedRunOfOnesAux (elem E : Nat) : Nat → Bool
+  | 0 => false
+  | n + 1 =>
+    if armIsContiguousOnes elem E then true
+    else
+      let nextElem := (elem >>> 1) ||| ((elem &&& 1) <<< (E - 1))
+      armIsRotatedRunOfOnesAux nextElem E n
+
+def armRepeatElement (pattern wBits E : Nat) : Nat :=
+  match wBits, E with
+  | 64, 64 => pattern
+  | 64, 32 => pattern * 0x0000000100000001
+  | 64, 16 => pattern * 0x0001000100010001
+  | 64, 8  => pattern * 0x0101010101010101
+  | 64, 4  => pattern * 0x1111111111111111
+  | 64, 2  => pattern * 0x5555555555555555
+  | 32, 32 => pattern
+  | 32, 16 => pattern * 0x00010001
+  | 32, 8  => pattern * 0x01010101
+  | 32, 4  => pattern * 0x11111111
+  | 32, 2  => pattern * 0x55555555
+  | _, _ => 0
+
+/-- True iff `v` encodes a valid ARMv8-A logical bitmask immediate at width `w`. -/
+def armIsValidLogicalImm (w : RegWidth) (v : BitVec 64) : Bool :=
+  let vNat := match w with
+    | .W32 => v.toNat &&& 0xFFFFFFFF
+    | .W64 => v.toNat
+  let wBits := w.bits
+  let maxVal := (1 <<< wBits) - 1
+  if vNat == 0 || vNat == maxVal then false
+  else
+    let sizes := match w with
+      | .W32 => [2, 4, 8, 16, 32]
+      | .W64 => [2, 4, 8, 16, 32, 64]
+    sizes.any fun E =>
+      let pat := vNat &&& ((1 <<< E) - 1)
+      vNat == armRepeatElement pat wBits E && armIsRotatedRunOfOnesAux pat E E
 
 /-- Logical immediate `n - 1` (`7`, `15`, `31`, or `63`) for shift/bit masks. -/
 def armShiftMaskConst (n : Nat) : ConstExpr :=
@@ -117,8 +207,8 @@ def armMov (rd rs : Reg) : List Directive :=
 /-- Load 64-bit constant `c` into `rd` (`Instr` builder). -/
 def armMoviIns (rd : Reg) (c : BitVec 64) : List Instr :=
   match rd with
-  | .reg d => [armIselLdrPoolBvI d c]
-  | .SP => [armIselLdrPoolBvI .X16 c, armIselMovToSpI .X16]
+  | .reg d => armMovImmI d c
+  | .SP => armMovImmI .X16 c ++ [armIselMovToSpI .X16]
 
 /-- Load 64-bit constant `c` into `rd` (routing `.SP` via `.X16`), preserving all flags. -/
 def armMovi (rd : Reg) (c : BitVec 64) : List Directive :=
@@ -169,21 +259,25 @@ def armFitsScaledOff (scale : Nat) (disp : Int64) : Bool :=
 
 /-- Compute effective `AddrExpr` using scratch `.X16` only (`Instr` builder). -/
 def armSetupAddrIns (scale : Nat) : AddrArg Reg → List Instr × AddrExpr
-  | .imm addr => ([armIselLdrPoolBvI .X16 addr], atReg .X16)
+  | .imm addr => (armMovImmI .X16 addr, atReg .X16)
   | .baseDisp (.reg rb) disp =>
     if disp == 0 then ([], atReg rb)
     else if armFitsScaledOff scale disp then ([], armAtDisp rb disp)
-    else ([armIselLdrPoolBvI .X16 disp.toBitVec], armAtIdx rb .X16)
+    else (armMovImmI .X16 disp.toBitVec, armAtIdx rb .X16)
   | .baseDisp .SP disp =>
     if disp == 0 then ([armIselMovToXI .X16 .SP], atReg .X16)
     else if Nat.blt disp.toBitVec.toNat 4096 then
       ([armIselInsI (w := .W64) (.ADD_e (.low (.reg .X16) .W64) (.low .SP .W64)
         (.imm { imm := .int64 disp, shift := .S0 }))], atReg .X16)
     else
-      ([armIselLdrPoolBvI .X16 disp.toBitVec,
-        armIselInsI (w := .W64) (.ADD_e (.low (.reg .X16) .W64) (.low .SP .W64)
+      (armMovImmI .X16 disp.toBitVec ++
+        [armIselInsI (w := .W64) (.ADD_e (.low (.reg .X16) .W64) (.low .SP .W64)
           (.ext { reg := ⟨.W64, zr .X16 .W64⟩, ext := { type := .UXTX, amount := .E0 } }))],
         atReg .X16)
+  | .baseIdxDisp (.reg rb) (.reg ri) sc _ =>
+    match armMemExtendAmount scale sc with
+    | some amt => ([], armAtIdxScale rb ri amt)
+    | none => ([], atReg .X16)
   | .baseIdxDisp .. => ([], atReg .X16)
 
 /-- Byte scale of a scalar memory access type, or `none` if unsupported. -/
@@ -212,16 +306,18 @@ def armStoreDirI (t : Ty) (s : XReg) (addr : AddrExpr) : Option Instr :=
   | .bits 64 => some (armIselInsI (w := .W64) (.STR (zr s .W64) addr))
   | _ => none
 
-/-- Address validity gate for AArch64 scalar loads/stores (`baseIdxDisp` not yet wired). -/
-def armAddrValid : AddrArg Reg → Bool
+/-- Address validity gate for AArch64 scalar loads/stores at byte access size `scale`. -/
+def armAddrValid (scale : Nat) : AddrArg Reg → Bool
+  | .baseIdxDisp (.reg _) (.reg _) sc disp =>
+    disp == 0 && (armMemExtendAmount scale sc).isSome
   | .baseIdxDisp .. => false
   | _ => true
 
 /-- Load scalar `t` from `a` into `rd` (`Instr` builder). -/
 def armLoadIns (t : Ty) (rd : Reg) (a : AddrArg Reg) : Option (List Instr × FlagMask) := do
-  if !armAddrValid a then none
+  let scale ← armMemScale t
+  if !armAddrValid scale a then none
   else
-    let scale ← armMemScale t
     let (setup, addr) := armSetupAddrIns scale a
     match rd with
     | .reg d =>
@@ -239,19 +335,19 @@ def armLoad (t : Ty) (rd : Reg) (a : AddrArg Reg) : Option (List Directive × Fl
 def armStoreValInIns : (t : Ty) → PArg Reg Empty ArmCond t → Option (List Instr × XReg)
   | .bool, .gpr (.reg r) => some ([], r)
   | .bool, .gpr .SP => some ([armIselMovToXI .X17 .SP], .X17)
-  | .bool, .imm b => some ([armIselLdrPoolBvI .X17 (BitVec.ofNat 64 b.toNat)], .X17)
+  | .bool, .imm b => some (armMovImmI .X17 (BitVec.ofNat 64 b.toNat), .X17)
   | .bool, .flag c => some ([armCset64I .X17 c], .X17)
   | .bits _, .gpr (.reg r) => some ([], r)
   | .bits _, .gpr .SP => some ([armIselMovToXI .X17 .SP], .X17)
-  | .bits _, .imm c => some ([armIselLdrPoolBvI .X17 (c.setWidth 64)], .X17)
+  | .bits _, .imm c => some (armMovImmI .X17 (c.setWidth 64), .X17)
   | _, _ => none
 
 /-- Store scalar `pa` of type `t` to `a` (`Instr` builder). -/
 def armStoreIns (t : Ty) (pa : PArg Reg Empty ArmCond t) (a : AddrArg Reg) :
     Option (List Instr × FlagMask) := do
-  if !armAddrValid a then none
+  let scale ← armMemScale t
+  if !armAddrValid scale a then none
   else
-    let scale ← armMemScale t
     let (valSetup, rx) ← armStoreValInIns t pa
     let (addrSetup, addr) := armSetupAddrIns scale a
     let dir ← armStoreDirI t rx addr
@@ -289,7 +385,7 @@ def armBoolOpIns {sig : List Ty} (code : OpCode sig [.bool])
   | .copy .bool, (.gpr (.reg r), ()) =>
     some ([armIselInsI (.ORR_s (zr d .W32) (xzr .W32) (sh r))], maskNone)
   | .copy .bool, (.imm b, ()) =>
-    some ([armIselLdrPoolBvI d (BitVec.ofNat 64 b.toNat)], maskNone)
+    some (armMovImmI d (BitVec.ofNat 64 b.toNat), maskNone)
   | .copy .bool, (.flag c, ()) => some ([armCset64I d c], maskNone)
   | .not .bool, (pa, ()) => do
     let (ca, ra) ← armBoolArgInIns .X16 pa
@@ -315,14 +411,14 @@ def armCopyBitsIns (n : Nat) (pa : PArg Reg Empty ArmCond (.bits n)) (d : XReg) 
   match pa with
   | .gpr (.reg r) => some ([armIselInsI (.ORR_s (zr d w) (xzr w) (sh r))], maskNone)
   | .gpr .SP => none
-  | .imm c => some ([armIselLdrPoolBvI d (c.setWidth 64)], maskNone)
+  | .imm c => some (armMovImmI d (c.setWidth 64), maskNone)
 
 /-- Zero-extension `zext m n` (`Instr` builder). -/
 def armZextOpIns (m n : Nat) (pa : PArg Reg Empty ArmCond (.bits m)) (d : XReg) :
     Option (List Instr × FlagMask) :=
   if !([8, 16, 32, 64].contains m && [8, 16, 32, 64].contains n && Nat.ble m n) then none
   else match pa with
-    | .imm c => some ([armIselLdrPoolBvI d ((c.setWidth n).setWidth 64)], maskNone)
+    | .imm c => some (armMovImmI d ((c.setWidth n).setWidth 64), maskNone)
     | .gpr .SP => none
     | .gpr (.reg r) =>
       if m == 8 then some ([armIselInsI (.UBFM (zr d .W64) (zr r .W64) 0 7)], maskNone)
@@ -335,12 +431,13 @@ def armSextOpIns (m n : Nat) (pa : PArg Reg Empty ArmCond (.bits m)) (d : XReg) 
     Option (List Instr × FlagMask) :=
   if !([8, 16, 32, 64].contains m && [8, 16, 32, 64].contains n && Nat.ble m n) then none
   else match pa with
-    | .imm c => some ([armIselLdrPoolBvI d ((c.signExtend n).setWidth 64)], maskNone)
+    | .imm c => some (armMovImmI d ((c.signExtend n).setWidth 64), maskNone)
     | .gpr .SP => none
     | .gpr (.reg r) =>
-      if m == 8 then some ([armIselInsI (.SBFM (zr d .W64) (zr r .W64) 0 7)], maskNone)
-      else if m == 16 then some ([armIselInsI (.SBFM (zr d .W64) (zr r .W64) 0 15)], maskNone)
-      else if m == 32 then some ([armIselInsI (.SBFM (zr d .W64) (zr r .W64) 0 31)], maskNone)
+      let w := armWidthOf n
+      if m == 8 then some ([armIselInsI (.SBFM (zr d w) (zr r w) 0 7)], maskNone)
+      else if m == 16 then some ([armIselInsI (.SBFM (zr d w) (zr r w) 0 15)], maskNone)
+      else if m == 32 then some ([armIselInsI (.SBFM (zr d w) (zr r w) 0 31)], maskNone)
       else some ([armIselInsI (.ORR_s (zr d .W64) (xzr .W64) (sh r))], maskNone)
 
 /-- Truncation `trunc m n` (`Instr` builder). -/
@@ -348,7 +445,7 @@ def armTruncOpIns (m n : Nat) (pa : PArg Reg Empty ArmCond (.bits m)) (d : XReg)
     Option (List Instr × FlagMask) :=
   if !([8, 16, 32, 64].contains m && [8, 16, 32, 64].contains n && Nat.ble n m) then none
   else match pa with
-    | .imm c => some ([armIselLdrPoolBvI d ((c.setWidth n).setWidth 64)], maskNone)
+    | .imm c => some (armMovImmI d ((c.setWidth n).setWidth 64), maskNone)
     | .gpr .SP => none
     | .gpr (.reg r) =>
       let w := armWidthOf n
@@ -361,7 +458,7 @@ def armOfBoolOpIns (n : Nat) (pa : PArg Reg Empty ArmCond .bool) (d : XReg) :
   else match pa with
     | .gpr (.reg r) => some ([armIselInsI (.UBFM (zr d .W64) (zr r .W64) 0 7)], maskNone)
     | .gpr .SP => none
-    | .imm b => some ([armIselLdrPoolBvI d (BitVec.ofNat 64 b.toNat)], maskNone)
+    | .imm b => some (armMovImmI d (BitVec.ofNat 64 b.toNat), maskNone)
     | .flag c => some ([armCset64I d c], maskNone)
 
 /-- Wrapping binary ALU operations (`add`, `sub`, `mul`, `and`, `or`, `xor`) at `[8, 16, 32, 64]`. -/
@@ -378,6 +475,13 @@ abbrev armBinDirI (k : ArmBinK) (w : RegWidth) (d ra rb : XReg) : Instr :=
 
 abbrev armBinDir (k : ArmBinK) (w : RegWidth) (d ra rb : XReg) : Directive :=
   .instr (armBinDirI k w d ra rb)
+
+abbrev armLogicImmDirI (k : ArmBinK) (w : RegWidth) (d ra : XReg) (imm : Int64) : Option Instr :=
+  match k with
+  | .and => some (armIselInsI (.AND_i (.low (.reg d) w) (zr ra w) (.int64 imm)))
+  | .or => some (armIselInsI (.ORR_i (.low (.reg d) w) (zr ra w) (.int64 imm)))
+  | .xor => some (armIselInsI (.EOR_i (.low (.reg d) w) (zr ra w) (.int64 imm)))
+  | _ => none
 
 def armBinOpIns (k : ArmBinK) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n)) (d : XReg) :
     Option (List Instr × FlagMask) := do
@@ -403,6 +507,26 @@ def armBinOpIns (k : ArmBinK) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n
       | none =>
         let (cb', rb) ← armArgInIns .X17 pb
         some (cb' ++ [armBinDirI k w d ra rb], maskNone)
+    | .and, .gpr (.reg ra), .imm cb
+    | .or, .gpr (.reg ra), .imm cb
+    | .xor, .gpr (.reg ra), .imm cb =>
+      let c64 := cb.setWidth 64
+      if armIsValidLogicalImm w c64 then
+        let dir ← armLogicImmDirI k w d ra (Int64.ofBitVec c64)
+        some ([dir], maskNone)
+      else
+        let (cb', rb) ← armArgInIns .X17 pb
+        some (cb' ++ [armBinDirI k w d ra rb], maskNone)
+    | .and, .imm ca, .gpr (.reg rb)
+    | .or, .imm ca, .gpr (.reg rb)
+    | .xor, .imm ca, .gpr (.reg rb) =>
+      let c64 := ca.setWidth 64
+      if armIsValidLogicalImm w c64 then
+        let dir ← armLogicImmDirI k w d rb (Int64.ofBitVec c64)
+        some ([dir], maskNone)
+      else
+        let (ca', ra) ← armArgInIns .X16 pa
+        some (ca' ++ [armBinDirI k w d ra rb], maskNone)
     | _, _, _ =>
       let (ca, ra) ← armArgInIns .X16 pa
       let (cb, rb) ← armArgInIns .X17 pb
@@ -500,7 +624,7 @@ def armDivRemOpIns (k : ArmDivK) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bit
         let res := if isRem then (if isSigned then ca.srem cb else ca % cb)
                    else if cb == 0 then 0
                    else if isSigned then ca.sdiv cb else ca / cb
-        some ([armIselLdrPoolBvI d (res.setWidth 64)], maskNone)
+        some (armMovImmI d (res.setWidth 64), maskNone)
       | _, _ =>
         let (ca, ra) ← armArgInIns .X16 pa
         let (cb, rb) ← armArgInIns .X17 pb
@@ -771,7 +895,7 @@ def armOpIns {sig rs : List Ty} (code : OpCode sig rs) (pas : Tup (PArg Reg Empt
   | _, _, .neg (.bits n), (pa, ()), (.gpr (.reg d), ()) =>
     if ![8, 16, 32, 64].contains n then none
     else match pa with
-      | .imm c => some ([armIselLdrPoolBvI d ((-c).setWidth 64)], maskNone)
+      | .imm c => some (armMovImmI d ((-c).setWidth 64), maskNone)
       | .gpr (.reg r) =>
         let w := armWidthOf n
         some ([armIselInsI (.SUB_s (zr d w) (xzr w) (sh r))], maskNone)
@@ -779,7 +903,7 @@ def armOpIns {sig rs : List Ty} (code : OpCode sig rs) (pas : Tup (PArg Reg Empt
   | _, _, .not (.bits n), (pa, ()), (.gpr (.reg d), ()) =>
     if ![8, 16, 32, 64].contains n then none
     else match pa with
-      | .imm c => some ([armIselLdrPoolBvI d ((~~~c).setWidth 64)], maskNone)
+      | .imm c => some (armMovImmI d ((~~~c).setWidth 64), maskNone)
       | .gpr (.reg r) =>
         let w := armWidthOf n
         some ([armIselInsI (.ORN_s (zr d w) (xzr w) (sh r))], maskNone)
@@ -874,6 +998,12 @@ def armSupportsScalarOp {sig rs : List Ty} (code : OpCode sig rs)
     [8, 16, 32, 64].contains m && [8, 16, 32, 64].contains n
   | _, _, _ => false
 
+/-- `true` when `armOp` writes `[.bits 32]` to `.gpr (.reg _)` with bits `32..63` zeroed. -/
+def armZeroUpper32Op : {sig rs : List Ty} → OpCode sig rs →
+    Tup (PArg Reg Empty ArmCond) sig → Tup (PDst Reg Empty ArmCond) rs → Bool
+  | _, [.bits 32], _, _, (.gpr (.reg _), ()) => true
+  | _, _, _, _, _ => false
+
 /-- AArch64 `GprIsa` instance over `LeanQbe.T.Arm64.Base`. -/
 @[reducible] def armGpr : GprIsa Reg Empty ArmCond Directive where
   condReads := armCondReads
@@ -891,5 +1021,8 @@ def armSupportsScalarOp {sig rs : List Ty} (code : OpCode sig rs)
   store := armStore
   supportsScalarOp := armSupportsScalarOp
   cmpFlags := [.eq, .ne, .lt, .ge, .le, .gt, .ls, .hi]
+  zeroUpper32Load := true
+  zeroUpper32Op := armZeroUpper32Op
+  elideZext32 := true
 
 end LeanQbe.T.Arm64

@@ -47,7 +47,8 @@ theorem armTarget_toIsa :
     armTarget.toIsa =
       { Reg := Reg, VReg := Empty, Cond := ArmCond, Directive := Directive,
         gpr := armGpr, vec := VecIsa.empty Reg ArmCond Directive, frame := armFrame,
-        supportsAddrDisp := armSupportsAddrDisp } :=
+        supportsAddrDisp := armSupportsAddrDisp,
+        supportsAddrIdx := armSupportsAddrIdx } :=
   rfl
 
 /-! ## 2. Parity Theorems (`armLegalTarget` ↔ `armTarget.toIsa`) & Kernel Checks -/

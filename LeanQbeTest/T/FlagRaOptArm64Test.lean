@@ -196,4 +196,101 @@ meta def addrSkipArm64Fn : Fn :=
 #guard (Fn.computeHints armTarget.toIsa armLegalTarget addrSkipArm64Fn).elide.getD 2 false == false
 #guard (Fn.computeHints armTarget.toIsa armLegalTarget addrSkipArm64Fn).elide.getD 4 false == false
 
+/-! ## 6. Track C6 `[base, idx, lsl #k]` scaled-index addressing (`armSupportsAddrIdx`) -/
+
+meta def isArmAddSubShlOrPoolDir (d : armTarget.toIsa.Directive) : Bool :=
+  let s := Kraken.AArch64.Print.directive d
+  !(s.startsWith "add sp," || s.startsWith "sub sp,") &&
+    (s.startsWith "add " || s.startsWith "sub " || s.startsWith "lsl " || s.contains '=')
+
+meta def isArmSibDir (d : armTarget.toIsa.Directive) : Bool :=
+  let s := Kraken.AArch64.Print.directive d
+  (s.startsWith "ldr" || s.startsWith "str") &&
+    (s.contains ", lsl #1" || s.contains ", lsl #2" || s.contains ", lsl #3")
+
+/-- `(idx <<< 2) + base` and `base + (idx <<< 3)` are folded into `[xb, xm, lsl #2/#3]`. -/
+meta def sibIdx64Fn : Fn :=
+  ⟨"sibIdx64Arm64", [i64, i64, i64], [i64], fun _ _ (base, idx, y, ()) =>
+    .let_ (op2 (.cmp .ult i64) (.var idx) (.var y)) fun (c, ()) =>
+    .let_ (op2 (.shl i64) (.var idx) (.imm 2)) fun (off4, ()) =>
+    .let_ (op2 (.add i64) (.var base) (.var off4)) fun (p4, ()) =>
+    .load i32 (.var p4) fun w =>
+    .let_ (op1 (.zext 32 64) (.var w)) fun (wz, ()) =>
+    .let_ (op2 (.shl i64) (.var idx) (.imm 3)) fun (off8, ()) =>
+    .let_ (op2 (.add i64) (.var off8) (.var base)) fun (p8, ()) =>
+    .store (t := i64) (.var wz) (.var p8) (
+    .let_ (op3 (.select i64) (.var c) (.var idx) (.var y)) fun (r, ()) =>
+    .ret (.var r, ()))⟩
+
+/-- Elides `shl 3` + `add` across `call slow`, keeping `(base, idx)`
+    and folding `[xb, xm, lsl #3]`. -/
+meta def sibCallFn : Fn :=
+  ⟨"sibCallArm64", [i64, i64, i64], [i64], fun _ _ (base, idx, k, ()) =>
+    .let_ (op2 (.shl i64) (.var idx) (.imm 3)) fun (off, ()) =>
+    .let_ (op2 (.add i64) (.var base) (.var off)) fun (p, ()) =>
+    .call "slow" (as := [i64]) (bs := [i64]) (.var k, ()) fun (_r, ()) =>
+    .load i64 (.var p) fun x =>
+    .ret (.var x, ())⟩
+
+/-- Mismatched scale (`shl 3` for `i32` load, `shl 4` for `i64` load) must NOT be elided. -/
+meta def sibSkipArm64Fn : Fn :=
+  ⟨"sibSkipArm64", [i64, i64], [i64], fun _ _ (base, idx, ()) =>
+    .let_ (op2 (.shl i64) (.var idx) (.imm 3)) fun (offBad1, ()) =>
+    .let_ (op2 (.add i64) (.var base) (.var offBad1)) fun (pBad1, ()) =>
+    .load i32 (.var pBad1) fun a =>
+    .let_ (op2 (.shl i64) (.var idx) (.imm 4)) fun (offBad2, ()) =>
+    .let_ (op2 (.add i64) (.var base) (.var offBad2)) fun (pBad2, ()) =>
+    .load i64 (.var pBad2) fun b =>
+    .let_ (op1 (.zext 32 64) (.var a)) fun (az, ()) =>
+    .let_ (op2 (.add i64) (.var az) (.var b)) fun (sum, ()) =>
+    .ret (.var sum, ())⟩
+
+#guard chk [sibIdx64Fn]
+#guard countDirs isArmAddSubShlOrPoolDir (codeOf [sibIdx64Fn]) == 0
+#guard countDirs isCsetDir (codeOf [sibIdx64Fn]) == 0
+#guard countDirs isArmSibDir (codeOf [sibIdx64Fn]) == 2
+#guard chk [slowFn, sibCallFn]
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget sibCallFn).elide.getD 0 false == true
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget sibCallFn).elide.getD 1 false == true
+#guard countDirs isArmSibDir (codeOf [slowFn, sibCallFn]) == 1
+#guard chk [sibSkipArm64Fn]
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget sibSkipArm64Fn).elide.getD 0 false == false
+#guard (Fn.computeHints armTarget.toIsa armLegalTarget sibSkipArm64Fn).elide.getD 3 false == false
+#guard countDirs isArmSibDir (codeOf [sibSkipArm64Fn]) == 0
+
+/-! ## 7. Track C1c upper-32 zeroing parity (`zext 32->64` elision vs `sext 32->64`) -/
+
+meta def isArmOrrWOrUbfmDir (d : armTarget.toIsa.Directive) : Bool :=
+  let s := Kraken.AArch64.Print.directive d
+  s.startsWith "orr w" || s.startsWith "ubfm"
+
+meta def isArmSext32Dir (d : armTarget.toIsa.Directive) : Bool :=
+  let s := Kraken.AArch64.Print.directive d
+  s.startsWith "sbfm x" && s.contains ", #0, #31"
+
+/-- `zext 32 64` after `load i32`, `add i32`, and `sext 8->32` is elided (`0` `orr w`/`ubfm`). -/
+meta def zextElideArm64Fn : Fn :=
+  ⟨"zextElideArm64", [i64, i32, i32, i8], [i64], fun _ _ (p, x, y, b, ()) =>
+    .load i32 (.var p) fun ld =>
+    .let_ (op1 (.zext 32 64) (.var ld)) fun (z0, ()) =>
+    .let_ (op2 (.add i32) (.var x) (.var y)) fun (s, ()) =>
+    .let_ (op1 (.zext 32 64) (.var s)) fun (z1, ()) =>
+    .let_ (op1 (.sext 8 32) (.var b)) fun (s8, ()) =>
+    .let_ (op1 (.zext 32 64) (.var s8)) fun (z2, ()) =>
+    .let_ (op2 (.add i64) (.var z0) (.var z1)) fun (t, ()) =>
+    .let_ (op2 (.add i64) (.var t) (.var z2)) fun (res, ()) =>
+    .ret (.var res, ())⟩
+
+/-- `sext 32 64` must NOT be elided after `load i32` (`sbfm x, x, #0, #31` must remain). -/
+meta def sextKeepArm64Fn : Fn :=
+  ⟨"sextKeepArm64", [i64], [i64], fun _ _ (p, ()) =>
+    .load i32 (.var p) fun x =>
+    .let_ (op1 (.sext 32 64) (.var x)) fun (sx, ()) =>
+    .ret (.var sx, ())⟩
+
+#guard chk [zextElideArm64Fn]
+#guard countDirs isArmOrrWOrUbfmDir (codeOf [zextElideArm64Fn]) == 0
+#guard chk [sextKeepArm64Fn]
+#guard countDirs isArmSext32Dir (codeOf [sextKeepArm64Fn]) == 1
+
 end LeanQbeTest.T.FlagRaOptArm64Test

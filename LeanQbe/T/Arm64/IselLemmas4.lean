@@ -401,9 +401,11 @@ private theorem armFunnelRes_finish {w : RegWidth} (isLeft : Bool)
       (s'.regs.getXReg d).toBitVec.setWidth w.bits =
         if isLeft then (va <<< (vc.toNat % w.bits)) ||| (vb >>> (w.bits - vc.toNat % w.bits))
         else (va <<< (w.bits - vc.toNat % w.bits)) ||| (vb >>> (vc.toNat % w.bits)))
+    (hz32 : w = .W32 → (s'.regs.getXReg d).toBitVec =
+      ((s'.regs.getXReg d).toBitVec.setWidth 32).setWidth 64)
     (hdm : s'.dmem = s.dmem)
     (hkeep : ∀ r, r ∉ (.reg d :: armScratch) → get s' r = get s r) :
-    GprHolds (armMach.getGpr s' (.reg d)) (.bits w.bits)
+    GprHoldsZ (armMach.getGpr s' (.reg d)) w.bits
       (if isLeft then ((va ++ vb) <<< (vc.toNat % w.bits)).extractLsb' w.bits w.bits
        else ((va ++ vb) >>> (vc.toNat % w.bits)).extractLsb' 0 w.bits) ∧
     armMach.mem s' = armMach.mem s ∧
@@ -411,21 +413,26 @@ private theorem armFunnelRes_finish {w : RegWidth} (isLeft : Bool)
   have hw64 : w.bits ≤ 64 := by cases w <;> decide
   have hw_pos : 0 < w.bits := by cases w <;> decide
   have hw_or : w.bits = 32 ∨ w.bits = 64 := by cases w <;> simp [RegWidth.bits, MemWidth.bits]
-  refine ⟨⟨hw64, ?_⟩, hdm, armFrame_nzcv hkeep⟩
-  dsimp only [armMach, get_reg]
-  by_cases hc0 : vc.toNat % w.bits = 0
-  · have hst' : CondCode.EQ.interp s'.status = true := hst.trans (decide_eq_true hc0)
-    rw [hs0 hst', hc0]
-    cases isLeft
-    · exact (fshr_zero va vb).symm
-    · exact (fshl_zero va vb).symm
-  · have hst' : CondCode.EQ.interp s'.status = false := hst.trans (decide_eq_false hc0)
-    rw [hs1 hst' hc0]
-    cases isLeft
-    · simp only [Bool.false_eq_true, ↓reduceIte]
-      have hf := evalEXTR_fshr hw_or va vb (Nat.mod_lt vc.toNat hw_pos)
-      rwa [beq_false_of_ne hc0] at hf
-    · exact evalEXTR_fshl hw_or va vb (Nat.mod_lt vc.toNat hw_pos)
+  have hlow : (s'.regs.getXReg d).toBitVec.setWidth w.bits =
+      if isLeft then ((va ++ vb) <<< (vc.toNat % w.bits)).extractLsb' w.bits w.bits
+      else ((va ++ vb) >>> (vc.toNat % w.bits)).extractLsb' 0 w.bits := by
+    by_cases hc0 : vc.toNat % w.bits = 0
+    · have hst' : CondCode.EQ.interp s'.status = true := hst.trans (decide_eq_true hc0)
+      rw [hs0 hst', hc0]
+      cases isLeft
+      · exact (fshr_zero va vb).symm
+      · exact (fshl_zero va vb).symm
+    · have hst' : CondCode.EQ.interp s'.status = false := hst.trans (decide_eq_false hc0)
+      rw [hs1 hst' hc0]
+      cases isLeft
+      · simp only [Bool.false_eq_true, ↓reduceIte]
+        have hf := evalEXTR_fshr hw_or va vb (Nat.mod_lt vc.toNat hw_pos)
+        rwa [beq_false_of_ne hc0] at hf
+      · exact evalEXTR_fshl hw_or va vb (Nat.mod_lt vc.toNat hw_pos)
+  refine ⟨⟨⟨hw64, hlow⟩, fun hw32 => ?_⟩, hdm, armFrame_nzcv hkeep⟩
+  cases w with
+  | W64 => cases hw32
+  | W32 => dsimp only [armMach, get_reg]; rw [hz32 rfl, hlow]
 
 private theorem armFunnelImmImm_wp [Host] (w : RegWidth)
     (isLeft : Bool) (d rc : XReg) (va vb vc : BitVec w.bits) {s s₂ : MachineData}
@@ -444,7 +451,7 @@ private theorem armFunnelImmImm_wp [Host] (w : RegWidth)
          ins (.SUB_s (zr d w) (xzr w) (sh rc)), ins (.LSLV (zr .X16 w) (zr .X16 w) (zr d w)),
          ins (.ORR_s (zr d w) (zr .X17 w) (sh .X16)), ins (.CSEL (zr d w) (zr .X17 w) (zr d w) .EQ)])
       (fun s' =>
-        GprHolds (armMach.getGpr s' (.reg d)) (.bits w.bits)
+        GprHoldsZ (armMach.getGpr s' (.reg d)) w.bits
           (if isLeft then ((va ++ vb) <<< (vc.toNat % w.bits)).extractLsb' w.bits w.bits
            else ((va ++ vb) >>> (vc.toNat % w.bits)).extractLsb' 0 w.bits) ∧
         armMach.mem s' = armMach.mem s ∧
@@ -474,7 +481,10 @@ private theorem armFunnelImmImm_wp [Host] (w : RegWidth)
           BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd16, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd17,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm, h16, h17, hrc, neg_mod_eq vc hc0, BitVec.or_comm]) hdm fun r hr => ?_
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm, h16, h17, hrc,
+          neg_mod_eq vc hc0, BitVec.or_comm])
+      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
+      hdm fun r hr => ?_
     · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
       rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1,
         get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2]; exact hkeep r hr'.2
@@ -496,7 +506,9 @@ private theorem armFunnelImmImm_wp [Host] (w : RegWidth)
           BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd16, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hd17,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm, h16, h17, hrc, neg_mod_eq vc hc0]) hdm fun r hr => ?_
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm, h16, h17, hrc, neg_mod_eq vc hc0])
+      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
+      hdm fun r hr => ?_
     · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
       rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2,
         get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1]; exact hkeep r hr'.2
@@ -518,7 +530,7 @@ private theorem armFunnelGprB_wp [Host] (w : RegWidth)
          ins (.LSLV (zr .X17 w) (zr ra w) (zr .X17 w)), ins (.LSRV (zr .X16 w) (zr rb w) (zr rc w)),
          ins (.ORR_s (zr .X17 w) (zr .X16 w) (sh .X17)), ins (.CSEL (zr d w) (zr .X16 w) (zr .X17 w) .EQ)])
       (fun s' =>
-        GprHolds (armMach.getGpr s' (.reg d)) (.bits w.bits)
+        GprHoldsZ (armMach.getGpr s' (.reg d)) w.bits
           (if isLeft then ((va ++ vb) <<< (vc.toNat % w.bits)).extractLsb' w.bits w.bits
            else ((va ++ vb) >>> (vc.toNat % w.bits)).extractLsb' 0 w.bits) ∧
         armMach.mem s' = armMach.mem s ∧
@@ -548,7 +560,9 @@ private theorem armFunnelGprB_wp [Host] (w : RegWidth)
           BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hneA.symm,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrb17.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm,
-          hra, hrb, hrc, neg_mod_eq vc hc0, BitVec.or_comm]) hdm fun r hr => ?_
+          hra, hrb, hrc, neg_mod_eq vc hc0, BitVec.or_comm])
+      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
+      hdm fun r hr => ?_
     · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
       rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2]; exact hkeep r hr'.2
   · refine armWp_cons (armSubNegDir_wp w .X17 rc _) fun s₄ hs₄ => ?_
@@ -569,7 +583,9 @@ private theorem armFunnelGprB_wp [Host] (w : RegWidth)
           BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hneA.symm,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrb17.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm,
-          hra, hrb, hrc, neg_mod_eq vc hc0]) hdm fun r hr => ?_
+          hra, hrb, hrc, neg_mod_eq vc hc0])
+      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
+      hdm fun r hr => ?_
     · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
       rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2]; exact hkeep r hr'.2
 
@@ -590,7 +606,7 @@ private theorem armFunnelImmB_wp [Host] (w : RegWidth)
          ins (.LSLV (zr .X16 w) (zr ra w) (zr .X16 w)), ins (.LSRV (zr .X17 w) (zr .X17 w) (zr rc w)),
          ins (.ORR_s (zr .X16 w) (zr .X17 w) (sh .X16)), ins (.CSEL (zr d w) (zr .X17 w) (zr .X16 w) .EQ)])
       (fun s' =>
-        GprHolds (armMach.getGpr s' (.reg d)) (.bits w.bits)
+        GprHoldsZ (armMach.getGpr s' (.reg d)) w.bits
           (if isLeft then ((va ++ vb) <<< (vc.toNat % w.bits)).extractLsb' w.bits w.bits
            else ((va ++ vb) >>> (vc.toNat % w.bits)).extractLsb' 0 w.bits) ∧
         armMach.mem s' = armMach.mem s ∧
@@ -621,7 +637,9 @@ private theorem armFunnelImmB_wp [Host] (w : RegWidth)
           BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17.symm,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ hra16.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm,
-          hra, h17, hrc, neg_mod_eq vc hc0, BitVec.or_comm]) hdm fun r hr => ?_
+          hra, h17, hrc, neg_mod_eq vc hc0, BitVec.or_comm])
+      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
+      hdm fun r hr => ?_
     · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
       rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1]; exact hkeep r hr'.2
   · refine armWp_cons (armSubNegDir_wp w .X16 rc _) fun s₄ hs₄ => ?_
@@ -644,7 +662,9 @@ private theorem armFunnelImmB_wp [Host] (w : RegWidth)
           BitVec.setWidth_eq, BitVec.ushiftRight_eq, Reg64s.getXReg_setXReg_same, UInt64.toBitVec_ofBitVec,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ x16_ne_x17, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hra16.symm,
           Reg64s.getXReg_setXReg_of_ne _ _ _ _ hra17.symm, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc17.symm,
-          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm, hra, h17, hrc, neg_mod_eq vc hc0]) hdm fun r hr => ?_
+          Reg64s.getXReg_setXReg_of_ne _ _ _ _ hrc16.symm, hra, h17, hrc, neg_mod_eq vc hc0])
+      (fun hw => by subst hw; simp [RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq])
+      hdm fun r hr => ?_
     · have hr' : r ≠ .reg d ∧ r ∉ armScratch := ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
       rw [get_wr_of_ne _ d _ r hr'.1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1, get_wr_of_ne _ .X17 _ r (ne_of_not_mem_armScratch hr'.2).2, get_wr_of_ne _ .X16 _ r (ne_of_not_mem_armScratch hr'.2).1]; exact hkeep r hr'.2
 
@@ -658,7 +678,7 @@ theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
     (hpa : armMach.PArgHolds s (.bits n) pa va) (hpb : armMach.PArgHolds s (.bits n) pb vb)
     (hpc : armMach.PArgHolds s (.bits n) pc vc) :
     _root_.Program.wp (emitClean c) (fun s' =>
-      GprHolds (armMach.getGpr s' (.reg d)) (.bits n)
+      GprHoldsZ (armMach.getGpr s' (.reg d)) n
         (if isLeft then ((va ++ vb) <<< (vc.toNat % n)).extractLsb' n n
          else ((va ++ vb) >>> (vc.toNat % n)).extractLsb' 0 n) ∧
       armMach.mem s' = armMach.mem s ∧
@@ -688,13 +708,17 @@ theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
               fun {_} p next jmp Q hk => by
                 rw [show armWidthOf 32 = .W32 from rfl]; simp only [t_step_simp]
                 dsimp only [RegWidth.bits, MemWidth.bits]
-                rw [Nat.mod_eq_of_lt hklt, hra, hrb, evalEXTR_fshr (Or.inl rfl) va vb hklt]; exact hk _ rfl) hd₂ hfr₂ (by simp)
+                rw [Nat.mod_eq_of_lt hklt, hra, hrb, evalEXTR_fshr (Or.inl rfl) va vb hklt]
+                exact hk _ rfl) hd₂ hfr₂
+            (by simp) (fun _ => rfl)
         · refine armWrDst_after_scratch hn64 d
             (armDirFallsTo_wp (Q := fun s' => s' = wr s₂ d (((va ++ vb) >>> (cc.toNat % 64)).extractLsb' 0 64))
               fun {_} p next jmp Q hk => by
                 rw [show armWidthOf 64 = .W64 from rfl]; simp only [t_step_simp]
                 dsimp only [RegWidth.bits, MemWidth.bits]; simp only [BitVec.setWidth_eq] at hra hrb ⊢
-                rw [Nat.mod_eq_of_lt hklt, hra, hrb, evalEXTR_fshr (Or.inr rfl) va vb hklt]; exact hk _ rfl) hd₂ hfr₂ (by simp)
+                rw [Nat.mod_eq_of_lt hklt, hra, hrb, evalEXTR_fshr (Or.inr rfl) va vb hklt]
+                exact hk _ rfl) hd₂ hfr₂
+            (by simp) (fun h => by cases h)
       · simp only [↓reduceIte] at htail
         split at htail
         · rename_i hk0; simp only [beq_iff_eq] at hk0
@@ -705,11 +729,15 @@ theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
           have hfr₁' : armMach.Frame armCondReads s s₁ armScratch [] maskNone :=
             hfr₁.weaken (fun x hr => by simp only [List.mem_cons, List.not_mem_nil, or_false] at hr; subst hr; exact x16_mem_scratch)
               (fun v => v.elim) rfl
-          refine armWrDst_after_scratch hn64 d (armMovRegDir_wp (armWidthOf n) d ra s₁) hd₁ hfr₁' ?_
-          rw [hk0, fshl_zero, BitVec.setWidth_setWidth_of_le _ hn64]
-          rcases hn' with rfl | rfl
-          · exact hra
-          · simp only [armWidthOf, RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq] at hra ⊢; exact hra
+          refine armWrDst_after_scratch hn64 d (armMovRegDir_wp (armWidthOf n) d ra s₁)
+            hd₁ hfr₁' ?_ ?_
+          · rw [hk0, fshl_zero, BitVec.setWidth_setWidth_of_le _ hn64]
+            rcases hn' with rfl | rfl
+            · exact hra
+            · simp only [armWidthOf, RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq] at hra ⊢
+              exact hra
+          · intro hn32; subst hn32
+            rw [hk0, fshl_zero]; simpa [armWidthOf] using congrArg (BitVec.setWidth 64) hra
         · rename_i hkn0; simp only [beq_iff_eq] at hkn0
           rcases Option.some.inj htail with ⟨rfl, rfl⟩
           rw [emitClean_append, emitClean_cons, emitClean_nil]
@@ -726,14 +754,16 @@ theorem armFunnelOp_wp [Host] (isLeft : Bool) {n : Nat}
                   rw [show armWidthOf 32 = .W32 from rfl]; simp only [t_step_simp]
                   dsimp only [RegWidth.bits, MemWidth.bits]
                   rw [Nat.mod_eq_of_lt hnk, beq_false_of_ne hne0, ite_eq_right_of_eq_false _ _ (eq_false (by decide)),
-                    hsub, hra, hrb, evalEXTR_fshl (Or.inl rfl) va vb hklt]; exact hk _ rfl) hd₂ hfr₂ (by simp)
+                    hsub, hra, hrb, evalEXTR_fshl (Or.inl rfl) va vb hklt]; exact hk _ rfl) hd₂ hfr₂
+              (by simp) (fun _ => rfl)
           · refine armWrDst_after_scratch hn64 d
               (armDirFallsTo_wp (Q := fun s' => s' = wr s₂ d (((va ++ vb) <<< (cc.toNat % 64)).extractLsb' 64 64))
                 fun {_} p next jmp Q hk => by
                   rw [show armWidthOf 64 = .W64 from rfl]; simp only [t_step_simp]
                   dsimp only [RegWidth.bits, MemWidth.bits]; simp only [BitVec.setWidth_eq] at hra hrb ⊢
                   rw [Nat.mod_eq_of_lt hnk, beq_false_of_ne hne0, ite_eq_right_of_eq_false _ _ (eq_false (by decide)),
-                    hsub, hra, hrb, evalEXTR_fshl (Or.inr rfl) va vb hklt]; exact hk _ rfl) hd₂ hfr₂ (by simp)
+                    hsub, hra, hrb, evalEXTR_fshl (Or.inr rfl) va vb hklt]; exact hk _ rfl) hd₂ hfr₂
+              (by simp) (fun h => by cases h)
     | gpr r => cases r with | SP => simp at htail | reg rc =>
       rcases Option.some.inj htail with ⟨rfl, rfl⟩
       have hrcS : XRegOrSp.reg rc ∉ armScratch := hgc (.reg rc) (by simp [PArg.gprs])
@@ -830,7 +860,7 @@ private theorem armOp_fallsTo_bits {h : Host} {k n : Nat} {d : XReg} {c : List D
     {clob : FlagMask} {s : MachineData} {val : BitVec n} {P : Tup Val [.bits n] → Prop}
     {post : MachineState → Prop}
     (hwp : @Program.wp h c (fun s' =>
-      GprHolds (armMach.getGpr s' (.reg d)) (.bits n) val ∧
+      GprHoldsZ (armMach.getGpr s' (.reg d)) n val ∧
       armMach.mem s' = armMach.mem s ∧
       armMach.Frame armCondReads s s' (.reg d :: armScratch) [] clob) (fun _ _ => False) s)
     (hP : P (val, ())) :
@@ -839,7 +869,21 @@ private theorem armOp_fallsTo_bits {h : Host} {k n : Nat} {d : XReg} {c : List D
       [] clob s (fun s' => (∃ rvs, P rvs ∧ TRel (armMach.PDstHolds s') (.gpr (.reg d), ()) rvs) ∧
       armMach.mem s' = armMach.mem s) post :=
   armFallsTo_of_wp (armWp_mono hwp fun _ ⟨hg, hm, hfr⟩ =>
-    ⟨⟨⟨(val, ()), hP, .cons hg .nil⟩, hm⟩, by simpa [tupDstGprs] using hfr⟩)
+    ⟨⟨⟨(val, ()), hP, .cons hg.holds .nil⟩, hm⟩, by simpa [tupDstGprs] using hfr⟩)
+
+private theorem armOp_zero32_fallsTo {h : Host} {k : Nat} {d : XReg} {c : List Directive}
+    {clob : FlagMask} {s : MachineData} {val : BitVec 32} {P : Tup Val [.bits 32] → Prop}
+    {post : MachineState → Prop}
+    (hwp : @Program.wp h c (fun s' =>
+      GprHoldsZ (armMach.getGpr s' (.reg d)) 32 val ∧
+      armMach.mem s' = armMach.mem s ∧
+      armMach.Frame armCondReads s s' (.reg d :: armScratch) [] clob) (fun _ _ => False) s)
+    (hP : P (val, ())) :
+    armMach.FallsTo armCondReads h k c (.reg d :: armScratch) [] clob s
+      (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ armMach.getGpr s' (.reg d) = rv.setWidth 64) ∧
+        armMach.mem s' = armMach.mem s) post :=
+  armFallsTo_of_wp (armWp_mono hwp fun _ ⟨hg, hm, hfr⟩ =>
+    ⟨⟨⟨val, hP, hg.zero32⟩, hm⟩, hfr⟩)
 
 theorem armOp_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig rs}
     {pas : Tup (PArg Reg Empty ArmCond) sig} {dsts : Tup (PDst Reg Empty ArmCond) rs}
@@ -1035,6 +1079,165 @@ theorem armOp_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig rs
   | fcmp _ _ _ _ | fptoui _ _ | fptosi _ _ | uitofp _ _ | sitofp _ _ | fcvt _ _ =>
     dsimp only [armOpIns] at hc; cases hc
 
+theorem armOp_zero32 {h : Host} {k : Nat} {sig : List Ty} {code : OpCode sig [.bits 32]}
+    {pas : Tup (PArg Reg Empty ArmCond) sig} {dsts : Tup (PDst Reg Empty ArmCond) [.bits 32]}
+    {rd : Reg} {vh : VariantHint} {c : List Directive} {clob : FlagMask} {vs : Tup Val sig}
+    {P : Tup Val [.bits 32] → Prop} {s : MachineData} {post : MachineState → Prop}
+    (_hz : armGpr.zeroUpper32Op code pas dsts = true)
+    (hc_in : armGpr.op code pas dsts vh = some (c, clob))
+    (hdst : dsts = (.gpr rd, ()))
+    (hargs : ∀ r ∈ tupArgGprs pas, r ∉ armScratch)
+    (hrd : rd ∉ armScratch)
+    (hrel : TRel (armMach.PArgHolds s) pas vs) (hwp : code.wp vs P) :
+    armMach.FallsTo armCondReads h k c (rd :: armScratch) [] clob s
+      (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ armMach.getGpr s' rd = rv.setWidth 64) ∧
+        armMach.mem s' = armMach.mem s) post := by
+  letI := h
+  subst hdst
+  cases rd with
+  | SP =>
+    dsimp only [armGpr, armZeroUpper32Op] at _hz
+    cases _hz
+  | reg d =>
+    obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
+    have _ := hrd
+    cases code with
+    | copy _ =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      dsimp only [armOpIns] at hc
+      exact armOp_zero32_fallsTo (armCopyBits_wp (by decide) d hc (trel1_inv hrel)) hwp
+    | bitcast t u htu =>
+      cases t <;> try (dsimp only [armOpIns] at hc; cases hc)
+      rename_i m
+      have hm : m = 32 := htu
+      subst hm
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      dsimp only [armOpIns] at hc
+      exact armOp_zero32_fallsTo (armCopyBits_wp (by decide) d hc (trel1_inv hrel))
+        (by simpa [OpCode.wp, toBits, ofBits] using hwp)
+    | zext m _ =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      dsimp only [armOpIns] at hc
+      exact armOp_zero32_fallsTo (armZextOp_wp pa d hc (trel1_inv hrel) hwp.1) hwp.2
+    | sext m _ =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      dsimp only [armOpIns] at hc
+      exact armOp_zero32_fallsTo (armSextOp_wp pa d hc (trel1_inv hrel) hwp.1) hwp.2
+    | trunc m _ =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      dsimp only [armOpIns] at hc
+      exact armOp_zero32_fallsTo (armTruncOp_wp pa d hc (trel1_inv hrel) hwp.1) hwp.2
+    | ofBool _ =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨b, ⟨⟩⟩
+      dsimp only [armOpIns] at hc
+      exact armOp_zero32_fallsTo (armOfBoolOp_wp pa d hc (trel1_inv hrel)) hwp
+    | «and» _ | «or» _ | xor _ | add _ | sub _ | mul _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
+      exact armOp_zero32_fallsTo (armBinOp_wp _ pa pb d hc hga hgb hpa hpb) hwp
+    | «not» _ =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      dsimp only [armOpIns] at hc
+      exact armOp_zero32_fallsTo (armNotOp_wp pa d hc (trel1_inv hrel)) hwp
+    | neg _ =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      dsimp only [armOpIns] at hc
+      exact armOp_zero32_fallsTo (armNegOp_wp pa d hc (trel1_inv hrel)) hwp
+    | shl _ | lshr _ | ashr _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
+      exact armOp_zero32_fallsTo (armShiftOp_wp _ pa pb d hc hga hgb hpa hpb) hwp
+    | rotl _ | rotr _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
+      exact armOp_zero32_fallsTo (armRotOp_wp _ pa pb d hc hga hgb hpa hpb) hwp
+    | udiv _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
+      have hdiv := armDivRemOp_wp .udiv pa pb d hc hrd hga hgb hpa hpb
+        (fun h => by rcases h with h | h <;> cases h)
+      simp only [armDivEval, beq_false_of_ne hwp.1, Bool.false_eq_true, ↓reduceIte] at hdiv
+      exact armOp_zero32_fallsTo hdiv hwp.2
+    | udiv0 _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
+      have hdiv := armDivRemOp_wp .udiv pa pb d hc hrd hga hgb hpa hpb
+        (fun h => by rcases h with h | h <;> cases h)
+      have heq : armDivEval .udiv va vb = if vb = 0 then 0 else va / vb := by
+        by_cases h : vb = 0 <;> simp [armDivEval, h]
+      exact armOp_zero32_fallsTo (heq ▸ hdiv) hwp
+    | sdiv _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
+      have hb0 : vb ≠ 0 := by
+        simp only [OpCode.wp, sdivDefined, Bool.and_eq_true, bne_iff_ne] at hwp; exact hwp.1.1
+      have hdiv := armDivRemOp_wp .sdiv pa pb d hc hrd hga hgb hpa hpb
+        (fun h => by rcases h with h | h <;> cases h)
+      simp only [armDivEval, beq_false_of_ne hb0, Bool.false_eq_true, ↓reduceIte] at hdiv
+      exact armOp_zero32_fallsTo hdiv hwp.2
+    | sdiv0 _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
+      have hdiv := armDivRemOp_wp .sdiv pa pb d hc hrd hga hgb hpa hpb
+        (fun h => by rcases h with h | h <;> cases h)
+      have heq : armDivEval .sdiv va vb = if vb = 0 then 0 else va.sdiv vb := by
+        by_cases h : vb = 0 <;> simp [armDivEval, h]
+      exact armOp_zero32_fallsTo (heq ▸ hdiv) hwp
+    | urem _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
+      exact armOp_zero32_fallsTo
+        (armDivRemOp_wp .urem pa pb d hc hrd hga hgb hpa hpb (fun _ => hwp.1)) hwp.2
+    | srem _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
+      have hb0 : vb ≠ 0 := by
+        simp only [OpCode.wp, sdivDefined, Bool.and_eq_true, bne_iff_ne] at hwp; exact hwp.1.1
+      exact armOp_zero32_fallsTo
+        (armDivRemOp_wp .srem pa pb d hc hrd hga hgb hpa hpb (fun _ => hb0)) hwp.2
+    | bswap _ =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      dsimp only [armOpIns] at hc
+      exact armOp_zero32_fallsTo (armBswap_wp pa d hc (trel1_inv hrel)) hwp
+    | clz _ | cls _ | rbit _ | ctz _ =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      dsimp only [armOpIns] at hc
+      refine armOp_zero32_fallsTo ?_ hwp
+      first
+      | exact armBitOp_wp .clz pa d hc (trel1_inv hrel)
+      | exact armBitOp_wp .cls pa d hc (trel1_inv hrel)
+      | exact armBitOp_wp .rbit pa d hc (trel1_inv hrel)
+      | exact armBitOp_wp .ctz pa d hc (trel1_inv hrel)
+    | select _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pc, pa, pb, ⟨⟩⟩; rcases vs with ⟨vc, va, vb, ⟨⟩⟩
+      have ⟨hpc, hpa, hpb⟩ := trel3_inv hrel; have ⟨hgc, hga, hgb⟩ := arg3_gprs hargs
+      exact armOp_zero32_fallsTo (armSelectOp_wp pc pa pb d hc hga hgb hgc hpc hpa hpb) hwp
+    | fshl _ | fshr _ =>
+      dsimp only [armOpIns] at hc
+      rcases pas with ⟨pa, pb, pc, ⟨⟩⟩; rcases vs with ⟨va, vb, vc, ⟨⟩⟩
+      have ⟨hpa, hpb, hpc⟩ := trel3_inv hrel; have ⟨hga, hgb, hgc⟩ := arg3_gprs hargs
+      have hf := armFunnelOp_wp _ pa pb pc d hc hrd hga hgb hgc hpa hpb hpc
+      first
+      | simp only [↓reduceIte] at hf
+      | simp only [Bool.false_eq_true, ↓reduceIte] at hf
+      exact armOp_zero32_fallsTo hf hwp
+    | cmp _ t _ hm =>
+      cases t <;> cases hm <;> dsimp only [armOpIns] at hc <;> cases hc
+    | ternlog _ _ | popcnt _ | blend _ _ _ | shufd _ _ | shufb _ | alignr _ _
+    | blendw _ _ | fadd _ | fsub _ | fmul _ | fdiv _ | ffma _
+    | fsqrt _ | fneg _ | fabs _ | fcmp _ _ _ _ | fptoui _ _ | fptosi _ _ =>
+      dsimp only [armOpIns] at hc; cases hc
+
 /-- Verified AArch64 scalar `GprTarget` specification (`T9`). -/
 theorem armGprSpec : GprTarget armMach armGpr armScratch where
   negCond_reads := armNegCond_reads
@@ -1049,6 +1252,8 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
   op_spec := @armOp_spec
   load_spec := @armLoad_spec
   store_spec := @armStore_spec
+  load_zero32 _ {h k rd a c clob s post v} := @armLoad_zero32 h k rd a c clob v s post
+  op_zero32 := @armOp_zero32
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/
 
@@ -1115,7 +1320,37 @@ theorem parser_ops_rfl :
       (armGpr.op (.addc 64) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cs, ()) (.gpr (.reg .X0), .gpr (.reg .X4), ()) .default).elim [] Prod.fst ++
       (armGpr.op (.subb 32) (.gpr (.reg .X1), .gpr (.reg .X2), .flag .cc, ()) (.gpr (.reg .X0), .flag .cc, ()) .default).elim [] Prod.fst ++
       (armGpr.op (.smulw 32) (.gpr (.reg .X1), .gpr (.reg .X2), ()) (.gpr (.reg .X0), .gpr (.reg .X3), ()) .default).elim [] Prod.fst ++
-      (armGpr.op (.fshr 64) (.gpr (.reg .X1), .gpr (.reg .X2), .imm 7#64, ()) (.gpr (.reg .X0), ()) .default).elim [] Prod.fst := rfl
+      (armGpr.op (.fshr 64) (.gpr (.reg .X1), .gpr (.reg .X2), .imm 7#64, ())
+        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst := rfl
+
+theorem parser_opt_c6_rfl :
+    ⸨prog|
+      movz x0, #42
+      movn x0, #0x1234
+      movz x0, #0x5678
+      movk x0, #0x1234, lsl #32
+      movn x0, #0x5678
+      movk x0, #0xedc3, lsl #32
+      add x0, x1, #0x123, lsl #12
+      sub w0, w1, #5, lsl #12
+      and w0, w1, #7
+      ldr w0, [x1, x2, lsl #2]
+      str x0, [x1, x2, lsl #3]
+    ⸩ =
+      armGpr.movi (.reg .X0) 42#64 ++
+      armGpr.movi (.reg .X0) (~~~0x1234#64) ++
+      armGpr.movi (.reg .X0) 0x1234_0000_5678#64 ++
+      armGpr.movi (.reg .X0) (~~~0x123c_0000_5678#64) ++
+      (armGpr.op (.add i64) (.gpr (.reg .X1), .imm 0x123000#64, ())
+        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
+      (armGpr.op (.sub i32) (.gpr (.reg .X1), .imm 0x5000#32, ())
+        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
+      (armGpr.op (.and i32) (.gpr (.reg .X1), .imm 7#32, ())
+        (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
+      (armGpr.load i32 (.reg .X0)
+        (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 0)).elim [] Prod.fst ++
+      (armGpr.store i64 (.gpr (.reg .X0))
+        (.baseIdxDisp (.reg .X1) (.reg .X2) .s8 0)).elim [] Prod.fst := rfl
 
 end ParserChecks
 

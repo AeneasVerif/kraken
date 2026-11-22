@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Arm64.IselLemmas4
+public import LeanQbe.T.Arm64.Targ
 public import LeanQbe.T.Arm64.Frame
 public import LeanQbe.T.OpsLemmas
 public import LeanQbe.T.Main
@@ -786,6 +787,147 @@ meta def armCompileMod (m : Module) : Except String (List Directive × List (Sym
 #guard (armCompileMod Examples.Bignum.addMod25519Module).isOk = true
 #guard (armCompileMod Examples.Bignum.subMod25519Module).isOk = true
 
+/-! ## 8c. C6 Scaled-Index, C1c Upper-32 Zeroing & Inline Constants -/
+
+theorem armTarget_addrIdx_rfl :
+    armTarget.toIsa.supportsAddrIdx (.bits 8) .s1 0 = true ∧
+    armTarget.toIsa.supportsAddrIdx (.bits 16) .s2 0 = true ∧
+    armTarget.toIsa.supportsAddrIdx (.bits 32) .s4 0 = true ∧
+    armTarget.toIsa.supportsAddrIdx (.bits 64) .s8 0 = true ∧
+    armTarget.toIsa.supportsAddrIdx (.bits 32) .s4 4 = false ∧
+    armTarget.toIsa.supportsAddrIdx (.bits 64) .s4 0 = false ∧
+    armTarget.toIsa.supportsAddrIdx (.bits 8) .s2 0 = false := by
+  exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem armLoadStore_addrIdx_neg_rfl :
+    armGpr.load i32 (.reg .X0) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 4) = none ∧
+    armGpr.load i32 (.reg .X0) (.baseIdxDisp .SP (.reg .X2) .s4 0) = none ∧
+    armGpr.load i32 (.reg .X0) (.baseIdxDisp (.reg .X1) .SP .s4 0) = none ∧
+    armGpr.load i64 (.reg .X0) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 0) = none ∧
+    armGpr.store i32 (.gpr (.reg .X0)) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 4) = none ∧
+    armGpr.store i64 (.gpr (.reg .X0)) (.baseIdxDisp .SP (.reg .X2) .s8 0) = none ∧
+    (armGpr.load i32 (.reg .X0) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 0)).isSome = true ∧
+    (armGpr.store i64 (.gpr (.reg .X0))
+      (.baseIdxDisp (.reg .X1) (.reg .X2) .s8 0)).isSome = true := by
+  exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+theorem armZeroUpper32_rfl :
+    armGpr.zeroUpper32Load = true ∧
+    armGpr.elideZext32 = true ∧
+    armGpr.zeroUpper32Op (.add i32) (.gpr (.reg .X1), .imm 1#32, ()) (.gpr (.reg .X0), ()) =
+      true ∧
+    armGpr.zeroUpper32Op (.sext 8 32) (.gpr (.reg .X1), ()) (.gpr (.reg .X0), ()) = true ∧
+    armGpr.zeroUpper32Op (.zext 16 32) (.gpr (.reg .X1), ()) (.gpr (.reg .X0), ()) = true ∧
+    armGpr.zeroUpper32Op (.add i64) (.gpr (.reg .X1), .imm 1#64, ()) (.gpr (.reg .X0), ()) =
+      false ∧
+    armGpr.zeroUpper32Op (.add i32) (.gpr (.reg .X1), .imm 1#32, ()) (.gpr .SP, ()) = false ∧
+    armGpr.zeroUpper32Op (.copy .bool) (.gpr (.reg .X1), ()) (.gpr (.reg .X0), ()) = false := by
+  exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+#guard (armGpr.movi (.reg .X0) 0#64).length == 1
+#guard (armGpr.movi (.reg .X0) 0x1234#64).length == 1
+#guard (armGpr.movi (.reg .X0) 0x12340000#64).length == 1
+#guard (armGpr.movi (.reg .X0) (~~~0x1234#64)).length == 1
+#guard (armGpr.movi (.reg .X0) 0x1234_0000_5678#64).length == 2
+#guard (armGpr.movi (.reg .X0) (~~~0x1234_0000_5678#64)).length == 2
+#guard (armGpr.movi (.reg .X0) 0x0123_4567_89AB_CDEF#64).length == 1
+#guard ((armGpr.op (.add i64) (.gpr (.reg .X1), .imm 0x4000#64, ())
+  (.gpr (.reg .X0), ()) .default).elim [] Prod.fst).length == 1
+#guard ((armGpr.op (.sub i32) (.gpr (.reg .X1), .imm 0xFFF000#32, ())
+  (.gpr (.reg .X0), ()) .default).elim [] Prod.fst).length == 1
+#guard ((armGpr.op (.and i32) (.gpr (.reg .X1), .imm 0xFF#32, ())
+  (.gpr (.reg .X0), ()) .default).elim [] Prod.fst).length == 1
+#guard ((armGpr.op (.or i64) (.gpr (.reg .X1), .imm 0x0F0F0F0F_0F0F0F0F#64, ())
+  (.gpr (.reg .X0), ()) .default).elim [] Prod.fst).length == 1
+
+def c6C1cProg : List Directive :=
+  (armGpr.load i32 (.reg .X0) (.baseIdxDisp (.reg .X1) (.reg .X2) .s4 0)).elim [] Prod.fst ++
+  (armGpr.op (.add i32) (.gpr (.reg .X0), .imm 0x2000#32, ())
+    (.gpr (.reg .X0), ()) .default).elim [] Prod.fst ++
+  armGpr.movi (.reg .X3) 0x00120000_00000034#64 ++
+  (armGpr.store i64 (.gpr (.reg .X0))
+    (.baseIdxDisp (.reg .X1) (.reg .X2) .s8 0)).elim [] Prod.fst
+
+theorem c6C1cProg_small :
+    (Kraken.Layout.apply iselLayout c6C1cProg).sizeBefore c6C1cProg.length < 2 ^ 64 := by
+  have : (Kraken.Layout.apply iselLayout c6C1cProg).sizeBefore c6C1cProg.length = 20 := by
+    simp only [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size]
+    decide
+  omega
+
+@[instance_reducible] def c6C1cHost : Host := Host.ofLayout c6C1cProg iselLayout c6C1cProg_small
+
+/-- Execution witness combining C6 `[xb, xm, lsl #k]` load/store, C1c `load_zero32` +
+`op_zero32` (32-bit `ADD_e` `.S12`), and 2-insn inline `MOVZ+MOVK`. -/
+theorem c6_c1c_opt_witness {s : MachineData} {v : BitVec 32}
+    (hld : loadVal (armMach.mem s) i32
+      (armMach.getGpr s (.reg .X1) + (armMach.getGpr s (.reg .X2) <<< 2)) = some v)
+    (hok : storeOk (armMach.mem s) i64
+      (armMach.getGpr s (.reg .X1) + (armMach.getGpr s (.reg .X2) <<< 3))) :
+    armMach.Run c6C1cHost 0 s fun st =>
+      st.pc = armMach.addrOf c6C1cHost c6C1cProg.length ∧
+      armMach.getGpr st.data (.reg .X0) = (v + 0x2000#32).setWidth 64 ∧
+      armMach.getGpr st.data (.reg .X3) = 0x00120000_00000034#64 ∧
+      armMach.mem st.data = storeMem (armMach.mem s) i64
+        (armMach.getGpr s (.reg .X1) + (armMach.getGpr s (.reg .X2) <<< 3))
+        ((v + 0x2000#32).setWidth 64) := by
+  have hi : c6C1cProg.IsInfixAt (armMach.prog c6C1cHost) 0 := ⟨[], rfl⟩
+  obtain ⟨h012, h3⟩ := hi.append
+  obtain ⟨h01, h2⟩ := h012.append
+  obtain ⟨h0, h1⟩ := h01.append
+  simp only [List.length_append, ← Nat.add_assoc] at h1 h2 h3
+  have ha0 : (AddrArg.baseIdxDisp (.reg .X1) (.reg .X2) .s4 0).eval (armMach.getGpr s) =
+      armMach.getGpr s (.reg .X1) + (armMach.getGpr s (.reg .X2) <<< 2) := by
+    simp [AddrArg.eval, AddrScale.shift]
+  refine armGprSpec.load_zero32 rfl (rd := .reg .X0) (a := .baseIdxDisp (.reg .X1) (.reg .X2) .s4 0)
+    rfl (by simp [armScratch]) (by simp [AddrArg.regs, armScratch])
+    (by rw [ha0]; exact hld) h0 ?_
+  rintro s1 ⟨hx0_1, hm1⟩ hfr1
+  have hp1 : armMach.PArgHolds s1 i32 (.gpr (.reg .X0)) v := by
+    refine ⟨by decide, ?_⟩
+    rw [hx0_1, BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64), BitVec.setWidth_eq]
+  have hrel1 : TRel (armMach.PArgHolds s1) (as := [i32, i32])
+      (.gpr (.reg .X0), .imm 0x2000#32, ()) (v, 0x2000#32, ()) :=
+    .cons hp1 (.cons rfl .nil)
+  refine armGprSpec.op_zero32 (code := .add i32)
+    (pas := (.gpr (.reg .X0), .imm 0x2000#32, ())) (dsts := (.gpr (.reg .X0), ()))
+    (rd := .reg .X0) (vh := .default) (P := fun r => r = (v + 0x2000#32, ()))
+    rfl rfl rfl (by simp [tupArgGprs, PArg.gprs, armScratch]) (by simp [armScratch])
+    hrel1 rfl h1 ?_
+  rintro s2 ⟨⟨rv, hrv, hx0_2⟩, hm2⟩ hfr2
+  have hx0_2' : armMach.getGpr s2 (.reg .X0) = (v + 0x2000#32).setWidth 64 := by
+    rw [hx0_2, (Prod.mk.inj hrv).1]
+  refine armGprSpec.movi_spec (rd := .reg .X3) (c := 0x00120000_00000034#64) h2 ?_
+  rintro s3 ⟨hx3_3, hm3⟩ hfr3
+  have hx0_3 : armMach.getGpr s3 (.reg .X0) = (v + 0x2000#32).setWidth 64 := by
+    rw [hfr3.1 _ (by simp [armScratch])]; exact hx0_2'
+  have hx1_3 : armMach.getGpr s3 (.reg .X1) = armMach.getGpr s (.reg .X1) := by
+    rw [hfr3.1 _ (by simp [armScratch]), hfr2.1 _ (by simp [armScratch]),
+      hfr1.1 _ (by simp [armScratch])]
+  have hx2_3 : armMach.getGpr s3 (.reg .X2) = armMach.getGpr s (.reg .X2) := by
+    rw [hfr3.1 _ (by simp [armScratch]), hfr2.1 _ (by simp [armScratch]),
+      hfr1.1 _ (by simp [armScratch])]
+  have ha3 : (AddrArg.baseIdxDisp (.reg .X1) (.reg .X2) .s8 0).eval (armMach.getGpr s3) =
+      armMach.getGpr s (.reg .X1) + (armMach.getGpr s (.reg .X2) <<< 3) := by
+    calc (AddrArg.baseIdxDisp (.reg .X1) (.reg .X2) .s8 0).eval (armMach.getGpr s3)
+        = armMach.getGpr s3 (.reg .X1) + (armMach.getGpr s3 (.reg .X2) <<< 3) := by
+          simp [AddrArg.eval, AddrScale.shift]
+      _ = armMach.getGpr s (.reg .X1) + (armMach.getGpr s (.reg .X2) <<< 3) := by
+          rw [hx1_3, hx2_3]
+  have hm3' : armMach.mem s3 = armMach.mem s := hm3.trans (hm2.trans hm1)
+  have hok3 : storeOk (armMach.mem s3) i64
+      ((AddrArg.baseIdxDisp (.reg .X1) (.reg .X2) .s8 0).eval (armMach.getGpr s3)) := by
+    rw [hm3', ha3]; exact hok
+  have hp3 : armMach.PArgHolds s3 i64 (.gpr (.reg .X0)) ((v + 0x2000#32).setWidth 64) :=
+    ⟨by decide, by rw [hx0_3, BitVec.setWidth_eq]⟩
+  refine armGprSpec.store_spec rfl (by simp [PArg.gprs, AddrArg.regs, armScratch])
+    hp3 hok3 h3 ?_
+  rintro s4 hm4 hfr4
+  refine armMach_run_end ⟨rfl, ?_, ?_, ?_⟩
+  · rw [hfr4.1 _ (by simp [armScratch])]; exact hx0_3
+  · rw [hfr4.1 _ (by simp [armScratch])]; exact hx3_3
+  · rw [hm4, hm3', ha3]
+
 /-! ## 9. Standard-axiom audit -/
 
 #print axioms LeanQbe.T.Arm64.armGprSpec
@@ -806,5 +948,6 @@ meta def armCompileMod (m : Module) : Except String (List Directive × List (Sym
 #print axioms subword_garbage_witness
 #print axioms sp_corner_witness
 #print axioms jnzGpr_false_witness
+#print axioms c6_c1c_opt_witness
 
 end LeanQbeTest.T.Arm64IselTest
