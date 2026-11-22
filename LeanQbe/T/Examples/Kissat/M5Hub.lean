@@ -1,5 +1,11 @@
 module
 
+public import LeanQbe.T.Examples.Kissat.FullM5DenseSafe
+public import LeanQbe.T.Examples.Kissat.FullM5DenseSafeProof
+public import LeanQbe.T.Examples.Kissat.FullM5DenseSafeProof0
+public import LeanQbe.T.Examples.Kissat.FullM5DenseSafeProof1a
+public import LeanQbe.T.Examples.Kissat.FullM5DenseSafeProof1b
+public import LeanQbe.T.Examples.Kissat.FullM5DenseSafeProof2
 public import LeanQbe.T.Examples.Kissat.FullM5HeurCore
 public import LeanQbe.T.Examples.Kissat.FullM5HeurCoreProof
 public import LeanQbe.T.Examples.Kissat.FullM5HeurCoreProof0
