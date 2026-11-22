@@ -1133,8 +1133,10 @@ macro "c0_cond" h:ident : tactic =>
 
 /-- Top-level `⋆` clauses of a `sep`-tree predicate (partially applied `sep p q`). -/
 private meta partial def sepClauses (e : Lean.Expr) : List Lean.Expr :=
+  let e := e.consumeMData
   if e.isAppOf ``Std.ExtHashMap.sep && e.getAppNumArgs ≥ 2 then
-    sepClauses (e.getArg! (e.getAppNumArgs - 2)) ++ sepClauses (e.getArg! (e.getAppNumArgs - 1))
+    sepClauses (e.getArg! (e.getAppNumArgs - 2)) ++
+      sepClauses (e.getArg! (e.getAppNumArgs - 1))
   else [e]
 
 /-- Footprint heads occurring in the `⋆` hypotheses of the main goal (newest first). -/
@@ -1143,11 +1145,11 @@ private meta def footprints : TacticM (Array Name) := withMainContext do
   for d in (← getLCtx).decls.toArray.reverse do
     let some d := d | continue
     if d.isImplementationDetail then continue
-    let t ← instantiateMVars d.type
+    let t := (← instantiateMVars d.type).consumeMData
     if t.isAppOf ``Std.ExtHashMap.sep && t.getAppNumArgs ≥ 3 then
-      let p := t.appFn!
+      let p := t.appFn!.consumeMData
       for c in sepClauses p do
-        if let some k := c.getAppFn.constName? then
+        if let some k := c.getAppFn.consumeMData.constName? then
           unless keys.contains k do keys := keys.push k
   return keys
 
@@ -1179,10 +1181,13 @@ private meta def tryMemLemma (g : MVarId) (nm : Name) : TacticM MemTryResult := 
   let gs ← try withReducible <| g.apply (← mkConstWithFreshMVarLevels nm)
     catch _ => s.restore; return .applyFailed
   for g' in gs do
-    let ty ← instantiateMVars (← g'.getType)
+    let rawTy ← instantiateMVars (← g'.getType)
+    let ty := rawTy.consumeMData
     if ty.isAppOf ``Std.ExtHashMap.sep then
-      unless ← withReducible (closeWith g' (← `(tactic| c0_frame))) do
-        let msg ← ppGoalType g'
+      let gFrame ←
+        if rawTy.isMData then g'.change ty (checkDefEq := false) else pure g'
+      unless ← withReducible (closeWith gFrame (← `(tactic| c0_frame))) do
+        let msg ← ppGoalType gFrame
         s.restore
         return .frameFailed msg
   for g' in gs do
@@ -1221,29 +1226,62 @@ private meta def formatMemDiag (isLoad : Bool) (goalStr : String) (keys untagged
     else ""
   header ++ fpLine ++ untaggedLine ++ detailLine
 
+/-- Try each untried lemma in `lems` on `g`, updating `tried`, `triedCount`, and `nearMisses`. -/
+private meta def tryMemBucket (g : MVarId) (lems : Array Name) (tried : NameSet)
+    (triedCount : Nat) (nearMisses : Array String) :
+    TacticM (Bool × NameSet × Nat × Array String) := do
+  let mut tried := tried
+  let mut triedCount := triedCount
+  let mut nearMisses := nearMisses
+  for nm in lems do
+    if tried.contains nm then continue
+    tried := tried.insert nm
+    triedCount := triedCount + 1
+    match ← tryMemLemma g nm with
+    | .ok => return (true, tried, triedCount, nearMisses)
+    | .applyFailed => pure ()
+    | .frameFailed s => nearMisses := nearMisses.push s!"  - `{nm}`: frame failed: {s}"
+    | .sideFailed s => nearMisses := nearMisses.push s!"  - `{nm}`: side goal failed: {s}"
+    | .unassigned s => nearMisses := nearMisses.push s!"  - `{nm}`: unassigned goal: {s}"
+  return (false, tried, triedCount, nearMisses)
+
 /-- Close a `loadVal m t a = some ?v` (`isLoad`) or `storeOk … ∧ (?P ⋆ ?R) (storeMem …)` goal
-with a footprint-indexed `c0_load` / `c0_store` lemma, returning a crisp diagnostic on failure. -/
+via two-level `(footprintHead, AddrKey)` `O(1)` lookup in `c0MemLemmasForAddr` first, falling
+back to remaining lemmas in `c0MemLemmas` and returning a crisp diagnostic on failure. -/
 private meta def memSolveRes (isLoad : Bool) (g : MVarId) : TacticM (Except String Unit) := do
+  let rawTy ← instantiateMVars (← g.getType)
+  let g ←
+    if rawTy.isMData then g.change rawTy.consumeMData (checkDefEq := false) else pure g
   setGoals [g]
   evalTactic (← `(tactic| try simp only [LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm]))
   let g ← getMainGoal
+  let gTy := (← instantiateMVars (← g.getType)).consumeMData
+  let addr? := (C0Step.extractMemGoalAddr? isLoad gTy).map (·.consumeMData)
   let keys ← footprints
   let env ← getEnv
-  let mut untagged : Array Name := #[]
   let mut triedCount : Nat := 0
+  let mut tried : NameSet := {}
   let mut nearMisses : Array String := #[]
+  -- Pass 1: O(1) `(footprintHead, AddrKey)` bucket lookup across active footprints.
+  if let some addr := addr? then
+    for k in keys do
+      let bucket := C0Step.c0MemLemmasForAddr env isLoad k addr
+      let (ok, t', c', nm') ← tryMemBucket g bucket tried triedCount nearMisses
+      tried := t'
+      triedCount := c'
+      nearMisses := nm'
+      if ok then return .ok ()
+  -- Pass 2: fallback over remaining untried lemmas in `c0MemLemmas` for completeness.
+  let mut untagged : Array Name := #[]
   for k in keys do
     let lems := C0Step.c0MemLemmas env isLoad k
     if lems.isEmpty then
       untagged := untagged.push k
-    for nm in lems do
-      triedCount := triedCount + 1
-      match ← tryMemLemma g nm with
-      | .ok => return .ok ()
-      | .applyFailed => pure ()
-      | .frameFailed s => nearMisses := nearMisses.push s!"  - `{nm}`: frame failed: {s}"
-      | .sideFailed s => nearMisses := nearMisses.push s!"  - `{nm}`: side goal failed: {s}"
-      | .unassigned s => nearMisses := nearMisses.push s!"  - `{nm}`: unassigned goal: {s}"
+    let (ok, t', c', nm') ← tryMemBucket g lems tried triedCount nearMisses
+    tried := t'
+    triedCount := c'
+    nearMisses := nm'
+    if ok then return .ok ()
   let goalStr ← ppGoalType g
   return .error (formatMemDiag isLoad goalStr keys untagged triedCount nearMisses)
 

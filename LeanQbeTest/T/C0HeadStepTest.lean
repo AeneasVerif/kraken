@@ -526,6 +526,73 @@ theorem full_cong_find_hsteps (Γ : Env) :
 
 end KissatRealBench
 
+section C0HeadStepHelpers
+
+local elab "wrap_goal_mdata" : tactic => do
+  let g ← Lean.Elab.Tactic.getMainGoal
+  let ty ← Lean.instantiateMVars (← g.getType)
+  let g' ← g.change (Lean.mkMData {} ty) (checkDefEq := false)
+  Lean.Elab.Tactic.replaceMainGoal [g']
+
+theorem c0_hfast_jnz_wp {Γ : Env} {Q : Post [i32]} {X : XPost}
+    {p : BitVec 64} {a : List (Val i32)} {R : Mem 64 → Prop} {m : Mem 64}
+    (ha : 0 < a.length) (hm : (array (t := i32) p a ⋆ R) m) (c : Val .bool)
+    (ht : c = true → ∀ m', (array (t := i32) p (a.set 0 (a[0]'ha + 1#32)) ⋆ R) m' →
+      Q (1#32, ()) m')
+    (hf : c = false → ∀ m', (array (t := i32) p (a.set 0 (a[0]'ha + 1#32)) ⋆ R) m' →
+      Q (0#32, ()) m') :
+    wp Γ Q X
+      (.load i32 (Arg.imm (p + 0#64)) fun x =>
+        .let_ (op2 (.add i32) (Arg.var x) (Arg.imm 1#32)) fun (y, _) =>
+          .store (Arg.var y) (Arg.imm (p + 0#64))
+            (.jnz (Arg.var c) (.ret (Arg.imm 1#32, ())) (.ret (Arg.imm 0#32, ())))) m := by
+  c0_hfast
+  · exact ht hc _ hm
+  · exact hf hc _ hm
+
+theorem c0_split_jnz_wp {Γ : Env} {Q : Post [i32]} {X : XPost}
+    {m : Mem 64} (x : Val i32) (c : Val .bool)
+    (ht : c = true → Q (x + 1#32, ()) m)
+    (hf : c = false → Q (x + 2#32, ()) m) :
+    wp Γ Q X
+      (.let_ (op2 (.add i32) (Arg.var x) (Arg.imm 1#32)) fun (y, _) =>
+        .jnz (Arg.var c) (.ret (Arg.var y, ()))
+          (.let_ (op2 (.add i32) (Arg.var x) (Arg.imm 2#32)) fun (z, _) =>
+            .ret (Arg.var z, ()))) m := by
+  c0_split
+  · exact ht hc
+  · c0_hfast
+    exact hf hc
+
+theorem c0_split_mdata_wp {Γ : Env} {Q : Post [i32]} {X : XPost}
+    {m : Mem 64} (x : Val i32) (c : Val .bool)
+    (ht : c = true → Q (x + 1#32, ()) m)
+    (hf : c = false → Q (0#32, ()) m) :
+    wp Γ Q X
+      (.let_ (op2 (.add i32) (Arg.var x) (Arg.imm 1#32)) fun (y, _) =>
+        .jnz (Arg.var c) (.ret (Arg.var y, ())) (.ret (Arg.imm 0#32, ()))) m := by
+  wrap_goal_mdata
+  c0_split
+  · exact ht hc
+  · exact hf hc
+
+theorem c0_to_group_mdata_wp {Γ : Env} {Q : Post [i32]} {X : XPost}
+    {m : Mem 64} (x : Val i32)
+    (hL : ∀ m', wp Γ Q X
+      (.group (sig := [[i32]])
+        (fun L => Blocks.cons (fun p => .jump L.1 (Arg.var p.1, ())) .nil)
+        (fun L => .jump L.1 (Arg.var (x + 1#32), ()))) m') :
+    wp Γ Q X
+      (.let_ (op2 (.add i32) (Arg.var x) (Arg.imm 1#32)) fun (y, _) =>
+        .group (sig := [[i32]])
+          (fun L => Blocks.cons (fun p => .jump L.1 (Arg.var p.1, ())) .nil)
+          (fun L => .jump L.1 (Arg.var y, ()))) m := by
+  wrap_goal_mdata
+  c0_to_group
+  exact hL m
+
+end C0HeadStepHelpers
+
 /-! ## 6. Axiom Cleanliness Checks -/
 
 #print axioms addrKey_fullMem_dispatch_check
@@ -542,5 +609,9 @@ end KissatRealBench
 #print axioms lrat_isWsByte_hsteps
 #print axioms full_find_repl_hsteps
 #print axioms full_cong_find_hsteps
+#print axioms c0_hfast_jnz_wp
+#print axioms c0_split_jnz_wp
+#print axioms c0_split_mdata_wp
+#print axioms c0_to_group_mdata_wp
 
 end LeanQbeTest.T.C0HeadStepTest

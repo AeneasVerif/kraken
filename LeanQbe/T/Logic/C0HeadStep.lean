@@ -1015,8 +1015,10 @@ private meta def stepLetHead (g : MVarId) (wpArgs : Array Lean.Expr) (op k : Lea
 /-! ## 4. Two-Level `(footprintHead, AddrKey)` Memory Solver (`O(1)` Dispatch) -/
 
 private meta partial def sepClauses (e : Lean.Expr) : List Lean.Expr :=
+  let e := e.consumeMData
   if e.isAppOf ``Std.ExtHashMap.sep && e.getAppNumArgs ≥ 2 then
-    sepClauses (e.getArg! (e.getAppNumArgs - 2)) ++ sepClauses (e.getArg! (e.getAppNumArgs - 1))
+    sepClauses (e.getArg! (e.getAppNumArgs - 2)) ++
+      sepClauses (e.getArg! (e.getAppNumArgs - 1))
   else [e]
 
 private meta def footprints : TacticM (Array Name) := withMainContext do
@@ -1024,10 +1026,10 @@ private meta def footprints : TacticM (Array Name) := withMainContext do
   for d in (← getLCtx).decls.toArray.reverse do
     let some d := d | continue
     if d.isImplementationDetail then continue
-    let t ← instantiateMVars d.type
+    let t := (← instantiateMVars d.type).consumeMData
     if t.isAppOf ``Std.ExtHashMap.sep && t.getAppNumArgs ≥ 3 then
       for c in sepClauses t.appFn! do
-        if let some k := c.getAppFn.constName? then
+        if let some k := c.getAppFn.consumeMData.constName? then
           unless keys.contains k do keys := keys.push k
   return keys
 
@@ -1363,7 +1365,23 @@ meta def headSteps (cfg : HeadStepConfig := {}) (fuel : Nat := 10000) : TacticM 
   if !progressed then
     if let some msg := err? then throwError msg
 
-/-! ## 6. Public Tactics (`c0_hstep`, `c0_hsteps`, `c0_hsteps!`, `c0_hsteps_nogrp`, `c0_hsplit`) -/
+/-! ## 6. Public Tactics (`c0_hstep`, `c0_hsteps`, `c0_hsteps!`, `c0_hsteps_nogrp`, `c0_hsplit`,
+`c0_hfast`, `c0_split`, `c0_to_group`) -/
+
+/-- Unwrap outer `MData` from `g`'s target with zero `isDefEq` overhead, returning the
+potentially refreshed goal and consumed type. -/
+private meta def unwrapGoalMData (g : MVarId) : TacticM (MVarId × Lean.Expr) := do
+  let rawTy ← instantiateMVars (← g.getType)
+  let ty := rawTy.consumeMData
+  if rawTy.isMData then
+    return (← g.change ty (checkDefEq := false), ty)
+  return (g, ty)
+
+/-- Check if `ty` (with outer `MData` stripped) is `LeanQbe.T.wp` on head expr `headName`. -/
+private meta def isWpHeadExpr (ty : Lean.Expr) (headName : Name) : Bool :=
+  let ty := ty.headBeta.consumeMData
+  ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 &&
+    ((ty.getArg! 4).consumeMData.headBeta.consumeMData).isAppOf headName
 
 /-- Single `O(1)` head-only C0 symbolic-execution step. -/
 elab "c0_hstep" : tactic => do
@@ -1376,6 +1394,10 @@ elab "c0_hsteps" : tactic => headSteps {} 10000
 `store` goal. -/
 elab "c0_hsteps!" : tactic => headSteps { strictMem := true } 10000
 
+/-- Fast `O(1)` head-only C0 symbolic executor with `pruneJnz := false` (skips `bv_c0` branch
+pruning on `jnz` conditions). -/
+elab "c0_hfast" : tactic => headSteps { pruneJnz := false } 10000
+
 /-- `O(1)` head-only C0 symbolic executor stopping before `Expr.group` (replaces `*_to_group`). -/
 elab "c0_hsteps_nogrp" : tactic => headSteps { unrollGroup := false } 10000
 
@@ -1385,5 +1407,38 @@ elab "c0_hsplit" : tactic => do
   focus do
     let _ ← headStepsLoop { unrollGroup := false, splitJnz := false } 2000
     let _ ← headStepOnce { unrollGroup := false, splitJnz := true, pruneJnz := false }
+
+private meta partial def c0SplitLoop (fuel : Nat) : TacticM Unit := do
+  if fuel = 0 then return
+  let g0 ← getMainGoal
+  let (g, ty) ← unwrapGoalMData g0
+  if g != g0 then replaceMainGoal [g]
+  if isWpHeadExpr ty ``LeanQbe.T.Expr.jnz then
+    let _ ← LeanQbe.T.C0Step.stepOnce
+    return
+  if ← LeanQbe.T.C0Step.stepOnce then c0SplitLoop (fuel - 1)
+
+private meta partial def c0ToGroupLoop (fuel : Nat) : TacticM Unit := do
+  if fuel = 0 then return
+  let mut out : Array MVarId := #[]
+  for g in ← getUnsolvedGoals do
+    if ← g.isAssigned then continue
+    let (g, ty) ← unwrapGoalMData g
+    setGoals [g]
+    if isWpHeadExpr ty ``LeanQbe.T.Expr.group then
+      out := out.push g
+    else if ← LeanQbe.T.C0Step.stepOnce then
+      c0ToGroupLoop (fuel - 1)
+      out := out ++ (← getUnsolvedGoals)
+    else out := out.push g
+  setGoals out.toList
+
+/-- Step straight-line ops on the main goal via `C0Step.stepOnce` (unwrapping `MData`) until the
+next `Expr.jnz`, then split it once. -/
+elab "c0_split" : tactic => c0SplitLoop 100
+
+/-- Step all goals via `C0Step.stepOnce` (unwrapping `MData`), stopping each branch at
+`Expr.group`. -/
+elab "c0_to_group" : tactic => c0ToGroupLoop 500
 
 end LeanQbe.T.C0HeadStep
