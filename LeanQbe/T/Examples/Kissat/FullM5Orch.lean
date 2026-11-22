@@ -295,15 +295,19 @@ u64 full_vivify_tier_m5(FullHdr *h, u64 tier_mode, u64 budget, u64 tick_lim) {
   if (h->cur_level != 0ULL) { full_backtrack(h, 0ULL); }
   h->probing = 1ULL;
   u32 *rr = (u32 *)h->red_refs;
+  u32 *ar = (u32 *)h->arena;
   u64 bmax = h->red_cap / 3ULL;
   u64 bn = full_viv_collect_m4(h, tier_mode);
   full_viv_keys_m4(h, bn);
   full_viv_sort_sched_m4(h, bn);
   u64 res = 1ULL;
   u64 bi = 0ULL;
+  u64 spent = 0ULL;
   while (bi < bn && budget > 0ULL && h->oom == 0ULL && h->fuel > 0ULL &&
-         h->search_ticks < tick_lim) {
+         spent < tick_lim) {
     u32 cr = rr[bi * 3ULL];
+    u32 sz = ar[(u64)cr + 2ULL];
+    spent = spent + 512ULL + ((u64)sz << 5);
     budget = budget - 1ULL;
     u64 vc = full_viv_clause_m4(h, cr);
     if (vc == 20ULL) { res = 20ULL; break; }
@@ -326,16 +330,18 @@ u64 full_vivify_m5(FullHdr *h) {
   u64 eff_ref = (delta < 10000000ULL) ? 10000000ULL : delta;
   u64 total = eff_ref / 10ULL;
   if (h->num_redundant == 0ULL) {
-    return full_vivify_tier_m5(h, 0ULL, 0xFFFFFFFFULL, start + total);
+    return full_vivify_tier_m5(h, 0ULL, 0xFFFFFFFFULL, total);
   }
-  u64 lim = start + (total * 3ULL) / 10ULL;
-  if (full_vivify_tier_m5(h, 1ULL, 0xFFFFFFFFULL, lim) == 20ULL) { return 20ULL; }
-  lim = lim + (total * 3ULL) / 10ULL;
-  if (full_vivify_tier_m5(h, 2ULL, 0xFFFFFFFFULL, lim) == 20ULL) { return 20ULL; }
-  lim = lim + total / 10ULL;
-  if (full_vivify_tier_m5(h, 3ULL, 0xFFFFFFFFULL, lim) == 20ULL) { return 20ULL; }
-  lim = lim + (total * 3ULL) / 10ULL;
-  return full_vivify_tier_m5(h, 0ULL, 0xFFFFFFFFULL, lim);
+  if (full_vivify_tier_m5(h, 1ULL, 0xFFFFFFFFULL, (total * 3ULL) / 10ULL) == 20ULL) {
+    return 20ULL;
+  }
+  if (full_vivify_tier_m5(h, 2ULL, 0xFFFFFFFFULL, (total * 3ULL) / 10ULL) == 20ULL) {
+    return 20ULL;
+  }
+  if (full_vivify_tier_m5(h, 3ULL, 0xFFFFFFFFULL, total / 10ULL) == 20ULL) {
+    return 20ULL;
+  }
+  return full_vivify_tier_m5(h, 0ULL, 0xFFFFFFFFULL, (total * 3ULL) / 10ULL);
 }
 
 u64 full_sweep_dense_m5(FullHdr *h, u64 budget, u64 tick_lim) {
@@ -456,7 +462,20 @@ u64 full_probe_m5(FullHdr *h, bool initial) {
     if (h->unassigned >= before_unass) { break; }
     round = round + 1ULL;
   }
-  if (full_probe_tail_m5(h, dticks) == 20ULL) { return 20ULL; }
+  if (!initial) {
+    if (full_probe_tail_m5(h, dticks) == 20ULL) { return 20ULL; }
+  } else {
+    if (h->num_binary > 0ULL &&
+        full_backbone(h, dticks * 4ULL + 65536ULL) == 20ULL) {
+      return 20ULL;
+    }
+  }
+  if ((h->num_irred <= 4096ULL || h->eliminations > 0ULL) &&
+      full_enter_dense(h)) {
+    u64 fbud = full_min_u64(initial ? 512ULL : (64ULL + (dticks >> 9)), 1024ULL);
+    full_factor(h, fbud);
+    if (full_rebuild_watches(h) == 20ULL) { return 20ULL; }
+  } else if (h->inconsistent != 0ULL) { return 20ULL; }
   h->fwd_sub_cnt = h->search_ticks;
   return 1ULL;
 }

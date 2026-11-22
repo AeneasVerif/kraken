@@ -2189,18 +2189,18 @@ theorem full_vivify_tier_m5_wp (Γ : Env)
     clear s4 s3 hsp4 hsp3 tr3 rr3 rr4 htr3 hrr3 hrr4 hok3 hok4 hok5 hm3 hm4 hm5 hsp2 hm2 hfl2
       hCollect hKeys hSortSched
     fvt_to_group
-    refine wp_loop_break_group (brkTs := [i64, i64, i64]) (lpTs := [i64, i64])
-      (fun (_budget_b, res_b, bi_b, ()) mb => ∃ sb : FullState,
+    refine wp_loop_break_group (brkTs := [i64, i64, i64, i64]) (lpTs := [i64, i64, i64])
+      (fun (_budget_b, res_b, bi_b, _spent_b, ()) mb => ∃ sb : FullState,
         FullSparseInv c F0 sb ∧ sb.core.fuel.toNat ≤ s.core.fuel.toNat ∧
         (res_b = 1#64 ∨ res_b = 20#64) ∧ (res_b = 20#64 → F0.Unsat) ∧
         (FullMem c sb ⋆ R) mb)
-      (fun rem (budget, bi, ()) mvi => ∃ svi : FullState,
+      (fun rem (budget, bi, spent, ()) mvi => ∃ svi : FullState,
         bi.toNat ≤ bn.toNat ∧ rem = bn.toNat - bi.toNat ∧
         FullSparseInv c F0 svi ∧ svi.core.fuel.toNat ≤ s.core.fuel.toNat ∧
         fullArenaClauseRefs svi = fullArenaClauseRefs s2 ∧
         svi.scratch.red_refs = rr5 ∧ (FullMem c svi ⋆ R) mvi)
       ?_ ?_ ?_
-    · rintro _ ⟨_, res_b, bi_b, ⟨⟩⟩ mb ⟨sb, hspb, hflb, hresb, h20b, hmb⟩
+    · rintro _ ⟨_, res_b, bi_b, _, ⟨⟩⟩ mb ⟨sb, hspb, hflb, hresb, h20b, hmb⟩
       refine wp_join_group (ts := [])
         (fun () m_bt => ∃ sbt : FullState,
           FullSparseInv c F0 sbt ∧ sbt.core.cur_level = 0 ∧
@@ -2247,7 +2247,7 @@ theorem full_vivify_tier_m5_wp (Γ : Env)
             have h0 : (BitVec.ofNat 64 sb.core.cur_level).toNat = 0 := by rw [hc]; rfl
             rwa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hclb_lt] at h0
           exact hJbt () mb ⟨sb, hspb, hclb0, hflb, hmb⟩
-    · intro B L rem ⟨budget, bi, ⟨⟩⟩ mvi hB hL
+    · intro B L rem ⟨budget, bi, spent, ⟨⟩⟩ mvi hB hL
         ⟨svi, hbi_le, hrem, hspv, hflv, hrefsv, hrrv, hmvi⟩
       subst hrem
       fvt_steps
@@ -2264,6 +2264,12 @@ theorem full_vivify_tier_m5_wp (Γ : Env)
             rw [← List.getElem?_eq_getElem hbi3_lt, hrrv, hbi3_nat,
               List.getElem?_eq_getElem (by omega)])
           rwa [heq]
+        have hcr_bnd : cr.toNat + 3 ≤ svi.core.arena_len :=
+          (fullArenaScanRefs_mem_bounds hcr_ref).2
+        have har_len : svi.core.arena.length = c.arena_cap :=
+          hspv.1.lengths.core_ok.arena_len_arr
+        have hal_le : svi.core.arena_len ≤ c.arena_cap := hspv.1.lengths.core_ok.arena_len_le
+        have har_cr2 : (cr.setWidth 64 + 2#64).toNat < svi.core.arena.length := by bv_omega
         obtain ⟨F_curv, hswv⟩ := hspv.exists_witness
         have hbi1 : (bi + 1#64).toNat = bi.toNat + 1 := by bv_omega
         fvt_steps
@@ -2275,9 +2281,9 @@ theorem full_vivify_tier_m5_wp (Γ : Env)
         have hrr_vc5 : s_vc.scratch.red_refs = rr5 := hrr_vc.trans hrrv
         have hfl_vc' : s_vc.core.fuel.toNat ≤ s.core.fuel.toNat := Nat.le_trans hfl_vc hflv
         fvt_steps
-        · exact hB (budget - 1#64, 20#64, bi, ()) m_vc
+        · exact hB (budget - 1#64, 20#64, bi, _, ()) m_vc
             ⟨s_vc, hsw_vc.toSparse, hfl_vc', Or.inr rfl, fun _ => h20_vc (by c0_bound), hm_vc⟩
-        · exact hB (budget - 1#64, 1#64, bi, ()) m_vc
+        · exact hB (budget - 1#64, 1#64, bi, _, ()) m_vc
             ⟨s_vc, hsw_vc.toSparse, hfl_vc', Or.inl rfl, (fun h => by cases h), hm_vc⟩
         · have hcl_vc_lt : s_vc.core.cur_level < 2 ^ 64 := by
             have := hsw_vc.2.1.cur_level_le; have := hsw_vc.1.core_ok.trail_end_le
@@ -2312,27 +2318,27 @@ theorem full_vivify_tier_m5_wp (Γ : Env)
           · have hpr_eq1 : pr = 1#64 := by c0_bound
             have hunsat : F0.Unsat :=
               FullVivTopSpecs.level0_unsat_of_conflict_okW hw_p hcl_vc0 (hpr1 hpr_eq1).2.2
-            exact hB (budget - 1#64, 20#64, bi, ()) m_p
+            exact hB (budget - 1#64, 20#64, bi, _, ()) m_p
               ⟨s_p, hsw_p.toSparse, hfl_p', Or.inr rfl, fun _ => hunsat, hm_p⟩
-          · exact hL (bn.toNat - (bi + 1#64).toNat) (budget - 1#64, bi + 1#64, ()) m_p
+          · exact hL (bn.toNat - (bi + 1#64).toNat) (budget - 1#64, bi + 1#64, _, ()) m_p
               (by rw [hbi1]; omega)
               ⟨s_p, by rw [hbi1]; omega, rfl, hsw_p.toSparse, hfl_p',
                 hrefs_p.trans hrefs_vc2, hrr_vc5, hm_p⟩
-        · exact hL (bn.toNat - (bi + 1#64).toNat) (budget - 1#64, bi + 1#64, ()) m_vc
+        · exact hL (bn.toNat - (bi + 1#64).toNat) (budget - 1#64, bi + 1#64, _, ()) m_vc
             (by rw [hbi1]; omega)
             ⟨s_vc, by rw [hbi1]; omega, rfl, hsw_vc.toSparse, hfl_vc', hrefs_vc2, hrr_vc5, hm_vc⟩
-      · exact hB (budget, 1#64, bi, ()) mvi
+      · exact hB (budget, 1#64, bi, _, ()) mvi
           ⟨svi, hspv, hflv, Or.inl rfl, (fun h => by cases h), hmvi⟩
-      · exact hB (budget, 1#64, bi, ()) mvi
+      · exact hB (budget, 1#64, bi, _, ()) mvi
           ⟨svi, hspv, hflv, Or.inl rfl, (fun h => by cases h), hmvi⟩
-      · exact hB (budget, 1#64, bi, ()) mvi
+      · exact hB (budget, 1#64, bi, _, ()) mvi
           ⟨svi, hspv, hflv, Or.inl rfl, (fun h => by cases h), hmvi⟩
-      · exact hB (budget, 1#64, bi, ()) mvi
+      · exact hB (budget, 1#64, bi, _, ()) mvi
           ⟨svi, hspv, hflv, Or.inl rfl, (fun h => by cases h), hmvi⟩
-      · exact hB (budget, 1#64, bi, ()) mvi
+      · exact hB (budget, 1#64, bi, _, ()) mvi
           ⟨svi, hspv, hflv, Or.inl rfl, (fun h => by cases h), hmvi⟩
     · intro B L _ hL; fvt_steps
-      exact hL bn.toNat (budget0, 0#64, ()) m5
+      exact hL bn.toNat (budget0, 0#64, 0#64, ()) m5
         ⟨s5, Nat.zero_le _, by simp, hsp5, hfl5, hrefs5, hrr5, hm5'⟩
   · intro Jc hJc
     obtain ⟨F_cur0, hsw0⟩ := hsp0.exists_witness
@@ -2389,25 +2395,25 @@ theorem full_vivify_m5_wp (Γ : Env)
       fvt_steps
       · exact hQ 20#64 s2 m2 hsp2 hcl2 hpr2 (Nat.le_trans hfl2 hfl1)
           (Or.inr rfl) (fun _ => hu2 hc) hm2
-      c0_call hTier
-      refine ⟨c, F0, s2, R, rfl, hsp2, hm2, fun r3 s3 m3 hsp3 _ _ hnz3 hfl3 hr3 hu3 hm3 => ?_⟩
-      obtain ⟨hcl3, hpr3⟩ := hnz3 hbud
-      fvt_steps
-      · exact hQ 20#64 s3 m3 hsp3 hcl3 hpr3 (Nat.le_trans hfl3 (Nat.le_trans hfl2 hfl1))
-          (Or.inr rfl) (fun _ => hu3 hc) hm3
-      c0_call hTier
-      refine ⟨c, F0, s3, R, rfl, hsp3, hm3, fun r4 s4 m4 hsp4 _ _ hnz4 hfl4 hr4 hu4 hm4 => ?_⟩
-      obtain ⟨hcl4, hpr4⟩ := hnz4 hbud
-      fvt_steps
-      · exact hQ 20#64 s4 m4 hsp4 hcl4 hpr4
-          (Nat.le_trans hfl4 (Nat.le_trans hfl3 (Nat.le_trans hfl2 hfl1)))
-          (Or.inr rfl) (fun _ => hu4 hc) hm4
-      c0_call hTier
-      refine ⟨c, F0, s4, R, rfl, hsp4, hm4, fun r5 s5 m5 hsp5 _ _ hnz5 hfl5 hr5 hu5 hm5 => ?_⟩
-      obtain ⟨hcl5, hpr5⟩ := hnz5 hbud
-      exact hQ r5 s5 m5 hsp5 hcl5 hpr5
-        (Nat.le_trans hfl5 (Nat.le_trans hfl4 (Nat.le_trans hfl3 (Nat.le_trans hfl2 hfl1))))
-        hr5 hu5 hm5
+      · c0_call hTier
+        refine ⟨c, F0, s2, R, rfl, hsp2, hm2, fun r3 s3 m3 hsp3 _ _ hnz3 hfl3 hr3 hu3 hm3 => ?_⟩
+        obtain ⟨hcl3, hpr3⟩ := hnz3 hbud
+        fvt_steps
+        · exact hQ 20#64 s3 m3 hsp3 hcl3 hpr3 (Nat.le_trans hfl3 (Nat.le_trans hfl2 hfl1))
+            (Or.inr rfl) (fun _ => hu3 hc) hm3
+        · c0_call hTier
+          refine ⟨c, F0, s3, R, rfl, hsp3, hm3, fun r4 s4 m4 hsp4 _ _ hnz4 hfl4 hr4 hu4 hm4 => ?_⟩
+          obtain ⟨hcl4, hpr4⟩ := hnz4 hbud
+          fvt_steps
+          · exact hQ 20#64 s4 m4 hsp4 hcl4 hpr4
+              (Nat.le_trans hfl4 (Nat.le_trans hfl3 (Nat.le_trans hfl2 hfl1)))
+              (Or.inr rfl) (fun _ => hu4 hc) hm4
+          · c0_call hTier
+            refine ⟨c, F0, s4, R, rfl, hsp4, hm4, fun r5 s5 m5 hsp5 _ _ hnz5 hfl5 hr5 hu5 hm5 => ?_⟩
+            obtain ⟨hcl5, hpr5⟩ := hnz5 hbud
+            exact hQ r5 s5 m5 hsp5 hcl5 hpr5
+              (Nat.le_trans hfl5 (Nat.le_trans hfl4 (Nat.le_trans hfl3 (Nat.le_trans hfl2 hfl1))))
+              hr5 hu5 hm5
   · intro Jc hJc
     obtain ⟨F_cur0, hsw0⟩ := hsp0.exists_witness
     have hcl0_lt : s.core.cur_level < 2 ^ 64 := by

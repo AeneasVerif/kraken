@@ -10,6 +10,7 @@ public import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas1
 public import LeanQbe.T.Examples.Kissat.FullM4VivBceProof1
 public import LeanQbe.T.Examples.Kissat.FullM4Proof1
 public import LeanQbe.T.Examples.Kissat.FullM4TernaryProof
+public import LeanQbe.T.Examples.Kissat.FullM3BackboneLemmas1
 import LeanQbe.T.Examples.Kissat.FullDenseWatchLemmas2
 
 /-!
@@ -262,7 +263,13 @@ theorem full_probe_m5_wp (Γ : Env)
       Γ "full_rebuild_watches" [i64] [i64] a m Q X)
     (hSubst : ∀ a m Q X, Full.fullSubstituteSpec a m Q X → Γ "full_substitute" [i64] [i64] a m Q X)
     (hTail : ∀ a m Q X, FullFastSched.schedProbeTailSpec a m Q X →
-      Γ "full_probe_tail_m5" [i64, i64] [i64] a m Q X) :
+      Γ "full_probe_tail_m5" [i64, i64] [i64] a m Q X)
+    (hBone : ∀ a m Q X, FullM3Backbone.fullBackboneSpec a m Q X →
+      Γ "full_backbone" [i64, i64] [i64] a m Q X)
+    (hMin : ∀ a m Q X, FullFastSched.schedMinU64Spec a m Q X →
+      Γ "full_min_u64" [i64, i64] [i64] a m Q X)
+    (hFact : ∀ a m Q X, FullBvaHeap.fullFactorHeapSpec a m Q X →
+      Γ "full_factor" [i64, i64] [i64] a m Q X) :
     ∀ a m Q X, FullFastSched.schedProbeSpec a m Q X →
       Func.wp Γ full_probe_m5_body a m Q X := by
   rintro ⟨h, initial, ⟨⟩⟩ m Q X ⟨c, F0, s, R, rfl, hinv, hcl0, hm, hQ⟩
@@ -288,21 +295,93 @@ theorem full_probe_m5_wp (Γ : Env)
         ?_ ?_ ?_
       · rintro _ ⟨_r, st_ex⟩ m_ex ⟨hinv_ex, hcl_ex, hfu_ex, hm_ex⟩
         dsimp only at hfu_ex
-        c0_hsteps
-        c0_call hTail
-        refine ⟨c, F0, st_ex, R, rfl, hinv_ex, hcl_ex, hm_ex, ?_⟩
-        intro rt st_t mt hinv_t hcl_t hfu_t _ hut ht_m
-        c0_hsteps
-        · exact hQ 20#64 st_t mt hinv_t.lengths (by omega) (Or.inr rfl) (fun _ => hut ‹_›)
-            (fun h => by cases h) ht_m
-        · let st_f : FullState :=
-            { st_t with scratch := { st_t.scratch with fwd_sub_cnt := st_t.scratch.search_ticks } }
-          have hinv_f : FullSparseInv c F0 st_f :=
-            m5_sparseInv_with_scratch_keep hinv_t { hinv_t.lengths.scratch_ok with } rfl rfl
-          have hfu_f : st_f.core.fuel.toNat ≤ s.core.fuel.toNat := by
-            change st_t.core.fuel.toNat ≤ s.core.fuel.toNat; omega
-          exact hQ 1#64 st_f _ hinv_f.lengths hfu_f (Or.inl rfl) (fun h => by cases h)
-            (fun _ => ⟨hinv_f, hcl_t⟩) hm
+        c0_hsteps_nogrp
+        refine wp_join_state0 (α := FullState)
+          (fun s_t m_t => FullSparseInv c F0 s_t ∧ s_t.core.cur_level = 0 ∧
+            s_t.core.fuel.toNat ≤ s.core.fuel.toNat ∧ (FullMem c s_t ⋆ R) m_t)
+          (fun _ s_t m_t ⟨hinv_t, hcl_t, hfu_t, hm_t⟩ => by
+            c0_hsteps_nogrp
+            refine wp_join_state0 (α := FullState)
+              (fun s_e m_e => FullSparseInv c F0 s_e ∧ s_e.core.cur_level = 0 ∧
+                s_e.core.fuel.toNat ≤ s.core.fuel.toNat ∧ (FullMem c s_e ⋆ R) m_e)
+              (fun _ s_e m_e ⟨hinv_e, hcl_e, hfu_e, hm_e⟩ => by
+                c0_hsteps
+                let st_f : FullState :=
+                  { s_e with scratch :=
+                    { s_e.scratch with fwd_sub_cnt := s_e.scratch.search_ticks } }
+                have hinv_f : FullSparseInv c F0 st_f :=
+                  m5_sparseInv_with_scratch_keep hinv_e
+                    { hinv_e.lengths.scratch_ok with } rfl rfl
+                have hfu_f : st_f.core.fuel.toNat ≤ s.core.fuel.toNat := by
+                  change s_e.core.fuel.toNat ≤ s.core.fuel.toNat; omega
+                exact hQ 1#64 st_f _ hinv_f.lengths hfu_f (Or.inl rfl)
+                  (fun h => by cases h) (fun _ => ⟨hinv_f, hcl_e⟩) hm)
+              (fun _ hJ_e => by
+                c0_hsteps_nogrp
+                refine wp_join_state0 (α := FullState)
+                  (fun s_el m_el => FullSparseInv c F0 s_el ∧ s_el.core.cur_level = 0 ∧
+                    s_el.core.fuel.toNat ≤ s.core.fuel.toNat ∧ (FullMem c s_el ⋆ R) m_el)
+                  (fun _ s_el m_el ⟨hinv_el, hcl_el, hfu_el, hm_el⟩ => by
+                    c0_hsteps
+                    · exact hQ 20#64 s_el m_el hinv_el.lengths hfu_el (Or.inr rfl)
+                        (fun _ => hinv_el.inconsistent_unsat ‹_›) (fun h => by cases h) hm_el
+                    · exact hJ_e s_el m_el ⟨hinv_el, hcl_el, hfu_el, hm_el⟩)
+                  (fun _ hJ_el => by
+                    c0_hsteps_nogrp
+                    refine wp_join_state0 (α := FullState)
+                      (fun s_th m_th => FullSparseInv c F0 s_th ∧ s_th.core.cur_level = 0 ∧
+                        s_th.core.fuel.toNat ≤ s.core.fuel.toNat ∧ (FullMem c s_th ⋆ R) m_th)
+                      (fun _ s_th m_th ⟨hinv_th, hcl_th, hfu_th, hm_th⟩ => by
+                        c0_hsteps; c0_call hEnter
+                        refine ⟨c, F0, s_th, R, rfl, hinv_th, hm_th, ?_⟩
+                        intro ok_e s_d m_d hcl_d hfu_d hok_d hfail_s hm_d
+                        c0_hsplit
+                        · have hden_d : FullDenseInv c F0 s_d := hok_d ‹_›
+                          c0_hsteps_nogrp
+                          refine wp_join_state_pure (ts := [i64]) (α := BitVec 64)
+                            (fun b => (b, ())) (fun _ => True)
+                            (fun _ _ _ => by
+                              c0_hsteps; c0_call hMin; intro fbud _
+                              c0_hsteps; c0_call hFact
+                              refine ⟨c, F0, s_d, R, rfl, hden_d, hm_d, ?_⟩
+                              intro _ sf m_f hden_f _ hfu_f _ hm_f
+                              have hfu_fn : sf.core.fuel.toNat = s_d.core.fuel.toNat :=
+                                congrArg BitVec.toNat hfu_f
+                              c0_hsteps; c0_call hReb
+                              refine ⟨c, F0, sf, R, rfl, hden_f, hm_f, ?_⟩
+                              intro rr s_r m_r hsp_r hcl_r hfu_r _ hur_r hm_r
+                              c0_hsteps
+                              · exact hQ 20#64 s_r m_r hsp_r.lengths (by omega)
+                                  (Or.inr rfl) (fun _ => hur_r ‹_›)
+                                  (fun h => by cases h) hm_r
+                              · exact hJ_e s_r m_r ⟨hsp_r, hcl_r, by omega, hm_r⟩)
+                            (fun _ hJfb => by c0_hsteps <;> exact hJfb _ trivial)
+                        · have hinv_s : FullSparseInv c F0 s_d := hfail_s ‹_›
+                          c0_hsteps; exact hJ_el s_d m_d ⟨hinv_s, hcl_d, by omega, hm_d⟩)
+                      (fun _ hJ_th => by
+                        c0_hsplit
+                        · c0_hsteps; exact hJ_th s_t m_t ⟨hinv_t, hcl_t, hfu_t, hm_t⟩
+                        · c0_hsplit
+                          · c0_hsteps; exact hJ_th s_t m_t ⟨hinv_t, hcl_t, hfu_t, hm_t⟩
+                          · c0_hsteps; exact hJ_el s_t m_t ⟨hinv_t, hcl_t, hfu_t, hm_t⟩))))
+          (fun _ hJ_t => by
+            c0_hsplit
+            · c0_hsplit
+              · c0_hsteps; c0_call hBone
+                refine ⟨c, F0, st_ex, R, rfl, hinv_ex, hm_ex, ?_⟩
+                intro rb st_t mt hinv_t hcl_t _ hfu_t _ hub hm_t
+                c0_hsteps
+                · exact hQ 20#64 st_t mt hinv_t.lengths (by omega) (Or.inr rfl)
+                    (fun _ => hub ‹_›) (fun h => by cases h) hm_t
+                · exact hJ_t st_t mt ⟨hinv_t, hcl_t, by omega, hm_t⟩
+              · c0_hsteps; exact hJ_t st_ex m_ex ⟨hinv_ex, hcl_ex, hfu_ex, hm_ex⟩
+            · c0_hsteps; c0_call hTail
+              refine ⟨c, F0, st_ex, R, rfl, hinv_ex, hcl_ex, hm_ex, ?_⟩
+              intro rt st_t mt hinv_t hcl_t hfu_t _ hut hm_t
+              c0_hsteps
+              · exact hQ 20#64 st_t mt hinv_t.lengths (by omega) (Or.inr rfl)
+                  (fun _ => hut ‹_›) (fun h => by cases h) hm_t
+              · exact hJ_t st_t mt ⟨hinv_t, hcl_t, by omega, hm_t⟩)
       · rintro B L ⟨round, st⟩ ml hB hL ⟨hsp, hcl_st, hfu_st, hr_le, hml⟩
         dsimp only at hfu_st
         c0_hsplit

@@ -1666,8 +1666,8 @@ private theorem m5Orch_fns_wp (mainSpec : Spec [i64, i64, i64, i64, i64] [i64])
   · exact wp_noExit_lift (full_reorder_m5_wp Γ h63 xs m Q _
       (mkM5OrchEnv_row_elim 12 ⟨"full_reorder_m5", [i64, i64], [i64],
         FullM4.m4ReorderSpec, true⟩ rfl rfl hs))
-  · exact wp_noExit_lift (full_probe_m5_wp Γ h3 h22 h32 h52 h54 h9 h53 h51 h10 xs m Q _
-      (mkM5OrchEnv_row_elim 13 ⟨"full_probe_m5", [i64, .bool], [i64],
+  · exact wp_noExit_lift (full_probe_m5_wp Γ h3 h22 h32 h52 h54 h9 h53 h51 h10 h56 h23 h65
+      xs m Q _ (mkM5OrchEnv_row_elim 13 ⟨"full_probe_m5", [i64, .bool], [i64],
         FullFastSched.schedProbeSpec, true⟩ rfl rfl hs))
   · exact wp_noExit_lift (full_eliminate_m5_wp Γ h4 h22 h32 h52 h64 h23 h65 h66 h53 h67 xs m Q _
       (mkM5OrchEnv_row_elim 14 ⟨"full_eliminate_m5", [i64, .bool], [i64],
