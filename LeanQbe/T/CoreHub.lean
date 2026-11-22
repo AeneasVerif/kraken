@@ -67,6 +67,8 @@ public import LeanQbe.T.SimplifyGroupPlan
 public import LeanQbe.T.SimplifyGroupPlanLemmas
 public import LeanQbe.T.Licm
 public import LeanQbe.T.LicmLemmas
+public import LeanQbe.T.LoopRotate
+public import LeanQbe.T.LoopRotateLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
