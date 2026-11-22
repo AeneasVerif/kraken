@@ -1672,7 +1672,7 @@ theorem full_compact_wp (Γ : Env)
     (hmp : ∀ a m Q X, fullCompactAssignMapSpec a m Q X →
       Γ "full_compact_assign_map" [i64] [i64] a m Q X)
     (hre : ∀ a m Q X, fullCompactRecordExtSpec a m Q X →
-      Γ "full_compact_record_ext" [i64, i64, i64] [] a m Q X)
+      Γ "full_compact_record_ext" [i64, i64, i64] [.bool] a m Q X)
     (hbn : ∀ a m Q X, fullCompactBinsSpec a m Q X →
       Γ "full_compact_bins" [i64, i64, i64] [] a m Q X)
     (hdf : ∀ a m Q X, fullWstackDefragSpec a m Q X →
@@ -1737,12 +1737,18 @@ theorem full_compact_wp (Γ : Env)
             exact hncv_le
           cm_steps; c0_call hre
           refine ⟨c, s3, R, rfl, hlen3, hold_cv, hncv_le, hspW3.2.2.2.2.1.2, hm3,
-            fun ext4 elen4 m4 hlen4 helen4 hm4 => ?_⟩
+            fun ok ext4 elen4 m4 hlen4 helen4 _ _ hm4 => ?_⟩
           let s4 : FullState :=
             { s3 with scratch := { s3.scratch with extend_stk := ext4, extend_len := elen4 } }
           have hspW4 : FullSparseInvW c F0 F_cur s4 :=
             ⟨hlen4, hspW3.2.1, hspW3.2.2.1, hspW3.2.2.2.1,
              ⟨hspW3.2.2.2.2.1.1, helen4⟩, hspW3.2.2.2.2.2⟩
+          cm_split
+          rotate_left
+          · cm_steps
+            exact hQ 1#64 c s4 m4 (FullCfgCompat.refl c) hspW4.toSparse (Or.inr (Or.inl rfl))
+              (by change s1.core.cur_vars ≤ _; omega) hfuel1 (fun h => by cases h)
+              (fun _ => hcl1) hm4
           cm_steps; c0_call hbn
           refine ⟨c, F0, F_cur, s4, R, rfl, hspW4, hold_cv, hncv_le,
             (by change CompactBijOk (BitVec.ofNat 64 s1.core.cur_vars).toNat _ _ _ _
@@ -1944,7 +1950,7 @@ theorem compact_tableImpl : TableImpl compactEnv compact_fns compactSpecTable :=
     compactEnv_row (by simp [compactSpecTable]) fun _ _ _ _ ⟨c, s, R, h1, h2, h3, h4⟩ =>
       ⟨c, s, R, h1, h2, h3, h4⟩
   have row_ext : ∀ a m Q X, fullCompactRecordExtSpec a m Q X →
-      compactEnv "full_compact_record_ext" [i64, i64, i64] [] a m Q X :=
+      compactEnv "full_compact_record_ext" [i64, i64, i64] [.bool] a m Q X :=
     compactEnv_row (by simp [compactSpecTable])
       fun _ _ _ _ ⟨c, s, R, h1, h2, h3, h4, h5, h6, h7⟩ =>
         ⟨c, s, R, h1, h2, h3, h4, h5, h6, h7⟩

@@ -1386,15 +1386,18 @@ def fullCompactAssignMapSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       CompactBijOk s.core.cur_vars ncv.toNat s.core.vals ws1' ws2' →
       (FullMem c s' ⋆ R) m' → Q (ncv, ()) m'
 
-def fullCompactRecordExtSpec : Spec [i64, i64, i64] [] := fun (h, old_cv, ncv, ()) m Q _ =>
+def fullCompactRecordExtSpec : Spec [i64, i64, i64] [.bool] := fun (h, old_cv, ncv, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧
     old_cv.toNat = s.core.cur_vars ∧ ncv.toNat ≤ old_cv.toNat ∧
     s.scratch.extend_len ≤ c.extend_cap ∧ (FullMem c s ⋆ R) m ∧
-    ∀ ext' elen' m',
+    ∀ ok ext' elen' m',
       let s' : FullState :=
         { s with scratch := { s.scratch with extend_stk := ext', extend_len := elen' } }
-      s'.LengthsOk c → elen' ≤ c.extend_cap → (FullMem c s' ⋆ R) m' → Q () m'
+      s'.LengthsOk c → elen' ≤ c.extend_cap →
+      (ok = false → ext' = s.scratch.extend_stk ∧ elen' = s.scratch.extend_len) →
+      (c.extend_cap - s.scratch.extend_len < ncv.toNat + 1 → ok = false) →
+      (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 def fullCompactBinsSpec : Spec [i64, i64, i64] [] := fun (h, old_cv, ncv, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
@@ -1519,7 +1522,7 @@ def compactSpecTable : List SpecEntry :=
   , ⟨"full_compact_flush", [i64], [i64], fullCompactFlushSpec, true⟩
   , ⟨"full_compact_mark_live", [i64], [], fullCompactMarkLiveSpec, true⟩
   , ⟨"full_compact_assign_map", [i64], [i64], fullCompactAssignMapSpec, true⟩
-  , ⟨"full_compact_record_ext", [i64, i64, i64], [], fullCompactRecordExtSpec, true⟩
+  , ⟨"full_compact_record_ext", [i64, i64, i64], [.bool], fullCompactRecordExtSpec, true⟩
   , ⟨"full_compact_bins", [i64, i64, i64], [], fullCompactBinsSpec, true⟩
   , ⟨"full_compact_arena", [i64, i64], [i64], fullCompactArenaSpec, true⟩
   , ⟨"full_compact_vars", [i64, i64, i64], [], fullCompactVarsSpec, true⟩

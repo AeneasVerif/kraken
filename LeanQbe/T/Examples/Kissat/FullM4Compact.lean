@@ -203,8 +203,8 @@ u64 full_compact_assign_map(FullHdr *h) {
   return ncv;
 }
 
-void full_compact_record_ext(FullHdr *h, u64 old_cv, u64 ncv) {
-  if (ncv >= old_cv || h->extend_len > h->extend_cap) { return; }
+bool full_compact_record_ext(FullHdr *h, u64 old_cv, u64 ncv) {
+  if (ncv >= old_cv || h->extend_len > h->extend_cap) { return false; }
   i8 *vals = (i8 *)h->values;
   u32 *inv = (u32 *)h->work_stk2;
   u32 *ext = (u32 *)h->extend_stk;
@@ -215,7 +215,7 @@ void full_compact_record_ext(FullHdr *h, u64 old_cv, u64 ncv) {
     v = v + 1ULL;
   }
   u64 need = nfix + ncv + 1ULL;
-  if (need > h->extend_cap - h->extend_len) { return; }
+  if (need > h->extend_cap - h->extend_len) { return false; }
   u64 p = h->extend_len;
   v = 0ULL;
   while (v < old_cv) {
@@ -236,6 +236,7 @@ void full_compact_record_ext(FullHdr *h, u64 old_cv, u64 ncv) {
     nv = nv + 1ULL;
   }
   h->extend_len = p;
+  return true;
 }
 
 void full_compact_bins(FullHdr *h, u64 old_cv, u64 ncv) {
@@ -408,13 +409,19 @@ void full_compact_vars(FullHdr *h, u64 old_cv, u64 ncv) {
   u64 l = 0ULL;
   u64 nlits = old_cv << 1;
   while (l < nlits) { vals[l] = (i8)0; l = l + 1ULL; }
+  u64 tgt_asg = 0ULL;
+  u64 bst_asg = 0ULL;
   u64 nv = 0ULL;
   while (nv < ncv) {
     u32 ov = inv[nv];
     fl[nv] = (fl[ov] & (~(FL_ELIM | FL_SUBST))) | FL_ACTIVE;
     ph[nv] = ph[ov];
-    ptgt[nv] = ptgt[ov];
-    pbst[nv] = pbst[ov];
+    i8 tv = ptgt[ov];
+    i8 bv = pbst[ov];
+    ptgt[nv] = tv;
+    pbst[nv] = bv;
+    if (tv != (i8)0) { tgt_asg = tgt_asg + 1ULL; }
+    if (bv != (i8)0) { bst_asg = bst_asg + 1ULL; }
     wbst[nv] = wbst[ov];
     sc[nv] = sc[ov];
     qs[nv] = qs[ov];
@@ -442,8 +449,8 @@ void full_compact_vars(FullHdr *h, u64 old_cv, u64 ncv) {
   h->unflushed = 0ULL;
   h->confl_ref = 0xFFFFFFFFULL;
   h->confl_type = 0ULL;
-  h->target_assigned = 0ULL;
-  h->best_assigned = 0ULL;
+  h->target_assigned = tgt_asg;
+  h->best_assigned = bst_asg;
   h->cur_vars = ncv;
   h->unassigned = ncv;
   if (ncv < h->d.mv) { h->d.mv = ncv; h->bva_cap = h->max_vars - ncv; }
@@ -566,7 +573,7 @@ u64 full_compact(FullHdr *h) {
   full_compact_mark_live(h);
   u64 ncv = full_compact_assign_map(h);
   if (ncv == old_cv) { return 1ULL; }
-  full_compact_record_ext(h, old_cv, ncv);
+  if (!full_compact_record_ext(h, old_cv, ncv)) { return 1ULL; }
   full_compact_bins(h, old_cv, ncv);
   full_wstack_defrag(h);
   u64 ast = full_compact_arena(h, old_cv);

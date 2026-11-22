@@ -43,7 +43,7 @@ open LeanQbe.T.Examples.Kissat.FullM4Compact
 #guard (compact_fns.map fun f => (f.name, f.as.length, f.rs.length)) ==
   [ ("full_compact_needed", 1, 1), ("full_compact_flush", 1, 1),
     ("full_compact_mark_live", 1, 0), ("full_compact_assign_map", 1, 1),
-    ("full_compact_record_ext", 3, 0), ("full_compact_bins", 3, 0),
+    ("full_compact_record_ext", 3, 1), ("full_compact_bins", 3, 0),
     ("full_compact_arena", 2, 1), ("full_compact_vars", 3, 0),
     ("full_compact_sift_q", 4, 0), ("full_compact_vmtf", 2, 0),
     ("full_compact_sift_h", 5, 0), ("full_compact_heap", 2, 0),
@@ -146,7 +146,7 @@ theorem kmc_full_compact_wp (Γ : Env)
     (hmp : ∀ a m Q X, fullCompactAssignMapSpec a m Q X →
       Γ "full_compact_assign_map" [i64] [i64] a m Q X)
     (hre : ∀ a m Q X, fullCompactRecordExtSpec a m Q X →
-      Γ "full_compact_record_ext" [i64, i64, i64] [] a m Q X)
+      Γ "full_compact_record_ext" [i64, i64, i64] [.bool] a m Q X)
     (hbn : ∀ a m Q X, fullCompactBinsSpec a m Q X →
       Γ "full_compact_bins" [i64, i64, i64] [] a m Q X)
     (hdf : ∀ a m Q X, fullWstackDefragSpec a m Q X → Γ "full_wstack_defrag" [i64] [] a m Q X)
@@ -188,6 +188,27 @@ theorem kmc_nv_canary10 :
       (fun _ _ _ _ => False) :=
   nv_full_compact_canary10
 
+theorem kmc_nv_tight_ext_skip :
+    Func.wp compactEnv full_compact_record_ext_body (nvCompactCfg.hdr, 2#64, 1#64, ())
+      nvCompactMem
+      (fun (ok, ()) m' => ∃ ext' elen',
+        ok = false ∧ ext' = [] ∧ elen' = 0 ∧
+        FullMem nvCompactCfg
+          { nvCompactState with
+            scratch := { nvCompactState.scratch with
+              extend_stk := ext', extend_len := elen' } } m')
+      (fun _ _ _ _ => False) := by
+  have hm : (FullMem nvCompactCfg nvCompactState ⋆ Std.ExtHashMap.emp) nvCompactMem := by
+    rw [Std.ExtHashMap.sep_emp]; exact nvCompactMem_ok
+  refine full_compact_record_ext_wp compactEnv
+    (nvCompactCfg.hdr, 2#64, 1#64, ()) nvCompactMem _ _
+    ⟨nvCompactCfg, nvCompactState, Std.ExtHashMap.emp, rfl, nvCompact_lengths, rfl,
+     (by decide), (by decide), hm, fun ok ext' elen' m' _ _ hfalse hskip hm' => ?_⟩
+  have hok : ok = false := hskip (by decide)
+  obtain ⟨hext, helen⟩ := hfalse hok
+  rw [Std.ExtHashMap.sep_emp] at hm'
+  exact ⟨ext', elen', hok, hext, helen, hm'⟩
+
 #print axioms kmc_fns_wf
 #print axioms kmc_acyclic
 #print axioms kmc_noExit
@@ -211,5 +232,6 @@ theorem kmc_nv_canary10 :
 #print axioms kmc_nv_mem_ok
 #print axioms kmc_nv_compact
 #print axioms kmc_nv_canary10
+#print axioms kmc_nv_tight_ext_skip
 
 end AxiomAudit

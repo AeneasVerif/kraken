@@ -294,7 +294,8 @@ def m4SpecTable (mainSpec : Spec [i64, i64, i64, i64, i64] [i64]) : List SpecEnt
   , ⟨"full_compact_flush", [i64], [i64], FullM4Compact.fullCompactFlushSpec, true⟩
   , ⟨"full_compact_mark_live", [i64], [], FullM4Compact.fullCompactMarkLiveSpec, true⟩
   , ⟨"full_compact_assign_map", [i64], [i64], FullM4Compact.fullCompactAssignMapSpec, true⟩
-  , ⟨"full_compact_record_ext", [i64, i64, i64], [], FullM4Compact.fullCompactRecordExtSpec, true⟩
+  , ⟨"full_compact_record_ext", [i64, i64, i64], [.bool],
+      FullM4Compact.fullCompactRecordExtSpec, true⟩
   , ⟨"full_compact_bins", [i64, i64, i64], [], FullM4Compact.fullCompactBinsSpec, true⟩
   , ⟨"full_compact_arena", [i64, i64], [i64], FullM4Compact.fullCompactArenaSpec, true⟩
   , ⟨"full_compact_vars", [i64, i64, i64], [], FullM4Compact.fullCompactVarsSpec, true⟩

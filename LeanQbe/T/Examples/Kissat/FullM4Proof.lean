@@ -677,7 +677,8 @@ private theorem m4_compact_wp (mainSpec : Spec [i64, i64, i64, i64, i64] [i64])
   let h194 := mkM4Env_row_at (mainSpec := mainSpec) 194
     ⟨"full_compact_assign_map", [i64], [i64], FullM4Compact.fullCompactAssignMapSpec, true⟩
   let h195 := mkM4Env_row_at (mainSpec := mainSpec) 195
-    ⟨"full_compact_record_ext", [i64, i64, i64], [], FullM4Compact.fullCompactRecordExtSpec, true⟩
+    ⟨"full_compact_record_ext", [i64, i64, i64], [.bool],
+      FullM4Compact.fullCompactRecordExtSpec, true⟩
   let h196 := mkM4Env_row_at (mainSpec := mainSpec) 196
     ⟨"full_compact_bins", [i64, i64, i64], [], FullM4Compact.fullCompactBinsSpec, true⟩
   let h197 := mkM4Env_row_at (mainSpec := mainSpec) 197
@@ -710,7 +711,7 @@ private theorem m4_compact_wp (mainSpec : Spec [i64, i64, i64, i64, i64] [i64])
       (mkM4Env_row_elim 194 ⟨"full_compact_assign_map", [i64], [i64],
         FullM4Compact.fullCompactAssignMapSpec, true⟩ rfl rfl hs))
   · exact wp_noExit_lift (FullM4Compact.full_compact_record_ext_wp Γ xs m Q _
-      (mkM4Env_row_elim 195 ⟨"full_compact_record_ext", [i64, i64, i64], [],
+      (mkM4Env_row_elim 195 ⟨"full_compact_record_ext", [i64, i64, i64], [.bool],
         FullM4Compact.fullCompactRecordExtSpec, true⟩ rfl rfl hs))
   · exact wp_noExit_lift (FullM4Compact.full_compact_bins_wp Γ xs m Q _
       (mkM4Env_row_elim 196 ⟨"full_compact_bins", [i64, i64, i64], [],

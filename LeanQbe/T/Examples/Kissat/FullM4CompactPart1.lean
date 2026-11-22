@@ -815,7 +815,9 @@ theorem full_compact_record_ext_wp (Γ : Env) :
       c.extend_cap - s.scratch.extend_len := by
     rw [bv_sub_ofNat helen (by omega), BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
   cm_split
-  · cm_steps; exact hQ s.scratch.extend_stk s.scratch.extend_len m hlen helen hm
+  · cm_steps
+    exact hQ false s.scratch.extend_stk s.scratch.extend_len m hlen helen
+      (fun _ => ⟨rfl, rfl⟩) (fun _ => rfl) hm
   · let cntFix (hi : Nat) : Nat :=
       (List.range hi).countP (fun u => decide (s.core.vals[2 * u]?.getD 0#8 ≠ 0#8))
     have hcf0 : cntFix 0 = 0 := rfl
@@ -872,7 +874,9 @@ theorem full_compact_record_ext_wp (Γ : Env) :
         have hnf_le_cv : nfix.toNat ≤ old_cv.toNat := hv_eq ▸ hnf_le
         have hnf_tot : nfix.toNat = cntFix old_cv.toNat := hv_eq ▸ hnf_eq
         cm_split
-        · cm_steps; exact hQ s.scratch.extend_stk s.scratch.extend_len m hlen helen hm
+        · cm_steps
+          exact hQ false s.scratch.extend_stk s.scratch.extend_len m hlen helen
+            (fun _ => ⟨rfl, rfl⟩) (fun _ => rfl) hm
         · have hneed_le : nfix.toNat + ncv.toNat + 1 ≤ c.extend_cap - s.scratch.extend_len := by
             have hcmp :
                 (nfix + ncv + (1 : BitVec 64)).toNat ≤
@@ -970,12 +974,9 @@ theorem full_compact_record_ext_wp (Γ : Env) :
                 · have hnv_eq : nv.toNat = ncv.toNat := by c0_bound
                   have hp3_le_cap : p3.toNat ≤ c.extend_cap := by omega
                   cm_steps
-                  let sc3 : FullScratch :=
-                    { s.scratch with extend_stk := ext3, extend_len := p3.toNat }
-                  exact hQ ext3 p3.toNat m
-                    (by dsimp only [sc3]; exact ⟨hlen.core_ok, { hlen.scratch_ok with
-                      extend_stk_len := hext3 }⟩)
-                    hp3_le_cap (by dsimp only [sc3]; exact hm)
+                  exact hQ true ext3 p3.toNat m
+                    ⟨hlen.core_ok, { hlen.scratch_ok with extend_stk_len := hext3 }⟩
+                    hp3_le_cap (fun h => Bool.noConfusion h) (fun h => absurd h (by omega)) hm
 
 theorem full_compact_vars_wp (Γ : Env) :
     ∀ a m Q X, fullCompactVarsSpec a m Q X → Func.wp Γ full_compact_vars_body a m Q X := by
@@ -1049,7 +1050,7 @@ theorem full_compact_vars_wp (Γ : Env) :
       clear hLoop1 J1
       cm_steps
       refine wp_loop_inv
-        (fun (nv, ()) m2 =>
+        (fun (tgt_asg, bst_asg, nv, ()) m2 =>
           nv.toNat ≤ ncv.toNat ∧
           ∃ fl2 lvl2 rsns2 : List (BitVec 32),
             fl2.length = c.max_vars ∧ lvl2.length = c.max_vars ∧ rsns2.length = c.max_vars ∧
@@ -1063,15 +1064,15 @@ theorem full_compact_vars_wp (Γ : Env) :
                     scratch := { s.scratch with phases := ph2, phases_target := pt2,
                                                   phases_best := pb2, walk_best := wb2,
                                                   score := sc2, q_stamp := qs2 } } ⋆ R) m2)
-        (fun (nv, ()) _ => ncv.toNat - nv.toNat)
+        (fun (_, _, nv, ()) _ => ncv.toNat - nv.toNat)
         (fun J2 hLoop2 => ?_) ?_
       · cm_steps
-        exact hLoop2 (0#64, ()) m1 ⟨Nat.zero_le _, s.core.flags, s.core.lvl, s.core.rsns,
-          hfl_len, hlv_len, hrs_len, s.scratch.phases, s.scratch.phases_target,
+        exact hLoop2 (0#64, 0#64, 0#64, ()) m1 ⟨Nat.zero_le _, s.core.flags, s.core.lvl,
+          s.core.rsns, hfl_len, hlv_len, hrs_len, s.scratch.phases, s.scratch.phases_target,
           s.scratch.phases_best, s.scratch.walk_best, hph_len, hpt_len, hpb_len, hwb_len,
           s.scratch.score, hsc_len, s.scratch.q_stamp, hqs_len, hm1⟩
       · clear hm1
-        rintro J2 ⟨nv, ⟨⟩⟩ m2 ⟨hnv_le2, fl2, lvl2, rsns2, hfl2, hlv2, hrs2,
+        rintro J2 ⟨tgt_asg, bst_asg, nv, ⟨⟩⟩ m2 ⟨hnv_le2, fl2, lvl2, rsns2, hfl2, hlv2, hrs2,
             ph2, pt2, pb2, wb2, hph2, hpt2, hpb2, hwb2, sc2, hsc2, qs2, hqs2, hm2⟩ hLoop2
         cm_split
         · have hnv_lt : nv.toNat < ncv.toNat := hc
@@ -1110,20 +1111,16 @@ theorem full_compact_vars_wp (Γ : Env) :
           have hnv_rs2 : nv.toNat < rsns2.length := hrs2 ▸ hnv_cm
           have hnv1_eq : (nv + (1 : BitVec 64)).toNat = nv.toNat + 1 :=
             bv64_add1 (Nat.lt_of_le_of_lt (Nat.succ_le_of_lt hnv_lt) hncv_lt64)
-          cm_steps
-          refine hLoop2 (nv + (1 : BitVec 64), ()) m
+          cm_steps <;>
+          (refine hLoop2 (_, _, nv + (1 : BitVec 64), ()) m
             (by dsimp only; rw [hnv1_eq]; exact Nat.sub_lt_sub_left hnv_lt (Nat.lt_succ_self _))
             ⟨by rw [hnv1_eq]; exact Nat.succ_le_of_lt hnv_lt, _, _, _, ?_, ?_, ?_, _, _, _, _,
-             ?_, ?_, ?_, ?_, _, ?_, _, ?_, hm⟩
-          · rw [List.length_set]; exact hfl2
-          · rw [List.length_set]; exact hlv2
-          · rw [List.length_set]; exact hrs2
-          · rw [List.length_set]; exact hph2
-          · rw [List.length_set]; exact hpt2
-          · rw [List.length_set]; exact hpb2
-          · rw [List.length_set]; exact hwb2
-          · rw [List.length_set]; exact hsc2
-          · rw [List.length_set]; exact hqs2
+             ?_, ?_, ?_, ?_, _, ?_, _, ?_, hm⟩ <;>
+           first | (rw [List.length_set]; exact hfl2) | (rw [List.length_set]; exact hlv2)
+                 | (rw [List.length_set]; exact hrs2) | (rw [List.length_set]; exact hph2)
+                 | (rw [List.length_set]; exact hpt2) | (rw [List.length_set]; exact hpb2)
+                 | (rw [List.length_set]; exact hwb2) | (rw [List.length_set]; exact hsc2)
+                 | (rw [List.length_set]; exact hqs2))
         · clear hLoop2 J2 hinv_ok hws2_len hncv_lt64
           cm_steps
           refine wp_loop_inv
@@ -1197,7 +1194,7 @@ theorem full_compact_vars_wp (Γ : Env) :
                 { s.scratch with
                   phases := ph2, phases_target := pt2, phases_best := pb2, walk_best := wb2,
                   score := sc3, q_stamp := qs3, q_prev := qp3, q_next := qn3, pos := ps3,
-                  target_assigned := 0#64, best_assigned := 0#64 }
+                  target_assigned := tgt_asg, best_assigned := bst_asg }
               let s_final : FullState :=
                 { core := { s.core with
                     vals := vals1, flags := fl3, lvl := lvl3, rsns := rsns3,
