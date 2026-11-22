@@ -1,6 +1,8 @@
 module
 
-public import LeanQbe.T.Arm64.KissatM3Cert1
+public import LeanQbe.T.Arm64.KissatM3Cert1a
+public import LeanQbe.T.Arm64.KissatM3Cert1b
+public import LeanQbe.T.Arm64.KissatM3Cert1c
 public import LeanQbe.T.Arm64.KissatM3Cert2
 public import LeanQbe.T.Arm64.KissatM3Cert3
 public import LeanQbe.T.Arm64.KissatM3Cert4
@@ -27,11 +29,10 @@ meta import LeanQbe.T.Examples.Kissat.FullM3
 /-!
 # Kissat M3 (`FullM3`) Native Compilation Certificate on AAPCS64 Arm64
 
-Reuses `KissatFastCert1` + `KissatFastCert2` (`45` / `44` unchanged functions) via `KissatM3Cert1`
-and combines all 16 parallel kernel-checked slices (`KissatM3Cert2`..`KissatM3Cert17`) via
-`LinkedCert.append` into `m3Cert` over `LeanQbe.T.Examples.Kissat.FullM3.m3Module` (`204`
-functions), exporting `m3_legalSig`, generic `(Γ : Env)` `mk_module_fnspec`, and
-`solve_arm64_of_fnspec`.
+Combines all 19 parallel kernel-checked slices (`KissatM3Cert1a`..`1c`,
+`KissatM3Cert2`..`KissatM3Cert17`) via `LinkedCert.append` into `m3Cert` over
+`LeanQbe.T.Examples.Kissat.FullM3.m3Module` (`204` functions), exporting `m3_legalSig`,
+generic `(Γ : Env)` `mk_module_fnspec`, and `solve_arm64_of_fnspec`.
 -/
 
 set_option autoImplicit false
@@ -41,7 +42,8 @@ set_option autoImplicit false
 namespace LeanQbe.T.Arm64.KissatM3Cert
 
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Examples.Kissat.FullM3 Kraken
-open LeanQbe.T.Arm64.KissatM3Cert1 LeanQbe.T.Arm64.KissatM3Cert2
+open LeanQbe.T.Arm64.KissatM3Cert1a LeanQbe.T.Arm64.KissatM3Cert1b
+open LeanQbe.T.Arm64.KissatM3Cert1c LeanQbe.T.Arm64.KissatM3Cert2
 open LeanQbe.T.Arm64.KissatM3Cert3 LeanQbe.T.Arm64.KissatM3Cert4
 open LeanQbe.T.Arm64.KissatM3Cert5 LeanQbe.T.Arm64.KissatM3Cert6
 open LeanQbe.T.Arm64.KissatM3Cert7 LeanQbe.T.Arm64.KissatM3Cert8
@@ -50,6 +52,12 @@ open LeanQbe.T.Arm64.KissatM3Cert11 LeanQbe.T.Arm64.KissatM3Cert12
 open LeanQbe.T.Arm64.KissatM3Cert13 LeanQbe.T.Arm64.KissatM3Cert14
 open LeanQbe.T.Arm64.KissatM3Cert15 LeanQbe.T.Arm64.KissatM3Cert16
 open LeanQbe.T.Arm64.KissatM3Cert17
+
+/-- Prefix sub-module `[0, 32)`. -/
+def pref1bMod : Module := { fns := m3Fns.take 32 }
+
+/-- Prefix sub-module `[0, 47)`. -/
+def pref1cMod : Module := { fns := m3Fns.take 47 }
 
 /-- Prefix sub-module `[0, 59)`. -/
 def pref2Mod : Module := { fns := m3Fns.take 59 }
@@ -96,10 +104,22 @@ def pref15Mod : Module := { fns := m3Fns.take 183 }
 /-- Prefix sub-module `[0, 195)`. -/
 def pref16Mod : Module := { fns := m3Fns.take 195 }
 
+/-- Linked certificate for prefix `[0, 32)`. -/
+def pref1bCert :
+    LinkedCert armTarget armLayout armLegalTarget armLabelClean pref1bMod [] [] 0 2048 :=
+  cert1a.append cert1b (by exact List.take_add (l := m3Fns) (i := 16) (j := 16))
+    (by t_kernel_rfl)
+
+/-- Linked certificate for prefix `[0, 47)`. -/
+def pref1cCert :
+    LinkedCert armTarget armLayout armLegalTarget armLabelClean pref1cMod [] [] 0 2048 :=
+  pref1bCert.append cert1c (by exact List.take_add (l := m3Fns) (i := 32) (j := 15))
+    (by t_kernel_rfl)
+
 /-- Linked certificate for prefix `[0, 59)`. -/
 def pref2Cert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean pref2Mod [] [] 0 2048 :=
-  cert1.append cert2 (by exact List.take_add (l := m3Fns) (i := 47) (j := 12))
+  pref1cCert.append cert2 (by exact List.take_add (l := m3Fns) (i := 47) (j := 12))
     (by t_kernel_rfl)
 
 /-- Linked certificate for prefix `[0, 68)`. -/

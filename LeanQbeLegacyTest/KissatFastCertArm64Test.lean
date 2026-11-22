@@ -1,15 +1,15 @@
 module
 
-public import LeanQbe.T.Arm64.KissatFastSched
-meta import LeanQbe.T.Arm64.KissatFastSched
+public import LeanQbe.T.Arm64.KissatFast
+meta import LeanQbe.T.Arm64.KissatFast
 
 /-!
-# Kissat M2 Fast-Scheduler (`FullFastSched`) AAPCS64 Arm64 Certificate Test & Axiom Audit
+# Kissat M2 Unified Fast (`FullFast`, `196` fns) AAPCS64 Arm64 Certificate Test & Axiom Audit
 
-Verifies `LeanQbe.T.Arm64.KissatFastSchedCert` and `LeanQbe.T.Arm64.KissatFastSched` (`schedCert`,
-`173` functions, `sched_legalSig`, `mk_module_fnspec`, `solve_arm64_of_fnspec`,
-`sched_solve_bytes_unsat_arm64`, `sched_solve_bytes_unsat_sound_arm64`,
-`sched_unsat_nonvacuous_arm64`) with zero `Kraken.X64` co-imports and single-line `#print axioms`
+Verifies unconditional `LeanQbe.T.Arm64.KissatFastCert` and `LeanQbe.T.Arm64.KissatFast`
+(`fastCert`, `196` functions, `fast_legalSig`, `mk_module_fnspec`, `solve_arm64_of_fnspec`,
+`fast_module_fnspec`, `fast_solve_bytes_unsat_arm64`, `fast_solve_bytes_unsat_sound_arm64`,
+`fast_unsat_nonvacuous_arm64`) with zero `Kraken.X64` co-imports and single-line `#print axioms`
 checks.
 -/
 
@@ -17,26 +17,31 @@ set_option autoImplicit false
 
 @[expose] public section
 
-namespace LeanQbeTest.T.KissatFastSchedCertArm64Test
+namespace LeanQbeLegacyTest.KissatFastCertArm64Test
 
 open Std.Sat
 open LeanQbe.T LeanQbe.T.Arm64 Kraken
-open LeanQbe.T.Arm64.KissatFastSchedCert
-open LeanQbe.T.Arm64.KissatFastSched
+open LeanQbe.T.Arm64.KissatFastCert
+open LeanQbe.T.Arm64.KissatFast
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat.Full
-open LeanQbe.T.Examples.Kissat.FullFastSched
+open LeanQbe.T.Examples.Kissat.FullFast
 
-#guard schedCert.numChunks > 0
-#guard schedCert.bound "kissat_solve_bytes" == 960
-#guard schedCert.bound "full_sweep_bins" == 112
-#guard schedCert.bound "full_substitute" == 512
-#guard schedCert.bound "full_enter_dense" == 512
-#guard schedCert.bound "full_search" == 928
-#guard schedCert.bound "full_preprocess" == 896
+#guard fastFns.length == 196
+#guard fastCert.numChunks > 0
+#guard fastCert.bound "kissat_solve_bytes" == 1056
+#guard fastCert.bound "full_prop_lit" == 464
+#guard fastCert.bound "full_propagate" == 528
+#guard fastCert.bound "full_sweep_bins" == 112
+#guard fastCert.bound "full_kitten_solve" == 128
+#guard fastCert.bound "full_find_definition" == 288
+#guard fastCert.bound "full_bve_var" == 528
+#guard fastCert.bound "full_factor" == 656
+#guard fastCert.bound "full_preprocess" == 992
+#guard fastCert.bound "full_search" == 1024
 
-theorem audit_unsat [Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
-    (hc : kissatFastSched_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+theorem audit_unsat [Host] (k₀ : Nat)
+    (hc : kissatFast_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
     (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
@@ -49,8 +54,8 @@ theorem audit_unsat [Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
     (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)
     (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
       region (s.regs.SP.toBitVec - BitVec.ofNat 64
-          (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes"))
-        (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem) :
+          (kissatFast_compiled_arm64.bound "kissat_solve_bytes"))
+        (kissatFast_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem) :
     Eventually (step1 Host.exe)
       (fun st =>
         st.pc = ra ∧
@@ -64,15 +69,15 @@ theorem audit_unsat [Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
         st.data.regs.SP = s.regs.SP ∧
         (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
           region (s.regs.SP.toBitVec - BitVec.ofNat 64
-              (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes"))
-            (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes") ⋆ R)
+              (kissatFast_compiled_arm64.bound "kissat_solve_bytes"))
+            (kissatFast_compiled_arm64.bound "kissat_solve_bytes") ⋆ R)
           st.data.dmem)
       ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  sched_solve_bytes_unsat_arm64 hmok k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
+  fast_solve_bytes_unsat_arm64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
     s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem
 
-theorem audit_sound [Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
-    (hc : kissatFastSched_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
+theorem audit_sound [Host] (k₀ : Nat)
+    (hc : kissatFast_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
     (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
@@ -85,8 +90,8 @@ theorem audit_sound [Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
     (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)
     (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
       region (s.regs.SP.toBitVec - BitVec.ofNat 64
-          (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes"))
-        (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem) :
+          (kissatFast_compiled_arm64.bound "kissat_solve_bytes"))
+        (kissatFast_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem) :
     Eventually (step1 Host.exe)
       (fun st =>
         st.pc = ra ∧
@@ -96,11 +101,11 @@ theorem audit_sound [Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
         ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
           ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))
       ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  sched_solve_bytes_unsat_sound_arm64 hmok k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
+  fast_solve_bytes_unsat_sound_arm64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
     s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem
 
-theorem audit_nonvac [Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
-    (hc : kissatFastSched_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
+theorem audit_nonvac [Host] (k₀ : Nat)
+    (hc : kissatFast_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
     ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
       (s : MachineData) (ra : Int64) (R : Mem 64 → Prop),
       cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧
@@ -114,21 +119,23 @@ theorem audit_nonvac [Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
       s.regs.SP.toNat % 16 = 0 ∧
       (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
         region (s.regs.SP.toBitVec - BitVec.ofNat 64
-            (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes"))
-          (kissatFastSched_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem ∧
+            (kissatFast_compiled_arm64.bound "kissat_solve_bytes"))
+          (kissatFast_compiled_arm64.bound "kissat_solve_bytes") ⋆ R) s.dmem ∧
       Eventually (step1 Host.exe)
         (fun st => st.pc = ra ∧ (st.data.regs.getXReg .X0).toBitVec = 20#64 ∧
           ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)
         ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  sched_unsat_nonvacuous_arm64 hmok k₀ hc hu
+  fast_unsat_nonvacuous_arm64 k₀ hc hu
 
-#print axioms KissatFastSchedCert.schedCert
-#print axioms KissatFastSchedCert.sched_legalSig
-#print axioms KissatFastSchedCert.mk_module_fnspec
-#print axioms KissatFastSchedCert.solve_arm64_of_fnspec
-#print axioms KissatFastSched.sched_module_fnspec
+#print axioms KissatFastCert.fastCert
+#print axioms KissatFastCert.fast_legalSig
+#print axioms KissatFastCert.mk_module_fnspec
+#print axioms KissatFastCert.solve_arm64_of_fnspec
+#print axioms KissatFast.fast_module_fnspec
+#print axioms KissatFast.fast_solve_bytes_unsat_arm64
+#print axioms KissatFast.fast_unsat_nonvacuous_arm64
 #print axioms audit_unsat
 #print axioms audit_sound
 #print axioms audit_nonvac
 
-end LeanQbeTest.T.KissatFastSchedCertArm64Test
+end LeanQbeLegacyTest.KissatFastCertArm64Test

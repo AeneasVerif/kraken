@@ -68,15 +68,15 @@ LeanQbe.T.Arm64.KissatFullCert LeanQbe.T.Arm64.KissatFullCert.mk_module_fnspec
 LeanQbe.T.Arm64.KissatFullCert LeanQbe.T.Arm64.KissatFullCert.solve_arm64_of_fnspec
 LeanQbe.T.Arm64.KissatFull LeanQbe.T.Arm64.KissatFull.full_module_fnspec
 LeanQbe.T.Arm64.KissatFull LeanQbe.T.Arm64.KissatFull.full_solve_bytes_unsat_arm64
-LeanQbeTest.T.KissatAuditArm64 audit_full_arm64_unsat_sound
+LeanQbeLegacyTest.KissatLegacyAuditArm64 audit_full_arm64_unsat_sound
 LeanQbe.T.Arm64.KissatFull LeanQbe.T.Arm64.KissatFull.full_unsat_nonvacuous_arm64
 LeanQbeTest.T.KissatAuditSpec audit_sched_ok
 LeanQbeTest.T.KissatAuditSpec audit_sched_nv
 LeanQbeTest.T.KissatAuditSpec audit_bve_modok
 LeanQbeTest.T.KissatAuditSpec audit_fcore_modok
 LeanQbeTest.T.KissatAuditSpec audit_fcore_nv
-LeanQbeTest.T.KissatAuditX64 audit_sched_x64_sound
-LeanQbeTest.T.KissatAuditArm64 audit_sched_arm_sound
+LeanQbeLegacyTest.KissatLegacyAuditX64 audit_sched_x64_sound
+LeanQbeLegacyTest.KissatLegacyAuditArm64 audit_sched_arm_sound
 LeanQbeTest.T.KissatAuditSpec audit_bva_modok
 LeanQbeTest.T.KissatAuditSpec audit_bva_nv_factor
 LeanQbeTest.T.KissatAuditSpec audit_fk_modok
@@ -100,5 +100,5 @@ LeanQbe.T.Arm64.KissatFastCert LeanQbe.T.Arm64.KissatFastCert.mk_module_fnspec
 LeanQbe.T.Arm64.KissatFastCert LeanQbe.T.Arm64.KissatFastCert.solve_arm64_of_fnspec
 LeanQbe.T.Arm64.KissatFast LeanQbe.T.Arm64.KissatFast.fast_module_fnspec
 LeanQbe.T.Arm64.KissatFast LeanQbe.T.Arm64.KissatFast.fast_solve_bytes_unsat_arm64
-LeanQbeTest.T.KissatAuditArm64 audit_fast_arm_sound
+LeanQbeLegacyTest.KissatLegacyAuditArm64 audit_fast_arm_sound
 LeanQbe.T.Arm64.KissatFast LeanQbe.T.Arm64.KissatFast.fast_unsat_nonvacuous_arm64

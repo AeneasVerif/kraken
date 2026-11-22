@@ -18,33 +18,12 @@ public import LeanQbe.T.Arm64.Bignum
 public import LeanQbe.T.Arm64.ChaCha
 public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Arm64.LinkRec
-public import LeanQbe.T.Arm64.Kissat
-public import LeanQbe.T.Arm64.KissatCorePlus
 public import LeanQbe.T.Arm64.KissatPlainCert1
 public import LeanQbe.T.Arm64.KissatPlainCert
 public import LeanQbe.T.Arm64.KissatPlain
-public import LeanQbe.T.Arm64.KissatFullCert1
-public import LeanQbe.T.Arm64.KissatFullCert2
-public import LeanQbe.T.Arm64.KissatFullCert3
-public import LeanQbe.T.Arm64.KissatFullCert4
-public import LeanQbe.T.Arm64.KissatFullCert5
-public import LeanQbe.T.Arm64.KissatFullCert6
-public import LeanQbe.T.Arm64.KissatFullCert7
-public import LeanQbe.T.Arm64.KissatFullCert
-public import LeanQbe.T.Arm64.KissatFull
-public import LeanQbe.T.Arm64.KissatFastSched
-public import LeanQbe.T.Arm64.KissatFastCert1
-public import LeanQbe.T.Arm64.KissatFastCert2
-public import LeanQbe.T.Arm64.KissatFastCert3
-public import LeanQbe.T.Arm64.KissatFastCert4
-public import LeanQbe.T.Arm64.KissatFastCert5
-public import LeanQbe.T.Arm64.KissatFastCert6
-public import LeanQbe.T.Arm64.KissatFastCert7
-public import LeanQbe.T.Arm64.KissatFastCert8
-public import LeanQbe.T.Arm64.KissatFastCert9
-public import LeanQbe.T.Arm64.KissatFastCert
-public import LeanQbe.T.Arm64.KissatFast
-public import LeanQbe.T.Arm64.KissatM3Cert1
+public import LeanQbe.T.Arm64.KissatM3Cert1a
+public import LeanQbe.T.Arm64.KissatM3Cert1b
+public import LeanQbe.T.Arm64.KissatM3Cert1c
 public import LeanQbe.T.Arm64.KissatM3Cert2
 public import LeanQbe.T.Arm64.KissatM3Cert3
 public import LeanQbe.T.Arm64.KissatM3Cert4
@@ -65,4 +44,4 @@ public import LeanQbe.T.Arm64.KissatM3Cert
 public import LeanQbe.T.Arm64.KissatM3
 public import LeanQbe.T.Arm64.DebugAsm
 
-/-! Root of the AArch64 library: imports `Kraken.AArch64` and `LeanQbe.T.Arm64.*`. -/
+/-! Root of the active AArch64 library: imports `Kraken.AArch64` and active `LeanQbe.T.Arm64.*`. -/

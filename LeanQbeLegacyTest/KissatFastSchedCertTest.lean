@@ -16,7 +16,7 @@ set_option autoImplicit false
 
 @[expose] public section
 
-namespace LeanQbeTest.T.KissatFastSchedCertTest
+namespace LeanQbeLegacyTest.KissatFastSchedCertTest
 
 open Std.Sat
 open LeanQbe.T LeanQbe.T.Amd64 Kraken
@@ -132,4 +132,4 @@ theorem audit_nonvac [Host] (hmok : ModuleOk schedEnv schedModule) (k₀ : Nat)
 #print axioms audit_unsat_sound
 #print axioms audit_nonvac
 
-end LeanQbeTest.T.KissatFastSchedCertTest
+end LeanQbeLegacyTest.KissatFastSchedCertTest

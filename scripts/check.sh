@@ -26,7 +26,8 @@
 #  1. Builds scoped targets with warnings as errors (`lake build --wfail`).
 #  2. Fails on any `sorry` (build log and axiom reports), and on native-code tactics anywhere.
 #  3. Checks import closures (`LeanQbe` arch-free, `LeanQbeAmd64` no AArch64, `LeanQbeArm64` no X64,
-#     reachability of `LeanQbe/T/`, no retired E1 files or imports).
+#     0 legacy Kissat certs in active `LeanQbe{Amd64,Arm64}` closures, reachability of `LeanQbe/T/`
+#     from active or `LeanQbeLegacy{Amd64,Arm64}` roots, no retired E1 files or imports).
 #  4. Parallel axiom audit (`Audit_generic`, `Audit_x64`, `Audit_arm64`, isolated root-`main`
 #     batches, with 16-way per-module fallback) for active `scripts/headlines.d/*.txt` (or
 #     `scripts/headline.txt` if `headlines.d` is absent).
@@ -417,6 +418,48 @@ fi
 for r in "${closure_roots[@]}"; do
   if grep -q "^$r$" "$TMP/closure_$r.txt"; then :; else err "could not compute the closure of $r"; fi
 done
+legacy_cert_re='^LeanQbe\.T\.(Amd64|Arm64)\.'
+legacy_cert_re+='(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*)$'
+if [ "$RESOLVED_SCOPE" != "arm64" ] \
+   && grep -E "$legacy_cert_re" "$TMP/closure_LeanQbeAmd64.txt"; then
+  err "active LeanQbeAmd64 closure imports legacy Kissat certs (modules above)"
+fi
+if [ "$RESOLVED_SCOPE" != "x64" ] \
+   && grep -E "$legacy_cert_re" "$TMP/closure_LeanQbeArm64.txt"; then
+  err "active LeanQbeArm64 closure imports legacy Kissat certs (modules above)"
+fi
+python3 - "$TMP" <<'PY'
+import pathlib, re, sys
+tmp = pathlib.Path(sys.argv[1])
+imp_re = re.compile(
+    r"^\s*(?:(?:public|private|meta)\s+)*import\s+(?:all\s+)?([A-Za-z0-9_.']+)"
+)
+def closure(root):
+    seen, stack = set(), [root]
+    while stack:
+        mod = stack.pop()
+        if mod in seen:
+            continue
+        seen.add(mod)
+        p = pathlib.Path(mod.replace(".", "/") + ".lean")
+        if p.is_file():
+            for line in p.read_text().splitlines():
+                m = imp_re.match(line)
+                if m:
+                    stack.append(m.group(1))
+    return sorted(seen)
+for arch in ("Amd64", "Arm64"):
+    mods = closure(f"LeanQbeLegacy{arch}")
+    (tmp / f"legacy_closure_{arch}.txt").write_text("\n".join(mods) + "\n")
+PY
+if [ "$RESOLVED_SCOPE" != "arm64" ] \
+   && grep -E '^Kraken\.AArch64(\.|$)|^LeanQbe\.T\.Arm64\.' "$TMP/legacy_closure_Amd64.txt"; then
+  err "LeanQbeLegacyAmd64 imports AArch64/Arm64 modules (modules above)"
+fi
+if [ "$RESOLVED_SCOPE" != "x64" ] \
+   && grep -E '^Kraken\.X64(\.|$)|^LeanQbe\.T\.Amd64\.' "$TMP/legacy_closure_Arm64.txt"; then
+  err "LeanQbeLegacyArm64 imports X64/Amd64 modules (modules above)"
+fi
 if git ls-files --cached 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' | grep -v '^LeanQbe/T/'; then
   err "retired untyped E1 .lean files remain tracked under LeanQbe/ outside LeanQbe/T/"
 fi
@@ -431,13 +474,21 @@ while IFS= read -r f; do
   case "$m" in
     LeanQbe.T.Amd64.*)
       [ "$RESOLVED_SCOPE" = "arm64" ] && continue
-      r=LeanQbeAmd64 ;;
+      grep -qx "$m" "$TMP/closure_LeanQbeAmd64.txt" ||
+        grep -qx "$m" "$TMP/legacy_closure_Amd64.txt" ||
+        err "$f is not imported by LeanQbeAmd64.lean or LeanQbeLegacyAmd64.lean"
+      ;;
     LeanQbe.T.Arm64.*)
       [ "$RESOLVED_SCOPE" = "x64" ] && continue
-      r=LeanQbeArm64 ;;
-    *) r=LeanQbe ;;
+      grep -qx "$m" "$TMP/closure_LeanQbeArm64.txt" ||
+        grep -qx "$m" "$TMP/legacy_closure_Arm64.txt" ||
+        err "$f is not imported by LeanQbeArm64.lean or LeanQbeLegacyArm64.lean"
+      ;;
+    *)
+      grep -qx "$m" "$TMP/closure_LeanQbe.txt" ||
+        err "$f is not imported by the root LeanQbe.lean (so it is not built)"
+      ;;
   esac
-  grep -qx "$m" "$TMP/closure_$r.txt" || err "$f is not imported by the root $r.lean (so it is not built)"
 done < <(git ls-files --cached 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' | sort -u)
 if git ls-files -z 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' \
     | (set +o pipefail; xargs -0 grep -HnE '^\s*(public\s+|meta\s+)*import\s+(all\s+)?LeanQbe\.([^T]|T[^.])' 2>/dev/null); then
@@ -701,7 +752,8 @@ if [ "${CHECK_TIMES:-0}" = "1" ]; then
   [ "$RESOLVED_SCOPE" != "arm64" ] && cand_arches+=(Amd64)
   [ "$RESOLVED_SCOPE" != "x64" ] && cand_arches+=(Arm64)
   for arch in "${cand_arches[@]}"; do
-    for mod in LratBytes KissatPlainCert1 KissatPlainCert KissatPlain KissatM3Cert KissatM3; do
+    for mod in LratBytes KissatPlainCert1 KissatPlainCert KissatPlain \
+        KissatM3Cert1a KissatM3Cert KissatM3; do
       [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
     done
     if [ "$INCLUDE_LEGACY" = "1" ]; then

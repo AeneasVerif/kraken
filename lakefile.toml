@@ -26,6 +26,19 @@ name = "LeanQbeArm64"
 name = "LeanQbeTest"
 globs = ["LeanQbeTest.+"]
 
+# Optional legacy x64 Kissat certificates (superseded generations; built in Tier 3 gates).
+[[lean_lib]]
+name = "LeanQbeLegacyAmd64"
+
+# Optional legacy AArch64 Kissat certificates (superseded generations; built in Tier 3 gates).
+[[lean_lib]]
+name = "LeanQbeLegacyArm64"
+
+# Optional legacy Kissat certificate tests and audit restatements.
+[[lean_lib]]
+name = "LeanQbeLegacyTest"
+globs = ["LeanQbeLegacyTest.+"]
+
 # The executables only instantiate the generic driver `LeanQbe.T.Driver`, one per target: no module
 # can import both Kraken.X64 and Kraken.AArch64, so there is no single executable with a target flag.
 [[lean_exe]]
