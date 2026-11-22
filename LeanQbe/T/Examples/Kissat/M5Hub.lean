@@ -97,6 +97,8 @@ public import LeanQbe.T.Examples.Kissat.FullM6WalkParseLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof1
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof2
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof3
+public import LeanQbe.T.Examples.Kissat.FullM7Reorder
+public import LeanQbe.T.Examples.Kissat.FullM7ReorderProof
 
 set_option autoImplicit false
 
