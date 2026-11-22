@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas3
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Compaction GC (`plain_sweep`) (`Wave 2b`)
@@ -13,7 +11,7 @@ Provides verified parametric `(Γ : Env)` `Func.wp` contract for:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 
@@ -32,7 +30,7 @@ open scoped PlainReduceTactics
 namespace PlainReduceHelpers
 
 
-def sweepP1Expr {Val : Ty → Type} {Cont : List Ty → Type}
+@[expose] def sweepP1Expr {Val : Ty → Type} {Cont : List Ty → Type}
     (cHdr mv2 pVals pLvl pWvec pWstk : Val i64)
     (rest : Expr Val Cont [i64]) : Expr Val Cont [i64] :=
   .group (sig := [[i64]]) (fun Js => .cons (fun p11 =>
@@ -216,7 +214,7 @@ def sweepP1Expr {Val : Ty → Type} {Cont : List Ty → Type}
       rest) .nil)
     (fun Js => .jump Js.fst (.imm 0, ()))
 
-def sweepP3Expr {Val : Ty → Type} {Cont : List Ty → Type}
+@[expose] def sweepP3Expr {Val : Ty → Type} {Cont : List Ty → Type}
     (cHdr pVals pLvl pArena : Val i64) (b0 : Val .bool)
     (p15 : Tup Val [i64, i64, i64, i64, i64, .bool, .bool]) : Expr Val Cont [i64] :=
   .let_ (Op.mk (.add i64) (.var cHdr, .imm 48, ())) fun _h122 =>

@@ -12,7 +12,7 @@ Parametric `(Γ : Env)` `Func.wp` proof for:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

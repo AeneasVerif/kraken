@@ -3,9 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.FullArena
 public import LeanQbe.T.Examples.Kissat.FullInv2
 public import LeanQbe.T.Examples.Kissat.Full3
-public import LeanQbe.T.Logic.C0Step
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.C0Step
 
 /-!
 # Kissat `D-Full` Tiered Clause Vivification Proofs — Part 1 (`Stage 4`)
@@ -27,7 +25,7 @@ Builds on `FullArena`, `FullInv2`, and `Full3` to provide:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -42,33 +40,34 @@ namespace FullVivifySpecs
 
 /-- Both variable mark array (`< c.max_vars`) and literal mark array (`< 2 * c.max_vars`) are
 completely cleared to `0#8`. -/
-def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
   (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8) ∧
   (∀ l < 2 * c.max_vars, s.core.lit_mark[l]?.getD 0#8 = 0#8)
 
 /-- Every non-garbage arena clause has pairwise distinct variable indices. -/
-def FullArenaVarsNodup (s : FullState) : Prop :=
+@[expose] def FullArenaVarsNodup (s : FullState) : Prop :=
   ∀ r ∈ fullArenaClauseRefs s, fullArenaClauseGarb s r = false →
     ((fullArenaClauseLits s r).map (· / 2)).Nodup
 
 /-- Every entry of `last_learned[0..7]` is either `0xFFFFFFFF#32` or a live arena block ref. -/
-def FullLastLearnedWf (s : FullState) : Prop :=
+@[expose] def FullLastLearnedWf (s : FullState) : Prop :=
   ∀ i < 8,
     let cr := s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32
     cr = 0xFFFFFFFF#32 ∨ cr.toNat ∈ fullArenaClauseRefs s
 
 /-- Soundness-relevant scratch invariants (`last_learned` refs + `extend_len ≤ extend_cap`). -/
-def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
   FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
 
 /-- Canonical sparse 2WL Stage-4 invariant with explicit current formula (`#968`). -/
+@[expose]
 def FullSparseInvW (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) :
     Prop :=
   s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullLitMarksClear c s ∧
   FullArenaVarsNodup s ∧ FullExtScratchOk c s ∧ s.core.dense_mode = 0#64
 
 /-- Canonical sparse 2WL Stage-4 solver invariant (`#968`). -/
-def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
+@[expose] def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
     FullExtScratchOk c s ∧ s.core.dense_mode = 0#64
 
@@ -1067,12 +1066,12 @@ open FullVivifyHelpers
 
 namespace FullVivifySpecs
 
-def fullVivArenaNextSpec : Spec [i64, i32] [i32] := fun (h, cref, ()) m Q _ =>
+private def fullVivArenaNextSpec : Spec [i64, i32] [i32] := fun (h, cref, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
     Q (BitVec.ofNat 32 (fullArenaNextOff s.core.arena s.core.arena_len cref.toNat), ()) m
 
-def fullVivUnwatchLargeSpec : Spec [i64, i32, i32] [] := fun (h, _lit, _cref, ()) m Q _ =>
+@[expose] def fullVivUnwatchLargeSpec : Spec [i64, i32, i32] [] := fun (h, _lit, _cref, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInv c F0 s ∧ FullWitnessInv c F0 F_cur s.core ∧ (FullMem c s ⋆ R) m ∧
     ∀ wvec' wstk' wu' m',
@@ -1080,7 +1079,7 @@ def fullVivUnwatchLargeSpec : Spec [i64, i32, i32] [] := fun (h, _lit, _cref, ()
         { s with core := { s.core with wvec := wvec', wstk := wstk', wusable := wu' } }
       FullSparseInv c F0 s' → FullWitnessInv c F0 F_cur s'.core → (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullVivWatchPushSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
+@[expose] def fullVivWatchPushSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
   fun (h, lit, w0, w1, cnt, ()) m Q _ =>
     ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout s.core ∧
@@ -1115,7 +1114,7 @@ def fullVivWatchPushSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
                 s.core.wstk[fullWatchOff s lit.toNat + k]?)) →
         (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-def fullVivAddUnitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
+@[expose] def fullVivAddUnitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInvW c F0 F_cur s ∧ lit.toNat < 2 * s.core.cur_vars ∧
     (cnfOfClauses F_cur).EntailsClause (cnfClause [lit.toNat]) ∧ (FullMem c s ⋆ R) m ∧
@@ -1126,7 +1125,7 @@ def fullVivAddUnitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
       s'.core.oom = s.core.oom → s'.core.fuel = s.core.fuel →
       (ok = false → F0.Unsat) → (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-def fullVivAddBinSpec : Spec [i64, i32, i32] [i64] := fun (h, a, b, ()) m Q _ =>
+@[expose] def fullVivAddBinSpec : Spec [i64, i32, i32] [i64] := fun (h, a, b, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullLitMarksClear c s ∧
     FullExtScratchOk c s ∧ s.core.dense_mode = 0#64 ∧ s.core.cur_level = 0 ∧
@@ -1141,7 +1140,7 @@ def fullVivAddBinSpec : Spec [i64, i32, i32] [i64] := fun (h, a, b, ()) m Q _ =>
       s'.core.cur_level = 0 → s'.core.probing = s.core.probing → s'.core.fuel = s.core.fuel →
       (r = 20#64 → F0.Unsat) → (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullVivAssignSpec : Spec [i64, i32, i32] [] := fun (h, lit, rsn, ()) m Q _ =>
+private def fullVivAssignSpec : Spec [i64, i32, i32] [] := fun (h, lit, rsn, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ s.core.cur_level < 2 ^ 32 ∧ (FullMem c s ⋆ R) m ∧
     if s.core.cur_vars ≤ lit.toNat / 2 ∨ c.max_vars ≤ s.core.trail_end ∨
@@ -1168,7 +1167,7 @@ def fullVivAssignSpec : Spec [i64, i32, i32] [] := fun (h, lit, rsn, ()) m Q _ =
             scratch := { s.scratch with phases := phases' } }
         s'.LengthsOk c → (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullVivBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
+private def fullVivBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInv c F0 s ∧ FullWitnessInv c F0 F_cur s.core ∧
     target_lvl.toNat ≤ s.core.cur_level ∧ (FullMem c s ⋆ R) m ∧
@@ -1181,7 +1180,7 @@ def fullVivBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =
       s'.scratch.work_stk2 = s.scratch.work_stk2 → s'.scratch.res_sz = s.scratch.res_sz →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullVivPropIgnoreSpec : Spec [i64, i64] [i64] := fun (h, _ignore_ref, ()) m Q _ =>
+private def fullVivPropIgnoreSpec : Spec [i64, i64] [i64] := fun (h, _ignore_ref, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInv c F0 s ∧ FullWitnessInv c F0 F_cur s.core ∧ (FullMem c s ⋆ R) m ∧
     ∀ (r : BitVec 64) s' m',
@@ -1216,7 +1215,7 @@ def fullVivPropIgnoreSpec : Spec [i64, i64] [i64] := fun (h, _ignore_ref, ()) m 
             s'.core.vals[l]?.getD 0#8 = 0xFF#8)) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullVivPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+private def fullVivPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInv c F0 s ∧ s.core.cur_level = 0 ∧ (FullMem c s ⋆ R) m ∧
     ∀ (r : BitVec 64) s' m',
@@ -1230,7 +1229,7 @@ def fullVivPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       (r = 1#64 → F0.Unsat) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullVivSortLitsSpec : Spec [i64, i64, i32] [] := fun (h, lits_ptr, sz, ()) m Q _ =>
+@[expose] def fullVivSortLitsSpec : Spec [i64, i64, i32] [] := fun (h, lits_ptr, sz, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ lits_ptr = c.pTmp ∧ s.LengthsOk c ∧ sz.toNat ≤ c.max_vars ∧
     (∀ i < sz.toNat, (s.core.tmp[i]?.getD 0#32).toNat < 2 * c.max_vars) ∧

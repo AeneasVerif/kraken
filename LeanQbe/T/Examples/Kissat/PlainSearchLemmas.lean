@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainSearchLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Lucky-Assignment `Func.wp` Proofs (`Stage 3`)
@@ -15,7 +13,7 @@ in `LeanQbe/T/Examples/Kissat/Plain.lean` matching `plainSpecTable`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 

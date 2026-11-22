@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.Full
 public import LeanQbe.T.Examples.Kissat.FullArena
 public import LeanQbe.T.Examples.Kissat.FullInv2
-public import LeanQbe.T.Logic.C0Step
+import LeanQbe.T.Logic.C0Step
 public meta import LeanQbe.T.Logic.C0Step
 import all Kraken.Separation
 
@@ -20,7 +20,7 @@ scoped `FullSweepFwdTactics`, pure sweeping cone & `padU32B` focus helpers, and 
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -31,48 +31,49 @@ open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat Kraken.Bedrock2.Test
 
 namespace FullSweepFwdSpecs
 
-def FullMrkZero (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullMrkZero (c : FullCfg) (s : FullState) : Prop :=
   ∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8
 
-def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
   FullMrkZero c s ∧ (∀ l < 2 * c.max_vars, s.core.lit_mark[l]?.getD 0#8 = 0#8)
 
-def FullArenaVarsNodup (s : FullState) : Prop :=
+@[expose] def FullArenaVarsNodup (s : FullState) : Prop :=
   ∀ r ∈ fullArenaClauseRefs s, fullArenaClauseGarb s r = false →
     ((fullArenaClauseLits s r).map (· / 2)).Nodup
 
-def FullLastLearnedWf (s : FullState) : Prop :=
+@[expose] def FullLastLearnedWf (s : FullState) : Prop :=
   ∀ i < 8,
     let cr := s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32
     cr = 0xFFFFFFFF#32 ∨ cr.toNat ∈ fullArenaClauseRefs s
 
-def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
   FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
 
+@[expose]
 def FullDenseInvW (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) : Prop :=
   s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullLitMarksClear c s ∧
   FullArenaVarsNodup s ∧ FullExtScratchOk c s ∧ s.core.cur_level = 0 ∧ s.core.dense_mode ≠ 0#64
 
 /-- All entries `tarjan_mark[0 ..< cur_vars)` hold the sweep sentinel `0xFFFFFFFF#32`. -/
-def TmkClear (s : FullState) : Prop :=
+@[expose] def TmkClear (s : FullState) : Prop :=
   ∀ v < s.core.cur_vars, s.scratch.tarjan_mark[v]?.getD 0#32 = 0xFFFFFFFF#32
 
 /-- Lift a cone-local literal `l < 2 * nv` back to a global literal via `work_stk1`. -/
-def coneLift (cone_v : List (BitVec 32)) (l : Nat) : Nat :=
+@[expose] def coneLift (cone_v : List (BitVec 32)) (l : Nat) : Nat :=
   (cone_v[l / 2]?.getD 0#32).toNat * 2 + l % 2
 
 /-- Global literal corresponding to local cone literal `ll < 2 * nv` (matches `FullSpec3`). -/
-def fullSweepGlobalLit (s : FullState) (ll : Nat) : Nat :=
+@[expose] def fullSweepGlobalLit (s : FullState) (ll : Nat) : Nat :=
   2 * (s.scratch.work_stk1[ll / 2]?.getD 0#32).toNat + (ll % 2)
 
 /-- Literals of cone clause `ci` stored in `scratch_buf[off ..< off + sz)`. -/
-def sweepClauseLits (s : FullState) (ci : Nat) : List Nat :=
+@[expose] def sweepClauseLits (s : FullState) (ci : Nat) : List Nat :=
   let off := (s.scratch.scratch_buf[ci]?.getD 0#32).toNat
   let sz := (s.scratch.scratch_buf[64 + ci]?.getD 0#32).toNat
   ((s.scratch.scratch_buf.drop off).take sz).map BitVec.toNat
 
 /-- Structural bounds on the cone clause table in `scratch_buf[0..1024)`. -/
-def SweepBufClausesOk (s : FullState) (nv nc : Nat) : Prop :=
+@[expose] def SweepBufClausesOk (s : FullState) (nv nc : Nat) : Prop :=
   nv ≤ 24 ∧ nc ≤ 64 ∧ 128 ≤ s.scratch.res_sz.toNat ∧ s.scratch.res_sz.toNat ≤ 1024 ∧
   ∀ ci < nc,
     let off := (s.scratch.scratch_buf[ci]?.getD 0#32).toNat
@@ -81,7 +82,7 @@ def SweepBufClausesOk (s : FullState) (nv nc : Nat) : Prop :=
     ∀ l ∈ sweepClauseLits s ci, l < 2 * nv
 
 /-- Bounded local kitten-sweep cone invariant (matches `FullSpec3` + `nv ≤ s.core.cur_vars`). -/
-def FullSweepConeOk (F_cur : List (List Nat)) (s : FullState) (nv nc : Nat) : Prop :=
+@[expose] def FullSweepConeOk (F_cur : List (List Nat)) (s : FullState) (nv nc : Nat) : Prop :=
   nv ≤ 24 ∧ nv ≤ s.core.cur_vars ∧ nc ≤ 64 ∧
   128 ≤ s.scratch.res_sz.toNat ∧ s.scratch.res_sz.toNat ≤ 1024 ∧
   (∀ i < nv, (s.scratch.work_stk1[i]?.getD 0#32).toNat < s.core.cur_vars) ∧
@@ -95,22 +96,23 @@ def FullSweepConeOk (F_cur : List (List Nat)) (s : FullState) (nv nc : Nat) : Pr
     (cnfOfClauses F_cur).EntailsClause (cnfClause glits))
 
 /-- Semantic UNSAT postcondition of `full_sweep_dpll(h, nv, nc, a0, a1) = 20#64` (`FullSpec3`). -/
+@[expose]
 def FullSweepDpllUnsat (F_cur : List (List Nat)) (s : FullState) (nv a0 a1 : Nat) : Prop :=
   let ass := (if a0 < 2 * nv then [fullSweepGlobalLit s a0 ^^^ 1] else []) ++
              (if a1 < 2 * nv then [fullSweepGlobalLit s a1 ^^^ 1] else [])
   (cnfOfClauses F_cur).EntailsClause (cnfClause ass)
 
 /-- Cone-local assumption satisfaction for `full_sweep_dpll`. -/
-def DpllAssumpSat (nv a0 a1 : Nat) (α : Nat → Bool) : Prop :=
+@[expose] def DpllAssumpSat (nv a0 a1 : Nat) (α : Nat → Bool) : Prop :=
   (a0 < 2 * nv → (cnfClause [a0]).Sat α) ∧ (a1 < 2 * nv → (cnfClause [a1]).Sat α)
 
 /-- Cone-local subproblem satisfaction (assumptions + all cone clauses). -/
-def DpllSubprobSat (s : FullState) (nv nc a0 a1 : Nat) (α : Nat → Bool) : Prop :=
+@[expose] def DpllSubprobSat (s : FullState) (nv nc a0 a1 : Nat) (α : Nat → Bool) : Prop :=
   DpllAssumpSat nv a0 a1 α ∧ ∀ ci < nc, (cnfClause (sweepClauseLits s ci)).Sat α
 
 /-- Internal cone-extraction invariant: bijection `work_stk1[0..nv)` ↔ `tarjan_mark`, plus `F_cur`
 entailment of every lifted cone clause. -/
-def SweepConeOk (F_cur : List (List Nat)) (s : FullState) (root_v nv nc : Nat) : Prop :=
+@[expose] def SweepConeOk (F_cur : List (List Nat)) (s : FullState) (root_v nv nc : Nat) : Prop :=
   1 ≤ nv ∧ nv ≤ 24 ∧ nv ≤ s.core.cur_vars ∧ nc ≤ 64 ∧ SweepBufClausesOk s nv nc ∧
   s.scratch.work_stk1[0]?.getD 0#32 = BitVec.ofNat 32 root_v ∧
   (∀ i < nv,
@@ -127,7 +129,7 @@ def SweepConeOk (F_cur : List (List Nat)) (s : FullState) (root_v nv nc : Nat) :
 
 /-! ### Callee specification (`full_rng_next`) -/
 
-def fullRngNextSpec : Spec [i64] [i64] :=
+@[expose] def fullRngNextSpec : Spec [i64] [i64] :=
   SafetySlice.spec fullSafetySlice
     (fun c (h, ()) _ => h = c.hdr)
     (fun _ _ _ s s' => s'.scratch = { s.scratch with rng_state := s'.scratch.rng_state })
@@ -136,7 +138,7 @@ def fullRngNextSpec : Spec [i64] [i64] :=
 
 /-- `full_sweep_add_cl` operates on `(hdrTailWords, scratch_buf, lits)` directly so both
 `c.pTmp` (`max_vars ≥ sz`) and `c.pTmp` + `padU32B` (`max_vars = 1, sz = 2`) frame cleanly. -/
-def fullSweepAddClSpec : Spec [i64, i64, i32, i32] [i64] :=
+@[expose] def fullSweepAddClSpec : Spec [i64, i64, i32, i32] [i64] :=
   fun (h, lits, sz, nc, ()) m Q _ =>
     ∃ (c : FullCfg) (s : FullState) (xs : List (BitVec 32)) (R : Mem 64 → Prop),
       h = c.hdr ∧ s.LengthsOk c ∧ 1152 ≤ c.scratch_cap ∧
@@ -166,7 +168,7 @@ def fullSweepAddClSpec : Spec [i64, i64, i32, i32] [i64] :=
             array (t := i32) lits xs ⋆ R) m' →
           Q (BitVec.ofNat 64 (nc.toNat + 1), ()) m'
 
-def fullSweepConeSpec : Spec [i64, i32] [i64] := fun (h, root_v, ()) m Q _ =>
+@[expose] def fullSweepConeSpec : Spec [i64, i32] [i64] := fun (h, root_v, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ 1152 ≤ c.scratch_cap ∧
     root_v.toNat < s.core.cur_vars ∧ TmkClear s ∧ (FullMem c s ⋆ R) m ∧
@@ -184,7 +186,7 @@ def fullSweepConeSpec : Spec [i64, i32] [i64] := fun (h, root_v, ()) m Q _ =>
         ∃ i < nv, (ws1'[i]?.getD 0#32).toNat = v) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullSweepDpllSpec : Spec [i64, i32, i32, i32, i32] [i64] :=
+@[expose] def fullSweepDpllSpec : Spec [i64, i32, i32, i32, i32] [i64] :=
   fun (h, nv, nc, a0, a1, ()) m Q _ =>
     ∃ (c : FullCfg) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ s.LengthsOk c ∧ 1152 ≤ c.scratch_cap ∧
@@ -201,7 +203,7 @@ def fullSweepDpllSpec : Spec [i64, i32, i32, i32, i32] [i64] :=
         (r = 20#64 → FullSweepDpllUnsat F_cur s nv.toNat a0.toNat a1.toNat) →
         (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullSweepRefineSpec : Spec [i64, i32, i32] [] := fun (h, nv, _bit_idx, ()) m Q _ =>
+@[expose] def fullSweepRefineSpec : Spec [i64, i32, i32] [] := fun (h, nv, _bit_idx, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ 1152 ≤ c.scratch_cap ∧ nv.toNat ≤ 24 ∧
     nv.toNat ≤ 2 * c.max_vars ∧
@@ -728,7 +730,7 @@ theorem sweepConeOk_add_cl {c : FullCfg} {F_cur : List (List Nat)} {s : FullStat
 
 /-! ## 5. Memory-focus helpers for `full_sweep_add_cl` & `c.max_vars = 1` `padU32B` -/
 
-def fullSweepAddRestTmp (c : FullCfg) (s : FullState) : Mem 64 → Prop :=
+@[expose] def fullSweepAddRestTmp (c : FullCfg) (s : FullState) : Mem 64 → Prop :=
   dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc) s.core.d_cur s.core.d_val ⋆
   FullCoreByteArrs c s.core ⋆
   (array (t := i32) c.pFlags s.core.flags ⋆ array (t := i32) c.pLevel s.core.lvl ⋆
@@ -784,7 +786,7 @@ def fullPadNoTmp (c : FullCfg) : Mem 64 → Prop :=
      (u32FullBytes c.max_vars - 4 * c.max_vars)) ⋆
   c.padU32C ⋆ region c.pSlack c.slack
 
-def fullSweepAddRestTmp1 (c : FullCfg) (s : FullState) : Mem 64 → Prop :=
+@[expose] def fullSweepAddRestTmp1 (c : FullCfg) (s : FullState) : Mem 64 → Prop :=
   dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc) s.core.d_cur s.core.d_val ⋆
   FullCoreByteArrs c s.core ⋆
   (array (t := i32) c.pFlags s.core.flags ⋆ array (t := i32) c.pLevel s.core.lvl ⋆
@@ -1120,7 +1122,7 @@ theorem full_sweep_refine_wp (Γ : Env) :
 
 namespace FullSweepFwdHelpers
 
-def coneMask (t : FullState) : FullState :=
+@[expose] def coneMask (t : FullState) : FullState :=
   { core := { t.core with tmp := [] }
     scratch :=
       { t.scratch with work_stk1 := [], tarjan_mark := [], scratch_buf := [], res_sz := 0#64 } }

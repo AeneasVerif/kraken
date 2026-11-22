@@ -1,9 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainSpec
-public import LeanQbe.T.Logic.C0Step
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.C0Step
 
 /-!
 # Kissat `D-Plain` Arithmetic, Arena, and Watch-Stack Proofs — Part 1 (`Wave 2b`)
@@ -19,7 +17,7 @@ Proves parametric `(Γ : Env)` `Func.wp` contracts for the first 5 `Plain1` help
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 

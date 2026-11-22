@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas2
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` UNSAT-Only BVE/BCE Proofs — Part 3 (`Stage 4`, BVE/BCE Shard)
@@ -17,7 +15,7 @@ Proves the remaining two owned Stage-4 parametric `(Γ : Env)` `Func.wp` theorem
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

@@ -1,10 +1,9 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainIngestLemmas1
-public import LeanQbe.T.Logic.C0Step
+import LeanQbe.T.Logic.C0Step
 public meta import Lean.Elab.Tactic
 public meta import LeanQbe.T.Logic.C0Step
-import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
@@ -17,7 +16,7 @@ Proves layout splitting (`avail_to_initArrs`) and parametric `Func.wp` specifica
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 

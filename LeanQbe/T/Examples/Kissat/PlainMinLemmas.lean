@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainMinLemmas4
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Soundness Proofs for Kissat `D-Plain` Main Minimization (`Wave 2b Shard 5`, Part 5)
@@ -13,7 +11,7 @@ Proves parametric `(Γ : Env)` `Func.wp` contract for `plain_min_shrink`
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 

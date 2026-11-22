@@ -2,8 +2,6 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas1
 public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas3
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Tiered Clause Vivification Proofs — Part 2 (`Stage 4`)
@@ -15,7 +13,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -53,7 +51,7 @@ namespace FullVivifySpecs
 
 /-- Specification for `full_viv_simplify(h, cref)`: level-0 simplification of a non-garbage arena
 clause (`0` live non-garbage, `1` satisfied/unit/bin/`PH_GARB`, `20` UNSAT). -/
-def fullVivSimplifySpec : Spec [i64, i32] [i64] := fun (h, cref, ()) m Q _ =>
+@[expose] def fullVivSimplifySpec : Spec [i64, i32] [i64] := fun (h, cref, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
     (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInvW c F0 F_cur s ∧ s.core.cur_level = 0 ∧
@@ -625,7 +623,7 @@ namespace FullVivifySpecs
 
 /-- Specification for `full_viv_commit(h, cref, out, olen, used_red)`: commits a vivification
 strengthening (`out[0 ..< olen]`) entailed by `F_cur` at level 0. -/
-def fullVivCommitSpec : Spec [i64, i32, i64, i32, .bool] [i64] :=
+@[expose] def fullVivCommitSpec : Spec [i64, i32, i64, i32, .bool] [i64] :=
   fun (h, cref, out_ptr, olen, _used_red, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
       (R : Mem 64 → Prop),
@@ -962,7 +960,7 @@ namespace FullVivifySpecs
 /-- Valid conflict witness on entry to `full_viv_deduce` when `implied = 0xFFFFFFFF#32` and
 `confl_type ≠ 0#64` (`1`: binary conflict `(confl_lit0, confl_lit1)`; `2`: live arena clause
 `confl_ref`). -/
-def FullVivConflictOk (F_cur : List (List Nat)) (s : FullState) : Prop :=
+@[expose] def FullVivConflictOk (F_cur : List (List Nat)) (s : FullState) : Prop :=
   (s.core.confl_type = 1#64 ∧
     s.core.confl_lit0.toNat < 2 * s.core.cur_vars ∧
     s.core.confl_lit1.toNat < 2 * s.core.cur_vars ∧

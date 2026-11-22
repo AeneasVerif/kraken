@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainPropLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Plain` BCP `Func.wp` Proofs (`Stage 3`, Wave 2b Shard 3, Part 2)
@@ -14,7 +12,7 @@ Builds on `PlainPropLemmas1` to prove parametric `(Γ : Env)` `Func.wp` contract
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 

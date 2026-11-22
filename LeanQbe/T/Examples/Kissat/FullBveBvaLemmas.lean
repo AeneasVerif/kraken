@@ -14,4 +14,4 @@ Re-exports the 6 assigned parametric `(Γ : Env)` `Func.wp` theorems for `full_b
 
 set_option autoImplicit false
 
-@[expose] public section
+public section

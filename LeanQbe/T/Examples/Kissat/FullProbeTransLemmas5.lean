@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas4
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Probe Propagation & HBR Flush Proofs (`Stage 4`, Part 5)
@@ -15,7 +13,7 @@ Exports the parametric `(Γ : Env)` `Func.wp` proofs for `Full3.lean` #11–13:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

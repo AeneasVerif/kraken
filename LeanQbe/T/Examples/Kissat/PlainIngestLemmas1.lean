@@ -1,12 +1,10 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainSpec
-public import LeanQbe.T.Examples.Kissat.DimacsLemmas
-public import LeanQbe.T.Logic.C0Step
+import LeanQbe.T.Examples.Kissat.DimacsLemmas
+import LeanQbe.T.Logic.C0Step
 public meta import Lean.Elab.Tactic
 public meta import LeanQbe.T.Logic.C0Step
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Soundness Proofs for Kissat `D-Plain` Clause Addition, Skip & Ingestion (`Stage 3`, Part 1)
@@ -19,7 +17,7 @@ Proves `Func.wp` specifications for:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 

@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainSpec
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Plain` BCP Helpers & `plain_find_repl` Proof (`Stage 3`, Wave 2b Shard 3, Part 1)
@@ -13,7 +11,7 @@ arena-swap & unit-propagation preservation lemmas, and the `Func.wp` proof of `p
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 
@@ -85,7 +83,7 @@ theorem watchSlice_append {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
 
 /-! ## 3. `plain_find_repl` helpers & `Func.wp` proof -/
 
-def plainFindReplBad (c : PlainCfg) (s : PlainState) (cref k : Nat) : Prop :=
+@[expose] def plainFindReplBad (c : PlainCfg) (s : PlainState) (cref k : Nat) : Prop :=
   let cand := (s.arena[cref + 3 + k]?.getD 0#32).toNat
   2 * c.mv ≤ cand ∨ ((s.vals[cand]?.getD 0#8).signExtend 32).slt 0#32 = true
 
@@ -1003,7 +1001,7 @@ theorem i8_vals_ne_of_slt_false {v1 v2 : BitVec 8}
   intro heq; rw [← heq, h1] at h2; exact absurd h2 (by decide)
 
 /-- Conflict/OOM witness predicate for `plain_prop_lit` (`ok = false` postcondition). -/
-def PropLitConfl (c : PlainCfg) (F0 : CNF Nat) (st : PlainState) : Prop :=
+@[expose] def PropLitConfl (c : PlainCfg) (F0 : CNF Nat) (st : PlainState) : Prop :=
   st.oom ≠ 0#64 ∨
   (st.confl_type = 1#64 ∧ st.confl_lit0.toNat < 2 * c.mv ∧ st.confl_lit1.toNat < 2 * c.mv ∧
     F0.EntailsClause (cnfClause [st.confl_lit0.toNat, st.confl_lit1.toNat]) ∧
@@ -1240,7 +1238,7 @@ theorem propLit_loop3_step {w2 wk : List (BitVec 32)} {q_fin k end_v : Nat}
     ∀ i, (i < q_fin ∨ end_v ≤ i) → (wk.set k 0xFFFFFFFF#32)[i]? = w2[i]? := fun i hi =>
   (List.getElem?_set_ne (by omega)).trans (hkeep i hi)
 
-def propLitMask (h0 : PlainHeur) (t : PlainState) : PlainState :=
+@[expose] def propLitMask (h0 : PlainHeur) (t : PlainState) : PlainState :=
   { t with
     vals := [], lvl := [], rsns := [], trl := [], trail_pos := [], trail_end := 0,
     unflushed := 0#64, wvec := [], arena := [], wstk := [], wlen := 0, wusable := 0#64,

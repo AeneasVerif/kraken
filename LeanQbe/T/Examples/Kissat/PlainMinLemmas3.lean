@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainMinLemmas2
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Soundness Proofs for Kissat `D-Plain` Shrink & Minimization (`Wave 2b Shard 5`, Part 3)
@@ -14,7 +12,7 @@ and scoped tactic macros (`ml_ld`, `ml_st`) in `PlainMinTactics`.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 
@@ -117,7 +115,7 @@ theorem mem_filter_map_toNat_take {xs : List (BitVec 32)} {n l : Nat} :
     rw [List.getElem?_eq_getElem (by omega)] at hkb
     exact Option.some.inj hkb
 
-def plainMinMarkStepState (c : PlainCfg) (s : PlainState) (v : Nat) (tag : BitVec 8) :
+@[expose] def plainMinMarkStepState (c : PlainCfg) (s : PlainState) (v : Nat) (tag : BitVec 8) :
     PlainState :=
   if (s.mrk[v]?.getD 0#8 &&& tag) ≠ 0#8 then s else plainMinMarkState c s v tag
 
@@ -272,7 +270,7 @@ theorem plainMinMarkInv_step_keep {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
   · exact hmin
   · exact plainMinMarkInv_mark_keep hcore hmin hl hkeep hfals hno8
 
-def shrinkBlkSt (s : PlainState) (tmp1 : List (BitVec 32)) (mrk1 : List (BitVec 8))
+@[expose] def shrinkBlkSt (s : PlainState) (tmp1 : List (BitVec 32)) (mrk1 : List (BitVec 8))
     (mstk1 mclr1 : List (BitVec 32)) (mcl1 : Nat) (mcf1 : BitVec 64)
     (sstk1 : List (BitVec 32)) : PlainState :=
   { s with
@@ -309,7 +307,7 @@ theorem shrinkBlkSt_step {c : PlainCfg} {s : PlainState} {tmp1 : List (BitVec 32
 
 /-! ## 2. Block-shrink trail count, reason coverage, and finish invariants -/
 
-def trailCount8 (trl : List (BitVec 32)) (mrk : List (BitVec 8)) : Nat → Nat
+@[expose] def trailCount8 (trl : List (BitVec 32)) (mrk : List (BitVec 8)) : Nat → Nat
   | 0 => 0
   | n + 1 => trailCount8 trl mrk n +
       if (mrk[(trl[n]?.getD 0#32).toNat / 2]?.getD 0#8 &&& 8#8) ≠ 0#8 then 1 else 0
@@ -413,7 +411,7 @@ theorem trailCount8_eq_of_zero_range {trl : List (BitVec 32)} {mrk : List (BitVe
     · rw [trailCount8_step_zero (hz b (by omega) (by omega)),
         ih (by omega) (fun j h1 h2 => hz j h1 (by omega))]
 
-def RsnCov (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
+@[expose] def RsnCov (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
     (P : Nat → Prop) (idx : Nat) : Prop :=
   let p := (s.trl[idx]?.getD 0#32).toNat
   let rsn := s.rsns[p / 2]?.getD 0xFFFFFFFF#32
@@ -521,7 +519,7 @@ theorem shrinkBaseInv_poison {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
       (by have h8' : sb'.mrk[w]?.getD 0#8 &&& 8#8 ≠ 0#8 := h8; rw [hbit8 w hw] at h8'; exact h8'),
     hb.sstk_lt⟩
 
-structure ShrinkOkInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
+private structure ShrinkOkInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
     (blvl : BitVec 32) (beg end_b : Nat) (mrk1 : List (BitVec 8))
     (sstk1 : List (BitVec 32)) (open_cnt slen t_lim : Nat) : Prop where
   op_pos : 1 ≤ open_cnt
@@ -1088,7 +1086,7 @@ theorem getElem?_getD_of_getElem {α : Type _} (d : α) {xs ys : List α}
     xs[i]?.getD d = ys[j]'hj := by
   subst hxy hij; rw [List.getElem?_eq_getElem hj, Option.getD_some]
 
-def ShrinkPoisonInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
+@[expose] def ShrinkPoisonInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
     (beg end_b : Nat) (keep0 : List Nat) (slen ov : Nat) (R : Mem 64 → Prop) :
     Tup Val [] → Mem 64 → Prop := fun () m' =>
   ∃ (mrk_p : List (BitVec 8)) (mstk_p mclr_p sstk_p : List (BitVec 32))
@@ -1100,7 +1098,7 @@ def ShrinkPoisonInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
     (mrk_p[ov]?.getD 0#8 &&& 8#8) = 0#8 ∧
     (PlainMem c (shrinkBlkSt s s.tmp mrk_p mstk_p mclr_p mcl_p mcf_p sstk_p) ⋆ R) m'
 
-def ShrinkAfterInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
+@[expose] def ShrinkAfterInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
     (blvl : BitVec 32) (beg end_b : Nat) (keep0 : List Nat) (R : Mem 64 → Prop) :
     Tup Val [i64, i64, .bool, i32, i64] → Mem 64 → Prop :=
   fun (_, slen_a, failed_a, uip_a, _) m_a =>
@@ -1120,7 +1118,7 @@ def ShrinkAfterInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
             w = uip_a.toNat / 2 ∨ ∃ idx < s.trail_end, idx_uip < idx ∧
               (s.trl[idx]?.getD 0#32).toNat / 2 = w ∧ ShrinkResolved c F0 s mrk_a idx)
 
-def ShrinkMainInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
+@[expose] def ShrinkMainInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
     (blvl : BitVec 32) (beg end_b : Nat) (keep0 : List Nat) (R : Mem 64 → Prop) :
     Nat → Tup Val [i64, i64, .bool, i32, i64] → Mem 64 → Prop :=
   fun n (open_c, slen_c, failed_c, _, t_c, ()) m_c =>
@@ -1140,7 +1138,7 @@ def ShrinkMainInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
             (idx ≤ t_c.toNat ∨ ShrinkResolved c F0 s mrk_c idx)) ∧
         trailCount8 s.trl mrk_c (min (t_c.toNat + 1) s.trail_end) ≤ open_c.toNat)
 
-def ShrinkStepInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
+@[expose] def ShrinkStepInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
     (blvl : BitVec 32) (beg end_b : Nat) (keep0 : List Nat) (t_next t_in : Nat)
     (R : Mem 64 → Prop) : Tup Val [i64, i64, .bool] → Mem 64 → Prop :=
   fun (open', slen', failed', ()) m' =>
@@ -1161,7 +1159,7 @@ def ShrinkStepInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
         RsnCov c F0 s (fun w =>
           (mrk'[w]?.getD 0#8 &&& 2#8) ≠ 0#8 ∨ (mrk'[w]?.getD 0#8 &&& 8#8) ≠ 0#8) t_in)
 
-def ShrinkClInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
+@[expose] def ShrinkClInv (c : PlainCfg) (F0 : CNF Nat) (s : PlainState)
     (blvl : BitVec 32) (beg end_b : Nat) (keep0 : List Nat) (t_next t_in csz rsn : Nat)
     (R : Mem 64 → Prop) : Nat → Tup Val [i64, i64, i32] → Mem 64 → Prop :=
   fun n (open_i, slen_i, i_bv, ()) m_i =>
@@ -1210,7 +1208,7 @@ section
 open scoped PlainMinTactics
 
 /-- C0 expression for clearing bit `8#8` across `sstk_a[0..<slen]`. -/
-def shrinkBlkClearExpr (pMark pShrinkStk slen : Val i64) : Expr Val Cont [] :=
+@[expose] def shrinkBlkClearExpr (pMark pShrinkStk slen : Val i64) : Expr Val Cont [] :=
   let op64 (c : OpCode [i64, i64] [i64]) (a b : Arg Val i64) : Op Val [i64] :=
     Op.mk c (a, b, ())
   .group (sig := [[i64]]) (fun Js => .cons (fun p =>

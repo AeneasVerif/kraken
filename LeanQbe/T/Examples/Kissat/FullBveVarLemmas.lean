@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullBveVarLemmas2
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` UNSAT-Only BVE Top-Shard Proofs — Hub (`Stage 4`, BVE-Var)
@@ -14,7 +12,7 @@ the parametric `(Γ : Env)` `Func.wp` proof for `full_bve_var` (`full_bve_var_wp
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

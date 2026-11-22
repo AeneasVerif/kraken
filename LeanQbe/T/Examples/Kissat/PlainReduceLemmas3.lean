@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas2
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Compaction GC Helpers (`PlainReduceLemmas3`) (`Wave 2b`)
@@ -13,7 +11,7 @@ helpers used by `plain_sweep_wp` in `PlainReduceLemmas4`.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 
@@ -30,7 +28,7 @@ open scoped PlainReduceTactics
 
 namespace PlainReduceHelpers
 
-def SwFiltInv (c : PlainCfg) (F0 : CNF Nat) (s0 s_2 : PlainState)
+@[expose] def SwFiltInv (c : PlainCfg) (F0 : CNF Nat) (s0 s_2 : PlainState)
     (src dst old_sz new_sz i : Nat) (ar : List (BitVec 32)) : Prop :=
   new_sz ≤ i ∧ i ≤ old_sz ∧ ar.length = c.arena_cap ∧
   (∀ k < dst, ar[k]? = s_2.arena[k]?) ∧
@@ -39,7 +37,7 @@ def SwFiltInv (c : PlainCfg) (F0 : CNF Nat) (s0 s_2 : PlainState)
   F0.EntailsClause (cnfClause ((((ar.drop (dst + 3)).take new_sz).map BitVec.toNat) ++
     (((s0.arena.drop (src + 3 + i)).take (old_sz - i)).map BitVec.toNat)))
 
-def SwEmitOk (c : PlainCfg) (F0 : CNF Nat) (s0 s_2 : PlainState)
+@[expose] def SwEmitOk (c : PlainCfg) (F0 : CNF Nat) (s0 s_2 : PlainState)
     (src dst new_sz : Nat) (ar : List (BitVec 32)) : Prop :=
   3 ≤ new_sz ∧ new_sz ≤ arenaClauseSize s0 src ∧ ar.length = c.arena_cap ∧
   (∀ k < dst, ar[k]? = s_2.arena[k]?) ∧
@@ -48,7 +46,7 @@ def SwEmitOk (c : PlainCfg) (F0 : CNF Nat) (s0 s_2 : PlainState)
   F0.EntailsClause (cnfClause (((ar.drop (dst + 3)).take new_sz).map BitVec.toNat)) ∧
   (0 < s0.cur_level → ((ar.drop (dst + 3)).take new_sz).map BitVec.toNat = arenaClauseLits s0 src)
 
-def SwP3Inv (c : PlainCfg) (F0 : CNF Nat) (s0 : PlainState) (dst : Nat)
+@[expose] def SwP3Inv (c : PlainCfg) (F0 : CNF Nat) (s0 : PlainState) (dst : Nat)
     (new_unit : Bool) (s : PlainState) : Prop :=
   PlainCoreInv c F0 s ∧ SameSwPre s0 s ∧ s.arena_garbage = 0#64 ∧
   s.heur.rel_trigger = s0.heur.rel_trigger ∧ s.arena_len = dst ∧ s.oom = 0#64 ∧

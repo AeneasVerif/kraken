@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainHeurLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Heuristic `Func.wp` Proofs — Part 2 (`Wave 2b`)
@@ -16,7 +14,7 @@ matching `plainSpecTable` rows (`PlainSpec.lean:837-847`):
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 

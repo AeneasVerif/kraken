@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainSpec
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Search, Mode, Restart, and Rephase `Func.wp` Proofs — Part 1 (`Stage 3`)
@@ -19,7 +17,7 @@ in `LeanQbe/T/Examples/Kissat/Plain.lean` matching `plainSpecTable`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 

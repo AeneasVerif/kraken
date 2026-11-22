@@ -3,14 +3,12 @@ module
 public import LeanQbe.T.Examples.Kissat.FullArena
 public import LeanQbe.T.Examples.Kissat.FullInv2
 public import LeanQbe.T.Examples.Kissat.Full3
-public import LeanQbe.T.Logic.C0Agrees
-public import LeanQbe.T.Logic.C0Step
+import LeanQbe.T.Logic.C0Agrees
+import LeanQbe.T.Logic.C0Step
 public meta import Lean.Elab.Tactic
 public meta import LeanQbe.T.Examples.Kissat.FullArena
 public meta import LeanQbe.T.Logic.Rules
 public meta import LeanQbe.T.Logic.C0Step
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` BIG SCC Substitution — Part 1 (`Stage 4`, UNSAT-Only)
@@ -25,7 +23,7 @@ Defines:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -41,33 +39,33 @@ open Kraken.Bedrock2.Test
 
 namespace FullSubstSpecs
 
-def FullMrkZero (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullMrkZero (c : FullCfg) (s : FullState) : Prop :=
   ∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8
 
-def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
   FullMrkZero c s ∧ (∀ l < 2 * c.max_vars, s.core.lit_mark[l]?.getD 0#8 = 0#8)
 
-def FullArenaVarsNodup (s : FullState) : Prop :=
+@[expose] def FullArenaVarsNodup (s : FullState) : Prop :=
   ∀ r ∈ fullArenaClauseRefs s, fullArenaClauseGarb s r = false →
     ((fullArenaClauseLits s r).map (· / 2)).Nodup
 
-def FullLastLearnedWf (s : FullState) : Prop :=
+@[expose] def FullLastLearnedWf (s : FullState) : Prop :=
   ∀ i < 8,
     let cr := s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32
     cr = 0xFFFFFFFF#32 ∨ cr.toNat ∈ fullArenaClauseRefs s
 
-def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
   FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
 
-def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
+@[expose] def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
   FullExtScratchOk c s ∧ s.core.dense_mode = 0#64
 
-def FullExtScratchPres (s s' : FullState) : Prop :=
+@[expose] def FullExtScratchPres (s s' : FullState) : Prop :=
   s'.scratch.last_learned = s.scratch.last_learned ∧
   s'.scratch.extend_len = s.scratch.extend_len
 
-def FullProbeScratchPres (s s' : FullState) : Prop :=
+@[expose] def FullProbeScratchPres (s s' : FullState) : Prop :=
   FullExtScratchPres s s' ∧
   s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
   s'.scratch.work_stk2 = s.scratch.work_stk2 ∧
@@ -77,11 +75,12 @@ def FullProbeScratchPres (s s' : FullState) : Prop :=
   s'.scratch.res_sz = s.scratch.res_sz ∧
   s'.scratch.sim_sig = s.scratch.sim_sig
 
+@[expose]
 def FullSparseInvW (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) : Prop :=
   s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullLitMarksClear c s ∧
   FullArenaVarsNodup s ∧ FullExtScratchOk c s ∧ s.core.dense_mode = 0#64
 
-def FullConflictOkW (F_cur : List (List Nat)) (s : FullState) : Prop :=
+@[expose] def FullConflictOkW (F_cur : List (List Nat)) (s : FullState) : Prop :=
   (s.core.confl_type = 1#64 ∧
     s.core.confl_lit0.toNat < 2 * s.core.cur_vars ∧
     s.core.confl_lit1.toNat < 2 * s.core.cur_vars ∧
@@ -94,7 +93,7 @@ def FullConflictOkW (F_cur : List (List Nat)) (s : FullState) : Prop :=
     fullArenaClauseGarb s s.core.confl_ref.toNat = false ∧
     ∀ l ∈ fullArenaClauseLits s s.core.confl_ref.toNat, s.core.vals[l]?.getD 0#8 = 0xFF#8)
 
-def FullReasonsMarked (s : FullState) : Prop :=
+@[expose] def FullReasonsMarked (s : FullState) : Prop :=
   ∀ idx < s.core.trail_end,
     let v := (s.core.trl[idx]?.getD 0#32).toNat / 2
     let rsn := s.core.rsns[v]?.getD 0xFFFFFFFF#32
@@ -102,22 +101,22 @@ def FullReasonsMarked (s : FullState) : Prop :=
     (rsn &&& 0x80000000#32) = 0#32 →
     (fullArenaHdr s rsn.toNat &&& 0x00200000#32) ≠ 0#32
 
-def FullReprEquiv (F_cur : List (List Nat)) (s : FullState) : Prop :=
+@[expose] def FullReprEquiv (F_cur : List (List Nat)) (s : FullState) : Prop :=
   ∀ l < 2 * s.core.cur_vars,
     let r := (s.core.repr[l]?.getD 0#32).toNat
     r < 2 * s.core.cur_vars ∧
     (cnfOfClauses F_cur).EntailsClause (cnfClause [l, r ^^^ 1]) ∧
     (cnfOfClauses F_cur).EntailsClause (cnfClause [l ^^^ 1, r])
 
-def FullOtfsWitnessInv := FullWitnessInv
+@[expose] def FullOtfsWitnessInv := FullWitnessInv
 
-def FullTrailExt (k k' : FullCoreState) : Prop :=
+@[expose] def FullTrailExt (k k' : FullCoreState) : Prop :=
   k.trail_end ≤ k'.trail_end ∧
   (∀ i < k.trail_end, k'.trl[i]? = k.trl[i]?) ∧
   (∀ i < k.trail_end,
     k'.lvl[(k.trl[i]?.getD 0#32).toNat / 2]? = k.lvl[(k.trl[i]?.getD 0#32).toNat / 2]?)
 
-def FullArenaPermEq (k k' : FullCoreState) : Prop :=
+@[expose] def FullArenaPermEq (k k' : FullCoreState) : Prop :=
   k'.arena_len = k.arena_len ∧
   fullArenaClauseRefsCore k' = fullArenaClauseRefsCore k ∧
   ∀ r ∈ fullArenaClauseRefsCore k,
@@ -177,12 +176,12 @@ theorem level0_unsat_of_conflict_okW {c : FullCfg} {F0 : CNF Nat} {F_cur : List 
 
 /-! ### Callee specifications (exact `FullSpec2` / `FullSpec3` match) -/
 
-def fullArenaNextSpec : Spec [i64, i32] [i32] := fun (h, cref, ()) m Q _ =>
+@[expose] def fullArenaNextSpec : Spec [i64, i32] [i32] := fun (h, cref, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
     Q (BitVec.ofNat 32 (fullArenaNextOff s.core.arena s.core.arena_len cref.toNat), ()) m
 
-def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
+@[expose] def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ s.core.cur_level < 2 ^ 64 ∧
     (target_lvl.toNat < s.core.cur_level → target_lvl.toNat < c.max_vars) ∧
@@ -214,7 +213,7 @@ def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
         FullWitnessInv c F0 F_cur s'.core) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+@[expose] def fullPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
     s.core.dense_mode = 0#64 ∧ (FullMem c s ⋆ R) m ∧
@@ -240,7 +239,7 @@ def fullPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullArenaSweepSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+@[expose] def fullArenaSweepSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullArenaVarsNodup s ∧
     s.core.dense_mode = 0#64 ∧ (0 < s.core.cur_level → FullReasonsMarked s) ∧ (FullMem c s ⋆ R) m ∧
@@ -268,14 +267,14 @@ def fullArenaSweepSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       (r = 3#64 → oom' ≠ 0#64) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullExtendPush2Spec : Spec [i64, i32, i32] [.bool] :=
+@[expose] def fullExtendPush2Spec : Spec [i64, i32, i32] [.bool] :=
   SafetySlice.spec fullSafetySlice
     (fun c (h, _blk, _ot, ()) s => h = c.hdr ∧ s.scratch.extend_len ≤ c.extend_cap)
     (fun c _ _ s s' =>
       s'.scratch.last_learned = s.scratch.last_learned ∧ s'.scratch.extend_len ≤ c.extend_cap ∧
       s'.scratch.scratch_buf = s.scratch.scratch_buf)
 
-def fullAddBinSpec : Spec [i64, i32, i32] [i64] := fun (h, a, b, ()) m Q _ =>
+@[expose] def fullAddBinSpec : Spec [i64, i32, i32] [i64] := fun (h, a, b, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ s.core.cur_level = 0 ∧
     (a.toNat < 2 * s.core.cur_vars → b.toNat < 2 * s.core.cur_vars →
@@ -297,7 +296,7 @@ def fullAddBinSpec : Spec [i64, i32, i32] [i64] := fun (h, a, b, ()) m Q _ =>
       (r = 2#64 → oom' ≠ 0#64) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullSetInactiveSpec : Spec [i64, i32, i32] [] := fun (h, v, _flag, ()) m Q _ =>
+@[expose] def fullSetInactiveSpec : Spec [i64, i32, i32] [] := fun (h, v, _flag, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
     if s.core.cur_vars ≤ v.toNat then
@@ -309,7 +308,7 @@ def fullSetInactiveSpec : Spec [i64, i32, i32] [] := fun (h, v, _flag, ()) m Q _
           { s with core := { s.core with flags := flags', unassigned := unass' } }
         (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullAddUnitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
+@[expose] def fullAddUnitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
     (lit.toNat < 2 * s.core.cur_vars → (cnfOfClauses F_cur).EntailsClause (cnfClause [lit.toNat])) ∧
@@ -332,7 +331,7 @@ def fullAddUnitSpec : Spec [i64, i32] [.bool] := fun (h, lit, ()) m Q _ =>
       (ok = false → 2 * s.core.cur_vars ≤ lit.toNat ∨ (F0.Unsat ∧ inc' ≠ 0#64)) →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-def fullTarjanSccSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+@[expose] def fullTarjanSccSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInvW c F0 F_cur s ∧ s.core.cur_level = 0 ∧ (FullMem c s ⋆ R) m ∧
     ∀ r repr' tc' inc' tmk' trc' ws1' ws2' wsort' sstk' rsz' m',
@@ -351,7 +350,7 @@ def fullTarjanSccSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
 
 /-! ### Owned BIG substitution specifications (exact `FullSpec3` match) -/
 
-def fullSubstElimVarsSpec : Spec [i64, i64] [.bool] := fun (h, ucnt, ()) m Q _ =>
+@[expose] def fullSubstElimVarsSpec : Spec [i64, i64] [.bool] := fun (h, ucnt, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInvW c F0 F_cur s ∧ s.core.cur_level = 0 ∧ FullReprEquiv F_cur s ∧
     ucnt.toNat ≤ c.max_vars ∧
@@ -364,7 +363,7 @@ def fullSubstElimVarsSpec : Spec [i64, i64] [.bool] := fun (h, ucnt, ()) m Q _ =
       s'.core.fuel.toNat ≤ s.core.fuel.toNat → FullReprEquiv F_cur s' →
       (ok = false → F0.Unsat) → (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-def fullSubstRewriteBinsSpec : Spec [i64] [.bool] := fun (h, ()) m Q _ =>
+@[expose] def fullSubstRewriteBinsSpec : Spec [i64] [.bool] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInvW c F0 F_cur s ∧ s.core.cur_level = 0 ∧ FullReprEquiv F_cur s ∧
     (FullMem c s ⋆ R) m ∧
@@ -373,7 +372,7 @@ def fullSubstRewriteBinsSpec : Spec [i64] [.bool] := fun (h, ()) m Q _ =>
       s'.core.fuel = s.core.fuel → FullReprEquiv F_cur s' → (ok = false → F0.Unsat) →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-def fullSubstRewriteArSpec : Spec [i64] [.bool] := fun (h, ()) m Q _ =>
+@[expose] def fullSubstRewriteArSpec : Spec [i64] [.bool] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInvW c F0 F_cur s ∧ s.core.cur_level = 0 ∧ FullReprEquiv F_cur s ∧
     (FullMem c s ⋆ R) m ∧
@@ -381,7 +380,7 @@ def fullSubstRewriteArSpec : Spec [i64] [.bool] := fun (h, ()) m Q _ =>
       FullSparseInvW c F0 F_cur s' → s'.core.cur_level = 0 → s'.core.cur_vars = s.core.cur_vars →
       s'.core.fuel = s.core.fuel → (ok = false → F0.Unsat) → (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-def fullSubstituteSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+@[expose] def fullSubstituteSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
     ∀ r s' m',
@@ -559,7 +558,7 @@ scoped macro "s_call" h:term : tactic => `(tactic| (
   try simp only [LeanQbe.T.vals_nil, LeanQbe.T.vals_cons, LeanQbe.T.Arg.val_var,
     LeanQbe.T.Arg.val_imm]))
 
-meta def sFastRun (stopOnJnz : Bool) : Lean.Elab.Tactic.TacticM Unit := do
+private meta def sFastRun (stopOnJnz : Bool) : Lean.Elab.Tactic.TacticM Unit := do
   let binOps : Array (Lean.Name × Lean.Name) := #[
     (``OpCode.add, ``wp_let_add_b), (``OpCode.sub, ``wp_let_sub_b), (``OpCode.mul, ``wp_let_mul_b),
     (``OpCode.and, ``wp_let_and_b), (``OpCode.or, ``wp_let_or_b), (``OpCode.xor, ``wp_let_xor_b),

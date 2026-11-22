@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Tiered Clause Vivification Proofs — Part 3 (Helpers)
@@ -12,7 +10,7 @@ Arena, shrink, watch-layout, and pure BFS helpers shared by Parts 2 and Hub.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -33,22 +31,22 @@ abbrev HypWatchPush (Γ : Env) : Prop :=
   ∀ a m Q X, fullVivWatchPushSpec a m Q X →
     Γ "full_watch_push" [i64, i32, i32, i32, i32] [.bool] a m Q X
 
-def ShrkPad (ar_p ar0 : List (BitVec 32)) (cref old_sz nsz : Nat) : Prop :=
+@[expose] def ShrkPad (ar_p ar0 : List (BitVec 32)) (cref old_sz nsz : Nat) : Prop :=
   if (ar0[cref]?.getD 0#32 &&& 0x00800000#32) = 0#32 then
     (∀ k, cref + 3 + nsz ≤ k → k < cref + 3 + old_sz - 1 → ar_p[k]? = ar0[k]?) ∧
     ar_p[cref + 3 + old_sz - 1]? = some 0xFFFFFFFF#32
   else ∀ k, cref + 3 + nsz ≤ k → k < cref + 3 + old_sz → ar_p[k]? = ar0[k]?
 
-def VivMetaEq (s s' : FullState) : Prop :=
+@[expose] def VivMetaEq (s s' : FullState) : Prop :=
   s'.core.arena_len = s.core.arena_len ∧ s'.core.cur_vars = s.core.cur_vars ∧
   s'.core.cur_level = 0 ∧ s'.core.probing = s.core.probing ∧ s'.core.fuel = s.core.fuel
 
-def VivArenaEq (s s' : FullState) : Prop :=
+@[expose] def VivArenaEq (s s' : FullState) : Prop :=
   fullArenaClauseRefs s' = fullArenaClauseRefs s ∧ ∀ q ∈ fullArenaClauseRefs s,
     fullArenaNextOff s'.core.arena s.core.arena_len q =
       fullArenaNextOff s.core.arena s.core.arena_len q
 
-def VivQ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
+@[expose] def VivQ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
     (R : Mem 64 → Prop) (Q : Post [i64]) (cref : Nat) (allow0 : Bool) : Prop :=
   ∀ (r : BitVec 64) s' m',
     FullSparseInvW c F0 F_cur s' → s'.core.cur_level = 0 → s'.core.cur_vars = s.core.cur_vars →
@@ -849,7 +847,7 @@ theorem fv_with_mrk_rsz {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
      { hsp.1.lengths.scratch_ok with work_stk1_len := hws1, work_stk2_len := hws2 }⟩
   exact ⟨⟨⟨hlen', F_cur, hw'⟩, ⟨hmrk_clr, hsp.2.1.2⟩, hsp.2.2.1, hsp.2.2.2.1, hsp.2.2.2.2⟩, hw'⟩
 
-def VivQueueOk (c : FullCfg) (s : FullState) (mrk : List (BitVec 8))
+@[expose] def VivQueueOk (c : FullCfg) (s : FullState) (mrk : List (BitVec 8))
     (ws1 : List (BitVec 32)) (qlen : Nat) : Prop :=
   mrk.length = c.max_vars ∧ ws1.length = 2 * c.max_vars ∧ qlen ≤ s.core.cur_vars ∧
   (∀ i < qlen, (ws1[i]?.getD 0#32).toNat < s.core.cur_vars) ∧
@@ -938,7 +936,7 @@ theorem push_queue_step {c : FullCfg} {s : FullState} {mrk : List (BitVec 8)}
     · rw [List.getElem?_set_ne (Ne.symm huv)]; exact hq.2.2.2.2.2.2.2.1 u hu
   · rw [List.getElem?_set_ne (by omega)]; exact hq.2.2.2.2.2.2.2.2 u hu1 hu2
 
-def VivClosedOk (s : FullState) (implied : BitVec 32)
+@[expose] def VivClosedOk (s : FullState) (implied : BitVec 32)
     (ws1 ws2 : List (BitVec 32)) (qi qlen olen : Nat) (taut : Bool) : Prop :=
   ∀ k < qi, ∀ idx < s.core.trail_end,
     (s.core.trl[idx]?.getD 0#32).toNat / 2 = (ws1[k]?.getD 0#32).toNat →
@@ -959,7 +957,7 @@ def VivClosedOk (s : FullState) (implied : BitVec 32)
           (s.core.lvl[q / 2]?.getD 0#32).toNat = 0 ∨
             q / 2 ∈ (ws1.take qlen).map BitVec.toNat
 
-def VivOutOk (s : FullState) (implied : BitVec 32)
+@[expose] def VivOutOk (s : FullState) (implied : BitVec 32)
     (ws1 ws2 : List (BitVec 32)) (qi olen : Nat) (taut : Bool) : Prop :=
   taut = false →
     olen ≤ s.core.cur_vars ∧
@@ -974,7 +972,7 @@ def VivOutOk (s : FullState) (implied : BitVec 32)
       implied = 0xFFFFFFFF#32 ∨ (ws1[j]?.getD 0#32).toNat ≠ implied.toNat / 2 ∨
       s.core.rsns[(ws1[j]?.getD 0#32).toNat]?.getD 0xFFFFFFFF#32 ≠ 0xFFFFFFFF#32)
 
-def VivSeedOk (s : FullState) (cref implied : BitVec 32)
+@[expose] def VivSeedOk (s : FullState) (cref implied : BitVec 32)
     (ws1 ws2 : List (BitVec 32)) (qlen olen : Nat) (taut : Bool) : Prop :=
   taut = false →
     if implied ≠ 0xFFFFFFFF#32 then

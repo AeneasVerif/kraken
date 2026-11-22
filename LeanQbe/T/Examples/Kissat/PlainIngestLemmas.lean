@@ -1,11 +1,9 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainIngestLemmas2
-public import LeanQbe.T.Logic.C0Step
-public meta import Lean.Elab.Tactic
-public meta import LeanQbe.T.Logic.C0Step
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.C0Step
+meta import Lean.Elab.Tactic
+meta import LeanQbe.T.Logic.C0Step
 
 /-!
 # Soundness Proofs for Kissat `D-Plain` Assign, Backtrack & Parse (`Stage 3`, Part 3)
@@ -18,7 +16,7 @@ Proves parametric `Func.wp` specifications for:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 

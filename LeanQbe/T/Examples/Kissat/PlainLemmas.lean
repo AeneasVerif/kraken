@@ -1,15 +1,13 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainSearchLemmas
-public import LeanQbe.T.Examples.Kissat.DimacsLemmas
 public import LeanQbe.T.Examples.Kissat.PlainMinLemmas
 public import LeanQbe.T.Examples.Kissat.PlainHeurLemmas
 public import LeanQbe.T.Examples.Kissat.PlainPropLemmas
 public import LeanQbe.T.Examples.Kissat.PlainAnalyzeLemmas
 public import LeanQbe.T.Examples.Kissat.PlainIngestLemmas
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Examples.Kissat.DimacsLemmas
 
 /-!
 # Kissat `D-Plain` Top-Level `kissat_solve_bytes` Verification & Non-Vacuity Helpers (`Stage 3`)
@@ -28,7 +26,7 @@ Proves:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 
@@ -952,22 +950,22 @@ theorem plain_solve_bytes_wp (Γ : Env)
 /-! ## 3. Concrete UNSAT (`20#64`) and SAT (`10#64`) non-vacuity helpers (`wlen = 2048`) -/
 
 /-- Concrete UNSAT DIMACS input (`p cnf 1 2\n1 0\n-1 0\n`, 19 bytes). -/
-def plainNvUnsatBytes : List UInt8 :=
+@[expose] def plainNvUnsatBytes : List UInt8 :=
   [112, 32, 99, 110, 102, 32, 49, 32, 50, 10, 49, 32, 48, 10, 45, 49, 32, 48, 10]
 
 /-- Parsed `Std.Sat.CNF Nat` for `plainNvUnsatBytes`. -/
-def plainNvUnsatCnf : CNF Nat :=
+@[expose] def plainNvUnsatCnf : CNF Nat :=
   (CNF.empty.add (CNF.Clause.ofLiterals [(1, true)])).add (CNF.Clause.ofLiterals [(1, false)])
 
 theorem parseDimacs_plainUnsat : parseDimacs plainNvUnsatBytes = some plainNvUnsatCnf :=
   rfl
 
 /-- Concrete SAT DIMACS input (`p cnf 1 1\n1 0\n`, 14 bytes). -/
-def plainNvSatBytes : List UInt8 :=
+@[expose] def plainNvSatBytes : List UInt8 :=
   [112, 32, 99, 110, 102, 32, 49, 32, 49, 10, 49, 32, 48, 10]
 
 /-- Parsed `Std.Sat.CNF Nat` for `plainNvSatBytes`. -/
-def plainNvSatCnf : CNF Nat :=
+@[expose] def plainNvSatCnf : CNF Nat :=
   CNF.empty.add (CNF.Clause.ofLiterals [(1, true)])
 
 theorem parseDimacs_plainSat : parseDimacs plainNvSatBytes = some plainNvSatCnf :=
@@ -1004,7 +1002,7 @@ private theorem plainNvSat_checkModel :
   decide
 
 /-- Concrete UNSAT witness contract (`plainNvUnsatBytes`, `work_len = 2048`, `fuel = 16`). -/
-def plainUnsatWitnessSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
+@[expose] def plainUnsatWitnessSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
   fun (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) m Q _ =>
     ∃ R : Mem 64 → Prop,
       cnf_len = BitVec.ofNat 64 plainNvUnsatBytes.length ∧
@@ -1035,7 +1033,7 @@ theorem plainCoreSpec_of_unsat
   exact hQ m' huns hm'
 
 /-- Concrete SAT witness contract (`plainNvSatBytes`, `work_len = 2048`, `fuel = 16`). -/
-def plainSatWitnessSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
+@[expose] def plainSatWitnessSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
   fun (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) m Q _ =>
     ∃ R : Mem 64 → Prop,
       cnf_len = BitVec.ofNat 64 plainNvSatBytes.length ∧
@@ -1071,7 +1069,7 @@ abbrev plainNvCnfPtr : BitVec 64 := 0x1000#64
 abbrev plainNvWorkPtr (cnfBytes : List UInt8) : BitVec 64 :=
   plainNvCnfPtr + BitVec.ofNat 64 cnfBytes.length
 
-def plainPayload (cnfBytes : List UInt8) : List UInt8 :=
+@[expose] def plainPayload (cnfBytes : List UInt8) : List UInt8 :=
   cnfBytes ++ List.replicate 2048 0
 
 theorem plainPayload_length (cnfBytes : List UInt8) :
@@ -1347,7 +1345,7 @@ theorem plain_solve_bytes_correct
         fun _ _ hdom hu hs hm' => ⟨hdom, hu, hs, hm'⟩⟩)
 
 /-- Closed 59-function environment for concrete UNSAT non-vacuity (`20#64`). -/
-def plainUnsatEnv : Env := mkPlainEnv plainUnsatWitnessSpec
+@[expose] def plainUnsatEnv : Env := mkPlainEnv plainUnsatWitnessSpec
 
 theorem plainUnsatEnv_sound :
     ∀ f ∈ plainFns, ∀ args m Q X,
@@ -1377,7 +1375,7 @@ theorem plain_unsat_nonvacuous :
       fun _ hu _ => ⟨rfl, hu⟩⟩
 
 /-- Closed 59-function environment for concrete SAT non-vacuity (`10#64`). -/
-def plainSatEnv : Env := mkPlainEnv plainSatWitnessSpec
+@[expose] def plainSatEnv : Env := mkPlainEnv plainSatWitnessSpec
 
 theorem plainSatEnv_sound :
     ∀ f ∈ plainFns, ∀ args m Q X,

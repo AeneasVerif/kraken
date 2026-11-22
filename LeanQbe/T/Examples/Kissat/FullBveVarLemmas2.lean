@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullBveVarLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` UNSAT-Only BVE Top-Shard Proofs — Part 2 (`Stage 4`)
@@ -16,7 +14,7 @@ Provides:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

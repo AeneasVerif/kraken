@@ -1,14 +1,12 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas3
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-! # Kissat `D-Full` `full_probe_prop_lit` Split Proof Helpers (`Stage 4`, Part 4) -/
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -342,7 +340,7 @@ private theorem propLit_tail_inv_upd_wstk {c : FullCfg} {F0 : CNF Nat} {F_cur : 
     simpa [FullLastLearnedWf, fullArenaClauseRefs, fullArenaClauseRefsCore] using hext.1 i hi,
     hext.2⟩
 
-def propLitTailInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
+@[expose] def propLitTailInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
     (s : FullState) (R : Mem 64 → Prop) (not_lit : BitVec 32) :
     Tup Val [i64, i64, i64, i64, Ty.bool] → Mem 64 → Prop :=
   fun (off_v, p_v, q_v, end_v, confl_v, ()) ml =>
@@ -574,7 +572,7 @@ private theorem arena_lit_ne_of_nodup {s : FullState} {cref k1 k2 : Nat}
   · exact absurd ((hget k2 hk2).trans (congrArg (· / 2) heq.symm) |>.trans (hget k1 hk1).symm)
       (hpw k2 k1 (by omega) (by omega) hgt)
 
-def propLitMainInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
+@[expose] def propLitMainInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
     (s : FullState) (R : Mem 64 → Prop) (not_lit : BitVec 32) :
     Tup Val [i64, i64, i64, i64] → Mem 64 → Prop :=
   fun (off_v, p_v, q_v, end_v, ()) ml =>
@@ -590,7 +588,7 @@ def propLitMainInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
       st.core.vals[not_lit.toNat]?.getD 0#8 = 0xFF#8 ∧ st.core.oom = 0#64 ∧
       (FullMem c st ⋆ R) ml
 
-def propLitLargeExpr (h_arg pVals pWvec pWstk pArena pHstk : Val i64)
+@[expose] def propLitLargeExpr (h_arg pVals pWvec pWstk pArena pHstk : Val i64)
     (not_lit : Val i32) (nlits_v : Val i64) (cr_v w0_v l0_v : Val i32)
     (off_v p2_v q_v end_v : Val i64) (Jtail : Cont [i64, i64, i64, i64, Ty.bool])
     (Jloop : Cont [i64, i64, i64, i64]) : Expr Val Cont [Ty.bool] :=

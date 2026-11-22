@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas5
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Probing Assume-Pair & Run Proofs (`Stage 4`, Part 6 / Hub)
@@ -14,7 +12,7 @@ Exports the parametric `(Γ : Env)` `Func.wp` specifications for `Full3.lean` #1
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

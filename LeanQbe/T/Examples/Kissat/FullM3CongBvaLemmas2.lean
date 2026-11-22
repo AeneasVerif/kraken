@@ -3,8 +3,6 @@ module
 public import LeanQbe.T.Examples.Kissat.FullM3CongBvaLemmas1
 public meta import Lean.Elab.Tactic
 public meta import LeanQbe.T.Logic.C0HeadStep
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` M3b Congruence & BVA/BVE Proofs — Part 2 (`full_cong_work_step` Helpers)
@@ -15,7 +13,7 @@ Builds on `FullM3CongBvaLemmas1` to provide pure XOR/ITE/AND folding helpers, `W
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullM3CongBva
 
@@ -336,7 +334,7 @@ section WorkStepSupport
 open scoped FullArenaTactics FullCongTactics
 
 /-- Flat `FullState` update touching only `repr` and `tmp` (avoids nested record wrappers). -/
-def wsState (st : FullState) (repr tmp : List (BitVec 32)) : FullState :=
+@[expose] def wsState (st : FullState) (repr tmp : List (BitVec 32)) : FullState :=
   { st with core := { st.core with repr := repr, tmp := tmp } }
 
 theorem ws_unfocus_repr {c : FullCfg} {st : FullState} {repr0 tmp repr' : List (BitVec 32)}
@@ -354,7 +352,7 @@ theorem ws_unfocus_tmp {c : FullCfg} {st : FullState} {repr tmp0 tmp' : List (Bi
   unfocus_full_tmp hm
 
 /-- Work-step loop invariant for `full_cong_work_step`. -/
-def WorkStepOk (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
+@[expose] def WorkStepOk (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
     (fuel0 : BitVec 64) (ar0 : List (BitVec 32)) (alen0 cv0 g_len ht_off ht_sz : Nat)
     (scr0 : List (BitVec 32)) (st : FullState) : Prop :=
   st.LengthsOk c ∧ FullWitnessInv c F0 F_cur st.core ∧
@@ -367,7 +365,7 @@ def WorkStepOk (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
   FullCongSpecs.CongHtInv F_cur cv0 scr0 st.scratch.scratch_buf g_len ht_off ht_sz
 
 /-- Normalized gate invariant passed into the hash-probe loop. -/
-def HashGateOk (F_cur : List (List Nat)) (cv0 : Nat) (lhs : BitVec 32)
+@[expose] def HashGateOk (F_cur : List (List Nat)) (cv0 : Nat) (lhs : BitVec 32)
     (tmps : List (BitVec 32)) (htag harity : BitVec 32) : Prop :=
   harity.toNat ≤ cv0 ∧
   (htag = 0#32 → 2 ≤ harity.toNat ∧ harity.toNat ≤ 8 ∧

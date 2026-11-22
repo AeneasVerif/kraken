@@ -3,8 +3,6 @@ module
 public import LeanQbe.T.Examples.Kissat.Full
 public import LeanQbe.T.Examples.Kissat.FullInv2
 public import LeanQbe.T.Examples.Kissat.FullArena
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` UNSAT-Only BVE/BCE Proofs — Part 1 (`Stage 4`, BVE/BCE Shard)
@@ -20,7 +18,7 @@ Provides:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -198,26 +196,27 @@ open scoped FullArenaTactics FullBveBvaTactics
 
 namespace FullBveBvaSpecs
 
-def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
   (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8) ∧
   (∀ l < 2 * c.max_vars, s.core.lit_mark[l]?.getD 0#8 = 0#8)
 
-def FullArenaVarsNodup (s : FullState) : Prop :=
+@[expose] def FullArenaVarsNodup (s : FullState) : Prop :=
   ∀ r ∈ fullArenaClauseRefs s, fullArenaClauseGarb s r = false →
     ((fullArenaClauseLits s r).map (· / 2)).Nodup
 
-def FullLastLearnedWf (s : FullState) : Prop :=
+@[expose] def FullLastLearnedWf (s : FullState) : Prop :=
   ∀ i < 8,
     let cr := s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32
     cr = 0xFFFFFFFF#32 ∨ cr.toNat ∈ fullArenaClauseRefs s
 
-def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
   FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
 
-def FullDenseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
+@[expose] def FullDenseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
   FullExtScratchOk c s ∧ s.core.cur_level = 0 ∧ s.core.dense_mode ≠ 0#64
 
+@[expose]
 def FullDenseInvW (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) : Prop :=
   s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullLitMarksClear c s ∧
   FullArenaVarsNodup s ∧ FullExtScratchOk c s ∧ s.core.cur_level = 0 ∧
@@ -232,12 +231,12 @@ theorem FullDenseInv.exists_witness {c : FullCfg} {F0 : CNF Nat} {s : FullState}
   let ⟨F_cur, hw⟩ := h.1.witness
   ⟨F_cur, h.1.lengths, hw, h.2.1, h.2.2.1, h.2.2.2.1, h.2.2.2.2.1, h.2.2.2.2.2⟩
 
-def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
+@[expose] def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
   FullExtScratchOk c s ∧ s.core.dense_mode = 0#64
 
 /-- Clause/binary watch entry collected for literal `lit` during BVE/BCE. -/
-def FullBveItemOk (k : FullCoreState) (F_cur : List (List Nat)) (lit : Nat)
+private def FullBveItemOk (k : FullCoreState) (F_cur : List (List Nat)) (lit : Nat)
     (w : BitVec 32) : Prop :=
   if (w &&& 0x80000000#32) ≠ 0#32 then
     w ≠ 0xFFFFFFFF#32 ∧ (w &&& 0x7FFFFFFF#32).toNat < 2 * k.cur_vars ∧
@@ -246,7 +245,7 @@ def FullBveItemOk (k : FullCoreState) (F_cur : List (List Nat)) (lit : Nat)
     w.toNat ∈ fullArenaClauseRefsCore k ∧ fullArenaClauseGarbCore k w.toNat = false
 
 /-- Canonical `FullSpec3` collected occurrence entry for literal `lit`. -/
-def FullBveEntryOkW (F_cur : List (List Nat)) (s : FullState) (lit : Nat)
+@[expose] def FullBveEntryOkW (F_cur : List (List Nat)) (s : FullState) (lit : Nat)
     (w : BitVec 32) : Prop :=
   if (w &&& 0x80000000#32) ≠ 0#32 then
     let ot := (w &&& 0x7FFFFFFF#32).toNat
@@ -254,7 +253,7 @@ def FullBveEntryOkW (F_cur : List (List Nat)) (s : FullState) (lit : Nat)
   else
     w.toNat ∈ fullArenaClauseRefs s ∧ fullArenaClauseGarb s w.toNat = false
 
-theorem FullBveItemOk.to_entryW {F_cur : List (List Nat)} {s : FullState} {lit : Nat}
+private theorem FullBveItemOk.to_entryW {F_cur : List (List Nat)} {s : FullState} {lit : Nat}
     {w : BitVec 32} (h : FullBveItemOk s.core F_cur lit w) :
     FullBveEntryOkW F_cur s lit w := by
   unfold FullBveItemOk at h; unfold FullBveEntryOkW
@@ -263,14 +262,14 @@ theorem FullBveItemOk.to_entryW {F_cur : List (List Nat)} {s : FullState} {lit :
   · simp [hb] at h ⊢; exact h
 
 /-- Weak structural validity preserved across clause garbage marking and binary deletion. -/
-def FullBveWeakItemOk (k : FullCoreState) (w : BitVec 32) : Prop :=
+@[expose] def FullBveWeakItemOk (k : FullCoreState) (w : BitVec 32) : Prop :=
   if (w &&& 0x80000000#32) ≠ 0#32 then
     (w &&& 0x7FFFFFFF#32).toNat < 2 * k.cur_vars
   else
     w.toNat ∈ fullArenaClauseRefsCore k
 
 /-- Weak structural validity for `full_bve_try_bce` (`#1050`: `garb` unconstrained). -/
-def FullBveBceWeakOk (c : FullCfg) (s : FullState) (w : BitVec 32) : Prop :=
+@[expose] def FullBveBceWeakOk (c : FullCfg) (s : FullState) (w : BitVec 32) : Prop :=
   if (w &&& 0x80000000#32) ≠ 0#32 then
     (w &&& 0x7FFFFFFF#32).toNat < 2 * c.max_vars
   else
@@ -278,7 +277,7 @@ def FullBveBceWeakOk (c : FullCfg) (s : FullState) (w : BitVec 32) : Prop :=
     w.toNat + 3 + fullArenaClauseSize s w.toNat ≤ s.core.arena_len ∧
     ∀ l ∈ fullArenaClauseLits s w.toNat, l < 2 * c.max_vars
 
-theorem FullBveItemOk.to_weak {k : FullCoreState} {F_cur : List (List Nat)} {lit : Nat}
+private theorem FullBveItemOk.to_weak {k : FullCoreState} {F_cur : List (List Nat)} {lit : Nat}
     {w : BitVec 32} (h : FullBveItemOk k F_cur lit w) : FullBveWeakItemOk k w := by
   unfold FullBveItemOk at h; unfold FullBveWeakItemOk
   by_cases hb : (w &&& 0x80000000#32) ≠ 0#32
@@ -293,16 +292,16 @@ theorem FullBveEntryOkW.to_weak {F_cur : List (List Nat)} {s : FullState} {lit :
   · simp [hb] at h ⊢; exact h.1
 
 /-- Structural slice masking only `core.tmp` (for `full_bve_try_bce`). -/
-def fullCoreTmpMask (s : FullState) : FullCoreState :=
+private def fullCoreTmpMask (s : FullState) : FullCoreState :=
   { s.core with tmp := [] }
 
-def fullTryBceSlice (c : FullCfg) : SafetySlice FullState FullCoreState where
+private def fullTryBceSlice (c : FullCfg) : SafetySlice FullState FullCoreState where
   mem := FullMem c
   coreProj := fullCoreTmpMask
   safe := FullState.LengthsOk c
 
 /-- 1a. `full_bve_collect` core-level internal spec. -/
-def fullBveCollectCoreSpec : Spec [i64, i32, i64, i32] [i32] :=
+private def fullBveCollectCoreSpec : Spec [i64, i32, i64, i32] [i32] :=
   fun (h, lit, out, cap, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop) (off : Nat),
       h = c.hdr ∧ FullCoreInv c F0 s ∧ lit.toNat < 2 * s.core.cur_vars ∧
@@ -319,7 +318,7 @@ def fullBveCollectCoreSpec : Spec [i64, i32, i64, i32] [i32] :=
         (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
 /-- 1. `full_bve_collect(h, lit, out_ptr, cap) : u32` (`FullSpec3`). -/
-def fullBveCollectSpec : Spec [i64, i32, i64, i32] [i32] :=
+@[expose] def fullBveCollectSpec : Spec [i64, i32, i64, i32] [i32] :=
   fun (h, lit, out_ptr, cap, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (out_off : Nat)
       (R : Mem 64 → Prop),
@@ -336,7 +335,7 @@ def fullBveCollectSpec : Spec [i64, i32, i64, i32] [i32] :=
         (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
 /-- 2a. `full_bve_mark_and` `SafetySlice` internal helper spec. -/
-def fullBveMarkAndSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
+private def fullBveMarkAndSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
   SafetySlice.spec fullSafetySlice
     (fun c (h, _v_lit, cr, n_off, nn, ()) s =>
       h = c.hdr ∧ FullLitMarksClear c s ∧
@@ -353,7 +352,7 @@ def fullBveMarkAndSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
         scr'[k]? = s.scratch.scratch_buf[k]?)
 
 /-- 2. `full_bve_mark_and(h, v_lit, cr, n_off, nn) : bool` (`FullSpec3`). -/
-def fullBveMarkAndSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
+@[expose] def fullBveMarkAndSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
   fun (h, v_lit, cr, n_off, nn, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ 132 ≤ c.scratch_cap ∧
@@ -372,7 +371,7 @@ def fullBveMarkAndSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
         (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 /-- 3. `full_bve_gates(h, v, np, nn) : void` (`FullSpec3`). -/
-def fullBveGatesSpec : Spec [i64, i32, i32, i32] [] := fun (h, v, np, nn, ()) m Q _ =>
+@[expose] def fullBveGatesSpec : Spec [i64, i32, i32, i32] [] := fun (h, v, np, nn, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ 132 ≤ c.scratch_cap ∧
     v.toNat < s.core.cur_vars ∧ np.toNat ≤ 64 ∧ nn.toNat ≤ 64 ∧
@@ -391,7 +390,7 @@ def fullBveGatesSpec : Spec [i64, i32, i32, i32] [] := fun (h, v, np, nn, ()) m 
       (FullMem c s' ⋆ R) m' → Q () m'
 
 /-- 4. `full_bve_resolve_pair(h, v, pc, nc) : bool` (`FullSpec3`). -/
-def fullBveResolvePairSpec : Spec [i64, i32, i32, i32] [.bool] :=
+@[expose] def fullBveResolvePairSpec : Spec [i64, i32, i32, i32] [.bool] :=
   fun (h, v, pc, nc, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ v.toNat < s.core.cur_vars ∧
@@ -409,7 +408,7 @@ def fullBveResolvePairSpec : Spec [i64, i32, i32, i32] [.bool] :=
         (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 /-- 5. `full_bve_weaken(h, blk_lit, off, cnt) : bool` (`FullSpec3` + `#1050` weak item ok). -/
-def fullBveWeakenSpec : Spec [i64, i32, i32, i32] [.bool] :=
+@[expose] def fullBveWeakenSpec : Spec [i64, i32, i32, i32] [.bool] :=
   fun (h, blk_lit, off, cnt, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ blk_lit.toNat < 2 * s.core.cur_vars ∧
@@ -424,7 +423,7 @@ def fullBveWeakenSpec : Spec [i64, i32, i32, i32] [.bool] :=
         (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 /-- 6a. `full_bve_try_bce` `SafetySlice` internal helper spec (`#1050`: weak `garb`). -/
-def fullBveTryBceSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
+private def fullBveTryBceSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
   SafetySlice.spec fullTryBceSlice
     (fun c (h, _blk_lit, cr, opp_off, opp_n, ()) s =>
       h = c.hdr ∧ FullLitMarksClear c s ∧ opp_off.toNat + opp_n.toNat ≤ c.scratch_cap ∧
@@ -439,7 +438,7 @@ def fullBveTryBceSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
 
 /-- 6. `full_bve_try_bce(h, blk_lit, cr, opp_off, opp_n) : bool`
 (`FullSpec3` + `#1050` weak item ok). -/
-def fullBveTryBceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
+@[expose] def fullBveTryBceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
   fun (h, blk_lit, cr, opp_off, opp_n, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ blk_lit.toNat < 2 * s.core.cur_vars ∧
@@ -454,7 +453,7 @@ def fullBveTryBceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
         FullDenseInvW c F0 F_cur s' → (FullMem c s' ⋆ R) m' → Q (blk, ()) m'
 
 /-- Callee contracts used by `full_bve_weaken` (`FullSpec{2,3}` + `#1050`). -/
-def fullExtendPush2Spec : Spec [i64, i32, i32] [.bool] :=
+@[expose] def fullExtendPush2Spec : Spec [i64, i32, i32] [.bool] :=
   SafetySlice.spec fullSafetySlice
     (fun c (h, _blk, _ot, ()) s => h = c.hdr ∧ s.scratch.extend_len ≤ c.extend_cap)
     (fun c _ _ s s' =>
@@ -462,7 +461,7 @@ def fullExtendPush2Spec : Spec [i64, i32, i32] [.bool] :=
       s'.scratch.extend_len ≤ c.extend_cap ∧
       s'.scratch.scratch_buf = s.scratch.scratch_buf)
 
-def fullExtendPushClSpec : Spec [i64, i32, i32] [.bool] :=
+@[expose] def fullExtendPushClSpec : Spec [i64, i32, i32] [.bool] :=
   SafetySlice.spec fullSafetySlice
     (fun c (h, _blk, _cr, ()) s => h = c.hdr ∧ s.scratch.extend_len ≤ c.extend_cap)
     (fun c _ _ s s' =>
@@ -470,7 +469,7 @@ def fullExtendPushClSpec : Spec [i64, i32, i32] [.bool] :=
       s'.scratch.extend_len ≤ c.extend_cap ∧
       s'.scratch.scratch_buf = s.scratch.scratch_buf)
 
-def fullDeleteBinarySpec : Spec [i64, i32, i32] [] :=
+@[expose] def fullDeleteBinarySpec : Spec [i64, i32, i32] [] :=
   fun (h, _a, _b, ()) m Q _ =>
     ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout s.core ∧ (FullMem c s ⋆ R) m ∧

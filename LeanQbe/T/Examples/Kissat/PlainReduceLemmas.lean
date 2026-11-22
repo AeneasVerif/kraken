@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas4
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Compaction GC (`plain_sweep`) & Reduction (`plain_reduce`) (`Wave 2b`)
@@ -14,7 +12,7 @@ Provides verified parametric `(Γ : Env)` `Func.wp` contracts for:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 

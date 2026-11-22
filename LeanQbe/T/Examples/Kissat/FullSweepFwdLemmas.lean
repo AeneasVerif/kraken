@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullSweepFwdLemmas1
 public import LeanQbe.T.Examples.Kissat.FullSweepFwdLemmas2
-public meta import LeanQbe.T.Logic.C0Step
+meta import LeanQbe.T.Logic.C0Step
 
 /-!
 # Kissat `D-Full` Bounded Cone SAT Sweeping — Part 3 (`Stage 4`)
@@ -16,7 +16,7 @@ Re-exports all 4 shard theorems (`full_sweep_add_cl_wp`, `full_sweep_cone_wp`,
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

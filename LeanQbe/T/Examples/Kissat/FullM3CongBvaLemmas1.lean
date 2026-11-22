@@ -4,8 +4,6 @@ public import LeanQbe.T.Examples.Kissat.FullM3CongBva
 public import LeanQbe.T.Examples.Kissat.FullFastSchedLemmas
 public import LeanQbe.T.Examples.Kissat.FullCongLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` M3b Congruence & BVA/BVE Proofs — Part 1 (`Specs`, Lemmas, Helpers #1–#4)
@@ -22,7 +20,7 @@ folding & hash-matching soundness lemmas, `FullMem` framing helpers, and paramet
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullM3CongBva
 
@@ -40,7 +38,7 @@ open Kraken.Bedrock2.Test
 section Specs
 
 /-- `full_cong_extract(h, g_cap, tick_lim)` (`FullDefSweep`, 3-arg M2b contract). -/
-def fullCongExtractTickSpec : Spec [i64, i64, i64] [i64] :=
+@[expose] def fullCongExtractTickSpec : Spec [i64, i64, i64] [i64] :=
   fun (h, g_cap, _tick_lim, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
@@ -53,7 +51,7 @@ def fullCongExtractTickSpec : Spec [i64, i64, i64] [i64] :=
         (FullMem c s' ⋆ R) m' → Q (ret, ()) m'
 
 /-- `full_sweep_dense(h, budget, tick_lim)` (`FullDefSweep`, 3-arg dense SAT sweeping). -/
-def fullSweepDenseSpec : Spec [i64, i64, i64] [i64] :=
+@[expose] def fullSweepDenseSpec : Spec [i64, i64, i64] [i64] :=
   fun (h, _budget, _tick_lim, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ FullDenseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
@@ -64,7 +62,7 @@ def fullSweepDenseSpec : Spec [i64, i64, i64] [i64] :=
         (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
 /-- `full_factor(h, budget)` (`FullBvaHeap`, 2-arg max-degree heap BVA). -/
-def fullFactorHeapSpec : Spec [i64, i64] [i64] := fun (h, _budget, ()) m Q _ =>
+@[expose] def fullFactorHeapSpec : Spec [i64, i64] [i64] := fun (h, _budget, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
     ∀ r s' m',
@@ -73,7 +71,7 @@ def fullFactorHeapSpec : Spec [i64, i64] [i64] := fun (h, _budget, ()) m Q _ =>
 
 /-- **#1 (`full_cong_mark_trail`)**: marks newly pushed trail literals & representatives
 in `tarjan_mark` with epoch `ep` while preserving `CongReprInv` and all non-`repr`/`tmk` fields. -/
-def m3CongMarkTrailSpec : Spec [i64, i64, i32] [] := fun (h, _prev_te, _ep, ()) m Q _ =>
+@[expose] def m3CongMarkTrailSpec : Spec [i64, i64, i32] [] := fun (h, _prev_te, _ep, ()) m Q _ =>
   ∃ (c : FullCfg) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧
     FullCongReprInv F_cur (2 * s.core.cur_vars) s.core.repr ∧
@@ -89,7 +87,7 @@ def m3CongMarkTrailSpec : Spec [i64, i64, i32] [] := fun (h, _prev_te, _ep, ()) 
 
 /-- **#2 (`full_cong_unit_fold`)**: propagates an entailed literal under congruence, marks
 trail epochs, and returns `0` (already satisfied), `1` (propagated), or `2` (`F0.Unsat`). -/
-def m3CongUnitFoldSpec : Spec [i64, i32, i32] [i64] := fun (h, lit, _next_ep, ()) m Q _ =>
+@[expose] def m3CongUnitFoldSpec : Spec [i64, i32, i32] [i64] := fun (h, lit, _next_ep, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
     FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧ FullExtScratchOk c s ∧
@@ -112,7 +110,7 @@ def m3CongUnitFoldSpec : Spec [i64, i32, i32] [i64] := fun (h, lit, _next_ep, ()
 
 /-- **#3 (`full_cong_equiv_fold`)**: propagates unit values when either side of `a ↔ b`
 is assigned, merges `repr`, marks `tmk` & trail, and flags `2#64` (`F0.Unsat`) on conflict. -/
-def m3CongEquivFoldSpec : Spec [i64, i32, i32, i32] [i64] :=
+@[expose] def m3CongEquivFoldSpec : Spec [i64, i32, i32, i32] [i64] :=
   fun (h, a, b, _next_ep, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
@@ -136,7 +134,7 @@ def m3CongEquivFoldSpec : Spec [i64, i32, i32, i32] [i64] :=
 
 /-- **#4 (`full_cong_and_match`)**: matches a candidate AND gate at `scr[ent]` (with unit-true
 inputs dropped and remaining inputs matched bijectively against `tmp[0 ..< ua)`). -/
-def m3CongAndMatchSpec : Spec [i64, i32, i32] [.bool] := fun (h, ent, ua, ()) m Q _ =>
+@[expose] def m3CongAndMatchSpec : Spec [i64, i32, i32] [.bool] := fun (h, ent, ua, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
     (scr0 : List (BitVec 32)) (g_len : Nat) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ s.core.cur_level = 0 ∧
@@ -161,7 +159,7 @@ def m3CongAndMatchSpec : Spec [i64, i32, i32] [.bool] := fun (h, ent, ua, ()) m 
 /-- **#5 (`full_cong_work_step`)**: worklist-filtered single congruence pass preserving
 `FullDenseInv`, `FullCongReprInv`, persistent `CongHtInv`, `scr[0..g_len)`, `cur_vars`, `fuel`,
 returning `st = r &&& 3` with `st = 2 → F0.Unsat`. -/
-def m3CongWorkStepSpec : Spec [i64, i64, i64, i64, i32] [i64] :=
+@[expose] def m3CongWorkStepSpec : Spec [i64, i64, i64, i64, i32] [i64] :=
   fun (h, g_len, ht_off, ht_sz, _cur_ep, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
       (scr0 : List (BitVec 32)) (R : Mem 64 → Prop),
@@ -191,7 +189,7 @@ def m3CongWorkStepSpec : Spec [i64, i64, i64, i64, i32] [i64] :=
 
 /-- **#6 (`full_congruence_dense`)**: dense-mode ticks-bounded congruence closure (up to `65536` HT,
 epoch worklist, depth cap lifted), returning `1#64` or `20#64` (`F0.Unsat`). -/
-def m3CongruenceDenseSpec : Spec [i64, i64] [i64] := fun (h, _tick_lim, ()) m Q _ =>
+@[expose] def m3CongruenceDenseSpec : Spec [i64, i64] [i64] := fun (h, _tick_lim, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
     ∀ r s' m',
@@ -202,7 +200,7 @@ def m3CongruenceDenseSpec : Spec [i64, i64] [i64] := fun (h, _tick_lim, ()) m Q 
 /-- **#7 (`full_elim_collect_nbrs`)**: collects active unassigned variable neighbors of `v` into
 `work_stk2[0 ..< nn)` while keeping `nn ≤ cur_vars`, all stored indices `< cur_vars`, and preserving
 `FullDenseInv`, `TmkZero`, `cur_vars`, and `fuel`. -/
-def m3ElimCollectNbrsSpec : Spec [i64, i32] [i64] := fun (h, _v, ()) m Q _ =>
+@[expose] def m3ElimCollectNbrsSpec : Spec [i64, i32] [i64] := fun (h, _v, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInv c F0 s ∧ TmkZero s ∧ (FullMem c s ⋆ R) m ∧
     ∀ nn mclr' ws2' m',
@@ -217,7 +215,7 @@ def m3ElimCollectNbrsSpec : Spec [i64, i32] [i64] := fun (h, _v, ()) m Q _ =>
 
 /-- **#8 (`full_elim_bve`)**: M3b neighbor-rearming multi-pass BVE (`16` passes, `FL_ELIM_C`),
 preserving `FullDenseInv`, `TmkZero`, `cur_vars ≤`, and `fuel ≤`. -/
-def m3ElimBveSpec : Spec [i64, i64] [i64] := fun (h, _bve_lim, ()) m Q _ =>
+@[expose] def m3ElimBveSpec : Spec [i64, i64] [i64] := fun (h, _bve_lim, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullDenseInv c F0 s ∧ TmkZero s ∧ (FullMem c s ⋆ R) m ∧
     ∀ r s' m',

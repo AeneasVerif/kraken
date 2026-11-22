@@ -1,8 +1,8 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullM3CongBvaLemmas6
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas
+import LeanQbe.T.Examples.Kissat.FullProof
 
 /-!
 # Kissat `D-Full` M3b Congruence & BVA/BVE — `ModuleOk`, Soundness, & Non-Vacuity
@@ -24,7 +24,7 @@ Assembles:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullM3CongBva
 
@@ -41,7 +41,7 @@ open Kraken.Bedrock2.Test
 section StandaloneModule
 
 /-- `31`-row specification table for standalone `m3Module` (`11` M3b fns ++ `20` `m3Externs`). -/
-def m3SpecTable : List SpecEntry :=
+@[expose] def m3SpecTable : List SpecEntry :=
   [ ⟨"full_cong_mark_trail", [i64, i64, i32], [], m3CongMarkTrailSpec, true⟩
   , ⟨"full_cong_unit_fold", [i64, i32, i32], [i64], m3CongUnitFoldSpec, true⟩
   , ⟨"full_cong_equiv_fold", [i64, i32, i32, i32], [i64], m3CongEquivFoldSpec, true⟩
@@ -74,7 +74,7 @@ def m3SpecTable : List SpecEntry :=
   , ⟨"full_propagate", [i64], [i64], fullPropagateSpec, true⟩
   , ⟨"full_arena_sweep", [i64], [i64], fullArenaSweepSpec, true⟩ ]
 
-def m3Env : Env := Env.ofTable m3SpecTable
+@[expose] def m3Env : Env := Env.ofTable m3SpecTable
 
 theorem m3SpecTable_sigs :
     m3SpecTable.map (fun e => (e.name, e.as, e.rs)) = m3Module.sigs := by
@@ -170,12 +170,12 @@ end StandaloneModule
 
 /-! ## 2. Unified `201`-Row `m3FullSpecTable`, `mkM3FullEnv`, Soundness & Non-Vacuity -/
 
-def mkM3FullEnv (ext : M2bInternalSpecs)
+@[expose] def mkM3FullEnv (ext : M2bInternalSpecs)
     (mainSpec : Spec [i64, i64, i64, i64, i64] [i64]) : Env :=
   Env.ofTable (m3FullSpecTable ext mainSpec)
 
-def m3FullEnv : Env := mkM3FullEnv m3DefaultExtSpecs fullSolveBytesSpec
-def m3FullUnsatEnv : Env := mkM3FullEnv m3DefaultExtSpecs schedUnsatWitnessSpec
+@[expose] def m3FullEnv : Env := mkM3FullEnv m3DefaultExtSpecs fullSolveBytesSpec
+@[expose] def m3FullUnsatEnv : Env := mkM3FullEnv m3DefaultExtSpecs schedUnsatWitnessSpec
 
 theorem m3FullSpecTable_sigs (ext : M2bInternalSpecs)
     (mainSpec : Spec [i64, i64, i64, i64, i64] [i64]) :
@@ -402,7 +402,7 @@ theorem m3_unsat_nonvacuous :
 /-- Indices in `m3Fns` (`201` fns) of the `43` unlanded M2/M2b dependencies: `FastCore` (`3`),
 `FullKitten` (`15`), `FullDefSweep` (`8`), `FullBvaHeap` (`13`), and the `4` `TmkZero`-preserving
 BVE helper upgrades (`94, 95, 169, 171`). All remaining `158 / 201` rows are proved! -/
-def m3UnlandedIndices : List Nat :=
+@[expose] def m3UnlandedIndices : List Nat :=
   [47, 48, 49, 94, 95] ++ List.range' 128 15 ++
   [150, 157, 158, 159, 160, 165, 166, 167, 169, 171] ++ List.range' 174 13
 

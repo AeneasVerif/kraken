@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainSpec
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Clause-Database Reduction Helpers & Core Contracts — Part 1 (`Wave 2b`)
@@ -19,7 +17,7 @@ arena-flag / binary-watch / garbage-mask preservation lemmas, and verified param
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 
@@ -472,7 +470,7 @@ private theorem arenaNextOff_congr_shrk {ar1 ar2 : List (BitVec 32)} {alen r : N
 
 /-! ## 2. Arena mask-preservation invariant, scan traversal, `RedSub`, and binary watches -/
 
-def ArenaMaskOk (mask : BitVec 32) (s : PlainState) (arena' : List (BitVec 32)) : Prop :=
+@[expose] def ArenaMaskOk (mask : BitVec 32) (s : PlainState) (arena' : List (BitVec 32)) : Prop :=
   arena'.length = s.arena.length ∧
   (∀ k, k ∉ arenaClauseRefs s → arena'[k]? = s.arena[k]?) ∧
   ∀ r ∈ arenaClauseRefs s,
@@ -694,7 +692,7 @@ theorem redSub_bound {n cap : Nat} {xs xs0 : List (BitVec 32)}
   have hg : xs[k] = xs0[j]?.getD 0#32 := by
     simpa [List.getElem?_eq_getElem hkl] using congrArg (·.getD 0#32) heq
   rw [hg]; exact hbd j hj
-def BinWatchOk (c : PlainCfg) (F0 : CNF Nat) (l : Nat) (w : BitVec 32) : Prop :=
+@[expose] def BinWatchOk (c : PlainCfg) (F0 : CNF Nat) (l : Nat) (w : BitVec 32) : Prop :=
   (w &&& 0x80000000#32) ≠ 0#32 ∧ (w &&& 0x7FFFFFFF#32).toNat < 2 * c.mv ∧
   F0.EntailsClause (cnfClause [l, (w &&& 0x7FFFFFFF#32).toNat])
 theorem binWatch_ne_sent {c : PlainCfg} {F0 : CNF Nat} {l : Nat} {w : BitVec 32}
@@ -1239,7 +1237,7 @@ theorem bv32_lit_bin_flag {lit : BitVec 32} (hlt : lit.toNat < 0x7FFFFFFF) :
       from by decide] at hcon; omega
   refine ⟨hm, ?_, ?_, ?_⟩ <;> simpa [hm]
 
-def BinWatchesOnly (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) (n : Nat) : Prop :=
+@[expose] def BinWatchesOnly (c : PlainCfg) (F0 : CNF Nat) (s : PlainState) (n : Nat) : Prop :=
   WatchesInv c F0 s ∧ ∀ l < n, l < 2 * c.mv → ∀ k < watchSize s l,
     ∃ w, s.wstk[watchOff s l + k]? = some w ∧ BinWatchOk c F0 l w
 
@@ -1424,7 +1422,7 @@ theorem sweep_prune_push {ws0 ws : List (BitVec 32)} {off q p end_ : Nat} {w0 : 
    (fun k _ hkl => by rw [List.getElem?_set_ne (by omega)]),
    by rw [show off + (q - off) = q by omega, List.getElem?_set_self hq_lt]⟩
 
-def GarbMaskOk (s0 : PlainState) (arena' : List (BitVec 32)) : Prop :=
+@[expose] def GarbMaskOk (s0 : PlainState) (arena' : List (BitVec 32)) : Prop :=
   arena'.length = s0.arena.length ∧
   (∀ k, k ∉ arenaClauseRefs s0 → arena'[k]? = s0.arena[k]?) ∧
   (∀ r ∈ arenaClauseRefs s0,

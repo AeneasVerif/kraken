@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Stage-4 Watch & Probe-Prop Preservation Helpers (`Stage 4`, Part 2)
@@ -18,7 +16,7 @@ Provides:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -1304,7 +1302,7 @@ theorem arena_swapLits_preserves_nw {c : FullCfg} {F0 : CNF Nat} {F_cur : List (
     List.set_getElem_self h1lt
   simpa only [heq] using hsw
 
-def fullFindReplBad (st : FullState) (cref k : Nat) : Prop :=
+@[expose] def fullFindReplBad (st : FullState) (cref k : Nat) : Prop :=
   let cand := (st.core.arena[cref + 3 + k]?.getD 0#32).toNat
   2 * st.core.cur_vars ≤ cand ∨
   ((st.core.vals[cand]?.getD 0#8).signExtend 32).slt 0#32 = true

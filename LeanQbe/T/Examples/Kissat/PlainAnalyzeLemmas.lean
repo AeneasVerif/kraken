@@ -11,7 +11,7 @@ all 14 `Γ` callees.
 -/
 
 set_option autoImplicit false
-@[expose] public section
+public section
 namespace LeanQbe.T.Examples.Kissat.Plain
 open Std Std.Sat Std.ExtHashMap LeanQbe.T LeanQbe.T.ProofUtil LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat LeanQbe.T.C0Step Kraken.Bedrock2.Test PlainAnalyzeTactics

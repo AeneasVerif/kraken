@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas2
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` `full_hbr_dom` & `full_probe_prop_lit` Proofs (`Stage 4`, Part 3)
@@ -10,7 +8,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

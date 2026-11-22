@@ -3,8 +3,6 @@ module
 public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas1
 public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas2
 public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas3
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Tiered Clause Vivification Proofs — Hub (`full_viv_deduce` & exports)
@@ -15,7 +13,7 @@ and proves `full_viv_deduce_wp` for `full_viv_deduce` (`Stage 4`, UNSAT-only).
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -29,7 +27,7 @@ namespace FullVivifySpecs
 /-- Specification for `full_viv_deduce(h, cref, implied, out)`: backward unit/reason analysis
 from a probe propagation or conflict, clearing `mrk` on exit and proving `F_cur ⊨ out[0..<olen]`
 whenever `olen < fullArenaClauseSize s cref.toNat`. -/
-def fullVivDeduceSpec : Spec [i64, i32, i32, i64] [i32] :=
+@[expose] def fullVivDeduceSpec : Spec [i64, i32, i32, i64] [i32] :=
   fun (h, cref, implied, out_ptr, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
       (R : Mem 64 → Prop),

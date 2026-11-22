@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` UNSAT-Only BVE/BCE Proofs — Part 2 (`Stage 4`, BVE/BCE Shard)
@@ -16,7 +14,7 @@ Provides:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -279,7 +277,7 @@ theorem tmpMark_clear_step {lm : List (BitVec 8)} {tmp : List (BitVec 32)}
       exact ⟨r, by omega, hrl⟩
     · exact Or.inr hnone
 
-structure ResolveTmpInv (c : FullCfg) (s : FullState) (rlen : Nat)
+private structure ResolveTmpInv (c : FullCfg) (s : FullState) (rlen : Nat)
     (tmp : List (BitVec 32)) (lm : List (BitVec 8)) : Prop where
   cur_le : s.core.cur_vars ≤ c.max_vars
   rlen_le : rlen ≤ s.core.cur_vars
@@ -292,7 +290,7 @@ structure ResolveTmpInv (c : FullCfg) (s : FullState) (rlen : Nat)
   unmarked : ∀ l < 2 * c.max_vars,
     (∀ k < rlen, (tmp[k]?.getD 0#32).toNat ≠ l) → lm[l]? = some 0#8
 
-theorem ResolveTmpInv.init {c : FullCfg} {s : FullState} (hcl : s.core.LengthsOk c)
+private theorem ResolveTmpInv.init {c : FullCfg} {s : FullState} (hcl : s.core.LengthsOk c)
     (hlmc : ∀ l < 2 * c.max_vars, s.core.lit_mark[l]?.getD 0#8 = 0#8) :
     ResolveTmpInv c s 0 s.core.tmp s.core.lit_mark :=
   ⟨hcl.cur_vars_le, Nat.zero_le _, hcl.tmp_len_arr, hcl.lit_mark_len, fun _ hk => by omega,
@@ -301,7 +299,7 @@ theorem ResolveTmpInv.init {c : FullCfg} {s : FullState} (hcl : s.core.LengthsOk
      rw [List.getElem?_eq_getElem (by rw [hcl.lit_mark_len]; exact hl), Option.getD_some] at this
      rw [List.getElem?_eq_getElem (by rw [hcl.lit_mark_len]; exact hl), this]⟩
 
-theorem ResolveTmpInv.not_mem_of_lm0 {c : FullCfg} {s : FullState} {rlen : Nat}
+private theorem ResolveTmpInv.not_mem_of_lm0 {c : FullCfg} {s : FullState} {rlen : Nat}
     {tmp : List (BitVec 32)} {lm : List (BitVec 8)} (h : ResolveTmpInv c s rlen tmp lm)
     {l : Nat} (hl : l < 2 * c.max_vars) (hlm : lm[l]? = some 0#8) :
     ∀ k < rlen, (tmp[k]?.getD 0#32).toNat ≠ l := by
@@ -309,7 +307,7 @@ theorem ResolveTmpInv.not_mem_of_lm0 {c : FullCfg} {s : FullState} {rlen : Nat}
   have h1 := h.marked l hl ⟨k, hk, heq⟩
   rw [hlm] at h1; cases h1
 
-theorem ResolveTmpInv.mem_of_lm_ne0 {c : FullCfg} {s : FullState} {rlen : Nat}
+private theorem ResolveTmpInv.mem_of_lm_ne0 {c : FullCfg} {s : FullState} {rlen : Nat}
     {tmp : List (BitVec 32)} {lm : List (BitVec 8)} (h : ResolveTmpInv c s rlen tmp lm)
     {l : Nat} (hl : l < 2 * c.max_vars) (hlm : lm[l]? ≠ some 0#8) :
     l ∈ (tmp.take rlen).map BitVec.toNat := by
@@ -331,7 +329,7 @@ private theorem nat_div2_eq_iff {a b : Nat} (h : a / 2 = b / 2) : a = b ∨ a = 
   · simp only [litNeg, hb, ↓reduceIte] at hle; rw [hle]; omega
   · simp only [litNeg, show b % 2 ≠ 0 by omega, ↓reduceIte] at hle; rw [hle]; omega
 
-theorem ResolveTmpInv.rlen_lt_of_unmarked {c : FullCfg} {s : FullState} {rlen : Nat}
+private theorem ResolveTmpInv.rlen_lt_of_unmarked {c : FullCfg} {s : FullState} {rlen : Nat}
     {tmp : List (BitVec 32)} {lm : List (BitVec 8)} (h : ResolveTmpInv c s rlen tmp lm)
     {l : BitVec 32} (hl : l.toNat < 2 * s.core.cur_vars)
     (hlm0 : lm[l.toNat]? = some 0#8) (hlm1 : lm[l.toNat ^^^ 1]? = some 0#8) :
@@ -377,7 +375,7 @@ theorem ResolveTmpInv.rlen_lt_of_unmarked {c : FullCfg} {s : FullState} {rlen : 
   simp only [List.length_cons, List.length_map, htk_len] at hlen
   omega
 
-theorem ResolveTmpInv.push {c : FullCfg} {s : FullState} {rlen : Nat}
+private theorem ResolveTmpInv.push {c : FullCfg} {s : FullState} {rlen : Nat}
     {tmp : List (BitVec 32)} {lm : List (BitVec 8)} (h : ResolveTmpInv c s rlen tmp lm)
     {l : BitVec 32} (hl : l.toNat < 2 * s.core.cur_vars)
     (hlm0 : lm[l.toNat]? = some 0#8) (hlm1 : lm[l.toNat ^^^ 1]? = some 0#8) :
@@ -437,10 +435,10 @@ theorem ResolveTmpInv.push {c : FullCfg} {s : FullState} {rlen : Nat}
   · intro z hz; rw [take_set_append hrtmp, List.map_append]; exact List.mem_append_left _ hz
   · rw [take_set_append hrtmp, List.map_append]; exact List.mem_append_right _ (by simp)
 
-def SideCovered (F_cur : List (List Nat)) (piv : Nat) (R : List Nat) (x : Nat) : Prop :=
+private def SideCovered (F_cur : List (List Nat)) (piv : Nat) (R : List Nat) (x : Nat) : Prop :=
   x = piv ∨ x ∈ R ∨ (cnfOfClauses F_cur).EntailsClause (cnfClause [x ^^^ 1])
 
-theorem SideCovered.mono {F_cur : List (List Nat)} {piv : Nat} {R1 R2 : List Nat}
+private theorem SideCovered.mono {F_cur : List (List Nat)} {piv : Nat} {R1 R2 : List Nat}
     (hsub : ∀ z ∈ R1, z ∈ R2) {x : Nat} (hx : SideCovered F_cur piv R1 x) :
     SideCovered F_cur piv R2 x := by
   rcases hx with rfl | hmem | hent
@@ -448,7 +446,7 @@ theorem SideCovered.mono {F_cur : List (List Nat)} {piv : Nat} {R1 R2 : List Nat
   · exact Or.inr (Or.inl (hsub _ hmem))
   · exact Or.inr (Or.inr hent)
 
-theorem side_entails_of_clause {F_cur : List (List Nat)} {piv : Nat} {R xs : List Nat}
+private theorem side_entails_of_clause {F_cur : List (List Nat)} {piv : Nat} {R xs : List Nat}
     (hxs : (cnfOfClauses F_cur).EntailsClause (cnfClause xs))
     (hcov : ∀ x ∈ xs, SideCovered F_cur piv R x) :
     (cnfOfClauses F_cur).EntailsClause (cnfClause (piv :: R)) := by
@@ -463,7 +461,7 @@ theorem side_entails_of_clause {F_cur : List (List Nat)} {piv : Nat} {R xs : Lis
     rw [hln] at hneg
     exact absurd ((sat_cnfClause_singleton α x).mpr hsat) ((sat_cnfClause_litNeg_iff α x).mp hneg)
 
-theorem side_entails_of_bin {F_cur : List (List Nat)} {piv ot : Nat} {R : List Nat}
+private theorem side_entails_of_bin {F_cur : List (List Nat)} {piv ot : Nat} {R : List Nat}
     (hbin : (cnfOfClauses F_cur).EntailsClause (cnfClause [piv, ot]))
     (hcov : SideCovered F_cur piv R ot) :
     (cnfOfClauses F_cur).EntailsClause (cnfClause (piv :: R)) :=
@@ -495,7 +493,7 @@ theorem resolve_pivots_entails {F_cur : List (List Nat)} {v : Nat} {R : List Nat
     · exact absurd ((sat_cnfClause_singleton α _).mpr hys) hsat
     · exact (clause_sat_cnfClause_iff α R).mpr ⟨y, hyr, hys⟩
 
-theorem resolve_lit_sideCovered_of_val_ne0 {c : FullCfg} {F0 : CNF Nat}
+private theorem resolve_lit_sideCovered_of_val_ne0 {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {s : FullState} (hw : FullWitnessInv c F0 F_cur s.core)
     (hlv0 : s.core.cur_level = 0) {piv : Nat} {R : List Nat} {l : Nat}
     (hl : l < 2 * s.core.cur_vars) (hsgt : ¬ BitVec.slt 0#8 (s.core.vals[l]?.getD 0#8))
@@ -509,7 +507,7 @@ theorem resolve_lit_sideCovered_of_val_ne0 {c : FullCfg} {F0 : CNF Nat}
     · exact h
   exact Or.inr (Or.inr (witness_lit_false_entails hw hlv0 hl hff))
 
-theorem resolve_lit_sideCovered_of_marked {c : FullCfg} {F_cur : List (List Nat)}
+private theorem resolve_lit_sideCovered_of_marked {c : FullCfg} {F_cur : List (List Nat)}
     {s : FullState} {rlen : Nat} {tmp : List (BitVec 32)} {lm : List (BitVec 8)}
     (htmp : ResolveTmpInv c s rlen tmp lm) {piv : Nat} {l : Nat}
     (hl : l < 2 * s.core.cur_vars) (hlmne : lm[l]? ≠ some 0#8) :
@@ -524,7 +522,7 @@ theorem entails_clause_of_subset {F : CNF Nat} {xs ys : List Nat}
   obtain ⟨x, hx, hsat⟩ := (clause_sat_cnfClause_iff α xs).mp (hxs α hα)
   exact (clause_sat_cnfClause_iff α ys).mpr ⟨x, hsub x hx, hsat⟩
 
-theorem resolve_clause_step_push {c : FullCfg} {F_cur : List (List Nat)}
+private theorem resolve_clause_step_push {c : FullCfg} {F_cur : List (List Nat)}
     {s : FullState} {rlen i piv cr : Nat} {tmp : List (BitVec 32)} {lm : List (BitVec 8)}
     {R0 : List Nat}
     (htmp : ResolveTmpInv c s rlen tmp lm)
@@ -547,7 +545,7 @@ theorem resolve_clause_step_push {c : FullCfg} {F_cur : List (List Nat)}
   · rw [List.getElem?_eq_getElem hi_ar, Option.getD_some, hl_eq]
     exact Or.inr (Or.inl hmem)
 
-theorem resolve_clause_step_keep {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+private theorem resolve_clause_step_keep {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s : FullState} {rlen i piv cr : Nat} {tmp : List (BitVec 32)} {lm : List (BitVec 8)}
     (hw : FullWitnessInv c F0 F_cur s.core) (hlv0 : s.core.cur_level = 0)
     (htmp : ResolveTmpInv c s rlen tmp lm)
@@ -570,7 +568,7 @@ theorem resolve_clause_step_keep {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Lis
     · exact resolve_lit_sideCovered_of_val_ne0 hw hlv0 hl_lt hsgt hne0
     · exact resolve_lit_sideCovered_of_marked htmp hl_lt hlmne
 
-theorem resolve_clause_finish {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+private theorem resolve_clause_finish {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s : FullState} {cr sz piv : Nat} {R : List Nat}
     (hw : FullWitnessInv c F0 F_cur s.core) (hcl : s.core.LengthsOk c)
     (href : cr ∈ fullArenaClauseRefs s) (hgarb : fullArenaClauseGarb s cr = false)

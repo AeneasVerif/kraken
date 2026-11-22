@@ -15,7 +15,7 @@ Builds on `PlainSpec` to provide:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 
@@ -301,27 +301,27 @@ theorem mem_rsnLits_large {s : PlainState} {rsn : BitVec 32}
   simp [rsnLits, hne, hlo]
 
 /-- Lower-level literals accumulated in `tmp[1 ..< tl)`. -/
-def lowerLits (tmp : List (BitVec 32)) (tl : Nat) : List Nat :=
+@[expose] def lowerLits (tmp : List (BitVec 32)) (tl : Nat) : List Nat :=
   ((tmp.drop 1).take (tl - 1)).map BitVec.toNat
 
 /-- Marked current-level trail indices strictly below `idx`. -/
-def curTrailIdxs (s : PlainState) (mrk : List (BitVec 8)) (idx : Nat) : List Nat :=
+@[expose] def curTrailIdxs (s : PlainState) (mrk : List (BitVec 8)) (idx : Nat) : List Nat :=
   (List.range idx).filter fun j =>
     let v := (s.trl[j]?.getD 0#32).toNat / 2
     decide (mrk[v]?.getD 0#8 ≠ 0#8) &&
       decide ((s.lvl[v]?.getD 0#32).toNat = s.cur_level)
 
 /-- Negated marked current-level trail literals strictly below `idx`. -/
-def curLits (s : PlainState) (mrk : List (BitVec 8)) (idx : Nat) : List Nat :=
+@[expose] def curLits (s : PlainState) (mrk : List (BitVec 8)) (idx : Nat) : List Nat :=
   (curTrailIdxs s mrk idx).map fun j => (s.trl[j]?.getD 0#32).toNat ^^^ 1
 
 /-- Active 1-UIP resolvent clause (`lowerLits ++ curLits`). -/
-def activeResolvent (s : PlainState) (tmp : List (BitVec 32)) (mrk : List (BitVec 8))
+@[expose] def activeResolvent (s : PlainState) (tmp : List (BitVec 32)) (mrk : List (BitVec 8))
     (tl idx : Nat) : List Nat :=
   lowerLits tmp tl ++ curLits s mrk idx
 
 /-- Well-formedness of lower-level literals in `tmp[1 ..< tl)`. -/
-def LowerInv (c : PlainCfg) (s : PlainState) (tmp : List (BitVec 32))
+@[expose] def LowerInv (c : PlainCfg) (s : PlainState) (tmp : List (BitVec 32))
     (mrk : List (BitVec 8)) (tl : Nat) : Prop :=
   ∀ j, 1 ≤ j → j < tl →
     let l := (tmp[j]?.getD 0#32).toNat
@@ -330,7 +330,7 @@ def LowerInv (c : PlainCfg) (s : PlainState) (tmp : List (BitVec 32))
     mrk[l / 2]?.getD 0#8 ≠ 0#8
 
 /-- Coverage of all nonzero entries in `mrk` by `tmp[1 ..< tl)` or `cur_level` trail entries. -/
-def MarksCov (c : PlainCfg) (s : PlainState) (tmp : List (BitVec 32))
+@[expose] def MarksCov (c : PlainCfg) (s : PlainState) (tmp : List (BitVec 32))
     (mrk : List (BitVec 8)) (tl : Nat) : Prop :=
   ∀ v < c.mv, mrk[v]?.getD 0#8 ≠ 0#8 →
     (∃ j, 1 ≤ j ∧ j < tl ∧ (tmp[j]?.getD 0#32).toNat / 2 = v) ∨

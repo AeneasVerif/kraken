@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Plain` Compaction GC & Reduction Helpers — Part 2 (`Wave 2b`)
@@ -14,7 +12,7 @@ shared by `plain_sweep` and `plain_reduce`.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Plain
 
@@ -482,7 +480,7 @@ theorem arenaPrefix_append_props {c : PlainCfg} {F0 : CNF Nat} {s0 s : PlainStat
     exact ⟨(h_garb r hr').trans h1, (h_lits r hr').trans h3⟩
 
 /-- Reason-relocation invariant maintained across `plain_sweep` Phase 2. -/
-def RsnRelocInv (s0 s : PlainState) (src dst : Nat) : Prop :=
+@[expose] def RsnRelocInv (s0 s : PlainState) (src dst : Nat) : Prop :=
   s.rsns.length = s0.rsns.length ∧
   (0 < s0.cur_level → ∀ v, (∃ idx < s0.trail_end, (s0.trl[idx]?.getD 0#32).toNat / 2 = v ∧
     let r0 := s0.rsns[v]?.getD 0xFFFFFFFF#32
@@ -1100,7 +1098,7 @@ theorem setSrch2_core {c : PlainCfg} {F0 : CNF Nat} {s : PlainState}
   refine ⟨hcore hwat, hs.1, fun r hr => ?_⟩
   unfold arenaClauseGarb arenaHdr; dsimp only; rw [List.getElem?_set_ne (Ne.symm (hs.2.2.2 r hr))]
 
-def pushWatchState (s : PlainState) (wvec' wstk' wsort' : List (BitVec 32))
+@[expose] def pushWatchState (s : PlainState) (wvec' wstk' wsort' : List (BitVec 32))
     (wlen' : Nat) (wusable' : BitVec 64) : PlainState :=
   { s with wvec := wvec', wstk := wstk', wlen := wlen', wusable := wusable',
            heur := { s.heur with wsort := wsort' } }
@@ -1261,7 +1259,7 @@ theorem bv32_mask_sub_eq {mask sub x y : BitVec 32} (hm : (mask &&& sub) = sub)
 
 /-! ## 5. Sweep phase invariants and transition lemmas -/
 
-def SameSwPre (s0 s : PlainState) : Prop :=
+@[expose] def SameSwPre (s0 s : PlainState) : Prop :=
   s.d_cur = s0.d_cur ∧ s.d_val = s0.d_val ∧ s.propagated = s0.propagated ∧
   s.cur_level = s0.cur_level ∧ s.fuel = s0.fuel ∧ s.probing = s0.probing ∧
   s.confl_type = s0.confl_type ∧ s.confl_ref = s0.confl_ref ∧
@@ -1283,7 +1281,7 @@ theorem SameSwPre.eq {s0 s : PlainState} (h : SameSwPre s0 s) (hag : s.arena_gar
   cases s0; cases s; simp only at *
   subst h1 h2 h3 h4 h5 h6 h7 h8 h9 h10 h11 h12 h13 h14 h15 h16 h17 h18 hag; rfl
 
-def SwP1Inv (c : PlainCfg) (F0 : CNF Nat) (s0 : PlainState) (l : Nat)
+@[expose] def SwP1Inv (c : PlainCfg) (F0 : CNF Nat) (s0 : PlainState) (l : Nat)
     (s : PlainState) : Prop :=
   l ≤ 2 * c.mv ∧ s.LengthsOk c ∧ SameSwPre s0 s ∧
   s.vals = s0.vals ∧ s.lvl = s0.lvl ∧ s.rsns = s0.rsns ∧ s.trl = s0.trl ∧
@@ -1291,7 +1289,7 @@ def SwP1Inv (c : PlainCfg) (F0 : CNF Nat) (s0 : PlainState) (l : Nat)
   s.arena = s0.arena ∧ s.arena_len = s0.arena_len ∧ s.wlen = s0.wlen ∧ s.oom = s0.oom ∧
   s.heur.rel_trigger = s0.heur.rel_trigger ∧ BinWatchesOnly c F0 s l
 
-def SwP2Inv (c : PlainCfg) (F0 : CNF Nat) (s0 : PlainState)
+@[expose] def SwP2Inv (c : PlainCfg) (F0 : CNF Nat) (s0 : PlainState)
     (src dst : Nat) (new_unit : Bool) (s : PlainState) : Prop :=
   s.LengthsOk c ∧ SameSwPre s0 s ∧ s.heur.rel_trigger = s0.heur.rel_trigger ∧
   s.arena_len = s0.arena_len ∧ s.arena_garbage = s0.arena_garbage ∧ s.oom = s0.oom ∧
@@ -1303,7 +1301,7 @@ def SwP2Inv (c : PlainCfg) (F0 : CNF Nat) (s0 : PlainState)
     s.vals = s0.vals ∧ s.lvl = s0.lvl ∧ s.trl = s0.trl ∧
     s.trail_pos = s0.trail_pos ∧ s.trail_end = s0.trail_end)
 
-def SwP2ExitInv (c : PlainCfg) (F0 : CNF Nat) (s0 : PlainState)
+@[expose] def SwP2ExitInv (c : PlainCfg) (F0 : CNF Nat) (s0 : PlainState)
     (dst : Nat) (unsat new_unit : Bool) (s : PlainState) : Prop :=
   s.LengthsOk c ∧ SameSwPre s0 s ∧ s.heur.rel_trigger = s0.heur.rel_trigger ∧
   dst ≤ s0.arena_len ∧ (∀ i < s.trail_end, (s.trl[i]?.getD 0#32).toNat < 2 * c.mv) ∧

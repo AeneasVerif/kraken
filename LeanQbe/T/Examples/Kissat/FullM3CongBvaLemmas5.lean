@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullM3CongBvaLemmas4
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` M3b Congruence & BVA/BVE Proofs — Part 5 (`#9`–`#11` Orchestrators)
@@ -19,7 +17,7 @@ remaining orchestrators:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullM3CongBva
 

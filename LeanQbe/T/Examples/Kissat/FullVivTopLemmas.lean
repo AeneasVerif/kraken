@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullVivTopLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Vivification Driver `Func.wp` Proofs (`Stage 4`)
@@ -18,7 +16,7 @@ Both preserve `FullSparseInv` (with `cur_level = 0` and fuel monotonicity), prov
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

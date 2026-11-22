@@ -1,9 +1,9 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullM3CongBvaLemmas5
-public import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas
 public import LeanQbe.T.Examples.Kissat.FullKittenSpec1
-public import LeanQbe.T.Examples.Kissat.FullProof
+import LeanQbe.T.Examples.Kissat.FullFastBveBudgetsLemmas
+import LeanQbe.T.Examples.Kissat.FullProof
 
 /-!
 # Kissat `D-Full` M3b — Prefix `Full` & `Fast` Slice `TableImpl` Helpers
@@ -16,7 +16,7 @@ slice-wise `isDefEq` unification.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullM3CongBva
 
@@ -730,7 +730,7 @@ theorem m3Full_impl_111_128_gen (Γ : Env)
       (m3_tableImpl_fullSlice_nil (by simp [m3_full3_len]))
 
 /-- Non-reducing indexed version of `TableImpl` avoiding `whnf` on long `List.append` chains. -/
-def IndexedImpl (Γ : Env) (fs : List Fn) (tbl : List SpecEntry) : Prop :=
+@[expose] def IndexedImpl (Γ : Env) (fs : List Fn) (tbl : List SpecEntry) : Prop :=
   fs.length = tbl.length ∧
     ∀ i, i < fs.length →
       ∃ fn e, fs[i]? = some fn ∧ tbl[i]? = some e ∧ SpecEntry.Impl Γ fn e
@@ -851,7 +851,7 @@ structure M2bInternalSpecs where
 
 /-- Default instantiation for the `15` private unlanded M2b internal helpers (unused along
 top-level UNSAT soundness & concrete non-vacuity executions). -/
-def m3DefaultExtSpecs : M2bInternalSpecs where
+@[expose] def m3DefaultExtSpecs : M2bInternalSpecs where
   find_definition := fun _ _ _ _ => False
   sweep_cone := fun _ _ _ _ => False
   sweep_refine_kitten := fun _ _ _ _ => False
@@ -869,7 +869,7 @@ def m3DefaultExtSpecs : M2bInternalSpecs where
   fheap_down := fun _ _ _ _ => False
 
 /-- Prefix `[0..128)` specification table matching `FullFast.fastFnsPrefix` 1-to-1. -/
-def m3FullSpecPrefix (mainSpec : Spec [i64, i64, i64, i64, i64] [i64]) : List SpecEntry :=
+@[expose] def m3FullSpecPrefix (mainSpec : Spec [i64, i64, i64, i64, i64] [i64]) : List SpecEntry :=
   let base := fullSpecTable mainSpec
   base.take 36 ++
   ([ ⟨"full_init_hdr", [i64, i64, i64, i64], [], fullFastInitHdrSpec, true⟩ ] ++
@@ -888,7 +888,7 @@ def m3FullSpecPrefix (mainSpec : Spec [i64, i64, i64, i64, i64] [i64]) : List Sp
   ([ ⟨"full_enter_dense", [i64], [.bool], schedEnterDenseSpec, true⟩ ] ++
   (base.drop 127).take 1)))))))))))))
 
-def m3SufCong6 : List SpecEntry :=
+@[expose] def m3SufCong6 : List SpecEntry :=
   [ ⟨"full_cong_mark_trail", [i64, i64, i32], [], m3CongMarkTrailSpec, true⟩
   , ⟨"full_cong_unit_fold", [i64, i32, i32], [i64], m3CongUnitFoldSpec, true⟩
   , ⟨"full_cong_equiv_fold", [i64, i32, i32, i32], [i64], m3CongEquivFoldSpec, true⟩
@@ -896,18 +896,18 @@ def m3SufCong6 : List SpecEntry :=
   , ⟨"full_cong_work_step", [i64, i64, i64, i64, i32], [i64], m3CongWorkStepSpec, true⟩
   , ⟨"full_congruence_dense", [i64, i64], [i64], m3CongruenceDenseSpec, true⟩ ]
 
-def m3SufSweep4 (ext : M2bInternalSpecs) : List SpecEntry :=
+@[expose] def m3SufSweep4 (ext : M2bInternalSpecs) : List SpecEntry :=
   [ ⟨"full_sweep_cone", [i64, i32], [i64], ext.sweep_cone, true⟩
   , ⟨"full_sweep_refine_kitten", [i64, i32, i32], [], ext.sweep_refine_kitten, true⟩
   , ⟨"full_sweep_var", [i64, i32, i64], [i64], ext.sweep_var, true⟩
   , ⟨"full_sweep_dense", [i64, i64, i64], [i64], fullSweepDenseSpec, true⟩ ]
 
-def m3SufDef3 (ext : M2bInternalSpecs) : List SpecEntry :=
+@[expose] def m3SufDef3 (ext : M2bInternalSpecs) : List SpecEntry :=
   [ ⟨"full_bve_mark_and", [i64, i32, i32, i32, i32], [.bool], fullBveMarkAndSpec, true⟩
   , ⟨"full_find_definition", [i64, i32, i32, i32], [], ext.find_definition, true⟩
   , ⟨"full_bve_gates", [i64, i32, i32, i32], [], fullBveGatesDefFastSpec, true⟩ ]
 
-def m3SufBvaHeap (ext : M2bInternalSpecs) : List SpecEntry :=
+@[expose] def m3SufBvaHeap (ext : M2bInternalSpecs) : List SpecEntry :=
   [ ⟨"full_init_fresh_var", [i64, i32], [], fullInitFreshVarSpec, true⟩
   , ⟨"full_bva_hop1", [i64, i32, i32], [i64], ext.bva_hop1, true⟩
   , ⟨"full_bva_hop2", [i64, i32, i32], [i64], ext.bva_hop2, true⟩
@@ -922,7 +922,7 @@ def m3SufBvaHeap (ext : M2bInternalSpecs) : List SpecEntry :=
   , ⟨"full_fheap_down", [i64, i64, i64, i32, i32], [], ext.fheap_down, true⟩
   , ⟨"full_factor", [i64, i64], [i64], fullFactorHeapSpec, true⟩ ]
 
-def m3SufTail : List SpecEntry :=
+@[expose] def m3SufTail : List SpecEntry :=
   [ ⟨"full_scale_delta", [i64, i64], [i64], schedScaleDeltaSpec, true⟩
   , ⟨"full_min_u64", [i64, i64], [i64], schedMinU64Spec, true⟩
   , ⟨"full_max_u64", [i64, i64], [i64], schedMaxU64Spec, true⟩
@@ -939,7 +939,7 @@ def m3SufTail : List SpecEntry :=
 
 /-- Suffix `[128..201)` specification table matching `FullFast.fastFnsSuffix.flatMap m3Splice`
 1-to-1 (`73` rows). -/
-def m3FullSpecSuffix (ext : M2bInternalSpecs)
+@[expose] def m3FullSpecSuffix (ext : M2bInternalSpecs)
     (mainSpec : Spec [i64, i64, i64, i64, i64] [i64]) : List SpecEntry :=
   let base := fullSpecTable mainSpec
   fullKittenSpecTable ++
@@ -962,7 +962,7 @@ def m3FullSpecSuffix (ext : M2bInternalSpecs)
   base.drop 165
 
 /-- Complete `201`-row specification table aligned 1-to-1 with `m3Fns`. -/
-def m3FullSpecTable (ext : M2bInternalSpecs)
+@[expose] def m3FullSpecTable (ext : M2bInternalSpecs)
     (mainSpec : Spec [i64, i64, i64, i64, i64] [i64]) : List SpecEntry :=
   m3FullSpecPrefix mainSpec ++ m3FullSpecSuffix ext mainSpec
 

@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullSubstLemmas2
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` BIG SCC Substitution — Part 3 (`Stage 4`, UNSAT-Only)
@@ -586,7 +584,7 @@ end
 
 /-! ## 2. `full_subst_rewrite_ar` `Func.wp` Proof (`Full3.lean` #28) -/
 
-@[expose] public section
+public section
 
 theorem full_subst_rewrite_ar_wp (Γ : Env)
     (hArenaNext : ∀ args m Q X, fullArenaNextSpec args m Q X →

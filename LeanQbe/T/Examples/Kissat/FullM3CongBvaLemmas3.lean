@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullM3CongBvaLemmas2
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` M3b Congruence & BVA/BVE Proofs — Part 3 (`full_cong_work_step`)
@@ -13,7 +11,7 @@ Builds on `FullM3CongBvaLemmas2` to prove the parametric `(Γ : Env)` `Func.wp` 
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.FullM3CongBva
 
