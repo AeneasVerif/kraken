@@ -45,6 +45,11 @@ public import LeanQbe.T.Examples.Kissat.FullM6TiersProof
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof0
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1a
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1b
+public import LeanQbe.T.Examples.Kissat.FullM6WalkParse
+public import LeanQbe.T.Examples.Kissat.FullM6WalkParseLemmas
+public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof1
+public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof2
+public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof3
 
 set_option autoImplicit false
 
