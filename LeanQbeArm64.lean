@@ -20,6 +20,11 @@ public import LeanQbe.T.Arm64.ChaCha
 public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Arm64.LinkRec
 public import LeanQbe.T.Arm64.KissatPlainCert1
+public import LeanQbe.T.Arm64.KissatPlainCert2
+public import LeanQbe.T.Arm64.KissatPlainCert3
+public import LeanQbe.T.Arm64.KissatPlainCert4
+public import LeanQbe.T.Arm64.KissatPlainCert5
+public import LeanQbe.T.Arm64.KissatPlainCert6
 public import LeanQbe.T.Arm64.KissatPlainCert
 public import LeanQbe.T.Arm64.KissatPlain
 public import LeanQbe.T.Arm64.KissatM3Cert1a

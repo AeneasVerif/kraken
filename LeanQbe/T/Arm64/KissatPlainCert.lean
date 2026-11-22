@@ -4,23 +4,24 @@ public import LeanQbe.T.MainCert
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Arm64.KissatPlainCert1
+public import LeanQbe.T.Arm64.KissatPlainCert2
+public import LeanQbe.T.Arm64.KissatPlainCert3
+public import LeanQbe.T.Arm64.KissatPlainCert4
+public import LeanQbe.T.Arm64.KissatPlainCert5
+public import LeanQbe.T.Arm64.KissatPlainCert6
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
 meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Arm64.Targ
-meta import LeanQbe.T.Examples.Kissat.Dimacs
-meta import LeanQbe.T.Examples.Kissat.Plain1
 meta import LeanQbe.T.Examples.Kissat.Plain
-meta import LeanQbe.T.Arm64.KissatPlainCert1
 
 /-!
-# Kissat `D-Plain` C0 SAT Solver (`plainModule`) Compilation Certificate on AArch64 (`Stage 3`)
+# Kissat `D-Plain` (`plainModule`) Compilation Certificate on AAPCS64 Arm64 (`Stage 3`)
 
-Compiles and links the 59-function typed-IR Kissat `D-Plain` module `plainModule`
-(`dimacs_fns ++ plain1_fns ++ plain2_fns`) on `armTarget` (`armLegalTarget`, `armLayout`,
-`armLabelClean`) by appending `KissatPlainCert1.plainPart1` (`plain1Module`) and `plainPart2`
-(`plain2_fns`) via `LinkedCert.append`:
+Combines the 6 parallel kernel-checked slices (`KissatPlainCert1`..`KissatPlainCert6`) via
+`LinkedCert.append` into `plainCert` over `LeanQbe.T.Examples.Kissat.Plain.plainModule` (`59`
+functions) on `armTarget` (`armLegalTarget`, `armLayout`, `armLabelClean`):
 * `plainCert : LinkedCert armTarget ... plainModule [] [] 0 2048`;
 * `plain_legalSig : LegalSigAll armLegalTarget plainModule.fns`;
 * `mk_module_fnspec`: generic `(Γ : Env)` `Defined` + `FnSpec` over arbitrary `Host`;
@@ -36,26 +37,60 @@ namespace LeanQbe.T.Arm64.KissatPlainCert
 open Std Std.ExtHashMap
 open LeanQbe.T LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.Plain
 open LeanQbe.T.Arm64 Kraken
-open LeanQbe.T.Arm64.KissatPlainCert1
+open LeanQbe.T.Arm64.KissatPlainCert1 LeanQbe.T.Arm64.KissatPlainCert2
+open LeanQbe.T.Arm64.KissatPlainCert3 LeanQbe.T.Arm64.KissatPlainCert4
+open LeanQbe.T.Arm64.KissatPlainCert5 LeanQbe.T.Arm64.KissatPlainCert6
 
-/-- Tail module consisting of the 20 functions in `plain2_fns`. -/
-def plain2Module : Module :=
-  { fns := plain2_fns, externs := [], exits := [] }
+/-- Prefix sub-module `[0, 29)`. -/
+def pref2Mod : Module := { fns := plainFns.take 29 }
 
-open scoped LeanQbe.T in
-compile_linked_chunks! plainPart2
-  armTarget armLayout armLegalTarget armLabelClean plain2Module 4
-  (ext := plainPart1.exportedExt) (maxDirs := 450)
+/-- Prefix sub-module `[0, 40)`. -/
+def pref3Mod : Module := { fns := plainFns.take 40 }
+
+/-- Prefix sub-module `[0, 47)`. -/
+def pref4Mod : Module := { fns := plainFns.take 47 }
+
+/-- Prefix sub-module `[0, 52)`. -/
+def pref5Mod : Module := { fns := plainFns.take 52 }
+
+/-- Linked certificate for prefix `[0, 29)`. -/
+def pref2Cert :
+    LinkedCert armTarget armLayout armLegalTarget armLabelClean pref2Mod [] [] 0 2048 :=
+  cert1.append cert2 (by exact List.take_add (l := plainFns) (i := 15) (j := 14))
+    (by t_kernel_rfl)
+
+/-- Linked certificate for prefix `[0, 40)`. -/
+def pref3Cert :
+    LinkedCert armTarget armLayout armLegalTarget armLabelClean pref3Mod [] [] 0 2048 :=
+  pref2Cert.append cert3 (by exact List.take_add (l := plainFns) (i := 29) (j := 11))
+    (by t_kernel_rfl)
+
+/-- Linked certificate for prefix `[0, 47)`. -/
+def pref4Cert :
+    LinkedCert armTarget armLayout armLegalTarget armLabelClean pref4Mod [] [] 0 2048 :=
+  pref3Cert.append cert4 (by exact List.take_add (l := plainFns) (i := 40) (j := 7))
+    (by t_kernel_rfl)
+
+/-- Linked certificate for prefix `[0, 52)`. -/
+def pref5Cert :
+    LinkedCert armTarget armLayout armLegalTarget armLabelClean pref5Mod [] [] 0 2048 :=
+  pref4Cert.append cert5 (by exact List.take_add (l := plainFns) (i := 47) (j := 5))
+    (by t_kernel_rfl)
 
 /-- Full 59-function kernel-checked native AArch64 compilation certificate for `plainModule`. -/
 def plainCert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
       plainModule [] [] 0 2048 :=
-  plainPart1.append plainPart2 rfl (by t_kernel_rfl)
+  pref5Cert.append cert6 (by exact (List.take_append_drop 52 plainFns).symm)
+    (by t_kernel_rfl)
+
+private theorem plain_legalSig_check :
+    checkLegalSigAll armLegalTarget plainModule.fns = true := by
+  t_kernel_rfl
 
 /-- Every function in `plainModule` has identity legalization on `armLegalTarget`. -/
 theorem plain_legalSig : LegalSigAll armLegalTarget plainModule.fns :=
-  legalSigAll_of_check (by t_kernel_rfl)
+  legalSigAll_of_check plain_legalSig_check
 
 section Generic
 variable [hh : Host]
@@ -119,8 +154,6 @@ theorem solve_arm64_of_fnspec {b : Nat}
 
 end Generic
 
-#guard plain1Module.fns.length == 39
-#guard plain2Module.fns.length == 20
 #guard plainFns.length == 59
 
 #print axioms plainCert

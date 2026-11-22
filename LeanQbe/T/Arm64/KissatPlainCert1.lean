@@ -2,19 +2,19 @@ module
 
 public import LeanQbe.T.MainCert
 public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Examples.Kissat.Plain1
+public import LeanQbe.T.Examples.Kissat.Plain
 meta import Lean
 meta import LeanQbe.T.MainCert
 meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Examples.Kissat.Plain1
+meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
-# Kissat `D-Plain` Part 1 (`plain1Module`) Compilation Certificate on AArch64 (`Stage 3`)
+# Kissat `D-Plain` Certificate Slice 1/6 on AAPCS64 Arm64
 
-Compiles and links the first 39 functions (`dimacs_fns ++ plain1_fns`) of Kissat `D-Plain`
-on `armTarget` (`armLegalTarget`, `armLayout`, `armLabelClean`) via `compile_linked_chunks!`:
-* `plainPart1`: `LinkedCert` for `plain1Module` with `plainPart1.exportedExt`.
+Kernel-checked native compilation certificate (`cert1`) for slice `[0, 15)` (`15` functions)
+of `LeanQbe.T.Examples.Kissat.Plain.plainFns` on `armTarget`.
 -/
 
 set_option autoImplicit false
@@ -23,11 +23,13 @@ set_option autoImplicit false
 
 namespace LeanQbe.T.Arm64.KissatPlainCert1
 
-open LeanQbe.T LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.Plain
-open LeanQbe.T.Arm64
+open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Examples.Kissat.Plain
+
+/-- Slice 1 sub-module (`[0, 15)`, `15` functions). -/
+def slice1Mod : Module := { fns := plainFns.take 15, externs := [], exits := [] }
 
 open scoped LeanQbe.T in
-compile_linked_chunks! plainPart1
-  armTarget armLayout armLegalTarget armLabelClean plain1Module 4 (maxDirs := 450)
+compile_linked_chunks! cert1
+  armTarget armLayout armLegalTarget armLabelClean slice1Mod 4 (maxDirs := 450)
 
 end LeanQbe.T.Arm64.KissatPlainCert1
