@@ -249,17 +249,18 @@ fn compute_work_len(cnf: &[u8], prf_len: usize) -> usize {
     let cnf_len = cnf.len() as u64;
     let prf_len_u64 = prf_len as u64;
 
-    // Matches `lrat_check_bytes` in `LeanQbe/Examples/LratBytes.lean`:
+    // Matches verified C0 LRAT kernel in `LeanQbe/T/Examples/LratBytesProg.lean:673`:
     //   v_bytes = (mv + 8) & -8
     //   t_bytes = ((mv + 1) * 4 + 7) & -8
     //   fixed   = 80 + v_bytes + t_bytes
-    //   want    = nc + (prf_len & 0xfffffff) + 32
+    //   want    = nc + (prf_len & 0x0fff_ffff) + 32
     //   cap     = min(rem >> 4, want)
+    // where 0x0fff_ffff = DIMACS_BOUND - 1 (28 bits = 256 MiB - 1).
     let v_bytes = (mv + 8) & !7;
     let t_bytes = ((mv + 1) * 4 + 7) & !7;
     let fixed = 80 + v_bytes + t_bytes;
 
-    let p_cap = prf_len_u64 & 0x0fff_ffff;
+    let p_cap = prf_len_u64 & (DIMACS_BOUND - 1);
     let want = nc + p_cap + 32;
     let pool_needed = cnf_len
         .saturating_add(prf_len_u64)
