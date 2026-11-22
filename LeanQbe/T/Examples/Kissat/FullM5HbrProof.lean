@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullM5Hbr
 public import LeanQbe.T.Examples.Kissat.FullSpec3
+public import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas2
 import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
 import Kraken.Mem
@@ -17,6 +18,112 @@ Proves `Func.wp Γ full_hbr_dom_m5_body` against the exact unchanged `Full.fullH
 -/
 
 set_option autoImplicit false
+
+private meta def hbrReduceProj (e : Lean.Expr) : Lean.Expr :=
+  e.replace fun sub =>
+    match sub with
+    | .proj ``Prod 0 arg => if arg.isAppOfArity ``Prod.mk 4 then some (arg.getArg! 2) else none
+    | .proj ``Prod 1 arg => if arg.isAppOfArity ``Prod.mk 4 then some (arg.getArg! 3) else none
+    | _ =>
+      if sub.isAppOfArity ``Prod.fst 3 && sub.appArg!.isAppOfArity ``Prod.mk 4 then
+        some (sub.appArg!.getArg! 2)
+      else if sub.isAppOfArity ``Prod.snd 3 && sub.appArg!.isAppOfArity ``Prod.mk 4 then
+        some (sub.appArg!.getArg! 3)
+      else if sub.isAppOf ``LeanQbe.T.Arg.val && sub.getAppNumArgs ≥ 2 then
+        let arg := sub.appArg!
+        if (arg.isAppOf ``LeanQbe.T.Arg.var || arg.isAppOf ``LeanQbe.T.Arg.imm) &&
+            arg.getAppNumArgs ≥ 1 then
+          some arg.appArg!
+        else none
+      else none
+
+private meta def hbrNormWpGoal (g : Lean.MVarId) : Lean.Elab.Tactic.TacticM Lean.MVarId :=
+  g.withContext do
+    let ty := (← Lean.instantiateMVars (← g.getType)).consumeMData.headBeta
+    if ty.isAppOfArity ``LeanQbe.T.wp 6 then
+      let e := ty.getArg! 4
+      let e' := LeanQbe.T.C0HeadStep.peelBlocksGet
+        (hbrReduceProj (hbrReduceProj (e.consumeMData.headBeta)))
+      if e' != e then
+        return ← g.change (Lean.mkAppN ty.getAppFn (ty.getAppArgs.set! 4 e'))
+          (checkDefEq := false)
+    return g
+
+private meta def hbrStepOnce (unrollGroup : Bool) : Lean.Elab.Tactic.TacticM Bool :=
+  Lean.Elab.Tactic.withMainContext do
+    let g ← hbrNormWpGoal (← Lean.Elab.Tactic.getMainGoal)
+    Lean.Elab.Tactic.setGoals [g]
+    let ty := (← Lean.instantiateMVars (← g.getType)).consumeMData.headBeta
+    if ty.isAppOfArity ``LeanQbe.T.wp 6 then
+      let e := LeanQbe.T.C0HeadStep.peelBlocksGet ((ty.getArg! 4).consumeMData.headBeta)
+      if e.isAppOf ``LeanQbe.T.Expr.jnz && e.getAppNumArgs == 6 then
+        let hc := Lean.mkIdent `hc
+        Lean.Elab.Tactic.evalTactic (← `(tactic|
+          (refine LeanQbe.T.wp_jnz_of (fun $hc:ident => ?_) (fun $hc:ident => ?_)) <;> (
+            try simp only [LeanQbe.T.Arg.val_var, LeanQbe.T.Arg.val_imm] at $hc:ident
+            c0_cond $hc
+            try simp only [Nat.reducePow, Nat.reduceMod, Nat.reduceDiv,
+              BitVec.reduceToNat] at $hc:ident
+            try (first | exact ($hc).elim | exact absurd rfl $hc | exact $hc rfl
+                       | exact absurd trivial $hc))))
+        return true
+    match ← LeanQbe.T.C0HeadStep.headStepOnceRes
+        { unrollGroup := unrollGroup, splitJnz := false, pruneJnz := false } with
+    | .progressed =>
+      Lean.Elab.Tactic.setGoals
+        (← (← Lean.Elab.Tactic.getUnsolvedGoals).mapM hbrNormWpGoal)
+      return true
+    | .stuck | .memFailed _ => return false
+
+private meta partial def hbrStepsLoop (unrollGroup : Bool) (fuel : Nat) :
+    Lean.Elab.Tactic.TacticM Unit := do
+  if fuel = 0 then return
+  let mut out : Array Lean.MVarId := #[]
+  for g in (← Lean.Elab.Tactic.getUnsolvedGoals) do
+    if ← g.isAssigned then continue
+    Lean.Elab.Tactic.setGoals [g]
+    if ← hbrStepOnce unrollGroup then hbrStepsLoop unrollGroup (fuel - 1)
+    out := out ++ (← Lean.Elab.Tactic.getUnsolvedGoals)
+  Lean.Elab.Tactic.setGoals out.toList
+
+local elab "hbr_steps" : tactic => hbrStepsLoop true 2000
+
+local elab "hbr_steps_nogrp" : tactic => hbrStepsLoop false 2000
+
+local elab "hbr_step" : tactic => do
+  unless ← hbrStepOnce true do throwError "hbr_step: no step applies"
+
+local elab "hbr_clear_big" : tactic => do
+  let keep : Array Lean.Name := #[
+    ``Eq, ``Ne, ``Not, ``LT.lt, ``LE.le, ``GT.gt, ``GE.ge, ``And, ``Or, ``Iff, ``False
+  ]
+  Lean.Elab.Tactic.liftMetaTactic1 fun g => do
+    let ids ← g.withContext do
+      let mut out : Array Lean.FVarId := #[]
+      for d in (← Lean.getLCtx).decls do
+        let some d := d | continue
+        if d.isAuxDecl || d.isLet then continue
+        if ← Lean.Meta.isProp d.type then
+          let ty := d.type.consumeMData
+          let ok := if ty.isForall then ty.bindingBody!.consumeMData.isConstOf ``False
+            else match ty.getAppFn.constName? with
+              | some n => keep.contains n
+              | none => false
+          if !ok then out := out.push d.fvarId
+      pure out
+    some <$> g.tryClearMany ids
+
+local macro "hbr_bound" : tactic =>
+  `(tactic| (
+    first | assumption | rfl | decide | skip
+    all_goals (
+      hbr_clear_big
+      try simp only [List.length_set]
+      first | assumption | rfl | decide | omega
+            | (simp only [bv_c0, Nat.reducePow, Nat.reduceMod, Nat.reduceDiv,
+                 BitVec.reduceToNat] at *;
+               first | assumption | rfl | decide | omega | bv_omega | done)
+            | bv_omega)))
 
 public section
 
@@ -744,7 +851,7 @@ end HbrDomProofHelpers
 
 section HbrDomProof
 
-open scoped FullArenaTactics FullProbeTransTactics
+open scoped FullArenaTactics
 
 private def hbrInnerExpr (h_arg pArena pMark pLevel pClr cv clen0 open_m1 : Val i64)
     (trl_pv rsn_v rsz : Val i32) (J2 : Cont [i64, i64]) : Expr Val Cont [i32] :=
@@ -864,9 +971,9 @@ private theorem hbrInnerLoop_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {c : Ful
     rw [hop_sub]
     exact hbrInner_init (hidx_succ ▸ hl2) (by
       rwa [List.getElem?_eq_getElem (l := s.core.trl) htrl_i, Option.getD_some])
-  · pt_steps_nogrp
+  · hbr_steps_nogrp
     · have hj_lt : j.toNat < fullArenaClauseSize s rsn_v.toNat := by
-        pt_clear_big; simp only [hrsz_mod] at hc; pt_bound
+        hbr_clear_big; simp only [hrsz_mod] at hc; hbr_bound
       have hj32 : j.toNat + 1 < 2 ^ 32 := by omega
       have hqidx : rsn_v.toNat + 3 + j.toNat < s.core.arena.length := by omega
       have hqmod : (rsn_v.toNat + 3 + j.toNat) % 18446744073709551616 =
@@ -878,14 +985,14 @@ private theorem hbrInnerLoop_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {c : Ful
         hw.arena.lits_lt rsn_v.toNat hrsn_ref hrsn_ng _ hmem_q
       have hovj_lt : (s.core.arena[rsn_v.toNat + 3 + j.toNat]'hqidx >>>
           (1 : Nat)).toNat < s.core.cur_vars := by rw [bv32_toNat_lshr1]; omega
-      pt_steps_nogrp
+      hbr_steps_nogrp
       refine wp_join_group
         (fun (clen_j', open_j', ()) mj' => ∃ mrk_j' clr_j',
           hbrInnerInv c s rsn_v.toNat (idx - 1#64).toNat (j.toNat + 1)
             clen_j'.toNat open_j'.toNat mrk' mrk_j' clr_j' ∧
           (FullMem c (hbrState s mrk_j' clr_j') ⋆ R) mj')
         (fun _ (clen_j', open_j', ()) mj' ⟨mrk_j', clr_j', hj', hmj'⟩ => ?_) ?_
-      · pt_steps_nogrp
+      · hbr_steps_nogrp
         refine hLj (clen_j', open_j', j + 1#32, ()) mj'
           (by dsimp only; rw [bv32_add1_toNat hj32]; omega)
           ⟨mrk_j', clr_j', by rw [bv32_add1_toNat hj32]; exact hj', hmj'⟩
@@ -898,10 +1005,10 @@ private theorem hbrInnerLoop_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {c : Ful
             s.core.lvl.length := by rw [hlvl_len]; rw [bv32_toNat_lshr1] at hovj_lt; omega
         have hovj_mrk : (s.core.arena[rsn_v.toNat + 3 + j.toNat]'hqidx).toNat / 2 <
             mrk_j.length := by rw [hmrkj_len]; rw [bv32_toNat_lshr1] at hovj_lt; omega
-        pt_steps_nogrp
+        hbr_steps_nogrp
         · have hovj_ne : (s.core.arena[rsn_v.toNat + 3 + j.toNat]'hqidx >>> (1 : Nat)).toNat ≠
               (s.core.trl[(idx - 1#64).toNat]?.getD 0#32).toNat / 2 := by
-            pt_clear_big
+            hbr_clear_big
             rw [bv32_toNat_lshr1, List.getElem?_eq_getElem htrl_i, Option.getD_some]
             simp only [hqmod] at *
             intro heq
@@ -909,74 +1016,60 @@ private theorem hbrInnerLoop_wp {Γ : Env} {Q : Post [i32]} {X : XPost} {c : Ful
                 s.core.trl[(idx - 1#64).toNat] >>> 1 := by assumption
             apply hne; apply BitVec.eq_of_toNat_eq
             rw [bv32_toNat_lshr1, bv32_toNat_lshr1]; exact heq
-          refine wp_load_of (FullArenaTactics.c0_load_full_lvl ?_ hmj) ?_
-          · simp only [bv_c0, Nat.reducePow, BitVec.reduceToNat, hqmod]
-            exact hovj_lvl
-          pt_steps_nogrp
-          · have hlvl1j : (s.core.lvl[(s.core.arena[rsn_v.toNat + 3 + j.toNat]'hqidx >>>
+          have hlvl1j : (s.core.lvl[(s.core.arena[rsn_v.toNat + 3 + j.toNat]'hqidx >>>
                 (1 : Nat)).toNat]?.getD 0#32).toNat = 1 := by
-              pt_clear_big; rw [bv32_toNat_lshr1]; simp only [hqmod] at hc
-              exact lvl_toNat_eq1 hovj_lvl hc
-            refine wp_load_of (FullArenaTactics.c0_load_full_mrk ?_ hmj) ?_
-            · simp only [bv_c0, Nat.reducePow, BitVec.reduceToNat, hqmod]
-              exact hovj_mrk
-            pt_steps_nogrp
-            · have hm0j : mrk_j[(s.core.arena[rsn_v.toNat + 3 + j.toNat]'hqidx >>>
-                  (1 : Nat)).toNat]?.getD 0#8 = 0#8 := by
-                pt_clear_big; rw [bv32_toNat_lshr1]
-                simp only [bv_c0, Nat.reducePow, hqmod] at *
-                exact mrk_getD_eq0 hovj_mrk (by assumption)
-              have hstepj := hbrInner_step_mark hlen hw hj_inv hrsn_ref hrsn_ng
-                (by omega) hj_lt hidx_lt hrsn_lits' rfl hovj_ne hovj_lt hlvl1j hm0j
-              have hclj_lt := hstepj.1.clen_le
-              refine wp_store_sep (FullArenaTactics.c0_store_full_mrk _ ?_ hmj) fun m1 hm1 => ?_
-              · simp only [bv_c0, Nat.reducePow, BitVec.reduceToNat, hqmod]; exact hovj_mrk
-              pt_steps_nogrp
-              refine wp_store_sep (FullArenaTactics.c0_store_full_min_clr _
-                (by rw [hclrj_len]; omega) hm1) fun m hm => ?_
-              pt_steps_nogrp
-              have hcl1j_eq : (clen_j + 1#64).toNat = clen_j.toNat + 1 := bv64_add1_toNat (by omega)
-              have hop1j_eq : (open_j + 1#64).toNat = open_j.toNat + 1 := by
-                have := hstepj.2.2.1; have := hcl.trail_end_le; exact bv64_add1_toNat (by omega)
-              refine hJjb (clen_j + 1#64, open_j + 1#64, ()) m ⟨_, _,
-                by rw [hcl1j_eq, hop1j_eq]; exact hstepj, ?_⟩
-              simp only [Arg.val_var, bv_c0, Nat.reducePow, BitVec.reduceToNat,
-                bv32_toNat_lshr1, hqmod] at hm
-              simpa only [← bv32_toNat_lshr1] using hm
-            · clear hw hlen hrsn_lits' hrsn_ref hrsn_ng
-              have hm0j : mrk_j[(s.core.arena[rsn_v.toNat + 3 + j.toNat]'hqidx >>>
-                  (1 : Nat)).toNat]?.getD 0#8 = 0#8 := by
-                pt_clear_big; rw [bv32_toNat_lshr1]
-                simp only [bv_c0, Nat.reducePow, hqmod] at *
-                exact mrk_getD_eq0 hovj_mrk (by assumption)
-              have hclj_lt := hbrMarkInv_clen_lt hj_inv.1.mark_inv
-                (by rw [hclrj_len]; exact hcv_le) hovj_lt hm0j
-              exfalso; rw [hcv_c0] at hc; omega
-            · clear hw hlen hrsn_lits' hrsn_ref hrsn_ng
-              simp only [hqmod] at hc
-              exact hJjb (clen_j, open_j, ()) mj ⟨mrk_j, clr_j,
-                hbrInner_step_same hj_inv hj_bd hj_lt
-                  (Or.inr (Or.inr (mrk_getD_ne0 hovj_mrk hc))), hmj⟩
-          · clear hw hlen hrsn_lits' hrsn_ref hrsn_ng
-            simp only [hqmod] at hc
-            exact hJjb (clen_j, open_j, ()) mj ⟨mrk_j, clr_j,
-              hbrInner_step_same hj_inv hj_bd hj_lt
-                (Or.inr (Or.inl (lvl_toNat_ne1 hovj_lvl hc))), hmj⟩
+            hbr_clear_big; rw [bv32_toNat_lshr1]; simp only [hqmod] at *
+            exact lvl_toNat_eq1 hovj_lvl (by assumption)
+          have hm0j : mrk_j[(s.core.arena[rsn_v.toNat + 3 + j.toNat]'hqidx >>>
+                (1 : Nat)).toNat]?.getD 0#8 = 0#8 := by
+            hbr_clear_big; rw [bv32_toNat_lshr1]
+            simp only [bv_c0, Nat.reducePow, hqmod] at *
+            exact mrk_getD_eq0 hovj_mrk (by assumption)
+          have hstepj := hbrInner_step_mark hlen hw hj_inv hrsn_ref hrsn_ng
+            (by omega) hj_lt hidx_lt hrsn_lits' rfl hovj_ne hovj_lt hlvl1j hm0j
+          have hclj_lt := hstepj.1.clen_le
+          have hcl1j_eq : (clen_j + 1#64).toNat = clen_j.toNat + 1 := bv64_add1_toNat (by omega)
+          have hop1j_eq : (open_j + 1#64).toNat = open_j.toNat + 1 := by
+            have := hstepj.2.2.1; have := hcl.trail_end_le; exact bv64_add1_toNat (by omega)
+          refine hJjb (clen_j + 1#64, open_j + 1#64, ()) m ⟨_, _,
+            by rw [hcl1j_eq, hop1j_eq]; exact hstepj, ?_⟩
+          simp only [bv_c0, Nat.reducePow, BitVec.reduceToNat,
+            bv32_toNat_lshr1, hqmod] at hm
+          simpa only [← bv32_toNat_lshr1] using hm
         · clear hw hlen hrsn_lits' hrsn_ref hrsn_ng
-          exfalso; pt_clear_big; simp only [hqmod] at hc; rw [hcv_c0] at hc
+          have hm0j : mrk_j[(s.core.arena[rsn_v.toNat + 3 + j.toNat]'hqidx >>>
+                (1 : Nat)).toNat]?.getD 0#8 = 0#8 := by
+            hbr_clear_big; rw [bv32_toNat_lshr1]
+            simp only [bv_c0, Nat.reducePow, hqmod] at *
+            exact mrk_getD_eq0 hovj_mrk (by assumption)
+          have hclj_lt := hbrMarkInv_clen_lt hj_inv.1.mark_inv
+            (by rw [hclrj_len]; exact hcv_le) hovj_lt hm0j
+          exfalso; rw [hcv_c0] at hc; omega
+        · clear hw hlen hrsn_lits' hrsn_ref hrsn_ng
+          simp only [hqmod] at hc
+          exact hJjb (clen_j, open_j, ()) mj ⟨mrk_j, clr_j,
+            hbrInner_step_same hj_inv hj_bd hj_lt
+              (Or.inr (Or.inr (mrk_getD_ne0 hovj_mrk hc))), hmj⟩
+        · clear hw hlen hrsn_lits' hrsn_ref hrsn_ng
+          simp only [hqmod] at hc
+          exact hJjb (clen_j, open_j, ()) mj ⟨mrk_j, clr_j,
+            hbrInner_step_same hj_inv hj_bd hj_lt
+              (Or.inr (Or.inl (lvl_toNat_ne1 hovj_lvl hc))), hmj⟩
+        · clear hw hlen hrsn_lits' hrsn_ref hrsn_ng
+          exfalso; hbr_clear_big; simp only [hqmod] at hc; rw [hcv_c0] at hc
           exact hc (by rw [← bv32_toNat_lshr1]; exact hovj_lt)
         · clear hw hlen hrsn_lits' hrsn_ref hrsn_ng
           simp only [hqmod] at hc
           exact hJjb (clen_j, open_j, ()) mj ⟨mrk_j, clr_j,
             hbrInner_step_same hj_inv hj_bd hj_lt (Or.inl (by
-              pt_clear_big
+              hbr_clear_big
               rw [List.getElem?_eq_getElem htrl_i, Option.getD_some]
               have hto := congrArg BitVec.toNat hc
               simp only [bv32_toNat_lshr1] at hto; exact hto)), hmj⟩
     · exfalso
       have ha64 : s.core.arena_len < 18446744073709551616 :=
         Nat.lt_of_le_of_lt har_len_le (by have := c.harena; unfold dimacsBound at this; omega)
-      pt_clear_big; simp only [hrsz_mod] at hc
+      hbr_clear_big; simp only [hrsz_mod] at hc
       have h64 : rsn_v.toNat + 3 + fullArenaClauseSize s rsn_v.toNat <
           18446744073709551616 := by
         have : fullArenaClauseSize s rsn_v.toNat < 2 ^ 32 := by
@@ -1017,7 +1110,7 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
   have hsz_eq_mod : s.core.arena[(cref.toNat + 2) % 18446744073709551616].toNat =
       fullArenaClauseSize s cref.toNat := by
     simp only [Nat.mod_eq_of_lt (by omega : cref.toNat + 2 < 18446744073709551616), hsz_eq]
-  pt_steps
+  hbr_steps
   refine wp_loop_inv
     (fun (clen, open_c, i, ()) ml => ∃ mrk clr,
       hbrLoop1Inv c s cref.toNat implied.toNat i.toNat clen.toNat open_c.toNat mrk clr ∧
@@ -1025,11 +1118,11 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
     (fun (_clen, _open_c, i, ()) _ => fullArenaClauseSize s cref.toNat - i.toNat)
     (fun J hLoop => ?_)
     (fun J (clen, open_c, i, ()) ml ⟨mrk, clr, hl1, hml⟩ hLoop => ?_)
-  · pt_steps
+  · hbr_steps
     exact hLoop (0#64, 0#64, 0#32, ()) m
       ⟨s.core.mrk, s.core.min_clr, hbrLoop1_init hlen hw hmrk0, hm⟩
-  · pt_steps_nogrp
-    · have hi_lt : i.toNat < fullArenaClauseSize s cref.toNat := by pt_bound
+  · hbr_steps_nogrp
+    · have hi_lt : i.toNat < fullArenaClauseSize s cref.toNat := by hbr_bound
       have hi_32 : i.toNat + 1 < 2 ^ 32 := by omega
       have hidx_lt : cref.toNat + 3 + i.toNat < s.core.arena.length := by omega
       have hidx_mod : (cref.toNat + 3 + i.toNat) % 18446744073709551616 =
@@ -1042,14 +1135,14 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
         (mem_fullArenaClauseLitsCore_iff hbd_core).mpr ⟨i.toNat, hi_lt, rfl⟩
       have hl_lt : (s.core.arena[cref.toNat + 3 + i.toNat]'hidx_lt).toNat <
           2 * s.core.cur_vars := hw.arena.lits_lt cref.toNat hcref hng _ hmem_l
-      pt_steps_nogrp
+      hbr_steps_nogrp
       refine wp_join_group
         (fun (clen', open', ()) ml' => ∃ mrk' clr',
           hbrLoop1Inv c s cref.toNat implied.toNat (i.toNat + 1) clen'.toNat open'.toNat
             mrk' clr' ∧
           (FullMem c (hbrState s mrk' clr') ⋆ R) ml')
         (fun _ (clen', open', ()) ml' ⟨mrk', clr', hjn, hm'⟩ => ?_) ?_
-      · pt_steps_nogrp
+      · hbr_steps_nogrp
         refine hLoop (clen', open', i + 1#32, ()) ml'
           (by dsimp only; rw [bv32_add1_toNat hi_32]; omega)
           ⟨mrk', clr', by rw [bv32_add1_toNat hi_32]; exact hjn, hm'⟩
@@ -1060,53 +1153,49 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
         have hcl_le' : clen.toNat ≤ s.core.cur_vars := hl1.1.clen_le
         have hv_lt : (s.core.arena[cref.toNat + 3 + i.toNat]'hidx_lt >>> (1 : Nat)).toNat <
             s.core.cur_vars := by rw [bv32_toNat_lshr1]; omega
-        pt_steps_nogrp
-        · refine wp_load_of (FullArenaTactics.c0_load_full_lvl ?_ hml) ?_
-          · simp only [bv_c0, hidx_mod, Nat.reducePow, BitVec.reduceToNat]
-            rw [bv32_toNat_lshr1] at hv_lt; omega
-          pt_steps_nogrp
-          · have hc_imp : (s.core.arena[cref.toNat + 3 + i.toNat]'hidx_lt).toNat ≠
-                implied.toNat := by
-              pt_clear_big; intro heq; simp only [hidx_mod] at *
-              have hne : ¬ s.core.arena[cref.toNat + 3 + i.toNat] = implied := by assumption
-              exact hne (BitVec.eq_of_toNat_eq heq)
-            have hc_lvl : (s.core.lvl[(s.core.arena[cref.toNat + 3 + i.toNat]'hidx_lt >>>
-                (1 : Nat)).toNat]?.getD 0#32).toNat = 1 := by
-              pt_clear_big; rw [bv32_toNat_lshr1]; simp only [hidx_mod] at *
-              exact lvl_toNat_eq1 (by omega) (by assumption)
-            have hm0v : mrk[(s.core.arena[cref.toNat + 3 + i.toNat]'hidx_lt >>>
-                (1 : Nat)).toNat]?.getD 0#8 = 0#8 := by
-              pt_clear_big; rw [bv32_toNat_lshr1]; simp only [hidx_mod] at *
-              exact mrk_getD_eq0 (by omega) (by assumption)
-            have hstep := hbrLoop1_step_mark hlen hw hl1 hcref hng hfal (by omega) hi_lt
-              rfl hc_imp hv_lt hc_lvl hm0v
-            have hcl_lt := hstep.1.clen_le
-            refine wp_store_sep (FullArenaTactics.c0_store_full_min_clr _
-              (by change clen.toNat < clr.length; omega) hm) fun m hm => ?_
-            pt_steps_nogrp
-            have hcl1_eq : (clen + 1#64).toNat = clen.toNat + 1 := bv64_add1_toNat (by omega)
-            have hop1_eq : (open_c + 1#64).toNat = open_c.toNat + 1 := by
-              have := hl1.2.2.1; exact bv64_add1_toNat (by omega)
-            have hidx_w : (BitVec.setWidth 64 cref + 3 + BitVec.setWidth 64 i).toNat =
-                cref.toNat + 3 + i.toNat := by bv_omega
-            have hmrk_idx : (BitVec.setWidth 64 (s.core.arena[(BitVec.setWidth 64 cref + 3 +
-                BitVec.setWidth 64 i).toNat]'(by omega) >>> 1)).toNat =
-                (s.core.arena[cref.toNat + 3 + i.toNat]'hidx_lt >>> (1 : Nat)).toNat := by
-              have hlt64 : (s.core.arena[(BitVec.setWidth 64 cref + 3 +
-                  BitVec.setWidth 64 i).toNat]'(by omega) >>> (1 : Nat)).toNat < 2 ^ 64 := by
-                rw [bv32_toNat_lshr1]; omega
-              simp only [bv_c0, hidx_w]
-            refine hJj (clen + 1#64, open_c + 1#64, ()) m ⟨_, _,
-              by rw [hcl1_eq, hop1_eq]; exact hstep, ?_⟩
-            simpa only [Arg.val_var, bv_c0, hidx_mod, hidx_w, hmrk_idx] using hm
-          · simp only [hidx_mod] at hc
-            exact hJj (clen, open_c, ()) ml ⟨mrk, clr,
-              hbrLoop1_step_same hl1 (by omega) hi_lt
-                (Or.inr (Or.inr (mrk_getD_ne0 (by omega) hc))), hml⟩
-          · simp only [hidx_mod] at hc
-            exact hJj (clen, open_c, ()) ml ⟨mrk, clr,
-              hbrLoop1_step_same hl1 (by omega) hi_lt
-                (Or.inr (Or.inl (lvl_toNat_ne1 (by omega) hc))), hml⟩
+        hbr_steps_nogrp
+        · have hc_imp : (s.core.arena[cref.toNat + 3 + i.toNat]'hidx_lt).toNat ≠
+              implied.toNat := by
+            hbr_clear_big; intro heq; simp only [hidx_mod] at *
+            have hne : ¬ s.core.arena[cref.toNat + 3 + i.toNat] = implied := by assumption
+            exact hne (BitVec.eq_of_toNat_eq heq)
+          have hc_lvl : (s.core.lvl[(s.core.arena[cref.toNat + 3 + i.toNat]'hidx_lt >>>
+              (1 : Nat)).toNat]?.getD 0#32).toNat = 1 := by
+            hbr_clear_big; rw [bv32_toNat_lshr1]; simp only [hidx_mod] at *
+            exact lvl_toNat_eq1 (by omega) (by assumption)
+          have hm0v : mrk[(s.core.arena[cref.toNat + 3 + i.toNat]'hidx_lt >>>
+              (1 : Nat)).toNat]?.getD 0#8 = 0#8 := by
+            hbr_clear_big; rw [bv32_toNat_lshr1]; simp only [hidx_mod] at *
+            exact mrk_getD_eq0 (by omega) (by assumption)
+          have hstep := hbrLoop1_step_mark hlen hw hl1 hcref hng hfal (by omega) hi_lt
+            rfl hc_imp hv_lt hc_lvl hm0v
+          have hcl_lt := hstep.1.clen_le
+          refine wp_store_sep (FullArenaTactics.c0_store_full_min_clr _
+            (by change clen.toNat < clr.length; omega) hm) fun m hm => ?_
+          hbr_steps_nogrp
+          have hcl1_eq : (clen + 1#64).toNat = clen.toNat + 1 := bv64_add1_toNat (by omega)
+          have hop1_eq : (open_c + 1#64).toNat = open_c.toNat + 1 := by
+            have := hl1.2.2.1; exact bv64_add1_toNat (by omega)
+          have hidx_w : (BitVec.setWidth 64 cref + 3 + BitVec.setWidth 64 i).toNat =
+              cref.toNat + 3 + i.toNat := by bv_omega
+          have hmrk_idx : (BitVec.setWidth 64 (s.core.arena[(BitVec.setWidth 64 cref + 3 +
+              BitVec.setWidth 64 i).toNat]'(by omega) >>> 1)).toNat =
+              (s.core.arena[cref.toNat + 3 + i.toNat]'hidx_lt >>> (1 : Nat)).toNat := by
+            have hlt64 : (s.core.arena[(BitVec.setWidth 64 cref + 3 +
+                BitVec.setWidth 64 i).toNat]'(by omega) >>> (1 : Nat)).toNat < 2 ^ 64 := by
+              rw [bv32_toNat_lshr1]; omega
+            simp only [bv_c0, hidx_w]
+          refine hJj (clen + 1#64, open_c + 1#64, ()) m ⟨_, _,
+            by rw [hcl1_eq, hop1_eq]; exact hstep, ?_⟩
+          simpa only [Arg.val_var, bv_c0, hidx_mod, hidx_w, hmrk_idx] using hm
+        · simp only [hidx_mod] at hc
+          exact hJj (clen, open_c, ()) ml ⟨mrk, clr,
+            hbrLoop1_step_same hl1 (by omega) hi_lt
+              (Or.inr (Or.inr (mrk_getD_ne0 (by omega) hc))), hml⟩
+        · simp only [hidx_mod] at hc
+          exact hJj (clen, open_c, ()) ml ⟨mrk, clr,
+            hbrLoop1_step_same hl1 (by omega) hi_lt
+              (Or.inr (Or.inl (lvl_toNat_ne1 (by omega) hc))), hml⟩
         · exfalso
           have hcm := Nat.mod_eq_of_lt (by omega : s.core.cur_vars < 18446744073709551616)
           simp only [hidx_mod, hcm] at hc
@@ -1123,7 +1212,7 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
           (FullMem c (hbrState s mrk' clr') ⋆ R) ml')
         (fun _ (clen', _open_c', dom, ()) ml' ⟨mrk', clr', hout, hm'⟩ => ?_) ?_
       · clear hw hfal hcref hng
-        pt_steps_nogrp
+        hbr_steps_nogrp
         refine wp_loop_inv
           (fun (k, ()) mk => ∃ mrkk,
             hbrLoop3Inv c s k.toNat clen'.toNat mrkk clr' ∧
@@ -1131,17 +1220,17 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
           (fun (k, ()) _ => clen'.toNat - k.toNat)
           (fun Jk hLk => ?_)
           (fun Jk (k, ()) mk ⟨mrkk, hk3, hmk⟩ hLk => ?_)
-        · pt_steps_nogrp
+        · hbr_steps_nogrp
           exact hLk (0#64, ()) ml' ⟨mrk', hbrLoop3_init hlen hout, hm'⟩
-        · pt_steps_nogrp
-          · have hk_lt : k.toNat < clen'.toNat := by pt_bound
+        · hbr_steps_nogrp
+          · have hk_lt : k.toNat < clen'.toNat := by hbr_bound
             have hclr_len' : clr'.length = c.max_vars := hout.1.clr_len
             have hcl_le' : clen'.toNat ≤ s.core.cur_vars := hout.1.clen_le
             have hmrkk_len : mrkk.length = c.max_vars := hk3.2.1
             have hck_lt : (clr'[k.toNat]'(by omega)).toNat < s.core.cur_vars := by
               have hcl0 := hout.1.mark_inv.2.2.2.2.1 k.toNat hk_lt
               rwa [List.getElem?_eq_getElem (by omega), Option.getD_some] at hcl0
-            pt_steps_nogrp
+            hbr_steps_nogrp
             have hk1_eq : (k + 1#64).toNat = k.toNat + 1 := bv64_add1_toNat (by omega)
             refine hLk (k + 1#64, ()) m (by dsimp only; rw [hk1_eq]; omega)
               ⟨_, by rw [hk1_eq]; exact hbrLoop3_step hcv_le hout hk3 hk_lt, hm⟩
@@ -1151,15 +1240,15 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
             refine hQ dom s.core.mrk clr' mk hlen_fin hmrk0 hout.2 ?_
             exact hmk
       · intro Jout hJout
-        pt_steps_nogrp
+        hbr_steps_nogrp
         · refine wp_join_group
             (fun (clen', _open_c', dom, _idx, _steps, ()) ml' => ∃ mrk' clr',
               hbrOutInv c s F_cur implied.toNat clen'.toNat dom mrk' clr' ∧
               (FullMem c (hbrState s mrk' clr') ⋆ R) ml')
             (fun _ (clen', _open_c', dom, _idx, _steps, ()) ml' hjn => by
-              pt_steps_nogrp; exact hJout (clen', _open_c', dom, ()) ml' hjn)
+              hbr_steps_nogrp; exact hJout (clen', _open_c', dom, ()) ml' hjn)
             (fun J2e hJ2e => ?_)
-          pt_steps_nogrp
+          hbr_steps_nogrp
           refine wp_loop_inv
             (fun (clen', open_c', idx, _steps, ()) ml' => ∃ mrk' clr',
               hbrLoop2Inv c s F_cur implied.toNat clen'.toNat open_c'.toNat idx.toNat
@@ -1168,7 +1257,7 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
             (fun (_clen', _open_c', idx, _steps, ()) _ => idx.toNat)
             (fun J2 hL2 => ?_)
             (fun J2 (clen', open_c', idx, steps, ()) ml' ⟨mrk', clr', hl2, hm'⟩ hL2 => ?_)
-          · pt_steps_nogrp
+          · hbr_steps_nogrp
             have hte_le := hcl.trail_end_le
             have hte32 : s.core.trail_end < 2 ^ 64 := by omega
             refine hL2 (clen, open_c, BitVec.ofNat 64 s.core.trail_end, 0#64, ()) ml
@@ -1176,9 +1265,9 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
             rw [bv64_ofNat_toNat hte32]
             exact hbrLoop2_init hw hcl1 hcref hng (by omega) hfal (hi_eq ▸ hl1)
           · clear hJout hLoop _him_mem_raw hml hl1 hcref hng hm hmrk0 hcref32 hfal
-            pt_steps_nogrp
-            · have hop_pos : 0 < open_c'.toNat := by pt_bound
-              have hidx_pos : 0 < idx.toNat := by pt_bound
+            hbr_steps_nogrp
+            · have hop_pos : 0 < open_c'.toNat := by hbr_bound
+              have hidx_pos : 0 < idx.toNat := by hbr_bound
               have hidx_pred : (idx - 1#64).toNat = idx.toNat - 1 :=
                 bv64_sub1_toNat (fun heq => by subst heq; simp at hidx_pos)
               have hte_le := hcl.trail_end_le; have htrl_len := hcl.trl_len
@@ -1201,7 +1290,7 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
                 Nat.mod_eq_of_lt (by omega)
               have hop_sub : (open_c' - 1#64).toNat = open_c'.toNat - 1 :=
                 bv64_sub1_toNat (fun heq => by subst heq; simp at hop_pos)
-              pt_steps_nogrp
+              hbr_steps_nogrp
               · simp only [hidx_c0, ← hidx_pred, hcv_c0] at hc
                 rw [bv32_toNat_lshr1] at hpv_lt; exfalso; omega
               · refine hL2 (clen', open_c', idx - 1#64, steps, ()) ml' (by dsimp only; omega)
@@ -1221,7 +1310,7 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
                     exact mrk_getD_eq0 (by omega) hc), hm'⟩
               · have hm_nz : mrk'[(s.core.trl[(idx - 1#64).toNat]'(by omega)).toNat / 2]?.getD
                     0#8 ≠ 0#8 := by
-                  pt_clear_big; simp only [hidx_c0, ← hidx_pred] at *
+                  hbr_clear_big; simp only [hidx_c0, ← hidx_pred] at *
                   exact mrk_getD_ne0 (by omega) (by assumption)
                 have hop1 : open_c'.toNat = 1 := by
                   have h0 := congrArg BitVec.toNat hc
@@ -1236,7 +1325,7 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
                   ⟨mrk', clr', ⟨hl2.1, Or.inl rfl⟩, hm'⟩
               · have hm_nz : mrk'[(s.core.trl[(idx - 1#64).toNat]'(by omega)).toNat / 2]?.getD
                     0#8 ≠ 0#8 := by
-                  pt_clear_big; simp only [hidx_c0, ← hidx_pred] at *
+                  hbr_clear_big; simp only [hidx_c0, ← hidx_pred] at *
                   exact mrk_getD_ne0 (by omega) (by assumption)
                 have htrl_i : (idx - 1#64).toNat < s.core.trl.length := by omega
                 have hrsn_i : (s.core.trl[(idx - 1#64).toNat]'htrl_i).toNat / 2 <
@@ -1249,8 +1338,8 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
                 rw [List.getElem?_eq_getElem htrl_i, Option.getD_some,
                   List.getElem?_eq_getElem hrsn_i, Option.getD_some] at hrsn_inv
                 have hrsn_inv' := hrsn_inv hrsn_ne
-                pt_step
-                pt_steps_nogrp
+                hbr_step
+                hbr_steps_nogrp
                 · have hbf : (s.core.rsns[(s.core.trl[(idx - 1#64).toNat]'htrl_i).toNat /
                         2]'hrsn_i &&& 0x80000000#32) ≠ 0#32 := by
                     simp only [hidx_c0, ← hidx_pred] at hc; exact hc
@@ -1267,20 +1356,20 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
                       (s.core.rsns[(s.core.trl[(idx - 1#64).toNat]'htrl_i).toNat /
                         2]'hrsn_i &&& 0x7FFFFFFF#32).toNat]) := by
                     rwa [List.getElem?_eq_getElem htrl_i, Option.getD_some]
-                  pt_step
-                  pt_steps_nogrp
+                  hbr_step
+                  hbr_steps_nogrp
                   · have hm0 : mrk'[ov.toNat]?.getD 0#8 = 0#8 := by
-                      pt_clear_big; simp only [hov_eq, hidx_c0, ← hidx_pred] at *
+                      hbr_clear_big; simp only [hov_eq, hidx_c0, ← hidx_pred] at *
                       exact mrk_getD_eq0 (by omega) (by assumption)
                     have hlvl1 : (s.core.lvl[ov.toNat]?.getD 0#32).toNat = 1 := by
-                      pt_clear_big; simp only [hov_eq, hidx_c0, ← hidx_pred] at *
+                      hbr_clear_big; simp only [hov_eq, hidx_c0, ← hidx_pred] at *
                       exact lvl_toNat_eq1 (by omega) (by assumption)
                     have hstep := hbrLoop2_bin_mark hlen hw (hidx_succ ▸ hl2) hidx_lt hop_pos
                       (by rwa [List.getElem?_eq_getElem (l := s.core.trl) (by omega),
                         Option.getD_some])
                       hov_eq hov_lt hlvl1 hm0 hent_b' hm_w hmw_eq
                     have hcl_lt := hstep.1.clen_le
-                    pt_steps_nogrp
+                    hbr_steps_nogrp
                     have hcl1_eq : (clen' + 1#64).toNat = clen'.toNat + 1 :=
                       bv64_add1_toNat (by omega)
                     refine hL2
@@ -1299,7 +1388,7 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
                         hidx_pred] using hm
                   · exfalso
                     have hm0 : mrk'[ov.toNat]?.getD 0#8 = 0#8 := by
-                      pt_clear_big; simp only [hov_eq, hidx_c0, ← hidx_pred] at *
+                      hbr_clear_big; simp only [hov_eq, hidx_c0, ← hidx_pred] at *
                       exact mrk_getD_eq0 (by omega) (by assumption)
                     have hcl_lt := hbrMarkInv_clen_lt hl2.1.mark_inv
                       (by rw [hclr_len']; exact hcv_le) hov_lt hm0
@@ -1329,7 +1418,7 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
                         Option.getD_some])
                       (Or.inr (lvl_toNat_ne1 (by omega) hc))
                   · exfalso
-                    pt_clear_big
+                    hbr_clear_big
                     rw [hcv_c0, show (2147483647 : BitVec 32) = 0x7FFFFFFF#32 from rfl] at hc
                     simp only [hidx_c0, ← hidx_pred, ← hov_eq] at hc
                     exact hc hov_lt
@@ -1375,8 +1464,8 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
                       (i := (idx - 1#64).toNat) (by omega)
                     simpa only [hgt, Option.getD_some] using hrsn_lits q hq
                   clear hrsn_lits
-                  pt_step
-                  pt_steps_nogrp
+                  hbr_step
+                  hbr_steps_nogrp
                   · refine hbrInnerLoop_wp hlen hw hcl1 rfl rfl rfl rfl rfl rfl rfl rfl htrl_i rfl
                       (by simp only [bv_c0, Nat.reducePow, BitVec.reduceToNat]
                           simp only [hidx_c0]; simp only [← hidx_pred, ← hrsn_v_eq])
@@ -1386,14 +1475,14 @@ theorem full_hbr_dom_m5_wp (Γ : Env) :
                       hidx_lt hidx_succ hop_sub hrsn_ref hrsn_ng hrsn_le hrsz_eq hrsz_mod
                       hrsn_bd_core hrsn_lits' hl2 hm_nz hm'
                       (fun cl_j op_j mj mrk_j clr_j hnext hmj => by
-                        pt_steps_nogrp
+                        hbr_steps_nogrp
                         exact hL2 (cl_j, op_j, idx - 1#64, steps + 1#64, ()) mj
                           (by dsimp only; omega)
                           ⟨mrk_j, clr_j, hnext, hmj⟩)
                   · exfalso
                     have ha64 : s.core.arena_len < 18446744073709551616 := by
                       have := c.harena; unfold dimacsBound at this; omega
-                    pt_clear_big
+                    hbr_clear_big
                     simp only [hidx_c0, ← hidx_pred, ← hrsn_v_eq] at hc
                     have h64 : rsn_v.toNat + 3 < 18446744073709551616 := by omega
                     simp only [Nat.mod_eq_of_lt h64, Nat.mod_eq_of_lt ha64] at hc

@@ -30,7 +30,7 @@ meta import LeanQbe.T.Legal
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.KissatM5OrchPrepTest
 
