@@ -99,31 +99,31 @@ def idxKeyBeq : IdxKey → IdxKey → Bool
   | _, _ => false
 
 /-- Symbolic indexed address key representing `base + idx * scale + off`. -/
-structure AddrKey : Type where
+structure MemAddrKey : Type where
   base : FKey i64
   idx : IdxKey
   scale : BitVec 64
   off : BitVec 64
 
-/-- Constant `AddrKey` representing `0 + 0 * 0 + c`. -/
-def AddrKey.const (c : BitVec 64) : AddrKey :=
+/-- Constant `MemAddrKey` representing `0 + 0 * 0 + c`. -/
+def MemAddrKey.const (c : BitVec 64) : MemAddrKey :=
   ⟨.imm 0#64, .none, 0#64, c⟩
 
-/-- Variable `AddrKey` representing `v + 0 * 0 + 0`. -/
-def AddrKey.var (i : Nat) : AddrKey :=
+/-- Variable `MemAddrKey` representing `v + 0 * 0 + 0`. -/
+def MemAddrKey.var (i : Nat) : MemAddrKey :=
   ⟨.var i, .none, 0#64, 0#64⟩
 
-/-- True iff two `AddrKey`s share identical `(base, idx, scale)`. -/
-def AddrKey.sameBase (a b : AddrKey) : Bool :=
+/-- True iff two `MemAddrKey`s share identical `(base, idx, scale)`. -/
+def MemAddrKey.sameBase (a b : MemAddrKey) : Bool :=
   fkey64Beq a.base b.base && idxKeyBeq a.idx b.idx && a.scale == b.scale
 
-/-- True iff two `AddrKey`s share identical `(base, idx, scale, off)`. -/
-def AddrKey.beq (a b : AddrKey) : Bool :=
+/-- True iff two `MemAddrKey`s share identical `(base, idx, scale, off)`. -/
+def MemAddrKey.beq (a b : MemAddrKey) : Bool :=
   a.sameBase b && a.off == b.off
 
-/-- Per-variable symbolic address entry pairing `AddrKey` with `zext32`/`sext32` index identity. -/
+/-- Per-variable symbolic address entry pairing `MemAddrKey` with `zext32`/`sext32` index. -/
 structure BaseOffEntry : Type where
-  ak : AddrKey
+  ak : MemAddrKey
   idxSelf : IdxKey
 
 /-- Symbolic address map keyed by de Bruijn variable level (`O(log N)` binary trie). -/
@@ -134,16 +134,16 @@ def resolveEntry (baseOff : BaseOffMap) : FKey i64 → BaseOffEntry
   | .var i => baseOff.getD i ⟨.var i, .k64 (.var i)⟩
   | .imm c => ⟨.const c, if c == 0#64 then .none else .k64 (.imm c)⟩
 
-/-- Resolve an `i64` symbolic key against `baseOff` to its `AddrKey`. -/
-def resolveKey (baseOff : BaseOffMap) (k : FKey i64) : AddrKey :=
+/-- Resolve an `i64` symbolic key against `baseOff` to its `MemAddrKey`. -/
+def resolveKey (baseOff : BaseOffMap) (k : FKey i64) : MemAddrKey :=
   (resolveEntry baseOff k).ak
 
 /-- Resolve an `i64` symbolic key against `baseOff` to its `IdxKey`. -/
 def resolveIdx (baseOff : BaseOffMap) (k : FKey i64) : IdxKey :=
   (resolveEntry baseOff k).idxSelf
 
-/-- Combine two `i64` keys under addition into a canonical `AddrKey` when expressible. -/
-def addAddr (baseOff : BaseOffMap) (x y : FKey i64) : Option AddrKey :=
+/-- Combine two `i64` keys under addition into a canonical `MemAddrKey` when expressible. -/
+def addAddr (baseOff : BaseOffMap) (x y : FKey i64) : Option MemAddrKey :=
   let a₁ := resolveKey baseOff x
   let a₂ := resolveKey baseOff y
   if fkey64Beq a₁.base (.imm 0#64) && a₁.scale == 0#64 then
@@ -163,16 +163,16 @@ def addAddr (baseOff : BaseOffMap) (x y : FKey i64) : Option AddrKey :=
     | _, _ => none
   else none
 
-/-- Combine two `i64` keys under subtraction into an `AddrKey` when RHS is constant. -/
-def subAddr (baseOff : BaseOffMap) (x y : FKey i64) : Option AddrKey :=
+/-- Combine two `i64` keys under subtraction into an `MemAddrKey` when RHS is constant. -/
+def subAddr (baseOff : BaseOffMap) (x y : FKey i64) : Option MemAddrKey :=
   let a₁ := resolveKey baseOff x
   let a₂ := resolveKey baseOff y
   if fkey64Beq a₂.base (.imm 0#64) && a₂.scale == 0#64 then
     some { a₁ with off := a₁.off - a₂.off }
   else none
 
-/-- Scale an `i64` key by constant `d` into an `AddrKey` when expressible. -/
-def scaleAddr (baseOff : BaseOffMap) (arg : FKey i64) (d : BitVec 64) : Option AddrKey :=
+/-- Scale an `i64` key by constant `d` into an `MemAddrKey` when expressible. -/
+def scaleAddr (baseOff : BaseOffMap) (arg : FKey i64) (d : BitVec 64) : Option MemAddrKey :=
   if d == 0#64 then some (.const 0#64)
   else
     let a := resolveKey baseOff arg
@@ -186,7 +186,7 @@ def scaleAddr (baseOff : BaseOffMap) (arg : FKey i64) (d : BitVec 64) : Option A
     else none
 
 /-- Insert `ak` with fresh self-index `.k64 (.var next)` into `baseOff` when `some`. -/
-def insertAddrOpt (next : Nat) (baseOff : BaseOffMap) : Option AddrKey → BaseOffMap
+def insertAddrOpt (next : Nat) (baseOff : BaseOffMap) : Option MemAddrKey → BaseOffMap
   | some ak => baseOff.insert next ⟨ak, .k64 (.var next)⟩
   | none => baseOff
 
@@ -234,7 +234,7 @@ def stepBaseOff (next : Nat) (baseOff : BaseOffMap)
 
 /-- A dominating memory cache entry `(ak, ty, val, valKey)`. -/
 structure CacheEntry (V : Ty → Type) : Type where
-  ak : AddrKey
+  ak : MemAddrKey
   ty : Ty
   val : Arg V ty
   valKey : FKey ty
@@ -247,17 +247,17 @@ def spanDisjoint (off₁ : BitVec 64) (bytes₁ : Nat) (off₂ : BitVec 64) (byt
 
 /-- True iff `e` shares `(base, idx, scale)` with `akW` and occupies a provably disjoint offset
 span from `(akW, bytesW)`. -/
-def entryDisjointWrite (akW : AddrKey) (bytesW : Nat)
+def entryDisjointWrite (akW : MemAddrKey) (bytesW : Nat)
     {V : Ty → Type} (e : CacheEntry V) : Bool :=
   e.ak.sameBase akW && spanDisjoint akW.off bytesW e.ak.off e.ty.bytes
 
 /-- Filter `cache` keeping only entries provably disjoint from `(ak, bytes)`. -/
-def filterCacheWrite {V : Ty → Type} (ak : AddrKey) (bytes : Nat)
+def filterCacheWrite {V : Ty → Type} (ak : MemAddrKey) (bytes : Nat)
     (cache : List (CacheEntry V)) : List (CacheEntry V) :=
   cache.filter (entryDisjointWrite ak bytes)
 
 /-- Look up a dominating cache entry matching `(ak, t)`. -/
-def lookupCache {V : Ty → Type} (ak : AddrKey) (t : Ty) :
+def lookupCache {V : Ty → Type} (ak : MemAddrKey) (t : Ty) :
     List (CacheEntry V) → Option (MVal V t)
   | [] => none
   | e :: rest =>
@@ -271,7 +271,7 @@ def lookupCache {V : Ty → Type} (ak : AddrKey) (t : Ty) :
 
 /-- A tracked byte span written by a `.store` instruction. -/
 structure WriteSpan : Type where
-  ak : AddrKey
+  ak : MemAddrKey
   bytes : Nat
 
 /-- Conservative may-store / may-call summary of a subexpression or block list. -/

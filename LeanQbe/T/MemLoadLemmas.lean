@@ -46,15 +46,15 @@ theorem idxKeyBeq_iff_eq : {a b : IdxKey} → idxKeyBeq a b = true ↔ a = b
   | .sext32 _, .none | .sext32 _, .k64 _ | .sext32 _, .zext32 _ => by
     dsimp only [idxKeyBeq]; simp
 
-theorem AddrKey.sameBase_iff {a b : AddrKey} :
+theorem MemAddrKey.sameBase_iff {a b : MemAddrKey} :
     a.sameBase b = true ↔ a.base = b.base ∧ a.idx = b.idx ∧ a.scale = b.scale := by
-  simp only [AddrKey.sameBase, Bool.and_eq_true, fkey64Beq_iff_eq, idxKeyBeq_iff_eq, beq_iff_eq,
+  simp only [MemAddrKey.sameBase, Bool.and_eq_true, fkey64Beq_iff_eq, idxKeyBeq_iff_eq, beq_iff_eq,
     and_assoc]
 
-theorem AddrKey.beq_iff {a b : AddrKey} : a.beq b = true ↔ a = b := by
+theorem MemAddrKey.beq_iff {a b : MemAddrKey} : a.beq b = true ↔ a = b := by
   cases a; cases b
-  simp only [AddrKey.beq, Bool.and_eq_true, AddrKey.sameBase_iff, beq_iff_eq, AddrKey.mk.injEq,
-    and_assoc]
+  simp only [MemAddrKey.beq, Bool.and_eq_true, MemAddrKey.sameBase_iff, beq_iff_eq,
+    MemAddrKey.mk.injEq, and_assoc]
 
 theorem spanDisjoint_sound {off₁ : BitVec 64} {bytes₁ : Nat} {off₂ : BitVec 64} {bytes₂ : Nat}
     (h : spanDisjoint off₁ bytes₁ off₂ bytes₂ = true) (base : BitVec 64) :
@@ -124,40 +124,41 @@ theorem IdxKey.eval_fupdTup {ρ : FEnv} {b : Nat} {ts : List Ty} (xs : Tup Val t
   | .zext32 _, h => congrArg (BitVec.setWidth 64) (FKey.fev_fupdTup xs h)
   | .sext32 _, h => congrArg (BitVec.signExtend 64) (FKey.fev_fupdTup xs h)
 
-/-- Base part `base + idx * scale` of an `AddrKey` under valuation `ρ`. -/
-public def AddrKey.baseEval (ρ : FEnv) (ak : AddrKey) : BitVec 64 :=
+/-- Base part `base + idx * scale` of an `MemAddrKey` under valuation `ρ`. -/
+public def MemAddrKey.baseEval (ρ : FEnv) (ak : MemAddrKey) : BitVec 64 :=
   ak.base.fev ρ + ak.idx.eval ρ * ak.scale
 
-/-- Full `BitVec 64` evaluation `base + idx * scale + off` of an `AddrKey`. -/
-public def AddrKey.eval (ρ : FEnv) (ak : AddrKey) : BitVec 64 :=
+/-- Full `BitVec 64` evaluation `base + idx * scale + off` of an `MemAddrKey`. -/
+public def MemAddrKey.eval (ρ : FEnv) (ak : MemAddrKey) : BitVec 64 :=
   ak.baseEval ρ + ak.off
 
-/-- Variable-level bound for `AddrKey`. -/
-public def AddrKey.FLt (next : Nat) (ak : AddrKey) : Prop :=
+/-- Variable-level bound for `MemAddrKey`. -/
+public def MemAddrKey.FLt (next : Nat) (ak : MemAddrKey) : Prop :=
   ak.base.FLt next ∧ ak.idx.FLt next
 
-theorem AddrKey.FLt.le {b₁ b₂ : Nat} (h : b₁ ≤ b₂) {ak : AddrKey} (hk : ak.FLt b₁) :
+theorem MemAddrKey.FLt.le {b₁ b₂ : Nat} (h : b₁ ≤ b₂) {ak : MemAddrKey} (hk : ak.FLt b₁) :
     ak.FLt b₂ :=
   ⟨hk.1.le h, hk.2.le h⟩
 
-theorem AddrKey.FLt.mono {b : Nat} {ak : AddrKey} (h : ak.FLt b) : ak.FLt (b + 1) :=
+theorem MemAddrKey.FLt.mono {b : Nat} {ak : MemAddrKey} (h : ak.FLt b) : ak.FLt (b + 1) :=
   h.le (Nat.le_succ b)
 
-theorem AddrKey.FLt.add {b k : Nat} {ak : AddrKey} (h : ak.FLt b) : ak.FLt (b + k) :=
+theorem MemAddrKey.FLt.add {b k : Nat} {ak : MemAddrKey} (h : ak.FLt b) : ak.FLt (b + k) :=
   h.le (Nat.le_add_right b k)
 
-theorem AddrKey.eval_fupd {ρ : FEnv} {b : Nat} {u : Ty} (v : Val u) {ak : AddrKey}
+theorem MemAddrKey.eval_fupd {ρ : FEnv} {b : Nat} {u : Ty} (v : Val u) {ak : MemAddrKey}
     (h : ak.FLt b) : ak.eval (fupd ρ b v) = ak.eval ρ := by
-  simp only [AddrKey.eval, AddrKey.baseEval, FKey.fev_fupd v h.1, IdxKey.eval_fupd v h.2]
+  simp only [MemAddrKey.eval, MemAddrKey.baseEval, FKey.fev_fupd v h.1, IdxKey.eval_fupd v h.2]
 
-theorem AddrKey.eval_fupdTup {ρ : FEnv} {b : Nat} {ts : List Ty} (xs : Tup Val ts)
-    {ak : AddrKey} (h : ak.FLt b) : ak.eval (fupdTup ρ b xs) = ak.eval ρ := by
-  simp only [AddrKey.eval, AddrKey.baseEval, FKey.fev_fupdTup xs h.1, IdxKey.eval_fupdTup xs h.2]
+theorem MemAddrKey.eval_fupdTup {ρ : FEnv} {b : Nat} {ts : List Ty} (xs : Tup Val ts)
+    {ak : MemAddrKey} (h : ak.FLt b) : ak.eval (fupdTup ρ b xs) = ak.eval ρ := by
+  simp only [MemAddrKey.eval, MemAddrKey.baseEval, FKey.fev_fupdTup xs h.1,
+    IdxKey.eval_fupdTup xs h.2]
 
-theorem AddrKey.baseEval_eq_of_sameBase (ρ : FEnv) {a b : AddrKey} (h : a.sameBase b = true) :
+theorem MemAddrKey.baseEval_eq_of_sameBase (ρ : FEnv) {a b : MemAddrKey} (h : a.sameBase b = true) :
     a.baseEval ρ = b.baseEval ρ := by
-  obtain ⟨h1, h2, h3⟩ := AddrKey.sameBase_iff.1 h
-  simp only [AddrKey.baseEval, h1, h2, h3]
+  obtain ⟨h1, h2, h3⟩ := MemAddrKey.sameBase_iff.1 h
+  simp only [MemAddrKey.baseEval, h1, h2, h3]
 
 /-- Symbolic address map agrees with valuation `ρ` below `next` and is empty above. -/
 public def BaseOffGood (ρ : FEnv) (next : Nat) (m : BaseOffMap) : Prop :=
@@ -171,7 +172,7 @@ theorem BaseOffGood.empty (ρ : FEnv) (next : Nat) :
     BaseOffGood ρ next .empty := by
   refine ⟨fun i hi => ?_, fun _ _ => rfl⟩
   simp only [Trie.getD_empty]
-  exact ⟨⟨hi, trivial⟩, by simp [AddrKey.eval, AddrKey.baseEval, AddrKey.var, IdxKey.eval,
+  exact ⟨⟨hi, trivial⟩, by simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.var, IdxKey.eval,
     FKey.fev], hi, rfl⟩
 
 theorem BaseOffGood.upd_fupd {ρ : FEnv} {next : Nat} {m : BaseOffMap}
@@ -181,14 +182,14 @@ theorem BaseOffGood.upd_fupd {ρ : FEnv} {next : Nat} {m : BaseOffMap}
   rcases Nat.lt_or_eq_of_le (Nat.lt_succ_iff.1 hi) with hlt | rfl
   · obtain ⟨hflt, hev, hiflt, hiev⟩ := hm.1 i hlt
     refine ⟨hflt.mono, ?_, hiflt.mono, ?_⟩
-    · rw [AddrKey.eval_fupd v hflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]
+    · rw [MemAddrKey.eval_fupd v hflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]
       exact hev
     · rw [IdxKey.eval_fupd v hiflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]
       exact hiev
   · have hnone := hm.2 i (Nat.le_refl i)
     simp only [Trie.getD, hnone, Option.getD_none]
-    exact ⟨⟨hi, trivial⟩, by simp [AddrKey.eval, AddrKey.baseEval, AddrKey.var, IdxKey.eval,
-      FKey.fev], hi, rfl⟩
+    exact ⟨⟨hi, trivial⟩, by simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.var,
+      IdxKey.eval, FKey.fev], hi, rfl⟩
 
 theorem BaseOffGood.upd_fupdTup {ρ : FEnv} {next : Nat} {m : BaseOffMap}
     (hm : BaseOffGood ρ next m) :
@@ -209,7 +210,7 @@ theorem BaseOffGood.insert_next {ρ : FEnv} {next : Nat} {m : BaseOffMap}
     · rw [Trie.getD_insert_ne m e ⟨.var i, .k64 (.var i)⟩ (Nat.ne_of_lt hlt)]
       obtain ⟨hflt, hev, hiflt, hiev⟩ := hm.1 i hlt
       refine ⟨hflt.mono, ?_, hiflt.mono, ?_⟩
-      · rw [AddrKey.eval_fupd v hflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]
+      · rw [MemAddrKey.eval_fupd v hflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]
         exact hev
       · rw [IdxKey.eval_fupd v hiflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]
         exact hiev
@@ -225,7 +226,7 @@ theorem BaseOffGood.insert_old {ρ : FEnv} {next : Nat} {m : BaseOffMap}
     (hakFlt : e.ak.FLt next) (hakEv : e.ak.eval ρ = v)
     (hiFlt : e.idxSelf.FLt next) (hiEv : e.idxSelf.eval ρ = v) :
     BaseOffGood (fupd ρ next v) (next + 1) (m.insert next e) :=
-  hm.insert_next v hakFlt.mono ((AddrKey.eval_fupd v hakFlt).trans hakEv)
+  hm.insert_next v hakFlt.mono ((MemAddrKey.eval_fupd v hakFlt).trans hakEv)
     hiFlt.mono ((IdxKey.eval_fupd v hiFlt).trans hiEv)
 
 theorem resolveEntry_good {ρ : FEnv} {next : Nat} {m : BaseOffMap}
@@ -236,7 +237,7 @@ theorem resolveEntry_good {ρ : FEnv} {next : Nat} {m : BaseOffMap}
   | var i => exact hm.1 i hk
   | imm c =>
     dsimp only [resolveEntry]
-    refine ⟨⟨trivial, trivial⟩, by simp [AddrKey.eval, AddrKey.baseEval, AddrKey.const,
+    refine ⟨⟨trivial, trivial⟩, by simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.const,
       IdxKey.eval, FKey.fev], ?_, ?_⟩
     · split <;> trivial
     · split
@@ -258,7 +259,7 @@ private theorem bv_add4 (a b c d : BitVec 64) : (a + c) + (b + d) = (a + b) + (c
     ← BitVec.add_assoc a b (d + c), BitVec.add_comm d c]
 
 theorem addAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood ρ next m)
-    {x y : FKey i64} (hx : x.FLt next) (hy : y.FLt next) {ak : AddrKey}
+    {x y : FKey i64} (hx : x.FLt next) (hy : y.FLt next) {ak : MemAddrKey}
     (h : addAddr m x y = some ak) :
     ak.FLt next ∧ ak.eval ρ = x.fev ρ + y.fev ρ := by
   obtain ⟨h1Flt, h1Ev⟩ := resolveKey_good hm hx
@@ -269,9 +270,9 @@ theorem addAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood
   · simp only [c1, ↓reduceIte, Option.some.injEq] at h; subst h
     simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at c1
     have ha1 : (resolveKey m x).off = x.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, c1.1, c1.2, FKey.fev] using h1Ev
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c1.1, c1.2, FKey.fev] using h1Ev
     refine ⟨h2Flt, ?_⟩
-    simp only [AddrKey.eval, AddrKey.baseEval] at h2Ev ⊢
+    simp only [MemAddrKey.eval, MemAddrKey.baseEval] at h2Ev ⊢
     rw [← BitVec.add_assoc, h2Ev, ha1, BitVec.add_comm]
   simp only [c1, Bool.false_eq_true, ↓reduceIte] at h
   by_cases c2 : (fkey64Beq (resolveKey m y).base (.imm 0#64) &&
@@ -279,9 +280,9 @@ theorem addAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood
   · simp only [c2, ↓reduceIte, Option.some.injEq] at h; subst h
     simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at c2
     have ha2 : (resolveKey m y).off = y.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, c2.1, c2.2, FKey.fev] using h2Ev
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c2.1, c2.2, FKey.fev] using h2Ev
     refine ⟨h1Flt, ?_⟩
-    simp only [AddrKey.eval, AddrKey.baseEval] at h1Ev ⊢
+    simp only [MemAddrKey.eval, MemAddrKey.baseEval] at h1Ev ⊢
     rw [← BitVec.add_assoc, h1Ev, ha2]
   simp only [c2, Bool.false_eq_true, ↓reduceIte] at h
   by_cases c3 : ((resolveKey m x).scale == 0#64 &&
@@ -289,12 +290,12 @@ theorem addAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood
   · simp only [c3, ↓reduceIte, Option.some.injEq] at h; subst h
     simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at c3
     have ha1 : (resolveKey m x).base.fev ρ + (resolveKey m x).off = x.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, c3.1] using h1Ev
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c3.1] using h1Ev
     have ha2 : (resolveKey m y).idx.eval ρ * (resolveKey m y).scale +
         (resolveKey m y).off = y.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, c3.2, FKey.fev] using h2Ev
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c3.2, FKey.fev] using h2Ev
     refine ⟨⟨h1Flt.1, h2Flt.2⟩, ?_⟩
-    simp only [AddrKey.eval, AddrKey.baseEval]
+    simp only [MemAddrKey.eval, MemAddrKey.baseEval]
     rw [bv_add4, ha1, ha2]
   simp only [c3, Bool.false_eq_true, ↓reduceIte] at h
   by_cases c4 : ((resolveKey m y).scale == 0#64 &&
@@ -302,21 +303,21 @@ theorem addAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood
   · simp only [c4, ↓reduceIte, Option.some.injEq] at h; subst h
     simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at c4
     have ha2 : (resolveKey m y).base.fev ρ + (resolveKey m y).off = y.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, c4.1] using h2Ev
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c4.1] using h2Ev
     have ha1 : (resolveKey m x).idx.eval ρ * (resolveKey m x).scale +
         (resolveKey m x).off = x.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, c4.2, FKey.fev] using h1Ev
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c4.2, FKey.fev] using h1Ev
     refine ⟨⟨h2Flt.1, h1Flt.2⟩, ?_⟩
-    simp only [AddrKey.eval, AddrKey.baseEval]
+    simp only [MemAddrKey.eval, MemAddrKey.baseEval]
     rw [BitVec.add_comm (resolveKey m x).off, bv_add4, ha2, ha1, BitVec.add_comm]
   simp only [c4, Bool.false_eq_true, ↓reduceIte] at h
   by_cases c5 : ((resolveKey m x).scale == 0#64 && (resolveKey m y).scale == 0#64) = true
   · simp only [c5, ↓reduceIte] at h
     simp only [Bool.and_eq_true, beq_iff_eq] at c5
     have ha1 : (resolveKey m x).base.fev ρ + (resolveKey m x).off = x.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, c5.1] using h1Ev
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c5.1] using h1Ev
     have ha2 : (resolveKey m y).base.fev ρ + (resolveKey m y).off = y.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, c5.2] using h2Ev
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c5.2] using h2Ev
     cases hb1 : (resolveKey m x).base with
     | imm _ => rw [hb1] at h; cases h
     | var v₁ =>
@@ -331,19 +332,19 @@ theorem addAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood
         by_cases hlt1 : v₁ < v₂
         · simp only [hlt1, ↓reduceIte, Option.some.injEq] at h; subst h
           refine ⟨⟨hv1, hi2Flt⟩, ?_⟩
-          simp only [AddrKey.eval, AddrKey.baseEval, hi2Ev, BitVec.mul_one]
+          simp only [MemAddrKey.eval, MemAddrKey.baseEval, hi2Ev, BitVec.mul_one]
           rw [bv_add4, ← hb1, ha1, ← hb2, ha2]
         · simp only [hlt1, ↓reduceIte] at h
           by_cases hlt2 : v₂ < v₁
           · simp only [hlt2, ↓reduceIte, Option.some.injEq] at h; subst h
             refine ⟨⟨hv2, hi1Flt⟩, ?_⟩
-            simp only [AddrKey.eval, AddrKey.baseEval, hi1Ev, BitVec.mul_one]
+            simp only [MemAddrKey.eval, MemAddrKey.baseEval, hi1Ev, BitVec.mul_one]
             rw [BitVec.add_comm (resolveKey m x).off, bv_add4, ← hb2, ha2, ← hb1, ha1,
               BitVec.add_comm]
           · simp only [hlt2, ↓reduceIte, Option.some.injEq] at h; subst h
             have heqv : v₁ = v₂ := Nat.le_antisymm (Nat.le_of_not_lt hlt2) (Nat.le_of_not_lt hlt1)
             refine ⟨⟨trivial, hi1Flt⟩, ?_⟩
-            simp only [AddrKey.eval, AddrKey.baseEval, hi1Ev]
+            simp only [MemAddrKey.eval, MemAddrKey.baseEval, hi1Ev]
             rw [show FKey.fev ρ (Arg.imm 0#64 : FKey i64) = 0#64 from rfl, BitVec.zero_add,
               show (2#64 : BitVec 64) = 1#64 + 1#64 from rfl, BitVec.mul_add, BitVec.mul_one,
               bv_add4]
@@ -355,7 +356,7 @@ theorem addAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood
   · simp only [c5, Bool.false_eq_true, ↓reduceIte] at h; cases h
 
 theorem subAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood ρ next m)
-    {x y : FKey i64} (hx : x.FLt next) (hy : y.FLt next) {ak : AddrKey}
+    {x y : FKey i64} (hx : x.FLt next) (hy : y.FLt next) {ak : MemAddrKey}
     (h : subAddr m x y = some ak) :
     ak.FLt next ∧ ak.eval ρ = x.fev ρ - y.fev ρ := by
   obtain ⟨h1Flt, h1Ev⟩ := resolveKey_good hm hx
@@ -366,14 +367,14 @@ theorem subAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood
   · simp only [c, ↓reduceIte, Option.some.injEq] at h; subst h
     simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at c
     have ha2 : (resolveKey m y).off = y.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, c.1, c.2, FKey.fev] using h2Ev
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c.1, c.2, FKey.fev] using h2Ev
     refine ⟨h1Flt, ?_⟩
-    simp only [AddrKey.eval, AddrKey.baseEval] at h1Ev ⊢
+    simp only [MemAddrKey.eval, MemAddrKey.baseEval] at h1Ev ⊢
     rw [BitVec.sub_eq_add_neg, ← BitVec.add_assoc, h1Ev, ha2, ← BitVec.sub_eq_add_neg]
   · simp only [c, Bool.false_eq_true, ↓reduceIte] at h; cases h
 
 theorem scaleAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood ρ next m)
-    {arg : FKey i64} (harg : arg.FLt next) (d : BitVec 64) {ak : AddrKey}
+    {arg : FKey i64} (harg : arg.FLt next) (d : BitVec 64) {ak : MemAddrKey}
     (h : scaleAddr m arg d = some ak) :
     ak.FLt next ∧ ak.eval ρ = arg.fev ρ * d := by
   obtain ⟨haFlt, haEv⟩ := resolveKey_good hm harg
@@ -381,7 +382,7 @@ theorem scaleAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGo
   by_cases cd0 : (d == 0#64) = true
   · simp only [cd0, ↓reduceIte, Option.some.injEq] at h; subst h
     rw [beq_iff_eq.1 cd0]
-    exact ⟨⟨trivial, trivial⟩, by simp [AddrKey.eval, AddrKey.baseEval, AddrKey.const,
+    exact ⟨⟨trivial, trivial⟩, by simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.const,
       IdxKey.eval, FKey.fev]⟩
   simp only [cd0, Bool.false_eq_true, ↓reduceIte] at h
   by_cases cd1 : (d == 1#64) = true
@@ -394,9 +395,9 @@ theorem scaleAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGo
   · simp only [c1, ↓reduceIte, Option.some.injEq] at h; subst h
     simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at c1
     have ha : (resolveKey m arg).off = arg.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, c1.1, c1.2, FKey.fev] using haEv
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c1.1, c1.2, FKey.fev] using haEv
     refine ⟨⟨trivial, trivial⟩, ?_⟩
-    simp only [AddrKey.eval, AddrKey.baseEval, AddrKey.const, IdxKey.eval]
+    simp only [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.const, IdxKey.eval]
     rw [show FKey.fev ρ (Arg.imm 0#64 : FKey i64) = 0#64 from rfl, BitVec.zero_mul,
       BitVec.add_zero, BitVec.zero_add, ha]
   simp only [c1, Bool.false_eq_true, ↓reduceIte] at h
@@ -405,9 +406,9 @@ theorem scaleAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGo
     have hb : (resolveKey m arg).base = .imm 0#64 := fkey64Beq_iff_eq.1 c2
     have ha : (resolveKey m arg).idx.eval ρ * (resolveKey m arg).scale +
         (resolveKey m arg).off = arg.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, hb, FKey.fev] using haEv
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, hb, FKey.fev] using haEv
     refine ⟨⟨trivial, haFlt.2⟩, ?_⟩
-    simp only [AddrKey.eval, AddrKey.baseEval]
+    simp only [MemAddrKey.eval, MemAddrKey.baseEval]
     rw [show FKey.fev ρ (Arg.imm 0#64 : FKey i64) = 0#64 from rfl, BitVec.zero_add,
       ← BitVec.mul_assoc, ← BitVec.add_mul, ha]
   simp only [c2, Bool.false_eq_true, ↓reduceIte] at h
@@ -415,23 +416,23 @@ theorem scaleAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGo
   · simp only [c3, ↓reduceIte, Option.some.injEq] at h; subst h
     have hs : (resolveKey m arg).scale = 0#64 := beq_iff_eq.1 c3
     have ha : (resolveKey m arg).base.fev ρ + (resolveKey m arg).off = arg.fev ρ := by
-      simpa [AddrKey.eval, AddrKey.baseEval, hs] using haEv
+      simpa [MemAddrKey.eval, MemAddrKey.baseEval, hs] using haEv
     obtain ⟨hiFlt, hiEv⟩ := resolveIdx_good hm haFlt.1
     refine ⟨⟨trivial, hiFlt⟩, ?_⟩
-    simp only [AddrKey.eval, AddrKey.baseEval, hiEv]
+    simp only [MemAddrKey.eval, MemAddrKey.baseEval, hiEv]
     rw [show FKey.fev ρ (Arg.imm 0#64 : FKey i64) = 0#64 from rfl, BitVec.zero_add,
       ← BitVec.add_mul, ha]
   · simp only [c3, Bool.false_eq_true, ↓reduceIte] at h; cases h
 
 theorem BaseOffGood.insertAddrOpt {ρ : FEnv} {next : Nat} {m : BaseOffMap}
-    (hm : BaseOffGood ρ next m) (v : Val i64) {o : Option AddrKey}
+    (hm : BaseOffGood ρ next m) (v : Val i64) {o : Option MemAddrKey}
     (ho : ∀ ak, o = some ak → ak.FLt next ∧ ak.eval ρ = v) :
     BaseOffGood (fupd ρ next v) (next + 1) (insertAddrOpt next m o) := by
   cases o with
   | none => exact hm.upd_fupd v
   | some ak =>
     obtain ⟨hflt, hev⟩ := ho ak rfl
-    exact hm.insert_next v hflt.mono ((AddrKey.eval_fupd v hflt).trans hev)
+    exact hm.insert_next v hflt.mono ((MemAddrKey.eval_fupd v hflt).trans hev)
       (Nat.lt_succ_self next) (fupd_eq ρ next v)
 
 private theorem bv64_shiftLeft_eq_mul_twoPow (x d : BitVec 64) :
@@ -602,7 +603,8 @@ theorem stepBaseOff_good (ρ : FEnv) (next : Nat) (m : BaseOffMap)
           refine ⟨hw.1, hw.2, ?_⟩
           rw [stepBaseOff_zext32_64]
           refine hm.insert_next _ ⟨Nat.lt_succ_self next, trivial⟩ ?_ hx.mono ?_
-          · simp [AddrKey.eval, AddrKey.baseEval, AddrKey.var, IdxKey.eval, FKey.fev, fupd_eq]
+          · simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.var, IdxKey.eval, FKey.fev,
+              fupd_eq]
           · simp [IdxKey.eval, FKey.fev_fupd _ hx, hvals.1]
         · by_cases hsx : code = .sext 32 64
           · subst hsx
@@ -610,7 +612,8 @@ theorem stepBaseOff_good (ρ : FEnv) (next : Nat) (m : BaseOffMap)
             refine ⟨hw.1, hw.2, ?_⟩
             rw [stepBaseOff_sext32_64]
             refine hm.insert_next _ ⟨Nat.lt_succ_self next, trivial⟩ ?_ hx.mono ?_
-            · simp [AddrKey.eval, AddrKey.baseEval, AddrKey.var, IdxKey.eval, FKey.fev, fupd_eq]
+            · simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.var, IdxKey.eval, FKey.fev,
+                fupd_eq]
             · simp [IdxKey.eval, FKey.fev_fupd _ hx, hvals.1]
           · exact hm.stepBaseOff_same code _ (by simp [stepBaseOff, hz, hsx]) (a₂, ()) P hw
       · have heq : stepBaseOff next m code kargs = m := by
@@ -808,7 +811,7 @@ public def MemCacheGood (ρ : FEnv) (next : Nat) (cache : List (CacheEntry Val))
 
 /-- Static invariant entry captured at `.group` entry (`addr` is fixed across inner binders). -/
 public structure InvEntry : Type where
-  ak : AddrKey
+  ak : MemAddrKey
   addr : BitVec 64
   ty : Ty
   val : Val ty
@@ -871,7 +874,7 @@ theorem MemCacheGood.upd_one {ρ : FEnv} {next : Nat}
   obtain ⟨hak, hv, hev, hld⟩ := hc e he
   refine ⟨hak.mono, hv.mono, ?_, ?_⟩
   · rw [FKey.fev_fupd v hv]; exact hev
-  · rw [AddrKey.eval_fupd v hak]; exact hld
+  · rw [MemAddrKey.eval_fupd v hak]; exact hld
 
 theorem MemCacheGood.upd_fupdTup {ρ : FEnv} {next : Nat}
     {cache : List (CacheEntry Val)} {m : Mem 64}
@@ -881,25 +884,25 @@ theorem MemCacheGood.upd_fupdTup {ρ : FEnv} {next : Nat}
   obtain ⟨hak, hv, hev, hld⟩ := hc e he
   refine ⟨hak.add, hv.add, ?_, ?_⟩
   · rw [FKey.fev_fupdTup xs hv]; exact hev
-  · rw [AddrKey.eval_fupdTup xs hak]; exact hld
+  · rw [MemAddrKey.eval_fupdTup xs hak]; exact hld
 
 theorem InvKeysGood.upd_one {ρ : FEnv} {next : Nat} {inv : List InvEntry}
     (hi : InvKeysGood ρ next inv) {u : Ty} (v : Val u) :
     InvKeysGood (fupd ρ next v) (next + 1) inv := by
   intro e he
   obtain ⟨hak, heq⟩ := hi e he
-  exact ⟨hak.mono, (AddrKey.eval_fupd v hak).trans heq⟩
+  exact ⟨hak.mono, (MemAddrKey.eval_fupd v hak).trans heq⟩
 
 theorem InvKeysGood.upd_fupdTup {ρ : FEnv} {next : Nat} {inv : List InvEntry}
     (hi : InvKeysGood ρ next inv) {ts : List Ty} (xs : Tup Val ts) :
     InvKeysGood (fupdTup ρ next xs) (next + ts.length) inv := by
   intro e he
   obtain ⟨hak, heq⟩ := hi e he
-  exact ⟨hak.add, (AddrKey.eval_fupdTup xs hak).trans heq⟩
+  exact ⟨hak.add, (MemAddrKey.eval_fupdTup xs hak).trans heq⟩
 
 theorem MemCacheGood.store_filter {ρ : FEnv} {next : Nat}
     {cache : List (CacheEntry Val)} {m : Mem 64}
-    (hc : MemCacheGood ρ next cache m) (akW : AddrKey)
+    (hc : MemCacheGood ρ next cache m) (akW : MemAddrKey)
     (t : Ty) (ptr : BitVec 64) (v : Val t) (hptr : akW.eval ρ = ptr) :
     MemCacheGood ρ next (filterCacheWrite akW t.bytes cache) (storeMem m t ptr v) := by
   intro e he
@@ -907,11 +910,11 @@ theorem MemCacheGood.store_filter {ρ : FEnv} {next : Nat}
   obtain ⟨hem, hsb, hsp⟩ := he
   obtain ⟨hakflt, hvflt, hev, hld⟩ := hc e hem
   refine ⟨hakflt, hvflt, hev, ?_⟩
-  have hbase : e.ak.baseEval ρ = akW.baseEval ρ := AddrKey.baseEval_eq_of_sameBase ρ hsb
+  have hbase : e.ak.baseEval ρ = akW.baseEval ρ := MemAddrKey.baseEval_eq_of_sameBase ρ hsb
   have hdisj := spanDisjoint_sound hsp (akW.baseEval ρ)
   have heW : akW.baseEval ρ + akW.off = ptr := hptr
   have heE : akW.baseEval ρ + e.ak.off = e.ak.eval ρ := by
-    simp only [AddrKey.eval, hbase]
+    simp only [MemAddrKey.eval, hbase]
   rw [← heW, ← heE,
     loadVal_storeMem_disjoint m t e.ty (akW.baseEval ρ + akW.off) (akW.baseEval ρ + e.ak.off)
       v hdisj]
@@ -920,7 +923,7 @@ theorem MemCacheGood.store_filter {ρ : FEnv} {next : Nat}
 
 theorem MemCacheGood.store_push {ρ : FEnv} {next : Nat}
     {cache : List (CacheEntry Val)} {m : Mem 64}
-    (hc : MemCacheGood ρ next cache m) {akW : AddrKey} {t : Ty}
+    (hc : MemCacheGood ρ next cache m) {akW : MemAddrKey} {t : Ty}
     {vout : Arg Val t} {vkey : FKey t} {ptr : BitVec 64} {v : Val t}
     (hakflt : akW.FLt next) (hvflt : vkey.FLt next) (hev : vkey.fev ρ = vout.val)
     (hv : vout.val = v) (hptr : akW.eval ρ = ptr) (hbytes : t.bytes ≤ 2 ^ 64) :
@@ -937,7 +940,7 @@ theorem MemCacheGood.store_push {ρ : FEnv} {next : Nat}
 
 theorem MemCacheGood.cons_load {ρ : FEnv} {next : Nat}
     {cache : List (CacheEntry Val)} {m : Mem 64}
-    (hc : MemCacheGood ρ next cache m) {ak : AddrKey} {t : Ty}
+    (hc : MemCacheGood ρ next cache m) {ak : MemAddrKey} {t : Ty}
     {v : Val t} (hakflt : ak.FLt next) (hld : loadVal m t (ak.eval ρ) = some v) :
     MemCacheGood (fupd ρ next v) (next + 1)
       (⟨ak, t, .var v, .var next⟩ :: cache) m := by
@@ -945,13 +948,13 @@ theorem MemCacheGood.cons_load {ρ : FEnv} {next : Nat}
   cases he with
   | head =>
     refine ⟨hakflt.mono, Nat.lt_succ_self _, fupd_eq ρ next v, ?_⟩
-    rw [AddrKey.eval_fupd v hakflt]
+    rw [MemAddrKey.eval_fupd v hakflt]
     exact hld
   | tail _ he => exact hc.upd_one v e he
 
 theorem lookupCache_mem {ρ : FEnv} {next : Nat}
     {cache : List (CacheEntry Val)} {m : Mem 64}
-    (hc : MemCacheGood ρ next cache m) {ak : AddrKey} {t : Ty}
+    (hc : MemCacheGood ρ next cache m) {ak : MemAddrKey} {t : Ty}
     {mv : MVal Val t} (hl : lookupCache ak t cache = some mv) :
     mv.key.FLt next ∧ mv.key.fev ρ = mv.out.val ∧
       loadVal m t (ak.eval ρ) = some mv.out.val := by
@@ -972,7 +975,7 @@ theorem lookupCache_mem {ρ : FEnv} {next : Nat}
         cases hl
         subst heq
         obtain ⟨_, hvflt, hvev, hld⟩ := hc e List.mem_cons_self
-        have hak : e.ak = ak := AddrKey.beq_iff.1 hbo
+        have hak : e.ak = ak := MemAddrKey.beq_iff.1 hbo
         rw [hak] at hld
         exact ⟨hvflt, hvev, hld⟩
 
@@ -1084,7 +1087,7 @@ theorem SummaryPreserves.append {s : MemSummary} {inv₁ inv₂ : List InvEntry}
 theorem InvMemGood.store_disjoint {ρ : FEnv} {next : Nat}
     {inv : List InvEntry} {m : Mem 64}
     (hk : InvKeysGood ρ next inv) (hm : InvMemGood inv m)
-    {akW : AddrKey} {t : Ty} {ptr : BitVec 64} (v : Val t)
+    {akW : MemAddrKey} {t : Ty} {ptr : BitVec 64} (v : Val t)
     (hptr : akW.eval ρ = ptr)
     (hdisj : ∀ e ∈ inv, e.ak.sameBase akW = true ∧
       spanDisjoint akW.off t.bytes e.ak.off e.ty.bytes = true) :
@@ -1092,11 +1095,11 @@ theorem InvMemGood.store_disjoint {ρ : FEnv} {next : Nat}
   intro e he
   obtain ⟨_, heq⟩ := hk e he
   obtain ⟨hsb, hsp⟩ := hdisj e he
-  have hbase : e.ak.baseEval ρ = akW.baseEval ρ := AddrKey.baseEval_eq_of_sameBase ρ hsb
+  have hbase : e.ak.baseEval ρ = akW.baseEval ρ := MemAddrKey.baseEval_eq_of_sameBase ρ hsb
   have hsd := spanDisjoint_sound hsp (akW.baseEval ρ)
   have heW : akW.baseEval ρ + akW.off = ptr := hptr
   have heE : akW.baseEval ρ + e.ak.off = e.addr := by
-    rw [← heq]; simp only [AddrKey.eval, hbase]
+    rw [← heq]; simp only [MemAddrKey.eval, hbase]
   rw [← heW, ← heE,
     loadVal_storeMem_disjoint m t e.ty (akW.baseEval ρ + akW.off) (akW.baseEval ρ + e.ak.off)
       v hsd]
@@ -1578,7 +1581,7 @@ theorem TRel.mkey_eq {G' : Ctx V₁ V₂} {G : Ctx (MVal V₁) (MVal V₂)} (hG 
 
 /-- Pointwise relation on `CacheEntry` pairs sharing identical `(ak, ty, valKey)`. -/
 public inductive RelCacheEntry (G' : Ctx V₁ V₂) : CacheEntry V₁ → CacheEntry V₂ → Prop
-  | mk {ak : AddrKey} {t : Ty}
+  | mk {ak : MemAddrKey} {t : Ty}
       {v₁ : Arg V₁ t} {v₂ : Arg V₂ t} {k : FKey t} :
       ArgRel G' t v₁ v₂ →
       RelCacheEntry G' ⟨ak, t, v₁, k⟩ ⟨ak, t, v₂, k⟩
@@ -1595,7 +1598,7 @@ theorem RelCache.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p �
   | _, _, .nil => .nil
   | _, _, .cons (.mk harg) hr => .cons (.mk (harg.weaken hsub)) (RelCache.weaken hsub hr)
 
-theorem RelCache.filterWrite {G' : Ctx V₁ V₂} (ak : AddrKey) (bytes : Nat) :
+theorem RelCache.filterWrite {G' : Ctx V₁ V₂} (ak : MemAddrKey) (bytes : Nat) :
     {c₁ : List (CacheEntry V₁)} → {c₂ : List (CacheEntry V₂)} →
     RelCache G' c₁ c₂ →
     RelCache G' (filterCacheWrite ak bytes c₁) (filterCacheWrite ak bytes c₂)
@@ -1629,13 +1632,13 @@ inductive MLookupRel (G' : Ctx V₁ V₂) (t : Ty) :
   | some {m₁ : MVal V₁ t} {m₂ : MVal V₂ t} :
       MValRel G' m₁ m₂ → MLookupRel G' t (some m₁) (some m₂)
 
-theorem RelCache.lookup {G' : Ctx V₁ V₂} (ak : AddrKey) (t : Ty) :
+theorem RelCache.lookup {G' : Ctx V₁ V₂} (ak : MemAddrKey) (t : Ty) :
     {c₁ : List (CacheEntry V₁)} → {c₂ : List (CacheEntry V₂)} → RelCache G' c₁ c₂ →
     MLookupRel G' t (lookupCache ak t c₁) (lookupCache ak t c₂)
   | _, _, .nil => .none
   | _, _, .cons (.mk harg) hr => by
     dsimp only [lookupCache]
-    cases AddrKey.beq _ ak
+    cases MemAddrKey.beq _ ak
     · exact RelCache.lookup ak t hr
     · cases hty : tyDecEq _ t with
       | isFalse _ => exact RelCache.lookup ak t hr
