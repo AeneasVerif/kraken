@@ -37,11 +37,18 @@ build_lean_path() {
   local ov="$TMP/lean_ov"
   mkdir -p "$ov"
   cp -rs "$parent/LeanQbe" "$ov/LeanQbe"
-  rm -f "$ov/LeanQbe/T/Amd64"/DebugAsm.* "$ov/LeanQbe/T/Amd64"/PrintATTAlign.* \
-    "$ov/LeanQbe/T/Arm64"/DebugAsm.* 2>/dev/null || true
-  ln -sf "$wt/LeanQbe/T/Amd64"/DebugAsm.* "$ov/LeanQbe/T/Amd64/"
-  ln -sf "$wt/LeanQbe/T/Amd64"/PrintATTAlign.* "$ov/LeanQbe/T/Amd64/"
-  ln -sf "$wt/LeanQbe/T/Arm64"/DebugAsm.* "$ov/LeanQbe/T/Arm64/"
+  local pair sub mod
+  for pair in \
+    "LeanQbe/T/Amd64 DebugAsm" \
+    "LeanQbe/T/Amd64 PrintATTAlign" \
+    "LeanQbe/T/Arm64 DebugAsm"; do
+    sub="${pair% *}"
+    mod="${pair#* }"
+    if [ -f "$wt/$sub/$mod.olean" ]; then
+      rm -f "$ov/$sub/$mod".* 2>/dev/null || true
+      ln -sf "$wt/$sub/$mod".* "$ov/$sub/"
+    fi
+  done
   local lp="$ov"
   [ -d "$kraken" ] && lp="$lp:$kraken"
   for p in /usr/local/google/home/andreser/lean-qbe/.lake/packages/*/.lake/build/lib/lean; do
@@ -53,16 +60,7 @@ build_lean_path() {
 LP="$(build_lean_path)"
 export LEAN_PATH="$LP"
 
-cat > "$TMP/gen_x64.lean" <<'LEAN'
-import LeanQbe.T.Amd64.DebugAsm
-import LeanQbe.T.Amd64.PrintATTAlign
-import LeanQbe.T.Amd64.Targ
-import LeanQbe.T.Driver
-import LeanQbe.T.Examples.LitmusProgs
-import LeanQbe.T.Notation
-
-open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Examples.Litmus LeanQbe.T.Notation
-
+cat > "$TMP/common_defs.lean" <<'LEAN'
 def multiExit : Fn := tqbe $multi_exit(%n:l, %a:l, %b:l, %c:l) -> l {
   %w =w trunc %n
   %z =b cnew %w, 0
@@ -108,23 +106,47 @@ def loopBranch : Fn := tqbe $loop_branch(%n:l, %acc:l) -> l {
   }
 }
 
+def callZero : Fn := tqbe $call_zero(%x:l) -> l {
+  %r =l call $c_probe(%x, 1:l)
+  ret %r
+}
+
 def withExtraSaved {R V C : Type} [BEq R] (h : Hints R V C) (extra : List R) :
     Hints R V C :=
   let add (acc : List R) (r : R) : List R := if acc.contains r then acc else acc ++ [r]
   { h with saved := extra.foldl add h.saved }
+LEAN
+
+cat > "$TMP/gen_x64.lean" <<'LEAN'
+import LeanQbe.T.Amd64.DebugAsm
+import LeanQbe.T.Amd64.PrintATTAlign
+import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.Driver
+import LeanQbe.T.Examples.LitmusProgs
+import LeanQbe.T.Notation
+
+open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Examples.Litmus LeanQbe.T.Notation
+LEAN
+cat "$TMP/common_defs.lean" >> "$TMP/gen_x64.lean"
+cat >> "$TMP/gen_x64.lean" <<'LEAN'
 
 def main (args : List String) : IO Unit := do
   let outDir := args[0]!
-  let baseFns := [spill10, evenodd, nested, sumcall]
+  let baseFns := [spill10, evenodd, sumto, nested, sumcall]
   let meHint : X64Hints :=
     withExtraSaved (Fn.computeHints x64Target.toIsa x64LegalTarget multiExit)
       [.rbx, .rbp, .r12, .r13]
   let dcHint : X64Hints :=
     withExtraSaved (Fn.computeHints x64Target.toIsa x64LegalTarget deepCaller)
       [.rbx, .r12, .r14]
-  let fns := baseFns ++ [multiExit, deepCaller, loopBranch]
+  let czHint := Fn.computeHints x64Target.toIsa x64LegalTarget callZero
+  let fns := baseFns ++ [callZero, multiExit, deepCaller, loopBranch]
   let hs := baseFns.map (Fn.computeHints x64Target.toIsa x64LegalTarget) ++
-    [meHint, dcHint, Fn.computeHints x64Target.toIsa x64LegalTarget loopBranch]
+    [czHint, meHint, dcHint, Fn.computeHints x64Target.toIsa x64LegalTarget loopBranch]
+  for fn in [evenodd, sumto, callZero] do
+    let h := Fn.computeHints x64Target.toIsa x64LegalTarget fn
+    if h.nslots != 0 || !h.saved.isEmpty then
+      throw (IO.userError s!"expected 0 slots for {fn.name}")
   let dirs ← IO.ofExcept (compile x64Target.toIsa x64LegalTarget fns hs)
   let raw := Driver.emitAsm (fun c => toATTAligned c ++ "\n") fns dirs
   let dbgSome ← IO.ofExcept (emitX64DebugAsmChecked fns dirs (some hs) ["c_fail_exit"] true)
@@ -144,74 +166,28 @@ import LeanQbe.T.Notation
 import Kraken.AArch64.Print
 
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Examples.Litmus LeanQbe.T.Notation
-
-def multiExit : Fn := tqbe $multi_exit(%n:l, %a:l, %b:l, %c:l) -> l {
-  %w =w trunc %n
-  %z =b cnew %w, 0
-  jnz %z, {
-    %m =l sub %n, 1
-    %wm =w trunc %m
-    %nz =b cnew %wm, 0
-    jnz %nz, {
-      %r =l call $c_probe(%n, %a)
-      %s1 =l add %a, %b
-      %s2 =l add %s1, %c
-      %s3 =l add %s2, %r
-      ret %s3
-    }, {
-      exit $c_fail_exit(%a)
-    }
-  }, {
-    ret 42
-  }
-}
-
-def deepCaller : Fn := tqbe $deep_caller(%n:l, %x:l, %y:l) -> l {
-  %k1 =l add %x, 10
-  %k2 =l add %y, 20
-  %r1 =l call $c_mid(%n, %k1, %k2, 7:l)
-  %k3 =l add %k1, %k2
-  %sum =l add %r1, %k3
-  ret %sum
-}
-
-def loopBranch : Fn := tqbe $loop_branch(%n:l, %acc:l) -> l {
-  loop @lp(%i:l = %n, %s:l = %acc) {
-    %w =w trunc %i
-    %c =b cnew %w, 0
-    jnz %c, {
-      %r =l call $c_probe(%i, %s)
-      %s1 =l add %s, %r
-      %i1 =l sub %i, 1
-      continue @lp(%i1, %s1)
-    }, {
-      ret %s
-    }
-  }
-}
+LEAN
+cat "$TMP/common_defs.lean" >> "$TMP/gen_arm64.lean"
+cat >> "$TMP/gen_arm64.lean" <<'LEAN'
 
 def leafSimple : Fn := tqbe $big_pool_fn(%a:l, %b:l) -> l {
   %c =l add %a, %b
   ret %c
 }
 
-def withExtraSaved {R V C : Type} [BEq R] (h : Hints R V C) (extra : List R) :
-    Hints R V C :=
-  let add (acc : List R) (r : R) : List R := if acc.contains r then acc else acc ++ [r]
-  { h with saved := extra.foldl add h.saved }
-
 def main (args : List String) : IO Unit := do
   let outDir := args[0]!
-  let baseFns := [spill10, evenodd, nested, sumcall]
+  let baseFns := [spill10, evenodd, sumto, nested, sumcall]
   let meHint : Arm64Hints :=
     withExtraSaved (Fn.computeHints armTarget.toIsa armLegalTarget multiExit)
       [.reg .X19, .reg .X20, .reg .X21, .reg .X29]
   let dcHint : Arm64Hints :=
     withExtraSaved (Fn.computeHints armTarget.toIsa armLegalTarget deepCaller)
       [.reg .X19, .reg .X22, .reg .X28]
-  let fns := baseFns ++ [multiExit, deepCaller, loopBranch]
+  let czHint := Fn.computeHints armTarget.toIsa armLegalTarget callZero
+  let fns := baseFns ++ [callZero, multiExit, deepCaller, loopBranch]
   let hs := baseFns.map (Fn.computeHints armTarget.toIsa armLegalTarget) ++
-    [meHint, dcHint, Fn.computeHints armTarget.toIsa armLegalTarget loopBranch]
+    [czHint, meHint, dcHint, Fn.computeHints armTarget.toIsa armLegalTarget loopBranch]
   let dirs ← IO.ofExcept (compile armTarget.toIsa armLegalTarget fns hs)
   let printArm := fun c => ".p2align 2\n" ++
     String.intercalate "\n" (c.map Kraken.AArch64.Print.directive) ++ "\n"
@@ -272,7 +248,8 @@ for obj in "$TMP/x64_dbg_gcc.o" "$TMP/x64_dbg_clang.o"; do
   if nm "$obj" | grep -E '\.L[0-9]+' ; then
     echo "FAIL: leaked local label symbol in $obj"; exit 1
   fi
-  for fn in spill10 evenodd nested sumcall multi_exit deep_caller loop_branch; do
+  for fn in spill10 evenodd sumto nested call_zero sumcall \
+      multi_exit deep_caller loop_branch; do
     readelf -sW "$obj" | awk -v fn="$fn" \
       '$8 == fn && $4 == "FUNC" && strtonum($3) > 0 { ok=1 } END { exit !ok }' || {
         echo "FAIL: missing FUNC / non-zero Size for $fn in $obj"; exit 1
@@ -287,7 +264,44 @@ for obj in "$TMP/x64_dbg_gcc.o" "$TMP/x64_dbg_clang.o"; do
     echo "FAIL: missing DW_CFA_restore_state in $obj"; exit 1
   }
 done
-echo "  x64 gcc+clang: 0 local leaks, all FUNC+Size>0, CFI clean!"
+grep -q '^# fn evenodd: frame=0B cfa=rsp+8 saved=\[\]$' "$TMP/x64_dbg.s" || {
+  echo "FAIL: missing zero-frame leaf CFI header for evenodd"; exit 1
+}
+grep -q '^# fn sumto: frame=0B cfa=rsp+8 saved=\[\]$' "$TMP/x64_dbg.s" || {
+  echo "FAIL: missing zero-frame leaf CFI header for sumto"; exit 1
+}
+grep -q '^# fn call_zero: frame=8B cfa=rsp+16 saved=\[\]$' "$TMP/x64_dbg.s" || {
+  echo "FAIL: missing non-leaf 0-slot CFI header for call_zero"; exit 1
+}
+awk '
+  /^sumto:/ { in_fn=1; next }
+  /\.size sumto,/ { in_fn=0 }
+  in_fn && /^\.p2align 5,,12$/ { align++ }
+  in_fn && (/%rsp/ || /\.cfi_def_cfa_offset/) { bad++ }
+  END { exit !(align >= 1 && bad == 0) }
+' "$TMP/x64_dbg.s" || {
+  echo "FAIL: sumto zero-frame leaf loop alignment / %rsp / CFI check failed"; exit 1
+}
+awk '
+  /^evenodd:/ { in_fn=1; next }
+  /\.size evenodd,/ { in_fn=0 }
+  in_fn && (/%rsp/ || /\.cfi_def_cfa_offset/) { bad++ }
+  END { exit !(bad == 0) }
+' "$TMP/x64_dbg.s" || {
+  echo "FAIL: evenodd zero-frame leaf %rsp / CFI check failed"; exit 1
+}
+awk '
+  /^call_zero:/ { in_fn=1; next }
+  /\.size call_zero,/ { in_fn=0 }
+  in_fn && /subq \$8, %rsp/ { sub8++ }
+  in_fn && /addq \$8, %rsp/ { add8++ }
+  in_fn && /\.cfi_def_cfa_offset 16/ { cfa16++ }
+  in_fn && /\.cfi_def_cfa_offset 8/ { cfa8++ }
+  END { exit !(sub8 == 1 && add8 == 1 && cfa16 == 1 && cfa8 == 1) }
+' "$TMP/x64_dbg.s" || {
+  echo "FAIL: call_zero non-leaf 0-slot CFI check failed"; exit 1
+}
+echo "  x64 gcc+clang: 0 local leaks, all FUNC+Size>0, zero-frame + CFI clean!"
 
 echo "== [3/6] Verifying Arm64 .text byte-identity, zero leaked .L symbols, .ltorg, and clean CFI"
 awk '/^[A-Za-z_][A-Za-z0-9_]*:/ { if (seen++) print "\t.ltorg" } { print }
@@ -315,14 +329,15 @@ aarch64-linux-gnu-objcopy -O binary -j .text "$TMP/arm64_nl_dbg.o" "$TMP/arm64_n
 cmp -s "$TMP/arm64_nl_raw.text" "$TMP/arm64_nl_dbg.text" || {
   echo "FAIL: arm64 multi-fn non-literal .text mismatch"; exit 1
 }
-echo "  arm64 .text SHA-256 (7-fn): $(sha256sum "$TMP/arm64_dbg.text" | awk '{print $1}')"
+echo "  arm64 .text SHA-256 (9-fn): $(sha256sum "$TMP/arm64_dbg.text" | awk '{print $1}')"
 echo "  arm64 .text SHA-256 (evenodd): $(sha256sum "$TMP/arm64_eo_dbg.text" | awk '{print $1}')"
 echo "  arm64 .text SHA-256 (3-fn no-lit): $(sha256sum "$TMP/arm64_nl_dbg.text" | awk '{print $1}')"
 
 if aarch64-linux-gnu-nm "$TMP/arm64_dbg.o" | grep -E '\.L[0-9]+' ; then
   echo "FAIL: leaked local label symbol in arm64_dbg.o"; exit 1
 fi
-for fn in spill10 evenodd nested sumcall multi_exit deep_caller loop_branch; do
+for fn in spill10 evenodd sumto nested call_zero sumcall \
+    multi_exit deep_caller loop_branch; do
   aarch64-linux-gnu-readelf -sW "$TMP/arm64_dbg.o" | awk -v fn="$fn" \
     '$8 == fn && $4 == "FUNC" && strtonum($3) > 0 { ok=1 } END { exit !ok }' || {
       echo "FAIL: missing FUNC / non-zero Size for $fn in arm64_dbg.o"; exit 1
@@ -350,7 +365,9 @@ cat > "$TMP/harness.c" <<'C'
 
 extern long spill10(long a, long b);
 extern long evenodd(long n);
+extern long sumto(long n);
 extern long nested(long n, long m, long k);
+extern long call_zero(long x);
 extern long sumcall(long n, long b);
 extern long multi_exit(long n, long a, long b, long c);
 extern long deep_caller(long n, long x, long y);
@@ -386,11 +403,14 @@ int main(int argc, char **argv) {
   long r_outer = c_outer(n, 3, 4);
   long r_early = multi_exit(0, 1, 2, 3);
   long r_eo = evenodd(12) + evenodd(13);
+  long r_sumto = sumto(10);
+  long r_cz = call_zero(7);
   long r_sp = spill10(2, 99);
-  if (r_early != 42 || r_eo != 1 || argc == 99) {
+  if (r_early != 42 || r_eo != 1 || r_sumto != 55 || r_cz != 27 || argc == 99) {
     return 1;
   }
-  printf("ok r_outer=%ld r_early=%ld r_sp=%ld\n", r_outer, r_early, r_sp);
+  printf("ok r_outer=%ld r_early=%ld r_sp=%ld r_sumto=%ld r_cz=%ld\n",
+         r_outer, r_early, r_sp, r_sumto, r_cz);
   return 0;
 }
 C
@@ -405,25 +425,34 @@ timeout 30 qemu-aarch64 "$TMP/arm64_bin" 5 | grep -q 'ok r_outer='
 echo "  both x64 native and arm64 qemu-aarch64 harnesses passed!"
 
 echo "== [5/6] Real GDB verification on -O2 -fomit-frame-pointer x64 binary"
-if nm "$TMP/x64_bin" | grep -qE ' (spill10|evenodd|multi_exit)\.L[0-9]+'; then
+if nm "$TMP/x64_bin" | grep -qE ' (spill10|evenodd|sumto|call_zero|multi_exit)\.L[0-9]+'; then
   echo "FAIL: linked x64_bin still has local .L symbols"; exit 1
 fi
 cat > "$TMP/gdb.cmds" <<'GDB'
 set pagination off
 set confirm off
+disassemble evenodd
+disassemble sumto
+disassemble call_zero
 disassemble multi_exit
 disassemble loop_branch
 list deep_caller
-break c_probe
+tbreak c_probe
+tbreak evenodd
 run 5
 backtrace
 frame 1
+info frame
+continue
+stepi
+backtrace
 info frame
 continue
 quit
 GDB
 timeout 30 gdb -batch -x "$TMP/gdb.cmds" "$TMP/x64_bin" > "$TMP/gdb.out" 2>&1
 grep -q 'End of assembler dump.' "$TMP/gdb.out"
+grep -qE '#0 .*evenodd' "$TMP/gdb.out"
 grep -q 'in multi_exit' "$TMP/gdb.out"
 grep -q 'in c_mid' "$TMP/gdb.out"
 grep -q 'in deep_caller' "$TMP/gdb.out"
@@ -431,9 +460,9 @@ grep -q 'in c_outer' "$TMP/gdb.out"
 grep -q 'in main' "$TMP/gdb.out"
 grep -q 'Saved registers:' "$TMP/gdb.out"
 grep -q 'x64_dbg.s' "$TMP/gdb.out"
-echo "  GDB disas + 6-frame -O2 bt + saved regs + .s line info verified!"
+echo "  GDB disas + 6-frame/zero-leaf -O2 bt + saved regs + .s line info verified!"
 
-echo "== [6/6] Kissat Plain --debug build_solver.sh smoke check (cached STAGE_LEAN_PATH)"
+echo "== [6/6] Kissat Plain + FullM4 --debug smoke check (cached STAGE_LEAN_PATH)"
 PLAIN_OL="/usr/local/google/home/andreser/lean-qbe/.lake/build/lib/lean/LeanQbe/T/Examples/Kissat"
 if [ -f "$PLAIN_OL/Plain.olean" ]; then
   STAGE_LEAN_PATH="$LP" timeout 300 bash bench/kissat/build_solver.sh \
@@ -467,6 +496,57 @@ if [ -f "$PLAIN_OL/Plain.olean" ]; then
   echo "  Kissat Plain arm64 --debug verified with readelf/nm!"
 else
   echo "  SKIP Kissat Plain smoke check (Plain.olean not prebuilt)"
+fi
+
+if [ -f "$PLAIN_OL/FullM4.olean" ]; then
+  cat > "$TMP/gen_m4.lean" <<'LEAN'
+import LeanQbe.T.Examples.Kissat.FullM4
+import LeanQbe.T.Amd64.Targ
+import LeanQbe.T.Amd64.PrintATTAlign
+import LeanQbe.T.Amd64.DebugAsm
+import LeanQbe.T.Driver
+
+open LeanQbe.T LeanQbe.T.Amd64
+
+def main (args : List String) : IO Unit := do
+  let outDir := args[0]!
+  let m := LeanQbe.T.Examples.Kissat.FullM4.m4Module
+  let hs := m.fns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
+  let dirs ← IO.ofExcept (compile x64Target.toIsa x64LegalTarget m.fns hs)
+  let raw := Driver.emitAsm (fun c => toATTAligned c ++ "\n") m.fns dirs
+  let dbgSome ← IO.ofExcept (emitX64DebugAsmChecked m.fns dirs (some hs) m.exits true)
+  let dbgNone ← IO.ofExcept (emitX64DebugAsmChecked m.fns dirs none m.exits true)
+  if dbgSome != dbgNone then
+    throw (IO.userError "FullM4 x64 emitX64DebugAsm some vs none mismatch")
+  IO.FS.writeFile s!"{outDir}/m4_raw.s" raw
+  IO.FS.writeFile s!"{outDir}/m4_dbg.s" dbgSome
+LEAN
+  LEAN_PATH="$LP" timeout 180 lean --run "$TMP/gen_m4.lean" "$TMP"
+  gcc -c "$TMP/m4_raw.s" -o "$TMP/m4_raw.o"
+  gcc -g -c "$TMP/m4_dbg.s" -o "$TMP/m4_dbg.o"
+  objcopy -O binary -j .text "$TMP/m4_raw.o" "$TMP/m4_raw.text"
+  objcopy -O binary -j .text "$TMP/m4_dbg.o" "$TMP/m4_dbg.text"
+  cmp -s "$TMP/m4_raw.text" "$TMP/m4_dbg.text" || {
+    echo "FAIL: FullM4 x64 .text mismatch"; exit 1
+  }
+  if nm "$TMP/m4_dbg.o" | grep -E '\.L[0-9]+' ; then
+    echo "FAIL: FullM4 m4_dbg.o leaked local .L symbols"; exit 1
+  fi
+  timeout 30 readelf --debug-dump=frames "$TMP/m4_dbg.o" \
+    > "$TMP/m4_frames.txt" 2>"$TMP/m4_frames.err"
+  [ ! -s "$TMP/m4_frames.err" ] || { cat "$TMP/m4_frames.err"; exit 1; }
+  zero_cnt="$(grep -c '^# fn .*: frame=0B cfa=rsp+8 saved=\[\]$' "$TMP/m4_dbg.s" || true)"
+  [ "$zero_cnt" -ge 30 ] || {
+    echo "FAIL: expected >=30 zero-frame leaves in FullM4, got $zero_cnt"; exit 1
+  }
+  gcc -std=c99 -O2 -Wall -Wextra -Werror -no-pie -g -DKISSAT_UNSAT_ONLY=1 \
+    bench/kissat/kissat_cli.c "$TMP/m4_dbg.o" -o "$TMP/kissat_m4_x64"
+  timeout 30 readelf --debug-dump=frames "$TMP/kissat_m4_x64" \
+    > "$TMP/m4_cli_frames.txt" 2>"$TMP/m4_cli_frames.err"
+  [ ! -s "$TMP/m4_cli_frames.err" ] || { cat "$TMP/m4_cli_frames.err"; exit 1; }
+  echo "  Kissat FullM4 x64 --debug verified ($zero_cnt zero-frame leaves, .text=id, CFI clean)!"
+else
+  echo "  SKIP Kissat FullM4 smoke check (FullM4.olean not prebuilt)"
 fi
 
 echo "ALL P0+P1 DEBUG ASM + CFI CHECKS PASSED"

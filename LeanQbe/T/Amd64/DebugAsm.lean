@@ -326,10 +326,48 @@ private def collectTailRestores (fn : Sym) (nonLocal : HashSet Sym) (epi : List 
 private def isSuffixOf {α : Type} [BEq α] (suf xs : List α) : Bool :=
   suf.length <= xs.length && xs.drop (xs.length - suf.length) == suf
 
-private def inferFnSaved (fn : Sym) (nonLocal : HashSet Sym) (body : List Directive) :
-    Except String (Nat × List Reg64) :=
+private structure FnFrameInfo where
+  zeroFrame : Bool
+  nslots : Nat
+  saved : List Reg64
+
+private def addrUsesRsp (a : AddrExpr) : Bool :=
+  a.base == some (.reg .rsp) ||
+    match a.idx with | some i => i.reg == .rsp | none => false
+
+private def rmUsesRsp {w : Width} : RegOrMem w → Bool
+  | .reg (.low .rsp _) => true
+  | .mem a => addrUsesRsp a
+  | _ => false
+
+private def avxRmUsesRsp {w : AvxWidth} : AvxRegOrMem w → Bool
+  | .mem a => addrUsesRsp a
+  | _ => false
+
+private def isNonLeafOrFrameDir : Directive → Bool
+  | .instr (.regular _ _ (.call _)) => true
+  | .instr (.regular _ _ (.push _)) => true
+  | .instr (.regular _ _ (.pop _)) => true
+  | .instr (.regular _ _ (.sub d _)) => rmUsesRsp d
+  | .instr (.regular _ _ (.add d _)) => rmUsesRsp d
+  | .instr (.regular _ _ (.lea (.low .rsp _) _)) => true
+  | .instr (.regular _ _ (.mov d op)) =>
+    rmUsesRsp d || match op with | .regOrMem rm => rmUsesRsp rm | .imm _ => false
+  | .instr (.avx _ _ (.vmovdqu32 d s)) => avxRmUsesRsp d || avxRmUsesRsp s
+  | .instr (.avx _ _ (.vmovdqu d s)) => avxRmUsesRsp d || avxRmUsesRsp s
+  | .instr (.avx _ _ (.vmovups d s)) => avxRmUsesRsp d || avxRmUsesRsp s
+  | .instr (.avx _ _ (.vmovIn _ _ s)) => rmUsesRsp s
+  | .instr (.avx _ _ (.vmovOut _ d _)) => rmUsesRsp d
+  | _ => false
+
+private def inferFnFrame (fn : Sym) (nonLocal : HashSet Sym) (body : List Directive) :
+    Except String FnFrameInfo :=
   match matchPrologueSz body with
-  | none => .error s!"function '{fn}': unrecognized x64 prologue"
+  | none =>
+    if x64Frame.leafZeroFrame && !body.any isNonLeafOrFrameDir then
+      .ok ⟨true, 0, []⟩
+    else
+      .error s!"function '{fn}': unrecognized x64 prologue"
   | some (sz, afterPro) =>
     let epi := emitClean (x64EpilogueIns (sz / 8))
     let cands := collectSavePrefix sz afterPro.length none [] afterPro
@@ -350,7 +388,7 @@ private def inferFnSaved (fn : Sym) (nonLocal : HashSet Sym) (body : List Direct
           else
             tryLen m
     match tryLen cands.length with
-    | some res => .ok res
+    | some (nslots, saved) => .ok ⟨false, nslots, saved⟩
     | none => .error s!"function '{fn}': could not infer x64 callee-saved slots"
 
 private def pushDirLine (fn : Sym) (nonLocal : HashSet Sym) (loopHdrs : HashSet Sym)
@@ -396,50 +434,59 @@ private def emitBodyTails (fn : Sym) (nonLocal : HashSet Sym) (loopHdrs : HashSe
       emitBodyTails fn nonLocal loopHdrs loopAlign comments restoreChunks restoreFlat epi
         fuel ds (pushDirLine fn nonLocal loopHdrs loopAlign d out)
 
-private def emitX64Fn (fn : Sym) (nslots : Nat) (saved : List Reg64) (nonLocal : HashSet Sym)
+private def emitX64Header (fn : Sym) (sz : Nat) (saved : List Reg64) (comments : Bool)
+    (out : Array String) : Array String :=
+  let savedNames := String.intercalate "," (saved.map cfiReg)
+  let out :=
+    if comments then
+      out.push s!"# fn {fn}: frame={sz}B cfa=rsp+{8 + sz} saved=[{savedNames}]"
+    else out
+  out
+    |>.push s!"\t.globl {fn}"
+    |>.push s!"\t.type {fn}, %function"
+    |>.push s!"{fn}:"
+    |>.push "\t.cfi_startproc"
+
+private def emitX64Fn (fn : Sym) (info : FnFrameInfo) (nonLocal : HashSet Sym)
     (loopAlign comments : Bool) (body : List Directive) (out : Array String) :
     Except String (Array String) :=
-  let ns := nslots + saved.length
-  let sz := x64FrameSize ns
-  let pro := emitClean (x64PrologueIns ns)
-  match dropPrefix? pro body with
-  | none => .error s!"function '{fn}': prologue mismatch for totalSlots={ns}"
-  | some afterPro =>
-    let rec consumeSaves (idx : Nat) (ds : List Directive) (acc : Array String) :
-        List Reg64 → Except String (Array String × List Directive)
-      | [] => .ok (acc, ds)
-      | r :: rs =>
-        let st := x64SlotSt idx r
-        match dropPrefix? st ds with
-        | none => .error s!"function '{fn}': saveCs mismatch for {cfiReg r} at slot {idx}"
-        | some rest =>
-          let cfaOff := 8 + sz - 8 * idx
-          let acc := (pushDirLines fn nonLocal st acc).push
-            s!"\t.cfi_offset {cfiReg r}, -{cfaOff}"
-          consumeSaves (idx + 1) rest acc rs
-    let savedNames := String.intercalate "," (saved.map cfiReg)
-    let out :=
-      if comments then
-        out.push s!"# fn {fn}: frame={sz}B cfa=rsp+{8 + sz} saved=[{savedNames}]"
-      else out
-    let out := out
-      |>.push s!"\t.globl {fn}"
-      |>.push s!"\t.type {fn}, %function"
-      |>.push s!"{fn}:"
-      |>.push "\t.cfi_startproc"
-    let out := (pushDirLines fn nonLocal pro out).push s!"\t.cfi_def_cfa_offset {8 + sz}"
-    match consumeSaves nslots afterPro out saved with
-    | .error e => .error e
-    | .ok (out, restBody) =>
-      let restoreChunks := (List.range saved.length).zip saved |>.map fun (k, r) =>
-        (r, x64SlotLd r (nslots + k))
-      let restoreFlat := restoreChunks.flatMap Prod.snd
-      let epi := emitClean (x64EpilogueIns ns)
-      let loopHdrs : HashSet Sym :=
-        if loopAlign then (detectLoopHeaders body).foldl (fun s l => s.insert l) {} else {}
-      let out := emitBodyTails fn nonLocal loopHdrs loopAlign comments restoreChunks
-        restoreFlat epi restBody.length restBody out
-      .ok (out |>.push "\t.cfi_endproc" |>.push s!"\t.size {fn}, .-{fn}")
+  let loopHdrs : HashSet Sym :=
+    if loopAlign then (detectLoopHeaders body).foldl (fun s l => s.insert l) {} else {}
+  if info.zeroFrame then
+    let out := emitX64Header fn 0 [] comments out
+    let out := body.foldl (fun acc d => pushDirLine fn nonLocal loopHdrs loopAlign d acc) out
+    .ok (out |>.push "\t.cfi_endproc" |>.push s!"\t.size {fn}, .-{fn}")
+  else
+    let ns := info.nslots + info.saved.length
+    let sz := x64FrameSize ns
+    let pro := emitClean (x64PrologueIns ns)
+    match dropPrefix? pro body with
+    | none => .error s!"function '{fn}': prologue mismatch for totalSlots={ns}"
+    | some afterPro =>
+      let rec consumeSaves (idx : Nat) (ds : List Directive) (acc : Array String) :
+          List Reg64 → Except String (Array String × List Directive)
+        | [] => .ok (acc, ds)
+        | r :: rs =>
+          let st := x64SlotSt idx r
+          match dropPrefix? st ds with
+          | none => .error s!"function '{fn}': saveCs mismatch for {cfiReg r} at slot {idx}"
+          | some rest =>
+            let cfaOff := 8 + sz - 8 * idx
+            let acc := (pushDirLines fn nonLocal st acc).push
+              s!"\t.cfi_offset {cfiReg r}, -{cfaOff}"
+            consumeSaves (idx + 1) rest acc rs
+      let out := emitX64Header fn sz info.saved comments out
+      let out := (pushDirLines fn nonLocal pro out).push s!"\t.cfi_def_cfa_offset {8 + sz}"
+      match consumeSaves info.nslots afterPro out info.saved with
+      | .error e => .error e
+      | .ok (out, restBody) =>
+        let restoreChunks := (List.range info.saved.length).zip info.saved |>.map fun (k, r) =>
+          (r, x64SlotLd r (info.nslots + k))
+        let restoreFlat := restoreChunks.flatMap Prod.snd
+        let epi := emitClean (x64EpilogueIns ns)
+        let out := emitBodyTails fn nonLocal loopHdrs loopAlign comments restoreChunks
+          restoreFlat epi restBody.length restBody out
+        .ok (out |>.push "\t.cfi_endproc" |>.push s!"\t.size {fn}, .-{fn}")
 
 /-- Emit ELF + DWARF CFI + `.L`-scrubbed x64 assembly from compiled `fs` and `code`.
 When `hints?` is supplied, exact `(nslots, saved)` values are enforced against `code`; otherwise
@@ -450,20 +497,32 @@ def emitX64DebugAsmChecked (fs : List Fn) (code : List Directive)
   let names := fs.map (·.name)
   let slices ← splitFnSlices names code
   let nonLocal := (names ++ exits).foldl (fun s k => s.insert k) ({} : HashSet Sym)
-  let pairs : List ((Sym × List Directive) × (Nat × List Reg64)) ←
+  let pairs : List ((Sym × List Directive) × FnFrameInfo) ←
     match hints? with
     | some hs =>
       if hs.length != fs.length then
         .error s!"hints length {hs.length} != functions length {fs.length}"
       else
-        .ok (slices.zip (hs.map fun h => (h.nslots, h.saved)))
+        (slices.zip hs).mapM fun ((fn, body), h) => do
+          let ns := h.nslots + h.saved.length
+          if ns == 0 && x64Frame.leafZeroFrame then
+            let pro := emitClean (x64PrologueIns 0)
+            match dropPrefix? pro body with
+            | some _ => .ok ((fn, body), ⟨false, 0, []⟩)
+            | none =>
+              if !body.any isNonLeafOrFrameDir then
+                .ok ((fn, body), ⟨true, 0, []⟩)
+              else
+                .error s!"function '{fn}': prologue mismatch for totalSlots=0"
+          else
+            .ok ((fn, body), ⟨false, h.nslots, h.saved⟩)
     | none =>
       slices.mapM fun (fn, body) => do
-        let info ← inferFnSaved fn nonLocal body
+        let info ← inferFnFrame fn nonLocal body
         .ok ((fn, body), info)
   let mut out : Array String := #[".text"]
-  for ((fn, body), (nslots, saved)) in pairs do
-    out ← emitX64Fn fn nslots saved nonLocal loopAlign comments body out
+  for ((fn, body), info) in pairs do
+    out ← emitX64Fn fn info nonLocal loopAlign comments body out
   return String.intercalate "\n" out.toList ++ "\n"
 
 /-- Infallible wrapper around `emitX64DebugAsmChecked` for CLI assembly emission. -/

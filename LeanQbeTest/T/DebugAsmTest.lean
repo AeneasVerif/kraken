@@ -1,12 +1,16 @@
 module
 
 public import LeanQbe.T.Amd64.DebugAsm
+public import LeanQbe.T.Amd64.Frame
+public import LeanQbe.T.Amd64.PrintATTAlign
 public import LeanQbe.T.Amd64.Targ
 public import LeanQbe.T.Driver
 public import LeanQbe.T.Examples.LitmusProgs
 public import LeanQbe.T.Notation
 public import Kraken.X64.PrintATT
 meta import LeanQbe.T.Amd64.DebugAsm
+meta import LeanQbe.T.Amd64.Frame
+meta import LeanQbe.T.Amd64.PrintATTAlign
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Driver
 meta import LeanQbe.T.Examples.LitmusProgs
@@ -133,6 +137,89 @@ private def checkMultiExitSaved : Except String Unit := do
     if countSub asmSome s!"\t.cfi_restore {reg}" != 3 then
       throw s!"expected 3 cfi_restore (3 exits) for {reg}"
 
+private def callZeroFn : Fn := tqbe $call_zero(%x:l) -> l {
+  %r =l call $probe(%x, 1:l)
+  ret %r
+}
+
+private def checkNonLeafZeroSlot : Except String Unit := do
+  let prHint := Fn.computeHints x64Target.toIsa x64LegalTarget probeFn
+  let czHint := Fn.computeHints x64Target.toIsa x64LegalTarget callZeroFn
+  if czHint.nslots != 0 || !czHint.saved.isEmpty then
+    throw s!"expected totalSlots=0 for call_zero, got {czHint.nslots}/{czHint.saved.length}"
+  let fns := [probeFn, callZeroFn]
+  let hs := [prHint, czHint]
+  let dirs ← compile x64Target.toIsa x64LegalTarget fns hs
+  let asmSome ← emitX64DebugAsmChecked fns dirs (some hs) [] true
+  let asmNone ← emitX64DebugAsmChecked fns dirs none [] true
+  if asmSome != asmNone then
+    throw "call_zero hints/auto mismatch"
+  if !containsSub asmSome "# fn call_zero: frame=8B cfa=rsp+16 saved=[]" then
+    throw "missing non-leaf 0-slot header for call_zero"
+  if !containsSub asmSome "subq $8, %rsp\n\t.cfi_def_cfa_offset 16\n" then
+    throw "missing call_zero prologue cfi_def_cfa_offset 16"
+  if !containsSub asmSome "addq $8, %rsp\n\t.cfi_def_cfa_offset 8\n" then
+    throw "missing call_zero epilogue cfi_def_cfa_offset 8"
+
+private def checkZeroFrameLeaves : Except String Unit := do
+  let leafFns := [evenodd, sumto]
+  let leafHs := leafFns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
+  for (f, h) in leafFns.zip leafHs do
+    if h.nslots != 0 || !h.saved.isEmpty then
+      throw s!"expected totalSlots=0 for {f.name}, got {h.nslots}/{h.saved.length}"
+  let dirs ← compile x64Target.toIsa x64LegalTarget leafFns leafHs
+  let asmSome ← emitX64DebugAsmChecked leafFns dirs (some leafHs) [] true
+  let asmNone ← emitX64DebugAsmChecked leafFns dirs none [] true
+  if asmSome != asmNone then
+    throw "zero-frame leaf hints/auto mismatch"
+  for nm in ["evenodd", "sumto"] do
+    if !containsSub asmSome s!"# fn {nm}: frame=0B cfa=rsp+8 saved=[]" then
+      throw s!"missing zero-frame header for {nm}"
+  if containsSub asmSome "\t.cfi_def_cfa_offset" then
+    throw "unexpected .cfi_def_cfa_offset in zero-frame leaves"
+  if containsSub asmSome "%rsp" then
+    throw "unexpected %rsp manipulation in zero-frame leaves"
+  let hdrCount := (detectLoopHeaders dirs).length
+  if hdrCount == 0 then
+    throw "expected loop headers in zero-frame leaf suite"
+  if countSub asmSome s!"\n{loopAlignDirective}\n" != hdrCount then
+    throw s!"loop align count mismatch in zero-frame leaves (expected {hdrCount})"
+  let noAlignSome ← emitX64DebugAsmChecked leafFns dirs (some leafHs) [] true false
+  let noAlignNone ← emitX64DebugAsmChecked leafFns dirs none [] true false
+  if noAlignSome != noAlignNone || containsSub noAlignSome loopAlignDirective then
+    throw "loopAlign=false failed on zero-frame leaves"
+  let chkHint := Fn.computeHints x64Target.toIsa x64LegalTarget check
+  if chkHint.nslots != 0 || !chkHint.saved.isEmpty then
+    throw "expected totalSlots=0 for check"
+  let chkDirs ← compile x64Target.toIsa x64LegalTarget [check] [chkHint]
+  let chkSome ← emitX64DebugAsmChecked [check] chkDirs (some [chkHint]) ["fail"] true
+  let chkNone ← emitX64DebugAsmChecked [check] chkDirs none ["fail"] true
+  if chkSome != chkNone then
+    throw "check hints/auto mismatch"
+  if !containsSub chkSome "# fn check: frame=0B cfa=rsp+8 saved=[]" then
+    throw "missing zero-frame header for exit-bearing leaf check"
+  if containsSub chkSome "%rsp" || containsSub chkSome "\t.cfi_def_cfa_offset" then
+    throw "unexpected frame directives in exit-bearing leaf check"
+
+private def checkNegativePrologues : Except String Unit := do
+  let hZero := Fn.computeHints x64Target.toIsa x64LegalTarget simpleFn
+  if hZero.nslots != 0 || !hZero.saved.isEmpty then
+    throw "expected totalSlots=0 for simpleFn"
+  let badCallCode := [.label "big_fn", x64CallD "probe", x64RetD]
+  match emitX64DebugAsmChecked [simpleFn] badCallCode (some [hZero]) ["probe"] with
+  | .error _ => pure ()
+  | .ok _ => throw "expected hints error on 0-slot non-leaf without prologue"
+  match emitX64DebugAsmChecked [simpleFn] badCallCode none ["probe"] with
+  | .error _ => pure ()
+  | .ok _ => throw "expected auto error on 0-slot non-leaf without prologue"
+  let badProCode := [.label "big_fn", x64SubSpD 4, x64RetD]
+  match emitX64DebugAsmChecked [simpleFn] badProCode (some [hZero]) [] with
+  | .error _ => pure ()
+  | .ok _ => throw "expected hints error on subq $4, %rsp"
+  match emitX64DebugAsmChecked [simpleFn] badProCode none [] with
+  | .error _ => pure ()
+  | .ok _ => throw "expected auto error on subq $4, %rsp"
+
 /-- Run all pure x64 DebugAsm verification checks. -/
 def runAllChecks : Except String Unit := do
   for m in allModules do
@@ -141,6 +228,9 @@ def runAllChecks : Except String Unit := do
   checkModule stressMod
   checkMultiExitSaved
   checkBigFrame
+  checkNonLeafZeroSlot
+  checkZeroFrameLeaves
+  checkNegativePrologues
 
 /-- Executable entrypoint running `runAllChecks`. -/
 public def main : IO Unit := do
