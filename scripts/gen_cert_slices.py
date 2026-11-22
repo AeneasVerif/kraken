@@ -79,6 +79,99 @@ class ArchSpec:
     lt: str
     cl: str
     arch_tag: str
+    kraken_isa: str
+    of_returns_fn: str
+    of_returns_args: str
+    ret_reg: str
+    callee_saved_pred: tuple[str, ...]
+    sp_ret: str
+    solve_link_hyps: tuple[str, ...]
+    solve_stack_post: tuple[str, ...]
+    solve_hargs_chain: tuple[str, ...]
+    solve_rintro_cal: str
+    rets_extract_lines: tuple[str, ...]
+    solve_call_hyps: str
+    unsat_solve_call_hyps: str
+    unsat_rintro_cal: str
+    unsat_rintro_sp: str
+
+    def unsat_reg_hyps(self, bound_expr: str) -> list[str]:
+        if self.key == "amd64":
+            return [
+                "  (hrdi : s.regs.get64 .rdi = cnf_ptr)",
+                "  (hrsi : s.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length)",
+                "  (hrdx : s.regs.get64 .rdx = work_ptr)",
+                "  (hrcx : s.regs.get64 .rcx = BitVec.ofNat 64 wlen)",
+                "  (hr8 : s.regs.get64 .r8 = fuel)",
+                "  (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)",
+                "  (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
+                "    (region (s.regs.get64 .rsp - BitVec.ofNat 64",
+                f"        {bound_expr})",
+                f"      {bound_expr} ⋆",
+                "      cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem)",
+            ]
+        return [
+            "  (hx0 : (s.regs.getXReg .X0).toBitVec = cnf_ptr)",
+            "  (hx1 : (s.regs.getXReg .X1).toBitVec = "
+            "BitVec.ofNat 64 cnfBytes.length)",
+            "  (hx2 : (s.regs.getXReg .X2).toBitVec = work_ptr)",
+            "  (hx3 : (s.regs.getXReg .X3).toBitVec = BitVec.ofNat 64 wlen)",
+            "  (hx4 : (s.regs.getXReg .X4).toBitVec = fuel)",
+            "  (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)",
+            "  (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
+            "    region (s.regs.SP.toBitVec - BitVec.ofNat 64",
+            f"        {bound_expr})",
+            f"      {bound_expr} ⋆ R) s.dmem)",
+        ]
+
+    def unsat_st_dmem(self, bound_expr: str) -> list[str]:
+        if self.key == "amd64":
+            return [
+                "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
+                "          region (s.regs.get64 .rsp - BitVec.ofNat 64",
+                f"              {bound_expr})",
+                f"            ({bound_expr} + 8) ⋆ R)",
+                "          st.data.dmem)",
+            ]
+        return [
+            "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
+            "          region (s.regs.SP.toBitVec - BitVec.ofNat 64",
+            f"              {bound_expr})",
+            f"            {bound_expr} ⋆ R)",
+            "          st.data.dmem)",
+        ]
+
+    def unsat_hm0(self, bound_expr: str) -> list[str]:
+        if self.key == "amd64":
+            return [
+                "  have hm0 : ((bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆",
+                "      ((region (s.regs.get64 .rsp - BitVec.ofNat 64",
+                f"          {bound_expr})",
+                f"        {bound_expr} ⋆",
+                "        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R)) s.dmem := by",
+            ]
+        return [
+            "  have hm0 : ((bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆",
+            "      (region (s.regs.SP.toBitVec - BitVec.ofNat 64",
+            f"          {bound_expr})",
+            f"        {bound_expr} ⋆ R)) s.dmem := by",
+        ]
+
+    def unsat_hm_dmem(self, bound_expr: str) -> list[str]:
+        if self.key == "amd64":
+            return [
+                "  have hm_dmem' : (Eq m ⋆",
+                "      (region (s.regs.get64 .rsp - BitVec.ofNat 64",
+                f"          {bound_expr})",
+                f"        {bound_expr} ⋆",
+                "        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem := by",
+            ]
+        return [
+            "  have hm_dmem' : (Eq m ⋆",
+            "      region (s.regs.SP.toBitVec - BitVec.ofNat 64",
+            f"          {bound_expr})",
+            f"        {bound_expr} ⋆ R) s.dmem := by",
+        ]
 
 
 ARCH_SPECS: dict[str, ArchSpec] = {
@@ -94,6 +187,46 @@ ARCH_SPECS: dict[str, ArchSpec] = {
         lt="x64LegalTarget",
         cl="x64LabelClean",
         arch_tag="x64",
+        kraken_isa="Kraken-x64",
+        of_returns_fn="x64_of_returns",
+        of_returns_args="hsp hmem",
+        ret_reg="st.data.regs.get64 .rax",
+        callee_saved_pred=(
+            "        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],",
+            "          st.data.regs.get64 r = s.regs.get64 r) ∧",
+        ),
+        sp_ret="st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64",
+        solve_link_hyps=(
+            "    (hrdi : s.regs.get64 .rdi = cnf_ptr)",
+            "    (hrsi : s.regs.get64 .rsi = cnf_len)",
+            "    (hrdx : s.regs.get64 .rdx = work_ptr)",
+            "    (hrcx : s.regs.get64 .rcx = work_len)",
+            "    (hr8 : s.regs.get64 .r8 = fuel)",
+            "    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)",
+            "    (hmem : s.dmem =⋆ Eq m ⋆",
+            "      (region (s.regs.get64 .rsp - BitVec.ofNat 64 b) b ⋆",
+            "        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :",
+        ),
+        solve_stack_post=(
+            "            region (s.regs.get64 .rsp - BitVec.ofNat 64 b) (b + 8) ⋆ R))",
+        ),
+        solve_hargs_chain=(
+            "      .cons ⟨by decide, by simpa using hrdi⟩",
+            "        (.cons ⟨by decide, by simpa using hrsi⟩",
+            "          (.cons ⟨by decide, by simpa using hrdx⟩",
+            "            (.cons ⟨by decide, by simpa using hrcx⟩",
+            "              (.cons ⟨by decide, by simpa using hr8⟩ .nil))))⟩",
+        ),
+        solve_rintro_cal="hcs",
+        rets_extract_lines=(
+            "  have hrax : st.data.regs.get64 .rax = r :=",
+            "    x64Init.retsIn_singleton r st.data hrets",
+            "  rw [hrax]",
+        ),
+        solve_call_hyps="hrdi hrsi hrdx hrcx hr8 hsp hmem",
+        unsat_solve_call_hyps="hrdi hrsi hrdx hrcx hr8 hsp hm_dmem'",
+        unsat_rintro_cal="hcal",
+        unsat_rintro_sp="hrsp",
     ),
     "arm64": ArchSpec(
         key="arm64",
@@ -107,6 +240,46 @@ ARCH_SPECS: dict[str, ArchSpec] = {
         lt="armLegalTarget",
         cl="armLabelClean",
         arch_tag="arm64",
+        kraken_isa="Kraken-AArch64",
+        of_returns_fn="arm64_of_returns",
+        of_returns_args="hra hsp hmem",
+        ret_reg="(st.data.regs.getXReg .X0).toBitVec",
+        callee_saved_pred=(
+            "        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26,",
+            "            .X27, .X28, .X29],",
+            "          st.data.regs.getXReg r = s.regs.getXReg r) ∧",
+        ),
+        sp_ret="st.data.regs.SP = s.regs.SP",
+        solve_link_hyps=(
+            "    (hx0 : (s.regs.getXReg .X0).toBitVec = cnf_ptr)",
+            "    (hx1 : (s.regs.getXReg .X1).toBitVec = cnf_len)",
+            "    (hx2 : (s.regs.getXReg .X2).toBitVec = work_ptr)",
+            "    (hx3 : (s.regs.getXReg .X3).toBitVec = work_len)",
+            "    (hx4 : (s.regs.getXReg .X4).toBitVec = fuel)",
+            "    (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)",
+            "    (hmem : s.dmem =⋆ Eq m ⋆",
+            "      region (s.regs.SP.toBitVec - BitVec.ofNat 64 b) b ⋆ R) :",
+        ),
+        solve_stack_post=(
+            "            region (s.regs.SP.toBitVec - BitVec.ofNat 64 b) b ⋆ R))",
+        ),
+        solve_hargs_chain=(
+            "      .cons ⟨by decide, by simpa [get_reg] using hx0⟩",
+            "        (.cons ⟨by decide, by simpa [get_reg] using hx1⟩",
+            "          (.cons ⟨by decide, by simpa [get_reg] using hx2⟩",
+            "            (.cons ⟨by decide, by simpa [get_reg] using hx3⟩",
+            "              (.cons ⟨by decide, by simpa [get_reg] using hx4⟩ .nil))))⟩",
+        ),
+        solve_rintro_cal="hcal",
+        rets_extract_lines=(
+            "  have hx0' : (st.data.regs.getXReg .X0).toBitVec = r := by",
+            "    simpa [armInit, get_reg] using armInit.retsIn_singleton r st.data hrets",
+            "  rw [hx0']",
+        ),
+        solve_call_hyps="hx0 hx1 hx2 hx3 hx4 hra hsp hmem",
+        unsat_solve_call_hyps="hx0 hx1 hx2 hx3 hx4 hra hsp hm_dmem'",
+        unsat_rintro_cal="hcal",
+        unsat_rintro_sp="hsp'",
     ),
 }
 
@@ -1388,112 +1561,43 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
     cert_mod = f"{arch.ns_prefix}.{cfg.prefix}Cert"
     solve_name = f"solve_{arch.arch_tag}_of_fnspec"
 
-    if arch.key == "amd64":
-        solve_sig_lines = [
-            "theorem solve_x64_of_fnspec {b : Nat}",
-            "    {spec : Spec [i64, i64, i64, i64, i64] [i64]}",
-            f"    (hfnspec : x64Target.FnSpec hh \"{cfg.entry_fn}\" spec b 0)",
-            "    (cnf_ptr cnf_len work_ptr work_len fuel : BitVec 64)",
-            "    {m : Mem 64} {Q : Post [i64]}",
-            "    (hspec : spec (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) m Q",
-            "      (fun _ _ _ _ => False))",
-            "    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)",
-            "    (hrdi : s.regs.get64 .rdi = cnf_ptr)",
-            "    (hrsi : s.regs.get64 .rsi = cnf_len)",
-            "    (hrdx : s.regs.get64 .rdx = work_ptr)",
-            "    (hrcx : s.regs.get64 .rcx = work_len)",
-            "    (hr8 : s.regs.get64 .r8 = fuel)",
-            "    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)",
-            "    (hmem : s.dmem =⋆ Eq m ⋆",
-            "      (region (s.regs.get64 .rsp - BitVec.ofNat 64 b) b ⋆",
-            "        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :",
-            "    Eventually (step1 Host.exe)",
-            "      (fun st =>",
-            "        st.pc = ra ∧",
-            "        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],",
-            "          st.data.regs.get64 r = s.regs.get64 r) ∧",
-            "        st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧",
-            "        ∃ m', Q (st.data.regs.get64 .rax, ()) m' ∧",
-            "          (st.data.dmem =⋆ Eq m' ⋆",
-            "            region (s.regs.get64 .rsp - BitVec.ofNat 64 b) (b + 8) ⋆ R))",
-            f"      ⟨s, Labels.label \"{cfg.entry_fn}\"⟩",
-        ]
-        solve_block = [
-            f"/-- Lifting any `FnSpec` for `\"{cfg.entry_fn}\"` at stack bound "
-            "`b` and contract",
-            f"`spec` to Kraken-x64 `Eventually` via `x64_of_returns`. -/",
-            *solve_sig_lines[:-1],
-            f"{solve_sig_lines[-1]} := by",
-            "  have hargs : x64Target.ArgsIn (as := [i64, i64, i64, i64, i64])",
-            "      (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) s :=",
-            "    ⟨_, rfl,",
-            "      .cons ⟨by decide, by simpa using hrdi⟩",
-            "        (.cons ⟨by decide, by simpa using hrsi⟩",
-            "          (.cons ⟨by decide, by simpa using hrdx⟩",
-            "            (.cons ⟨by decide, by simpa using hrcx⟩",
-            "              (.cons ⟨by decide, by simpa using hr8⟩ .nil))))⟩",
-            "  refine eventually_weaken _ _ _ _ ?_",
-            "    (x64_of_returns hfnspec hspec s ra R hargs hsp hmem)",
-            "  rintro st ⟨hpc, hcs, hsp', rets, m', hQ, hrets, hm'⟩",
-            "  rcases rets with ⟨r, ⟨⟩⟩",
-            "  have hrax : st.data.regs.get64 .rax = r :=",
-            "    x64Init.retsIn_singleton r st.data hrets",
-            "  rw [hrax]",
-            "  exact ⟨hpc, hcs, hsp', m', hQ, hm'⟩",
-        ]
-    else:
-        solve_sig_lines = [
-            "theorem solve_arm64_of_fnspec {b : Nat}",
-            "    {spec : Spec [i64, i64, i64, i64, i64] [i64]}",
-            f"    (hfnspec : armTarget.FnSpec hh \"{cfg.entry_fn}\" spec b 0)",
-            "    (cnf_ptr cnf_len work_ptr work_len fuel : BitVec 64)",
-            "    {m : Mem 64} {Q : Post [i64]}",
-            "    (hspec : spec (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) m Q",
-            "      (fun _ _ _ _ => False))",
-            "    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)",
-            "    (hx0 : (s.regs.getXReg .X0).toBitVec = cnf_ptr)",
-            "    (hx1 : (s.regs.getXReg .X1).toBitVec = cnf_len)",
-            "    (hx2 : (s.regs.getXReg .X2).toBitVec = work_ptr)",
-            "    (hx3 : (s.regs.getXReg .X3).toBitVec = work_len)",
-            "    (hx4 : (s.regs.getXReg .X4).toBitVec = fuel)",
-            "    (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)",
-            "    (hmem : s.dmem =⋆ Eq m ⋆",
-            "      region (s.regs.SP.toBitVec - BitVec.ofNat 64 b) b ⋆ R) :",
-            "    Eventually (step1 Host.exe)",
-            "      (fun st =>",
-            "        st.pc = ra ∧",
-            "        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26,",
-            "            .X27, .X28, .X29],",
-            "          st.data.regs.getXReg r = s.regs.getXReg r) ∧",
-            "        st.data.regs.SP = s.regs.SP ∧",
-            "        ∃ m', Q ((st.data.regs.getXReg .X0).toBitVec, ()) m' ∧",
-            "          (st.data.dmem =⋆ Eq m' ⋆",
-            "            region (s.regs.SP.toBitVec - BitVec.ofNat 64 b) b ⋆ R))",
-            f"      ⟨s, Labels.label \"{cfg.entry_fn}\"⟩",
-        ]
-        solve_block = [
-            f"/-- Lifting any `FnSpec` for `\"{cfg.entry_fn}\"` at stack bound "
-            "`b` and contract",
-            f"`spec` to Kraken-AArch64 `Eventually` via `arm64_of_returns`. -/",
-            *solve_sig_lines[:-1],
-            f"{solve_sig_lines[-1]} := by",
-            "  have hargs : armTarget.ArgsIn (as := [i64, i64, i64, i64, i64])",
-            "      (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) s :=",
-            "    ⟨_, rfl,",
-            "      .cons ⟨by decide, by simpa [get_reg] using hx0⟩",
-            "        (.cons ⟨by decide, by simpa [get_reg] using hx1⟩",
-            "          (.cons ⟨by decide, by simpa [get_reg] using hx2⟩",
-            "            (.cons ⟨by decide, by simpa [get_reg] using hx3⟩",
-            "              (.cons ⟨by decide, by simpa [get_reg] using hx4⟩ .nil))))⟩",
-            "  refine eventually_weaken _ _ _ _ ?_",
-            "    (arm64_of_returns hfnspec hspec s ra R hargs hra hsp hmem)",
-            "  rintro st ⟨hpc, hcal, hsp', rets, m', hQ, hrets, hm'⟩",
-            "  rcases rets with ⟨r, ⟨⟩⟩",
-            "  have hx0' : (st.data.regs.getXReg .X0).toBitVec = r := by",
-            "    simpa [armInit, get_reg] using armInit.retsIn_singleton r st.data hrets",
-            "  rw [hx0']",
-            "  exact ⟨hpc, hcal, hsp', m', hQ, hm'⟩",
-        ]
+    solve_sig_lines = [
+        f"theorem {solve_name} {{b : Nat}}",
+        "    {spec : Spec [i64, i64, i64, i64, i64] [i64]}",
+        f"    (hfnspec : {arch.targ}.FnSpec hh \"{cfg.entry_fn}\" spec b 0)",
+        "    (cnf_ptr cnf_len work_ptr work_len fuel : BitVec 64)",
+        "    {m : Mem 64} {Q : Post [i64]}",
+        "    (hspec : spec (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) m Q",
+        "      (fun _ _ _ _ => False))",
+        "    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)",
+        *arch.solve_link_hyps,
+        "    Eventually (step1 Host.exe)",
+        "      (fun st =>",
+        "        st.pc = ra ∧",
+        *arch.callee_saved_pred,
+        f"        {arch.sp_ret} ∧",
+        f"        ∃ m', Q ({arch.ret_reg}, ()) m' ∧",
+        "          (st.data.dmem =⋆ Eq m' ⋆",
+        *arch.solve_stack_post,
+        f"      ⟨s, Labels.label \"{cfg.entry_fn}\"⟩",
+    ]
+    solve_block = [
+        f"/-- Lifting any `FnSpec` for `\"{cfg.entry_fn}\"` at stack bound "
+        "`b` and contract",
+        f"`spec` to {arch.kraken_isa} `Eventually` via `{arch.of_returns_fn}`. -/",
+        *solve_sig_lines[:-1],
+        f"{solve_sig_lines[-1]} := by",
+        f"  have hargs : {arch.targ}.ArgsIn (as := [i64, i64, i64, i64, i64])",
+        "      (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) s :=",
+        "    ⟨_, rfl,",
+        *arch.solve_hargs_chain,
+        "  refine eventually_weaken _ _ _ _ ?_",
+        f"    ({arch.of_returns_fn} hfnspec hspec s ra R hargs {arch.of_returns_args})",
+        f"  rintro st ⟨hpc, {arch.solve_rintro_cal}, hsp', rets, m', hQ, hrets, hm'⟩",
+        "  rcases rets with ⟨r, ⟨⟩⟩",
+        *arch.rets_extract_lines,
+        f"  exact ⟨hpc, {arch.solve_rintro_cal}, hsp', m', hQ, hm'⟩",
+    ]
 
     # Single-line `< 115c` axiom audit: alias `solve_*_of_fnspec` when needed.
     axiom_section: list[str] = []
@@ -1510,10 +1614,7 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
                 *solve_sig_lines[1:-1],
                 f"{solve_sig_lines[-1]} :=",
                 f"  {solve_name} hfnspec cnf_ptr cnf_len work_ptr work_len fuel",
-                "    hspec s ra R "
-                + ("hrdi hrsi hrdx hrcx hr8 hsp hmem"
-                   if arch.key == "amd64"
-                   else "hx0 hx1 hx2 hx3 hx4 hra hsp hmem"),
+                f"    hspec s ra R {arch.solve_call_hyps}",
             ]
             solve_block.extend(["", *solve_alias_sig])
             audit_names.append("ax_solve")
@@ -1770,253 +1871,116 @@ def render_unsat_section(
     sound_thm = f"{cfg.stem}_solve_bytes_unsat_sound_{arch.arch_tag}"
     entry_label = f"Labels.label \"{cfg.entry_fn}\""
     bound_expr = f"({compiled_name}.bound \"{cfg.entry_fn}\")"
+    solve_name = f"solve_{arch.arch_tag}_of_fnspec"
 
-    if arch.key == "amd64":
-        sound_ret = [
-            "    Eventually (step1 Host.exe)",
-            "      (fun st =>",
-            "        st.pc = ra ∧",
-            "        (st.data.regs.get64 .rax = 0#64 ∨",
-            "          st.data.regs.get64 .rax = 10#64 ∨",
-            "          st.data.regs.get64 .rax = 20#64) ∧",
-            "        (st.data.regs.get64 .rax = 20#64 →",
-            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))",
-            f"      ⟨s, {entry_label}⟩",
-        ]
-        lines = [
-            "section Unsat",
-            "",
-            "variable [hh : Host] (k₀ : Nat)",
-            f"  (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
-            "  (hu : Host.LabelsUnique)",
-            "  (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) "
-            "(wlen : Nat)",
-            "  (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)",
-            "  (hwfit : work_ptr.toNat + wlen < 2 ^ 64)",
-            "  (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)",
-            "  (hrdi : s.regs.get64 .rdi = cnf_ptr)",
-            "  (hrsi : s.regs.get64 .rsi = BitVec.ofNat 64 cnfBytes.length)",
-            "  (hrdx : s.regs.get64 .rdx = work_ptr)",
-            "  (hrcx : s.regs.get64 .rcx = BitVec.ofNat 64 wlen)",
-            "  (hr8 : s.regs.get64 .r8 = fuel)",
-            "  (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)",
-            "  (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
-            "    (region (s.regs.get64 .rsp - BitVec.ofNat 64",
-            f"        {bound_expr})",
-            f"      {bound_expr} ⋆",
-            "      cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem)",
-            "include hh k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit "
-            "s ra R",
-            "  hrdi hrsi hrdx hrcx hr8 hsp hmem",
-            "",
-            *wrap_comment_lines(
-                f"/-- Unconditional end-to-end {arch.isa_title} UNSAT soundness "
-                f"for `{cfg.mod}`. -/"
-            ),
-            f"theorem {unsat_thm} :",
-            "    Eventually (step1 Host.exe)",
-            "      (fun st =>",
-            "        st.pc = ra ∧",
-            "        (st.data.regs.get64 .rax = 0#64 ∨",
-            "          st.data.regs.get64 .rax = 10#64 ∨",
-            "          st.data.regs.get64 .rax = 20#64) ∧",
-            "        (st.data.regs.get64 .rax = 20#64 →",
-            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
-            "        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],",
-            "          st.data.regs.get64 r = s.regs.get64 r) ∧",
-            "        st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧",
-            "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
-            "          region (s.regs.get64 .rsp - BitVec.ofNat 64",
-            f"              {bound_expr})",
-            f"            ({bound_expr} + 8) ⋆ R)",
-            "          st.data.dmem)",
-            f"      ⟨s, {entry_label}⟩ := by",
-            f"  have hfn := ({cfg.stem}_module_fnspec k₀ hc hu "
-            f"solve_in_{cfg.mod}).2",
-            "  have hm0 : ((bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆",
-            "      ((region (s.regs.get64 .rsp - BitVec.ofNat 64",
-            f"          {bound_expr})",
-            f"        {bound_expr} ⋆",
-            "        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R)) s.dmem := by",
-            "    rw [← sep_assoc]; exact hmem",
-            "  obtain ⟨m, hm_in, hm_dmem⟩ := sep_exists_eq hm0",
-            "  have hm_dmem' : (Eq m ⋆",
-            "      (region (s.regs.get64 .rsp - BitVec.ofNat 64",
-            f"          {bound_expr})",
-            f"        {bound_expr} ⋆",
-            "        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem := by",
-            "    rw [sep_assoc]; exact hm_dmem",
-            f"  have hspec : {cfg.env} \"{cfg.entry_fn}\" "
-            "[i64, i64, i64, i64, i64] [i64]",
-            "      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr,",
-            "        BitVec.ofNat 64 wlen, fuel, ()) m",
-            "      (fun r m' =>",
-            "        (r.fst = 0#64 ∨ r.fst = 10#64 ∨ r.fst = 20#64) ∧",
-            "        (r.fst = 20#64 →",
-            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
-            "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
-            "      (fun _ _ _ _ => False) :=",
-            "    Env.ofTable_of_mem",
-            f"      (List.mem_of_getElem? (rfl : "
-            f"({cfg.spec_table} _)[{cfg.entry_idx}]? = some _))",
-            f"      ({cfg.spec_table}_nodup {cfg.entry_spec})",
-            "      ⟨cnfBytes, wlen, emp, rfl, rfl, hcfit, hwfit,",
-            "        by rw [sep_emp]; exact hm_in,",
-            "        fun _ _ h u' m' =>",
-            "          by rw [sep_emp] at m'; exact ⟨h, u', m'⟩⟩",
-            "  refine eventually_weaken _ _ _ _ ?_",
-            f"    ({cfg.prefix}CertLink.solve_x64_of_fnspec hfn cnf_ptr _ "
-            "work_ptr _ fuel",
-            "      hspec s ra R hrdi hrsi hrdx hrcx hr8 hsp hm_dmem')",
-            "  rintro st ⟨hpc, hcal, hrsp, m', ⟨hdom, hu', hm'⟩, hst⟩",
-            "  rw [sep_assoc] at hst",
-            "  have hst' := sep_mono (fun _ heq => heq ▸ hm') hst",
-            "  rw [← sep_assoc] at hst'",
-            "  exact ⟨hpc, hdom, hu', hcal, hrsp, hst'⟩",
-            "",
-            *wrap_comment_lines(
-                f"/-- Answer-only {arch.isa_title} UNSAT soundness corollary "
-                f"for `{cfg.mod}`. -/"
-            ),
-            f"theorem {sound_thm} :",
-            *sound_ret[:-1],
-            f"{sound_ret[-1]} :=",
-            "  eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1, h.2.2.1⟩)",
-            f"    ({unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
-            "hcfit hwfit",
-            "      s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem)",
-        ]
-        call_args = (
-            f"({sound_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
-            "hcfit hwfit\n"
-            "    s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem)"
-        )
-    else:
-        sound_ret = [
-            "    Eventually (step1 Host.exe)",
-            "      (fun st =>",
-            "        st.pc = ra ∧",
-            "        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨",
-            "          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨",
-            "          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧",
-            "        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →",
-            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))",
-            f"      ⟨s, {entry_label}⟩",
-        ]
-        lines = [
-            "section Unsat",
-            "",
-            "variable [hh : Host] (k₀ : Nat)",
-            f"  (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
-            "  (hu : Host.LabelsUnique)",
-            "  (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) "
-            "(wlen : Nat)",
-            "  (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)",
-            "  (hwfit : work_ptr.toNat + wlen < 2 ^ 64)",
-            "  (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)",
-            "  (hx0 : (s.regs.getXReg .X0).toBitVec = cnf_ptr)",
-            "  (hx1 : (s.regs.getXReg .X1).toBitVec = "
-            "BitVec.ofNat 64 cnfBytes.length)",
-            "  (hx2 : (s.regs.getXReg .X2).toBitVec = work_ptr)",
-            "  (hx3 : (s.regs.getXReg .X3).toBitVec = BitVec.ofNat 64 wlen)",
-            "  (hx4 : (s.regs.getXReg .X4).toBitVec = fuel)",
-            "  (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)",
-            "  (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
-            "    region (s.regs.SP.toBitVec - BitVec.ofNat 64",
-            f"        {bound_expr})",
-            f"      {bound_expr} ⋆ R) s.dmem)",
-            "include hh k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit "
-            "s ra R",
-            "  hx0 hx1 hx2 hx3 hx4 hra hsp hmem",
-            "",
-            *wrap_comment_lines(
-                f"/-- Unconditional end-to-end {arch.isa_title} UNSAT soundness "
-                f"for `{cfg.mod}`. -/"
-            ),
-            f"theorem {unsat_thm} :",
-            "    Eventually (step1 Host.exe)",
-            "      (fun st =>",
-            "        st.pc = ra ∧",
-            "        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨",
-            "          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨",
-            "          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧",
-            "        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →",
-            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
-            "        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26,",
-            "            .X27, .X28, .X29],",
-            "          st.data.regs.getXReg r = s.regs.getXReg r) ∧",
-            "        st.data.regs.SP = s.regs.SP ∧",
-            "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
-            "          region (s.regs.SP.toBitVec - BitVec.ofNat 64",
-            f"              {bound_expr})",
-            f"            {bound_expr} ⋆ R)",
-            "          st.data.dmem)",
-            f"      ⟨s, {entry_label}⟩ := by",
-            f"  have hfn := ({cfg.stem}_module_fnspec k₀ hc hu "
-            f"solve_in_{cfg.mod}).2",
-            "  have hm0 : ((bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆",
-            "      (region (s.regs.SP.toBitVec - BitVec.ofNat 64",
-            f"          {bound_expr})",
-            f"        {bound_expr} ⋆ R)) s.dmem := by",
-            "    rw [← sep_assoc]; exact hmem",
-            "  obtain ⟨m, hm_in, hm_dmem⟩ := sep_exists_eq hm0",
-            "  have hm_dmem' : (Eq m ⋆",
-            "      region (s.regs.SP.toBitVec - BitVec.ofNat 64",
-            f"          {bound_expr})",
-            f"        {bound_expr} ⋆ R) s.dmem := by",
-            "    rw [sep_assoc]; exact hm_dmem",
-            f"  have hspec : {cfg.env} \"{cfg.entry_fn}\" "
-            "[i64, i64, i64, i64, i64] [i64]",
-            "      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr,",
-            "        BitVec.ofNat 64 wlen, fuel, ()) m",
-            "      (fun r m' =>",
-            "        (r.fst = 0#64 ∨ r.fst = 10#64 ∨ r.fst = 20#64) ∧",
-            "        (r.fst = 20#64 →",
-            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
-            "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
-            "      (fun _ _ _ _ => False) :=",
-            "    Env.ofTable_of_mem",
-            f"      (List.mem_of_getElem? (rfl : "
-            f"({cfg.spec_table} _)[{cfg.entry_idx}]? = some _))",
-            f"      ({cfg.spec_table}_nodup {cfg.entry_spec})",
-            "      ⟨cnfBytes, wlen, emp, rfl, rfl, hcfit, hwfit,",
-            "        by rw [sep_emp]; exact hm_in,",
-            "        fun _ _ h u' m' =>",
-            "          by rw [sep_emp] at m'; exact ⟨h, u', m'⟩⟩",
-            "  refine eventually_weaken _ _ _ _ ?_",
-            f"    ({cfg.prefix}CertLink.solve_arm64_of_fnspec hfn cnf_ptr _ "
-            "work_ptr _ fuel",
-            "      hspec s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hm_dmem')",
-            "  rintro st ⟨hpc, hcal, hsp', m', ⟨hdom, hu', hm'⟩, hst⟩",
-            "  rw [sep_assoc] at hst",
-            "  have hst' := sep_mono (fun _ heq => heq ▸ hm') hst",
-            "  rw [← sep_assoc] at hst'",
-            "  exact ⟨hpc, hdom, hu', hcal, hsp', hst'⟩",
-            "",
-            *wrap_comment_lines(
-                f"/-- Answer-only {arch.isa_title} UNSAT soundness corollary for "
-                f"`{cfg.mod}`. -/"
-            ),
-            f"theorem {sound_thm} :",
-            *sound_ret[:-1],
-            f"{sound_ret[-1]} :=",
-            "  eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1, h.2.2.1⟩)",
-            f"    ({unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
-            "hcfit hwfit",
-            "      s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem)",
-        ]
-        call_args = (
-            f"({sound_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
-            "hcfit hwfit\n"
-            "    s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem)"
-        )
+    sound_ret = [
+        "    Eventually (step1 Host.exe)",
+        "      (fun st =>",
+        "        st.pc = ra ∧",
+        f"        ({arch.ret_reg} = 0#64 ∨",
+        f"          {arch.ret_reg} = 10#64 ∨",
+        f"          {arch.ret_reg} = 20#64) ∧",
+        f"        ({arch.ret_reg} = 20#64 →",
+        "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))",
+        f"      ⟨s, {entry_label}⟩",
+    ]
+
+    lines = [
+        "section Unsat",
+        "",
+        "variable [hh : Host] (k₀ : Nat)",
+        f"  (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
+        "  (hu : Host.LabelsUnique)",
+        "  (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) "
+        "(wlen : Nat)",
+        "  (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)",
+        "  (hwfit : work_ptr.toNat + wlen < 2 ^ 64)",
+        "  (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)",
+        *arch.unsat_reg_hyps(bound_expr),
+        "include hh k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit "
+        "s ra R",
+        f"  {arch.solve_call_hyps}",
+        "",
+        *wrap_comment_lines(
+            f"/-- Unconditional end-to-end {arch.isa_title} UNSAT soundness "
+            f"for `{cfg.mod}`. -/"
+        ),
+        f"theorem {unsat_thm} :",
+        "    Eventually (step1 Host.exe)",
+        "      (fun st =>",
+        "        st.pc = ra ∧",
+        f"        ({arch.ret_reg} = 0#64 ∨",
+        f"          {arch.ret_reg} = 10#64 ∨",
+        f"          {arch.ret_reg} = 20#64) ∧",
+        f"        ({arch.ret_reg} = 20#64 →",
+        "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
+        *arch.callee_saved_pred,
+        f"        {arch.sp_ret} ∧",
+        *arch.unsat_st_dmem(bound_expr),
+        f"      ⟨s, {entry_label}⟩ := by",
+        f"  have hfn := ({cfg.stem}_module_fnspec k₀ hc hu "
+        f"solve_in_{cfg.mod}).2",
+        *arch.unsat_hm0(bound_expr),
+        "    rw [← sep_assoc]; exact hmem",
+        "  obtain ⟨m, hm_in, hm_dmem⟩ := sep_exists_eq hm0",
+        *arch.unsat_hm_dmem(bound_expr),
+        "    rw [sep_assoc]; exact hm_dmem",
+        f"  have hspec : {cfg.env} \"{cfg.entry_fn}\" "
+        "[i64, i64, i64, i64, i64] [i64]",
+        "      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr,",
+        "        BitVec.ofNat 64 wlen, fuel, ()) m",
+        "      (fun r m' =>",
+        "        (r.fst = 0#64 ∨ r.fst = 10#64 ∨ r.fst = 20#64) ∧",
+        "        (r.fst = 20#64 →",
+        "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
+        "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
+        "      (fun _ _ _ _ => False) :=",
+        "    Env.ofTable_of_mem",
+        f"      (List.mem_of_getElem? (rfl : "
+        f"({cfg.spec_table} _)[{cfg.entry_idx}]? = some _))",
+        f"      ({cfg.spec_table}_nodup {cfg.entry_spec})",
+        "      ⟨cnfBytes, wlen, emp, rfl, rfl, hcfit, hwfit,",
+        "        by rw [sep_emp]; exact hm_in,",
+        "        fun _ _ h u' m' =>",
+        "          by rw [sep_emp] at m'; exact ⟨h, u', m'⟩⟩",
+        "  refine eventually_weaken _ _ _ _ ?_",
+        f"    ({cfg.prefix}CertLink.{solve_name} hfn cnf_ptr _ "
+        "work_ptr _ fuel",
+        f"      hspec s ra R {arch.unsat_solve_call_hyps})",
+        f"  rintro st ⟨hpc, {arch.unsat_rintro_cal}, {arch.unsat_rintro_sp}, "
+        "m', ⟨hdom, hu', hm'⟩, hst⟩",
+        "  rw [sep_assoc] at hst",
+        "  have hst' := sep_mono (fun _ heq => heq ▸ hm') hst",
+        "  rw [← sep_assoc] at hst'",
+        f"  exact ⟨hpc, hdom, hu', {arch.unsat_rintro_cal}, {arch.unsat_rintro_sp}, hst'⟩",
+        "",
+        *wrap_comment_lines(
+            f"/-- Answer-only {arch.isa_title} UNSAT soundness corollary for "
+            f"`{cfg.mod}`. -/"
+        ),
+        f"theorem {sound_thm} :",
+        *sound_ret[:-1],
+        f"{sound_ret[-1]} :=",
+        "  eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1, h.2.2.1⟩)",
+        f"    ({unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
+        "hcfit hwfit",
+        f"      s ra R {arch.solve_call_hyps})",
+    ]
+    call_args = (
+        f"({sound_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
+        "hcfit hwfit\n"
+        f"    s ra R {arch.solve_call_hyps})"
+    )
 
     audit_names: list[str] = []
     if worst_case_axiom_len(ns, unsat_thm) <= MAX_AXIOM_REPORT_LEN:
         audit_names.append(unsat_thm)
     if worst_case_axiom_len(ns, sound_thm) <= MAX_AXIOM_REPORT_LEN:
         audit_names.append(sound_thm)
-    elif cfg.print_axioms and worst_case_axiom_len(ns, "ax_unsat_sound") <= MAX_AXIOM_REPORT_LEN:
+    elif (
+        cfg.print_axioms
+        and worst_case_axiom_len(ns, "ax_unsat_sound") <= MAX_AXIOM_REPORT_LEN
+    ):
         lines.extend(
             [
                 "",

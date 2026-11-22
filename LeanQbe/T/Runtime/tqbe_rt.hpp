@@ -815,7 +815,7 @@ inline T unpack_bits(bits<bit_size<T>()> b) {
 //   for apples-to-apples C3b (`PrintCpp` -> `clang++ -O3`) benchmarking.
 // ============================================================================
 
-#ifdef TQBE_NATIVE_MEM
+#if defined(TQBE_NATIVE_MEM) && TQBE_NATIVE_MEM
 
 class Mem {
  public:
@@ -866,7 +866,9 @@ inline T load(Mem&, bits<64> addr) {
   constexpr size_t B = byte_size<T>();
   const auto* ptr = reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(addr.data));
   if constexpr (std::is_same_v<T, bool>) {
-    return (*ptr) != 0;
+    uint8_t b0 = *ptr;
+    if (b0 > 1) TQBE_UB("load invalid bool byte");
+    return b0 != 0;
   } else if constexpr (N == 0) {
     return unpack_bits<T>(bits<0>{});
   } else if constexpr (N <= 64) {
@@ -1639,12 +1641,18 @@ inline uint16_t f64_to_f16_bits(double d) {
   return f32_to_f16_bits(u32_to_f32(u32));
 }
 
-#if defined(__SIZEOF_FLOAT128__) || defined(__FLT128_MANT_DIG__)
+#if (defined(__SIZEOF_FLOAT128__) || defined(__FLT128_MANT_DIG__)) && !defined(TQBE_NO_FLOAT128)
+#define TQBE_HAS_FLOAT128 1
 using f128_t = __float128;
+#elif defined(__SIZEOF_LONG_DOUBLE__) && (__SIZEOF_LONG_DOUBLE__ == 16) && \
+    defined(__LDBL_MANT_DIG__) && (__LDBL_MANT_DIG__ == 113) && !defined(TQBE_NO_FLOAT128)
+#define TQBE_HAS_FLOAT128 1
+using f128_t = long double;
 #else
-#error "Compiler does not support __float128"
+#define TQBE_HAS_FLOAT128 0
 #endif
 
+#if TQBE_HAS_FLOAT128
 inline f128_t u128_bits_to_f128(bits<128> b) {
   f128_t out{};
   uint64_t words[2] = {b.data[0], b.data[1]};
@@ -1657,6 +1665,7 @@ inline bits<128> f128_to_u128_bits(f128_t f) {
   std::memcpy(words, &f, 16);
   return bits<128>::from_array({words[0], words[1]});
 }
+#endif
 
 inline bool f128_is_nan(bits<128> b) {
   uint64_t exp = (b.data[1] >> 48) & 0x7FFFULL;
@@ -1738,15 +1747,26 @@ auto to_fp(fval<F> v) {
   if constexpr (F == Fmt::h) return f16_bits_to_f32(static_cast<uint16_t>(v.raw.data));
   else if constexpr (F == Fmt::s) return u32_to_f32(static_cast<uint32_t>(v.raw.data));
   else if constexpr (F == Fmt::d) return u64_to_f64(v.raw.data);
-  else return u128_bits_to_f128(v.raw);
+  else {
+#if TQBE_HAS_FLOAT128
+    return u128_bits_to_f128(v.raw);
+#else
+    (void)v;
+    TQBE_UB("f128 operations require IEEE binary128 support");
+    return 0.0;
+#endif
+  }
 }
 
 template <Fmt F, typename Fp>
 fval<F> from_fp(Fp x) {
   if constexpr (F == Fmt::h) {
+#if TQBE_HAS_FLOAT128
     if constexpr (std::is_same_v<Fp, f128_t>) {
       return fval<F>{bits<16>(f64_to_f16_bits(static_cast<double>(x)))};
-    } else if constexpr (std::is_same_v<Fp, double>) {
+    } else
+#endif
+    if constexpr (std::is_same_v<Fp, double>) {
       return fval<F>{bits<16>(f64_to_f16_bits(x))};
     } else {
       return fval<F>{bits<16>(f32_to_f16_bits(static_cast<float>(x)))};
@@ -1756,7 +1776,13 @@ fval<F> from_fp(Fp x) {
   } else if constexpr (F == Fmt::d) {
     return fval<F>{bits<64>(f64_to_u64(static_cast<double>(x)))};
   } else {
+#if TQBE_HAS_FLOAT128
     return fval<F>{f128_to_u128_bits(static_cast<f128_t>(x))};
+#else
+    (void)x;
+    TQBE_UB("f128 operations require IEEE binary128 support");
+    return fval<F>{};
+#endif
   }
 }
 
@@ -1982,8 +2008,8 @@ template <typename T>
 inline T op_fadd(const T& a, const T& b) {
   if constexpr (!is_float_tree<T>()) { (void)a; (void)b; TQBE_UB("fadd nonfloat"); }
   else if constexpr (std::is_same_v<T, fval<Fmt::h>>) {
-    return detail::from_fp<Fmt::h>(static_cast<detail::f128_t>(detail::to_fp(a)) +
-                                   static_cast<detail::f128_t>(detail::to_fp(b)));
+    return detail::from_fp<Fmt::h>(static_cast<double>(detail::to_fp(a)) +
+                                   static_cast<double>(detail::to_fp(b)));
   } else if constexpr (std::is_same_v<T, fval<Fmt::s>>) {
     return detail::from_fp<Fmt::s>(detail::to_fp(a) + detail::to_fp(b));
   } else if constexpr (std::is_same_v<T, fval<Fmt::d>>) {
@@ -1999,8 +2025,8 @@ template <typename T>
 inline T op_fsub(const T& a, const T& b) {
   if constexpr (!is_float_tree<T>()) { (void)a; (void)b; TQBE_UB("fsub nonfloat"); }
   else if constexpr (std::is_same_v<T, fval<Fmt::h>>) {
-    return detail::from_fp<Fmt::h>(static_cast<detail::f128_t>(detail::to_fp(a)) -
-                                   static_cast<detail::f128_t>(detail::to_fp(b)));
+    return detail::from_fp<Fmt::h>(static_cast<double>(detail::to_fp(a)) -
+                                   static_cast<double>(detail::to_fp(b)));
   } else if constexpr (std::is_same_v<T, fval<Fmt::s>>) {
     return detail::from_fp<Fmt::s>(detail::to_fp(a) - detail::to_fp(b));
   } else if constexpr (std::is_same_v<T, fval<Fmt::d>>) {
@@ -2016,8 +2042,8 @@ template <typename T>
 inline T op_fmul(const T& a, const T& b) {
   if constexpr (!is_float_tree<T>()) { (void)a; (void)b; TQBE_UB("fmul nonfloat"); }
   else if constexpr (std::is_same_v<T, fval<Fmt::h>>) {
-    return detail::from_fp<Fmt::h>(static_cast<detail::f128_t>(detail::to_fp(a)) *
-                                   static_cast<detail::f128_t>(detail::to_fp(b)));
+    return detail::from_fp<Fmt::h>(static_cast<double>(detail::to_fp(a)) *
+                                   static_cast<double>(detail::to_fp(b)));
   } else if constexpr (std::is_same_v<T, fval<Fmt::s>>) {
     return detail::from_fp<Fmt::s>(detail::to_fp(a) * detail::to_fp(b));
   } else if constexpr (std::is_same_v<T, fval<Fmt::d>>) {
@@ -2033,8 +2059,8 @@ template <typename T>
 inline T op_fdiv(const T& a, const T& b) {
   if constexpr (!is_float_tree<T>()) { (void)a; (void)b; TQBE_UB("fdiv nonfloat"); }
   else if constexpr (std::is_same_v<T, fval<Fmt::h>>) {
-    return detail::from_fp<Fmt::h>(static_cast<detail::f128_t>(detail::to_fp(a)) /
-                                   static_cast<detail::f128_t>(detail::to_fp(b)));
+    return detail::from_fp<Fmt::h>(static_cast<double>(detail::to_fp(a)) /
+                                   static_cast<double>(detail::to_fp(b)));
   } else if constexpr (std::is_same_v<T, fval<Fmt::s>>) {
     return detail::from_fp<Fmt::s>(detail::to_fp(a) / detail::to_fp(b));
   } else if constexpr (std::is_same_v<T, fval<Fmt::d>>) {
@@ -2050,9 +2076,9 @@ template <typename T>
 inline T op_ffma(const T& a, const T& b, const T& c) {
   if constexpr (!is_float_tree<T>()) { (void)a; (void)b; (void)c; TQBE_UB("ffma nonfloat"); }
   else if constexpr (std::is_same_v<T, fval<Fmt::h>>) {
-    detail::f128_t pa = static_cast<detail::f128_t>(detail::to_fp(a));
-    detail::f128_t pb = static_cast<detail::f128_t>(detail::to_fp(b));
-    detail::f128_t pc = static_cast<detail::f128_t>(detail::to_fp(c));
+    double pa = static_cast<double>(detail::to_fp(a));
+    double pb = static_cast<double>(detail::to_fp(b));
+    double pc = static_cast<double>(detail::to_fp(c));
     return detail::from_fp<Fmt::h>((pa * pb) + pc);
   } else if constexpr (std::is_same_v<T, fval<Fmt::s>>) {
     return detail::from_fp<Fmt::s>(std::fmaf(detail::to_fp(a), detail::to_fp(b), detail::to_fp(c)));
@@ -2131,12 +2157,24 @@ inline fval<Dst> op_fcvt(fval<Src> a) {
   if constexpr (Src == Dst) {
     return a;
   } else if constexpr (Src == Fmt::q) {
+#if TQBE_HAS_FLOAT128
     detail::f128_t x = detail::to_fp(a);
     if constexpr (Dst == Fmt::d) return detail::from_fp<Fmt::d>(static_cast<double>(x));
     else if constexpr (Dst == Fmt::s) return detail::from_fp<Fmt::s>(static_cast<float>(x));
     else return detail::from_fp<Fmt::h>(x);
+#else
+    (void)a;
+    TQBE_UB("f128 operations require IEEE binary128 support");
+    return fval<Dst>{};
+#endif
   } else if constexpr (Dst == Fmt::q) {
+#if TQBE_HAS_FLOAT128
     return detail::from_fp<Fmt::q>(static_cast<detail::f128_t>(detail::to_fp(a)));
+#else
+    (void)a;
+    TQBE_UB("f128 operations require IEEE binary128 support");
+    return fval<Dst>{};
+#endif
   } else if constexpr (Src == Fmt::h && Dst == Fmt::d) {
     return detail::from_fp<Fmt::d>(static_cast<double>(detail::to_fp(a)));
   } else if constexpr (Src == Fmt::d && Dst == Fmt::h) {
@@ -2152,7 +2190,13 @@ inline fval<F> op_uitofp(bits<N> a) {
     return detail::from_fp<F>(0.0);
   } else if constexpr (N <= 64) {
     if constexpr (F == Fmt::q) {
+#if TQBE_HAS_FLOAT128
       return detail::from_fp<Fmt::q>(static_cast<detail::f128_t>(a.data));
+#else
+      (void)a;
+      TQBE_UB("f128 operations require IEEE binary128 support");
+      return fval<F>{};
+#endif
     } else if constexpr (F == Fmt::d) {
       return detail::from_fp<Fmt::d>(static_cast<double>(a.data));
     } else if constexpr (F == Fmt::s) {
@@ -2161,6 +2205,7 @@ inline fval<F> op_uitofp(bits<N> a) {
       return detail::from_fp<Fmt::h>(static_cast<double>(a.data));
     }
   } else {
+#if TQBE_HAS_FLOAT128
     detail::f128_t acc = static_cast<detail::f128_t>(0.0);
     detail::f128_t scale = static_cast<detail::f128_t>(1.0);
     const detail::f128_t step = static_cast<detail::f128_t>(18446744073709551616.0);
@@ -2172,6 +2217,11 @@ inline fval<F> op_uitofp(bits<N> a) {
     else if constexpr (F == Fmt::d) return detail::from_fp<Fmt::d>(static_cast<double>(acc));
     else if constexpr (F == Fmt::s) return detail::from_fp<Fmt::s>(static_cast<float>(acc));
     else return detail::from_fp<Fmt::h>(acc);
+#else
+    (void)a;
+    TQBE_UB("wide uitofp requires IEEE binary128 support");
+    return fval<F>{};
+#endif
   }
 }
 
