@@ -105,31 +105,45 @@ def isSelectTyWith (bitsOnly : Bool) (t : Ty) : Bool :=
 def isSelectSigWith (bitsOnly : Bool) (ts : List Ty) : Bool :=
   ts.all (isSelectTyWith bitsOnly)
 
+/-- Plan for one arm of a matched diamond, permitting pure `.let_`s and bounded nested `.jnz`
+sub-diamonds up to `.jump (.loc jId)`. -/
+inductive ArmPlan : Type
+  | jump
+  | let_ (rest : ArmPlan)
+  | jnz (pT pE : ArmPlan)
+
 /-- Structural plan for a matched diamond inside a 1-block `.group` continuation. -/
 inductive DiamondPlan : Type
-  | jnz (nT nE : Nat)
+  | jnz (pT pE : ArmPlan)
   | let_ (rest : DiamondPlan)
   | load (rest : DiamondPlan)
   | store (rest : DiamondPlan)
   | call (rest : DiamondPlan)
 
-/-- Check that `e` consists of at most `fuel` safe `.let_` bindings terminating at
-`.jump (.loc jId) args` with matching signature `jTs`. Returns the `.let_` count on success. -/
+/-- Check that `e` consists of at most `letFuel` total safe `.let_` bindings and at most
+`jnzFuel` nested `.jnz` levels terminating at `.jump (.loc jId) args` with signature `jTs`. -/
 def checkArm {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (jId : Nat) (jTs : List Ty) : Nat → Nat → Expr (IVal V) (JLabel L) rs → Option Nat
-  | fuel, next, .let_ (ts := ts) op k =>
+    (jId : Nat) (jTs : List Ty) :
+    Nat → Nat → Nat → Expr (IVal V) (JLabel L) rs → Option (ArmPlan × Nat)
+  | jnzFuel, letFuel, next, .let_ (ts := ts) op k =>
     if isSafeOp op.code then
-      match fuel with
+      match letFuel with
       | 0 => none
-      | fuel' + 1 =>
-        (checkArm jId jTs fuel' (next + ts.length) (k (dummyIVals ts next))).map (· + 1)
+      | letFuel' + 1 =>
+        (checkArm jId jTs jnzFuel letFuel' (next + ts.length) (k (dummyIVals ts next))).map
+          fun (p, rem) => (.let_ p, rem)
     else none
-  | _, _, .jump (ts := ts) (.loc id) _ =>
-    if id == jId && Ty.listBeq ts jTs then some 0 else none
-  | _, _, _ => none
+  | _, letFuel, _, .jump (ts := ts) (.loc id) _ =>
+    if id == jId && Ty.listBeq ts jTs then some (.jump, letFuel) else none
+  | jnzFuel + 1, letFuel, next, .jnz _ t e => do
+    let (pT, rem1) ← checkArm jId jTs jnzFuel letFuel next t
+    let (pE, rem2) ← checkArm jId jTs jnzFuel rem1 next e
+    pure (.jnz pT pE, rem2)
+  | _, _, _, _ => none
 
 /-- Check whether `e` is a straight-line entry prefix ending in a diamond `.jnz` whose arms each
-have `≤ 4` safe `.let_`s jumping to `(.loc jId)` with `select`-compatible signature `jTs`. -/
+have `≤ 4` total safe `.let_`s and `≤ 2` nested `.jnz` levels jumping to `(.loc jId)` with
+`select`-compatible signature `jTs`. -/
 def checkDiamondWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (bitsOnly : Bool) (jId : Nat) (jTs : List Ty) (next : Nat) :
     Expr (IVal V) (JLabel L) rs → Option DiamondPlan
@@ -143,8 +157,8 @@ def checkDiamondWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (checkDiamondWith bitsOnly jId jTs (next + bs.length) (k (dummyIVals bs next))).map .call
   | .jnz _ t e =>
     if isSelectSigWith bitsOnly jTs then
-      match checkArm jId jTs 4 next t, checkArm jId jTs 4 next e with
-      | some nT, some nE => some (.jnz nT nE)
+      match checkArm jId jTs 2 4 next t, checkArm jId jTs 2 4 next e with
+      | some (pT, _), some (pE, _) => some (.jnz pT pE)
       | _, _ => none
     else none
   | _ => none
@@ -156,11 +170,14 @@ abbrev checkDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :=
 /-! ## Hoisting pure arm prefixes and emitting scalar/pair `select`s -/
 
 /-- Recombine pair components without emitting `mkpair` when both components are immediates. -/
-def mkPairArg {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {a b : Ty}
-    (x : Arg V a) (y : Arg V b) (cont : Arg V (.pair a b) → Expr V L rs) : Expr V L rs :=
-  match x, y with
-  | .imm cx, .imm cy => cont (.imm (cx, cy))
-  | _, _ => .let_ (op2 (.mkpair a b) x y) fun (p, ()) => cont (.var p)
+def mkPairIValArg {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {a b : Ty}
+    (next : Nat) (x : Arg (IVal V) a) (y : Arg (IVal V) b)
+    (cont : Nat → Arg (IVal V) (.pair a b) → Expr V L rs) : Expr V L rs :=
+  match iout x, iout y with
+  | .imm cx, .imm cy => cont next (.imm (cx, cy))
+  | vx, vy =>
+    .let_ (op2 (.mkpair a b) vx vy) fun (p, ()) =>
+      cont (next + 1) (.var (.var p, .var next))
 
 /-- Decompose a pair `Arg (IVal V) (.pair a b)` into component `Arg (IVal V)`s. -/
 def splitPairIVal {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {a b : Ty}
@@ -172,56 +189,75 @@ def splitPairIVal {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {a b :
     .let_ (op1 (.unpair a b) (.var v)) fun (v₁, v₂, ()) =>
       cont (next + 2) (Arg.var (.var v₁, .var next)) (Arg.var (.var v₂, .var (next + 1)))
 
-/-- Emit nested `.select`s across a single non-float type `t` onto `.bits`/`.bool`, keeping
-identical operands (`fKeyBeq (ikey aT) (ikey aE)`) un-selected. -/
-def emitSelectTy {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+/-- Emit nested `.select`s across a single non-float type `t`, producing a fresh `Arg (IVal V) t`
+with key deduplication when `fKeyBeq (ikey aT) (ikey aE)`. -/
+def emitSelectTyIVal {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (c : Arg V .bool) : (t : Ty) → Nat → Arg (IVal V) t → Arg (IVal V) t →
-    (Nat → Arg V t → Expr V L rs) → Expr V L rs
+    (Nat → Arg (IVal V) t → Expr V L rs) → Expr V L rs
   | .bool, next, aT, aE, cont
   | .bits _, next, aT, aE, cont =>
-    if fKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)
-    else .let_ (op3 (.select _) c (iout aT) (iout aE)) fun (r, ()) => cont next (.var r)
-  | .float _, next, aT, _, cont => cont next (iout aT)
+    if fKeyBeq (ikey aT) (ikey aE) then cont next aT
+    else
+      .let_ (op3 (.select _) c (iout aT) (iout aE)) fun (r, ()) =>
+        cont (next + 1) (.var (.var r, .var next))
+  | .float _, next, aT, _, cont => cont next aT
   | .pair a b, next, aT, aE, cont =>
-    if fKeyBeq (ikey aT) (ikey aE) then cont next (iout aT)
+    if fKeyBeq (ikey aT) (ikey aE) then cont next aT
     else
       splitPairIVal next aT fun next₁ aT₁ aT₂ =>
       splitPairIVal next₁ aE fun next₂ aE₁ aE₂ =>
-      emitSelectTy c a next₂ aT₁ aE₁ fun next₃ r₁ =>
-      emitSelectTy c b next₃ aT₂ aE₂ fun next₄ r₂ =>
-      mkPairArg r₁ r₂ fun r => cont next₄ r
+      emitSelectTyIVal c a next₂ aT₁ aE₁ fun next₃ r₁ =>
+      emitSelectTyIVal c b next₃ aT₂ aE₂ fun next₄ r₂ =>
+      mkPairIValArg next₄ r₁ r₂ cont
+
+/-- Emit elementwise `.select`s over a tuple returning `Arg (IVal V)`s for composable nesting. -/
+def emitSelectTupIVal {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (c : Arg V .bool) : (ts : List Ty) → Nat →
+    Tup (Arg (IVal V)) ts → Tup (Arg (IVal V)) ts →
+    (Nat → Tup (Arg (IVal V)) ts → Expr V L rs) → Expr V L rs
+  | [], next, (), (), cont => cont next ()
+  | t :: ts, next, (aT, asT), (aE, asE), cont =>
+    emitSelectTyIVal c t next aT aE fun next' r =>
+    emitSelectTupIVal c ts next' asT asE fun next'' rs' =>
+    cont next'' (r, rs')
+
+/-- Emit nested `.select`s across a single non-float type `t`, returning an `Arg V t`. -/
+def emitSelectTy {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (c : Arg V .bool) (t : Ty) (next : Nat) (aT aE : Arg (IVal V) t)
+    (cont : Nat → Arg V t → Expr V L rs) : Expr V L rs :=
+  emitSelectTyIVal c t next aT aE fun next' r => cont next' (iout r)
 
 /-- Emit elementwise `.select`s over a tuple of arguments `(argsT, argsE)`. -/
 def emitSelectTup {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (c : Arg V .bool) : (ts : List Ty) → Nat →
-    Tup (Arg (IVal V)) ts → Tup (Arg (IVal V)) ts →
-    (Tup (Arg V) ts → Expr V L rs) → Expr V L rs
-  | [], _, (), (), cont => cont ()
-  | t :: ts, next, (aT, asT), (aE, asE), cont =>
-    emitSelectTy c t next aT aE fun next' r =>
-    emitSelectTup c ts next' asT asE fun rs' =>
-    cont (r, rs')
+    (c : Arg V .bool) (ts : List Ty) (next : Nat)
+    (asT asE : Tup (Arg (IVal V)) ts)
+    (cont : Tup (Arg V) ts → Expr V L rs) : Expr V L rs :=
+  emitSelectTupIVal c ts next asT asE fun _ sel => cont (tupIOut sel)
 
-/-- Hoist `n` `.let_` instructions from a validated diamond arm and pass its final `.jump`
-arguments to `cont`. -/
+/-- Hoist safe `.let_` instructions and bounded nested `.jnz` selects from a validated arm and
+pass its final argument tuple to `cont`. -/
 def hoistArm {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (jTs : List Ty) :
-    Nat → Nat → Expr (IVal V) (JLabel L) rs →
+    ArmPlan → Nat → Expr (IVal V) (JLabel L) rs →
     (Nat → Tup (Arg (IVal V)) jTs → Expr V L rs) → Expr V L rs
-  | 0, next, .jump (ts := ts) _ args, cont =>
+  | .jump, next, .jump (ts := ts) _ args, cont =>
     match listTyDecEq ts jTs with
     | isTrue h => cont next (h ▸ args)
     | isFalse _ => .hlt
-  | n + 1, next, .let_ (ts := ts) op k, cont =>
+  | .let_ rest, next, .let_ (ts := ts) op k, cont =>
     .let_ ⟨op.code, tupIOut op.args⟩ fun xs =>
-      hoistArm jTs n (next + ts.length) (k (freshIVals ts xs next)) cont
+      hoistArm jTs rest (next + ts.length) (k (freshIVals ts xs next)) cont
+  | .jnz pT pE, next, .jnz c t e, cont =>
+    hoistArm jTs pT next t fun next₁ argsT =>
+    hoistArm jTs pE next₁ e fun next₂ argsE =>
+    emitSelectTupIVal (iout c) jTs next₂ argsT argsE cont
   | _, _, _, _ => .hlt
 
 /-- Rewrite a planned diamond entry into hoisted `.let_`s + `.select`s + `.jump jLbl`. -/
 def hoistDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {jTs : List Ty}
     (jLbl : L jTs) : DiamondPlan → Nat → Expr (IVal V) (JLabel L) rs → Expr V L rs
-  | .jnz nT nE, next, .jnz c t e =>
-    hoistArm jTs nT next t fun next₁ argsT =>
-    hoistArm jTs nE next₁ e fun next₂ argsE =>
+  | .jnz pT pE, next, .jnz c t e =>
+    hoistArm jTs pT next t fun next₁ argsT =>
+    hoistArm jTs pE next₁ e fun next₂ argsE =>
     emitSelectTup (iout c) jTs next₂ argsT argsE fun selArgs =>
     .jump jLbl selArgs
   | .let_ rest, next, .let_ (ts := ts) op k =>

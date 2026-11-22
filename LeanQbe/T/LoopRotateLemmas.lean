@@ -426,6 +426,15 @@ private inductive RotLRelEntry {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty �
         ∀ (a₁ : Tup (Arg V₁) ts) (a₂ : Tup (Arg V₂) ts),
           TRel (ArgRel G'') a₁ a₂ → Wf G'' D'' (f₁ a₁) (f₂ a₂)) →
       RotLRelEntry G' D' (.expand f₁) (.expand f₂)
+  | expandOrKeep {ts : List Ty}
+      {f₁ : Tup (Arg V₁) ts → Expr V₁ L₁ rs}
+      {f₂ : Tup (Arg V₂) ts → Expr V₂ L₂ rs}
+      {lHdr₁ : L₁ ts} {lHdr₂ : L₂ ts} :
+      ⟨ts, lHdr₁, lHdr₂⟩ ∈ D' →
+      (∀ {G'' D''}, (∀ p ∈ G', p ∈ G'') → (∀ p ∈ D', p ∈ D'') →
+        ∀ (a₁ : Tup (Arg V₁) ts) (a₂ : Tup (Arg V₂) ts),
+          TRel (ArgRel G'') a₁ a₂ → Wf G'' D'' (f₁ a₁) (f₂ a₂)) →
+      RotLRelEntry G' D' (.expandOrKeep f₁ lHdr₁) (.expandOrKeep f₂ lHdr₂)
 
 private theorem RotLRelEntry.weaken {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G₁ G₂ : Ctx V₁ V₂} {D₁ D₂ : Ctx L₁ L₂}
@@ -436,6 +445,9 @@ private theorem RotLRelEntry.weaken {V₁ V₂ : Ty → Type} {L₁ L₂ : List 
   | .dead => .dead
   | .expand hb =>
     .expand fun hG' hD' => hb (fun _ hp => hG' _ (hG _ hp)) (fun _ hp => hD' _ (hD _ hp))
+  | .expandOrKeep hl hb =>
+    .expandOrKeep (hD _ hl)
+      fun hG' hD' => hb (fun _ hp => hG' _ (hG _ hp)) (fun _ hp => hD' _ (hD _ hp))
 
 /-- Context-wide `RotLRelEntry` invariant. -/
 private def RotLRel {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
@@ -525,7 +537,8 @@ private theorem flatExpr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
     cases hdj with
     | keep hj' => exact .jump hj' (flatOptArgs_trel hG hargs)
     | dead => exact .hlt
-    | expand hf => exact hf (fun _ h => h) (fun _ h => h) _ _ (flatOptArgs_trel hG hargs)
+    | expand hf | expandOrKeep _ hf =>
+      exact hf (fun _ h => h) (fun _ h => h) _ _ (flatOptArgs_trel hG hargs)
   | ret hvs =>
     intro G' D' hG _
     exact .ret (flatOptArgs_trel hG hvs)
@@ -726,85 +739,98 @@ private theorem hdrEmit_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Ty
     | exit _ _ | hlt | group _ _ =>
       exact .hlt
 
-private theorem rewriteRot_wf : (plan : RotPlan) →
+mutual
+private theorem rewriteRotWith_wf : (allowHdr : Bool) → (plan : RotPlan) →
     ∀ {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
       {G' : Ctx V₁ V₂} {D' : Ctx L₁ L₂}
       {G : Ctx (OptArg V₁) (OptArg V₂)} {D : Ctx (RotL V₁ L₁ rs) (RotL V₂ L₂ rs)}
       {e₁ : Expr (OptArg V₁) (RotL V₁ L₁ rs) rs}
       {e₂ : Expr (OptArg V₂) (RotL V₂ L₂ rs) rs},
       OptWfRel G' G → RotLRel G' D' D → Wf G D e₁ e₂ →
-      Wf G' D' (rewriteRot plan e₁) (rewriteRot plan e₂)
-  | .leaf => fun hG hD hwf => by
-    dsimp only [rewriteRot]
+      Wf G' D' (rewriteRotWith allowHdr plan e₁) (rewriteRotWith allowHdr plan e₂)
+  | _, .leaf => fun hG hD hwf => by
+    dsimp only [rewriteRotWith]
     exact flatExpr_wf hwf hG hD
-  | .letP p => fun hG hD hwf => by
+  | allowHdr, .letP p => fun hG hD hwf => by
     cases hwf with
     | let_ hop hk =>
-      dsimp only [rewriteRot]
+      dsimp only [rewriteRotWith]
       exact .let_ (flatOptOp_opRel hG hop) fun xs₁ xs₂ =>
-        rewriteRot_wf p
+        rewriteRotWith_wf allowHdr p
           (OptWfRel.append_someVars hG xs₁ xs₂)
           (RotLRel.weaken (fun _ hp => List.mem_append_right _ hp) (fun _ h => h) hD)
           (hk (someVarsToOpt xs₁) (someVarsToOpt xs₂))
     | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      dsimp only [rewriteRot]; exact .hlt
-  | .loadP p => fun hG hD hwf => by
+      dsimp only [rewriteRotWith]; exact .hlt
+  | allowHdr, .loadP p => fun hG hD hwf => by
     cases hwf with
     | load t ha hk =>
-      dsimp only [rewriteRot]
+      dsimp only [rewriteRotWith]
       exact .load t (flatOptArg_argRel hG ha) fun v₁ v₂ =>
-        rewriteRot_wf p (OptWfRel.cons_var hG v₁ v₂)
+        rewriteRotWith_wf allowHdr p (OptWfRel.cons_var hG v₁ v₂)
           (RotLRel.weaken (fun _ hp => List.mem_cons_of_mem _ hp) (fun _ h => h) hD)
           (hk (some (.var v₁)) (some (.var v₂)))
     | let_ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      dsimp only [rewriteRot]; exact .hlt
-  | .storeP p => fun hG hD hwf => by
+      dsimp only [rewriteRotWith]; exact .hlt
+  | allowHdr, .storeP p => fun hG hD hwf => by
     cases hwf with
     | store hv ha hk =>
-      dsimp only [rewriteRot]
-      exact .store (flatOptArg_argRel hG hv) (flatOptArg_argRel hG ha) (rewriteRot_wf p hG hD hk)
+      dsimp only [rewriteRotWith]
+      exact .store (flatOptArg_argRel hG hv) (flatOptArg_argRel hG ha)
+        (rewriteRotWith_wf allowHdr p hG hD hk)
     | let_ _ _ | load _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      dsimp only [rewriteRot]; exact .hlt
-  | .callP p => fun hG hD hwf => by
+      dsimp only [rewriteRotWith]; exact .hlt
+  | allowHdr, .callP p => fun hG hD hwf => by
     cases hwf with
     | call f hargs hk =>
-      dsimp only [rewriteRot]
+      dsimp only [rewriteRotWith]
       exact .call f (flatOptArgs_trel hG hargs) fun xs₁ xs₂ =>
-        rewriteRot_wf p
+        rewriteRotWith_wf allowHdr p
           (OptWfRel.append_someVars hG xs₁ xs₂)
           (RotLRel.weaken (fun _ hp => List.mem_append_right _ hp) (fun _ h => h) hD)
           (hk (someVarsToOpt xs₁) (someVarsToOpt xs₂))
     | let_ _ _ | load _ _ _ | store _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      dsimp only [rewriteRot]; exact .hlt
-  | .jnzP tp ep => fun hG hD hwf => by
+      dsimp only [rewriteRotWith]; exact .hlt
+  | allowHdr, .jnzP tp ep => fun hG hD hwf => by
     cases hwf with
     | jnz hc ht he =>
-      dsimp only [rewriteRot]
+      dsimp only [rewriteRotWith]
       exact .jnz (flatOptArg_argRel hG hc)
-        (rewriteRot_wf tp hG hD ht) (rewriteRot_wf ep hG hD he)
-    | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jump _ _ | ret _
-    | exit _ _ | hlt | group _ _ =>
-      dsimp only [rewriteRot]; exact .hlt
-  | .groupKeep bsP kP => fun hG hD hwf => by
+        (rewriteRotWith_wf allowHdr tp hG hD ht) (rewriteRotWith_wf allowHdr ep hG hD he)
+    | jump hj hargs =>
+      cases allowHdr
+      · cases tp <;> cases ep <;> dsimp only [rewriteRotWith] <;> exact .hlt
+      · cases tp <;> cases ep <;> dsimp only [rewriteRotWith]
+        all_goals first
+          | exact .hlt
+          | (have hdj := hD _ hj; dsimp only at hdj
+             cases hdj with
+             | keep hj' | expandOrKeep hj' _ => exact .jump hj' (flatOptArgs_trel hG hargs)
+             | expand hf => exact hf (fun _ h => h) (fun _ h => h) _ _ (flatOptArgs_trel hG hargs)
+             | dead => exact .hlt)
+    | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | ret _ | exit _ _ | hlt | group _ _ =>
+      dsimp only [rewriteRotWith]
+      cases allowHdr <;> first | exact .hlt | (cases tp <;> cases ep <;> exact .hlt)
+  | allowHdr, .groupKeep bsP kP => fun hG hD hwf => by
     cases hwf with
     | @group _ _ sig b₁ b₂ k₁ k₂ hb hk =>
-      dsimp only [rewriteRot]
+      dsimp only [rewriteRotWith]
       refine .group (fun Js₁ Js₂ => ?_) (fun Js₁ Js₂ => ?_)
       · have hD'' := RotLRel.append (wrapKeepLabels_rel Js₁ Js₂)
           (RotLRel.weaken (fun _ h => h) (fun _ h => List.mem_append_right _ h) hD)
-        exact rewriteKeepB_wf bsP hG hD'' (hb (wrapKeepLabels Js₁) (wrapKeepLabels Js₂))
-      · exact rewriteRot_wf kP hG
+        exact rewriteKeepB_wf allowHdr bsP hG hD'' (hb (wrapKeepLabels Js₁) (wrapKeepLabels Js₂))
+      · exact rewriteRotWith_wf allowHdr kP hG
           (RotLRel.append (wrapKeepLabels_rel Js₁ Js₂)
             (RotLRel.weaken (fun _ h => h) (fun _ h => List.mem_append_right _ h) hD))
           (hk (wrapKeepLabels Js₁) (wrapKeepLabels Js₂))
     | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt =>
-      dsimp only [rewriteRot]; exact .hlt
-  | .groupRot dir hdr contMasks exitMode contP exitP entryP => fun hG hD hwf => by
+      dsimp only [rewriteRotWith]; exact .hlt
+  | allowHdr, .groupRot dir hdr contMasks exitMode contP exitP entryP => fun hG hD hwf => by
     suffices ∀ {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
         {G' : Ctx V₁ V₂} {D' : Ctx L₁ L₂}
         {G : Ctx (OptArg V₁) (OptArg V₂)} {D : Ctx (RotL V₁ L₁ rs) (RotL V₂ L₂ rs)}
@@ -812,227 +838,225 @@ private theorem rewriteRot_wf : (plan : RotPlan) →
         {e₂ : Expr (OptArg V₂) (RotL V₂ L₂ rs) rs},
         OptWfRel G' G → RotLRel G' D' D → Wf G D e₁ e₂ →
         Wf G' D'
-          (rewriteRot (.groupRot dir hdr contMasks exitMode contP exitP entryP) e₁)
-          (rewriteRot (.groupRot dir hdr contMasks exitMode contP exitP entryP) e₂) by
+          (rewriteRotWith allowHdr (.groupRot dir hdr contMasks exitMode contP exitP entryP) e₁)
+          (rewriteRotWith allowHdr (.groupRot dir hdr contMasks exitMode contP exitP entryP) e₂) by
       exact this hG hD hwf
     intro V₁ V₂ L₁ L₂ rs G' D' G D e₁ e₂ hG hD hwf
     cases hwf with
     | @group _ _ sig bs₁ bs₂ k₁ k₂ hb hk =>
       cases sig with
-      | nil => dsimp only [rewriteRot]; exact .hlt
+      | nil => dsimp only [rewriteRotWith]; exact .hlt
       | cons ts sig' =>
         cases sig' with
-        | cons _ _ => dsimp only [rewriteRot]; exact .hlt
+        | cons _ _ => dsimp only [rewriteRotWith]; exact .hlt
         | nil =>
+          have emitLoop : ∀ {D_out : Ctx L₁ L₂} (_hDxSub : ∀ q ∈ D', q ∈ D_out)
+              (mk₁ : L₁ (rotSig hdr contMasks ts) → Tup (Arg V₁) ts → Expr V₁ L₁ rs)
+              (mk₂ : L₂ (rotSig hdr contMasks ts) → Tup (Arg V₂) ts → Expr V₂ L₂ rs),
+              (∀ {G'' D''} J₁ J₂, (∀ q ∈ G', q ∈ G'') → (∀ q ∈ D_out, q ∈ D'') →
+                ⟨rotSig hdr contMasks ts, J₁, J₂⟩ ∈ D'' →
+                ∀ a₁ a₂, TRel (ArgRel G'') a₁ a₂ → Wf G'' D'' (mk₁ J₁ a₁) (mk₂ J₂ a₂)) →
+              Wf G' D_out
+                (if isPartialMasks hdr contMasks then
+                  .group (sig := [rotSig hdr contMasks ts, ts])
+                    (fun (J_rot, J_hdr, ()) =>
+                      .cons (fun rotParams => rewriteRotWith true contP
+                        (rotBodyExpr dir hdr contMasks bs₁
+                          (.expandOrKeep (mk₁ J_rot) J_hdr) rotParams))
+                        (.cons (fun hdrParams => mk₁ J_rot (toArgTup hdrParams)) .nil))
+                    (fun (J_rot, _, ()) =>
+                      rewriteRotWith allowHdr entryP (k₁ (.expand (mk₁ J_rot), ())))
+                else
+                  .group (sig := [rotSig hdr contMasks ts])
+                    (fun (J_rot, ()) =>
+                      .cons (fun rotParams => rewriteRotWith allowHdr contP
+                        (rotBodyExpr dir hdr contMasks bs₁ (.expand (mk₁ J_rot)) rotParams)) .nil)
+                    (fun (J_rot, ()) =>
+                      rewriteRotWith allowHdr entryP (k₁ (.expand (mk₁ J_rot), ()))))
+                (if isPartialMasks hdr contMasks then
+                  .group (sig := [rotSig hdr contMasks ts, ts])
+                    (fun (J_rot, J_hdr, ()) =>
+                      .cons (fun rotParams => rewriteRotWith true contP
+                        (rotBodyExpr dir hdr contMasks bs₂
+                          (.expandOrKeep (mk₂ J_rot) J_hdr) rotParams))
+                        (.cons (fun hdrParams => mk₂ J_rot (toArgTup hdrParams)) .nil))
+                    (fun (J_rot, _, ()) =>
+                      rewriteRotWith allowHdr entryP (k₂ (.expand (mk₂ J_rot), ())))
+                else
+                  .group (sig := [rotSig hdr contMasks ts])
+                    (fun (J_rot, ()) =>
+                      .cons (fun rotParams => rewriteRotWith allowHdr contP
+                        (rotBodyExpr dir hdr contMasks bs₂ (.expand (mk₂ J_rot)) rotParams)) .nil)
+                    (fun (J_rot, ()) =>
+                      rewriteRotWith allowHdr entryP (k₂ (.expand (mk₂ J_rot), ())))) := by
+            intro D_out hDxSub mk₁ mk₂ hmk
+            have hDx := RotLRel.weaken (fun _ h => h) hDxSub hD
+            cases hpart : isPartialMasks hdr contMasks
+            · simp only [Bool.false_eq_true, ↓reduceIte]
+              refine .group (fun (J_rot₁, ()) (J_rot₂, ()) => WfB.cons (fun p₁ p₂ => ?_) .nil)
+                (fun (J_rot₁, ()) (J_rot₂, ()) => ?_)
+              · let G'' := Tup.zip p₁ p₂ ++ G'
+                let D'' := ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ :: D_out
+                have hG'sub : ∀ q ∈ G', q ∈ G'' := fun _ hq => List.mem_append_right _ hq
+                have hD'sub : ∀ q ∈ D_out, q ∈ D'' := fun _ hq => List.mem_cons_of_mem _ hq
+                have hRotMem : ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ ∈ D'' := List.mem_cons_self
+                have hexpRel : RotLRel G'' D''
+                    (Tup.zip (as := [ts]) (.expand (mk₁ J_rot₁), ())
+                      (.expand (mk₂ J_rot₂), ()) ++ D) := by
+                  intro q hq
+                  cases hq with
+                  | head =>
+                    exact .expand fun hG'' hD'' =>
+                      hmk J_rot₁ J_rot₂ (fun _ h => hG'' _ (hG'sub _ h))
+                        (fun _ h => hD'' _ (hD'sub _ h)) (hD'' _ hRotMem)
+                  | tail _ hq => exact RotLRel.weaken hG'sub hD'sub hDx q hq
+                have hpMem : ∀ q ∈ Tup.zip p₁ p₂, q ∈ G'' := fun _ hq => List.mem_append_left _ hq
+                have hG_b : OptWfRel G'' _ := OptWfRel.append
+                  (OptWfRel.weaken (splitTail_mem hdr contMasks hpMem)
+                    (someVarsToOpt_optWfRel _ _)) (OptWfRel.weaken hG'sub hG)
+                obtain ⟨_, hG_peel, hpeel⟩ := hdrPeel_wf dir true hdr contMasks hpMem hG_b
+                  ((hb (.expand (mk₁ J_rot₁), ()) (.expand (mk₂ J_rot₂), ())).get .here
+                    (someVarsToOpt (splitTail hdr contMasks p₁))
+                    (someVarsToOpt (splitTail hdr contMasks p₂)))
+                exact rewriteRotWith_wf allowHdr contP hG_peel hexpRel hpeel
+              · let D'' := ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ :: D_out
+                have hD'sub : ∀ q ∈ D_out, q ∈ D'' := fun _ hq => List.mem_cons_of_mem _ hq
+                have hRotMem : ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ ∈ D'' := List.mem_cons_self
+                have hexpRel : RotLRel G' D''
+                    (Tup.zip (as := [ts]) (.expand (mk₁ J_rot₁), ())
+                      (.expand (mk₂ J_rot₂), ()) ++ D) := by
+                  intro q hq
+                  cases hq with
+                  | head =>
+                    exact .expand fun hG'' hD'' =>
+                      hmk J_rot₁ J_rot₂ hG'' (fun _ h => hD'' _ (hD'sub _ h)) (hD'' _ hRotMem)
+                  | tail _ hq => exact RotLRel.weaken (fun _ h => h) hD'sub hDx q hq
+                exact rewriteRotWith_wf allowHdr entryP hG hexpRel
+                  (hk (.expand (mk₁ J_rot₁), ()) (.expand (mk₂ J_rot₂), ()))
+            · simp only [↓reduceIte]
+              refine .group (fun (J_rot₁, J_hdr₁, ()) (J_rot₂, J_hdr₂, ()) =>
+                  WfB.cons (fun p₁ p₂ => ?_) (WfB.cons (fun hp₁ hp₂ => ?_) .nil))
+                (fun (J_rot₁, J_hdr₁, ()) (J_rot₂, J_hdr₂, ()) => ?_)
+              · let G'' := Tup.zip p₁ p₂ ++ G'
+                let D'' := ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ ::
+                  ⟨ts, J_hdr₁, J_hdr₂⟩ :: D_out
+                have hG'sub : ∀ q ∈ G', q ∈ G'' := fun _ hq => List.mem_append_right _ hq
+                have hD'sub : ∀ q ∈ D_out, q ∈ D'' :=
+                  fun _ hq => List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hq)
+                have hRotMem : ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ ∈ D'' := List.mem_cons_self
+                have hHdrMem : ⟨ts, J_hdr₁, J_hdr₂⟩ ∈ D'' :=
+                  List.mem_cons_of_mem _ List.mem_cons_self
+                have hexpRel : RotLRel G'' D''
+                    (Tup.zip (as := [ts]) (.expandOrKeep (mk₁ J_rot₁) J_hdr₁, ())
+                      (.expandOrKeep (mk₂ J_rot₂) J_hdr₂, ()) ++ D) := by
+                  intro q hq
+                  cases hq with
+                  | head =>
+                    exact .expandOrKeep hHdrMem fun hG'' hD'' =>
+                      hmk J_rot₁ J_rot₂ (fun _ h => hG'' _ (hG'sub _ h))
+                        (fun _ h => hD'' _ (hD'sub _ h)) (hD'' _ hRotMem)
+                  | tail _ hq => exact RotLRel.weaken hG'sub hD'sub hDx q hq
+                have hpMem : ∀ q ∈ Tup.zip p₁ p₂, q ∈ G'' := fun _ hq => List.mem_append_left _ hq
+                have hG_b : OptWfRel G'' _ := OptWfRel.append
+                  (OptWfRel.weaken (splitTail_mem hdr contMasks hpMem)
+                    (someVarsToOpt_optWfRel _ _)) (OptWfRel.weaken hG'sub hG)
+                obtain ⟨_, hG_peel, hpeel⟩ := hdrPeel_wf dir true hdr contMasks hpMem hG_b
+                  ((hb (.expandOrKeep (mk₁ J_rot₁) J_hdr₁, ())
+                       (.expandOrKeep (mk₂ J_rot₂) J_hdr₂, ())).get .here
+                    (someVarsToOpt (splitTail hdr contMasks p₁))
+                    (someVarsToOpt (splitTail hdr contMasks p₂)))
+                exact rewriteRotWith_wf true contP hG_peel hexpRel hpeel
+              · exact hmk J_rot₁ J_rot₂ (fun _ hq => List.mem_append_right _ hq)
+                  (fun _ hq => List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hq))
+                  List.mem_cons_self _ _
+                  ((toArgTup_trel hp₁ hp₂).argRel_weaken fun _ h => List.mem_append_left _ h)
+              · let D'' := ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ ::
+                  ⟨ts, J_hdr₁, J_hdr₂⟩ :: D_out
+                have hD'sub : ∀ q ∈ D_out, q ∈ D'' :=
+                  fun _ hq => List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hq)
+                have hRotMem : ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ ∈ D'' := List.mem_cons_self
+                have hexpRel : RotLRel G' D''
+                    (Tup.zip (as := [ts]) (.expand (mk₁ J_rot₁), ())
+                      (.expand (mk₂ J_rot₂), ()) ++ D) := by
+                  intro q hq
+                  cases hq with
+                  | head =>
+                    exact .expand fun hG'' hD'' =>
+                      hmk J_rot₁ J_rot₂ hG'' (fun _ h => hD'' _ (hD'sub _ h)) (hD'' _ hRotMem)
+                  | tail _ hq => exact RotLRel.weaken (fun _ h => h) hD'sub hDx q hq
+                exact rewriteRotWith_wf allowHdr entryP hG hexpRel
+                  (hk (.expand (mk₁ J_rot₁), ()) (.expand (mk₂ J_rot₂), ()))
           cases exitMode with
           | inline =>
-            dsimp only [rewriteRot]
-            refine .group (fun (J_rot₁, ()) (J_rot₂, ()) => WfB.cons (fun p₁ p₂ => ?_) .nil)
-              (fun (J_rot₁, ()) (J_rot₂, ()) => ?_)
-            · let G'' := Tup.zip p₁ p₂ ++ G'
-              let D'' := ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ :: D'
-              have hG'sub : ∀ q ∈ G', q ∈ G'' := fun _ hq => List.mem_append_right _ hq
-              have hD'sub : ∀ q ∈ D', q ∈ D'' := fun _ hq => List.mem_cons_of_mem _ hq
-              have hRotMem : ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ ∈ D'' := List.mem_cons_self
-              let mk₁ := fun (args : Tup (Arg _) ts) =>
-                hdrEmit (tailC := ts) (tailX := ts) dir args args hdr contMasks []
-                  ((bs₁ (exitLabels ts)).get .here (someArgsToOpt args))
-                  (fun rotArgs => .jump J_rot₁ rotArgs)
-                  (fun exitExpr _ => rewriteRot exitP exitExpr)
-              let mk₂ := fun (args : Tup (Arg _) ts) =>
-                hdrEmit (tailC := ts) (tailX := ts) dir args args hdr contMasks []
-                  ((bs₂ (exitLabels ts)).get .here (someArgsToOpt args))
-                  (fun rotArgs => .jump J_rot₂ rotArgs)
-                  (fun exitExpr _ => rewriteRot exitP exitExpr)
-              have hexpRel : RotLRel G'' D''
-                  (Tup.zip (as := [ts]) (RotL.expand mk₁, ()) (RotL.expand mk₂, ()) ++ D) := by
-                intro q hq
-                cases hq with
-                | head =>
-                  refine .expand fun hG'' hD'' a₁ a₂ ha => ?_
-                  refine hdrEmit_wf dir hdr contMasks []
-                    (OptWfRel.append (someArgsToOpt_optWfRel ha)
-                      (OptWfRel.weaken (fun _ hp => hG'' _ (hG'sub _ hp)) hG))
-                    (RotLRel.append (exitLabels_rel ts)
-                      (RotLRel.weaken (fun _ hp => hG'' _ (hG'sub _ hp))
-                        (fun _ hp => hD'' _ (hD'sub _ hp)) hD))
-                    ((hb (exitLabels ts) (exitLabels ts)).get .here (someArgsToOpt a₁)
-                      (someArgsToOpt a₂))
-                    ha ha ?_ ?_
-                  · intro _ _ _ _ hrot
-                    exact .jump (hD'' _ hRotMem) hrot
-                  · intro _ _ _ _ hGex hDex _ _ hex _ _ _
-                    exact rewriteRot_wf exitP hGex hDex hex
-                | tail _ hq =>
-                  exact RotLRel.weaken (fun _ hp => hG'sub _ hp) hD'sub hD q hq
-              have hpMem : ∀ q ∈ Tup.zip p₁ p₂, q ∈ G'' := fun _ hq => List.mem_append_left _ hq
-              have hxsMem : ∀ q ∈ Tup.zip (splitTail hdr contMasks p₁)
-                  (splitTail hdr contMasks p₂), q ∈ G'' :=
-                splitTail_mem hdr contMasks hpMem
-              have hG_b : OptWfRel G''
-                  (Tup.zip (someVarsToOpt (splitTail hdr contMasks p₁))
-                    (someVarsToOpt (splitTail hdr contMasks p₂)) ++ G) :=
-                OptWfRel.append
-                  (OptWfRel.weaken hxsMem (someVarsToOpt_optWfRel _ _))
-                  (OptWfRel.weaken hG'sub hG)
-              obtain ⟨G_peel, hG_peel, hpeel⟩ := hdrPeel_wf dir true hdr contMasks hpMem hG_b
-                ((hb (.expand mk₁, ()) (.expand mk₂, ())).get .here
-                  (someVarsToOpt (splitTail hdr contMasks p₁))
-                  (someVarsToOpt (splitTail hdr contMasks p₂)))
-              exact rewriteRot_wf contP hG_peel hexpRel hpeel
-            · let D'' := ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ :: D'
-              have hD'sub : ∀ q ∈ D', q ∈ D'' := fun _ hq => List.mem_cons_of_mem _ hq
-              have hRotMem : ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ ∈ D'' := List.mem_cons_self
-              let mk₁ := fun (args : Tup (Arg _) ts) =>
-                hdrEmit (tailC := ts) (tailX := ts) dir args args hdr contMasks []
-                  ((bs₁ (exitLabels ts)).get .here (someArgsToOpt args))
-                  (fun rotArgs => .jump J_rot₁ rotArgs)
-                  (fun exitExpr _ => rewriteRot exitP exitExpr)
-              let mk₂ := fun (args : Tup (Arg _) ts) =>
-                hdrEmit (tailC := ts) (tailX := ts) dir args args hdr contMasks []
-                  ((bs₂ (exitLabels ts)).get .here (someArgsToOpt args))
-                  (fun rotArgs => .jump J_rot₂ rotArgs)
-                  (fun exitExpr _ => rewriteRot exitP exitExpr)
-              have hexpRel : RotLRel G' D''
-                  (Tup.zip (as := [ts]) (RotL.expand mk₁, ()) (RotL.expand mk₂, ()) ++ D) := by
-                intro q hq
-                cases hq with
-                | head =>
-                  refine .expand fun hG'' hD'' a₁ a₂ ha => ?_
-                  refine hdrEmit_wf dir hdr contMasks []
-                    (OptWfRel.append (someArgsToOpt_optWfRel ha) (OptWfRel.weaken hG'' hG))
-                    (RotLRel.append (exitLabels_rel ts)
-                      (RotLRel.weaken hG'' (fun _ hp => hD'' _ (hD'sub _ hp)) hD))
-                    ((hb (exitLabels ts) (exitLabels ts)).get .here (someArgsToOpt a₁)
-                      (someArgsToOpt a₂))
-                    ha ha ?_ ?_
-                  · intro _ _ _ _ hrot
-                    exact .jump (hD'' _ hRotMem) hrot
-                  · intro _ _ _ _ hGex hDex _ _ hex _ _ _
-                    exact rewriteRot_wf exitP hGex hDex hex
-                | tail _ hq => exact RotLRel.weaken (fun _ h => h) hD'sub hD q hq
-              exact rewriteRot_wf entryP hG hexpRel (hk (.expand mk₁, ()) (.expand mk₂, ()))
+            dsimp only [rewriteRotWith]
+            refine emitLoop (fun _ h => h)
+              (fun J_rot₁ args => hdrEmit (tailC := ts) (tailX := ts) dir args args hdr contMasks []
+                ((bs₁ (exitLabels ts)).get .here (someArgsToOpt args))
+                (fun rotArgs => .jump J_rot₁ rotArgs)
+                (fun exitExpr _ => rewriteRotWith allowHdr exitP exitExpr))
+              (fun J_rot₂ args => hdrEmit (tailC := ts) (tailX := ts) dir args args hdr contMasks []
+                ((bs₂ (exitLabels ts)).get .here (someArgsToOpt args))
+                (fun rotArgs => .jump J_rot₂ rotArgs)
+                (fun exitExpr _ => rewriteRotWith allowHdr exitP exitExpr))
+              fun J₁ J₂ hGsub hDsub hRotMem a₁ a₂ ha =>
+                hdrEmit_wf dir hdr contMasks []
+                  (OptWfRel.append (someArgsToOpt_optWfRel ha) (OptWfRel.weaken hGsub hG))
+                  (RotLRel.append (exitLabels_rel ts) (RotLRel.weaken hGsub hDsub hD))
+                  ((hb (exitLabels ts) (exitLabels ts)).get .here (someArgsToOpt a₁)
+                    (someArgsToOpt a₂)) ha ha
+                  (by intro _ _ _ _ hrot; exact Wf.jump hRotMem hrot)
+                  (by
+                    intro _ _ _ _ hGex hDex _ _ hex _ _ _
+                    exact rewriteRotWith_wf allowHdr exitP hGex hDex hex)
           | wrap xsMask hMasks =>
-            dsimp only [rewriteRot]
+            dsimp only [rewriteRotWith]
             refine .group (fun (J_exit₁, ()) (J_exit₂, ()) => WfB.cons (fun x₁ x₂ => ?_) .nil)
               (fun (J_exit₁, ()) (J_exit₂, ()) => ?_)
             · let G'' := Tup.zip x₁ x₂ ++ G'
               have hG'sub : ∀ q ∈ G', q ∈ G'' := fun _ hq => List.mem_append_right _ hq
               have hxMem : ∀ q ∈ Tup.zip x₁ x₂, q ∈ G'' := fun _ hq => List.mem_append_left _ hq
-              have hxtMem := splitTail_mem hdr hMasks hxMem
-              have hG_b : OptWfRel G''
-                  (Tup.zip (tupWiden ts xsMask (splitTail hdr hMasks x₁))
-                    (tupWiden ts xsMask (splitTail hdr hMasks x₂)) ++ G) :=
-                OptWfRel.append (tupWiden_optWfRel ts xsMask hxtMem)
-                  (OptWfRel.weaken hG'sub hG)
-              have hD_b : RotLRel G''
-                  (Tup.zip (as := [exitSig hdr hMasks xsMask ts]) (J_exit₁, ()) (J_exit₂, ()) ++ D')
-                  (Tup.zip (exitLabels ts) (exitLabels ts) ++ D) :=
-                RotLRel.append (exitLabels_rel ts)
-                  (RotLRel.weaken hG'sub (fun _ hq => List.mem_append_right _ hq) hD)
-              obtain ⟨G_peel, hG_peel, hpeel⟩ := hdrPeel_wf dir false hdr hMasks hxMem hG_b
+              have hG_b : OptWfRel G'' _ := OptWfRel.append
+                (tupWiden_optWfRel ts xsMask (splitTail_mem hdr hMasks hxMem))
+                (OptWfRel.weaken hG'sub hG)
+              obtain ⟨_, hG_peel, hpeel⟩ := hdrPeel_wf dir false hdr hMasks hxMem hG_b
                 ((hb (exitLabels ts) (exitLabels ts)).get .here
                   (tupWiden ts xsMask (splitTail hdr hMasks x₁))
                   (tupWiden ts xsMask (splitTail hdr hMasks x₂)))
-              exact rewriteRot_wf exitP hG_peel hD_b hpeel
+              exact rewriteRotWith_wf allowHdr exitP hG_peel
+                (RotLRel.append (exitLabels_rel ts)
+                  (RotLRel.weaken hG'sub (fun _ hq => List.mem_append_right _ hq) hD))
+                hpeel
             · let D_ex := ⟨exitSig hdr hMasks xsMask ts, J_exit₁, J_exit₂⟩ :: D'
               have hDexSub : ∀ q ∈ D', q ∈ D_ex := fun _ hq => List.mem_cons_of_mem _ hq
               have hExitMem : ⟨exitSig hdr hMasks xsMask ts, J_exit₁, J_exit₂⟩ ∈ D_ex :=
                 List.mem_cons_self
-              have hDx : RotLRel G' D_ex D := RotLRel.weaken (fun _ h => h) hDexSub hD
-              refine .group (fun (J_rot₁, ()) (J_rot₂, ()) => WfB.cons (fun p₁ p₂ => ?_) .nil)
-                (fun (J_rot₁, ()) (J_rot₂, ()) => ?_)
-              · let G'' := Tup.zip p₁ p₂ ++ G'
-                let D'' := ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ :: D_ex
-                have hG'sub : ∀ q ∈ G', q ∈ G'' := fun _ hq => List.mem_append_right _ hq
-                have hD'sub : ∀ q ∈ D_ex, q ∈ D'' := fun _ hq => List.mem_cons_of_mem _ hq
-                have hRotMem : ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ ∈ D'' :=
-                  List.mem_cons_self
-                let mk₁ := fun (args : Tup (Arg _) ts) =>
-                  hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
-                    dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
-                    ((bs₁ (exitLabels ts)).get .here (someArgsToOpt args))
-                    (fun rotArgs => .jump J_rot₁ rotArgs)
-                    (fun _ exitArgs => .jump J_exit₁ exitArgs)
-                let mk₂ := fun (args : Tup (Arg _) ts) =>
-                  hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
-                    dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
-                    ((bs₂ (exitLabels ts)).get .here (someArgsToOpt args))
-                    (fun rotArgs => .jump J_rot₂ rotArgs)
-                    (fun _ exitArgs => .jump J_exit₂ exitArgs)
-                have hexpRel : RotLRel G'' D''
-                    (Tup.zip (as := [ts]) (RotL.expand mk₁, ()) (RotL.expand mk₂, ()) ++ D) := by
-                  intro q hq
-                  cases hq with
-                  | head =>
-                    refine .expand fun hG'' hD'' a₁ a₂ ha => ?_
-                    refine hdrEmit_wf dir hdr contMasks hMasks
-                      (OptWfRel.append (someArgsToOpt_optWfRel ha)
-                        (OptWfRel.weaken (fun _ hp => hG'' _ (hG'sub _ hp)) hG))
-                      (RotLRel.append (exitLabels_rel ts)
-                        (RotLRel.weaken (fun _ hp => hG'' _ (hG'sub _ hp))
-                          (fun _ hp => hD'' _ (hD'sub _ hp)) hDx))
-                      ((hb (exitLabels ts) (exitLabels ts)).get .here (someArgsToOpt a₁)
-                        (someArgsToOpt a₂))
-                      ha (tupSelectArgs_argRel ts xsMask ha) ?_ ?_
-                    · intro _ _ _ _ hrot
-                      exact .jump (hD'' _ hRotMem) hrot
-                    · intro _ _ _ _ _ _ _ _ _ _ _ hexArgs
-                      exact .jump (hD'' _ (hD'sub _ hExitMem)) hexArgs
-                  | tail _ hq => exact RotLRel.weaken hG'sub hD'sub hDx q hq
-                have hpMem : ∀ q ∈ Tup.zip p₁ p₂, q ∈ G'' := fun _ hq => List.mem_append_left _ hq
-                have hxsMem := splitTail_mem hdr contMasks hpMem
-                have hG_b : OptWfRel G''
-                    (Tup.zip (someVarsToOpt (splitTail hdr contMasks p₁))
-                      (someVarsToOpt (splitTail hdr contMasks p₂)) ++ G) :=
-                  OptWfRel.append
-                    (OptWfRel.weaken hxsMem (someVarsToOpt_optWfRel _ _))
-                    (OptWfRel.weaken hG'sub hG)
-                obtain ⟨G_peel, hG_peel, hpeel⟩ := hdrPeel_wf dir true hdr contMasks hpMem hG_b
-                  ((hb (.expand mk₁, ()) (.expand mk₂, ())).get .here
-                    (someVarsToOpt (splitTail hdr contMasks p₁))
-                    (someVarsToOpt (splitTail hdr contMasks p₂)))
-                exact rewriteRot_wf contP hG_peel hexpRel hpeel
-              · let D'' := ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ :: D_ex
-                have hD'sub : ∀ q ∈ D_ex, q ∈ D'' := fun _ hq => List.mem_cons_of_mem _ hq
-                have hRotMem : ⟨rotSig hdr contMasks ts, J_rot₁, J_rot₂⟩ ∈ D'' :=
-                  List.mem_cons_self
-                let mk₁ := fun (args : Tup (Arg _) ts) =>
-                  hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
-                    dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
-                    ((bs₁ (exitLabels ts)).get .here (someArgsToOpt args))
-                    (fun rotArgs => .jump J_rot₁ rotArgs)
-                    (fun _ exitArgs => .jump J_exit₁ exitArgs)
-                let mk₂ := fun (args : Tup (Arg _) ts) =>
-                  hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
-                    dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
-                    ((bs₂ (exitLabels ts)).get .here (someArgsToOpt args))
-                    (fun rotArgs => .jump J_rot₂ rotArgs)
-                    (fun _ exitArgs => .jump J_exit₂ exitArgs)
-                have hexpRel : RotLRel G' D''
-                    (Tup.zip (as := [ts]) (RotL.expand mk₁, ()) (RotL.expand mk₂, ()) ++ D) := by
-                  intro q hq
-                  cases hq with
-                  | head =>
-                    refine .expand fun hG'' hD'' a₁ a₂ ha => ?_
-                    refine hdrEmit_wf dir hdr contMasks hMasks
-                      (OptWfRel.append (someArgsToOpt_optWfRel ha) (OptWfRel.weaken hG'' hG))
-                      (RotLRel.append (exitLabels_rel ts)
-                        (RotLRel.weaken hG'' (fun _ hp => hD'' _ (hD'sub _ hp)) hDx))
-                      ((hb (exitLabels ts) (exitLabels ts)).get .here (someArgsToOpt a₁)
-                        (someArgsToOpt a₂))
-                      ha (tupSelectArgs_argRel ts xsMask ha) ?_ ?_
-                    · intro _ _ _ _ hrot
-                      exact .jump (hD'' _ hRotMem) hrot
-                    · intro _ _ _ _ _ _ _ _ _ _ _ hexArgs
-                      exact .jump (hD'' _ (hD'sub _ hExitMem)) hexArgs
-                  | tail _ hq => exact RotLRel.weaken (fun _ h => h) hD'sub hDx q hq
-                exact rewriteRot_wf entryP hG hexpRel (hk (.expand mk₁, ()) (.expand mk₂, ()))
+              refine emitLoop (D_out := D_ex) hDexSub
+                (fun J_rot₁ args => hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
+                  dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
+                  ((bs₁ (exitLabels ts)).get .here (someArgsToOpt args))
+                  (fun rotArgs => .jump J_rot₁ rotArgs)
+                  (fun _ exitArgs => .jump J_exit₁ exitArgs))
+                (fun J_rot₂ args => hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
+                  dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
+                  ((bs₂ (exitLabels ts)).get .here (someArgsToOpt args))
+                  (fun rotArgs => .jump J_rot₂ rotArgs)
+                  (fun _ exitArgs => .jump J_exit₂ exitArgs))
+                fun J₁ J₂ hGsub hDsub hRotMem a₁ a₂ ha =>
+                  hdrEmit_wf dir hdr contMasks hMasks
+                    (OptWfRel.append (someArgsToOpt_optWfRel ha) (OptWfRel.weaken hGsub hG))
+                    (RotLRel.append (exitLabels_rel ts)
+                      (RotLRel.weaken hGsub (fun _ h => hDsub _ (hDexSub _ h)) hD))
+                    ((hb (exitLabels ts) (exitLabels ts)).get .here (someArgsToOpt a₁)
+                      (someArgsToOpt a₂)) ha (tupSelectArgs_argRel ts xsMask ha)
+                    (by intro _ _ _ _ hrot; exact Wf.jump hRotMem hrot)
+                    (by
+                      intro _ _ _ _ _ _ _ _ _ _ _ hexArgs
+                      exact Wf.jump (hDsub _ hExitMem) hexArgs)
     | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt =>
-      dsimp only [rewriteRot]; exact .hlt
+      dsimp only [rewriteRotWith]; exact .hlt
 where
-  rewriteKeepB_wf : (ps : List RotPlan) →
+  rewriteKeepB_wf : (allowHdr : Bool) → (ps : List RotPlan) →
       ∀ {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
         {G' : Ctx V₁ V₂} {D' : Ctx L₁ L₂}
         {G : Ctx (OptArg V₁) (OptArg V₂)} {D : Ctx (RotL V₁ L₁ rs) (RotL V₂ L₂ rs)}
@@ -1040,27 +1064,39 @@ where
         {bs₁ : Blocks (OptArg V₁) (RotL V₁ L₁ rs) rs sig}
         {bs₂ : Blocks (OptArg V₂) (RotL V₂ L₂ rs) rs sig},
         OptWfRel G' G → RotLRel G' D' D → WfB G D bs₁ bs₂ →
-        WfB G' D' (rewriteRot.rewriteKeepB ps bs₁) (rewriteRot.rewriteKeepB ps bs₂)
-    | [] => fun hG hD hbs => by
+        WfB G' D' (rewriteRotWith.rewriteKeepB allowHdr ps bs₁)
+          (rewriteRotWith.rewriteKeepB allowHdr ps bs₂)
+    | allowHdr, [] => fun hG hD hbs => by
       cases hbs with
-      | nil => dsimp only [rewriteRot.rewriteKeepB, flatExpr.flatBlocks]; exact .nil
+      | nil => dsimp only [rewriteRotWith.rewriteKeepB, flatExpr.flatBlocks]; exact .nil
       | cons hb hbs' =>
-        dsimp only [rewriteRot.rewriteKeepB, flatExpr.flatBlocks]
+        dsimp only [rewriteRotWith.rewriteKeepB, flatExpr.flatBlocks]
         refine .cons (fun xs₁ xs₂ => ?_) ?_
         · exact flatExpr_wf (hb (someVarsToOpt xs₁) (someVarsToOpt xs₂))
             (OptWfRel.append_someVars hG xs₁ xs₂)
             (RotLRel.weaken (fun _ hp => List.mem_append_right _ hp) (fun _ h => h) hD)
-        · exact rewriteKeepB_wf [] hG hD hbs'
-    | p :: ps => fun hG hD hbs => by
+        · exact rewriteKeepB_wf allowHdr [] hG hD hbs'
+    | allowHdr, p :: ps => fun hG hD hbs => by
       cases hbs with
-      | nil => dsimp only [rewriteRot.rewriteKeepB]; exact .nil
+      | nil => dsimp only [rewriteRotWith.rewriteKeepB]; exact .nil
       | cons hb hbs' =>
-        dsimp only [rewriteRot.rewriteKeepB]
-        refine .cons (fun xs₁ xs₂ => ?_) (rewriteKeepB_wf ps hG hD hbs')
-        exact rewriteRot_wf p
+        dsimp only [rewriteRotWith.rewriteKeepB]
+        refine .cons (fun xs₁ xs₂ => ?_) (rewriteKeepB_wf allowHdr ps hG hD hbs')
+        exact rewriteRotWith_wf allowHdr p
           (OptWfRel.append_someVars hG xs₁ xs₂)
           (RotLRel.weaken (fun _ hp => List.mem_append_right _ hp) (fun _ h => h) hD)
           (hb (someVarsToOpt xs₁) (someVarsToOpt xs₂))
+end
+
+private theorem rewriteRot_wf (plan : RotPlan)
+    {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
+    {G' : Ctx V₁ V₂} {D' : Ctx L₁ L₂}
+    {G : Ctx (OptArg V₁) (OptArg V₂)} {D : Ctx (RotL V₁ L₁ rs) (RotL V₂ L₂ rs)}
+    {e₁ : Expr (OptArg V₁) (RotL V₁ L₁ rs) rs}
+    {e₂ : Expr (OptArg V₂) (RotL V₂ L₂ rs) rs}
+    (hG : OptWfRel G' G) (hD : RotLRel G' D' D) (hwf : Wf G D e₁ e₂) :
+    Wf G' D' (rewriteRot plan e₁) (rewriteRot plan e₂) :=
+  rewriteRotWith_wf false plan hG hD hwf
 
 /-! ## Weakest-precondition invariants (`NoneDeadOpt`, `SomeValEq`, `ValidDk`, `RotWpD`) -/
 
@@ -1069,6 +1105,7 @@ private def rotLIsLive {V : Ty → Type} {L : List Ty → Type} {rs ts : List Ty
     RotL V L rs ts → Bool
   | .keep _ => true
   | .expand _ => true
+  | .expandOrKeep _ _ => true
   | .dead => false
 
 /-- Every `true` label in `Dk` pairs with a live (`keep` or `expand`) `RotL` label. -/
@@ -1247,6 +1284,10 @@ private def RotWpD (Γ : Env) {rs : List Ty} (Q : Post rs) (X : XPost)
     | .dead => True
     | .expand f => ∀ (args : Tup (Arg Val) p.1) (m : Mem 64),
         p.2.2 (vals args) m → wp Γ Q X (f args) m
+    | .expandOrKeep f lHdr =>
+        (∀ (args : Tup (Arg Val) p.1) (m : Mem 64),
+          p.2.2 (vals args) m → wp Γ Q X (f args) m) ∧
+        (∀ (vs : Tup Val p.1) (m : Mem 64), p.2.2 vs m → lHdr vs m)
 
 private theorem RotWpD.append {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {H D : Ctx (RotL Val Cont rs) Cont}
@@ -1495,6 +1536,10 @@ private theorem flatExpr_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         dsimp only [flatExpr]
         dsimp only at hd
         exact hd _ m (by rw [hvals]; exact hw2)
+      | expandOrKeep fn _ =>
+        dsimp only [flatExpr]
+        dsimp only at hd
+        exact hd.1 _ m (by rw [hvals]; exact hw2)
   | ret hvs =>
     intro Gk Dk ek nv s hwk hval hnd hG _ _ m hw2
     rcases hwk.rhs_ret with ⟨vsk, rfl, hvsk⟩
@@ -1820,8 +1865,8 @@ private theorem hdrPeel_wf_src {rs : List Ty} {tail : List Ty} (dir wantCont : B
       cases hwk <;> (dsimp only [validateHdr] at hval; cases hval)
 
 mutual
-/-- `rewriteRot` refines weakest-precondition semantics whenever `validateRotPlan` accepts. -/
-private theorem rewriteRot_wp : (plan : RotPlan) →
+/-- `rewriteRotWith` refines `wp` whenever `validateRotPlanWith` accepts. -/
+private theorem rewriteRotWith_wp : (allowHdr : Bool) → (plan : RotPlan) →
     ∀ {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
       {Gk : Ctx K (OptArg Val)} {Gk_diag : Ctx K K}
       {Dk : Ctx BoolL (RotL Val Cont rs)} {Dk_diag : Ctx BoolL BoolL}
@@ -1829,62 +1874,62 @@ private theorem rewriteRot_wp : (plan : RotPlan) →
       {ek : Expr K BoolL rs} {e₁ : Expr (OptArg Val) (RotL Val Cont rs) rs}
       {e₂ : Expr Val Cont rs} {nv : Nat} {s : Trie Unit},
       Wf Gk Dk ek e₁ → Wf Gk_diag Dk_diag ek ek → Wf G D e₁ e₂ →
-      validateRotPlan plan ek nv = some s →
+      validateRotPlanWith allowHdr plan ek nv = some s →
       NoneDeadOpt s Gk → SomeValEq G → DiagK Gk_diag →
       ValidDk Dk → RotWpD Γ Q X D →
-      ∀ m, wp Γ Q X e₂ m → wp Γ Q X (rewriteRot plan e₁) m
-  | .leaf => fun hwk _ hwf hval hnd hG _ hDk hD m hw2 => by
-    dsimp only [rewriteRot]
+      ∀ m, wp Γ Q X e₂ m → wp Γ Q X (rewriteRotWith allowHdr plan e₁) m
+  | _, .leaf => fun hwk _ hwf hval hnd hG _ hDk hD m hw2 => by
+    dsimp only [rewriteRotWith]
     exact flatExpr_wp hwf hwk hval hnd hG hDk hD m hw2
-  | .letP p => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
+  | allowHdr, .letP p => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
     cases hwf with
     | @let_ _ _ ts op₁ op₂ k₁ k₂ hop hk =>
       rcases hwk.rhs_let with ⟨opk, kk, rfl, hopk, hkk⟩
       rcases hwk_diag.let_inv with ⟨_, hkkd⟩
-      dsimp only [validateRotPlan] at hval
+      dsimp only [validateRotPlanWith] at hval
       rcases Option.bind_eq_some_iff.1 hval with ⟨sk, hvk, hret⟩
       cases hret
       cases hop with | mk code hargs =>
       cases hopk with | mk _ hargsk =>
-      dsimp only [rewriteRot]; simp only [flatOptOp, wp, Op.wp] at hw2 ⊢
+      dsimp only [rewriteRotWith]; simp only [flatOptOp, wp, Op.wp] at hw2 ⊢
       rw [flatOptArgs_vals_of_inSet hnd hG hargsk hargs (ArgsInSet.addArgKeys _ _)]
       refine OpCode.wp_mono code _ (fun r hr => ?_) hw2
-      exact rewriteRot_wp p (hkk (Tup.levels ts _) (someVarsToOpt r))
+      exact rewriteRotWith_wp allowHdr p (hkk (Tup.levels ts _) (someVarsToOpt r))
         (hkkd (Tup.levels ts _) (Tup.levels ts _)) (hk (someVarsToOpt r) r) hvk
         (NoneDeadOpt.append_someVars (NoneDeadOpt.sub (TrieSub.addArgsSet _ _) hnd) _ _)
         (SomeValEq.append_someVars hG r)
         (DiagK.append_zip_eq hdiag _) hDk hD m hr
     | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      cases hwk <;> (dsimp only [validateRotPlan] at hval; cases hval)
-  | .loadP p => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
+      cases hwk <;> (dsimp only [validateRotPlanWith] at hval; cases hval)
+  | allowHdr, .loadP p => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
     cases hwf with
     | load t ha hk =>
       rcases hwk.rhs_load with ⟨ak, kk, rfl, hak, hkk⟩
       rcases hwk_diag.load_inv with ⟨_, hkkd⟩
-      dsimp only [validateRotPlan] at hval
+      dsimp only [validateRotPlanWith] at hval
       rcases Option.bind_eq_some_iff.1 hval with ⟨sk, hvk, hret⟩
       cases hret
       rcases hw2 with ⟨v, hv_ld, hw2⟩
-      dsimp only [rewriteRot]; simp only [wp]
+      dsimp only [rewriteRotWith]; simp only [wp]
       rw [flatOptArg_val_of_inSet hnd hG hak ha (Arg.InSet.addArgKey _ _)]
-      exact ⟨v, hv_ld, rewriteRot_wp p (hkk _ (some (.var v))) (hkkd _ _)
+      exact ⟨v, hv_ld, rewriteRotWith_wp allowHdr p (hkk _ (some (.var v))) (hkkd _ _)
         (hk (some (.var v)) v) hvk
         (NoneDeadOpt.cons_some (NoneDeadOpt.sub (TrieSub.addArgKey _ _) hnd) _ (.var v))
         (SomeValEq.cons_some hG (v := v) rfl) (DiagK.cons_eq hdiag _) hDk hD m hw2⟩
     | let_ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      cases hwk <;> (dsimp only [validateRotPlan] at hval; cases hval)
-  | .storeP p => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
+      cases hwk <;> (dsimp only [validateRotPlanWith] at hval; cases hval)
+  | allowHdr, .storeP p => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
     cases hwf with
     | store hv ha hk =>
       rcases hwk.rhs_store with ⟨vk, ak, kk, rfl, hvk, hak, hkk⟩
       rcases hwk_diag.store_inv with ⟨_, _, hkkd⟩
-      dsimp only [validateRotPlan] at hval
+      dsimp only [validateRotPlanWith] at hval
       rcases Option.bind_eq_some_iff.1 hval with ⟨sk, hvk', hret⟩
       cases hret
       rcases hw2 with ⟨hok, hw2⟩
-      dsimp only [rewriteRot]; simp only [wp]
+      dsimp only [rewriteRotWith]; simp only [wp]
       have hv_in : Arg.InSet (addArgKey vk (addArgKey ak sk)) vk := Arg.InSet.addArgKey _ _
       have ha_in : Arg.InSet (addArgKey vk (addArgKey ak sk)) ak :=
         (Arg.InSet.addArgKey _ _).mono (TrieSub.addArgKey _ _)
@@ -1892,80 +1937,106 @@ private theorem rewriteRot_wp : (plan : RotPlan) →
         flatOptArg_val_of_inSet hnd hG hak ha ha_in]
       have hsub : TrieSub sk (addArgKey vk (addArgKey ak sk)) :=
         (TrieSub.addArgKey ak sk).trans (TrieSub.addArgKey vk _)
-      exact ⟨hok, rewriteRot_wp p hkk hkkd hk hvk' (NoneDeadOpt.sub hsub hnd)
+      exact ⟨hok, rewriteRotWith_wp allowHdr p hkk hkkd hk hvk' (NoneDeadOpt.sub hsub hnd)
         hG hdiag hDk hD _ hw2⟩
     | let_ _ _ | load _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      cases hwk <;> (dsimp only [validateRotPlan] at hval; cases hval)
-  | .callP p => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
+      cases hwk <;> (dsimp only [validateRotPlanWith] at hval; cases hval)
+  | allowHdr, .callP p => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
     cases hwf with
     | @call _ _ f as bs args₁ args₂ k₁ k₂ hargs hk =>
       rcases hwk.rhs_call with ⟨argsk, kk, rfl, hargsk, hkk⟩
       rcases hwk_diag.call_inv with ⟨_, hkkd⟩
-      dsimp only [validateRotPlan] at hval
+      dsimp only [validateRotPlanWith] at hval
       rcases Option.bind_eq_some_iff.1 hval with ⟨sk, hvk, hret⟩
       cases hret
       rcases hw2 with ⟨P, E, hΓ, hP, hE⟩
-      dsimp only [rewriteRot]; simp only [wp]
+      dsimp only [rewriteRotWith]; simp only [wp]
       rw [flatOptArgs_vals_of_inSet hnd hG hargsk hargs (ArgsInSet.addArgKeys _ _)]
       have hsub := TrieSub.addArgsSet argsk sk
       exact ⟨P, E, hΓ, fun r m' hp =>
-        rewriteRot_wp p (hkk (Tup.levels bs _) (someVarsToOpt r))
+        rewriteRotWith_wp allowHdr p (hkk (Tup.levels bs _) (someVarsToOpt r))
           (hkkd (Tup.levels bs _) (Tup.levels bs _)) (hk (someVarsToOpt r) r) hvk
           (NoneDeadOpt.append_someVars (NoneDeadOpt.sub hsub hnd) _ _)
           (SomeValEq.append_someVars hG r) (DiagK.append_zip_eq hdiag _)
           hDk hD m' (hP r m' hp), hE⟩
     | let_ _ _ | load _ _ _ | store _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      cases hwk <;> (dsimp only [validateRotPlan] at hval; cases hval)
-  | .jnzP tp ep => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
+      cases hwk <;> (dsimp only [validateRotPlanWith] at hval; cases hval)
+  | allowHdr, .jnzP tp ep => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
     cases hwf with
     | jnz hc ht he =>
       rcases hwk.rhs_jnz with ⟨ck, tk, ek', rfl, hck, htk, hek⟩
       rcases hwk_diag.jnz_inv with ⟨_, htkd, hekd⟩
-      dsimp only [validateRotPlan] at hval
+      dsimp only [validateRotPlanWith] at hval
       rcases Option.bind_eq_some_iff.1 hval with ⟨st, hvt, hrest⟩
       rcases Option.bind_eq_some_iff.1 hrest with ⟨se, hve, hret⟩
       cases hret
-      dsimp only [rewriteRot]; simp only [wp] at hw2 ⊢
+      dsimp only [rewriteRotWith]; simp only [wp] at hw2 ⊢
       rw [flatOptArg_val_of_inSet hnd hG hck hc (Arg.InSet.addArgKey _ _)]
       have hsubT : TrieSub st (addArgKey ck (trieUnion st se)) :=
         (TrieSub.union_left st se).trans (TrieSub.addArgKey ck _)
       have hsubE : TrieSub se (addArgKey ck (trieUnion st se)) :=
         (TrieSub.union_right st se).trans (TrieSub.addArgKey ck _)
-      exact ⟨fun h => rewriteRot_wp tp htk htkd ht hvt (NoneDeadOpt.sub hsubT hnd)
+      exact ⟨fun h => rewriteRotWith_wp allowHdr tp htk htkd ht hvt (NoneDeadOpt.sub hsubT hnd)
           hG hdiag hDk hD m (hw2.1 h),
-        fun h => rewriteRot_wp ep hek hekd he hve (NoneDeadOpt.sub hsubE hnd)
+        fun h => rewriteRotWith_wp allowHdr ep hek hekd he hve (NoneDeadOpt.sub hsubE hnd)
           hG hdiag hDk hD m (hw2.2 h)⟩
-    | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jump _ _ | ret _
-    | exit _ _ | hlt | group _ _ =>
-      cases hwk <;> (dsimp only [validateRotPlan] at hval; cases hval)
-  | .groupKeep bsP kP => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
+    | @jump _ _ _ j₁ _ _ _ hj hargs =>
+      rcases hwk.rhs_jump with ⟨lb, argsk, rfl, hjk, hargsk⟩
+      cases allowHdr
+      · cases tp <;> cases ep <;> (dsimp only [validateRotPlanWith] at hval; cases hval)
+      · cases tp <;> cases ep <;> dsimp only [validateRotPlanWith] at hval
+        all_goals first
+          | cases hval
+          | (cases hlb : lb with
+             | false => simp [hlb] at hval
+             | true =>
+               simp only [hlb, Bool.and_true, ↓reduceIte, pure, Option.some.injEq] at hval
+               subst hval
+               have hlive : rotLIsLive j₁ = true := hDk _ hjk hlb
+               have hvals :=
+                 flatOptArgs_vals_of_inSet hnd hG hargsk hargs (ArgsInSet.addArgKeys _ _)
+               have hd := hD _ hj
+               cases j₁ with
+               | keep J =>
+                 dsimp only [rewriteRotWith]; simp only [wp] at hw2 ⊢
+                 dsimp only at hd; rw [hvals, hd]; exact hw2
+               | dead => simp [rotLIsLive] at hlive
+               | expand fn =>
+                 dsimp only [rewriteRotWith]; dsimp only at hd
+                 exact hd _ m (by rw [hvals]; exact hw2)
+               | expandOrKeep _ lHdr =>
+                 dsimp only [rewriteRotWith]; simp only [wp] at hw2 ⊢
+                 dsimp only at hd; rw [hvals]; exact hd.2 _ m hw2)
+    | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | ret _ | exit _ _ | hlt | group _ _ =>
+      cases hwk <;> (dsimp only [validateRotPlanWith] at hval; cases hval)
+  | allowHdr, .groupKeep bsP kP => fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
     cases hwf with
     | @group _ _ sig b₁ b₂ k₁ k₂ hb hk =>
       rcases hwk.rhs_group with ⟨bk, kk, rfl, hbk, hkk⟩
       rcases hwk_diag.group_inv with ⟨hbkd, hkkd⟩
-      dsimp only [validateRotPlan] at hval
+      dsimp only [validateRotPlanWith] at hval
       rcases Option.bind_eq_some_iff.1 hval with ⟨sb, hvb, hrest⟩
       rcases Option.bind_eq_some_iff.1 hrest with ⟨sk, hvk, hret⟩
       cases hret
-      dsimp only [rewriteRot]; simp only [wp]
+      dsimp only [rewriteRotWith]; simp only [wp]
       intro Js_out hcl_out
       have hDk' := ValidDk.append (validDk_wrapKeepLabels Js_out) hDk
       have hD' := RotWpD.append (rotWpD_wrapKeepLabels _ _ _ Js_out) hD
-      have hcl₂ := rewriteKeepB_wp bsP
+      have hndB : NoneDeadOpt sb _ := NoneDeadOpt.sub (TrieSub.union_left sb sk) hnd
+      have hndK : NoneDeadOpt sk _ := NoneDeadOpt.sub (TrieSub.union_right sb sk) hnd
+      have hcl₂ := rewriteKeepB_wp allowHdr bsP
         (hbk (trueLabels sig) (wrapKeepLabels Js_out))
         (hbkd (trueLabels sig) (trueLabels sig))
-        (hb (wrapKeepLabels Js_out) Js_out)
-        hvb (NoneDeadOpt.sub (TrieSub.union_left sb sk) hnd) hG hdiag hDk' hD' hcl_out
-      exact rewriteRot_wp kP (hkk (trueLabels sig) (wrapKeepLabels Js_out))
-        (hkkd (trueLabels sig) (trueLabels sig))
-        (hk (wrapKeepLabels Js_out) Js_out) hvk
-        (NoneDeadOpt.sub (TrieSub.union_right sb sk) hnd) hG hdiag hDk' hD' m (hw2 Js_out hcl₂)
+        (hb (wrapKeepLabels Js_out) Js_out) hvb hndB hG hdiag hDk' hD' hcl_out
+      exact rewriteRotWith_wp allowHdr kP (hkk (trueLabels sig) (wrapKeepLabels Js_out))
+        (hkkd (trueLabels sig) (trueLabels sig)) (hk (wrapKeepLabels Js_out) Js_out) hvk
+        hndK hG hdiag hDk' hD' m (hw2 Js_out hcl₂)
     | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt =>
-      cases hwk <;> (dsimp only [validateRotPlan] at hval; cases hval)
-  | .groupRot dir hdr contMasks exitMode contP exitP entryP =>
+      cases hwk <;> (dsimp only [validateRotPlanWith] at hval; cases hval)
+  | allowHdr, .groupRot dir hdr contMasks exitMode contP exitP entryP =>
       fun hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2 => by
     suffices ∀ {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         {Gk : Ctx K (OptArg Val)} {Gk_diag : Ctx K K}
@@ -1974,27 +2045,28 @@ private theorem rewriteRot_wp : (plan : RotPlan) →
         {ek : Expr K BoolL rs} {e₁ : Expr (OptArg Val) (RotL Val Cont rs) rs}
         {e₂ : Expr Val Cont rs} {nv : Nat} {s : Trie Unit},
         Wf Gk Dk ek e₁ → Wf Gk_diag Dk_diag ek ek → Wf G D e₁ e₂ →
-        validateRotPlan (.groupRot dir hdr contMasks exitMode contP exitP entryP)
-          ek nv = some s →
+        validateRotPlanWith allowHdr
+          (.groupRot dir hdr contMasks exitMode contP exitP entryP) ek nv = some s →
         NoneDeadOpt s Gk → SomeValEq G → DiagK Gk_diag →
         ValidDk Dk → RotWpD Γ Q X D →
         ∀ m, wp Γ Q X e₂ m →
           wp Γ Q X
-            (rewriteRot (.groupRot dir hdr contMasks exitMode contP exitP entryP) e₁) m by
+            (rewriteRotWith allowHdr (.groupRot dir hdr contMasks exitMode contP exitP entryP) e₁)
+            m by
       exact this hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2
     intro Γ rs Q X Gk Gk_diag Dk Dk_diag G D ek e₁ e₂ nv s
       hwk hwk_diag hwf hval hnd hG hdiag hDk hD m hw2
     cases hwf with
     | @group _ _ sig b₁ b₂ k₁ k₂ hb hk =>
       cases sig with
-      | nil => cases hwk <;> (dsimp only [validateRotPlan] at hval; cases hval)
+      | nil => cases hwk <;> (dsimp only [validateRotPlanWith] at hval; cases hval)
       | cons ts sig' =>
         cases sig' with
-        | cons _ _ => cases hwk <;> (dsimp only [validateRotPlan] at hval; cases hval)
+        | cons _ _ => cases hwk <;> (dsimp only [validateRotPlanWith] at hval; cases hval)
         | nil =>
           rcases hwk.rhs_group with ⟨bk, kk, rfl, hbk, hkk⟩
           rcases hwk_diag.group_inv with ⟨hbkd, hkkd⟩
-          dsimp only [validateRotPlan] at hval
+          dsimp only [validateRotPlanWith] at hval
           rcases Option.bind_eq_some_iff.1 hval with ⟨⟨sh, armT, armE, n1⟩, hvT, hval⟩
           rcases Option.bind_eq_some_iff.1 hval with ⟨⟨shF, armTF, armEF, n2⟩, hvF, hval⟩
           rcases Option.bind_eq_some_iff.1 hval with ⟨sc, hvC, hval⟩
@@ -2005,202 +2077,252 @@ private theorem rewriteRot_wp : (plan : RotPlan) →
           | true =>
             simp only [hchkC, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hval
             let xsLvls := Tup.levels ts nv
-            have hdiagHdr := validateHdr_diag_eq hdr
-              (DiagK.append_zip_eq hdiag xsLvls)
-              ((hbkd (true, ()) (false, ())).get .here xsLvls xsLvls)
-              hvT hvF
+            have hdiagHdr := validateHdr_diag_eq hdr (DiagK.append_zip_eq hdiag xsLvls)
+              ((hbkd (true, ()) (false, ())).get .here xsLvls xsLvls) hvT hvF
             have hsh_eq : sh = shF := hdiagHdr.1
             have hDiagT := (hbkd (true, ()) (true, ())).get .here xsLvls xsLvls
             have hDiagF := (hbkd (false, ()) (false, ())).get .here xsLvls xsLvls
+            have mkNds (heq : trieUnion sh (trieUnion sc (trieUnion sx se)) = s) :
+                NoneDeadOpt shF Gk ∧ NoneDeadOpt sc Gk ∧
+                NoneDeadOpt sx Gk ∧ NoneDeadOpt se Gk := by
+              subst heq
+              let ul := TrieSub.union_left; let ur := TrieSub.union_right
+              exact ⟨hsh_eq ▸ NoneDeadOpt.sub (ul _ _) hnd,
+                NoneDeadOpt.sub ((ul _ _).trans (ur _ _)) hnd,
+                NoneDeadOpt.sub (((ul _ _).trans (ur _ _)).trans (ur _ _)) hnd,
+                NoneDeadOpt.sub (((ur _ _).trans (ur _ _)).trans (ur _ _)) hnd⟩
+            have finishGroup :
+                ∀ (mkFn : Cont (rotSig hdr contMasks ts) → Tup (Arg Val) ts → Expr Val Cont rs),
+                NoneDeadOpt se Gk →
+                (∀ (J_rot : Cont (rotSig hdr contMasks ts)) (jLbl : RotL Val Cont rs ts),
+                  let J_src : Cont ts := fun vs m₀ =>
+                    ∀ args, vals args = vs → wp Γ Q X (mkFn J_rot args) m₀
+                  ValidDk (Tup.zip (as := [ts]) (true, ()) (jLbl, ()) ++ Dk) →
+                  RotWpD Γ Q X (Tup.zip (as := [ts]) (jLbl, ()) (J_src, ()) ++ D) →
+                  (∀ rotParams m',
+                    (if isPartialMasks hdr contMasks then
+                      wp Γ Q X (rewriteRotWith true contP
+                        (rotBodyExpr dir hdr contMasks b₁ jLbl rotParams)) m'
+                    else
+                      wp Γ Q X (rewriteRotWith allowHdr contP
+                        (rotBodyExpr dir hdr contMasks b₁ jLbl rotParams)) m') →
+                    J_rot rotParams m') →
+                  Closed Γ Q X (b₂ (J_src, ())) (J_src, ())) →
+                wp Γ Q X
+                  (if isPartialMasks hdr contMasks then
+                    Expr.group (sig := [rotSig hdr contMasks ts, ts])
+                      (fun (J_rot, J_hdr, ()) =>
+                        .cons (fun rotParams => rewriteRotWith true contP
+                          (rotBodyExpr dir hdr contMasks b₁
+                            (.expandOrKeep (mkFn J_rot) J_hdr) rotParams))
+                          (.cons (fun hdrParams => mkFn J_rot (toArgTup hdrParams)) .nil))
+                      (fun (J_rot, _, ()) =>
+                        rewriteRotWith allowHdr entryP (k₁ (.expand (mkFn J_rot), ())))
+                  else
+                    Expr.group (sig := [rotSig hdr contMasks ts])
+                      (fun (J_rot, ()) =>
+                        .cons (fun rotParams => rewriteRotWith allowHdr contP
+                          (rotBodyExpr dir hdr contMasks b₁ (.expand (mkFn J_rot)) rotParams)) .nil)
+                      (fun (J_rot, ()) =>
+                        rewriteRotWith allowHdr entryP (k₁ (.expand (mkFn J_rot), ())))) m := by
+              intro mkFn hnd_se mkClSrc
+              cases hpart : isPartialMasks hdr contMasks <;>
+                simp only [Bool.false_eq_true, ↓reduceIte, wp]
+              · intro (J_rot, ()) hcl_rot
+                simp only [Closed, and_true] at hcl_rot
+                let J_src : Cont ts := fun vs m₀ =>
+                  ∀ args, vals args = vs → wp Γ Q X (mkFn J_rot args) m₀
+                have hDkT : ValidDk
+                    (Tup.zip (as := [ts]) (true, ()) (RotL.expand (mkFn J_rot), ()) ++ Dk) := by
+                  intro p hp htrue
+                  cases hp with | head => rfl | tail _ hp' => exact hDk p hp' htrue
+                have hDT : RotWpD Γ Q X
+                    (Tup.zip (as := [ts]) (RotL.expand (mkFn J_rot), ()) (J_src, ()) ++ D) := by
+                  intro p hp
+                  cases hp with
+                  | head => exact fun args m' hj => hj args rfl
+                  | tail _ hp' => exact hD p hp'
+                have hcl_src := mkClSrc J_rot (.expand (mkFn J_rot)) hDkT hDT
+                  (fun p m' hp => hcl_rot p m' (by simpa [hpart] using hp))
+                exact rewriteRotWith_wp allowHdr entryP
+                  (hkk (true, ()) (.expand (mkFn J_rot), ()))
+                  (hkkd (true, ()) (true, ()))
+                  (hk (.expand (mkFn J_rot), ()) (J_src, ())) hvE
+                  hnd_se hG hdiag hDkT hDT m (hw2 (J_src, ()) hcl_src)
+              · intro (J_rot, J_hdr, ()) hcl_both
+                simp only [Closed, and_true] at hcl_both
+                let J_src : Cont ts := fun vs m₀ =>
+                  ∀ args, vals args = vs → wp Γ Q X (mkFn J_rot args) m₀
+                have hDkC : ValidDk (Tup.zip (as := [ts]) (true, ())
+                    (RotL.expandOrKeep (mkFn J_rot) J_hdr, ()) ++ Dk) := by
+                  intro p hp htrue
+                  cases hp with | head => rfl | tail _ hp' => exact hDk p hp' htrue
+                have hDC : RotWpD Γ Q X (Tup.zip (as := [ts])
+                    (RotL.expandOrKeep (mkFn J_rot) J_hdr, ()) (J_src, ()) ++ D) := by
+                  intro p hp
+                  cases hp with
+                  | head =>
+                    exact ⟨fun args m' hj => hj args rfl,
+                      fun vs m' hj => hcl_both.2 vs m' (hj (toArgTup vs) (toArgTup_vals vs))⟩
+                  | tail _ hp' => exact hD p hp'
+                have hDkE : ValidDk
+                    (Tup.zip (as := [ts]) (true, ()) (RotL.expand (mkFn J_rot), ()) ++ Dk) := by
+                  intro p hp htrue
+                  cases hp with | head => rfl | tail _ hp' => exact hDk p hp' htrue
+                have hDE : RotWpD Γ Q X
+                    (Tup.zip (as := [ts]) (RotL.expand (mkFn J_rot), ()) (J_src, ()) ++ D) := by
+                  intro p hp
+                  cases hp with
+                  | head => exact fun args m' hj => hj args rfl
+                  | tail _ hp' => exact hD p hp'
+                have hcl_src := mkClSrc J_rot (.expandOrKeep (mkFn J_rot) J_hdr) hDkC hDC
+                  (fun p m' hp => hcl_both.1 p m' (by simpa [hpart] using hp))
+                exact rewriteRotWith_wp allowHdr entryP
+                  (hkk (true, ()) (.expand (mkFn J_rot), ()))
+                  (hkkd (true, ()) (true, ()))
+                  (hk (.expand (mkFn J_rot), ()) (J_src, ())) hvE
+                  hnd_se hG hdiag hDkE hDE m (hw2 (J_src, ()) hcl_src)
             cases exitMode with
             | inline =>
               simp only [pure, Option.some.injEq] at hval
-              subst hval
-              have hnd_shF : NoneDeadOpt shF Gk := by
-                rw [← hsh_eq]
-                exact NoneDeadOpt.sub (TrieSub.union_left _ _) hnd
-              have hnd_sc : NoneDeadOpt sc Gk :=
-                NoneDeadOpt.sub ((TrieSub.union_left _ _).trans (TrieSub.union_right _ _)) hnd
-              have hnd_sx : NoneDeadOpt sx Gk :=
-                NoneDeadOpt.sub
-                  (((TrieSub.union_left _ _).trans (TrieSub.union_right _ _)).trans
-                    (TrieSub.union_right _ _)) hnd
-              have hnd_se : NoneDeadOpt se Gk :=
-                NoneDeadOpt.sub
-                  (((TrieSub.union_right _ _).trans (TrieSub.union_right _ _)).trans
-                    (TrieSub.union_right _ _)) hnd
-              dsimp only [rewriteRot]; simp only [wp]
-              intro (J_rot, ()) hcl_rot
-              simp only [Closed, and_true] at hcl_rot
-              let mk : Tup (Arg Val) ts → Expr Val Cont _ := fun args =>
-                hdrEmit (tailC := ts) (tailX := ts) dir args args hdr contMasks []
+              obtain ⟨hnd_shF, hnd_sc, hnd_sx, hnd_se⟩ := mkNds hval
+              dsimp only [rewriteRotWith]
+              refine finishGroup
+                (fun J_rot args => hdrEmit (tailC := ts) (tailX := ts)
+                  dir args args hdr contMasks []
                   ((b₁ (exitLabels ts)).get .here (someArgsToOpt args))
                   (fun rotArgs => .jump J_rot rotArgs)
-                  (fun exitExpr _ => rewriteRot exitP exitExpr)
+                  (fun exitExpr _ => rewriteRotWith allowHdr exitP exitExpr)) hnd_se
+                fun J_rot jLbl hDkT hDT hcl_rot => ?_
               let J_src : Cont ts := fun vs m₀ =>
-                ∀ (args : Tup (Arg Val) ts), vals args = vs → wp Γ Q X (mk args) m₀
-              have hDkT : ValidDk (Tup.zip (as := [ts]) (true, ()) (RotL.expand mk, ()) ++ Dk) := by
-                intro p hp htrue
-                cases hp with
-                | head => rfl
-                | tail _ hp' => exact hDk p hp' htrue
-              have hDT : RotWpD Γ Q X
-                  (Tup.zip (as := [ts]) (RotL.expand mk, ()) (J_src, ()) ++ D) := by
-                intro p hp
-                cases hp with
-                | head => exact fun args m' hj => hj args rfl
-                | tail _ hp' => exact hD p hp'
-              have hcl_src : Closed Γ Q X (b₂ (J_src, ())) (J_src, ()) := by
-                rw [closed_iff]
-                intro _ i xs m₀ hw
-                cases i with
-                | there i => exact nomatch i
-                | here =>
-                  intro args hargs
-                  refine hdrEmit_wp dir hdr contMasks [] hvF
-                    ((hbk (false, ()) (exitLabels ts)).get .here xsLvls (someArgsToOpt args))
-                    hDiagF
-                    ((hb (exitLabels ts) (J_src, ())).get .here (someArgsToOpt args) xs)
-                    (NoneDeadOpt.append_some hnd_shF xsLvls args)
-                    (SomeValEq.append_someArgs hG hargs)
-                    (DiagK.append_zip_eq hdiag xsLvls) hargs hargs hw ?_ ?_
-                  · intro hv m' armC_src rotArgs hbr hwC hrot_eq
-                    apply hcl_rot (vals rotArgs) m'
-                    have hxs_split : splitTail hdr contMasks (vals rotArgs) = xs := by
-                      rw [hrot_eq, splitTail_hdrSelect]
-                    rw [hxs_split, hrot_eq]
-                    obtain ⟨Gk_o, Gkd_o, G_o, hnd_o, hG_o, hdiag_o, hwk_o, hwkd_o, hwf_o⟩ :=
-                      hdrPeel_wf_src dir true hdr contMasks hvT hchkC
-                        ((hbk (true, ()) (.expand mk, ())).get .here xsLvls (someVarsToOpt xs))
-                        hDiagT
-                        ((hb (.expand mk, ()) (J_src, ())).get .here (someVarsToOpt xs) xs)
-                        (NoneDeadOpt.append_someVars hnd_sc xsLvls xs)
-                        (SomeValEq.append_someVars hG xs)
-                        (DiagK.append_zip_eq hdiag xsLvls) hv xs hbr
-                    have harm_eq : (if true == dir then armT else armE) =
-                        (if dir then armT else armE) := by cases dir <;> rfl
-                    rw [harm_eq] at hwk_o hwkd_o
-                    exact rewriteRot_wp contP hwk_o hwkd_o hwf_o hvC hnd_o hG_o hdiag_o
-                      hDkT hDT m' hwC
-                  · intro hv m' Gk_l Gkd_l G_l armX_em armX_s _ hnd_l hG_l hdiag_l
-                      hwk_l hwkd_l hwf_l _ hwX _
-                    exact rewriteRot_wp exitP hwk_l hwkd_l hwf_l hvX
-                      (hnd_l sx (NoneDeadOpt.append_some hnd_sx xsLvls args)) hG_l
-                      hdiag_l (ValidDk.append (validDk_exitLabels ts) hDk)
-                      (RotWpD.append (rotWpD_exitLabels _ _ _ ts (J_src, ())) hD) m' hwX
-              exact rewriteRot_wp entryP (hkk (true, ()) (.expand mk, ()))
-                (hkkd (true, ()) (true, ())) (hk (.expand mk, ()) (J_src, ())) hvE
-                hnd_se hG hdiag hDkT hDT m (hw2 (J_src, ()) hcl_src)
+                ∀ args, vals args = vs → wp Γ Q X (hdrEmit (tailC := ts) (tailX := ts)
+                  dir args args hdr contMasks []
+                  ((b₁ (exitLabels ts)).get .here (someArgsToOpt args))
+                  (fun rotArgs => .jump J_rot rotArgs)
+                  (fun exitExpr _ => rewriteRotWith allowHdr exitP exitExpr)) m₀
+              rw [closed_iff]
+              intro _ i xs m₀ hw
+              cases i with
+              | there i => exact nomatch i
+              | here =>
+                intro args hargs
+                refine hdrEmit_wp dir hdr contMasks [] hvF
+                  ((hbk (false, ()) (exitLabels ts)).get .here xsLvls (someArgsToOpt args))
+                  hDiagF ((hb (exitLabels ts) (J_src, ())).get .here (someArgsToOpt args) xs)
+                  (NoneDeadOpt.append_some hnd_shF xsLvls args)
+                  (SomeValEq.append_someArgs hG hargs)
+                  (DiagK.append_zip_eq hdiag xsLvls) hargs hargs hw ?_ ?_
+                · intro hv m' _ rotArgs hbr hwC hrot_eq
+                  apply hcl_rot (vals rotArgs) m'
+                  obtain ⟨_, _, _, hnd_o, hG_o, hdiag_o, hwk_o, hwkd_o, hwf_o⟩ :=
+                    hdrPeel_wf_src dir true hdr contMasks hvT hchkC
+                      ((hbk (true, ()) (jLbl, ())).get .here xsLvls (someVarsToOpt xs)) hDiagT
+                      ((hb (jLbl, ()) (J_src, ())).get .here (someVarsToOpt xs) xs)
+                      (NoneDeadOpt.append_someVars hnd_sc xsLvls xs)
+                      (SomeValEq.append_someVars hG xs)
+                      (DiagK.append_zip_eq hdiag xsLvls) hv xs hbr
+                  have harm_eq : (if true == dir then armT else armE) =
+                      (if dir then armT else armE) := by cases dir <;> rfl
+                  rw [harm_eq] at hwk_o hwkd_o
+                  cases hpart : isPartialMasks hdr contMasks
+                  · simp only [Bool.false_eq_true, ↓reduceIte, rotBodyExpr, hrot_eq,
+                      splitTail_hdrSelect]
+                    exact rewriteRotWith_wp allowHdr contP hwk_o hwkd_o hwf_o
+                      (by simpa [hpart] using hvC) hnd_o hG_o hdiag_o hDkT hDT m' hwC
+                  · simp only [↓reduceIte, rotBodyExpr, hrot_eq, splitTail_hdrSelect]
+                    exact rewriteRotWith_wp true contP hwk_o hwkd_o hwf_o
+                      (by simpa [hpart] using hvC) hnd_o hG_o hdiag_o hDkT hDT m' hwC
+                · intro _ m' _ _ _ _ _ _ hnd_l hG_l hdiag_l hwk_l hwkd_l hwf_l _ hwX _
+                  exact rewriteRotWith_wp allowHdr exitP hwk_l hwkd_l hwf_l hvX
+                    (hnd_l sx (NoneDeadOpt.append_some hnd_sx xsLvls args)) hG_l
+                    hdiag_l (ValidDk.append (validDk_exitLabels ts) hDk)
+                    (RotWpD.append (rotWpD_exitLabels _ _ _ ts (J_src, ())) hD) m' hwX
             | wrap xsMask hMasks =>
               cases hchkX : checkDeadMask nv sx ts xsMask &&
                   checkDeadStepMasks (nv + ts.length) sx hdr hMasks with
               | false => simp [hchkX] at hval
               | true =>
                 simp only [hchkX, ↓reduceIte, pure, Option.some.injEq] at hval
-                subst hval
+                obtain ⟨hnd_shF, hnd_sc, hnd_sx, hnd_se⟩ := mkNds hval
                 simp only [Bool.and_eq_true] at hchkX
-                have hnd_shF : NoneDeadOpt shF Gk := by
-                  rw [← hsh_eq]
-                  exact NoneDeadOpt.sub (TrieSub.union_left _ _) hnd
-                have hnd_sc : NoneDeadOpt sc Gk :=
-                  NoneDeadOpt.sub ((TrieSub.union_left _ _).trans (TrieSub.union_right _ _)) hnd
-                have hnd_sx : NoneDeadOpt sx Gk :=
-                  NoneDeadOpt.sub
-                    (((TrieSub.union_left _ _).trans (TrieSub.union_right _ _)).trans
-                      (TrieSub.union_right _ _)) hnd
-                have hnd_se : NoneDeadOpt se Gk :=
-                  NoneDeadOpt.sub
-                    (((TrieSub.union_right _ _).trans (TrieSub.union_right _ _)).trans
-                      (TrieSub.union_right _ _)) hnd
-                dsimp only [rewriteRot]; simp only [wp]
-                intro (J_exit, ()) hcl_exit (J_rot, ()) hcl_rot
-                simp only [Closed, and_true] at hcl_exit hcl_rot
-                let mk : Tup (Arg Val) ts → Expr Val Cont _ := fun args =>
-                  hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
+                dsimp only [rewriteRotWith]; simp only [wp]
+                intro (J_exit, ()) hcl_exit
+                simp only [Closed, and_true] at hcl_exit
+                refine finishGroup
+                  (fun J_rot args => hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
                     dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
                     ((b₁ (exitLabels ts)).get .here (someArgsToOpt args))
                     (fun rotArgs => .jump J_rot rotArgs)
-                    (fun _ exitArgs => .jump J_exit exitArgs)
+                    (fun _ exitArgs => .jump J_exit exitArgs)) hnd_se
+                  fun J_rot jLbl hDkT hDT hcl_rot => ?_
                 let J_src : Cont ts := fun vs m₀ =>
-                  ∀ (args : Tup (Arg Val) ts), vals args = vs → wp Γ Q X (mk args) m₀
-                have hDkT : ValidDk
-                    (Tup.zip (as := [ts]) (true, ()) (RotL.expand mk, ()) ++ Dk) := by
-                  intro p hp htrue
-                  cases hp with
-                  | head => rfl
-                  | tail _ hp' => exact hDk p hp' htrue
-                have hDT : RotWpD Γ Q X
-                    (Tup.zip (as := [ts]) (RotL.expand mk, ()) (J_src, ()) ++ D) := by
-                  intro p hp
-                  cases hp with
-                  | head => exact fun args m' hj => hj args rfl
-                  | tail _ hp' => exact hD p hp'
-                have hcl_src : Closed Γ Q X (b₂ (J_src, ())) (J_src, ()) := by
-                  rw [closed_iff]
-                  intro _ i xs m₀ hw
-                  cases i with
-                  | there i => exact nomatch i
-                  | here =>
-                    intro args hargs
-                    refine hdrEmit_wp dir hdr contMasks hMasks hvF
-                      ((hbk (false, ()) (exitLabels ts)).get .here xsLvls (someArgsToOpt args))
-                      hDiagF
-                      ((hb (exitLabels ts) (J_src, ())).get .here (someArgsToOpt args) xs)
-                      (NoneDeadOpt.append_some hnd_shF xsLvls args)
-                      (SomeValEq.append_someArgs hG hargs)
-                      (DiagK.append_zip_eq hdiag xsLvls) hargs (vals_tupSelectArgs xsMask args)
-                      hw ?_ ?_
-                    · intro hv m' armC_src rotArgs hbr hwC hrot_eq
-                      apply hcl_rot (vals rotArgs) m'
-                      have hxs_split : splitTail hdr contMasks (vals rotArgs) = xs := by
-                        rw [hrot_eq, splitTail_hdrSelect]
-                      rw [hxs_split, hrot_eq]
-                      obtain ⟨Gk_o, Gkd_o, G_o, hnd_o, hG_o, hdiag_o, hwk_o, hwkd_o, hwf_o⟩ :=
-                        hdrPeel_wf_src dir true hdr contMasks hvT hchkC
-                          ((hbk (true, ()) (.expand mk, ())).get .here xsLvls (someVarsToOpt xs))
-                          hDiagT
-                          ((hb (.expand mk, ()) (J_src, ())).get .here (someVarsToOpt xs) xs)
-                          (NoneDeadOpt.append_someVars hnd_sc xsLvls xs)
-                          (SomeValEq.append_someVars hG xs)
-                          (DiagK.append_zip_eq hdiag xsLvls) hv xs hbr
-                      have harm_eq : (if true == dir then armT else armE) =
-                          (if dir then armT else armE) := by cases dir <;> rfl
-                      rw [harm_eq] at hwk_o hwkd_o
-                      exact rewriteRot_wp contP hwk_o hwkd_o hwf_o hvC hnd_o hG_o hdiag_o
-                        hDkT hDT m' hwC
-                    · intro hv m' _ _ _ _ armX_s exitArgs _ _ _ _ _ _ hbr hwX hexit_eq
-                      apply hcl_exit (vals exitArgs) m'
-                      have hexit_eq' : vals exitArgs =
-                          hdrSelect hdr hMasks hv (tupSelectVals ts xsMask xs) := by
-                        rw [hexit_eq, hargs]
-                      have hxt_split : splitTail hdr hMasks (vals exitArgs) =
-                          tupSelectVals ts xsMask xs := by
-                        rw [hexit_eq', splitTail_hdrSelect]
-                      rw [hxt_split, hexit_eq']
-                      let xsOpt := tupWiden ts xsMask (tupSelectVals ts xsMask xs)
-                      obtain ⟨Gk_o, Gkd_o, G_o, hnd_o, hG_o, hdiag_o, hwk_o, hwkd_o, hwf_o⟩ :=
-                        hdrPeel_wf_src dir false hdr hMasks hvF hchkX.2
-                          ((hbk (false, ()) (exitLabels ts)).get .here xsLvls xsOpt)
-                          hDiagF
-                          ((hb (exitLabels ts) (J_src, ())).get .here xsOpt xs)
-                          (checkDeadMask_noneDeadOpt ts xsMask hchkX.1 _ hnd_sx)
-                          (SomeValEq.append_tupWiden_tupSelectVals hG ts xsMask rfl)
-                          (DiagK.append_zip_eq hdiag xsLvls)
-                          hv (tupSelectVals ts xsMask xs) hbr
-                      have harm_eq : (if false == dir then armTF else armEF) =
-                          (if dir then armEF else armTF) := by cases dir <;> rfl
-                      rw [harm_eq] at hwk_o hwkd_o
-                      exact rewriteRot_wp exitP hwk_o hwkd_o hwf_o hvX hnd_o hG_o hdiag_o
-                        (ValidDk.append (validDk_exitLabels ts) hDk)
-                        (RotWpD.append (rotWpD_exitLabels _ _ _ ts (J_src, ())) hD) m' hwX
-                exact rewriteRot_wp entryP (hkk (true, ()) (.expand mk, ()))
-                  (hkkd (true, ()) (true, ())) (hk (.expand mk, ()) (J_src, ())) hvE
-                  hnd_se hG hdiag hDkT hDT m (hw2 (J_src, ()) hcl_src)
+                  ∀ args, vals args = vs → wp Γ Q X (hdrEmit (tailC := ts)
+                    (tailX := filterTys ts xsMask) dir args (tupSelectArgs ts xsMask args) hdr
+                    contMasks hMasks ((b₁ (exitLabels ts)).get .here (someArgsToOpt args))
+                    (fun rotArgs => .jump J_rot rotArgs)
+                    (fun _ exitArgs => .jump J_exit exitArgs)) m₀
+                rw [closed_iff]
+                intro _ i xs m₀ hw
+                cases i with
+                | there i => exact nomatch i
+                | here =>
+                  intro args hargs
+                  refine hdrEmit_wp dir hdr contMasks hMasks hvF
+                    ((hbk (false, ()) (exitLabels ts)).get .here xsLvls (someArgsToOpt args))
+                    hDiagF ((hb (exitLabels ts) (J_src, ())).get .here (someArgsToOpt args) xs)
+                    (NoneDeadOpt.append_some hnd_shF xsLvls args)
+                    (SomeValEq.append_someArgs hG hargs)
+                    (DiagK.append_zip_eq hdiag xsLvls) hargs (vals_tupSelectArgs xsMask args)
+                    hw ?_ ?_
+                  · intro hv m' _ rotArgs hbr hwC hrot_eq
+                    apply hcl_rot (vals rotArgs) m'
+                    obtain ⟨_, _, _, hnd_o, hG_o, hdiag_o, hwk_o, hwkd_o, hwf_o⟩ :=
+                      hdrPeel_wf_src dir true hdr contMasks hvT hchkC
+                        ((hbk (true, ()) (jLbl, ())).get .here xsLvls (someVarsToOpt xs)) hDiagT
+                        ((hb (jLbl, ()) (J_src, ())).get .here (someVarsToOpt xs) xs)
+                        (NoneDeadOpt.append_someVars hnd_sc xsLvls xs)
+                        (SomeValEq.append_someVars hG xs)
+                        (DiagK.append_zip_eq hdiag xsLvls) hv xs hbr
+                    have harm_eq : (if true == dir then armT else armE) =
+                        (if dir then armT else armE) := by cases dir <;> rfl
+                    rw [harm_eq] at hwk_o hwkd_o
+                    cases hpart : isPartialMasks hdr contMasks
+                    · simp only [Bool.false_eq_true, ↓reduceIte, rotBodyExpr, hrot_eq,
+                        splitTail_hdrSelect]
+                      exact rewriteRotWith_wp allowHdr contP hwk_o hwkd_o hwf_o
+                        (by simpa [hpart] using hvC) hnd_o hG_o hdiag_o hDkT hDT m' hwC
+                    · simp only [↓reduceIte, rotBodyExpr, hrot_eq, splitTail_hdrSelect]
+                      exact rewriteRotWith_wp true contP hwk_o hwkd_o hwf_o
+                        (by simpa [hpart] using hvC) hnd_o hG_o hdiag_o hDkT hDT m' hwC
+                  · intro hv m' _ _ _ _ _ exitArgs _ _ _ _ _ _ hbr hwX hexit_eq
+                    apply hcl_exit (vals exitArgs) m'
+                    have hexit_eq' : vals exitArgs =
+                        hdrSelect hdr hMasks hv (tupSelectVals ts xsMask xs) := by
+                      rw [hexit_eq, hargs]
+                    have hxt_split : splitTail hdr hMasks (vals exitArgs) =
+                        tupSelectVals ts xsMask xs := by
+                      rw [hexit_eq', splitTail_hdrSelect]
+                    rw [hxt_split, hexit_eq']
+                    let xsOpt := tupWiden ts xsMask (tupSelectVals ts xsMask xs)
+                    obtain ⟨_, _, _, hnd_o, hG_o, hdiag_o, hwk_o, hwkd_o, hwf_o⟩ :=
+                      hdrPeel_wf_src dir false hdr hMasks hvF hchkX.2
+                        ((hbk (false, ()) (exitLabels ts)).get .here xsLvls xsOpt) hDiagF
+                        ((hb (exitLabels ts) (J_src, ())).get .here xsOpt xs)
+                        (checkDeadMask_noneDeadOpt ts xsMask hchkX.1 _ hnd_sx)
+                        (SomeValEq.append_tupWiden_tupSelectVals hG ts xsMask rfl)
+                        (DiagK.append_zip_eq hdiag xsLvls)
+                        hv (tupSelectVals ts xsMask xs) hbr
+                    have harm_eq : (if false == dir then armTF else armEF) =
+                        (if dir then armEF else armTF) := by cases dir <;> rfl
+                    rw [harm_eq] at hwk_o hwkd_o
+                    exact rewriteRotWith_wp allowHdr exitP hwk_o hwkd_o hwf_o hvX hnd_o hG_o
+                      hdiag_o (ValidDk.append (validDk_exitLabels ts) hDk)
+                      (RotWpD.append (rotWpD_exitLabels _ _ _ ts (J_src, ())) hD) m' hwX
     | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt =>
-      cases hwk <;> (dsimp only [validateRotPlan] at hval; cases hval)
+      cases hwk <;> (dsimp only [validateRotPlanWith] at hval; cases hval)
 where
-  rewriteKeepB_wp : (ps : List RotPlan) →
+  rewriteKeepB_wp : (allowHdr : Bool) → (ps : List RotPlan) →
       ∀ {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
         {Gk : Ctx K (OptArg Val)} {Gk_diag : Ctx K K}
         {Dk : Ctx BoolL (RotL Val Cont rs)} {Dk_diag : Ctx BoolL BoolL}
@@ -2211,34 +2333,48 @@ where
         {bs₂ : Blocks Val Cont rs sig}
         {Js : Tup Cont sig} {nv : Nat} {sb : Trie Unit},
         WfB Gk Dk bsk bs₁ → WfB Gk_diag Dk_diag bsk bsk → WfB G D bs₁ bs₂ →
-        validateRotPlan.validateKeepB ps bsk nv = some sb →
+        validateRotPlanWith.validateKeepB allowHdr ps bsk nv = some sb →
         NoneDeadOpt sb Gk → SomeValEq G → DiagK Gk_diag →
         ValidDk Dk → RotWpD Γ Q X D →
-        Closed Γ Q X (rewriteRot.rewriteKeepB ps bs₁) Js →
+        Closed Γ Q X (rewriteRotWith.rewriteKeepB allowHdr ps bs₁) Js →
         Closed Γ Q X bs₂ Js
-    | [] => fun hbk _ hb hval _ _ _ _ _ _ => by
+    | _, [] => fun hbk _ hb hval _ _ _ _ _ _ => by
       cases hbk with
       | nil => cases hb; trivial
-      | cons _ _ => dsimp only [validateRotPlan.validateKeepB] at hval; cases hval
-    | p :: ps => fun hbk hbkd hb hval hnd hG hdiag hDk hD hcl => by
+      | cons _ _ => dsimp only [validateRotPlanWith.validateKeepB] at hval; cases hval
+    | allowHdr, p :: ps => fun hbk hbkd hb hval hnd hG hdiag hDk hD hcl => by
       cases hbk with
-      | nil => dsimp only [validateRotPlan.validateKeepB] at hval; cases hval
+      | nil => dsimp only [validateRotPlanWith.validateKeepB] at hval; cases hval
       | cons hbk1 hbk_rest =>
         cases hb with | cons hb1 hb_rest =>
         cases hbkd with | cons hbkd1 hbkd_rest =>
-        dsimp only [validateRotPlan.validateKeepB] at hval
+        dsimp only [validateRotPlanWith.validateKeepB] at hval
         rcases Option.bind_eq_some_iff.1 hval with ⟨s₁, hs₁, hrest⟩
         rcases Option.bind_eq_some_iff.1 hrest with ⟨s₂, hs₂, heq⟩
         cases heq
-        dsimp only [rewriteRot.rewriteKeepB] at hcl ⊢; simp only [Closed] at hcl ⊢
+        dsimp only [rewriteRotWith.rewriteKeepB] at hcl ⊢; simp only [Closed] at hcl ⊢
         refine ⟨fun xs m hw => hcl.1 xs m ?_,
-          rewriteKeepB_wp ps hbk_rest hbkd_rest hb_rest hs₂
+          rewriteKeepB_wp allowHdr ps hbk_rest hbkd_rest hb_rest hs₂
             (NoneDeadOpt.sub (TrieSub.union_right s₁ s₂) hnd) hG hdiag hDk hD hcl.2⟩
-        exact rewriteRot_wp p (hbk1 (Tup.levels _ _) (someVarsToOpt xs))
+        exact rewriteRotWith_wp allowHdr p (hbk1 (Tup.levels _ _) (someVarsToOpt xs))
           (hbkd1 (Tup.levels _ _) (Tup.levels _ _)) (hb1 (someVarsToOpt xs) xs)
           hs₁ (NoneDeadOpt.append_someVars (NoneDeadOpt.sub (TrieSub.union_left s₁ s₂) hnd) _ _)
           (SomeValEq.append_someVars hG xs) (DiagK.append_zip_eq hdiag _) hDk hD m hw
 end
+
+private theorem rewriteRot_wp (plan : RotPlan)
+    {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {Gk : Ctx K (OptArg Val)} {Gk_diag : Ctx K K}
+    {Dk : Ctx BoolL (RotL Val Cont rs)} {Dk_diag : Ctx BoolL BoolL}
+    {G : Ctx (OptArg Val) Val} {D : Ctx (RotL Val Cont rs) Cont}
+    {ek : Expr K BoolL rs} {e₁ : Expr (OptArg Val) (RotL Val Cont rs) rs}
+    {e₂ : Expr Val Cont rs} {nv : Nat} {s : Trie Unit}
+    (hwk : Wf Gk Dk ek e₁) (hwk_diag : Wf Gk_diag Dk_diag ek ek) (hwf : Wf G D e₁ e₂)
+    (hval : validateRotPlan plan ek nv = some s)
+    (hnd : NoneDeadOpt s Gk) (hG : SomeValEq G) (hdiag : DiagK Gk_diag)
+    (hDk : ValidDk Dk) (hD : RotWpD Γ Q X D) :
+    ∀ m, wp Γ Q X e₂ m → wp Γ Q X (rewriteRot plan e₁) m :=
+  rewriteRotWith_wp false plan hwk hwk_diag hwf hval hnd hG hdiag hDk hD
 
 /-! ## Well-scopedness (`callsOk`) preservation -/
 
@@ -2249,7 +2385,7 @@ private abbrev UnitL : List Ty → Type := fun _ => Unit
 private def RotCallsL (allowed : List SigEntry) (exits : List Sym) {rs : List Ty}
     (D : Ctx (RotL UnitV UnitL rs) UnitL) : Prop :=
   ∀ p ∈ D, match p.2.1 with
-    | .expand fn => ∀ args, (fn args).callsOk allowed exits
+    | .expand fn | .expandOrKeep fn _ => ∀ args, (fn args).callsOk allowed exits
     | .keep _ | .dead => True
 
 private theorem RotCallsL.append {allowed : List SigEntry} {exits : List Sym} {rs : List Ty}
@@ -2320,7 +2456,7 @@ private theorem flatExpr_callsOk {allowed : List SigEntry} {exits : List Sym} {r
     cases j₁ with
     | keep _ => trivial
     | dead => trivial
-    | expand fn => exact hdj _
+    | expand fn | expandOrKeep fn _ => exact hdj _
   | ret _ | exit _ _ | hlt => intro _ hc; exact hc
   | @group _ _ sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
     intro hD ⟨hb, hk⟩
@@ -2442,134 +2578,169 @@ private theorem hdrEmit_callsOk {allowed : List SigEntry} {exits : List Sym}
       trivial
 
 mutual
-/-- `rewriteRot` preserves `Expr.callsOk` unconditionally when `e₁` and `e₂` are `Wf`-related. -/
-private theorem rewriteRot_callsOk {allowed : List SigEntry} {exits : List Sym} : (plan : RotPlan) →
+/-- `rewriteRotWith` preserves `Expr.callsOk` unconditionally when `e₁`, `e₂` are `Wf`-related. -/
+private theorem rewriteRotWith_callsOk {allowed : List SigEntry} {exits : List Sym} :
+    (allowHdr : Bool) → (plan : RotPlan) →
     ∀ {rs : List Ty} {G : Ctx (OptArg UnitV) UnitV} {D : Ctx (RotL UnitV UnitL rs) UnitL}
       {e₁ : Expr (OptArg UnitV) (RotL UnitV UnitL rs) rs} {e₂ : Expr UnitV UnitL rs},
       Wf G D e₁ e₂ → RotCallsL allowed exits D → e₂.callsOk allowed exits →
-      (rewriteRot plan e₁).callsOk allowed exits
-  | .leaf => fun hwf hD hc => by
-    dsimp only [rewriteRot]
+      (rewriteRotWith allowHdr plan e₁).callsOk allowed exits
+  | _, .leaf => fun hwf hD hc => by
+    dsimp only [rewriteRotWith]
     exact flatExpr_callsOk hwf hD hc
-  | .letP p => fun hwf hD hc => by
+  | allowHdr, .letP p => fun hwf hD hc => by
     cases hwf with
     | let_ _ hk =>
-      dsimp only [rewriteRot]
-      exact rewriteRot_callsOk p (hk _ (Tup.units _)) hD hc
+      dsimp only [rewriteRotWith]
+      exact rewriteRotWith_callsOk allowHdr p (hk _ (Tup.units _)) hD hc
     | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      dsimp only [rewriteRot]; trivial
-  | .loadP p => fun hwf hD hc => by
+      dsimp only [rewriteRotWith]; trivial
+  | allowHdr, .loadP p => fun hwf hD hc => by
     cases hwf with
     | load _ _ hk =>
-      dsimp only [rewriteRot]
-      exact rewriteRot_callsOk p (hk _ ()) hD hc
+      dsimp only [rewriteRotWith]
+      exact rewriteRotWith_callsOk allowHdr p (hk _ ()) hD hc
     | let_ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      dsimp only [rewriteRot]; trivial
-  | .storeP p => fun hwf hD hc => by
+      dsimp only [rewriteRotWith]; trivial
+  | allowHdr, .storeP p => fun hwf hD hc => by
     cases hwf with
     | store _ _ hk =>
-      dsimp only [rewriteRot]
-      exact rewriteRot_callsOk p hk hD hc
+      dsimp only [rewriteRotWith]
+      exact rewriteRotWith_callsOk allowHdr p hk hD hc
     | let_ _ _ | load _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      dsimp only [rewriteRot]; trivial
-  | .callP p => fun hwf hD hc => by
+      dsimp only [rewriteRotWith]; trivial
+  | allowHdr, .callP p => fun hwf hD hc => by
     cases hwf with
     | call _ _ hk =>
-      dsimp only [rewriteRot]
-      exact ⟨hc.1, rewriteRot_callsOk p (hk _ (Tup.units _)) hD hc.2⟩
+      dsimp only [rewriteRotWith]
+      exact ⟨hc.1, rewriteRotWith_callsOk allowHdr p (hk _ (Tup.units _)) hD hc.2⟩
     | let_ _ _ | load _ _ _ | store _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt | group _ _ =>
-      dsimp only [rewriteRot]; trivial
-  | .jnzP tp ep => fun hwf hD hc => by
+      dsimp only [rewriteRotWith]; trivial
+  | allowHdr, .jnzP tp ep => fun hwf hD hc => by
     cases hwf with
     | jnz _ ht he =>
-      dsimp only [rewriteRot]
-      exact ⟨rewriteRot_callsOk tp ht hD hc.1, rewriteRot_callsOk ep he hD hc.2⟩
-    | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jump _ _ | ret _
-    | exit _ _ | hlt | group _ _ =>
-      dsimp only [rewriteRot]; trivial
-  | .groupKeep bsP kP => fun hwf hD hc => by
+      dsimp only [rewriteRotWith]
+      exact ⟨rewriteRotWith_callsOk allowHdr tp ht hD hc.1,
+        rewriteRotWith_callsOk allowHdr ep he hD hc.2⟩
+    | @jump _ _ _ j₁ _ _ _ hj _ =>
+      cases allowHdr
+      · cases tp <;> cases ep <;> dsimp only [rewriteRotWith] <;> trivial
+      · cases tp <;> cases ep <;> dsimp only [rewriteRotWith]
+        all_goals first
+          | trivial
+          | (have hdj := hD _ hj; dsimp only at hdj
+             cases j₁ with
+             | expandOrKeep _ _ | keep _ | dead => trivial
+             | expand fn => exact hdj _)
+    | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | ret _ | exit _ _ | hlt | group _ _ =>
+      cases allowHdr <;> first | trivial | (cases tp <;> cases ep <;> trivial)
+  | allowHdr, .groupKeep bsP kP => fun hwf hD hc => by
     cases hwf with
     | @group _ _ sig b₁ b₂ k₁ k₂ hb hk =>
-      dsimp only [rewriteRot]
+      dsimp only [rewriteRotWith]
       have hD' := (rotCallsL_wrapKeepLabels allowed exits (Tup.units sig)).append hD
-      exact ⟨rewriteKeepB_callsOk bsP (b₁ (wrapKeepLabels (Tup.units sig)))
+      exact ⟨rewriteKeepB_callsOk allowHdr bsP (b₁ (wrapKeepLabels (Tup.units sig)))
           (b₂ (Tup.units sig)) (hb (wrapKeepLabels (Tup.units sig)) (Tup.units sig)) hD' hc.1,
-        rewriteRot_callsOk kP (hk (wrapKeepLabels (Tup.units sig)) (Tup.units sig)) hD' hc.2⟩
+        rewriteRotWith_callsOk allowHdr kP (hk (wrapKeepLabels (Tup.units sig)) (Tup.units sig))
+          hD' hc.2⟩
     | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt =>
-      dsimp only [rewriteRot]; trivial
-  | .groupRot dir hdr contMasks exitMode contP exitP entryP => fun hwf hD hc => by
+      dsimp only [rewriteRotWith]; trivial
+  | allowHdr, .groupRot dir hdr contMasks exitMode contP exitP entryP => fun hwf hD hc => by
     suffices ∀ {rs : List Ty} {G : Ctx (OptArg UnitV) UnitV}
         {D : Ctx (RotL UnitV UnitL rs) UnitL}
         {e₁ : Expr (OptArg UnitV) (RotL UnitV UnitL rs) rs} {e₂ : Expr UnitV UnitL rs},
         Wf G D e₁ e₂ → RotCallsL allowed exits D → e₂.callsOk allowed exits →
-        (rewriteRot (.groupRot dir hdr contMasks exitMode contP exitP entryP) e₁).callsOk
-          allowed exits by
+        (rewriteRotWith allowHdr (.groupRot dir hdr contMasks exitMode contP exitP entryP)
+          e₁).callsOk allowed exits by
       exact this hwf hD hc
     intro rs G D e₁ e₂ hwf hD hc
     cases hwf with
     | @group _ _ sig b₁ b₂ k₁ k₂ hb hk =>
       cases sig with
-      | nil => dsimp only [rewriteRot]; trivial
+      | nil => dsimp only [rewriteRotWith]; trivial
       | cons ts sig' =>
         cases sig' with
-        | cons _ _ => dsimp only [rewriteRot]; trivial
+        | cons _ _ => dsimp only [rewriteRotWith]; trivial
         | nil =>
           have hbc : ((b₂ ((), ())).get .here (Tup.units ts)).callsOk allowed exits :=
             Blocks.callsOk_get hc.1 .here
           have hDex := (rotCallsL_exitLabels allowed exits ts ((), ())).append hD
+          have emitLoopCalls :
+              ∀ (mk : Tup (Arg UnitV) ts → Expr UnitV UnitL rs),
+              (∀ args, (mk args).callsOk allowed exits) →
+              (if isPartialMasks hdr contMasks then
+                Expr.group (sig := [rotSig hdr contMasks ts, ts])
+                  (fun (J_rot, J_hdr, ()) =>
+                    .cons (fun rotParams => rewriteRotWith true contP
+                      (rotBodyExpr dir hdr contMasks b₁
+                        (.expandOrKeep mk J_hdr) rotParams))
+                      (.cons (fun hdrParams => mk (toArgTup hdrParams)) .nil))
+                  (fun (_, _, ()) =>
+                    rewriteRotWith allowHdr entryP (k₁ (.expand mk, ())))
+              else
+                Expr.group (sig := [rotSig hdr contMasks ts])
+                  (fun (_, ()) =>
+                    .cons (fun rotParams => rewriteRotWith allowHdr contP
+                      (rotBodyExpr dir hdr contMasks b₁ (.expand mk) rotParams)) .nil)
+                  (fun (_, ()) =>
+                    rewriteRotWith allowHdr entryP (k₁ (.expand mk, ())))).callsOk
+                allowed exits := by
+            intro mk hmk
+            have hDc_exp : RotCallsL allowed exits
+                (Tup.zip (as := [ts]) (RotL.expand mk, ()) ((), ()) ++ D) := by
+              intro p hp
+              cases hp with
+              | head => exact hmk
+              | tail _ hp' => exact hD p hp'
+            cases hpart : isPartialMasks hdr contMasks
+            · simp only [Bool.false_eq_true, ↓reduceIte, Expr.callsOk, Blocks.callsOk]
+              have hpeel := hdrPeel_callsOk (allowed := allowed) (exits := exits)
+                (tail := ts) dir true hdr contMasks (Tup.units (rotSig hdr contMasks ts))
+                ((hb (.expand mk, ()) ((), ())).get .here
+                  (someVarsToOpt (splitTail hdr contMasks
+                    (Tup.units (rotSig hdr contMasks ts))))
+                  (Tup.units ts)) hbc
+              rcases hpeel with ⟨_, _, hwf_p, hc_p⟩
+              exact ⟨⟨rewriteRotWith_callsOk allowHdr contP hwf_p hDc_exp hc_p, trivial⟩,
+                rewriteRotWith_callsOk allowHdr entryP (hk (.expand mk, ()) ((), ())) hDc_exp hc.2⟩
+            · simp only [↓reduceIte, Expr.callsOk, Blocks.callsOk]
+              have hDc_ek : RotCallsL allowed exits
+                  (Tup.zip (as := [ts]) (RotL.expandOrKeep mk (), ()) ((), ()) ++ D) := by
+                intro p hp
+                cases hp with
+                | head => exact hmk
+                | tail _ hp' => exact hD p hp'
+              have hpeel := hdrPeel_callsOk (allowed := allowed) (exits := exits)
+                (tail := ts) dir true hdr contMasks (Tup.units (rotSig hdr contMasks ts))
+                ((hb (.expandOrKeep mk (), ()) ((), ())).get .here
+                  (someVarsToOpt (splitTail hdr contMasks
+                    (Tup.units (rotSig hdr contMasks ts))))
+                  (Tup.units ts)) hbc
+              rcases hpeel with ⟨_, _, hwf_p, hc_p⟩
+              exact ⟨⟨rewriteRotWith_callsOk true contP hwf_p hDc_ek hc_p,
+                  hmk (toArgTup (Tup.units ts)), trivial⟩,
+                rewriteRotWith_callsOk allowHdr entryP (hk (.expand mk, ()) ((), ())) hDc_exp hc.2⟩
           cases exitMode with
           | inline =>
-            dsimp only [rewriteRot]
-            dsimp only [Expr.callsOk, Blocks.callsOk]
+            dsimp only [rewriteRotWith]
             let mk : Tup (Arg UnitV) ts → Expr UnitV UnitL _ := fun args =>
               hdrEmit (tailC := ts) (tailX := ts) dir args args hdr contMasks []
                 ((b₁ (exitLabels ts)).get .here (someArgsToOpt args))
                 (fun rotArgs => .jump () rotArgs)
-                (fun exitExpr _ => rewriteRot exitP exitExpr)
-            have hmk : ∀ args, (mk args).callsOk allowed exits := fun args =>
+                (fun exitExpr _ => rewriteRotWith allowHdr exitP exitExpr)
+            exact emitLoopCalls mk fun args =>
               hdrEmit_callsOk dir args args hdr contMasks []
                 ((hb (exitLabels ts) ((), ())).get .here (someArgsToOpt args) (Tup.units ts))
                 hbc (fun _ => trivial)
-                (fun _ _ _ hex hcex _ => rewriteRot_callsOk exitP hex hDex hcex)
-            have hDc : RotCallsL allowed exits
-                (Tup.zip (as := [ts]) (RotL.expand mk, ()) ((), ()) ++ D) := by
-              intro p hp
-              cases hp with
-              | head => exact hmk
-              | tail _ hp' => exact hD p hp'
-            have hpeel := hdrPeel_callsOk (allowed := allowed) (exits := exits)
-              (tail := ts) dir true hdr contMasks (Tup.units (rotSig hdr contMasks ts))
-              ((hb (.expand mk, ()) ((), ())).get .here
-                (someVarsToOpt (splitTail hdr contMasks
-                  (Tup.units (rotSig hdr contMasks ts))))
-                (Tup.units ts)) hbc
-            rcases hpeel with ⟨_, _, hwf_p, hc_p⟩
-            exact ⟨⟨rewriteRot_callsOk contP hwf_p hDc hc_p, trivial⟩,
-              rewriteRot_callsOk entryP (hk (.expand mk, ()) ((), ())) hDc hc.2⟩
+                (fun _ _ _ hex hcex _ => rewriteRotWith_callsOk allowHdr exitP hex hDex hcex)
           | wrap xsMask hMasks =>
-            dsimp only [rewriteRot]
+            dsimp only [rewriteRotWith]
             dsimp only [Expr.callsOk, Blocks.callsOk]
-            let mk : Tup (Arg UnitV) ts → Expr UnitV UnitL _ := fun args =>
-              hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
-                dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
-                ((b₁ (exitLabels ts)).get .here (someArgsToOpt args))
-                (fun rotArgs => .jump () rotArgs)
-                (fun _ exitArgs => .jump () exitArgs)
-            have hmk : ∀ args, (mk args).callsOk allowed exits := fun args =>
-              hdrEmit_callsOk dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
-                ((hb (exitLabels ts) ((), ())).get .here (someArgsToOpt args) (Tup.units ts))
-                hbc (fun _ => trivial) (fun _ _ _ _ _ _ => trivial)
-            have hDc : RotCallsL allowed exits
-                (Tup.zip (as := [ts]) (RotL.expand mk, ()) ((), ()) ++ D) := by
-              intro p hp
-              cases hp with
-              | head => exact hmk
-              | tail _ hp' => exact hD p hp'
             have hpeelX := hdrPeel_callsOk (allowed := allowed) (exits := exits)
               (tail := filterTys ts xsMask) dir false hdr hMasks
               (Tup.units (exitSig hdr hMasks xsMask ts))
@@ -2578,42 +2749,51 @@ private theorem rewriteRot_callsOk {allowed : List SigEntry} {exits : List Sym} 
                   (Tup.units (exitSig hdr hMasks xsMask ts))))
                 (Tup.units ts)) hbc
             rcases hpeelX with ⟨_, _, hwf_px, hc_px⟩
-            have hpeelC := hdrPeel_callsOk (allowed := allowed) (exits := exits)
-              (tail := ts) dir true hdr contMasks (Tup.units (rotSig hdr contMasks ts))
-              ((hb (.expand mk, ()) ((), ())).get .here
-                (someVarsToOpt (splitTail hdr contMasks
-                  (Tup.units (rotSig hdr contMasks ts))))
-                (Tup.units ts)) hbc
-            rcases hpeelC with ⟨_, _, hwf_pc, hc_pc⟩
-            exact ⟨⟨rewriteRot_callsOk exitP hwf_px hDex hc_px, trivial⟩,
-              ⟨rewriteRot_callsOk contP hwf_pc hDc hc_pc, trivial⟩,
-              rewriteRot_callsOk entryP (hk (.expand mk, ()) ((), ())) hDc hc.2⟩
+            let mk : Tup (Arg UnitV) ts → Expr UnitV UnitL _ := fun args =>
+              hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
+                dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
+                ((b₁ (exitLabels ts)).get .here (someArgsToOpt args))
+                (fun rotArgs => .jump () rotArgs)
+                (fun _ exitArgs => .jump () exitArgs)
+            refine ⟨⟨rewriteRotWith_callsOk allowHdr exitP hwf_px hDex hc_px, trivial⟩,
+              emitLoopCalls mk fun args =>
+                hdrEmit_callsOk dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
+                  ((hb (exitLabels ts) ((), ())).get .here (someArgsToOpt args) (Tup.units ts))
+                  hbc (fun _ => trivial) (fun _ _ _ _ _ _ => trivial)⟩
     | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _
     | exit _ _ | hlt =>
-      dsimp only [rewriteRot]; trivial
+      dsimp only [rewriteRotWith]; trivial
 where
-  rewriteKeepB_callsOk : (ps : List RotPlan) →
+  rewriteKeepB_callsOk : (allowHdr : Bool) → (ps : List RotPlan) →
       ∀ {rs : List Ty} {G : Ctx (OptArg UnitV) UnitV} {D : Ctx (RotL UnitV UnitL rs) UnitL}
         {sig : List (List Ty)}
         (bs₁ : Blocks (OptArg UnitV) (RotL UnitV UnitL rs) rs sig)
         (bs₂ : Blocks UnitV UnitL rs sig),
         WfB G D bs₁ bs₂ → RotCallsL allowed exits D → bs₂.callsOk allowed exits →
-        (rewriteRot.rewriteKeepB ps bs₁).callsOk allowed exits
-    | [] => fun bs₁ bs₂ hbs hD hcbs => by
+        (rewriteRotWith.rewriteKeepB allowHdr ps bs₁).callsOk allowed exits
+    | allowHdr, [] => fun bs₁ bs₂ hbs hD hcbs => by
       cases hbs with
-      | nil => dsimp only [rewriteRot.rewriteKeepB, flatExpr.flatBlocks]; simp only [Blocks.callsOk]
+      | nil =>
+        dsimp only [rewriteRotWith.rewriteKeepB, flatExpr.flatBlocks]; simp only [Blocks.callsOk]
       | cons hb hbs' =>
-        dsimp only [rewriteRot.rewriteKeepB, flatExpr.flatBlocks]; simp only [Blocks.callsOk]
+        dsimp only [rewriteRotWith.rewriteKeepB, flatExpr.flatBlocks]; simp only [Blocks.callsOk]
         refine ⟨flatExpr_callsOk (hb _ (Tup.units _)) hD hcbs.1, ?_⟩
-        exact rewriteKeepB_callsOk [] _ _ hbs' hD hcbs.2
-    | p :: ps => fun bs₁ bs₂ hbs hD hcbs => by
+        exact rewriteKeepB_callsOk allowHdr [] _ _ hbs' hD hcbs.2
+    | allowHdr, p :: ps => fun bs₁ bs₂ hbs hD hcbs => by
       cases hbs with
-      | nil => dsimp only [rewriteRot.rewriteKeepB]; simp only [Blocks.callsOk]
+      | nil => dsimp only [rewriteRotWith.rewriteKeepB]; simp only [Blocks.callsOk]
       | cons hb hbs' =>
-        dsimp only [rewriteRot.rewriteKeepB]; simp only [Blocks.callsOk]
-        exact ⟨rewriteRot_callsOk p (hb _ (Tup.units _)) hD hcbs.1,
-          rewriteKeepB_callsOk ps _ _ hbs' hD hcbs.2⟩
+        dsimp only [rewriteRotWith.rewriteKeepB]; simp only [Blocks.callsOk]
+        exact ⟨rewriteRotWith_callsOk allowHdr p (hb _ (Tup.units _)) hD hcbs.1,
+          rewriteKeepB_callsOk allowHdr ps _ _ hbs' hD hcbs.2⟩
 end
+
+private theorem rewriteRot_callsOk {allowed : List SigEntry} {exits : List Sym} (plan : RotPlan)
+    {rs : List Ty} {G : Ctx (OptArg UnitV) UnitV} {D : Ctx (RotL UnitV UnitL rs) UnitL}
+    {e₁ : Expr (OptArg UnitV) (RotL UnitV UnitL rs) rs} {e₂ : Expr UnitV UnitL rs}
+    (hwf : Wf G D e₁ e₂) (hD : RotCallsL allowed exits D) (hc : e₂.callsOk allowed exits) :
+    (rewriteRot plan e₁).callsOk allowed exits :=
+  rewriteRotWith_callsOk false plan hwf hD hc
 
 end RotImpl
 

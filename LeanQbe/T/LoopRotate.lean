@@ -209,11 +209,14 @@ def tupWiden {V : Ty → Type} :
 
 /-! ## Rewriter label representation -/
 
-/-- Sweep label mapping outer labels directly (`keep`) and rotated loop targets to header
-expansion (`expand`). -/
+/-- Sweep label mapping outer labels (`keep`), rotated loop entries (`expand`), and partial
+loop-body targets that may either expand the header (`expand`) or jump back to the shared
+header block `lHdr` (`expandOrKeep`). -/
 inductive RotL (V : Ty → Type) (L : List Ty → Type) (rs : List Ty) : List Ty → Type
   | keep {ts : List Ty} (l : L ts) : RotL V L rs ts
   | expand {ts : List Ty} (f : Tup (Arg V) ts → Expr V L rs) : RotL V L rs ts
+  | expandOrKeep {ts : List Ty} (f : Tup (Arg V) ts → Expr V L rs) (lHdr : L ts) :
+      RotL V L rs ts
   | dead {ts : List Ty} : RotL V L rs ts
 
 /-- Wrap outer target labels into `RotL.keep`. -/
@@ -309,30 +312,42 @@ def hdrStepCount : HdrPlan → Nat
   | [] => 0
   | s :: ss => s.tys.length + hdrStepCount ss
 
-/-- Check `validateRotPlan` structurally over `p : RotPlan`, returning `some liveVars` on
-success or `none` if structure, label permissions, or dead-variable masks fail. -/
-def validateRotPlan {rs : List Ty} : RotPlan → Expr K BoolL rs → Nat → Option (Trie Unit)
+/-- Sentinel plan in a validated `contP` arm preserving a cold back-jump to the shared loop
+header block (`lHdr`) instead of duplicating the loop header along that edge. -/
+abbrev keepJumpPlan : RotPlan := .jnzP .leaf .leaf
+
+/-- True when `.groupRot` uses partial tail-edge mode (`contMasks.length > hdr.length`), emitting
+a 2-block loop `[rotSig, ts]` with shared cold header block `ts`. -/
+def isPartialMasks (hdr : HdrPlan) (contMasks : List (List Bool)) : Bool :=
+  hdr.length < contMasks.length
+
+/-- Parameterized `validateRotPlan` allowing `keepJumpPlan` on `.jump true` edges when
+`allowHdr = true` (inside partial-rotation loop bodies). -/
+def validateRotPlanWith {rs : List Ty} (allowHdr : Bool) :
+    RotPlan → Expr K BoolL rs → Nat → Option (Trie Unit)
   | .leaf, ek, nv => validateLeaf ek nv
   | .letP p, .let_ (ts := ts) op k, nv => do
-    let s ← validateRotPlan p (k (Tup.levels ts nv)) (nv + ts.length)
+    let s ← validateRotPlanWith allowHdr p (k (Tup.levels ts nv)) (nv + ts.length)
     pure (addArgsSet op.args s)
   | .loadP p, .load _ a k, nv => do
-    let s ← validateRotPlan p (k nv) (nv + 1)
+    let s ← validateRotPlanWith allowHdr p (k nv) (nv + 1)
     pure (addArgKey a s)
   | .storeP p, .store v a k, nv => do
-    let s ← validateRotPlan p k nv
+    let s ← validateRotPlanWith allowHdr p k nv
     pure (addArgKey v (addArgKey a s))
   | .callP p, .call _ (bs := bs) args k, nv => do
-    let s ← validateRotPlan p (k (Tup.levels bs nv)) (nv + bs.length)
+    let s ← validateRotPlanWith allowHdr p (k (Tup.levels bs nv)) (nv + bs.length)
     pure (addArgsSet args s)
   | .jnzP tp ep, .jnz c t e, nv => do
-    let st ← validateRotPlan tp t nv
-    let se ← validateRotPlan ep e nv
+    let st ← validateRotPlanWith allowHdr tp t nv
+    let se ← validateRotPlanWith allowHdr ep e nv
     pure (addArgKey c (trieUnion st se))
+  | .jnzP .leaf .leaf, .jump lb args, _ =>
+    if allowHdr && lb then pure (addArgsSet args .empty) else none
   | .groupKeep bsP kP, .group (sig := sig) bs k, nv => do
     let ls := trueLabels sig
-    let sb ← validateKeepB bsP (bs ls) nv
-    let sk ← validateRotPlan kP (k ls) nv
+    let sb ← validateKeepB allowHdr bsP (bs ls) nv
+    let sk ← validateRotPlanWith allowHdr kP (k ls) nv
     pure (trieUnion sb sk)
   | .groupRot dir hdr contMasks exitMode contP exitP entryP,
     .group (sig := [ts]) bs k, nv => do
@@ -343,9 +358,10 @@ def validateRotPlan {rs : List Ty} : RotPlan → Expr K BoolL rs → Nat → Opt
     let _ := shF
     let armCont := if dir then armT else armE
     let armExit := if dir then armEF else armTF
-    let sc ← validateRotPlan contP armCont (nv0 + hdrStepCount hdr)
-    let sx ← validateRotPlan exitP armExit (nv0 + hdrStepCount hdr)
-    let se ← validateRotPlan entryP (k (true, ())) nv
+    let isPart := isPartialMasks hdr contMasks
+    let sc ← validateRotPlanWith (allowHdr || isPart) contP armCont (nv0 + hdrStepCount hdr)
+    let sx ← validateRotPlanWith allowHdr exitP armExit (nv0 + hdrStepCount hdr)
+    let se ← validateRotPlanWith allowHdr entryP (k (true, ())) nv
     if !checkDeadStepMasks nv0 sc hdr contMasks then none
     else match exitMode with
     | .inline => pure (trieUnion sh (trieUnion sc (trieUnion sx se)))
@@ -356,14 +372,20 @@ def validateRotPlan {rs : List Ty} : RotPlan → Expr K BoolL rs → Nat → Opt
   | _, _, _ => none
 where
   /-- Block-list companion matching `.groupKeep` plans against block bodies. -/
-  validateKeepB {rs : List Ty} :
+  validateKeepB {rs : List Ty} (allowHdr : Bool) :
       List RotPlan → {sig : List (List Ty)} → Blocks K BoolL rs sig → Nat → Option (Trie Unit)
     | [], _, .nil, _ => pure .empty
     | p :: ps, _, .cons (ts := ts) b bs, nv => do
-      let s ← validateRotPlan p (b (Tup.levels ts nv)) (nv + ts.length)
-      let ss ← validateKeepB ps bs nv
+      let s ← validateRotPlanWith allowHdr p (b (Tup.levels ts nv)) (nv + ts.length)
+      let ss ← validateKeepB allowHdr ps bs nv
       pure (trieUnion s ss)
     | _, _, _, _ => none
+
+/-- Check `validateRotPlan` structurally over `p : RotPlan`, returning `some liveVars` on
+success or `none` if structure, label permissions, or dead-variable masks fail. -/
+def validateRotPlan {rs : List Ty} (plan : RotPlan) (ek : Expr K BoolL rs) (nv : Nat) :
+    Option (Trie Unit) :=
+  validateRotPlanWith false plan ek nv
 
 /-! ## Phase 2: Verified single-pass PHOAS rewriter (`rewriteRot`) -/
 
@@ -376,7 +398,7 @@ def flatExpr {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
   | .call f args k => .call f (flatOptArgs args) fun xs => flatExpr (k (someVarsToOpt xs))
   | .jnz c t e => .jnz (flatOptArg c) (flatExpr t) (flatExpr e)
   | .jump (.keep l) args => .jump l (flatOptArgs args)
-  | .jump (.expand f) args => f (flatOptArgs args)
+  | .jump (.expand f) args | .jump (.expandOrKeep f _) args => f (flatOptArgs args)
   | .jump .dead _ => .hlt
   | .ret vs => .ret (flatOptArgs vs)
   | .exit f args => .exit f (flatOptArgs args)
@@ -457,75 +479,100 @@ def splitTail {V : Ty → Type} {tail : List Ty} :
     let (_, rest) := tupSplit (filterTys st.tys (ms.headD [])) params
     splitTail ss ms.tail rest
 
-/-- Rewrite a validated PHOAS expression structurally following `p : RotPlan`. -/
-def rewriteRot {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
-    RotPlan → Expr (OptArg V) (RotL V L rs) rs → Expr V L rs
-  | .leaf, e => flatExpr e
-  | .letP p, .let_ op k => .let_ (flatOptOp op) fun xs => rewriteRot p (k (someVarsToOpt xs))
-  | .loadP p, .load t a k => .load t (flatOptArg a) fun v => rewriteRot p (k (some (.var v)))
-  | .storeP p, .store v a k => .store (flatOptArg v) (flatOptArg a) (rewriteRot p k)
-  | .callP p, .call f args k =>
-    .call f (flatOptArgs args) fun xs => rewriteRot p (k (someVarsToOpt xs))
-  | .jnzP tp ep, .jnz c t e => .jnz (flatOptArg c) (rewriteRot tp t) (rewriteRot ep e)
-  | .groupKeep bsP kP, .group bs k =>
-    .group (fun ls => rewriteKeepB bsP (bs (wrapKeepLabels ls)))
-      fun ls => rewriteRot kP (k (wrapKeepLabels ls))
-  | .groupRot dir hdr contMasks exitMode contP exitP entryP,
+/-- Extract the peeled continuation arm inside a rotated loop body block. -/
+@[reducible] def rotBodyExpr {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {ts : List Ty}
+    (dir : Bool) (hdr : HdrPlan) (contMasks : List (List Bool))
+    (bs : Tup (RotL V L rs) [ts] → Blocks (OptArg V) (RotL V L rs) rs [ts])
+    (jLbl : RotL V L rs ts) (rotParams : Tup V (rotSig hdr contMasks ts)) :
+    Expr (OptArg V) (RotL V L rs) rs :=
+  let xs := splitTail hdr contMasks rotParams
+  hdrPeel dir true hdr contMasks rotParams ((bs (jLbl, ())).get .here (someVarsToOpt xs))
+
+/-- Rewrite a validated PHOAS expression structurally following `p : RotPlan`, optionally allowing
+`keepJumpPlan` jumps to `lHdr` when `allowHdr = true`. -/
+def rewriteRotWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    Bool → RotPlan → Expr (OptArg V) (RotL V L rs) rs → Expr V L rs
+  | _, .leaf, e => flatExpr e
+  | allowHdr, .letP p, .let_ op k =>
+    .let_ (flatOptOp op) fun xs => rewriteRotWith allowHdr p (k (someVarsToOpt xs))
+  | allowHdr, .loadP p, .load t a k =>
+    .load t (flatOptArg a) fun v => rewriteRotWith allowHdr p (k (some (.var v)))
+  | allowHdr, .storeP p, .store v a k =>
+    .store (flatOptArg v) (flatOptArg a) (rewriteRotWith allowHdr p k)
+  | allowHdr, .callP p, .call f args k =>
+    .call f (flatOptArgs args) fun xs => rewriteRotWith allowHdr p (k (someVarsToOpt xs))
+  | allowHdr, .jnzP tp ep, .jnz c t e =>
+    .jnz (flatOptArg c) (rewriteRotWith allowHdr tp t) (rewriteRotWith allowHdr ep e)
+  | true, .jnzP .leaf .leaf, .jump j args =>
+    match j with
+    | .expandOrKeep _ lHdr => .jump lHdr (flatOptArgs args)
+    | .expand f => f (flatOptArgs args)
+    | .keep l => .jump l (flatOptArgs args)
+    | .dead => .hlt
+  | allowHdr, .groupKeep bsP kP, .group bs k =>
+    .group (fun ls => rewriteKeepB allowHdr bsP (bs (wrapKeepLabels ls)))
+      fun ls => rewriteRotWith allowHdr kP (k (wrapKeepLabels ls))
+  | allowHdr, .groupRot dir hdr contMasks exitMode contP exitP entryP,
     .group (sig := [ts]) bs k =>
     let bFun := fun xs => (bs (exitLabels ts)).get .here xs
+    let emitLoop (mkHdrCont : L (rotSig hdr contMasks ts) → Tup (Arg V) ts → Expr V L rs) :
+        Expr V L rs :=
+      if isPartialMasks hdr contMasks then
+        .group (sig := [rotSig hdr contMasks ts, ts])
+          (fun (J_rot, J_hdr, ()) =>
+            .cons (fun rotParams =>
+              rewriteRotWith true contP
+                (rotBodyExpr dir hdr contMasks bs (.expandOrKeep (mkHdrCont J_rot) J_hdr)
+                  rotParams))
+              (.cons (fun hdrParams => mkHdrCont J_rot (toArgTup hdrParams)) .nil))
+          (fun (J_rot, _, ()) =>
+            rewriteRotWith allowHdr entryP (k (.expand (mkHdrCont J_rot), ())))
+      else
+        .group (sig := [rotSig hdr contMasks ts])
+          (fun (J_rot, ()) =>
+            .cons (fun rotParams =>
+              rewriteRotWith allowHdr contP
+                (rotBodyExpr dir hdr contMasks bs (.expand (mkHdrCont J_rot)) rotParams))
+              .nil)
+          (fun (J_rot, ()) =>
+            rewriteRotWith allowHdr entryP (k (.expand (mkHdrCont J_rot), ())))
     match exitMode with
     | .inline =>
       let onExit := fun exitExpr (_ : Tup (Arg V) (stepMasksSig hdr [] ts)) =>
-        rewriteRot exitP exitExpr
-      let mkHdrCont : L (rotSig hdr contMasks ts) → Tup (Arg V) ts → Expr V L rs :=
-        fun J_rot args =>
-          hdrEmit (tailC := ts) (tailX := ts) dir args args hdr contMasks []
-            (bFun (someArgsToOpt args)) (fun rotArgs => .jump J_rot rotArgs) onExit
-      .group (sig := [rotSig hdr contMasks ts])
-        (fun (J_rot, ()) =>
-          .cons (fun rotParams =>
-            let xs := splitTail hdr contMasks rotParams
-            let arm := hdrPeel dir true hdr contMasks rotParams
-              ((bs (.expand (mkHdrCont J_rot), ())).get .here (someVarsToOpt xs))
-            rewriteRot contP arm)
-          .nil)
-        (fun (J_rot, ()) => rewriteRot entryP (k (.expand (mkHdrCont J_rot), ())))
+        rewriteRotWith allowHdr exitP exitExpr
+      emitLoop fun J_rot args =>
+        hdrEmit (tailC := ts) (tailX := ts) dir args args hdr contMasks []
+          (bFun (someArgsToOpt args)) (fun rotArgs => .jump J_rot rotArgs) onExit
     | .wrap xsMask hMasks =>
       let exitBlock := fun (exitParams : Tup V (exitSig hdr hMasks xsMask ts)) =>
         let xsTail := splitTail hdr hMasks exitParams
         let xsOpt := tupWiden ts xsMask xsTail
         let arm := hdrPeel dir false hdr hMasks exitParams (bFun xsOpt)
-        rewriteRot exitP arm
+        rewriteRotWith allowHdr exitP arm
       .group (sig := [exitSig hdr hMasks xsMask ts])
         (fun _ => .cons exitBlock .nil)
         (fun (J_exit, ()) =>
-          let onExit := fun (_ : Expr (OptArg V) (RotL V L rs) rs)
-              (exitArgs : Tup (Arg V) (exitSig hdr hMasks xsMask ts)) =>
-            .jump J_exit exitArgs
-          let mkHdrCont : L (rotSig hdr contMasks ts) → Tup (Arg V) ts → Expr V L rs :=
-            fun J_rot args =>
-              hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
-                dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
-                (bFun (someArgsToOpt args)) (fun rotArgs => .jump J_rot rotArgs) onExit
-          .group (sig := [rotSig hdr contMasks ts])
-            (fun (J_rot, ()) =>
-              .cons (fun rotParams =>
-                let xs := splitTail hdr contMasks rotParams
-                let arm := hdrPeel dir true hdr contMasks rotParams
-                  ((bs (.expand (mkHdrCont J_rot), ())).get .here (someVarsToOpt xs))
-                rewriteRot contP arm)
-              .nil)
-            (fun (J_rot, ()) => rewriteRot entryP (k (.expand (mkHdrCont J_rot), ()))))
-  | _, _ => .hlt
+          emitLoop fun J_rot args =>
+            hdrEmit (tailC := ts) (tailX := filterTys ts xsMask)
+              dir args (tupSelectArgs ts xsMask args) hdr contMasks hMasks
+              (bFun (someArgsToOpt args)) (fun rotArgs => .jump J_rot rotArgs)
+              (fun _ exitArgs => .jump J_exit exitArgs))
+  | _, _, _ => .hlt
 where
   /-- Block-list companion for `.groupKeep`. -/
-  rewriteKeepB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+  rewriteKeepB {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (allowHdr : Bool) :
       List RotPlan → {sig : List (List Ty)} → Blocks (OptArg V) (RotL V L rs) rs sig →
       Blocks V L rs sig
     | [], _, bs => flatExpr.flatBlocks bs
     | p :: ps, _, .cons b bs =>
-      .cons (fun xs => rewriteRot p (b (someVarsToOpt xs))) (rewriteKeepB ps bs)
+      .cons (fun xs => rewriteRotWith allowHdr p (b (someVarsToOpt xs)))
+        (rewriteKeepB allowHdr ps bs)
     | _ :: _, _, .nil => .nil
+
+/-- Rewrite a validated PHOAS expression structurally following `p : RotPlan`. -/
+def rewriteRot {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (plan : RotPlan) (e : Expr (OptArg V) (RotL V L rs) rs) : Expr V L rs :=
+  rewriteRotWith false plan e
 
 /-! ## Phase 1: Untrusted linear-time `TFlat` planner (`buildRotPlan`) -/
 
@@ -613,9 +660,115 @@ def hdrMasksOf (lvl : Nat) (s : Trie Unit) : HdrPlan → List (List Bool)
 def countTrues (ms : List (List Bool)) : Nat :=
   ms.foldl (fun acc m => m.foldl (fun a b => if b then a + 1 else a) acc) 0
 
-/-- Choose a rotation decision for a single-block `.group (sig := [ts])` given `cand : HdrCand`
-and continuation `infoK`. -/
-def decideRot (cfg : RotConfig) (ts : List Ty) (nv : Nat)
+mutual
+/-- Whether `tf` contains at least one `.jump` targeting label index `tgt`. -/
+def hasBackJump (tgt : Nat) : {rs : List Ty} → TFlat rs → Bool
+  | _, .let_ _ k | _, .load _ _ k | _, .store _ _ k | _, .call _ _ _ k => hasBackJump tgt k
+  | _, .jnz _ t e => hasBackJump tgt t || hasBackJump tgt e
+  | _, .jump j _ => j == tgt
+  | _, .ret _ | _, .exit _ _ | _, .hlt => false
+  | _, .group (sig := sig) bs k =>
+    hasBackJumpB (tgt + sig.length) bs || hasBackJump (tgt + sig.length) k
+
+/-- Block-list companion for `hasBackJump`. -/
+def hasBackJumpB (tgt : Nat) : {rs : List Ty} → {sig : List (List Ty)} → TBlocks rs sig → Bool
+  | _, _, .nil => false
+  | _, _, .cons b bs => hasBackJump tgt b || hasBackJumpB tgt bs
+end
+
+mutual
+/-- Count `.jump` occurrences targeting label `tgt` inside `tf`. -/
+def countBackJumps (tgt : Nat) : {rs : List Ty} → TFlat rs → Nat
+  | _, .let_ _ k | _, .load _ _ k | _, .store _ _ k | _, .call _ _ _ k => countBackJumps tgt k
+  | _, .jnz _ t e => countBackJumps tgt t + countBackJumps tgt e
+  | _, .jump j _ => if j == tgt then 1 else 0
+  | _, .ret _ | _, .exit _ _ | _, .hlt => 0
+  | _, .group (sig := sig) bs k =>
+    countBackJumpsB (tgt + sig.length) bs + countBackJumps (tgt + sig.length) k
+
+/-- Block-list companion for `countBackJumps`. -/
+def countBackJumpsB (tgt : Nat) : {rs : List Ty} → {sig : List (List Ty)} → TBlocks rs sig → Nat
+  | _, _, .nil => 0
+  | _, _, .cons b bs => countBackJumps tgt b + countBackJumpsB tgt bs
+end
+
+/-- Peel `hdr` down a `TFlat` loop body and extract the `contArm` subtree (`dir = true` -> `t`,
+`dir = false` -> `e`). -/
+def peelTFlatHdr {rs : List Ty} : HdrPlan → Bool → TFlat rs → Option (TFlat rs)
+  | [], dir, .jnz _ t e => some (if dir then t else e)
+  | .let_ _ :: ss, dir, .let_ _ k => peelTFlatHdr ss dir k
+  | .load _ :: ss, dir, .load _ _ k => peelTFlatHdr ss dir k
+  | _, _, _ => none
+
+/-- Wrap `child` in `ctor` if any keep-mark or rotation lies below it; else collapse to `.leaf`. -/
+def wrapStepPlan (ctor : RotPlan → RotPlan) (child : RotPlan) (kp : Nat) : RotPlan :=
+  if kp > 0 || child.hasRot then ctor child else .leaf
+
+mutual
+/-- Rewrite `plan` over `tf` (`contArm`), replacing direct `.jnz` cold early-`continue` back-edges
+(whose sibling arm still jumps to `tgt`) with `keepJumpPlan`, returning
+`(plan', expCount, keepCount)`. -/
+def markColdContJumps {rs : List Ty} (tgt : Nat) :
+    TFlat rs → RotPlan → RotPlan × Nat × Nat
+  | .let_ _ k, p =>
+    let pk := match p with | .letP q => q | _ => .leaf
+    let (k', e, kp) := markColdContJumps tgt k pk
+    (wrapStepPlan .letP k' kp, e, kp)
+  | .load _ _ k, p =>
+    let pk := match p with | .loadP q => q | _ => .leaf
+    let (k', e, kp) := markColdContJumps tgt k pk
+    (wrapStepPlan .loadP k' kp, e, kp)
+  | .store _ _ k, p =>
+    let pk := match p with | .storeP q => q | _ => .leaf
+    let (k', e, kp) := markColdContJumps tgt k pk
+    (wrapStepPlan .storeP k' kp, e, kp)
+  | .call _ _ _ k, p =>
+    let pk := match p with | .callP q => q | _ => .leaf
+    let (k', e, kp) := markColdContJumps tgt k pk
+    (wrapStepPlan .callP k' kp, e, kp)
+  | .jnz _ t e, p =>
+    let (pt, pe) := match p with | .jnzP t1 e1 => (t1, e1) | _ => (.leaf, .leaf)
+    let isJT := match t with | .jump j _ => j == tgt | _ => false
+    let isJE := match e with | .jump j _ => j == tgt | _ => false
+    let (t', et, kt) :=
+      if isJT && hasBackJump tgt e then (keepJumpPlan, 0, 1)
+      else markColdContJumps tgt t pt
+    let (e', ee, ke) :=
+      if isJE && hasBackJump tgt t then (keepJumpPlan, 0, 1)
+      else markColdContJumps tgt e pe
+    let kp := kt + ke
+    let p' := if kp > 0 || t'.hasRot || e'.hasRot then .jnzP t' e' else .leaf
+    (p', et + ee, kp)
+  | .jump j _, _ => (.leaf, if j == tgt then 1 else 0, 0)
+  | .ret _, _ | .exit _ _, _ | .hlt, _ => (.leaf, 0, 0)
+  | .group (sig := [_]) (.cons b' .nil) k,
+    .groupRot dir' hdr' cm' xm' contP' exitP' entryP' =>
+    let (k', ek, kk) := markColdContJumps (tgt + 1) k entryP'
+    let expB := countBackJumps (tgt + 1) b'
+    (.groupRot dir' hdr' cm' xm' contP' exitP' k', expB + ek, kk)
+  | .group (sig := sig) bs k, p =>
+    let (bsP0, kP0) := match p with | .groupKeep b kp => (b, kp) | _ => ([], .leaf)
+    let (bsP', eb, kb) := markColdContJumpsB (tgt + sig.length) bs bsP0
+    let (k', ek, kk) := markColdContJumps (tgt + sig.length) k kP0
+    let kp := kb + kk
+    let p' :=
+      if kp > 0 || RotPlan.listHasRot bsP' || k'.hasRot then .groupKeep bsP' k' else .leaf
+    (p', eb + ek, kp)
+
+/-- Block-list companion for `markColdContJumps`. -/
+def markColdContJumpsB {rs : List Ty} (tgt : Nat) :
+    {sig : List (List Ty)} → TBlocks rs sig → List RotPlan → List RotPlan × Nat × Nat
+  | _, .nil, _ => ([], 0, 0)
+  | _, .cons b bs, ps =>
+    let p0 := ps.headD .leaf
+    let (b', eb, kb) := markColdContJumps tgt b p0
+    let (bs', ebs, kbs) := markColdContJumpsB tgt bs ps.tail
+    (b' :: bs', eb + ebs, kb + kbs)
+end
+
+/-- Choose full or partial tail-edge rotation for a single-block `.group (sig := [ts])` given
+body `b`, `cand : HdrCand`, and continuation `infoK`. -/
+def decideRot {rs : List Ty} (cfg : RotConfig) (ts : List Ty) (nv : Nat) (b : TFlat rs)
     (cand : HdrCand) (infoK : PlanInfo) : Option RotPlan :=
   let hasLd := cand.hdr.any fun | .load _ => true | _ => false
   if !cfg.allowLoadHdr && hasLd then none
@@ -637,9 +790,7 @@ def decideRot (cfg : RotConfig) (ts : List Ty) (nv : Nat)
     let entryJumps := getJumpCount 0 infoK.jumps
     let condBack := getJumpCount 0 contInfo.condJumps
     if entryJumps == 0 || entryJumps > cfg.maxEntryJumps then none
-    else if backJumps == 0 || backJumps > cfg.maxBackJumps then none
-    else if cfg.requireTailMajority && 2 * condBack ≥ backJumps then none
-    else if contInfo.size ≤ 1 then none
+    else if backJumps == 0 || contInfo.size ≤ 1 then none
     else
       let nv0 := nv + ts.length
       let contMasks := hdrMasksOf nv0 contInfo.live cand.hdr
@@ -647,17 +798,32 @@ def decideRot (cfg : RotConfig) (ts : List Ty) (nv : Nat)
       else
         let useWrap := exitInfo.size > cfg.inlineExitMax || !exitInfo.noGroup ||
           !(shiftJumps 1 exitInfo.jumps).isEmpty
+        let exitMode :=
+          if useWrap then
+            .wrap (liveMaskOf nv ts.length exitInfo.live)
+              (hdrMasksOf nv0 exitInfo.live cand.hdr)
+          else .inline
         let dupPerEdge := cand.hdr.length + 1 + (if useWrap then 1 else exitInfo.size)
-        let extraEdges := entryJumps + backJumps - 1
-        let growth := extraEdges * dupPerEdge + (if useWrap then 2 else 0)
-        if growth > cfg.dupBudget then none
-        else
-          let exitMode :=
-            if useWrap then
-              .wrap (liveMaskOf nv ts.length exitInfo.live)
-                (hdrMasksOf nv0 exitInfo.live cand.hdr)
-            else .inline
+        let extraFull := entryJumps + backJumps - 1
+        let growthFull := extraFull * dupPerEdge + (if useWrap then 2 else 0)
+        let fullOk := backJumps ≤ cfg.maxBackJumps &&
+          !(cfg.requireTailMajority && 2 * condBack ≥ backJumps) &&
+          growthFull ≤ cfg.dupBudget
+        if fullOk then
           some (.groupRot dir cand.hdr contMasks exitMode contInfo.plan exitInfo.plan infoK.plan)
+        else if condBack < backJumps then
+          match peelTFlatHdr cand.hdr dir b with
+          | none => none
+          | some contArm =>
+            let (contP', expCount, keepCount) := markColdContJumps 0 contArm contInfo.plan
+            let partialGrowth :=
+              (entryJumps + expCount) * dupPerEdge + (if useWrap then 2 else 0)
+            if keepCount > 0 && expCount > 0 && expCount ≤ cfg.maxBackJumps &&
+                partialGrowth ≤ cfg.dupBudget then
+              some (.groupRot dir cand.hdr (contMasks ++ [[]]) exitMode
+                contP' exitInfo.plan infoK.plan)
+            else none
+        else none
 
 mutual
 /-- Structural single-pass bottom-up analyzer on `TFlat rs`. -/
@@ -717,7 +883,7 @@ def analyzeTFlat (cfg : RotConfig) {rs : List Ty} (nv : Nat) : TFlat rs → Plan
     let totSize := 1 + bi.size + ki.size
     match bi.cand? with
     | some cand =>
-      match decideRot cfg ts nv cand ki with
+      match decideRot cfg ts nv b cand ki with
       | some rp => ⟨rp, totSize, false, totLive, outJumps, outCond, none⟩
       | none =>
         compressInfo ⟨.groupKeep [bi.plan] ki.plan, totSize, false, totLive, outJumps, outCond,
