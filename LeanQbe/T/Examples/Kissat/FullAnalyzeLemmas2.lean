@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullAnalyzeLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Conflict Analysis, OTFS & Eager Subsumption Helpers (Part 2)
@@ -13,7 +11,7 @@ Provides `PH_GARB`/watch-slice helpers, `Func.wp` proofs (`full_analyze_lit_wp`,
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -1115,12 +1113,12 @@ theorem fa_wp_ret0 {Γ X m} {Q : Post []} (h : Q () m) : wp Γ Q X (.ret ()) m :
 theorem fa_wp_ret1 {Γ X m t} {Q : Post [t]} {a : Arg Val t} (h : Q (a.val, ()) m) :
     wp Γ Q X (.ret (a, ())) m := h
 
-meta def faUnwrapCtor (ctorName : Lean.Name) : Lean.Expr → Option (Array Lean.Expr)
+private meta def faUnwrapCtor (ctorName : Lean.Name) : Lean.Expr → Option (Array Lean.Expr)
   | .mdata _ b => faUnwrapCtor ctorName b
   | .letE _ _ _ b _ => faUnwrapCtor ctorName b
   | e => if e.getAppFn.isConstOf ctorName then some e.getAppArgs else none
 
-meta def faReduceProjOnce (env : Lean.Environment) (e : Lean.Expr) : Lean.Expr :=
+private meta def faReduceProjOnce (env : Lean.Environment) (e : Lean.Expr) : Lean.Expr :=
   e.replace fun sub =>
     match sub with
     | .proj ``Prod 0 arg => if arg.isAppOfArity ``Prod.mk 4 then some (arg.getArg! 2) else none
@@ -1162,19 +1160,19 @@ meta def faReduceProjOnce (env : Lean.Environment) (e : Lean.Expr) : Lean.Expr :
         | none => none
       else none
 
-meta def faReduceHeadE (env : Lean.Environment) (e : Lean.Expr) : Lean.Expr :=
+private meta def faReduceHeadE (env : Lean.Environment) (e : Lean.Expr) : Lean.Expr :=
   let r := faReduceProjOnce env
   r (r (r (r e.headBeta)))
-meta def faNormWpGoal (g : Lean.MVarId) : Lean.Elab.Tactic.TacticM Lean.MVarId := do
+private meta def faNormWpGoal (g : Lean.MVarId) : Lean.Elab.Tactic.TacticM Lean.MVarId := do
   let ty := (← Lean.instantiateMVars (← g.getType)).headBeta
   if ty.isAppOf ``wp && ty.getAppNumArgs == 6 then
     let env ← Lean.getEnv
     let e := ty.getArg! 4; let e' := faReduceHeadE env e
     if e' != e then return ← g.change (Lean.mkAppN ty.getAppFn (ty.getAppArgs.set! 4 e'))
   return g
-meta def faBvLit (w v : Nat) : Lean.Expr :=
+private meta def faBvLit (w v : Nat) : Lean.Expr :=
   Lean.mkApp2 (Lean.mkConst ``BitVec.ofNat) (Lean.mkNatLit w) (Lean.mkNatLit v)
-meta def faFastLetLemma? (op : Lean.Expr) : Option Lean.Name :=
+private meta def faFastLetLemma? (op : Lean.Expr) : Option Lean.Name :=
   if op.isAppOf ``Op.mk && op.getAppNumArgs == 5 then
     let code := op.getArg! 3; let args := op.getArg! 4
     let hasImm1 := args.isAppOfArity ``Prod.mk 4 && (args.getArg! 2).isAppOf ``Arg.imm
@@ -1219,7 +1217,7 @@ meta def faFastLetLemma? (op : Lean.Expr) : Option Lean.Name :=
     | _ => none
   else none
 
-meta def faClearStale (m0 : Lean.Expr) : Lean.Elab.Tactic.TacticM Unit :=
+private meta def faClearStale (m0 : Lean.Expr) : Lean.Elab.Tactic.TacticM Unit :=
   Lean.Elab.Tactic.withMainContext do
     let .fvar mId := m0 | return
     for d in (← Lean.getLCtx).decls.toArray.reverse do
@@ -1228,7 +1226,7 @@ meta def faClearStale (m0 : Lean.Expr) : Lean.Elab.Tactic.TacticM Unit :=
       if t.isAppOf ``Std.ExtHashMap.sep && t.appArg! == m0 then
         try Lean.Elab.Tactic.liftMetaTactic1 fun g => some <$> g.clear d.fvarId catch _ => pure ()
     try Lean.Elab.Tactic.liftMetaTactic1 fun g => some <$> g.clear mId catch _ => pure ()
-meta def faFindJoinHyp (J : Lean.FVarId) :
+private meta def faFindJoinHyp (J : Lean.FVarId) :
     Lean.Elab.Tactic.TacticM (Option Lean.Expr) :=
   Lean.Elab.Tactic.withMainContext do
     for d in (← Lean.getLCtx).decls.toArray.reverse do
@@ -1238,7 +1236,7 @@ meta def faFindJoinHyp (J : Lean.FVarId) :
         return concl.getAppFn.isFVarOf J && (← Lean.Meta.inferType xs[xs.size - 1]!).isAppOf ``wp
       if ok then return some d.toExpr
     return none
-meta def faStepOnce (unrollGroup : Bool := true) : Lean.Elab.Tactic.TacticM Bool :=
+private meta def faStepOnce (unrollGroup : Bool := true) : Lean.Elab.Tactic.TacticM Bool :=
   Lean.Elab.Tactic.withMainContext do
     let g ← Lean.Elab.Tactic.getMainGoal
     let ty := (← Lean.instantiateMVars (← g.getType)).consumeMData.headBeta
@@ -1335,7 +1333,7 @@ meta def faStepOnce (unrollGroup : Bool := true) : Lean.Elab.Tactic.TacticM Bool
         Lean.Elab.Tactic.setGoals (← (← g.apply h).mapM faNormWpGoal); return true
     return false
 
-meta partial def faStepsLoop (unrollGroup : Bool) (fuel : Nat) :
+private meta partial def faStepsLoop (unrollGroup : Bool) (fuel : Nat) :
     Lean.Elab.Tactic.TacticM Unit := do
   if fuel = 0 then return
   let mut out : Array Lean.MVarId := #[]

@@ -2,8 +2,6 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullSpec
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Canonical `FullSpec` Bridge Proofs — Part 1a (`Stage 4`)
@@ -16,7 +14,7 @@ Bridges the first 11 `FullHeurWalkLemmas` functions onto canonical `FullSpec2` t
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

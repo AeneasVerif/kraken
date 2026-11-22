@@ -1,11 +1,9 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas3
-public import LeanQbe.T.Examples.Kissat.FullPropDecLemmas
-public import LeanQbe.T.Examples.Kissat.FullMinLemmas
-public import LeanQbe.T.Examples.Kissat.FullDimacsBodyLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Examples.Kissat.FullPropDecLemmas
+import LeanQbe.T.Examples.Kissat.FullMinLemmas
+import LeanQbe.T.Examples.Kissat.FullDimacsBodyLemmas
 
 /-!
 # Kissat `D-Full` Canonical `FullSpec` Bridge Proofs — Parts 1b–4 (`Stage 4`)
@@ -23,7 +21,7 @@ Bridges canonical `FullSpec2`/`FullSpec3` table entries across the first 4 shard
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

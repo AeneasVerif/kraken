@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullSpec
-public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas
+import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas
 
 /-!
 # Kissat `D-Full` Canonical `FullSpec` Bridge Proofs — Part 8a (`ProbeTrans`, `6` fns)
@@ -18,7 +18,7 @@ directly onto canonical `FullSpec2` / `FullSpec3` contracts and `SpecEntry.Impl 
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -195,7 +195,7 @@ private theorem mkFullEnv_row_at {mainSpec : Spec [i64, i64, i64, i64, i64] [i64
     Env.ofTable_of_mem (List.mem_of_getElem? hi) (fullSpecTable_nodup mainSpec) (hno xs m Q X h)
 
 /-- Canonical `fullFns` / `fullSpecTable` indices of the `6` `ProbeTrans` functions. -/
-def fullBridge8aIndices : List Nat :=
+@[expose] def fullBridge8aIndices : List Nat :=
   [106, 107, 108, 109, 110, 111]
 
 /-- Index-verified `SpecEntry.Impl (mkFullEnv mainSpec)` summary covering all `6` `ProbeTrans`

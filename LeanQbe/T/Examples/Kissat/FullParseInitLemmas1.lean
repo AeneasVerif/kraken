@@ -4,9 +4,8 @@ public import LeanQbe.T.Examples.Kissat.Full1
 public import LeanQbe.T.Examples.Kissat.FullInv2
 public import LeanQbe.T.Examples.Kissat.FullArena
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas
-public meta import Lean.Elab.Tactic
+meta import Lean.Elab.Tactic
 public meta import LeanQbe.T.Logic.C0Step
-import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
@@ -26,7 +25,7 @@ Defines:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -40,35 +39,35 @@ open Kraken.Bedrock2.Test
 namespace FullParseInitSpecs
 
 /-- Variable marks (`mrk[0 ..< max_vars]`) are cleared to `0#8`. -/
-def FullMrkZero (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullMrkZero (c : FullCfg) (s : FullState) : Prop :=
   ∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8
 
 /-- Both variable `mrk[0..max_vars)` and literal `lit_mark[0..2*max_vars)` arrays are zero. -/
-def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
   FullMrkZero c s ∧ (∀ l < 2 * c.max_vars, s.core.lit_mark[l]?.getD 0#8 = 0#8)
 
 /-- Every non-garbage clause in the `D-Full` arena has variable-distinct literals. -/
-def FullArenaVarsNodup (s : FullState) : Prop :=
+@[expose] def FullArenaVarsNodup (s : FullState) : Prop :=
   ∀ r ∈ fullArenaClauseRefs s, fullArenaClauseGarb s r = false →
     ((fullArenaClauseLits s r).map (· / 2)).Nodup
 
 /-- Every active slot in `last_learned[0..8)` is `0xFFFFFFFF#32` or a live arena cref. -/
-def FullLastLearnedWf (s : FullState) : Prop :=
+@[expose] def FullLastLearnedWf (s : FullState) : Prop :=
   ∀ i < 8,
     let cr := s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32
     cr = 0xFFFFFFFF#32 ∨ cr.toNat ∈ fullArenaClauseRefs s
 
 /-- Combined Stage-4 scratch well-formedness (`FullLastLearnedWf` and `extend_len ≤ cap`). -/
-def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
   FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
 
 /-- Scratch-level equality predicate preserving `last_learned` and `extend_len`. -/
-def FullExtScratchPres (s s' : FullState) : Prop :=
+@[expose] def FullExtScratchPres (s s' : FullState) : Prop :=
   s'.scratch.last_learned = s.scratch.last_learned ∧
   s'.scratch.extend_len = s.scratch.extend_len
 
 /-- Canonical Stage-4 sparse-mode CDCL invariant (`UNSAT`-only). -/
-def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
+@[expose] def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
   FullExtScratchOk c s ∧ s.core.dense_mode = 0#64
 
@@ -129,7 +128,7 @@ theorem fullSparseInv_init {c : FullCfg} {F0 : CNF Nat} {s : FullState}
 
 /-! ### Pure `Full1.lean` sizing functions and capacity bounds -/
 
-def fullCalcMaxV (avail mv nc f0 : Nat) : Nat :=
+@[expose] def fullCalcMaxV (avail mv nc f0 : Nat) : Nat :=
   let rem0 := avail - f0
   let bva_cap :=
     if 2 ≤ mv ∧ nc * 48 + 8192 < rem0 then
@@ -141,41 +140,41 @@ def fullCalcMaxV (avail mv nc f0 : Nat) : Nat :=
   let fixed := fullFixedBytes max_v
   if avail < fixed ∨ avail - fixed < nc * 40 + 136 then mv else max_v
 
-def fullCalcExtCap (rem : Nat) : Nat :=
+@[expose] def fullCalcExtCap (rem : Nat) : Nat :=
   if rem < 8192 then 0 else ((min (rem / 32) 131072) / 2) * 2
 
-def fullCalcScrCap (rem : Nat) : Nat :=
+@[expose] def fullCalcScrCap (rem : Nat) : Nat :=
   if rem < 8192 then 0 else
     let c := if 16384 ≤ rem then rem / 16 else rem / 32
     ((min c 32768) / 2) * 2
 
-def fullInitDelCap (rem : Nat) : Nat :=
+@[expose] def fullInitDelCap (rem : Nat) : Nat :=
   if 524288 ≤ rem then 4096 else 8
 
-def fullInitExtCap (nc rem : Nat) : Nat :=
+private def fullInitExtCap (nc rem : Nat) : Nat :=
   let del_b := fullInitDelCap rem * 12
   let e := fullCalcExtCap rem
   let s := fullCalcScrCap rem
   let dyn := del_b + 4 * e + 4 * s
   if rem < dyn + nc * 40 + 136 then 0 else e
 
-def fullInitScrCap (nc rem : Nat) : Nat :=
+private def fullInitScrCap (nc rem : Nat) : Nat :=
   let del_b := fullInitDelCap rem * 12
   let e := fullCalcExtCap rem
   let s := fullCalcScrCap rem
   let dyn := del_b + 4 * e + 4 * s
   if rem < dyn + nc * 40 + 136 then 0 else s
 
-def fullInitDyn (nc rem : Nat) : Nat :=
+private def fullInitDyn (nc rem : Nat) : Nat :=
   fullInitDelCap rem * 12 + 4 * fullInitExtCap nc rem + 4 * fullInitScrCap nc rem
 
-def fullInitAp (avail_dyn : Nat) : Nat :=
+@[expose] def fullInitAp (avail_dyn : Nat) : Nat :=
   min (((avail_dyn / 8) * 3) / 5) 134217727
 
-def fullInitRp (avail_dyn : Nat) : Nat :=
+@[expose] def fullInitRp (avail_dyn : Nat) : Nat :=
   (fullInitAp avail_dyn + 5) / 6
 
-def fullInitWp (avail_dyn : Nat) : Nat :=
+@[expose] def fullInitWp (avail_dyn : Nat) : Nat :=
   min (avail_dyn / 8 - fullInitAp avail_dyn - fullInitRp avail_dyn) 134217727
 
 theorem fullCalcMaxV_ge {avail mv nc : Nat} :
@@ -205,12 +204,12 @@ theorem fullCalcScrCap_lt {rem : Nat} : fullCalcScrCap rem < dimacsBound := by
 theorem fullInitDelCap_lt {rem : Nat} : fullInitDelCap rem < dimacsBound := by
   unfold fullInitDelCap dimacsBound; split <;> omega
 
-theorem fullInitExtCap_lt {nc rem : Nat} : fullInitExtCap nc rem < dimacsBound := by
+private theorem fullInitExtCap_lt {nc rem : Nat} : fullInitExtCap nc rem < dimacsBound := by
   unfold fullInitExtCap; dsimp only; split
   · unfold dimacsBound; omega
   · exact fullCalcExtCap_lt
 
-theorem fullInitScrCap_lt {nc rem : Nat} : fullInitScrCap nc rem < dimacsBound := by
+private theorem fullInitScrCap_lt {nc rem : Nat} : fullInitScrCap nc rem < dimacsBound := by
   unfold fullInitScrCap; dsimp only; split
   · unfold dimacsBound; omega
   · exact fullCalcScrCap_lt
@@ -231,12 +230,12 @@ theorem fullInitWp_lt {avail_dyn : Nat} : 2 * fullInitWp avail_dyn < 2 * dimacsB
 theorem fullInitRp_lt {avail_dyn : Nat} : 2 * fullInitRp avail_dyn < 2 * dimacsBound := by
   unfold fullInitRp fullInitAp dimacsBound; omega
 
-theorem fullInitDyn_le {nc rem : Nat} (hrem : nc * 40 + 136 ≤ rem) :
+private theorem fullInitDyn_le {nc rem : Nat} (hrem : nc * 40 + 136 ≤ rem) :
     fullInitDyn nc rem + 40 ≤ rem := by
   unfold fullInitDyn fullInitExtCap fullInitScrCap fullInitDelCap; dsimp only
   split <;> split <;> omega
 
-theorem full_init_arena_fits {max_v nc avail : Nat}
+private theorem full_init_arena_fits {max_v nc avail : Nat}
     (h : fullFixedBytes max_v + nc * 40 + 136 ≤ avail) :
     let rem := avail - fullFixedBytes max_v
     let dyn := fullInitDyn nc rem
@@ -257,79 +256,79 @@ theorem full_init_arena_fits {max_v nc avail : Nat}
 
 /-! ### Pure `FullHdr` pointer offsets (`full_init_ptrs`, `full_init_arenas`, `full_init_hdr`) -/
 
-def fullPVals (hdr : BitVec 64) (_mx : Nat) : BitVec 64 := hdr + BitVec.ofNat 64 1152
-def fullPWalkVals (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPVals (hdr : BitVec 64) (_mx : Nat) : BitVec 64 := hdr + BitVec.ofNat 64 1152
+@[expose] def fullPWalkVals (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPVals hdr mx + BitVec.ofNat 64 (valsBytes mx)
-def fullPLitMark (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPLitMark (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPWalkVals hdr mx + BitVec.ofNat 64 (valsBytes mx)
-def fullPMark (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPMark (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPLitMark hdr mx + BitVec.ofNat 64 (valsBytes mx)
-def fullPPhases (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPPhases (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPMark hdr mx + BitVec.ofNat 64 (markBytes mx)
-def fullPPhasesTarget (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPPhasesTarget (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPPhases hdr mx + BitVec.ofNat 64 (markBytes mx)
-def fullPPhasesBest (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPPhasesBest (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPPhasesTarget hdr mx + BitVec.ofNat 64 (markBytes mx)
-def fullPWalkBest (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPWalkBest (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPPhasesBest hdr mx + BitVec.ofNat 64 (markBytes mx)
-def fullPFlags (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPFlags (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPWalkBest hdr mx + BitVec.ofNat 64 (markBytes mx)
-def fullPLevel (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPLevel (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPFlags hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPReason (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPReason (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPLevel hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPTrail (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPTrail (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPReason hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPTrailPos (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPTrailPos (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPTrail hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPTmp (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPTmp (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPTrailPos hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPHeap (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPHeap (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPTmp hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPPos (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPPos (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPHeap hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPMinClr (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPMinClr (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPPos hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPShrinkStk (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPShrinkStk (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPMinClr hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPQPrev (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPQPrev (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPShrinkStk hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPQNext (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPQNext (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPQPrev hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPQStamp (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPQStamp (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPQNext hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPFrameTrail (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPFrameTrail (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPQStamp hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPFrameDec (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPFrameDec (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPFrameTrail hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPWvec (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPWvec (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPFrameDec hdr mx + BitVec.ofNat 64 (u32FullBytes mx)
-def fullPRepr (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPRepr (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPWvec hdr mx + BitVec.ofNat 64 (16 * mx)
-def fullPWsort (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPWsort (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPRepr hdr mx + BitVec.ofNat 64 (8 * mx)
-def fullPWorkStk1 (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPWorkStk1 (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPWsort hdr mx + BitVec.ofNat 64 (8 * mx)
-def fullPWorkStk2 (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPWorkStk2 (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPWorkStk1 hdr mx + BitVec.ofNat 64 (8 * mx)
-def fullPTarjanMark (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPTarjanMark (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPWorkStk2 hdr mx + BitVec.ofNat 64 (8 * mx)
-def fullPTarjanReach (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPTarjanReach (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPTarjanMark hdr mx + BitVec.ofNat 64 (8 * mx)
-def fullPScore (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPScore (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPTarjanReach hdr mx + BitVec.ofNat 64 (8 * mx)
-def fullPSimSig (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPSimSig (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPScore hdr mx + BitVec.ofNat 64 (8 * mx)
-def fullPMinStk (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPMinStk (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPSimSig hdr mx + BitVec.ofNat 64 (8 * mx)
-def fullPGlueUsed (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPGlueUsed (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPMinStk hdr mx + BitVec.ofNat 64 (8 * fullMinDepthOf mx)
-def fullPLastLearned (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPLastLearned (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPGlueUsed hdr mx + BitVec.ofNat 64 256
-def fullPArena (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
+@[expose] def fullPArena (hdr : BitVec 64) (mx : Nat) : BitVec 64 :=
   fullPLastLearned hdr mx + BitVec.ofNat 64 64
 
-def ptrsW0 (hdr : BitVec 64) (mx : Nat) (w0 : List (BitVec 64)) : List (BitVec 64) :=
+@[expose] def ptrsW0 (hdr : BitVec 64) (mx : Nat) (w0 : List (BitVec 64)) : List (BitVec 64) :=
   ((((((((((((((w0.set 4 (fullPVals hdr mx)).set 5 (fullPMark hdr mx)).set
     24 (fullPPhases hdr mx)).set 6 (fullPLevel hdr mx)).set 7 (fullPReason hdr mx)).set
     8 (fullPTrail hdr mx)).set 13 (fullPTmp hdr mx)).set 21 (fullPHeap hdr mx)).set
@@ -337,37 +336,37 @@ def ptrsW0 (hdr : BitVec 64) (mx : Nat) (w0 : List (BitVec 64)) : List (BitVec 6
     23 (fullPScore hdr mx)).set 25 (fullPMinStk hdr mx)).set 10 (fullPArena hdr mx)).set
     29 (BitVec.ofNat 64 (fullMinDepthOf mx))
 
-def ptrsW1 (hdr : BitVec 64) (mx : Nat) (w1 : List (BitVec 64)) : List (BitVec 64) :=
+@[expose] def ptrsW1 (hdr : BitVec 64) (mx : Nat) (w1 : List (BitVec 64)) : List (BitVec 64) :=
   ((((((((w1.set 10 (fullPPhasesTarget hdr mx)).set 11 (fullPPhasesBest hdr mx)).set
     6 (fullPTrailPos hdr mx)).set 13 (fullPShrinkStk hdr mx)).set 7 (fullPQPrev hdr mx)).set
     8 (fullPQNext hdr mx)).set 9 (fullPQStamp hdr mx)).set 12 (fullPWsort hdr mx)).set
     15 (fullPGlueUsed hdr mx)
 
-def ptrsW2 (hdr : BitVec 64) (mx : Nat) (w2 : List (BitVec 64)) : List (BitVec 64) :=
+@[expose] def ptrsW2 (hdr : BitVec 64) (mx : Nat) (w2 : List (BitVec 64)) : List (BitVec 64) :=
   ((((((((w2.set 27 (fullPLitMark hdr mx)).set 26 (fullPFlags hdr mx)).set
     30 (fullPFrameTrail hdr mx)).set 31 (fullPFrameDec hdr mx)).set 28 (fullPRepr hdr mx)).set
     32 (fullPWorkStk1 hdr mx)).set 33 (fullPWorkStk2 hdr mx)).set 34 (fullPTarjanMark hdr mx)).set
     29 (fullPSimSig hdr mx)
 
-def ptrsW3 (hdr : BitVec 64) (mx : Nat) (w3 : List (BitVec 64)) : List (BitVec 64) :=
+@[expose] def ptrsW3 (hdr : BitVec 64) (mx : Nat) (w3 : List (BitVec 64)) : List (BitVec 64) :=
   (((w3.set 1 (fullPWalkVals hdr mx)).set 2 (fullPWalkBest hdr mx)).set
     0 (fullPTarjanReach hdr mx)).set 8 (fullPLastLearned hdr mx)
 
-def arenasW0 (hdr : BitVec 64) (mx adyn : Nat) (w0 : List (BitVec 64)) : List (BitVec 64) :=
+private def arenasW0 (hdr : BitVec 64) (mx adyn : Nat) (w0 : List (BitVec 64)) : List (BitVec 64) :=
   let ap := fullInitAp adyn; let wp := fullInitWp adyn
   let pWstk := fullPArena hdr mx + BitVec.ofNat 64 (8 * ap)
   let pDel := pWstk + BitVec.ofNat 64 (8 * wp)
   ((((ptrsW0 hdr mx w0).set 11 pWstk).set 12 pDel).set
     0 (BitVec.ofNat 64 (2 * ap))).set 1 (BitVec.ofNat 64 (2 * wp))
 
-def arenasW1 (hdr : BitVec 64) (mx adyn del_cap : Nat) (w1 : List (BitVec 64)) :
+private def arenasW1 (hdr : BitVec 64) (mx adyn del_cap : Nat) (w1 : List (BitVec 64)) :
     List (BitVec 64) :=
   let ap := fullInitAp adyn; let wp := fullInitWp adyn; let rp := fullInitRp adyn
   let pRed := fullPArena hdr mx + BitVec.ofNat 64 (8 * ap) + BitVec.ofNat 64 (8 * wp) +
     BitVec.ofNat 64 (del_cap * 12)
   ((ptrsW1 hdr mx w1).set 14 pRed).set 16 (BitVec.ofNat 64 (2 * rp))
 
-def arenasW3 (hdr : BitVec 64) (mx adyn del_cap ext_cap : Nat) (w3 : List (BitVec 64)) :
+private def arenasW3 (hdr : BitVec 64) (mx adyn del_cap ext_cap : Nat) (w3 : List (BitVec 64)) :
     List (BitVec 64) :=
   let ap := fullInitAp adyn; let wp := fullInitWp adyn; let rp := fullInitRp adyn
   let pExt := fullPArena hdr mx + BitVec.ofNat 64 (8 * ap) + BitVec.ofNat 64 (8 * wp) +
@@ -375,20 +374,20 @@ def arenasW3 (hdr : BitVec 64) (mx adyn del_cap ext_cap : Nat) (w3 : List (BitVe
   let pScr := pExt + BitVec.ofNat 64 (4 * ext_cap)
   ((ptrsW3 hdr mx w3).set 3 pExt).set 6 pScr
 
-def hdrW0 (mv : Nat) (fuel : BitVec 64) (w0 : List (BitVec 64)) : List (BitVec 64) :=
+@[expose] def hdrW0 (mv : Nat) (fuel : BitVec 64) (w0 : List (BitVec 64)) : List (BitVec 64) :=
   ((((((((((((((((w0.set 2 0#64).set 3 1#64).set 14 0#64).set 15 0#64).set 16 0#64).set
     17 fuel).set 18 0xFFFFFFFF#64).set 19 0#64).set 20 0#64).set
     27 (BitVec.ofNat 64 mv)).set 28 (1#64 <<< 28)).set 30 0#64).set 31 0#64).set
     32 1024#64).set 33 1048576#64).set 34 1024#64)
 
-def hdrW1 (w1 : List (BitVec 64)) : List (BitVec 64) :=
+@[expose] def hdrW1 (w1 : List (BitVec 64)) : List (BitVec 64) :=
   ((((((((((((((((((((((w1.set 18 0#64).set 19 0#64).set 20 0#64).set
     21 0xFFFFFFFF#64).set 22 0#64).set 23 0#64).set 24 0#64).set 25 0#64).set
     26 0#64).set 27 0#64).set 28 0#64).set 29 0#64).set 0 1#64).set 1 1#64).set
     2 0#64).set 3 0#64).set 4 0#64).set 5 0#64).set 30 0#64).set 31 0#64).set
     32 0#64).set 33 1000#64).set 34 0#64
 
-def hdrW2 (mv max_v : Nat) (w2 : List (BitVec 64)) : List (BitVec 64) :=
+@[expose] def hdrW2 (mv max_v : Nat) (w2 : List (BitVec 64)) : List (BitVec 64) :=
   let q0 := if mv = 0 then 0xFFFFFFFF#64 else 0#64
   let ql := if mv = 0 then 0xFFFFFFFF#64 else BitVec.ofNat 64 (mv - 1)
   (((((((((((((((((((((((((w2.set 22 (BitVec.ofNat 64 max_v)).set
@@ -399,7 +398,7 @@ def hdrW2 (mv max_v : Nat) (w2 : List (BitVec 64)) : List (BitVec 64) :=
     15 0#64).set 16 1#64).set 17 0#64).set 18 (1#64 <<< 24)).set 19 0#64).set
     20 (1#64 <<< 24)).set 21 0#64
 
-def hdrW3 (mv : Nat) (w3 : List (BitVec 64)) : List (BitVec 64) :=
+@[expose] def hdrW3 (mv : Nat) (w3 : List (BitVec 64)) : List (BitVec 64) :=
   let rng := 0x9E3779B97F4A7C15#64 ^^^ (BitVec.ofNat 64 mv + 1#64)
   ((((((((((((((((((((((((((w3.set 5 0#64).set 9 rng).set 10 100#64).set 11 0#64).set
     12 0#64).set 13 500#64).set 14 0#64).set 15 1500#64).set 16 0#64).set 17 0#64).set
@@ -415,11 +414,11 @@ def hdrW3 (mv : Nat) (w3 : List (BitVec 64)) : List (BitVec 64) :=
     (ptrsW2 h mx w).length = w.length := by simp [ptrsW2]
 @[simp] theorem ptrsW3_len {h : BitVec 64} {mx : Nat} {w : List (BitVec 64)} :
     (ptrsW3 h mx w).length = w.length := by simp [ptrsW3]
-@[simp] theorem arenasW0_len {h : BitVec 64} {mx a : Nat} {w : List (BitVec 64)} :
+@[local simp] private theorem arenasW0_len {h : BitVec 64} {mx a : Nat} {w : List (BitVec 64)} :
     (arenasW0 h mx a w).length = w.length := by simp [arenasW0]
-@[simp] theorem arenasW1_len {h : BitVec 64} {mx a d : Nat} {w : List (BitVec 64)} :
+@[local simp] private theorem arenasW1_len {h : BitVec 64} {mx a d : Nat} {w : List (BitVec 64)} :
     (arenasW1 h mx a d w).length = w.length := by simp [arenasW1]
-@[simp] theorem arenasW3_len {h : BitVec 64} {mx a d e : Nat} {w : List (BitVec 64)} :
+@[local simp] private theorem arenasW3_len {h : BitVec 64} {mx a d e : Nat} {w : List (BitVec 64)} :
     (arenasW3 h mx a d e w).length = w.length := by simp [arenasW3]
 @[simp] theorem hdrW0_len {mv : Nat} {fu : BitVec 64} {w : List (BitVec 64)} :
     (hdrW0 mv fu w).length = w.length := by simp [hdrW0]
@@ -430,7 +429,7 @@ def hdrW3 (mv : Nat) (w3 : List (BitVec 64)) : List (BitVec 64) :=
     (hdrW3 mv w).length = w.length := by simp [hdrW3]
 
 /-- `4`-chunk `140`-word `FullHdr` tail assertion splitting `array64 (hdr + 32)`. -/
-def hdrTail4 (hdr : BitVec 64) (w0 w1 w2 w3 : List (BitVec 64)) : Mem 64 → Prop :=
+@[expose] def hdrTail4 (hdr : BitVec 64) (w0 w1 w2 w3 : List (BitVec 64)) : Mem 64 → Prop :=
   fun m => w0.length = 35 ∧ w1.length = 35 ∧ w2.length = 35 ∧ w3.length = 35 ∧
     (array64 (hdr + 32) w0 ⋆ array64 (hdr + 312) w1 ⋆
       array64 (hdr + 592) w2 ⋆ array64 (hdr + 872) w3) m
@@ -468,7 +467,7 @@ theorem hdrTail4_eq_array64 {hdr : BitVec 64} {w0 w1 w2 w3 : List (BitVec 64)}
 
 /-! ### `Spec` definitions for all `10` owned `Full1.lean` functions (aligned with `FullSpec2`) -/
 
-def fullZeroTables1Spec : Spec [i64] [] := fun (h, ()) m Q _ =>
+@[expose] def fullZeroTables1Spec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
     ∀ wstk' mstk' repr' sc' m',
@@ -484,7 +483,7 @@ def fullZeroTables1Spec : Spec [i64] [] := fun (h, ()) m Q _ =>
           scratch := sc' }
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullZeroTables2Spec : Spec [i64] [] := fun (h, ()) m Q _ =>
+@[expose] def fullZeroTables2Spec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
     ∀ flags' fdec' sc' m',
@@ -501,10 +500,10 @@ def fullZeroTables2Spec : Spec [i64] [] := fun (h, ()) m Q _ =>
           scratch := sc' }
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullFixedBytesSpec : Spec [i64] [i64] := fun (max_v, ()) m Q _ =>
+@[expose] def fullFixedBytesSpec : Spec [i64] [i64] := fun (max_v, ()) m Q _ =>
   max_v.toNat < 2 * dimacsBound ∧ Q (BitVec.ofNat 64 (fullFixedBytes max_v.toNat), ()) m
 
-def fullInitPtrsSpec : Spec [i64, i64, i64] [] := fun (h, hdr_addr, max_v, ()) m Q _ =>
+@[expose] def fullInitPtrsSpec : Spec [i64, i64, i64] [] := fun (h, hdr_addr, max_v, ()) m Q _ =>
   ∃ (ws : List (BitVec 64)) (R : Mem 64 → Prop),
     h = hdr_addr ∧ ws.length = 140 ∧ max_v.toNat < 2 * dimacsBound ∧
     hdr_addr.toNat + fullFixedBytes max_v.toNat < 2 ^ 64 ∧
@@ -529,6 +528,7 @@ def fullInitPtrsSpec : Spec [i64, i64, i64] [] := fun (h, hdr_addr, max_v, ()) m
       (∀ i ∈ [0, 1, 11, 12, 49, 51, 52, 108, 109, 111, 112], ws'[i]? = ws[i]?) →
       (array64 (hdr_addr + 32) ws' ⋆ R) m' → Q () m'
 
+@[expose]
 def fullInitHdrSpec : Spec [i64, i64, i64, i64] [] := fun (h, mv, max_v, fuel, ()) m Q _ =>
   ∃ (c : FullCfg) (ws : List (BitVec 64)) (R : Mem 64 → Prop),
     h = c.hdr ∧ mv = BitVec.ofNat 64 c.mv ∧ max_v = BitVec.ofNat 64 c.max_vars ∧
@@ -548,6 +548,7 @@ def fullInitHdrSpec : Spec [i64, i64, i64, i64] [] := fun (h, mv, max_v, fuel, (
       s.scratch.extend_len = 0 →
       (array64 (c.hdr + 32) (hdrTailWords c s) ⋆ R) m' → Q () m'
 
+@[expose]
 def fullCalcMaxVSpec : Spec [i64, i64, i64, i64] [i64] := fun (avail, mv, nc, f0, ()) m Q _ =>
   mv.toNat < dimacsBound ∧ nc.toNat < dimacsBound ∧
   f0.toNat = fullFixedBytes mv.toNat ∧ f0.toNat + nc.toNat * 40 + 136 ≤ avail.toNat ∧
@@ -556,17 +557,17 @@ def fullCalcMaxVSpec : Spec [i64, i64, i64, i64] [i64] := fun (avail, mv, nc, f0
     fullFixedBytes r.toNat + nc.toNat * 40 + 136 ≤ avail.toNat →
     Q (r, ()) m
 
-def fullCalcExtCapSpec : Spec [i64] [i64] := fun (rem, ()) m Q _ =>
+@[expose] def fullCalcExtCapSpec : Spec [i64] [i64] := fun (rem, ()) m Q _ =>
   ∀ r : BitVec 64,
     r.toNat ≤ 131072 → (rem.toNat < 8192 → r = 0#64) → 4 * r.toNat ≤ rem.toNat / 8 →
     Q (r, ()) m
 
-def fullCalcScrCapSpec : Spec [i64] [i64] := fun (rem, ()) m Q _ =>
+@[expose] def fullCalcScrCapSpec : Spec [i64] [i64] := fun (rem, ()) m Q _ =>
   ∀ r : BitVec 64,
     r.toNat ≤ 32768 → (rem.toNat < 8192 → r = 0#64) → 4 * r.toNat ≤ rem.toNat / 4 →
     Q (r, ()) m
 
-def fullInitArenasSpec : Spec [i64, i64, i64, i64] [] :=
+@[expose] def fullInitArenasSpec : Spec [i64, i64, i64, i64] [] :=
   fun (h, hdr_addr, max_v, avail_dyn, ()) m Q _ =>
     ∃ (ws : List (BitVec 64)) (dcap ecap scap : Nat) (R : Mem 64 → Prop),
       h = hdr_addr ∧ ws.length = 140 ∧ max_v.toNat < 2 * dimacsBound ∧
@@ -608,7 +609,7 @@ def fullInitArenasSpec : Spec [i64, i64, i64, i64] [] :=
           ws'[113]? = some c.pLastLearned) →
         (array64 (hdr_addr + 32) ws' ⋆ R) m' → Q () m'
 
-def fullInitStateSpec : Spec [i64, i64, i64, i64, i64] [.bool] :=
+@[expose] def fullInitStateSpec : Spec [i64, i64, i64, i64, i64] [.bool] :=
   fun (cnf_ptr, cend, hdr_addr, avail, fuel, ()) m Q _ =>
     ∃ (cnfBytes : List UInt8) (R : Mem 64 → Prop),
       cend = cnf_ptr + BitVec.ofNat 64 cnfBytes.length ∧

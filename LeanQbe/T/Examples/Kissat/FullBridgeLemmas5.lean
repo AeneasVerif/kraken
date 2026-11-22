@@ -1,9 +1,9 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullSpec
-public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas
-public import LeanQbe.T.Examples.Kissat.FullSweepFwdLemmas
-public import LeanQbe.T.Examples.Kissat.FullLuckyLemmas
+import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas
+import LeanQbe.T.Examples.Kissat.FullSweepFwdLemmas
+import LeanQbe.T.Examples.Kissat.FullLuckyLemmas
 
 /-!
 # Kissat `D-Full` Canonical `FullSpec` Bridge Proofs — Shards 9–11 (`Stage 4`)
@@ -20,7 +20,7 @@ Bridges all `18` functions across three landed Stage-4 shards directly onto cano
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

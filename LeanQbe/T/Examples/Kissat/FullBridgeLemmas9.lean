@@ -18,7 +18,7 @@ zero SAT model-reconstruction proofs) directly onto canonical `FullSpec` (`mkFul
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -132,7 +132,7 @@ private theorem mkFullEnv_row_at {mainSpec : Spec [i64, i64, i64, i64, i64] [i64
     Env.ofTable_of_mem (List.mem_of_getElem? hi) (fullSpecTable_nodup mainSpec) (hno xs m Q X h)
 
 /-- Canonical `fullFns` / `fullSpecTable` indices of the `6` top orchestrator functions. -/
-def fullBridge9Indices : List Nat :=
+@[expose] def fullBridge9Indices : List Nat :=
   [160, 161, 162, 163, 164, 165]
 
 /-- Index-verified `SpecEntry.Impl (mkFullEnv mainSpec)` summary covering all `6` top orchestrators

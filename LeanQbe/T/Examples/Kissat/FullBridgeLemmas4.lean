@@ -1,11 +1,9 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullSpec
-public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas
-public import LeanQbe.T.Examples.Kissat.FullCongLemmas
-public import LeanQbe.T.Examples.Kissat.FullReduceLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas
+import LeanQbe.T.Examples.Kissat.FullCongLemmas
+import LeanQbe.T.Examples.Kissat.FullReduceLemmas
 
 /-!
 # Kissat `D-Full` Canonical `FullSpec` Bridge Lemmas — Parts 13–15 (`Stage 4`)
@@ -24,7 +22,7 @@ Parametric `(Γ : Env)` table-entry bridge lemmas `full_<fn>_bridge_wp` adapting
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

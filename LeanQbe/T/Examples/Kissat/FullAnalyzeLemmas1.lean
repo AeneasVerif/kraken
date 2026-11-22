@@ -3,8 +3,6 @@ module
 public import LeanQbe.T.Examples.Kissat.Full2
 public import LeanQbe.T.Examples.Kissat.FullInv2
 public import LeanQbe.T.Examples.Kissat.FullArena
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Conflict Analysis, OTFS & Eager Subsumption Helpers (Part 1)
@@ -25,7 +23,7 @@ Builds on `Full2` and `FullInv2` (`FullWitnessInv`, `FullCoreInv`) to provide:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -270,7 +268,7 @@ namespace FullAnalyzeSpecs
 
 /-- Both variable analysis marks (`mrk[0 ..< c.max_vars)`) and literal marks
 (`lit_mark[0 ..< 2 * c.max_vars)`) are cleared (canonical `#968`). -/
-def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
   (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8) ∧
   (∀ l < 2 * c.max_vars, s.core.lit_mark[l]?.getD 0#8 = 0#8)
 
@@ -279,28 +277,28 @@ theorem FullLitMarksClear.to_marks {c : FullCfg} {s : FullState}
   fun v hv => h.1 v (by omega)
 
 /-- Per-clause variable distinctness across live arena clauses (canonical `#968`). -/
-def FullArenaVarsNodup (s : FullState) : Prop :=
+@[expose] def FullArenaVarsNodup (s : FullState) : Prop :=
   ∀ r ∈ fullArenaClauseRefs s, fullArenaClauseGarb s r = false →
     ((fullArenaClauseLits s r).map (· / 2)).Nodup
 
 /-- All 8 eager-subsumption `last_learned` slots are either `0xFFFFFFFF#32` or a current
 arena clause block reference (canonical `#968`). -/
-def FullLastLearnedWf (s : FullState) : Prop :=
+@[expose] def FullLastLearnedWf (s : FullState) : Prop :=
   ∀ i < 8, let cr := s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32
     cr = 0xFFFFFFFF#32 ∨ cr.toNat ∈ fullArenaClauseRefs s
 
 /-- Extended scratch invariants preserved across CDCL/inprocessing (canonical `#968`). -/
-def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
   FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
 
 /-- Canonical sparse 2WL CDCL solver invariant (`#968`). -/
-def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
+@[expose] def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
     FullExtScratchOk c s ∧ s.core.dense_mode = 0#64
 
 /-- Consistency between nonzero variable marks in `mrk[0 ..< c.max_vars)` and `work_stk1`
 maintained across `full_analyze_lit` / `full_clear_ana`. -/
-def AnaWorkInv (c : FullCfg) (s : FullState) : Prop :=
+@[expose] def AnaWorkInv (c : FullCfg) (s : FullState) : Prop :=
   s.core.min_clr_len ≤ s.core.cur_vars ∧
   ((s.scratch.work_stk1.take s.core.min_clr_len).map BitVec.toNat).Nodup ∧
   (∀ k < s.core.min_clr_len,
@@ -377,7 +375,8 @@ structure FullWitnessCutInv (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat
 
 /-- Cut-generalized sparse invariant bundling `FullLitMarksClear`, `FullArenaVarsNodup`, and
 `FullExtScratchOk`. -/
-structure FullCoreCutInv (c : FullCfg) (F0 : CNF Nat) (cut : Nat) (s : FullState) : Prop where
+private structure FullCoreCutInv
+    (c : FullCfg) (F0 : CNF Nat) (cut : Nat) (s : FullState) : Prop where
   lengths : s.LengthsOk c
   dense0 : s.core.dense_mode = 0#64
   cut_le : cut ≤ s.core.trail_end
@@ -387,7 +386,7 @@ structure FullCoreCutInv (c : FullCfg) (F0 : CNF Nat) (cut : Nat) (s : FullState
   witness : ∃ F_cur, FullWitnessCutInv c F0 F_cur cut s.core
 
 /-- Conflict readiness for `full_one_lit_confl`, `full_deduce_1uip`, and `full_analyze`. -/
-def FullConflOk (F_cur : List (List Nat)) (cut : Nat) (s : FullState) : Prop :=
+@[expose] def FullConflOk (F_cur : List (List Nat)) (cut : Nat) (s : FullState) : Prop :=
   if s.core.confl_type = 1#64 then
     s.core.confl_lit0.toNat < 2 * s.core.cur_vars ∧
     s.core.confl_lit1.toNat < 2 * s.core.cur_vars ∧
@@ -410,6 +409,7 @@ def FullConflOk (F_cur : List (List Nat)) (cut : Nat) (s : FullState) : Prop :=
 
 /-! ### Callee specifications (`Full1`, `Full2`) -/
 
+@[expose]
 def fullUnwatchLargeWeakSpec : Spec [i64, i32, i32] [] := fun (h, _lit, _cref, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout s.core ∧ (FullMem c s ⋆ R) m ∧
@@ -421,7 +421,7 @@ def fullUnwatchLargeWeakSpec : Spec [i64, i32, i32] [] := fun (h, _lit, _cref, (
       (∀ F_cur, ModeWatchesInv F_cur s.core → ModeWatchesInv F_cur s'.core) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullUnwatchLargeSpec : Spec [i64, i32, i32] [] := fun (h, lit, _cref, ()) m Q _ =>
+@[expose] def fullUnwatchLargeSpec : Spec [i64, i32, i32] [] := fun (h, lit, _cref, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout s.core ∧ (FullMem c s ⋆ R) m ∧
     ∀ wvec' wstk' wusable' m',
@@ -436,7 +436,7 @@ def fullUnwatchLargeSpec : Spec [i64, i32, i32] [] := fun (h, lit, _cref, ()) m 
           s'.core.wstk[fullWatchOff s' l + k]? = s.core.wstk[fullWatchOff s l + k]?) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullWatchPushSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
+@[expose] def fullWatchPushSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
   fun (h, lit, w0, w1, cnt, ()) m Q _ =>
     ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout s.core ∧
@@ -473,7 +473,7 @@ def fullWatchPushSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
             s'.core = s.core ∨ wusable' = 0#64)) →
         (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-def fullWstackDefragSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
+@[expose] def fullWstackDefragSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ WatchStackLayout s.core ∧ (FullMem c s ⋆ R) m ∧
     ∀ wvec' wstk' wlen' wsort' m',
@@ -487,7 +487,7 @@ def fullWstackDefragSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
           s'.core.wstk[fullWatchOff s' l + k]? = s.core.wstk[fullWatchOff s l + k]?) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
+@[expose] def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧
     (∀ i < s.core.trail_end, (s.core.trl[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
@@ -520,6 +520,7 @@ def fullBacktrackSpec : Spec [i64, i64] [] := fun (h, target_lvl, ()) m Q _ =>
         (∀ F0 F_cur, FullWitnessCutInv c F0 F_cur 0 s.core → FullWitnessInv c F0 F_cur s'.core) →
         (FullMem c s' ⋆ R) m' → Q () m'
 
+@[expose]
 def fullAssignLvlSpec : Spec [i64, i32, i32, i32] [] := fun (h, lit, rsn, alvl, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
@@ -543,21 +544,21 @@ def fullAssignLvlSpec : Spec [i64, i32, i32, i32] [] := fun (h, lit, rsn, alvl, 
             scratch := { s.scratch with phases := phases' } }
         (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullScratchVarVoidSpec : Spec [i64, i32] [] := fun (h, _v, ()) m Q _ =>
+@[expose] def fullScratchVarVoidSpec : Spec [i64, i32] [] := fun (h, _v, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
     ∀ sc' m', sc'.LengthsOk c → sc'.last_learned = s.scratch.last_learned →
       sc'.extend_len = s.scratch.extend_len →
       (FullMem c { s with scratch := sc' } ⋆ R) m' → Q () m'
 
-def fullScratchVoidSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
+@[expose] def fullScratchVoidSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
     ∀ sc' m', sc'.LengthsOk c → sc'.last_learned = s.scratch.last_learned →
       sc'.extend_len = s.scratch.extend_len →
       (FullMem c { s with scratch := sc' } ⋆ R) m' → Q () m'
 
-def fullScratchEmaSpec : Spec [i64, i64] [] := fun (h, _g, ()) m Q _ =>
+@[expose] def fullScratchEmaSpec : Spec [i64, i64] [] := fun (h, _g, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
     ∀ sc' m', sc'.LengthsOk c → sc'.last_learned = s.scratch.last_learned →
@@ -570,7 +571,7 @@ abbrev fullBumpDecaySpec := fullScratchVoidSpec
 abbrev fullTickRelSpec := fullScratchVoidSpec
 abbrev fullEmaUpdateSpec := fullScratchEmaSpec
 
-def fullBumpAnalyzedSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
+@[expose] def fullBumpAnalyzedSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ AnaWorkInv c s ∧ (FullMem c s ⋆ R) m ∧
     ∀ mrk' mcl' sc' m',
@@ -580,7 +581,7 @@ def fullBumpAnalyzedSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
       sc'.last_learned = s.scratch.last_learned → sc'.extend_len = s.scratch.extend_len →
       sc'.work_stk2 = s.scratch.work_stk2 → (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullMinShrinkSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
+@[expose] def fullMinShrinkSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInv c F0 s ∧ 1 ≤ s.core.tmp_len ∧ s.core.tmp_len ≤ s.core.cur_vars ∧
     (∀ j < s.core.tmp_len,
@@ -611,7 +612,7 @@ def fullMinShrinkSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
         (cnfOfClauses F_cur).EntailsClause (cnfClause ((tmp'.take tl').map BitVec.toNat))) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullAddClauseSpec : Spec [i64, i32, i32, .bool] [i64] :=
+@[expose] def fullAddClauseSpec : Spec [i64, i32, i32, .bool] [i64] :=
   fun (h, len, _glue, _red, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ FullCoreInv c F0 s ∧ len.toNat ≤ s.core.cur_vars ∧
@@ -659,7 +660,7 @@ def fullAddClauseSpec : Spec [i64, i32, i32, .bool] [i64] :=
             (FullMem c s' ⋆ R) m') →
           Q (r, ()) m'
 
-def fullReduceSpec : Spec [i64, .bool] [i64] := fun (h, _force, ()) m Q _ =>
+@[expose] def fullReduceSpec : Spec [i64, .bool] [i64] := fun (h, _force, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullSparseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
     ∀ rr s' m',
@@ -677,6 +678,7 @@ def fullReduceSpec : Spec [i64, .bool] [i64] := fun (h, _force, ()) m Q _ =>
 
 /-! ### Owned 12-function specifications (`Full2`) -/
 
+@[expose]
 def fullAnalyzeLitSpec : Spec [i64, i32, i32] [.bool] := fun (h, lit, skip_var, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ s.core.cur_level < 2 ^ 32 ∧
@@ -724,11 +726,12 @@ def fullAnalyzeLitSpec : Spec [i64, i32, i32] [.bool] := fun (h, lit, skip_var, 
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
 /-- Helper list of reason literals (`full_analyze_rsn` / 1UIP). -/
-def fullRsnLits (s : FullState) (rsn : BitVec 32) : List Nat :=
+@[expose] def fullRsnLits (s : FullState) (rsn : BitVec 32) : List Nat :=
   if rsn = 0xFFFFFFFF#32 then []
   else if (rsn &&& 0x80000000#32) ≠ 0#32 then [(rsn &&& 0x7FFFFFFF#32).toNat]
   else fullArenaClauseLits s rsn.toNat
 
+@[expose]
 def fullAnalyzeRsnSpec : Spec [i64, i32, i32] [.bool] := fun (h, rsn, skip_var, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (cut : Nat) (s : FullState)
     (R : Mem 64 → Prop),
@@ -793,7 +796,7 @@ def fullAnalyzeRsnSpec : Spec [i64, i32, i32] [.bool] := fun (h, rsn, skip_var, 
                   (tmp'[j]?.getD 0#32).toNat / 2 = l / 2)))) →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-def fullClearAnaSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
+@[expose] def fullClearAnaSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ AnaWorkInv c s ∧ (FullMem c s ⋆ R) m ∧
     ∀ mrk' m',
@@ -801,7 +804,7 @@ def fullClearAnaSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
       s'.LengthsOk c → (∀ v < c.max_vars, mrk'[v]?.getD 0#8 = 0#8) →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullOtfsLargeSpec : Spec [i64, i32, i32] [.bool] := fun (h, cref, uip, ()) m Q _ =>
+@[expose] def fullOtfsLargeSpec : Spec [i64, i32, i32] [.bool] := fun (h, cref, uip, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (cut idx_u : Nat) (s : FullState)
     (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ s.core.dense_mode = 0#64 ∧
@@ -838,7 +841,7 @@ def fullOtfsLargeSpec : Spec [i64, i32, i32] [.bool] := fun (h, cref, uip, ()) m
             ∃ m < idx_u, (s'.core.trl[m]?.getD 0#32).toNat = l ^^^ 1)) →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-def fullOtfsBinSpec : Spec [i64, i32, i32] [.bool] := fun (h, cref, uip, ()) m Q _ =>
+@[expose] def fullOtfsBinSpec : Spec [i64, i32, i32] [.bool] := fun (h, cref, uip, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (cut idx_u : Nat) (s : FullState)
     (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ s.core.dense_mode = 0#64 ∧
@@ -872,7 +875,7 @@ def fullOtfsBinSpec : Spec [i64, i32, i32] [.bool] := fun (h, cref, uip, ()) m Q
       (ok = true → ct' = 1#64 ∧ FullConflOk F_cur idx_u s') →
       (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-def fullOtfsSubsumeSpec : Spec [i64, i32, i64, i64, .bool] [] :=
+@[expose] def fullOtfsSubsumeSpec : Spec [i64, i32, i64, i64, .bool] [] :=
   fun (h, new_confl, old_ctype, old_cref, to_bin, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (cut : Nat) (s : FullState)
       (R : Mem 64 → Prop),
@@ -899,7 +902,7 @@ def fullOtfsSubsumeSpec : Spec [i64, i32, i64, i64, .bool] [] :=
             fullArenaClauseGarb s' r = fullArenaClauseGarb s r)) →
         (FullMem c s' ⋆ R) m' → Q () m'
 
-def fullDetNewLevelSpec : Spec [i64, i64] [i64] := fun (h, jump, ()) m Q _ =>
+@[expose] def fullDetNewLevelSpec : Spec [i64, i64] [i64] := fun (h, jump, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ s.core.cur_level < 2 ^ 64 ∧ (FullMem c s ⋆ R) m ∧
     ∀ r : BitVec 64,
@@ -908,7 +911,7 @@ def fullDetNewLevelSpec : Spec [i64, i64] [i64] := fun (h, jump, ()) m Q _ =>
         jump.toNat ≤ r.toNat ∧ r.toNat < s.core.cur_level) →
       Q (r, ()) m
 
-def fullOneLitConflSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+@[expose] def fullOneLitConflSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (cut : Nat) (s : FullState)
     (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ s.core.dense_mode = 0#64 ∧
@@ -931,7 +934,7 @@ def fullOneLitConflSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
         s'.core.wusable = s.core.wusable ∧ FullConflOk F_cur cut' s') →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
-def fullDeduce1uipSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+@[expose] def fullDeduce1uipSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (cut : Nat) (s : FullState)
     (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ s.core.dense_mode = 0#64 ∧

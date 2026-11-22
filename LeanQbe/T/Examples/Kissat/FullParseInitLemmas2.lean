@@ -1,8 +1,6 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullParseInitLemmas1
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Kissat `D-Full` Sizing, Header Setup, Zeroing & State Init Proofs (Part 2, `Stage 4`)
@@ -16,7 +14,7 @@ Proves parametric `(Γ : Env)` `Func.wp` theorems for:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

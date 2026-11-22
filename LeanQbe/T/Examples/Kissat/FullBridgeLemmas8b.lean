@@ -1,9 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullSpec
-public import LeanQbe.T.Examples.Kissat.FullAnalyzeLemmas5
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Examples.Kissat.FullAnalyzeLemmas5
 
 /-!
 # Kissat `D-Full` Canonical `FullSpec` Bridge Proofs — Part 8b (`Analyze` / `OTFS`, `7` fns)
@@ -22,7 +20,7 @@ Bridges all `7` already-proved Analyze/OTFS functions (`FullAnalyzeLemmas{1,2,3,
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -750,7 +748,7 @@ private theorem mkFullEnv_row_at {mainSpec : Spec [i64, i64, i64, i64, i64] [i64
     Env.ofTable_of_mem (List.mem_of_getElem? hi) (fullSpecTable_nodup mainSpec) (hno xs m Q X h)
 
 /-- Canonical `fullFns` / `fullSpecTable` indices of the `7` Analyze/OTFS functions. -/
-def fullBridge8bIndices : List Nat :=
+@[expose] def fullBridge8bIndices : List Nat :=
   [62, 63, 64, 66, 67, 68, 77]
 
 theorem fullBridge8bIndices_length : fullBridge8bIndices.length = 7 := rfl

@@ -1,8 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullParseInitLemmas1
-public import LeanQbe.T.Examples.Kissat.FullParseInitLemmas2
-import all Kraken.Mem
+import LeanQbe.T.Examples.Kissat.FullParseInitLemmas2
 import all Kraken.Separation
 
 /-!
@@ -17,7 +16,7 @@ Proves parametric `(Γ : Env)` `Func.wp` theorems for the remaining `3` `Full1.l
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

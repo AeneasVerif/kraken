@@ -1,11 +1,9 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullSpec
-public import LeanQbe.T.Examples.Kissat.FullSubstLemmas
-public import LeanQbe.T.Examples.Kissat.FullBveVarLemmas
-public import LeanQbe.T.Examples.Kissat.FullDenseWatchLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Examples.Kissat.FullSubstLemmas
+import LeanQbe.T.Examples.Kissat.FullBveVarLemmas
+import LeanQbe.T.Examples.Kissat.FullDenseWatchLemmas
 
 /-!
 # Kissat `D-Full` Canonical `FullSpec` Bridge Proofs — Shards 12–14 (`Stage 4`)
@@ -23,7 +21,7 @@ all `10 / 10` fully canonical against `fullSpecTable fullSolveBytesSpec`):
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

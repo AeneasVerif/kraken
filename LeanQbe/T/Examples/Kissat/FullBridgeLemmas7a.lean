@@ -1,9 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullSpec
-public import LeanQbe.T.Examples.Kissat.FullVivTopLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Examples.Kissat.FullVivTopLemmas
 
 /-!
 # Kissat `D-Full` Canonical `FullSpec` Bridge Proofs — Vivification Drivers (`Stage 4`, Part 7a)
@@ -16,7 +14,7 @@ Bridges the `2` top-level vivification driver functions onto canonical `FullSpec
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 

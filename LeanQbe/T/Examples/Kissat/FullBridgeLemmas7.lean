@@ -2,12 +2,10 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullSpec
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas
-public import LeanQbe.T.Examples.Kissat.FullTransLemmas
-public import LeanQbe.T.Examples.Kissat.FullVivifyLemmas
+import LeanQbe.T.Examples.Kissat.FullTransLemmas
+import LeanQbe.T.Examples.Kissat.FullVivifyLemmas
 public import LeanQbe.T.Examples.Kissat.FullBridgeLemmas7a
-public import LeanQbe.T.Examples.Kissat.FullBvaFwdLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Examples.Kissat.FullBvaFwdLemmas
 
 /-!
 # Kissat `D-Full` Canonical `FullSpec` Bridge Proofs — Part A (`22` fns, `Stage 4`)
@@ -30,7 +28,7 @@ Bridges `22` functions across four landed Stage-4 families onto canonical `FullS
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Examples.Kissat.Full
 
@@ -324,7 +322,7 @@ private theorem mkFullEnv_row_at {mainSpec : Spec [i64, i64, i64, i64, i64] [i64
     Env.ofTable_of_mem (List.mem_of_getElem? hi) (fullSpecTable_nodup mainSpec) (hno xs m Q X h)
 
 /-- Canonical `fullFns` / `fullSpecTable` indices of the `22` functions bridged in Part A. -/
-def fullBridge7Indices : List Nat :=
+@[expose] def fullBridge7Indices : List Nat :=
   [0, 1, 2, 3, 4, 5, 6, 7, 112, 113, 114, 115, 116, 117, 118, 119, 145, 146, 147, 157, 158, 159]
 
 /-- Index-verified `SpecEntry.Impl (mkFullEnv mainSpec)` summary covering all `22` Part-A
