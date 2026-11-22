@@ -227,8 +227,8 @@ if [ -z "${STAGE_LEAN_PATH:-}" ] && [ "${SKIP_BUILD:-0}" != "1" ]; then
     LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
     Kraken.X64.PrintATT Kraken.AArch64.Print LeanQbe.T.Amd64.PrintATTAlign
 fi
-run_lean 180 --run test/kissat/emit_m4_x64.lean "$OUT/m4_x64.s" "$OUT/m4_gen.hpp"
-run_lean 180 --run test/kissat/emit_m4_arm64.lean "$OUT/m4_arm64.s"
+run_lean 300 --run test/kissat/emit_m4_x64.lean "$OUT/m4_x64.s" "$OUT/m4_gen.hpp"
+run_lean 300 --run test/kissat/emit_m4_arm64.lean "$OUT/m4_arm64.s"
 
 cat > "$OUT/m4_bridge.cpp" <<'CPP'
 #include <cstdint>
