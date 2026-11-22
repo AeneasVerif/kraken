@@ -3,8 +3,6 @@ module
 public import LeanQbe.T.Amd64.Frame
 public import LeanQbe.T.AbiLemmas
 import Kraken.X64.Parser
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # SysV x64 Frame Verification (`T11b`)
@@ -17,7 +15,7 @@ All frame and slot proofs hold unconditionally up to `frameSize ns + 8 ≤ 2 ^ 6
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Amd64
 
@@ -26,10 +24,10 @@ open Std Std.ExtHashMap
 /-! ## 1. Frame size arithmetic and address helpers -/
 
 theorem x64FrameSize_ge (ns : Nat) : 8 * ns ≤ x64FrameSize ns := by
-  simp only [x64FrameSize]; split <;> omega
+  dsimp only [x64FrameSize]; split <;> omega
 
 theorem x64FrameSize_mod (ns : Nat) : x64FrameSize ns % 16 = 8 := by
-  simp only [x64FrameSize]
+  dsimp only [x64FrameSize]
   rcases Nat.mod_two_eq_zero_or_one ns with h | h <;> simp [h] <;> omega
 
 @[t_step_simp]
@@ -70,8 +68,10 @@ private theorem frame_upd_regs {s s' : MachineData} {gClob : List Reg64} {fClob 
   refine ⟨hkeep, fun vr _ => by simp [hvec], ?_⟩
   rcases hflg with rfl | hst
   · intro cc hdisj
-    cases cc <;> simp [FlagMask.disjoint, x64CondReads, maskAll, maskOF, maskCF, maskZF, maskSF,
-      maskPF] at hdisj
+    cases cc <;> (
+      dsimp only [FlagMask.disjoint, x64CondReads, maskAll, maskOF, maskCF, maskZF, maskSF,
+        maskPF] at hdisj
+      exact absurd hdisj (by decide))
   · intro cc _; simp [hst]
 
 private theorem x64SubSpD_fallsTo (c : Int64) (s : MachineData) :
@@ -79,7 +79,7 @@ private theorem x64SubSpD_fallsTo (c : Int64) (s : MachineData) :
       (fun s' => s'.regs = s.regs.set64 .rsp (s.regs.get64 .rsp - c.toBitVec) ∧
         s'.zmms = s.zmms ∧ s'.dmem = s.dmem) := by
   intro _ p next jmp P hk
-  simp only [t_step_simp, x64SubSpD]
+  dsimp only [x64SubSpD]; simp only [t_step_simp]
   exact hk _ ⟨rfl, rfl, rfl⟩
 
 private theorem x64AddSpD_fallsTo (c : Int64) (s : MachineData) :
@@ -87,14 +87,14 @@ private theorem x64AddSpD_fallsTo (c : Int64) (s : MachineData) :
       (fun s' => s'.regs = s.regs.set64 .rsp (s.regs.get64 .rsp + c.toBitVec) ∧
         s'.zmms = s.zmms ∧ s'.dmem = s.dmem) := by
   intro _ p next jmp P hk
-  simp only [t_step_simp, x64AddSpD, BitVec.add_comm]
+  dsimp only [x64AddSpD]; simp only [t_step_simp, BitVec.add_comm]
   exact hk _ ⟨rfl, rfl, rfl⟩
 
 private theorem x64MoviD_fallsTo (rd : Reg64) (c : BitVec 64) (s : MachineData) :
     Directive.FallsTo (x64MoviD rd c) s
       (fun s' => s' = { s with regs := s.regs.set64 rd c }) := by
   intro _ p next jmp P hk
-  simp only [t_step_simp, x64MoviD, Int64.toBitVec_ofBitVec, BitVec.truncate]
+  dsimp only [x64MoviD]; simp only [t_step_simp, Int64.toBitVec_ofBitVec, BitVec.truncate]
   rw [BitVec.setWidth_eq]
   exact hk _ rfl
 
@@ -145,7 +145,7 @@ private theorem x64LdAddr_fallsTo (rd : Reg64) (addr : AddrExpr) (a v : BitVec 6
 
 /-! ## 3. `FrameTarget` snippet specifications -/
 
-theorem x64Prologue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
+private theorem x64Prologue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
     {G : Mem 64 → Prop} {post : MachineState → Prop}
     (hF : x64FrameSize ns + 8 ≤ 2 ^ 64)
     (hmem : s.dmem =⋆ cell64 (s.regs.get64 .rsp) ra.toBitVec ⋆
@@ -200,7 +200,7 @@ theorem x64Prologue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
     have hne2 : .r10 ≠ r := fun e => hr (by simp [e])
     rw [hregs, Reg64s.get64_set64_of_ne _ _ _ _ hne1, Reg64s.get64_set64_of_ne _ _ _ _ hne2]
 
-theorem x64Epilogue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
+private theorem x64Epilogue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
     {G : Mem 64 → Prop} {post : MachineState → Prop}
     (hmem : s.dmem =⋆
       (region (s.regs.get64 .rsp + BitVec.ofNat 64 (x64FrameSize ns) -
@@ -246,7 +246,7 @@ theorem x64Epilogue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
     have hne2 : .r10 ≠ r := fun e => hr (by simp [e])
     rw [hregs, Reg64s.get64_set64_of_ne _ _ _ _ hne1, Reg64s.get64_set64_of_ne _ _ _ _ hne2]
 
-theorem x64SlotSt_spec {h : Host} {k i : Nat} {r : Reg64} {s : MachineData}
+private theorem x64SlotSt_spec {h : Host} {k i : Nat} {r : Reg64} {s : MachineData}
     {G : Mem 64 → Prop} {post : MachineState → Prop}
     (hr : r ∉ x64Scratch)
     (hmem : s.dmem =⋆ region (s.regs.get64 .rsp + BitVec.ofNat 64 (8 * i)) 8 ⋆ G) :
@@ -285,7 +285,7 @@ theorem x64SlotSt_spec {h : Host} {k i : Nat} {r : Reg64} {s : MachineData}
     have hne : .r10 ≠ x := fun e => hx (by simp [e, x64Scratch])
     rw [hregs, Reg64s.get64_set64_of_ne _ _ _ _ hne]
 
-theorem x64SlotLd_spec {h : Host} {k i : Nat} {rd : Reg64} {v : BitVec 64} {s : MachineData}
+private theorem x64SlotLd_spec {h : Host} {k i : Nat} {rd : Reg64} {v : BitVec 64} {s : MachineData}
     {G : Mem 64 → Prop} {post : MachineState → Prop}
     (hrd : rd ∉ x64Scratch)
     (hmem : s.dmem =⋆ cell64 (s.regs.get64 .rsp + BitVec.ofNat 64 (8 * i)) v ⋆ G) :
@@ -354,7 +354,7 @@ private theorem x64Canon32_fallsTo (r : Reg64) (s : MachineData) :
   simp only [t_step_simp, BitVec.zeroExtend]
   exact hk _ rfl
 
-theorem x64CanonAbi_spec {h : Host} {k : Nat} {t : Ty} {r : Reg64} {v : Val t}
+private theorem x64CanonAbi_spec {h : Host} {k : Nat} {t : Ty} {r : Reg64} {v : Val t}
     {s : MachineData} {post : MachineState → Prop}
     (ht : t = .bool ∨ ∃ n ∈ [8, 16, 32, 64], t = .bits n)
     (hh : GprHolds (s.regs.get64 r) t v) :
@@ -384,7 +384,7 @@ theorem x64CanonAbi_spec {h : Host} {k : Nat} {t : Ty} {r : Reg64} {v : Val t}
     · exact hsingle _ 32 (x64Canon32_fallsTo r s) (abiGprHolds_bits_of_gprHolds hh)
     · exact Machine.FallsTo.nil ⟨abiGprHolds_bits64_of_gprHolds hh, rfl⟩
 
-theorem x64Call_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
+private theorem x64Call_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
     {G : Mem 64 → Prop} {post : MachineState → Prop}
     (hc : [x64CallD sym].IsInfixAt Host.prog k)
     (hmem : s.dmem =⋆ region (s.regs.get64 .rsp - 8#64) 8 ⋆ G)
@@ -398,7 +398,7 @@ theorem x64Call_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
   letI := h
   obtain ⟨bs, hl, hbs⟩ := region_sep_elim hmem
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
-  simp only [t_step_simp, x64CallD, Width.bytesv, Width.bytes, Width.bits]
+  dsimp only [x64CallD]; simp only [t_step_simp, Width.bytesv, Width.bytes, Width.bits]
   rw [store_All_of_sep { s with regs := s.regs.set64 .rsp (s.regs.get64 .rsp - 8#64) } _
     .W64 _ _ _ bs G hbs hl]
   have hrsp : ({ s with regs := s.regs.set64 .rsp (s.regs.get64 .rsp - 8#64) }).regs.get64 .rsp =
@@ -421,7 +421,7 @@ theorem x64Call_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
   rw [hrsp]
   exact hm'
 
-theorem x64ExitJmp_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
+private theorem x64ExitJmp_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
     {post : MachineState → Prop}
     (hc : [x64JmpD sym].IsInfixAt Host.prog k)
     (hk : ∀ s' : MachineData,
@@ -430,11 +430,11 @@ theorem x64ExitJmp_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
     x64Mach.Run h k s post := by
   letI := h
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
-  simp only [t_step_simp, x64JmpD, RelRegOrMem.interp]
+  dsimp only [x64JmpD]; simp only [t_step_simp, RelRegOrMem.interp]
   rw [Int64.ofBitVec_toBitVec, Int64.add_comm, Int64.sub_add_cancel]
   exact hk s (Machine.Frame.refl (M := x64Mach) x64CondReads s x64Scratch [] maskNone) rfl
 
-theorem x64Ret_spec {h : Host} {k : Nat} {s : MachineData} {ra : Int64}
+private theorem x64Ret_spec {h : Host} {k : Nat} {s : MachineData} {ra : Int64}
     {R : Mem 64 → Prop} {post : MachineState → Prop}
     (hc : [x64RetD].IsInfixAt Host.prog k)
     (hmem : s.dmem =⋆ cell64 (s.regs.get64 .rsp) ra.toBitVec ⋆ R)
@@ -447,7 +447,7 @@ theorem x64Ret_spec {h : Host} {k : Nat} {s : MachineData} {ra : Int64}
     x64Mach.Run h k s post := by
   letI := h
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
-  simp only [t_step_simp, x64RetD]
+  dsimp only [x64RetD]; simp only [t_step_simp]
   rw [load_All_of_sep _ _ .W64 _ _ (Int.toBytes 8 ra.toBitVec.toInt) R hmem
     (Int.toBytes_length _ _)]
   have hra : BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 ra.toBitVec.toInt)) = ra.toBitVec :=
@@ -491,7 +491,7 @@ theorem x64FrameSpec_spec :
   ret_spec {h} {_} {_} {_} {_} {_} hc _ hmem hk :=
     letI := h; x64Ret_spec hc hmem hk
 
-def x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads where
+@[expose] def x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads where
   toFramePreds := x64FramePreds
   spec := x64FrameSpec_spec
 

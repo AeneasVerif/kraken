@@ -24,20 +24,21 @@ O(N) metadata-only kernel time without re-running `compileFn` or `Rega.lowerFn`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
 /-! ## 1. Signature-bound export, literal-backed constructors, & lookup helpers -/
 
 /-- Legalized `(fnSig, stackBound)` entries exported by a pre-verified `Compiled` chunk. -/
-def Compiled.sigBounds {T : Target} {lt : LegalTarget} {extCallees : List (SigEntry × Nat)}
-    {exits : List Sym} {nX : Nat} {fs : List Fn} {hints : List T.toIsa.Hints}
-    {maxBound : Nat} (M : Compiled T lt extCallees exits nX fs hints maxBound) :
+@[expose] def Compiled.sigBounds {T : Target} {lt : LegalTarget}
+    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
+    {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}
+    (M : Compiled T lt extCallees exits nX fs hints maxBound) :
     List (SigEntry × Nat) :=
   fs.map fun f => ((f.name, lt.legalSig f.as, lt.legalSig f.rs), M.bound f.name)
 
-def sigBoundsOf (lt : LegalTarget) (fs : List Fn) (bounds : List (Sym × Nat)) :
+@[expose] def sigBoundsOf (lt : LegalTarget) (fs : List Fn) (bounds : List (Sym × Nat)) :
     List (SigEntry × Nat) :=
   fs.map fun f =>
     ((f.name, lt.legalSig f.as, lt.legalSig f.rs), (lookupFnBound bounds f.name).getD 0)
@@ -50,7 +51,7 @@ theorem sigBoundsOf_eq {T : Target} {lt : LegalTarget} {extCallees : List (SigEn
 
 theorem sigBoundsOf_names (lt : LegalTarget) (fs : List Fn) (bounds : List (Sym × Nat)) :
     (sigBoundsOf lt fs bounds).map (fun p => p.1.1) = fs.map Fn.name := by
-  simp [sigBoundsOf, List.map_map, Function.comp_def]
+  dsimp only [sigBoundsOf]; simp [List.map_map, Function.comp_def]
 
 theorem compileModule_bounds_names {I : Isa} {lt : LegalTarget} {raBytes : Nat}
     {exits : List Sym} {nX : Nat} :
@@ -58,11 +59,9 @@ theorem compileModule_bounds_names {I : Isa} {lt : LegalTarget} {raBytes : Nat}
       {code : List I.Directive} {bounds : List (Sym × Nat)},
       compileModule I lt raBytes extCallees exits nX fs hints = .ok (code, bounds) →
       bounds.map Prod.fst = fs.map Fn.name
-  | _, [], [], _, _, h => by
-    simp only [compileModule, Except.ok.injEq, Prod.mk.injEq] at h
-    rcases h with ⟨_, rfl⟩; rfl
-  | _, [], _ :: _, _, _, h => by simp [compileModule] at h
-  | _, _ :: _, [], _, _, h => by simp [compileModule] at h
+  | _, [], [], _, _, h => by dsimp only [compileModule] at h; cases h; rfl
+  | _, [], _ :: _, _, _, h => by dsimp only [compileModule] at h; cases h
+  | _, _ :: _, [], _, _, h => by dsimp only [compileModule] at h; cases h
   | _, f :: _, _ :: _, _, _, h => by
     dsimp only [compileModule] at h
     split at h
@@ -80,7 +79,8 @@ theorem lookupFnBound_append_left :
       nm ∈ bs₁.map Prod.fst → lookupFnBound (bs₁ ++ bs₂) nm = lookupFnBound bs₁ nm
   | [], _, _, h => nomatch h
   | (k, v) :: bs₁, bs₂, nm, h => by
-    simp only [lookupFnBound, List.cons_append, List.find?]
+    dsimp only [lookupFnBound]
+    simp only [List.cons_append, List.find?]
     cases hbeq : k == nm
     · simp only [List.map_cons, List.mem_cons] at h
       rcases h with rfl | h'
@@ -95,13 +95,14 @@ theorem lookupFnBound_append_right :
   | (k, v) :: bs₁, bs₂, nm, h => by
     simp only [List.map_cons, List.mem_cons, not_or] at h
     have hne : (k == nm) = false := beq_false_of_ne (Ne.symm h.1)
-    simp only [lookupFnBound, List.cons_append, List.find?, hne]
+    dsimp only [lookupFnBound]
+    simp only [List.cons_append, List.find?, hne]
     exact lookupFnBound_append_right h.2
 
 private theorem lookupFnBound_cons_ne {k : Sym} {b : Nat} {bs : List (Sym × Nat)} {nm : Sym}
     (hne : nm ≠ k) : lookupFnBound ((k, b) :: bs) nm = lookupFnBound bs nm := by
   have hb : (k == nm) = false := beq_false_of_ne (Ne.symm hne)
-  simp [lookupFnBound, hb]
+  dsimp only [lookupFnBound]; simp [hb]
 
 private theorem sigBoundsOf_cons (lt : LegalTarget) (f : Fn) (fs : List Fn)
     (b : Nat) (bs : List (Sym × Nat)) (hnd : f.name ∉ fs.map Fn.name) :
@@ -109,13 +110,15 @@ private theorem sigBoundsOf_cons (lt : LegalTarget) (f : Fn) (fs : List Fn)
       ((f.mid lt).sig, b) :: sigBoundsOf lt fs bs := by
   have hhead : ((f.name, lt.legalSig f.as, lt.legalSig f.rs),
       (lookupFnBound ((f.name, b) :: bs) f.name).getD 0) = ((f.mid lt).sig, b) := by
-    simp [Fn.mid, Fn.lateOpt, Fn.legal, Fn.earlyOpt, Fn.sig, lookupFnBound]
+    dsimp only [Fn.mid, Fn.lateOpt, Fn.legal, Fn.earlyOpt, Fn.sig, lookupFnBound]
+    simp
   have htail : fs.map (fun g => ((g.name, lt.legalSig g.as, lt.legalSig g.rs),
         (lookupFnBound ((f.name, b) :: bs) g.name).getD 0)) = sigBoundsOf lt fs bs := by
     refine List.map_congr_left fun g hg => ?_
     have hne : g.name ≠ f.name := fun e => hnd (e ▸ List.mem_map_of_mem hg)
     rw [lookupFnBound_cons_ne hne]
-  simp only [sigBoundsOf, List.map_cons]
+  dsimp only [sigBoundsOf]
+  simp only [List.map_cons]
   rw [hhead]
   exact congrArg (List.cons _) htail
 
@@ -129,10 +132,12 @@ private theorem lookupBound_cons_swap :
     have hxs_ne : ∀ r ∈ xs, r.1.1 ≠ p.1.1 := fun r hr => hnd r (List.mem_cons_of_mem q hr)
     have ih := lookupBound_cons_swap (ys := ys) hxs_ne g
     cases hp : SigEntry.beq p.1 g <;> cases hq : SigEntry.beq q.1 g
-    · simp only [lookupBound, List.cons_append, List.find?, hq, hp] at ih ⊢
+    · dsimp only [lookupBound] at ih ⊢
+      simp only [List.cons_append, List.find?, hq, hp] at ih ⊢
       exact ih
-    · simp only [lookupBound, List.cons_append, List.find?, hq, hp]
-    · simp only [lookupBound, List.cons_append, List.find?, hq, hp] at ih ⊢
+    · dsimp only [lookupBound]; simp only [List.cons_append, List.find?, hq, hp]
+    · dsimp only [lookupBound] at ih ⊢
+      simp only [List.cons_append, List.find?, hq, hp] at ih ⊢
       exact ih
     · have hp_eq : p.1 = g := SigEntry.beq_iff_eq.mp hp
       have hq_eq : q.1 = g := SigEntry.beq_iff_eq.mp hq
@@ -147,7 +152,7 @@ private theorem calleesBound_mono_lookupBound {F raBytes : Nat}
       calleesBound F raBytes ext₁ gs = some n → calleesBound F raBytes ext₂ gs = some n
   | [], _, h => h
   | g :: gs, n, h => by
-    simp only [calleesBound] at h ⊢
+    dsimp only [calleesBound] at h ⊢
     cases h1 : lookupBound ext₁ g with
     | none => simp [h1] at h
     | some bg =>
@@ -165,7 +170,7 @@ private theorem checkAndBoundExt_mono_lookupBound {I : Isa} {raBytes : Nat}
     {h : I.Hints} {ext : Rega.Ext} {b : Nat}
     (hc : checkAndBoundExt I raBytes exits nX ext₁ h ext = some b) :
     checkAndBoundExt I raBytes exits nX ext₂ h ext = some b := by
-  simp only [checkAndBoundExt] at hc ⊢
+  dsimp only [checkAndBoundExt] at hc ⊢
   cases hcb : calleesBound (I.frame.frameSize h.totalSlots) raBytes ext₁ ext.callees with
   | none => simp [hcb] at hc
   | some n₁ =>
@@ -179,7 +184,7 @@ private theorem lookupBound_cons_mono {s : SigEntry} {b : Nat}
     ∀ g bg,
       lookupBound ((s, b) :: ext₁) g = some bg → lookupBound ((s, b) :: ext₂) g = some bg := by
   intro g bg hg
-  simp only [lookupBound, List.find?] at hg ⊢
+  dsimp only [lookupBound] at hg ⊢; simp only [List.find?] at hg ⊢
   cases hbeq : SigEntry.beq s g
   · simp only [hbeq] at hg ⊢; exact hmono g bg hg
   · simp only [hbeq] at hg ⊢; exact hg
@@ -194,8 +199,8 @@ theorem compileModule_mono_lookupBound {I : Isa} {lt : LegalTarget} {raBytes : N
       compileModule I lt raBytes ext₁ exits nX fs hints = .ok (code, bounds) →
       compileModule I lt raBytes ext₂ exits nX fs hints = .ok (code, bounds)
   | _, _, [], [], _, _, _, h => h
-  | _, _, [], _ :: _, _, _, _, h => by simp [compileModule] at h
-  | _, _, _ :: _, [], _, _, _, h => by simp [compileModule] at h
+  | _, _, [], _ :: _, _, _, _, h => by dsimp only [compileModule] at h; cases h
+  | _, _, _ :: _, [], _, _, _, h => by dsimp only [compileModule] at h; cases h
   | ext₁, ext₂, f :: fs, hint :: hints, code, bounds, hmono, h => by
     dsimp only [compileModule] at h ⊢
     cases hl : Rega.lowerFn I hint (f.mid lt).ext (f.mid lt) with
@@ -230,12 +235,13 @@ theorem compileModule_append {I : Isa} {lt : LegalTarget} {raBytes : Nat}
       compileModule I lt raBytes ext₀ exits nX (fs₁ ++ fs₂) (hints₁ ++ hints₂) =
         .ok (code₁ ++ code₂, bounds₁ ++ bounds₂)
   | ext₀, ext₂, [], [], fs₂, hints₂, code₁, code₂, bounds₁, bounds₂, h₁, h₂, _, hsig => by
-    simp only [compileModule, Except.ok.injEq, Prod.mk.injEq] at h₁
-    rcases h₁ with ⟨rfl, rfl⟩
+    dsimp only [compileModule] at h₁; cases h₁
     simp only [List.nil_append]
-    exact compileModule_mono_lookupBound (by simpa [sigBoundsOf] using hsig) h₂
-  | _, _, [], _ :: _, _, _, _, _, _, _, h₁, _, _, _ => by simp [compileModule] at h₁
-  | _, _, _ :: _, [], _, _, _, _, _, _, h₁, _, _, _ => by simp [compileModule] at h₁
+    exact compileModule_mono_lookupBound (by dsimp only [sigBoundsOf] at hsig; simpa using hsig) h₂
+  | _, _, [], _ :: _, _, _, _, _, _, _, h₁, _, _, _ => by
+    dsimp only [compileModule] at h₁; cases h₁
+  | _, _, _ :: _, [], _, _, _, _, _, _, h₁, _, _, _ => by
+    dsimp only [compileModule] at h₁; cases h₁
   | ext₀, ext₂, f :: fs₁, hint :: hints₁, fs₂, hints₂, code₁, code₂, bounds₁, bounds₂,
       h₁, h₂, hnd, hsig => by
     simp only [List.map_cons, List.nodup_cons] at hnd
@@ -285,13 +291,13 @@ theorem compileModule_append {I : Isa} {lt : LegalTarget} {raBytes : Nat}
 /-- Metadata-only validity check over pre-evaluated literal `(code, bounds)` (does not invoke
 `compileModule`), used with `compileCheckedLit` so downstream `checkLink*` never re-runs the
 compiler. -/
-def checkCompileLit {D : Type} (label : Sym → D) (progSmall : List D → Bool)
+@[expose] def checkCompileLit {D : Type} (label : Sym → D) (progSmall : List D → Bool)
     (code : List D) (bounds : List (Sym × Nat))
     (fnNames exits : List Sym) (maxBound : Nat) : Bool :=
   checkCompileResult label progSmall (.ok (code, bounds)) fnNames exits maxBound
 
 /-- Variant of `checkCompileLit` checking label uniqueness via `labelsNodup`. -/
-def checkCompileLitWithLabels {D : Type} (label : Sym → D)
+@[expose] def checkCompileLitWithLabels {D : Type} (label : Sym → D)
     (labelsNodup progSmall : List D → Bool)
     (code : List D) (bounds : List (Sym × Nat))
     (fnNames exits : List Sym) (maxBound : Nat) : Bool :=
@@ -311,7 +317,7 @@ a one-shot `compileModule` kernel proof `hcm`, and a fast metadata check `hchk`.
 `MainLemmas.compileChecked` (whose `extractCode`/`extractBounds` fields force `compileModule`
 whenever read in `t_kernel_rfl`), this stores `code` and `bounds` directly so downstream
 `sigBounds`, `checkLink`, and `checkLinkList` are purely metadata-only. -/
-def compileCheckedLit (T : Target) (L : TargetLayout T) (lt : LegalTarget)
+@[expose] def compileCheckedLit (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (hcl : Rega.LabelClean T.toIsa) (extCallees : List (SigEntry × Nat)) (exits : List Sym)
     (nX : Nat) (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048)
     (code : List T.Directive) (bounds : List (Sym × Nat))
@@ -347,7 +353,7 @@ def compileCheckedLit (T : Target) (L : TargetLayout T) (lt : LegalTarget)
 
 /-- Variant of `compileCheckedLit` using `checkCompileLitWithLabels` and
 `L.labelsUnique_layoutOf`. -/
-def compileCheckedLitWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
+@[expose] def compileCheckedLitWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (extCallees : List (SigEntry × Nat)) (exits : List Sym)
     (nX : Nat) (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048)
     (code : List T.Directive) (bounds : List (Sym × Nat))
@@ -383,7 +389,7 @@ def compileCheckedLitWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTar
 /-- Metadata-only O(N) linker validator using structural `fnNameOk` + `stringsNodup` + `L.progSmall`
 (when `M₁`, `M₂` are literal-backed via `compileCheckedLit`, kernel evaluation never re-runs
 `compileFn`, `Rega.lowerFn`, or `compileModule`). -/
-def checkLink {T : Target} (L : TargetLayout T) {lt : LegalTarget}
+@[expose] def checkLink {T : Target} (L : TargetLayout T) {lt : LegalTarget}
     {ext₀ : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
     {fs₁ : List Fn} {hints₁ : List T.toIsa.Hints} {maxB₁ : Nat}
     {fs₂ : List Fn} {hints₂ : List T.toIsa.Hints} {maxB₂ : Nat}
@@ -397,7 +403,7 @@ def checkLink {T : Target} (L : TargetLayout T) {lt : LegalTarget}
   L.progSmall prog
 
 /-- Variant of `checkLink` checking label uniqueness via `L.labelsNodup`. -/
-def checkLinkWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
+@[expose] def checkLinkWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
     {ext₀ : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
     {fs₁ : List Fn} {hints₁ : List T.toIsa.Hints} {maxB₁ : Nat}
     {fs₂ : List Fn} {hints₂ : List T.toIsa.Hints} {maxB₂ : Nat}
@@ -420,7 +426,8 @@ theorem checkLink_parts {T : Target} {L : TargetLayout T} {lt : LegalTarget}
       exits.all fnNameOk = true ∧
       ((fs₁ ++ fs₂).map Fn.name ++ exits).Nodup ∧
       L.progSmall (M₁.code ++ M₂.code ++ exits.map T.frame.label) = true := by
-  simp only [checkLink, Bool.and_eq_true] at h
+  dsimp only [checkLink] at h
+  simp only [Bool.and_eq_true] at h
   refine ⟨?_, h.1.1.2, ?_, h.2⟩
   · simpa [List.map_append] using h.1.1.1
   · simpa [List.map_append] using stringsNodup_nodup h.1.2
@@ -435,7 +442,8 @@ theorem checkLinkWithLabels_parts {T : Target} {L : TargetLayout T} {lt : LegalT
     ((fs₁ ++ fs₂).map Fn.name ++ exits).Nodup ∧
       L.labelsNodup (M₁.code ++ M₂.code ++ exits.map T.frame.label) = true ∧
       L.progSmall (M₁.code ++ M₂.code ++ exits.map T.frame.label) = true := by
-  simp only [checkLinkWithLabels, Bool.and_eq_true] at h
+  dsimp only [checkLinkWithLabels] at h
+  simp only [Bool.and_eq_true] at h
   exact ⟨by simpa [List.map_append] using stringsNodup_nodup h.1.1, h.1.2, h.2⟩
 
 theorem compileModule_pair_eq {T : Target} {lt : LegalTarget}
@@ -488,7 +496,7 @@ theorem pair_bound_le {T : Target} {lt : LegalTarget}
 
 /-- Link two pre-verified `Compiled` chunks into one `Compiled` over `fs₁ ++ fs₂` using only
 metadata validation (`checkLink`) and `hcl : Rega.LabelClean T.toIsa`. -/
-def linkCompiled {T : Target} (L : TargetLayout T) {lt : LegalTarget}
+@[expose] def linkCompiled {T : Target} (L : TargetLayout T) {lt : LegalTarget}
     (hcl : Rega.LabelClean T.toIsa)
     {ext₀ : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
     {fs₁ : List Fn} {hints₁ : List T.toIsa.Hints} {maxB₁ : Nat}
@@ -514,7 +522,7 @@ def linkCompiled {T : Target} (L : TargetLayout T) {lt : LegalTarget}
       (by simp only [List.all_append, Bool.and_eq_true]; exact ⟨hp.1, hp.2.1⟩) i j l hi hj
 
 /-- Variant of `linkCompiled` using `checkLinkWithLabels` and `L.labelsUnique_layoutOf`. -/
-def linkCompiledWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
+@[expose] def linkCompiledWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
     {ext₀ : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
     {fs₁ : List Fn} {hints₁ : List T.toIsa.Hints} {maxB₁ : Nat}
     {fs₂ : List Fn} {hints₂ : List T.toIsa.Hints} {maxB₂ : Nat}
@@ -546,7 +554,7 @@ theorem linkCompiled_bound_left {T : Target} {L : TargetLayout T} {lt : LegalTar
     (linkCompiled L hcl M₁ M₂ h).bound nm = M₁.bound nm := by
   have hb1 : M₁.bounds.map Prod.fst = fs₁.map Fn.name :=
     compileModule_bounds_names M₁.compileModule_eq
-  simp only [Compiled.bound, linkCompiled]
+  dsimp only [Compiled.bound, linkCompiled]
   rw [lookupFnBound_append_left (hb1 ▸ hnm)]
 
 theorem linkCompiled_bound_right {T : Target} {L : TargetLayout T} {lt : LegalTarget}
@@ -568,7 +576,7 @@ theorem linkCompiled_bound_right {T : Target} {L : TargetLayout T} {lt : LegalTa
     rw [hb1]
     intro h1
     exact hdisj nm h1 nm hnm rfl
-  simp only [Compiled.bound, linkCompiled]
+  dsimp only [Compiled.bound, linkCompiled]
   rw [lookupFnBound_append_right hnot]
 
 /-! ## 5. Multi-chunk list linking (`CompiledChunk`, `checkLinkList`, `linkCompiledList`) -/
@@ -582,44 +590,44 @@ structure CompiledChunk (T : Target) (lt : LegalTarget) (exits : List Sym) (nX :
   compiled : Compiled T lt extCallees exits nX fs hints maxBound
 
 /-- Concatenated directive stream of a chunk list. -/
-def chunksCode {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
+@[expose] def chunksCode {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
     List (CompiledChunk T lt exits nX) → List T.Directive
   | [] => []
   | c :: cs => c.compiled.code ++ chunksCode cs
 
 /-- Concatenated typed functions of a chunk list. -/
-def chunksFns {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
+@[expose] def chunksFns {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
     List (CompiledChunk T lt exits nX) → List Fn
   | [] => []
   | c :: cs => c.fs ++ chunksFns cs
 
 /-- Concatenated register-allocation hints of a chunk list. -/
-def chunksHints {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
+@[expose] def chunksHints {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
     List (CompiledChunk T lt exits nX) → List T.toIsa.Hints
   | [] => []
   | c :: cs => c.hints ++ chunksHints cs
 
 /-- Concatenated stack bounds of a chunk list. -/
-def chunksBounds {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
+@[expose] def chunksBounds {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
     List (CompiledChunk T lt exits nX) → List (Sym × Nat)
   | [] => []
   | c :: cs => c.compiled.bounds ++ chunksBounds cs
 
 /-- Maximum stack-frame bound across a chunk list. -/
-def chunksMaxBound {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
+@[expose] def chunksMaxBound {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat} :
     List (CompiledChunk T lt exits nX) → Nat
   | [] => 0
   | c :: cs => Nat.max c.maxBound (chunksMaxBound cs)
 
-def sigEntryNatBeq (a b : SigEntry × Nat) : Bool :=
+@[expose] def sigEntryNatBeq (a b : SigEntry × Nat) : Bool :=
   SigEntry.beq a.1 b.1 && (a.2 == b.2)
 
 theorem sigEntryNatBeq_iff_eq {a b : SigEntry × Nat} :
     sigEntryNatBeq a b = true ↔ a = b := by
   rcases a with ⟨sa, na⟩; rcases b with ⟨sb, nb⟩
-  simp [sigEntryNatBeq, SigEntry.beq_iff_eq]
+  dsimp only [sigEntryNatBeq]; simp [SigEntry.beq_iff_eq]
 
-def extListBeq : List (SigEntry × Nat) → List (SigEntry × Nat) → Bool
+@[expose] def extListBeq : List (SigEntry × Nat) → List (SigEntry × Nat) → Bool
   | [], [] => true
   | a :: as, b :: bs => sigEntryNatBeq a b && extListBeq as bs
   | _, _ => false
@@ -628,16 +636,18 @@ theorem extListBeq_eq : ∀ {xs ys : List (SigEntry × Nat)},
     extListBeq xs ys = true → xs = ys
   | [], [], _ => rfl
   | _ :: _, _ :: _, h => by
-    simp only [extListBeq, Bool.and_eq_true, sigEntryNatBeq_iff_eq] at h
+    dsimp only [extListBeq] at h
+    simp only [Bool.and_eq_true, sigEntryNatBeq_iff_eq] at h
     rw [h.1, extListBeq_eq h.2]
 
-def checkExtCompat (acc ext : List (SigEntry × Nat)) : Bool :=
+@[expose] def checkExtCompat (acc ext : List (SigEntry × Nat)) : Bool :=
   extListBeq ext acc || ext.all (fun p => lookupBound acc p.1 == some p.2)
 
 theorem checkExtCompat_lookupBound {acc ext : List (SigEntry × Nat)}
     (h : checkExtCompat acc ext = true) :
     ∀ g bg, lookupBound ext g = some bg → lookupBound acc g = some bg := by
-  simp only [checkExtCompat, Bool.or_eq_true] at h
+  dsimp only [checkExtCompat] at h
+  simp only [Bool.or_eq_true] at h
   rcases h with heq | hall
   · rw [extListBeq_eq heq]; exact fun _ _ hg => hg
   · intro g bg hg
@@ -645,7 +655,7 @@ theorem checkExtCompat_lookupBound {acc ext : List (SigEntry × Nat)}
 
 /-- Check that every chunk's `extCallees` is compatible with the accumulated `sigBounds` of
 preceding chunks plus `ext₀`. -/
-def checkChunksExt {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat}
+@[expose] def checkChunksExt {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat}
     (acc : List (SigEntry × Nat)) : List (CompiledChunk T lt exits nX) → Bool
   | [] => true
   | c :: cs =>
@@ -655,7 +665,7 @@ def checkChunksExt {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat}
 /-- O(N) metadata-only linker validator for a list of pre-compiled chunks using structural
 `fnNameOk` + `stringsNodup` + `L.progSmall` (with zero compiler re-evaluation when chunks are
 literal-backed via `compileCheckedLit`). -/
-def checkLinkList {T : Target} (L : TargetLayout T) {lt : LegalTarget}
+@[expose] def checkLinkList {T : Target} (L : TargetLayout T) {lt : LegalTarget}
     {exits : List Sym} {nX : Nat} (ext₀ : List (SigEntry × Nat))
     (chunks : List (CompiledChunk T lt exits nX)) : Bool :=
   let fnNames := (chunksFns chunks).map Fn.name
@@ -667,7 +677,7 @@ def checkLinkList {T : Target} (L : TargetLayout T) {lt : LegalTarget}
   L.progSmall prog
 
 /-- Variant of `checkLinkList` checking label uniqueness via `L.labelsNodup`. -/
-def checkLinkListWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
+@[expose] def checkLinkListWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
     {exits : List Sym} {nX : Nat} (ext₀ : List (SigEntry × Nat))
     (chunks : List (CompiledChunk T lt exits nX)) : Bool :=
   let fnNames := (chunksFns chunks).map Fn.name
@@ -686,7 +696,8 @@ theorem checkLinkList_parts {T : Target} {L : TargetLayout T} {lt : LegalTarget}
       exits.all fnNameOk = true ∧
       ((chunksFns chunks).map Fn.name ++ exits).Nodup ∧
       L.progSmall (chunksCode chunks ++ exits.map T.frame.label) = true := by
-  simp only [checkLinkList, Bool.and_eq_true] at h
+  dsimp only [checkLinkList] at h
+  simp only [Bool.and_eq_true] at h
   exact ⟨h.1.1.1.1, h.1.1.1.2, h.1.1.2, stringsNodup_nodup h.1.2, h.2⟩
 
 theorem checkLinkListWithLabels_parts {T : Target} {L : TargetLayout T} {lt : LegalTarget}
@@ -697,7 +708,8 @@ theorem checkLinkListWithLabels_parts {T : Target} {L : TargetLayout T} {lt : Le
       ((chunksFns chunks).map Fn.name ++ exits).Nodup ∧
       L.labelsNodup (chunksCode chunks ++ exits.map T.frame.label) = true ∧
       L.progSmall (chunksCode chunks ++ exits.map T.frame.label) = true := by
-  simp only [checkLinkListWithLabels, Bool.and_eq_true] at h
+  dsimp only [checkLinkListWithLabels] at h
+  simp only [Bool.and_eq_true] at h
   exact ⟨h.1.1.1, stringsNodup_nodup h.1.1.2, h.1.2, h.2⟩
 
 theorem compileModule_chunks_eq {T : Target} {lt : LegalTarget}
@@ -709,8 +721,10 @@ theorem compileModule_chunks_eq {T : Target} {lt : LegalTarget}
         (chunksFns chunks) (chunksHints chunks) = .ok (chunksCode chunks, chunksBounds chunks)
   | _, [], _, _ => rfl
   | ext₀, c :: cs, hchk, hnd => by
-    simp only [checkChunksExt, Bool.and_eq_true] at hchk
-    simp only [chunksFns, List.map_append] at hnd
+    dsimp only [checkChunksExt] at hchk
+    simp only [Bool.and_eq_true] at hchk
+    dsimp only [chunksFns] at hnd
+    simp only [List.map_append] at hnd
     have hnd_split := List.nodup_append.mp hnd
     have hc_ext : compileModule T.toIsa lt T.frame.raBytes ext₀ exits nX c.fs c.hints =
         .ok (c.compiled.code, c.compiled.bounds) :=
@@ -728,7 +742,8 @@ theorem chunks_bound_mem {T : Target} {lt : LegalTarget}
   | c :: cs, nm, h => by
     have hb : c.compiled.bounds.map Prod.fst = c.fs.map Fn.name :=
       compileModule_bounds_names c.compiled.compileModule_eq
-    simp only [chunksFns, chunksBounds, List.map_append, List.mem_append] at h ⊢
+    dsimp only [chunksFns, chunksBounds] at h ⊢
+    simp only [List.map_append, List.mem_append] at h ⊢
     rcases h with hc | hcs
     · rw [lookupFnBound_append_left (hb ▸ hc)]
       exact Or.inl (c.compiled.bound_mem hc)
@@ -744,7 +759,7 @@ theorem chunks_bound_le {T : Target} {lt : LegalTarget}
       (lookupFnBound (chunksBounds chunks) nm).getD 0 ≤ chunksMaxBound chunks
   | [], _ => Nat.le_refl 0
   | c :: cs, nm => by
-    simp only [chunksBounds, chunksMaxBound]
+    dsimp only [chunksBounds, chunksMaxBound]
     by_cases hm : nm ∈ c.compiled.bounds.map Prod.fst
     · rw [lookupFnBound_append_left hm]
       exact Nat.le_trans (c.compiled.bound_le nm) (Nat.le_max_left _ _)
@@ -753,7 +768,7 @@ theorem chunks_bound_le {T : Target} {lt : LegalTarget}
 
 /-- Link an arbitrary list of pre-verified `CompiledChunk`s into a single `Compiled` over
 `chunksFns chunks` using only O(N) metadata validation (`checkLinkList`). -/
-def linkCompiledList {T : Target} (L : TargetLayout T) {lt : LegalTarget}
+@[expose] def linkCompiledList {T : Target} (L : TargetLayout T) {lt : LegalTarget}
     (hcl : Rega.LabelClean T.toIsa) {exits : List Sym} {nX : Nat}
     (ext₀ : List (SigEntry × Nat)) (chunks : List (CompiledChunk T lt exits nX))
     (h : checkLinkList L ext₀ chunks = true) :
@@ -781,7 +796,7 @@ def linkCompiledList {T : Target} (L : TargetLayout T) {lt : LegalTarget}
       (by simp only [List.all_append, Bool.and_eq_true]; exact ⟨hp.2.1, hp.2.2.1⟩) i j l hi hj
 
 /-- Variant of `linkCompiledList` using `checkLinkListWithLabels` and `L.labelsUnique_layoutOf`. -/
-def linkCompiledListWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
+@[expose] def linkCompiledListWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
     {exits : List Sym} {nX : Nat} (ext₀ : List (SigEntry × Nat))
     (chunks : List (CompiledChunk T lt exits nX))
     (h : checkLinkListWithLabels L ext₀ chunks = true) :
@@ -809,7 +824,7 @@ private theorem mem_chunksFns_of_mem {T : Target} {lt : LegalTarget}
     ∀ {cs : List (CompiledChunk T lt exits nX)}, c ∈ cs → nm ∈ (chunksFns cs).map Fn.name
   | [], h => nomatch h
   | d :: ds, h => by
-    simp only [chunksFns, List.map_append, List.mem_append]
+    dsimp only [chunksFns]; simp only [List.map_append, List.mem_append]
     rcases List.mem_cons.mp h with rfl | hds
     · exact Or.inl hnm
     · exact Or.inr (mem_chunksFns_of_mem hnm hds)
@@ -822,19 +837,19 @@ private theorem chunks_bound_eq_of_mem {T : Target} {lt : LegalTarget}
         (lookupFnBound (chunksBounds chunks) nm).getD 0 = c.compiled.bound nm
   | [], _, _, hc, _, _ => nomatch hc
   | c₀ :: cs, hnd, c, hc, nm, hnm => by
-    simp only [chunksFns, List.map_append] at hnd
+    dsimp only [chunksFns] at hnd; simp only [List.map_append] at hnd
     have hnd_split := List.nodup_append.mp hnd
     have hb0 : c₀.compiled.bounds.map Prod.fst = c₀.fs.map Fn.name :=
       compileModule_bounds_names c₀.compiled.compileModule_eq
     rcases List.mem_cons.mp hc with rfl | hcs
-    · simp only [chunksBounds, Compiled.bound]
+    · dsimp only [chunksBounds, Compiled.bound]
       rw [lookupFnBound_append_left (hb0 ▸ hnm)]
     · have hnm_cs : nm ∈ (chunksFns cs).map Fn.name := mem_chunksFns_of_mem hnm hcs
       have hnot0 : nm ∉ c₀.compiled.bounds.map Prod.fst := by
         rw [hb0]
         intro h0
         exact hnd_split.2.2 nm h0 nm hnm_cs rfl
-      simp only [chunksBounds]
+      dsimp only [chunksBounds]
       rw [lookupFnBound_append_right hnot0]
       exact chunks_bound_eq_of_mem cs hnd_split.2.1 c hcs hnm
 
@@ -844,7 +859,7 @@ theorem linkCompiledList_bound {T : Target} {L : TargetLayout T} {lt : LegalTarg
     (h : checkLinkList L ext₀ chunks = true) {c : CompiledChunk T lt exits nX}
     (hc : c ∈ chunks) {nm : Sym} (hnm : nm ∈ c.fs.map Fn.name) :
     (linkCompiledList L hcl ext₀ chunks h).bound nm = c.compiled.bound nm := by
-  simp only [Compiled.bound, linkCompiledList]
+  dsimp only [Compiled.bound, linkCompiledList]
   exact chunks_bound_eq_of_mem chunks
     (List.nodup_append.mp (checkLinkList_parts h).2.2.2.1).1 c hc hnm
 

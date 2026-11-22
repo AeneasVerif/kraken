@@ -27,7 +27,7 @@ import LeanQbe.T.Logic.MemLemmas
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -295,11 +295,10 @@ theorem compileModule_code_labels {T : Target} (hcl : Rega.LabelClean T.toIsa)
       (∀ (i j : Nat) (l : Sym), code[i]? = some (T.frame.label l) →
         code[j]? = some (T.frame.label l) → i = j)
   | _, [], [], _, _, hcm, _, _ => by
-    simp only [compileModule, Except.ok.injEq, Prod.mk.injEq] at hcm
-    rcases hcm with ⟨rfl, rfl⟩
+    dsimp only [compileModule] at hcm; cases hcm
     exact ⟨fun _ _ hi => by simp at hi, fun _ _ _ hi => by simp at hi⟩
-  | _, [], _ :: _, _, _, hcm, _, _ => by simp [compileModule] at hcm
-  | _, _ :: _, [], _, _, hcm, _, _ => by simp [compileModule] at hcm
+  | _, [], _ :: _, _, _, hcm, _, _ => by dsimp only [compileModule] at hcm; cases hcm
+  | _, _ :: _, [], _, _, hcm, _, _ => by dsimp only [compileModule] at hcm; cases hcm
   | extCallees, f :: fs, h :: hs, code, bounds, hcm, hnd, hok => by
     simp only [List.map_cons, List.nodup_cons, List.mem_map, not_exists, not_and] at hnd
     simp only [List.all_cons, Bool.and_eq_true] at hok
@@ -481,9 +480,10 @@ theorem compileModule_append_labelsUnique {T : Target} (hcl : Rega.LabelClean T.
 
 theorem lookupBound_mem : ∀ {bounds : List (SigEntry × Nat)} {g : SigEntry} {v : Nat},
     lookupBound bounds g = some v → (g, v) ∈ bounds
-  | [], _, _, h => by simp [lookupBound] at h
+  | [], _, _, h => by dsimp only [lookupBound] at h; cases h
   | p :: ps, g, v, h => by
-    simp only [lookupBound, List.find?] at h
+    dsimp only [lookupBound] at h
+    simp only [List.find?] at h
     split at h
     · next heq =>
       simp only [Option.map_some, Option.some.injEq] at h
@@ -492,9 +492,10 @@ theorem lookupBound_mem : ∀ {bounds : List (SigEntry × Nat)} {g : SigEntry} {
 
 theorem lookupFnBound_mem : ∀ {bounds : List (Sym × Nat)} {g : Sym} {v : Nat},
     lookupFnBound bounds g = some v → (g, v) ∈ bounds
-  | [], _, _, h => by simp [lookupFnBound] at h
+  | [], _, _, h => by dsimp only [lookupFnBound] at h; cases h
   | p :: ps, g, v, h => by
-    simp only [lookupFnBound, List.find?] at h
+    dsimp only [lookupFnBound] at h
+    simp only [List.find?] at h
     split at h
     · next heq =>
       simp only [Option.map_some, Option.some.injEq] at h
@@ -505,7 +506,7 @@ theorem calleesBound_ge {F raBytes : Nat} {bounds : List (SigEntry × Nat)} :
     ∀ {gs : List SigEntry} {n : Nat}, calleesBound F raBytes bounds gs = some n → F ≤ n
   | [], _, h => by cases h; exact Nat.le_refl _
   | g :: gs, n, h => by
-    simp only [calleesBound] at h
+    dsimp only [calleesBound] at h
     split at h
     · next bg rest _ _ =>
       cases h
@@ -517,7 +518,7 @@ theorem calleesBound_mem {F raBytes : Nat} {bounds : List (SigEntry × Nat)} :
       ∀ g ∈ gs, ∃ bg, lookupBound bounds g = some bg ∧ F + raBytes + bg ≤ n
   | [], _, _, _, h => nomatch h
   | _ :: _, _, h, g, hmem => by
-    simp only [calleesBound] at h
+    dsimp only [calleesBound] at h
     split at h
     · next bg rest h1 h2 =>
       cases h
@@ -534,7 +535,7 @@ theorem checkAndBoundExt_spec {I : Isa} {raBytes : Nat} {exits : List Sym} {nX :
       (∀ g ∈ ext.callees, ∃ bg, lookupBound bounds g = some bg ∧
         I.frame.frameSize h.totalSlots + raBytes + bg ≤ n) ∧
       (∀ g ∈ ext.exits, g ∈ exits ∧ nX ≤ n) := by
-  simp only [checkAndBoundExt] at hc
+  dsimp only [checkAndBoundExt] at hc
   cases hcb : calleesBound (I.frame.frameSize h.totalSlots) raBytes bounds ext.callees with
   | none => rw [hcb] at hc; cases hc
   | some n₁ =>
@@ -569,9 +570,9 @@ theorem compile_of_compileModule {I : Isa} {lt : LegalTarget} {raBytes : Nat}
       {code : List I.Directive} {bounds : List (Sym × Nat)},
       compileModule I lt raBytes extCallees exits nX fs hints = .ok (code, bounds) →
       compile I lt fs hints = .ok code
-  | _, [], [], _, _, h => by simp [compileModule] at h; cases h.1; rfl
-  | _, [], _ :: _, _, _, h => by simp [compileModule] at h
-  | _, _ :: _, [], _, _, h => by simp [compileModule] at h
+  | _, [], [], _, _, h => by dsimp only [compileModule] at h; cases h; rfl
+  | _, [], _ :: _, _, _, h => by dsimp only [compileModule] at h; cases h
+  | _, _ :: _, [], _, _, h => by dsimp only [compileModule] at h; cases h
   | _, _ :: _, _ :: _, _, _, h => by
     dsimp only [compileModule] at h
     split at h
@@ -582,7 +583,7 @@ theorem compile_of_compileModule {I : Isa} {lt : LegalTarget} {raBytes : Nat}
         rcases h with ⟨rfl, rfl⟩
         have h1 : compileFn I lt _ _ = .ok c := hl
         have h2 := compile_of_compileModule hrest
-        simp [compile, h1, h2]
+        dsimp only [compile]; simp [h1, h2]
       · simp at h
     · simp at h
     · simp at h
@@ -754,9 +755,11 @@ private theorem compile_sound_aux (T : Target) (host : T.mach.Host) (lt : LegalT
         T.FnSpec host p.1
           (legalEnv lt (Env.ofModule M Γ) p.1 (lt.legalSig f.as) (lt.legalSig f.rs)) p.2 nX
   | [], [], _, _, _, _, hcm, _, _, _, _, _, _, _, p, hp => by
-    simp [compileModule] at hcm; rcases hcm with ⟨_, rfl⟩; cases hp
-  | [], _ :: _, _, _, _, _, hcm, _, _, _, _, _, _, _, _, _ => by simp [compileModule] at hcm
-  | _ :: _, [], _, _, _, _, hcm, _, _, _, _, _, _, _, _, _ => by simp [compileModule] at hcm
+    dsimp only [compileModule] at hcm; cases hcm; cases hp
+  | [], _ :: _, _, _, _, _, hcm, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [compileModule] at hcm; cases hcm
+  | _ :: _, [], _, _, _, _, hcm, _, _, _, _, _, _, _, _, _ => by
+    dsimp only [compileModule] at hcm; cases hcm
   | f :: fs, hint :: hints, extCallees, code, bounds, k₀, hcm, hc, hu, hfsnd, hfns,
       hext, hext_eq, hext_disj, p, hp => by
     simp only [List.map_cons, List.nodup_cons] at hfsnd
@@ -915,9 +918,10 @@ theorem checkCompileResult_parts {D : Type} {label : Sym → D} {progSmall : Lis
       (extractBounds res).all (fun p => Nat.ble p.2 maxBound) = true ∧
       fnNames.all (fun nm => (lookupFnBound (extractBounds res) nm).isSome) = true := by
   cases res with
-  | error _ => simp [checkCompileResult] at h
+  | error _ => dsimp only [checkCompileResult] at h; cases h
   | ok cb =>
-    rcases cb with ⟨c, b⟩; simp only [checkCompileResult, Bool.and_eq_true] at h
+    rcases cb with ⟨c, b⟩; dsimp only [checkCompileResult] at h
+    simp only [Bool.and_eq_true] at h
     unfold extractCode extractBounds
     exact ⟨rfl, h.1.1.1.1.1, h.1.1.1.1.2, stringsNodup_nodup h.1.1.1.2, h.1.1.2, h.1.2, h.2⟩
 
@@ -936,9 +940,10 @@ theorem checkWithLabels_parts {D : Type} {label : Sym → D} {labelsNodup progSm
       (extractBounds res).all (fun p => Nat.ble p.2 maxBound) = true ∧
       fnNames.all (fun nm => (lookupFnBound (extractBounds res) nm).isSome) = true := by
   cases res with
-  | error _ => simp [checkCompileResultWithLabels] at h
+  | error _ => dsimp only [checkCompileResultWithLabels] at h; cases h
   | ok cb =>
-    rcases cb with ⟨c, b⟩; simp only [checkCompileResultWithLabels, Bool.and_eq_true] at h
+    rcases cb with ⟨c, b⟩; dsimp only [checkCompileResultWithLabels] at h
+    simp only [Bool.and_eq_true] at h
     unfold extractCode extractBounds
     exact ⟨rfl, h.1.1.1, h.1.1.2, h.1.2, h.2⟩
 
@@ -955,7 +960,7 @@ structure TargetLayout (T : Target) where
 
 /-- Construct a `TargetLayout` when label uniqueness is discharged structurally via
 `Rega.LabelClean` (`compileChecked`), without scanning directives with `labelsNodup`. -/
-def TargetLayout.ofClean {T : Target} (progSmall : List T.Directive → Bool)
+@[expose] def TargetLayout.ofClean {T : Target} (progSmall : List T.Directive → Bool)
     (layoutOf : (prog : List T.Directive) → progSmall prog = true → T.mach.Host)
     (prog_layoutOf : ∀ (prog : List T.Directive) (h : progSmall prog = true),
       T.mach.prog (layoutOf prog h) = prog) : TargetLayout T :=
@@ -984,7 +989,7 @@ variable {T : Target} {lt : LegalTarget} {extCallees : List (SigEntry × Nat)}
   {exits : List Sym} {nX : Nat} {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}
 
 /-- Stack bound computed for function `nm` in `M`. -/
-def bound (M : Compiled T lt extCallees exits nX fs hints maxBound) (nm : Sym) : Nat :=
+@[expose] def bound (M : Compiled T lt extCallees exits nX fs hints maxBound) (nm : Sym) : Nat :=
   (lookupFnBound M.bounds nm).getD 0
 
 theorem bound_mem_of_mem (M : Compiled T lt extCallees exits nX fs hints maxBound)
@@ -1084,7 +1089,7 @@ theorem supportsAll_to_forall {lt : LegalTarget} {fs : List Fn}
 
 /-- Single boolean predicate checked once by `t_kernel_rfl`, using structural `fnNameOk` +
 `stringsNodup (fnNames ++ exits)` (no O(L²) scan over internal `.L` block labels). -/
-def checkCompile (T : Target) (L : TargetLayout T) (lt : LegalTarget)
+@[expose] def checkCompile (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat)
     (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048) : Bool :=
   checkCompileResult T.frame.label L.progSmall
@@ -1092,7 +1097,7 @@ def checkCompile (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (fs.map Fn.name) exits maxBound
 
 /-- Construct `Compiled` from `checkCompile = true` and `hcl : Rega.LabelClean T.toIsa`. -/
-def compileChecked (T : Target) (L : TargetLayout T) (lt : LegalTarget)
+@[expose] def compileChecked (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (hcl : Rega.LabelClean T.toIsa) (extCallees : List (SigEntry × Nat)) (exits : List Sym)
     (nX : Nat) (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048)
     (h : checkCompile T L lt extCallees exits nX fs hints maxBound = true) :
@@ -1117,7 +1122,7 @@ def compileChecked (T : Target) (L : TargetLayout T) (lt : LegalTarget)
       (by simp only [List.all_append, Bool.and_eq_true]; exact ⟨hp.2.1, hp.2.2.1⟩) i j l hi hj
 
 /-- Variant boolean predicate checking label uniqueness via `L.labelsNodup`. -/
-def checkCompileWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
+@[expose] def checkCompileWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat)
     (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048) : Bool :=
   checkCompileResultWithLabels T.frame.label L.labelsNodup L.progSmall
@@ -1126,7 +1131,7 @@ def checkCompileWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
 
 /-- Construct `Compiled` via `L.labelsNodup` and `L.labelsUnique_layoutOf` (for targets that
 supply `stringsNodup` without `Rega.LabelClean`). -/
-def compileCheckedWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
+@[expose] def compileCheckedWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat)
     (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048)
     (h : checkCompileWithLabels T L lt extCallees exits nX fs hints maxBound = true) :

@@ -3,8 +3,6 @@ module
 public import LeanQbe.T.Arm64.Frame
 public import LeanQbe.T.AbiLemmas
 import Kraken.AArch64.Parser
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # AAPCS64 Arm64 Frame Verification (`T11b`)
@@ -18,7 +16,7 @@ literal-pool + register-offset fallback for `4096 ≤ armFrameSize ns` and `3276
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Arm64
 
@@ -27,13 +25,13 @@ open Std Std.ExtHashMap
 /-! ## 1. Frame size arithmetic, alignment, and address helpers -/
 
 theorem armFrameSize_ge (ns : Nat) : 8 * ns + 8 ≤ armFrameSize ns := by
-  unfold armFrameSize; omega
+  dsimp only [armFrameSize]; omega
 
 theorem armFrameSize_slots (ns : Nat) : 8 * ns ≤ armFrameSize ns := by
   have := armFrameSize_ge ns; omega
 
 theorem armFrameSize_mod (ns : Nat) : armFrameSize ns % 16 = 0 := by
-  unfold armFrameSize; omega
+  dsimp only [armFrameSize]; omega
 
 theorem armCheckSP_eq_false (s : MachineData) (hsp : (get s .SP).toNat % 16 = 0) :
     (s.regs.getRegOrSp RegOrSp.SP % 16#64 != 0#64) = false := by
@@ -53,8 +51,8 @@ theorem armAtSp_eval [Labels] (s : MachineData) (o : Nat) (p : Std.Rco Int64) :
 @[t_step_simp]
 theorem armAtSpIdx_eval [Labels] (s : MachineData) (r : XReg) (p : Std.Rco Int64) :
     (armAtSpIdx r).eval s p = (s.regs.SP.toBitVec + (s.regs.getXReg r).toBitVec, s) := by
-  simp only [AddrExpr.eval, MemExtRegExpr.interp, BitVec.apply_mem_extend,
-    Reg64s.getRegOrSp_sp64, BitVec.signed, Reg64s.getRegOrZr64, RegOrZr.base]
+  dsimp only [AddrExpr.eval, MemExtRegExpr.interp, BitVec.apply_mem_extend]
+  simp only [Reg64s.getRegOrSp_sp64, BitVec.signed, Reg64s.getRegOrZr64, RegOrZr.base]
   exact congrArg (·, s) (ofInt_toInt_add_toNat _ _)
 
 /-! ## 2. Frame helpers & shared building-block `Program.wp` lemmas -/
@@ -66,7 +64,9 @@ private theorem armFrame_upd_regs {s s' : MachineData} {gClob : List Reg} {fClob
   refine ⟨hkeep, fun v => v.elim, ?_⟩
   rcases hflg with rfl | hst
   · intro c hdisj
-    cases c <;> simp [FlagMask.disjoint, armCondReads, maskAll, maskN, maskZ, maskC, maskV] at hdisj
+    cases c <;> (
+      dsimp only [FlagMask.disjoint, armCondReads, maskAll, maskN, maskZ, maskC, maskV] at hdisj
+      exact absurd hdisj (by decide))
   · intro c _; simp [hst]
 
 private theorem Reg64s_getXReg_setSP (regs : Reg64s) (v : UInt64) (x : XReg) :
@@ -106,9 +106,8 @@ private theorem armSubSpX16_fallsTo (s : MachineData) :
     armDirFallsTo (ins (.SUB_e (.low .SP .W64) (.low .SP .W64) (.ext (armUxtx .X16)))) s
       (fun s' => s' = { s with regs := { s.regs with SP := UInt64.ofBitVec (get s .SP - get s (.reg .X16)) } }) := by
   intro _ p next jmp P hk
-  simp only [t_step_simp, ExtRegExpr.interp, BitVec.apply_extend,
-    Reg64s.setRegOrSp_sp64, Reg64s.getRegOrSp_sp64, RegWidth.bits, Reg64s.getRegOrZr64,
-    RegOrZr.base, BitVec.unsigned]
+  simp only [t_step_simp, Reg64s.setRegOrSp_sp64, Reg64s.getRegOrSp_sp64, RegWidth.bits]
+  dsimp only [ExtRegExpr.interp, BitVec.apply_extend, BitVec.unsigned]
   rw [BitVec.ofInt_natCast, BitVec.ofNat_toNat]
   exact hk _ rfl
 
@@ -116,9 +115,8 @@ private theorem armAddSpX16_fallsTo (s : MachineData) :
     armDirFallsTo (ins (.ADD_e (.low .SP .W64) (.low .SP .W64) (.ext (armUxtx .X16)))) s
       (fun s' => s' = { s with regs := { s.regs with SP := UInt64.ofBitVec (get s .SP + get s (.reg .X16)) } }) := by
   intro _ p next jmp P hk
-  simp only [t_step_simp, ExtRegExpr.interp, BitVec.apply_extend,
-    Reg64s.setRegOrSp_sp64, Reg64s.getRegOrSp_sp64, RegWidth.bits, Reg64s.getRegOrZr64,
-    RegOrZr.base, BitVec.unsigned]
+  simp only [t_step_simp, Reg64s.setRegOrSp_sp64, Reg64s.getRegOrSp_sp64, RegWidth.bits]
+  dsimp only [ExtRegExpr.interp, BitVec.apply_extend, BitVec.unsigned]
   rw [BitVec.ofInt_natCast, BitVec.ofNat_toNat]
   exact hk _ rfl
 
@@ -335,7 +333,7 @@ private theorem armCanonAbiXReg_wp [Host] {t : Ty} {x : XReg} {v : Val t} (s : M
 
 /-! ## 4. `FrameTarget` snippet specifications -/
 
-theorem armPrologue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
+private theorem armPrologue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
     {G : Mem 64 → Prop} {post : MachineState → Prop}
     (hra : get s (.reg .X30) = ra.toBitVec)
     (hsp : (get s .SP).toNat % 16 = 0)
@@ -389,7 +387,7 @@ theorem armPrologue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
   · have hx16 : x ≠ .X16 := fun e => hx (by simp [e, armScratch])
     rw [hx2 x hx16, hx1 x hx16]
 
-theorem armEpilogue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
+private theorem armEpilogue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
     {G : Mem 64 → Prop} {post : MachineState → Prop}
     (hsp : (get s .SP).toNat % 16 = 0)
     (hF : armFrameSize ns ≤ 2 ^ 64)
@@ -449,7 +447,7 @@ theorem armEpilogue_spec {h : Host} {k ns : Nat} {s : MachineData} {ra : Int64}
   have hx16 : x ≠ .X16 := fun e => hx (by simp [e, armScratch])
   rw [hx2 x hx16, hx1 x hx30 hx16]
 
-theorem armSlotSt_spec {h : Host} {k i : Nat} {r : Reg} {s : MachineData}
+private theorem armSlotSt_spec {h : Host} {k i : Nat} {r : Reg} {s : MachineData}
     {G : Mem 64 → Prop} {post : MachineState → Prop}
     (hr : r ∉ armScratch)
     (hsp : (get s .SP).toNat % 16 = 0)
@@ -486,7 +484,7 @@ theorem armSlotSt_spec {h : Host} {k i : Nat} {r : Reg} {s : MachineData}
     have hy17 : y ≠ .X17 := fun e => hy (by simp [e, armScratch])
     rw [hx' y hy16, Reg64s.getXReg_setXReg_of_ne _ _ _ _ hy17.symm]
 
-theorem armSlotLd_spec {h : Host} {k i : Nat} {rd : Reg} {v : BitVec 64} {s : MachineData}
+private theorem armSlotLd_spec {h : Host} {k i : Nat} {rd : Reg} {v : BitVec 64} {s : MachineData}
     {G : Mem 64 → Prop} {post : MachineState → Prop}
     (hrd : rd ∉ armScratch)
     (hsp : (get s .SP).toNat % 16 = 0)
@@ -518,7 +516,7 @@ theorem armSlotLd_spec {h : Host} {k i : Nat} {rd : Reg} {v : BitVec 64} {s : Ma
     have hy16 : y ≠ .X16 := fun e => hy (by simp [e, armScratch])
     exact hx1 y hy17 hy16
 
-theorem armCanonAbi_spec {h : Host} {k : Nat} {t : Ty} {r : Reg} {v : Val t}
+private theorem armCanonAbi_spec {h : Host} {k : Nat} {t : Ty} {r : Reg} {v : Val t}
     {s : MachineData} {post : MachineState → Prop}
     (ht : t = .bool ∨ ∃ n ∈ [8, 16, 32, 64], t = .bits n)
     (hr : r ∉ armScratch)
@@ -599,7 +597,7 @@ theorem armCanonAbi_spec {h : Host} {k : Nat} {t : Ty} {r : Reg} {v : Val t}
   · cases r <;>
       exact Machine.FallsTo.nil ⟨abiGprHolds_bits64_of_gprHolds hh, rfl⟩
 
-theorem armCall_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
+private theorem armCall_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
     {G : Mem 64 → Prop} {post : MachineState → Prop}
     (hc : [armCallD sym].IsInfixAt Host.prog k)
     (hmem : s.dmem =⋆ region (get s .SP - 0#64) 0 ⋆ G)
@@ -612,7 +610,8 @@ theorem armCall_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
     armMach.Run h k s post := by
   letI := h
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
-  simp only [t_step_simp, armCallD, Reg64s.setRegOrZr_reg64]
+  dsimp only [armCallD]
+  simp only [t_step_simp, Reg64s.setRegOrZr_reg64]
   have hra : BitVec.ofInt 64 (Host.addrOf (k + 1)).toInt = (Host.addrOf (k + 1)).toBitVec := by
     rw [← Int64.toInt_toBitVec, BitVec.ofInt_toInt]
   rw [hra]
@@ -622,7 +621,7 @@ theorem armCall_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
   have hy30 : y ≠ .X30 := fun e => hy (by simp [e])
   exact Reg64s.getXReg_setXReg_of_ne _ _ _ _ hy30.symm
 
-theorem armExitJmp_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
+private theorem armExitJmp_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
     {post : MachineState → Prop}
     (hc : [armJmpD sym].IsInfixAt Host.prog k)
     (hk : ∀ s' : MachineData,
@@ -631,10 +630,10 @@ theorem armExitJmp_spec {h : Host} {k : Nat} {sym : Sym} {s : MachineData}
     armMach.Run h k s post := by
   letI := h
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
-  simp only [t_step_simp, armJmpD]
+  dsimp only [armJmpD]; simp only [t_step_simp]
   exact hk s (Machine.Frame.refl (M := armMach) armCondReads s armScratch [] maskNone) rfl
 
-theorem armRet_spec {h : Host} {k : Nat} {s : MachineData} {ra : Int64}
+private theorem armRet_spec {h : Host} {k : Nat} {s : MachineData} {ra : Int64}
     {post : MachineState → Prop}
     (hc : [armRetD].IsInfixAt Host.prog k)
     (hra : get s (.reg .X30) = ra.toBitVec)
@@ -647,7 +646,8 @@ theorem armRet_spec {h : Host} {k : Nat} {s : MachineData} {ra : Int64}
     armMach.Run h k s post := by
   letI := h
   refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
-  simp only [t_step_simp, armRetD, Reg64s.getRegOrZr_reg64]
+  dsimp only [armRetD]
+  simp only [t_step_simp, Reg64s.getRegOrZr_reg64]
   have hpc : Int64.ofInt (s.regs.getXReg .X30).toBitVec.signed = ra := by
     rw [show (s.regs.getXReg .X30).toBitVec = ra.toBitVec from hra]
     simp [BitVec.signed, Int64.toInt_toBitVec, Int64.ofInt_toInt]
@@ -690,7 +690,7 @@ theorem armFrameSpec_spec :
   ret_spec {h} {_} {_} {_} {_} {_} hc hra _ hk :=
     letI := h; armRet_spec hc hra hk
 
-def armFrameSpec : FrameTarget armMach armFrame armCondReads where
+@[expose] def armFrameSpec : FrameTarget armMach armFrame armCondReads where
   toFramePreds := armFramePreds
   spec := armFrameSpec_spec
 

@@ -17,7 +17,7 @@ Command elaborator evaluating `compileModule` and `sigBoundsOf` in the meta inte
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -51,7 +51,7 @@ def evalChunkLiterals (I : Isa) (lt : LegalTarget) (raBytes : Nat)
   let sigs := sigBoundsOf lt fs bounds
   pure [Lean.toExpr code, Lean.toExpr bounds, Lean.toExpr sigs]
 
-def addLitDef (declNm : Name) (ty val : Lean.Expr) : CoreM Unit := do
+private def addLitDef (declNm : Name) (ty val : Lean.Expr) : CoreM Unit := do
   let decl := Declaration.defnDecl {
     name := declNm, levelParams := [], type := ty, value := val,
     hints := .abbrev, safety := .safe }

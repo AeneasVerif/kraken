@@ -7,8 +7,6 @@ import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Amd64.IselLemmas5
 import LeanQbe.T.Amd64.IselVecLemmas3
 import LeanQbe.T.Amd64.FrameLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # SysV x64 `LabelClean`, `TargetLayout`, `TargetInit`, & Concrete Lifting (`T12i`)
@@ -26,7 +24,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Amd64
 
@@ -68,20 +66,20 @@ theorem x64LabelClean : Rega.LabelClean x64Target.toIsa where
 /-! ## 2. Concrete Kraken x64 `TargetLayout` -/
 
 /-- Uniform x64 layout: 4 bytes per instruction, 0 bytes per label, base address `0x1000`. -/
-@[instance_reducible] def x64UniformLayout : Layout where
+@[expose, instance_reducible] def x64UniformLayout : Layout where
   start := 0x1000
   instrSize _ := 4
   instrSize_pos _ := by decide
 
 /-- Size per x64 directive under `x64UniformLayout`. -/
-@[reducible] def x64DirSize : Directive → Nat
+@[expose, reducible] def x64DirSize : Directive → Nat
   | .instr _ => 4
   | .label _ => 0
   | .byteArray arr => arr.size
   | .word bytes _ => bytes
 
 /-- Kernel-reducible check that laying out `p` under `x64UniformLayout` fits in `2 ^ 64` bytes. -/
-def x64ProgSmall (p : List Directive) : Bool :=
+@[expose] def x64ProgSmall (p : List Directive) : Bool :=
   decide ((p.map x64DirSize).sum < 2 ^ 64)
 
 private theorem size_map_x64UniformLayout :
@@ -113,12 +111,12 @@ theorem x64UniformLayout_small (p : List Directive) (h : x64ProgSmall p = true) 
   rw [hs]
   exact of_decide_eq_true h
 
-def x64LabelOf? : Directive → Option String
+@[expose] def x64LabelOf? : Directive → Option String
   | .label l => some l
   | _ => none
 
 /-- Concrete x64 host layout (`Host.ofLayout` with `x64UniformLayout` and `labelsNodupBy`). -/
-def x64Layout : TargetLayout x64Target where
+@[expose] def x64Layout : TargetLayout x64Target where
   labelsNodup := labelsNodupBy x64LabelOf?
   progSmall := x64ProgSmall
   layoutOf prog h := .ofLayout prog x64UniformLayout (x64UniformLayout_small prog h)
@@ -131,7 +129,7 @@ def x64Layout : TargetLayout x64Target where
 
 /-- `n`-byte zero stack below `rsp = 0x0ff8`, return address `ra` at `0x0ff8`, and payload `bs`
 at `0x1000`. -/
-def x64InitMem (n : Nat) (ra : Int64) (bs : List UInt8) : Mem 64 :=
+@[expose] def x64InitMem (n : Nat) (ra : Int64) (bs : List UInt8) : Mem 64 :=
   ((stackZeros n ++ Int.toBytes 8 ra.toBitVec.toInt) ++ bs).At (0x0ff8#64 - BitVec.ofNat 64 n)
 
 theorem x64InitMem_entry (n : Nat) (ra : Int64) (bs : List UInt8)
@@ -169,18 +167,19 @@ theorem x64InitMem_entry (n : Nat) (ra : Int64) (bs : List UInt8)
     ac_rfl
   have hsub : ∀ m, (Eq ((stackZeros n).At (0x0ff8#64 - BitVec.ofNat 64 n)) ⋆
       Eq (raBytes.At 0x0ff8#64)) m → x64Target.Entry 0x0ff8#64 ra n m := by
-    intro m ⟨f1, f2, hu, hd, hf1, hf2⟩
-    exact ⟨f1, f2, hu, hd, ⟨stackZeros n, hzs, hf1.symm⟩, hf2⟩
+    intro m hm
+    dsimp only [Target.Entry, x64Target, x64FrameTarget, x64FramePreds]
+    exact sep_mono (fun _ hm' => ⟨stackZeros n, hzs, hm'.symm⟩) hm
   exact sep_mono_mid hsub hmem
 
 /-- Encode typed ABI scalar argument value into a 64-bit register word. -/
-def valToGpr : (t : Ty) → Val t → BitVec 64
+@[expose] def valToGpr : (t : Ty) → Val t → BitVec 64
   | .bool, b => BitVec.ofNat 64 b.toNat
   | .bits _, v => v.setWidth 64
   | _, _ => 0
 
 /-- Populate SysV x64 GPR and vector argument registers with `rsp = 0x0ff8`. -/
-def setX64AbiRegs :
+@[expose] def setX64AbiRegs :
     {ts : List Ty} → Tup (AbiReg Reg64 RegMm) ts → Tup Val ts → Reg64s × RegZmms
   | [], _, _ => ({ rsp := 0x0ff8 }, {})
   | t :: _, (loc, locs), (v, vs) =>
@@ -257,12 +256,12 @@ private theorem setX64AbiRegs_get_rsp :
     | gpr r =>
       obtain ⟨gs', rfl, h', _⟩ := hc
       have hne : r ≠ .rsp := fun e => hrsp (e ▸ List.mem_cons_self)
-      simp only [setX64AbiRegs]
+      dsimp only [setX64AbiRegs]
       rw [Reg64s.get64_set64_of_ne _ _ _ _ hne]
       exact setX64AbiRegs_get_rsp (fun hm => hrsp (List.mem_cons_of_mem _ hm)) h'
     | vec vr =>
       obtain ⟨vs'', _, _, rfl, rfl, h', _⟩ := hc
-      simp only [setX64AbiRegs]
+      dsimp only [setX64AbiRegs]
       exact setX64AbiRegs_get_rsp hrsp h'
 
 private theorem x64Abi_frame {g g' : Reg64s} {vf vf' : RegZmms} :
@@ -309,11 +308,13 @@ private theorem setX64AbiRegs_holds :
           AbiGprHolds
             ((setX64AbiRegs (ts := t :: ts) (AbiReg.gpr r, locs) (v, vs)).1.get64 r) t v := by
         rcases hty with rfl | ⟨n, rfl, hn⟩
-        · simp [setX64AbiRegs, valToGpr, AbiGprHolds]
-        · simp [setX64AbiRegs, valToGpr, AbiGprHolds, hn]
+        · dsimp only [setX64AbiRegs, valToGpr, AbiGprHolds]
+          simp
+        · dsimp only [setX64AbiRegs, valToGpr, AbiGprHolds]
+          simp [hn]
       refine .cons hhead (x64Abi_frame ?_ (fun _ _ => rfl) h' (setX64AbiRegs_holds hgs' hvs h'))
       intro x hx
-      simp only [setX64AbiRegs]
+      dsimp only [setX64AbiRegs]
       exact Reg64s.get64_set64_of_ne _ _ _ _ (fun e => hnmem (e ▸ hx))
     | vec vr =>
       obtain ⟨vs'', a, b, rfl, rfl, h', hsz⟩ := hc
@@ -323,16 +324,18 @@ private theorem setX64AbiRegs_holds :
             ((setX64AbiRegs (ts := .pair a b :: ts)
               (AbiReg.vec vr, locs) (v, vs)).2.get512 vr)
             (.pair a b) v := by
-        simp only [setX64AbiRegs, VecHolds, RegZmms.get512_set512_same, hsz, true_and]
+        dsimp only [setX64AbiRegs, VecHolds]
+        simp only [RegZmms.get512_set512_same, hsz, true_and]
         exact x64SetWidth_512_cancel hsz (toBits (.pair a b) v)
       refine .cons hhead (x64Abi_frame (fun _ _ => rfl) ?_ h' (setX64AbiRegs_holds hgs hvs' h'))
       intro x hx
-      simp only [setX64AbiRegs]
+      dsimp only [setX64AbiRegs]
       exact RegZmms.get512_set512_of_ne _ (fun (e : vr = x) => hnmem (e ▸ hx)) _
 
 /-- Concrete initial `MachineData` with `n`-byte stack, return address `0x1234` at `0x0ff8#64`,
 payload `bs` at `0x1000#64`, and SysV ABI argument registers populated from `args`. -/
-def x64InitState (n : Nat) (bs : List UInt8) {as : List Ty} (args : Tup Val as) : MachineData :=
+@[expose] def x64InitState (n : Nat) (bs : List UInt8) {as : List Ty} (args : Tup Val as) :
+    MachineData :=
   let rv :=
     match x64Target.toIsa.assignArgs as with
     | some locs => setX64AbiRegs locs args
@@ -347,14 +350,14 @@ private theorem trel_x64_imp {P Q : ∀ t, AbiReg Reg64 RegMm t → Val t → Pr
   | _ :: _, _, _, .cons hx hxs => .cons (h _ _ _ hx) (trel_x64_imp h hxs)
 
 /-- Closed concrete execution harness for `x64Target` (`sp0 = 0x0ff8#64`, `ra0 = 0x1234`). -/
-def x64Init : TargetInit x64Target 2048 8192 where
+@[expose] def x64Init : TargetInit x64Target 2048 8192 where
   sp0 := 0x0ff8#64
   ra0 := 0x1234
   ret0 := .rax
   arg0 := .rdi
   initState := x64InitState
   get_sp := fun n bs {as} args => by
-    simp only [x64Target, x64Mach, x64InitState]
+    dsimp only [x64Target, x64Mach, x64InitState]
     cases h : x64Target.toIsa.assignArgs as with
     | none => rfl
     | some locs =>
@@ -362,7 +365,7 @@ def x64Init : TargetInit x64Target 2048 8192 where
   argsIn := fun n bs {as} args his => by
     obtain ⟨locs, hlocs⟩ := Option.isSome_iff_exists.mp his
     refine ⟨locs, hlocs, ?_⟩
-    simp only [x64InitState, hlocs]
+    dsimp only [x64InitState]; rw [hlocs]; dsimp only
     exact trel_x64_imp (fun t loc v h => by cases loc <;> exact h)
       (setX64AbiRegs_holds (by simp) (by simp) hlocs)
   raReg _ _ := by intros; trivial
@@ -497,8 +500,8 @@ theorem x64_of_returns_emp [hh : Host] {sym : Sym} {b nX : Nat} {as bs : List Ty
     rw [eq_empty_eq_emp, Std.ExtHashMap.emp_sep]; exact hmem
   refine eventually_weaken _ _ _ _ ?_ (x64_of_returns hfn hspec s ra R hargs hsp hmem')
   rintro st ⟨hpc, hcs, hsp', rets, m', ⟨hQ, hm0⟩, hrets, hm'⟩
-  have hm0' : m' = ∅ := hm0
-  subst hm0'
+  rw [← eq_empty_eq_emp] at hm0
+  subst hm0
   rw [eq_empty_eq_emp, Std.ExtHashMap.emp_sep] at hm'
   exact ⟨hpc, hcs, hsp', rets, hrets, hQ, hm'⟩
 

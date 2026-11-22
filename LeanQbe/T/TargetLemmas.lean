@@ -11,7 +11,7 @@ Target-generic framing, sequencing, and operand-preservation lemmas shared acros
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T
 
@@ -23,7 +23,8 @@ theorem SlotWidth.slots_le_eight (w : SlotWidth) : w.slots ≤ 8 := by cases w <
 theorem SlotWidth.bits_le_512 (w : SlotWidth) : w.bits ≤ 512 := by cases w <;> decide
 
 @[simp] theorem FlagMask.disjoint_none (reads : FlagMask) :
-    FlagMask.disjoint reads FlagMask.none = true := by simp [FlagMask.disjoint, FlagMask.none]
+    FlagMask.disjoint reads FlagMask.none = true := by
+  dsimp only [FlagMask.disjoint, FlagMask.none]; simp
 
 theorem FlagMask.disjoint_or_iff (reads m₁ m₂ : FlagMask) :
     FlagMask.disjoint reads (m₁ ||| m₂) = true ↔
@@ -131,9 +132,9 @@ theorem PArgHolds.frame {cr : C → FlagMask} {s s' : M.MData}
     (hf : ∀ c (ht : t = .bool), pa = ht ▸ .flag c → FlagMask.disjoint (cr c) fClob = true) :
     M.PArgHolds s' t pa v := by
   cases pa with
-  | gpr r => simp only [PArgHolds] at hh ⊢; rwa [hfr.1 r (hg r rfl)]
-  | vec vr => simp only [PArgHolds] at hh ⊢; rwa [hfr.2.1 vr (hv vr rfl)]
-  | flag c => simp only [PArgHolds] at hh ⊢; rwa [hfr.2.2 c (hf c rfl rfl)]
+  | gpr r => dsimp only [PArgHolds] at hh ⊢; rwa [hfr.1 r (hg r rfl)]
+  | vec vr => dsimp only [PArgHolds] at hh ⊢; rwa [hfr.2.1 vr (hv vr rfl)]
+  | flag c => dsimp only [PArgHolds] at hh ⊢; rwa [hfr.2.2 c (hf c rfl rfl)]
   | imm _ => exact hh
 
 theorem PDstHolds.frame {cr : C → FlagMask} {s s' : M.MData}
@@ -144,9 +145,9 @@ theorem PDstHolds.frame {cr : C → FlagMask} {s s' : M.MData}
     (hf : ∀ c (ht : t = .bool), pd = ht ▸ .flag c → FlagMask.disjoint (cr c) fClob = true) :
     M.PDstHolds s' t pd v := by
   cases pd with
-  | gpr r => simp only [PDstHolds] at hh ⊢; rwa [hfr.1 r (hg r rfl)]
-  | vec vr => simp only [PDstHolds] at hh ⊢; rwa [hfr.2.1 vr (hv vr rfl)]
-  | flag c => simp only [PDstHolds] at hh ⊢; rwa [hfr.2.2 c (hf c rfl rfl)]
+  | gpr r => dsimp only [PDstHolds] at hh ⊢; rwa [hfr.1 r (hg r rfl)]
+  | vec vr => dsimp only [PDstHolds] at hh ⊢; rwa [hfr.2.1 vr (hv vr rfl)]
+  | flag c => dsimp only [PDstHolds] at hh ⊢; rwa [hfr.2.2 c (hf c rfl rfl)]
 
 theorem AbiHolds.frame {s s' : M.MData} {gClob : List R} {vClob : List V}
     (hkg : M.KeepsGpr s s' gClob) (hkv : M.KeepsVec s s' vClob)
@@ -154,8 +155,8 @@ theorem AbiHolds.frame {s s' : M.MData} {gClob : List R} {vClob : List V}
     (hg : ∀ r, a = .gpr r → r ∉ gClob) (hv : ∀ vr, a = .vec vr → vr ∉ vClob) :
     M.AbiHolds s' t a v := by
   cases a with
-  | gpr r => simp only [AbiHolds] at hh ⊢; rwa [hkg r (hg r rfl)]
-  | vec vr => simp only [AbiHolds] at hh ⊢; rwa [hkv vr (hv vr rfl)]
+  | gpr r => dsimp only [AbiHolds] at hh ⊢; rwa [hkg r (hg r rfl)]
+  | vec vr => dsimp only [AbiHolds] at hh ⊢; rwa [hkv vr (hv vr rfl)]
 
 end Machine
 
@@ -166,7 +167,7 @@ theorem VecHolds.of_setWidth_eq {v v' : BitVec 512} {w : SlotWidth} {t : Ty} {va
   rw [← BitVec.setWidth_setWidth_of_le v' hle, heq, BitVec.setWidth_setWidth_of_le v hle, h.2]
 
 /-- Pack a list of 64-bit stack-slot granules into a 512-bit vector word starting at bit `shift`. -/
-def packSlotWordsAux : List (BitVec 64) → Nat → BitVec 512
+private def packSlotWordsAux : List (BitVec 64) → Nat → BitVec 512
   | [], _ => 0#512
   | w :: ws, shift => (w.setWidth 512 <<< shift) ||| packSlotWordsAux ws (shift + 64)
 

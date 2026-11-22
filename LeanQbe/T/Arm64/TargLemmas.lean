@@ -6,8 +6,6 @@ import LeanQbe.T.RegaLemmas
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Arm64.IselLemmas4
 import LeanQbe.T.Arm64.FrameLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # AAPCS64 Arm64 `LabelClean`, `TargetLayout`, `TargetInit`, & Concrete Lifting (`T12i`)
@@ -26,7 +24,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Arm64
 
@@ -68,20 +66,20 @@ theorem armLabelClean : Rega.LabelClean armTarget.toIsa where
 /-! ## 2. Concrete Kraken AArch64 `TargetLayout` -/
 
 /-- Uniform AArch64 layout: 4 bytes per instruction, 0 bytes per label, base address `0x1000`. -/
-@[instance_reducible] def armUniformLayout : Layout where
+@[expose, instance_reducible] def armUniformLayout : Layout where
   start := 0x1000
   instrSize _ := 4
   instrSize_pos _ := by decide
 
 /-- Size per AArch64 directive under `armUniformLayout`. -/
-@[reducible] def armDirSize : Directive → Nat
+@[expose, reducible] def armDirSize : Directive → Nat
   | .instr _ => 4
   | .label _ => 0
   | .byteArray arr => arr.size
   | .word bytes _ => bytes
 
 /-- Kernel-reducible check that laying out `p` under `armUniformLayout` fits in `2 ^ 64` bytes. -/
-def armProgSmall (p : List Directive) : Bool :=
+@[expose] def armProgSmall (p : List Directive) : Bool :=
   decide ((p.map armDirSize).sum < 2 ^ 64)
 
 private theorem size_map_armUniformLayout :
@@ -113,12 +111,12 @@ theorem armUniformLayout_small (p : List Directive) (h : armProgSmall p = true) 
   rw [hs]
   exact of_decide_eq_true h
 
-def armLabelOf? : Directive → Option String
+@[expose] def armLabelOf? : Directive → Option String
   | .label l => some l
   | _ => none
 
 /-- Concrete AArch64 host layout (`Host.ofLayout` with `armUniformLayout` and `labelsNodupBy`). -/
-def armLayout : TargetLayout armTarget where
+@[expose] def armLayout : TargetLayout armTarget where
   labelsNodup := labelsNodupBy armLabelOf?
   progSmall := armProgSmall
   layoutOf prog h := .ofLayout prog armUniformLayout (armUniformLayout_small prog h)
@@ -130,7 +128,7 @@ def armLayout : TargetLayout armTarget where
 /-! ## 3. Concrete Initial Machine State (`armInit : TargetInit armTarget 2048 8192`) -/
 
 /-- `n`-byte zero stack below `sp = 0x1000` and payload `bs` at `0x1000`. -/
-def armInitMem (n : Nat) (bs : List UInt8) : Mem 64 :=
+@[expose] def armInitMem (n : Nat) (bs : List UInt8) : Mem 64 :=
   (stackZeros n ++ bs).At (0x1000#64 - BitVec.ofNat 64 n)
 
 theorem armInitMem_entry (n : Nat) (bs : List UInt8) (hn : n ≤ 2048) (hbs : bs.length ≤ 8192) :
@@ -152,19 +150,19 @@ theorem armInitMem_entry (n : Nat) (bs : List UInt8) (hn : n ≤ 2048) (hbs : bs
   have hsub : ∀ m, Eq ((stackZeros n).At (0x1000#64 - BitVec.ofNat 64 n)) m →
       armTarget.Entry 0x1000#64 0x1234 n m := by
     intro m hm
-    simp only [Target.Entry, armTarget, armFrameTarget, armFramePreds,
-      region_zero, Std.ExtHashMap.sep_emp]
+    dsimp only [Target.Entry, armTarget, armFrameTarget, armFramePreds]
+    simp only [region_zero, Std.ExtHashMap.sep_emp]
     exact ⟨stackZeros n, hzs, hm.symm⟩
   exact sep_mono_mid hsub h0
 
 /-- Encode typed ABI scalar argument value into a 64-bit register word. -/
-def valToGpr : (t : Ty) → Val t → BitVec 64
+@[expose] def valToGpr : (t : Ty) → Val t → BitVec 64
   | .bool, b => BitVec.ofNat 64 b.toNat
   | .bits _, v => v.setWidth 64
   | _, _ => 0
 
 /-- Populate AAPCS64 argument registers `x0..x7` with `SP = 0x1000` and `X30 = 0x1234`. -/
-def setArmAbiRegs :
+@[expose] def setArmAbiRegs :
     {ts : List Ty} → Tup (AbiReg Reg Empty) ts → Tup Val ts → Reg64s
   | [], _, _ => { SP := 0x1000, X30 := (0x1234 : Int64).toUInt64 }
   | t :: _, (loc, locs), (v, vs) =>
@@ -222,8 +220,10 @@ private theorem setArmAbiRegs_get_sp :
       obtain ⟨gs', rfl, h', _⟩ := hc
       cases r with
       | reg x =>
-        simpa [setArmAbiRegs] using setArmAbiRegs_get_sp h'
-      | SP => simpa [setArmAbiRegs] using setArmAbiRegs_get_sp (args := vs) h'
+        dsimp only [setArmAbiRegs]
+        rw [Reg64s.SP_setXReg]
+        exact setArmAbiRegs_get_sp (args := vs) h'
+      | SP => dsimp only [setArmAbiRegs]; exact setArmAbiRegs_get_sp (args := vs) h'
 
 private theorem setArmAbiRegs_get_x30 :
     ∀ {ts : List Ty} {locs : Tup (AbiReg Reg Empty) ts} {args : Tup Val ts}
@@ -245,12 +245,12 @@ private theorem setArmAbiRegs_get_x30 :
         have hx : (setArmAbiRegs (ts := t :: ts)
             (AbiReg.gpr (.reg x), locs) (v, vs)).getXReg .X30 =
             (setArmAbiRegs locs vs).getXReg .X30 := by
-          simp only [setArmAbiRegs]
+          dsimp only [setArmAbiRegs]
           exact Reg64s.getXReg_setXReg_of_ne _ _ _ _ hne
         simpa [Reg64s.getXReg] using hx.trans ih
       | SP =>
-        simpa [setArmAbiRegs] using
-          setArmAbiRegs_get_x30 (args := vs) (fun hm => h30 (List.mem_cons_of_mem _ hm)) h'
+        dsimp only [setArmAbiRegs]
+        exact setArmAbiRegs_get_x30 (args := vs) (fun hm => h30 (List.mem_cons_of_mem _ hm)) h'
 
 private theorem armAbi_frame {g g' : Reg64s} :
     ∀ {ts : List Ty} {locs : Tup (AbiReg Reg Empty) ts} {args : Tup Val ts}
@@ -299,10 +299,10 @@ private theorem setArmAbiRegs_holds :
           rcases hty with rfl | ⟨n, rfl, hn⟩
           · change AbiGprHolds (((setArmAbiRegs locs vs).setXReg x
               (valToGpr .bool v)).getXReg x).toBitVec .bool v
-            simp [valToGpr, AbiGprHolds]
+            dsimp only [valToGpr, AbiGprHolds]; simp
           · change AbiGprHolds (((setArmAbiRegs locs vs).setXReg x
               (valToGpr (.bits n) v)).getXReg x).toBitVec (.bits n) v
-            simp [valToGpr, AbiGprHolds, hn]
+            dsimp only [valToGpr, AbiGprHolds]; simp [hn]
         refine .cons hhead (armAbi_frame ?_ h' (setArmAbiRegs_holds hgs'
           (fun hm => hsp (List.mem_cons_of_mem _ hm)) h'))
         intro y hy
@@ -310,12 +310,13 @@ private theorem setArmAbiRegs_holds :
         | SP => exact absurd (List.mem_cons_of_mem _ hy) hsp
         | reg y =>
           have hne : x ≠ y := fun e => hnmem (e ▸ hy)
-          simp only [setArmAbiRegs]
+          dsimp only [setArmAbiRegs]
           exact congrArg UInt64.toBitVec (Reg64s.getXReg_setXReg_of_ne _ _ _ _ hne)
 
 /-- Concrete initial `MachineData` with `n`-byte stack, `sp0 = 0x1000#64`, return address `0x1234`
 in `x30`, payload `bs` at `0x1000#64`, and AAPCS64 argument registers populated from `args`. -/
-def armInitState (n : Nat) (bs : List UInt8) {as : List Ty} (args : Tup Val as) : MachineData :=
+@[expose] def armInitState (n : Nat) (bs : List UInt8) {as : List Ty} (args : Tup Val as) :
+    MachineData :=
   let regs :=
     match armTarget.toIsa.assignArgs as with
     | some locs => setArmAbiRegs locs args
@@ -330,14 +331,14 @@ private theorem trel_arm_imp {P Q : ∀ t, AbiReg Reg Empty t → Val t → Prop
   | _ :: _, _, _, .cons hx hxs => .cons (h _ _ _ hx) (trel_arm_imp h hxs)
 
 /-- Closed concrete execution harness for `armTarget` (`sp0 = 0x1000#64`, `ra0 = 0x1234`). -/
-def armInit : TargetInit armTarget 2048 8192 where
+@[expose] def armInit : TargetInit armTarget 2048 8192 where
   sp0 := 0x1000#64
   ra0 := 0x1234
   ret0 := .reg .X0
   arg0 := .reg .X0
   initState := armInitState
   get_sp := fun n bs {as} args => by
-    simp only [armTarget, armMach, get, armInitState]
+    dsimp only [armTarget, armMach, get, armInitState]
     cases h : armTarget.toIsa.assignArgs as with
     | none => rfl
     | some locs =>
@@ -346,14 +347,14 @@ def armInit : TargetInit armTarget 2048 8192 where
   argsIn := fun n bs {as} args his => by
     obtain ⟨locs, hlocs⟩ := Option.isSome_iff_exists.mp his
     refine ⟨locs, hlocs, ?_⟩
-    simp only [armInitState, hlocs]
+    dsimp only [armInitState]; rw [hlocs]; dsimp only
     exact trel_arm_imp (fun t loc v h => by
         cases loc with
         | gpr _ => exact h
         | vec vr => exact vr.elim)
       (setArmAbiRegs_holds (by simp) (by simp) hlocs)
   raReg := fun n bs {as} args => by
-    simp only [armTarget, armFrameTarget, armFramePreds, get, get_reg, armInitState]
+    dsimp only [armTarget, armFrameTarget, armFramePreds, get, get_reg, armInitState]
     cases h : armTarget.toIsa.assignArgs as with
     | none => rfl
     | some locs =>
@@ -383,8 +384,8 @@ private theorem arm64_entry_mem {s : MachineData} {ra : Int64} {b : Nat} {P R : 
     armTarget.mach.mem s =⋆
       P ⋆ armTarget.Entry (armTarget.mach.getGpr s armTarget.frame.sp) ra b ⋆ R := by
   refine sep_mono (fun _ => sep_mono_r fun _ h => ?_) hmem
-  simp only [Target.Entry, armTarget, armFrameTarget, armFramePreds,
-    get, region_zero, Std.ExtHashMap.sep_emp]
+  dsimp only [Target.Entry, armTarget, armFrameTarget, armFramePreds, get]
+  simp only [region_zero, Std.ExtHashMap.sep_emp]
   exact h
 
 /-- Translates `armTarget.FnSpec` into the concrete Kraken-AArch64 `step1 Host.exe` statement. -/
@@ -502,8 +503,8 @@ theorem arm64_of_returns_emp [hh : Host] {sym : Sym} {b nX : Nat} {as bs : List 
     rw [eq_empty_eq_emp, Std.ExtHashMap.emp_sep]; exact hmem
   refine eventually_weaken _ _ _ _ ?_ (arm64_of_returns hfn hspec s ra R hargs hra hsp hmem')
   rintro st ⟨hpc, hcs, hsp', rets, m', ⟨hQ, hm0⟩, hrets, hm'⟩
-  have hm0' : m' = ∅ := hm0
-  subst hm0'
+  rw [← eq_empty_eq_emp] at hm0
+  subst hm0
   rw [eq_empty_eq_emp, Std.ExtHashMap.emp_sep] at hm'
   exact ⟨hpc, hcs, hsp', rets, hrets, hQ, hm'⟩
 
