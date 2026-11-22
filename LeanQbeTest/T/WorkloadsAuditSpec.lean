@@ -8,7 +8,6 @@ import all Kraken.Separation
 meta import LeanQbe.T.Examples.ChaCha
 meta import LeanQbe.T.Examples.Bignum
 meta import LeanQbe.T.Examples.UnionFind
-meta import LeanQbe.T.Examples.UnionFindLemmas
 
 /-!
 # Verified Workloads (`ChaCha20`, `Curve25519 Bignum`, `UnionFind`) — Source Specification Audit

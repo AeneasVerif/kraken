@@ -1,10 +1,10 @@
 module
 
 public import LeanQbe.T.PrintCpp
-public import LeanQbe.T.Examples.UnionFind
+public import LeanQbe.T.Examples.UnionFindProg
 public import LeanQbe.T.Legal
 meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.Examples.UnionFind
+meta import LeanQbe.T.Examples.UnionFindProg
 meta import LeanQbe.T.Legal
 
 set_option autoImplicit false

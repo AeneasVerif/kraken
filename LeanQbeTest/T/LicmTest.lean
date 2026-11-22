@@ -12,8 +12,8 @@ public import LeanQbe.T.Examples.Kissat.Full1
 meta import LeanQbe.T.Licm
 meta import LeanQbe.T.Opt
 meta import LeanQbe.T.Flat
-meta import LeanQbe.T.Examples.LratBytes
-meta import LeanQbe.T.Examples.LratTrim
+meta import LeanQbe.T.Examples.LratBytesProg
+meta import LeanQbe.T.Examples.LratTrimProg
 meta import LeanQbe.T.Examples.Kissat.Full1
 
 /-!

@@ -5,14 +5,14 @@ public import LeanQbe.T.IfOptLemmas
 public import LeanQbe.T.Opt
 public import LeanQbe.T.LeanLCNF.Lower1
 public import LeanQbe.T.LeanLCNF.Demo
-public import LeanQbe.T.Examples.LratBytes
+public import LeanQbe.T.Examples.LratBytesProg
 public import LeanQbe.T.Examples.Kissat.Full
 meta import LeanQbe.T.SimplifyGroupPlan
 meta import LeanQbe.T.IfOpt
 meta import LeanQbe.T.Opt
 meta import LeanQbe.T.LeanLCNF.Lower1
 meta import LeanQbe.T.LeanLCNF.Demo
-meta import LeanQbe.T.Examples.LratBytes
+meta import LeanQbe.T.Examples.LratBytesProg
 meta import LeanQbe.T.Examples.Kissat.Full
 
 /-!

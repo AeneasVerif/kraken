@@ -109,7 +109,7 @@ sync_warm_build() {
 
   timeout "$RSYNC_TIMEOUT" rsync -a \
     --include='*/' --include='*.trace' --include='*.hash' \
-    --include='*.setup.json' --include='*.arts' --include='*.rsp' \
+    --include='*.arts' --include='*.rsp' \
     --include='*.nobuild' --exclude='*' \
     "$src/" "$dst/" || return 1
 

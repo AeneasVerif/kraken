@@ -4,6 +4,7 @@ public import LeanQbe.T.Notation
 public import LeanQbe.T.Module
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.Examples.ChaChaProg
 
 /-!
 # T14: ChaCha20 Block on 128-bit `v4i32` Rows (`K1b`)
@@ -154,77 +155,6 @@ theorem rfc8439_test_vector_bytes :
     (rfcChaCha20Core rfc8439_test_init).toBytes = rfc8439_expected_bytes := by
   decide
 
-/-! ## 128-bit `v4i32` row-SIMD PHOAS IR -/
-
-/-- 4-wide vectorized ChaCha quarter round across four `v4i32` rows. -/
-def vecQrK {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (a b c d : V v4i32)
-    (k : V v4i32 → V v4i32 → V v4i32 → V v4i32 → Expr V L rs) : Expr V L rs :=
-  tqbe {
-    %a1:v4i32 = add %a, %b
-    %d1:v4i32 = xor %d, %a1
-    %d2:v4i32 = rotl %d1, splat 16
-    %c1:v4i32 = add %c, %d2
-    %b1:v4i32 = xor %b, %c1
-    %b2:v4i32 = rotl %b1, splat 12
-    %a2:v4i32 = add %a1, %b2
-    %d3:v4i32 = xor %d2, %a2
-    %d4:v4i32 = rotl %d3, splat 8
-    %c2:v4i32 = add %c1, %d4
-    %b3:v4i32 = xor %b2, %c2
-    %b4:v4i32 = rotl %b3, splat 7
-    ⟨k a2 b4 c2 d4⟩
-  }
-
-/-- One ChaCha20 double round (`inner_block`) on four 128-bit `v4i32` rows using `shufd`
-(`0x39` = rotl 1 lane, `0x4e` = rotl 2 lanes, `0x93` = rotl 3 lanes). -/
-def doubleRoundK {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (r0 r1 r2 r3 : V v4i32)
-    (k : V v4i32 → V v4i32 → V v4i32 → V v4i32 → Expr V L rs) : Expr V L rs :=
-  tqbe {
-    %c0:v4i32, %c1:v4i32, %c2:v4i32, %c3:v4i32 <- vecQrK(%r0, %r1, %r2, %r3)
-    %s1:v4i32 = shufd %c1, 0x39
-    %s2:v4i32 = shufd %c2, 0x4e
-    %s3:v4i32 = shufd %c3, 0x93
-    %d0:v4i32, %d1:v4i32, %d2:v4i32, %d3:v4i32 <- vecQrK(%c0, %s1, %s2, %s3)
-    %u1:v4i32 = shufd %d1, 0x93
-    %u2:v4i32 = shufd %d2, 0x4e
-    %u3:v4i32 = shufd %d3, 0x39
-    ⟨k d0 u1 u2 u3⟩
-  }
-
-/-- `chacha20Block(out, inp)`: load 4 `v4i32` rows from `inp`, run 10 double rounds in a loop,
-add initial rows back, and store 4 `v4i32` rows to `out`. -/
-def chacha20Block : Func [i64, i64] [] :=
-  tqbe(%out:l, %inp:l) -> () {
-    %i0:v4i32 = load %inp
-    %p1:l = add %inp, 16
-    %i1:v4i32 = load %p1
-    %p2:l = add %inp, 32
-    %i2:v4i32 = load %p2
-    %p3:l = add %inp, 48
-    %i3:v4i32 = load %p3
-    loop @lp(%r0:v4i32 = %i0, %r1:v4i32 = %i1, %r2:v4i32 = %i2, %r3:v4i32 = %i3, %cnt:w = 10)
-        -> @done(%o0:v4i32, %o1:v4i32, %o2:v4i32, %o3:v4i32) {
-      %n0:v4i32, %n1:v4i32, %n2:v4i32, %n3:v4i32 <- doubleRoundK(%r0, %r1, %r2, %r3)
-      %cnt1:w = sub %cnt, 1
-      %more:b = cnew %cnt1, 0
-      jnz %more, continue @lp(%n0, %n1, %n2, %n3, %cnt1), break @done(%n0, %n1, %n2, %n3)
-    }
-    %f0:v4i32 = add %o0, %i0
-    %f1:v4i32 = add %o1, %i1
-    %f2:v4i32 = add %o2, %i2
-    %f3:v4i32 = add %o3, %i3
-    store %f0, %out
-    %q1:l = add %out, 16
-    store %f1, %q1
-    %q2:l = add %out, 32
-    store %f2, %q2
-    %q3:l = add %out, 48
-    store %f3, %q3
-    ret
-  }
-
 /-! ## Public specification -/
 
 def chacha20BlockSpec : Spec [i64, i64] [] := fun (out, inp, ()) m Q _ =>
@@ -243,7 +173,8 @@ theorem vecQrK_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem
     (k : Row → Row → Row → Row → Expr Val Cont rs)
     (hk : let s' := rfcColumnRound s; wp Γ Q X (k s'.r0 s'.r1 s'.r2 s'.r3) m) :
     wp Γ Q X (vecQrK s.r0 s.r1 s.r2 s.r3 k) m := by
-  rcases s with ⟨⟨⟨a0, a1⟩, ⟨a2, a3⟩⟩, ⟨⟨b0, b1⟩, ⟨b2, b3⟩⟩, ⟨⟨c0, c1⟩, ⟨c2, c3⟩⟩, ⟨⟨d0, d1⟩, ⟨d2, d3⟩⟩⟩
+  rcases s with ⟨⟨⟨a0, a1⟩, ⟨a2, a3⟩⟩, ⟨⟨b0, b1⟩, ⟨b2, b3⟩⟩,
+    ⟨⟨c0, c1⟩, ⟨c2, c3⟩⟩, ⟨⟨d0, d1⟩, ⟨d2, d3⟩⟩⟩
   unfold vecQrK
   wp_unfold
   simpa [rfcColumnRound, quarterRound, mkRow] using hk
@@ -261,9 +192,12 @@ theorem doubleRoundK_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m
   rw [shufd_v4i32_39, shufd_v4i32_4e, shufd_v4i32_93]
   refine vecQrK_spec
     ⟨(rfcColumnRound s).r0,
-     mkRow (rfcColumnRound s).r1.1.2 (rfcColumnRound s).r1.2.1 (rfcColumnRound s).r1.2.2 (rfcColumnRound s).r1.1.1,
-     mkRow (rfcColumnRound s).r2.2.1 (rfcColumnRound s).r2.2.2 (rfcColumnRound s).r2.1.1 (rfcColumnRound s).r2.1.2,
-     mkRow (rfcColumnRound s).r3.2.2 (rfcColumnRound s).r3.1.1 (rfcColumnRound s).r3.1.2 (rfcColumnRound s).r3.2.1⟩
+     mkRow (rfcColumnRound s).r1.1.2 (rfcColumnRound s).r1.2.1
+       (rfcColumnRound s).r1.2.2 (rfcColumnRound s).r1.1.1,
+     mkRow (rfcColumnRound s).r2.2.1 (rfcColumnRound s).r2.2.2
+       (rfcColumnRound s).r2.1.1 (rfcColumnRound s).r2.1.2,
+     mkRow (rfcColumnRound s).r3.2.2 (rfcColumnRound s).r3.1.1
+       (rfcColumnRound s).r3.1.2 (rfcColumnRound s).r3.2.1⟩
     _ ?_
   dsimp only
   wp_unfold
@@ -278,11 +212,16 @@ theorem chacha20Block_correct (Γ : Env) :
   dsimp only [Func.spec, Func.wp, chacha20Block]
   wp_unfold
   have hb : v4i32.bytes ≤ 2 ^ 64 := by decide
-  have hmInp : (array (t := v4i32) inp init.toRows ⋆ (array (t := v4i32) out [o0, o1, o2, o3] ⋆ R)) m := sep_ac hm
-  refine ⟨init.r0, by simpa [State.toRows, Ty.bytes, Ty.size] using loadVal_array (i := 0) hb (by simp [State.toRows]) hmInp, ?_⟩
-  refine ⟨init.r1, by simpa [State.toRows, Ty.bytes, Ty.size] using loadVal_array (i := 1) hb (by simp [State.toRows]) hmInp, ?_⟩
-  refine ⟨init.r2, by simpa [State.toRows, Ty.bytes, Ty.size] using loadVal_array (i := 2) hb (by simp [State.toRows]) hmInp, ?_⟩
-  refine ⟨init.r3, by simpa [State.toRows, Ty.bytes, Ty.size] using loadVal_array (i := 3) hb (by simp [State.toRows]) hmInp, ?_⟩
+  have hmInp : (array (t := v4i32) inp init.toRows ⋆
+      (array (t := v4i32) out [o0, o1, o2, o3] ⋆ R)) m := sep_ac hm
+  refine ⟨init.r0, by simpa [State.toRows, Ty.bytes, Ty.size]
+    using loadVal_array (i := 0) hb (by simp [State.toRows]) hmInp, ?_⟩
+  refine ⟨init.r1, by simpa [State.toRows, Ty.bytes, Ty.size]
+    using loadVal_array (i := 1) hb (by simp [State.toRows]) hmInp, ?_⟩
+  refine ⟨init.r2, by simpa [State.toRows, Ty.bytes, Ty.size]
+    using loadVal_array (i := 2) hb (by simp [State.toRows]) hmInp, ?_⟩
+  refine ⟨init.r3, by simpa [State.toRows, Ty.bytes, Ty.size]
+    using loadVal_array (i := 3) hb (by simp [State.toRows]) hmInp, ?_⟩
   refine wp_loop_break_group
     (fun (r0, r1, r2, r3, ()) m' =>
       m' = m ∧ State.mk r0 r1 r2 r3 = rfcRounds 10 init)
@@ -298,7 +237,8 @@ theorem chacha20Block_correct (Γ : Env) :
                          (rowAdd f2 init.r2) (rowAdd f3 init.r3) = rfcChaCha20Core init := by
       show State.add ⟨f0, f1, f2, f3⟩ init = (rfcRounds 10 init).add init
       rw [hst]
-    have hmOut : (array (t := v4i32) out [o0, o1, o2, o3] ⋆ (array (t := v4i32) inp init.toRows ⋆ R)) m' := sep_ac hm
+    have hmOut : (array (t := v4i32) out [o0, o1, o2, o3] ⋆
+        (array (t := v4i32) inp init.toRows ⋆ R)) m' := sep_ac hm
     obtain ⟨ok0, hm0⟩ := store_array (i := 0) (rowAdd f0 init.r0) hb (by simp) hmOut
     refine ⟨by simpa [Ty.bytes, Ty.size] using ok0, ?_⟩
     obtain ⟨ok1, hm1⟩ := store_array (i := 1) (rowAdd f1 init.r1) hb (by simp) hm0
@@ -341,7 +281,8 @@ theorem chacha20Block_correct (Γ : Env) :
       exact hB _ m' ⟨rfl, hrnd'⟩
   · intro _ L _ hL
     wp_unfold
-    exact hL 10 (init.r0, init.r1, init.r2, init.r3, (10 : BitVec 32), ()) m ⟨rfl, by decide, by decide, rfl, rfl⟩
+    exact hL 10 (init.r0, init.r1, init.r2, init.r3, (10 : BitVec 32), ()) m
+      ⟨rfl, by decide, by decide, rfl, rfl⟩
 
 /-- Concrete non-vacuous RFC 8439 §2.3.2 corollary: `chacha20Block` on `rfc8439_test_init`
 writes the exact RFC 8439 §2.3.2 output state. -/
@@ -351,11 +292,13 @@ theorem chacha20Block_rfc8439_vector (Γ : Env) (out inp : BitVec 64) (old : Lis
     Func.spec Γ chacha20Block (out, inp, ()) m
       (fun _ m' => ∃ res : State,
         res.toWords = rfc8439_expected_words ∧ res.toBytes = rfc8439_expected_bytes ∧
-        (array (t := v4i32) out res.toRows ⋆ array (t := v4i32) inp rfc8439_test_init.toRows ⋆ R) m')
+        (array (t := v4i32) out res.toRows ⋆
+          array (t := v4i32) inp rfc8439_test_init.toRows ⋆ R) m')
       (fun _ _ _ _ => False) :=
   chacha20Block_correct Γ (out, inp, ()) m _ _
     ⟨rfc8439_test_init, old, R, hold, hm, fun _ hm' =>
-      ⟨rfcChaCha20Core rfc8439_test_init, rfc8439_test_vector_words, rfc8439_test_vector_bytes, hm'⟩⟩
+      ⟨rfcChaCha20Core rfc8439_test_init, rfc8439_test_vector_words,
+        rfc8439_test_vector_bytes, hm'⟩⟩
 
 /-! ## 100%-PHOAS `Func.Wf` proof (no `TFlat`) -/
 
@@ -365,8 +308,6 @@ theorem chacha20Block_wf : Func.Wf chacha20Block := by
   t_wf_tac
 
 /-! ## `Module`, `Env`, and `ModuleOk` bundle -/
-
-def chacha20Fn : Fn := ⟨"chacha20Block", [i64, i64], [], chacha20Block⟩
 
 def chacha20Module : Module := ⟨[chacha20Fn], [], []⟩
 

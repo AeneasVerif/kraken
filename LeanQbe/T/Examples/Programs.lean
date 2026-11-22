@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.Examples.Bignum
-public import LeanQbe.T.Examples.ChaCha
-public import LeanQbe.T.Examples.LitmusProgs
-public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.LratTrim
-public import LeanQbe.T.Examples.UnionFind
+public import LeanQbe.T.Examples.BignumProg
+public import LeanQbe.T.Examples.ChaChaProg
+public import LeanQbe.T.Examples.LitmusProgsProg
+public import LeanQbe.T.Examples.LratBytesProg
+public import LeanQbe.T.Examples.LratTrimProg
+public import LeanQbe.T.Examples.UnionFindProg
 
 set_option autoImplicit false
 

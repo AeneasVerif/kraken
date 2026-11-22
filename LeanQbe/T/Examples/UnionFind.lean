@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Notation
 public import LeanQbe.T.Module
 public import LeanQbe.T.Logic.Mem
+public import LeanQbe.T.Examples.UnionFindProg
 
 /-!
 # Union-Find (Disjoint Set Union) in `LeanQbe.T` (`T4`)
@@ -48,64 +49,6 @@ def uf (p : BitVec 64) (n : Nat) (rep : BitVec 64 → BitVec 64) : Mem 64 → Pr
 def merge (rep : BitVec 64 → BitVec 64) (x y : BitVec 64) : BitVec 64 → BitVec 64 :=
   fun i => if rep i = rep x then rep y else rep i
 
-/-- Reusable path-halving `find` loop fragment: finds root of `x` in `p` and passes it to `k`. -/
-def findK {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (p x : V i64)
-    (k : V i64 → Expr V L rs) : Expr V L rs :=
-  tqbe {
-    loop @lp(%y:l = %x) {
-      %off:l = shl %y, 3
-      %a:l = add %p, %off
-      %py:l = load %a
-      %done:b = ceql %py, %y
-      jnz %done, { ⟨k y⟩ }, {
-        %poff:l = shl %py, 3
-        %pa:l = add %p, %poff
-        %ppy:l = load %pa
-        store %ppy, %a
-        continue @lp(%ppy)
-      }
-    }
-  }
-
-/-- `find(p, x)`: find the canonical representative of `x` with path halving. -/
-def find : Func [i64, i64] [i64] :=
-  tqbe(%p:l, %x:l) -> l {
-    %r:l <- findK(%p, %x)
-    ret %r
-  }
-
-/-- `union(p, x, y)`: merge the sets containing `x` and `y` via calls to `$find`. -/
-def union : Func [i64, i64, i64] [] :=
-  tqbe(%p:l, %x:l, %y:l) -> () {
-    %rx:l = call $find(%p, %x)
-    %ry:l = call $find(%p, %y)
-    %same:b = ceql %rx, %ry
-    jnz %same, {
-      ret
-    }, {
-      %off:l = shl %rx, 3
-      %a:l = add %p, %off
-      store %ry, %a
-      ret
-    }
-  }
-
-/-- `unionInline(p, x, y)`: single-function union with two inlined `findK` loops. -/
-def unionInline : Func [i64, i64, i64] [] :=
-  tqbe(%p:l, %x:l, %y:l) -> () {
-    %rx:l <- findK(%p, %x)
-    %ry:l <- findK(%p, %y)
-    %same:b = ceql %rx, %ry
-    jnz %same, {
-      ret
-    }, {
-      %off:l = shl %rx, 3
-      %a:l = add %p, %off
-      store %ry, %a
-      ret
-    }
-  }
-
 /-- Public specification of `find(p, x)`. -/
 def findSpec : Spec [i64, i64] [i64] := fun (p, x, ()) m Q _ =>
   ∃ n rep R, (uf p n rep ⋆ R) m ∧ x.toNat < n ∧
@@ -115,12 +58,6 @@ def findSpec : Spec [i64, i64] [i64] := fun (p, x, ()) m Q _ =>
 def unionSpec : Spec [i64, i64, i64] [] := fun (p, x, y, ()) m Q _ =>
   ∃ n rep R, (uf p n rep ⋆ R) m ∧ x.toNat < n ∧ y.toNat < n ∧
     ∀ m', (uf p n (merge rep x y) ⋆ R) m' → Q () m'
-
-/-- The closed union-find function list. -/
-def ufFns : List Fn :=
-  [ ⟨"find", [i64, i64], [i64], find⟩
-  , ⟨"union", [i64, i64, i64], [], union⟩
-  , ⟨"unionInline", [i64, i64, i64], [], unionInline⟩ ]
 
 /-- Closed union-find `Module` (`externs := []`, `exits := []`). -/
 def ufModule : Module where

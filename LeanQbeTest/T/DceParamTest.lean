@@ -6,12 +6,11 @@ public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.MainSplice
-public import LeanQbe.T.Examples.LratTrim
+public import LeanQbe.T.Examples.LratTrimProg
 public import LeanQbe.T.Examples.Kissat.CorePlus
-meta import Lean
 meta import LeanQbe.T.MainSplice
 meta import LeanQbe.T.Amd64.Targ
-meta import LeanQbe.T.Examples.LratTrim
+meta import LeanQbe.T.Examples.LratTrimProg
 meta import LeanQbe.T.Examples.Kissat.CorePlus
 
 /-!
