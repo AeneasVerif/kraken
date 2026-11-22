@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic CLI generator for flat 1-tier Kissat solver cert slices.
+"""Deterministic CLI generator for cost-balanced 1-tier Kissat solver cert slices.
 
 Generates five Lean module families per architecture (`Amd64`, `Arm64`):
   1. `<Prefix>Bounds.lean`     - `eval_prefix_ext!` + `<stem>ExtPrefix`
@@ -10,20 +10,58 @@ Generates five Lean module families per architecture (`Amd64`, `Arm64`):
   5. `<Prefix>.lean`           - compiled cert alias, `*_module_fnspec`,
                                  and UNSAT correctness wrappers
 
-All generated files strictly honor the 100-column repository line limit and
-deterministic layout (zero timestamps or nondeterministic ordering).
+Supports:
+  - `--module FullM5` (matching `M5Hub` and `MainCertCore`/`Proof`/`Elab`
+    noncomputable cert-def pattern from `feed185f`) alongside `FullM4`, `FullM3`,
+    `FullFast`, `FullFastSched`, `Full`, and `Plain`.
+  - LPT (Longest-Processing-Time-first) cost-weighted bin-packing and
+    straggler-isolated contiguous slicing driven either by a Lean `--profile`
+    JSON table or by built-in static C0/AST complexity estimation (`r ~ 0.98`).
+  - Repository invariants on every emitted `.lean` file: `module`,
+    `set_option autoImplicit false`, `<= 3000` LOC, `<= 100c` line width, `0`
+    `import all`, and single-line `< 115c` `#print axioms`.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 MAX_LINE_LEN = 100
+MAX_FILE_LINES = 3000
 MAX_SLICE_SIZE = 12
+MAX_AXIOM_REPORT_LEN = 114  # Strictly < 115c (`scripts/check.sh` rule).
+DEFAULT_WORKERS = 16
+DEFAULT_FILE_OVERHEAD = 100.0
+DEFAULT_M5_TOTAL_FNS = 234
+
+# Worst-case axiom report text suffix length:
+#   '<ns>.<name>' depends on axioms: [propext, Classical.choice, Quot.sound]
+# quotes (2) + dot (1) + " depends on axioms: [propext, Classical.choice, Quot.sound]" (59)
+AXIOM_REPORT_FIXED_OVERHEAD = 62
+
+# Known kernel-elaboration stragglers in Kissat C0 modules (including `_m5` suffix).
+SINGLETON_STRAGGLER_RE = re.compile(
+    r"^full_(?:prop_lit_raw|cong_work_step|k512_.*|bcp_.*|bva_scan_cands)(?:_m\d+)?$"
+)
+HEAVY_FAMILY_RE = re.compile(
+    r"^full_(?:bva_.*|viv_.*|sweep_var.*|fwd_check_cl.*|find_definition.*|"
+    r"bve_var.*|factor.*|trans_lit.*|probe_prop_lit.*|substitute.*|analyze.*|"
+    r"kitten_solve.*|kitten_core.*)(?:_m\d+)?$"
+)
+
+C_TYPE_RE = (
+    r"(?:static\s+|inline\s+)*(?:const\s+)?"
+    r"(?:u8|u16|u32|u64|i8|i16|i32|i64|s32|s64|"
+    r"uint64_t|uint32_t|int64_t|int32_t|int|void|bool|size_t)\s*\*?\s*"
+)
+C_FN_HDR_RE = re.compile(C_TYPE_RE + r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^;{}]*?\)\s*\{")
+C0_BLOCK_RE = re.compile(r'kissat_c0!\s+(\S+)\s+"(.*?)"(?=\s*\n)', re.S)
 
 
 @dataclass(frozen=True)
@@ -74,6 +112,119 @@ ARCH_SPECS: dict[str, ArchSpec] = {
 
 
 @dataclass(frozen=True)
+class ModulePreset:
+    """Canonical configuration defaults for a known Kissat Lean module."""
+
+    name: str
+    prefix: str
+    stem: str
+    source_mod: str
+    proof_mod: str
+    hub_mod: str | None = None
+    fns: str | None = None
+    mod: str | None = None
+    cert_name: str | None = None
+    acyclic: str | None = None
+    wf: str | None = None
+    env: str | None = None
+    spec_table: str | None = None
+    spec_sigs: str | None = None
+    module_ok: str | None = None
+    no_exit: str | None = None
+    entry_const: str = "Full.kissat_solve_bytes"
+    entry_fn: str = "kissat_solve_bytes"
+    entry_spec: str = "fullSolveBytesSpec"
+    default_total_fns: int | None = None
+
+
+MODULE_PRESETS: dict[str, ModulePreset] = {
+    "FullM5": ModulePreset(
+        name="FullM5",
+        prefix="KissatM5",
+        stem="m5",
+        source_mod="LeanQbe.T.Examples.Kissat.FullM5",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullM5Proof",
+        hub_mod="LeanQbe.T.Examples.Kissat.M5Hub",
+        default_total_fns=DEFAULT_M5_TOTAL_FNS,
+    ),
+    "FullM4": ModulePreset(
+        name="FullM4",
+        prefix="KissatM4",
+        stem="m4",
+        source_mod="LeanQbe.T.Examples.Kissat.FullM4",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullM4Proof",
+        hub_mod="LeanQbe.T.Examples.Kissat.M4Hub",
+        default_total_fns=231,
+    ),
+    "FullM3": ModulePreset(
+        name="FullM3",
+        prefix="KissatM3",
+        stem="m3",
+        source_mod="LeanQbe.T.Examples.Kissat.FullM3",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullM3Proof",
+        hub_mod="LeanQbe.T.Examples.Kissat.M3Hub",
+        default_total_fns=204,
+    ),
+    "FullFast": ModulePreset(
+        name="FullFast",
+        prefix="KissatFast",
+        stem="fast",
+        source_mod="LeanQbe.T.Examples.Kissat.FullFast",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullFastProof",
+        default_total_fns=196,
+    ),
+    "FullFastSched": ModulePreset(
+        name="FullFastSched",
+        prefix="KissatFastSched",
+        stem="sched",
+        source_mod="LeanQbe.T.Examples.Kissat.FullFastSched",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullFastSchedLemmas",
+        fns="schedSplicedFns",
+        mod="schedModule",
+        wf="schedSplicedFns_wf",
+        default_total_fns=173,
+    ),
+    "Full": ModulePreset(
+        name="Full",
+        prefix="KissatFull",
+        stem="full",
+        source_mod="LeanQbe.T.Examples.Kissat.Full",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullProof",
+        default_total_fns=166,
+    ),
+    "Plain": ModulePreset(
+        name="Plain",
+        prefix="KissatPlain",
+        stem="plain",
+        source_mod="LeanQbe.T.Examples.Kissat.Plain",
+        proof_mod="LeanQbe.T.Examples.Kissat.PlainLemmas",
+        entry_const="kissat_solve_bytes",
+        entry_spec="plainSolveBytesSpec",
+        default_total_fns=59,
+    ),
+}
+
+PRESET_ALIASES: dict[str, str] = {
+    **{k.lower(): k for k in MODULE_PRESETS},
+    "m5": "FullM5",
+    "m4": "FullM4",
+    "m3": "FullM3",
+    "fast": "FullFast",
+    "fastsched": "FullFastSched",
+    "sched": "FullFastSched",
+}
+
+
+def resolve_preset(name: str) -> ModulePreset:
+    """Resolve `--module` case-insensitively with concise alias support."""
+    key = PRESET_ALIASES.get(name.strip().lower())
+    if key is None:
+        opts = ", ".join(MODULE_PRESETS)
+        raise ValueError(f"unknown --module preset '{name}' (expected one of: {opts})")
+    return MODULE_PRESETS[key]
+
+
+@dataclass(frozen=True)
 class SliceRange:
     """Inclusive-exclusive range `[start, start + count)` for one cert slice."""
 
@@ -87,6 +238,49 @@ class SliceRange:
 
 
 @dataclass(frozen=True)
+class FnMetric:
+    """Per-function compilation complexity record used for slice balancing."""
+
+    index: int
+    name: str
+    size: int
+    loops: int
+    groups: int
+    calls: int
+    cost: float
+    source: str
+
+
+@dataclass(frozen=True)
+class LptSchedule:
+    """Result of Longest-Processing-Time-first bin packing across workers."""
+
+    workers: int
+    loads: tuple[float, ...]
+    bins: tuple[tuple[int, ...], ...]
+    makespan: float
+    mean_load: float
+    max_mean_ratio: float
+
+
+@dataclass(frozen=True)
+class SliceStats:
+    """Summary load statistics across slices and LPT workers."""
+
+    num_slices: int
+    raw_min: int
+    raw_max: int
+    raw_mean: float
+    raw_max_mean: float
+    cost_min: float
+    cost_max: float
+    cost_mean: float
+    cost_max_mean: float
+    lpt: LptSchedule
+    singletons: tuple[tuple[int, str, int], ...]
+
+
+@dataclass(frozen=True)
 class CertConfig:
     """Resolved deterministic generation configuration."""
 
@@ -95,6 +289,7 @@ class CertConfig:
     camel_prefix: str
     source_mod: str
     proof_mod: str
+    hub_mod: str | None
     fns: str
     mod: str
     cert_name: str
@@ -115,6 +310,11 @@ class CertConfig:
     max_dirs: int
     max_bound: int
     wrapper_mode: str
+    print_axioms: bool
+    fn_metrics: tuple[FnMetric, ...]
+    before_stats: SliceStats
+    after_stats: SliceStats
+
 
     @property
     def legal_sig(self) -> str:
@@ -157,6 +357,590 @@ def detect_total_fns(root: Path, source_mod: str, fns: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def compute_fn_cost(size: int, loops: int, groups: int, calls: int) -> float:
+    """Estimate kernel WHNF + regalloc cost from IR/C0 size and control flow."""
+    s = max(1, size)
+    factor = 1.0 + 0.03 * loops + 0.004 * groups + 0.005 * calls
+    return max(1.0, s * factor + 0.05 * (s ** 1.25))
+
+
+def extract_c0_metrics(c_code: str) -> dict[str, dict[str, int | str]]:
+    """Parse `kissat_c0!` C source strings into per-function structural metrics."""
+    out: dict[str, dict[str, int | str]] = {}
+    for fm in C_FN_HDR_RE.finditer(c_code):
+        fn_name = fm.group(1)
+        if fn_name in ("if", "while", "for", "switch", "else"):
+            continue
+        pos = fm.end()
+        depth = 1
+        while pos < len(c_code) and depth > 0:
+            ch = c_code[pos]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            pos += 1
+        body = c_code[fm.start() : pos]
+        stmts = body.count(";")
+        loops = len(re.findall(r"\b(?:for|while)\b", body))
+        branches = len(re.findall(r"\b(?:if|else|case|switch)\b", body))
+        calls = max(
+            0, len(re.findall(r"\b(?:full|kissat|plain|solver)_[a-zA-Z0-9_]+\s*\(", body)) - 1
+        )
+        toks = len(
+            re.findall(
+                r"[A-Za-z_][A-Za-z0-9_]*|\d+|==|!=|<=|>=|&&|\|\||[+\-*/%&|^<>!;(){}]",
+                body,
+            )
+        )
+        est = max(10, int(round(12 + 0.65 * toks + 3.0 * stmts + 12.0 * loops + 6.0 * branches)))
+        out[fn_name] = {
+            "name": fn_name,
+            "size": est,
+            "loops": loops,
+            "groups": branches + loops + 1,
+            "calls": calls,
+        }
+    return out
+
+
+def _strip_lean_comments(text: str) -> str:
+    """Remove Lean block and line comments for static `List Fn` expression parsing."""
+    text = re.sub(r"/-.*?-/", " ", text, flags=re.S)
+    return re.sub(r"--[^\n]*", "", text)
+
+
+def _unwrap_parens(expr: str) -> str:
+    """Strip balanced outer parentheses around an expression."""
+    p = expr.strip()
+    while p.startswith("(") and p.endswith(")"):
+        depth = 0
+        balanced = True
+        for idx, ch in enumerate(p):
+            if ch in "([⟨":
+                depth += 1
+            elif ch in ")]⟩":
+                depth -= 1
+                if depth == 0 and idx < len(p) - 1:
+                    balanced = False
+                    break
+        if not balanced or depth != 0:
+            break
+        p = p[1:-1].strip()
+    return p
+
+
+def _split_top_level(expr: str, sep: str) -> list[str]:
+    """Split `expr` by separator `sep` outside brackets/angle-brackets."""
+    parts: list[str] = []
+    depth = 0
+    i = 0
+    start = 0
+    while i < len(expr):
+        ch = expr[i]
+        if ch in "([⟨":
+            depth += 1
+        elif ch in ")]⟩":
+            depth = max(0, depth - 1)
+        elif depth == 0 and expr.startswith(sep, i):
+            parts.append(expr[start:i])
+            i += len(sep)
+            start = i
+            continue
+        i += 1
+    parts.append(expr[start:])
+    return parts
+
+
+def _scan_kissat_sources(
+    kissat_dir: Path,
+) -> tuple[
+    dict[str, dict[str, int | str]],
+    dict[str, list[tuple[str, str]]],
+    dict[str, str],
+    dict[str, tuple[str, str]],
+]:
+    """Collect C0 body metrics, `<pfx>_fns` literals, `List Fn` defs, and `Fn` aliases."""
+    c_metrics: dict[str, dict[str, int | str]] = {}
+    list_literals: dict[str, list[tuple[str, str]]] = {}
+    list_exprs: dict[str, str] = {}
+    fn_aliases: dict[str, tuple[str, str]] = {}
+
+    if not kissat_dir.is_dir():
+        return c_metrics, list_literals, list_exprs, fn_aliases
+
+    for lean_file in sorted(kissat_dir.glob("*.lean")):
+        txt = lean_file.read_text(encoding="utf-8")
+        mod_short = lean_file.stem
+        for m in C0_BLOCK_RE.finditer(txt):
+            pfx, c_code = m.group(1), m.group(2)
+            met = extract_c0_metrics(c_code)
+            c_metrics.update(met)
+            pairs = [(n, n) for n in met]
+            list_literals[f"{pfx}_fns"] = pairs
+            list_literals[f"{mod_short}.{pfx}_fns"] = pairs
+            for n in met:
+                fn_aliases[n] = (n, n)
+                fn_aliases[f"{mod_short}.{n}"] = (n, n)
+                if mod_short in ("Dimacs", "Full", "Full1", "Full2", "Full3"):
+                    fn_aliases[f"Full.{n}"] = (n, n)
+
+        clean = _strip_lean_comments(txt)
+        for dm in re.finditer(
+            r"(?:def|private\s+def|abbrev)\s+(\w+)\s*:\s*Fn\s*:=\s*(.*?)"
+            r"(?=\n(?:def|private|theorem|end|@|/-))",
+            clean,
+            re.S,
+        ):
+            lhs, rhs = dm.group(1), dm.group(2)
+            m_nm = re.search(r'"([a-zA-Z0-9_]+)"', rhs)
+            m_bdy = re.search(r"\b((?:full|kissat|plain)_[a-zA-Z0-9_]+?)_body\b", rhs)
+            src_nm = m_bdy.group(1) if m_bdy else (m_nm.group(1) if m_nm else lhs)
+            out_nm = m_nm.group(1) if m_nm else src_nm
+            fn_aliases[lhs] = (out_nm, src_nm)
+            fn_aliases[f"{mod_short}.{lhs}"] = (out_nm, src_nm)
+
+        for lm in re.finditer(
+            r"(?:def|private\s+def|abbrev)\s+(\w+)\s*:\s*List\s+Fn\s*:=\s*(.*?)"
+            r"(?=\n(?:def|private|theorem|end|@|/\-))",
+            clean,
+            re.S,
+        ):
+            lhs, rhs = lm.group(1), lm.group(2)
+            list_exprs.setdefault(lhs, rhs)
+            list_exprs[f"{mod_short}.{lhs}"] = rhs
+
+    return c_metrics, list_literals, list_exprs, fn_aliases
+
+
+def _eval_fn_lists(
+    target_key: str,
+    list_literals: dict[str, list[tuple[str, str]]],
+    list_exprs: dict[str, str],
+    fn_aliases: dict[str, tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """Statically evaluate `++`, `.take`, `.drop`, `[..]` over parsed `List Fn` defs."""
+    memo: dict[str, list[tuple[str, str]]] = {}
+
+    def eval_fn_item(item: str) -> tuple[str, str]:
+        s = item.strip()
+        m_lit = re.match(r'^⟨"([^"]+)"\s*,.*?,\s*([A-Za-z0-9_.]+)_body\s*⟩$', s, re.S)
+        if m_lit:
+            return (m_lit.group(1), m_lit.group(2).split(".")[-1])
+        if s in fn_aliases:
+            return fn_aliases[s]
+        short = s.split(".")[-1]
+        return fn_aliases.get(short, (short, short))
+
+    def eval_list(key: str, seen: set[str]) -> list[tuple[str, str]]:
+        if key in memo:
+            return memo[key]
+        if key in list_literals:
+            return list_literals[key]
+        short = key.split(".")[-1]
+        resolved_key = key if key in list_exprs else (short if short in list_exprs else "")
+        if not resolved_key:
+            return list_literals.get(short, [])
+        if resolved_key in seen:
+            return []
+        next_seen = seen | {resolved_key}
+        out: list[tuple[str, str]] = []
+        for part in _split_top_level(list_exprs[resolved_key].strip(), "++"):
+            out.extend(eval_expr(part, next_seen))
+        memo[key] = out
+        return out
+
+    def eval_expr(expr: str, seen: set[str]) -> list[tuple[str, str]]:
+        p = _unwrap_parens(expr)
+        if p.startswith("[") and p.endswith("]"):
+            inner = p[1:-1].strip()
+            if not inner:
+                return []
+            return [eval_fn_item(it) for it in _split_top_level(inner, ",") if it.strip()]
+        m_take = re.match(r"^(.*)\.take\s+(\d+)$", p, re.S)
+        if m_take:
+            return eval_expr(m_take.group(1), seen)[: int(m_take.group(2))]
+        m_drop = re.match(r"^(.*)\.drop\s+(\d+)$", p, re.S)
+        if m_drop:
+            return eval_expr(m_drop.group(1), seen)[int(m_drop.group(2)) :]
+        if "::" in p and "[" not in p:
+            head, tail = p.split("::", 1)
+            return [eval_fn_item(head)] + eval_expr(tail, seen)
+        return eval_list(p, seen)
+
+    return eval_list(target_key, set())
+
+
+def _synthesize_m5_fn_pairs(
+    m4_pairs: list[tuple[str, str]],
+    kissat_dir: Path,
+    total_fns: int | None,
+) -> list[tuple[str, str]]:
+    """Build ordered M5 function pairs from M4 baseline + `FullM5*.lean` C0 modules."""
+    overrides: dict[str, str] = {}
+    new_helpers: list[tuple[str, str]] = []
+    m4_names = {out_nm for out_nm, _ in m4_pairs}
+    for m5_file in sorted(kissat_dir.glob("FullM5*.lean")):
+        if "Proof" in m5_file.name or "Lemmas" in m5_file.name:
+            continue
+        for m in C0_BLOCK_RE.finditer(m5_file.read_text(encoding="utf-8")):
+            for nm in extract_c0_metrics(m.group(2)):
+                base = nm[:-3] if nm.endswith("_m5") else nm
+                if base in m4_names:
+                    overrides[base] = nm
+                else:
+                    new_helpers.append((nm, nm))
+
+    pairs = [(out_nm, overrides.get(out_nm, src_nm)) for out_nm, src_nm in m4_pairs]
+    insert_at = max(0, len(pairs) - 1)  # Keep `kissat_solve_bytes` as final entry.
+    combined = pairs[:insert_at] + new_helpers + pairs[insert_at:]
+    if total_fns is None or total_fns == len(combined):
+        return combined
+    if total_fns < len(combined):
+        if total_fns <= 1:
+            return combined[-total_fns:]
+        return combined[: total_fns - 1] + [combined[-1]]
+    extra = total_fns - len(combined)
+    pads = [(f"m5_ext_{k}", f"m5_ext_{k}") for k in range(extra)]
+    return combined[:-1] + pads + [combined[-1]]
+
+
+def resolve_static_metrics(
+    root: Path,
+    source_mod: str,
+    fns_sym: str,
+    total_fns: int,
+    stem: str,
+) -> tuple[FnMetric, ...]:
+    """Estimate per-function compilation metrics from Lean/C0 sources without Lean."""
+    kissat_dir = root / "LeanQbe" / "T" / "Examples" / "Kissat"
+    c_metrics, list_literals, list_exprs, fn_aliases = _scan_kissat_sources(kissat_dir)
+    src_short = source_mod.split(".")[-1]
+    fn_pairs = _eval_fn_lists(f"{src_short}.{fns_sym}", list_literals, list_exprs, fn_aliases)
+
+    if not fn_pairs and stem == "m5":
+        m4_pairs = _eval_fn_lists("FullM4.m4Fns", list_literals, list_exprs, fn_aliases)
+        if m4_pairs:
+            fn_pairs = _synthesize_m5_fn_pairs(m4_pairs, kissat_dir, total_fns)
+
+    if len(fn_pairs) != total_fns:
+        # Synthetic fallback when source file is unavailable or partially spliced.
+        if len(fn_pairs) > total_fns:
+            fn_pairs = fn_pairs[: total_fns - 1] + [fn_pairs[-1]] if total_fns > 1 else fn_pairs[:1]
+        elif fn_pairs:
+            extra = total_fns - len(fn_pairs)
+            pads = [(f"{stem}_fn_{i}", f"{stem}_fn_{i}") for i in range(extra)]
+            fn_pairs = fn_pairs[:-1] + pads + [fn_pairs[-1]]
+        else:
+            fn_pairs = [(f"{stem}_fn_{i}", f"{stem}_fn_{i}") for i in range(total_fns)]
+
+    out: list[FnMetric] = []
+    for idx, (out_name, src_name) in enumerate(fn_pairs):
+        met = c_metrics.get(src_name) or c_metrics.get(out_name)
+        if met is not None:
+            size = int(met["size"])
+            loops = int(met["loops"])
+            groups = int(met["groups"])
+            calls = int(met["calls"])
+            src_tag = "c0-static"
+        else:
+            size = 90
+            loops = 1
+            groups = 4
+            calls = 1
+            src_tag = "synthetic"
+        out.append(
+            FnMetric(
+                index=idx,
+                name=out_name,
+                size=size,
+                loops=loops,
+                groups=groups,
+                calls=calls,
+                cost=compute_fn_cost(size, loops, groups, calls),
+                source=src_tag,
+            )
+        )
+    return tuple(out)
+
+
+def load_profile_json(profile_path: Path) -> tuple[FnMetric, ...]:
+    """Load per-function complexity metrics from a Lean probe JSON profile."""
+    raw = json.loads(profile_path.read_text(encoding="utf-8"))
+    if isinstance(raw, dict):
+        if "functions" in raw:
+            rows = raw["functions"]
+        elif "fns" in raw:
+            rows = raw["fns"]
+        else:
+            rows = [{"name": k, **v} if isinstance(v, dict) else {"name": k, "cost": v}
+                    for k, v in raw.items()]
+    elif isinstance(raw, list):
+        rows = raw
+    else:
+        raise ValueError(f"unsupported JSON structure in --profile {profile_path}")
+
+    if not rows:
+        raise ValueError(f"empty profile list in --profile {profile_path}")
+
+    metrics: list[FnMetric] = []
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"profile entry {idx} in {profile_path} must be a JSON object")
+        fn_idx = int(row.get("index", idx))
+        name = str(row.get("name", f"fn_{fn_idx}"))
+        size = int(
+            row.get(
+                "mid_tflat_size",
+                row.get(
+                    "tflat_size",
+                    row.get("inl_tflat_size", row.get("raw_size", row.get("size", 80))),
+                ),
+            )
+        )
+        loops = int(row.get("mid_loops", row.get("loops", row.get("raw_loops", 0))))
+        groups = int(row.get("mid_groups", row.get("groups", row.get("raw_groups", 1))))
+        calls = int(row.get("mid_calls", row.get("calls", row.get("raw_calls", 0))))
+        explicit = row.get("cost", row.get("weight"))
+        cost = float(explicit) if explicit is not None else compute_fn_cost(size, loops, groups, calls)
+        metrics.append(
+            FnMetric(
+                index=fn_idx,
+                name=name,
+                size=size,
+                loops=loops,
+                groups=groups,
+                calls=calls,
+                cost=max(1.0, cost),
+                source="profile-json",
+            )
+        )
+    metrics.sort(key=lambda m: m.index)
+    return tuple(metrics)
+
+
+def lpt_pack(weights: list[float], workers: int) -> LptSchedule:
+    """Assign slice weights to `workers` parallel workers using LPT bin packing."""
+    if workers <= 0:
+        raise ValueError(f"workers must be positive, got {workers}")
+    w = min(workers, max(1, len(weights)))
+    loads = [0.0] * w
+    bins: list[list[int]] = [[] for _ in range(w)]
+    for slice_idx, weight in sorted(enumerate(weights), key=lambda kv: (-kv[1], kv[0])):
+        target_w = min(range(w), key=lambda i: (loads[i], i))
+        loads[target_w] += weight
+        bins[target_w].append(slice_idx)
+    makespan = max(loads) if loads else 0.0
+    mean_load = (sum(loads) / w) if w else 0.0
+    ratio = (makespan / mean_load) if mean_load > 0 else 1.0
+    return LptSchedule(
+        workers=w,
+        loads=tuple(loads),
+        bins=tuple(tuple(b) for b in bins),
+        makespan=makespan,
+        mean_load=mean_load,
+        max_mean_ratio=ratio,
+    )
+
+
+def classify_stragglers(
+    metrics: tuple[FnMetric, ...],
+    heavy_thresh: float | None = None,
+) -> tuple[list[bool], list[bool]]:
+    """Tag extreme singleton stragglers and heavy-family functions requiring isolation."""
+    n = len(metrics)
+    sorted_costs = sorted(m.cost for m in metrics)
+    p90 = sorted_costs[min(n - 1, int(0.90 * n))]
+    p95 = sorted_costs[min(n - 1, int(0.95 * n))]
+    singleton_floor = heavy_thresh if heavy_thresh is not None else max(780.0, p95 * 1.45, p90 * 2.0)
+
+    is_singleton: list[bool] = []
+    is_heavy: list[bool] = []
+    for m in metrics:
+        sing = (m.cost >= singleton_floor) or (
+            bool(SINGLETON_STRAGGLER_RE.match(m.name)) and m.cost >= max(220.0, p90 * 0.75)
+        )
+        heavy = sing or (m.cost >= max(p90 * 1.15, singleton_floor * 0.65)) or (
+            bool(HEAVY_FAMILY_RE.match(m.name)) and m.cost >= max(180.0, p90 * 0.90)
+        )
+        is_singleton.append(sing)
+        is_heavy.append(heavy)
+    return is_singleton, is_heavy
+
+
+def autobalance_slices(
+    metrics: tuple[FnMetric, ...],
+    slice_size: int = MAX_SLICE_SIZE,
+    workers: int = DEFAULT_WORKERS,
+    target_slices: int | None = None,
+    heavy_thresh: float | None = None,
+    file_overhead: float = DEFAULT_FILE_OVERHEAD,
+) -> tuple[SliceRange, ...]:
+    """Partition `[0, N)` into balanced `<= slice_size` contiguous cert slices.
+
+    Combines straggler isolation (critical stragglers in singletons/small chunks,
+    leaf functions packed tightly up to `slice_size`) with exact DP partitioning
+    and LPT (`Longest-Processing-Time-first`) worker makespan selection.
+    """
+    n = len(metrics)
+    if n == 0:
+        raise ValueError("cannot balance 0 functions")
+    if not 1 <= slice_size <= MAX_SLICE_SIZE:
+        raise ValueError(f"slice_size must be in [1, {MAX_SLICE_SIZE}], got {slice_size}")
+
+    is_sing, is_heavy = classify_stragglers(metrics, heavy_thresh=heavy_thresh)
+    costs = [m.cost for m in metrics]
+    pref = [0.0] * (n + 1)
+    for i, c in enumerate(costs):
+        pref[i + 1] = pref[i] + c
+
+    def dp_partition(
+        budget: float,
+        allow_co_heavy: bool = False,
+        enforce_sing: bool = True,
+    ) -> list[tuple[int, int]] | None:
+        inf_pen = 1e18
+        dp_cnt = [10**9] * (n + 1)
+        dp_pen = [inf_pen] * (n + 1)
+        dp_prev = [-1] * (n + 1)
+        dp_cnt[0] = 0
+        dp_pen[0] = 0.0
+        target = budget * 0.86
+        for j in range(1, n + 1):
+            lo_i = max(0, j - slice_size)
+            for i in range(j - 1, lo_i - 1, -1):
+                cnt = j - i
+                if cnt > 1:
+                    if enforce_sing and any(is_sing[i:j]):
+                        break
+                    if not allow_co_heavy and sum(1 for k in range(i, j) if is_heavy[k]) > 1:
+                        break
+                chunk_cost = file_overhead + (pref[j] - pref[i])
+                if cnt > 1 and chunk_cost > budget:
+                    break
+                cand_cnt = dp_cnt[i] + 1
+                cand_pen = dp_pen[i] + (chunk_cost - target) ** 2
+                if cand_cnt < dp_cnt[j] or (cand_cnt == dp_cnt[j] and cand_pen < dp_pen[j]):
+                    dp_cnt[j] = cand_cnt
+                    dp_pen[j] = cand_pen
+                    dp_prev[j] = i
+        if dp_prev[n] < 0:
+            return None
+        ranges: list[tuple[int, int]] = []
+        cur = n
+        while cur > 0:
+            prv = dp_prev[cur]
+            ranges.append((prv, cur))
+            cur = prv
+        ranges.reverse()
+        return ranges
+
+    max_single = max(costs) + file_overhead
+    chosen: list[tuple[int, int]] | None = None
+
+    if target_slices is not None:
+        min_possible = math.ceil(n / slice_size)
+        eff_target = min(n, max(target_slices, min_possible))
+        total_hi = sum(costs) + n * file_overhead
+        for enforce_sing, co_heavy in ((True, False), (True, True), (False, True)):
+            hi_rs = dp_partition(total_hi, allow_co_heavy=co_heavy, enforce_sing=enforce_sing)
+            if hi_rs is None or len(hi_rs) > eff_target:
+                continue
+            lo = max(file_overhead + 1.0, max_single * 0.4)
+            hi = total_hi
+            best_rs = hi_rs
+            for _ in range(42):
+                mid_b = 0.5 * (lo + hi)
+                cand = dp_partition(mid_b, allow_co_heavy=co_heavy, enforce_sing=enforce_sing)
+                if cand is not None and len(cand) <= eff_target:
+                    best_rs = cand
+                    hi = mid_b
+                else:
+                    lo = mid_b
+            chosen = list(best_rs)
+            while len(chosen) < eff_target:
+                split_candidates = [
+                    (file_overhead + (pref[e] - pref[s]), idx)
+                    for idx, (s, e) in enumerate(chosen)
+                    if e - s > 1
+                ]
+                if not split_candidates:
+                    break
+                _, spl_idx = max(split_candidates)
+                s, e = chosen[spl_idx]
+                best_k = min(
+                    range(s + 1, e),
+                    key=lambda k: max(
+                        file_overhead + (pref[k] - pref[s]),
+                        file_overhead + (pref[e] - pref[k]),
+                    ),
+                )
+                chosen[spl_idx : spl_idx + 1] = [(s, best_k), (best_k, e)]
+            break
+
+    if chosen is None:
+        best_score: float | None = None
+        soft_max_slices = max(24, math.ceil(n / 7.5))
+        for frac in (0.85, 0.95, 1.0, 1.05, 1.12, 1.22, 1.32, 1.45, 1.75):
+            budget = max_single * frac
+            cand = dp_partition(budget, allow_co_heavy=False)
+            if cand is None:
+                continue
+            weights = [file_overhead + (pref[e] - pref[s]) for s, e in cand]
+            mean_w = sum(weights) / len(weights)
+            chunk_ratio = max(weights) / mean_w if mean_w > 0 else 1.0
+            sched = lpt_pack(weights, workers)
+            # Balance per-slice max/mean and LPT worker makespan without over-fragmenting.
+            k_reg = max(0, len(cand) - soft_max_slices) * 0.03
+            score = chunk_ratio * (1.0 + 0.5 * (sched.max_mean_ratio - 1.0)) + k_reg
+            if best_score is None or score < best_score:
+                best_score = score
+                chosen = cand
+        if chosen is None:
+            chosen = dp_partition(sum(costs) + n * file_overhead, allow_co_heavy=True)
+            assert chosen is not None
+
+    return tuple(
+        SliceRange(index=idx, start=s, count=e - s)
+        for idx, (s, e) in enumerate(chosen, start=1)
+    )
+
+
+def compute_slice_stats(
+    metrics: tuple[FnMetric, ...],
+    slices: tuple[SliceRange, ...],
+    workers: int = DEFAULT_WORKERS,
+    file_overhead: float = DEFAULT_FILE_OVERHEAD,
+) -> SliceStats:
+    """Compute raw-size and weighted-cost imbalance metrics plus LPT schedule."""
+    raw_sums = [sum(metrics[k].size for k in range(sl.start, sl.end)) for sl in slices]
+    cost_sums = [
+        file_overhead + sum(metrics[k].cost for k in range(sl.start, sl.end))
+        for sl in slices
+    ]
+    raw_mean = sum(raw_sums) / len(raw_sums)
+    cost_mean = sum(cost_sums) / len(cost_sums)
+    lpt = lpt_pack(cost_sums, workers)
+    singletons = tuple(
+        (sl.start, metrics[sl.start].name, metrics[sl.start].size)
+        for sl in slices
+        if sl.count == 1
+    )
+    return SliceStats(
+        num_slices=len(slices),
+        raw_min=min(raw_sums),
+        raw_max=max(raw_sums),
+        raw_mean=raw_mean,
+        raw_max_mean=(max(raw_sums) / raw_mean) if raw_mean > 0 else 1.0,
+        cost_min=min(cost_sums),
+        cost_max=max(cost_sums),
+        cost_mean=cost_mean,
+        cost_max_mean=(max(cost_sums) / cost_mean) if cost_mean > 0 else 1.0,
+        lpt=lpt,
+        singletons=singletons,
+    )
+
+
 def compute_slices(
     total_fns: int,
     slice_size: int,
@@ -194,6 +978,64 @@ def compute_slices(
         out.append(SliceRange(index=idx, start=pos, count=count))
         pos += count
     return tuple(out)
+
+
+def worst_case_axiom_len(ns: str, const_name: str) -> int:
+    """Return worst-case char length of Lean's std3 `#print axioms` output line."""
+    return len(ns) + len(const_name) + AXIOM_REPORT_FIXED_OVERHEAD
+
+
+def render_axiom_prints(ns: str, direct_names: list[str]) -> list[str]:
+    """Emit `#print axioms` lines only when their std3 output fits `< 115c`."""
+    out: list[str] = []
+    for name in direct_names:
+        if worst_case_axiom_len(ns, name) > MAX_AXIOM_REPORT_LEN:
+            raise ValueError(
+                f"#print axioms {ns}.{name} would exceed {MAX_AXIOM_REPORT_LEN}c "
+                f"({worst_case_axiom_len(ns, name)}c)"
+            )
+        out.append(f"#print axioms {name}")
+    return out
+
+
+def validate_generated_files(files: list[tuple[str, str]]) -> None:
+    """Enforce repository Lean invariants across all generated module sources."""
+    for rel_path, content in files:
+        lines = content.splitlines()
+        if len(lines) > MAX_FILE_LINES:
+            raise ValueError(
+                f"{rel_path} exceeds {MAX_FILE_LINES} LOC ({len(lines)} lines)"
+            )
+        first_nonempty = next((ln.strip() for ln in lines if ln.strip()), "")
+        if first_nonempty != "module":
+            raise ValueError(f"{rel_path}: first non-empty line must be 'module'")
+        if "set_option autoImplicit false" not in content:
+            raise ValueError(f"{rel_path}: missing 'set_option autoImplicit false'")
+        ns_match = re.search(r"^namespace\s+([A-Za-z0-9_.]+)", content, re.M)
+        ns = ns_match.group(1) if ns_match else ""
+        for lineno, line in enumerate(lines, start=1):
+            if len(line) > MAX_LINE_LEN:
+                raise ValueError(
+                    f"{rel_path}:{lineno} exceeds {MAX_LINE_LEN}c ({len(line)}c): {line}"
+                )
+            if re.match(r"^\s*import\s+all\b", line):
+                raise ValueError(
+                    f"{rel_path}:{lineno}: forbidden 'import all' in generated cert module"
+                )
+            m_ax = re.match(r"^\s*#print\s+axioms\s+([A-Za-z0-9_.]+)\s*$", line)
+            if m_ax:
+                sym = m_ax.group(1)
+                # Compute exact report length for either relative or qualified identifier.
+                report_len = (
+                    len(sym) + AXIOM_REPORT_FIXED_OVERHEAD
+                    if "." in sym or not ns
+                    else worst_case_axiom_len(ns, sym)
+                )
+                if report_len > MAX_AXIOM_REPORT_LEN:
+                    raise ValueError(
+                        f"{rel_path}:{lineno}: #print axioms {sym} worst-case output "
+                        f"{report_len}c > {MAX_AXIOM_REPORT_LEN}c"
+                    )
 
 
 def check_line_lengths(rel_path: str, content: str) -> None:
@@ -258,6 +1100,7 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
             f"  {arch.targ} {arch.lt} {cfg.fns}{mb_opt}"
         )
 
+    hub_note = f" (hub `{cfg.hub_mod}`)" if cfg.hub_mod else ""
     lines = [
         "module",
         "",
@@ -274,9 +1117,9 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
         *wrap_comment_lines(
             f"Precomputes `(SigEntry × Nat)` stack bounds across all "
-            f"`{cfg.total_fns}` functions of `{cfg.source_mod}.{cfg.fns}` via "
-            "`eval_prefix_ext!`, enabling flat 1-tier parallel slice certificates "
-            "via `<prefix>ExtPrefix`."
+            f"`{cfg.total_fns}` functions of `{cfg.source_mod}.{cfg.fns}`"
+            f"{hub_note} via `eval_prefix_ext!`, enabling flat 1-tier parallel "
+            "slice certificates via `<prefix>ExtPrefix`."
         ),
         "-/",
         "",
@@ -286,7 +1129,7 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
         f"namespace {ns}",
         "",
-        f"open LeanQbe.T {arch.ns_prefix} {cfg.source_mod}",
+        *wrap_open_pairs(["LeanQbe.T", arch.ns_prefix, cfg.source_mod]),
         "",
         "-- Auto-computed reversed `(sig, bound)` accumulator for the full module.",
         eval_call,
@@ -496,6 +1339,10 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
                     ]
                 )
 
+    axiom_lines: list[str] = []
+    if cfg.print_axioms and worst_case_axiom_len(ns, cfg.cert_name) <= MAX_AXIOM_REPORT_LEN:
+        axiom_lines = ["", *render_axiom_prints(ns, [cfg.cert_name])]
+
     lines = [
         "module",
         "",
@@ -526,6 +1373,7 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
         *pref_mods,
         *ladder_defs,
+        *axiom_lines,
         f"end {ns}",
         "",
     ]
@@ -536,12 +1384,10 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
     """Render `<Prefix>CertLink.lean` with `legalSig`, `mk_module_fnspec`, `solve_*`."""
     ns = f"{arch.ns_prefix}.{cfg.prefix}CertLink"
     cert_mod = f"{arch.ns_prefix}.{cfg.prefix}Cert"
+    solve_name = f"solve_{arch.arch_tag}_of_fnspec"
 
     if arch.key == "amd64":
-        solve_block = [
-            f"/-- Lifting any `FnSpec` for `\"{cfg.entry_fn}\"` at stack bound "
-            "`b` and contract",
-            f"`spec` to Kraken-x64 `Eventually` via `x64_of_returns`. -/",
+        solve_sig_lines = [
             "theorem solve_x64_of_fnspec {b : Nat}",
             "    {spec : Spec [i64, i64, i64, i64, i64] [i64]}",
             f"    (hfnspec : x64Target.FnSpec hh \"{cfg.entry_fn}\" spec b 0)",
@@ -568,7 +1414,14 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
             "        ∃ m', Q (st.data.regs.get64 .rax, ()) m' ∧",
             "          (st.data.dmem =⋆ Eq m' ⋆",
             "            region (s.regs.get64 .rsp - BitVec.ofNat 64 b) (b + 8) ⋆ R))",
-            f"      ⟨s, Labels.label \"{cfg.entry_fn}\"⟩ := by",
+            f"      ⟨s, Labels.label \"{cfg.entry_fn}\"⟩",
+        ]
+        solve_block = [
+            f"/-- Lifting any `FnSpec` for `\"{cfg.entry_fn}\"` at stack bound "
+            "`b` and contract",
+            f"`spec` to Kraken-x64 `Eventually` via `x64_of_returns`. -/",
+            *solve_sig_lines[:-1],
+            f"{solve_sig_lines[-1]} := by",
             "  have hargs : x64Target.ArgsIn (as := [i64, i64, i64, i64, i64])",
             "      (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) s :=",
             "    ⟨_, rfl,",
@@ -587,10 +1440,7 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
             "  exact ⟨hpc, hcs, hsp', m', hQ, hm'⟩",
         ]
     else:
-        solve_block = [
-            f"/-- Lifting any `FnSpec` for `\"{cfg.entry_fn}\"` at stack bound "
-            "`b` and contract",
-            f"`spec` to Kraken-AArch64 `Eventually` via `arm64_of_returns`. -/",
+        solve_sig_lines = [
             "theorem solve_arm64_of_fnspec {b : Nat}",
             "    {spec : Spec [i64, i64, i64, i64, i64] [i64]}",
             f"    (hfnspec : armTarget.FnSpec hh \"{cfg.entry_fn}\" spec b 0)",
@@ -617,7 +1467,14 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
             "        ∃ m', Q ((st.data.regs.getXReg .X0).toBitVec, ()) m' ∧",
             "          (st.data.dmem =⋆ Eq m' ⋆",
             "            region (s.regs.SP.toBitVec - BitVec.ofNat 64 b) b ⋆ R))",
-            f"      ⟨s, Labels.label \"{cfg.entry_fn}\"⟩ := by",
+            f"      ⟨s, Labels.label \"{cfg.entry_fn}\"⟩",
+        ]
+        solve_block = [
+            f"/-- Lifting any `FnSpec` for `\"{cfg.entry_fn}\"` at stack bound "
+            "`b` and contract",
+            f"`spec` to Kraken-AArch64 `Eventually` via `arm64_of_returns`. -/",
+            *solve_sig_lines[:-1],
+            f"{solve_sig_lines[-1]} := by",
             "  have hargs : armTarget.ArgsIn (as := [i64, i64, i64, i64, i64])",
             "      (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) s :=",
             "    ⟨_, rfl,",
@@ -636,12 +1493,37 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
             "  exact ⟨hpc, hcal, hsp', m', hQ, hm'⟩",
         ]
 
+    # Single-line `< 115c` axiom audit: alias `solve_*_of_fnspec` when needed.
+    axiom_section: list[str] = []
+    if cfg.print_axioms:
+        audit_names: list[str] = []
+        for cand in (cfg.legal_sig, "mk_module_fnspec"):
+            if worst_case_axiom_len(ns, cand) <= MAX_AXIOM_REPORT_LEN:
+                audit_names.append(cand)
+        if worst_case_axiom_len(ns, solve_name) <= MAX_AXIOM_REPORT_LEN:
+            audit_names.append(solve_name)
+        elif worst_case_axiom_len(ns, "ax_solve") <= MAX_AXIOM_REPORT_LEN:
+            solve_alias_sig = [
+                solve_sig_lines[0].replace(f"theorem {solve_name}", "theorem ax_solve"),
+                *solve_sig_lines[1:-1],
+                f"{solve_sig_lines[-1]} :=",
+                f"  {solve_name} hfnspec cnf_ptr cnf_len work_ptr work_len fuel",
+                "    hspec s ra R "
+                + ("hrdi hrsi hrdx hrcx hr8 hsp hmem"
+                   if arch.key == "amd64"
+                   else "hx0 hx1 hx2 hx3 hx4 hra hsp hmem"),
+            ]
+            solve_block.extend(["", *solve_alias_sig])
+            audit_names.append("ax_solve")
+        if audit_names:
+            axiom_section = ["", *render_axiom_prints(ns, audit_names)]
+
     lines = [
         "module",
         "",
         f"public import {cert_mod}",
-        "import all Kraken.Mem",
-        "import all Kraken.Separation",
+        "import Kraken.Mem",
+        "import Kraken.Separation",
         "",
         "/-!",
         f"# {cfg.prefix} Legal-Sig & Host Linking Helpers on {arch.isa_title}",
@@ -695,6 +1577,7 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
         *solve_block,
         "",
         "end Generic",
+        *axiom_section,
         "",
         f"end {ns}",
         "",
@@ -703,7 +1586,7 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
 
 
 def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
-    """Render `<Prefix>.lean` combining cert, link helpers, and proof."""
+    """Render `<Prefix>.lean` combining cert, link helpers, and proof (`0` `import all`)."""
     ns = f"{arch.ns_prefix}.{cfg.prefix}"
     cert_mod = f"{arch.ns_prefix}.{cfg.prefix}Cert"
     link_mod = f"{arch.ns_prefix}.{cfg.prefix}CertLink"
@@ -719,10 +1602,15 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
     if cfg.wrapper_mode != "compiled":
         pub_imports.append(f"public import {cfg.proof_mod}")
 
-    priv_imports = [f"import {arch.lemmas_mod}"]
+    priv_imports: list[str] = [f"import {arch.lemmas_mod}"]
     if cfg.wrapper_mode == "full":
-        priv_imports.append("import all Std.Sat.CNF.Basic")
-    priv_imports.extend(["import all Kraken.Mem", "import all Kraken.Separation"])
+        priv_imports.extend(
+            [
+                "import LeanQbe.T.Logic.MemLemmas",
+                "import Std.Sat.CNF.Basic",
+            ]
+        )
+    priv_imports.extend(["import Kraken.Mem", "import Kraken.Separation"])
 
     open_parts = [
         "Std",
@@ -750,6 +1638,7 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
     ]
 
+    fnspec_thm = f"{cfg.stem}_module_fnspec"
     if cfg.wrapper_mode in ("fnspec", "full"):
         body.extend(
             [
@@ -758,23 +1647,25 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
                     f"all `{cfg.total_fns}` functions in `{cfg.mod}` under "
                     f"`{cfg.env}` on {arch.isa_title}. -/"
                 ),
-                f"theorem {cfg.stem}_module_fnspec [hh : Host] (k₀ : Nat)",
+                f"theorem {fnspec_thm} [hh : Host] (k₀ : Nat)",
                 f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
                 "    (hu : Host.LabelsUnique)",
                 f"    {{f : Fn}} (hf : f ∈ {cfg.mod}.fns) :",
                 f"    {arch.targ}.Defined hh f.name ∧",
                 f"      {arch.targ}.FnSpec hh f.name ({cfg.env} f.name f.as f.rs)",
-                f"        ({compiled_name}.bound f.name) 0 := by",
-                f"  refine {cfg.prefix}CertLink.mk_module_fnspec {cfg.env}",
-                "    (fun g hg args m Q X hs => ?)",
+                f"        ({compiled_name}.bound f.name) 0 :=",
+                f"  {cfg.prefix}CertLink.mk_module_fnspec {cfg.env}",
+                "    (fun g hg args m Q X hs => by",
+                "      obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hg",
+                f"      exact ({cfg.module_ok}.fnsOk pre g post hsp).2.2 args m Q X hs)",
                 f"    (fun g _ => {cfg.no_exit} g.name g.as g.rs) k₀ hc hu hf",
-                "  obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hg",
-                f"  exact ({cfg.module_ok}.fnsOk pre g post hsp).2.2 args m Q X hs",
                 "",
             ]
         )
 
+    unsat_audit: list[str] = []
     if cfg.wrapper_mode == "full":
+        unsat_lines, unsat_audit = render_unsat_section(cfg, arch, compiled_name, ns)
         body.extend(
             [
                 f"private theorem solve_in_{cfg.mod} :",
@@ -799,9 +1690,30 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
                 f"  Eq.mp (congrArg List.Nodup ({cfg.stem}Env_names_eq spec).symm) "
                 f"{cfg.fns}_nodup",
                 "",
-                *render_unsat_section(cfg, arch, compiled_name),
+                "private theorem sep_exists_eq {P Q : Mem 64 → Prop} {M : Mem 64}",
+                "    (h : (P ⋆ Q) M) : ∃ m : Mem 64, P m ∧ (Eq m ⋆ Q) M := by",
+                "  have hm := sep_mono (Q := Q)",
+                "    (fun x hx => (⟨x, ⟨hx, rfl⟩⟩ : ∃ m : Mem 64, P m ∧ Eq m x)) h",
+                "  rw [sep_ex_l] at hm",
+                "  obtain ⟨m, hm'⟩ := hm",
+                "  exact ⟨m, sep_pure_l (φ := P m) (P := Eq m) (R := Q).mp hm'⟩",
+                "",
+                *unsat_lines,
             ]
         )
+
+    axiom_section: list[str] = []
+    if cfg.print_axioms:
+        audit_names: list[str] = []
+        if worst_case_axiom_len(ns, compiled_name) <= MAX_AXIOM_REPORT_LEN:
+            audit_names.append(compiled_name)
+        if cfg.wrapper_mode in ("fnspec", "full") and (
+            worst_case_axiom_len(ns, fnspec_thm) <= MAX_AXIOM_REPORT_LEN
+        ):
+            audit_names.append(fnspec_thm)
+        audit_names.extend(unsat_audit)
+        if audit_names:
+            axiom_section = [*render_axiom_prints(ns, audit_names), ""]
 
     lines = [
         "module",
@@ -828,6 +1740,7 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         *wrap_open_pairs(open_parts),
         "",
         *body,
+        *axiom_section,
         f"end {ns}",
         "",
     ]
@@ -835,16 +1748,27 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
 
 
 def render_unsat_section(
-    cfg: CertConfig, arch: ArchSpec, compiled_name: str
-) -> list[str]:
-    """Render UNSAT soundness and answer-only wrappers for `Amd64` / `Arm64`."""
+    cfg: CertConfig, arch: ArchSpec, compiled_name: str, ns: str
+) -> tuple[list[str], list[str]]:
+    """Render zero-`import all` UNSAT soundness and answer-only wrappers."""
     unsat_thm = f"{cfg.stem}_solve_bytes_unsat_{arch.arch_tag}"
     sound_thm = f"{cfg.stem}_solve_bytes_unsat_sound_{arch.arch_tag}"
     entry_label = f"Labels.label \"{cfg.entry_fn}\""
     bound_expr = f"({compiled_name}.bound \"{cfg.entry_fn}\")"
 
     if arch.key == "amd64":
-        return [
+        sound_ret = [
+            "    Eventually (step1 Host.exe)",
+            "      (fun st =>",
+            "        st.pc = ra ∧",
+            "        (st.data.regs.get64 .rax = 0#64 ∨",
+            "          st.data.regs.get64 .rax = 10#64 ∨",
+            "          st.data.regs.get64 .rax = 20#64) ∧",
+            "        (st.data.regs.get64 .rax = 20#64 →",
+            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))",
+            f"      ⟨s, {entry_label}⟩",
+        ]
+        lines = [
             "section Unsat",
             "",
             "variable [hh : Host] (k₀ : Nat)",
@@ -894,8 +1818,19 @@ def render_unsat_section(
             f"      ⟨s, {entry_label}⟩ := by",
             f"  have hfn := ({cfg.stem}_module_fnspec k₀ hc hu "
             f"solve_in_{cfg.mod}).2",
-            "  rcases hmem with ⟨ms, mr, u1, d1, ⟨m, mc, u2, d2, hm_in, hc0⟩, "
-            "hm_r⟩",
+            "  have hm0 : ((bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆",
+            "      ((region (s.regs.get64 .rsp - BitVec.ofNat 64",
+            f"          {bound_expr})",
+            f"        {bound_expr} ⋆",
+            "        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R)) s.dmem := by",
+            "    rw [← sep_assoc]; exact hmem",
+            "  obtain ⟨m, hm_in, hm_dmem⟩ := sep_exists_eq hm0",
+            "  have hm_dmem' : (Eq m ⋆",
+            "      (region (s.regs.get64 .rsp - BitVec.ofNat 64",
+            f"          {bound_expr})",
+            f"        {bound_expr} ⋆",
+            "        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem := by",
+            "    rw [sep_assoc]; exact hm_dmem",
             f"  have hspec : {cfg.env} \"{cfg.entry_fn}\" "
             "[i64, i64, i64, i64, i64] [i64]",
             "      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr,",
@@ -906,7 +1841,7 @@ def render_unsat_section(
             "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
             "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
             "      (fun _ _ _ _ => False) :=",
-            f"    Env.ofTable_of_mem",
+            "    Env.ofTable_of_mem",
             f"      (List.mem_of_getElem? (rfl : "
             f"({cfg.spec_table} _)[{cfg.entry_idx}]? = some _))",
             f"      ({cfg.spec_table}_nodup {cfg.entry_spec})",
@@ -917,142 +1852,173 @@ def render_unsat_section(
             "  refine eventually_weaken _ _ _ _ ?_",
             f"    ({cfg.prefix}CertLink.solve_x64_of_fnspec hfn cnf_ptr _ "
             "work_ptr _ fuel",
-            "      hspec s ra R hrdi hrsi hrdx hrcx hr8 hsp",
-            "      ⟨ms, mr, u1, d1, ⟨m, mc, u2, d2, rfl, hc0⟩, hm_r⟩)",
-            "  rintro st ⟨hpc, hcal, hrsp, m', ⟨hdom, hu', hm'⟩,",
-            "    ⟨ma, mr2, u3, d3, ⟨_, ms2, u4, d4, rfl, hs⟩, hr⟩⟩",
-            "  exact ⟨hpc, hdom, hu', hcal, hrsp,",
-            "    ⟨ma, mr2, u3, d3, ⟨m', ms2, u4, d4, hm', hs⟩, hr⟩⟩",
+            "      hspec s ra R hrdi hrsi hrdx hrcx hr8 hsp hm_dmem')",
+            "  rintro st ⟨hpc, hcal, hrsp, m', ⟨hdom, hu', hm'⟩, hst⟩",
+            "  rw [sep_assoc] at hst",
+            "  have hst' := sep_mono (fun _ heq => heq ▸ hm') hst",
+            "  rw [← sep_assoc] at hst'",
+            "  exact ⟨hpc, hdom, hu', hcal, hrsp, hst'⟩",
             "",
             *wrap_comment_lines(
                 f"/-- Answer-only {arch.isa_title} UNSAT soundness corollary "
                 f"for `{cfg.mod}`. -/"
             ),
             f"theorem {sound_thm} :",
-            "    Eventually (step1 Host.exe)",
-            "      (fun st =>",
-            "        st.pc = ra ∧",
-            "        (st.data.regs.get64 .rax = 0#64 ∨",
-            "          st.data.regs.get64 .rax = 10#64 ∨",
-            "          st.data.regs.get64 .rax = 20#64) ∧",
-            "        (st.data.regs.get64 .rax = 20#64 →",
-            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))",
-            f"      ⟨s, {entry_label}⟩ :=",
+            *sound_ret[:-1],
+            f"{sound_ret[-1]} :=",
             "  eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1, h.2.2.1⟩)",
             f"    ({unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
             "hcfit hwfit",
             "      s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem)",
-            "",
-            "end Unsat",
-            "",
         ]
-    return [
-        "section Unsat",
-        "",
-        "variable [hh : Host] (k₀ : Nat)",
-        f"  (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
-        "  (hu : Host.LabelsUnique)",
-        "  (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) "
-        "(wlen : Nat)",
-        "  (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)",
-        "  (hwfit : work_ptr.toNat + wlen < 2 ^ 64)",
-        "  (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)",
-        "  (hx0 : (s.regs.getXReg .X0).toBitVec = cnf_ptr)",
-        "  (hx1 : (s.regs.getXReg .X1).toBitVec = "
-        "BitVec.ofNat 64 cnfBytes.length)",
-        "  (hx2 : (s.regs.getXReg .X2).toBitVec = work_ptr)",
-        "  (hx3 : (s.regs.getXReg .X3).toBitVec = BitVec.ofNat 64 wlen)",
-        "  (hx4 : (s.regs.getXReg .X4).toBitVec = fuel)",
-        "  (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)",
-        "  (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
-        "    region (s.regs.SP.toBitVec - BitVec.ofNat 64",
-        f"        {bound_expr})",
-        f"      {bound_expr} ⋆ R) s.dmem)",
-        "include hh k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit "
-        "s ra R",
-        "  hx0 hx1 hx2 hx3 hx4 hra hsp hmem",
-        "",
-        *wrap_comment_lines(
-            f"/-- Unconditional end-to-end {arch.isa_title} UNSAT soundness "
-            f"for `{cfg.mod}`. -/"
-        ),
-        f"theorem {unsat_thm} :",
-        "    Eventually (step1 Host.exe)",
-        "      (fun st =>",
-        "        st.pc = ra ∧",
-        "        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨",
-        "          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨",
-        "          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧",
-        "        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →",
-        "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
-        "        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26,",
-        "            .X27, .X28, .X29],",
-        "          st.data.regs.getXReg r = s.regs.getXReg r) ∧",
-        "        st.data.regs.SP = s.regs.SP ∧",
-        "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
-        "          region (s.regs.SP.toBitVec - BitVec.ofNat 64",
-        f"              {bound_expr})",
-        f"            {bound_expr} ⋆ R)",
-        "          st.data.dmem)",
-        f"      ⟨s, {entry_label}⟩ := by",
-        f"  have hfn := ({cfg.stem}_module_fnspec k₀ hc hu "
-        f"solve_in_{cfg.mod}).2",
-        "  rcases hmem with ⟨ms, mr, u1, d1, ⟨m, mc, u2, d2, hm_in, hc0⟩, "
-        "hm_r⟩",
-        f"  have hspec : {cfg.env} \"{cfg.entry_fn}\" "
-        "[i64, i64, i64, i64, i64] [i64]",
-        "      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr,",
-        "        BitVec.ofNat 64 wlen, fuel, ()) m",
-        "      (fun r m' =>",
-        "        (r.fst = 0#64 ∨ r.fst = 10#64 ∨ r.fst = 20#64) ∧",
-        "        (r.fst = 20#64 →",
-        "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
-        "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
-        "      (fun _ _ _ _ => False) :=",
-        "    Env.ofTable_of_mem",
-        f"      (List.mem_of_getElem? (rfl : "
-        f"({cfg.spec_table} _)[{cfg.entry_idx}]? = some _))",
-        f"      ({cfg.spec_table}_nodup {cfg.entry_spec})",
-        "      ⟨cnfBytes, wlen, emp, rfl, rfl, hcfit, hwfit,",
-        "        by rw [sep_emp]; exact hm_in,",
-        "        fun _ _ h u' m' =>",
-        "          by rw [sep_emp] at m'; exact ⟨h, u', m'⟩⟩",
-        "  refine eventually_weaken _ _ _ _ ?_",
-        f"    ({cfg.prefix}CertLink.solve_arm64_of_fnspec hfn cnf_ptr _ "
-        "work_ptr _ fuel",
-        "      hspec s ra R hx0 hx1 hx2 hx3 hx4 hra hsp",
-        "      ⟨ms, mr, u1, d1, ⟨m, mc, u2, d2, rfl, hc0⟩, hm_r⟩)",
-        "  rintro st ⟨hpc, hcal, hsp', m', ⟨hdom, hu', hm'⟩,",
-        "    ⟨ma, mr2, u3, d3, ⟨_, ms2, u4, d4, rfl, hs⟩, hr⟩⟩",
-        "  exact ⟨hpc, hdom, hu', hcal, hsp',",
-        "    ⟨ma, mr2, u3, d3, ⟨m', ms2, u4, d4, hm', hs⟩, hr⟩⟩",
-        "",
-        *wrap_comment_lines(
-            f"/-- Answer-only {arch.isa_title} UNSAT soundness corollary for "
-            f"`{cfg.mod}`. -/"
-        ),
-        f"theorem {sound_thm} :",
-        "    Eventually (step1 Host.exe)",
-        "      (fun st =>",
-        "        st.pc = ra ∧",
-        "        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨",
-        "          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨",
-        "          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧",
-        "        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →",
-        "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))",
-        f"      ⟨s, {entry_label}⟩ :=",
-        "  eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1, h.2.2.1⟩)",
-        f"    ({unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
-        "hcfit hwfit",
-        "      s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem)",
-        "",
-        "end Unsat",
-        "",
-    ]
+        call_args = (
+            f"({sound_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
+            "hcfit hwfit\n"
+            "    s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem)"
+        )
+    else:
+        sound_ret = [
+            "    Eventually (step1 Host.exe)",
+            "      (fun st =>",
+            "        st.pc = ra ∧",
+            "        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨",
+            "          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨",
+            "          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧",
+            "        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →",
+            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))",
+            f"      ⟨s, {entry_label}⟩",
+        ]
+        lines = [
+            "section Unsat",
+            "",
+            "variable [hh : Host] (k₀ : Nat)",
+            f"  (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
+            "  (hu : Host.LabelsUnique)",
+            "  (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) "
+            "(wlen : Nat)",
+            "  (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)",
+            "  (hwfit : work_ptr.toNat + wlen < 2 ^ 64)",
+            "  (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)",
+            "  (hx0 : (s.regs.getXReg .X0).toBitVec = cnf_ptr)",
+            "  (hx1 : (s.regs.getXReg .X1).toBitVec = "
+            "BitVec.ofNat 64 cnfBytes.length)",
+            "  (hx2 : (s.regs.getXReg .X2).toBitVec = work_ptr)",
+            "  (hx3 : (s.regs.getXReg .X3).toBitVec = BitVec.ofNat 64 wlen)",
+            "  (hx4 : (s.regs.getXReg .X4).toBitVec = fuel)",
+            "  (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)",
+            "  (hmem : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
+            "    region (s.regs.SP.toBitVec - BitVec.ofNat 64",
+            f"        {bound_expr})",
+            f"      {bound_expr} ⋆ R) s.dmem)",
+            "include hh k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit "
+            "s ra R",
+            "  hx0 hx1 hx2 hx3 hx4 hra hsp hmem",
+            "",
+            *wrap_comment_lines(
+                f"/-- Unconditional end-to-end {arch.isa_title} UNSAT soundness "
+                f"for `{cfg.mod}`. -/"
+            ),
+            f"theorem {unsat_thm} :",
+            "    Eventually (step1 Host.exe)",
+            "      (fun st =>",
+            "        st.pc = ra ∧",
+            "        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨",
+            "          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨",
+            "          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧",
+            "        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →",
+            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
+            "        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26,",
+            "            .X27, .X28, .X29],",
+            "          st.data.regs.getXReg r = s.regs.getXReg r) ∧",
+            "        st.data.regs.SP = s.regs.SP ∧",
+            "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆",
+            "          region (s.regs.SP.toBitVec - BitVec.ofNat 64",
+            f"              {bound_expr})",
+            f"            {bound_expr} ⋆ R)",
+            "          st.data.dmem)",
+            f"      ⟨s, {entry_label}⟩ := by",
+            f"  have hfn := ({cfg.stem}_module_fnspec k₀ hc hu "
+            f"solve_in_{cfg.mod}).2",
+            "  have hm0 : ((bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) ⋆",
+            "      (region (s.regs.SP.toBitVec - BitVec.ofNat 64",
+            f"          {bound_expr})",
+            f"        {bound_expr} ⋆ R)) s.dmem := by",
+            "    rw [← sep_assoc]; exact hmem",
+            "  obtain ⟨m, hm_in, hm_dmem⟩ := sep_exists_eq hm0",
+            "  have hm_dmem' : (Eq m ⋆",
+            "      region (s.regs.SP.toBitVec - BitVec.ofNat 64",
+            f"          {bound_expr})",
+            f"        {bound_expr} ⋆ R) s.dmem := by",
+            "    rw [sep_assoc]; exact hm_dmem",
+            f"  have hspec : {cfg.env} \"{cfg.entry_fn}\" "
+            "[i64, i64, i64, i64, i64] [i64]",
+            "      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr,",
+            "        BitVec.ofNat 64 wlen, fuel, ()) m",
+            "      (fun r m' =>",
+            "        (r.fst = 0#64 ∨ r.fst = 10#64 ∨ r.fst = 20#64) ∧",
+            "        (r.fst = 20#64 →",
+            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
+            "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
+            "      (fun _ _ _ _ => False) :=",
+            "    Env.ofTable_of_mem",
+            f"      (List.mem_of_getElem? (rfl : "
+            f"({cfg.spec_table} _)[{cfg.entry_idx}]? = some _))",
+            f"      ({cfg.spec_table}_nodup {cfg.entry_spec})",
+            "      ⟨cnfBytes, wlen, emp, rfl, rfl, hcfit, hwfit,",
+            "        by rw [sep_emp]; exact hm_in,",
+            "        fun _ _ h u' m' =>",
+            "          by rw [sep_emp] at m'; exact ⟨h, u', m'⟩⟩",
+            "  refine eventually_weaken _ _ _ _ ?_",
+            f"    ({cfg.prefix}CertLink.solve_arm64_of_fnspec hfn cnf_ptr _ "
+            "work_ptr _ fuel",
+            "      hspec s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hm_dmem')",
+            "  rintro st ⟨hpc, hcal, hsp', m', ⟨hdom, hu', hm'⟩, hst⟩",
+            "  rw [sep_assoc] at hst",
+            "  have hst' := sep_mono (fun _ heq => heq ▸ hm') hst",
+            "  rw [← sep_assoc] at hst'",
+            "  exact ⟨hpc, hdom, hu', hcal, hsp', hst'⟩",
+            "",
+            *wrap_comment_lines(
+                f"/-- Answer-only {arch.isa_title} UNSAT soundness corollary for "
+                f"`{cfg.mod}`. -/"
+            ),
+            f"theorem {sound_thm} :",
+            *sound_ret[:-1],
+            f"{sound_ret[-1]} :=",
+            "  eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1, h.2.2.1⟩)",
+            f"    ({unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
+            "hcfit hwfit",
+            "      s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem)",
+        ]
+        call_args = (
+            f"({sound_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
+            "hcfit hwfit\n"
+            "    s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem)"
+        )
+
+    audit_names: list[str] = []
+    if worst_case_axiom_len(ns, unsat_thm) <= MAX_AXIOM_REPORT_LEN:
+        audit_names.append(unsat_thm)
+    if worst_case_axiom_len(ns, sound_thm) <= MAX_AXIOM_REPORT_LEN:
+        audit_names.append(sound_thm)
+    elif cfg.print_axioms and worst_case_axiom_len(ns, "ax_unsat_sound") <= MAX_AXIOM_REPORT_LEN:
+        lines.extend(
+            [
+                "",
+                "theorem ax_unsat_sound :",
+                *sound_ret[:-1],
+                f"{sound_ret[-1]} :=",
+                f"  {call_args}",
+            ]
+        )
+        audit_names.append("ax_unsat_sound")
+
+    lines.extend(["", "end Unsat", ""])
+    return lines, audit_names
 
 
 def build_plan(cfg: CertConfig, arches: list[str]) -> list[tuple[str, str]]:
-    """Build deterministic `(relative_path, lean_source)` pairs."""
+    """Build deterministic `(relative_path, lean_source)` pairs and validate invariants."""
     files: list[tuple[str, str]] = []
     for arch_key in arches:
         arch = ARCH_SPECS[arch_key]
@@ -1071,41 +2037,82 @@ def build_plan(cfg: CertConfig, arches: list[str]) -> list[tuple[str, str]]:
                 (f"{base}/{cfg.prefix}.lean", render_top_wrapper(cfg, arch)),
             ]
         )
-        for rel_path, content in planned:
-            check_line_lengths(rel_path, content)
-            files.append((rel_path, content))
+        files.extend(planned)
+    validate_generated_files(files)
     return files
 
 
 def build_config(args: argparse.Namespace) -> CertConfig:
-    """Resolve CLI options and defaults into a validated `CertConfig`."""
-    prefix: str = args.prefix
+    """Resolve CLI options, preset defaults, metrics, and slices into `CertConfig`."""
+    preset = resolve_preset(args.module) if args.module else None
+    prefix: str | None = args.prefix or (preset.prefix if preset else None)
+    if not prefix:
+        raise ValueError("one of --prefix or --module is required")
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", prefix):
         raise ValueError(f"invalid --prefix identifier: {prefix}")
 
-    stem = args.stem or infer_stem(prefix)
-    source_mod = args.source_mod or infer_source_mod(prefix, stem)
-    proof_mod = args.proof_mod or f"{source_mod}Proof"
-    fns = args.fns or f"{stem}Fns"
-    mod = args.mod or f"{stem}Module"
+    stem = args.stem or (preset.stem if preset else infer_stem(prefix))
+    source_mod = args.source_mod or (
+        preset.source_mod if preset else infer_source_mod(prefix, stem)
+    )
+    proof_mod = args.proof_mod or (
+        preset.proof_mod if preset else f"{source_mod}Proof"
+    )
+    hub_mod = preset.hub_mod if preset else None
+    fns = args.fns or (preset.fns if preset and preset.fns else f"{stem}Fns")
+    mod = args.mod or (preset.mod if preset and preset.mod else f"{stem}Module")
     root = Path(args.root).resolve()
 
     explicit_sizes: list[int] | None = None
     if args.slice_sizes:
         explicit_sizes = [int(x.strip()) for x in args.slice_sizes.split(",") if x.strip()]
 
+    profile_metrics: tuple[FnMetric, ...] | None = None
+    if args.profile:
+        profile_metrics = load_profile_json(Path(args.profile))
+
     total_fns = args.total_fns
     if total_fns is None:
         if explicit_sizes is not None:
             total_fns = sum(explicit_sizes)
+        elif profile_metrics is not None:
+            total_fns = len(profile_metrics)
         else:
             total_fns = detect_total_fns(root, source_mod, fns)
+            if total_fns is None and preset is not None:
+                total_fns = preset.default_total_fns
     if total_fns is None:
         raise ValueError(
-            f"cannot infer --total-fns from {source_mod}; pass --total-fns N explicitly"
+            f"cannot infer --total-fns from {source_mod}; pass --total-fns N or --profile"
         )
 
-    slices = compute_slices(total_fns, args.slice_size, explicit_sizes)
+    if profile_metrics is not None:
+        if len(profile_metrics) != total_fns:
+            raise ValueError(
+                f"profile has {len(profile_metrics)} functions != total_fns {total_fns}"
+            )
+        fn_metrics = profile_metrics
+    else:
+        fn_metrics = resolve_static_metrics(root, source_mod, fns, total_fns, stem)
+
+    uniform_slices = compute_slices(total_fns, args.slice_size, None)
+    before_stats = compute_slice_stats(fn_metrics, uniform_slices, workers=args.workers)
+
+    if explicit_sizes is not None:
+        slices = compute_slices(total_fns, args.slice_size, explicit_sizes)
+    elif args.balance:
+        slices = autobalance_slices(
+            fn_metrics,
+            slice_size=args.slice_size,
+            workers=args.workers,
+            target_slices=args.target_slices,
+            heavy_thresh=args.heavy_thresh,
+        )
+    else:
+        slices = uniform_slices
+
+    after_stats = compute_slice_stats(fn_metrics, slices, workers=args.workers)
+
     entry_idx = args.entry_idx if args.entry_idx is not None else total_fns - 1
     if not 0 <= entry_idx < total_fns:
         raise ValueError(f"--entry-idx {entry_idx} out of [0, {total_fns})")
@@ -1116,19 +2123,20 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         camel_prefix=lower_camel(prefix),
         source_mod=source_mod,
         proof_mod=proof_mod,
+        hub_mod=hub_mod,
         fns=fns,
         mod=mod,
-        cert_name=args.cert_name or f"{stem}Cert",
-        acyclic=args.acyclic or f"{stem}_acyclic",
-        wf=args.wf or f"{fns}_wf",
-        env=args.env or f"{stem}Env",
-        spec_table=args.spec_table or f"{stem}SpecTable",
-        spec_sigs=args.spec_sigs or f"{stem}SpecTable_sigs",
-        module_ok=args.module_ok or f"{stem}Env_moduleOk",
-        no_exit=args.no_exit or f"{stem}Env_noExit",
-        entry_const=args.entry_const,
-        entry_fn=args.entry_fn,
-        entry_spec=args.entry_spec,
+        cert_name=args.cert_name or (preset.cert_name if preset and preset.cert_name else f"{stem}Cert"),
+        acyclic=args.acyclic or (preset.acyclic if preset and preset.acyclic else f"{stem}_acyclic"),
+        wf=args.wf or (preset.wf if preset and preset.wf else f"{fns}_wf"),
+        env=args.env or (preset.env if preset and preset.env else f"{stem}Env"),
+        spec_table=args.spec_table or (preset.spec_table if preset and preset.spec_table else f"{stem}SpecTable"),
+        spec_sigs=args.spec_sigs or (preset.spec_sigs if preset and preset.spec_sigs else f"{stem}SpecTable_sigs"),
+        module_ok=args.module_ok or (preset.module_ok if preset and preset.module_ok else f"{stem}Env_moduleOk"),
+        no_exit=args.no_exit or (preset.no_exit if preset and preset.no_exit else f"{stem}Env_noExit"),
+        entry_const=args.entry_const or (preset.entry_const if preset else "Full.kissat_solve_bytes"),
+        entry_fn=args.entry_fn or (preset.entry_fn if preset else "kissat_solve_bytes"),
+        entry_spec=args.entry_spec or (preset.entry_spec if preset else "fullSolveBytesSpec"),
         entry_idx=entry_idx,
         total_fns=total_fns,
         slices=slices,
@@ -1136,33 +2144,42 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         max_dirs=args.max_dirs,
         max_bound=args.max_bound,
         wrapper_mode=args.wrapper_mode,
+        print_axioms=args.print_axioms,
+        fn_metrics=fn_metrics,
+        before_stats=before_stats,
+        after_stats=after_stats,
     )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments."""
     ap = argparse.ArgumentParser(
-        description="Deterministic generator for flat 1-tier LeanQbe solver cert slices."
+        description=(
+            "Deterministic LPT cost-balanced generator for flat 1-tier "
+            "LeanQbe solver cert slices."
+        )
+    )
+    ap.add_argument(
+        "--module",
+        help=(
+            "Solver preset name (e.g. FullM5, FullM4, FullM3, FullFast, "
+            "FullFastSched, Full, Plain). Supplies canonical --prefix/--stem/paths."
+        ),
     )
     ap.add_argument(
         "--prefix",
-        required=True,
         help="Certificate module prefix (e.g. KissatM3, KissatM4, KissatM5).",
     )
     ap.add_argument(
         "--arch",
         choices=("both", "amd64", "arm64"),
         default="both",
-        help="Target architecture(s) to generate (default: both).",
+        help="Target architectures to generate (default: both).",
     )
-    ap.add_argument("--root", default=".", help="Repo root for auto-detecting fns count.")
-    ap.add_argument(
-        "--out-dir",
-        default=".",
-        help="Output root directory (default: . -> LeanQbe/T/<Arch>/...).",
-    )
-    ap.add_argument("--source-mod", help="Solver IL module (e.g. ...FullM4).")
-    ap.add_argument("--proof-mod", help="Solver proof module (default: <source-mod>Proof).")
+    ap.add_argument("--root", default=".", help="Repository root for total-fn inference.")
+    ap.add_argument("--out-dir", default=".", help="Output root directory (default: .).")
+    ap.add_argument("--source-mod", help="Source Kissat module (e.g. ...FullM4).")
+    ap.add_argument("--proof-mod", help="Proof module (default: <source-mod>Proof).")
     ap.add_argument("--stem", help="Identifier stem (e.g. m4, m5).")
     ap.add_argument("--fns", help="Function list identifier (default: <stem>Fns).")
     ap.add_argument("--mod", help="Module identifier (default: <stem>Module).")
@@ -1176,17 +2193,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--no-exit", help="No-exit theorem name.")
     ap.add_argument(
         "--entry-const",
-        default="Full.kissat_solve_bytes",
-        help="Entry Fn constant for solve wrappers.",
+        help="Entry Fn constant for solve wrappers (default from preset or Full.kissat_solve_bytes).",
     )
     ap.add_argument(
         "--entry-fn",
-        default="kissat_solve_bytes",
         help="Entry C/QBE symbol name (default: kissat_solve_bytes).",
     )
     ap.add_argument(
         "--entry-spec",
-        default="fullSolveBytesSpec",
         help="Entry Spec passed to <stem>SpecTable (default: fullSolveBytesSpec).",
     )
     ap.add_argument("--entry-idx", type=int, help="Entry index (default: total - 1).")
@@ -1199,7 +2213,55 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument(
         "--slice-sizes",
-        help="Comma-separated explicit slice sizes (each <= 12).",
+        help="Comma-separated explicit slice sizes (each <= 12); disables autobalancing.",
+    )
+    ap.add_argument(
+        "--profile",
+        help="Optional JSON profile (from Lean probe) with per-fn tflatSize/loops/groups.",
+    )
+    ap.add_argument(
+        "--balance",
+        "--autobalance",
+        dest="balance",
+        action="store_true",
+        default=True,
+        help="Enable LPT cost-weighted slice autobalancing (default: enabled).",
+    )
+    ap.add_argument(
+        "--uniform",
+        "--no-balance",
+        dest="balance",
+        action="store_false",
+        help="Disable LPT autobalancing and emit uniform --slice-size chunks.",
+    )
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        help=f"Parallel worker count for LPT bin packing (default: {DEFAULT_WORKERS}).",
+    )
+    ap.add_argument(
+        "--target-slices",
+        type=int,
+        help="Optional target number of slices for balanced partitioning.",
+    )
+    ap.add_argument(
+        "--heavy-thresh",
+        type=float,
+        help="Override function cost threshold for singleton straggler isolation.",
+    )
+    ap.add_argument(
+        "--print-axioms",
+        dest="print_axioms",
+        action="store_true",
+        default=True,
+        help="Emit single-line <115c `#print axioms` checks in Cert/Link/Top (default: on).",
+    )
+    ap.add_argument(
+        "--no-print-axioms",
+        dest="print_axioms",
+        action="store_false",
+        help="Omit `#print axioms` commands from generated files.",
     )
     ap.add_argument("--chunk-size", type=int, default=4, help="Chunk size (default: 4).")
     ap.add_argument("--max-dirs", type=int, default=450, help="maxDirs (default: 450).")
@@ -1235,15 +2297,36 @@ def main(argv: list[str] | None = None) -> int:
         (len(line) for _, content in files for line in content.splitlines()),
         default=0,
     )
+    max_loc = max((len(content.splitlines()) for _, content in files), default=0)
     slice_desc = ", ".join(
         f"S{s.index}=[{s.start},{s.end})({s.count})" for s in cfg.slices
     )
     mode = "dry-run" if args.dry_run else "write"
+    metric_src = cfg.fn_metrics[0].source if cfg.fn_metrics else "none"
+    bef = cfg.before_stats
+    aft = cfg.after_stats
     print(
         f"gen_cert_slices ({mode}): prefix={cfg.prefix} total_fns={cfg.total_fns} "
         f"slices={len(cfg.slices)} arch={args.arch} files={len(files)} "
-        f"max_line={max_len}c"
+        f"max_line={max_len}c max_loc={max_loc} metrics={metric_src}"
     )
+    print(
+        f"balance BEFORE (uniform-{args.slice_size}, K={bef.num_slices}): "
+        f"raw_max/mean={bef.raw_max_mean:.3f} [{bef.raw_min}..{bef.raw_max}] "
+        f"cost_max/mean={bef.cost_max_mean:.3f} [{bef.cost_min:.0f}..{bef.cost_max:.0f}] "
+        f"LPT{bef.lpt.workers}_makespan={bef.lpt.makespan:.0f} "
+        f"(w_max/mean={bef.lpt.max_mean_ratio:.3f})"
+    )
+    print(
+        f"balance AFTER  (K={aft.num_slices}): "
+        f"raw_max/mean={aft.raw_max_mean:.3f} [{aft.raw_min}..{aft.raw_max}] "
+        f"cost_max/mean={aft.cost_max_mean:.3f} [{aft.cost_min:.0f}..{aft.cost_max:.0f}] "
+        f"LPT{aft.lpt.workers}_makespan={aft.lpt.makespan:.0f} "
+        f"(w_max/mean={aft.lpt.max_mean_ratio:.3f})"
+    )
+    if aft.singletons:
+        sing_str = ", ".join(f"[{idx}] {nm}({sz})" for idx, nm, sz in aft.singletons)
+        print(f"isolated singletons ({len(aft.singletons)}): {sing_str}")
     print(f"slices: {slice_desc}")
 
     out_root = Path(args.out_dir).resolve()
