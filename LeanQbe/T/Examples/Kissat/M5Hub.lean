@@ -1,5 +1,7 @@
 module
 
+public import LeanQbe.T.Examples.Kissat.FullM5ProbeProp
+public import LeanQbe.T.Examples.Kissat.FullM5ProbePropProof
 public import LeanQbe.T.Examples.Kissat.FullM5Sched
 public import LeanQbe.T.Examples.Kissat.FullM5SchedLemmas
 
