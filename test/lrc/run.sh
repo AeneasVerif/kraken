@@ -22,8 +22,12 @@ trap cleanup EXIT
 echo "outputs in $OUT"
 
 echo "== 1. build LeanLRC modules and generate C++20 / QBE artifacts =="
-timeout 300 lake build --wfail LeanQbe.T.LeanLRC.ToT LeanQbe.T.Driver LeanQbe.T.Amd64.Targ \
-  LeanQbe.T.Arm64.Targ LeanQbeTest.T.LeanLRCTest
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  timeout 300 lake build --wfail LeanQbe.T.LeanLRC.ToT LeanQbe.T.Driver LeanQbe.T.Amd64.Targ \
+    LeanQbe.T.Arm64.Targ LeanQbeTest.T.LeanLRCTest
+else
+  echo "SKIP_BUILD=1: skipping lake build LeanLRC modules"
+fi
 timeout 120 lake env lean --run LeanQbeTest/T/LeanLRCTest.lean "$OUT"
 
 echo "== 2. build & run native Lean 4 reference oracle (leanc) =="
@@ -64,17 +68,15 @@ timeout 60 aarch64-linux-gnu-gcc -O1 test/lrc/lrc_main.c "$OUT/lrc_arm64.s" \
 timeout 30 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/lrc_arm64" > "$OUT/arm64.out"
 diff -u "$OUT/ref.out" "$OUT/arm64.out"
 
-QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
-if [ -z "${QBE:-}" ] && [ ! -d "$QBE_SRC" ]; then
-  QBE="$(command -v qbe || true)"
-fi
-if [ -n "${QBE:-}" ] || [ -d "$QBE_SRC" ]; then
-  echo "== 7. stock QBE cross-check (amd64_sysv + arm64) =="
-  if [ -z "${QBE:-}" ]; then
-    cp -r "$QBE_SRC" "$OUT/qbe-src"
-    timeout 120 make -C "$OUT/qbe-src" -j8 >"$OUT/qbe-build.log" 2>&1
-    QBE="$OUT/qbe-src/qbe"
+if [ -z "${QBE:-}" ]; then
+  _qbe_rc=0
+  QBE="$("$ROOT/scripts/ensure_qbe.sh")" || _qbe_rc=$?
+  if [ "$_qbe_rc" -ne 0 ] && [ "$_qbe_rc" -ne 2 ]; then
+    exit "$_qbe_rc"
   fi
+fi
+if [ -n "${QBE:-}" ] && [ -x "${QBE:-}" ]; then
+  echo "== 7. stock QBE cross-check (amd64_sysv + arm64) =="
   timeout 30 "$QBE" -t amd64_sysv -o "$OUT/lrc_qbe_x64.s" "$OUT/lrc.ssa"
   timeout 60 gcc -O1 -no-pie test/lrc/lrc_main.c "$OUT/lrc_qbe_x64.s" -o "$OUT/lrc_qbe_x64"
   timeout 30 "$OUT/lrc_qbe_x64" > "$OUT/qbe_x64.out"

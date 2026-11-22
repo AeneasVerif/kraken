@@ -1,0 +1,3 @@
+# One per line: <module to import> <fully qualified constant>.
+# LeanLCNF & LeanLRC frontend lowering headline theorems.
+LeanQbeTest.T.LeanLCNFTest LeanQbeTest.T.LeanLCNFTest.lcnf_demo_wf

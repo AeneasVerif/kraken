@@ -13,7 +13,11 @@ trap cleanup EXIT
 echo "outputs in $OUT"
 
 echo "== 1. build ChaCha modules =="
-timeout 900 lake build --wfail LeanQbe.T.Amd64.ChaCha LeanQbe.T.Arm64.ChaCha
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  timeout 900 lake build --wfail LeanQbe.T.Amd64.ChaCha LeanQbe.T.Arm64.ChaCha
+else
+  echo "SKIP_BUILD=1: skipping lake build LeanQbe.T.Amd64.ChaCha LeanQbe.T.Arm64.ChaCha"
+fi
 
 echo "== 2. emit native assembly =="
 timeout 120 lake env lean --run test/t_chacha/emit_x64.lean "$OUT"

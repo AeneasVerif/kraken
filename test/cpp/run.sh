@@ -10,7 +10,11 @@ OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-cpp.XXXXXX")}"
 echo "outputs in $OUT"
 
 echo "== 1. build PrintCppTest & generate C++ TUs into $OUT =="
-timeout 300 lake build --wfail LeanQbe.T.PrintCpp LeanQbeTest.T.PrintCppTest
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  timeout 300 lake build --wfail LeanQbe.T.PrintCpp LeanQbeTest.T.PrintCppTest
+else
+  echo "SKIP_BUILD=1: skipping lake build LeanQbe.T.PrintCpp LeanQbeTest.T.PrintCppTest"
+fi
 timeout 120 lake env lean --run LeanQbeTest/T/PrintCppTest.lean "$OUT"
 
 RT_INC="$ROOT/LeanQbe/T/Runtime"

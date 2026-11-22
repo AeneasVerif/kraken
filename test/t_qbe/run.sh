@@ -25,20 +25,8 @@ done
   exit 1
 }
 
-QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
 if [ -z "${QBE:-}" ]; then
-  if [ -d "$QBE_SRC" ]; then
-    rm -rf "$OUT/qbe-src"
-    cp -R "$QBE_SRC" "$OUT/qbe-src"
-    timeout 120 make -C "$OUT/qbe-src" clean >/dev/null 2>&1 || true
-    timeout 120 make -C "$OUT/qbe-src" -j"$(nproc)"
-    QBE="$OUT/qbe-src/qbe"
-  elif QBE="$(command -v qbe || true)" && [ -n "$QBE" ]; then
-    echo "Using stock qbe from PATH: $QBE"
-  else
-    echo "FAIL: QBE source directory ($QBE_SRC) and qbe binary not found; set QBE or QBE_SRC" >&2
-    exit 1
-  fi
+  QBE="$("$ROOT/scripts/ensure_qbe.sh")"
 fi
 [ -x "$QBE" ] || {
   echo "FAIL: qbe binary not executable: $QBE" >&2
@@ -46,7 +34,11 @@ fi
 }
 
 echo "[1/3] Building LeanQbe.T QBE printer & program table..."
-timeout 600 lake build --wfail LeanQbe.T.Examples.Programs LeanQbe.T.PrintQbe
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  timeout 600 lake build --wfail LeanQbe.T.Examples.Programs LeanQbe.T.PrintQbe
+else
+  echo "SKIP_BUILD=1: skipping lake build LeanQbe.T.Examples.Programs LeanQbe.T.PrintQbe"
+fi
 
 cat > "$OUT/emit_qbe.lean" <<'EOF'
 import LeanQbe.T.Examples.Programs

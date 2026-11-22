@@ -34,7 +34,7 @@ run_lean() {
 }
 
 echo "== 1. build Kissat Solver/Test and generate C++20 / QBE / corpus artifacts =="
-if [ -z "${STAGE_LEAN_PATH:-}" ]; then
+if [ -z "${STAGE_LEAN_PATH:-}" ] && [ "${SKIP_BUILD:-0}" != "1" ]; then
   timeout 600 lake build --wfail LeanQbe.T.Examples.Kissat.Solver LeanQbe.T.Driver \
     LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ LeanQbeTest.T.KissatC0Test
 fi
@@ -69,18 +69,18 @@ grep -v -e 'SFrame' "$OUT/arm64_cc.log" >&2 || true
 timeout 60 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/kissat_arm64" > "$OUT/arm64.out"
 diff -u "$OUT/x64.out" "$OUT/arm64.out"
 
-QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
-if [ -z "${QBE:-}" ] && [ ! -d "$QBE_SRC" ]; then
-  QBE="$(command -v qbe || true)"
-fi
-if [ -n "${QBE:-}" ] || [ -d "$QBE_SRC" ]; then
-  echo "== 6. stock QBE cross-check (amd64_sysv + arm64) =="
-  if [ -z "${QBE:-}" ]; then
-    cp -r "$QBE_SRC" "$OUT/qbe-src"
-    timeout 120 make -C "$OUT/qbe-src" clean >/dev/null 2>&1 || true
-    timeout 120 make -C "$OUT/qbe-src" -j"$(nproc)" >"$OUT/qbe-build.log" 2>&1
-    QBE="$OUT/qbe-src/qbe"
+if [ -z "${QBE:-}" ]; then
+  qbe_rc=0
+  QBE="$("$ROOT/scripts/ensure_qbe.sh")" || qbe_rc=$?
+  if [ "$qbe_rc" -ne 0 ] && [ "$qbe_rc" -ne 2 ]; then
+    exit "$qbe_rc"
   fi
+  if [ "$qbe_rc" -eq 2 ]; then
+    QBE=""
+  fi
+fi
+if [ -n "${QBE:-}" ]; then
+  echo "== 6. stock QBE cross-check (amd64_sysv + arm64) =="
   timeout 60 "$QBE" -t amd64_sysv -o "$OUT/kissat_qbe_x64.s" "$OUT/kissat.ssa"
   timeout 60 gcc $COMMON_C -no-pie test/kissat/kissat_main.c "$OUT/kissat_qbe_x64.s" \
     -o "$OUT/kissat_qbe_x64"
@@ -126,7 +126,7 @@ PY
 fi
 
 echo "== 8. FullM3 unified differential check (PrintCpp ASan/UBSan + Native x64 + Arm64) =="
-if [ -z "${STAGE_LEAN_PATH:-}" ]; then
+if [ -z "${STAGE_LEAN_PATH:-}" ] && [ "${SKIP_BUILD:-0}" != "1" ]; then
   timeout 600 lake build --wfail LeanQbe.T.Examples.Kissat.FullM3 LeanQbe.T.PrintCpp \
     LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
     Kraken.X64.PrintATT Kraken.AArch64.Print

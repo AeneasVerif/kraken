@@ -10,7 +10,11 @@ OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-c0.XXXXXX")}"
 echo "outputs in $OUT"
 
 echo "== 1. build C0 frontend & C0Test, generate C++20 headers into $OUT =="
-timeout 300 lake build --wfail LeanQbe.T.Frontend.C0 LeanQbeTest.T.C0Test
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  timeout 300 lake build --wfail LeanQbe.T.Frontend.C0 LeanQbeTest.T.C0Test
+else
+  echo "SKIP_BUILD=1: skipping lake build LeanQbe.T.Frontend.C0 LeanQbeTest.T.C0Test"
+fi
 timeout 120 lake env lean --run LeanQbeTest/T/C0Test.lean "$OUT"
 
 C99_FLAGS="-std=c99 -O2 -fwrapv -fno-strict-aliasing -Wall -Wextra -Werror"

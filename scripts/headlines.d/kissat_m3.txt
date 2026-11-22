@@ -1,0 +1,27 @@
+# One per line: <module to import> <fully qualified constant>.
+# Active flagship CDCL+inprocessing Kissat M3 specs, audits, and native certs.
+LeanQbe.T.Examples.Kissat.FullM3Proof LeanQbe.T.Examples.Kissat.FullM3.mkM3Env_moduleOk
+LeanQbe.T.Examples.Kissat.FullM3Proof LeanQbe.T.Examples.Kissat.FullM3.m3Env_moduleOk
+LeanQbe.T.Examples.Kissat.FullM3Proof LeanQbe.T.Examples.Kissat.FullM3.m3UnsatEnv_moduleOk
+LeanQbe.T.Examples.Kissat.FullM3Proof LeanQbe.T.Examples.Kissat.FullM3.m3_solve_bytes_correct
+LeanQbe.T.Examples.Kissat.FullM3Proof LeanQbe.T.Examples.Kissat.FullM3.m3_unsat_nonvacuous
+LeanQbeTest.T.KissatAuditSpec audit_m3_wf
+LeanQbeTest.T.KissatAuditSpec audit_m3_acyc
+LeanQbeTest.T.KissatAuditSpec audit_m3_modok
+LeanQbeTest.T.KissatAuditSpec audit_m3_umodok
+LeanQbeTest.T.KissatAuditSpec audit_m3_ok
+LeanQbeTest.T.KissatAuditSpec audit_m3_nv
+LeanQbe.T.Amd64.KissatM3Cert LeanQbe.T.Amd64.KissatM3Cert.m3_legalSig
+LeanQbe.T.Amd64.KissatM3Cert LeanQbe.T.Amd64.KissatM3Cert.mk_module_fnspec
+LeanQbe.T.Amd64.KissatM3Cert LeanQbe.T.Amd64.KissatM3Cert.solve_x64_of_fnspec
+LeanQbe.T.Amd64.KissatM3 LeanQbe.T.Amd64.KissatM3.m3_module_fnspec
+LeanQbe.T.Amd64.KissatM3 LeanQbe.T.Amd64.KissatM3.m3_solve_bytes_unsat_x64
+LeanQbeTest.T.KissatAuditX64 audit_m3_x64_sound
+LeanQbe.T.Amd64.KissatM3 LeanQbe.T.Amd64.KissatM3.m3_x64_unsat_nonvacuous
+LeanQbe.T.Arm64.KissatM3Cert LeanQbe.T.Arm64.KissatM3Cert.m3_legalSig
+LeanQbe.T.Arm64.KissatM3Cert LeanQbe.T.Arm64.KissatM3Cert.mk_module_fnspec
+LeanQbe.T.Arm64.KissatM3Cert LeanQbe.T.Arm64.KissatM3Cert.solve_arm64_of_fnspec
+LeanQbe.T.Arm64.KissatM3 LeanQbe.T.Arm64.KissatM3.m3_module_fnspec
+LeanQbe.T.Arm64.KissatM3 LeanQbe.T.Arm64.KissatM3.m3_solve_bytes_unsat_arm64
+LeanQbeTest.T.KissatAuditArm64 audit_m3_arm_sound
+LeanQbe.T.Arm64.KissatM3 LeanQbe.T.Arm64.KissatM3.m3_arm64_unsat_nonvacuous

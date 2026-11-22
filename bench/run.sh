@@ -28,7 +28,14 @@ else
 fi
 
 echo "== 1. Emitting QBE IL and lean-qbe (x64 + arm64) assembly into $OUT"
-timeout 1800 lake build leanqbe leanqbe-arm64 >"$OUT/build.log" 2>&1 || { tail -20 "$OUT/build.log"; exit 1; }
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  if ! timeout 1800 lake build leanqbe leanqbe-arm64 >"$OUT/build.log" 2>&1; then
+    tail -20 "$OUT/build.log"
+    exit 1
+  fi
+else
+  echo "SKIP_BUILD=1: skipping lake build leanqbe leanqbe-arm64"
+fi
 LEANQBE="$ROOT/.lake/build/bin/leanqbe"
 LEANQBE_ARM64="$ROOT/.lake/build/bin/leanqbe-arm64"
 timeout 60 "$LEANQBE" --il uf_bench >"$OUT/uf.ssa"

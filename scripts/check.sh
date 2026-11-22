@@ -1,48 +1,363 @@
 #!/usr/bin/env bash
 # lean-qbe quality gate. Run from anywhere: scripts/check.sh
 #
-#  1. Builds every library and both executables (`leanqbe`, `leanqbe-arm64`) with warnings as errors
-#     (`lake build --wfail`).
-#  2. Fails on any `sorry` (build log, and `sorryAx` in any axiom report), and on `bv_decide`,
-#     `native_decide` and friends anywhere in a tracked .lean file (native axioms).
-#  3. Checks import closures: the generic `LeanQbe` root imports neither `Kraken.X64` nor
-#     `Kraken.AArch64`, `LeanQbeAmd64` does not import `Kraken.AArch64`, `LeanQbeArm64` does not
-#     import `Kraken.X64`, every module file under `LeanQbe/` is reachable from its library root
-#     (`LeanQbe/T/Amd64/*` from `LeanQbeAmd64`, `LeanQbe/T/Arm64/*` from `LeanQbeArm64`, the rest
-#     from `LeanQbe`), and no retired untyped E1 module (`LeanQbe/` outside `LeanQbe/T/`,
-#     `LeanQbeTest/` outside `LeanQbeTest/T/`, or `SpikeS2*`) remains tracked. Only files known to
-#     git are checked.
-#  4. Axiom audit: `#print axioms` for every theorem listed in scripts/headline.txt, plus every
-#     `#print axioms` already in the build log (any module that step 1 builds, for example a test
-#     under LeanQbeTest/). Allowed: propext, Classical.choice, Quot.sound. A report that is not one
-#     complete line fails: Lean breaks a long report over several lines, and then it cannot be read.
-#     So does a headline theorem without a report, and a headline.txt that is missing or lists none.
-#  5. Standalone re-elaboration timing (enabled when `CHECK_TIMES=1`, skipped by default): checks
-#     CPU time of the five largest `*Lemmas*.lean` files and of the native compiler-cert modules
-#     for LratBytes, Kissat, KissatCorePlus, and KissatPlain
-#     (LeanQbe/T/{Amd64,Arm64}/{LratBytes,Kissat,KissatCorePlus,KissatPlainCert1,KissatPlainCert,KissatPlain}.lean).
-#     Printed for the record; only a file that fails to check fails this step. Step 1
-#     (`lake build --wfail`) always enforces Lean's default `200,000` `maxHeartbeats` on every
-#     modified module (including `compiled_check` via `t_kernel_rfl`), while `CHECK_TIMES=1`
-#     enables standalone Step 5 re-elaboration timing.
+# Environment knobs:
+#   CHECK_SCOPE=full|auto|x64|arm64
+#       Defaults to `full` when `CHECK_BASE` is unset (100% backward compatible), or `auto`
+#       when `CHECK_BASE` is set. In `auto` mode (with `CHECK_BASE` defaulting to `HEAD~1`),
+#       a fail-closed classifier selects:
+#         - `class0`: ONLY when >=1 files changed, 0 `.lean`/gate/toolchain files changed, and
+#           100% of changed files match the non-Lean allowlist (0 `lake` calls, <15s).
+#         - `x64`:    ONLY when >=1 `.lean` files changed, 100% of changed `.lean` files are under
+#           `LeanQbe/T/Amd64/` or `LeanQbeTest/T/*{X64,Amd64}*.lean`, and any non-`.lean` files
+#           are docs / `scripts/headlines.d/amd64.txt`. Skips `LeanQbeArm64` & `leanqbe-arm64`.
+#         - `arm64`:  Symmetric for `LeanQbe/T/Arm64/` / `LeanQbeTest/T/*Arm64*.lean`.
+#         - `full`:   Fail-closed default for any other file or empty/unresolvable diff.
+#   INCLUDE_LEGACY=0|1
+#       Controls whether `scripts/headlines.d/*legacy*.txt` files are audited in Step 4.
+#       Defaults to `0` if `LeanQbeLegacy*` targets exist in `lakefile.toml`, else `1`.
+#   LAKE_JOBS=<N>
+#       If set, runs Step 1 `lake build` with `LEAN_NUM_THREADS=$LAKE_JOBS` (Lake 5.0 controls
+#       build concurrency via `LEAN_NUM_THREADS`, as `lake build -j` does not exist).
+#   CHECK_TIMES=0|1
+#       Set to `1` to enable standalone Step 5 re-elaboration CPU timing.
+#
+# Steps (for Lean scopes `full`, `x64`, `arm64`):
+#  1. Builds scoped targets with warnings as errors (`lake build --wfail`).
+#  2. Fails on any `sorry` (build log and axiom reports), and on native-code tactics anywhere.
+#  3. Checks import closures (`LeanQbe` arch-free, `LeanQbeAmd64` no AArch64, `LeanQbeArm64` no X64,
+#     reachability of `LeanQbe/T/`, no retired E1 files or imports).
+#  4. Parallel axiom audit (`Audit_generic`, `Audit_x64`, `Audit_arm64`, isolated root-`main`
+#     batches, with 16-way per-module fallback) for active `scripts/headlines.d/*.txt` (or
+#     `scripts/headline.txt` if `headlines.d` is absent).
+#  5. Standalone re-elaboration timing when `CHECK_TIMES=1`.
 #
 # Every command runs under `timeout`. Exit code 0 iff all checks pass.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+classify_stdin() {
+  python3 -c '
+import re, sys
+
+files = [line.strip() for line in sys.stdin if line.strip()]
+if not files:
+    print("full")
+    sys.exit(0)
+
+forbidden_class0_re = re.compile(
+    r"^(?:lakefile\.toml|lean-toolchain|lake-manifest\.json"
+    r"|scripts/check\.sh|scripts/headline\.txt|scripts/headlines\.d/)"
+)
+class0_re = re.compile(
+    r"^(?:README\.md|docs/.*|bench/.*"
+    r"|test/.*\.(?:c|h|py|sh|cnf|lrat)"
+    r"|scripts/(?:fast_land|tier3_check|all)\.sh)$"
+)
+x64_lean_re = re.compile(
+    r"^(?:LeanQbe/T/Amd64/.*|LeanQbeTest/T/[^/]*(?:X64|Amd64)[^/]*)\.lean$"
+)
+arm64_lean_re = re.compile(
+    r"^(?:LeanQbe/T/Arm64/.*|LeanQbeTest/T/[^/]*Arm64[^/]*)\.lean$"
+)
+x64_nonlean_re = re.compile(
+    r"^(?:README\.md|docs/.*|scripts/headlines\.d/amd64\.txt)$"
+)
+arm64_nonlean_re = re.compile(
+    r"^(?:README\.md|docs/.*|scripts/headlines\.d/arm64\.txt)$"
+)
+
+if all(
+    (not f.endswith(".lean"))
+    and (not forbidden_class0_re.match(f))
+    and class0_re.fullmatch(f)
+    for f in files
+):
+    print("class0")
+    sys.exit(0)
+
+lean_files = [f for f in files if f.endswith(".lean")]
+nonlean_files = [f for f in files if not f.endswith(".lean")]
+
+if (
+    lean_files
+    and all(x64_lean_re.fullmatch(f) and ("Arm64" not in f) for f in lean_files)
+    and all(x64_nonlean_re.fullmatch(f) for f in nonlean_files)
+):
+    print("x64")
+    sys.exit(0)
+
+if (
+    lean_files
+    and all(
+        arm64_lean_re.fullmatch(f) and ("X64" not in f) and ("Amd64" not in f)
+        for f in lean_files
+    )
+    and all(arm64_nonlean_re.fullmatch(f) for f in nonlean_files)
+):
+    print("arm64")
+    sys.exit(0)
+
+print("full")
+'
+}
+
+MODE="run"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --classify-stdin) MODE="classify_stdin"; shift ;;
+    --print-scope) MODE="print_scope"; shift ;;
+    -h|--help)
+      sed -n '2,37p' "${BASH_SOURCE[0]}"
+      exit 0 ;;
+    *)
+      echo "check.sh: unknown option: $1" >&2
+      exit 2 ;;
+  esac
+done
+
+if [ "$MODE" = "classify_stdin" ]; then
+  classify_stdin
+  exit $?
+fi
+
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
 LEAN_TIMEOUT="${LEAN_TIMEOUT:-600}"
-TARGETS=(LeanQbe LeanQbeAmd64 LeanQbeArm64 LeanQbeTest leanqbe leanqbe-arm64)
 ALLOWED="propext Classical.choice Quot.sound"
+
+if [ -z "${CHECK_SCOPE:-}" ]; then
+  if [ -n "${CHECK_BASE:-}" ]; then
+    CHECK_SCOPE="auto"
+  else
+    CHECK_SCOPE="full"
+  fi
+fi
+
+case "$CHECK_SCOPE" in
+  auto|x64|arm64|full) ;;
+  *) echo "FAIL: invalid CHECK_SCOPE='$CHECK_SCOPE' (expected auto|x64|arm64|full)" >&2; exit 2 ;;
+esac
+
+if [ -z "${INCLUDE_LEGACY:-}" ]; then
+  if grep -qE '^name[[:space:]]*=[[:space:]]*"LeanQbeLegacy' lakefile.toml 2>/dev/null; then
+    INCLUDE_LEGACY=0
+  else
+    INCLUDE_LEGACY=1
+  fi
+fi
+case "$INCLUDE_LEGACY" in
+  0|1) ;;
+  *) echo "FAIL: invalid INCLUDE_LEGACY='$INCLUDE_LEGACY' (expected 0|1)" >&2; exit 2 ;;
+esac
+
+CHANGED_FILES=""
+RESOLVED_SCOPE="$CHECK_SCOPE"
+if [ "$CHECK_SCOPE" = "auto" ]; then
+  CHECK_BASE="${CHECK_BASE:-HEAD~1}"
+  if git rev-parse --verify "${CHECK_BASE}^{commit}" >/dev/null 2>&1; then
+    if CHANGED_FILES="$({
+      git diff --name-only --no-renames "${CHECK_BASE}...HEAD" &&
+      git diff --name-only --no-renames HEAD &&
+      git ls-files --others --exclude-standard
+    } | sort -u)"; then
+      RESOLVED_SCOPE="$(printf '%s\n' "$CHANGED_FILES" | classify_stdin)"
+    else
+      RESOLVED_SCOPE="full"
+    fi
+  else
+    RESOLVED_SCOPE="full"
+  fi
+fi
+
+if [ "$MODE" = "print_scope" ]; then
+  printf '%s\n' "$RESOLVED_SCOPE"
+  exit 0
+fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-check.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 fail=0
 err() { echo "FAIL: $*"; fail=1; }
 
+echo "== check.sh: scope=$RESOLVED_SCOPE (requested=$CHECK_SCOPE, INCLUDE_LEGACY=$INCLUDE_LEGACY)"
+
+# Collect active headline lines (<Module> <const>) into $TMP/headlines_all.txt
+python3 - "$INCLUDE_LEGACY" "$TMP/headlines_all.txt" <<'PY'
+import pathlib, sys
+
+inc_legacy = sys.argv[1] == "1"
+out_path = pathlib.Path(sys.argv[2])
+hdir = pathlib.Path("scripts/headlines.d")
+files = sorted(hdir.glob("*.txt")) if hdir.is_dir() else []
+if files:
+    if not inc_legacy:
+        files = [f for f in files if "legacy" not in f.name]
+elif pathlib.Path("scripts/headline.txt").is_file():
+    files = [pathlib.Path("scripts/headline.txt")]
+
+lines = []
+for f in files:
+    for raw in f.read_text().splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        lines.append(s)
+out_path.write_text("\n".join(lines) + ("\n" if lines else ""))
+PY
+
+headline_total="$(wc -l <"$TMP/headlines_all.txt" | tr -d ' ')"
+
+if [ "$RESOLVED_SCOPE" = "class0" ]; then
+  echo "== 1c0. shell syntax (bash -n)"
+  while IFS= read -r shf; do
+    [ -f "$shf" ] || continue
+    timeout 30 bash -n "$shf" || err "bash -n failed: $shf"
+  done < <(git ls-files --cached --others --exclude-standard '*.sh' | sort -u)
+
+  echo "== 2c0. python syntax (py_compile)"
+  mapfile -t py_files < <(git ls-files --cached --others --exclude-standard '*.py' | sort -u)
+  if [ "${#py_files[@]}" -gt 0 ]; then
+    timeout 30 env PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$TMP/pycache" \
+      python3 -m py_compile "${py_files[@]}" || err "python3 -m py_compile failed"
+  fi
+
+  echo "== 3c0. native-code tactics & tracked-file hygiene (0 lake calls)"
+  git ls-files -z '*.lean' ':(exclude)Kraken' ':(exclude)Kraken*.lean' ':(exclude)Att2Intel.lean' ':(exclude)Bedrock2C.lean' >"$TMP/lean-files" || err "git ls-files failed"
+  nat_re='\b(bv_decide|native_decide)\b|decide \+native|ofReduceBool|ofReduceNat'
+  if (set +o pipefail; xargs -0 grep -HnE "$nat_re" <"$TMP/lean-files" 2>/dev/null \
+      | grep -vE '^[^:]+:[0-9]+:\s*--'); then
+    err "native-code tactic in a tracked .lean file"
+  fi
+  if git ls-files --cached 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' \
+      | grep -v '^LeanQbe/T/'; then
+    err "retired untyped E1 .lean files remain tracked under LeanQbe/ outside LeanQbe/T/"
+  fi
+  if git ls-files --cached 'LeanQbeTest/*.lean' 'LeanQbeTest/**/*.lean' \
+      | grep -v '^LeanQbeTest/T/'; then
+    err "retired untyped E1 .lean files remain tracked under LeanQbeTest/ outside LeanQbeTest/T/"
+  fi
+  if git ls-files --cached 'LeanQbeTest/*SpikeS2*' 'LeanQbeTest/**/*SpikeS2*' | grep .; then
+    err "temporary SpikeS2 files remain tracked under LeanQbeTest/"
+  fi
+  g5_re='^\s*(public\s+|meta\s+)*import\s+(all\s+)?LeanQbe\.([^T]|T[^.])'
+  if git ls-files -z 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' \
+      | (set +o pipefail; xargs -0 grep -HnE "$g5_re" 2>/dev/null); then
+    err "LeanQbe/T module imports untyped E1 module (G5 violation)"
+  fi
+  while IFS= read -r cf; do
+    [ -f "$cf" ] || continue
+    if grep -nE '^(<{7}|={7}|>{7})( |$)' "$cf"; then
+      err "merge conflict marker in $cf"
+    fi
+  done <<<"$CHANGED_FILES"
+  if [ "$headline_total" -le 0 ]; then
+    err "no active headline theorems found in scripts/headlines.d/ or scripts/headline.txt"
+  fi
+
+  if [ $fail -eq 0 ]; then
+    echo "== check.sh: ALL PASSED (class0, 0 lake calls)"
+  else
+    echo "== check.sh: FAILED"
+  fi
+  exit $fail
+fi
+
+# Determine scoped Step 1 build targets
+if [ "$RESOLVED_SCOPE" = "full" ]; then
+  TARGETS=(LeanQbe LeanQbeAmd64 LeanQbeArm64 LeanQbeTest leanqbe leanqbe-arm64)
+else
+  TARGETS=(LeanQbe)
+  if [ "$RESOLVED_SCOPE" = "x64" ]; then
+    TARGETS+=(LeanQbeAmd64 leanqbe)
+  else
+    TARGETS+=(LeanQbeArm64 leanqbe-arm64)
+  fi
+  printf '%s\n' "$CHANGED_FILES" >"$TMP/changed_files.txt"
+  mapfile -t SCOPED_TESTS < <(
+    python3 - "$RESOLVED_SCOPE" "$TMP/headlines_all.txt" "$TMP/changed_files.txt" <<'PY'
+import pathlib, re, sys
+
+scope = sys.argv[1]
+hpath = pathlib.Path(sys.argv[2])
+changed = [l.strip() for l in pathlib.Path(sys.argv[3]).read_text().splitlines() if l.strip()]
+
+imp_re = re.compile(
+    r"^\s*(?:public\s+|meta\s+)*(?:import\s+all\s+|import\s+)([A-Za-z0-9_.']+)"
+)
+x64_pfx = ("Kraken.X64", "LeanQbe.T.Amd64.")
+arm_pfx = ("Kraken.AArch64", "LeanQbe.T.Arm64.")
+memo = {}
+def classify(mod, stack):
+    if mod in memo:
+        return memo[mod]
+    if mod == "LeanQbeAmd64" or mod.startswith(x64_pfx):
+        memo[mod] = "x64"; return "x64"
+    if mod == "LeanQbeArm64" or mod.startswith(arm_pfx):
+        memo[mod] = "arm64"; return "arm64"
+    if mod in stack:
+        return "generic"
+    p = pathlib.Path(mod.replace(".", "/") + ".lean")
+    if not p.is_file():
+        return "conflict"
+    arches = set()
+    nxt = stack | {mod}
+    for line in p.read_text().splitlines():
+        m = imp_re.match(line)
+        if not m:
+            continue
+        imp = m.group(1)
+        if imp == "LeanQbeAmd64" or imp.startswith(x64_pfx):
+            arches.add("x64")
+        elif imp == "LeanQbeArm64" or imp.startswith(arm_pfx):
+            arches.add("arm64")
+        elif imp.startswith(("LeanQbe.", "LeanQbeTest.")):
+            sub = classify(imp, nxt)
+            if sub in ("x64", "arm64", "conflict"):
+                arches.add(sub)
+    if "conflict" in arches or ("x64" in arches and "arm64" in arches):
+        res = "conflict"
+    elif "x64" in arches:
+        res = "x64"
+    elif "arm64" in arches:
+        res = "arm64"
+    else:
+        res = "generic"
+    memo[mod] = res
+    return res
+
+want_mods = []
+seen = set()
+for raw in hpath.read_text().splitlines():
+    parts = raw.split()
+    if len(parts) < 2:
+        continue
+    mod = parts[0]
+    if not mod.startswith("LeanQbeTest.") or mod in seen:
+        continue
+    c = classify(mod, set())
+    if c in ("generic", scope):
+        seen.add(mod)
+        want_mods.append(mod)
+
+for f in changed:
+    if f.startswith("LeanQbeTest/") and f.endswith(".lean") and pathlib.Path(f).is_file():
+        mod = f[:-5].replace("/", ".")
+        if mod not in seen:
+            seen.add(mod)
+            want_mods.append(mod)
+
+for m in want_mods:
+    print(m)
+PY
+)
+  TARGETS+=("${SCOPED_TESTS[@]}")
+fi
+
 echo "== 1. build (warnings as errors): ${TARGETS[*]}"
-timeout "$BUILD_TIMEOUT" lake build --wfail "${TARGETS[@]}" >"$TMP/build.log" 2>&1
+timeout "$BUILD_TIMEOUT" env ${LAKE_JOBS:+LEAN_NUM_THREADS="$LAKE_JOBS"} \
+  lake build --wfail "${TARGETS[@]}" >"$TMP/build.log" 2>&1
 rc=$?
 grep -E '^(✖|error|warning)|warning:|error:' "$TMP/build.log" | head -100
 tail -n 1 "$TMP/build.log"
@@ -75,20 +390,31 @@ open Lean in
 EOF
   timeout "$LEAN_TIMEOUT" lake env lean "$TMP/Closure_$1.lean" 2>&1 | sed -n 's/^MOD //p'
 }
-for r in LeanQbe LeanQbeAmd64 LeanQbeArm64; do
-  closure "$r" | sort >"$TMP/closure_$r.txt" &
+case "$RESOLVED_SCOPE" in
+  x64)   closure_roots=(LeanQbe LeanQbeAmd64) ;;
+  arm64) closure_roots=(LeanQbe LeanQbeArm64) ;;
+  full)  closure_roots=(LeanQbe LeanQbeAmd64 LeanQbeArm64) ;;
+esac
+closure_pids=()
+for r in "${closure_roots[@]}"; do
+  (closure "$r" | sort >"$TMP/closure_$r.txt") &
+  closure_pids+=("$!")
 done
-wait
+for i in "${!closure_roots[@]}"; do
+  wait "${closure_pids[$i]}" || err "closure check for ${closure_roots[$i]} failed"
+done
 if grep -E '^Kraken\.(X64|AArch64)(\.|$)' "$TMP/closure_LeanQbe.txt"; then
   err "the generic LeanQbe imports an architecture (modules above)"
 fi
-if grep -E '^Kraken\.AArch64(\.|$)' "$TMP/closure_LeanQbeAmd64.txt"; then
+if [ "$RESOLVED_SCOPE" != "arm64" ] \
+   && grep -E '^Kraken\.AArch64(\.|$)' "$TMP/closure_LeanQbeAmd64.txt"; then
   err "LeanQbeAmd64 imports Kraken.AArch64 (modules above)"
 fi
-if grep -E '^Kraken\.X64(\.|$)' "$TMP/closure_LeanQbeArm64.txt"; then
+if [ "$RESOLVED_SCOPE" != "x64" ] \
+   && grep -E '^Kraken\.X64(\.|$)' "$TMP/closure_LeanQbeArm64.txt"; then
   err "LeanQbeArm64 imports Kraken.X64 (modules above)"
 fi
-for r in LeanQbe LeanQbeAmd64 LeanQbeArm64; do
+for r in "${closure_roots[@]}"; do
   if grep -q "^$r$" "$TMP/closure_$r.txt"; then :; else err "could not compute the closure of $r"; fi
 done
 if git ls-files --cached 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' | grep -v '^LeanQbe/T/'; then
@@ -103,8 +429,12 @@ fi
 while IFS= read -r f; do
   m="${f%.lean}"; m="${m//\//.}"
   case "$m" in
-    LeanQbe.T.Amd64.*) r=LeanQbeAmd64 ;;
-    LeanQbe.T.Arm64.*) r=LeanQbeArm64 ;;
+    LeanQbe.T.Amd64.*)
+      [ "$RESOLVED_SCOPE" = "arm64" ] && continue
+      r=LeanQbeAmd64 ;;
+    LeanQbe.T.Arm64.*)
+      [ "$RESOLVED_SCOPE" = "x64" ] && continue
+      r=LeanQbeArm64 ;;
     *) r=LeanQbe ;;
   esac
   grep -qx "$m" "$TMP/closure_$r.txt" || err "$f is not imported by the root $r.lean (so it is not built)"
@@ -117,39 +447,232 @@ fi
 echo "== 4. axiom audit"
 # Build log: every `#print axioms` that the build printed.
 grep -E "depends on axioms|does not depend on any axioms" "$TMP/build.log" >"$TMP/axioms.txt" || true
-# Headline theorems: lines `<Module> <constant>` in scripts/headline.txt, grouped by module so that
-# x64 and AArch64 modules are never imported together.
-n=0
-mods=()
-if [ -f scripts/headline.txt ]; then
-  for mod in $(grep -vE '^\s*(#|$)' scripts/headline.txt | awk '{print $1}' | sort -u); do
-    n=$((n + 1))
-    mods+=("$mod")
-    f="$TMP/Audit_$n.lean"
-    echo "import $mod" >"$f"
-    grep -vE '^\s*(#|$)' scripts/headline.txt | awk -v m="$mod" '$1 == m {print "#print axioms " $2}' >>"$f"
-    (
-      timeout "$LEAN_TIMEOUT" lake env lean "$f" >"$TMP/audit_$n.out" 2>&1
-      echo $? >"$TMP/audit_$n.rc"
-    ) &
-    while [ "$(jobs -rp | wc -l)" -ge 8 ]; do wait -n 2>/dev/null || true; done
-  done
-  wait
-  for i in $(seq 1 "$n"); do
-    rc="$(cat "$TMP/audit_$i.rc" 2>/dev/null || echo 1)"
-    if [ "$rc" -ne 0 ]; then
-      cat "$TMP/audit_$i.out" 2>/dev/null || true
-      err "axiom audit of ${mods[$((i - 1))]} failed to elaborate"
-    else
-      sed 's/^/headline: /' "$TMP/audit_$i.out"
-      cat "$TMP/audit_$i.out" >>"$TMP/axioms.txt"
+# Headline theorems: `<Module> <constant>` from scripts/headlines.d/*.txt (or
+# scripts/headline.txt), filtered by INCLUDE_LEGACY and CHECK_SCOPE, partitioned into
+# parallel batches (generic, x64, arm64, plus isolated root-`main` modules so separate
+# executables never collide on `main`). Falls back to 16-way per-module audit if needed.
+if [ "$headline_total" -gt 0 ]; then
+  python3 - "$TMP" "$RESOLVED_SCOPE" <<'PY'
+import pathlib, re, sys
+
+tmp = pathlib.Path(sys.argv[1])
+scope = sys.argv[2]
+
+def read_set(name):
+    p = tmp / f"closure_{name}.txt"
+    return set(p.read_text().splitlines()) if p.exists() else set()
+
+c_gen = read_set("LeanQbe")
+c_x64 = read_set("LeanQbeAmd64")
+c_arm = read_set("LeanQbeArm64")
+x64_only = c_x64 - c_gen
+arm_only = c_arm - c_gen
+x64_pfx = ("Kraken.X64", "LeanQbe.T.Amd64.")
+arm_pfx = ("Kraken.AArch64", "LeanQbe.T.Arm64.")
+
+imp_re = re.compile(
+    r"^\s*(?:public\s+|meta\s+)*(?:import\s+all\s+|import\s+)([A-Za-z0-9_.']+)"
+)
+ns_re = re.compile(r"^\s*namespace\s+\S+")
+sec_re = re.compile(
+    r"^\s*(?:@\[[^\]]*\]\s+|public\s+|private\s+|protected\s+)*section(?:\s|$)"
+)
+end_re = re.compile(r"^\s*end(?:\s|$)")
+def_main_re = re.compile(
+    r"^(?:(?:public|private|protected|noncomputable)\s+)*def\s+main\b"
+)
+
+memo = {}
+def classify(mod, stack):
+    if mod in memo:
+        return memo[mod]
+    if mod in c_gen:
+        memo[mod] = "generic"; return "generic"
+    if mod in x64_only or mod == "LeanQbeAmd64" or mod.startswith(x64_pfx):
+        memo[mod] = "x64"; return "x64"
+    if mod in arm_only or mod == "LeanQbeArm64" or mod.startswith(arm_pfx):
+        memo[mod] = "arm64"; return "arm64"
+    if mod in stack:
+        return "generic"
+    p = pathlib.Path(mod.replace(".", "/") + ".lean")
+    if not p.is_file():
+        return "conflict"
+    arches = set()
+    nxt = stack | {mod}
+    for line in p.read_text().splitlines():
+        m = imp_re.match(line)
+        if not m:
+            continue
+        imp = m.group(1)
+        if imp == "LeanQbeAmd64" or imp in x64_only or imp.startswith(x64_pfx):
+            arches.add("x64")
+        elif imp == "LeanQbeArm64" or imp in arm_only or imp.startswith(arm_pfx):
+            arches.add("arm64")
+        elif imp not in c_gen and imp.startswith(("LeanQbe.", "LeanQbeTest.")):
+            sub = classify(imp, nxt)
+            if sub in ("x64", "arm64", "conflict"):
+                arches.add(sub)
+    if "conflict" in arches or ("x64" in arches and "arm64" in arches):
+        res = "conflict"
+    elif "x64" in arches:
+        res = "x64"
+    elif "arm64" in arches:
+        res = "arm64"
+    else:
+        res = "generic"
+    memo[mod] = res
+    return res
+
+main_memo = {}
+def has_root_main(mod, stack):
+    if mod in main_memo:
+        return main_memo[mod]
+    if mod in stack:
+        return False
+    p = pathlib.Path(mod.replace(".", "/") + ".lean")
+    if not p.is_file():
+        return False
+    scopes = []
+    nxt = stack | {mod}
+    found = False
+    for line in p.read_text().splitlines():
+        m = imp_re.match(line)
+        if m:
+            imp = m.group(1)
+            if imp.startswith(("LeanQbe.", "LeanQbeTest.")) and has_root_main(imp, nxt):
+                found = True
+                break
+        if ns_re.match(line):
+            scopes.append("ns")
+        elif sec_re.match(line):
+            scopes.append("sec")
+        elif end_re.match(line) and scopes:
+            scopes.pop()
+        elif "ns" not in scopes and def_main_re.match(line):
+            found = True
+            break
+    main_memo[mod] = found
+    return found
+
+buckets = {b: ([], []) for b in ("generic", "x64", "arm64")}
+solo_buckets = {}
+conflict_mods = []
+seen_mods = {b: set() for b in ("generic", "x64", "arm64")}
+seen_conf = set()
+selected = []
+
+for raw in (tmp / "headlines_all.txt").read_text().splitlines():
+    s = raw.strip()
+    if not s or s.startswith("#"):
+        continue
+    parts = s.split()
+    if len(parts) < 2:
+        continue
+    mod, const = parts[0], parts[1]
+    b = classify(mod, set())
+    if scope == "x64" and b == "arm64":
+        continue
+    if scope == "arm64" and b == "x64":
+        continue
+    selected.append(f"{mod} {const}")
+    if b == "conflict":
+        if mod not in seen_conf:
+            seen_conf.add(mod); conflict_mods.append(mod)
+        continue
+    if has_root_main(mod, set()):
+        solo_buckets.setdefault(mod, []).append(const)
+        continue
+    if mod not in seen_mods[b]:
+        seen_mods[b].add(mod); buckets[b][0].append(mod)
+    buckets[b][1].append(const)
+
+out_sel = "\n".join(selected) + ("\n" if selected else "")
+(tmp / "selected_headlines.txt").write_text(out_sel)
+
+for b, (mods, consts) in buckets.items():
+    if not mods:
+        continue
+    lines = [f"import {m}" for m in mods] + [f"#print axioms {c}" for c in consts]
+    (tmp / f"Batch_{b}.lean").write_text("\n".join(lines) + "\n")
+    (tmp / f"mods_batch_{b}.txt").write_text("\n".join(mods) + "\n")
+for idx, (mod, consts) in enumerate(solo_buckets.items(), 1):
+    b = f"solo_{idx}"
+    lines = [f"import {mod}"] + [f"#print axioms {c}" for c in consts]
+    (tmp / f"Batch_{b}.lean").write_text("\n".join(lines) + "\n")
+    (tmp / f"mods_batch_{b}.txt").write_text(f"{mod}\n")
+if conflict_mods:
+    (tmp / "mods_conflict.txt").write_text("\n".join(conflict_mods) + "\n")
+PY
+
+  want="$(wc -l <"$TMP/selected_headlines.txt" | tr -d ' ')"
+  if [ "$want" -gt 0 ]; then
+    batch_names=()
+    batch_pids=()
+    batch_jobs="${AUDIT_JOBS:-16}"
+    : >"$TMP/fallback_mods.txt"
+    [ -s "$TMP/mods_conflict.txt" ] && cat "$TMP/mods_conflict.txt" >>"$TMP/fallback_mods.txt"
+    for audit_lean in "$TMP"/Batch_*.lean; do
+      [ -s "$audit_lean" ] || continue
+      b="$(basename "$audit_lean" .lean)"
+      b="${b#Batch_}"
+      while [ "$(jobs -rp | wc -l)" -ge "$batch_jobs" ]; do
+        wait -n 2>/dev/null || true
+      done
+      timeout "$LEAN_TIMEOUT" lake env lean "$audit_lean" \
+        >"$TMP/audit_batch_${b}.out" 2>&1 &
+      batch_pids+=("$!")
+      batch_names+=("$b")
+    done
+    for i in "${!batch_names[@]}"; do
+      b="${batch_names[$i]}"
+      if ! wait "${batch_pids[$i]}"; then
+        echo "NOTE: batch audit_${b} failed; falling back to per-module parallel audit"
+        rm -f "$TMP/audit_batch_${b}.out"
+        cat "$TMP/mods_batch_${b}.txt" >>"$TMP/fallback_mods.txt"
+      fi
+    done
+
+    if [ -s "$TMP/fallback_mods.txt" ]; then
+      fb_jobs="${AUDIT_JOBS:-16}"
+      fb_idx=0
+      fb_pids=()
+      fb_mods=()
+      while IFS= read -r mod; do
+        [ -n "$mod" ] || continue
+        fb_idx=$((fb_idx + 1))
+        f="$TMP/Audit_fb_${fb_idx}.lean"
+        echo "import $mod" >"$f"
+        awk -v m="$mod" '$1 == m {print "#print axioms " $2}' "$TMP/selected_headlines.txt" >>"$f"
+        while [ "$(jobs -rp | wc -l)" -ge "$fb_jobs" ]; do
+          wait -n 2>/dev/null || true
+        done
+        timeout "$LEAN_TIMEOUT" lake env lean "$f" >"$TMP/audit_fb_${fb_idx}.out" 2>&1 &
+        fb_pids+=("$!")
+        fb_mods+=("$mod:$fb_idx")
+      done <"$TMP/fallback_mods.txt"
+      for i in "${!fb_pids[@]}"; do
+        if ! wait "${fb_pids[$i]}"; then
+          IFS=: read -r mod idx <<<"${fb_mods[$i]}"
+          cat "$TMP/audit_fb_${idx}.out"
+          err "axiom audit of $mod failed to elaborate"
+        fi
+      done
     fi
-  done
+
+    for outf in "$TMP"/audit_*.out; do
+      [ -f "$outf" ] || continue
+      sed 's/^/headline: /' "$outf"
+      cat "$outf" >>"$TMP/axioms.txt"
+    done
+  else
+    err "no headline theorems selected for scope=$RESOLVED_SCOPE (INCLUDE_LEGACY=$INCLUDE_LEGACY)"
+  fi
+else
+  want=0
+  err "no headline theorem to audit in scripts/headlines.d/ or scripts/headline.txt"
 fi
-[ $n -gt 0 ] || err "no headline theorem to audit: scripts/headline.txt is missing or lists none"
 # Every headline theorem must have one complete report: the loop below fails on the lines that are
 # not a complete report, and this count fails if a report is missing.
-want="$(grep -vcE '^\s*(#|$)' scripts/headline.txt 2>/dev/null)"; want="${want:-0}"
 got="$(cat "$TMP"/audit_*.out 2>/dev/null | grep -cE 'depends on axioms: \[.*\]$|does not depend on any axioms$')"
 echo "$(grep -c . "$TMP/axioms.txt") lines of axiom reports; $got complete reports for $want headline theorems"
 [ "$got" -eq "$want" ] || err "$got complete one-line axiom reports for $want headline theorems"
@@ -173,18 +696,30 @@ if [ "${CHECK_TIMES:-0}" = "1" ]; then
     rc=$?
     echo "$(awk '{print int($1 + $2 + 0.5)}' <<<"$cpu") $rc $1" >>"$TMP/times.txt"
   }
-  { echo LeanQbe/T/Amd64/LratBytes.lean; echo LeanQbe/T/Arm64/LratBytes.lean
-    echo LeanQbe/T/Amd64/Kissat.lean; echo LeanQbe/T/Arm64/Kissat.lean
-    echo LeanQbe/T/Amd64/KissatCorePlus.lean; echo LeanQbe/T/Arm64/KissatCorePlus.lean
-    echo LeanQbe/T/Amd64/KissatPlainCert1.lean; echo LeanQbe/T/Arm64/KissatPlainCert1.lean
-    echo LeanQbe/T/Amd64/KissatPlainCert.lean; echo LeanQbe/T/Arm64/KissatPlainCert.lean
-    echo LeanQbe/T/Amd64/KissatPlain.lean; echo LeanQbe/T/Arm64/KissatPlain.lean
-    git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
-      | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}'; } >"$TMP/timed.txt"
+  : >"$TMP/timed.txt"
+  cand_arches=()
+  [ "$RESOLVED_SCOPE" != "arm64" ] && cand_arches+=(Amd64)
+  [ "$RESOLVED_SCOPE" != "x64" ] && cand_arches+=(Arm64)
+  for arch in "${cand_arches[@]}"; do
+    for mod in LratBytes KissatPlainCert1 KissatPlainCert KissatPlain KissatM3Cert KissatM3; do
+      [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
+    done
+    if [ "$INCLUDE_LEGACY" = "1" ]; then
+      for mod in Kissat KissatCorePlus; do
+        [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
+      done
+    fi
+  done
+  git ls-files 'LeanQbe/*Lemmas*.lean' 'LeanQbe/**/*Lemmas*.lean' | sort -u | xargs wc -l \
+    | grep -v ' total$' | sort -rn | head -n 5 | awk '{print $2}' >>"$TMP/timed.txt"
   : >"$TMP/times.txt"
+  times_jobs="${CHECK_TIMES_JOBS:-4}"
   while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    while [ "$(jobs -rp | wc -l)" -ge "$times_jobs" ]; do
+      wait -n 2>/dev/null || true
+    done
     time_check "$f" &
-    while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n 2>/dev/null || true; done
   done <"$TMP/timed.txt"
   wait
   while read -r cpu rc f; do

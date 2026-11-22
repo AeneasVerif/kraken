@@ -11,6 +11,10 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/lrat-check-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 if [ ! -x "$ROOT/.lake/build/bin/leanqbe" ]; then
+  if [ "${SKIP_BUILD:-0}" = "1" ]; then
+    echo "FAIL: SKIP_BUILD=1 but missing $ROOT/.lake/build/bin/leanqbe" >&2
+    exit 1
+  fi
   timeout 1800 lake build leanqbe
 fi
 

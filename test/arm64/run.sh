@@ -11,17 +11,15 @@ cd "$ROOT"
 OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-arm64.XXXXXX")}"
 CC="${CC_AARCH64:-aarch64-linux-gnu-gcc}"
 RUN="qemu-aarch64 -L /usr/aarch64-linux-gnu"
-timeout 1800 lake build leanqbe-arm64 >"$OUT/build.log" 2>&1 || { tail -20 "$OUT/build.log"; exit 1; }
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  if ! timeout 1800 lake build leanqbe-arm64 >"$OUT/build.log" 2>&1; then
+    tail -20 "$OUT/build.log"
+    exit 1
+  fi
+fi
 if [ -z "${NOQBE:-}" ] && [ -z "${QBE:-}" ]; then
-  QBE_SRC="${QBE_SRC:-$ROOT/qbe}"
-  if [ -d "$QBE_SRC" ]; then
-    rm -rf "$OUT/qbe-src" && cp -r "$QBE_SRC" "$OUT/qbe-src"
-    if timeout 300 make -C "$OUT/qbe-src" -j8 >"$OUT/qbe-build.log" 2>&1; then QBE="$OUT/qbe-src/qbe"
-    else echo "FAIL: could not build stock QBE (see $OUT/qbe-build.log)"; exit 1; fi
-  elif QBE="$(command -v qbe || true)" && [ -n "$QBE" ]; then
-    echo "Using stock qbe from PATH: $QBE"
-  else
-    echo "FAIL: stock QBE not found (set QBE, QBE_SRC, place checkout at $ROOT/qbe, or set NOQBE=1)" >&2
+  if ! QBE="$("$ROOT/scripts/ensure_qbe.sh")"; then
+    echo "FAIL: could not locate or build stock QBE (set QBE, QBE_SRC, or NOQBE=1)" >&2
     exit 1
   fi
 fi

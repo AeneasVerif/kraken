@@ -29,9 +29,13 @@ mkdir -p "$OUT/bin" "$OUT/obj" "$OUT/trace"
 echo "outputs in $OUT"
 
 echo "== 1. build LeanLCNF + tests (Func.Wf theorems, #guards) =="
-timeout 600 lake build --wfail LeanQbe.T.LeanLCNF.Demo LeanQbe.T.LeanLCNF.Coverage \
-  LeanQbeTest.T.LeanLCNFTest LeanQbeTest.T.LcnfP5Test LeanQbeTest.T.LcnfAudit \
-  LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ 2>&1 | tail -n 3
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  timeout 600 lake build --wfail LeanQbe.T.LeanLCNF.Demo LeanQbe.T.LeanLCNF.Coverage \
+    LeanQbeTest.T.LeanLCNFTest LeanQbeTest.T.LcnfP5Test LeanQbeTest.T.LcnfAudit \
+    LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ 2>&1 | tail -n 3
+else
+  echo "SKIP_BUILD=1: skipping lake build LeanLCNF + tests"
+fi
 
 echo "== 2. native emitters =="
 # native_exe <exe> <lean source | -> <import>...: compile <lean source> natively (`-`: `main` is in

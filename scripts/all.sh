@@ -17,29 +17,118 @@
 #   test/kissat/run.sh       Kissat X1 Stage A C0 SAT solver differential & native tests
 #   test/lcnf/run.sh         LeanLCNF impure LCNF -> LeanQbe.T C++/x64/arm64 differential & bench tests
 #
-# Runs the fourteen scripts in this order, the later ones also after a failure, then prints one line
-# per script, `PASS` or `FAIL`. A script passes iff it exits 0: all.sh does not read its output.
-# The exit code of all.sh is 0 iff all fourteen passed.
+# Runs scripts/check.sh first, then runs the remaining thirteen scripts (sequentially when
+# ALL_JOBS=1, or up to ALL_JOBS in parallel when ALL_JOBS > 1, each with isolated OUT and
+# shared read-only QBE). Prints one line per script (`PASS` or `FAIL`) and exits 0 iff all
+# fourteen passed.
 #
 # There is no timeout here: the fourteen scripts run their commands under `timeout`. For one bound on
-# the whole run, put all.sh under an outer `timeout`, as with the scripts themselves; when that
-# expires, the command that is running goes on until it ends or its own `timeout` expires.
+# the whole run, put all.sh under an outer `timeout`, as with the scripts themselves.
 #
-# The scripts get the caller's environment (QBE, QBE_SRC, CC_AARCH64, BUILD_TIMEOUT, …), with two
-# exceptions: OUT is unset, so that each script makes an output directory of its own, and NOQBE is
-# refused, because it would skip the stock-QBE half of the litmus tests.
+# Environment knobs:
+#   ALL_JOBS=1|4|...   Parallel jobs for the 13 post-check test suites (default: 1).
+#   SKIP_CHECK=1       Skip running scripts/check.sh first (e.g. if caller just ran it).
+#   SKIP_BUILD=1       Forwarded to test scripts (set automatically when check.sh succeeds).
+#   QBE, QBE_SRC, CC_AARCH64, BUILD_TIMEOUT, ...
 set -u
-cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT" || exit 2
 [ -z "${NOQBE:-}" ] ||
   { echo "all.sh: NOQBE is set, which skips the stock-QBE half of the litmus tests; unset it" >&2; exit 2; }
 unset OUT
 
+ALL_JOBS="${ALL_JOBS:-1}"
+SKIP_CHECK="${SKIP_CHECK:-0}"
+USER_SKIP_BUILD="${SKIP_BUILD+set}"
+
+TEST_SCRIPTS=(
+  test/run.sh
+  test/arm64/run.sh
+  test/cpp/run.sh
+  tool/test_lrat_check.sh
+  bench/run.sh
+  test/c0/run.sh
+  test/t_lrat/run.sh
+  test/t_bignum/run.sh
+  test/t_chacha/run.sh
+  test/t_qbe/run.sh
+  test/lrc/run.sh
+  test/kissat/run.sh
+  test/lcnf/run.sh
+)
+
 verdicts=()
 failed=0
-for s in scripts/check.sh test/run.sh test/arm64/run.sh test/cpp/run.sh tool/test_lrat_check.sh bench/run.sh test/c0/run.sh test/t_lrat/run.sh test/t_bignum/run.sh test/t_chacha/run.sh test/t_qbe/run.sh test/lrc/run.sh test/kissat/run.sh test/lcnf/run.sh; do
-  echo "== all.sh: $s"
-  if "./$s"; then verdicts+=("PASS  $s"); else verdicts+=("FAIL  $s (exit code $?)"); failed=1; fi
-done
+
+if [ "$SKIP_CHECK" != "1" ]; then
+  echo "== all.sh: scripts/check.sh"
+  if CHECK_SCOPE="${CHECK_SCOPE:-full}" ./scripts/check.sh; then
+    verdicts+=("PASS  scripts/check.sh")
+    if [ -z "$USER_SKIP_BUILD" ] && [ "${CHECK_SCOPE:-full}" = "full" ]; then
+      export SKIP_BUILD=1
+    fi
+  else
+    rc=$?
+    verdicts+=("FAIL  scripts/check.sh (exit code $rc)")
+    failed=1
+  fi
+fi
+
+# Warm stock QBE once into shared read-only cache before parallel suites
+if [ -z "${QBE:-}" ]; then
+  qbe_rc=0
+  QBE="$("$ROOT/scripts/ensure_qbe.sh")" || qbe_rc=$?
+  if [ "$qbe_rc" -eq 0 ] && [ -n "$QBE" ]; then
+    export QBE
+  elif [ "$qbe_rc" -ne 2 ]; then
+    echo "all.sh: failed to build stock QBE (rc=$qbe_rc)" >&2
+    failed=1
+  fi
+fi
+
+if [ "$ALL_JOBS" -le 1 ]; then
+  for s in "${TEST_SCRIPTS[@]}"; do
+    echo "== all.sh: $s"
+    if (unset OUT; "./$s"); then
+      verdicts+=("PASS  $s")
+    else
+      rc=$?
+      verdicts+=("FAIL  $s (exit code $rc)")
+      failed=1
+    fi
+  done
+else
+  LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-all.XXXXXX")"
+  trap 'rm -rf "$LOG_DIR"' EXIT
+  echo "== all.sh: ${#TEST_SCRIPTS[@]} suites (ALL_JOBS=$ALL_JOBS, SKIP_BUILD=${SKIP_BUILD:-0})"
+  for i in "${!TEST_SCRIPTS[@]}"; do
+    s="${TEST_SCRIPTS[$i]}"
+    while [ "$(jobs -rp | wc -l)" -ge "$ALL_JOBS" ]; do
+      wait -n 2>/dev/null || true
+    done
+    (
+      unset OUT
+      rc=0
+      "./$s" >"$LOG_DIR/$i.log" 2>&1 || rc=$?
+      echo "$rc" >"$LOG_DIR/$i.rc"
+    ) &
+  done
+  wait
+  for i in "${!TEST_SCRIPTS[@]}"; do
+    s="${TEST_SCRIPTS[$i]}"
+    rc="$(cat "$LOG_DIR/$i.rc" 2>/dev/null || echo 1)"
+    if [ "$rc" -eq 0 ]; then
+      echo "PASS  $s"
+      verdicts+=("PASS  $s")
+    else
+      echo "FAIL  $s (exit code $rc)"
+      cat "$LOG_DIR/$i.log" >&2 || true
+      verdicts+=("FAIL  $s (exit code $rc)")
+      failed=1
+    fi
+  done
+fi
+
 echo "== all.sh: verdicts"
 printf '%s\n' "${verdicts[@]}"
 exit $failed

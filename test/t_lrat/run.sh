@@ -10,7 +10,11 @@ OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-tlrat.XXXXXX")}"
 echo "outputs in $OUT"
 
 echo "== 1. build LratBytesLemmas & LratBytesTest, generate C++20 suite into $OUT =="
-timeout 300 lake build --wfail LeanQbe.T.Examples.LratBytesLemmas LeanQbeTest.T.LratBytesTest
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  timeout 300 lake build --wfail LeanQbe.T.Examples.LratBytesLemmas LeanQbeTest.T.LratBytesTest
+else
+  echo "SKIP_BUILD=1: skipping lake build LratBytesLemmas + LratBytesTest"
+fi
 timeout 120 lake env lean --run LeanQbeTest/T/LratBytesTest.lean "$OUT"
 
 RT_INC="$ROOT/LeanQbe/T/Runtime"
