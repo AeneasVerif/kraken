@@ -30,7 +30,7 @@ Correctness (`LeanQbe/T/ZeroPeelLemmas.lean`): `Func.zeroPeel_wf`, `Func.zeroPee
 
 set_option autoImplicit false
 
-public section
+@[expose] public section
 
 namespace LeanQbe.T
 
@@ -70,7 +70,7 @@ def shiftTupAbove (d n : Nat) : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K
 
 mutual
 /-- Shift free de Bruijn variable indices `≥ d` by `+n` inside a `TFlat` term. -/
-@[expose] def shiftTFlat (d n : Nat) : {rs : List Ty} → TFlat rs → TFlat rs
+def shiftTFlat (d n : Nat) : {rs : List Ty} → TFlat rs → TFlat rs
   | _, .let_ (ts := ts) op k =>
     let ⟨code, args⟩ := op
     .let_ ⟨code, shiftTupAbove d n args⟩ (shiftTFlat (d + ts.length) n k)
@@ -85,7 +85,7 @@ mutual
   | _, .group bs k => .group (shiftTBlocks d n bs) (shiftTFlat d n k)
 
 /-- Block-list companion of `shiftTFlat`. -/
-@[expose] def shiftTBlocks (d n : Nat) {rs : List Ty} :
+def shiftTBlocks (d n : Nat) {rs : List Ty} :
     {sig : List (List Ty)} → TBlocks rs sig → TBlocks rs sig
   | _, .nil => .nil
   | _, .cons (ts := ts) b bs => .cons (shiftTFlat (d + ts.length) n b) (shiftTBlocks d n bs)
@@ -469,7 +469,7 @@ def peelSingle (cfg : ZeroPeelConfig) {rs : List Ty} (ts0 : List Ty) (body k : T
 
 mutual
 /-- Bottom-up wide-fill + 1st-iter loop-peeling rewrite on `TFlat rs`. -/
-@[expose] def zpeelTF (cfg : ZeroPeelConfig) {rs : List Ty} : TFlat rs → TFlat rs
+def zpeelTF (cfg : ZeroPeelConfig) {rs : List Ty} : TFlat rs → TFlat rs
   | .let_ op k => .let_ op (zpeelTF cfg k)
   | .load t a k => .load t a (zpeelTF cfg k)
   | .store v a k => .store v a (zpeelTF cfg k)
@@ -493,7 +493,7 @@ mutual
     | _, _ => .group bs' k'
 
 /-- Block-list companion of `zpeelTF`. -/
-@[expose] def zpeelBs (cfg : ZeroPeelConfig) {rs : List Ty} :
+def zpeelBs (cfg : ZeroPeelConfig) {rs : List Ty} :
     {sig : List (List Ty)} → TBlocks rs sig → TBlocks rs sig
   | _, .nil => .nil
   | _, .cons b bs => .cons (zpeelTF cfg b) (zpeelBs cfg bs)
@@ -503,13 +503,13 @@ end ZeroPeel
 
 /-- Apply wide constant-fill vectorization/unrolling and bounded 1st-iteration loop peeling
 directly on a `TFlat` term. -/
-@[expose] def TFlat.zeroPeelWith (cfg : ZeroPeelConfig := {}) {rs : List Ty} (tf : TFlat rs) :
+def TFlat.zeroPeelWith (cfg : ZeroPeelConfig := {}) {rs : List Ty} (tf : TFlat rs) :
     TFlat rs :=
   if ZeroPeel.zpSize tf < cfg.maxFnSize then ZeroPeel.zpeelTF cfg tf else tf
 
 /-- Apply `ZeroPeel` to a closed `Func` with explicit configuration `cfg`. Reifies once; falls back
 unchanged if `wfCheck` fails or `zpSize tf ≥ cfg.maxFnSize`. -/
-@[expose] def Func.zeroPeelWith (cfg : ZeroPeelConfig := {}) {as rs : List Ty} (f : Func as rs) :
+def Func.zeroPeelWith (cfg : ZeroPeelConfig := {}) {as rs : List Ty} (f : Func as rs) :
     Func as rs :=
   let tf := reifyFunc f
   if tf.wfCheck (pushTypes as []) [] && ZeroPeel.zpSize tf < cfg.maxFnSize then
@@ -519,12 +519,12 @@ unchanged if `wfCheck` fails or `zpSize tf ≥ cfg.maxFnSize`. -/
 
 /-- Apply default `ZeroPeel` (`unrollN := 8`, `peelBudget := 36`, `peelImmOnly := true`,
 `maxFnSize := 600`) to a closed `Func`. -/
-@[expose] def Func.zeroPeel {as rs : List Ty} (f : Func as rs) (cfg : ZeroPeelConfig := {}) :
+def Func.zeroPeel {as rs : List Ty} (f : Func as rs) (cfg : ZeroPeelConfig := {}) :
     Func as rs :=
   Func.zeroPeelWith cfg f
 
 /-- Apply `ZeroPeel` to a named function `Fn`, preserving `name`, `as`, and `rs`. -/
-@[expose] def Fn.zeroPeel (fn : Fn) (cfg : ZeroPeelConfig := {}) : Fn :=
+def Fn.zeroPeel (fn : Fn) (cfg : ZeroPeelConfig := {}) : Fn :=
   ⟨fn.name, fn.as, fn.rs, Func.zeroPeel fn.body cfg⟩
 
 end LeanQbe.T

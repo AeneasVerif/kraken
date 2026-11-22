@@ -48,15 +48,23 @@ structure EvalModuleData where
   finalExtLit : Lean.Expr
   deriving Inhabited
 
+/-- Materialize `fn.body` once into a concrete `TFlat` so downstream PHOAS passes,
+`Spill.hints`, `Fn.ext`, and `Rega.lowerFn` never re-evaluate nested closures
+(`rfl`-equal to `Fn.renorm fn`). -/
+private def matFn (fn : Fn) : Fn :=
+  let tf := reifyFunc fn.body
+  ⟨fn.name, fn.as, fn.rs, denoteFunc tf⟩
+
 /-- Independent per-function meta prepass (`earlyOpt → supportsSource → legal → lateOpt →
 `Spill.hints` → `mf.ext`), safe to evaluate across worker tasks before sequential bound linking. -/
 def evalOneFnStage1 (I : Isa) (lt : LegalTarget) (f : Fn) :
     Except String (Sym × I.Hints × Fn × Rega.Ext) :=
-  let ef := f.earlyOpt
+  let ef := matFn f.earlyOpt
   if !ef.body.supportsSource lt then
     .error s!"{f.name}: unsupported source op for target"
   else
-    let mf := (ef.legal lt).lateOpt
+    let lf := matFn (ef.legal lt)
+    let mf := matFn lf.lateOpt
     let h := Spill.hints I mf
     .ok (f.name, h, mf, mf.ext)
 
