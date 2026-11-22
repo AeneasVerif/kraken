@@ -455,6 +455,28 @@ theorem m5UnsatEnv_noExit :
     ∀ f as bs xs m Q X X', m5UnsatEnv f as bs xs m Q X → m5UnsatEnv f as bs xs m Q X' :=
   mkM5Env_noExit fullUnsatWitnessSpec
 
+theorem mkM5Env_solve_bytes {mainSpec : Spec [i64, i64, i64, i64, i64] [i64]}
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : mainSpec xs m Q (fun _ _ _ _ => False)) :
+    mkM5Env mainSpec "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] xs m Q X :=
+  Env.ofTable_of_mem
+    (List.mem_of_getElem?
+      (show (m5SpecTable mainSpec)[269]? = some
+        ⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], mainSpec, true⟩ from rfl))
+    (m5SpecTable_nodup mainSpec) h
+
+theorem m5Env_solve_bytes
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : fullSolveBytesSpec xs m Q (fun _ _ _ _ => False)) :
+    m5Env "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] xs m Q X :=
+  mkM5Env_solve_bytes h
+
+theorem m5UnsatEnv_solve_bytes
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : fullUnsatWitnessSpec xs m Q (fun _ _ _ _ => False)) :
+    m5UnsatEnv "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] xs m Q X :=
+  mkM5Env_solve_bytes h
+
 /-! ## 2. Headline Source Soundness & Concrete `Mem 64` UNSAT Non-Vacuity -/
 
 private theorem wp_noExit_lift {Γ : Env} {rs : List Ty} {e : Expr Val Cont rs} {m : Mem 64}

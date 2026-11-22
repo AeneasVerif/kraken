@@ -557,14 +557,15 @@ private def externToExpr (e : Extern) : Lean.Expr :=
   mkApp3 (Lean.mkConst ``LeanQbe.T.Extern.mk) (Lean.toExpr e.name)
     (listTyToExpr e.as) (listTyToExpr e.rs)
 
-private def matModToExpr (m : MatModData) : Lean.Expr :=
-  let fnsE := mkListLit .one (Lean.mkConst ``LeanQbe.T.Fn) (m.fns.map matFnToExpr)
+private def matModExpr (fnConsts : List Lean.Expr) (m : MatModData) : Lean.Expr :=
+  let fnsE := mkListLit .one (Lean.mkConst ``LeanQbe.T.Fn) fnConsts
   let extsE := mkListLit .zero (Lean.mkConst ``LeanQbe.T.Extern) (m.externs.map externToExpr)
   let exitsE := mkListLit .zero (Lean.mkConst ``LeanQbe.T.Sym) (m.exits.map Lean.toExpr)
   mkApp3 (Lean.mkConst ``LeanQbe.T.Module.mk) fnsE extsE exitsE
 
 /-- `inline_mod! inlModName srcMod policy` evaluates `srcMod.optInlinePolicy policy` once in
-MetaM, defines `inlModName : Module` as a literal `denoteFunc`-backed `Module`, and proves
+MetaM, emits per-function literal `denoteFunc`-backed `Fn` definitions assembled into
+`inlModName : Module` (avoiding monolithic codegen recursion depth on large modules), and proves
 `inlModName.eq : inlModName = srcMod.optInlinePolicy policy` and `inlModName.fns_eq` once via
 `addKernelEqThm` so parallel `compile_linked_chunks!` slices incur zero repeated inlining. -/
 scoped syntax "inline_mod! " ident term:arg term:arg : command
@@ -573,7 +574,7 @@ scoped elab_rules : command
   | `(inline_mod! $inlId $srcModT $policyT) => do
     let ns ← getCurrNamespace
     let inlNm := ns ++ inlId.getId
-    let (modVal, optInlE) ← liftTermElabM do
+    let (matData, optInlE) ← liftTermElabM do
       let srcModE ← Term.elabTerm srcModT (some (Lean.mkConst ``LeanQbe.T.Module))
       let policyE ← Term.elabTerm policyT (some (Lean.mkConst ``LeanQbe.T.InlinePolicy))
       Term.synthesizeSyntheticMVarsNoPostponing
@@ -583,9 +584,18 @@ scoped elab_rules : command
       let matData ← unsafe evalExpr MatModData (Lean.mkConst ``LeanQbe.T.MatModData) callE
       let optInlE ← instantiateMVars
         (mkApp2 (Lean.mkConst ``LeanQbe.T.Module.optInlinePolicy) srcModE policyE)
-      return (matModToExpr matData, optInlE)
+      return (matData, optInlE)
+    let fnTy := Lean.mkConst ``LeanQbe.T.Fn
     let modTy := Lean.mkConst ``LeanQbe.T.Module
     liftCoreM do
+      let mut fnConsts : List Lean.Expr := []
+      let mut idx : Nat := 0
+      for f in matData.fns do
+        let fnNm := inlNm ++ `fn ++ Name.mkSimple s!"f{idx}"
+        addCertDef fnNm fnTy (matFnToExpr f) true
+        fnConsts := fnConsts ++ [Lean.mkConst fnNm]
+        idx := idx + 1
+      let modVal := matModExpr fnConsts matData
       addCertDef inlNm modTy modVal true
       addKernelEqThm (inlNm ++ `eq) modTy (Lean.mkConst inlNm) optInlE .one
     let (fnsEqTy, fnsEqProof) ← liftTermElabM do
