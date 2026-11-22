@@ -105,6 +105,9 @@ public import LeanQbe.T.LinkScc
 public import LeanQbe.T.LinkSccLemmas1
 public import LeanQbe.T.LinkSccLemmas2
 public import LeanQbe.T.LinkLfp
+public import LeanQbe.T.LinkDepthLfp
+public import LeanQbe.T.MainLinkScc
+public import LeanQbe.T.MainCertScc
 public import LeanQbe.T.MainSplice
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
