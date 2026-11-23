@@ -11,7 +11,8 @@
 # 2. Compiles `<Module>Module` with `Driver.compileFns` (matching `LinkedCert`) for x86-64
 #    (`toATTAligned`) or AArch64 (`Kraken.AArch64.Print.directive`) into a `.s` file. Default
 #    `--inline-max 0` emits the exact certified policy/IR (`InlinePolicy.b5` for `FullM5`,
-#    `FullM6Inl.m6InlFns` for `FullM6`, `FullM7Inl.m7InlFns` for `FullM7`, `inline=0` elsewhere);
+#    `FullM6Inl.m6InlFns` for `FullM6`, `FullM7Inl.m7InlFns`/`InlinePolicy.b5` for `FullM7`,
+#    `inline=0` elsewhere);
 #    `--inline-max <N>` (`N > 0`) and `--debug` apply uncertified transforms outside `LinkedCert`.
 # 3. Links that assembly with `bench/kissat/kissat_cli.c` into `<output_bin>`. `Plain`, `FullM5`,
 #    and `FullM4` (via `KissatM4Sound`), plus `FullM6`/`FullM7` once `KissatM6Sound`/`KissatM7Sound`
@@ -236,8 +237,11 @@ import LeanQbe.T.Examples.Kissat.FullM7InlPolicy"
     FNS_EXPR="(($EXPR).optInlinePolicy LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
     INL_DESC="inline-policy=m7InlPolicy"
   else
-    FNS_EXPR="($EXPR).fns"
-    INL_DESC="inline-max=0"
+    IMPORTS="$IMPORTS
+import LeanQbe.T.MainInline"
+    LAKE_EXTRA+=(LeanQbe.T.MainInline)
+    FNS_EXPR="(($EXPR).optInlinePolicy InlinePolicy.b5).fns"
+    INL_DESC="inline-policy=b5"
   fi
 else
   FNS_EXPR="($EXPR).fns"
