@@ -1658,10 +1658,14 @@ private theorem defOk_addVarImm {G : VCtx} {nv x : Nat} {vx c : BitVec 64}
       obtain ⟨vi, hi, hvx⟩ := hdx vx hm
       exact ⟨vi, List.mem_cons_of_mem _ hi, by simp [hvx, BitVec.add_assoc]⟩
     | addrSum b idx sh disp =>
-      intro v hv; cases mem_cons_top hlt hv
-      obtain ⟨vb, vi, hb, hi, hvx⟩ := hdx vx hm
-      exact ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi,
-        by simp [hvx, BitVec.add_assoc]⟩
+      dsimp only
+      split
+      · intro v hv; cases mem_cons_top hlt hv
+        exact ⟨vx, List.mem_cons_of_mem _ hm, rfl⟩
+      · intro v hv; cases mem_cons_top hlt hv
+        obtain ⟨vb, vi, hb, hi, hvx⟩ := hdx vx hm
+        exact ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi,
+          by simp [hvx, BitVec.add_assoc]⟩
     | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _ | binVarImm _ _ _ _
     | sextVar _ _ _ | zextVar _ _ _ | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
       intro v hv; cases mem_cons_top hlt hv
