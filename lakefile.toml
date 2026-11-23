@@ -2,6 +2,8 @@ name = "LeanQbe"
 version = "0.1.0"
 defaultTargets = ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "LeanQbeTest", "leanqbe", "leanqbe-arm64"]
 requiresModuleSystem = true
+enableArtifactCache = true
+restoreAllArtifacts = true
 
 [leanOptions]
 autoImplicit = false
