@@ -1161,7 +1161,9 @@ def jnzMode {rs : List Ty} (I : Isa) (h : I.Hints) (ipT ipE : Nat) (st : SymStat
     (canInv : Bool) (t e : Expr VNat LNat rs) (ft : Option Nat) : Bool × Option Nat :=
   match zeroMoveJump? I h ipT st t, if canInv then zeroMoveJump? I h ipE st e else none with
   | some jt, some je => if ft == some jt then (true, some je) else (false, some jt)
-  | some jt, none => (false, some jt) | none, some je => (true, some je) | none, none => (false, none)
+  | some jt, none => (false, some jt)
+  | none, some je => (true, some je)
+  | none, none => (canInv && h.invertJnz.getD (ipE - 1) false, none)
 
 def gprThread? {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (ipT : Nat) (st1 : SymState I)
     (r : I.Reg) : Expr VNat LNat rs → Option Nat
@@ -1185,7 +1187,8 @@ def fuseJnzChoice {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE 
     (st1 : SymState I) (t e : Expr VNat LNat rs) (ft : Option Nat)
     (emit : Bool → Sym → Option (List I.Directive × FlagMask)) :
     Option (Bool × Option Nat × List I.Directive × SymState I) :=
-  (emit false (lname fn nl)).map fun (brNl, clNl) =>
+  let invChoice := h.invertJnz.getD (ipE - 1) false
+  (emit invChoice (lname fn nl)).map fun (brNl, clNl) =>
     let stNl := { st1 with regs := killRegs I I.frame.scratch [] clNl st1.regs }
     let fwd? := threadFusedArm I h fn ipT st1 (emit false) t
     let inv? := threadFusedArm I h fn ipE st1 (emit true) e
@@ -1194,7 +1197,7 @@ def fuseJnzChoice {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE 
       if ft == some jt then (true, some je, brI, stI) else (false, some jt, brF, stF)
     | some (jt, brF, stF), none => (false, some jt, brF, stF)
     | none, some (je, brI, stI) => (true, some je, brI, stI)
-    | none, none => (false, none, brNl, stNl)
+    | none, none => (invChoice, none, brNl, stNl)
 
 /-- Branch selection for `jnz`: `(inverted?, threaded target, branch code, state after branch)`. -/
 def jnzSetup {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat)
