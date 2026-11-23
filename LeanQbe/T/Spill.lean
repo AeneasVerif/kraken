@@ -301,9 +301,12 @@ structure Ctx (I : Isa) where
   (hintT : Trie (Nat × Nat) := .empty)
   (jmpW inW : Trie Nat := .empty)
   (regIn : Trie (List (Nat × Nat × Bool)) := .empty)
+  (evIn : Trie (List Nat) := .empty)
   (opt : Bool := false)
   (r0? : Option I.Reg := none)
   (zextElide : Trie Nat := .empty)
+  (blkUses varBlks forceEv : Trie (List Nat) := .empty)
+  (blkEdges : List (Nat × Nat × Nat × List Nat) := [])
 
 /-- Gathered weights; `gprPts` records `(budget, liveThrough, creditVars)` where coloring any
 `u ∈ creditVars` with a callee-saved register credits `+1` back to that point's caller-saved
@@ -313,6 +316,7 @@ inside a loop; `defWT` records each var's definition weight; `isBP` marks block 
 structure GatherAcc where
   (weights defInterf callW : List (Nat × List Nat) := [])
   (gprPts : List (Nat × List Nat × List Nat) := [])
+  (gprPtBlks : List (Option Nat) := [])
   (vecPts : List (Nat × List Nat) := [])
   (abiGpr abiVec affEdges antiEdges : List (Nat × Nat × Nat) := [])
   (loopCall : Trie Bool := .empty)
@@ -331,13 +335,14 @@ def addWeight (mult : Nat) (uses : List Nat) (ws : List (Nat × List Nat)) :
 /-- GPR pressure point: at most `nGpr - |creditVars|` of `vars` (`live \ creditVars`) may sit in
 caller-saved registers initially; each var in `creditVars` assigned a CS register credits `+1` back
 to this budget, guaranteeing `|non-CS creditVars|` free caller-saved registers for reload/def. -/
-def addGprPt (allocLen : Nat) (creditVars vars : List Nat)
-    (pts : List (Nat × List Nat × List Nat)) : List (Nat × List Nat × List Nat) :=
+def addGprPtBlk (blk? : Option Nat) (allocLen : Nat) (creditVars vars : List Nat)
+    (pts : List (Nat × List Nat × List Nat)) (blks : List (Option Nat)) :
+    List (Nat × List Nat × List Nat) × List (Option Nat) :=
   let need := creditVars.length
   let b := allocLen - need
   if Nat.ble 1 need && Nat.ble (b + 1) vars.length then
-    (b, vars, creditVars) :: pts
-  else pts
+    ((b, vars, creditVars) :: pts, blk? :: blks)
+  else (pts, blks)
 
 def addVecPt (allocLen need : Nat) (vars : List Nat) (pts : List (Nat × List Nat)) :
     List (Nat × List Nat) :=
@@ -416,7 +421,7 @@ def isTrivialTerm : Tree → Bool
   | _ => false
 
 mutual
-def gather {I : Isa} (c : Ctx I) :
+def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
     List Nat → List Nat → Nat → Trie Bool → Tree → GatherAcc → GatherAcc
   | lps, lr, mult, isZ32, .let_ lv ip nv0 ts op k, acc =>
     let la := k.lv
@@ -446,8 +451,9 @@ def gather {I : Isa} (c : Ctx I) :
     let (gLa, vLa) := splitBank c.banks c.flagHome la
     let (gUse, vUse) := splitBank c.banks c.flagHome uses
     let (gDef, vDef) := splitBank c.banks c.flagHome defs
-    let gPts := addGprPt c.nGpr gDef (eraseMany gDef gLa)
-      (addGprPt c.nGpr gUse (eraseMany gUse gLv) acc.gprPts)
+    let (gPts1, gBlks1) := addGprPtBlk blk? c.nGpr gUse (eraseMany gUse gLv)
+      acc.gprPts acc.gprPtBlks
+    let (gPts, gBlks) := addGprPtBlk blk? c.nGpr gDef (eraseMany gDef gLa) gPts1 gBlks1
     let vPts := addVecPt c.nVec vDef.length (eraseMany vDef vLa)
       (addVecPt c.nVec vUse.length (eraseMany vUse vLv) acc.vecPts)
     let dw := defs.foldl (fun t x => t.insert x mult) acc.defWT
@@ -456,9 +462,10 @@ def gather {I : Isa} (c : Ctx I) :
       | none => (acc.zextElide, acc.zextEdges)
     let isZ32' :=
       if opProducesZ32Static I c.r0? op then isZ32.insert nv0 true else isZ32
-    gather c lps lr mult isZ32' k { acc with
+    gatherAt c blk? lps lr mult isZ32' k { acc with
       weights := (mult, defs ++ uses) :: acc.weights, defInterf := di, affEdges := aff,
-      gprPts := gPts, vecPts := vPts, defWT := dw, zextElide := ze, zextEdges := zed }
+      gprPts := gPts, gprPtBlks := gBlks, vecPts := vPts, defWT := dw, zextElide := ze,
+      zextEdges := zed }
   | lps, lr, mult, isZ32, .load lv ip x t a k, acc =>
     let la := k.lv
     let uses := dedup (c.addrDeps.getD ip (argVarIds a))
@@ -467,23 +474,25 @@ def gather {I : Isa} (c : Ctx I) :
     let (gLa, vLa) := splitBank c.banks c.flagHome la
     let (gUse, _) := splitBank c.banks c.flagHome uses
     let (gDef, vDef) := splitBank c.banks c.flagHome [x]
-    let gPts := addGprPt c.nGpr gDef (eraseMany gDef gLa)
-      (addGprPt c.nGpr gUse (eraseMany gUse gLv) acc.gprPts)
+    let (gPts1, gBlks1) := addGprPtBlk blk? c.nGpr gUse (eraseMany gUse gLv)
+      acc.gprPts acc.gprPtBlks
+    let (gPts, gBlks) := addGprPtBlk blk? c.nGpr gDef (eraseMany gDef gLa) gPts1 gBlks1
     let vPts := addVecPt c.nVec vDef.length (eraseMany vDef vLa) acc.vecPts
     let isZ32' :=
       if (I.gpr.zeroExtLoad && isGprTy I t) || (I.gpr.zeroUpper32Load && tyEq t (.bits 32)) then
         isZ32.insert x true
       else isZ32
-    gather c lps lr mult isZ32' k { acc with
+    gatherAt c blk? lps lr mult isZ32' k { acc with
       weights := (mult, x :: uses) :: acc.weights, defInterf := di,
-      gprPts := gPts, vecPts := vPts, defWT := acc.defWT.insert x mult }
+      gprPts := gPts, gprPtBlks := gBlks, vecPts := vPts, defWT := acc.defWT.insert x mult }
   | lps, lr, mult, isZ32, .store lv ip _ v a k, acc =>
     let uses := storeVarIds c.addrDeps c.rmwDeps ip v a
     let (gLv, vLv) := splitBank c.banks c.flagHome lv
     let (gUse, vUse) := splitBank c.banks c.flagHome uses
-    gather c lps lr mult isZ32 k { acc with
-      weights := addWeight mult uses acc.weights,
-      gprPts := addGprPt c.nGpr gUse (eraseMany gUse gLv) acc.gprPts,
+    let (gPts, gBlks) := addGprPtBlk blk? c.nGpr gUse (eraseMany gUse gLv)
+      acc.gprPts acc.gprPtBlks
+    gatherAt c blk? lps lr mult isZ32 k { acc with
+      weights := addWeight mult uses acc.weights, gprPts := gPts, gprPtBlks := gBlks,
       vecPts := addVecPt c.nVec vUse.length (eraseMany vUse vLv) acc.vecPts }
   | lps, lr, mult, isZ32, .call _ _ nv0 _ as bs args k, acc =>
     let defs := (List.range bs.length).map (nv0 + ·)
@@ -505,7 +514,7 @@ def gather {I : Isa} (c : Ctx I) :
       else across.foldl (fun t x => t.insert x true) acc.loopCall
     let isZ32' := (defs.zip bs).foldl (fun z (d, t) =>
       if isGprTy I t then z.insert d true else z) isZ32
-    gather c lps lr mult isZ32' k { acc with
+    gatherAt c blk? lps lr mult isZ32' k { acc with
       weights := addWeight mult (defs ++ tupVarIds args) acc.weights, defInterf := di,
       abiGpr := ag2, abiVec := av2, callW := addWeight mult across acc.callW,
       loopCall := lc, defWT := dw }
@@ -544,13 +553,14 @@ def gather {I : Isa} (c : Ctx I) :
         else if tt && !te then (guardM, contM)
         else if te && !tt then (contM, guardM)
         else (halfM, remHalf)
-    let acc1 := gather c lps lr mE isZ32 e { acc with
-      weights := (mult, [cx]) :: acc.weights,
-      gprPts := addGprPt c.nGpr gUse (eraseMany gUse gLv) acc.gprPts,
+    let (gPts, gBlks) := addGprPtBlk blk? c.nGpr gUse (eraseMany gUse gLv)
+      acc.gprPts acc.gprPtBlks
+    let acc1 := gatherAt c blk? lps lr mE isZ32 e { acc with
+      weights := (mult, [cx]) :: acc.weights, gprPts := gPts, gprPtBlks := gBlks,
       brW := acc.brW.insert ip (mult, mT, mE),
       invertJnz := if Nat.blt mE mT then acc.invertJnz.insert ip true else acc.invertJnz }
-    gather c lps lr mT isZ32 t acc1
-  | lps, lr, mult, isZ32, .skip _ _ k, acc => gather c lps lr mult isZ32 k acc
+    gatherAt c blk? lps lr mT isZ32 t acc1
+  | lps, lr, mult, isZ32, .skip _ _ k, acc => gatherAt c blk? lps lr mult isZ32 k acc
   | _, _, mult, _, .jump _ ip j _ args, acc =>
     let acc := { acc with
       jmpW := acc.jmpW.insert ip mult, inW := acc.inW.insert j (acc.inW.getD j 0 + mult) }
@@ -580,9 +590,9 @@ def gather {I : Isa} (c : Ctx I) :
     { acc with weights := addWeight mult (tupVarIds args) acc.weights, abiGpr := ag, abiVec := av }
   | _, _, _, _, .stop _, acc => acc
   | lps, lr, mult, isZ32, .group _ bs k, acc =>
-    gatherB c lps lr mult bs (gather c lps lr mult isZ32 k acc)
+    gatherAtB c lps lr mult bs (gatherAt c blk? lps lr mult isZ32 k acc)
 
-def gatherB {I : Isa} (c : Ctx I) :
+def gatherAtB {I : Isa} (c : Ctx I) :
     List Nat → List Nat → Nat → TreeBlocks → GatherAcc → GatherAcc
   | _, _, _, .nil, acc => acc
   | lps, lr, mult, .cons l ps b bs, acc =>
@@ -600,11 +610,15 @@ def gatherB {I : Isa} (c : Ctx I) :
     let lr' := if isLoop then union (c.loopReach.getD l []) lr else lr
     let dw := pvars.foldl (fun t p => t.insert p mB) acc.defWT
     let bp := pvars.foldl (fun t p => t.insert p true) acc.isBP
-    gatherB c lps lr mult bs
-      (gather c lps' lr' mB .empty b { acc with
+    gatherAtB c lps lr mult bs
+      (gatherAt c (some l) lps' lr' mB .empty b { acc with
         weights := addWeight (baseMult / 4) pvars acc.weights,
         defInterf := di, defWT := dw, isBP := bp })
 end
+
+def gather {I : Isa} (c : Ctx I) (lps lr : List Nat) (mult : Nat) (isZ32 : Trie Bool)
+    (t : Tree) (acc : GatherAcc) : GatherAcc :=
+  gatherAt c none lps lr mult isZ32 t acc
 
 def triePush {α : Type} (t : Trie (List α)) (k : Nat) (v : α) : Trie (List α) :=
   t.insert k (v :: t.getD k [])
@@ -628,9 +642,95 @@ structure ColorSt (C : Type) where
   vPb : Trie Nat := .empty
   bk : Trie (Nat × SlotWidth × Bool) := .empty
   hint : Trie (Nat × Nat) := .empty
+  forceEv : Trie (List Nat) := .empty
 
 def isEagerBk (bk : Trie (Nat × SlotWidth × Bool)) (x : Nat) : Bool :=
   match bk.find? x with | some (_, _, e) => e | none => false
+
+/-- Split a spilled GPR variable into a register outside `evBlks` (a high-pressure sub-region where
+`x` is unused) by forcing `evIn` eviction on entry and reloading on exit when profitable. -/
+def tryEvictSplit {I : Isa} (c : Ctx I) (x : Nat) (xI peers pids : List Nat)
+    (ptBlks : Array (Option Nat)) (forbBkSlots : List (Nat × Nat))
+    (prefs avoid : List (Nat × Nat)) (isBp : Bool) (dw cw wx slotCost : Nat)
+    (s : ColorSt I.Cond) : Option (ColorSt I.Cond) :=
+  if !(c.cfg.regEntry && c.cfg.sink) || !Nat.ble (10 * baseMult) wx then none
+  else
+    let zeroPids := pids.filter fun p => !Nat.ble 1 (s.gPb.getD p 0)
+    if zeroPids.isEmpty then none
+    else
+      let badBlksOpt := zeroPids.foldl (fun (acc : Option (List Nat)) p =>
+        match acc, ptBlks[p]? with
+        | some bs, some (some b) => some (if natMem b bs then bs else b :: bs)
+        | _, _ => none) (some [])
+      match badBlksOpt with
+      | none => none
+      | some badBlks0 =>
+        let evBlks := badBlks0.foldl (fun acc b =>
+          let acc := if natMem b acc then acc else b :: acc
+          if c.loops.getD b false then
+            (c.loopReach.getD b []).foldl (fun a b2 =>
+              if !natMem b2 a && natMem x (c.lTrie.getD b2 []) &&
+                  !natMem x (c.blkUses.getD b2 []) &&
+                  !(isBp && natMem x (c.bparams.getD b2 [])) then b2 :: a
+              else a) acc
+          else acc) []
+        let okEv := evBlks.all fun b =>
+          !natMem x (c.blkUses.getD b []) && !(isBp && natMem x (c.bparams.getD b []))
+        if !okEv then none
+        else
+          let inEvBlk (p : Nat) : Bool := match ptBlks[p]? with
+            | some (some b) => natMem b evBlks | _ => false
+          let pidsOut := pids.filter (!inEvBlk ·)
+          if !pidsOut.all (fun p => Nat.ble 1 (s.gPb.getD p 0)) then none
+          else
+            let wEnter := c.blkEdges.foldl (fun a (src, dst, w, _) =>
+              if !natMem src evBlks && natMem dst evBlks &&
+                  natMem x (c.lTrie.getD dst []) then a + w else a) 0
+            let wExit := c.blkEdges.foldl (fun a (src, dst, w, _) =>
+              if natMem src evBlks && !natMem dst evBlks &&
+                  natMem x (c.lTrie.getD dst []) then a + w else a) 0
+            let canEagerEv := !isBp && Nat.ble 1 cw && Nat.ble (dw + 1) (cw + wEnter)
+            let evCost := (if canEagerEv then dw + cw else 2 * cw + wEnter) + min wEnter wExit
+            let nEnter := c.blkEdges.foldl (fun a (src, dst, _, _) =>
+              if !natMem src evBlks && natMem dst evBlks &&
+                  natMem x (c.lTrie.getD dst []) then a + 1 else a) 0
+            let nExit := c.blkEdges.foldl (fun a (src, dst, _, args) =>
+              if natMem src evBlks && !natMem dst evBlks &&
+                  (natMem x (c.lTrie.getD dst []) || natMem x args) then a + 1 else a) 0
+            let usesOut := (c.varBlks.getD x []).foldl (fun a b =>
+              if natMem b evBlks then a
+              else (c.blkUses.getD b []).foldl (fun n y => if Nat.beq y x then n + 1 else n) a) 0
+            let splitOps := (if canEagerEv then 1 else nEnter) + nExit
+            let baseOps := (if isBp then 0 else 1) + usesOut
+            let outPbOk := pidsOut.all (fun p => Nat.ble 2 (s.gPb.getD p 0)) || Nat.ble 8 usesOut
+            if !outPbOk || !Nat.ble 1 wEnter || !Nat.ble (evCost + baseMult) slotCost ||
+                !Nat.ble nExit 1 || !Nat.ble 8 usesOut ||
+                !Nat.blt (2 * splitOps) baseOps then
+              none
+            else
+              let exitArgs := c.blkEdges.foldl (fun a (src, dst, _, args) =>
+                if natMem src evBlks && !natMem dst evBlks then args ++ a else a) []
+              let isInterior (y : Nat) : Bool :=
+                !natMem y exitArgs && (c.varBlks.getD y []).all (natMem · evBlks)
+              let forbOut := xI.foldl (fun rs y =>
+                if isInterior y then rs
+                else match s.hT.getD y .none with
+                  | .gpr r => if natMem r rs then rs else r :: rs | _ => rs) []
+              let forbOutCaller := peers.foldl (fun rs z =>
+                match s.hT.getD z .none with
+                | .gpr r =>
+                  if Nat.ble (r + 1) c.nGpr && !natMem r rs then r :: rs else rs
+                | _ => rs) forbOut
+              let evCaller := c.gAlloc.filter (!natMem · forbOutCaller)
+              match bestRegPref prefs avoid evCaller with
+              | none => none
+              | some r =>
+                let bSlot := firstFreeSlotRange 1 forbBkSlots
+                let fe := evBlks.foldl (fun t b => triePush t b x) s.forceEv
+                some { s with
+                  hT := s.hT.insert x (.gpr r), gPb := decPts pidsOut s.gPb,
+                  bk := s.bk.insert x (bSlot, .w64, canEagerEv),
+                  nslots := max s.nslots (bSlot + 1), forceEv := fe }
 
 /-- Color one variable `x` of weight `wx` and call-crossing weight `cw`. A call-crossing GPR
 prefers an already-saved CS register; if splitting beats both saving a new CS register and spilling
@@ -640,7 +740,7 @@ when `defW < cw` so loop-invariant vars pay zero stores inside loops) before spi
 def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Trie (List Nat))
     (abiGT abiVT affT antiT : Trie (List (Nat × Nat))) (cwT defWT : Trie Nat)
     (loopCall isBP : Trie Bool) (zextPeers : Trie (List Nat)) (fnParams : List Nat)
-    (s : ColorSt I.Cond) (wx x : Nat) : ColorSt I.Cond :=
+    (ptBlks : Array (Option Nat)) (s : ColorSt I.Cond) (wx x : Nat) : ColorSt I.Cond :=
   let xI := interf.getD x []
   let peers := zextPeers.getD x []
   let forbSlots0 := xI.foldl (fun ss y =>
@@ -764,10 +864,15 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
       let inNewCs (r : Nat) : ColorSt I.Cond :=
         { s with hT := s.hT.insert x (.gpr r), usedCs := s.usedCs ++ [r],
                  gPb := incPts cpids s.gPb }
+      let toSlotOrEv : ColorSt I.Cond :=
+        match tryEvictSplit c x xI peers pids ptBlks forbBkSlots prefs avoid
+            (isBP.getD x false) dw cw wx slotCost s with
+        | some sEv => sEv
+        | none => toSlotG
       let orSplitOrSlot : ColorSt I.Cond :=
         match (if isX && splitOk then bestRegPref prefs avoid caller else none) with
         | some r => inReg r
-        | none => toSlotG
+        | none => toSlotOrEv
       let orNewCs : ColorSt I.Cond :=
         match bestRegPref prefs avoid newCs with
         | some r => inNewCs r
@@ -842,12 +947,13 @@ def colorVars {I : Isa} (c : Ctx I) (nv : Nat) (flagHome : Trie I.Cond) (acc : G
     if Nat.beq u v then t else triePush (triePush t u v) v u) .empty
   let initHome : Trie (Home I.Cond) := (List.range nv).foldl (fun h x =>
     match flagHome.find? x with | some cc => h.insert x (.flag cc) | none => h) .empty
+  let ptBlks := acc.gprPtBlks.toArray
   order.foldl (fun s (wx, x) =>
     match s.hT.find? x with
     | some (.flag _) => s
     | _ =>
       colorOne c interf gVp gCp vVp abiGT abiVT affT antiT cwT acc.defWT acc.loopCall acc.isBP
-        zextPeers fnParams s wx x)
+        zextPeers fnParams ptBlks s wx x)
     { hT := initHome, gPb := gPb0, vPb := vPb0 }
 
 end Spill
@@ -1046,6 +1152,7 @@ structure EmitSt (I : Isa) where
   (pre : Trie (PreStep I.Reg I.VReg I.Cond) := .empty)
   (variant : Trie VariantHint := .empty) (usedCs : List Nat := [])
   (cin : List (Nat × Nat × Nat × Bool × Nat) := [])
+  (evArr : List (Nat × Nat × Bool × Bool × Nat) := [])
 
 /-- Moves pending from the previous node: stores of slot-homed or eager-split arrivals
 `(x, slot, reg)` and register-to-register arrival moves `(x, home, arrival)`, per bank; `gDf`
@@ -1129,7 +1236,7 @@ as its register survives in `gCache'`; otherwise it is emitted here. -/
 def buildPre {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Nat)
     (ipLive liveAfter ops : List Nat) (pd : Pend) (extra : List I.Move)
     (extraWG extraWV : List Nat) (gCache vCache : List (Nat × Nat))
-    (noLoadOps : List Nat := []) :
+    (noLoadOps : List Nat := []) (evAfter : List Nat := []) :
     List I.Move × List (Nat × Nat) × List (Nat × Nat) × List (Nat × Nat × Nat) :=
   let gOf (r : Nat) := c.gReg.getD r I.frame.sp
   let wG := pd.gRg.map fun (_, d, _) => d
@@ -1172,9 +1279,10 @@ def buildPre {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Na
     let (mvs, kept) := flushDf c (!inCache gCache1 ·) baseMvs candDf
     (mvs, gCache1, vCache1, kept)
   else
-    let initGB := gprHomes home ipLive ++
+    let ipNotEv := if evAfter.isEmpty then ipLive else ipLive.filter (!natMem · evAfter)
+    let initGB := gprHomes home ipNotEv ++
       gCache1.filterMap fun (x, r) => if natMem x ops then some r else none
-    let initVB := vecHomes home ipLive ++
+    let initVB := vecHomes home ipNotEv ++
       vCache1.filterMap fun (x, v) => if natMem x ops then some v else none
     let (_, _, gc', vc', ldRev) := ops.foldl (fun (gb, vb, gc, vc, mvs) x =>
       match home.getD x .none with
@@ -1205,7 +1313,7 @@ def buildPre {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Na
 def allocDefs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     (bk : Trie (Nat × SlotWidth × Bool)) (usedCs : List Nat) (defs la : List Nat)
     (prefVar? : Option Nat) (cachedGPairs : List (Nat × Nat)) (cachedV : List Nat)
-    (dest : Trie I.Loc) :
+    (dest : Trie I.Loc) (evAfter : List Nat := []) :
     Trie I.Loc × List (Nat × Nat × Nat) × List (Nat × Nat × SlotWidth × Nat) ×
       List Nat × List Nat :=
   let gOf (r : Nat) := c.gReg.getD r I.frame.sp
@@ -1216,8 +1324,9 @@ def allocDefs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
   let pickV (vb sibV : List Nat) (pref : Option Nat) :=
     pref.filter (!natMem · sibV) <|> freshRegAvoid c.vAlloc vb cachedV <|>
       c.vAlloc.find? (!natMem · sibV) <|> c.vAlloc.head?
-  let initGb := gprHomes home (union defs la)
-  let initVb := vecHomes home (union defs la)
+  let laNotEv := if evAfter.isEmpty then la else la.filter (!natMem · evAfter)
+  let initGb := gprHomes home (union defs laNotEv)
+  let initVb := vecHomes home (union defs laNotEv)
   let initSibG := gprHomes home defs
   let initSibV := vecHomes home defs
   let (dest', _, _, _, _, gSt, vSt, wG, wV) := defs.foldl
@@ -1488,11 +1597,12 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
   | .let_ lv ip nv0 ts op k, pd, ev, sv, gC, vC, st =>
     let ops := c.addrDeps.getD ip (opVarIds op)
     let rl := ops.filter (natMem · ev)
+    let evAfter := eraseMany rl ev
     let (rlWG, rlWV) := splitReloadRegs home rl
     let defs := (List.range ts.length).map (nv0 + ·)
     let laAfter := eraseMany defs k.lv
     let (mvs0, gC1, vC1, df1) := buildPre c home st.usedCs lv laAfter ops pd
-      (splitMoves c home bk false rl) rlWG rlWV gC vC
+      (splitMoves c home bk false rl) rlWG rlWV gC vC [] evAfter
     let zextShare? : Option (Nat × Option Nat) :=
       (c.zextElide.find? ip).bind fun zx =>
         match home.getD zx .none, home.getD nv0 .none with
@@ -1522,7 +1632,7 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
             (gS, df1, gC1.filter fun (x, _) => natMem x k.lv)
       let vC2 := vC1.filter fun (x, _) => natMem x k.lv
       emitAlloc c home bk slotOk clrAt r0 r1 k { gSt := gSt', gDf := df2 }
-        (eraseMany rl ev) sv gC2 vC2
+        evAfter sv gC2 vC2
         { st with dest := dest, pre := recordPre ip (clrAt.getD ip false) mvs0 st.pre }
     | none =>
       let noLoad := (slotOpNoLoad c home r0 lv laAfter pd rl gC ip nv0 op).filter
@@ -1530,9 +1640,9 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
       let (mvs0, gC1, vC1, df1) :=
         if noLoad.isEmpty then (mvs0, gC1, vC1, df1)
         else buildPre c home st.usedCs lv laAfter ops pd
-          (splitMoves c home bk false rl) rlWG rlWV gC vC noLoad
+          (splitMoves c home bk false rl) rlWG rlWV gC vC noLoad evAfter
       let (dest, gSt', vSt', wG, wV) := allocDefs c home bk st.usedCs defs k.lv
-        (prefOpVarSkip op k.lv noLoad) gC1 (vC1.map Prod.snd) st.dest
+        (prefOpVarSkip op k.lv noLoad) gC1 (vC1.map Prod.snd) st.dest evAfter
       let (mvs, df2) := flushDf c (natMem ·.2.2 wG) mvs0 df1
       let var' := match r0, r1, st.variant.find? ip, dest.find? nv0 with
         | some a0, some a1, none, some (.gpr rd) =>
@@ -1549,32 +1659,34 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
       let vC2 := vC1.filter fun (x, v) => natMem x k.lv && !natMem v wV
       let sv' := union sv (defs.filter (isEagerBk bk))
       emitAlloc c home bk slotOk clrAt r0 r1 k { gSt := gSt', vSt := vSt', gDf := df2 }
-        (eraseMany rl ev) sv' gC2 vC2
+        evAfter sv' gC2 vC2
         { st with dest := dest, pre := recordPre ip (clrAt.getD ip false) mvs st.pre,
                   variant := var' }
   | .load lv ip x _ a k, pd, ev, sv, gC, vC, st =>
     let ops := c.addrDeps.getD ip (argVarIds a)
     let rl := ops.filter (natMem · ev)
+    let evAfter := eraseMany rl ev
     let (rlWG, rlWV) := splitReloadRegs home rl
     let laAfter := erase x k.lv
     let (mvs0, gC1, vC1, df1) := buildPre c home st.usedCs lv laAfter ops pd
-      (splitMoves c home bk false rl) rlWG rlWV gC vC
+      (splitMoves c home bk false rl) rlWG rlWV gC vC [] evAfter
     let (dest, gSt', vSt', wG, wV) := allocDefs c home bk st.usedCs [x] k.lv none
-      gC1 (vC1.map Prod.snd) st.dest
+      gC1 (vC1.map Prod.snd) st.dest evAfter
     let (mvs, df2) := flushDf c (natMem ·.2.2 wG) mvs0 df1
     let gC2 := gC1.filter fun (y, r) => natMem y k.lv && !natMem r wG
     let vC2 := vC1.filter fun (y, v) => natMem y k.lv && !natMem v wV
     let sv' := if isEagerBk bk x then union sv [x] else sv
     emitAlloc c home bk slotOk clrAt r0 r1 k { gSt := gSt', vSt := vSt', gDf := df2 }
-      (eraseMany rl ev) sv' gC2 vC2
+      evAfter sv' gC2 vC2
       { st with dest := dest, pre := recordPre ip (clrAt.getD ip false) mvs st.pre }
   | .store lv ip _ v a k, pd, ev, sv, gC, vC, st =>
     let ops := storeVarIds c.addrDeps c.rmwDeps ip v a
     let rl := ops.filter (natMem · ev)
+    let evAfter := eraseMany rl ev
     let (rlWG, rlWV) := splitReloadRegs home rl
     let (mvs, gC1, vC1, df1) := buildPre c home st.usedCs lv k.lv ops pd
-      (splitMoves c home bk false rl) rlWG rlWV gC vC
-    emitAlloc c home bk slotOk clrAt r0 r1 k { gDf := df1 } (eraseMany rl ev) sv
+      (splitMoves c home bk false rl) rlWG rlWV gC vC [] evAfter
+    emitAlloc c home bk slotOk clrAt r0 r1 k { gDf := df1 } evAfter sv
       (gC1.filter fun (y, _) => natMem y k.lv) (vC1.filter fun (y, _) => natMem y k.lv)
       { st with pre := recordPre ip (clrAt.getD ip false) mvs st.pre }
   | .call lv ip nv0 _ _ bs _ k, pd, ev, sv, gC, vC, st =>
@@ -1582,17 +1694,21 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     let laAfter := eraseMany defs k.lv
     let la := laAfter.filter fun x => (bk.find? x).isSome
     let sav := la.filter fun x => !natMem x ev && !natMem x sv
-    let (mvs0, _, _, df1) := buildPre c home st.usedCs lv laAfter [] pd
+    let (mvs0, gC1, _, df1) := buildPre c home st.usedCs lv laAfter [] pd
       (splitMoves c home bk true sav) [] [] gC vC
     let (mvs, _) := flushDf c (fun _ => true) mvs0 df1
     let arr := match I.assignRets bs with
       | some locs => abiIdList c.allGpr c.allVec locs | none => []
     let sv' := union (union sv sav) (defs.filter (isEagerBk bk))
+    let defG := gprHomes home defs
+    let gC' := gC1.filter fun (y, r) =>
+      natMem y laAfter && natMem r st.usedCs && !natMem r defG
     emitAlloc c home bk slotOk clrAt r0 r1 k (pendFromArrivals home bk defs arr)
-      (union ev la) sv' [] []
+      (union ev la) sv' gC' []
       { st with pre := recordPre ip (clrAt.getD ip false) mvs st.pre }
   | .jnz lv ip cx _ t e, pd, ev, sv, gC, vC, st =>
     let rl := if natMem cx ev then [cx] else []
+    let ev' := eraseMany rl ev
     let (rlWG, rlWV) := splitReloadRegs home rl
     let laAfter := union t.lv e.lv
     let noLoad := match home.getD cx .none with
@@ -1600,9 +1716,8 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
         if (I.gpr.jnzMem (.baseDisp I.frame.sp 0) false "").isSome then [cx] else []
       | _ => []
     let (mvs0, gC1, vC1, df1) := buildPre c home st.usedCs lv laAfter [cx] pd
-      (splitMoves c home bk false rl) rlWG rlWV gC vC noLoad
+      (splitMoves c home bk false rl) rlWG rlWV gC vC noLoad ev'
     let (mvs, df2) := flushDf c (fun d => !sinkOk c ip t e d.1) mvs0 df1
-    let ev' := eraseMany rl ev
     let st1 := emitAlloc c home bk slotOk clrAt r0 r1 e
       { gDf := df2.filter fun (y, _, _) => natMem y e.lv } ev' sv
       (gC1.filter fun (y, _) => natMem y e.lv) (vC1.filter fun (y, _) => natMem y e.lv)
@@ -1614,9 +1729,18 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     let (mvs, gC1, vC1, df1) := buildPre c home st.usedCs lv k.lv [] pd [] [] [] gC vC
     emitAlloc c home bk slotOk clrAt r0 r1 k { gDf := df1 } ev sv gC1 vC1
       { st with pre := recordPre ip (clrAt.getD ip false) mvs st.pre }
-  | .jump lv ip j _ args, pd, ev, _, gC, vC, st =>
-    let rl := lv.filter (natMem · ev)
+  | .jump lv ip j _ args, pd, ev, sv, gC, vC, st =>
+    let evJ := c.evIn.getD j []
+    let lvJ := c.lTrie.getD j []
+    let argIds := tupVarIds args
+    let rl := lv.filter fun x =>
+      natMem x ev && (natMem x argIds || !natMem x evJ)
+    let evAfter := eraseMany rl ev
+    let lvNotEv := if evAfter.isEmpty then lv else lv.filter (!natMem · evAfter)
+    let savJ := lvJ.filter fun x =>
+      (bk.find? x).isSome && natMem x evJ && !natMem x ev && !natMem x sv
     let (rlWG, rlWV) := splitReloadRegs home rl
+    let extraMvs := splitMoves c home bk true savJ ++ splitMoves c home bk false rl
     let ps := c.bparams.getD j []
     let as := tupArgsToList args
     let needSlotSt := (as.zip ps).filterMap fun (ao, p) =>
@@ -1627,20 +1751,19 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
           | .slot s' .w64 => if Nat.beq s s' then some x else none
           | _ => none
         | _, _ => none
-    let laAfter := union (c.lTrie.getD j []) needSlotSt
+    let laAfter := union lvJ needSlotSt
     let (mvs1, gC1, _, df1) := buildPre c home st.usedCs lv laAfter [] pd
-      (splitMoves c home bk false rl) rlWG rlWV gC vC
+      extraMvs rlWG rlWV gC vC [] evAfter
     -- A deferred store survives the jump iff the target takes the variable in a register and
     -- no slot-direct argument move can steal that register as its temporary.
     let tmpSafe := !(ps.any (slotOk.getD · false)) ||
-      (freshReg (c.gAlloc ++ st.usedCs) (gprHomes home lv ++ gC1.map Prod.snd)).isSome
+      (freshReg (c.gAlloc ++ st.usedCs) (gprHomes home lvNotEv ++ gC1.map Prod.snd)).isSome
     let rin := c.regIn.getD j []
     let keep (d : Nat × Nat × Nat) : Bool :=
       tmpSafe && !natMem d.1 needSlotSt &&
         rin.any fun (y, _, inS) => Nat.beq y d.1 && !inS
     let (mvs0, _) := flushDf c (fun d => !keep d) mvs1 df1
-    let smvs := jumpSlotMoves c home slotOk st.usedCs lv j args gC1
-    let lvJ := c.lTrie.getD j []
+    let smvs := jumpSlotMoves c home slotOk st.usedCs lvNotEv j args gC1
     let cin := if c.opt then gC1.foldl (fun a (y, r) =>
         match home.getD y .none with
         | .slot _ .w64 =>
@@ -1648,7 +1771,14 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
             (j, y, r, df1.any (fun d => Nat.beq d.1 y), c.jmpW.getD ip 0) :: a
           else a
         | _ => a) st.cin else st.cin
-    { st with pre := recordPre ip (clrAt.getD ip false) (mvs0 ++ smvs) st.pre, cin := cin }
+    let jw := c.jmpW.getD ip 0
+    let evArr := if c.opt then lv.foldl (fun a x =>
+        if (bk.find? x).isSome && natMem x lvJ then
+          (j, x, natMem x ev, !natMem x ev && !natMem x sv, jw) :: a
+        else a) st.evArr else st.evArr
+    { st with
+      pre := recordPre ip (clrAt.getD ip false) (mvs0 ++ smvs) st.pre,
+      cin := cin, evArr := evArr }
   | .ret lv ip _ _, pd, _, _, gC, vC, st | .exit lv ip _ _ _, pd, _, _, gC, vC, st =>
     let (mvs, _, _, _) := buildPre c home st.usedCs lv [] [] pd [] [] [] gC vC
     { st with pre := recordPre ip (clrAt.getD ip false) mvs st.pre }
@@ -1665,13 +1795,20 @@ def emitAllocB {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     let lv := c.lTrie.getD l []
     let pvars := ps.map Prod.fst
     let rin := c.regIn.getD l []
-    let (plocs, pids, cs') := pickPlocs c home slotOk lv pvars st.usedCs (rin.map (·.2.1))
+    let evL := c.evIn.getD l []
+    let lvNotEv := if evL.isEmpty then lv else lv.filter (!natMem · evL)
+    let (plocs, pids, cs') := pickPlocs c home slotOk lvNotEv pvars st.usedCs (rin.map (·.2.1))
     let liveL : List (SymArg × I.Loc) := lv.foldr (fun x acc =>
       match home.getD x .none with
       | .gpr r =>
-        let acc := match bk.find? x with
-          | some (sb, sw, true) => (.var x, .slot sb sw) :: acc | _ => acc
-        (.var x, .gpr (c.gReg.getD r I.frame.sp)) :: acc
+        if natMem x evL then
+          match bk.find? x with
+          | some (sb, sw, _) => (.var x, .slot sb sw) :: acc
+          | none => (.var x, .gpr (c.gReg.getD r I.frame.sp)) :: acc
+        else
+          let acc := match bk.find? x with
+            | some (sb, sw, true) => (.var x, .slot sb sw) :: acc | _ => acc
+          (.var x, .gpr (c.gReg.getD r I.frame.sp)) :: acc
       | .vec v =>
         match c.vReg.find? v with
         | some vr =>
@@ -1687,14 +1824,14 @@ def emitAllocB {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
           (.var x, .gpr (c.gReg.getD r I.frame.sp)) :: acc
         | none => (.var x, .slot s w) :: acc
       | .none => acc) []
-    let initSv := lv.filter (isEagerBk bk)
+    let initSv := union (lv.filter (isEagerBk bk)) evL
     let inDf := rin.filterMap fun (x, r, inS) =>
       match inS, home.getD x .none with
       | false, .slot s _ => some (x, s, r)
       | _, _ => none
     let st1 := emitAlloc c home bk slotOk clrAt r0 r1 b
       { pendFromArrivals home bk pvars pids with gDf := inDf }
-      [] initSv (rin.map fun (x, r, _) => (x, r)) []
+      evL initSv (rin.map fun (x, r, _) => (x, r)) []
       { st with entry := st.entry.insert l ⟨liveL, plocs⟩, usedCs := cs' }
     emitAllocB c home bk slotOk clrAt r0 r1 bs st1
 end
@@ -1746,6 +1883,69 @@ def pickRegIn {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List N
             else if Nat.blt costSR costS then ((x, r, true) :: sel, r :: busy)
             else (sel, busy)) ([], busy0)
       if sel.isEmpty then acc else acc.insert l sel) .empty
+
+/-- Weighted reload `(cost, leafCount)` inside `t` when split var `x` enters evicted (`ev`). -/
+def evBodyCost {I : Isa} (c : Ctx I) (x : Nat) (evIn : Trie (List Nat)) :
+    Nat → Tree → Nat × Nat
+  | w, .let_ _ ip _ _ op k =>
+    if natMem x (c.addrDeps.getD ip (opVarIds op)) then (w, 1) else evBodyCost c x evIn w k
+  | w, .load _ ip _ _ a k =>
+    if natMem x (c.addrDeps.getD ip (argVarIds a)) then (w, 1) else evBodyCost c x evIn w k
+  | w, .store _ ip _ v a k =>
+    if natMem x (storeVarIds c.addrDeps c.rmwDeps ip v a) then (w, 1)
+    else evBodyCost c x evIn w k
+  | w, .call _ _ _ _ _ _ args _ => if natMem x (tupVarIds args) then (w, 1) else (0, 0)
+  | w, .jnz _ ip cx _ t e =>
+    if Nat.beq cx x then (w, 1)
+    else
+      let (_, mT, mE) := c.brW.getD ip (w, w, w)
+      let (cT, lT) := evBodyCost c x evIn mT t
+      let (cE, lE) := evBodyCost c x evIn mE e
+      let extra := match e with | .jump .. => if Nat.ble 1 cE then mT else 0 | _ => 0
+      (cT + cE + extra, lT + lE)
+  | w, .skip _ _ k | w, .group _ _ k => evBodyCost c x evIn w k
+  | w, .jump _ _ j _ args =>
+    if natMem x (tupVarIds args) ||
+        (natMem x (c.lTrie.getD j []) && !(evIn.getD j []).any (Nat.beq · x)) then
+      (w, 1)
+    else (0, 0)
+  | w, .ret _ _ _ vs => if natMem x (tupVarIds vs) then (w, 1) else (0, 0)
+  | w, .exit _ _ _ _ args => if natMem x (tupVarIds args) then (w, 1) else (0, 0)
+  | _, .stop _ => (0, 0)
+
+/-- Choose split variables to enter block `l` in their backup slot (`evIn`) instead of reloading
+before every jump into `l`, saving reloads at predecessors that arrive evicted or dead-on-call. -/
+def pickEvIn {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
+    (evArr : List (Nat × Nat × Bool × Bool × Nat))
+    (prevEv : Trie (List Nat)) (blocks : List (Nat × List (Nat × Ty) × Tree)) :
+    Trie (List Nat) :=
+  let sumW (xs : List (Nat × Nat × Bool × Bool × Nat)) :=
+    xs.foldl (fun a e => a + e.2.2.2.2) 0
+  blocks.foldl (fun acc (l, _, body) =>
+    let es := evArr.filter fun e => Nat.beq e.1 l
+    if es.isEmpty then acc
+    else
+      let wj := c.inW.getD l 0
+      let sel := (dedup (es.map (·.2.1))).filter fun x =>
+        match home.getD x .none with
+        | .gpr _ =>
+          let ex := exFilter es x
+          let evEdges := ex.filter (·.2.2.1)
+          let savEdges := ex.filter (·.2.2.2.1)
+          let wEv := sumW evEdges
+          let wSav := sumW savEdges
+          let (cost, leaves) := evBodyCost c x prevEv wj body
+          let leafOk := Nat.ble (savEdges.length + leaves) evEdges.length ||
+            Nat.ble (2 * (wSav + cost)) wEv
+          Nat.ble 1 wEv && ((Nat.blt (wSav + cost) wEv && leafOk) ||
+            (Nat.ble (leaves + 1) evEdges.length && Nat.ble (wSav + cost) wEv))
+        | _ => false
+      let forced := c.forceEv.getD l []
+      let sel' := forced.foldl (fun s x => if natMem x s then s else x :: s) sel
+      if sel'.isEmpty then acc else acc.insert l sel') .empty
+where
+  exFilter (es : List (Nat × Nat × Bool × Bool × Nat)) (x : Nat) :=
+    es.filter fun e => Nat.beq e.2.1 x
 
 def maxSlotInMoves {I : Isa} (mvs : List I.Move) (acc : Nat) : Nat :=
   mvs.foldl (fun m mv => match mv with
@@ -1812,12 +2012,47 @@ def hints (I : Isa) (f : Fn)
   let regionReused := (buildRegionReused c t .empty).2
   let initZ32 : Trie Bool := fnPs.foldl (fun z (p, ty) =>
     if isGprTy I ty then z.insert p true else z) .empty
+  let directVars : Tree → List Nat :=
+    let rec go : Tree → List Nat
+      | .let_ _ ip nv0 ts op k =>
+        (List.range ts.length).map (nv0 + ·) ++ addrDeps.getD ip (opVarIds op) ++ go k
+      | .load _ ip x _ a k => x :: addrDeps.getD ip (argVarIds a) ++ go k
+      | .store _ ip _ v a k => storeVarIds addrDeps rmwDeps ip v a ++ go k
+      | .call _ _ nv0 _ _ bs args k =>
+        (List.range bs.length).map (nv0 + ·) ++ tupVarIds args ++ go k
+      | .jnz _ _ cx _ t e => cx :: go t ++ go e
+      | .skip _ _ k | .group _ _ k => go k
+      | .jump _ _ _ _ args => tupVarIds args
+      | .ret _ _ _ vs | .exit _ _ _ _ vs => tupVarIds vs
+      | .stop _ => []
+    go
+  let rec jmpEdges (src : Nat) (w : Nat) : Tree → List (Nat × Nat × Nat × List Nat)
+    | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k
+    | .call _ _ _ _ _ _ _ k | .skip _ _ k | .group _ _ k => jmpEdges src w k
+    | .jnz _ ip _ _ t e =>
+      let (_, mT, mE) := c.brW.getD ip (w, w, w)
+      jmpEdges src mT t ++ jmpEdges src mE e
+    | .jump _ _ j _ args => [(src, j, w, tupVarIds args)]
+    | _ => []
   let acc := gather c [] [] baseMult initZ32 t {}
-  let c := { c with brW := acc.brW, zextElide := acc.zextElide, regionReused := regionReused }
+  let rootId := t.blocks.foldl (fun m (l, _, _) => max m (l + 1)) 0
+  let blkUses := t.blocks.foldl (fun m (l, _, body) => m.insert l (directVars body))
+    (Trie.empty.insert rootId (directVars t))
+  let rootVars := union t.lv (blkUses.getD rootId [])
+  let varBlks0 := rootVars.foldl (fun m v => triePush m v rootId) .empty
+  let varBlks := t.blocks.foldl (fun m (l, ps, _) =>
+    let vs := union (lTrie.getD l []) (union (ps.map Prod.fst) (blkUses.getD l []))
+    vs.foldl (fun m v => triePush m v l) m) varBlks0
+  let c := { c with
+    brW := acc.brW, zextElide := acc.zextElide, regionReused := regionReused,
+    jmpW := acc.jmpW, inW := acc.inW, blkUses := blkUses, varBlks := varBlks }
+  let blkEdges := t.blocks.foldl (fun es (l, _, body) =>
+    es ++ jmpEdges l (c.inW.getD l 0) body) (jmpEdges rootId baseMult t)
+  let c := { c with blkEdges := blkEdges }
   let fnAbi := match I.assignArgs f.as with
     | some locs => abiIdList allGpr allVec locs | none => []
   let cs := colorVars c nv fh.flagHome acc (fnPs.map Prod.fst) fnAbi
-  let c := { c with hintT := cs.hint }
+  let c := { c with hintT := cs.hint, forceEv := cs.forceEv, evIn := cs.forceEv }
   let slotOk := slotPlocMap c cs.hT cs.bk cs.usedCs acc.defWT t
   let r0? := I.frame.allocatable.head?
   let r1? := I.frame.allocatable[1]?
@@ -1827,8 +2062,10 @@ def hints (I : Isa) (f : Fn)
     { variant := fh.variant, usedCs := cs.usedCs }
   let c := { c with jmpW := acc.jmpW, inW := acc.inW }
   let refine (c : Ctx I) : Ctx I :=
-    let cin := (emit { c with opt := true }).cin
-    { c with regIn := pickRegIn c cs.hT cs.usedCs slotOk cin t.blocks }
+    let stO := emit { c with opt := true }
+    let rin := pickRegIn c cs.hT cs.usedCs slotOk stO.cin t.blocks
+    let evi := pickEvIn c cs.hT stO.evArr c.evIn t.blocks
+    { c with regIn := rin, evIn := evi }
   let c := if cfg.regEntry && cfg.sink then refine (refine c) else c
   let st := emit c
   let finalSlots :=
