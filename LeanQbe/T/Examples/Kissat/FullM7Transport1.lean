@@ -1691,6 +1691,100 @@ theorem m7RowsPart2_tPfx_mem {tPfx : List SpecEntry} {i : Nat}
     · (iterate 18 apply List.mem_append_right); apply List.mem_append_left
       exact m7_mem_drop_take_of_lt tPfx h14 (by omega) hit
 
+/-- Part 2 row memberships required by the `21`-fn `FullM6Orch` prefix (`FullM6OrchProof0..1`).
+-/
+structure M7Part2PfxCallees (tbl : List SpecEntry) : Prop where
+  analyzeLit :
+    (⟨"full_analyze_lit", [i64, i32, i32], [.bool], Full.fullAnalyzeLitSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  clearAna :
+    (⟨"full_clear_ana", [i64], [], Full.fullClearAnaSpec, true⟩ : SpecEntry) ∈ tbl
+  restoreBumpAna :
+    (⟨"full_restore_bump_ana_m6_hdr", [i64], [], m6aRestoreBumpAnaSpec, true⟩ : SpecEntry) ∈ tbl
+  anaFailedLit :
+    (⟨"full_ana_failed_lit_m6_hdr", [i64], [i64], m6aAnaFailedLitSpec, true⟩ : SpecEntry) ∈ tbl
+  otfsLarge :
+    (⟨"full_otfs_large", [i64, i32, i32], [.bool], Full.fullOtfsLargeSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  otfsBin :
+    (⟨"full_otfs_bin", [i64, i32, i32], [.bool], Full.fullOtfsBinSpec, true⟩ : SpecEntry) ∈ tbl
+  otfsSubsume :
+    (⟨"full_otfs_subsume", [i64, i32, i64, i64, .bool], [], Full.fullOtfsSubsumeSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  minShrinkM6 :
+    (⟨"full_min_shrink_m6", [i64], [], FullM7SpecBridges.m7MinShrinkSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  deduce1uipM6 :
+    (⟨"full_deduce_1uip_m6", [i64], [i64], Full.fullDeduce1uipSpec, true⟩ : SpecEntry) ∈ tbl
+  oneLitConfl :
+    (⟨"full_one_lit_confl", [i64], [i64], Full.fullOneLitConflSpec, true⟩ : SpecEntry) ∈ tbl
+  learnClause :
+    (⟨"full_learn_clause", [i64, i64], [i64], Full.fullLearnClauseSpec, true⟩ : SpecEntry) ∈ tbl
+  lucky :
+    (⟨"full_lucky", [i64], [i64], Full.fullLuckySpec, true⟩ : SpecEntry) ∈ tbl
+  probeRun :
+    (⟨"full_probe_run", [i64, i64], [i64], FullM3Backbone.fullProbeRunCursorSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  vivifyM6Hdr :
+    (⟨"full_vivify_m6_hdr", [i64], [i64], m6aVivifySpec, true⟩ : SpecEntry) ∈ tbl
+  backboneM6 :
+    (⟨"full_backbone_m6", [i64, i64], [i64], FullM3Backbone.fullBackboneSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  transitiveM6 :
+    (⟨"full_transitive_m6", [i64, i64], [i64], FullFastBveBudgets.fullTransitiveFastSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  substitute :
+    (⟨"full_substitute", [i64], [i64], Full.fullSubstituteSpec, true⟩ : SpecEntry) ∈ tbl
+  congruenceDense :
+    (⟨"full_congruence_dense", [i64, i64], [i64], FullM3CongBva.m3CongruenceDenseSpec, true⟩ :
+      SpecEntry) ∈ tbl
+
+theorem m7Part2PfxCallees_of_sub {tPfx tbl : List SpecEntry}
+    (hsub : ∀ e ∈ m7RowsPart2 tPfx, e ∈ tbl) : M7Part2PfxCallees tbl := by
+  have sadp : ∀ e ∈ p2Adp46Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m7RowsPart2; (iterate 5 apply List.mem_append_right); exact List.mem_append_left _ h)
+  have sot : ∀ e ∈ p2OtfsRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m7RowsPart2; (iterate 6 apply List.mem_append_right); exact List.mem_append_left _ h)
+  have sms : ∀ e ∈ p2MinShrink1Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m7RowsPart2; (iterate 10 apply List.mem_append_right); exact List.mem_append_left _ h)
+  have sbb2 : ∀ e ∈ p2VivBb2Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m7RowsPart2; (iterate 42 apply List.mem_append_right); exact List.mem_append_left _ h)
+  refine ⟨ hsub _ (by
+        unfold m7RowsPart2; exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+    , hsub _ (by
+        unfold m7RowsPart2; (iterate 3 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+    , sadp _ (List.mem_of_getElem? (i := 1) rfl)
+    , sadp _ (List.mem_of_getElem? (i := 2) rfl)
+    , sot _ (List.mem_of_getElem? (i := 0) rfl)
+    , sot _ (List.mem_of_getElem? (i := 1) rfl)
+    , sot _ (List.mem_of_getElem? (i := 2) rfl)
+    , sms _ (List.mem_of_getElem? (i := 5) rfl)
+    , sms _ (List.mem_of_getElem? (i := 6) rfl)
+    , hsub _ (by
+        unfold m7RowsPart2; (iterate 13 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+    , hsub _ (by
+        unfold m7RowsPart2; (iterate 14 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 1) rfl))
+    , hsub _ (by
+        unfold m7RowsPart2; (iterate 34 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 5) rfl))
+    , hsub _ (by
+        unfold m7RowsPart2; (iterate 39 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+    , hsub _ (by
+        unfold m7RowsPart2; (iterate 41 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 1) rfl))
+    , sbb2 _ (List.mem_of_getElem? (i := 7) rfl)
+    , sbb2 _ (List.mem_of_getElem? (i := 10) rfl)
+    , hsub _ (by
+        unfold m7RowsPart2; (iterate 46 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 2) rfl))
+    , hsub _ (by
+        unfold m7RowsPart2; (iterate 57 apply List.mem_append_right)
+        exact List.mem_of_getElem? (i := 0) rfl) ⟩
+
 theorem m7Part2BvaGuRows_of_sub {tPfx tbl : List SpecEntry}
     (hsub : ∀ e ∈ m7RowsPart2 tPfx, e ∈ tbl) :
     (⟨"full_analyze_lit", [i64, i32, i32], [.bool], Full.fullAnalyzeLitSpec, true⟩ :

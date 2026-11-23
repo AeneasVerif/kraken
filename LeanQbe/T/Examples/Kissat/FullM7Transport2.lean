@@ -901,6 +901,52 @@ theorem m7Part3TailCallees_of_sub {tPfx tBve tbl : List SpecEntry}
       unfold m7RowsPart3Pfx; (iterate 25 apply List.mem_append_right)
       exact List.mem_append_left _ (List.mem_of_getElem? (i := 11) rfl)) ⟩
 
+/-- Part 3 prefix row memberships required by the `21`-fn `FullM6Orch` prefix
+(`FullM6OrchProof0..1`). -/
+structure M7Part3PfxCallees (tbl : List SpecEntry) : Prop where
+  sweepDenseM5 :
+    (⟨"full_sweep_dense_m5", [i64, i64, i64], [i64], FullDefSweep.fullSweepDenseSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  factor :
+    (⟨"full_factor", [i64, i64], [i64], FullBvaHeap.fullFactorHeapSpec, true⟩ : SpecEntry) ∈ tbl
+  compactNeeded :
+    (⟨"full_compact_needed", [i64], [.bool], FullM6CompactFlush.fullCompactNeededM6Spec, true⟩ :
+      SpecEntry) ∈ tbl
+  compact :
+    (⟨"full_compact", [i64], [i64], FullM4Compact.fullCompactSpec, true⟩ : SpecEntry) ∈ tbl
+  reorderQueueM7 :
+    (⟨"full_reorder_queue_m7", [i64], [i64], FullM4Ternary.fullReorderQueueSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  minU64 :
+    (⟨"full_min_u64", [i64, i64], [i64], FullFastSched.schedMinU64Spec, true⟩ : SpecEntry) ∈ tbl
+  probeDticks :
+    (⟨"full_probe_dticks_m6_hdr", [i64, .bool], [i64], m6HdrW2aSpec [.bool] [i64], true⟩ :
+      SpecEntry) ∈ tbl
+
+theorem m7Part3PfxCallees_of_sub {tPfx tBve tbl : List SpecEntry}
+    (hOwnPfx : ∀ e ∈ m7RowsPart3Pfx tPfx tBve, e ∈ tbl) : M7Part3PfxCallees tbl :=
+  ⟨ hOwnPfx _ (by
+      unfold m7RowsPart3Pfx; apply List.mem_append_right
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+  , hOwnPfx _ (by
+      unfold m7RowsPart3Pfx; (iterate 16 apply List.mem_append_right)
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+  , hOwnPfx _ (by
+      unfold m7RowsPart3Pfx; (iterate 17 apply List.mem_append_right)
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+  , hOwnPfx _ (by
+      unfold m7RowsPart3Pfx; (iterate 18 apply List.mem_append_right)
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 9) rfl))
+  , hOwnPfx _ (by
+      unfold m7RowsPart3Pfx; (iterate 19 apply List.mem_append_right)
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 2) rfl))
+  , hOwnPfx _ (by
+      unfold m7RowsPart3Pfx; (iterate 22 apply List.mem_append_right)
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+  , hOwnPfx _ (by
+      unfold m7RowsPart3Pfx; (iterate 26 apply List.mem_append_right)
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl)) ⟩
+
 theorem m7Part3BvaGuRows_of_sub {tPfx tBve tbl : List SpecEntry}
     (hOwnPfx : ∀ e ∈ m7RowsPart3Pfx tPfx tBve, e ∈ tbl) :
     (⟨"full_init_fresh_var", [i64, i32], [], FullBvaHeap.fullInitFreshVarHeapSpec, true⟩ :
