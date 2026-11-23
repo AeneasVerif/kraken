@@ -155,18 +155,19 @@ theorem wasmQbeMod_moduleSccOk (Γext : Env) :
   lowerModule_moduleSccOk wasmAuditMod_valid Γext
 
 theorem wasmQbeMod_preserves_host (Γext : Env) {f : WFunc} (hf : f ∈ wasmAuditMod.funcs)
-    (memBase memLen fuel : BitVec 64)
+    (vmCtx memBase memLen memCap fuel : BitVec 64)
     (args : Tup Val (((wasmAuditMod.types[f.typeIdx]?).getD {}).params.map WValTy.toTy))
     {R : Mem 64 → Prop} {mem : Mem 64}
-    (hmem : (region memBase memLen.toNat ⋆ R) mem)
+    (hmem : WasmMemInv true vmCtx memBase memLen memCap R mem)
     (Q : Post (wasmAbiResults ((wasmAuditMod.types[f.typeIdx]?).getD {}))) (X : XPost)
-    (hpost : ∀ ys mem', WasmPost true memBase memLen fuel
+    (hpost : ∀ ys mem', WasmPost true vmCtx memBase memLen memCap fuel
       ((wasmAuditMod.types[f.typeIdx]?).getD {}).results R ys mem' → Q ys mem') :
     Env.semScc wasmQbeMod Γext f.name
       (wasmAbiParams ((wasmAuditMod.types[f.typeIdx]?).getD {}))
       (wasmAbiResults ((wasmAuditMod.types[f.typeIdx]?).getD {}))
-      (memBase, memLen, fuel, args) mem Q X :=
-  wasm_preserves_host_mem wasmAuditMod_valid Γext hf memBase memLen fuel args hmem Q X hpost
+      (vmCtx, fuel, args) mem Q X :=
+  wasm_preserves_host_mem wasmAuditMod_valid Γext hf vmCtx memBase memLen memCap fuel args
+    hmem Q X hpost
 
 theorem wasmSandboxEnvAny_monoX (f : Sym) (as bs : List Ty) (xs : Tup Val as)
     (mem : Mem 64) (Q : Post bs) (X X' : XPost)

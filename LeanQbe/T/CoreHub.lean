@@ -136,6 +136,8 @@ public import LeanQbe.T.TyLemmas
 public import LeanQbe.T.WP
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.Wasm.Ast
+public import LeanQbe.T.Wasm.BulkLower
+public import LeanQbe.T.Wasm.BulkSafety
 public import LeanQbe.T.Wasm.Decode
 public import LeanQbe.T.Wasm.Lower
 public import LeanQbe.T.Wasm.Safety

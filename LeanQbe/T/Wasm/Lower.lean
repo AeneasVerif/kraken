@@ -1,22 +1,21 @@
 module
 
-public import LeanQbe.T.Wasm.Validate
-public import LeanQbe.T.Legal
-public import LeanQbe.T.WfLemmas
-public import LeanQbe.T.LegalWfBaseLemmas1
-public import LeanQbe.T.Module
+public import LeanQbe.T.Wasm.BulkLower
 
 /-!
 # Verified WebAssembly to `LeanQbe.T` IR Lowering (`LeanQbe.T.Wasm.Lower`)
 
 Direct, zero-cast, target-independent structured lowering from `WModule` (`LeanQbe.T.Wasm.Ast`)
 into `LeanQbe.T.Module` using:
-* Register-passed SFI ABI: `(memBase, memLen, fuel, ...wasmParams)` returning
-  `(status, remFuel, ...wasmResults)` with `status = 0` (ok), `1` (trap), `2` (out-of-fuel).
-* 64-bit SFI linear memory access checking `zext32(idx) + off + width ≤ᵤ memLen` against
-  runtime sandbox length `memLen` before reading/writing `memBase + ea`.
+* VM-context SFI ABI (`LeanQbe.T.Wasm.BulkLower`): `(vmCtx, fuel, ...wasmParams)` returning
+  `(status, remFuel, ...wasmResults)` with `status = 0` (ok), `1` (trap), `2` (out-of-fuel), and
+  `vmCtx` pointing to `[memBase, memLen, memCap]`.
+* 64-bit SFI linear memory access checking `zext32(idx) + off + width ≤ᵤ memLen` and verified
+  bulk-memory / memory-growth instructions (`memory.size`, `memory.grow`, `memory.fill`,
+  `memory.copy`).
 * 1:1 `Expr.group` structured control (`block`, `loop`, `if_`, `br`, `br_if`, `br_table`,
-  `return_`), with explicit `fuel` checks/decrements on every `loop` iteration and every `call`.
+  `return_`), with explicit `fuel` checks/decrements on every `loop`, `call`, `memory.grow`,
+  `memory.fill`, and `memory.copy`.
 * Branchless SWAR `popcnt` and explicit trap/edge-case guards on integer division/remainder
   for full compatibility with both `x64Target` (`x64LegalTarget`) and `armTarget`
   (`armLegalTarget`).
@@ -25,140 +24,14 @@ into `LeanQbe.T.Module` using:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Wasm
 
-/-! ## Lowered Sandbox ABI & Stack Values -/
-
-/-- Return signature of a lowered WebAssembly function: `(status, remFuel, ...results)`. -/
-@[reducible] def wasmRetSig (rs : List WValTy) : List Ty :=
-  T.i32 :: T.i64 :: rs.map WValTy.toTy
-
-/-- Lowered `LeanQbe.T` parameter signature: `(memBase, memLen, fuel, ...params)`. -/
-@[reducible] def wasmAbiParams (ft : WFuncTy) : List Ty :=
-  [T.i64, T.i64, T.i64] ++ ft.params.map WValTy.toTy
-
-/-- Lowered `LeanQbe.T` result signature matching `wasmRetSig ft.results`. -/
-@[reducible] def wasmAbiResults (ft : WFuncTy) : List Ty :=
-  wasmRetSig ft.results
-
-/-- Join/loop block parameter signature carrying `(fuel, ...locals, ...branchArgs)`. -/
-@[reducible] def labelSig (locTys argTys : List WValTy) : List Ty :=
-  T.i64 :: (locTys.map WValTy.toTy ++ argTys.map WValTy.toTy)
-
-/-- Zero-initialized `Arg V` tuple matching `ts.map WValTy.toTy`. -/
-def zeroArgs {V : Ty → Type} : (ts : List WValTy) → Tup (Arg V) (ts.map WValTy.toTy)
-  | [] => ()
-  | t :: ts => (t.zeroArg, zeroArgs ts)
-
-/-- Append zero-initialized extra locals to function parameters without `List.map` casts. -/
-def appendZeroLocals {V : Ty → Type} :
-    (ps ls : List WValTy) → Tup (Arg V) (ps.map WValTy.toTy) →
-    Tup (Arg V) ((ps ++ ls).map WValTy.toTy)
-  | [], ls, () => zeroArgs ls
-  | _ :: ps, ls, (a, as) => (a, appendZeroLocals ps ls as)
-
-/-- Emit a clean trap/error return `(code, fuel, 0, ...)` preserving all host registers/memory. -/
-@[reducible] def mkTrapExpr {V : Ty → Type} {L : List Ty → Type} (retTys : List WValTy)
-    (code : BitVec 32) (fuel : Arg V T.i64) : Expr V L (wasmRetSig retTys) :=
-  .ret (.imm code, fuel, zeroArgs retTys)
-
-/-- Propagate a callee's non-zero `(status, remFuel)` trap return cleanly. -/
-@[reducible] def mkStatusTrapExpr {V : Ty → Type} {L : List Ty → Type} (retTys : List WValTy)
-    (status : Arg V T.i32) (fuel : Arg V T.i64) : Expr V L (wasmRetSig retTys) :=
-  .ret (status, fuel, zeroArgs retTys)
-
-/-- Typed operand on the lowered WebAssembly value stack. -/
-inductive SVal (V : Ty → Type) where
-  | i32 (a : Arg V T.i32)
-  | i64 (a : Arg V T.i64)
-
-/-- WebAssembly value type tag of an `SVal`. -/
-@[reducible] def SVal.ty {V : Ty → Type} : SVal V → WValTy
-  | .i32 _ => .i32
-  | .i64 _ => .i64
-
-/-- Wrap an `Arg V t.toTy` as an `SVal V`. -/
-@[reducible] def SVal.ofArg {V : Ty → Type} : (t : WValTy) → Arg V t.toTy → SVal V
-  | .i32, a => .i32 a
-  | .i64, a => .i64 a
-
-/-- Lowered structured control label pairing its branch signature with an `Expr` label. -/
-structure WLabel (V : Ty → Type) (L : List Ty → Type) (locTys : List WValTy) where
-  argTys : List WValTy
-  lbl : L (labelSig locTys argTys)
-
-/-- Lowering context shared across a single function body. -/
-structure WLowerCtx where
-  types : List WFuncTy
-  funcs : List WFunc
-  hasMem : Bool
-  globals : List WGlobalDecl
-  locTys : List WValTy
-  retTys : List WValTy
-
-/-- Continuation type passed to instruction emitters. -/
-abbrev WCont (V : Ty → Type) (L : List Ty → Type) (locTys retTys : List WValTy) :=
-  Arg V T.i64 → Tup (Arg V) (locTys.map WValTy.toTy) → List (SVal V) → Expr V L (wasmRetSig retTys)
-
-/-- Pop an `i32` operand from `stk`. -/
-def pop32 {V : Ty → Type} : List (SVal V) → Option (Arg V T.i32 × List (SVal V))
-  | .i32 a :: rest => some (a, rest)
-  | _ => none
-
-/-- Pop an `i64` operand from `stk`. -/
-def pop64 {V : Ty → Type} : List (SVal V) → Option (Arg V T.i64 × List (SVal V))
-  | .i64 a :: rest => some (a, rest)
-  | _ => none
-
-/-- Pop an operand matching expected type `t` from `stk`. -/
-def popExpectS {V : Ty → Type} (t : WValTy) (stk : List (SVal V)) :
-    Option (Arg V t.toTy × List (SVal V)) :=
-  match t, stk with
-  | .i32, .i32 a :: rest => some (a, rest)
-  | .i64, .i64 a :: rest => some (a, rest)
-  | _, _ => none
-
-/-- Pop `ts` (bottom-to-top WebAssembly order) from `stk` into `Tup (Arg V) (ts.map toTy)`. -/
-def popArgsAux {V : Ty → Type} :
-    (ts : List WValTy) → List (SVal V) →
-    Option (Tup (Arg V) (ts.map WValTy.toTy) × List (SVal V))
-  | [], stk => some ((), stk)
-  | t :: ts, stk => do
-    let (tail, stk1) ← popArgsAux ts stk
-    let (hd, stk2) ← popExpectS t stk1
-    some ((hd, tail), stk2)
-
-/-- Push `Tup (Arg V) (ts.map toTy)` onto `stk` matching `popArgsAux`. -/
-def pushArgsAux {V : Ty → Type} :
-    (ts : List WValTy) → Tup (Arg V) (ts.map WValTy.toTy) → List (SVal V) → List (SVal V)
-  | [], (), stk => stk
-  | t :: ts, (a, as), stk => pushArgsAux ts as (SVal.ofArg t a :: stk)
-
-/-- Look up local variable `idx` in `locs`. -/
-def getLocal {V : Ty → Type} :
-    (ts : List WValTy) → Tup (Arg V) (ts.map WValTy.toTy) → Nat → Option (SVal V)
-  | [], (), _ => none
-  | t :: _, (a, _), 0 => some (SVal.ofArg t a)
-  | _ :: ts, (_, as), idx + 1 => getLocal ts as idx
-
-/-- Update local variable `idx` in `locs`. -/
-def setLocal {V : Ty → Type} :
-    (ts : List WValTy) → Tup (Arg V) (ts.map WValTy.toTy) → Nat → SVal V →
-    Option (Tup (Arg V) (ts.map WValTy.toTy))
-  | [], (), _, _ => none
-  | .i32 :: _, (_, as), 0, .i32 a => some (a, as)
-  | .i64 :: _, (_, as), 0, .i64 a => some (a, as)
-  | _ :: _, (_, _), 0, _ => none
-  | _t :: ts, (a, as), idx + 1, v => do
-    let as' ← setLocal ts as idx v
-    some (a, as')
-
-/-! ## Scalar, Memory SFI, and Control Emitters -/
+/-! ## Scalar and Control Emitters -/
 
 /-- Branchless SWAR population count for `i32` / `i64`, supported on both x64 and Arm64. -/
-def emitPopcnt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (w : WValTy)
+@[expose] def emitPopcnt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (w : WValTy)
     (x : Arg V w.toTy) (k : Arg V w.toTy → Expr V L rs) : Expr V L rs :=
   match w with
   | .i32 =>
@@ -191,8 +64,8 @@ def emitPopcnt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (w : WVal
       k (.var res.1)
 
 /-- Emit unary operation `op` on `x : Arg V w.toTy`. -/
-def emitUnOp {V : Ty → Type} {L : List Ty → Type} (retTys : List WValTy) (fuel : Arg V T.i64)
-    (w : WValTy) (op : WUnOp) (x : Arg V w.toTy)
+@[expose] def emitUnOp {V : Ty → Type} {L : List Ty → Type} (retTys : List WValTy)
+    (fuel : Arg V T.i64) (w : WValTy) (op : WUnOp) (x : Arg V w.toTy)
     (k : Arg V w.toTy → Expr V L (wasmRetSig retTys)) : Expr V L (wasmRetSig retTys) :=
   match w, op with
   | .i32, .clz => .let_ (.mk (.clz 32) (x, ())) fun r => k (.var r.1)
@@ -219,7 +92,7 @@ def emitUnOp {V : Ty → Type} {L : List Ty → Type} (retTys : List WValTy) (fu
   | .i32, .extend32_s => mkTrapExpr retTys 1#32 fuel
 
 /-- Map WebAssembly relational operator to `LeanQbe.T.CmpOp`. -/
-@[reducible] def lowerRelOp : WRelOp → CmpOp
+@[expose, reducible] def lowerRelOp : WRelOp → CmpOp
   | .eq => .eq
   | .ne => .ne
   | .lt_s => .slt
@@ -233,8 +106,8 @@ def emitUnOp {V : Ty → Type} {L : List Ty → Type} (retTys : List WValTy) (fu
 
 /-- Emit safe WebAssembly binary operation on `a, b : Arg V w.toTy`, with explicit division/
 remainder trap & `INT_MIN ÷ -1` guards. -/
-def emitBinOp {V : Ty → Type} {L : List Ty → Type} (retTys : List WValTy) (fuel : Arg V T.i64)
-    (w : WValTy) (op : WBinOp) (a b : Arg V w.toTy)
+@[expose] def emitBinOp {V : Ty → Type} {L : List Ty → Type} (retTys : List WValTy)
+    (fuel : Arg V T.i64) (w : WValTy) (op : WBinOp) (a b : Arg V w.toTy)
     (k : Arg V w.toTy → Expr V L (wasmRetSig retTys)) : Expr V L (wasmRetSig retTys) :=
   let emitPure (mkCode : (t : Ty) → OpCode [t, t] [t]) : Expr V L (wasmRetSig retTys) :=
     match w with
@@ -310,7 +183,7 @@ def emitBinOp {V : Ty → Type} {L : List Ty → Type} (retTys : List WValTy) (f
           (.let_ (.mk (.srem 64) (a, b, ())) fun r => k (.var r.1)))
 
 /-- Extend/convert raw loaded memory cell `raw` into `resTy.toTy` (returns `trap` if invalid). -/
-def emitLoadCast {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+@[expose] def emitLoadCast {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (trap : Expr V L rs) (resTy : WValTy) (width : WMemWidth) (signed : Bool)
     (raw : V width.memTy) (k : Arg V resTy.toTy → Expr V L rs) : Expr V L rs :=
   match resTy, width, signed with
@@ -331,7 +204,7 @@ def emitLoadCast {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
   | .i32, .w64, _ => trap
 
 /-- Narrow `val : Arg V srcTy.toTy` to `Arg V width.memTy` for memory store. -/
-def emitStoreCast {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+@[expose] def emitStoreCast {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (trap : Expr V L rs) (srcTy : WValTy) (width : WMemWidth) (val : Arg V srcTy.toTy)
     (k : Arg V width.memTy → Expr V L rs) : Expr V L rs :=
   match srcTy, width with
@@ -344,22 +217,9 @@ def emitStoreCast {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
   | .i64, .w32 => .let_ (.mk (.trunc 64 32) (val, ())) fun r => k (.var r.1)
   | .i32, .w64 => trap
 
-/-- 64-bit SFI memory bounds check: verify `zext32(idx) + off + bytes ≤ᵤ memLen` before forming
-host pointer `memBase + zext32(idx) + off`. Never wraps because `zext32 + off + bytes < 2^34`. -/
-def emitMemBounds {V : Ty → Type} {L : List Ty → Type} (retTys : List WValTy)
-    (memBase memLen fuel : Arg V T.i64) (idx32 : Arg V T.i32) (arg : WMemArg) (bytes : Nat)
-    (kOk : Arg V T.i64 → Expr V L (wasmRetSig retTys)) : Expr V L (wasmRetSig retTys) :=
-  .let_ (.mk (.zext 32 64) (idx32, ())) fun idx64 =>
-  .let_ (.mk (.add T.i64) (.var idx64.1, .imm (BitVec.ofNat 64 arg.offset.toNat), ())) fun ea =>
-  .let_ (.mk (.add T.i64) (.var ea.1, .imm (BitVec.ofNat 64 bytes), ())) fun endOff =>
-  .let_ (.mk (.cmp .ule T.i64) (.var endOff.1, memLen, ())) fun inBnd =>
-  .jnz (.var inBnd.1)
-    (.let_ (.mk (.add T.i64) (memBase, .var ea.1, ())) fun ptr => kOk (.var ptr.1))
-    (mkTrapExpr retTys 1#32 fuel)
-
 /-- Emit switch chain for `br_table` matching `targets` against `0, 1, ...` and falling back
 to `defaultTarget`. -/
-def emitBrTable {V : Ty → Type} {L : List Ty → Type} (locTys retTys : List WValTy)
+@[expose] def emitBrTable {V : Ty → Type} {L : List Ty → Type} (locTys retTys : List WValTy)
     (labs : List (WLabel V L locTys)) (locs : Tup (Arg V) (locTys.map WValTy.toTy))
     (fuel : Arg V T.i64) (idx32 : Arg V T.i32) (defLbl : WLabel V L locTys)
     (brArgs : Tup (Arg V) (defLbl.argTys.map WValTy.toTy)) :
@@ -381,8 +241,8 @@ def emitBrTable {V : Ty → Type} {L : List Ty → Type} (locTys retTys : List W
 
 /-- Lower any single non-nested WebAssembly instruction (all instructions except `block`/`loop`/
 `if_` and unconditional terminators). -/
-def lowerSimpleInstr {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
-    (memBase memLen fuel : Arg V T.i64) (locs : Tup (Arg V) (ctx.locTys.map WValTy.toTy))
+@[expose] def lowerSimpleInstr {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
+    (vmCtx fuel : Arg V T.i64) (locs : Tup (Arg V) (ctx.locTys.map WValTy.toTy))
     (stk : List (SVal V)) (labs : List (WLabel V L ctx.locTys)) (instr : WInstr)
     (k : WCont V L ctx.locTys ctx.retTys) : Expr V L (wasmRetSig ctx.retTys) :=
   let trap := mkTrapExpr ctx.retTys 1#32 fuel
@@ -413,7 +273,7 @@ def lowerSimpleInstr {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
           .jnz (.var outFuel.1) (mkTrapExpr ctx.retTys 2#32 fuel)
             (.let_ (.mk (.sub T.i64) (fuel, .imm 1#64, ())) fun fuel' =>
             .call callee.name (as := wasmAbiParams ft) (bs := wasmAbiResults ft)
-              (memBase, memLen, Arg.var fuel'.1, callArgs) fun res =>
+              (vmCtx, Arg.var fuel'.1, callArgs) fun res =>
               let status : Arg V T.i32 := .var res.1
               let remFuel : Arg V T.i64 := .var res.2.1
               let retArgs := varsTup res.2.2
@@ -466,7 +326,7 @@ def lowerSimpleInstr {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
     if ctx.hasMem && validateLoad resTy width signed then
       match pop32 stk with
       | some (idx32, stk1) =>
-        emitMemBounds ctx.retTys memBase memLen fuel idx32 arg width.bytes fun ptr =>
+        emitMemBounds ctx.retTys vmCtx fuel idx32 arg width.bytes fun ptr =>
           .load width.memTy ptr fun raw =>
             emitLoadCast trap resTy width signed raw fun v =>
               k fuel locs (SVal.ofArg resTy v :: stk1)
@@ -479,7 +339,7 @@ def lowerSimpleInstr {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
       | some (val, stk1) =>
         match pop32 stk1 with
         | some (idx32, stk2) =>
-          emitMemBounds ctx.retTys memBase memLen fuel idx32 arg width.bytes fun ptr =>
+          emitMemBounds ctx.retTys vmCtx fuel idx32 arg width.bytes fun ptr =>
             emitStoreCast trap srcTy width val fun memVal =>
               .store memVal ptr (k fuel locs stk2)
         | none => trap
@@ -488,20 +348,46 @@ def lowerSimpleInstr {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
       trap
   | .memory_size =>
     if ctx.hasMem then
-      .let_ (.mk (.lshr T.i64) (memLen, .imm 16#64, ())) fun pages64 =>
-      .let_ (.mk (.trunc 64 32) (.var pages64.1, ())) fun pages32 =>
-        k fuel locs (.i32 (.var pages32.1) :: stk)
+      emitMemSize vmCtx fun pages32 =>
+        k fuel locs (.i32 pages32 :: stk)
     else
       trap
   | .memory_grow =>
     if ctx.hasMem then
       match pop32 stk with
       | some (delta, stk1) =>
-        .let_ (.mk (.cmp .eq T.i32) (delta, .imm 0#32, ())) fun isZ =>
-        .let_ (.mk (.lshr T.i64) (memLen, .imm 16#64, ())) fun pages64 =>
-        .let_ (.mk (.trunc 64 32) (.var pages64.1, ())) fun pages32 =>
-        .let_ (.mk (.select T.i32) (.var isZ.1, .var pages32.1, .imm 0xFFFFFFFF#32, ())) fun res =>
-          k fuel locs (.i32 (.var res.1) :: stk1)
+        emitMemGrow ctx.retTys ctx.memMaxBytes vmCtx fuel delta fun fuel' res =>
+          k fuel' locs (.i32 res :: stk1)
+      | none => trap
+    else
+      trap
+  | .memory_fill =>
+    if ctx.hasMem then
+      match pop32 stk with
+      | some (n32, stk1) =>
+        match pop32 stk1 with
+        | some (val32, stk2) =>
+          match pop32 stk2 with
+          | some (dst32, stk3) =>
+            emitMemFill ctx.retTys vmCtx fuel dst32 val32 n32 fun fuel' =>
+              k fuel' locs stk3
+          | none => trap
+        | none => trap
+      | none => trap
+    else
+      trap
+  | .memory_copy =>
+    if ctx.hasMem then
+      match pop32 stk with
+      | some (n32, stk1) =>
+        match pop32 stk1 with
+        | some (src32, stk2) =>
+          match pop32 stk2 with
+          | some (dst32, stk3) =>
+            emitMemCopy ctx.retTys vmCtx fuel dst32 src32 n32 fun fuel' =>
+              k fuel' locs stk3
+          | none => trap
+        | none => trap
       | none => trap
     else
       trap
@@ -573,8 +459,8 @@ def lowerSimpleInstr {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
 /-- Lower a WebAssembly instruction sequence using `Expr.group` for structured control flow
 (`block`, `loop`, `if_`), trapping on invalid/out-of-bounds operations without ever emitting `.hlt`.
 -/
-def lowerSeq {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
-    (memBase memLen fuel : Arg V T.i64) (locs : Tup (Arg V) (ctx.locTys.map WValTy.toTy))
+@[expose] def lowerSeq {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
+    (vmCtx fuel : Arg V T.i64) (locs : Tup (Arg V) (ctx.locTys.map WValTy.toTy))
     (stk : List (SVal V)) (labs : List (WLabel V L ctx.locTys)) :
     (instrs : List WInstr) → WCont V L ctx.locTys ctx.retTys → Expr V L (wasmRetSig ctx.retTys)
   | [], k => k fuel locs stk
@@ -609,11 +495,11 @@ def lowerSeq {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
           (fun _ =>
             .cons (fun xs =>
               let (locs', resArgs) := tupSplit (varsTup xs.2)
-              lowerSeq ctx memBase memLen (.var xs.1) locs'
+              lowerSeq ctx vmCtx (.var xs.1) locs'
                 (pushArgsAux ft.results resArgs stkAfter) labs rest k) .nil)
           (fun (jLbl, ()) =>
             let lbl' : WLabel V L ctx.locTys := ⟨ft.results, jLbl⟩
-            lowerSeq ctx memBase memLen fuel locs (pushArgsAux ft.params initArgs [])
+            lowerSeq ctx vmCtx fuel locs (pushArgsAux ft.params initArgs [])
               (lbl' :: labs) body fun fuelEnd locsEnd stkEnd =>
                 match popArgsAux ft.results stkEnd with
                 | some (resArgs, _) => .jump jLbl (fuelEnd, tupAppend locsEnd resArgs)
@@ -629,7 +515,7 @@ def lowerSeq {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
           (fun _ =>
             .cons (fun xs =>
               let (locs', resArgs) := tupSplit (varsTup xs.2)
-              lowerSeq ctx memBase memLen (.var xs.1) locs'
+              lowerSeq ctx vmCtx (.var xs.1) locs'
                 (pushArgsAux ft.results resArgs stkAfter) labs rest k) .nil)
           (fun (jAfter, ()) =>
             .group (sig := [labelSig ctx.locTys ft.params])
@@ -641,7 +527,7 @@ def lowerSeq {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
                   .jnz (.var isZ.1) (mkTrapExpr ctx.retTys 2#32 fHdr)
                     (.let_ (.mk (.sub T.i64) (fHdr, .imm 1#64, ())) fun fNext =>
                       let lbl' : WLabel V L ctx.locTys := ⟨ft.params, lHdr⟩
-                      lowerSeq ctx memBase memLen (.var fNext.1) locsHdr
+                      lowerSeq ctx vmCtx (.var fNext.1) locsHdr
                         (pushArgsAux ft.params loopArgs []) (lbl' :: labs) body
                         fun fuelEnd locsEnd stkEnd =>
                           match popArgsAux ft.results stkEnd with
@@ -662,7 +548,7 @@ def lowerSeq {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
             (fun _ =>
               .cons (fun xs =>
                 let (locs', resArgs) := tupSplit (varsTup xs.2)
-                lowerSeq ctx memBase memLen (.var xs.1) locs'
+                lowerSeq ctx vmCtx (.var xs.1) locs'
                   (pushArgsAux ft.results resArgs stkAfter) labs rest k) .nil)
             (fun (jLbl, ()) =>
               let lbl' : WLabel V L ctx.locTys := ⟨ft.results, jLbl⟩
@@ -670,29 +556,29 @@ def lowerSeq {V : Ty → Type} {L : List Ty → Type} (ctx : WLowerCtx)
                 match popArgsAux ft.results stkEnd with
                 | some (resArgs, _) => .jump jLbl (fuelEnd, tupAppend locsEnd resArgs)
                 | none => mkTrapExpr ctx.retTys 1#32 fuelEnd
-              let brThen := lowerSeq ctx memBase memLen fuel locs
+              let brThen := lowerSeq ctx vmCtx fuel locs
                 (pushArgsAux ft.params initArgs []) (lbl' :: labs) thenBody fall
-              let brElse := lowerSeq ctx memBase memLen fuel locs
+              let brElse := lowerSeq ctx vmCtx fuel locs
                 (pushArgsAux ft.params initArgs []) (lbl' :: labs) elseBody fall
               .let_ (.mk (.cmp .ne T.i32) (condArg, .imm 0#32, ())) fun isTrue =>
               .jnz (.var isTrue.1) brThen brElse)
   | i :: rest, k =>
-    lowerSimpleInstr ctx memBase memLen fuel locs stk labs i fun fuel' locs' stk' =>
-      lowerSeq ctx memBase memLen fuel' locs' stk' labs rest k
+    lowerSimpleInstr ctx vmCtx fuel locs stk labs i fun fuel' locs' stk' =>
+      lowerSeq ctx vmCtx fuel' locs' stk' labs rest k
 termination_by instrs _ => sizeOf instrs
 
 /-! ## Module & Function Lowering Entry Points -/
 
 /-- Lower a single WebAssembly function `f` in module `m` into a closed `Func`. -/
-def lowerFuncBody (m : WModule) (f : WFunc) (ft : WFuncTy) :
+@[expose] def lowerFuncBody (m : WModule) (f : WFunc) (ft : WFuncTy) :
     Func (wasmAbiParams ft) (wasmAbiResults ft) :=
   fun V L xs =>
-    let memBase : Arg V T.i64 := .var xs.1
-    let memLen : Arg V T.i64 := .var xs.2.1
-    let fuel : Arg V T.i64 := .var xs.2.2.1
-    let locs := appendZeroLocals ft.params f.locals (varsTup xs.2.2.2)
+    let vmCtx : Arg V T.i64 := .var xs.1
+    let fuel : Arg V T.i64 := .var xs.2.1
+    let locs := appendZeroLocals ft.params f.locals (varsTup xs.2.2)
     let ctx : WLowerCtx :=
       { types := m.types, funcs := m.funcs, hasMem := m.memory.isSome,
+        memMaxBytes := (m.memory.map WMemSpec.maxBytes).getD 0#64,
         globals := m.globals, locTys := ft.params ++ f.locals, retTys := ft.results }
     .group (sig := [labelSig ctx.locTys ft.results])
       (fun _ =>
@@ -701,13 +587,13 @@ def lowerFuncBody (m : WModule) (f : WFunc) (ft : WFuncTy) :
           .ret (.imm 0#32, .var rxs.1, resArgs)) .nil)
       (fun (jRet, ()) =>
         let retLbl : WLabel V L ctx.locTys := ⟨ft.results, jRet⟩
-        lowerSeq ctx memBase memLen fuel locs [] [retLbl] f.body fun fuelEnd _ stkEnd =>
+        lowerSeq ctx vmCtx fuel locs [] [retLbl] f.body fun fuelEnd _ stkEnd =>
           match popArgsAux ft.results stkEnd with
           | some (resArgs, _) => .ret (.imm 0#32, fuelEnd, resArgs)
           | none => mkTrapExpr ft.results 1#32 fuelEnd)
 
 /-- Lower a `WFunc` to a named `LeanQbe.T.Fn`. -/
-def lowerFn (m : WModule) (f : WFunc) : Fn :=
+@[expose] def lowerFn (m : WModule) (f : WFunc) : Fn :=
   let ft := (m.types[f.typeIdx]?).getD {}
   { name := f.name
     as := wasmAbiParams ft
@@ -715,309 +601,12 @@ def lowerFn (m : WModule) (f : WFunc) : Fn :=
     body := lowerFuncBody m f ft }
 
 /-- Lower a `WModule` into a `LeanQbe.T.Module` (with zero external symbols). -/
-def lowerModule (m : WModule) : Module :=
+@[expose] def lowerModule (m : WModule) : Module :=
   { fns := m.funcs.map (lowerFn m), externs := [] }
 
 /-! ## Well-Formedness (`Wf`) Preservation -/
 
 section WfProofs
-
-theorem ArgRel.mono {V₁ V₂ : Ty → Type} {G G' : Ctx V₁ V₂} (hG : ∀ p ∈ G, p ∈ G')
-    {t : Ty} {a₁ : Arg V₁ t} {a₂ : Arg V₂ t} : ArgRel G t a₁ a₂ → ArgRel G' t a₁ a₂
-  | .var hv => .var (hG _ hv)
-  | .imm _ => .imm _
-
-theorem TRel_ArgRel_mono {V₁ V₂ : Ty → Type} {G G' : Ctx V₁ V₂} (hG : ∀ p ∈ G, p ∈ G') :
-    {ts : List Ty} → {xs₁ : Tup (Arg V₁) ts} → {xs₂ : Tup (Arg V₂) ts} →
-    TRel (ArgRel G) xs₁ xs₂ → TRel (ArgRel G') xs₁ xs₂
-  | [], (), (), .nil => .nil
-  | _ :: _, (_, _), (_, _), .cons h hs => .cons (ArgRel.mono hG h) (TRel_ArgRel_mono hG hs)
-
-/-- Relational correspondence between lowered operand stack items. -/
-def SValRel {V₁ V₂ : Ty → Type} (G : Ctx V₁ V₂) : SVal V₁ → SVal V₂ → Prop
-  | .i32 a₁, .i32 a₂ => ArgRel G T.i32 a₁ a₂
-  | .i64 a₁, .i64 a₂ => ArgRel G T.i64 a₁ a₂
-  | _, _ => False
-
-theorem SValRel.mono {V₁ V₂ : Ty → Type} {G G' : Ctx V₁ V₂} (hG : ∀ p ∈ G, p ∈ G')
-    {v₁ : SVal V₁} {v₂ : SVal V₂} : SValRel G v₁ v₂ → SValRel G' v₁ v₂ := by
-  cases v₁ <;> cases v₂ <;> simp only [SValRel]
-  · exact ArgRel.mono hG
-  · exact id
-  · exact id
-  · exact ArgRel.mono hG
-
-theorem SValRel.ofArg {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} (t : WValTy)
-    {a₁ : Arg V₁ t.toTy} {a₂ : Arg V₂ t.toTy} (h : ArgRel G t.toTy a₁ a₂) :
-    SValRel G (SVal.ofArg t a₁) (SVal.ofArg t a₂) := by
-  cases t <;> exact h
-
-/-- Pointwise relation over two lists of equal length. -/
-inductive ListRel {α β : Type} (R : α → β → Prop) : List α → List β → Prop
-  | nil : ListRel R [] []
-  | cons {a : α} {b : β} {as : List α} {bs : List β} :
-    R a b → ListRel R as bs → ListRel R (a :: as) (b :: bs)
-
-theorem ListRel.imp {α β : Type} {R S : α → β → Prop} (h : ∀ a b, R a b → S a b) :
-    {xs : List α} → {ys : List β} → ListRel R xs ys → ListRel S xs ys
-  | [], [], .nil => .nil
-  | _ :: _, _ :: _, .cons hab hrest => .cons (h _ _ hab) (hrest.imp h)
-
-/-- Relational correspondence across WebAssembly operand stacks. -/
-@[reducible] def StkRel {V₁ V₂ : Ty → Type} (G : Ctx V₁ V₂)
-    (s₁ : List (SVal V₁)) (s₂ : List (SVal V₂)) : Prop :=
-  ListRel (SValRel G) s₁ s₂
-
-theorem StkRel.mono {V₁ V₂ : Ty → Type} {G G' : Ctx V₁ V₂} (hG : ∀ p ∈ G, p ∈ G')
-    {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)} (hs : StkRel G s₁ s₂) : StkRel G' s₁ s₂ :=
-  hs.imp fun _ _ h => SValRel.mono hG h
-
-/-- Relational correspondence across structured control labels. -/
-def LabRel {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} (D : Ctx L₁ L₂) (locTys : List WValTy)
-    (l₁ : WLabel V₁ L₁ locTys) (l₂ : WLabel V₂ L₂ locTys) : Prop :=
-  ∃ h : l₁.argTys = l₂.argTys, ⟨labelSig locTys l₁.argTys, l₁.lbl, h ▸ l₂.lbl⟩ ∈ D
-
-theorem LabRel.mono {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {D D' : Ctx L₁ L₂}
-    (hD : ∀ p ∈ D, p ∈ D') {locTys : List WValTy}
-    {l₁ : WLabel V₁ L₁ locTys} {l₂ : WLabel V₂ L₂ locTys} :
-    LabRel D locTys l₁ l₂ → LabRel D' locTys l₁ l₂
-  | ⟨h, hm⟩ => ⟨h, hD _ hm⟩
-
-/-- Relational correspondence across label stacks. -/
-@[reducible] def LabsRel {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} (D : Ctx L₁ L₂)
-    (locTys : List WValTy)
-    (ls₁ : List (WLabel V₁ L₁ locTys)) (ls₂ : List (WLabel V₂ L₂ locTys)) : Prop :=
-  ListRel (LabRel D locTys) ls₁ ls₂
-
-theorem LabsRel.mono {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {D D' : Ctx L₁ L₂}
-    (hD : ∀ p ∈ D, p ∈ D') {locTys : List WValTy}
-    {ls₁ : List (WLabel V₁ L₁ locTys)} {ls₂ : List (WLabel V₂ L₂ locTys)}
-    (hls : LabsRel D locTys ls₁ ls₂) : LabsRel D' locTys ls₁ ls₂ :=
-  hls.imp fun _ _ h => LabRel.mono hD h
-
-/-- Monotonicity-aware well-formedness invariant on lowering continuations. -/
-def ContWf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} (locTys retTys : List WValTy)
-    (G : Ctx V₁ V₂) (D : Ctx L₁ L₂)
-    (k₁ : WCont V₁ L₁ locTys retTys) (k₂ : WCont V₂ L₂ locTys retTys) : Prop :=
-  ∀ {G' : Ctx V₁ V₂} {D' : Ctx L₁ L₂},
-    (∀ p ∈ G, p ∈ G') → (∀ p ∈ D, p ∈ D') →
-    ∀ {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64}
-      {locs₁ : Tup (Arg V₁) (locTys.map WValTy.toTy)}
-      {locs₂ : Tup (Arg V₂) (locTys.map WValTy.toTy)}
-      {stk₁ : List (SVal V₁)} {stk₂ : List (SVal V₂)},
-      ArgRel G' T.i64 f₁ f₂ → TRel (ArgRel G') locs₁ locs₂ → StkRel G' stk₁ stk₂ →
-      Wf G' D' (k₁ f₁ locs₁ stk₁) (k₂ f₂ locs₂ stk₂)
-
-theorem ContWf.mono {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {locTys retTys : List WValTy}
-    {G G' : Ctx V₁ V₂} {D D' : Ctx L₁ L₂}
-    (hG : ∀ p ∈ G, p ∈ G') (hD : ∀ p ∈ D, p ∈ D')
-    {k₁ : WCont V₁ L₁ locTys retTys} {k₂ : WCont V₂ L₂ locTys retTys}
-    (hk : ContWf locTys retTys G D k₁ k₂) : ContWf locTys retTys G' D' k₁ k₂ :=
-  fun hG' hD' => hk (fun p hp => hG' p (hG p hp)) (fun p hp => hD' p (hD p hp))
-
-theorem zeroArgs_rel {V₁ V₂ : Ty → Type} (G : Ctx V₁ V₂) :
-    ∀ ts, TRel (ArgRel G) (zeroArgs (V := V₁) ts) (zeroArgs (V := V₂) ts)
-  | [] => .nil
-  | t :: ts => .cons (by cases t <;> exact .imm _) (zeroArgs_rel G ts)
-
-theorem appendZeroLocals_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    ∀ (ps ls : List WValTy) {a₁ : Tup (Arg V₁) (ps.map WValTy.toTy)}
-      {a₂ : Tup (Arg V₂) (ps.map WValTy.toTy)},
-      TRel (ArgRel G) a₁ a₂ →
-      TRel (ArgRel G) (appendZeroLocals ps ls a₁) (appendZeroLocals ps ls a₂)
-  | [], ls, (), (), _ => zeroArgs_rel G ls
-  | _ :: ps, ls, (_, _), (_, _), .cons ha has => .cons ha (appendZeroLocals_rel ps ls has)
-
-theorem varsTup_rel_nil {V₁ V₂ : Ty → Type} :
-    ∀ {ts : List Ty} {xs₁ : Tup V₁ ts} {xs₂ : Tup V₂ ts},
-      TRel (ArgRel (Tup.zip xs₁ xs₂)) (varsTup xs₁) (varsTup xs₂)
-  | [], (), () => .nil
-  | _ :: _, (_, _), (_, _) =>
-    .cons (.var List.mem_cons_self)
-      (TRel_ArgRel_mono (fun _ hp => List.mem_cons_of_mem _ hp) varsTup_rel_nil)
-
-theorem varsTup_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    ∀ {ts : List Ty} {xs₁ : Tup V₁ ts} {xs₂ : Tup V₂ ts},
-      TRel (ArgRel (Tup.zip xs₁ xs₂ ++ G)) (varsTup xs₁) (varsTup xs₂)
-  | [], (), () => .nil
-  | _ :: _, (_, _), (_, _) =>
-    .cons (.var List.mem_cons_self)
-      (TRel_ArgRel_mono (fun _ hp => List.mem_cons_of_mem _ hp) varsTup_rel)
-
-theorem tupAppend_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    ∀ {as bs : List Ty} {a₁ : Tup (Arg V₁) as} {a₂ : Tup (Arg V₂) as}
-      {b₁ : Tup (Arg V₁) bs} {b₂ : Tup (Arg V₂) bs},
-      TRel (ArgRel G) a₁ a₂ → TRel (ArgRel G) b₁ b₂ →
-      TRel (ArgRel G) (tupAppend a₁ b₁) (tupAppend a₂ b₂)
-  | [], _, (), (), _, _, _, hb => hb
-  | _ :: _, _, (_, _), (_, _), _, _, .cons ha has, hb => .cons ha (tupAppend_rel has hb)
-
-theorem tupSplit_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    ∀ {as bs : List Ty} {zs₁ : Tup (Arg V₁) (as ++ bs)} {zs₂ : Tup (Arg V₂) (as ++ bs)},
-      TRel (ArgRel G) zs₁ zs₂ →
-      TRel (ArgRel G) (tupSplit (as := as) (bs := bs) zs₁).1
-                      (tupSplit (as := as) (bs := bs) zs₂).1 ∧
-      TRel (ArgRel G) (tupSplit (as := as) (bs := bs) zs₁).2
-                      (tupSplit (as := as) (bs := bs) zs₂).2
-  | [], _, _, _, hz => ⟨.nil, hz⟩
-  | _ :: _, _, (_, _), (_, _), .cons ha hzs =>
-    let ⟨h1, h2⟩ := tupSplit_rel hzs
-    ⟨.cons ha h1, h2⟩
-
-theorem popAny_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂}
-    {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)} (hs : StkRel G s₁ s₂) :
-    (s₁ = [] ∧ s₂ = []) ∨
-    (∃ v₁ v₂ t₁ t₂, s₁ = v₁ :: t₁ ∧ s₂ = v₂ :: t₂ ∧ SValRel G v₁ v₂ ∧ StkRel G t₁ t₂) := by
-  cases hs with
-  | nil => exact Or.inl ⟨rfl, rfl⟩
-  | cons hv hr => exact Or.inr ⟨_, _, _, _, rfl, rfl, hv, hr⟩
-
-theorem pop32_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)}
-    (hs : StkRel G s₁ s₂) :
-    (pop32 s₁ = none ∧ pop32 s₂ = none) ∨
-    (∃ a₁ a₂ r₁ r₂, pop32 s₁ = some (a₁, r₁) ∧ pop32 s₂ = some (a₂, r₂) ∧
-      ArgRel G T.i32 a₁ a₂ ∧ StkRel G r₁ r₂) := by
-  rcases popAny_rel hs with ⟨rfl, rfl⟩ | ⟨v₁, v₂, t₁, t₂, rfl, rfl, hv, hr⟩
-  · left; exact ⟨rfl, rfl⟩
-  · cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv
-    · right; exact ⟨_, _, _, _, rfl, rfl, hv, hr⟩
-    · left; exact ⟨rfl, rfl⟩
-
-theorem pop64_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)}
-    (hs : StkRel G s₁ s₂) :
-    (pop64 s₁ = none ∧ pop64 s₂ = none) ∨
-    (∃ a₁ a₂ r₁ r₂, pop64 s₁ = some (a₁, r₁) ∧ pop64 s₂ = some (a₂, r₂) ∧
-      ArgRel G T.i64 a₁ a₂ ∧ StkRel G r₁ r₂) := by
-  rcases popAny_rel hs with ⟨rfl, rfl⟩ | ⟨v₁, v₂, t₁, t₂, rfl, rfl, hv, hr⟩
-  · left; exact ⟨rfl, rfl⟩
-  · cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv
-    · left; exact ⟨rfl, rfl⟩
-    · right; exact ⟨_, _, _, _, rfl, rfl, hv, hr⟩
-
-theorem popExpectS_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} (t : WValTy)
-    {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)} (hs : StkRel G s₁ s₂) :
-    (popExpectS t s₁ = none ∧ popExpectS t s₂ = none) ∨
-    (∃ a₁ a₂ r₁ r₂, popExpectS t s₁ = some (a₁, r₁) ∧ popExpectS t s₂ = some (a₂, r₂) ∧
-      ArgRel G t.toTy a₁ a₂ ∧ StkRel G r₁ r₂) := by
-  rcases popAny_rel hs with ⟨rfl, rfl⟩ | ⟨v₁, v₂, t₁, t₂, rfl, rfl, hv, hr⟩
-  · cases t <;> left <;> exact ⟨rfl, rfl⟩
-  · cases t <;> cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv
-    · right; exact ⟨_, _, _, _, rfl, rfl, hv, hr⟩
-    · left; exact ⟨rfl, rfl⟩
-    · left; exact ⟨rfl, rfl⟩
-    · right; exact ⟨_, _, _, _, rfl, rfl, hv, hr⟩
-
-theorem popArgsAux_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    ∀ (ts : List WValTy) {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)},
-      StkRel G s₁ s₂ →
-      (popArgsAux ts s₁ = none ∧ popArgsAux ts s₂ = none) ∨
-      (∃ a₁ a₂ r₁ r₂, popArgsAux ts s₁ = some (a₁, r₁) ∧ popArgsAux ts s₂ = some (a₂, r₂) ∧
-        TRel (ArgRel G) a₁ a₂ ∧ StkRel G r₁ r₂)
-  | [], s₁, s₂, hs => Or.inr ⟨(), (), s₁, s₂, rfl, rfl, .nil, hs⟩
-  | t :: ts, s₁, s₂, hs => by
-    rcases popArgsAux_rel ts hs with ⟨hn1, hn2⟩ | ⟨t₁, t₂, u₁, u₂, hp1, hp2, ht, hu⟩
-    · left; simp [popArgsAux, hn1, hn2]
-    · rcases popExpectS_rel t hu with ⟨hn1, hn2⟩ | ⟨hd₁, hd₂, r₁, r₂, he1, he2, hhd, hr⟩
-      · left; simp [popArgsAux, hp1, hp2, hn1, hn2]
-      · right; exact ⟨(hd₁, t₁), (hd₂, t₂), r₁, r₂,
-          by simp [popArgsAux, hp1, he1], by simp [popArgsAux, hp2, he2],
-          .cons hhd ht, hr⟩
-
-theorem pushArgsAux_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    ∀ (ts : List WValTy) {a₁ : Tup (Arg V₁) (ts.map WValTy.toTy)}
-      {a₂ : Tup (Arg V₂) (ts.map WValTy.toTy)}
-      {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)},
-      TRel (ArgRel G) a₁ a₂ → StkRel G s₁ s₂ →
-      StkRel G (pushArgsAux ts a₁ s₁) (pushArgsAux ts a₂ s₂)
-  | [], (), (), _, _, .nil, hs => hs
-  | t :: ts, (_, _), (_, _), _, _, .cons ha has, hs =>
-    pushArgsAux_rel ts has (.cons (SValRel.ofArg t ha) hs)
-
-theorem getLocal_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    ∀ (ts : List WValTy) {l₁ : Tup (Arg V₁) (ts.map WValTy.toTy)}
-      {l₂ : Tup (Arg V₂) (ts.map WValTy.toTy)} (idx : Nat),
-      TRel (ArgRel G) l₁ l₂ →
-      (getLocal ts l₁ idx = none ∧ getLocal ts l₂ idx = none) ∨
-      (∃ v₁ v₂, getLocal ts l₁ idx = some v₁ ∧ getLocal ts l₂ idx = some v₂ ∧ SValRel G v₁ v₂)
-  | [], (), (), _, _ => Or.inl ⟨rfl, rfl⟩
-  | t :: _, (_, _), (_, _), 0, .cons ha _ =>
-    Or.inr ⟨_, _, rfl, rfl, SValRel.ofArg t ha⟩
-  | _ :: ts, (_, _), (_, _), idx + 1, .cons _ hls =>
-    getLocal_rel ts idx hls
-
-theorem setLocal_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    ∀ (ts : List WValTy) {l₁ : Tup (Arg V₁) (ts.map WValTy.toTy)}
-      {l₂ : Tup (Arg V₂) (ts.map WValTy.toTy)} (idx : Nat) {v₁ : SVal V₁} {v₂ : SVal V₂},
-      TRel (ArgRel G) l₁ l₂ → SValRel G v₁ v₂ →
-      (setLocal ts l₁ idx v₁ = none ∧ setLocal ts l₂ idx v₂ = none) ∨
-      (∃ l₁' l₂', setLocal ts l₁ idx v₁ = some l₁' ∧ setLocal ts l₂ idx v₂ = some l₂' ∧
-        TRel (ArgRel G) l₁' l₂')
-  | [], (), (), _, _, _, _, _ => Or.inl ⟨rfl, rfl⟩
-  | .i32 :: _, (_, _), (_, _), 0, v₁, v₂, .cons _ hls, hv => by
-    cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv
-    · exact Or.inr ⟨_, _, rfl, rfl, .cons hv hls⟩
-    · exact Or.inl ⟨rfl, rfl⟩
-  | .i64 :: _, (_, _), (_, _), 0, v₁, v₂, .cons _ hls, hv => by
-    cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv
-    · exact Or.inl ⟨rfl, rfl⟩
-    · exact Or.inr ⟨_, _, rfl, rfl, .cons hv hls⟩
-  | _ :: ts, (_, _), (_, _), idx + 1, v₁, v₂, .cons ha hls, hv => by
-    rcases setLocal_rel ts idx hls hv with ⟨hn1, hn2⟩ | ⟨l₁', l₂', hs1, hs2, hr⟩
-    · exact Or.inl ⟨by simp [setLocal, hn1], by simp [setLocal, hn2]⟩
-    · exact Or.inr ⟨_, _, by simp [setLocal, hs1], by simp [setLocal, hs2], .cons ha hr⟩
-
-theorem LabsRel_getElem?_rel {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {D : Ctx L₁ L₂}
-    {locTys : List WValTy} {labs₁ : List (WLabel V₁ L₁ locTys)}
-    {labs₂ : List (WLabel V₂ L₂ locTys)} (hlabs : LabsRel D locTys labs₁ labs₂) :
-    ∀ (depth : Nat),
-      (labs₁[depth]? = none ∧ labs₂[depth]? = none) ∨
-      (∃ l₁ l₂, labs₁[depth]? = some l₁ ∧ labs₂[depth]? = some l₂ ∧ LabRel D locTys l₁ l₂) := by
-  induction hlabs with
-  | nil => intro depth; left; simp
-  | cons hd _ ih =>
-    intro depth
-    cases depth with
-    | zero => right; exact ⟨_, _, rfl, rfl, hd⟩
-    | succ d => simpa using ih d
-
-theorem wf_let1 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {a u : Ty} (code : OpCode [a] [u])
-    {x₁ : Arg V₁ a} {x₂ : Arg V₂ a} (hx : ArgRel G a x₁ x₂)
-    {k₁ : Tup V₁ [u] → Expr V₁ L₁ rs} {k₂ : Tup V₂ [u] → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' u (.var y₁) (.var y₂) →
-      Wf G' D (k₁ (y₁, ())) (k₂ (y₂, ()))) :
-    Wf G D (.let_ (.mk code (x₁, ())) k₁) (.let_ (.mk code (x₂, ())) k₂) :=
-  .let_ (.mk code (.cons hx .nil)) fun ⟨r₁, ()⟩ ⟨r₂, ()⟩ =>
-    hk (fun _ hp => List.mem_cons_of_mem _ hp) r₁ r₂ (.var List.mem_cons_self)
-
-theorem wf_let2 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {a b u : Ty} (code : OpCode [a, b] [u])
-    {x₁ : Arg V₁ a} {x₂ : Arg V₂ a} {y₁ : Arg V₁ b} {y₂ : Arg V₂ b}
-    (hx : ArgRel G a x₁ x₂) (hy : ArgRel G b y₁ y₂)
-    {k₁ : Tup V₁ [u] → Expr V₁ L₁ rs} {k₂ : Tup V₂ [u] → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ r₁ r₂, ArgRel G' u (.var r₁) (.var r₂) →
-      Wf G' D (k₁ (r₁, ())) (k₂ (r₂, ()))) :
-    Wf G D (.let_ (.mk code (x₁, y₁, ())) k₁) (.let_ (.mk code (x₂, y₂, ())) k₂) :=
-  .let_ (.mk code (.cons hx (.cons hy .nil))) fun ⟨r₁, ()⟩ ⟨r₂, ()⟩ =>
-    hk (fun _ hp => List.mem_cons_of_mem _ hp) r₁ r₂ (.var List.mem_cons_self)
-
-theorem wf_let3 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {a b c u : Ty} (code : OpCode [a, b, c] [u])
-    {x₁ : Arg V₁ a} {x₂ : Arg V₂ a} {y₁ : Arg V₁ b} {y₂ : Arg V₂ b}
-    {z₁ : Arg V₁ c} {z₂ : Arg V₂ c}
-    (hx : ArgRel G a x₁ x₂) (hy : ArgRel G b y₁ y₂) (hz : ArgRel G c z₁ z₂)
-    {k₁ : Tup V₁ [u] → Expr V₁ L₁ rs} {k₂ : Tup V₂ [u] → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ r₁ r₂, ArgRel G' u (.var r₁) (.var r₂) →
-      Wf G' D (k₁ (r₁, ())) (k₂ (r₂, ()))) :
-    Wf G D (.let_ (.mk code (x₁, y₁, z₁, ())) k₁) (.let_ (.mk code (x₂, y₂, z₂, ())) k₂) :=
-  .let_ (.mk code (.cons hx (.cons hy (.cons hz .nil)))) fun ⟨r₁, ()⟩ ⟨r₂, ()⟩ =>
-    hk (fun _ hp => List.mem_cons_of_mem _ hp) r₁ r₂ (.var List.mem_cons_self)
-
-theorem mkTrapExpr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy) (code : BitVec 32)
-    {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64} (hf : ArgRel G T.i64 f₁ f₂) :
-    Wf G D (mkTrapExpr (L := L₁) retTys code f₁) (mkTrapExpr (L := L₂) retTys code f₂) :=
-  .ret (.cons (.imm _) (.cons hf (zeroArgs_rel G retTys)))
 
 theorem emitPopcnt_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (w : WValTy)
@@ -1162,30 +751,6 @@ theorem emitStoreCast_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type
   | exact hk (fun _ hp => hp) _ _ hv
   | exact wf_let1 _ hv fun h1 _ _ hy => hk h1 _ _ hy
 
-theorem emitMemBounds_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy)
-    {mb₁ ml₁ f₁ : Arg V₁ T.i64} {mb₂ ml₂ f₂ : Arg V₂ T.i64}
-    (hmb : ArgRel G T.i64 mb₁ mb₂) (hml : ArgRel G T.i64 ml₁ ml₂) (hf : ArgRel G T.i64 f₁ f₂)
-    {i₁ : Arg V₁ T.i32} {i₂ : Arg V₂ T.i32} (hi : ArgRel G T.i32 i₁ i₂)
-    (arg : WMemArg) (bytes : Nat)
-    {k₁ : Arg V₁ T.i64 → Expr V₁ L₁ (wasmRetSig retTys)}
-    {k₂ : Arg V₂ T.i64 → Expr V₂ L₂ (wasmRetSig retTys)}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ p₁ p₂, ArgRel G' T.i64 p₁ p₂ →
-      Wf G' D (k₁ p₁) (k₂ p₂)) :
-    Wf G D (emitMemBounds retTys mb₁ ml₁ f₁ i₁ arg bytes k₁)
-           (emitMemBounds retTys mb₂ ml₂ f₂ i₂ arg bytes k₂) := by
-  refine wf_let1 (.zext 32 64) hi fun h1 _ _ hi64 =>
-    wf_let2 (.add T.i64) hi64 (.imm _) fun h2 _ _ hea =>
-    wf_let2 (.add T.i64) hea (.imm _) fun h3 _ _ hend => ?_
-  have h13 : ∀ q ∈ G, q ∈ _ := fun q hq => h3 q (h2 q (h1 q hq))
-  refine wf_let2 (.cmp .ule T.i64) hend (ArgRel.mono h13 hml) fun h4 _ _ hib => ?_
-  have h14 : ∀ q ∈ G, q ∈ _ := fun q hq => h4 q (h13 q hq)
-  exact .jnz hib
-    (wf_let2 (.add T.i64) (ArgRel.mono h14 hmb)
-      (ArgRel.mono (fun q hq => h4 q (h3 q hq)) hea)
-      fun h5 _ _ hptr => hk (fun q hq => h5 q (h14 q hq)) _ _ hptr)
-    (mkTrapExpr_wf retTys 1#32 (ArgRel.mono h14 hf))
-
 theorem emitBrTable_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
     {D : Ctx L₁ L₂} (locTys retTys : List WValTy)
     {labs₁ : List (WLabel V₁ L₁ locTys)} {labs₂ : List (WLabel V₂ L₂ locTys)}
@@ -1241,18 +806,18 @@ theorem emitBrTable_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
 
 theorem lowerSimpleInstr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} (ctx : WLowerCtx)
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {mb₁ ml₁ f₁ : Arg V₁ T.i64} {mb₂ ml₂ f₂ : Arg V₂ T.i64}
+    {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
     {locs₁ : Tup (Arg V₁) (ctx.locTys.map WValTy.toTy)}
     {locs₂ : Tup (Arg V₂) (ctx.locTys.map WValTy.toTy)}
     {stk₁ : List (SVal V₁)} {stk₂ : List (SVal V₂)}
     {labs₁ : List (WLabel V₁ L₁ ctx.locTys)} {labs₂ : List (WLabel V₂ L₂ ctx.locTys)}
     (instr : WInstr)
     {k₁ : WCont V₁ L₁ ctx.locTys ctx.retTys} {k₂ : WCont V₂ L₂ ctx.locTys ctx.retTys}
-    (hmb : ArgRel G T.i64 mb₁ mb₂) (hml : ArgRel G T.i64 ml₁ ml₂) (hf : ArgRel G T.i64 f₁ f₂)
+    (hvc : ArgRel G T.i64 vc₁ vc₂) (hf : ArgRel G T.i64 f₁ f₂)
     (hlocs : TRel (ArgRel G) locs₁ locs₂) (hstk : StkRel G stk₁ stk₂)
     (hlabs : LabsRel D ctx.locTys labs₁ labs₂) (hk : ContWf ctx.locTys ctx.retTys G D k₁ k₂) :
-    Wf G D (lowerSimpleInstr ctx mb₁ ml₁ f₁ locs₁ stk₁ labs₁ instr k₁)
-           (lowerSimpleInstr ctx mb₂ ml₂ f₂ locs₂ stk₂ labs₂ instr k₂) := by
+    Wf G D (lowerSimpleInstr ctx vc₁ f₁ locs₁ stk₁ labs₁ instr k₁)
+           (lowerSimpleInstr ctx vc₂ f₂ locs₂ stk₂ labs₂ instr k₂) := by
   have htrap : Wf G D (mkTrapExpr (L := L₁) ctx.retTys 1#32 f₁)
       (mkTrapExpr (L := L₂) ctx.retTys 1#32 f₂) := mkTrapExpr_wf ctx.retTys 1#32 hf
   cases instr with
@@ -1298,8 +863,8 @@ theorem lowerSimpleInstr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
             .jnz ho (mkTrapExpr_wf ctx.retTys 2#32 (ArgRel.mono h1 hf))
               (wf_let2 (.sub T.i64) (ArgRel.mono h1 hf) (.imm _) fun {G₂} h2 _ _ hfn => ?_)
           have h12 : ∀ p ∈ G, p ∈ G₂ := fun p hp => h2 p (h1 p hp)
-          refine .call callee.name (.cons (ArgRel.mono h12 hmb) (.cons (ArgRel.mono h12 hml)
-            (.cons hfn (TRel_ArgRel_mono h12 ha)))) fun res₁ res₂ => ?_
+          refine .call callee.name (.cons (ArgRel.mono h12 hvc)
+            (.cons hfn (TRel_ArgRel_mono h12 ha))) fun res₁ res₂ => ?_
           rcases res₁ with ⟨st₁, rf₁, rets₁⟩
           rcases res₂ with ⟨st₂, rf₂, rets₂⟩
           let Gc := Tup.zip (as := wasmRetSig ft.results) (st₁, rf₁, rets₁) (st₂, rf₂, rets₂) ++
@@ -1390,7 +955,7 @@ theorem lowerSimpleInstr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
       rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨i₁, i₂, r₁, r₂, hp1, hp2, hi, hr⟩
       · simp [hn1, hn2, htrap]
       · simp only [hp1, hp2]
-        refine emitMemBounds_wf ctx.retTys hmb hml hf hi arg width.bytes fun h1 p₁ p₂ hp => ?_
+        refine emitMemBounds_wf ctx.retTys hvc hf hi arg width.bytes fun h1 p₁ p₂ hp => ?_
         refine .load width.memTy hp fun raw₁ raw₂ => ?_
         have h1' : ∀ q ∈ G, q ∈ (⟨width.memTy, raw₁, raw₂⟩ :: _) :=
           fun q hq => List.mem_cons_of_mem _ (h1 q hq)
@@ -1410,7 +975,7 @@ theorem lowerSimpleInstr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
         rcases pop32_rel hs with ⟨hn1', hn2'⟩ | ⟨i₁, i₂, r₁, r₂, hp1', hp2', hi, hr⟩
         · simp [hn1', hn2', htrap]
         · simp only [hp1', hp2']
-          refine emitMemBounds_wf ctx.retTys hmb hml hf hi arg width.bytes fun h1 p₁ p₂ hp => ?_
+          refine emitMemBounds_wf ctx.retTys hvc hf hi arg width.bytes fun h1 p₁ p₂ hp => ?_
           refine emitStoreCast_wf (mkTrapExpr_wf ctx.retTys 1#32 (ArgRel.mono h1 hf))
             srcTy width (ArgRel.mono h1 hv) fun h2 mv₁ mv₂ hmv => ?_
           have h12 : ∀ q ∈ G, q ∈ _ := fun q hq => h2 q (h1 q hq)
@@ -1422,11 +987,9 @@ theorem lowerSimpleInstr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
     simp only [lowerSimpleInstr]
     by_cases hm : ctx.hasMem = true
     · simp only [hm, ↓reduceIte]
-      exact wf_let2 (.lshr T.i64) hml (.imm _) fun h1 _ _ hp64 =>
-        wf_let1 (.trunc 64 32) hp64 fun h2 _ _ hp32 =>
-          have h12 : ∀ p ∈ G, p ∈ _ := fun p hp => h2 p (h1 p hp)
-          hk h12 (fun _ h => h) (ArgRel.mono h12 hf) (TRel_ArgRel_mono h12 hlocs)
-            (.cons hp32 (StkRel.mono h12 hstk))
+      exact emitMemSize_wf hvc fun h1 p₁ p₂ hp =>
+        hk h1 (fun _ h => h) (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
+          (.cons hp (StkRel.mono h1 hstk))
     · simp [hm, htrap]
   | memory_grow =>
     simp only [lowerSimpleInstr]
@@ -1435,14 +998,41 @@ theorem lowerSimpleInstr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
       rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨d₁, d₂, r₁, r₂, hp1, hp2, hd, hr⟩
       · simp [hn1, hn2, htrap]
       · simp only [hp1, hp2]
-        exact wf_let2 (.cmp .eq T.i32) hd (.imm _) fun h1 _ _ hiz =>
-          wf_let2 (.lshr T.i64) (ArgRel.mono h1 hml) (.imm _) fun h2 _ _ hp64 =>
-            wf_let1 (.trunc 64 32) hp64 fun h3 _ _ hp32 =>
-              wf_let3 (.select T.i32) (ArgRel.mono (fun p hp => h3 p (h2 p hp)) hiz) hp32
-                (.imm _) fun h4 _ _ hres =>
-                have h14 : ∀ p ∈ G, p ∈ _ := fun p hp => h4 p (h3 p (h2 p (h1 p hp)))
-                hk h14 (fun _ h => h) (ArgRel.mono h14 hf) (TRel_ArgRel_mono h14 hlocs)
-                  (.cons hres (StkRel.mono h14 hr))
+        exact emitMemGrow_wf ctx.retTys ctx.memMaxBytes hvc hf hd fun h1 hD1 f₁' f₂' rs₁ rs₂ hf'
+          hrs =>
+          hk h1 hD1 hf' (TRel_ArgRel_mono h1 hlocs) (.cons hrs (StkRel.mono h1 hr))
+    · simp [hm, htrap]
+  | memory_fill =>
+    simp only [lowerSimpleInstr]
+    by_cases hm : ctx.hasMem = true
+    · simp only [hm, ↓reduceIte]
+      rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨n₁, n₂, s₁, s₂, hp1, hp2, hn, hs1⟩
+      · simp [hn1, hn2, htrap]
+      · simp only [hp1, hp2]
+        rcases pop32_rel hs1 with ⟨hn1', hn2'⟩ | ⟨v₁, v₂, s₁', s₂', hp1', hp2', hv, hs2⟩
+        · simp [hn1', hn2', htrap]
+        · simp only [hp1', hp2']
+          rcases pop32_rel hs2 with ⟨hn1'', hn2''⟩ | ⟨d₁, d₂, r₁, r₂, hp1'', hp2'', hd, hr⟩
+          · simp [hn1'', hn2'', htrap]
+          · simp only [hp1'', hp2'']
+            exact emitMemFill_wf ctx.retTys hvc hf hd hv hn fun h1 hD1 f₁' f₂' hf' =>
+              hk h1 hD1 hf' (TRel_ArgRel_mono h1 hlocs) (StkRel.mono h1 hr)
+    · simp [hm, htrap]
+  | memory_copy =>
+    simp only [lowerSimpleInstr]
+    by_cases hm : ctx.hasMem = true
+    · simp only [hm, ↓reduceIte]
+      rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨n₁, n₂, s₁, s₂, hp1, hp2, hn, hs1⟩
+      · simp [hn1, hn2, htrap]
+      · simp only [hp1, hp2]
+        rcases pop32_rel hs1 with ⟨hn1', hn2'⟩ | ⟨s₁', s₂', s₁'', s₂'', hp1', hp2', hs, hs2⟩
+        · simp [hn1', hn2', htrap]
+        · simp only [hp1', hp2']
+          rcases pop32_rel hs2 with ⟨hn1'', hn2''⟩ | ⟨d₁, d₂, r₁, r₂, hp1'', hp2'', hd, hr⟩
+          · simp [hn1'', hn2'', htrap]
+          · simp only [hp1'', hp2'']
+            exact emitMemCopy_wf ctx.retTys hvc hf hd hs hn fun h1 hD1 f₁' f₂' hf' =>
+              hk h1 hD1 hf' (TRel_ArgRel_mono h1 hlocs) (StkRel.mono h1 hr)
     · simp [hm, htrap]
   | i32_const _ => exact hk (fun _ h => h) (fun _ h => h) hf hlocs (.cons (.imm _) hstk)
   | i64_const _ => exact hk (fun _ h => h) (fun _ h => h) hf hlocs (.cons (.imm _) hstk)
@@ -1534,23 +1124,23 @@ theorem lowerSimpleInstr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
 theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
     ∀ (sz : Nat) {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
       {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-      {mb₁ ml₁ f₁ : Arg V₁ T.i64} {mb₂ ml₂ f₂ : Arg V₂ T.i64}
+      {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
       {locs₁ : Tup (Arg V₁) (ctx.locTys.map WValTy.toTy)}
       {locs₂ : Tup (Arg V₂) (ctx.locTys.map WValTy.toTy)}
       {stk₁ : List (SVal V₁)} {stk₂ : List (SVal V₂)}
       {labs₁ : List (WLabel V₁ L₁ ctx.locTys)} {labs₂ : List (WLabel V₂ L₂ ctx.locTys)}
       (instrs : List WInstr) (_hsz : sizeOf instrs ≤ sz)
       {k₁ : WCont V₁ L₁ ctx.locTys ctx.retTys} {k₂ : WCont V₂ L₂ ctx.locTys ctx.retTys},
-      ArgRel G T.i64 mb₁ mb₂ → ArgRel G T.i64 ml₁ ml₂ → ArgRel G T.i64 f₁ f₂ →
+      ArgRel G T.i64 vc₁ vc₂ → ArgRel G T.i64 f₁ f₂ →
       TRel (ArgRel G) locs₁ locs₂ → StkRel G stk₁ stk₂ → LabsRel D ctx.locTys labs₁ labs₂ →
       ContWf ctx.locTys ctx.retTys G D k₁ k₂ →
-      Wf G D (lowerSeq ctx mb₁ ml₁ f₁ locs₁ stk₁ labs₁ instrs k₁)
-             (lowerSeq ctx mb₂ ml₂ f₂ locs₂ stk₂ labs₂ instrs k₂) := by
+      Wf G D (lowerSeq ctx vc₁ f₁ locs₁ stk₁ labs₁ instrs k₁)
+             (lowerSeq ctx vc₂ f₂ locs₂ stk₂ labs₂ instrs k₂) := by
   intro sz
   induction sz using Nat.strongRecOn with
   | _ sz ih =>
-    intro V₁ V₂ L₁ L₂ G D mb₁ ml₁ f₁ mb₂ ml₂ f₂ locs₁ locs₂ stk₁ stk₂ labs₁ labs₂
-      instrs hsz k₁ k₂ hmb hml hf hlocs hstk hlabs hk
+    intro V₁ V₂ L₁ L₂ G D vc₁ f₁ vc₂ f₂ locs₁ locs₂ stk₁ stk₂ labs₁ labs₂
+      instrs hsz k₁ k₂ hvc hf hlocs hstk hlabs hk
     cases instrs with
     | nil =>
       simp only [lowerSeq]
@@ -1638,7 +1228,7 @@ theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
                   varsTup_rel_nil
               have hsp := tupSplit_rel hvxs
               exact ih _ hszRest' rest (Nat.le_refl _)
-                (ArgRel.mono hGGb hmb) (ArgRel.mono hGGb hml) hfx hsp.1
+                (ArgRel.mono hGGb hvc) hfx hsp.1
                 (pushArgsAux_rel ft.results hsp.2 (StkRel.mono hGGb hsa))
                 (LabsRel.mono hDDb hlabs) (hk.mono hGGb hDDb)
             · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
@@ -1649,7 +1239,7 @@ theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
               have hlabs' : LabsRel D' ctx.locTys
                   (⟨ft.results, j₁⟩ :: labs₁) (⟨ft.results, j₂⟩ :: labs₂) :=
                 .cons ⟨rfl, hj⟩ (LabsRel.mono hDD' hlabs)
-              refine ih _ hszBody body (Nat.le_refl _) hmb hml hf hlocs
+              refine ih _ hszBody body (Nat.le_refl _) hvc hf hlocs
                 (pushArgsAux_rel ft.params hia .nil) hlabs' ?_
               intro G' D'' hGG' hDD'' fe₁ fe₂ le₁ le₂ se₁ se₂ hfe hle hse
               rcases popArgsAux_rel ft.results hse with
@@ -1687,7 +1277,7 @@ theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
                   varsTup_rel_nil
               have hsp := tupSplit_rel hvxs
               exact ih _ hszRest' rest (Nat.le_refl _)
-                (ArgRel.mono hGGb hmb) (ArgRel.mono hGGb hml) hfx hsp.1
+                (ArgRel.mono hGGb hvc) hfx hsp.1
                 (pushArgsAux_rel ft.results hsp.2 (StkRel.mono hGGb hsa))
                 (LabsRel.mono hDDb hlabs) (hk.mono hGGb hDDb)
             · intro ⟨ja₁, ()⟩ ⟨ja₂, ()⟩
@@ -1724,7 +1314,7 @@ theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
                     (⟨ft.params, lh₁⟩ :: labs₁) (⟨ft.params, lh₂⟩ :: labs₂) :=
                   .cons ⟨rfl, hlh⟩ (LabsRel.mono (fun p hp => hD₁D₂ p (hDD₁ p hp)) hlabs)
                 refine ih _ hszBody body (Nat.le_refl _)
-                  (ArgRel.mono hG₂ hmb) (ArgRel.mono hG₂ hml) hfn
+                  (ArgRel.mono hG₂ hvc) hfn
                   (TRel_ArgRel_mono hG₁₂ hsp.1)
                   (pushArgsAux_rel ft.params (TRel_ArgRel_mono hG₁₂ hsp.2) .nil) hlabs₂ ?_
                 intro G' D'' _ hDD'' fe₁ fe₂ le₁ le₂ se₁ se₂ hfe hle hse
@@ -1771,7 +1361,7 @@ theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
                     List.mem_append_left _ (List.mem_cons_of_mem _ hp)) varsTup_rel_nil
                 have hsp := tupSplit_rel hvxs
                 exact ih _ hszRest' rest (Nat.le_refl _)
-                  (ArgRel.mono hGGb hmb) (ArgRel.mono hGGb hml) hfx hsp.1
+                  (ArgRel.mono hGGb hvc) hfx hsp.1
                   (pushArgsAux_rel ft.results hsp.2 (StkRel.mono hGGb hsa))
                   (LabsRel.mono hDDb hlabs) (hk.mono hGGb hDDb)
               · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
@@ -1783,8 +1373,8 @@ theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
                     (⟨ft.results, j₁⟩ :: labs₁) (⟨ft.results, j₂⟩ :: labs₂) :=
                   .cons ⟨rfl, hj⟩ (LabsRel.mono hDD' hlabs)
                 refine wf_let2 (.cmp .ne T.i32) hc (.imm _) fun h1 _ _ hbt => .jnz hbt ?_ ?_
-                · refine ih _ hszT thenBody (Nat.le_refl _) (ArgRel.mono h1 hmb)
-                    (ArgRel.mono h1 hml) (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
+                · refine ih _ hszT thenBody (Nat.le_refl _) (ArgRel.mono h1 hvc)
+                    (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
                     (pushArgsAux_rel ft.params (TRel_ArgRel_mono h1 hia) .nil) hlabs' ?_
                   intro G' D'' _ hDD'' fe₁ fe₂ le₁ le₂ se₁ se₂ hfe hle hse
                   rcases popArgsAux_rel ft.results hse with
@@ -1792,8 +1382,8 @@ theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
                   · simp [hb1, hb2, mkTrapExpr_wf ctx.retTys 1#32 hfe]
                   · simp only [hbp1, hbp2]
                     exact .jump (hDD'' _ hj) (.cons hfe (tupAppend_rel hle hra))
-                · refine ih _ hszE elseBody (Nat.le_refl _) (ArgRel.mono h1 hmb)
-                    (ArgRel.mono h1 hml) (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
+                · refine ih _ hszE elseBody (Nat.le_refl _) (ArgRel.mono h1 hvc)
+                    (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
                     (pushArgsAux_rel ft.params (TRel_ArgRel_mono h1 hia) .nil) hlabs' ?_
                   intro G' D'' _ hDD'' fe₁ fe₂ le₁ le₂ se₁ se₂ hfe hle hse
                   rcases popArgsAux_rel ft.results hse with
@@ -1805,26 +1395,27 @@ theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
         -- All remaining constructors go through `lowerSimpleInstr`
         simp only [lowerSeq]
         have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-        refine lowerSimpleInstr_wf ctx _ hmb hml hf hlocs hstk hlabs ?_
+        refine lowerSimpleInstr_wf ctx _ hvc hf hlocs hstk hlabs ?_
         intro G' D' hGG' hDD' f₁' f₂' l₁' l₂' s₁' s₂' hf' hl' hs'
-        exact ih _ hszRest' rest (Nat.le_refl _) (ArgRel.mono hGG' hmb) (ArgRel.mono hGG' hml)
+        exact ih _ hszRest' rest (Nat.le_refl _) (ArgRel.mono hGG' hvc)
           hf' hl' hs' (LabsRel.mono hDD' hlabs) (hk.mono hGG' hDD')
 
 theorem lowerFuncBody_wf (m : WModule) (f : WFunc) (ft : WFuncTy) :
     (lowerFuncBody m f ft).Wf := by
   intro V₁ V₂ L₁ L₂ xs₁ xs₂
-  rcases xs₁ with ⟨mb₁, ml₁, f₁, ps₁⟩
-  rcases xs₂ with ⟨mb₂, ml₂, f₂, ps₂⟩
+  rcases xs₁ with ⟨vc₁, f₁, ps₁⟩
+  rcases xs₂ with ⟨vc₂, f₂, ps₂⟩
   simp only [lowerFuncBody]
   let ctx : WLowerCtx :=
     { types := m.types, funcs := m.funcs, hasMem := m.memory.isSome,
+      memMaxBytes := (m.memory.map WMemSpec.maxBytes).getD 0#64,
       globals := m.globals, locTys := ft.params ++ f.locals, retTys := ft.results }
   refine .group (sig := [labelSig ctx.locTys ft.results]) ?_ ?_
   · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
     refine .cons (fun rxs₁ rxs₂ => ?_) .nil
     rcases rxs₁ with ⟨rf₁, rlocs₁⟩
     rcases rxs₂ with ⟨rf₂, rlocs₂⟩
-    let G₀ := Tup.zip (as := wasmAbiParams ft) (mb₁, ml₁, f₁, ps₁) (mb₂, ml₂, f₂, ps₂)
+    let G₀ := Tup.zip (as := wasmAbiParams ft) (vc₁, f₁, ps₁) (vc₂, f₂, ps₂)
     let Gr := Tup.zip (as := labelSig ctx.locTys ft.results) (rf₁, rlocs₁) (rf₂, rlocs₂) ++ G₀
     have hsp := tupSplit_rel (G := Gr) (as := ctx.locTys.map WValTy.toTy)
       (bs := ft.results.map WValTy.toTy)
@@ -1832,21 +1423,19 @@ theorem lowerFuncBody_wf (m : WModule) (f : WFunc) (ft : WFuncTy) :
         varsTup_rel_nil)
     exact .ret (.cons (.imm _) (.cons (.var (List.mem_append_left _ List.mem_cons_self)) hsp.2))
   · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    let G₀ := Tup.zip (as := wasmAbiParams ft) (mb₁, ml₁, f₁, ps₁) (mb₂, ml₂, f₂, ps₂)
+    let G₀ := Tup.zip (as := wasmAbiParams ft) (vc₁, f₁, ps₁) (vc₂, f₂, ps₂)
     let D₀ := Tup.zip (as := [labelSig ctx.locTys ft.results]) (j₁, ()) (j₂, ())
-    have hmb : ArgRel G₀ T.i64 (.var mb₁) (.var mb₂) := .var List.mem_cons_self
-    have hml : ArgRel G₀ T.i64 (.var ml₁) (.var ml₂) :=
-      .var (List.mem_cons_of_mem _ List.mem_cons_self)
+    have hvc : ArgRel G₀ T.i64 (.var vc₁) (.var vc₂) := .var List.mem_cons_self
     have hf : ArgRel G₀ T.i64 (.var f₁) (.var f₂) :=
-      .var (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ List.mem_cons_self))
+      .var (List.mem_cons_of_mem _ List.mem_cons_self)
     have hps : TRel (ArgRel G₀) (varsTup ps₁) (varsTup ps₂) :=
       TRel_ArgRel_mono (fun _ hp => by
         simp only [G₀, Tup.zip] at hp ⊢
-        exact List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hp)))
+        exact List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hp))
         varsTup_rel_nil
     have hlocs := appendZeroLocals_rel ft.params f.locals hps
     have hj : ⟨labelSig ctx.locTys ft.results, j₁, j₂⟩ ∈ D₀ := List.mem_cons_self
-    refine lowerSeq_wf_aux ctx (sizeOf f.body) f.body (Nat.le_refl _) hmb hml hf hlocs .nil
+    refine lowerSeq_wf_aux ctx (sizeOf f.body) f.body (Nat.le_refl _) hvc hf hlocs .nil
       (.cons ⟨rfl, hj⟩ .nil) ?_
     intro G' D' _ _ fe₁ fe₂ _ _ se₁ se₂ hfe _ hse
     rcases popArgsAux_rel ft.results hse with
@@ -1873,85 +1462,6 @@ end WfProofs
 /-! ## Target-Independent Supportability (`supportsSource`) & Signature Legality -/
 
 section SupportsSourceProofs
-
-theorem supportsTy_le64 {lt : LegalTarget} (hv : lt.valid = true)
-    {n : Nat} (hn : n ≤ 64) : lt.supportsTy (.bits n) = true := by
-  have h64 : 64 ∈ lt.bitWidths := by
-    simp only [LegalTarget.valid, Bool.and_eq_true, decide_eq_true_eq] at hv
-    exact hv.1.1.2
-  simp only [LegalTarget.supportsTy, Bool.and_eq_true, List.any_eq_true, decide_eq_true_eq]
-  exact ⟨⟨64, h64, hn⟩, hn⟩
-
-theorem WValTy.toTy_supportsTy {lt : LegalTarget} (hv : lt.valid = true) (w : WValTy) :
-    lt.supportsTy w.toTy = true := by
-  cases w <;> exact supportsTy_le64 hv (by omega)
-
-theorem list_map_toTy_supportsTy {lt : LegalTarget} (hv : lt.valid = true) :
-    ∀ ts : List WValTy, (ts.map WValTy.toTy).all lt.supportsTy = true
-  | [] => rfl
-  | t :: ts => by
-    simp only [List.map_cons, List.all_cons, Bool.and_eq_true]
-    exact ⟨t.toTy_supportsTy hv, list_map_toTy_supportsTy hv ts⟩
-
-theorem wasmRetSig_supportsTy {lt : LegalTarget} (hv : lt.valid = true) (rs : List WValTy) :
-    (wasmRetSig rs).all lt.supportsTy = true := by
-  simp only [wasmRetSig, List.all_cons, Bool.and_eq_true]
-  exact ⟨supportsTy_le64 hv (by omega), supportsTy_le64 hv (by omega),
-    list_map_toTy_supportsTy hv rs⟩
-
-theorem wasmAbiParams_supportsTy {lt : LegalTarget} (hv : lt.valid = true) (ft : WFuncTy) :
-    (wasmAbiParams ft).all lt.supportsTy = true := by
-  simp only [wasmAbiParams, List.cons_append, List.nil_append, List.all_cons, Bool.and_eq_true]
-  exact ⟨supportsTy_le64 hv (by omega), supportsTy_le64 hv (by omega),
-    supportsTy_le64 hv (by omega), list_map_toTy_supportsTy hv ft.params⟩
-
-theorem labelSig_supportsTy {lt : LegalTarget} (hv : lt.valid = true)
-    (locTys argTys : List WValTy) :
-    (labelSig locTys argTys).all lt.supportsTy = true := by
-  simp only [labelSig, List.all_cons, List.all_append, Bool.and_eq_true]
-  exact ⟨supportsTy_le64 hv (by omega),
-    list_map_toTy_supportsTy hv locTys, list_map_toTy_supportsTy hv argTys⟩
-
-theorem labelSig_supportsTy_pair {lt : LegalTarget} (hv : lt.valid = true)
-    (locTys argTys : List WValTy) :
-    lt.supportsTy T.i64 = true ∧
-      (locTys.map WValTy.toTy ++ argTys.map WValTy.toTy).all lt.supportsTy = true := by
-  have h := labelSig_supportsTy hv locTys argTys
-  simp only [labelSig, List.all_cons, Bool.and_eq_true] at h
-  exact h
-
-theorem tflat_let1_ss (lt : LegalTarget) {rs : List Ty} {a u : Ty} (code : OpCode [a] [u])
-    (x : Arg K a) {k : Tup K [u] → Expr K KL rs} {nv nl : Nat}
-    (hop : lt.supportsOpCode code = true)
-    (hk : (toTFlat (k (Tup.levels [u] nv)) (nv + 1) nl).supportsSource lt = true) :
-    (toTFlat (.let_ (.mk code (x, ())) k) nv nl).supportsSource lt = true := by
-  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true, List.length_cons, List.length_nil,
-    Nat.zero_add] at *
-  exact ⟨hop, hk⟩
-
-theorem tflat_let2_ss (lt : LegalTarget) {rs : List Ty} {a b u : Ty} (code : OpCode [a, b] [u])
-    (x : Arg K a) (y : Arg K b) {k : Tup K [u] → Expr K KL rs} {nv nl : Nat}
-    (hop : lt.supportsOpCode code = true)
-    (hk : (toTFlat (k (Tup.levels [u] nv)) (nv + 1) nl).supportsSource lt = true) :
-    (toTFlat (.let_ (.mk code (x, y, ())) k) nv nl).supportsSource lt = true := by
-  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true, List.length_cons, List.length_nil,
-    Nat.zero_add] at *
-  exact ⟨hop, hk⟩
-
-theorem tflat_let3_ss (lt : LegalTarget) {rs : List Ty} {a b c u : Ty}
-    (code : OpCode [a, b, c] [u])
-    (x : Arg K a) (y : Arg K b) (z : Arg K c) {k : Tup K [u] → Expr K KL rs} {nv nl : Nat}
-    (hop : lt.supportsOpCode code = true)
-    (hk : (toTFlat (k (Tup.levels [u] nv)) (nv + 1) nl).supportsSource lt = true) :
-    (toTFlat (.let_ (.mk code (x, y, z, ())) k) nv nl).supportsSource lt = true := by
-  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true, List.length_cons, List.length_nil,
-    Nat.zero_add] at *
-  exact ⟨hop, hk⟩
-
-theorem mkTrapExpr_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
-    (code : BitVec 32) (f : Arg K T.i64) (nv nl : Nat) :
-    (toTFlat (mkTrapExpr (L := KL) retTys code f) nv nl).supportsSource lt = true := by
-  simpa [mkTrapExpr, toTFlat, TFlat.supportsSource] using wasmRetSig_supportsTy hv retTys
 
 theorem emitPopcnt_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     (w : WValTy) (x : Arg K w.toTy) (k : Arg K w.toTy → Expr K KL rs)
@@ -2013,7 +1523,8 @@ theorem emitBinOp_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WV
     (f : Arg K T.i64) (w : WValTy) (op : WBinOp) (a b : Arg K w.toTy)
     (k : Arg K w.toTy → Expr K KL (wasmRetSig retTys))
     (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
-    ∀ nv nl, (toTFlat (emitBinOp retTys f w op a b k) nv nl).supportsSource lt = true := by
+    ∀ nv nl,
+      (toTFlat (emitBinOp retTys f w op a b k) nv nl).supportsSource lt = true := by
   intro nv nl
   have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
   have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
@@ -2055,7 +1566,8 @@ theorem emitLoadCast_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     (k : Arg K resTy.toTy → Expr K KL rs)
     (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
     ∀ nv nl,
-      (toTFlat (emitLoadCast trap resTy width signed raw k) nv nl).supportsSource lt = true := by
+      (toTFlat (emitLoadCast trap resTy width signed raw k) nv nl).supportsSource lt =
+        true := by
   intro nv nl
   have h8 : lt.supportsTy (.bits 8) = true := supportsTy_le64 hv (by omega)
   have h16 : lt.supportsTy (.bits 16) = true := supportsTy_le64 hv (by omega)
@@ -2091,23 +1603,6 @@ theorem emitStoreCast_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty
           repeat first | exact h8 | exact h16 | exact h32 | exact h64 | constructor)
       (hk _ _ _)
 
-theorem emitMemBounds_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
-    (mb ml f : Arg K T.i64) (idx : Arg K T.i32) (arg : WMemArg) (bytes : Nat)
-    (k : Arg K T.i64 → Expr K KL (wasmRetSig retTys))
-    (hk : ∀ p nv' nl', (toTFlat (k p) nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat (emitMemBounds retTys mb ml f idx arg bytes k) nv nl).supportsSource lt = true := by
-  intro nv nl
-  have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  refine tflat_let1_ss lt (.zext 32 64) idx (by simp [LegalTarget.supportsOpCode, h32, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.cmp .ule T.i64) _ ml (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
-  refine ⟨⟨by simp [LegalTarget.supportsOpCode, h64], ?_⟩, wasmRetSig_supportsTy hv retTys⟩
-  apply hk
-
 theorem emitBrTable_ss {lt : LegalTarget} (hv : lt.valid = true) (locTys retTys : List WValTy)
     (labs : List (WLabel K KL locTys)) (locs : Tup (Arg K) (locTys.map WValTy.toTy))
     (f : Arg K T.i64) (idx : Arg K T.i32) (defLbl : WLabel K KL locTys)
@@ -2139,12 +1634,12 @@ theorem emitBrTable_ss {lt : LegalTarget} (hv : lt.valid = true) (locTys retTys 
         exact mkTrapExpr_ss hv retTys 1#32 f nv nl
 
 theorem lowerSimpleInstr_ss {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLowerCtx)
-    (mb ml f : Arg K T.i64) (locs : Tup (Arg K) (ctx.locTys.map WValTy.toTy))
+    (vc f : Arg K T.i64) (locs : Tup (Arg K) (ctx.locTys.map WValTy.toTy))
     (stk : List (SVal K)) (labs : List (WLabel K KL ctx.locTys)) (instr : WInstr)
     (k : WCont K KL ctx.locTys ctx.retTys)
     (hk : ∀ f' l' s' nv' nl', (toTFlat (k f' l' s') nv' nl').supportsSource lt = true) :
     ∀ nv nl,
-      (toTFlat (lowerSimpleInstr ctx mb ml f locs stk labs instr k) nv nl).supportsSource lt =
+      (toTFlat (lowerSimpleInstr ctx vc f locs stk labs instr k) nv nl).supportsSource lt =
         true := by
   intro nv nl
   have h8 : lt.supportsTy (.bits 8) = true := supportsTy_le64 hv (by omega)
@@ -2265,7 +1760,7 @@ theorem lowerSimpleInstr_ss {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLo
       | some p =>
         rcases p with ⟨i, r⟩
         dsimp only
-        refine emitMemBounds_ss hv ctx.retTys mb ml f i arg width.bytes _
+        refine emitMemBounds_ss hv ctx.retTys vc f i arg width.bytes _
           (fun ptr nv' nl' => ?_) nv nl
         simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
         have hwm : lt.supportsTy width.memTy = true := by
@@ -2289,7 +1784,7 @@ theorem lowerSimpleInstr_ss {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLo
         | some p' =>
           rcases p' with ⟨i, r2⟩
           dsimp only
-          refine emitMemBounds_ss hv ctx.retTys mb ml f i arg width.bytes _
+          refine emitMemBounds_ss hv ctx.retTys vc f i arg width.bytes _
             (fun ptr nv' nl' => ?_) nv nl
           refine emitStoreCast_ss hv htrap srcTy width v _ (fun mv nv'' nl'' => ?_) nv' nl'
           simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
@@ -2302,10 +1797,7 @@ theorem lowerSimpleInstr_ss {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLo
     simp only [lowerSimpleInstr]
     by_cases hm : ctx.hasMem = true
     · simp only [hm, ↓reduceIte]
-      refine tflat_let2_ss lt (.lshr T.i64) ml (.imm _)
-        (by simp [LegalTarget.supportsOpCode, h64]) ?_
-      exact tflat_let1_ss lt (.trunc 64 32) _
-        (by simp [LegalTarget.supportsOpCode, h64, h32]) (hk f locs _ _ _)
+      exact emitMemSize_ss hv vc _ (fun _ nv' nl' => hk f locs _ nv' nl') nv nl
     · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact htrap nv nl
   | memory_grow =>
     simp only [lowerSimpleInstr]
@@ -2316,14 +1808,52 @@ theorem lowerSimpleInstr_ss {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLo
       | some p =>
         rcases p with ⟨d, r⟩
         dsimp only
-        refine tflat_let2_ss lt (.cmp .eq T.i32) d (.imm _)
-          (by simp [LegalTarget.supportsOpCode, h32]) ?_
-        refine tflat_let2_ss lt (.lshr T.i64) ml (.imm _)
-          (by simp [LegalTarget.supportsOpCode, h64]) ?_
-        refine tflat_let1_ss lt (.trunc 64 32) _
-          (by simp [LegalTarget.supportsOpCode, h64, h32]) ?_
-        exact tflat_let3_ss lt (.select T.i32) _ _ (.imm _)
-          (by simp [LegalTarget.supportsOpCode, h32]) (hk f locs _ _ _)
+        exact emitMemGrow_ss hv ctx.retTys ctx.memMaxBytes vc f d _
+          (fun f' _ nv' nl' => hk f' locs _ nv' nl') nv nl
+    · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact htrap nv nl
+  | memory_fill =>
+    simp only [lowerSimpleInstr]
+    by_cases hm : ctx.hasMem = true
+    · simp only [hm, ↓reduceIte]
+      cases pop32 stk with
+      | none => exact htrap nv nl
+      | some p1 =>
+        rcases p1 with ⟨n, r1⟩
+        dsimp only
+        cases pop32 r1 with
+        | none => exact htrap nv nl
+        | some p2 =>
+          rcases p2 with ⟨v, r2⟩
+          dsimp only
+          cases pop32 r2 with
+          | none => exact htrap nv nl
+          | some p3 =>
+            rcases p3 with ⟨d, r3⟩
+            dsimp only
+            exact emitMemFill_ss hv ctx.retTys vc f d v n _
+              (fun f' nv' nl' => hk f' locs r3 nv' nl') nv nl
+    · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact htrap nv nl
+  | memory_copy =>
+    simp only [lowerSimpleInstr]
+    by_cases hm : ctx.hasMem = true
+    · simp only [hm, ↓reduceIte]
+      cases pop32 stk with
+      | none => exact htrap nv nl
+      | some p1 =>
+        rcases p1 with ⟨n, r1⟩
+        dsimp only
+        cases pop32 r1 with
+        | none => exact htrap nv nl
+        | some p2 =>
+          rcases p2 with ⟨s, r2⟩
+          dsimp only
+          cases pop32 r2 with
+          | none => exact htrap nv nl
+          | some p3 =>
+            rcases p3 with ⟨d, r3⟩
+            dsimp only
+            exact emitMemCopy_ss hv ctx.retTys vc f d s n _
+              (fun f' nv' nl' => hk f' locs r3 nv' nl') nv nl
     · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact htrap nv nl
   | i32_const _ => exact hk f locs _ nv nl
   | i64_const _ => exact hk f locs _ nv nl
@@ -2431,17 +1961,17 @@ theorem lowerSimpleInstr_ss {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLo
   | return_ => exact htrap nv nl
 
 theorem lowerSeq_ss_aux {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLowerCtx) :
-    ∀ (sz : Nat) (mb ml f : Arg K T.i64) (locs : Tup (Arg K) (ctx.locTys.map WValTy.toTy))
+    ∀ (sz : Nat) (vc f : Arg K T.i64) (locs : Tup (Arg K) (ctx.locTys.map WValTy.toTy))
       (stk : List (SVal K)) (labs : List (WLabel K KL ctx.locTys))
       (instrs : List WInstr) (_hsz : sizeOf instrs ≤ sz)
       (k : WCont K KL ctx.locTys ctx.retTys),
       (∀ f' l' s' nv' nl', (toTFlat (k f' l' s') nv' nl').supportsSource lt = true) →
       ∀ nv nl,
-        (toTFlat (lowerSeq ctx mb ml f locs stk labs instrs k) nv nl).supportsSource lt = true := by
+        (toTFlat (lowerSeq ctx vc f locs stk labs instrs k) nv nl).supportsSource lt = true := by
   intro sz
   induction sz using Nat.strongRecOn with
   | _ sz ih =>
-    intro mb ml f locs stk labs instrs hsz k hk nv nl
+    intro vc f locs stk labs instrs hsz k hk nv nl
     have htrap : ∀ nv' nl',
         (toTFlat (mkTrapExpr (L := KL) ctx.retTys 1#32 f) nv' nl').supportsSource lt = true :=
       fun nv' nl' => mkTrapExpr_ss hv ctx.retTys 1#32 f nv' nl'
@@ -2508,8 +2038,8 @@ theorem lowerSeq_ss_aux {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLowerC
             simp only [toTFlat, toTBlocks, TFlat.supportsSource, TBlocks.supportsSource,
               labelSig, List.all_cons, List.all_nil, Bool.and_true, Bool.and_eq_true]
             refine ⟨⟨hsig, hsig, ?_⟩, ?_⟩
-            · exact ih _ hszRest' mb ml _ _ _ labs rest (Nat.le_refl _) k hk _ _
-            · refine ih _ hszBody mb ml f locs _ _ body (Nat.le_refl _) _
+            · exact ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk _ _
+            · refine ih _ hszBody vc f locs _ _ body (Nat.le_refl _) _
                 (fun f' l' s' nv' nl' => ?_) _ _
               cases popArgsAux ft.results s' with
               | none => exact mkTrapExpr_ss hv ctx.retTys 1#32 f' nv' nl'
@@ -2536,12 +2066,12 @@ theorem lowerSeq_ss_aux {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLowerC
             simp only [toTFlat, toTBlocks, TFlat.supportsSource, TBlocks.supportsSource,
               labelSig, List.all_cons, List.all_nil, Bool.and_true, Bool.and_eq_true]
             refine ⟨⟨hsigR, hsigR, ?_⟩, ?_⟩
-            · exact ih _ hszRest' mb ml _ _ _ labs rest (Nat.le_refl _) k hk _ _
+            · exact ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk _ _
             · refine ⟨⟨hsigP, hsigP, ?_⟩, hsigP⟩
               refine ⟨by simp [LegalTarget.supportsOpCode, h64],
                 ⟨h32, h64, list_map_toTy_supportsTy hv ctx.retTys⟩,
                 by simp [LegalTarget.supportsOpCode, h64], ?_⟩
-              refine ih _ hszBody mb ml _ _ _ _ body (Nat.le_refl _) _
+              refine ih _ hszBody vc _ _ _ _ body (Nat.le_refl _) _
                 (fun f' l' s' nv' nl' => ?_) _ _
               cases popArgsAux ft.results s' with
               | none => exact mkTrapExpr_ss hv ctx.retTys 1#32 f' nv' nl'
@@ -2573,8 +2103,8 @@ theorem lowerSeq_ss_aux {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLowerC
               simp only [toTFlat, toTBlocks, TFlat.supportsSource, TBlocks.supportsSource,
                 labelSig, List.all_cons, List.all_nil, Bool.and_true, Bool.and_eq_true]
               refine ⟨⟨hsig, hsig, ?_⟩, by simp [LegalTarget.supportsOpCode, h32], ?_, ?_⟩
-              · exact ih _ hszRest' mb ml _ _ _ labs rest (Nat.le_refl _) k hk _ _
-              · refine ih _ hszT mb ml f locs _ _ thenBody (Nat.le_refl _) _
+              · exact ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk _ _
+              · refine ih _ hszT vc f locs _ _ thenBody (Nat.le_refl _) _
                   (fun f' l' s' nv' nl' => ?_) _ _
                 cases popArgsAux ft.results s' with
                 | none => exact mkTrapExpr_ss hv ctx.retTys 1#32 f' nv' nl'
@@ -2583,7 +2113,7 @@ theorem lowerSeq_ss_aux {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLowerC
                   dsimp only
                   simp only [toTFlat, TFlat.supportsSource, List.all_cons, Bool.and_eq_true]
                   exact hsig
-              · refine ih _ hszE mb ml f locs _ _ elseBody (Nat.le_refl _) _
+              · refine ih _ hszE vc f locs _ _ elseBody (Nat.le_refl _) _
                   (fun f' l' s' nv' nl' => ?_) _ _
                 cases popArgsAux ft.results s' with
                 | none => exact mkTrapExpr_ss hv ctx.retTys 1#32 f' nv' nl'
@@ -2595,8 +2125,8 @@ theorem lowerSeq_ss_aux {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLowerC
       | _ =>
         simp only [lowerSeq]
         have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-        exact lowerSimpleInstr_ss hv ctx mb ml f locs stk labs _ _
-          (fun f' l' s' nv' nl' => ih _ hszRest' mb ml f' l' s' labs rest (Nat.le_refl _)
+        exact lowerSimpleInstr_ss hv ctx vc f locs stk labs _ _
+          (fun f' l' s' nv' nl' => ih _ hszRest' vc f' l' s' labs rest (Nat.le_refl _)
             k hk nv' nl') nv nl
 
 theorem lowerFuncBody_supportsSource (m : WModule) (f : WFunc) (ft : WFuncTy)
@@ -2606,13 +2136,14 @@ theorem lowerFuncBody_supportsSource (m : WModule) (f : WFunc) (ft : WFuncTy)
   refine ⟨⟨⟨hv, wasmAbiParams_supportsTy hv ft⟩, wasmRetSig_supportsTy hv ft.results⟩, ?_⟩
   let ctx : WLowerCtx :=
     { types := m.types, funcs := m.funcs, hasMem := m.memory.isSome,
+      memMaxBytes := (m.memory.map WMemSpec.maxBytes).getD 0#64,
       globals := m.globals, locTys := ft.params ++ f.locals, retTys := ft.results }
   have hsig := labelSig_supportsTy_pair hv ctx.locTys ft.results
   have hret := wasmRetSig_supportsTy hv ft.results
   simp only [toTFlat, toTBlocks, TFlat.supportsSource, TBlocks.supportsSource,
     labelSig, List.all_cons, List.all_nil, Bool.and_true, Bool.and_eq_true]
   refine ⟨⟨hsig, hsig, by simpa [toTFlat, TFlat.supportsSource] using hret⟩, ?_⟩
-  refine lowerSeq_ss_aux hv ctx (sizeOf f.body) _ _ _ _ [] _ f.body (Nat.le_refl _) _
+  refine lowerSeq_ss_aux hv ctx (sizeOf f.body) _ _ _ [] _ f.body (Nat.le_refl _) _
     (fun f' _ s' nv' nl' => ?_) _ _
   cases popArgsAux ft.results s' with
   | none => exact mkTrapExpr_ss hv ft.results 1#32 f' nv' nl'
@@ -2653,7 +2184,7 @@ theorem lowerModule_legalSig (m : WModule) {lt : LegalTarget}
   rcases hmem with ⟨f, _, rfl⟩
   simp only [lowerFn, wasmAbiResults, wasmRetSig,
     LegalTarget.legalSig, h32, h64, List.cons_append, List.nil_append]
-  exact ⟨congrArg (T.i64 :: T.i64 :: T.i64 :: ·) (legalSig_map_toTy h32 h64 _),
+  exact ⟨congrArg (T.i64 :: T.i64 :: ·) (legalSig_map_toTy h32 h64 _),
     congrArg (T.i32 :: T.i64 :: ·) (legalSig_map_toTy h32 h64 _)⟩
 
 end SupportsSourceProofs

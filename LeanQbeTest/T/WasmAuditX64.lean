@@ -61,27 +61,27 @@ theorem x64_wasm_host :
     x64Target.Defined x64WasmCert.host "sum_mix" ∧
       x64Target.FnSpec x64WasmCert.host "sum_mix"
         (WasmSandboxEnvAny wasmAuditMod "sum_mix"
-          [i64, i64, i64, i32, i32] [i32, i64, i32])
+          [i64, i64, i32, i32] [i32, i64, i32])
         (x64WasmCert.bound "sum_mix") 0 :=
   x64WasmCert.fnSpec_host_of_legalSigAll (WasmSandboxEnvAny wasmAuditMod)
     wasmQbeMod_acyclic wasmQbeMod_wf x64_wasm_legalSig wasmQbeMod_wp
     (f := lowerFn wasmAuditMod fnSumMix) (by simp [wasmQbeMod, lowerModule, wasmAuditMod])
     (fun args mem Q X X' h =>
-      wasmSandboxEnvAny_monoX "sum_mix" [i64, i64, i64, i32, i32] [i32, i64, i32]
+      wasmSandboxEnvAny_monoX "sum_mix" [i64, i64, i32, i32] [i32, i64, i32]
         args mem Q X X' h)
 
 private theorem x64_wasm_entry_eventually [hh : Host] (k₀ : Nat)
     (hc : x64WasmCert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (wf : WFunc) (hwf : wf ∈ wasmAuditMod.funcs) (htidx : wf.typeIdx = 0)
-    (memBase memLen fuel : BitVec 64) (a0 a1 : BitVec 32)
-    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
-    (hrdi : s.regs.get64 .rdi = memBase)
-    (hrsi : s.regs.get64 .rsi = memLen)
-    (hrdx : s.regs.get64 .rdx = fuel)
-    (hrcx : s.regs.get64 .rcx = BitVec.setWidth 64 a0)
-    (hr8 : s.regs.get64 .r8 = BitVec.setWidth 64 a1)
+    (vmCtx memBase memLen memCap fuel : BitVec 64) (a0 a1 : BitVec 32)
+    (s : MachineData) (ra : Int64) (m₀ : Mem 64) (R : Mem 64 → Prop)
+    (hrdi : s.regs.get64 .rdi = vmCtx)
+    (hrsi : s.regs.get64 .rsi = fuel)
+    (hrdx : s.regs.get64 .rdx = BitVec.setWidth 64 a0)
+    (hrcx : s.regs.get64 .rcx = BitVec.setWidth 64 a1)
     (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
-    (hmem : s.dmem =⋆ region memBase memLen.toNat ⋆
+    (hm₀ : WasmMemInv true vmCtx memBase memLen memCap emp m₀)
+    (hmem : s.dmem =⋆ Eq m₀ ⋆
       (region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound wf.name))
           (x64WasmCert.bound wf.name) ⋆
         cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :
@@ -91,9 +91,10 @@ private theorem x64_wasm_entry_eventually [hh : Host] (k₀ : Nat)
         (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
           st.data.regs.get64 r = s.regs.get64 r) ∧
         st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
-        (st.data.dmem =⋆ region memBase memLen.toNat ⋆
-          region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound wf.name))
-            (x64WasmCert.bound wf.name + 8) ⋆ R) ∧
+        (∃ memLen', memLen.toNat ≤ memLen'.toNat ∧
+          WasmMemInv true vmCtx memBase memLen' memCap
+            (region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound wf.name))
+              (x64WasmCert.bound wf.name + 8) ⋆ R) st.data.dmem) ∧
         ∃ (status res : BitVec 32) (remFuel : BitVec 64),
           (status = 0#32 ∨ status = 1#32 ∨ status = 2#32) ∧
           remFuel.toNat ≤ fuel.toNat ∧
@@ -104,63 +105,55 @@ private theorem x64_wasm_entry_eventually [hh : Host] (k₀ : Nat)
   rcases wf with ⟨nm, ti, locs, bd⟩
   dsimp only at hwf htidx hmem ⊢
   subst htidx
-  have hmem0 : (region memBase memLen.toNat ⋆
-      ((region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound nm))
-          (x64WasmCert.bound nm) ⋆
-        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R)) s.dmem :=
-    sep_cast hmem (by ac_rfl)
-  rcases region_sep_elim hmem0 with ⟨bs, hbsLen, hmEq0⟩
-  have hmEq : (Eq (bs.At memBase) ⋆
-      (region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound nm))
-          (x64WasmCert.bound nm) ⋆
-        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) s.dmem :=
-    sep_cast hmEq0 (by ac_rfl)
-  have hm : region memBase memLen.toNat (bs.At memBase) := ⟨bs, hbsLen, rfl⟩
   have hfnMem : lowerFn wasmAuditMod ⟨nm, 0, locs, bd⟩ ∈ wasmQbeMod.fns :=
     List.mem_map.mpr ⟨⟨nm, 0, locs, bd⟩, hwf, rfl⟩
   have hfn : x64Target.FnSpec hh nm
-      (WasmSandboxEnvAny wasmAuditMod nm [i64, i64, i64, i32, i32] [i32, i64, i32])
+      (WasmSandboxEnvAny wasmAuditMod nm [i64, i64, i32, i32] [i32, i64, i32])
       (x64WasmCert.bound nm) 0 :=
     (x64_wasm_fnspec k₀ hc hu hfnMem).2
-  have hargs : x64Target.ArgsIn (as := [i64, i64, i64, i32, i32])
-      (memBase, memLen, fuel, a0, a1, ()) s :=
+  have hargs : x64Target.ArgsIn (as := [i64, i64, i32, i32])
+      (vmCtx, fuel, a0, a1, ()) s :=
     ⟨_, rfl, .cons ⟨by decide, by simpa using hrdi⟩ (.cons ⟨by decide, by simpa using hrsi⟩
-      (.cons ⟨by decide, by simpa using hrdx⟩ (.cons ⟨by decide, by simpa using hrcx⟩
-        (.cons ⟨by decide, by simpa using hr8⟩ .nil))))⟩
-  have hspec : WasmSandboxEnvAny wasmAuditMod nm [i64, i64, i64, i32, i32] [i32, i64, i32]
-      (memBase, memLen, fuel, a0, a1, ()) (bs.At memBase)
-      (WasmPost true memBase memLen fuel [.i32] emp) (fun _ _ _ _ => False) := by
-    refine ⟨fuel.toNat, ⟨nm, 0, locs, bd⟩, hwf, rfl, rfl, rfl, Nat.le_refl _, emp, ?_,
-      fun _ _ h => h⟩
-    simp only [WasmMemInv, sep_emp]
-    exact hm
-  refine eventually_weaken _ _ _ _ ?_ (x64_of_returns hfn hspec s ra R hargs hsp hmEq)
+      (.cons ⟨by decide, by simpa using hrdx⟩ (.cons ⟨by decide, by simpa using hrcx⟩ .nil)))⟩
+  have hspec : WasmSandboxEnvAny wasmAuditMod nm [i64, i64, i32, i32] [i32, i64, i32]
+      (vmCtx, fuel, a0, a1, ()) m₀
+      (WasmPost true vmCtx memBase memLen memCap fuel [.i32] emp)
+      (fun _ _ _ _ => False) :=
+    ⟨fuel.toNat, ⟨nm, 0, locs, bd⟩, hwf, rfl, rfl, rfl, Nat.le_refl _, memBase, memLen, memCap,
+      emp, hm₀, fun _ _ h => h⟩
+  refine eventually_weaken _ _ _ _ ?_ (x64_of_returns hfn hspec s ra R hargs hsp hmem)
   rintro st ⟨hpc, hcal, hrsp, ⟨st0, rf, r0, ⟨⟩⟩, m', hpost, hrets, hmem'⟩
-  rcases hpost with ⟨hst, hrf, hmInv⟩
-  simp only [WasmMemInv, sep_emp] at hmInv
+  rcases hpost with ⟨hst, hrf, memLen', hlen', hmInv⟩
+  rcases hmInv with ⟨hcap', hsepInv⟩
+  simp only [sep_emp] at hsepInv
   rcases hrets with ⟨locsR, hlocR, hrelR⟩
   have heqR : locsR = (.gpr .rax, .gpr .rdx, .gpr .rcx, ()) := by
     injection hlocR with h1; exact h1.symm
   subst heqR
   cases hrelR; rename_i hrax h1; cases h1; rename_i hrdx h2; cases h2; rename_i hrcx _
-  exact ⟨hpc, hcal, hrsp, sep_mono (fun _ => sep_mono (fun _ e => e ▸ hmInv)) hmem',
-    st0, r0, rf, hst, hrf,
+  refine ⟨hpc, hcal, hrsp, ⟨memLen', hlen', hcap', ?_⟩, st0, r0, rf, hst, hrf,
     by simpa [BitVec.truncate] using congrArg (BitVec.setWidth 32) hrax.2,
     by simpa using hrdx.2,
     by simpa [BitVec.truncate] using congrArg (BitVec.setWidth 32) hrcx.2⟩
+  have hmem'' : ((cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) memLen' ⋆
+      cell64 (vmCtx + 16#64) memCap ⋆ region memBase memCap.toNat) ⋆
+      region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound nm))
+        (x64WasmCert.bound nm + 8) ⋆ R) st.data.dmem :=
+    sep_mono (fun _ => sep_mono (fun _ e => e ▸ hsepInv)) hmem'
+  exact sep_cast hmem'' (by ac_rfl)
 
 /-- Closed Kraken x86-64 memory safety theorem for Wasm loop kernel `sum_mix`. -/
 theorem x64_wasm_sum_safe [hh : Host] (k₀ : Nat)
     (hc : x64WasmCert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    (memBase memLen fuel : BitVec 64) (ptr len : BitVec 32)
-    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
-    (hrdi : s.regs.get64 .rdi = memBase)
-    (hrsi : s.regs.get64 .rsi = memLen)
-    (hrdx : s.regs.get64 .rdx = fuel)
-    (hrcx : s.regs.get64 .rcx = BitVec.setWidth 64 ptr)
-    (hr8 : s.regs.get64 .r8 = BitVec.setWidth 64 len)
+    (vmCtx memBase memLen memCap fuel : BitVec 64) (ptr len : BitVec 32)
+    (s : MachineData) (ra : Int64) (m₀ : Mem 64) (R : Mem 64 → Prop)
+    (hrdi : s.regs.get64 .rdi = vmCtx)
+    (hrsi : s.regs.get64 .rsi = fuel)
+    (hrdx : s.regs.get64 .rdx = BitVec.setWidth 64 ptr)
+    (hrcx : s.regs.get64 .rcx = BitVec.setWidth 64 len)
     (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
-    (hmem : s.dmem =⋆ region memBase memLen.toNat ⋆
+    (hm₀ : WasmMemInv true vmCtx memBase memLen memCap emp m₀)
+    (hmem : s.dmem =⋆ Eq m₀ ⋆
       (region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound "sum_mix"))
           (x64WasmCert.bound "sum_mix") ⋆
         cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :
@@ -170,9 +163,10 @@ theorem x64_wasm_sum_safe [hh : Host] (k₀ : Nat)
         (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
           st.data.regs.get64 r = s.regs.get64 r) ∧
         st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
-        (st.data.dmem =⋆ region memBase memLen.toNat ⋆
-          region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound "sum_mix"))
-            (x64WasmCert.bound "sum_mix" + 8) ⋆ R) ∧
+        (∃ memLen', memLen.toNat ≤ memLen'.toNat ∧
+          WasmMemInv true vmCtx memBase memLen' memCap
+            (region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound "sum_mix"))
+              (x64WasmCert.bound "sum_mix" + 8) ⋆ R) st.data.dmem) ∧
         ∃ (status res : BitVec 32) (remFuel : BitVec 64),
           (status = 0#32 ∨ status = 1#32 ∨ status = 2#32) ∧
           remFuel.toNat ≤ fuel.toNat ∧
@@ -181,20 +175,20 @@ theorem x64_wasm_sum_safe [hh : Host] (k₀ : Nat)
           (st.data.regs.get64 .rcx).truncate 32 = res)
       ⟨s, Labels.label "sum_mix"⟩ :=
   x64_wasm_entry_eventually k₀ hc hu fnSumMix (by simp [wasmAuditMod]) rfl
-    memBase memLen fuel ptr len s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem
+    vmCtx memBase memLen memCap fuel ptr len s ra m₀ R hrdi hrsi hrdx hrcx hsp hm₀ hmem
 
 /-- Closed Kraken x86-64 memory safety theorem for Wasm store/if kernel `write_hash`. -/
 theorem x64_wasm_write_safe [hh : Host] (k₀ : Nat)
     (hc : x64WasmCert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    (memBase memLen fuel : BitVec 64) (ptr word : BitVec 32)
-    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
-    (hrdi : s.regs.get64 .rdi = memBase)
-    (hrsi : s.regs.get64 .rsi = memLen)
-    (hrdx : s.regs.get64 .rdx = fuel)
-    (hrcx : s.regs.get64 .rcx = BitVec.setWidth 64 ptr)
-    (hr8 : s.regs.get64 .r8 = BitVec.setWidth 64 word)
+    (vmCtx memBase memLen memCap fuel : BitVec 64) (ptr word : BitVec 32)
+    (s : MachineData) (ra : Int64) (m₀ : Mem 64) (R : Mem 64 → Prop)
+    (hrdi : s.regs.get64 .rdi = vmCtx)
+    (hrsi : s.regs.get64 .rsi = fuel)
+    (hrdx : s.regs.get64 .rdx = BitVec.setWidth 64 ptr)
+    (hrcx : s.regs.get64 .rcx = BitVec.setWidth 64 word)
     (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
-    (hmem : s.dmem =⋆ region memBase memLen.toNat ⋆
+    (hm₀ : WasmMemInv true vmCtx memBase memLen memCap emp m₀)
+    (hmem : s.dmem =⋆ Eq m₀ ⋆
       (region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound "write_hash"))
           (x64WasmCert.bound "write_hash") ⋆
         cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :
@@ -204,9 +198,10 @@ theorem x64_wasm_write_safe [hh : Host] (k₀ : Nat)
         (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
           st.data.regs.get64 r = s.regs.get64 r) ∧
         st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
-        (st.data.dmem =⋆ region memBase memLen.toNat ⋆
-          region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound "write_hash"))
-            (x64WasmCert.bound "write_hash" + 8) ⋆ R) ∧
+        (∃ memLen', memLen.toNat ≤ memLen'.toNat ∧
+          WasmMemInv true vmCtx memBase memLen' memCap
+            (region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound "write_hash"))
+              (x64WasmCert.bound "write_hash" + 8) ⋆ R) st.data.dmem) ∧
         ∃ (status res : BitVec 32) (remFuel : BitVec 64),
           (status = 0#32 ∨ status = 1#32 ∨ status = 2#32) ∧
           remFuel.toNat ≤ fuel.toNat ∧
@@ -215,36 +210,38 @@ theorem x64_wasm_write_safe [hh : Host] (k₀ : Nat)
           (st.data.regs.get64 .rcx).truncate 32 = res)
       ⟨s, Labels.label "write_hash"⟩ :=
   x64_wasm_entry_eventually k₀ hc hu fnWriteHash (by simp [wasmAuditMod]) rfl
-    memBase memLen fuel ptr word s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem
+    vmCtx memBase memLen memCap fuel ptr word s ra m₀ R hrdi hrsi hrdx hrcx hsp hm₀ hmem
 
 /-- Out-of-bounds Wasm guest call (`memLen = 4`, `len = 16`) still returns safely on x86-64 and
 preserves arbitrary host memory `R`. -/
 theorem x64_wasm_oob_safe [hh : Host] (k₀ : Nat)
     (hc : x64WasmCert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    (memBase fuel : BitVec 64) (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
-    (hrdi : s.regs.get64 .rdi = memBase)
-    (hrsi : s.regs.get64 .rsi = 4#64)
-    (hrdx : s.regs.get64 .rdx = fuel)
-    (hrcx : s.regs.get64 .rcx = BitVec.setWidth 64 0#32)
-    (hr8 : s.regs.get64 .r8 = BitVec.setWidth 64 16#32)
+    (vmCtx memBase memCap fuel : BitVec 64)
+    (s : MachineData) (ra : Int64) (m₀ : Mem 64) (R : Mem 64 → Prop)
+    (hrdi : s.regs.get64 .rdi = vmCtx)
+    (hrsi : s.regs.get64 .rsi = fuel)
+    (hrdx : s.regs.get64 .rdx = BitVec.setWidth 64 0#32)
+    (hrcx : s.regs.get64 .rcx = BitVec.setWidth 64 16#32)
     (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
-    (hmem : s.dmem =⋆ region memBase 4 ⋆
+    (hm₀ : WasmMemInv true vmCtx memBase 4#64 memCap emp m₀)
+    (hmem : s.dmem =⋆ Eq m₀ ⋆
       (region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound "sum_mix"))
           (x64WasmCert.bound "sum_mix") ⋆
         cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :
     Eventually (step1 Host.exe)
       (fun st =>
         st.pc = ra ∧
-        (st.data.dmem =⋆ region memBase 4 ⋆
-          region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound "sum_mix"))
-            (x64WasmCert.bound "sum_mix" + 8) ⋆ R) ∧
+        (∃ memLen', (4#64 : BitVec 64).toNat ≤ memLen'.toNat ∧
+          WasmMemInv true vmCtx memBase memLen' memCap
+            (region (s.regs.get64 .rsp - BitVec.ofNat 64 (x64WasmCert.bound "sum_mix"))
+              (x64WasmCert.bound "sum_mix" + 8) ⋆ R) st.data.dmem) ∧
         ∃ status : BitVec 32,
           (status = 0#32 ∨ status = 1#32 ∨ status = 2#32) ∧
           (st.data.regs.get64 .rax).truncate 32 = status)
       ⟨s, Labels.label "sum_mix"⟩ := by
   refine eventually_weaken _ _ _ _ ?_
-    (x64_wasm_sum_safe k₀ hc hu memBase 4#64 fuel 0#32 16#32 s ra R
-      hrdi hrsi hrdx hrcx hr8 hsp hmem)
+    (x64_wasm_sum_safe k₀ hc hu vmCtx memBase 4#64 memCap fuel 0#32 16#32 s ra m₀ R
+      hrdi hrsi hrdx hrcx hsp hm₀ hmem)
   rintro st ⟨hpc, _, _, hdmem, status, _, _, hst, _, hrax, _, _⟩
   exact ⟨hpc, hdmem, status, hst, hrax⟩
 
