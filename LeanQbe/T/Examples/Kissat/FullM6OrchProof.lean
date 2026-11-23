@@ -44,7 +44,7 @@ open LeanQbe.T.Examples.Kissat.FullM6ProofUtil
 /-! ## 1. `24`-Row Prefix `m6OrchPfxSpecTable` & Metadata -/
 
 /-- `24`-row specification table aligned 1-to-1 with `m6Orch_fns.take 24` (all `noExit`). -/
-def m6OrchPfxSpecTable : List SpecEntry :=
+abbrev m6OrchPfxSpecTable : List SpecEntry :=
   [ ⟨"full_wstack_defrag", [i64], [], Full.fullWstackDefragSpec, true⟩
   , ⟨"full_watch_push", [i64, i32, i32, i32, i32], [.bool], Full.fullWatchPushSpec, true⟩
   , ⟨"full_rescale", [i64], [], Full.fullRescaleSpec, true⟩
