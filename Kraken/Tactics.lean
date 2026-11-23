@@ -113,24 +113,15 @@ def kdeltaBetaOnly (isTarget : Name → Bool) : DSimproc := fun e => do
 
 -- Enable with `set_option trace.Kraken.kstep true`.
 initialize registerTraceClass `Kraken.kstep
+initialize registerTraceClass `Kraken.kstep.loop (inherited := true)
+initialize registerTraceClass `Kraken.kstep.dsimp (inherited := true)
+initialize registerTraceClass `Kraken.kstep.ksimp (inherited := true)
+initialize registerTraceClass `Kraken.kstep.kmem (inherited := true)
 
 initialize registerOption `Kraken.kstep.debug {
   name := `debug
   defValue := false
 }
-
--- Debugging the reduction steps: to easily have a marker that tells us when we've hit the top-level
--- term, we assume prior to running `kstep`, the user does `apply gimmick`. (This also avoids having
--- to reason about whether we're at the top-level term or not -- we never are.)
-@[deprecated]
-def klog : DSimproc := fun e => do
-  -- Trace every top-level term to show the various states of the dsimp
-  -- call.
-  let s := (← get).numSteps
-  /- if s = 789 then -/
-  /-   return .rfl (done := true) -/
-  trace[Kraken.kstep] "step {s} visiting\n{e}"
-  return .rfl
 
 structure KStepConfig
 declare_term_config_elab elabKStepConfig KStepConfig
@@ -180,16 +171,17 @@ def kLiftLets : DSimproc := fun e => do
 def mkDSimpMethods (env : Environment) (withEvalGround : Bool := false) : Sym.DSimp.Methods :=
   let kdsimpDecls := kdeltaBetaOnly (kstepExtension.getState env).contains
   if withEvalGround then
-    { pre := klog >> evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta }
+    { pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta }
   else
-    { pre := klog >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta }
+    { pre := kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta }
 
 def resolveLabelSimproc (thm : Sym.Simp.Theorem) : Sym.Simp.Simproc := fun e => do
   unless e.isAppOfArity `Labels.label? 2 do return .rfl
   withNewMCtxDepth do
     let some result ← thm.pattern.match? e | return .rfl
     let #[_, _, _, .mvar _kMVar, .mvar hkMVar] := result.args | return .rfl
-    -- NOTE: Computing the index `k` through unification (result in `_kMVar`)
+    -- NOTE: Computing the index `k` through unification (result in `_kMVar`).
+    -- We should cache this computation.
     try withDefault hkMVar.refl catch _ => return .rfl
     let args ← result.args.mapM fun arg => Sym.instantiateMVarsS arg
     let us ← result.us.mapM instantiateLevelMVars
@@ -238,40 +230,46 @@ private def getEffectsState : Expr → Option Expr
 /- TODO: Check whether computing `d` by unifying with `refl` the `hd` precondition is any
    slower than just getting it from the program directly.  -/
 public def stepAt? (maxInstrCount : Option (IO.Ref Nat)) (goal : Grind.Goal) :
-  Grind.GrindTacticM (Option Grind.Goal) := do
+    Grind.GrindTacticM (Option Grind.Goal) := do
   if (← maxInstrCount.mapM (·.get)) == some 0 then
     return none
   let stepAtRule ← getOrCreateBackwardRule `step_at
-  let .goals [reflPrecond, mvarId, _d] ← Grind.liftGrindM (stepAtRule.apply goal.mvarId) | throwError m!"Help me!"
+  let .goals [reflPrecond, mvarId, d] ← Grind.liftGrindM (stepAtRule.apply goal.mvarId) | throwError m!"Help me!"
   reflPrecond.refl
+  trace[Kraken.kstep] "stepAt: {Expr.mvar d}"
   return some {goal with mvarId}
 
 /-- Step 1 of `kstep`: apply the `@[kstep]` `Sym.dsimp` rewrites and introduce binders. -/
-def applyKStepDSimp (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal := do
-  let env ← getEnv
-  let dsimpMethods := mkDSimpMethods env
-  let dsimpGroundMethods := mkDSimpMethods env (withEvalGround := true)
-  goal.withContext do
-    let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM <|
-      Sym.dsimp
-        (config := { maxSteps := 1000000 })
-        (methods := dsimpMethods)
-        (← goal.mvarId.getType))
-    let mvarId ← mvarId.replaceTargetDefEq (← Grind.liftGrindM <|
-      Sym.dsimp
-        (config := { maxSteps := 1000000 })
-        (methods := dsimpGroundMethods)
-        (← mvarId.getType))
-    introsIf ({ goal with mvarId })
+def applyKStepDSimp (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
+  withTraceNode `Kraken.kstep.dsimp (fun _ => return m!"applyKStepDSimp") do
+    let env ← getEnv
+    let dsimpMethods := mkDSimpMethods env
+    let dsimpGroundMethods := mkDSimpMethods env (withEvalGround := true)
+    goal.withContext do
+      let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM <|
+        Sym.dsimp
+          (config := { maxSteps := 1000000 })
+          (methods := dsimpMethods)
+          (← goal.mvarId.getType))
+      trace[Kraken.kstep.dsimp] "after dsimp:\n{← mvarId.getType}"
+      let mvarId ← mvarId.replaceTargetDefEq (← Grind.liftGrindM <|
+        Sym.dsimp
+          (config := { maxSteps := 1000000 })
+          (methods := dsimpGroundMethods)
+          (← mvarId.getType))
+      trace[Kraken.kstep.dsimp] "after dsimp (evalGround):\n{← mvarId.getType}"
+      introsIf ({ goal with mvarId })
 
 /-- Step 2 of `kstep`: apply the `@[ksimp]` `Sym.simp` rewrites. -/
 def applyKSimp (simpMethods : Sym.Simp.Methods) (goal : Grind.Goal) :
-    Grind.GrindTacticM (Bool × Grind.Goal) := goal.withContext do
-  Grind.liftGrindM do
-    match ← Sym.simpGoal goal.mvarId simpMethods with
-    | .noProgress => pure (false, goal)
-    | .goal mvarId => pure (true, { goal with mvarId })
-    | .closed => throwError "unexpected"
+    Grind.GrindTacticM (Bool × Grind.Goal) :=
+  withTraceNode `Kraken.kstep.ksimp (fun _ => return m!"applyKSimp") do
+    goal.withContext do
+      Grind.liftGrindM do
+        match ← Sym.simpGoal goal.mvarId simpMethods with
+        | .noProgress => pure (false, goal)
+        | .goal mvarId => pure (true, { goal with mvarId })
+        | .closed => throwError "unexpected"
 
 inductive KMemResult where
   /-- Goal no longer has an `Effects.All` head; stop stepping. -/
@@ -286,7 +284,8 @@ inductive KMemResult where
 /-- Step 3 of `kstep`: match and rewrite using `@[kmem]` separation-logic memory lemmas. -/
 def applyKMem (simpMethods : Sym.Simp.Methods) (goal : Grind.Goal) :
     Grind.GrindTacticM KMemResult :=
-  goal.withContext do
+  withTraceNode `Kraken.kstep.kmem (fun _ => return m!"applyKMem") do
+    goal.withContext do
     let goalT ← goal.mvarId.getType
     let goalT' ← instantiateMVars goalT
     -- No more Effects.All in the goal -- return to the user (we might be done,
@@ -390,58 +389,67 @@ def applyKMem (simpMethods : Sym.Simp.Methods) (goal : Grind.Goal) :
 
     return .progress goal
 
+inductive KStepLoop.Step where
+  | continue (goal : Grind.Goal)
+  | done (res : Grind.Goal × List Grind.Goal)
+
 partial def kstepLoop
     (config : KStepConfig)
     (maxInstrCount : Option (IO.Ref Nat))
     (goal : Grind.Goal) : Grind.GrindTacticM (Grind.Goal × List Grind.Goal) := do
-  -- STEP 1: kstep dsimp
-  let goal ← applyKStepDSimp goal
-  if (← getOptions).get `debug (defVal := false) then
-    goal.withContext do
-      logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
+  let next : KStepLoop.Step ← withTraceNode `Kraken.kstep.loop (fun _ => return m!"kstepLoop") do
+    -- STEP 1: kstep dsimp
+    let goal ← applyKStepDSimp goal
+    if (← getOptions).get `debug (defVal := false) then
+      goal.withContext do
+        logInfo m!"MAIN LOOP, after step 1: {goal.mvarId}"
 
-  -- STEP 2: ksimp
-  let simpMethods ← mkSimpMethods
-  let (keepGoingSimp, goal) ← applyKSimp simpMethods goal
-  if (← getOptions).get `debug (defVal := false) then
-    goal.withContext do
-      let t ← goal.mvarId.getType
-      logInfo m!"MAIN LOOP, after step 2: {t}"
+    -- STEP 2: ksimp
+    let simpMethods ← mkSimpMethods
+    let (keepGoingSimp, goal) ← applyKSimp simpMethods goal
+    if (← getOptions).get `debug (defVal := false) then
+      goal.withContext do
+        let t ← goal.mvarId.getType
+        logInfo m!"MAIN LOOP, after step 2: {t}"
 
-  if let some goal' ← stepAt? maxInstrCount goal then
-    return ← kstepLoop config maxInstrCount goal'
+    if let some goal' ← stepAt? maxInstrCount goal then
+      return .continue goal'
 
-  -- STEP 3: kmem lemmas
-  match ← applyKMem simpMethods goal with
-  | .done goal => pure (goal, [])
-  | .subgoals goal subGoals => pure (goal, subGoals)
-  | .progress goal =>
-    logInfo m!"kstep: keepGoing = {keepGoingSimp}"
-    kstepLoop config maxInstrCount goal
-  | .noMatch goal =>
-    logInfo m!"kstep: keepGoing = {keepGoingSimp}"
-    if keepGoingSimp then
-      kstepLoop config maxInstrCount goal
-    else
-      pure (goal, [])
+    -- STEP 3: kmem lemmas
+    match ← applyKMem simpMethods goal with
+    | .done goal => pure (.done (goal, []))
+    | .subgoals goal subGoals => pure (.done (goal, subGoals))
+    | .progress goal =>
+      logInfo m!"kstep: keepGoing = {keepGoingSimp}"
+      pure (.continue goal)
+    | .noMatch goal =>
+      logInfo m!"kstep: keepGoing = {keepGoingSimp}"
+      if keepGoingSimp then
+        pure (.continue goal)
+      else
+        pure (.done (goal, []))
+  match next with
+  | .continue goal' => kstepLoop config maxInstrCount goal'
+  | .done res => pure res
 
-def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.GrindTacticM Unit := do
-  -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
-  -- we only ever use `goal` and never let-bind mvarId.
-  let goal : Grind.Goal ← Grind.getMainGoal
-  /- NOTE: Why is `maxInstrCount` a `IO.Ref`? -/
-  let maxInstrCount ← maxSteps?.mapM (IO.mkRef ·)
+def evalSymKStepCore (config : KStepConfig) (maxSteps? : Option Nat) : Grind.GrindTacticM Unit :=
+  withTraceNode `Kraken.kstep (fun _ => return m!"kstep") do
+    -- A `sym` tactic operates over a pair of the grind state and an MVarId. To avoid scope mistakes,
+    -- we only ever use `goal` and never let-bind mvarId.
+    let goal : Grind.Goal ← Grind.getMainGoal
+    /- NOTE: Why is `maxInstrCount` a `IO.Ref`? -/
+    let maxInstrCount ← maxSteps?.mapM (IO.mkRef ·)
 
-  let (goal, subGoals) ← kstepLoop config maxInstrCount goal
+    let (goal, subGoals) ← kstepLoop config maxInstrCount goal
 
-  logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
+    logInfo m!"END KSTEP: {subGoals.length} sub-goals left"
 
-  if let .some r := maxInstrCount then
-    let remaining ← r.get
-    if remaining > 0 then
-      throwError m!"kstep could not step through the remaining {remaining} steps"
+    if let .some r := maxInstrCount then
+      let remaining ← r.get
+      if remaining > 0 then
+        throwError m!"kstep could not step through the remaining {remaining} steps"
 
-  Grind.setGoals (subGoals ++ [ goal ])
+    Grind.setGoals (subGoals ++ [ goal ])
 
 private def parseKStepArgs (stx : Syntax) : TermElabM (KStepConfig × Option Nat) := do
   let config ← elabKStepConfig stx[1]
