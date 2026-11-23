@@ -545,6 +545,26 @@ def evalChunkInlData (M : Module) (policy : InlinePolicy)
   let (ms, fs, sEnd) := go seenPre candsPre slice
   { matFns := ms, candFlags := fs, seenOut := sEnd }
 
+private partial def peelListRange (listE : Lean.Expr) (start count : Nat)
+    (bounded : Bool := true) : MetaM (Array Lean.Expr) := do
+  let mut cur := listE
+  let mut idx : Nat := 0
+  let stop := start + count
+  let mut out : Array Lean.Expr := #[]
+  while !bounded || idx < stop do
+    let w ← whnf cur
+    if w.isAppOfArity ``List.nil 1 then
+      return out
+    else if w.isAppOfArity ``List.cons 3 then
+      let args := w.getAppArgs
+      if idx >= start then
+        out := out.push args[1]!
+      cur := args[2]!
+      idx := idx + 1
+    else
+      throwError "inline_mod_chunk!: expected list cons/nil at index {idx}, got {w}"
+  return out
+
 private partial def resolveConstLitElems (constNm : Name) : MetaM (List Lean.Expr) := do
   let env ← getEnv
   let some cinfo := env.find? constNm
@@ -714,15 +734,22 @@ scoped elab_rules : command
         match prevNm? with
         | none => pure []
         | some p => resolveConstLitElems (p ++ `candsOut)
+      let sliceFnExprs ← liftTermElabM do
+        if chunkData.candFlags.any id then
+          peelListRange fnsE aN nN
+        else
+          pure #[]
       let mut j : Nat := 0
       for ok in chunkData.candFlags do
         if ok then
           let normE ← liftTermElabM do
-            let fnE := mkAppN (Lean.mkConst ``LeanQbe.T.fnAt) #[fnsE, mkNatLit (aN + j)]
+            let fnE := sliceFnExprs[j]!
             let prevListE := mkListLit .one fnTy curCandConsts
             let candsFnE := mkAppN (Lean.mkConst ``LeanQbe.T.selectCandsForCaller)
               #[policyE, prevListE, fnE]
-            let inlFnE := mkApp2 (Lean.mkConst ``LeanQbe.T.Fn.inline) candsFnE fnE
+            let selCands ← peelListRange candsFnE 0 0 false
+            let selListE := mkListLit .one fnTy selCands.toList
+            let inlFnE := mkApp2 (Lean.mkConst ``LeanQbe.T.Fn.inline) selListE fnE
             normPhoasFn inlFnE
           let cNm := chunkNm ++ `cand ++ Name.mkSimple s!"c{j}"
           liftCoreM <| addCertDef cNm fnTy normE false
@@ -808,7 +835,7 @@ scoped elab_rules : command
       let extsEq := mkApp2 (Lean.mkConst ``Eq.refl [.one])
         (mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.Extern))
         (listExternToExpr baseData.externs)
-      let exitsEq := mkApp2 (Lean.mkConst ``Eq.refl [.zero])
+      let exitsEq := mkApp2 (Lean.mkConst ``Eq.refl [.one])
         (mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.Sym))
         (listSymToExpr baseData.exits)
       let modEqPf := mkApp5 (Lean.mkConst ``LeanQbe.T.Module.eq_of_fields)

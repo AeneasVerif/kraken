@@ -135,9 +135,9 @@ theorem inlRest_last (policy : InlinePolicy) (siteCounts loopCounts : List (Sym 
     List.take_of_length_le (by rw [List.length_drop]; omega)
   rw [htake]
 
-/-- Helper for `inline_mod_join!`: prepend a chunk prefix equality across `++`. -/
-theorem inlRest_prepend_eq {α : Type _} (lhs pre mid rhs : List α)
-    (h1 : lhs = pre ++ mid) (h2 : mid = rhs) : lhs = pre ++ rhs := by
+/-- Helper for `inline_mod_join!`: prepend a chunk prefix equality across `List.append`. -/
+theorem inlRest_prepend_eq {α : Type _} {lhs pre mid rhs : List α}
+    (h1 : lhs = List.append pre mid) (h2 : mid = rhs) : lhs = List.append pre rhs := by
   rw [h1, h2]
 
 /-- Module extensionality from field equalities. -/
