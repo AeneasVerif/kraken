@@ -173,6 +173,10 @@ public import LeanQbe.T.Examples.Kissat.FullM7HotHop1
 public import LeanQbe.T.Examples.Kissat.FullM7HotHop1Proof
 public import LeanQbe.T.Examples.Kissat.FullM7HotTernary
 public import LeanQbe.T.Examples.Kissat.FullM7HotTernaryProof
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrink
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof0
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof1
 public import LeanQbe.T.Examples.Kissat.FullM7Reorder
 public import LeanQbe.T.Examples.Kissat.FullM7ReorderProof
 public import LeanQbe.T.Examples.Kissat.FullM7Search
