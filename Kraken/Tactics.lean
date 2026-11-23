@@ -32,67 +32,67 @@ elab "kprologue" p:term "with" s:term : tactic => withMainContext do
 
 --------------------------------------------------------------------------------
 
--- lift_lets
-
--- #check Sym.liftLets
 
 open Sym Sym.DSimp
 
-@[deprecated]
-partial def peelLambdaLets (f : Expr) (args : Array Expr) (fvars : Array Expr)
-    (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
+section
+variable {α : Type}
+
+private partial def peelLambdaLetsImp (f : Expr) (args : Array Expr) (fvars : Array Expr)
+    (k : Expr → Array Expr → MetaM α) : MetaM α := do
   -- (fun y => let x = e1 in e2) () ~~> let x = e1 in (fun y => e2) ()
   match f with
   | .lam binderName binderType body binderInfo =>
     match body with
-    | .letE letName letType letVal letBody _ =>
+    | .letE letName letType letVal letBody nondep =>
       if !letType.hasLooseBVar 0 && !letVal.hasLooseBVar 0 then
-        withLetDecl letName letType letVal fun fvarLet => do
+        withLetDecl letName letType letVal (nondep := nondep) fun fvarLet => do
           -- substitute open variable x for 0 in e2, shifting all other variables by 1
           let instBody : Expr := letBody.instantiate1 fvarLet
           -- meaning we can close in DeBruijn directly
           let newLambda := .lam binderName binderType instBody binderInfo
           -- and add our open variable to the list of variables to be folded over
-          peelLambdaLets newLambda args (fvars.push fvarLet) k
+          peelLambdaLetsImp newLambda args (fvars.push fvarLet) k
       else
         k (mkAppN f args) fvars
     | _ => k (mkAppN f args) fvars
   | _ => k (mkAppN f args) fvars
 
-@[deprecated]
-partial def peelLets (e : Expr) (fvars : Array Expr) (k : Expr → Array Expr → DSimpM Result) : DSimpM Result := do
+private partial def peelLetsImp (e : Expr) (fvars : Array Expr) (k : Expr → Array Expr → MetaM α) : MetaM α := do
   match e with
-  | .letE name type val body _ =>
-    withLetDecl name type val fun fvar =>
-      peelLets (body.instantiate1 fvar) (fvars.push fvar) k
+  | .letE name type val body nondep =>
+    withLetDecl name type val (nondep := nondep) fun fvar =>
+      peelLetsImp (body.instantiate1 fvar) (fvars.push fvar) k
   | _ =>
     if e.isApp && e.getAppFn.isLambda then
-      peelLambdaLets e.getAppFn e.getAppArgs fvars k
+      peelLambdaLetsImp e.getAppFn e.getAppArgs fvars k
     else
       k e fvars
 
-@[deprecated]
-partial def peelArgsLets (args : Array Expr) (i : Nat) (peeled : Array Expr) (fvars : Array Expr) (k : Array Expr → Array Expr → DSimpM Result) : DSimpM Result := do
+private partial def peelArgsLetsImp (args : Array Expr) (i : Nat) (peeled : Array Expr) (fvars : Array Expr) (k : Array Expr → Array Expr → MetaM α) : MetaM α := do
   if h : i < args.size then
     let arg := args[i]
-    peelLets arg fvars fun arg' fvars' =>
-      peelArgsLets args (i + 1) (peeled.push arg') fvars' k
+    peelLetsImp arg fvars fun arg' fvars' =>
+      peelArgsLetsImp args (i + 1) (peeled.push arg') fvars' k
   else
-    k peeled fvars
+    k fvars peeled
+
+def peelArgsLets {n : Type → Type} [MonadControlT MetaM n] [Monad n] (expr : Expr)
+    (k : Array Expr → Expr → Array Expr → n α) : n α :=
+  expr.withApp fun f args => map2MetaM (fun k => peelArgsLetsImp args 0 #[] #[] k) (k · f)
+
+end
 
 def kdeltaBetaOnly (isTarget : Name → Bool) : DSimproc := fun e => do
   -- This focuses on application nodes.
   unless e.isApp && isTarget e.getAppFn'.constName do return .rfl
-
-  let f := e.getAppFn'
-  let args := e.getAppArgs
 
   -- In order to unblock reduction, Meta.unfoldDefinition will happily inline
   -- away let-bindings to make e.g. a constructor appear as an argument to a
   -- match recursor. We intervene ahead of time, and hoist the lets that appear in
   -- argument position, which we know for a fact happens quite a bunch in our
   -- semantics. Concretely: `f (let x = ... in arg)` => `let x = ... in f arg`.
-  peelArgsLets args 0 #[] #[] fun (args : Array Expr) (fvars : Array Expr) => do
+  peelArgsLets e fun (fvars : Array Expr) f (args : Array Expr) => do
     -- Application, *sans* the let-bindings in the arguments.
     let e_rebuilt := mkAppN f args
     -- Remember that `Meta.unfoldDefinition` is "smart" and wants to see the whole
@@ -101,11 +101,11 @@ def kdeltaBetaOnly (isTarget : Name → Bool) : DSimproc := fun e => do
     if let some e' ← Meta.unfoldDefinition? e_rebuilt true then
       let e' ← shareCommon e'
       let e'' ← betaRevS e'.getAppFn e'.getAppRevArgs
-      let e'' ← mkLetFVars fvars e''
+      let e'' ← mkLetFVars fvars e'' (generalizeNondepLet := false)
       return .step e''
     else if fvars.size > 0 then
       -- Can't reduce application, but we should at least hoist the lets!
-      let e ← mkLetFVars fvars e_rebuilt
+      let e ← mkLetFVars fvars e_rebuilt (generalizeNondepLet := false)
       return .step e
     else
       -- Really nothing to do here.
@@ -145,7 +145,7 @@ def kdsimpProj : DSimproc := fun e => do
   let f := e.getAppFn
   let .const declName _ := f | return .rfl
   if declName == `Labels.label? then return .rfl
-  let some _projInfo ← getProjectionFnInfo? declName | return .rfl
+  unless ← isProjectionFn declName do return .rfl
   let reduceProjCont? (e? : Option Expr) : DSimpM Result := do
     let some e := e? | return .rfl
     match (← reduceProj? e.getAppFn) with
@@ -153,20 +153,6 @@ def kdsimpProj : DSimproc := fun e => do
     | none   => return .rfl
   -- TODO: special support for instances?
   reduceProjCont? (← unfoldDefinition? e)
-
-@[deprecated Sym.liftLets]
-def kLiftLets : DSimproc := fun e => do
-  -- We only lift lets to the top-level (which is always an application of
-  -- Effects.all)
-  unless e.isApp && e.getAppFn'.isConstOf `Effects.All do return .rfl
-
-  let (es, st) ← ExtractLets.extract #[e] |>.run {} |>.run' {} |>.run { givenNames := [] }
-  unless st.decls.size > 0 do return .rfl
-
-  let e' := Meta.ExtractLets.mkLetDecls st.decls es[0]!
-  let e' ← Sym.share e'
-  /- logInfo m!"liftLets produces {e'}" -/
-  return .step e'
 
 def mkDSimpMethods (env : Environment) (withEvalGround : Bool := false) : Sym.DSimp.Methods :=
   let kdsimpDecls := kdeltaBetaOnly (kstepExtension.getState env).contains
