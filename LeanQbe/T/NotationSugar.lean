@@ -191,9 +191,10 @@ meta def mkFloatTy : Fmt → Lean.Expr
 meta def mkPairTy (a b : Lean.Expr) : Lean.Expr :=
   mkApp2 (Lean.mkConst ``LeanQbe.T.Ty.pair) a b
 
-meta def listLit (elemTy : Lean.Expr) (es : List Lean.Expr) : Lean.Expr :=
-  es.foldr (fun e acc => mkApp3 (Lean.mkConst ``List.cons [.zero]) elemTy e acc)
-    (mkApp (Lean.mkConst ``List.nil [.zero]) elemTy)
+meta def listLit (elemTy : Lean.Expr) (es : List Lean.Expr) (lvl : Lean.Level := .zero) :
+    Lean.Expr :=
+  es.foldr (fun e acc => mkApp3 (Lean.mkConst ``List.cons [lvl]) elemTy e acc)
+    (mkApp (Lean.mkConst ``List.nil [lvl]) elemTy)
 
 meta def mkTupTy (elemKind f : Lean.Expr) (tys : List Lean.Expr) : Lean.Expr :=
   mkApp3 (Lean.mkConst ``LeanQbe.T.Tup) elemKind f (listLit elemKind tys)

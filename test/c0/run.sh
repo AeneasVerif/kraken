@@ -27,7 +27,8 @@ timeout 60 gcc $C99_FLAGS "$ROOT/test/c0/test_layout_check.c" -o "$OUT/layout_gc
 timeout 60 "$OUT/layout_gcc_c99"
 timeout 60 gcc $C11_FLAGS "$ROOT/test/c0/test_layout_check.c" -o "$OUT/layout_gcc_c11"
 timeout 60 "$OUT/layout_gcc_c11"
-timeout 60 clang $C99_FLAGS -fsanitize=undefined,address "$ROOT/test/c0/test_layout_check.c" -o "$OUT/layout_clang"
+timeout 60 clang $C99_FLAGS -fsanitize=undefined,address \
+  "$ROOT/test/c0/test_layout_check.c" -o "$OUT/layout_clang"
 timeout 60 "$OUT/layout_clang"
 
 cat > "$OUT/d2_main.cpp" <<'EOF'
@@ -36,7 +37,8 @@ cat > "$OUT/d2_main.cpp" <<'EOF'
 int main() { return run_d2_tests(); }
 EOF
 
-echo "== 3. (D2) compile native C99 fixtures & run C++20 differential suite (gcc+g++ and clang+clang++ ASan/UBSan) =="
+echo "== 3. (D2) compile native C99 fixtures & run C++20 differential suite =="
+echo "   (gcc+g++ and clang+clang++ ASan/UBSan)"
 for cc_pair in "gcc:g++:" "clang:clang++:-fsanitize=undefined,address"; do
   IFS=':' read -r CC CXX EXTRA <<< "$cc_pair"
   echo "--- [$CC / $CXX ${EXTRA:-O2}] ---"
@@ -61,7 +63,11 @@ import concurrent.futures, glob, os, re, struct, subprocess, sys
 ROOT, OUT = sys.argv[1], sys.argv[2]
 PDIR = os.path.join(OUT, "probes")
 os.makedirs(PDIR, exist_ok=True)
-WIDTH = {"u8": 8, "u16": 16, "u32": 32, "u64": 64, "i8": 8, "i16": 16, "i32": 32, "i64": 64, "bool": 1, "f64": 64}
+WIDTH = {
+    "u8": 8, "u16": 16, "u32": 32, "u64": 64,
+    "i8": 8, "i16": 16, "i32": 32, "i64": 64,
+    "bool": 1, "f64": 64,
+}
 
 # Expected frontend rejections (negative tests for excluded/unsupported C constructs)
 EXPECTED_REJ = {
@@ -71,9 +77,11 @@ NOT_REJ = {
     "rej_decl_multi_noinit", "rej_define_expr", "rej_empty_ret",
     "rej_ifelse_all_ret_loop", "rej_sizeof_var",
 }
-# N8/N10 probes: lowered matches C99/IEEE-754 clang (differs only on gcc 40-bit bf extension or gcc -O2 NaN bug)
+# N8/N10 probes: lowered matches C99/IEEE-754 clang (differs only on gcc 40-bit bf extension
+# or gcc -O2 NaN bug)
 USE_CLANG_REF = {"bf1", "bf_promo", "bf_signed", "y_float"}
-# Probes whose buffer dump embeds process-local pointer addresses (compare return values; pointer parity covered in D2)
+# Probes whose buffer dump embeds process-local pointer addresses (compare return values;
+# pointer parity covered in D2)
 PTR_IN_BUF = {"x_list", "x_ptrptr"}
 
 def parse_specs(path):
@@ -83,7 +91,10 @@ def parse_specs(path):
         if not m:
             continue
         fn, ret, ats, sets = m.group(1), m.group(2), m.group(3).split(), m.group(4)
-        rets = [] if ret == "void" else (ret.strip("()").split(",") if ret.startswith("(") else [ret])
+        rets = (
+            [] if ret == "void" else
+            (ret.strip("()").split(",") if ret.startswith("(") else [ret])
+        )
         calls = []
         for cs in sets.split("|"):
             cs = cs.strip()
@@ -113,19 +124,27 @@ def scalar_u(ty, v):
 def gen_driver(name, specs, cpp):
     L = []
     if cpp:
-        L += ["#define TQBE_CATCH_UB 1", '#include "tqbe_rt.hpp"', f'#include "{name}.hpp"', "#include <tuple>"]
+        L += [
+            "#define TQBE_CATCH_UB 1", '#include "tqbe_rt.hpp"',
+            f'#include "{name}.hpp"', "#include <tuple>",
+        ]
     else:
         L += [f'#include "{ROOT}/test/c0/probes/{name}.c"']
     L += ["#include <stdio.h>", "#include <stdlib.h>", "#include <string.h>", "#include <stdint.h>"]
     if cpp:
         L += [
-            "template<size_t N> static unsigned long long val(::tqbe::bits<N> b){ return b.data; }",
+            "template<size_t N> static unsigned long long val(::tqbe::bits<N> b){ "
+            "return b.data; }",
             "static unsigned long long val(bool b){ return b; }",
             "static unsigned long long val(::tqbe::fval<::tqbe::Fmt::d> f){ return f.raw.data; }",
-            "template<class... X> static void pr(const std::tuple<X...>& t){ std::apply([](auto&... x){ ((printf(\" %llx\", val(x))), ...); }, t); }",
+            "template<class... X> static void pr(const std::tuple<X...>& t){ "
+            "std::apply([](auto&... x){ ((printf(\" %llx\", val(x))), ...); }, t); }",
             "template<class X> static void pr(const X& x){ printf(\" %llx\", val(x)); }",
         ]
-    L += ["static void dump(const char*nm, const unsigned char*b, size_t n){ printf(\" %s=\", nm); for(size_t i=0;i<n;i++) printf(\"%02x\", b[i]); }"]
+    L += [
+        "static void dump(const char*nm, const unsigned char*b, size_t n){ "
+        "printf(\" %s=\", nm); for(size_t i=0;i<n;i++) printf(\"%02x\", b[i]); }"
+    ]
     L += ["int main(void){"]
     idx = 0
     for fn, rets, ats, calls in specs:
@@ -140,7 +159,11 @@ def gen_driver(name, specs, cpp):
                     data, off = buf_bytes(v)
                     n = len(data)
                     init = ",".join(str(b) for b in data)
-                    L.append(f"  static const unsigned char i{k}[] = {{{init}}}; unsigned char *b{k} = (unsigned char*)malloc({max(n,1)}); memcpy(b{k}, i{k}, {n});")
+                    L.append(
+                        f"  static const unsigned char i{k}[] = {{{init}}}; "
+                        f"unsigned char *b{k} = (unsigned char*)malloc({max(n,1)}); "
+                        f"memcpy(b{k}, i{k}, {n});"
+                    )
                     bufs.append((k, n))
                     if cpp:
                         L.append(f"  mem.map_bytes((uint64_t)(uintptr_t)b{k}, b{k}, {n});")
@@ -150,23 +173,56 @@ def gen_driver(name, specs, cpp):
                 else:
                     u = scalar_u(ty, v)
                     if cpp:
-                        args.append(("true" if u else "false") if ty == "bool" else (f"::tqbe::fval<::tqbe::Fmt::d>::from_u64({u}ULL)" if ty == "f64" else f"::tqbe::bits<{WIDTH[ty]}>({u}ULL)"))
+                        if ty == "bool":
+                            val_str = "true" if u else "false"
+                        elif ty == "f64":
+                            val_str = f"::tqbe::fval<::tqbe::Fmt::d>::from_u64({u}ULL)"
+                        else:
+                            val_str = f"::tqbe::bits<{WIDTH[ty]}>({u}ULL)"
+                        args.append(val_str)
                     else:
                         if ty == "f64":
-                            L.append(f"  double d{k}; {{ uint64_t t = {u}ULL; memcpy(&d{k}, &t, 8); }}")
+                            L.append(
+                                f"  double d{k}; {{ uint64_t t = {u}ULL; "
+                                f"memcpy(&d{k}, &t, 8); }}"
+                            )
                             args.append(f"d{k}")
                         elif ty == "bool":
                             args.append("true" if u else "false")
                         else:
                             args.append(f"({ty}){u}ULL")
             if cpp:
-                cpp_kw = {"alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const", "consteval", "constexpr", "constinit", "const_cast", "continue", "co_await", "co_return", "co_yield", "decltype", "default", "delete", "do", "double", "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private", "protected", "public", "register", "reinterpret_cast", "requires", "return", "short", "signed", "sizeof", "static", "static_assert", "static_cast", "struct", "switch", "template", "this", "thread_local", "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq"}
+                cpp_kw = {
+                    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor",
+                    "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t",
+                    "class", "compl", "concept", "const", "consteval", "constexpr", "constinit",
+                    "const_cast", "continue", "co_await", "co_return", "co_yield", "decltype",
+                    "default", "delete", "do", "double", "dynamic_cast", "else", "enum",
+                    "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
+                    "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept",
+                    "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private", "protected",
+                    "public", "register", "reinterpret_cast", "requires", "return", "short",
+                    "signed", "sizeof", "static", "static_assert", "static_cast", "struct",
+                    "switch", "template", "this", "thread_local", "throw", "true", "try",
+                    "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual",
+                    "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
+                }
                 cpp_fn = f"fn_{fn}" if fn in cpp_kw else fn
                 call = f"c0p_{name}::{cpp_fn}({', '.join(['mem'] + args)})"
                 L.append(f"  try {{ auto r = {call}; pr(r);")
                 for k, n in bufs:
-                    L.append(f"  {{ unsigned char o[{max(n,1)}]; for (size_t i=0;i<{n};i++) o[i]=mem.read_byte((uint64_t)(uintptr_t)b{k}+i); dump(\"b{k}\", o, {n}); }}")
-                L.append("  } catch (const ::tqbe::UbException& e) { printf(\" UB(%s)\", e.what()); } catch (const ::tqbe::ExitException& e) { printf(\" EXIT(%s)\", e.target.c_str()); }")
+                    L.append(
+                        f"  {{ unsigned char o[{max(n,1)}]; "
+                        f"for (size_t i=0;i<{n};i++) "
+                        f"o[i]=mem.read_byte((uint64_t)(uintptr_t)b{k}+i); "
+                        f"dump(\"b{k}\", o, {n}); }}"
+                    )
+                L.append(
+                    "  } catch (const ::tqbe::UbException& e) { "
+                    "printf(\" UB(%s)\", e.what()); "
+                    "} catch (const ::tqbe::ExitException& e) { "
+                    "printf(\" EXIT(%s)\", e.target.c_str()); }"
+                )
             else:
                 call = f"{fn}({', '.join(args)})"
                 if not rets:
@@ -174,15 +230,27 @@ def gen_driver(name, specs, cpp):
                 elif len(rets) == 1:
                     rt = rets[0]
                     if rt == "f64":
-                        L.append(f"  {{ double r = {call}; uint64_t t; memcpy(&t,&r,8); printf(\" %llx\", (unsigned long long)t); }}")
+                        L.append(
+                            f"  {{ double r = {call}; uint64_t t; "
+                            f"memcpy(&t,&r,8); printf(\" %llx\", (unsigned long long)t); }}"
+                        )
                     elif rt == "bool":
-                        L.append(f"  {{ bool r = {call}; printf(\" %llx\", (unsigned long long)r); }}")
+                        L.append(
+                            f"  {{ bool r = {call}; "
+                            f"printf(\" %llx\", (unsigned long long)r); }}"
+                        )
                     else:
-                        L.append(f"  {{ {rt} r = {call}; printf(\" %llx\", (unsigned long long)(u{WIDTH[rt]})r); }}")
+                        L.append(
+                            f"  {{ {rt} r = {call}; "
+                            f"printf(\" %llx\", (unsigned long long)(u{WIDTH[rt]})r); }}"
+                        )
                 else:
                     L.append(f"  {{ __typeof__({call}) r = {call};")
                     for j, rt in enumerate(rets):
-                        cast = "(unsigned long long)" if rt == "bool" else f"(unsigned long long)(u{WIDTH[rt]})"
+                        cast = (
+                            "(unsigned long long)" if rt == "bool"
+                            else f"(unsigned long long)(u{WIDTH[rt]})"
+                        )
                         L.append(f"    printf(\" %llx\", {cast}r._{j});")
                     L.append("  }")
                 for k, n in bufs:
@@ -204,7 +272,9 @@ def emitNs (path ns : String) (fns : List Fn) : IO Unit := do
   | .ok symMap =>
     let decls := String.join (fns.map (PrintCpp.ppFnDecl symMap))
     let defs := String.intercalate "\\n" (fns.map (PrintCpp.ppFn symMap))
-    IO.FS.writeFile path ("#pragma once\\n#include \\"tqbe_rt.hpp\\"\\nnamespace " ++ ns ++ " {\\n" ++ decls ++ "\\n" ++ defs ++ "\\n}\\n")
+    IO.FS.writeFile path (
+      "#pragma once\\n#include \\"tqbe_rt.hpp\\"\\nnamespace " ++ ns ++ " {\\n"
+      ++ decls ++ "\\n" ++ defs ++ "\\n}\\n")
 """
 linemap = {}
 for n in names:
@@ -212,12 +282,20 @@ for n in names:
     if os.path.exists(hpp):
         os.remove(hpp)
     ln = lean.count("\n") + 1
-    lean += f'namespace P_{n}\nc0_file! p "{ROOT}/test/c0/probes/{n}.c"\n#eval emitNs "{hpp}" "c0p_{n}" p_fns\nend P_{n}\n'
+    lean += (
+        f'namespace P_{n}\n'
+        f'c0_file! p "{ROOT}/test/c0/probes/{n}.c"\n'
+        f'#eval emitNs "{hpp}" "c0p_{n}" p_fns\n'
+        f'end P_{n}\n'
+    )
     linemap[ln + 1] = n
 
 lean_file = os.path.join(PDIR, "all_probes.lean")
 open(lean_file, "w").write(lean)
-r = subprocess.run(["timeout", "240", "lake", "env", "lean", lean_file], cwd=ROOT, capture_output=True, text=True)
+r = subprocess.run(
+    ["timeout", "240", "lake", "env", "lean", lean_file],
+    cwd=ROOT, capture_output=True, text=True,
+)
 errs = {}
 cur = None
 for ln in (r.stdout + r.stderr).split("\n"):
@@ -248,10 +326,17 @@ def check_one(n):
     open(os.path.join(PDIR, f"{n}_low.cpp"), "w").write(low_src)
     cc = "clang" if n in USE_CLANG_REF else "gcc"
     inc = ["-I", os.path.join(ROOT, "LeanQbe/T/Frontend/C0")]
-    c1 = subprocess.run(["timeout", "60", cc, "-std=c99", "-O2", "-fwrapv", "-fno-strict-aliasing", "-w"] + inc + [os.path.join(PDIR, f"{n}_nat.c"), "-o", os.path.join(PDIR, f"{n}_nat")], capture_output=True, text=True)
+    c1 = subprocess.run(
+        ["timeout", "60", cc, "-std=c99", "-O2", "-fwrapv", "-fno-strict-aliasing", "-w"]
+        + inc + [os.path.join(PDIR, f"{n}_nat.c"), "-o", os.path.join(PDIR, f"{n}_nat")],
+        capture_output=True, text=True,
+    )
     if c1.returncode != 0:
         return f"FAIL {n} native {cc} compile: {c1.stderr[:500]}"
-    rn = subprocess.run(["timeout", "10", os.path.join(PDIR, f"{n}_nat")], capture_output=True, text=True)
+    rn = subprocess.run(
+        ["timeout", "10", os.path.join(PDIR, f"{n}_nat")],
+        capture_output=True, text=True,
+    )
     if rn.returncode != 0:
         return f"FAIL {n} native run rc={rn.returncode}"
     nat_lines = rn.stdout.strip().split("\n") if rn.stdout.strip() else []
@@ -259,10 +344,19 @@ def check_one(n):
         return f"FAIL {n} native line count mismatch ({len(nat_lines)} vs {total})"
     for cxx, extra in [("g++", []), ("clang++", ["-fsanitize=undefined,address"])]:
         binp = os.path.join(PDIR, f"{n}_{cxx}")
-        c2 = subprocess.run(["timeout", "60", cxx, "-std=c++20", "-O2", "-w"] + extra + ["-I", os.path.join(ROOT, "LeanQbe/T/Runtime"), "-I", PDIR, os.path.join(PDIR, f"{n}_low.cpp"), "-o", binp], capture_output=True, text=True)
+        c2 = subprocess.run(
+            ["timeout", "60", cxx, "-std=c++20", "-O2", "-w"] + extra
+            + ["-I", os.path.join(ROOT, "LeanQbe/T/Runtime"),
+               "-I", PDIR, os.path.join(PDIR, f"{n}_low.cpp"), "-o", binp],
+            capture_output=True, text=True,
+        )
         if c2.returncode != 0:
             return f"FAIL {n} lowered {cxx} compile: {c2.stderr[:500]}"
-        rl = subprocess.run(["timeout", "10", binp], capture_output=True, text=True, env=dict(os.environ, ASAN_OPTIONS="detect_leaks=0"))
+        rl = subprocess.run(
+            ["timeout", "10", binp],
+            capture_output=True, text=True,
+            env=dict(os.environ, ASAN_OPTIONS="detect_leaks=0"),
+        )
         if rl.returncode != 0:
             return f"FAIL {n} lowered {cxx} run rc={rl.returncode}: {rl.stderr[:300]}"
         low_lines = rl.stdout.strip().split("\n") if rl.stdout.strip() else []
@@ -277,7 +371,10 @@ def check_one(n):
                     return f"FAIL {n} ({cxx}) case {i} return mismatch:\n  nat: {la}\n  low: {lb}"
             elif la != lb:
                 return f"FAIL {n} ({cxx}) case {i} mismatch ({cc}):\n  nat: {la}\n  low: {lb}"
-    checked = sum(1 for la in nat_lines if not (n == "call_order" and any(x in la for x in ("k1 ", "k1n ", "k3c "))))
+    checked = sum(
+        1 for la in nat_lines
+        if not (n == "call_order" and any(x in la for x in ("k1 ", "k1n ", "k3c ")))
+    )
     return ("PASS", checked)
 
 failures, rej_cnt, pass_cnt, case_cnt = [], 0, 0, 0
@@ -295,7 +392,10 @@ for f in failures:
     print(f, file=sys.stderr)
 if failures:
     sys.exit(1)
-print(f"Regression probes passed (g++ + clang++ ASan/UBSan): {pass_cnt} matched ({case_cnt} cases), {rej_cnt} rejected as expected.")
+print(
+    f"Regression probes passed (g++ + clang++ ASan/UBSan): {pass_cnt} matched "
+    f"({case_cnt} cases), {rej_cnt} rejected as expected."
+)
 PY
 
 echo "== 5. (Negative diagnostics) verify #203 token-level parse & register bitfield errors =="

@@ -79,6 +79,15 @@ public import LeanQbe.T.Examples.Kissat.FullM6HdrProof
 public import LeanQbe.T.Examples.Kissat.FullM6HdrProof0
 public import LeanQbe.T.Examples.Kissat.FullM6HdrProof1
 public import LeanQbe.T.Examples.Kissat.FullM6HdrProof2
+public import LeanQbe.T.Examples.Kissat.FullM6Inl
+public import LeanQbe.T.Examples.Kissat.FullM6Inl0
+public import LeanQbe.T.Examples.Kissat.FullM6Inl1
+public import LeanQbe.T.Examples.Kissat.FullM6Inl2
+public import LeanQbe.T.Examples.Kissat.FullM6Inl3
+public import LeanQbe.T.Examples.Kissat.FullM6Inl4
+public import LeanQbe.T.Examples.Kissat.FullM6Inl5
+public import LeanQbe.T.Examples.Kissat.FullM6InlBase
+public import LeanQbe.T.Examples.Kissat.FullM6InlPolicy
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrink
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof0
