@@ -189,7 +189,8 @@ def resolveLabelSimproc (thm : Sym.Simp.Theorem) : Sym.Simp.Simproc := fun e => 
   withNewMCtxDepth do
     let some result ← thm.pattern.match? e | return .rfl
     let #[_, _, _, .mvar _kMVar, .mvar hkMVar] := result.args | return .rfl
-    try hkMVar.refl catch _ => return .rfl
+    -- NOTE: Computing the index `k` through unification (result in `_kMVar`)
+    try withDefault hkMVar.refl catch _ => return .rfl
     let args ← result.args.mapM fun arg => Sym.instantiateMVarsS arg
     let us ← result.us.mapM instantiateLevelMVars
     let proof := mkAppN (mkConst `label?_eq_some_addrOf us) args
@@ -206,7 +207,15 @@ def mkSimpMethods : MetaM Sym.Simp.Methods := do
     pure (Sym.Simp.evalGround >> resolveLabelSimproc thm >> simpTheorems.rewrite)
   else
     pure (Sym.Simp.evalGround >> simpTheorems.rewrite)
-  return { post }
+  -- NOTE: We use `simpControl` to invoke the simplification procedure, whenever we enter
+  -- a new subexpression, on the condition / discriminats of the control statement. This
+  -- is not done by default by `Sym.simp`, and it is necessary for us to resolve calls to
+  -- `Labels.label? lbl` when in a match discriminant. Ideally, we would have a simproc
+  -- which behaves like `simpControl` but calls `resolveLabelSimproc` over conditions /
+  -- discriminants, instead of all of `simp`, but `simpControl` as implemented
+  -- today is not this procedure. `simpControl` is put in `pre` since on success it allows
+  -- to skip simplification of branches not taken in the control flow.
+  return { pre := Simp.simpControl, post }
 
 private def introsIf (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal := do
   match ← Grind.liftGrindM (goal.intros #[]) with
