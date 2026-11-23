@@ -305,4 +305,72 @@ meta def leafFn : Fn :=
 #guard (hintsOf {} (midOf "full_decide")).saved.isEmpty
 #guard let h := hintsOf {} (midOf "full_analyze"); h.nslots == 0 || h.saved.length ≤ 2
 
+/-! ## 7. Cold-arm live-range splitting, `evIn`, and CS cache survival -/
+
+/-- A split variable arriving evicted at `.jump` is not reloaded when dead at target `j`. -/
+meta def deadJumpEvFn : Fn :=
+  ⟨"deadJumpEvB5", [i64, i64], [i64], fun _ _ (a, b, ()) =>
+    .let_ (op2 (.cmp .eq i64) (.var a) (.imm 0)) fun (c0, ()) =>
+    .jnz (.var c0) (.ret (.imm 0, ()))
+      (.let_ (op2 (.add i64) (.var a) (.imm 7)) fun (x, ()) =>
+       .group (sig := [[i64]])
+         (fun (_, ()) => .cons (fun (p, ()) => .ret (.var p, ())) .nil)
+         (fun (j, ()) =>
+           .let_ (op2 (.cmp .eq i64) (.var b) (.imm 0)) fun (c1, ()) =>
+           .jnz (.var c1)
+             (.call (as := [i64]) (bs := [i64]) "extFn" (.var a, ()) fun (_, ()) =>
+               .jnz (.var c1)
+                 (.jump j (.imm 1, ()))
+                 (.let_ (op2 (.add i64) (.var x) (.imm 3)) fun (w, ()) => .ret (.var w, ())))
+             (.let_ (op2 (.add i64) (.var x) (.var b)) fun (y, ()) =>
+              .let_ (op2 (.xor i64) (.var y) (.var x)) fun (z, ()) =>
+              .let_ (op2 (.add i64) (.var z) (.var x)) fun (z2, ()) =>
+              .jump j (.var z2, ()))))⟩
+
+/-- Last IP on the dead `.jump` arm after the call in `deadJumpEvFn`. -/
+meta def deadJumpArmIp : List Nat :=
+  let all := pathIps [false, true, true] (Live.Tree.ofFn deadJumpEvFn).1
+  match all.reverse with | ip :: _ => [ip] | [] => []
+
+#guard allCfgs.all (lowers · deadJumpEvFn)
+#guard movesAt (hintsOf {} deadJumpEvFn) isSlotMove deadJumpArmIp == 0
+
+/-- Outer loop with high-use `x` (`uOut ≥ 8`) wrapping a high-pressure inner loop where `x` is
+unused: `tryEvictSplit` keeps `x` in a GPR outside the inner loop and evicts inside it. -/
+meta def coldEvFn : Fn :=
+  ⟨"coldEvB5", [i64, i64, i64], [i64], fun _ _ (a, m, q, ()) =>
+    .let_ (op2 (.add i64) (.var a) (.imm 11)) fun (x, ()) =>
+    loop1 (ts := [i64, i64])
+      (fun L0 (i, acc, ()) =>
+        .let_ (op2 (.cmp .ult i64) (.var i) (.var m)) fun (c0, ()) =>
+        .jnz (.var c0)
+          (.let_ (op2 (.xor i64) (.var acc) (.var x)) fun (u0, ()) =>
+           .let_ (op2 (.add i64) (.var u0) (.var x)) fun (u1, ()) =>
+           .let_ (op2 (.xor i64) (.var u1) (.var x)) fun (u2, ()) =>
+           .let_ (op2 (.add i64) (.var u2) (.var x)) fun (u3, ()) =>
+           .let_ (op2 (.xor i64) (.var u3) (.var x)) fun (u4, ()) =>
+           .let_ (op2 (.add i64) (.var u4) (.var x)) fun (u5, ()) =>
+           .let_ (op2 (.xor i64) (.var u5) (.var x)) fun (u6, ()) =>
+           .let_ (op2 (.add i64) (.var u6) (.var x)) fun (u7, ()) =>
+           loop1 (ts := [i64, i64])
+             (fun L1 (k, s, ()) =>
+               .let_ (op2 (.cmp .ult i64) (.var k) (.var q)) fun (c1, ()) =>
+               .jnz (.var c1)
+                 (adds q 13 fun hs => heavyMix hs s 2 fun s' =>
+                  .let_ (op2 (.add i64) (.var k) (.imm 1)) fun (k', ()) =>
+                  .jump L1 (.var k', .var s', ()))
+                 (.let_ (op2 (.xor i64) (.var s) (.var x)) fun (acc', ()) =>
+                  .let_ (op2 (.add i64) (.var i) (.imm 1)) fun (i', ()) =>
+                  .jump L0 (.var i', .var acc', ())))
+             (fun L1 => .jump L1 (.imm 0, .var u7, ())))
+          (.ret (.var acc, ())))
+      (fun L0 => .jump L0 (.imm 0, .imm 0, ()))⟩
+
+#guard allCfgs.all (lowers · coldEvFn)
+#guard spillMoves {} coldEvFn < spillMoves noRegEntry coldEvFn
+
+-- Heavy live `FullM4` loops keep lowering cleanly and stay <= legacy spill moves.
+#guard ["full_bve_var", "full_probe_prop_lit", "full_learn_clause", "full_trans_lit_m5",
+  "full_kitten_add_clause", "full_cong_work_step"].all fun n => noWorse (midOf n)
+
 end LeanQbeTest.T.SpillB5Test
