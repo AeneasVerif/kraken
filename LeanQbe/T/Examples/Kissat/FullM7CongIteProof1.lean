@@ -23,6 +23,7 @@ open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Full
 open LeanQbe.T.Examples.Kissat.FullM5CongFix
+open LeanQbe.T.Examples.Kissat.FullM6CongSubst (M6GateSeqOk)
 open LeanQbe.T.Examples.Kissat.Full.FullCongHelpers
 open scoped LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open scoped LeanQbe.T.Examples.Kissat.Full.FullCongTactics
@@ -560,7 +561,9 @@ theorem full_cong_extract_condeq_m7_wp (Γ : Env)
 
 /-! ## 5. Conditional Equivalence Merge (`full_cong_merge_condeq_m7`) -/
 
-def m7MergeCondeqSpec : Spec [i64, i32, i64, i64, i32, i32] [i32] :=
+def m7MergeCondeqGenSpec
+    (GateSeq : List (List Nat) → Nat → List (BitVec 32) → Nat → Nat → Prop) :
+    Spec [i64, i32, i64, i64, i32, i32] [i32] :=
   fun (h, cond, pos_n, neg_n, g_len, g_cap, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
       (wk1 wk2 : List (BitVec 64)) (R : Mem 64 → Prop),
@@ -573,20 +576,53 @@ def m7MergeCondeqSpec : Spec [i64, i32, i64, i64, i32, i32] [i32] :=
         CondEqElemOk F_cur s.core.cur_vars (litNeg cond.toNat) (wk1[k]?.getD 0#64)) ∧
       (∀ k < neg_n.toNat,
         CondEqElemOk F_cur s.core.cur_vars cond.toNat (wk2[k]?.getD 0#64)) ∧
-      GateSeqOk32 F_cur s.core.cur_vars s.scratch.scratch_buf g_len.toNat 0 ∧
+      GateSeq F_cur s.core.cur_vars s.scratch.scratch_buf g_len.toNat 0 ∧
       (FullMemNoWks3 c s ⋆ array64 c.pWorkStk1 wk1 ⋆ array64 c.pWorkStk2 wk2 ⋆ R) m ∧
       ∀ (g_len' : BitVec 32) (scr' : List (BitVec 32)) m',
         scr'.length = s.scratch.scratch_buf.length →
         (g_len.toNat ≤ g_cap.toNat →
           g_len.toNat ≤ g_len'.toNat ∧ g_len'.toNat ≤ g_cap.toNat) →
         (∀ idx < g_len.toNat, scr'[idx]? = s.scratch.scratch_buf[idx]?) →
-        GateSeqOk32 F_cur s.core.cur_vars scr' g_len'.toNat 0 →
+        GateSeq F_cur s.core.cur_vars scr' g_len'.toNat 0 →
         (FullMemNoWks3 c { s with scratch := { s.scratch with scratch_buf := scr' } } ⋆
           array64 c.pWorkStk1 wk1 ⋆ array64 c.pWorkStk2 wk2 ⋆ R) m' →
         Q (g_len', ()) m'
 
-theorem full_cong_merge_condeq_m7_wp (Γ : Env) :
-    ∀ args m Q X, m7MergeCondeqSpec args m Q X →
+def m7MergeCondeqSpec : Spec [i64, i32, i64, i64, i32, i32] [i32] :=
+  m7MergeCondeqGenSpec GateSeqOk32
+
+def m7MergeCondeqM6Spec : Spec [i64, i32, i64, i64, i32, i32] [i32] :=
+  m7MergeCondeqGenSpec M6GateSeqOk
+
+theorem m7ExtractCondeqSpec_noExit {xs m Q X} :
+    m7ExtractCondeqSpec xs m Q X → m7ExtractCondeqSpec xs m Q (fun _ _ _ _ => False) := id
+
+theorem m7MergeCondeqSpec_noExit {xs m Q X} :
+    m7MergeCondeqSpec xs m Q X → m7MergeCondeqSpec xs m Q (fun _ _ _ _ => False) := id
+
+theorem m7MergeCondeqM6Spec_noExit {xs m Q X} :
+    m7MergeCondeqM6Spec xs m Q X → m7MergeCondeqM6Spec xs m Q (fun _ _ _ _ => False) := id
+
+private theorem full_cong_merge_condeq_m7_gen_wp (Γ : Env)
+    (GateSeq : List (List Nat) → Nat → List (BitVec 32) → Nat → Nat → Prop)
+    (hGateStep : ∀ {F_cur : List (List Nat)} {cur_vars : Nat}
+      {scr scr1 : List (BitVec 32)} {g_len cond : Nat} {pv nv : BitVec 64}
+      {y t e yy tt ee : BitVec 32},
+      3 ≤ cur_vars → cond < 2 * cur_vars →
+      CondEqElemOk F_cur cur_vars (litNeg cond) pv →
+      CondEqElemOk F_cur cur_vars cond nv →
+      y = (pv >>> (32 : Nat)).setWidth 32 → t = pv.setWidth 32 → e = nv.setWidth 32 →
+      (nv >>> (32 : Nat)).setWidth 32 = y →
+      ((t &&& 1#32 = 0#32 → yy = y ∧ tt = t ∧ ee = e) ∧
+       (t &&& 1#32 ≠ 0#32 → yy = y ^^^ 1#32 ∧ tt = t ^^^ 1#32 ∧ ee = e ^^^ 1#32)) →
+      cond < 2 ^ 32 → g_len + 5 ≤ scr.length →
+      scr1 = ((((scr.set g_len yy).set (g_len + 1)
+        ((2#32 <<< 28#32) ||| 3#32)).set (g_len + 2) (BitVec.ofNat 32 cond)).set
+        (g_len + 3) tt).set (g_len + 4) ee →
+      GateSeq F_cur cur_vars scr g_len 0 →
+      scr1.length = scr.length ∧ (∀ idx < g_len, scr1[idx]? = scr[idx]?) ∧
+      GateSeq F_cur cur_vars scr1 (g_len + 5) 0) :
+    ∀ args m Q X, m7MergeCondeqGenSpec GateSeq args m Q X →
       Func.wp Γ full_cong_merge_condeq_m7_body args m Q X := by
   rintro ⟨h, cond, pos_n, neg_n, g_len, g_cap, ⟨⟩⟩ m0 Q X
     ⟨c, F0, F_cur, s, wk1, wk2, R, rfl, hsl, hw, hcv3, hcond_lt, hcap_le,
@@ -634,7 +670,7 @@ theorem full_cong_merge_condeq_m7_wp (Γ : Env) :
               g_len.toNat ≤ gl.toNat ∧ gl.toNat ≤ g_cap.toNat ∧
               p.toNat ≤ pos_n.toNat ∧ q.toNat ≤ neg_n.toNat ∧
               (∀ idx < g_len.toNat, scr[idx]? = s.scratch.scratch_buf[idx]?) ∧
-              GateSeqOk32 F_cur s.core.cur_vars scr gl.toNat 0 ∧
+              GateSeq F_cur s.core.cur_vars scr gl.toNat 0 ∧
               (FullMemNoWks3 c { s with scratch := { s.scratch with scratch_buf := scr } } ⋆
                 array64 c.pWorkStk1 wk1 ⋆ array64 c.pWorkStk2 wk2 ⋆ R) ml)
             (fun (_, p, q, ()) _ => (pos_n.toNat - p.toNat) + (neg_n.toNat - q.toNat))
@@ -692,7 +728,7 @@ theorem full_cong_merge_condeq_m7_wp (Γ : Env) :
                         scr2.length = s.scratch.scratch_buf.length ∧
                         gl.toNat ≤ gl2.toNat ∧ gl2.toNat ≤ g_cap.toNat ∧
                         (∀ idx < gl.toNat, scr2[idx]? = scr[idx]?) ∧
-                        GateSeqOk32 F_cur s.core.cur_vars scr2 gl2.toNat 0 ∧
+                        GateSeq F_cur s.core.cur_vars scr2 gl2.toNat 0 ∧
                         (FullMemNoWks3 c
                           { s with scratch := { s.scratch with scratch_buf := scr2 } } ⋆
                           array64 c.pWorkStk1 wk1 ⋆ array64 c.pWorkStk2 wk2 ⋆ R) mn)
@@ -708,7 +744,7 @@ theorem full_cong_merge_condeq_m7_wp (Γ : Env) :
                           gl.toNat ≤ gl2.toNat ∧ gl2.toNat ≤ g_cap.toNat ∧
                           q.toNat ≤ q2.toNat ∧ q2.toNat ≤ neg_n.toNat ∧
                           (∀ idx < gl.toNat, scr2[idx]? = scr[idx]?) ∧
-                          GateSeqOk32 F_cur s.core.cur_vars scr2 gl2.toNat 0 ∧
+                          GateSeq F_cur s.core.cur_vars scr2 gl2.toNat 0 ∧
                           (FullMemNoWks3 c
                             { s with scratch := { s.scratch with scratch_buf := scr2 } } ⋆
                             array64 c.pWorkStk1 wk1 ⋆ array64 c.pWorkStk2 wk2 ⋆ R) mn)
@@ -749,7 +785,7 @@ theorem full_cong_merge_condeq_m7_wp (Γ : Env) :
                                 scr3.length = s.scratch.scratch_buf.length ∧
                                 gl2.toNat ≤ gl3.toNat ∧ gl3.toNat ≤ g_cap.toNat ∧
                                 (∀ idx < gl2.toNat, scr3[idx]? = scr2[idx]?) ∧
-                                GateSeqOk32 F_cur s.core.cur_vars scr3 gl3.toNat 0 ∧
+                                GateSeq F_cur s.core.cur_vars scr3 gl3.toNat 0 ∧
                                 (FullMemNoWks3 c
                                   { s with scratch := { s.scratch with scratch_buf := scr3 } } ⋆
                                   array64 c.pWorkStk1 wk1 ⋆ array64 c.pWorkStk2 wk2 ⋆ R) mp)
@@ -799,7 +835,7 @@ theorem full_cong_merge_condeq_m7_wp (Γ : Env) :
                                     rw [List.getElem?_eq_getElem hp_arr, Option.getD_some] at hw1_p
                                     have hw2_q := hneg_ok q2.toNat hq2_lt
                                     rw [List.getElem?_eq_getElem hq2_arr, Option.getD_some] at hw2_q
-                                    obtain ⟨hs3_l, hs3_p, hs3_ok⟩ := merge_condeq_gate_ok hcv3
+                                    obtain ⟨hs3_l, hs3_p, hs3_ok⟩ := hGateStep hcv3
                                       hcond_lt hw1_p hw2_q rfl rfl rfl hnv_eq ⟨hfl0, hfl1⟩
                                       (BitVec.isLt cond) (by omega) rfl hsq2
                                     have hcond32 : BitVec.ofNat 32 cond.toNat = cond :=
@@ -853,12 +889,24 @@ theorem full_cong_merge_condeq_m7_wp (Γ : Env) :
             · fc_steps; exact hQ gl scr ml hsl_l (fun _ => ⟨hgl_ge, hgl_le⟩) hpref hseq hml
           · fc_steps; exact hQ gl scr ml hsl_l (fun _ => ⟨hgl_ge, hgl_le⟩) hpref hseq hml
 
+theorem full_cong_merge_condeq_m7_wp (Γ : Env) :
+    ∀ args m Q X, m7MergeCondeqSpec args m Q X →
+      Func.wp Γ full_cong_merge_condeq_m7_body args m Q X :=
+  full_cong_merge_condeq_m7_gen_wp Γ GateSeqOk32 @merge_condeq_gate_ok
+
+theorem full_cong_merge_condeq_m7_m6_wp (Γ : Env) :
+    ∀ args m Q X, m7MergeCondeqM6Spec args m Q X →
+      Func.wp Γ full_cong_merge_condeq_m7_body args m Q X :=
+  full_cong_merge_condeq_m7_gen_wp Γ M6GateSeqOk @merge_condeq_m6gate_ok
+
 /-! ## 6. Top-Level ITE Gate Extraction (`full_cong_extract_ite_all_m7`) -/
 
 /-- Contract for `full_cong_extract_ite_all_m7(h, g_len, g_cap, tick_lim)`: preserves `s.core`,
 `last_learned`, `extend_len`, and `scratch_buf[0 .. g_len)`, while appending only sound ITE gates
-`GateSeqOk32 F_cur s.core.cur_vars s'.scratch.scratch_buf ret.toNat 0`. -/
-private def m7AllInv (c : FullCfg) (F_cur : List (List Nat)) (s : FullState)
+`GateSeq F_cur s.core.cur_vars s'.scratch.scratch_buf ret.toNat 0`. -/
+private def m7AllInvGen
+    (GateSeq : List (List Nat) → Nat → List (BitVec 32) → Nat → Nat → Prop)
+    (c : FullCfg) (F_cur : List (List Nat)) (s : FullState)
     (g_len g_cap : BitVec 32) (R : Mem 64 → Prop) (gl : BitVec 32) (m : Mem 64) : Prop :=
   ∃ (s_cur : FullState) (ws wk1 wk2 : List (BitVec 64)),
     s_cur.LengthsOk c ∧ s_cur.core = s.core ∧
@@ -867,18 +915,20 @@ private def m7AllInv (c : FullCfg) (F_cur : List (List Nat)) (s : FullState)
     ws.length = c.max_vars ∧ wk1.length = c.max_vars ∧ wk2.length = c.max_vars ∧
     g_len.toNat ≤ gl.toNat ∧ gl.toNat ≤ g_cap.toNat ∧
     (∀ idx < g_len.toNat, s_cur.scratch.scratch_buf[idx]? = s.scratch.scratch_buf[idx]?) ∧
-    GateSeqOk32 F_cur s.core.cur_vars s_cur.scratch.scratch_buf gl.toNat 0 ∧
+    GateSeq F_cur s.core.cur_vars s_cur.scratch.scratch_buf gl.toNat 0 ∧
     (FullMemNoWks3 c s_cur ⋆
       array64 c.pWsort ws ⋆ array64 c.pWorkStk1 wk1 ⋆ array64 c.pWorkStk2 wk2 ⋆ R) m
 
-def m7ExtractIteAllSpec : Spec [i64, i32, i32, i64] [i32] :=
+def m7ExtractIteAllGenSpec
+    (GateSeq : List (List Nat) → Nat → List (BitVec 32) → Nat → Nat → Prop) :
+    Spec [i64, i32, i32, i64] [i32] :=
   fun (h, g_len, g_cap, _tick_lim, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState)
       (R : Mem 64 → Prop),
       h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
       s.core.dense_mode ≠ 0#64 ∧
       g_len.toNat ≤ g_cap.toNat ∧ g_cap.toNat ≤ c.scratch_cap ∧
-      GateSeqOk32 F_cur s.core.cur_vars s.scratch.scratch_buf g_len.toNat 0 ∧
+      GateSeq F_cur s.core.cur_vars s.scratch.scratch_buf g_len.toNat 0 ∧
       (FullMem c s ⋆ R) m ∧
       ∀ (ret : BitVec 32) (s' : FullState) (m' : Mem 64),
         s'.LengthsOk c → s'.core = s.core →
@@ -886,17 +936,48 @@ def m7ExtractIteAllSpec : Spec [i64, i32, i32, i64] [i32] :=
         s'.scratch.extend_len = s.scratch.extend_len →
         g_len.toNat ≤ ret.toNat → ret.toNat ≤ g_cap.toNat →
         (∀ idx < g_len.toNat, s'.scratch.scratch_buf[idx]? = s.scratch.scratch_buf[idx]?) →
-        GateSeqOk32 F_cur s.core.cur_vars s'.scratch.scratch_buf ret.toNat 0 →
+        GateSeq F_cur s.core.cur_vars s'.scratch.scratch_buf ret.toNat 0 →
         (FullMem c s' ⋆ R) m' → Q (ret, ()) m'
 
-theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
+def m7ExtractIteAllSpec : Spec [i64, i32, i32, i64] [i32] :=
+  m7ExtractIteAllGenSpec GateSeqOk32
+
+def m7ExtractIteAllM6Spec : Spec [i64, i32, i32, i64] [i32] :=
+  m7ExtractIteAllGenSpec M6GateSeqOk
+
+theorem m7ExtractIteAllM6Spec_of {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {s : FullState} {R : Mem 64 → Prop} {m : Mem 64} {g_len g_cap : BitVec 32}
+    {tick_lim : BitVec 64} {Q : Post [i32]} {X : XPost}
+    (hlen : s.LengthsOk c) (hw : FullWitnessInv c F0 F_cur s.core)
+    (hdm : s.core.dense_mode ≠ 0#64) (hgl : g_len.toNat ≤ g_cap.toNat)
+    (hcap : g_cap.toNat ≤ c.scratch_cap)
+    (hseq : M6GateSeqOk F_cur s.core.cur_vars s.scratch.scratch_buf g_len.toNat 0)
+    (hm : (FullMem c s ⋆ R) m)
+    (hQ : ∀ (ret : BitVec 32) (s' : FullState) (m' : Mem 64),
+      s'.LengthsOk c → s'.core = s.core →
+      s'.scratch.last_learned = s.scratch.last_learned →
+      s'.scratch.extend_len = s.scratch.extend_len →
+      g_len.toNat ≤ ret.toNat → ret.toNat ≤ g_cap.toNat →
+      (∀ idx < g_len.toNat, s'.scratch.scratch_buf[idx]? = s.scratch.scratch_buf[idx]?) →
+      M6GateSeqOk F_cur s.core.cur_vars s'.scratch.scratch_buf ret.toNat 0 →
+      (FullMem c s' ⋆ R) m' → Q (ret, ()) m') :
+    m7ExtractIteAllM6Spec (c.hdr, g_len, g_cap, tick_lim, ()) m Q X :=
+  ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hgl, hcap, hseq, hm, hQ⟩
+
+theorem m7ExtractIteAllM6Spec_monoX {xs : Tup Val [i64, i32, i32, i64]} {m : Mem 64}
+    {Q : Post [i32]} {X X' : XPost} (h : m7ExtractIteAllM6Spec xs m Q X) :
+    m7ExtractIteAllM6Spec xs m Q X' := by
+  rcases xs with ⟨_, _, _, _, ⟨⟩⟩; exact h
+
+private theorem full_cong_extract_ite_all_m7_gen_wp (Γ : Env)
+    (GateSeq : List (List Nat) → Nat → List (BitVec 32) → Nat → Nat → Prop)
     (hCopy : ∀ a m Q X, m7CopyCondbinSpec a m Q X →
       Γ "full_cong_copy_condbin_m7" [i64, i32, i64, i64] [i64] a m Q X)
     (hExt : ∀ a m Q X, m7ExtractCondeqSpec a m Q X →
       Γ "full_cong_extract_condeq_m7" [i64, i64, i64, i64] [i64] a m Q X)
-    (hMerge : ∀ a m Q X, m7MergeCondeqSpec a m Q X →
+    (hMerge : ∀ a m Q X, m7MergeCondeqGenSpec GateSeq a m Q X →
       Γ "full_cong_merge_condeq_m7" [i64, i32, i64, i64, i32, i32] [i32] a m Q X) :
-    ∀ args m Q X, m7ExtractIteAllSpec args m Q X →
+    ∀ args m Q X, m7ExtractIteAllGenSpec GateSeq args m Q X →
       Func.wp Γ full_cong_extract_ite_all_m7_body args m Q X := by
   rintro ⟨h, g_len, g_cap, tick_lim, ⟨⟩⟩ m0 Q X
     ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hgl_le, hcap_sc, hseq0, hm0, hQ⟩
@@ -939,7 +1020,7 @@ theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
               focus_full_wks3_u64 hlen hm0
             let LoopInv : Tup Val [i64, i64, i32] → Mem 64 → Prop :=
               fun (v, _, gl, ()) ml =>
-                v.toNat ≤ s.core.cur_vars ∧ m7AllInv c F_cur s g_len g_cap R gl ml
+                v.toNat ≤ s.core.cur_vars ∧ m7AllInvGen GateSeq c F_cur s g_len g_cap R gl ml
             fc_steps; fc_to_group
             refine wp_loop_inv (ts := [i64, i64, i32]) LoopInv
               (fun (v, _, _) _ => s.core.cur_vars - v.toNat)
@@ -980,7 +1061,7 @@ theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
                     have h1n : (1#64 : BitVec 64).toNat = 1 := rfl
                     rw [BitVec.toNat_add, h1n, Nat.mod_eq_of_lt (by omega)]
                   let StepInv : Tup Val [i64, i32] → Mem 64 → Prop :=
-                    fun (_, gn, ()) mn => m7AllInv c F_cur s g_len g_cap R gn mn
+                    fun (_, gn, ()) mn => m7AllInvGen GateSeq c F_cur s g_len g_cap R gn mn
                   fc_to_group
                   refine wp_join_group (ts := [i64, i32]) StepInv
                     (fun _ ⟨tn, gn, ⟨⟩⟩ mn hmn => by
@@ -1099,7 +1180,7 @@ theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
                                 (FullMemNoWks3 c s_cur ⋆ array64 c.pWsort ws' ⋆
                                   array64 c.pWorkStk1 wk1' ⋆
                                   array64 c.pWorkStk2 wk2' ⋆ R) mx →
-                                m7AllInv c F_cur s g_len g_cap R gl mx :=
+                                m7AllInvGen GateSeq c F_cur s g_len g_cap R gl mx :=
                               fun hws hk1 hk2 hmx =>
                                 ⟨s_cur, _, _, _, hlen_cur, hsc_core, hsc_ll, hsc_el, hws, hk1, hk2,
                                   hgl_ge, hgl_le', hpref, hseq, hmx⟩
@@ -1111,7 +1192,7 @@ theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
                               fun m0c ws1 m1c hws1_l hm0_le hcb0_sort hcb0_ok hm1c => ?_
                             fc_to_group
                             refine wp_join_group (ts := [i32])
-                              (fun (g5, ()) m5 => m7AllInv c F_cur s g_len g_cap R g5 m5)
+                              (fun (g5, ()) m5 => m7AllInvGen GateSeq c F_cur s g_len g_cap R g5 m5)
                               (fun _ ⟨g5, ⟨⟩⟩ m5 h5 => by
                                 fc_steps; exact hJskip (ticks', g5, ()) m5 h5)
                               (fun J5 hJ5 => ?_)
@@ -1131,7 +1212,8 @@ theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
                                 fun n0 d0_1 m2c hd01_l hn0_le hceq0_ok hm2c => ?_⟩
                               fc_to_group
                               refine wp_join_group (ts := [i32])
-                                (fun (g6, ()) m6 => m7AllInv c F_cur s g_len g_cap R g6 m6)
+                                (fun (g6, ()) m6 =>
+                                  m7AllInvGen GateSeq c F_cur s g_len g_cap R g6 m6)
                                 (fun _ ⟨g6, ⟨⟩⟩ m6 h6 => by fc_steps; exact hJ5 (g6, ()) m6 h6)
                                 (fun J6 hJ6 => ?_)
                               fc_split_fast
@@ -1145,7 +1227,8 @@ theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
                                   fun m1c' ws2 m3c hws2_l hm1_le hcb1_sort hcb1_ok hm3c => ?_
                                 fc_to_group
                                 refine wp_join_group (ts := [i32])
-                                  (fun (g7, ()) m7 => m7AllInv c F_cur s g_len g_cap R g7 m7)
+                                  (fun (g7, ()) m7 =>
+                                    m7AllInvGen GateSeq c F_cur s g_len g_cap R g7 m7)
                                   (fun _ ⟨g7, ⟨⟩⟩ m7 h7 => by fc_steps; exact hJ6 (g7, ()) m7 h7)
                                   (fun J7 hJ7 => ?_)
                                 fc_split_fast
@@ -1164,7 +1247,8 @@ theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
                                     fun n1 d1_1 m4c hd11_l hn1_le hceq1_ok hm4c => ?_⟩
                                   fc_to_group
                                   refine wp_join_group (ts := [i32])
-                                    (fun (g8, ()) m8 => m7AllInv c F_cur s g_len g_cap R g8 m8)
+                                    (fun (g8, ()) m8 =>
+                                      m7AllInvGen GateSeq c F_cur s g_len g_cap R g8 m8)
                                     (fun _ ⟨g8, ⟨⟩⟩ m8 h8 => by
                                       fc_steps; exact hJ7 (g8, ()) m8 h8)
                                     (fun J8 hJ8 => ?_)
@@ -1172,7 +1256,8 @@ theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
                                   · clear hc
                                     fc_to_group
                                     refine wp_join_group (ts := [i32])
-                                      (fun (g9, ()) m9 => m7AllInv c F_cur s g_len g_cap R g9 m9)
+                                      (fun (g9, ()) m9 =>
+                                        m7AllInvGen GateSeq c F_cur s g_len g_cap R g9 m9)
                                       (fun _ ⟨g9, ⟨⟩⟩ m9 h9 => by
                                         fc_steps; exact hJ8 (g9, ()) m9 h9)
                                       (fun J9 hJ9 => ?_)
@@ -1192,7 +1277,7 @@ theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
                                         g_len.toNat ≤ gl'.toNat → gl'.toNat ≤ g_cap.toNat →
                                         (∀ idx < gl.toNat,
                                           scr'[idx]? = s_cur.scratch.scratch_buf[idx]?) →
-                                        GateSeqOk32 F_cur s_cur.core.cur_vars scr' gl'.toNat 0 →
+                                        GateSeq F_cur s_cur.core.cur_vars scr' gl'.toNat 0 →
                                         (FullMemNoWks3 c
                                           { s_cur with scratch :=
                                             { s_cur.scratch with scratch_buf := scr' } } ⋆
@@ -1325,6 +1410,28 @@ theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
                 · exact hret_exit
               · exact hret_exit
             · exact hret_exit
+
+theorem full_cong_extract_ite_all_m7_wp (Γ : Env)
+    (hCopy : ∀ a m Q X, m7CopyCondbinSpec a m Q X →
+      Γ "full_cong_copy_condbin_m7" [i64, i32, i64, i64] [i64] a m Q X)
+    (hExt : ∀ a m Q X, m7ExtractCondeqSpec a m Q X →
+      Γ "full_cong_extract_condeq_m7" [i64, i64, i64, i64] [i64] a m Q X)
+    (hMerge : ∀ a m Q X, m7MergeCondeqSpec a m Q X →
+      Γ "full_cong_merge_condeq_m7" [i64, i32, i64, i64, i32, i32] [i32] a m Q X) :
+    ∀ args m Q X, m7ExtractIteAllSpec args m Q X →
+      Func.wp Γ full_cong_extract_ite_all_m7_body args m Q X :=
+  full_cong_extract_ite_all_m7_gen_wp Γ GateSeqOk32 hCopy hExt hMerge
+
+theorem full_cong_extract_ite_all_m7_m6_wp (Γ : Env)
+    (hCopy : ∀ a m Q X, m7CopyCondbinSpec a m Q X →
+      Γ "full_cong_copy_condbin_m7" [i64, i32, i64, i64] [i64] a m Q X)
+    (hExt : ∀ a m Q X, m7ExtractCondeqSpec a m Q X →
+      Γ "full_cong_extract_condeq_m7" [i64, i64, i64, i64] [i64] a m Q X)
+    (hMerge : ∀ a m Q X, m7MergeCondeqM6Spec a m Q X →
+      Γ "full_cong_merge_condeq_m7" [i64, i32, i64, i64, i32, i32] [i32] a m Q X) :
+    ∀ args m Q X, m7ExtractIteAllM6Spec args m Q X →
+      Func.wp Γ full_cong_extract_ite_all_m7_body args m Q X :=
+  full_cong_extract_ite_all_m7_gen_wp Γ M6GateSeqOk hCopy hExt hMerge
 
 /-- `FullDenseInv`-preserving wrapper for `full_cong_extract_ite_all_m7`. -/
 theorem full_cong_extract_ite_all_m7_dense_wp (Γ : Env)

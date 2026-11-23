@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Examples.Kissat.FullM5CongFixProof1
+public import LeanQbe.T.Examples.Kissat.FullM6CongSubstProof1b
 public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas
 public import LeanQbe.T.Examples.Kissat.FullM7CongIte
 import Kraken.Mem
@@ -36,6 +37,7 @@ open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Full
 open LeanQbe.T.Examples.Kissat.FullM5CongFix
+open LeanQbe.T.Examples.Kissat.FullM6CongSubst (M6GateAt M6GateSeqOk m6GateSeqOk_append)
 open LeanQbe.T.Examples.Kissat.Full.FullCongHelpers
 open scoped LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open scoped LeanQbe.T.Examples.Kissat.Full.FullCongTactics
@@ -1919,6 +1921,109 @@ theorem merge_condeq_gate_ok {F_cur : List (List Nat)} {cur_vars : Nat}
       simp only [bv32_xor1_eq_litNeg]
       exact iteGateDef_flip_out hite
     exact gateAt32_ite_append hcv hyy_lt (by rw [hc32]; exact hcond) htt_lt hee_lt
+      (by rw [hc32]; exact hite') hlen0 hscr1 hseq0
+
+theorem m6GateAt_ite_append {F_cur : List (List Nat)} {cur_vars : Nat}
+    {scr0 scr1 : List (BitVec 32)} {g_len : Nat} {y c t e : BitVec 32}
+    (hcv : 3 ≤ cur_vars)
+    (hy : y.toNat < 2 * cur_vars) (hc : c.toNat < 2 * cur_vars)
+    (ht : t.toNat < 2 * cur_vars) (he : e.toNat < 2 * cur_vars)
+    (hite : IteGateDef (cnfOfClauses F_cur) y.toNat c.toNat t.toNat e.toNat)
+    (hlen0 : g_len + 5 ≤ scr0.length)
+    (hscr1 : scr1 = ((((scr0.set g_len y).set (g_len + 1)
+      ((2#32 <<< 28#32) ||| 3#32)).set (g_len + 2) c).set (g_len + 3) t).set (g_len + 4) e)
+    (hseq0 : M6GateSeqOk F_cur cur_vars scr0 g_len 0) :
+    scr1.length = scr0.length ∧
+    (∀ idx < g_len, scr1[idx]? = scr0[idx]?) ∧
+    M6GateSeqOk F_cur cur_vars scr1 (g_len + 5) 0 := by
+  have hlen1 : scr1.length = scr0.length := by subst scr1; simp only [List.length_set]
+  have hpref : ∀ idx < g_len, scr1[idx]? = scr0[idx]? := by
+    intro idx hidx; subst scr1
+    repeat rw [List.getElem?_set_ne (by omega)]
+  have hg0 : scr1[g_len]? = some y := by
+    subst scr1
+    rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega),
+      List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega),
+      List.getElem?_set_self (by omega)]
+  have hmword : scr1[g_len + 1]? = some ((2#32 <<< 28#32) ||| 3#32) := by
+    subst scr1
+    rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega),
+      List.getElem?_set_ne (by omega), List.getElem?_set_self (by simp; omega)]
+  have hg2 : scr1[g_len + 2]? = some c := by
+    subst scr1
+    rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega),
+      List.getElem?_set_self (by simp; omega)]
+  have hg3 : scr1[g_len + 3]? = some t := by
+    subst scr1
+    rw [List.getElem?_set_ne (by omega), List.getElem?_set_self (by simp; omega)]
+  have hg4 : scr1[g_len + 4]? = some e := by
+    subst scr1; rw [List.getElem?_set_self (by simp; omega)]
+  have htag : (((2#32 <<< 28#32) ||| 3#32) >>> 28).toNat = 2 := by decide
+  have har : (((2#32 <<< 28#32) ||| 3#32) &&& 255#32).toNat = 3 := by decide
+  have hgat : M6GateAt F_cur cur_vars scr1 (g_len + 5) g_len := by
+    refine ⟨y, (2#32 <<< 28#32) ||| 3#32, hg0, hmword, hy, ?_⟩
+    dsimp only; rw [htag, har]
+    refine ⟨Nat.le_refl _, hcv, by decide, fun k hk => ?_, Or.inr (Or.inr ⟨rfl, rfl, ?_⟩)⟩
+    · rcases (by omega : k = 0 ∨ k = 1 ∨ k = 2) with rfl | rfl | rfl
+      · exact ⟨c, hg2, hc⟩
+      · exact ⟨t, hg3, ht⟩
+      · exact ⟨e, hg4, he⟩
+    · simpa [hg2, hg3, hg4] using hite
+  have hnew : M6GateSeqOk F_cur cur_vars scr1 (g_len + 5) g_len := by
+    refine M6GateSeqOk.step hgat ?_
+    rw [hmword, Option.getD_some,
+      show (((2#32 <<< 28#32) ||| 3#32) &&& 255#32).toNat = 3 from har]
+    exact M6GateSeqOk.done
+  exact ⟨hlen1, hpref, m6GateSeqOk_append (by omega) hpref hnew hseq0⟩
+
+theorem merge_condeq_m6gate_ok {F_cur : List (List Nat)} {cur_vars : Nat}
+    {scr scr1 : List (BitVec 32)} {g_len cond : Nat} {pv nv : BitVec 64}
+    {y t e yy tt ee : BitVec 32}
+    (hcv : 3 ≤ cur_vars) (hcond : cond < 2 * cur_vars)
+    (hw1 : CondEqElemOk F_cur cur_vars (litNeg cond) pv)
+    (hw2 : CondEqElemOk F_cur cur_vars cond nv)
+    (hy : y = (pv >>> (32 : Nat)).setWidth 32)
+    (ht : t = pv.setWidth 32) (he : e = nv.setWidth 32)
+    (hsame : (nv >>> (32 : Nat)).setWidth 32 = y)
+    (hflip : ((t &&& 1#32 = 0#32 → yy = y ∧ tt = t ∧ ee = e) ∧
+              (t &&& 1#32 ≠ 0#32 → yy = y ^^^ 1#32 ∧ tt = t ^^^ 1#32 ∧ ee = e ^^^ 1#32)))
+    (hc_bd : cond < 2 ^ 32) (hlen0 : g_len + 5 ≤ scr.length)
+    (hscr1 : scr1 = ((((scr.set g_len yy).set (g_len + 1)
+      ((2#32 <<< 28#32) ||| 3#32)).set (g_len + 2) (BitVec.ofNat 32 cond)).set
+      (g_len + 3) tt).set (g_len + 4) ee)
+    (hseq0 : M6GateSeqOk F_cur cur_vars scr g_len 0) :
+    scr1.length = scr.length ∧ (∀ idx < g_len, scr1[idx]? = scr[idx]?) ∧
+    M6GateSeqOk F_cur cur_vars scr1 (g_len + 5) 0 := by
+  have hy_n : (pv >>> 32).toNat = y.toNat := by rw [hy]; exact (u64_trunc32_hi_eq pv).symm
+  have ht_n : (pv &&& 0xFFFFFFFF#64).toNat = t.toNat := by
+    rw [ht]; exact (u64_trunc32_lo_eq pv).symm
+  have he_n : (nv &&& 0xFFFFFFFF#64).toNat = e.toNat := by
+    rw [he]; exact (u64_trunc32_lo_eq nv).symm
+  have hsame_n : (pv >>> 32).toNat = (nv >>> 32).toNat := by
+    rw [hy_n, ← hsame]
+    change (BitVec.setWidth 32 (nv >>> 32)).toNat = (nv >>> 32).toNat; bv_omega
+  have hite := condEq_to_iteGateDef hw1 hw2 hsame_n
+  rw [hy_n, ht_n, he_n] at hite
+  have hy_lt : y.toNat < 2 * cur_vars := by rw [← hy_n]; exact hw1.1
+  have ht_lt : t.toNat < 2 * cur_vars := by rw [← ht_n]; exact hw1.2.1
+  have he_lt : e.toNat < 2 * cur_vars := by rw [← he_n]; exact hw2.2.1
+  have hc32 : (BitVec.ofNat 32 cond).toNat = cond := by
+    rw [BitVec.toNat_ofNat]; exact Nat.mod_eq_of_lt hc_bd
+  by_cases hpar : t &&& 1#32 = 0#32
+  · obtain ⟨rfl, rfl, rfl⟩ := hflip.1 hpar
+    exact m6GateAt_ite_append hcv hy_lt (by rw [hc32]; exact hcond) ht_lt he_lt
+      (by rw [hc32]; exact hite) hlen0 hscr1 hseq0
+  · obtain ⟨rfl, rfl, rfl⟩ := hflip.2 hpar
+    have hyy_lt : (y ^^^ 1#32).toNat < 2 * cur_vars := by
+      rw [bv32_xor1_eq_litNeg]; exact litNeg_lt_two_mul hy_lt
+    have htt_lt : (t ^^^ 1#32).toNat < 2 * cur_vars := by
+      rw [bv32_xor1_eq_litNeg]; exact litNeg_lt_two_mul ht_lt
+    have hee_lt : (e ^^^ 1#32).toNat < 2 * cur_vars := by
+      rw [bv32_xor1_eq_litNeg]; exact litNeg_lt_two_mul he_lt
+    have hite' : IteGateDef (cnfOfClauses F_cur)
+        (y ^^^ 1#32).toNat cond (t ^^^ 1#32).toNat (e ^^^ 1#32).toNat := by
+      simp only [bv32_xor1_eq_litNeg]; exact iteGateDef_flip_out hite
+    exact m6GateAt_ite_append hcv hyy_lt (by rw [hc32]; exact hcond) htt_lt hee_lt
       (by rw [hc32]; exact hite') hlen0 hscr1 hseq0
 
 theorem m7U64SiftSpec_noExit {xs m Q X X'} :

@@ -139,6 +139,15 @@ def m7BumpReasonsSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
           scratch := { s.scratch with work_stk1 := ws1' } }
       s'.LengthsOk c → FullAnaMarksCov c s' → (FullMem c s' ⋆ R) m' → Q () m'
 
+theorem m7BumpSiftSpec_noExit {xs m Q X} :
+    m7BumpSiftSpec xs m Q X → m7BumpSiftSpec xs m Q (fun _ _ _ _ => False) := id
+
+theorem m7BumpSortStampsSpec_noExit {xs m Q X} :
+    m7BumpSortStampsSpec xs m Q X → m7BumpSortStampsSpec xs m Q (fun _ _ _ _ => False) := id
+
+theorem m7BumpReasonsSpec_noExit {xs m Q X} :
+    m7BumpReasonsSpec xs m Q X → m7BumpReasonsSpec xs m Q (fun _ _ _ _ => False) := id
+
 /-! ## 2. Private Arithmetic, Heap, Permutation & Mark-Coverage Helpers -/
 
 section BumpHelpers
