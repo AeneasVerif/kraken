@@ -2993,4 +2993,3 @@ theorem full_m6_els_lit_wp (Γ : Env)
       ⟨⟨hinv, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, hm⟩
 
 end LeanQbe.T.Examples.Kissat.FullM6Sweep
-

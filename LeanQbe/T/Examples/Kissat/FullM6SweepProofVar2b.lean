@@ -1263,16 +1263,19 @@ theorem full_m6_sweep_classes_wp (Γ : Env)
   have hL_len : L.scrLen = c.scratch_cap := by
     rw [hL_def]; exact k6LayoutOfCap_scrLen hcap c.hscr
   have hL_mv : L.maxV = k6MaxV c.scratch_cap := by rw [hL_def]; rfl
+  clear hL_def
   have hmL := L.hmaxV; have haL := L.hacap
   have hnv_L : nv.toNat ≤ L.maxV := by rw [hL_mv, ← hscr_len]; exact hnv_mv
   have hK0 : K6Inv L P (k6StateOfScratch L s.scratch.scratch_buf) :=
     k6ScratchInv_to_inv (L := L) (hL_len.trans hscr_len.symm) (by rw [hscr_len]; exact hL_mv) hK_scr
+  clear hK_scr
   have hnv_bv : (k6StateOfScratch L s.scratch.scratch_buf).nv = nv := by
     have hL_eq : L = k6LayoutOfCap s.scratch.scratch_buf.length hge_s hlt_s :=
       (k6LayoutOfCap_eq (hL_len.trans hscr_len.symm)
         (by rw [hscr_len]; exact hL_mv) hge_s hlt_s).symm
     rw [hL_eq, hnv_eq]
     exact BitVec.eq_of_toNat_eq (by rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt nv.isLt])
+  clear hge_s hlt_s hnv_eq
   have hmv64_lt : k6MaxV c.scratch_cap < 2 ^ 32 := by rw [← hL_mv]; omega
   have hmv_eq : BitVec.setWidth 32 (BitVec.ofNat 64 (k6MaxV c.scratch_cap)) = L.mv32 := by
     apply BitVec.eq_of_toNat_eq
@@ -1315,7 +1318,6 @@ theorem full_m6_sweep_classes_wp (Γ : Env)
       rw [List.getElem?_eq_getElem (by rw [hlb]; exact hj_len),
         List.getElem?_eq_getElem (by rw [hla]; exact hj_len)] at hq
       simpa only [List.getElem_drop] using Option.some.inj hq
-  clear hL_def
   unfold Func.wp
   run_tac do
     let g ← Lean.Elab.Tactic.getMainGoal
@@ -1819,6 +1821,7 @@ theorem full_m6_sweep_var_wp (Γ : Env)
   have hL_len : L.scrLen = c.scratch_cap := by
     rw [hL_def]; exact k6LayoutOfCap_scrLen hcap c.hscr
   have hL_mv : L.maxV = k6MaxV c.scratch_cap := by rw [hL_def]; rfl
+  clear hL_def
   have hmL := L.hmaxV; have haL := L.hacap
   have hmv64_lt : k6MaxV c.scratch_cap < 2 ^ 32 := by rw [← hL_mv]; omega
   have hmv_eq : BitVec.setWidth 32 (BitVec.ofNat 64 (k6MaxV c.scratch_cap)) = L.mv32 := by
@@ -1828,7 +1831,6 @@ theorem full_m6_sweep_var_wp (Γ : Env)
       ((1280 : BitVec 32) + (BitVec.setWidth 32 (BitVec.ofNat 64 (k6MaxV c.scratch_cap)) <<<
         (1 : Nat))) * 4 = L.kPtr c.pScratchBuf := by
     rw [hmv_eq]; exact k6_ptr_base_k6Base L c.pScratchBuf
-  clear hL_def
   unfold Func.wp full_m6_sweep_var_body
   m6_steps
   refine m6_call_max_v hMaxV (c := c) rfl ?_
@@ -1848,6 +1850,7 @@ theorem full_m6_sweep_var_wp (Γ : Env)
       have := hcone1.2.1; have hscr1 := hinv1.1.scratch_ok.scratch_buf_len
       rw [hscr1, ← hL_mv] at this; omega)]
   have hcone1' : M6SweepConeOk F_cur s1 nv.toNat := by rw [hnv_eq]; exact hcone1
+  clear hcone1
   have hnv_mx : nv.toNat ≤ 2 * c.max_vars := by
     have := hcone1'.2.2.1; change nv.toNat ≤ s.core.cur_vars at this; omega
   have htmk1' : ∀ u < s.core.cur_vars, tmk'[u]?.getD 0#32 ≠ 0#32 →
@@ -1863,6 +1866,7 @@ theorem full_m6_sweep_var_wp (Γ : Env)
     have hK1 : K6Inv L (ConeModelSet F_cur ws1' nv.toNat) (k6StateOfScratch L scr') :=
       k6ScratchInv_to_inv (L := L) (hL_len.trans hscr1_len.symm)
         (by rw [hscr1_len]; exact hL_mv) hcone1'.2.2.2.2.1
+    clear hcone1'
     have hk_inc : (k6StateOfScratch L scr').incons ≠ 0#32 := by
       rw [m6_k6StateOfScratch_incons (by
         rw [hscr1_len, ← hL_len]; unfold K6Layout.scrLen K6Layout.k6Fixed; omega)]
@@ -1895,6 +1899,7 @@ theorem full_m6_sweep_var_wp (Γ : Env)
       m6_call hSim
       refine ⟨c, F0, F_cur, s1, R, rfl, hinv1, hcone1', hm1,
         fun rbit fuel2 rng2 sig2 scr2 m2 hinv2 hfuel2 hcone2 huns2 hrb_le2 hm2 => ?_⟩
+      clear hcone1'
       let s2 : FullState :=
         { s1 with
           core := { s1.core with fuel := fuel2 }
@@ -1923,6 +1928,7 @@ theorem full_m6_sweep_var_wp (Γ : Env)
       m6_call hUnits
       refine ⟨c, F0, F_cur, s2, R, rfl, hinv2, hcone2, hrb_64, hm2,
         fun ur s3 m3 hinv3 hcv3 hfuel3 hws3 htmk3 htrh3 hcone3 huns3 hur_le3 hm3 => ?_⟩
+      clear hcone2
       have hfuel3_0 : s3.core.fuel.toNat ≤ s.core.fuel.toNat := Nat.le_trans hfuel3 hfuel2_0
       have hcv3_0 : s3.core.cur_vars = s.core.cur_vars := hcv3.trans hcv1
       m6_split
@@ -1941,6 +1947,7 @@ theorem full_m6_sweep_var_wp (Γ : Env)
       m6_call hClasses
       refine ⟨c, F0, F_cur, s3, R, rfl, hinv3, hcone3, hur_64, hm3,
         fun cr s4 m4 hinv4 hcv4 hfuel4 hws4 htmk4 htrh4 hcr_dom hcr_uns hcr_eq hm4 => ?_⟩
+      clear hcone3
       have hfuel4_0 : s4.core.fuel.toNat ≤ s.core.fuel.toNat := Nat.le_trans hfuel4 hfuel3_0
       have hcv4_0 : s4.core.cur_vars = s.core.cur_vars := hcv4.trans hcv3_0
       have hws4_0 : s4.scratch.work_stk1 = ws1' := hws4.trans hws3
