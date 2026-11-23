@@ -1,7 +1,5 @@
 module
 
-public import Kraken.Layout
-
 public section
 
 /-

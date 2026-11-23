@@ -37,6 +37,24 @@ def step1 (e : Executable) (s : MachineState) (post : @Post MachineState) : Prop
   letI := e.labels
   (Executable.step e s .done).All post
 
+theorem Directives.interp_directivesAtAddress_of_zeroSizePrefix
+    {p : Program} [l : Layout p] {pc : Int64} {rest : List (Kraken.Sized Directive)}
+    (h : Kraken.ZeroSizePrefix (p.toExecutable.directivesAtAddress pc) rest)
+    (s : MachineData) (ret : Int64 → MachineData → Effects) :
+    Directives.interp (p.toExecutable.directivesAtAddress pc) s pc ret =
+      Directives.interp rest s pc ret := by
+  obtain ⟨pre, hpre, hz⟩ := h
+  rw [hpre]
+  have hmem := fun c (hc : c ∈ pre) => Kraken.Program.mem_of_zeroSizePrefix hpre hz hc
+  clear hpre hz
+  induction pre generalizing s with
+  | nil => rfl
+  | cons c pre ih =>
+    obtain ⟨m, d', hd', rfl, hz0⟩ := hmem c List.mem_cons_self
+    simp only [List.cons_append, Directives.interp, Int64.reduceOfNat, Int64.add_zero,
+      inert_of_size_zero hd' hz0]
+    exact ih s (fun c' hc' => hmem c' (List.mem_cons_of_mem _ hc'))
+
 /- More general version of `step_at` theorem which does not constrain the shape of the postcondition. -/
 theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
     {k : Nat} {d : Directive} (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
@@ -56,19 +74,11 @@ theorem eventually_of_interp {p : Program} [l : WellFormedLayout p]
     simpa [hsucc, hsize, inert_of_size_zero hd hsize, Effects.All] using h
   | _ + 1 =>
     refine .step _ post ?_ fun _ => .done _
-    obtain ⟨pre, hat, hpre⟩ := Kraken.Program.directivesAtAddress_addrOf p hd (by grind only)
-    have hmem := fun c (hc : c ∈ pre) => Kraken.Program.mem_of_zeroSizePrefix hat hpre hc
     unfold step1 Executable.step
     dsimp only
-    rw [hat]
-    clear hat hpre
-    induction pre with
-    | nil => simpa [Directives.interp, hsucc, hsize] using h
-    | cons c pre ih =>
-      obtain ⟨m, d', hd', rfl, hz0⟩ := hmem c List.mem_cons_self
-      simp only [List.cons_append, Directives.interp, Int64.reduceOfNat, Int64.add_zero,
-        inert_of_size_zero hd' hz0]
-      exact ih fun c' hc' => hmem c' (List.mem_cons_of_mem _ hc')
+    rw [Directives.interp_directivesAtAddress_of_zeroSizePrefix
+      (Kraken.Program.directivesAtAddress_addrOf p hd (by grind only))]
+    simpa [Directives.interp, hsucc, hsize] using h
 
 /- This theorem is meant to be used when the user is doing a proof over `Eventually` and wants to keep the
    state of the goal as an `Eventually` -/
