@@ -15,8 +15,7 @@ import all Kraken.Separation
 1. Executable `#guard` checks on `compact_fns` (`13` functions), `fullM4CompactExterns`
    (`7` externs), `compactModule.checkAcyclic`, `compactSpecTable` (`20` rows, all
    `noExit = true`), and `nvCompactBytes.length == nvCompactCfg.avail` (`1972`).
-2. Short root-namespace `kmc_*` audit theorems + single-line `#print axioms` (`<= 100` cols,
-   every `depends on axioms: [...]` output `< 115` chars on one line).
+2. Short root-namespace `kmc_*` audit theorems + single-line `#print axioms` audit.
 -/
 
 set_option autoImplicit false

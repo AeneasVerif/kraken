@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Arm64.IselLemmas2
 
 /-!
-# AArch64 Scalar Instruction Selection Proofs — Part 3 (`T9`)
+# AArch64 Scalar Instruction Selection Proofs — Part 3
 
 Weakest-precondition correctness for `armDivRemOp`, `bswap`, `clz`/`cls`/`rbit`/`ctz`,
 `armCmpOp`, `armSelectOp`, `armAddcOp`, and `armSubbOp`.

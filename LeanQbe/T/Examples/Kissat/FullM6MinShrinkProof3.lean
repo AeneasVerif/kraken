@@ -10,7 +10,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 `PR-W2B` Proof Shard 3 (`full_analyze_m6`)
+# Kissat M6 Minimization/Shrink Proof Shard 3 (`full_analyze_m6`)
 
 Proves `full_analyze_m6_wp` certifying `full_analyze_m6_body` against canonical
 `Full.fullAnalyzeSpec`:

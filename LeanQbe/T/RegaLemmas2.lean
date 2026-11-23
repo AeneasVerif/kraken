@@ -5,11 +5,11 @@ public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.Logic.Bytes
 
 /-!
-# `T7b` Part 2: ABI Frame Code (`call`/`ret`/`exit`/entry), `FnPost`, and `Hyps`
+# `RegaLemmas` Part 2: ABI Frame Code (`call`/`ret`/`exit`/entry), `FnPost`, and `Hyps`
 
 * `FnPost`, `Hyps`: the function-level postcondition (exactly `Target.FnSpec`'s) and hypotheses.
-* `ret_ok`, `exit_ok`, `call_ok`, `fn_entry_ok` (ports of E1 `saveCs_ok`/`restoreCs_ok`/
-  `canonAbi`/`epilogue`/`call_fnspec`, typed via `AbiHolds`/`ArgsIn`/`RetsIn`).
+* `ret_ok`, `exit_ok`, `call_ok`, `fn_entry_ok` (callee-save/restore, `canonAbi`, epilogue, and
+  call soundness, typed via `AbiHolds`/`ArgsIn`/`RetsIn`).
 -/
 
 set_option autoImplicit false

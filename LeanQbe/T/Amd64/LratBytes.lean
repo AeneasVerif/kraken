@@ -12,7 +12,7 @@ meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.LratBytes
 
 /-!
-# Untrusted-bytes LRAT proof checker (`lratBytesFns`) on SysV x64 (`T16`)
+# Untrusted-bytes LRAT proof checker (`lratBytesFns`) on SysV x64
 
 Instantiates the typed-IR 6-function untrusted-bytes DIMACS + Binary LRAT checker module
 `lratBytesModule` on `x64Target` (`x64LegalTarget`, `x64Layout`, `x64LabelClean`) with:

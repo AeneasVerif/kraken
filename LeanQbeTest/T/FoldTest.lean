@@ -6,9 +6,9 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 
 /-!
-# Tests of `LeanQbe.T.Fold` (`T6`)
+# Tests of `LeanQbe.T.Fold`
 
-Ports E1's `FoldTest` to the typed IR `LeanQbe.T` and adds coverage for:
+Covers constant folding and algebraic simplification in `LeanQbe.T`:
 - Multi-result constant folding and algebraic identities (`addc`, `subb`, `umulw`, `smulw`),
 - Strength reduction (`mul → shl`, `udiv → lshr`, `urem → and`, div by 1, safe `udiv0`/`sdiv0`),
 - Non-foldable UB preservation (`udiv x 0` is kept),
@@ -28,7 +28,7 @@ namespace LeanQbe.T.FoldTest
 
 open LeanQbe.T
 
-/-! ## 1. E1 `prog` ported: constant + copy + comparison + static `jnz` -/
+/-! ## 1. Baseline `prog`: constant + copy + comparison + static `jnz` -/
 
 /-- `x = add 1 2; y = copy x; z = add a y; c = cult y 4; jnz c, ret z, ret 0` -/
 def prog : Func [i64] [i64] := fun _ _ p =>
@@ -57,7 +57,7 @@ theorem prog_fold_spec (Γ : Env) (a : BitVec 64) (m : Mem 64) :
   wp_unfold
   exact ⟨fun _ => rfl, fun hc => by cases hc⟩
 
-/-! ## 2. E1 `algProg` ported: algebraic identities, annihilators, self-rules, strength reduction -/
+/-! ## 2. `algProg`: algebraic identities, annihilators, self-rules, strength reduction -/
 
 def algProg : Func [i64, i64] [i64, i64, i32, i64] := fun _ _ p =>
   let a := p.1
@@ -142,7 +142,7 @@ def divRemProg : Func [i64, i64] [i64, i64, i64, i64, i64, i64, i64] := fun _ _ 
   .ret (.var q1.1, .var r1.1, .var q2.1, .var q3.1, .var q4.1, .var q5.1, .var keepUB.1, ())
 
 /-- Power-of-two `udiv`/`urem` reduce to `lshr`/`and`; division by 1 and safe `udiv0`/`sdiv0`
-fold away; UB-prone `udiv y 0` is conservatively preserved! -/
+fold away; UB-prone `udiv y 0` is conservatively preserved. -/
 theorem divRemProg_fold_out : Func.fold divRemProg = fun _ _ p =>
     let x := p.1
     let y := p.2.1
@@ -330,7 +330,7 @@ theorem invSelectProg_fold_spec (Γ : Env) (c : Bool) (x : BitVec 64) (y : BitVe
   wp_unfold
   cases c <;> simp [bswapBits_bswapBits]
 
-/-- Non-byte-multiple `bswap` (UB) MUST be preserved, not cancelled. -/
+/-- Non-byte-multiple `bswap` (UB) must be preserved, not cancelled. -/
 def bswapBadProg : Func [.bits 12] [.bits 12] := fun _ _ p =>
   .let_ (op1 (.bswap (.bits 12)) (.var p.1)) fun a =>
   .let_ (op1 (.bswap (.bits 12)) (.var a.1)) fun b =>

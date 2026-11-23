@@ -13,7 +13,7 @@ meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.UnionFind
 
 /-!
-# Union-Find (`ufFns`) on SysV x64 (`T12i`)
+# Union-Find (`ufFns`) on SysV x64
 
 Instantiates the typed-IR Union-Find module `ufModule` (`find`, `union`, `unionInline`) on
 `x64Target` (`x64LegalTarget`, `x64Layout`, `x64LabelClean`) with:

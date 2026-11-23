@@ -166,12 +166,17 @@ class ArchSpec:
         ]
 
     def sat_nv_init_proof(
-        self, compiled_name: str, cnf_bytes: str, work_ptr: str
+        self,
+        compiled_name: str,
+        cnf_bytes: str,
+        work_ptr: str,
+        nv_wlen: str,
+        nv_pay: str,
     ) -> list[str]:
         if self.key == "amd64":
             return [
                 f"  have h1 := x64InitMem_entry b 0x1234 bs ({compiled_name}.bound_le_max _)",
-                "    (by rw [m6NvPayload_length]; unfold m6NvWorkLen; decide)",
+                f"    (by rw [{nv_pay}_length]; unfold {nv_wlen}; decide)",
                 "  change s.dmem =⋆ Eq (bs.At 0x1000#64) ⋆ x64Target.Entry 0x0ff8#64 0x1234 b ⋆ emp at h1",
                 "  dsimp only [Target.Entry, x64Target, x64FrameTarget, x64FramePreds] at h1",
                 "  have h1' : (Eq (bs.At 0x1000#64) ⋆",
@@ -179,18 +184,18 @@ class ArchSpec:
                 "        cell64 (s.regs.get64 .rsp) (0x1234 : Int64).toBitVec) ⋆ emp) s.dmem := by",
                 "    rw [show s.regs.get64 .rsp = 0x0ff8#64 from rfl]; exact h1",
                 f"  have hdm : (bytes nvM6CnfPtr {cnf_bytes} ⋆",
-                f"      region {work_ptr} m6NvWorkLen ⋆",
+                f"      region {work_ptr} {nv_wlen} ⋆",
                 "      (region (s.regs.get64 .rsp - BitVec.ofNat 64 b) b ⋆",
                 "        cell64 (s.regs.get64 .rsp) (0x1234 : Int64).toBitVec) ⋆ emp) s.dmem := by",
                 "    refine sep_mono (Q := emp)",
                 "      (fun _ => sep_mono (P := Eq (bs.At 0x1000#64))",
-                f"        (fun _ heq => heq ▸ m6NvPayload_sep {cnf_bytes} (by decide))) h1'",
+                f"        (fun _ heq => heq ▸ {nv_pay}_sep {cnf_bytes} (by decide))) h1'",
                 "  have hhsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0 := by",
                 "    rw [show s.regs.get64 .rsp = 0x0ff8#64 from rfl]; decide",
             ]
         return [
             f"  have h1 := armInitMem_entry b bs ({compiled_name}.bound_le_max _)",
-            "    (by rw [m6NvPayload_length]; unfold m6NvWorkLen; decide)",
+            f"    (by rw [{nv_pay}_length]; unfold {nv_wlen}; decide)",
             "  change s.dmem =⋆ Eq (bs.At 0x1000#64) ⋆ armTarget.Entry 0x1000#64 0x1234 b ⋆ emp at h1",
             "  dsimp only [Target.Entry, armTarget, armFrameTarget, armFramePreds] at h1",
             "  simp only [region_zero, sep_emp] at h1",
@@ -198,11 +203,11 @@ class ArchSpec:
             "      region (s.regs.SP.toBitVec - BitVec.ofNat 64 b) b ⋆ emp) s.dmem := by",
             "    rw [show s.regs.SP.toBitVec = 0x1000#64 from rfl]; simpa [sep_emp] using h1",
             f"  have hdm : (bytes nvM6CnfPtr {cnf_bytes} ⋆",
-            f"      region {work_ptr} m6NvWorkLen ⋆",
+            f"      region {work_ptr} {nv_wlen} ⋆",
             "      region (s.regs.SP.toBitVec - BitVec.ofNat 64 b) b ⋆ emp) s.dmem :=",
             "    sep_mono (Q := emp)",
             "      (fun _ => sep_mono (P := Eq (bs.At 0x1000#64))",
-            f"        (fun _ heq => heq ▸ m6NvPayload_sep {cnf_bytes} (by decide))) h1'",
+            f"        (fun _ heq => heq ▸ {nv_pay}_sep {cnf_bytes} (by decide))) h1'",
             "  have hhsp : s.regs.SP.toNat % 16 = 0 := by rw [show s.regs.SP = 4096 from rfl]; decide",
         ]
 
@@ -417,7 +422,7 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
         source_mod="LeanQbe.T.Examples.Kissat.FullM7",
         proof_mod="LeanQbe.T.Examples.Kissat.FullM7Proof",
         hub_mod="LeanQbe.T.Examples.Kissat.M5Hub",
-        entry_const="FullM7Orch.m7oSolveBytesFn",
+        entry_const="FullM6Orch.m6oSolveBytesFn",
         entry_spec="fullM6SolveBytesCoreModelSpec",
         default_total_fns=None,
         inl_mod="LeanQbe.T.Examples.Kissat.FullM7Inl",
@@ -2439,7 +2444,9 @@ def render_m6_unsat_section(
         "(as := [i64, i64, i64, i64, i64]) b bs",
         "    (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,",
         f"      nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ())",
-        *arch.sat_nv_init_proof(compiled_name, "nvM6UnsatBytes", "nvM6UnsatWorkPtr"),
+        *arch.sat_nv_init_proof(
+            compiled_name, "nvM6UnsatBytes", "nvM6UnsatWorkPtr", nv_wlen, nv_pay
+        ),
         f"  refine ⟨nvM6CnfPtr, nvM6UnsatWorkPtr, 16#64, nvM6UnsatBytes, "
         f"{nv_wlen},",
         "    s, 0x1234, emp, by decide, by decide, rfl, rfl, rfl, rfl, rfl,",

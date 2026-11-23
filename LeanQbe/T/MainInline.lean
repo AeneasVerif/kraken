@@ -4,7 +4,7 @@ public import LeanQbe.T.MainLemmas
 import LeanQbe.T.OptLemmas
 
 /-!
-# Verified `Module.optInline` Compilation Bridge (`C3`)
+# Verified `Module.optInline` Compilation Bridge
 
 Standalone wrappers and end-to-end soundness theorems composing `Module.optInline`
 (`Module.inline` + `Fn.renorm`) with `compile`, `compileModule`, `compile_sound`, and `Compiled`,

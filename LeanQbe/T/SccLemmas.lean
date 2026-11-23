@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Scc
 
 /-!
-# Soundness of `LeanQbe.T.Scc` (`R-B`)
+# Soundness of `LeanQbe.T.Scc`
 
 Proves `checkSccOrder_sound` (showing every `fn ∈ scc` satisfies `fn.callsOk (earlier ++ own ++ ext)
 exits` plus global name uniqueness) and supporting partition/disjointness/acyclic-embedding lemmas.

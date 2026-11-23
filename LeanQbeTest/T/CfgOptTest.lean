@@ -6,15 +6,15 @@ public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.FlatLemmas
 
 /-!
-# Tests of `LeanQbe.T.IfOpt` and `LeanQbe.T.SimplifyGroupPlan` (`O-M2`, `CfgOpt`)
+# Tests of `LeanQbe.T.IfOpt` and `LeanQbe.T.SimplifyGroupPlan`
 
 Covers:
-1. `IfOpt` (`MB3` diamond `jnz` → `select`) + `SimplifyGroupPlan` straight-line collapse:
-   - Classic `MB3` scalar arithmetic diamond,
+1. `IfOpt` (diamond `jnz` → `select`) + `SimplifyGroupPlan` straight-line collapse:
+   - Scalar arithmetic branch diamond,
    - Multi-arg (`≤ 4` safe ops + identical-operand passthrough),
    - Entry `.load`/`.let_` prefix + `.pair` component-wise `.select`,
    - Negative safety checks: partial op (`udiv`) NOT hoisted, `> 4` pure ops NOT hoisted,
-     float signature/op NOT hoisted, existing `.select` NOT turned into `.jnz` (`G2`).
+     float signature/op NOT hoisted, existing `.select` NOT turned into `.jnz`.
 2. `SimplifyGroupPlan` PHOAS join-group elimination:
    - Single-block tail join (`k = .jump J args`) spliced even over size 16,
    - Small single-use block (`size ≤ 16 && jumps == 1`) spliced,
@@ -47,9 +47,9 @@ theorem ifSimp_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (ifSimp f) xs m Q X :=
   Func.simplifyGroupPlan_spec (Func.ifOpt_wf hf) (Func.ifOpt_spec hf h)
 
-/-! ## 1. `MB3` diamond `jnz` → `select` and `SimplifyGroupPlan` collapse -/
+/-! ## 1. Branch diamond `jnz` → `select` and `SimplifyGroupPlan` collapse -/
 
-/-- `MB3`-style diamond: `if (x <s y) { a + 10 } else { a - 10 }` joining on `[i64]`. -/
+/-- Branch diamond: `if (x <s y) { a + 10 } else { a - 10 }` joining on `[i64]`. -/
 def mb3Diamond : Func [i64, i64, i64] [i64] := fun _ _ (x, y, a, ()) =>
   .let_ (op2 (.cmp .slt i64) (.var x) (.var y)) fun (c, ()) =>
   .group (sig := [[i64]])
@@ -101,7 +101,7 @@ theorem mb3Diamond_ifSimp_spec (Γ : Env) (x y a : BitVec 64) (m : Mem 64) :
   · exact hJ.1 (a - 10#64, ()) m ⟨by simp [h], rfl⟩
 
 /-- 4-op safe arm (`add`, `xor`, `rotl`, `zext`), multi-arg `[i64, .bool]`, identical `.bool`
-operand kept un-selected! -/
+operand kept un-selected. -/
 def diamondMax4AndId : Func [i32, i64, .bool] [i64, .bool] := fun _ _ (w, a, flag, ()) =>
   .group (sig := [[i64, .bool]])
     (fun _ => .cons (fun (r, b, ()) => .ret (.var r, .var b, ())) .nil)
@@ -161,9 +161,9 @@ theorem diamondPrefixPair_wf : diamondPrefixPair.Wf := by t_wf_reify
 theorem diamondPrefixPair_ifSimp_checkTFlat : (ifSimp diamondPrefixPair).checkTFlat = true := by
   t_kernel_rfl
 
-/-! ## 2. Negative `IfOpt` guards (`udiv`, `> 4` ops, floats, `G2` `.select` preservation) -/
+/-! ## 2. Negative `IfOpt` guards (`udiv`, `> 4` ops, floats, `.select` preservation) -/
 
-/-- Partial op (`udiv 64`) in an arm MUST NOT be speculatively hoisted. -/
+/-- Partial op (`udiv 64`) in an arm must not be speculatively hoisted. -/
 def udivDiamond : Func [.bool, i64, i64] [i64] := fun _ _ (c, x, d, ()) =>
   .group (sig := [[i64]])
     (fun _ => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
@@ -178,7 +178,7 @@ theorem udivDiamond_ifSimp_unchanged : ifSimp udivDiamond = udivDiamond := by t_
 
 theorem udivDiamond_wf : udivDiamond.Wf := by t_wf_reify
 
-/-- More than 4 pure ops in one arm (`5` `.let_`s) MUST NOT be hoisted. -/
+/-- More than 4 pure ops in one arm (`5` `.let_`s) must not be hoisted. -/
 def over4Diamond : Func [.bool, i64] [i64] := fun _ _ (c, x, ()) =>
   .group (sig := [[i64]])
     (fun _ => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
@@ -194,7 +194,7 @@ def over4Diamond : Func [.bool, i64] [i64] := fun _ _ (c, x, ()) =>
 
 theorem over4Diamond_ifOpt_unchanged : Func.ifOpt over4Diamond = over4Diamond := by t_kernel_rfl
 
-/-- Float join signature / float arithmetic MUST NOT be hoisted to `.select`. -/
+/-- Float join signature / float arithmetic must not be hoisted to `.select`. -/
 def floatDiamond : Func [.bool, f64] [f64] := fun _ _ (c, x, ()) =>
   .group (sig := [[f64]])
     (fun _ => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
@@ -205,7 +205,7 @@ def floatDiamond : Func [.bool, f64] [f64] := fun _ _ (c, x, ()) =>
 
 theorem floatDiamond_ifOpt_unchanged : Func.ifOpt floatDiamond = floatDiamond := by t_kernel_rfl
 
-/-- `G2`: `.select` is NEVER turned back into `.jnz`. -/
+/-- Existing `.select` is never turned back into `.jnz`. -/
 def selectStayProg : Func [.bool, i64, i64] [i64] := fun _ _ (c, a, b, ()) =>
   .let_ (op3 (.select i64) (.var c) (.var a) (.var b)) fun (s, ()) =>
   .ret (.var s, ())
@@ -326,7 +326,7 @@ theorem multiBlockZeroJump_simp_out :
     .let_ (op2 (.sub i64) (.var x) (.imm 1)) fun (r, ()) => .ret (.var r, ()) := by
   t_kernel_rfl
 
-/-- Self-recursive single-block loop MUST NOT be spliced (`selfRec == true`), even when entry
+/-- Self-recursive single-block loop must not be spliced (`selfRec == true`), even when entry
 is `.jump J args`. -/
 def selfLoopProg : Func [i64] [i64] := fun _ _ (n, ()) =>
   .group (sig := [[i64]])
@@ -383,7 +383,7 @@ theorem multiBlockDeadProg_checkTFlat :
   t_kernel_rfl
 
 /-- Nested `.group` cleanup: dead multi-block inner group inside a small single-use outer join
-group collapses completely bottom-up to straight-line code! -/
+group collapses completely bottom-up to straight-line code. -/
 def nestedGroupProg : Func [i64] [i64] := fun _ _ (x, ()) =>
   .group (sig := [[i64]])
     (fun _ =>

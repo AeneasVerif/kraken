@@ -12,19 +12,18 @@ meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.Examples.Kissat.FullM4
 
 /-!
-# Tests of `LeanQbe.T.AssumeBits` (`Train B5-2`)
+# Tests of `LeanQbe.T.AssumeBits`
 
 Covers:
-1. Exact kernel-checked (`t_kernel_rfl`) rewrites, including the `full_prop_lit_raw.L5` watch-scan
+1. Exact kernel-checked (`t_kernel_rfl`) rewrites, including the `full_prop_lit_raw` watch-scan
    pattern (`test $0x80000000; jne` dominating `and $0x7fffffff`), the same fact flowing into a
    nested loop body, sign tests (`x <s 0`, `x >=s 0`), unsigned bounds (`x <u 256`), `!c`, and
    known-zero masks from `zext`, `lshr`, and `and` (`and x c → x`, `and x c → 0`).
 2. Negative cases: the mask is kept on the arm where the tested bit is set and on `var &&& var`.
 3. `Func.assumeBits_{wf,spec,callsOk}` instantiations and an end-to-end contract transported
    from a source proof.
-4. Real-corpus checks after `Fn.mid`: the pass fires on the hot `FullM4` BCP functions (one `and`
-   each in five functions incl. `full_prop_lit_raw` at `main @ 990af364`), and every rewritten
-   `FullM4` / `LratBytes` body passes `checkTFlat`.
+4. Corpus checks after `Fn.mid`: the pass fires on the hot `FullM4` BCP functions (including
+   `full_prop_lit_raw`), and every rewritten `FullM4` / `LratBytes` body passes `checkTFlat`.
 5. `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -36,7 +35,7 @@ namespace LeanQbeTest.T.AssumeBitsTest
 
 open LeanQbe.T
 
-/-! ## 1. `full_prop_lit_raw.L5`: `(w0 & 0x80000000) != 0` dominates `w0 & 0x7fffffff` -/
+/-! ## 1. `full_prop_lit_raw` watch scan: `(w0 & 0x80000000) != 0` dominates `w0 & 0x7fffffff` -/
 
 /-- Watch-scan step: binary watches keep the mask; clause watches have bit `31` clear. -/
 def propLitL5 : Func [i32, i64] [i64] := fun _ _ (w0, nlits, ()) =>
@@ -233,10 +232,10 @@ def abDelta (f : Fn) : Nat × Bool :=
     Func.checkTFlat a && Func.checkTFlat mf.body &&
       tflatSize (reifyFunc mf.body) == tflatSize (reifyFunc (as := mf.as) postMid))
 
-/-- The five `FullM4` functions with a branch-implied redundant `and $0x7fffffff` at `main @
-990af364` (one elimination each, incl. `full_prop_lit_raw.L5`). The guards below only require
-well-formed output and at least one surviving elimination, so source-level edits of these
-functions (e.g. reordering the blocking-literal test) do not break this file. -/
+/-- Five `FullM4` BCP functions with a branch-implied redundant `and $0x7fffffff` (including
+`full_prop_lit_raw`). The guards below only require well-formed output and at least one surviving
+elimination, so source-level edits of these functions (e.g. reordering the blocking-literal test)
+do not break this file. -/
 def m4Hot : List String :=
   ["full_prop_lit_raw", "full_probe_prop_lit", "full_promote_clause", "full_reduce",
     "full_analyze_rsn"]

@@ -8,7 +8,7 @@ meta import LeanQbe.T.Amd64.Isel
 meta import LeanQbe.T.Main
 
 /-!
-# Stack-Slot `cmp`/`test`/`alu`/`jnz` & `[mem]` RMW Codegen Tests (`B5-6b`, SysV x64)
+# Stack-Slot `cmp`/`test`/`alu`/`jnz` & `[mem]` RMW Codegen Tests (SysV x64)
 
 Self-contained x86-64 test module (`Kraken.X64` only, never Arm64):
 1. `x64Gpr.aluMem`, `x64Gpr.jnzMem`, and `x64Gpr.rmwMem` instruction selection (`inc`/`dec`/ALU,

@@ -5,9 +5,9 @@ public import LeanQbeTest.T.Examples
 public import LeanQbeTest.T.Smoke
 
 /-!
-# Reification and well-formedness tests (`T2`)
+# Reification and well-formedness tests
 
-* Kernel `rfl` (`t_wf_reify`) proofs of `Func.Wf` for all 8 spike-4 programs in `Examples.lean`
+* Kernel `rfl` (`t_wf_reify`) proofs of `Func.Wf` for all 8 example programs in `Examples.lean`
   (including concrete `Ty.vec k` instances of `vumin`, plus parametric `∀ k, Func.Wf (vumin k)`)
   and all 6 closed functions in `Smoke.lean`.
 * Total computable `Func.checkTFlat ... = true` checks.
@@ -22,7 +22,7 @@ set_option autoImplicit false
 
 namespace LeanQbe.T.ReifyTest
 
-/-! ## 1. All 8 spike-4 programs from `Examples.lean` -/
+/-! ## 1. All 8 example programs from `Examples.lean` -/
 
 theorem add128_wf : Func.Wf Examples.add128 := by t_wf_reify
 theorem add256_wf : Func.Wf Examples.add256 := by t_wf_reify

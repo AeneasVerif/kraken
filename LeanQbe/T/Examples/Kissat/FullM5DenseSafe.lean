@@ -7,27 +7,27 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat `D-Full` M5 Dense-Mode OOM & BVA Watch Safety (`FullM5DenseSafe`)
 
-Standalone drop-in C0 replacements covering Wave 0 `RC-02`, `RC-03`, and `RC-04` (`0` `FullHdr`
-layout churn, `0` edits to landed `Full1..3` / `FullM4*` files), verified against exact canonical
-`Full` / `FullFastSched` / `FullFastBveBudgets` / `FullM4Bva` specs for zero-friction `FullM5`
+Standalone drop-in C0 replacements for dense-mode OOM handling, binary deduplication, and
+BVA watch-stack headroom safety over unchanged `FullHdr`, verified against canonical
+`Full` / `FullFastSched` / `FullFastBveBudgets` / `FullM4Bva` contracts for `FullM5`
 splicing:
 
-1. `full_enter_dense_m5` (`RC-02`): preserves pre-existing `h->oom != 0ULL` (returning `false`
+1. `full_enter_dense_m5`: preserves pre-existing `h->oom != 0ULL` (returning `false`
    immediately after level-0 backtrack/propagate); only clears `h->oom = 0ULL` on local dense
    watch-push failure before any clause has been mutated or deleted.
-2. `full_subst_rewrite_bins_m5` (`RC-02`, `RC-03`): deduplicates rewritten binaries via `lit_mark`
+2. `full_subst_rewrite_bins_m5`: deduplicates rewritten binaries via `lit_mark`
    bit 1, sets `h->oom = 1ULL` and aborts cleanly (never silently discarding) on `pn >= nlits` or
    `full_add_bin == 2ULL`, and keeps `return false` strictly for genuine `F0.Unsat`.
-3. `full_subst_rewrite_ar_m5` (`RC-02`): aborts immediately with `h->oom = 1ULL` on
+3. `full_subst_rewrite_ar_m5`: aborts immediately with `h->oom = 1ULL` on
    `full_add_bin == 2ULL` (`h->oom != 0ULL`) while keeping `return false` strictly for `F0.Unsat`.
-4. `full_substitute_m5` (`RC-02`): aborts immediately before `full_propagate`/`full_arena_sweep`
+4. `full_substitute_m5`: aborts immediately before `full_propagate`/`full_arena_sweep`
    whenever `h->oom != 0ULL` after `full_subst_rewrite_bins` / `full_subst_rewrite_ar`.
-5. `full_fwd_check_cl_m5` (`RC-02`): checks `full_add_bin == 2ULL` before unwatching or
+5. `full_fwd_check_cl_m5`: checks `full_add_bin == 2ULL` before unwatching or
    `PH_GARB`-deleting the strengthened clause, aborting cleanly without dropping clauses or
    falsely returning `false` (which `full_forward_sub` maps to `20ULL` UNSAT).
-6. `full_bve_var_m5` (`RC-02`): pre-checks worst-case `watch_stk` headroom over all buffered
+6. `full_bve_var_m5`: pre-checks worst-case `watch_stk` headroom over all buffered
    resolvents (calling `full_wstack_defrag` if needed) before `full_bve_weaken` / `FL_ELIM`.
-7. `full_bva_commit_m5` (`RC-04`): budgets `2 * wvec[l].sz + 2` copying growth per touched literal
+7. `full_bva_commit_m5`: budgets `2 * wvec[l].sz + 2` copying growth per touched literal
    in `need_w` (defragging if needed) and checks every `full_add_bin` / `full_watch_push` return
    in Phase 1 **before** Phase 2 unwatches/`PH_GARB`-deletes any original clause.
 -/
@@ -616,7 +616,7 @@ def m5DenseSafeExterns : List Extern :=
   , ⟨"full_bve_ext_need", [i64, i32, i32], [i64]⟩
   , ⟨"full_init_fresh_var", [i64, i32], []⟩ ]
 
-/-- Standalone M5 Wave-0B module (`7` upgraded functions + `27` externs, `0` exits). -/
+/-- Standalone M5 dense-safe module (`7` upgraded functions + `27` externs, `0` exits). -/
 def m5DenseSafeModule : LeanQbe.T.Module :=
   { fns := m5DenseSafe_fns, externs := m5DenseSafeExterns, exits := [] }
 

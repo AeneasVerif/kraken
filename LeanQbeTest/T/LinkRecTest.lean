@@ -10,7 +10,7 @@ public meta import LeanQbe.T.Examples.LinkRec
 public meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
-# Tests for Measure/Fuel-Indexed Cyclic Module Linking (`B1.1`)
+# Tests for Measure/Fuel-Indexed Cyclic Module Linking
 
 Exercises `LeanQbe.T.LinkRec`, `LeanQbe.T.LinkRecLemmas`, and `LeanQbe.T.Examples.LinkRec` on
 `RegaLitmus.litmusTarget`:

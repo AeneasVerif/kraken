@@ -11,14 +11,14 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification & Axiom Audit for Kissat W4A Conditional Equivalence Merge (`FullM7CongIte`)
+# Verification & Axiom Audit for Kissat M7 Conditional Equivalence Merge (`FullM7CongIte`)
 
 1. `#guard` checks on `m7CongIteFns` (`7` fns), `m7CongIteModule.checkAcyclic`,
    `m7CongIteSpecTable` (`7` rows, `noExit = true`), `PrintCpp.ppTModule`, `PrintQbe.module`,
    and 4-ISA `Fn.legal` (`aarch64`, `scalar64`, `x64SSE`, `x64AVX2`).
 2. Audit restatements of `FullDenseInv`-preserving `full_cong_extract_ite_all_m7_dense_wp`,
    closed `ModuleOk`, and concrete `Mem 64` UNSAT non-vacuity (`XPost := False`).
-3. Single-line `#print axioms` audit (`<= 100c`, strictly `⊆ [propext, Classical.choice,
+3. Single-line `#print axioms` audit (strictly `⊆ [propext, Classical.choice,
    Quot.sound]`).
 -/
 

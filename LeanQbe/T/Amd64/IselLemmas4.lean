@@ -4,7 +4,7 @@ public import LeanQbe.T.Amd64.IselLemmas3
 import Kraken.X64.Parser
 
 /-!
-# x64 Scalar `GprTarget` Proofs — Part 4 (`T8`)
+# x64 Scalar `GprTarget` Proofs — Part 4
 
 Functional correctness (`_root_.Program.wp`) of `opDiv`, `opAddc`, `opSubb`, and `opMulw`,
 plus additional `ParserChecks` against `Kraken.X64.Parser`.

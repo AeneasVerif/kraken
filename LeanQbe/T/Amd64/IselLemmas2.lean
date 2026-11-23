@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Amd64.IselLemmas1
 
 /-!
-# x64 Scalar `GprTarget` Proofs — Part 2 (`T8`)
+# x64 Scalar `GprTarget` Proofs — Part 2
 
 Single-directive `Directive.FallsTo` lemmas for scalar ALU, `lea`, `inc`/`dec`, `neg`, `not`,
 `cmp`, `movzx`/`movsx`, `rolw $8`, and `bswap`, plus `AllInstr` and `op_spec` proofs for:

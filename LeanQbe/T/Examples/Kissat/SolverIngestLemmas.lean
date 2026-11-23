@@ -5,7 +5,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Soundness Proofs for Kissat C0 Clause Ingestion & Body Parsing (`X1` Stage B2, Part 2)
+# Soundness Proofs for Kissat `D-Min` C0 Clause Ingestion & Body Parsing (Part 2)
 
 Proves `Func.wp` specifications for:
 1. `kissat_ingest_clause` (`kissatIngestClauseSpec`, `kissat_ingest_clause_wp`)

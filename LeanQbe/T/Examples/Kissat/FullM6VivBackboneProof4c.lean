@@ -4,12 +4,12 @@ public import LeanQbe.T.Examples.Kissat.FullM6VivBackbone
 public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas5
 
 /-!
-# Kissat Wave-2 PR-W2C — `full_probe_assume_pair_m6` OOM-Safe Proof (`Proof4c`)
+# Kissat M6 `full_probe_assume_pair_m6` OOM-Safe Proof (`Proof4c`)
 
 Certifies UNSAT-sound `Func.wp` (`XPost := False`, `0` SAT model proofs) for
 `full_probe_assume_pair_m6` against the exact canonical drop-in specification
 `Full.fullProbeAssumePairSpec` (`FullProbeTransSpecs.fullProbeAssumePairSpec`), handling the
-added `RC-20` OOM guards (`pp == 2ULL`, `pr2 == 2ULL`, direct `full_probe_flush_hbr` return).
+added OOM guards (`pp == 2ULL`, `pr2 == 2ULL`, direct `full_probe_flush_hbr` return).
 -/
 
 set_option autoImplicit false

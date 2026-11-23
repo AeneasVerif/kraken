@@ -17,7 +17,7 @@ Provides:
 2. Collision-free `FullPropDecSpecs` namespace containing shared Stage-4 invariants
    (`FullLitMarksClear`, `FullArenaVarsNodup`, `FullLastLearnedWf`, `FullExtScratchOk`,
    `FullSparseInv`, `FullConflAt`, `FullTrailExt`) and per-function `Spec` contracts
-   (callees + all 9 owned functions, aligned with `#966`/`#968`).
+   (callees + all 9 `D-Full` BCP/decide functions).
 3. Core bitvector, `WatchSliceOk`, and `FullWitnessInv` congruence/helper lemmas.
 4. Parametric `(Γ : Env)` `Func.wp` proofs for the 2 zero-callee helpers:
    - `full_find_repl` (`full_find_repl_wp`)
@@ -66,21 +66,21 @@ def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
   (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8) ∧
   (∀ l < 2 * c.max_vars, s.core.lit_mark[l]?.getD 0#8 = 0#8)
 
-/-- Every non-garbage arena clause has pairwise distinct variables (`#968`). -/
+/-- Every non-garbage arena clause has pairwise distinct variables. -/
 def FullArenaVarsNodup (s : FullState) : Prop :=
   ∀ r ∈ fullArenaClauseRefs s, fullArenaClauseGarb s r = false →
     ((fullArenaClauseLits s r).map (· / 2)).Nodup
 
-/-- Every `last_learned` slot is either `0xFFFFFFFF` or a valid arena clause reference (`#968`). -/
+/-- Every `last_learned` slot is either `0xFFFFFFFF` or a valid arena clause reference. -/
 def FullLastLearnedWf (s : FullState) : Prop :=
   ∀ i < 8, let cr := s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32
     cr = 0xFFFFFFFF#32 ∨ cr.toNat ∈ fullArenaClauseRefs s
 
-/-- Auxiliary scratch invariants carried across Stage-4 passes (`#968`). -/
+/-- Auxiliary scratch invariants carried across `D-Full` passes. -/
 def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
   FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
 
-/-- Canonical sparse-mode (`dense_mode = 0`) Stage-4 UNSAT-only solver invariant (`#968`). -/
+/-- Canonical sparse-mode (`dense_mode = 0`) `D-Full` UNSAT-only solver invariant. -/
 def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
   FullExtScratchOk c s ∧ s.core.dense_mode = 0#64

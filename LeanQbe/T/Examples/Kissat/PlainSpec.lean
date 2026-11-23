@@ -12,7 +12,7 @@ import all Kraken.Separation
 Builds on `PlainSpec1`/`PlainSpec2` to define `{ s with ... }` record-update `Spec` definitions
 for all 51 C0 functions in `plain1_fns ++ plain2_fns`, unit-witness `UnitSatTrace`/`UnitUnsatTrace`,
 `plainInitStateSpec` (including the `false`-branch capacity guard), `plainSolveBytesCoreSpec`,
-and the 59-row `Env.ofTable` table `plainSpecTable` (`mkPlainEnv`, `plainEnv`), ready for Wave 2b.
+and the 59-row `Env.ofTable` table `plainSpecTable` (`mkPlainEnv`, `plainEnv`).
 -/
 
 set_option autoImplicit false

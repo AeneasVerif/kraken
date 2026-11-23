@@ -6,7 +6,7 @@ public import LeanQbe.T.TargetLemmas
 import Kraken.X64.Parser
 
 /-!
-# Typed x64 Scalar Instruction Selection: Foundations & Non-`op` Specs (`T8`)
+# Typed x64 Scalar Instruction Selection: Foundations & Non-`op` Specs
 
 Part 1 of the verification of `x64Gpr`:
 * `ParserChecks`: `rfl` checks against `Kraken.X64.Parser` covering every emitted directive form.

@@ -4,7 +4,7 @@ public import LeanQbe.T.Amd64.IselVecLemmas2
 import Kraken.X64.Parser
 
 /-!
-# SysV x64 Vector Target Verification — Part 3 (`T10`)
+# SysV x64 Vector Target Verification — Part 3
 
 * `x64EmitTernlog_wp`, `x64WideTernlogBin_wp`, `x64UniformShiftI32_wp`, `x64BinInPlace128_wp`.
 * `mkpair`/`unpair` pack-unpack bridge soundness (`x64EmitMkpair_spec`, `x64EmitUnpair_spec`).

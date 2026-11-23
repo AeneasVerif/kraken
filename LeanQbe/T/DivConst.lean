@@ -3,9 +3,9 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Verified Constant Division & Remainder Optimization Pass (`O-M1`)
+# Verified Constant Division & Remainder Optimization Pass
 
-Style-B PHOAS optimization pass replacing `.udiv n`, `.urem n`, `.sdiv n`, `.srem n`
+PHOAS optimization pass replacing `.udiv n`, `.urem n`, `.sdiv n`, `.srem n`
 (`n ∈ {32, 64}`) with constant divisor `.imm d` by shifts, bitwise masks, or Granlund-Montgomery
 widening multiplications guarded by total computable boolean certificates:
 

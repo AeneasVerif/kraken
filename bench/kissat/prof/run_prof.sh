@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Single-command runner: profile C4 & C3b under Callgrind and print per-class + per-fn comparison.
+# Profile LeanQbe x64 (C4) vs PrintCpp C++20 (C3b) under Callgrind and compare per-class/per-fn Ir.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -4,8 +4,8 @@
  * bench/kissat/build_solver.sh). The input is mapped read-only and the workspace read-write,
  * each between PROT_NONE guard pages. Exit codes follow the SAT competition convention:
  * 20 = UNSATISFIABLE, 0 = UNKNOWN (malformed input, out of fuel or memory, or uncertified SAT
- * under -DKISSAT_UNSAT_ONLY=1), 10 = SATISFIABLE (Plain SAT+UNSAT build only), 1 = usage,
- * RLIMIT_STACK, or I/O error. */
+ * under -DKISSAT_UNSAT_ONLY=1), 10 = SATISFIABLE (certified SAT+UNSAT builds; prints DIMACS
+ * `v ... 0` model unless `-n`/`--no-model` is passed), 1 = usage, RLIMIT_STACK, or I/O error. */
 #define _POSIX_C_SOURCE 200809L
 #include <errno.h>
 #include <stdint.h>
@@ -21,7 +21,8 @@ extern uint64_t kissat_solve_bytes(const uint8_t *cnf_ptr, uint64_t cnf_len,
 
 static int usage(const char *msg) {
   if (msg) fprintf(stderr, "kissat-leanqbe: %s\n", msg);
-  fprintf(stderr, "usage: kissat-leanqbe [--work-mb <MB>] [--fuel <N>] <input.cnf | ->\n");
+  fprintf(stderr,
+          "usage: kissat-leanqbe [--work-mb <MB>] [--fuel <N>] [-n|--no-model] <input.cnf | ->\n");
   return 1;
 }
 
@@ -72,12 +73,46 @@ static uint8_t *read_all(FILE *f, size_t *len) {
   return buf;
 }
 
+#if !defined(KISSAT_UNSAT_ONLY) || !KISSAT_UNSAT_ONLY
+static void print_dimacs_model(const int8_t *vals, uint64_t mv) {
+  size_t col = 0;
+  for (uint64_t v = 1ULL; v <= mv; v++) {
+    int8_t b = vals[2ULL * (v - 1ULL)];
+    char buf[32];
+    int n = snprintf(buf, sizeof(buf), "%s%llu", (b > 0) ? "" : "-", (unsigned long long)v);
+    if (n <= 0) continue;
+    if (col == 0) {
+      fputs("v ", stdout);
+      col = 2;
+    } else if (col + 1 + (size_t)n > 78) {
+      fputs("\nv ", stdout);
+      col = 2;
+    } else {
+      putchar(' ');
+      col++;
+    }
+    fputs(buf, stdout);
+    col += (size_t)n;
+  }
+  if (col == 0) {
+    puts("v 0");
+  } else if (col + 2 > 78) {
+    puts("\nv 0");
+  } else {
+    puts(" 0");
+  }
+}
+#endif
+
 int main(int argc, char **argv) {
   uint64_t work_mb = 64, fuel = 10000000;
+  int no_model = 0;
   const char *path = NULL;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) { usage(NULL); return 0; }
-    if (!strcmp(argv[i], "--work-mb")) {
+    if (!strcmp(argv[i], "-n") || !strcmp(argv[i], "--no-model")) {
+      no_model = 1;
+    } else if (!strcmp(argv[i], "--work-mb")) {
       if (++i >= argc || !parse_u64(argv[i], &work_mb) || !work_mb || work_mb > (1u << 20))
         return usage("--work-mb expects an integer in [1, 1048576]");
     } else if (!strcmp(argv[i], "--fuel")) {
@@ -112,9 +147,48 @@ int main(int argc, char **argv) {
   if (r == 20) { puts("s UNSATISFIABLE"); return 20; }
 #if defined(KISSAT_UNSAT_ONLY) && KISSAT_UNSAT_ONLY
   /* SAT (r == 10) is intentionally uncertified for UNSAT-only inprocessing solvers. */
+  (void)no_model;
   if (r == 10) { puts("s UNKNOWN"); return 0; }
 #else
-  if (r == 10) { puts("s SATISFIABLE"); return 10; }
+  if (r == 10) {
+    if (no_model) {
+      puts("s SATISFIABLE");
+      return 10;
+    }
+    uintptr_t wp = (uintptr_t)work;
+    uintptr_t pad = (wp & 7u) ? (8u - (wp & 7u)) : 0u;
+    if (work_len < pad) {
+      fprintf(stderr, "kissat-leanqbe: invalid workspace alignment\n");
+      return 1;
+    }
+    const uint64_t *hdr = (const uint64_t *)(work + pad);
+#if !defined(KISSAT_CLI_PLAIN_LAYOUT) || !KISSAT_CLI_PLAIN_LAYOUT
+    if (work_len - pad >= 8ULL && hdr[0] == 0x4D36484452455831ULL) {
+      /* FullM6Hdr ("M6HDREX1"): FullHdr starts at word 288 (2304 bytes). */
+      if (work_len - pad < 288ULL * 8ULL) {
+        fprintf(stderr, "kissat-leanqbe: truncated M6 header\n");
+        return 1;
+      }
+      pad += 288ULL * 8ULL;
+      hdr += 288;
+    }
+#endif
+    if (work_len - pad < 72ULL) {
+      fprintf(stderr, "kissat-leanqbe: truncated SAT header\n");
+      return 1;
+    }
+    uint64_t mv = hdr[0];
+    uintptr_t vals_ptr = (uintptr_t)hdr[8];
+    uintptr_t ws_lo = (uintptr_t)hdr + 72ULL;
+    uintptr_t ws_hi = (uintptr_t)work + work_len;
+    if (vals_ptr < ws_lo || vals_ptr > ws_hi || mv > (uint64_t)(ws_hi - vals_ptr) / 2ULL) {
+      fprintf(stderr, "kissat-leanqbe: invalid SAT model pointer\n");
+      return 1;
+    }
+    puts("s SATISFIABLE");
+    print_dimacs_model((const int8_t *)vals_ptr, mv);
+    return 10;
+  }
 #endif
   puts("s UNKNOWN");
   return 0;

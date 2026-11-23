@@ -5,7 +5,7 @@ public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof1
 public import LeanQbe.T.Examples.Kissat.FullReduceLemmas4
 
 /-!
-# Kissat M6 `PR-W2E-lite` Proofs Part 2a: Rewatch Range & `MoveRangeChain` Shared Definitions
+# Kissat M6 Watch/GC Proofs Part 2a: Rewatch Range & `MoveRangeChain` Shared Definitions
 
 Proves:
 1. `full_rewatch_range_m6_wp` (`fullRewatchRangeSpec`, starting at `start ∈ fullArenaClauseRefs`).

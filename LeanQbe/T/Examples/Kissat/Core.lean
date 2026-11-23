@@ -3,7 +3,7 @@ module
 public import Std.Sat.CNF
 
 /-!
-# Kissat Abstract CDCL Soundness Core (`X2-LayerA`, pure definitions)
+# Kissat Abstract CDCL Soundness Core (Layer A, pure definitions)
 
 Pure Lean executable specification and transition functions for an abstract Kissat-style CDCL
 SAT solver over `List`, `Array`, and `Std.Sat.CNF`:

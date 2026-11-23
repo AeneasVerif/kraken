@@ -14,7 +14,7 @@ meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.LinkRec
 
 /-!
-# Cyclic & Mutual-Recursion Linking on AArch64 (`B1.1`)
+# Cyclic & Mutual-Recursion Linking on AArch64
 
 Instantiates measure/fuel-indexed cyclic & mutual-recursion compilation (`CompiledRec`,
 `compileRecChecked`, `link_rec_compiled`) on `armTarget` (`armLegalTarget`, `armLayout`,

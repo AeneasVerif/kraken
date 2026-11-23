@@ -11,11 +11,11 @@ meta import LeanQbe.T.Examples.Kissat.FullM5
 /-!
 # Kissat End-to-End Source-Level UNSAT+SAT Soundness & Concrete SAT Non-Vacuity Audit
 
-Standalone `-DwarningAsError=true` audit restating the headline source-level UNSAT+SAT soundness
-theorems (`m4SoundEnv`, `m5SoundEnv`), generic acyclic/disjunctive `ModuleOk` transports
+Standalone audit restating the headline source-level UNSAT+SAT soundness theorems
+(`m4SoundEnv`, `m5SoundEnv`), generic acyclic/disjunctive `ModuleOk` transports
 (`ModuleOk.respec_tail`, `moduleOk_or_env`), constructive `readModelFromWork` transparency and
-framing, and Tier-3b concrete `Mem 64` SAT non-vacuity (`m5_sat_nonvacuous`, `XPost := False`) on
-`"p cnf 1 1\n1 0\n"`.
+framing, and source-level concrete `Mem 64` SAT non-vacuity (`m5_sat_nonvacuous`,
+`XPost := False`) on `"p cnf 1 1\n1 0\n"`.
 -/
 
 set_option autoImplicit false

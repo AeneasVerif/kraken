@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Known-bits and branch-implied `AssumeBits` pass (`Train B5-2`)
+# Known-bits and branch-implied `AssumeBits` pass
 
 PHOAS-to-PHOAS optimisation pass `assumeBits : Nat → List BitFact → Expr (ABVal V) L rs →
 Expr V L rs` where every variable carries its replacement operand `out : Arg V t` and

@@ -5,7 +5,7 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Wave 4 `PR-W4A`: `O(deg log deg)` Conditional-Equivalence ITE Extraction (`FullM7CongIte`)
+# Kissat M7 `O(deg log deg)` Conditional-Equivalence ITE Extraction (`FullM7CongIte`)
 
 Purely additive C0 extension module on top of frozen `FullHdr` (`144` `u64` words = `1152` bytes;
 zero edits to `Full1..5*`, `FullM5Cong*`, or `FullM6*`), implementing upstream Kissat 4.0.4's
@@ -423,7 +423,7 @@ u32 full_cong_extract_ite_all_m7(FullHdr *h, u32 g_len, u32 g_cap,
 }
 "
 
-/-- Closed function list for Wave-4 `PR-W4A` (`7` functions). -/
+/-- Closed function list for `FullM7CongIte` (`7` functions). -/
 def m7CongIteFns : List Fn := m7CongIte_fns
 
 /-- Closed standalone module (`7` functions, `0` externs, `0` exits). -/

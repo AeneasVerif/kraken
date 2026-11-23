@@ -10,17 +10,17 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-3 Prep: Repointed `w2b` & Composed Hook Proofs (`FullM6HdrProof2`)
+# Kissat M6 `FullM6Hdr` Decision-Rate & Composed Hook Proofs (`FullM6HdrProof2`)
 
 M1-clean proof module (`public section`, opaque definitions, standard imports, UNSAT-only):
 Proves parametric `(Γ : Env)` `Func.wp` contracts for all `6` Group-C functions:
 1. `m6_hdr_dr_init` (`m6HdrDrMutSpec`, writes only `M6HdrExt` words `1..7`, zero `FullMem` writes)
 2. `m6_hdr_dr_update` (`m6HdrDrMutSpec`, writes only `M6HdrExt` words `1..7`, zero `FullMem` writes)
 3. `m6_hdr_dr_allow` (`m6HdrDrAllowSpec`, pure read when initialized, zero `FullMem` writes)
-4. `m6_hdr_decide` (`m6HdrDecideSpec`, repointed `w2b` decision updating `e[M6W_DR_STATE]`)
-5. `m6_hdr_analyze_rsn` (`m6HdrAnalyzeRsnSpec`, repointed `w2a` glue hook + `full_analyze_rsn`)
-6. `m6_hdr_analyze` (`m6HdrAnalyzeSpec`, composing `w2a` `m6_hdr_update_tier_limits` + `w2b`
-   `m6_hdr_dr_update` + `full_analyze` over disjoint `M6HdrExt` slices!)
+4. `m6_hdr_decide` (`m6HdrDecideSpec`, decision wrapper updating `e[M6W_DR_STATE]`)
+5. `m6_hdr_analyze_rsn` (`m6HdrAnalyzeRsnSpec`, glue-bin hook + `full_analyze_rsn`)
+6. `m6_hdr_analyze` (`m6HdrAnalyzeSpec`, composing `m6_hdr_update_tier_limits` +
+   `m6_hdr_dr_update` + `full_analyze` over disjoint `M6HdrExt` slices)
 -/
 
 set_option autoImplicit false
@@ -99,7 +99,7 @@ private theorem fullConflictOkW_of_core_eq {F_cur : List (List Nat)} {s s' : Ful
   unfold FullConflictOkW fullArenaClauseRefs fullArenaClauseGarb fullArenaClauseLits at h ⊢
   rwa [heq]
 
-/-! ## 1. Repointed `w2b` `decision_rate` Helpers (`3` Functions) -/
+/-! ## 1. `FullM6Hdr` `decision_rate` Helpers (`3` Functions) -/
 
 theorem m6_hdr_dr_init_wp (Γ : Env)
     (hEnsure : ∀ a m Q X, m6ExtEnsureInitSpec a m Q X →

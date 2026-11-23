@@ -6,9 +6,9 @@ public import LeanQbe.T.Examples.Kissat.FullKittenLemmas1
 public import LeanQbe.T.Examples.Kissat.FullKittenLemmas4a
 
 /-!
-# Kissat `M5` Wave 0 (`RC-08`) `full_kitten_ana_clause_m5` `Func.wp` Proof (`Part 2`)
+# Kissat `M5` `full_kitten_ana_clause_m5` `Func.wp` Proof (`Part 2`)
 
-Proves `full_kitten_ana_clause_m5_wp` (`S08-06`: marks level-`0` variables in `KO_FLAGS`/`KO_ANA`
+Proves `full_kitten_ana_clause_m5_wp` (marks level-`0` variables in `KO_FLAGS`/`KO_ANA`
 so each level-`0` reason is pushed to `KO_RES` at most once) against `fullKittenAnaClauseM5Spec`
 using `KittenAnaInvM5` (which relaxes `kl_injective` to `0 < vlvl < clvl` and adds
 `lvl0_seen_in_res` so skipping a marked level-`0` variable preserves antecedent entailment).
@@ -33,7 +33,7 @@ open scoped KittenMemTactics KittenMemATactics KittenProjTactics
 
 /-! ## 1. `KittenAnaInvM5` & `fullKittenAnaClauseM5Spec` -/
 
-/-- `1UIP` conflict-analysis state invariant for `full_kitten_ana_clause_m5` (`S08-06`):
+/-- `1UIP` conflict-analysis state invariant for `full_kitten_ana_clause_m5`:
 level-`0` variables are also marked in `flags`/`ana`, and every marked level-`0` variable with a
 reason clause already has its reason recorded in `res[0 ..< nres)` when `ante ≠ 0 ∧ nres ≤ 256`. -/
 structure KittenAnaInvM5 (acap : Nat) (ks : KittenState) (F0 : List (List Nat)) (idx : Nat) :
@@ -1448,7 +1448,7 @@ private theorem kAnaPrefixM5_entails {acap : Nat} {ks : KittenState} {F0 : List 
 
 /-! ## 3. Parametric `Func.wp` Proof for `full_kitten_ana_clause_m5` -/
 
-/-- Parametric `Func.wp` proof for `full_kitten_ana_clause_m5` (`S08-06`). -/
+/-- Parametric `Func.wp` proof for `full_kitten_ana_clause_m5`. -/
 theorem full_kitten_ana_clause_m5_wp (Γ : Env) :
     ∀ args m Q X, fullKittenAnaClauseM5Spec args m Q X →
       Func.wp Γ full_kitten_ana_clause_m5_body args m Q X := by
@@ -1670,7 +1670,7 @@ theorem full_kitten_ana_clause_m5_wp (Γ : Env) :
                     (KittenMemA kPtr acap x ⋆ R) _) ?_) hm)
                   dsimp only [st2, st1, fl']; rw [kana_ite_f hna_ge]
                   kstate_ext <;> (first | rfl | (simp only [hl_st, hv_eq']; try rfl))
-            · -- `(flags[v] & 2) ≠ 0`: already seen (including level-0!)
+            · -- `(flags[v] & 2) ≠ 0`: already seen (including level-0)
               have hfl_nz : (st.flags[(l >>> 1).toNat]?.getD 0#32 &&& 2#32) ≠ 0#32 := by
                 rw [hv_eq', ← hl_st]; exact hc
               have hkana_eq : kAnaLitM5 skip_v st l = st := by

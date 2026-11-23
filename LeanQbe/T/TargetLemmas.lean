@@ -3,10 +3,10 @@ module
 public import LeanQbe.T.Target
 
 /-!
-# Shared Combinators and Framing Lemmas for `LeanQbe.T.Target` (`B1`)
+# Shared Combinators and Framing Lemmas for `LeanQbe.T.Target`
 
-Target-generic framing, sequencing, and operand-preservation lemmas shared across `T7b`
-(`RegaLemmas`), `T8`/`T9` (`Gpr*`), `T10` (`Vec*`), and `T11b` (`Frame*`).
+Target-generic framing, sequencing, and operand-preservation lemmas shared across
+`RegaLemmas`, scalar/vector instruction selection (`Gpr*`, `Vec*`), and `Frame*` proofs.
 -/
 
 set_option autoImplicit false

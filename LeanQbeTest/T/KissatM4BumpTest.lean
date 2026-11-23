@@ -14,7 +14,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Verification, Backend Compilation Guards, and Axiom Audit for Kissat M4g (`FullM4Bump`)
+# Verification, Backend Compilation Guards, and Axiom Audit for Kissat M4 (`FullM4Bump`)
 
 1. Executable `#guard` checks on `m4BumpModule` (`1` fn + `2` externs, `0` exits),
    `checkAcyclic = true`, `m4BumpSpecTable` (`3` rows), `PrintCpp`, `PrintQbe`, and `Fn.legal`
@@ -22,7 +22,7 @@ import all Kraken.Separation
 2. Audit-ready restated headline theorems for `m4Bump_fns_wf`, `m4BumpVarFn_wf`, `m4Bump_acyclic`,
    parametric `full_bump_var_m4_wp`, `m4Bump_moduleOk`, and concrete `Mem 64` UNSAT non-vacuity
    `nv_m4_bump_var` (`XPost := False`).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
@@ -65,7 +65,7 @@ theorem m4g_wf : ∀ f ∈ m4Bump_fns, f.Wf :=
 theorem m4g_fn_wf : m4BumpVarFn.Wf :=
   m4BumpVarFn_wf
 
-/-- Standalone M4g module `m4BumpModule` passes `checkAcyclic = true`. -/
+/-- Standalone M4 bump module `m4BumpModule` passes `checkAcyclic = true`. -/
 theorem m4g_acyc : m4BumpModule.checkAcyclic = true :=
   m4Bump_acyclic
 

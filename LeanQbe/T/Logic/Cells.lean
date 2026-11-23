@@ -7,9 +7,9 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kraken's `byte1` / `int4` / `word8` cells and arrays for `LeanQbe.T` (`T4`)
+# Kraken's `byte1` / `int4` / `word8` cells and arrays for `LeanQbe.T`
 
-Typed-IR counterpart of `LeanQbe/Logic/Cells.lean` using `LeanQbe.T.loadVal` at types
+Typed-IR cell and array predicates using `LeanQbe.T.loadVal` at types
 `i8` / `i32` / `i64` (so widths are exact in the IR, and extensions happen via `zext`/`sext`).
 -/
 

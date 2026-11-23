@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainSpec
 
 /-!
-# Kissat `D-Plain` BCP Helpers & `plain_find_repl` Proof (`Stage 3`, Wave 2b Shard 3, Part 1)
+# Kissat `D-Plain` BCP Helpers & `plain_find_repl` Proof (Part 1)
 
 Provides scoped `PlainPropTactics`, `WatchSliceOk` / `SplitWatchesInv` compaction theory,
 arena-swap & unit-propagation preservation lemmas, and the `Func.wp` proof of `plain_find_repl`.
@@ -479,7 +479,7 @@ theorem clause_falsified_of_find_repl_none {c : PlainCfg} {F0 : CNF Nat} {st : P
     have hslt := hf.resolve_left (by omega)
     exact Or.inr ((i8_vals_slt0 (hnw.vals_domain l hlt)).mp hslt)
 
-/-- Transitive trail-extension witness (`#831` / `#836`): pre-existing trail prefix and levels
+/-- Transitive trail-extension witness: pre-existing trail prefix and levels
 are preserved, and every newly propagated literal is assigned at `s.cur_level`. -/
 structure TrailExt (s st : PlainState) : Prop where
   te_ge : s.trail_end ≤ st.trail_end

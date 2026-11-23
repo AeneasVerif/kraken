@@ -4,6 +4,14 @@ public import LeanQbe.T.IL
 public import LeanQbe.T.Module
 public import LeanQbe.T.PrintUtil
 
+/-!
+# Untrusted C++20 Printer for `LeanQbe.T` (`PrintCpp`)
+
+Renders PHOAS `LeanQbe.T` functions and modules directly into standalone C++20 translation units
+linked against `tqbe_rt.hpp` (`ppFn`, `ppModule`, `ppTModule`), for differential testing and
+ASan/UBSan checking outside the verification TCB.
+-/
+
 set_option autoImplicit false
 
 @[expose] public section
@@ -453,7 +461,7 @@ def ppExternDecl (symMap : SymMap := baseMangle) (ex : Extern) : String :=
   let (paramStr, _) := ppFnSigParams ex.as
   s!"{ppRetTy ex.rs} {symMap ex.name}({paramStr});\n"
 
-/-- Render a full C++ function definition directly from a PHOAS `Fn`. -/
+/-- Render a C++ function definition directly from a PHOAS `Fn`. -/
 def ppFn (symMap : SymMap := baseMangle) (fn : Fn) : String :=
   let (paramStr, paramVoids) := ppFnSigParams fn.as
   let initParams := allocEntryParams 0 fn.as
@@ -467,7 +475,7 @@ def ppFn (symMap : SymMap := baseMangle) (fn : Fn) : String :=
   s!"{ppRetTy fn.rs} {symMap fn.name}({paramStr}) " ++ "{\n"
     ++ voidStr ++ declBlock ++ entryBody ++ blocksStr ++ "  TQBE_UB(\"fallthrough\");\n}\n"
 
-/-- Render a complete standalone C++20 translation unit for a list of `Fn`s. -/
+/-- Render a standalone C++20 translation unit for a list of `Fn`s. -/
 def ppModule (fns : List Fn) : Except String String := do
   let symMap ← buildSymMap fns
   let hdr := "#include \"tqbe_rt.hpp\"\n\n"
@@ -476,7 +484,7 @@ def ppModule (fns : List Fn) : Except String String := do
   let defs := String.intercalate "\n" (fns.map (ppFn symMap))
   pure (hdr ++ decls ++ sep ++ defs)
 
-/-- Render a complete standalone C++20 translation unit for a `LeanQbe.T.Module`
+/-- Render a standalone C++20 translation unit for a `LeanQbe.T.Module`
 (checking symbol uniqueness across both `M.fns` and `M.externs`). -/
 def ppTModule (M : Module) : Except String String := do
   let symMap ← buildSymMapNames M.names

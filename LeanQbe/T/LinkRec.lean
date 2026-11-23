@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Main
 
 /-!
-# Measure/Fuel-Indexed Cyclic & Mutual-Recursion Module Linking (`B1.1`)
+# Measure/Fuel-Indexed Cyclic & Mutual-Recursion Module Linking
 
 Extends `LeanQbe.T.Module` and `LeanQbe.T.Main` with measure/fuel-indexed cyclic and mutually
 recursive module linking without modifying `Module`, `Main`, `Rega`, or `Target`:

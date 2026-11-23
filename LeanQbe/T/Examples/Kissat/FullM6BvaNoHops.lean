@@ -103,7 +103,7 @@ u32 full_bva_pick_cand_no_hops(FullHdr *h, u32 ncntd, u32 f0) {
 }
 "
 
-/-- Drop-in Wave-3 `Fn` handle preserving the canonical `"full_bva_pick_cand"` symbol name. -/
+/-- Drop-in M6 `Fn` handle preserving the canonical `"full_bva_pick_cand"` symbol name. -/
 def m6BvaPickCandFn : Fn :=
   ⟨"full_bva_pick_cand", [i64, i32, i32], [i32], full_bva_pick_cand_no_hops_body⟩
 

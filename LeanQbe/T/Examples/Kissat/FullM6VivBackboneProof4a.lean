@@ -9,8 +9,8 @@ import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
 
 /-!
-# Kissat Wave-2 PR-W2C (`RC-21`) — Multi-Level Backbone Parity Proofs (`Proof4a`)
-Certifies UNSAT-sound `Func.wp` (`XPost := False`, `0` SAT model proofs) for all `7` `RC-21`
+# Kissat M6 Multi-Level Backbone Parity Proofs (`Proof4a`)
+Certifies UNSAT-sound `Func.wp` (`XPost := False`, `0` SAT model proofs) for all `7` M6
 multi-level backbone functions in `FullM6VivBackbone.lean`:
 1. `full_backbone_sched_m6_wp` (`fullBackboneSchedM6Spec`)
 2. `full_backbone_keep_m6_wp` (`fullBackboneKeepM6Spec`)
@@ -2010,7 +2010,7 @@ theorem full_backbone_analyze_m6_wp (Γ : Env) :
                   refine backbone_resolve2 (bb_entails_comm2 hent2) ?_
                   simpa [p_l, bb_bv32_xor1, bb_xor1_xor1] using hent_z
                 fvt_step; fvt_step
-                · -- `mrk1[pv] ≠ 0`: `pv` is already marked (`j = i1`) -> 1UIP found!
+                · -- `mrk1[pv] ≠ 0`: `pv` is already marked (`j = i1`) -> 1UIP found
                   have hm1_pnz : mrk1[(p_l >>> 1#32).toNat]?.getD 0#8 ≠ 0#8 := fun h0 => by
                     rw [List.getElem?_eq_getElem hpv_mrk, Option.getD_some] at h0
                     exact (by c0_bound : (mrk1[(p_l >>> 1#32).toNat]'hpv_mrk).setWidth 32 ≠ 0#32)
@@ -2442,7 +2442,7 @@ theorem full_backbone_round_m6_wp (Γ : Env)
                     exact ih1 (ucnt, keep, ci + 1#64, ()) mp (by dsimp only; omega)
                       ⟨st_p, hbt_p, hnlvl_le, by omega, by omega, huc_le, hkp_lt,
                        by rw [hci1]; exact bb_ws1_skip_step hrem_lt, huc_ok, hmp⟩
-                · -- `pok = false`: conflict! Analyze 1UIP, unwind to `(saved, old_lvl)`
+                · -- `pok = false`: conflict; analyze 1UIP, unwind to `(saved, old_lvl)`
                   obtain ⟨hc0_lt, hc1_lt, hc0_ff, hc1_ff, hent_cf, idx0, hidx0_ge, hidx0_lt,
                     hidx0_eq⟩ := hcf_p (by c0_bound)
                   have hc0_tr : (c0_p.truncate 32).toNat = c0_p.toNat := by
@@ -2491,7 +2491,7 @@ theorem full_backbone_round_m6_wp (Γ : Env)
                        BbTrailInv.with_ws1_ws2 hbt_u' (by simp [hscl.work_stk1_len])
                         hscl.work_stk2_len, hcl_le, by omega, by omega, huc_le,
                        by rwa [hkp1], by rwa [hci1], huc_ok, (by assumption)⟩
-                  · -- `uip ≠ 0xFFFFFFFF`: learned unit `not_uip = uip ^^^ 1`!
+                  · -- `uip ≠ 0xFFFFFFFF`: learned unit `not_uip = uip ^^^ 1`
                     have huip_ne : uip ≠ 0xFFFFFFFF#32 := by c0_bound
                     obtain ⟨huip_lt, hent_nu⟩ := huip_ok huip_ne
                     let not_uip := uip ^^^ 1#32

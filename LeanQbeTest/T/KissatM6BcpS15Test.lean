@@ -10,13 +10,13 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Audit & Verification for Kissat M6 `S1.5` Delayed-Watch BCP (`FullM6BcpS15*`)
+# Audit & Verification for Kissat M6 Delayed-Watch BCP (`FullM6BcpS15*`)
 
 1. Executable `#guard` checks on `m6BcpS15_fns` (`4` fns), signatures, `checkAcyclic`,
    `PrintCpp`, `PrintQbe`, and `Fn.legal` across `.aarch64`, `.scalar64`, `.x64AVX2`.
 2. UNSAT soundness, `FullSparseInv` preservation, and concrete `Mem 64` non-vacuity check
    (`nv_m6_bcp_s15_sound_ok`, `XPost := False`, zero SAT proofs).
-3. Single-line `#print axioms` audit (`< 115` chars) via short root aliases across all exported
+3. Single-line `#print axioms` audit via short root aliases across all exported
    `FullM6BcpS15*` theorems (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 

@@ -21,7 +21,7 @@ meta import LeanQbe.T.Legal
    contracts), closed `ModuleOk`, direct `FullM5CongBins` composition against canonical
    `m3CongruenceDenseSpec` / `fullCongruenceDenseSpec`, and concrete `Mem 64` UNSAT non-vacuity
    (`XPost := False`, zero SAT/model proofs).
-3. Single-line `#print axioms` audit (`< 115c`, strictly
+3. Single-line `#print axioms` audit (strictly
    `⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 

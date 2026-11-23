@@ -6,7 +6,7 @@ public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.MainInline
 
 /-!
-# Tests of `LeanQbe.T.Inline` (`O-M1`)
+# Tests of `LeanQbe.T.Inline`
 
 Covers:
 1. Single-return small callee inlining (`singleRetMod`), `ModuleOk`, and `Func.checkTFlat`.

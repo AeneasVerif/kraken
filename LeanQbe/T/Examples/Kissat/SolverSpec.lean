@@ -5,7 +5,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat C0 `SolverInv` and Core Helper `Func.wp` Proofs (`X1` Stage B2)
+# Kissat `D-Min` C0 `SolverInv` and Core Helper `Func.wp` Proofs
 
 Builds on `SolverArena` to define:
 1. Clause-slice projections (`clauseOff`, `clauseSize`, `clauseLits`) and the inductive solver

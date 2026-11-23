@@ -39,7 +39,7 @@ class GenCertSlicesTest(unittest.TestCase):
         self.assertLess(sched.max_mean_ratio, 1.15)
 
     def test_autobalance_isolates_stragglers_and_packs_leaves(self) -> None:
-        # 12 tiny leaves, 1 massive straggler, 12 tiny leaves, 1 prop_lit_raw straggler, 8 leaves.
+        # 12 tiny leaves, 1 large straggler, 12 tiny leaves, 1 prop_lit_raw straggler, 8 leaves.
         metrics: list[gcs.FnMetric] = []
         idx = 0
         for k in range(12):
@@ -314,8 +314,56 @@ class GenCertSlicesTest(unittest.TestCase):
         self.assertEqual(tf_cfg.max_dirs, 600)
         self.assertEqual(tf_cfg.inl_mod, "LeanQbe.T.Examples.Kissat.FullM7Inl")
         self.assertEqual(tf_cfg.hdr_model, "m6")
+        self.assertEqual(tf_cfg.entry_const, "FullM6Orch.m6oSolveBytesFn")
         tf_files = gcs.build_plan(tf_cfg, ["amd64", "arm64"])
         self._assert_hygiene(tf_files)
+        tf_by_path = dict(tf_files)
+        for arch_dir in ("Amd64", "Arm64"):
+            top = tf_by_path[f"LeanQbe/T/{arch_dir}/KissatM7.lean"]
+            self.assertNotIn("m6Nv", top)
+            self.assertNotRegex(top, r"\bm6Nv\w*")
+            self.assertIn("private def m7NvWorkLen : Nat := 6144", top)
+            self.assertIn("private def m7NvPayload (cnfBytes : List UInt8)", top)
+            self.assertIn(
+                "(by rw [m7NvPayload_length]; unfold m7NvWorkLen; decide)",
+                top,
+            )
+            self.assertIn("region nvM6UnsatWorkPtr m7NvWorkLen", top)
+            self.assertIn("heq ▸ m7NvPayload_sep nvM6UnsatBytes (by decide)", top)
+            self.assertIn("FullM6Orch.m6oSolveBytesFn ∈ m7Module.fns", top)
+            self.assertIn("some FullM6Orch.m6oSolveBytesFn)", top)
+            snd = tf_by_path[f"LeanQbe/T/{arch_dir}/KissatM7Sound.lean"]
+            self.assertNotIn("m6Nv", snd)
+            self.assertIn("FullM6Orch.m6oSolveBytesFn ∈ m7Module.fns", snd)
+            self.assertIn("some FullM6Orch.m6oSolveBytesFn)", snd)
+
+        # CLI --entry-const override remains intact for FullM7.
+        ov_args = gcs.parse_args(
+            [
+                "--module",
+                "FullM7",
+                "--total-fns",
+                "396",
+                "--entry-const",
+                "FullM7Orch.m7oSolveBytesFn",
+                "--root",
+                str(REPO_ROOT),
+                "--dry-run",
+            ]
+        )
+        ov_cfg = gcs.build_config(ov_args)
+        self.assertEqual(ov_cfg.entry_const, "FullM7Orch.m7oSolveBytesFn")
+        ov_files = dict(gcs.build_plan(ov_cfg, ["amd64", "arm64"]))
+        self._assert_hygiene(list(ov_files.items()))
+        for arch_dir in ("Amd64", "Arm64"):
+            self.assertIn(
+                "FullM7Orch.m7oSolveBytesFn ∈ m7Module.fns",
+                ov_files[f"LeanQbe/T/{arch_dir}/KissatM7.lean"],
+            )
+            self.assertIn(
+                "FullM7Orch.m7oSolveBytesFn ∈ m7Module.fns",
+                ov_files[f"LeanQbe/T/{arch_dir}/KissatM7Sound.lean"],
+            )
 
         with tempfile.TemporaryDirectory() as tmp:
             p_path = Path(tmp) / "m7_probe.json"
@@ -350,6 +398,7 @@ class GenCertSlicesTest(unittest.TestCase):
             )
             pr_cfg = gcs.build_config(pr_args)
             self.assertEqual(pr_cfg.total_fns, 396)
+            self.assertEqual(pr_cfg.entry_const, "FullM6Orch.m6oSolveBytesFn")
             sing_names = {nm for _, nm, _ in pr_cfg.after_stats.singletons}
             self.assertIn("full_arena_sweep_m6", sing_names)
             self.assertIn("full_cong_eval_gate", sing_names)
@@ -360,6 +409,14 @@ class GenCertSlicesTest(unittest.TestCase):
                 pr_files["LeanQbe/T/Arm64/KissatM7Cert.lean"],
             )
             self.assertIn("readModelFromWorkM6", pr_files["LeanQbe/T/Arm64/KissatM7Sound.lean"])
+            for arch_dir in ("Amd64", "Arm64"):
+                top = pr_files[f"LeanQbe/T/{arch_dir}/KissatM7.lean"]
+                self.assertNotIn("m6Nv", top)
+                self.assertNotRegex(top, r"\bm6Nv\w*")
+                self.assertIn("m7NvPayload_length", top)
+                self.assertIn("m7NvWorkLen", top)
+                self.assertIn("m7NvPayload_sep", top)
+                self.assertIn("FullM6Orch.m6oSolveBytesFn ∈ m7Module.fns", top)
 
 
 if __name__ == "__main__":

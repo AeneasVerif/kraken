@@ -9,7 +9,7 @@ import LeanQbe.T.Logic.C0HeadStep
 /-!
 # Kissat M5 Dense-Safe Proofs — Part 1a (`full_fwd_check_cl_m5`)
 
-Proves `full_fwd_check_cl_m5_wp` against canonical `Full.fullFwdCheckClSpec` (`RC-02`):
+Proves `full_fwd_check_cl_m5_wp` against canonical `Full.fullFwdCheckClSpec`:
 1. Short-circuits immediately (`return true`) when `h->oom != 0ULL` on entry.
 2. When strengthening a clause (`drop != 0xFFFFFFFFu`) down to `nsz == 2`, calls
    `full_add_bin(h, l0, l1)` **BEFORE** unwatching or `PH_GARB`-marking `cref`, aborting cleanly

@@ -5,7 +5,7 @@ public import LeanQbe.T.Target
 public meta import Lean.Elab.Tactic
 
 /-!
-# Arch-Free `CleanCode`, `TRel` Inversion, and `@[scoped isel_step]` Tactic Engine (`Stage 0`)
+# Arch-Free `CleanCode`, `TRel` Inversion, and `@[scoped isel_step]` Tactic Engine
 
 Target-neutral instruction-selection proof infrastructure shared by `Amd64` and `Arm64` without
 co-importing `Kraken.X64` or `Kraken.AArch64`:

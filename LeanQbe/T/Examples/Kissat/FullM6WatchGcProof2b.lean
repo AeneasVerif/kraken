@@ -6,7 +6,7 @@ public import LeanQbe.T.Examples.Kissat.FullReduceLemmas4
 public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2a
 
 /-!
-# Kissat M6 `PR-W2E-lite` Proofs Part 2b: `full_move_red_end_buf_m6_wp`
+# Kissat M6 Watch/GC Proofs Part 2b: `full_move_red_end_buf_m6_wp`
 
 Proves `full_move_red_end_buf_m6_wp` (`fullMoveRedEndBufSpec`): 2-pass irredundant-first
 partitioning over `[first_red, dst)` with `buf[rlen + 1] = v` O(1) non-colliding reason

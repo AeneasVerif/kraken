@@ -7,7 +7,7 @@ public meta import LeanQbe.T.Target
 public meta import LeanQbe.T.Spill
 
 /-!
-# Gate `G12c` Kernel `rfl` Scaling Benchmarks (`T7a`)
+# `Rega.lowerFn` Kernel `rfl` Scaling Benchmarks
 
 Measures `Rega.lowerFn` in the Lean kernel (`t_kernel_rfl`) consuming untrusted literal `Hints`
 computed externally by `Spill.hints` (spliced as pure literal expressions via `Lean.ToExpr`):

@@ -3,10 +3,10 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Mid-End Constant-Fill Widening & Bounded 1st-Iter Loop Peeling (`O-M3`)
+# Mid-End Constant-Fill Widening & Bounded 1st-Iter Loop Peeling
 
 Standalone typed-IR (`TFlat`) mid-end optimization pass `Func.zeroPeel` (and configurable
-`Func.zeroPeelWith`, `Fn.zeroPeel`, `TFlat.zeroPeelWith`) combining two high-ROI transforms:
+`Func.zeroPeelWith`, `Fn.zeroPeel`, `TFlat.zeroPeelWith`) combining two loop transforms:
 
 1. **Contiguous Constant-Fill Loop Widening (`widenFillSingle`):**
    Detects single-block counted loops (`.group (sig := [[i64]]) (.cons body .nil) (.jump 0 init)`)

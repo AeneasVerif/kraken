@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Commutative canonicalization and constant-chain reassociation (`O-M1`)
+# Commutative canonicalization and constant-chain reassociation
 
 PHOAS-to-PHOAS pass `canon : Nat → Expr (CanonVal V) L rs → Expr V L rs` where `CanonVal V t`
 tracks:
@@ -17,7 +17,7 @@ Transformations (across `.bool`, `.bits n`, and nested `.pair`/vector trees):
    (using `CmpOp.swap`, guarding `.add`/`.mul`/`.cmp` by `!t.hasFloat`), places any immediate on
    the right (`c + x → x + c`, `5 < x → x > 5`) and orders two variable operands deterministically
    by lexical key (`k1 ≤ k2`).
-2. **Constant-chain reassociation (`MB4`)**: for associative ops `.add`, `.mul`, `.and`, `.or`,
+2. **Constant-chain reassociation**: for associative ops `.add`, `.mul`, `.and`, `.or`,
    `.xor`, rewrites `(x op c₁) op c₂ → x op (AssocOp.eval op t c₁ c₂)`. Shifts
    (`shl`/`lshr`/`ashr`) are intentionally excluded because mod-`n` shift wrapping is not
    associative when shift counts sum to `≥ n`.

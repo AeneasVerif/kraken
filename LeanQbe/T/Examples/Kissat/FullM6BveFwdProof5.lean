@@ -10,7 +10,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-2 `PR-W2D` (`RC-22`) Proofs — Part 5 (`full_bve_var_m6_wp`)
+# Kissat M6 BVE/Forward Proofs — Part 5 (`full_bve_var_m6_wp`)
 
 M1-clean proof module (`public section`, `0` `@[expose]`, `0` `import all`, `private` helpers):
 - Proves `full_bve_var_m6_wp`, directly certifying canonical `FullFastBveBudgets.fullBveVarDefSpec`,

@@ -9,13 +9,13 @@ import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
 
 /-!
-# Kissat Wave-2 PR-W2C (`RC-20`) — Vivification Instantiation, Finish, & Clause Loop (`Proof3a`)
+# Kissat M6 Vivification — Instantiation, Finish, & Clause Loop (`Proof3a`)
 
 Certifies UNSAT-sound `Func.wp` (`XPost := False`, `0` SAT model proofs) for the `7` mid-level
-`RC-20` vivification functions in `FullM6VivBackbone.lean`:
+vivification functions in `FullM6VivBackbone.lean`:
 1. `full_viv_inst_m6_wp` (instantiation strengthening via `inst_resolve_entails`)
 2. `full_viv_finish_m6_wp` (subsumption promotion/glue-lowering, prefix-preserving commit,
-   same-size AT deletion, instantiation fallback, & `RC-06` 2WL re-establishment)
+   same-size AT deletion, instantiation fallback, & 2WL re-establishment)
 3. `full_viv_sort_counts_m6_wp` (insertion sort on `tmp_lits` by `tarjan_reach` literal counts)
 4. `full_viv_has_l0_m6_wp` (read-only level-0 assignment scan)
 5. `full_viv_l0_simp_m6_wp` (level-0 backtrack + `full_viv_simplify_m6`, OOM `2ULL`)
@@ -60,7 +60,7 @@ committing `tmp[0 ..< sz - 1)`. Returns `0` (unchanged), `1` (strengthened), `2`
 
 /-- `full_viv_finish_m6(h, cref, sz, confl, implied, all_done)`: post-loop deduction, subsumption
 promotion/glue-lowering, prefix-preserving commit, AT deletion, instantiation strengthening, and
-`RC-06` 2WL watch-invariant re-establishment. -/
+2WL watch-invariant re-establishment. -/
 @[expose] def fullVivFinishM6Spec : Spec [i64, i32, i32, .bool, i32, .bool] [i64] :=
   fun (h, cref, sz, confl, implied, all_done, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
@@ -130,7 +130,7 @@ prefix `frame_dec[1 .. keep_lvl]` and backtracking only to `keep_lvl`. -/
       s'.core.tmp = s.core.tmp → s'.scratch.red_refs = s.scratch.red_refs →
       (FullMem c s' ⋆ R) m' → Q () m'
 
-/-- `full_viv_clause_m6(h, cref)`: full `RC-20` single-clause vivification preserving
+/-- `full_viv_clause_m6(h, cref)`: full M6 single-clause vivification preserving
 `FullSparseInvW`, `fullArenaClauseRefs`, and `red_refs`. -/
 @[expose] def fullVivClauseM6Spec : Spec [i64, i32] [i64] := fun (h, cref, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
@@ -784,7 +784,7 @@ theorem full_viv_inst_m6_del_wp (Γ : Env)
       rcases hsc_2 with ⟨_, _, _, _, _, _, _, _, _, rfl⟩
       fvt_steps
       exact hQ 0#64 _ m_2 hsp_2 hfl_p' hal_p hrefs_p hrr_p (Or.inl rfl) (fun h => by cases h) hm_2
-    · -- `pr == 1ULL`: deduce + inst_check + copy `tmp[0 ..< sz-1)` + commit!
+    · -- `pr == 1ULL`: deduce + inst_check + copy `tmp[0 ..< sz-1)` + commit
       have hpr_eq1 : pr = 1#64 := by c0_bound
       have hcok_p : FullVivifySpecs.FullVivConflictOk F_cur s_p := hcok_p_fn hpr_eq1
       c0_call hDeduce
@@ -868,7 +868,7 @@ theorem full_viv_inst_m6_del_wp (Γ : Env)
         have hng_ic : fullArenaClauseGarb s_ic cref.toNat = false := hng_d
         clear_value s_ic; clear hsp_ic hm_ic hInstChk
         fvt_to_group
-        · -- `ok = true`: copy `tmp[0 ..< sz - 1)` to `work_stk2`, call `full_viv_commit_m6`!
+        · -- `ok = true`: copy `tmp[0 ..< sz - 1)` to `work_stk2`, call `full_viv_commit_m6`
           have hok_t : ok = true := by c0_bound
           have hsub_ic := hok_ic hok_t
           exact m6_viv_inst_copy_commit_wp (iolen := iolen) Γ hCommit hsp0 hsp_ic' href0
@@ -2229,7 +2229,7 @@ theorem full_viv_clause_m6_del_wp (Γ : Env)
           have hlit_lt : lit.toNat < 2 * sp.core.cur_vars := hlit_eq ▸ hlit_lt_cv
           have hlit_lt_vals' : lit.toNat < sp.core.vals.length := hlit_eq ▸ hlit_lt_vals
           fvt_to_group
-          · -- `lv > 0`: call `full_viv_best_implied_m6(h, sz)` and break!
+          · -- `lv > 0`: call `full_viv_best_implied_m6(h, sz)` and break
             have htmp_sp_lt : ∀ k < sz.toNat,
                 (sp.core.tmp[k]?.getD 0#32).toNat < 2 * sp.core.cur_vars := fun k hk => by
               rw [htmpp, hcvp]; exact hlits2_lt _ (hlits2_mem k hk)

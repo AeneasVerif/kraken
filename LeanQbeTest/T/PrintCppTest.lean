@@ -7,6 +7,20 @@ meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.Examples.UnionFindProg
 meta import LeanQbe.T.Legal
 
+/-!
+# C++20 Code-Generation Tests for `LeanQbe.T.PrintCpp`
+
+Unit checks and a differential-testing C++20 code generator for `LeanQbe.T.PrintCpp`:
+1. Identifier mangling (`baseMangle`, `buildSymMap`), C string escaping (`escapeCString`), and
+   block reachability (`reachableBlockIds`), plus duplicate-symbol rejection.
+2. Pre- and post-`Legal` edge-case functions (`coreEdgeFns`, `extPreFns`) covering `bool`, division
+   and shifts, packed `Ty.pair`, floats (`h`/`s`/`d`/`q`), SIMD/SHA ops, mutual recursion, `exit`,
+   and `ppTModule` extern declarations across `aarch64`, `scalar64`, `x64SSE`, `x64AVX2`, and
+   `x64AVX512`.
+3. `runGenerate` / `main`: emits standalone C++20 translation units and `gen_suite.hpp` for
+   external differential execution.
+-/
+
 set_option autoImplicit false
 
 namespace LeanQbeTest.T.PrintCppTest
@@ -516,7 +530,7 @@ def extPreFns : List Fn :=
 #guard (ppModule (coreEdgeFns.map (Fn.legal .x64AVX2))).isOk
 #guard (ppModule (coreEdgeFns.map (Fn.legal .x64AVX512))).isOk
 
--- `ppTModule` / `ppExternDecl` (`B3`): emits extern prototypes + rejects duplicate fn/extern names
+-- `ppTModule` / `ppExternDecl`: emits extern prototypes and rejects duplicate fn/extern names
 #guard
   let ex : Extern := ⟨"ext_inc", [i64], [i64]⟩
   let caller : Fn := ⟨"call_ext", [i64], [i64], fun _ _ (x, ()) =>

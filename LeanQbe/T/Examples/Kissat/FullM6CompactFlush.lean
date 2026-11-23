@@ -7,7 +7,7 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat `D-Full` M6 Compact, Root Trail Flush & Binary Dedup (`FullM6CompactFlush`)
 
-Standalone drop-in C0 replacements covering the non-watch-gc `RC-23` Kissat M6 parity upgrades
+Standalone drop-in C0 replacements for M6 root trail flush, compaction, and binary deduplication
 with zero `FullHdr` layout churn (`144` words frozen) and zero edits to landed `Full*.lean` files:
 
 1. `full_flush_trail` & `full_compact_flush_m6cf`: clean root-level trail flush matching upstream
@@ -16,7 +16,7 @@ with zero `FullHdr` layout churn (`144` words frozen) and zero edits to landed `
    fixpoint arena sweep loop for compaction).
 2. `full_sweep_bins_m6cf` & `full_enter_dense_m6cf`: `wsort`-stamped `O(1)` binary clause
    deduplication + tautology drop + empty-offset zeroing on binary sweeps and dense entry
-   (preserving `FullFastSched` `prop_done` completeness and `RC-02` OOM safety).
+   (preserving `FullFastSched` `prop_done` completeness and OOM safety).
 3. `full_compact_needed_m6cf` & `full_compact_mark_live_m6cf`: upstream `10%` compaction trigger
    (`dead * 10ULL > cv`, `src/collect.c:633-643`) + isolated-variable elimination (`map[v] = 0u`
    initialization so unassigned variables with `0` remaining occurrences are compacted out).
@@ -350,7 +350,7 @@ def m6CompactFlushExterns : List Extern :=
   , ⟨"full_sweep_bins", [i64], []⟩
   , ⟨"full_arena_sweep", [i64], [i64]⟩ ]
 
-/-- Standalone M6 Wave-2 compact/flush/dedup module (`8` functions + `7` externs, `0` exits). -/
+/-- Standalone M6 compact/flush/dedup module (`8` functions + `7` externs, `0` exits). -/
 def m6CompactFlushModule : LeanQbe.T.Module :=
   { fns := m6CompactFlush_fns, externs := m6CompactFlushExterns, exits := [] }
 

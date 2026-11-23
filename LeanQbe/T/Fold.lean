@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Constant folding, trivial-op simplification, algebraic rules, and strength reduction (`T6`)
+# Constant folding, trivial-op simplification, algebraic rules, and strength reduction
 
 PHOAS-to-PHOAS optimisation pass `fold : Nat → Expr (FVal V) L rs → Expr V L rs` where
 `FVal V t` carries a replacement operand `out : Arg V t`, a `V`-independent symbolic key

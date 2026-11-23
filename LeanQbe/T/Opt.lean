@@ -20,13 +20,13 @@ public import LeanQbe.T.Inline
 public import LeanQbe.T.Module
 
 /-!
-# The Staged Typed-IR Mid-End Pipeline (`T6`, `O-M1`, `O-M2`)
+# The Staged Typed-IR Mid-End Pipeline
 
-* `Func.opt`: legacy `T6` mid-end (`fold → copy → gvn → copy → fold → dceP`).
+* `Func.opt`: legacy mid-end (`fold → copy → gvn → copy → fold → dceP`).
 * `Func.earlyOpt`: pre-`Legal` pipeline (`fold → canon → copy → gvn → copy → fold → ifOpt →
   simplifyGroupFast → peelFast 24 → zeroPeelWith { peelBudget := 24 } → copy → fold → dceP →
   renorm`), simplifying source and inlined bodies, if-converting branch diamonds, widening
-  constant-fill loops, and peeling bounded loops while preserving `C4`–`C9` widening
+  constant-fill loops, and peeling bounded loops while preserving multi-word widening
   arithmetic (`addc`/`subb`/`mulx` chains).
 * `Func.lateOpt`: post-`Legal` pipeline (`fold → canon → divConst → copy → renorm → memLoad →
   gvn → assumeBits → fold → renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
@@ -46,7 +46,7 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-- Run the legacy `T6` mid-end optimization pipeline on a closed typed function. -/
+/-- Run the legacy mid-end optimization pipeline on a closed typed function. -/
 def Func.opt {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.dceP (Func.fold (Func.copy (Func.gvn (Func.copy (Func.fold f)))))
 
@@ -177,8 +177,8 @@ end
 /-- Unified Epilogue Merging (`Func.mergeRets`): when a function has `≥ 2` `.ret` sites,
 rewrite the body into a single outer `Expr.group` with one shared exit join block
 `exit_blk(ret_vals) -> .ret ret_vals`, replacing every interior `.ret xs` with
-`.jump exit_blk xs`. Single-return (`retCount ≤ 1`) functions bypass rewriting with
-zero overhead. -/
+`.jump exit_blk xs`. Single-return (`retCount ≤ 1`) functions bypass rewriting without
+modifying the body. -/
 def Func.mergeRets {as rs : List Ty} (f : Func as rs) : Func as rs :=
   let tf := reifyFunc f
   if tflatRets tf ≥ 2 then
@@ -192,7 +192,7 @@ def Func.mergeRets {as rs : List Ty} (f : Func as rs) : Func as rs :=
 def Func.earlyCore {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.fold (Func.copy (Func.gvn (Func.copy (Func.canon (Func.fold f)))))
 
-/-- Stage 1 (`earlyOpt`, pre-`Legal`): simplify source/inlined bodies, peel compact single-loop
+/-- Pre-`Legal` mid-end (`earlyOpt`): simplify source/inlined bodies, peel compact single-loop
 functions, widen constant-fill loops / peel small single-iter loops (`ZeroPeel`), clean `.copy`
 bindings, and keep PHOAS closures flat via `Func.renorm` for `Legal`. -/
 def Func.earlyOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
@@ -231,7 +231,7 @@ assumeElim → fold → gvn → renorm → licm → dceP`). -/
 def Func.lateCfg {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.lateCfgPost (Func.renorm (Func.lateCfgPre (Func.renorm f)))
 
-/-- Stage 2 (`lateOpt`, post-`Legal`): strength-reduce constant division, forward memory loads,
+/-- Post-`Legal` mid-end (`lateOpt`): strength-reduce constant division, forward memory loads,
 run machine-width `.bits` if-conversion (`ifOptBits`), clean up dead loads/blocks, hoist
 loop-invariant pure operations (`licm`), rotate header-tested loops (`loopRotate`), merge
 duplicate epilogues (`mergeRets`), and renormalize before `Rega`. -/

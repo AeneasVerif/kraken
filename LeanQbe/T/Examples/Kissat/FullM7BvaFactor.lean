@@ -3,14 +3,14 @@ module
 public import LeanQbe.T.Examples.Kissat.Dimacs
 
 /-!
-# Kissat Wave-4F (`PR-W4F`): Upstream `factor.c` Parity (`FullM7BvaFactor`)
+# Kissat M7 Upstream `factor.c` BVA Parity (`FullM7BvaFactor`)
 
 Additive `3`-function drop-in upgrade over `FullM4Bva` / `FullBvaHeap` / `FullM6VivBackbone`,
 preserving exact `FullM6Hdr` / `FullHdr` layouts and `FullBvaHeapSpec` / `FullM6BvaNoHops`
 contracts (`0` changes to `Full1..6*` or other `FullM7*` modules):
 
 1. `full_init_fresh_var_m7` (`"full_init_fresh_var"`): initializes fresh BVA variables with full
-   Wave-2 flags (`2041u` = `FL_ACTIVE | FL_SUBSUME | FL_ELIM_C | FL_SWEEP | FL_FACT_P | FL_FACT_N |
+   M6 flags (`2041u` = `FL_ACTIVE | FL_SUBSUME | FL_ELIM_C | FL_SWEEP | FL_FACT_P | FL_FACT_N |
    FL_BONE0 | FL_BONE1 | FL_TRANS`) and enqueues at **`q_first`** (VMTF head, decided last, matching
    upstream `factor.c:fresh_variable`) instead of `q_last`.
 2. `full_bva_try_lit_m7` (`"full_bva_try_lit"`): matches upstream `factor.c` clause length bound
@@ -353,15 +353,15 @@ u64 full_factor_m7(FullHdr *h, u64 budget) {
 }
 "
 
-/-- Drop-in Wave-4F `Fn` handle preserving the canonical `"full_init_fresh_var"` symbol name. -/
+/-- Drop-in M7 `Fn` handle preserving the canonical `"full_init_fresh_var"` symbol name. -/
 def m7InitFreshVarFn : Fn :=
   ⟨"full_init_fresh_var", [i64, i32], [], full_init_fresh_var_m7_body⟩
 
-/-- Drop-in Wave-4F `Fn` handle preserving the canonical `"full_bva_try_lit"` symbol name. -/
+/-- Drop-in M7 `Fn` handle preserving the canonical `"full_bva_try_lit"` symbol name. -/
 def m7BvaTryLitFn : Fn :=
   ⟨"full_bva_try_lit", [i64, i32, i64], [.bool], full_bva_try_lit_m7_body⟩
 
-/-- Drop-in Wave-4F `Fn` handle preserving the canonical `"full_factor"` symbol name. -/
+/-- Drop-in M7 `Fn` handle preserving the canonical `"full_factor"` symbol name. -/
 def m7FactorFn : Fn :=
   ⟨"full_factor", [i64, i64], [i64], full_factor_m7_body⟩
 

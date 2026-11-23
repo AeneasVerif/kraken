@@ -22,7 +22,7 @@ Arm64 counterpart to `LeanQbeTest.T.MainCertInlineTest`, testing `MainCertInline
    and closed `armInit` `Eventually` (`X0 = 85`, `cell64 0x1000 25`).
 2. Kissat-shaped mini-module witness linking `X0 = 85` to `miniUnsatCnf.Unsat` on the inlined
    machine code.
-3. Audits single-line `<115c` `std3` `#print axioms`.
+3. Audits single-line standard-axiom `#print axioms`.
 -/
 
 set_option autoImplicit false

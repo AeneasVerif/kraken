@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Matched C1 vs C3b telemetry differential harness & CI drift alarm detector.
+"""Matched upstream Kissat (C1) vs PrintCpp C++20 (C3b) telemetry harness & drift detector.
 
 Runs upstream Kissat C1 (--verbose) and LeanQbe Kissat C3b across Canaries,
 PV-35, or Hard-24/custom CNF suites, computing per-instance and aggregate C3b/C1
@@ -335,7 +335,7 @@ def run_c3b_cli(c3b_bin, cnf_path, work_bytes, fuel, timeout_s, ext_telem=False)
 
 
 def detect_alarms(c1, c3b, inproc_min_c1, ticks_min_confl):
-    """Evaluate §5 CI drift alarms and headroom watermarks for one benchmark."""
+    """Evaluate CI drift alarms and headroom watermarks for one benchmark."""
     alarms = []
     watermarks = {}
     for num_k, den_k, label, thr in [

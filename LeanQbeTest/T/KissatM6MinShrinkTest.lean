@@ -12,7 +12,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Backend Compilation Guards, and Axiom Audit for Kissat Wave-2 `PR-W2B` (`RC-18`)
+# Verification, Backend Compilation Guards, and Axiom Audit for Kissat M6 (`FullM6MinShrink`)
 
 1. Executable `#guard` checks on `m6MinShrinkModule` (`17` fns + `19` externs, `0` exits),
    `checkAcyclic = true`, canonical handles (`m6DecideFn`..`m6AnalyzeFn`), `PrintCpp`, `PrintQbe`,
@@ -20,7 +20,7 @@ meta import LeanQbe.T.Legal
 2. Audit-ready restated headline theorems for `m6MinShrink_fns_wf`, `m6MinShrink_acyclic`, all `17`
    parametric UNSAT-only `Func.wp` contracts, closed `36`-row `m6MinShrink_moduleOk`, and
    concrete `Mem 64` UNSAT non-vacuity (`XPost := False`, zero SAT proofs).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false

@@ -8,7 +8,7 @@ import LeanQbe.T.Logic.ControlComb
 
 
 /-!
-# Kissat Wave-2 PR-W2C (`RC-20`) — Vivification Deduce & Subsumption (`Proof2b`)
+# Kissat M6 Vivification — Deduce & Subsumption (`Proof2b`)
 
 Certifies UNSAT-sound `Func.wp` (`XPost := False`, `0` SAT model proofs) for
 `full_viv_deduce_m6` (`fullVivDeduceM6Spec`, `M6SubRefOk` in `h->ant_sz`, backward

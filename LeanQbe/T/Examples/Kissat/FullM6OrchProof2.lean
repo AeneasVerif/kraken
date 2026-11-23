@@ -19,7 +19,7 @@ import Kraken.Separation
 /-!
 # Kissat `M6.0` Search, End-to-End `kissat_solve_bytes_m6`, & Tail Table (`FullM6OrchProof2`)
 
-Proves the top-level Wave-3 orchestrator functions from `FullM6Orch.lean` cleanly on
+Proves the top-level M6 orchestrator functions from `FullM6Orch.lean` on
 `FullM6HdrMem` / `FullM6HdrInv` with ZERO compile-time dependency on
 `FullM6OrchProof0/1.lean` or `FullM6OrchAdaptersProof*.lean`:
 25: 1. `full_search_m6_wp` (`fullM6SearchSpec`, core `FullM6HdrInv` UNSAT soundness +
@@ -156,54 +156,72 @@ theorem m6SwitchModeSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []}
   rcases xs with ⟨_, ⟨⟩⟩; exact h
 
 /-- `full_rephase_m6_hdr(h)` specification matching `FullM6OrchAdaptersProof0.m6aRephaseSpec`
-verbatim (`#3513`). -/
+verbatim (`dense_mode = 0#64` + `FullArenaPermEq`). -/
 def m6aRephaseSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64)) (s : FullState)
     (R : Mem 64 → Prop),
     h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ FullCoreInv c F0 s ∧
-    (FullM6HdrMem c ext s ⋆ R) m ∧
-    ∀ vals' lvl' rsns' trl' tp' te' prop' cl' unass' fuel' sc' ext' m',
+    s.core.dense_mode = 0#64 ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
+    ∀ vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' prop' prob' cl' unass' unfl'
+      wvec' arena' wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' sc' ext' m',
       let s' : FullState :=
-        { core := { s.core with vals := vals', lvl := lvl', rsns := rsns', trl := trl',
-                                trail_pos := tp', trail_end := te', propagated := prop',
-                                cur_level := cl', unassigned := unass', fuel := fuel' }
+        { core := { s.core with
+            vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+            trail_pos := tp', frame_trail := ftrl', frame_dec := fdec', trail_end := te',
+            propagated := prop', probing := prob', cur_level := cl', unassigned := unass',
+            unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk',
+            wlen := wlen', wusable := wu', fuel := fuel', confl_type := ctype',
+            confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
           scratch := sc' }
       M6HdrExtOk ext' ∧ (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
-      FullCoreInv c F0 s' → (s.scratch.stable ≠ 0#64 → cl' = 0) →
+      FullCoreInv c F0 s' → FullArenaPermEq s.core s'.core →
+      (s.scratch.stable ≠ 0#64 → cl' = 0) →
       cl' ≤ s.core.cur_level → fuel'.toNat ≤ s.core.fuel.toNat →
       FullExtScratchPres s s' → (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m'
 
 theorem m6aRephaseSpec_of {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)}
     {s : FullState} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost}
     (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hinv : FullCoreInv c F0 s)
-    (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hQ : ∀ vals' lvl' rsns' trl' tp' te' prop' cl' unass' fuel' sc' ext' m',
+    (hdm0 : s.core.dense_mode = 0#64) (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' prop' prob' cl' unass' unfl'
+      wvec' arena' wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' sc' ext' m',
       let s' : FullState :=
-        { core := { s.core with vals := vals', lvl := lvl', rsns := rsns', trl := trl',
-                                trail_pos := tp', trail_end := te', propagated := prop',
-                                cur_level := cl', unassigned := unass', fuel := fuel' }
+        { core := { s.core with
+            vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+            trail_pos := tp', frame_trail := ftrl', frame_dec := fdec', trail_end := te',
+            propagated := prop', probing := prob', cur_level := cl', unassigned := unass',
+            unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk',
+            wlen := wlen', wusable := wu', fuel := fuel', confl_type := ctype',
+            confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
           scratch := sc' }
       M6HdrExtOk ext' ∧ (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
-      FullCoreInv c F0 s' → (s.scratch.stable ≠ 0#64 → cl' = 0) →
+      FullCoreInv c F0 s' → FullArenaPermEq s.core s'.core →
+      (s.scratch.stable ≠ 0#64 → cl' = 0) →
       cl' ≤ s.core.cur_level → fuel'.toNat ≤ s.core.fuel.toNat →
       FullExtScratchPres s s' → (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m') :
     m6aRephaseSpec (c.hdr, ()) m Q X :=
-  ⟨c, F0, ext, s, R, rfl, hcfg, hext, hinv, hm, hQ⟩
+  ⟨c, F0, ext, s, R, rfl, hcfg, hext, hinv, hdm0, hm, hQ⟩
 
 theorem m6aRephaseSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
     (hs : m6aRephaseSpec (h, ()) m Q X) :
     ∃ (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64)) (s : FullState)
       (R : Mem 64 → Prop),
       h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ FullCoreInv c F0 s ∧
-      (FullM6HdrMem c ext s ⋆ R) m ∧
-      ∀ vals' lvl' rsns' trl' tp' te' prop' cl' unass' fuel' sc' ext' m',
+      s.core.dense_mode = 0#64 ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' prop' prob' cl' unass' unfl'
+        wvec' arena' wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' sc' ext' m',
         let s' : FullState :=
-          { core := { s.core with vals := vals', lvl := lvl', rsns := rsns', trl := trl',
-                                  trail_pos := tp', trail_end := te', propagated := prop',
-                                  cur_level := cl', unassigned := unass', fuel := fuel' }
+          { core := { s.core with
+              vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+              trail_pos := tp', frame_trail := ftrl', frame_dec := fdec', trail_end := te',
+              propagated := prop', probing := prob', cur_level := cl', unassigned := unass',
+              unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk',
+              wlen := wlen', wusable := wu', fuel := fuel', confl_type := ctype',
+              confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
             scratch := sc' }
         M6HdrExtOk ext' ∧ (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
-        FullCoreInv c F0 s' → (s.scratch.stable ≠ 0#64 → cl' = 0) →
+        FullCoreInv c F0 s' → FullArenaPermEq s.core s'.core →
+        (s.scratch.stable ≠ 0#64 → cl' = 0) →
         cl' ≤ s.core.cur_level → fuel'.toNat ≤ s.core.fuel.toNat →
         FullExtScratchPres s s' → (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m' := hs
 
@@ -642,13 +660,21 @@ private theorem m6Hdr_call_m6Rephase_inv {Γ : Env} {ret : List Ty}
   rw [hargs]
   have hsp := hinv.sparse
   have hcore := fullM6HdrInv_to_coreInv hinv
-  refine hΓ _ X (m6aRephaseSpec_of hinv.cfgOk hinv.extOk hcore.coreInv hm ?_)
-  intro vals' lvl' rsns' trl' tp' te' prop' cl' unass' fuel' sc' ext' m' s'
-    ⟨hext', _⟩ hc' _ _ hfu' hpres' hm'
+  refine hΓ _ X (m6aRephaseSpec_of hinv.cfgOk hinv.extOk hcore.coreInv hsp.2.2.2.2 hm ?_)
+  intro vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' prop' prob' cl' unass' unfl'
+    wvec' arena' wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' sc' ext' m' s'
+    ⟨hext', _⟩ hc' hperm' _ _ hfu' hpres' hm'
   have hlm' : FullLitMarksClear c s' := ⟨hsp.2.1.1, hsp.2.1.2⟩
-  have hvn' : FullArenaVarsNodup s' := hsp.2.2.1
-  have hwf' : FullLastLearnedWf s' :=
-    hsp.2.2.2.1.1.of_refs_subset hpres'.1 fun _ hr => hr
+  have hvn' : FullArenaVarsNodup s' := by
+    intro r hr hng
+    have hr1 : r ∈ fullArenaClauseRefsCore s.core := hperm'.2.1 ▸ hr
+    obtain ⟨_, hgb, hp⟩ := hperm'.2.2 r hr1
+    exact (hp.map (· / 2)).nodup_iff.mpr (hsp.2.2.1 r hr1 (hgb.symm.trans hng))
+  have hwf' : FullLastLearnedWf s' := by
+    intro i hi
+    dsimp only [fullArenaClauseRefs]
+    rw [hpres'.1, hperm'.2.1]
+    exact hsp.2.2.2.1.1 i hi
   have hext_sc' : FullExtScratchOk c s' :=
     ⟨hwf', by change sc'.extend_len ≤ c.extend_cap; rw [hpres'.2]; exact hsp.2.2.2.1.2⟩
   have hinv' : FullM6HdrInv c F0 ext' s' :=
@@ -1138,7 +1164,7 @@ theorem full_search_m6_wp (Γ : Env)
     · -- `pr == 2#64`: return `0#64`
       exact hQ 0#64 c ext s1 m1 hcompat hlen1 hinv1.cfgOk hinv1.extOk (Or.inl rfl)
         (fun hc => by cases hc) (fun hc => by cases hc) hm1
-    · -- `pr == 1#64`: conflict!
+    · -- `pr == 1#64`: conflict
       have hpr1 : pr = 1#64 := hc
       obtain ⟨hfu_lt, _, hcok1⟩ := hr1 hpr1
       have hmu_conf : ∀ {c' : FullCfg} {ext' : List (BitVec 64)} {s' : FullState},
@@ -1292,7 +1318,7 @@ theorem full_search_m6_wp (Γ : Env)
           (fun _ => hinv2.sparse.2.2.2.1.2) hm2
       · exact hQ 0#64 c ext2 s2 m2 hcompat hlen2 hinv2.cfgOk hinv2.extOk
           (Or.inl rfl) (fun hc => by cases hc) (fun hc => by cases hc) hm2
-      · -- `dr == 1#64`: continue loop!
+      · -- `dr == 1#64`: continue loop
         have hdr1 : dr = 1#64 := hdomd.resolve_left hc
         obtain ⟨_, hte2⟩ := h1d hdr1
         have hte_lt : s.core.trail_end < s2.core.trail_end := by
@@ -1555,7 +1581,7 @@ theorem kissat_solve_bytes_m6_core_wp (Γ : Env)
                         (fun h => by cases h)
                         (fun _ _ _ _ _ _ _ _ hp hu => absurd ⟨_, _, _, hp, hu⟩ hno_utrace)
                         hm3_reg
-                    · -- Join outer `J_fin` handling `(sr, c_end, ext_end, s_end)`!
+                    · -- Join outer `J_fin` handling `(sr, c_end, ext_end, s_end)`
                       have hpp_ne20 : ppr ≠ 20#64 := hc
                       let PreFin : BitVec 64 → FullCfg → List (BitVec 64) → FullState →
                           Mem 64 → Prop := fun sr cE extE sE mE =>
@@ -1752,7 +1778,7 @@ theorem kissat_solve_bytes_m6_core_wp (Γ : Env)
                             exact hJ_mid (0#64, ()) m3 ⟨c2, ext2, s2, hcomp2, hcfg2, hext2,
                               hlen2, Or.inl rfl, fun h => absurd h (by decide),
                               fun h => absurd h (by decide), hm3'⟩
-                          · -- `ppr == 1#64`: `full_search_m6`!
+                          · -- `ppr == 1#64`: `full_search_m6`
                             have hpp_ne0 : ppr ≠ 0#64 := hc
                             have hppr1 : ppr = 1#64 := by
                               rcases hdom2 with rfl | rfl | rfl | rfl

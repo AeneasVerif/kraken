@@ -9,7 +9,7 @@ public import LeanQbe.T.Examples.Kissat.FullBvaHeapLemmas
 /-!
 # Kissat M6 Congruence Closure & 2-Round Substitute Closed `ModuleOk` & Non-Vacuity
 
-Top-level umbrella proof module for `m6/cong-subst-worklist` (`RC-25`, UNSAT-only):
+Top-level umbrella proof module for `FullM6CongSubst` (UNSAT-only):
 1. Publicly re-exports `FullM6CongSubst` and all `23` parametric `(Γ : Env)` `Func.wp` proofs
    across `FullM6CongSubstProof{0,0b,1a,1b,2a,2b,2b2,2c,2d,2e}`.
 2. Closes the `39`-row `m6CongSubstSpecTable` (`23` owned M6 functions + `16` canonical external

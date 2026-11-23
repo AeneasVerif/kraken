@@ -7,7 +7,7 @@ meta import LeanQbe.T.Examples.Kissat.Core
 meta import LeanQbe.T.Examples.LratBytes
 
 /-!
-# Verification and Axiom Audit for `X2-LayerA` (`LeanQbe.T.Examples.Kissat`)
+# Verification and Axiom Audit for `LeanQbe.T.Examples.Kissat`
 
 Executable kernel/VM `#guard` checks and standard-axiom audits covering:
 1. Kissat literal encoding, CNF conversion, and `checkModel`.
@@ -95,7 +95,7 @@ private def sat2Cnf : CNF Nat :=
 private def sample1UipState : CdclState :=
   -- Variables 0..3: dec x0=T @1, prop x1=T @1 (¬x0 ∨ x1), prop x2=T @1 (¬x0 ∨ x2),
   -- prop x3=T @1 (¬x1 ∨ ¬x2 ∨ x3). Conflict clause [¬x2, ¬x3] resolves x3 -> [¬x1, ¬x2],
-  -- then x2 -> [¬x0, ¬x1] -> 1UIP countAtLevel = 1? Wait resolves x1 -> [¬x0]!
+  -- then x2 -> [¬x0, ¬x1] -> 1UIP resolves x1 -> [¬x0].
   { f0 := cnfOfClauses [[0], [1, 2], [1, 4], [3, 5, 6], [5, 7]]
     numVars := 4
     clauses := #[some { lits := [1, 2] }, some { lits := [1, 4] },

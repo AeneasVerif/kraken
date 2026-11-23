@@ -9,7 +9,7 @@ import LeanQbe.T.Examples.Kissat.FullBveVarLemmas2
 # Kissat M5 Dense-Safe Proofs — Part 1b (`full_bve_var_m5`)
 
 Proves `full_bve_var_m5_wp` (`Full.fullBveVarSpec`) and `full_bve_var_m5_def_wp`
-(`FullFastBveBudgets.fullBveVarDefSpec`) for `RC-02`:
+(`FullFastBveBudgets.fullBveVarDefSpec`) with OOM watch-headroom pre-checks:
 1. Returns `2ULL` immediately if `h->oom != 0ULL` on entry.
 2. Pre-checks worst-case `watch_stk` headroom across all buffered resolvents (calling
    `full_wstack_defrag` if needed) **BEFORE** calling `full_bve_weaken` or marking `FL_ELIM`,
@@ -995,7 +995,7 @@ private theorem m5_bve_var_core_wp (Γ : Env) (TmkInv : FullState → Prop)
                 · bve_ld load_full_arena_len hmf
                   bve_ld load_full_arena_cap hmf
                   bve_jnz har_fit
-                  · -- RC-02: read-only watch headroom pre-check + optional defrag BEFORE weaken!
+                  · -- Read-only watch headroom pre-check + optional defrag before weaken
                     obtain ⟨hrp160, hrp_cap, hres_fit⟩ := hres_f hfit_c
                     have hscr_f := hinvf.1.scratch_ok.scratch_buf_len
                     have hwv_f := hinvf.1.core_ok.wvec_len
@@ -1770,7 +1770,7 @@ end BveVarHelpers
 
 /-! ## 3. Public Canonical & `TmkZero` Specs (`full_bve_var_m5_wp`, `full_bve_var_m5_def_wp`) -/
 
-/-- Canonical `Full.fullBveVarSpec` proof for `full_bve_var_m5` (`RC-02`). -/
+/-- Canonical `Full.fullBveVarSpec` proof for `full_bve_var_m5`. -/
 public theorem full_bve_var_m5_wp (Γ : Env)
     (hDefrag : ∀ xs m Q X, fullWstackDefragSpec xs m Q X →
       Γ "full_wstack_defrag" [i64] [] xs m Q X)
@@ -1824,7 +1824,7 @@ public theorem full_bve_var_m5_wp (Γ : Env)
     hdense trivial hv_lt hm
     (fun r s' m' hd' _ hcv hfl hr h20 hm' => hQ r s' m' hd' hcv hfl hr h20 hm')
 
-/-- M2 `FullDefSweep`-compatible `fullBveVarDefSpec` proof for `full_bve_var_m5` (`RC-02`). -/
+/-- M2 `FullDefSweep`-compatible `fullBveVarDefSpec` proof for `full_bve_var_m5`. -/
 public theorem full_bve_var_m5_def_wp (Γ : Env)
     (hDefrag : ∀ xs m Q X, fullWstackDefragSpec xs m Q X →
       Γ "full_wstack_defrag" [i64] [] xs m Q X)

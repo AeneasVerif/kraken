@@ -5,10 +5,10 @@ public import LeanQbe.T.WPLemmas
 /-!
 # Smoke tests, mutual groups, memory/calls/exits, and relational opcode edge cases
 
-* `evenOdd`: mutually recursive 2-block `group` (from `Typed2.lean` / `Smoke.lean`), proved for all `n`.
-* `sumLanes`: 2-label group carrying `(i32, v4i32)` exiting through `done` (from `Typed2.lean`).
+* `evenOdd`: mutually recursive 2-block `group`, proved for all `n`.
+* `sumLanes`: 2-label group carrying `(i32, v4i32)` exiting through `done`.
 * `tracer`: `load` and `store` over Kraken's partial `Mem 64` (including unmapped failure).
-* `caller`: signature-indexed `call` and abnormal `exit` (D5).
+* `caller`: signature-indexed `call` and abnormal `exit`.
 * `spin`: non-vacuity (`¬ Func.wp Γ spin () m Q X`).
 * Relational & edge-case checks: `udiv`/`sdiv` UB, `udiv0`/`sdiv0`, `fadd` deterministic +
   nondeterministic NaN (`∀`), `fadd` split, vector shuffles, `sha256rnds2`, `ternlog`, `fshl`/`fshr`,
@@ -93,7 +93,7 @@ theorem evenOdd_correct (Γ : Env) (X : XPost) (n : BitVec 64) (m : Mem 64) :
       rw [hpos, hsub]
       exact ⟨fun _ => ih.1 (by omega), fun h0 => absurd h0 (by decide)⟩
 
-/-! ## 2. `sumLanes`: 2-label group carrying `i32` and `v4i32` (from `Typed2.lean`) -/
+/-! ## 2. `sumLanes`: 2-label group carrying `i32` and `v4i32` -/
 
 def sumLanes : Func [] [i64] := fun _ _ () =>
   .group (sig := [[v4i32], [i32, v4i32]])
@@ -215,7 +215,7 @@ theorem store_disjoint_load_preserves (Γ : Env) (X : XPost) (m : Mem 64)
   refine ⟨hp, old, ?_, rfl⟩
   rw [loadVal_storeMem_disjoint m i64 i64 p q v hdisj, hq]
 
-/-! ## 4. `caller`: signature-indexed `call` and abnormal `exit` (D5) -/
+/-! ## 4. `caller`: signature-indexed `call` and abnormal `exit` -/
 
 def caller : Func [i64] [i64] := fun _ _ (a, ()) =>
   .call "g" (as := [i64]) (bs := [.bool, i64]) (.var a, ()) fun (ok, r, ()) =>
@@ -614,7 +614,7 @@ theorem fcvt_edge_cases :
   simp only [OpCode.wp_fcvt]
   exact ⟨rfl, rfl, rfl⟩
 
-/-! ## 8. T1 review cleanups: `zext`/`sext`/`trunc` direction UB, `bool` load ∈ `{0,1}`, `fcmp .ne` -/
+/-! ## 8. Edge cases: `zext`/`sext`/`trunc` direction UB, `bool` load ∈ `{0,1}`, `fcmp .ne` -/
 
 theorem ext_trunc_wrong_direction_ub (a64 : BitVec 64) (a32 : BitVec 32)
     (p32 : Tup Val [i32] → Prop) (p64 : Tup Val [i64] → Prop) :

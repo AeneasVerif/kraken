@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalWpSimdLemmas
 
 /-!
-# Legalization scalar widening, `TreeRel` bridges, and `legalOp_wp` helpers (`T5`, Part 3a)
+# Legalization scalar widening, `TreeRel` bridges, and `legalOp_wp` helpers (Part 3a)
 -/
 
 set_option autoImplicit false

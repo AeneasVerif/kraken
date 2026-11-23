@@ -8,7 +8,7 @@ import LeanQbe.T.LegalLemmas
 import LeanQbe.T.RegaLemmas
 
 /-!
-# Soundness of `LeanQbe.T.LinkScc` — Part 1 (`R-B`)
+# Soundness of `LeanQbe.T.LinkScc` — Part 1
 
 * **Source/IR well-founded SCC linking**: signature isolation for `Env.ofModuleScc`,
   `Env.stepIdx_le_ofModuleScc`, `Env.sound_scc_at`, `Env.sound_scc`, `moduleSccOk_of_step`, and

@@ -7,7 +7,7 @@ public import LeanQbe.T.Examples.Kissat.FullM5
 import LeanQbe.T.Logic.ControlComb
 
 /-!
-# Kissat Wave-4F `FullM7BvaFactor` WP Soundness & Closed `270`-Fn Assembly
+# Kissat M7 `FullM7BvaFactor` WP Soundness & Closed `270`-Fn Assembly
 
 Proves:
 1. `full_factor_m7_wp`: parametric `(Γ : Env)` WP contract for `full_factor_m7_body` against
@@ -1391,7 +1391,7 @@ private theorem m7_ofTable_iff_of_mem {tbl : List SpecEntry} {e : SpecEntry} (he
     · have hne : e'.name ≠ e.name := fun h' => hnd.1 (h' ▸ List.mem_map_of_mem hmem)
       exact (Env.ofTable_cons_ne hne _ _ _ _).trans (ih hmem hnd.2)
 
-/-- Standalone `9`-row external contract table (`3` owned Wave-4F fns + `6` externs,
+/-- Standalone `9`-row external contract table (`3` M7 BVA/factor fns + `6` externs,
 `noExit = true`) for `m7BvaFactorModule`. -/
 def m7BvaFactorSpecTable : List SpecEntry :=
   [ ⟨"full_init_fresh_var", [i64, i32], [], fullInitFreshVarHeapSpec, true⟩
@@ -1441,7 +1441,7 @@ private theorem m7BvaFactorEnv_elim {e : SpecEntry} (he : e ∈ m7BvaFactorSpecT
   have heff := (m7_ofTable_iff_of_mem he m7BvaFactorSpecTable_nodup).mp h
   simpa only [SpecEntry.eff, hno, ↓reduceIte] using heff
 
-/-- Unconditional standalone `ModuleOk` certification of all `3` Wave-4F BVA/factor functions
+/-- Unconditional standalone `ModuleOk` certification of all `3` M7 BVA/factor functions
 in `m7BvaFactorModule` against `m7BvaFactorEnv`. -/
 theorem m7BvaFactor_moduleOk : ModuleOk m7BvaFactorEnv m7BvaFactorModule := by
   refine Module.moduleOk_of_checkAcyclic m7BvaFactor_acyclic m7BvaFactorFns_wf ?_
@@ -1564,14 +1564,14 @@ theorem nv_m7_factor :
       fun r s' m' hd _ _ hr hm' => by
         rw [sep_emp] at hm'; exact ⟨s', hd, hr, nvDeduceF0_unsat, hm'⟩⟩
 
-/-! ## 4. Closed `270`-Function Spliced `FullM5` Wave-4F Certification -/
+/-! ## 4. Closed `270`-Function Spliced `FullM5` + `FullM7BvaFactor` Certification -/
 
-/-- Closed `270`-function Unified M5 + Wave-4F BVA/factor function list (`FullM5.m5Fns` with
+/-- Closed `270`-function Unified M5 + M7 BVA/factor function list (`FullM5.m5Fns` with
 `"full_init_fresh_var"`, `"full_bva_try_lit"`, and `"full_factor"` upgraded). -/
 def m7BvaFullFns : List Fn :=
   spliceM7BvaFactorFns FullM5.m5Fns
 
-/-- Closed `270`-function compiled module splicing Wave-4F `FullM7BvaFactor` into `FullM5`. -/
+/-- Closed `270`-function compiled module splicing `FullM7BvaFactor` into `FullM5`. -/
 def m7BvaFullModule : LeanQbe.T.Module :=
   { fns := m7BvaFullFns, externs := [], exits := [] }
 

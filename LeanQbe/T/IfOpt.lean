@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Diamond `jnz` → `select` If-Conversion (`O-M2`, `MB3`)
+# Diamond `jnz` → `select` If-Conversion (`Func.ifOpt`)
 
 Pure 100%-PHOAS if-conversion pass (`ifOpt` / `Func.ifOpt`) using local label tagging
 `JLabel L ts` (no `reify`/`TFlat`):
@@ -19,7 +19,7 @@ Pure 100%-PHOAS if-conversion pass (`ifOpt` / `Func.ifOpt`) using local label ta
 * Hoists the pure prefixes of both arms, emits nested `.select`s across `.pair`s / elementwise
   tuple `.select`s onto `.bits`/`bool` (keeping identical operands un-selected via symbolic keys),
   and jumps to `J` with the selected arguments while preserving the `.group` structure for
-  `SimplifyGroupPlan`. Never turns `.select` into `.jnz` (`G2`).
+  `SimplifyGroupPlan`. Never turns `.select` into `.jnz` (preserving constant-time selects).
 
 Correctness (`LeanQbe/T/IfOptLemmas.lean`): `ifOpt_wp`, `ifOpt_wf`, `Func.ifOpt_wf`,
 `Func.ifOpt_spec`.
@@ -281,7 +281,7 @@ end IfOptImpl
 open IfOptImpl
 
 mutual
-/-- PHOAS-to-PHOAS if-conversion pass (`MB3`: diamond `jnz` → `select`), preserving `.group`
+/-- PHOAS-to-PHOAS if-conversion pass (diamond `jnz` → `select`), preserving `.group`
 block structure. When `bitsOnly = true`, only `.bits` (`8/16/32/64`) join values are converted. -/
 def ifOptWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (bitsOnly : Bool) (depth next : Nat) : Expr (IVal V) (JLabel L) rs → Expr V L rs

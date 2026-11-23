@@ -7,7 +7,7 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat M7 Inner-Bounds-Check-Free BCP (`FullM7BcpNoBounds`)
 
-Additive C0 module for Wave 4 Priority #1 (`kissat-w4c2-bcp-nobounds`, ablation `A4a` of `#3263`):
+Additive C0 module for inner-bounds-check-free BCP watch scanning:
 - `full_prop_lit_nobounds_m7`: eliminates all per-watch inner-loop bounds checks
   (`blk < nlits`, 2-word `p < end` in large watch paths, `cref + 3 > alen`,
   `csz < 3 || cbase + csz > alen`, `other >= nlits`, `cand < nlits`, `tend < max_v`) while

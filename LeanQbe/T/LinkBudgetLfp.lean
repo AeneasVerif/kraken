@@ -5,7 +5,7 @@ import LeanQbe.T.WPLemmas
 import LeanQbe.T.AbiLemmas
 
 /-!
-# Stack-Budget-Indexed `BudgetEnv.lfp` Fixed-Point Core (`PR-B1`)
+# Stack-Budget-Indexed `BudgetEnv.lfp` Fixed-Point Core
 
 Purely target-independent, additive fixed-point semantics over `BudgetEnv := Nat → Env`,
 pairing `maxFrame` and `minEntry` directly on `BudgetFn` (zero external `frameOf : Sym → Nat`
@@ -18,7 +18,7 @@ tables in core semantics):
   `BudgetEnv.lfp_le_of_prefix_below`.
 * `BudgetFn` (`toFn`, `maxFrame`, `minEntry := maxFrame`), `BudgetModule`, `BudgetEnv.extStep`,
   `BudgetEnv.sccStep`, `BudgetEnv.callSlot`, `BudgetEnv.tailSlot`, `BudgetEnv.mkSccOp`
-  (parameterized by two-slot `evalFn` for trivial Stage-2 `wpSplit` generalization),
+  (parameterized by two-slot `evalFn` to support future split call/tail `wpSplit`),
   `BudgetEnv.sccOp`, `BudgetEnv.semScc`, `BudgetEnv.semSccWith`, and `BudgetEnv.lfp_wf_mkSccOp`.
 * Non-tail well-founded reduction `lfp_eq_wfRec_of_noTail`, legacy `ModuleOk` embedding
   `moduleOk_embeds_into_budget_semScc`, and single-shot `Target.FnSpec` machine bridge
@@ -283,7 +283,7 @@ theorem sccStep_mono {M : BudgetModule} {Γ₁ Γ₂ Γext₁ Γext₂ : Env}
   sccStep M (G sb) (Γext sb)
 
 /-- Parameterized two-slot module operator over `(callSlot, tailSlot)`, directly reusable
-when Stage 2 upgrades `Func.wp` to `Func.wpSplit`. -/
+for split call/tail weakest preconditions (`Func.wpSplit`). -/
 @[expose] def mkSccOp (M : BudgetModule) (Γext : BudgetEnv)
     (evalFn : Env → Env → (bfn : BudgetFn) → Spec bfn.toFn.as bfn.toFn.rs)
     (G : BudgetEnv) (sb : Nat) : Env :=
@@ -478,7 +478,7 @@ end
 
 /-- A `BudgetModule` is strictly tail-call-free with positive call frames when every function
 making a `.call` has `maxFrame > 0` (automatically satisfied when `maxFrame ≥ effFrame + ra`).
-In Stage 2, this additionally requires `(bfn.toFn.body Val Cont xs).NoTail`. -/
+With split tail-call semantics, this additionally requires `(bfn.toFn.body Val Cont xs).NoTail`. -/
 @[expose] def StrictNoTailModule (M : BudgetModule) : Prop :=
   ∀ bfn ∈ M.fns, (∃ xs, ¬ (bfn.toFn.body Val Cont xs).NoCall) → bfn.maxFrame > 0
 

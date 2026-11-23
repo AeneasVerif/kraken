@@ -88,6 +88,7 @@ public import LeanQbe.T.Examples.Kissat.FullM6Inl4
 public import LeanQbe.T.Examples.Kissat.FullM6Inl5
 public import LeanQbe.T.Examples.Kissat.FullM6InlBase
 public import LeanQbe.T.Examples.Kissat.FullM6InlPolicy
+public import LeanQbe.T.Examples.Kissat.FullM6LuckyS15
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrink
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof0
@@ -108,6 +109,10 @@ public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof2
 public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof2a
 public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof3
 public import LeanQbe.T.Examples.Kissat.FullM6OrchProof2
+public import LeanQbe.T.Examples.Kissat.FullM6Proof
+public import LeanQbe.T.Examples.Kissat.FullM6Proof0a
+public import LeanQbe.T.Examples.Kissat.FullM6Proof0b
+public import LeanQbe.T.Examples.Kissat.FullM6Proof0c
 public import LeanQbe.T.Examples.Kissat.FullM6ProofUtil
 public import LeanQbe.T.Examples.Kissat.FullM6S15Bridge
 public import LeanQbe.T.Examples.Kissat.FullM6SatNv
@@ -168,6 +173,15 @@ public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof0
 public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof1
 public import LeanQbe.T.Examples.Kissat.FullM7Reorder
 public import LeanQbe.T.Examples.Kissat.FullM7ReorderProof
+public import LeanQbe.T.Examples.Kissat.FullM7Search
+public import LeanQbe.T.Examples.Kissat.FullM7SearchProof
+public import LeanQbe.T.Examples.Kissat.FullM7SearchProof0
+public import LeanQbe.T.Examples.Kissat.FullM7SearchProof1
+public import LeanQbe.T.Examples.Kissat.FullM7SearchProof2
+public import LeanQbe.T.Examples.Kissat.FullM7Walk
+public import LeanQbe.T.Examples.Kissat.FullM7WalkProof
+public import LeanQbe.T.Examples.Kissat.FullM7WalkProof0
+public import LeanQbe.T.Examples.Kissat.FullM7WalkProof0b
 
 set_option autoImplicit false
 

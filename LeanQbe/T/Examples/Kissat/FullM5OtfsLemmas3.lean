@@ -22,7 +22,7 @@ for:
    backward `full_unwatch_large`, and `full_arena_next(h, cref) - cref` garbage accounting.
 2. `full_deduce_1uip_m5_wp` (`Full.fullDeduce1uipSpec`): entry `h->oom != 0ULL` exit, OTFS via
    `full_otfs_bin_m5` and `full_otfs_large` with clean OOM aborts, and `res_sz = min_clr_len`
-   handoff before `full_clear_ana`.
+   transfer before `full_clear_ana`.
 -/
 
 set_option autoImplicit false

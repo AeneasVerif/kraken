@@ -5,10 +5,10 @@ public import LeanQbe.T.Examples.Kissat.FullSpec
 import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas1
 
 /-!
-# Kissat M5 Wave 1 (`PR-W1A`) `Func.wp` Proofs — Part 1 (`FullM5HeurCoreProof1`)
+# Kissat M5 Heuristics `Func.wp` Proofs — Part 1 (`FullM5HeurCoreProof1`)
 
 Proves UNSAT-only parametric `Func.wp` contracts (`XPost := False`, `0` SAT proofs) for the
-`RC-10` probing-isolation & analyzed-variable bumping functions:
+probing-isolation & analyzed-variable bumping functions:
 1. `full_bump_analyzed_m5_wp` against canonical `Full.fullBumpAnalyzedSpec` (`probing == 0` guard,
    `FL_ACTIVE` filter, `stable == 0` guard on `full_queue_mtf`).
 2. `fullRestoreBumpAnaSpec` + `full_restore_bump_ana_m5_wp` (compacting `work_stk1[0..min(res_sz,

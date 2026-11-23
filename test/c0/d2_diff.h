@@ -15,7 +15,7 @@
 #include <tuple>
 #include <vector>
 
-/* Global freed-pointer logs for V3 lean_dec_ref_cold */
+/* Global freed-pointer logs for lean_dec_ref_cold */
 static std::vector<uint64_t> g_c_freed;
 static std::vector<uint64_t> g_cpp_freed;
 
@@ -661,7 +661,7 @@ inline void run_v2_tests() {
     f.run_and_compare("v2_27_dup_bin_watch_same_lit", 2);
     cases++;
   }
-  // 28. Binary assign of X then large clause with X as `other` hits `oval > 0`!
+  // 28. Binary assign of X then large clause with X as `other` hits `oval > 0`.
   {
     ProplitFixture f;
     f.set_true(2);

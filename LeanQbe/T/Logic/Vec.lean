@@ -3,12 +3,12 @@ module
 public import LeanQbe.T.Logic.Ops
 
 /-!
-# Vector lane kit for `Ty.vec k t` (`T4`)
+# Vector lane kit for `Ty.vec k t`
 
 * `setLane`, `splatV`, `ofLaneFn`, `maskLane`, and extensionality `vec_ext`.
 * `lane` / `setLane` / `splatV` identities (`lane_setLane`, `lane_splatV`, `setLane_lane`).
 * Leaf-wise lifting lane lemmas: `lane_lift1`, `lane_lift2`, `lane_lift3`, plus **`lane_liftCmp`**
-  and **`lane_blendV`** (from `T1` review `#18` #7) and bitvector-leaf specializations.
+  and **`lane_blendV`**, plus bitvector-leaf specializations.
 * Vector opcode lane specs (`vpaddd`/`add`, `vpternlogd`/`ternlog`, `vprord`/`rotr`, `vpsrld`/`lshr`,
   `rotl`, `shl`, `ashr`, `xor`, `and`, `or`, `not`, `cmp`, `blend`).
 * Generic `Lanewise1`, `Lanewise2`, `Lanewise3`, `Lanewise4`, and arity-generic `LanewiseX`
@@ -169,7 +169,7 @@ theorem lane_lift3 (f : ∀ {n}, BitVec n → BitVec n → BitVec n → BitVec n
     simp only [lane, lift3]
     split <;> exact lane_lift3 f g t k _ _ _ _
 
-/-- Lane lemma for `liftCmp` (`T1` review `#18` #7). -/
+/-- Lane lemma for `liftCmp`. -/
 theorem lane_liftCmp (f : ∀ {n}, BitVec n → BitVec n → Bool) (g : Bool → Bool → Bool) (t : Ty) :
     ∀ (k : Nat) (a b : Val (Ty.vec k t)) (i : Nat),
       maskLane t k (liftCmp f g (Ty.vec k t) a b) i =
@@ -179,7 +179,7 @@ theorem lane_liftCmp (f : ∀ {n}, BitVec n → BitVec n → Bool) (g : Bool →
     simp only [maskLane, liftCmp, lane]
     split <;> exact lane_liftCmp f g t k _ _ _
 
-/-- Lane lemma for `blendV` (`T1` review `#18` #7). -/
+/-- Lane lemma for `blendV`. -/
 theorem lane_blendV (t : Ty) :
     ∀ (k : Nat) (c : Val (Ty.vec k t).mask) (a b : Val (Ty.vec k t)) (i : Nat),
       lane k (blendV (Ty.vec k t) c a b) i =
@@ -189,7 +189,7 @@ theorem lane_blendV (t : Ty) :
     simp only [lane, blendV, maskLane]
     split <;> exact lane_blendV t k _ _ _ _
 
-/-- Combined lane lemma for `blendV` over `liftCmp` (`T1` review `#18` #7). -/
+/-- Combined lane lemma for `blendV` over `liftCmp`. -/
 theorem lane_blend_liftCmp (f : ∀ {n}, BitVec n → BitVec n → Bool) (g : Bool → Bool → Bool) (t : Ty)
     (k : Nat) (a b x y : Val (Ty.vec k t)) (i : Nat) :
     lane k (blendV (Ty.vec k t) (liftCmp f g (Ty.vec k t) a b) x y) i =

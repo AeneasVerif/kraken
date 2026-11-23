@@ -4,7 +4,7 @@ public import LeanQbe.T.Arm64.Base
 public import LeanQbe.T.IselStepAttr
 
 /-!
-# AArch64 Scalar Instruction Selection (`T9`, `GprIsa`)
+# AArch64 Scalar Instruction Selection (`GprIsa`)
 
 Defines `LeanQbe.T.Arm64.armGpr : GprIsa Reg Empty ArmCond Directive` over `LeanQbe.T.Arm64.Base`:
 * Move-class snippets (`armMov`, `armMovi`, `armSetcc`), `armClearFlags` (`ADDS xzr, xzr, xzr`),

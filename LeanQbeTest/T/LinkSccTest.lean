@@ -10,7 +10,7 @@ public meta import LeanQbe.T.Examples.LinkRec
 public meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
-# Tests for Well-Founded SCC Module Linking (`R-B`)
+# Tests for Well-Founded SCC Module Linking
 
 Exercises `LeanQbe.T.LinkScc`, `LeanQbe.T.LinkSccLemmas1`, and `LeanQbe.T.LinkSccLemmas2` on
 `RegaLitmus.litmusTarget`:

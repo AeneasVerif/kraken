@@ -16,17 +16,17 @@ meta import LeanQbe.T.Examples.Bignum
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification Tests & Audit for `LeanQbe.T.Amd64` (`T8`)
+# Verification Tests & Audit for `LeanQbe.T.Amd64`
 
-Zero E1 imports (`G5`). Verifies:
-1. All three `T8` width/semantic traps on `x64Gpr` and `x64GprSpec`:
+Standalone x86-64 backend suite (no legacy untyped-IR imports). Verifies:
+1. All three width/semantic edge cases on `x64Gpr` and `x64GprSpec`:
    - Pitfall (a): `.bool` upper-bit garbage (`0xdeadbeef_0000ff00#64` vs `0xdeadbeef_0000ff01#64`),
      byte-width `testb` / `movzbl` / `movb`, and `loadVal` rejecting non-`{0,1}` bytes.
    - Pitfall (b): `.bits n` (`n ∈ {8, 16, 32}`) upper-bit garbage handling across `cmp`, shifts,
      rotates, `udiv`/`sdiv`, `zext`/`sext`, and `bswap` (`[16, 32, 64]`).
    - Pitfall (c): Kraken X64 shift-count masking (`& 7` / `& 15` on variable 8/16-bit shifts,
      immediate modulo `n`, and rotate demonic `OF` clobber).
-2. Full `T8` opcode, `VariantHint` (`disp`, `decInc`, `adcx`, `adox`, `mulxFast`), and addressing
+2. Scalar opcode, `VariantHint` (`disp`, `decInc`, `adcx`, `adox`, `mulxFast`), and addressing
    coverage, plus explicit rejection checks (`supportsScalarOp = false`, `op = none`).
 3. End-to-end `Fn.backendOk = true` via `t_kernel_rfl` on `LegalTarget.x64 []`-legalized
    `Bignum` (`mul4x4`, `addMod25519`, `subMod25519`) and all 6 functions in `lratBytesFns`.
@@ -179,7 +179,7 @@ theorem shift_mask_trap_rfl :
       some ([ins16 (.rol (.reg (h16 .rax)) (.imm8 (.int64 5)))], maskCF ||| maskOF) :=
   ⟨rfl, rfl, rfl, rfl, rfl⟩
 
-/-! ## 3b. BMI2 Flag-Free Shifts/Rotates & Native Bit-Counting (`T8.1`) -/
+/-! ## 3b. BMI2 Flag-Free Shifts/Rotates & Native Bit-Counting -/
 
 theorem bmi2_shifts_rotates_rfl :
     x64Gpr.op (.shl i64) (.gpr .rax, .gpr .rcx, ()) (.gpr .rdx, ()) .default =
@@ -392,7 +392,7 @@ theorem pitfall_c_var_shl8_spec {h : x64Mach.Host} {k : Nat} {s : MachineData}
   refine hspec hinf fun s' ⟨⟨⟨rv, ()⟩, hrv, hdst⟩, hm⟩ hfr => ?_
   dsimp at hrv; subst hrv; cases hdst with | cons hd _ => exact hcont s' ⟨hd, hm⟩ hfr
 
-/-! ## 4. Additional `T8` Hints, Multi-Limb Ops, and Explicit Rejections -/
+/-! ## 4. Additional `VariantHint`s, Multi-Limb Ops, and Explicit Rejections -/
 
 theorem hints_and_wide_ops_rfl :
     x64Gpr.op (.add i64) (.gpr .rbx, .imm 16#64, ()) (.gpr .rax, ()) (.disp 16) =
@@ -647,7 +647,7 @@ def unsupportedRbitFn : Fn := ⟨"bad_rbit", [i64], [i64], fun _ _ (a, ()) =>
 
 theorem backendOk_rejects_rbit : unsupportedRbitFn.backendOk testX64Isa = false := by t_kernel_rfl
 
-/-! ## 5b. Full `x64Gpr` + `x64Vec` + `x64Frame` `Bignum` Regression (`T7c-fix`) -/
+/-! ## 5b. Full `x64Gpr` + `x64Vec` + `x64Frame` `Bignum` Regression -/
 
 /-- Full x64 `Isa` combining `x64Gpr`, `x64Vec`, and `x64Frame`. -/
 @[expose] meta def fullX64Isa : Isa where
@@ -687,7 +687,7 @@ meta def isSetccDir : Directive → Bool
   let setccs := (code.filter isSetccDir).length
   mulxs > 0 && carries > 0 && setccs == 0
 
-/-! ## 5c. Track C4c (`test`, `cmpMem`, `testMem`, `movl $uimm32`, `.not .bool`) & C5 Leaf Frame -/
+/-! ## 5c. Flag/Mem Compare (`test`, `cmpMem`, `testMem`, `movl`, `.not .bool`) & Leaf Frame -/
 
 theorem c4c_opt_encodings_rfl :
     x64Gpr.op (.cmp .eq i64) (.gpr .rax, .imm 0#64, ()) (.flag .z, ()) .default =

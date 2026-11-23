@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Lexical-scope Common Subexpression Elimination / Global Value Numbering (`T6`)
+# Lexical-scope Common Subexpression Elimination / Global Value Numbering
 
 PHOAS-to-PHOAS pass `gvn : Nat → GvnTbl V → Expr (GVal V) L rs → Expr V L rs` where
 `GVal V t = V t × Nat` pairs each output binder with a lexical value number (`K t = Nat`).

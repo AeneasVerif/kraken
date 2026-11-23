@@ -10,7 +10,7 @@ import all Kraken.Separation
 Proves parametric `(Γ : Env)` `Func.wp` contracts for Forward Subsumption (`Full.lean`):
 1. `full_fwd_dedup_bins` (`full_fwd_dedup_bins_wp` → `fullFwdDedupBinsSpec`)
 2. `full_forward_sub` (`full_forward_sub_wp` → `fullForwardSubSpec`)
-(plus `full_fwd_check_cl_wp` once `#984`'s 1-line guard lands on `main`).
+(`full_fwd_check_cl_wp` is proved in `FullBvaFwdLemmas`).
 -/
 
 set_option autoImplicit false
@@ -595,7 +595,7 @@ theorem full_fwd_dedup_bins_wp (Γ : Env)
         (by dsimp only; rw [show (p + 1 : BitVec 64) = p + 1#64 from rfl, hp1_n]; omega)
         ⟨st1, by rw [show (p + 1 : BitVec 64) = p + 1#64 from rfl, hp1_n]
                  exact dedup_step_bin_drop hinv1 hp_lt (by omega) hflag_c st1.core.num_binary, hml1⟩
-    · -- `bin` keep: `lm[ot] = 0`, `ot < nlits` — provide `lm[ot ^ 1]` bound and step!
+    · -- `bin` keep: `lm[ot] = 0`, `ot < nlits` — provide `lm[ot ^ 1]` bound and step
       have hp_lt : p.toNat < off.toNat + sz.toNat := by c0_bound
       have hflag_c : (st1.core.wstk[p.toNat]'(by omega) &&& 0x80000000#32) ≠ 0#32 := by assumption
       have hp1_n : (p + 1#64).toNat = p.toNat + 1 := by c0_bound

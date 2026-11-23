@@ -9,7 +9,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM5
 meta import LeanQbe.T.Examples.Kissat.FullM5InlB5
 
 /-!
-# Kissat M5 (`D-Full M5`, 270 fns, Inlined-`b5`) UNSAT + SAT Soundness Audit: AAPCS64 Arm64
+# Kissat M5 (`D-Full M5`, `270` fns, `InlinePolicy.b5`) UNSAT + SAT Soundness Audit: AAPCS64 Arm64
 
 Standalone audit restating, with every hypothesis and postcondition written out in full, the
 end-to-end **AArch64 machine-code** UNSAT (`20`) and constructive SAT (`10`) soundness theorems

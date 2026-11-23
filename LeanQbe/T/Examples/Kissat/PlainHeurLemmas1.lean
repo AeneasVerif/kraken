@@ -4,7 +4,7 @@ public import LeanQbe.T.Examples.Kissat.PlainSpec
 import LeanQbe.T.Logic.C0Step
 
 /-!
-# Kissat `D-Plain` Arithmetic, Arena, and Watch-Stack Proofs — Part 1 (`Wave 2b`)
+# Kissat `D-Plain` Arithmetic, Arena, and Watch-Stack Proofs — Part 1
 
 Proves parametric `(Γ : Env)` `Func.wp` contracts for the first 5 `Plain1` helpers matching
 `plainSpecTable` rows (`PlainSpec.lean:832-836`):
@@ -1057,7 +1057,7 @@ theorem plain_wstack_defrag_wp (Γ : Env) :
              wlen_le := by dsimp only; omega,
              heur_ok := { hok with wsort_len := hws1 } })
           hfin.1 (fun _ => by omega) hfin.2 hm
-      · -- Loop 1 exit (`l == 2 * c.mv`) & `n > 0`: heapsort if `n > 1`, then compact!
+      · -- Loop 1 exit (`l == 2 * c.mv`) & `n > 0`: heapsort if `n > 1`, then compact
         obtain hl_eq : l.toNat = 2 * c.mv := by
           have : ¬ (l.toNat < (BitVec.ofNat 64 c.mv <<< (1 : Nat)).toNat) := by c0_bound
           omega
@@ -1327,7 +1327,7 @@ theorem plain_wstack_defrag_wp (Γ : Env) :
                         have hr := hremC j (by omega) hj2
                         refine ⟨hr.1, fun r hr' => ?_⟩
                         rw [hpostK _ (by omega)]; exact hr.2 r hr'
-                · -- `off == p`: already in place!
+                · -- `off == p`: already in place
                   have hoff_eq_p : watchOff s (wsVal wsort2 i.toNat) = p.toNat := by
                     have := congrArg BitVec.toNat hc
                     rw [zext_toNat _ (by decide), hoff_i] at this; exact this
@@ -1463,7 +1463,7 @@ theorem plain_wstack_defrag_wp (Γ : Env) :
                         refine hLoopE _ _ (by dsimp only; omega)
                           ⟨by omega, ws, hws, hcov, by rw [hep]; exact hmax,
                            by rw [hep]; exact hP.2.1, by rw [hep]; exact hP.2.2, hm1⟩))
-                  · -- Extract-max done (`e == 0`) -> jump `hJS`!
+                  · -- Extract-max done (`e == 0`) -> jump `hJS`
                     have he0 : e.toNat = 0 := by
                       have : ¬ (0 < e.toNat) := by c0_bound
                       omega
@@ -1474,7 +1474,7 @@ theorem plain_wstack_defrag_wp (Γ : Env) :
                       · exact Nat.le_refl _
                       · exact hspE 0 (by omega) j (by omega) hj
                     · exact hsrtE i j (by omega) hij hj
-          · -- `n <= 1`: trivially sorted!
+          · -- `n <= 1`: already sorted
             have hn1 : n.toNat ≤ 1 := by c0_bound
             refine hJS _ _ ⟨wsort1, hws1, hcov1, fun i j _ hij hj => ?_, hm1⟩
             have heq : i = j := by omega

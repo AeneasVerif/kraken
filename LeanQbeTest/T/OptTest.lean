@@ -9,10 +9,10 @@ public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Examples.UnionFindLemmas
 
 /-!
-# Tests of `LeanQbe.T.Opt` (`T6`)
+# Tests of `LeanQbe.T.Opt`
 
-Ports E1's `OptTest` and exercises full-pipeline `Fold → Copy → Gvn → Fold → Dce` synergy:
-- E1 `prog`: constant fold + CSE (`opt_prog_out`, `prog_opt_wf`, `prog_opt_spec`),
+Exercises the `Fold → Copy → Gvn → Fold → Dce` optimization pipeline and staged mid-end passes:
+- Baseline `prog`: constant fold + CSE (`opt_prog_out`, `prog_opt_wf`, `prog_opt_spec`),
 - Multi-pass synergy (`synergyProg`): constant fold → `mkpair`/`unpair` projection forwarding →
   GVN deduplication → second-pass self-subtraction fold (`sub x1 x2 → 0`) → dead code cleanup
   collapsing an entire chain down to `ret 0`,
@@ -30,7 +30,7 @@ namespace LeanQbe.T.OptTest
 
 open LeanQbe.T
 
-/-! ## 1. E1 `OptTest.prog` ported -/
+/-! ## 1. Baseline `prog` (constant fold + CSE) -/
 
 /-- `x = add 1 2; y = add a x; z = add a 3; ret [y, z]`: folding exposes the common subexpression,
 and DCE removes the unused `x`. -/
@@ -62,8 +62,8 @@ theorem prog_opt_spec (Γ : Env) (a : BitVec 64) (m : Mem 64) :
 /-! ## 2. Five-pass synergy (`Fold → Copy → Gvn → Fold → Dce`) -/
 
 /-- `c = add 10 20` (`30`) → `p = mkpair a c` → `u, v = unpair p` (`Copy`: `a, 30`) →
-`x1 = add u v; x2 = add a 30` (`Gvn`: share `x1`) → `d = sub x1 x2` (`Fold #2`: `0`) →
-`Dce`: drops unused `p`, `x1`, collapsing the entire function to `ret 0`! -/
+`x1 = add u v; x2 = add a 30` (`Gvn`: share `x1`) → `d = sub x1 x2` (second `Fold`: `0`) →
+`Dce`: drops unused `p`, `x1`, collapsing the entire function to `ret 0`. -/
 def synergyProg : Func [i64] [i64] := fun _ _ p =>
   let a := p.1
   .let_ (op2 (.add i64) (.imm 10) (.imm 20)) fun c =>
@@ -196,7 +196,7 @@ theorem scaleLive250_opt_out : Func.opt scaleLive250 = scaleLive250 := by
 theorem scaleLive250_opt_wf : (Func.opt scaleLive250).Wf :=
   Func.opt_wf (by t_wf_reify)
 
-/-! ## 6. Staged `O-M2` pipelines (`Func.earlyOpt`, `Func.lateOpt`, `simplifyGroupFast`) -/
+/-! ## 6. Staged mid-end pipelines (`Func.earlyOpt`, `Func.lateOpt`, `simplifyGroupFast`) -/
 
 /-- Diamond join (`if x <s y then a + 10 else a - 10`) collapses under `earlyOpt` via
 `ifOpt → simplifyGroupFast` and stays collapsed under `lateOpt`. -/
@@ -355,9 +355,9 @@ theorem lateLicmAddrLoop_lateOpt_zero_spec (Γ : Env) (ar : BitVec 64) (cref : B
     dsimp only [wp, vals, Arg.val, Closed]
     exact hJ 0 (0#64, 0#64, ()) m ⟨rfl, rfl, rfl, rfl⟩
 
-/-! ## 7. Compare-shape canonicalization & `sext`/`zext` compare narrowing (`C4(a)(b)`) -/
+/-! ## 7. Compare-shape canonicalization & `sext`/`zext` compare narrowing -/
 
-/-- Exercises both C4 compare-shape optimizations through `Func.earlyOpt`:
+/-- Exercises both compare-shape optimizations through `Func.earlyOpt`:
 - `x >u 0 → x ≠ 0`, `x ≤u 5 → x <u 6`, `0 <s y → y ≥s 1`, `x <u 0 → false`,
 - `cmp .sgt (sext 8 32 b) 0 → cmp .sge i8 b 1` (dropping dead `sext 8 32`),
 - `cmp .slt (zext 8 32 u) 10 → cmp .ult i8 u 10` (signed `zext` narrows to unsigned, dropping
@@ -465,7 +465,7 @@ theorem optInlineSampleMod_inlined_wf :
 
 /-! ## 8. Unified Epilogue Merging (`Func.mergeRets`) tests -/
 
-/-- Single-return function (`retCount = 1`): `Func.mergeRets` is identity with zero overhead. -/
+/-- Single-return function (`retCount = 1`): `Func.mergeRets` leaves the function unchanged. -/
 def singleRetProg : Func [i64] [i64] := fun _ _ (x, ()) =>
   .let_ (op2 (.add i64) (.var x) (.imm 1)) fun (y, ()) =>
     .ret (.var y, ())

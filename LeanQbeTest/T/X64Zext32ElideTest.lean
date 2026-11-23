@@ -10,7 +10,7 @@ meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.Spill
 
 /-!
-# Optimization Rank #5: `opt-x64-zext32-elide` Test
+# Redundant 32-to-64 Zero-Extension Elision Tests (SysV x86-64)
 
 Regression tests on `x64Target` for verified elision of redundant 32->64 zero-extension
 moves (`movl %r, %r`) on x86-64:
@@ -79,13 +79,13 @@ meta def zextAdd32Fn : Fn :=
 
 /-! ## 2. Non-Canonical 64-bit Values Safely Preserve `movl` -/
 
-/-- Truncated 64-bit `add 64` returned as `i32`: upper bits non-zero, MUST emit `movl`. -/
+/-- Truncated 64-bit `add 64` returned as `i32`: upper bits non-zero, must emit `movl`. -/
 meta def truncAdd64RetFn : Fn :=
   ⟨"truncAdd64Ret", [i64, i64], [i32], fun _ _ (a, b, ()) =>
     .let_ (op2 (.add i64) (.var a) (.var b)) fun (c, ()) =>
     .let_ (op1 (.trunc 64 32) (.var c)) fun (d, ()) => .ret (.var d, ())⟩
 
-/-- `zext 32 64` of truncated 64-bit value: MUST emit `movl` to clear upper bits safely. -/
+/-- `zext 32 64` of truncated 64-bit value: must emit `movl` to clear upper bits safely. -/
 meta def truncAdd64ZextFn : Fn :=
   ⟨"truncAdd64Zext", [i64, i64], [i64], fun _ _ (a, b, ()) =>
     .let_ (op2 (.add i64) (.var a) (.var b)) fun (c, ()) =>

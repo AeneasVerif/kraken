@@ -4,7 +4,7 @@ public import LeanQbe.T.WP
 public import Kraken.Separation
 
 /-!
-# Separation-logic memory predicates for `LeanQbe.T` (`T4`)
+# Separation-logic memory predicates for `LeanQbe.T`
 
 Predicates over Kraken's `Mem 64` (`Kraken.Separation`, `⋆`) matching `LeanQbe.T.storeMem` /
 `LeanQbe.T.loadVal`:

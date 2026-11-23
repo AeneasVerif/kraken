@@ -4,7 +4,7 @@ public import LeanQbe.T.Examples.Kissat.FullSubstLemmas2
 
 /-!
 # Kissat `D-Full` BIG SCC Substitution — Part 3 (`Stage 4`, UNSAT-Only)
-Block-replacement helpers, `full_subst_rewrite_ar_wp` (#28), `full_substitute_wp` (#29). -/
+Block-replacement helpers, `full_subst_rewrite_ar_wp` (fn 28), `full_substitute_wp` (fn 29). -/
 
 set_option autoImplicit false
 

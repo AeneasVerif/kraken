@@ -6,7 +6,7 @@ public import LeanQbe.T.Examples.Kissat.FullIngestLemmas2
 /-!
 # Kissat `D-Full` Stage-4 Arena / Watch-Stack / Backtrack Proofs (`FullIngestLemmas`)
 
-Root aggregator module re-exporting all `4` narrowed `#1023` parametric `(Γ : Env)` `Func.wp`
+Root aggregator module re-exporting all `4` parametric `(Γ : Env)` `Func.wp`
 proofs (`full_arena_next_wp`, `full_alloc_cl_wp`, `full_wstack_defrag_wp`, `full_backtrack_wp`)
 and shared Stage-4 invariants/specs (`FullIngestSpecs`).
 -/

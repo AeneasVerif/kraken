@@ -773,7 +773,7 @@ theorem full_sweep_var_wp (Γ : Env)
 
 end SweepVar
 
-/-! ## 2. `full_sweep_sat_wp` (`Full.lean` #17) -/
+/-! ## 2. `full_sweep_sat_wp` (`Full.lean` fn 17) -/
 
 section SweepSat
 open FullSweepVarHelpers

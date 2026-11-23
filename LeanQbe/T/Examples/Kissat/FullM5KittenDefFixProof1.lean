@@ -6,7 +6,7 @@ public import LeanQbe.T.Examples.Kissat.FullKittenLemmas2
 public import LeanQbe.T.Examples.Kissat.FullKittenLemmas6
 
 /-!
-# Kissat `M5` Wave 0 (`RC-08`) Kitten `Func.wp` Proofs (`Part 1`)
+# Kissat `M5` Kitten `Func.wp` Proofs (`Part 1`)
 
 Proves parametric `(Γ : Env)` `Func.wp` contracts against canonical `Full.fullKitten*Spec` for:
 1. `full_kitten_add_clause_m5_wp` (`Full.fullKittenAddClauseSpec`, clean `nu >= 256u` rejection)
@@ -2005,7 +2005,7 @@ theorem full_kitten_core_m5_wp (Γ : Env) :
               refine hJ1 stJ m2 ⟨hrelJ, ?_, hm2⟩
               refine coreM5_incons_seeded_unsat hinv hrelJ hante hinc_ne hmarkJ fun t ht => ?_
               rw [← hoff_eq]; exact hrsnJ t (hsz_eq ▸ ht)
-    · -- `k[KH_INCONS] == 0xFFFFFFFFu`: `FAILING` path (already freshly cleared + seeded!)
+    · -- `k[KH_INCONS] == 0xFFFFFFFFu`: `FAILING` path (already freshly cleared + seeded)
       c0_hsteps!
       have hinc_ff : ks0.incons = 0xFFFFFFFF#32 := ‹_›
       have hfail_ne : ks0.failing ≠ 0xFFFFFFFF#32 := hor_if.resolve_left (fun h => h hinc_ff)

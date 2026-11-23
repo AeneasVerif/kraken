@@ -9,7 +9,7 @@ public import LeanQbe.T.Examples.LratBytesProg
 /-!
 # End-to-end untrusted-bytes LRAT proof checker in `LeanQbe.T` (`lrat_check_bytes`)
 
-Typed-IR port of the untrusted-bytes LRAT proof checker (`T16` / `K1a`, self-contained per `G5`):
+Self-contained typed-IR untrusted-bytes LRAT proof checker:
 verifies unsatisfiability of a CNF formula given as raw ASCII DIMACS bytes (`cnf_ptr`, `cnf_len`)
 against a certificate in standard Binary LRAT format (`prf_ptr`, `prf_len`), using a caller-supplied
 uninitialized scratch buffer (`work_ptr`, `work_len`) and returning `1` only if `cnfBytes` is valid

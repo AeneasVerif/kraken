@@ -8,7 +8,7 @@ public import LeanQbe.T.IL
 Total-correctness weakest precondition `wp Γ Q X e m`:
 * `Γ : Env` assigns contracts `Spec as bs` per symbol and signature `(as, bs)`;
 * `Q : Post rs` is the return postcondition;
-* `X : XPost` is the abnormal-exit postcondition (decision D5, indexed by target symbol and
+* `X : XPost` is the abnormal-exit postcondition (indexed by target symbol and
   argument signature);
 * `m : Mem 64` is Kraken's partial 64-bit byte memory;
 * `Closed Γ Q X bs Js` asserts that every block in `bs` implies its join-point predicate in `Js`.
@@ -70,7 +70,7 @@ end
 def Func.wp {as rs : List Ty} (Γ : Env) (f : Func as rs) : Spec as rs :=
   fun xs m Q X => _root_.LeanQbe.T.wp Γ Q X (f Val Cont xs) m
 
-/-- Alias matching E1's `Func.spec`. -/
+/-- Specification-form alias for `Func.wp`. -/
 abbrev Func.spec {as rs : List Ty} (Γ : Env) (f : Func as rs) : Spec as rs :=
   Func.wp Γ f
 

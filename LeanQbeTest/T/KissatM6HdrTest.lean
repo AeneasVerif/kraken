@@ -12,17 +12,17 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Backend Compilation Guards, and Axiom Audit for Kissat Wave-3 Prep (`FullM6Hdr`)
+# Verification, Backend Compilation Guards, and Axiom Audit for Kissat M6 Header (`FullM6Hdr`)
 
-1. Executable `#guard` checks on `FullM6Hdr` layout constants (`144 + 288 = 432` words = `3,456 B`,
-   disjoint `w2b` words `1..7` & `w2a` words `8..287`), `m6HdrModule` (`27` fns + `5` externs,
-   `0` exits), `checkAcyclic = true`, Wave-3 drop-in handles (`m6HdrDecideFn`, `m6HdrAnalyzeRsnFn`,
-   `m6HdrAnalyzeFn`, etc.), `PrintCpp`, `PrintQbe`, and `Fn.legal` across `.aarch64`, `.scalar64`,
-   `.x64AVX2`, and `.x64AVX512`.
+1. Executable `#guard` checks on `FullM6Hdr` layout (`144 + 288 = 432` words = `3,456 B`,
+   disjoint decision-rate words `1..7` & tier/watermark words `8..287`), `m6HdrModule` (`27` fns +
+   `5` externs, `0` exits), `checkAcyclic = true`, M6 drop-in handles (`m6HdrDecideFn`,
+   `m6HdrAnalyzeRsnFn`, `m6HdrAnalyzeFn`, etc.), `PrintCpp`, `PrintQbe`, and `Fn.legal` across
+   `.aarch64`, `.scalar64`, `.x64AVX2`, and `.x64AVX512`.
 2. Audit-ready restated headline theorems for `m6Hdr_fns_wf`, `m6Hdr_acyclic`, automatic framing
    over frozen `FullMem`, all `27` parametric UNSAT-only `Func.wp` proofs, closed `32`-row
    `m6Hdr_moduleOk`, and concrete `Mem 64` UNSAT non-vacuity (`XPost := False`, `0` SAT proofs).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false

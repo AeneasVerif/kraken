@@ -17,12 +17,12 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Axiom Audit, and Differential Suite for `Kissat` Stage 3 (`D-Plain`)
+# Verification, Axiom Audit, and Differential Suite for `Kissat` `D-Plain`
 
 * Checks `plainModule.checkAcyclic`, `PrintCpp`, `PrintQbe`, and `Legal` emission across
   `aarch64` / `scalar64` / `x64AVX2`.
 * Single-line `#print axioms` audit (`[propext, Classical.choice, Quot.sound]`).
-* Cross-checks `X2-LayerA` `cdclSolve` on core SAT/UNSAT/edge DIMACS cases and exercises
+* Cross-checks pure-Lean `cdclSolve` on core SAT/UNSAT/edge DIMACS cases and exercises
   `COMPACT` arena, binary+blocking watches, `reduce`/`collect` GC, VMTF+VSIDS mode
   switching, rephasing, Luby+EMA restarts, `lucky` checks, `shrink`, and `minimize`.
 * Emits `plain_gen.hpp`, `plain.ssa`, `plain_driver.cpp`, and `plain_cases.h`.

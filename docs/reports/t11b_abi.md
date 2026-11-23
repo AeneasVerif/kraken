@@ -1,7 +1,8 @@
-# `t11b-abi`: Target-Generic ABI/Frame Lemmas & SysV x64 / AAPCS64 `FrameTarget` (`T11b`)
+> **[Historical design note]** Written during an earlier milestone (at commit `72eb727`); module sizes and build timings reflect that snapshot. See `LeanQbe-README.md` for current paths and status.
 
-Owner: `t11b-abi` (forked from `main @ 72eb727`).
-Owned files:
+# Target-Generic ABI/Frame Lemmas & SysV x86-64 / AAPCS64 `FrameTarget`
+
+Modules covered:
 - `LeanQbe/T/AbiLemmas.lean`
 - `LeanQbe/T/Amd64/Frame.lean`
 - `LeanQbe/T/Amd64/FrameLemmas.lean`
@@ -15,7 +16,7 @@ Owned files:
 
 | Deliverable | LOC | Standalone (`-DwarningAsError=true`) | State |
 |---|---|---|---|
-| `LeanQbe/T/AbiLemmas.lean` | 317 | 1.08s | Built cleanly (`0` warnings, `0` arch/E1 imports) |
+| `LeanQbe/T/AbiLemmas.lean` | 317 | 1.08s | Built cleanly (`0` warnings, `0` arch/untyped-IR imports) |
 | `LeanQbe/T/Amd64/Frame.lean` | 138 | 0.36s | `x64Frame : FrameIsa Reg64 Directive` |
 | `LeanQbe/T/Amd64/FrameLemmas.lean` | 570 | 1.14s | `x64FrameSpec`, `NoLab`, `ParserChecks` (`Kraken.X64.Parser`) |
 | `LeanQbe/T/Arm64/Frame.lean` | 173 | 0.39s | `armFrame : FrameIsa Reg Directive` |
@@ -26,7 +27,7 @@ Owned files:
 ## Design & Verification Summary
 
 ### 1. Target-Generic ABI & Frame Helpers (`LeanQbe/T/AbiLemmas.lean`)
-Imports strictly `LeanQbe.T.TargetLemmas`, `LeanQbe.T.Logic.MemLemmas`, and `LeanQbe.T.Logic.Bytes` (zero architecture or untyped-E1 imports):
+Imports strictly `LeanQbe.T.TargetLemmas`, `LeanQbe.T.Logic.MemLemmas`, and `LeanQbe.T.Logic.Bytes` (zero architecture or earlier untyped-IR imports):
 - **Boolean/BitVec/Int64 arithmetic**: `Nat.blt_iff_lt`, `Int64_toBitVec_ofNat`, `ofInt_toInt_ofNat`, `ofInt_toInt_ofBitVec`, `ofInt_toInt_add`, `ofInt_toInt_add_toNat`, 16-byte stack-alignment lemmas `aligned16_sub`, `aligned16_add`, `aligned16_add8_sub`, `aligned16_add8_sub_call`.
 - **ABI register holding**: `abiGprHolds_bool_of_gprHolds`, `abiGprHolds_bits_of_gprHolds`, `abiGprHolds_bits64_of_gprHolds`.
 - **Memory region/array conversions**: `cell64_region`, `toBytes8_ofInt_ofBytes`, `region_cell64`, `region_sep_cell64`, `region_split3`, `region_frame_split`, `region_frame_split_ra`, `array64_region`, `region_array64`.
@@ -50,8 +51,8 @@ Imports strictly `LeanQbe.T.TargetLemmas`, `LeanQbe.T.Logic.MemLemmas`, and `Lea
 ## Hygiene & Axiom Audit
 - **Build (`lake build --wfail`)**: Built all 7 modules cleanly with `-DwarningAsError=true`.
 - **`sorry` & native tactics**: Zero `sorry`/`sorryAx`; zero `bv_decide`, `native_decide`, `decide +native`, `ofReduceBool`, or `ofReduceNat`.
-- **Import isolation (`G5` + arch separation)**: Verified transitive `.header.moduleNames` closures:
-  - `LeanQbe.T.AbiLemmas` contains zero architecture (`Amd64`/`Arm64`/`Kraken.X64`/`Kraken.AArch64`) and zero untyped E1 imports.
-  - `LeanQbeTest.T.Amd64FrameTest` contains zero Arm64/AArch64 and zero E1 imports.
-  - `LeanQbeTest.T.Arm64FrameTest` contains zero Amd64/X64 and zero E1 imports.
+- **Import isolation (arch and legacy separation)**: Verified transitive `.header.moduleNames` closures:
+  - `LeanQbe.T.AbiLemmas` contains zero architecture (`Amd64`/`Arm64`/`Kraken.X64`/`Kraken.AArch64`) and zero earlier untyped-IR imports.
+  - `LeanQbeTest.T.Amd64FrameTest` contains zero Arm64/AArch64 and zero untyped-IR imports.
+  - `LeanQbeTest.T.Arm64FrameTest` contains zero Amd64/X64 and zero untyped-IR imports.
 - **Axioms (`#print axioms`)**: `x64FrameSpec`, `armFrameSpec`, all `NoLab` theorems, all checked `AbiLemmas` theorems, `x64EchoProg_spec`, `callerCallee_e2e` (x64 & Arm64), `armEchoProg_spec`, and `armSpCorner_spec` depend strictly on `[propext, Classical.choice, Quot.sound]` (or subsets thereof).

@@ -6,12 +6,13 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 
 /-!
-# Tests of `LeanQbe.T.DivConst` (`O-M1`)
+# Tests of `LeanQbe.T.DivConst`
 
 Verifies constant division and remainder lowering (`udiv`, `urem`, `sdiv`, `srem` at `32`-bit and
 `64`-bit):
 - Certificate checks (`pow2ShiftCert`, `uNoAddCert`, `uAddShiftCert`, `sPow2Cert`, `sDivCert`) on
-  representative divisors `/ 3`, `/ 7`, `/ 8`, `/ 10`, `/ 65521` (`MB8`), `/ (-3)`, `/ (-10)`;
+  representative divisors `/ 3`, `/ 7`, `/ 8`, `/ 10`, `/ 65521` (Adler-32 prime), `/ (-3)`,
+  `/ (-10)`;
 - Golden lowered AST checks via `t_kernel_rfl` (including both no-add and add-shift unsigned
   paths, signed positive/negative magic with `+x`, `-x`, no-fixup, and `s = 0`/`s > 0` shifts);
 - Complete division/remainder elimination (`noDivRem`) on certified 32-bit and 64-bit programs;
@@ -427,7 +428,7 @@ theorem s32DivNeg1_intMin_ub (Γ : Env) (m : Mem 64) :
   wp_unfold_all
   decide
 
-/-! ## 7. `group` loop + memory effects (`MB8`: `% 65521`, `/ 10`) -/
+/-! ## 7. `group` loop + memory effects (Adler-32 `% 65521`, `/ 10`) -/
 
 def mb8LoopProg : Func [i64, i64] [i64, i64] := fun _ _ p =>
   let seed := p.1

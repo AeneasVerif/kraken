@@ -5,7 +5,7 @@ public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1a
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1b
 
 /-!
-# Kissat Wave 2 `PR-W2A` (`RC-19`) Closed `ModuleOk` & `m6TiersSpecTable` (`FullM6TiersProof`)
+# Kissat M6 Tiers Closed `ModuleOk` & `m6TiersSpecTable` (`FullM6TiersProof`)
 
 Combines all `35` C0 `Func.wp` theorems from `FullM6TiersProof{0,1a,1b}` and the `18` canonical
 `FullSpec` externs into a closed `53`-row specification table:

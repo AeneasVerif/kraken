@@ -11,8 +11,8 @@ import Kraken.Separation
 /-!
 # Kissat `D-Full` M5 Orchestration Proofs (`FullM5OrchProof`, `19/19` Functions & Top-Level NV)
 
-Completes standalone certification of `PR-W1E` (`FullM5Orch` covering `RC-14` & `RC-15`) on
-`m5/w1e-orch-prep`:
+Completes standalone UNSAT certification of `FullM5Orch` (`19` orchestration, cap, and
+budget functions):
 1. Parametric `(Γ : Env)` `Func.wp` proofs for the remaining `4` M5 orchestrators:
    - `full_preprocess_m5_wp` (`full_lucky`, no eager confl-0 `full_eliminate`, initial compact,
      uncapped `full_scale_delta_m5` limits) against `FullM4.m4PreprocessSpec`.

@@ -6,13 +6,13 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Audit & Verification for Kissat M4e Hot-Loop BCP (`FullM4Bcp*`)
+# Audit & Verification for Kissat M4 Hot-Loop BCP (`FullM4Bcp*`)
 
 1. Executable `#guard` checks on `m4Bcp_fns`, `m4BcpModule.checkAcyclic`, and `nvFastProp`
    arena geometry.
 2. Source-level UNSAT soundness & `FullSparseInv` preservation checks (`nv_m4_bcp_sound_ok`,
    `XPost := False`, zero SAT proofs).
-3. Single-line `#print axioms` audit (`< 115` chars) via short root aliases across all exported
+3. Single-line `#print axioms` audit via short root aliases across all exported
    `FullM4Bcp` and `FullM4BcpProof` theorems (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 

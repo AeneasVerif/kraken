@@ -6,7 +6,7 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 
 /-!
-# Tests for Train B5-6: Indexed `(base, idx, scale, off)` `MemLoad` & Acyclic `.group` CSE
+# Tests for Indexed `(base, idx, scale, off)` `MemLoad` & Acyclic `.group` CSE
 
 Tests:
 1. Indexed `base + (idx << 2) + off` load CSE, store-to-load forwarding, and disjoint
@@ -17,7 +17,7 @@ Tests:
 4. Acyclic `.group` join-block preservation (`sift`-style load-before-store swap in `.group`
    forwards outer cached loads cleanly when `.group` does not loop back to itself) with
    `Func.memLoad_spec`.
-5. Cyclic `.group` loop soundness: a `.group` that stores to `ar[i]` and loops back MUST
+5. Cyclic `.group` loop soundness: a `.group` that stores to `ar[i]` and loops back must
    flush `ar[i]` in `bodies` so the loop body reloads the updated value.
 6. Axiom audit (`#print axioms`) confirming only `[propext, Classical.choice, Quot.sound]`.
 -/
@@ -176,8 +176,8 @@ theorem zextSext_wf : (Func.memLoad zextSextProg).Wf := Func.memLoad_wf (by t_wf
 
 /-! ## 3. Indexed alias invalidation vs same-base disjoint offset preservation -/
 
-/-- Store to `base + (j << 2)` MUST kill `base + (i << 2)` (may alias `i = j`), while storing
-to `(base + (i << 2)) + 8` MUST preserve `base + (i << 2) + 0`! -/
+/-- Store to `base + (j << 2)` must kill `base + (i << 2)` (may alias `i = j`), while storing
+to `(base + (i << 2)) + 8` must preserve `base + (i << 2) + 0`. -/
 def idxAliasProg : Func [i64, i64, i64, i64, i64] [i64, i64] := fun _ _ p =>
   let base := p.1
   let i := p.2.1
@@ -221,7 +221,7 @@ theorem idxAlias_wf : (Func.memLoad idxAliasProg).Wf := Func.memLoad_wf (by t_wf
 /-! ## 4. Acyclic `.group` join-block preservation (`full_sort_tmp_sift` pattern) -/
 
 /-- Outer branches load `ar[idx]` and `ar[ch]`, then jump to an acyclic `.group` swap block
-that reloads both BEFORE storing swapped values back. Both reloads in `.group` are eliminated! -/
+that reloads both before storing swapped values back. Both reloads in `.group` are eliminated. -/
 def siftJoinProg : Func [i64, i64, i64, .bool] [i32] := fun _ _ p =>
   let ar := p.1
   let idx := p.2.1
@@ -320,8 +320,8 @@ theorem siftJoin_spec (Γ : Env) (ar idx ch : BitVec 64) (cond : Bool) (v0 v1 : 
 
 /-! ## 5. Cyclic `.group` loop soundness: self-looping store flushes cached load -/
 
-/-- A cyclic `.group` that stores `v1` to `base + (idx << 2)` and jumps to itself MUST flush
-the pre-entry `store v0` so the loop body reloads from memory! -/
+/-- A cyclic `.group` that stores `v1` to `base + (idx << 2)` and jumps to itself must flush
+the pre-entry `store v0` so the loop body reloads from memory. -/
 def cyclicGroupProg : Func [i64, i64, i64, i64] [i64] := fun _ _ p =>
   let base := p.1
   let idx := p.2.1

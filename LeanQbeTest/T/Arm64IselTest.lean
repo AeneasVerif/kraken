@@ -14,7 +14,7 @@ meta import LeanQbe.T.Examples.Bignum
 meta import LeanQbe.T.Legal
 
 /-!
-# AArch64 Scalar GprIsa + GprTarget Test & Witness Suite (`T9`)
+# AArch64 Scalar `GprIsa` + `GprTarget` Test & Witness Suite
 
 Standalone downstream module verifying:
 1. Kernel `rfl` checks for `armGpr.supportsScalarOp` across `[8, 16, 32, 64]`, `.bool`, `bswap`,
@@ -751,7 +751,7 @@ theorem jnzGpr_false_witness {s : MachineData}
   refine armMach_run_end ⟨rfl, ?_⟩
   rw [hx3, hfr1.1 _ (by simp [armScratch]), hx2]
 
-/-! ## 8b. Full `armGpr` + `armFrame` `Bignum` Regression (`T7c-fix`) -/
+/-! ## 8b. Full `armGpr` + `armFrame` `Bignum` Regression -/
 
 @[expose] meta def armEmptyVecIsa : VecIsa Reg Empty ArmCond Directive where
   vecScratch := []
@@ -787,7 +787,7 @@ meta def armCompileMod (m : Module) : Except String (List Directive × List (Sym
 #guard (armCompileMod Examples.Bignum.addMod25519Module).isOk = true
 #guard (armCompileMod Examples.Bignum.subMod25519Module).isOk = true
 
-/-! ## 8c. C6 Scaled-Index, C1c Upper-32 Zeroing & Inline Constants -/
+/-! ## 8c. Scaled-Index Addressing, Upper-32 Zeroing & Inline Constants -/
 
 theorem armTarget_addrIdx_rfl :
     armTarget.toIsa.supportsAddrIdx (.bits 8) .s1 0 = true ∧
@@ -857,7 +857,7 @@ theorem c6C1cProg_small :
 
 @[instance_reducible] def c6C1cHost : Host := Host.ofLayout c6C1cProg iselLayout c6C1cProg_small
 
-/-- Execution witness combining C6 `[xb, xm, lsl #k]` load/store, C1c `load_zero32` +
+/-- Execution witness combining `[xb, xm, lsl #k]` load/store, `load_zero32` +
 `op_zero32` (32-bit `ADD_e` `.S12`), and 2-insn inline `MOVZ+MOVK`. -/
 theorem c6_c1c_opt_witness {s : MachineData} {v : BitVec 32}
     (hld : loadVal (armMach.mem s) i32

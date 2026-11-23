@@ -5,7 +5,7 @@ public import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.OpsLemmas
 
 /-!
-# Correctness of `MemLoad` and `AssumeElim` (`O-M2`)
+# Correctness of `MemLoad` and `AssumeElim`
 
 * `spanDisjoint_sound`: `BitVec 64` offset-interval disjointness cancels common `base + idx * scale`
   even across wraparound, connecting to `OpsLemmas.loadVal_storeMem_disjoint`.

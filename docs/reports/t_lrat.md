@@ -1,7 +1,8 @@
-# k1a-lrat: Untrusted-Bytes LRAT Proof Checker on `LeanQbe.T` (`K1a` / `T16`)
+> **[Historical design note]** Written during an earlier milestone (at commit `384800c`); file sizes and build timings reflect that snapshot. See `LeanQbe-README.md` for current paths and audit targets.
 
-Owner: `k1a-lrat` (Wave 1 `K1a`, forked from `main = 384800c`).
-Files owned:
+# Untrusted-Bytes LRAT Proof Checker on `LeanQbe.T`
+
+Modules covered:
 - `LeanQbe/T/Examples/LratBytes.lean`
 - `LeanQbe/T/Examples/LratBytesSpec.lean`
 - `LeanQbe/T/Examples/LratBytesDimacsLemmas.lean`
@@ -36,26 +37,26 @@ All six functions are defined with executable `def` + `tqbe(...)` notation (pres
 5. `lb_check_prf(work_ptr, prf_end) -> i64`
 6. `lrat_check_bytes(cnf_ptr, cnf_len, prf_ptr, prf_len, work_ptr, work_len) -> i64`
 
-Memory layout in the caller-supplied `work` scratch buffer mirrors E1:
+Memory layout in the caller-supplied `work` scratch buffer mirrors the earlier untyped-IR version:
 - Header (`work + 0..79`): `max_var`, `nclauses`, `cap_c`, `val_base`, `trail_base`, `trail_lim`, `ctab_base`, `pool_lim`, `pool_top`, `prf_cur` (ten `i64` slots).
 - Arrays (`work + 80..`): `val` (`i8`), `trail` (`i32`), `ctab` (`i64`), and `pool` (`i32` zero-terminated clauses).
 - Input regions `cnfBytes` and `prfBytes` are read-only and guaranteed byte-for-byte unchanged on return (`lratCheckBytesSpec`).
 
 ### Key Typed-IR Adaptations & Pure Mirror Note
-- **Explicit width conversions and `.bool` branches:** E1 untyped `loadub`/`loadsw`/`storeb`/`storew` become typed `load i8` + `zext`, `load i32` + `sext`, and `trunc` + `store i8`/`store i32` (with zero-immediate stores `store 0:i8`/`store 0:w`). Comparisons (`ceql`, `cnel`, `cultl`, `culel`, `csltl`, `cnew`) return `.bool`, boolean disjunctions use `.or .bool`, and `jnz` consumes `.bool`.
-- **Pure mirror (`rupInnerPure` / `rupPhase2Aux`) simplification:** In E1, `jnz %unit` tested `lo32 unit != 0`. In `LeanQbe.T`, `jnz` takes `.bool`, so `rupInner` and `lbRupCheck` emit `%unit_nz:b = cnel %unit, 0; jnz %unit_nz, ...`. Correspondingly, the pure mirror functions `rupInnerPure` and `rupPhase2Aux` test `unit != 0` directly instead of `lo32 unit != 0`. Because `unit` always satisfies `IsInt32 unit`, the two conditions are equivalent; `rupCheckPure_sound` is proved directly against the `unit != 0` mirror, and none of the headline theorems (`runLratCheckBytes_sound`, `lratCheckBytes_correct`, `lratBytesEnv_moduleOk`, `lratCheckBytes_encoded_correct`) mention the internal mirror.
+- **Explicit width conversions and `.bool` branches:** Untyped `loadub`/`loadsw`/`storeb`/`storew` become typed `load i8` + `zext`, `load i32` + `sext`, and `trunc` + `store i8`/`store i32` (with zero-immediate stores `store 0:i8`/`store 0:w`). Comparisons (`ceql`, `cnel`, `cultl`, `culel`, `csltl`, `cnew`) return `.bool`, boolean disjunctions use `.or .bool`, and `jnz` consumes `.bool`.
+- **Pure mirror (`rupInnerPure` / `rupPhase2Aux`) simplification:** In the earlier untyped IR, `jnz %unit` tested `lo32 unit != 0`. In `LeanQbe.T`, `jnz` takes `.bool`, so `rupInner` and `lbRupCheck` emit `%unit_nz:b = cnel %unit, 0; jnz %unit_nz, ...`. Correspondingly, the pure mirror functions `rupInnerPure` and `rupPhase2Aux` test `unit != 0` directly instead of `lo32 unit != 0`. Because `unit` always satisfies `IsInt32 unit`, the two conditions are equivalent; `rupCheckPure_sound` is proved directly against the `unit != 0` mirror, and none of the headline theorems (`runLratCheckBytes_sound`, `lratCheckBytes_correct`, `lratBytesEnv_moduleOk`, `lratCheckBytes_encoded_correct`) mention the internal mirror.
 
-### `G5` Self-Containment Audit
-All 7 `.lean` files have **zero** imports of untyped E1 modules (`LeanQbe.Examples.*`, `LeanQbe.IL`, `LeanQbe.Logic.*`, `LeanQbe.Main*`, `LeanQbe.Wf`, `LeanQbe.Abi`, `LeanQbe.Notation`). Every pure DIMACS/LRAT definition, soundness proof, and non-vacuity instance (`parseDimacs`, `encodeDimacs`, `ValidDimacsCnf`, `WorkCfg`, `WorkState`, `runLratCheckBytes`, `nvBytesCnf`, `nvDimacsBytes`, `nvLratAcceptBytes`, `nvLratRejectBytes`) is self-contained under `LeanQbe.T.Examples.LratBytes*`, importing strictly `LeanQbe.T.*`, `Kraken.*`, and `Std.Sat.CNF`.
+### Self-Containment Audit
+All 7 `.lean` files have **zero** imports of earlier untyped-IR modules (`LeanQbe.Examples.*`, `LeanQbe.IL`, `LeanQbe.Logic.*`, `LeanQbe.Main*`, `LeanQbe.Wf`, `LeanQbe.Abi`, `LeanQbe.Notation`). Every pure DIMACS/LRAT definition, soundness proof, and non-vacuity instance (`parseDimacs`, `encodeDimacs`, `ValidDimacsCnf`, `WorkCfg`, `WorkState`, `runLratCheckBytes`, `nvBytesCnf`, `nvDimacsBytes`, `nvLratAcceptBytes`, `nvLratRejectBytes`) is self-contained under `LeanQbe.T.Examples.LratBytes*`, importing strictly `LeanQbe.T.*`, `Kraken.*`, and `Std.Sat.CNF`.
 
-> **Note on Kraken import:** `LeanQbe/T/Examples/LratBytesSpec.lean` imports `Kraken.Bedrock2.Test.LratTrimCheckProof` (a frozen Kraken test module providing the pure LRAT trim-check soundness lemmas `lrat_check_sound` / `lrat_add_sound`), matching the E1 proof's dependency boundary.
+> **Note on Kraken import:** `LeanQbe/T/Examples/LratBytesSpec.lean` imports `Kraken.Bedrock2.Test.LratTrimCheckProof` (a frozen Kraken test module providing the pure LRAT trim-check soundness lemmas `lrat_check_sound` / `lrat_add_sound`), matching the earlier proof's dependency boundary.
 
-### Headline Theorems & `T12i` Exports
+### Headline Theorems & Native-Certificate Exports
 - `lratBytesEnv_moduleOk : ModuleOk lratBytesEnv lratBytesModule`
 - `lratCheckBytes_correct : Func.spec lratBytesEnv lratCheckBytes ...` (`r = 0 ∨ r = 1`, `r = 1 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`, memory restored, `exits = []`)
 - `lratCheckBytes_encoded_correct` (structured `ValidDimacsCnf` round-trip contract)
 - `lratCheckBytes_accepts_nonvacuous` & `lratCheckBytes_rejects_nonvacuous` (concrete-memory source-level non-vacuity on `nvDimacsBytes` / `nvLratAcceptBytes` / `nvLratRejectBytes`), plus short aliases `lratCheckBytes_accepts` / `lratCheckBytes_rejects` so `#print axioms` stays ≤ 120 columns (single-line report for `scripts/check.sh` Step 4)
-- `@[simp]` length exports for `T12i`: `nvDimacsBytes_length`, `nvLratAcceptBytes_length`, `nvLratRejectBytes_length`
+- `@[simp]` length exports for native certificates: `nvDimacsBytes_length`, `nvLratAcceptBytes_length`, `nvLratRejectBytes_length`
 
 ## File Sizes, Timings, and Hygiene
 

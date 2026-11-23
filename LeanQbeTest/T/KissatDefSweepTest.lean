@@ -11,8 +11,7 @@ import all Kraken.Separation
 1. Executable `#guard` checks on `full_def_sweep_fns` (`9` functions), `fullDefSweepExterns`
    (`12` externs), `fullDefSweepModule.checkAcyclic`, `defSweepSpecTable` (`21` rows, all
    `noExit = true`), and `nvDefSweepBytes.length == nvDefSweepCfg.avail` (`42716`).
-2. Short root-namespace `fds_*` audit theorems + single-line `#print axioms` (`<= 100` cols,
-   every `depends on axioms: [...]` output `< 115` chars on one line).
+2. Short root-namespace `fds_*` audit theorems + single-line `#print axioms` audit.
 -/
 
 set_option autoImplicit false

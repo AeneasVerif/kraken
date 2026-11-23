@@ -7,7 +7,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat M4e/M5 Stage 1 (B1): Hot-Loop BCP `Func.wp` & UNSAT Soundness Proofs
+# Kissat M4/M5 Hot-Loop BCP `Func.wp` & UNSAT Soundness Proofs
 
 Proves canonical `FullSpec2` contracts, `FullSparseInv` preservation, UNSAT soundness, closed
 `ModuleOk`, and concrete `Mem 64` UNSAT non-vacuity (`XPost := False`) for `FullM4Bcp`:
@@ -55,7 +55,7 @@ local elab "fc_head_split" : tactic => do
     (← `(tactic| try (first | change Func.wp _ _ _ _ _ _ | change wp _ _ _ _ _)))
   fcHeadRun true
 
-/-! ## 1. Stage-1 Exit Helper (`Loop 2` + `Loop 3` dead-tail sentinel fill) -/
+/-! ## 1. Exit Helper (`Loop 2` + `Loop 3` dead-tail sentinel fill) -/
 
 private def m4PropFinishExpr (h_p pWvec pWstk : Val i64) (not_lit : Val i32)
     (off_v tend_v unass_v unfl_v ticks_v p_v q_v end_v : Val i64) (confl_v : Val .bool) :

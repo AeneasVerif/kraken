@@ -5,7 +5,7 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat `D-Min` (`--basic --lucky=0`) CDCL SAT Solver in C0 (`X1` Stage A)
+# Kissat `D-Min` (`--basic --lucky=0`) CDCL SAT Solver in C0
 
 Self-contained C0 port of Kissat `D-Min` (`reduce=0, minimize=0, shrink=0, restart=0, lucky=0`)
 exposing `kissat_solve_bytes(cnf_ptr, cnf_len, work_ptr, work_len, fuel) -> 20 | 10 | 0`:
@@ -16,9 +16,9 @@ exposing `kissat_solve_bytes(cnf_ptr, cnf_len, work_ptr, work_len, fuel) -> 20 |
       DIMACS). Zero `.exit` calls (`exits = []`), zero UB, and `[cnf_ptr, cnf_end)` is read-only.
 
 Implements literal encoding `2*(v-1)` / `2*(v-1)+1`, flat bounded arena layout, deduplication &
-tautology elimination (`Core.pruneClause`), 2-watched literals with stale-watch guard `G1` & safe
-unlink `G2`, 1UIP conflict analysis with bounds/trail guards `G3`/`G4`/`G7`, deterministic decision
-`G6`, and mandatory SAT guard `kissat_check_model`.
+tautology elimination (`Core.pruneClause`), 2-watched literals with stale-watch guard & safe
+unlink, 1UIP conflict analysis with bounds and trail-start guards, deterministic decision
+selection, and mandatory SAT guard `kissat_check_model`.
 -/
 
 set_option autoImplicit false

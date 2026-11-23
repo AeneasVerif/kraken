@@ -6,7 +6,7 @@ import LeanQbe.T.Amd64.IselVecLemmas3
 import LeanQbe.T.Amd64.FrameLemmas
 
 /-!
-# SysV x64 `Target` Assembly & Legalization Parity (`T12i`)
+# SysV x64 `Target` Assembly & Legalization Parity
 
 Assembles `x64Target : Target` from the pure `x64Isa` components and private verification theorems
 (`x64_gprSpec`, `x64_vecSpec`, `x64_frameSpec`), preserving a strict module-system firewall against

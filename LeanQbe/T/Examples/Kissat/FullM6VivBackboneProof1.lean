@@ -5,10 +5,10 @@ import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.ControlComb
 
 /-!
-# Kissat Wave-2 PR-W2C (`RC-20`) — Core Vivification Helpers (`9` Functions)
+# Kissat M6 Vivification — Core Vivification Helpers (`9` Functions)
 
 Defines specs and proves UNSAT-sound `Func.wp` (`XPost := False`, `0` SAT model proofs) for the
-`9` lightweight `RC-20` vivification core functions in `FullM6VivBackbone.lean`:
+`9` lightweight vivification core functions in `FullM6VivBackbone.lean`:
 1. `full_viv_unreason_m6_wp` (`NonActiveReason` enforcement via `full_backtrack`)
 2. `full_viv_watch_rank_m6_wp` (read-only 2WL rank)
 3. `full_viv_best_watch_m6_wp` (in-place 2-watch selection sort on `work_stk2`)
@@ -16,7 +16,7 @@ Defines specs and proves UNSAT-sound `Func.wp` (`XPost := False`, `0` SAT model 
 5. `full_viv_subsumes_bin_m6_wp` (read-only binary subsumption check)
 6. `full_viv_subsumes_cl_m6_wp` (read-only arena-clause subsumption check)
 7. `full_viv_best_implied_m6_wp` (read-only min-`tpos` implied literal selection)
-8. `full_viv_reestablish_m6_wp` (`RC-06` 2WL watch-invariant backtrack repair)
+8. `full_viv_reestablish_m6_wp` (2WL watch-invariant backtrack repair)
 9. `full_viv_inst_check_m6_wp` (instantiation resolvent subset certificate + `lit_mark` cleanup)
 -/
 
@@ -111,7 +111,7 @@ satisfied literal in `tmp[0 ..< sz)`, or `0xFFFFFFFF#32` if none. -/
       (r ≠ 0xFFFFFFFF#32 → r.toNat < 2 * s.core.cur_vars ∧ s.core.vals[r.toNat]?.getD 0#8 = 1#8) →
       Q (r, ()) m
 
-/-- `full_viv_reestablish_m6(h, cref)`: `RC-06` 2WL watch-invariant backtrack repair preserving
+/-- `full_viv_reestablish_m6(h, cref)`: 2WL watch-invariant backtrack repair preserving
 `FullSparseInvW`, arena, `red_refs`, and `tarjan_reach`. -/
 @[expose] def fullVivReestablishM6Spec : Spec [i64, i32] [] := fun (h, cref, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),

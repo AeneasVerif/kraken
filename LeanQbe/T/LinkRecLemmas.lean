@@ -8,7 +8,7 @@ import LeanQbe.T.LegalLemmas
 import LeanQbe.T.RegaLemmas
 
 /-!
-# Soundness of `LeanQbe.T.LinkRec` (`B1.1`)
+# Soundness of `LeanQbe.T.LinkRec`
 
 * **Source/IR cyclic linking**: `callsOkRec_of_checkCyclic`, signature isolation for
   `Env.ofModuleRec`, `Env.sound_rec_at`, `Env.sound_rec`, `Env.unfoldRecAt`,
@@ -1118,7 +1118,7 @@ theorem fnSpec_of_legalEnv_onlyFn {T : Target} {host : T.mach.Host} {lt : LegalT
       (T.retsIn_cast hbs rets' (T.mach.data st)).mpr hrets', hrest, hm'⟩
   · exact Or.inr hEx
 
-/-- **`B1.1` headline theorem:** measure-indexed linking over any `CompiledRec` certificate and
+/-- **Main cyclic-linking theorem:** measure-indexed linking over any `CompiledRec` certificate and
 compatible host `h`. -/
 theorem link_rec_compiled {T : Target} {lt : LegalTarget}
     {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel : Nat}
