@@ -417,6 +417,7 @@ class ModulePreset:
     proof_ns: str | None = None
     solve_spec_intro: str = "fullM6SolveBytesCoreModelSpec_intro"
     solve_spec_has_sat: bool = True
+    solve_bytes_suffix: str = "_solve_bytes_iff.mpr"
     solve_mem_thm: str | None = None
     reuse_prefix: str | None = None
     reuse_inl_mod: str | None = None
@@ -479,6 +480,7 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
         proof_ns="LeanQbe.T.Examples.Kissat.FullM7Plus",
         solve_spec_intro="m7PlusSolveBytesSpec_intro",
         solve_spec_has_sat=False,
+        solve_bytes_suffix="_solve_bytes",
         solve_mem_thm="m7Plus_solveBytes_mem",
     ),
     "FullM7": ModulePreset(
@@ -727,6 +729,7 @@ class CertConfig:
     proof_ns: str = ""
     solve_spec_intro: str = "fullM6SolveBytesCoreModelSpec_intro"
     solve_spec_has_sat: bool = True
+    solve_bytes_suffix: str = "_solve_bytes_iff.mpr"
     solve_mem_thm: str | None = None
     reuse_prefix: str | None = None
     reuse_inl_mod: str | None = None
@@ -2621,6 +2624,8 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
                 cfg.open_proof_ns,
             ]
         )
+        if not cfg.source_ns:
+            open_parts.append(cfg.proof_mod)
     if cfg.wrapper_mode == "full" and (
         cfg.entry_const.startswith("Full.") or cfg.hdr_model == "m6"
     ):
@@ -2811,7 +2816,8 @@ def _render_nv_payload_helpers(stem: str) -> list[str]:
         f"  cnfBytes ++ List.replicate {stem}NvWorkLen 0",
         "",
         f"theorem {stem}NvPayload_eq (cnfBytes : List UInt8) :",
-        f"    {stem}NvPayload cnfBytes = cnfBytes ++ List.replicate {M6_NV_WORK_LEN} 0 := by",
+        f"    {stem}NvPayload cnfBytes =",
+        f"      cnfBytes ++ List.replicate {M6_NV_WORK_LEN} 0 := by",
         f"  unfold {stem}NvPayload {stem}NvWorkLen; rfl",
         "",
         f"theorem {stem}NvPayload_length (cnfBytes : List UInt8) :",
@@ -2922,7 +2928,7 @@ def render_m6_unsat_section(
         f"        ({arch.targ}.mach.labelAddr {compiled_name}.host "
         f"\"{cfg.entry_fn}\"))",
     ]
-
+    solve_iff = cfg.solve_bytes_suffix
     lines = [
         *_render_nv_payload_helpers(cfg.stem),
         "section Unsat",
@@ -2964,7 +2970,7 @@ def render_m6_unsat_section(
         "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
         "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
         "      (fun _ _ _ _ => False) :=",
-        f"    {cfg.env}_solve_bytes_iff.mpr",
+        f"    {cfg.env}{solve_iff}",
         f"      ({cfg.solve_spec_intro} (R := emp) hcfit hwfit",
         "        (by rw [sep_emp]; exact hm_in)",
         unsat_lam,
@@ -3072,7 +3078,7 @@ def render_m6_unsat_section(
         f"        nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ())",
         "      (bs.At 0x1000#64) (fun r _ => r.fst = 20#64 ∧ nvM6UnsatCnf.Unsat)",
         "      (fun _ _ _ _ => False) :=",
-        f"    {cfg.unsat_env}_solve_bytes_iff.mpr",
+        f"    {cfg.unsat_env}{solve_iff}",
         f"      ({cfg.solve_spec_intro} (R := emp) "
         "(by decide) (by decide)",
         "        (by",
@@ -3118,7 +3124,7 @@ def render_m6_unsat_section(
         "      (bytes nvM6CnfPtr nvM6UnsatBytes ⋆",
         f"        region nvM6UnsatWorkPtr {nv_wlen} ⋆ emp) m')",
         "    ?_ (fun _ _ h => h) (by decide)",
-        f"  exact {cfg.unsat_env}_solve_bytes_iff.mpr",
+        f"  exact {cfg.unsat_env}{solve_iff}",
         f"    ({cfg.solve_spec_intro} (R := emp) "
         "(by decide) (by decide)",
         "      (by",
@@ -3997,6 +4003,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         if args.solve_spec_no_sat
         else (preset.solve_spec_has_sat if preset else True)
     )
+    solve_bytes_suffix = preset.solve_bytes_suffix if preset else "_solve_bytes_iff.mpr"
     solve_mem_thm = args.solve_mem_thm or (preset.solve_mem_thm if preset else None)
     max_dirs = (
         args.max_dirs
@@ -4169,6 +4176,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         proof_ns=proof_ns,
         solve_spec_intro=solve_spec_intro,
         solve_spec_has_sat=solve_spec_has_sat,
+        solve_bytes_suffix=solve_bytes_suffix,
         solve_mem_thm=solve_mem_thm,
         reuse_prefix=reuse_prefix,
         reuse_inl_mod=reuse_inl_mod,

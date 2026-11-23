@@ -13,7 +13,7 @@ Exports `m7Plus_legalSig`, `mk_module_fnspec`, and `solve_x64_of_fnspec` over
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Amd64.KissatM7PlusCertLink
 
