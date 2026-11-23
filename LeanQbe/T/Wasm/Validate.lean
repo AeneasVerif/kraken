@@ -187,6 +187,13 @@ def validateInstr (ctx : WValCtx) (s : VStack) : WInstr → Option VStack
       some (pushList [.i32] s1)
     else
       none
+  | .memory_copy | .memory_fill => do
+    if ctx.hasMem then
+      let s1 ← popExpect .i32 s
+      let s2 ← popExpect .i32 s1
+      popExpect .i32 s2
+    else
+      none
   | .i32_const _ => some (pushList [.i32] s)
   | .i64_const _ => some (pushList [.i64] s)
   | .eqz w => do
@@ -271,7 +278,9 @@ def validateFunc (m : WModule) (fnTypes : List WFuncTy) (f : WFunc) : Bool :=
 /-- Validate optional linear memory section metadata. -/
 def validateMemory : Option WMemSpec → Bool
   | none => true
-  | some mem => mem.maxPages.all (mem.initPages ≤ ·)
+  | some mem =>
+    mem.initPages ≤ 65536 &&
+    mem.maxPages.all (fun mx => mem.initPages ≤ mx && mx ≤ 65536)
 
 /-- Decidable full validator for a `WModule`. -/
 def validateModule (m : WModule) : Bool :=

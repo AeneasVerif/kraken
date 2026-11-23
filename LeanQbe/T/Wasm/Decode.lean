@@ -441,6 +441,19 @@ def decodeOneInstr (fuel : Nat) (opByte : UInt8) (r : Reader) :
     | 0xC2 => .ok (.unop .i64 .extend8_s, r)
     | 0xC3 => .ok (.unop .i64 .extend16_s, r)
     | 0xC4 => .ok (.unop .i64 .extend32_s, r)
+    | 0xFC =>
+      let (subOp, r1) ← decodeU32 r
+      match subOp.toNat with
+      | 0x0A =>
+        let (m1, r2) ← r1.readU8
+        let (m2, r3) ← r2.readU8
+        if m1 == 0 && m2 == 0 then .ok (.memory_copy, r3)
+        else .error s!"memory.copy expected trailing 0x00 0x00 at offset {r1.pos}"
+      | 0x0B =>
+        let (m1, r2) ← r1.readU8
+        if m1 == 0 then .ok (.memory_fill, r2)
+        else .error s!"memory.fill expected trailing 0x00, got {m1} at offset {r1.pos}"
+      | _ => .error s!"unsupported 0xFC prefix opcode {subOp} at offset {r.pos}"
     | _ => .error s!"unsupported WebAssembly opcode {opByte} at offset {r.pos}"
 end
 

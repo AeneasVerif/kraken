@@ -172,6 +172,8 @@ inductive WInstr where
   | store (srcTy : WValTy) (width : WMemWidth) (arg : WMemArg)
   | memory_size
   | memory_grow
+  | memory_copy
+  | memory_fill
   | i32_const (v : BitVec 32)
   | i64_const (v : BitVec 64)
   | eqz (w : WValTy)
@@ -195,6 +197,14 @@ structure WMemSpec where
   initPages : Nat := 1
   maxPages : Option Nat := none
   deriving DecidableEq, Repr, Inhabited
+
+/-- Effective page cap for `memory.grow`, clamped to the Wasm32 65536-page (4 GiB) limit. -/
+@[reducible] def WMemSpec.effectiveMaxPages (spec : WMemSpec) : Nat :=
+  Nat.min (spec.maxPages.getD 65536) 65536
+
+/-- Effective byte cap (`effectiveMaxPages * 65536`) as a 64-bit value (`≤ 2^32`). -/
+@[reducible] def WMemSpec.maxBytes (spec : WMemSpec) : BitVec 64 :=
+  BitVec.ofNat 64 (spec.effectiveMaxPages * 65536)
 
 /-- Core WebAssembly function definition. -/
 structure WFunc where
