@@ -1390,6 +1390,78 @@ theorem m7RowsPart1_tPfx_mem {tPfx : List SpecEntry} {i : Nat}
               · (iterate 30 apply List.mem_append_right)
                 exact m7_mem_drop_take_of_lt tPfx h9 (by omega) hit
 
+/-- Part 1 row memberships required by the `21`-fn `FullM6Orch` prefix (`FullM6OrchProof0..1`).
+-/
+structure M7Part1PfxCallees (tbl : List SpecEntry) : Prop where
+  wstackDefragM6 :
+    (⟨"full_wstack_defrag_m6", [i64], [], Full.fullWstackDefragSpec, true⟩ : SpecEntry) ∈ tbl
+  watchPushM6 :
+    (⟨"full_watch_push_m6", [i64, i32, i32, i32, i32], [.bool],
+      Full.fullWatchPushSpec, true⟩ : SpecEntry) ∈ tbl
+  rescaleM6 :
+    (⟨"full_rescale_m6", [i64], [], Full.fullRescaleSpec, true⟩ : SpecEntry) ∈ tbl
+  parseBodyM6 :
+    (⟨"full_parse_body_m6", [i64, i64], [i64], Full.fullParseBodySpec, true⟩ : SpecEntry) ∈ tbl
+  litRankM6 :
+    (⟨"full_lit_rank_m6", [i64, i64, i32], [i64], Full.fullLitRankSpec, true⟩ : SpecEntry) ∈ tbl
+  sweepBinsM6cf :
+    (⟨"full_sweep_bins_m6cf", [i64], [], Full.fullSweepBinsSpec, true⟩ : SpecEntry) ∈ tbl
+  rewatchArenaM6 :
+    (⟨"full_rewatch_arena_m6", [i64, i64], [.bool],
+      Full.fullRewatchArenaSpec, true⟩ : SpecEntry) ∈ tbl
+  arenaSweepM6 :
+    (⟨"full_arena_sweep_m6", [i64], [i64], Full.fullArenaSweepSpec, true⟩ : SpecEntry) ∈ tbl
+  markReasonsM6 :
+    (⟨"full_mark_reasons_m6", [i64, .bool], [], Full.fullMarkReasonsSpec, true⟩ : SpecEntry) ∈ tbl
+  recomputeTiers :
+    (⟨"m6_hdr_recompute_tiers", [i64], [], m6HdrW2aSpec [] [], true⟩ : SpecEntry) ∈ tbl
+  recordUsed :
+    (⟨"m6_hdr_record_used", [i64, i64], [], m6HdrW2aSpec [i64] [], true⟩ : SpecEntry) ∈ tbl
+  delaying :
+    (⟨"m6_hdr_delaying", [i64, i64], [.bool], m6HdrW2aSpec [i64] [.bool], true⟩ : SpecEntry) ∈ tbl
+  bumpDelay :
+    (⟨"m6_hdr_bump_delay", [i64, i64], [], m6HdrW2aSpec [i64] [], true⟩ : SpecEntry) ∈ tbl
+  reduceDelay :
+    (⟨"m6_hdr_reduce_delay", [i64, i64], [], m6HdrW2aSpec [i64] [], true⟩ : SpecEntry) ∈ tbl
+  sortReds :
+    (⟨"full_sort_reds", [i64, i64], [], Full.fullSortRedsSpec, true⟩ : SpecEntry) ∈ tbl
+
+theorem m7Part1PfxCallees_of_sub {tPfx tbl : List SpecEntry}
+    (hsub : ∀ e ∈ m7RowsPart1 tPfx, e ∈ tbl) : M7Part1PfxCallees tbl := by
+  have sw0 : ∀ e ∈ p1WatchGc0Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m7RowsPart1; (iterate 3 apply List.mem_append_right); exact List.mem_append_left _ h)
+  have sh0 : ∀ e ∈ p1Hdr0ExactRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m7RowsPart1; (iterate 11 apply List.mem_append_right); exact List.mem_append_left _ h)
+  have sw3 : ∀ e ∈ p1WatchGc3Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m7RowsPart1; (iterate 25 apply List.mem_append_right); exact List.mem_append_left _ h)
+  refine ⟨ sw0 _ (List.mem_of_getElem? (i := 1) rfl)
+    , sw0 _ (List.mem_of_getElem? (i := 2) rfl)
+    , hsub _ (by
+        unfold m7RowsPart1; (iterate 6 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+    , hsub _ (by
+        unfold m7RowsPart1; (iterate 15 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+    , hsub _ (by
+        unfold m7RowsPart1; (iterate 18 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+    , hsub _ (by
+        unfold m7RowsPart1; (iterate 21 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+    , hsub _ (by
+        unfold m7RowsPart1; (iterate 19 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 1) rfl))
+    , sw3 _ (List.mem_of_getElem? (i := 3) rfl)
+    , sw3 _ (List.mem_of_getElem? (i := 4) rfl)
+    , sh0 _ (List.mem_of_getElem? (i := 9) rfl)
+    , sh0 _ (List.mem_of_getElem? (i := 11) rfl)
+    , sh0 _ (List.mem_of_getElem? (i := 14) rfl)
+    , sh0 _ (List.mem_of_getElem? (i := 15) rfl)
+    , sh0 _ (List.mem_of_getElem? (i := 16) rfl)
+    , hsub _ (by
+        unfold m7RowsPart1; (iterate 28 apply List.mem_append_right)
+        exact List.mem_append_left _ (List.mem_of_getElem? (i := 2) rfl)) ⟩
+
 theorem m7Part1TailCallees_of_sub {tPfx tbl : List SpecEntry}
     (hsub : ∀ e ∈ m7RowsPart1 tPfx, e ∈ tbl) :
     (⟨"full_m6_mem_init", [i64, i64, i64, i64, i64], [i64],
