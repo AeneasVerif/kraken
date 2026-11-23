@@ -92,6 +92,12 @@ public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3b
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3b1
 public import LeanQbe.T.Examples.Kissat.FullM6Orch
 public import LeanQbe.T.Examples.Kissat.FullM6OrchAdapters
+public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof
+public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof0
+public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof1
+public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof2
+public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof2a
+public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof3
 public import LeanQbe.T.Examples.Kissat.FullM6ProofUtil
 public import LeanQbe.T.Examples.Kissat.FullM6S15Bridge
 public import LeanQbe.T.Examples.Kissat.FullM6SatNv
