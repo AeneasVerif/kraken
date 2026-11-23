@@ -42,10 +42,10 @@ variable [WellFormedLayout prog]
 abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels prog.toExecutable) l
 
 private theorem lbl_inc : lbl "sysv_inc" = prog.toExecutable.addrOf 0 :=
-  Labels.label!_of_label? (label?_eq_some_addrOf rfl)
+  label_eq_addrOf rfl
 
 private theorem lbl_caller : lbl "sysv_caller" = prog.toExecutable.addrOf 4 :=
-  Labels.label!_of_label? (label?_eq_some_addrOf rfl)
+  label_eq_addrOf rfl
 
 /-- The specification of an increment procedure at `entry` that needs `d` bytes of stack. -/
 abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
@@ -88,6 +88,7 @@ theorem caller_spec (hinc : IncSpec 0 (lbl "sysv_inc")) :
   have hr : r = t.regs.rsp.toBitVec - 8 - 8 := by simp (config := { zetaDelta := true })
   clear_value v st r
   subst hr
+  simp only [lbl_inc]
   have hpush := Mem.storeInt_sep _ 8 bs _ _ ⟨hmem, hbs⟩ (prog.toExecutable.addrOf 7).toBitVec.toInt
   refine eventually_trans _ _ _ _
     (hinc n (RetCell ra t.regs.rsp.toBitVec ⋆ (Owned 8 (t.regs.rsp.toBitVec - 8) ⋆ R))

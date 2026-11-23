@@ -46,7 +46,7 @@ theorem spill_spec (R : Mem 64 → Prop) (ra : Int64) :
       (@Labels.label! (Executable.labels prog.toExecutable) "win64_spill") ra
       (fun t => Win64.Call 24 R ra t)
       (fun t s => Win64.Ret 24 R ra t s ∧ s.zmms.get (.xmm .mm1) = t.zmms.get (.xmm .mm0)) := by
-  rw [Labels.label!_of_label? (label?_eq_some_addrOf (p := prog) (k := 0) rfl)]
+  rw [label_eq_addrOf (p := prog) (k := 0) rfl]
   rintro t ⟨hal, hdf, hmem⟩
   rw [reserve24_eq, sep_assoc, sep_comm_l (Shadow _) (Owned 16 _),
     sep_comm_l (RetCell _ _) (Owned 16 _)] at hmem
@@ -63,11 +63,11 @@ theorem spill_spec (R : Mem 64 → Prop) (ra : Int64) :
   tactic =>
   -- `kstep` does not step AVX instructions yet: step `movaps %xmm0, (%rsp)` by hand.
   simp only [AvxOperation.interp, AvxRegOrMem.interp, MachineData.setAvxLegacy]
-  simp (config := { zetaDelta := true }) only [AddrExpr.interp, ConstExpr.interp]
+  simp (config := { zetaDelta := true }) only [AddrExpr.interp, ConstExpr.interp, ConstExpr.undefinedLabel?, AddrExpr.interp!, ConstExpr.interp!]
   simp only [Nat.shiftRight_zero, BitVec.ofNat_toNat, BitVec.setWidth_eq, Reg64s.get64,
     BitVec.toAddressSize, BitVec.signed, BitVec.take, Int.add_zero, BitVec.ofInt_toInt, ex,
     Width.bits, Int64.toInt_zero]
-  refine @Effects.All_storeAvx (Executable.labels prog.toExecutable) _ _ _ _ _ _ _ _
+  refine @Effects.All_storeAvx _ _ _ _ _ _ _ _
     (fun _ => haligned)
     (show Mem.loadInt t.dmem (t.regs.rsp.toBitVec - 24) 16 = _ from hslot) ?_
   simp only [Effects.All]
@@ -76,10 +76,10 @@ theorem spill_spec (R : Mem 64 → Prop) (ra : Int64) :
   tactic =>
   -- `movaps (%rsp), %xmm1`
   simp only [AvxOperation.interp, AvxRegOrMem.interp, MachineData.setAvxLegacy]
-  simp (config := { zetaDelta := true }) only [AddrExpr.interp, ConstExpr.interp]
+  simp (config := { zetaDelta := true }) only [AddrExpr.interp, ConstExpr.interp, ConstExpr.undefinedLabel?, AddrExpr.interp!, ConstExpr.interp!]
   simp only [BitVec.setWidth_eq, Reg64s.get64, BitVec.toAddressSize, BitVec.signed,
     BitVec.take, Int.add_zero, BitVec.ofInt_toInt, ex, Width.bits, Int64.toInt_zero]
-  refine @Effects.All_loadAvx (Executable.labels prog.toExecutable) _ _ _ _ _ _ _
+  refine @Effects.All_loadAvx _ _ _ _ _ _ _
     (fun _ => haligned)
     (show Mem.loadInt (Mem.storeInt t.dmem (t.regs.rsp.toBitVec - 24) 16
       (t.zmms.get (AvxReg.xmm .mm0)).toInt) (t.regs.rsp.toBitVec - 24) 16 = _ from hval) ?_

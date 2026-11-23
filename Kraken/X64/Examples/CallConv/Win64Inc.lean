@@ -44,10 +44,10 @@ variable [WellFormedLayout prog]
 abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels prog.toExecutable) l
 
 private theorem lbl_inc : lbl "win64_inc" = prog.toExecutable.addrOf 0 :=
-  Labels.label!_of_label? (label?_eq_some_addrOf rfl)
+  label_eq_addrOf rfl
 
 private theorem lbl_caller : lbl "win64_caller" = prog.toExecutable.addrOf 5 :=
-  Labels.label!_of_label? (label?_eq_some_addrOf rfl)
+  label_eq_addrOf rfl
 
 omit [WellFormedLayout prog] in
 private theorem shadow_split (r : BitVec 64) : Shadow r = Owned 8 (r + 8) ⋆ Owned 24 (r + 16) := by
@@ -126,6 +126,7 @@ theorem caller_spec (hinc : IncSpec 0 (lbl "win64_inc")) : IncSpec 48 (lbl "win6
   have hr : r = t.regs.rsp.toBitVec - 40 - 8 := by simp (config := { zetaDelta := true })
   clear_value v st r
   subst hr
+  simp only [lbl_inc]
   have hpush := Mem.storeInt_sep _ 8 bs _ _ ⟨hmem, hbs⟩ (prog.toExecutable.addrOf 8).toBitVec.toInt
   refine eventually_trans _ _ _ _
     (hinc n (RetCell ra t.regs.rsp.toBitVec ⋆ (Shadow t.regs.rsp.toBitVec
