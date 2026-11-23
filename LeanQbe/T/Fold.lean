@@ -773,7 +773,12 @@ def Op.foldRewrite {V : Ty → Type} {rs : List Ty} (op : Op (FVal V) rs) : Op V
       op2 (.cmp o t m h) a.fout b.fout
   | .select .bool, (c, a, b, ()) =>
     if a.fout.imm? == some false && b.fout.imm? == some true then op1 (.not .bool) c.fout
+    else if a.fout.imm? == some true then op2 (.or .bool) c.fout b.fout
+    else if b.fout.imm? == some false then op2 (.and .bool) c.fout a.fout
     else op3 (.select .bool) c.fout a.fout b.fout
+  | .select (.bits n), (c, a, b, ()) =>
+    if 0 < n && a.fout.imm? == some 1#n && b.fout.imm? == some 0#n then op1 (.ofBool n) c.fout
+    else op3 (.select (.bits n)) c.fout a.fout b.fout
   | .sext m n, (a, ()) =>
     match extTarget (n := n) .sext a with
     | some tg => op1 (.sext tg.m n) tg.src

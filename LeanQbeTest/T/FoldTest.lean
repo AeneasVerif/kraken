@@ -401,8 +401,47 @@ theorem shiftExtProg_fold_spec (Γ : Env) (y : BitVec 64) (b : Bool) (x : BitVec
   · exact setWidth_setWidth_trans (by omega) (by omega) x
   · exact setWidth_signExtend_of_narrow (by omega) (by omega) x
 
+/-- `select (.bits n) c 1 0 -> ofBool n c`, `select .bool c true b -> or c b`,
+`select .bool c a false -> and c a`. -/
+def selectFoldProg : Func [.bool, .bool, .bool] [i64, i32, .bool, .bool] := fun _ _ p =>
+  let c := p.1
+  let a := p.2.1
+  let b := p.2.2.1
+  .let_ (op3 (.select i64) (.var c) (.imm 1) (.imm 0)) fun b64 =>
+  .let_ (op3 (.select i32) (.var c) (.imm 1) (.imm 0)) fun b32 =>
+  .let_ (op3 (.select .bool) (.var c) (.imm true) (.var b)) fun sor =>
+  .let_ (op3 (.select .bool) (.var c) (.var a) (.imm false)) fun sand =>
+  .ret (.var b64.1, .var b32.1, .var sor.1, .var sand.1, ())
+
+theorem selectFoldProg_fold_out : Func.fold selectFoldProg = fun _ _ p =>
+    let c := p.1
+    let a := p.2.1
+    let b := p.2.2.1
+    .let_ (op1 (.ofBool 64) (.var c)) fun b64 =>
+    .let_ (op1 (.ofBool 32) (.var c)) fun b32 =>
+    .let_ (op2 (.or .bool) (.var c) (.var b)) fun sor =>
+    .let_ (op2 (.and .bool) (.var c) (.var a)) fun sand =>
+    .ret (.var b64.1, .var b32.1, .var sor.1, .var sand.1, ()) := by
+  t_kernel_rfl
+
+theorem selectFoldProg_wf : selectFoldProg.Wf := by t_wf_reify
+
+theorem selectFoldProg_fold_wf : (Func.fold selectFoldProg).Wf := Func.fold_wf selectFoldProg_wf
+
+theorem selectFoldProg_fold_spec (Γ : Env) (c a b : Bool) (m : Mem 64) :
+    Func.spec Γ (Func.fold selectFoldProg) (c, a, b, ()) m
+      (fun (r0, r1, r2, r3, ()) m' =>
+        r0 = (if c then 1#64 else 0#64) ∧ r1 = (if c then 1#32 else 0#32) ∧
+        r2 = (c || b) ∧ r3 = (c && a) ∧ m' = m)
+      (fun _ _ _ _ => False) := by
+  apply Func.fold_spec selectFoldProg_wf
+  dsimp only [Func.spec, Func.wp, selectFoldProg]
+  wp_unfold
+  cases c <;> simp
+
 #print axioms LeanQbe.T.FoldTest.invSelectProg_fold_spec
 #print axioms LeanQbe.T.FoldTest.bswapBadProg_fold_wf
 #print axioms LeanQbe.T.FoldTest.shiftExtProg_fold_spec
+#print axioms LeanQbe.T.FoldTest.selectFoldProg_fold_spec
 
 end LeanQbe.T.FoldTest
