@@ -230,6 +230,131 @@ class GenCertSlicesTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 gcs.build_config(bad_k_args)
 
+    def test_full_m6_preset_chunked_inl_and_m6hdr_soundness(self) -> None:
+        args = gcs.parse_args(["--module", "FullM6", "--root", str(REPO_ROOT), "--dry-run"])
+        cfg = gcs.build_config(args)
+        self.assertEqual(cfg.prefix, "KissatM6")
+        self.assertEqual(cfg.stem, "m6")
+        self.assertEqual(cfg.total_fns, 382)
+        self.assertEqual(cfg.max_dirs, 600)
+        self.assertTrue(cfg.is_inlined)
+        self.assertEqual(cfg.inl_mod, "LeanQbe.T.Examples.Kissat.FullM6Inl")
+        self.assertEqual(cfg.inl_fns, "m6InlFns")
+        self.assertEqual(cfg.inl_mod_sym, "m6InlMod")
+        self.assertEqual(cfg.inl_policy, "m6InlPolicy")
+        self.assertEqual(cfg.hdr_model, "m6")
+        self.assertTrue(all(m.source == "c0-static" for m in cfg.fn_metrics))
+        self.assertLess(cfg.after_stats.cost_max_mean, cfg.before_stats.cost_max_mean)
+        sing_names = {nm for _, nm, _ in cfg.after_stats.singletons}
+        self.assertIn("full_arena_sweep_m6", sing_names)
+
+        files = gcs.build_plan(cfg, ["amd64", "arm64"])
+        # Per arch: Bounds + N slices + Cert + CertLink + Top + Sound = len(slices) + 5.
+        self.assertEqual(len(files), 2 * (len(cfg.slices) + 5))
+        self._assert_hygiene(files)
+
+        by_path = dict(files)
+        bounds_x64 = by_path["LeanQbe/T/Amd64/KissatM6Bounds.lean"]
+        self.assertIn("public import LeanQbe.T.Examples.Kissat.FullM6Inl", bounds_x64)
+        self.assertIn("eval_prefix_ext! m6AllExt x64Target x64LegalTarget m6InlFns", bounds_x64)
+
+        slice1 = by_path["LeanQbe/T/Amd64/KissatM6Cert1.lean"]
+        self.assertIn("public import LeanQbe.T.Examples.Kissat.FullM6Inl", slice1)
+        self.assertIn("(maxDirs := 600)", slice1)
+
+        cert_x64 = by_path["LeanQbe/T/Amd64/KissatM6Cert.lean"]
+        self.assertIn("public import LeanQbe.T.MainCertInline", cert_x64)
+        self.assertIn("(m6Module.optInlinePolicy m6InlPolicy)", cert_x64)
+        self.assertIn("m6InlCert.castModule m6InlMod.eq", cert_x64)
+
+        for arch_dir, tag in (("Amd64", "x64"), ("Arm64", "arm64")):
+            link = by_path[f"LeanQbe/T/{arch_dir}/KissatM6CertLink.lean"]
+            self.assertIn("fnSpec_noExit_of_legalSigAll_optInlinePolicy", link)
+            self.assertIn(f"solve_{tag}_of_fnspec", link)
+            expected_ax = "solve_x64_of_fnspec" if tag == "x64" else "ax_solve"
+            self.assertIn(f"#print axioms {expected_ax}", link)
+
+            top = by_path[f"LeanQbe/T/{arch_dir}/KissatM6.lean"]
+            self.assertIn("public import LeanQbe.T.Examples.Kissat.FullM6SatNv", top)
+            self.assertIn("public import LeanQbe.T.Examples.Kissat.FullM6SatSound", top)
+            self.assertIn(f"m6_solve_bytes_unsat_{tag}", top)
+            self.assertIn(f"m6_{tag}_unsat_nonvacuous", top)
+            self.assertIn(f"m6_{tag}_run_unsat", top)
+            self.assertIn("nvM6UnsatBytes", top)
+
+            snd = by_path[f"LeanQbe/T/{arch_dir}/KissatM6Sound.lean"]
+            self.assertIn("readModelFromWorkM6", snd)
+            self.assertIn(f"m6_solve_bytes_model_{tag}", snd)
+            self.assertIn(f"m6_solve_bytes_sound_{tag}", snd)
+            self.assertIn(f"m6_{tag}_sat_nonvacuous", snd)
+            self.assertIn(f"m6_{tag}_run_sat", snd)
+            self.assertIn("nvM6SatBytes", snd)
+            opp = "Arm64" if arch_dir == "Amd64" else "Amd64"
+            self.assertNotIn(f"LeanQbe.T.{opp}", snd)
+
+    def test_full_m7_preset_with_profile_and_total_fns(self) -> None:
+        # Without FullM7.lean, --total-fns, or --profile, FullM7 fails closed.
+        missing_args = gcs.parse_args(["--module", "FullM7", "--root", str(REPO_ROOT), "--dry-run"])
+        with self.assertRaises(ValueError):
+            gcs.build_config(missing_args)
+
+        # Explicit --total-fns 396 works cleanly with FullM7Inl + maxDirs=600 + M6Hdr wrappers.
+        tf_args = gcs.parse_args(
+            ["--module", "FullM7", "--total-fns", "396", "--root", str(REPO_ROOT), "--dry-run"]
+        )
+        tf_cfg = gcs.build_config(tf_args)
+        self.assertEqual(tf_cfg.prefix, "KissatM7")
+        self.assertEqual(tf_cfg.stem, "m7")
+        self.assertEqual(tf_cfg.max_dirs, 600)
+        self.assertEqual(tf_cfg.inl_mod, "LeanQbe.T.Examples.Kissat.FullM7Inl")
+        self.assertEqual(tf_cfg.hdr_model, "m6")
+        tf_files = gcs.build_plan(tf_cfg, ["amd64", "arm64"])
+        self._assert_hygiene(tf_files)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            p_path = Path(tmp) / "m7_probe.json"
+            rows = [
+                {
+                    "index": i,
+                    "name": (
+                        "full_arena_sweep_m6"
+                        if i == 102
+                        else "full_cong_eval_gate"
+                        if i == 251
+                        else f"m7_fn_{i}"
+                    ),
+                    "mid_tflat_size": 1061 if i == 102 else (2400 if i == 251 else 65),
+                    "mid_loops": 6 if i in (102, 251) else 1,
+                    "mid_groups": 30 if i == 102 else (45 if i == 251 else 3),
+                    "mid_calls": 5 if i == 102 else 1,
+                }
+                for i in range(396)
+            ]
+            p_path.write_text(json.dumps(rows), encoding="utf-8")
+            pr_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullM7",
+                    "--profile",
+                    str(p_path),
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            pr_cfg = gcs.build_config(pr_args)
+            self.assertEqual(pr_cfg.total_fns, 396)
+            sing_names = {nm for _, nm, _ in pr_cfg.after_stats.singletons}
+            self.assertIn("full_arena_sweep_m6", sing_names)
+            self.assertIn("full_cong_eval_gate", sing_names)
+            pr_files = dict(gcs.build_plan(pr_cfg, ["amd64", "arm64"]))
+            self._assert_hygiene(list(pr_files.items()))
+            self.assertIn(
+                "m7InlCert.castModule m7InlMod.eq",
+                pr_files["LeanQbe/T/Arm64/KissatM7Cert.lean"],
+            )
+            self.assertIn("readModelFromWorkM6", pr_files["LeanQbe/T/Arm64/KissatM7Sound.lean"])
+
 
 if __name__ == "__main__":
     unittest.main()
