@@ -97,6 +97,9 @@ public import LeanQbe.T.Examples.Kissat.FullM6WalkParseLemmas
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof1
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof2
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof3
+public import LeanQbe.T.Examples.Kissat.FullM7BvaFactor
+public import LeanQbe.T.Examples.Kissat.FullM7BvaFactorProof
+public import LeanQbe.T.Examples.Kissat.FullM7BvaFactorProof0
 
 set_option autoImplicit false
 
