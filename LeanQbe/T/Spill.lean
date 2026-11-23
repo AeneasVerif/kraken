@@ -312,6 +312,7 @@ structure GatherAcc where
   (jmpW inW : Trie Nat := .empty)
   (zextElide : Trie Nat := .empty)
   (zextEdges : List (Nat × Nat) := [])
+  (invertJnz : Trie Bool := .empty)
 
 def addWeight (mult : Nat) (uses : List Nat) (ws : List (Nat × List Nat)) :
     List (Nat × List Nat) :=
@@ -522,7 +523,8 @@ def gather {I : Isa} (c : Ctx I) :
     let acc1 := gather c lps lr mE isZ32 e { acc with
       weights := (mult, [cx]) :: acc.weights,
       gprPts := addGprPt c.nGpr gUse (eraseMany gUse gLv) acc.gprPts,
-      brW := acc.brW.insert ip (mult, mT, mE) }
+      brW := acc.brW.insert ip (mult, mT, mE),
+      invertJnz := if Nat.blt mE mT then acc.invertJnz.insert ip true else acc.invertJnz }
     gather c lps lr mT isZ32 t acc1
   | lps, lr, mult, isZ32, .skip _ _ k, acc => gather c lps lr mult isZ32 k acc
   | _, _, mult, _, .jump _ ip j _ args, acc =>
@@ -1679,6 +1681,7 @@ def hints (I : Isa) (f : Fn)
   let finalSlots :=
     if I.frame.scratch.isEmpty then cs.nslots else min cs.nslots (usedSlotCount nip nl st)
   { dest := st.dest, entry := st.entry, pre := st.pre, variant := st.variant, elide := elideIps,
+    invertJnz := acc.invertJnz,
     nslots := finalSlots, saved := st.usedCs.map fun r => c.gReg.getD r I.frame.sp }
 
 end Spill

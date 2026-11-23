@@ -98,6 +98,7 @@ structure Hints (Reg VReg Cond : Type) where
   pre : Trie (PreStep Reg VReg Cond) := .empty
   variant : Trie VariantHint := .empty
   elide : Trie Bool := .empty
+  invertJnz : Trie Bool := .empty
   nslots : Nat := 0
   saved : List Reg := []
   deriving Repr, Lean.ToExpr
