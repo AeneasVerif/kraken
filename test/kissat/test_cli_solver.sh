@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Self-contained L1 verification for bench/kissat/build_solver.sh and bench/kissat/kissat_cli.c.
 #
-# Builds FullM5 (certified) and FullM6 (--allow-uncertified until KissatM6Sound lands) on both x64
-# and arm64 (qemu-aarch64), verifying SAT/UNSAT/UNKNOWN exit codes, DIMACS `v ... 0` models on
-# sat_unit/sat_chain/multi-clause SAT canary, `-n`/`--no-model`, stdin `-`, and guard-page safety.
+# Builds FullM5 (certified), FullM6, and FullM7 (--allow-uncertified until Sound certs land) on
+# both x64 and arm64 (qemu-aarch64), verifying SAT/UNSAT/UNKNOWN exit codes, DIMACS `v ... 0`
+# models on sat_unit/sat_chain/multi-clause SAT canary, `-n`/`--no-model`, stdin `-`, and
+# guard-page safety.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -16,42 +17,102 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/kissat-cli-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "== [1/4] certification gating & CLI argument checks =="
-for pair in "x64:Amd64" "arm64:Arm64"; do
-  arch="${pair%%:*}"
-  arch_dir="${pair#*:}"
-  if [ ! -f "LeanQbe/T/$arch_dir/KissatM6Sound.lean" ]; then
-    set +e
-    err_out="$(timeout "$RUN_TIMEOUT" bash bench/kissat/build_solver.sh \
-      --module FullM6 --arch "$arch" -o "$TMP/should_fail" 2>&1)"
-    rc=$?
-    set -e
-    if [ "$rc" -ne 2 ]; then
-      echo "FAIL: expected exit 2 for uncertified FullM6 ($arch), got $rc" >&2
-      echo "$err_out" >&2
-      exit 1
+for mod_pair in "FullM6:KissatM6Sound" "FullM7:KissatM7Sound"; do
+  mod="${mod_pair%%:*}"
+  sound="${mod_pair#*:}"
+  for pair in "x64:Amd64" "arm64:Arm64"; do
+    arch="${pair%%:*}"
+    arch_dir="${pair#*:}"
+    if [ ! -f "LeanQbe/T/$arch_dir/${sound}.lean" ]; then
+      set +e
+      err_out="$(timeout "$RUN_TIMEOUT" bash bench/kissat/build_solver.sh \
+        --module "$mod" --arch "$arch" -o "$TMP/should_fail" 2>&1)"
+      rc=$?
+      set -e
+      if [ "$rc" -ne 2 ]; then
+        echo "FAIL: expected exit 2 for uncertified $mod ($arch), got $rc" >&2
+        echo "$err_out" >&2
+        exit 1
+      fi
+      grep -q -- '--allow-uncertified' <<<"$err_out" || {
+        echo "FAIL: missing --allow-uncertified hint for $mod ($arch)" >&2
+        exit 1
+      }
     fi
-    grep -q -- '--allow-uncertified' <<<"$err_out" || {
-      echo "FAIL: missing --allow-uncertified hint for FullM6 ($arch)" >&2
-      exit 1
-    }
-  fi
+  done
 done
 
-echo "== [2/4] build FullM5 (certified) and FullM6 on x64 + arm64 =="
-timeout "$BUILD_TIMEOUT" bash bench/kissat/build_solver.sh \
-  --module FullM5 --arch x64 -o "$TMP/kissat-m5-x64"
-timeout "$BUILD_TIMEOUT" bash bench/kissat/build_solver.sh \
-  --module m5 --arch arm64 -o "$TMP/kissat-m5-arm64"
+echo "== [2/4] build FullM5 (certified), FullM6, and FullM7 on x64 + arm64 =="
+if [ -z "${STAGE_LEAN_PATH:-}" ]; then
+  if [ "${SKIP_BUILD:-0}" != "1" ]; then
+    EXTRA_BUILD_MODS=()
+    [ ! -f "LeanQbe/T/Examples/Kissat/FullM7Inl.lean" ] || \
+      EXTRA_BUILD_MODS+=(LeanQbe.T.Examples.Kissat.FullM7Inl)
+    [ ! -f "LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ] || \
+      EXTRA_BUILD_MODS+=(LeanQbe.T.Examples.Kissat.FullM7InlPolicy)
+    timeout "$BUILD_TIMEOUT" lake build --wfail \
+      LeanQbe.T.Examples.Kissat.FullM5 LeanQbe.T.Examples.Kissat.FullM6 \
+      LeanQbe.T.Examples.Kissat.FullM7 LeanQbe.T.Opt LeanQbe.T.Driver \
+      LeanQbe.T.MainInline LeanQbe.T.Examples.Kissat.FullM6Inl \
+      LeanQbe.T.Amd64.Targ LeanQbe.T.Amd64.PrintATTAlign \
+      LeanQbe.T.Arm64.Targ Kraken.AArch64.Print "${EXTRA_BUILD_MODS[@]}"
+  fi
+  STAGE_LEAN_PATH="$(timeout "$RUN_TIMEOUT" lake env printenv LEAN_PATH)"
+  export STAGE_LEAN_PATH
+fi
 
 M6_X64_FLAGS=()
 [ -f "LeanQbe/T/Amd64/KissatM6Sound.lean" ] || M6_X64_FLAGS=(--allow-uncertified)
-timeout "$BUILD_TIMEOUT" bash bench/kissat/build_solver.sh \
-  --module FullM6 --arch x64 "${M6_X64_FLAGS[@]}" -o "$TMP/kissat-m6-x64"
-
 M6_ARM64_FLAGS=()
 [ -f "LeanQbe/T/Arm64/KissatM6Sound.lean" ] || M6_ARM64_FLAGS=(--allow-uncertified)
-timeout "$BUILD_TIMEOUT" bash bench/kissat/build_solver.sh \
-  --module m6 --arch arm64 "${M6_ARM64_FLAGS[@]}" -o "$TMP/kissat-m6-arm64"
+M7_X64_FLAGS=()
+[ -f "LeanQbe/T/Amd64/KissatM7Sound.lean" ] || M7_X64_FLAGS=(--allow-uncertified)
+M7_ARM64_FLAGS=()
+[ -f "LeanQbe/T/Arm64/KissatM7Sound.lean" ] || M7_ARM64_FLAGS=(--allow-uncertified)
+
+run_build_wave() {
+  local pids=() tags=() logs=()
+  while [ $# -gt 0 ]; do
+    local tag="$1"
+    shift
+    local log="$TMP/build_${tag}.log"
+    tags+=("$tag")
+    logs+=("$log")
+    local args=()
+    while [ $# -gt 0 ] && [ "$1" != "::" ]; do
+      args+=("$1")
+      shift
+    done
+    [ $# -gt 0 ] && shift
+    timeout "$BUILD_TIMEOUT" bash bench/kissat/build_solver.sh "${args[@]}" >"$log" 2>&1 &
+    pids+=("$!")
+  done
+  local fail=0 i
+  for i in "${!pids[@]}"; do
+    if wait "${pids[$i]}"; then
+      cat "${logs[$i]}"
+    else
+      echo "FAIL: build ${tags[$i]} failed:" >&2
+      cat "${logs[$i]}" >&2
+      fail=1
+    fi
+  done
+  [ "$fail" -eq 0 ] || exit 1
+}
+
+run_build_wave \
+  "m7-x64" --module FullM7 --arch x64 ${M7_X64_FLAGS[@]+"${M7_X64_FLAGS[@]}"} \
+    -o "$TMP/kissat-m7-x64" :: \
+  "m7-arm64" --module m7 --arch arm64 ${M7_ARM64_FLAGS[@]+"${M7_ARM64_FLAGS[@]}"} \
+    -o "$TMP/kissat-m7-arm64" :: \
+  "m5-x64" --module FullM5 --arch x64 -o "$TMP/kissat-m5-x64"
+
+run_build_wave \
+  "m5-arm64" --module m5 --arch arm64 -o "$TMP/kissat-m5-arm64" :: \
+  "m6-x64" --module FullM6 --arch x64 ${M6_X64_FLAGS[@]+"${M6_X64_FLAGS[@]}"} \
+    -o "$TMP/kissat-m6-x64" :: \
+  "m6-arm64" --module m6 --arch arm64 ${M6_ARM64_FLAGS[@]+"${M6_ARM64_FLAGS[@]}"} \
+    -o "$TMP/kissat-m6-arm64"
 
 echo "== [3/4] generate SAT/UNSAT/UNKNOWN/guard-page CNF corpus =="
 CDIR="$TMP/cnfs"
@@ -97,7 +158,7 @@ w("sat_multi.cnf", "\n".join(lines) + "\n")
 PY
 
 echo "== [4/4] verify exit codes, DIMACS models, -n, stdin -, and guard pages =="
-timeout 240 python3 -B - "$TMP" "$CDIR" "$RUN_TIMEOUT" <<'PY'
+timeout 360 python3 -B - "$TMP" "$CDIR" "$RUN_TIMEOUT" <<'PY'
 import os, subprocess, sys
 
 tmp, cdir, run_to = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -156,6 +217,8 @@ targets = [
     ("FullM5-arm64", ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu", f"{tmp}/kissat-m5-arm64"]),
     ("FullM6-x64", [f"{tmp}/kissat-m6-x64"]),
     ("FullM6-arm64", ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu", f"{tmp}/kissat-m6-arm64"]),
+    ("FullM7-x64", [f"{tmp}/kissat-m7-x64"]),
+    ("FullM7-arm64", ["qemu-aarch64", "-L", "/usr/aarch64-linux-gnu", f"{tmp}/kissat-m7-arm64"]),
 ]
 
 for label, cmd in targets:
