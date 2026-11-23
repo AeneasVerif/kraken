@@ -861,7 +861,7 @@ private theorem denoteArgs3_inv {t0 t1 t2 : Ty} {vs : List ((t : Ty) × Val t)}
     (hd : denoteArgs (ts := [t0, t1, t2]) vs (a0, a1, a2, ()) = some args') :
     ∃ a0' a1' a2', denoteArg vs a0 = some a0' ∧ denoteArg vs a1 = some a1' ∧
       denoteArg vs a2 = some a2' ∧ args' = (a0', a1', a2', ()) := by
-  simp only [denoteArgs] at hd
+  dsimp only [denoteArgs] at hd
   cases h0 : denoteArg vs a0 with | none => simp [h0] at hd | some x0 =>
   cases h1 : denoteArg vs a1 with | none => simp [h0, h1] at hd | some x1 =>
   cases h2 : denoteArg vs a2 with | none => simp [h0, h1, h2] at hd | some x2 =>
@@ -882,7 +882,7 @@ private theorem denote_wp_arsn_lift {Γ : Env} (hΓ : ArsnLiftHyps Γ)
           wp Γ Q₂ (fun _ _ _ _ => False) (denote Val Cont tf₂ vs ls₂) m_f
   | .let_ (ts := ts) op k, tf₂, vs, ls₁, ls₂, hv_pos, hlast, hls, hmap, Q₁, Q₂, hQ,
       m_s, ext, m_f, hext, hsep, hwp => by
-    simp only [tflatMapArsn] at hmap
+    dsimp only [tflatMapArsn] at hmap
     cases hk_eq : tflatMapArsn (vs.length + ts.length) k with
     | none => simp [hk_eq] at hmap | some k' =>
     simp only [hk_eq, Option.map_some, Option.some.injEq] at hmap; subst tf₂
@@ -896,7 +896,7 @@ private theorem denote_wp_arsn_lift {Γ : Env} (hΓ : ArsnLiftHyps Γ)
       (by rw [hp]; exact hk_eq) Q₁ Q₂ hQ m_s ext m_f hext hsep h
   | .load t a k, tf₂, vs, ls₁, ls₂, hv_pos, hlast, hls, hmap, Q₁, Q₂, hQ,
       m_s, ext, m_f, hext, hsep, hwp => by
-    simp only [tflatMapArsn] at hmap
+    dsimp only [tflatMapArsn] at hmap
     cases hk_eq : tflatMapArsn (vs.length + 1) k with | none => simp [hk_eq] at hmap | some k' =>
     simp only [hk_eq, Option.map_some, Option.some.injEq] at hmap; subst tf₂
     dsimp only [denote] at hwp ⊢
@@ -907,7 +907,7 @@ private theorem denote_wp_arsn_lift {Γ : Env} (hΓ : ArsnLiftHyps Γ)
       hext hsep hwp⟩
   | .store v a k, tf₂, vs, ls₁, ls₂, hv_pos, hlast, hls, hmap, Q₁, Q₂, hQ,
       m_s, ext, m_f, hext, hsep, hwp => by
-    simp only [tflatMapArsn] at hmap
+    dsimp only [tflatMapArsn] at hmap
     cases hk_eq : tflatMapArsn vs.length k with | none => simp [hk_eq] at hmap | some k' =>
     simp only [hk_eq, Option.map_some, Option.some.injEq] at hmap; subst tf₂
     dsimp only [denote] at hwp ⊢
@@ -918,7 +918,7 @@ private theorem denote_wp_arsn_lift {Γ : Env} (hΓ : ArsnLiftHyps Γ)
       hv_pos hlast hls hk_eq Q₁ Q₂ hQ _ ext _ hext (storeMem_frame hsep hok v'.val) hwp⟩
   | .call f bs args k, tf₂, vs, ls₁, ls₂, hv_pos, hlast, hls, hmap, Q₁, Q₂, hQ,
       m_s, ext, m_f, hext, hsep, hwp => by
-    simp only [tflatMapArsn] at hmap
+    dsimp only [tflatMapArsn] at hmap
     by_cases hf_arsn : f = "full_analyze_rsn"
     · subst hf_arsn; simp only [↓reduceIte] at hmap
       cases ht_eq : tflatMapArsnCall bs args vs.length with
@@ -982,7 +982,7 @@ private theorem denote_wp_arsn_lift {Γ : Env} (hΓ : ArsnLiftHyps Γ)
           Q₁ Q₂ hQ m_s' ext m_f' hext hsep' (hP rv m_s' hp)
   | .jnz cd t e, tf₂, vs, ls₁, ls₂, hv_pos, hlast, hls, hmap, Q₁, Q₂, hQ,
       m_s, ext, m_f, hext, hsep, hwp => by
-    simp only [tflatMapArsn] at hmap
+    dsimp only [tflatMapArsn] at hmap
     cases ht_eq : tflatMapArsn vs.length t with | none => simp [ht_eq] at hmap | some t' =>
     cases he_eq : tflatMapArsn vs.length e with | none => simp [ht_eq, he_eq] at hmap | some e' =>
     simp only [ht_eq, he_eq, Option.some.injEq] at hmap; subst tf₂; dsimp only [denote] at hwp ⊢
@@ -994,7 +994,7 @@ private theorem denote_wp_arsn_lift {Γ : Env} (hΓ : ArsnLiftHyps Γ)
         Q₁ Q₂ hQ m_s ext m_f hext hsep (hwp.2 hc)⟩
   | .jump (ts := ts) j args, tf₂, vs, ls₁, ls₂, _, _, hls, hmap, _, _, _,
       m_s, ext, m_f, hext, hsep, hwp => by
-    simp only [tflatMapArsn] at hmap; injection hmap with hmap'; subst tf₂
+    dsimp only [tflatMapArsn] at hmap; injection hmap with hmap'; subst tf₂
     dsimp only [denote] at hwp ⊢
     cases hj1 : lookupL ls₁ ts j with | none => rw [hj1] at hwp; cases hwp | some j₁ =>
     cases hj2 : lookupL ls₂ ts j with
@@ -1004,19 +1004,19 @@ private theorem denote_wp_arsn_lift {Γ : Env} (hΓ : ArsnLiftHyps Γ)
       rw [hj1, ha] at hwp; dsimp only at hwp ⊢
       exact hls.2 ts j j₁ j₂ hj1 hj2 (vals args') m_s m_f ext hext hsep hwp
   | .ret vs', tf₂, vs, _, _, _, _, _, hmap, Q₁, Q₂, hQ, m_s, ext, m_f, hext, hsep, hwp => by
-    simp only [tflatMapArsn] at hmap; injection hmap with hmap'; subst tf₂
+    dsimp only [tflatMapArsn] at hmap; injection hmap with hmap'; subst tf₂
     dsimp only [denote] at hwp ⊢
     cases ha : denoteArgs vs vs' with | none => rw [ha] at hwp; cases hwp | some vs'' =>
     rw [ha] at hwp; dsimp only at hwp ⊢; exact hQ (vals vs'') m_s ext m_f hext hsep hwp
   | .exit _ args, tf₂, vs, _, _, _, _, _, hmap, _, _, _, _, _, _, _, _, hwp => by
-    simp only [tflatMapArsn] at hmap; injection hmap with hmap'; subst tf₂
+    dsimp only [tflatMapArsn] at hmap; injection hmap with hmap'; subst tf₂
     dsimp only [denote] at hwp ⊢
     cases ha : denoteArgs vs args <;> (rw [ha] at hwp; cases hwp)
   | .hlt, tf₂, _, _, _, _, _, _, hmap, _, _, _, _, _, _, _, _, hwp => by
-    simp only [tflatMapArsn] at hmap; injection hmap with hmap'; subst tf₂; exact hwp
+    dsimp only [tflatMapArsn] at hmap; injection hmap with hmap'; subst tf₂; exact hwp
   | .group bodies k, tf₂, vs, ls₁, ls₂, hv_pos, hlast, hls, hmap, Q₁, Q₂, hQ,
       m_s, ext, m_f, hext, hsep, hwp => by
-    simp only [tflatMapArsn] at hmap
+    dsimp only [tflatMapArsn] at hmap
     cases hb_eq : tblocksMapArsn vs.length bodies with
     | none => simp [hb_eq] at hmap | some bodies' =>
     cases hk_eq : tflatMapArsn vs.length k with
@@ -1044,10 +1044,10 @@ private theorem denoteB_wp_arsn_lift {Γ : Env} (hΓ : ArsnLiftHyps Γ)
           Closed arsnLiftEnv Q₁ (fun _ _ _ _ => False) (denoteB Val Cont tb₁ vs ls₁)
             (liftTupContHdr c Js₂)
   | [], .nil, tb₂, _, _, _, _, _, _, hmap, _, _, _, (), _ => by
-    simp only [tblocksMapArsn] at hmap; injection hmap with hmap'; subst tb₂; trivial
+    dsimp only [tblocksMapArsn] at hmap; injection hmap with hmap'; subst tb₂; trivial
   | _, .cons (ts := ts) b bs, tb₂, vs, ls₁, ls₂, hv_pos, hlast, hls, hmap, Q₁, Q₂, hQ,
       (J, Js), hc => by
-    simp only [tblocksMapArsn] at hmap
+    dsimp only [tblocksMapArsn] at hmap
     cases hb_eq : tflatMapArsn (vs.length + ts.length) b with
     | none => simp [hb_eq] at hmap
     | some b' =>
