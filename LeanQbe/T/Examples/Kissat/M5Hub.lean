@@ -101,6 +101,8 @@ public import LeanQbe.T.Examples.Kissat.FullM6TiersProof
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof0
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1a
 public import LeanQbe.T.Examples.Kissat.FullM6TiersProof1b
+public import LeanQbe.T.Examples.Kissat.FullM6Transport0
+public import LeanQbe.T.Examples.Kissat.FullM6Transport1
 public import LeanQbe.T.Examples.Kissat.FullM6VivBackbone
 public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof
 public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof0
