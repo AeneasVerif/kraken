@@ -2369,7 +2369,7 @@ private theorem m6SparseInvW_after_sweep {c : FullCfg} {F0 : CNF Nat}
      fun l hl => by rw [hlm]; exact hsp.2.2.1.2 l hl⟩,
     hnd', ⟨hll', hext' ▸ hsp.2.2.2.2.1.2⟩, hdm.trans hsp.2.2.2.2.2⟩
 
-theorem full_substitute_wp (Γ : Env)
+theorem full_substitute_del_wp (Γ : Env)
     (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
     (hTarjan : ∀ a m Q X, fullTarjanSccSpec a m Q X → Γ "full_tarjan_scc" [i64] [i64] a m Q X)
@@ -2381,7 +2381,7 @@ theorem full_substitute_wp (Γ : Env)
       Γ "full_subst_rewrite_ar" [i64] [.bool] a m Q X)
     (hArenaSweep : ∀ a m Q X, fullArenaSweepSpec a m Q X →
       Γ "full_arena_sweep" [i64] [i64] a m Q X)
-    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X) :
+    (hProp : ∀ a m Q X, fullPropagateDelSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X) :
     ∀ a m Q X, fullSubstituteSpec a m Q X → Func.wp Γ full_substitute_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, s0, R, rfl, hsp0, hm, hQ⟩
   have hmx := c.hmaxv; unfold dimacsBound at hmx
@@ -2480,7 +2480,7 @@ theorem full_substitute_wp (Γ : Env)
                                   · c0_hsteps; c0_call hProp
                                     refine ⟨c, F0, F_cur, st5, R, rfl, hspw5.1, hspw5.2.1,
                                       hspw5.2.2.2.2.2, hm5, ?_⟩
-                                    intro pr _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ fuel6 _ _ _ _ _ _ _ _
+                                    intro pr _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ fuel6 _ _ _ _ _ _ _ _ _
                                       m6 st6 hlen6 hw6 _ hperm6 hfl6 _ _ hpr1 _ _ hm6
                                     have hspw6 := m6SparseInvW_of_perm
                                       hspw5 hlen6 hw6 hperm6 rfl rfl rfl ⟨rfl, rfl⟩
@@ -2538,6 +2538,23 @@ theorem full_substitute_wp (Γ : Env)
         have hnat := congrArg BitVec.toNat hc
         rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hclv_lt] at hnat; exact hnat
       c0_hsteps; exact hJbt s0 m ⟨hsp0, hl00, Nat.le_refl _, hm⟩
+
+theorem full_substitute_wp (Γ : Env)
+    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
+      Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hTarjan : ∀ a m Q X, fullTarjanSccSpec a m Q X → Γ "full_tarjan_scc" [i64] [i64] a m Q X)
+    (hElimVars : ∀ a m Q X, fullSubstElimVarsSpec a m Q X →
+      Γ "full_subst_elim_vars" [i64, i64] [.bool] a m Q X)
+    (hRewriteBins : ∀ a m Q X, fullSubstRewriteBinsSpec a m Q X →
+      Γ "full_subst_rewrite_bins" [i64] [.bool] a m Q X)
+    (hRewriteAr : ∀ a m Q X, fullSubstRewriteArSpec a m Q X →
+      Γ "full_subst_rewrite_ar" [i64] [.bool] a m Q X)
+    (hArenaSweep : ∀ a m Q X, fullArenaSweepSpec a m Q X →
+      Γ "full_arena_sweep" [i64] [i64] a m Q X)
+    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X) :
+    ∀ a m Q X, fullSubstituteSpec a m Q X → Func.wp Γ full_substitute_body a m Q X :=
+  full_substitute_del_wp Γ hBacktrack hTarjan hElimVars hRewriteBins hRewriteAr hArenaSweep
+    (fun a m Q X h => hProp a m Q X (Full.fullPropagateSpec_of_del h))
 
 end SubstituteProof
 

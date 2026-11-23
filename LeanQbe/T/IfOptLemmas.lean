@@ -58,12 +58,30 @@ theorem OpCode.wp_of_isSafeOp {sig rs : List Ty} (code : OpCode sig rs)
     dsimp only [isSafeOp] at hs
     have hle : n ≤ m := of_decide_eq_true hs
     exact ⟨hle, hP _⟩
-  | and _ | or _ | xor _ | not _ | fshl _ | fshr _ | clz _ | cls _ | rbit _ | ctz _ | popcnt _
-  | select _ | ofBool _ | addc _ | subb _ | umulw _ | smulw _ | udiv0 _ | sdiv0 _
-  | mkpair _ _ | unpair _ _ | bitcast _ _ _ =>
+  | and _ | or _ | xor _ | not _ | ternlog _ _ | fshl _ | fshr _
+  | clz _ | cls _ | rbit _ | ctz _ | popcnt _ | select _
+  | ofBool _ | addc _ | subb _ | umulw _ | smulw _ | udiv0 _ | sdiv0 _
+  | mkpair _ _ | unpair _ _ | bitcast _ _ _ | sha256rnds2 | sha256msg1 | sha256msg2 =>
     exact hP _
-  | ternlog _ _ | bswap _ | blend _ _ _ | udiv _ | sdiv _ | urem _ | srem _
-  | shufd _ _ | shufb _ | alignr _ _ | blendw _ _ | sha256rnds2 | sha256msg1 | sha256msg2
+  | blend _ _ _ =>
+    rw [OpCode.wp_blend]
+    exact hP _
+  | bswap t =>
+    rcases args with ⟨a, ⟨⟩⟩
+    dsimp only [isSafeOp] at hs
+    rw [OpCode.wp_bswap, hs]
+    exact hP _
+  | shufd t _ =>
+    rcases args with ⟨a, ⟨⟩⟩
+    dsimp only [isSafeOp] at hs
+    simp only [Bool.and_eq_true, bne_iff_ne, beq_iff_eq] at hs
+    exact ⟨hs.1, hs.2, hP _⟩
+  | shufb t | alignr t _ | blendw t _ =>
+    rcases args with ⟨a, b, ⟨⟩⟩
+    dsimp only [isSafeOp] at hs
+    simp only [Bool.and_eq_true, bne_iff_ne, beq_iff_eq] at hs
+    exact ⟨hs.1, hs.2, hP _⟩
+  | udiv _ | sdiv _ | urem _ | srem _
   | fadd _ | fsub _ | fmul _ | fdiv _ | ffma _ | fsqrt _ | fneg _ | fabs _ | fcmp _ _ _ _
   | fptoui _ _ | fptosi _ _ | uitofp _ _ | sitofp _ _ | fcvt _ _ =>
     dsimp only [isSafeOp] at hs; cases hs

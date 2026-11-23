@@ -653,11 +653,11 @@ private theorem m5_arenaPerm_trans {k1 k2 k3 : FullCoreState}
 /-- `full_warmup_m5` preserves phase saving (`probing` unchanged during warmup), propagates beyond
 conflicts, unwinds via `full_backtrack_raw_m5` with `probing = 1` (protecting `ptgt`/`pbst`), and
 restores `search_ticks`, satisfying canonical `Full.fullWarmupSpec`. -/
-theorem full_warmup_m5_wp (Γ : Env)
+theorem full_warmup_m5_del_wp (Γ : Env)
     (hNextDec : ∀ a m Q X, fullNextDecVarSpec a m Q X →
       Γ "full_next_dec_var" [i64] [i64] a m Q X)
     (hAssign : ∀ a m Q X, fullAssignSpec a m Q X → Γ "full_assign" [i64, i32, i32] [] a m Q X)
-    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
+    (hProp : ∀ a m Q X, fullPropagateDelSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
     (hBtRaw : ∀ a m Q X, fullBacktrackRawSpec a m Q X →
       Γ "full_backtrack_raw_m5" [i64, i64] [] a m Q X) :
     ∀ a m Q X, fullWarmupSpec a m Q X → Func.wp Γ full_warmup_m5_body a m Q X := by
@@ -889,7 +889,8 @@ theorem full_warmup_m5_wp (Γ : Env)
                     dsimp only
                     intro r vals'' flags'' lvl'' rsns'' trl'' tp'' te'' prop'' unas'' unfl''
                       wvec'' arena'' wstk'' wlen'' wu'' fuel'' ctype'' cref'' c0'' c1'' oom''
-                      ticks'' wsort'' phases'' m4 hlen4 hw4 _ hperm4 hfl4 hr_dom _ hr1 _ _ hm4
+                      ticks'' wsort'' phases'' delayed'' m4 hlen4 hw4 _ hperm4 hfl4 hr_dom _
+                      hr1 _ _ hm4
                     let st4 : FullState :=
                       { core := { st_i.core with
                           vals := vals'', flags := flags'', lvl := lvl'', rsns := rsns'',
@@ -899,7 +900,8 @@ theorem full_warmup_m5_wp (Γ : Env)
                           fuel := fuel'', confl_type := ctype'', confl_ref := cref'',
                           confl_lit0 := c0'', confl_lit1 := c1'', oom := oom'' }
                         scratch := { st_i.scratch with
-                          search_ticks := ticks'', wsort := wsort'', phases := phases'' } }
+                          search_ticks := ticks'', wsort := wsort'', phases := phases'',
+                          delayed := delayed'' } }
                     have hinv4 : FullCoreInv c F0 st4 := ⟨hlen4, F_cur_i, hw4⟩
                     have hag4 : AgreesExcept m5WarmupMask s.core st4.core :=
                       hag_i.update (fun k => { k with
@@ -951,6 +953,17 @@ theorem full_warmup_m5_wp (Γ : Env)
       exact hL s.core.cur_vars (0#64, ()) m
         ⟨s, by simp, Nat.zero_le _, hinv, AgreesExcept.refl m5WarmupMask s.core, rfl,
           m5_arenaPerm_refl _, Nat.le_refl _, rfl, rfl, hm⟩
+
+theorem full_warmup_m5_wp (Γ : Env)
+    (hNextDec : ∀ a m Q X, fullNextDecVarSpec a m Q X →
+      Γ "full_next_dec_var" [i64] [i64] a m Q X)
+    (hAssign : ∀ a m Q X, fullAssignSpec a m Q X → Γ "full_assign" [i64, i32, i32] [] a m Q X)
+    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
+    (hBtRaw : ∀ a m Q X, fullBacktrackRawSpec a m Q X →
+      Γ "full_backtrack_raw_m5" [i64, i64] [] a m Q X) :
+    ∀ a m Q X, fullWarmupSpec a m Q X → Func.wp Γ full_warmup_m5_body a m Q X :=
+  full_warmup_m5_del_wp Γ hNextDec hAssign
+    (fun a m Q X h => hProp a m Q X (fullPropagateSpec_of_del h)) hBtRaw
 
 end WarmupProof
 

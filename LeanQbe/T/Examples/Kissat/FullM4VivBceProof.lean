@@ -392,14 +392,70 @@ theorem full_bce_var_m4_wp (Γ : Env)
         fun j hj => FullBceCandOk.of_entry hinv2 (hnn_ent j hj),
         hm2, fun s3 m3 hinv3 hcv3 hfl3 hm3 => hQ s3 m3 hinv3 hcv3 hfl3 hm3⟩
 
-theorem full_bce_m4_wp (Γ : Env)
+private theorem m4_sparseInvW_of_prop_del {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {s : FullState} (hsp : FullSparseInvW c F0 F_cur s)
+    {vals' : List (BitVec 8)} {flags' lvl' rsns' trl' tp' : List (BitVec 32)}
+    {te' prop' : Nat} {unass' unfl' : BitVec 64} {wvec' arena' wstk' : List (BitVec 32)}
+    {wlen' : Nat} {wu' fuel' ctype' cref' c0' c1' oom' ticks' : BitVec 64}
+    {wsort' : List (BitVec 32)} {phases' : List (BitVec 8)} {delayed' : List (BitVec 32)}
+    (hlen' : ({ s with
+      core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                            trl := trl', trail_pos := tp', trail_end := te', propagated := prop',
+                            unassigned := unass', unflushed := unfl', wvec := wvec',
+                            arena := arena', wstk := wstk', wlen := wlen', wusable := wu',
+                            fuel := fuel', confl_type := ctype', confl_ref := cref',
+                            confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
+      scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                  phases := phases', delayed := delayed' } } :
+      FullState).LengthsOk c)
+    (hw' : FullWitnessInv c F0 F_cur
+      { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+                    trail_pos := tp', trail_end := te', propagated := prop',
+                    unassigned := unass', unflushed := unfl', wvec := wvec', arena := arena',
+                    wstk := wstk', wlen := wlen', wusable := wu', fuel := fuel',
+                    confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
+                    confl_lit1 := c1', oom := oom' })
+    (hperm : FullArenaPermEq s.core
+      { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+                    trail_pos := tp', trail_end := te', propagated := prop',
+                    unassigned := unass', unflushed := unfl', wvec := wvec', arena := arena',
+                    wstk := wstk', wlen := wlen', wusable := wu', fuel := fuel',
+                    confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
+                    confl_lit1 := c1', oom := oom' }) :
+    FullSparseInvW c F0 F_cur
+      { s with
+        core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                              trl := trl', trail_pos := tp', trail_end := te', propagated := prop',
+                              unassigned := unass', unflushed := unfl', wvec := wvec',
+                              arena := arena', wstk := wstk', wlen := wlen', wusable := wu',
+                              fuel := fuel', confl_type := ctype', confl_ref := cref',
+                              confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
+        scratch := { s.scratch with
+          search_ticks := ticks', wsort := wsort', phases := phases', delayed := delayed' } } := by
+  let s0' : FullState :=
+    { s with
+      core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                            trl := trl', trail_pos := tp', trail_end := te',
+                            propagated := prop', unassigned := unass', unflushed := unfl',
+                            wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                            wusable := wu', fuel := fuel', confl_type := ctype',
+                            confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                            oom := oom' }
+      scratch := { s.scratch with search_ticks := ticks', wsort := wsort', phases := phases' } }
+  have h0_len : s0'.LengthsOk c :=
+    ⟨hlen'.core_ok,
+      { hlen'.scratch_ok with delayed_len_arr := hsp.1.scratch_ok.delayed_len_arr }⟩
+  have h0 := m4_sparseInvW_of_prop_canon hsp h0_len hw' hperm
+  exact ⟨hlen', hw', h0.2.2.1, h0.2.2.2.1, h0.2.2.2.2.1, h0.2.2.2.2.2⟩
+
+theorem full_bce_m4_del_wp (Γ : Env)
     (hEnterDense : ∀ a m Q X, Full.fullEnterDenseSpec a m Q X →
       Γ "full_enter_dense" [i64] [.bool] a m Q X)
     (hBceVar : ∀ a m Q X, fullBceVarM4Spec a m Q X →
       Γ "full_bce_var_m4" [i64, i32] [] a m Q X)
     (hRebuild : ∀ a m Q X, Full.fullRebuildWatchesSpec a m Q X →
       Γ "full_rebuild_watches" [i64] [i64] a m Q X)
-    (hProp : ∀ a m Q X, Full.fullPropagateSpec a m Q X →
+    (hProp : ∀ a m Q X, Full.fullPropagateDelSpec a m Q X →
       Γ "full_propagate" [i64] [i64] a m Q X) :
     ∀ a m Q X, fullBceM4Spec a m Q X → Func.wp Γ full_bce_m4_body a m Q X := by
   rintro ⟨h, budget, ⟨⟩⟩ m0 Q X ⟨c, F0, s, R, rfl, hsp0, hcl0, hm0, hQ⟩
@@ -452,7 +508,7 @@ theorem full_bce_m4_wp (Γ : Env)
             refine ⟨c, F0, F_cur3, s3, R, rfl, hsw3.1, hsw3.2.1, hsw3.2.2.2.2.2, hm3,
               fun pr vals_p flags_p lvl_p rsns_p trl_p tp_p te_p prop_p unass_p unfl_p
                 wvec_p arena_p wstk_p wlen_p wu_p fuel_p ctype_p cref_p c0_p c1_p oom_p
-                ticks_p wsort_p phases_p m_p hlen_p hw_p _ hperm_p hfl_p _ _ hpr1 _ _
+                ticks_p wsort_p phases_p delayed_p m_p hlen_p hw_p _ hperm_p hfl_p _ _ hpr1 _ _
                 hm_p => ?_⟩
             let s4 : FullState :=
               { s3 with
@@ -464,9 +520,10 @@ theorem full_bce_m4_wp (Γ : Env)
                   fuel := fuel_p, confl_type := ctype_p, confl_ref := cref_p,
                   confl_lit0 := c0_p, confl_lit1 := c1_p, oom := oom_p }
                 scratch := { s3.scratch with
-                  search_ticks := ticks_p, wsort := wsort_p, phases := phases_p } }
+                  search_ticks := ticks_p, wsort := wsort_p,
+                  phases := phases_p, delayed := delayed_p } }
             have hsw4 : FullSparseInvW c F0 F_cur3 s4 :=
-              m4_sparseInvW_of_prop_canon hsw3 hlen_p hw_p hperm_p
+              m4_sparseInvW_of_prop_del hsw3 hlen_p hw_p hperm_p
             have hfl4 : s4.core.fuel.toNat ≤ s.core.fuel.toNat :=
               Nat.le_trans hfl_p (Nat.le_trans hfl3 hfl_ex)
             fvt_steps
@@ -514,6 +571,19 @@ theorem full_bce_m4_wp (Γ : Env)
           (fun _ => m4_unsat_of_inconsistent hsp1 (by c0_bound)) hm1
       · exact hQ 1#64 s1 m1 hsp1 hcl1 (by rw [hfl1]; exact Nat.le_refl _) (Or.inl rfl)
           (fun h => by cases h) hm1
+
+theorem full_bce_m4_wp (Γ : Env)
+    (hEnterDense : ∀ a m Q X, Full.fullEnterDenseSpec a m Q X →
+      Γ "full_enter_dense" [i64] [.bool] a m Q X)
+    (hBceVar : ∀ a m Q X, fullBceVarM4Spec a m Q X →
+      Γ "full_bce_var_m4" [i64, i32] [] a m Q X)
+    (hRebuild : ∀ a m Q X, Full.fullRebuildWatchesSpec a m Q X →
+      Γ "full_rebuild_watches" [i64] [i64] a m Q X)
+    (hProp : ∀ a m Q X, Full.fullPropagateSpec a m Q X →
+      Γ "full_propagate" [i64] [i64] a m Q X) :
+    ∀ a m Q X, fullBceM4Spec a m Q X → Func.wp Γ full_bce_m4_body a m Q X :=
+  full_bce_m4_del_wp Γ hEnterDense hBceVar hRebuild
+    (fun a m Q X h => hProp a m Q X (Full.fullPropagateSpec_of_del h))
 
 end BceM4Proofs
 

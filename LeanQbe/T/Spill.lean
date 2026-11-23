@@ -175,15 +175,16 @@ def opAffVars {ts : List Ty} (op : Op VNat ts) (la : List Nat) : List (Nat × Na
     match a with | .var x => if !natMem x la then (x, w) :: acc else acc | .imm _ => acc
   match code, args with
   | .copy _, (.var a, ()) | .zext _ _, (.var a, ()) | .sext _ _, (.var a, ())
-  | .trunc _ _, (.var a, ()) | .bitcast _ _ _, (.var a, ()) => [(a, 6)]
-  | .neg _, (a, ()) | .not _, (a, ()) | .bswap _, (a, ()) => addDead a 6 []
+  | .trunc _ _, (.var a, ()) | .bitcast _ _ _, (.var a, ()) =>
+    if !natMem a la then [(a, 12)] else [(a, 6)]
+  | .neg _, (a, ()) | .not _, (a, ()) | .bswap _, (a, ()) => addDead a 8 []
   | .add _, (a, b, ()) | .mul _, (a, b, ()) | .and _, (a, b, ())
-  | .or _, (a, b, ()) | .xor _, (a, b, ()) => addDead a 6 (addDead b 5 [])
+  | .or _, (a, b, ()) | .xor _, (a, b, ()) => addDead a 8 (addDead b 6 [])
   | .sub _, (a, _, ()) | .shl _, (a, _, ()) | .lshr _, (a, _, ())
-  | .ashr _, (a, _, ()) | .rotl _, (a, _, ()) | .rotr _, (a, _, ()) => addDead a 6 []
-  | .addc _, (a, b, _, ()) => addDead a 6 (addDead b 5 [])
-  | .subb _, (a, _, _, ()) => addDead a 6 []
-  | .select _, (_, a, b, ()) => addDead a 5 (addDead b 5 [])
+  | .ashr _, (a, _, ()) | .rotl _, (a, _, ()) | .rotr _, (a, _, ()) => addDead a 8 []
+  | .addc _, (a, b, _, ()) => addDead a 8 (addDead b 6 [])
+  | .subb _, (a, _, _, ()) => addDead a 8 []
+  | .select _, (_, a, b, ()) => addDead a 6 (addDead b 6 [])
   | _, _ => []
 
 /-- Preferred source var for `allocDefs` (first dead operand in `opAffVars`, or `firstOpVar`). -/
@@ -286,7 +287,9 @@ structure Ctx (I : Isa) where
   (cross loops : Trie Bool) (loopReach : Trie (List Nat)) (banks : Trie Bank)
   (flagHome : Trie I.Cond) (bparams lTrie : Trie (List Nat))
   (addrDeps : Trie (List Nat) := .empty)
+  (isLeaf : Bool := false)
   (cfg : Cfg := {})
+  (csCost : Nat := 2 * baseMult)
   (brW : Trie (Nat × Nat × Nat) := .empty)
   (hintT : Trie (Nat × Nat) := .empty)
   (jmpW inW : Trie Nat := .empty)
@@ -370,6 +373,20 @@ def hasCallTree : Tree → Bool
 def hasCallTreeB : TreeBlocks → Bool
   | .nil => false
   | .cons _ _ b bs => hasCallTree b || hasCallTreeB bs
+end
+
+mutual
+def countRets : Tree → Nat
+  | .ret .. => 1
+  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k
+  | .call _ _ _ _ _ _ _ k | .skip _ _ k => countRets k
+  | .jnz _ _ _ _ t e => countRets t + countRets e
+  | .group _ bs k => countRetsB bs + countRets k
+  | .jump .. | .exit .. | .stop _ => 0
+
+def countRetsB : TreeBlocks → Nat
+  | .nil => 0
+  | .cons _ _ b bs => countRets b + countRetsB bs
 end
 
 mutual
@@ -632,7 +649,7 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
   let slotCost := wx + if natMem x fnParams then baseMult else 0
   let splitOk := Nat.ble (splitCost + 1) slotCost
   let cheapSplit :=
-    isX && !loopCall.getD x false && splitOk && Nat.ble (splitCost + 1) (2 * baseMult)
+    isX && !loopCall.getD x false && splitOk && Nat.ble splitCost c.csCost
   let toSlot (w : SlotWidth) : ColorSt I.Cond :=
     let prefB := (affT.getD x []).foldl (fun best (y, wy) =>
       match s.hT.getD y .none with
@@ -702,7 +719,9 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
       let caller := if pids.all (fun p => Nat.ble 1 (s.gPb.getD p 0)) then
           c.gAlloc.filter (!natMem · forbCaller) else []
       let csFree := s.usedCs.filter (!natMem · forb)
-      let csThresh := if Nat.ble c.nGpr 8 then 2 * baseMult + 1 else 3 * baseMult
+      let baseCsThresh := if Nat.ble c.nGpr 8 then 2 * baseMult + 1 else 3 * baseMult
+      let leafExtra := if c.isLeaf && s.usedCs.isEmpty then 2 * baseMult else 0
+      let csThresh := max (baseCsThresh + leafExtra) c.csCost
       let newCs := if Nat.ble csThresh wx then
           c.csIds.filter (fun r => !natMem r s.usedCs && !natMem r forb) else []
       let prefs := (affT.getD x []).foldl (fun ps (y, w) =>
@@ -944,7 +963,7 @@ end
 
 /-- Execution weight with which `p` is first read in a tree of weight `w` before any call or
 block boundary, i.e. while a register arrival of `p` would still serve the read. -/
-private def firstUseW {I : Isa} (c : Ctx I) (p : Nat) : Nat → Tree → Nat
+def firstUseW {I : Isa} (c : Ctx I) (p : Nat) : Nat → Tree → Nat
   | w, .let_ _ ip _ _ op k =>
     if natMem p (c.addrDeps.getD ip (opVarIds op)) then w else firstUseW c p w k
   | w, .load _ ip _ _ a k =>
@@ -970,7 +989,7 @@ private def blockUsedGpr {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
 
 /-- Number of block parameters `ps` needing a fresh GPR in `pickPlocs`, given `useSlot p` (whether
 `.slot _ .w64` keeps its slot directly). -/
-private def countPlocGprs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
+def countPlocGprs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     (useSlot : Nat → Bool) (ps : List (Nat × Ty)) : Nat :=
   ps.foldl (fun n (p, _) =>
     match home.getD p .none with
@@ -1053,7 +1072,7 @@ def splitReloadRegs {C : Type} (home : Trie (Home C)) (xs : List Nat) : List Nat
 /-- Estimated weighted cost (spill stores plus edge-block jumps) of deferring the slot store of
 `x` into a tree of execution weight `w`; `arm` marks a direct `jnz` arm. Register clobbers are
 ignored: a clobber only moves the store, it never adds one. -/
-private def sinkCost {I : Isa} (c : Ctx I) (x : Nat) : Nat → Bool → Tree → Nat
+def sinkCost {I : Isa} (c : Ctx I) (x : Nat) : Nat → Bool → Tree → Nat
   | w, _, .let_ _ _ _ _ _ k | w, _, .load _ _ _ _ _ k | w, _, .store _ _ _ _ _ k
   | w, _, .skip _ _ k => if natMem x k.lv then sinkCost c x w false k else 0
   | w, _, .call _ _ _ _ _ _ _ k => if natMem x k.lv then w else 0
@@ -1555,7 +1574,7 @@ deferred, weight)` records of an optimistic emission pass, let block `l` take sl
 register `r` when the predecessors mostly hold it there. `(x, r, false)` enters in the register
 only (its slot store stays deferred into the block); `(x, r, true)` enters in slot and register
 (no reload at the first read). Each choice must beat the slot-only entry on estimated cost. -/
-private def pickRegIn {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Nat)
+def pickRegIn {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Nat)
     (slotOk : Trie Bool) (cin : List (Nat × Nat × Nat × Bool × Nat))
     (blocks : List (Nat × List (Nat × Ty) × Tree)) : Trie (List (Nat × Nat × Bool)) :=
   let gprBudget := c.nGpr + usedCs.length
@@ -1634,6 +1653,7 @@ def hints (I : Isa) (f : Fn)
   let (_, t) := fillLive lTrie addrDeps t1
   let crossList := acrossCalls t
   let crossTrie := crossList.foldl (fun a x => a.insert x true) .empty
+  let isLeaf := crossList.isEmpty
   let bparamsTrie := bs0.foldl (fun a (l, ps, _) => a.insert l (ps.map Prod.fst)) .empty
   let fh := match I.frame.allocatable.head? with
     | some r0 =>
@@ -1643,6 +1663,8 @@ def hints (I : Isa) (f : Fn)
       gatherFlags I r0 r1 v0 v1 condCands nv (fnPs.map Prod.fst) crossTrie bparamsTrie tys lTrie t
     | none => {}
   let (loops, loopReach) := loopBlocksScoped (blocksWithMin t1)
+  let numRets := max 1 (countRets t1)
+  let csCost := (1 + numRets) * baseMult
   let c : Ctx I := {
     allGpr := allGpr, allVec := allVec,
     gReg := (allGpr.foldl (fun (t, i) r => (t.insert i r, i + 1)) (.empty, 0)).1,
@@ -1654,7 +1676,7 @@ def hints (I : Isa) (f : Fn)
     cross := crossTrie, loops := loops, loopReach := loopReach,
     banks := (List.range nv).foldl (fun b x => b.insert x (bankOf I (tys.getD x i64))) .empty,
     flagHome := fh.flagHome, bparams := bparamsTrie, lTrie := lTrie, addrDeps := addrDeps,
-    cfg := cfg, r0? := I.frame.allocatable.head? }
+    isLeaf := isLeaf, cfg := cfg, csCost := csCost, r0? := I.frame.allocatable.head? }
   let initZ32 : Trie Bool := fnPs.foldl (fun z (p, ty) =>
     if isGprTy I ty then z.insert p true else z) .empty
   let acc := gather c [] [] baseMult initZ32 t {}

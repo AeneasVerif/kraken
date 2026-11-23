@@ -559,14 +559,14 @@ private def m6p_analyzeBranchExpr (h_arg hbr_v : Val i64) : Expr Val Cont [i64] 
              (Expr.call "full_probe_flush_hbr" (as := [i64, i64]) (bs := [i64])
                (.var h_arg, .var hbr_v, ()) fun p_r => Expr.ret (.var p_r.fst, ())))))
 
-private theorem m6p_analyzeBranch_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
+private theorem m6p_analyzeBranch_del_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
     {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s st : FullState}
     {R : Mem 64 → Prop} {hbr_v : Val i64} {ml : Mem 64}
     (hAnalyze : ∀ args m Q X, fullAnalyze20Spec args m Q X →
       Γ "full_analyze" [i64] [i64] args m Q X)
     (hBacktrack : ∀ args m Q X, fullBacktrackSpec args m Q X →
       Γ "full_backtrack" [i64, i64] [] args m Q X)
-    (hPropagate : ∀ args m Q X, fullPropagateSpec args m Q X →
+    (hPropagate : ∀ args m Q X, FullProbeTransSpecs.fullPropagateDelSpec args m Q X →
       Γ "full_propagate" [i64] [i64] args m Q X)
     (hFlushHbr : ∀ args m Q X, fullProbeFlushHbrSpec args m Q X →
       Γ "full_probe_flush_hbr" [i64, i64] [i64] args m Q X)
@@ -624,8 +624,8 @@ private theorem m6p_analyzeBranch_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
     pt_steps_nogrp; c0_call hPropagate
     refine ⟨c, F0, F_cur, st1, R, rfl, hsp1.1, hsp1.2.1, hsp1.2.2.2.2.2, hm1, ?_⟩; dsimp only
     intro pr vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
-      fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m2 hlen2 hw2 htr2 hperm2 hfu2 hpr_dom _
-      hp1 _ _ hm2
+      fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' m2 hlen2 hw2 htr2 hperm2 hfu2
+      hpr_dom _ hp1 _ _ hm2
     let st2 : FullState := { st1 with
       core := { st1.core with
         vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
@@ -633,7 +633,8 @@ private theorem m6p_analyzeBranch_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
         unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
         wusable := wu', fuel := fuel', confl_type := ctype', confl_ref := cref',
         confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
-      scratch := { st1.scratch with search_ticks := ticks', wsort := wsort', phases := phases' } }
+      scratch := { st1.scratch with
+        search_ticks := ticks', wsort := wsort', phases := phases', delayed := delayed' } }
     have hlm2 := m6p_litMarksClear_of_eq hsp1.2.2.1 rfl rfl
     have hnd2 := fullArenaVarsNodup_of_permEq hsp1.2.2.2.1 (s' := st2) hperm2
     have hext2 := m6p_extScratchOk_of_pres_eq (s' := st2) hsp1.2.2.2.2.1 rfl rfl hperm2.2.1
@@ -781,7 +782,7 @@ end LocalHelpers
 
 section ProbeAssumePairM6Proof
 
-theorem full_probe_assume_pair_m6_wp (Γ : Env)
+theorem full_probe_assume_pair_m6_del_wp (Γ : Env)
     (hAssign : ∀ args m Q X, fullAssignSpec args m Q X →
       Γ "full_assign" [i64, i32, i32] [] args m Q X)
     (hProbeProp : ∀ args m Q X, fullProbePropExtSpec args m Q X →
@@ -790,7 +791,7 @@ theorem full_probe_assume_pair_m6_wp (Γ : Env)
       Γ "full_backtrack" [i64, i64] [] args m Q X)
     (hAnalyze : ∀ args m Q X, fullAnalyze20Spec args m Q X →
       Γ "full_analyze" [i64] [i64] args m Q X)
-    (hPropagate : ∀ args m Q X, fullPropagateSpec args m Q X →
+    (hPropagate : ∀ args m Q X, FullProbeTransSpecs.fullPropagateDelSpec args m Q X →
       Γ "full_propagate" [i64] [i64] args m Q X)
     (hFlushHbr : ∀ args m Q X, fullProbeFlushHbrSpec args m Q X →
       Γ "full_probe_flush_hbr" [i64, i64] [i64] args m Q X)
@@ -874,8 +875,8 @@ theorem full_probe_assume_pair_m6_wp (Γ : Env)
       (fun _ => ⟨hsp_bt, by simp [st_bt, hcl_bt]⟩) (fun h => absurd h (by decide))
       hcv_pp hfu_pps (Or.inr (Or.inl rfl)) hm_bt
   · have hpr_eq : pr = 1#64 := by pt_clear_big; exact hc
-    exact m6p_analyzeBranch_wp hAnalyze hBacktrack hPropagate hFlushHbr hsp_pp (hpr1 hpr_eq) hcl1_pp
-      hhbr_pp' hcv_pp hfu_pps hpos_mv hm_pp hQ
+    exact m6p_analyzeBranch_del_wp hAnalyze hBacktrack hPropagate hFlushHbr
+      hsp_pp (hpr1 hpr_eq) hcl1_pp hhbr_pp' hcv_pp hfu_pps hpos_mv hm_pp hQ
   · obtain ⟨hpp_te, hent_p1⟩ :=
       m6p_level1Decide_after_prop hw_pp hcl1_pp hte_a1 htrl_a1 hlvl_a1 hrsn_a1 htr_pp
     have hte_pp_le := hlen_pp.core_ok.trail_end_le; have hcv_pp_le := hlen_pp.core_ok.cur_vars_le
@@ -1074,7 +1075,7 @@ theorem full_probe_assume_pair_m6_wp (Γ : Env)
               refine m6p_clearLmLoop_wp hlen_p2 hmrk_p2 hsav_p2 hm_p2
                 fun lm_c m_c hlm_c hlen_c hclr_c hm_c => ?_
               have hsp_c := m6p_sparseInvW_set_litMark hlen_c hw_p2 hclr_c hnd_p2 hext_p2 hdm_p2
-              exact m6p_analyzeBranch_wp hAnalyze hBacktrack hPropagate hFlushHbr hsp_c
+              exact m6p_analyzeBranch_del_wp hAnalyze hBacktrack hPropagate hFlushHbr hsp_c
                 (hpr2_1 hpr2_eq) hcl1_p2 hhbr_p2' hcv_p2s hfu_p2s hpos_mv hm_c hQ
             · let j1Inv : Tup Val [i64, i64] → Mem 64 → Prop := fun (_u, bn_v, ()) mj =>
                 ∃ st_j : FullState, st_j.LengthsOk c ∧ FullWitnessInv c F0 F_cur st_j.core ∧
@@ -1249,6 +1250,27 @@ theorem full_probe_assume_pair_m6_wp (Γ : Env)
         have hsn_lt : sn_v.toNat < s.core.cur_vars := by rw [← hcv_pp]; omega
         pt_clear_big; rw [Nat.mod_eq_of_lt hcv_64] at hc; exact hc hsn_lt
       · exact h_exit_wp (by pt_bound)
+
+theorem full_probe_assume_pair_m6_wp (Γ : Env)
+    (hAssign : ∀ args m Q X, fullAssignSpec args m Q X →
+      Γ "full_assign" [i64, i32, i32] [] args m Q X)
+    (hProbeProp : ∀ args m Q X, fullProbePropExtSpec args m Q X →
+      Γ "full_probe_prop" [i64] [i64] args m Q X)
+    (hBacktrack : ∀ args m Q X, fullBacktrackSpec args m Q X →
+      Γ "full_backtrack" [i64, i64] [] args m Q X)
+    (hAnalyze : ∀ args m Q X, fullAnalyze20Spec args m Q X →
+      Γ "full_analyze" [i64] [i64] args m Q X)
+    (hPropagate : ∀ args m Q X, fullPropagateSpec args m Q X →
+      Γ "full_propagate" [i64] [i64] args m Q X)
+    (hFlushHbr : ∀ args m Q X, fullProbeFlushHbrSpec args m Q X →
+      Γ "full_probe_flush_hbr" [i64, i64] [i64] args m Q X)
+    (hAddUnit : ∀ args m Q X, fullAddUnitSpec args m Q X →
+      Γ "full_add_unit" [i64, i32] [.bool] args m Q X) :
+    ∀ args m Q X, fullProbeAssumePairSpec args m Q X →
+      Func.wp Γ full_probe_assume_pair_m6_body args m Q X :=
+  full_probe_assume_pair_m6_del_wp Γ hAssign hProbeProp hBacktrack hAnalyze
+    (fun a m Q X h => hPropagate a m Q X (FullProbeTransSpecs.fullPropagateSpec_of_del h))
+    hFlushHbr hAddUnit
 
 end ProbeAssumePairM6Proof
 

@@ -292,8 +292,10 @@ theorem shiftAndGroup_renorm_spec (Γ : Env) (x : BitVec 64) (c : Bool) (m : Mem
     · simp [h1]
   simp only [wp, vals, Arg.val, hsh]
   intro Js hcl
-  simp only [Closed, wp, Op.wp, OpCode.wp, vals, Arg.val, and_true] at hcl
-  exact ⟨fun _ => hcl (5 * (3 + x), ()) m (by simp), fun _ => by simp⟩
+  revert hcl
+  wp_unfold_all
+  intro hcl
+  exact ⟨fun _ => hcl.1 (5 * (3 + x), ()) m (by wp_unfold_all), fun _ => by simp⟩
 
 /-! ## 7. Axiom audit -/
 
@@ -315,5 +317,101 @@ theorem shiftAndGroup_renorm_spec (Γ : Env) (x : BitVec 64) (c : Bool) (m : Mem
 #print axioms LeanQbe.T.CanonTest.shiftAndGroup_canon_out
 #print axioms LeanQbe.T.CanonTest.commCse_renorm_spec
 #print axioms LeanQbe.T.CanonTest.shiftAndGroup_renorm_spec
+
+/-! ## 8. Subtraction constant-chain canonicalization -/
+
+def subChainProg : Func [i64, i64] [i64, i64] :=
+  fun _ _ (x, y, ()) =>
+  .let_ (op2 (.sub i64) (.var x) (.imm 3#64)) fun (s0, ()) =>
+  .let_ (op2 (.sub i64) (.var s0) (.imm 5#64)) fun (r0, ()) =>
+  .let_ (op2 (.add i64) (.var x) (.imm 10#64)) fun (a0, ()) =>
+  .let_ (op2 (.sub i64) (.var a0) (.imm 3#64)) fun (r1, ()) =>
+  .let_ (op2 (.sub i64) (.var y) (.imm 10#64)) fun (_) =>
+  .ret (.var r0, .var r1, ())
+
+theorem subChain_canon_out :
+    Func.canon subChainProg = fun _ _ (x, y, ()) =>
+      .let_ (op2 (.sub i64) (.var x) (.imm 3#64)) fun (_, ()) =>
+      .let_ (op2 (.sub i64) (.var x) (.imm 8#64)) fun (r0, ()) =>
+      .let_ (op2 (.add i64) (.var x) (.imm 10#64)) fun (_, ()) =>
+      .let_ (op2 (.add i64) (.var x) (.imm 7#64)) fun (r1, ()) =>
+      .let_ (op2 (.sub i64) (.var y) (.imm 10#64)) fun (_, ()) =>
+      .ret (.var r0, .var r1, ()) := by
+  have h0 : Func.canon subChainProg = fun _ _ (x, y, ()) =>
+      .let_ (op2 (.sub i64) (.var x) (.imm 3#64)) fun (_, ()) =>
+      .let_ (op2 (.sub i64) (.var x) (.imm (-((-3#64 : BitVec 64) + (-5#64))))) fun (r0, ()) =>
+      .let_ (op2 (.add i64) (.var x) (.imm 10#64)) fun (_, ()) =>
+      .let_ (op2 (.add i64) (.var x) (.imm (10#64 + (-3#64 : BitVec 64)))) fun (r1, ()) =>
+      .let_ (op2 (.sub i64) (.var y) (.imm 10#64)) fun (_, ()) =>
+      .ret (.var r0, .var r1, ()) := by
+    t_kernel_rfl
+  rw [show (-((-3#64 : BitVec 64) + (-5#64))) = 8#64 from by simp,
+    show (10#64 + (-3#64 : BitVec 64)) = 7#64 from by simp] at h0
+  exact h0
+
+theorem subChainProg_wf : subChainProg.Wf := by t_wf_reify
+
+theorem subChain_canon_wf : (Func.canon subChainProg).Wf :=
+  Func.canon_wf subChainProg_wf
+
+theorem subChain_canon_spec (Γ : Env) (x y : BitVec 64) (m : Mem 64) :
+    Func.spec Γ (Func.canon subChainProg) (x, y, ()) m
+      (fun (r0, r1, ()) m' =>
+        r0 = (x - 3#64) - 5#64 ∧ r1 = (x + 10#64) - 3#64 ∧ m' = m)
+      (fun _ _ _ _ => False) := by
+  apply Func.canon_spec subChainProg_wf
+  dsimp only [Func.spec, Func.wp, subChainProg]
+  wp_unfold_all
+
+def subAddBoolProg : Func [i64, .bool] [i64, i64, .bool] :=
+  fun _ _ (x, b, ()) =>
+  .let_ (op2 (.sub i64) (.var x) (.imm 3#64)) fun (s0, ()) =>
+  .let_ (op2 (.add i64) (.var s0) (.imm 10#64)) fun (r0, ()) =>
+  .let_ (op2 (.add i64) (.var x) (.imm 5#64)) fun (a1, ()) =>
+  .let_ (op2 (.sub i64) (.imm 20#64) (.var a1)) fun (r1, ()) =>
+  .let_ (op2 (.sub .bool) (.var b) (.imm true)) fun (sb, ()) =>
+  .let_ (op2 (.sub .bool) (.var sb) (.imm false)) fun (r2, ()) =>
+  .ret (.var r0, .var r1, .var r2, ())
+
+theorem subAddBool_canon_out :
+    Func.canon subAddBoolProg = fun _ _ (x, b, ()) =>
+      .let_ (op2 (.sub i64) (.var x) (.imm 3#64)) fun (_, ()) =>
+      .let_ (op2 (.add i64) (.var x) (.imm 7#64)) fun (r0, ()) =>
+      .let_ (op2 (.add i64) (.var x) (.imm 5#64)) fun (_, ()) =>
+      .let_ (op2 (.sub i64) (.imm 15#64) (.var x)) fun (r1, ()) =>
+      .let_ (op2 (.sub .bool) (.var b) (.imm true)) fun (_, ()) =>
+      .let_ (op2 (.sub .bool) (.var b) (.imm true)) fun (r2, ()) =>
+      .ret (.var r0, .var r1, .var r2, ()) := by
+  have h0 : Func.canon subAddBoolProg = fun _ _ (x, b, ()) =>
+      .let_ (op2 (.sub i64) (.var x) (.imm 3#64)) fun (_, ()) =>
+      .let_ (op2 (.add i64) (.var x) (.imm ((-3#64 : BitVec 64) + 10#64))) fun (r0, ()) =>
+      .let_ (op2 (.add i64) (.var x) (.imm 5#64)) fun (_, ()) =>
+      .let_ (op2 (.sub i64) (.imm (20#64 + (-5#64 : BitVec 64))) (.var x)) fun (r1, ()) =>
+      .let_ (op2 (.sub .bool) (.var b) (.imm true)) fun (_, ()) =>
+      .let_ (op2 (.sub .bool) (.var b) (.imm true)) fun (r2, ()) =>
+      .ret (.var r0, .var r1, .var r2, ()) := by
+    t_kernel_rfl
+  rw [show ((-3#64 : BitVec 64) + 10#64) = 7#64 from by simp,
+    show (20#64 + (-5#64 : BitVec 64)) = 15#64 from by simp] at h0
+  exact h0
+
+theorem subAddBoolProg_wf : subAddBoolProg.Wf := by t_wf_reify
+
+theorem subAddBool_canon_wf : (Func.canon subAddBoolProg).Wf :=
+  Func.canon_wf subAddBoolProg_wf
+
+theorem subAddBool_canon_spec (Γ : Env) (x : BitVec 64) (b : Bool) (m : Mem 64) :
+    Func.spec Γ (Func.canon subAddBoolProg) (x, b, ()) m
+      (fun (r0, r1, r2, ()) m' =>
+        r0 = (x - 3#64) + 10#64 ∧ r1 = 20#64 - (x + 5#64) ∧
+        r2 = (b ^^ true) ^^ false ∧ m' = m)
+      (fun _ _ _ _ => False) := by
+  apply Func.canon_spec subAddBoolProg_wf
+  dsimp only [Func.spec, Func.wp, subAddBoolProg]
+  wp_unfold_all
+  simp
+
+#print axioms LeanQbe.T.CanonTest.subChain_canon_spec
+#print axioms LeanQbe.T.CanonTest.subAddBool_canon_spec
 
 end LeanQbe.T.CanonTest

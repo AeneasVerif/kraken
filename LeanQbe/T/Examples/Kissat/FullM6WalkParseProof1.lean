@@ -351,11 +351,11 @@ private theorem pb6_eof_done {c : FullCfg} {s st : FullState}
 
 /-- Eager parse-time unit BCP `full_parse_body_m6` satisfies exact canonical
 `Full.fullParseBodySpec` parametrically in `Γ`. -/
-theorem full_parse_body_m6_wp (Γ : Env)
+theorem full_parse_body_m6_del_wp (Γ : Env)
     (hSkip : ∀ a m Q X, fullSkipClSpec a m Q X → Γ "full_skip_cl" [i64, i64] [.bool] a m Q X)
     (hIngest : ∀ a m Q X, fullIngestClSpec a m Q X →
       Γ "full_ingest_cl" [i64, i64] [i64] a m Q X)
-    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
+    (hProp : ∀ a m Q X, fullPropagateDelSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
     (hSwc : ∀ a m Q X, kissatSkipWsCommentsSpec a m Q X →
       Γ "kissat_skip_ws_comments" [i64, i64] [i64] a m Q X) :
     ∀ a m Q X, fullParseBodySpec a m Q X → Func.wp Γ full_parse_body_m6_body a m Q X := by
@@ -512,7 +512,7 @@ theorem full_parse_body_m6_wp (Γ : Env)
               refine ⟨c, shiftDownCnf (accCnf.add cl), F_cur', st',
                 bytes cnf_ptr cnfBytes ⋆ R, rfl, hsp'.1, hsp'.2.1, hsp'.2.2.2.2.2,
                 sep_ac hm', ?_⟩
-              intro pr _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ m_pr s_pr
+              intro pr _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ delayed_pr m_pr s_pr
                 hlen_pr hw_pr _ hperm_pr _ hpr_dom hpr0 hpr1 _ _ hm_pr
               have hm_pr' : (bytes cnf_ptr cnfBytes ⋆ FullMem c s_pr ⋆ R) m_pr := sep_ac hm_pr
               have hsp_pr : FullSparseInvW c (shiftDownCnf (accCnf.add cl)) F_cur' s_pr :=
@@ -626,6 +626,17 @@ theorem full_parse_body_m6_wp (Γ : Env)
             (by rw [List.length_take, hinv0.1.lengths.core_ok.vals_len]; omega)
             (by rw [hinv0.1.lengths.core_ok.vals_len]; omega) (fun k hk => ?_) hut
           rw [List.getElem?_take_of_lt hk]⟩⟩⟩, hm⟩
+
+theorem full_parse_body_m6_wp (Γ : Env)
+    (hSkip : ∀ a m Q X, fullSkipClSpec a m Q X → Γ "full_skip_cl" [i64, i64] [.bool] a m Q X)
+    (hIngest : ∀ a m Q X, fullIngestClSpec a m Q X →
+      Γ "full_ingest_cl" [i64, i64] [i64] a m Q X)
+    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
+    (hSwc : ∀ a m Q X, kissatSkipWsCommentsSpec a m Q X →
+      Γ "kissat_skip_ws_comments" [i64, i64] [i64] a m Q X) :
+    ∀ a m Q X, fullParseBodySpec a m Q X → Func.wp Γ full_parse_body_m6_body a m Q X :=
+  full_parse_body_m6_del_wp Γ hSkip hIngest
+    (fun a m Q X h => hProp a m Q X (fullPropagateSpec_of_del h)) hSwc
 
 end ParseBodyM6Proof
 
