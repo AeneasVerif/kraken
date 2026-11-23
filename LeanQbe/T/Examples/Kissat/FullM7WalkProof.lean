@@ -345,7 +345,7 @@ private theorem m7p_zext32 (x : BitVec 32) : (x.setWidth 64).toNat = x.toNat := 
   rw [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (Nat.lt_trans x.isLt (by decide))]
 
 private theorem m7p_rshift32_lt {x : BitVec 64} :
-    (x >>> BitVec.signExtend 64 32#32).toNat < 2 ^ 32 := by
+    (x >>> 32#64).toNat < 2 ^ 32 := by
   simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
   have hx := x.isLt; omega
 
@@ -584,7 +584,6 @@ attribute [local c0_load] FullArenaTactics.load_full_walk_cnt_stat
 attribute [local c0_load] FullArenaTactics.c0_load_full_wsort
 attribute [local c0_load] FullArenaTactics.c0_load_full_walk_vals
 attribute [local c0_load] FullArenaTactics.c0_load_full_walk_best
-attribute [local c0_load] FullArenaTactics.c0_load_full_scratch_buf
 attribute [local c0_store] FullArenaTactics.store_full_walk_cnt_stat
 attribute [local c0_store] FullArenaTactics.store_full_fuel
 attribute [local c0_store] FullArenaTactics.c0_store_full_wsort
@@ -674,17 +673,20 @@ theorem full_walk_m7_wp (Γ : Env)
       c0_hsplit
       · c0_hsteps; exact hJ26 () m2 ⟨s2, hcore20, hlen2, hpres20, hm2⟩
       have hcap_le := hc; clear hc
-      let ncl := rcol >>> BitVec.signExtend 64 32#32
+      let ncl := rcol >>> 32#64
       let nlit := rcol &&& 0xffffffff#64
       have hncl_lt : ncl.toNat < 2 ^ 32 := m7p_rshift32_lt
       have hncl_pos : 0 < ncl.toNat :=
         Nat.pos_of_ne_zero (fun h0 => hncl_ne (BitVec.eq_of_toNat_eq h0))
       have hcap5 : 32 + 5 * ncl.toNat ≤ c.scratch_cap := by
-        have hmul : (32#64 + 5#64 * ncl).toNat = 32 + 5 * ncl.toNat := by
-          rw [BitVec.toNat_add, BitVec.toNat_mul, show (32#64 : BitVec 64).toNat = 32 from rfl,
-            show (5#64 : BitVec 64).toNat = 5 from rfl,
-            Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-        rw [Nat.mod_eq_of_lt (by omega), hmul] at hcap_le
+        have hsc_mod : c.scratch_cap % 2 ^ 64 = c.scratch_cap := by
+          have := c.hscr
+          unfold Examples.LratBytes.dimacsBound at this
+          omega
+        have hmod : (32 + 5 * ncl.toNat) % 2 ^ 64 = 32 + 5 * ncl.toNat :=
+          Nat.mod_eq_of_lt (by have := hncl_lt; omega)
+        change ¬ c.scratch_cap % 2 ^ 64 < (32 + 5 * ncl.toNat) % 2 ^ 64 at hcap_le
+        rw [hsc_mod, hmod] at hcap_le
         omega
       have hncl_le : ncl.toNat ≤ c.scratch_cap := by omega
       c0_hsteps_nogrp
@@ -701,15 +703,16 @@ theorem full_walk_m7_wp (Γ : Env)
         ⟨hpres4.1.trans hpres30.1, hpres4.2.trans hpres30.2⟩
       c0_hsteps_nogrp
       -- step_lim := max(256, ncl <<< 1), eff_lim := min(4096, step_lim)
-      refine wp_join_group (ts := [i64]) (fun _ mS => mS = m5)
+      refine wp_join_group (ts := [i64]) (fun _ mS => (FullMem c s4 ⋆ R) mS)
         (fun _ ⟨step_lim, ⟨⟩⟩ mS hmS => by
-          subst hmS; c0_hsteps_nogrp
-          refine wp_join_group (ts := [i64]) (fun _ mE => mE = m5)
+          c0_hsteps_nogrp
+          refine wp_join_group (ts := [i64]) (fun _ mE => (FullMem c s4 ⋆ R) mE)
             (fun _ ⟨eff_lim, ⟨⟩⟩ mE hmE => by
-              subst hmE; c0_hsteps_nogrp
-              refine m7Effort_call hEffort rfl hlen4 hm5 fun eff_ticks m6 _ _ hm6 => ?_
               c0_hsteps_nogrp
-              have hwcap := m7p_bv64_shr2_add1_le hcv_le hcv_pos (by omega)
+              refine m7Effort_call hEffort rfl hlen4 hmE fun eff_ticks m6 _ _ hm6 => ?_
+              c0_hsteps_nogrp
+              have hwcap := m7p_bv64_shr2_add1_le hcv_le (by omega)
+                (by have := c.hmaxv; unfold Examples.LratBytes.dimacsBound at this; omega)
               have h2cv : (BitVec.ofNat 64 s.core.cur_vars <<<
                   BitVec.signExtend 64 1#32).toNat = 2 * s.core.cur_vars := by
                 rw [m7p_bv64_shl1 (by rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; omega),
@@ -730,8 +733,11 @@ theorem full_walk_m7_wp (Γ : Env)
                   refine m7SaveMin_call hSaveMin rfl hlenX hmX
                     fun sY mY hcoreY hlenY hpresY hmY => ?_
                   c0_hsteps
-                  exact m7Walk_close_Q hQ (by simp [hcoreY, hcoreX]) hlenY hfuelX
-                    ⟨hpresY.1.trans hpresX.1, hpresY.2.trans hpresX.2⟩ hmY)
+                  let sY' : FullState := { sY with scratch :=
+                    { sY.scratch with walk_cnt_stat := sY.scratch.walk_cnt_stat + 1#64 } }
+                  have hlenY' : sY'.LengthsOk c := ⟨hlenY.core_ok, { hlenY.scratch_ok with }⟩
+                  exact m7Walk_close_Q hQ (by simp [sY', hcoreY, hcoreX]) hlenY' hfuelX
+                    ⟨hpresY.1.trans hpresX.1, hpresY.2.trans hpresX.2⟩ (by assumption))
                 (fun J53X hJ53X => by
                   refine wp_loop_group (ts := [i64, i64, i64, i64, Ty.bool, i64, i64])
                     (fun fn _ mL => ∃ sL fuelL, sL.core = { s.core with fuel := fuelL } ∧
@@ -741,37 +747,32 @@ theorem full_walk_m7_wp (Γ : Env)
                       ⟨sL, fuelL, hcoreL, hfnL, hfuelL, hlenL, hpresL, hmL⟩
                     have hcoreL_cv : sL.core.cur_vars = s.core.cur_vars := by rw [hcoreL]
                     have hcoreL_fl : sL.core.fuel = fuelL := by rw [hcoreL]
-                    c0_hsteps_nogrp
                     c0_hsplit
                     · -- uc > 0
-                      have huc_gt0 := hc; clear hc
+                      have huc_pos : 0 < uc.toNat := by simpa using hc
                       c0_hsplit
                       · -- uc ≤ ncl
-                        have huc_pos : 0 < uc.toNat := by
-                          rw [show (0#64 : BitVec 64).toNat = 0 from rfl] at huc_gt0
-                          exact huc_gt0
-                        have huc_le : uc.toNat ≤ ncl.toNat :=
-                          Nat.le_of_not_lt (fun hgt => hc (by simp [hgt]))
+                        have huc_le : uc.toNat ≤ ncl.toNat := hc
                         c0_hsplit
                         · -- flp < step_lim
                           c0_hsplit
                           · -- tks < eff_ticks
                             c0_hsplit
                             · -- fuelL > 0
-                              have hf_pos : 0 < fuelL.toNat := by
-                                rw [hcoreL_fl, show (0#64 : BitVec 64).toNat = 0 from rfl] at hc
-                                exact hc
+                              have hf_pos : 0 < fuelL.toNat := by simpa [hcoreL_fl] using hc
                               have hfn_sub : (fuelL - 1#64).toNat = fn - 1 := by
                                 rw [m7p_bv64_sub1 hf_pos, hfnL]
                               have hlt_n : fn - 1 < fn := by omega
                               have hurem_lt : (flp % uc).toNat < uc.toNat := by
                                 rw [BitVec.toNat_umod]; exact Nat.mod_lt _ huc_pos
-                              have hslot_sb : (32#64 + 4#64 * ncl + flp % uc).toNat <
+                              have hslot_sb : (32#64 + 4#64 * (rcol >>> 32#64) + flp % uc).toNat <
                                   sL.scratch.scratch_buf.length := by
-                                rw [hlenL.scratch_ok.scratch_buf_len, BitVec.toNat_add, hbase,
+                                rw [hlenL.scratch_ok.scratch_buf_len, BitVec.toNat_add,
+                                  show (32#64 + 4#64 * (rcol >>> 32#64)).toNat =
+                                    32 + 4 * ncl.toNat from hbase,
                                   Nat.mod_eq_of_lt (by omega)]
                                 omega
-                              c0_hsteps_nogrp
+                              c0_hstep; c0_hstep; c0_hstep; c0_hstep; c0_hstep
                               let sL1 : FullState := { sL with core := { sL.core with
                                 fuel := fuelL - 1#64 } }
                               have hcoreL1 : sL1.core = { s.core with fuel := fuelL - 1#64 } := by
@@ -780,6 +781,10 @@ theorem full_walk_m7_wp (Γ : Env)
                               have hlenL1 : sL1.LengthsOk c :=
                                 ⟨m7CoreLengths_with_fuel hlenL.core_ok, hlenL.scratch_ok⟩
                               have hpresL1 : FullExtScratchPres s sL1 := hpresL
+                              have hslot_sb1 : (32#64 + 4#64 * (rcol >>> 32#64) + flp % uc).toNat <
+                                  sL1.scratch.scratch_buf.length := hslot_sb
+                              refine wp_load_of
+                                (FullArenaTactics.c0_load_full_scratch_buf hslot_sb1 ‹_›) ?_
                               c0_hsplit
                               · -- (v75.setWidth 64) ≥ ncl -> continue
                                 c0_hsteps
@@ -1178,12 +1183,12 @@ theorem full_walk_m7_wp (Γ : Env)
                       ⟨s4, s.core.fuel, hcore40, rfl, Nat.le_refl _, hlen4, hpres40, hm6⟩))
             (fun J36 hJ36 => by
               c0_hsplit
-              · c0_hsteps; exact hJ36 _ m5 rfl
-              · c0_hsteps; exact hJ36 _ m5 rfl))
+              · c0_hsteps; exact hJ36 _ _ hmS
+              · c0_hsteps; exact hJ36 _ _ hmS))
         (fun J35 hJ35 => by
           c0_hsplit
-          · c0_hsteps; exact hJ35 _ m5 rfl
-          · c0_hsteps; exact hJ35 _ m5 rfl))
+          · c0_hsteps; exact hJ35 _ _ hm5
+          · c0_hsteps; exact hJ35 _ _ hm5))
 
 /-! ### `full_warmup_m7_wp` & `full_walk_warmup_m7_wp` — full warmup WP -/
 
@@ -1244,7 +1249,7 @@ theorem full_warmup_m7_wp (Γ : Env)
       let sE1 : FullState := { sE with core := { sE.core with probing := 1#64 } }
       have hinvE1 : FullCoreInv c F0 sE1 := m7CoreInv_with_probing hinvE
       have hpermE1 : FullArenaPermEq s.core sE1.core := m7ArenaPermEq_with_probing hpermE
-      refine m7Backtrack_call hBT rfl hinvE1 (Nat.zero_le _) hm fun sB mB hinvB hpermB hclB
+      refine m7Backtrack_call hBT rfl hinvE1 (Nat.zero_le _) ‹_› fun sB mB hinvB hpermB hclB
           hfuelB _ hdB _ hcvB halB _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hpresB hmB => ?_
       c0_hsteps
       let sF : FullState := FullState.mk
@@ -1278,14 +1283,23 @@ theorem full_warmup_m7_wp (Γ : Env)
         have hlenL := hinvL.lengths
         c0_hsteps_nogrp
         c0_hsplit
-        ·
-                have hk_lt_bv : k.toNat < s.core.cur_vars % 2 ^ 64 := by assumption
-                have hk_lt : k.toNat < s.core.cur_vars := by
-                  rw [Nat.mod_eq_of_lt (by omega)] at hk_lt_bv
-                  exact hk_lt_bv
-                have hk1 : (k + 1#64).toNat = k.toNat + 1 :=
-                  m7p_bv64_add1_lt hk_lt (by omega)
-                have hlt_n : s.core.cur_vars - (k.toNat + 1) < fn := by omega
+        · -- steps < cv
+          have hk_lt_bv : k.toNat < s.core.cur_vars % 2 ^ 64 := by assumption
+          have hk_lt : k.toNat < s.core.cur_vars := by
+            rw [Nat.mod_eq_of_lt (by omega)] at hk_lt_bv
+            exact hk_lt_bv
+          have hk1 : (k + 1#64).toNat = k.toNat + 1 :=
+            m7p_bv64_add1_lt hk_lt (by omega)
+          have hlt_n : s.core.cur_vars - (k.toNat + 1) < fn := by omega
+          c0_hsteps_nogrp
+          c0_hsplit
+          · -- unassigned > 0
+            c0_hsteps_nogrp
+            c0_hsplit
+            · -- oom == 0
+              c0_hsteps_nogrp
+              c0_hsplit
+              · -- fuel > 0
                 c0_hsteps_nogrp
                 refine m7NextDecVar_call hNDV rfl hlenL hmL
                   fun r sL2 mL2 hcoreL2 hlenL2 hpresL2 hresL2 hmL2 => ?_
@@ -1305,7 +1319,8 @@ theorem full_warmup_m7_wp (Γ : Env)
                 c0_hsplit
                 · -- r == -1 -> exit
                   c0_hsteps
-                  exact hJ46E _ mL2 ⟨sL2, hinvL2, hpermL2, hfuelL2, hpresL20, heqL2, hdL2, hmL2⟩
+                  exact hJ46E (k, ()) mL2
+                    ⟨sL2, hinvL2, hpermL2, hfuelL2, hpresL20, heqL2, hdL2, hmL2⟩
                 · -- pick phase and decide lit
                   have hr_spec : r.toNat < sL2.core.cur_vars ∧
                       sL2.core.vals[2 * r.toNat]?.getD 0#8 = 0#8 := by
@@ -1322,28 +1337,36 @@ theorem full_warmup_m7_wp (Γ : Env)
                     rw [hlenL2.scratch_ok.phases_target_len]; exact hr_lt
                   c0_hsteps_nogrp
                   refine wp_join_group (ts := [i8])
-                    (fun _ m61 => m61 = mL2)
+                    (fun _ m61 => (FullMem c sL2 ⋆ R) m61)
                     (fun _ ⟨ph, ⟨⟩⟩ m61 hm61 => by
-                      subst m61
                       c0_hsteps_nogrp
                       refine wp_join_group (ts := [i32])
-                        (fun ⟨lit, ⟨⟩⟩ m62 => m62 = mL2 ∧
-                          (lit.toNat = 2 * r.toNat ∨ lit.toNat = 2 * r.toNat + 1))
-                        (fun _ ⟨lit, ⟨⟩⟩ m62 ⟨hm62, hlit_eq⟩ => by
-                          subst m62
+                        (fun ⟨lit, ⟨⟩⟩ m62 =>
+                          (lit.toNat = 2 * r.toNat ∨ lit.toNat = 2 * r.toNat + 1) ∧
+                          (FullMem c sL2 ⋆ R) m62)
+                        (fun _ ⟨lit, ⟨⟩⟩ m62 ⟨hlit_eq, hm62⟩ => by
                           have hcl_L2 : sL2.core.cur_level ≤ sL2.core.cur_vars := by
                             obtain ⟨_, hwL2⟩ := hinvL2.witness
                             exact Nat.le_trans hwL2.cur_level_le hlenL2.core_ok.trail_end_le
-                          have hcl_lt29 : sL2.core.cur_level + 1 < 2 ^ 29 := by
-                            have := hlenL2.core_ok.cur_vars_le; omega
                           c0_hsteps_nogrp
                           c0_hsplit
                           · -- nlvl > max_vars -> exit
-                            c0_hsteps
-                            exact hJ46E _ mL2
-                              ⟨sL2, hinvL2, hpermL2, hfuelL2, hpresL20, heqL2, hdL2, hmL2⟩
-                          · have hnlvl_le : sL2.core.cur_level + 1 ≤ c.max_vars :=
-                              Nat.le_of_not_lt (fun hgt => hc hgt)
+                            try c0_hsteps
+                            exact hJ46E (k, ()) m62
+                              ⟨sL2, hinvL2, hpermL2, hfuelL2, hpresL20, heqL2, hdL2, hm62⟩
+                          · have hmv := c.hmaxv
+                            have hcv := hlenL2.core_ok.cur_vars_le
+                            have hnlvl_le : sL2.core.cur_level + 1 ≤ c.max_vars := by
+                              unfold Examples.LratBytes.dimacsBound at hmv
+                              change ¬ c.max_vars % 2 ^ 64 <
+                                  (sL2.core.cur_level + 1) % 2 ^ 64 at hc
+                              have h1 : c.max_vars % 2 ^ 64 = c.max_vars :=
+                                Nat.mod_eq_of_lt (by omega)
+                              have h2 : (sL2.core.cur_level + 1) % 2 ^ 64 =
+                                  sL2.core.cur_level + 1 :=
+                                Nat.mod_eq_of_lt (by omega)
+                              rw [h1, h2] at hc
+                              omega
                             have hnlvl_ft : sL2.core.cur_level + 1 <
                                 sL2.core.frame_trail.length := by
                               rw [hlenL2.core_ok.frame_trail_len]; omega
@@ -1362,8 +1385,10 @@ theorem full_warmup_m7_wp (Γ : Env)
                                 (by simp [ft', hlenL2.core_ok.frame_trail_len])
                                 (by simp [fd', hlenL2.core_ok.frame_dec_len]),
                                 hlenL2.scratch_ok⟩
-                            have hdec_probe := full_decide_preserves_fullCore hinvL2
-                              hlenL2.scratch_ok hlenL2.core_ok.flags_len hr_spec.1 hr_spec.2 hlit_eq
+                            have hdec_probe := full_decide_preserves_fullCore
+                              (unas' := sL2.core.unassigned) (unfl' := sL2.core.unflushed)
+                              hinvL2 hlenL2.scratch_ok hlenL2.core_ok.flags_len
+                              hr_spec.1 hr_spec.2 hlit_eq
                             have hval0_lit : sL2.core.vals[lit.toNat]?.getD 0#8 = 0#8 :=
                               hdec_probe.2.1
                             have hte_lt : sL2.core.trail_end < sL2.core.cur_vars :=
@@ -1377,104 +1402,143 @@ theorem full_warmup_m7_wp (Γ : Env)
                               intro hor
                               rcases hor with h1 | h2 | h3
                               · exact absurd (hv_eq ▸ h1) (Nat.not_le.mpr hr_spec.1)
-                              · exact absurd h2 (Nat.not_le.mpr (Nat.lt_of_lt_of_le hte_lt hcv_le2))
+                              · exact absurd h2
+                                  (Nat.not_le.mpr (Nat.lt_of_lt_of_le hte_lt hcv_le2))
                               · exact h3 hval0_lit
-                            refine wp_call_of_spec _ _ ?_
-                            refine hAssign _ _ _ _ ⟨c, sDec, R, rfl, hlenDec,
-                              (by have := hlenL2.core_ok.cur_vars_le; omega), ‹_›, ?_⟩
-                            rw [if_neg hguard_false]
-                            intro flagsA unassA phasesA mA sAssign hflA hphA hmA
-                            have hdec_ok := full_decide_preserves_fullCore hinvL2
-                              (m7ScratchLengths_with_phases hlenL2.scratch_ok hphA) hflA
-                              hr_spec.1 hr_spec.2 hlit_eq
-                            have hnlvl_ne0 : sDec.core.cur_level ≠ 0 := by
-                              change nlvl ≠ 0; omega
-                            let sA : FullState :=
-                              { core := { sL2.core with
-                                  unassigned := unassA,
-                                  trail_end := sL2.core.trail_end + 1,
-                                  vals := (sL2.core.vals.set lit.toNat 1#8).set
-                                    (lit.toNat ^^^ 1) 255#8,
-                                  flags := flagsA,
-                                  lvl := sL2.core.lvl.set (lit.toNat / 2)
-                                    (BitVec.ofNat 32 nlvl),
-                                  rsns := sL2.core.rsns.set (lit.toNat / 2) 4294967295#32,
-                                  trl := sL2.core.trl.set sL2.core.trail_end lit,
-                                  trail_pos := sL2.core.trail_pos.set (lit.toNat / 2)
-                                    (BitVec.ofNat 32 sL2.core.trail_end),
-                                  frame_trail := ft', frame_dec := fd', cur_level := nlvl },
-                                scratch := { sL2.scratch with phases := phasesA } }
-                            have hsA_eq : sAssign = sA := by
-                              simp only [sAssign, sA, sDec, nlvl, if_neg hnlvl_ne0]
-                            rw [hsA_eq] at hmA
-                            have hinvA : FullCoreInv c F0 sA := hdec_ok.1
-                            have hpermA : FullArenaPermEq s.core sA.core := hpermL2
-                            have hfuelA : sA.core.fuel.toNat ≤ s.core.fuel.toNat := hfuelL2
-                            have hpresA : FullExtScratchPres s sA := hpresL20
-                            have heqA : M7WarmupCoreEq s.core sA.core := heqL2
-                            have hdA : sA.core.dense_mode = 0#64 := hdL2
-                            c0_hsteps_nogrp
-                            refine wp_join_group (ts := [])
-                              (fun _ mJ => ∃ sJ, FullCoreInv c F0 sJ ∧
-                                FullArenaPermEq s.core sJ.core ∧
-                                sJ.core.fuel.toNat ≤ s.core.fuel.toNat ∧
-                                FullExtScratchPres s sJ ∧ M7WarmupCoreEq s.core sJ.core ∧
-                                sJ.core.dense_mode = 0#64 ∧ (FullMem c sJ ⋆ R) mJ)
-                              (fun _ ⟨⟩ mJ
-                                  ⟨sJ, hinvJ, hpermJ, hfuelJ, hpresJ, heqJ, hdJ, hmJ⟩ => by
-                                c0_hsteps
-                                exact hJ46 _ hlt_n _ _
-                                  ⟨sJ, by rw [hk1]; exact hk_lt, by rw [hk1], hinvJ, hpermJ,
-                                    hfuelJ, hpresJ, heqJ, hdJ, hmJ⟩)
-                              (fun J75 hJ75 => by
-                                c0_hsplit
-                                · c0_hsplit
-                                  · c0_hsplit
+                            have hte_bv : (BitVec.ofNat 64 sL2.core.trail_end).truncate 32 =
+                                BitVec.ofNat 32 sL2.core.trail_end := by
+                              apply BitVec.eq_of_toNat_eq; simp
+                            have hcl_lt64 : sL2.core.cur_level < 2 ^ 64 := by
+                              have := hcl_L2; have := hlenL2.core_ok.cur_vars_le
+                              have := c.hmaxv; unfold Examples.LratBytes.dimacsBound at this; omega
+                            have hnlvl_lt64 : sL2.core.cur_level + 1 < 2 ^ 64 := by
+                              have := hcl_L2; have := hlenL2.core_ok.cur_vars_le
+                              have := c.hmaxv; unfold Examples.LratBytes.dimacsBound at this; omega
+                            have hnlvl_nat :
+                                (BitVec.ofNat 64 sL2.core.cur_level + 1#64).toNat = nlvl := by
+                              dsimp [nlvl]
+                              rw [BitVec.toNat_ofNat,
+                                Nat.mod_eq_of_lt hcl_lt64,
+                                Nat.mod_eq_of_lt hnlvl_lt64]
+                            refine wp_call_of_spec _ _ (hAssign _ _ _ _ ?_)
+                            refine ⟨c, sDec, R, rfl, hlenDec,
+                              (by dsimp [sDec, nlvl]; have := hnlvl_le; have := c.hmaxv;
+                                  unfold Examples.LratBytes.dimacsBound at this; omega),
+                              (by simp only [sDec, nlvl, ft', fd', ← hnlvl_nat, ← hte_bv]; exact hm), ?_⟩
+                            split
+                            · rename_i h; exact False.elim (hguard_false h)
+                            · intro v rsn' unfl' flagsA unassA phasesA mA hflA hphA sA' hmA
+                              have hdec_ok := full_decide_preserves_fullCore
+                                (unas' := unassA) (unfl' := sL2.core.unflushed) hinvL2
+                                (m7ScratchLengths_with_phases hlenL2.scratch_ok hphA) hflA
+                                hr_spec.1 hr_spec.2 hlit_eq
+                              let sA : FullState :=
+                                { core := { sL2.core with
+                                    unassigned := unassA,
+                                    trail_end := sL2.core.trail_end + 1,
+                                    vals := (sL2.core.vals.set lit.toNat 1#8).set
+                                      (lit.toNat ^^^ 1) 255#8,
+                                    flags := flagsA,
+                                    lvl := sL2.core.lvl.set (lit.toNat / 2)
+                                      (BitVec.ofNat 32 nlvl),
+                                    rsns := sL2.core.rsns.set (lit.toNat / 2) 4294967295#32,
+                                    trl := sL2.core.trl.set sL2.core.trail_end lit,
+                                    trail_pos := sL2.core.trail_pos.set (lit.toNat / 2)
+                                      (BitVec.ofNat 32 sL2.core.trail_end),
+                                    frame_trail := ft', frame_dec := fd', cur_level := nlvl },
+                                  scratch := { sL2.scratch with phases := phasesA } }
+                              have hsA_eq : sA = sA' := by
+                                dsimp [sA, sA', sDec, v, rsn', unfl']
+                              rw [← hsA_eq] at hmA
+                              have hinvA : FullCoreInv c F0 sA := hdec_ok.1
+                              have hpermA : FullArenaPermEq s.core sA.core := hpermL2
+                              have hfuelA : sA.core.fuel.toNat ≤ s.core.fuel.toNat := hfuelL2
+                              have hpresA : FullExtScratchPres s sA := hpresL20
+                              have heqA : M7WarmupCoreEq s.core sA.core :=
+                                ⟨heqL2.1, heqL2.2, heqL2.3, heqL2.4, heqL2.5, heqL2.6, heqL2.7,
+                                  heqL2.8, heqL2.9, heqL2.10, heqL2.11, heqL2.12, heqL2.13,
+                                  heqL2.14, heqL2.15, heqL2.16, heqL2.17, heqL2.18, heqL2.19,
+                                  heqL2.20, heqL2.21⟩
+                              have hdA : sA.core.dense_mode = 0#64 := hdL2
+                              c0_hsteps_nogrp
+                              refine wp_join_group (ts := [])
+                                (fun _ mJ => ∃ sJ, FullCoreInv c F0 sJ ∧
+                                  FullArenaPermEq s.core sJ.core ∧
+                                  sJ.core.fuel.toNat ≤ s.core.fuel.toNat ∧
+                                  FullExtScratchPres s sJ ∧ M7WarmupCoreEq s.core sJ.core ∧
+                                  sJ.core.dense_mode = 0#64 ∧ (FullMem c sJ ⋆ R) mJ)
+                                (fun _ ⟨⟩ mJ
+                                    ⟨sJ, hinvJ, hpermJ, hfuelJ, hpresJ, heqJ, hdJ, hmJ⟩ => by
+                                  c0_hsteps
+                                  exact hJ46 (s.core.cur_vars - (k.toNat + 1)) (k + 1#64, ()) mJ hlt_n
+                                    ⟨sJ, by rw [hk1]; omega, by rw [hk1], hinvJ, hpermJ,
+                                      hfuelJ, hpresJ, heqJ, hdJ, hmJ⟩)
+                                (fun J75 hJ75 => by
+                                  c0_hsteps_nogrp
+                                  c0_hsplit
+                                  · c0_hsteps_nogrp
+                                    c0_hsplit
                                     · c0_hsteps_nogrp
-                                      refine m7Propagate_call hProp rfl hinvA hdA hmA
-                                        fun rprop sP mP hinvP hpermP hfuelP hpresP _ _ hdP
-                                          hincP hcvP hd1P hd2P _ hagP hfrP hniP hnrP hnbP
-                                          htcP htlP hmclP hmcfP hlmP hmrkP htmpP hmcP _ _ hrepP
-                                          hmsP hmP => ?_
-                                      have hpermP0 := m7ArenaPermEq_trans hpermA hpermP
-                                      have hpresP0 : FullExtScratchPres s sP :=
-                                        ⟨hpresP.1.trans hpresA.1, hpresP.2.trans hpresA.2⟩
-                                      have heqP0 : M7WarmupCoreEq s.core sP.core := by
-                                        refine m7WarmupCoreEq_trans heqA ?_
-                                        constructor <;> assumption
                                       c0_hsplit
-                                      · c0_hsteps; exact hJ75 () mP
-                                          ⟨sP, hinvP, hpermP0, by omega, hpresP0, heqP0,
-                                            by rw [hdP, hdA], hmP⟩
-                                      · c0_hsteps; exact hJ75 () mP
-                                          ⟨sP, hinvP, hpermP0, by omega, hpresP0, heqP0,
-                                            by rw [hdP, hdA], hmP⟩
+                                      · c0_hsteps_nogrp
+                                        refine m7Propagate_call hProp rfl hinvA hdA hmA
+                                          fun rprop sP mP hinvP hpermP hfuelP hpresP hprobP hclP hdP
+                                            hincP hcvP hd1P hd2P hgarbP hagP hfrP hniP hnrP hnbP
+                                            htcP htlP hmclP hmcfP hlmP hmrkP htmpP hmcP hfdP hrepP
+                                            hmstkP hmP => ?_
+                                        have hpermP0 := m7ArenaPermEq_trans hpermA hpermP
+                                        have hpresP0 : FullExtScratchPres s sP :=
+                                          ⟨hpresP.1.trans hpresA.1, hpresP.2.trans hpresA.2⟩
+                                        have heqP0 : M7WarmupCoreEq s.core sP.core := by
+                                          refine m7WarmupCoreEq_trans heqA ?_
+                                          exact ⟨hd1P, hd2P, hcvP, hpermP.arena_len_eq, hgarbP,
+                                            hagP, hfrP, hniP, hnrP, hnbP, htcP, htlP, hmclP,
+                                            hdP, hincP, hmcfP, hlmP, hmrkP, htmpP, hrepP, hmstkP⟩
+                                        c0_hsplit
+                                        · c0_hsteps; exact hJ75 () mP
+                                            ⟨sP, hinvP, hpermP0, by omega, hpresP0, heqP0,
+                                              by rw [hdP, hdA], hmP⟩
+                                        · c0_hsteps; exact hJ75 () mP
+                                            ⟨sP, hinvP, hpermP0, by omega, hpresP0, heqP0,
+                                              by rw [hdP, hdA], hmP⟩
+                                      · c0_hsteps; exact hJ75 () mA
+                                          ⟨sA, hinvA, hpermA, hfuelA, hpresA, heqA, hdA, hmA⟩
                                     · c0_hsteps; exact hJ75 () mA
                                         ⟨sA, hinvA, hpermA, hfuelA, hpresA, heqA, hdA, hmA⟩
                                   · c0_hsteps; exact hJ75 () mA
-                                      ⟨sA, hinvA, hpermA, hfuelA, hpresA, heqA, hdA, hmA⟩
-                                · c0_hsteps; exact hJ75 () mA
-                                    ⟨sA, hinvA, hpermA, hfuelA, hpresA, heqA, hdA, hmA⟩))
+                                      ⟨sA, hinvA, hpermA, hfuelA, hpresA, heqA, hdA, hmA⟩))
                         (fun J62 hJ62 => by
+                          have hr29 : r.toNat < 2 ^ 29 := by
+                            have := hr_lt
+                            have := c.hmaxv
+                            unfold Examples.LratBytes.dimacsBound at this
+                            omega
                           c0_hsplit
-                          · c0_hsteps; exact hJ62 _ mL2
-                              ⟨rfl, Or.inr (m7p_lit_neg_shl64 (by omega))⟩
-                          · c0_hsteps; exact hJ62 _ mL2
-                              ⟨rfl, Or.inl (m7p_lit_pos_shl64 (by omega))⟩))
+                          · c0_hsteps
+                            exact hJ62
+                              (((r <<< BitVec.signExtend 64 1#32).truncate 32 ||| 1#32), ()) _
+                              ⟨Or.inr (m7p_lit_neg_shl64 hr29), hm61⟩
+                          · c0_hsteps
+                            exact hJ62 (((r <<< BitVec.signExtend 64 1#32).truncate 32), ()) _
+                              ⟨Or.inl (m7p_lit_pos_shl64 hr29), hm61⟩))
                     (fun J61 hJ61 => by
                       c0_hsplit
                       · c0_hsteps_nogrp
                         c0_hsplit
-                        · c0_hsteps; exact hJ61 _ mL2 rfl
-                        · c0_hsteps; exact hJ61 _ mL2 rfl
-                      · c0_hsteps; exact hJ61 _ mL2 rfl)
-        · c0_hsteps; exact hJ46E _ mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
-        · c0_hsteps; exact hJ46E _ mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
-        · c0_hsteps; exact hJ46E _ mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
-        · c0_hsteps; exact hJ46E _ mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
+                        · c0_hsteps; exact hJ61 _ _ hmL2
+                        · c0_hsteps; exact hJ61 _ _ hmL2
+                      · c0_hsteps; exact hJ61 _ _ hmL2)
+                · try c0_hsteps
+                  exact hJ46E (k, ()) mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
+              · try c0_hsteps
+                exact hJ46E (k, ()) mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
+            · try c0_hsteps
+              exact hJ46E (k, ()) mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
+          · try c0_hsteps
+            exact hJ46E (k, ()) mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
       · intro J46 hJ46
         c0_hsteps
-        exact hJ46 s.core.cur_vars _ m
+        exact hJ46 s.core.cur_vars (0#64, ()) m
           ⟨s, Nat.zero_le _, by simp, hinv, m7ArenaPermEq_refl _, Nat.le_refl _, ⟨rfl, rfl⟩,
             m7WarmupCoreEq_refl _, hd0, hm⟩)
 
