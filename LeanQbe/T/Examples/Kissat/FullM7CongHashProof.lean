@@ -19,11 +19,12 @@ import Kraken.Separation
 M1-clean verification (`public section`, `0` `@[expose]`, `0` `import all`, `0` `maxHeartbeats`,
 `0` `bv_decide`):
 1. `M7CongHtCtrlOk` / `M7CongHtInv` invariants and bridges to `FullCongSpecs.CongHtInv`.
-2. Parametric `(Γ : Env)` `Func.wp` proofs for all `5` functions (`full_cong_ht_hash_ent_m7`,
-   `full_cong_ht_init_m7`, `full_cong_ht_grow_m7`, `full_cong_ht_lookup_m7`,
-   `full_cong_ht_insert_m7`) preserving `SafetySlice.spec (fullSafetySlice c)` (`FullState.core`
-   + `LengthsOk c`), `FullExtScratchPres`, and prefix `scratch_buf`.
-3. Closed `5`-row `m7CongHashSpecTable`, `m7CongHashEnv`, `m7CongHash_moduleOk`, and
+2. Parametric `(Γ : Env)` `Func.wp` proofs for all `6` functions (`full_cong_ht_hash_ent_m7`,
+   `full_cong_ht_init_m7`, `full_cong_ht_grow_m7`, `full_cong_ht_grow_clear_m7`,
+   `full_cong_ht_lookup_m7`, `full_cong_ht_insert_m7`) preserving
+   `SafetySlice.spec (fullSafetySlice c)` (`FullState.core` + `LengthsOk c`), `FullExtScratchPres`,
+   and prefix `scratch_buf`.
+3. Closed `6`-row `m7CongHashSpecTable`, `m7CongHashEnv`, `m7CongHash_moduleOk`, and
    `m7CongHashEnv_noExit`.
 -/
 
@@ -39,18 +40,46 @@ open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.K
 open LeanQbe.T.Examples.Kissat.Full.FullCongHelpers
 open Kraken.Bedrock2.Test
 
-/-! ## 2b. Lookup/Insert Specs & Closed `5`-Row Environment -/
+/-! ## 2b. Lookup/Insert Specs & Closed `6`-Row Environment -/
 
 section Specs
 
+abbrev m7CongHashTmpStep (acc : BitVec 64) (w : BitVec 32) : BitVec 64 :=
+  acc * 0x85EBCA77#64 + w.setWidth 64 + 1#64
+
+abbrev m7CongHashTmpGo : Nat → BitVec 64 → Nat → List (BitVec 32) → BitVec 64
+  | 0, acc, _, _ => acc
+  | n + 1, acc, idx, tmp =>
+      m7CongHashTmpGo n (m7CongHashTmpStep acc (tmp[idx]?.getD 0#32)) (idx + 1) tmp
+
+abbrev m7CongHashTmp (htag harity : BitVec 32) (tmp : List (BitVec 32)) : BitVec 64 :=
+  m7CongHashTmpGo harity.toNat (htag.setWidth 64 * 0x9E3779B1#64 + harity.setWidth 64) 0 tmp
+
+abbrev m7CongSlotMatch (scr : List (BitVec 32)) (ht_off : Nat)
+    (htag harity : BitVec 32) (tmp : List (BitVec 32)) (ent : BitVec 32) : Prop :=
+  ent ≠ 0xFFFFFFFF#32 ∧ ent.toNat + 2 + harity.toNat ≤ ht_off ∧
+  ∃ mw : BitVec 32, scr[ent.toNat + 1]? = some mw ∧
+    (mw >>> 28) = htag ∧ (mw &&& 0xFF#32) = harity ∧
+    ∀ j < harity.toNat, scr[ent.toNat + 2 + j]? = tmp[j]?
+
 /-- **#4 (`full_cong_ht_lookup_m7`)**: read-only linear probe for `(htag, harity, tmp[0..<harity])`,
-returning `0xFFFFFFFF#32` or a verified matching gate offset in `scr[ht_off ..< ht_off + ht_sz)`. -/
+returning `0xFFFFFFFF#32` (with probe-chain completeness along `slot0`) or a verified matching gate
+offset in `scr[ht_off ..< ht_off + ht_sz)`. -/
 abbrev m7CongHtLookupSpec : Spec [i64, i64, i32, i32] [i32] :=
   fun (h, ctrl_off, htag, harity, ()) m Q _ =>
     ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
       h = c.hdr ∧ s.LengthsOk c ∧ (FullMem c s ⋆ R) m ∧
       ∀ ret : BitVec 32,
-        (ret = 0xFFFFFFFF#32 ∨
+        ((ret = 0xFFFFFFFF#32 ∧
+          ∀ ht_off ht_sz,
+            M7CongHtCtrlOk c s.scratch.scratch_buf ctrl_off.toNat ht_off ht_sz →
+            harity.toNat ≤ 31 → harity.toNat ≤ c.max_vars →
+            let slot0 := (m7CongHashTmp htag harity s.core.tmp).toNat % ht_sz
+            ∀ kp < ht_sz,
+              (∀ m0 ≤ kp,
+                s.scratch.scratch_buf[ht_off + (slot0 + m0) % ht_sz]? ≠ some 0xFFFFFFFF#32) →
+              ∀ ent, s.scratch.scratch_buf[ht_off + (slot0 + kp) % ht_sz]? = some ent →
+                ¬ m7CongSlotMatch s.scratch.scratch_buf ht_off htag harity s.core.tmp ent) ∨
           ∃ ht_off ht_sz k mw,
             M7CongHtCtrlOk c s.scratch.scratch_buf ctrl_off.toNat ht_off ht_sz ∧
             harity.toNat ≤ 31 ∧ harity.toNat ≤ c.max_vars ∧
@@ -68,7 +97,8 @@ theorem m7CongHtLookupSpec_noExit : ∀ a m Q X,
 
 /-- **#5 (`full_cong_ht_insert_m7`)**: inserts gate entry `ent` (auto-growing at 75% load),
 returning `ent`, an existing equivalent gate entry, or `0xFFFFFFFF#32` when full/invalid,
-while preserving `FullState.core`, `LengthsOk c`, `FullExtScratchPres`, and prefix `scratch_buf`. -/
+while preserving `FullState.core`, `LengthsOk c`, `FullExtScratchPres`, prefix `scratch_buf`,
+and all existing table entries. -/
 abbrev m7CongHtInsertSpec : Spec [i64, i64, i32] [i32] :=
   fun (h, ctrl_off, ent, ()) m Q _ =>
     ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
@@ -84,8 +114,21 @@ abbrev m7CongHtInsertSpec : Spec [i64, i64, i32] [i32] :=
           ∃ new_sz,
             M7CongHtCtrlOk c scr' ctrl_off.toNat ht_off new_sz ∧
             (new_sz = old_sz ∨ new_sz = 2 * old_sz) ∧ new_sz ≤ m7CongHashMaxSz ∧
+            ((∃ mw : BitVec 32, s.scratch.scratch_buf[ent.toNat + 1]? = some mw ∧
+                (mw &&& 0xFF#32).toNat ≤ 31 ∧
+                ent.toNat + 2 + (mw &&& 0xFF#32).toNat ≤ ht_off) →
+              (old_sz ≤ s.scratch.res_sz.toNat ∨ 3 * old_sz ≤ 4 * s.scratch.res_sz.toNat) →
+              old_sz < m7CongHashMaxSz → ht_off + 2 * old_sz ≤ c.scratch_cap →
+              new_sz = 2 * old_sz) ∧
+            (¬ ((old_sz ≤ s.scratch.res_sz.toNat ∨
+                3 * old_sz ≤ 4 * s.scratch.res_sz.toNat) ∧
+                old_sz < m7CongHashMaxSz ∧ ht_off + 2 * old_sz ≤ c.scratch_cap) →
+              new_sz = old_sz) ∧
             (∀ idx < ht_off, idx ≠ ctrl_off.toNat + 7 →
               scr'[idx]? = s.scratch.scratch_buf[idx]?) ∧
+            (∀ v : BitVec 32, v.toNat < ht_off →
+              (∃ k0 < old_sz, s.scratch.scratch_buf[ht_off + k0]? = some v) →
+              ∃ j < new_sz, scr'[ht_off + j]? = some v) ∧
             (∀ j < new_sz,
               scr'[ht_off + j]? = some 0xFFFFFFFF#32 ∨
               scr'[ht_off + j]? = some ent ∨
@@ -98,22 +141,33 @@ abbrev m7CongHtInsertSpec : Spec [i64, i64, i32] [i32] :=
               ∀ mw : BitVec 32, s.scratch.scratch_buf[ent.toNat + 1]? = some mw →
               (mw &&& 0xFF#32).toNat ≤ 31 →
               ent.toNat + 2 + (mw &&& 0xFF#32).toNat ≤ ht_off →
-              ∀ j < new_sz, scr'[ht_off + j]? ≠ some 0xFFFFFFFF#32)) →
+              (∀ j < new_sz, scr'[ht_off + j]? ≠ some 0xFFFFFFFF#32) ∧
+              (new_sz = old_sz → scr' = s.scratch.scratch_buf) ∧
+              ¬ ((old_sz ≤ s.scratch.res_sz.toNat ∨
+                  3 * old_sz ≤ 4 * s.scratch.res_sz.toNat) ∧
+                  old_sz < m7CongHashMaxSz ∧ ht_off + 2 * old_sz ≤ c.scratch_cap))) →
         (ret = 0xFFFFFFFF#32 ∨ ret = ent ∨
-          ∃ ht_off new_sz k,
+          ∃ ht_off new_sz k mw_e mw_c,
             M7CongHtCtrlOk c scr' ctrl_off.toNat ht_off new_sz ∧
-            k < new_sz ∧ scr'[ht_off + k]? = some ret ∧ ret.toNat < ht_off) →
+            k < new_sz ∧ scr'[ht_off + k]? = some ret ∧ ret.toNat < ht_off ∧
+            s.scratch.scratch_buf[ent.toNat + 1]? = some mw_e ∧
+            scr'[ret.toNat + 1]? = some mw_c ∧
+            (mw_c >>> 28) = (mw_e >>> 28) ∧ (mw_c &&& 0xFF#32) = (mw_e &&& 0xFF#32) ∧
+            ret.toNat + 2 + (mw_e &&& 0xFF#32).toNat ≤ ht_off ∧
+            ∀ j < (mw_e &&& 0xFF#32).toNat,
+              scr'[ret.toNat + 2 + j]? = scr'[ent.toNat + 2 + j]?) →
         (FullMem c s' ⋆ R) m' → Q (ret, ()) m'
 
 theorem m7CongHtInsertSpec_noExit : ∀ a m Q X,
     m7CongHtInsertSpec a m Q X → m7CongHtInsertSpec a m Q (fun _ _ _ _ => False) :=
   fun _ _ _ _ h => h
 
-/-- Closed `5`-row specification table for `m7CongHashModule`. -/
+/-- Closed `6`-row specification table for `m7CongHashModule`. -/
 abbrev m7CongHashSpecTable : List SpecEntry :=
   [ .ofFn full_cong_ht_hash_ent_m7 m7CongHtHashEntSpec true
   , .ofFn full_cong_ht_init_m7 m7CongHtInitSpec true
   , .ofFn full_cong_ht_grow_m7 m7CongHtGrowSpec true
+  , .ofFn full_cong_ht_grow_clear_m7 m7CongHtGrowClearSpec true
   , .ofFn full_cong_ht_lookup_m7 m7CongHtLookupSpec true
   , .ofFn full_cong_ht_insert_m7 m7CongHtInsertSpec true ]
 
@@ -126,7 +180,7 @@ theorem m7CongHashEnv_noExit :
       m7CongHashEnv f as bs xs m Q X → m7CongHashEnv f as bs xs m Q X' :=
   Env.ofTable_noExit fun e he => by
     simp only [m7CongHashSpecTable, List.mem_cons, List.not_mem_nil, or_false] at he
-    rcases he with rfl | rfl | rfl | rfl | rfl <;> rfl
+    rcases he with rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
 
 end Specs
 
@@ -159,19 +213,26 @@ theorem full_cong_ht_lookup_m7_wp (Γ : Env) :
   have hsc := c.hscr; have hmx := c.hmaxv; unfold dimacsBound at hsc hmx
   have hscrl := hlen.scratch_ok.scratch_buf_len
   have htmpl := hlen.core_ok.tmp_len_arr
+  have hfail_no : (∀ ho hs, M7CongHtCtrlOk c s.scratch.scratch_buf ctrl_off.toNat ho hs →
+      harity.toNat ≤ 31 → harity.toNat ≤ c.max_vars → False) →
+      Q (0xFFFFFFFF#32, ()) m0 := fun hno =>
+    hQ 0xFFFFFFFF#32 (Or.inl ⟨rfl, fun ho hs hok h31 hmv =>
+      False.elim (hno ho hs hok h31 hmv)⟩)
   unfold Func.wp full_cong_ht_lookup_m7_body
   c0_hsplit
-  · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+  · c0_hsteps; exact hfail_no (fun _ _ hok _ _ => by
+      have := hok.2.1; have := hok.2.2.1; m7_omega)
   · have hco_le : ctrl_off.toNat ≤ c.scratch_cap := by m7_omega
     clear hc; c0_hsplit
-    · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+    · c0_hsteps; exact hfail_no (fun _ _ hok _ _ => by
+        have := ctrl_off.isLt; have := hok.2.1; have := hok.2.2.1; m7_omega)
     · have hco8 : ctrl_off.toNat + 8 ≤ c.scratch_cap := by
         have := ctrl_off.isLt; m7_omega
       clear hc; c0_hsplit
-      · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+      · c0_hsteps; exact hfail_no (fun _ _ _ h31 _ => by m7_omega)
       · have hha31 : harity.toNat ≤ 31 := by m7_omega
         clear hc; c0_hsplit
-        · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+        · c0_hsteps; exact hfail_no (fun _ _ _ _ hmv => by m7_omega)
         · have hha_mv : harity.toNat ≤ c.max_vars := by m7_omega
           clear hc
           have h6n : (ctrl_off + 6#64).toNat = ctrl_off.toNat + 6 :=
@@ -208,38 +269,78 @@ theorem full_cong_ht_lookup_m7_wp (Γ : Env) :
           have hs7b : s.scratch.scratch_buf[(ctrl_off + (7 : BitVec 64)).toNat]'(by
               change (ctrl_off.toNat + 7) % 2 ^ 64 < s.scratch.scratch_buf.length
               rw [Nat.mod_eq_of_lt (by omega)]; omega) = ht_sz_w := hs7a
+          have hbad_ht : ¬ (ctrl_off.toNat + 8 ≤ ht_off.toNat ∧ ht_off.toNat < c.scratch_cap ∧
+              ht_off.toNat ≤ 0x7FFFFFFF) →
+              ∀ ho hs, M7CongHtCtrlOk c s.scratch.scratch_buf ctrl_off.toNat ho hs → False :=
+            fun hbad ho hs hok => by
+              apply hbad
+              obtain ⟨rfl, rfl⟩ := m7CongHtCtrlOk_match_reads hco8 hscrl hho_eq hsz_eq hok
+              exact ⟨hok.2.1, Nat.lt_of_lt_of_le (by
+                  have ⟨k, _, he⟩ := hok.2.2.2.2.1; have := Nat.two_pow_pos k; omega) hok.2.2.1,
+                hok.2.2.2.1⟩
           c0_hsplit
-          · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+          · c0_hsteps; exact hfail_no (fun ho hs hok _ _ => hbad_ht (fun ⟨h1, _⟩ => by
+              rw [hs6a, hht_nat] at hc
+              change ht_off.toNat < (ctrl_off.toNat + BitVec.toNat 8) % 2 ^ 64 at hc
+              m7_omega) ho hs hok)
           · have h1 : ctrl_off.toNat + 8 ≤ ht_off.toNat := by
               rw [hs6a, hht_nat] at hc
               change ¬ ht_off.toNat < (ctrl_off.toNat + BitVec.toNat 8) % 2 ^ 64 at hc
               m7_omega
             clear hc; c0_hsplit
-            · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+            · c0_hsteps; exact hfail_no (fun ho hs hok _ _ => hbad_ht (fun ⟨_, h2, _⟩ => by
+                rw [hs6a, hht_nat] at hc
+                change c.scratch_cap % 2 ^ 64 ≤ ht_off.toNat at hc; m7_omega) ho hs hok)
             · have h2 : ht_off.toNat < c.scratch_cap := by
                 rw [hs6a, hht_nat] at hc
                 change ¬ c.scratch_cap % 2 ^ 64 ≤ ht_off.toNat at hc; m7_omega
               clear hc; c0_hsplit
-              · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+              · c0_hsteps; exact hfail_no (fun ho hs hok _ _ => hbad_ht (fun ⟨_, _, h3⟩ => by
+                  rw [hs6a, hht_nat] at hc
+                  change BitVec.toNat 2147483647 < ht_off.toNat at hc; m7_omega) ho hs hok)
               · have h3 : ht_off.toNat ≤ 0x7FFFFFFF := by
                   rw [hs6a, hht_nat] at hc
                   change ¬ BitVec.toNat 2147483647 < ht_off.toNat at hc; m7_omega
-                clear hc; c0_hsplit
-                · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+                clear hc
+                have hbad_sz : ¬ (16 ≤ ht_sz.toNat ∧ ht_sz.toNat ≤ 131072 ∧
+                    (ht_sz &&& (ht_sz - 1#64)) = 0#64 ∧
+                    ht_sz.toNat ≤ c.scratch_cap - ht_off.toNat) →
+                    ∀ ho hs, M7CongHtCtrlOk c s.scratch.scratch_buf ctrl_off.toNat ho hs →
+                      False :=
+                  fun hbad ho hs hok => by
+                    apply hbad
+                    obtain ⟨rfl, rfl⟩ := m7CongHtCtrlOk_match_reads hco8 hscrl hho_eq hsz_eq hok
+                    obtain ⟨k, hk, he⟩ := hok.2.2.2.2.1
+                    refine ⟨by rw [he]; have := Nat.two_pow_pos k; omega,
+                      by rw [he]; exact pow2_16_mul_le k hk,
+                      bv64_pow2_and_sub1_zero hk he,
+                      by have := hok.2.2.1; omega⟩
+                c0_hsplit
+                · c0_hsteps; exact hfail_no (fun ho hs hok _ _ => hbad_sz (fun ⟨h4, _⟩ => by
+                    rw [hs7a, hsz_nat] at hc
+                    change ht_sz.toNat < BitVec.toNat 16 at hc; m7_omega) ho hs hok)
                 · have h4 : 16 ≤ ht_sz.toNat := by
                     rw [hs7a, hsz_nat] at hc
                     change ¬ ht_sz.toNat < BitVec.toNat 16 at hc; m7_omega
                   clear hc; c0_hsplit
-                  · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+                  · c0_hsteps; exact hfail_no (fun ho hs hok _ _ => hbad_sz (fun ⟨_, hm, _⟩ => by
+                      rw [hs7a, hsz_nat] at hc
+                      change BitVec.toNat 131072 < ht_sz.toNat at hc; m7_omega) ho hs hok)
                   · have hmax : ht_sz.toNat ≤ 131072 := by
                       rw [hs7a, hsz_nat] at hc
                       change ¬ BitVec.toNat 131072 < ht_sz.toNat at hc; m7_omega
                     clear hc; c0_hsplit
-                    · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+                    · c0_hsteps; exact hfail_no (fun ho hs hok _ _ => hbad_sz
+                        (fun ⟨_, _, h5, _⟩ => by rw [hs7a] at hc; exact hc h5) ho hs hok)
                     · have h5 : (ht_sz &&& (ht_sz - 1#64)) = 0#64 := by
                         rw [hs7a] at hc; exact hc
                       clear hc; c0_hsplit
-                      · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+                      · c0_hsteps; exact hfail_no (fun ho hs hok _ _ => hbad_sz
+                          (fun ⟨_, _, _, h6⟩ => by
+                            rw [hs6a, hht_nat, hs7a, hsz_nat] at hc
+                            change (2 ^ 64 - ht_off.toNat + c.scratch_cap) % 2 ^ 64 <
+                              ht_sz.toNat at hc
+                            have := ht_off.isLt; m7_omega) ho hs hok)
                       · have h6 : ht_sz.toNat ≤ c.scratch_cap - ht_off.toNat := by
                           rw [hs6a, hht_nat, hs7a, hsz_nat] at hc
                           change ¬ (2 ^ 64 - ht_off.toNat + c.scratch_cap) % 2 ^ 64 <
@@ -249,31 +350,67 @@ theorem full_cong_ht_lookup_m7_wp (Γ : Env) :
                         have hctrl_ok : M7CongHtCtrlOk c s.scratch.scratch_buf ctrl_off.toNat
                             ht_off.toNat ht_sz.toNat :=
                           m7CongHtCtrlOk_from_reads hscrl hco8 hho_eq hsz_eq h1 h2 h3 h4 h5 h6 hmax
+                        obtain ⟨k_sz, hk_sz, hpow_sz⟩ := hctrl_ok.2.2.2.2.1
+                        have hpos_sz : 0 < ht_sz.toNat := by
+                          rw [hpow_sz]; have := Nat.two_pow_pos k_sz; omega
+                        let hv_fin : BitVec 64 := m7CongHashTmp htag harity s.core.tmp
                         c0_hsteps_nogrp
                         refine wp_loop_inv (ts := [i64, i64])
-                          (fun ⟨_, hi, ⟨⟩⟩ mi => mi = m0 ∧ hi.toNat ≤ harity.toNat)
+                          (fun ⟨hv, hi, ⟨⟩⟩ mi => mi = m0 ∧ hi.toNat ≤ harity.toNat ∧
+                            m7CongHashTmpGo (harity.toNat - hi.toNat) hv hi.toNat s.core.tmp =
+                              hv_fin)
                           (fun ⟨_, hi, ⟨⟩⟩ _ => harity.toNat - hi.toNat)
                           (fun J hJ => by
-                            c0_hsteps; exact hJ (_, 0#64, ()) m0 ⟨rfl, Nat.zero_le _⟩)
-                          (fun J ⟨hv, hi, ⟨⟩⟩ mi ⟨hmi, hi_le⟩ ih => ?_)
+                            c0_hsteps
+                            refine hJ (_, 0#64, ()) m0 ⟨rfl, Nat.zero_le _, ?_⟩
+                            simp only [BitVec.toNat_ofNat, Nat.zero_mod, Nat.sub_zero]
+                            rfl)
+                          (fun J ⟨hv, hi, ⟨⟩⟩ mi ⟨hmi, hi_le, hhv⟩ ih => ?_)
                         subst mi
                         c0_hsplit
                         · have hi_lt : hi.toNat < harity.toNat := by m7_omega
                           have hi_tmp : hi.toNat < s.core.tmp.length := by omega
                           have hi1_n : (hi + 1#64).toNat = hi.toNat + 1 :=
                             bv64_add1_lt hi_lt (by omega)
+                          have hstep : m7CongHashTmpGo (harity.toNat - (hi + 1#64).toNat)
+                              (hv * 0x85EBCA77#64 +
+                                (s.core.tmp[hi.toNat]'hi_tmp).setWidth 64 + 1#64)
+                              (hi + 1#64).toNat s.core.tmp = hv_fin := by
+                            rw [hi1_n, ← hhv]
+                            obtain ⟨rem, hrem⟩ : ∃ rem, harity.toNat - hi.toNat = rem + 1 :=
+                              ⟨harity.toNat - hi.toNat - 1, by omega⟩
+                            have hsub : harity.toNat - (hi.toNat + 1) = rem := by omega
+                            rw [hrem, hsub]
+                            simp only [m7CongHashTmpGo, m7CongHashTmpStep,
+                              List.getElem?_eq_getElem hi_tmp, Option.getD_some]
                           c0_hsteps
-                          exact ih (_, hi + 1#64, ()) m0 (by dsimp only; omega) ⟨rfl, by omega⟩
-                        · clear hc; c0_hsteps_nogrp
+                          exact ih (_, hi + 1#64, ()) m0 (by dsimp only; omega)
+                            ⟨rfl, by omega, hstep⟩
+                        · have hi_eq : hi.toNat = harity.toNat := by m7_omega
+                          rw [hi_eq, Nat.sub_self] at hhv
+                          dsimp only [m7CongHashTmpGo] at hhv
+                          have hv_eq : hv = hv_fin := hhv
+                          clear hc; c0_hsteps_nogrp
                           refine wp_loop_inv (ts := [i64, i64])
                             (fun ⟨slot, p, ⟨⟩⟩ mp => mp = m0 ∧ slot.toNat < ht_sz.toNat ∧
-                              p.toNat ≤ ht_sz.toNat)
+                              slot.toNat = (hv_fin.toNat + p.toNat) % ht_sz.toNat ∧
+                              p.toNat ≤ ht_sz.toNat ∧
+                              (∀ m1 < p.toNat, s.scratch.scratch_buf[ht_off.toNat +
+                                (hv_fin.toNat + m1) % ht_sz.toNat]? ≠ some 0xFFFFFFFF#32) ∧
+                              ∀ m1 < p.toNat, ∀ e, s.scratch.scratch_buf[ht_off.toNat +
+                                (hv_fin.toNat + m1) % ht_sz.toNat]? = some e →
+                                ¬ m7CongSlotMatch s.scratch.scratch_buf ht_off.toNat htag harity
+                                  s.core.tmp e)
                             (fun ⟨_, p, ⟨⟩⟩ _ => ht_sz.toNat - p.toNat)
                             (fun Jp hJp => by
                               c0_hsteps; try simp only [hs7b]
                               exact hJp (hv &&& (ht_sz - 1#64), 0#64, ()) m0
-                                ⟨rfl, bv64_and_sub1_lt (by omega), Nat.zero_le _⟩)
-                            (fun Jp ⟨slot, p, ⟨⟩⟩ mp ⟨hmp, hslot_lt, hp_le⟩ ihp => ?_)
+                                ⟨rfl, bv64_and_sub1_lt (by omega), by
+                                  rw [hv_eq, bv64_and_pow2_mod hk_sz hpow_sz]; simp,
+                                  Nat.zero_le _, fun _ h => by simp at h,
+                                  fun _ h => by simp at h⟩)
+                            (fun Jp ⟨slot, p, ⟨⟩⟩ mp
+                                ⟨hmp, hslot_lt, hslot_mod, hp_le, hnoem, hnom⟩ ihp => ?_)
                           subst mp
                           c0_hsplit
                           · have hp_lt : p.toNat < ht_sz.toNat := by
@@ -290,18 +427,55 @@ theorem full_cong_ht_lookup_m7_wp (Γ : Env) :
                               congr 1; exact (list_getElem_congr hsl_add_n hsl_arr _).symm
                             have hent_lt : ent.toNat < 2 ^ 32 := ent.isLt
                             clear hc; c0_hsplit
-                            · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+                            · have hent_eq : ent = 0xFFFFFFFF#32 := by
+                                simp only [hs6a, hht_nat] at hc; exact hc
+                              c0_hsteps
+                              refine hQ 0xFFFFFFFF#32 (Or.inl ⟨rfl,
+                                fun ho hs hok _ _ kp hkp hne_kp e he_kp => ?_⟩)
+                              obtain ⟨rfl, rfl⟩ :=
+                                m7CongHtCtrlOk_match_reads hco8 hscrl hho_eq hsz_eq hok
+                              have hmod_slot : ∀ x, ((m7CongHashTmp htag harity s.core.tmp).toNat %
+                                    ht_sz.toNat + x) % ht_sz.toNat =
+                                  (hv_fin.toNat + x) % ht_sz.toNat := fun x => by
+                                dsimp only [hv_fin]; rw [Nat.mod_add_mod]
+                              rcases Nat.lt_or_ge kp p.toNat with hkp_lt | hge
+                              · rw [hmod_slot kp] at he_kp
+                                exact hnom kp hkp_lt e he_kp
+                              · have hbad := hne_kp p.toNat hge
+                                rw [hmod_slot p.toNat, ← hslot_mod, hent_get, hent_eq] at hbad
+                                exact False.elim (hbad rfl)
                             · have hent_ne : ent ≠ 0xFFFFFFFF#32 := by
                                 simp only [hs6a, hht_nat] at hc; exact hc
                               clear hc; c0_hsteps_nogrp
                               have hp1_n : (p + 1#64).toNat = p.toNat + 1 :=
                                 bv64_add1_lt hp_lt (by omega)
-                              refine wp_join0 (fun m2 => m2 = m0)
-                                (fun _ m2 hm2 => by
+                              refine wp_join0 (fun m2 => m2 = m0 ∧
+                                ¬ m7CongSlotMatch s.scratch.scratch_buf ht_off.toNat htag harity
+                                  s.core.tmp ent)
+                                (fun _ m2 ⟨hm2, hno_ent⟩ => by
                                   subst m2; c0_hsteps; try simp only [hs7b]
-                                  exact ihp ((slot + 1#64) &&& (ht_sz - 1#64), p + 1#64, ()) m0
+                                  have hnext_slot :
+                                      ((slot + 1#64) &&& (ht_sz - 1#64)).toNat =
+                                      (hv_fin.toNat + (p + 1#64).toNat) % ht_sz.toNat := by
+                                    rw [bv64_and_pow2_mod hk_sz hpow_sz,
+                                      bv64_add1_lt hslot_lt (by omega), hp1_n]
+                                    exact mod_add_one_eq hslot_mod
+                                  refine ihp ((slot + 1#64) &&& (ht_sz - 1#64), p + 1#64, ()) m0
                                     (by dsimp only; omega)
-                                    ⟨rfl, bv64_and_sub1_lt (by omega), by omega⟩)
+                                    ⟨rfl, bv64_and_sub1_lt (by omega), hnext_slot, by omega,
+                                      fun m1 hm1 => ?_, fun m1 hm1 e he => ?_⟩
+                                  · rw [hp1_n] at hm1
+                                    rcases Nat.lt_or_eq_of_le (Nat.lt_succ_iff.mp hm1)
+                                        with h1 | rfl
+                                    · exact hnoem m1 h1
+                                    · rw [← hslot_mod, hent_get]
+                                      intro heq; exact hent_ne (Option.some.inj heq)
+                                  · rw [hp1_n] at hm1
+                                    rcases Nat.lt_or_eq_of_le (Nat.lt_succ_iff.mp hm1)
+                                        with h1 | rfl
+                                    · exact hnom m1 h1 e he
+                                    · rw [← hslot_mod, hent_get, Option.some.injEq] at he
+                                      subst he; exact hno_ent)
                                 (fun J2 hJ2 => ?_)
                               have hent_hc : s.scratch.scratch_buf[(ht_off.toNat +
                                   BitVec.toNat slot) % 2 ^ 64]'(by
@@ -342,8 +516,11 @@ theorem full_cong_ht_lookup_m7_wp (Γ : Env) :
                                   simp only [hs6b]; rfl
                                 clear hc; try rw [h_ent_raw]
                                 c0_hsteps_nogrp
-                                refine wp_join0 (fun m3 => m3 = m0) ?_ (fun J3 hJ3 => ?_)
-                                · rintro _ m3 hm3; subst m3; c0_hsteps; exact hJ2 m0 rfl
+                                refine wp_join0 (fun m3 => m3 = m0 ∧
+                                  ¬ m7CongSlotMatch s.scratch.scratch_buf ht_off.toNat htag harity
+                                    s.core.tmp ent) ?_ (fun J3 hJ3 => ?_)
+                                · rintro _ m3 ⟨hm3, hno⟩; subst m3
+                                  c0_hsteps; exact hJ2 m0 ⟨rfl, hno⟩
                                 c0_hsplit
                                 · have htag_eq : (mw >>> 28) = htag := by
                                     try simp only [hs6a, hht_nat] at hc
@@ -370,6 +547,9 @@ theorem full_cong_ht_lookup_m7_wp (Γ : Env) :
                                       (fun (eq_b, _kb, ()) mb => mb = m0 ∧
                                         (eq_b ≠ 0#32 → ∀ j < harity.toNat,
                                           s.scratch.scratch_buf[ent.toNat + 2 + j]? =
+                                            s.core.tmp[j]?) ∧
+                                        (eq_b = 0#32 → ∃ j < harity.toNat,
+                                          s.scratch.scratch_buf[ent.toNat + 2 + j]? ≠
                                             s.core.tmp[j]?))
                                       (fun rem (k, ()) mk => mk = m0 ∧ k.toNat ≤ harity.toNat ∧
                                         rem = harity.toNat - k.toNat ∧
@@ -377,14 +557,19 @@ theorem full_cong_ht_lookup_m7_wp (Γ : Env) :
                                           s.scratch.scratch_buf[ent.toNat + 2 + j]? =
                                             s.core.tmp[j]?)
                                       ?_ ?_ ?_
-                                    · rintro _ ⟨eq_b, kb, ⟨⟩⟩ mb ⟨hmb, heq_ok⟩; subst mb
+                                    · rintro _ ⟨eq_b, kb, ⟨⟩⟩ mb ⟨hmb, heq_ok, heq_ne⟩; subst mb
                                       c0_hsplit
                                       · have hne0 : eq_b ≠ 0#32 := hc
                                         c0_hsteps
                                         exact hQ ent (Or.inr ⟨ht_off.toNat, ht_sz.toNat, slot.toNat,
                                           mw, hctrl_ok, hha31, hha_mv, hslot_lt, hent_get, hfit_ent,
                                           hmw_get, htag_eq, har_eq, heq_ok hne0⟩)
-                                      · c0_hsteps; exact hJ3 m0 rfl
+                                      · have he0 : eq_b = 0#32 := hc
+                                        c0_hsteps
+                                        refine hJ3 m0 ⟨rfl, fun hmatch => ?_⟩
+                                        obtain ⟨j, hj, hne_j⟩ := heq_ne he0
+                                        obtain ⟨_, _, _, _, _, _, htmp⟩ := hmatch
+                                        exact hne_j (htmp j hj)
                                     · rintro Bk Lk rem ⟨k, ⟨⟩⟩ mk hBk hLk
                                         ⟨hmk, hk_le, rfl, hpre_k⟩; subst mk
                                       c0_hsplit
@@ -400,8 +585,26 @@ theorem full_cong_ht_lookup_m7_wp (Γ : Env) :
                                         have hk1_n : (k + 1#64).toNat = k.toNat + 1 :=
                                           bv64_add1_lt hk_lt (by omega)
                                         clear hc; c0_hsplit
-                                        · c0_hsteps; exact hBk (0#32, k, ()) m0
-                                            ⟨rfl, fun h => absurd rfl h⟩
+                                        · c0_hsteps
+                                          refine hBk (0#32, k, ()) m0
+                                            ⟨rfl, fun h => absurd rfl h, fun _ => ⟨k.toNat, hk_lt,
+                                              fun heq => ?_⟩⟩
+                                          have he2k_mod :
+                                              (ent.toNat + BitVec.toNat (2 : BitVec 64) +
+                                              k.toNat) % 2 ^ 64 =
+                                              (ent.setWidth 64 + 2#64 + k).toNat := by
+                                            rw [he2k_n]
+                                            have h2n : BitVec.toNat (2 : BitVec 64) = 2 := rfl
+                                            rw [h2n, Nat.mod_eq_of_lt (by omega)]
+                                          rw [List.getElem?_eq_getElem (by rw [hscrl]; omega),
+                                            List.getElem?_eq_getElem hk_tmp,
+                                            Option.some.injEq] at heq
+                                          apply hc
+                                          rw [← list_getElem_congr he2k_mod.symm he2k_arr
+                                            (by rw [he2k_mod]; exact he2k_arr),
+                                            list_getElem_congr he2k_n he2k_arr
+                                              (by rw [hscrl]; omega)]
+                                          exact heq
                                         · try simp only [hs6a, hht_nat] at hc
                                           have he2k_mod :
                                               (ent.toNat + BitVec.toNat (2 : BitVec 64) +
@@ -429,14 +632,44 @@ theorem full_cong_ht_lookup_m7_wp (Γ : Env) :
                                           · exact hpre_k j (by omega)
                                       · have hk_eq : k.toNat = harity.toNat := by m7_omega
                                         rw [hk_eq] at hpre_k
-                                        c0_hsteps; exact hBk (1#32, k, ()) m0 ⟨rfl, fun _ => hpre_k⟩
+                                        c0_hsteps; exact hBk (1#32, k, ()) m0
+                                          ⟨rfl, fun _ => hpre_k, fun h => absurd h (by decide)⟩
                                     · intro _ Lk _ hLk; c0_hsteps
                                       exact hLk harity.toNat (0#64, ()) m0
                                         ⟨rfl, Nat.zero_le _, rfl, fun _ h => by simp at h⟩
-                                  · c0_hsteps; exact hJ3 m0 rfl
-                                · c0_hsteps; exact hJ3 m0 rfl
-                              · c0_hsteps; exact hJ2 m0 rfl
-                          · c0_hsteps; exact hQ 0xFFFFFFFF#32 (Or.inl rfl)
+                                  · c0_hsteps; refine hJ3 m0 ⟨rfl, fun hmatch => ?_⟩
+                                    obtain ⟨_, _, mw', hmw', _, har', _⟩ := hmatch
+                                    rw [hmw_get, Option.some.injEq] at hmw'; subst hmw'
+                                    try simp only [hs6a, hht_nat] at hc
+                                    rw [hmw_congr] at hc; exact hc har'
+                                · c0_hsteps; refine hJ3 m0 ⟨rfl, fun hmatch => ?_⟩
+                                  obtain ⟨_, _, mw', hmw', htag', _, _⟩ := hmatch
+                                  rw [hmw_get, Option.some.injEq] at hmw'; subst hmw'
+                                  try simp only [hs6a, hht_nat] at hc
+                                  rw [hmw_congr] at hc; exact hc htag'
+                              · c0_hsteps; refine hJ2 m0 ⟨rfl, fun hmatch => ?_⟩
+                                have hfit' := hmatch.2.1
+                                simp only [hs6a, hht_nat, hent_hc] at hc
+                                have h2n : BitVec.toNat (2 : BitVec 64) = 2 := rfl
+                                have hmod : (ent.toNat + BitVec.toNat (2 : BitVec 64) +
+                                    harity.toNat) % 2 ^ 64 = ent.toNat + 2 + harity.toNat := by
+                                  rw [h2n, Nat.mod_eq_of_lt (by m7_omega)]
+                                rw [hmod] at hc; omega
+                          · have hp_eq : p.toNat = ht_sz.toNat := by
+                              rw [hs7a, hsz_nat] at hc
+                              exact Nat.le_antisymm hp_le (Nat.not_lt.mp hc)
+                            rw [hp_eq] at hnom
+                            c0_hsteps
+                            refine hQ 0xFFFFFFFF#32 (Or.inl ⟨rfl,
+                              fun ho hs hok _ _ kp hkp _ e he_kp => ?_⟩)
+                            obtain ⟨rfl, rfl⟩ :=
+                              m7CongHtCtrlOk_match_reads hco8 hscrl hho_eq hsz_eq hok
+                            have hmod_slot : ((m7CongHashTmp htag harity s.core.tmp).toNat %
+                                  ht_sz.toNat + kp) % ht_sz.toNat =
+                                (hv_fin.toNat + kp) % ht_sz.toNat := by
+                              dsimp only [hv_fin]; rw [Nat.mod_add_mod]
+                            rw [hmod_slot] at he_kp
+                            exact hnom kp hkp e he_kp
 
 /-- **#5 (`full_cong_ht_insert_m7_wp`)**: inserts gate `ent` with auto-grow at 75% load. -/
 theorem full_cong_ht_insert_m7_wp (Γ : Env)
@@ -586,15 +819,26 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                         refine ⟨j, hj, s.scratch.scratch_buf[ht_off.toNat + j]'hlt,
                           List.getElem?_eq_getElem hlt, ?_, Or.inl (List.getElem?_eq_getElem hlt)⟩
                         intro he; apply hem; rw [List.getElem?_eq_getElem hlt, he]
+                    have hkeep_id : ∀ v : BitVec 32, v.toNat < ht_off.toNat →
+                        (∃ k0 < old_sz.toNat,
+                          s.scratch.scratch_buf[ht_off.toNat + k0]? = some v) →
+                        ∃ j < old_sz.toNat,
+                          s.scratch.scratch_buf[ht_off.toNat + j]? = some v := fun _ _ h => h
                     c0_hsplit
                     · c0_hsteps; refine hQ 0xFFFFFFFF#32 s.scratch.scratch_buf s.scratch.res_sz m0
                         hscrl hlen rfl ⟨rfl, rfl⟩ (Or.inl rfl) (fun ho os hok => ?_) (Or.inl rfl)
                         hm0
                       obtain ⟨rfl, rfl⟩ := m7CongHtCtrlOk_match_reads hco8 hscrl hho_eq hsz_eq hok
-                      refine ⟨old_sz.toNat, hok_read, Or.inl rfl, hmax, fun _ _ _ => rfl,
-                        horig_id, fun _ _ _ _ hbad => by
+                      have hbad : ∀ mw' : BitVec 32,
+                          ent.toNat + 2 + (mw' &&& 0xFF#32).toNat ≤ ht_off.toNat → False :=
+                        fun _ hbd => by
                           rw [hs6a, hht_nat] at hc
-                          rw [Nat.mod_eq_of_lt (by m7_omega)] at hc; m7_omega⟩
+                          rw [Nat.mod_eq_of_lt (by m7_omega)] at hc; m7_omega
+                      refine ⟨old_sz.toNat, hok_read, Or.inl rfl, hmax,
+                        fun ⟨mw', _, _, hbd⟩ _ _ _ => False.elim (hbad mw' hbd),
+                        fun _ => rfl, fun _ _ _ => rfl, hkeep_id, horig_id,
+                        fun _ mw' _ _ hbd => ⟨fun _ _ => False.elim (hbad mw' hbd),
+                          fun _ => rfl, fun _ => hbad mw' hbd⟩⟩
                     · have he2_le : ent.toNat + 2 ≤ ht_off.toNat := by
                         rw [hs6a, hht_nat] at hc
                         rw [Nat.mod_eq_of_lt (by m7_omega)] at hc; m7_omega
@@ -617,13 +861,19 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                           hscrl hlen rfl ⟨rfl, rfl⟩ (Or.inl rfl) (fun ho os hok => ?_) (Or.inl rfl)
                           hm0
                         obtain ⟨rfl, rfl⟩ := m7CongHtCtrlOk_match_reads hco8 hscrl hho_eq hsz_eq hok
-                        refine ⟨old_sz.toNat, hok_read, Or.inl rfl, hmax, fun _ _ _ => rfl,
-                          horig_id, fun _ mw' hmw' h31 => by
-                            rw [hmw_get, Option.some.injEq] at hmw'; subst hmw'
-                            rw [hs_e1] at hc
-                            have h255 : (mw &&& (255 : BitVec 32)) = (mw &&& 0xFF#32) := rfl
-                            change (31 : Nat) < (mw &&& (255 : BitVec 32)).toNat at hc
-                            rw [h255] at hc; omega⟩
+                        have hbad31 : ∀ mw' : BitVec 32,
+                            s.scratch.scratch_buf[ent.toNat + 1]? = some mw' →
+                            (mw' &&& 0xFF#32).toNat ≤ 31 → False := fun mw' hmw' h31 => by
+                          rw [hmw_get, Option.some.injEq] at hmw'; subst hmw'
+                          rw [hs_e1] at hc
+                          have h255 : (mw &&& (255 : BitVec 32)) = (mw &&& 0xFF#32) := rfl
+                          change (31 : Nat) < (mw &&& (255 : BitVec 32)).toNat at hc
+                          rw [h255] at hc; omega
+                        refine ⟨old_sz.toNat, hok_read, Or.inl rfl, hmax,
+                          fun ⟨mw', hmw', h31, _⟩ _ _ _ => False.elim (hbad31 mw' hmw' h31),
+                          fun _ => rfl, fun _ _ _ => rfl, hkeep_id, horig_id,
+                          fun _ mw' hmw' h31 _ => ⟨fun _ _ => False.elim (hbad31 mw' hmw' h31),
+                            fun _ => rfl, fun _ => hbad31 mw' hmw' h31⟩⟩
                       · have hea31 : ea.toNat ≤ 31 := by
                           rw [hs_e1] at hc
                           have h255 : (mw &&& (255 : BitVec 32)) = (mw &&& 0xFF#32) := rfl
@@ -638,21 +888,28 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                             (Or.inl rfl) hm0
                           obtain ⟨rfl, rfl⟩ :=
                             m7CongHtCtrlOk_match_reads hco8 hscrl hho_eq hsz_eq hok
-                          refine ⟨old_sz.toNat, hok_read, Or.inl rfl, hmax, fun _ _ _ => rfl,
-                            horig_id, fun _ mw' hmw' _ hbd => by
-                              rw [hmw_get, Option.some.injEq] at hmw'; subst hmw'
-                              rw [hs6a, hht_nat, hs_e1] at hc
-                              have hlt : ht_off.toNat < ent.toNat + 2 + (mw &&& 0xFF#32).toNat := by
-                                have h255 : (mw &&& (255 : BitVec 32)) = (mw &&& 0xFF#32) := rfl
-                                have h2n : BitVec.toNat (2 : BitVec 64) = 2 := rfl
-                                have hmod : (ent.toNat + BitVec.toNat (2 : BitVec 64) +
-                                    (mw &&& (255 : BitVec 32)).toNat) % 2 ^ 64 =
-                                    ent.toNat + 2 + (mw &&& 0xFF#32).toNat := by
-                                  rw [h2n, h255, Nat.mod_eq_of_lt (by omega)]
-                                change ht_off.toNat < (ent.toNat + BitVec.toNat (2 : BitVec 64) +
-                                    (mw &&& (255 : BitVec 32)).toNat) % 2 ^ 64 at hc
-                                rwa [hmod] at hc
-                              omega⟩
+                          have hbad_fit : ∀ mw' : BitVec 32,
+                              s.scratch.scratch_buf[ent.toNat + 1]? = some mw' →
+                              ent.toNat + 2 + (mw' &&& 0xFF#32).toNat ≤ ht_off.toNat →
+                              False := fun mw' hmw' hbd => by
+                            rw [hmw_get, Option.some.injEq] at hmw'; subst hmw'
+                            rw [hs6a, hht_nat, hs_e1] at hc
+                            have hlt : ht_off.toNat < ent.toNat + 2 + (mw &&& 0xFF#32).toNat := by
+                              have h255 : (mw &&& (255 : BitVec 32)) = (mw &&& 0xFF#32) := rfl
+                              have h2n : BitVec.toNat (2 : BitVec 64) = 2 := rfl
+                              have hmod : (ent.toNat + BitVec.toNat (2 : BitVec 64) +
+                                  (mw &&& (255 : BitVec 32)).toNat) % 2 ^ 64 =
+                                  ent.toNat + 2 + (mw &&& 0xFF#32).toNat := by
+                                rw [h2n, h255, Nat.mod_eq_of_lt (by omega)]
+                              change ht_off.toNat < (ent.toNat + BitVec.toNat (2 : BitVec 64) +
+                                  (mw &&& (255 : BitVec 32)).toNat) % 2 ^ 64 at hc
+                              rwa [hmod] at hc
+                            omega
+                          refine ⟨old_sz.toNat, hok_read, Or.inl rfl, hmax,
+                            fun ⟨mw', hmw', _, hbd⟩ _ _ _ => False.elim (hbad_fit mw' hmw' hbd),
+                            fun _ => rfl, fun _ _ _ => rfl, hkeep_id, horig_id,
+                            fun _ mw' hmw' _ hbd => ⟨fun _ _ => False.elim (hbad_fit mw' hmw' hbd),
+                              fun _ => rfl, fun _ => hbad_fit mw' hmw' hbd⟩⟩
                         · have hea_fit : ent.toNat + 2 + ea.toNat ≤ ht_off.toNat := by
                             rw [hs6a, hht_nat, hs_e1] at hc
                             have h255 : (mw &&& (255 : BitVec 32)) = (mw &&& 0xFF#32) := rfl
@@ -672,8 +929,24 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                               M7CongHtCtrlOk c scr1 ctrl_off.toNat ht_off.toNat ht_sz1.toNat ∧
                               (ht_sz1.toNat = old_sz.toNat ∨ ht_sz1.toNat = 2 * old_sz.toNat) ∧
                               ht_sz1.toNat ≤ m7CongHashMaxSz ∧
+                              ((old_sz.toNat ≤ s.scratch.res_sz.toNat ∨
+                                  3 * old_sz.toNat ≤ 4 * s.scratch.res_sz.toNat) →
+                                old_sz.toNat < m7CongHashMaxSz →
+                                ht_off.toNat + 2 * old_sz.toNat ≤ c.scratch_cap →
+                                ht_sz1.toNat = 2 * old_sz.toNat ∧
+                                  ∃ j < ht_sz1.toNat, scr1[ht_off.toNat + j]? =
+                                    some 0xFFFFFFFF#32) ∧
+                              (¬ ((old_sz.toNat ≤ s.scratch.res_sz.toNat ∨
+                                  3 * old_sz.toNat ≤ 4 * s.scratch.res_sz.toNat) ∧
+                                  old_sz.toNat < m7CongHashMaxSz ∧
+                                  ht_off.toNat + 2 * old_sz.toNat ≤ c.scratch_cap) →
+                                ht_sz1.toNat = old_sz.toNat ∧ scr1 = s.scratch.scratch_buf) ∧
                               (∀ idx < ht_off.toNat, idx ≠ ctrl_off.toNat + 7 →
                                 scr1[idx]? = s.scratch.scratch_buf[idx]?) ∧
+                              (∀ v : BitVec 32, v.toNat < ht_off.toNat →
+                                (∃ k0 < old_sz.toNat,
+                                  s.scratch.scratch_buf[ht_off.toNat + k0]? = some v) →
+                                ∃ j < ht_sz1.toNat, scr1[ht_off.toNat + j]? = some v) ∧
                               (∀ j < ht_sz1.toNat,
                                 scr1[ht_off.toNat + j]? = some 0xFFFFFFFF#32 ∨
                                 ∃ k0 < old_sz.toNat, ∃ raw : BitVec 32,
@@ -685,7 +958,8 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                 { s.scratch with scratch_buf := scr1 } } ⋆ R) m1)
                             ?_ ?_
                           · rintro _ ⟨ht_sz1, ⟨⟩⟩ m1
-                              ⟨scr1, hscr1l, hctrl1, hsz_cases, hsz1_max, hpre1, hslot1, hm1⟩
+                              ⟨scr1, hscr1l, hctrl1, hsz_cases, hsz1_max,
+                                hgrow1, hnogrow1, hpre1, hkeep1, hslot1, hm1⟩
                             obtain ⟨k1, hk1, hpow1⟩ := hctrl1.2.2.2.2.1
                             have hfit1 : ht_off.toNat + ht_sz1.toNat ≤ c.scratch_cap :=
                               hctrl1.2.2.1
@@ -769,11 +1043,25 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                   (Or.inr rfl) (fun ho os hok => ?_) (Or.inr (Or.inl rfl)) hm
                                 obtain ⟨rfl, rfl⟩ :=
                                   m7CongHtCtrlOk_match_reads hco8 hscrl hho_eq hsz_eq hok
-                                refine ⟨ht_sz1.toNat, hctrl2, hsz_cases, hsz1_max, ?_, ?_,
+                                refine ⟨ht_sz1.toNat, hctrl2, hsz_cases, hsz1_max,
+                                  fun _ hneed hlt hfit => (hgrow1 hneed hlt hfit).1,
+                                  fun hnot => (hnogrow1 hnot).1, ?_, ?_, ?_,
                                   fun hff => absurd hff hent_ne_ff⟩
                                 · intro idx hi hne7
                                   rw [List.getElem?_set_ne (by omega)]
                                   exact hpre1 idx hi hne7
+                                · intro v hv_lt hex
+                                  obtain ⟨j, hj, hj_get⟩ := hkeep1 v hv_lt hex
+                                  have hj_ne : j ≠ slot.toNat := by
+                                    intro hjs; subst hjs
+                                    have hff : (0xFFFFFFFF#32 : BitVec 32).toNat = 0xFFFFFFFF := by
+                                      decide
+                                    have hcur_eq : cur = 0xFFFFFFFF#32 := by
+                                      simp only [hs6a, hht_nat] at hc; exact hc
+                                    rw [hj_get, Option.some.injEq] at hcur_get
+                                    rw [hcur_get, hcur_eq, hff] at hv_lt; omega
+                                  refine ⟨j, hj, ?_⟩
+                                  rw [List.getElem?_set_ne (by omega)]; exact hj_get
                                 · intro j hj
                                   by_cases hjs : j = slot.toNat
                                   · subst hjs; right; left
@@ -795,7 +1083,9 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                     (Or.inl rfl) (fun ho os hok => ?_) (Or.inr (Or.inl rfl)) hm1
                                   obtain ⟨rfl, rfl⟩ :=
                                     m7CongHtCtrlOk_match_reads hco8 hscrl hho_eq hsz_eq hok
-                                  refine ⟨ht_sz1.toNat, hctrl1, hsz_cases, hsz1_max, hpre1, ?_,
+                                  refine ⟨ht_sz1.toNat, hctrl1, hsz_cases, hsz1_max,
+                                    fun _ hneed hlt hfit => (hgrow1 hneed hlt hfit).1,
+                                    fun hnot => (hnogrow1 hnot).1, hpre1, hkeep1, ?_,
                                     fun hff => absurd hff hent_ne_ff⟩
                                   intro j hj
                                   rcases hslot1 j hj with hem | ⟨k0, hk0, raw, hg, hne, hor⟩
@@ -844,21 +1134,51 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                         s1.scratch.scratch_buf.length := by
                                       rw [hs1_scrl, bv64_zext32_add_ofNat cur 1 (by decide)]
                                       omega
+                                    let mw_c := scr1[(cur.setWidth 64 + 1#64).toNat]'hc1_arr
+                                    have hmw_c_get : scr1[cur.toNat + 1]? = some mw_c := by
+                                      rw [List.getElem?_eq_getElem (by rw [hscr1l]; omega)]
+                                      congr 1; exact (list_getElem_congr
+                                        (bv64_zext32_add_ofNat cur 1 (by decide)) hc1_arr _).symm
+                                    have hmw_c_congr : scr1[(cur.toNat +
+                                        BitVec.toNat (1 : BitVec 64)) % 2 ^ 64]'(by
+                                        change (cur.toNat + 1) % 2 ^ 64 < scr1.length
+                                        rw [Nat.mod_eq_of_lt (by omega), hscr1l]; omega) = mw_c :=
+                                      (scr_idx_zext32_add1 (e := cur)
+                                        (by rw [hscr1l]; omega) _).trans
+                                        (list_getElem_congr
+                                          (bv64_zext32_add_ofNat cur 1 (by decide)).symm
+                                          (by rw [hscr1l]; omega) hc1_arr)
+                                    have hcur_eq : s1.scratch.scratch_buf[(ht_off.toNat +
+                                        BitVec.toNat slot) % 2 ^ 64]'(by
+                                        rw [hs1_scrl, Nat.mod_eq_of_lt (by omega)]; omega) = cur :=
+                                      rfl
                                     clear hc; try simp only [hs6b]
                                     c0_hsteps_nogrp
                                     refine wp_join0 (fun m3 => m3 = m1)
                                       (fun _ m3 hm3 => by subst m3; c0_hsteps; exact hJ2 m1 rfl)
                                       (fun J3 hJ3 => ?_)
                                     c0_hsplit
-                                    · clear hc; c0_hsplit
-                                      · clear hc; c0_hsteps_nogrp
+                                    · have htag_c : (mw_c >>> 28) = (mw >>> 28) := by
+                                        try simp only [hht_nat, hcur_eq] at hc
+                                        rw [hmw_c_congr, hs_e1] at hc; exact hc
+                                      clear hc; c0_hsplit
+                                      · have har_c : (mw_c &&& 0xFF#32) = (mw &&& 0xFF#32) := by
+                                          try simp only [hht_nat, hcur_eq] at hc
+                                          rw [hmw_c_congr, hs_e1] at hc; exact hc
+                                        clear hc; c0_hsteps_nogrp
                                         refine wp_loop_break_group (brkTs := [i32, i64])
                                           (lpTs := [i64])
-                                          (fun (_eq, _kb, ()) mb => mb = m1)
+                                          (fun (eq_b, _kb, ()) mb => mb = m1 ∧
+                                            (eq_b ≠ 0#32 → ∀ j < ea.toNat,
+                                              scr1[cur.toNat + 2 + j]? =
+                                                scr1[ent.toNat + 2 + j]?))
                                           (fun rem (k, ()) mk => mk = m1 ∧ k.toNat ≤ ea.toNat ∧
-                                            rem = ea.toNat - k.toNat)
+                                            rem = ea.toNat - k.toNat ∧
+                                            ∀ j < k.toNat,
+                                              scr1[cur.toNat + 2 + j]? =
+                                                scr1[ent.toNat + 2 + j]?)
                                           ?_ ?_ ?_
-                                        · rintro _ ⟨eq_b, kb, ⟨⟩⟩ mb hmb; subst mb
+                                        · rintro _ ⟨eq_b, kb, ⟨⟩⟩ mb ⟨hmb, heq_ok⟩; subst mb
                                           c0_hsplit
                                           · have hcur_ne_ff' : cur ≠ 0xFFFFFFFF#32 := hcur_ne_ff
                                             c0_hsteps
@@ -866,12 +1186,18 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                               (scr_state_core_pres hlen scr1 hscr1l _).1 rfl
                                               ⟨rfl, rfl⟩ (Or.inl rfl) (fun ho os hok => ?_)
                                               (Or.inr (Or.inr ⟨ht_off.toNat, ht_sz1.toNat,
-                                                slot.toNat, hctrl1, hslot_lt, hcur_get, by omega⟩))
+                                                slot.toNat, mw, mw_c, hctrl1, hslot_lt, hcur_get,
+                                                by omega, hmw_get, hmw_c_get, htag_c, har_c,
+                                                by dsimp only [ea, earity] at hcur_fit
+                                                   rw [bv64_zext32_toNat] at hcur_fit
+                                                   exact hcur_fit,
+                                                heq_ok hc⟩))
                                               hm1
                                             obtain ⟨rfl, rfl⟩ := m7CongHtCtrlOk_match_reads hco8
                                               hscrl hho_eq hsz_eq hok
-                                            refine ⟨ht_sz1.toNat, hctrl1, hsz_cases,
-                                              hsz1_max, hpre1,
+                                            refine ⟨ht_sz1.toNat, hctrl1, hsz_cases, hsz1_max,
+                                              fun _ hneed hlt hfit => (hgrow1 hneed hlt hfit).1,
+                                              fun hnot => (hnogrow1 hnot).1, hpre1, hkeep1,
                                               ?_, fun hff => absurd hff hcur_ne_ff'⟩
                                             intro j hj
                                             rcases hslot1 j hj with hem |
@@ -879,58 +1205,127 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                             · exact Or.inl hem
                                             · exact Or.inr (Or.inr ⟨k0, hk0, raw, hg, hne, hor⟩)
                                           · c0_hsteps; exact hJ3 m1 rfl
-                                        · rintro Bk Lk rem ⟨k, ⟨⟩⟩ mk hBk hLk ⟨hmk, hk_le, rfl⟩
+                                        · rintro Bk Lk rem ⟨k, ⟨⟩⟩ mk hBk hLk
+                                            ⟨hmk, hk_le, rfl, hpre_k⟩
                                           subst mk
                                           c0_hsplit
                                           · have hk_lt : k.toNat < ea.toNat := by
                                               rw [hs_e1] at hc; dsimp only [ea, earity]
                                               rw [bv64_zext32_toNat]; exact hc
+                                            have hc2k_n : (cur.setWidth 64 + 2#64 + k).toNat =
+                                                cur.toNat + 2 + k.toNat := by
+                                              have h12 := bv64_zext32_add_ofNat cur 2 (by decide)
+                                              rw [bv64_add_toNat (by rw [h12]; omega), h12]
                                             have hc2k_arr :
                                                 (cur.setWidth 64 + 2#64 + k).toNat <
                                                 s1.scratch.scratch_buf.length := by
-                                              have h12 := bv64_zext32_add_ofNat cur 2 (by decide)
-                                              rw [bv64_add_toNat (by rw [h12]; omega),
-                                                h12, hs1_scrl]
-                                              omega
+                                              rw [hc2k_n, hs1_scrl]; omega
+                                            have he2k_n : (ent.setWidth 64 + 2#64 + k).toNat =
+                                                ent.toNat + 2 + k.toNat := by
+                                              have h12 := bv64_zext32_add_ofNat ent 2 (by decide)
+                                              rw [bv64_add_toNat (by rw [h12]; omega), h12]
                                             have he2k_arr :
                                                 (ent.setWidth 64 + 2#64 + k).toNat <
                                                 s1.scratch.scratch_buf.length := by
-                                              have h12 := bv64_zext32_add_ofNat ent 2 (by decide)
-                                              rw [bv64_add_toNat (by rw [h12]; omega),
-                                                h12, hs1_scrl]
-                                              omega
+                                              rw [he2k_n, hs1_scrl]; omega
                                             have hk1_n : (k + 1#64).toNat = k.toNat + 1 :=
                                               bv64_add1_lt hk_lt (by omega)
                                             clear hc; c0_hsplit
-                                            · c0_hsteps; exact hBk (0#32, k, ()) m1 rfl
-                                            · c0_hsteps
-                                              exact hLk (ea.toNat - (k + 1#64).toNat)
-                                                (k + 1#64, ()) m1 (by omega) ⟨rfl, by omega, rfl⟩
-                                          · c0_hsteps; exact hBk (1#32, k, ()) m1 rfl
+                                            · c0_hsteps; exact hBk (0#32, k, ()) m1
+                                                ⟨rfl, fun h => absurd rfl h⟩
+                                            · try simp only [hht_nat, hcur_eq] at hc
+                                              have hc2k_mod :
+                                                  (cur.toNat + BitVec.toNat (2 : BitVec 64) +
+                                                  k.toNat) % 2 ^ 64 =
+                                                  (cur.setWidth 64 + 2#64 + k).toNat := by
+                                                rw [hc2k_n]
+                                                have h2n : BitVec.toNat (2 : BitVec 64) = 2 := rfl
+                                                rw [h2n, Nat.mod_eq_of_lt (by omega)]
+                                              have he2k_mod :
+                                                  (ent.toNat + BitVec.toNat (2 : BitVec 64) +
+                                                  k.toNat) % 2 ^ 64 =
+                                                  (ent.setWidth 64 + 2#64 + k).toNat := by
+                                                rw [he2k_n]
+                                                have h2n : BitVec.toNat (2 : BitVec 64) = 2 := rfl
+                                                rw [h2n, Nat.mod_eq_of_lt (by omega)]
+                                              have he2k_mod_arr :
+                                                  (ent.toNat + BitVec.toNat (2 : BitVec 64) +
+                                                  k.toNat) % 2 ^ 64 <
+                                                  s1.scratch.scratch_buf.length := by
+                                                rw [he2k_mod]; exact he2k_arr
+                                              have hsame : scr1[(cur.setWidth 64 + 2#64 +
+                                                  k).toNat]'hc2k_arr =
+                                                  scr1[(ent.setWidth 64 + 2#64 +
+                                                  k).toNat]'he2k_arr :=
+                                                (list_getElem_congr hc2k_mod.symm hc2k_arr
+                                                  (by rw [hc2k_mod]; exact hc2k_arr)).trans
+                                                  (hc.trans (list_getElem_congr he2k_mod
+                                                    he2k_mod_arr he2k_arr))
+                                              c0_hsteps
+                                              refine hLk (ea.toNat - (k + 1#64).toNat)
+                                                (k + 1#64, ()) m1 (by omega)
+                                                ⟨rfl, by omega, rfl, fun j hj => ?_⟩
+                                              rw [hk1_n] at hj
+                                              by_cases hjk : j = k.toNat
+                                              · subst hjk
+                                                rw [List.getElem?_eq_getElem
+                                                    (by rw [hscr1l]; omega),
+                                                  List.getElem?_eq_getElem (by rw [hscr1l]; omega)]
+                                                congr 1
+                                                exact (list_getElem_congr hc2k_n hc2k_arr
+                                                  (by rw [hscr1l]; omega)).symm.trans
+                                                  (hsame.trans (list_getElem_congr he2k_n he2k_arr
+                                                    (by rw [hscr1l]; omega)))
+                                              · exact hpre_k j (by omega)
+                                          · have hk_eq : k.toNat = ea.toNat := by
+                                              rw [hs_e1] at hc; dsimp only [ea, earity] at hk_le ⊢
+                                              rw [bv64_zext32_toNat] at hk_le ⊢
+                                              change ¬ k.toNat < (mw &&& 0xFF#32).toNat at hc
+                                              omega
+                                            rw [hk_eq] at hpre_k
+                                            c0_hsteps
+                                            exact hBk (1#32, k, ()) m1 ⟨rfl, fun _ => hpre_k⟩
                                         · intro _ Lk _ hLk; c0_hsteps
-                                          exact hLk ea.toNat (0#64, ()) m1 ⟨rfl, Nat.zero_le _, rfl⟩
+                                          exact hLk ea.toNat (0#64, ()) m1
+                                            ⟨rfl, Nat.zero_le _, rfl, fun _ h => by simp at h⟩
                                       · c0_hsteps; exact hJ3 m1 rfl
                                     · c0_hsteps; exact hJ3 m1 rfl
                                   · c0_hsteps; exact hJ2 m1 rfl
                             · have hp_eq : p.toNat = ht_sz1.toNat := by omega
+                              have hfull : ∀ j < ht_sz1.toNat,
+                                  scr1[ht_off.toNat + j]? ≠ some 0xFFFFFFFF#32 := fun j hj => by
+                                obtain ⟨q, hq, hmod⟩ := probe_visit_idx (hv := hv.toNat) hj
+                                rw [← hmod]; exact hnoem q (by omega)
                               c0_hsteps
                               refine hQ 0xFFFFFFFF#32 scr1 s.scratch.res_sz m1 hscr1l
                                 (scr_state_core_pres hlen scr1 hscr1l _).1 rfl ⟨rfl, rfl⟩
                                 (Or.inl rfl) (fun ho os hok => ?_) (Or.inl rfl) hm1
                               obtain ⟨rfl, rfl⟩ :=
                                 m7CongHtCtrlOk_match_reads hco8 hscrl hho_eq hsz_eq hok
-                              refine ⟨ht_sz1.toNat, hctrl1, hsz_cases, hsz1_max, hpre1, ?_,
-                                fun _ _ _ _ _ j hj => ?_⟩
+                              refine ⟨ht_sz1.toNat, hctrl1, hsz_cases, hsz1_max,
+                                fun _ hneed hlt hfit => (hgrow1 hneed hlt hfit).1,
+                                fun hnot => (hnogrow1 hnot).1, hpre1, hkeep1, ?_,
+                                fun _ _ _ _ _ => ⟨hfull, fun _ => ?_, fun ⟨hneed, hlt, hfit⟩ => ?_⟩⟩
                               · intro j hj
                                 rcases hslot1 j hj with hem | ⟨k0, hk0, raw, hg, hne, hor⟩
                                 · exact Or.inl hem
                                 · exact Or.inr (Or.inr ⟨k0, hk0, raw, hg, hne, hor⟩)
-                              · obtain ⟨q, hq, hmod⟩ := probe_visit_idx (hv := hv.toNat) hj
-                                rw [← hmod]; exact hnoem q (by omega)
+                              · by_cases hngf :
+                                    (old_sz.toNat ≤ s.scratch.res_sz.toNat ∨
+                                      3 * old_sz.toNat ≤ 4 * s.scratch.res_sz.toNat) ∧
+                                    old_sz.toNat < m7CongHashMaxSz ∧
+                                    ht_off.toNat + 2 * old_sz.toNat ≤ c.scratch_cap
+                                · obtain ⟨_, j, hj, hj_e⟩ := hgrow1 hngf.1 hngf.2.1 hngf.2.2
+                                  exact False.elim (hfull j hj hj_e)
+                                · exact (hnogrow1 hngf).2
+                              · obtain ⟨_, j, hj, hj_e⟩ := hgrow1 hneed hlt hfit
+                                exact hfull j hj hj_e
                           · intro Js hJs; c0_hsplit
                             · clear hc; c0_hsteps_nogrp
-                              refine wp_join_group (ts := []) (fun () mg => mg = m0) ?_ ?_
-                              · rintro _ ⟨⟩ mg hmg; subst mg
+                              refine wp_join_group (ts := []) (fun () mg => mg = m0 ∧
+                                (old_sz.toNat ≤ s.scratch.res_sz.toNat ∨
+                                  3 * old_sz.toNat ≤ 4 * s.scratch.res_sz.toNat)) ?_ ?_
+                              · rintro _ ⟨⟩ mg ⟨hmg, hneed_sz⟩; subst mg
                                 c0_hsteps; c0_call hGrow
                                 refine ⟨c, s, R, rfl, hlen, hm0,
                                   fun grown scr_g mg' hgl hleng _ _ hok_g _ hmg' => ?_⟩
@@ -944,7 +1339,7 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                   · have h1' : old_sz.toNat < m7CongHashMaxSz := by omega
                                     have h2' : ht_off.toNat + 2 * old_sz.toNat ≤ c.scratch_cap := by
                                       omega
-                                    obtain ⟨hn, hok', _, _⟩ := hg2 h1' h2'
+                                    obtain ⟨hn, hok', _, _, _, _⟩ := hg2 h1' h2'
                                     rw [hn]; exact hok'
                                 have hng : grown.toNat = old_sz.toNat ∨
                                     grown.toNat = 2 * old_sz.toNat := by
@@ -958,12 +1353,48 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                 have hmax_g : grown.toNat ≤ m7CongHashMaxSz := by
                                   rcases hc_g.2.2.2.2.1 with ⟨kg, hkg, heqg⟩
                                   rw [heqg]; unfold m7CongHashMaxSz; exact pow2_16_mul_le kg hkg
+                                have hgrow_g : (old_sz.toNat ≤ s.scratch.res_sz.toNat ∨
+                                      3 * old_sz.toNat ≤ 4 * s.scratch.res_sz.toNat) →
+                                    old_sz.toNat < m7CongHashMaxSz →
+                                    ht_off.toNat + 2 * old_sz.toNat ≤ c.scratch_cap →
+                                    grown.toNat = 2 * old_sz.toNat ∧
+                                      ∃ j < grown.toNat, scr_g[ht_off.toNat + j]? =
+                                        some 0xFFFFFFFF#32 := by
+                                  intro _ h1' h2'
+                                  obtain ⟨hn, _, _, ⟨j, hj, hj_e⟩, _, _⟩ := hg2 h1' h2'
+                                  exact ⟨hn, j, by omega, hj_e⟩
+                                have hnogrow_g : ¬ ((old_sz.toNat ≤ s.scratch.res_sz.toNat ∨
+                                      3 * old_sz.toNat ≤ 4 * s.scratch.res_sz.toNat) ∧
+                                      old_sz.toNat < m7CongHashMaxSz ∧
+                                      ht_off.toNat + 2 * old_sz.toNat ≤ c.scratch_cap) →
+                                    grown.toNat = old_sz.toNat ∧
+                                      scr_g = s.scratch.scratch_buf := by
+                                  intro hnot
+                                  have hcap : m7CongHashMaxSz ≤ old_sz.toNat ∨
+                                      c.scratch_cap < ht_off.toNat + 2 * old_sz.toNat := by
+                                    by_cases hc' : m7CongHashMaxSz ≤ old_sz.toNat ∨
+                                        c.scratch_cap < ht_off.toNat + 2 * old_sz.toNat
+                                    · exact hc'
+                                    · exact False.elim (hnot ⟨hneed_sz, by omega, by omega⟩)
+                                  exact hg1 hcap
                                 have hpre_g : ∀ idx < ht_off.toNat, idx ≠ ctrl_off.toNat + 7 →
                                     scr_g[idx]? = s.scratch.scratch_buf[idx]? := by
                                   by_cases hcap : m7CongHashMaxSz ≤ old_sz.toNat ∨
                                       c.scratch_cap < ht_off.toNat + 2 * old_sz.toNat
                                   · rw [(hg1 hcap).2]; exact fun _ _ _ => rfl
                                   · exact (hg2 (by omega) (by omega)).2.2.1
+                                have hkeep_g : ∀ v : BitVec 32, v.toNat < ht_off.toNat →
+                                    (∃ k0 < old_sz.toNat,
+                                      s.scratch.scratch_buf[ht_off.toNat + k0]? = some v) →
+                                    ∃ j < grown.toNat, scr_g[ht_off.toNat + j]? = some v := by
+                                  intro v hv_lt ⟨k0, hk0, hget0⟩
+                                  by_cases hcap : m7CongHashMaxSz ≤ old_sz.toNat ∨
+                                      c.scratch_cap < ht_off.toNat + 2 * old_sz.toNat
+                                  · rw [(hg1 hcap).1, (hg1 hcap).2]
+                                    exact ⟨k0, hk0, hget0⟩
+                                  · obtain ⟨hn, _, _, _, hkp, _⟩ := hg2 (by omega) (by omega)
+                                    obtain ⟨j, hj, hj_e⟩ := hkp v hv_lt ⟨k0, hk0, hget0⟩
+                                    exact ⟨j, by omega, hj_e⟩
                                 have hslot_g : ∀ j < grown.toNat,
                                     scr_g[ht_off.toNat + j]? = some 0xFFFFFFFF#32 ∨
                                     ∃ k0 < old_sz.toNat, ∃ raw : BitVec 32,
@@ -991,7 +1422,7 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                   · have h1' : old_sz.toNat < m7CongHashMaxSz := by omega
                                     have h2' : ht_off.toNat + 2 * old_sz.toNat ≤ c.scratch_cap := by
                                       omega
-                                    obtain ⟨hn, _, _, hres⟩ := hg2 h1' h2'
+                                    obtain ⟨hn, _, _, _, _, hres⟩ := hg2 h1' h2'
                                     rw [hn] at hj
                                     rcases hres j hj with hem | ⟨k0, hk0, raw, hg0, hne0, heq0⟩
                                     · exact Or.inl hem
@@ -1005,13 +1436,13 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                     have heq2 : ht_sz2 = grown := BitVec.eq_of_toNat_eq hn2
                                     subst heq2
                                     exact hJs (ht_sz2, ()) mg' ⟨scr_g, hgl, hc_g, hng, hmax_g,
-                                      hpre_g, hslot_g, hmg'⟩)
+                                      hgrow_g, hnogrow_g, hpre_g, hkeep_g, hslot_g, hmg'⟩)
                                   (fun J2 hJ2 => ?_)
                                 obtain ⟨kg, hkg, hpowg⟩ := hc_g.2.2.2.2.1
                                 have hpow2_pos : 16 ≤ grown.toNat := by
                                   rw [hpowg]; have := Nat.two_pow_pos kg; omega
-                                have hcap_g : grown.toNat ≤ c.scratch_cap - ht_off.toNat := by
-                                  have := hc_g.2.2.1; omega
+                                have hcap_g : grown.toNat ≤ c.scratch_cap - ht_off.toNat :=
+                                  Nat.le_sub_of_add_le' hc_g.2.2.1
                                 c0_hsplit
                                 · c0_hsplit
                                   · c0_hsplit
@@ -1034,13 +1465,37 @@ theorem full_cong_ht_insert_m7_wp (Γ : Env)
                                 · exfalso; m7_omega
                               · intro J1 hJ1
                                 c0_hsplit
-                                · c0_hsteps; exact hJ1 () m0 rfl
-                                · clear hc; c0_hsplit
-                                  · c0_hsteps; exact hJ1 () m0 rfl
-                                  · c0_hsteps; try simp only [hs7b]
+                                · c0_hsteps
+                                  have hge : old_sz.toNat ≤ s.scratch.res_sz.toNat := by
+                                    rw [hs7a, hos_nat] at hc; exact hc
+                                  exact hJ1 () m0 ⟨rfl, Or.inl hge⟩
+                                · have hrs_lt : s.scratch.res_sz.toNat < old_sz.toNat := by
+                                    rw [hs7a, hos_nat] at hc; exact Nat.not_le.mp hc
+                                  clear hc; c0_hsplit
+                                  · c0_hsteps
+                                    have h34 : 3 * old_sz.toNat ≤ 4 * s.scratch.res_sz.toNat := by
+                                      rw [hs7a, hos_nat] at hc
+                                      have h4n : BitVec.toNat (4 : BitVec 64) = 4 := rfl
+                                      have h3n : BitVec.toNat (3 : BitVec 64) = 3 := rfl
+                                      rw [h4n, h3n, Nat.mod_eq_of_lt (by omega),
+                                        Nat.mod_eq_of_lt (by omega)] at hc
+                                      omega
+                                    exact hJ1 () m0 ⟨rfl, Or.inr h34⟩
+                                  · have h34_lt :
+                                        4 * s.scratch.res_sz.toNat < 3 * old_sz.toNat := by
+                                      rw [hs7a, hos_nat] at hc
+                                      have h4n : BitVec.toNat (4 : BitVec 64) = 4 := rfl
+                                      have h3n : BitVec.toNat (3 : BitVec 64) = 3 := rfl
+                                      rw [h4n, h3n, Nat.mod_eq_of_lt (by omega),
+                                        Nat.mod_eq_of_lt (by omega)] at hc
+                                      omega
+                                    c0_hsteps; try simp only [hs7b]
                                     refine hJs (old_sz, ()) m0
                                       ⟨s.scratch.scratch_buf, hscrl, hok_read, Or.inl rfl, hmax,
-                                        fun _ _ _ => rfl, fun j hj => ?_, hm0⟩
+                                        fun hneed _ _ => False.elim (by rcases hneed with h | h <;>
+                                          omega),
+                                        fun _ => ⟨rfl, rfl⟩,
+                                        fun _ _ _ => rfl, hkeep_id, fun j hj => ?_, hm0⟩
                                     by_cases hem : s.scratch.scratch_buf[ht_off.toNat + j]? =
                                         some 0xFFFFFFFF#32
                                     · exact Or.inl hem
@@ -1064,7 +1519,8 @@ private theorem m7CongHashSpecTable_nodup :
     (m7CongHashSpecTable.map SpecEntry.name).Nodup := by
   show
     ( [ "full_cong_ht_hash_ent_m7", "full_cong_ht_init_m7", "full_cong_ht_grow_m7"
-      , "full_cong_ht_lookup_m7", "full_cong_ht_insert_m7" ] : List String).Nodup
+      , "full_cong_ht_grow_clear_m7", "full_cong_ht_lookup_m7"
+      , "full_cong_ht_insert_m7" ] : List String).Nodup
   decide
 
 private theorem m7CongHashEnv_row_at (i : Nat) (e : SpecEntry)
@@ -1074,7 +1530,7 @@ private theorem m7CongHashEnv_row_at (i : Nat) (e : SpecEntry)
   fun xs m Q X h =>
     Env.ofTable_of_mem (List.mem_of_getElem? hi) m7CongHashSpecTable_nodup (hno xs m Q X h)
 
-/-- Row-by-row `TableImpl` for `m7CongHashFns` (`5` functions) against `m7CongHashSpecTable`. -/
+/-- Row-by-row `TableImpl` for `m7CongHashFns` (`6` functions) against `m7CongHashSpecTable`. -/
 theorem m7CongHash_tableImpl :
     TableImpl m7CongHashEnv m7CongHashFns m7CongHashSpecTable := by
   let h0 := m7CongHashEnv_row_at 0 ⟨"full_cong_ht_hash_ent_m7", [i64, i32, i64], [i64],
@@ -1084,36 +1540,65 @@ theorem m7CongHash_tableImpl :
   exact ⟨.of (full_cong_ht_hash_ent_m7_wp m7CongHashEnv),
     ⟨.of (full_cong_ht_init_m7_wp m7CongHashEnv),
     ⟨.of (full_cong_ht_grow_m7_wp m7CongHashEnv h0),
+    ⟨.of (full_cong_ht_grow_clear_m7_wp m7CongHashEnv),
     ⟨.of (full_cong_ht_lookup_m7_wp m7CongHashEnv),
-    ⟨.of (full_cong_ht_insert_m7_wp m7CongHashEnv h2 h0), trivial⟩⟩⟩⟩⟩
+    ⟨.of (full_cong_ht_insert_m7_wp m7CongHashEnv h2 h0), trivial⟩⟩⟩⟩⟩⟩
 
 /-- Closed `ModuleOk` for standalone `m7CongHashModule` under canonical `m7CongHashEnv`. -/
 theorem m7CongHash_moduleOk : ModuleOk m7CongHashEnv m7CongHashModule :=
   Env.ofTable_moduleOk m7CongHash_acyclic
     ⟨full_cong_ht_hash_ent_m7_wf, full_cong_ht_init_m7_wf, full_cong_ht_grow_m7_wf,
-      full_cong_ht_lookup_m7_wf, full_cong_ht_insert_m7_wf, trivial⟩
+      full_cong_ht_grow_clear_m7_wf, full_cong_ht_lookup_m7_wf, full_cong_ht_insert_m7_wf,
+      trivial⟩
     m7CongHash_tableImpl
 
 end ModuleVerification
 
-/-! ## 6. Concrete `Mem 64` Non-Vacuity (`16,448`-Word Buffer, `8192 → 16384`, `XPost := False`) -/
+/-! ## 6. Concrete `Mem 64` Non-Vacuity (`16,448`-Word Buffer, Colliding Gates, `XPost := False`) -/
 
 section NonVacuity
 
 private def nvM7CongScrHead : List (BitVec 32) :=
-  [0#32, 0#32, 0#32, 0#32, 0#32, 0#32, 64#32, 8192#32, 8#32, 1#32, 0#32] ++
-    List.replicate 53 0#32
+  [ 0#32, 0#32, 0#32, 0#32, 0#32, 0#32, 64#32, 8192#32
+  , 0#32, 0x10000001#32, 14915#32, 0#32, 0#32, 0#32, 0#32, 0#32
+  , 0#32, 0x10000001#32, 31299#32, 0#32, 0#32, 0#32, 0#32, 0#32
+  , 0#32, 0x10000001#32, 14916#32 ] ++ List.replicate 37 0#32
 
 private theorem nvM7CongScrHead_len : nvM7CongScrHead.length = 64 := by decide
 
-/-- `16,448`-word concrete `scratch_buf`: `ctrl[6]=64`, `ctrl[7]=8192`, gate `ent=8`, `16,384`
-empty slots `0xFFFFFFFF#32` (symbolic `List.replicate` -> `O(1)` proofs, `0` `decide` on `16k`). -/
+/-- `16,448`-word concrete `scratch_buf`: `ctrl[6]=64`, `ctrl[7]=8192`, colliding gates
+`gA@8 (lit0=14915)`, `gB@16 (lit0=31299)`, `gC@24 (lit0=14916)`, live table `ht[2]=24`,
+`ht[3]=8` (colliding at slot `2 = hv % 8192`), and `16,380` trailing `0xFFFFFFFF#32` slots. -/
 def nvM7CongScrBuf : List (BitVec 32) :=
-  nvM7CongScrHead ++ List.replicate 16384 0xFFFFFFFF#32
+  nvM7CongScrHead ++ [0xFFFFFFFF#32, 0xFFFFFFFF#32, 24#32, 8#32] ++
+    List.replicate 16380 0xFFFFFFFF#32
 
 theorem nvM7CongScrBuf_len : nvM7CongScrBuf.length = 16448 := by
   unfold nvM7CongScrBuf
-  rw [List.length_append, List.length_replicate, nvM7CongScrHead_len]
+  rw [List.length_append, List.length_append, List.length_replicate, nvM7CongScrHead_len]
+  rfl
+
+private theorem nvM7CongScrBuf_head {idx : Nat} (hidx : idx < 64) :
+    nvM7CongScrBuf[idx]? = nvM7CongScrHead[idx]? := by
+  unfold nvM7CongScrBuf
+  rw [List.append_assoc]
+  exact List.getElem?_append_left (by rw [nvM7CongScrHead_len]; exact hidx)
+
+private theorem nvM7CongScrBuf_slot {k : Nat} (hk : k < 8192) :
+    nvM7CongScrBuf[64 + k]? =
+      if k < 4 then ([0xFFFFFFFF#32, 0xFFFFFFFF#32, 24#32, 8#32] : List (BitVec 32))[k]?
+      else some 0xFFFFFFFF#32 := by
+  unfold nvM7CongScrBuf
+  rw [List.append_assoc,
+    List.getElem?_append_right (by rw [nvM7CongScrHead_len]; omega), nvM7CongScrHead_len,
+    show 64 + k - 64 = k from by omega]
+  by_cases hk4 : k < 4
+  · simp only [hk4, ↓reduceIte]
+    exact List.getElem?_append_left hk4
+  · simp only [hk4, ↓reduceIte]
+    rw [List.getElem?_append_right (by simp; omega)]
+    simp only [List.length_cons, List.length_nil, Nat.zero_add, List.getElem?_replicate]
+    split; rfl; omega
 
 /-- Concrete `FullCfg` with `scratch_cap = 16448` (`avail = 67548`, supporting `>4096` tables). -/
 def nvM7CongCfg : FullCfg where
@@ -1138,7 +1623,7 @@ def nvM7CongScratch : FullScratch where
   probings := 0#64; elim_limit := 0#64; eliminations := 0#64; elim_bound := 0#64
   iterating := 0#64; hbr_cnt := 0#64; trans_cnt := 0#64; viv_cnt := 0#64; subst_cnt := 0#64
   cong_cnt := 0#64; sweep_cnt := 0#64; bve_cnt := 0#64; bce_cnt := 0#64; bva_cnt := 0#64
-  walk_cnt_stat := 0#64; fwd_sub_cnt := 0#64; fwd_str_cnt := 0#64; ant_sz := 0#64; res_sz := 0#64
+  walk_cnt_stat := 0#64; fwd_sub_cnt := 0#64; fwd_str_cnt := 0#64; ant_sz := 0#64; res_sz := 2#64
   walk_vals := [0#8, 0#8]; phases := [0#8]; phases_target := [0#8]
   phases_best := [0#8]; walk_best := [0#8]; heap := [0#32]; pos := [0xFFFFFFFF#32]
   shrink_stk := [0#32]; q_prev := [0xFFFFFFFF#32]; q_next := [0xFFFFFFFF#32]; q_stamp := [0#32]
@@ -1156,11 +1641,14 @@ def nvM7CongState : FullState where
       confl_lit0 := 0#64, confl_lit1 := 0#64, tmp_cnt := 0, tmp_len := 0, min_clr_len := 0
       min_clr_full := 0#64, oom := 0#64, dense_mode := 0#64, inconsistent := 0#64
       vals := [0#8, 0#8], lit_mark := [0#8, 0#8], mrk := [0#8], flags := [0#32], lvl := [0#32]
-      rsns := [0xFFFFFFFF#32], trl := [0#32], trail_pos := [0#32], tmp := [0#32]
+      rsns := [0xFFFFFFFF#32], trl := [0#32], trail_pos := [0#32], tmp := [14915#32]
       min_clr := [0#32], frame_trail := [0#32, 0#32], frame_dec := [0#32, 0#32]
       wvec := List.replicate 4 0#32, repr := [0#32, 0#32], min_stk := List.replicate 4 0#32
       arena := [], wstk := [0#32] }
   scratch := nvM7CongScratch
+
+def nvM7CongStateGrow : FullState :=
+  { nvM7CongState with scratch := { nvM7CongScratch with res_sz := 6144#64 } }
 
 theorem nvM7Cong_lengths : nvM7CongState.LengthsOk nvM7CongCfg :=
   ⟨⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
@@ -1168,8 +1656,17 @@ theorem nvM7Cong_lengths : nvM7CongState.LengthsOk nvM7CongCfg :=
    ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
     rfl, rfl, rfl, rfl, rfl, nvM7CongScrBuf_len⟩⟩
 
+theorem nvM7CongGrow_lengths : nvM7CongStateGrow.LengthsOk nvM7CongCfg :=
+  ⟨⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+    by decide, by decide, by decide, by decide, by decide, by decide, by decide, by decide⟩,
+   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+    rfl, rfl, rfl, rfl, rfl, nvM7CongScrBuf_len⟩⟩
+
 private def nvM7BlockHdr : List UInt8 :=
   bytes64 [1#64, 0#64, 0#64, 0#64] ++ bytes64 (Full.hdrTailWords nvM7CongCfg nvM7CongState)
+
+private def nvM7BlockHdrGrow : List UInt8 :=
+  bytes64 [1#64, 0#64, 0#64, 0#64] ++ bytes64 (Full.hdrTailWords nvM7CongCfg nvM7CongStateGrow)
 
 private def nvM7BlockBytes : List UInt8 :=
   (bytesOf (t := i8) nvM7CongState.core.vals ++ List.replicate 6 0) ++
@@ -1223,10 +1720,17 @@ private def nvM7BlockTail : List UInt8 :=
   bytesOf (t := i32) nvM7CongScratch.extend_stk ++
   bytesOf (t := i32) nvM7CongScrBuf ++ List.replicate 0 0
 
+private def nvM7BlockBody : List UInt8 :=
+  nvM7BlockBytes ++ nvM7BlockU32A ++ nvM7BlockU32B ++ nvM7BlockU32C ++
+  nvM7BlockWvec ++ nvM7BlockTail
+
 /-- Concrete `67,548`-byte `Mem 64` image for `nvM7CongCfg` at `0x1000`. -/
 def nvM7CongMem : Mem 64 :=
-  (nvM7BlockHdr ++ nvM7BlockBytes ++ nvM7BlockU32A ++ nvM7BlockU32B ++
-    nvM7BlockU32C ++ nvM7BlockWvec ++ nvM7BlockTail).At nvM7CongCfg.hdr
+  (nvM7BlockHdr ++ nvM7BlockBody).At nvM7CongCfg.hdr
+
+/-- Concrete `67,548`-byte `Mem 64` image for `nvM7CongStateGrow` (`res_sz = 6144`) at `0x1000`. -/
+def nvM7CongMemGrow : Mem 64 :=
+  (nvM7BlockHdrGrow ++ nvM7BlockBody).At nvM7CongCfg.hdr
 
 private theorem m7_nv_sep_append {P Q : Mem 64 → Prop} {a b : BitVec 64} {bs1 bs2 : List UInt8}
     (hb : b = a + BitVec.ofNat 64 bs1.length) (hlen : bs1.length + bs2.length ≤ 2 ^ 64)
@@ -1274,7 +1778,29 @@ private theorem m7_nv_zip4_tail {C A2 P1 A5 B5 A6 B6 A7 B7 A8 B8 : Mem 64 → Pr
     (h : ((((((C ⋆ A2) ⋆ P1) ⋆ (A5 ⋆ B5)) ⋆ (A6 ⋆ B6)) ⋆ (A7 ⋆ B7)) ⋆ (A8 ⋆ B8)) m) :
     (C ⋆ (A2 ⋆ A5 ⋆ A6 ⋆ A7 ⋆ A8) ⋆ (P1 ⋆ B5 ⋆ B6 ⋆ B7 ⋆ B8)) m := sep_ac h
 
-theorem nvM7CongMem_ok : FullMem nvM7CongCfg nvM7CongState nvM7CongMem := by
+private theorem nvM7CongBody_ok :
+    let c := nvM7CongCfg; let s := nvM7CongState
+    nvM7BlockBody.length = 66396 ∧
+      ((FullCoreByteArrs c s.core ⋆ FullScrByteArrs c s.scratch ⋆ c.padBytes) ⋆
+        ((array (t := i32) c.pFlags s.core.flags ⋆ array (t := i32) c.pLevel s.core.lvl ⋆
+          array (t := i32) c.pReason s.core.rsns ⋆ array (t := i32) c.pTrail s.core.trl ⋆
+          array (t := i32) c.pTrailPos s.core.trail_pos) ⋆ c.padU32A) ⋆
+        ((array (t := i32) c.pTmp s.core.tmp ⋆ array (t := i32) c.pMinClr s.core.min_clr) ⋆
+          (array (t := i32) c.pHeap s.scratch.heap ⋆ array (t := i32) c.pPos s.scratch.pos ⋆
+           array (t := i32) c.pShrinkStk s.scratch.shrink_stk) ⋆ c.padU32B) ⋆
+        ((array (t := i32) c.pQPrev s.scratch.q_prev ⋆
+          array (t := i32) c.pQNext s.scratch.q_next ⋆
+          array (t := i32) c.pQStamp s.scratch.q_stamp) ⋆
+          (array (t := i32) c.pFrameTrail s.core.frame_trail ⋆
+           array (t := i32) c.pFrameDec s.core.frame_dec) ⋆ c.padU32C) ⋆
+        ((array (t := i32) c.pWvec s.core.wvec ⋆ array (t := i32) c.pRepr s.core.repr) ⋆
+          FullScrWksArrs c s.scratch ⋆
+          (array64 c.pScore s.scratch.score ⋆ array64 c.pSimSig s.scratch.sim_sig)) ⋆
+        (array (t := i32) c.pMinStk s.core.min_stk ⋆
+          (array (t := i32) c.pGlueUsed s.scratch.glue_used ⋆
+           array (t := i32) c.pLastLearned s.scratch.last_learned) ⋆
+          FullCoreDynArrs c s.core ⋆ FullScrDynArrs c s.scratch ⋆ region c.pSlack c.slack))
+        (nvM7BlockBody.At c.pVals) := by
   let c := nvM7CongCfg; let s := nvM7CongState
   have hvb : valsBytes c.max_vars - 2 * c.max_vars = 6 := by decide
   have hmb : markBytes c.max_vars - c.max_vars = 7 := by decide
@@ -1284,13 +1810,6 @@ theorem nvM7CongMem_ok : FullMem nvM7CongCfg nvM7CongState nvM7CongMem := by
   have hmv2 : BitVec.ofNat 64 (2 * c.max_vars) = 2#64 := rfl
   have hmv4 : BitVec.ofNat 64 (4 * c.max_vars) = 4#64 := rfl
   have hmv8 : BitVec.ofNat 64 (4 * (c.max_vars + 1)) = 8#64 := rfl
-  have hHdr : nvM7BlockHdr.length = 1152 ∧
-      (dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
-        s.core.d_cur s.core.d_val ⋆ array64 (c.hdr + 32) (Full.hdrTailWords c s))
-        (nvM7BlockHdr.At c.hdr) :=
-    m7_nv_join (m7_nv_arr64_p (a := c.hdr) (xs := [1#64, 0#64, 0#64, 0#64]) 32 rfl (by decide))
-      (m7_nv_arr64_p (a := c.hdr + 32) (xs := Full.hdrTailWords c s) 1120
-        (by rw [Full.hdrTailWords_length]) (by decide)) (by decide) (by decide)
   have hBytes : nvM7BlockBytes.length = 64 ∧
       (FullCoreByteArrs c s.core ⋆ FullScrByteArrs c s.scratch ⋆ c.padBytes)
         (nvM7BlockBytes.At c.pVals) := by
@@ -1450,22 +1969,126 @@ theorem nvM7CongMem_ok : FullMem nvM7CongCfg nvM7CongState nvM7CongMem := by
       ⟨rfl, ⟨List.replicate 0 0, by decide, rfl⟩⟩
     exact m7_nv_reorg (m7_nv_join h8 h9 (by decide) (by decide)) fun _ hm => by
       unfold FullCoreDynArrs FullScrDynArrs; exact sep_ac hm
-  have h01 := m7_nv_join hHdr hBytes (by decide) (by decide)
-  have h02 := m7_nv_join h01 hU32A (by decide) (by decide)
-  have h03 := m7_nv_join h02 hU32B (by decide) (by decide)
-  have h04 := m7_nv_join h03 hU32C (by decide) (by decide)
-  have h05 := m7_nv_join h04 hWvec (by decide) (by decide)
-  exact (m7_nv_reorg (Q := FullMem c s) (m7_nv_join h05 hTail (by decide) (by decide)) fun _ hm =>
-    by unfold FullMem FullCoreArrays FullCoreU32A FullCoreU32B FullScratchArrays FullScrU32A
+  have h1 := m7_nv_join hBytes hU32A (by decide) (by decide)
+  have h2 := m7_nv_join h1 hU32B (by decide) (by decide)
+  have h3 := m7_nv_join h2 hU32C (by decide) (by decide)
+  have h4 := m7_nv_join h3 hWvec (by decide) (by decide)
+  exact m7_nv_reorg (m7_nv_join h4 hTail (by decide) (by decide)) fun _ hm => sep_ac hm
+
+theorem nvM7CongMem_ok : FullMem nvM7CongCfg nvM7CongState nvM7CongMem := by
+  let c := nvM7CongCfg; let s := nvM7CongState
+  have hHdr : nvM7BlockHdr.length = 1152 ∧
+      (dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
+        s.core.d_cur s.core.d_val ⋆ array64 (c.hdr + 32) (Full.hdrTailWords c s))
+        (nvM7BlockHdr.At c.hdr) :=
+    m7_nv_join (m7_nv_arr64_p (a := c.hdr) (xs := [1#64, 0#64, 0#64, 0#64]) 32 rfl (by decide))
+      (m7_nv_arr64_p (a := c.hdr + 32) (xs := Full.hdrTailWords c s) 1120
+        (by rw [Full.hdrTailWords_length]) (by decide)) (by decide) (by decide)
+  exact (m7_nv_reorg (Q := FullMem c s)
+    (m7_nv_join hHdr nvM7CongBody_ok (by decide) (by decide)) fun _ hm => by
+      unfold FullMem FullCoreArrays FullCoreU32A FullCoreU32B FullScratchArrays FullScrU32A
+        FullScrMetaArrs FullCfg.pad; exact sep_ac hm).2
+
+theorem nvM7CongMemGrow_ok : FullMem nvM7CongCfg nvM7CongStateGrow nvM7CongMemGrow := by
+  let c := nvM7CongCfg; let s := nvM7CongStateGrow
+  have hHdr : nvM7BlockHdrGrow.length = 1152 ∧
+      (dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
+        s.core.d_cur s.core.d_val ⋆ array64 (c.hdr + 32) (Full.hdrTailWords c s))
+        (nvM7BlockHdrGrow.At c.hdr) :=
+    m7_nv_join (m7_nv_arr64_p (a := c.hdr) (xs := [1#64, 0#64, 0#64, 0#64]) 32 rfl (by decide))
+      (m7_nv_arr64_p (a := c.hdr + 32) (xs := Full.hdrTailWords c s) 1120
+        (by rw [Full.hdrTailWords_length]) (by decide)) (by decide) (by decide)
+  exact (m7_nv_reorg (Q := FullMem c s)
+    (m7_nv_join hHdr nvM7CongBody_ok (by decide) (by decide)) fun _ hm => by
+      unfold FullMem FullCoreArrays FullCoreU32A FullCoreU32B FullScratchArrays FullScrU32A
         FullScrMetaArrs FullCfg.pad; exact sep_ac hm).2
 
 private theorem nvM7CongMem_sep : (FullMem nvM7CongCfg nvM7CongState ⋆ emp) nvM7CongMem := by
   rw [sep_emp]; exact nvM7CongMem_ok
 
+private theorem nvM7CongMemGrow_sep :
+    (FullMem nvM7CongCfg nvM7CongStateGrow ⋆ emp) nvM7CongMemGrow := by
+  rw [sep_emp]; exact nvM7CongMemGrow_ok
+
 theorem nvM7Cong_ctrl_ok : M7CongHtCtrlOk nvM7CongCfg nvM7CongScrBuf 0 64 8192 :=
   ⟨nvM7CongScrBuf_len, by decide, by decide, by decide, ⟨9, by decide, by decide⟩,
-   by unfold nvM7CongScrBuf; rw [List.getElem?_append_left (by decide)]; decide,
-   by unfold nvM7CongScrBuf; rw [List.getElem?_append_left (by decide)]; decide⟩
+   by rw [nvM7CongScrBuf_head (by decide)]; decide,
+   by rw [nvM7CongScrBuf_head (by decide)]; decide⟩
+
+private theorem nvM7Cong_no_equiv_16 {scr' : List (BitVec 32)} {ret mw_e mw_c : BitVec 32}
+    {ho nsz nsz' k : Nat} (hctrl' : M7CongHtCtrlOk nvM7CongCfg scr' 0 64 nsz)
+    (hpre : ∀ idx < 64, idx ≠ 7 → scr'[idx]? = nvM7CongScrBuf[idx]?)
+    (hslot : ∀ j < nsz,
+      scr'[64 + j]? = some 0xFFFFFFFF#32 ∨ scr'[64 + j]? = some 16#32 ∨
+      ∃ k0 < 8192, ∃ raw : BitVec 32,
+        nvM7CongScrBuf[64 + k0]? = some raw ∧ raw ≠ 0xFFFFFFFF#32 ∧
+        (scr'[64 + j]? = some raw ∨ scr'[64 + j]? = some (raw &&& 0x7FFFFFFF#32)))
+    (hok : M7CongHtCtrlOk nvM7CongCfg scr' 0 ho nsz') (hk : k < nsz')
+    (hget : scr'[ho + k]? = some ret) (hlt : ret.toNat < ho)
+    (hmw_e : nvM7CongScrBuf[17]? = some mw_e)
+    (hmw_c : scr'[ret.toNat + 1]? = some mw_c)
+    (hlits : ∀ j < (mw_e &&& 0xFF#32).toNat, scr'[ret.toNat + 2 + j]? = scr'[18 + j]?) :
+    ret = 16#32 := by
+  have hm6 := hok.2.2.2.2.2.1; have hc6 := hctrl'.2.2.2.2.2.1
+  rw [hm6, Option.some.injEq] at hc6
+  have h64 : ho = 64 := by
+    have htn := congrArg BitVec.toNat hc6
+    rwa [bv32_ofNat_toNat_lt (by have := hok.2.2.2.1; omega),
+      bv32_ofNat_toNat_lt (by have := hctrl'.2.2.2.1; omega)] at htn
+  have hm7 := hok.2.2.2.2.2.2; have hc7 := hctrl'.2.2.2.2.2.2
+  rw [hm7, Option.some.injEq] at hc7
+  have hnsz : nsz' = nsz := by
+    have htn := congrArg BitVec.toNat hc7
+    have h1 := hok.2.2.2.2.1; obtain ⟨k1, hk1, hk1e⟩ := h1
+    have h2 := hctrl'.2.2.2.2.1; obtain ⟨k2, hk2, hk2e⟩ := h2
+    have hm1 := pow2_16_mul_le k1 hk1
+    have hm2 := pow2_16_mul_le k2 hk2
+    rwa [bv32_ofNat_toNat_lt (by omega), bv32_ofNat_toNat_lt (by omega)] at htn
+  subst h64; subst hnsz
+  have hme_val : mw_e = 0x10000001#32 := by
+    rw [nvM7CongScrBuf_head (by decide)] at hmw_e
+    have h17 : nvM7CongScrHead[17]? = some 0x10000001#32 := by decide
+    rw [h17, Option.some.injEq] at hmw_e
+    exact hmw_e.symm
+  have hlit0 : scr'[ret.toNat + 2]? = scr'[18]? := by
+    have h0 := hlits 0 (by rw [hme_val]; decide); simpa using h0
+  rcases hslot k hk with hem | h16 | ⟨k0, hk0, raw, hget0, hne0, hor⟩
+  · rw [hget, Option.some.injEq] at hem; subst hem
+    have : (0xFFFFFFFF#32 : BitVec 32).toNat < 64 := hlt; contradiction
+  · rw [hget, Option.some.injEq] at h16; exact h16
+  · rw [nvM7CongScrBuf_slot hk0] at hget0
+    by_cases hk4 : k0 < 4
+    · simp only [hk4, ↓reduceIte] at hget0
+      have hk0_cases : k0 = 0 ∨ k0 = 1 ∨ k0 = 2 ∨ k0 = 3 := by omega
+      rcases hk0_cases with rfl | rfl | rfl | rfl
+      · exact False.elim (hne0 (Option.some.inj hget0).symm)
+      · exact False.elim (hne0 (Option.some.inj hget0).symm)
+      · have hraw : raw = 24#32 := (Option.some.inj hget0).symm
+        subst hraw
+        have hret24 : ret = 24#32 := by
+          rw [hget] at hor
+          rcases hor with h | h <;> rw [Option.some.injEq] at h
+          · exact h
+          · exact h.trans (by decide)
+        subst hret24
+        rw [show (24#32 : BitVec 32).toNat + 2 = 26 from by decide,
+          hpre 26 (by decide) (by decide), hpre 18 (by decide) (by decide),
+          nvM7CongScrBuf_head (by decide), nvM7CongScrBuf_head (by decide)] at hlit0
+        contradiction
+      · have hraw : raw = 8#32 := (Option.some.inj hget0).symm
+        subst hraw
+        have hret8 : ret = 8#32 := by
+          rw [hget] at hor
+          rcases hor with h | h <;> rw [Option.some.injEq] at h
+          · exact h
+          · exact h.trans (by decide)
+        subst hret8
+        rw [show (8#32 : BitVec 32).toNat + 2 = 10 from by decide,
+          hpre 10 (by decide) (by decide), hpre 18 (by decide) (by decide),
+          nvM7CongScrBuf_head (by decide), nvM7CongScrBuf_head (by decide)] at hlit0
+        contradiction
+    · simp only [hk4, ↓reduceIte] at hget0
+      exact False.elim (hne0 (Option.some.inj hget0).symm)
 
 /-- Concrete `Mem 64` NV (`XPost := False`): `full_cong_ht_init_m7` initializes `16,384` buckets
 (`4x` past legacy `4096`) cleanly on `nvM7CongMem`. -/
@@ -1501,7 +2124,8 @@ theorem nv_m7_cong_ht_init :
        exact ⟨_, hret, hcore, hlen, hpres, hctrl', hm'⟩⟩
 
 /-- Concrete `Mem 64` NV (`XPost := False`): `full_cong_ht_grow_m7` grows an `8,192`-bucket
-table to `16,384` buckets (`4x` past legacy `4096`) on `nvM7CongMem`. -/
+table with live colliding entries (`ht[2]=24`, `ht[3]=8`) to `16,384` buckets (`4x` past legacy
+`4096`) on `nvM7CongMem` while migrating and preserving both colliding gates. -/
 theorem nv_m7_cong_ht_grow :
     Func.wp m7CongHashEnv full_cong_ht_grow_m7_body
       (nvM7CongCfg.hdr, 0#64, ()) nvM7CongMem
@@ -1509,53 +2133,207 @@ theorem nv_m7_cong_ht_grow :
         ret = 16384#64 ∧ PreservesCoreSlice FullState.core nvM7CongState s' ∧
         s'.LengthsOk nvM7CongCfg ∧ FullExtScratchPres nvM7CongState s' ∧
         M7CongHtCtrlOk nvM7CongCfg s'.scratch.scratch_buf 0 64 16384 ∧
+        (∃ jC < 16384, s'.scratch.scratch_buf[64 + jC]? = some 24#32) ∧
+        (∃ jA < 16384, s'.scratch.scratch_buf[64 + jA]? = some 8#32) ∧
         FullMem nvM7CongCfg s' m')
       (fun _ _ _ _ => False) :=
   m7CongHash_tableImpl.2.2.1.2 _ _ _ _
     ⟨nvM7CongCfg, nvM7CongState, emp, rfl, nvM7Cong_lengths, nvM7CongMem_sep,
      fun ret scr' m' _ hlen hcore hpres hres _ hm' => by
-       obtain ⟨hret_n, hctrl, _, _⟩ := (hres 64 8192 nvM7Cong_ctrl_ok).2 (by decide) (by decide)
+       obtain ⟨hret_n, hctrl, _, _, hkeep, _⟩ :=
+         (hres 64 8192 nvM7Cong_ctrl_ok).2 (by decide) (by decide)
+       have hret : ret = 16384#64 := BitVec.eq_of_toNat_eq (hret_n.trans (by decide))
+       have hctrl' : M7CongHtCtrlOk nvM7CongCfg scr' 0 64 16384 := by simpa using hctrl
+       have hkC : ∃ jC < 16384, scr'[64 + jC]? = some 24#32 :=
+         hkeep 24#32 (by decide) ⟨2, by decide, by
+           dsimp only [nvM7CongState, nvM7CongScratch]
+           rw [nvM7CongScrBuf_slot (by decide)]; decide⟩
+       have hkA : ∃ jA < 16384, scr'[64 + jA]? = some 8#32 :=
+         hkeep 8#32 (by decide) ⟨3, by decide, by
+           dsimp only [nvM7CongState, nvM7CongScratch]
+           rw [nvM7CongScrBuf_slot (by decide)]; decide⟩
+       rw [sep_emp] at hm'
+       exact ⟨_, hret, hcore, hlen, hpres, hctrl', hkC, hkA, hm'⟩⟩
+
+/-- Concrete `Mem 64` NV (`XPost := False`): `full_cong_ht_grow_clear_m7` grows an `8,192`-bucket
+table to `16,384` buckets, clears all `16,384` slots to `0xFFFFFFFF#32`, and resets `res_sz = 0`. -/
+theorem nv_m7_cong_ht_grow_clear :
+    Func.wp m7CongHashEnv full_cong_ht_grow_clear_m7_body
+      (nvM7CongCfg.hdr, 0#64, ()) nvM7CongMem
+      (fun (ret, ()) m' => ∃ s',
+        ret = 16384#64 ∧ s'.scratch.res_sz = 0#64 ∧
+        PreservesCoreSlice FullState.core nvM7CongState s' ∧
+        s'.LengthsOk nvM7CongCfg ∧ FullExtScratchPres nvM7CongState s' ∧
+        M7CongHtCtrlOk nvM7CongCfg s'.scratch.scratch_buf 0 64 16384 ∧
+        (∀ j < 16384, s'.scratch.scratch_buf[64 + j]? = some 0xFFFFFFFF#32) ∧
+        FullMem nvM7CongCfg s' m')
+      (fun _ _ _ _ => False) :=
+  m7CongHash_tableImpl.2.2.2.1.2 _ _ _ _
+    ⟨nvM7CongCfg, nvM7CongState, emp, rfl, nvM7Cong_lengths, nvM7CongMem_sep,
+     fun ret scr' _ m' _ hlen hcore hpres hres _ hm' => by
+       obtain ⟨hret_n, hctrl, hrsz, _, hclr⟩ :=
+         (hres 64 8192 nvM7Cong_ctrl_ok).2 (by decide) (by decide)
        have hret : ret = 16384#64 := BitVec.eq_of_toNat_eq (hret_n.trans (by decide))
        have hctrl' : M7CongHtCtrlOk nvM7CongCfg scr' 0 64 16384 := by simpa using hctrl
        rw [sep_emp] at hm'
-       exact ⟨_, hret, hcore, hlen, hpres, hctrl', hm'⟩⟩
+       exact ⟨_, hret, hrsz, hcore, hlen, hpres, hctrl', hclr, hm'⟩⟩
 
-/-- Concrete `Mem 64` NV (`XPost := False`): `full_cong_ht_insert_m7` inserts gate `ent = 8` into
-the `8,192`-bucket `nvM7CongMem` while preserving `FullState.core`, `LengthsOk`, and `FullMem`. -/
-theorem nv_m7_cong_ht_insert :
-    Func.wp m7CongHashEnv full_cong_ht_insert_m7_body
-      (nvM7CongCfg.hdr, 0#64, 8#32, ()) nvM7CongMem
-      (fun (ret, ()) m' => ∃ s',
-        PreservesCoreSlice FullState.core nvM7CongState s' ∧ s'.LengthsOk nvM7CongCfg ∧
-        FullExtScratchPres nvM7CongState s' ∧
-        (∃ new_sz, (new_sz = 8192 ∨ new_sz = 16384) ∧
-          M7CongHtCtrlOk nvM7CongCfg s'.scratch.scratch_buf 0 64 new_sz) ∧
-        (ret = 0xFFFFFFFF#32 ∨ ret = 8#32 ∨ ret.toNat < 64) ∧
-        FullMem nvM7CongCfg s' m')
+/-- Concrete `Mem 64` NV (`XPost := False`): `full_cong_ht_lookup_m7` probes past colliding
+entry `ht[2]=24` (`lit0=14916`) on `(tag=1, arity=1, tmp=[14915])` and returns exact `8#32`. -/
+theorem nv_m7_cong_ht_lookup :
+    Func.wp m7CongHashEnv full_cong_ht_lookup_m7_body
+      (nvM7CongCfg.hdr, 0#64, 1#32, 1#32, ()) nvM7CongMem
+      (fun (ret, ()) m' => ret = 8#32 ∧ m' = nvM7CongMem)
       (fun _ _ _ _ => False) :=
   m7CongHash_tableImpl.2.2.2.2.1.2 _ _ _ _
     ⟨nvM7CongCfg, nvM7CongState, emp, rfl, nvM7Cong_lengths, nvM7CongMem_sep,
+     fun ret hret => by
+       rcases hret with ⟨rfl, hmiss⟩ | ⟨ho, hsz, k, _, hctrl, _, _, hk, hget, hfit, _, _, _, htmp⟩
+       · exfalso
+         have hnm := hmiss 64 8192 nvM7Cong_ctrl_ok (by decide) (by decide)
+         have hslot2 : (m7CongHashTmp 1#32 1#32 nvM7CongState.core.tmp).toNat % 8192 = 2 := by
+           decide
+         have hne_chain : ∀ m0 ≤ 1,
+             nvM7CongScrBuf[64 + (2 + m0) % 8192]? ≠ some 0xFFFFFFFF#32 := by
+           intro m0 hm0
+           rcases (by omega : m0 = 0 ∨ m0 = 1) with rfl | rfl
+           · rw [show (2 + 0) % 8192 = 2 from rfl, nvM7CongScrBuf_slot (by decide)]; decide
+           · rw [show (2 + 1) % 8192 = 3 from rfl, nvM7CongScrBuf_slot (by decide)]; decide
+         have hget8 : nvM7CongScrBuf[64 + (2 + 1) % 8192]? = some 8#32 := by
+           rw [show (2 + 1) % 8192 = 3 from rfl, nvM7CongScrBuf_slot (by decide)]
+           decide
+         have hmatch8 : m7CongSlotMatch nvM7CongScrBuf 64 1#32 1#32 nvM7CongState.core.tmp 8#32 :=
+           ⟨by decide, by decide, 0x10000001#32,
+            by rw [nvM7CongScrBuf_head (by decide)]; decide, by decide, by decide,
+            fun j hj => by
+              rw [show (1#32 : BitVec 32).toNat = 1 from rfl] at hj
+              obtain rfl : j = 0 := by omega
+              rw [nvM7CongScrBuf_head (by decide)]; decide⟩
+         rw [hslot2] at hnm
+         exact hnm 1 (by decide) hne_chain 8#32 hget8 hmatch8
+       · have hm6 := hctrl.2.2.2.2.2.1; have hc6 := nvM7Cong_ctrl_ok.2.2.2.2.2.1
+         dsimp only [nvM7CongState, nvM7CongScratch] at hm6
+         rw [show (0#64 : BitVec 64).toNat = 0 from rfl] at hm6
+         rw [hm6, Option.some.injEq] at hc6
+         have h64 : ho = 64 := by
+           have htn := congrArg BitVec.toNat hc6
+           rwa [bv32_ofNat_toNat_lt (by have := hctrl.2.2.2.1; omega),
+             bv32_ofNat_toNat_lt (by decide)] at htn
+         have hm7 := hctrl.2.2.2.2.2.2; have hc7 := nvM7Cong_ctrl_ok.2.2.2.2.2.2
+         dsimp only [nvM7CongState, nvM7CongScratch] at hm7
+         rw [show (0#64 : BitVec 64).toNat = 0 from rfl] at hm7
+         rw [hm7, Option.some.injEq] at hc7
+         have h8192 : hsz = 8192 := by
+           have htn := congrArg BitVec.toNat hc7
+           obtain ⟨k1, hk1, hk1e⟩ := hctrl.2.2.2.2.1
+           have hm1 := pow2_16_mul_le k1 hk1
+           rwa [bv32_ofNat_toNat_lt (by omega), bv32_ofNat_toNat_lt (by decide)] at htn
+         subst h64; subst h8192
+         dsimp only [nvM7CongState, nvM7CongScratch] at hget
+         rw [nvM7CongScrBuf_slot hk] at hget
+         by_cases hk4 : k < 4
+         · simp only [hk4, ↓reduceIte] at hget
+           rcases (by omega : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3) with rfl | rfl | rfl | rfl
+           · have hret : ret = 0xFFFFFFFF#32 := (Option.some.inj hget).symm
+             subst hret; revert hfit; decide
+           · have hret : ret = 0xFFFFFFFF#32 := (Option.some.inj hget).symm
+             subst hret; revert hfit; decide
+           · have hret : ret = 24#32 := (Option.some.inj hget).symm
+             subst hret
+             have h0 := htmp 0 (by decide)
+             dsimp only [nvM7CongState, nvM7CongScratch] at h0
+             rw [nvM7CongScrBuf_head (by decide)] at h0
+             revert h0; decide
+           · have hret : ret = 8#32 := (Option.some.inj hget).symm
+             exact ⟨hret, rfl⟩
+         · simp only [hk4, ↓reduceIte] at hget
+           have hret : ret = 0xFFFFFFFF#32 := (Option.some.inj hget).symm
+           subst hret; revert hfit; decide⟩
+
+/-- Concrete `Mem 64` NV (`XPost := False`): `full_cong_ht_insert_m7` inserts colliding gate
+`ent = 16#32` (`lit0=31299`) into `nvM7CongMem` (`res_sz=2`, `old_sz=8192`) without spurious match
+or resize (`ret = 16#32`, `new_sz = 8192`). -/
+theorem nv_m7_cong_ht_insert :
+    Func.wp m7CongHashEnv full_cong_ht_insert_m7_body
+      (nvM7CongCfg.hdr, 0#64, 16#32, ()) nvM7CongMem
+      (fun (ret, ()) m' => ∃ s',
+        ret = 16#32 ∧ PreservesCoreSlice FullState.core nvM7CongState s' ∧
+        s'.LengthsOk nvM7CongCfg ∧ FullExtScratchPres nvM7CongState s' ∧
+        M7CongHtCtrlOk nvM7CongCfg s'.scratch.scratch_buf 0 64 8192 ∧
+        FullMem nvM7CongCfg s' m')
+      (fun _ _ _ _ => False) :=
+  m7CongHash_tableImpl.2.2.2.2.2.1.2 _ _ _ _
+    ⟨nvM7CongCfg, nvM7CongState, emp, rfl, nvM7Cong_lengths, nvM7CongMem_sep,
      fun ret scr' _ m' _ hlen hcore hpres _ hctrl_all hret hm' => by
-       obtain ⟨nsz, hctrl', hsz, _, _, _⟩ := hctrl_all 64 8192 nvM7Cong_ctrl_ok
-       have hsz' : nsz = 8192 ∨ nsz = 16384 := by
-         rcases hsz with rfl | rfl
-         · exact Or.inl rfl
-         · exact Or.inr rfl
-       have hctrl0 : M7CongHtCtrlOk nvM7CongCfg scr' 0 64 nsz := hctrl'
+       obtain ⟨nsz, hctrl', _, _, _, hnogrow, hpre, _, hslot, hfull⟩ :=
+         hctrl_all 64 8192 nvM7Cong_ctrl_ok
+       have hnsz : nsz = 8192 := hnogrow (by decide)
+       subst hnsz
+       have hret16 : ret = 16#32 := by
+         rcases hret with rfl | rfl | ⟨ho, nsz', k, mw_e, mw_c, hok, hk, hget, hlt,
+             hmw_e, hmw_c, _, _, _, hlits⟩
+         · exfalso
+           have hf := hfull rfl 0x10000001#32 (by
+             dsimp only [nvM7CongState, nvM7CongScratch]
+             rw [show (16#32 : BitVec 32).toNat + 1 = 17 from rfl,
+               nvM7CongScrBuf_head (by decide)]; decide) (by decide) (by decide)
+           have h4 := hf.1 4 (by decide)
+           rw [hf.2.1 rfl] at h4
+           dsimp only [nvM7CongState, nvM7CongScratch] at h4
+           rw [nvM7CongScrBuf_slot (by decide)] at h4
+           exact h4 (by decide)
+         · rfl
+         · exact nvM7Cong_no_equiv_16 hctrl' hpre hslot hok hk hget hlt hmw_e hmw_c hlits
        rw [sep_emp] at hm'
-       have hret' : ret = 0xFFFFFFFF#32 ∨ ret = 8#32 ∨ ret.toNat < 64 := by
-         rcases hret with h | h | ⟨ho, _, _, hok, _, _, hlt⟩
-         · exact Or.inl h
-         · exact Or.inr (Or.inl h)
-         · have hm6 := hok.2.2.2.2.2.1; have hc6 := hctrl'.2.2.2.2.2.1
-           rw [hm6, Option.some.injEq] at hc6
-           have h1 := hok.2.2.2.1
-           have h64 : ho = 64 := by
-             have htn := congrArg BitVec.toNat hc6
-             rwa [bv32_ofNat_toNat_lt (by omega),
-               bv32_ofNat_toNat_lt (by have := hctrl'.2.2.2.1; omega)] at htn
-           exact Or.inr (Or.inr (h64 ▸ hlt))
-       exact ⟨_, hcore, hlen, hpres, ⟨nsz, hsz', hctrl0⟩, hret', hm'⟩⟩
+       exact ⟨_, hret16, hcore, hlen, hpres, hctrl', hm'⟩⟩
+
+/-- Concrete `Mem 64` NV (`XPost := False`): `full_cong_ht_insert_m7` auto-grows `8,192 -> 16,384`
+on `nvM7CongMemGrow` (`res_sz = 6144`, `75%` load), inserts `16#32`, and preserves both live
+colliding entries (`24#32` and `8#32`). -/
+theorem nv_m7_cong_ht_insert_grow :
+    Func.wp m7CongHashEnv full_cong_ht_insert_m7_body
+      (nvM7CongCfg.hdr, 0#64, 16#32, ()) nvM7CongMemGrow
+      (fun (ret, ()) m' => ∃ s',
+        ret = 16#32 ∧ PreservesCoreSlice FullState.core nvM7CongStateGrow s' ∧
+        s'.LengthsOk nvM7CongCfg ∧ FullExtScratchPres nvM7CongStateGrow s' ∧
+        M7CongHtCtrlOk nvM7CongCfg s'.scratch.scratch_buf 0 64 16384 ∧
+        (∃ jC < 16384, s'.scratch.scratch_buf[64 + jC]? = some 24#32) ∧
+        (∃ jA < 16384, s'.scratch.scratch_buf[64 + jA]? = some 8#32) ∧
+        FullMem nvM7CongCfg s' m')
+      (fun _ _ _ _ => False) :=
+  m7CongHash_tableImpl.2.2.2.2.2.1.2 _ _ _ _
+    ⟨nvM7CongCfg, nvM7CongStateGrow, emp, rfl, nvM7CongGrow_lengths, nvM7CongMemGrow_sep,
+     fun ret scr' _ m' _ hlen hcore hpres _ hctrl_all hret hm' => by
+       obtain ⟨nsz, hctrl', _, _, hgrow, _, hpre, hkeep, hslot, hfull⟩ :=
+         hctrl_all 64 8192 nvM7Cong_ctrl_ok
+       have hnsz : nsz = 16384 :=
+         hgrow ⟨0x10000001#32, by
+           dsimp only [nvM7CongStateGrow, nvM7CongState, nvM7CongScratch]
+           rw [show (16#32 : BitVec 32).toNat + 1 = 17 from rfl,
+             nvM7CongScrBuf_head (by decide)]; decide,
+           by decide, by decide⟩ (by decide) (by decide) (by decide)
+       subst hnsz
+       have hret16 : ret = 16#32 := by
+         rcases hret with rfl | rfl | ⟨ho, nsz', k, mw_e, mw_c, hok, hk, hget, hlt,
+             hmw_e, hmw_c, _, _, _, hlits⟩
+         · exfalso
+           have hf := hfull rfl 0x10000001#32 (by
+             dsimp only [nvM7CongStateGrow, nvM7CongState, nvM7CongScratch]
+             rw [show (16#32 : BitVec 32).toNat + 1 = 17 from rfl,
+               nvM7CongScrBuf_head (by decide)]; decide) (by decide) (by decide)
+           exact hf.2.2 (by decide)
+         · rfl
+         · exact nvM7Cong_no_equiv_16 hctrl' hpre hslot hok hk hget hlt hmw_e hmw_c hlits
+       have hkC : ∃ jC < 16384, scr'[64 + jC]? = some 24#32 :=
+         hkeep 24#32 (by decide) ⟨2, by decide, by
+           dsimp only [nvM7CongStateGrow, nvM7CongState, nvM7CongScratch]
+           rw [nvM7CongScrBuf_slot (by decide)]; decide⟩
+       have hkA : ∃ jA < 16384, scr'[64 + jA]? = some 8#32 :=
+         hkeep 8#32 (by decide) ⟨3, by decide, by
+           dsimp only [nvM7CongStateGrow, nvM7CongState, nvM7CongScratch]
+           rw [nvM7CongScrBuf_slot (by decide)]; decide⟩
+       rw [sep_emp] at hm'
+       exact ⟨_, hret16, hcore, hlen, hpres, hctrl', hkC, hkA, hm'⟩⟩
 
 end NonVacuity
 

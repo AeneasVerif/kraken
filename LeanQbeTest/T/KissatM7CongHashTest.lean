@@ -36,23 +36,21 @@ open LeanQbe.T.Examples.Kissat.FullM7CongHash
 
 private def simEmpty : UInt32 := 0xFFFFFFFF
 
-private def simHashEnt (scr : Array UInt32) (ent : UInt32) : UInt32 := Id.run do
+private def simHashEnt (scr : Array UInt32) (ent : UInt32) : UInt64 := Id.run do
   let e := ent.toNat
   let mw := scr[e + 1]!
+  let etag := (mw >>> 28).toUInt64
   let arity := (mw &&& 0xFF).toNat
-  let mut h : UInt32 := mw * 0x9E3779B9 + 1
+  let mut h : UInt64 := etag * 0x9E3779B1 + arity.toUInt64
   for j in [:arity] do
-    let v := scr[e + 2 + j]!
-    h := (h ^^^ (h >>> 13)) * 0x9E3779B9 + v + 1
+    h := h * 0x85EBCA77 + scr[e + 2 + j]!.toUInt64 + 1
   return h
 
-private def simHashTmp (htag harity : UInt32) (tmp : Array UInt32) : UInt32 := Id.run do
+private def simHashTmp (htag harity : UInt32) (tmp : Array UInt32) : UInt64 := Id.run do
   let arity := harity.toNat
-  let mw := (htag <<< 28) ||| (harity &&& 0xFF)
-  let mut h : UInt32 := mw * 0x9E3779B9 + 1
+  let mut h : UInt64 := htag.toUInt64 * 0x9E3779B1 + harity.toUInt64
   for j in [:arity] do
-    let v := tmp[j]!
-    h := (h ^^^ (h >>> 13)) * 0x9E3779B9 + v + 1
+    h := h * 0x85EBCA77 + tmp[j]!.toUInt64 + 1
   return h
 
 private def simInit (ctrlOff htOff maxSz : Nat) : StateM (Array UInt32) Nat := do
@@ -81,55 +79,74 @@ private def simGrow (ctrlOff : Nat) : StateM (Array UInt32) Nat := do
   if oldSz ≥ 131072 || htOff + 2 * oldSz > cap then
     return oldSz
   let newSz := 2 * oldSz
-  for j in [:oldSz] do
-    modify fun s => s.set! (htOff + oldSz + j) simEmpty
-  for j in [:oldSz] do
-    let w := (← get)[htOff + j]!
-    if w != simEmpty then
-      modify fun s => s.set! (htOff + j) (w ||| 0x80000000)
-  for idx in [:oldSz] do
-    for _ in [:oldSz] do
-      let raw := (← get)[htOff + idx]!
-      if raw == simEmpty || (raw &&& 0x80000000) == 0 then
-        break
-      let ent := raw &&& 0x7FFFFFFF
-      modify fun s => s.set! (htOff + idx) simEmpty
-      let hv := (simHashEnt (← get) ent).toNat
-      let mut slot := hv % newSz
+  for k in [oldSz:newSz] do
+    modify fun s => s.set! (htOff + k) simEmpty
+  for i in [:oldSz] do
+    let raw := (← get)[htOff + i]!
+    if raw != simEmpty && (raw &&& 0x80000000) == 0 && raw.toNat < htOff then
+      modify fun s => s.set! (htOff + i) simEmpty
+      let mut cur := raw
       for _ in [:newSz] do
-        let dst := (← get)[htOff + slot]!
-        if dst == simEmpty then
-          modify fun s => s.set! (htOff + slot) ent
+        if cur == simEmpty then
           break
-        else if (dst &&& 0x80000000) != 0 then
-          modify fun s => (s.set! (htOff + slot) ent).set! (htOff + idx) dst
-          break
-        slot := (slot + 1) % newSz
+        let hv := simHashEnt (← get) cur
+        let mut slot := (hv &&& (UInt64.ofNat newSz - 1)).toNat
+        let mut nextCur := cur
+        for _ in [:newSz] do
+          let dst := (← get)[htOff + slot]!
+          if dst == simEmpty then
+            modify fun s => s.set! (htOff + slot) (cur ||| 0x80000000)
+            nextCur := simEmpty
+            break
+          else if (dst &&& 0x80000000) == 0 then
+            modify fun s => s.set! (htOff + slot) (cur ||| 0x80000000)
+            nextCur := if dst.toNat < htOff then dst else simEmpty
+            break
+          slot := (slot + 1) &&& (newSz - 1)
+        cur := nextCur
+  for j in [:newSz] do
+    let v := (← get)[htOff + j]!
+    if v != simEmpty then
+      modify fun s => s.set! (htOff + j) (v &&& 0x7FFFFFFF)
   modify fun s => s.set! (ctrlOff + 7) (UInt32.ofNat newSz)
   return newSz
+
+private def simGrowClear (ctrlOff resSz : Nat) : StateM (Array UInt32) (Nat × Nat) := do
+  let s0 ← get
+  let cap := s0.size
+  let htOff := s0[ctrlOff + 6]!.toNat
+  let oldSz := s0[ctrlOff + 7]!.toNat
+  if oldSz == 131072 || htOff + 2 * oldSz > cap then
+    return (oldSz, resSz)
+  let newSz := 2 * oldSz
+  for j in [:newSz] do
+    modify fun s => s.set! (htOff + j) simEmpty
+  modify fun s => s.set! (ctrlOff + 7) (UInt32.ofNat newSz)
+  return (newSz, 0)
 
 private def simLookup (scr : Array UInt32) (ctrlOff : Nat) (htag harity : UInt32)
     (tmp : Array UInt32) : UInt32 := Id.run do
   let htOff := scr[ctrlOff + 6]!.toNat
   let htSz := scr[ctrlOff + 7]!.toNat
   let hv := (simHashTmp htag harity tmp).toNat
-  let mut slot := hv % htSz
+  let mut slot := hv &&& (htSz - 1)
   let arity := harity.toNat
   for _ in [:htSz] do
     let ent := scr[htOff + slot]!
     if ent == simEmpty then
       return simEmpty
     let e := ent.toNat
-    let mw := scr[e + 1]!
-    if (mw >>> 28) == htag && (mw &&& 0xFF) == harity then
-      let mut eq := true
-      for j in [:arity] do
-        if scr[e + 2 + j]! != tmp[j]! then
-          eq := false
-          break
-      if eq then
-        return ent
-    slot := (slot + 1) % htSz
+    if e + 2 + arity ≤ htOff then
+      let mw := scr[e + 1]!
+      if (mw >>> 28) == htag && (mw &&& 0xFF) == harity then
+        let mut eq := true
+        for j in [:arity] do
+          if scr[e + 2 + j]! != tmp[j]! then
+            eq := false
+            break
+        if eq then
+          return ent
+    slot := (slot + 1) &&& (htSz - 1)
   return simEmpty
 
 private def simInsert (ctrlOff resSz : Nat) (ent : UInt32) :
@@ -137,30 +154,36 @@ private def simInsert (ctrlOff resSz : Nat) (ent : UInt32) :
   let s0 ← get
   let htOff := s0[ctrlOff + 6]!.toNat
   let mut htSz := s0[ctrlOff + 7]!.toNat
-  if 4 * (resSz + 1) > 3 * htSz then
+  if htSz ≤ 131072 && (resSz ≥ htSz || 4 * resSz ≥ 3 * htSz) then
     htSz ← simGrow ctrlOff
   let s1 ← get
   let e := ent.toNat
   let mw := s1[e + 1]!
-  let arity := (mw &&& 0xFF).toNat
+  let etag := mw >>> 28
+  let earity := mw &&& 0xFF
+  let arity := earity.toNat
   let hv := (simHashEnt s1 ent).toNat
-  let mut slot := hv % htSz
+  let mut slot := hv &&& (htSz - 1)
   for _ in [:htSz] do
     let s2 ← get
     let cur := s2[htOff + slot]!
     if cur == simEmpty then
       modify fun s => s.set! (htOff + slot) ent
       return (ent, resSz + 1)
+    if cur == ent then
+      return (ent, resSz)
     let ce := cur.toNat
-    if s2[ce + 1]! == mw then
-      let mut eq := true
-      for j in [:arity] do
-        if s2[ce + 2 + j]! != s2[e + 2 + j]! then
-          eq := false
-          break
-      if eq then
-        return (cur, resSz)
-    slot := (slot + 1) % htSz
+    if ce + 2 + arity ≤ htOff then
+      let mw_c := s2[ce + 1]!
+      if (mw_c >>> 28) == etag && (mw_c &&& 0xFF) == earity then
+        let mut eq := true
+        for j in [:arity] do
+          if s2[ce + 2 + j]! != s2[e + 2 + j]! then
+            eq := false
+            break
+        if eq then
+          return (cur, resSz)
+    slot := (slot + 1) &&& (htSz - 1)
   return (simEmpty, resSz)
 
 private def testScaleTo65536And131072 : Bool :=
@@ -222,39 +245,62 @@ private def testAutoGrowPast4096 : Bool := (Id.run <| StateT.run (m := Id) (do
 
 private def testCollisionAndTightCap : Bool :=
   let colOk := (Id.run <| StateT.run (m := Id) (do
-    let _ ← simInit 0 64 16
-    let x1 : UInt32 := 10
-    let mut x2 : UInt32 := 0
-    let target := (simHashTmp 2 1 #[10]).toNat % 16
-    for k in [11:200] do
-      if (simHashTmp 2 1 #[UInt32.ofNat k]).toNat % 16 == target then
-        x2 := UInt32.ofNat k
-        break
-    if x2 == 0 then return false
+    let _ ← simInit 0 64 8192
+    let hA := (simHashTmp 1 1 #[14915]).toNat
+    let hB := (simHashTmp 1 1 #[31299]).toNat
+    let hC := (simHashTmp 1 1 #[14916]).toNat
+    if hA % 8192 != 2 || hB % 8192 != 2 || hC % 8192 != 3 then return false
+    if hA % 16384 != 2 || hB % 16384 != 2 || hC % 16384 != 3 then return false
     modify fun s =>
-      ((((((((s.set! 16 0).set! 17 (((2 : UInt32) <<< 28) ||| 1)).set! 18 x1).set!
-        20 0).set! 21 (((2 : UInt32) <<< 28) ||| 1)).set! 22 x2).set!
-        24 0).set! 25 (((2 : UInt32) <<< 28) ||| 1)).set! 26 x1
-    let (r1, rsz1) ← simInsert 0 0 16
-    let (r2, rsz2) ← simInsert 0 rsz1 20
-    let (r3, rsz3) ← simInsert 0 rsz2 24
-    if r1 != 16 || r2 != 20 || r3 != 16 || rsz3 != 2 then return false
+      ((((((((s.set! 8 0).set! 9 (((1 : UInt32) <<< 28) ||| 1)).set! 10 14915).set!
+        16 0).set! 17 (((1 : UInt32) <<< 28) ||| 1)).set! 18 31299).set!
+        24 0).set! 25 (((1 : UInt32) <<< 28) ||| 1)).set! 26 14916
+    modify fun s =>
+      ((((s.set! 32 0).set! 33 (((1 : UInt32) <<< 28) ||| 1)).set! 34 14915))
+    let (rC, rsz1) ← simInsert 0 0 24
+    let (rA, rsz2) ← simInsert 0 rsz1 8
+    let (rB, rsz3) ← simInsert 0 rsz2 16
+    let (rDup, rsz4) ← simInsert 0 rsz3 32
+    if rC != 24 || rA != 8 || rB != 16 || rDup != 8 || rsz4 != 3 then return false
     let scr ← get
-    if simLookup scr 0 2 1 #[x1] != 16 || simLookup scr 0 2 1 #[x2] != 20 then return false
-    if simLookup scr 0 2 1 #[99999] != simEmpty then return false
+    if scr[64 + 3]! != 24 || scr[64 + 2]! != 8 || scr[64 + 4]! != 16 then return false
+    if simLookup scr 0 1 1 #[14915] != 8 || simLookup scr 0 1 1 #[31299] != 16 ||
+        simLookup scr 0 1 1 #[14916] != 24 then return false
+    if simLookup scr 0 1 1 #[99999] != simEmpty then return false
     let szG ← simGrow 0
-    if szG != 32 then return false
+    if szG != 16384 then return false
     let scrG ← get
-    return simLookup scrG 0 2 1 #[x1] == 16 &&
-      simLookup scrG 0 2 1 #[x2] == 20) (Array.replicate 256 (0 : UInt32))).1
+    return simLookup scrG 0 1 1 #[14915] == 8 &&
+      simLookup scrG 0 1 1 #[31299] == 16 &&
+      simLookup scrG 0 1 1 #[14916] == 24) (Array.replicate 16500 (0 : UInt32))).1
+  let clearOk := (Id.run <| StateT.run (m := Id) (do
+    let sz0 ← simInit 0 64 4096
+    modify fun s => ((s.set! 8 0).set! 9 (((1 : UInt32) <<< 28) ||| 1)).set! 10 14915
+    let (_, rsz1) ← simInsert 0 0 8
+    let (sz1, r1) ← simGrowClear 0 rsz1
+    let (sz2, r2) ← simGrowClear 0 123
+    let (sz3, r3) ← simGrowClear 0 456
+    let (sz4, r4) ← simGrowClear 0 789
+    let (sz5, r5) ← simGrowClear 0 999
+    let (sz6, r6) ← simGrowClear 0 42
+    let scr ← get
+    return [sz0, sz1, sz2, sz3, sz4, sz5, sz6] ==
+        [4096, 8192, 16384, 32768, 65536, 131072, 131072] &&
+      [r1, r2, r3, r4, r5, r6] == [0, 0, 0, 0, 0, 42] &&
+      scr[64 + 2]! == simEmpty) (Array.replicate 132000 (0 : UInt32))).1
   let capOk := (Id.run <| StateT.run (m := Id) (do
     let szTight ← simInit 0 64 131072
+    modify fun s => ((s.set! 8 0).set! 9 (((1 : UInt32) <<< 28) ||| 1)).set! 10 14915
+    let (_, rsz1) ← simInsert 0 0 8
     let szCap ← simGrow 0
-    return szTight == 16384 && szCap == 16384) (Array.replicate 20000 (0 : UInt32))).1
+    let (szNoWipe, rsz2) ← simGrowClear 0 rsz1
+    let scr ← get
+    return szTight == 16384 && szCap == 16384 && szNoWipe == 16384 && rsz2 == rsz1 &&
+      simLookup scr 0 1 1 #[14915] == 8) (Array.replicate 20000 (0 : UInt32))).1
   let failOk := (Id.run <| StateT.run (m := Id) (do
     let szFail ← simInit 0 64 16
     return szFail == 0) (Array.replicate 70 (0 : UInt32))).1
-  colOk && capOk && failOk
+  colOk && clearOk && capOk && failOk
 
 #guard testScaleTo65536And131072
 #guard testAutoGrowPast4096
@@ -262,10 +308,15 @@ private def testCollisionAndTightCap : Bool :=
 
 /-! ## 2. Static IR, SpecTable, C++ / QBE Emission & 4-ISA Legalization Guards -/
 
-#guard m7CongHash_fns.length == 5
-#guard m7CongHashModule.fns.length == 5
-#guard m7CongHashSpecTable.length == 5
+#guard m7CongHash_fns.length == 6
+#guard m7CongHashModule.fns.length == 6
+#guard m7CongHashSpecTable.length == 6
 #guard (PrintCpp.ppTModule m7CongHashModule).isOk
+#guard match PrintCpp.ppTModule m7CongHashModule with
+  | .ok s => (s.splitOn "full_cong_ht_grow_clear_m7").length > 1 &&
+      (s.splitOn "9e3779b1").length > 1 && (s.splitOn "85ebca77").length > 1 &&
+      (s.splitOn "0x20000ULL").length > 1
+  | .error _ => false
 #guard (PrintQbe.module m7CongHashModule).isOk
 #guard (PrintCpp.ppModule (m7CongHash_fns.map (Fn.legal .aarch64))).isOk
 #guard (PrintCpp.ppModule (m7CongHash_fns.map (Fn.legal .scalar64))).isOk
@@ -311,22 +362,55 @@ theorem m7ch_nv_grow_thm :
         ret = 16384#64 ∧ PreservesCoreSlice FullState.core nvM7CongState s' ∧
         s'.LengthsOk nvM7CongCfg ∧ FullExtScratchPres nvM7CongState s' ∧
         M7CongHtCtrlOk nvM7CongCfg s'.scratch.scratch_buf 0 64 16384 ∧
+        (∃ jC < 16384, s'.scratch.scratch_buf[64 + jC]? = some 24#32) ∧
+        (∃ jA < 16384, s'.scratch.scratch_buf[64 + jA]? = some 8#32) ∧
         FullMem nvM7CongCfg s' m')
       (fun _ _ _ _ => False) :=
   nv_m7_cong_ht_grow
 
+theorem m7ch_nv_grow_clear_thm :
+    Func.wp m7CongHashEnv full_cong_ht_grow_clear_m7_body
+      (nvM7CongCfg.hdr, 0#64, ()) nvM7CongMem
+      (fun (ret, ()) m' => ∃ s',
+        ret = 16384#64 ∧ s'.scratch.res_sz = 0#64 ∧
+        PreservesCoreSlice FullState.core nvM7CongState s' ∧
+        s'.LengthsOk nvM7CongCfg ∧ FullExtScratchPres nvM7CongState s' ∧
+        M7CongHtCtrlOk nvM7CongCfg s'.scratch.scratch_buf 0 64 16384 ∧
+        (∀ j < 16384, s'.scratch.scratch_buf[64 + j]? = some 0xFFFFFFFF#32) ∧
+        FullMem nvM7CongCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_m7_cong_ht_grow_clear
+
+theorem m7ch_nv_lookup_thm :
+    Func.wp m7CongHashEnv full_cong_ht_lookup_m7_body
+      (nvM7CongCfg.hdr, 0#64, 1#32, 1#32, ()) nvM7CongMem
+      (fun (ret, ()) m' => ret = 8#32 ∧ m' = nvM7CongMem)
+      (fun _ _ _ _ => False) :=
+  nv_m7_cong_ht_lookup
+
 theorem m7ch_nv_insert_thm :
     Func.wp m7CongHashEnv full_cong_ht_insert_m7_body
-      (nvM7CongCfg.hdr, 0#64, 8#32, ()) nvM7CongMem
+      (nvM7CongCfg.hdr, 0#64, 16#32, ()) nvM7CongMem
       (fun (ret, ()) m' => ∃ s',
-        PreservesCoreSlice FullState.core nvM7CongState s' ∧ s'.LengthsOk nvM7CongCfg ∧
-        FullExtScratchPres nvM7CongState s' ∧
-        (∃ new_sz, (new_sz = 8192 ∨ new_sz = 16384) ∧
-          M7CongHtCtrlOk nvM7CongCfg s'.scratch.scratch_buf 0 64 new_sz) ∧
-        (ret = 0xFFFFFFFF#32 ∨ ret = 8#32 ∨ ret.toNat < 64) ∧
+        ret = 16#32 ∧ PreservesCoreSlice FullState.core nvM7CongState s' ∧
+        s'.LengthsOk nvM7CongCfg ∧ FullExtScratchPres nvM7CongState s' ∧
+        M7CongHtCtrlOk nvM7CongCfg s'.scratch.scratch_buf 0 64 8192 ∧
         FullMem nvM7CongCfg s' m')
       (fun _ _ _ _ => False) :=
   nv_m7_cong_ht_insert
+
+theorem m7ch_nv_insert_grow_thm :
+    Func.wp m7CongHashEnv full_cong_ht_insert_m7_body
+      (nvM7CongCfg.hdr, 0#64, 16#32, ()) nvM7CongMemGrow
+      (fun (ret, ()) m' => ∃ s',
+        ret = 16#32 ∧ PreservesCoreSlice FullState.core nvM7CongStateGrow s' ∧
+        s'.LengthsOk nvM7CongCfg ∧ FullExtScratchPres nvM7CongStateGrow s' ∧
+        M7CongHtCtrlOk nvM7CongCfg s'.scratch.scratch_buf 0 64 16384 ∧
+        (∃ jC < 16384, s'.scratch.scratch_buf[64 + jC]? = some 24#32) ∧
+        (∃ jA < 16384, s'.scratch.scratch_buf[64 + jA]? = some 8#32) ∧
+        FullMem nvM7CongCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_m7_cong_ht_insert_grow
 
 end LeanQbeTest.T.KissatM7CongHashTest
 
@@ -337,7 +421,10 @@ abbrev m7ch_tbl := @LeanQbeTest.T.KissatM7CongHashTest.m7ch_tbl_thm
 abbrev m7ch_mod_ok := @LeanQbeTest.T.KissatM7CongHashTest.m7ch_mod_ok_thm
 abbrev m7ch_nv_init := @LeanQbeTest.T.KissatM7CongHashTest.m7ch_nv_init_thm
 abbrev m7ch_nv_grow := @LeanQbeTest.T.KissatM7CongHashTest.m7ch_nv_grow_thm
+abbrev m7ch_nv_grow_clear := @LeanQbeTest.T.KissatM7CongHashTest.m7ch_nv_grow_clear_thm
+abbrev m7ch_nv_lookup := @LeanQbeTest.T.KissatM7CongHashTest.m7ch_nv_lookup_thm
 abbrev m7ch_nv_insert := @LeanQbeTest.T.KissatM7CongHashTest.m7ch_nv_insert_thm
+abbrev m7ch_nv_insert_grow := @LeanQbeTest.T.KissatM7CongHashTest.m7ch_nv_insert_grow_thm
 
 #print axioms m7ch_wf
 #print axioms m7ch_acyc
@@ -346,4 +433,7 @@ abbrev m7ch_nv_insert := @LeanQbeTest.T.KissatM7CongHashTest.m7ch_nv_insert_thm
 #print axioms m7ch_mod_ok
 #print axioms m7ch_nv_init
 #print axioms m7ch_nv_grow
+#print axioms m7ch_nv_grow_clear
+#print axioms m7ch_nv_lookup
 #print axioms m7ch_nv_insert
+#print axioms m7ch_nv_insert_grow

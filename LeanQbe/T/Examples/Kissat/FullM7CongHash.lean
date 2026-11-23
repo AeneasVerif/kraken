@@ -11,16 +11,17 @@ Strictly additive C0 helpers closing Gap #4 from `#3254` (`ht_sz <= 4096` / `3,0
 - `full_cong_ht_init_m7(h, ctrl_off, ht_off, max_sz)`: initializes the hash-table slice inside
   `h->scratch_buf[ht_off ..< ht_off + sz)` (`sz ∈ [16, 131072]` power of 2, capping gracefully at
   the largest fitting power of 2 in `h->scratch_cap - ht_off`), records `ht_off`/`sz` in
-  `scr[ctrl_off + 6 .. + 7]`, and clears `h->res_sz = 0`.
-- `full_cong_ht_grow_m7(h, ctrl_off)`: doubles `ht_sz` up to `131072` (supporting `<= 96k` gates
-  at 75% load, e.g. `4096 -> 8192 -> 16384 -> 32768 -> 65536 -> 131072`) via a bounds-guarded
-  in-place tagged rehash (`0x80000000u` migrated bit) inside `h->scratch_buf`, capping gracefully
-  at the current `ht_sz` when `scratch_cap` is tight (`0` OOM, `0` silent table wipe).
-- `full_cong_ht_lookup_m7(h, ctrl_off, htag, harity)`: probes `h->scratch_buf` for a gate record
-  matching `(htag, harity, h->tmp[0 ..< harity])` with linear probing.
-- `full_cong_ht_insert_m7(h, ctrl_off, ent)`: inserts gate record `ent` (auto-growing at 75% load
-  via `full_cong_ht_grow_m7` before probing) and returns `ent`, an existing congruent entry, or
-  `0xFFFFFFFFu` on invalid bounds / exhausted capacity.
+  `scr[ctrl_off + 6 .. + 7]`, and clears `h->res_sz = 0`. For `FullM6CongSubst` `M6.2`,
+  `full_congruence_dense` reserves `[ht_off .. scratch_cap)` headroom (`ht_off = cap - max_ht`,
+  `max_ht <= 131072`) so `ctrl[7]` doubles in place without moving `occ_bkt`/`ctrl_off`/`g_len`.
+- `full_cong_ht_grow_clear_m7(h, ctrl_off)`: M6.2 drop-in for `FullM6CongSubst.full_cong_worklist`
+  (`repr`-canonicalized hashing): doubles `ctrl[7]` up to `min(131072, cap - ht_off)`, clears
+  `scr[ht_off ..< ht_off + new_sz)` to `0xFFFFFFFFu`, and resets `h->res_sz = 0` so `worklist`
+  immediately re-populates canonical gates modulo `repr`/`vals` via `full_cong_eval_gate` (`0`
+  table wipe when capped at `old_sz` when headroom is exhausted).
+- `full_cong_ht_grow_m7(h, ctrl_off)`, `full_cong_ht_lookup_m7`, `full_cong_ht_insert_m7`, and
+  `full_cong_ht_hash_ent_m7`: standalone raw-gate-record operations (`0x80000000u` migrated bit
+  and `0x9E3779B1ULL`/`0x85EBCA77ULL` hash) for direct literal-indexed gate entries.
 
 Zero edits to frozen `Full1..6*`, `0` externs, `0` exits, `checkAcyclic = true`.
 -/
@@ -206,6 +207,38 @@ u64 full_cong_ht_grow_m7(FullHdr *h, u64 ctrl_off) {
   return new_sz;
 }
 
+u64 full_cong_ht_grow_clear_m7(FullHdr *h, u64 ctrl_off) {
+  u64 cap = h->scratch_cap;
+  if (ctrl_off > cap || 8ULL > cap - ctrl_off) {
+    return 0ULL;
+  }
+  u32 *scr = (u32 *)h->scratch_buf;
+  u64 ht_off = (u64)scr[ctrl_off + 6ULL];
+  u64 old_sz = (u64)scr[ctrl_off + 7ULL];
+  if (ht_off < ctrl_off + 8ULL || ht_off >= cap || ht_off > 0x7FFFFFFFULL) {
+    return 0ULL;
+  }
+  if (old_sz < 16ULL || old_sz > 131072ULL || (old_sz & (old_sz - 1ULL)) != 0ULL ||
+      old_sz > cap - ht_off) {
+    return 0ULL;
+  }
+  if (old_sz == 131072ULL) {
+    return old_sz;
+  }
+  u64 new_sz = old_sz << 1;
+  if (new_sz > cap - ht_off) {
+    return old_sz;
+  }
+  u64 k = 0ULL;
+  while (k < new_sz) {
+    scr[ht_off + k] = 0xFFFFFFFFu;
+    k = k + 1ULL;
+  }
+  scr[ctrl_off + 7ULL] = (u32)new_sz;
+  h->res_sz = 0ULL;
+  return new_sz;
+}
+
 u32 full_cong_ht_lookup_m7(FullHdr *h, u64 ctrl_off, u32 htag, u32 harity) {
   u64 cap = h->scratch_cap;
   if (ctrl_off > cap || 8ULL > cap - ctrl_off) {
@@ -343,7 +376,7 @@ def m7CongHashMaxSz : Nat := 131072
 /-- Empty hash-table slot sentinel (`0xFFFFFFFF`). -/
 def m7CongHashEmpty : BitVec 32 := 0xFFFFFFFF#32
 
-/-- All `5` functions in `FullM7CongHash`. -/
+/-- All `6` functions in `FullM7CongHash`. -/
 def m7CongHashFns : List Fn := m7CongHash_fns
 
 /-- External callee declarations (`0` externs: standalone congruence hash module). -/
@@ -357,22 +390,25 @@ def m7CongHashModule : LeanQbe.T.Module :=
 def m7CongHtHashEntFn : Fn := full_cong_ht_hash_ent_m7
 def m7CongHtInitFn : Fn := full_cong_ht_init_m7
 def m7CongHtGrowFn : Fn := full_cong_ht_grow_m7
+def m7CongHtGrowClearFn : Fn := full_cong_ht_grow_clear_m7
 def m7CongHtLookupFn : Fn := full_cong_ht_lookup_m7
 def m7CongHtInsertFn : Fn := full_cong_ht_insert_m7
 
 theorem full_cong_ht_hash_ent_m7_wf : Func.Wf full_cong_ht_hash_ent_m7_body := by t_wf_reify
 theorem full_cong_ht_init_m7_wf : Func.Wf full_cong_ht_init_m7_body := by t_wf_reify
 theorem full_cong_ht_grow_m7_wf : Func.Wf full_cong_ht_grow_m7_body := by t_wf_reify
+theorem full_cong_ht_grow_clear_m7_wf : Func.Wf full_cong_ht_grow_clear_m7_body := by t_wf_reify
 theorem full_cong_ht_lookup_m7_wf : Func.Wf full_cong_ht_lookup_m7_body := by t_wf_reify
 theorem full_cong_ht_insert_m7_wf : Func.Wf full_cong_ht_insert_m7_body := by t_wf_reify
 
 theorem m7CongHashFns_wf : ∀ f ∈ m7CongHashFns, f.Wf := by
   intro f hf
   simp only [m7CongHashFns, m7CongHash_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
   · exact full_cong_ht_hash_ent_m7_wf
   · exact full_cong_ht_init_m7_wf
   · exact full_cong_ht_grow_m7_wf
+  · exact full_cong_ht_grow_clear_m7_wf
   · exact full_cong_ht_lookup_m7_wf
   · exact full_cong_ht_insert_m7_wf
 
