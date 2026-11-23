@@ -16,7 +16,8 @@ public meta import Lean.Elab.Command
 # C0 Direct PHOAS Elaborator, `c0_decl!`, `c0_file!`, and `#c0_shape` (`X0-core`)
 
 Elaborates lowered C0 functions (`LFn`) directly into kernel `LeanQbe.T.Fn` definitions using
-projection lambdas (`Prod.fst`/`Prod.snd`) and explicit `Op.mk` applications (`Notation.lean` `#29`),
+projection lambdas (`Prod.fst`/`Prod.snd`) and explicit `Op.mk` applications
+(`Notation.lean` `#29`),
 checks acyclic `Module` ordering, and registers `#c0_shape` metadata for proof authors.
 -/
 
@@ -32,7 +33,8 @@ open LeanQbe.T.Notation
 
 /-! ## `#c0_shape` Environment Extension -/
 
-meta initialize c0ShapeExt : SimpleScopedEnvExtension (Name × FnShape) (NameMap FnShape × Std.HashMap String FnShape) ←
+meta initialize c0ShapeExt :
+    SimpleScopedEnvExtension (Name × FnShape) (NameMap FnShape × Std.HashMap String FnShape) ←
   registerSimpleScopedEnvExtension {
     name := `LeanQbe.T.Frontend.C0.c0ShapeExt
     initial := ({}, {})
@@ -142,8 +144,10 @@ meta structure ElabCtx : Type where
   L : Lean.Expr
   rsExpr : Lean.Expr
   depth : Nat := 0
-  vars : Std.HashMap Nat (Nat × Option (Nat × Lean.Expr × Lean.Expr × List Lean.Expr) × Lean.Expr) := {}
-  lbls : Std.HashMap Nat (Nat × Option (Nat × Lean.Expr × Lean.Expr × List Lean.Expr) × Lean.Expr) := {}
+  vars : Std.HashMap Nat
+    (Nat × Option (Nat × Lean.Expr × Lean.Expr × List Lean.Expr) × Lean.Expr) := {}
+  lbls : Std.HashMap Nat
+    (Nat × Option (Nat × Lean.Expr × Lean.Expr × List Lean.Expr) × Lean.Expr) := {}
 
 meta def ElabCtx.varRef (ctx : ElabCtx) (id : Nat) : Except String Lean.Expr :=
   match ctx.vars.get? id with
@@ -242,7 +246,8 @@ meta partial def lExprToLeanExpr (ctx : ElabCtx) : LExpr → Except String Lean.
     let valE ← argToExpr ctx val
     let addrE ← argToExpr ctx addr
     let restE ← lExprToLeanExpr ctx k
-    pure <| mkAppN (Lean.mkConst ``LeanQbe.T.Expr.store) #[ctx.V, ctx.L, ctx.rsExpr, tE, valE, addrE, restE]
+    pure <| mkAppN (Lean.mkConst ``LeanQbe.T.Expr.store)
+      #[ctx.V, ctx.L, ctx.rsExpr, tE, valE, addrE, restE]
   | .call f as bs args binders k => do
     let asE := listLit tyConst (as.map tyToExpr)
     let bsE := listLit tyConst (bs.map tyToExpr)
@@ -258,14 +263,16 @@ meta partial def lExprToLeanExpr (ctx : ElabCtx) : LExpr → Except String Lean.
   | .jump lid _ args => do
     let (lRef, tsE) ← ctx.lblRef lid
     let argsE ← argListToTupExpr ctx args
-    pure <| mkAppN (Lean.mkConst ``LeanQbe.T.Expr.jump) #[ctx.V, ctx.L, ctx.rsExpr, tsE, lRef, argsE]
+    pure <| mkAppN (Lean.mkConst ``LeanQbe.T.Expr.jump)
+      #[ctx.V, ctx.L, ctx.rsExpr, tsE, lRef, argsE]
   | .ret _ args => do
     let vsE ← argListToTupExpr ctx args
     pure <| mkAppN (Lean.mkConst ``LeanQbe.T.Expr.ret) #[ctx.V, ctx.L, ctx.rsExpr, vsE]
   | .exit f as args => do
     let asE := listLit tyConst (as.map tyToExpr)
     let argsE ← argListToTupExpr ctx args
-    pure <| mkAppN (Lean.mkConst ``LeanQbe.T.Expr.exit) #[ctx.V, ctx.L, ctx.rsExpr, mkStrLit f, asE, argsE]
+    pure <| mkAppN (Lean.mkConst ``LeanQbe.T.Expr.exit)
+      #[ctx.V, ctx.L, ctx.rsExpr, mkStrLit f, asE, argsE]
   | .hlt =>
     pure <| mkApp3 (Lean.mkConst ``LeanQbe.T.Expr.hlt) ctx.V ctx.L ctx.rsExpr
   | .group blocks k => do
@@ -280,7 +287,8 @@ where
     | [] => pure <| mkApp3 (Lean.mkConst ``LeanQbe.T.Blocks.nil) ctx.V ctx.L ctx.rsExpr
     | (_, ps, body) :: rest => do
       let tsE := listLit tyConst (ps.map fun v => tyToExpr v.ty)
-      let restSigE := listLit listTyConst (rest.map fun (_, rps, _) => listLit tyConst (rps.map fun v => tyToExpr v.ty))
+      let restSigE := listLit listTyConst
+        (rest.map fun (_, rps, _) => listLit tyConst (rps.map fun v => tyToExpr v.ty))
       let bLam ← withTupleLVars ctx ps fun ctx' => lExprToLeanExpr ctx' body
       let bsE ← mkBlocksExpr ctx rest
       pure <| mkAppN (Lean.mkConst ``LeanQbe.T.Blocks.cons)
@@ -296,7 +304,8 @@ meta def lFnToLeanExprM (lfn : LFn) : MetaM (Lean.Expr × Lean.Expr × Lean.Expr
   withLocalDeclD `V vSort fun V =>
   withLocalDeclD `L lSort fun L => do
     let initCtx : ElabCtx := { V, L, rsExpr }
-    let bodyLam ← match withTupleLVars initCtx lfn.params fun ctx' => lExprToLeanExpr ctx' lfn.body with
+    let bodyLam ← match withTupleLVars initCtx lfn.params
+        fun ctx' => lExprToLeanExpr ctx' lfn.body with
       | .ok e => pure e
       | .error err => throwError err
     let funcExpr ← mkLambdaFVars #[V, L] bodyLam
@@ -330,7 +339,8 @@ meta def checkLModuleAcyclic (m : LModule) : Except String Unit := do
         throw s!"recursive call to '{callee}' is not permitted in acyclic C0 module"
       if !definedSoFar.contains callee && !extSet.contains callee then
         if fnNames.contains callee then
-          throw s!"forward/cyclic call from '{fn.name}' to '{callee}' violates callees-first acyclic module ordering"
+          throw (s!"forward/cyclic call from '{fn.name}' to '{callee}' violates " ++
+            "callees-first acyclic module ordering")
         else
           throw s!"call from '{fn.name}' to undeclared function '{callee}'"
     definedSoFar := definedSoFar.insert fn.name
@@ -387,9 +397,7 @@ meta def elabC0Module (modPrefix? : Option Name) (src : String) (exits : List Sy
     let fnType := Lean.mkConst ``LeanQbe.T.Fn
     let fnsName := ns ++ Name.mkSimple (pfx.toString ++ "_fns")
     let fnsTy := mkApp (Lean.mkConst ``List [.one]) fnType
-    let fnsVal := (fnConstNames.map Lean.mkConst).foldr
-      (fun e acc => mkApp3 (Lean.mkConst ``List.cons [.one]) fnType e acc)
-      (mkApp (Lean.mkConst ``List.nil [.one]) fnType)
+    let fnsVal := listLit fnType (fnConstNames.map Lean.mkConst) .one
     liftCoreM <| addExposedDecl fnsName fnsTy fnsVal forceExpose
     if emitModule then
       let modName := ns ++ Name.mkSimple (pfx.toString ++ "_module")
@@ -415,7 +423,8 @@ elab_rules : command
   | `(#c0_shape $id:ident) => do
     let (byLean, byC) := c0ShapeExt.getState (← getEnv)
     let ns ← getCurrNamespace
-    let sh? := byLean.find? id.getId <|> byLean.find? (ns ++ id.getId) <|> byC.get? id.getId.toString
+    let sh? := byLean.find? id.getId <|> byLean.find? (ns ++ id.getId) <|>
+      byC.get? id.getId.toString
     match sh? with
     | some sh => logInfo sh.format
     | none => throwErrorAt id s!"no C0 shape metadata registered for '{id.getId}'"

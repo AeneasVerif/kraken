@@ -20,7 +20,8 @@ namespace LeanQbe.T.Frontend.C0
 /-- Location of a field within an aggregate (`struct` or `union`). -/
 inductive FieldLoc : Type
   | regular (byteOff : Nat) (ty : C0Type) (size : Nat)
-  | bitfield (unitByteOff : Nat) (unitBytes : Nat) (localBitOff : Nat) (width : Nat) (declaredTy : C0Type)
+  | bitfield (unitByteOff : Nat) (unitBytes : Nat) (localBitOff : Nat) (width : Nat)
+      (declaredTy : C0Type)
   deriving Repr, BEq, Inhabited
 
 /-- Resolved layout of a `struct` or `union`. -/
@@ -118,7 +119,12 @@ mutual
             if al > maxAlign then maxAlign := al
             if let some nm := f.name then
               outFields := outFields ++ [(nm, .bitfield 0 unitBytes 0 w fty)]
-      pure { isUnion := true, size := alignUp maxSize maxAlign, align := maxAlign, fields := outFields }
+      pure {
+        isUnion := true
+        size := alignUp maxSize maxAlign
+        align := maxAlign
+        fields := outFields
+      }
     else
       let mut bitCursor : Nat := 0
       let mut maxAlign : Nat := 1
@@ -165,7 +171,8 @@ mutual
       pure { isUnion := false, size := totalSize, align := maxAlign, fields := outFields }
 end
 
-/-- Build a `LayoutEnv` from all `typedef` and `struct`/`union` declarations in a `TranslationUnit`. -/
+/-- Build a `LayoutEnv` from all `typedef` and `struct`/`union` declarations
+in a `TranslationUnit`. -/
 def buildLayoutEnv (tu : TranslationUnit) : Except String LayoutEnv := do
   let mut env : LayoutEnv := {}
   for d in tu.decls do
@@ -203,7 +210,8 @@ def lookupField (env : LayoutEnv) (aggTy : C0Type) (fld : String) : Except Strin
   | some (_, loc) => pure loc
   | none => throw s!"field '{fld}' not found in aggregate {repr aggTy}"
 
-/-- Return the byte offset of a regular field (or `unitByteOff` of a bitfield) for layout testing. -/
+/-- Return the byte offset of a regular field (or `unitByteOff` of a bitfield)
+for layout testing. -/
 def offsetOfField (env : LayoutEnv) (aggTy : C0Type) (fld : String) : Except String Nat := do
   match ← lookupField env aggTy fld with
   | .regular off _ _ => pure off
@@ -270,8 +278,12 @@ def condResultType (env : LayoutEnv) (t1 t2 : C0Type) (e1 e2 : Expr) : Except St
   else
     match r1, r2 with
     | .ptr p1, .ptr p2 => pure (if p1 == .void then .ptr p2 else .ptr p1)
-    | .ptr _, _ => if isNullPtrConst e2 then pure r1 else throw s!"incompatible '?:' types {repr r1}, {repr r2}"
-    | _, .ptr _ => if isNullPtrConst e1 then pure r2 else throw s!"incompatible '?:' types {repr r1}, {repr r2}"
+    | .ptr _, _ =>
+      if isNullPtrConst e2 then pure r1
+      else throw s!"incompatible '?:' types {repr r1}, {repr r2}"
+    | _, .ptr _ =>
+      if isNullPtrConst e1 then pure r2
+      else throw s!"incompatible '?:' types {repr r1}, {repr r2}"
     | _, _ => if r1 == r2 then pure r1 else throw s!"incompatible '?:' types {repr r1}, {repr r2}"
 
 partial def inferExprType (env : LayoutEnv) (lookupVar : String → Except String C0Type)
@@ -414,7 +426,8 @@ end
 partial def stmtAlwaysExitsLoop (inNestedBreakScope : Bool) : Stmt → Bool
   | .retStmt _ => true
   | .breakStmt => !inNestedBreakScope
-  | .ifStmt _ t (some e) => stmtAlwaysExitsLoop inNestedBreakScope t && stmtAlwaysExitsLoop inNestedBreakScope e
+  | .ifStmt _ t (some e) =>
+    stmtAlwaysExitsLoop inNestedBreakScope t && stmtAlwaysExitsLoop inNestedBreakScope e
   | .labelStmt _ s => stmtAlwaysExitsLoop inNestedBreakScope s
   | .block ss =>
     let rec go : List Stmt → Bool

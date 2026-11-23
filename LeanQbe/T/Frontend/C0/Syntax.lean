@@ -5,7 +5,8 @@ module
 
 Untyped surface AST for the C99-subset C0 language (`kissat_c_frontend_design.md` §6.2),
 supporting fixed-width scalars, pointers, structs (with LSB-first bitfields, fixed arrays,
-and optional trailing flexible arrays), tagged-word unions, multi-return tuples (`C0_RET2`/`C0_RET3`),
+and optional trailing flexible arrays), tagged-word unions,
+multi-return tuples (`C0_RET2`/`C0_RET3`),
 `static inline` and external functions, structured loops, forward `goto`, non-fallthrough `switch`,
 `c0_assume`, `check`, and `assert`.
 -/

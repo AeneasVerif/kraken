@@ -348,7 +348,8 @@ theorem immBitsOp_interp [Labels] (w : Width) (c : BitVec w.bits) (s : MachineDa
 
 theorem updFlags_maskAll (s s' : MachineData) : x64Mach.UpdFlags x64CondReads s s' maskAll := by
   intro cc h
-  cases cc <;> simp [x64CondReads, FlagMask.disjoint, maskAll, maskOF, maskCF, maskZF, maskSF, maskPF] at h
+  cases cc <;>
+    simp [x64CondReads, FlagMask.disjoint, maskAll, maskOF, maskCF, maskZF, maskSF, maskPF] at h
 
 theorem updFlags_of_status_eq {s s' : MachineData} (h : s'.status = s.status) (m : FlagMask) :
     x64Mach.UpdFlags x64CondReads s s' m := fun cc _ => by
@@ -495,7 +496,8 @@ theorem cond_subFlags {n : Nat} (hn : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64) (c
   have hcf := subFlags_cf x y
   have hzf := subFlags_zf x y
   have hl := subFlags_l hn x y
-  have hbeq : ((subFlags x y).sf == (subFlags x y).of) = !((subFlags x y).sf != (subFlags x y).of) := by
+  have hbeq : ((subFlags x y).sf == (subFlags x y).of) =
+      !((subFlags x y).sf != (subFlags x y).of) := by
     cases (subFlags x y).sf <;> cases (subFlags x y).of <;> rfl
   have hne : (!decide (x = y)) = decide (x ≠ y) := by by_cases h : x = y <;> simp [h]
   have hule : (x.ult y || decide (x = y)) = x.ule y := by
@@ -581,6 +583,15 @@ theorem loadVal_bits_spec {m : Mem 64} {n : Nat} {a : BitVec 64} {v : BitVec n}
     simp only [hl, Option.bind_some, Option.some.injEq] at h
     exact ⟨i, rfl, h.symm⟩
 
+theorem loadVal_width_spec {m : Mem 64} (w : Width) {a : BitVec 64} {v : BitVec w.bits}
+    (h : loadVal m (.bits w.bits) a = some v) :
+    ∃ i : Int, m.loadInt a w.bytes = some i ∧ v = BitVec.ofInt w.bits i := by
+  have hwn : w.bits = 8 ∨ w.bits = 16 ∨ w.bits = 32 ∨ w.bits = 64 := by
+    cases w <;> decide
+  obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec hwn h
+  have hb : w.bits / 8 = w.bytes := by cases w <;> decide
+  exact ⟨i, hb ▸ hi, rfl⟩
+
 theorem storeMem_bool_eq (m : Mem 64) (a : BitVec 64) (b : Bool) :
     storeMem m .bool a b = Mem.storeInt m a 1 (BitVec.ofNat 8 b.toNat).toInt := by
   cases b <;> rfl
@@ -590,6 +601,13 @@ theorem storeMem_bits_eq (m : Mem 64) {n : Nat}
     storeMem m (.bits n) a v = Mem.storeInt m a (n / 8) v.toInt := by
   rcases hn with rfl | rfl | rfl | rfl <;>
     simp [storeMem, Ty.bytes, Ty.size, toBits]
+
+theorem storeMem_width_eq (m : Mem 64) (w : Width) (a : BitVec 64) (v : BitVec w.bits) :
+    storeMem m (.bits w.bits) a v = Mem.storeInt m a w.bytes v.toInt := by
+  have hwn : w.bits = 8 ∨ w.bits = 16 ∨ w.bits = 32 ∨ w.bits = 64 := by
+    cases w <;> decide
+  have hb : w.bits / 8 = w.bytes := by cases w <;> decide
+  rw [storeMem_bits_eq m hwn a v, hb]
 
 /-! ## 4. `Directive.FallsTo` / `x64Mach.FallsTo` Combinators and Primitive Directives -/
 
@@ -662,7 +680,8 @@ theorem fallsTo_moviD (s : MachineData) (rd : Reg64) (c0 : BitVec 64) :
 
 theorem fallsTo_movW (w : Width) (s : MachineData) (rd rs : Reg64) :
     Directive.FallsTo (movW w rd rs) s
-      (· = { s with regs := s.regs.set64 rd (((s.regs.get64 rs).setWidth w.bits).setWidth 64) }) := by
+      (· = { s with
+        regs := s.regs.set64 rd (((s.regs.get64 rs).setWidth w.bits).setWidth 64) }) := by
   intro _ _ _ _ _ hk
   cases w with
   | W8 | W16 =>
@@ -807,7 +826,8 @@ theorem wp_addrToExpr [Host] {E : Int64 → MachineData → Prop} (s s₀ : Mach
       rw [atReg_interp, hrr, hr', hoff]
       simp [AddrArg.eval]
     · split
-      · refine _root_.Program.wp_nil ⟨rfl, fun _ _ => rfl, rfl, rfl, ?_, updFlags_of_status_eq rfl _⟩
+      · refine _root_.Program.wp_nil ⟨rfl, fun _ _ => rfl, rfl, rfl, ?_,
+          updFlags_of_status_eq rfl _⟩
         intro regs' hregs _ p
         have hrr : regs'.get64 r = s.regs.get64 r := hregs r (by simp [AddrArg.regs])
         rw [AddrExpr.interp_base_disp, BitVec.zeroExtend_eq_setWidth, BitVec.setWidth_eq, hrr, hr']
@@ -988,7 +1008,8 @@ theorem x64Gpr_jnzGpr_spec {h : Host} {k j : Nat} {r : Reg64} {l : Sym} {b : Boo
       (fun s' => ∃ status, s' = { s with status } ∧ CondCode.nz.interp status = b)
       (fun _ _ => False) s :=
     Directive.FallsTo.wp (fallsTo_testb_self s r hb)
-  refine Program.wp.eventually hw0 (List.isInfixAt_singleton.mpr hc.cons.1) ?_ (fun _ _ hf => hf.elim)
+  refine Program.wp.eventually hw0 (List.isInfixAt_singleton.mpr hc.cons.1) ?_
+    (fun _ _ hf => hf.elim)
   rintro s1 ⟨st, rfl, hnz⟩
   refine Host.eventually_of_interp_cps hc.cons.2.cons.1 ?_
   simp only [t_step_simp]
@@ -1044,41 +1065,16 @@ private theorem wp_load_tail [Host] {E : Int64 → MachineData → Prop} (s : Ma
   | bits n =>
     rcases (by omega : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64 ∨ (n ≠ 8 ∧ n ≠ 16 ∧ n ≠ 32 ∧ n ≠ 64)) with
       rfl | rfl | rfl | rfl | hne
-    · dsimp only [loadTailDir] at hd; subst hd
-      obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec (Or.inl rfl) hlv
-      refine _root_.Program.wp_singleton fun k _ => ?_
-      simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
-        haddr, hi]
-      refine Or.inl ⟨trivial, ⟨⟨by decide, ?_⟩,
-        fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, trivial, trivial, trivial⟩⟩
-      simp only [Reg64s.get64_set64_same, BitVec.zeroExtend_eq_setWidth, Width.bits]
-      exact setWidth_widen_64 _ (by decide)
-    · dsimp only [loadTailDir] at hd; subst hd
-      obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec (Or.inr (Or.inl rfl)) hlv
-      refine _root_.Program.wp_singleton fun k _ => ?_
-      simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
-        haddr, hi]
-      refine Or.inl ⟨trivial, ⟨⟨by decide, ?_⟩,
-        fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, trivial, trivial, trivial⟩⟩
-      simp only [Reg64s.get64_set64_same, BitVec.zeroExtend_eq_setWidth, Width.bits]
-      exact setWidth_widen_64 _ (by decide)
-    · dsimp only [loadTailDir] at hd; subst hd
-      obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec (Or.inr (Or.inr (Or.inl rfl))) hlv
-      refine _root_.Program.wp_singleton fun k _ => ?_
-      simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
-        haddr, hi]
-      refine Or.inl ⟨trivial, ⟨⟨by decide, ?_⟩,
-        fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, trivial, trivial, trivial⟩⟩
-      simp only [Reg64s.get64_set64_same, BitVec.zeroExtend_eq_setWidth, Width.bits]
-    · dsimp only [loadTailDir] at hd; subst hd
-      obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec (Or.inr (Or.inr (Or.inr rfl))) hlv
-      refine _root_.Program.wp_singleton fun k _ => ?_
-      simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
-        haddr, hi]
-      refine Or.inl ⟨trivial, ⟨⟨by decide, ?_⟩,
-        fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, trivial, trivial, trivial⟩⟩
-      simp only [Reg64s.get64_set64_same, Width.bits, BitVec.setWidth_eq]
-    · simp [loadTailDir, hne.1, hne.2.1, hne.2.2.1, hne.2.2.2] at hd
+    all_goals first
+      | (simp [loadTailDir, hne.1, hne.2.1, hne.2.2.1, hne.2.2.2] at hd)
+      | (dsimp only [loadTailDir] at hd; subst hd
+         obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec (by decide) hlv
+         refine _root_.Program.wp_singleton fun k _ => ?_
+         simp only [t_step_simp, MachineData.load, Effects.All_require_read_access, Width.bytes,
+           haddr, hi]
+         refine Or.inl ⟨trivial, ⟨⟨by decide, ?_⟩,
+           fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, trivial, trivial, trivial⟩⟩
+         first | exact setWidth_widen_64 _ (by decide) | rfl | simp [BitVec.setWidth_eq])
   | float _ | pair _ _ => cases hd
 
 /-- Every x64 scalar load (`movzbl`/`movzwl`/`movl`/`movq`) leaves canonical zero-extended form. -/
@@ -1286,8 +1282,8 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
         rw [hr1 rx hrx.1, hrx8]
       simp only [t_step_simp, MachineData.store, Effects.All_require_write_access, Width.bytes,
         haddr1 s1.regs (fun _ _ => rfl), hm1, hload1, hs1x]
-      exact Or.inl ⟨trivial, trivial, x64_frame_of_eq (fun r hr => hr1 r (ne_of_not_mem_x64Scratch hr).1)
-        hz1 hf1⟩
+      exact Or.inl ⟨trivial, trivial,
+        x64_frame_of_eq (fun r hr => hr1 r (ne_of_not_mem_x64Scratch hr).1) hz1 hf1⟩
     | imm b0 =>
       simp only [x64StoreIns, hva, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
         Option.some.injEq, Prod.mk.injEq] at hs
@@ -1303,8 +1299,8 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
         cases b0 <;> rfl
       simp only [t_step_simp, ConstExpr.interp, MachineData.store, Effects.All_require_write_access,
         Width.bytes, haddr1 s1.regs (fun _ _ => rfl), hm1, hload1, htrunc]
-      exact Or.inl ⟨trivial, trivial, x64_frame_of_eq (fun r hr => hr1 r (ne_of_not_mem_x64Scratch hr).1)
-        hz1 hf1⟩
+      exact Or.inl ⟨trivial, trivial,
+        x64_frame_of_eq (fun r hr => hr1 r (ne_of_not_mem_x64Scratch hr).1) hz1 hf1⟩
     | flag cc =>
       simp only [x64StoreIns, hva, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
         Option.some.injEq, Prod.mk.injEq] at hs
@@ -1314,8 +1310,9 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
       refine x64_fallsTo_of_wp fun {_} _ => ?_
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_setcc s cc .r11)) ?_
       rintro s1 rfl
-      have hr1a : ∀ w r, r ∈ a.regs → (s.regs.set64 .r11 w).get64 r = s.regs.get64 r := fun w r hr =>
-        Reg64s.get64_set64_of_ne _ .r11 r _ (ne_of_not_mem_x64Scratch (ha r hr)).2.symm
+      have hr1a : ∀ w r, r ∈ a.regs → (s.regs.set64 .r11 w).get64 r = s.regs.get64 r :=
+        fun w r hr =>
+          Reg64s.get64_set64_of_ne _ .r11 r _ (ne_of_not_mem_x64Scratch (ha r hr)).2.symm
       refine Program.wp.append (wp_addrToExpr _ s a ha (hr1a _)) ?_
       rintro s2 ⟨hr2_11, hr2, hm2, hz2, haddr2, hf2⟩
       dsimp only [addrToExpr] at haddr2
@@ -1397,7 +1394,8 @@ theorem x64Gpr_store_spec {h : Host} {k : Nat} {t : Ty} {pa : PArg Reg64 RegMm C
         refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s1 .r11 c0)) ?_
         rintro s2 rfl
         refine _root_.Program.wp_singleton fun k' _ => ?_
-        have hregs_agree : ∀ r ∈ .r10 :: a.regs, (s1.regs.set64 .r11 c0).get64 r = s1.regs.get64 r := by
+        have hregs_agree : ∀ r ∈ .r10 :: a.regs,
+            (s1.regs.set64 .r11 c0).get64 r = s1.regs.get64 r := by
           intro r hr
           rcases List.mem_cons.mp hr with rfl | hr
           · exact Reg64s.get64_set64_of_ne _ .r11 .r10 _ (by decide)
@@ -1539,7 +1537,8 @@ theorem bswapBits_32 (x : BitVec 32) :
     ((x.take 8 ++ x.extractLsb' 8 8 ++ x.extractLsb' 16 8 ++ x.drop 24).setWidth 32) =
       bswapBits x := by
   apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp only [bswapBits, BitVec.getLsbD_setWidth, decide_eq_true hi, Bool.true_and, bswap_go_getLsbD x 4 i hi]
+  simp only [bswapBits, BitVec.getLsbD_setWidth, decide_eq_true hi, Bool.true_and,
+    bswap_go_getLsbD x 4 i hi]
   rcases Nat.lt_or_ge i 8 with h0 | h0
   · rw [getLsbD_append_lt _ _ h0, getLsbD_drop_lt _ (by omega)]; congr 1; omega
   · rw [getLsbD_append_ge _ _ (by omega)]
@@ -1555,7 +1554,8 @@ theorem bswapBits_64 (x : BitVec 64) :
       x.extractLsb' 32 8 ++ x.extractLsb' 40 8 ++ x.extractLsb' 48 8 ++ x.drop 56).setWidth 64) =
       bswapBits x := by
   apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp only [bswapBits, BitVec.getLsbD_setWidth, decide_eq_true hi, Bool.true_and, bswap_go_getLsbD x 8 i hi]
+  simp only [bswapBits, BitVec.getLsbD_setWidth, decide_eq_true hi, Bool.true_and,
+    bswap_go_getLsbD x 8 i hi]
   rcases Nat.lt_or_ge i 8 with h0 | h0
   · rw [getLsbD_append_lt _ _ h0, getLsbD_drop_lt _ (by omega)]; congr 1; omega
   · rw [getLsbD_append_ge _ _ (by omega)]
@@ -1575,7 +1575,8 @@ theorem bswapBits_64 (x : BitVec 64) :
             · rw [getLsbD_append_lt _ _ (by omega), getLsbD_extract_lt _ (by omega)]; congr 1; omega
             · rw [getLsbD_append_ge _ _ (by omega)]
               rcases Nat.lt_or_ge i 56 with h6 | h6
-              · rw [getLsbD_append_lt _ _ (by omega), getLsbD_extract_lt _ (by omega)]; congr 1; omega
+              · rw [getLsbD_append_lt _ _ (by omega), getLsbD_extract_lt _ (by omega)]
+                congr 1; omega
               · rw [getLsbD_append_ge _ _ (by omega), getLsbD_take_lt _ (by omega)]; congr 1; omega
 
 theorem atDisp_interp [Labels] (regs : Reg64s) (rb : Reg64) (off : Int64) (p : Std.Rco Int64) :
@@ -1608,7 +1609,8 @@ theorem opPost1_fallsTo {t : Ty} {rd : Reg64} {c : List Directive} {clob : FlagM
 abbrev OpPostDst1 (t : Ty) (pd : PDst Reg64 RegMm CondCode t) (v : Val t) (clob : FlagMask)
     (s s' : MachineData) : Prop :=
   x64Mach.PDstHolds s' t pd v ∧ s'.dmem = s.dmem ∧
-    x64Mach.Frame x64CondReads s s' (@tupDstGprs Reg64 RegMm CondCode [t] (pd, ()) ++ x64Scratch) [] clob
+    x64Mach.Frame x64CondReads s s'
+      (@tupDstGprs Reg64 RegMm CondCode [t] (pd, ()) ++ x64Scratch) [] clob
 
 theorem opPostDst1_fallsTo {t : Ty} {pd : PDst Reg64 RegMm CondCode t} {c : List Directive}
     {clob : FlagMask} {s : MachineData} {v : Val t} {P : Tup Val [t] → Prop} (hp : P (v, ()))
@@ -1628,7 +1630,8 @@ theorem opPostDst1_fallsTo {t : Ty} {pd : PDst Reg64 RegMm CondCode t} {c : List
 theorem OpPost1.of_set64_bits {w : Width} {rd : Reg64} {rv : BitVec 64} {st : StatusFlags}
     {clob : FlagMask} {s : MachineData} {v : BitVec w.bits}
     (hrv : rv.setWidth w.bits = v)
-    (hup : x64Mach.UpdFlags x64CondReads s { s with regs := s.regs.set64 rd rv, status := st } clob) :
+    (hup : x64Mach.UpdFlags x64CondReads s
+      { s with regs := s.regs.set64 rd rv, status := st } clob) :
     OpPost1 (.bits w.bits) rd v clob s { s with regs := s.regs.set64 rd rv, status := st } := by
   refine ⟨(GprHolds.bits_iff w _ _).2 (by rw [Reg64s.get64_set64_same, hrv]), rfl,
     x64_frame_of_eq ?_ rfl hup⟩

@@ -14,7 +14,8 @@ together with `#c0_shape` metadata (`FnShape` / `GroupShape`), enforcing the fix
 (`kissat_c_frontend_design.md` §6.5):
 1. Locals live purely in a compile-time map (zero `alloca`, zero `&local`; `&ptr->f` is pure
    pointer arithmetic `ptr + off`).
-2. `if` with live-out mutated locals `M` (in deterministic declaration order) → 1-block join `group`.
+2. `if` with live-out mutated locals `M` (in deterministic declaration order) →
+   1-block join `group`.
 3. `while` / `for` / `do-while` → `loop1` (or `brk` + `lp` nested `group` if `break` occurs)
    carrying mutated live-head locals `L` in declaration order.
 4. Forward `goto L` → enclosing 1-block `group` carrying live locals mutated before `L`.
@@ -258,11 +259,13 @@ private def emitF64ToU64Sat (d : LArg) (k : LArg → LowerM LExpr) : LowerM LExp
   emitOp1 .bool [f64, f64] (.fcmp .ge f64) [d, .imm f64 0#64] "ge0" fun c0 => do
     let two64Bits : BitVec 64 := BitVec.ofNat 64 0x43f0000000000000
     let maxU64 : BitVec 64 := BitVec.allOnes 64
-    let inRangeBody ← emitOp1 .bool [f64, f64] (.fcmp .lt f64) [d, .imm f64 two64Bits] "lt2p64" fun c1 => do
+    let inRangeBody ← emitOp1 .bool [f64, f64] (.fcmp .lt f64) [d, .imm f64 two64Bits] "lt2p64"
+      fun c1 => do
       let convBody ← emitOp1 i64 [f64] (.fptoui .d 64) [d] "f2u" fun u =>
         pure (.jump joinLbl [i64] [u])
       pure (.jnz c1 convBody (.jump joinLbl [i64] [.imm i64 maxU64]))
-    pure (.group [(joinLbl, [resVar], joinBody)] (.jnz c0 inRangeBody (.jump joinLbl [i64] [.imm i64 0#64])))
+    pure (.group [(joinLbl, [resVar], joinBody)]
+      (.jnz c0 inRangeBody (.jump joinLbl [i64] [.imm i64 0#64])))
 
 private def convertVal (env : LayoutEnv) (srcTy dstTy : C0Type) (a : LArg)
     (k : LArg → LowerM LExpr) : LowerM LExpr := do
@@ -280,7 +283,8 @@ private def convertVal (env : LayoutEnv) (srcTy dstTy : C0Type) (a : LArg)
     else emitOp1 i64 [.bits m] (.zext m 64) [a] "zx_p" k
   | .bool, .ptr _ => emitOp1 i64 [.bool] (.ofBool 64) [a] "b_p" k
   | .bool, .int _ n => emitOp1 (.bits n) [.bool] (.ofBool n) [a] "b_i" k
-  | .int _ m, .bool => emitOp1 .bool [.bits m, .bits m] (.cmp .ne (.bits m)) [a, .imm (.bits m) (0#m)] "i_b" k
+  | .int _ m, .bool =>
+    emitOp1 .bool [.bits m, .bits m] (.cmp .ne (.bits m)) [a, .imm (.bits m) (0#m)] "i_b" k
   | .f64, .bool => emitOp1 .bool [f64, f64] (.fcmp .ne f64) [a, .imm f64 0#64] "f_b" k
   | .bool, .f64 =>
     emitOp1 i32 [.bool] (.ofBool 32) [a] "b_i32" fun ai =>
@@ -344,13 +348,16 @@ private def extractBitsFromWord (env : LayoutEnv) (wordVal : LArg) (wordBits bit
     let afterMask := fun masked => do
       let rdecl ← MonadExcept.ofExcept (resolveType env declTy)
       if rdecl == .bool then
-        emitOp1 .bool [unitTy, unitTy] (.cmp .ne unitTy) [masked, .imm unitTy (0#wordBits)] "bfb" (k .bool)
+        emitOp1 .bool [unitTy, unitTy] (.cmp .ne unitTy) [masked, .imm unitTy (0#wordBits)]
+          "bfb" (k .bool)
       else
         let outTy ← MonadExcept.ofExcept (bitfieldValueType env rdecl width)
         if isSignedInt rdecl && width < wordBits then
           let sh := wordBits - width
-          emitOp1 unitTy [unitTy, unitTy] (.shl unitTy) [masked, .imm unitTy (BitVec.ofNat wordBits sh)] "bfs1" fun s1 =>
-            emitOp1 unitTy [unitTy, unitTy] (.ashr unitTy) [s1, .imm unitTy (BitVec.ofNat wordBits sh)] "bfs2" fun sx =>
+          emitOp1 unitTy [unitTy, unitTy] (.shl unitTy)
+            [masked, .imm unitTy (BitVec.ofNat wordBits sh)] "bfs1" fun s1 =>
+            emitOp1 unitTy [unitTy, unitTy] (.ashr unitTy)
+              [s1, .imm unitTy (BitVec.ofNat wordBits sh)] "bfs2" fun sx =>
               convertVal env (.int true wordBits) outTy sx (k outTy)
         else convertVal env (.int false wordBits) outTy masked (k outTy)
     if width == wordBits then afterMask shifted
@@ -358,7 +365,9 @@ private def extractBitsFromWord (env : LayoutEnv) (wordVal : LArg) (wordBits bit
       let mask : BitVec wordBits := BitVec.ofNat wordBits ((1 <<< width) - 1)
       emitOp1 unitTy [unitTy, unitTy] (.and unitTy) [shifted, .imm unitTy mask] "bfm" afterMask
   if bitOff == 0 then afterShift wordVal
-  else emitOp1 unitTy [unitTy, unitTy] (.lshr unitTy) [wordVal, .imm unitTy (BitVec.ofNat wordBits bitOff)] "bfs" afterShift
+  else
+    emitOp1 unitTy [unitTy, unitTy] (.lshr unitTy)
+      [wordVal, .imm unitTy (BitVec.ofNat wordBits bitOff)] "bfs" afterShift
 
 private def inferTy (ctx : LowerCtx) (env : LocalEnv) (e : Expr)
     (decayArray : Bool := true) (forSizeof : Bool := false) : Except String C0Type :=
@@ -404,14 +413,20 @@ private def storeFieldToAddr (env : LayoutEnv) (baseAddr : LArg) (byteOff : Nat)
             addOffset baseAddr (byteOff + unitOff) fun addr =>
               if width == unitBits && localBitOff == 0 then emitStore unitTy sv addr k
               else emitLoad unitTy addr "ldold" fun old => do
-                let clearMask : BitVec unitBits := ~~~(BitVec.ofNat unitBits (((1 <<< width) - 1) <<< localBitOff))
-                emitOp1 unitTy [unitTy, unitTy] (.and unitTy) [old, .imm unitTy clearMask] "clr" fun cleared =>
+                let clearMask : BitVec unitBits :=
+                  ~~~(BitVec.ofNat unitBits (((1 <<< width) - 1) <<< localBitOff))
+                emitOp1 unitTy [unitTy, unitTy] (.and unitTy) [old, .imm unitTy clearMask]
+                  "clr" fun cleared =>
                   emitOp1 unitTy [unitTy, unitTy] (.or unitTy) [cleared, sv] "upd" fun updated =>
                     emitStore unitTy updated addr k
           if localBitOff == 0 then shiftedStep mv
-          else emitOp1 unitTy [unitTy, unitTy] (.shl unitTy) [mv, .imm unitTy (BitVec.ofNat unitBits localBitOff)] "bfshl" shiftedStep
+          else
+            emitOp1 unitTy [unitTy, unitTy] (.shl unitTy)
+              [mv, .imm unitTy (BitVec.ofNat unitBits localBitOff)] "bfshl" shiftedStep
         if width == unitBits then maskedStep uval
-        else emitOp1 unitTy [unitTy, unitTy] (.and unitTy) [uval, .imm unitTy valMask] "bfvm" maskedStep
+        else
+          emitOp1 unitTy [unitTy, unitTy] (.and unitTy) [uval, .imm unitTy valMask] "bfvm"
+            maskedStep
 
 private def resolveFieldChain (env : LayoutEnv) (ty : C0Type) :
     List String → Except String (Nat × FieldLoc)
@@ -450,8 +465,10 @@ mutual
       lowerExpr ctx env idxE fun ity ia =>
         convertVal ctx.layout ity .i64 ia fun idx64 =>
           if elemSz == 1 then emitOp1 i64 [i64, i64] (.add i64) [pa, idx64] "elt" (k elemTy)
-          else emitOp1 i64 [i64, i64] (.mul i64) [idx64, .imm i64 (BitVec.ofNat 64 elemSz)] "mul" fun off =>
-            emitOp1 i64 [i64, i64] (.add i64) [pa, off] "elt" (k elemTy)
+          else
+            emitOp1 i64 [i64, i64] (.mul i64) [idx64, .imm i64 (BitVec.ofNat 64 elemSz)]
+              "mul" fun off =>
+              emitOp1 i64 [i64, i64] (.add i64) [pa, off] "elt" (k elemTy)
 
   private partial def lowerMemRoot (ctx : LowerCtx) (env : LocalEnv) (root : Expr)
       (chain : List String) (k : C0Type → LArg → Nat → FieldLoc → LowerM LExpr) : LowerM LExpr := do
@@ -639,7 +656,9 @@ mutual
           if sz == 0 then throw "cannot subtract pointers to zero-sized type"
           emitOp1 i64 [i64, i64] (.sub i64) [a1, a2] "pdiff" fun diff =>
             if sz == 1 then k .i64 diff
-            else emitOp1 i64 [i64, i64] (.sdiv 64) [diff, .imm i64 (BitVec.ofNat 64 sz)] "pdiv" (k .i64)
+            else
+              emitOp1 i64 [i64, i64] (.sdiv 64) [diff, .imm i64 (BitVec.ofNat 64 sz)]
+                "pdiv" (k .i64)
         | .sub, .ptr elem, _ => ptrArith elem a1 rt2 a2 false rt1
         | _, .ptr _, .ptr _ =>
           let cmpOp ← MonadExcept.ofExcept (cmpOpOf op false)
@@ -689,8 +708,10 @@ mutual
                 | .bitand => emitOp1 lt [lt, lt] (.and lt) [ca1, ca2] "and" (k cty)
                 | .bitor => emitOp1 lt [lt, lt] (.or lt) [ca1, ca2] "or" (k cty)
                 | .bitxor => emitOp1 lt [lt, lt] (.xor lt) [ca1, ca2] "xor" (k cty)
-                | .div => emitOp1 lt [lt, lt] (if signed then .sdiv n else .udiv n) [ca1, ca2] "div" (k cty)
-                | .mod => emitOp1 lt [lt, lt] (if signed then .srem n else .urem n) [ca1, ca2] "rem" (k cty)
+                | .div =>
+                  emitOp1 lt [lt, lt] (if signed then .sdiv n else .udiv n) [ca1, ca2] "div" (k cty)
+                | .mod =>
+                  emitOp1 lt [lt, lt] (if signed then .srem n else .urem n) [ca1, ca2] "rem" (k cty)
                 | _ =>
                   let cmpOp ← MonadExcept.ofExcept (cmpOpOf op signed)
                   emitOp1 .bool [lt, lt] (.cmp cmpOp lt) [ca1, ca2] "cmp" (k .bool)
@@ -731,7 +752,8 @@ mutual
       (k : List (C0Type × LArg) → LowerM LExpr) : LowerM LExpr := do
     unless paramTys.length == args.length do
       throw s!"call argument count mismatch: expected {paramTys.length}, got {args.length}"
-    let rec go (pts : List C0Type) (es : List Expr) (acc : List (C0Type × LArg)) : LowerM LExpr := do
+    let rec go (pts : List C0Type) (es : List Expr) (acc : List (C0Type × LArg)) :
+        LowerM LExpr := do
       match pts, es with
       | [], [] => k acc
       | pt :: pts', e :: es' =>
@@ -824,7 +846,8 @@ mutual
       pure (.call fn asTys bsTys callArgs binders (← k outs))
 
   private partial def inlineFunction (ctx : LowerCtx) (fd : FnDef)
-      (argVals : List (C0Type × LArg)) (k : List (C0Type × LArg) → LowerM LExpr) : LowerM LExpr := do
+      (argVals : List (C0Type × LArg))
+      (k : List (C0Type × LArg) → LowerM LExpr) : LowerM LExpr := do
     let innerEnv ← (fd.params.zip argVals).mapM fun ((_, nm), (ct, a)) => do
       pure { declId := ← freshDeclId, name := nm, val := .scalar ct a : EnvEntry }
     let rRet ← MonadExcept.ofExcept (resolveType ctx.layout fd.retTy)
@@ -837,13 +860,18 @@ mutual
       let jVars ← bsTys.mapM (freshLVar "ret_v")
       -- Fast inline path when single tail return has no extra jump if possible;
       -- note: `retCont` runs in `Except String`, so if `k` uses `LowerM` we bind a 1-block join
-      -- UNLESS we only jump? Actually let's compute `joinBody` via `k` or store `retCont` in `LowerM`!
-      -- Using a 1-block inline_ret join when `retCount > 1` and evaluating `k` directly on tail ret:
+      -- UNLESS we only jump? Actually compute `joinBody` via `k` or store `retCont` in `LowerM`!
+      -- Using a 1-block inline_ret join when `retCount > 1` and evaluating `k` on tail ret:
       let _ := (jLbl, jVars)
-      -- Since `retCont` returns `Except String`, convert tail-ret directly by lowering `fd.body.dropLast` then `retStmt`!
+      -- Since `retCont` returns `Except String`, convert tail-ret directly by lowering
+      -- `fd.body.dropLast` then `retStmt`!
       let initStmts := fd.body.dropLast
       let lastRet ← match fd.body.getLast! with | .retStmt es => pure es | _ => throw "internal"
-      let ctxBody := { ctx with breakTarget := none, contTarget := none, contInlineStep := none, gotoTargets := {}, retTy := rRet, retCont := none }
+      let ctxBody := {
+        ctx with
+        breakTarget := none, contTarget := none, contInlineStep := none, gotoTargets := {}
+        retTy := rRet, retCont := none
+      }
       lowerStmtList ctxBody innerEnv initStmts fun env' =>
         evalAndPassRets ctxBody env' retC0Tys lastRet k
     else
@@ -864,7 +892,8 @@ mutual
       pure (.group [(jLbl, jVars, joinBody)] entry)
 
   private partial def evalAndPassRets (ctx : LowerCtx) (env : LocalEnv)
-      (cts : List C0Type) (es : List Expr) (k : List (C0Type × LArg) → LowerM LExpr) : LowerM LExpr := do
+      (cts : List C0Type) (es : List Expr)
+      (k : List (C0Type × LArg) → LowerM LExpr) : LowerM LExpr := do
     unless cts.length == es.length do
       throw s!"return value count mismatch: expected {cts.length}, got {es.length}"
     let rec go (cs : List C0Type) (xs : List Expr) (acc : List (C0Type × LArg)) : LowerM LExpr :=
@@ -891,9 +920,11 @@ mutual
 
   private partial def lowerLValWrite (ctx : LowerCtx) (env : LocalEnv) (lv : LVal)
       (op? : Option BinOp) (rhsExpr : Expr) (k : LocalEnv → LowerM LExpr) : LowerM LExpr := do
-    let evalCompOp (bop : BinOp) (curTy : C0Type) (curA : LArg) (kw : C0Type → LArg → LowerM LExpr) := do
+    let evalCompOp (bop : BinOp) (curTy : C0Type) (curA : LArg)
+        (kw : C0Type → LArg → LowerM LExpr) := do
       let tid ← freshDeclId
-      let dummyEnv : LocalEnv := env ++ [{ declId := tid, name := "__lval_tmp", val := .scalar curTy curA }]
+      let dummyEnv : LocalEnv :=
+        env ++ [{ declId := tid, name := "__lval_tmp", val := .scalar curTy curA }]
       lowerBinOp ctx dummyEnv bop (.var "__lval_tmp") rhsExpr kw
     let writeAtPtr (elemTy : C0Type) (pa : LArg) : LowerM LExpr := do
       let re ← MonadExcept.ofExcept (resolveType ctx.layout elemTy)
@@ -943,7 +974,8 @@ mutual
       let (rootLv, chain) := splitDot baseLv [fld]
       let doMemField (aggTy : C0Type) (baseAddr : LArg) (baseOff : Nat) : LowerM LExpr := do
         let (off', loc) ← MonadExcept.ofExcept (resolveFieldChain ctx.layout aggTy chain)
-        let writeF := fun rty ra => storeFieldToAddr ctx.layout baseAddr (baseOff + off') loc rty ra (k env)
+        let writeF := fun rty ra =>
+          storeFieldToAddr ctx.layout baseAddr (baseOff + off') loc rty ra (k env)
         match op? with
         | none => lowerExpr ctx env rhsExpr writeF
         | some bop =>
@@ -963,7 +995,8 @@ mutual
             | .regular off subTy _ => doMemField subTy pa off
             | .bitfield _ _ _ _ _ => throw s!"cannot access field inside bitfield '{fld0}'"
           | t => throw s!"'->' requires pointer, got {repr t}"
-      | .index arrE idxE => lowerIndexAddr ctx env arrE idxE fun elemTy pa => doMemField elemTy pa 0
+      | .index arrE idxE =>
+        lowerIndexAddr ctx env arrE idxE fun elemTy pa => doMemField elemTy pa 0
       | .var nm =>
         match lookupEnv? env nm with
         | some { val := .scalar aggTy regVal, .. } =>
@@ -985,16 +1018,23 @@ mutual
                 let valMask : BitVec regBits := BitVec.ofNat regBits ((1 <<< width) - 1)
                 let maskStep := fun mv => do
                   let shiftStep := fun sv => do
-                    if width == regBits && bitOff == 0 then k (updateEnv env nm (.scalar aggTy sv))
+                    if width == regBits && bitOff == 0 then
+                      k (updateEnv env nm (.scalar aggTy sv))
                     else
-                      let clearMask : BitVec regBits := ~~~(BitVec.ofNat regBits (((1 <<< width) - 1) <<< bitOff))
-                      emitOp1 regTy [regTy, regTy] (.and regTy) [regVal, .imm regTy clearMask] "rclr" fun cleared =>
+                      let clearMask : BitVec regBits :=
+                        ~~~(BitVec.ofNat regBits (((1 <<< width) - 1) <<< bitOff))
+                      emitOp1 regTy [regTy, regTy] (.and regTy) [regVal, .imm regTy clearMask]
+                        "rclr" fun cleared =>
                         emitOp1 regTy [regTy, regTy] (.or regTy) [cleared, sv] "rupd" fun updated =>
                           k (updateEnv env nm (.scalar aggTy updated))
                   if bitOff == 0 then shiftStep mv
-                  else emitOp1 regTy [regTy, regTy] (.shl regTy) [mv, .imm regTy (BitVec.ofNat regBits bitOff)] "rshl" shiftStep
+                  else
+                    emitOp1 regTy [regTy, regTy] (.shl regTy)
+                      [mv, .imm regTy (BitVec.ofNat regBits bitOff)] "rshl" shiftStep
                 if width == regBits then maskStep uval
-                else emitOp1 regTy [regTy, regTy] (.and regTy) [uval, .imm regTy valMask] "rmsk" maskStep
+                else
+                  emitOp1 regTy [regTy, regTy] (.and regTy) [uval, .imm regTy valMask] "rmsk"
+                    maskStep
         | _ => throw s!"unbound local '{nm}' in field assignment"
       | .dot _ _ => throw "unreachable"
 
@@ -1013,16 +1053,19 @@ mutual
         | .labelStmt l s => pure (l, s)
         | _ => throw "internal error"
       let afterStmts := firstLabeledStmt :: suffixStmts.tail!
-      -- Lower leading statements before the first `goto` to any label in this block so declarations enter `env`
+      -- Lower leading statements before the first `goto` to any label in this block so
+      -- declarations enter `env`
       let allLbls := stmts.filterMap fun | .labelStmt l _ => some l | _ => none
-      let firstUseIdx := (prefixStmts.findIdx? fun st => allLbls.any (stmtHasGoto · st)).getD prefixStmts.length
+      let firstUseIdx := (prefixStmts.findIdx? fun st =>
+        allLbls.any (stmtHasGoto · st)).getD prefixStmts.length
       if firstUseIdx == prefixStmts.length then
         lowerStmtList ctx env (prefixStmts ++ afterStmts) k
       else
         let leadStmts := prefixStmts.take firstUseIdx
         let regionStmts := prefixStmts.drop firstUseIdx
         lowerStmtList ctx env leadStmts fun envMid => do
-          let mutSet := regionStmts.foldl (fun acc s => setUnion acc (stmtMutatedLocals false false s)) {}
+          let mutSet :=
+            regionStmts.foldl (fun acc s => setUnion acc (stmtMutatedLocals false false s)) {}
           let envMutVars ← MonadExcept.ofExcept (selectJoinVars envMid mutSet)
           let lblId ← freshLblId
           let lvs ← allocJoinVars envMutVars
@@ -1061,7 +1104,8 @@ mutual
           let eBody ← lowerStmt ctx env els fun env' => lowerPlainStmts ctx env' rest k
           lowerCond ctx env cond (pure tBody) (pure eBody)
         else
-          let mutSet := setUnion (stmtMutatedLocals false false thn) (stmtMutatedLocals false false els)
+          let mutSet :=
+            setUnion (stmtMutatedLocals false false thn) (stmtMutatedLocals false false els)
           let mVars ← MonadExcept.ofExcept (selectJoinVars env mutSet)
           let jLbl ← freshLblId
           let jLvs ← allocJoinVars mVars
@@ -1112,12 +1156,14 @@ mutual
       pure (.jump lpLbl (lpLvs.map (·.ty)) args)
     let mkDoWhileBody (ctxB : LowerCtx) (exitJump : LocalEnv → LowerM LExpr) : LowerM LExpr := do
       if stmtHasContinue body then
-        let contVars ← MonadExcept.ofExcept (selectJoinVars env (stmtMutatedLocals false false body))
+        let contVars ← MonadExcept.ofExcept (selectJoinVars env
+          (stmtMutatedLocals false false body))
         let contLbl ← freshLblId
         let contLvs ← allocJoinVars contVars
         recordGroup "do_cont" s!"dc_{contLbl}" contLvs
         let envCont := rebindJoinVars env contVars contLvs
-        let contCond ← lowerCond ctx envCont (cond?.getD (.boolLit true)) (jumpLp envCont) (exitJump envCont)
+        let contCond ← lowerCond ctx envCont (cond?.getD (.boolLit true))
+          (jumpLp envCont) (exitJump envCont)
         let contTgt : JumpTarget := { lblId := contLbl, vars := contVars }
         let jumpCont := fun envCur => do
           let args ← MonadExcept.ofExcept (snapshotArgs envCur contVars)
@@ -1126,7 +1172,8 @@ mutual
         pure (.group [(contLbl, contLvs, contCond)] doBody)
       else
         lowerStmt ctxB envLoop body fun envAfterBody =>
-          lowerCond ctx envAfterBody (cond?.getD (.boolLit true)) (jumpLp envAfterBody) (exitJump envAfterBody)
+          lowerCond ctx envAfterBody (cond?.getD (.boolLit true))
+            (jumpLp envAfterBody) (exitJump envAfterBody)
 
     if hasBrk then
       let mutAny := setUnion (stmtMutatedLocals false false body) stepMutBack
@@ -1156,7 +1203,8 @@ mutual
           match cond? with
           | some c => lowerCond ctx envLoop c (pure bodyPlusStep) (jumpBrk envLoop)
           | none => pure bodyPlusStep
-      let innerGroup := LExpr.group [(lpLbl, lpLvs, lpBody)] (.jump lpLbl (lpLvs.map (·.ty)) initArgs)
+      let innerGroup :=
+        LExpr.group [(lpLbl, lpLvs, lpBody)] (.jump lpLbl (lpLvs.map (·.ty)) initArgs)
       pure (.group [(brkLbl, brkLvs, afterBody)] innerGroup)
     else
       let ctxBody : LowerCtx := { ctx with
@@ -1279,7 +1327,8 @@ mutual
 
   private partial def lowerSwitch (ctx : LowerCtx) (env : LocalEnv) (scrut : Expr)
       (arms : List SwitchArm) (k : LocalEnv → LowerM LExpr) : LowerM LExpr := do
-    let mutSet := arms.foldl (fun acc a => setUnion acc (stmtMutatedLocals false false (.block a.body))) {}
+    let mutSet :=
+      arms.foldl (fun acc a => setUnion acc (stmtMutatedLocals false false (.block a.body))) {}
     let jVars ← MonadExcept.ofExcept (selectJoinVars env mutSet)
     let brkLbl ← freshLblId
     let brkLvs ← allocJoinVars jVars
@@ -1314,7 +1363,8 @@ mutual
                 | [] => pure elseChain
                 | v :: vs => do
                   let restTest ← testVals vs
-                  emitOp1 .bool [lt, lt] (.cmp .eq lt) [scrA, .imm lt (BitVec.ofInt n v)] "sw_eq" fun eqB =>
+                  emitOp1 .bool [lt, lt] (.cmp .eq lt) [scrA, .imm lt (BitVec.ofInt n v)]
+                    "sw_eq" fun eqB =>
                     pure (.jnz eqB armBody restTest)
               testVals arm.vals
         buildCases arms
@@ -1342,7 +1392,8 @@ private def lowerFnDef (ctx : LowerCtx) (fd : FnDef) : Except String LFn := do
     if rs.isEmpty then pure (.ret [] [])
     else throw s!"non-void function '{fd.name}' reaches end without return").run st
   let shape : FnShape := {
-    name := fd.name, params := paramLVs.map fun v => (v.name, v.ty), rets := rs, groups := st'.groups
+    name := fd.name, params := paramLVs.map fun v => (v.name, v.ty), rets := rs
+    groups := st'.groups
   }
   pure { name := fd.name, params := paramLVs, rs, body, shape }
 
@@ -1369,7 +1420,9 @@ def lowerTranslationUnit (tu : TranslationUnit) (assertAsCheck : Bool := false) 
       let as ← sg.params.mapM fun (t, _) => lowerScalarTy layout t
       let rs ← lowerRetTys layout sg.retTy
       externList := externList ++ [{ name := sg.name, as, rs }]
-  let ctx : LowerCtx := { layout, fns := fnDefs, externs := externMap, enums := enumMap, assertAsCheck }
+  let ctx : LowerCtx := {
+    layout, fns := fnDefs, externs := externMap, enums := enumMap, assertAsCheck
+  }
   let lfns ← fnOrder.mapM (lowerFnDef ctx)
   pure { fns := lfns, externs := externList, exits := ["c0_abort"] }
 

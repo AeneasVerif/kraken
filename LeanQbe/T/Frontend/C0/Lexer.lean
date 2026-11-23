@@ -99,7 +99,8 @@ private partial def skipBlockComment (s : LexState) : Except String LexState :=
   | some '*', some '/' => pure (s.advance 2)
   | _, _ => skipBlockComment s.advance
 
-private partial def readPreprocessorLine (s : LexState) (acc : List Char := []) : String × LexState :=
+private partial def readPreprocessorLine (s : LexState) (acc : List Char := []) :
+    String × LexState :=
   match s.peek?, s.peek? 1 with
   | none, _ => (String.ofList acc.reverse, s)
   | some '\n', _ => (String.ofList acc.reverse, s.advance)
@@ -216,7 +217,8 @@ private partial def lexNumber (s : LexState) : Except String (Tok × LexState) :
       if !hasExp then throw s!"invalid float exponent at line {line}"
     if let some sc := cur.peek? then
       if sc == 'f' || sc == 'F' || sc == 'l' || sc == 'L' then
-        throw s!"unsupported float literal suffix '{sc}' at line {line}; C0 supports double (f64) literals only"
+        throw (s!"unsupported float literal suffix '{sc}' at line {line}; " ++
+          "C0 supports double (f64) literals only")
     let signedExp : Int := (if expNeg then -expVal else expVal) - Int.ofNat fracDigits.length
     let expSign := signedExp < 0
     let expNat := if signedExp < 0 then (-signedExp).toNat else signedExp.toNat
@@ -274,7 +276,9 @@ private def lexCharLit (s : LexState) : Except String (Tok × LexState) := do
       let mut stx := cur1.advance; let mut v : Nat := 0; let mut cnt := 0
       while cnt < 2 do
         match stx.peek? with
-        | some h => if isHexDigit h then v := v * 16 + hexVal h; stx := stx.advance; cnt := cnt + 1 else break
+        | some h =>
+          if isHexDigit h then v := v * 16 + hexVal h; stx := stx.advance; cnt := cnt + 1
+          else break
         | none => break
       if cnt == 0 then throw s!"invalid hex escape at line {line}"
       finish v stx
@@ -282,7 +286,10 @@ private def lexCharLit (s : LexState) : Except String (Tok × LexState) := do
       let mut sto := cur1; let mut v : Nat := 0; let mut cnt := 0
       while cnt < 3 do
         match sto.peek? with
-        | some d => if isOctDigit d then v := v * 8 + (d.toNat - '0'.toNat); sto := sto.advance; cnt := cnt + 1 else break
+        | some d =>
+          if isOctDigit d then
+            v := v * 8 + (d.toNat - '0'.toNat); sto := sto.advance; cnt := cnt + 1
+          else break
         | none => break
       finish v sto
     else throw s!"unsupported char escape at line {line}"
@@ -314,7 +321,8 @@ private def threeCharSyms : List String :=
   [ "<<=", ">>=" ]
 
 private def oneCharSyms : List Char :=
-  ['+', '-', '*', '/', '%', '&', '|', '^', '~', '!', '<', '>', '=', '.', '?', ':', ';', ',', '(', ')', '{', '}', '[', ']']
+  [ '+', '-', '*', '/', '%', '&', '|', '^', '~', '!', '<', '>', '=', '.', '?', ':', ';', ','
+  , '(', ')', '{', '}', '[', ']' ]
 
 private partial def lexSingleToken (st : LexState) : Except String (Option Tok × LexState) := do
   let mut cur := st
@@ -402,13 +410,16 @@ private partial def evalPpTokens (macros : Std.HashMap String (Array Tok))
     | _    => none
   let rec evalExpr (minP : Nat) (p : Nat) : Except String (Int × Nat) := do
     let (lhs, q0) : Int × Nat ← match kindAt p with
-      | some (.sym "!") => let (v, q) ← evalExpr 7 (p + 1); pure (if v == 0 then (1 : Int) else 0, q)
+      | some (.sym "!") =>
+        let (v, q) ← evalExpr 7 (p + 1)
+        pure (if v == 0 then (1 : Int) else 0, q)
       | some (.sym "-") => let (v, q) ← evalExpr 7 (p + 1); pure (-v, q)
       | some (.sym "+") => evalExpr 7 (p + 1)
       | some (.ident "defined") =>
         if kindAt (p + 1) == some (.sym "(") then
           match kindAt (p + 2), kindAt (p + 3) with
-          | some (.ident nm), some (.sym ")") => pure (if macros.contains nm then (1 : Int) else 0, p + 4)
+          | some (.ident nm), some (.sym ")") =>
+            pure (if macros.contains nm then (1 : Int) else 0, p + 4)
           | _, _ => throw s!"invalid defined(...) in #if at line {line}"
         else match kindAt (p + 1) with
           | some (.ident nm) => pure (if macros.contains nm then (1 : Int) else 0, p + 2)
@@ -532,7 +543,8 @@ partial def tokenize (src : String) : Except String (Array Tok) := do
           if funcMacros.contains nm then
             throw s!"function-like macro '{nm}' is not supported at line {tok.line}"
           if let some repl := macros.get? nm then
-            let exp := expandMacroToks macros tok.line repl (Std.HashSet.emptyWithCapacity.insert nm)
+            let exp := expandMacroToks macros tok.line repl
+              (Std.HashSet.emptyWithCapacity.insert nm)
             for rt in exp do toks := toks.push rt
           else
             toks := toks.push tok

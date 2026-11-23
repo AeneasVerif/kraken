@@ -447,11 +447,7 @@ private theorem wp_cmp_mem_reg [Host] {E : Int64 → MachineData → Prop} (w : 
     (hlv : loadVal s.dmem (.bits w.bits) addrVal = some va) :
     _root_.Program.wp [insW w (.cmp (.mem addr) (.reg (regW w ry)))]
       (· = { s with status := subFlags va ((s.regs.get64 ry).setWidth w.bits) }) E s := by
-  have hwn : w.bits = 8 ∨ w.bits = 16 ∨ w.bits = 32 ∨ w.bits = 64 := by
-    cases w <;> simp [Width.bits]
-  obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec hwn hlv
-  have hb : w.bits / 8 = w.bytes := by cases w <;> decide
-  rw [hb] at hi
+  obtain ⟨i, hi, rfl⟩ := loadVal_width_spec w hlv
   refine _root_.Program.wp_singleton fun _ _ => ?_
   cases w <;> simp only [insW, regW, t_step_simp, MachineData.load, Effects.All_require_read_access,
     haddr, hi] <;> exact Or.inl ⟨trivial, rfl⟩
@@ -463,11 +459,7 @@ private theorem wp_cmp_reg_mem [Host] {E : Int64 → MachineData → Prop} (w : 
     (hlv : loadVal s.dmem (.bits w.bits) addrVal = some va) :
     _root_.Program.wp [insW w (.cmp (.reg (regW w ry)) (.regOrMem (.mem addr)))]
       (· = { s with status := subFlags ((s.regs.get64 ry).setWidth w.bits) va }) E s := by
-  have hwn : w.bits = 8 ∨ w.bits = 16 ∨ w.bits = 32 ∨ w.bits = 64 := by
-    cases w <;> simp [Width.bits]
-  obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec hwn hlv
-  have hb : w.bits / 8 = w.bytes := by cases w <;> decide
-  rw [hb] at hi
+  obtain ⟨i, hi, rfl⟩ := loadVal_width_spec w hlv
   refine _root_.Program.wp_singleton fun _ _ => ?_
   cases w <;> simp only [insW, regW, t_step_simp, MachineData.load, Effects.All_require_read_access,
     haddr, hi] <;> exact Or.inl ⟨trivial, rfl⟩
@@ -479,11 +471,7 @@ theorem wp_cmp_mem_imm [Host] {E : Int64 → MachineData → Prop} (w : Width)
     (hlv : loadVal s.dmem (.bits w.bits) addrVal = some va) :
     _root_.Program.wp [insW w (.cmp (.mem addr) (immBitsOp w cy))]
       (· = { s with status := subFlags va cy }) E s := by
-  have hwn : w.bits = 8 ∨ w.bits = 16 ∨ w.bits = 32 ∨ w.bits = 64 := by
-    cases w <;> simp [Width.bits]
-  obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec hwn hlv
-  have hb : w.bits / 8 = w.bytes := by cases w <;> decide
-  rw [hb] at hi
+  obtain ⟨i, hi, rfl⟩ := loadVal_width_spec w hlv
   have htr : (cy.signExtend 64).truncate w.bits = cy :=
     truncate_signExtend_64 (width_bits_le_64 w) cy
   refine _root_.Program.wp_singleton fun _ _ => ?_
@@ -499,11 +487,7 @@ private theorem wp_test_mem_reg [Host] {E : Int64 → MachineData → Prop} (w :
       (fun s' => ∃ af,
         s' = { s with status := testFlags va ((s.regs.get64 ry).setWidth w.bits) af })
       E s := by
-  have hwn : w.bits = 8 ∨ w.bits = 16 ∨ w.bits = 32 ∨ w.bits = 64 := by
-    cases w <;> simp [Width.bits]
-  obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec hwn hlv
-  have hb : w.bits / 8 = w.bytes := by cases w <;> decide
-  rw [hb] at hi
+  obtain ⟨i, hi, rfl⟩ := loadVal_width_spec w hlv
   refine _root_.Program.wp_singleton fun _ _ => ?_
   cases w <;> simp only [insW, regW, t_step_simp, MachineData.load, Effects.All_require_read_access,
     haddr, hi, Effects.All] <;> intro af <;> exact Or.inl ⟨trivial, af, rfl⟩
@@ -515,11 +499,7 @@ private theorem wp_test_mem_imm [Host] {E : Int64 → MachineData → Prop} (w :
     (hlv : loadVal s.dmem (.bits w.bits) addrVal = some va) :
     _root_.Program.wp [insW w (.test (.mem addr) (immBitsOp w cy))]
       (fun s' => ∃ af, s' = { s with status := testFlags va cy af }) E s := by
-  have hwn : w.bits = 8 ∨ w.bits = 16 ∨ w.bits = 32 ∨ w.bits = 64 := by
-    cases w <;> simp [Width.bits]
-  obtain ⟨i, hi, rfl⟩ := loadVal_bits_spec hwn hlv
-  have hb : w.bits / 8 = w.bytes := by cases w <;> decide
-  rw [hb] at hi
+  obtain ⟨i, hi, rfl⟩ := loadVal_width_spec w hlv
   have htr : (cy.signExtend 64).truncate w.bits = cy :=
     truncate_signExtend_64 (width_bits_le_64 w) cy
   refine _root_.Program.wp_singleton fun _ _ => ?_
