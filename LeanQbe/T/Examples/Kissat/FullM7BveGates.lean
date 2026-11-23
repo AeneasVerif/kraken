@@ -773,8 +773,12 @@ bool full_bve_find_equiv_m7(FullHdr *h, u32 np, u32 nn) {
   return false;
 }
 
-bool full_bve_find_and_m7(FullHdr *h, u32 lit, u32 lit_off, u32 lit_n,
-                          u32 opp_off, u32 opp_n, u32 lit_mask, u32 opp_mask) {
+bool full_bve_find_and_m7(FullHdr *h, u32 lit, u32 lit_n, u32 opp_n) {
+  u32 pol = lit & 1u;
+  u32 lit_off = pol << 9;
+  u32 opp_off = 512u - lit_off;
+  u32 lit_mask = 1024u + (pol << 4);
+  u32 opp_mask = 2064u - lit_mask;
   u32 *ar = (u32 *)h->arena;
   u32 *scr = (u32 *)h->scratch_buf;
   u8 *lm = (u8 *)h->lit_mark;
@@ -1553,20 +1557,44 @@ void full_k6_core_m7(u32 *k) {
     i = 0u;
     while (i < nv) { k[KO_FLAGS + i] = k[KO_FLAGS + i] & (~2u); i = i + 1u; }
   }
-  u32 cid = nc;
-  while (cid > 0u) {
-    cid = cid - 1u;
-    u32 meta = k[KO_CL_META + cid];
-    if ((meta & (KM_CORE | KM_LRN)) == (KM_CORE | KM_LRN)) {
-      u32 off = k[KO_CL_OFF + cid];
-      u32 sz = meta & 0xFFFFu;
-      u32 na = k[KO_CL_AUX + cid];
-      if (off + sz + na <= acap) {
-        u32 j = 0u;
-        while (j < na) {
-          u32 ant = k[KO_ARENA + off + sz + j];
-          if (ant < nc) { k[KO_CL_META + ant] = k[KO_CL_META + ant] | KM_CORE; }
-          j = j + 1u;
+  u32 pass = 0u;
+  bool changed = true;
+  while (changed && pass < nc) {
+    changed = false;
+    pass = pass + 1u;
+    u32 cid = nc;
+    while (cid > 0u) {
+      cid = cid - 1u;
+      u32 meta = k[KO_CL_META + cid];
+      if ((meta & KM_CORE) != 0u) {
+        u32 off = k[KO_CL_OFF + cid];
+        u32 sz = meta & 0xFFFFu;
+        if ((meta & KM_LRN) != 0u) {
+          u32 na = k[KO_CL_AUX + cid];
+          if (off + sz + na <= acap) {
+            u32 j = 0u;
+            while (j < na) {
+              u32 ant = k[KO_ARENA + off + sz + j];
+              if (ant < nc && (k[KO_CL_META + ant] & KM_CORE) == 0u) {
+                k[KO_CL_META + ant] = k[KO_CL_META + ant] | KM_CORE;
+                changed = true;
+              }
+              j = j + 1u;
+            }
+          }
+        } else if (off + sz <= acap) {
+          u32 j = 0u;
+          while (j < sz) {
+            u32 lv = k[KO_ARENA + off + j] >> 1;
+            if (lv < nv && k[KO_LVL + lv] == 0u) {
+              u32 r0 = k[KO_RSN + lv];
+              if (r0 < nc && (k[KO_CL_META + r0] & KM_CORE) == 0u) {
+                k[KO_CL_META + r0] = k[KO_CL_META + r0] | KM_CORE;
+                changed = true;
+              }
+            }
+            j = j + 1u;
+          }
         }
       }
     }
@@ -1760,8 +1788,8 @@ void full_bve_gates_m7(FullHdr *h, u32 v, u32 np, u32 nn) {
   if (full_bve_find_equiv_m7(h, np, nn)) { return; }
   u32 pl = v << 1;
   u32 nl = pl | 1u;
-  if (full_bve_find_and_m7(h, pl, 0u, np, 512u, nn, 1024u, 1040u)) { return; }
-  if (full_bve_find_and_m7(h, nl, 512u, nn, 0u, np, 1040u, 1024u)) { return; }
+  if (full_bve_find_and_m7(h, pl, np, nn)) { return; }
+  if (full_bve_find_and_m7(h, nl, nn, np)) { return; }
   if (full_bve_find_ite_m7(h, v, np, nn)) { return; }
   if (full_bve_find_xor_m7(h, v, np, nn)) { return; }
   full_bve_def_k6_m7(h, v, np, nn);

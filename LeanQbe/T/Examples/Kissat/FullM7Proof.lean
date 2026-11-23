@@ -17,16 +17,15 @@ Assembles the complete `410`-row `m7SpecTable tPfx tBve solveSpec` aligned 1-to-
 - `tPfx` (`21` rows matching `m7OrchPfxFns`), awaiting `FullM6OrchProof0..1`
 - `tBve` (`43` rows matching `m7BveAllFns`), awaiting `FullM7BveGatesProof0..5`
 - `hBcpHot : M7BcpHotHyp (mkM7Env ...)`, awaiting `FullM7BcpHotProof*`
-- `hGap : M7GapHyp (mkM7Env ...)` (`full_sort_tmp`, `full_rephase`), awaiting spec bridges
 
 Exports:
 1. `m7SpecTable`, `mkM7Env`, `m7SpecTable_sigs`, `m7SpecTable_length` (`410`),
    `m7SpecTable_nodup`, `m7SpecTable_noExit`, and `mkM7Env_solve_bytes{_m6}_iff`.
 2. `mkM7Env_moduleOk` (`ModuleOk (mkM7Env tPfx tBve solveSpec) m7Module`), plus specializations
    `m7_solve_bytes_unsat_wp`, `mkM7Env_sound_moduleOk`, and `mkM7Env_core_moduleOk`.
-3. Top-level SAT + UNSAT source & host-framed soundness (`m7_solve_bytes_sound`,
-   `m7_solve_bytes_m6_sound`, `m7_solve_bytes_host_sound`) and concrete Tier-3b non-vacuity
-   (`m7_unsat_nv`, `m7_m6_unsat_nv`, `m7_sat_nv`, `m7_m6_sat_nv`, `m7_sat_checkModel_nv`).
+3. Top-level source & host-framed soundness (`m7_solve_bytes_sound`, `m7_solve_bytes_m6_sound`,
+   `m7_solve_bytes_host_sound`) and concrete Tier-3b UNSAT non-vacuity (`m7_unsat_nv`,
+   `m7_m6_unsat_nv`, `XPost := False`).
 -/
 
 set_option autoImplicit false
@@ -80,6 +79,8 @@ private theorem len_eq_of_sigs_eq {fs : List Fn} {rs : List SpecEntry}
     fs.length = rs.length := by
   have h1 := congrArg List.length h
   simpa only [List.length_map] using h1.symm
+
+private theorem m7Fns_length : m7Fns.length = 410 := by t_kernel_rfl
 
 theorem m7SpecTable_length (tPfx tBve : List SpecEntry)
     (solveSpec : Spec [i64, i64, i64, i64, i64] [i64])
@@ -203,8 +204,8 @@ private theorem m7SpecTable_tBve_mem {tPfx tBve : List SpecEntry}
     (List.mem_append_left _ (m7RowsPart3Pfx_tBve_mem hi43 hi)))
 
 /-- Parameterized `410/410` `ModuleOk` theorem for `FullM7.m7Module`, waiting only on
-the `21`-row `FullM6Orch` prefix (`hPfxOk`), `43`-row `FullM7BveGates` slice (`hBveOk`),
-`FullM7BcpHot` (`hBcpHot`), and `FullM7AnalyzeSort` gap (`hGap`). -/
+the `21`-row `FullM6Orch` prefix (`hPfxOk`), `43`-row `FullM7BveGates` slice (`hBveOk`), and
+`FullM7BcpHot` (`hBcpHot`). -/
 theorem mkM7Env_moduleOk
     (tPfx tBve : List SpecEntry)
     (solveSpec : Spec [i64, i64, i64, i64, i64] [i64])
@@ -218,8 +219,7 @@ theorem mkM7Env_moduleOk
     (hBveNoExit : tBve.all SpecEntry.noExit = true)
     (hBveSpecs : M7BveAllTblSpecs tBve)
     (hBveOk : TableImpl (mkM7Env tPfx tBve solveSpec) m7BveAllFns tBve)
-    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve solveSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve solveSpec)) :
+    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve solveSpec)) :
     ModuleOk (mkM7Env tPfx tBve solveSpec) m7Module :=
   let hnd := m7SpecTable_nodup tPfx tBve solveSpec hPfxSigs hBveSigs
   let hnoExit := m7SpecTable_noExit tPfx tBve solveSpec hPfxNoExit hBveNoExit
@@ -254,7 +254,7 @@ theorem mkM7Env_moduleOk
       (envRow_mem hnd _ _ _ _ hc2c.work) (envRow_mem hnd _ _ _ _ hc2c.fwdSub)
   let i2 : TableImpl (mkM7Env tPfx tBve solveSpec) m7FnsPart2 (m7RowsPart2 tPfx) :=
     m7RowsPart2_tableImpl (tbl := m7SpecTable tPfx tBve solveSpec) hnd hPfxLen hPfxOk htPfx
-      hPfxSpecs hc1 hGap hcd sub2
+      hPfxSpecs hc1 hcd sub2
   let i3 : TableImpl (mkM7Env tPfx tBve solveSpec)
       m7FnsPart3 (m7RowsPart3Pfx tPfx tBve ++ m7OrchTailRows solveSpec) :=
     m7Part3_tableImpl solveSpec hWeaken hSolveMonoX hnd hnoExit hPfxSigs hPfxOk
@@ -279,7 +279,6 @@ theorem m7_solve_bytes_unsat_wp
     (hBveSpecs : M7BveAllTblSpecs tBve)
     (hBveOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
     (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
     {a : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
     (hs : fullM6SolveBytesUnsatSpec a m Q X) :
     Func.wp (mkM7Env tPfx tBve fullM6SolveBytesSpec) FullM6Orch.kissat_solve_bytes_body
@@ -287,7 +286,7 @@ theorem m7_solve_bytes_unsat_wp
   have hm := mkM7Env_moduleOk tPfx tBve fullM6SolveBytesSpec
     (fun _ _ _ _ h => fullM6SolveBytesCoreModelSpec_of_spec h)
     (fun _ _ _ _ _ h => fullM6SolveBytesSpec_monoX h)
-    hPfxSigs hPfxNoExit hPfxSpecs hPfxOk hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot hGap
+    hPfxSigs hPfxNoExit hPfxSpecs hPfxOk hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot
   obtain ⟨pre, post, hsplit⟩ := List.append_of_mem m7oSolveBytesFn_mem
   have hfn := (hm.fnsOk pre _ post hsplit).2.2
   refine fullM6_unsatSpec_of_solveBytesSpec_wp (mkM7Env tPfx tBve fullM6SolveBytesSpec)
@@ -308,13 +307,12 @@ theorem mkM7Env_sound_moduleOk
     (hBveNoExit : tBve.all SpecEntry.noExit = true)
     (hBveSpecs : M7BveAllTblSpecs tBve)
     (hBveOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
-    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec)) :
+    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec)) :
     ModuleOk (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7Module :=
   mkM7Env_moduleOk tPfx tBve fullM6SolveBytesSpec
     (fun _ _ _ _ hs => fullM6SolveBytesCoreModelSpec_of_spec hs)
     (fun _ _ _ _ _ hs => fullM6SolveBytesSpec_monoX hs)
-    hPfxSigs hPfxNoExit hPfxSpecs hPfxOk hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot hGap
+    hPfxSigs hPfxNoExit hPfxSpecs hPfxOk hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot
 
 /-- Specialized `ModuleOk` for `fullM6SolveBytesCoreModelSpec` (for deterministic UNSAT NV). -/
 theorem mkM7Env_core_moduleOk
@@ -327,13 +325,12 @@ theorem mkM7Env_core_moduleOk
     (hBveNoExit : tBve.all SpecEntry.noExit = true)
     (hBveSpecs : M7BveAllTblSpecs tBve)
     (hBveOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7BveAllFns tBve)
-    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
+    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
     ModuleOk (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7Module :=
   mkM7Env_moduleOk tPfx tBve fullM6SolveBytesCoreModelSpec
     (fun _ _ _ _ hs => hs)
     (fun _ _ _ _ _ hs => fullM6SolveBytesCoreModelSpec_monoX hs)
-    hPfxSigs hPfxNoExit hPfxSpecs hPfxOk hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot hGap
+    hPfxSigs hPfxNoExit hPfxSpecs hPfxOk hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot
 
 /-! ## 3. Top-Level SAT + UNSAT Soundness & Concrete Non-Vacuity -/
 
@@ -349,7 +346,6 @@ theorem m7_solve_bytes_sound
     (hBveSpecs : M7BveAllTblSpecs tBve)
     (hBveOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
     (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
     {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8}
     {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64}
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -371,7 +367,7 @@ theorem m7_solve_bytes_sound
   fullM6_solve_bytes_moduleOk_combinator (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7Module
     "kissat_solve_bytes" FullM6Orch.kissat_solve_bytes_body
     (mkM7Env_sound_moduleOk tPfx tBve hPfxSigs hPfxNoExit hPfxSpecs hPfxOk
-      hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot hGap)
+      hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot)
     m7oSolveBytesFn_mem
     (fun _ _ _ _ hs =>
       (mkM7Env_solve_bytes_iff tPfx tBve fullM6SolveBytesSpec hPfxSigs hBveSigs).mpr
@@ -390,7 +386,6 @@ theorem m7_solve_bytes_m6_sound
     (hBveSpecs : M7BveAllTblSpecs tBve)
     (hBveOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
     (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
     {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8}
     {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64}
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -412,7 +407,7 @@ theorem m7_solve_bytes_m6_sound
   fullM6_solve_bytes_moduleOk_combinator (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7Module
     "kissat_solve_bytes_m6" kissat_solve_bytes_m6_body
     (mkM7Env_sound_moduleOk tPfx tBve hPfxSigs hPfxNoExit hPfxSpecs hPfxOk
-      hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot hGap)
+      hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot)
     m7oSolveBytesM6Fn_mem
     (fun _ _ _ _ hs =>
       (mkM7Env_solve_bytes_m6_iff tPfx tBve fullM6SolveBytesSpec hPfxSigs hBveSigs).mpr
@@ -451,8 +446,7 @@ theorem m7_unsat_nv
     (hBveNoExit : tBve.all SpecEntry.noExit = true)
     (hBveSpecs : M7BveAllTblSpecs tBve)
     (hBveOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7BveAllFns tBve)
-    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
+    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
     Func.wp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) FullM6Orch.kissat_solve_bytes_body
       (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
         nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
@@ -464,7 +458,7 @@ theorem m7_unsat_nv
           (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen) m')
       (fun _ _ _ _ => False) := by
   have hm := mkM7Env_core_moduleOk tPfx tBve hPfxSigs hPfxNoExit hPfxSpecs hPfxOk
-    hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot hGap
+    hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot
   obtain ⟨pre, post, hsplit⟩ := List.append_of_mem m7oSolveBytesFn_mem
   have hfn := (hm.fnsOk pre _ post hsplit).2.2
   refine fullM6_unsat_nv (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)
@@ -486,8 +480,7 @@ theorem m7_m6_unsat_nv
     (hBveNoExit : tBve.all SpecEntry.noExit = true)
     (hBveSpecs : M7BveAllTblSpecs tBve)
     (hBveOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7BveAllFns tBve)
-    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
+    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
     Func.wp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) kissat_solve_bytes_m6_body
       (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
         nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
@@ -499,7 +492,7 @@ theorem m7_m6_unsat_nv
           (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen) m')
       (fun _ _ _ _ => False) := by
   have hm := mkM7Env_core_moduleOk tPfx tBve hPfxSigs hPfxNoExit hPfxSpecs hPfxOk
-    hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot hGap
+    hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot
   obtain ⟨pre, post, hsplit⟩ := List.append_of_mem m7oSolveBytesM6Fn_mem
   have hfn := (hm.fnsOk pre _ post hsplit).2.2
   refine fullM6_unsat_nv (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)
@@ -508,154 +501,5 @@ theorem m7_m6_unsat_nv
   exact hfn a m0 Q X
     ((mkM7Env_solve_bytes_m6_iff tPfx tBve fullM6SolveBytesCoreModelSpec hPfxSigs hBveSigs).mpr
       (fullM6SolveBytesCoreModelSpec_monoX hs))
-
-/-- Concrete SAT precondition non-vacuity for `kissat_solve_bytes` on `nvM6SatInitMem`. -/
-theorem m7_sat_nv
-    (tPfx tBve : List SpecEntry)
-    (hPfxSigs : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
-    (hPfxNoExit : tPfx.all SpecEntry.noExit = true)
-    (hPfxSpecs : M7OrchPfxTblSpecs tPfx)
-    (hPfxOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7OrchPfxFns tPfx)
-    (hBveSigs : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
-    (hBveNoExit : tBve.all SpecEntry.noExit = true)
-    (hBveSpecs : M7BveAllTblSpecs tBve)
-    (hBveOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
-    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec)) :
-    Func.wp (mkM7Env tPfx tBve fullM6SolveBytesSpec) FullM6Orch.kissat_solve_bytes_body
-      (nvM6CnfPtr, BitVec.ofNat 64 nvM6SatBytes.length,
-        nvM6SatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
-      nvM6SatInitMem
-      (fun rs m' =>
-        match rs with
-        | (r, ()) =>
-          (r = 0#64 ∨ r = 10#64) ∧ r ≠ 20#64 ∧
-          (r = 10#64 →
-            ¬ nvM6SatCnf.Unsat ∧
-            (∀ (F : Mem 64 → Prop) (M : Mem 64),
-              (Eq m' ⋆ F) M → nvM6SatCnf.Sat (readModelFromWorkM6 M nvM6SatWorkPtr))) ∧
-          (bytes nvM6CnfPtr nvM6SatBytes ⋆ region nvM6SatWorkPtr nvM6WorkLen) m')
-      (fun _ _ _ _ => False) := by
-  have hm := mkM7Env_sound_moduleOk tPfx tBve hPfxSigs hPfxNoExit hPfxSpecs hPfxOk
-    hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot hGap
-  obtain ⟨pre, post, hsplit⟩ := List.append_of_mem m7oSolveBytesFn_mem
-  have hfn := (hm.fnsOk pre _ post hsplit).2.2
-  refine fullM6_sat_nv (mkM7Env tPfx tBve fullM6SolveBytesSpec)
-    FullM6Orch.kissat_solve_bytes_body ?_
-  intro a m0 Q X hs
-  exact hfn a m0 Q X
-    ((mkM7Env_solve_bytes_iff tPfx tBve fullM6SolveBytesSpec hPfxSigs hBveSigs).mpr
-      (fullM6SolveBytesSpec_monoX hs))
-
-/-- Concrete SAT precondition non-vacuity for `kissat_solve_bytes_m6` on `nvM6SatInitMem`. -/
-theorem m7_m6_sat_nv
-    (tPfx tBve : List SpecEntry)
-    (hPfxSigs : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
-    (hPfxNoExit : tPfx.all SpecEntry.noExit = true)
-    (hPfxSpecs : M7OrchPfxTblSpecs tPfx)
-    (hPfxOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7OrchPfxFns tPfx)
-    (hBveSigs : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
-    (hBveNoExit : tBve.all SpecEntry.noExit = true)
-    (hBveSpecs : M7BveAllTblSpecs tBve)
-    (hBveOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
-    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec)) :
-    Func.wp (mkM7Env tPfx tBve fullM6SolveBytesSpec) kissat_solve_bytes_m6_body
-      (nvM6CnfPtr, BitVec.ofNat 64 nvM6SatBytes.length,
-        nvM6SatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
-      nvM6SatInitMem
-      (fun rs m' =>
-        match rs with
-        | (r, ()) =>
-          (r = 0#64 ∨ r = 10#64) ∧ r ≠ 20#64 ∧
-          (r = 10#64 →
-            ¬ nvM6SatCnf.Unsat ∧
-            (∀ (F : Mem 64 → Prop) (M : Mem 64),
-              (Eq m' ⋆ F) M → nvM6SatCnf.Sat (readModelFromWorkM6 M nvM6SatWorkPtr))) ∧
-          (bytes nvM6CnfPtr nvM6SatBytes ⋆ region nvM6SatWorkPtr nvM6WorkLen) m')
-      (fun _ _ _ _ => False) := by
-  have hm := mkM7Env_sound_moduleOk tPfx tBve hPfxSigs hPfxNoExit hPfxSpecs hPfxOk
-    hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot hGap
-  obtain ⟨pre, post, hsplit⟩ := List.append_of_mem m7oSolveBytesM6Fn_mem
-  have hfn := (hm.fnsOk pre _ post hsplit).2.2
-  refine fullM6_sat_nv (mkM7Env tPfx tBve fullM6SolveBytesSpec) kissat_solve_bytes_m6_body ?_
-  intro a m0 Q X hs
-  exact hfn a m0 Q X
-    ((mkM7Env_solve_bytes_m6_iff tPfx tBve fullM6SolveBytesSpec hPfxSigs hBveSigs).mpr
-      (fullM6SolveBytesSpec_monoX hs))
-
-/-- Deterministic concrete `Mem 64` SAT witness non-vacuity (`ok = 1#64`, zero bailout) directly
-executing `kissat_check_model_body` inside `mkM7Env` on `nvM6Mem`, certifying
-`nvM6SatCnf.Sat (readModelFromWorkM6 m' nvM6SatWorkPtr)` and workspace restoration. -/
-theorem m7_sat_checkModel_nv
-    (tPfx tBve : List SpecEntry)
-    (hPfxSigs : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
-    (hPfxNoExit : tPfx.all SpecEntry.noExit = true)
-    (hPfxSpecs : M7OrchPfxTblSpecs tPfx)
-    (hPfxOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7OrchPfxFns tPfx)
-    (hBveSigs : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
-    (hBveNoExit : tBve.all SpecEntry.noExit = true)
-    (hBveSpecs : M7BveAllTblSpecs tBve)
-    (hBveOk : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
-    (hBcpHot : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hGap : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec)) :
-    Func.wp (mkM7Env tPfx tBve fullM6SolveBytesSpec) kissat_check_model_body
-      (nvM6CnfPtr, nvM6CnfPtr + BitVec.ofNat 64 nvM6SatBytes.length,
-        nvM6SatCfg.hdr, nvM6SatCfg.pVals, BitVec.ofNat 64 nvM6SatCfg.mv, ())
-      nvM6Mem
-      (fun rs m' =>
-        match rs with
-        | (ok, ()) =>
-          ok = 1#64 ∧
-          nvM6SatCnf.Sat (readModelFromWorkM6 m' nvM6SatWorkPtr) ∧
-          (bytes nvM6CnfPtr nvM6SatBytes ⋆ region nvM6SatWorkPtr nvM6WorkLen) m')
-      (fun _ _ _ _ => False) := by
-  have hnd := m7SpecTable_nodup tPfx tBve fullM6SolveBytesSpec hPfxSigs hBveSigs
-  have sub1 : ∀ e ∈ m7RowsPart1 tPfx, e ∈ m7SpecTable tPfx tBve fullM6SolveBytesSpec :=
-    fun _ h => List.mem_append_left _ h
-  have rChk := envRow_mem hnd _ _ _ _ (m7Part1TailCallees_of_sub sub1).2
-  have hm := mkM7Env_sound_moduleOk tPfx tBve hPfxSigs hPfxNoExit hPfxSpecs hPfxOk
-    hBveSigs hBveNoExit hBveSpecs hBveOk hBcpHot hGap
-  obtain ⟨pre, post, hsplit⟩ := List.append_of_mem m7CheckModelFn_mem
-  have hfn := (hm.fnsOk pre _ post hsplit).2.2
-  have hm_m6 : (bytes nvM6CnfPtr nvM6SatBytes ⋆
-      FullM6HdrMem nvM6SatCfg nvM6ExtInitWords nvM6SatState ⋆ emp) nvM6Mem := by
-    rw [Std.ExtHashMap.sep_emp]
-    exact nvM6Mem_ok
-  have hm_chk := m6HdrMem_to_checkModel nvM6Sat_lengths hm_m6
-  refine hfn _ _ _ _ (rChk _ _ _ _ ⟨BitVec.ofNat 64 nvM6SatCfg.mv,
-    BitVec.ofNat 64 nvM6SatCfg.nc, nvM6SatState.core.d_cur, nvM6SatState.core.d_val,
-    nvM6SatBytes, nvM6SatState.core.vals.map UInt8.ofBitVec, nvM6SatCfg.mv,
-    FullCheckRest nvM6SatCfg nvM6SatState ⋆ array64 (nvM6SatCfg.hdr - 2304) nvM6ExtInitWords ⋆
-      emp,
-    rfl, rfl, by decide, by decide, by decide, by decide, hm_chk,
-    fun ok mv' nc' cur' val' m' hok hm' => ?_⟩)
-  have hrun : runKissatCheckModel nvM6SatBytes (nvM6SatState.core.vals.map UInt8.ofBitVec)
-      nvM6SatCfg.mv = true := rfl
-  have hok1 : ok = 1#64 := by rw [hok, hrun]; rfl
-  have hm_post : (dimacsState nvM6SatCfg.hdr mv' nc' cur' val' ⋆
-      bytes nvM6SatCfg.pVals (nvM6SatState.core.vals.map UInt8.ofBitVec) ⋆
-      FullCheckRest nvM6SatCfg nvM6SatState ⋆
-      (bytes nvM6CnfPtr nvM6SatBytes ⋆ array64 (nvM6SatCfg.hdr - 2304) nvM6ExtInitWords ⋆
-        emp)) m' := sep_ac hm'
-  obtain ⟨cnf, hp, _, _, hsat⟩ :=
-    sat_of_checkModel_post_m6 nvM6SatCfg_hdr_eq nvM6Sat_lengths hm_post hrun
-  rw [parseDimacs_nvM6SatBytes, Option.some.injEq] at hp
-  subst hp
-  have hsat' := hsat emp m' (by rw [Std.ExtHashMap.sep_emp])
-  have hpad0 : fullAlignPad nvM6SatWorkPtr = 0 := nvM6Sat_pad_eq
-  have hm_reg_pad : (bytes nvM6CnfPtr nvM6SatBytes ⋆
-      dimacsState nvM6SatCfg.hdr mv' nc' cur' val' ⋆
-      bytes nvM6SatCfg.pVals (nvM6SatState.core.vals.map UInt8.ofBitVec) ⋆
-      (FullCheckRest nvM6SatCfg nvM6SatState ⋆
-        array64 (nvM6SatCfg.hdr - 2304) nvM6ExtInitWords ⋆
-        region nvM6SatWorkPtr (fullAlignPad nvM6SatWorkPtr) ⋆ emp)) m' := by
-    rw [hpad0, region_zero, Std.ExtHashMap.sep_emp]
-    exact sep_ac hm'
-  have hreg := checkModel_post_to_m6_region (R := emp)
-    (by rw [hpad0]; decide) (by decide)
-    nvM6SatCfg_hdr_eq rfl nvM6ExtInitWords_ok nvM6Sat_lengths hm_reg_pad
-  rw [Std.ExtHashMap.sep_emp] at hreg
-  exact ⟨hok1, hsat', hreg⟩
 
 end LeanQbe.T.Examples.Kissat.FullM7Proof

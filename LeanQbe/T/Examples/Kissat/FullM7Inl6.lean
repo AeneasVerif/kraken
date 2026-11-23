@@ -1,3 +1,7 @@
+/-
+Copyright (c) 2026 LeanQbe Contributors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
 module
 
 public import LeanQbe.T.MainCertInlineChunk
@@ -13,7 +17,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM7InlBase
 meta import LeanQbe.T.Examples.Kissat.FullM7Inl5
 
 /-!
-# Chunked `FullM7` PGO Inlining Chunk 6 (`[384, 410)`, `26` fns)
+# Chunked `FullM7` PGO Inlining Chunk 6 (`[258, 280)`, `22` fns)
 -/
 
 set_option autoImplicit false
@@ -25,7 +29,6 @@ namespace LeanQbe.T.Examples.Kissat.FullM7Inl
 open LeanQbe.T LeanQbe.T.Examples.Kissat.FullM7
 open LeanQbe.T.Examples.Kissat.FullM7InlPolicy
 
-inline_mod_chunk! m7InlC6 m7InlBase m7Module m7InlPolicy 384 26
-  (prev := m7InlC5) (isLast := true)
+inline_mod_chunk! m7InlC6 m7InlBase m7Module m7InlPolicy 258 22 (prev := m7InlC5)
 
 end LeanQbe.T.Examples.Kissat.FullM7Inl

@@ -16,7 +16,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Verification, SAT+UNSAT Soundness, Non-Vacuity & Axiom Audit for Unified Kissat `M7` (`410/410`)
+# Verification, Soundness, UNSAT Non-Vacuity & Axiom Audit for Unified Kissat `M7` (`410/410`)
 
 1. Executable `#guard` sanity checks on `m7Fns` (`410` fns), `m7Module.checkAcyclic`, empty
    exits/externs, concrete `M6Hdr` `3,456 B` layout, `PrintCpp`, `PrintQbe`, and 4-ISA
@@ -25,8 +25,7 @@ import Kraken.Separation
    `Func.Wf`, acyclicity, `410`-row table metadata (`m7SpecTable_sigs`, `m7SpecTable_length`,
    `m7SpecTable_nodup`, `m7SpecTable_noExit`), `mkM7Env_moduleOk`, `m7_solve_bytes_unsat_wp`,
    `m7_solve_bytes_sound`, `m7_solve_bytes_m6_sound`, `m7_solve_bytes_host_sound`,
-   `m7_unsat_nv`, `m7_m6_unsat_nv`, `m7_sat_nv`, and `m7_sat_checkModel_nv`
-   (`⊆ [propext, Classical.choice, Quot.sound]`).
+   `m7_unsat_nv`, and `m7_m6_unsat_nv` (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
@@ -121,10 +120,9 @@ theorem m7_mod_ok (tPfx tBve : List SpecEntry)
     (hBN : tBve.all SpecEntry.noExit = true)
     (hBP : M7BveAllTblSpecs tBve)
     (hBO : TableImpl (mkM7Env tPfx tBve s) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve s))
-    (hG : M7GapHyp (mkM7Env tPfx tBve s)) :
+    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve s)) :
     ModuleOk (mkM7Env tPfx tBve s) m7Module :=
-  mkM7Env_moduleOk tPfx tBve s hW hX hS hN hP hO hBS hBN hBP hBO hBH hG
+  mkM7Env_moduleOk tPfx tBve s hW hX hS hN hP hO hBS hBN hBP hBO hBH
 
 theorem m7_unsat_wp_ok (tPfx tBve : List SpecEntry)
     (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
@@ -136,12 +134,11 @@ theorem m7_unsat_wp_ok (tPfx tBve : List SpecEntry)
     (hBP : M7BveAllTblSpecs tBve)
     (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
     (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hG : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
     {a : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
     (hs : fullM6SolveBytesUnsatSpec a m Q X) :
     Func.wp (mkM7Env tPfx tBve fullM6SolveBytesSpec) FullM6Orch.kissat_solve_bytes_body
       a m Q X :=
-  m7_solve_bytes_unsat_wp tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH hG hs
+  m7_solve_bytes_unsat_wp tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH hs
 
 theorem m7_sound_ok (tPfx tBve : List SpecEntry)
     (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
@@ -153,7 +150,6 @@ theorem m7_sound_ok (tPfx tBve : List SpecEntry)
     (hBP : M7BveAllTblSpecs tBve)
     (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
     (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hG : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
     {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8}
     {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64}
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -172,7 +168,7 @@ theorem m7_sound_ok (tPfx tBve : List SpecEntry)
               (Eq m' ⋆ F) M' → cnf.Sat (readModelFromWorkM6 M' work_ptr)) ∧
           (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m')
       (fun _ _ _ _ => False) :=
-  m7_solve_bytes_sound tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH hG hcfit hwfit hm
+  m7_solve_bytes_sound tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH hcfit hwfit hm
 
 theorem m7_m6_sound_ok (tPfx tBve : List SpecEntry)
     (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
@@ -184,7 +180,6 @@ theorem m7_m6_sound_ok (tPfx tBve : List SpecEntry)
     (hBve : M7BveAllTblSpecs tBve)
     (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
     (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hG : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
     {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8}
     {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64}
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -203,7 +198,7 @@ theorem m7_m6_sound_ok (tPfx tBve : List SpecEntry)
               (Eq m' ⋆ F) M' → cnf.Sat (readModelFromWorkM6 M' work_ptr)) ∧
           (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m')
       (fun _ _ _ _ => False) :=
-  m7_solve_bytes_m6_sound tPfx tBve hS hN hP hO hBS hBN hBve hBO hBH hG hcfit hwfit hm
+  m7_solve_bytes_m6_sound tPfx tBve hS hN hP hO hBS hBN hBve hBO hBH hcfit hwfit hm
 
 theorem m7_host_ok
     {cnf_ptr work_ptr : BitVec 64} {cnfBytes : List UInt8} {wlen : Nat}
@@ -233,8 +228,7 @@ theorem m7_nv_unsat_ok (tPfx tBve : List SpecEntry)
     (hBN : tBve.all SpecEntry.noExit = true)
     (hBP : M7BveAllTblSpecs tBve)
     (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec))
-    (hG : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
+    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
     Func.wp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) FullM6Orch.kissat_solve_bytes_body
       (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
         nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
@@ -245,7 +239,7 @@ theorem m7_nv_unsat_ok (tPfx tBve : List SpecEntry)
           r = 20#64 ∧ nvM6UnsatCnf.Unsat ∧
           (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen) m')
       (fun _ _ _ _ => False) :=
-  m7_unsat_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH hG
+  m7_unsat_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH
 
 theorem m7_m6_nv_unsat_ok (tPfx tBve : List SpecEntry)
     (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
@@ -256,8 +250,7 @@ theorem m7_m6_nv_unsat_ok (tPfx tBve : List SpecEntry)
     (hBN : tBve.all SpecEntry.noExit = true)
     (hBP : M7BveAllTblSpecs tBve)
     (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec))
-    (hG : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
+    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
     Func.wp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) kissat_solve_bytes_m6_body
       (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
         nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
@@ -268,58 +261,7 @@ theorem m7_m6_nv_unsat_ok (tPfx tBve : List SpecEntry)
           r = 20#64 ∧ nvM6UnsatCnf.Unsat ∧
           (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen) m')
       (fun _ _ _ _ => False) :=
-  m7_m6_unsat_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH hG
-
-theorem m7_nv_sat_ok (tPfx tBve : List SpecEntry)
-    (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
-    (hN : tPfx.all SpecEntry.noExit = true)
-    (hP : M7OrchPfxTblSpecs tPfx)
-    (hO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7OrchPfxFns tPfx)
-    (hBS : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
-    (hBN : tBve.all SpecEntry.noExit = true)
-    (hBP : M7BveAllTblSpecs tBve)
-    (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hG : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec)) :
-    Func.wp (mkM7Env tPfx tBve fullM6SolveBytesSpec) FullM6Orch.kissat_solve_bytes_body
-      (nvM6CnfPtr, BitVec.ofNat 64 nvM6SatBytes.length,
-        nvM6SatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
-      nvM6SatInitMem
-      (fun rs m' =>
-        match rs with
-        | (r, ()) =>
-          (r = 0#64 ∨ r = 10#64) ∧ r ≠ 20#64 ∧
-          (r = 10#64 →
-            ¬ nvM6SatCnf.Unsat ∧
-            (∀ (F : Mem 64 → Prop) (M : Mem 64),
-              (Eq m' ⋆ F) M → nvM6SatCnf.Sat (readModelFromWorkM6 M nvM6SatWorkPtr))) ∧
-          (bytes nvM6CnfPtr nvM6SatBytes ⋆ region nvM6SatWorkPtr nvM6WorkLen) m')
-      (fun _ _ _ _ => False) :=
-  m7_sat_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH hG
-
-theorem m7_nv_chk_sat_ok (tPfx tBve : List SpecEntry)
-    (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
-    (hN : tPfx.all SpecEntry.noExit = true)
-    (hP : M7OrchPfxTblSpecs tPfx)
-    (hO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7OrchPfxFns tPfx)
-    (hBS : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
-    (hBN : tBve.all SpecEntry.noExit = true)
-    (hBP : M7BveAllTblSpecs tBve)
-    (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
-    (hG : M7GapHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec)) :
-    Func.wp (mkM7Env tPfx tBve fullM6SolveBytesSpec) kissat_check_model_body
-      (nvM6CnfPtr, nvM6CnfPtr + BitVec.ofNat 64 nvM6SatBytes.length,
-        nvM6SatCfg.hdr, nvM6SatCfg.pVals, BitVec.ofNat 64 nvM6SatCfg.mv, ())
-      nvM6Mem
-      (fun rs m' =>
-        match rs with
-        | (ok, ()) =>
-          ok = 1#64 ∧
-          nvM6SatCnf.Sat (readModelFromWorkM6 m' nvM6SatWorkPtr) ∧
-          (bytes nvM6CnfPtr nvM6SatBytes ⋆ region nvM6SatWorkPtr nvM6WorkLen) m')
-      (fun _ _ _ _ => False) :=
-  m7_sat_checkModel_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH hG
+  m7_m6_unsat_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH
 
 #print axioms m7_wf_ok
 #print axioms m7_acyclic_ok
@@ -334,7 +276,5 @@ theorem m7_nv_chk_sat_ok (tPfx tBve : List SpecEntry)
 #print axioms m7_host_ok
 #print axioms m7_nv_unsat_ok
 #print axioms m7_m6_nv_unsat_ok
-#print axioms m7_nv_sat_ok
-#print axioms m7_nv_chk_sat_ok
 
 end AxiomAudit

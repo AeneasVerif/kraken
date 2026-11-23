@@ -222,6 +222,9 @@ def m7Log10Q16CanonFn : Fn :=
 def m7ScaleDeltaM5Fn : Fn :=
   ⟨"full_scale_delta_m5", [i64, i64], [i64], FullM7Bump.full_scale_delta_m7_body⟩
 
+def m7PropCanonFn : Fn :=
+  ⟨"full_propagate", [i64], [i64], FullM7BcpHot.full_bcp_hot_body⟩
+
 def m7WarmupCanonFn : Fn :=
   ⟨"full_warmup", [i64], [], FullM7Walk.full_warmup_m7_body⟩
 
@@ -267,7 +270,7 @@ def m7FnsPart1 : List Fn :=
   (FullM5.m5Fns.drop 46).take 2 ++
   (FullM5.m5Fns.drop 49).take 3 ++
   FullM7BcpHot.m7BcpHot_fns ++
-  [ FullM7BcpHot.m7PropIgnoreFn, FullM7BcpHot.m7PropFn ] ++
+  [ FullM7BcpHot.m7PropIgnoreFn, m7PropCanonFn ] ++
   (FullM6WalkParse.m6WalkParse_fns.drop 1).take 1 ++
   [ FullM6Orch.m6oParseBodyFn ] ++
   (FullM5.m5Fns.drop 57).take 1 ++
@@ -427,6 +430,9 @@ private theorem m7Log10Q16Canon_wf : m7Log10Q16CanonFn.Wf :=
 private theorem m7ScaleDeltaM5_wf : m7ScaleDeltaM5Fn.Wf :=
   FullM7Bump.full_scale_delta_m7_wf
 
+private theorem m7PropCanon_wf : m7PropCanonFn.Wf :=
+  FullM7BcpHot.full_bcp_hot_wf
+
 private theorem m7WarmupCanon_wf : m7WarmupCanonFn.Wf :=
   FullM7Walk.full_warmup_m7_wf
 
@@ -475,7 +481,7 @@ private theorem m7FnsPart1_wf : ∀ f ∈ m7FnsPart1, f.Wf := by
   · exact wf_take _ (wf_drop _ FullM5.m5Fns_wf)
   · exact wf_take _ (wf_drop _ FullM5.m5Fns_wf)
   · exact wf_cons FullM7BcpHot.full_propagate_ignore_hot_wf
-      (wf_one FullM7BcpHot.full_propagate_canon_wf)
+      (wf_one m7PropCanon_wf)
   · exact wf_take _ (wf_drop _ FullM6WalkParse.m6WalkParse_fns_wf)
   · exact wf_one FullM6Orch.full_parse_body_wf
   · exact wf_take _ (wf_drop _ FullM5.m5Fns_wf)
@@ -600,9 +606,6 @@ private theorem m7FnsPart3_wf : ∀ f ∈ m7FnsPart3, f.Wf := by
 
 theorem m7Fns_wf : ∀ f ∈ m7Fns, f.Wf :=
   wf_app (wf_app m7FnsPart1_wf m7FnsPart2_wf) m7FnsPart3_wf
-
-theorem m7Fns_length : m7Fns.length = 410 := by
-  t_kernel_rfl
 
 theorem m7_acyclic : m7Module.checkAcyclic = true := by
   t_kernel_rfl

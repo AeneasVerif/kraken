@@ -13,6 +13,7 @@ public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof0
 public import LeanQbe.T.Examples.Kissat.FullM6S15Bridge
 public import LeanQbe.T.Examples.Kissat.FullM7BumpProof
 public import LeanQbe.T.Examples.Kissat.FullM7SearchProof0
+public import LeanQbe.T.Examples.Kissat.FullM7SpecBridges
 import LeanQbe.T.Examples.Kissat.FullArena
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -94,7 +95,7 @@ structure M7OrchPfxTblSpecs (tPfx : List SpecEntry) : Prop where
   reduceM6 :
     (⟨"full_reduce_m6", [i64, .bool], [i64], m6ReduceSpec, true⟩ : SpecEntry) ∈ tPfx
   minShrink :
-    (⟨"full_min_shrink", [i64], [], Full.fullMinShrinkSpec, true⟩ : SpecEntry) ∈ tPfx
+    (⟨"full_min_shrink", [i64], [], FullM7SpecBridges.m7MinShrinkSpec, true⟩ : SpecEntry) ∈ tPfx
   deduce1uip :
     (⟨"full_deduce_1uip", [i64], [i64], Full.fullDeduce1uipSpec, true⟩ : SpecEntry) ∈ tPfx
   analyzeCoreM6 :
@@ -153,7 +154,7 @@ structure M7Part1Callees (tbl : List SpecEntry) : Prop where
   unwatchLarge : (⟨"full_unwatch_large", [i64, i32, i32], [], Full.fullUnwatchLargeSpec, true⟩ :
     SpecEntry) ∈ tbl
   propIgnoreHot : (⟨"full_propagate_ignore_hot", [i64, i64], [i64],
-    Full.fullPropagateIgnoreSpec, true⟩ : SpecEntry) ∈ tbl
+    Full.FullPropDecSpecs.fullPropagateIgnoreSpec, true⟩ : SpecEntry) ∈ tbl
   scaleDelta : (⟨"full_scale_delta", [i64, i64], [i64],
     FullFastSched.schedScaleDeltaSpec, true⟩ : SpecEntry) ∈ tbl
   propagateIgn : (⟨"full_propagate_ignore", [i64, i64], [i64],
@@ -192,7 +193,7 @@ def m7PropChronoHotSpec : Spec [i64, i64] [.bool] :=
 structure M7BcpHotHyp (Γ : Env) : Prop where
   propChronoHot : ∀ a m Q X, m7PropChronoHotSpec a m Q X →
     Func.wp Γ FullM7BcpHot.full_prop_chrono_hot_body a m Q X
-  propIgnoreHot : ∀ a m Q X, Full.fullPropagateIgnoreSpec a m Q X →
+  propIgnoreHot : ∀ a m Q X, Full.FullPropDecSpecs.fullPropagateIgnoreSpec a m Q X →
     Func.wp Γ FullM7BcpHot.full_propagate_ignore_hot_body a m Q X
 
 /-! ## 2. Cross-Module Spec Bridges -/
@@ -442,7 +443,8 @@ private def p1PropHelpersRows : List SpecEntry :=
 private def p1BcpHotRows : List SpecEntry :=
   [ ⟨"full_prop_lit_ovf_hot", [i64, i32, i32, i32], [.bool], m7PropLitOvfHotSpec, true⟩
   , ⟨"full_prop_chrono_hot", [i64, i64], [.bool], m7PropChronoHotSpec, true⟩
-  , ⟨"full_propagate_ignore_hot", [i64, i64], [i64], Full.fullPropagateIgnoreSpec, true⟩
+  , ⟨"full_propagate_ignore_hot", [i64, i64], [i64],
+      Full.FullPropDecSpecs.fullPropagateIgnoreSpec, true⟩
   , ⟨"full_bcp_hot", [i64], [i64], Full.fullPropagateSpec, true⟩
   , ⟨"full_propagate_ignore", [i64, i64], [i64], Full.fullPropagateIgnoreSpec, true⟩
   , ⟨"full_propagate", [i64], [i64], Full.fullPropagateSpec, true⟩ ]
@@ -514,7 +516,7 @@ private def p1ParseHelpersFns : List Fn := (Full.fullFns.drop 42).take 2
 private def p1PropHelpersFns : List Fn :=
   (Full.fullFns.drop 45).take 2 ++ FullM5Otfs.m5Otfs_fns.take 1
 private def p1BcpHotFns : List Fn :=
-  FullM7BcpHot.m7BcpHot_fns ++ [FullM7BcpHot.m7PropIgnoreFn, FullM7BcpHot.m7PropFn]
+  FullM7BcpHot.m7BcpHot_fns ++ [FullM7BcpHot.m7PropIgnoreFn, FullM7.m7PropCanonFn]
 private def p1ParseBodyM6Fns : List Fn := (FullM6WalkParse.m6WalkParse_fns.drop 1).take 1
 private def p1RecomputeTiersFns : List Fn := (Full.fullFns.drop 50).take 1
 private def p1WatchGc1Fns : List Fn := (FullM6WatchGc.m6WatchGc_fns.drop 3).take 2
@@ -975,49 +977,65 @@ private theorem m7_prop_lit_ovf_hot_wp (Γ : Env)
   c0_hsteps_nogrp
   exact wp_call_of_spec _ _ (hPush _ _ _ _ hsp)
 
-private theorem m7_propagate_wrap_wp {Γ : Env} {nm : Sym} {body : Func [i64] [i64]}
-    (hbody : body = fun _ _ ⟨v, ()⟩ =>
-      Expr.call (as := [i64, i64]) (bs := [i64]) nm
-        (Arg.var v, Arg.imm (t := i64) 0xFFFFFFFF#64, ())
-        (fun ⟨x, ()⟩ => Expr.ret (Arg.var x, ())))
-    (hIgn : ∀ args m Q X, Full.fullPropagateIgnoreSpec args m Q X →
-      Γ nm [i64, i64] [i64] args m Q X) :
-    ∀ args m Q X, Full.fullPropagateSpec args m Q X → Func.wp Γ body args m Q X := by
-  subst hbody
-  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩
-  unfold Func.wp
-  refine wp_call_of_spec _ _ (hIgn _ m _ _ ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, ?_⟩)
-  intro r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
-    fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m' s'
-    hlen' hw' htr' hperm' hfl' hr hr0 hr1 hr2 hnoop hm'
-  exact hQ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
-    fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m' hlen' hw' htr' hperm' hfl' hr
-    (fun h0 => let ⟨hp, _, ho, hf⟩ := hr0 h0; ⟨hp, ho, hf⟩)
-    (fun h1 => let ⟨hf, ho, hc, _⟩ := hr1 h1; ⟨hf, ho, hc⟩)
-    hr2 hnoop hm'
+private theorem m7_pdConflOkW_to_conflict {F_cur : List (List Nat)} {s : FullState}
+    (h : Full.FullPropDecSpecs.FullConflOkW F_cur s.core) : FullConflictOkW F_cur s := by
+  rcases h with ⟨ht, h0, h1, hent, hf0, hf1⟩ | hr
+  · exact Or.inl ⟨ht, h0, h1, hf0, hf1, hent⟩
+  · exact Or.inr hr
 
-private theorem m7_bcp_hot_body_eq :
-    FullM7BcpHot.full_bcp_hot_body =
+private theorem m7_pdTrailExt_to_canon {k1 k2 : FullCoreState}
+    (h : Full.FullPropDecSpecs.FullTrailExt k1 k2) : FullTrailExt k1 k2 :=
+  ⟨h.te_ge, h.trl_pref, h.lvl_pres⟩
+
+private theorem m7_pdArenaPerm_to_canon {k1 k2 : FullCoreState} (hal : k2.arena_len = k1.arena_len)
+    (h : Full.FullPropDecSpecs.FullArenaPermEq k1 k2) : FullArenaPermEq k1 k2 :=
+  ⟨hal, h.1, h.2⟩
+
+private theorem m7_prop_ignore_canon_of_pd_wp (Γ : Env)
+    (hPd : ∀ args m Q X, Full.FullPropDecSpecs.fullPropagateIgnoreSpec args m Q X →
+      Func.wp Γ FullM7BcpHot.full_propagate_ignore_hot_body args m Q X) :
+    ∀ args m Q X, Full.fullPropagateIgnoreSpec args m Q X →
+      Func.wp Γ FullM7BcpHot.full_propagate_ignore_hot_body args m Q X := by
+  rintro ⟨h, ign, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩
+  refine hPd _ m Q X ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, ?_⟩
+  dsimp only
+  intro r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+    fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m' hlen' hw' htr' hperm' hfl' hr
+    hr0 hr1 hr2 hnoop hm'
+  exact hQ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+    fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m' hlen' hw'
+    (m7_pdTrailExt_to_canon htr') (m7_pdArenaPerm_to_canon rfl hperm') hfl' hr hr0
+    (fun h1 => let ⟨hf, ho, hc, hign, _⟩ := hr1 h1
+      ⟨hf, ho, m7_pdConflOkW_to_conflict hc, hign⟩) hr2 hnoop hm'
+
+private theorem m7_propagate_wrap_wp {Γ : Env}
+    (hIgn : ∀ args m Q X, Full.FullPropDecSpecs.fullPropagateIgnoreSpec args m Q X →
+      Γ "full_propagate_ignore_hot" [i64, i64] [i64] args m Q X) :
+    ∀ args m Q X, Full.fullPropagateSpec args m Q X →
+      Func.wp Γ FullM7BcpHot.full_bcp_hot_body args m Q X := by
+  rw [show FullM7BcpHot.full_bcp_hot_body =
       fun _ _ ⟨v, ()⟩ =>
         Expr.call (as := [i64, i64]) (bs := [i64]) "full_propagate_ignore_hot"
           (Arg.var v, Arg.imm (t := i64) 0xFFFFFFFF#64, ())
-          (fun ⟨x, ()⟩ => Expr.ret (Arg.var x, ())) := by
-  t_kernel_rfl
-
-private theorem m7_propagate_body_eq :
-    FullM7BcpHot.full_propagate_body =
-      fun _ _ ⟨v, ()⟩ =>
-        Expr.call (as := [i64, i64]) (bs := [i64]) "full_propagate_ignore"
-          (Arg.var v, Arg.imm (t := i64) 0xFFFFFFFF#64, ())
-          (fun ⟨x, ()⟩ => Expr.ret (Arg.var x, ())) := by
-  t_kernel_rfl
+          (fun ⟨x, ()⟩ => Expr.ret (Arg.var x, ())) by t_kernel_rfl]
+  rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩
+  unfold Func.wp
+  refine wp_call_of_spec _ _ (hIgn _ m _ _ ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, ?_⟩)
+  dsimp only
+  intro r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+    fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m'
+    hlen' hw' htr' hperm' hfl' hr hr0 hr1 hr2 hnoop hm'
+  exact hQ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+    fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m' hlen' hw'
+    (m7_pdTrailExt_to_canon htr') (m7_pdArenaPerm_to_canon rfl hperm') hfl' hr
+    (fun h0 => let ⟨hp, _, ho, hf⟩ := hr0 h0; ⟨hp, ho, hf⟩)
+    (fun h1 => let ⟨hf, ho, hc, _, _⟩ := hr1 h1; ⟨hf, ho, m7_pdConflOkW_to_conflict hc⟩)
+    hr2 hnoop hm'
 
 private theorem p1BcpHot_impl {tbl : List SpecEntry} (hnd : (tbl.map SpecEntry.name).Nodup)
     (hBcp : M7BcpHotHyp (Env.ofTable tbl))
     (hIgnHot : (⟨"full_propagate_ignore_hot", [i64, i64], [i64],
-      Full.fullPropagateIgnoreSpec, true⟩ : SpecEntry) ∈ tbl)
-    (hIgn : (⟨"full_propagate_ignore", [i64, i64], [i64],
-      Full.fullPropagateIgnoreSpec, true⟩ : SpecEntry) ∈ tbl)
+      Full.FullPropDecSpecs.fullPropagateIgnoreSpec, true⟩ : SpecEntry) ∈ tbl)
     (hPush : (⟨"full_watch_push", [i64, i32, i32, i32, i32], [.bool],
       Full.fullWatchPushSpec, true⟩ : SpecEntry) ∈ tbl) :
     TableImpl (Env.ofTable tbl) p1BcpHotFns p1BcpHotRows := by
@@ -1029,17 +1047,16 @@ private theorem p1BcpHot_impl {tbl : List SpecEntry} (hnd : (tbl.map SpecEntry.n
           FullM7BcpHot.full_propagate_ignore_hot_body⟩
       , ⟨"full_bcp_hot", [i64], [i64], FullM7BcpHot.full_bcp_hot_body⟩
       , ⟨"full_propagate_ignore", [i64, i64], [i64], FullM7BcpHot.full_propagate_ignore_hot_body⟩
-      , ⟨"full_propagate", [i64], [i64], FullM7BcpHot.full_propagate_body⟩ ] := rfl
+      , ⟨"full_propagate", [i64], [i64], FullM7BcpHot.full_bcp_hot_body⟩ ] := by t_kernel_rfl
+  have hIgn := envRow_mem hnd _ _ _ _ hIgnHot
   rw [hfn]; unfold p1BcpHotRows
   exact ⟨ SpecEntry.Impl.of (m7_prop_lit_ovf_hot_wp (Env.ofTable tbl)
           (envRow_mem hnd _ _ _ _ hPush))
     , SpecEntry.Impl.of hBcp.propChronoHot
     , SpecEntry.Impl.of hBcp.propIgnoreHot
-    , SpecEntry.Impl.of (m7_propagate_wrap_wp m7_bcp_hot_body_eq
-          (envRow_mem hnd _ _ _ _ hIgnHot))
-    , SpecEntry.Impl.of hBcp.propIgnoreHot
-    , SpecEntry.Impl.of (m7_propagate_wrap_wp m7_propagate_body_eq
-          (envRow_mem hnd _ _ _ _ hIgn)), trivial ⟩
+    , SpecEntry.Impl.of (m7_propagate_wrap_wp hIgn)
+    , SpecEntry.Impl.of (m7_prop_ignore_canon_of_pd_wp (Env.ofTable tbl) hBcp.propIgnoreHot)
+    , SpecEntry.Impl.of (m7_propagate_wrap_wp hIgn), trivial ⟩
 
 private theorem p1WatchGc0_impl {tbl : List SpecEntry} (hnd : (tbl.map SpecEntry.name).Nodup)
     (hown : ∀ e ∈ p1WatchGc0Rows, e ∈ tbl)
@@ -1266,7 +1283,7 @@ theorem m7RowsPart1_tableImpl {tPfx tbl : List SpecEntry}
         [⟨"full_unwatch_large", [i64, i32, i32], [], Full.fullUnwatchLargeSpec, true⟩] :=
       m7_oneImpl rfl rfl (FullM5Otfs.full_unwatch_large_wp (Env.ofTable tbl))
     exact tableImpl_append rfl hs hu
-  have i_bcp := p1BcpHot_impl hnd hBcpHot hc.propIgnoreHot hc.propagateIgn rWPush
+  have i_bcp := p1BcpHot_impl hnd hBcpHot hc.propIgnoreHot rWPush
   have i_pbM6 : TableImpl (Env.ofTable tbl) p1ParseBodyM6Fns p1ParseBodyM6Rows :=
     m7_oneImpl rfl rfl (FullM6WalkParse.full_parse_body_m6_del_wp (Env.ofTable tbl)
       (envRow_mem hnd _ _ _ _ rSkip) (envRow_mem hnd _ _ _ _ rIng)

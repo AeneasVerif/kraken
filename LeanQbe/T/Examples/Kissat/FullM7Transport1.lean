@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.FullM7Transport0
+public import LeanQbe.T.Examples.Kissat.FullM7SpecBridges
 public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof
 public import LeanQbe.T.Examples.Kissat.FullM7BumpProof
 public import LeanQbe.T.Examples.Kissat.FullM7WalkProof
@@ -26,10 +27,11 @@ import Kraken.Separation
 # Kissat `D-Full` Unified `M7` Part 2 (`112..275`, `FullM7Transport1`)
 
 Assembles `m7RowsPart2 tPfx` aligned 1-to-1 with `FullM7.m7FnsPart2` (`164` functions), defines
-`M7Part2Callees` and the pre-wired gap hypothesis contract `M7GapHyp` (`FullM7SpecBridges`:
-`sortTmp` Gap B + `rephase` Gap A), and certifies `[112..274]` plus parameterized `[275]`
-(`full_congruence_dense`, discharged in `FullM7OrchProof0`) using canonical
-`Full.fullPropagateSpec` (zero `S1.5` drift), plain `public section`, and `0` `@[expose]` tags.
+`M7Part2Callees`, discharges all Gap A (`full_rephase`) and Gap B (`full_sort_tmp` /
+`full_min_shrink_m6` / `full_analyze`) bridges via `FullM7SpecBridges`, and certifies
+`[112..274]` plus parameterized `[275]` (`full_congruence_dense`, discharged in
+`FullM7OrchProof0`) using canonical `Full.fullPropagateSpec` (zero `S1.5` drift), plain
+`public section`, and `0` `@[expose]` tags.
 -/
 
 set_option autoImplicit false
@@ -52,57 +54,11 @@ open LeanQbe.T.Examples.Kissat.FullM6Transport
 open LeanQbe.T.Examples.Kissat.FullM6ProofUtil
 open LeanQbe.T.Examples.Kissat.FullM7
 
-/-! ## 1. Gap-A `m7RephaseSpec`, `M7GapHyp`, & Cross-Part Part 2 Callees -/
+/-! ## 1. Gap-A `m7RephaseSpec` & Cross-Part Part 2 Callees -/
 
 /-- Gap-A `full_rephase` contract for `FullM7AnalyzeSort.m7RephaseFn` calling `"full_walk"` at
-`Full.fullWarmupSpec` (`FullM7.lean:229`). Matches `FullM7SpecBridges.m7RephaseWarmupSpec`. -/
-def m7RephaseSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
-  ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
-    h = c.hdr ∧ FullSparseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
-    ∀ vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' prop' cl' prob' unass' unfl'
-      wvec' arena' wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' sc' m',
-      FullSparseInv c F0
-        { core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
-                                trl := trl', trail_pos := tp', frame_trail := ftrl',
-                                frame_dec := fdec', trail_end := te', propagated := prop',
-                                cur_level := cl', probing := prob', unassigned := unass',
-                                unflushed := unfl', wvec := wvec', arena := arena',
-                                wstk := wstk', wlen := wlen', wusable := wu', fuel := fuel',
-                                confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
-                                confl_lit1 := c1', oom := oom' },
-          scratch := sc' } →
-      FullArenaPermEq s.core
-        { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
-                      trl := trl', trail_pos := tp', frame_trail := ftrl',
-                      frame_dec := fdec', trail_end := te', propagated := prop',
-                      cur_level := cl', probing := prob', unassigned := unass',
-                      unflushed := unfl', wvec := wvec', arena := arena',
-                      wstk := wstk', wlen := wlen', wusable := wu', fuel := fuel',
-                      confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
-                      confl_lit1 := c1', oom := oom' } →
-      (s.scratch.stable ≠ 0#64 → cl' = 0) → cl' ≤ s.core.cur_level →
-      fuel'.toNat ≤ s.core.fuel.toNat →
-      FullExtScratchPres s
-        { core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
-                                trl := trl', trail_pos := tp', frame_trail := ftrl',
-                                frame_dec := fdec', trail_end := te', propagated := prop',
-                                cur_level := cl', probing := prob', unassigned := unass',
-                                unflushed := unfl', wvec := wvec', arena := arena',
-                                wstk := wstk', wlen := wlen', wusable := wu', fuel := fuel',
-                                confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
-                                confl_lit1 := c1', oom := oom' },
-          scratch := sc' } →
-      (s.core.probing = 0#64 → prob' = 0#64) →
-      (FullMem c
-        { core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
-                                trl := trl', trail_pos := tp', frame_trail := ftrl',
-                                frame_dec := fdec', trail_end := te', propagated := prop',
-                                cur_level := cl', probing := prob', unassigned := unass',
-                                unflushed := unfl', wvec := wvec', arena := arena',
-                                wstk := wstk', wlen := wlen', wusable := wu', fuel := fuel',
-                                confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
-                                confl_lit1 := c1', oom := oom' },
-          scratch := sc' } ⋆ R) m' → Q () m'
+`Full.fullWarmupSpec` (`FullM7.lean:229`). Alias for `FullM7SpecBridges.m7RephaseWarmupSpec`. -/
+abbrev m7RephaseSpec : Spec [i64] [] := FullM7SpecBridges.m7RephaseWarmupSpec
 
 theorem m7RephaseSpec_of {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost}
@@ -152,7 +108,7 @@ theorem m7RephaseSpec_of {c : FullCfg} {F0 : CNF Nat} {s : FullState}
                                 confl_lit1 := c1', oom := oom' },
           scratch := sc' } ⋆ R) m' → Q () m') :
     m7RephaseSpec (c.hdr, ()) m Q X :=
-  ⟨c, F0, s, R, rfl, hsp, hm, hQ⟩
+  FullM7SpecBridges.m7RephaseWarmupSpec_of hsp hm hQ
 
 theorem m7RephaseSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
     (hs : m7RephaseSpec (h, ()) m Q X) :
@@ -201,19 +157,12 @@ theorem m7RephaseSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost
                                   wstk := wstk', wlen := wlen', wusable := wu', fuel := fuel',
                                   confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
                                   confl_lit1 := c1', oom := oom' },
-            scratch := sc' } ⋆ R) m' → Q () m' := hs
+            scratch := sc' } ⋆ R) m' → Q () m' :=
+  FullM7SpecBridges.m7RephaseWarmupSpec_elim hs
 
 theorem m7RephaseSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X X' : XPost}
-    (h : m7RephaseSpec xs m Q X) : m7RephaseSpec xs m Q X' := by
-  rcases xs with ⟨_, ⟨⟩⟩; exact h
-
-/-- Parametric pre-wired hypotheses for the two in-flight `FullM7SpecBridges` spec gaps
-(`@m7-spec-bridges`, `#69`). Zero `sorry`/`axiom`. -/
-structure M7GapHyp (Γ : Env) : Prop where
-  sortTmp : ∀ a m Q X, Full.fullSortTmpSpec a m Q X →
-    Func.wp Γ FullM7AnalyzeSort.full_sort_tmp_m7_body a m Q X
-  rephase : ∀ a m Q X, m7RephaseSpec a m Q X →
-    Func.wp Γ FullM7AnalyzeSort.full_rephase_m7_body a m Q X
+    (h : m7RephaseSpec xs m Q X) : m7RephaseSpec xs m Q X' :=
+  FullM7SpecBridges.m7RephaseWarmupSpec_monoX h
 
 /-- Cross-part Part 2 row memberships required by Part 3 (`FullM7Transport2`) and the `5`-fn tail
 (`FullM7OrchProof0`). -/
@@ -270,7 +219,7 @@ private def p2SortTmpM7Rows : List SpecEntry :=
       Full.FullMinSpecs.fullSortTmpSiftSpec, true⟩
   , ⟨"full_sort_tmp_heap_m7", [i64, i64, i64, i64], [],
       FullM7AnalyzeSort.m7SortTmpHeapSpec, true⟩
-  , ⟨"full_sort_tmp", [i64], [], Full.fullSortTmpSpec, true⟩ ]
+  , ⟨"full_sort_tmp", [i64], [], FullM7AnalyzeSort.m7SortTmpSpec, true⟩ ]
 private def p2MinShrink1Rows : List SpecEntry :=
   [ ⟨"full_min_lit_dfs_m6", [i64, i32, .bool, .bool], [.bool],
       FullM6MinShrink.m6MinLitDfsSpec, true⟩
@@ -279,7 +228,7 @@ private def p2MinShrink1Rows : List SpecEntry :=
   , ⟨"full_shrink_blk_bool_m6", [i64, i64, i64, i32, i64], [.bool],
       FullM6MinShrink.m6ShrinkBlkBoolSpec, true⟩
   , ⟨"full_shrink_blk_m6", [i64, i64, i64, i32, i64], [], Full.fullShrinkBlkSpec, true⟩
-  , ⟨"full_min_shrink_m6", [i64], [], Full.fullMinShrinkSpec, true⟩
+  , ⟨"full_min_shrink_m6", [i64], [], FullM7SpecBridges.m7MinShrinkSpec, true⟩
   , ⟨"full_deduce_1uip_m6", [i64], [i64], Full.fullDeduce1uipSpec, true⟩ ]
 private def p2DetNewLevelRows : List SpecEntry := (fullBaseTable.drop 77).take 1
 private def p2OneLitConflRows : List SpecEntry :=
@@ -762,7 +711,7 @@ theorem m7Part2Callees_of_sub {tPfx tbl : List SpecEntry}
 /-! ## 4. Part 2 Segment `TableImpl` Proofs -/
 
 private theorem p2SortTmpM7_impl {tbl : List SpecEntry} (hnd : (tbl.map SpecEntry.name).Nodup)
-    (hown : ∀ e ∈ p2SortTmpM7Rows, e ∈ tbl) (hGap : M7GapHyp (Env.ofTable tbl)) :
+    (hown : ∀ e ∈ p2SortTmpM7Rows, e ∈ tbl) :
     TableImpl (Env.ofTable tbl) p2SortTmpM7Fns p2SortTmpM7Rows := by
   have hfn : p2SortTmpM7Fns =
       [ ⟨"full_sort_tmp_sift", [i64, i64, i64, i64, i64], [],
@@ -778,13 +727,15 @@ private theorem p2SortTmpM7_impl {tbl : List SpecEntry} (hnd : (tbl.map SpecEntr
     , SpecEntry.Impl.of (FullM7AnalyzeSort.full_sort_tmp_sift_m7_wp (Env.ofTable tbl))
     , SpecEntry.Impl.of (FullM7AnalyzeSort.full_sort_tmp_heap_m7_wp (Env.ofTable tbl)
         (er 1 rfl (fun _ _ _ _ h => h)))
-    , SpecEntry.Impl.of hGap.sortTmp, trivial ⟩
+    , SpecEntry.Impl.of (FullM7AnalyzeSort.full_sort_tmp_m7_wp (Env.ofTable tbl)
+        (er 2 rfl (fun _ _ _ _ h => FullM7AnalyzeSort.m7SortTmpHeapSpec_monoX h))), trivial ⟩
 
 private theorem p2MinShrink1_impl {tbl : List SpecEntry} (hnd : (tbl.map SpecEntry.name).Nodup)
     (hown : ∀ e ∈ p2MinShrink1Rows, e ∈ tbl)
     (hMark : (⟨"full_min_mark", [i64, i32, i8], [], Full.fullMinMarkSpec, true⟩ : SpecEntry) ∈
       tbl)
-    (hSortTmp : (⟨"full_sort_tmp", [i64], [], Full.fullSortTmpSpec, true⟩ : SpecEntry) ∈ tbl)
+    (hSortTmp : (⟨"full_sort_tmp", [i64], [], FullM7AnalyzeSort.m7SortTmpSpec, true⟩ :
+      SpecEntry) ∈ tbl)
     (hAnaLit : (⟨"full_analyze_lit", [i64, i32, i32], [.bool],
       Full.fullAnalyzeLitSpec, true⟩ : SpecEntry) ∈ tbl)
     (hAnaRsn : (⟨"full_analyze_rsn", [i64, i32, i32], [.bool],
@@ -820,8 +771,9 @@ private theorem p2MinShrink1_impl {tbl : List SpecEntry} (hnd : (tbl.map SpecEnt
     , SpecEntry.Impl.of (FullM6MinShrink.full_shrink_lower_m6_wp (Env.ofTable tbl) rMrk rDfs)
     , SpecEntry.Impl.of (FullM6MinShrink.full_shrink_blk_bool_m6_wp (Env.ofTable tbl) rLow rMrk)
     , SpecEntry.Impl.of (FullM6MinShrink.full_shrink_blk_m6_wp (Env.ofTable tbl) rBlkB)
-    , SpecEntry.Impl.of (FullM6MinShrink.full_min_shrink_m6_wp (Env.ofTable tbl)
-        (envRow_mem hnd _ _ _ _ hSortTmp) rMrk rDfs rBlkB)
+    , SpecEntry.Impl.of (FullM7SpecBridges.full_min_shrink_m6_m7sort_wp (Env.ofTable tbl)
+        (envRow_mem hnd _ _ _ _ hSortTmp (fun _ _ _ _ h => FullM7AnalyzeSort.m7SortTmpSpec_monoX h))
+        rMrk rDfs rBlkB)
     , SpecEntry.Impl.of (FullM6MinShrink.full_deduce_1uip_m6_wp (Env.ofTable tbl)
         (envRow_mem hnd _ _ _ _ hAnaLit) (envRow_mem hnd _ _ _ _ hAnaRsn)
         (envRow_mem hnd _ _ _ _ hClear) (envRow_mem hnd _ _ _ _ hOtfsL)
@@ -1245,8 +1197,7 @@ theorem m7FnsPart2_wf : AllFns Fn.Wf m7FnsPart2 :=
     unfold FullM7.m7Fns; exact List.mem_append_left _ (List.mem_append_right _ hf))
 
 /-- Certifies all `164` functions of `FullM7.m7FnsPart2` against `m7RowsPart2 tPfx` in
-`Env.ofTable tbl`, parameterized over `hGap : M7GapHyp` and `hCongDense` (discharged in
-`FullM7OrchProof0`). -/
+`Env.ofTable tbl`, parameterized only over `hCongDense` (discharged in `FullM7OrchProof0`). -/
 theorem m7RowsPart2_tableImpl {tPfx tbl : List SpecEntry}
     (hnd : (tbl.map SpecEntry.name).Nodup)
     (hPfxLen : m7OrchPfxFns.length = tPfx.length)
@@ -1254,7 +1205,6 @@ theorem m7RowsPart2_tableImpl {tPfx tbl : List SpecEntry}
     (htPfx : ∀ e ∈ tPfx, e ∈ tbl)
     (hPfxSpecs : M7OrchPfxTblSpecs tPfx)
     (hc1 : M7Part1Callees tbl)
-    (hGap : M7GapHyp (Env.ofTable tbl))
     (hCongDense : ∀ xs m Q X, FullM3CongBva.m3CongruenceDenseSpec xs m Q X →
       Func.wp (Env.ofTable tbl) FullM7.full_congruence_dense_body xs m Q X)
     (hOwn : ∀ e ∈ m7RowsPart2 tPfx, e ∈ tbl) :
@@ -1447,7 +1397,7 @@ theorem m7RowsPart2_tableImpl {tPfx tbl : List SpecEntry}
     (fun _ h => nomatch h)).2
   have i_tl := (fullSliceTransport 71 1 [] (by t_kernel_rfl) (fun _ h => nomatch h) hnd sub_tl
     (fun _ h => nomatch h)).2
-  have i_stm7 := p2SortTmpM7_impl hnd sub_stm7 hGap
+  have i_stm7 := p2SortTmpM7_impl hnd sub_stm7
   have i_ms1 := p2MinShrink1_impl hnd sub_ms1 rMinMark rSortTmp rAnaLit rAnaRsn rClearAna rOtfsL
     rOtfsB rOtfsS
   have i_dnl := (fullSliceTransport 77 1 [] (by t_kernel_rfl) (fun _ h => nomatch h) hnd sub_dnl
@@ -1474,9 +1424,10 @@ theorem m7RowsPart2_tableImpl {tPfx tbl : List SpecEntry}
     m7_oneImpl rfl rfl (FullM5HeurCore.full_restore_bump_ana_m5_wp (Env.ofTable tbl)
       (envRow_mem hnd _ _ _ _ rBumpM7) (envRow_mem hnd _ _ _ _ rClearAna))
   have i_ana : TableImpl (Env.ofTable tbl) p2AnalyzeM5Fns p2AnalyzeM5Rows :=
-    m7_oneImpl rfl rfl (FullM5HeurCore.full_analyze_m5_wp (Env.ofTable tbl)
+    m7_oneImpl rfl rfl (FullM7SpecBridges.full_analyze_m5_m7_wp (Env.ofTable tbl)
       (envRow_mem hnd _ _ _ _ rOneLit) (envRow_mem hnd _ _ _ _ rDed1uip)
-      (envRow_mem hnd _ _ _ _ rRstBump) (envRow_mem hnd _ _ _ _ rMinShr)
+      (envRow_mem hnd _ _ _ _ rRstBump)
+      (envRow_mem hnd _ _ _ _ rMinShr (fun _ _ _ _ h => FullM7SpecBridges.m7MinShrinkSpec_monoX h))
       (envRow_mem hnd _ _ _ _ hc1.tickRel) (envRow_mem hnd _ _ _ _ hc1.emaUpdate)
       (envRow_mem hnd _ _ _ _ rLrnCl))
   have i_adp7 : TableImpl (Env.ofTable tbl) p2Adp7Fns p2Adp7Rows :=
@@ -1503,8 +1454,15 @@ theorem m7RowsPart2_tableImpl {tPfx tbl : List SpecEntry}
           (envRow_mem hnd _ _ _ _ hc1.propagate) (envRow_mem hnd _ _ _ _ hc1.backtrack))
       , SpecEntry.Impl.of (FullM7Walk.full_walk_warmup_m7_wp (Env.ofTable tbl)
           (er 11 rfl (fun _ _ _ _ h => h)) (er 10 rfl (fun _ _ _ _ h => h))), trivial ⟩
+  have rWalkCanon : (⟨"full_walk", [i64], [], Full.fullWarmupSpec, true⟩ : SpecEntry) ∈ tbl :=
+    hOwn _ (by
+      unfold m7RowsPart2; (iterate 23 apply List.mem_append_right)
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 1) rfl))
   have i_reph : TableImpl (Env.ofTable tbl) p2RephaseM7Fns p2RephaseM7Rows :=
-    m7_oneImpl rfl rfl hGap.rephase
+    m7_oneImpl rfl rfl (FullM7SpecBridges.full_rephase_m7_warmup_searchLog_wp (Env.ofTable tbl)
+      (envRow_mem hnd _ _ _ _ hc1.backtrack) (envRow_mem hnd _ _ _ _ rWalkCanon)
+      (envRow_mem hnd _ _ _ _ hc1.log10Q16M7
+        (fun _ _ _ _ h => FullM7Search.m7Log10Q16Spec_monoX h)))
   have i_rstd : TableImpl (Env.ofTable tbl) p2RestartDueFns p2RestartDueRows :=
     m7_oneImpl rfl rfl (FullM5Sched.full_restart_due_wp (Env.ofTable tbl)
       (envRow_mem hnd _ _ _ _ hc1.ilog10))

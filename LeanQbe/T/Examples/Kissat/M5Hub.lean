@@ -172,11 +172,17 @@ public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof1
 public import LeanQbe.T.Examples.Kissat.FullM7Inl
 public import LeanQbe.T.Examples.Kissat.FullM7Inl0
 public import LeanQbe.T.Examples.Kissat.FullM7Inl1
+public import LeanQbe.T.Examples.Kissat.FullM7Inl10
+public import LeanQbe.T.Examples.Kissat.FullM7Inl11
+public import LeanQbe.T.Examples.Kissat.FullM7Inl12
 public import LeanQbe.T.Examples.Kissat.FullM7Inl2
 public import LeanQbe.T.Examples.Kissat.FullM7Inl3
 public import LeanQbe.T.Examples.Kissat.FullM7Inl4
 public import LeanQbe.T.Examples.Kissat.FullM7Inl5
 public import LeanQbe.T.Examples.Kissat.FullM7Inl6
+public import LeanQbe.T.Examples.Kissat.FullM7Inl7
+public import LeanQbe.T.Examples.Kissat.FullM7Inl8
+public import LeanQbe.T.Examples.Kissat.FullM7Inl9
 public import LeanQbe.T.Examples.Kissat.FullM7InlBase
 public import LeanQbe.T.Examples.Kissat.FullM7InlPolicy
 public import LeanQbe.T.Examples.Kissat.FullM7OrchProof0
