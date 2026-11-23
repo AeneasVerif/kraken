@@ -218,29 +218,46 @@ public def stepAt? (maxInstrCount : Option (IO.Ref Nat)) (goal : Grind.Goal) :
   trace[Kraken.kstep] "stepAt: {Expr.mvar d}"
   return some {goal with mvarId}
 
+private def dsimpGoalCached (variant : Name) (methods : Sym.DSimp.Methods)
+    (mvarId : MVarId) (args : Grind.DSimpArgs := {}) : Grind.GrindTacticM MVarId := do
+  let cacheKey : Grind.DSimpCacheKey := { variant, args }
+  let dsimpState := (← get).cache.dsimpState[cacheKey]?.getD {}
+  let e ← mvarId.getType
+  let (r, dsimpState) ← Grind.liftGrindM <|
+    Sym.DSimp.DSimpM.run (Sym.DSimp.dsimp e) methods { maxSteps := 1000000 } dsimpState
+  modify fun s => { s with cache.dsimpState := s.cache.dsimpState.insert cacheKey dsimpState }
+  match r with
+  | .rfl _ => return mvarId
+  | .step e' _ => mvarId.replaceTargetDefEq e'
+
 /-- Step 1 of `kstep`: apply the `@[kstep]` `Sym.dsimp` rewrites and introduce binders. -/
 def applyKStepDSimp (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
   withTraceNode `Kraken.kstep.dsimp (fun _ => return m!"applyKStepDSimp") do
     let dsimpMethods := mkDSimpMethods (← getEnv)
     goal.withContext do
-      let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM <|
-        Sym.dsimp
-          (config := { maxSteps := 1000000 })
-          (methods := dsimpMethods)
-          (← goal.mvarId.getType))
+      let mvarId ← dsimpGoalCached `Kraken.kstep dsimpMethods goal.mvarId
       trace[Kraken.kstep.dsimp] "after dsimp:\n{← mvarId.getType}"
       introsIf ({ goal with mvarId })
+
+private def simpGoalCached (variant : Name) (methods : Sym.Simp.Methods)
+  (mvarId : MVarId) (extras : Array Grind.ExtraTheorem := #[]) :
+    Grind.GrindTacticM Sym.SimpGoalResult := do
+  let cacheKey : Grind.SimpCacheKey := { variant, extras }
+  let simpState := (← get).cache.simpState[cacheKey]?.getD {}
+  let (simpResult, simpState) ← Grind.liftGrindM <|
+    Sym.Simp.SimpM.run (Sym.Simp.simp (← mvarId.getType)) methods {} simpState
+  modify fun s => { s with cache.simpState := s.cache.simpState.insert cacheKey simpState }
+  Grind.liftGrindM <| Sym.Simp.Result.toSimpGoalResult simpResult mvarId
 
 /-- Step 2 of `kstep`: apply the `@[ksimp]` `Sym.simp` rewrites. -/
 def applyKSimp (simpMethods : Sym.Simp.Methods) (goal : Grind.Goal) :
     Grind.GrindTacticM (Bool × Grind.Goal) :=
   withTraceNode `Kraken.kstep.ksimp (fun _ => return m!"applyKSimp") do
     goal.withContext do
-      Grind.liftGrindM do
-        match ← Sym.simpGoal goal.mvarId simpMethods with
-        | .noProgress => pure (false, goal)
-        | .goal mvarId => pure (true, { goal with mvarId })
-        | .closed => throwError "unexpected"
+      match ← simpGoalCached `Kraken.ksimp simpMethods goal.mvarId with
+      | .noProgress => pure (false, goal)
+      | .goal mvarId => pure (true, { goal with mvarId })
+      | .closed => throwError "unexpected"
 
 inductive KMemResult where
   /-- Goal no longer has an `Effects.All` head; stop stepping. -/
@@ -273,7 +290,7 @@ def applyKMem (simpMethods : Sym.Simp.Methods) (goal : Grind.Goal) :
 
     let subGoals ← subGoals.mapM fun (subGoal : Grind.Goal) => do
       -- Try simp -- who knows, one might get lucky
-      let simpResult ← Grind.liftGrindM (Sym.simpGoal subGoal.mvarId simpMethods)
+      let simpResult ← subGoal.withContext (simpGoalCached `Kraken.ksimp simpMethods subGoal.mvarId)
       match simpResult with
       | .noProgress => pure subGoal
       | .goal mvarId => pure { subGoal with mvarId }
