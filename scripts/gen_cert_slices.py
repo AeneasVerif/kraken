@@ -412,6 +412,7 @@ class ModulePreset:
     sat_nv_mod: str | None = None
     hdr_model: str = "full"
     default_max_dirs: int = DEFAULT_MAX_DIRS
+    emit_sound: bool = True
 
 
 MODULE_PRESETS: dict[str, ModulePreset] = {
@@ -450,10 +451,9 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
         inl_fns="m6InlFns",
         inl_mod_sym="m6InlMod",
         inl_policy="m6InlPolicy",
-        sat_sound_mod="LeanQbe.T.Examples.Kissat.FullM6SatSound",
-        sat_nv_mod="LeanQbe.T.Examples.Kissat.FullM6SatNv",
         hdr_model="m6",
         default_max_dirs=M6_MAX_DIRS,
+        emit_sound=False,
     ),
     "FullM5": ModulePreset(
         name="FullM5",
@@ -641,6 +641,7 @@ class CertConfig:
     sat_sound_mod: str | None = None
     sat_nv_mod: str | None = None
     hdr_model: str = "full"
+    emit_sound: bool = True
     unsat_env: str = ""
     unsat_module_ok: str = ""
     unsat_no_exit: str = ""
@@ -2092,13 +2093,16 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
     ]
     if cfg.wrapper_mode != "compiled":
         pub_imports.append(f"public import {cfg.proof_mod}")
-    if cfg.wrapper_mode == "full" and cfg.hdr_model == "m6":
-        if cfg.sat_sound_mod:
-            pub_imports.append(f"public import {cfg.sat_sound_mod}")
-        if cfg.sat_nv_mod:
-            pub_imports.append(f"public import {cfg.sat_nv_mod}")
-
+    if cfg.is_inlined and cfg.inl_policy_mod:
+        pub_imports.append(f"public import {cfg.inl_policy_mod}")
     priv_imports: list[str] = [f"import {arch.lemmas_mod}"]
+    if cfg.wrapper_mode == "full" and cfg.hdr_model == "m6":
+        sound_mod = cfg.sat_sound_mod or "LeanQbe.T.Examples.Kissat.FullM6SatSound"
+        nv_mod = cfg.sat_nv_mod or "LeanQbe.T.Examples.Kissat.FullM6SatNv"
+        if cfg.emit_sound:
+            pub_imports.extend([f"public import {sound_mod}", f"public import {nv_mod}"])
+        else:
+            priv_imports.extend([f"import {sound_mod}", f"import {nv_mod}"])
     if cfg.wrapper_mode == "full":
         priv_imports.extend(
             [
@@ -2127,6 +2131,8 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
                 "LeanQbe.T.Examples.Kissat.FullM6Hdr",
             ]
         )
+    if cfg.is_inlined and cfg.inl_policy_mod:
+        open_parts.append(cfg.inl_policy_mod)
     if cfg.wrapper_mode == "full" and (
         cfg.entry_const.startswith("Full.") or cfg.hdr_model == "m6"
     ):
@@ -2274,9 +2280,9 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
 def _render_nv_payload_helpers(stem: str) -> list[str]:
     """Emit shared `6,144 B` `M6Hdr` non-vacuity payload helpers (`<= 8192 B` `TargetInit`)."""
     return [
-        f"private def {stem}NvWorkLen : Nat := {M6_NV_WORK_LEN}",
+        f"def {stem}NvWorkLen : Nat := {M6_NV_WORK_LEN}",
         "",
-        f"private def {stem}NvPayload (cnfBytes : List UInt8) : List UInt8 :=",
+        f"def {stem}NvPayload (cnfBytes : List UInt8) : List UInt8 :=",
         f"  cnfBytes ++ List.replicate {stem}NvWorkLen 0",
         "",
         f"private theorem {stem}NvPayload_length (cnfBytes : List UInt8) :",
@@ -2410,9 +2416,48 @@ def render_m6_unsat_section(
         "hcfit hwfit",
         f"      s ra R {arch.solve_call_hyps})",
         "",
-        "end Unsat",
-        "",
-        *wrap_comment_lines(
+    ]
+
+    audit_names: list[str] = []
+    if worst_case_axiom_len(ns, unsat_thm) <= MAX_AXIOM_REPORT_LEN:
+        audit_names.append(unsat_thm)
+    elif cfg.print_axioms and worst_case_axiom_len(ns, "ax_unsat") <= MAX_AXIOM_REPORT_LEN:
+        lines.extend(
+            [
+                "theorem ax_unsat :",
+                *unsat_ret[:-1],
+                f"{unsat_ret[-1]} :=",
+                f"  {unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
+                "hcfit hwfit",
+                f"    s ra R {arch.solve_call_hyps}",
+                "",
+            ]
+        )
+        audit_names.append("ax_unsat")
+    if worst_case_axiom_len(ns, sound_thm) <= MAX_AXIOM_REPORT_LEN:
+        audit_names.append(sound_thm)
+    elif (
+        cfg.print_axioms
+        and worst_case_axiom_len(ns, "ax_unsat_sound") <= MAX_AXIOM_REPORT_LEN
+    ):
+        lines.extend(
+            [
+                "theorem ax_unsat_sound :",
+                *sound_ret[:-1],
+                f"{sound_ret[-1]} :=",
+                f"  {sound_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
+                "hcfit hwfit",
+                f"    s ra R {arch.solve_call_hyps}",
+                "",
+            ]
+        )
+        audit_names.append("ax_unsat_sound")
+
+    lines.extend(
+        [
+            "end Unsat",
+            "",
+            *wrap_comment_lines(
             f"/-- Unconditional concrete {arch.isa_title} UNSAT non-vacuity for "
             f"`{cfg.mod}` on `432`-word `FullM6Hdr` (`nvM6UnsatBytes`, "
             f"`{M6_NV_WORK_LEN}`-byte workspace, `fuel = 16`). -/"
@@ -2532,42 +2577,9 @@ def render_m6_unsat_section(
         "          (by decide) nvM6Unsat_header nvM6Unsat_unitTrace),",
         "         nvM6UnsatCnf_unsat, hm'⟩))",
         "",
-    ]
+        ]
+    )
 
-    audit_names: list[str] = []
-    if worst_case_axiom_len(ns, unsat_thm) <= MAX_AXIOM_REPORT_LEN:
-        audit_names.append(unsat_thm)
-    elif cfg.print_axioms and worst_case_axiom_len(ns, "ax_unsat") <= MAX_AXIOM_REPORT_LEN:
-        lines.extend(
-            [
-                "theorem ax_unsat :",
-                *unsat_ret[:-1],
-                f"{unsat_ret[-1]} :=",
-                f"  {unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
-                "hcfit hwfit",
-                f"    s ra R {arch.solve_call_hyps}",
-                "",
-            ]
-        )
-        audit_names.append("ax_unsat")
-    if worst_case_axiom_len(ns, sound_thm) <= MAX_AXIOM_REPORT_LEN:
-        audit_names.append(sound_thm)
-    elif (
-        cfg.print_axioms
-        and worst_case_axiom_len(ns, "ax_unsat_sound") <= MAX_AXIOM_REPORT_LEN
-    ):
-        lines.extend(
-            [
-                "theorem ax_unsat_sound :",
-                *sound_ret[:-1],
-                f"{sound_ret[-1]} :=",
-                f"  {sound_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
-                "hcfit hwfit",
-                f"    s ra R {arch.solve_call_hyps}",
-                "",
-            ]
-        )
-        audit_names.append("ax_unsat_sound")
     for cand in (nv_thm, run_thm):
         if worst_case_axiom_len(ns, cand) <= MAX_AXIOM_REPORT_LEN:
             audit_names.append(cand)
@@ -3325,7 +3337,7 @@ def build_plan(cfg: CertConfig, arches: list[str]) -> list[tuple[str, str]]:
                 (f"{base}/{cfg.prefix}.lean", render_top_wrapper(cfg, arch)),
             ]
         )
-        if cfg.hdr_model == "m6" and cfg.wrapper_mode == "full":
+        if cfg.hdr_model == "m6" and cfg.wrapper_mode == "full" and cfg.emit_sound:
             planned.append(
                 (f"{base}/{cfg.prefix}Sound.lean", render_sound_wrapper(cfg, arch))
             )
@@ -3513,6 +3525,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         sat_sound_mod=sat_sound_mod,
         sat_nv_mod=sat_nv_mod,
         hdr_model=hdr_model,
+        emit_sound=preset.emit_sound if preset else True,
         unsat_env=unsat_env,
         unsat_module_ok=unsat_module_ok,
         unsat_no_exit=unsat_no_exit,
