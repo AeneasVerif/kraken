@@ -1157,5 +1157,802 @@ theorem fn_entry_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {as : List Ty}
 
 end Lemmas
 
+private theorem addrScale_ofShift_eq {sh : Nat} {sc : AddrScale}
+    (h : AddrScale.ofShift? sh = some sc) : sc.shift = sh := by
+  rcases sh with _ | _ | _ | _ | _ <;> simp [AddrScale.ofShift?] at h <;> subst h <;> rfl
+
+private theorem signExtend_64_setWidth_32 (d : BitVec 32) :
+    (Int64.ofBitVec (d.signExtend 64)).toBitVec.setWidth 32 = d := by
+  rw [Int64.toBitVec_ofBitVec]
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  have hi64 : i < 64 := by omega
+  rw [BitVec.getLsbD_setWidth, BitVec.getLsbD_signExtend]
+  simp [hi, hi64]
+
+private theorem setWidth_32_signExtend_64 (d : BitVec 32) :
+    (d.signExtend 64).setWidth 32 = d := by
+  simpa [Int64.toBitVec_ofBitVec] using signExtend_64_setWidth_32 d
+
+private theorem bv_shiftLeft_shiftLeft {w : Nat} (a : BitVec w) (k1 k2 : Nat) :
+    (a <<< k1) <<< k2 = a <<< (k1 + k2) := by
+  apply BitVec.eq_of_toNat_eq
+  simp only [BitVec.toNat_shiftLeft, Nat.shiftLeft_eq]
+  rw [Nat.mod_mul_mod, Nat.pow_add, Nat.mul_assoc]
+
+private theorem extractLea64_addImm {G : VCtx} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {x : Nat} {vx c rv : BitVec 64}
+    (hmx : ⟨i64, vx, x⟩ ∈ G) (hrv : rv = vx + c)
+    {base? : Option Nat} {idx : Nat} {sc : AddrScale} {disp : Int64}
+    (h : (match defs.find? x with
+      | some (.addrSum b idx 0 d) => some (some b, idx, .s1, Int64.ofBitVec (d + c))
+      | _ =>
+        match recordAddVarImm defs x c with
+        | .scaleOff idx sh disp =>
+          if Nat.beq sh 0 then none
+          else (AddrScale.ofShift? sh).map fun sc => (none, idx, sc, Int64.ofBitVec disp)
+        | .addrSum b idx sh disp =>
+          if Nat.beq sh 0 && disp == 0#64 then none
+          else (AddrScale.ofShift? sh).map fun sc => (some b, idx, sc, Int64.ofBitVec disp)
+        | _ => none) = some (base?, idx, sc, disp)) :
+    ∃ vi : BitVec 64, ⟨i64, vi, idx⟩ ∈ G ∧ ∃ vb : BitVec 64,
+      (∀ b, base? = some b → ⟨i64, vb, b⟩ ∈ G) ∧
+      rv = (if base?.isSome then vb else 0#64) + (vi <<< sc.shift) + disp.toBitVec := by
+  cases hdx : defs.find? x with
+  | none => simp [hdx, recordAddVarImm] at h
+  | some d =>
+    have hxok := hdefs x d hdx
+    rw [hdx] at h
+    cases d with
+    | imm64 _ | addImm64 _ _ | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _
+    | binVarImm _ _ _ _ | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _
+    | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
+      simp [recordAddVarImm, hdx] at h
+    | scaleOff idx0 sh0 d0 =>
+      simp only [recordAddVarImm, hdx] at h
+      split at h
+      · cases h
+      · obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp h
+        cases he
+        obtain ⟨vi, hi, hvx⟩ := hxok vx hmx
+        exact ⟨vi, hi, 0#64, by simp, by
+          simp [hrv, hvx, addrScale_ofShift_eq hsc, BitVec.add_assoc]⟩
+    | addrSum b0 idx0 sh0 d0 =>
+      cases sh0 with
+      | zero =>
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        rcases h with ⟨rfl, rfl, rfl, rfl⟩
+        obtain ⟨vb, vi, hb, hi, hvx⟩ := hxok vx hmx
+        exact ⟨vi, hi, vb, fun _ hb' => by cases hb'; exact hb, by
+          simp [hrv, hvx, AddrScale.shift, Int64.toBitVec_ofBitVec, BitVec.add_assoc]⟩
+      | succ sh' =>
+        simp only [recordAddVarImm, hdx, Nat.beq_eq, Nat.add_one_ne_zero, ↓reduceIte] at h
+        obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp h
+        cases he
+        obtain ⟨vb, vi, hb, hi, hvx⟩ := hxok vx hmx
+        exact ⟨vi, hi, vb, fun _ hb' => by cases hb'; exact hb, by
+          simp [hrv, hvx, addrScale_ofShift_eq hsc, BitVec.add_assoc]⟩
+
+private theorem extractLea64_varVar_aux {G : VCtx} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {x y : Nat} {vx vy : BitVec 64}
+    (hmx : ⟨i64, vx, x⟩ ∈ G) (hmy : ⟨i64, vy, y⟩ ∈ G)
+    {base? : Option Nat} {idx : Nat} {sc : AddrScale} {disp : Int64}
+    (hs12 : ∀ df, (defs.find? x).bind (recordAddScale · (defs.find? y) y) = some df →
+      ∃ b i sh d, df = .addrSum b i sh d ∧ ∃ vb vi : BitVec 64,
+        ⟨i64, vb, b⟩ ∈ G ∧ ⟨i64, vi, i⟩ ∈ G ∧ vx + vy = vb + (vi <<< sh) + d)
+    (hb12 : ∀ df, (defs.find? x).bind (recordAddBase · y (defs.find? y)) = some df →
+      ∃ b i sh d, df = .addrSum b i sh d ∧ ∃ vb vi : BitVec 64,
+        ⟨i64, vb, b⟩ ∈ G ∧ ⟨i64, vi, i⟩ ∈ G ∧ vx + vy = vb + (vi <<< sh) + d) :
+    ∀ {df},
+      ((defs.find? x).bind (recordAddScale · (defs.find? y) y) <|>
+       (defs.find? y).bind (recordAddScale · (defs.find? x) x) <|>
+       (defs.find? x).bind (recordAddBase · y (defs.find? y)) <|>
+       (defs.find? y).bind (recordAddBase · x (defs.find? x))).getD
+         (.addrSum x y 0 0) = df →
+      (match some df with
+      | some (.scaleOff idx sh disp) =>
+        if Nat.beq sh 0 then none
+        else (AddrScale.ofShift? sh).map fun sc => (none, idx, sc, Int64.ofBitVec disp)
+      | some (.addrSum b idx sh disp) =>
+        if Nat.beq sh 0 && disp == 0#64 then none
+        else (AddrScale.ofShift? sh).map fun sc => (some b, idx, sc, Int64.ofBitVec disp)
+      | _ => none) = some (base?, idx, sc, disp) →
+      ∃ vi : BitVec 64, ⟨i64, vi, idx⟩ ∈ G ∧ ∃ vb : BitVec 64,
+        (∀ b, base? = some b → ⟨i64, vb, b⟩ ∈ G) ∧
+        vx + vy = (if base?.isSome then vb else 0#64) + (vi <<< sc.shift) + disp.toBitVec := by
+  intro df hdf h
+  have hsum : ∃ b i sh d, df = .addrSum b i sh d ∧ ∃ vb vi : BitVec 64,
+      ⟨i64, vb, b⟩ ∈ G ∧ ⟨i64, vi, i⟩ ∈ G ∧ vx + vy = vb + (vi <<< sh) + d := by
+    cases hu : ((defs.find? x).bind (recordAddScale · (defs.find? y) y) <|>
+        (defs.find? y).bind (recordAddScale · (defs.find? x) x) <|>
+        (defs.find? x).bind (recordAddBase · y (defs.find? y)) <|>
+        (defs.find? y).bind (recordAddBase · x (defs.find? x))) with
+    | none =>
+      rw [hu] at hdf; subst hdf
+      exact ⟨x, y, 0, 0#64, rfl, vx, vy, hmx, hmy, by simp⟩
+    | some df' =>
+      rw [hu] at hdf; simp only [Option.getD_some] at hdf; subst hdf
+      rcases orElse_eq_some hu with h1 | h1
+      · exact hs12 _ h1
+      rcases orElse_eq_some h1 with h2 | h2
+      · obtain ⟨dy, hdy, hk⟩ := Option.bind_eq_some_iff.mp h2
+        unfold recordAddScale at hk
+        cases dy with
+        | scaleOff idx0 sh0 d1 =>
+          dsimp only at hk; split at hk; · cases hdx : defs.find? x with
+            | some dx => cases dx with
+              | addImm64 b d2 =>
+                rw [hdx] at hk; simp only [Option.some.injEq] at hk; subst hk
+                obtain ⟨vi, hi, hvy⟩ := hdefs y _ hdy vy hmy
+                obtain ⟨vb, hb, hvx⟩ := hdefs x _ hdx vx hmx
+                exact ⟨b, idx0, sh0, d1 + d2, rfl, vb, vi, hb, hi, by rw [hvy, hvx]; ac_rfl⟩
+              | _ =>
+                rw [hdx] at hk; simp only [Option.some.injEq] at hk; subst hk
+                obtain ⟨vi, hi, hvy⟩ := hdefs y _ hdy vy hmy
+                exact ⟨x, idx0, sh0, d1, rfl, vx, vi, hmx, hi, by rw [hvy]; ac_rfl⟩
+            | none =>
+              rw [hdx] at hk; simp only [Option.some.injEq] at hk; subst hk
+              obtain ⟨vi, hi, hvy⟩ := hdefs y _ hdy vy hmy
+              exact ⟨x, idx0, sh0, d1, rfl, vx, vi, hmx, hi, by rw [hvy]; ac_rfl⟩
+          · simp at hk
+        | _ => simp at hk
+      rcases orElse_eq_some h2 with h3 | h3
+      · exact hb12 _ h3
+      · obtain ⟨dy, hdy, hk⟩ := Option.bind_eq_some_iff.mp h3
+        unfold recordAddBase at hk
+        cases dy with
+        | addImm64 b d1 =>
+          cases hdx : defs.find? x with
+          | some dx => cases dx with
+            | addImm64 b2 d2 =>
+              simp only [hdx, Option.some.injEq] at hk; subst hk
+              obtain ⟨vb, hb, hvy⟩ := hdefs y _ hdy vy hmy
+              obtain ⟨vb2, hb2, hvx⟩ := hdefs x _ hdx vx hmx
+              exact ⟨b, b2, 0, d1 + d2, rfl, vb, vb2, hb, hb2, by
+                simp only [BitVec.shiftLeft_zero]; rw [hvy, hvx]; ac_rfl⟩
+            | _ =>
+              simp only [hdx, Option.some.injEq] at hk; subst hk
+              obtain ⟨vb, hb, hvy⟩ := hdefs y _ hdy vy hmy
+              exact ⟨b, x, 0, d1, rfl, vb, vx, hb, hmx, by
+                simp only [BitVec.shiftLeft_zero]; rw [hvy]; ac_rfl⟩
+          | none =>
+            simp only [hdx, Option.some.injEq] at hk; subst hk
+            obtain ⟨vb, hb, hvy⟩ := hdefs y _ hdy vy hmy
+            exact ⟨b, x, 0, d1, rfl, vb, vx, hb, hmx, by
+              simp only [BitVec.shiftLeft_zero]; rw [hvy]; ac_rfl⟩
+        | _ => simp at hk
+  obtain ⟨b, i, sh, d, rfl, vb, vi, hb, hi, he⟩ := hsum
+  dsimp only at h; split at h; · cases h
+  obtain ⟨sc0, hsc, he0⟩ := Option.map_eq_some_iff.mp h; cases he0
+  exact ⟨vi, hi, vb, fun _ hb' => by cases hb'; exact hb, by
+    simp [he, addrScale_ofShift_eq hsc, Int64.toBitVec_ofBitVec]⟩
+
+private theorem extractLea64_some_addImm {G : VCtx} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {x : Nat} {vx c rv : BitVec 64}
+    (hmx : ⟨i64, vx, x⟩ ∈ G) (hrv : rv = vx + c)
+    {base? : Option Nat} {idx : Nat} {sc : AddrScale} {disp : Int64}
+    (h : (match defs.find? x with
+      | some (.addrSum b idx 0 d) => some (some b, idx, .s1, Int64.ofBitVec (d + c))
+      | _ =>
+        match some (recordAddVarImm defs x c) with
+        | some (.scaleOff idx sh disp) =>
+          if Nat.beq sh 0 then none
+          else (AddrScale.ofShift? sh).map fun sc => (none, idx, sc, Int64.ofBitVec disp)
+        | some (.addrSum b idx sh disp) =>
+          if Nat.beq sh 0 && disp == 0#64 then none
+          else (AddrScale.ofShift? sh).map fun sc => (some b, idx, sc, Int64.ofBitVec disp)
+        | _ => none) = some (base?, idx, sc, disp)) :
+    ∃ vi : BitVec 64, ⟨i64, vi, idx⟩ ∈ G ∧ ∃ vb : BitVec 64,
+      (∀ b, base? = some b → ⟨i64, vb, b⟩ ∈ G) ∧
+      rv = (if base?.isSome then vb else 0#64) + (vi <<< sc.shift) + disp.toBitVec := by
+  have h' : (match defs.find? x with
+      | some (.addrSum b idx 0 d) => some (some b, idx, .s1, Int64.ofBitVec (d + c))
+      | _ =>
+        match recordAddVarImm defs x c with
+        | .scaleOff idx sh disp =>
+          if Nat.beq sh 0 then none
+          else (AddrScale.ofShift? sh).map fun sc => (none, idx, sc, Int64.ofBitVec disp)
+        | .addrSum b idx sh disp =>
+          if Nat.beq sh 0 && disp == 0#64 then none
+          else (AddrScale.ofShift? sh).map fun sc => (some b, idx, sc, Int64.ofBitVec disp)
+        | _ => none) = some (base?, idx, sc, disp) := by
+    cases hdx : defs.find? x with
+    | none =>
+      rw [hdx] at h
+      cases hrec : recordAddVarImm defs x c <;> simp only [hrec] at h <;> exact h
+    | some d =>
+      rw [hdx] at h
+      cases d with
+      | addrSum b0 i0 sh0 d0 =>
+        cases sh0 with
+        | zero => exact h
+        | succ _ =>
+          cases hrec : recordAddVarImm defs x c <;> simp only [hrec] at h <;> exact h
+      | _ =>
+        cases hrec : recordAddVarImm defs x c <;> simp only [hrec] at h <;> exact h
+  exact extractLea64_addImm hdefs hmx hrv h'
+
+private theorem recordAddVarVar_imm_left {defs : Trie DefFact} {x y : Nat} {cx : BitVec 64}
+    (hx : defs.find? x = some (.imm64 cx)) :
+    recordAddVarVar defs x y = recordAddVarImm defs y cx := by
+  unfold recordAddVarVar; rw [hx]
+
+private theorem recordAddVarVar_imm_right {defs : Trie DefFact} {x y : Nat} {cy : BitVec 64}
+    (hx : ∀ c, defs.find? x ≠ some (.imm64 c)) (hy : defs.find? y = some (.imm64 cy)) :
+    recordAddVarVar defs x y = recordAddVarImm defs x cy := by
+  unfold recordAddVarVar; rw [hy]
+  cases h1 : defs.find? x with
+  | none => rfl
+  | some d1 => cases d1 <;> (try exact absurd h1 (hx _)) <;> rfl
+
+private theorem recordAddVarVar_eq_comb {defs : Trie DefFact} {x y : Nat}
+    (hx : ∀ c, defs.find? x ≠ some (.imm64 c))
+    (hy : ∀ c, defs.find? y ≠ some (.imm64 c)) :
+    recordAddVarVar defs x y =
+      ((defs.find? x).bind (recordAddScale · (defs.find? y) y) <|>
+       (defs.find? y).bind (recordAddScale · (defs.find? x) x) <|>
+       (defs.find? x).bind (recordAddBase · y (defs.find? y)) <|>
+       (defs.find? y).bind (recordAddBase · x (defs.find? x))).getD (.addrSum x y 0 0) := by
+  unfold recordAddVarVar
+  cases h1 : defs.find? x with
+  | none =>
+    cases h2 : defs.find? y with
+    | none => rfl
+    | some d2 => cases d2 <;> (try exact absurd h2 (hy _)) <;> rfl
+  | some d1 =>
+    cases d1 <;> (try exact absurd h1 (hx _)) <;> cases h2 : defs.find? y with
+    | none => rfl
+    | some d2 => cases d2 <;> (try exact absurd h2 (hy _)) <;> rfl
+
+private theorem extractLea64_recAddVarImm {G : VCtx} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {x : Nat} {vx c rv : BitVec 64}
+    (hmx : ⟨i64, vx, x⟩ ∈ G) (hrv : rv = vx + c)
+    {base? : Option Nat} {idx : Nat} {sc : AddrScale} {disp : Int64}
+    (h : (match some (recordAddVarImm defs x c) with
+      | some (.scaleOff idx sh disp) =>
+        if Nat.beq sh 0 then none
+        else (AddrScale.ofShift? sh).map fun sc => (none, idx, sc, Int64.ofBitVec disp)
+      | some (.addrSum b idx sh disp) =>
+        if Nat.beq sh 0 && disp == 0#64 then none
+        else (AddrScale.ofShift? sh).map fun sc => (some b, idx, sc, Int64.ofBitVec disp)
+      | _ => none) = some (base?, idx, sc, disp)) :
+    ∃ vi : BitVec 64, ⟨i64, vi, idx⟩ ∈ G ∧ ∃ vb : BitVec 64,
+      (∀ b, base? = some b → ⟨i64, vb, b⟩ ∈ G) ∧
+      rv = (if base?.isSome then vb else 0#64) + (vi <<< sc.shift) + disp.toBitVec := by
+  cases hdx : defs.find? x with
+  | none => simp [recordAddVarImm, hdx] at h
+  | some d =>
+    have hxok := hdefs x d hdx
+    cases d with
+    | imm64 _ | addImm64 _ _ | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _
+    | binVarImm _ _ _ _ | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _
+    | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
+      simp [recordAddVarImm, hdx] at h
+    | scaleOff idx0 sh0 d0 =>
+      simp only [recordAddVarImm, hdx] at h
+      split at h; · cases h
+      obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp h; cases he
+      obtain ⟨vi, hi, hvx⟩ := hxok vx hmx
+      exact ⟨vi, hi, 0#64, by simp, by
+        simp [hrv, hvx, addrScale_ofShift_eq hsc, BitVec.add_assoc]⟩
+    | addrSum b0 idx0 sh0 d0 =>
+      cases sh0 with
+      | zero => simp [recordAddVarImm, hdx] at h
+      | succ _ =>
+        simp only [recordAddVarImm, hdx, Nat.beq_eq, Nat.add_one_ne_zero, ↓reduceIte] at h
+        obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp h; cases he
+        obtain ⟨vb, vi, hb, hi, hvx⟩ := hxok vx hmx
+        exact ⟨vi, hi, vb, fun _ hb' => by cases hb'; exact hb, by
+          simp [hrv, hvx, addrScale_ofShift_eq hsc, BitVec.add_assoc]⟩
+
+theorem extractLea64_ok {G : VCtx} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d)
+    {sig : List Ty} {code : OpCode sig [.bits 64]}
+    {args₁ : Tup (Arg Val) sig} {args : Tup (Arg VNat) sig}
+    (hrel : TRel (ArgRel G) args₁ args) {P : Tup Val [.bits 64] → Prop}
+    (hwp : code.wp (vals args₁) P) {base? : Option Nat} {idx : Nat} {sc : AddrScale} {disp : Int64}
+    (hext : extractLea64 defs code args = some (base?, idx, sc, disp)) :
+    ∃ rv vi : BitVec 64, P (rv, ()) ∧ ⟨i64, vi, idx⟩ ∈ G ∧
+      ∃ vb : BitVec 64, (∀ b, base? = some b → ⟨i64, vb, b⟩ ∈ G) ∧
+        rv = (if base?.isSome then vb else 0#64) + (vi <<< sc.shift) + disp.toBitVec := by
+  have hb64 : Nat.beq 64 64 = true := rfl
+  cases code with
+  | add =>
+    rcases args with ⟨a, b, ⟨⟩⟩
+    cases a with
+    | var x =>
+      cases b with
+      | imm c =>
+        rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+        cases h1 with | var hmx => cases h2 with | imm =>
+        simp only [OpCode.wp_add, vals, Arg.val, lift2, Ty.hasFloat, Bool.false_eq_true,
+          ite_false] at hwp
+        simp only [extractLea64, recordDef, hb64, Bool.not_true, Bool.false_eq_true,
+          ↓reduceIte, BitVec.setWidth_eq] at hext
+        obtain ⟨vi, hi, vb, hvb, hr⟩ := extractLea64_some_addImm hdefs hmx rfl hext
+        exact ⟨_, vi, hwp, hi, vb, hvb, hr⟩
+      | var y =>
+        rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+        cases h1 with | var hmx => cases h2 with | var hmy =>
+        simp only [OpCode.wp_add, vals, Arg.val, lift2, Ty.hasFloat, Bool.false_eq_true,
+          ite_false] at hwp
+        simp only [extractLea64, recordDef, hb64, Bool.not_true, Bool.false_eq_true,
+          ↓reduceIte] at hext
+        have haux := fun df hdf h => extractLea64_varVar_aux (df := df) hdefs hmx hmy
+          (base? := base?) (idx := idx) (sc := sc) (disp := disp)
+          (fun df h => by
+            obtain ⟨dx, hdx, hk⟩ := Option.bind_eq_some_iff.mp h
+            unfold recordAddScale at hk
+            cases dx with
+            | scaleOff idx0 sh0 d1 =>
+              dsimp only at hk; split at hk; · cases hdy : defs.find? y with
+                | some dy => cases dy with
+                  | addImm64 b d2 =>
+                    simp only [hdy, Option.some.injEq] at hk; subst hk
+                    obtain ⟨vi, hi, hvx⟩ := hdefs x _ hdx _ hmx
+                    obtain ⟨vb, hb, hvy⟩ := hdefs y _ hdy _ hmy
+                    exact ⟨b, idx0, sh0, d1 + d2, rfl, vb, vi, hb, hi, by
+                      rw [hvx, hvy]; ac_rfl⟩
+                  | _ =>
+                    simp only [hdy, Option.some.injEq] at hk; subst hk
+                    obtain ⟨vi, hi, hvx⟩ := hdefs x _ hdx _ hmx
+                    exact ⟨y, idx0, sh0, d1, rfl, _, vi, hmy, hi, by rw [hvx]; ac_rfl⟩
+                | none =>
+                  simp only [hdy, Option.some.injEq] at hk; subst hk
+                  obtain ⟨vi, hi, hvx⟩ := hdefs x _ hdx _ hmx
+                  exact ⟨y, idx0, sh0, d1, rfl, _, vi, hmy, hi, by rw [hvx]; ac_rfl⟩
+              · simp at hk
+            | _ => simp at hk)
+          (fun df h => by
+            obtain ⟨dx, hdx, hk⟩ := Option.bind_eq_some_iff.mp h
+            unfold recordAddBase at hk
+            cases dx with
+            | addImm64 b d1 =>
+              cases hdy : defs.find? y with
+              | some dy => cases dy with
+                | addImm64 b2 d2 =>
+                  simp only [hdy, Option.some.injEq] at hk; subst hk
+                  obtain ⟨vb, hb, hvx⟩ := hdefs x _ hdx _ hmx
+                  obtain ⟨vb2, hb2, hvy⟩ := hdefs y _ hdy _ hmy
+                  exact ⟨b, b2, 0, d1 + d2, rfl, vb, vb2, hb, hb2, by
+                    simp only [BitVec.shiftLeft_zero]; rw [hvx, hvy]; ac_rfl⟩
+                | _ =>
+                  simp only [hdy, Option.some.injEq] at hk; subst hk
+                  obtain ⟨vb, hb, hvx⟩ := hdefs x _ hdx _ hmx
+                  exact ⟨b, y, 0, d1, rfl, vb, _, hb, hmy, by
+                    simp only [BitVec.shiftLeft_zero]; rw [hvx]; ac_rfl⟩
+              | none =>
+                simp only [hdy, Option.some.injEq] at hk; subst hk
+                obtain ⟨vb, hb, hvx⟩ := hdefs x _ hdx _ hmx
+                exact ⟨b, y, 0, d1, rfl, vb, _, hb, hmy, by
+                  simp only [BitVec.shiftLeft_zero]; rw [hvx]; ac_rfl⟩
+            | _ => simp at hk) hdf h
+        rename_i vx vy
+        by_cases hx : ∃ cx, defs.find? x = some (.imm64 cx)
+        · obtain ⟨cx, hdx⟩ := hx
+          have hcx : vx = cx := hdefs x _ hdx vx hmx
+          rw [recordAddVarVar_imm_left hdx] at hext
+          obtain ⟨vi, hi, vb, hvb, hr⟩ :=
+            extractLea64_recAddVarImm (rv := vx + vy) hdefs hmy (by rw [hcx, BitVec.add_comm]) hext
+          exact ⟨_, vi, hwp, hi, vb, hvb, hr⟩
+        · have hx' : ∀ c, defs.find? x ≠ some (.imm64 c) := fun c h => hx ⟨c, h⟩
+          by_cases hy : ∃ cy, defs.find? y = some (.imm64 cy)
+          · obtain ⟨cy, hdy⟩ := hy
+            have hcy : vy = cy := hdefs y _ hdy vy hmy
+            rw [recordAddVarVar_imm_right hx' hdy] at hext
+            obtain ⟨vi, hi, vb, hvb, hr⟩ :=
+              extractLea64_recAddVarImm (rv := vx + vy) hdefs hmx (by rw [hcy]) hext
+            exact ⟨_, vi, hwp, hi, vb, hvb, hr⟩
+          · have hy' : ∀ c, defs.find? y ≠ some (.imm64 c) := fun c h => hy ⟨c, h⟩
+            rw [recordAddVarVar_eq_comb hx' hy'] at hext
+            obtain ⟨vi, hi, vb, hvb, hr⟩ := haux _ rfl hext
+            exact ⟨_, vi, hwp, hi, vb, hvb, hr⟩
+    | imm c =>
+      cases b with
+      | imm _ => simp [extractLea64] at hext
+      | var x =>
+        rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+        cases h1 with | imm => cases h2 with | var hmx =>
+        simp only [OpCode.wp_add, vals, Arg.val, lift2, Ty.hasFloat, Bool.false_eq_true,
+          ite_false] at hwp
+        simp only [extractLea64, recordDef, hb64, Bool.not_true, Bool.false_eq_true,
+          ↓reduceIte, BitVec.setWidth_eq] at hext
+        obtain ⟨vi, hi, vb, hvb, hr⟩ :=
+          extractLea64_some_addImm hdefs hmx (BitVec.add_comm _ _) hext
+        exact ⟨_, vi, hwp, hi, vb, hvb, hr⟩
+  | sub =>
+    rcases args with ⟨a, b, ⟨⟩⟩
+    cases a with
+    | imm _ => simp [extractLea64] at hext
+    | var x =>
+      cases b with
+      | var _ => simp [extractLea64] at hext
+      | imm c =>
+        rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+        cases h1 with | var hmx => cases h2 with | imm =>
+        simp only [OpCode.wp_sub, vals, Arg.val, lift2, Ty.hasFloat, Bool.false_eq_true,
+          ite_false] at hwp
+        simp only [extractLea64, recordDef, hb64, ↓reduceIte, BitVec.setWidth_eq] at hext
+        simp only [BitVec.sub_eq_add_neg] at hext
+        obtain ⟨vi, hi, vb, hvb, hr⟩ :=
+          extractLea64_some_addImm hdefs hmx (BitVec.sub_eq_add_neg _ _) hext
+        exact ⟨_, vi, hwp, hi, vb, hvb, hr⟩
+  | shl =>
+    rcases args with ⟨a, b, ⟨⟩⟩
+    cases a with
+    | imm _ => simp [extractLea64] at hext
+    | var x =>
+      cases b with
+      | var _ => simp [extractLea64] at hext
+      | imm k =>
+        rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+        cases h1 with | var hmx => cases h2 with | imm =>
+        rename_i vx
+        simp only [OpCode.wp_shl, vals, Arg.val, lift2, Ty.hasFloat, Bool.false_eq_true,
+          ite_false] at hwp
+        simp only [extractLea64] at hext
+        cases hdx : defs.find? x with
+        | none => simp [hdx] at hext
+        | some d =>
+          rw [hdx] at hext
+          have hxok := hdefs x d hdx
+          cases d with
+          | addImm64 b0 d0 =>
+            by_cases hk : k.toNat < 64
+            · have hbk : Nat.blt k.toNat 64 = true := by simpa [Nat.blt_eq] using hk
+              simp only [recordDef, hb64, ↓reduceIte, hdx, hbk,
+                Bool.not_true, Bool.false_eq_true] at hext
+              split at hext; · cases hext
+              obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp hext; cases he
+              obtain ⟨vb, hb, hvx⟩ := hxok vx hmx
+              rw [Nat.mod_eq_of_lt hk] at hwp
+              exact ⟨_, vb, hwp, hb, 0#64, by simp, by
+                simp [hvx, addrScale_ofShift_eq hsc, Int64.toBitVec_ofBitVec]⟩
+            · have hbk : Nat.blt k.toNat 64 = false :=
+                Bool.eq_false_iff.mpr (by simpa [Nat.blt_eq] using hk)
+              simp [recordDef, hbk] at hext
+          | scaleOff idx0 sh0 d0 =>
+            by_cases hk : k.toNat < 64
+            · have hbk : Nat.blt k.toNat 64 = true := by simpa [Nat.blt_eq] using hk
+              by_cases hsk : sh0 + k.toNat < 64
+              · have hbsk : Nat.blt (sh0 + k.toNat) 64 = true := by simpa [Nat.blt_eq] using hsk
+                simp only [recordDef, hb64, ↓reduceIte, hdx, hbk, hbsk,
+                  Bool.not_true, Bool.false_eq_true] at hext
+                split at hext; · cases hext
+                obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp hext; cases he
+                obtain ⟨vi, hi, hvx⟩ := hxok vx hmx
+                rw [Nat.mod_eq_of_lt hk] at hwp
+                exact ⟨_, vi, hwp, hi, 0#64, by simp, by
+                  simp [hvx, bv_shiftLeft_shiftLeft, addrScale_ofShift_eq hsc,
+                    Int64.toBitVec_ofBitVec]⟩
+              · have hbsk : Nat.blt (sh0 + k.toNat) 64 = false :=
+                  Bool.eq_false_iff.mpr (by simpa [Nat.blt_eq] using hsk)
+                simp [recordDef, hdx, hbk, hbsk] at hext
+            · have hbk : Nat.blt k.toNat 64 = false :=
+                Bool.eq_false_iff.mpr (by simpa [Nat.blt_eq] using hk)
+              simp [recordDef, hbk] at hext
+          | _ => simp at hext
+  | _ => simp [extractLea64] at hext
+
+private theorem asScale32_ok {G : VCtx} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {v idx : Nat}
+    {sc : AddrScale} {d : BitVec 32} (h : asScale32 defs v = some (idx, sc, d)) :
+    ∀ vv : BitVec 32, ⟨.bits 32, vv, v⟩ ∈ G →
+      ∃ vi : BitVec 32, ⟨.bits 32, vi, idx⟩ ∈ G ∧ vv = (vi <<< sc.shift) + d := by
+  intro vv hmv
+  unfold asScale32 at h
+  cases hdv : defs.find? v with
+  | none => simp [hdv] at h
+  | some df =>
+    rw [hdv] at h
+    have hvok := hdefs v df hdv
+    cases df with
+    | shlVarImm w0 idx0 sh0 =>
+      by_cases hw : w0 = 32
+      · subst hw; simp only at h
+        by_cases hsh : sh0 = 0
+        · simp [hsh] at h
+        · have hb : Nat.beq sh0 0 = false :=
+            Bool.eq_false_iff.mpr (by simpa [Nat.beq_eq] using hsh)
+          simp only [hb, Bool.false_eq_true, ↓reduceIte] at h
+          obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp h; cases he
+          obtain ⟨_, _, hok⟩ := hvok
+          obtain ⟨vi, hi, hvv⟩ := hok vv hmv
+          exact ⟨vi, hi, by simp [hvv, addrScale_ofShift_eq hsc]⟩
+      · simp [hw] at h
+    | binVarImm w0 op x c =>
+      cases op with
+      | add | sub =>
+        by_cases hw : w0 = 32
+        · subst hw; simp only at h
+          cases hdx : defs.find? x with
+          | none => simp [hdx] at h
+          | some dx =>
+            rw [hdx] at h
+            cases dx with
+            | shlVarImm w1 idx0 sh0 =>
+              by_cases hw1 : w1 = 32
+              · subst hw1; simp only at h
+                by_cases hsh : sh0 = 0
+                · simp [hsh] at h
+                · have hb : Nat.beq sh0 0 = false :=
+                    Bool.eq_false_iff.mpr (by simpa [Nat.beq_eq] using hsh)
+                  simp only [hb, Bool.false_eq_true, ↓reduceIte] at h
+                  obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp h; cases he
+                  obtain ⟨_, hokv⟩ := hvok
+                  obtain ⟨vx, hx, hvv⟩ := hokv vv hmv
+                  obtain ⟨_, _, hokx⟩ := hdefs x _ hdx
+                  obtain ⟨vi, hi, hvx⟩ := hokx vx hx
+                  exact ⟨vi, hi, by
+                    simp [hvv, hvx, RmwOp.eval, addrScale_ofShift_eq hsc, BitVec.sub_eq_add_neg]⟩
+              · simp [hw1] at h
+            | _ => simp at h
+        · simp [hw] at h
+      | _ => simp at h
+    | _ => simp at h
+
+private theorem asBaseImm32_ok {G : VCtx} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d) {v rb : Nat} {d : BitVec 32}
+    (h : asBaseImm32 defs v = (rb, d)) :
+    ∀ vv : BitVec 32, ⟨.bits 32, vv, v⟩ ∈ G →
+      ∃ vb : BitVec 32, ⟨.bits 32, vb, rb⟩ ∈ G ∧ vv = vb + d := by
+  intro vv hmv
+  unfold asBaseImm32 at h
+  cases hdv : defs.find? v with
+  | none => rw [hdv] at h; cases h; exact ⟨vv, hmv, by simp⟩
+  | some df =>
+    rw [hdv] at h
+    have hvok := hdefs v df hdv
+    cases df with
+    | binVarImm w0 op x c =>
+      cases op with
+      | add | sub =>
+        by_cases hw : w0 = 32
+        · subst hw; simp only at h; cases h
+          obtain ⟨_, hok⟩ := hvok
+          obtain ⟨vb, hb, hvv⟩ := hok vv hmv
+          exact ⟨vb, hb, by simp [hvv, RmwOp.eval, BitVec.sub_eq_add_neg]⟩
+        · split at h
+          · exfalso; apply hw; injections
+          · exfalso; apply hw; injections
+          · cases h; exact ⟨vv, hmv, by simp⟩
+      | _ =>
+      split at h <;> first | (exfalso; injections; done) | (cases h; exact ⟨vv, hmv, by simp⟩)
+    | _ =>
+      split at h <;> first | (exfalso; injections; done) | (cases h; exact ⟨vv, hmv, by simp⟩)
+
+theorem extractLea32_ok {G : VCtx} {defs : Trie DefFact}
+    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d)
+    {sig : List Ty} {code : OpCode sig [.bits 32]}
+    {args₁ : Tup (Arg Val) sig} {args : Tup (Arg VNat) sig}
+    (hrel : TRel (ArgRel G) args₁ args) {P : Tup Val [.bits 32] → Prop}
+    (hwp : code.wp (vals args₁) P) {base? : Option Nat} {idx : Nat} {sc : AddrScale} {disp : Int64}
+    (hext : extractLea32 defs code args = some (base?, idx, sc, disp)) :
+    ∃ rv vi : BitVec 32, P (rv, ()) ∧ ⟨.bits 32, vi, idx⟩ ∈ G ∧
+      ∃ vb : BitVec 32, (∀ b, base? = some b → ⟨.bits 32, vb, b⟩ ∈ G) ∧
+        rv = (if base?.isSome then vb else 0#32) +
+          (vi <<< sc.shift) + disp.toBitVec.setWidth 32 := by
+  have addImmAux : ∀ (x : Nat) (vx c : BitVec 32) (isSub : Bool),
+      ⟨.bits 32, vx, x⟩ ∈ G →
+      (if isSub then extractLea32 defs (.sub (.bits 32)) (.var x, .imm c, ())
+       else extractLea32 defs (.add (.bits 32)) (.var x, .imm c, ())) =
+        some (base?, idx, sc, disp) →
+      ∃ vi : BitVec 32, ⟨.bits 32, vi, idx⟩ ∈ G ∧ ∃ vb : BitVec 32,
+        (∀ b, base? = some b → ⟨.bits 32, vb, b⟩ ∈ G) ∧
+        (if isSub then vx - c else vx + c) =
+          (if base?.isSome then vb else 0#32) + (vi <<< sc.shift) + disp.toBitVec.setWidth 32 := by
+    intro x vx c isSub hmx h
+    cases isSub <;> (
+      simp only [Bool.false_eq_true, ↓reduceIte, extractLea32] at h
+      cases hs : asScale32 defs x with
+      | some p =>
+        rw [hs] at h; rcases p with ⟨idx0, sc0, d0⟩
+        simp only [Option.some.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, rfl, rfl, rfl⟩
+        obtain ⟨vi, hi, hvx⟩ := asScale32_ok hdefs hs vx hmx
+        refine ⟨vi, hi, 0#32, by simp, ?_⟩
+        simp [hvx, Int64.toBitVec_ofBitVec, setWidth_32_signExtend_64,
+          BitVec.sub_eq_add_neg, BitVec.add_assoc]
+      | none =>
+        rw [hs] at h
+        cases hdx : defs.find? x with
+        | none => simp [hdx] at h
+        | some dx =>
+          rw [hdx] at h
+          cases dx with
+          | binVarVar w0 op a b =>
+            cases op with
+            | add =>
+              by_cases hw : w0 = 32
+              · subst hw; simp only at h
+                obtain ⟨_, hok⟩ := hdefs x _ hdx
+                obtain ⟨va, vb', ha, hb, hvx⟩ := hok vx hmx
+                simp only [RmwOp.eval] at hvx
+                cases hsa : asScale32 defs a with
+                | some p =>
+                  rw [hsa] at h; rcases p with ⟨idx0, sc0, d0⟩
+                  rcases hbr : asBaseImm32 defs b with ⟨rb, d2⟩
+                  rw [hbr] at h
+                  simp only [Option.some.injEq, Prod.mk.injEq] at h
+                  rcases h with ⟨rfl, rfl, rfl, rfl⟩
+                  obtain ⟨vi, hi, hva⟩ := asScale32_ok hdefs hsa va ha
+                  obtain ⟨vb, hmb, hvb⟩ := asBaseImm32_ok hdefs hbr vb' hb
+                  refine ⟨vi, hi, vb, fun _ hb' => by cases hb'; exact hmb, ?_⟩
+                  simp [hvx, hva, hvb, Int64.toBitVec_ofBitVec, setWidth_32_signExtend_64,
+                    BitVec.sub_eq_add_neg]; ac_rfl
+                | none =>
+                  rw [hsa] at h
+                  cases hsb : asScale32 defs b with
+                  | some p =>
+                    rw [hsb] at h; rcases p with ⟨idx0, sc0, d0⟩
+                    rcases har : asBaseImm32 defs a with ⟨rb, d2⟩
+                    rw [har] at h
+                    simp only [Option.some.injEq, Prod.mk.injEq] at h
+                    rcases h with ⟨rfl, rfl, rfl, rfl⟩
+                    obtain ⟨vi, hi, hvb⟩ := asScale32_ok hdefs hsb vb' hb
+                    obtain ⟨vb, hma, hva⟩ := asBaseImm32_ok hdefs har va ha
+                    refine ⟨vi, hi, vb, fun _ hb' => by cases hb'; exact hma, ?_⟩
+                    simp [hvx, hva, hvb, Int64.toBitVec_ofBitVec, setWidth_32_signExtend_64,
+                      BitVec.sub_eq_add_neg]; ac_rfl
+                  | none =>
+                    rw [hsb] at h
+                    rcases har : asBaseImm32 defs a with ⟨ra, da⟩
+                    rcases hbr : asBaseImm32 defs b with ⟨rb, db⟩
+                    rw [har, hbr] at h
+                    simp only [Option.some.injEq, Prod.mk.injEq] at h
+                    rcases h with ⟨rfl, rfl, rfl, rfl⟩
+                    obtain ⟨va', hma, hva⟩ := asBaseImm32_ok hdefs har va ha
+                    obtain ⟨vb', hmb, hvb⟩ := asBaseImm32_ok hdefs hbr vb' hb
+                    refine ⟨vb', hmb, va', fun _ hb' => by cases hb'; exact hma, ?_⟩
+                    simp [hvx, hva, hvb, AddrScale.shift, Int64.toBitVec_ofBitVec,
+                      setWidth_32_signExtend_64, BitVec.sub_eq_add_neg]; ac_rfl
+              · simp [hw] at h
+            | _ => simp at h
+          | _ => simp at h)
+  cases code with
+  | add =>
+    rcases args with ⟨a, b, ⟨⟩⟩
+    cases a with
+    | var x =>
+      cases b with
+      | imm c =>
+        rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+        cases h1 with | var hmx => cases h2 with | imm =>
+        simp only [OpCode.wp_add, vals, Arg.val, lift2, Ty.hasFloat, Bool.false_eq_true,
+          ite_false] at hwp
+        obtain ⟨vi, hi, vb, hvb, hr⟩ := addImmAux x _ c false hmx (by
+          simpa only [Bool.false_eq_true, ↓reduceIte] using hext)
+        exact ⟨_, vi, hwp, hi, vb, hvb, hr⟩
+      | var y =>
+        rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+        cases h1 with | var hmx => cases h2 with | var hmy =>
+        rename_i vx vy
+        simp only [OpCode.wp_add, vals, Arg.val, lift2, Ty.hasFloat, Bool.false_eq_true,
+          ite_false] at hwp
+        simp only [extractLea32] at hext
+        cases hsx : asScale32 defs x with
+        | some p =>
+          rw [hsx] at hext; rcases p with ⟨idx0, sc0, d1⟩
+          rcases hby : asBaseImm32 defs y with ⟨rb, d2⟩
+          rw [hby] at hext
+          simp only [Option.some.injEq, Prod.mk.injEq] at hext
+          rcases hext with ⟨rfl, rfl, rfl, rfl⟩
+          obtain ⟨vi, hi, hvx⟩ := asScale32_ok hdefs hsx vx hmx
+          obtain ⟨vb, hmb, hvy⟩ := asBaseImm32_ok hdefs hby vy hmy
+          exact ⟨_, vi, hwp, hi, vb, fun _ hb' => by cases hb'; exact hmb, by
+            simp [hvx, hvy, Int64.toBitVec_ofBitVec, setWidth_32_signExtend_64]; ac_rfl⟩
+        | none =>
+          rw [hsx] at hext
+          cases hsy : asScale32 defs y with
+          | some p =>
+            rw [hsy] at hext; rcases p with ⟨idx0, sc0, d1⟩
+            rcases hbx : asBaseImm32 defs x with ⟨rb, d2⟩
+            rw [hbx] at hext
+            simp only [Option.some.injEq, Prod.mk.injEq] at hext
+            rcases hext with ⟨rfl, rfl, rfl, rfl⟩
+            obtain ⟨vi, hi, hvy⟩ := asScale32_ok hdefs hsy vy hmy
+            obtain ⟨vb, hma, hvx⟩ := asBaseImm32_ok hdefs hbx vx hmx
+            exact ⟨_, vi, hwp, hi, vb, fun _ hb' => by cases hb'; exact hma, by
+              simp [hvx, hvy, Int64.toBitVec_ofBitVec, setWidth_32_signExtend_64]; ac_rfl⟩
+          | none =>
+            rw [hsy] at hext
+            rcases hbx : asBaseImm32 defs x with ⟨rx, dx⟩
+            rcases hby : asBaseImm32 defs y with ⟨ry, dy⟩
+            rw [hbx, hby] at hext; dsimp only at hext
+            split at hext; · simp at hext
+            simp only [Option.some.injEq, Prod.mk.injEq] at hext
+            rcases hext with ⟨rfl, rfl, rfl, rfl⟩
+            obtain ⟨vx', hma, hvx⟩ := asBaseImm32_ok hdefs hbx vx hmx
+            obtain ⟨vy', hmb, hvy⟩ := asBaseImm32_ok hdefs hby vy hmy
+            exact ⟨_, vy', hwp, hmb, vx', fun _ hb' => by cases hb'; exact hma, by
+              simp [hvx, hvy, AddrScale.shift, Int64.toBitVec_ofBitVec,
+                setWidth_32_signExtend_64]; ac_rfl⟩
+    | imm c =>
+      cases b with
+      | imm _ => simp [extractLea32] at hext
+      | var x =>
+        rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+        cases h1 with | imm => cases h2 with | var hmx =>
+        simp only [OpCode.wp_add, vals, Arg.val, lift2, Ty.hasFloat, Bool.false_eq_true,
+          ite_false] at hwp
+        obtain ⟨vi, hi, vb, hvb, hr⟩ := addImmAux x _ c false hmx (by
+          simp only [Bool.false_eq_true, ↓reduceIte, extractLea32]
+          simpa only [extractLea32] using hext)
+        exact ⟨_, vi, hwp, hi, vb, hvb, by rw [BitVec.add_comm]; exact hr⟩
+  | sub =>
+    rcases args with ⟨a, b, ⟨⟩⟩
+    cases a with
+    | imm _ => simp [extractLea32] at hext
+    | var x =>
+      cases b with
+      | var _ => simp [extractLea32] at hext
+      | imm c =>
+        rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+        cases h1 with | var hmx => cases h2 with | imm =>
+        simp only [OpCode.wp_sub, vals, Arg.val, lift2, Ty.hasFloat, Bool.false_eq_true,
+          ite_false] at hwp
+        obtain ⟨vi, hi, vb, hvb, hr⟩ := addImmAux x _ c true hmx (by
+          simpa only [↓reduceIte] using hext)
+        exact ⟨_, vi, hwp, hi, vb, hvb, hr⟩
+  | shl =>
+    rcases args with ⟨a, b, ⟨⟩⟩
+    cases a with
+    | imm _ => simp [extractLea32] at hext
+    | var x =>
+      cases b with
+      | var _ => simp [extractLea32] at hext
+      | imm k =>
+        rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+        cases h1 with | var hmx => cases h2 with | imm =>
+        rename_i vx
+        simp only [OpCode.wp_shl, vals, Arg.val, lift2, Ty.hasFloat, Bool.false_eq_true,
+          ite_false] at hwp
+        simp only [extractLea32] at hext
+        split at hext; · simp at hext
+        rename_i hnk; have hk : k.toNat < 32 := by simpa [Nat.blt_eq] using hnk
+        rw [Nat.mod_eq_of_lt hk] at hwp
+        cases hdx : defs.find? x with
+        | none => simp [hdx] at hext
+        | some df =>
+          rw [hdx] at hext
+          have hxok := hdefs x df hdx
+          cases df with
+          | binVarImm w0 op b0 d0 =>
+            cases op with
+            | add =>
+              by_cases hw : w0 = 32
+              · subst hw; simp only at hext
+                split at hext; · cases hext
+                obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp hext; cases he
+                obtain ⟨_, hok⟩ := hxok
+                obtain ⟨vb, hb, hvx⟩ := hok vx hmx
+                exact ⟨_, vb, hwp, hb, 0#32, by simp, by
+                  simp [hvx, RmwOp.eval, addrScale_ofShift_eq hsc,
+                    Int64.toBitVec_ofBitVec, setWidth_32_signExtend_64]⟩
+              · simp [hw] at hext
+            | sub =>
+              by_cases hw : w0 = 32
+              · subst hw; simp only at hext
+                split at hext; · cases hext
+                obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp hext; cases he
+                obtain ⟨_, hok⟩ := hxok
+                obtain ⟨vb, hb, hvx⟩ := hok vx hmx
+                exact ⟨_, vb, hwp, hb, 0#32, by simp, by
+                  simp [hvx, RmwOp.eval, BitVec.sub_eq_add_neg,
+                    addrScale_ofShift_eq hsc, Int64.toBitVec_ofBitVec, setWidth_32_signExtend_64]⟩
+              · simp [hw] at hext
+            | _ => simp at hext
+          | shlVarImm w0 idx0 sh0 =>
+            by_cases hw : w0 = 32
+            · subst hw; simp only at hext
+              split at hext; · cases hext
+              obtain ⟨sc0, hsc, he⟩ := Option.map_eq_some_iff.mp hext; cases he
+              obtain ⟨_, _, hok⟩ := hxok
+              obtain ⟨vi, hi, hvx⟩ := hok vx hmx
+              exact ⟨_, vi, hwp, hi, 0#32, by simp, by
+                simp [hvx, bv_shiftLeft_shiftLeft, addrScale_ofShift_eq hsc]⟩
+            · simp [hw] at hext
+          | _ => simp at hext
+  | _ => simp [extractLea32] at hext
+
 end Rega
 end LeanQbe.T

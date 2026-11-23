@@ -142,6 +142,8 @@ def DefOk (G : VCtx) (x : Nat) : DefFact → Prop
     ∃ va vb : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧ ⟨.bits w, vb, b⟩ ∈ G ∧ v = op.eval va vb
   | .binVarImm w op a c => w ≤ 64 ∧ ∀ v : BitVec w, ⟨.bits w, v, x⟩ ∈ G →
     ∃ va : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧ v = op.eval va (c.setWidth w)
+  | .shlVarImm w a sh => w ≤ 64 ∧ sh < w ∧ ∀ v : BitVec w, ⟨.bits w, v, x⟩ ∈ G →
+    ∃ va : BitVec w, ⟨.bits w, va, a⟩ ∈ G ∧ v = va <<< sh
   | .sextVar m n a => 0 < m ∧ m < n ∧ n ≤ 64 ∧ ∀ v : BitVec n, ⟨.bits n, v, x⟩ ∈ G →
     ∃ va : BitVec m, ⟨.bits m, va, a⟩ ∈ G ∧ v = va.signExtend n
   | .zextVar m n a => 0 < m ∧ m < n ∧ n ≤ 64 ∧ ∀ v : BitVec n, ⟨.bits n, v, x⟩ ∈ G →
@@ -537,6 +539,10 @@ theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', 
   | binVarImm w op a c =>
     refine ⟨h.1, fun v hv => ?_⟩
     obtain ⟨va, h1, h2⟩ := h.2 v (hm _ _ hv)
+    exact ⟨va, hsub _ h1, h2⟩
+  | shlVarImm w a sh =>
+    refine ⟨h.1, h.2.1, fun v hv => ?_⟩
+    obtain ⟨va, h1, h2⟩ := h.2.2 v (hm _ _ hv)
     exact ⟨va, hsub _ h1, h2⟩
   | sextVar m n a =>
     refine ⟨h.1, h.2.1, h.2.2.1, fun v hv => ?_⟩
@@ -1795,7 +1801,8 @@ private theorem defOk_addVarImm {G : VCtx} {nv x : Nat} {vx c : BitVec 64}
         exact ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi,
           by simp [hvx, BitVec.add_assoc]⟩
     | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _ | binVarImm _ _ _ _
-    | sextVar _ _ _ | zextVar _ _ _ | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
+    | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _ | cmpZeroVar _ _ _
+    | testBitVar _ _ _ _ =>
       intro v hv; cases mem_cons_top hlt hv
       exact ⟨vx, List.mem_cons_of_mem _ hm, rfl⟩
 
@@ -2085,50 +2092,68 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
         cases b with
         | var _ => simp [recordDef] at hd
         | imm k =>
-          have hn : n = 64 := Decidable.byContradiction fun hne => by
-            simp [recordDef, hne] at hd
-          subst hn
-          have hk : k.toNat < 64 := Decidable.byContradiction fun hke => by
-            simp [recordDef, Nat.blt_eq, hke] at hd
-          simp only [recordDef] at hd
-          split at hd
-          · cases hd
-          rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
-          cases h1 with | var hm => cases h2 with | imm =>
-          dsimp only [vals, Arg.val] at hwp ⊢
-          simp only [OpCode.wp_shl, lift2, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp ⊢
-          rw [Nat.mod_eq_of_lt hk] at hwp ⊢
-          refine ⟨hwp, by simp, ?_⟩
-          cases hdx : defs.find? x with
-          | none =>
-            rw [hdx] at hd; cases hd
-            intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
-            exact ⟨_, List.mem_cons_of_mem _ hm, by simp⟩
-          | some d =>
-            rw [hdx] at hd
-            have hxok := hdefs x d hdx
-            cases d with
-            | imm64 c0 =>
-              cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
-              cases mem_cons_top hlt hv; simp only [DefOk] at hxok; rw [hxok _ hm]
-            | addImm64 b d =>
-              cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
-              cases mem_cons_top hlt hv
-              obtain ⟨vb, hb, hvx⟩ := hxok _ hm
-              exact ⟨vb, List.mem_cons_of_mem _ hb, by simp [hvx]⟩
-            | scaleOff idx sh d =>
-              dsimp only at hd; split at hd
-              · cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
-                cases mem_cons_top hlt hv
-                obtain ⟨vi, hi, hvx⟩ := hxok _ hm
-                exact ⟨vi, List.mem_cons_of_mem _ hi, by simp [hvx, bv_shiftLeft_shiftLeft]⟩
-              · cases hd
-            | addrSum _ _ _ _ | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _
-            | binVarImm _ _ _ _ | sextVar _ _ _ | zextVar _ _ _
-            | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
-              cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
-              cases mem_cons_top hlt hv
+          by_cases hn : n = 64
+          · subst hn
+            have hb64 : Nat.beq 64 64 = true := rfl
+            have hk : k.toNat < 64 := Decidable.byContradiction fun hke => by
+              simp [recordDef, Nat.blt_eq, hke] at hd
+            simp only [recordDef, hb64, ↓reduceIte] at hd
+            split at hd
+            · cases hd
+            rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+            cases h1 with | var hm => cases h2 with | imm =>
+            dsimp only [vals, Arg.val] at hwp ⊢
+            simp only [OpCode.wp_shl, lift2, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp ⊢
+            rw [Nat.mod_eq_of_lt hk] at hwp ⊢
+            refine ⟨hwp, by simp, ?_⟩
+            cases hdx : defs.find? x with
+            | none =>
+              rw [hdx] at hd; cases hd
+              intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
               exact ⟨_, List.mem_cons_of_mem _ hm, by simp⟩
+            | some d =>
+              rw [hdx] at hd
+              have hxok := hdefs x d hdx
+              cases d with
+              | imm64 c0 =>
+                cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
+                cases mem_cons_top hlt hv; simp only [DefOk] at hxok; rw [hxok _ hm]
+              | addImm64 b d =>
+                cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
+                cases mem_cons_top hlt hv
+                obtain ⟨vb, hb, hvx⟩ := hxok _ hm
+                exact ⟨vb, List.mem_cons_of_mem _ hb, by simp [hvx]⟩
+              | scaleOff idx sh d =>
+                dsimp only at hd; split at hd
+                · cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
+                  cases mem_cons_top hlt hv
+                  obtain ⟨vi, hi, hvx⟩ := hxok _ hm
+                  exact ⟨vi, List.mem_cons_of_mem _ hi, by simp [hvx, bv_shiftLeft_shiftLeft]⟩
+                · cases hd
+              | addrSum _ _ _ _ | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _
+              | binVarImm _ _ _ _ | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _
+              | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
+                cases hd; intro v hv; simp only [Tup.zip, Tup.levels] at hv
+                cases mem_cons_top hlt hv
+                exact ⟨_, List.mem_cons_of_mem _ hm, by simp⟩
+          · have hnf : Nat.beq n 64 = false :=
+              Bool.eq_false_iff.mpr (by simpa [Nat.beq_eq] using hn)
+            simp only [recordDef, hnf, Bool.false_eq_true, ↓reduceIte] at hd
+            split at hd
+            · rename_i hc
+              simp only [Bool.and_eq_true, Nat.ble_eq, Nat.blt_eq] at hc
+              obtain ⟨⟨hnle, _⟩, hklt⟩ := hc
+              cases hd
+              rcases hrel with _ | ⟨h1, _ | ⟨h2, -⟩⟩
+              cases h1 with | var hm => cases h2 with | imm =>
+              dsimp only [vals, Arg.val] at hwp ⊢
+              simp only [OpCode.wp_shl, lift2, Ty.hasFloat, Bool.false_eq_true, ite_false]
+                at hwp ⊢
+              rw [Nat.mod_eq_of_lt hklt] at hwp ⊢
+              refine ⟨hwp, by simp, hnle, hklt, fun v hv => ?_⟩
+              simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv
+              exact ⟨_, List.mem_cons_of_mem _ hm, rfl⟩
+            · cases hd
     | _ => simp [recordDef] at hd
   | copy t =>
     cases t with
@@ -2180,7 +2205,8 @@ theorem wp_recordDef {G : VCtx} {nv : Nat} {defs : Trie DefFact}
             obtain ⟨vb, vi, hb, hi, hvx⟩ := h' _ hm
             exact ⟨vb, vi, List.mem_cons_of_mem _ hb, List.mem_cons_of_mem _ hi, hvx⟩
           | andVarVar _ _ _ | andVarImm _ _ _ | binVarVar _ _ _ _ | binVarImm _ _ _ _
-          | sextVar _ _ _ | zextVar _ _ _ | cmpZeroVar _ _ _ | testBitVar _ _ _ _ =>
+          | shlVarImm _ _ _ | sextVar _ _ _ | zextVar _ _ _ | cmpZeroVar _ _ _
+          | testBitVar _ _ _ _ =>
             simp only [DefFact.isAddr, Bool.false_eq_true, ↓reduceIte, Option.some.injEq] at hd
             subst hd
             intro v hv; simp only [Tup.zip, Tup.levels] at hv; cases mem_cons_top hlt hv

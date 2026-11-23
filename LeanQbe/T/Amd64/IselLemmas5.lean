@@ -1338,6 +1338,150 @@ theorem x64Gpr_rmwMem_spec {h : x64Mach.Host} {k n : Nat}
             have hne := ne_of_not_mem_x64Scratch hr
             rw [Reg64s.get64_set64_of_ne _ .r11 r _ hne.2.symm, hr1 r hne.1]
 
+private theorem x64LeaArith_z {w : Nat} (z32 : Bool) (hz32 : z32 = true → w = 32)
+    {h : x64Mach.Host} {k : Nat} {base? : Option Reg64} {idx : Reg64} {sc : AddrScale}
+    {disp : Int64} {rd : Reg64} {c : List Directive} {clob : FlagMask}
+    {vb vi : BitVec w} {s : MachineData} {post : MachineState → Prop}
+    (hc0 : x64Gpr.leaArith w base? idx sc disp rd = some (c, clob))
+    (hvb : ∀ r, base? = some r → GprHolds (x64Mach.getGpr s r) (.bits w) vb)
+    (hvi : GprHolds (x64Mach.getGpr s idx) (.bits w) vi) :
+    let res : BitVec w :=
+      (if base?.isSome then vb else 0#w) + (vi <<< sc.shift) + disp.toBitVec.setWidth w
+    x64Mach.FallsTo x64Gpr.condReads h k c (rd :: x64Scratch) [] clob s
+      (fun s' => GprHolds (x64Mach.getGpr s' rd) (.bits w) res ∧
+        (z32 = true → x64Mach.getGpr s' rd = res.setWidth 64) ∧
+        x64Mach.mem s' = x64Mach.mem s) post := by
+  dsimp only [x64Gpr, x64LeaArith] at hc0
+  obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc0
+  dsimp only [x64LeaArithIns] at hc
+  split at hc; · simp at hc
+  have go : ∀ (wd : Width) (hw : wd = .W32 ∨ wd = .W64), wd.bits = w →
+      ∀ (b? : Option Reg64),
+      (∀ r, b? = some r → GprHolds (x64Mach.getGpr s r) (.bits w) vb) →
+      (match b? with
+      | some rb =>
+        if idx != .rsp then
+          some ([x64InsI wd (.lea (regW wd rd) (atSIB rb idx sc disp))], maskNone)
+        else if sc == .s1 && rb != .rsp then
+          some ([x64InsI wd (.lea (regW wd rd) (atSIB idx rb .s1 disp))], maskNone)
+        else none
+      | none =>
+        if idx != .rsp then
+          some ([x64InsI wd (.lea (regW wd rd) (atIdx idx sc disp))], maskNone)
+        else none) = some (ci, clob) →
+      x64Mach.FallsTo x64Gpr.condReads h k (emitClean ci) (rd :: x64Scratch) [] clob s
+        (fun s' => GprHolds (x64Mach.getGpr s' rd) (.bits w)
+            ((if b?.isSome then vb else 0#w) + (vi <<< sc.shift) +
+              disp.toBitVec.setWidth w) ∧
+          (z32 = true → x64Mach.getGpr s' rd =
+            ((if b?.isSome then vb else 0#w) + (vi <<< sc.shift) +
+              disp.toBitVec.setWidth w).setWidth 64) ∧
+          x64Mach.mem s' = x64Mach.mem s) post := by
+    rintro wd hw rfl b? hvb' hci
+    have hvi' : (s.regs.get64 idx).setWidth wd.bits = vi := (GprHolds.bits_iff wd _ _).1 hvi
+    cases b? with
+    | some rb =>
+      have hvbr : (s.regs.get64 rb).setWidth wd.bits = vb :=
+        (GprHolds.bits_iff wd _ _).1 (hvb' rb rfl)
+      dsimp only at hci
+      split at hci
+      · simp only [Option.some.injEq, Prod.mk.injEq] at hci; rcases hci with ⟨rfl, rfl⟩
+        simp only [emitClean_cons, emitClean_nil]
+        refine x64_fallsTo_of_wp fun {_} _ => Program.wp.mono
+          (Directive.FallsTo.wp (fallsTo_leaSIB_disp_z wd hw s rd rb idx sc disp)) ?_
+        rintro s' ⟨rv, hrv, hrvz, rfl⟩
+        have hres : rv.setWidth wd.bits =
+            vb + (vi <<< sc.shift) + disp.toBitVec.setWidth wd.bits := by
+          rw [hrv, hvbr, hvi']
+        refine ⟨⟨(GprHolds.bits_iff wd _ _).2 (by simpa [Reg64s.get64_set64_same] using hres),
+          fun hz => ?_, rfl⟩, ?_⟩
+        · have hw32 : wd = .W32 := by
+            have := hz32 hz; cases wd <;> simp [Width.bits] at this <;> rfl
+          simpa [Reg64s.get64_set64_same, hvbr, hvi'] using hrvz hw32
+        · refine x64_frame_of_eq (fun r hr => ?_) rfl (updFlags_of_status_eq rfl _)
+          simp only [List.mem_cons, not_or] at hr
+          exact Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1)
+      · split at hci
+        · rename_i hswap
+          have hsc : sc = .s1 := by simp only [Bool.and_eq_true, beq_iff_eq] at hswap; exact hswap.1
+          subst hsc
+          simp only [Option.some.injEq, Prod.mk.injEq] at hci; rcases hci with ⟨rfl, rfl⟩
+          simp only [emitClean_cons, emitClean_nil]
+          refine x64_fallsTo_of_wp fun {_} _ => Program.wp.mono
+            (Directive.FallsTo.wp (fallsTo_leaSIB_disp_z wd hw s rd idx rb .s1 disp)) ?_
+          rintro s' ⟨rv, hrv, hrvz, rfl⟩
+          have hcomm : (s.regs.get64 idx).setWidth wd.bits +
+              ((s.regs.get64 rb).setWidth wd.bits <<< AddrScale.s1.shift) +
+              disp.toBitVec.setWidth wd.bits =
+              vb + (vi <<< AddrScale.s1.shift) + disp.toBitVec.setWidth wd.bits := by
+            simp only [AddrScale.shift, BitVec.shiftLeft_zero, hvbr, hvi', BitVec.add_comm]
+          refine ⟨⟨(GprHolds.bits_iff wd _ _).2
+              (by simpa [Reg64s.get64_set64_same, hcomm] using hrv), fun hz => ?_, rfl⟩, ?_⟩
+          · have hw32 : wd = .W32 := by
+              have := hz32 hz; cases wd <;> simp [Width.bits] at this <;> rfl
+            simpa [Reg64s.get64_set64_same, hcomm] using hrvz hw32
+          · refine x64_frame_of_eq (fun r hr => ?_) rfl (updFlags_of_status_eq rfl _)
+            simp only [List.mem_cons, not_or] at hr
+            exact Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1)
+        · cases hci
+    | none =>
+      dsimp only at hci
+      split at hci
+      · simp only [Option.some.injEq, Prod.mk.injEq] at hci; rcases hci with ⟨rfl, rfl⟩
+        simp only [emitClean_cons, emitClean_nil]
+        refine x64_fallsTo_of_wp fun {_} _ => Program.wp.mono
+          (Directive.FallsTo.wp (fallsTo_leaIdx_z wd hw s rd idx sc disp)) ?_
+        rintro s' ⟨rv, hrv, hrvz, rfl⟩
+        have hres : rv.setWidth wd.bits =
+            (vi <<< sc.shift) + disp.toBitVec.setWidth wd.bits := by
+          rw [hrv, hvi']
+        refine ⟨⟨(GprHolds.bits_iff wd _ _).2 (by simpa [Reg64s.get64_set64_same] using hres),
+          fun hz => ?_, rfl⟩, ?_⟩
+        · have hw32 : wd = .W32 := by
+            have := hz32 hz; cases wd <;> simp [Width.bits] at this <;> rfl
+          simpa [Reg64s.get64_set64_same, hvi'] using hrvz hw32
+        · refine x64_frame_of_eq (fun r hr => ?_) rfl (updFlags_of_status_eq rfl _)
+          simp only [List.mem_cons, not_or] at hr
+          exact Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1)
+      · cases hci
+  split at hc
+  · exact go .W32 (Or.inl rfl) rfl base? hvb hc
+  · exact go .W64 (Or.inr rfl) rfl base? hvb hc
+  · cases hc
+
+theorem x64Gpr_leaArith_spec {h : x64Mach.Host} {k w : Nat} {base? : Option Reg64} {idx : Reg64}
+    {sc : AddrScale} {disp : Int64} {rd : Reg64} {c : List Directive} {clob : FlagMask}
+    {vb vi : BitVec w} {s : MachineData} {post : MachineState → Prop}
+    (hc0 : x64Gpr.leaArith w base? idx sc disp rd = some (c, clob))
+    (_ : ∀ r, base? = some r → r ∉ x64Scratch) (_ : idx ∉ x64Scratch) (_ : rd ∉ x64Scratch)
+    (hvb : ∀ r, base? = some r → GprHolds (x64Mach.getGpr s r) (.bits w) vb)
+    (hvi : GprHolds (x64Mach.getGpr s idx) (.bits w) vi) :
+    let res : BitVec w :=
+      (if base?.isSome then vb else 0#w) + (vi <<< sc.shift) + disp.toBitVec.setWidth w
+    x64Mach.FallsTo x64Gpr.condReads h k c (rd :: x64Scratch) [] clob s
+      (fun s' => GprHolds (x64Mach.getGpr s' rd) (.bits w) res ∧
+        x64Mach.mem s' = x64Mach.mem s) post :=
+  fun hinf kont =>
+    x64LeaArith_z (w := w) false (fun h => by cases h) hc0 hvb hvi hinf
+      fun s' ⟨hg, _, hm⟩ hfr => kont s' ⟨hg, hm⟩ hfr
+
+theorem x64Gpr_leaArith_zero32 (_ : x64Gpr.zeroUpper32LeaArith = true)
+    {h : x64Mach.Host} {k : Nat} {base? : Option Reg64} {idx : Reg64} {sc : AddrScale}
+    {disp : Int64} {rd : Reg64} {c : List Directive} {clob : FlagMask}
+    {vb vi : BitVec 32} {s : MachineData} {post : MachineState → Prop}
+    (hc0 : x64Gpr.leaArith 32 base? idx sc disp rd = some (c, clob))
+    (_ : ∀ r, base? = some r → r ∉ x64Scratch) (_ : idx ∉ x64Scratch) (_ : rd ∉ x64Scratch)
+    (hvb : ∀ r, base? = some r → GprHolds (x64Mach.getGpr s r) (.bits 32) vb)
+    (hvi : GprHolds (x64Mach.getGpr s idx) (.bits 32) vi) :
+    let res : BitVec 32 :=
+      (if base?.isSome then vb else 0#32) + (vi <<< sc.shift) + disp.toBitVec.setWidth 32
+    x64Mach.FallsTo x64Gpr.condReads h k c (rd :: x64Scratch) [] clob s
+      (fun s' => x64Mach.getGpr s' rd = res.setWidth 64 ∧
+        x64Mach.mem s' = x64Mach.mem s) post :=
+  fun hinf kont =>
+    x64LeaArith_z (w := 32) true (fun _ => rfl) hc0 hvb hvi hinf
+      fun s' ⟨_, hz, hm⟩ hfr => kont s' ⟨hz rfl, hm⟩ hfr
+
 /-- Assembled `GprTarget` proof package for `x64Gpr` over `x64Mach` and `x64Scratch`. -/
 theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
   negCond_reads := x64Gpr_negCond_reads; negCond_eval := x64Gpr_negCond_eval
@@ -1359,6 +1503,8 @@ theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
   aluMem_zero32 := x64Gpr_aluMem_zero32
   jnzMem_spec := x64Gpr_jnzMem_spec
   rmwMem_spec := x64Gpr_rmwMem_spec
+  leaArith_spec := x64Gpr_leaArith_spec
+  leaArith_zero32 := x64Gpr_leaArith_zero32
 
 end
 

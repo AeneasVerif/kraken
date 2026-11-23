@@ -65,6 +65,7 @@ inductive DefFact where
   | zextVar (m n x : Nat)
   | cmpZeroVar (co : CmpOp) (w x : Nat)
   | testBitVar (neg : Bool) (w x : Nat) (c : BitVec 64)
+  | shlVarImm (w x sh : Nat)
   deriving DecidableEq, Repr
 
 def DefFact.isAddr : DefFact → Bool
@@ -635,13 +636,17 @@ def recordDef (defs : Trie DefFact) :
   | _, _, .xor (.bits n), (a, b, ()) => recordRmwBin n .xor a b
   | _, _, .shl (.bits n), (.var x, .imm k, ()) =>
     let kn := k.toNat
-    if !Nat.beq n 64 || !Nat.blt kn 64 then none else
-      match defs.find? x with
-      | some (.imm64 c0) => some (.imm64 (c0 <<< kn))
-      | some (.addImm64 b d) => some (.scaleOff b kn (d <<< kn))
-      | some (.scaleOff idx sh d) =>
-        if Nat.blt (sh + kn) 64 then some (.scaleOff idx (sh + kn) (d <<< kn)) else none
-      | _ => some (.scaleOff x kn 0)
+    if Nat.beq n 64 then
+      if !Nat.blt kn 64 then none else
+        match defs.find? x with
+        | some (.imm64 c0) => some (.imm64 (c0 <<< kn))
+        | some (.addImm64 b d) => some (.scaleOff b kn (d <<< kn))
+        | some (.scaleOff idx sh d) =>
+          if Nat.blt (sh + kn) 64 then some (.scaleOff idx (sh + kn) (d <<< kn)) else none
+        | _ => some (.scaleOff x kn 0)
+    else if Nat.ble n 64 && Nat.blt 0 n && Nat.blt kn n then
+      some (.shlVarImm n x kn)
+    else none
   | _, _, .copy (.bits n), (.imm c, ()) =>
     if Nat.beq n 64 then some (.imm64 (c.setWidth 64)) else none
   | _, _, .copy (.bits n), (.var x, ()) =>
@@ -1049,11 +1054,182 @@ def recordBoolDef (defs : Trie DefFact) {sig ts : List Ty} (code : OpCode sig ts
         | _ => .cmpZeroVar co0 n t
   | _, _, _, _ => none
 
+def extractLea64 (defs : Trie DefFact) :
+    {sig ts : List Ty} → OpCode sig ts → Tup (Arg VNat) sig →
+    Option (Option Nat × Nat × AddrScale × Int64)
+  | _, _, .add (.bits 64), (.var x, .imm c, ())
+  | _, _, .add (.bits 64), (.imm c, .var x, ()) =>
+    match defs.find? x with
+    | some (.addrSum b idx 0 d) => some (some b, idx, .s1, Int64.ofBitVec (d + c))
+    | _ =>
+      match recordDef defs (.add (.bits 64)) (.var x, .imm c, ()) with
+      | some (.scaleOff idx sh disp) =>
+        if Nat.beq sh 0 then none
+        else (AddrScale.ofShift? sh).map fun sc => (none, idx, sc, Int64.ofBitVec disp)
+      | some (.addrSum b idx sh disp) =>
+        if Nat.beq sh 0 && disp == 0#64 then none
+        else (AddrScale.ofShift? sh).map fun sc => (some b, idx, sc, Int64.ofBitVec disp)
+      | _ => none
+  | _, _, .sub (.bits 64), (.var x, .imm c, ()) =>
+    match defs.find? x with
+    | some (.addrSum b idx 0 d) => some (some b, idx, .s1, Int64.ofBitVec (d - c))
+    | _ =>
+      match recordDef defs (.sub (.bits 64)) (.var x, .imm c, ()) with
+      | some (.scaleOff idx sh disp) =>
+        if Nat.beq sh 0 then none
+        else (AddrScale.ofShift? sh).map fun sc => (none, idx, sc, Int64.ofBitVec disp)
+      | some (.addrSum b idx sh disp) =>
+        if Nat.beq sh 0 && disp == 0#64 then none
+        else (AddrScale.ofShift? sh).map fun sc => (some b, idx, sc, Int64.ofBitVec disp)
+      | _ => none
+  | _, _, .add (.bits 64), (.var x, .var y, ()) =>
+    match recordDef defs (.add (.bits 64)) (.var x, .var y, ()) with
+    | some (.scaleOff idx sh disp) =>
+      if Nat.beq sh 0 then none
+      else (AddrScale.ofShift? sh).map fun sc => (none, idx, sc, Int64.ofBitVec disp)
+    | some (.addrSum b idx sh disp) =>
+      if Nat.beq sh 0 && disp == 0#64 then none
+      else (AddrScale.ofShift? sh).map fun sc => (some b, idx, sc, Int64.ofBitVec disp)
+    | _ => none
+  | _, _, .shl (.bits 64), (.var x, .imm k, ()) =>
+    let shlOk := match defs.find? x with
+      | some (.addImm64 _ _) | some (.scaleOff _ _ _) => true
+      | _ => false
+    if !shlOk then none
+    else
+      match recordDef defs (.shl (.bits 64)) (.var x, .imm k, ()) with
+      | some (.scaleOff idx sh disp) =>
+        if Nat.beq sh 0 then none
+        else (AddrScale.ofShift? sh).map fun sc => (none, idx, sc, Int64.ofBitVec disp)
+      | _ => none
+  | _, _, _, _ => none
+
+def asScale32 (defs : Trie DefFact) (v : Nat) : Option (Nat × AddrScale × BitVec 32) :=
+  let ofShl (idx sh : Nat) (disp : BitVec 32) : Option (Nat × AddrScale × BitVec 32) :=
+    if Nat.beq sh 0 then none
+    else (AddrScale.ofShift? sh).map (idx, ·, disp)
+  match defs.find? v with
+  | some (.shlVarImm 32 idx sh) => ofShl idx sh 0#32
+  | some (.binVarImm 32 .add x c) =>
+    match defs.find? x with
+    | some (.shlVarImm 32 idx sh) => ofShl idx sh (c.setWidth 32)
+    | _ => none
+  | some (.binVarImm 32 .sub x c) =>
+    match defs.find? x with
+    | some (.shlVarImm 32 idx sh) => ofShl idx sh (-(c.setWidth 32))
+    | _ => none
+  | _ => none
+
+def asBaseImm32 (defs : Trie DefFact) (v : Nat) : Nat × BitVec 32 :=
+  match defs.find? v with
+  | some (.binVarImm 32 .add x c) => (x, c.setWidth 32)
+  | some (.binVarImm 32 .sub x c) => (x, -(c.setWidth 32))
+  | _ => (v, 0#32)
+
+def extractLea32 (defs : Trie DefFact) :
+    {sig ts : List Ty} → OpCode sig ts → Tup (Arg VNat) sig →
+    Option (Option Nat × Nat × AddrScale × Int64)
+  | _, _, .add (.bits 32), (.var x, .imm c, ())
+  | _, _, .add (.bits 32), (.imm c, .var x, ()) =>
+    match asScale32 defs x with
+    | some (idx, sc, d) => some (none, idx, sc, Int64.ofBitVec ((d + c).signExtend 64))
+    | none =>
+      match defs.find? x with
+      | some (.binVarVar 32 .add a b) =>
+        match asScale32 defs a with
+        | some (idx, sc, d) =>
+          let (rb, d2) := asBaseImm32 defs b
+          some (some rb, idx, sc, Int64.ofBitVec ((d + d2 + c).signExtend 64))
+        | none =>
+          match asScale32 defs b with
+          | some (idx, sc, d) =>
+            let (rb, d2) := asBaseImm32 defs a
+            some (some rb, idx, sc, Int64.ofBitVec ((d + d2 + c).signExtend 64))
+          | none =>
+            let (ra, da) := asBaseImm32 defs a
+            let (rb, db) := asBaseImm32 defs b
+            some (some ra, rb, .s1, Int64.ofBitVec ((da + db + c).signExtend 64))
+      | _ => none
+  | _, _, .sub (.bits 32), (.var x, .imm c, ()) =>
+    match asScale32 defs x with
+    | some (idx, sc, d) => some (none, idx, sc, Int64.ofBitVec ((d - c).signExtend 64))
+    | none =>
+      match defs.find? x with
+      | some (.binVarVar 32 .add a b) =>
+        match asScale32 defs a with
+        | some (idx, sc, d) =>
+          let (rb, d2) := asBaseImm32 defs b
+          some (some rb, idx, sc, Int64.ofBitVec ((d + d2 - c).signExtend 64))
+        | none =>
+          match asScale32 defs b with
+          | some (idx, sc, d) =>
+            let (rb, d2) := asBaseImm32 defs a
+            some (some rb, idx, sc, Int64.ofBitVec ((d + d2 - c).signExtend 64))
+          | none =>
+            let (ra, da) := asBaseImm32 defs a
+            let (rb, db) := asBaseImm32 defs b
+            some (some ra, rb, .s1, Int64.ofBitVec ((da + db - c).signExtend 64))
+      | _ => none
+  | _, _, .add (.bits 32), (.var x, .var y, ()) =>
+    match asScale32 defs x with
+    | some (idx, sc, d1) =>
+      let (rb, d2) := asBaseImm32 defs y
+      some (some rb, idx, sc, Int64.ofBitVec ((d1 + d2).signExtend 64))
+    | none =>
+      match asScale32 defs y with
+      | some (idx, sc, d1) =>
+        let (rb, d2) := asBaseImm32 defs x
+        some (some rb, idx, sc, Int64.ofBitVec ((d1 + d2).signExtend 64))
+      | none =>
+        let (rx, dx) := asBaseImm32 defs x
+        let (ry, dy) := asBaseImm32 defs y
+        if dx == 0#32 && dy == 0#32 then none
+        else some (some rx, ry, .s1, Int64.ofBitVec ((dx + dy).signExtend 64))
+  | _, _, .shl (.bits 32), (.var x, .imm k, ()) =>
+    let kn := k.toNat
+    if !Nat.blt kn 32 then none
+    else
+      match defs.find? x with
+      | some (.binVarImm 32 .add b d) =>
+        if Nat.beq kn 0 then none
+        else (AddrScale.ofShift? kn).map fun sc =>
+          (none, b, sc, Int64.ofBitVec (((d.setWidth 32) <<< kn).signExtend 64))
+      | some (.binVarImm 32 .sub b d) =>
+        if Nat.beq kn 0 then none
+        else (AddrScale.ofShift? kn).map fun sc =>
+          (none, b, sc, Int64.ofBitVec (((-(d.setWidth 32)) <<< kn).signExtend 64))
+      | some (.shlVarImm 32 idx sh) =>
+        if Nat.beq (sh + kn) 0 then none
+        else (AddrScale.ofShift? (sh + kn)).map fun sc => (none, idx, sc, 0)
+      | _ => none
+  | _, _, _, _ => none
+
+def tryLeaArith (I : Isa) (st : SymState I) {sig ts : List Ty}
+    (code : OpCode sig ts) (args : Tup (Arg VNat) sig)
+    (dsts : Tup (PDst I.Reg I.VReg I.Cond) ts) : Option (List I.Directive × FlagMask × Bool) :=
+  match ts, dsts with
+  | [.bits w], (.gpr rd, ()) =>
+    let ext? :=
+      if Nat.beq w 64 then extractLea64 st.defs code args
+      else if Nat.beq w 32 then extractLea32 st.defs code args
+      else none
+    ext?.bind fun (base?, idx, sc, disp) =>
+      let rbOpt? : Option (Option I.Reg) := match base? with
+        | some b => (findGprFor I true st.regs (.var b)).map some
+        | none => some none
+      rbOpt?.bind fun rb? =>
+        (findGprFor I true st.regs (.var idx)).bind fun ri =>
+          (I.gpr.leaArith w rb? ri sc disp rd).map fun (c, cl) =>
+            (c, cl, Nat.beq w 32 && I.gpr.zeroUpper32LeaArith)
+  | _, _ => none
+
 def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List Ty}
     (op : Op VNat ts) (deferFuse : Bool := false) : Option (List I.Directive × SymState I) :=
   if deferFuse then
-    (recordBoolDef st1.defs op.code op.args).map fun df =>
-      ([], { st1 with defs := st1.defs.insert nv df })
+    ((recordBoolDef st1.defs op.code op.args).map fun df =>
+      ([], { st1 with defs := st1.defs.insert nv df })) <|>
+    ((recordDef st1.defs op.code op.args).map fun df =>
+      ([], { st1 with defs := st1.defs.insert nv df }))
   else if h.elide.getD ip false then
     match recordDef st1.defs op.code op.args with
     | some df => some ([], { st1 with defs := st1.defs.insert nv df })
@@ -1076,6 +1252,8 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
           (c, cl, false, false)) <|>
         ((tryLoadSext I st1 vh op.code op.args dsts).map fun (c, cl) =>
           (c, cl, false, false)) <|>
+        ((tryLeaArith I st1 op.code op.args dsts).map fun (c, cl, z32) =>
+          (c, cl, false, z32)) <|>
         (pickPArgs I st1 (tupDstFlags dsts) op.args fun pas =>
           if dstVecs.isEmpty && (tupArgVecs pas).isEmpty then
             ((I.gpr.op op.code pas dsts vh).map fun (c, cl) =>
@@ -1576,6 +1754,28 @@ def deferJnzNext {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nv nl ip : N
       | none => false
   | _, _ => false
 
+def isLeaDeferCand {sig ts : List Ty} (code : OpCode sig ts) : Bool :=
+  match ts, code with
+  | [.bits w], .shl (.bits _) | [.bits w], .add (.bits _) | [.bits w], .sub (.bits _) =>
+    Nat.beq w 32 || Nat.beq w 64
+  | _, _ => false
+
+/-- Lookahead deferring shift/add/sub arithmetic feeding a single-use `tryLeaArith` consumer. -/
+def deferLeaNext {rs : List Ty} (I : Isa) (h : I.Hints) (nv ip : Nat)
+    (st1 : SymState I) {ts : List Ty} (op : Op VNat ts) (k' : Expr VNat LNat rs) : Bool :=
+  if !isLeaDeferCand op.code then false
+  else
+    match ts, recordDef st1.defs op.code op.args, k' with
+    | [_], some df, .let_ (ts := ts2) op2 k2 =>
+      exprFreeOfVar h nv (k2 (Tup.levels ts2 (nv + 1))) (nv + 1 + ts2.length) &&
+        match stepPre I h (ip + 1) { st1 with defs := st1.defs.insert nv df } with
+        | some (_, stAfter) =>
+          match resolveDsts I h ts2 (nv + 1) with
+          | some dsts2 => (tryLeaArith I stAfter op2.code op2.args dsts2).isSome
+          | none => false
+        | none => false
+    | _, _, _ => false
+
 mutual
 def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
     Expr VNat LNat rs → Nat → Nat → Nat → SymState I → Option Nat → Res I
@@ -1584,7 +1784,8 @@ def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
     | none => .error "let: pre"
     | some (mc, st1) =>
       let k' := k (Tup.levels ts nv)
-      match lowerOp I h nv ip st1 op (deferJnzNext I h fn nv nl ip st1 op k') with
+      let df := deferJnzNext I h fn nv nl ip st1 op k' || deferLeaNext I h nv ip st1 op k'
+      match lowerOp I h nv ip st1 op df with
       | none => .error "let: op"
       | some (c, st2) =>
         prepend (mc ++ c) (lowerExpr I h E fn k' (nv + ts.length) nl (ip + 1) st2 ft)
@@ -1738,6 +1939,9 @@ structure LabelClean (I : Isa) : Prop where
     by intro _ _ _ _ _ h; cases h
   rmwMem : ∀ w code a pb c cl, I.gpr.rmwMem w code a pb = some (c, cl) → NoLab I c :=
     by intro _ _ _ _ _ _ h; cases h
+  leaArith : ∀ w base? idx sc disp rd c cl,
+    I.gpr.leaArith w base? idx sc disp rd = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ _ _ _ h; cases h
   (load : ∀ t r a c cl, I.gpr.load t r a = some (c, cl) → NoLab I c)
   (store : ∀ t pa a c cl, I.gpr.store t pa a = some (c, cl) → NoLab I c)
   (clearFlags : NoLab I I.gpr.clearFlags) (vmov : ∀ w d s, NoLab I (I.vec.vmov w d s))

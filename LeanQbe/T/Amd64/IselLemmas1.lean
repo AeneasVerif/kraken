@@ -260,6 +260,11 @@ theorem x64Gpr_rmwMem_noLab {n : Nat} {code : OpCode [.bits n, .bits n] [.bits n
     {c : List Directive} {clob : FlagMask} (h : x64Gpr.rmwMem n code a pb = some (c, clob)) :
     ∀ l, Kraken.Directive.label l ∉ c :=
   emitCleanPair_noLab h
+theorem x64Gpr_leaArith_noLab {w : Nat} {base? : Option Reg64} {idx : Reg64} {sc : AddrScale}
+    {disp : Int64} {rd : Reg64} {c : List Directive} {clob : FlagMask}
+    (h : x64Gpr.leaArith w base? idx sc disp rd = some (c, clob)) :
+    ∀ l, Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h
 
 /-! ## 3. Shared BitVec, Register, Flag-Frame, `subFlags`, and Memory Helpers -/
 
@@ -1584,6 +1589,22 @@ theorem atDisp_interp [Labels] (regs : Reg64s) (rb : Reg64) (off : Int64) (p : S
       regs.get64 rb + off.toBitVec := by
   rw [AddrExpr.interp_base_disp]
   simp [BitVec.setWidth_eq]
+
+theorem atIdx_interp [Labels] (regs : Reg64s) (ri : Reg64) (sc : AddrScale)
+    (off : Int64) (p : Std.Rco Int64) :
+    (@AddrExpr.interp _ ⟨.W64⟩ (atIdx ri sc off) regs p).zeroExtend 64 =
+      (regs.get64 ri <<< sc.shift) + off.toBitVec := by
+  simp only [AddrExpr.interp, BitVec.toAddressSize, BitVec.take, ConstExpr.interp,
+    BitVec.signed, BitVec.extractLsb'_eq_self, BitVec.zeroExtend_eq_setWidth,
+    BitVec.setWidth_eq, Width.bits]
+  rw [BitVec.ofInt_add, BitVec.ofInt_add, BitVec.ofInt_mul]
+  simp only [BitVec.ofInt_toInt, BitVec.ofInt_natCast]
+  congr 1
+  · rw [show BitVec.ofInt 64 0 = 0#64 from rfl, BitVec.zero_add]
+    cases sc <;> apply BitVec.eq_of_toNat_eq <;>
+      simp [scaleWidth, AddrScale.shift, Width.bytes, BitVec.toNat_mul,
+        BitVec.toNat_shiftLeft, Nat.shiftLeft_eq]
+  · rw [← Int64.toInt_toBitVec, BitVec.ofInt_toInt]
 
 /-- Standard single-GPR fallthrough postcondition for `x64Op`. -/
 abbrev OpPost1 (t : Ty) (rd : Reg64) (v : Val t) (clob : FlagMask) (s s' : MachineData) : Prop :=

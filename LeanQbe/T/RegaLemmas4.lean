@@ -699,7 +699,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
     | some p1 =>
       obtain ⟨mc, st1⟩ := p1
       cases hlop : lowerOp T.toIsa hints nv ip st1 op₂
-          (deferJnzNext T.toIsa hints fn nv nl ip st1 op₂ (k₂ (Tup.levels ts nv))) with
+          (deferJnzNext T.toIsa hints fn nv nl ip st1 op₂ (k₂ (Tup.levels ts nv)) ||
+            deferLeaNext T.toIsa hints nv ip st1 op₂ (k₂ (Tup.levels ts nv))) with
       | none => simp [hp, hlop] at hl
       | some p2 =>
         obtain ⟨co, st2⟩ := p2

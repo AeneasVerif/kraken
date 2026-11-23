@@ -138,6 +138,10 @@ def boolArgTo8I (rd : Reg64) : PArg Reg64 RegMm CondCode .bool → Option Instr
   | .flag cc => some (x64InsI .W8 (.setcc cc (.reg (b8 rd))))
   | .vec _   => none
 
+/-- SIB scaled-index memory operand without base `[ri * scale + off]`. -/
+abbrev atIdx (ri : Reg64) (sc : AddrScale) (off : Int64) : AddrExpr :=
+  { base := none, idx := some ⟨ri, scaleWidth sc⟩, disp := .int64 off }
+
 /-- Lower `AddrArg Reg64` to prefix setup instructions, a Kraken `AddrExpr`, and a flag mask.
 Uses `.r10` if needed (leaving `.r11` free for store values). -/
 def addrToExprIns : AddrArg Reg64 → List Instr × AddrExpr × FlagMask
@@ -467,16 +471,25 @@ def opShiftIns (w : Width) (sk : ShiftKind)
               maskNone)
       | .imm ca => some ([moviI rd ((sk.eval ca cnt).setWidth 64)], maskNone)
       | .vec _  => none
-    else do
-      let setup ←
-        match pa with
-        | .gpr ra => some (if ra == rd then [] else [movWI w rd ra])
-        | .imm ca => some [moviI rd (ca.setWidth 64)]
-        | .vec _  => none
-      let clob := if sk.isRot then maskCF ||| maskOF else maskAll
-      some (setup ++
-              [x64InsI w (sk.toOp (.reg (regW w rd)) (.imm8 (.int64 (Int64.ofNat cnt))))],
-            clob)
+    else
+      let fallback : Option (List Instr × FlagMask) := do
+        let setup ←
+          match pa with
+          | .gpr ra => some (if ra == rd then [] else [movWI w rd ra])
+          | .imm ca => some [moviI rd (ca.setWidth 64)]
+          | .vec _  => none
+        let clob := if sk.isRot then maskCF ||| maskOF else maskAll
+        some (setup ++
+                [x64InsI w (sk.toOp (.reg (regW w rd)) (.imm8 (.int64 (Int64.ofNat cnt))))],
+              clob)
+      if isWide && sk == .shl then
+        match pa, AddrScale.ofShift? cnt with
+        | .gpr ra, some sc =>
+          if ra != rd && ra != .rsp then
+            some ([x64InsI w (.lea (regW w rd) (atIdx ra sc 0))], maskNone)
+          else fallback
+        | _, _ => fallback
+      else fallback
   | .gpr rb =>
     if isWide && !sk.isRot then
       match sk.toBmi2Op?, pa with
@@ -1455,6 +1468,34 @@ def x64RmwMem (n : Nat) (code : OpCode [.bits n, .bits n] [.bits n])
     Option (List Directive × FlagMask) :=
   emitCleanPair (x64RmwMemIns n code a pb)
 
+/-- Lower `rd := (base? + (idx <<< sc.shift) + disp)` via 3-op `leaq`/`leal` (`maskNone`),
+guarding against `%rsp` as SIB index and `disp` outside signed 32-bit range. -/
+def x64LeaArithIns (w : Nat) (base? : Option Reg64) (idx : Reg64) (sc : AddrScale)
+    (disp : Int64) (rd : Reg64) : Option (List Instr × FlagMask) :=
+  if !fitsImm32 disp.toBitVec then none
+  else
+    let mk (wd : Width) : Option (List Instr × FlagMask) :=
+      match base? with
+      | some rb =>
+        if idx != .rsp then
+          some ([x64InsI wd (.lea (regW wd rd) (atSIB rb idx sc disp))], maskNone)
+        else if sc == .s1 && rb != .rsp then
+          some ([x64InsI wd (.lea (regW wd rd) (atSIB idx rb .s1 disp))], maskNone)
+        else none
+      | none =>
+        if idx != .rsp then
+          some ([x64InsI wd (.lea (regW wd rd) (atIdx idx sc disp))], maskNone)
+        else none
+    match w with
+    | 32 => mk .W32
+    | 64 => mk .W64
+    | _  => none
+
+/-- Lower `rd := (base? + (idx <<< sc.shift) + disp)` into x64 directives. -/
+def x64LeaArith (w : Nat) (base? : Option Reg64) (idx : Reg64) (sc : AddrScale)
+    (disp : Int64) (rd : Reg64) : Option (List Directive × FlagMask) :=
+  emitCleanPair (x64LeaArithIns w base? idx sc disp rd)
+
 /-- `true` when `x64Op` writes `[.bits 32]` to `.gpr rd` with bits `32..63` guaranteed zero. -/
 def x64ZeroUpper32Op : {sig rs : List Ty} → OpCode sig rs →
     Tup (PArg Reg64 RegMm CondCode) sig → Tup (PDst Reg64 RegMm CondCode) rs → Bool
@@ -1553,5 +1594,7 @@ def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   zeroUpper32AluMem := true
   jnzMem := x64JnzMem
   rmwMem := x64RmwMem
+  leaArith := x64LeaArith
+  zeroUpper32LeaArith := true
 
 end LeanQbe.T.Amd64

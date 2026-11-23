@@ -1431,45 +1431,93 @@ private theorem opShift_z [Host] {E : Int64 → MachineData → Prop} (z32 : Boo
           exact OpPostZ.of_set64 (setWidth_64_setWidth w _) (fun _ _ => rfl)
             (updFlags_of_status_eq rfl _)
       · simp only [hbmi, Bool.false_eq_true, ↓reduceIte] at hc
-        have hsetup : ∃ seq : List Instr, c = seq ++ [x64InsI w (sk.toOp (.reg (regW w rd))
-            (.imm8 (.int64 (Int64.ofNat (cb.toNat % w.bits)))))] ∧
-            clob = (if sk.isRot then maskCF ||| maskOF else maskAll) ∧
-            _root_.Program.wp (emitClean seq) (fun s1 => (s1.regs.get64 rd).setWidth w.bits = va ∧
-              (∀ r, r ≠ rd → s1.regs.get64 r = s.regs.get64 r) ∧
-              s1.dmem = s.dmem ∧ s1.zmms = s.zmms ∧ s1.status = s.status) E s := by
+        have hfallback : (do
+            let setup ← match pa with
+              | .gpr ra => some (if ra == rd then [] else [movWI w rd ra])
+              | .imm ca => some [moviI rd (ca.setWidth 64)]
+              | .vec _ => none
+            let clob := if sk.isRot then maskCF ||| maskOF else maskAll
+            some (setup ++
+              [x64InsI w (sk.toOp (.reg (regW w rd))
+                (.imm8 (.int64 (Int64.ofNat (cb.toNat % w.bits)))))], clob)) =
+            some (c, clob) →
+            _root_.Program.wp (emitClean c)
+              (OpPostZ z32 w rd (sk.eval va (cb.toNat % w.bits)) clob s) E s := by
+          intro hfb
+          have hsetup : ∃ seq : List Instr, c = seq ++ [x64InsI w (sk.toOp (.reg (regW w rd))
+              (.imm8 (.int64 (Int64.ofNat (cb.toNat % w.bits)))))] ∧
+              clob = (if sk.isRot then maskCF ||| maskOF else maskAll) ∧
+              _root_.Program.wp (emitClean seq) (fun s1 => (s1.regs.get64 rd).setWidth w.bits = va ∧
+                (∀ r, r ≠ rd → s1.regs.get64 r = s.regs.get64 r) ∧
+                s1.dmem = s.dmem ∧ s1.zmms = s.zmms ∧ s1.status = s.status) E s := by
+            cases pa with
+            | vec _ => cases hfb
+            | gpr ra =>
+              rcases hfb with ⟨rfl, rfl⟩
+              exact ⟨_, rfl, rfl, by
+                simpa [apply_ite emitClean, emitClean_cons, emitClean_nil, movW, movWI] using
+                  wp_optMovW w s rd ra (GprHolds.bits_iff w _ _ |>.1 hpa)⟩
+            | imm ca =>
+              rcases hpa with rfl
+              rcases hfb with ⟨rfl, rfl⟩
+              refine ⟨_, rfl, rfl, ?_⟩
+              simp only [emitClean_cons, emitClean_nil]
+              refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd (ca.setWidth 64))) ?_
+              rintro s1 rfl
+              exact ⟨by simp [setWidth_64_setWidth],
+                fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, rfl, rfl, rfl⟩
+          rcases hsetup with ⟨seq, rfl, rfl, hwp⟩
+          simp only [emitClean_append, emitClean_cons, emitClean_nil]
+          refine Program.wp.append hwp ?_; rintro s1 ⟨hrd1, hfr1, hm1, hz1, hst1⟩
+          refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_shiftW_z w sk s1 rd
+            (.imm8 (.int64 (Int64.ofNat (cb.toNat % w.bits)))) (cb.toNat % w.bits)
+            hcnt_lt (fun p => shiftMask_imm_eq w cb p s1))) ?_
+          rintro s2 ⟨rv, st, hrv, hrvz, hrot, rfl⟩
+          refine ⟨⟨(GprHolds.bits_iff w _ _).2 (by rw [Reg64s.get64_set64_same, hrv, hrd1]), hm1,
+            x64_frame_of_eq (fun r hr => ?_) hz1 ?_⟩, fun _ hw32 => by
+            rw [Reg64s.get64_set64_same, hrvz hw32, hrd1]⟩
+          · simp only [List.mem_cons, not_or] at hr
+            rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1), hfr1 r hr.1]
+          · by_cases hr : sk.isRot = true
+            · simp only [hr, ↓reduceIte]; obtain ⟨h1, h2, h3⟩ := hrot hr
+              exact updFlags_maskCF_OF (h1.trans (congrArg StatusFlags.pf hst1))
+                (h2.trans (congrArg StatusFlags.zf hst1)) (h3.trans (congrArg StatusFlags.sf hst1))
+            · simp only [hr, Bool.false_eq_true, ↓reduceIte]; exact updFlags_maskAll _ _
+        by_cases hshl : ((w == .W32 || w == .W64) && sk == .shl) = true
+        · simp only [hshl, ↓reduceIte] at hc
+          have hw : w = .W32 ∨ w = .W64 := by cases w <;> simp_all
+          have hsk : sk = .shl := beq_iff_eq.mp (Bool.and_eq_true .. |>.mp hshl).2
+          subst hsk
           cases pa with
-          | vec _ => cases hc
+          | vec _ | imm _ => exact hfallback hc
           | gpr ra =>
-            rcases hc with ⟨rfl, rfl⟩
-            exact ⟨_, rfl, rfl, by
-              simpa [apply_ite emitClean, emitClean_cons, emitClean_nil, movW, movWI] using
-                wp_optMovW w s rd ra (GprHolds.bits_iff w _ _ |>.1 hpa)⟩
-          | imm ca =>
-            rcases hpa with rfl
-            rcases hc with ⟨rfl, rfl⟩
-            refine ⟨_, rfl, rfl, ?_⟩
-            simp only [emitClean_cons, emitClean_nil]
-            refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_moviD s rd (ca.setWidth 64))) ?_
-            rintro s1 rfl
-            exact ⟨by simp [setWidth_64_setWidth],
-              fun r hr => Reg64s.get64_set64_of_ne _ rd r _ hr.symm, rfl, rfl, rfl⟩
-        rcases hsetup with ⟨seq, rfl, rfl, hwp⟩
-        simp only [emitClean_append, emitClean_cons, emitClean_nil]
-        refine Program.wp.append hwp ?_; rintro s1 ⟨hrd1, hfr1, hm1, hz1, hst1⟩
-        refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_shiftW_z w sk s1 rd
-          (.imm8 (.int64 (Int64.ofNat (cb.toNat % w.bits)))) (cb.toNat % w.bits)
-          hcnt_lt (fun p => shiftMask_imm_eq w cb p s1))) ?_
-        rintro s2 ⟨rv, st, hrv, hrvz, hrot, rfl⟩
-        refine ⟨⟨(GprHolds.bits_iff w _ _).2 (by rw [Reg64s.get64_set64_same, hrv, hrd1]), hm1,
-          x64_frame_of_eq (fun r hr => ?_) hz1 ?_⟩, fun _ hw32 => by
-          rw [Reg64s.get64_set64_same, hrvz hw32, hrd1]⟩
-        · simp only [List.mem_cons, not_or] at hr
-          rw [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1), hfr1 r hr.1]
-        · by_cases hr : sk.isRot = true
-          · simp only [hr, ↓reduceIte]; obtain ⟨h1, h2, h3⟩ := hrot hr
-            exact updFlags_maskCF_OF (h1.trans (congrArg StatusFlags.pf hst1))
-              (h2.trans (congrArg StatusFlags.zf hst1)) (h3.trans (congrArg StatusFlags.sf hst1))
-          · simp only [hr, Bool.false_eq_true, ↓reduceIte]; exact updFlags_maskAll _ _
+            cases hsc : AddrScale.ofShift? (cb.toNat % w.bits) with
+            | none => rw [hsc] at hc; exact hfallback hc
+            | some sc =>
+              rw [hsc] at hc; dsimp only at hc
+              by_cases hne : (ra != rd && ra != .rsp) = true
+              · simp only [hne, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hc
+                rcases hc with ⟨rfl, rfl⟩
+                simp only [emitClean_cons, emitClean_nil]
+                have hsh : sc.shift = cb.toNat % w.bits := by
+                  rcases hn : cb.toNat % w.bits with _ | _ | _ | _ | k <;>
+                    rw [hn] at hsc <;> simp [AddrScale.ofShift?] at hsc <;> subst hsc <;> rfl
+                have hz0 : (0 : Int64).toBitVec = 0#64 := rfl
+                have hz : (0 : Int64).toBitVec.setWidth w.bits = 0#w.bits := by
+                  rw [hz0, BitVec.setWidth_zero]
+                have hra : (s.regs.get64 ra).setWidth w.bits = va :=
+                  (GprHolds.bits_iff w _ _).1 hpa
+                refine Program.wp.mono
+                  (Directive.FallsTo.wp (fallsTo_leaIdx_z w hw s rd ra sc 0)) ?_
+                rintro s' ⟨rv, hrv, hrvz, rfl⟩
+                exact OpPostZ.of_set64
+                  (by rw [hrv, hz, BitVec.add_zero, hra, hsh]; rfl)
+                  (fun _ hw32 => by rw [hrvz hw32, hz, BitVec.add_zero, hra, hsh]; rfl)
+                  (updFlags_of_status_eq rfl _)
+              · simp only [hne, Bool.false_eq_true, ↓reduceIte] at hc
+                exact hfallback hc
+        · simp only [hshl, Bool.false_eq_true, ↓reduceIte] at hc
+          exact hfallback hc
   | gpr rb =>
     dsimp only [opShiftIns] at hc
     have hvb : (s.regs.get64 rb).setWidth w.bits = vb := (GprHolds.bits_iff w _ _).1 hpb
