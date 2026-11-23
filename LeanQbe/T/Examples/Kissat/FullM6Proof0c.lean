@@ -1187,4 +1187,65 @@ theorem m6Part3_tableImpl {tPfx tbl : List SpecEntry}
   rw [← List.take_append_drop 121 m6FnsPart3, p3Tail_eq]
   exact tableImpl_append h121 ip it
 
+/-- Part 3 external callee memberships required by `m6Orch_fns.take 24`. -/
+structure M6Part3ExtCallees (tbl : List SpecEntry) : Prop where
+  sweepDenseM5 :
+    (⟨"full_sweep_dense_m5", [i64, i64, i64], [i64],
+      FullDefSweep.fullSweepDenseSpec, true⟩ : SpecEntry) ∈ tbl
+  reorderQueueM7 :
+    (⟨"full_reorder_queue_m7", [i64], [i64], FullM4Ternary.fullReorderQueueSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  minU64 :
+    (⟨"full_min_u64", [i64, i64], [i64], FullFastSched.schedMinU64Spec, true⟩ :
+      SpecEntry) ∈ tbl
+  probeDticks :
+    (⟨"full_probe_dticks_m6_hdr", [i64, .bool], [i64],
+      FullM6Hdr.m6HdrW2aSpec [.bool] [i64], true⟩ : SpecEntry) ∈ tbl
+  factor :
+    (⟨"full_factor", [i64, i64], [i64], FullM3CongBva.fullFactorHeapSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  compactNeeded :
+    (⟨"full_compact_needed", [i64], [.bool],
+      FullM6CompactFlush.fullCompactNeededM6Spec, true⟩ : SpecEntry) ∈ tbl
+  compact :
+    (⟨"full_compact", [i64], [i64], FullM4Compact.fullCompactSpec, true⟩ : SpecEntry) ∈ tbl
+  eliminateM6 :
+    (⟨"full_eliminate_m6", [i64, .bool], [i64], FullFastSched.schedEliminateSpec, true⟩ :
+      SpecEntry) ∈ tbl
+
+theorem m6Part3ExtCallees_of_sub {tPfx tbl : List SpecEntry}
+    (hsub : ∀ e ∈ m6RowsPart3Pfx tPfx, e ∈ tbl) : M6Part3ExtCallees tbl := by
+  have sub_swdm5 : ∀ e ∈ p3SweepDenseM5Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart3Pfx; iterate 1 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_fh : ∀ e ∈ p3FactorRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart3Pfx; iterate 28 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_cfc : ∀ e ∈ p3CfCompact3Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart3Pfx; iterate 29 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_cmp10 : ∀ e ∈ p3Compact10Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart3Pfx; iterate 30 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_reord : ∀ e ∈ p3ReorderRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart3Pfx; iterate 31 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_minmax : ∀ e ∈ p3SchedMinMaxRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart3Pfx; iterate 34 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_bf2 : ∀ e ∈ p3BveFwd2Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart3Pfx; iterate 36 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_adp15 : ∀ e ∈ p3Adp15Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart3Pfx; iterate 37 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  refine ⟨ sub_swdm5 _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_reord _ (List.mem_of_getElem? (i := 2) rfl)
+         , sub_minmax _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_adp15 _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_fh _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_cfc _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_cmp10 _ (List.mem_of_getElem? (i := 9) rfl)
+         , sub_bf2 _ (List.mem_of_getElem? (i := 7) rfl) ⟩
+
 end LeanQbe.T.Examples.Kissat.FullM6Proof
