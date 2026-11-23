@@ -812,12 +812,52 @@ theorem full_probe_prop_wp (Γ : Env)
     fun ok st' m'' x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 _ x13 x14 x15 hm'' =>
       hQ' ok st' m'' x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 trivial x13 x14 x15 hm''⟩
 
-/-! ## 3. `full_probe_flush_hbr_wp` -/
+/-! ## 3. `full_probe_flush_hbr_del_wp` & `full_probe_flush_hbr_wp` -/
 
-theorem full_probe_flush_hbr_wp (Γ : Env)
+namespace FullProbeTransSpecs
+
+@[expose] def fullPropagateDelSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
+    s.core.dense_mode = 0#64 ∧ (FullMem c s ⋆ R) m ∧
+    ∀ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+      fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' m',
+      let s' : FullState :=
+        { s with
+          core := { s.core with
+            vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+            trail_pos := tp', trail_end := te', propagated := prop', unassigned := unass',
+            unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+            wusable := wu', fuel := fuel', confl_type := ctype', confl_ref := cref',
+            confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
+          scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                      phases := phases', delayed := delayed' } }
+      s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
+      FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
+      fuel'.toNat ≤ s.core.fuel.toNat → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
+      (r = 0#64 → prop' = te' ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
+        (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
+      (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧ FullConflictOkW F_cur s') →
+      (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
+      (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
+      (FullMem c s' ⋆ R) m' → Q (r, ()) m'
+
+theorem fullPropagateSpec_of_del {a : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : fullPropagateDelSpec a m Q X) : fullPropagateSpec a m Q X := by
+  rcases a with ⟨hptr, ⟨⟩⟩
+  obtain ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩ := h
+  exact ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm,
+    fun r v f lv rs tr tp te pr un uf wv ar ws wl wu fu ct cr c0 c1 oo tk wso ph m'
+        hlen' hw' htr hap hfl hd h0 h1 h2 heq hm' =>
+      hQ r v f lv rs tr tp te pr un uf wv ar ws wl wu fu ct cr c0 c1 oo tk wso ph
+        s.scratch.delayed m' hlen' hw' htr hap hfl hd h0 h1 h2 heq hm'⟩
+
+end FullProbeTransSpecs
+
+theorem full_probe_flush_hbr_del_wp (Γ : Env)
     (hAddBin : ∀ args m Q X, fullAddBinSpec args m Q X →
       Γ "full_add_bin" [i64, i32, i32] [i64] args m Q X)
-    (hProp : ∀ args m Q X, fullPropagateSpec args m Q X →
+    (hProp : ∀ args m Q X, fullPropagateDelSpec args m Q X →
       Γ "full_propagate" [i64] [i64] args m Q X) :
     ∀ args m Q X, fullProbeFlushHbrSpec args m Q X →
       Func.wp Γ full_probe_flush_hbr_body args m Q X := by
@@ -927,8 +967,8 @@ theorem full_probe_flush_hbr_wp (Γ : Env)
       refine ⟨c, F0, F_cur, st, R, rfl, hlen, hw, hdm, hml, ?_⟩
       dsimp only
       intro pr vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen'
-        wu' fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' mp hlen_p hw_p htr_p hperm_p
-        hfu_p _ _ hp1 _ _ hmp
+        wu' fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' mp
+        hlen_p hw_p htr_p hperm_p hfu_p _ _ hp1 _ _ hmp
       let st_p : FullState :=
         { st with
           core := { st.core with
@@ -938,7 +978,7 @@ theorem full_probe_flush_hbr_wp (Γ : Env)
             wusable := wu', fuel := fuel', confl_type := ctype', confl_ref := cref',
             confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
           scratch := { st.scratch with
-            search_ticks := ticks', wsort := wsort', phases := phases' } }
+            search_ticks := ticks', wsort := wsort', phases := phases', delayed := delayed' } }
       have hnd_p : FullArenaVarsNodup st_p := fullArenaVarsNodup_of_permEq hnd hperm_p
       have hext_p : FullExtScratchOk c st_p :=
         ⟨fullLastLearnedWf_of_refs_eq hext.1 rfl hperm_p.2.1, hext.2⟩
@@ -953,5 +993,15 @@ theorem full_probe_flush_hbr_wp (Γ : Env)
           (Or.inr (Or.inr rfl)) (fun _ => hunsat) hmp
       · exact hQ 1#64 st_p mp hlen_p hw_p hmrk hnd_p hext_p hdm hcl hcv hfu_ps hlm hws1
           (Or.inl rfl) (fun h20 => by cases h20) hmp
+
+theorem full_probe_flush_hbr_wp (Γ : Env)
+    (hAddBin : ∀ args m Q X, fullAddBinSpec args m Q X →
+      Γ "full_add_bin" [i64, i32, i32] [i64] args m Q X)
+    (hProp : ∀ args m Q X, fullPropagateSpec args m Q X →
+      Γ "full_propagate" [i64] [i64] args m Q X) :
+    ∀ args m Q X, fullProbeFlushHbrSpec args m Q X →
+      Func.wp Γ full_probe_flush_hbr_body args m Q X :=
+  full_probe_flush_hbr_del_wp Γ hAddBin
+    (fun a m Q X h => hProp a m Q X (fullPropagateSpec_of_del h))
 
 end LeanQbe.T.Examples.Kissat.Full

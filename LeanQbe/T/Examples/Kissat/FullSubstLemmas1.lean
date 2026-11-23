@@ -239,6 +239,43 @@ theorem level0_unsat_of_conflict_okW {c : FullCfg} {F0 : CNF Nat} {F_cur : List 
       (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
+@[expose] def fullPropagateDelSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
+    s.core.dense_mode = 0#64 ∧ (FullMem c s ⋆ R) m ∧
+    ∀ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+      fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' m',
+      let s' : FullState :=
+        { s with
+          core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                trl := trl', trail_pos := tp', trail_end := te',
+                                propagated := prop', unassigned := unass', unflushed := unfl',
+                                wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                                wusable := wu', fuel := fuel', confl_type := ctype',
+                                confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                                oom := oom' }
+          scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                      phases := phases', delayed := delayed' } }
+      s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
+      FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
+      fuel'.toNat ≤ s.core.fuel.toNat → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
+      (r = 0#64 → prop' = te' ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
+        (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
+      (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧ FullConflictOkW F_cur s') →
+      (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
+      (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
+      (FullMem c s' ⋆ R) m' → Q (r, ()) m'
+
+theorem fullPropagateSpec_of_del {a : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : fullPropagateDelSpec a m Q X) : fullPropagateSpec a m Q X := by
+  rcases a with ⟨hptr, ⟨⟩⟩
+  obtain ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩ := h
+  exact ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm,
+    fun r v f lv rs tr tp te pr un uf wv ar ws wl wu fu ct cr c0 c1 oo tk wso ph m'
+        hlen' hw' htr hap hfl hd h0 h1 h2 heq hm' =>
+      hQ r v f lv rs tr tp te pr un uf wv ar ws wl wu fu ct cr c0 c1 oo tk wso ph
+        s.scratch.delayed m' hlen' hw' htr hap hfl hd h0 h1 h2 heq hm'⟩
+
 @[expose] def fullArenaSweepSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullArenaVarsNodup s ∧
@@ -1025,6 +1062,64 @@ theorem fullSparseInvW_afterPropagate {c : FullCfg} {F0 : CNF Nat} {F_cur : List
     unfold fullArenaClauseRefs at hr ⊢; rw [hperm.2.1]; exact hr
   exact ⟨hsok, hw', hsp.2.2.1, hnd', hsp.2.2.2.2.1.of_pres ⟨rfl, rfl⟩ hrefs, hsp.2.2.2.2.2⟩
 
+theorem fullSparseInvW_afterPropagateDel {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {s : FullState} (hsp : FullSparseInvW c F0 F_cur s)
+    {vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+      fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed'}
+    (hsok : ({ s with
+        core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                              trl := trl', trail_pos := tp', trail_end := te',
+                              propagated := prop', unassigned := unass', unflushed := unfl',
+                              wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                              wusable := wu', fuel := fuel', confl_type := ctype',
+                              confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                              oom := oom' }
+        scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                    phases := phases', delayed := delayed' } } :
+      FullState).LengthsOk c)
+    (hw' : FullWitnessInv c F0 F_cur
+      { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                    trl := trl', trail_pos := tp', trail_end := te',
+                    propagated := prop', unassigned := unass', unflushed := unfl',
+                    wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                    wusable := wu', fuel := fuel', confl_type := ctype',
+                    confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                    oom := oom' })
+    (hperm : FullArenaPermEq s.core
+      { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                    trl := trl', trail_pos := tp', trail_end := te',
+                    propagated := prop', unassigned := unass', unflushed := unfl',
+                    wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                    wusable := wu', fuel := fuel', confl_type := ctype',
+                    confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                    oom := oom' }) :
+    FullSparseInvW c F0 F_cur
+      { s with
+        core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                              trl := trl', trail_pos := tp', trail_end := te',
+                              propagated := prop', unassigned := unass', unflushed := unfl',
+                              wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                              wusable := wu', fuel := fuel', confl_type := ctype',
+                              confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                              oom := oom' }
+        scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                    phases := phases', delayed := delayed' } } := by
+  let s0' : FullState :=
+    { s with
+      core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                            trl := trl', trail_pos := tp', trail_end := te',
+                            propagated := prop', unassigned := unass', unflushed := unfl',
+                            wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                            wusable := wu', fuel := fuel', confl_type := ctype',
+                            confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                            oom := oom' }
+      scratch := { s.scratch with search_ticks := ticks', wsort := wsort', phases := phases' } }
+  have hsok0 : s0'.LengthsOk c :=
+    ⟨hsok.core_ok,
+      { hsok.scratch_ok with delayed_len_arr := hsp.1.scratch_ok.delayed_len_arr }⟩
+  have h0 := fullSparseInvW_afterPropagate hsp hsok0 hw' hperm
+  exact ⟨hsok, hw', h0.2.2.1, h0.2.2.2.1, h0.2.2.2.2.1, h0.2.2.2.2.2⟩
+
 theorem fullSparseInvW_afterExtPush2 {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s s' : FullState} (hsp : FullSparseInvW c F0 F_cur s) (hsok : s'.LengthsOk c)
     (hcore : PreservesCoreSlice (fullSafetySlice c).coreProj s s')
@@ -1129,10 +1224,10 @@ open FullSubstHelpers
 
 /-! ## 4. `full_subst_elim_vars` `Func.wp` Proof (`Full3.lean` #26) -/
 
-theorem full_subst_elim_vars_wp (Γ : Env)
+theorem full_subst_elim_vars_del_wp (Γ : Env)
     (hAddUnit : ∀ args m Q X, fullAddUnitSpec args m Q X →
       Γ "full_add_unit" [i64, i32] [.bool] args m Q X)
-    (hProp : ∀ args m Q X, fullPropagateSpec args m Q X →
+    (hProp : ∀ args m Q X, fullPropagateDelSpec args m Q X →
       Γ "full_propagate" [i64] [i64] args m Q X)
     (hExtPush2 : ∀ args m Q X, fullExtendPush2Spec args m Q X →
       Γ "full_extend_push2" [i64, i32, i32] [.bool] args m Q X)
@@ -1191,10 +1286,10 @@ theorem full_subst_elim_vars_wp (Γ : Env)
       c0_call hProp
       refine ⟨c, F0, F_cur, st, R, rfl, hsp.1, hsp.2.1, hsp.2.2.2.2.2, hml, ?_⟩
       intro r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
-        fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m1 st1
+        fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' m1 st1
         hlen1 hw1 _ hperm1 hfuel1 _ _ hr1 _ _ hm1
       have hsp1 : FullSparseInvW c F0 F_cur st1 :=
-        fullSparseInvW_afterPropagate hsp hlen1 hw1 hperm1
+        fullSparseInvW_afterPropagateDel hsp hlen1 hw1 hperm1
       have hcv1 : st1.core.cur_vars = s0.core.cur_vars := hcv
       have hl01 : st1.core.cur_level = 0 := hst_l0
       have hfuel1' : st1.core.fuel.toNat ≤ s0.core.fuel.toNat := by
@@ -1384,5 +1479,19 @@ theorem full_subst_elim_vars_wp (Γ : Env)
               subst_steps
               exact hQ true st2 m2 hsp2 hl02 hcv2 (by rw [hfl2]; exact hfuel1') hrepr2
                 (fun h => by cases h) hm2
+
+theorem full_subst_elim_vars_wp (Γ : Env)
+    (hAddUnit : ∀ args m Q X, fullAddUnitSpec args m Q X →
+      Γ "full_add_unit" [i64, i32] [.bool] args m Q X)
+    (hProp : ∀ args m Q X, fullPropagateSpec args m Q X →
+      Γ "full_propagate" [i64] [i64] args m Q X)
+    (hExtPush2 : ∀ args m Q X, fullExtendPush2Spec args m Q X →
+      Γ "full_extend_push2" [i64, i32, i32] [.bool] args m Q X)
+    (hSetInact : ∀ args m Q X, fullSetInactiveSpec args m Q X →
+      Γ "full_set_inactive" [i64, i32, i32] [] args m Q X) :
+    ∀ args m Q X, fullSubstElimVarsSpec args m Q X →
+      Func.wp Γ full_subst_elim_vars_body args m Q X :=
+  full_subst_elim_vars_del_wp Γ hAddUnit
+    (fun a m Q X h => hProp a m Q X (fullPropagateSpec_of_del h)) hExtPush2 hSetInact
 
 end LeanQbe.T.Examples.Kissat.Full

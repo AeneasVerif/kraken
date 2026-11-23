@@ -121,7 +121,7 @@ private theorem m6b_sparseInvW_of_prop_canon {c : FullCfg} {F0 : CNF Nat} {F_cur
     {vals' : List (BitVec 8)} {flags' lvl' rsns' trl' tp' : List (BitVec 32)}
     {te' prop' : Nat} {unass' unfl' : BitVec 64} {wvec' arena' wstk' : List (BitVec 32)}
     {wlen' : Nat} {wu' fuel' ctype' cref' c0' c1' oom' ticks' : BitVec 64}
-    {wsort' : List (BitVec 32)} {phases' : List (BitVec 8)}
+    {wsort' : List (BitVec 32)} {phases' : List (BitVec 8)} {delayed' : List (BitVec 32)}
     (hlen' : ({ s with
       core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
                             trl := trl', trail_pos := tp', trail_end := te', propagated := prop',
@@ -129,7 +129,8 @@ private theorem m6b_sparseInvW_of_prop_canon {c : FullCfg} {F0 : CNF Nat} {F_cur
                             arena := arena', wstk := wstk', wlen := wlen', wusable := wu',
                             fuel := fuel', confl_type := ctype', confl_ref := cref',
                             confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
-      scratch := { s.scratch with search_ticks := ticks', wsort := wsort', phases := phases' } } :
+      scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                  phases := phases', delayed := delayed' } } :
       FullState).LengthsOk c)
     (hw' : FullWitnessInv c F0 F_cur
       { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
@@ -154,7 +155,7 @@ private theorem m6b_sparseInvW_of_prop_canon {c : FullCfg} {F0 : CNF Nat} {F_cur
                               fuel := fuel', confl_type := ctype', confl_ref := cref',
                               confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
         scratch := { s.scratch with
-          search_ticks := ticks', wsort := wsort', phases := phases' } } := by
+          search_ticks := ticks', wsort := wsort', phases := phases', delayed := delayed' } } := by
   let s' : FullState :=
     { s with
       core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
@@ -163,7 +164,8 @@ private theorem m6b_sparseInvW_of_prop_canon {c : FullCfg} {F0 : CNF Nat} {F_cur
                             arena := arena', wstk := wstk', wlen := wlen', wusable := wu',
                             fuel := fuel', confl_type := ctype', confl_ref := cref',
                             confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
-      scratch := { s.scratch with search_ticks := ticks', wsort := wsort', phases := phases' } }
+      scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                  phases := phases', delayed := delayed' } }
   have hnd' : FullArenaVarsNodup s' := fun ref href hng => by
     have href0 : ref ∈ fullArenaClauseRefsCore s.core := hperm.2.1 ▸ href
     obtain ⟨_, hgb, hp⟩ := hperm.2.2 ref href0
@@ -890,7 +892,7 @@ theorem full_viv_clear_tier_m6_wp (Γ : Env)
         · exact hJn2 () mq ⟨sq, rfl, halq, hspq, hclq, hflq, hq_ref, hmq⟩
     · exact hQ sq mq hspq hclq hflq hmq
 
-theorem full_vivify_m6_wp (Γ : Env)
+theorem full_vivify_m6_del_wp (Γ : Env)
     (hBacktrack : ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
     (hCollect : ∀ a m Q X, fullVivCollectM6Spec a m Q X →
@@ -903,7 +905,7 @@ theorem full_vivify_m6_wp (Γ : Env)
       Γ "full_viv_sort_sched_m6" [i64, i64] [] a m Q X)
     (hVivClause : ∀ a m Q X, fullVivClauseM6Spec a m Q X →
       Γ "full_viv_clause_m6" [i64, i32] [i64] a m Q X)
-    (hProp : ∀ a m Q X, Full.fullPropagateSpec a m Q X →
+    (hProp : ∀ a m Q X, Full.fullPropagateDelSpec a m Q X →
       Γ "full_propagate" [i64] [i64] a m Q X)
     (hClearTier : ∀ a m Q X, fullVivClearTierM6Spec a m Q X →
       Γ "full_viv_clear_tier_m6" [i64, i64] [] a m Q X) :
@@ -1073,7 +1075,7 @@ theorem full_vivify_m6_wp (Γ : Env)
           refine ⟨c, F0, F_curv, s_vc, R, rfl, hsw_vc.1, hsw_vc.2.1, hsw_vc.2.2.2.2.2, hm_vc,
             fun pr vals_p flags_p lvl_p rsns_p trl_p tp_p te_p prop_p unass_p unfl_p
               wvec_p arena_p wstk_p wlen_p wu_p fuel_p ctype_p cref_p c0_p c1_p oom_p
-              ticks_p wsort_p phases_p m_p hlen_p hw_p _ hperm_p hfl_p _ _ hpr1 _ _
+              ticks_p wsort_p phases_p delayed_p m_p hlen_p hw_p _ hperm_p hfl_p _ _ hpr1 _ _
               hm_p => ?_⟩
           let s_p : FullState :=
             { s_vc with
@@ -1085,7 +1087,8 @@ theorem full_vivify_m6_wp (Γ : Env)
                 fuel := fuel_p, confl_type := ctype_p, confl_ref := cref_p,
                 confl_lit0 := c0_p, confl_lit1 := c1_p, oom := oom_p }
               scratch := { s_vc.scratch with
-                search_ticks := ticks_p, wsort := wsort_p, phases := phases_p } }
+                search_ticks := ticks_p, wsort := wsort_p,
+                phases := phases_p, delayed := delayed_p } }
           have hsw_p : FullSparseInvW c F0 F_curv s_p :=
             m6b_sparseInvW_of_prop_canon hsw_vc hlen_p hw_p hperm_p
           have hrefs_p : fullArenaClauseRefs s_p = fullArenaClauseRefs s_vc := hperm_p.2.1
@@ -1138,6 +1141,28 @@ theorem full_vivify_m6_wp (Γ : Env)
         have h0 : (BitVec.ofNat 64 s.core.cur_level).toNat = 0 := by rw [hc]; rfl
         rwa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hcl0_lt] at h0
       exact hJc () m0 ⟨s, hsp0, hcl0, Nat.le_refl _, hm0⟩
+
+theorem full_vivify_m6_wp (Γ : Env)
+    (hBacktrack : ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
+      Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hCollect : ∀ a m Q X, fullVivCollectM6Spec a m Q X →
+      Γ "full_viv_collect_m6" [i64, i64] [i64] a m Q X)
+    (hCount : ∀ a m Q X, fullVivCountM6Spec a m Q X →
+      Γ "full_viv_count_m6" [i64, i64] [] a m Q X)
+    (hKeys : ∀ a m Q X, fullVivKeysM6Spec a m Q X →
+      Γ "full_viv_keys_m6" [i64, i64] [] a m Q X)
+    (hSortSched : ∀ a m Q X, fullVivSortSchedM6Spec a m Q X →
+      Γ "full_viv_sort_sched_m6" [i64, i64] [] a m Q X)
+    (hVivClause : ∀ a m Q X, fullVivClauseM6Spec a m Q X →
+      Γ "full_viv_clause_m6" [i64, i32] [i64] a m Q X)
+    (hProp : ∀ a m Q X, Full.fullPropagateSpec a m Q X →
+      Γ "full_propagate" [i64] [i64] a m Q X)
+    (hClearTier : ∀ a m Q X, fullVivClearTierM6Spec a m Q X →
+      Γ "full_viv_clear_tier_m6" [i64, i64] [] a m Q X) :
+    ∀ a m Q X, FullFastBveBudgets.fullVivifyFastSpec a m Q X →
+      Func.wp Γ full_vivify_m6_body a m Q X :=
+  full_vivify_m6_del_wp Γ hBacktrack hCollect hCount hKeys hSortSched hVivClause
+    (fun a m Q X h => hProp a m Q X (Full.fullPropagateSpec_of_del h)) hClearTier
 
 end VivSchedProofs
 

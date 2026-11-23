@@ -70,6 +70,36 @@ def m6SortAnaQsSpec : Spec [i64, i64] [] := fun (h, n, ()) m Q _ =>
       (Full.FullMem c { s with scratch := { s.scratch with work_stk1 := ws1' } } ⋆ R) m' →
       Q () m'
 
+theorem m6SortAnaQsSpec_of {c : FullCfg} {s : FullState} {n : BitVec 64} {R : Mem 64 → Prop}
+    {m : Mem 64} {Q : Post []} {X : XPost} (hlen : s.LengthsOk c)
+    (hn : n.toNat ≤ s.core.cur_vars)
+    (hlt : ∀ k < n.toNat, (s.scratch.work_stk1[k]?.getD 0#32).toNat < s.core.cur_vars)
+    (hm : (Full.FullMem c s ⋆ R) m)
+    (hQ : ∀ ws1' m',
+      ws1'.length = 2 * c.max_vars →
+      (ws1'.take n.toNat).Perm (s.scratch.work_stk1.take n.toNat) →
+      (∀ k, n.toNat ≤ k → ws1'[k]? = s.scratch.work_stk1[k]?) →
+      (∀ k < n.toNat, (ws1'[k]?.getD 0#32).toNat < s.core.cur_vars) →
+      (Full.FullMem c { s with scratch := { s.scratch with work_stk1 := ws1' } } ⋆ R) m' →
+      Q () m') :
+    m6SortAnaQsSpec (c.hdr, n, ()) m Q X :=
+  ⟨c, s, R, rfl, hlen, hn, hlt, hm, hQ⟩
+
+theorem m6SortAnaQsSpec_elim {h n : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
+    (hs : m6SortAnaQsSpec (h, n, ()) m Q X) :
+    ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ s.LengthsOk c ∧ n.toNat ≤ s.core.cur_vars ∧
+      (∀ k < n.toNat, (s.scratch.work_stk1[k]?.getD 0#32).toNat < s.core.cur_vars) ∧
+      (Full.FullMem c s ⋆ R) m ∧
+      ∀ ws1' m',
+        ws1'.length = 2 * c.max_vars →
+        (ws1'.take n.toNat).Perm (s.scratch.work_stk1.take n.toNat) →
+        (∀ k, n.toNat ≤ k → ws1'[k]? = s.scratch.work_stk1[k]?) →
+        (∀ k < n.toNat, (ws1'[k]?.getD 0#32).toNat < s.core.cur_vars) →
+        (Full.FullMem c { s with scratch := { s.scratch with work_stk1 := ws1' } } ⋆ R) m' →
+        Q () m' :=
+  hs
+
 /-- Delayed conflict-variable restore, bump, and clear contract (`full_restore_bump_ana_m6`). -/
 def m6RestoreBumpAnaSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),

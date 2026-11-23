@@ -683,7 +683,7 @@ private theorem bb_sparseW_of_prop {c : FullCfg} {F0 : CNF Nat} {F_cur : List (L
     {s s' : FullState} {vals' : List (BitVec 8)} {flags' lvl' rsns' trl' tp' : List (BitVec 32)}
     {te' prop' : Nat} {unass' unfl' : BitVec 64} {wvec' arena' wstk' : List (BitVec 32)}
     {wlen' : Nat} {wu' fuel' ctype' cref' c0' c1' oom' ticks' : BitVec 64}
-    {wsort' : List (BitVec 32)} {phases' : List (BitVec 8)}
+    {wsort' : List (BitVec 32)} {phases' : List (BitVec 8)} {delayed' : List (BitVec 32)}
     (hsp : FullSparseInvW c F0 F_cur s)
     (hs' : s' = { s with
       core := { s.core with
@@ -692,7 +692,8 @@ private theorem bb_sparseW_of_prop {c : FullCfg} {F0 : CNF Nat} {F_cur : List (L
         wvec := wvec', arena := arena', wstk := wstk', wlen := wlen', wusable := wu',
         fuel := fuel', confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
         confl_lit1 := c1', oom := oom' }
-      scratch := { s.scratch with search_ticks := ticks', wsort := wsort', phases := phases' } })
+      scratch := { s.scratch with
+        search_ticks := ticks', wsort := wsort', phases := phases', delayed := delayed' } })
     (hlen' : s'.LengthsOk c) (hw' : FullWitnessInv c F0 F_cur s'.core)
     (hperm' : FullArenaPermEq s.core s'.core) : FullSparseInvW c F0 F_cur s' := by
   obtain ⟨_, _, hlm, hnd0, ⟨hll0, hel0⟩, hdm⟩ := hsp; subst hs'
@@ -2694,11 +2695,9 @@ theorem full_backbone_round_m6_wp (Γ : Env)
         ⟨st, hbt, hcl_le, hkp_le, hci_le, huc_le, hkp_lt, hrem_lt, huc_ok, hm1⟩
 
 /-- `full_backbone_m6` satisfies exact canonical **`FullM3Backbone.fullBackboneSpec`**. -/
-theorem full_backbone_m6_wp (Γ : Env)
-    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
-      Γ "full_backtrack" [i64, i64] [] a m Q X)
-    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X →
-      Γ "full_propagate" [i64] [i64] a m Q X)
+theorem full_backbone_m6_del_wp (Γ : Env)
+    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X → Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hProp : ∀ a m Q X, fullPropagateDelSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
     (hAddUnit : ∀ a m Q X, fullAddUnitSpec a m Q X →
       Γ "full_add_unit" [i64, i32] [.bool] a m Q X)
     (hPrio : ∀ a m Q X, fullPrioritizeBinariesM6Spec a m Q X →
@@ -2712,8 +2711,7 @@ theorem full_backbone_m6_wp (Γ : Env)
     ∀ a m Q X, FullM3Backbone.fullBackboneSpec a m Q X →
       Func.wp Γ full_backbone_m6_body a m Q X := by
   rintro ⟨h, tick_lim, ⟨⟩⟩ m0 Q X ⟨c, F0, s, R, rfl, hsp, hm0, hQ⟩
-  have hmx := c.hmaxv; unfold dimacsBound at hmx
-  unfold Func.wp full_backbone_m6_body
+  have hmx := c.hmaxv; unfold dimacsBound at hmx; unfold Func.wp full_backbone_m6_body
   -- Initial `if (h->cur_level != 0) full_backtrack(h, 0)`
   refine wp_join_group (ts := [])
     (fun _ m1 => ∃ (F_cur : List (List Nat)) (s1 : FullState),
@@ -2740,7 +2738,7 @@ theorem full_backbone_m6_wp (Γ : Env)
             have hsp1p : FullSparseInvW c F0 F_cur s1p := bb_sparseW_with_probing hsp1 1#64
             c0_call hProp
             refine ⟨c, F0, F_cur, s1p, R, rfl, hsp1p.1, hsp1p.2.1, hsp1p.2.2.2.2.2, hm,
-              fun pr0 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ fuel2 _ _ _ _ _ _ _ _ m2 hlen2 hw2 _
+              fun pr0 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ fuel2 _ _ _ _ _ _ _ _ _ m2 hlen2 hw2 _
                 hperm2 hfu2 _ _ hpr0 _ _ hm2 => ?_⟩
             have hsp2 : FullSparseInvW c F0 F_cur _ :=
               bb_sparseW_of_prop hsp1p rfl hlen2 hw2 hperm2
@@ -2859,8 +2857,8 @@ theorem full_backbone_m6_wp (Γ : Env)
                                 · c0_hsteps_nogrp; c0_call hProp
                                   refine ⟨c, F0, F_cur, su, R, rfl, hspu.1, hspu.2.1,
                                     hspu.2.2.2.2.2, hmu,
-                                    fun pr1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ fuel_p _ _ _ _ _ _ _ _ mp
-                                      hlenp hwp _ hpermp hfup _ _ hpr1 _ _ hmp => ?_⟩
+                                    fun pr1 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ fuel_p _ _ _ _ _ _ _ _ _
+                                      mp hlenp hwp _ hpermp hfup _ _ hpr1 _ _ hmp => ?_⟩
                                   have hspp : FullSparseInvW c F0 F_cur _ :=
                                     bb_sparseW_of_prop hspu rfl hlenp hwp hpermp
                                   have hfup' : fuel_p.toNat ≤ s.core.fuel.toNat :=
@@ -2978,6 +2976,23 @@ theorem full_backbone_m6_wp (Γ : Env)
           rwa [Nat.mod_eq_of_lt hcl_lt] at h1
         exact hJbt () m0 ⟨F_cur, s, ⟨hlen, hw, hsp.2.1, hsp.2.2.1, hsp.2.2.2.1, hsp.2.2.2.2⟩,
           hcl0', Nat.le_refl _, hm0⟩)
+
+theorem full_backbone_m6_wp (Γ : Env)
+    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X → Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X)
+    (hAddUnit : ∀ a m Q X, fullAddUnitSpec a m Q X →
+      Γ "full_add_unit" [i64, i32] [.bool] a m Q X)
+    (hPrio : ∀ a m Q X, fullPrioritizeBinariesM6Spec a m Q X →
+      Γ "full_prioritize_binaries_m6" [i64] [.bool] a m Q X)
+    (hSched : ∀ a m Q X, fullBackboneSchedM6Spec a m Q X →
+      Γ "full_backbone_sched_m6" [i64] [i64] a m Q X)
+    (hRound : ∀ a m Q X, fullBackboneRoundM6Spec a m Q X →
+      Γ "full_backbone_round_m6" [i64, i64, .bool] [i64] a m Q X)
+    (hKeep : ∀ a m Q X, fullBackboneKeepM6Spec a m Q X →
+      Γ "full_backbone_keep_m6" [i64, i64] [] a m Q X) :
+    ∀ a m Q X, FullM3Backbone.fullBackboneSpec a m Q X → Func.wp Γ full_backbone_m6_body a m Q X :=
+  full_backbone_m6_del_wp Γ hBacktrack (fun a m Q X h => hProp a m Q X (fullPropagateSpec_of_del h))
+    hAddUnit hPrio hSched hRound hKeep
 
 end BackboneTopProofs
 

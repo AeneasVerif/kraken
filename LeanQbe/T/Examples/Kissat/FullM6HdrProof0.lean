@@ -852,6 +852,24 @@ theorem m6HdrDrAllowSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [.boo
     {X X' : XPost} (h : m6HdrDrAllowSpec xs m Q X) : m6HdrDrAllowSpec xs m Q X' := by
   rcases xs with ⟨_, ⟨⟩⟩; exact h
 
+theorem m6HdrDecideSpec_of {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)}
+    {s : FullState} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hinv : FullM6HdrCoreInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ r vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' cl' unass' unfl' sc' ext' m',
+      let s' : FullState :=
+        { core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                trl := trl', trail_pos := tp', frame_trail := ftrl',
+                                frame_dec := fdec', trail_end := te', cur_level := cl',
+                                unassigned := unass', unflushed := unfl' }
+          scratch := sc' }
+      FullM6HdrCoreInv c F0 ext' s' → FullExtScratchPres s s' → (r = 0#64 ∨ r = 1#64) →
+      (r = 0#64 → cl' = s.core.cur_level ∧ te' = s.core.trail_end) →
+      (r = 1#64 → cl' = s.core.cur_level + 1 ∧ te' = s.core.trail_end + 1 ∧
+        M6HdrExtInitOk ext' ∧ (M6HdrExtInitOk ext → M6ExtW2aPres ext ext')) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m') :
+    m6HdrDecideSpec (c.hdr, ()) m Q X :=
+  ⟨c, F0, ext, s, R, rfl, hinv, hm, hQ⟩
+
 theorem m6HdrDecideSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post [i64]} {X : XPost}
     (hs : m6HdrDecideSpec (h, ()) m Q X) :
     ∃ (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),

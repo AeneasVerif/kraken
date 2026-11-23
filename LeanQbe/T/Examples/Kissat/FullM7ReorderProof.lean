@@ -592,6 +592,14 @@ def m7ReorderSiftSpec : Spec [i64, i64, i64] [] :=
         let s' := { s with scratch := { s.scratch with wsort := ws' } }
         (ReorderMem c s' wl wr ⋆ R) m' → Q () m'
 
+theorem m7ReorderWeightSpec_noExit {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : m7ReorderWeightSpec xs m Q X) : m7ReorderWeightSpec xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
+theorem m7ReorderSiftSpec_noExit {xs : Tup Val [i64, i64, i64]} {m : Mem 64} {Q : Post []}
+    {X X' : XPost} (h : m7ReorderSiftSpec xs m Q X) : m7ReorderSiftSpec xs m Q X' := by
+  rcases xs with ⟨_, _, _, ⟨⟩⟩; exact h
+
 private theorem wsortBounded_mono {ws : List (BitVec 32)} {n1 n2 cv : Nat}
     (hle : n1 ≤ n2) (h : WsortBounded ws n2 cv) : WsortBounded ws n1 cv :=
   fun i hi => h i (by omega)

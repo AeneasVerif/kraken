@@ -503,6 +503,75 @@ def fullM6SearchSpec : Spec [i64] [i64] :=
         (r = 10#64 → s'.scratch.extend_len ≤ c'.extend_cap) →
         (FullM6HdrMem c' ext' s' ⋆ R) m' → Q (r, ()) m'
 
+theorem fullM6PreprocessSpec_of {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)}
+    {s : FullState} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hinv : FullM6HdrInv c F0 ext s) (hcl0 : s.core.cur_level = 0)
+    (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ r c' ext' s' m',
+      FullM4Compact.FullCfgCompat c c' → s'.LengthsOk c' →
+      FullM6HdrCfgOk c' → M6HdrExtOk ext' →
+      (r = 0#64 ∨ r = 1#64 ∨ r = 10#64 ∨ r = 20#64) →
+      s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      (r = 20#64 → F0.Unsat) →
+      (r = 1#64 → FullM6HdrInv c' F0 ext' s' ∧ s'.core.cur_level = 0) →
+      (r = 10#64 → s'.scratch.extend_len ≤ c'.extend_cap) →
+      (FullM6HdrMem c' ext' s' ⋆ R) m' → Q (r, ()) m') :
+    fullM6PreprocessSpec (c.hdr, ()) m Q X :=
+  ⟨c, F0, ext, s, R, rfl, hinv, hcl0, hm, hQ⟩
+
+theorem fullM6PreprocessSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hs : fullM6PreprocessSpec (h, ()) m Q X) :
+    ∃ (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullM6HdrInv c F0 ext s ∧ s.core.cur_level = 0 ∧
+      (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ r c' ext' s' m',
+        FullM4Compact.FullCfgCompat c c' → s'.LengthsOk c' →
+        FullM6HdrCfgOk c' → M6HdrExtOk ext' →
+        (r = 0#64 ∨ r = 1#64 ∨ r = 10#64 ∨ r = 20#64) →
+        s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+        (r = 20#64 → F0.Unsat) →
+        (r = 1#64 → FullM6HdrInv c' F0 ext' s' ∧ s'.core.cur_level = 0) →
+        (r = 10#64 → s'.scratch.extend_len ≤ c'.extend_cap) →
+        (FullM6HdrMem c' ext' s' ⋆ R) m' → Q (r, ()) m' :=
+  hs
+
+theorem fullM6PreprocessSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : fullM6PreprocessSpec xs m Q X) :
+    fullM6PreprocessSpec xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
+theorem fullM6SearchSpec_of {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)}
+    {s : FullState} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hinv : FullM6HdrInv c F0 ext s) (hcl0 : s.core.cur_level = 0)
+    (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ r c' ext' s' m',
+      FullM4Compact.FullCfgCompat c c' → s'.LengthsOk c' →
+      FullM6HdrCfgOk c' → M6HdrExtOk ext' →
+      (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) →
+      (r = 20#64 → F0.Unsat) →
+      (r = 10#64 → s'.scratch.extend_len ≤ c'.extend_cap) →
+      (FullM6HdrMem c' ext' s' ⋆ R) m' → Q (r, ()) m') :
+    fullM6SearchSpec (c.hdr, ()) m Q X :=
+  ⟨c, F0, ext, s, R, rfl, hinv, hcl0, hm, hQ⟩
+
+theorem fullM6SearchSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hs : fullM6SearchSpec (h, ()) m Q X) :
+    ∃ (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullM6HdrInv c F0 ext s ∧ s.core.cur_level = 0 ∧
+      (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ r c' ext' s' m',
+        FullM4Compact.FullCfgCompat c c' → s'.LengthsOk c' →
+        FullM6HdrCfgOk c' → M6HdrExtOk ext' →
+        (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) →
+        (r = 20#64 → F0.Unsat) →
+        (r = 10#64 → s'.scratch.extend_len ≤ c'.extend_cap) →
+        (FullM6HdrMem c' ext' s' ⋆ R) m' → Q (r, ()) m' :=
+  hs
+
+theorem fullM6SearchSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : fullM6SearchSpec xs m Q X) : fullM6SearchSpec xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
 /-- Lift any `FullM4.m4PreprocessSpec` precondition to `fullM6PreprocessSpec` by framing
 `array64 (c.hdr - 2304) ext`. -/
 theorem fullM6PreprocessSpec_of_m4 {a : Tup Val [i64]} {m : Mem 64}
@@ -706,6 +775,54 @@ theorem fullM6SolveBytesCoreModelSpec_intro {cnf_ptr work_ptr fuel : BitVec 64}
       m Q X :=
   ⟨cnfBytes, wlen, R, rfl, rfl, hcfit, hwfit, hm, hQ⟩
 
+theorem fullM6SolveBytesCoreModelSpec_elim {cnf_ptr cnf_len work_ptr work_len fuel : BitVec 64}
+    {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hs : fullM6SolveBytesCoreModelSpec (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) m Q X) :
+    ∃ (cnfBytes : List UInt8) (wlen : Nat) (R : Mem 64 → Prop),
+      cnf_len = BitVec.ofNat 64 cnfBytes.length ∧ work_len = BitVec.ofNat 64 wlen ∧
+      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧ work_ptr.toNat + wlen < 2 ^ 64 ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m ∧
+      ∀ r m',
+        (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) →
+        (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) →
+        (r = 10#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧
+          ∀ (F : Mem 64 → Prop) (M : Mem 64),
+            (Eq m' ⋆ F) M → cnf.Sat (readModelFromWorkM6 M work_ptr)) →
+        (∀ mv nc i0, cnf_ptr ≠ 0#64 → work_ptr ≠ 0#64 → 0 < fuel.toNat →
+          fullM6ExtBytes + fullFixedBytes mv + nc * 40 + 136 + 8 ≤ wlen →
+          i0 ≤ cnfBytes.length → parseHeader cnfBytes = some (mv, nc, cnfBytes.drop i0) →
+          UnitUnsatTrace mv (List.replicate (2 * mv) 0#8) (cnfBytes.drop i0) nc →
+          r = 20#64) →
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m' → Q (r, ()) m' :=
+  hs
+
+theorem fullM6SolveBytesCoreModelSpec_monoX
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X X' : XPost}
+    (h : fullM6SolveBytesCoreModelSpec xs m Q X) :
+    fullM6SolveBytesCoreModelSpec xs m Q X' := by
+  rcases xs with ⟨_, _, _, _, _, ⟨⟩⟩; exact h
+
+theorem fullM6SolveBytesSpec_elim {cnf_ptr cnf_len work_ptr work_len fuel : BitVec 64}
+    {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hs : fullM6SolveBytesSpec (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) m Q X) :
+    ∃ (cnfBytes : List UInt8) (wlen : Nat) (R : Mem 64 → Prop),
+      cnf_len = BitVec.ofNat 64 cnfBytes.length ∧ work_len = BitVec.ofNat 64 wlen ∧
+      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧ work_ptr.toNat + wlen < 2 ^ 64 ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m ∧
+      ∀ r m',
+        (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) →
+        (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) →
+        (r = 10#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧
+          ∀ (F : Mem 64 → Prop) (M : Mem 64),
+            (Eq m' ⋆ F) M → cnf.Sat (readModelFromWorkM6 M work_ptr)) →
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m' → Q (r, ()) m' :=
+  hs
+
+theorem fullM6SolveBytesSpec_monoX
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X X' : XPost}
+    (h : fullM6SolveBytesSpec xs m Q X) : fullM6SolveBytesSpec xs m Q X' := by
+  rcases xs with ⟨_, _, _, _, _, ⟨⟩⟩; exact h
+
 theorem fullM6SolveBytesSpec_of_soundSpec
     {a : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
     (h : fullM6SolveBytesSoundSpec a m Q X) :
@@ -786,6 +903,90 @@ def fullM6SolvePreCheckSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
       cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧ work_ptr.toNat + wlen < 2 ^ 64 ∧
       (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m ∧
       ∀ r m', FullM6PreCheckPost cnf_ptr cnfBytes work_ptr wlen R m' r → Q (r, ()) m'
+
+theorem FullM6PreCheckPost_of {cnf_ptr : BitVec 64} {cnfBytes : List UInt8}
+    {work_ptr : BitVec 64} {wlen : Nat} {R : Mem 64 → Prop} {m' : Mem 64} {r : BitVec 64}
+    (h : (r = 0#64 ∧ (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') ∨
+      (r = 20#64 ∧ (∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') ∨
+      (r = 10#64 ∧ ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState),
+        fullAlignPad work_ptr + fullM6HdrTotalBytes ≤ wlen ∧
+        c.hdr = fullM6WorkHdr work_ptr ∧
+        c.avail = wlen - fullAlignPad work_ptr - fullM6ExtBytes ∧
+        FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
+        s.scratch.extend_len ≤ c.extend_cap ∧
+        (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c ext s ⋆
+          region work_ptr (fullAlignPad work_ptr) ⋆ R) m')) :
+    FullM6PreCheckPost cnf_ptr cnfBytes work_ptr wlen R m' r :=
+  h
+
+theorem FullM6PreCheckPost_elim {cnf_ptr : BitVec 64} {cnfBytes : List UInt8}
+    {work_ptr : BitVec 64} {wlen : Nat} {R : Mem 64 → Prop} {m' : Mem 64} {r : BitVec 64}
+    (h : FullM6PreCheckPost cnf_ptr cnfBytes work_ptr wlen R m' r) :
+    (r = 0#64 ∧ (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') ∨
+    (r = 20#64 ∧ (∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') ∨
+    (r = 10#64 ∧ ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState),
+      fullAlignPad work_ptr + fullM6HdrTotalBytes ≤ wlen ∧
+      c.hdr = fullM6WorkHdr work_ptr ∧
+      c.avail = wlen - fullAlignPad work_ptr - fullM6ExtBytes ∧
+      FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
+      s.scratch.extend_len ≤ c.extend_cap ∧
+      (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c ext s ⋆
+        region work_ptr (fullAlignPad work_ptr) ⋆ R) m') :=
+  h
+
+theorem FullM6PreCheckPost_of_zero {cnf_ptr : BitVec 64} {cnfBytes : List UInt8}
+    {work_ptr : BitVec 64} {wlen : Nat} {R : Mem 64 → Prop} {m' : Mem 64}
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') :
+    FullM6PreCheckPost cnf_ptr cnfBytes work_ptr wlen R m' 0#64 :=
+  Or.inl ⟨rfl, hm⟩
+
+theorem FullM6PreCheckPost_of_unsat {cnf_ptr : BitVec 64} {cnfBytes : List UInt8}
+    {work_ptr : BitVec 64} {wlen : Nat} {R : Mem 64 → Prop} {m' : Mem 64}
+    (hu : ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') :
+    FullM6PreCheckPost cnf_ptr cnfBytes work_ptr wlen R m' 20#64 :=
+  Or.inr (Or.inl ⟨rfl, hu, hm⟩)
+
+theorem FullM6PreCheckPost_of_sat {cnf_ptr : BitVec 64} {cnfBytes : List UInt8}
+    {work_ptr : BitVec 64} {wlen : Nat} {R : Mem 64 → Prop} {m' : Mem 64}
+    {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
+    (hle : fullAlignPad work_ptr + fullM6HdrTotalBytes ≤ wlen)
+    (hhdr : c.hdr = fullM6WorkHdr work_ptr)
+    (hav : c.avail = wlen - fullAlignPad work_ptr - fullM6ExtBytes)
+    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
+    (hext_le : s.scratch.extend_len ≤ c.extend_cap)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c ext s ⋆
+      region work_ptr (fullAlignPad work_ptr) ⋆ R) m') :
+    FullM6PreCheckPost cnf_ptr cnfBytes work_ptr wlen R m' 10#64 :=
+  Or.inr (Or.inr ⟨rfl, c, ext, s, hle, hhdr, hav, hcfg, hext, hlen, hext_le, hm⟩)
+
+theorem fullM6SolvePreCheckSpec_of {cnf_ptr cnf_len work_ptr work_len fuel : BitVec 64}
+    {cnfBytes : List UInt8} {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (hcl : cnf_len = BitVec.ofNat 64 cnfBytes.length) (hwl : work_len = BitVec.ofNat 64 wlen)
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m)
+    (hQ : ∀ r m', FullM6PreCheckPost cnf_ptr cnfBytes work_ptr wlen R m' r → Q (r, ()) m') :
+    fullM6SolvePreCheckSpec (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) m Q X :=
+  ⟨cnfBytes, wlen, R, hcl, hwl, hcfit, hwfit, hm, hQ⟩
+
+theorem fullM6SolvePreCheckSpec_elim {cnf_ptr cnf_len work_ptr work_len fuel : BitVec 64}
+    {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hs : fullM6SolvePreCheckSpec (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) m Q X) :
+    ∃ (cnfBytes : List UInt8) (wlen : Nat) (R : Mem 64 → Prop),
+      cnf_len = BitVec.ofNat 64 cnfBytes.length ∧ work_len = BitVec.ofNat 64 wlen ∧
+      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧ work_ptr.toNat + wlen < 2 ^ 64 ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m ∧
+      ∀ r m', FullM6PreCheckPost cnf_ptr cnfBytes work_ptr wlen R m' r → Q (r, ()) m' :=
+  hs
+
+theorem fullM6SolvePreCheckSpec_monoX
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X X' : XPost}
+    (h : fullM6SolvePreCheckSpec xs m Q X) : fullM6SolvePreCheckSpec xs m Q X' := by
+  rcases xs with ⟨_, _, _, _, _, ⟨⟩⟩; exact h
 
 /-! ## 4. Zero-Drag Post-Hoc `full_extend` + `kissat_check_model` & Generic Combinators -/
 
