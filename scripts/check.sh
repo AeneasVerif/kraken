@@ -46,6 +46,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+export LAKE_ARTIFACT_CACHE="${LAKE_ARTIFACT_CACHE:-true}"
+export LAKE_RESTORE_ARTIFACTS="${LAKE_RESTORE_ARTIFACTS:-true}"
+
 classify_stdin() {
   python3 -c '
 import re, sys
