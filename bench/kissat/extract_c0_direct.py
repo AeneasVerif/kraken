@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract spliced Kissat C0 functions (m5|m6|m7|m7plus) into a standalone C99 translation unit."""
+"""Extract spliced Kissat C0 functions (m5|m6|m7|m7plus|m7fidelity) into a standalone C99 translation unit."""
 import argparse
 import pathlib
 import re
@@ -79,7 +79,7 @@ def _ns_at(txt, pos):
 
 def load_kissat(kdir):
     """Scan Kissat/*.lean for kissat_c0! blocks, Fn aliases, and List Fn splice definitions."""
-    body_map, fn_envs, list_envs, files = {}, {}, {}, []
+    body_map, fn_envs, list_envs, before_envs, rename_maps, files = {}, {}, {}, {}, {}, []
     for fp in sorted(kdir.glob("*.lean")):
         if any(x in fp.name for x in SKIP_SUFFIXES):
             continue
@@ -95,32 +95,116 @@ def load_kissat(kdir):
             for f in fns:
                 body_map[f"{ns}.{f['orig']}_body"] = f
             list_envs[f"{ns}.{pfx}_fns"] = fns
+    ren_map_re = re.compile(
+        r"^def\s+(\w+)\s*:\s*Sym\s*→\s*Sym\s*(.*?)"
+        r"(?=\n(?:def|theorem|private|end|kissat_c0!|/-|\Z))", re.M | re.S)
+    ren_body_re = re.compile(
+        r"^def\s+(\w+)\s*:\s*Func\b[^:=]*:=\s*renameFuncCalls\s+(\w+)\s+([A-Za-z0-9_.]+_body)",
+        re.M | re.S)
     fn_re = re.compile(
-        r'def\s+(\w+)\s*:\s*Fn\s*:=\s*⟨"([^"]+)"[^⟩]*?([A-Za-z0-9_.]+_body)⟩', re.S)
+        r'def\s+(\w+)\s*:\s*Fn\s*:=\s*⟨"([^"]+)"[^⟩]*?([A-Za-z0-9_.]+)⟩', re.S)
     list_re = re.compile(
         r"^def\s+(\w+)\s*:\s*List\s+Fn\s*:=\s*(.*?)"
         r"(?=\n(?:def|theorem|private|end|kissat_c0!|/-|\Z))", re.M | re.S)
+    before_re = re.compile(
+        r"^def\s+(\w+)\s*:\s*List\s*\(Sym\s*×\s*List\s+Fn\)\s*:=\s*(.*?)"
+        r"(?=\n(?:def|theorem|private|end|kissat_c0!|/-|\Z))", re.M | re.S)
+
+    def _resolve_body(bref, ns, opens):
+        for c in (bref, f"{ns}.{bref}", *(f"{o}.{bref}" for o in opens), f"{KISSAT_NS}.{bref}"):
+            if c in body_map:
+                return body_map[c]
+        return None
+
+    for _, txt, opens in files:
+        for m in ren_map_re.finditer(txt):
+            ns = _ns_at(txt, m.start())
+            pairs = re.findall(r'\|\s*"([^"]+)"\s*=>\s*"([^"]+)"', m.group(2))
+            rename_maps[f"{ns}.{m.group(1)}"] = pairs
+    for _, txt, opens in files:
+        for m in ren_body_re.finditer(txt):
+            ns, bname, rname, bref = _ns_at(txt, m.start()), m.group(1), m.group(2), m.group(3)
+            base = _resolve_body(bref, ns, opens)
+            pairs = rename_maps.get(f"{ns}.{rname}", [])
+            if base is not None:
+                code = base["text"]
+                for old, new in pairs:
+                    code = re.sub(rf"\b{re.escape(old)}(?=\s*\()", new, code)
+                body_map[f"{ns}.{bname}"] = {**base, "text": code}
     for _, txt, opens in files:
         for m in fn_re.finditer(txt):
             ns, fvar, exp, bref = _ns_at(txt, m.start()), m.group(1), m.group(2), m.group(3)
-            if bref.startswith("LeanQbe."):
-                bkey = bref
-            elif "." in bref:
-                bkey = f"{KISSAT_NS}.{bref}"
-            else:
-                bkey = f"{ns}.{bref}"
-            if bkey in body_map:
-                fn_envs[f"{ns}.{fvar}"] = {**body_map[bkey], "name": exp}
+            base = _resolve_body(bref, ns, opens)
+            if base is not None:
+                fn_envs[f"{ns}.{fvar}"] = {**base, "name": exp}
         for m in list_re.finditer(txt):
             ns = _ns_at(txt, m.start())
             list_envs[f"{ns}.{m.group(1)}"] = (ns, opens, m.group(2))
-    return fn_envs, list_envs
+        for m in before_re.finditer(txt):
+            ns = _ns_at(txt, m.start())
+            before_envs[f"{ns}.{m.group(1)}"] = (ns, opens, m.group(2))
+    return fn_envs, list_envs, before_envs
 
 
-def eval_list(qname, list_envs, fn_envs, cache):
-    """Evaluate a Lean List Fn splice expression built from ++, .take, .drop, and [...]."""
+def eval_befores(qname, before_envs, fn_envs, cache):
+    """Evaluate a List (Sym × List Fn) expression built from ++ and [("anchor", [fn, ...])]."""
+    tok_pat = r'\+\+|"[^"]*"|[()\[\],]|[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*'
+
+    def res(nm, ns, opens, env):
+        for c in (nm, f"{ns}.{nm}", *(f"{o}.{nm}" for o in opens), f"{KISSAT_NS}.{nm}"):
+            if c in env:
+                return c, env[c]
+        raise KeyError(f"Unresolved symbol {nm!r} in {ns}")
+
+    def eval_nm(nm, ns, opens):
+        qn, v = res(nm, ns, opens, before_envs)
+        if qn not in cache:
+            cache[qn] = eval_expr(*v)
+        return cache[qn]
+
+    def eval_expr(ns, opens, expr):
+        toks = re.findall(tok_pat, expr)
+        pos = [0]
+        pk = lambda: toks[pos[0]] if pos[0] < len(toks) else None
+        nx = lambda: (pk(), pos.__setitem__(0, pos[0] + 1))[0]
+
+        def parse_term():
+            if pk() == "[":
+                nx()
+                val = []
+                while pk() != "]":
+                    assert nx() == "("
+                    anchor = nx().strip('"')
+                    assert nx() == ","
+                    assert nx() == "["
+                    hs = []
+                    while pk() != "]":
+                        hs.append(res(nx(), ns, opens, fn_envs)[1])
+                        if pk() == ",":
+                            nx()
+                    nx()  # ']'
+                    assert nx() == ")"
+                    val.append((anchor, hs))
+                    if pk() == ",":
+                        nx()
+                nx()  # ']'
+                return val
+            return eval_nm(nx(), ns, opens)
+
+        val = parse_term()
+        while pk() == "++":
+            nx()
+            val = val + parse_term()
+        return val
+
+    return eval_nm(qname, KISSAT_NS, [])
+
+
+def eval_list(qname, list_envs, fn_envs, cache, before_envs=None):
+    """Evaluate a Lean List Fn splice expression built from ++, .take, .drop, splice/patch, [...]."""
     tok_pat = (r"\+\+|\.take\b|\.drop\b|[()\[\],]|"
                r"[A-Za-z0-9_]+(?:\.(?!take\b|drop\b)[A-Za-z0-9_]+)*")
+    bcache = {}
 
     def res(nm, ns, opens, env):
         cands = [nm, f"{ns}.{nm}", *(f"{o}.{nm}" for o in opens), f"{KISSAT_NS}.{nm}"]
@@ -154,6 +238,27 @@ def eval_list(qname, list_envs, fn_envs, cache):
                     if pk() == ",":
                         nx()
                 nx()
+            elif pk() in ("mpSpliceFns", "spliceFns"):
+                nx()
+                repls = parse_term()
+                base = parse_term()
+                rmap = {f["name"]: f for f in repls}
+                val = [rmap.get(f["name"], f) for f in base]
+            elif pk() in ("mfPatchFns", "patchFns", "fidPatchFns"):
+                nx()
+                repls = parse_term()
+                bname = nx()
+                befores = eval_befores(f"{ns}.{bname}" if "." not in bname else bname,
+                                       before_envs or {}, fn_envs, bcache)
+                base = parse_term()
+                rmap = {f["name"]: f for f in repls}
+                bmap = {}
+                for anchor, hs in befores:
+                    bmap.setdefault(anchor, []).extend(hs)
+                val = []
+                for f in base:
+                    val.extend(bmap.get(f["name"], ()))
+                    val.append(rmap.get(f["name"], f))
             else:
                 val = eval_nm(nx(), ns, opens)
             while pk() in (".take", ".drop"):
@@ -221,11 +326,11 @@ def emit_c99(fns):
     return "\n".join(out)
 
 
-def check_fns(fns, spec, root, mod, sym):
+def check_fns(fns, spec, root, imp_mod, open_ns, sym):
     """Assert 1-to-1 ordered name parity against an expected file, 'lean', or CSV list."""
     got = [f["name"] for f in fns]
     if spec == "lean":
-        code = (f"import {mod}\nopen {mod} in #eval show IO Unit from do\n"
+        code = (f"import {imp_mod}\nopen {open_ns} in #eval show IO Unit from do\n"
                 f"  for f in {sym} do IO.println f.name")
         r = subprocess.run(["timeout", "60", "lake", "env", "lean", "--stdin"],
                            cwd=root, input=code, text=True, capture_output=True)
@@ -243,24 +348,25 @@ def check_fns(fns, spec, root, mod, sym):
 
 def main():
     ap = argparse.ArgumentParser(description="Extract spliced Kissat C0 functions to C99.")
-    ap.add_argument("--target", choices=["m5", "m6", "m7", "m7plus"], default="m5")
+    ap.add_argument("--target", choices=["m5", "m6", "m7", "m7plus", "m7fidelity"], default="m5")
     ap.add_argument("--out", required=True)
     ap.add_argument("--check-fns", default=None)
     args = ap.parse_args()
     root = pathlib.Path(__file__).resolve().parents[2]
     kdir = root / "LeanQbe/T/Examples/Kissat"
-    mod, sym = {
-        "m5": ("FullM5", "m5Fns"),
-        "m6": ("FullM6", "m6Fns"),
-        "m7": ("FullM7", "m7Fns"),
-        "m7plus": ("FullM7Plus", "m7PlusFns"),
+    file_mod, ns_mod, sym = {
+        "m5": ("FullM5", "FullM5", "m5Fns"),
+        "m6": ("FullM6", "FullM6", "m6Fns"),
+        "m7": ("FullM7", "FullM7", "m7Fns"),
+        "m7plus": ("FullM7PlusAssembly", "FullM7Plus", "m7PlusFns"),
+        "m7fidelity": ("FullM7FidelityAssembly", "FullM7Fidelity", "m7FidelityFns"),
     }[args.target]
-    if not (kdir / f"{mod}.lean").exists():
-        sys.exit(f"ERROR: {kdir / f'{mod}.lean'} not found (--target {args.target} not landed yet)")
-    fn_envs, list_envs = load_kissat(kdir)
-    fns = eval_list(f"{mod}.{sym}", list_envs, fn_envs, {})
+    if not (kdir / f"{file_mod}.lean").exists():
+        sys.exit(f"ERROR: {kdir / f'{file_mod}.lean'} not found (--target {args.target} not landed yet)")
+    fn_envs, list_envs, before_envs = load_kissat(kdir)
+    fns = eval_list(f"{ns_mod}.{sym}", list_envs, fn_envs, {}, before_envs)
     if args.check_fns:
-        check_fns(fns, args.check_fns, root, f"{KISSAT_NS}.{mod}", sym)
+        check_fns(fns, args.check_fns, root, f"{KISSAT_NS}.{file_mod}", f"{KISSAT_NS}.{ns_mod}", sym)
     out = pathlib.Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(emit_c99(fns))
