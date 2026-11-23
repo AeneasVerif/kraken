@@ -154,6 +154,14 @@ public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof2
 public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof3
 public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof4
 public import LeanQbe.T.Examples.Kissat.FullM7BcpHot
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof0
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1a
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1b
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1b0
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1bExpr
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1c
 public import LeanQbe.T.Examples.Kissat.FullM7BcpNoBounds
 public import LeanQbe.T.Examples.Kissat.FullM7BcpNoBoundsProof
 public import LeanQbe.T.Examples.Kissat.FullM7BcpNoBoundsProof0
@@ -162,6 +170,8 @@ public import LeanQbe.T.Examples.Kissat.FullM7BumpProof
 public import LeanQbe.T.Examples.Kissat.FullM7BvaFactor
 public import LeanQbe.T.Examples.Kissat.FullM7BvaFactorProof
 public import LeanQbe.T.Examples.Kissat.FullM7BvaFactorProof0
+public import LeanQbe.T.Examples.Kissat.FullM7BvaGuFix
+public import LeanQbe.T.Examples.Kissat.FullM7BvaGuFixProof
 public import LeanQbe.T.Examples.Kissat.FullM7BveGates
 public import LeanQbe.T.Examples.Kissat.FullM7CongHash
 public import LeanQbe.T.Examples.Kissat.FullM7CongHashProof
@@ -169,6 +179,10 @@ public import LeanQbe.T.Examples.Kissat.FullM7CongHashProof0
 public import LeanQbe.T.Examples.Kissat.FullM7CongIte
 public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof0
 public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof1
+public import LeanQbe.T.Examples.Kissat.FullM7HotHop1
+public import LeanQbe.T.Examples.Kissat.FullM7HotHop1Proof
+public import LeanQbe.T.Examples.Kissat.FullM7HotTernary
+public import LeanQbe.T.Examples.Kissat.FullM7HotTernaryProof
 public import LeanQbe.T.Examples.Kissat.FullM7Inl
 public import LeanQbe.T.Examples.Kissat.FullM7Inl0
 public import LeanQbe.T.Examples.Kissat.FullM7Inl1
@@ -197,6 +211,7 @@ public import LeanQbe.T.Examples.Kissat.FullM7SearchProof2
 public import LeanQbe.T.Examples.Kissat.FullM7SpecBridges
 public import LeanQbe.T.Examples.Kissat.FullM7SpecBridges0
 public import LeanQbe.T.Examples.Kissat.FullM7SpecBridges1
+public import LeanQbe.T.Examples.Kissat.FullM7Splice
 public import LeanQbe.T.Examples.Kissat.FullM7Transport0
 public import LeanQbe.T.Examples.Kissat.FullM7Transport1
 public import LeanQbe.T.Examples.Kissat.FullM7Transport2

@@ -5,10 +5,12 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.FullM7Proof
+public import LeanQbe.T.Examples.Kissat.FullM7Splice
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.Legal
 meta import LeanQbe.T.Examples.Kissat.FullM7Proof
+meta import LeanQbe.T.Examples.Kissat.FullM7Splice
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
@@ -43,6 +45,7 @@ open LeanQbe.T.Examples.Kissat.FullM6
 open LeanQbe.T.Examples.Kissat.FullM6Hdr
 open LeanQbe.T.Examples.Kissat.FullM7
 open LeanQbe.T.Examples.Kissat.FullM7Proof
+open LeanQbe.T.Examples.Kissat.FullM7Splice
 open LeanQbe.T.Examples.LratBytes
 
 #guard m7Fns.length == 410
@@ -75,6 +78,7 @@ open LeanQbe.T.Examples.Kissat.FullM6
 open LeanQbe.T.Examples.Kissat.FullM6Orch
 open LeanQbe.T.Examples.Kissat.FullM7
 open LeanQbe.T.Examples.Kissat.FullM7Proof
+open LeanQbe.T.Examples.Kissat.FullM7Splice
 
 theorem m7_wf_ok : ∀ f ∈ m7Fns, f.Wf := m7Fns_wf
 
@@ -119,10 +123,9 @@ theorem m7_mod_ok (tPfx tBve : List SpecEntry)
     (hBS : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
     (hBN : tBve.all SpecEntry.noExit = true)
     (hBP : M7BveAllTblSpecs tBve)
-    (hBO : TableImpl (mkM7Env tPfx tBve s) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve s)) :
+    (hBO : TableImpl (mkM7Env tPfx tBve s) m7BveAllFns tBve) :
     ModuleOk (mkM7Env tPfx tBve s) m7Module :=
-  mkM7Env_moduleOk tPfx tBve s hW hX hS hN hP hO hBS hBN hBP hBO hBH
+  mkM7Env_moduleOk tPfx tBve s hW hX hS hN hP hO hBS hBN hBP hBO
 
 theorem m7_unsat_wp_ok (tPfx tBve : List SpecEntry)
     (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
@@ -133,12 +136,11 @@ theorem m7_unsat_wp_ok (tPfx tBve : List SpecEntry)
     (hBN : tBve.all SpecEntry.noExit = true)
     (hBP : M7BveAllTblSpecs tBve)
     (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
     {a : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
     (hs : fullM6SolveBytesUnsatSpec a m Q X) :
     Func.wp (mkM7Env tPfx tBve fullM6SolveBytesSpec) FullM6Orch.kissat_solve_bytes_body
       a m Q X :=
-  m7_solve_bytes_unsat_wp tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH hs
+  m7_solve_bytes_unsat_wp tPfx tBve hS hN hP hO hBS hBN hBP hBO hs
 
 theorem m7_sound_ok (tPfx tBve : List SpecEntry)
     (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
@@ -149,7 +151,6 @@ theorem m7_sound_ok (tPfx tBve : List SpecEntry)
     (hBN : tBve.all SpecEntry.noExit = true)
     (hBP : M7BveAllTblSpecs tBve)
     (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
     {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8}
     {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64}
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -168,7 +169,7 @@ theorem m7_sound_ok (tPfx tBve : List SpecEntry)
               (Eq m' ⋆ F) M' → cnf.Sat (readModelFromWorkM6 M' work_ptr)) ∧
           (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m')
       (fun _ _ _ _ => False) :=
-  m7_solve_bytes_sound tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH hcfit hwfit hm
+  m7_solve_bytes_sound tPfx tBve hS hN hP hO hBS hBN hBP hBO hcfit hwfit hm
 
 theorem m7_m6_sound_ok (tPfx tBve : List SpecEntry)
     (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
@@ -179,7 +180,6 @@ theorem m7_m6_sound_ok (tPfx tBve : List SpecEntry)
     (hBN : tBve.all SpecEntry.noExit = true)
     (hBve : M7BveAllTblSpecs tBve)
     (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesSpec))
     {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8}
     {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64}
     (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
@@ -198,7 +198,7 @@ theorem m7_m6_sound_ok (tPfx tBve : List SpecEntry)
               (Eq m' ⋆ F) M' → cnf.Sat (readModelFromWorkM6 M' work_ptr)) ∧
           (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m')
       (fun _ _ _ _ => False) :=
-  m7_solve_bytes_m6_sound tPfx tBve hS hN hP hO hBS hBN hBve hBO hBH hcfit hwfit hm
+  m7_solve_bytes_m6_sound tPfx tBve hS hN hP hO hBS hBN hBve hBO hcfit hwfit hm
 
 theorem m7_host_ok
     {cnf_ptr work_ptr : BitVec 64} {cnfBytes : List UInt8} {wlen : Nat}
@@ -227,8 +227,7 @@ theorem m7_nv_unsat_ok (tPfx tBve : List SpecEntry)
     (hBS : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
     (hBN : tBve.all SpecEntry.noExit = true)
     (hBP : M7BveAllTblSpecs tBve)
-    (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
+    (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7BveAllFns tBve) :
     Func.wp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) FullM6Orch.kissat_solve_bytes_body
       (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
         nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
@@ -239,7 +238,7 @@ theorem m7_nv_unsat_ok (tPfx tBve : List SpecEntry)
           r = 20#64 ∧ nvM6UnsatCnf.Unsat ∧
           (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen) m')
       (fun _ _ _ _ => False) :=
-  m7_unsat_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH
+  m7_unsat_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO
 
 theorem m7_m6_nv_unsat_ok (tPfx tBve : List SpecEntry)
     (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
@@ -249,8 +248,7 @@ theorem m7_m6_nv_unsat_ok (tPfx tBve : List SpecEntry)
     (hBS : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
     (hBN : tBve.all SpecEntry.noExit = true)
     (hBP : M7BveAllTblSpecs tBve)
-    (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7BveAllFns tBve)
-    (hBH : M7BcpHotHyp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec)) :
+    (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7BveAllFns tBve) :
     Func.wp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) kissat_solve_bytes_m6_body
       (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
         nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
@@ -261,7 +259,72 @@ theorem m7_m6_nv_unsat_ok (tPfx tBve : List SpecEntry)
           r = 20#64 ∧ nvM6UnsatCnf.Unsat ∧
           (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen) m')
       (fun _ _ _ _ => False) :=
-  m7_m6_unsat_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO hBH
+  m7_m6_unsat_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO
+
+theorem m7_bva_gu_mod_ok (tPfx tBve : List SpecEntry)
+    (s : Spec [i64, i64, i64, i64, i64] [i64])
+    (hW : ∀ a m Q X, s a m Q X → fullM6SolveBytesCoreModelSpec a m Q X)
+    (hX : ∀ a m Q X X', s a m Q X → s a m Q X')
+    (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
+    (hN : tPfx.all SpecEntry.noExit = true)
+    (hP : M7OrchPfxTblSpecs tPfx)
+    (hO : TableImpl (mkM7Env tPfx tBve s) m7OrchPfxFns tPfx)
+    (hBS : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
+    (hBN : tBve.all SpecEntry.noExit = true)
+    (hBP : M7BveAllTblSpecs tBve)
+    (hBO : TableImpl (mkM7Env tPfx tBve s) m7BveAllFns tBve) :
+    ModuleOk (mkM7Env tPfx tBve s) m7BvaGuModule :=
+  m7BvaGu_moduleOk tPfx tBve s hW hX hS hN hP hO hBS hBN hBP hBO
+
+theorem m7_bva_gu_sound_ok (tPfx tBve : List SpecEntry)
+    (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
+    (hN : tPfx.all SpecEntry.noExit = true)
+    (hP : M7OrchPfxTblSpecs tPfx)
+    (hO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7OrchPfxFns tPfx)
+    (hBS : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
+    (hBN : tBve.all SpecEntry.noExit = true)
+    (hBP : M7BveAllTblSpecs tBve)
+    (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesSpec) m7BveAllFns tBve)
+    {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8}
+    {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64}
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m) :
+    Func.wp (mkM7Env tPfx tBve fullM6SolveBytesSpec) FullM6Orch.kissat_solve_bytes_body
+      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ()) m
+      (fun rs m' =>
+        match rs with
+        | (r, ()) =>
+          (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+          (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+          (r = 10#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧
+            ¬ cnf.Unsat ∧ (∃ β, cnf.Sat β) ∧
+            ∀ (F : Mem 64 → Prop) (M' : Mem 64),
+              (Eq m' ⋆ F) M' → cnf.Sat (readModelFromWorkM6 M' work_ptr)) ∧
+          (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m')
+      (fun _ _ _ _ => False) :=
+  m7BvaGu_solve_bytes_sound tPfx tBve hS hN hP hO hBS hBN hBP hBO hcfit hwfit hm
+
+theorem m7_bva_gu_nv_unsat_ok (tPfx tBve : List SpecEntry)
+    (hS : tPfx.map (fun e => (e.name, e.as, e.rs)) = m7OrchPfxFns.map Fn.sig)
+    (hN : tPfx.all SpecEntry.noExit = true)
+    (hP : M7OrchPfxTblSpecs tPfx)
+    (hO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7OrchPfxFns tPfx)
+    (hBS : tBve.map (fun e => (e.name, e.as, e.rs)) = m7BveAllFns.map Fn.sig)
+    (hBN : tBve.all SpecEntry.noExit = true)
+    (hBP : M7BveAllTblSpecs tBve)
+    (hBO : TableImpl (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) m7BveAllFns tBve) :
+    Func.wp (mkM7Env tPfx tBve fullM6SolveBytesCoreModelSpec) FullM6Orch.kissat_solve_bytes_body
+      (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
+        nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
+      nvM6UnsatInitMem
+      (fun rs m' =>
+        match rs with
+        | (r, ()) =>
+          r = 20#64 ∧ nvM6UnsatCnf.Unsat ∧
+          (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen) m')
+      (fun _ _ _ _ => False) :=
+  m7BvaGu_unsat_nv tPfx tBve hS hN hP hO hBS hBN hBP hBO
 
 #print axioms m7_wf_ok
 #print axioms m7_acyclic_ok
@@ -276,5 +339,8 @@ theorem m7_m6_nv_unsat_ok (tPfx tBve : List SpecEntry)
 #print axioms m7_host_ok
 #print axioms m7_nv_unsat_ok
 #print axioms m7_m6_nv_unsat_ok
+#print axioms m7_bva_gu_mod_ok
+#print axioms m7_bva_gu_sound_ok
+#print axioms m7_bva_gu_nv_unsat_ok
 
 end AxiomAudit

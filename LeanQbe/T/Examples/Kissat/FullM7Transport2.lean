@@ -901,4 +901,17 @@ theorem m7Part3TailCallees_of_sub {tPfx tBve tbl : List SpecEntry}
       unfold m7RowsPart3Pfx; (iterate 25 apply List.mem_append_right)
       exact List.mem_append_left _ (List.mem_of_getElem? (i := 11) rfl)) ⟩
 
+theorem m7Part3BvaGuRows_of_sub {tPfx tBve tbl : List SpecEntry}
+    (hOwnPfx : ∀ e ∈ m7RowsPart3Pfx tPfx tBve, e ∈ tbl) :
+    (⟨"full_init_fresh_var", [i64, i32], [], FullBvaHeap.fullInitFreshVarHeapSpec, true⟩ :
+      SpecEntry) ∈ tbl ∧
+    (⟨"full_bva_commit", [i64, i32], [.bool], FullM4Bva.m4BvaCommitSpec, true⟩ :
+      SpecEntry) ∈ tbl :=
+  ⟨ hOwnPfx _ (by
+      unfold m7RowsPart3Pfx; (iterate 7 apply List.mem_append_right)
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+  , hOwnPfx _ (by
+      unfold m7RowsPart3Pfx; (iterate 13 apply List.mem_append_right)
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl)) ⟩
+
 end LeanQbe.T.Examples.Kissat.FullM7Proof

@@ -1691,4 +1691,15 @@ theorem m7RowsPart2_tPfx_mem {tPfx : List SpecEntry} {i : Nat}
     · (iterate 18 apply List.mem_append_right); apply List.mem_append_left
       exact m7_mem_drop_take_of_lt tPfx h14 (by omega) hit
 
+theorem m7Part2BvaGuRows_of_sub {tPfx tbl : List SpecEntry}
+    (hsub : ∀ e ∈ m7RowsPart2 tPfx, e ∈ tbl) :
+    (⟨"full_analyze_lit", [i64, i32, i32], [.bool], Full.fullAnalyzeLitSpec, true⟩ :
+      SpecEntry) ∈ tbl ∧
+    (⟨"full_analyze_rsn", [i64, i32, i32], [.bool], Full.fullAnalyzeRsnSpec, true⟩ :
+      SpecEntry) ∈ tbl :=
+  ⟨ hsub _ (by unfold m7RowsPart2; exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl))
+  , hsub _ (by
+      unfold m7RowsPart2; apply List.mem_append_right
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl)) ⟩
+
 end LeanQbe.T.Examples.Kissat.FullM7Proof

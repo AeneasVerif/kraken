@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.FullM7
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof
 public import LeanQbe.T.Examples.Kissat.FullM6Transport0
 public import LeanQbe.T.Examples.Kissat.FullM6Orch
 public import LeanQbe.T.Examples.Kissat.FullM6OrchProof2
@@ -189,12 +190,34 @@ def m7PropChronoHotSpec : Spec [i64, i64] [.bool] :=
         (ok = false → oom' = 1#64) →
         (FullMem c st' ⋆ R) m' → Q (ok, ()) m'
 
-/-- Pre-parameterized hypothesis bundle over the remaining `FullM7BcpHot` proofs (`@m7-4`). -/
+/-- Discharged hypothesis bundle for `FullM7BcpHot` proofs (`FullM7BcpHotProof`). -/
 structure M7BcpHotHyp (Γ : Env) : Prop where
   propChronoHot : ∀ a m Q X, m7PropChronoHotSpec a m Q X →
     Func.wp Γ FullM7BcpHot.full_prop_chrono_hot_body a m Q X
   propIgnoreHot : ∀ a m Q X, Full.FullPropDecSpecs.fullPropagateIgnoreSpec a m Q X →
     Func.wp Γ FullM7BcpHot.full_propagate_ignore_hot_body a m Q X
+
+/-- Instantiate `M7BcpHotHyp (Env.ofTable tbl)` unconditionally from `FullM7BcpHotProof`. -/
+theorem m7BcpHotHyp_of_table {tbl : List SpecEntry}
+    (hnd : (tbl.map SpecEntry.name).Nodup)
+    (hDefrag : (⟨"full_wstack_defrag", [i64], [], Full.fullWstackDefragSpec, true⟩ :
+      SpecEntry) ∈ tbl)
+    (hUnw : (⟨"full_unwatch_large", [i64, i32, i32], [],
+      Full.fullUnwatchLargeSpec, true⟩ : SpecEntry) ∈ tbl)
+    (hPush : (⟨"full_watch_push", [i64, i32, i32, i32, i32], [.bool],
+      Full.fullWatchPushSpec, true⟩ : SpecEntry) ∈ tbl)
+    (hOvf : (⟨"full_prop_lit_ovf_hot", [i64, i32, i32, i32], [.bool],
+      m7PropLitOvfHotSpec, true⟩ : SpecEntry) ∈ tbl)
+    (hChrono : (⟨"full_prop_chrono_hot", [i64, i64], [.bool],
+      m7PropChronoHotSpec, true⟩ : SpecEntry) ∈ tbl) :
+    M7BcpHotHyp (Env.ofTable tbl) :=
+  ⟨ FullM7BcpHot.full_prop_chrono_hot_wp (Env.ofTable tbl)
+      (envRow_mem hnd _ _ _ _ hDefrag)
+      (envRow_mem hnd _ _ _ _ hUnw)
+      (envRow_mem hnd _ _ _ _ hPush)
+  , FullM7BcpHot.full_propagate_ignore_hot_wp (Env.ofTable tbl)
+      (envRow_mem hnd _ _ _ _ hOvf)
+      (envRow_mem hnd _ _ _ _ hChrono) ⟩
 
 /-! ## 2. Cross-Module Spec Bridges -/
 
@@ -1190,7 +1213,6 @@ theorem m7RowsPart1_tableImpl {tPfx tbl : List SpecEntry}
     (hPfxOk : TableImpl (Env.ofTable tbl) m7OrchPfxFns tPfx)
     (htPfx : ∀ e ∈ tPfx, e ∈ tbl)
     (hPfxSpecs : M7OrchPfxTblSpecs tPfx)
-    (hBcpHot : M7BcpHotHyp (Env.ofTable tbl))
     (hOwn : ∀ e ∈ m7RowsPart1 tPfx, e ∈ tbl) :
     TableImpl (Env.ofTable tbl) m7FnsPart1 (m7RowsPart1 tPfx) := by
   have hc := m7Part1Callees_of_sub hOwn
@@ -1283,6 +1305,11 @@ theorem m7RowsPart1_tableImpl {tPfx tbl : List SpecEntry}
         [⟨"full_unwatch_large", [i64, i32, i32], [], Full.fullUnwatchLargeSpec, true⟩] :=
       m7_oneImpl rfl rfl (FullM5Otfs.full_unwatch_large_wp (Env.ofTable tbl))
     exact tableImpl_append rfl hs hu
+  have sub_bcp : ∀ e ∈ p1BcpHotRows, e ∈ tbl := fun _ h => hOwn _ (by
+    unfold m7RowsPart1; (iterate 14 apply List.mem_append_right); exact List.mem_append_left _ h)
+  have rOvf := sub_bcp _ (List.mem_of_getElem? (i := 0) rfl)
+  have rChrono := sub_bcp _ (List.mem_of_getElem? (i := 1) rfl)
+  have hBcpHot := m7BcpHotHyp_of_table hnd rWDefrag hc.unwatchLarge rWPush rOvf rChrono
   have i_bcp := p1BcpHot_impl hnd hBcpHot hc.propIgnoreHot rWPush
   have i_pbM6 : TableImpl (Env.ofTable tbl) p1ParseBodyM6Fns p1ParseBodyM6Rows :=
     m7_oneImpl rfl rfl (FullM6WalkParse.full_parse_body_m6_del_wp (Env.ofTable tbl)
