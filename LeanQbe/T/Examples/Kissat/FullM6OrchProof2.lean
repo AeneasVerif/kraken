@@ -156,54 +156,72 @@ theorem m6SwitchModeSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []}
   rcases xs with ⟨_, ⟨⟩⟩; exact h
 
 /-- `full_rephase_m6_hdr(h)` specification matching `FullM6OrchAdaptersProof0.m6aRephaseSpec`
-verbatim. -/
+verbatim (`dense_mode = 0#64` + `FullArenaPermEq`). -/
 def m6aRephaseSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64)) (s : FullState)
     (R : Mem 64 → Prop),
     h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ FullCoreInv c F0 s ∧
-    (FullM6HdrMem c ext s ⋆ R) m ∧
-    ∀ vals' lvl' rsns' trl' tp' te' prop' cl' unass' fuel' sc' ext' m',
+    s.core.dense_mode = 0#64 ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
+    ∀ vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' prop' prob' cl' unass' unfl'
+      wvec' arena' wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' sc' ext' m',
       let s' : FullState :=
-        { core := { s.core with vals := vals', lvl := lvl', rsns := rsns', trl := trl',
-                                trail_pos := tp', trail_end := te', propagated := prop',
-                                cur_level := cl', unassigned := unass', fuel := fuel' }
+        { core := { s.core with
+            vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+            trail_pos := tp', frame_trail := ftrl', frame_dec := fdec', trail_end := te',
+            propagated := prop', probing := prob', cur_level := cl', unassigned := unass',
+            unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk',
+            wlen := wlen', wusable := wu', fuel := fuel', confl_type := ctype',
+            confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
           scratch := sc' }
       M6HdrExtOk ext' ∧ (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
-      FullCoreInv c F0 s' → (s.scratch.stable ≠ 0#64 → cl' = 0) →
+      FullCoreInv c F0 s' → FullArenaPermEq s.core s'.core →
+      (s.scratch.stable ≠ 0#64 → cl' = 0) →
       cl' ≤ s.core.cur_level → fuel'.toNat ≤ s.core.fuel.toNat →
       FullExtScratchPres s s' → (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m'
 
 theorem m6aRephaseSpec_of {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)}
     {s : FullState} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost}
     (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hinv : FullCoreInv c F0 s)
-    (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hQ : ∀ vals' lvl' rsns' trl' tp' te' prop' cl' unass' fuel' sc' ext' m',
+    (hdm0 : s.core.dense_mode = 0#64) (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' prop' prob' cl' unass' unfl'
+      wvec' arena' wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' sc' ext' m',
       let s' : FullState :=
-        { core := { s.core with vals := vals', lvl := lvl', rsns := rsns', trl := trl',
-                                trail_pos := tp', trail_end := te', propagated := prop',
-                                cur_level := cl', unassigned := unass', fuel := fuel' }
+        { core := { s.core with
+            vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+            trail_pos := tp', frame_trail := ftrl', frame_dec := fdec', trail_end := te',
+            propagated := prop', probing := prob', cur_level := cl', unassigned := unass',
+            unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk',
+            wlen := wlen', wusable := wu', fuel := fuel', confl_type := ctype',
+            confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
           scratch := sc' }
       M6HdrExtOk ext' ∧ (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
-      FullCoreInv c F0 s' → (s.scratch.stable ≠ 0#64 → cl' = 0) →
+      FullCoreInv c F0 s' → FullArenaPermEq s.core s'.core →
+      (s.scratch.stable ≠ 0#64 → cl' = 0) →
       cl' ≤ s.core.cur_level → fuel'.toNat ≤ s.core.fuel.toNat →
       FullExtScratchPres s s' → (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m') :
     m6aRephaseSpec (c.hdr, ()) m Q X :=
-  ⟨c, F0, ext, s, R, rfl, hcfg, hext, hinv, hm, hQ⟩
+  ⟨c, F0, ext, s, R, rfl, hcfg, hext, hinv, hdm0, hm, hQ⟩
 
 theorem m6aRephaseSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
     (hs : m6aRephaseSpec (h, ()) m Q X) :
     ∃ (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64)) (s : FullState)
       (R : Mem 64 → Prop),
       h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ FullCoreInv c F0 s ∧
-      (FullM6HdrMem c ext s ⋆ R) m ∧
-      ∀ vals' lvl' rsns' trl' tp' te' prop' cl' unass' fuel' sc' ext' m',
+      s.core.dense_mode = 0#64 ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' prop' prob' cl' unass' unfl'
+        wvec' arena' wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' sc' ext' m',
         let s' : FullState :=
-          { core := { s.core with vals := vals', lvl := lvl', rsns := rsns', trl := trl',
-                                  trail_pos := tp', trail_end := te', propagated := prop',
-                                  cur_level := cl', unassigned := unass', fuel := fuel' }
+          { core := { s.core with
+              vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+              trail_pos := tp', frame_trail := ftrl', frame_dec := fdec', trail_end := te',
+              propagated := prop', probing := prob', cur_level := cl', unassigned := unass',
+              unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk',
+              wlen := wlen', wusable := wu', fuel := fuel', confl_type := ctype',
+              confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
             scratch := sc' }
         M6HdrExtOk ext' ∧ (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
-        FullCoreInv c F0 s' → (s.scratch.stable ≠ 0#64 → cl' = 0) →
+        FullCoreInv c F0 s' → FullArenaPermEq s.core s'.core →
+        (s.scratch.stable ≠ 0#64 → cl' = 0) →
         cl' ≤ s.core.cur_level → fuel'.toNat ≤ s.core.fuel.toNat →
         FullExtScratchPres s s' → (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m' := hs
 
@@ -642,13 +660,21 @@ private theorem m6Hdr_call_m6Rephase_inv {Γ : Env} {ret : List Ty}
   rw [hargs]
   have hsp := hinv.sparse
   have hcore := fullM6HdrInv_to_coreInv hinv
-  refine hΓ _ X (m6aRephaseSpec_of hinv.cfgOk hinv.extOk hcore.coreInv hm ?_)
-  intro vals' lvl' rsns' trl' tp' te' prop' cl' unass' fuel' sc' ext' m' s'
-    ⟨hext', _⟩ hc' _ _ hfu' hpres' hm'
+  refine hΓ _ X (m6aRephaseSpec_of hinv.cfgOk hinv.extOk hcore.coreInv hsp.2.2.2.2 hm ?_)
+  intro vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' prop' prob' cl' unass' unfl'
+    wvec' arena' wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' sc' ext' m' s'
+    ⟨hext', _⟩ hc' hperm' _ _ hfu' hpres' hm'
   have hlm' : FullLitMarksClear c s' := ⟨hsp.2.1.1, hsp.2.1.2⟩
-  have hvn' : FullArenaVarsNodup s' := hsp.2.2.1
-  have hwf' : FullLastLearnedWf s' :=
-    hsp.2.2.2.1.1.of_refs_subset hpres'.1 fun _ hr => hr
+  have hvn' : FullArenaVarsNodup s' := by
+    intro r hr hng
+    have hr1 : r ∈ fullArenaClauseRefsCore s.core := hperm'.2.1 ▸ hr
+    obtain ⟨_, hgb, hp⟩ := hperm'.2.2 r hr1
+    exact (hp.map (· / 2)).nodup_iff.mpr (hsp.2.2.1 r hr1 (hgb.symm.trans hng))
+  have hwf' : FullLastLearnedWf s' := by
+    intro i hi
+    dsimp only [fullArenaClauseRefs]
+    rw [hpres'.1, hperm'.2.1]
+    exact hsp.2.2.2.1.1 i hi
   have hext_sc' : FullExtScratchOk c s' :=
     ⟨hwf', by change sc'.extend_len ≤ c.extend_cap; rw [hpres'.2]; exact hsp.2.2.2.1.2⟩
   have hinv' : FullM6HdrInv c F0 ext' s' :=

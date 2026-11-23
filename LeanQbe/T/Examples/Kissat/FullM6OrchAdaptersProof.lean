@@ -68,7 +68,7 @@ private def m6aRows : List SpecEntry :=
   , ⟨"m6_hdr_update_tier_limits", [i64], [], m6HdrW2aSpec [] [], true⟩
   , ⟨"m6_hdr_dr_update", [i64], [], m6HdrDrMutSpec, true⟩
   , ⟨"full_analyze_core_m6", [i64], [i64], m6HdrAnalyzeSpec, true⟩
-  , ⟨"full_walk", [i64], [], fullWalkSpec, true⟩
+  , ⟨"full_walk", [i64], [], fullWarmupSpec, true⟩
   , ⟨"full_log10_q16", [i64], [i64], m5Log10Q16Spec, true⟩
   , ⟨"m6_hdr_set_watermark", [i64, i64, i64], [], m6HdrW2aSpec [i64, i64] [], true⟩
   , ⟨"full_add_bin_m6", [i64, i32, i32], [i64], fullAddBinM6Spec, true⟩
@@ -171,7 +171,7 @@ theorem m6OrchAdapters_tableImpl_of (Γ : Env)
     (hDrUpd : ∀ a m Q X, m6HdrDrMutSpec a m Q X → Γ "m6_hdr_dr_update" [i64] [] a m Q X)
     (hAnaCore : ∀ a m Q X, m6HdrAnalyzeSpec a m Q X →
       Γ "full_analyze_core_m6" [i64] [i64] a m Q X)
-    (hWalk : ∀ a m Q X, fullWalkSpec a m Q X → Γ "full_walk" [i64] [] a m Q X)
+    (hWalk : ∀ a m Q X, fullWarmupSpec a m Q X → Γ "full_walk" [i64] [] a m Q X)
     (hLog : ∀ a m Q X, m5Log10Q16Spec a m Q X → Γ "full_log10_q16" [i64] [i64] a m Q X)
     (hSetWm : ∀ a m Q X, m6HdrW2aSpec [i64, i64] [] a m Q X →
       Γ "m6_hdr_set_watermark" [i64, i64, i64] [] a m Q X)
@@ -264,7 +264,7 @@ theorem m6OrchAdapters_tableImpl :
       ⟨"full_analyze_core_m6", [i64], [i64], m6HdrAnalyzeSpec, true⟩
       (hno := fun _ _ _ _ h => m6HdrAnalyzeSpec_monoX h))
     (m6OrchAdaptersEnv_row_at 31
-      ⟨"full_walk", [i64], [], fullWalkSpec, true⟩)
+      ⟨"full_walk", [i64], [], fullWarmupSpec, true⟩)
     (m6OrchAdaptersEnv_row_at 32
       ⟨"full_log10_q16", [i64], [i64], m5Log10Q16Spec, true⟩)
     (m6OrchAdaptersEnv_row_at 33
