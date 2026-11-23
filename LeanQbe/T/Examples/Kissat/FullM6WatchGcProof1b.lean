@@ -292,8 +292,45 @@ local elab "lfix_steps" : tactic => do
     let _ ← evalTactic (← `(tactic| repeat m6_strip))
     if !(← LeanQbe.T.C0Step.stepOnce) then break
 
+/-- `vals[l] > 0 || (prop_done && vals[l] < 0)` tail (two `i8` reloads of `vals[l]`). -/
+private abbrev lfixValsTail {rs : List Ty} (J : Cont [Ty.bool]) (pVals l : Val i64)
+    (pd : Val Ty.bool) : Expr Val Cont rs :=
+  Expr.let_ (lfixOp2 (.add i64) (Arg.var pVals) (Arg.var l)) fun p =>
+    Expr.load i8 (Arg.var p.fst) fun ld =>
+      Expr.let_ (lfixOp1 (.trunc 32 8) (Arg.imm 0)) fun p =>
+        Expr.let_ (lfixOp1 (.sext 8 32) (Arg.var ld)) fun p_1 =>
+          Expr.let_ (lfixOp1 (.sext 8 32) (Arg.var p.fst)) fun p =>
+            Expr.let_ (lfixOp2 (.cmp .sgt i32 .bool (by decide)) (Arg.var p_1.fst) (Arg.var p.fst))
+              fun p =>
+              Expr.jnz (Arg.var p.fst) (Expr.jump (J, ()).fst (Arg.imm true, ()))
+                (Expr.jnz (Arg.var pd)
+                  (Expr.let_ (lfixOp2 (.add i64) (Arg.var pVals) (Arg.var l)) fun p =>
+                    Expr.load i8 (Arg.var p.fst) fun ld =>
+                      Expr.let_ (lfixOp1 (.trunc 32 8) (Arg.imm 0)) fun p =>
+                        Expr.let_ (lfixOp1 (.sext 8 32) (Arg.var ld)) fun p_1 =>
+                          Expr.let_ (lfixOp1 (.sext 8 32) (Arg.var p.fst)) fun p =>
+                            Expr.let_ (lfixOp2 (.cmp .slt i32 .bool (by decide))
+                              (Arg.var p_1.fst) (Arg.var p.fst)) fun p =>
+                              Expr.jnz (Arg.var p.fst) (Expr.jump (J, ()).fst (Arg.imm true, ()))
+                                (Expr.jump (J, ()).fst (Arg.imm false, ())))
+                  (Expr.jump (J, ()).fst (Arg.imm false, ())))
+
+private theorem sweep_bins_vals_tail_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {m : Mem 64} {pVals l : Val i64} {pd : Val Ty.bool} {valV : BitVec 8}
+    (J : Cont [Ty.bool]) (h2 : loadVal m i8 (pVals + l) = some valV)
+    (hJ : ∀ b : Bool, J (b, ()) m) :
+    wp Γ Q X (lfixValsTail J pVals l pd) m := by
+  unfold lfixValsTail
+  lfix_steps; rw [wp_load]; refine ⟨valV, h2, ?_⟩
+  lfix_steps; refine wp_jnz_of (fun _ => by lfix_steps; exact hJ true) (fun _ => ?_)
+  lfix_steps; refine wp_jnz_of (fun _ => ?_) (fun _ => by lfix_steps; exact hJ false)
+  lfix_steps; rw [wp_load]; refine ⟨valV, h2, ?_⟩
+  lfix_steps; refine wp_jnz_of (fun _ => by lfix_steps; exact hJ true)
+    (fun _ => by lfix_steps; exact hJ false)
+
 private theorem sweep_bins_lfix_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    {m : Mem 64} {pLvl pVals l : Val i64} {lvlV : BitVec 32} {valV : BitVec 8}
+    {m : Mem 64} {pLvl pVals l : Val i64} {pd : Val Ty.bool} {lvlV : BitVec 32}
+    {valV : BitVec 8}
     (J : Cont [Ty.bool])
     (h1 : loadVal m i32 (pLvl + (l >>> (1 : Nat)) * 4#64) = some lvlV)
     (h2 : loadVal m i8 (pVals + l) = some valV)
@@ -306,25 +343,74 @@ private theorem sweep_bins_lfix_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
               Expr.load i32 (Arg.var p.fst) fun ld =>
                 Expr.let_ (lfixOp2 (.cmp .eq i32 .bool (by decide)) (Arg.var ld) (Arg.imm 0))
                   fun p =>
-                  Expr.jnz (Arg.var p.fst)
-                    (Expr.let_ (lfixOp2 (.add i64) (Arg.var pVals) (Arg.var l)) fun p =>
-                      Expr.load i8 (Arg.var p.fst) fun ld =>
-                        Expr.let_ (lfixOp1 (.trunc 32 8) (Arg.imm 0)) fun p =>
-                          Expr.let_ (lfixOp1 (.sext 8 32) (Arg.var ld)) fun p_1 =>
-                            Expr.let_ (lfixOp1 (.sext 8 32) (Arg.var p.fst)) fun p =>
-                              Expr.let_ (lfixOp2 (.cmp .ne i32 .bool (by decide))
-                                (Arg.var p_1.fst) (Arg.var p.fst)) fun p =>
-                                Expr.jnz (Arg.var p.fst) (Expr.jump (J, ()).fst (Arg.imm true, ()))
-                                  (Expr.jump (J, ()).fst (Arg.imm false, ())))
+                  Expr.jnz (Arg.var p.fst) (lfixValsTail J pVals l pd)
                     (Expr.jump (J, ()).fst (Arg.imm false, ()))) m := by
   lfix_steps
   rw [wp_load]; refine ⟨lvlV, ?_, ?_⟩
   · simpa [BitVec.ushiftRight] using h1
   · lfix_steps; refine wp_jnz_of (fun _ => ?_) (fun _ => ?_)
-    · lfix_steps; rw [wp_load]; refine ⟨valV, h2, ?_⟩
-      lfix_steps; refine wp_jnz_of (fun _ => by lfix_steps; exact hJ true)
-        (fun _ => by lfix_steps; exact hJ false)
+    · exact sweep_bins_vals_tail_wp J h2 hJ
     · lfix_steps; exact hJ false
+
+/-- `vals[ot] > 0 || (prop_done && vals[ot] < 0)` tail for a `u32` literal `ot`. -/
+private abbrev ofixValsTail {rs : List Ty} (J : Cont [Ty.bool]) (pVals : Val i64) (ot : Val i32)
+    (pd : Val Ty.bool) : Expr Val Cont rs :=
+  Expr.let_ (lfixOp1 (.zext 32 64) (Arg.var ot)) fun p =>
+    Expr.let_ (lfixOp2 (.add i64) (Arg.var pVals) (Arg.var p.fst)) fun p =>
+      Expr.load i8 (Arg.var p.fst) fun ld =>
+        Expr.let_ (lfixOp1 (.trunc 32 8) (Arg.imm 0)) fun p =>
+          Expr.let_ (lfixOp1 (.sext 8 32) (Arg.var ld)) fun p_1 =>
+            Expr.let_ (lfixOp1 (.sext 8 32) (Arg.var p.fst)) fun p =>
+              Expr.let_ (lfixOp2 (.cmp .sgt i32 .bool (by decide)) (Arg.var p_1.fst)
+                (Arg.var p.fst)) fun p =>
+                Expr.jnz (Arg.var p.fst) (Expr.jump (J, ()).fst (Arg.imm true, ()))
+                  (Expr.jnz (Arg.var pd)
+                    (Expr.let_ (lfixOp1 (.zext 32 64) (Arg.var ot)) fun p =>
+                      Expr.let_ (lfixOp2 (.add i64) (Arg.var pVals) (Arg.var p.fst)) fun p =>
+                        Expr.load i8 (Arg.var p.fst) fun ld =>
+                          Expr.let_ (lfixOp1 (.trunc 32 8) (Arg.imm 0)) fun p =>
+                            Expr.let_ (lfixOp1 (.sext 8 32) (Arg.var ld)) fun p_1 =>
+                              Expr.let_ (lfixOp1 (.sext 8 32) (Arg.var p.fst)) fun p =>
+                                Expr.let_ (lfixOp2 (.cmp .slt i32 .bool (by decide))
+                                  (Arg.var p_1.fst) (Arg.var p.fst)) fun p =>
+                                  Expr.jnz (Arg.var p.fst)
+                                    (Expr.jump (J, ()).fst (Arg.imm true, ()))
+                                    (Expr.jump (J, ()).fst (Arg.imm false, ())))
+                    (Expr.jump (J, ()).fst (Arg.imm false, ())))
+
+private theorem sweep_bins_ofix_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {m : Mem 64} {pLvl pVals nlits : Val i64} {ot : Val i32} {pd : Val Ty.bool}
+    {lvlV : BitVec 32} {valV : BitVec 8}
+    (J : Cont [Ty.bool])
+    (h1 : loadVal m i32 (pLvl + (ot.setWidth 64 >>> (1 : Nat)) * 4#64) = some lvlV)
+    (h2 : loadVal m i8 (pVals + ot.setWidth 64) = some valV)
+    (hJ : ∀ b : Bool, J (b, ()) m) :
+    wp Γ Q X
+      (Expr.let_ (lfixOp1 (.zext 32 64) (Arg.var ot)) fun p =>
+        Expr.let_ (lfixOp2 (.cmp .ult i64 .bool (by decide)) (Arg.var p.fst) (Arg.var nlits))
+          fun p =>
+          Expr.jnz (Arg.var p.fst)
+            (Expr.let_ (lfixOp2 (.lshr i32) (Arg.var ot) (Arg.imm 1)) fun p =>
+              Expr.let_ (lfixOp1 (.zext 32 64) (Arg.var p.fst)) fun p =>
+                Expr.let_ (lfixOp2 (.mul i64) (Arg.var p.fst) (Arg.imm 4)) fun p =>
+                  Expr.let_ (lfixOp2 (.add i64) (Arg.var pLvl) (Arg.var p.fst)) fun p =>
+                    Expr.load i32 (Arg.var p.fst) fun ld =>
+                      Expr.let_ (lfixOp2 (.cmp .eq i32 .bool (by decide)) (Arg.var ld)
+                        (Arg.imm 0)) fun p =>
+                        Expr.jnz (Arg.var p.fst) (ofixValsTail J pVals ot pd)
+                          (Expr.jump (J, ()).fst (Arg.imm false, ())))
+            (Expr.jump (J, ()).fst (Arg.imm false, ()))) m := by
+  lfix_steps; refine wp_jnz_of (fun _ => ?_) (fun _ => by lfix_steps; exact hJ false)
+  lfix_steps; rw [wp_load]; refine ⟨lvlV, ?_, ?_⟩
+  · simpa [BitVec.ushiftRight, BitVec.setWidth_ushiftRight] using h1
+  lfix_steps; refine wp_jnz_of (fun _ => ?_) (fun _ => by lfix_steps; exact hJ false)
+  unfold ofixValsTail
+  lfix_steps; rw [wp_load]; refine ⟨valV, by simpa using h2, ?_⟩
+  lfix_steps; refine wp_jnz_of (fun _ => by lfix_steps; exact hJ true) (fun _ => ?_)
+  lfix_steps; refine wp_jnz_of (fun _ => ?_) (fun _ => by lfix_steps; exact hJ false)
+  lfix_steps; rw [wp_load]; refine ⟨valV, by simpa using h2, ?_⟩
+  lfix_steps; refine wp_jnz_of (fun _ => by lfix_steps; exact hJ true)
+    (fun _ => by lfix_steps; exact hJ false)
 
 theorem full_sweep_bins_range_m6_wp (Γ : Env)
     (hdefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
@@ -625,9 +711,12 @@ theorem full_sweep_bins_range_m6_wp (Γ : Env)
                                           intro m hm; m6_nojoin
                                           exact hJs () _ ⟨_, by simp [hws1], hm⟩
                       · intro Jo hJo
-                        clear hLoopL JL hwatL hlenL hslice0 hrem1 hpre1 hout1 hstep
-                        m6_split_fast <;> (try m6_split_fast) <;>
-                          (try m6_split_fast) <;> (m6_nojoin; exact hJo _ m1 rfl)
+                        exact sweep_bins_ofix_wp Jo
+                          (@FullArenaTactics.c0_load_full_lvl c
+                            (sweepBinState s wvecL wstk1 wuL nb1 ws1) R m1 _ hot_l hm1)
+                          (@FullArenaTactics.c0_load_full_vals c
+                            (sweepBinState s wvecL wstk1 wuL nb1 ws1) R m1 _ hot_v hm1)
+                          (fun _ => hJo _ _ rfl)
                     · -- Large watch `(w0, cr)`
                       have hlg : (w0 &&& 0x80000000#32) = 0#32 := by
                         change ((wstk1[p.toNat]'hp_w) &&& 0x80000000#32) = 0#32; assumption

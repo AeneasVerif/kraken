@@ -16,7 +16,10 @@ with zero `FullHdr` changes (`144` words frozen):
 2. `full_watch_push_m6`: proactive defrag at `wlen * 4 >= wcap * 3` (`75%`).
 3. `full_lit_rank_m6`: tie-break satisfied literals by `~lvl[l >> 1]`.
 4. `full_sweep_bins_range_m6` & `full_sweep_bins_m6`: `wsort`-stamped binary watch
-   deduplication + fixed-binary deletion + defrag.
+   deduplication + fixed-binary deletion + defrag. A binary is deleted for a root-satisfied
+   literal always, but for a root-falsified literal only once the trail is fully propagated
+   (`propagated >= trail_end`): otherwise the other literal may not be implied yet and the
+   deletion would lose the clause (the M6 Stage-1 model-check regression).
 5. `full_rewatch_range_m6` & `full_rewatch_arena_m6`, `full_move_red_end_buf_m6` &
    `full_move_red_end_m6`, `full_arena_sweep_m6`: partial sweep skipping verified
    irredundant prefix, irredundant-before-redundant partitioning updating live
@@ -280,6 +283,7 @@ void full_sweep_bins_range_m6(FullHdr *h, u64 keep_large_before) {
   u32 *wvec = (u32 *)h->watch_vec;
   u32 *wstk = (u32 *)h->watch_stk;
   u32 *seen = (u32 *)h->wsort;
+  bool prop_done = (h->propagated >= h->trail_end);
   u64 s0 = 0ULL;
   while (s0 < nlits) { seen[s0] = 0xFFFFFFFFu; s0 = s0 + 1ULL; }
   u64 l = 0ULL;
@@ -287,7 +291,8 @@ void full_sweep_bins_range_m6(FullHdr *h, u64 keep_large_before) {
     u64 off = (u64)wvec[l << 1];
     u64 sz = (u64)wvec[(l << 1) + 1ULL];
     if (sz == 0ULL) { l = l + 1ULL; continue; }
-    bool lfix = (lvl[l >> 1] == 0u && vals[l] != (i8)0);
+    bool lfix = (lvl[l >> 1] == 0u &&
+      (vals[l] > (i8)0 || (prop_done && vals[l] < (i8)0)));
     u64 p = off;
     u64 q = off;
     u64 end = off + sz;
@@ -295,7 +300,8 @@ void full_sweep_bins_range_m6(FullHdr *h, u64 keep_large_before) {
       u32 w0 = wstk[p];
       if ((w0 & PW_BIN_FLAG) != 0u) {
         u32 ot = w0 & PW_LIT_MASK;
-        bool ofix = ((u64)ot < nlits && lvl[ot >> 1] == 0u && vals[ot] != (i8)0);
+        bool ofix = ((u64)ot < nlits && lvl[ot >> 1] == 0u &&
+          (vals[ot] > (i8)0 || (prop_done && vals[ot] < (i8)0)));
         if (lfix || ofix) {
           if ((u64)l < (u64)ot && h->num_binary > 0ULL) {
             h->num_binary = h->num_binary - 1ULL;
