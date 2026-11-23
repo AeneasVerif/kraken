@@ -1655,16 +1655,6 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
             open_items.append(cfg.inl_policy_mod)
     slice_ns = [f"{arch.ns_prefix}.{cfg.prefix}Cert{sl.index}" for sl in cfg.slices]
 
-    pref_mods: list[str] = []
-    if total_slices >= 3:
-        for sl in cfg.slices[1:-1]:
-            doc = f"/-- Prefix sub-module `[0, {sl.end})`. -/"
-            rhs = f"{cert_fns}.take {sl.end}"
-            defn = f"def pref{sl.index}Mod : Module := {{ fns := {rhs} }}"
-            if len(defn) > MAX_LINE_LEN:
-                defn = f"def pref{sl.index}Mod : Module :=\n  {{ fns := {rhs} }}"
-            pref_mods.extend([doc, defn, ""])
-
     ladder_defs: list[str] = []
     inl_cert_name = f"{cfg.stem}InlCert"
     base_cert_name = inl_cert_name if is_inl else cfg.cert_name
@@ -1690,76 +1680,174 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
             ]
         )
     else:
-        for sl in cfg.slices[1:]:
-            is_first_step = sl.index == 2
-            is_last_step = sl.index == total_slices
-            lhs_cert = "cert1" if is_first_step else f"pref{sl.index - 1}Cert"
-            rhs_cert = f"cert{sl.index}"
-            def_name = base_cert_name if is_last_step else f"pref{sl.index}Cert"
-            mod_name = base_mod_name if is_last_step else f"pref{sl.index}Mod"
-            sig_lines = _format_cert_sig(arch, mod_name, cfg.max_bound)
-            vis = base_vis if is_last_step else "noncomputable def"
+        chunk_ty = f"CompiledChunk {arch.targ} {arch.lt} [] 0"
+        last_sl = cfg.slices[-1]
 
-            if is_last_step:
-                doc = (
+        def chunk_name(idx: int) -> str:
+            return "allChunks" if idx == 1 else f"sufChunks{idx}"
+
+        def fmt_chunk_def(nm: str, rhs: str) -> list[str]:
+            single = f"private noncomputable def {nm} : List ({chunk_ty}) := {rhs}"
+            if len(single) <= MAX_LINE_LEN:
+                return [single]
+            return [
+                f"private noncomputable def {nm} :",
+                f"    List ({chunk_ty}) :=",
+                f"  {rhs}",
+            ]
+
+        ladder_defs.extend(fmt_chunk_def(chunk_name(last_sl.index), f"cert{last_sl.index}.chunks"))
+        for sl in reversed(cfg.slices[:-1]):
+            ladder_defs.extend(
+                fmt_chunk_def(
+                    chunk_name(sl.index),
+                    f"cert{sl.index}.chunks ++ {chunk_name(sl.index + 1)}",
+                )
+            )
+        ladder_defs.append("")
+
+        ladder_defs.extend(
+            [
+                "private theorem allChunks_link :",
+                f"    checkLinkList {arch.layout} [] allChunks = true := by",
+                "  t_kernel_rfl",
+                "",
+            ]
+        )
+
+        last_nm = chunk_name(last_sl.index)
+        last_sig = (
+            f"private theorem fns_eq{last_sl.index} : "
+            f"{cert_fns}.drop {last_sl.start} = chunksFns {last_nm} := by"
+        )
+        if len(last_sig) > MAX_LINE_LEN:
+            last_sig = (
+                f"private theorem fns_eq{last_sl.index} :\n"
+                f"    {cert_fns}.drop {last_sl.start} = chunksFns {last_nm} := by"
+            )
+        ladder_defs.extend(
+            [
+                last_sig,
+                f"  have h := cert{last_sl.index}.fns_eq",
+                f"  dsimp only [slice{last_sl.index}Mod] at h",
+                "  exact h",
+            ]
+        )
+        for sl in reversed(cfg.slices[1:-1]):
+            nm = chunk_name(sl.index)
+            sig = (
+                f"private theorem fns_eq{sl.index} : "
+                f"{cert_fns}.drop {sl.start} = chunksFns {nm} := by"
+            )
+            if len(sig) > MAX_LINE_LEN:
+                sig = (
+                    f"private theorem fns_eq{sl.index} :\n"
+                    f"    {cert_fns}.drop {sl.start} = chunksFns {nm} := by"
+                )
+            rw_ln = f"  rw [{nm}, chunksFns_append, ← fns_eq{sl.index + 1}, ← hc]"
+            if len(rw_ln) > MAX_LINE_LEN:
+                rw_ln = f"  rw [{nm}, chunksFns_append,\n    ← fns_eq{sl.index + 1}, ← hc]"
+            drop_ln = f"  exact (drop_take_append_drop {cert_fns} {sl.start} {sl.count}).symm"
+            if len(drop_ln) > MAX_LINE_LEN:
+                drop_ln = (
+                    f"  exact (drop_take_append_drop {cert_fns}\n"
+                    f"    {sl.start} {sl.count}).symm"
+                )
+            ladder_defs.extend(
+                [
+                    sig,
+                    f"  have hc := cert{sl.index}.fns_eq",
+                    f"  dsimp only [slice{sl.index}Mod] at hc",
+                    rw_ln,
+                    drop_ln,
+                ]
+            )
+        sl1 = cfg.slices[0]
+        h1_ln = f"  have h1 : {cert_fns} = chunksFns allChunks := by"
+        if len(h1_ln) > MAX_LINE_LEN:
+            h1_ln = f"  have h1 :\n      {cert_fns} = chunksFns allChunks := by"
+        take_ln = f"    exact (List.take_append_drop {sl1.count} {cert_fns}).symm"
+        if len(take_ln) > MAX_LINE_LEN:
+            take_ln = (
+                f"    exact (List.take_append_drop {sl1.count}\n"
+                f"      {cert_fns}).symm"
+            )
+        ladder_defs.extend(
+            [
+                "private theorem allChunks_fns_eq :",
+                f"    {base_mod_name}.fns = chunksFns allChunks := by",
+                "  have hc := cert1.fns_eq",
+                "  dsimp only [slice1Mod] at hc",
+                h1_ln,
+                "    dsimp only [allChunks]",
+                "    rw [chunksFns_append, ← fns_eq2, ← hc]",
+                take_ln,
+                "  exact h1",
+                "",
+            ]
+        )
+
+        ladder_defs.extend(
+            [
+                f"private theorem maxB{last_sl.index} :",
+                f"    chunksMaxBound {last_nm} ≤ {cfg.max_bound} :=",
+                f"  cert{last_sl.index}.maxBound_le",
+            ]
+        )
+        for sl in reversed(cfg.slices[:-1]):
+            nm = chunk_name(sl.index)
+            thm = "allChunks_maxBound" if sl.index == 1 else f"maxB{sl.index}"
+            max_sig = (
+                f"private theorem {thm} : chunksMaxBound {nm} ≤ {cfg.max_bound} := by"
+            )
+            if len(max_sig) > MAX_LINE_LEN:
+                max_sig = (
+                    f"private theorem {thm} :\n"
+                    f"    chunksMaxBound {nm} ≤ {cfg.max_bound} := by"
+                )
+            app_ln = f"    chunksMaxBound_append_le cert{sl.index}.maxBound_le maxB{sl.index + 1}"
+            if len(app_ln) > MAX_LINE_LEN:
+                app_ln = (
+                    f"    chunksMaxBound_append_le cert{sl.index}.maxBound_le\n"
+                    f"      maxB{sl.index + 1}"
+                )
+            ladder_defs.extend(
+                [
+                    max_sig,
+                    f"  rw [{nm}]",
+                    "  simpa only [Nat.max_self] using",
+                    app_ln,
+                ]
+            )
+        ladder_defs.append("")
+
+        sig_lines = _format_cert_sig(arch, base_mod_name, cfg.max_bound)
+        supp_ln = (
+            "    supportsAll := supportsAll_of_eq allChunks_fns_eq "
+            "(supportsAll_of_chunks allChunks)"
+        )
+        if len(supp_ln) > MAX_LINE_LEN:
+            supp_ln = (
+                "    supportsAll := supportsAll_of_eq allChunks_fns_eq\n"
+                "      (supportsAll_of_chunks allChunks)"
+            )
+        ladder_defs.extend(
+            [
+                *wrap_comment_lines(
                     f"/-- Full kernel-checked cert covering all "
                     f"`{cfg.total_fns}` functions in `{base_mod_name}` on "
                     f"{arch.isa_title}. -/"
-                )
-                if is_inl:
-                    proof_lines = [
-                        "    (by",
-                        f"      dsimp only [pref{sl.index - 1}Mod, "
-                        f"slice{sl.index}Mod, {cert_fns}]",
-                        f"      exact (List.take_append_drop {sl.start} "
-                        f"{base_mod_name}.fns).symm)",
-                    ]
-                else:
-                    proof_lines = [
-                        f"    (by exact (List.take_append_drop {sl.start} "
-                        f"{cert_fns}).symm)"
-                    ]
-                ladder_defs.extend(
-                    [
-                        doc,
-                        f"{vis} {def_name} :",
-                        *sig_lines,
-                        f"  {lhs_cert}.append {rhs_cert}",
-                        *proof_lines,
-                        "    (by t_kernel_rfl)",
-                        "",
-                    ]
-                )
-            else:
-                doc = f"/-- Linked certificate for prefix `[0, {sl.end})`. -/"
-                proof = (
-                    f"(by exact List.take_add (l := {cert_fns}) "
-                    f"(i := {sl.start}) (j := {sl.count}))"
-                )
-                append_line = f"  {lhs_cert}.append {rhs_cert} {proof}"
-                if len(append_line) > MAX_LINE_LEN:
-                    ladder_defs.extend(
-                        [
-                            doc,
-                            f"{vis} {def_name} :",
-                            *sig_lines,
-                            f"  {lhs_cert}.append {rhs_cert}",
-                            f"    {proof}",
-                            "    (by t_kernel_rfl)",
-                            "",
-                        ]
-                    )
-                else:
-                    ladder_defs.extend(
-                        [
-                            doc,
-                            f"{vis} {def_name} :",
-                            *sig_lines,
-                            append_line,
-                            "    (by t_kernel_rfl)",
-                            "",
-                        ]
-                    )
+                ),
+                f"{base_vis} {base_cert_name} :",
+                *sig_lines,
+                "  { chunks := allChunks",
+                "    linkCheck := allChunks_link",
+                "    fns_eq := allChunks_fns_eq",
+                supp_ln,
+                "    maxBound_le := allChunks_maxBound }",
+                "",
+            ]
+        )
 
     if is_inl:
         target_expr = f"({cfg.target_mod_expr})"
@@ -1795,21 +1883,20 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
         *wrap_comment_lines(
             f"Combines all `{total_slices}` flat 1-tier slices "
             f"(`{cfg.prefix}Cert1`..`{cfg.prefix}Cert{total_slices}`) via "
-            f"`LinkedCert.append` into `{cfg.cert_name}` over "
+            f"a single-shot `checkLinkList` proof into `{cfg.cert_name}` over "
             f"`{cfg.source_mod}.{cfg.target_mod_expr}` (`{cfg.total_fns}` functions)."
         ),
         "-/",
         "",
         "set_option autoImplicit false",
         "",
-        "@[expose] public section",
+        "public section",
         "",
         f"namespace {ns}",
         "",
         *wrap_open_pairs(open_items),
         *wrap_open_pairs(slice_ns),
         "",
-        *pref_mods,
         *ladder_defs,
         *axiom_lines,
         f"end {ns}",
