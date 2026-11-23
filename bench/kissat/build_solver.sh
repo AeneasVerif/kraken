@@ -2,7 +2,7 @@
 # Build a native `kissat-leanqbe` binary from the verified LeanQbe Kissat solver.
 #
 #   bash bench/kissat/build_solver.sh
-#     [--module FullM5|FullM6|FullM7|FullM4|FullM3|Plain|Full|FullFast]
+#     [--module FullM5|FullM6|FullM7|FullM7Plus|FullM7Fidelity|FullM4|FullM3|Plain|Full|FullFast]
 #     [--arch x64|arm64] [--inline-max <N>] [--allow-uncertified] [--debug|-g]
 #     [--keep-asm] [--save-asm <path>] [-o <output_bin>]
 #
@@ -40,10 +40,10 @@ ALLOW_UNCERTIFIED=0
 
 usage() {
   echo "usage: bash bench/kissat/build_solver.sh" \
-    "[--module FullM5|FullM6|FullM7|FullM4|FullM3|Plain|Full|FullFast]" \
+    "[--module FullM5|FullM6|FullM7|FullM7Plus|FullM7Fidelity|FullM4|FullM3|Plain|Full|FullFast]" \
     "[--arch x64|arm64] [--inline-max <N>] [--allow-uncertified] [--debug|-g]" \
     "[--keep-asm] [--save-asm <path>] [-o <output_bin>]"
-  echo "  aliases: m5, m6, m7, m4, m3 (case-insensitive)."
+  echo "  aliases: m5, m6, m7, m7plus, m7fidelity, m7fid, m4, m3 (case-insensitive)."
   echo "  note: --inline-max > 0 and --debug rewrite IR/directives outside LinkedCert;" \
     "uncertified modules require --allow-uncertified."
 }
@@ -74,18 +74,25 @@ case "$INLINE_MAX" in
     exit 2 ;;
 esac
 
+LEAN_MOD=""
 case "${MODULE,,}" in
-  full) MODULE=Full; EXPR=LeanQbe.T.Examples.Kissat.Full.fullModule ;;
-  fullfast) MODULE=FullFast; EXPR=LeanQbe.T.Examples.Kissat.FullFast.fastModule ;;
-  fullm3|m3) MODULE=FullM3; EXPR=LeanQbe.T.Examples.Kissat.FullM3.m3Module ;;
-  fullm4|m4) MODULE=FullM4; EXPR=LeanQbe.T.Examples.Kissat.FullM4.m4Module ;;
-  fullm5|m5) MODULE=FullM5; EXPR=LeanQbe.T.Examples.Kissat.FullM5.m5Module ;;
-  fullm6|m6) MODULE=FullM6; EXPR=LeanQbe.T.Examples.Kissat.FullM6.m6Module ;;
-  fullm7|m7) MODULE=FullM7; EXPR=LeanQbe.T.Examples.Kissat.FullM7.m7Module ;;
-  plain) MODULE=Plain; EXPR=LeanQbe.T.Examples.Kissat.Plain.plainModule ;;
+  full) MODULE=Full; LEAN_MOD=Full; EXPR=LeanQbe.T.Examples.Kissat.Full.fullModule ;;
+  fullfast) MODULE=FullFast; LEAN_MOD=FullFast; EXPR=LeanQbe.T.Examples.Kissat.FullFast.fastModule ;;
+  fullm3|m3) MODULE=FullM3; LEAN_MOD=FullM3; EXPR=LeanQbe.T.Examples.Kissat.FullM3.m3Module ;;
+  fullm4|m4) MODULE=FullM4; LEAN_MOD=FullM4; EXPR=LeanQbe.T.Examples.Kissat.FullM4.m4Module ;;
+  fullm5|m5) MODULE=FullM5; LEAN_MOD=FullM5; EXPR=LeanQbe.T.Examples.Kissat.FullM5.m5Module ;;
+  fullm6|m6) MODULE=FullM6; LEAN_MOD=FullM6; EXPR=LeanQbe.T.Examples.Kissat.FullM6.m6Module ;;
+  fullm7|m7) MODULE=FullM7; LEAN_MOD=FullM7; EXPR=LeanQbe.T.Examples.Kissat.FullM7.m7Module ;;
+  fullm7plus|m7plus)
+    MODULE=FullM7Plus; LEAN_MOD=FullM7PlusAssembly
+    EXPR=LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule ;;
+  fullm7fidelity|m7fidelity|m7fid)
+    MODULE=FullM7Fidelity; LEAN_MOD=FullM7FidelityAssembly
+    EXPR=LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule ;;
+  plain) MODULE=Plain; LEAN_MOD=Plain; EXPR=LeanQbe.T.Examples.Kissat.Plain.plainModule ;;
   *)
     echo "ERROR: unknown module '$MODULE'" \
-      "(expected FullM5|FullM6|FullM7|FullM4|FullM3|Plain|Full|FullFast)" >&2
+      "(expected FullM5|FullM6|FullM7|FullM7Plus|FullM7Fidelity|FullM4|FullM3|Plain|Full|FullFast)" >&2
     exit 2 ;;
 esac
 
@@ -130,7 +137,7 @@ case "$MODULE" in
       exit 2
     fi
     ;;
-  FullM6|FullM7)
+  FullM6|FullM7|FullM7Plus|FullM7Fidelity)
     CERT_PFX="Kissat${MODULE#Full}"
     SOUND_LEAN="$ROOT/LeanQbe/T/$ARCH_DIR/${CERT_PFX}Sound.lean"
     CERT_LEAN="$ROOT/LeanQbe/T/$ARCH_DIR/${CERT_PFX}.lean"
@@ -150,9 +157,9 @@ case "$MODULE" in
     ;;
 esac
 
-if [ "$MODULE" = FullM7 ] && [ -z "${STAGE_LEAN_PATH:-}" ] && \
-   [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7.lean" ]; then
-  echo "ERROR: LeanQbe/T/Examples/Kissat/FullM7.lean is not present in $ROOT yet." >&2
+if [ -z "${STAGE_LEAN_PATH:-}" ] && \
+   [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/$LEAN_MOD.lean" ]; then
+  echo "ERROR: LeanQbe/T/Examples/Kissat/$LEAN_MOD.lean is not present in $ROOT yet." >&2
   exit 2
 fi
 
@@ -247,6 +254,18 @@ import LeanQbe.T.MainInline"
     FNS_EXPR="(($EXPR).optInlinePolicy InlinePolicy.b5).fns"
     INL_DESC="inline-policy=b5"
   fi
+elif [ "$MODULE" = FullM7Plus ]; then
+  IMPORTS="$IMPORTS
+import LeanQbe.T.Examples.Kissat.FullM7PlusInl"
+  LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullM7PlusInl)
+  FNS_EXPR="LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns"
+  INL_DESC="inline-policy=m7InlPolicy (FullM7PlusInl)"
+elif [ "$MODULE" = FullM7Fidelity ]; then
+  IMPORTS="$IMPORTS
+import LeanQbe.T.Examples.Kissat.FullM7FidelityInl"
+  LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullM7FidelityInl)
+  FNS_EXPR="LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns"
+  INL_DESC="inline-policy=m7InlPolicy (FullM7FidelityInl)"
 else
   FNS_EXPR="($EXPR).fns"
   INL_DESC="inline-max=0"
@@ -257,8 +276,8 @@ trap 'rm -rf "$TMP"' EXIT
 cd "$ROOT"
 
 if [ -z "${STAGE_LEAN_PATH:-}" ]; then
-  echo "== [1/3] lake build LeanQbe.T.Examples.Kissat.$MODULE (+ code generator)"
-  timeout 3600 lake build "LeanQbe.T.Examples.Kissat.$MODULE" LeanQbe.T.Opt \
+  echo "== [1/3] lake build LeanQbe.T.Examples.Kissat.$LEAN_MOD (+ code generator)"
+  timeout 3600 lake build "LeanQbe.T.Examples.Kissat.$LEAN_MOD" LeanQbe.T.Opt \
     LeanQbe.T.Driver "${LAKE_EXTRA[@]}"
 else
   echo "== [1/3] Using prebuilt STAGE_LEAN_PATH=$STAGE_LEAN_PATH (0 lake build) =="
@@ -266,7 +285,7 @@ fi
 
 echo "== [2/3] emit $ARCH assembly for ${EXPR} ($INL_DESC)"
 cat >"$TMP/Emit.lean" <<LEAN
-import LeanQbe.T.Examples.Kissat.$MODULE
+import LeanQbe.T.Examples.Kissat.$LEAN_MOD
 import LeanQbe.T.Opt
 import LeanQbe.T.Driver
 $IMPORTS

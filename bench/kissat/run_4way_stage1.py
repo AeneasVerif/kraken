@@ -77,16 +77,27 @@ def resolve_module_spec(raw_name):
         "m7": "FullM7",
         "fullm7plus": "FullM7Plus",
         "m7plus": "FullM7Plus",
+        "fullm7fidelity": "FullM7Fidelity",
+        "m7fidelity": "FullM7Fidelity",
+        "m7fid": "FullM7Fidelity",
     }
     if key not in aliases:
         raise SystemExit(
             f"ERROR: unknown --module '{raw_name}' "
-            "(expected FullM5|FullM6|FullM7|FullM7Plus)"
+            "(expected FullM5|FullM6|FullM7|FullM7Plus|FullM7Fidelity)"
         )
     mod = aliases[key]
     kdir = ROOT / "LeanQbe/T/Examples/Kissat"
-    if not (kdir / f"{mod}.lean").is_file():
-        raise SystemExit(f"ERROR: {kdir / f'{mod}.lean'} is not present in {ROOT}")
+    lean_file_map = {
+        "FullM5": "FullM5",
+        "FullM6": "FullM6",
+        "FullM7": "FullM7",
+        "FullM7Plus": "FullM7PlusAssembly",
+        "FullM7Fidelity": "FullM7FidelityAssembly",
+    }
+    lean_file = lean_file_map[mod]
+    if not (kdir / f"{lean_file}.lean").is_file():
+        raise SystemExit(f"ERROR: {kdir / f'{lean_file}.lean'} is not present in {ROOT}")
 
     if mod == "FullM5":
         return {
@@ -142,35 +153,75 @@ def resolve_module_spec(raw_name):
             "policy_desc": pdesc,
             "certified_x64": (ROOT / "LeanQbe/T/Amd64/KissatM7.lean").is_file(),
         }
-    # FullM7Plus
-    if (kdir / "FullM7PlusInl.lean").is_file():
-        extra = ["LeanQbe.T.Examples.Kissat.FullM7PlusInl"]
-        fns_expr = "LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns"
-        pdesc = "m7PlusInlPolicy / FullM7PlusInl"
-    elif (kdir / "FullM7PlusInlPolicy.lean").is_file():
-        extra = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7PlusInlPolicy"]
-        fns_expr = (
-            "((LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule).optInlinePolicy "
-            "LeanQbe.T.Examples.Kissat.FullM7PlusInlPolicy.m7PlusInlPolicy).fns"
+    if mod == "FullM7Plus":
+        cert_ok = (ROOT / "LeanQbe/T/Amd64/KissatM7Plus.lean").is_file()
+        if (kdir / "FullM7PlusInl.lean").is_file():
+            extra = ["LeanQbe.T.Examples.Kissat.FullM7PlusInl"]
+            fns_expr = "LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns"
+            pdesc = (
+                "m7InlPolicy / FullM7PlusInl (certified kissatM7Plus_compiled_x64)"
+                if cert_ok
+                else "m7InlPolicy / FullM7PlusInl (WP-verified IR; x64 LinkedCert pending)"
+            )
+        elif (kdir / "FullM7InlPolicy.lean").is_file():
+            extra = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
+            fns_expr = (
+                "((LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule).optInlinePolicy "
+                "LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
+            )
+            pdesc = "m7InlPolicy"
+        else:
+            extra = ["LeanQbe.T.MainInline"]
+            fns_expr = (
+                "((LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule).optInlinePolicy "
+                "LeanQbe.T.InlinePolicy.b5).fns"
+            )
+            pdesc = "InlinePolicy.b5"
+        return {
+            "module": "FullM7Plus",
+            "tag": "m7plus",
+            "c0_target": "m7plus",
+            "lean_mod": "LeanQbe.T.Examples.Kissat.FullM7PlusAssembly",
+            "mod_expr": "LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule",
+            "extra_imports": extra,
+            "fns_expr": fns_expr,
+            "policy_desc": pdesc,
+            "certified_x64": cert_ok,
+        }
+    # FullM7Fidelity
+    cert_ok = (ROOT / "LeanQbe/T/Amd64/KissatM7Fidelity.lean").is_file()
+    if (kdir / "FullM7FidelityInl.lean").is_file():
+        extra = ["LeanQbe.T.Examples.Kissat.FullM7FidelityInl"]
+        fns_expr = "LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns"
+        pdesc = (
+            "m7InlPolicy / FullM7FidelityInl (certified kissatM7Fidelity_compiled_x64)"
+            if cert_ok
+            else "m7InlPolicy / FullM7FidelityInl (WP-verified IR; x64 LinkedCert pending)"
         )
-        pdesc = "m7PlusInlPolicy"
+    elif (kdir / "FullM7InlPolicy.lean").is_file():
+        extra = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
+        fns_expr = (
+            "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy "
+            "LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
+        )
+        pdesc = "m7InlPolicy"
     else:
         extra = ["LeanQbe.T.MainInline"]
         fns_expr = (
-            "((LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule).optInlinePolicy "
+            "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy "
             "LeanQbe.T.InlinePolicy.b5).fns"
         )
         pdesc = "InlinePolicy.b5"
     return {
-        "module": "FullM7Plus",
-        "tag": "m7plus",
-        "c0_target": "m7plus",
-        "lean_mod": "LeanQbe.T.Examples.Kissat.FullM7Plus",
-        "mod_expr": "LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule",
+        "module": "FullM7Fidelity",
+        "tag": "m7fidelity",
+        "c0_target": "m7fidelity",
+        "lean_mod": "LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly",
+        "mod_expr": "LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule",
         "extra_imports": extra,
         "fns_expr": fns_expr,
         "policy_desc": pdesc,
-        "certified_x64": (ROOT / "LeanQbe/T/Amd64/KissatM7Plus.lean").is_file(),
+        "certified_x64": cert_ok,
     }
 
 
@@ -984,7 +1035,7 @@ def main():
     )
     ap.add_argument(
         "--module", default="FullM6",
-        help="Solver module: FullM5 | FullM6 | FullM7 | FullM7Plus (default: FullM6)",
+        help="Solver module: FullM5 | FullM6 | FullM7 | FullM7Plus | FullM7Fidelity (default: FullM6)",
     )
     ap.add_argument("--jobs", type=int, default=8, help="Parallel worker count (default: 8)")
     ap.add_argument("--timeout", type=float, default=30.0, help="Per-CNF timeout in seconds (default: 30.0)")
