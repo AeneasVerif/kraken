@@ -98,6 +98,7 @@ public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof1
 public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof2
 public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof2a
 public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof3
+public import LeanQbe.T.Examples.Kissat.FullM6OrchProof2
 public import LeanQbe.T.Examples.Kissat.FullM6ProofUtil
 public import LeanQbe.T.Examples.Kissat.FullM6S15Bridge
 public import LeanQbe.T.Examples.Kissat.FullM6SatNv
