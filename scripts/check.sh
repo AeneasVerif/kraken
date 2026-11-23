@@ -891,7 +891,8 @@ if [ "${CHECK_TIMES:-0}" = "1" ]; then
   for arch in "${cand_arches[@]}"; do
     for mod in LratBytes KissatM5Cert1 KissatM5Cert KissatM5CertLink KissatM5 KissatM5Sound \
         KissatM6Cert1 KissatM6Cert KissatM6CertLink KissatM6 \
-        KissatM7PlusCert1 KissatM7PlusCert KissatM7PlusCertLink KissatM7Plus; do
+        KissatM7PlusCert1 KissatM7PlusCert KissatM7PlusCertLink KissatM7Plus \
+        KissatM7FidelityCert1 KissatM7FidelityCert KissatM7FidelityCertLink KissatM7Fidelity; do
       [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
     done
     if [ "$INCLUDE_LEGACY" = "1" ]; then

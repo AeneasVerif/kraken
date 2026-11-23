@@ -1,0 +1,36 @@
+# One per line: <module to import> <fully qualified constant>.
+# Kissat M7Fidelity (`FullM7Fidelity`, 413/413 UNSAT-only dual-arch machine-code certs + audits).
+LeanQbe.T.Amd64.KissatM7FidelityCert LeanQbe.T.Amd64.KissatM7FidelityCert.m7FidelityCert
+LeanQbe.T.Amd64.KissatM7FidelityCertLink LeanQbe.T.Amd64.KissatM7FidelityCertLink.ax_legal
+LeanQbe.T.Amd64.KissatM7FidelityCertLink LeanQbe.T.Amd64.KissatM7FidelityCertLink.ax_fnspec
+LeanQbe.T.Amd64.KissatM7FidelityCertLink LeanQbe.T.Amd64.KissatM7FidelityCertLink.ax_solve
+LeanQbe.T.Amd64.KissatM7Fidelity LeanQbe.T.Amd64.KissatM7Fidelity.ax_compiled
+LeanQbe.T.Amd64.KissatM7Fidelity LeanQbe.T.Amd64.KissatM7Fidelity.ax_fnspec
+LeanQbe.T.Amd64.KissatM7Fidelity LeanQbe.T.Amd64.KissatM7Fidelity.ax_unsat
+LeanQbe.T.Amd64.KissatM7Fidelity LeanQbe.T.Amd64.KissatM7Fidelity.ax_unsat_sound
+LeanQbe.T.Amd64.KissatM7Fidelity LeanQbe.T.Amd64.KissatM7Fidelity.ax_unsat_nv
+LeanQbe.T.Amd64.KissatM7Fidelity LeanQbe.T.Amd64.KissatM7Fidelity.ax_run_unsat
+LeanQbeTest.T.KissatM7FidelityAuditX64 audit_m7f_x64_compiled
+LeanQbeTest.T.KissatM7FidelityAuditX64 audit_m7f_x64_fnspec
+LeanQbeTest.T.KissatM7FidelityAuditX64 audit_m7f_x64_unsat
+LeanQbeTest.T.KissatM7FidelityAuditX64 audit_m7f_x64_sound
+LeanQbeTest.T.KissatM7FidelityAuditX64 audit_m7f_x64_nv
+LeanQbeTest.T.KissatM7FidelityAuditX64 audit_m7f_x64_nv_closed
+LeanQbeTest.T.KissatM7FidelityAuditX64 audit_m7f_x64_run_unsat
+LeanQbe.T.Arm64.KissatM7FidelityCert LeanQbe.T.Arm64.KissatM7FidelityCert.m7FidelityCert
+LeanQbe.T.Arm64.KissatM7FidelityCertLink LeanQbe.T.Arm64.KissatM7FidelityCertLink.ax_legal
+LeanQbe.T.Arm64.KissatM7FidelityCertLink LeanQbe.T.Arm64.KissatM7FidelityCertLink.ax_fnspec
+LeanQbe.T.Arm64.KissatM7FidelityCertLink LeanQbe.T.Arm64.KissatM7FidelityCertLink.ax_solve
+LeanQbe.T.Arm64.KissatM7Fidelity LeanQbe.T.Arm64.KissatM7Fidelity.ax_compiled
+LeanQbe.T.Arm64.KissatM7Fidelity LeanQbe.T.Arm64.KissatM7Fidelity.ax_fnspec
+LeanQbe.T.Arm64.KissatM7Fidelity LeanQbe.T.Arm64.KissatM7Fidelity.ax_unsat
+LeanQbe.T.Arm64.KissatM7Fidelity LeanQbe.T.Arm64.KissatM7Fidelity.ax_unsat_sound
+LeanQbe.T.Arm64.KissatM7Fidelity LeanQbe.T.Arm64.KissatM7Fidelity.ax_unsat_nv
+LeanQbe.T.Arm64.KissatM7Fidelity LeanQbe.T.Arm64.KissatM7Fidelity.ax_run_unsat
+LeanQbeTest.T.KissatM7FidelityAuditArm64 audit_m7f_arm_compiled
+LeanQbeTest.T.KissatM7FidelityAuditArm64 audit_m7f_arm_fnspec
+LeanQbeTest.T.KissatM7FidelityAuditArm64 audit_m7f_arm_unsat
+LeanQbeTest.T.KissatM7FidelityAuditArm64 audit_m7f_arm_sound
+LeanQbeTest.T.KissatM7FidelityAuditArm64 audit_m7f_arm_nv
+LeanQbeTest.T.KissatM7FidelityAuditArm64 audit_m7f_arm_nv_closed
+LeanQbeTest.T.KissatM7FidelityAuditArm64 audit_m7f_arm_run_unsat

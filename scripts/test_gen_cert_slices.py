@@ -447,6 +447,143 @@ class GenCertSlicesTest(unittest.TestCase):
             self.assertIn("LeanQbe.T.Examples.Kissat.FullM7Plus", link)
             self.assertNotIn("FullM7PlusAssembly", link)
 
+    def test_full_m7_fidelity_preset_and_option_r_reuse(self) -> None:
+        args = gcs.parse_args(
+            ["--module", "FullM7Fidelity", "--root", str(REPO_ROOT), "--dry-run"]
+        )
+        cfg = gcs.build_config(args)
+        self.assertEqual(cfg.prefix, "KissatM7Fidelity")
+        self.assertEqual(cfg.stem, "m7Fidelity")
+        self.assertEqual(cfg.total_fns, 413)
+        self.assertEqual(cfg.entry_idx, 412)
+        self.assertFalse(cfg.emit_sound)
+        self.assertEqual(cfg.module_ok, "m7Fidelity_moduleOk")
+        self.assertEqual(cfg.no_exit, "m7FidelityEnv_noExit")
+        self.assertEqual(cfg.solve_spec_intro, "m7FidSolveBytesSpec_intro")
+        self.assertFalse(cfg.solve_spec_has_sat)
+        self.assertEqual(cfg.solve_mem_thm, "m7Fidelity_solveBytes_mem")
+        self.assertTrue(all(m.source == "c0-static" for m in cfg.fn_metrics))
+        files = dict(gcs.build_plan(cfg, ["amd64", "arm64"]))
+        self._assert_hygiene(list(files.items()))
+        for arch_dir in ("Amd64", "Arm64"):
+            self.assertNotIn(f"LeanQbe/T/{arch_dir}/KissatM7FidelitySound.lean", files)
+            bnds = files[f"LeanQbe/T/{arch_dir}/KissatM7FidelityBounds.lean"]
+            self.assertIn("(prefixDef := m7FidelityExtPrefix)", bnds)
+            self.assertNotIn("@[expose]", bnds)
+            sl1 = files[f"LeanQbe/T/{arch_dir}/KissatM7FidelityCert1.lean"]
+            self.assertIn("abbrev slice1Mod : Module :=", sl1)
+            self.assertNotIn("@[expose]", sl1)
+            top = files[f"LeanQbe/T/{arch_dir}/KissatM7Fidelity.lean"]
+            self.assertIn("m7FidSolveBytesSpec_intro", top)
+            self.assertIn("(fun _ _ hdom hu _ hm' =>", top)
+            self.assertIn("#print axioms ax_run_unsat", top)
+            self.assertNotIn("FullM6SatSound", top)
+            self.assertNotIn("@[expose]", top)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            p_path = Path(tmp) / "prof.json"
+            rows = [
+                {
+                    "index": i,
+                    "name": f"fn_{i}",
+                    "ir_size": 450 if i in (5, 35) else 80,
+                    "jnz": 100,
+                    "defer": 100,
+                }
+                for i in range(40)
+            ]
+            p_path.write_text(json.dumps(rows), encoding="utf-8")
+            r_path = Path(tmp) / "reuse.json"
+            r_path.write_text(
+                json.dumps(
+                    {
+                        "reuse_prefix": "KissatM7Plus",
+                        "reuse_inl_mod": "LeanQbe.T.Examples.Kissat.FullM7PlusInl",
+                        "reuse_inl_fns": "m7PlusInlFns",
+                        "reused_slices": [{"src_index": 2, "start": 12, "count": 12}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            r_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullM7Fidelity",
+                    "--total-fns",
+                    "40",
+                    "--profile",
+                    str(p_path),
+                    "--reuse-spec",
+                    str(r_path),
+                    "--singleton-size",
+                    "400",
+                    "--max-slice-size",
+                    "650",
+                    "--max-slice-count",
+                    "10",
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            r_cfg = gcs.build_config(r_args)
+            r_files = dict(gcs.build_plan(r_cfg, ["amd64", "arm64"]))
+            self._assert_hygiene(list(r_files.items()))
+            cert = r_files["LeanQbe/T/Amd64/KissatM7FidelityCert.lean"]
+            self.assertIn("public import LeanQbe.T.Amd64.KissatM7PlusCert2", cert)
+            self.assertIn("KissatM7PlusCert2.cert2.chunks", cert)
+            self.assertIn("private theorem reuse_eq", cert)
+            self.assertNotIn("open LeanQbe.T.Amd64.KissatM7FidelityCert1", cert)
+
+            # Bridged reuse mode emits bridge import and theorem calls, no inline reuse_eq.
+            b_path = Path(tmp) / "reuse_bridge.json"
+            b_path.write_text(
+                json.dumps(
+                    {
+                        "reuse_prefix": "KissatM7Plus",
+                        "reuse_inl_mod": "LeanQbe.T.Examples.Kissat.FullM7PlusInl",
+                        "reuse_inl_fns": "m7PlusInlFns",
+                        "reuse_bridge_mod": (
+                            "LeanQbe.T.Examples.Kissat.FullM7FidelityM7PlusBridge"
+                        ),
+                        "reuse_thm_prefix": "reuse_m7p_eq_",
+                        "reused_slices": [{"src_index": 2, "start": 12, "count": 12}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            b_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullM7Fidelity",
+                    "--total-fns",
+                    "40",
+                    "--profile",
+                    str(p_path),
+                    "--reuse-spec",
+                    str(b_path),
+                    "--singleton-size",
+                    "400",
+                    "--max-slice-size",
+                    "650",
+                    "--max-slice-count",
+                    "10",
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            b_cfg = gcs.build_config(b_args)
+            b_files = dict(gcs.build_plan(b_cfg, ["amd64", "arm64"]))
+            self._assert_hygiene(list(b_files.items()))
+            b_cert = b_files["LeanQbe/T/Amd64/KissatM7FidelityCert.lean"]
+            self.assertIn(
+                "public import LeanQbe.T.Examples.Kissat.FullM7FidelityM7PlusBridge",
+                b_cert,
+            )
+            self.assertIn("← reuse_m7p_eq_2]", b_cert)
+            self.assertNotIn("private theorem reuse_eq", b_cert)
+
 
 if __name__ == "__main__":
     unittest.main()

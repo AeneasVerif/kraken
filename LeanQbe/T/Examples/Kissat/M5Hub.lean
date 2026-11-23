@@ -246,6 +246,7 @@ public import LeanQbe.T.Examples.Kissat.FullM7FidelityInl7
 public import LeanQbe.T.Examples.Kissat.FullM7FidelityInl8
 public import LeanQbe.T.Examples.Kissat.FullM7FidelityInl9
 public import LeanQbe.T.Examples.Kissat.FullM7FidelityInlBase
+public import LeanQbe.T.Examples.Kissat.FullM7FidelityM7PlusBridge
 public import LeanQbe.T.Examples.Kissat.FullM7FidelitySched
 public import LeanQbe.T.Examples.Kissat.FullM7FidelitySchedFix
 public import LeanQbe.T.Examples.Kissat.FullM7FidelitySchedFixProof
