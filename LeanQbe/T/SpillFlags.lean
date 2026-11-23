@@ -127,6 +127,10 @@ def canOpReadFlag (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : Lis
         | [.bits _, .bool], .addc _ | [.bits _, .bool], .subb _ =>
           let fDst y := if Nat.beq y (nv0 + 1) then some c else none
           (probeOp I r0 r1 v0 v1 (fArg c) fDst none nv0 op vh).isSome
+        | [.bool], .not .bool =>
+          conds.any fun cDst =>
+            let fDst y := if Nat.beq y nv0 then some cDst else none
+            (probeOp I r0 r1 v0 v1 (fArg c) fDst none nv0 op vh).isSome
         | _, _ => false
 
 mutual
@@ -136,11 +140,18 @@ def scanDefs (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.C
     let bf := (opVarIds op).foldl (fun b x =>
       if isBool x && !canOpReadFlag I r0 r1 v0 v1 conds nv0 op x then b.insert x true else b)
       s.badFlag
-    let { sig := _, code, args := _ } := op
-    let (di, bf) := match ts, code with
-      | [.bool], .cmp _ (.bits _) .bool _ => (s.defIp.insert nv0 ip, bf)
-      | [.bits _, .bool], .addc _ | [.bits _, .bool], .subb _ => (s.defIp.insert (nv0 + 1) ip, bf)
-      | _, _ =>
+    let { sig := _, code, args } := op
+    let (di, bf) := match ts, code, args with
+      | [.bool], .cmp _ (.bits _) .bool _, _ => (s.defIp.insert nv0 ip, bf)
+      | [.bool], .not .bool, (.var x, ()) =>
+        let canFlag := conds.any fun c => conds.any fun cDst =>
+          let fArg y := if Nat.beq y x then some c else none
+          let fDst y := if Nat.beq y nv0 then some cDst else none
+          (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op .default).isSome
+        if canFlag then (s.defIp.insert nv0 ip, bf) else (s.defIp, bf.insert nv0 true)
+      | [.bits _, .bool], .addc _, _ | [.bits _, .bool], .subb _, _ =>
+        (s.defIp.insert (nv0 + 1) ip, bf)
+      | _, _, _ =>
         let bf' := ((List.range ts.length).map (nv0 + ·)).foldl
           (fun b d => if isBool d then b.insert d true else b) bf
         (s.defIp, bf')
@@ -307,9 +318,9 @@ def probeIntervening (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : 
   | none => match info.nodeAt.find? ip with
     | none => some st
     | some (.let_ _ _ nv0 ts op _) =>
-      let { sig := _, code, args := _ } := op
-      match ts, code with
-      | [.bool], .cmp _ (.bits _) .bool _ =>
+      let { sig := _, code, args } := op
+      match ts, code, args with
+      | [.bool], .cmp _ (.bits _) .bool _, _ =>
         (probeOp I r0 r1 v0 v1 fArg st.flagHome.find? none nv0 op .default).bind fun cl =>
           if FlagMask.disjoint reqMask cl then some st
           else if !isCand nv0 then none
@@ -326,11 +337,12 @@ def probeIntervening (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : 
               if FlagMask.disjoint reqMask cl' && usesOk then
                 some { lockVh ip .decInc cl' st with flagHome := st.flagHome.insert nv0 c }
               else none
-      | [.bits _, .bool], .addc _ | [.bits _, .bool], .subb _ =>
+      | [.bits _, .bool], .addc _, _ | [.bits _, .bool], .subb _, _ =>
         let cOut := nv0 + 1
         if (st.flagHome.find? cOut).isSome then none
         else
-          let defOk := match probeOp I r0 r1 v0 v1 fArg (fun _ => none) none nv0 op .default with
+          let defOk :=
+            match probeOp I r0 r1 v0 v1 fArg (fun _ => none) none nv0 op .default with
             | some cl => FlagMask.disjoint reqMask cl
             | none => false
           if defOk then some st
@@ -343,7 +355,24 @@ def probeIntervening (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : 
                 | some cl => FlagMask.disjoint reqMask cl
                 | none => false
             if canCarry then some st else none
-      | _, _ =>
+      | [.bool], .not .bool, (.var x, ()) =>
+        let defOk := match probeOp I r0 r1 v0 v1 fArg st.flagHome.find? none nv0 op .default with
+          | some cl => FlagMask.disjoint reqMask cl
+          | none => false
+        if defOk then some st
+        else if (st.flagHome.find? nv0).isNone && isCand nv0 then
+          let cSrcs := match fArg x with
+            | some c => [c]
+            | none => if isCand x then conds else []
+          let ok := cSrcs.any fun cSrc => conds.any fun cDst =>
+            let fArg' z := if Nat.beq z x then some cSrc else fArg z
+            let fDst' z := if Nat.beq z nv0 then some cDst else none
+            match probeOp I r0 r1 v0 v1 fArg' fDst' none nv0 op .default with
+            | some cl => FlagMask.disjoint reqMask cl
+            | none => false
+          if ok then some st else none
+        else none
+      | _, _, _ =>
         (VariantHint.default :: altVariantsFor op).findSome? fun vh =>
           (probeOp I r0 r1 v0 v1 fArg st.flagHome.find? none nv0 op vh).bind fun cl =>
             if FlagMask.disjoint reqMask cl then some (lockVh ip vh cl st) else none
@@ -438,6 +467,10 @@ def tryColorWeb (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
               let fDst x := if Nat.beq x nv0 then some cc else none
               (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op vh).bind fun cl =>
                 if FlagMask.disjoint cm cl then some (lockVh ip vh cl stAcc) else none
+          | [.bool], .not .bool, (.var _, ()) =>
+            let fDst z := if Nat.beq z nv0 then some cc else none
+            (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op .default).bind fun cl =>
+              if FlagMask.disjoint cm cl then some (lockVh ip .default cl stAcc) else none
           | [.bits _, .bool], .addc _, (_, _, cin, _)
           | [.bits _, .bool], .subb _, (_, _, cin, _) =>
             let vhs :=
@@ -478,6 +511,19 @@ def tryColorWeb (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
                   (isCand cOut && conds.any fun co =>
                     let fDst' x := if Nat.beq x cOut then some co else none
                     (probeOp I r0 r1 v0 v1 fArg fDst' none nv0 op vh).isSome)
+              if ok then some stU else none
+          | [.bool], .not .bool =>
+            if varSet.contains nv0 then some stU else
+              let vh := stU.variant.getD ip_u .default
+              let ok := match stU.flagHome.find? nv0 with
+                | some co =>
+                  let fDst z := if Nat.beq z nv0 then some co else none
+                  (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op vh).isSome
+                | none =>
+                  (probeOp I r0 r1 v0 v1 fArg (fun _ => none) none nv0 op vh).isSome ||
+                    (isCand nv0 && conds.any fun co =>
+                      let fDst' z := if Nat.beq z nv0 then some co else none
+                      (probeOp I r0 r1 v0 v1 fArg fDst' none nv0 op vh).isSome)
               if ok then some stU else none
           | _, _ =>
             let vh := stU.variant.getD ip_u .default

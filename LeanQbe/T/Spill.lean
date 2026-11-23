@@ -610,9 +610,10 @@ def gatherAtB {I : Isa} (c : Ctx I) :
     let lr' := if isLoop then union (c.loopReach.getD l []) lr else lr
     let dw := pvars.foldl (fun t p => t.insert p mB) acc.defWT
     let bp := pvars.foldl (fun t p => t.insert p true) acc.isBP
+    let pW := if isLoop then max (baseMult / 4) (mB / 4) else baseMult / 4
     gatherAtB c lps lr mult bs
       (gatherAt c (some l) lps' lr' mB .empty b { acc with
-        weights := addWeight (baseMult / 4) pvars acc.weights,
+        weights := addWeight pW pvars acc.weights,
         defInterf := di, defWT := dw, isBP := bp })
 end
 
@@ -829,20 +830,30 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
           c.gAlloc.filter (!natMem · forbCaller) else []
       let csFree := s.usedCs.filter (!natMem · forb)
       let baseCsThresh := if Nat.ble c.nGpr 8 then 2 * baseMult + 1 else 3 * baseMult
-      let leafExtra := if c.isLeaf && s.usedCs.isEmpty then 2 * baseMult else 0
-      let csThresh := max (baseCsThresh + leafExtra) c.csCost
+      let csThresh := max baseCsThresh c.csCost
       let newCs := if Nat.ble csThresh wx then
           c.csIds.filter (fun r => !natMem r s.usedCs && !natMem r forb) else []
+      let addNbr (u w scale : Nat) (acc : List (Nat × Nat)) :=
+        match s.hT.getD u .none with
+        | .gpr ru => (ru, w / scale) :: acc
+        | .none => (abiGT.getD u []).foldl (fun a (ru, wu) => (ru, min w wu / scale) :: a) acc
+        | _ => acc
       let prefs := (affT.getD x []).foldl (fun ps (y, w) =>
         match s.hT.getD y .none with
         | .gpr ry => (ry, w) :: ps
-        | .none => (abiGT.getD y []).foldl (fun ps (ry, wy) => (ry, min w wy / 2) :: ps) ps
+        | .none =>
+          let p1 := (abiGT.getD y []).foldl (fun ps (ry, wy) => (ry, min w wy / 2) :: ps) ps
+          (affT.getD y []).foldl (fun acc (z, wz) =>
+            if Nat.beq z x then acc else addNbr z (min w wz) 4 acc) p1
         | _ => ps) (abiGT.getD x [])
       let avoid0 := (antiT.getD x []).foldl (fun ps (y, w) =>
         match s.hT.getD y .none with | .gpr ry => (ry, w) :: ps | _ => ps) []
       let avoid := xI.foldl (fun ps z =>
         match s.hT.getD z .none with
-        | .none => (abiGT.getD z []).foldl (fun a p => p :: a) ps
+        | .none =>
+          let a1 := (abiGT.getD z []).foldl (fun a p => p :: a) ps
+          (affT.getD z []).foldl (fun acc (u, wu) =>
+            if Nat.beq u x then acc else addNbr u wu 2 acc) a1
         | .slot _ _ => match s.hint.find? z with | some h => h :: ps | none => ps
         | _ => ps) avoid0
       let toSlotG : ColorSt I.Cond :=
@@ -1301,7 +1312,12 @@ def buildPre {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (usedCs : List Na
           else if natMem x noLoadOps then (gb, vb, gc, vc, mvs)
           else
             let cachedG := gc.map Prod.snd
-            match freshRegAvoid (c.gAlloc ++ usedCs) gb cachedG (candDf.map (·.2.2)) with
+            let hReg? := (c.hintT.find? x).bind fun (rh, _) =>
+              if (Nat.ble (rh + 1) c.nGpr || natMem rh usedCs) &&
+                  !natMem rh gb && !natMem rh cachedG then some rh else none
+            let rCand := hReg? <|>
+              freshRegAvoid (c.gAlloc ++ usedCs) gb cachedG (candDf.map (·.2.2))
+            match rCand with
             | some r =>
               let gc1 := (x, r) :: gc.filter fun (_, r') => !Nat.beq r' r
               (r :: gb, vb, gc1, vc, .ld (gOf r) s :: mvs)
