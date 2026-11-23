@@ -134,6 +134,9 @@ public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof1
 public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof2
 public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof3
 public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof4
+public import LeanQbe.T.Examples.Kissat.FullM7BcpNoBounds
+public import LeanQbe.T.Examples.Kissat.FullM7BcpNoBoundsProof
+public import LeanQbe.T.Examples.Kissat.FullM7BcpNoBoundsProof0
 public import LeanQbe.T.Examples.Kissat.FullM7Bump
 public import LeanQbe.T.Examples.Kissat.FullM7BumpProof
 public import LeanQbe.T.Examples.Kissat.FullM7BvaFactor
