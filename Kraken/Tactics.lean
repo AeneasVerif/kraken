@@ -118,11 +118,6 @@ initialize registerTraceClass `Kraken.kstep.dsimp (inherited := true)
 initialize registerTraceClass `Kraken.kstep.ksimp (inherited := true)
 initialize registerTraceClass `Kraken.kstep.kmem (inherited := true)
 
-initialize registerOption `Kraken.kstep.debug {
-  name := `debug
-  defValue := false
-}
-
 structure KStepConfig
 declare_term_config_elab elabKStepConfig KStepConfig
 
