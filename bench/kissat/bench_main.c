@@ -369,7 +369,20 @@ int main(int argc, char **argv) {
     uintptr_t wp = (uintptr_t)gw.ptr;
     uintptr_t pad = (wp & 7u) ? (8u - (wp & 7u)) : 0u;
     const uint64_t *hdr = (const uint64_t *)(gw.ptr + pad);
+    if (work_len >= pad + 8ULL && hdr[0] == 0x4D36484452455831ULL) {
+      /* M6 extended work header (`FullM6Hdr`, "M6HDREX1"): `FullHdr` starts at word 288. */
+      if (work_len < pad + 288ULL * 8ULL) {
+        fprintf(stderr, "FAIL %s: truncated M6 header\n", path);
+        return 1;
+      }
+      pad += 288ULL * 8ULL;
+      hdr = hdr + 288;
+    }
     if (got == 10ULL) {
+      if (work_len < pad + 72ULL) {
+        fprintf(stderr, "FAIL %s: truncated SAT header\n", path);
+        return 1;
+      }
       uint64_t mv = hdr[0];
       const int8_t *vals = (const int8_t *)(uintptr_t)hdr[8];
       if (!kissat_verify_dimacs_model((const char *)raw, cnf_len, vals, mv)) {
