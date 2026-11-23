@@ -69,7 +69,8 @@ def m7FidelityNvPayload (cnfBytes : List UInt8) : List UInt8 :=
   cnfBytes ++ List.replicate m7FidelityNvWorkLen 0
 
 theorem m7FidelityNvPayload_eq (cnfBytes : List UInt8) :
-    m7FidelityNvPayload cnfBytes = cnfBytes ++ List.replicate 6144 0 := by
+    m7FidelityNvPayload cnfBytes =
+      cnfBytes ++ List.replicate 6144 0 := by
   unfold m7FidelityNvPayload m7FidelityNvWorkLen; rfl
 
 theorem m7FidelityNvPayload_length (cnfBytes : List UInt8) :
