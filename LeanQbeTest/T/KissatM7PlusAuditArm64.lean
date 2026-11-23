@@ -23,11 +23,13 @@ public section
 
 open Std.Sat Std.ExtHashMap
 open LeanQbe.T LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.FullM6
 open LeanQbe.T.Examples.Kissat.FullM7Plus (m7PlusEnv m7PlusModule)
 open LeanQbe.T.Arm64 Kraken
 open LeanQbe.T.Arm64.KissatM7Plus
   (kissatM7Plus_compiled_arm64 m7Plus_module_fnspec m7Plus_solve_bytes_unsat_arm64
-    kissat_m7Plus_arm64_unsat_correct m7Plus_arm64_unsat_nonvacuous m7Plus_arm64_run_unsat)
+    kissat_m7Plus_arm64_unsat_correct m7Plus_arm64_unsat_nonvacuous m7Plus_arm64_run_unsat
+    m7PlusNvWorkLen_eq m7PlusNvPayload_eq)
 
 /-- Compiled `LinkedCert` alias for `< 115c` Arm64 axiom audit. -/
 noncomputable abbrev audit_m7p_arm_compiled := kissatM7Plus_compiled_arm64
@@ -175,8 +177,10 @@ theorem audit_m7p_arm_run_unsat :
           (nvM6UnsatBytes ++ List.replicate 6144 0)
           (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
             nvM6UnsatWorkPtr, BitVec.ofNat 64 6144, 16#64, ()))
-        (armTarget.mach.labelAddr kissatM7Plus_compiled_arm64.host "kissat_solve_bytes")) :=
-  m7Plus_arm64_run_unsat
+        (armTarget.mach.labelAddr kissatM7Plus_compiled_arm64.host "kissat_solve_bytes")) := by
+  have h := m7Plus_arm64_run_unsat
+  rw [m7PlusNvPayload_eq, m7PlusNvWorkLen_eq] at h
+  exact h
 
 #guard LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusFns.length == 410
 #guard LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns.length == 410

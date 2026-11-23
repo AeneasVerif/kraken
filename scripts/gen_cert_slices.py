@@ -471,6 +471,9 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
         source_mod="LeanQbe.T.Examples.Kissat.FullM6",
         proof_mod="LeanQbe.T.Examples.Kissat.FullM6Proof",
         hub_mod="LeanQbe.T.Examples.Kissat.M5Hub",
+        env="m6CoreEnv",
+        module_ok="m6CoreEnv_moduleOk",
+        no_exit="m6CoreEnv_noExit",
         entry_const="FullM6Orch.m6oSolveBytesFn",
         entry_spec="fullM6SolveBytesCoreModelSpec",
         default_total_fns=DEFAULT_M6_TOTAL_FNS,
@@ -479,10 +482,9 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
         inl_fns="m6InlFns",
         inl_mod_sym="m6InlMod",
         inl_policy="m6InlPolicy",
-        sat_sound_mod="LeanQbe.T.Examples.Kissat.FullM6SatSound",
-        sat_nv_mod="LeanQbe.T.Examples.Kissat.FullM6SatNv",
         hdr_model="m6",
         default_max_dirs=M6_MAX_DIRS,
+        emit_sound=False,
     ),
     "FullM5": ModulePreset(
         name="FullM5",
@@ -1577,7 +1579,7 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
         "set_option autoImplicit false",
         "",
-        "@[expose] public section",
+        "public section",
         "",
         f"namespace {ns}",
         "",
@@ -1679,7 +1681,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
         "",
         "set_option autoImplicit false",
         "",
-        "@[expose] public section",
+        "public section",
         "",
         f"namespace {ns}",
         "",
@@ -2122,7 +2124,7 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
         "set_option autoImplicit false",
         "",
-        "@[expose] public section",
+        "public section",
         "",
         f"namespace {ns}",
         "",
@@ -2186,13 +2188,19 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
     ]
     if cfg.wrapper_mode != "compiled":
         pub_imports.append(f"public import {cfg.proof_mod}")
-    if cfg.wrapper_mode == "full" and cfg.hdr_model == "m6":
-        if cfg.sat_sound_mod and cfg.emit_sound:
-            pub_imports.append(f"public import {cfg.sat_sound_mod}")
-        if cfg.sat_nv_mod:
-            pub_imports.append(f"public import {cfg.sat_nv_mod}")
-
     priv_imports: list[str] = [f"import {arch.lemmas_mod}"]
+    if cfg.wrapper_mode == "full" and cfg.hdr_model == "m6":
+        nv_mod = cfg.sat_nv_mod or "LeanQbe.T.Examples.Kissat.FullM6SatNv"
+        if cfg.emit_sound:
+            sound_mod = cfg.sat_sound_mod or "LeanQbe.T.Examples.Kissat.FullM6SatSound"
+            pub_imports.extend([f"public import {sound_mod}", f"public import {nv_mod}"])
+        else:
+            priv_imports.append(f"import {nv_mod}")
+            if cfg.prefix == "KissatM6" or cfg.sat_sound_mod:
+                sound_mod = (
+                    cfg.sat_sound_mod or "LeanQbe.T.Examples.Kissat.FullM6SatSound"
+                )
+                priv_imports.append(f"import {sound_mod}")
     if cfg.wrapper_mode == "full":
         priv_imports.extend(
             [
@@ -2219,12 +2227,17 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
             [
                 "LeanQbe.T.Examples.Kissat.FullM6",
                 "LeanQbe.T.Examples.Kissat.FullM6Hdr",
+                "LeanQbe.T.Examples.Kissat.FullM6Orch",
             ]
         )
+        if not cfg.source_ns:
+            open_parts.append(cfg.proof_mod)
     if cfg.wrapper_mode == "full" and (
         cfg.entry_const.startswith("Full.") or cfg.hdr_model == "m6"
     ):
         open_parts.append("LeanQbe.T.Examples.Kissat.Full")
+    if cfg.inl_policy_mod:
+        open_parts.append(cfg.inl_policy_mod)
     open_parts = list(dict.fromkeys(open_parts))
 
     body: list[str] = [
@@ -2301,13 +2314,13 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
             ]
         if cfg.solve_mem_thm:
             solve_in_lines = [
-                f"private theorem solve_in_{cfg.mod} :",
+                f"theorem solve_in_{cfg.mod} :",
                 f"    {cfg.entry_const} ∈ {cfg.mod}.fns :=",
                 f"  {cfg.solve_mem_thm}",
             ]
         else:
             solve_in_lines = [
-                f"private theorem solve_in_{cfg.mod} :",
+                f"theorem solve_in_{cfg.mod} :",
                 f"    {cfg.entry_const} ∈ {cfg.mod}.fns := by",
                 "  exact List.mem_of_getElem?",
                 f"    (by t_kernel_rfl : ({cfg.mod}.fns)[{cfg.entry_idx}]? = "
@@ -2318,7 +2331,7 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
                 *solve_in_lines,
                 "",
                 *extra_helpers,
-                "private theorem sep_exists_eq {P Q : Mem 64 → Prop} {M : Mem 64}",
+                "theorem sep_exists_eq {P Q : Mem 64 → Prop} {M : Mem 64}",
                 "    (h : (P ⋆ Q) M) : ∃ m : Mem 64, P m ∧ (Eq m ⋆ Q) M := by",
                 "  have hm := sep_mono (Q := Q)",
                 "    (fun x hx => (⟨x, ⟨hx, rfl⟩⟩ : ∃ m : Mem 64, P m ∧ Eq m x)) h",
@@ -2361,7 +2374,7 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
         "set_option autoImplicit false",
         "",
-        "@[expose] public section",
+        "public section",
         "",
         f"namespace {ns}",
         "",
@@ -2378,16 +2391,24 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
 def _render_nv_payload_helpers(stem: str) -> list[str]:
     """Emit shared `6,144 B` `M6Hdr` non-vacuity payload helpers (`<= 8192 B` `TargetInit`)."""
     return [
-        f"private def {stem}NvWorkLen : Nat := {M6_NV_WORK_LEN}",
+        f"def {stem}NvWorkLen : Nat := {M6_NV_WORK_LEN}",
         "",
-        f"private def {stem}NvPayload (cnfBytes : List UInt8) : List UInt8 :=",
+        f"theorem {stem}NvWorkLen_eq : {stem}NvWorkLen = {M6_NV_WORK_LEN} := by",
+        f"  unfold {stem}NvWorkLen; rfl",
+        "",
+        f"def {stem}NvPayload (cnfBytes : List UInt8) : List UInt8 :=",
         f"  cnfBytes ++ List.replicate {stem}NvWorkLen 0",
         "",
-        f"private theorem {stem}NvPayload_length (cnfBytes : List UInt8) :",
+        f"theorem {stem}NvPayload_eq (cnfBytes : List UInt8) :",
+        f"    {stem}NvPayload cnfBytes =",
+        f"      cnfBytes ++ List.replicate {M6_NV_WORK_LEN} 0 := by",
+        f"  unfold {stem}NvPayload {stem}NvWorkLen; rfl",
+        "",
+        f"theorem {stem}NvPayload_length (cnfBytes : List UInt8) :",
         f"    ({stem}NvPayload cnfBytes).length = cnfBytes.length + {stem}NvWorkLen := by",
         f"  simp only [{stem}NvPayload, List.length_append, List.length_replicate]",
         "",
-        f"private theorem {stem}NvPayload_sep (cnfBytes : List UInt8) "
+        f"theorem {stem}NvPayload_sep (cnfBytes : List UInt8) "
         "(hcb : cnfBytes.length ≤ 2048) :",
         f"    (bytes nvM6CnfPtr cnfBytes ⋆ region (fullNvWorkPtr cnfBytes) {stem}NvWorkLen)",
         f"      (({stem}NvPayload cnfBytes).At nvM6CnfPtr) :=",
@@ -2395,7 +2416,7 @@ def _render_nv_payload_helpers(stem: str) -> list[str]:
         f"    (by unfold {stem}NvWorkLen; rw [List.length_replicate]; omega)",
         f"    rfl ⟨List.replicate {stem}NvWorkLen 0, List.length_replicate, rfl⟩",
         "",
-        f"private theorem {stem}Nv_unsat_bound :",
+        f"theorem {stem}Nv_unsat_bound :",
         f"    fullM6ExtBytes + fullFixedBytes 1 + 2 * 40 + 136 + 8 ≤ {stem}NvWorkLen := by",
         f"  unfold {stem}NvWorkLen fullM6ExtBytes fullFixedBytes valsBytes markBytes",
         "    u32FullBytes fullMinDepthOf",
@@ -2456,6 +2477,23 @@ def render_m6_unsat_section(
         "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)",
         f"        ⟨s, {entry_label}⟩",
     ]
+    is_model_intro = cfg.solve_spec_intro == "fullM6SolveBytesCoreModelSpec_intro"
+    solve_iff = "_solve_bytes_iff.mpr" if is_model_intro else "_solve_bytes"
+    h_unsat_binders = (
+        "        (fun _ _ hdom hu _ _ hm' =>"
+        if is_model_intro
+        else "        (fun _ _ hdom hu _ hm' =>"
+    )
+    h_nv_binders = (
+        "        (fun _ _ _ _ _ htr _ =>"
+        if is_model_intro
+        else "        (fun _ _ _ _ htr _ =>"
+    )
+    h_run_binders = (
+        "      (fun _ m' _ _ _ htr hm' =>"
+        if is_model_intro
+        else "      (fun _ m' _ _ htr hm' =>"
+    )
     lines = [
         *_render_nv_payload_helpers(cfg.stem),
         "section Unsat",
@@ -2497,10 +2535,10 @@ def render_m6_unsat_section(
         "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
         "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
         "      (fun _ _ _ _ => False) :=",
-        f"    {cfg.env}_solve_bytes",
+        f"    {cfg.env}{solve_iff}",
         f"      ({cfg.solve_spec_intro} (R := emp) hcfit hwfit",
         "        (by rw [sep_emp]; exact hm_in)",
-        "        (fun _ _ hdom hu _ _ hm' =>",
+        h_unsat_binders,
         "          by rw [sep_emp] at hm'; exact ⟨hdom, hu, hm'⟩))",
         "  refine eventually_weaken _ _ _ _ ?_",
         f"    ({cfg.prefix}CertLink.{solve_name} hfn cnf_ptr _ "
@@ -2526,9 +2564,48 @@ def render_m6_unsat_section(
         "hcfit hwfit",
         f"      s ra R {arch.solve_call_hyps})",
         "",
-        "end Unsat",
-        "",
-        *wrap_comment_lines(
+    ]
+
+    audit_names: list[str] = []
+    if worst_case_axiom_len(ns, unsat_thm) <= MAX_AXIOM_REPORT_LEN:
+        audit_names.append(unsat_thm)
+    elif cfg.print_axioms and worst_case_axiom_len(ns, "ax_unsat") <= MAX_AXIOM_REPORT_LEN:
+        lines.extend(
+            [
+                "theorem ax_unsat :",
+                *unsat_ret[:-1],
+                f"{unsat_ret[-1]} :=",
+                f"  {unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
+                "hcfit hwfit",
+                f"    s ra R {arch.solve_call_hyps}",
+                "",
+            ]
+        )
+        audit_names.append("ax_unsat")
+    if worst_case_axiom_len(ns, sound_thm) <= MAX_AXIOM_REPORT_LEN:
+        audit_names.append(sound_thm)
+    elif (
+        cfg.print_axioms
+        and worst_case_axiom_len(ns, "ax_unsat_sound") <= MAX_AXIOM_REPORT_LEN
+    ):
+        lines.extend(
+            [
+                "theorem ax_unsat_sound :",
+                *sound_ret[:-1],
+                f"{sound_ret[-1]} :=",
+                f"  {sound_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
+                "hcfit hwfit",
+                f"    s ra R {arch.solve_call_hyps}",
+                "",
+            ]
+        )
+        audit_names.append("ax_unsat_sound")
+
+    lines.extend(
+        [
+            "end Unsat",
+            "",
+            *wrap_comment_lines(
             f"/-- Unconditional concrete {arch.isa_title} UNSAT non-vacuity for "
             f"`{cfg.mod}` on `432`-word `FullM6Hdr` (`nvM6UnsatBytes`, "
             f"`{M6_NV_WORK_LEN}`-byte workspace, `fuel = 16`). -/"
@@ -2566,13 +2643,13 @@ def render_m6_unsat_section(
         f"        nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ())",
         "      (bs.At 0x1000#64) (fun r _ => r.fst = 20#64 ∧ nvM6UnsatCnf.Unsat)",
         "      (fun _ _ _ _ => False) :=",
-        f"    {cfg.unsat_env}_solve_bytes",
+        f"    {cfg.unsat_env}{solve_iff}",
         f"      ({cfg.solve_spec_intro} (R := emp) "
         "(by decide) (by decide)",
         "        (by",
         f"          rw [sep_emp, nvM6UnsatWorkPtr_eq_fullNvWorkPtr]",
         f"          exact {nv_pay}_sep nvM6UnsatBytes (by decide))",
-        "        (fun _ _ _ _ _ htr _ =>",
+        h_nv_binders,
         f"          ⟨htr 1 2 9 (by decide) (by decide) (by decide) "
         f"{cfg.stem}Nv_unsat_bound",
         "            (by decide) nvM6Unsat_header nvM6Unsat_unitTrace, "
@@ -2628,54 +2705,21 @@ def render_m6_unsat_section(
         "      (bytes nvM6CnfPtr nvM6UnsatBytes ⋆",
         f"        region nvM6UnsatWorkPtr {nv_wlen} ⋆ emp) m')",
         "    ?_ (fun _ _ h => h) (by decide)",
-        f"  exact {cfg.unsat_env}_solve_bytes",
+        f"  exact {cfg.unsat_env}{solve_iff}",
         f"    ({cfg.solve_spec_intro} (R := emp) "
         "(by decide) (by decide)",
         "      (by",
         f"        rw [sep_emp, nvM6UnsatWorkPtr_eq_fullNvWorkPtr]",
         f"        exact {nv_pay}_sep nvM6UnsatBytes (by decide))",
-        "      (fun _ m' _ _ _ htr hm' =>",
+        h_run_binders,
         f"        ⟨congrArg (·, ()) (htr 1 2 9 (by decide) (by decide) (by decide) "
         f"{cfg.stem}Nv_unsat_bound",
         "          (by decide) nvM6Unsat_header nvM6Unsat_unitTrace),",
         "         nvM6UnsatCnf_unsat, hm'⟩))",
         "",
-    ]
+        ]
+    )
 
-    audit_names: list[str] = []
-    if worst_case_axiom_len(ns, unsat_thm) <= MAX_AXIOM_REPORT_LEN:
-        audit_names.append(unsat_thm)
-    elif cfg.print_axioms and worst_case_axiom_len(ns, "ax_unsat") <= MAX_AXIOM_REPORT_LEN:
-        lines.extend(
-            [
-                "theorem ax_unsat :",
-                *unsat_ret[:-1],
-                f"{unsat_ret[-1]} :=",
-                f"  {unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
-                "hcfit hwfit",
-                f"    s ra R {arch.solve_call_hyps}",
-                "",
-            ]
-        )
-        audit_names.append("ax_unsat")
-    if worst_case_axiom_len(ns, sound_thm) <= MAX_AXIOM_REPORT_LEN:
-        audit_names.append(sound_thm)
-    elif (
-        cfg.print_axioms
-        and worst_case_axiom_len(ns, "ax_unsat_sound") <= MAX_AXIOM_REPORT_LEN
-    ):
-        lines.extend(
-            [
-                "theorem ax_unsat_sound :",
-                *sound_ret[:-1],
-                f"{sound_ret[-1]} :=",
-                f"  {sound_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
-                "hcfit hwfit",
-                f"    s ra R {arch.solve_call_hyps}",
-                "",
-            ]
-        )
-        audit_names.append("ax_unsat_sound")
     if worst_case_axiom_len(ns, nv_thm) <= MAX_AXIOM_REPORT_LEN:
         audit_names.append(nv_thm)
     elif cfg.print_axioms and worst_case_axiom_len(ns, "ax_unsat_nv") <= MAX_AXIOM_REPORT_LEN:
@@ -2923,7 +2967,7 @@ def render_sound_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
         "set_option autoImplicit false",
         "",
-        "@[expose] public section",
+        "public section",
         "",
         f"namespace {ns}",
         "",

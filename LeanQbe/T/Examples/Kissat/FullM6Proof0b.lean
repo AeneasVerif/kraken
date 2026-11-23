@@ -19,7 +19,7 @@ import LeanQbe.T.Examples.Kissat.FullDenseWatchLemmas
 Assembles `m6RowsPart2 tPfx` aligned 1-to-1 with `FullM6.m6FnsPart2`, proves `sigs`/`noExit`
 metadata, defines `M6Part2Callees`, and certifies all `144` functions of Part 2
 (`full_analyze_lit` through `full_congruence_dense`) in `Env.ofTable tbl` with `S1.5` delayed-watch
-bridges and `8` `FullM6OrchAdapters`, with `0` `@[expose]` tags and plain `public section`.
+bridges and `8` `FullM6OrchAdapters`, with zero `expose` attributes and plain `public section`.
 -/
 
 set_option autoImplicit false
@@ -1341,5 +1341,119 @@ theorem m6RowsPart2_tPfx_mem {tPfx : List SpecEntry} {i : Nat}
           exact m6_mem_drop_take_of_lt tPfx h15 h16 hit
         · (iterate 24 apply List.mem_append_right); apply List.mem_append_left
           exact m6_mem_drop_take_of_lt tPfx h16 (by omega) hit
+
+/-- Part 2 external callee memberships required by `m6Orch_fns.take 24`. -/
+structure M6Part2ExtCallees (tbl : List SpecEntry) : Prop where
+  minShrinkM6 :
+    (⟨"full_min_shrink_m6", [i64], [], Full.fullMinShrinkSpec, true⟩ : SpecEntry) ∈ tbl
+  deduce1uipM6 :
+    (⟨"full_deduce_1uip_m6", [i64], [i64], Full.fullDeduce1uipSpec, true⟩ : SpecEntry) ∈ tbl
+  walkM6 :
+    (⟨"full_walk_m6", [i64], [], Full.fullWarmupSpec, true⟩ : SpecEntry) ∈ tbl
+  analyzeLit :
+    (⟨"full_analyze_lit", [i64, i32, i32], [.bool], Full.fullAnalyzeLitSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  clearAna :
+    (⟨"full_clear_ana", [i64], [], Full.fullClearAnaSpec, true⟩ : SpecEntry) ∈ tbl
+  otfsLarge :
+    (⟨"full_otfs_large", [i64, i32, i32], [.bool], Full.fullOtfsLargeSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  otfsBin :
+    (⟨"full_otfs_bin", [i64, i32, i32], [.bool], Full.fullOtfsBinSpec, true⟩ : SpecEntry) ∈ tbl
+  otfsSubsume :
+    (⟨"full_otfs_subsume", [i64, i32, i64, i64, .bool], [], Full.fullOtfsSubsumeSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  oneLitConfl :
+    (⟨"full_one_lit_confl", [i64], [i64], Full.fullOneLitConflSpec, true⟩ : SpecEntry) ∈ tbl
+  restoreBumpAna :
+    (⟨"full_restore_bump_ana_m6_hdr", [i64], [],
+      FullM6OrchAdapters.m6aRestoreBumpAnaSpec, true⟩ : SpecEntry) ∈ tbl
+  anaFailedLit :
+    (⟨"full_ana_failed_lit_m6_hdr", [i64], [i64],
+      FullM6OrchAdapters.m6aAnaFailedLitSpec, true⟩ : SpecEntry) ∈ tbl
+  learnClause :
+    (⟨"full_learn_clause", [i64, i64], [i64], Full.fullLearnClauseSpec, true⟩ : SpecEntry) ∈ tbl
+  backboneM6 :
+    (⟨"full_backbone_m6", [i64, i64], [i64], FullM3Backbone.fullBackboneSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  transitiveM6 :
+    (⟨"full_transitive_m6", [i64, i64], [i64],
+      FullFastBveBudgets.fullTransitiveFastSpec, true⟩ : SpecEntry) ∈ tbl
+  probeRun :
+    (⟨"full_probe_run", [i64, i64], [i64], FullM3Backbone.fullProbeRunCursorSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  vivifyM6Hdr :
+    (⟨"full_vivify_m6_hdr", [i64], [i64], FullM6OrchAdapters.m6aVivifySpec, true⟩ :
+      SpecEntry) ∈ tbl
+  congruenceDense :
+    (⟨"full_congruence_dense", [i64, i64], [i64], FullM3CongBva.m3CongruenceDenseSpec, true⟩ :
+      SpecEntry) ∈ tbl
+  substitute :
+    (⟨"full_substitute", [i64], [i64], Full.fullSubstituteSpec, true⟩ : SpecEntry) ∈ tbl
+  lucky :
+    (⟨"full_lucky", [i64], [i64], Full.fullLuckySpec, true⟩ : SpecEntry) ∈ tbl
+
+theorem m6Part2ExtCallees_of_sub {tPfx tbl : List SpecEntry}
+    (hsub : ∀ e ∈ m6RowsPart2 tPfx, e ∈ tbl) : M6Part2ExtCallees tbl := by
+  have sub_alit : ∀ e ∈ p2AnalyzeLitRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; exact List.mem_append_left _ h)
+  have sub_cana : ∀ e ∈ p2ClearAnaRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 3 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_adp46 : ∀ e ∈ p2Adp46Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 5 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_otfs : ∀ e ∈ p2OtfsRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 6 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_ms1 : ∀ e ∈ p2MinShrink1Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 9 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_olc : ∀ e ∈ p2OneLitConflRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 12 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_lrn : ∀ e ∈ p2Learn2Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 13 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_wm : ∀ e ∈ p2WalkCoreRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 21 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_lck : ∀ e ∈ p2DelBinToLuckyRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 34 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_prun : ∀ e ∈ p2ProbeRunRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 39 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_viv : ∀ e ∈ p2Adp1011Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 41 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_vivbb2 : ∀ e ∈ p2VivBb2Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 42 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_subst : ∀ e ∈ p2SubstRewriteRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 46 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_cong : ∀ e ∈ p2CongDenseRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart2; iterate 54 apply List.mem_append_right
+    exact h)
+  refine ⟨ sub_ms1 _ (List.mem_of_getElem? (i := 5) rfl)
+         , sub_ms1 _ (List.mem_of_getElem? (i := 6) rfl)
+         , sub_wm _ (List.mem_of_getElem? (i := 8) rfl)
+         , sub_alit _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_cana _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_otfs _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_otfs _ (List.mem_of_getElem? (i := 1) rfl)
+         , sub_otfs _ (List.mem_of_getElem? (i := 2) rfl)
+         , sub_olc _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_adp46 _ (List.mem_of_getElem? (i := 1) rfl)
+         , sub_adp46 _ (List.mem_of_getElem? (i := 2) rfl)
+         , sub_lrn _ (List.mem_of_getElem? (i := 1) rfl)
+         , sub_vivbb2 _ (List.mem_of_getElem? (i := 7) rfl)
+         , sub_vivbb2 _ (List.mem_of_getElem? (i := 10) rfl)
+         , sub_prun _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_viv _ (List.mem_of_getElem? (i := 1) rfl)
+         , sub_cong _ (List.mem_of_getElem? (i := 17) rfl)
+         , sub_subst _ (List.mem_of_getElem? (i := 2) rfl)
+         , sub_lck _ (List.mem_of_getElem? (i := 5) rfl) ⟩
 
 end LeanQbe.T.Examples.Kissat.FullM6Proof

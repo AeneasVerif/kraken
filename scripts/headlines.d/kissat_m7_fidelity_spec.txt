@@ -1,0 +1,26 @@
+# One per line: <module to import> <fully qualified constant>.
+# Kissat M7Fidelity (`FullM7Fidelity`, 413/413) closed C0 source + PGO inline-policy (`m7FidInlMod`) WP audit (no machine-code certs yet).
+LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof m7f_len
+LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof m7f_nx
+LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof m7f_mod
+LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof m7f_nv
+LeanQbe.T.Examples.Kissat.FullM7FidelityInl m7f_inl_mod
+LeanQbe.T.Examples.Kissat.FullM7FidelityInl m7f_inl_eq
+LeanQbe.T.Examples.Kissat.FullM7FidelityInl m7f_inl_fns_eq
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_cnf_def
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_shape
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_wf
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_acyc
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_env_nx
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_mod_ok
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_inl_eq
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_inl_fns
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_inl_ac
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_inl_wf
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_inl_ok
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_unsat
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_host_ok
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_inl_mem
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_inl_wp
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_nv
+LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityAuditSpec.m7f_inl_nv

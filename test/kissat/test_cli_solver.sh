@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Self-contained verification for bench/kissat/build_solver.sh and bench/kissat/kissat_cli.c.
 #
-# Builds FullM5 (certified), FullM6, and FullM7 (--allow-uncertified until Sound certs land) on
-# both x64 and arm64 (qemu-aarch64), verifying SAT/UNSAT/UNKNOWN exit codes, DIMACS `v ... 0`
-# models on sat_unit/sat_chain/multi-clause SAT canary, `-n`/`--no-model`, stdin `-`, and
-# guard-page safety.
+# Builds FullM5 (certified SAT+UNSAT), FullM6 (certified UNSAT + runtime-checked SAT), and
+# FullM7 (--allow-uncertified until KissatM7 certs land) on both x64 and arm64 (qemu-aarch64),
+# verifying SAT/UNSAT/UNKNOWN exit codes, DIMACS `v ... 0` models on sat_unit/sat_chain/multi-clause
+# SAT canary, `-n`/`--no-model`, stdin `-`, and guard-page safety.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -17,13 +17,14 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/kissat-cli-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "== [1/4] certification gating & CLI argument checks =="
-for mod_pair in "FullM6:KissatM6Sound" "FullM7:KissatM7Sound"; do
+for mod_pair in "FullM6:KissatM6" "FullM7:KissatM7"; do
   mod="${mod_pair%%:*}"
-  sound="${mod_pair#*:}"
+  cert="${mod_pair#*:}"
   for pair in "x64:Amd64" "arm64:Arm64"; do
     arch="${pair%%:*}"
     arch_dir="${pair#*:}"
-    if [ ! -f "LeanQbe/T/$arch_dir/${sound}.lean" ]; then
+    if [ ! -f "LeanQbe/T/$arch_dir/${cert}.lean" ] && \
+       [ ! -f "LeanQbe/T/$arch_dir/${cert}Sound.lean" ]; then
       set +e
       err_out="$(timeout "$RUN_TIMEOUT" bash bench/kissat/build_solver.sh \
         --module "$mod" --arch "$arch" -o "$TMP/should_fail" 2>&1)"
@@ -42,7 +43,7 @@ for mod_pair in "FullM6:KissatM6Sound" "FullM7:KissatM7Sound"; do
   done
 done
 
-echo "== [2/4] build FullM5 (certified), FullM6, and FullM7 on x64 + arm64 =="
+echo "== [2/4] build FullM5 (certified), FullM6 (certified), and FullM7 on x64 + arm64 =="
 if [ -z "${STAGE_LEAN_PATH:-}" ]; then
   if [ "${SKIP_BUILD:-0}" != "1" ]; then
     EXTRA_BUILD_MODS=()
@@ -62,13 +63,13 @@ if [ -z "${STAGE_LEAN_PATH:-}" ]; then
 fi
 
 M6_X64_FLAGS=()
-[ -f "LeanQbe/T/Amd64/KissatM6Sound.lean" ] || M6_X64_FLAGS=(--allow-uncertified)
+[ -f "LeanQbe/T/Amd64/KissatM6.lean" ] || [ -f "LeanQbe/T/Amd64/KissatM6Sound.lean" ] || M6_X64_FLAGS=(--allow-uncertified)
 M6_ARM64_FLAGS=()
-[ -f "LeanQbe/T/Arm64/KissatM6Sound.lean" ] || M6_ARM64_FLAGS=(--allow-uncertified)
+[ -f "LeanQbe/T/Arm64/KissatM6.lean" ] || [ -f "LeanQbe/T/Arm64/KissatM6Sound.lean" ] || M6_ARM64_FLAGS=(--allow-uncertified)
 M7_X64_FLAGS=()
-[ -f "LeanQbe/T/Amd64/KissatM7Sound.lean" ] || M7_X64_FLAGS=(--allow-uncertified)
+[ -f "LeanQbe/T/Amd64/KissatM7.lean" ] || [ -f "LeanQbe/T/Amd64/KissatM7Sound.lean" ] || M7_X64_FLAGS=(--allow-uncertified)
 M7_ARM64_FLAGS=()
-[ -f "LeanQbe/T/Arm64/KissatM7Sound.lean" ] || M7_ARM64_FLAGS=(--allow-uncertified)
+[ -f "LeanQbe/T/Arm64/KissatM7.lean" ] || [ -f "LeanQbe/T/Arm64/KissatM7Sound.lean" ] || M7_ARM64_FLAGS=(--allow-uncertified)
 
 run_build_wave() {
   local pids=() tags=() logs=()

@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.FullM6Proof0c
+public import LeanQbe.T.Examples.Kissat.FullM6OrchProof
 public import LeanQbe.T.Examples.Kissat.FullM6SatSound
 public import LeanQbe.T.Examples.Kissat.FullM6SatNv
 
@@ -12,8 +13,8 @@ public import LeanQbe.T.Examples.Kissat.FullM6SatNv
 # Kissat `D-Full` Unified `M6.0` `382`-Fn `ModuleOk` + Soundness & UNSAT NV (`FullM6Proof`)
 
 Assembles the complete `382`-row `m6SpecTable tPfx solveSpec` aligned 1-to-1 with
-`FullM6.m6Module.fns`, parameterized only over the `24`-fn `M6Orch` prefix `tPfx` (`hPfxOk` +
-`M6OrchPfxTblSpecs` + `hWalk`) being finished in `FullM6OrchProof0..1`:
+`FullM6.m6Module.fns`, closed with the `24`-fn `M6Orch` prefix `m6OrchPfxSpecTable`
+(`m6OrchPfx_tableImpl` + `M6OrchPfxTblSpecs` + `m6_walk_lookup`):
 
 1. `m6SpecTable`, `mkM6Env`, `m6SpecTable_sigs`, `m6SpecTable_length` (`382`),
    `m6SpecTable_nodup`, `m6SpecTable_noExit`, and `mkM6Env_solve_bytes{_m6}_iff`.
@@ -23,6 +24,9 @@ Assembles the complete `382`-row `m6SpecTable tPfx solveSpec` aligned 1-to-1 wit
 3. Top-level UNSAT + host-framed soundness (`m6_solve_bytes_sound`,
    `m6_solve_bytes_m6_sound`, `m6_solve_bytes_host_sound`) and
    concrete Tier-3b UNSAT non-vacuity (`m6_unsat_nv`, `m6_m6_unsat_nv`).
+4. Closed dual-arch `0`-hook wiring: `m6Table`, `m6Env`, `m6CoreEnv`, `m6CoreEnv_moduleOk`,
+   `m6Env_moduleOk`, `m6CoreEnv_noExit`, `m6Env_noExit`, `m6_solve_bytes_unsat`,
+   `m6_closed_unsat_nv`, and `m6_closed_m6_unsat_nv`.
 -/
 
 set_option autoImplicit false
@@ -38,6 +42,7 @@ open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Full
 open LeanQbe.T.Examples.Kissat.FullM6
 open LeanQbe.T.Examples.Kissat.FullM6Hdr
+open LeanQbe.T.Examples.Kissat.FullM6OrchAdapters
 open LeanQbe.T.Examples.Kissat.FullM6Orch
 open LeanQbe.T.Examples.Kissat.FullM6Transport
 open LeanQbe.T.Examples.Kissat.FullM6ProofUtil
@@ -396,5 +401,264 @@ theorem m6_m6_unsat_nv
   exact hfn a m0 Q X
     ((mkM6Env_solve_bytes_m6_iff tPfx fullM6SolveBytesCoreModelSpec hPfxSigs).mpr
       (fullM6SolveBytesCoreModelSpec_monoX hs))
+
+/-! ## 4. Closed Dual-Arch `KissatM6` Wiring (0 Hooks) -/
+
+/-- `M6OrchPfxTblSpecs` satisfied by concrete `m6OrchPfxSpecTable`. -/
+theorem m6OrchPfxSpecTable_pfxSpecs : M6OrchPfxTblSpecs m6OrchPfxSpecTable :=
+  ⟨ m6OrchPfxSpecTable_row_at 0 _
+  , m6OrchPfxSpecTable_row_at 1 _
+  , m6OrchPfxSpecTable_row_at 2 _
+  , m6OrchPfxSpecTable_row_at 3 _
+  , m6OrchPfxSpecTable_row_at 4 _
+  , m6OrchPfxSpecTable_row_at 5 _
+  , m6OrchPfxSpecTable_row_at 6 _
+  , m6OrchPfxSpecTable_row_at 7 _
+  , m6OrchPfxSpecTable_row_at 8 _
+  , m6OrchPfxSpecTable_row_at 9 _
+  , m6OrchPfxSpecTable_row_at 11 _
+  , m6OrchPfxSpecTable_row_at 12 _
+  , m6OrchPfxSpecTable_row_at 14 _
+  , m6OrchPfxSpecTable_row_at 17 _
+  , m6OrchPfxSpecTable_row_at 19 _
+  , m6OrchPfxSpecTable_row_at 22 _
+  , m6OrchPfxSpecTable_row_at 23 _ ⟩
+
+private theorem m6_env_mem {tbl : List SpecEntry} (hnd : (tbl.map SpecEntry.name).Nodup)
+    (nm : String) (as bs : List Ty) (sp : Spec as bs)
+    (hmem : (⟨nm, as, bs, sp, true⟩ : SpecEntry) ∈ tbl)
+    (hno : ∀ xs m Q X, sp xs m Q X → sp xs m Q (fun _ _ _ _ => False) := by
+      exact fun _ _ _ _ h => h) :
+    ∀ xs m Q X, sp xs m Q X → Env.ofTable tbl nm as bs xs m Q X :=
+  fun xs m Q X hs => Env.ofTable_of_mem hmem hnd (by
+    dsimp only [SpecEntry.eff]; simp only [ite_true]; exact hno xs m Q X hs)
+
+/-- 57-field external callee resolution for `m6OrchPfx_tableImpl` in
+`mkM6Env m6OrchPfxSpecTable`. -/
+theorem m6_orchPfxExtCallees (solveSpec : Spec [i64, i64, i64, i64, i64] [i64]) :
+    M6OrchPfxExtCallees (mkM6Env m6OrchPfxSpecTable solveSpec) := by
+  have hnd := m6SpecTable_nodup m6OrchPfxSpecTable solveSpec m6OrchPfxSpecTable_sigs
+  have sub1 : ∀ e ∈ m6RowsPart1 m6OrchPfxSpecTable,
+      e ∈ m6SpecTable m6OrchPfxSpecTable solveSpec :=
+    fun _ h => List.mem_append_left _ h
+  have sub2 : ∀ e ∈ m6RowsPart2 m6OrchPfxSpecTable,
+      e ∈ m6SpecTable m6OrchPfxSpecTable solveSpec :=
+    fun _ h => List.mem_append_right _ (List.mem_append_left _ h)
+  have sub3p : ∀ e ∈ m6RowsPart3Pfx m6OrchPfxSpecTable,
+      e ∈ m6SpecTable m6OrchPfxSpecTable solveSpec :=
+    fun _ h => List.mem_append_right _ (List.mem_append_right _ (List.mem_append_left _ h))
+  have hc1 := m6Part1Callees_of_sub sub1
+  have hc2 := m6Part2Callees_of_sub sub2
+  have ep1 := m6Part1ExtCallees_of_sub sub1
+  have ep2 := m6Part2ExtCallees_of_sub sub2
+  have ep3 := m6Part3ExtCallees_of_sub sub3p
+  refine ⟨ ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_
+         , ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_
+         , ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_ ⟩
+  · exact m6_env_mem hnd _ _ _ _ ep1.wstackDefragM6
+  · exact m6_env_mem hnd _ _ _ _ ep1.watchPushM6
+  · exact m6_env_mem hnd _ _ _ _ ep1.rescaleM6
+  · exact m6_env_mem hnd _ _ _ _ ep1.parseBodyM6
+  · exact m6_env_mem hnd _ _ _ _ ep1.litRankM6
+  · exact m6_env_mem hnd _ _ _ _ ep1.sweepBinsM6cf
+  · exact m6_env_mem hnd _ _ _ _ ep1.rewatchArenaM6
+  · exact m6_env_mem hnd _ _ _ _ ep1.arenaSweepM6
+  · exact m6_env_mem hnd _ _ _ _ ep1.markReasonsM6
+  · exact m6_env_mem hnd _ _ _ _ ep2.minShrinkM6
+  · exact m6_env_mem hnd _ _ _ _ ep2.deduce1uipM6
+  · exact m6_env_mem hnd _ _ _ _ ep2.walkM6
+  · exact m6_env_mem hnd _ _ _ _ ep3.sweepDenseM5
+  · exact m6_env_mem hnd _ _ _ _ hc1.isqrt
+  · exact m6_env_mem hnd _ _ _ _ hc1.backtrack
+  · exact m6_env_mem hnd _ _ _ _ hc1.propagate
+  · exact m6_env_mem hnd _ _ _ _ ep1.recomputeTiers
+      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ hc1.arenaNext
+  · exact m6_env_mem hnd _ _ _ _ ep1.sortReds
+  · exact m6_env_mem hnd _ _ _ _ hc1.ilog10
+  · exact m6_env_mem hnd _ _ _ _ ep1.setWm
+      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ ep2.analyzeLit
+  · exact m6_env_mem hnd _ _ _ _ ep1.recordUsed
+      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ ep2.clearAna
+  · exact m6_env_mem hnd _ _ _ _ ep2.otfsBin
+  · exact m6_env_mem hnd _ _ _ _ ep2.otfsSubsume
+  · exact m6_env_mem hnd _ _ _ _ ep2.otfsLarge
+  · exact m6_env_mem hnd _ _ _ _ ep2.oneLitConfl
+  · exact m6_env_mem hnd _ _ _ _ ep2.anaFailedLit
+      (fun _ _ _ _ h => m6aAnaFailedLitSpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ ep2.restoreBumpAna
+      (fun _ _ _ _ h => m6aRestoreBumpAnaSpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ hc1.tickRel
+  · exact m6_env_mem hnd _ _ _ _ hc1.emaUpdate
+  · exact m6_env_mem hnd _ _ _ _ ep2.learnClause
+  · exact m6_env_mem hnd _ _ _ _ ep1.extReady
+      (fun _ _ _ _ h => m6HdrExtReadySpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ ep1.getWm
+      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ ep1.heapDown
+  · exact m6_env_mem hnd _ _ _ _ hc1.log10Q16
+  · exact m6_env_mem hnd _ _ _ _ ep3.reorderQueueM7
+  · exact m6_env_mem hnd _ _ _ _ ep2.backboneM6
+  · exact m6_env_mem hnd _ _ _ _ ep2.transitiveM6
+  · exact m6_env_mem hnd _ _ _ _ ep3.minU64
+  · exact m6_env_mem hnd _ _ _ _ ep2.probeRun
+  · exact m6_env_mem hnd _ _ _ _ ep2.vivifyM6Hdr
+      (fun _ _ _ _ h => m6aVivifySpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ ep3.probeDticks
+      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ hc1.scaleDeltaM5
+  · exact m6_env_mem hnd _ _ _ _ hc2.enterDense
+  · exact m6_env_mem hnd _ _ _ _ ep1.delaying
+      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ ep2.congruenceDense
+  · exact m6_env_mem hnd _ _ _ _ hc2.rebuildWatches
+  · exact m6_env_mem hnd _ _ _ _ ep1.reduceDelay
+      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ ep1.bumpDelay
+      (fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+  · exact m6_env_mem hnd _ _ _ _ ep2.substitute
+  · exact m6_env_mem hnd _ _ _ _ ep3.factor
+  · exact m6_env_mem hnd _ _ _ _ ep2.lucky
+  · exact m6_env_mem hnd _ _ _ _ ep3.compactNeeded
+  · exact m6_env_mem hnd _ _ _ _ ep3.compact
+  · exact m6_env_mem hnd _ _ _ _ ep3.eliminateM6
+
+/-- Instantiated `TableImpl` for `m6Orch_fns.take 24` against `m6OrchPfxSpecTable` in `mkM6Env`. -/
+theorem m6_orchPfx_tableImpl (solveSpec : Spec [i64, i64, i64, i64, i64] [i64]) :
+    TableImpl (mkM6Env m6OrchPfxSpecTable solveSpec) (m6Orch_fns.take 24) m6OrchPfxSpecTable :=
+  FullM6Orch.m6OrchPfx_tableImpl
+    (m6SpecTable_nodup m6OrchPfxSpecTable solveSpec m6OrchPfxSpecTable_sigs)
+    (m6SpecTable_tPfx_mem m6OrchPfxSpecTable_sigs)
+    (m6_orchPfxExtCallees solveSpec)
+
+/-- `full_walk` lookup in `mkM6Env m6OrchPfxSpecTable solveSpec`. -/
+theorem m6_walk_lookup (solveSpec : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ∀ a m Q X, Full.fullWarmupSpec a m Q X →
+      mkM6Env m6OrchPfxSpecTable solveSpec "full_walk" [i64] [] a m Q X := by
+  intro a m Q X hs
+  have hmem : (⟨"full_walk", [i64], [], Full.fullWarmupSpec, true⟩ : SpecEntry) ∈
+      m6SpecTable m6OrchPfxSpecTable solveSpec :=
+    m6SpecTable_tPfx_mem m6OrchPfxSpecTable_sigs _ (m6OrchPfxSpecTable_row_at 15 _)
+  exact Env.ofTable_of_mem hmem
+    (m6SpecTable_nodup m6OrchPfxSpecTable solveSpec m6OrchPfxSpecTable_sigs) hs
+
+/-- Canonical closed specification table for `KissatM6` (`382` rows). -/
+def m6Table (solveSpec : Spec [i64, i64, i64, i64, i64] [i64] := fullM6SolveBytesSpec) :
+    List SpecEntry :=
+  m6SpecTable m6OrchPfxSpecTable solveSpec
+
+/-- Canonical closed environment for `KissatM6` (`SAT + UNSAT`). -/
+def m6Env : Env := mkM6Env m6OrchPfxSpecTable fullM6SolveBytesSpec
+
+/-- Canonical closed environment for `KissatM6` (`UNSAT + CoreModel`). -/
+def m6CoreEnv : Env := mkM6Env m6OrchPfxSpecTable fullM6SolveBytesCoreModelSpec
+
+/-- Abbrev for deterministic UNSAT non-vacuity environment. -/
+abbrev m6UnsatEnv : Env := m6CoreEnv
+
+theorem m6Table_sigs (solveSpec : Spec [i64, i64, i64, i64, i64] [i64]) :
+    (m6Table solveSpec).map (fun e => (e.name, e.as, e.rs)) = m6Fns.map Fn.sig :=
+  m6SpecTable_sigs m6OrchPfxSpecTable solveSpec m6OrchPfxSpecTable_sigs
+
+theorem m6Table_length (solveSpec : Spec [i64, i64, i64, i64, i64] [i64]) :
+    (m6Table solveSpec).length = 382 :=
+  m6SpecTable_length m6OrchPfxSpecTable solveSpec m6OrchPfxSpecTable_sigs
+
+theorem m6Table_nodup (solveSpec : Spec [i64, i64, i64, i64, i64] [i64]) :
+    ((m6Table solveSpec).map SpecEntry.name).Nodup :=
+  m6SpecTable_nodup m6OrchPfxSpecTable solveSpec m6OrchPfxSpecTable_sigs
+
+theorem m6Table_noExit (solveSpec : Spec [i64, i64, i64, i64, i64] [i64]) :
+    (m6Table solveSpec).all SpecEntry.noExit = true :=
+  m6SpecTable_noExit m6OrchPfxSpecTable solveSpec m6OrchPfxSpecTable_noExit
+
+/-- Unconditional `ModuleOk` for `m6Module` under `m6CoreEnv` (`0` hooks). -/
+theorem m6CoreEnv_moduleOk : ModuleOk m6CoreEnv m6Module :=
+  mkM6Env_core_moduleOk m6OrchPfxSpecTable m6OrchPfxSpecTable_sigs
+    m6OrchPfxSpecTable_pfxSpecs (m6_orchPfx_tableImpl _) (m6_walk_lookup _)
+
+/-- Unconditional `ModuleOk` for `m6Module` under `m6Env` (`0` hooks). -/
+theorem m6Env_moduleOk : ModuleOk m6Env m6Module :=
+  mkM6Env_sound_moduleOk m6OrchPfxSpecTable m6OrchPfxSpecTable_sigs
+    m6OrchPfxSpecTable_pfxSpecs (m6_orchPfx_tableImpl _) (m6_walk_lookup _)
+
+/-- `noExit` property for `m6CoreEnv`. -/
+theorem m6CoreEnv_noExit :
+    ∀ f as bs xs m Q X X', m6CoreEnv f as bs xs m Q X → m6CoreEnv f as bs xs m Q X' :=
+  mkM6Env_noExit m6OrchPfxSpecTable fullM6SolveBytesCoreModelSpec m6OrchPfxSpecTable_noExit
+
+/-- `noExit` property for `m6Env`. -/
+theorem m6Env_noExit :
+    ∀ f as bs xs m Q X X', m6Env f as bs xs m Q X → m6Env f as bs xs m Q X' :=
+  mkM6Env_noExit m6OrchPfxSpecTable fullM6SolveBytesSpec m6OrchPfxSpecTable_noExit
+
+/-- Specification lookup equivalence for `kissat_solve_bytes` in `m6CoreEnv`. -/
+theorem m6CoreEnv_solve_bytes_iff
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost} :
+    m6CoreEnv "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] xs m Q X ↔
+      fullM6SolveBytesCoreModelSpec xs m Q (fun _ _ _ _ => False) :=
+  mkM6Env_solve_bytes_iff m6OrchPfxSpecTable fullM6SolveBytesCoreModelSpec m6OrchPfxSpecTable_sigs
+
+/-- Specification lookup equivalence for `kissat_solve_bytes` in `m6Env`. -/
+theorem m6Env_solve_bytes_iff
+    {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost} :
+    m6Env "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] xs m Q X ↔
+      fullM6SolveBytesSpec xs m Q (fun _ _ _ _ => False) :=
+  mkM6Env_solve_bytes_iff m6OrchPfxSpecTable fullM6SolveBytesSpec m6OrchPfxSpecTable_sigs
+
+/-- Unconditional UNSAT soundness of `kissat_solve_bytes` on `m6Module`. -/
+theorem m6_solve_bytes_unsat
+    {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8}
+    {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64}
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m) :
+    Func.wp m6Env FullM6Orch.kissat_solve_bytes_body
+      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ()) m
+      (fun rs m' =>
+        match rs with
+        | (r, ()) =>
+          (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+          (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+          (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m')
+      (fun _ _ _ _ => False) := by
+  have hs := @m6_solve_bytes_sound m6OrchPfxSpecTable m6OrchPfxSpecTable_sigs
+    m6OrchPfxSpecTable_pfxSpecs (m6_orchPfx_tableImpl _) (m6_walk_lookup _)
+    cnf_ptr work_ptr fuel cnfBytes wlen R m hcfit hwfit hm
+  refine wp_mono (fun rs m' hq => ?_) (fun _ _ _ _ hf => hf) _ _ hs
+  rcases rs with ⟨r, ⟨⟩⟩
+  exact ⟨hq.1, hq.2.1, hq.2.2.2⟩
+
+/-- Closed concrete Tier-3b UNSAT non-vacuity for `kissat_solve_bytes` on `nvM6UnsatInitMem`. -/
+theorem m6_closed_unsat_nv :
+    Func.wp m6CoreEnv FullM6Orch.kissat_solve_bytes_body
+      (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
+        nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
+      nvM6UnsatInitMem
+      (fun rs m' =>
+        match rs with
+        | (r, ()) =>
+          r = 20#64 ∧ nvM6UnsatCnf.Unsat ∧
+          (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen) m')
+      (fun _ _ _ _ => False) :=
+  m6_unsat_nv m6OrchPfxSpecTable m6OrchPfxSpecTable_sigs
+    m6OrchPfxSpecTable_pfxSpecs (m6_orchPfx_tableImpl _) (m6_walk_lookup _)
+
+/-- Closed concrete Tier-3b UNSAT non-vacuity for `kissat_solve_bytes_m6` on `nvM6UnsatInitMem`. -/
+theorem m6_closed_m6_unsat_nv :
+    Func.wp m6CoreEnv kissat_solve_bytes_m6_body
+      (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
+        nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
+      nvM6UnsatInitMem
+      (fun rs m' =>
+        match rs with
+        | (r, ()) =>
+          r = 20#64 ∧ nvM6UnsatCnf.Unsat ∧
+          (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen) m')
+      (fun _ _ _ _ => False) :=
+  m6_m6_unsat_nv m6OrchPfxSpecTable m6OrchPfxSpecTable_sigs
+    m6OrchPfxSpecTable_pfxSpecs (m6_orchPfx_tableImpl _) (m6_walk_lookup _)
 
 end LeanQbe.T.Examples.Kissat.FullM6Proof

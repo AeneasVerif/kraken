@@ -3,8 +3,8 @@ module
 public import LeanQbe.T.Arm64.KissatM7PlusCert
 public import LeanQbe.T.Arm64.KissatM7PlusCertLink
 public import LeanQbe.T.Examples.Kissat.FullM7PlusAssemblyProof
-public import LeanQbe.T.Examples.Kissat.FullM6SatNv
 import LeanQbe.T.Arm64.TargLemmas
+import LeanQbe.T.Examples.Kissat.FullM6SatNv
 import LeanQbe.T.Logic.MemLemmas
 import Std.Sat.CNF.Basic
 import Kraken.Mem
@@ -18,14 +18,15 @@ Combines `KissatM7PlusCert.m7PlusCert` and `KissatM7PlusCertLink` with solver pr
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.Arm64.KissatM7Plus
 
 open Std Std.Sat Std.ExtHashMap LeanQbe.T LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat.FullM7Plus LeanQbe.T.Arm64 LeanQbe.T.Arm64.KissatM7PlusCertLink
 open Kraken LeanQbe.T.Examples.Kissat.FullM6 LeanQbe.T.Examples.Kissat.FullM6Hdr
-open LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.Kissat.FullM6Orch LeanQbe.T.Examples.Kissat.Full
+open LeanQbe.T.Examples.Kissat.FullM7InlPolicy
 
 /-- Compiled `LinkedCert` for `m7PlusModule.optInlinePolicy m7InlPolicy` (`410` functions) on
 AAPCS64 Arm64. -/
@@ -46,11 +47,11 @@ theorem m7Plus_module_fnspec [hh : Host] (k₀ : Nat)
   KissatM7PlusCertLink.mk_module_fnspec m7PlusEnv m7Plus_moduleOk
     (fun g _ => m7PlusEnv_noExit g.name g.as g.rs) k₀ hc hu hf
 
-private theorem solve_in_m7PlusModule :
+theorem solve_in_m7PlusModule :
     FullM6Orch.m6oSolveBytesFn ∈ m7PlusModule.fns :=
   m7Plus_solveBytes_mem
 
-private theorem sep_exists_eq {P Q : Mem 64 → Prop} {M : Mem 64}
+theorem sep_exists_eq {P Q : Mem 64 → Prop} {M : Mem 64}
     (h : (P ⋆ Q) M) : ∃ m : Mem 64, P m ∧ (Eq m ⋆ Q) M := by
   have hm := sep_mono (Q := Q)
     (fun x hx => (⟨x, ⟨hx, rfl⟩⟩ : ∃ m : Mem 64, P m ∧ Eq m x)) h
@@ -58,23 +59,31 @@ private theorem sep_exists_eq {P Q : Mem 64 → Prop} {M : Mem 64}
   obtain ⟨m, hm'⟩ := hm
   exact ⟨m, sep_pure_l (φ := P m) (P := Eq m) (R := Q).mp hm'⟩
 
-private def m7PlusNvWorkLen : Nat := 6144
+def m7PlusNvWorkLen : Nat := 6144
 
-private def m7PlusNvPayload (cnfBytes : List UInt8) : List UInt8 :=
+theorem m7PlusNvWorkLen_eq : m7PlusNvWorkLen = 6144 := by
+  unfold m7PlusNvWorkLen; rfl
+
+def m7PlusNvPayload (cnfBytes : List UInt8) : List UInt8 :=
   cnfBytes ++ List.replicate m7PlusNvWorkLen 0
 
-private theorem m7PlusNvPayload_length (cnfBytes : List UInt8) :
+theorem m7PlusNvPayload_eq (cnfBytes : List UInt8) :
+    m7PlusNvPayload cnfBytes =
+      cnfBytes ++ List.replicate 6144 0 := by
+  unfold m7PlusNvPayload m7PlusNvWorkLen; rfl
+
+theorem m7PlusNvPayload_length (cnfBytes : List UInt8) :
     (m7PlusNvPayload cnfBytes).length = cnfBytes.length + m7PlusNvWorkLen := by
   simp only [m7PlusNvPayload, List.length_append, List.length_replicate]
 
-private theorem m7PlusNvPayload_sep (cnfBytes : List UInt8) (hcb : cnfBytes.length ≤ 2048) :
+theorem m7PlusNvPayload_sep (cnfBytes : List UInt8) (hcb : cnfBytes.length ≤ 2048) :
     (bytes nvM6CnfPtr cnfBytes ⋆ region (fullNvWorkPtr cnfBytes) m7PlusNvWorkLen)
       ((m7PlusNvPayload cnfBytes).At nvM6CnfPtr) :=
   nv_sep_append rfl
     (by unfold m7PlusNvWorkLen; rw [List.length_replicate]; omega)
     rfl ⟨List.replicate m7PlusNvWorkLen 0, List.length_replicate, rfl⟩
 
-private theorem m7PlusNv_unsat_bound :
+theorem m7PlusNv_unsat_bound :
     fullM6ExtBytes + fullFixedBytes 1 + 2 * 40 + 136 + 8 ≤ m7PlusNvWorkLen := by
   unfold m7PlusNvWorkLen fullM6ExtBytes fullFixedBytes valsBytes markBytes
     u32FullBytes fullMinDepthOf
@@ -147,7 +156,7 @@ theorem m7Plus_solve_bytes_unsat_arm64 :
     m7PlusEnv_solve_bytes
       (m7PlusSolveBytesSpec_intro (R := emp) hcfit hwfit
         (by rw [sep_emp]; exact hm_in)
-        (fun _ _ hdom hu _ _ hm' =>
+        (fun _ _ hdom hu _ hm' =>
           by rw [sep_emp] at hm'; exact ⟨hdom, hu, hm'⟩))
   refine eventually_weaken _ _ _ _ ?_
     (KissatM7PlusCertLink.solve_arm64_of_fnspec hfn cnf_ptr _ work_ptr _ fuel
@@ -172,6 +181,41 @@ theorem kissat_m7Plus_arm64_unsat_correct :
   eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1, h.2.2.1⟩)
     (m7Plus_solve_bytes_unsat_arm64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
       s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem)
+
+theorem ax_unsat :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        st.pc = ra ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26,
+            .X27, .X28, .X29],
+          st.data.regs.getXReg r = s.regs.getXReg r) ∧
+        st.data.regs.SP = s.regs.SP ∧
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
+          region (s.regs.SP.toBitVec - BitVec.ofNat 64
+              (kissatM7Plus_compiled_arm64.bound "kissat_solve_bytes"))
+            (kissatM7Plus_compiled_arm64.bound "kissat_solve_bytes") ⋆ R)
+          st.data.dmem)
+      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
+  m7Plus_solve_bytes_unsat_arm64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
+    s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem
+
+theorem ax_unsat_sound :
+    Eventually (step1 Host.exe)
+      (fun st =>
+        st.pc = ra ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨
+          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧
+        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
+          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))
+      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
+  kissat_m7Plus_arm64_unsat_correct k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
+    s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem
 
 end Unsat
 
@@ -237,7 +281,7 @@ theorem m7Plus_arm64_unsat_nonvacuous [hh : Host] (k₀ : Nat)
         (by
           rw [sep_emp, nvM6UnsatWorkPtr_eq_fullNvWorkPtr]
           exact m7PlusNvPayload_sep nvM6UnsatBytes (by decide))
-        (fun _ _ _ _ _ htr _ =>
+        (fun _ _ _ _ htr _ =>
           ⟨htr 1 2 9 (by decide) (by decide) (by decide) m7PlusNv_unsat_bound
             (by decide) nvM6Unsat_header nvM6Unsat_unitTrace, nvM6UnsatCnf_unsat⟩))
   have hev := KissatM7PlusCertLink.solve_arm64_of_fnspec hfn nvM6CnfPtr _
@@ -288,45 +332,10 @@ theorem m7Plus_arm64_run_unsat :
       (by
         rw [sep_emp, nvM6UnsatWorkPtr_eq_fullNvWorkPtr]
         exact m7PlusNvPayload_sep nvM6UnsatBytes (by decide))
-      (fun _ m' _ _ _ htr hm' =>
+      (fun _ m' _ _ htr hm' =>
         ⟨congrArg (·, ()) (htr 1 2 9 (by decide) (by decide) (by decide) m7PlusNv_unsat_bound
           (by decide) nvM6Unsat_header nvM6Unsat_unitTrace),
          nvM6UnsatCnf_unsat, hm'⟩))
-
-theorem ax_unsat :
-    Eventually (step1 Host.exe)
-      (fun st =>
-        st.pc = ra ∧
-        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨
-          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨
-          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧
-        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
-          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
-        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26,
-            .X27, .X28, .X29],
-          st.data.regs.getXReg r = s.regs.getXReg r) ∧
-        st.data.regs.SP = s.regs.SP ∧
-        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆
-          region (s.regs.SP.toBitVec - BitVec.ofNat 64
-              (kissatM7Plus_compiled_arm64.bound "kissat_solve_bytes"))
-            (kissatM7Plus_compiled_arm64.bound "kissat_solve_bytes") ⋆ R)
-          st.data.dmem)
-      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  m7Plus_solve_bytes_unsat_arm64 k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
-    s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem
-
-theorem ax_unsat_sound :
-    Eventually (step1 Host.exe)
-      (fun st =>
-        st.pc = ra ∧
-        ((st.data.regs.getXReg .X0).toBitVec = 0#64 ∨
-          (st.data.regs.getXReg .X0).toBitVec = 10#64 ∨
-          (st.data.regs.getXReg .X0).toBitVec = 20#64) ∧
-        ((st.data.regs.getXReg .X0).toBitVec = 20#64 →
-          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat))
-      ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
-  kissat_m7Plus_arm64_unsat_correct k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit
-    s ra R hx0 hx1 hx2 hx3 hx4 hra hsp hmem
 
 theorem ax_unsat_nv [hh : Host] (k₀ : Nat)
     (hc : kissatM7Plus_compiled_arm64.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :

@@ -249,8 +249,8 @@ class GenCertSlicesTest(unittest.TestCase):
         self.assertIn("full_arena_sweep_m6", sing_names)
 
         files = gcs.build_plan(cfg, ["amd64", "arm64"])
-        # Per arch: Bounds + N slices + Cert + CertLink + Top + Sound = len(slices) + 5.
-        self.assertEqual(len(files), 2 * (len(cfg.slices) + 5))
+        # Per arch: Bounds + N slices + Cert + CertLink + Top = len(slices) + 4 (no Sound).
+        self.assertEqual(len(files), 2 * (len(cfg.slices) + 4))
         self._assert_hygiene(files)
 
         by_path = dict(files)
@@ -281,22 +281,23 @@ class GenCertSlicesTest(unittest.TestCase):
             self.assertIn(f"#print axioms {expected_ax}", link)
 
             top = by_path[f"LeanQbe/T/{arch_dir}/KissatM6.lean"]
-            self.assertIn("public import LeanQbe.T.Examples.Kissat.FullM6SatNv", top)
-            self.assertIn("public import LeanQbe.T.Examples.Kissat.FullM6SatSound", top)
+            self.assertIn("public section", top)
+            self.assertNotIn("@[expose] public section", top)
+            self.assertIn("m6CoreEnv", top)
+            self.assertIn("m6CoreEnv_moduleOk", top)
+            self.assertIn("m6CoreEnv_solve_bytes_iff.mpr", top)
+            self.assertIn("import LeanQbe.T.Examples.Kissat.FullM6SatNv", top)
+            self.assertIn("import LeanQbe.T.Examples.Kissat.FullM6SatSound", top)
+            self.assertNotIn("public import LeanQbe.T.Examples.Kissat.FullM6Sat", top)
             self.assertIn(f"m6_solve_bytes_unsat_{tag}", top)
             self.assertIn(f"m6_{tag}_unsat_nonvacuous", top)
             self.assertIn(f"m6_{tag}_run_unsat", top)
             self.assertIn("nvM6UnsatBytes", top)
-
-            snd = by_path[f"LeanQbe/T/{arch_dir}/KissatM6Sound.lean"]
-            self.assertIn("readModelFromWorkM6", snd)
-            self.assertIn(f"m6_solve_bytes_model_{tag}", snd)
-            self.assertIn(f"m6_solve_bytes_sound_{tag}", snd)
-            self.assertIn(f"m6_{tag}_sat_nonvacuous", snd)
-            self.assertIn(f"m6_{tag}_run_sat", snd)
-            self.assertIn("nvM6SatBytes", snd)
-            opp = "Arm64" if arch_dir == "Amd64" else "Amd64"
-            self.assertNotIn(f"LeanQbe.T.{opp}", snd)
+            self.assertNotIn(f"LeanQbe/T/{arch_dir}/KissatM6Sound.lean", by_path)
+            expected_top_ax = "kissat_m6_x64_unsat_correct" if tag == "x64" else "ax_unsat_sound"
+            self.assertIn(f"#print axioms {expected_top_ax}", top)
+            if tag == "arm64":
+                self.assertNotIn("#print axioms kissat_m6_arm64_unsat_correct", top)
 
     def test_full_m7_preset_with_profile_and_total_fns(self) -> None:
         # Without FullM7.lean, --total-fns, or --profile, FullM7 fails closed.
@@ -322,8 +323,8 @@ class GenCertSlicesTest(unittest.TestCase):
             top = tf_by_path[f"LeanQbe/T/{arch_dir}/KissatM7.lean"]
             self.assertNotIn("m6Nv", top)
             self.assertNotRegex(top, r"\bm6Nv\w*")
-            self.assertIn("private def m7NvWorkLen : Nat := 6144", top)
-            self.assertIn("private def m7NvPayload (cnfBytes : List UInt8)", top)
+            self.assertIn("def m7NvWorkLen : Nat := 6144", top)
+            self.assertIn("def m7NvPayload (cnfBytes : List UInt8)", top)
             self.assertIn(
                 "(by rw [m7NvPayload_length]; unfold m7NvWorkLen; decide)",
                 top,
