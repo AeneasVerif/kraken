@@ -413,7 +413,7 @@ private theorem canon_ok {post : T.mach.State → Prop} :
 theorem abiHeld_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
     {σ : List (BitVec 64)} (hA : Agree T G nv st s σ) {t : Ty} {a₁ : Arg Val t}
     {a : Arg VNat t} (hrel : ArgRel G t a₁ a) {sa : SymArg} (hsa : toSymArg T.toIsa t a = some sa)
-    {r : T.Reg} (hh : abiHeld T.toIsa st.regs r sa = true) :
+    {r : T.Reg} (hh : abiHeld T.toIsa st.regs st.zeroExt32 t r sa = true) :
     AbiGprHolds (T.mach.getGpr s r) t a₁.val := by
   have gsym : ∀ {sa' : SymArg} {rl : RegLoc T.Reg T.VReg T.Cond}, (sa', rl) ∈ st.regs →
       regLocMatchesGpr rl r = true → GprSym G (T.mach.getGpr s r) sa' := by
@@ -426,14 +426,26 @@ theorem abiHeld_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MDa
   cases hrel with
   | var hm =>
     simp only [toSymArg, Option.some.injEq] at hsa; subst hsa
-    simp only [abiHeld, List.any_eq_true, Bool.and_eq_true] at hh
-    obtain ⟨⟨sa', rl⟩, hmem, he1, he2⟩ := hh
-    obtain rfl := symArgEq_iff.mp he1
-    cases rl with
-    | gprZ r' =>
-      simp only [regLocEq, beq_iff_eq] at he2; subst he2
-      exact (hA.regs _ hmem).2 _ _ hm
-    | _ => simp [regLocEq] at he2
+    simp only [abiHeld, Bool.or_eq_true] at hh
+    rcases hh with hh | hh
+    · simp only [Bool.and_eq_true] at hh
+      obtain ⟨⟨ht32, hzer⟩, hhas⟩ := hh
+      have ht32' : t = .bits 32 := tyEq_iff.mp ht32
+      subst ht32'
+      simp only [hasVarGpr, List.any_eq_true, Bool.and_eq_true] at hhas
+      obtain ⟨⟨sa', rl⟩, hmem, he1, he2⟩ := hhas
+      obtain rfl := symArgEq_iff.mp he1
+      have hgs : GprHolds (T.mach.getGpr s r) (.bits 32) _ := gsym hmem he2 _ _ hm
+      have hzk := hA.zeroExt32_ok r (List.contains_iff_mem.mp hzer)
+      exact ⟨by decide, by rw [hzk, hgs.2]; rfl⟩
+    · simp only [List.any_eq_true, Bool.and_eq_true] at hh
+      obtain ⟨⟨sa', rl⟩, hmem, he1, he2⟩ := hh
+      obtain rfl := symArgEq_iff.mp he1
+      cases rl with
+      | gprZ r' =>
+        simp only [regLocEq, beq_iff_eq] at he2; subst he2
+        exact (hA.regs _ hmem).2 _ _ hm
+      | _ => simp [regLocEq] at he2
   | imm c =>
     cases t with
     | bool =>
@@ -466,7 +478,7 @@ theorem skipOk_of_abiSkips {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.
     {σ : List (BitVec 64)} (hA : Agree T G nv st s σ) :
     ∀ {ts : List Ty} {args₁ : Tup (Arg Val) ts} {args : Tup (Arg VNat) ts}
       {locs : Tup (AbiReg T.Reg T.VReg) ts}, TRel (ArgRel G) args₁ args →
-    SkipOk T.mach s locs (vals args₁) (abiSkips T.toIsa st.regs args locs)
+    SkipOk T.mach s locs (vals args₁) (abiSkips T.toIsa st.regs st.zeroExt32 args locs)
   | [], (), (), (), _ => trivial
   | t :: _, (_, _), (a, _), (l, _), .cons h1 h2 => by
     refine ⟨fun hsk => ?_, skipOk_of_abiSkips hA h2⟩
@@ -783,7 +795,7 @@ private theorem canon_inv {zl : Bool} {gs : List T.Reg} {vs : List T.VReg}
     {locs : Tup (AbiReg T.Reg T.VReg) ts} (hloc : T.toIsa.assignSig ts gs vs = some locs)
     {tgts : List (SymArg × T.toIsa.Loc)} (htg : abiTargets T.toIsa args locs = some tgts)
     {k nv : Nat} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64} {st : SymState T.toIsa}
-    (hc : (canonAbiCode T.toIsa locs (abiSkips T.toIsa st.regs args locs)).IsInfixAt
+    (hc : (canonAbiCode T.toIsa locs (abiSkips T.toIsa st.regs st.zeroExt32 args locs)).IsInfixAt
       (T.mach.prog host) k)
     (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2) (hA : Agree T G nv st s σ)
     (hI : Inv T hints s₀ ra n Rf m s σ zl)
@@ -791,7 +803,7 @@ private theorem canon_inv {zl : Bool} {gs : List T.Reg} {vs : List T.VReg}
       (∀ r ∈ T.frame.calleeSaved, T.mach.getGpr s1 r = T.mach.getGpr s r) →
       Inv T hints s₀ ra n Rf m s1 σ zl →
       T.mach.Run host (k + (canonAbiCode T.toIsa locs
-        (abiSkips T.toIsa st.regs args locs)).length) s1 post) :
+        (abiSkips T.toIsa st.regs st.zeroExt32 args locs)).length) s1 post) :
     T.mach.Run host k s post := by
   have _ := hy
   refine canon_ok hloc hnd (fun r hr => (hgs r hr).not_scratch) (pre_of_targets hrel htg hok)
@@ -819,7 +831,7 @@ theorem ret_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q :
     {retLocs : Tup (AbiReg T.Reg T.VReg) rs} (hloc : T.toIsa.assignRets rs = some retLocs)
     {tgts : List (SymArg × T.toIsa.Loc)} (htg : abiTargets T.toIsa vs retLocs = some tgts)
     {k nv : Nat} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64} {st : SymState T.toIsa}
-    (hc : (canonAbiCode T.toIsa retLocs (abiSkips T.toIsa st.regs vs retLocs) ++
+    (hc : (canonAbiCode T.toIsa retLocs (abiSkips T.toIsa st.regs st.zeroExt32 vs retLocs) ++
       restoreCs T.toIsa hints.nslots hints.saved ++
       fnEpilogue T.toIsa hints E ++ T.frame.ret).IsInfixAt (T.mach.prog host) k)
     (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2) (hA : Agree T G nv st s σ)
@@ -857,7 +869,7 @@ theorem exit_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
     {argLocs : Tup (AbiReg T.Reg T.VReg) as} (hloc : T.toIsa.assignArgs as = some argLocs)
     {tgts : List (SymArg × T.toIsa.Loc)} (htg : abiTargets T.toIsa args argLocs = some tgts)
     {k nv : Nat} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64} {st : SymState T.toIsa}
-    (hc : (canonAbiCode T.toIsa argLocs (abiSkips T.toIsa st.regs args argLocs) ++
+    (hc : (canonAbiCode T.toIsa argLocs (abiSkips T.toIsa st.regs st.zeroExt32 args argLocs) ++
       restoreCs T.toIsa hints.nslots hints.saved ++
       fnEpilogue T.toIsa hints E ++ T.frame.exitJmp f).IsInfixAt (T.mach.prog host) k)
     (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2) (hA : Agree T G nv st s σ)
@@ -897,7 +909,7 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
     {st st' : SymState T.toIsa}
     (hb : bindAbiParams T.toIsa retLocs nv (afterCallState T.toIsa hints.saved st) = some st')
     {k : Nat} {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
-    (hc : (canonAbiCode T.toIsa argLocs (abiSkips T.toIsa st.regs args argLocs) ++
+    (hc : (canonAbiCode T.toIsa argLocs (abiSkips T.toIsa st.regs st.zeroExt32 args argLocs) ++
       T.frame.call f).IsInfixAt (T.mach.prog host) k)
     (hok : ∀ p ∈ tgts, LocOk T.mach G s σ p.1 p.2) (hA : Agree T G nv st s σ)
     (hI : Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E))
@@ -906,7 +918,8 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
     (kont : ∀ (rets : Tup Val bs) (m' : Mem 64) s' σ', P rets m' →
       Agree T (Tup.zip rets (Tup.levels bs nv) ++ G) (nv + bs.length) st' s' σ' →
       Inv T hints s₀ ra n Rf m' s' σ' (isZeroLeaf T.toIsa hints E) →
-      T.mach.Run host (k + (canonAbiCode T.toIsa argLocs (abiSkips T.toIsa st.regs args argLocs) ++
+      T.mach.Run host (k +
+        (canonAbiCode T.toIsa argLocs (abiSkips T.toIsa st.regs st.zeroExt32 args argLocs) ++
         T.frame.call f).length) s' (FnPost T host s₀ ra n nX Rf Q X)) :
     T.mach.Run host k s (FnPost T host s₀ ra n nX Rf Q X) := by
   have hmemE : (f, as, bs) ∈ E.callees := by
@@ -953,7 +966,7 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
   have hentry : T.mach.mem s2 =⋆ Eq m ⋆
       T.Entry (T.mach.getGpr s2 T.frame.sp)
         (T.mach.addrOf host (k + (canonAbiCode T.toIsa argLocs
-          (abiSkips T.toIsa st.regs args argLocs)).length + (T.frame.call f).length))
+          (abiSkips T.toIsa st.regs st.zeroExt32 args argLocs)).length + (T.frame.call f).length))
         (bound f) ⋆
       ((array64 (base T hints s₀) σ ⋆ csSlots T hints s₀ ⋆
           T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
@@ -996,7 +1009,13 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
               exact h.2
           | vec _ => simp at hs
           | flag _ => simp at hs
-        regs_lt := fun p hp => hA.regs_lt p (List.mem_filter.mp hp).1 }
+        regs_lt := fun p hp => hA.regs_lt p (List.mem_filter.mp hp).1
+        zeroExt32_ok := fun r hr => by
+          simp only [afterCallState, List.mem_filter] at hr
+          have hs' : r ∈ hints.saved := by simpa [List.contains_iff_mem] using hr.2
+          have hcs : r ∈ T.frame.calleeSaved := hsub r hs'
+          rw [hkeep r hcs, hcs1 r hcs]
+          exact hA.zeroExt32_ok r hr.1 }
     have hI' : Inv T hints s₀ ra n Rf m' (T.mach.data st0) σ false := by
       refine ⟨hσ, by show T.mach.getGpr (T.mach.data st0) T.frame.sp = base T hints s₀
                      rw [hspr, hsp2, BitVec.sub_add_cancel],

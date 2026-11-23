@@ -267,8 +267,26 @@ theorem Agree.consReg {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.
     (hA : Agree T G nv st s σ) (h : RegLocOk T.mach G s sa rl) (hlt : symArgScopeOk nv sa = true) :
     Agree T G nv { st with regs := (sa, rl) :: st.regs } s σ :=
   { hA with
-    regs := fun p hp => by rcases List.mem_cons.mp hp with rfl | hp <;> first | exact h | exact hA.regs p hp
-    regs_lt := fun p hp => by rcases List.mem_cons.mp hp with rfl | hp <;> first | exact hlt | exact hA.regs_lt p hp }
+    regs := fun p hp => by
+      rcases List.mem_cons.mp hp with rfl | hp <;> first | exact h | exact hA.regs p hp
+    regs_lt := fun p hp => by
+      rcases List.mem_cons.mp hp with rfl | hp <;> first | exact hlt | exact hA.regs_lt p hp }
+
+theorem Agree.consRegZ {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
+    {σ : List (BitVec 64)} {sa : SymArg} {r : T.Reg}
+    (hA : Agree T G nv st s σ) (h : RegLocOk T.mach G s sa (.gprZ r))
+    (hlt : symArgScopeOk nv sa = true)
+    (hz : T.mach.getGpr s r = ((T.mach.getGpr s r).setWidth 32).setWidth 64) :
+    Agree T G nv { st with regs := (sa, .gprZ r) :: st.regs, zeroExt32 := r :: st.zeroExt32 } s σ :=
+  { hA with
+    regs := fun p hp => by
+      rcases List.mem_cons.mp hp with rfl | hp <;> first | exact h | exact hA.regs p hp
+    regs_lt := fun p hp => by
+      rcases List.mem_cons.mp hp with rfl | hp <;> first | exact hlt | exact hA.regs_lt p hp
+    zeroExt32_ok := fun q hq => by
+      rcases List.mem_cons.mp hq with rfl | hq
+      · exact hz
+      · exact hA.zeroExt32_ok q hq }
 
 theorem isGprTy_ne_pair {I : Isa} {t : Ty} (h : isGprTy I t = true) : ∀ a b, t ≠ .pair a b := by
   rintro a b rfl; simp [isGprTy] at h
@@ -371,7 +389,9 @@ theorem lowerLoad_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀
       obtain ⟨aa, hk, hreg, hev⟩ := tryAddr_ok hA hrel hta
       have hpushK : ∀ {s'}, T.mach.Frame T.gpr.condReads s s' (d :: T.frame.scratch) [] clob →
           Agree T (⟨t, v, nv⟩ :: G) (nv + 1)
-            { st with regs := killRegs T.toIsa (d :: T.frame.scratch) [] clob st.regs } s' σ :=
+            { st with
+              regs := killRegs T.toIsa (d :: T.frame.scratch) [] clob st.regs
+              zeroExt32 := killZeroExt (d :: T.frame.scratch) st.zeroExt32 } s' σ :=
         fun hfr => by
           have hk := hA.kill hfr
           exact hk.push t v _ (fun _ _ => rfl)
@@ -382,14 +402,6 @@ theorem lowerLoad_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀
       have hkeepI : ∀ {s'}, T.mach.Frame T.gpr.condReads s s' (d :: T.frame.scratch) [] clob →
           T.mach.mem s' = T.mach.mem s → Inv T hints s₀ ra n Rf m s' σ zl :=
         fun hfr hm => hI.keep hm (keep_of_frame (gs := [d]) hfr.1 (by simpa using hcond.1))
-      by_cases hze : T.toIsa.gpr.zeroExtLoad = true
-      · refine T.gprSpec.load_zext hze hk (not_scratch_of_isAllocGpr hsv hcond.1) hreg
-          (hload aa hev) hc fun s' ⟨hg, hm⟩ hfr => kont s' ?_ hMgrow (hkeepI hfr hm)
-        have hr1 := (hpushK hfr).consReg (sa := .var nv) (rl := .gprZ d)
-          ⟨fun t' v' hm' => by cases mem_cons_top hA.ctx_lt hm'; exact hg.toGprHolds,
-            fun t' v' hm' => by cases mem_cons_top hA.ctx_lt hm'; exact hg⟩
-          (by simp [symArgScopeOk])
-        simpa [hze] using hr1
       by_cases hzu : T.toIsa.gpr.zeroUpper32Load && tyEq t (.bits 32) = true
       · simp only [Bool.and_eq_true] at hzu
         have ht32 : t = .bits 32 := by
@@ -398,22 +410,34 @@ theorem lowerLoad_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀
         have hzu1 : T.toIsa.gpr.zeroUpper32Load = true := hzu.1
         refine T.gprSpec.load_zero32 hzu1 hk (not_scratch_of_isAllocGpr hsv hcond.1) hreg
           (hload aa hev) hc fun s' ⟨hg, hm⟩ hfr => kont s' ?_ hMgrow (hkeepI hfr hm)
-        have hr1 := (hpushK hfr).consReg (sa := .var nv) (rl := .gprZ d)
+        have hzk : T.mach.getGpr s' d = ((T.mach.getGpr s' d).setWidth 32).setWidth 64 := by
+          rw [hg, setWidth_32_64_val]
+        have hr1 := (hpushK hfr).consRegZ (sa := .var nv) (r := d)
           ⟨fun t' v' hm' => by
             cases mem_cons_top hA.ctx_lt hm'
             exact ⟨by decide, by rw [hg, BitVec.setWidth_setWidth_of_le _ (by decide),
               BitVec.setWidth_eq]⟩,
             fun t' v' hm' => by cases mem_cons_top hA.ctx_lt hm'; exact ⟨by decide, hg⟩⟩
-          (by simp [symArgScopeOk])
-        simpa [hze, hzu1, tyEq] using hr1
+          (by simp [symArgScopeOk]) hzk
+        simpa [hzu1, tyEq] using hr1
       · have hzuf : (T.toIsa.gpr.zeroUpper32Load && tyEq t (.bits 32)) = false := by
           cases hb : T.toIsa.gpr.zeroUpper32Load && tyEq t (.bits 32) <;> simp_all
-        refine T.gprSpec.load_spec hk (not_scratch_of_isAllocGpr hsv hcond.1) hreg
-          (hload aa hev) hc fun s' ⟨hg, hm⟩ hfr => kont s' ?_ hMgrow (hkeepI hfr hm)
-        have hr1 := (hpushK hfr).consReg (sa := .var nv) (rl := .gpr d)
-          (fun t' v' hm' => by cases mem_cons_top hA.ctx_lt hm'; exact hg)
-          (by simp [symArgScopeOk])
-        simpa [hze, hzuf] using hr1
+        by_cases hze : T.toIsa.gpr.zeroExtLoad = true
+        · refine T.gprSpec.load_zext hze hk (not_scratch_of_isAllocGpr hsv hcond.1) hreg
+            (hload aa hev) hc fun s' ⟨hg, hm⟩ hfr => kont s' ?_ hMgrow (hkeepI hfr hm)
+          have hr1 := (hpushK hfr).consReg (sa := .var nv) (rl := .gprZ d)
+            ⟨fun t' v' hm' => by cases mem_cons_top hA.ctx_lt hm'; exact hg.toGprHolds,
+              fun t' v' hm' => by cases mem_cons_top hA.ctx_lt hm'; exact hg⟩
+            (by simp [symArgScopeOk])
+          simpa [hze, hzuf] using hr1
+        · have hzef : T.toIsa.gpr.zeroExtLoad = false := by
+            cases hb : T.toIsa.gpr.zeroExtLoad <;> simp_all
+          refine T.gprSpec.load_spec hk (not_scratch_of_isAllocGpr hsv hcond.1) hreg
+            (hload aa hev) hc fun s' ⟨hg, hm⟩ hfr => kont s' ?_ hMgrow (hkeepI hfr hm)
+          have hr1 := (hpushK hfr).consReg (sa := .var nv) (rl := .gpr d)
+            (fun t' v' hm' => by cases mem_cons_top hA.ctx_lt hm'; exact hg)
+            (by simp [symArgScopeOk])
+          simpa [hzef, hzuf] using hr1
   · next vd _ =>
     obtain ⟨w, hw, hl⟩ := Option.bind_eq_some_iff.mp hl
     split at hl
@@ -1427,7 +1451,8 @@ private theorem lowerOp_z32_finish {zl : Bool} {G : VCtx} {nv k : Nat} {m : Mem 
           defs := match recordDef st.defs code args with
             | some df => st.defs.insert nv df | none => st.defs
           vecWidths := st.vecWidths
-          memDefs := st.memDefs } s'' σ →
+          memDefs := st.memDefs
+          zeroExt32 := rd :: killZeroExt (rd :: T.frame.scratch) st.zeroExt32 } s'' σ →
       MemDefsOk (Tup.zip rvs (Tup.levels [.bits 32] nv) ++ G) m (nv + 1) st.memDefs →
       Inv T hints s₀ ra n Rf m s'' σ zl → T.mach.Run host k s'' post) :
     T.mach.Run host k s' post := by
@@ -1437,13 +1462,15 @@ private theorem lowerOp_z32_finish {zl : Bool} {G : VCtx} {nv k : Nat} {m : Mem 
   have hA1 := hK.push (.bits 32) rv st.vecWidths (fun _ _ => rfl)
     (fun w h => absurd (hnone nv (Nat.le_refl _)) (by simp [h]))
     (fun x hx => hnone x (Nat.le_of_lt hx)) (fun _ a b h => by cases h)
-  have hA2 := hA1.consReg (sa := .var nv) (rl := .gprZ rd)
+  have hzk : T.mach.getGpr s' rd = ((T.mach.getGpr s' rd).setWidth 32).setWidth 64 := by
+    rw [hrd_eq]; exact (setWidth_32_64_val rv).symm
+  have hA2 := hA1.consRegZ (sa := .var nv) (r := rd)
     ⟨fun t' v' hm' => by
       cases mem_cons_top hA.ctx_lt hm'
       exact ⟨by decide, by rw [hrd_eq, BitVec.setWidth_setWidth_of_le _ (by decide),
         BitVec.setWidth_eq]⟩,
      fun t' v' hm' => by cases mem_cons_top hA.ctx_lt hm'; exact ⟨by decide, hrd_eq⟩⟩
-    (by simp [symArgScopeOk])
+    (by simp [symArgScopeOk]) hzk
   have hd1 : ∀ y d, Trie.find? (match recordDef st.defs code args with
       | some df => st.defs.insert nv df | none => st.defs) y = some d →
       DefOk (Tup.zip (rv, ()) (Tup.levels [.bits 32] nv) ++ G) y d ∧ y < nv + 1 := by
@@ -1771,22 +1798,42 @@ theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
       cases d0 with
       | vec _ => simp [elideZext32?] at hel
       | gpr rd =>
-        simp only [elideZext32?, Bool.and_eq_true, Nat.ble_eq,
-          hasVarGprZ, List.any_eq_true] at hel
-        obtain ⟨⟨hn, _⟩, ⟨sa', rl'⟩, hmem, hsa⟩ := hel
-        have heq1 := symArgEq_eq hsa.1; have heq2 := regLocEq_eq hsa.2
-        subst heq1; subst heq2
+        simp only [elideZext32?, Bool.and_eq_true, Nat.ble_eq, Bool.or_eq_true] at hel
+        obtain ⟨⟨hn, _⟩, hsrc⟩ := hel
         rcases args₁ with ⟨a₁, ⟨⟩⟩
         cases hargs with
         | cons ha₁ _ =>
           cases ha₁ with
           | var hmG =>
             rename_i vx
-            have hz := (hA.regs _ hmem).2 _ vx hmG
             simp only [OpCode.wp, vals, Arg.val] at hwp'
             obtain ⟨hmn, hP, hdef⟩ := hwp'
             have hw : T.mach.getGpr s rd = (vx.setWidth n0).setWidth 64 := by
-              rw [hz.2, setWidth_widen_64 vx hmn]
+              cases hsrc with
+              | inl hgprz =>
+                simp only [hasVarGprZ, List.any_eq_true, Bool.and_eq_true] at hgprz
+                obtain ⟨⟨sa', rl'⟩, hmem, hsa⟩ := hgprz
+                have heq1 := symArgEq_eq hsa.1; have heq2 := regLocEq_eq hsa.2
+                subst heq1; subst heq2
+                have hz := (hA.regs _ hmem).2 _ vx hmG
+                rw [hz.2, setWidth_widen_64 vx hmn]
+              | inr hgpr =>
+                simp only [Nat.beq_eq] at hgpr
+                obtain ⟨⟨hm32, hzer⟩, hhas⟩ := hgpr
+                subst hm32
+                simp only [hasVarGpr, List.any_eq_true, Bool.and_eq_true] at hhas
+                obtain ⟨⟨sa', rl'⟩, hmem, he1, he2⟩ := hhas
+                obtain rfl := symArgEq_iff.mp he1
+                have gsym : GprSym G (T.mach.getGpr s rd) (SymArg.var x) := by
+                  have h0 := hA.regs _ hmem
+                  cases rl' with
+                  | gpr r' => simp only [regLocMatchesGpr, beq_iff_eq] at he2; subst he2; exact h0
+                  | gprZ r' =>
+                    simp only [regLocMatchesGpr, beq_iff_eq] at he2; subst he2; exact h0.1
+                  | _ => simp [regLocMatchesGpr] at he2
+                have hgs : GprHolds (T.mach.getGpr s rd) (.bits 32) vx := gsym (.bits 32) vx hmG
+                have hzk := hA.zeroExt32_ok rd (List.contains_iff_mem.mp hzer)
+                rw [hzk, hgs.2, ← setWidth_widen_64 vx hmn]
             have hnone : ∀ x, nv ≤ x → st.vecWidths.find? x = none := fun x hx =>
               Option.eq_none_iff_forall_ne_some.mpr fun w h =>
                 absurd (hA.vw_lt _ _ h) (Nat.not_lt.mpr hx)
@@ -1844,8 +1891,9 @@ theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
         · cases hx; subst_vars; exact ⟨(hdef _ ‹_›).2, Nat.lt_add_of_pos_right (hdef _ ‹_›).1⟩
         · exact ⟨hA1.defs x d hx, hA1.defs_lt x d hx⟩
       · exact ⟨hA1.defs x d hx, hA1.defs_lt x d hx⟩
-    exact kont rvs s' hP ⟨hA1.ctx_lt, fun p hp => (hr1 p hp).1, hA1.slots, fun x d hx => (hd1 x d hx).1,
-      hA1.vw, fun p hp => (hr1 p hp).2, hA1.slots_lt, fun x d hx => (hd1 x d hx).2, hA1.vw_lt, hA1.vt⟩
+    exact kont rvs s' hP ⟨hA1.ctx_lt, fun p hp => (hr1 p hp).1, hA1.slots,
+      fun x d hx => (hd1 x d hx).1, hA1.vw, fun p hp => (hr1 p hp).2, hA1.slots_lt,
+      fun x d hx => (hd1 x d hx).2, hA1.vw_lt, hA1.vt, hA1.zeroExt32_ok⟩
       (hMgrow rvs) (hI.keep hm (keep_of_frame hfr.1 hdg))
   rcases orElse_eq_some hpick with hfuse | hpick
   · obtain ⟨⟨c'', cl⟩, hfc, he⟩ := Option.map_eq_some_iff.mp hfuse
