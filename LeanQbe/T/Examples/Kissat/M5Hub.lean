@@ -226,6 +226,9 @@ public import LeanQbe.T.Examples.Kissat.FullM7FidelitySchedFix
 public import LeanQbe.T.Examples.Kissat.FullM7FidelitySchedFixProof
 public import LeanQbe.T.Examples.Kissat.FullM7FidelitySchedFixProof0
 public import LeanQbe.T.Examples.Kissat.FullM7FidelitySchedProof
+public import LeanQbe.T.Examples.Kissat.FullM7FidelitySearch
+public import LeanQbe.T.Examples.Kissat.FullM7FidelitySearchProof
+public import LeanQbe.T.Examples.Kissat.FullM7FidelitySearchProof0
 public import LeanQbe.T.Examples.Kissat.FullM7HotHop1
 public import LeanQbe.T.Examples.Kissat.FullM7HotHop1Proof
 public import LeanQbe.T.Examples.Kissat.FullM7HotTernary
