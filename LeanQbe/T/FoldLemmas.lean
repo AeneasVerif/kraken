@@ -1920,8 +1920,7 @@ theorem OpRel.foldRewrite_wp {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat →
       split
       · rename_i hft
         simp only [Bool.and_eq_true, beq_iff_eq] at hft
-        have hav := ha.fout_imm?_val hG hft.1
-        have hbv := hb.fout_imm?_val hG hft.2
+        have hav := ha.fout_imm?_val hG hft.1; have hbv := hb.fout_imm?_val hG hft.2
         simp only [Op.wp, op1, OpCode.wp_not, OpCode.wp_select, vals,
           hc.fout_val hG, hav, hbv] at hw ⊢
         have hnot : (if c₂.val then false else true) = lift1 (~~~ ·) (! ·) .bool c₂.val := by
@@ -1933,6 +1932,33 @@ theorem OpRel.foldRewrite_wp {G : Ctx (FVal Val) Val} {ρ : (t : Ty) → Nat →
         · rw [hc.fout_val hG]; rfl
         · rw [FKey.fev_fupdTup _ (hc.fkey_FLt hG), hc.fkey_ev hG, hc.fout_val hG]
         · exact (hc.fkey_FLt hG).add
+      · split
+        · rename_i htr
+          have hav := ha.fout_imm?_val hG (eq_of_beq htr)
+          refine hdef _ ?_
+          cases hcv : c₂.val <;> simp [Op.wp, op2, OpCode.wp_or, OpCode.wp_select, vals,
+            hc.fout_val hG, hav, hb.fout_val hG, lift2, hcv] at hw ⊢ <;> exact hw
+        · split
+          · rename_i hfl
+            have hbv := hb.fout_imm?_val hG (eq_of_beq hfl)
+            refine hdef _ ?_
+            cases hcv : c₂.val <;> simp [Op.wp, op2, OpCode.wp_and, OpCode.wp_select, vals,
+              hc.fout_val hG, ha.fout_val hG, hbv, lift2, hcv] at hw ⊢ <;> exact hw
+          · refine hdef _ ?_
+            simpa [Op.wp, op3, OpCode.wp_select, vals, hc.fout_val hG, ha.fout_val hG,
+              hb.fout_val hG] using hw
+    | bits n =>
+      rcases args₁ with ⟨c₁, a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨c₂, a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨hc, _ | ⟨ha, _ | ⟨hb, _⟩⟩⟩
+      dsimp only [Op.foldRewrite, Op.foldWrap]
+      split
+      · rename_i h10
+        simp only [Bool.and_eq_true, beq_iff_eq] at h10
+        have hav := ha.fout_imm?_val hG h10.1.2
+        have hbv := hb.fout_imm?_val hG h10.2
+        refine hdef _ ?_
+        cases hcv : c₂.val <;> simp [Op.wp, op1, OpCode.wp_ofBool, OpCode.wp_select, vals,
+          hc.fout_val hG, hav, hbv, hcv] at hw ⊢ <;> exact hw
       · refine hdef _ ?_
         simpa [Op.wp, op3, OpCode.wp_select, vals, hc.fout_val hG, ha.fout_val hG,
           hb.fout_val hG] using hw
@@ -2600,6 +2626,18 @@ theorem OpRel.foldRewrite_rel (hG : FRelG G' G) {sig rs : List Ty} {code : OpCod
   | select t =>
     cases t with
     | bool =>
+      rcases args₁ with ⟨c₁, a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨c₂, a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨hc, _ | ⟨ha, _ | ⟨hb, _⟩⟩⟩
+      have hc' := hc.fout hG; have ha' := ha.fout hG; have hb' := hb.fout hG
+      dsimp only [Op.foldRewrite]; rw [ha'.imm?_eq, hb'.imm?_eq]
+      split
+      · exact .mk _ (.cons hc' .nil)
+      · split
+        · exact .mk _ (.cons hc' (.cons hb' .nil))
+        · split
+          · exact .mk _ (.cons hc' (.cons ha' .nil))
+          · exact .mk _ (.cons hc' (.cons ha' (.cons hb' .nil)))
+    | bits n =>
       rcases args₁ with ⟨c₁, a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨c₂, a₂, b₂, ⟨⟩⟩
       rcases hargs with _ | ⟨hc, _ | ⟨ha, _ | ⟨hb, _⟩⟩⟩
       have hc' := hc.fout hG; have ha' := ha.fout hG; have hb' := hb.fout hG

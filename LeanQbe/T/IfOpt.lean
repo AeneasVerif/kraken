@@ -35,11 +35,25 @@ namespace IfOptImpl
 
 /-! ## Local PHOAS label tagging and symbolic value keys -/
 
-/-- Label representation for `IfOpt`: `outer` preserves enclosing labels while `loc` tags
-the current `.group`'s binder for exact decidable identity checks. -/
+/-- Label representation for `IfOpt`: `outer` preserves enclosing labels, `loc` tags the current
+1-block `.group` binder for `checkDiamondWith`, and `tag` tags every `.group` binder with a unique
+binder `id` alongside its PHOAS label `lbl` for arbitrary-position diamond conversion. -/
 inductive JLabel (L : List Ty → Type) : List Ty → Type
   | outer {ts : List Ty} : L ts → JLabel L ts
   | loc {ts : List Ty} (id : Nat) : JLabel L ts
+  | tag {ts : List Ty} (id : Nat) (lbl : L ts) : JLabel L ts
+
+/-- Tag every binder in a `.group` label tuple `Js` with consecutive IDs starting at `depth`. -/
+def tagLabels {L : List Ty → Type} (depth : Nat) :
+    {sig : List (List Ty)} → Tup L sig → Tup (JLabel L) sig
+  | [], () => ()
+  | _ :: _, (j, Js) => (.tag depth j, tagLabels (depth + 1) Js)
+
+/-- Extract the underlying PHOAS label from `JLabel` (`loc` has no underlying label). -/
+def unwrapJLabel {L : List Ty → Type} {ts : List Ty} : JLabel L ts → Option (L ts)
+  | .outer l => some l
+  | .tag _ l => some l
+  | .loc _ => none
 
 /-- Input variable representation in `ifOpt`: output operand paired with symbolic `FKey`. -/
 abbrev IVal (V : Ty → Type) (t : Ty) : Type := Arg V t × FKey t
@@ -108,10 +122,18 @@ def isSelectTyWith (bitsOnly : Bool) (t : Ty) : Bool :=
 def isSelectSigWith (bitsOnly : Bool) (ts : List Ty) : Bool :=
   ts.all (isSelectTyWith bitsOnly)
 
+/-- Target recognized by `checkArm`: a local `.group` binder `loc`, an arbitrary-position tagged
+binder `tag`, or function return `ret`. -/
+inductive ArmTarget : Type
+  | loc (jId : Nat) (jTs : List Ty)
+  | tag (jId : Nat) (jTs : List Ty)
+  | ret
+
 /-- Plan for one arm of a matched diamond, permitting pure `.let_`s and bounded nested `.jnz`
-sub-diamonds up to `.jump (.loc jId)`. -/
+sub-diamonds up to `.jump` or `.ret`. -/
 inductive ArmPlan : Type
   | jump
+  | ret
   | let_ (rest : ArmPlan)
   | jnz (pT pE : ArmPlan)
 
@@ -123,24 +145,47 @@ inductive DiamondPlan : Type
   | store (rest : DiamondPlan)
   | call (rest : DiamondPlan)
 
+/-- Tagged jump target discovered in a `jnz` arm during arbitrary-position conversion. -/
+structure TaggedTarget (L : List Ty → Type) where
+  jTs : List Ty
+  jId : Nat
+  lbl : L jTs
+
+/-- Find the leftmost `.jump (.tag id lbl)` in an arm along `.let_` and `then` branches. -/
+def findFirstJump {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    Nat → Expr (IVal V) (JLabel L) rs → Option (TaggedTarget L)
+  | 0, _ => none
+  | _ + 1, .jump (ts := ts) (.tag id lbl) _ => some ⟨ts, id, lbl⟩
+  | fuel + 1, .let_ _ k => findFirstJump fuel (k (dummyIVals _ 0))
+  | fuel + 1, .jnz _ t _ => findFirstJump fuel t
+  | _ + 1, _ => none
+
 /-- Check that `e` consists of at most `letFuel` total safe `.let_` bindings and at most
-`jnzFuel` nested `.jnz` levels terminating at `.jump (.loc jId) args` with signature `jTs`. -/
+`jnzFuel` nested `.jnz` levels terminating at `tgt`. -/
 def checkArm {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
-    (jId : Nat) (jTs : List Ty) :
+    (tgt : ArmTarget) :
     Nat → Nat → Nat → Expr (IVal V) (JLabel L) rs → Option (ArmPlan × Nat)
   | jnzFuel, letFuel, next, .let_ (ts := ts) op k =>
     if isSafeOp op.code then
       match letFuel with
       | 0 => none
       | letFuel' + 1 =>
-        (checkArm jId jTs jnzFuel letFuel' (next + ts.length) (k (dummyIVals ts next))).map
+        (checkArm tgt jnzFuel letFuel' (next + ts.length) (k (dummyIVals ts next))).map
           fun (p, rem) => (.let_ p, rem)
     else none
-  | _, letFuel, _, .jump (ts := ts) (.loc id) _ =>
-    if id == jId && Ty.listBeq ts jTs then some (.jump, letFuel) else none
+  | _, letFuel, _, .jump (ts := ts) j _ =>
+    match tgt, j with
+    | .loc jId jTs, .loc id
+    | .tag jId jTs, .tag id _ =>
+      if id == jId && Ty.listBeq ts jTs then some (.jump, letFuel) else none
+    | _, _ => none
+  | _, letFuel, _, .ret _ =>
+    match tgt with
+    | .ret => some (.ret, letFuel)
+    | _ => none
   | jnzFuel + 1, letFuel, next, .jnz _ t e => do
-    let (pT, rem1) ← checkArm jId jTs jnzFuel letFuel next t
-    let (pE, rem2) ← checkArm jId jTs jnzFuel rem1 next e
+    let (pT, rem1) ← checkArm tgt jnzFuel letFuel next t
+    let (pE, rem2) ← checkArm tgt jnzFuel rem1 next e
     pure (.jnz pT pE, rem2)
   | _, _, _, _ => none
 
@@ -160,7 +205,7 @@ def checkDiamondWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (checkDiamondWith bitsOnly jId jTs (next + bs.length) (k (dummyIVals bs next))).map .call
   | .jnz _ t e =>
     if isSelectSigWith bitsOnly jTs then
-      match checkArm jId jTs 2 4 next t, checkArm jId jTs 2 4 next e with
+      match checkArm (.loc jId jTs) 2 4 next t, checkArm (.loc jId jTs) 2 4 next e with
       | some (pT, _), some (pE, _) => some (.jnz pT pE)
       | _, _ => none
     else none
@@ -246,6 +291,10 @@ def hoistArm {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (jTs : List
     match listTyDecEq ts jTs with
     | isTrue h => cont next (h ▸ args)
     | isFalse _ => .hlt
+  | .ret, next, .ret vs, cont =>
+    match listTyDecEq rs jTs with
+    | isTrue h => cont next (h ▸ vs)
+    | isFalse _ => .hlt
   | .let_ rest, next, .let_ (ts := ts) op k, cont =>
     .let_ ⟨op.code, tupIOut op.args⟩ fun xs =>
       hoistArm jTs rest (next + ts.length) (k (freshIVals ts xs next)) cont
@@ -255,14 +304,19 @@ def hoistArm {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (jTs : List
     emitSelectTupIVal (iout c) jTs next₂ argsT argsE cont
   | _, _, _, _ => .hlt
 
+/-- Hoist two planned `.jnz` arms, emit elementwise `.select`s, and pass selected args to `fin`. -/
+def hoistJnzArms {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (jTs : List Ty)
+    (pT pE : ArmPlan) (next : Nat) (c : Arg (IVal V) .bool)
+    (t e : Expr (IVal V) (JLabel L) rs) (fin : Tup (Arg V) jTs → Expr V L rs) : Expr V L rs :=
+  hoistArm jTs pT next t fun next₁ argsT =>
+  hoistArm jTs pE next₁ e fun next₂ argsE =>
+  emitSelectTup (iout c) jTs next₂ argsT argsE fin
+
 /-- Rewrite a planned diamond entry into hoisted `.let_`s + `.select`s + `.jump jLbl`. -/
 def hoistDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {jTs : List Ty}
     (jLbl : L jTs) : DiamondPlan → Nat → Expr (IVal V) (JLabel L) rs → Expr V L rs
   | .jnz pT pE, next, .jnz c t e =>
-    hoistArm jTs pT next t fun next₁ argsT =>
-    hoistArm jTs pE next₁ e fun next₂ argsE =>
-    emitSelectTup (iout c) jTs next₂ argsT argsE fun selArgs =>
-    .jump jLbl selArgs
+    hoistJnzArms jTs pT pE next c t e fun selArgs => .jump jLbl selArgs
   | .let_ rest, next, .let_ (ts := ts) op k =>
     .let_ ⟨op.code, tupIOut op.args⟩ fun xs =>
       hoistDiamond jLbl rest (next + ts.length) (k (freshIVals ts xs next))
@@ -276,13 +330,35 @@ def hoistDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {jTs : 
       hoistDiamond jLbl rest (next + bs.length) (k (freshIVals bs xs next))
   | _, _, _ => .hlt
 
+/-- Attempt arbitrary-position `.jnz` diamond if-conversion at `.jnz c t e` targeting either a
+tagged `.group` label or `.ret`. -/
+def tryJnzDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (bitsOnly : Bool) (next : Nat) (c : Arg (IVal V) .bool)
+    (t e : Expr (IVal V) (JLabel L) rs) : Option (Expr V L rs) :=
+  match findFirstJump 8 t with
+  | some ⟨jTs, jId, jLbl⟩ =>
+    if isSelectSigWith bitsOnly jTs then
+      match checkArm (.tag jId jTs) 2 4 next t, checkArm (.tag jId jTs) 2 4 next e with
+      | some (pT, _), some (pE, _) =>
+        some (hoistJnzArms jTs pT pE next c t e fun selArgs => .jump jLbl selArgs)
+      | _, _ => none
+    else none
+  | none =>
+    if isSelectSigWith bitsOnly rs then
+      match checkArm .ret 2 4 next t, checkArm .ret 2 4 next e with
+      | some (pT, _), some (pE, _) =>
+        some (hoistJnzArms rs pT pE next c t e fun selArgs => .ret selArgs)
+      | _, _ => none
+    else none
+
 end IfOptImpl
 
 open IfOptImpl
 
 mutual
 /-- PHOAS-to-PHOAS if-conversion pass (diamond `jnz` → `select`), preserving `.group`
-block structure. When `bitsOnly = true`, only `.bits` (`8/16/32/64`) join values are converted. -/
+block structure. When `bitsOnly = true`, only `.bits` (`8/16/32/64`) join values are converted,
+and diamonds at arbitrary AST positions (`.group` targets and `.ret`) are converted. -/
 def ifOptWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (bitsOnly : Bool) (depth next : Nat) : Expr (IVal V) (JLabel L) rs → Expr V L rs
   | .let_ (ts := ts) op k =>
@@ -296,32 +372,42 @@ def ifOptWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     .call f (tupIOut args) fun xs =>
       ifOptWith bitsOnly depth (next + bs.length) (k (freshIVals bs xs next))
   | .jnz c t e =>
-    .jnz (iout c) (ifOptWith bitsOnly depth next t) (ifOptWith bitsOnly depth next e)
+    let fallback :=
+      .jnz (iout c) (ifOptWith bitsOnly depth next t) (ifOptWith bitsOnly depth next e)
+    if bitsOnly then (tryJnzDiamond bitsOnly next c t e).getD fallback else fallback
   | .jump j args =>
-    match j with
-    | .outer l => .jump l (tupIOut args)
-    | .loc _ => .hlt
+    match unwrapJLabel j with
+    | some l => .jump l (tupIOut args)
+    | none => .hlt
   | .ret vs => .ret (tupIOut vs)
   | .exit f args => .exit f (tupIOut args)
   | .hlt => .hlt
-  | .group (sig := [ts]) bodies k =>
-    let plan? := checkDiamondWith bitsOnly depth ts next (k (.loc depth, ()))
-    .group (sig := [ts])
-      (fun Js => ifOptBWith bitsOnly (depth + 1) next (bodies (Js.map fun _ l => .outer l)))
-      (fun Js =>
-        match plan? with
-        | some plan => hoistDiamond Js.1 plan next (k (.outer Js.1, ()))
-        | none => ifOptWith bitsOnly (depth + 1) next (k (.outer Js.1, ())))
-  | .group (sig := []) bodies k =>
-    .group
-      (fun Js => ifOptBWith bitsOnly depth next (bodies (Js.map fun _ l => .outer l)))
-      (fun Js => ifOptWith bitsOnly depth next (k (Js.map fun _ l => .outer l)))
-  | .group (sig := _ :: _ :: rest) bodies k =>
-    .group
-      (fun Js =>
-        ifOptBWith bitsOnly (depth + rest.length + 2) next (bodies (Js.map fun _ l => .outer l)))
-      (fun Js =>
-        ifOptWith bitsOnly (depth + rest.length + 2) next (k (Js.map fun _ l => .outer l)))
+  | .group (sig := sig) bodies k =>
+    if bitsOnly then
+      .group
+        (fun Js => ifOptBWith true (depth + sig.length) next (bodies (tagLabels depth Js)))
+        (fun Js => ifOptWith true (depth + sig.length) next (k (tagLabels depth Js)))
+    else
+      match sig with
+      | [] =>
+        .group
+          (fun Js => ifOptBWith false depth next (bodies (Js.map fun _ l => .outer l)))
+          (fun Js => ifOptWith false depth next (k (Js.map fun _ l => .outer l)))
+      | [ts] =>
+        let plan? := checkDiamondWith false depth ts next (k (.loc depth, ()))
+        .group (sig := [ts])
+          (fun Js => ifOptBWith false (depth + 1) next (bodies (Js.map fun _ l => .outer l)))
+          (fun Js =>
+            match plan? with
+            | some plan => hoistDiamond Js.1 plan next (k (.outer Js.1, ()))
+            | none => ifOptWith false (depth + 1) next (k (.outer Js.1, ())))
+      | _ :: _ :: rest =>
+        .group
+          (fun Js =>
+            ifOptBWith false (depth + rest.length + 2) next
+              (bodies (Js.map fun _ l => .outer l)))
+          (fun Js =>
+            ifOptWith false (depth + rest.length + 2) next (k (Js.map fun _ l => .outer l)))
 
 /-- Block-list companion of `ifOptWith`. -/
 def ifOptBWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
