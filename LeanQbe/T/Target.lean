@@ -7,11 +7,11 @@ public import LeanQbe.T.Trie
 public import LeanQbe.T.Logic.Mem
 
 /-!
-# Typed Target Interface, Disjoint Sub-Records, `Hints`, `FnSpec`, and `backendOk` (`H3`/`T11a`, `H4`)
+# Typed Target Interface, Disjoint Sub-Records, `Hints`, `FnSpec`, and `backendOk`
 
-Target-generic contract for `T7` (`Rega`), `T8`/`T9` (`Gpr*`), `T10` (`Vec*`), `T11b` (`Frame*`), and
-`T12` (`Main`). Representation-agnostic (`PHOAS`-first; zero `Kraken.X64`/`AArch64`/`TFlat` imports).
-Locks `L2`–`L8`, `L10`, `R5`, `R11`, `R13`–`R14`, and E1 `Abi`/code-health invariants (#153–#169).
+Target-generic contract for `Rega`, scalar/vector instruction selection (`Gpr*`/`Vec*`),
+ABI frames (`Frame*`), and `Main`. Representation-agnostic (PHOAS-first; zero `Kraken.X64`/
+`AArch64`/`TFlat` imports), specifying machine invariants, clobber masks, and ABI rules.
 -/
 
 set_option autoImplicit false
@@ -20,7 +20,7 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-! ## 1. 8-Byte Stack-Slot Granules (`L10`, reusing `region`/`cell64`/`array64` from `Logic.Mem`) -/
+/-! ## 1. 8-Byte Stack-Slot Granules (reusing `region`/`cell64`/`array64` from `Logic.Mem`) -/
 
 inductive SlotWidth where
   | w64 | w128 | w256 | w512
@@ -41,7 +41,7 @@ def unpackSlotWords : SlotWidth → BitVec 512 → List (BitVec 64)
     [v.extractLsb' 0 64, v.extractLsb' 64 64, v.extractLsb' 128 64, v.extractLsb' 192 64,
      v.extractLsb' 256 64, v.extractLsb' 320 64, v.extractLsb' 384 64, v.extractLsb' 448 64]
 
-/-! ## 2. Flat `Loc`, Clobber Masks, Moves, and Logarithmic Trie `Hints` (`L2`–`L7`, `G9`) -/
+/-! ## 2. Flat `Loc`, Clobber Masks, Moves, and Logarithmic Trie `Hints` -/
 
 abbrev FlagMask : Type := BitVec 8
 def FlagMask.none : FlagMask := 0x00#8
@@ -61,7 +61,7 @@ inductive VariantHint where
   | default | adcx | adox | mulxFast | decInc | disp (off : Int64)
   deriving DecidableEq, Repr, Inhabited, Hashable, Lean.ToExpr
 
-/-- Checked moves (`L3`, `L4`, `L10`): all preserve flags (`clob = 0#8`).
+/-- Checked moves: all preserve flags (`clob = 0#8`).
 `setcc` is the sole flag move. -/
 inductive Move (Reg VReg Cond : Type) where
   | mov (d s : Reg)
@@ -106,7 +106,7 @@ structure Hints (Reg VReg Cond : Type) where
 def Hints.totalSlots {R V C : Type} (h : Hints R V C) : Nat :=
   h.nslots + h.saved.length
 
-/-! ## 3. Physical Snippet Operands and Disjoint `Isa` Sub-Records (`R5`) -/
+/-! ## 3. Physical Snippet Operands and Disjoint `Isa` Sub-Records -/
 
 /-- Supported SIB / scaled-index address scale factors (`scale ∈ {1, 2, 4, 8}`). -/
 inductive AddrScale
@@ -224,8 +224,8 @@ theorem tupDstVecs_cons {R V C : Type} {t : Ty} {ts : List Ty}
     (xs : Tup (PDst R V C) (t :: ts)) :
     tupDstVecs (ts := t :: ts) xs = xs.1.vecs ++ tupDstVecs xs.2 := rfl
 
-/-- Scalar opcode gate (`H4`, `module` `rfl`-safe via `contains`/`Nat.ble` per `#165`):
-splits `hasBitCounts` from `hasPopcnt` (#156). -/
+/-- Scalar opcode gate (`module` `rfl`-safe via `contains`/`Nat.ble`):
+splits `hasBitCounts` from `hasPopcnt`. -/
 def defaultSupportsScalarOp (ws : List Nat) (hasBitCounts hasPopcnt hasDiv0 : Bool)
     {sig rs : List Ty} (code : OpCode sig rs)
     (_args : Tup (Arg (fun _ => Unit)) sig) : Bool :=
@@ -389,7 +389,7 @@ abbrev Isa.Loc (I : Isa) : Type := _root_.LeanQbe.T.Loc I.Reg I.VReg I.Cond
 abbrev Isa.Move (I : Isa) : Type := _root_.LeanQbe.T.Move I.Reg I.VReg I.Cond
 abbrev Isa.Hints (I : Isa) : Type := _root_.LeanQbe.T.Hints I.Reg I.VReg I.Cond
 
-/-! ## 4. ABI Register Assignment and PHOAS-First `backendOk` (`H4`, `R11`, `R13`, `#153`, `#156`) -/
+/-! ## 4. ABI Register Assignment and PHOAS-First `backendOk` -/
 
 inductive AbiReg (Reg VReg : Type) : Ty → Type where
   | gpr {t : Ty} (r : Reg) : AbiReg Reg VReg t
@@ -460,7 +460,7 @@ theorem Fn.assign_of_backendOk {I : Isa} {fn : Fn} (h : fn.backendOk I = true) :
   simp only [Fn.backendOk, Bool.and_eq_true] at h
   exact ⟨h.1.1, h.1.2⟩
 
-/-! ## 5. Machine Semantics, Value Invariants (`L8`, `L10`, `R14`), `Target`, and `FnSpec` -/
+/-! ## 5. Machine Semantics, Value Invariants, `Target`, and `FnSpec` -/
 
 def GprHolds (regVal : BitVec 64) : (t : Ty) → Val t → Prop
   | .bool, b => regVal.setWidth 8 = BitVec.ofNat 8 b.toNat

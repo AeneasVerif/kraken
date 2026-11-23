@@ -15,12 +15,12 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Axiom Audit, and Differential Suite for `Kissat` Stage 4 (`D-Full`)
+# Verification, Axiom Audit, and Differential Suite for `Kissat` `D-Full`
 
 * Static checks: `fullModule.checkAcyclic`, empty `exits`/`externs`, `PrintCpp`, `PrintQbe`,
   and `Legal` emission across `aarch64`, `scalar64`, and `x64AVX2`.
 * Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
-* Cross-checks `X2-LayerA` `cdclSolve` on core DIMACS cases and exercises every `D-Full`
+* Cross-checks pure-Lean `cdclSolve` on core DIMACS cases and exercises every `D-Full`
   subsystem: chrono, OTFS, VMTF+VSIDS mode switching, WalkSAT/rephase, reduce/sweep,
   HBR probing, transitive reduction, vivification, Tarjan SCC substitution, gate congruence
   closure, bounded cone SAT sweeping, forward subsumption/SSR, BVE/Gate-BVE/Pure/BCE,

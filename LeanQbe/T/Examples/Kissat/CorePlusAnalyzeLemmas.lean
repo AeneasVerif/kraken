@@ -1070,7 +1070,7 @@ theorem kissat_analyze_wp (Γ : Env)
           have htc_raw : (2 ^ 64 - BitVec.toNat (1 : BitVec 64) + tc_l) % 2 ^ 64 = tc_l - 1 :=
             bv64_sub1_raw htc_pos htc_64
           fast_steps
-          · -- `tmp_cnt - 1 == 0`: found 1UIP, break!
+          · -- `tmp_cnt - 1 == 0`: found 1UIP, break
             clear ih hAc hCm hBump hQ hcore hinv hlen
             have htc_is1 : tc_l - 1 = 0 := by
               rw [htc_raw] at hc

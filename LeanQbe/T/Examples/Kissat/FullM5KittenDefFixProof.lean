@@ -8,7 +8,7 @@ public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastAdapters
 
 /-!
-# Kissat `M5` Wave 0 (`RC-08`) Kitten & Gate-Definition Assembly + UNSAT Non-Vacuity
+# Kissat `M5` Kitten & Gate-Definition Assembly + UNSAT Non-Vacuity
 
 1. Concrete `KittenInvLawsM5` instances for `FullFast.fastKInv` (`fastKInv_laws_m5`) and
    `FullDefSweep.defSweepKInv` (`defSweepKInv_laws_m5`).

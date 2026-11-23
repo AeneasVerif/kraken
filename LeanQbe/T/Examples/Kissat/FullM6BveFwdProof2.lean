@@ -10,7 +10,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-2 `PR-W2D` (`RC-22`) Proofs — Part 2 (Cluster 2a: Forward Watch & Candidate Helpers)
+# Kissat M6 BVE/Forward Proofs — Part 2 (Cluster 2a: Forward Watch & Candidate Helpers)
 
 M1-clean proof module (`public section`, `0` `@[expose]`, `0` `import all`, `private` helpers):
 1. `full_fwd_flush_large_m6_wp`

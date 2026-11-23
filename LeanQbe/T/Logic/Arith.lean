@@ -3,12 +3,12 @@ module
 public import LeanQbe.T.OpsLemmas
 
 /-!
-# Big-integer, signed multiplication, and scalar bitvector arithmetic (`T4`)
+# Big-integer, signed multiplication, and scalar bitvector arithmetic
 
 * Limb representations (`limbsVal`, `limbsArg`) and algebraic carry/multiply step lemmas
   (`add128_combine`, `mac_combine`, `add_limb_step`, `mul_addc_step`, `carry_zero_of_lt`,
-  `mac_bound`) that avoid `omega` recursion blowup on coefficients `≥ 2^128` (§0d).
-* Signed widening multiplication identity `smulw_toInt` (from `T1` review `#18` #7) and its
+  `mac_bound`) that avoid `omega` recursion blowup on coefficients `≥ 2^128`.
+* Signed widening multiplication identity `smulw_toInt` and its
   `ediv`/`emod` corollaries (`smulw_hi_toInt`, `smulw_lo_toNat`).
 * Bitvector extension, truncation, subtraction, and `CmpOp` evaluation lemmas.
 -/
@@ -365,7 +365,7 @@ theorem schoolbook_2carry_step {n : Nat} {a b accLo accHi lo hi lo' hi' : Nat}
           simp only [Nat.add_mul]; ac_rfl
     _ = a * b + (accHi * 2 ^ n + accLo) + ci1.toNat + ci2.toNat * 2 ^ n := by rw [hm]
 
-/-! ## Signed widening multiplication `smulw` (`T1` review `#18` #7) -/
+/-! ## Signed widening multiplication `smulw` -/
 
 theorem bitvec_split_toNat {n : Nat} (x : BitVec (n + n)) :
     (x.extractLsb' n n).toNat * 2 ^ n + (x.setWidth n).toNat = x.toNat := by

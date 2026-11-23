@@ -10,7 +10,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification and Axiom Audit for Kissat M6 `PR-W2E-lite` Watch-GC Slice
+# Verification and Axiom Audit for Kissat M6 Watch-GC Slice
 
 1. Executable `#guard` checks on `m6WatchGc_fns` (`17` overrides) and `m6WatchGcExterns` (`8`
    externs), signature parity, `checkAcyclic`, `PrintCpp`, `PrintQbe`, and `Legal` lowering

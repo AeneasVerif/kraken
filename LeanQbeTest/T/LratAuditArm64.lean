@@ -9,7 +9,7 @@ import all Kraken.Separation
 
 Self-contained machine-level correctness audit for the compiled 6-function untrusted-bytes
 DIMACS + Binary LRAT checker (`lrat_check_bytes`) on AAPCS64 AArch64 (`Kraken.AArch64`).
-This module imports ONLY `Kraken.AArch64` (`LeanQbe.T.Arm64.*`), never `Kraken.X64`.
+This module imports only `Kraken.AArch64` (`LeanQbe.T.Arm64.*`), never `Kraken.X64`.
 
 ## What This Workstream Proves
 1. **Kernel-checked compilation (`audit_compile`)**: `checkCompile` succeeds in a single kernel

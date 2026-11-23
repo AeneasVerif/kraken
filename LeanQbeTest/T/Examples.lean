@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.WPLemmas
 
 /-!
-# Port of the 8 spike-4 programs and specifications to `LeanQbe.T`
+# Eight Example Programs and Specifications in `LeanQbe.T`
 
 1. `add128` (`unpair`, `addc`, `mkpair`)
 2. `add256` via generic `addLimbs`

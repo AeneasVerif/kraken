@@ -5,7 +5,7 @@ public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.WPLemmas
 
 /-!
-# Shared Mid-End Optimization Transport & Liveness Lemmas (`#015-B1`, `#016-B1`)
+# Shared Mid-End Optimization Transport & Liveness Lemmas
 
 Centralizes proof helpers shared across `FoldLemmas`, `GvnLemmas`, `CanonLemmas`, `MemLoadLemmas`,
 `IfOptLemmas`, `InlineLemmas`, `DivConstLemmas`, `PeelLemmas`, `SimplifyGroupPlanLemmas`,
@@ -30,7 +30,7 @@ public section
 
 namespace LeanQbe.T
 
-/-! ## Symbolic `FKey` equality, valuation updates, and key bounds (`#016-B1`) -/
+/-! ## Symbolic `FKey` equality, valuation updates, and key bounds -/
 
 theorem valBeq_iff_eq : {t : Ty} → {a b : Val t} → valBeq t a b = true ↔ a = b
   | .bool, a, b => by dsimp only [valBeq]; simp

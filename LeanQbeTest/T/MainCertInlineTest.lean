@@ -26,7 +26,7 @@ and `optInline` corollaries) end-to-end on `x64Target`:
    `cell64 0x1000 25`).
 3. Kissat-shaped mini-module witness linking `rax = 20` (`entryVal`) to `cnf.Unsat` on the
    inlined machine code (`miniSatCnf.Unsat`).
-4. Audits single-line `<115c` `std3` `#print axioms`.
+4. Audits single-line standard-axiom `#print axioms`.
 -/
 
 set_option autoImplicit false

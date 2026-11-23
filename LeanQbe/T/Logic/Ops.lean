@@ -4,7 +4,7 @@ public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.Logic.Arith
 
 /-!
-# Operation-spec lemmas and `vals`/`Op.mk` normalization (`T4`)
+# Operation-spec lemmas and `vals`/`Op.mk` normalization
 
 * `Op.mk`-based `wp_let_mk1`/`2`/`3`, `op1`/`op2`/`op3` normalization (`op1_eq_mk`, ...),
   `vals_nil`/`vals_cons`, and category wrappers (`wp_let_unary`, `wp_let_binary`, `wp_let_ternary`,
@@ -964,7 +964,7 @@ theorem wp_umulw_mk {n : Nat} (a b : Arg Val (.bits n))
   rw [Nat.mul_comm] at this
   omega
 
-/-- Signed widening multiplication spec in `wp_addc` style (`#18` #7). -/
+/-- Signed widening multiplication spec in `wp_addc` style. -/
 theorem wp_smulw {n : Nat} (a b : Arg Val (.bits n))
     (k : Tup Val [.bits n, .bits n] → Expr Val Cont rs)
     (h : ∀ lo hi : BitVec n,

@@ -1,9 +1,9 @@
 module
 
 /-!
-# C0 Abstract Syntax Tree (`X0-core`)
+# C0 Abstract Syntax Tree
 
-Untyped surface AST for the C99-subset C0 language (`kissat_c_frontend_design.md` §6.2),
+Untyped surface AST for the C99-subset C0 language,
 supporting fixed-width scalars, pointers, structs (with LSB-first bitfields, fixed arrays,
 and optional trailing flexible arrays), tagged-word unions,
 multi-return tuples (`C0_RET2`/`C0_RET3`),

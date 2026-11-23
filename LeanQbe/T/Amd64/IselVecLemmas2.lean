@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Amd64.IselVecLemmas1
 
 /-!
-# SysV x64 Vector Target Verification — Part 2 (`T10`)
+# SysV x64 Vector Target Verification — Part 2
 
 * Pure `Float32.Model` / `sseBinOp` ↔ `liftFloatRel2` (`v4f32`) soundness (`addps`/`subps`).
 * Balanced `32`-bit SIMD vector & shuffle `BitVec` bridges (`vpaddd`, `vpternlogd`, `vprord`,

@@ -5,7 +5,7 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat `D-Full` M5 Congruence Closure Fixes (`FullM5CongFix`, `RC-17`)
+# Kissat `D-Full` M5 Congruence Closure Fixes (`FullM5CongFix`)
 
 Drop-in replacements for `full_cong_{merge,extract_ite,emit_xor,try_xor_ite,extract,and_match,
 work_step}` (`congruence.c:419-549,845-848,1300-1368,1438-1441,1576-1580,1770-2145,2532-2949`,

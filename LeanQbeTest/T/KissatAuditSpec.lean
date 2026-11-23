@@ -47,16 +47,17 @@ import all Std.Sat.CNF.Sat
 # Kissat audit, part 1: the trusted specification boundary (architecture-independent)
 
 This file is meant to be read by a human auditor. It restates, with every type written out in
-full (no wrapper `abbrev`s introduced here), the source-level statements on which the verified
-Kissat solvers rest:
-* Active solvers with native certificates: `D-Plain` (`plainModule`, `59` functions, SAT+UNSAT)
-  and `D-Full M3` (`m3Module`, `204` functions, UNSAT-only), whose machine-code theorems are in
-  `KissatAuditX64.lean` and `KissatAuditArm64.lean`.
-* Active source-only solver (no native `LinkedCert` yet): `D-Full M4` (`m4Module`, `231`
-  functions, UNSAT-only).
-* Retired legacy solvers (machine-code theorems in `LeanQbeLegacyTest/KissatLegacyAudit*.lean`):
-  `D-Full` (`fullModule`, `166` functions), `D-Full M2 Fast` (`fastModule`, `196` functions), and
-  the superseded partial `FullFastSched` (`schedModule`, `173` functions, `16/173` rows proved).
+full (no wrapper `abbrev`s introduced here), the shared trusted specification (`parseDimacs`,
+`CNF.Unsat`, `CNF.Sat`) and source-level contracts for earlier Kissat builds:
+* Retired solvers whose native machine-code audits live under `LeanQbeLegacyTest/`: `D-Plain`
+  (`plainModule`, `59` functions, SAT+UNSAT), `D-Full` (`fullModule`, `166` functions,
+  UNSAT-only), `D-Full M2 Fast` (`fastModule`, `196` functions, UNSAT-only), `D-Full M3`
+  (`m3Module`, `204` functions, UNSAT-only), `D-Full M4` (`m4Module`, `231` functions, UNSAT-only
+  here; SAT+UNSAT in `KissatSatSoundTest.lean` and `KissatM4LegacyAudit*.lean`), and the
+  superseded partial `FullFastSched` (`schedModule`, `173` functions, `16/173` rows proved).
+* The active native-certified solver `D-Full M5` (`270` functions, SAT+UNSAT) is audited in
+  `KissatAuditX64.lean`, `KissatAuditArm64.lean`, `KissatM5Audit*.lean`,
+  `KissatM5SoundAudit*.lean`, and `KissatSatSoundTest.lean`.
 
 It imports neither `Kraken.X64` nor `Kraken.AArch64`.
 
@@ -64,18 +65,20 @@ It imports neither `Kraken.X64` nor `Kraken.AArch64`.
 
 1. `Std.Sat.CNF.Unsat` and `Std.Sat.CNF.Sat` from the Lean standard library: a CNF is
    unsatisfiable iff every assignment `a : Nat → Bool` evaluates it to `false`, and satisfied by
-   `a` iff `a` evaluates it to `true` (§1 below restates both definitions by `Iff.rfl`).
+   `a` iff `a` evaluates it to `true` (Section 1 below restates both definitions by `Iff.rfl`).
 2. `LeanQbe.T.Examples.LratBytes.parseDimacs : List UInt8 → Option (CNF Nat)`, the total, pure
    specification of ASCII DIMACS (header `p cnf <vars> <clauses>`, `0`-terminated clauses,
    `c` comments, whitespace, and nothing but whitespace/comments after the last clause). A
    solver answer is only ever about `cnf` with `parseDimacs cnfBytes = some cnf`; malformed
-   input can only produce the answer `0` (unknown). §2 checks the parser on concrete inputs.
-3. The Lean kernel and the standard axioms `propext`, `Classical.choice`, `Quot.sound` (§5).
+   input can only produce the answer `0` (unknown). Section 2 checks the parser on concrete
+   inputs.
+3. The Lean kernel and the standard axioms `propext`, `Classical.choice`, `Quot.sound`
+   (Section 14).
 4. For the machine-code theorems only: the Kraken x86-64 / AArch64 instruction semantics and the
    assembler/linker that turn the emitted directives into an executable.
 
-Everything else (the C0 source of both solvers, the `LeanQbe.T` compiler, and all `Func.wp`
-proofs) is checked by the kernel and need not be trusted.
+Everything else (the C0 solver sources, the `LeanQbe.T` compiler, and all `Func.wp` proofs) is
+checked by the kernel and need not be trusted.
 -/
 
 set_option autoImplicit false
@@ -236,7 +239,7 @@ Across `FullBridgeLemmas1`–`7` (`145`), `FullBridgeLemmas8a` (`6`: `[106..111]
 `FullDeduce1UipLemmas` (`1`: `[79]`), and `FullBridgeLemmas9` (`6`: `[160..165]`), all `166`
 of `166` entries now have machine-checked `SpecEntry.Impl Full.fullEnv` bridges (`FullProof`
 proves top-level UNSAT and unconditional `166/166` `ModuleOk` assembly, with UNSAT non-vacuity in
-`FullOneLitConflLemmas` and `FullDeduce1UipNv`), alongside Stage-4 component contracts
+`FullOneLitConflLemmas` and `FullDeduce1UipNv`), alongside `D-Full` component contracts
 (`FullVivifyLemmas`, `FullTransLemmas`, `FullProbeTransLemmas`), all verified with zero
 target-architecture imports. -/
 
@@ -366,7 +369,7 @@ theorem audit_full_bridge_8a_ok :
   Full.full_bridge_8a_ok
 
 /-- **`D-Full` `full_probe_run` bridge** (`FullBridgeLemmas8a.full_probe_run_bridge_wp`): links
-the Stage-4 probe-run contract to `Full.fullProbeRunSpec` under `Γ`. -/
+the `D-Full` probe-run contract to `Full.fullProbeRunSpec` under `Γ`. -/
 theorem audit_full_probe_run_bridge_wp (Γ : Env)
     (hBt : ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
@@ -575,7 +578,7 @@ theorem audit_fullEnv_moduleOk : ModuleOk Full.fullEnv Full.fullModule :=
 theorem audit_fullUnsatEnv_moduleOk : ModuleOk Full.fullUnsatEnv Full.fullModule :=
   Full.fullUnsatEnv_moduleOk
 
-/-! ## 6. M2a Fast Scheduler (`FullFastSched`: `173` fns) & `FullFastBveBudgets` -/
+/-! ## 6. M2 Fast Scheduler (`FullFastSched`: `173` fns) & `FullFastBveBudgets` -/
 
 -- Source-level only (`FullFastSched` + `FullFastBveBudgets`); no `*Cert*` or arch imports.
 -- Partially proved: `schedEnv_moduleOk` does not exist (`sched_proved_rows_ok` covers `16/173`
@@ -704,7 +707,7 @@ theorem audit_bve_nv_def :
 
 end M2aBveBudgetsAudit
 
-/-! ## 7. M2b Stage-5 Fast-Core BCP (`FullFastCore`: `[47..49]` splice & UNSAT soundness) -/
+/-! ## 7. M2 Fast-Core BCP (`FullFastCore`: `[47..49]` splice & UNSAT soundness) -/
 
 section M2bFastCoreAudit
 
@@ -743,7 +746,7 @@ theorem audit_fcore_nv :
 
 end M2bFastCoreAudit
 
-/-! ## 8. M2b 3-Hop BVA & Max-Degree Binary Heap (`FullBvaHeap`: `13` fns) -/
+/-! ## 8. M2 3-Hop BVA & Max-Degree Binary Heap (`FullBvaHeap`: `13` fns) -/
 
 section M2bBvaHeapAudit
 
@@ -768,7 +771,7 @@ theorem audit_bva_nv_factor :
 
 end M2bBvaHeapAudit
 
-/-! ## 9. M2b Embedded `kitten` (`FullKitten`: `15` fns) -/
+/-! ## 9. M2 Embedded `kitten` (`FullKitten`: `15` fns) -/
 
 section M2bFullKittenAudit
 
@@ -796,7 +799,7 @@ theorem audit_fk_nv20 :
 
 end M2bFullKittenAudit
 
-/-! ## 10. M2b `FullDefSweep` (`9/9` fns, `defSweepEnv_moduleOk`, NV) -/
+/-! ## 10. M2 `FullDefSweep` (`9/9` fns, `defSweepEnv_moduleOk`, NV) -/
 
 section M2bFullDefSweepAudit
 

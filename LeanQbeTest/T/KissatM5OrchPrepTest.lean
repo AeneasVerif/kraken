@@ -16,7 +16,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Compilation Checks, and Axiom Audit for Pre-Staged `PR-W1E` (`FullM5Hbr`/`Orch`)
+# Verification, Compilation Checks, and Axiom Audit for Kissat M5 HBR & Orch (`FullM5Hbr`/`Orch`)
 
 1. Executable `#guard` checks on `m5HbrModule` (`1` fn, `0` externs, `0` exits) and
    `m5OrchModule` (`19` owned `_m5` fns, `51` externs, `0` exits): acyclicity, exact name/arity
@@ -25,7 +25,7 @@ meta import LeanQbe.T.Legal
 2. Restated headline theorems for `m5Hbr_moduleOk`, `nv_m5_hbr_dom`, `m5OrchSpecTable` metadata,
    `m5Orch_moduleOk`, `m5OrchUnsatEnv_moduleOk`, `m5Orch_solve_bytes_correct`, and
    `m5Orch_unsat_nonvacuous` (`XPost := False`, `4096` B workspace, `fuel = 16`, `0` SAT proofs).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false

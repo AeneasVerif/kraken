@@ -6,7 +6,7 @@ import Std.Data.HashMap
 import Std.Data.HashSet
 
 /-!
-# Self-Contained C0 Recursive-Descent Parser (`X0-core`)
+# Self-Contained C0 Recursive-Descent Parser
 
 Parses real `.c` / `.h` source strings directly into `C0.TranslationUnit`:
 * `parseC0 : String → Except String TranslationUnit`

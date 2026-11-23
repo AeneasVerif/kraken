@@ -12,7 +12,7 @@ import all Kraken.Separation
    concrete witness byte vectors (`cpNvUnsatBytes`, `cpNvSatBytes`), and `1024`-byte arena bounds.
 2. Concrete-memory source-level `Func.wp` sanity checks under `corePlusEnv`, `cpUnsatEnv`, and
    `cpSatEnv` (`X = False`).
-3. Single-line `#print axioms` audit (`<= 120` cols) on all exported `D-Core+` theorems (strictly
+3. Single-line `#print axioms` audit on all exported `D-Core+` theorems (strictly
    `⊆ [propext, Classical.choice, Quot.sound]`, zero architecture-specific imports).
 -/
 

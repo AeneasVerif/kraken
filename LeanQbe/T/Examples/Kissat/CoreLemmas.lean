@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.CoreLemmas1
 
 /-!
-# Soundness Proofs for the Kissat Abstract CDCL Core (`X2-LayerA`, Part 2)
+# Soundness Proofs for the Kissat Abstract CDCL Core (Layer A, Part 2)
 
 Builds on `CoreLemmas1` to prove soundness of conflict analysis, failed-literal probing,
 clause minimization, relocation/deletion, and the top-level CDCL reference solver:
@@ -835,7 +835,7 @@ theorem cdclSolve_sat_sound {fuel : Nat} {cnf : CNF Nat} {σ : Array Bool}
   have hloop := cdclLoop_sound (fuel := fuel) (initState_inv cnf).1
   unfold cdclSolve at h; rw [h, (initState_inv cnf).2] at hloop; exact hloop
 
-/-- Combined top-level `X2-LayerA` solver soundness theorem (`cdclSolve_sound`). -/
+/-- Combined top-level Layer-A solver soundness theorem (`cdclSolve_sound`). -/
 theorem cdclSolve_sound (fuel : Nat) (cnf : CNF Nat) :
     match cdclSolve fuel cnf with
     | .unsat => cnf.Unsat

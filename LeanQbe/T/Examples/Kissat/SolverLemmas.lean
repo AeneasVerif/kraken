@@ -7,7 +7,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# End-to-End Kissat C0 `kissat_solve_bytes` Verification (`X1` Stage B2)
+# End-to-End Kissat `D-Min` C0 `kissat_solve_bytes` Verification
 
 Assembles all 25 functions in `kissatFns = dimacs_fns ++ solver_fns` into a closed acyclic
 `ModuleOk` proof for `kissatModule` and proves:

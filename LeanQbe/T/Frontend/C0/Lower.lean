@@ -7,11 +7,11 @@ public import Std.Data.HashMap
 public import Std.Data.HashSet
 
 /-!
-# Shape-Stable PHOAS-First Lowering (`X0-core`)
+# Shape-Stable PHOAS-First Lowering
 
 Lowers `C0.TranslationUnit` into explicit typed SSA/join-point representation (`LFn` / `LExpr`)
-together with `#c0_shape` metadata (`FnShape` / `GroupShape`), enforcing the fixed lowering scheme
-(`kissat_c_frontend_design.md` §6.5):
+together with `#c0_shape` metadata (`FnShape` / `GroupShape`), enforcing the fixed lowering
+scheme:
 1. Locals live purely in a compile-time map (zero `alloca`, zero `&local`; `&ptr->f` is pure
    pointer arithmetic `ptr + off`).
 2. `if` with live-out mutated locals `M` (in deterministic declaration order) →
@@ -860,11 +860,11 @@ mutual
       let jVars ← bsTys.mapM (freshLVar "ret_v")
       -- Fast inline path when single tail return has no extra jump if possible;
       -- note: `retCont` runs in `Except String`, so if `k` uses `LowerM` we bind a 1-block join
-      -- UNLESS we only jump? Actually compute `joinBody` via `k` or store `retCont` in `LowerM`!
+      -- Alternatively, compute `joinBody` via `k` or store `retCont` in `LowerM`.
       -- Using a 1-block inline_ret join when `retCount > 1` and evaluating `k` on tail ret:
       let _ := (jLbl, jVars)
       -- Since `retCont` returns `Except String`, convert tail-ret directly by lowering
-      -- `fd.body.dropLast` then `retStmt`!
+      -- Lower `fd.body.dropLast` followed by `retStmt`.
       let initStmts := fd.body.dropLast
       let lastRet ← match fd.body.getLast! with | .retStmt es => pure es | _ => throw "internal"
       let ctxBody := {

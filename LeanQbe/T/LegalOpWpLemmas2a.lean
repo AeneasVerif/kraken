@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalOpWpLemmas1
 
 /-!
-# Legalization `legalOp_wp` div/pair/SIMD/float cases (`T5`, Part 3b-ii)
+# Legalization `legalOp_wp` div/pair/SIMD/float cases (Part 3b-ii)
 -/
 
 set_option autoImplicit false

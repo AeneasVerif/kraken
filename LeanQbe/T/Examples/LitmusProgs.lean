@@ -5,10 +5,10 @@ public import LeanQbe.T.Module
 
 public import LeanQbe.T.Examples.LitmusProgsProg
 /-!
-# Typed-IR Generic Scalar Litmus Suite (`W3.1`)
+# Typed-IR Generic Scalar Litmus Suite
 
-Typed-IR (`LeanQbe.T`) port of the 12 E1 scalar litmus functions
-(`LeanQbe/Examples/LitmusProgs.lean`),
+Typed-IR (`LeanQbe.T`) suite of 12 scalar litmus functions
+(ported from the earlier untyped IR),
 preserving exact C symbol names, `i64` signatures, low-32-bit `jnz` semantics (`trunc` + `cnew`),
 `group`/`loop` control flow, and abnormal `exit "fail"` in `check`.
 -/

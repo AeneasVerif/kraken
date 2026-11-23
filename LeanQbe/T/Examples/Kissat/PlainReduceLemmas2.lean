@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas1
 
 /-!
-# Kissat `D-Plain` Compaction GC & Reduction Helpers — Part 2 (`Wave 2b`)
+# Kissat `D-Plain` Compaction GC & Reduction Helpers — Part 2
 
 Provides scoped branch/base-wrapper tactics (`PlainReduceTactics`), trail-value,
 arena-prefix, reason-relocation, clause-rewatch, and literal-rank call lemmas

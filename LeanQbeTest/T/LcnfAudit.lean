@@ -31,7 +31,7 @@ Self-contained audit for the Lean 4 impure-LCNF (`LeanQbe.T.LeanLCNF`) and λRC
    from `LeanLCNF.Demo` (red-black trees with FBIP `isShared`/`oset` reuse, merge sort + closures,
    DPLL SAT solver, 6-parameter `UInt64` VM, boxed `USize` closures) plus synthesized
    `lcnf_apply_1..3` dispatchers satisfy `Fn.Wf` and `Func.checkTFlat`.
-3. **Tier-0a C0 runtime & λRC modules (`audit_lrc_rt_wf`, `audit_lrc_mod_wf`)**: all 28 C0 runtime
+3. **Core C0 runtime & λRC modules (`audit_lrc_rt_wf`, `audit_lrc_mod_wf`)**: all 28 C0 runtime
    functions (`rtBase_fns`: boxing/unboxing, reference counting, bump allocation, constructors,
    closures, `Nat` arithmetic) satisfy `Fn.Wf` via `t_wf_reify`, and every combined
    `toLeanModuleWithRuntime tfs` module satisfies `∀ f ∈ m.fns, f.Wf`.

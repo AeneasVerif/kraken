@@ -7,7 +7,7 @@ set -euo pipefail
 # Matrix:
 # 1. Native leanqbe0 AT&T assembly assembled with gcc & clang
 # 2. Native full leanqbe AT&T assembly assembled with gcc & clang
-# 3. Reference clang -O3 (C3b) object
+# 3. Reference clang -O3 (PrintCpp C3b) object
 # 4. Native test harness exercising arithmetic, multi-fn pipeline, loop,
 #    memory swap/add, and SAT/LRAT literal & clause evaluation
 # 5. Compile time & .text size comparison

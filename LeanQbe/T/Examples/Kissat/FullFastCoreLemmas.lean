@@ -7,7 +7,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat Stage-5 Fast-Core `ModuleOk`, `Full.fullModule` Splice, & UNSAT Non-Vacuity
+# Kissat `D-Full` M2 Fast-Core `ModuleOk`, `Full.fullModule` Splice, & UNSAT Non-Vacuity
 
 Proves:
 1. Closed standalone `fastCore_tableImpl` and `fastCore_moduleOk : ModuleOk fastCoreEnv

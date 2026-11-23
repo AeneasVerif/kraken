@@ -5,7 +5,7 @@ public import LeanQbe.T.Flat
 public import LeanQbe.T.Trie
 
 /-!
-# Shared mid-end pass utilities (`T6`, `#015-B1`, `#016-B1`)
+# Shared mid-end pass utilities
 
 Common `Arg` / `Tup` / `Ctx` / `Trie` combinators (`Arg.imm?`, `tupMapArg`, `tupImms?`,
 `tupFreshWith`, `FKey`/`valBeq`/`fKeyBeq`, `flattenArg`/`flattenArgs`/`flattenOp`/`toArgTup`,
@@ -22,7 +22,7 @@ namespace LeanQbe.T
 
 attribute [local instance] Val.inhabited
 
-/-! ## Shared `Arg` and `Tup` combinators (`#008-B1`) -/
+/-! ## Shared `Arg` and `Tup` combinators -/
 
 /-- Extract the immediate value of an operand, if any. -/
 def Arg.imm? {V : Ty → Type} {t : Ty} : Arg V t → Option (Val t)
@@ -49,7 +49,7 @@ def tupFreshWith {V W : Ty → Type} (mk : ∀ {t : Ty}, V t → Nat → W t) :
   | [], (), _ => ()
   | _ :: ts, (x, xs), next => (mk x next, tupFreshWith mk ts xs (next + 1))
 
-/-! ## Symbolic value keys and kernel-reducible equality (`#016-B1`) -/
+/-! ## Symbolic value keys and kernel-reducible equality -/
 
 /-- Symbolic variable/immediate key for detecting equal operands independently of `V`. -/
 abbrev FKey (t : Ty) := Arg K t
@@ -67,7 +67,7 @@ def fKeyBeq {t : Ty} : FKey t → FKey t → Bool
   | .imm a, .imm b => valBeq t a b
   | _, _ => false
 
-/-! ## Two-level operand flattening and `Option`-tagged binder helpers (`#015-B1`) -/
+/-! ## Two-level operand flattening and `Option`-tagged binder helpers -/
 
 /-- Flatten a two-level operand `Arg (Arg V) t` into `Arg V t`. -/
 def flattenArg {V : Ty → Type} {t : Ty} : Arg (Arg V) t → Arg V t
@@ -119,7 +119,7 @@ abbrev argsSweep {V : Ty → Type} {ts : List Ty} :
     Tup (Arg (OptV V)) ts → Tup (Arg V) ts :=
   tupMapArg fun _ => argSweep
 
-/-! ## Shared `Trie Unit` liveness helpers (`#015-B1`) -/
+/-! ## Shared `Trie Unit` liveness helpers -/
 
 /-- Structural union of two `Trie Unit` liveness sets (`rfl`-safe). -/
 def trieUnion : Trie Unit → Trie Unit → Trie Unit
@@ -145,7 +145,7 @@ def anyLive (b : Nat) : Nat → Trie Unit → Bool
   | 0, _ => false
   | k + 1, s => (s.find? b).isSome || anyLive (b + 1) k s
 
-/-! ## Shared CFG reachability fixpoint helpers (`#048-B1`) -/
+/-! ## Shared CFG reachability fixpoint helpers -/
 
 /-- Insert all elements of `xs` not already in `acc`, returning `(acc', changed)`. -/
 def unionNatsChanged (acc : List Nat) : List Nat → List Nat × Bool
@@ -283,7 +283,7 @@ theorem tup_zip_self_eq {α : Type} {f : α → Type} {D : Ctx f f}
     | head => rfl
     | tail _ hp => exact tup_zip_self_eq hD Js p hp
 
-/-! ## Generic `liftFloatRel{1,2,3}` predicate preservation (`#012-B2`) -/
+/-! ## Generic `liftFloatRel{1,2,3}` predicate preservation -/
 
 theorem liftFloatRel1_pred
     (op : Float.Model.Format → Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)

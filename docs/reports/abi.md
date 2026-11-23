@@ -1,27 +1,26 @@
-> **[Historical design note]** Written during an earlier milestone; several `LeanQbe/*.lean` (E1) and `scripts/headline.txt` paths referenced below have since moved to `LeanQbe/T/` and `scripts/headlines.d/`. See `README.md` for current paths.
+> **[Historical design note]** Written during an earlier untyped-IR prototype milestone; several `LeanQbe/*.lean` and `scripts/headline.txt` paths referenced below have since moved to `LeanQbe/T/` and `scripts/headlines.d/`. See `LeanQbe-README.md` for current paths.
 
-# abi: target signature, function contract, x64 instance
+# Target Signature, Function Contract, and x86-64 Instance (Early Prototype)
 
-Owner: `abi`. Files: `LeanQbe/{Abi,AbiLemmas}.lean`, `LeanQbe/Amd64/{Targ,TargLemmas,FrameLemmas}.lean`,
-`spike/frames/`. Helper `memframe` (added by abi) wrote `AbiLemmas.lean`, `Amd64/FrameLemmas.lean`
-and is writing `spike/frames/FramesProof.lean`.
+Files (at prototype time): `LeanQbe/{Abi,AbiLemmas}.lean`, `LeanQbe/Amd64/{Targ,TargLemmas,FrameLemmas}.lean`,
+and `spike/frames/`.
 
 ## Status
 
-| Milestone | State |
+| Component | State |
 |---|---|
-| A0: `Target` v0 + `FnSpec` v0 (`Abi.lean`) | done; superseded by v0.1 |
-| `Target` v0.1 (generic `op`/`load`/`store` snippets, `jnz` on `Truthy`, rega #18) | done, reviewed (reviewer #35: snippet specs fine) |
-| x64 instance `Amd64.target` | done, no sorry, std axioms, in headline.txt |
-| `AbiLemmas` (memory framing for rega's `MemFacts`, Entry → Exit) | done (memframe) |
-| `Target` v1 + `FnSpec` v1 (frames, calls, exits) in `Abi.lean` | **accepted and frozen** (reviewer #113, coordinator #114, at db4cf24) |
+| `Target` v0 + `FnSpec` v0 (`Abi.lean`) | done; superseded by v0.1 |
+| `Target` v0.1 (generic `op`/`load`/`store` snippets, `jnz` on `Truthy`) | done, reviewed |
+| x64 instance `Amd64.target` | done, no sorry, std axioms, in `headline.txt` |
+| `AbiLemmas` (memory framing for `MemFacts`, Entry → Exit) | done |
+| `Target` v1 + `FnSpec` v1 (frames, calls, exits) in `Abi.lean` | accepted at `db4cf24` |
 | x64 instance of v1 | done, no sorry |
 | Linking: `FnSpec.of_spec`, `mono_exit`, `mono_stack`, `link` (acyclic) | done (`AbiLemmas.lean`) |
-| A1: frames/calls/exits by hand (`spike/frames/`) | done: `g_spec`, `abort_spec` (abi), `f_spec` + three concrete instances (memframe, a0d1e6b) |
-| x64 `Isel` (all integer ops of `LeanQbe.Ops`, including `div`/`rem`/`udiv`/`urem`) | done (`d135d79`, helper x64isel): `op_isSome`, `load_isSome`, `store_isSome`, 75 `parse(...) = ... := rfl` checks |
+| Hand-written frames/calls/exits prototype (`spike/frames/`) | done: `g_spec`, `abort_spec`, `f_spec` + three concrete instances (`a0d1e6b`) |
+| x64 `Isel` (all integer ops of `LeanQbe.Ops`, including `div`/`rem`/`udiv`/`urem`) | done (`d135d79`): `op_isSome`, `load_isSome`, `store_isSome`, 75 `parse(...) = ... := rfl` checks |
 | x64 `Isel` fast paths (`fastOp`, `fastStore`, `fastIsa`, `fastTarget`) | done: immediate shifts (`shl`/`shr`/`sar $c`), 2-address `binRegIns`, direct `cmpRegIns`, direct `storeRegIns`, `eventually_fastOp`, `eventually_fastStore`, `fastOp_isSome`, `fastStore_isSome` |
-| `Target.call_fnspec` (call + callee FnSpec, for R3) | done (`42d1ad3`, helper memframe) |
-| Plan step 6: `bench/` harness + QBE pass ablation + fast-isel ablation | done (`bench/run.sh`, `bench/uf_bench.c`, `bench/lrat_bench.c`, `bench/DumpBench.lean`) |
+| `Target.call_fnspec` (call + callee `FnSpec`) | done (`42d1ad3`) |
+| `bench/` harness + QBE pass ablation + fast-isel ablation | done (`bench/run.sh`, `bench/uf_bench.c`, `bench/lrat_bench.c`, `bench/DumpBench.lean`) |
 
 ## What exists
 
@@ -79,19 +78,19 @@ and is writing `spike/frames/FramesProof.lean`.
   and `fastIsa : Isa` (`{ isa with op := fastOp, store := fastStore }`).
 - `TargLemmas.lean`: step lemmas for control-flow and frame directives, `Amd64.target : Target`, and
   `Amd64.fastTarget : Target`.
-- `FrameLemmas.lean` (memframe): step lemmas for the frame directives, in separation-logic form
+- `FrameLemmas.lean`: step lemmas for the frame directives, in separation-logic form
   with `region` (owned, contents arbitrary) and `word a v` (8 bytes holding `v`).
 
-### `LeanQbe/AbiLemmas.lean` (memframe)
+### `LeanQbe/AbiLemmas.lean`
 
 `loadVal_frame`, `storeOk_frame`, `storeMem_frame` (an access to the source memory `m` inside
 `M =⋆ Eq m ⋆ F` behaves the same on `M` and keeps the frame), `sep_mono(_r)`, `region_split`,
 `region_zero`, `word`, `Target.entry_exit`, `Target.retAddr_of_entry'`, `Target.exit_of_entry`.
-Together they give rega's `MemFacts T` for every `T`.
+Together they give `Rega`'s `MemFacts T` for every `T`.
 
-## A1: the contract checked on hand-written code (`spike/frames/`)
+## Hand-Written Contract Prototype (`spike/frames/`)
 
-`Frames.lean` (abi) and `FramesProof.lean` (memframe). Every encoding is checked against Kraken's
+`Frames.lean` and `FramesProof.lean`. Every encoding is checked against Kraken's
 parser by `rfl`.
 
 - `g(a)`: leaf; `test %edi,%edi; jnz g.ok; jmp abort; g.ok: rax := rdi + rdi; ret`. Returns `a + a`
@@ -107,23 +106,22 @@ parser by `rfl`.
   `f_returns` (rax = 5, rsp restored, the 48-byte footprint returned), `f_exits_in_g` (exit inside
   g, propagated), `f_exits_itself`; each exit state is fed to `abort_spec` with `nX = 8` bytes.
 
-What the spike changed in the contract: the exit branch became a call-ready state (not "tail call
-from our own entry"), gained `nX ≤ n'` (reviewer) and `n' + raBytes ≤ 2^64` (memframe: without
-it the `nX` guarantee cannot be consumed on AArch64, where a region larger than memory is
-satisfiable).
+What the prototype changed in the contract: the exit branch became a call-ready state (not "tail
+call from our own entry"), gained `nX ≤ n'` and `n' + raBytes ≤ 2^64` (without it the `nX`
+guarantee cannot be consumed on AArch64, where a region larger than memory is satisfiable).
 
-## Decisions settled by A1 (plan 2.4 open points)
+## Contract Decisions Settled by the Prototype
 
 1. **Exit = call-ready state.** At an `exit @sym(args)` the machine is in a state from which `sym`
    could be called: pc at `labelAddr sym`, `sym` defined in the host, arguments in the argument
    registers, an entry-aligned stack pointer, some return address `ra'` where the convention keeps
    it, at least `nX` bytes of stack below the stack pointer (`Entry sp' ra' n'` with `nX ≤ n'`),
    memory `Eq m' ⋆ Entry sp' ra' n' ⋆ F ⋆ R` with the caller's frame `R` untouched. So an exit
-   target can itself be specified by an `FnSpec`. I first tried "tail call relative to the
-   function's own entry" (same stack pointer, return address and callee-saved registers); it is
-   not compositional, because an exit inside a callee happens in the caller's frame. `nX` is
-   explicit (reviewer #60.1, #75.2): with `n' = 0` allowed, a real exit target such as C's `abort`
-   could not be used. A function that exits itself needs `nX ≤ n`.
+   target can itself be specified by an `FnSpec`. The initial "tail call relative to the function's
+   own entry" formulation (same stack pointer, return address, and callee-saved registers) is not
+   compositional, because an exit inside a callee happens in the caller's frame. `nX` is explicit
+   so real exit targets such as C's `abort` have guaranteed stack space. A function that exits
+   itself needs `nX ≤ n`.
 2. **Alignment at calls.** `spEntry` is a precondition of `FnSpec` and is established at every
    call. On x64 the frame size, pushes included, is ≡ 8 mod 16.
 3. **Stack bounds add up.** A function with a frame of `F` bytes calling functions with bounds
@@ -133,29 +131,25 @@ satisfiable).
    rejects more results. More result registers for internal calls (rcx, rsi, …) are a cheap later
    extension; external C callees never return more than two.
 5. **Arity.** `ArgsIn` with more values than argument registers is false, so `FnSpec` says nothing
-   about such calls (reviewer #22.2). The lowering must reject more than six parameters;
-   `lower_correct` should state that it does.
+   about such calls. The lowering must reject more than six parameters, and `lower_correct` states
+   that it does.
 6. **Non-register state.** Kraken's x64 `MachineData` has GPRs, zmm registers, flags and memory; all
    zmm registers are caller-saved in SysV and DF/MXCSR/x87 are not modelled. Kraken's AArch64
-   `MachineData` has no SIMD registers. So `Restored` over GPRs is complete for both models today
-   (reviewer #22.3). If Kraken adds callee-saved state (AArch64 d8–d15), `Restored` needs a field.
+   `MachineData` has no SIMD registers. So `Restored` over GPRs covers all callee-saved state in
+   both models. If Kraken adds callee-saved state (AArch64 d8–d15), `Restored` needs a field.
 
-## Open
+## Open Notes (At Prototype Time)
 
-- Reviewer #22.1 (exit symbols identified by address) is resolved (reviewer #60.2): `Defined h
-  sym'` excludes undefined symbols (which resolve to -1), and two defined labels at one address
-  denote the same code.
-- Known gap (reviewer #22.3, #75.4, coordinator #119.1): `Restored` covers general-purpose registers
-  only. Checked both `Kraken/X64/Semantics.lean` and `Kraken/AArch64/Semantics.lean`: x64's
-  `MachineData` has only `regs`, caller-saved `zmms` (`zmm0`–`zmm31`), `status` (`cf,pf,af,zf,sf,of`),
-  and `dmem` (no `DF`, `MXCSR`, or `x87` control word); AArch64's `MachineData` has only `regs`
-  (`X0`–`X30`, `SP`), `status` (`n,z,c,v`), and `dmem` (no SIMD/FP `d8`–`d15`). A `Frozen : MData →
-  MData → Prop` field on `Target` would therefore instantiate to `fun _ _ => True` on both
-  `Amd64.target` and `Arm64.target` today while touching ~40 places across 6 workers' files, so we
-  skip it per #119.1.
+- Exit symbols are identified by address via `Defined h sym'`, which excludes undefined symbols
+  (resolving to -1), and two defined labels at one address denote the same code.
+- Known scope boundary: `Restored` covers general-purpose registers only. Both
+  `Kraken/X64/Semantics.lean` (GPRs, caller-saved `zmms`, `status`, `dmem`; no `DF`/`MXCSR`/`x87`)
+  and `Kraken/AArch64/Semantics.lean` (`X0`–`X30`, `SP`, `status`, `dmem`; no `d8`–`d15`) have no
+  additional callee-saved state, so a `Frozen : MData → MData → Prop` field would instantiate to
+  `fun _ _ => True` on both targets and was omitted.
 - Calls happen only at `sp = sp0 - frameSize ns`: nothing may push between prologue and call.
 
-## Plan step 6: Benchmarks and QBE pass ablation (`bench/`)
+## Benchmarks and QBE Pass Ablation (`bench/`)
 
 `bench/run.sh` builds an instrumented copy of stock QBE in `/tmp` (with runtime environment switches
 to disable one optimization pass at a time), dumps our PHOAS programs (`UnionFind` and all 5
@@ -196,7 +190,7 @@ identical output hashes across all compilers, and reports the median of 5 runs:
      paths (`Amd64.fastIsa`: immediate shifts `shlq $c`, 2-address `binRegIns`, direct `cmpRegIns`,
      and direct `storeRegIns`) cuts Union-Find (`find + union + unionInline`) from **156 to 90
      instructions (-42%)** (fewer than QBE `-all-opt`'s 95 instructions, and within 3 instructions of
-     QBE `-rega-coalesce`'s 87!) and `find + unionInline` from **122 to 67 instructions (-45%)**,
+     QBE `-rega-coalesce`'s 87) and `find + unionInline` from **122 to 67 instructions (-45%)**,
      bringing `UF (inline)` to **80.67 ms** (within **5.2%** of stock QBE's 76.65 ms, and matching
      QBE `-all-opt`'s 80.41 ms) and `UF (call)` to **83.66 ms** (within **5.1%** of stock QBE's
      79.60 ms).
@@ -217,9 +211,8 @@ identical output hashes across all compilers, and reports the median of 5 runs:
 4. **Constant folding (`fold`) and `simpl` have ~0% effect** on hand-written / macro-expanded IL
    that does not contain constant-on-constant arithmetic or unsigned division by powers of two.
 5. **GVN + GCM (`-gvn/gcm`) helps slightly on Union-Find** (-3.4% runtime, -6 instructions) **but
-   slightly hurts on LRAT** (+6.3% runtime when enabled, because GCM's aggressive instruction
-   sinking moves address computations across loop back-edges). This confirms plan section 6's
-   expectation: `Gcm` is low priority and should not be ported before `Isel` and oracle coalescing.
+   slightly hurts on LRAT** (+6.3% runtime when enabled, because GCM sinks address computations
+   across loop back-edges). This supports prioritizing `Isel` and oracle coalescing before `Gcm`.
 
 ## Measurements
 

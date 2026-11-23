@@ -9,10 +9,10 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Stage-3 M5 OTFS, 2WL Chronological Repair & Backward Unwatch (`FullM5Otfs`)
+# Kissat `D-Full M5` OTFS, 2WL Chronological Repair & Backward Unwatch (`FullM5Otfs`)
 
 Drop-in verified C0 upgrades preserving the exact `FullHdr` layout (`0` new or borrowed header
-fields) and canonical `FullSpec2` contracts (`RC-05`, `RC-07` + `m5/otfs-fast`):
+fields) and canonical `FullSpec2` contracts for OOM-safe OTFS and 2WL repair:
 
 1. `full_unwatch_large`: suffix-free backward scan from `end` down to `off + 2`
    (`p = p - 2 + (w >> 31)`), shifting only `[p, end)` down by `2` words.
@@ -23,7 +23,7 @@ fields) and canonical `FullSpec2` contracts (`RC-05`, `RC-07` + `m5/otfs-fast`):
    2ULL` + `full_wstack_defrag`), backward `full_unwatch_large`, and exact `PH_SHRK`-aware
    `full_arena_next(h, cref) - cref` garbage accounting.
 4. `full_deduce_1uip_m5`: OTFS (`full_otfs_bin_m5`, `full_otfs_large`) aborting cleanly on
-   `h->oom != 0ULL`, plus `h->res_sz = h->min_clr_len` handoff before `full_clear_ana(h)`.
+   `h->oom != 0ULL`, plus `h->res_sz = h->min_clr_len` transfer before `full_clear_ana(h)`.
 5. `full_one_lit_confl_m5`: top-2 highest-level literal repair for both `pos = 0` (`clvl`) and
    `pos = 1` (`max_{k>=1} lvl`, with headroom pre-check + `full_watch_push` + `full_unwatch_large`
    whenever `hp > 1`) *above* `if (cnt > 1ULL) { return 0ULL; }`.

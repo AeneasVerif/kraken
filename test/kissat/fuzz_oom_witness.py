@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Work-cap OOM & SAT witness differential fuzzer for Kissat C3b/C4.
+"""Work-cap OOM & SAT witness differential fuzzer for Kissat PrintCpp (C3b) / native x64 (C4).
 
 Sweeps ``work_cap`` via binary search and fine offsets (``-64 KiB .. +256 KiB``)
 around the saturation boundaries of ``arena``, ``watch_stk``, ``extend_stk``, and

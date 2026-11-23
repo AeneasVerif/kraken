@@ -14,7 +14,7 @@ meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.LinkRec
 
 /-!
-# Cyclic & Mutual-Recursion Linking on SysV x64 (`B1.1`)
+# Cyclic & Mutual-Recursion Linking on SysV x64
 
 Instantiates measure/fuel-indexed cyclic & mutual-recursion compilation (`CompiledRec`,
 `compileRecChecked`, `link_rec_compiled`) on `x64Target` (`x64LegalTarget`, `x64Layout`,

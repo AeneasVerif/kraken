@@ -5,7 +5,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Soundness Proofs for the Kissat C0 DIMACS Parser & Model Checker (`X1` Stage B1, Part 2)
+# Soundness Proofs for the Kissat C0 DIMACS Parser & Model Checker (Part 2)
 
 Builds on `DimacsLemmas1` to prove:
 5. `kissat_parse_header_wp` and `kissat_next_lit_wp`.
@@ -14,7 +14,7 @@ Builds on `DimacsLemmas1` to prove:
    `dimacsEnv_sound`, `dimacsEnv_moduleOk`, `dimacsEnv_ofModule_ok`, `dimacsFns_sound_in`).
 8. Headline soundness `kissat_check_model_sound` (`r = 1 → ∃ cnf, LratBytes.parseDimacs cnfBytes
    = some cnf ∧ ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α`, via `CoreLemmas1.checkModel_sound`) and
-   composable Stage-B2 bridge lemmas (`kissat_skip_ws_comments_spec`, `kissat_parse_header_spec`,
+   composable solver bridge lemmas (`kissat_skip_ws_comments_spec`, `kissat_parse_header_spec`,
    `kissat_next_lit_spec`, `skipWsComments_at_eof_iff`, `parseClause_eq_nextLitPure`).
 -/
 
@@ -764,7 +764,7 @@ theorem dimacsEnv_moduleOk : ModuleOk dimacsEnv dimacsModule :=
 theorem dimacsEnv_ofModule_ok : ModuleOk (Env.ofModule dimacsModule dimacsEnv) dimacsModule :=
   dimacsEnv_moduleOk.ofModule
 
-/-- Lift `dimacsEnv_sound` into any environment `Γ` (such as Stage-B2 `kissatEnv`) that
+/-- Lift `dimacsEnv_sound` into any environment `Γ` (such as `kissatEnv`) that
 subsumes `dimacsEnv` on `dimacs_fns`. -/
 theorem dimacsFns_sound_in (Γ : Env)
     (hSub : ∀ f ∈ dimacs_fns, ∀ args m Q X,
@@ -783,7 +783,7 @@ theorem dimacsFns_sound_in (Γ : Env)
   cases hsig
   exact hSub fn hfn' xs m' P E hdim
 
-/-! ## 8. Headline `kissat_check_model_sound` and composable Stage-B2 bridges -/
+/-! ## 8. Headline `kissat_check_model_sound` and composable solver bridges -/
 
 /-- Headline soundness of `kissat_check_model`: on any valid DIMACS buffer, 4-word `KissatDimacs`
 scratch struct, and `vals` byte array of length `≥ 2 * mv_max`, `kissat_check_model` terminates
@@ -885,7 +885,7 @@ theorem kissat_next_lit_spec
   dimacsEnv_sound kissat_next_lit (by simp [dimacs_fns]) _ m Q X
     ⟨cnf_ptr, nc, val0, mv, cnfBytes, i0, R, rfl, hfit, hmv64, hi0, hm, hQ⟩
 
-/-- Helper bridge for Stage B2 (`kissat_parse_body`): unique byte index after
+/-- Helper bridge for `kissat_parse_body`: unique byte index after
 `kissat_skip_ws_comments`. -/
 theorem skipWsComments_drop_idx {bs : List UInt8} {i0 j : Nat}
     (hj : j ≤ bs.length) (hdrop : bs.drop j = skipWsComments (bs.drop i0)) :
@@ -894,7 +894,7 @@ theorem skipWsComments_drop_idx {bs : List UInt8} {i0 j : Nat}
   simp only [List.length_drop] at hlen
   omega
 
-/-- Helper bridge for Stage B2 (`kissat_parse_body`): pointer equality `cur == cnf_end` after
+/-- Helper bridge for `kissat_parse_body`: pointer equality `cur == cnf_end` after
 `kissat_skip_ws_comments` holds iff `skipWsComments (bs.drop i0)` is empty. -/
 theorem skipWsComments_at_eof_iff {cnf_ptr : BitVec 64} {bs : List UInt8} {i0 j : Nat}
     (hfit : cnf_ptr.toNat + bs.length < 2 ^ 64) (hj : j ≤ bs.length)
@@ -909,7 +909,7 @@ theorem skipWsComments_at_eof_iff {cnf_ptr : BitVec 64} {bs : List UInt8} {i0 j 
     · rw [List.drop_eq_getElem_cons hlt] at hemp; cases hemp
     · omega
 
-/-- Helper bridge for Stage B2 (`kissat_skip_clause_syntax` / `kissat_ingest_clause`):
+/-- Helper bridge for `kissat_skip_clause_syntax` / `kissat_ingest_clause`:
 one-step unfolding of `LratBytes.parseClause` via `nextLitPure`. -/
 theorem parseClause_eq_nextLitPure (mv : Nat) (bs : List UInt8) :
     parseClause mv bs =
@@ -919,7 +919,7 @@ theorem parseClause_eq_nextLitPure (mv : Nat) (bs : List UInt8) :
       | .lit l rest' => parseClauseAux bs.length mv [kissatLitToDimacsLiteral l] rest' :=
   parseClauseAux_eq_nextLitPure bs.length mv [] bs
 
-/-- Convert an `i8` typed `array` to a `bytes` slice so Stage B2 can invoke `kissat_check_model`. -/
+/-- Convert an `i8` typed `array` to a `bytes` slice for invoking `kissat_check_model`. -/
 theorem array_i8_eq_bytes (a : BitVec 64) (xs : List (BitVec 8)) (h : xs.length ≤ 2 ^ 64) :
     array (t := i8) a xs = bytes a (bytesOf (t := i8) xs) := by
   funext m; apply propext

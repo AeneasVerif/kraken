@@ -17,7 +17,7 @@ onto AAPCS64 AArch64 (`armTarget`) via `compile_linked_chunks!` and proves end-t
 AArch64 `Eventually (step1 Host.exe)` soundness and host-frame preservation for both valid and
 adversarial OOB wraparound calls.
 
-This module imports ONLY `Kraken.AArch64` (`LeanQbe.T.Arm64.*`), never `Kraken.X64`.
+This module imports only `Kraken.AArch64` (`LeanQbe.T.Arm64.*`), never `Kraken.X64`.
 -/
 
 set_option autoImplicit false
@@ -367,7 +367,7 @@ theorem arm_bm_oob [hh : Host] (k₀ : Nat)
   rintro st ⟨hpc, _, _, hdmem, status, _, hst, _, hx0', _⟩
   exact ⟨hpc, hdmem, status, hst, hx0'⟩
 
-/-! ## 3. Logical Foundations Audit (`< 115c` Single-Line `std3`) -/
+/-! ## 3. Logical Foundations Audit (Standard Axioms) -/
 
 #print axioms arm_bm_legalSig
 #print axioms arm_bm_fnspec

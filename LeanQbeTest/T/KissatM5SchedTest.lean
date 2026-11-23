@@ -13,7 +13,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Verification & Axiom Audit for Kissat Stage-3 M5 Scheduler Parity v2 (`FullM5Sched`)
+# Verification & Axiom Audit for Kissat M5 Scheduler (`FullM5Sched`)
 
 1. Executable `#guard` checks on `m5Sched_fns` (`6` fns), `m5SchedModule.checkAcyclic`,
    `m5SchedModule.exits`, `m5SchedSpecTable` (`10` rows, `noExit = true`), `PrintCpp.ppTModule`,
@@ -22,7 +22,7 @@ import Kraken.Separation
 2. Concrete `Mem 64` UNSAT non-vacuity (`XPost := False`, `m5SchedEnv`, zero SAT/model proofs)
    across all `6` scheduler functions (`full_log10_q16`, `full_scale_delta_m5`, `full_ema_update`,
    `full_rephase`, `full_switch_mode`, `full_restart_due`).
-3. Single-line `#print axioms` audit (`< 115c` per line) across all exported `FullM5Sched`,
+3. Single-line `#print axioms` audit across all exported `FullM5Sched`,
    `FullM5SchedLemmas`, and NV theorems (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 

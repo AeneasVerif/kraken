@@ -5,7 +5,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# KissatM5 Inlined-`b5` Legal-Sig & Host Linking Helpers on SysV x64
+# KissatM5 (`InlinePolicy.b5`) Legal-Sig & Host Linking Helpers on SysV x64
 
 Exports `m5_legalSig`, `mk_module_fnspec`, and `solve_x64_of_fnspec` over
 `LeanQbe.T.Amd64.KissatM5Cert.m5Cert` (`FullM5.m5Module.optInlinePolicy InlinePolicy.b5`).

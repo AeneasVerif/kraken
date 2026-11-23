@@ -7,7 +7,7 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat `D-Full` M5 Budgeted Hyper-Binary Resolution (`FullM5Hbr`)
 
-Drop-in M5 replacement `full_hbr_dom_m5` for `full_hbr_dom` (`RC-15`) with a local `steps < 128`
+Drop-in M5 replacement `full_hbr_dom_m5` for `full_hbr_dom` with a local `steps < 128`
 trail-walk expansion budget (`0` `FullHdr` changes, `0` borrowed fields). Only marked level-1
 node expansions increment `steps` (non-marked or non-level-1 trail entries skip before
 incrementing `steps`). On budget exhaustion, `dom` remains `0xFFFFFFFFu` while the `min_clr`

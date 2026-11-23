@@ -6,7 +6,7 @@ public import LeanQbe.T.Module
 import LeanQbe.T.OpsLemmas
 
 /-!
-# Correctness of `ifOpt` (`O-M2`, `MB3`)
+# Correctness of `ifOpt`
 
 * `OpCode.wp_of_isSafeOp`: every whitelisted safe opcode is total and UB-free.
 * `emitSelectTup_wp`, `emitSelectTup_wf`: scalar/pair `select` lowering correctness (including

@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainSpec
 
 /-!
-# Soundness Proofs for Kissat `D-Plain` Minimization Helpers (`Wave 2b Shard 5`, Part 1)
+# Soundness Proofs for Kissat `D-Plain` Minimization Helpers (Part 1)
 
 Proves parametric `(Γ : Env)` `Func.wp` specifications matching `PlainSpec.lean:1002-1006`:
 1. `plain_clear_marks` (`plainClearMarksSpec`, `plain_clear_marks_wp`)

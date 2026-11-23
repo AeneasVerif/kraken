@@ -19,7 +19,7 @@ import Kraken.Separation
 /-!
 # Kissat `M6.0` Search, End-to-End `kissat_solve_bytes_m6`, & Tail Table (`FullM6OrchProof2`)
 
-Proves the top-level Wave-3 orchestrator functions from `FullM6Orch.lean` cleanly on
+Proves the top-level M6 orchestrator functions from `FullM6Orch.lean` on
 `FullM6HdrMem` / `FullM6HdrInv` with ZERO compile-time dependency on
 `FullM6OrchProof0/1.lean` or `FullM6OrchAdaptersProof*.lean`:
 25: 1. `full_search_m6_wp` (`fullM6SearchSpec`, core `FullM6HdrInv` UNSAT soundness +
@@ -156,7 +156,7 @@ theorem m6SwitchModeSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []}
   rcases xs with ⟨_, ⟨⟩⟩; exact h
 
 /-- `full_rephase_m6_hdr(h)` specification matching `FullM6OrchAdaptersProof0.m6aRephaseSpec`
-verbatim (`#3513`). -/
+verbatim. -/
 def m6aRephaseSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64)) (s : FullState)
     (R : Mem 64 → Prop),
@@ -1138,7 +1138,7 @@ theorem full_search_m6_wp (Γ : Env)
     · -- `pr == 2#64`: return `0#64`
       exact hQ 0#64 c ext s1 m1 hcompat hlen1 hinv1.cfgOk hinv1.extOk (Or.inl rfl)
         (fun hc => by cases hc) (fun hc => by cases hc) hm1
-    · -- `pr == 1#64`: conflict!
+    · -- `pr == 1#64`: conflict
       have hpr1 : pr = 1#64 := hc
       obtain ⟨hfu_lt, _, hcok1⟩ := hr1 hpr1
       have hmu_conf : ∀ {c' : FullCfg} {ext' : List (BitVec 64)} {s' : FullState},
@@ -1292,7 +1292,7 @@ theorem full_search_m6_wp (Γ : Env)
           (fun _ => hinv2.sparse.2.2.2.1.2) hm2
       · exact hQ 0#64 c ext2 s2 m2 hcompat hlen2 hinv2.cfgOk hinv2.extOk
           (Or.inl rfl) (fun hc => by cases hc) (fun hc => by cases hc) hm2
-      · -- `dr == 1#64`: continue loop!
+      · -- `dr == 1#64`: continue loop
         have hdr1 : dr = 1#64 := hdomd.resolve_left hc
         obtain ⟨_, hte2⟩ := h1d hdr1
         have hte_lt : s.core.trail_end < s2.core.trail_end := by
@@ -1555,7 +1555,7 @@ theorem kissat_solve_bytes_m6_core_wp (Γ : Env)
                         (fun h => by cases h)
                         (fun _ _ _ _ _ _ _ _ hp hu => absurd ⟨_, _, _, hp, hu⟩ hno_utrace)
                         hm3_reg
-                    · -- Join outer `J_fin` handling `(sr, c_end, ext_end, s_end)`!
+                    · -- Join outer `J_fin` handling `(sr, c_end, ext_end, s_end)`
                       have hpp_ne20 : ppr ≠ 20#64 := hc
                       let PreFin : BitVec 64 → FullCfg → List (BitVec 64) → FullState →
                           Mem 64 → Prop := fun sr cE extE sE mE =>
@@ -1752,7 +1752,7 @@ theorem kissat_solve_bytes_m6_core_wp (Γ : Env)
                             exact hJ_mid (0#64, ()) m3 ⟨c2, ext2, s2, hcomp2, hcfg2, hext2,
                               hlen2, Or.inl rfl, fun h => absurd h (by decide),
                               fun h => absurd h (by decide), hm3'⟩
-                          · -- `ppr == 1#64`: `full_search_m6`!
+                          · -- `ppr == 1#64`: `full_search_m6`
                             have hpp_ne0 : ppr ≠ 0#64 := hc
                             have hppr1 : ppr = 1#64 := by
                               rcases hdom2 with rfl | rfl | rfl | rfl

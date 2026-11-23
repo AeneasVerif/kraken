@@ -11,7 +11,7 @@ Verifies under normal `public import LeanQbe.T.ZeroPeel` (zero `import all`) tha
 `ZeroPeel.peelSingle` reduce cleanly in the Lean kernel (`decide +kernel` / `rfl`):
 1. 1st-iteration loop peeling (`peelSingle`) on an LEB128-style byte-scanning loop (`peelLoop`);
 2. Wide constant-fill loop widening (`widenFillSingle`) on a byte zero-fill loop (`fillLoop`);
-3. Real production `LratBytesProg` (`lratBytesFns`, 6 fns) total `zpSize` and `checkTFlat` checks.
+3. `LratBytesProg` (`lratBytesFns`, 6 fns) total `zpSize` and `checkTFlat` checks.
 -/
 
 set_option autoImplicit false

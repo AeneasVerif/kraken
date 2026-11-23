@@ -267,7 +267,7 @@ open scoped FullArenaTactics FullAnalyzeTactics
 namespace FullAnalyzeSpecs
 
 /-- Both variable analysis marks (`mrk[0 ..< c.max_vars)`) and literal marks
-(`lit_mark[0 ..< 2 * c.max_vars)`) are cleared (canonical `#968`). -/
+(`lit_mark[0 ..< 2 * c.max_vars)`) are cleared. -/
 @[expose] def FullLitMarksClear (c : FullCfg) (s : FullState) : Prop :=
   (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8) ∧
   (∀ l < 2 * c.max_vars, s.core.lit_mark[l]?.getD 0#8 = 0#8)
@@ -276,22 +276,22 @@ theorem FullLitMarksClear.to_marks {c : FullCfg} {s : FullState}
     (h : FullLitMarksClear c s) (hlen : s.core.cur_vars ≤ c.max_vars) : FullMarksClear s :=
   fun v hv => h.1 v (by omega)
 
-/-- Per-clause variable distinctness across live arena clauses (canonical `#968`). -/
+/-- Per-clause variable distinctness across live arena clauses. -/
 @[expose] def FullArenaVarsNodup (s : FullState) : Prop :=
   ∀ r ∈ fullArenaClauseRefs s, fullArenaClauseGarb s r = false →
     ((fullArenaClauseLits s r).map (· / 2)).Nodup
 
 /-- All 8 eager-subsumption `last_learned` slots are either `0xFFFFFFFF#32` or a current
-arena clause block reference (canonical `#968`). -/
+arena clause block reference. -/
 @[expose] def FullLastLearnedWf (s : FullState) : Prop :=
   ∀ i < 8, let cr := s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32
     cr = 0xFFFFFFFF#32 ∨ cr.toNat ∈ fullArenaClauseRefs s
 
-/-- Extended scratch invariants preserved across CDCL/inprocessing (canonical `#968`). -/
+/-- Extended scratch invariants preserved across CDCL/inprocessing. -/
 @[expose] def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
   FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
 
-/-- Canonical sparse 2WL CDCL solver invariant (`#968`). -/
+/-- Canonical sparse 2WL CDCL solver invariant. -/
 @[expose] def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
     FullExtScratchOk c s ∧ s.core.dense_mode = 0#64

@@ -9,12 +9,12 @@ meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
 
 /-!
-# Verification, Axiom Audit, and Differential Code Generator for `LeanQbe.T.LeanLRC` (`X3-R0`)
+# Verification, Axiom Audit, and Differential Code Generator for `LeanQbe.T.LeanLRC`
 
-* Kernel `Func.Wf` theorems via `t_wf_reify` for every Tier-0a C0 runtime helper (`rtBase_fns`).
+* Kernel `Func.Wf` theorems via `t_wf_reify` for every core C0 runtime helper (`rtBase_fns`).
 * `Func.checkTFlat`, `LrcModule.sccs`, `LrcModule.closureTargets`, `PrintCpp`, and `PrintQbe`
   checks across all 4 benchmark modules (`sumToMod`, `mapAddMod`, `tree2Mod`, `foldMapMod`),
-  real spliced Lean IR (`realLeanIrMod`), and an exhaustive `scalarStructMod` covering
+  spliced Lean IR (`realLeanIrMod`), and an exhaustive `scalarStructMod` covering
   `sproj`/`sset`/`uproj`/`uset`/`box`/`unbox`/`set`/`setTag`/`isShared`/`scalar` ops.
 * Single-line `#print axioms` checks (`[propext, Classical.choice, Quot.sound]`).
 * `main` generator emitting standalone C++20 test TUs and QBE `.ssa` for `test/lrc/run.sh`.
@@ -136,7 +136,7 @@ theorem wf_nat_eq : Func.Wf lean_nat_dec_eq_body := by t_wf_reify
 theorem wf_nat_le : Func.Wf lean_nat_dec_le_body := by t_wf_reify
 theorem wf_nat_lt : Func.Wf lean_nat_dec_lt_body := by t_wf_reify
 
-/-- All 28 static Tier-0a C0 runtime functions satisfy `Fn.Wf`. -/
+/-- All 28 static core C0 runtime functions satisfy `Fn.Wf`. -/
 theorem wf_rt : ∀ f ∈ rtBase_fns, f.Wf := by
   intro f hf
   simp only [rtBase_fns, List.mem_cons, List.not_mem_nil, or_false] at hf

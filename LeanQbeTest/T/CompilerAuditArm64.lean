@@ -14,7 +14,7 @@ import all Kraken.Separation
 # AAPCS64 AArch64 Backend, Multi-Chunk Linker, Cyclic Recursion, & Litmus Audit
 
 Self-contained machine-level audit for the AAPCS64 AArch64 (`Kraken.AArch64`) backend of
-`lean-qbe`. This module imports ONLY `Kraken.AArch64` (`LeanQbe.T.Arm64.*`), never `Kraken.X64`.
+`lean-qbe`. This module imports only `Kraken.AArch64` (`LeanQbe.T.Arm64.*`), never `Kraken.X64`.
 
 ## What This Workstream Proves
 1. **Verified AArch64 backend contracts (`Arm64.Targ`, `Arm64.TargLemmas`)**:

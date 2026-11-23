@@ -10,7 +10,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification and Axiom Audit for Kissat M5 Wave 1 Probing Propagation (`FullM5ProbeProp`)
+# Verification and Axiom Audit for Kissat M5 Probing Propagation (`FullM5ProbeProp`)
 
 1. Executable `#guard` checks on `m5ProbeProp_fns` (`1` fn: `full_probe_prop_lit_m5`), signature
    parity, `PrintCpp`, `PrintQbe`, and `Legal` across `.aarch64`, `.scalar64`, `.x64AVX2`.

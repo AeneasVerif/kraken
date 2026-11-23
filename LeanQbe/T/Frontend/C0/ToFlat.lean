@@ -5,7 +5,7 @@ public import LeanQbe.T.Frontend.C0.Lower
 public import LeanQbe.T.FlatLemmas
 
 /-!
-# C0 Lowered `LExpr` → Scope-Checked `TFlat` Bridge (`X0-core` / `#018-B1`)
+# C0 Lowered `LExpr` → Scope-Checked `TFlat` Bridge
 
 Converts lowered C0 functions (`LFn`) to scope-checked `LeanQbe.T.TFlat` (`TFlatFn`) with
 optional promotion of designated exit-symbol calls into `.exit` terminators, yielding universal

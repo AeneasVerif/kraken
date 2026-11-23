@@ -5,7 +5,7 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Wave-2 `PR-W2E-lite`: Irred-First GC, 75% Watch Defrag + Radix Sort,
+# Kissat M6 Irred-First GC, 75% Watch Defrag + Radix Sort (`FullM6WatchGc`),
 Binary Dedup, Level-0 Trail Flush, Parse-Time Unit BCP, & Root-False Extend Push
 
 Standalone drop-in overrides certifying against canonical `Full` / `FullM4` specs
@@ -19,7 +19,7 @@ with zero `FullHdr` changes (`144` words frozen):
    deduplication + fixed-binary deletion + defrag. A binary is deleted for a root-satisfied
    literal always, but for a root-falsified literal only once the trail is fully propagated
    (`propagated >= trail_end`): otherwise the other literal may not be implied yet and the
-   deletion would lose the clause (the M6 Stage-1 model-check regression).
+   deletion would lose the clause and break model soundness.
 5. `full_rewatch_range_m6` & `full_rewatch_arena_m6`, `full_move_red_end_buf_m6` &
    `full_move_red_end_m6`, `full_arena_sweep_m6`: partial sweep skipping verified
    irredundant prefix, irredundant-before-redundant partitioning updating live
@@ -28,7 +28,7 @@ with zero `FullHdr` changes (`144` words frozen):
 7. `full_flush_trail_m6`: level-0 backtrack/propagate/unflushed reset.
 8. `full_parse_body_m6`: parse-time unit BCP preserving `fuel` and `oom = 0`.
 9. `full_extend_push2_m6` & `full_extend_push_cl_m6`: root-false literal skipping with
-   `RC-01` overflow-safe capacity bounds.
+   overflow-safe capacity bounds.
 -/
 
 set_option autoImplicit false

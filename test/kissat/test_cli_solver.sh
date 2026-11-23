@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Self-contained L1 verification for bench/kissat/build_solver.sh and bench/kissat/kissat_cli.c.
+# Self-contained verification for bench/kissat/build_solver.sh and bench/kissat/kissat_cli.c.
 #
 # Builds FullM5 (certified) and FullM6 (--allow-uncertified until KissatM6Sound lands) on both x64
 # and arm64 (qemu-aarch64), verifying SAT/UNSAT/UNKNOWN exit codes, DIMACS `v ... 0` models on

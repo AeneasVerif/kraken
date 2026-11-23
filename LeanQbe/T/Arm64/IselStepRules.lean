@@ -4,7 +4,7 @@ public import LeanQbe.T.IselStepAttr
 public import LeanQbe.T.Arm64.Base
 
 /-!
-# Thin AArch64 `@[scoped isel_step]` Rules & `isel_arm_frame_sp` (`Stage 0`)
+# Thin AArch64 `@[scoped isel_step]` Rules & `isel_arm_frame_sp`
 
 Core address/move/ALU stepping rules over `LeanQbe.T.Arm64.Base`, registered strictly as
 `@[scoped isel_step]` inside `namespace LeanQbe.T.Arm64.IselStep` (zero global `@[` attributes).

@@ -8,7 +8,7 @@ import LeanQbe.T.WfLemmas
 import LeanQbe.T.OpsLemmas
 
 /-!
-# Correctness of `canon` (`O-M1`)
+# Correctness of `canon`
 
 * `CmpOp.swap_evalBits`, `CmpOp.swap_evalBool`, `liftCmp_swap`, `AssocOp.eval_comm`,
   `AssocOp.eval_assoc`: leaf-wise commutativity and associativity across `.bool`, `.bits n`, and

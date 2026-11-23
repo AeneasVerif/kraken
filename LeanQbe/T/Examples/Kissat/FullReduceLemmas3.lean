@@ -700,11 +700,11 @@ theorem full_sweep_copy_wp (Γ : Env)
                       simpa only [ha_lit] using hc
                     rw [h0] at h1; exact h1 rfl
                   fr_split
-                  · -- `vals[lit] > 0`: satisfied! Return `0xFFFFFFFF#64`
+                  · -- `vals[lit] > 0`: satisfied; return `0xFFFFFFFF#64`
                     fr_steps
                     exact sweep_copy_ret_sat hlen (by omega) (by omega) har_t hcl0 hw_dst hbin0 hQ
                       harL (fun idx hidx => houtL idx (by omega)) hmL
-                  · -- `¬ (vals[lit] > 0)`: falsified at level 0, drop!
+                  · -- `¬ (vals[lit] > 0)`: falsified at level 0, drop
                     have hval_ff : s.core.vals[lit.toNat]?.getD 0#8 = 0xFF#8 := by
                       have hdom := hw_dst.vals_domain lit.toNat hlit_cv
                       have hv_get : s.core.vals[lit.toNat]?.getD 0#8 =

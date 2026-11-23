@@ -6,7 +6,7 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 
 /-!
-# Stage 1 Pass-Order Wiring (`abLp24 + cf`) & `Fn.renorm` Tests
+# Mid-End Pass-Order Wiring (`ZeroPeel`, `AssumeBits`, `assumeElim` Cleanup) & `Fn.renorm` Tests
 
 Covers:
 1. `ZeroPeel` constant-fill widening (`fillLoop`) and bounded 1st-iter loop peeling
@@ -15,11 +15,11 @@ Covers:
 2. `AssumeBits` branch-implied mask elimination (`x &&& 0x80000000 == 0` dominating
    `x &&& 0x7fffffff`) wired into `Func.lateCore` / `Func.lateOpt` (`t_kernel_rfl`, `Wf`,
    `Func.spec`).
-3. `cf` (`assumeElim → fold → gvn`) cleanup in `Func.lateCfg` / `Func.lateOpt` deduplicating
-   post-`assumeElim` expressions (`t_kernel_rfl`, `Wf`, `Func.spec`).
+3. Post-`assumeElim` cleanup (`assumeElim → fold → gvn`) in `Func.lateCfg` / `Func.lateOpt`
+   deduplicating expressions exposed after dead-branch removal (`t_kernel_rfl`, `Wf`, `Func.spec`).
 4. Materialized `Fn.renorm` definition equality (`(Fn.renorm fn).body = Func.renorm fn.body`
    by `rfl`, `Fn.renorm_wf`, `Fn.renorm_spec`).
-5. Single-line `<115c` `std3` `#print axioms`.
+5. Single-line standard-axiom `#print axioms`.
 -/
 
 set_option autoImplicit false

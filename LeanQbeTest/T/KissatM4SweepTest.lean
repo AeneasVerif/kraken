@@ -9,8 +9,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM4SweepProof
 1. Executable `#guard` checks on `fullM4Sweep_fns` (`24` functions), `fullM4SweepExterns`
    (`7` externs), `fullM4SweepModule.checkAcyclic`, `fullM4SweepSpecTable` (`31` rows, all
    `noExit = true`), and concrete `100060`-byte dense/sparse `Mem 64` images.
-2. Short root-namespace `m4s_*` audit theorems + single-line `#print axioms` (`<= 100` cols,
-   every `depends on axioms: [...]` output `< 115` chars on one line).
+2. Short root-namespace `m4s_*` audit theorems + single-line `#print axioms` audit.
 -/
 
 set_option autoImplicit false

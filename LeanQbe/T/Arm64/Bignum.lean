@@ -13,7 +13,7 @@ meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.Bignum
 
 /-!
-# Curve25519 Bignum Kernels on AArch64 (`T13`)
+# Curve25519 Bignum Kernels on AArch64
 
 Instantiates the typed-IR bignum modules (`mul4x4Module`, `addMod25519Module`, `subMod25519Module`)
 on `armTarget` (`armLegalTarget`, `armLayout`, `armLabelClean`) with:

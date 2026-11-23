@@ -401,7 +401,7 @@ theorem m3_unsat_nonvacuous :
 
 /-- Indices in `m3Fns` (`201` fns) of the `43` unlanded M2/M2b dependencies: `FastCore` (`3`),
 `FullKitten` (`15`), `FullDefSweep` (`8`), `FullBvaHeap` (`13`), and the `4` `TmkZero`-preserving
-BVE helper upgrades (`94, 95, 169, 171`). All remaining `158 / 201` rows are proved! -/
+BVE helper upgrades (`94, 95, 169, 171`). All remaining `158 / 201` rows are proved. -/
 @[expose] def m3UnlandedIndices : List Nat :=
   [47, 48, 49, 94, 95] ++ List.range' 128 15 ++
   [150, 157, 158, 159, 160, 165, 166, 167, 169, 171] ++ List.range' 174 13

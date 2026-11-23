@@ -5,13 +5,13 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Wave-2 `PR-W2C` (`RC-20`, `RC-21`): Vivification Subsumption/Instantiation &
-Multi-Level Backbone / Sorted Transitive Parity
+# Kissat M6 Vivification Subsumption/Instantiation &
+Multi-Level Backbone / Sorted Transitive Parity (`FullM6VivBackbone`)
 
-Standalone, zero-conflict C0 drop-in override module preserving the frozen `144`-word `FullHdr`
-layout (`0` layout churn, `0` edits to existing Kissat files):
+Standalone C0 drop-in override module preserving the unchanged `144`-word `FullHdr`
+layout for vivification, multi-level backbone, and transitive reduction:
 
-1. **Flag maintenance & OOM guards (`RC-20`, `RC-21`, `S05-05(3)`)**:
+1. **Flag maintenance & OOM guards**:
    - `full_add_bin_m6`: sets `FL_TRANS | FL_BONE0 | FL_BONE1` on both endpoints when adding a
      binary clause (`Full.fullAddBinSpec`).
    - `full_init_fresh_var_m6`: initializes fresh BVA variables with `FL_TRANS | FL_BONE0 |
@@ -19,8 +19,8 @@ layout (`0` layout churn, `0` edits to existing Kissat files):
      `FullBvaHeap.fullInitFreshVarHeapSpec`).
    - `full_probe_assume_pair_m6`: fixes OOM swallow in `Full3.full_probe_assume_pair`
      (`Full.fullProbeAssumePairSpec`).
-2. **Vivification parity (`RC-20`: `S05-02`, `S05-04`, `S05-06(2)`, `S05-08`)**:
-   - Preserves landed `RC-06` `full_viv_reestablish_m6` 2WL invariant repair.
+2. **Vivification parity**:
+   - Preserves `full_viv_reestablish_m6` 2WL invariant backtrack repair.
    - `full_viv_deduce_m6` with binary/large subsumption check (`full_viv_subsumes_bin_m6`,
      `full_viv_subsumes_cl_m6`), redundant subsumer promotion & glue lowering in
      `full_viv_finish_m6`.
@@ -36,7 +36,7 @@ layout (`0` layout churn, `0` edits to existing Kissat files):
      (`full_viv_sort_counts_m6`), `[!PH_VIV, PH_VIV]` schedule collection & sorting, OOM
      propagation in `full_viv_simplify_m6` & `full_viv_l0_simp_m6`, `PH_VIV` set only on
      non-aborting completion, and canonical `full_vivify_m6` (`fullVivifyFastSpec`).
-3. **Backbone & transitive parity (`RC-21`: `S05-03`, `S05-04(3)`, `S05-06(1,3)`, `S05-09`)**:
+3. **Backbone & transitive parity**:
    - `full_prioritize_binaries_m6`: partitions binary watches ahead of large watches in place.
    - Multi-level 1UIP backbone (`full_backbone_sched_m6`, `full_backbone_keep_m6`,
      `full_backbone_unwind_m6`, `full_backbone_prop_m6`, `full_backbone_analyze_m6`,
@@ -1402,7 +1402,7 @@ def m6VivBackboneExterns : List Extern :=
   , ⟨"full_probe_flush_hbr", [i64, i64], [i64]⟩
   , ⟨"full_analyze", [i64], [i64]⟩ ]
 
-/-- Standalone Wave-2 `PR-W2C` module (`40` new functions + `15` externs, `0` exits). -/
+/-- Standalone M6 vivification/backbone module (`40` functions + `15` externs, `0` exits). -/
 def m6VivBackboneModule : LeanQbe.T.Module :=
   { fns := m6VivBackbone_fns, externs := m6VivBackboneExterns, exits := [] }
 

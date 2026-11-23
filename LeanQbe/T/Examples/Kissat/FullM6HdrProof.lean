@@ -8,7 +8,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-3 Prep: Closed `ModuleOk` & Concrete `Mem 64` UNSAT NV (`FullM6HdrProof`)
+# Kissat M6 `FullM6Hdr`: Closed `ModuleOk` & Concrete `Mem 64` UNSAT NV (`FullM6HdrProof`)
 
 M1-clean proof module (`public section`, opaque definitions, standard imports, UNSAT-only):
 Combines all `27` parametric `Func.wp` proofs (`Proof0`..`Proof2`) into:
@@ -475,7 +475,7 @@ theorem nv_m6_hdr_reset :
       fun ext' m' hinit hm' => by
         rw [sep_emp] at hm'; exact ⟨ext', _, hinit, rfl, rfl, nvM6HdrF0_unsat, hm'⟩)
 
-/-- Concrete `Mem 64` UNSAT NV (`XPost := False`) for repointed `w2a` `m6_hdr_recompute_tiers`. -/
+/-- Concrete `Mem 64` UNSAT NV (`XPost := False`) for `m6_hdr_recompute_tiers`. -/
 theorem nv_m6_hdr_recompute_tiers :
     Func.wp m6HdrEnv m6_hdr_recompute_tiers_body (nvOneLitCfg.hdr, ()) nvM6HdrMem
       (fun () m' => ∃ ext' s', s'.core = nvOneLitState.core ∧ s'.LengthsOk nvOneLitCfg ∧
@@ -490,7 +490,7 @@ theorem nv_m6_hdr_recompute_tiers :
         rw [sep_emp] at hm'
         exact ⟨ext', s', hcore, hlen, hsc.delayed, hok, nvM6HdrF0_unsat, hm'⟩)
 
-/-- Concrete `Mem 64` UNSAT NV (`XPost := False`) for repointed `w2b` `m6_hdr_dr_update`:
+/-- Concrete `Mem 64` UNSAT NV (`XPost := False`) for `m6_hdr_dr_update`:
 leaves `nvOneLitState` (including `h->delayed*`) completely unchanged. -/
 theorem nv_m6_hdr_dr_update :
     Func.wp m6HdrEnv m6_hdr_dr_update_body (nvOneLitCfg.hdr, ()) nvM6HdrMem
@@ -504,7 +504,7 @@ theorem nv_m6_hdr_dr_update :
       fun ext' m' hinit _ hm' => by
         rw [sep_emp] at hm'; exact ⟨ext', hinit, nvM6HdrF0_unsat, hm'⟩)
 
-/-- Concrete `Mem 64` UNSAT NV (`XPost := False`) for repointed `w2b` `m6_hdr_dr_allow`. -/
+/-- Concrete `Mem 64` UNSAT NV (`XPost := False`) for `m6_hdr_dr_allow`. -/
 theorem nv_m6_hdr_dr_allow :
     Func.wp m6HdrEnv m6_hdr_dr_allow_body (nvOneLitCfg.hdr, ()) nvM6HdrMem
       (fun (r, ()) m' => ∃ ext', (r = true ∨ r = false) ∧ M6HdrExtInitOk ext' ∧

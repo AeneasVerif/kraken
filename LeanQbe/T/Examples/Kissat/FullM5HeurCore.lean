@@ -5,11 +5,11 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat M5 Wave 1 (`PR-W1A`): Core Heuristics, Probing Isolation & Phases (`FullM5HeurCore`)
+# Kissat M5 Core Heuristics, Probing Isolation & Phases (`FullM5HeurCore`)
 
-Standalone drop-in C0 overrides off `main @ 39bf9969` (`0` edits to `Full1..3`, `FullM4*`, or
-`FullHdr`), covering `RC-09`, `RC-10`, and `RC-12`:
-1. **Tier-1/2 `used = 31` (`RC-09`):**
+Standalone drop-in C0 overrides over the unchanged `144`-word `FullHdr` layout
+for clause usage counters, probing isolation, and target/best phase saving:
+1. **Tier-1/2 `used = 31` and eager subsumption window:**
    - `full_analyze_rsn_m5`: unconditionally sets `used = 31u` on all redundant reasons
      (`deduce.c:14-27`) and allows `glue > 1` promotion.
    - `full_otfs_subsume_m5`: clamps surviving redundant `glue <= min(c->glue, old_cr->glue)` and
@@ -18,13 +18,13 @@ Standalone drop-in C0 overrides off `main @ 39bf9969` (`0` edits to `Full1..3`, 
      (`learn.c:133-195`).
    - `full_learn_clause_m5`: initializes `used = 31u` (`ar[new_ref] |= 31u << 27`) on every newly
      learned large clause (`learn.c:109-110`).
-2. **Probing isolation & OTFS bump (`RC-10`):**
+2. **Probing isolation & OTFS bump:**
    - `full_bump_analyzed_m5`: guards bumping + `full_bump_decay` on `h->probing == 0ULL`, checks
      `FL_ACTIVE`, and skips `full_queue_mtf` when `stable != 0`.
    - `full_restore_bump_ana_m5` + `full_analyze_m5`: guards `full_bump_analyzed`, `full_tick_rel`,
      and `full_ema_update` with `h->probing == 0ULL`; writes OTFS asserting literal to `tmp[0]`
      before bumping; runs regular `full_bump_analyzed` *after* `full_min_shrink`.
-3. **Target/best phases & warmup (`RC-12`):**
+3. **Target/best phases & warmup:**
    - `full_save_target_best_m5`: guards `ptgt[k]` / `pbst[k]` writes with `tv != (i8)0`
      (`phases.c:48-68`).
    - `full_backtrack_raw_m5` + `full_backtrack_m5`: unwinds 1 level before saving target/best
@@ -580,7 +580,7 @@ def m5HeurCoreExterns : List Extern :=
   , ⟨"full_assign", [i64, i32, i32], []⟩
   , ⟨"full_propagate", [i64], [i64]⟩ ]
 
-/-- Standalone M5 Wave-1 `PR-W1A` module (`11` functions + `24` externs, `0` exits). -/
+/-- Standalone M5 heuristics module (`11` functions + `24` externs, `0` exits). -/
 def m5HeurCoreModule : LeanQbe.T.Module :=
   { fns := m5HeurCore_fns, externs := m5HeurCoreExterns, exits := [] }
 

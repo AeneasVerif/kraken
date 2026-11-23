@@ -13,7 +13,7 @@ meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.ChaCha
 
 /-!
-# ChaCha20 Block (`v4i32` SIMD) on SysV x64 (`T14`)
+# ChaCha20 Block (`v4i32` SIMD) on SysV x64
 
 Instantiates `chacha20Module` (`chacha20Block`) on `x64Target` (`x64LegalTarget`, `x64Layout`,
 `x64LabelClean`) with:

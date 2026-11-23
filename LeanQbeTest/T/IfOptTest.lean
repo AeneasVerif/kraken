@@ -15,7 +15,7 @@ meta import LeanQbe.T.SimplifyGroupPlan
    (`size ≠ 0 ∧ size % 128 = 0`), `.sha256rnds2`, `.sha256msg1`, `.sha256msg2`, and `.rbit`.
 2. Negative whitelist guards for partial/trapping/invalid-width ops (`.bswap (.bits 12)`,
    `.shufd (.bits 64)`, `.udiv`, `.sdiv`, `.urem`, `.srem`, `.fptoui`, `.fptosi`, `.fdiv`).
-3. Closed-function `Wf`, `Func.ifOpt_spec`, `Func.ifOpt_callsOk`, and `std3` axiom audit.
+3. Closed-function `Wf`, `Func.ifOpt_spec`, `Func.ifOpt_callsOk`, and standard-axiom audit.
 -/
 
 set_option autoImplicit false
@@ -211,7 +211,7 @@ theorem shaDiamond_spec {Γ : Env} {xs m Q X} (h : Func.wp Γ shaDiamond xs m Q 
     Func.wp Γ (ifSimp shaDiamond) xs m Q X :=
   ifSimp_spec shaDiamond_wf h
 
-/-! ## 3. Axiom audit (`std3`) -/
+/-! ## 3. Axiom audit (`[propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms LeanQbe.T.Func.ifOpt_wf
 #print axioms LeanQbe.T.Func.ifOpt_spec

@@ -12,13 +12,13 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Verification, UNSAT Non-Vacuity, and Axiom Audit for Kissat M3c Backbone & `probe_run` Cursor
+# Verification, UNSAT Non-Vacuity, and Axiom Audit for Kissat M3 Backbone & `probe_run` Cursor
 
 1. Executable `#guard` checks on `m3BackboneLocalModule` (`5` fns + `15` externs),
    `m3BackboneFastModule` (`198` fns, closed), and `m3BackboneFullModule` (`168` fns, closed):
    acyclicity, `PrintCpp`, `PrintQbe`, and `Legal` across `.aarch64`, `.scalar64`, `.x64AVX2`.
 2. Audit-ready restated theorems (`m3b_*`) covering:
-   - `Func.Wf` & `checkAcyclic = true` for all `6` M3c functions and all `3` modules
+   - `Func.Wf` & `checkAcyclic = true` for all `6` M3 backbone functions and all `3` modules
    - `Func.wp` UNSAT-soundness for wrap-around `full_probe_run` (cursor-bound + canonical + Fast),
      `full_backbone_lit` (explicit semantic unit-entailment `EntailsClause [cand]` + `F0.Unsat`),
      `full_backbone`, `full_probe_tail`, `full_probe`, and `FullProbeFull.full_probe`
@@ -26,7 +26,7 @@ import all Kraken.Separation
      `ModuleOk` for `m3BackboneFullModule` (`externs := []`, `exits := []`)
    - End-to-end `kissat_solve_bytes` UNSAT soundness and concrete `Mem 64` UNSAT non-vacuity
      (`XPost := False`, strictly UNSAT-only — zero SAT model-finding proofs).
-3. Single-line `#print axioms` (`<= 100` cols) strictly `⊆ [propext, Classical.choice, Quot.sound]`.
+3. Single-line `#print axioms` audit strictly `⊆ [propext, Classical.choice, Quot.sound]`.
 -/
 
 set_option autoImplicit false

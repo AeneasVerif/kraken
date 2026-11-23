@@ -14,9 +14,9 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Examples.Kissat.CorePlus
 
 /-!
-# Kissat `D-Core+` C0 SAT Solver (`coreplusFns`) on AArch64 (`Stage 2`)
+# Kissat Core+ C0 SAT Solver (`coreplusFns`, `36` fns) on AArch64
 
-Instantiates the 36-function typed-IR Kissat `D-Core+` SAT solver module `coreplusModule`
+Instantiates the 36-function typed-IR Kissat Core+ SAT solver module `coreplusModule`
 (`dimacs_fns ++ coreplus_fns`) on `armTarget` (`armLegalTarget`, `armLayout`, `armLabelClean`) with:
 * `cpCert` via chunked `compile_linked_chunks!` (eliminating monolithic kernel peak RSS);
 * `cpHints`, `compiled_check : checkCompile ... = true`, and literal-backed `compiled`

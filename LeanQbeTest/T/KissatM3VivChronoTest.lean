@@ -14,16 +14,16 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Verification, Compilation Checks, and Axiom Audit for Kissat M3a (`FullM3VivChrono`)
+# Verification, Compilation Checks, and Axiom Audit for Kissat M3 (`FullM3VivChrono`)
 
-1. Executable `#guard` checks on `m3Module` (`5` M3a fns + `10` externs), `m3FullModule` (`197`
+1. Executable `#guard` checks on `m3Module` (`5` fns + `10` externs), `m3FullModule` (`197`
    fns, `0` externs, `0` exits), `checkAcyclic = true`, `m3SpecTable` (`15` rows), `PrintCpp`,
    `PrintQbe`, and `Fn.legal` across `aarch64`, `scalar64`, and `x64AVX2`.
 2. Audit-ready restated theorem types (every type written explicitly in full) for `m3_fns_wf`,
    `m3_acyclic`, `m3Fns_wf`, `m3Full_acyclic`, all `5` parametric `Func.wp` UNSAT-soundness theorems
    (`XPost := False`), `m3_moduleOk : ModuleOk m3Env m3Module`, and all `5` concrete `Mem 64`
    UNSAT non-vacuity theorems (`nv_m3_*`, `XPost := False`, `0` SAT model proofs).
-3. Single-line `< 115`-col `#print axioms` audit on all `15` restated theorems (strictly
+3. Single-line `#print axioms` audit on all `15` restated theorems (strictly
    `⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -64,11 +64,11 @@ open Kraken.Bedrock2.Test
 
 section AuditSpec
 
-/-- Every function in `m3VivChrono_fns` (`5` M3a upgraded functions) is well-formed. -/
+/-- Every function in `m3VivChrono_fns` (`5` M3 upgraded functions) is well-formed. -/
 theorem m3a_wf : ∀ f ∈ m3VivChrono_fns, f.Wf :=
   m3_fns_wf
 
-/-- Standalone M3a module `m3Module` passes `checkAcyclic = true`. -/
+/-- Standalone M3 vivification/chrono module `m3Module` passes `checkAcyclic = true`. -/
 theorem m3a_acyc : m3Module.checkAcyclic = true :=
   m3_acyclic
 
@@ -76,7 +76,7 @@ theorem m3a_acyc : m3Module.checkAcyclic = true :=
 theorem m3a_full_wf : ∀ f ∈ m3Fns, f.Wf :=
   m3Fns_wf
 
-/-- Spliced M3a full module `m3FullModule` passes `checkAcyclic = true`. -/
+/-- Spliced M3 full module `m3FullModule` passes `checkAcyclic = true`. -/
 theorem m3a_full_acyc : m3FullModule.checkAcyclic = true :=
   m3Full_acyclic
 
@@ -131,7 +131,7 @@ theorem m3a_tail_wp (Γ : Env)
       Func.wp Γ FullM3VivChrono.full_probe_tail_body a m Q X :=
   m3_probe_tail_wp Γ hTrans hMin hPRun hViv
 
-/-- Closed `15`-row `ModuleOk` certifying all `5` M3a upgraded functions under `m3Env`. -/
+/-- Closed `15`-row `ModuleOk` certifying all `5` M3 upgraded functions under `m3Env`. -/
 theorem m3a_mod_ok : ModuleOk m3Env m3Module :=
   m3_moduleOk
 

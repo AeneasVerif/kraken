@@ -163,7 +163,7 @@ structure KittenClausesOk (acap : Nat) (ks : KittenState) : Prop where
 def kittenTrailLits (ks : KittenState) : List Nat :=
   (ks.trl.take ks.trl_end.toNat).map BitVec.toNat
 
-/-- Base trail & assignment invariant (preserved even by `full_kitten_flip`!). -/
+/-- Base trail & assignment invariant (preserved by `full_kitten_flip`). -/
 structure KittenBaseAssignOk (ks : KittenState) : Prop where
   trl_end_le : ks.trl_end.toNat ≤ ks.nv.toNat
   prop_le : ks.prop.toNat ≤ ks.trl_end.toNat

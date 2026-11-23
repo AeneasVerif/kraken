@@ -9,8 +9,8 @@ public import LeanQbe.T.Examples.Kissat.FullArena
 
 Provides:
 1. Scoped `FullBveBvaTactics` bitwise/BitVec/pointer-slice helpers and stepping macros.
-2. Canonical Stage-4 invariants and `FullSpec3` + `#1050` `Spec` contracts in `FullBveBvaSpecs`
-   (covering the `6` owned `full_bve_*` functions per `#1023`).
+2. Canonical `D-Full` invariants and `FullSpec3` `Spec` contracts in `FullBveBvaSpecs`
+   (covering the `6` `full_bve_*` functions with unconstrained `garb` bounds).
 3. `FullBveItemOk`, `FullDenseInvW` transport, and watch/resolution lemmas.
 4. Parametric `(Γ : Env)` `Func.wp` proofs for `full_bve_collect`, `full_bve_mark_and`, and
    `full_bve_gates`.
@@ -268,7 +268,7 @@ private theorem FullBveItemOk.to_entryW {F_cur : List (List Nat)} {s : FullState
   else
     w.toNat ∈ fullArenaClauseRefsCore k
 
-/-- Weak structural validity for `full_bve_try_bce` (`#1050`: `garb` unconstrained). -/
+/-- Weak structural validity for `full_bve_try_bce` (`garb` unconstrained). -/
 @[expose] def FullBveBceWeakOk (c : FullCfg) (s : FullState) (w : BitVec 32) : Prop :=
   if (w &&& 0x80000000#32) ≠ 0#32 then
     (w &&& 0x7FFFFFFF#32).toNat < 2 * c.max_vars
@@ -407,7 +407,7 @@ private def fullBveMarkAndSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
           (cnfOfClauses F_cur).EntailsClause (cnfClause ((tmp'.take tl').map BitVec.toNat))) →
         (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-/-- 5. `full_bve_weaken(h, blk_lit, off, cnt) : bool` (`FullSpec3` + `#1050` weak item ok). -/
+/-- 5. `full_bve_weaken(h, blk_lit, off, cnt) : bool` (`FullSpec3` with weak item validity). -/
 @[expose] def fullBveWeakenSpec : Spec [i64, i32, i32, i32] [.bool] :=
   fun (h, blk_lit, off, cnt, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
@@ -422,7 +422,7 @@ private def fullBveMarkAndSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
         fullArenaClauseRefs s' = fullArenaClauseRefs s →
         (FullMem c s' ⋆ R) m' → Q (ok, ()) m'
 
-/-- 6a. `full_bve_try_bce` `SafetySlice` internal helper spec (`#1050`: weak `garb`). -/
+/-- 6a. `full_bve_try_bce` `SafetySlice` internal helper spec (weak `garb`). -/
 private def fullBveTryBceSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
   SafetySlice.spec fullTryBceSlice
     (fun c (h, _blk_lit, cr, opp_off, opp_n, ()) s =>
@@ -437,7 +437,7 @@ private def fullBveTryBceSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
       s'.scratch.scratch_buf = s.scratch.scratch_buf)
 
 /-- 6. `full_bve_try_bce(h, blk_lit, cr, opp_off, opp_n) : bool`
-(`FullSpec3` + `#1050` weak item ok). -/
+(`FullSpec3` with weak item validity). -/
 @[expose] def fullBveTryBceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
   fun (h, blk_lit, cr, opp_off, opp_n, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
@@ -452,7 +452,7 @@ private def fullBveTryBceSliceSpec : Spec [i64, i32, i32, i32, i32] [.bool] :=
         let s' : FullState := { s with core := { s.core with lit_mark := lm', tmp := tmp' } }
         FullDenseInvW c F0 F_cur s' → (FullMem c s' ⋆ R) m' → Q (blk, ()) m'
 
-/-- Callee contracts used by `full_bve_weaken` (`FullSpec{2,3}` + `#1050`). -/
+/-- Callee contracts used by `full_bve_weaken` (`FullSpec{2,3}`, weak item validity). -/
 @[expose] def fullExtendPush2Spec : Spec [i64, i32, i32] [.bool] :=
   SafetySlice.spec fullSafetySlice
     (fun c (h, _blk, _ot, ()) s => h = c.hdr ∧ s.scratch.extend_len ≤ c.extend_cap)

@@ -9,7 +9,7 @@ public meta import LeanQbe.T.Logic.C0StepAttr
 public meta import LeanQbe.T.Logic.Rules
 
 /-!
-# C0 proof-scaling toolkit: spec tables, framing helpers, and `c0_step` (`X0-proof`)
+# C0 proof-scaling toolkit: spec tables, framing helpers, and `c0_step`
 
 1. **Spec tables.** `SpecEntry` rows (`name`, `as`, `rs`, `spec`, `noExit`) and `Env.ofTable`, with
    `Env.ofTable_sound` (one `TableImpl` row per function instead of an N-way string `match` plus an

@@ -5,7 +5,7 @@ public import Std.Data.HashMap
 public import Std.Data.HashSet
 
 /-!
-# Shared Backend Printer Utilities (`#049-B1`)
+# Shared Backend Printer Utilities
 
 Common pure helpers shared by `LeanQbe.T.PrintCpp` and `LeanQbe.T.PrintQbe`:
 comparison mnemonics (`cmpOpName`), monotonic group-label allocation (`allocLabelsWith`),

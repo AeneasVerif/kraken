@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Dead-Code Elimination (`T6`, `O-M2`)
+# Dead-Code Elimination (`Func.dce`, `Func.deadLoadElim`)
 
 Two-phase PHOAS dead-binding elimination pass (`liveVarsWith` / `dceSweep` / `Func.dceWith`):
 1. Bottom-up pure liveness analysis (`liveVarsWith` / `liveVarsBWith`) over `Expr K KL0 rs` using

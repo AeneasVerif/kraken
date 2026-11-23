@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Classify dynamic register-to-register `mov` instructions in C4 binaries."""
+"""Classify dynamic register-to-register `mov` instructions in LeanQbe native x64 (C4) binaries."""
 
 import sys
 

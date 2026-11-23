@@ -12,8 +12,8 @@ import all Kraken.Separation
    `fullBridge9Indices`, `fullRemaining8aIndices`, `fullRemaining8bIndices`, concrete UNSAT
    witness byte vector (`fullNvUnsatBytes`), and `4096`-byte arena bounds.
 2. Concrete-memory source-level `Func.wp` sanity check (`full_unsat_payload`, `X = False`,
-   canonical `fullEnv`, strictly UNSAT-only — ZERO SAT / model-finding checks).
-3. Single-line `#print axioms` audit (`<= 100` cols) on all exported Stage-4 top orchestrator,
+   canonical `fullEnv`, strictly UNSAT-only — no SAT / model-finding checks).
+3. Single-line `#print axioms` audit on all exported `D-Full` top orchestrator,
    `FullBridgeLemmas9`, and unconditional `166/166` `ModuleOk` assembly theorems
    (strictly `⊆ [propext, Classical.choice, Quot.sound]`).
 -/

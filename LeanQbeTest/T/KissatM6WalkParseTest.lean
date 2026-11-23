@@ -12,7 +12,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Backend Guards, and Axiom Audit for Kissat M6 Wave 2 (`RC-26b` + `RC-27`)
+# Verification, Backend Guards, and Axiom Audit for Kissat M6 WalkSAT & Parse (`FullM6WalkParse`)
 
 1. Executable `#guard` checks on `m6WalkParseModule` (`11` fns + `7` externs, `0` exits),
    `checkAcyclic = true`, `m6WalkParseSpecTable` (`18` rows), drop-in replacement `Fn` handles,
@@ -20,7 +20,7 @@ meta import LeanQbe.T.Legal
 2. Audit-ready restated headline theorems for `m6WalkParse_fns_wf`, `m6WalkParse_acyclic`, all
    `11` parametric `Func.wp` contracts, closed `18`-row `m6WalkParse_moduleOk`, and concrete
    `Mem 64` UNSAT non-vacuity (`XPost := False`, `0` SAT proofs).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false

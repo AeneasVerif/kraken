@@ -12,7 +12,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Compilation Checks, and Axiom Audit for Kissat M4f (`FullM4VivBce`)
+# Verification, Compilation Checks, and Axiom Audit for Kissat M4 (`FullM4VivBce`)
 
 1. Executable `#guard` checks on `m4VivBceModule` (`16` new functions + `15` canonical externs,
    `0` exits), `checkAcyclic = true`, `m4VivBceSpecTable` (`31` rows), `PrintCpp`, `PrintQbe`,
@@ -23,7 +23,7 @@ meta import LeanQbe.T.Legal
    `FullFastBveBudgets.fullVivifyFastSpec`), `m4VivBce_moduleOk : ModuleOk m4VivBceEnv
    m4VivBceModule`, and all `16` concrete `Mem 64` UNSAT non-vacuity theorems (`nv_m4_*`,
    `XPost := False`, `0` SAT model proofs).
-3. Single-line `< 115`-col `#print axioms` audit on all `37` restated theorems (strictly
+3. Single-line `#print axioms` audit on all `37` restated theorems (strictly
    `⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -58,11 +58,11 @@ open Kraken.Bedrock2.Test
 
 section AuditSpec
 
-/-- Every function in `m4VivBce_fns` (`16` M4f functions) is well-formed. -/
+/-- Every function in `m4VivBce_fns` (`16` M4 functions) is well-formed. -/
 theorem m4f_wf : ∀ f ∈ m4VivBce_fns, f.Wf :=
   m4VivBce_fns_wf
 
-/-- Standalone M4f module `m4VivBceModule` passes `checkAcyclic = true`. -/
+/-- Standalone M4 vivification/BCE module `m4VivBceModule` passes `checkAcyclic = true`. -/
 theorem m4f_acyc : m4VivBceModule.checkAcyclic = true :=
   m4VivBce_acyclic
 
@@ -255,7 +255,7 @@ theorem m4f_bce_wp (Γ : Env)
     ∀ a m Q X, fullBceM4Spec a m Q X → Func.wp Γ full_bce_m4_body a m Q X :=
   full_bce_m4_wp Γ hEnterDense hBceVar hRebuild hProp
 
-/-- Closed `31`-row `ModuleOk` certifying all `16` M4f functions under `m4VivBceEnv`. -/
+/-- Closed `31`-row `ModuleOk` certifying all `16` M4 functions under `m4VivBceEnv`. -/
 theorem m4f_mod_ok : ModuleOk m4VivBceEnv m4VivBceModule :=
   m4VivBce_moduleOk
 

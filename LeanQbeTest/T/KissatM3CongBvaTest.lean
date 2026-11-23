@@ -6,17 +6,17 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Verification, UNSAT Non-Vacuity, and Axiom Audit for Kissat M3b (`FullM3CongBva`)
+# Verification, UNSAT Non-Vacuity, and Axiom Audit for Kissat M3 (`FullM3CongBva`)
 
 1. Executable `#guard` checks on `m3CongBva_fns` (`11` fns), `m3Module.checkAcyclic`,
    `m3Fns` (`201` fns), `m3FullModule.checkAcyclic`, `m3SpecTable` (`31` rows),
    `m3UnlandedIndices` (`43` fns), `schedNvUnsatBytes`, and `4096`-byte arena bounds.
 2. Concrete-memory source-level `Func.wp` sanity check (`m3_unsat_payload`, `X = False`,
-   canonical `m3FullEnv`, strictly UNSAT-only — ZERO SAT / model-finding checks).
-3. Single-line `#print axioms` audit (`< 115` chars) across `Func.Wf`, acyclicity, all `11`
-   M3b `Func.wp` proofs, `m3_fast_probe_tail_wp`, unconditional standalone `m3_moduleOk`,
-   `m3Full_moduleOk_of_m2b` (`158 / 201`), `m3_solve_bytes_correct`, and `m3_unsat_nonvacuous`
-   (strictly `⊆ [propext, Classical.choice, Quot.sound]`).
+   canonical `m3FullEnv`, strictly UNSAT-only — no SAT / model-finding checks).
+3. Single-line `#print axioms` audit across `Func.Wf`, acyclicity, all `11`
+   `FullM3CongBva` `Func.wp` proofs, `m3_fast_probe_tail_wp`, unconditional standalone
+   `m3_moduleOk`, `m3Full_moduleOk_of_m2b` (`158 / 201`), `m3_solve_bytes_correct`, and
+   `m3_unsat_nonvacuous` (strictly `⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
@@ -61,7 +61,7 @@ theorem m3_unsat_payload :
   m3_solve_bytes_correct (R := emp) (by decide) (by decide)
     (by rw [sep_emp]; exact schedPayload_sep schedNvUnsatBytes (by decide))
 
-/-! ## 3. Single-line `#print axioms` audit on exported M3b & unified theorems -/
+/-! ## 3. Single-line `#print axioms` audit on exported `FullM3CongBva` & unified theorems -/
 
 #print axioms m3_fns_wf
 #print axioms m3_acyclic

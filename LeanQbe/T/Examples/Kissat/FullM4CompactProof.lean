@@ -14,7 +14,7 @@ import all Kraken.Separation
 Proves all `13` `Func.wp` contracts for `FullM4Compact`, `compact_tableImpl`,
 `compact_moduleOk : ModuleOk compactEnv compactModule`, UNSAT-soundness preservation
 (`FullSparseInv` + `FullCfgCompat`), and concrete `1972`-byte `Mem 64` UNSAT non-vacuity
-(`XPost := False`, `cur_vars' = 1 < nvCompactCfg.mv = 2`, Canary #10).
+(`XPost := False`, verifying `cur_vars' = 1 < nvCompactCfg.mv = 2`).
 -/
 
 set_option autoImplicit false
@@ -2555,7 +2555,7 @@ theorem nv_full_compact :
       rfl, hok, hm, fun r c' s' m' hcompat' hsp' hr _ _ _ _ hm' => by
         rw [sep_emp] at hm'; exact ⟨c', s', hcompat', hsp', hr, nvCompactF0_unsat, hm'⟩⟩
 
-/-- Canary #10 non-vacuity (`cur_vars` shrinks `< nvCompactCfg.mv = 2`) under `compactEnv`. -/
+/-- Compaction non-vacuity (`cur_vars` shrinks `< nvCompactCfg.mv = 2`) under `compactEnv`. -/
 theorem nv_full_compact_canary10 :
     Func.wp compactEnv full_compact_assign_map_body (nvCompactCfg.hdr, ()) nvCompactMem
       (fun (ncv, ()) m' => ∃ s',

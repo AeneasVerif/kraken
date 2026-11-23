@@ -11,7 +11,7 @@ import all Kraken.Separation
 Builds on `CorePlusSpec1` to define concise `{ s with ... }` record-update `Spec` definitions
 for all 28 C0 functions in `coreplus_fns`, unit-witness `corePlusSolveBytesCoreSpec`, and the
 `Env.ofTable`-backed specification table `corePlusSpecTable` (`mkCorePlusEnv`, `corePlusEnv`),
-ready for Wave 1b proofs (`Env.ofTable_moduleOk`).
+for modular `Func.wp` proofs (`Env.ofTable_moduleOk`).
 -/
 
 set_option autoImplicit false

@@ -6,7 +6,7 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 
 /-!
-# Tests of `LeanQbe.T.Dce` (`T6`)
+# Tests of `LeanQbe.T.Dce`
 
 Covers:
 - Cascading dead pure `let_` elimination in a single bottom-up pass,
@@ -84,7 +84,7 @@ theorem multiResPartialProg_dce_spec (Γ : Env) (a b : BitVec 64) (m : Mem 64) :
   wp_unfold_all
   rfl
 
-/-! ## 3. Side effects & control (`load`, `store`, `call`, `exit`) are NEVER dropped -/
+/-! ## 3. Side effects & control (`load`, `store`, `call`, `exit`) are never dropped -/
 
 def effectsProg : Func [i64, i64, .bool] [i64] := fun _ _ p =>
   let a := p.1

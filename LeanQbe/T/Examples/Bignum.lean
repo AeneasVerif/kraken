@@ -7,10 +7,10 @@ public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.Examples.BignumProg
 
 /-!
-# T13: 4×4-limb Bignum Multiply and Modular Add/Sub mod `2^255 - 19` (`K1b`)
+# Curve25519 4×4-limb Bignum Multiply and Modular Add/Sub mod `2^255 - 19`
 
-100%-PHOAS typed IR programs and `wp` proofs against `Nat` (no `TFlat` dependencies, no n-limb
-loops per G10, constant-time `select` with zero secret-dependent branches per G2):
+100%-PHOAS typed IR programs and `wp` proofs against `Nat` (no `TFlat` dependencies, straight-line
+fixed-width limbs, constant-time `select` with zero secret-dependent branches):
 
 * `mul4x4`: 4×4-limb schoolbook multiply (`umulw` + interleaved dual `addc` chains matching x64
   `mulx` + `adcx`/`adox`).

@@ -8,7 +8,7 @@ import LeanQbe.T.Logic.ControlComb
 # Kissat M6 Congruence Closure & 2-Round Substitute Proofs — Part 2a
 
 Proves parametric `(Γ : Env)` `Func.wp` contracts for congruence pattern matchers and queue
-enqueuer, plus shared `M6EvalGateOk` / `M6HashGateOk` support (`FullM6CongSubst.lean` #16–#18):
+enqueuer, plus shared `M6EvalGateOk` / `M6HashGateOk` support (`FullM6CongSubst.lean` fns 16–18):
 1. `full_cong_and_match` (`full_cong_and_match_wp`, `m6CongAndMatchSpec`)
 2. `full_cong_xor_match` (`full_cong_xor_match_wp`, `m6CongXorMatchSpec`)
 3. `full_cong_enq_var` (`full_cong_enq_var_wp`, `m6CongEnqVarSpec`)

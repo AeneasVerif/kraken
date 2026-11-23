@@ -6,7 +6,7 @@ public meta import Lean.Elab.Tactic
 public meta import LeanQbe.T.Logic.C0Step
 
 /-!
-# Kissat M6 `PR-W2E-lite` Proofs Part 2c: `full_move_red_end_m6_wp` & Sweep Helpers
+# Kissat M6 Watch/GC Proofs Part 2c: `full_move_red_end_m6_wp` & Sweep Helpers
 
 Proves pure prefix-validation, `WatchSliceLtOk`/`FullWitnessInv`, `MoveRangeChain` concatenation,
 and `fullMoveRedEndSpec` -> `CompactPrefixOk`/`SweepReasonMapInv` bridge lemmas, followed by

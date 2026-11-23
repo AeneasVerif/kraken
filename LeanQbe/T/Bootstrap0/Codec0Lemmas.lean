@@ -13,8 +13,8 @@ form an exact canonical bijection on `Mod0Bounded` `TFlatModule0`s:
 * `encodeMod0_decodeMod0`: `decodeMod0 ba = some m → encodeMod0 m = ba`.
 * `decodeMod0_some_bounded`: `decodeMod0 ba = some m → Mod0Bounded m`.
 * `encodeMod0_inj` / `decodeMod0_inj` / `decodeMod0_encodeMod0_iff`: injectivity, determinism,
-  and canonical uniqueness (`0` sorry, `[propext, Classical.choice, Quot.sound]`, M1 `.olean`
-  hygienic).
+  and canonical uniqueness (`0` sorry, `[propext, Classical.choice, Quot.sound]`, clean `.olean`
+  exports).
 -/
 
 set_option autoImplicit false

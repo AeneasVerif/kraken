@@ -7,9 +7,9 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat Wave 2 `PR-W2A` (`RC-19`) `Func.wp` Proofs — Part 1b (`FullM6TiersProof1b`)
+# Kissat M6 Tiers `Func.wp` Proofs — Part 1b (`FullM6TiersProof1b`)
 
-Proves `Func.wp` (strictly UNSAT-only, ZERO SAT/model proofs) for the remaining `5` Wave-2
+Proves `Func.wp` (strictly UNSAT-only, ZERO SAT/model proofs) for the remaining `5` M6
 inprocessing orchestrators in `FullM6Tiers`:
 1. `full_probe_m6` against `m6ProbeInitSpec` (tick budgeting, `M6_WM_REDUCE_CONFL` cooldown skip,
    `delay[4]` adaptive backoff on congruence/sweep/vivifyirr, level-0 backtrack when `initial`).

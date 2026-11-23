@@ -15,7 +15,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave 4 `PR-W4B`: Proofs for Weighted VMTF Reorder (`FullM7ReorderProof`)
+# Kissat M7 Proofs for Weighted VMTF Reorder (`FullM7ReorderProof`)
 
 M1-clean (zero expose, zero import-all) UNSAT-only correctness proofs (`XPost := False`) for
 `m7ReorderModule`:
@@ -2258,7 +2258,7 @@ theorem m7Reorder_moduleOk : ModuleOk m7ReorderEnv m7ReorderModule := by
   unfold m7ReorderModule m7ReorderFns m7_reorder_fns
   exact ⟨full_reorder_weight_m7_wf, full_reorder_sift_m7_wf, full_reorder_queue_m7_wf, trivial⟩
 
-/-- Drop-in Wave-3/4 function correctness theorem for `m7ReorderQueueFn`. -/
+/-- Drop-in M6/M7 function correctness theorem for `m7ReorderQueueFn`. -/
 theorem m7ReorderQueueFn_wp :
     ∀ a m Q X, fullReorderQueueSpec a m Q X →
       Func.wp m7ReorderEnv m7ReorderQueueFn.body a m Q X :=

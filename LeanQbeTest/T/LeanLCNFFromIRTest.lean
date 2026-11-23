@@ -18,7 +18,7 @@ meta import LeanQbe.T.Driver
 
 * Kernel `lcnf_ir_of_lean!` splicing of a small cross-module closure (`Demo.rbBench`,
   `Demo.sortBench`, `Demo.usizeSum`), lowering via `lowerModule`, `Func.checkTFlat`, `PrintCpp`,
-  `PrintQbe`, and formal `Func.Wf` proof (`ir_demo_wf`) with `#print axioms` (`std3`, `< 115c`).
+  `PrintQbe`, and formal `Func.Wf` proof (`ir_demo_wf`) with `#print axioms` (standard axioms).
 * Live cross-module IR extraction via `extractIRClosure` and `readLcModuleIR` across:
   - multi-module `Demo` + `Coverage` closures (`0` missing, `0` opaque, `0` conversion errors);
   - full compiler core `LeanQbe.T.compile` (`2,000+` decls, `0` missing, `0` conversion errors);

@@ -7,7 +7,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 `PR-W2B`: Closed `ModuleOk` & Concrete `Mem 64` UNSAT NV (`FullM6MinShrinkProof`)
+# Kissat M6 Minimization/Shrink: Closed `ModuleOk` & UNSAT NV (`FullM6MinShrinkProof`)
 
 Combines all `17` parametric UNSAT-only `Func.wp` proofs (`Proof0`..`Proof3`) into:
 1. Closed `36`-row `m6MinShrinkSpecTable` (`17` defined functions + `19` canonical externs, all

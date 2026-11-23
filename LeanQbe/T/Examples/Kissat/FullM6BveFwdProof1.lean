@@ -13,7 +13,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-2 `PR-W2D` (`RC-22`) Proofs — Part 1 (Shared Lemmas & Cluster 1)
+# Kissat M6 BVE/Forward Proofs — Part 1 (Shared Lemmas & Cluster 1)
 
 M1-clean proof module (`public section`, `0` `@[expose]`, `0` `import all`, `private` helpers):
 1. Shared pure `FullDenseInvW` / `PH_SUBSUME` / `DenseWatchSliceOk` / `full_add_unit` /

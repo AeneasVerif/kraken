@@ -6,7 +6,7 @@ public meta import Lean.Elab.Tactic
 public meta import LeanQbe.T.Logic.C0Step
 
 /-!
-# Kissat `CorePlus` Mark-Clearing, `min_mark`, and DFS Frame Infrastructure (`Wave 1b`)
+# Kissat `CorePlus` Mark-Clearing, `min_mark`, and DFS Frame Infrastructure
 
 Provides specialized `CorePlusMem` `c0_load`/`c0_store` adapters, the fast `cp_steps` tactic,
 and proofs/invariants for the first two minimization functions in `CorePlus.lean`:

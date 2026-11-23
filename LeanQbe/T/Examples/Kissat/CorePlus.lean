@@ -7,14 +7,14 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat `D-Core+` CDCL SAT Solver in C0 (`Stage 2`)
 
-Self-contained C0 extension of `X1` (`Solver.lean`) in `LeanQbe.T.Examples.Kissat.CorePlus`,
+Self-contained C0 extension of `D-Min` (`Solver.lean`) in `LeanQbe.T.Examples.Kissat.CorePlus`,
 exposing `kissat_solve_bytes(cnf_ptr, cnf_len, work_ptr, work_len, fuel) -> 20 | 10 | 0`:
 
 * `20`: UNSAT (validated DIMACS with empty clause, level-0 conflict, or empty 1UIP learned clause).
 * `10`: SAT (only returned after mandatory `kissat_check_model` passes over `[cnf_ptr, cnf_end)`).
 * `0`:  UNKNOWN (fuel exhausted, workspace too small, or invalid DIMACS).
 
-Adds Kissat Stage-2 search heuristics and iterative minimization over the `X1` arena layout:
+Adds `D-Core+` search heuristics and iterative minimization over the `D-Min` arena layout:
 1. Iterative recursive clause minimization (`kissat_minimize_lit` / `kissat_minimize_clause`) with
    `SEEN` (bit 0), `REMOVABLE` (bit 1), `POISONED` (bit 2) flags in `mrk[]`, explicit DFS stack
    `min_stk` (`min_depth <= 1000`), and `min_clr` tracking for O(clr_len) mark reset.

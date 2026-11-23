@@ -2800,7 +2800,7 @@ theorem full_otfs_large_wp (Γ : Env)
                       obtain ⟨omap0, hinv0⟩ := otfs_large_loop2_init har_len (by omega) h4_old hs01
                       exact hL2 (old_sz - 2) _ m2
                         ⟨2, 1, 1, ar1, omap0, hm2_ar1, rfl, rfl, rfl, Or.inl rfl, hinv0⟩
-                · -- `full_watch_push` failed: atomic OOM before any arena swap / unwatch!
+                · -- `full_watch_push` failed: atomic OOM before any arena swap / unwatch
                   have hok_f : ok_p = false := Bool.eq_false_iff.mpr hok_pt_c
                   subst hok_f
                   obtain ⟨hsame_f, _⟩ := hok_pf rfl

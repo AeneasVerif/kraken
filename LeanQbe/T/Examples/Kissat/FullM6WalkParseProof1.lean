@@ -10,7 +10,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 Wave 2 (`RC-26b` + `RC-27`) `Func.wp` Proofs — Part 1 (`FullM6WalkParseProof1`)
+# Kissat M6 Parse-BCP & Walk `Func.wp` Proofs — Part 1 (`FullM6WalkParseProof1`)
 
 Proves UNSAT-only parametric `Func.wp` contracts (`XPost := False`, `0` SAT proofs) for:
 1. `full_rescale_m6_wp` against exact canonical `Full.fullRescaleSpec` (`>> 16ULL` EVSIDS rescale).

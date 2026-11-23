@@ -6,9 +6,9 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Zero-terminated arrays of 32-bit integers for `LeanQbe.T` (`T4`)
+# Zero-terminated arrays of 32-bit integers for `LeanQbe.T`
 
-Typed-IR counterpart of `LeanQbe/Logic/ZeroTerm.lean` over `ZeroTermInts` and `zeroTermGet`.
+Typed-IR separation predicates and lemmas for `ZeroTermInts` and `zeroTermGet`.
 -/
 
 set_option autoImplicit false

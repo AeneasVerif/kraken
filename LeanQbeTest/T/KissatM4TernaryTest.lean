@@ -11,8 +11,7 @@ import all Kraken.Separation
 1. Executable `#guard` checks on `full_m4_ternary_fns` (`14` functions), `fullM4TernaryExterns`
    (`6` externs), `fullM4TernaryModule.checkAcyclic`, `m4TernarySpecTable` (`20` rows, all
    `noExit = true`), and `nvM4TernaryBytes.length == nvM4TernaryCfg.avail` (`2128`).
-2. Short root-namespace `m4t_*` audit theorems + single-line `#print axioms` (`<= 100` cols,
-   every `depends on axioms: [...]` output `< 115` chars on one line).
+2. Short root-namespace `m4t_*` audit theorems + single-line `#print axioms` audit.
 -/
 
 set_option autoImplicit false

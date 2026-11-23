@@ -396,7 +396,7 @@ theorem plain_lucky_scan_wp (Γ : Env)
                               exact luckyScan_ret hQ (s' := sB2) hd1 hd2 hpr hlenB2
                                 (Or.inr (Or.inl rfl)) (fun h => by cases h) (fun h => by cases h)
                                 (fun h => by cases h) hmB2
-                            · -- ast == 1ULL -> clAn < sP.cur_level = 1, so clAn = 0!
+                            · -- ast == 1ULL -> clAn < sP.cur_level = 1, so clAn = 0
                               obtain ⟨hinvAn, hclAn_lt⟩ := hast1 ha1
                               have hclAn0 : sAn.cur_level = 0 := by dsimp [sAn]; omega
                               c0_call hProp

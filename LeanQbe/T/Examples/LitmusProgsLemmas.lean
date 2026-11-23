@@ -5,7 +5,7 @@ public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.FlatLemmas
 
 /-!
-# Well-Formedness, Source Contracts, and `ModuleOk` for `LeanQbe.T.Examples.Litmus` (`W3.1`)
+# Well-Formedness, Source Contracts, and `ModuleOk` for `LeanQbe.T.Examples.Litmus`
 
 Proves `*_wf` (`t_wf_reify`), exact `Spec` source contracts (`*_spec`), `*_moduleOk`
 (`Module.moduleOk_of_checkAcyclic`), and concrete memory non-vacuity (`tracer_nonvacuous`).
@@ -48,7 +48,7 @@ theorem sumcallModule_acyclic : sumcallModule.checkAcyclic = true := by t_kernel
 
 /-! ## 2. Helpers and Source Contracts -/
 
-/-- Low 32 bits of a 64-bit word are nonzero (matching E1 `jnz` / `cnew (trunc 64 32 _) 0`). -/
+/-- Low 32 bits of a 64-bit word are nonzero (`cnew (trunc 64 32 _) 0`). -/
 def Truthy (c : BitVec 64) : Prop := c.setWidth 32 ≠ 0#32
 
 /-- `1 + 2 + … + k` in 64-bit arithmetic. -/

@@ -12,7 +12,7 @@ meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.LratBytes
 
 /-!
-# Untrusted-bytes LRAT proof checker (`lratBytesFns`) on AArch64 (`T16`)
+# Untrusted-bytes LRAT proof checker (`lratBytesFns`) on AArch64
 
 Instantiates the typed-IR 6-function untrusted-bytes DIMACS + Binary LRAT checker module
 `lratBytesModule` on `armTarget` (`armLegalTarget`, `armLayout`, `armLabelClean`) with:

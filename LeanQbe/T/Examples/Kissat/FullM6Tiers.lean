@@ -5,7 +5,7 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Wave 2 `PR-W2A` (`RC-19`): Mode-Split Tiers, `used[2].glue[128]`, `delay[4]`, Watermarks
+# Kissat M6 Mode-Split Tiers, `used[2].glue[128]`, `delay[4]`, & Watermarks (`FullM6Tiers`)
 
 Purely additive C0 extension module on top of frozen `FullHdr` (`144` `u64` words = `1152` bytes;
 zero edits to `Full1..3`, `FullM4*`, `FullM5*`, `M5Hub.lean`, or `FullHdr`):
@@ -13,10 +13,10 @@ zero edits to `Full1..3`, `FullM4*`, `FullM5*`, `M5Hub.lean`, or `FullHdr`):
 1. **`FullM6Hdr` / `M6HdrExt` Layout Constants (`144` base + `288` ext = `432` `u64` words):**
    - Explicitly defines `M6HdrExt` (`2304` bytes) and `FullM6Hdr` (`FullHdr base; M6HdrExt ext;`,
      `3456` bytes) extending the `144`-word `FullHdr` cleanly while reserving `48` bytes
-     (`w2b_delayed_reserved[6]` = `12` `u32` words) for `w2b` (`FullM6MinShrink`) `decision_rate`.
+     (`w2b_delayed_reserved[6]` = `12` `u32` words) for `FullM6MinShrink` `decision_rate`.
    - At runtime against frozen `FullMem`, when `h->delayed_cap >= fullM6DelMinCap` (`200`),
      `M6HdrExt` state is stored inside `h->delayed[16 .. 565]` (`del[0..15]` = `64` bytes left
-     untouched for `w2b`'s `del[0..11]`), falling back safely to `FullHdr` when tiny.
+     untouched for `FullM6MinShrink`'s `del[0..11]`), falling back safely to `FullHdr` when tiny.
 2. **Mode-Split Tiers & `used[2].glue[128]` (`tiers.c`, `deduce.c`, `analyze.c`):**
    - `full_m6_recompute_tiers_mode` & `full_recompute_tiers_m6` over `128` glue bins per mode
      (`focused=0`, `stable=1`) using upstream `50%` / `90%` cumulative thresholds (`tiers.c`),
@@ -65,10 +65,10 @@ def fullM6HdrTotalWords : Nat := 432
 /-- Total unified `FullM6Hdr` byte size (`1152 + 2304 = 3456` bytes). -/
 def fullM6HdrTotalBytes : Nat := 3456
 
-/-- Byte size reserved inside `M6HdrExt` / `delayed` for `w2b` (`12 * u32` `decision_rate`). -/
+/-- Byte size reserved inside `M6HdrExt` / `delayed` for `decision_rate` (`12 * u32`). -/
 def fullM6W2bReservedBytes : Nat := 48
 
-/-- First `u32` index inside `h->delayed` used by `M6HdrExt` (`del[0..15]` left free for `w2b`). -/
+/-- First `u32` index in `h->delayed` used by `M6HdrExt` (`del[0..15]` free for `decision_rate`). -/
 def fullM6DelExtStartU32 : Nat := 16
 
 /-- Total `u32` words spanned inside `h->delayed[0 .. 565]` (`16` reserved + `550` `M6HdrExt`). -/
@@ -128,7 +128,7 @@ def m6ExtOffModeStableTicks : Nat := 248
 def m6ExtOffUsed0 : Nat := 256
 def m6ExtOffUsed1 : Nat := 1280
 
-/-! ### Runtime `h->delayed` `u32` Offsets (`del[16 .. 565]`, leaving `del[0..15]` for `w2b`) -/
+/-! ### Runtime `h->delayed` `u32` Offsets (`del[16 .. 565]`, `del[0..15]` for `decision_rate`) -/
 
 def m6DelMagicIdx : Nat := 16
 def m6DelTier1Base : Nat := 18
@@ -911,7 +911,7 @@ def m6AnalyzeFn : Fn := ⟨"full_analyze", [i64], [i64], full_analyze_m6_body⟩
 def m6ProbeFn : Fn := ⟨"full_probe", [i64], [i64], full_probe_body⟩
 def m6EliminateFn : Fn := ⟨"full_eliminate", [i64], [i64], full_eliminate_body⟩
 
-/-- Standalone Wave-2 `PR-W2A` module (`35` functions + `18` externs, `0` exits). -/
+/-- Standalone M6 tiers/delay/watermarks module (`35` functions + `18` externs, `0` exits). -/
 def m6TiersModule : LeanQbe.T.Module :=
   { fns := m6Tiers_fns, externs := m6TiersExterns, exits := [] }
 

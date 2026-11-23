@@ -7,10 +7,10 @@ import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
 
 /-!
-# Kissat Wave-2 PR-W2C (`RC-20`) — Vivification Scheduler & Top-Level (`Proof3b`)
+# Kissat M6 Vivification — Scheduler & Top-Level (`Proof3b`)
 
 Certifies UNSAT-sound `Func.wp` (`XPost := False`, `0` SAT model proofs) for the `7` top-level
-`RC-20` vivification scheduling and driver functions in `FullM6VivBackbone.lean`, culminating in
+vivification scheduling and driver functions in `FullM6VivBackbone.lean`, culminating in
 the canonical drop-in contract `FullFastBveBudgets.fullVivifyFastSpec`:
 1. `full_viv_tier_match_m6_wp` (tier predicate)
 2. `full_viv_collect_m6_wp` (2-pass unvivified-first candidate collection into `red_refs`)
@@ -758,7 +758,7 @@ theorem full_viv_sort_sched_m6_wp (Γ : Env) :
                 c0_hsteps; exact hJp1 _ mj rfl
               · exact hJp1 _ mj rfl)
           rintro _ ⟨dpk1, ⟨⟩⟩ mp1 hmp1; rw [hmp1]
-          -- Join after `if (!pv0 && v0)` and `if (pv0 == v0)` -> single shift copy!
+          -- Join after `if (!pv0 && v0)` and `if (pv0 == v0)` -> single shift copy
           c0_hsteps_nogrp
           refine wp_join_group (ts := []) (fun () ms => ms = mj)
             (fun _ _ ms hms => by

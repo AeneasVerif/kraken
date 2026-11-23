@@ -10,7 +10,7 @@ set_option autoImplicit false
 # Kissat `D-Full` C0 Solver — Embedded Scratch `kitten` Sub-Solver (`Stage 4`)
 
 Ports all `15` scratch-resident `kitten` mini-CDCL sub-solver and DAG UNSAT-core shrinking
-functions from `prototype/kissat-fast-c0` into `Kissat.Full` without modifying `FullHdr` (`144`
+functions in `Kissat.Full` without modifying `FullHdr` (`144`
 `u64` words, omitting the dead write-only `kitten_calls` counter):
 1. Initialization, 2-watched-literal attachment, and clause loading (`full_kitten_init`,
    `full_kitten_watch`, `full_kitten_add_clause`).

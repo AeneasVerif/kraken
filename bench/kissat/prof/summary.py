@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare C4 vs C3b Callgrind profiles across CNFs (instruction-class + per-function)."""
+"""Compare LeanQbe x64 (C4) vs PrintCpp C++20 (C3b) Callgrind profiles across CNFs."""
 
 import sys
 

@@ -5,7 +5,7 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Wave-2 `PR-W2D` (`RC-22`): BVE Max-Heap, Adaptive `elim_bound`, ITE Gates & `forward.c`
+# Kissat M6 BVE Max-Heap, Adaptive `elim_bound`, ITE Gates & `forward.c` (`FullM6BveFwd`)
 
 Standalone drop-in C0 upgrades (`0` `FullHdr` edits — `144` words frozen; `0` edits to
 `Full1..3`, `FullM4*`, `FullM5*`, `M5Hub`, or `LeanQbe`):
@@ -19,7 +19,7 @@ Standalone drop-in C0 upgrades (`0` `FullHdr` edits — `144` words frozen; `0` 
    - `NOT(lit)` self-subsuming resolution (`check_bins=true` on `l`, `check_bins=false` on `l^1`),
      multi-shrink loop, `PH_SUBSUME` (`0x01000000u`) tracking + `FL_SUBSUME` reactivation, dense
      unit flush, and OOM-safe `full_add_bin` check before marking `PH_GARB`.
-3. **Cluster 3 — `RC-22` BVE & Gate Extraction (`full_bve_*_m6`)**:
+3. **Cluster 3 — BVE & Gate Extraction (`full_bve_*_m6`)**:
    - `occlim = 512` per side (`1024` total) + `clslim = 100` on inputs and resolvents.
    - `vals[l]` check in `full_bve_mark_and_m6`, structural `ifthenelse` gate extraction
      (`full_bve_{get_tern,match_tern,find_ite}_m6`), Kitten `full_find_definition` fallback, and
@@ -1298,7 +1298,7 @@ def m6BveFwdExterns : List Extern :=
   , ⟨"full_factor", [i64, i64], [i64]⟩
   , ⟨"full_rebuild_watches", [i64], [i64]⟩ ]
 
-/-- Standalone Wave-2 `PR-W2D` module (`24` owned `_m6` functions, `24` canonical externs). -/
+/-- Standalone M6 BVE/forward module (`24` `_m6` functions, `24` canonical externs). -/
 def m6BveFwdModule : LeanQbe.T.Module :=
   { fns := m6BveFwd_fns, externs := m6BveFwdExterns, exits := [] }
 

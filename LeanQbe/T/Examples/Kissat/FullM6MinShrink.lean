@@ -5,11 +5,11 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat M6 Wave 2 (`PR-W2B`, `RC-18`): Cohesive Minimization, Block Shrink & Sorted VMTF Bumping
+# Kissat M6 Cohesive Minimization, Block Shrink & Sorted VMTF Bumping (`FullM6MinShrink`)
 
-Standalone drop-in C0 overrides off `main` (`0` edits to `FullHdr` / `144` words frozen, `0` edits
-to `Full1..3.lean`, `FullM4*.lean`, `FullM5*.lean`, or `M5Hub.lean`):
-1. **Cohesive `minimize` + `shrink` parity (`RC-18`)**:
+Standalone drop-in C0 overrides preserving the unchanged `144`-word `FullHdr` layout
+for clause minimization, level-block shrinking, and sorted VMTF bumping:
+1. **Cohesive `minimize` + `shrink` parity**:
    - `full_min_lit_dfs_m6` / `full_min_lit_m6`: iterative binary-reason DFS (`cur_depth` increments
      only across large clauses; binary chains tracked safely inside `min_stk`), supporting optional
      `analyzed`-based `used[lvl] <= 1` check (`check_used`).
@@ -837,7 +837,7 @@ def m6MinShrinkExterns : List Extern :=
   , ⟨"full_learn_clause", [i64, i64], [i64]⟩
   ]
 
-/-- Standalone Wave-2B minimization, shrink, failed-literal, and sorted VMTF bumping module. -/
+/-- Standalone M6 minimization, shrink, failed-literal, and sorted VMTF bumping module. -/
 def m6MinShrinkModule : LeanQbe.T.Module :=
   { fns := m6MinShrink_fns, externs := m6MinShrinkExterns, exits := [] }
 

@@ -1,8 +1,8 @@
-> **[Historical design note]** Written during an earlier milestone; several `LeanQbe/*.lean` (E1) paths referenced below have since moved to `LeanQbe/T/`. See `README.md` for current paths.
+> **[Historical design note]** Written during earlier Kraken integration and untyped-IR (`LeanQbe/*.lean`) milestones; Kraken is now vendored directly in this repository under `Kraken/` and active compiler modules live under `LeanQbe/T/`. See `LeanQbe-README.md` for current paths.
 
-# Kraken worktrees and upstreamed lemmas (worker `kraken`)
+# Kraken Lemmas, AArch64 Early Target, and Upstream Rebase Notes
 
-## Worktrees
+## Historical Worktrees (Pre-Vendoring)
 
 | Worktree | Branch | Role |
 |---|---|---|
@@ -26,16 +26,16 @@ replayed rather than rebuilt (166 jobs, 0.15 s).
 
 ## History
 
-| Milestone | Commit | What |
+| Step | Commit | What |
 |---|---|---|
-| K0 | `ae789b6` | worktrees created, builds clean |
-| K1 | `1fc7dfb` | x64 generic lemmas from Spike K (below) |
-| K2 | `4952311` | AArch64 counterparts (below) |
-| K2+ | `d0d005e` | `Host.label_undefined` (undefined labels resolve to -1), x64 and AArch64 |
-| K3 | `6aa97bf` | x64 `div` and `idiv` (all widths, reg/mem, `#DE` fault, hardware tests) |
-| K3+ | `89d18c6` | x64 parser: all condition-code suffixes (`ge`/`nl`, `g`/`nle`, `o`/`no`, `s`/`ns`, `p`/`pe`/`np`/`po`) |
+| Setup | `ae789b6` | worktrees created, builds clean |
+| x64 WP | `1fc7dfb` | x64 generic lemmas from `SpikeK` (below) |
+| Arm64 WP | `4952311` | AArch64 counterparts (below) |
+| Labels | `d0d005e` | `Host.label_undefined` (undefined labels resolve to -1), x64 and AArch64 |
+| x64 div | `6aa97bf` | x64 `div` and `idiv` (all widths, reg/mem, `#DE` fault, hardware tests) |
+| x64 cc | `89d18c6` | x64 parser: all condition-code suffixes (`ge`/`nl`, `g`/`nle`, `o`/`no`, `s`/`ns`, `p`/`pe`/`np`/`po`) |
 
-## K1: x64 lemmas (commit `1fc7dfb`)
+## x86-64 WP Lemmas (commit `1fc7dfb`)
 
 All statements are generic in the `Host` and the position. Axioms: only `propext`, `Classical.choice`,
 `Quot.sound` (checked with `#print axioms` for every headline lemma below). No `sorry`.
@@ -57,14 +57,13 @@ Not upstreamed (they are compiler-shaped, not Kraken-shaped): `doWhile`, `ifThen
 The lean-qbe regression spike `spike/k/SpikeK.lean` still checks against the new Kraken (its names live
 in namespace `SpikeK`).
 
-## K2: AArch64 (commit `4952311`)
+## AArch64 WP Lemmas (commit `4952311`)
 
 `Kraken/AArch64/WP/{Host,Basic}.lean` are adapted copies of the x64 files *including the
-K1 additions* (label resolution, `LabelsUnique`, `Host.ofLayout`, CPS step lemma, `wp` rules); only
-the import lines differ (both use upstream `Kraken.Layout` after the `#230` rebase, removing the
-earlier `Inert.lean` files). This confirms Spike K's finding that these files are
-architecture-independent. Duplication: 219 + 218 lines. Making Kraken architecture-generic would
-remove it but is out of scope (plan 2.6).
+x64 WP additions* (label resolution, `LabelsUnique`, `Host.ofLayout`, CPS step lemma, `wp` rules); only
+the import lines differ (both use upstream `Kraken.Layout` after the upstream layout rebase, removing the
+earlier `Inert.lean` files). This confirms that these files are architecture-independent.
+Duplication: 219 + 218 lines. Making Kraken architecture-generic would remove it but was out of scope.
 
 | File | Lemmas |
 |---|---|
@@ -73,16 +72,16 @@ remove it but is out of scope (plan 2.6).
 | `Kraken/AArch64/Sep.lean` | `store_All_of_sep`, `load_All_of_sep` |
 | `Kraken/AArch64/WPTests.lean` (new) | parser encodings by `rfl`; concrete host where `bl f; b e; f: ret; e:` provably runs to the end |
 
-`KrakenAArch64.lean` now imports `Regs` and `WP`. Axioms as for K1. lean-qbe's `spike/k/SpikeKAArch64.lean`
+`KrakenAArch64.lean` imports `Regs` and `WP`, using standard axioms only. `spike/k/SpikeKAArch64.lean`
 still checks (it does not import the new modules, so its root-namespace copies do not clash).
 
 Note: with expected type `Kraken.Directive Instr` (e.g. the parser's output type) the dot forms
 `.bTo` etc. do not resolve; write `Directive.bTo`. With expected type `Directive` (e.g. `Host.prog[i]?`)
 they do.
 
-## Arm64: the AArch64 `Target` instance (plan step 2d), lean-qbe commits `76a9d73`, `86d31fb`
+## AArch64 `Target` Instance (Untyped Prototype, commits `76a9d73`, `86d31fb`)
 
-`LeanQbe.Arm64.target : Target` implements Target **v1** (abi's 4684edf: op/load/store snippets, jnz on
+`LeanQbe.Arm64.target : Target` implements Target **v1** (`4684edf`: op/load/store snippets, jnz on
 `Truthy`, frames, calls, tail jumps) on Kraken AArch64, with no `sorry` and standard axioms only.
 `timeout 900 lake build --wfail LeanQbeArm64` builds it.
 
@@ -91,7 +90,7 @@ they do.
 | `Arm64/Targ.lean` | registers (`XRegOrSp`), register sets, `mov` (= `add rd, rs, #0`, valid for `sp`), `movi` (literal pool `ldr x, =c`), `jmp` (`b`), `jnz` (`cbnz w_r`, i.e. QBE's low-32-bit test), `ret`, frame snippets |
 | `Arm64/Isel.lean` | `op`, `load`, `store` snippets and `isa`. Class `w` ops use the 32-bit instruction forms, which match QBE's `lo32`/`zext32` exactly; immediates go to x16/x17 |
 | `Arm64/TargLemmas.lean` | `Runs c s s'` (straight-line code falls through from `s` to `s'` in every host) with `nil/append/single/cons`; moves, constants, operands, loads and stores at every width/sign/class, `jmp`, `jnz`, `ret` |
-| `Arm64/IselLemmas.lean` | `op_runs` for every `bin`/`cmp`/`ext`/`copy` at both classes (written by helper `arm64-isel`) |
+| `Arm64/IselLemmas.lean` | `op_runs` for every `bin`/`cmp`/`ext`/`copy` at both classes |
 | `Arm64/FrameLemmas.lean` | `sub/add sp`, `str/ldr [sp, #o]` with the alignment check, prologue, epilogue, slots, `bl`, `b` |
 | `Arm64/Abi.lean` | the instance |
 | `Arm64/Tracer.lean` | the tracer through `lowerFn_correct`: lowers to `add x0,x0,x1; str x0,[x2]; ret` by `rfl`; `tracer_correct` (Kraken AArch64 notions only, any host containing the code with unique labels) and `tracer_nonvacuous` (a concrete state meeting every premise) |
@@ -102,7 +101,7 @@ Frame: `frameSize ns = 8ns+8` rounded up to 16; `sub sp,sp,#F; str x30,[sp,#8ns]
 image; `Saved` = the saved-x30 word plus padding.
 
 Executed: the printed tracer assembly assembles with `aarch64-linux-gnu-gcc` and returns the right sum
-and stores it, for 5 vectors under `qemu-aarch64` (harness in my scratch folder, `arm64run/`).
+and stores it, for 5 vectors under `qemu-aarch64`.
 
 Findings:
 
@@ -114,7 +113,7 @@ Findings:
 - Known limits (assembly-time, loud): frames ≥ 4096 bytes (`sub sp` immediate), and branch ranges.
 - `⋆` is left-associative (`p ⋆ q ⋆ r = (p ⋆ q) ⋆ r`); `ac_rfl` works for rearranging.
 
-## Step 4 (part 1): AArch64 litmus parity (lean-qbe commits `2e0ac0f`, `38d1e17`)
+## AArch64 Litmus Parity (commits `2e0ac0f`, `38d1e17`)
 
 All six litmus programs (`tracer`, `ifelse`, `sumto`, `evenodd`, `nested`, `swap` from generic
 `LeanQbe/Examples/LitmusProgs.lean`) now go through the full AArch64 pipeline (`compileFn Arm64.isa`:
@@ -126,9 +125,9 @@ mid-end `Func.opt`, first-fit allocation oracle `Spill.hints`, verified lowering
 | `LeanQbe/Arm64/Litmus.lean` | `sumto_correct`: end-to-end theorem on Kraken AArch64 (`x0 = n < 2^32`, `x30 = ra`, `sp` 16-aligned, `dmem =⋆ R` → `pc = ra`, `x0 = tri n.toNat`, `x19`–`x29` and `sp` preserved, `dmem =⋆ R`), generic in `[Host]` and `k₀` under `LabelsUnique`; `sumto_nonvacuous` (concrete host and state, `x0 = 3` → `pc = 0x1234 ∧ x0 = 6`) |
 | `test/arm64/Emit.lean`, `GenLitmus.lean`, `run.sh` | AArch64 emitter, code/proof generator, and test runner (`test/arm64/run.sh`: 12/12 PASS — 6 programs × our AArch64 assembly and stock QBE `-t arm64` on `leanqbe --il`, cross-assembled with `aarch64-linux-gnu-gcc` and run under `qemu-aarch64` against `test/*_main.c`) |
 
-## K3: x64 `div` and `idiv` in Kraken (commit `6aa97bf`)
+## x86-64 `div` and `idiv` in Kraken (commit `6aa97bf`)
 
-Added by helper `krakendiv` in `kraken/lean-qbe-dev` and fast-forwarded to the consumer:
+Added in `kraken/lean-qbe-dev` and fast-forwarded to the consumer:
 
 - `Operation.div` and `Operation.idiv (src : RegOrMem w)` across all widths (8, 16, 32, 64 bits):
   divides `ah:al` (8-bit) or `dx:ax` / `edx:eax` / `rdx:rax` by `src`, writes quotient to `al`/`rax`
@@ -140,10 +139,10 @@ Added by helper `krakendiv` in `kraken/lean-qbe-dev` and fast-forwarded to the c
 - Parser (string and `x64` syntax), AT&T and Intel printers, round-trip and `#DE` unit tests, plus
   hardware differential tests `Kraken/X64/Test/asm/test_{div,idiv}.S`: `asm_tests.py --skip-sde`
   passes 52/52 natively, and `fuzz_x64.py` passes 6,000 random sequences with 0 failures.
-- Note on bit-scan instructions (`tzcnt`, `lzcnt`, `bsr`, `popcnt`): upstream PR #216 (`fb94f20`,
-  `b304cbf`) already implements them; we did not duplicate it since QBE's IL has no bit-scan ops.
+- Note on bit-scan instructions (`tzcnt`, `lzcnt`, `bsr`, `popcnt`): upstream commits `fb94f20` and
+  `b304cbf` already implement them, so they were not duplicated.
 
-## Step 5 (part 1): Union-Find end to end on AArch64 (lean-qbe commit `1b51e20`)
+## Union-Find End-to-End on AArch64 (commit `1b51e20`)
 
 `LeanQbe/Arm64/UnionFind.lean` (imported by `LeanQbeArm64.lean`) compiles `UnionFind.find` (with path
 halving) and `UnionFind.unionInline` through `compileFn Arm64.isa`, checks the emitted AArch64
@@ -165,9 +164,9 @@ AArch64 operational semantics (`step1`) and the functional partition model (`uf`
 - `test/arm64/unionfind_main.c`: C driver linked with both our compiled AArch64 assembly and stock
   QBE `-t arm64` output via `test/arm64/run.sh` (14/14 PASS under `qemu-aarch64`).
 
-## Step 4 & Step 5 (R3 update): Calls, Exits, Spills, and Module Linking on AArch64 (commit `1ff3055`)
+## Calls, Exits, Spills, and Module Linking on AArch64 (commit `1ff3055`)
 
-Following `@rega`'s R3 (`8344d4f`), all functions on AArch64 emit `Arm64.prologue`/`Arm64.epilogue`
+Following the addition of calls, exits, and spills in `Rega` (`8344d4f`), all functions on AArch64 emit `Arm64.prologue`/`Arm64.epilogue`
 (saving and restoring `x30` in the 16-byte-aligned stack frame `frameSize ns = (8*ns + 8 + 15)/16*16`),
 and `LeanQbe/Arm64/{Tracer,LitmusCode,Litmus,UnionFind}.lean` are updated and extended:
 
@@ -190,7 +189,7 @@ and `LeanQbe/Arm64/{Tracer,LitmusCode,Litmus,UnionFind}.lean` are updated and ex
   - `find_arm64_correct`, `union_arm64_correct`, `unionInline_arm64_correct`, and concrete-host
     non-vacuity theorems `find_arm64_nonvacuous`, `union_arm64_nonvacuous`, `unionInline_arm64_nonvacuous`.
 
-## Step 7: `lrat-trim` End-to-End on Kraken AArch64 (`LeanQbe/Arm64/LratTrim.lean`, commit `1ff3055`)
+## `lrat-trim` End-to-End on Kraken AArch64 (`LeanQbe/Arm64/LratTrim.lean`, commit `1ff3055`)
 
 `LeanQbe/Arm64/LratTrim.lean` (imported by `LeanQbeArm64.lean`) compiles the 4-function verified LRAT
 checker module `LratTrim.lratCheckFns` through `compile Arm64.isa`, checks the emitted AArch64
@@ -222,7 +221,7 @@ assembly (649 directives total) in the kernel (`rup_compile`, `strict_compile`, 
   `unionfind`) for both our compiled AArch64 assembly and stock QBE `-t arm64`.
 - All headline theorems depend only on `[propext, Classical.choice, Quot.sound]`.
 
-## Arm64 `compile_sound`, Label Entry Points, and Accepting UNSAT Witness (#176, #177, #183)
+## Arm64 `compile_sound`, Label Entry Points, and Accepting UNSAT Witness
 
 Updated `LeanQbe/Arm64/{LitmusCode,Litmus,UnionFind,LratTrim}.lean` and `test/arm64/GenLitmus.lean`
 to use `compileModule` + `compile_sound` and `Labels.label` entry/exit points, and added the
@@ -247,11 +246,11 @@ concrete accepting UNSAT witness on AArch64:
   - `checkProof_arm64_correct` and `checkProof_arm64_nonvacuous` enter at
     `Labels.label "br_check_proof"` and exit to `Labels.label "lrat_fail"` under `target.Defined`.
   - **`lrat_accepts_fnspec` & `checkProof_arm64_accepts`**: links `lratAcceptEnv` via `compile_sound`
-    and instantiates `@logic`'s `checkProof_accepts_nonvacuous` (`X := fun _ _ _ => False`) on
+    and instantiates `checkProof_accepts_nonvacuous` (`X := fun _ _ _ => False`) on
     `(zeros224 ++ nvAcceptBytes).At 0x0f20#64` (CNF `[[1], [-1]]` with a 1-step resolution proof),
     proving `Eventually (step1 Host.exe) (fun st => st.pc = 0x1234 ∧ nvAcceptCnf.Unsat)`.
 
-## Untrusted-Bytes LRAT Checker on Kraken AArch64 (`LeanQbe/Arm64/LratBytes.lean`, #200.5 & #204)
+## Untrusted-Bytes LRAT Checker on Kraken AArch64 (`LeanQbe/Arm64/LratBytes.lean`)
 
 `LeanQbe/Arm64/LratBytes.lean` compiles all six functions in `LeanQbe.LratBytes.lratBytesFns`
 through `compileModule Arm64.isa 0 [] [] 0 lratBytesFns`, checks all 1,579 emitted Kraken AArch64
@@ -273,7 +272,7 @@ directives and per-function stack bounds in the kernel (`lrat_bytes_module_compi
   `cnfBytes`, `prfBytes`, and uninitialized scratch `region work_ptr work_len`: returns to `ra`
   (`x30`) with `x0 ∈ {0, 1}`, `x0 = 1 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`,
   callee-saved `x19`–`x29` and `sp` restored, and all memory frames intact (`exits = []`).
-- **`lrat_check_bytes_arm64_unsat`** (#204 trivial-postcondition corollary): for any
+- **`lrat_check_bytes_arm64_unsat`** (parser-free corollary): for any
   `ValidDimacsCnf cnf` encoded via `(encodeDimacs cnf).At cnf_ptr`, arbitrary `prfBytes`, and
   `region work_ptr work_len`, concludes `st.pc = ra ∧ (x0 = 0 ∨ x0 = 1) ∧ (x0 = 1 → cnf.Unsat)`.
 - **`lrat_check_bytes_arm64_accepts` & `lrat_check_bytes_arm64_rejects`**: concrete machine-level
@@ -286,11 +285,11 @@ directives and per-function stack bounds in the kernel (`lrat_bytes_module_compi
     suites (including `lrat_bytes (arm64)` and `lrat_bytes (stock qbe arm64)` against guard-paged
     `test/lrat_bytes_main.c`).
 
-## T0: Rebase Kraken onto upstream `bf9a5e3`
+## Rebase Kraken onto Upstream `bf9a5e3`
 
-- **Worktree**: `../kraken/lean-qbe-v2` (branch `lean-qbe-v2`, HEAD `d2b7a5e71d28d51f1bd5395d5e5c522f53233e7f`, clean working tree), rebased all 36 local Kraken commits (`bf9a5e3..d2b7a5e`, keeping WP libraries, `div`/`idiv`, condition-code suffix tests, Bedrock2 port, and `nightly-2026-11-08` per decision `G3`) onto upstream `main` `bf9a5e3` (`bf9a5e33ac33cd40cd379121e658fce6f90f18e3`).
-  - Folded all upstream `bf9a5e3` adaptations directly into the rebased history with zero uncommitted files left behind (`git status` clean): `f4217ff` (`Kraken/Bedrock2/NonVacuity.lean` `l.mapM id`), `a7bc894` (`Kraken/SeparationMem.lean` `#253` `List.mapM_pure` adaptation + `Kraken/SeparationTests.lean` + `nightly-2026-11-08`), `fca3926` (`Kraken/X64/WP/Control.lean` `#229` `⸨prog| ... ⸩` docstrings & `#230` `Host.ofLayout` docstring without `hzero` in `Kraken/X64/WP/Host.lean`), `a6129f6` (`#230` deletion of `Kraken/AArch64/Inert.lean` and adaptation of `Kraken/AArch64/WP/{Basic,Control,Host}.lean` + `Kraken/AArch64/WPTests.lean`), `f37cc00` (`Host.label_undefined`), `b948f81` (`div`/`idiv`), and `d2b7a5e` (`Kraken/X64/ParserTests.lean` condition-code suffix alias tests covering `setcc`/`jcc`/`cmovcc`, including `pe`/`po`).
-- **`lean-qbe` updates**: committed on `main` (clean working tree except pre-existing untracked `conversations.txt`), pointing `lakefile.toml` and `lake-manifest.json` at `../kraken/lean-qbe-v2` (`d2b7a5e71d28d51f1bd5395d5e5c522f53233e7f`), parameterizing `TargetLayout` (updated generic docstring) and `checkCompileResult` on `progSmall` (for `#230` directive sizes), deduplicating uniform host layout helpers (`uniformLayout`, `uniformDirSize`, `uniformProgSmall`, `uniformLayout_small`, `labelsNodup`, `labelsNodup_nodup`) into `LeanQbe/AbiLemmas.lean` for `LeanQbe/Amd64/TargLemmas.lean` and `LeanQbe/Arm64/Abi.lean`, updating `Mem.mem_of_loadBytes`/`allSome_isSome` for `List.mapM id`, and migrating `ParserChecks` to `⸨prog| ... ⸩` across `LeanQbe/{AbiLemmas,Main,MainLemmas}.lean`, `LeanQbe/Amd64/{TargLemmas,IselLemmas}.lean`, and `LeanQbe/Arm64/{Abi,FrameLemmas,IselLemmas}.lean`.
+- **Worktree**: `../kraken/lean-qbe-v2` (branch `lean-qbe-v2`, HEAD `d2b7a5e71d28d51f1bd5395d5e5c522f53233e7f`, clean working tree), rebased all 36 local Kraken commits (`bf9a5e3..d2b7a5e`, keeping WP libraries, `div`/`idiv`, condition-code suffix tests, Bedrock2 port, and `nightly-2026-11-08`) onto upstream `main` `bf9a5e3` (`bf9a5e33ac33cd40cd379121e658fce6f90f18e3`).
+  - Folded all upstream `bf9a5e3` adaptations directly into the rebased history with zero uncommitted files left behind (`git status` clean): `f4217ff` (`Kraken/Bedrock2/NonVacuity.lean` `l.mapM id`), `a7bc894` (`Kraken/SeparationMem.lean` `List.mapM_pure` adaptation + `Kraken/SeparationTests.lean` + `nightly-2026-11-08`), `fca3926` (`Kraken/X64/WP/Control.lean` `⸨prog| ... ⸩` docstrings & `Host.ofLayout` docstring without `hzero` in `Kraken/X64/WP/Host.lean`), `a6129f6` (deletion of `Kraken/AArch64/Inert.lean` and adaptation of `Kraken/AArch64/WP/{Basic,Control,Host}.lean` + `Kraken/AArch64/WPTests.lean`), `f37cc00` (`Host.label_undefined`), `b948f81` (`div`/`idiv`), and `d2b7a5e` (`Kraken/X64/ParserTests.lean` condition-code suffix alias tests covering `setcc`/`jcc`/`cmovcc`, including `pe`/`po`).
+- **`lean-qbe` updates**: pointed `lakefile.toml` and `lake-manifest.json` at `../kraken/lean-qbe-v2` (`d2b7a5e71d28d51f1bd5395d5e5c522f53233e7f`), parameterized `TargetLayout` (updated generic docstring) and `checkCompileResult` on `progSmall` (for variable directive sizes), deduplicated uniform host layout helpers (`uniformLayout`, `uniformDirSize`, `uniformProgSmall`, `uniformLayout_small`, `labelsNodup`, `labelsNodup_nodup`) into `LeanQbe/AbiLemmas.lean` for `LeanQbe/Amd64/TargLemmas.lean` and `LeanQbe/Arm64/Abi.lean`, updated `Mem.mem_of_loadBytes`/`allSome_isSome` for `List.mapM id`, and migrated `ParserChecks` to `⸨prog| ... ⸩` across `LeanQbe/{AbiLemmas,Main,MainLemmas}.lean`, `LeanQbe/Amd64/{TargLemmas,IselLemmas}.lean`, and `LeanQbe/Arm64/{Abi,FrameLemmas,IselLemmas}.lean`.
 - **Verification**:
   - `lean-qbe-v2` intermediate commits: `f4217ff` (`lake build` 30 jobs; only pre-existing `Kraken/SeparationMem.lean:79:74` `dif_pos` deprecation before `a7bc894`), `a7bc894` (`--wfail` 32 jobs), `fca3926` (`--wfail` 97 jobs), `a6129f6` (`--wfail` 62 jobs), `f37cc00` (`--wfail` 77 jobs), `b948f81` (`--wfail` 83 jobs).
   - `lean-qbe-v2` (at `d2b7a5e`): `lake build` + `lake build KrakenAArch64 KrakenBedrock2 krakenrunner_x64 krakenrunner_aarch64 att2intel bedrock2c` → `247 jobs` + `180 jobs` (only warnings are the 3 pre-existing upstream `sorry`s in `Kraken/X64/Examples/Examples.lean:111:4`, `:518:2`, and `Kraken/X64/Examples/IncrementDMA.lean:70:4`); `lake build --wfail` on all non-`sorry` targets (`Kraken.SeparationMem`, `Kraken.SeparationTests`, `Kraken.X64.WP.{Control,Host}`, `Kraken.X64.{WPTests,ParserTests,PrintATTTests,SemanticsTests}`, `KrakenAArch64`, `Kraken.AArch64.WPTests`, `KrakenBedrock2`, `krakenrunner_x64`, `krakenrunner_aarch64`, `att2intel`, `bedrock2c`) → `Build completed successfully (206 jobs)`.
@@ -300,7 +299,3 @@ directives and per-function stack bounds in the kernel (`lrat_bytes_module_compi
   - `lean-qbe`: `bash scripts/all.sh` → all 5 PASS (`scripts/check.sh` 330 jobs `--wfail` + 133/133 axiom reports + step 5 `Amd64/LratBytes.lean` ~27s / `Arm64/LratBytes.lean` ~26s CPU under `maxHeartbeats 48000`, `test/run.sh`, `test/arm64/run.sh`, `tool/test_lrat_check.sh`, `bench/run.sh`).
   - `lean-qbe`: `bash scripts/qbe_difftest.sh` → `amd64: 46068 results match`, `arm64: 46068 results match` (91 functions).
   - `lean-qbe`: `bash scripts/qbe_tests.sh` → `parsed and passed: 19 (leanqbe x64 compiled and passed: 17), parsed and failed: 0, skipped: 57`.
-
-## Next
-
-- Complete any remaining cross-module checks or downstream Arm64 tasks if requested.

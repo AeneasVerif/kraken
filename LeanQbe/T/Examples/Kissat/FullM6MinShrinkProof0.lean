@@ -10,9 +10,9 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 `PR-W2B` Proof Shard 0 (`decision_rate` & `full_decide_m6`, UNSAT-Only)
+# Kissat M6 Minimization/Shrink Proof Shard 0 (`decision_rate` & `full_decide_m6`, UNSAT-Only)
 
-Proves `Func.wp` against canonical / Wave-2B specs for:
+Proves `Func.wp` against canonical and M6 specs for:
 1. `full_dr_init_m6` (`m6DrInitSpec`)
 2. `full_dr_update_m6` (`m6DrUpdateSpec`)
 3. `full_dr_allow_m6` (`m6DrAllowSpec`)
@@ -37,7 +37,7 @@ open LeanQbe.T.Examples.Kissat.Full hiding
 open scoped LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open Kraken.Bedrock2.Test
 
-/-! ## 1. Wave-2B `decision_rate` specs & bridge theorems -/
+/-! ## 1. M6 `decision_rate` specs & bridge theorems -/
 
 /-- Decision-rate initializer & update contract (`full_dr_init_m6`, `full_dr_update_m6`). -/
 def m6DrInitSpec : Spec [i64] [] := fun (h, ()) m Q _ =>

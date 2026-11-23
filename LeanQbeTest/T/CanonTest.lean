@@ -9,7 +9,7 @@ public import LeanQbe.T.Logic.Rules
 meta import LeanQbe.T.Canon
 
 /-!
-# Tests of `LeanQbe.T.Canon` and `FlatLemmas.Func.renorm_spec` (`O-M1`)
+# Tests of `LeanQbe.T.Canon` and `FlatLemmas.Func.renorm_spec`
 
 Tests:
 1. Commutative canonicalization (`c + x → x + c`, `b + a → a + b`) and CSE after `canon` + `gvn`.
@@ -77,7 +77,7 @@ theorem commCse_canon_out : Func.canon commCseProg = fun _ _ p =>
     .ret (.var sum.1, .var csum.1, ()) := by
   t_kernel_rfl
 
-/-- Running `gvn` after `canon` merges both `b + a` and `a + 10` duplicates! -/
+/-- Running `gvn` after `canon` merges both `b + a` and `a + 10` duplicates. -/
 theorem commCse_canonGvn_out : Func.gvn (Func.canon commCseProg) = fun _ _ p =>
     let a := p.1
     let b := p.2.1
@@ -218,9 +218,9 @@ theorem reassoc_canon_spec (Γ : Env) (x : BitVec 64) (b : Bool) (v : Val v4i32)
   · rw [BitVec.and_assoc, show ((240 : BitVec 64) &&& 60) = 48#64 from by decide]
   · cases b <;> rfl
 
-/-! ## 5. Shifts and mixed ops MUST NOT reassociate; `group`/`jnz` preservation -/
+/-! ## 5. Shifts and mixed ops must not reassociate; `group`/`jnz` preservation -/
 
-/-- `(x <<< 60) <<< 60` on `i64` evaluates to `0`, NOT `x <<< 56`; `Canon` keeps both shifts!
+/-- `(x <<< 60) <<< 60` on `i64` evaluates to `0`, NOT `x <<< 56`; `Canon` keeps both shifts.
 Also tests that `(x + 3) * 5` is NOT reassociated, and `group`/`jnz` preserves lexical canon. -/
 def shiftAndGroupProg : Func [i64, .bool] [i64, i64] := fun _ _ p =>
   let x := p.1

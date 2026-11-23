@@ -18,8 +18,8 @@ import all Kraken.Separation
    `(m3SpecTable fullSolveBytesSpec).length == 204`, concrete `fullNvUnsatBytes` payload bounds,
    `PrintCpp`, `PrintQbe`, and `Fn.legal` across `.aarch64`, `.scalar64`, and `.x64AVX2`.
 2. Concrete `Mem 64` source-level `Func.wp` sanity check (`m3_unsat_payload`, `XPost := False`,
-   canonical `204`-function `m3Env`, strictly UNSAT-only — ZERO SAT / model-finding proofs).
-3. Root-namespace short aliases for single-line `#print axioms` audit (`< 115` chars) covering
+   canonical `204`-function `m3Env`, strictly UNSAT-only — no SAT / model-finding proofs).
+3. Root-namespace short aliases for single-line `#print axioms` audit covering
    `Func.Wf`, acyclicity, merged M3 orchestrators (`full_probe_tail`, `full_probe`), unconditional
    `204/204` `ModuleOk`, `m3_solve_bytes_correct`, and `m3_unsat_nonvacuous`
    (`⊆ [propext, Classical.choice, Quot.sound]`).

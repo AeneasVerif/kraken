@@ -5,10 +5,10 @@ public import LeanQbe.T.Examples.Kissat.FullSpec
 import LeanQbe.T.Examples.Kissat.FullLearnAnaLemmas1
 
 /-!
-# Kissat M5 Wave 1 (`PR-W1A`) `Func.wp` Proofs — Part 2a (`FullM5HeurCoreProof2a`)
+# Kissat M5 Heuristics `Func.wp` Proofs — Part 2a (`FullM5HeurCoreProof2a`)
 
 Proves UNSAT-only parametric `Func.wp` contract (`XPost := False`, `0` SAT proofs) for
-`full_eager_subsume_m5` (`RC-09`: `last_learned` window capped at `4` with `flush_last_learned`
+`full_eager_subsume_m5` (`last_learned` window capped at `4` with `flush_last_learned`
 compaction) against canonical `Full.fullEagerSubsumeSpec`.
 -/
 

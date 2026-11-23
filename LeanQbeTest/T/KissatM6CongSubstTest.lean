@@ -15,7 +15,7 @@ meta import LeanQbe.T.Legal
 
 /-!
 # Verification, Splice Parity, Backend Guards, and Axiom Audit for Kissat M6 Congruence &
-Substitute (`FullM6CongSubst`, `RC-25`, UNSAT-only)
+Substitute (`FullM6CongSubst`, UNSAT-only)
 
 1. Executable `#guard` checks on `m6CongSubstModule` (`23` fns + `16` externs, `0` exits),
    `checkAcyclic = true`, `m6CongSubstSpecTable` (`39` rows), exact signature parity and closed
@@ -29,7 +29,7 @@ Substitute (`FullM6CongSubst`, `RC-25`, UNSAT-only)
    `full_cong_fwd_subsume`, `full_congruence_dense`), closed `39`-row `m6CongSubst_moduleOk`, and
    concrete `Mem 64` UNSAT non-vacuity (`XPost := False`, `0` SAT proofs) on `nvOneLitMem` and
    `nvBvaDenseMem`.
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
@@ -81,7 +81,7 @@ section AuditSpec
 public theorem m6cs_wf : ∀ f ∈ m6CongSubst_fns, f.Wf :=
   m6CongSubst_fns_wf
 
-/-- Standalone Wave-2 module `m6CongSubstModule` passes `checkAcyclic = true`. -/
+/-- Standalone M6 congruence/substitute module `m6CongSubstModule` passes `checkAcyclic = true`. -/
 public theorem m6cs_acyc : m6CongSubstModule.checkAcyclic = true :=
   m6CongSubst_acyclic
 

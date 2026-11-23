@@ -816,7 +816,7 @@ theorem full_m4_sweep_cone_wp (Γ : Env)
           st_e.LengthsOk c ∧ AgreesExcept m4ConeMask s st_e ∧
           M4ConeInv F_cur st_e nv.toNat nc.toNat ∧ (FullMem c st_e ⋆ R) m_ex)
         (fun _ () m_ex ⟨st_e, hlen_e, hag_e, hcone_e, hm_e⟩ => by
-          -- Shrink `k512` `nv` from `512` down to `nv` using `K512MemATactics`!
+          -- Shrink `k512` `nv` from `512` down to `nv` using `K512MemATactics`
           have hscr_e := hlen_e.scratch_ok.scratch_buf_len
           have h21792 : 21792 ≤ st_e.scratch.scratch_buf.length := by
             rw [hscr_e]; unfold k5MinScr at hcap; omega

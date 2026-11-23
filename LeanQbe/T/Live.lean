@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Rega
 
 /-!
-# Typed Liveness Analysis (`T7a`, untrusted, reusing `Arg.vars`/`tupVars`/`Op.vars`)
+# Typed Liveness Analysis (untrusted, reusing `Arg.vars`/`tupVars`/`Op.vars`)
 
 First-order structural mirror `Tree`/`TreeBlocks` of `Expr VNat LNat rs` / `Blocks VNat LNat rs sig`
 matching the exact `(nv, nl, ip)` numbering of `Rega.lowerExpr` / `Rega.lowerBlocks`, together with
@@ -64,7 +64,7 @@ def dedup (xs : List Nat) : List Nat :=
     (xs.foldl (fun (acc, s) x =>
       if trieMem s x then (acc, s) else (x :: acc, s.insert x ())) ([], .empty)).1.reverse
 
-/-- Variable IDs reusing `Ops.lean`'s `Arg.vars`, `tupVars`, and `Op.vars` (`B4`). -/
+/-- Variable IDs reusing `Ops.lean`'s `Arg.vars`, `tupVars`, and `Op.vars`. -/
 def argVarIds {t : Ty} (a : Arg VNat t) : List Nat := a.vars.map (·.2)
 def tupVarIds {ts : List Ty} (as : Tup (Arg VNat) ts) : List Nat := dedup ((tupVars as).map (·.2))
 def opVarIds {ts : List Ty} (op : Op VNat ts) : List Nat := dedup (op.vars.map (·.2))
@@ -156,7 +156,7 @@ def Tree.ofFn (f : Fn) : Tree × List (Nat × Ty) × Nat × Nat × Nat × Trie T
   let (t, nv, nl, nip, tys) := toTreeExpr (f.body VNat LNat (Tup.levels f.as 0)) f.as.length 0 0 (recordTypes ps .empty)
   (t, ps, nv, nl, nip, tys)
 
-/-! ## Address-Arithmetic Elision (`[base + idx*scale + disp]`, Stage 1b, untrusted) -/
+/-! ## Address-Arithmetic Elision (`[base + idx*scale + disp]`, untrusted) -/
 
 structure ElideCand where
   x : Nat

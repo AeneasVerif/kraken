@@ -5,7 +5,7 @@ public import LeanQbe.T.Logic.Rules
 import LeanQbe.T.WfLemmas
 
 /-!
-# Verification of Union-Find in `LeanQbe.T` (`T4`)
+# Verification of Union-Find in `LeanQbe.T`
 
 Typed-IR proof of path-halving `find`, call-based `union`, and inlined `unionInline`
 using `LeanQbe.T.Logic` (`wp_loop_group`, `wp_unfold`, `wp_load_array64`, `wp_store_array64`,

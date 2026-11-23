@@ -4,7 +4,7 @@ public import LeanQbe.T.LegalOpWpLemmas2
 import all Kraken.Mem
 
 /-!
-# Legalization memory chunking and `Func.legal_wp` / `Func.legal_spec` (`T5`, Part 4)
+# Legalization memory chunking and `Func.legal_wp` / `Func.legal_spec` (Part 4)
 -/
 
 set_option autoImplicit false

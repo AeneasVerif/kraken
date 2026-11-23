@@ -5,7 +5,7 @@ public import Std.Data.HashMap
 public import Std.Data.HashSet
 
 /-!
-# SysV LP64 Struct, Union, and Bitfield Layout (`X0-core`)
+# SysV LP64 Struct, Union, and Bitfield Layout
 
 Computes deterministic byte sizes, natural alignments, field byte offsets, and little-endian
 LSB-first non-straddling bitfield positions matching `gcc`/`clang` under SysV LP64.

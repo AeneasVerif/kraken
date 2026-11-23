@@ -4,7 +4,7 @@ public import LeanQbe.T.Amd64.Base
 public import LeanQbe.T.IselStepAttr
 
 /-!
-# SysV x64 Frame ISA (`T11b`)
+# SysV x64 Frame ISA
 
 Target-level `FrameIsa` instantiation for System V AMD64 (`x64Frame`):
 * Stack pointer `rsp`, scratch `[r10, r11]`, caller-saved allocatable `[rax, rcx, rdx, rsi, rdi,

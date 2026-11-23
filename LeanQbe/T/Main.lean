@@ -7,10 +7,10 @@ public import LeanQbe.T.Rega
 public import LeanQbe.T.Module
 
 /-!
-# Target-Parameterized PHOAS Compiler Driver (`T12g`)
+# Target-Parameterized PHOAS Compiler Driver
 
-Executes the typed `LeanQbe.T` pipeline end-to-end cleanly above any `Target` without touching any
-architecture crate or E1 module:
+Executes the typed `LeanQbe.T` pipeline end-to-end above any `Target` without importing any
+architecture crate or earlier untyped-IR module:
 
 * `Fn.earlyOpt` / `Fn.lateOpt` / `Fn.mid`: `earlyOpt → Legal lt → lateOpt` staged mid-end lowering.
 * `Expr.extAux` / `Fn.ext`: PHOAS traversal collecting `(calleeSym, as, bs)` triples and exit
@@ -38,11 +38,11 @@ function. -/
 def Fn.opt (f : Fn) : Fn :=
   ⟨f.name, f.as, f.rs, Func.opt f.body⟩
 
-/-- Run Stage 1 pre-`Legal` optimizations (`Func.earlyOpt`) on a named function. -/
+/-- Run pre-`Legal` mid-end optimizations (`Func.earlyOpt`) on a named function. -/
 def Fn.earlyOpt (f : Fn) : Fn :=
   ⟨f.name, f.as, f.rs, Func.earlyOpt f.body⟩
 
-/-- Run Stage 2 post-`Legal` optimizations (`Func.lateOpt`) on a named function. -/
+/-- Run post-`Legal` mid-end optimizations (`Func.lateOpt`) on a named function. -/
 def Fn.lateOpt (f : Fn) : Fn :=
   ⟨f.name, f.as, f.rs, Func.lateOpt f.body⟩
 

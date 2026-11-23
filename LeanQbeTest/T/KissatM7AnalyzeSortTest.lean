@@ -11,14 +11,14 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Compilation Checks, and Axiom Audit for Kissat `M7` Wave 4G (`AnalyzeSort`)
+# Verification, Compilation Checks, and Axiom Audit for Kissat `M7` (`AnalyzeSort`)
 
 1. Executable `#guard` checks on `m7AnalyzeSortModule` (`6` owned `_m7` functions + `2`
    canonical externs, `0` exits), `checkAcyclic = true`, `PrintCpp`, `PrintQbe`, and
    `Fn.legal` across `aarch64`, `scalar64`, `x64AVX512`, and `x64AVX2`.
 2. Short root-namespace audit theorems covering `ModuleOk`, `TableImpl`, `noExit`, drop-in
    `Fn` WP wrappers, and concrete `Mem 64` non-vacuity (`XPost := False`, `0` SAT proofs).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false

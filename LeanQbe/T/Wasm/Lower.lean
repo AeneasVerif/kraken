@@ -17,7 +17,7 @@ into `LeanQbe.T.Module` using:
   `return_`), with explicit `fuel` checks/decrements on every `loop`, `call`, `memory.grow`,
   `memory.fill`, and `memory.copy`.
 * Branchless SWAR `popcnt` and explicit trap/edge-case guards on integer division/remainder
-  for full compatibility with both `x64Target` (`x64LegalTarget`) and `armTarget`
+  for compatibility with both `x64Target` (`x64LegalTarget`) and `armTarget`
   (`armLegalTarget`).
 * Universal `lowerModule_wf`, `lowerModule_supportsSource`, and `lowerModule_legalSig` theorems.
 -/

@@ -5,15 +5,15 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat M4e/M5 Stage 1 (B1): Hot-Loop BCP Branch Order, Ticks, & Sentinel (`FullM4Bcp`)
+# Kissat M4/M5 Hot-Loop BCP: Branch Order, Ticks, & Sentinel (`FullM4Bcp`)
 
-Stage 1 (`B1`) of `kissat-m4e-bcp-hot` + Wave 1 `PR-W1B` (`RC-11`): preserves byte-identical
+Hot-loop BCP overrides for `D-Full M4` / `D-Full M5`, preserving byte-identical
 `FullHdr` and exact canonical `FullSpec2` contracts (`fullPropLitSpec`,
 `fullPropagateIgnoreSpec`, `fullPropagateSpec`) while:
 1. Checking `vals[w0 & PW_LIT_MASK] > 0` before branching on `(w0 & PW_BIN_FLAG) != 0u`.
 2. Tracking cache-line + binary/replacement/large propagation ticks and gating `search_ticks`
    strictly on `h->probing == 0ULL`.
-3. Restoring M1's dead-tail `0xFFFFFFFFu` sentinel fill after watch compaction.
+3. Restoring dead-tail `0xFFFFFFFFu` sentinel fill after watch compaction.
 -/
 
 set_option autoImplicit false

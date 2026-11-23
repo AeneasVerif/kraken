@@ -8,7 +8,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 `PR-W2B` Proof Shard 2b (`full_shrink_blk_bool_m6`, `shrink_blk`, `min_shrink`)
+# Kissat M6 Min/Shrink Proof Shard 2b (`full_shrink_blk_bool_m6`, `shrink_blk`, `min_shrink`)
 
 Proves `Func.wp` for the remaining `3` minimization / block-shrinking functions in
 `FullM6MinShrink.lean` (UNSAT-only, no `@[expose]`):
@@ -38,7 +38,7 @@ open scoped LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open scoped LeanQbe.T.Examples.Kissat.Full.FullMinTactics
 open Kraken.Bedrock2.Test
 
-/-! ## 1. Wave-2B Block-Shrink Contract & `Full` <-> `FullMinSpecs` Bridges -/
+/-! ## 1. M6 Block-Shrink Contract & `Full` <-> `FullMinSpecs` Bridges -/
 
 private theorem toSpecsMinInv {k : FullCoreState} {keep : List Nat}
     (h : Full.FullMinMarkInv k keep) : FullMinMarkInv k keep :=
@@ -70,9 +70,9 @@ private theorem specs_minMarkSpec_of_full {args m Q X}
     · simp only [hcz, ↓reduceIte, ne_eq, not_false_eq_true, false_and] at hrest hm'
       exact hrest m' hm'
 
-/-- Wave-2B block-shrink contract with Boolean outcome (`full_shrink_blk_bool_m6`),
+/-- M6 block-shrink contract with Boolean outcome (`full_shrink_blk_bool_m6`),
 existentially quantifying the active prefix bound `keepLen` (`end_b ≤ keepLen ≤ cur_vars`)
-so both `full_shrink_blk_m6` and post-compaction `full_min_shrink_m6` fit seamlessly. -/
+so both `full_shrink_blk_m6` and post-compaction `full_min_shrink_m6` fit directly. -/
 def m6ShrinkBlkBoolSpec : Spec [i64, i64, i64, i32, i64] [.bool] :=
   fun (h, beg, end_b, blvl, max_tr, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (keepLen : Nat) (R : Mem 64 → Prop),

@@ -6,7 +6,7 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 
 /-!
-# Tests of `LeanQbe.T.Copy` (`T6`)
+# Tests of `LeanQbe.T.Copy`
 
 Covers:
 - Multi-hop `OpCode.copy` propagation chains (`y = copy a; z = copy y; ret (add z 1)`),

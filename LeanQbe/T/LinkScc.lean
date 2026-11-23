@@ -4,14 +4,14 @@ public import LeanQbe.T.LinkRec
 public import LeanQbe.T.Scc
 
 /-!
-# Well-Founded Index-Parameterized SCC Module Linking (`R-B`)
+# Well-Founded Index-Parameterized SCC Module Linking
 
 Generalizes `LinkRec` from `Nat` fuel to an arbitrary well-founded index `(ι, lt, wf, depth)`
 (`RecIdx ι`):
 * `RecIdx`, `natRecIdx`, `lexNatRecIdx`: well-founded termination index paired with stack depth.
 * `Env.stepIdx`: index-stepped recursive environment with `strict : Bool` (`strict = (step ≠ 0)`),
   requiring `idx.lt i' i` and (`strict = false ∨ idx.depth i' < idx.depth i`).
-  Includes the marked comment hook for `F-A`'s call/tail-slot split (`link_scc_compiled_split`).
+  Includes extension hooks for a future call/tail-slot split (`link_scc_compiled_split`).
 * `Env.ofModuleScc`, `Env.ofModuleSccAt`, `Env.exportScc`, `envOfIdxSpec`, and `ModuleSccOk`.
 -/
 
@@ -41,8 +41,8 @@ def lexNatRecIdx (depth : Nat × Nat → Nat) : RecIdx (Nat × Nat) where
   wf := (Prod.lex Nat.lt_wfRel Nat.lt_wfRel).wf
   depth := depth
 
--- HOOK (F-A): Stage F-A will split `Env.stepIdx` into a call-slot (`idx.depth i' < idx.depth i`)
--- and a tail-slot (`idx.lt i' i ∧ idx.depth i' ≤ idx.depth i`) for `link_scc_compiled_split`.
+-- Extension point: a future call/tail split will separate `Env.stepIdx` into a call-slot
+-- (`idx.depth i' < idx.depth i`) and tail-slot (`idx.lt i' i ∧ idx.depth i' ≤ idx.depth i`).
 /-- Index-stepped environment available to the body of a recursive function at index `i : ι`:
 * cyclic callees in `recSigs` may only be invoked at `i'` with `idx.lt i' i` and
   `(strict = false ∨ idx.depth i' < idx.depth i)`;
@@ -80,7 +80,7 @@ def envOfIdxSpec {ι : Type} {as bs : List Ty} (P : Sym → ι → Spec as bs) :
   fun i f as' bs' xs m Q X =>
     ∃ (ha : as' = as) (hb : bs' = bs), P f i (ha ▸ xs) m (hb ▸ Q) X
 
--- HOOK (F-A): `link_scc_compiled_split` will generalize `ModuleSccOk` to separate call-slot
+-- Extension point: `link_scc_compiled_split` will generalize `ModuleSccOk` to separate call-slot
 -- (`idx.depth i' < idx.depth i`) and tail-slot (`idx.depth i' ≤ idx.depth i`) obligations.
 /-- Well-founded SCC correctness obligation: `M.namesNodup`, per-function `Wf` and `callsOk`,
 and every `fn ∈ M.fns` at index `i` satisfies `Func.wp` under `Env.stepIdx ... strict i`. -/

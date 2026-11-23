@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas4
 
 /-!
-# Kissat `D-Plain` Compaction GC (`plain_sweep`) & Reduction (`plain_reduce`) (`Wave 2b`)
+# Kissat `D-Plain` Compaction GC (`plain_sweep`) & Reduction (`plain_reduce`)
 
 Provides verified parametric `(Γ : Env)` `Func.wp` contracts for:
 1. `plain_reduce` (`plainReduceSpec`)

@@ -5,7 +5,7 @@ public import LeanQbe.T.Examples.ChaCha
 import Kraken.X64.Parser
 
 /-!
-# SysV x64 SIMD Vector Target Tests (`T10`)
+# SysV x64 SIMD Vector Target Tests
 
 Standalone downstream test suite verifying `x64Vec` and `x64VecSpec`:
 1. Kernel `rfl` checks of `x64Vec` bank metadata, `isAbiVec`, `vecSlotWidth`, `supportsVecOp`
@@ -87,7 +87,7 @@ theorem x64Vec_supportsVecOp_rfl :
     x64Vec.supportsVecOp (.mkpair v2f32 v2f32) (.var (), .var (), ()) = true ∧
     x64Vec.supportsVecOp (.unpair i32 i32) (.var (), ()) = true ∧
     x64Vec.supportsVecOp (.unpair v2f32 v2f32) (.var (), ()) = true ∧
-    -- Rejected ops: SHA-NI (G10), non-uniform splats, non-imm shifts, sub-128 arith, wide float
+    -- Rejected ops: SHA-NI, non-uniform splats, non-imm shifts, sub-128 arith, wide float
     x64Vec.supportsVecOp .sha256rnds2 (.var (), .var (), .var (), ()) = false ∧
     x64Vec.supportsVecOp .sha256msg1 (.var (), .var (), ()) = false ∧
     x64Vec.supportsVecOp .sha256msg2 (.var (), .var (), ()) = false ∧

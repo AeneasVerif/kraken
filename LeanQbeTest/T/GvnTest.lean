@@ -6,9 +6,9 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 
 /-!
-# Tests of `LeanQbe.T.Gvn` (`T6`)
+# Tests of `LeanQbe.T.Gvn`
 
-Ports E1's `GvnTest` to the typed IR `LeanQbe.T` and adds coverage for:
+Covers global value numbering and common subexpression elimination in `LeanQbe.T`:
 - Non-deduplication of effectful/control instructions (`load`, `store`, `call`, `exit`),
 - Multi-result (`addc`) and vector (`v4i32`) CSE,
 - Lexical sibling non-sharing across independent `jnz` branches,
@@ -26,7 +26,7 @@ namespace LeanQbe.T.GvnTest
 
 open LeanQbe.T
 
-/-! ## 1. E1 `prog` ported: CSE across `jnz` while keeping repeated `load`s -/
+/-! ## 1. Baseline `prog`: CSE across `jnz` while keeping repeated `load`s -/
 
 /-- `x = add a b; y = add a b; jnz c, (u = add a b; z = mul y u; ret [z, x]),`
 `(load p; load p; ret [v, y])` -/
@@ -76,7 +76,7 @@ theorem prog_gvn_spec (Γ : Env) (a b : BitVec 64) (c : Bool) (ptr : BitVec 64) 
   wp_unfold
   simp [hv]
 
-/-! ## 2. Effectful and control constructs are NEVER deduplicated -/
+/-! ## 2. Effectful and control constructs are never deduplicated -/
 
 def effectsProg : Func [i64, i64, .bool, i64] [i64] := fun _ _ p =>
   let a := p.1

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1: Apples-to-apples 4-Corner (C1/C2/C3b/C4) performance isolation harness.
+# 4-Corner (C1/C2/C3b/C4) performance isolation harness for Kissat modules.
 #
 # Builds & benchmarks `Full` and/or `FullFast` across:
 #   - C3b: `PrintCpp` -> `clang++ -std=c++20 -O3 -DTQBE_NATIVE_MEM` linked with `bench_main.c`
