@@ -149,12 +149,10 @@ def kdsimpProj : DSimproc := fun e => do
   -- TODO: special support for instances?
   reduceProjCont? (← unfoldDefinition? e)
 
-def mkDSimpMethods (env : Environment) (withEvalGround : Bool := false) : Sym.DSimp.Methods :=
+def mkDSimpMethods (env : Environment) : Sym.DSimp.Methods :=
   let kdsimpDecls := kdeltaBetaOnly (kstepExtension.getState env).contains
-  if withEvalGround then
-    { pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta }
-  else
-    { pre := kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta }
+  { pre := kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta
+    post := evalGround }
 
 def resolveLabelSimproc (thm : Sym.Simp.Theorem) : Sym.Simp.Simproc := fun e => do
   unless e.isAppOfArity `Labels.label? 2 do return .rfl
@@ -223,9 +221,7 @@ public def stepAt? (maxInstrCount : Option (IO.Ref Nat)) (goal : Grind.Goal) :
 /-- Step 1 of `kstep`: apply the `@[kstep]` `Sym.dsimp` rewrites and introduce binders. -/
 def applyKStepDSimp (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
   withTraceNode `Kraken.kstep.dsimp (fun _ => return m!"applyKStepDSimp") do
-    let env ← getEnv
-    let dsimpMethods := mkDSimpMethods env
-    let dsimpGroundMethods := mkDSimpMethods env (withEvalGround := true)
+    let dsimpMethods := mkDSimpMethods (← getEnv)
     goal.withContext do
       let mvarId ← goal.mvarId.replaceTargetDefEq (← Grind.liftGrindM <|
         Sym.dsimp
@@ -233,12 +229,6 @@ def applyKStepDSimp (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
           (methods := dsimpMethods)
           (← goal.mvarId.getType))
       trace[Kraken.kstep.dsimp] "after dsimp:\n{← mvarId.getType}"
-      let mvarId ← mvarId.replaceTargetDefEq (← Grind.liftGrindM <|
-        Sym.dsimp
-          (config := { maxSteps := 1000000 })
-          (methods := dsimpGroundMethods)
-          (← mvarId.getType))
-      trace[Kraken.kstep.dsimp] "after dsimp (evalGround):\n{← mvarId.getType}"
       introsIf ({ goal with mvarId })
 
 /-- Step 2 of `kstep`: apply the `@[ksimp]` `Sym.simp` rewrites. -/
