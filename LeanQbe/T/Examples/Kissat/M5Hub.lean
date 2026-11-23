@@ -152,6 +152,15 @@ public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof1
 public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof2
 public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof3
 public import LeanQbe.T.Examples.Kissat.FullM7AnalyzeSortProof4
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHot
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof0
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1a
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1b
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1b0
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1bExpr
+public import LeanQbe.T.Examples.Kissat.FullM7BcpHotProof1c
 public import LeanQbe.T.Examples.Kissat.FullM7BcpNoBounds
 public import LeanQbe.T.Examples.Kissat.FullM7BcpNoBoundsProof
 public import LeanQbe.T.Examples.Kissat.FullM7BcpNoBoundsProof0
