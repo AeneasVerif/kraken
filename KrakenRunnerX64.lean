@@ -77,11 +77,9 @@ def runKraken (asmCode : String)
   try
     let prog ← Kraken.X64.Parser.parse (_start ++ ":" ++ asmCode ++ "\n" ++ _end ++ ":")
     let exe := prog.fakeLayout
-    let some start := exe.labels.label? _start
-      | return .error s!"Missing start label {_start}"
-    let endPc := exe.labels.label? _end
-    let initState : MachineState := ⟨initData, start⟩
-    return exe.eval initState (fun s => some s.pc == endPc)
+    let endPc := exe.labels.label! _end
+    let initState : MachineState := ⟨initData, exe.labels.label! _start⟩
+    return exe.eval initState (·.pc = endPc)
   catch e =>
     return .error e.toString
 
