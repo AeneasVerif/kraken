@@ -159,6 +159,11 @@ public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof0
 public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof1
 public import LeanQbe.T.Examples.Kissat.FullM7Reorder
 public import LeanQbe.T.Examples.Kissat.FullM7ReorderProof
+public import LeanQbe.T.Examples.Kissat.FullM7Search
+public import LeanQbe.T.Examples.Kissat.FullM7SearchProof
+public import LeanQbe.T.Examples.Kissat.FullM7SearchProof0
+public import LeanQbe.T.Examples.Kissat.FullM7SearchProof1
+public import LeanQbe.T.Examples.Kissat.FullM7SearchProof2
 
 set_option autoImplicit false
 
