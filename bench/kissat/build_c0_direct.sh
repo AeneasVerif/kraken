@@ -12,7 +12,7 @@ CHECK_FNS=""
 usage() {
   cat <<'EOF'
 usage: bash bench/kissat/build_c0_direct.sh [options]
-  --target <m5|m6>       Kissat C0 splice target (default: m5)
+  --target <m5|m6|m7|m7plus>  Kissat C0 splice target (default: m5)
   --out-dir <dir>        Output directory for .c/.o/binary (default: /tmp/kissat-c0direct)
   -o, --out <bin>        Explicit output binary path (default: <out-dir>/bench_c0direct_<target>[_asan])
   --asan                 Enable -fsanitize=undefined,address -fno-sanitize-recover=all
@@ -34,8 +34,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$TARGET" in
-  m5|m6) ;;
-  *) echo "ERROR: --target must be m5 or m6 (got '$TARGET')" >&2; exit 2 ;;
+  m5|m6|m7|m7plus) ;;
+  *) echo "ERROR: --target must be m5, m6, m7, or m7plus (got '$TARGET')" >&2; exit 2 ;;
 esac
 
 mkdir -p "$OUT_DIR"

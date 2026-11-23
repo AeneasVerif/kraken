@@ -11,13 +11,14 @@
 # 2. Compiles `<Module>Module` with `Driver.compileFns` (matching `LinkedCert`) for x86-64
 #    (`toATTAligned`) or AArch64 (`Kraken.AArch64.Print.directive`) into a `.s` file. Default
 #    `--inline-max 0` emits the exact certified policy/IR (`InlinePolicy.b5` for `FullM5`,
-#    `FullM6Inl.m6InlFns` for `FullM6`, `FullM7Inl.m7InlFns`/`InlinePolicy.b5` for `FullM7`,
-#    `inline=0` elsewhere);
+#    `FullM6Inl.m6InlFns` matching `kissatM6_compiled_{x64,arm64}.code` for `FullM6`,
+#    `FullM7Inl.m7InlFns`/`InlinePolicy.b5` for `FullM7`, `inline=0` elsewhere);
 #    `--inline-max <N>` (`N > 0`) and `--debug` apply uncertified transforms outside `LinkedCert`.
 # 3. Links that assembly with `bench/kissat/kissat_cli.c` into `<output_bin>`. `Plain`, `FullM5`,
-#    and `FullM4` (via `KissatM4Sound`), plus `FullM6`/`FullM7` once `KissatM6Sound`/`KissatM7Sound`
-#    is present (or with `--allow-uncertified` using C0 `kissat_check_model`), build in `SAT+UNSAT`
-#    mode; `FullM3`/`Full`/`FullFast` compile with `-DKISSAT_UNSAT_ONLY=1` so `10` returns UNKNOWN.
+#    and `FullM4` (via `KissatM4Sound`) build with certified `SAT+UNSAT`; `FullM6` (via dual-arch
+#    `KissatM6` `LinkedCert`s) builds with certified UNSAT + runtime-checked SAT (`kissat_check_model`)
+#    without needing `--allow-uncertified`; `FullM7` requires `--allow-uncertified` until `KissatM7`
+#    certs land; `FullM3`/`Full`/`FullFast` compile with `-DKISSAT_UNSAT_ONLY=1` so `10` returns UNKNOWN.
 #
 # Defaults: --module FullM5 --arch x64 --inline-max 0 -o /tmp/kissat-leanqbe-<module>[-arm64].
 # Intermediate files live in a temp directory removed on exit; the repository is never written to
@@ -132,14 +133,17 @@ case "$MODULE" in
   FullM6|FullM7)
     CERT_PFX="Kissat${MODULE#Full}"
     SOUND_LEAN="$ROOT/LeanQbe/T/$ARCH_DIR/${CERT_PFX}Sound.lean"
+    CERT_LEAN="$ROOT/LeanQbe/T/$ARCH_DIR/${CERT_PFX}.lean"
     if [ -f "$SOUND_LEAN" ]; then
       SAT_MODE="SAT+UNSAT"
+    elif [ -f "$CERT_LEAN" ]; then
+      SAT_MODE="certified UNSAT + runtime-checked SAT"
     elif [ "$ALLOW_UNCERTIFIED" = 1 ]; then
-      echo "WARNING: --module $MODULE has NO native ${CERT_PFX}Sound LinkedCert for" \
+      echo "WARNING: --module $MODULE has NO native ${CERT_PFX} LinkedCert for" \
         "$ARCH yet (--allow-uncertified; SAT uses C0 kissat_check_model)." >&2
       SAT_MODE="SAT+UNSAT (uncertified)"
     else
-      echo "ERROR: --module $MODULE has no native ${CERT_PFX}Sound LinkedCert for" \
+      echo "ERROR: --module $MODULE has no native ${CERT_PFX} LinkedCert for" \
         "$ARCH ($ARCH_DIR) yet; pass --allow-uncertified to build uncertified codegen." >&2
       exit 2
     fi
@@ -221,7 +225,7 @@ elif [ "$MODULE" = FullM6 ]; then
 import LeanQbe.T.Examples.Kissat.FullM6Inl"
   LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullM6Inl)
   FNS_EXPR="LeanQbe.T.Examples.Kissat.FullM6Inl.m6InlFns"
-  INL_DESC="inline-policy=FullM6Inl"
+  INL_DESC="inline-policy=m6InlPolicy (FullM6Inl; matches kissatM6_compiled_${ARCH}.code)"
 elif [ "$MODULE" = FullM7 ]; then
   if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7Inl.lean" ]; then
     IMPORTS="$IMPORTS

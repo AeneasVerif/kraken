@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract spliced Kissat C0 functions (m5|m6) into a standalone C99 translation unit."""
+"""Extract spliced Kissat C0 functions (m5|m6|m7|m7plus) into a standalone C99 translation unit."""
 import argparse
 import pathlib
 import re
@@ -243,13 +243,18 @@ def check_fns(fns, spec, root, mod, sym):
 
 def main():
     ap = argparse.ArgumentParser(description="Extract spliced Kissat C0 functions to C99.")
-    ap.add_argument("--target", choices=["m5", "m6"], default="m5")
+    ap.add_argument("--target", choices=["m5", "m6", "m7", "m7plus"], default="m5")
     ap.add_argument("--out", required=True)
     ap.add_argument("--check-fns", default=None)
     args = ap.parse_args()
     root = pathlib.Path(__file__).resolve().parents[2]
     kdir = root / "LeanQbe/T/Examples/Kissat"
-    mod, sym = {"m5": ("FullM5", "m5Fns"), "m6": ("FullM6", "m6Fns")}[args.target]
+    mod, sym = {
+        "m5": ("FullM5", "m5Fns"),
+        "m6": ("FullM6", "m6Fns"),
+        "m7": ("FullM7", "m7Fns"),
+        "m7plus": ("FullM7Plus", "m7PlusFns"),
+    }[args.target]
     if not (kdir / f"{mod}.lean").exists():
         sys.exit(f"ERROR: {kdir / f'{mod}.lean'} not found (--target {args.target} not landed yet)")
     fn_envs, list_envs = load_kissat(kdir)
