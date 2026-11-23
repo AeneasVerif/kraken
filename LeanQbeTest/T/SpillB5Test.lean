@@ -373,4 +373,27 @@ meta def coldEvFn : Fn :=
 #guard ["full_bve_var", "full_probe_prop_lit", "full_learn_clause", "full_trans_lit_m5",
   "full_kitten_add_clause", "full_cong_work_step"].all fun n => noWorse (midOf n)
 
+/-! ## 8. Flag-to-slot jump argument lowering (`jumpSlotMoves` `.flag cc` -> `.slot s`) -/
+
+/-- A flag-homed boolean condition (`.flag cc`) passed as a `.jump` argument to a block whose
+parameter `ploc` is `.slot s .w64`. -/
+meta def flagJumpSlotFn : Fn :=
+  ⟨"flagJumpSlotB5", [i64, i64, i64], [i64], fun _ _ (a, b, q, ()) =>
+    .group (sig := [[.bool]])
+      (fun (_, ()) => .cons (fun (p, ()) =>
+        adds b 14 fun hs => heavyMix hs b 2 fun z =>
+        .call (as := [i64]) (bs := [i64]) "extFn" (.var z, ()) fun (u, ()) =>
+        .jnz (.var p) (.ret (.var u, ())) (.ret (.imm 0, ()))) .nil)
+      (fun (j, ()) =>
+        .let_ (op2 (.cmp .eq i64) (.var a) (.imm 0)) fun (c0, ()) =>
+        .jnz (.var c0)
+          (.let_ (op2 (.cmp .ult i64) (.var b) (.var q)) fun (c, ()) =>
+           .jump j (.var c, ()))
+          (.store (t := i64) (.var a) (.var q)
+            (.jump j (.imm false, ()))))⟩
+
+#guard allCfgs.all (lowers · flagJumpSlotFn)
+#guard (compile x64Target.toIsa x64LegalTarget [flagJumpSlotFn]
+  [Fn.computeHints x64Target.toIsa x64LegalTarget flagJumpSlotFn]).isOk = true
+
 end LeanQbeTest.T.SpillB5Test

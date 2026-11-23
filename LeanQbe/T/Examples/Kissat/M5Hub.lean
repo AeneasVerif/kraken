@@ -166,6 +166,10 @@ public import LeanQbe.T.Examples.Kissat.FullM7CongHashProof0
 public import LeanQbe.T.Examples.Kissat.FullM7CongIte
 public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof0
 public import LeanQbe.T.Examples.Kissat.FullM7CongIteProof1
+public import LeanQbe.T.Examples.Kissat.FullM7HotHop1
+public import LeanQbe.T.Examples.Kissat.FullM7HotHop1Proof
+public import LeanQbe.T.Examples.Kissat.FullM7HotTernary
+public import LeanQbe.T.Examples.Kissat.FullM7HotTernaryProof
 public import LeanQbe.T.Examples.Kissat.FullM7Reorder
 public import LeanQbe.T.Examples.Kissat.FullM7ReorderProof
 public import LeanQbe.T.Examples.Kissat.FullM7Search
