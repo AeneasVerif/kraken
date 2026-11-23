@@ -663,7 +663,8 @@ mutual
         unless anyLbl do
           failAt s!"expected 'case' or 'default' in switch, got {tokDesc (← peekTok).kind}"
         let mut body : List Stmt := []
-        while (← peekTok).kind != .sym "}" && (← peekTok).kind != .kw "case" && (← peekTok).kind != .kw "default" do
+        while (← peekTok).kind != .sym "}" && (← peekTok).kind != .kw "case" &&
+            (← peekTok).kind != .kw "default" do
           if ← matchKw "fallthrough" then
             expectSym ";"
           else
