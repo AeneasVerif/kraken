@@ -173,6 +173,10 @@ public import LeanQbe.T.Examples.Kissat.FullM7SearchProof
 public import LeanQbe.T.Examples.Kissat.FullM7SearchProof0
 public import LeanQbe.T.Examples.Kissat.FullM7SearchProof1
 public import LeanQbe.T.Examples.Kissat.FullM7SearchProof2
+public import LeanQbe.T.Examples.Kissat.FullM7Walk
+public import LeanQbe.T.Examples.Kissat.FullM7WalkProof
+public import LeanQbe.T.Examples.Kissat.FullM7WalkProof0
+public import LeanQbe.T.Examples.Kissat.FullM7WalkProof0b
 
 set_option autoImplicit false
 
