@@ -418,6 +418,34 @@ class GenCertSlicesTest(unittest.TestCase):
                 self.assertIn("m7NvPayload_sep", top)
                 self.assertIn("FullM6Orch.m6oSolveBytesFn ∈ m7Module.fns", top)
 
+    def test_full_m7_plus_preset_unsat_only(self) -> None:
+        args = gcs.parse_args(
+            ["--module", "FullM7Plus", "--root", str(REPO_ROOT), "--dry-run"]
+        )
+        cfg = gcs.build_config(args)
+        self.assertEqual(cfg.prefix, "KissatM7Plus")
+        self.assertEqual(cfg.total_fns, 410)
+        self.assertEqual(cfg.entry_idx, 409)
+        self.assertFalse(cfg.emit_sound)
+        self.assertEqual(cfg.module_ok, "m7Plus_moduleOk")
+        self.assertEqual(cfg.solve_spec_intro, "m7PlusSolveBytesSpec_intro")
+        self.assertEqual(cfg.solve_mem_thm, "m7Plus_solveBytes_mem")
+        self.assertEqual(cfg.open_source_ns, "LeanQbe.T.Examples.Kissat.FullM7Plus")
+        files = dict(gcs.build_plan(cfg, ["amd64", "arm64"]))
+        self._assert_hygiene(list(files.items()))
+        for arch_dir in ("Amd64", "Arm64"):
+            self.assertNotIn(f"LeanQbe/T/{arch_dir}/KissatM7PlusSound.lean", files)
+            top = files[f"LeanQbe/T/{arch_dir}/KissatM7Plus.lean"]
+            self.assertIn("m7Plus_moduleOk", top)
+            self.assertIn("m7PlusSolveBytesSpec_intro", top)
+            self.assertIn("m7Plus_solveBytes_mem", top)
+            self.assertIn("#print axioms ax_unsat_nv", top)
+            self.assertNotIn("FullM6SatSound", top)
+            self.assertNotRegex(top, r"\bsat_nv\b")
+            link = files[f"LeanQbe/T/{arch_dir}/KissatM7PlusCertLink.lean"]
+            self.assertIn("LeanQbe.T.Examples.Kissat.FullM7Plus", link)
+            self.assertNotIn("FullM7PlusAssembly", link)
+
 
 if __name__ == "__main__":
     unittest.main()
