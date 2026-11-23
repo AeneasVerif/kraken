@@ -70,8 +70,8 @@ scoped macro "m7_steps" : tactic =>
 open Lean Elab Tactic in
 /-- Step straight-line ops and branches like `c0_steps`, stopping at `Expr.group`. -/
 scoped elab "m7_to_group_core" : tactic => do
-  let rec go (fuel : Nat) : TacticM Unit := do
-    if fuel = 0 then return
+  for _ in [:500] do
+    let mut progressed := false
     let mut out : Array MVarId := #[]
     for g in ← getUnsolvedGoals do
       if ← g.isAssigned then continue
@@ -85,13 +85,13 @@ scoped elab "m7_to_group_core" : tactic => do
             ((ty.getArg! 4).headBeta.consumeMData).isAppOf ``LeanQbe.T.Expr.group then
           out := out.push g'
         else if ← LeanQbe.T.C0Step.stepOnce then
+          progressed := true
           evalTactic (← `(tactic| all_goals (repeat m7_strip)))
-          go (fuel - 1)
           out := out ++ (← getUnsolvedGoals)
         else
           out := out.push g'
     setGoals out.toList
-  go 500
+    if !progressed then break
 
 scoped macro "m7_to_group" : tactic =>
   `(tactic| (

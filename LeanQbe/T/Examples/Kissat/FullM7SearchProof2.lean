@@ -55,8 +55,8 @@ local macro "p2_steps" : tactic =>
 open Lean Elab Tactic in
 /-- Step straight-line `C0Step` ops, stopping at `Expr.group` instead of inlining join points. -/
 local elab "p2_to_group_step" : tactic => do
-  let rec go (fuel : Nat) : TacticM Unit := do
-    if fuel = 0 then return
+  for _ in [:500] do
+    let mut progressed := false
     let mut out : Array MVarId := #[]
     for g in ← getUnsolvedGoals do
       if ← g.isAssigned then continue
@@ -70,13 +70,13 @@ local elab "p2_to_group_step" : tactic => do
           ((ty.getArg! 4).headBeta.consumeMData).isAppOf ``LeanQbe.T.Expr.group then
         out := out.push (← getMainGoal)
       else if ← LeanQbe.T.C0Step.stepOnce then
+        progressed := true
         evalTactic (← `(tactic| all_goals (try (repeat p2_strip))))
-        go (fuel - 1)
         out := out ++ (← getUnsolvedGoals)
       else
         out := out.push (← getMainGoal)
     setGoals out.toList
-  go 500
+    if !progressed then break
 
 local macro "p2_to_group" : tactic =>
   `(tactic| ((try p2_unmdata); (repeat p2_strip); p2_to_group_step))
@@ -84,8 +84,7 @@ local macro "p2_to_group" : tactic =>
 open Lean Elab Tactic in
 /-- Step straight-line `C0Step` ops until `Expr.jnz`, then split it once. -/
 local elab "p2_split" : tactic => do
-  let rec go (fuel : Nat) : TacticM Unit := do
-    if fuel = 0 then return
+  for _ in [:120] do
     let g ← getMainGoal
     let rawTy ← Lean.instantiateMVars (← g.getType)
     let ty := rawTy.consumeMData
@@ -95,12 +94,12 @@ local elab "p2_split" : tactic => do
     if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 &&
         ((ty.getArg! 4).headBeta.consumeMData).isAppOf ``LeanQbe.T.Expr.jnz then
       let _ ← Lean.Elab.Tactic.evalTactic (← `(tactic| c0_step))
-      return
+      break
     evalTactic (← `(tactic| all_goals (repeat p2_strip)))
     if ← Lean.Elab.Tactic.tryTactic (evalTactic (← `(tactic| c0_step))) then
       evalTactic (← `(tactic| all_goals (repeat p2_strip)))
-      go (fuel - 1)
-  go 120
+    else
+      break
 
 local macro "p2_call" hSpec:term : tactic =>
   `(tactic| (p2_unmdata; c0_call $hSpec))
@@ -176,10 +175,10 @@ theorem full_ema_swap_m7_wp (Γ : Env)
   p2_to_group
   apply wp_join_group (ts := [i64]) (fun xs m0 => xs = (omBv, ()) ∧ m0 = m)
   · rintro _J10 ⟨om, ⟨⟩⟩ m0 ⟨hom, hm0⟩
-    injection hom with hom; subst om; subst m0; simp only [Blocks.get]; p2_to_group
+    injection hom with hom; subst om; subst m0; rw [Blocks.get_here]; p2_to_group
     apply wp_join_group (ts := [i64]) (fun xs m0 => xs = (nmBv, ()) ∧ m0 = m)
     · rintro _J20 ⟨nm, ⟨⟩⟩ m0 ⟨hnm, hm0⟩
-      injection hnm with hnm; subst nm; subst m0; simp only [Blocks.get]; p2_steps
+      injection hnm with hnm; subst nm; subst m0; rw [Blocks.get_here]; p2_steps
       let s0 : FullState := { s with scratch := { s.scratch with stable := omBv } }
       have hlen0 : s0.LengthsOk c := ⟨hlen.core_ok, { hlen.scratch_ok with
         walk_vals_len := hlen.scratch_ok.walk_vals_len }⟩
@@ -196,7 +195,7 @@ theorem full_ema_swap_m7_wp (Γ : Env)
         (fun xs m1' => xs = (BitVec.ofNat 64 (if omNat = 0 then 40 else 48), ()) ∧
           (FullMem c s1 ⋆ R) m1')
       · rintro _J30 ⟨old_base, ⟨⟩⟩ m1' ⟨hob, hm1'⟩
-        injection hob with hob; subst old_base; simp only [Blocks.get]
+        injection hob with hob; subst old_base; rw [Blocks.get_here]
         let obNat : Nat := if omNat = 0 then 40 else 48
         have hob_eq : (BitVec.ofNat 64 obNat).toNat = obNat :=
           p2_bv64_ofNat_toNat (by dsimp [obNat]; split <;> decide)
@@ -263,7 +262,7 @@ theorem full_ema_swap_m7_wp (Γ : Env)
           (fun xs m6 => xs = (BitVec.ofNat 64 (if nmNat = 0 then 40 else 48), ()) ∧
             (FullMem c s2 ⋆ R) m6)
         · rintro _J40 ⟨new_base, ⟨⟩⟩ m6 ⟨hnb, hm6⟩
-          injection hnb with hnb; subst new_base; simp only [Blocks.get]
+          injection hnb with hnb; subst new_base; rw [Blocks.get_here]
           let nbNat : Nat := if nmNat = 0 then 40 else 48
           have hnb_eq : (BitVec.ofNat 64 nbNat).toNat = nbNat :=
             p2_bv64_ofNat_toNat (by dsimp [nbNat]; split <;> decide)
@@ -285,7 +284,7 @@ theorem full_ema_swap_m7_wp (Γ : Env)
           · rintro _J50 ⟨fmask, ⟨⟩⟩ mf
               ⟨scFinal, hscF, guPre, hguP_len, hguP_eq, hmf⟩
             rw [hscF] at hmf hguP_eq
-            simp only [Blocks.get]; p2_steps
+            rw [Blocks.get_here]; p2_steps
             let sPre : FullState :=
               { core := s.core, scratch := { m7EmaSwapSc s.scratch old_m new_m with
                 glue_used := guPre } }

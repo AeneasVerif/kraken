@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.FullM7SearchProof0
 import LeanQbe.T.Examples.Kissat.FullArena
 import LeanQbe.T.Logic.C0Step
+public import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.C0Agrees
 import Kraken.Mem
 import Kraken.Separation
@@ -28,7 +29,7 @@ public section
 namespace LeanQbe.T.Examples.Kissat.FullM7Search
 
 open Std Std.Sat Std.ExtHashMap
-open LeanQbe.T LeanQbe.T.C0Step LeanQbe.T.ProofUtil
+open LeanQbe.T LeanQbe.T.C0Step LeanQbe.T.C0HeadStep LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.Full
 open Kraken.Bedrock2.Test
 open scoped FullArenaTactics
@@ -43,6 +44,14 @@ local macro "m7_strip" : tactic =>
   `(tactic| first | apply m7_strip_32_64 | apply m7_strip_8_32 | apply m7_strip_8_64)
 local macro "m7_unmdata" : tactic =>
   `(tactic| first | change Func.wp _ _ _ _ _ _ | change wp _ _ _ _ _)
+local elab "m7_hsteps_ns" : tactic =>
+  LeanQbe.T.C0HeadStep.headSteps { unrollGroup := false, splitJnz := false } 10000
+local macro "m7_hsteps_raw" : tactic =>
+  `(tactic| (
+      (try m7_unmdata)
+      (repeat m7_strip)
+      m7_hsteps_ns
+      repeat (any_goals (m7_strip; repeat m7_strip); m7_hsteps_ns)))
 local macro "m7_steps" : tactic =>
   `(tactic| (
       (try m7_unmdata)
@@ -53,8 +62,8 @@ local macro "m7_steps" : tactic =>
 open Lean Elab Tactic in
 /-- Step straight-line `C0Step` ops, stopping at `Expr.group` instead of inlining join points. -/
 local elab "m7_to_group_step" : tactic => do
-  let rec go (fuel : Nat) : TacticM Unit := do
-    if fuel = 0 then return
+  for _ in [:500] do
+    let mut progressed := false
     let mut out : Array MVarId := #[]
     for g in ← getUnsolvedGoals do
       if ← g.isAssigned then continue
@@ -68,13 +77,13 @@ local elab "m7_to_group_step" : tactic => do
           ((ty.getArg! 4).headBeta.consumeMData).isAppOf ``LeanQbe.T.Expr.group then
         out := out.push (← getMainGoal)
       else if ← LeanQbe.T.C0Step.stepOnce then
+        progressed := true
         evalTactic (← `(tactic| all_goals (try (repeat m7_strip))))
-        go (fuel - 1)
         out := out ++ (← getUnsolvedGoals)
       else
         out := out.push (← getMainGoal)
     setGoals out.toList
-  go 500
+    if !progressed then break
 
 local macro "m7_to_group" : tactic =>
   `(tactic| ((try m7_unmdata); (repeat m7_strip); m7_to_group_step))
@@ -82,8 +91,7 @@ local macro "m7_to_group" : tactic =>
 open Lean Elab Tactic in
 /-- Step straight-line `C0Step` ops until `Expr.jnz`, then split it once. -/
 local elab "m7_split" : tactic => do
-  let rec go (fuel : Nat) : TacticM Unit := do
-    if fuel = 0 then return
+  for _ in [:120] do
     let g ← getMainGoal
     let rawTy ← Lean.instantiateMVars (← g.getType)
     let ty := rawTy.consumeMData
@@ -93,12 +101,12 @@ local elab "m7_split" : tactic => do
     if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 &&
         ((ty.getArg! 4).headBeta.consumeMData).isAppOf ``LeanQbe.T.Expr.jnz then
       let _ ← Lean.Elab.Tactic.evalTactic (← `(tactic| c0_step))
-      return
+      break
     evalTactic (← `(tactic| all_goals (repeat m7_strip)))
     if ← Lean.Elab.Tactic.tryTactic (evalTactic (← `(tactic| c0_step))) then
       evalTactic (← `(tactic| all_goals (repeat m7_strip)))
-      go (fuel - 1)
-  go 120
+    else
+      break
 
 local macro "m7_call" hSpec:term : tactic =>
   `(tactic| (
@@ -437,7 +445,7 @@ theorem full_tumble_clause_m7_wp (Γ : Env)
               fun idx _ ⟨hne1, _⟩ => by dsimp only [ar0]; exact List.getElem?_set_ne hne1.symm,
               hm0'⟩
           · intro L (i, ()) m_cur ⟨ar', rng', hst_sp, hst_pm, hi2, hi_lt, hhold, hm_cur⟩ ih
-            try simp only [Blocks.get]; try dsimp only
+            try rw [Blocks.get_here]; try dsimp only
             m7_split
             · have hi_ge3 : 3 ≤ i.toNat := by
                 have h2lt : 2 < i.toNat := ‹_›; omega
@@ -596,7 +604,7 @@ theorem full_tumble_clauses_m7_wp (Γ : Env)
           ar''[r + 3]? = s.core.arena[r + 3]? ∧ ar''[r + 4]? = s.core.arena[r + 4]?) ∧
         (FullMem c st'' ⋆ R) m_ret) ?_ ?_
   · rintro _ ⟨p_ret, done_ret, ⟨⟩⟩ m_ret ⟨ar'', rng'', hsp_r, hpm_r, hw_r, hm_r⟩
-    simp only [Blocks.get]; try dsimp only
+    rw [Blocks.get_here]; try dsimp only
     m7_steps
     exact hQ done_ret ar'' rng'' m_ret hsp_r hpm_r hw_r hm_r
   · intro Jexit hJexit
@@ -637,7 +645,7 @@ theorem full_tumble_clauses_m7_wp (Γ : Env)
       have hm1_cur : (FullMem c st_cur ⋆ R) m_cur := hm_cur
       have hlen_cur := hst_sp.1
       have hwe_cur := hst_sp.2.1
-      simp only [Blocks.get]; try dsimp only
+      rw [Blocks.get_here]; try dsimp only
       m7_split
       · m7_split
         · have hp_lt : p.toNat < s.core.arena_len := by
@@ -695,7 +703,7 @@ theorem full_tumble_clauses_m7_wp (Γ : Env)
                   ar1[r + 3]? = s.core.arena[r + 3]? ∧ ar1[r + 4]? = s.core.arena[r + 4]?) ∧
                 (FullMem c st1 ⋆ R) m_j) ?_ ?_
           · rintro _ ⟨done', ⟨⟩⟩ m_j ⟨ar1, rng1, hsp1, hpm_all, hw1, hm1⟩
-            simp only [Blocks.get]; try dsimp only
+            rw [Blocks.get_here]; try dsimp only
             m7_split
             · exact hJexit (p, done', ()) m_j ⟨ar1, rng1, hsp1, hpm_all, hw1, hm1⟩
             · have hgt : p.toNat < nxt := by
@@ -844,14 +852,14 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
   apply wp_join_group (ts := [.bool, .bool, i64]) (fun _ m2 => m2 = m)
   · rintro _J0 ⟨sp, sn, _r, ⟨⟩⟩ m2 hm2
     rw [hm2]; clear hm2 m2
-    simp only [Blocks.get]; try dsimp only
+    rw [Blocks.get_here]; try dsimp only
     m7_to_group
     apply wp_loop_group (ts := [.bool, .bool, i64])
       (fun (v_rem : Nat) xs2 m2 => ∃ (sp2 sn2 : Bool) (v : BitVec 64),
         xs2 = (sp2, sn2, v, ()) ∧ m2 = m ∧ v_rem = s.core.cur_vars - v.toNat ∧
         v.toNat ≤ s.core.cur_vars)
     · intro J2 n2 xs2 m2 hrec2 ⟨sp2, sn2, v, hxs2, hm2, hn2, hv_le⟩
-      subst hxs2; rw [hm2]; clear hm2 m2; simp only [Blocks.get]; try dsimp only; m7_to_group
+      subst hxs2; rw [hm2]; clear hm2 m2; rw [Blocks.get_here]; try dsimp only; m7_to_group
       apply wp_join_group (ts := []) (fun _ m3 => m3 = m)
       · intro _Jret ⟨⟩ m3 hm3; rw [hm3]; clear hm3 m3; m7_steps <;> exact hQ _ (by decide)
       · intro Jret hJret
@@ -865,8 +873,8 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
             rw [hm3]; clear hm3 m3; m7_to_group
             apply wp_join_group (ts := [.bool, .bool]) (fun _ m4 => m4 = m)
             · intro _J2next ⟨sp', sn', ⟨⟩⟩ m4 hm4
-              rw [hm4]; clear hm4 m4; simp only [Blocks.get]
-              simp only [wp_let, Op.wp, OpCode.wp, lift2, wp_jump]
+              rw [hm4]; clear hm4 m4; rw [Blocks.get_here]
+              m7_hsteps_raw
               have hv1_lt : (v + 1#64).toNat = v.toNat + 1 := bv64_add1_toNat (by omega)
               exact hrec2 (s.core.cur_vars - (v + 1#64).toNat) (sp', sn', v + 1#64, ()) m
                 (by omega) ⟨sp', sn', v + 1#64, rfl, rfl, rfl, by omega⟩
@@ -933,10 +941,10 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                 · m7_to_group
                   apply wp_join_group (ts := [.bool, i64]) (fun _ m4 => m4 = m)
                   · intro _Jw1_done ⟨sp', _w1j, ⟨⟩⟩ m4 hm4
-                    rw [hm4]; clear hm4 m4; simp only [Blocks.get]; m7_to_group
+                    rw [hm4]; clear hm4 m4; rw [Blocks.get_here]; m7_to_group
                     apply wp_join_group (ts := [.bool, i64]) (fun _ m5 => m5 = m)
                     · intro _Jw2_done ⟨sn', _w0j, ⟨⟩⟩ m5 hm5
-                      rw [hm5]; clear hm5 m5; simp only [Blocks.get, wp_jump]
+                      rw [hm5]; clear hm5 m5; rw [Blocks.get_here, wp_jump]
                       exact hJ2next (sp', sn', ()) m rfl
                     · intro Jw2_done hJw2_done
                       m7_to_group
@@ -946,8 +954,7 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                             jw2.toNat + wrem2 = off0.toNat + sz0.toNat ∧
                             PolarWatchOk s.core jw2.toNat wrem2)
                         · intro Jw2 nw2 xw2 mw2 hrecw2 ⟨flg2, jw2, hxw2, hmw2, hjw2_sum, hpw2_cur⟩
-                          subst hxw2; subst mw2; simp only [Blocks.get]
-                          rw [wp_let]; simp only [Op.wp]
+                          subst hxw2; subst mw2; rw [Blocks.get_here]
                           have hsum0 : off0.toNat + sz0.toNat < 2 ^ 64 := by omega
                           have hjw2_end : (BitVec.setWidth 64 off0 + BitVec.setWidth 64 sz0).toNat =
                               off0.toNat + sz0.toNat := by
@@ -955,13 +962,15 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                               Nat.mod_eq_of_lt (Nat.lt_trans off0.isLt (by decide)),
                               Nat.mod_eq_of_lt (Nat.lt_trans sz0.isLt (by decide)),
                               Nat.mod_eq_of_lt (by omega)]
-                          constructor
-                          · intro hc; dsimp only [Arg.val] at hc
-                            simp only [liftCmp, CmpOp.evalBits] at hc
+                          m7_hsteps_raw
+                          rw [wp_jnz]; constructor
+                          · intro hc
                             have hlt : jw2.toNat < off0.toNat + sz0.toNat := by
-                              change decide (jw2.toNat < (BitVec.setWidth 64 off0 +
-                                BitVec.setWidth 64 sz0).toNat) = true at hc
-                              rw [hjw2_end] at hc; exact of_decide_eq_true hc
+                              have hc0 : BitVec.ult jw2
+                                  (BitVec.setWidth 64 off0 + BitVec.setWidth 64 sz0) = true := hc
+                              rw [BitVec.ult] at hc0
+                              have hc1 := of_decide_eq_true hc0
+                              rwa [hjw2_end] at hc1
                             rw [wp_jnz]; refine ⟨fun hflg => ?_, fun hflg => ?_⟩
                             · subst hflg; rw [wp_jump]; exact hJw2_done _ m rfl
                             · have hnw2 : 0 < nw2 := by omega
@@ -980,7 +989,7 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                                 subst mw'
                                 injection hxs' with hf'; subst hf'
                                 injection (by assumption : (jw', ()) = (j', ())) with hj'; subst hj'
-                                simp only [Blocks.get]; rw [wp_jump]
+                                rw [Blocks.get_here, wp_jump]
                                 exact hrecw2 (off0.toNat + sz0.toNat - jw'.toNat)
                                   (flg', jw', ()) m (by omega)
                                   ⟨flg', jw', rfl, rfl, by omega, hp'⟩
@@ -1003,32 +1012,28 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                                       (off0.toNat + sz0.toNat - (jw2 + 1#64).toNat) := by
                                     rw [h1]; exact (congrArg (PolarWatchOk s.core _)
                                       (by omega)).mpr hpw2_next
-                                  simp only [wp_let, Op.wp, OpCode.wp, lift2, vals, Arg.val,
-                                    Ty.hasFloat]
+                                  m7_hsteps_raw
                                   rw [wp_jnz]
-                                  refine ⟨fun _ => ?_, fun hc' => by
-                                    simp only [liftCmp, CmpOp.evalBits] at hc'
-                                    exact False.elim (of_decide_eq_false hc' hbit')⟩
+                                  refine ⟨fun _ => ?_, fun hc' =>
+                                    False.elim (hbit' (by simpa using hc'))⟩
                                   apply wp_join_group (ts := [.bool]) (fun _ m' => m' = m)
-                                  · intro _Js1 ⟨flg', ⟨⟩⟩ m' hm'; subst m'; simp only [Blocks.get]
-                                    simp only [wp_let, Op.wp, OpCode.wp, lift2, wp_jump]
+                                  · intro _Js1 ⟨flg', ⟨⟩⟩ m' hm'; subst m'; rw [Blocks.get_here]
+                                    m7_hsteps_raw
                                     exact hJs (flg', jw2 + 1#64, ()) m
                                       ⟨flg', jw2 + 1#64, rfl, rfl, by rw [h1]; omega,
                                         by rw [h1]; omega, hp_next⟩
                                   · intro Js1 hJs1; m7_to_group
                                     · apply wp_join_group (ts := [.bool]) (fun _ m' => m' = m)
                                       · intro _Js2 ⟨flg', ⟨⟩⟩ m' hm'
-                                        subst m'; simp only [Blocks.get]
-                                        rw [wp_jump]; exact hJs1 (flg', ()) m rfl
+                                        subst m'; rw [Blocks.get_here, wp_jump]
+                                        exact hJs1 (flg', ()) m rfl
                                       · intro Js2 hJs2
-                                        simp only [wp_let, Op.wp, OpCode.wp]
-                                        repeat m7_strip
+                                        m7_hsteps_raw
                                         rw [wp_jnz]; refine ⟨fun _ => ?_, fun _ => ?_⟩
                                         · rw [wp_jump]; exact hJs2 _ m rfl
-                                        · simp only [wp_let, Op.wp, OpCode.wp]
-                                          repeat m7_strip
+                                        · m7_hsteps_raw
                                           rw [wp_jnz]; refine ⟨fun _ => ?_, fun _ => ?_⟩
-                                          · simp only [wp_let, Op.wp, OpCode.wp, lift2]
+                                          · m7_hsteps_raw
                                             rw [wp_jnz]; refine ⟨fun _ => ?_, fun _ => ?_⟩ <;>
                                               (rw [wp_jump]; exact hJs2 _ m rfl)
                                           · rw [wp_jump]; exact hJs2 _ m rfl
@@ -1045,13 +1050,13 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                                       (off0.toNat + sz0.toNat - (jw2 + 2#64).toNat) := by
                                     rw [h2]; exact (congrArg (PolarWatchOk s.core _)
                                       (by omega)).mpr hpw2_next
-                                  simp only [wp_let, Op.wp, OpCode.wp, lift2, vals, Arg.val,
-                                    Ty.hasFloat]
+                                  m7_hsteps_raw
                                   rw [wp_jnz]
-                                  refine ⟨fun hc' => by
-                                    simp only [liftCmp, CmpOp.evalBits] at hc'
-                                    exact False.elim (of_decide_eq_true hc' hbit'), fun _ => ?_⟩
-                                  simp only [wp_let, Op.wp, OpCode.wp, lift2, wp_jump]
+                                  refine ⟨fun hc' =>
+                                    False.elim ((by simpa using hc' :
+                                      s.core.wstk[jw2.toNat] &&& 2147483648#32 ≠ 0#32) hbit'),
+                                    fun _ => ?_⟩
+                                  m7_hsteps_raw
                                   exact hJs (flg2, jw2 + 2#64, ()) m
                                     ⟨flg2, jw2 + 2#64, rfl, rfl, by rw [h2]; omega,
                                       by rw [h2]; omega, hp_next⟩
@@ -1073,8 +1078,7 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                           xw = (flg, jw, ()) ∧ mw = m ∧ jw.toNat + wrem = off1.toNat + sz1.toNat ∧
                           PolarWatchOk s.core jw.toNat wrem)
                       · intro Jw1l nw xw mw hrecw ⟨flg, jw, hxw, hmw, hjw_sum, hpw_cur⟩
-                        subst hxw; subst mw; simp only [Blocks.get]
-                        rw [wp_let]; simp only [Op.wp]
+                        subst hxw; subst mw; rw [Blocks.get_here]
                         have hsum1 : off1.toNat + sz1.toNat < 2 ^ 64 := by omega
                         have hjw_end : (BitVec.setWidth 64 off1 + BitVec.setWidth 64 sz1).toNat =
                             off1.toNat + sz1.toNat := by
@@ -1082,13 +1086,15 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                             Nat.mod_eq_of_lt (Nat.lt_trans off1.isLt (by decide)),
                             Nat.mod_eq_of_lt (Nat.lt_trans sz1.isLt (by decide)),
                             Nat.mod_eq_of_lt (by omega)]
-                        constructor
-                        · intro hc; dsimp only [Arg.val] at hc
-                          simp only [liftCmp, CmpOp.evalBits] at hc
+                        m7_hsteps_raw
+                        rw [wp_jnz]; constructor
+                        · intro hc
                           have hlt : jw.toNat < off1.toNat + sz1.toNat := by
-                            change decide (jw.toNat < (BitVec.setWidth 64 off1 +
-                              BitVec.setWidth 64 sz1).toNat) = true at hc
-                            rw [hjw_end] at hc; exact of_decide_eq_true hc
+                            have hc0 : BitVec.ult jw
+                                (BitVec.setWidth 64 off1 + BitVec.setWidth 64 sz1) = true := hc
+                            rw [BitVec.ult] at hc0
+                            have hc1 := of_decide_eq_true hc0
+                            rwa [hjw_end] at hc1
                           rw [wp_jnz]; refine ⟨fun hflg => ?_, fun hflg => ?_⟩
                           · subst hflg; rw [wp_jump]; exact hJw1_done _ m rfl
                           · have hnw : 0 < nw := by omega
@@ -1107,7 +1113,7 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                               subst mw'
                               injection hxs' with hf'; subst hf'
                               injection (by assumption : (jw', ()) = (j', ())) with hj'; subst hj'
-                              simp only [Blocks.get]; rw [wp_jump]
+                              rw [Blocks.get_here, wp_jump]
                               exact hrecw (off1.toNat + sz1.toNat - jw'.toNat)
                                 (flg', jw', ()) m (by omega)
                                 ⟨flg', jw', rfl, rfl, by omega, hp'⟩
@@ -1130,32 +1136,28 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                                     (off1.toNat + sz1.toNat - (jw + 1#64).toNat) := by
                                   rw [h1]; exact (congrArg (PolarWatchOk s.core _)
                                     (by omega)).mpr hpw_next
-                                simp only [wp_let, Op.wp, OpCode.wp, lift2, vals, Arg.val,
-                                  Ty.hasFloat]
+                                m7_hsteps_raw
                                 rw [wp_jnz]
-                                refine ⟨fun _ => ?_, fun hc' => by
-                                  simp only [liftCmp, CmpOp.evalBits] at hc'
-                                  exact False.elim (of_decide_eq_false hc' hbit')⟩
+                                refine ⟨fun _ => ?_, fun hc' =>
+                                  False.elim (hbit' (by simpa using hc'))⟩
                                 apply wp_join_group (ts := [.bool]) (fun _ m' => m' = m)
-                                · intro _Js1 ⟨flg', ⟨⟩⟩ m' hm'; subst m'; simp only [Blocks.get]
-                                  simp only [wp_let, Op.wp, OpCode.wp, lift2, wp_jump]
+                                · intro _Js1 ⟨flg', ⟨⟩⟩ m' hm'; subst m'; rw [Blocks.get_here]
+                                  m7_hsteps_raw
                                   exact hJs (flg', jw + 1#64, ()) m
                                     ⟨flg', jw + 1#64, rfl, rfl, by rw [h1]; omega,
                                       by rw [h1]; omega, hp_next⟩
                                 · intro Js1 hJs1; m7_to_group
                                   · apply wp_join_group (ts := [.bool]) (fun _ m' => m' = m)
                                     · intro _Js2 ⟨flg', ⟨⟩⟩ m' hm'
-                                      subst m'; simp only [Blocks.get]
-                                      rw [wp_jump]; exact hJs1 (flg', ()) m rfl
+                                      subst m'; rw [Blocks.get_here, wp_jump]
+                                      exact hJs1 (flg', ()) m rfl
                                     · intro Js2 hJs2
-                                      simp only [wp_let, Op.wp, OpCode.wp]
-                                      repeat m7_strip
+                                      m7_hsteps_raw
                                       rw [wp_jnz]; refine ⟨fun _ => ?_, fun _ => ?_⟩
                                       · rw [wp_jump]; exact hJs2 _ m rfl
-                                      · simp only [wp_let, Op.wp, OpCode.wp]
-                                        repeat m7_strip
+                                      · m7_hsteps_raw
                                         rw [wp_jnz]; refine ⟨fun _ => ?_, fun _ => ?_⟩
-                                        · simp only [wp_let, Op.wp, OpCode.wp, lift2]
+                                        · m7_hsteps_raw
                                           rw [wp_jnz]; refine ⟨fun _ => ?_, fun _ => ?_⟩ <;>
                                             (rw [wp_jump]; exact hJs2 _ m rfl)
                                         · rw [wp_jump]; exact hJs2 _ m rfl
@@ -1172,13 +1174,13 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                                     (off1.toNat + sz1.toNat - (jw + 2#64).toNat) := by
                                   rw [h2]; exact (congrArg (PolarWatchOk s.core _)
                                     (by omega)).mpr hpw_next
-                                simp only [wp_let, Op.wp, OpCode.wp, lift2, vals, Arg.val,
-                                  Ty.hasFloat]
+                                m7_hsteps_raw
                                 rw [wp_jnz]
-                                refine ⟨fun hc' => by
-                                  simp only [liftCmp, CmpOp.evalBits] at hc'
-                                  exact False.elim (of_decide_eq_true hc' hbit'), fun _ => ?_⟩
-                                simp only [wp_let, Op.wp, OpCode.wp, lift2, wp_jump]
+                                refine ⟨fun hc' =>
+                                  False.elim ((by simpa using hc' :
+                                    s.core.wstk[jw.toNat] &&& 2147483648#32 ≠ 0#32) hbit'),
+                                  fun _ => ?_⟩
+                                m7_hsteps_raw
                                 exact hJs (flg, jw + 2#64, ()) m
                                   ⟨flg, jw + 2#64, rfl, rfl, by rw [h2]; omega,
                                     by rw [h2]; omega, hp_next⟩
@@ -1208,7 +1210,7 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
         r.toNat ≤ s.core.arena_len ∧
         (r.toNat = s.core.arena_len ∨ r.toNat ∈ fullArenaClauseRefsCore s.core))
     · intro J n xs m' hrec ⟨sp, sn, r, hxs, hm', hn, hr_le, hr⟩
-      subst hxs; subst m'; simp only [Blocks.get]; try dsimp only
+      subst hxs; subst m'; rw [Blocks.get_here]; try dsimp only
       rcases hr with hr_eq | hr_mem
       · m7_to_group <;> first
           | exact hJ0 _ m rfl
@@ -1225,7 +1227,7 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
           rw [Nat.mod_eq_of_lt (by omega)]; omega
         m7_to_group
         · apply wp_join_group (ts := []) (fun _ m2 => m2 = m)
-          · intro _Jbody ⟨⟩ m2 hm2; rw [hm2]; clear hm2 m2; simp only [Blocks.get]; try dsimp only
+          · intro _Jbody ⟨⟩ m2 hm2; rw [hm2]; clear hm2 m2; rw [Blocks.get_here]; try dsimp only
             m7_to_group
             let nxt := fullArenaNextOff s.core.arena s.core.arena_len r.toNat
             have hr32 : (BitVec.setWidth 32 r).toNat = r.toNat := by
@@ -1235,8 +1237,7 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                 ⟨c, s, R, rfl, hlen_all, hm, ⟨by rw [hr32], rfl⟩⟩, ?_, fun _ _ _ _ => id⟩
             rintro ⟨r32, ⟨⟩⟩ m4 ⟨hr32_eq, hm4⟩; rw [hm4]; clear hm4 m4
             injection hr32_eq with hr32_eq; subst r32
-            simp only [wp_let, Op.wp, OpCode.wp]
-            refine m7_strip_32_64 ?_
+            m7_hsteps_raw
             have hnxt_eq : (BitVec.setWidth 64 (BitVec.ofNat 32 nxt)).toNat = nxt := by
               have := hwf.2.2.2.1
               rw [BitVec.toNat_setWidth, BitVec.toNat_ofNat,
@@ -1249,8 +1250,8 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                   exact ⟨Nat.le_trans (by omega) hpwf.2.2.1, hpwf.2.2.2.2⟩)
                 hr_mem
             apply wp_join_group (ts := [.bool, .bool]) (fun _ m5 => m5 = m)
-            · intro _Jn ⟨sp', sn', ⟨⟩⟩ m5 hm5; rw [hm5]; clear hm5 m5; simp only [Blocks.get]
-              simp only [wp_let, Op.wp, OpCode.wp]
+            · intro _Jn ⟨sp', sn', ⟨⟩⟩ m5 hm5; rw [hm5]; clear hm5 m5; rw [Blocks.get_here]
+              m7_hsteps_raw
               rw [wp_jnz]; refine ⟨fun _ => ?_, fun _ => ?_⟩ <;>
               · rw [wp_jump]
                 first
@@ -1264,7 +1265,7 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
             · intro Jn hJn; m7_to_group
               apply wp_join_group (ts := [.bool, .bool]) (fun _ m5 => m5 = m)
               · intro _Jn2 ⟨sp', sn', ⟨⟩⟩ m5 hm5; rw [hm5]; clear hm5 m5
-                simp only [Blocks.get]; rw [wp_jump]; exact hJn (sp', sn', ()) m rfl
+                rw [Blocks.get_here, wp_jump]; exact hJn (sp', sn', ()) m rfl
               · intro Jn2 hJn2; m7_to_group
                 {
                 have hsz_eq : (s.core.arena[(r + 2#64).toNat]).toNat =
@@ -1285,19 +1286,19 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                 apply wp_join_group (ts := [.bool, .bool, .bool, i32])
                   (fun _ m5 => m5 = m)
                 · intro _Jpost ⟨sat', any', _skip', _j', ⟨⟩⟩ m5 hm5
-                  rw [hm5]; clear hm5 m5; simp only [Blocks.get]; m7_to_group
+                  rw [hm5]; clear hm5 m5; rw [Blocks.get_here]; m7_to_group
                   apply wp_join_group (ts := [.bool, .bool]) (fun _ m6 => m6 = m)
                   · intro _Jn3 ⟨sp', sn', ⟨⟩⟩ m6 hm6; rw [hm6]; clear hm6 m6
-                    simp only [Blocks.get, wp_jump]; exact hJn2 (sp', sn', ()) m rfl
+                    rw [Blocks.get_here, wp_jump]; exact hJn2 (sp', sn', ()) m rfl
                   · intro Jn3 hJn3
                     rw [wp_jnz]; refine ⟨fun _ => ?_, fun _ => ?_⟩
                     · rw [wp_jump]; exact hJn3 (sp, sn, ()) m rfl
                     · apply wp_join_group (ts := [.bool]) (fun _ m6 => m6 = m)
                       · intro _Jsp ⟨sp', ⟨⟩⟩ m6 hm6; rw [hm6]; clear hm6 m6
-                        simp only [Blocks.get]
+                        rw [Blocks.get_here]
                         apply wp_join_group (ts := [.bool]) (fun _ m6 => m6 = m)
                         · intro _Jsn ⟨sn', ⟨⟩⟩ m6 hm6; rw [hm6]; clear hm6 m6
-                          simp only [Blocks.get, wp_jump]; exact hJn3 (sp', sn', ()) m rfl
+                          rw [Blocks.get_here, wp_jump]; exact hJn3 (sp', sn', ()) m rfl
                         · intro Jsn hJsn
                           rw [wp_jnz]; refine ⟨fun _ => ?_, fun _ => ?_⟩ <;>
                             (rw [wp_jump]; exact hJsn _ m rfl)
@@ -1311,13 +1312,13 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                       jrem = fullArenaClauseSizeCore s.core r.toNat - j.toNat ∧
                       j.toNat ≤ fullArenaClauseSizeCore s.core r.toNat)
                   · intro Jj nj xj mj hrecj ⟨sat?, any?, j, hxj, hmj, hnj, hj_le⟩
-                    subst hxj; subst mj; simp only [Blocks.get]
-                    rw [wp_let]; simp only [Op.wp]
-                    constructor
+                    subst hxj; subst mj; rw [Blocks.get_here]
+                    m7_hsteps_raw
+                    rw [wp_jnz]; constructor
                     · intro hc
                       have hlt :
                           decide (j.toNat < s.core.arena[(r + 2#64).toNat].toNat) =
-                            true := hc
+                            true := by simpa [BitVec.ult] using hc
                       have hj : j.toNat < fullArenaClauseSizeCore s.core r.toNat := by
                         rw [← hsz_eq]; exact of_decide_eq_true hlt
                       have hj_ar :
@@ -1335,8 +1336,8 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                       apply wp_join_group (ts := [.bool, .bool, .bool])
                         (fun _ m4 => m4 = m)
                       · intro _Jjnext ⟨_broke, ap', an', ⟨⟩⟩ m4 hm4
-                        rw [hm4]; clear hm4 m4; simp only [Blocks.get]
-                        simp only [wp_let, Op.wp, OpCode.wp, lift2, wp_jump]
+                        rw [hm4]; clear hm4 m4; rw [Blocks.get_here]
+                        m7_hsteps_raw
                         have hj1 : (j + 1#32).toNat = j.toNat + 1 := by
                           rw [BitVec.toNat_add, BitVec.toNat_ofNat]
                           simp only [Nat.reducePow, Nat.reduceMod]
@@ -1375,19 +1376,18 @@ theorem full_lucky_polar_m7_wp (Γ : Env)
                         · apply wp_join_group (ts := [.bool, .bool])
                             (fun _ m' => m' = m)
                           · intro _Js ⟨ap', an', ⟨⟩⟩ m' hm'; subst m'
-                            simp only [Blocks.get, wp_jump]
+                            rw [Blocks.get_here, wp_jump]
                             exact hJjnext (false, ap', an', ()) m rfl
                           · intro Js hJs
-                            simp only [wp_let, Op.wp, OpCode.wp]
-                            repeat m7_strip
+                            m7_hsteps_raw
                             rw [wp_jnz]; refine ⟨fun _ => ?_, fun _ => ?_⟩
                             · apply wp_join_group (ts := [.bool, .bool])
                                 (fun _ m' => m' = m)
                               · intro _Js2 ⟨ap', an', ⟨⟩⟩ m' hm'; subst m'
-                                simp only [Blocks.get, wp_jump]
+                                rw [Blocks.get_here, wp_jump]
                                 exact hJs (ap', an', ()) m rfl
                               · intro Js2 hJs2
-                                simp only [wp_let, Op.wp, OpCode.wp, lift2]
+                                m7_hsteps_raw
                                 rw [wp_jnz]
                                 refine ⟨fun _ => ?_, fun _ => ?_⟩ <;>
                                   (rw [wp_jump]; exact hJs2 _ m rfl)
