@@ -16,7 +16,8 @@ Proves the top-level driver functions of `LeanQbe.T.Examples.Kissat.FullM6Sweep`
 3. `full_sweep_sat_m6_wp` (`39/39`), matching `Full.fullSweepSatSpec`.
 4. `m6Sweep_tableImpl_of_parts` and `m6Sweep_moduleOk_of_parts`, assembling all 33 proved
    functions together with the 6 external `Var2a`/`Cands` hypotheses into `ModuleOk`.
-5. Concrete `Mem 64` non-vacuity (`nv_m6_sweep_dense`, `nv_m6_sweep_sat`, `nv_full_sweep_sat_m6`)
+5. Concrete `Mem 64` non-vacuity with `inconsistent = 0#64` and embedded `K6State` (`max_v = 512`)
+   for `full_k6_{init,solve}`, `full_m6_sweep_{cone,var,vars,dense,sat}`, and `full_sweep_sat_m6`
    under `m6SweepEnv` with `XPost := fun _ _ _ _ => False`.
 -/
 
@@ -648,11 +649,649 @@ theorem m6Sweep_moduleOk_of_parts
 
 /-! ## 5. Concrete `Mem 64` UNSAT Non-Vacuity (`XPost := False`) -/
 
+section ConcreteNonVacuity
+
+open Std Std.Sat Std.ExtHashMap
+open LeanQbe.T.ProofUtil
+open Kraken.Bedrock2.Test
+
+/-- Concrete `K6Layout` matching `FullM4Sweep.nvM4SweepCfg` (`scratch_cap = 24576`,
+    `maxV = 512`, `k6Base = 2304`, `acap = 2784`). -/
+def nvM6K6Layout : K6Layout :=
+  k6LayoutOfCap 24576 (by decide) (by decide)
+
+private theorem nvM6K6Layout_maxV : nvM6K6Layout.maxV = 512 := k6MaxV_512
+
+private theorem nvM6K6Layout_maxOrig : nvM6K6Layout.maxOrig = 1536 := by
+  unfold K6Layout.maxOrig; rw [nvM6K6Layout_maxV]
+
+private theorem nvM6K6Layout_maxCl : nvM6K6Layout.maxCl = 2048 := by
+  unfold K6Layout.maxCl; rw [nvM6K6Layout_maxV]
+
+private theorem nvM6K6Layout_acap : nvM6K6Layout.acap = 2784 := by
+  unfold nvM6K6Layout k6LayoutOfCap; dsimp only; rw [k6MaxV_512]
+
+private theorem nvM6K6Layout_k6Base : nvM6K6Layout.k6Base = 2304 := by
+  unfold K6Layout.k6Base; rw [nvM6K6Layout_maxV]
+
+private theorem nvM6K6Layout_scrLen : nvM6K6Layout.scrLen = 24576 :=
+  k6LayoutOfCap_scrLen (by decide) (by decide)
+
+/-- Concrete inconsistent `K6State` (`nv = 1`, `nc = 0`, `incons = 1`, `acap = 2784`,
+    `max_v = 512`, `max_orig = 1536`, `max_cl = 2048`). -/
+def nvM6K6State : K6State where
+  nv := 1#32
+  nc := 0#32
+  lvl := 0#32
+  prop := 0#32
+  trl_end := 0#32
+  unass := 1#32
+  incons := 1#32
+  qfirst := 0#32
+  qlast := 0#32
+  qsearch := 0#32
+  qstamp := 1#32
+  ticks := 0#32
+  tick_lim := 0#32
+  alen := 0#32
+  acap := 2784#32
+  nassump := 0#32
+  nkl := 0#32
+  nana := 0#32
+  status := 0#32
+  phase := 0#32
+  openCnt := 0#32
+  max_v := 512#32
+  max_orig := 1536#32
+  max_cl := 2048#32
+  neq := 0#32
+  hdrTail := List.replicate 7 0#32
+  lvlArr := List.replicate 512 0#32
+  rsn := List.replicate 512 0xFFFFFFFF#32
+  qprev := List.replicate 512 0xFFFFFFFF#32
+  qnext := List.replicate 512 0xFFFFFFFF#32
+  qstampArr := List.replicate 512 0#32
+  trl := List.replicate 512 0#32
+  flags := List.replicate 512 0#32
+  ana := List.replicate 512 0#32
+  kl := List.replicate 512 0#32
+  assump := List.replicate 512 0#32
+  vals := List.replicate 1024 0#32
+  whead := List.replicate 1024 0xFFFFFFFF#32
+  wnext := List.replicate 4096 0xFFFFFFFF#32
+  wblit := List.replicate 4096 0#32
+  clOff := List.replicate 2048 0#32
+  clSz := List.replicate 2048 0#32
+  arena := List.replicate 2784 0#32
+
+theorem nvM6K6State_shapes : nvM6K6State.ShapesOk nvM6K6Layout := by
+  refine ⟨List.length_replicate, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+    ?_⟩ <;>
+    simp only [nvM6K6State, List.length_replicate, nvM6K6Layout_maxV, nvM6K6Layout_maxCl,
+      nvM6K6Layout_acap] <;>
+    decide
+
+theorem nvM6K6State_inv : K6Inv nvM6K6Layout (fun _ => False) nvM6K6State := by
+  have hsh : nvM6K6State.ShapesOk nvM6K6Layout := nvM6K6State_shapes
+  have hcl : K6ClausesOk nvM6K6Layout (fun _ => False) nvM6K6State :=
+    { acap_eq := by rw [nvM6K6Layout_acap]; rfl
+      max_v_eq := by rw [nvM6K6Layout_maxV]; rfl
+      max_orig_eq := by rw [nvM6K6Layout_maxOrig]; rfl
+      max_cl_eq := by rw [nvM6K6Layout_maxCl]; rfl
+      nv_le := by rw [nvM6K6Layout_maxV]; decide
+      nc_le := by rw [nvM6K6Layout_maxCl]; decide
+      alen_le := by rw [nvM6K6Layout_acap]; decide
+      nassump_le := by rw [nvM6K6Layout_maxV]; decide
+      nkl_le := by rw [nvM6K6Layout_maxV]; decide
+      nana_le := by rw [nvM6K6Layout_maxV]; decide
+      cl_wf := fun _ h => by simp [-List.reduceReplicate, nvM6K6State] at h
+      cl_mono := fun _ _ _ h => by simp [-List.reduceReplicate, nvM6K6State] at h
+      incons_ok := fun _ _ h => h
+      assump_ok := fun _ h => by simp [-List.reduceReplicate, nvM6K6State] at h
+      flags_clean := fun v hv => by
+        have hv1 : v < 1 := hv
+        simp [-List.reduceReplicate, nvM6K6State, show v < 512 by omega] }
+  have hwat : K6WatchesOk nvM6K6State := by
+    refine ⟨[[], []], rfl, by decide, fun l hl => ?_, fun l hl w hw => ?_⟩
+    · have hl2 : l < 2 := hl
+      rcases (show l = 0 ∨ l = 1 by omega) with rfl | rfl
+      · simp only [nvM6K6State, List.getElem?_replicate, show (0 : Nat) < 1024 by decide,
+          ↓reduceIte, Option.getD_some, List.getElem?_cons_zero]
+        exact FullM4Sweep.K5WChain.nil
+      · simp only [nvM6K6State, List.getElem?_replicate, show (1 : Nat) < 1024 by decide,
+          ↓reduceIte, Option.getD_some, List.getElem?_cons_succ, List.getElem?_cons_zero]
+        exact FullM4Sweep.K5WChain.nil
+    · have hl2 : l < 2 := hl
+      rcases (show l = 0 ∨ l = 1 by omega) with rfl | rfl <;> simp at hw
+  have hasg : K6BaseAssignOk (fun _ => False) nvM6K6State :=
+    { trl_end_le := by decide
+      prop_le := by decide
+      unass_eq := by decide
+      vals_dom := fun l hl => by
+        have hl2 : l < 2 := hl
+        simp [-List.reduceReplicate, nvM6K6State, show l < 1024 by omega]
+      vals_neg_iff := fun l hl => by
+        have hl2 : l < 2 := hl
+        have hnl : l ^^^ 1 < 1024 := by
+          rcases (show l = 0 ∨ l = 1 by omega) with rfl | rfl <;> decide
+        simp [-List.reduceReplicate, nvM6K6State, show l < 1024 by omega, hnl]
+      vals_nz_iff_trl := fun l hl => by
+        have hl2 : l < 2 := hl
+        simp [-List.reduceReplicate, nvM6K6State, show l < 1024 by omega]
+      trl_nodup := by decide
+      trl_lt := fun l hl => by simp [-List.reduceReplicate, k6TrailLits, nvM6K6State] at hl
+      trl_lvl_le := fun v hv => by
+        have hv1 : v < 1 := hv
+        simp [-List.reduceReplicate, nvM6K6State, show v < 512 by omega]
+      unass_lvl_zero := fun v hv _ => by
+        have hv1 : v < 1 := hv
+        simp [-List.reduceReplicate, nvM6K6State, show v < 512 by omega]
+      trl_lvl_mono := fun _ _ _ h => by simp [-List.reduceReplicate, nvM6K6State] at h
+      dec_earliest := fun _ _ _ h => by simp [-List.reduceReplicate, nvM6K6State] at h
+      lvl0_ok := fun _ h => by simp [-List.reduceReplicate, nvM6K6State] at h }
+  exact ⟨hsh, hcl, hwat, hasg, fun _ h => by simp [-List.reduceReplicate, nvM6K6State] at h⟩
+
+/-- Concrete `24576`-word `scratch_buf` embedding `nvM6K6State` at `k6Base = 2304`. -/
+def nvM6SweepScratchBuf : List (BitVec 32) :=
+  List.replicate 2304 0#32 ++ nvM6K6State.toSlab
+
+theorem nvM6SweepScratchBuf_length : nvM6SweepScratchBuf.length = 24576 := by
+  unfold nvM6SweepScratchBuf
+  rw [List.length_append, List.length_replicate, nvM6K6State.toSlab_length nvM6K6State_shapes]
+  have hlen : nvM6K6Layout.k6Fixed + nvM6K6Layout.acap = 22272 := by
+    unfold K6Layout.k6Fixed; rw [nvM6K6Layout_maxV, nvM6K6Layout_acap]
+  rw [hlen]
+
+theorem nvM6SweepScratchBuf_k6State :
+    k6StateOfScratch nvM6K6Layout nvM6SweepScratchBuf = nvM6K6State := by
+  unfold k6StateOfScratch nvM6SweepScratchBuf
+  rw [nvM6K6Layout_k6Base,
+    List.drop_append_of_le_length (by rw [List.length_replicate]; exact le_refl _),
+    List.drop_replicate, Nat.sub_self, List.replicate_zero, List.nil_append]
+  exact K6State.ofSlab_toSlab nvM6K6State_shapes
+
+theorem nvM6SweepScratchBuf_k6Inv :
+    K6ScratchInv (fun _ => False) nvM6SweepScratchBuf := by
+  have hlen : nvM6SweepScratchBuf.length = nvM6K6Layout.scrLen := by
+    rw [nvM6SweepScratchBuf_length, nvM6K6Layout_scrLen]
+  have hmv : nvM6K6Layout.maxV = k6MaxV nvM6SweepScratchBuf.length := by
+    rw [nvM6SweepScratchBuf_length, nvM6K6Layout_maxV]; exact k6MaxV_512.symm
+  refine K6Inv.to_scratchInv hlen hmv (by rw [nvM6SweepScratchBuf_length]; decide)
+    (by rw [nvM6SweepScratchBuf_length]; decide) ?_
+  rw [nvM6SweepScratchBuf_k6State]
+  exact nvM6K6State_inv
+
+/-- Zero-initialized `FullScratch` carrying `nvM6SweepScratchBuf`. -/
+def nvM6SweepScratch : FullScratch :=
+  { FullM4Sweep.nvM4SweepScratch with scratch_buf := nvM6SweepScratchBuf }
+
+/-- Concrete dense-mode UNSAT `FullState` (`FL_ACTIVE | FL_SWEEP`, `dense_mode = 1`,
+    `inconsistent = 0`, `fuel = 1`, embedded `nvM6K6State`) so `full_m6_sweep_dense`
+    enters the candidate loop rather than short-circuiting. -/
+def nvM6SweepState : FullState :=
+  { FullM4Sweep.nvM4SweepState with
+    core := { FullM4Sweep.nvM4SweepState.core with inconsistent := 0#64 }
+    scratch := nvM6SweepScratch }
+
+/-- Concrete sparse-mode UNSAT `FullState` (`dense_mode = 0`, `inconsistent = 0`,
+    `fuel = 1`, embedded `nvM6K6State`). -/
+def nvM6SweepSparseState : FullState :=
+  { nvM6SweepState with core := { nvM6SweepState.core with dense_mode := 0#64 } }
+
+theorem nvM6SweepState_lengths : nvM6SweepState.LengthsOk FullM4Sweep.nvM4SweepCfg := by
+  rcases FullM4Sweep.nvM4SweepState_lengths.1 with
+    ⟨c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20,
+     c21, c22, c23, c24, c25⟩
+  rcases FullM4Sweep.nvM4SweepState_lengths.2 with
+    ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15, h16, h17, h18, h19, h20,
+     h21, h22, h23, _⟩
+  exact ⟨⟨c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19,
+      c20, c21, c22, c23, c24, c25⟩,
+    ⟨h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15, h16, h17, h18, h19, h20,
+      h21, h22, h23, nvM6SweepScratchBuf_length⟩⟩
+
+theorem nvM6Sweep_invW :
+    FullDenseInvW FullM4Sweep.nvM4SweepCfg Full.nvOneLitF0 [[0], [1]] nvM6SweepState := by
+  have hcv : nvM6SweepState.core.cur_vars = 1 := rfl
+  have hdm : nvM6SweepState.core.dense_mode ≠ 0#64 := by decide
+  have hrefs : fullArenaClauseRefsCore nvM6SweepState.core = [] := rfl
+  have hwat : ModeWatchesInv [[0], [1]] nvM6SweepState.core := by
+    unfold ModeWatchesInv; rw [ite_eq_right hdm]
+    refine DenseWatchesInv.of_slices (fun l hl => ?_) (fun l hl hp => ?_)
+      (fun l1 _ h1 _ _ hp => ?_) (fun l hl => ?_)
+    · rw [hcv] at hl; rcases (by omega : l = 0 ∨ l = 1) with rfl | rfl <;> decide
+    · rw [hcv] at hl; rcases (by omega : l = 0 ∨ l = 1) with rfl | rfl <;>
+        simp [fullWatchSizeCore, nvM6SweepState, FullM4Sweep.nvM4SweepState] at hp
+    · rw [hcv] at h1; rcases (by omega : l1 = 0 ∨ l1 = 1) with rfl | rfl <;>
+        simp [fullWatchSizeCore, nvM6SweepState, FullM4Sweep.nvM4SweepState] at hp
+    · rw [hcv] at hl; rcases (by omega : l = 0 ∨ l = 1) with rfl | rfl <;>
+        exact DenseWatchSliceOk.empty
+  rcases FullM4Sweep.nvM4Sweep_invW with ⟨_, hw4, hlm4, hnd4, hll4, hext4, hdm4⟩
+  refine ⟨nvM6SweepState_lengths,
+    { ext_sound := hw4.ext_sound
+      inconsistent_sound := fun _ => FullM4Sweep.nvM4SweepF0_unsat
+      arena := ⟨Or.inl rfl, fun r hr => by simp [hrefs] at hr,
+        fun r hr => by simp [hrefs] at hr, fun r hr => by simp [hrefs] at hr,
+        fun r hr => by simp [hrefs] at hr⟩
+      watches := hwat
+      cur_level_le := hw4.cur_level_le
+      trail_lits_lt := hw4.trail_lits_lt
+      trail_vars_nodup := hw4.trail_vars_nodup
+      vals_domain := hw4.vals_domain
+      vals_true_iff := hw4.vals_true_iff
+      vals_false_iff := hw4.vals_false_iff
+      lvl_le := hw4.lvl_le
+      dec_earliest := hw4.dec_earliest
+      levels_inhabited := hw4.levels_inhabited
+      level0_sound := hw4.level0_sound
+      trail_pos_inv := hw4.trail_pos_inv
+      level0_rsn_none := hw4.level0_rsn_none
+      frame_trail_lt := hw4.frame_trail_lt
+      frame_trail_mono := hw4.frame_trail_mono
+      frame_trail_before_lt := hw4.frame_trail_before_lt
+      frame_dec_lt := hw4.frame_dec_lt
+      reason_inv := hw4.reason_inv
+      reason_lit_mem := hw4.reason_lit_mem },
+    hlm4, hnd4, hll4, hext4, hdm4⟩
+
+theorem nvM6SweepSparse_inv :
+    FullSparseInv FullM4Sweep.nvM4SweepCfg Full.nvOneLitF0 nvM6SweepSparseState :=
+  nvM6Sweep_invW.toSparse_clear_dense.toSparse
+
+theorem nvM6Sweep_tmkZero : M6TmkZero nvM6SweepState := fun v hv =>
+  FullM4Sweep.nvM4Sweep_tmkZero v hv
+
+def nvM6BlockTail (s : FullState) : List UInt8 :=
+  bytesOf (t := i32) s.core.min_stk ++
+  bytesOf (t := i32) s.scratch.glue_used ++
+  bytesOf (t := i32) s.scratch.last_learned ++
+  bytesOf (t := i32) s.core.arena ++
+  bytesOf (t := i32) s.core.wstk ++
+  bytesOf (t := i32) s.scratch.delayed ++
+  bytesOf (t := i32) s.scratch.red_refs ++
+  bytesOf (t := i32) s.scratch.extend_stk ++
+  bytesOf (t := i32) s.scratch.scratch_buf ++
+  List.replicate 0 0
+
+/-- Concrete `100060`-byte dense-mode image encoding `nvM4SweepCfg` and `nvM6SweepState`. -/
+def nvM6SweepBytes : List UInt8 :=
+  FullM4Sweep.nvM4BlockHdr nvM6SweepState ++ FullM4Sweep.nvM4BlockBytes ++
+  FullM4Sweep.nvM4BlockU32A ++ FullM4Sweep.nvM4BlockU32B ++
+  FullM4Sweep.nvM4BlockU32C ++ FullM4Sweep.nvM4BlockWvec ++
+  nvM6BlockTail nvM6SweepState
+
+/-- Concrete `100060`-byte sparse-mode image encoding `nvM4SweepCfg` and
+    `nvM6SweepSparseState`. -/
+def nvM6SweepSparseBytes : List UInt8 :=
+  FullM4Sweep.nvM4BlockHdr nvM6SweepSparseState ++ FullM4Sweep.nvM4BlockBytes ++
+  FullM4Sweep.nvM4BlockU32A ++ FullM4Sweep.nvM4BlockU32B ++
+  FullM4Sweep.nvM4BlockU32C ++ FullM4Sweep.nvM4BlockWvec ++
+  nvM6BlockTail nvM6SweepSparseState
+
+/-- Concrete dense-mode `Mem 64` heap mapped at `FullM4Sweep.nvM4SweepCfg.hdr` (`0x1000#64`). -/
+def nvM6SweepMem : Mem 64 := nvM6SweepBytes.At FullM4Sweep.nvM4SweepCfg.hdr
+
+/-- Concrete sparse-mode `Mem 64` heap mapped at `FullM4Sweep.nvM4SweepCfg.hdr` (`0x1000#64`). -/
+def nvM6SweepSparseMem : Mem 64 := nvM6SweepSparseBytes.At FullM4Sweep.nvM4SweepCfg.hdr
+
+theorem nvM6SweepBytes_length : nvM6SweepBytes.length = 100060 := by
+  simp only [nvM6SweepBytes, FullM4Sweep.nvM4BlockHdr, FullM4Sweep.nvM4BlockBytes,
+    FullM4Sweep.nvM4BlockU32A, FullM4Sweep.nvM4BlockU32B, FullM4Sweep.nvM4BlockU32C,
+    FullM4Sweep.nvM4BlockWvec, nvM6BlockTail, nvM6SweepState, nvM6SweepScratch,
+    FullM4Sweep.nvM4SweepState, FullM4Sweep.nvM4SweepScratch, List.length_append,
+    List.length_replicate, bytesOf_length, bytes64_length, Full.hdrTailWords_length,
+    nvM6SweepScratchBuf_length, List.length_cons, List.length_nil]
+  rfl
+
+theorem nvM6SweepSparseBytes_length : nvM6SweepSparseBytes.length = 100060 := by
+  simp only [nvM6SweepSparseBytes, FullM4Sweep.nvM4BlockHdr, FullM4Sweep.nvM4BlockBytes,
+    FullM4Sweep.nvM4BlockU32A, FullM4Sweep.nvM4BlockU32B, FullM4Sweep.nvM4BlockU32C,
+    FullM4Sweep.nvM4BlockWvec, nvM6BlockTail, nvM6SweepSparseState, nvM6SweepState,
+    nvM6SweepScratch, FullM4Sweep.nvM4SweepState, FullM4Sweep.nvM4SweepScratch,
+    List.length_append, List.length_replicate, bytesOf_length, bytes64_length,
+    Full.hdrTailWords_length, nvM6SweepScratchBuf_length, List.length_cons, List.length_nil]
+  rfl
+
+private theorem nvM6SweepMem_ok_of_dense_mode (dm : BitVec 64) :
+    let s : FullState :=
+      { nvM6SweepState with core := { nvM6SweepState.core with dense_mode := dm } }
+    FullMem FullM4Sweep.nvM4SweepCfg s
+      ((FullM4Sweep.nvM4BlockHdr s ++ FullM4Sweep.nvM4BlockBytes ++
+        FullM4Sweep.nvM4BlockU32A ++ FullM4Sweep.nvM4BlockU32B ++
+        FullM4Sweep.nvM4BlockU32C ++ FullM4Sweep.nvM4BlockWvec ++ nvM6BlockTail s).At
+        FullM4Sweep.nvM4SweepCfg.hdr) := by
+  intro s
+  let c := FullM4Sweep.nvM4SweepCfg
+  have hvb : valsBytes c.max_vars - 2 * c.max_vars = 6 := by decide
+  have hmb : markBytes c.max_vars - c.max_vars = 7 := by decide
+  have hu4 : u32FullBytes c.max_vars - 4 * c.max_vars = 4 := by decide
+  have hu8 : u32FullBytes c.max_vars - 4 * (c.max_vars + 1) = 0 := by decide
+  have hmv1 : BitVec.ofNat 64 c.max_vars = 1#64 := rfl
+  have hmv2 : BitVec.ofNat 64 (2 * c.max_vars) = 2#64 := rfl
+  have hmv4 : BitVec.ofNat 64 (4 * c.max_vars) = 4#64 := rfl
+  have hmv8 : BitVec.ofNat 64 (4 * (c.max_vars + 1)) = 8#64 := rfl
+  have hHdr : (FullM4Sweep.nvM4BlockHdr s).length = 1152 ∧
+      (dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
+        s.core.d_cur s.core.d_val ⋆ array64 (c.hdr + 32) (Full.hdrTailWords c s))
+        ((FullM4Sweep.nvM4BlockHdr s).At c.hdr) :=
+    Full.nv_join_pair
+      (Full.nv_arr64_p (a := c.hdr) (xs := [1#64, 2#64, 0#64, 0#64]) 32 rfl (by decide))
+      (Full.nv_arr64_p (a := c.hdr + 32) (xs := Full.hdrTailWords c s) 1120
+        (by rw [Full.hdrTailWords_length]) (by decide))
+      (by decide) (by decide)
+  have hBytes : FullM4Sweep.nvM4BlockBytes.length = 64 ∧
+      (FullCoreByteArrs c s.core ⋆ FullScrByteArrs c s.scratch ⋆ c.padBytes)
+        (FullM4Sweep.nvM4BlockBytes.At c.pVals) := by
+    have h1 := Full.nv_arr_pad_p (t := i8) (a := c.pVals) (xs := s.core.vals) 2 6 rfl (by decide)
+    have h2 := Full.nv_arr_pad_p (t := i8) (a := c.pWalkVals) (xs := s.scratch.walk_vals) 2 6 rfl
+      (by decide)
+    have h3 := Full.nv_arr_pad_p (t := i8) (a := c.pLitMark) (xs := s.core.lit_mark) 2 6 rfl
+      (by decide)
+    have h4 := Full.nv_arr_pad_p (t := i8) (a := c.pMark) (xs := s.core.mrk) 1 7 rfl (by decide)
+    have h5 := Full.nv_arr_pad_p (t := i8) (a := c.pPhases) (xs := s.scratch.phases) 1 7 rfl
+      (by decide)
+    have h6 := Full.nv_arr_pad_p (t := i8) (a := c.pPhasesTarget)
+      (xs := s.scratch.phases_target) 1 7 rfl (by decide)
+    have h7 := Full.nv_arr_pad_p (t := i8) (a := c.pPhasesBest) (xs := s.scratch.phases_best)
+      1 7 rfl (by decide)
+    have h8 := Full.nv_arr_pad_p (t := i8) (a := c.pWalkBest) (xs := s.scratch.walk_best)
+      1 7 rfl (by decide)
+    let pB1 : Mem 64 → Prop :=
+      region (c.pVals + 2#64) 6 ⋆ region (c.pWalkVals + 2#64) 6 ⋆
+      region (c.pLitMark + 2#64) 6 ⋆ region (c.pMark + 1#64) 7
+    have h12 := Full.nv_join_pair h1 h2 (by decide) (by decide)
+    have h123 := Full.nv_join_pair h12 h3 (by decide) (by decide)
+    have h1234 := Full.nv_sep_reorg (Full.nv_join_pair h123 h4 (by decide) (by decide))
+      (Q := (FullCoreByteArrs c s.core ⋆ array (t := i8) c.pWalkVals s.scratch.walk_vals) ⋆ pB1)
+      fun _ hm => Full.nv_zip4 hm
+    have h12345 := Full.nv_join_pair h1234 h5 (by decide) (by decide)
+    have h123456 := Full.nv_join_pair h12345 h6 (by decide) (by decide)
+    have h1234567 := Full.nv_join_pair h123456 h7 (by decide) (by decide)
+    have hall := Full.nv_join_pair h1234567 h8 (by decide) (by decide)
+    exact Full.nv_sep_reorg hall fun _ hm => by
+      have hfin := Full.nv_zip4_tail hm
+      unfold FullScrByteArrs FullCfg.padBytes
+      rw [hvb, hmb, hmv2, hmv1]
+      simpa only [pB1, sep_assoc] using hfin
+  have hU32A : FullM4Sweep.nvM4BlockU32A.length = 40 ∧
+      ((array (t := i32) c.pFlags s.core.flags ⋆ array (t := i32) c.pLevel s.core.lvl ⋆
+        array (t := i32) c.pReason s.core.rsns ⋆ array (t := i32) c.pTrail s.core.trl ⋆
+        array (t := i32) c.pTrailPos s.core.trail_pos) ⋆ c.padU32A)
+        (FullM4Sweep.nvM4BlockU32A.At c.pFlags) := by
+    have h1 := Full.nv_arr_pad_p (t := i32) (a := c.pFlags) (xs := s.core.flags) 4 4 rfl (by decide)
+    have h2 := Full.nv_arr_pad_p (t := i32) (a := c.pLevel) (xs := s.core.lvl) 4 4 rfl (by decide)
+    have h3 := Full.nv_arr_pad_p (t := i32) (a := c.pReason) (xs := s.core.rsns) 4 4 rfl (by decide)
+    have h4 := Full.nv_arr_pad_p (t := i32) (a := c.pTrail) (xs := s.core.trl) 4 4 rfl (by decide)
+    have h5 := Full.nv_arr_pad_p (t := i32) (a := c.pTrailPos) (xs := s.core.trail_pos) 4 4 rfl
+      (by decide)
+    have h12 := Full.nv_join_pair h1 h2 (by decide) (by decide)
+    have h123 := Full.nv_join_pair h12 h3 (by decide) (by decide)
+    have h1234 := Full.nv_join_pair h123 h4 (by decide) (by decide)
+    exact Full.nv_sep_reorg (Full.nv_join_pair h1234 h5 (by decide) (by decide)) fun _ hm => by
+      unfold FullCfg.padU32A; rw [hu4, hmv4]; exact sep_ac hm
+  have hU32B : FullM4Sweep.nvM4BlockU32B.length = 40 ∧
+      ((array (t := i32) c.pTmp s.core.tmp ⋆ array (t := i32) c.pMinClr s.core.min_clr) ⋆
+        (array (t := i32) c.pHeap s.scratch.heap ⋆ array (t := i32) c.pPos s.scratch.pos ⋆
+         array (t := i32) c.pShrinkStk s.scratch.shrink_stk) ⋆ c.padU32B)
+        (FullM4Sweep.nvM4BlockU32B.At c.pTmp) := by
+    have h1 := Full.nv_arr_pad_p (t := i32) (a := c.pTmp) (xs := s.core.tmp) 4 4 rfl (by decide)
+    have h2 := Full.nv_arr_pad_p (t := i32) (a := c.pHeap) (xs := s.scratch.heap) 4 4 rfl
+      (by decide)
+    have h3 := Full.nv_arr_pad_p (t := i32) (a := c.pPos) (xs := s.scratch.pos) 4 4 rfl (by decide)
+    have h4 := Full.nv_arr_pad_p (t := i32) (a := c.pMinClr) (xs := s.core.min_clr) 4 4 rfl
+      (by decide)
+    have h5 := Full.nv_arr_pad_p (t := i32) (a := c.pShrinkStk) (xs := s.scratch.shrink_stk)
+      4 4 rfl (by decide)
+    have h12 := Full.nv_join_pair h1 h2 (by decide) (by decide)
+    have h123 := Full.nv_join_pair h12 h3 (by decide) (by decide)
+    have h1234 := Full.nv_join_pair h123 h4 (by decide) (by decide)
+    exact Full.nv_sep_reorg (Full.nv_join_pair h1234 h5 (by decide) (by decide)) fun _ hm => by
+      unfold FullCfg.padU32B; rw [hu4, hmv4]; exact sep_ac hm
+  have hU32C : FullM4Sweep.nvM4BlockU32C.length = 40 ∧
+      ((array (t := i32) c.pQPrev s.scratch.q_prev ⋆
+        array (t := i32) c.pQNext s.scratch.q_next ⋆
+        array (t := i32) c.pQStamp s.scratch.q_stamp) ⋆
+        (array (t := i32) c.pFrameTrail s.core.frame_trail ⋆
+         array (t := i32) c.pFrameDec s.core.frame_dec) ⋆ c.padU32C)
+        (FullM4Sweep.nvM4BlockU32C.At c.pQPrev) := by
+    have h1 := Full.nv_arr_pad_p (t := i32) (a := c.pQPrev) (xs := s.scratch.q_prev) 4 4 rfl
+      (by decide)
+    have h2 := Full.nv_arr_pad_p (t := i32) (a := c.pQNext) (xs := s.scratch.q_next) 4 4 rfl
+      (by decide)
+    have h3 := Full.nv_arr_pad_p (t := i32) (a := c.pQStamp) (xs := s.scratch.q_stamp) 4 4 rfl
+      (by decide)
+    have h4 := Full.nv_arr_pad_p (t := i32) (a := c.pFrameTrail) (xs := s.core.frame_trail)
+      8 0 rfl (by decide)
+    have h5 := Full.nv_arr_pad_p (t := i32) (a := c.pFrameDec) (xs := s.core.frame_dec) 8 0 rfl
+      (by decide)
+    have h12 := Full.nv_join_pair h1 h2 (by decide) (by decide)
+    have h123 := Full.nv_join_pair h12 h3 (by decide) (by decide)
+    have h1234 := Full.nv_join_pair h123 h4 (by decide) (by decide)
+    exact Full.nv_sep_reorg (Full.nv_join_pair h1234 h5 (by decide) (by decide)) fun _ hm => by
+      unfold FullCfg.padU32C; rw [hu4, hu8, hmv4, hmv8]; exact sep_ac hm
+  have hWvec : FullM4Sweep.nvM4BlockWvec.length = 80 ∧
+      ((array (t := i32) c.pWvec s.core.wvec ⋆ array (t := i32) c.pRepr s.core.repr) ⋆
+        FullScrWksArrs c s.scratch ⋆
+        (array64 c.pScore s.scratch.score ⋆ array64 c.pSimSig s.scratch.sim_sig))
+        (FullM4Sweep.nvM4BlockWvec.At c.pWvec) := by
+    have h1 := Full.nv_arr_p (t := i32) (a := c.pWvec) (xs := s.core.wvec) 16 rfl (by decide)
+    have h2 := Full.nv_arr_p (t := i32) (a := c.pRepr) (xs := s.core.repr) 8 rfl (by decide)
+    have h3 := Full.nv_arr_p (t := i32) (a := c.pWsort) (xs := s.scratch.wsort) 8 rfl (by decide)
+    have h4 := Full.nv_arr_p (t := i32) (a := c.pWorkStk1) (xs := s.scratch.work_stk1) 8 rfl
+      (by decide)
+    have h5 := Full.nv_arr_p (t := i32) (a := c.pWorkStk2) (xs := s.scratch.work_stk2) 8 rfl
+      (by decide)
+    have h6 := Full.nv_arr_p (t := i32) (a := c.pTarjanMark) (xs := s.scratch.tarjan_mark) 8 rfl
+      (by decide)
+    have h7 := Full.nv_arr_p (t := i32) (a := c.pTarjanReach) (xs := s.scratch.tarjan_reach)
+      8 rfl (by decide)
+    have h8 := Full.nv_arr64_p (a := c.pScore) (xs := s.scratch.score) 8 rfl (by decide)
+    have h9 := Full.nv_arr64_p (a := c.pSimSig) (xs := s.scratch.sim_sig) 8 rfl (by decide)
+    have h12 := Full.nv_join_pair h1 h2 (by decide) (by decide)
+    have h123 := Full.nv_join_pair h12 h3 (by decide) (by decide)
+    have h1234 := Full.nv_join_pair h123 h4 (by decide) (by decide)
+    have h12345 := Full.nv_join_pair h1234 h5 (by decide) (by decide)
+    have h123456 := Full.nv_join_pair h12345 h6 (by decide) (by decide)
+    have h1234567 := Full.nv_join_pair h123456 h7 (by decide) (by decide)
+    have h12345678 := Full.nv_join_pair h1234567 h8 (by decide) (by decide)
+    exact Full.nv_sep_reorg (Full.nv_join_pair h12345678 h9 (by decide) (by decide)) fun _ hm => by
+      unfold FullScrWksArrs; exact sep_ac hm
+  have hTail : (nvM6BlockTail s).length = 98644 ∧
+      (array (t := i32) c.pMinStk s.core.min_stk ⋆
+        (array (t := i32) c.pGlueUsed s.scratch.glue_used ⋆
+         array (t := i32) c.pLastLearned s.scratch.last_learned) ⋆
+        FullCoreDynArrs c s.core ⋆ FullScrDynArrs c s.scratch ⋆ region c.pSlack c.slack)
+        ((nvM6BlockTail s).At c.pMinStk) := by
+    have h1 := Full.nv_arr_p (t := i32) (a := c.pMinStk) (xs := s.core.min_stk) 16 rfl (by decide)
+    have h2 := Full.nv_arr_p (t := i32) (a := c.pGlueUsed) (xs := s.scratch.glue_used) 256 rfl
+      (by decide)
+    have h3 := Full.nv_arr_p (t := i32) (a := c.pLastLearned) (xs := s.scratch.last_learned)
+      64 rfl (by decide)
+    have h4 := Full.nv_arr_p (t := i32) (a := c.pArena) (xs := s.core.arena) 0 rfl (by decide)
+    have h5 := Full.nv_arr_p (t := i32) (a := c.pWstk) (xs := s.core.wstk) 4 rfl (by decide)
+    have h6 := Full.nv_arr_p (t := i32) (a := c.pDelayed) (xs := s.scratch.delayed) 0 rfl
+      (by decide)
+    have h7 := Full.nv_arr_p (t := i32) (a := c.pRedRefs) (xs := s.scratch.red_refs) 0 rfl
+      (by decide)
+    have h8 := Full.nv_arr_p (t := i32) (a := c.pExtendStk) (xs := s.scratch.extend_stk) 0 rfl
+      (by decide)
+    have h9 := Full.nv_arr_p (t := i32) (a := c.pScratchBuf) (xs := s.scratch.scratch_buf) 98304
+      (by show 4 * nvM6SweepScratchBuf.length = 98304; rw [nvM6SweepScratchBuf_length])
+      (by decide)
+    have h10 : (List.replicate 0 (0 : UInt8)).length = 0 ∧
+        region c.pSlack c.slack ((List.replicate 0 0).At c.pSlack) :=
+      ⟨rfl, ⟨List.replicate 0 0, by decide, rfl⟩⟩
+    have h12 := Full.nv_join_pair h1 h2 (by decide) (by decide)
+    have h123 := Full.nv_join_pair h12 h3 (by decide) (by decide)
+    have h1234 := Full.nv_join_pair h123 h4 (by decide) (by decide)
+    have h12345 := Full.nv_join_pair h1234 h5 (by decide) (by decide)
+    have h123456 := Full.nv_join_pair h12345 h6 (by decide) (by decide)
+    have h1234567 := Full.nv_join_pair h123456 h7 (by decide) (by decide)
+    have h12345678 := Full.nv_join_pair h1234567 h8 (by decide) (by decide)
+    have h123456789 := Full.nv_join_pair h12345678 h9 (by decide) (by decide)
+    exact Full.nv_sep_reorg (Full.nv_join_pair h123456789 h10 (by decide) (by decide)) fun _ hm =>
+      by unfold FullCoreDynArrs FullScrDynArrs; exact sep_ac hm
+  have h01 := Full.nv_join_pair hHdr hBytes (by decide) (by decide)
+  have h02 := Full.nv_join_pair h01 hU32A (by decide) (by decide)
+  have h03 := Full.nv_join_pair h02 hU32B (by decide) (by decide)
+  have h04 := Full.nv_join_pair h03 hU32C (by decide) (by decide)
+  have h05 := Full.nv_join_pair h04 hWvec (by decide) (by decide)
+  exact (Full.nv_sep_reorg (Q := FullMem c s) (Full.nv_join_pair h05 hTail (by decide) (by decide))
+    fun _ hm => by
+      unfold FullMem FullCoreArrays FullCoreU32A FullCoreU32B FullScratchArrays FullScrU32A
+        FullScrMetaArrs FullCfg.pad
+      exact sep_ac hm).2
+
+theorem nvM6SweepMem_ok : FullMem FullM4Sweep.nvM4SweepCfg nvM6SweepState nvM6SweepMem :=
+  nvM6SweepMem_ok_of_dense_mode 1#64
+
+theorem nvM6SweepSparseMem_ok :
+    FullMem FullM4Sweep.nvM4SweepCfg nvM6SweepSparseState nvM6SweepSparseMem :=
+  nvM6SweepMem_ok_of_dense_mode 0#64
+
+/-- Concrete `Mem 64` non-vacuity (`XPost := False`) for `full_k6_init`. -/
+theorem nv_m6_k6_init :
+    Func.wp m6SweepEnv full_k6_init_body (FullM4Sweep.nvM4SweepCfg.hdr, 1#32, ()) nvM6SweepMem
+      (fun () m' => ∃ scr',
+        (∀ P, K6ScratchInv P scr') ∧ (k6StateOfScratch nvM6K6Layout scr').nv = 1#32 ∧
+        FullMem FullM4Sweep.nvM4SweepCfg
+          { nvM6SweepState with scratch := { nvM6SweepState.scratch with scratch_buf := scr' } }
+          m')
+      (fun _ _ _ _ => False) := by
+  have e_max_v : M6EnvSpec m6SweepEnv "full_m6_max_v" m6MaxVSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have hm : (FullMem FullM4Sweep.nvM4SweepCfg nvM6SweepState ⋆ emp) nvM6SweepMem := by
+    rw [sep_emp]; exact nvM6SweepMem_ok
+  refine full_k6_init_wp m6SweepEnv e_max_v _ _ _ _
+    ⟨FullM4Sweep.nvM4SweepCfg, nvM6SweepState, emp, rfl, nvM6SweepState_lengths, hm, ?_⟩
+  rw [ite_eq_right (by decide)]
+  intro L scr' m' hLlen hLmv
+  dsimp only
+  intro hs'len _ hK _ hnv _ _ _ _ _ _ _ _ _ _ hm'
+  have hscr_len : scr'.length = L.scrLen := hs'len.2.24.trans hLlen.symm
+  have hLeq : L = nvM6K6Layout :=
+    (k6LayoutOfCap_eq hLlen hLmv (by decide) (by decide)).symm
+  have hScrInv : ∀ P, K6ScratchInv P scr' := fun P => by
+    refine K6Inv.to_scratchInv hscr_len ?_ (by rw [hs'len.2.24]; decide)
+      (by rw [hs'len.2.24]; decide) (hK P)
+    rw [hLmv, hs'len.2.24]
+  rw [sep_emp] at hm'
+  exact ⟨scr', hScrInv, hLeq ▸ hnv, hm'⟩
+
+/-- Concrete `Mem 64` UNSAT non-vacuity (`XPost := False`) for `full_k6_solve` on the embedded
+    inconsistent `K6State` slab (`max_v = 512`, `incons = 1`). -/
+theorem nv_m6_k6_solve :
+    Func.wp m6SweepEnv full_k6_solve_body (FullM4Sweep.nvM4SweepCfg.hdr, 100#64, ()) nvM6SweepMem
+      (fun (r, ()) m' => ∃ fuel' scr',
+        K6ScratchInv (fun _ => False) scr' ∧ (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧
+        FullMem FullM4Sweep.nvM4SweepCfg
+          { nvM6SweepState with
+            core := { nvM6SweepState.core with fuel := fuel' }
+            scratch := { nvM6SweepState.scratch with scratch_buf := scr' } } m')
+      (fun _ _ _ _ => False) := by
+  have e_max_v : M6EnvSpec m6SweepEnv "full_m6_max_v" m6MaxVSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_kbt : M6EnvSpec m6SweepEnv "full_k6_backtrack" k6BacktrackSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_assign : M6EnvSpec m6SweepEnv "full_k6_assign" k6AssignSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_kprop : M6EnvSpec m6SweepEnv "full_k6_propagate" k6PropagateSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_ana : M6EnvSpec m6SweepEnv "full_k6_analyze" k6AnalyzeSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have hm : (FullMem FullM4Sweep.nvM4SweepCfg nvM6SweepState ⋆ emp) nvM6SweepMem := by
+    rw [sep_emp]; exact nvM6SweepMem_ok
+  have hK0 : K6Inv nvM6K6Layout (fun _ => False)
+      (k6StateOfScratch nvM6K6Layout nvM6SweepState.scratch.scratch_buf) := by
+    change K6Inv nvM6K6Layout (fun _ => False) (k6StateOfScratch nvM6K6Layout nvM6SweepScratchBuf)
+    rw [nvM6SweepScratchBuf_k6State]
+    exact nvM6K6State_inv
+  refine full_k6_solve_wp m6SweepEnv e_max_v e_kbt e_assign e_kprop e_ana _ _ _ _
+    ⟨FullM4Sweep.nvM4SweepCfg, nvM6SweepState, (fun _ => False), nvM6K6Layout, emp, rfl,
+     nvM6SweepState_lengths, nvM6K6Layout_scrLen,
+     (by rw [nvM6K6Layout_maxV]; exact k6MaxV_512.symm), hK0, hm,
+     fun r fuel' scr' m' hs'len _ _ hK _ _ _ _ _ hdom _ hm' => by
+       have hscr_len : scr'.length = nvM6K6Layout.scrLen :=
+         hs'len.2.24.trans nvM6K6Layout_scrLen.symm
+       have hmv : nvM6K6Layout.maxV = k6MaxV scr'.length := by
+         rw [hs'len.2.24, nvM6K6Layout_maxV]; exact k6MaxV_512.symm
+       have hScrInv : K6ScratchInv (fun _ => False) scr' :=
+         K6Inv.to_scratchInv hscr_len hmv (by rw [hs'len.2.24]; decide)
+           (by rw [hs'len.2.24]; decide) hK
+       rw [sep_emp] at hm'
+       exact ⟨fuel', scr', hScrInv, hdom, FullM4Sweep.nvM4SweepF0_unsat, hm'⟩⟩
+
+/-- Concrete `Mem 64` UNSAT non-vacuity (`XPost := False`) for `full_m6_sweep_cone`. -/
+theorem nv_m6_sweep_cone :
+    Func.wp m6SweepEnv full_m6_sweep_cone_body (FullM4Sweep.nvM4SweepCfg.hdr, 0#32, ()) nvM6SweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInvW FullM4Sweep.nvM4SweepCfg Full.nvOneLitF0 [[0], [1]] s' ∧
+        M6SweepConeOk [[0], [1]] s' (r &&& 0xFFFF#64).toNat ∧
+        Full.nvOneLitF0.Unsat ∧ FullMem FullM4Sweep.nvM4SweepCfg s' m')
+      (fun _ _ _ _ => False) := by
+  have e_max_v : M6EnvSpec m6SweepEnv "full_m6_max_v" m6MaxVSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_init : M6EnvSpec m6SweepEnv "full_k6_init" k6InitSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_add_cl : M6EnvSpec m6SweepEnv "full_k6_add_clause" k6AddClauseSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have hm : (FullMem FullM4Sweep.nvM4SweepCfg nvM6SweepState ⋆ emp) nvM6SweepMem := by
+    rw [sep_emp]; exact nvM6SweepMem_ok
+  exact full_m6_sweep_cone_wp m6SweepEnv e_max_v e_init e_add_cl _ _ _ _
+    ⟨FullM4Sweep.nvM4SweepCfg, Full.nvOneLitF0, [[0], [1]], nvM6SweepState, emp, rfl,
+     nvM6Sweep_invW, by decide, by decide, nvM6Sweep_tmkZero, hm,
+     fun _ _ _ _ _ m' hd _ _ _ _ hcone _ _ _ hm' => by
+       rw [sep_emp] at hm'
+       exact ⟨_, hd, hcone, FullM4Sweep.nvM4SweepF0_unsat, hm'⟩⟩
+
+/-- Concrete `Mem 64` UNSAT non-vacuity (`XPost := False`) for `full_m6_sweep_var`,
+    parameterized by `full_m6_sweep_var_wp`. -/
+theorem nv_m6_sweep_var_of
+    (hVar : ∀ args m Q X, m6SweepVarSpec args m Q X →
+      Func.wp m6SweepEnv full_m6_sweep_var_body args m Q X) :
+    Func.wp m6SweepEnv full_m6_sweep_var_body
+      (FullM4Sweep.nvM4SweepCfg.hdr, 0#32, 8192#64, ()) nvM6SweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInvW FullM4Sweep.nvM4SweepCfg Full.nvOneLitF0 [[0], [1]] s' ∧
+        M6TmkZero s' ∧ (r = 1#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧ FullMem FullM4Sweep.nvM4SweepCfg s' m')
+      (fun _ _ _ _ => False) := by
+  have hm : (FullMem FullM4Sweep.nvM4SweepCfg nvM6SweepState ⋆ emp) nvM6SweepMem := by
+    rw [sep_emp]; exact nvM6SweepMem_ok
+  exact hVar _ _ _ _
+    ⟨FullM4Sweep.nvM4SweepCfg, Full.nvOneLitF0, [[0], [1]], nvM6SweepState, emp, rfl,
+     nvM6Sweep_invW, by decide, by decide, nvM6Sweep_tmkZero, hm,
+     fun r s' m' hd _ _ ht _ hdom _ hm' => by
+       rw [sep_emp] at hm'
+       exact ⟨s', hd, ht, hdom, FullM4Sweep.nvM4SweepF0_unsat, hm'⟩⟩
+
+/-- Concrete `Mem 64` UNSAT non-vacuity (`XPost := False`) for `full_m6_sweep_vars`,
+    parameterized by `full_m6_sweep_vars_wp`. -/
+theorem nv_m6_sweep_vars_of
+    (hVars : ∀ args m Q X, m6SweepVarsSpec args m Q X →
+      Func.wp m6SweepEnv full_m6_sweep_vars_body args m Q X) :
+    Func.wp m6SweepEnv full_m6_sweep_vars_body
+      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) nvM6SweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInv FullM4Sweep.nvM4SweepCfg Full.nvOneLitF0 s' ∧
+        M6TmkZero s' ∧ (r = 1#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧ FullMem FullM4Sweep.nvM4SweepCfg s' m')
+      (fun _ _ _ _ => False) := by
+  have hm : (FullMem FullM4Sweep.nvM4SweepCfg nvM6SweepState ⋆ emp) nvM6SweepMem := by
+    rw [sep_emp]; exact nvM6SweepMem_ok
+  exact hVars _ _ _ _
+    ⟨FullM4Sweep.nvM4SweepCfg, Full.nvOneLitF0, nvM6SweepState, emp, rfl,
+     nvM6Sweep_invW.toDense, nvM6Sweep_tmkZero, hm,
+     fun r s' m' hd _ _ ht hdom _ hm' => by
+       rw [sep_emp] at hm'
+       exact ⟨s', hd, ht, hdom, FullM4Sweep.nvM4SweepF0_unsat, hm'⟩⟩
+
 /-- Concrete `Mem 64` UNSAT non-vacuity for `full_m6_sweep_dense` under `m6SweepEnv` with
-    `XPost := fun _ _ _ _ => False`. -/
+    `inconsistent = 0#64` and `XPost := fun _ _ _ _ => False`. -/
 theorem nv_m6_sweep_dense :
     Func.wp m6SweepEnv full_m6_sweep_dense_body
-      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) FullM4Sweep.nvM4SweepMem
+      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) nvM6SweepMem
       (fun x m' =>
         match x with
         | (r, ()) =>
@@ -666,18 +1305,18 @@ theorem nv_m6_sweep_dense :
   have e_swvars : M6EnvSpec m6SweepEnv "full_m6_sweep_vars" m6SweepVarsSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   refine full_m6_sweep_dense_wp m6SweepEnv e_max_v e_swvars _ _ _ _
-    ⟨FullM4Sweep.nvM4SweepCfg, Full.nvOneLitF0, FullM4Sweep.nvM4SweepState,
-     Std.ExtHashMap.emp, rfl, FullM4Sweep.nvM4Sweep_invW.toDense,
-     (by rw [Std.ExtHashMap.sep_emp]; exact FullM4Sweep.nvM4SweepMem_ok),
+    ⟨FullM4Sweep.nvM4SweepCfg, Full.nvOneLitF0, nvM6SweepState,
+     Std.ExtHashMap.emp, rfl, nvM6Sweep_invW.toDense,
+     (by rw [Std.ExtHashMap.sep_emp]; exact nvM6SweepMem_ok),
      fun r s' m' hinv' _ _ hr _ hm' => ?_⟩
   rw [Std.ExtHashMap.sep_emp] at hm'
   exact ⟨s', hinv', hr, FullM4Sweep.nvM4SweepF0_unsat, hm'⟩
 
 /-- Concrete `Mem 64` UNSAT non-vacuity for `full_m6_sweep_sat` under `m6SweepEnv` with
-    `XPost := fun _ _ _ _ => False`. -/
+    `inconsistent = 0#64` and `XPost := fun _ _ _ _ => False`. -/
 theorem nv_m6_sweep_sat :
     Func.wp m6SweepEnv full_m6_sweep_sat_body
-      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) FullM4Sweep.nvM4SweepSparseMem
+      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) nvM6SweepSparseMem
       (fun x m' =>
         match x with
         | (r, ()) =>
@@ -702,18 +1341,18 @@ theorem nv_m6_sweep_sat :
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   refine full_m6_sweep_sat_wp m6SweepEnv e_bt e_max_v e_enterd e_swdense
     e_rebw e_prop e_subst _ _ _ _
-    ⟨FullM4Sweep.nvM4SweepCfg, Full.nvOneLitF0, FullM4Sweep.nvM4SweepSparseState,
-     Std.ExtHashMap.emp, rfl, FullM4Sweep.nvM4SweepSparse_inv,
-     (by rw [Std.ExtHashMap.sep_emp]; exact FullM4Sweep.nvM4SweepSparseMem_ok),
+    ⟨FullM4Sweep.nvM4SweepCfg, Full.nvOneLitF0, nvM6SweepSparseState,
+     Std.ExtHashMap.emp, rfl, nvM6SweepSparse_inv,
+     (by rw [Std.ExtHashMap.sep_emp]; exact nvM6SweepSparseMem_ok),
      fun r s' m' hsp' hlvl' _ hr _ hm' => ?_⟩
   rw [Std.ExtHashMap.sep_emp] at hm'
   exact ⟨s', hsp', hlvl', hr, FullM4Sweep.nvM4SweepF0_unsat, hm'⟩
 
 /-- Concrete `Mem 64` UNSAT non-vacuity for `full_sweep_sat_m6` under `m6SweepEnv` with
-    `XPost := fun _ _ _ _ => False`. -/
+    `inconsistent = 0#64` and `XPost := fun _ _ _ _ => False`. -/
 theorem nv_full_sweep_sat_m6 :
     Func.wp m6SweepEnv full_sweep_sat_m6_body
-      (FullM4Sweep.nvM4SweepCfg.hdr, ()) FullM4Sweep.nvM4SweepSparseMem
+      (FullM4Sweep.nvM4SweepCfg.hdr, ()) nvM6SweepSparseMem
       (fun x m' =>
         match x with
         | (r, ()) =>
@@ -725,11 +1364,13 @@ theorem nv_full_sweep_sat_m6 :
   have e_swsat : M6EnvSpec m6SweepEnv "full_m6_sweep_sat" m4SweepSatSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   refine full_sweep_sat_m6_wp m6SweepEnv e_swsat _ _ _ _
-    ⟨FullM4Sweep.nvM4SweepCfg, Full.nvOneLitF0, FullM4Sweep.nvM4SweepSparseState,
-     Std.ExtHashMap.emp, rfl, FullM4Sweep.nvM4SweepSparse_inv,
-     (by rw [Std.ExtHashMap.sep_emp]; exact FullM4Sweep.nvM4SweepSparseMem_ok),
+    ⟨FullM4Sweep.nvM4SweepCfg, Full.nvOneLitF0, nvM6SweepSparseState,
+     Std.ExtHashMap.emp, rfl, nvM6SweepSparse_inv,
+     (by rw [Std.ExtHashMap.sep_emp]; exact nvM6SweepSparseMem_ok),
      fun r s' m' hsp' hlvl' _ hr _ hm' => ?_⟩
   rw [Std.ExtHashMap.sep_emp] at hm'
   exact ⟨s', hsp', hlvl', hr, FullM4Sweep.nvM4SweepF0_unsat, hm'⟩
+
+end ConcreteNonVacuity
 
 end LeanQbe.T.Examples.Kissat.FullM6Sweep

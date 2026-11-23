@@ -3,6 +3,8 @@ module
 public import LeanQbe.T.Examples.Kissat.FullM6SweepProofDriver
 meta import LeanQbe.T.Examples.Kissat.FullM6Sweep
 meta import LeanQbe.T.Examples.Kissat.FullM6SweepProofSpec
+meta import LeanQbe.T.Examples.Kissat.FullM4SweepProof
+meta import LeanQbe.T.Examples.Kissat.FullM6SweepProofDriver
 meta import LeanQbe.T.CoreHub
 
 /-!
@@ -41,6 +43,15 @@ open LeanQbe.T.Examples.Kissat.FullM6Sweep
 #guard (PrintCpp.ppModule (m6Sweep_fns.map (Fn.legal .scalar64))).isOk
 #guard (PrintCpp.ppModule (m6Sweep_fns.map (Fn.legal .x64AVX2))).isOk
 #guard m6Sweep_fns.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
+
+#guard nvM6SweepState.core.inconsistent == 0#64
+#guard nvM6SweepState.core.dense_mode == 1#64
+#guard nvM6SweepSparseState.core.inconsistent == 0#64
+#guard nvM6SweepSparseState.core.dense_mode == 0#64
+#guard nvM6K6State.max_v == 512#32
+#guard nvM6K6State.incons == 1#32
+#guard nvM6SweepBytes.length == FullM4Sweep.nvM4SweepCfg.avail
+#guard nvM6SweepSparseBytes.length == FullM4Sweep.nvM4SweepCfg.avail
 
 section AxiomAudit
 
@@ -125,9 +136,74 @@ theorem m6sw_mod
     ModuleOk m6SweepEnv m6SweepModule :=
   m6Sweep_moduleOk_of_parts hUnits hClasses hVar hSift hCollect hVars
 
+theorem m6sw_nv_m :
+    Full.FullMem FullM4Sweep.nvM4SweepCfg nvM6SweepState nvM6SweepMem :=
+  nvM6SweepMem_ok
+
+theorem m6sw_nv_ms :
+    Full.FullMem FullM4Sweep.nvM4SweepCfg nvM6SweepSparseState nvM6SweepSparseMem :=
+  nvM6SweepSparseMem_ok
+
+theorem m6sw_nv_k6i :
+    Func.wp m6SweepEnv full_k6_init_body (FullM4Sweep.nvM4SweepCfg.hdr, 1#32, ()) nvM6SweepMem
+      (fun () m' => ∃ scr',
+        (∀ P, K6ScratchInv P scr') ∧ (k6StateOfScratch nvM6K6Layout scr').nv = 1#32 ∧
+        Full.FullMem FullM4Sweep.nvM4SweepCfg
+          { nvM6SweepState with scratch := { nvM6SweepState.scratch with scratch_buf := scr' } }
+          m')
+      (fun _ _ _ _ => False) :=
+  nv_m6_k6_init
+
+theorem m6sw_nv_k6s :
+    Func.wp m6SweepEnv full_k6_solve_body
+      (FullM4Sweep.nvM4SweepCfg.hdr, 100#64, ()) nvM6SweepMem
+      (fun (r, ()) m' => ∃ fuel' scr',
+        K6ScratchInv (fun _ => False) scr' ∧ (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧
+        Full.FullMem FullM4Sweep.nvM4SweepCfg
+          { nvM6SweepState with
+            core := { nvM6SweepState.core with fuel := fuel' }
+            scratch := { nvM6SweepState.scratch with scratch_buf := scr' } } m')
+      (fun _ _ _ _ => False) :=
+  nv_m6_k6_solve
+
+theorem m6sw_nv_c :
+    Func.wp m6SweepEnv full_m6_sweep_cone_body
+      (FullM4Sweep.nvM4SweepCfg.hdr, 0#32, ()) nvM6SweepMem
+      (fun (r, ()) m' => ∃ s',
+        Full.FullDenseInvW FullM4Sweep.nvM4SweepCfg Full.nvOneLitF0 [[0], [1]] s' ∧
+        M6SweepConeOk [[0], [1]] s' (r &&& 0xFFFF#64).toNat ∧
+        Full.nvOneLitF0.Unsat ∧ Full.FullMem FullM4Sweep.nvM4SweepCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_m6_sweep_cone
+
+theorem m6sw_nv_v
+    (hVar : ∀ args m Q X, m6SweepVarSpec args m Q X →
+      Func.wp m6SweepEnv full_m6_sweep_var_body args m Q X) :
+    Func.wp m6SweepEnv full_m6_sweep_var_body
+      (FullM4Sweep.nvM4SweepCfg.hdr, 0#32, 8192#64, ()) nvM6SweepMem
+      (fun (r, ()) m' => ∃ s',
+        Full.FullDenseInvW FullM4Sweep.nvM4SweepCfg Full.nvOneLitF0 [[0], [1]] s' ∧
+        M6TmkZero s' ∧ (r = 1#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧ Full.FullMem FullM4Sweep.nvM4SweepCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_m6_sweep_var_of hVar
+
+theorem m6sw_nv_vs
+    (hVars : ∀ args m Q X, m6SweepVarsSpec args m Q X →
+      Func.wp m6SweepEnv full_m6_sweep_vars_body args m Q X) :
+    Func.wp m6SweepEnv full_m6_sweep_vars_body
+      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) nvM6SweepMem
+      (fun (r, ()) m' => ∃ s',
+        Full.FullDenseInv FullM4Sweep.nvM4SweepCfg Full.nvOneLitF0 s' ∧
+        M6TmkZero s' ∧ (r = 1#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧ Full.FullMem FullM4Sweep.nvM4SweepCfg s' m')
+      (fun _ _ _ _ => False) :=
+  nv_m6_sweep_vars_of hVars
+
 theorem m6sw_nv_d :
     Func.wp m6SweepEnv full_m6_sweep_dense_body
-      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) FullM4Sweep.nvM4SweepMem
+      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) nvM6SweepMem
       (fun x m' =>
         match x with
         | (r, ()) =>
@@ -140,7 +216,7 @@ theorem m6sw_nv_d :
 
 theorem m6sw_nv_s :
     Func.wp m6SweepEnv full_m6_sweep_sat_body
-      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) FullM4Sweep.nvM4SweepSparseMem
+      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) nvM6SweepSparseMem
       (fun x m' =>
         match x with
         | (r, ()) =>
@@ -153,7 +229,7 @@ theorem m6sw_nv_s :
 
 theorem m6sw_nv_t :
     Func.wp m6SweepEnv full_sweep_sat_m6_body
-      (FullM4Sweep.nvM4SweepCfg.hdr, ()) FullM4Sweep.nvM4SweepSparseMem
+      (FullM4Sweep.nvM4SweepCfg.hdr, ()) nvM6SweepSparseMem
       (fun x m' =>
         match x with
         | (r, ()) =>
@@ -175,6 +251,13 @@ theorem m6sw_nv_t :
 #print axioms m6sw_top
 #print axioms m6sw_tbl
 #print axioms m6sw_mod
+#print axioms m6sw_nv_m
+#print axioms m6sw_nv_ms
+#print axioms m6sw_nv_k6i
+#print axioms m6sw_nv_k6s
+#print axioms m6sw_nv_c
+#print axioms m6sw_nv_v
+#print axioms m6sw_nv_vs
 #print axioms m6sw_nv_d
 #print axioms m6sw_nv_s
 #print axioms m6sw_nv_t
