@@ -298,4 +298,46 @@ theorem lratBytes_compiled_check :
 #print axioms LeanQbe.T.Arm64.LratBytes.compiled_check
 #print axioms LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_correct
 
+/-! ## 6. Flag-to-slot jump argument lowering (`jumpSlotMoves` `.flag cc` -> `.slot s`) -/
+
+meta def adds {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (a : V i64) :
+    Nat → (List (V i64) → Expr V L rs) → Expr V L rs
+  | 0, body => body []
+  | n + 1, body =>
+    .let_ (op2 (.add i64) (.var a) (.imm (BitVec.ofNat 64 (n + 1)))) fun (x, ()) =>
+      adds a n fun xs => body (x :: xs)
+
+meta def mix {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    List (V i64) → V i64 → (V i64 → Expr V L rs) → Expr V L rs
+  | [], acc, k => k acc
+  | x :: xs, acc, k =>
+    .let_ (op2 (.xor i64) (.var acc) (.var x)) fun (y, ()) =>
+    .let_ (op2 (.add i64) (.var y) (.var x)) fun (z, ()) =>
+    .let_ (op2 (.xor i64) (.var z) (.var x)) fun (w, ()) => mix xs w k
+
+meta def heavyMix {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (xs : List (V i64)) (acc : V i64) : Nat → (V i64 → Expr V L rs) → Expr V L rs
+  | 0, k => k acc
+  | n + 1, k => mix xs acc fun acc' => heavyMix xs acc' n k
+
+/-- A flag-homed boolean condition (`.flag cc`) passed as a `.jump` argument to a block whose
+parameter `ploc` is `.slot s .w64`. -/
+meta def flagJumpSlotArm64Fn : Fn :=
+  ⟨"flagJumpSlotArm64B5", [i64, i64, i64], [i64], fun _ _ (a, b, q, ()) =>
+    .group (sig := [[.bool]])
+      (fun (_, ()) => .cons (fun (p, ()) =>
+        adds b 14 fun hs => heavyMix hs b 2 fun z =>
+        .call (as := [i64]) (bs := [i64]) "extFn" (.var z, ()) fun (u, ()) =>
+        .jnz (.var p) (.ret (.var u, ())) (.ret (.imm 0, ()))) .nil)
+      (fun (j, ()) =>
+        .let_ (op2 (.cmp .eq i64) (.var a) (.imm 0)) fun (c0, ()) =>
+        .jnz (.var c0)
+          (.let_ (op2 (.cmp .ult i64) (.var b) (.var q)) fun (c, ()) =>
+           .jump j (.var c, ()))
+          (.store (t := i64) (.var a) (.var q)
+            (.jump j (.imm false, ()))))⟩
+
+#guard (compile armTarget.toIsa armLegalTarget [flagJumpSlotArm64Fn]
+  [Fn.computeHints armTarget.toIsa armLegalTarget flagJumpSlotArm64Fn]).isOk = true
+
 end LeanQbeTest.T.Arm64IselB5Test

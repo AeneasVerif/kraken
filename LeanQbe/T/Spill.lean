@@ -1466,6 +1466,10 @@ def jumpSlotMoves {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (slotOk : Tr
                 | some tmp => mvs ++ [.ld (gOf tmp) s', .st s (gOf tmp)]
                 | none => mvs
           | .gpr r => mvs ++ [.st s (gOf r)]
+          | .flag cc =>
+            match tmp? with
+            | some tmp => mvs ++ [.setcc (gOf tmp) cc, .st s (gOf tmp)]
+            | none => mvs
           | _ => mvs
         | some (.immBits _ k) =>
           match tmp? with
