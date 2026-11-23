@@ -898,8 +898,6 @@ theorem full_switch_mode_m7_wp (Γ : Env)
                   rw [Nat.mod_eq_of_lt (by omega)] at hilt
                   exact hilt
                 have hi_mx : i.toNat < c.max_vars := by omega
-                have h2i_len : (i <<< (1 : Nat)).toNat < s3.core.vals.length := by
-                  rw [hok.vals_len, p2_shl1_toNat_lt hi_mx (by omega)]; omega
                 refine wp_join_group (ts := [i64])
                   (fun (hl', ()) mN => ∃ hp' ps' : List (BitVec 32),
                     hp'.length = c.max_vars ∧ ps'.length = c.max_vars ∧
@@ -914,37 +912,26 @@ theorem full_switch_mode_m7_wp (Γ : Env)
                   exact hJ3 (hl', i + 1#64, ()) mN (by dsimp only; rw [hi1]; omega)
                     ⟨hp', ps', hhp', hps', by rw [hi1]; exact hle', by omega, hmN⟩
                 · intro J_nx hJ_nx
-                  refine wp_join_group (ts := [])
-                    (fun _ mA => (FullMem c { s3 with scratch :=
-                      { s3.scratch with heap := hp, pos := ps } } ⋆ R) mA)
-                    ?_ ?_
-                  · rintro J_else ⟨⟩ mA hmA
-                    rw [Blocks.get_here]
+                  have hfl_lt : i.toNat < s3.core.flags.length := by
+                    rw [hok.flags_len]; omega
+                  p2_steps_raw
+                  p2_jnz_split hact
+                  · have hhp_lt : hl.toNat < hp.length := by omega
                     have hps_lt : i.toNat < ps.length := by omega
+                    rw [wp_let_mul_eq]
+                    simp only [Ty.hasFloat, Bool.false_eq_true, ↓reduceIte, lift2, Arg.val]
+                    rw [wp_let_add_eq]
+                    simp only [Ty.hasFloat, Bool.false_eq_true, ↓reduceIte, lift2, Arg.val]
+                    p2_steps_raw
+                    have hhl1 : (hl + 1#64).toNat = hl.toNat + 1 :=
+                      p2_bv64_add1_toNat (by omega)
+                    exact hJ_nx (hl + 1#64, ()) _ ⟨hp.set hl.toNat (i.setWidth 32),
+                      ps.set i.toNat (hl.setWidth 32), by simpa using hhp,
+                      by simpa using hps_len, by omega, by assumption⟩
+                  · have hps_lt : i.toNat < ps.length := by omega
                     p2_steps_raw
                     exact hJ_nx (hl, ()) _ ⟨hp, ps.set i.toNat 0xFFFFFFFF#32, hhp,
                       by simpa using hps_len, by omega, by assumption⟩
-                  · intro J_else hJ_else
-                    have hfl_lt : i.toNat < s3.core.flags.length := by
-                      rw [hok.flags_len]; omega
-                    p2_steps_raw
-                    p2_jnz_split hact
-                    · p2_steps_raw
-                      p2_jnz_split hun
-                      · have hhp_lt : hl.toNat < hp.length := by omega
-                        have hps_lt : i.toNat < ps.length := by omega
-                        rw [wp_let_mul_eq]
-                        simp only [Ty.hasFloat, Bool.false_eq_true, ↓reduceIte, lift2, Arg.val]
-                        rw [wp_let_add_eq]
-                        simp only [Ty.hasFloat, Bool.false_eq_true, ↓reduceIte, lift2, Arg.val]
-                        p2_steps_raw
-                        have hhl1 : (hl + 1#64).toNat = hl.toNat + 1 :=
-                          p2_bv64_add1_toNat (by omega)
-                        exact hJ_nx (hl + 1#64, ()) _ ⟨hp.set hl.toNat (i.setWidth 32),
-                          ps.set i.toNat (hl.setWidth 32), by simpa using hhp,
-                          by simpa using hps_len, by omega, by assumption⟩
-                      · p2_steps_raw; exact hJ_else () _ (by assumption)
-                    · p2_steps_raw; exact hJ_else () _ (by assumption)
               · p2_steps_raw
                 have hhl_le : hl.toNat ≤ c.max_vars := by omega
                 let s4 : FullState := { s3 with scratch :=

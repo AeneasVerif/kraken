@@ -278,7 +278,7 @@ def m7StateInitGu (sc : FullScratch) : List (BitVec 32) :=
           m7GuEma0FbIdx 0#64) m7GuEma0FeIdx m7EmaInitExp)
           m7GuEma0SbIdx 0#64) m7GuEma0SeIdx m7EmaInitExp
     m7Set64List (m7Set64List (m7Set64List (m7Set64List g2
-      m7GuRandecRemIdx 0#64) m7GuRandecLimIdx (BitVec.ofNat 64 m7RandecInitLim))
+      m7GuRandecRemIdx 0#64) m7GuRandecLimIdx (sc.conflicts + BitVec.ofNat 64 m7RandecInitLim))
       m7GuRandecSeqIdx 0#64) m7GuRandecConflIdx sc.conflicts
 
 theorem m7StateInitGu_of_magic {sc : FullScratch}

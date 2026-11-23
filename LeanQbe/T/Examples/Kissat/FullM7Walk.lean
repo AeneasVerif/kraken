@@ -640,6 +640,7 @@ void full_walk_m7(FullHdr *h) {
   u64 inv_q16 = full_walk_cb_inv_m7(h, ncl, tot_lits);
   full_walk_init_table_m7(h, inv_q16);
   u64 ulen = full_walk_build_occ_m7(h, ncl);
+  u64 init_u = ulen;
   u64 max_flips = ncl << 1;
   if (max_flips < 256ULL) { max_flips = 256ULL; }
   if (max_flips > 4096ULL) { max_flips = 4096ULL; }
@@ -710,7 +711,9 @@ void full_walk_m7(FullHdr *h) {
     }
     flips = flips + 1ULL;
   }
-  full_walk_save_min_m7(h, best_pos, trail_ok);
+  if (best_u < init_u) {
+    full_walk_save_min_m7(h, best_pos, trail_ok);
+  }
   h->walk_cnt_stat = h->walk_cnt_stat + 1ULL;
 }
 
