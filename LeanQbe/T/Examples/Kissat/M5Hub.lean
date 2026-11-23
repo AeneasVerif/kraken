@@ -236,6 +236,10 @@ public import LeanQbe.T.Examples.Kissat.FullM7Inl8
 public import LeanQbe.T.Examples.Kissat.FullM7Inl9
 public import LeanQbe.T.Examples.Kissat.FullM7InlBase
 public import LeanQbe.T.Examples.Kissat.FullM7InlPolicy
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrink
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof0
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof1
 public import LeanQbe.T.Examples.Kissat.FullM7OrchProof0
 public import LeanQbe.T.Examples.Kissat.FullM7Proof
 public import LeanQbe.T.Examples.Kissat.FullM7Reorder
