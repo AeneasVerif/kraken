@@ -39,7 +39,7 @@ separate files, so no module imports both `Kraken.X64` and `Kraken.AArch64`.
 
 | Component | What is audited | Audit files |
 |---|---|---|
-| Kissat SAT solver ([details](#verified-kissat-sat-solver)) | SAT and UNSAT soundness of the compiled solver on x86-64 and AArch64, and non-vacuity of the UNSAT result | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [X64](LeanQbeTest/T/KissatAuditX64.lean), [Arm64](LeanQbeTest/T/KissatAuditArm64.lean), [M5X64](LeanQbeTest/T/KissatM5AuditX64.lean), [M5Arm64](LeanQbeTest/T/KissatM5AuditArm64.lean), [M5SoundX64](LeanQbeTest/T/KissatM5SoundAuditX64.lean), [M5SoundArm64](LeanQbeTest/T/KissatM5SoundAuditArm64.lean), [SatSound](LeanQbeTest/T/KissatSatSoundTest.lean), [M6Sat](LeanQbeTest/T/KissatM6SatSoundTest.lean) |
+| Kissat SAT solver ([details](#verified-kissat-sat-solver)) | `FullM6` (382 fns): UNSAT soundness and concrete UNSAT non-vacuity of compiled x86-64 and AArch64 machine code; `FullM5` (270 fns): SAT and UNSAT soundness and UNSAT non-vacuity on both architectures | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [X64](LeanQbeTest/T/KissatAuditX64.lean), [Arm64](LeanQbeTest/T/KissatAuditArm64.lean), [M6X64](LeanQbeTest/T/KissatM6AuditX64.lean), [M6Arm64](LeanQbeTest/T/KissatM6AuditArm64.lean), [M6Proof](LeanQbeTest/T/KissatM6ProofTest.lean), [M6Sat](LeanQbeTest/T/KissatM6SatSoundTest.lean), [M5X64](LeanQbeTest/T/KissatM5AuditX64.lean), [M5Arm64](LeanQbeTest/T/KissatM5AuditArm64.lean), [M5SoundX64](LeanQbeTest/T/KissatM5SoundAuditX64.lean), [M5SoundArm64](LeanQbeTest/T/KissatM5SoundAuditArm64.lean), [SatSound](LeanQbeTest/T/KissatSatSoundTest.lean) |
 | Compiler and linker ([details](#compiler-optimization-and-lowering-pipeline)) | Optimization passes, inlining, `LinkedCert`, and linking of recursive and mutually recursive functions (`LinkRec`, `LinkScc`) | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
 | Lean 4 `LCNF` / `LeanLRC` lowering | Well-formedness (`Fn.Wf`) of code lowered from the Lean compiler's `LCNF` intermediate representation ([`LeanLCNF`](LeanQbe/T/LeanLCNF/), [`LeanLRC`](LeanQbe/T/LeanLRC/)) into `LeanQbe.T` | [Audit](LeanQbeTest/T/LcnfAudit.lean) |
 | LRAT proof checker | `lrat_check_bytes` returns `1` only for a well-formed DIMACS input whose CNF is unsatisfiable | [Spec](LeanQbeTest/T/LratAuditSpec.lean), [X64](LeanQbeTest/T/LratAuditX64.lean), [Arm64](LeanQbeTest/T/LratAuditArm64.lean) |
@@ -52,10 +52,12 @@ To build all audit files (they are also built by `scripts/check.sh`):
 
 ```bash
 lake build --wfail LeanQbeTest.T.KissatAuditSpec LeanQbeTest.T.KissatAuditX64 \
-  LeanQbeTest.T.KissatAuditArm64 LeanQbeTest.T.KissatM5AuditX64 \
+  LeanQbeTest.T.KissatAuditArm64 LeanQbeTest.T.KissatM6AuditX64 \
+  LeanQbeTest.T.KissatM6AuditArm64 LeanQbeTest.T.KissatM6ProofTest \
+  LeanQbeTest.T.KissatM6SatSoundTest LeanQbeTest.T.KissatM5AuditX64 \
   LeanQbeTest.T.KissatM5AuditArm64 LeanQbeTest.T.KissatM5SoundAuditX64 \
   LeanQbeTest.T.KissatM5SoundAuditArm64 LeanQbeTest.T.KissatSatSoundTest \
-  LeanQbeTest.T.KissatM6SatSoundTest LeanQbeTest.T.KissatM5Test \
+  LeanQbeTest.T.KissatM5Test \
   LeanQbeTest.T.CompilerAuditSpec LeanQbeTest.T.CompilerAuditX64 \
   LeanQbeTest.T.CompilerAuditArm64 LeanQbeTest.T.LcnfAudit LeanQbeTest.T.LratAuditSpec \
   LeanQbeTest.T.LratAuditX64 LeanQbeTest.T.LratAuditArm64 \
@@ -238,11 +240,24 @@ The back end consists of an unverified hint analysis followed by verified loweri
 ## Verified Kissat SAT solver
 
 The largest program verified with this toolchain is a port of the
-[Kissat](https://github.com/arminbiere/kissat) SAT solver to C0. The current verified version is
-the module `LeanQbe.T.Examples.Kissat.FullM5`
-([`FullM5.lean`](LeanQbe/T/Examples/Kissat/FullM5.lean#L354)), which consists of 270 functions
-after inlining with `InlinePolicy.b5`. For this module, the repository proves soundness of both
-SAT and UNSAT answers for the compiled machine code on x86-64 and on AArch64.
+[Kissat](https://github.com/arminbiere/kissat) SAT solver to C0. Two certified solver modules are
+active in this repository:
+
+- **`LeanQbe.T.Examples.Kissat.FullM6`** ([`FullM6.lean`](LeanQbe/T/Examples/Kissat/FullM6.lean#L210)):
+  382 functions inlined with the profile-guided policy
+  [`m6InlPolicy`](LeanQbe/T/Examples/Kissat/FullM6InlPolicy.lean#L107) and materialized in
+  [`FullM6Inl.lean`](LeanQbe/T/Examples/Kissat/FullM6Inl.lean#L46). For this module, the repository
+  proves unconditional (`0` hooks) **UNSAT soundness** and **concrete UNSAT non-vacuity** of the
+  compiled x86-64 and AArch64 machine code (`kissatM6_compiled_x64` and `kissatM6_compiled_arm64`).
+  Per project scope, `FullM6` machine-code proofs cover UNSAT soundness and non-vacuity and omit
+  machine-code SAT soundness/model-check proofs; at runtime (and in CLI/benchmark tests), `FullM6`
+  still executes `kissat_check_model`
+  ([`FullM6Orch.lean`](LeanQbe/T/Examples/Kissat/FullM6Orch.lean#L776)) on every candidate SAT
+  assignment before returning `10`.
+- **`LeanQbe.T.Examples.Kissat.FullM5`** ([`FullM5.lean`](LeanQbe/T/Examples/Kissat/FullM5.lean#L354)):
+  270 functions after inlining with `InlinePolicy.b5`. For this module, the repository proves
+  soundness of **both SAT and UNSAT** answers (including constructive model extraction) and
+  concrete UNSAT non-vacuity for the compiled machine code on x86-64 and on AArch64.
 
 The solver exports a single C entry point:
 
@@ -256,12 +271,11 @@ uint64_t kissat_solve_bytes(const uint8_t *cnf_ptr, uint64_t cnf_len,
 workspace, and `fuel` bounds the number of solver steps. The solver returns `0` for malformed
 input or when it runs out of fuel or workspace.
 
-Newer solver modules are also present under
-[`LeanQbe/T/Examples/Kissat/`](LeanQbe/T/Examples/Kissat/): `FullM6` (382 functions) has a C0
-source, a well-formedness and acyclicity proof, a chunked inlined module, and source-level SAT and
-UNSAT proof combinators, but no machine-code certificate yet; the `FullM7*` files contain
-individual C0 components with their source-level proofs. Neither is covered by a machine-code
-soundness theorem.
+A newer development module, `FullM7` (410 functions,
+[`FullM7.lean`](LeanQbe/T/Examples/Kissat/FullM7.lean#L397)) together with `FullM7*` C0 components
+and source-level proofs, is also present under
+[`LeanQbe/T/Examples/Kissat/`](LeanQbe/T/Examples/Kissat/); it does not yet have machine-code
+certificates.
 
 ### Building and running the solver
 
@@ -270,44 +284,49 @@ for AArch64 binaries on an x86-64 host, `aarch64-linux-gnu-gcc` and `qemu-aarch6
 
 [`bench/kissat/build_solver.sh`](bench/kissat/build_solver.sh) builds the Lean code, prints the
 certified assembly for the selected module and architecture, and links it with the command-line
-wrapper [`bench/kissat/kissat_cli.c`](bench/kissat/kissat_cli.c). The defaults are
-`--module FullM5 --arch x64`, producing `/tmp/kissat-leanqbe-fullm5`.
+wrapper [`bench/kissat/kissat_cli.c`](bench/kissat/kissat_cli.c). Both `--module FullM6` (382
+functions, matching `kissatM6_compiled_{x64,arm64}.code`) and `--module FullM5` (270 functions,
+default) build certified binaries without `--allow-uncertified`.
 
 ```bash
-# x86-64
-bash bench/kissat/build_solver.sh --module FullM5 --arch x64 -o /tmp/kissat-leanqbe-fullm5
+# Certified FullM6 (382 fns) on x86-64 and AArch64
+bash bench/kissat/build_solver.sh --module FullM6 --arch x64 -o /tmp/kissat-leanqbe-fullm6
+bash bench/kissat/build_solver.sh --module FullM6 --arch arm64 -o /tmp/kissat-leanqbe-fullm6-arm64
 
-# AArch64 (runs under qemu-aarch64 on an x86-64 host)
+# Certified FullM5 (270 fns, SAT+UNSAT machine-code proofs; default --module)
+bash bench/kissat/build_solver.sh --module FullM5 --arch x64 -o /tmp/kissat-leanqbe-fullm5
 bash bench/kissat/build_solver.sh --module FullM5 --arch arm64 -o /tmp/kissat-leanqbe-fullm5-arm64
 
 # Usage: kissat-leanqbe [--work-mb <MB>] [--fuel <N>] [-n|--no-model] <input.cnf | ->
-printf 'p cnf 1 2\n1 0\n-1 0\n' | /tmp/kissat-leanqbe-fullm5 -
+printf 'p cnf 1 2\n1 0\n-1 0\n' | /tmp/kissat-leanqbe-fullm6 -
 # s UNSATISFIABLE          (exit status 20)
 
-printf 'p cnf 2 2\n1 2 0\n-1 0\n' | /tmp/kissat-leanqbe-fullm5 -
+printf 'p cnf 2 2\n1 2 0\n-1 0\n' | /tmp/kissat-leanqbe-fullm6 -
 # s SATISFIABLE            (exit status 10)
 # v -1 2 0
 
-qemu-aarch64 -L /usr/aarch64-linux-gnu /tmp/kissat-leanqbe-fullm5-arm64 input.cnf
+qemu-aarch64 -L /usr/aarch64-linux-gnu /tmp/kissat-leanqbe-fullm6-arm64 input.cnf
 ```
 
 The program prints a DIMACS status line (`s SATISFIABLE`, `s UNSATISFIABLE`, or `s UNKNOWN`) and
 exits with status `10`, `20`, or `0` respectively; for satisfiable inputs it also prints the
 model as `v ... 0` lines unless `-n` is given. Exit status `1` indicates a usage or I/O error.
 
-The emitted assembly matches the `LinkedCert` only for the default settings. The options
-`--inline-max <N>` with `N > 0` and `--debug` change the generated code and print a warning;
-binaries built with them, or with `--allow-uncertified`, are not covered by the proofs.
+The emitted assembly matches the `LinkedCert` only for the default settings (`--inline-max 0`).
+The options `--inline-max <N>` with `N > 0` and `--debug` change the generated code and print a
+warning; binaries built with them, or with `--allow-uncertified`, are not covered by the proofs.
 
 Tests and proofs:
 
 ```bash
-# Builds FullM5 for x86-64 and AArch64 and checks exit codes, models, -n, stdin input,
-# and workspace guard pages.
+# Builds FullM5 and FullM6 (certified) plus FullM7 (--allow-uncertified) for x86-64 and AArch64
+# and checks exit codes, DIMACS models, -n, stdin input, and workspace guard pages.
 bash test/kissat/test_cli_solver.sh
 
-# Machine-code and source-level audit files for the solver.
-lake build --wfail LeanQbeTest.T.KissatAuditSpec LeanQbeTest.T.KissatAuditX64 \
+# Machine-code and source-level audit files for FullM6 and FullM5.
+lake build --wfail LeanQbeTest.T.KissatAuditSpec LeanQbeTest.T.KissatM6AuditX64 \
+  LeanQbeTest.T.KissatM6AuditArm64 LeanQbeTest.T.KissatM6ProofTest \
+  LeanQbeTest.T.KissatM6SatSoundTest LeanQbeTest.T.KissatAuditX64 \
   LeanQbeTest.T.KissatAuditArm64 LeanQbeTest.T.KissatSatSoundTest
 ```
 
@@ -315,66 +334,98 @@ lake build --wfail LeanQbeTest.T.KissatAuditSpec LeanQbeTest.T.KissatAuditX64 \
 
 The audit files restate the main theorems with full types:
 
-- [`KissatAuditX64.lean`](LeanQbeTest/T/KissatAuditX64.lean) and
+- **FullM6 (382 functions):** [`KissatM6AuditX64.lean`](LeanQbeTest/T/KissatM6AuditX64.lean) and
+  [`KissatM6AuditArm64.lean`](LeanQbeTest/T/KissatM6AuditArm64.lean) audit the compiled x86-64 and
+  AArch64 machine-code UNSAT soundness and non-vacuity theorems from
+  [`Amd64/KissatM6.lean`](LeanQbe/T/Amd64/KissatM6.lean) and
+  [`Arm64/KissatM6.lean`](LeanQbe/T/Arm64/KissatM6.lean).
+  [`KissatM6ProofTest.lean`](LeanQbeTest/T/KissatM6ProofTest.lean) audits the 382-function
+  source-level `ModuleOk`, soundness, and UNSAT non-vacuity proofs
+  ([`FullM6Proof.lean`](LeanQbe/T/Examples/Kissat/FullM6Proof.lean)), and
+  [`KissatM6SatSoundTest.lean`](LeanQbeTest/T/KissatM6SatSoundTest.lean) audits the source-level
+  proof combinators. The full list of audited theorems is in
+  [`scripts/headlines.d/kissat_m6.txt`](scripts/headlines.d/kissat_m6.txt).
+- **FullM5 (270 functions):** [`KissatAuditX64.lean`](LeanQbeTest/T/KissatAuditX64.lean) and
   [`KissatAuditArm64.lean`](LeanQbeTest/T/KissatAuditArm64.lean) re-export the machine-code audits
   for `FullM5` from [`KissatM5AuditX64.lean`](LeanQbeTest/T/KissatM5AuditX64.lean),
   [`KissatM5AuditArm64.lean`](LeanQbeTest/T/KissatM5AuditArm64.lean),
   [`KissatM5SoundAuditX64.lean`](LeanQbeTest/T/KissatM5SoundAuditX64.lean), and
-  [`KissatM5SoundAuditArm64.lean`](LeanQbeTest/T/KissatM5SoundAuditArm64.lean). The theorems
-  are also listed in [`scripts/headlines.d/kissat_m5.txt`](scripts/headlines.d/kissat_m5.txt).
-- [`KissatSatSoundTest.lean`](LeanQbeTest/T/KissatSatSoundTest.lean) covers source-level SAT and
-  UNSAT soundness and a concrete SAT non-vacuity example;
-  [`KissatM6SatSoundTest.lean`](LeanQbeTest/T/KissatM6SatSoundTest.lean) covers the source-level
-  proof combinators for `FullM6`.
-- [`KissatAuditSpec.lean`](LeanQbeTest/T/KissatAuditSpec.lean) audits the specification:
-  the DIMACS parser `parseDimacs` and the predicates `CNF.Unsat` and `CNF.Sat`.
+  [`KissatM5SoundAuditArm64.lean`](LeanQbeTest/T/KissatM5SoundAuditArm64.lean)
+  ([`scripts/headlines.d/kissat_m5.txt`](scripts/headlines.d/kissat_m5.txt));
+  [`KissatSatSoundTest.lean`](LeanQbeTest/T/KissatSatSoundTest.lean) covers source-level SAT and
+  UNSAT soundness and a concrete SAT non-vacuity example.
+- **Specification:** [`KissatAuditSpec.lean`](LeanQbeTest/T/KissatAuditSpec.lean) audits the
+  DIMACS parser `parseDimacs` and the predicates `CNF.Unsat` and `CNF.Sat`.
 
 #### Machine-code soundness
 
-[`m5_solve_bytes_model_x64`](LeanQbe/T/Amd64/KissatM5Sound.lean#L89) and
-[`m5_solve_bytes_model_arm64`](LeanQbe/T/Arm64/KissatM5Sound.lean#L88), together with the
-UNSAT-only theorems [`m5_solve_bytes_unsat_x64`](LeanQbe/T/Amd64/KissatM5.lean#L88) and
-[`m5_solve_bytes_unsat_arm64`](LeanQbe/T/Arm64/KissatM5.lean#L88), state the following. Take any
-executable that contains the compiled 270-function module (`kissatM5_compiled_x64` or
-`kissatM5_compiled_arm64`), and any call to `kissat_solve_bytes` that follows the platform ABI,
-passes DIMACS bytes and a suitably aligned workspace, has enough stack, and has a caller frame
-`R`. Then execution terminates and returns to the caller with:
+For **`FullM6`**, [`m6_solve_bytes_unsat_x64`](LeanQbe/T/Amd64/KissatM6.lean#L114) and
+[`m6_solve_bytes_unsat_arm64`](LeanQbe/T/Arm64/KissatM6.lean#L113) (with answer-only corollaries
+[`kissat_m6_x64_unsat_correct`](LeanQbe/T/Amd64/KissatM6.lean#L171) and
+[`kissat_m6_arm64_unsat_correct`](LeanQbe/T/Arm64/KissatM6.lean#L169)) state the following over
+the compiled 382-function module ([`kissatM6_compiled_x64`](LeanQbe/T/Amd64/KissatM6.lean#L37) or
+[`kissatM6_compiled_arm64`](LeanQbe/T/Arm64/KissatM6.lean#L37)). Take any executable containing the
+compiled code and any call to `kissat_solve_bytes` that follows the platform ABI, passes DIMACS
+bytes and a suitably aligned workspace, has enough stack, and has a caller frame `R`. Then
+execution terminates and returns to the caller with:
 
 - a result in `{0, 10, 20}` (in `rax` or `X0`);
 - if the result is `20`: `∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`;
-- if the result is `10`: `∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ (∃ α, cnf.Sat α) ∧
-  cnf.Sat (readModelFromWork st.data.dmem work_ptr)`, i.e. the assignment stored in the
-  workspace satisfies the input formula;
 - callee-saved registers (`rbx`, `rbp`, `r12`–`r15` on x86-64; `X19`–`X29` on AArch64) and the
   stack pointer restored;
 - the input bytes unchanged, the workspace and stack frame accounted for as separate memory
   regions, and the caller frame `R` untouched.
 
+Per project scope, the `FullM6` machine-code theorems certify UNSAT soundness and memory/register
+framing and omit machine-code SAT model-check proofs.
+
+For **`FullM5`**, [`m5_solve_bytes_model_x64`](LeanQbe/T/Amd64/KissatM5Sound.lean#L89) and
+[`m5_solve_bytes_model_arm64`](LeanQbe/T/Arm64/KissatM5Sound.lean#L88) (together with the
+UNSAT-only theorems [`m5_solve_bytes_unsat_x64`](LeanQbe/T/Amd64/KissatM5.lean#L88) and
+[`m5_solve_bytes_unsat_arm64`](LeanQbe/T/Arm64/KissatM5.lean#L88)) state the same ABI, framing,
+and UNSAT guarantees for the compiled 270-function module (`kissatM5_compiled_x64` or
+`kissatM5_compiled_arm64`), and additionally prove that:
+
+- if the result is `10`: `∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ (∃ α, cnf.Sat α) ∧
+  cnf.Sat (readModelFromWork st.data.dmem work_ptr)`, i.e. the assignment stored in the
+  workspace satisfies the input formula.
+
 #### How SAT answers are checked
 
 Kissat's inprocessing transformations (such as variable elimination) require reconstructing a
 model of the original formula at the end of the search. Rather than verifying that
-reconstruction, the solver checks its result. In
-[`FullM5Orch.lean`](LeanQbe/T/Examples/Kissat/FullM5Orch.lean#L643), after model reconstruction
-(`full_extend`) for a candidate SAT result, `kissat_solve_bytes_m5` restores the original variable
-count and calls the verified function `kissat_check_model`, which evaluates every clause of the
-original, read-only DIMACS input under the assignment
-[`readModelFromWork`](LeanQbe/T/Examples/Kissat/FullSatSound.lean#L102). The solver returns `10`
-only if every clause is satisfied, and `0` otherwise. The corresponding source-level theorem is
-[`kissat_solve_bytes_m5_model_wp`](LeanQbe/T/Examples/Kissat/FullSatSound.lean#L838);
-[`ModuleOk.respec_tail`](LeanQbe/T/Examples/Kissat/FullSatSound.lean#L42) transfers the
-specifications of the remaining 268 functions into the environment used for this proof.
+reconstruction, the solver checks its result. In both
+[`FullM5Orch.lean`](LeanQbe/T/Examples/Kissat/FullM5Orch.lean#L643) and
+[`FullM6Orch.lean`](LeanQbe/T/Examples/Kissat/FullM6Orch.lean#L773-L777), after model
+reconstruction (`full_extend`) for a candidate SAT result, the entry point restores the original
+variable count and calls `kissat_check_model`, which evaluates every clause of the original,
+read-only DIMACS input and returns `10` only if every clause is satisfied (`0` otherwise). For
+`FullM5`, this runtime check is proved end-to-end against
+[`readModelFromWork`](LeanQbe/T/Examples/Kissat/FullSatSound.lean#L102) via
+[`kissat_solve_bytes_m5_model_wp`](LeanQbe/T/Examples/Kissat/FullSatSound.lean#L838) and
+[`ModuleOk.respec_tail`](LeanQbe/T/Examples/Kissat/FullSatSound.lean#L42), and lifted to x86-64
+and AArch64 machine code in `KissatM5Sound.lean`. For `FullM6`, `kissat_check_model` runs at
+runtime and is checked by the CLI and benchmark harnesses, while machine-code proofs remain scoped
+to UNSAT soundness and non-vacuity.
 
 #### Non-vacuity
 
 A soundness theorem whose hypotheses can never be met would be vacuous. The repository therefore
 also shows that the hypotheses are satisfiable and that the interesting results are reachable:
 
-- Machine code (UNSAT): [`audit_m5_x64_nv_closed`](LeanQbeTest/T/KissatM5AuditX64.lean#L137) and
+- Machine code (`FullM6` UNSAT):
+  [`audit_m6_x64_nv_closed`](LeanQbeTest/T/KissatM6AuditX64.lean#L138) and
+  [`audit_m6_arm_nv_closed`](LeanQbeTest/T/KissatM6AuditArm64.lean#L149) (along with concrete-host
+  execution witnesses [`m6_x64_run_unsat`](LeanQbe/T/Amd64/KissatM6.lean#L264) and
+  [`m6_arm64_run_unsat`](LeanQbe/T/Arm64/KissatM6.lean#L273)) instantiate the machine-code
+  theorems on `kissatM6_compiled_x64.host` and `kissatM6_compiled_arm64.host` and show that
+  executions returning `20` exist.
+- Machine code (`FullM5` UNSAT):
+  [`audit_m5_x64_nv_closed`](LeanQbeTest/T/KissatM5AuditX64.lean#L137) and
   [`audit_m5_arm_nv_closed`](LeanQbeTest/T/KissatM5AuditArm64.lean#L135) instantiate the
-  machine-code theorems on the concrete hosts `kissatM5_compiled_x64.host` and
-  `kissatM5_compiled_arm64.host` and show that executions returning `20` exist.
-- Source level (SAT): [`m5_sat_nonvacuous`](LeanQbe/T/Examples/Kissat/FullM5SatNv.lean#L2721)
+  machine-code theorems on `kissatM5_compiled_x64.host` and `kissatM5_compiled_arm64.host` and show
+  that executions returning `20` exist.
+- Source level (`FullM5` SAT): [`m5_sat_nonvacuous`](LeanQbe/T/Examples/Kissat/FullM5SatNv.lean#L2721)
   (audited as [`audit_m5_sat_nv`](LeanQbeTest/T/KissatSatSoundTest.lean#L151)) runs the
   solver on `"p cnf 1 1\n1 0\n"` under `Func.wp` with a 4096-byte workspace and `fuel = 16`, and
   shows that it returns `10` with a satisfying assignment readable via `readModelFromWork`.
@@ -389,8 +440,9 @@ this for all tracked `.lean` files.
 ### Trusted computing base
 
 To conclude that a `kissat-leanqbe` binary built with the default settings prints
-`s UNSATISFIABLE` only for unsatisfiable inputs, and `s SATISFIABLE` with a model only for
-satisfiable ones, one must trust:
+`s UNSATISFIABLE` only for unsatisfiable inputs (for both `FullM6` and `FullM5`), and
+`s SATISFIABLE` with a satisfying model only for satisfiable inputs (proved at the machine-code
+level for `FullM5`, and checked at runtime by `kissat_check_model` for `FullM6`), one must trust:
 
 1. **The specification:** `Std.Sat.CNF.Unsat` and `Std.Sat.CNF.Sat` from the Lean standard library,
    and [`parseDimacs`](LeanQbe/T/Examples/LratBytes.lean#L150), a pure ASCII DIMACS parser
@@ -416,6 +468,71 @@ The following are not trusted, because they are checked by the Lean kernel: the 
 sources, the C0 elaborator, the inlining policy and its materialization, every compiler pass
 (optimization, legalization, register allocation, instruction selection, and linking), and all
 `Func.wp` proofs.
+
+### Reproducible 4-way performance benchmark
+
+[`bench/kissat/run_4way_stage1.py`](bench/kissat/run_4way_stage1.py) builds and evaluates four
+corners on x86-64 to separate C0 source/algorithm differences from IR lowering and LeanQbe back-end
+code generation:
+
+- **`C1`**: upstream Kissat 4.0.4 compiled with `clang -O3`.
+- **`C0-direct`**: the identical `FullM6` C0 source extracted directly to C99
+  ([`extract_c0_direct.py`](bench/kissat/extract_c0_direct.py)) and compiled with
+  `clang -std=c99 -O3 -fwrapv -fno-strict-aliasing`.
+- **`C3b`**: `FullM6` lowered to `LeanQbe.T` and emitted via `PrintCpp` (`-DTQBE_NATIVE_MEM`),
+  compiled with `clang++ -std=c++20 -O3`.
+- **`C4` (`FullM6`)**: `FullM6` compiled by the verified LeanQbe x86-64 pipeline
+  (`FullM6Inl.m6InlFns`, matching `kissatM6_compiled_x64.code`, printed with `toATTAligned` and
+  linked `-no-pie`).
+
+`C0-direct`, `C3b`, and `C4` link against the same
+[`bench/kissat/bench_main.c`](bench/kissat/bench_main.c) harness (guarded buffers + full DIMACS
+model checking).
+
+```bash
+# Build certified FullM6 CLI binaries (x86-64 and AArch64)
+bash bench/kissat/build_solver.sh --module FullM6 --arch x64 -o /tmp/kissat-leanqbe-fullm6
+bash bench/kissat/build_solver.sh --module FullM6 --arch arm64 -o /tmp/kissat-leanqbe-fullm6-arm64
+
+# Run the reproducible 4-way Stage-1 (140-CNF) benchmark
+# (--manifest / --c1-bin may also be set via STAGE1_MANIFEST / KISSAT_C1_BIN)
+python3 bench/kissat/run_4way_stage1.py --module FullM6 --jobs 8 \
+  --out-json /tmp/m6_4way.json --out-md /tmp/m6_4way.md
+```
+
+**Environment and methodology:** Stage-1 suite of 140 unique CNFs (`PV-35`: 35, `Hard-24`: 24,
+`SV-21`: 21, `quick60`: 60), `30.0 s` per-CNF timeout (`60.0 s` PAR-2 penalty), `20.0 ms` floor
+for geometric means, `2,000,000,000` fuel, `--jobs 8`, and interleaved per-CNF engine order on
+Intel Xeon @ 2.60 GHz (48 vCPUs, `clang`/`clang++` 21.1.8; measured under background build loadavg
+14.65–19.91, with a repeat run matching within ~1% on all aggregate ratios). Every SAT assignment
+was verified against the DIMACS clauses with **0** soundness/model errors, **0** cross-solver
+verdict disagreements, and **132/132** bit-exact 35-key telemetry parity (`0` diffs across
+`C0-direct == C3b == C4`).
+
+| Engine | Solved (`S/U`) | TO | Common Wall AM / GM (ms) | Common Int AM / GM (ms) | All-140 PAR-2 AM (s) / GM (ms) | Linked `.text` (B) / Non-NOP Insns | `vs C0-direct` (W-GM / I-GM) | `vs C3b` (W-GM / I-GM) | `vs C1` (W-GM / I-GM) |
+|---|---|---:|---:|---:|---:|---:|---|---|---|
+| `C1` (Kissat 4.0.4, `clang -O3`) | `135/140` (`54S/81U`) | 5 | `1204.3 / 270.0` | `1192.1 / 252.0` | `3.646 / 363.6` | `373,722 / 92,883` | — | — | — |
+| `C0-direct` (`FullM6` C99, `clang -O3`) | `132/140` (`52S/80U`) | 8 | `1610.5 / 300.4` | `1583.3 / 267.1` | `5.069 / 418.8` | `249,464 / 60,963` | `1.0000x / 1.0000x` | — | `1.1126x / 1.0599x` |
+| `C3b` (`FullM6` PrintCpp, `clang++ -O3`) | `132/140` (`52S/80U`) | 8 | `1655.0 / 307.1` | `1635.3 / 277.8` | `5.117 / 427.6` | `215,960 / 52,430` | `1.0225x / 1.0398x` | `1.0000x / 1.0000x` | `1.1374x / 1.1021x` |
+| **`C4` (`FullM6`, certified LeanQbe x64)** | `132/140` (`52S/80U`) | 8 | `1782.4 / 327.8` | `1755.0 / 296.6` | `5.248 / 454.8` | `206,024 / 49,848` | **`1.0915x / 1.1104x`** | **`1.0675x / 1.0679x`** | **`1.2140x / 1.1767x`** |
+
+*(Common Wall/Int AM and GM are over the strict 131-instance 4-way common-solved subset; pairwise
+ratios are over each pair's mutually solved subset; `.text` object sizes are `241,541 B`
+`C0-direct`, `208,036 B` `C3b`, and `198,090 B` `C4` with `1,139,941 B` `.s` assembly emitted in
+`8.87 s`.)*
+
+Per-suite breakdown (`C4` vs `C0-direct` / `C3b` / `C1`, mutually solved Wall GM / Int GM):
+
+| Suite (`N`, 4-way common) | `C1` Solved | `C4` Solved | `C4` PAR-2 AM (s) | `C4 / C0-direct` (W-GM / I-GM) | `C4 / C3b` (W-GM / I-GM) | `C4 / C1` (W-GM / I-GM) |
+|---|---:|---:|---:|---|---|---|
+| `PV-35` (`35`, `35`) | `35/35` | `35/35` | `2.220` | `1.1362x / 1.1186x` | `1.1064x / 1.0780x` | `1.2490x / 1.1999x` |
+| `Hard-24` (`24`, `24`) | `24/24` | `24/24` | `0.767` | `1.0897x / 1.0984x` | `1.0421x / 1.0534x` | `0.9031x / 0.8960x` |
+| `SV-21` (`21`, `21`) | `21/21` | `21/21` | `0.753` | `0.9735x / 1.0982x` | `1.0892x / 1.1016x` | `1.1725x / 1.0707x` |
+| `quick60` (`60`, `51`) | `55/60` | `52/60` | `10.381` | `1.1136x / 1.1153x` | `1.0454x / 1.0545x` | `1.3882x / 1.3722x` |
+| **OVERALL** (`140`, `131`) | **`135/140`** | **`132/140`** | **`5.248`** | **`1.0915x / 1.1104x`** | **`1.0675x / 1.0679x`** | **`1.2140x / 1.1767x`** |
+
+On All-140 PAR-2 (`30.0 s` cap, `60.0 s` penalty), `C4` is `1.0353x` AM (`1.0861x` GM) vs
+`C0-direct`, `1.0257x` AM (`1.0636x` GM) vs `C3b`, and `1.4395x` AM (`1.2510x` GM) vs `C1`.
 
 ## Bootstrapping compiler
 
