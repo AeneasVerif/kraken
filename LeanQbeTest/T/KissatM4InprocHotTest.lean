@@ -4,13 +4,13 @@ public import LeanQbe.T.Examples.Kissat.FullM4InprocHotProof
 meta import LeanQbe.T.Examples.Kissat.FullM4InprocHotProof
 
 /-!
-# Verification, Non-Vacuity, and Axiom Audit for Kissat Track A6 (`FullM4InprocHot`)
+# Verification, Non-Vacuity, and Axiom Audit for Kissat M4 Inprocessing (`FullM4InprocHot`)
 
 1. Executable `#guard` checks on `m4InprocHot_fns` (`3` fns), `m4InprocHotModule.checkAcyclic`,
    `m4InprocHotSpecTable`, canonical `FullM4` / `FullM3` `Fn` wrappers, and `nvM4Cfg` bounds.
 2. Concrete `Mem 64` `Func.wp` sanity check (`nv_test_wstack_defrag`, `XPost := False`,
    `42716`-byte image under closed `m4InprocHotEnv`).
-3. Single-line `#print axioms` audit (`<= 100` cols) on all exported Track A6 soundness,
+3. Single-line `#print axioms` audit on all exported `FullM4InprocHot` soundness,
    `ModuleOk`, and concrete non-vacuity theorems (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -41,7 +41,7 @@ theorem nv_test_wstack_defrag :
       (fun _ _ => True) (fun _ _ _ _ => False) :=
   nv_m4_wstack_defrag
 
-/-! ## 3. Single-line `#print axioms` audit (all outputs strictly `< 115c`) -/
+/-! ## 3. Single-line `#print axioms` audit -/
 
 theorem m4ih_wf0 : Func.Wf full_has_ternary_m4_body := full_has_ternary_m4_wf
 theorem m4ih_wf1 : Func.Wf full_kitten_init_m4_body := full_kitten_init_m4_wf

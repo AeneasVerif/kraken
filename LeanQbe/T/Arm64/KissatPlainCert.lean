@@ -16,7 +16,7 @@ meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
-# Kissat `D-Plain` (`plainModule`) Compilation Certificate on AAPCS64 Arm64 (`Stage 3`)
+# Kissat `D-Plain` (`plainModule`) Compilation Certificate on AAPCS64 Arm64
 
 Combines the 6 parallel kernel-checked slices (`KissatPlainCert1`..`KissatPlainCert6`) via
 `LinkedCert.append` into `plainCert` over `LeanQbe.T.Examples.Kissat.Plain.plainModule` (`59`

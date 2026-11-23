@@ -1,7 +1,7 @@
 #ifndef LEANQBE_TEST_KISSAT_CHECK_C3B_INVARIANTS_HPP
 #define LEANQBE_TEST_KISSAT_CHECK_C3B_INVARIANTS_HPP
 
-// Opt-in structural invariant checker for C3b Kissat FullHdr solver states.
+// Opt-in structural invariant checker for PrintCpp C++20 (C3b) Kissat FullHdr states.
 // Compile with -DKISSAT_C3B_CHECK_INV to enable runtime checks; when omitted,
 // all hooks compile away to trivial inline no-ops with zero runtime overhead.
 

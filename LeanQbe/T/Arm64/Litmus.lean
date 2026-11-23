@@ -12,7 +12,7 @@ meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.LitmusProgs
 
 /-!
-# Scalar Litmus Suite on AArch64 (`T12i`)
+# Scalar Litmus Suite on AArch64
 
 Instantiates all 10 scalar litmus modules (`tracer`, `ifelse`, `sumto`, `evenodd`, `nested`, `swap`,
 `spill10`, `callinc`, `twice` with abnormal exit `"fail"`, `sumcall`) on `armTarget`

@@ -10,13 +10,13 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat Wave 2 `PR-W2A` (`RC-19`) `Func.wp` Proofs — Part 0 (`FullM6TiersProof0`)
+# Kissat M6 Tiers `Func.wp` Proofs — Part 0 (`FullM6TiersProof0`)
 
 Proves UNSAT-only `SafetySlice` / `Mem 64` `Func.wp` contracts (`0` SAT/model proofs) for the
 `23` foundational functions of `FullM6Tiers`:
 1. Struct layout size helpers (`full_m6_hdr_sizeof`, `full_m6_ext_sizeof`) & 64-bit `delayed`
    word accessors (`full_m6_get64`, `full_m6_set64`).
-2. Extended header initialization (`full_m6_ext_ready`) with formal `w2b` prefix non-interference
+2. Extended header initialization (`full_m6_ext_ready`) with `del[0..15]` non-interference
    (`∀ k < 16, sc'.delayed[k]? = sc.delayed[k]?`).
 3. Mode-split tiers (`full_m6_sync_legacy_tiers`, `full_m6_recompute_tiers_mode`,
    `full_recompute_tiers_m6`, `full_m6_update_tier_limits`, `full_m6_record_used`,
@@ -79,11 +79,11 @@ theorem m6Get64Val_set64_self {del : List (BitVec 32)} {idx : Nat} (val : BitVec
     have hk' : 32 + (k - 32) = k := by omega
     simp [h32, hlo, hk']; rfl
 
-/-- `w2b` (`FullM6MinShrink`) non-interference: `del[0..15]` (`64` bytes) untouched. -/
+/-- `FullM6MinShrink` (`decision_rate`) non-interference: `del[0..15]` (`64` bytes) untouched. -/
 def FullM6DelayedW2bPres (s s' : FullState) : Prop :=
   ∀ k < 16, s'.scratch.delayed[k]? = s.scratch.delayed[k]?
 
-/-- Combined probe-scratch and `w2b`-prefix preservation for `M6` helpers. -/
+/-- Combined probe-scratch and `del[0..15]`-prefix preservation for `M6` helpers. -/
 def FullM6ScratchPres (s s' : FullState) : Prop :=
   FullProbeScratchPres s s' ∧ FullM6DelayedW2bPres s s'
 

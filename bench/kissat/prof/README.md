@@ -1,17 +1,21 @@
 # Kissat Callgrind Dynamic Profiling Suite
 
-Dynamic x86-64 instruction (`Ir`) profiling and C4-vs-C3b comparison toolkit for compiled Kissat binaries, using `valgrind --tool=callgrind` and `objdump`.
+Dynamic x86-64 instruction (`Ir`) profiling and comparison toolkit for compiled Kissat binaries,
+using `valgrind --tool=callgrind` and `objdump`. It compares **C4** (`LeanQbe.T` native x86-64
+assembly binaries) against **C3b** (`PrintCpp`-emitted C++20 binaries compiled with `clang++ -O3`).
 
 ## Prerequisites
 
 - `valgrind` (with Callgrind)
 - `objdump` (GNU binutils)
 - `python3` (stdlib only)
-- Unstripped ELF binaries (C4 built via `run_4corner.sh` / `build_solver.sh`, C3b built with symbol retention)
+- Unstripped ELF binaries (C4 built via `run_4corner.sh` / `build_solver.sh`; C3b built with
+  symbol retention)
 
 ## Quick Start: C4 vs C3b Dynamic Comparison
 
-Use [run_prof.sh](run_prof.sh) as the single-command runner to collect Callgrind traces under `timeout` and emit both per-instruction-class and per-function C4 vs C3b reports:
+Use [run_prof.sh](run_prof.sh) as the single-command runner to collect Callgrind traces under
+`timeout` and emit both per-instruction-class and per-function C4 vs C3b reports:
 
 ```bash
 timeout 600 bench/kissat/prof/run_prof.sh \

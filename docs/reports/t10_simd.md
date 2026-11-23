@@ -1,17 +1,14 @@
-> **[Historical design note]** Written during an earlier milestone; `scripts/headline.txt` referenced below has since been split into `scripts/headlines.d/*.txt`. See `README.md` for current paths.
+> **[Historical design note]** Written during an earlier milestone (at commit `2a28b05`); `scripts/headline.txt` referenced below has since been split into `scripts/headlines.d/*.txt`. See `LeanQbe-README.md` for current paths.
 
-# `t10-simd`: SysV x64 SIMD `VecIsa` & `VecTarget` (`T10`)
+# SysV x86-64 SIMD Instruction Selection (`VecIsa` & `VecTarget`)
 
-Owner: `t10-simd` (forked from `main @ 2a28b05`).
-Owned files:
+Modules covered:
 - `LeanQbe/T/Amd64/IselVec.lean`
 - `LeanQbe/T/Amd64/IselVecLemmas1.lean`
 - `LeanQbe/T/Amd64/IselVecLemmas2.lean`
-- `LeanQbe/T/Amd64/IselVecLemmas3.lean` (split from `IselVecLemmas2.lean` per board `#289`)
+- `LeanQbe/T/Amd64/IselVecLemmas3.lean` (split from `IselVecLemmas2.lean` to keep per-file build times bounded)
 - `LeanQbeTest/T/Amd64VecTest.lean`
 - `docs/reports/t10_simd.md`
-
-Zero edits to `LeanQbe.lean`, `LeanQbeAmd64.lean`, `LeanQbeArm64.lean`, `scripts/headline.txt`, `LeanQbe/T/Amd64/{Base,Frame,FrameLemmas}.lean`, any other `Isel*.lean`, or any Arm64 / untyped E1 file.
 
 ## Status & Metrics
 
@@ -24,7 +21,7 @@ Zero edits to `LeanQbe.lean`, `LeanQbeAmd64.lean`, `LeanQbeArm64.lean`, `scripts
 | `LeanQbeTest/T/Amd64VecTest.lean` | 758 | 3.276s real (4.842s user) | Kernel `rfl`, `Host.ofLayout` ChaCha/`addps`+`subps`+NaN/`mkpair`+`unpair`/unaligned round-trips, `#print axioms` |
 
 * Full Lake build (`lake build --wfail LeanQbe.T.Amd64.IselVec LeanQbe.T.Amd64.IselVecLemmas1 LeanQbe.T.Amd64.IselVecLemmas2 LeanQbe.T.Amd64.IselVecLemmas3 LeanQbeTest.T.Amd64VecTest`): passed (`134 jobs`, `3.457s` real, `EXIT=0`).
-* Total proof LOC (`IselVecLemmas1..3`): `4,205` LOC (`1,241 + 1,475 + 1,489`), split into 3 files per board `#289` with every file under `10s` standalone `-DwarningAsError=true`.
+* Total proof LOC (`IselVecLemmas1..3`): `4,205` LOC (`1,241 + 1,475 + 1,489`), split into 3 files so every file checks in under `10s` standalone with `-DwarningAsError=true`.
 
 ## Design & Implementation Summary
 
@@ -76,4 +73,4 @@ Zero edits to `LeanQbe.lean`, `LeanQbeAmd64.lean`, `LeanQbeArm64.lean`, `scripts
    * `LeanQbe.T.Amd64.x64Vmov_noLab`: `[propext]`.
    * `LeanQbe.T.Amd64.x64VecSpec`, `x64Vmovi_noLab`, `x64VslotSt_noLab`, `x64VslotLd_noLab`, `x64Vload_noLab`, `x64Vstore_noLab`, `x64Vop_noLab`, `chachaQrProg_run`, `floatVecProg_nan_run`, `bridgeProg_run`, `unalignedProg_run`: `[propext, Classical.choice, Quot.sound]`.
 5. **Import Isolation**:
-   * Verified via `lake env lean --deps` on `IselVecLemmas3.lean` and `Amd64VecTest.lean` plus transitive filesystem import BFS across all 5 files (`46` modules): zero Arm64/AArch64 imports and zero untyped E1 (`LeanQbe.*` outside `LeanQbe.T.*` and `Kraken.*`) imports.
+   * Verified via `lake env lean --deps` on `IselVecLemmas3.lean` and `Amd64VecTest.lean` plus transitive filesystem import BFS across all 5 files (`46` modules): zero Arm64/AArch64 imports and zero earlier untyped-IR (`LeanQbe.*` outside `LeanQbe.T.*` and `Kraken.*`) imports.

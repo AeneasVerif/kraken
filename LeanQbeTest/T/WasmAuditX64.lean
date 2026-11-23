@@ -16,7 +16,7 @@ Compiles the multi-function WebAssembly guest module `wasmQbeMod` (`mix32`, `wri
 `compile_linked_chunks!` and proves end-to-end Kraken x86-64 `Eventually (step1 Host.exe)`
 host-memory preservation and sandboxed execution theorems.
 
-This module imports ONLY `Kraken.X64` (`LeanQbe.T.Amd64.*`), never `Kraken.AArch64`.
+This module imports only `Kraken.X64` (`LeanQbe.T.Amd64.*`), never `Kraken.AArch64`.
 -/
 
 set_option autoImplicit false

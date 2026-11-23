@@ -7,8 +7,8 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat M4f Upgrades: Effort-Capped Prefix-Sorted Vivification & Dual-Polarity BCE
 
-Standalone, zero-conflict C0 module off `main @ d8468dce` preserving the frozen `144`-word
-`FullHdr` layout (`0` layout churn, `0` edits to existing files):
+Standalone `D-Full M4` C0 module implementing effort-capped vivification and dual-polarity BCE
+over the unchanged `144`-word `FullHdr` layout:
 
 1. **Vivification `vivifyeffort` tick cap, watch-degree prefix-sorted schedule & trail reuse**:
    - `full_viv_sort_noccs_m4`: sorts `tmp_lits[0 .. sz)` by watch-list occurrence counts

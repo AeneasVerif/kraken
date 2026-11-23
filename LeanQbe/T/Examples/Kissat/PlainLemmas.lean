@@ -722,7 +722,7 @@ theorem plain_solve_core_wp (Γ : Env)
                                         ⟨(hrr1 h1).1, hs4_inv.marks⟩,
                                         fun vals' te' hte hst hnz hcm =>
                                           (hsf_false vals' te' hte hst hnz hcm).elim, hm5_b⟩)))
-                        · -- trail_end >= mv: kissat_check_model (UnitSatTrace lands here!)
+                        · -- trail_end >= mv: kissat_check_model (UnitSatTrace lands here)
                           have hmf_b : (bytes cnf_ptr cnfBytes ⋆ PlainMem c s3' ⋆
                               (region work_ptr pNat ⋆ R)) _ := sep_ac hmf
                           refine ⟨_, load_arena_values hmf, _, load_arena_mv hmf, ?_⟩

@@ -9,7 +9,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Soundness Proofs for the Kissat C0 DIMACS Scanner (`X1` Stage B1, Part 1)
+# Soundness Proofs for the Kissat C0 DIMACS Scanner (Part 1)
 
 Defines:
 1. `dimacsState` memory predicate (`KissatDimacs { mv; nc; cur; val }`), field load/store helpers,

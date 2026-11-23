@@ -6,13 +6,13 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Audit & Verification for Kissat Stage-5 Fast-Core (`FullFastCore*`)
+# Audit & Verification for Kissat Fast-Core (`FullFastCore*`)
 
 1. Executable `#guard` checks on `fastCore_fns` (`3` fns), `fastCoreModule.checkAcyclic`,
    `[47..49]` splice into `Full.fullFns` (`fastCoreFullFns`), and concrete `nvFastProp` geometry.
 2. Source-level UNSAT soundness sanity check (`nv_fast_propagate_sound_ok`, `XPost := False`,
    strictly UNSAT-only — `0` SAT model proofs).
-3. Single-line `#print axioms` audit (`< 115` chars output) via short root aliases across all
+3. Single-line `#print axioms` audit via short root aliases across all
    exported `FullFastCore`, `FullFastCoreBcpLemmas`, and `FullFastCoreLemmas` theorems
    (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/

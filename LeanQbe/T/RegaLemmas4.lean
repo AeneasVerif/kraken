@@ -4,11 +4,11 @@ public import LeanQbe.T.RegaLemmas2
 public import LeanQbe.T.RegaLemmas3
 
 /-!
-# `T7b` Part 4: `Wf.induct` Correctness of PHOAS-First `lowerExpr`/`lowerBlocks` and `lowerFn`
+# `RegaLemmas` Part 4: `Wf.induct` Correctness of `lowerExpr`, `lowerBlocks`, and `lowerFn`
 
 * `LabJ`/`makeLabJs`/`DOk`: join points are interpreted as "running from the block label is safe
-  for every machine state agreeing with the block `Entry`" (the `LabJ` pattern of `AuditProof.lean`,
-  no `pend_mem` pass).
+  for every machine state agreeing with the block `Entry`" (avoiding a separate
+  pending-label pass).
 * `lowerExpr_correct` by `Wf.induct`, `lowerBlocks_closed` by induction on `WfB`.
 * `lowerFn_correct : ... → T.FnSpec host f.name (Func.spec Γ f.body) n nX`.
 -/
@@ -1056,7 +1056,7 @@ end Main
 
 /-! ## Function-level correctness -/
 
-/-- **`T7b` headline:** a successfully lowered well-formed function satisfies `Target.FnSpec`. -/
+/-- **Main theorem:** a successfully lowered well-formed function satisfies `Target.FnSpec`. -/
 theorem lowerFn_correct (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints) (E : Ext) (f : Fn)
     (Γ : Env) (n nX : Nat) (bound : Sym → Nat) {code : List T.Directive} {k₀ : Nat}
     (hwf : f.Wf) (hl : lowerFn T.toIsa hints E f = .ok code)

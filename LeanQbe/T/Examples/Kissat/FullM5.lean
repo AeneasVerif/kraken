@@ -20,16 +20,16 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat `D-Full` Unified M5 Solver (`FullM5`)
 
-Splices all Wave 0 (`W0A` `FullM4Compact`, `W0B` `FullM5DenseSafe`, `W0C` `FullM5Otfs`,
-`W0D` `FullM4Sweep` + `FullM4VivBce` + `FullM5KittenDefFix`) and Wave 1 (`W1A` `FullM5HeurCore`,
-`W1B` `FullM4Bcp` + `FullM5ProbeProp`, `W1C` `FullM5Sched`, `W1D` `FullM4Bva` + `FullM4InprocHot` +
-`FullM5CongBins` + `FullM5CongFix`, `W1E` `FullM5Hbr` + `FullM5Orch`) upgrades in strict
+Splices all `D-Full M5` pass modules (`FullM4Compact`, `FullM5DenseSafe`, `FullM5Otfs`,
+`FullM4Sweep`, `FullM4VivBce`, `FullM5KittenDefFix`, `FullM5HeurCore`, `FullM4Bcp`,
+`FullM5ProbeProp`, `FullM5Sched`, `FullM4Bva`, `FullM4InprocHot`, `FullM5CongBins`,
+`FullM5CongFix`, `FullM5Hbr`, and `FullM5Orch`) in strict
 topological call order (`externs := []`, `exits := []`):
-- Unifies `W1A` `full_analyze_m5` with `W0C` `full_deduce_1uip_m5` + `full_one_lit_confl_m5`.
+- Unifies `full_analyze_m5` with `full_deduce_1uip_m5` + `full_one_lit_confl_m5`.
 - Wires BOTH `[38] full_calc_ext_cap_m5` (`4M`) and `[39] full_calc_scr_cap_m5` (`1M`) into
   `full_init_state_m5` (fixing `extend_cap` witness overflow).
-- Uses `W1E` `full_vivify_m5` + `full_vivify_tier_m5` (uncapped `0xFFFFFFFFu`, rolling cumulative
-  `tick_cap`, delegating per-clause to `FullM4VivBce`) and `W0D` `full_bce_m4`.
+- Uses `full_vivify_m5` + `full_vivify_tier_m5` (uncapped `0xFFFFFFFFu`, rolling cumulative
+  `tick_cap`, delegating per-clause to `FullM4VivBce`) and `full_bce_m4`.
 - Drops regressive `full_promote_reasons`, `full_reorder_heap`, `full_tumble_*`, and
   `full_ternary*`.
 - Exposes canonical external entrypoints (`full_init_state`, `full_reduce`, `full_preprocess`,

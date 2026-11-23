@@ -5,9 +5,9 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Wave-4H: `T3/T4 -> T1` Bump, LCG RNG & Scaling (`FullM7Bump`)
+# Kissat M7 Bump, Knuth LCG RNG & Limit Scaling (`FullM7Bump`)
 
-Purely additive `T1` Kissat 4.0.4 fidelity upgrade matching `src/random.h`, `src/kimits.c`,
+Additive Kissat 4.0.4 parity module matching `src/random.h`, `src/kimits.c`,
 `src/analyze.c`, and `src/bump.c`:
 1. `full_rng_next_m7` (`src/random.h:10-18`, `kissat_next_random32`): updates 64-bit Knuth LCG
    `state' = 6364136223846793005ULL * state + 1442695040888963407ULL` and returns `state' >> 32`
@@ -319,7 +319,7 @@ def m7ScaleDeltaM6Fn : Fn :=
 def m7BumpAnalyzedFn : Fn :=
   ⟨"full_bump_analyzed", [i64], [], full_bump_analyzed_m7_body⟩
 
-/-- Standalone Wave-4H `PR-W4H` module (`7` functions, `3` externs, `0` exits). -/
+/-- Standalone M7 bump/RNG/scaling module (`7` functions, `3` externs, `0` exits). -/
 def m7BumpModule : LeanQbe.T.Module :=
   { fns := m7BumpFns, externs := m7BumpExterns, exits := [] }
 

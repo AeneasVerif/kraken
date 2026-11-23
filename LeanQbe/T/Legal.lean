@@ -4,7 +4,7 @@ public import LeanQbe.T.LegalTrees
 public import LeanQbe.T.WP
 
 /-!
-# Target-parameterized IR legalisation (`T5`, `G13`, Part 3: `Func.legal`, `isLegal`)
+# Target-Parameterized IR Legalization (Part 3: `Func.legal`, `isLegal`)
 -/
 
 set_option autoImplicit false

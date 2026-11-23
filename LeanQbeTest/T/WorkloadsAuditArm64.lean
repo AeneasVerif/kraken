@@ -12,7 +12,7 @@ import all Kraken.Separation
 Self-contained machine-level audit for compiled `chacha20Block` (scalarized from `v4i32` by the
 verified `armLegalTarget` pass), Curve25519 bignum kernels (`mul4x4`, `addMod25519`,
 `subMod25519`), and Union-Find (`find`, `union`, `unionInline`) on AAPCS64 AArch64
-(`Kraken.AArch64`). This module imports ONLY `Kraken.AArch64` (`LeanQbe.T.Arm64.*`), never
+(`Kraken.AArch64`). This module imports only `Kraken.AArch64` (`LeanQbe.T.Arm64.*`), never
 `Kraken.X64`.
 
 ## What This Workstream Proves

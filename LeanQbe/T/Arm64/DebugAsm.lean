@@ -6,7 +6,7 @@ public import Kraken.AArch64.Print
 import Std.Data.HashSet
 
 /-!
-# AAPCS64 Arm64 Debug Assembly & CFI Unwind Emitter (`P0 + P1`)
+# AAPCS64 Arm64 Debug Assembly & CFI Unwind Emitter
 
 Transforms verified `List Kraken.AArch64.Directive` output from `LeanQbe.T.compile` into
 ELF-clean AArch64 assembly with **zero** instruction changes in normal frames:

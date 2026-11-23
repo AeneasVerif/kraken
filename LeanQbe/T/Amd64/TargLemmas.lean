@@ -9,7 +9,7 @@ import LeanQbe.T.Amd64.IselVecLemmas3
 import LeanQbe.T.Amd64.FrameLemmas
 
 /-!
-# SysV x64 `LabelClean`, `TargetLayout`, `TargetInit`, & Concrete Lifting (`T12i`)
+# SysV x64 `LabelClean`, `TargetLayout`, `TargetInit`, & Concrete Lifting
 
 * `x64LabelClean : Rega.LabelClean x64Target.toIsa`: discharges compiler-side label uniqueness
   structurally via all verified `NoLab` theorems from `Amd64/{Isel,IselVec,Frame}Lemmas*`.

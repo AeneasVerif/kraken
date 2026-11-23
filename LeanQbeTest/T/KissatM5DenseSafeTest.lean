@@ -14,8 +14,8 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Splice Parity, Backend Guards, and Axiom Audit for Kissat M5 Wave 0B
-(`FullM5DenseSafe`, covering `RC-02`, `RC-03`, `RC-04`)
+# Verification, Splice Parity, Backend Guards, and Axiom Audit for Kissat M5 Dense Safety
+(`FullM5DenseSafe`)
 
 1. Executable `#guard` checks on `m5DenseSafeModule` (`7` fns + `27` externs, `0` exits),
    `checkAcyclic = true`, `m5DenseSafeSpecTable` (`34` rows), exact signature parity and closed
@@ -25,7 +25,7 @@ meta import LeanQbe.T.Legal
 2. Audit-ready restated headline theorems for `m5DenseSafe_fns_wf`, `m5DenseSafe_acyclic`, all
    `8` parametric `Func.wp` proofs, closed `34`-row `m5DenseSafe_moduleOk`, and concrete `Mem 64`
    UNSAT non-vacuity (`XPost := False`, `0` SAT proofs).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
@@ -82,7 +82,7 @@ section AuditSpec
 public theorem m5ds_wf : ∀ f ∈ m5DenseSafe_fns, f.Wf :=
   m5DenseSafe_fns_wf
 
-/-- Standalone Wave-0B module `m5DenseSafeModule` passes `checkAcyclic = true`. -/
+/-- Standalone M5 dense-safety module `m5DenseSafeModule` passes `checkAcyclic = true`. -/
 public theorem m5ds_acyc : m5DenseSafeModule.checkAcyclic = true :=
   m5DenseSafe_acyclic
 

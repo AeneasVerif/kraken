@@ -1,6 +1,6 @@
 #include "../../LeanQbe/T/Frontend/C0/c0.h"
 
-/* V3: Lean Tier-0 runtime RC + iterative worklist dec + forward goto + multi-return + short-circuit */
+/* Lean Tier-0 runtime RC + iterative worklist dec + forward goto + multi-return + short-circuit */
 
 typedef struct {
   i32 m_rc;

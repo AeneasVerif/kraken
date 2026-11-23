@@ -21,11 +21,11 @@ meta import LeanQbe.T.Legal
 2. Root-namespace audit theorems covering `Wf`, `checkAcyclic`, `noExit`, `TableImpl`,
    `ModuleOk`, parametric `Func.wp` + canonical `FullSpec*` drop-in bridges, and concrete `Mem 64`
    UNSAT non-vacuity (`XPost := False`).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 
-> **Pitfall `#3909` (Solver Loop Integration Guard)**: `full_lucky_late_m7` MUST run **ONCE**
-> before the main solver search loop starts (at root initialization), **NEVER** inside the inner
-> decision loop. Running it inside the inner loop triggers full restarts/backtracking per step.
+> **Solver Loop Integration Guard**: `full_lucky_late_m7` must run **once** before the main
+> solver search loop starts (at root initialization), never inside the inner decision loop.
+> Running it inside the inner loop triggers full restarts/backtracking per step.
 -/
 
 set_option autoImplicit false
@@ -139,7 +139,7 @@ theorem m7sr_lucky_late_wp (Γ : Env)
     ∀ a m Q X, m7LuckyLateSpec a m Q X → Func.wp Γ full_lucky_late_m7_body a m Q X :=
   full_lucky_late_m7_wp Γ hPolar hScan hAssign hBt hProp
 
-/-- Pitfall `#3909`: invoke `full_lucky_late_m7` ONCE before the search loop, never inside it. -/
+/-- Integration guard: invoke `full_lucky_late_m7` once before the search loop, never inside it. -/
 theorem m7sr_lucky_dropin (Γ : Env)
     (hPolar : EnvSpec Γ "full_lucky_polar_m7" fullLuckyPolarSpec)
     (hScan : EnvSpec Γ "full_lucky_scan" fullLuckyScanSpec)

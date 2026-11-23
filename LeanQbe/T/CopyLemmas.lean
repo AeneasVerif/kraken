@@ -7,7 +7,7 @@ import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.OpsLemmas
 
 /-!
-# Correctness of `copy` (`T6`)
+# Correctness of `copy`
 
 * `OpRel.copyLet_wp`: `copyLet` preserves weakest preconditions and `CGoodCtx`.
 * `OpRel.copyLet_rel`: `copyLet` produces relationally equivalent actions under `CRelG`.

@@ -6,7 +6,7 @@ public import LeanQbe.T.AbiLemmas
 public import LeanQbe.T.Logic.MemLemmas
 
 /-!
-# AArch64 Scalar Instruction Selection Proofs — Part 1 (`T9`)
+# AArch64 Scalar Instruction Selection Proofs — Part 1
 
 Core `Program.wp` / `FallsTo` bridge, scratch framing, move/branch/clearFlags/load/store
 `GprTarget` proofs (including arbitrary-64-bit displacements, `.SP` unaligned routing via `.X16`,

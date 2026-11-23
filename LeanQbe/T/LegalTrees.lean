@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalBase
 
 /-!
-# Legalization tree lifters and `legalOp` (`T5`, `G13`, Part 2)
+# Legalization tree lifters and `legalOp` (Part 2)
 -/
 
 set_option autoImplicit false

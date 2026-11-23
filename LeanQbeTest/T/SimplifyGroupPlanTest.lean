@@ -122,7 +122,7 @@ theorem ifSimpPlan_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (ifSimpPlan f) xs m Q X :=
   Func.simplifyGroupPlan_spec (Func.ifOpt_wf hf) (Func.ifOpt_spec hf h)
 
-/-- Classic `MB3` diamond lowered by `IfOpt` and collapsed by `SimplifyGroupPlan`. -/
+/-- Branch diamond lowered by `IfOpt` and collapsed by `SimplifyGroupPlan`. -/
 def mb3Diamond : Func [i64, i64, i64] [i64] := fun _ _ (x, y, a, ()) =>
   .let_ (op2 (.cmp .slt i64) (.var x) (.var y)) fun (c, ()) =>
   .group (sig := [[i64]])
@@ -193,7 +193,7 @@ theorem chainedTailSpliceProg_out : Func.simplifyGroupPlan chainedTailSpliceProg
   t_kernel_rfl
 
 /-- Inner dead group inside `b_outer` jumps to `L_outer`: after inner unwrap, `L_outer` becomes
-non-recursive and splices cleanly! -/
+non-recursive and splices cleanly. -/
 def deadInnerHidesLoopProg : Func [i64] [i64] := fun _ _ (x, ()) =>
   .group (sig := [[i64]])
     (fun (outer, ()) =>
@@ -290,7 +290,7 @@ def demoFns : List Fn := LeanLRC.tflatFnsToFns demoTfs
 #guard demoFns.all fun fn => (Func.simplifyGroupPlan fn.body).checkTFlat
 #guard demoFns.all fun fn => (Func.simplifyGroupPlan (Func.earlyCore fn.body)).checkTFlat
 
--- Cliff stress test on 622-deep `RBNode_balance` and 35-deep `run`!
+-- Deep-nesting stress test on 622-deep `RBNode_balance` and 35-deep `run`.
 def cliffCheckFn (suffix : String) : Bool :=
   match demoFns.find? (fun fn => fn.name.endsWith suffix) with
   | none => false

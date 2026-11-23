@@ -10,9 +10,9 @@ meta import LeanQbe.T.Examples.Kissat.LayerAFull
 meta import LeanQbe.T.Examples.LratBytes
 
 /-!
-# Verification, Closed Sample Theorems, and Axiom Audit for Kissat Stage 4 Layer-A Theory
+# Verification, Closed Sample Theorems, and Axiom Audit for Kissat `D-Full` Layer-A Theory
 
-Executable `#guard` checks, closed end-to-end non-vacuity theorems, and single-line `<= 120`-col
+Executable `#guard` checks, closed end-to-end non-vacuity theorems, and single-line
 `#print axioms` reports covering every `LayerAFull1` and `LayerAFull` transition rule:
 1. DIMACS initialization (`parseDimacs` -> `ExtUnsatSound`), arbitrary deletion (`filter`,
    `eraseIdx`, `deleteIdx`, `reduceDel`, `satisfiedGc`, `forwardSubsumeDel`, `transitiveDel`,
@@ -350,8 +350,8 @@ theorem nv_substMap_unsat : (cnfOfClauses sccSubstSample).Unsat := by
 
 -- UNSAT-entailing core clauses on x0(0), x1(2), x2(4), x3(6), x4(8):
 -- c0 = [4, 1, 3] (prop x2 at lvl 2)
--- c1 = [8, 1, 7] (prop x4 at lvl 3; OTFS strengthens this to [1, 7]!)
--- c2 = [1, 7, 9] (conflict clause at lvl 3: ¬x0, ¬x3, ¬x4!)
+-- c1 = [8, 1, 7] (prop x4 at lvl 3; OTFS strengthens this to [1, 7]).
+-- c2 = [1, 7, 9] (conflict clause at lvl 3: ¬x0, ¬x3, ¬x4).
 def chronoClauses : List (List Nat) :=
   [[4, 1, 3], [8, 1, 7], [1, 7, 9]]
 
@@ -372,7 +372,7 @@ def afterChronoStep : ChronoState :=
 
 -- Notice `afterChronoStep.cdcl.trail = #[0, 2, 4, 7]`:
 -- `0` is level 1 (dec), `2` is level 2 (dec, frame[1]=1), `4` is level 2 (prop),
--- and `7` (`uip`, ¬x3) sits at index `3 >= frame[1]` with level `1 < 2 = s.cdcl.level`!
+-- and `7` (`uip`, ¬x3) sits at index `3 >= frame[1]` with level `1 < 2 = s.cdcl.level`.
 #guard buildChronoState.cdcl.trail == #[0, 2, 4, 6, 8]
 #guard chronoOut.learned == [1, 7]
 #guard chronoOut.otfs == [{ cid := 1, pivot := 8, newLits := [1, 7] }]
@@ -643,7 +643,7 @@ theorem nv_chrono_entail_min_shrink :
   rw [h7, hl7] at hent7
   exact ⟨hent7, hm.1, hsh.1⟩
 
-/-! ## 7. Single-line `#print axioms` checks (`<= 120` cols) -/
+/-! ## 7. Single-line `#print axioms` checks -/
 
 #print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_init_shift
 #print axioms LeanQbe.T.Examples.Kissat.extUnsatSound_init_of_parse

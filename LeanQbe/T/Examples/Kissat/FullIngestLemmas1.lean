@@ -11,7 +11,7 @@ import all Kraken.Separation
 /-!
 # Kissat `D-Full` Stage-4 Arena / Watch-Stack Proofs & Shared Specs (Part 1)
 
-Defines (`#1023` narrowed `4`-function UNSAT-only shard):
+Defines (`4`-function UNSAT-only shard):
 1. Scoped tactic & arithmetic helpers (`FullIngestTactics` and `fi_*`).
 2. `FullIngestSpecs`: shared `FullLitMarksClear`, `FullArenaVarsNodup`, `FullLastLearnedWf`,
    `FullExtScratchOk`, `FullProbeScratchPres`, `FullSparseInv`, `FullDenseInv`,
@@ -179,7 +179,7 @@ private theorem fi_list_getElem_toNat_eq {xs : List (BitVec 32)} {i j : Nat}
 
 namespace FullIngestSpecs
 
-/-- Variable marks (`< c.max_vars`) are zero (`#1003`). -/
+/-- Variable marks (`< c.max_vars`) are zero. -/
 def FullMrkZero (c : FullCfg) (s : FullState) : Prop :=
   ∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8
 
@@ -317,7 +317,7 @@ def FullWsortMaxHeap (wvec ws : List (BitVec 32)) (lo n : Nat) : Prop :=
     (2 * i + 1 < n → (wvec[2 * (ws[2 * i + 1]?.getD 0#32).toNat]?.getD 0#32).toNat ≤ p) ∧
     (2 * i + 2 < n → (wvec[2 * (ws[2 * i + 2]?.getD 0#32).toNat]?.getD 0#32).toNat ≤ p)
 
-/-- Callee `Spec`: `full_wsort_sift(wvec, ws, start, n)` (`FullSpec2:108-119` + `#1058`). -/
+/-- Callee `Spec`: `full_wsort_sift(wvec, ws, start, n)` (`FullSpec2:108-119`). -/
 def fullWsortSiftSpec : Spec [i64, i64, i64, i64] [] :=
   fun (wvec_ptr, ws_ptr, start, n, ()) m Q _ =>
     ∃ (nlits : Nat) (wvec ws : List (BitVec 32)) (R : Mem 64 → Prop),

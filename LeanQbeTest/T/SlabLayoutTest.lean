@@ -6,7 +6,7 @@ meta import LeanQbe.T.Logic.SlabLayoutElab
 /-!
 # End-to-End Tests for `SepTree`, `SlabChain`, `c0_slab_layout!`, and `c0_lens!`
 
-Exercises all Wave-2 slab-layout proof-tooling components:
+Exercises the slab-layout proof-tooling components:
 1. **`MiniLayout` (Mode A — existing sliced `MiniCfg` / `MiniState`, 13-word header + 8 arrays):**
    - `c0_slab_layout!` generating `MiniHdrWords`, `MiniTree`, `MiniMem`, `O(log K)`
      `focus_Mini_*` / `unfocus_Mini_*`, `@[scoped c0_load]` / `@[scoped c0_store]` (including
@@ -278,8 +278,8 @@ theorem auto_vals (c : AutoMiniCfg) (s : AutoMiniState) (R : Mem 64 → Prop)
   obtain ⟨_, hst⟩ := c0_store_array8_u32 b hf hi
   exact ⟨_, unfocus_AutoMini_vals hst⟩
 
-/-- Live `c0_steps` on Mode-B generated `AutoMini`: reads `mv` (offset 0!), updates `fuel`
-(offset 48), loads `vals[k]` (padded `i8` leaf!), stores `arena[i]` → `lvl[j]`. -/
+/-- Live `c0_steps` on Mode-B generated `AutoMini`: reads `mv` (offset 0), updates `fuel`
+(offset 48), loads `vals[k]` (padded `i8` leaf), stores `arena[i]` → `lvl[j]`. -/
 def autoProg (h : BitVec 64) (i j k : BitVec 32) : Expr Val Cont [i64] :=
   .load i64 (.imm h) fun mv =>
   .load i64 (.imm (h + 48)) fun fuel =>

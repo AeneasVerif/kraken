@@ -7,7 +7,7 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat `D-Full` M4b — 512-Var `kitten` + Partition-Class Sweeping & `FL_SWEEP` Re-Arming
 
-Standalone, zero-conflict M4b upgrade addressing Canary #3 (`sweep.c` + `kitten.c`) on the
+Standalone `D-Full M4` SAT-sweeping upgrade (`sweep.c` + `kitten.c`) on the
 byte-identical `144`-word (`FullHdr`) arena layout (`Full1.lean`):
 1. **512-var scratch-resident `kitten` sub-solver (`12` fns, `K512_MAX_V = 512`,
    `K512_MAX_ORIG = 1536`, `K512_MAX_CL = 2048`, `K512_MIN_SCR = 24576`, fitting cleanly inside

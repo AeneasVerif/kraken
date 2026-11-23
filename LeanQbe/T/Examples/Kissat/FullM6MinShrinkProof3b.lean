@@ -10,7 +10,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 `PR-W2B` Proof Shard 3b (`full_ana_failed_lit_m6`)
+# Kissat M6 Minimization/Shrink Proof Shard 3b (`full_ana_failed_lit_m6`)
 
 Proves `full_ana_failed_lit_m6_wp` certifying level-1 failed-literal / multi-UIP resolution,
 VMTF bumping (`full_bump_analyzed_m6`), backtracking to level 0 (`full_backtrack`), and unit
@@ -415,7 +415,7 @@ private theorem fl_post_loop_wp {Γ Q X}
                 fl_bv64_add1_toNat (by rw [bv64_ofNat_toNat (by omega)]; omega),
                 bv64_ofNat_toNat (by omega), bv64_ofNat_toNat (by omega)])
           c0_hsplit
-          · -- `vals[u] < 0`: UNSAT! Return `20#64`
+          · -- `vals[u] < 0`: UNSAT; return `20#64`
             have hu_ff : s_k.core.vals[u.toNat]?.getD 0#8 = 0xFF#8 := by
               have hdom := hsp_k.2.1.vals_domain u.toNat hu_lt
               have hidx : u.toNat < s_k.core.vals.length := by
@@ -508,7 +508,7 @@ private theorem fl_post_loop_wp {Γ Q X}
 
 /-! ## 3. Main `full_ana_failed_lit_m6_wp` Proof -/
 
-/-- Wave-2B level-1 failed-literal / multi-UIP resolution `Func.wp` certification. -/
+/-- M6 level-1 failed-literal / multi-UIP resolution `Func.wp` certification. -/
 theorem full_ana_failed_lit_m6_wp (Γ : Env)
     (hClear : ∀ a m Q X, Full.fullClearAnaSpec a m Q X →
       Γ "full_clear_ana" [i64] [] a m Q X)
@@ -742,7 +742,7 @@ theorem full_ana_failed_lit_m6_wp (Γ : Env)
                                     (cnfOfClauses F_cur).EntailsClause
                                       (cnfClause [(s1.core.tmp[k]?.getD 0#32).toNat])) ∧
                                   (FullMem c s1 ⋆ R) m2) ?_ ?_
-                              · -- `G@9432` consumer: load `rsns[lit' >> 1]`, resolve!
+                              · -- `G@9432` consumer: load `rsns[lit' >> 1]`, resolve
                                 intro Juc ⟨ucnt', unit', _brk', s1⟩ m2
                                   ⟨hbrk', hok1, hmrk1_eq, hmcl1_eq, hws1_eq, hucnt'_le, htmp_ok',
                                     hm2⟩
@@ -774,7 +774,7 @@ theorem full_ana_failed_lit_m6_wp (Γ : Env)
                                   exact hJexit (unres, ucnt', done, t', unit', true, s1) m2
                                     ⟨hok1, by dsimp only; omega, hucnt'_le, htmp_ok',
                                       (fun h => by cases h), hm2⟩
-                                · -- `rsn ≠ -1`: prove `t' < cut` so `hw0.reason_inv_cut` applies!
+                                · -- `rsn ≠ -1`: prove `t' < cut` so `hw0.reason_inv_cut` applies
                                   have hrsn_ne :
                                       s.core.rsns[lit'.toNat / 2]?.getD 0xFFFFFFFF#32 ≠
                                         0xFFFFFFFF#32 := by
@@ -819,7 +819,7 @@ theorem full_ana_failed_lit_m6_wp (Γ : Env)
                                           (cnfClause (flLits s.core s3.core.mrk t'))) ∧
                                       (FullMem c s3 ⋆ R) m3) ?_ ?_
                                   · -- `G@9543` consumer: if `done' || err'' || unres' == 0` ->
-                                    -- `Jexit`, else `ih_lp`!
+                                    -- `Jexit`, else `ih_lp`
                                     intro Jrsn ⟨unres', done', err'', s3⟩ m3
                                       ⟨hok3, htmp3, hrsn_ok, hm3⟩
                                     dsimp only at hok3 htmp3 hrsn_ok hm3
@@ -1485,7 +1485,7 @@ theorem full_ana_failed_lit_m6_wp (Γ : Env)
                                                     · -- `ot ≠ lit`
                                                       c0_hsplit
                                                       · -- `ot == not_failed` -> break via `Jb`
-                                                        -- (`done = true`)!
+                                                        -- (`done = true`)
                                                         c0_hsteps
                                                         exact hJb (uj, true, _brk', j, sj) m3
                                                           ⟨hokj, htmpj, fun _ hd => by simp at hd,
@@ -1829,7 +1829,7 @@ theorem full_ana_failed_lit_m6_wp (Γ : Env)
                                                       exact hJc (uj, sj) m3
                                                         ⟨hokj, htmpj, hpresj, huj_eq, hcov2, hm3⟩
                                                 · -- Loop `j = rsz` finished: resolve via
-                                                  -- `fl_resolve_step`!
+                                                  -- `fl_resolve_step`
                                                   have hrsz_lt_c :
                                                       (s1.core.rsns[lit'.toNat / 2].toNat +
                                                         2) % 2 ^ 64 <
@@ -2615,7 +2615,7 @@ theorem full_ana_failed_lit_m6_wp (Γ : Env)
                               have hi1_bv : (i + 1#32).toNat = i.toNat + 1 :=
                                 fl_bv32_add1_toNat (by omega)
                               c0_hsplit
-                              · -- `lit == not_failed`: break to `J1` (`done = true`)!
+                              · -- `lit == not_failed`: break to `J1` (`done = true`)
                                 c0_hsteps
                                 exact hJ1 (ui, true, i, si) m1 ⟨hui_bd, hoki, (fun h => by cases h),
                                   hm1⟩

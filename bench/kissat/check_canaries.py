@@ -2,9 +2,9 @@
 """Run and check the 10-family tricky-UNSAT canary suite against baseline / Kissat 4.0.4.
 
 Supports:
-  - C4 native x64 binaries (`Full`, `FullFast`) via `bench_main.c --full-telemetry`
-  - C3b `PrintCpp -DTQBE_NATIVE_MEM` binaries (`Full`, `FullFast`), asserting
-    BIT-IDENTICAL `(status, conflicts, learned_lits, min_removed, search_ticks)` vs C4!
+  - C4 (LeanQbe native x64) binaries (`Full`, `FullFast`) via `bench_main.c --full-telemetry`
+  - C3b (`PrintCpp -DTQBE_NATIVE_MEM` C++20) binaries (`Full`, `FullFast`), asserting
+    bit-identical `(status, conflicts, learned_lits, min_removed, search_ticks)` vs C4
   - Optional upstream Kissat 4.0.4 (`--kissat <bin>`) comparison
   - Ratchet regression checks against `bench/kissat/canary_baseline.json` with
     explicit `expected_gap` tagging for known pre-M3 cliffs (no silent failures).

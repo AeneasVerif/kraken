@@ -59,14 +59,14 @@ completely cleared to `0#8`. -/
 @[expose] def FullExtScratchOk (c : FullCfg) (s : FullState) : Prop :=
   FullLastLearnedWf s ∧ s.scratch.extend_len ≤ c.extend_cap
 
-/-- Canonical sparse 2WL Stage-4 invariant with explicit current formula (`#968`). -/
+/-- Canonical sparse 2WL `D-Full` invariant with explicit current formula. -/
 @[expose]
 def FullSparseInvW (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) :
     Prop :=
   s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ FullLitMarksClear c s ∧
   FullArenaVarsNodup s ∧ FullExtScratchOk c s ∧ s.core.dense_mode = 0#64
 
-/-- Canonical sparse 2WL Stage-4 solver invariant (`#968`). -/
+/-- Canonical sparse 2WL `D-Full` solver invariant. -/
 @[expose] def FullSparseInv (c : FullCfg) (F0 : CNF Nat) (s : FullState) : Prop :=
   FullCoreInv c F0 s ∧ FullLitMarksClear c s ∧ FullArenaVarsNodup s ∧
     FullExtScratchOk c s ∧ s.core.dense_mode = 0#64

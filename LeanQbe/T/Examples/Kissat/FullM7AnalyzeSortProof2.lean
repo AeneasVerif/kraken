@@ -11,7 +11,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave 4G Proof Shard 2: Helpers for `full_sort_tmp_m7_wp`
+# Kissat M7 Analyze/Sort Proof Shard 2: Helpers for `full_sort_tmp_m7_wp`
 
 M1-clean UNSAT-only `Func.wp` proof (`public section`, `0 @[expose]`, `0 import all`) for
 `full_sort_tmp_m7` against `m7SortTmpSpec`:

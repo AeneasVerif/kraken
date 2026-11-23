@@ -3,13 +3,13 @@ module
 public import LeanQbe.T.Target
 
 /-!
-# PHOAS-First Checked Lowering (`T7a`, Locks `L1`–`L10`, Guardrails 1–5)
+# PHOAS-First Checked Register-Allocation Lowering (`Rega`)
 
 Direct structural lowering of `Expr VNat LNat rs` / `Blocks VNat LNat rs sig` (zero `TFlat`/`denote`)
 consuming untrusted literal `LeanQbe.T.Trie` `Hints`: bounded `regs`, `O(log N)` multi-granule
-`slots : Trie SlotEntry` with 15-granule overlap clearing, lexical `defs : Trie DefFact` (`L9`) and
+`slots : Trie SlotEntry` with 15-granule overlap clearing, lexical `defs : Trie DefFact` and
 `vecWidths : Trie SlotWidth`, sequential `nv` (`h.dest` keyed by `x : Nat`), `entryScopeOk nv`,
-read-only flag cache (`L3`–`L6`), `PreStep.clearFlags` (`L7`), `canonAbi` (skipped by `abiSkips`
+read-only flag cache, `PreStep.clearFlags`, `canonAbi` (skipped by `abiSkips`
 for canonical `.gprZ`/exact-immediate registers), `loadSext` fusion, pure `Bool` comparisons, and
 monotone `nl` label counter.
 -/
@@ -86,7 +86,7 @@ structure Ext where
 
 abbrev Res (I : Isa) := Except String (List I.Directive × Nat × Nat × Nat)
 
-/-! ## Pure `Bool` Equalities, Labels, and Bank Predicates (Guardrail 2) -/
+/-! ## Pure `Bool` Equalities, Labels, and Bank Predicates -/
 
 def slotWidthEq : SlotWidth → SlotWidth → Bool
   | .w64, .w64 | .w128, .w128 | .w256, .w256 | .w512, .w512 => true
@@ -176,7 +176,7 @@ def symArgScopeOk (nv : Nat) : SymArg → Bool
 def entryScopeOk {I : Isa} (nv : Nat) (en : Entry I.Reg I.VReg I.Cond) : Bool :=
   en.live.all fun (sa, _) => symArgScopeOk nv sa
 
-/-! ## Generic Kill Rule (`L5`) and Multi-Granule Slot Updates (`L10`) -/
+/-! ## Generic Kill Rule and Multi-Granule Slot Updates -/
 
 def keepRegLoc (I : Isa) (gClob : List I.Reg) (vClob : List I.VReg) (fClob : FlagMask) :
     RegLoc I.Reg I.VReg I.Cond → Bool
@@ -223,7 +223,7 @@ def addSlotEntry (vw : Trie SlotWidth) (sa : SymArg) (i : Nat) (w : SlotWidth)
       | some (.gpr sas) => some (slots.insert i (.gpr (sa :: sas)))
       | _ => some ((clearSlotRange i 1 slots).insert i (.gpr [sa]))
 
-/-! ## Checked Moves and `PreStep` (`L3`, `L4`, `L7`, `L10`) -/
+/-! ## Checked Moves and `PreStep` -/
 
 def gprEntries {I : Isa} (r : I.Reg) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) : List SymArg :=
   R.filterMap fun (sa, rl) =>
@@ -502,7 +502,7 @@ def shuffle (I : Isa) (nslots : Nat) (saved : List I.Reg) (st : SymState I)
     | none => none
     | some (code, st') => if tgts.all fun (sa, loc) => holdsLoc I st' sa loc then some (code, st') else none
 
-/-! ## ABI Helpers, `L9` Defs, and Operand/Destination Resolution -/
+/-! ## ABI Helpers, Lexical Defs, and Operand/Destination Resolution -/
 
 def abiTargets (I : Isa) :
     {ts : List Ty} → Tup (Arg VNat) ts → Tup (AbiReg I.Reg I.VReg) ts → Option (List (SymArg × I.Loc))

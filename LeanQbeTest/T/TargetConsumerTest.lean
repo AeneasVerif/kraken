@@ -4,12 +4,15 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Target
 
 /-!
-# Cross-Module `t_kernel_rfl`, Co-Import, `ToExpr`, and Axiom Audit for `Target.lean` (`#167.3`, `#169.3`)
+# Cross-Module `t_kernel_rfl`, Co-Import, `ToExpr`, and Axiom Audit for `Target.lean`
+
 Verifies in a separate downstream `module` that:
-1. `Target` co-imports cleanly alongside the entire `LeanQbe` root (zero `region`/`cell64`/`array64` collisions).
-2. `Fn.backendOk` (across `.let_` `zext`/`bswap`/`add`, `.group`/`.jump`, `.load`/`.store`, `assignArgs`/`assignRets`)
-   and `Trie.insert`/`erase`/`find?` reduce in the Lean kernel across a `module` boundary via `t_kernel_rfl`.
-3. `Hints` derives `Lean.ToExpr` for `T12` elaborator literal splicing (`#167.5`).
+1. `Target` co-imports cleanly alongside the `LeanQbe` root (no `region`/`cell64`/`array64`
+   collisions).
+2. `Fn.backendOk` (across `.let_` `zext`/`bswap`/`add`, `.group`/`.jump`, `.load`/`.store`,
+   `assignArgs`/`assignRets`) and `Trie.insert`/`erase`/`find?` reduce in the Lean kernel across a
+   `module` boundary via `t_kernel_rfl`.
+3. `Hints` derives `Lean.ToExpr` for elaborator literal splicing.
 4. Every theorem in `Target.lean` has standard axioms `[propext, Classical.choice, Quot.sound]`.
 -/
 

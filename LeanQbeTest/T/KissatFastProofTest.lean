@@ -9,12 +9,12 @@ import all Kraken.Separation
 # Verification, UNSAT Non-Vacuity, and Axiom Audit for Kissat M2 (`FullFastProof`, `196/196`)
 
 1. Executable `#guard` checks on `fastFns` (`196` functions), `fastModule.checkAcyclic`,
-   `fastSpecTable`, the M2b slice index lists (`3 + 13 + 15 + 9 = 40` rows; all `196/196` closed),
+   `fastSpecTable`, the M2 slice index lists (`3 + 13 + 15 + 9 = 40` rows; all `196/196` closed),
    concrete UNSAT witness bytes (`fullNvUnsatBytes`), and `4096`-byte workspace bounds.
 2. Concrete `Mem 64` source-level `Func.wp` sanity check (`fast_unsat_payload`, `X = False`,
-   canonical `196`-function `fastEnv`, strictly UNSAT-only — ZERO SAT / model proofs).
-3. Root-namespace short aliases for single-line `#print axioms` audit (`<= 100` cols, `wrapped = 0`)
-   covering all M2 orchestrators, `TmkZero` M1 helpers, headline UNSAT soundness/non-vacuity, and
+   canonical `196`-function `fastEnv`, strictly UNSAT-only — no SAT / model proofs).
+3. Root-namespace short aliases for single-line `#print axioms` audit
+   covering all M2 orchestrators, `TmkZero` helpers, headline UNSAT soundness/non-vacuity, and
    unconditional `196/196` `ModuleOk` (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 

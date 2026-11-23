@@ -706,7 +706,7 @@ theorem reason_antecedent_varLt {s : MinState} (h : MinBaseInv s) {i : Nat}
 /-! ## 3. Lexicographic `RemovableInv`, seeding, poison/depth safety, caching, and cut deletion -/
 
 /-- Kissat's lexicographic `(level, trailPos)` removability invariant relative to current
-clause `C` (`kissat_direct_verification.md` §3.5): every non-level-0 `removable` variable `v`
+clause `C` (`minimize.c` / `shrink.c`): every non-level-0 `removable` variable `v`
 is falsified/assigned on the trail (`t_v = trail[i]`) and implied by `F₀` together with the
 falsification of `{ l ∈ C | var l ⪯ v }`. -/
 def MinState.RemovableInv (s : MinState) (C : List Nat) : Prop :=

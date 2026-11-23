@@ -12,7 +12,7 @@ elaboration, `LeanQbe.T.Module`, `PrintCpp`, and `clang++`.
      (`def ... : Fn := ⟨"export_name", ..., orig_body⟩`), and `List Fn` splice definitions
      (`++`, `.take`, `.drop`, `[...]`).
    - Evaluates `FullM5.m5Fns` (`270` functions, `--target m5`) or `FullM6.m6Fns`
-     (`--target m6`, once `FullM6.lean` lands) in exact topological splice order.
+     (`382` functions, `--target m6`) in exact topological splice order.
    - Supports `--check-fns <file|lean|csv>` to assert 1-to-1 ordered name parity.
 
 2. **Faithful C99 Emission**
@@ -31,7 +31,9 @@ elaboration, `LeanQbe.T.Module`, `PrintCpp`, and `clang++`.
 
 3. **Separate-TU Linkage (`bench/kissat/bench_main.c`)**
    - Compiles `<target>_direct.c` into `<target>_direct.o` and `bench/kissat/bench_main.c`
-     into `bench_main.o` in separate translation units, matching `C3b` and `C4-b5`.
+     into `bench_main.o` in separate translation units, matching the other benchmark paths
+     (`C3b`: `PrintCpp` C++20 compiled with `clang++ -O3`; `C4-b5`: `LeanQbe.T` native x86-64
+     assembly with `InlinePolicy.b5`).
    - Separate linkage avoids prototype type-mismatch between `bench_main.c`
      (`const uint8_t *`, `uint8_t *`) and C0 (`u64`, `u64`), which share identical SysV
      LP64 register passing (`%rdi`, `%rdx`), and preserves the exact `bench_main.c`

@@ -17,12 +17,12 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Axiom Audit, and Differential Suite for `Kissat` Stage 2 (`D-Core+`)
+# Verification, Axiom Audit, and Differential Suite for `Kissat` `D-Core+`
 
 * Checks `coreplusModule.checkAcyclic`, `PrintCpp`, `PrintQbe`, and `Legal` emission across
   `aarch64` / `scalar64` / `x64AVX2`.
 * Single-line `#print axioms` audit (`[propext, Classical.choice, Quot.sound]`).
-* Cross-checks `X2-LayerA` `cdclSolve` on core SAT/UNSAT/edge DIMACS cases and exercises
+* Cross-checks pure-Lean `cdclSolve` on core SAT/UNSAT/edge DIMACS cases and exercises
   minimization, EVSIDS heap, phase saving, and reluctant restarts in C++/x64/Arm64.
 * Emits `coreplus_gen.hpp`, `coreplus.ssa`, `coreplus_driver.cpp`, and `coreplus_cases.h`.
 -/

@@ -6,7 +6,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat `D-Core+` Heuristic & Decision `Func.wp` Proofs (`Wave 1b`)
+# Kissat `D-Core+` Heuristic & Decision `Func.wp` Proofs
 
 Proves `Func.wp` contracts for all 8 Group-A heuristic helpers plus `kissat_decide`:
 1. Binary max-heap operations: `kissat_heap_sift_up_wp`, `kissat_heap_sift_down_wp`,
@@ -819,7 +819,7 @@ theorem kissat_decide_wp (Γ : Env)
             | (left; rw [BitVec.toNat_setWidth]; c0_bound)
     · intro J2 hJ2
       cp_steps
-      · -- Scan loop `v = 0 .. mv` (outer break already unrolled by `cp_steps`!)
+      · -- Scan loop `v = 0 .. mv` (outer break already unrolled by `cp_steps`)
         refine wp_loop_inv (ts := [i64])
           (fun (v, ()) ml => v.toNat ≤ c.mv ∧ (∀ w < v.toNat, s.vals[2 * w]?.getD 0#8 ≠ 0#8) ∧
             (CorePlusMem c (withH s h1) ⋆ R) ml)

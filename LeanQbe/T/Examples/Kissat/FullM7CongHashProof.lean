@@ -14,7 +14,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-4 Dynamic Congruence Hash Table Proofs (`FullM7CongHashProof`)
+# Kissat M7 Dynamic Congruence Hash Table Proofs (`FullM7CongHashProof`)
 
 M1-clean verification (`public section`, `0` `@[expose]`, `0` `import all`, `0` `maxHeartbeats`,
 `0` `bv_decide`):

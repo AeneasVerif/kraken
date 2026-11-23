@@ -5,9 +5,9 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat Stage-5 Hot-Loop BCP `Func.wp` Proofs (`FullFastCoreBcpLemmas`)
+# Kissat `D-Full` M2 Fast Hot-Loop BCP `Func.wp` Proofs (`FullFastCoreBcpLemmas`)
 
-Proves canonical `FullSpec2`-compatible `Func.wp` contracts for the Stage-5 optimized BCP core:
+Proves canonical `FullSpec2`-compatible `Func.wp` contracts for the M2 Fast BCP core:
 1. `full_prop_lit_wp` (`FullSpec2.fullPropLitSpec`): inline value check & two-pass replacement
    search (`srch`), non-chronological `nl_lvl == cur_lvl` fast path, delayed header sync
    (`trail_end`, `unassigned`, `unflushed`, `search_ticks`), and zero dead watch-tail sentinel loop.

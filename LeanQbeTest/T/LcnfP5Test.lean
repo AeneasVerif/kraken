@@ -11,7 +11,7 @@ meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
 
 /-!
-# P5 Coverage Tests (`LeanQbe.T.LeanLCNF.Coverage`)
+# Extended Coverage Tests (`LeanQbe.T.LeanLCNF.Coverage`)
 
 * Structural `#guard`s verifying extracted string literals, big `Nat` literals (`≥ 2^63`),
   `Array`/`String`/`ByteArray` externs, `Float` (`bits 64`), `lowerModule` success,

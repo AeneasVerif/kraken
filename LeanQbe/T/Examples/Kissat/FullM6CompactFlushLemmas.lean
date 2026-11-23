@@ -8,8 +8,8 @@ public import LeanQbe.T.Examples.Kissat.FullM4CompactProof
 /-!
 # Kissat M6 Compact, Root Trail Flush & Binary Dedup Closed `ModuleOk` & Non-Vacuity
 
-Top-level umbrella proof module for Kissat M6 Wave 2 (`m6/compact-flush-dedup`, `RC-23`
-non-watch-gc items):
+Top-level umbrella proof module for `FullM6CompactFlush` (compaction, root trail flush,
+and binary deduplication):
 1. Publicly re-exports `FullM6CompactFlush`, `FullM6CompactFlushProof1`, and
    `FullM6CompactFlushProof2` (all `8` parametric `Func.wp` proofs + `TmkZero` variants).
 2. Closes the `15`-row `m6CompactFlushSpecTable` (`8` owned functions + `7` external callees,

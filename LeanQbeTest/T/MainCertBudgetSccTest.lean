@@ -9,7 +9,7 @@ public meta import LeanQbe.T.MainCertScc
 public meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
-# End-to-End Compiled Stack-Budget SCC Tests (`PR-B2`: `MainLinkScc` + `MainCertScc`)
+# End-to-End Compiled Stack-Budget SCC Tests (`MainLinkScc` + `MainCertScc`)
 
 Tests `compile_linked_budget_scc!` and `link_scc_budget_lfp`:
 1. Non-uniform compiled mutual recursion (`16 → 80 → 16`, total `112 * d + 16 < 240 * d`) mixed
@@ -21,7 +21,7 @@ Tests `compile_linked_budget_scc!` and `link_scc_budget_lfp`:
 3. Fail-closed compiler rejection when compiled `effFrame + raBytes > bfn.maxFrame`.
 4. Preservation of exact acyclic `effFrame + raBytes` via `compile_linked_chunks!` +
    `LinkedCertScc.ofLinkedCert`.
-5. Single-line `< 115` char `#print axioms` strictly `⊆ [propext, Classical.choice, Quot.sound]`.
+5. Single-line `#print axioms` audit strictly `⊆ [propext, Classical.choice, Quot.sound]`.
 -/
 
 set_option autoImplicit false
@@ -151,7 +151,7 @@ theorem cycBudgetMod_wf : ∀ f ∈ cycBudgetMod.toModule.fns, f.Wf := by
   · exact fnH_wf
   · exact fnTopB_wf
 
--- Compile with `chunkSize := 1` (splits `[fnF, fnG, fnH]` into 3 `RecBudgetSubChunk`s!)
+-- Compile with `chunkSize := 1` (splits `[fnF, fnG, fnH]` into 3 `RecBudgetSubChunk`s)
 -- and tight `exportBounds` (`"f" ↦ 128 = 112 * 1 + 16 < 240`).
 compile_linked_budget_scc! cycBudgetCert litmusTarget litmusLayout LegalTarget.aarch64
   litmusLabelClean cycBudgetMod 1 (maxBound := 256)
@@ -446,7 +446,7 @@ def fnSibA : Fn := tqbe $sibA(%n:l) -> l {
   }
 }
 
-/-- Sibling B calls ONLY `sibA`; does NOT inherit `sibA`'s `minEntry = 48` (`minEntry = 16`). -/
+/-- Sibling B calls only `sibA`; does not inherit `sibA`'s `minEntry = 48` (`minEntry = 16`). -/
 def fnSibB : Fn := tqbe $sibB(%n:l) -> l {
   %c =b ceql %n, 0
   jnz %c, {
@@ -467,7 +467,7 @@ def minEntryIsoMod : BudgetModule :=
       ⟨fnSibB, 16, 16⟩
     ] }
 
--- Succeeds with `sibB.minEntry = 16 < 48` (no SCC-wide bleed!).
+-- Succeeds with `sibB.minEntry = 16 < 48` (no SCC-wide bleed).
 compile_linked_budget_scc! minEntryIsoCert litmusTarget litmusLayout LegalTarget.aarch64
   litmusLabelClean minEntryIsoMod 1 (maxBound := 256)
 

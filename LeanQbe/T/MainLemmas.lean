@@ -8,7 +8,7 @@ import LeanQbe.T.TargetLemmas
 import LeanQbe.T.Logic.MemLemmas
 
 /-!
-# Soundness of `LeanQbe.T.Main` & `Compiled` Harness (`T12g`)
+# Soundness of `LeanQbe.T.Main` & `Compiled` Harness
 
 * **Signature & contract transfer**: `fnSpec_of_spec`, `encodeTup_eq_cast_of_legalSig_eq`,
   `legal_xpost_of_legalSig_eq`, `legal_xpost_i64`, and `fnSpec_of_legalEnv_legalSig_eq`

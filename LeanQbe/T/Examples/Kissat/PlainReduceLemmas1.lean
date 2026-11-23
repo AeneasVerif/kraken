@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainSpec
 
 /-!
-# Kissat `D-Plain` Clause-Database Reduction Helpers & Core Contracts — Part 1 (`Wave 2b`)
+# Kissat `D-Plain` Clause-Database Reduction Helpers & Core Contracts — Part 1
 
 Provides scoped tactics (`PlainReduceTactics`), shared `BitVec` / `PlainCoreInv` /
 arena-flag / binary-watch / garbage-mask preservation lemmas, and verified parametric

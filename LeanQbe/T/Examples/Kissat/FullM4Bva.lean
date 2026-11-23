@@ -7,9 +7,9 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat `D-Full` M4d BVA / Factoring & Elim Scheduling Upgrades (`FullM4Bva`)
 
-Standalone, zero-conflict C0 upgrades off `FullM3 @ d8468dce` (`0` edits to `Full*`, `FullFast*`,
-`FullBvaHeap*`, `FullM3*`, `LeanQbe.lean`, or `README.md`; `0` `FullHdr` / `FullCfg` layout churn),
-fixing all `4` remaining `01_php_bva` UNSAT canary timeouts (`30/34` → `34/34`):
+Standalone C0 BVA/factoring and elimination-scheduling upgrades for `D-Full M4`,
+preserving the `144`-word `FullHdr` and `FullCfg` arena layout with shared-cache
+3-hop tie-breaking, wider clause bounds, and balanced elim/factor orchestration:
 
 1. **Exact Shared-Cache 3-Hop Tie-Breaking (`full_bva_hop1`, `full_bva_hop2`, `full_bva_hop3`,
    `full_bva_pick_cand`)**:

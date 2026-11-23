@@ -879,7 +879,7 @@ public theorem full_compact_mark_live_m6cf_wp (Γ : Env)
     rw [bv64_shl1_toNat (by rw [hcv_64]; omega), hcv_64]
   unfold Func.wp full_compact_mark_live_m6cf_body
   c0_hsteps_nogrp
-  -- Loop 1: zero-initialize `map[v] = 0u` for all `v < cur_vars` (isolated vars stay 0!)
+  -- Loop 1: zero-initialize `map[v] = 0u` for all `v < cur_vars` (isolated vars stay 0)
   refine wp_loop_inv
     (fun (v, ()) m1 =>
       v.toNat ≤ s.core.cur_vars ∧

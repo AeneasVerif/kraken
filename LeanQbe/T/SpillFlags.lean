@@ -4,7 +4,7 @@ public import LeanQbe.T.Live
 public import Std.Data.HashSet
 
 /-!
-# Local Flag-Web Coloring & Variant Probing (`T7a`, `L3`, `L7`, untrusted)
+# Local Flag-Web Coloring & Variant Probing (untrusted)
 
 Split from `LeanQbe.T.Spill`: scans `Live.Tree` definitions and candidate live ranges, probes
 target opcodes for flag-producing / flag-consuming variants (`decInc`, `adcx`, `adox`, `.disp`),

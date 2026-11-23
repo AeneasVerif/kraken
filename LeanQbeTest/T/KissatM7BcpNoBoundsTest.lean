@@ -19,7 +19,7 @@ meta import LeanQbe.T.Legal
    `XPost := False`, `FullWatchBoundsInv` preservation, zero model-finding proofs) plus
    composability sanity checks for `FullWatchBoundsInv` preservation across `full_watch_push`,
    `full_wstack_defrag`, `full_add_clause`, and `full_bcp_nobounds_m7`.
-3. Single-line `#print axioms` audit (`< 115` chars) via short root aliases across all exported
+3. Single-line `#print axioms` audit via short root aliases across all exported
    `FullM7BcpNoBounds*` theorems (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 

@@ -6,7 +6,7 @@ RED, INPROC, UNIT0, END) between upstream Kissat 4.0.4 and C0 (Plain/Full*).
 Supports:
   - --plain : 11-rung CDCL flag ladder (--plain -> ... -> +eagersubsume)
   - --coarse: coarse timeline diff (UNIT0/INPROC/MODE/RED/RST/END)
-  - C3b wrapper generation & zero-perturbation verification
+  - C3b (`PrintCpp` C++20) wrapper generation & zero-perturbation verification
 """
 
 import argparse

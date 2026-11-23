@@ -9,7 +9,7 @@ meta import LeanQbe.T.Module
 /-!
 # Target-Independent WebAssembly Memory Safety Audit Specification
 
-Audits the verified Phase-1 WebAssembly-to-`LeanQbe.T` sandbox pipeline on a multi-function
+Audits the verified WebAssembly-to-`LeanQbe.T` sandbox pipeline on a multi-function
 guest module (`wasmAuditMod`) containing:
 
 1. `mix32(acc, word) -> acc'`: arithmetic, bitwise, SWAR `i32.popcnt`, and guarded `i32.rem_u`
@@ -19,7 +19,7 @@ guest module (`wasmAuditMod`) containing:
 3. `sum_mix(ptr, len) -> acc`: structured `block`/`loop`/`br_if`/`br`, SFI bounds-checked
    `i32.load`, and cross-function `call $mix32`.
 
-## What Is Proved (ISA-Neutral, `std3` Axioms)
+## What Is Proved (ISA-Neutral, Standard Axioms)
 * `validateModule wasmAuditMod = true` and `(lowerModule wasmAuditMod).checkAcyclic = true`.
 * `lowerModule_wf`, `lowerModule_namesNodup`, `lowerModule_supportsSource`, and
   `lowerModule_legalSig` for arbitrary `LegalTarget` supporting Wasm lowering.

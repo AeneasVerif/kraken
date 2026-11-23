@@ -5,7 +5,7 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat M5 Wave 1 (`PR-W1B`): Probing Literal Propagation (`FullM5ProbeProp`)
+# Kissat M5 Probing Literal Propagation (`FullM5ProbeProp`)
 
 Drop-in override for `Full3.lean` `full_probe_prop_lit`:
 1. Checks `vals[w0 & PW_LIT_MASK] > 0` before branching on `(w0 & PW_BIN_FLAG) != 0u`.

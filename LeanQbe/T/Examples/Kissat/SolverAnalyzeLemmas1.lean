@@ -5,7 +5,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat C0 Conflict-Analysis Helper & Decision `Func.wp` Proofs (`X1` Stage B2, Part 1)
+# Kissat `D-Min` C0 Conflict-Analysis Helper & Decision `Func.wp` Proofs (Part 1)
 
 Builds on `SolverSpec` to specify and verify:
 1. `kissat_clear_marks` (`kissatClearMarksSpec`, `kissat_clear_marks_wp`).

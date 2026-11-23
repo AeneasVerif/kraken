@@ -11,14 +11,14 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Compilation Checks, and Axiom Audit for Kissat `M6` Wave-2 `PR-W2D`
+# Verification, Compilation Checks, and Axiom Audit for Kissat `M6` (`FullM6BveFwd`)
 
 1. Executable `#guard` checks on `m6BveFwdModule` (`24` owned `_m6` functions + `24` canonical
    externs, `0` exits), `checkAcyclic = true`, `PrintCpp`, `PrintQbe`, and `Fn.legal` across
    `aarch64`, `scalar64`, and `x64AVX2`.
 2. Short root-namespace audit theorems covering `ModuleOk`, table invariants, canonical UNSAT
    soundness bridges, and concrete `Mem 64` UNSAT non-vacuity (`XPost := False`, `0` SAT proofs).
-3. Single-line `< 115`-col `#print axioms` audit (strictly `⊆ [propext, Classical.choice,
+3. Single-line `#print axioms` audit (strictly `⊆ [propext, Classical.choice,
    Quot.sound]`).
 -/
 

@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalOpWpLemmas1a
 
 /-!
-# Legalization scalar widening identities & modular `legalOp_wp` helpers (`T5`, Part 3a)
+# Legalization scalar widening identities & modular `legalOp_wp` helpers (Part 3a)
 -/
 
 set_option autoImplicit false

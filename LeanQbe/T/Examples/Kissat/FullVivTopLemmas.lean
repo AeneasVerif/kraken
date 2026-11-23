@@ -194,7 +194,7 @@ private theorem viv_clause_prop_step (Γ : Env)
     fvt_steps
     exact hQ 2#64 _ m_b hsp_b hcl_b0 hfl_p' (hal_p.trans hal5) hrefs_p'
       (Or.inr (Or.inl rfl)) (fun h => by cases h) hm_b
-  · -- `pr == 1ULL`: conflict! `confl = true; break;`
+  · -- `pr == 1ULL`: conflict; `confl = true; break;`
     have hpr_eq1 : pr = 1#64 := by c0_bound
     have hcok_p := hcok_p_fn hpr_eq1
     fvt_steps
@@ -610,7 +610,7 @@ theorem full_viv_clause_wp (Γ : Env)
                 sp.core.vals.length := by
               rw [bv32_setWidth64_toNat]; exact htmp_i_lt
             fvt_to_group
-            · -- `lv > (i8)0`: implied literal -> break!
+            · -- `lv > (i8)0`: implied literal -> break
               let lit := sp.core.tmp[i.toNat]'hi_lt_tmp
               have hlit_eq : lit = tmp4[i.toNat]?.getD 0#32 := by
                 simp only [lit, htmpp]; rw [List.getElem?_eq_getElem (by omega), Option.getD_some]

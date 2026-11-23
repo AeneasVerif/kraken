@@ -14,17 +14,18 @@ meta import LeanQbe.T.Examples.Kissat.FullM4Bcp
 meta import LeanQbe.T.Spill
 
 /-!
-# AArch64 `A1` + `A4` Codegen & `zeroExtLoad` Regression Tests
+# AArch64 Constant Materialization, Sub-Word Compare & `zeroExtLoad` Regression Tests
 
-Verifies levers `A1` and `A4` through `armTarget` and `Rega.lowerFn`:
-1. `A4` constant materialization: 1-insn `MOVN` for `-1`, 1-insn `ORR` bitmask (`0xFFFFFFFF`,
+Verifies AArch64 constant materialization and narrow-compare lowering through `armTarget` and
+`Rega.lowerFn`:
+1. Constant materialization: 1-insn `MOVN` for `-1`, 1-insn `ORR` bitmask (`0xFFFFFFFF`,
    etc.), literal-pool `LDR` preserved for non-bitmask 4-chunk constants, negative `ADD`/`SUB`
    immediate sign flip, and `CMN` (`ADDS_e`) for negative compare immediates.
-2. `A1` sub-word comparisons, zero-extension elision, and `0 - x` (`NEG`):
+2. Sub-word comparisons, zero-extension elision, and `0 - x` (`NEG`):
    - `armCmpOpIns` `.imm` handling at `n ∈ {8, 16}` without `mov x17` or dual `sxtb`/`uxtb`;
    - `armGpr.zeroExtLoad = true` eliminating `ubfm #0, #7` / `#15` after `ldrb` / `ldrh`;
    - `0 - x` emitting `sub w/x, wzr/xzr, w/x` without `mov #0`.
-3. End-to-end checks on `FullM4Bcp` (`m4Bcp_fns`), `Arm64.LratBytes.lratCert.code`, and `std3`
+3. End-to-end checks on `FullM4Bcp` (`m4Bcp_fns`), `Arm64.LratBytes.lratCert.code`, and standard
    `#print axioms`.
 -/
 
@@ -110,7 +111,7 @@ meta def isExt32Dir : Directive → Bool
   | .instr { operation := .SBFM _ _ 0 15, .. } => true
   | _ => false
 
-/-! ## 1. `A4` constant materialization, `ADD`/`SUB` flip, and `CMN` -/
+/-! ## 1. Constant materialization, `ADD`/`SUB` flip, and `CMN` -/
 
 theorem armGpr_zeroExtLoad_rfl : armGpr.zeroExtLoad = true := rfl
 
@@ -152,7 +153,7 @@ theorem armMovImm_u32max_rfl :
   | some ([d], _) => isAddsImmDir d
   | _ => false
 
-/-! ## 2. `A1` `armCmpOpIns` sub-word immediates and `0 - x` -/
+/-! ## 2. `armCmpOpIns` sub-word immediates and `0 - x` -/
 
 #guard match armGpr.op (.cmp .eq i8) (.gpr (.reg .X1), .imm 32#8, ())
     (.flag .eq, ()) .default with
@@ -181,7 +182,7 @@ theorem armMovImm_u32max_rfl :
 
 /-! ## 3. End-to-end verified lowering regressions -/
 
-/-- `full_prop_lit_raw.L5`-style byte load and signed compare `< 1` (`0` dual exts/movz). -/
+/-- `full_prop_lit_raw`-style byte load and signed compare `< 1` (`0` dual exts/movz). -/
 meta def byteCmpSltFn : Fn :=
   ⟨"byteCmpSlt", [i64, i64, i64], [i64], fun _ _ (p, a, b, ()) =>
     .load i8 (.var p) fun v =>
@@ -297,5 +298,47 @@ theorem lratBytes_compiled_check :
 #print axioms LeanQbe.T.Arm64.armOp_spec
 #print axioms LeanQbe.T.Arm64.LratBytes.compiled_check
 #print axioms LeanQbe.T.Arm64.LratBytes.lrat_check_bytes_arm64_correct
+
+/-! ## 6. Flag-to-slot jump argument lowering (`jumpSlotMoves` `.flag cc` -> `.slot s`) -/
+
+meta def adds {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (a : V i64) :
+    Nat → (List (V i64) → Expr V L rs) → Expr V L rs
+  | 0, body => body []
+  | n + 1, body =>
+    .let_ (op2 (.add i64) (.var a) (.imm (BitVec.ofNat 64 (n + 1)))) fun (x, ()) =>
+      adds a n fun xs => body (x :: xs)
+
+meta def mix {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    List (V i64) → V i64 → (V i64 → Expr V L rs) → Expr V L rs
+  | [], acc, k => k acc
+  | x :: xs, acc, k =>
+    .let_ (op2 (.xor i64) (.var acc) (.var x)) fun (y, ()) =>
+    .let_ (op2 (.add i64) (.var y) (.var x)) fun (z, ()) =>
+    .let_ (op2 (.xor i64) (.var z) (.var x)) fun (w, ()) => mix xs w k
+
+meta def heavyMix {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (xs : List (V i64)) (acc : V i64) : Nat → (V i64 → Expr V L rs) → Expr V L rs
+  | 0, k => k acc
+  | n + 1, k => mix xs acc fun acc' => heavyMix xs acc' n k
+
+/-- A flag-homed boolean condition (`.flag cc`) passed as a `.jump` argument to a block whose
+parameter `ploc` is `.slot s .w64`. -/
+meta def flagJumpSlotArm64Fn : Fn :=
+  ⟨"flagJumpSlotArm64B5", [i64, i64, i64], [i64], fun _ _ (a, b, q, ()) =>
+    .group (sig := [[.bool]])
+      (fun (_, ()) => .cons (fun (p, ()) =>
+        adds b 14 fun hs => heavyMix hs b 2 fun z =>
+        .call (as := [i64]) (bs := [i64]) "extFn" (.var z, ()) fun (u, ()) =>
+        .jnz (.var p) (.ret (.var u, ())) (.ret (.imm 0, ()))) .nil)
+      (fun (j, ()) =>
+        .let_ (op2 (.cmp .eq i64) (.var a) (.imm 0)) fun (c0, ()) =>
+        .jnz (.var c0)
+          (.let_ (op2 (.cmp .ult i64) (.var b) (.var q)) fun (c, ()) =>
+           .jump j (.var c, ()))
+          (.store (t := i64) (.var a) (.var q)
+            (.jump j (.imm false, ()))))⟩
+
+#guard (compile armTarget.toIsa armLegalTarget [flagJumpSlotArm64Fn]
+  [Fn.computeHints armTarget.toIsa armLegalTarget flagJumpSlotArm64Fn]).isOk = true
 
 end LeanQbeTest.T.Arm64IselB5Test

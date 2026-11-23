@@ -20,7 +20,7 @@ meta import Kraken.X64.PrintATT
 # X64 Debug Assembly & CFI Unit Checks
 
 Checks `emitX64DebugAsmChecked` across the 10 typed-IR litmus modules, a synthetic
-multi-exit callee-saved function (`multi_exit`), and a huge-frame (`!x64FitsImm31`) case:
+multi-exit callee-saved function (`multi_exit`), and a large-frame (`!x64FitsImm31`) case:
 * both `hints? := some hs` and `hints? := none` succeed and produce identical output;
 * ELF `.type ..., %function`, `.size ..., .-...`, `.cfi_startproc` / `.cfi_endproc` appear;
 * `.cfi_remember_state` and `.cfi_restore_state` balance on intermediate exits;

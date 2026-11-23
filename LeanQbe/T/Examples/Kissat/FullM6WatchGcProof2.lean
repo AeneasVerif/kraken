@@ -5,7 +5,7 @@ public meta import Lean.Elab.Tactic
 public meta import LeanQbe.T.Logic.C0Step
 
 /-!
-# Kissat M6 `PR-W2E-lite` Proofs Part 2: `full_arena_sweep_m6_wp`
+# Kissat M6 Watch/GC Proofs Part 2: `full_arena_sweep_m6_wp`
 
 Proves `full_arena_sweep_m6_wp` against exact canonical `Full.fullArenaSweepSpec`, integrating:
 1. Partial irredundant-prefix skipping when `!at_root && unflushed == 0 && 0 < first_reducible`,

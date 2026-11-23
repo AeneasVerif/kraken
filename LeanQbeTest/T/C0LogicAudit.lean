@@ -19,7 +19,7 @@ set_option autoImplicit false
 @[expose] public section
 
 /-!
-# Audit Specification: C0 Frontend & Separation-Logic Proof Tooling (Workstream 6)
+# Audit Specification: C0 Frontend & Separation-Logic Proof Tooling
 
 This file exposes an auditor-facing summary of the C0 frontend elaboration guarantees,
 program-logic (`Func.wp` / `Prog`) rules, symbolic stepper (`C0Step` / `C0HeadStep` /

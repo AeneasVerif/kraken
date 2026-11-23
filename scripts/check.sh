@@ -32,7 +32,7 @@
 #  3. Checks import closures (`LeanQbe` arch-free, `LeanQbeAmd64` / `LeanQbeBootstrap0` /
 #     `LeanQbeBootstrap0Test` no AArch64, `LeanQbeArm64` no X64, 0 legacy Kissat certs in active
 #     `LeanQbe{Amd64,Arm64}` / `LeanQbeBootstrap0*` closures, reachability of `LeanQbe/T/` from
-#     active, `LeanQbeBootstrap0`, or `LeanQbeLegacy{Amd64,Arm64}` roots, no retired E1 files).
+#     active, `LeanQbeBootstrap0`, or `LeanQbeLegacy{Amd64,Arm64}` roots; no retired untyped files).
 #  3b. Incrementality firewall (`check_firewall.py --require-isa`) and barrel/hub lint
 #      (`sync_hubs.py --check` when present).
 #  4. Parallel axiom audit (`Audit_generic`, `Audit_x64`, `Audit_arm64`, isolated root-`main`

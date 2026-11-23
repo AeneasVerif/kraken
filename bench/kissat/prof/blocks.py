@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Per-block (C4 `.L` labels) self-Ir + estimated execution counts for selected functions."""
+"""Per-block (LeanQbe native x64 `.L` labels) self-Ir + execution counts for selected functions."""
 
 import sys
 

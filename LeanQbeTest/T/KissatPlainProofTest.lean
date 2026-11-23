@@ -13,7 +13,7 @@ import all Kraken.Separation
    bounds (`plainFixedBytes 1 + 2 * 40 + 136 + 8 <= 2048`).
 2. Concrete-memory source-level `Func.wp` sanity checks under `plainEnv`, `plainUnsatEnv`, and
    `plainSatEnv` (`X = False`).
-3. Single-line `#print axioms` audit (`<= 120` cols) on exported `D-Plain` theorems (strictly
+3. Single-line `#print axioms` audit on exported `D-Plain` theorems (strictly
    `⊆ [propext, Classical.choice, Quot.sound]`, zero architecture-specific imports).
 -/
 

@@ -5,7 +5,7 @@ import LeanQbe.T.Arm64.IselLemmas4
 import LeanQbe.T.Arm64.FrameLemmas
 
 /-!
-# AAPCS64 Arm64 `Target` Assembly & Legalization Parity (`T12i`)
+# AAPCS64 Arm64 `Target` Assembly & Legalization Parity
 
 Assembles `armTarget : Target` from `armIsa` and private verification theorems (`arm_gprSpec`,
 `arm_frameSpec`), preserving a strict module-system firewall against downstream rebuilds when

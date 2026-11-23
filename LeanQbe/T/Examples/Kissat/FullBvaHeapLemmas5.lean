@@ -727,7 +727,7 @@ theorem full_bva_try_lit_wp (Γ : Env)
                         by omega]; exact hrem_next, hrow0, hmp⟩
           · exact hJend () mp rfl
         · exact hJend () mp rfl
-      · -- Exit Row-0 collection loop (elaborated once!): `if (qn < 2u) return false;`
+      · -- Exit Row-0 collection loop (elaborated once): `if (qn < 2u) return false;`
         subst mf
         c0_hsplit
         · c0_hfast
@@ -822,7 +822,7 @@ theorem full_bva_try_lit_wp (Γ : Env)
                  by rw [hsi1]; omega, by simp [hlmi_l], hhi',
                  by simpa only [hsi1] using honly',
                  by simp only [xl, bv64_setWidth_32, bv8_setWidth_and_fe] at hm ⊢; exact hm⟩
-            · -- Exit cleanup loop: `FullLitMarksClear` restored!
+            · -- Exit cleanup loop: `FullLitMarksClear` restored
               have hsi_eq : si.toNat = stepf.toNat := by
                 have h1 : ¬ si.toNat < stepf.toNat := by assumption
                 omega

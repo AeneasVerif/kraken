@@ -206,7 +206,7 @@ structure TrailValsInv (k : KsCore) : Prop where
   trail_neg_false : ∀ i < k.trail_end.toNat,
     k.vals[(k.trl[i]?.getD 0#32).toNat ^^^ 1]?.getD 0#8 = 0xFF#8
 
-/-- Core soundness invariant depending ONLY on `KsCore`. -/
+/-- Core soundness invariant depending only on `KsCore`. -/
 structure CoreSoundInv (k : KsCore) : Prop where
   tv : TrailValsInv k
   prop_le : k.propagated.toNat ≤ k.trail_end.toNat

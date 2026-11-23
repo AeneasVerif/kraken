@@ -1325,7 +1325,7 @@ theorem full_m4_sweep_classes_wp (Γ : Env)
                                                               · m4_steps
                                                                 exact hJifC (rbitC, smaskC, ())
                                                                   mS2 csS2
-                                                              -- `d2 == 20`: equivalence proven!
+                                                              -- `d2 == 20`: equivalence proved
                                                               have hd2_20 : d2 = 20#64 := by
                                                                 bv_omega
                                                               have huns2 : ∀ β, P β →
@@ -1949,7 +1949,7 @@ theorem full_m4_sweep_var_wp (Γ : Env)
           scratch := { s1.scratch with rng_state := rng2, sim_sig := sig2, scratch_buf := scr2 } }
       have hfuel2_0 : fuel2.toNat ≤ s.core.fuel.toNat := hfuel1 ▸ hfuel2
       m4_split
-      · -- `rbit == 0xFFFFFFFFu`: UNSAT! Clear `tmk`, set `inconsistent = 1`, return 20
+      · -- `rbit == 0xFFFFFFFFu`: UNSAT; clear `tmk`, set `inconsistent = 1`, return 20
         have hrb_ff : rbit = 0xFFFFFFFF#32 := by bv_omega
         have huns_cur := huns2 hrb_ff
         have huns_f0 : F0.Unsat := hinv2.2.1.ext_sound.2 huns_cur
@@ -1977,7 +1977,7 @@ theorem full_m4_sweep_var_wp (Γ : Env)
       have hfuel3_0 : s3.core.fuel.toNat ≤ s.core.fuel.toNat := Nat.le_trans hfuel3 hfuel2_0
       have hcv3_0 : s3.core.cur_vars = s.core.cur_vars := hcv3.trans hcv1
       m4_split
-      · -- `ur == 0xFFFFFFFFFFFFFFFFULL`: UNSAT! Clear `tmk`, return 20
+      · -- `ur == 0xFFFFFFFFFFFFFFFFULL`: UNSAT; clear `tmk`, return 20
         have hur_ff : ur = 0xFFFFFFFFFFFFFFFF#64 := by bv_omega
         m4_to_group
         refine m4_sweep_tmk_clear_wp rfl rfl hnv_mx hinv3 hws3 htmk3 hcone3.2.2.2.1

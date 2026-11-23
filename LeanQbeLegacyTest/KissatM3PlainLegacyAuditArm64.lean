@@ -10,7 +10,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM3
 
 Standalone legacy audit restating, with every hypothesis and postcondition written out in full
 (no wrapper `abbrev`s introduced here), the end-to-end theorems about the **AArch64 machine code**
-that `LeanQbe.T` emits for the graduated `D-Plain` and `D-Full M3` Kissat builds
+that `LeanQbe.T` emits for the retired `D-Plain` and `D-Full M3` Kissat builds
 (`kissat_solve_bytes`). It imports `Kraken.AArch64` only (never `Kraken.X64`);
 `KissatM3PlainLegacyAuditX64.lean` is the x86-64 mirror, and `KissatLegacyAuditArm64.lean` audits
 the earlier `D-Full` and `D-Full M2 Fast` legacy builds.

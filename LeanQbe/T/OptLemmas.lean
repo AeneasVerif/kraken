@@ -25,7 +25,7 @@ import LeanQbe.T.ZeroPeelLemmas
 import LeanQbe.T.AssumeBitsLemmas
 
 /-!
-# Correctness of the Staged Typed-IR Mid-End Pipeline (`T6`, `O-M1`, `O-M2`)
+# Correctness of the Staged Typed-IR Mid-End Pipeline
 
 Composes relational well-formedness (`*_wf`) and WP refinement (`*_spec`) across `Func.opt`,
 `Func.earlyOpt`, `Func.lateOpt`, `Fn.renorm`, and `Module.optInline`.
@@ -37,11 +37,11 @@ public section
 
 namespace LeanQbe.T
 
-/-- The legacy `T6` mid-end pipeline preserves well-formedness across every pass. -/
+/-- The legacy mid-end pipeline preserves well-formedness across every pass. -/
 theorem Func.opt_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) : (Func.opt f).Wf :=
   Func.dceP_wf (Func.fold_wf (Func.copy_wf (Func.gvn_wf (Func.copy_wf (Func.fold_wf hf)))))
 
-/-- The legacy `T6` mid-end pipeline refines function contracts across every pass. -/
+/-- The legacy mid-end pipeline refines function contracts across every pass. -/
 theorem Func.opt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.opt f) xs m Q X := by
@@ -250,7 +250,7 @@ theorem Func.earlyCore_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ :
   have hs5 := Func.copy_spec hf4 hs4
   exact Func.fold_spec hf5 hs5
 
-/-- Stage 1 (`Func.earlyOpt`) preserves well-formedness. -/
+/-- Pre-`Legal` mid-end (`Func.earlyOpt`) preserves well-formedness. -/
 theorem Func.earlyOpt_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.earlyOpt f).Wf := by
   rw [Func.earlyOpt_eq]
@@ -277,7 +277,7 @@ private theorem earlyOpt_tail_spec {as rs : List Ty} {g : Func as rs} (hg : g.Wf
   have hs13 := Func.dceP_spec hf12 hs12
   exact renorm_spec' hf13 hs13
 
-/-- Stage 1 (`Func.earlyOpt`) refines function contracts across every pre-`Legal` pass. -/
+/-- Pre-`Legal` mid-end (`Func.earlyOpt`) refines function contracts across every pass. -/
 theorem Func.earlyOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.earlyOpt f) xs m Q X := by
@@ -420,13 +420,13 @@ theorem Func.lateCfg_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
   rw [Func.lateCfg_eq]
   exact h3
 
-/-- Stage 2 (`Func.lateOpt`) preserves well-formedness. -/
+/-- Post-`Legal` mid-end (`Func.lateOpt`) preserves well-formedness. -/
 theorem Func.lateOpt_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.lateOpt f).Wf := by
   rw [Func.lateOpt_eq]
   exact Func.renorm_wf _
 
-/-- Stage 2 (`Func.lateOpt`) refines function contracts across every post-`Legal` pass. -/
+/-- Post-`Legal` mid-end (`Func.lateOpt`) refines function contracts across every pass. -/
 theorem Func.lateOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateOpt f) xs m Q X := by

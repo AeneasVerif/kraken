@@ -3,9 +3,9 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Bounded 1-Iteration Loop Peeling (`O-M2`)
+# Bounded 1-Iteration Loop Peeling (`Func.peel`)
 
-Pure Style-A PHOAS-to-PHOAS 1-iteration loop peeling pass for single-block join-point loops
+Pure PHOAS-to-PHOAS 1-iteration loop peeling pass for single-block join-point loops
 `.group (sig := [ts]) bodies entry` (which includes `loop1`):
 
 * Uses `V := Arg V` (avoiding redundant `.copy` bindings on immediate initial arguments) and a

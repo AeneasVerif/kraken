@@ -7,15 +7,15 @@ public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.Examples.ChaChaProg
 
 /-!
-# T14: ChaCha20 Block on 128-bit `v4i32` Rows (`K1b`)
+# ChaCha20 Block on 128-bit `v4i32` Rows
 
 100%-PHOAS typed IR implementation and `wp` verification against an RFC 8439 functional model
-(128-bit `vec 2 i32` rows only, no SHA-NI, no other widths per G10, no `TFlat` dependencies):
+(128-bit `vec 2 i32` rows only, no SHA-NI, no wider vector widths, no `TFlat` dependencies):
 
 * RFC 8439 §2.1–2.3 functional specification (`quarterRound`, `rfcInnerBlock`, `rfcChaCha20Core`,
   `rfcChaCha20Block`, little-endian byte serialization) + `decide`-checked RFC 8439 §2.1.1 and
   §2.3.2 test vectors.
-* `chacha20Block`: 128-bit row-SIMD IR using only §0 T10 vector opcodes (`load`/`store` `v4i32`,
+* `chacha20Block`: 128-bit row-SIMD IR using 128-bit vector opcodes (`load`/`store` `v4i32`,
   `add`, `xor`, `rotl` by constant splat, `shufd` = `pshufd`) in a 10-double-round `loop`.
 * `chacha20Block_correct` (`wp` via `wp_loop_break_group`), `chacha20Block_rfc8439_vector`, and
   100%-PHOAS `chacha20Block_wf`.

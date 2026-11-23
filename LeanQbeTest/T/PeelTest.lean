@@ -7,7 +7,7 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 
 /-!
-# Tests of `LeanQbe.T.Peel` (`O-M2`)
+# Tests of `LeanQbe.T.Peel`
 
 Covers:
 1. Structural/AST peeling on `loop1` (`sumLoop`), verifying 1st-iteration unrolling at `entry`'s
@@ -20,7 +20,7 @@ Covers:
    multi-entry, multi-back-jump, and multi-block `.group`).
 5. End-to-end LICM synergy (`Func.gvn (Func.peel f)` and `Func.opt (Func.peel f)` hoisting
    loop-invariant pure arithmetic out of the remaining loop body).
-6. `MB1`/`MB5` loop-invariant load & struct-field address shape (`mb5LoadLoop`), verifying
+6. Loop-invariant load & struct-field address shape (`mb5LoadLoop`), verifying
    first-iteration address/load unrolling, `Func.gvn` address elimination inside the loop,
    and memory-backed WP correctness (`wp_load_cell64`).
 7. `Func.checkTFlat`, `t_wf_reify`, `Func.peel_spec`, `Fn.peel_spec`, and `#print axioms`.
@@ -515,9 +515,9 @@ theorem licmArith_peel_opt_spec (Γ : Env) (n a b : BitVec 64) (m : Mem 64) (X :
     wp_unfold
     exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩
 
-/-! ## 6. `MB1`/`MB5` loop-invariant load & struct-field address AST synergy -/
+/-! ## 6. Loop-invariant load & struct-field address AST synergy (`mb5LoadLoop`) -/
 
-/-- `MB5`-style struct-field read (`base + 8`) inside `loop1`: computes `addr = add ptr 8` and
+/-- Struct-field read (`base + 8`) inside `loop1`: computes `addr = add ptr 8` and
 `fld = load i64 addr` each trip. -/
 def mb5LoadLoop : Func [i64, i64] [i64] := fun _ _ (n, ptr, ()) =>
   loop1 (ts := [i64, i64])

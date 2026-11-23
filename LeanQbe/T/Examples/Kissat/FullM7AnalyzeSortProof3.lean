@@ -11,7 +11,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave 4G Proof Shard 3: Opaque-State Wrappers & Pure Invariant Helpers
+# Kissat M7 Analyze/Sort Proof Shard 3: Opaque-State Wrappers & Pure Invariant Helpers
 
 M1-clean helper module (`public section`, `0 @[expose]`, `0 import all`) isolating:
 1. Opaque `FullState` packing, load, store, and heap-focus wrappers (`m7_wrap_state`,

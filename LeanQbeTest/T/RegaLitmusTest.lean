@@ -5,13 +5,15 @@ public import LeanQbe.T.RegaLemmas
 import all Kraken.Mem
 
 /-!
-# `T7b` Litmus Witnesses (`*_nonvacuous`) and `lowerFn_correct` Hooks
+# `Rega` Litmus Witnesses (`*_nonvacuous`) and `lowerFn_correct` Hooks
 
-* §1 Kernel-reducible function memory `FMem` and the simulation `runG_rel`: a run of the generic
-  machine over `FMem` (evaluated by the kernel) is a run of `mach` over `Mem 64`.
-* §2 `eventually_of_runG`: any fuel-bounded run is an `Eventually (mach.step host)` derivation.
-* §3 Concrete hosts (lowered code, plus callee code for `carryCall`), concrete initial states, and
-  `*_nonvacuous` theorems: execution returns to the return address with the expected results.
+* Section 1: Kernel-reducible function memory `FMem` and the simulation `runG_rel`: a run of the
+  generic machine over `FMem` (evaluated by the kernel) is a run of `mach` over `Mem 64`.
+* Section 2: `eventually_of_runG`: any fuel-bounded run is an `Eventually (mach.step host)`
+  derivation.
+* Section 3: Concrete hosts (lowered code, plus callee code for `carryCall`), concrete initial
+  states, and `*_nonvacuous` theorems: execution returns to the return address with the expected
+  results.
 -/
 
 set_option autoImplicit false
@@ -257,7 +259,7 @@ def hostAddrSib : LHost := mkHost codeAddrSib (by t_kernel_rfl)
 
 abbrev ones64 : BitVec 64 := 0xFFFFFFFFFFFFFFFF#64
 
-/-! ### `G12a` -/
+/-! ### Core `Rega` Litmus Programs -/
 
 /-- `branches 3 10 = |3 - 10| + 1 = 8` (taken `jcc` on `CF`, join block). -/
 theorem branches_nonvacuous :
@@ -321,7 +323,7 @@ theorem bits8_nonvacuous :
   returns_of_check (by t_kernel_rfl) 1000 (mkSt_rel (initMem_rel _ (by t_kernel_rfl)))
     (by t_kernel_rfl)
 
-/-! ### `G12d` -/
+/-! ### Carry-Chain, Variant-Hint, and Addressing Litmus Programs -/
 
 /-- `cmpJcc 7 3 = 3` (`cmp; jcc` on `CF`). -/
 theorem cmpJcc_nonvacuous :
@@ -460,11 +462,11 @@ theorem carryCall_layout :
 theorem code_infix_self (c : List Instr) (hc : Nat.ble (c.length + 1) (2 ^ 64) = true) :
     c.IsInfixAt (mkHost c hc).prog 0 := ⟨[], by simp [mkHost]⟩
 
-/-! ## 6. Hooks for End-to-End `*_correct` (`t7-rega`'s `lowerFn_correct`)
+/-! ## 6. Hooks for End-to-End `*_correct` (`Rega.lowerFn_correct`)
 
-`HookHyps` bundles exactly the non-callee hypotheses of `Rega.lowerFn_correct` (#226) for the
-litmus `Target`; every `*_hook` below discharges them for a concrete host. Once
-`LeanQbe/T/RegaLemmas4.lean` is importable, each end-to-end theorem is a one-liner, e.g.
+`HookHyps` bundles the non-callee hypotheses of `Rega.lowerFn_correct` for the litmus `Target`;
+every `*_hook` below discharges them for a concrete host, enabling the one-liner end-to-end
+correctness proofs in Section 7, e.g.
 
 ```
 theorem loop_correct (Γ : Env) :
@@ -542,7 +544,7 @@ theorem inc_defined : litmusTarget.Defined hostCarryCall "inc" := ⟨0, carryCal
 #print axioms carryCall_hook
 #print axioms inc_defined
 
-/-! ## 7. End-to-End `G12a`/`G12d` Correctness (`Rega.lowerFn_correct` → `Target.FnSpec`) -/
+/-! ## 7. End-to-End Litmus Correctness (`Rega.lowerFn_correct` → `Target.FnSpec`) -/
 
 section Correct
 variable (Γ : Env)

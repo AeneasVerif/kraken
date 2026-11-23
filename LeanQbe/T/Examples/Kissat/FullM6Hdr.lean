@@ -5,12 +5,12 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Wave-3 Prep: Extended `FullM6Hdr` (`432` Words = `3,456 B`) & `w2a`/`w2b` Adapters
+# Kissat M6 Extended `FullM6Hdr` (`432` Words = `3,456 B`) & Tier / Decision-Rate Adapters
 
-Purely additive C0 module resolving the Wave-3 `h->delayed` / `h->delayed_len` collisions between
-`FullM6BcpS15`, `FullM6VivBackbone`, `FullM6Tiers` (`w2a`), and `FullM6MinShrink` (`w2b`) with
-ZERO edits to frozen `FullHdr` (`144` words = `1,152 B`), `FullArena1`, `Full1..3`, `FullM4*`,
-`FullM5*`, or any landed Wave-2 module:
+Additive C0 module separating `h->delayed` / `h->delayed_len` storage across `FullM6BcpS15`,
+`FullM6VivBackbone`, `FullM6Tiers`, and `FullM6MinShrink` while keeping the `144`-word
+`FullHdr` (`1,152 B`) prefix layout identical to `Full1..3`, `FullM4*`, `FullM5*`, and
+the `FullM6*` pass modules:
 
 1. **Prefix `FullM6Hdr` Layout (`288` ext + `144` base = `432` `u64` words = `3,456 B`):**
    - `FullM6Hdr = { M6HdrExt ext; FullHdr base; }` places `M6HdrExt` (`2,304 B`) immediately
@@ -20,20 +20,20 @@ ZERO edits to frozen `FullHdr` (`144` words = `1,152 B`), `FullArena1`, `Full1..
    - Because `FullHdr` bytes `0..1151` and `FullCfg.pVals = c.hdr + 1152` stay bit-for-bit
      identical, `FullM6HdrMem c ext s := m6ExtMem (c.hdr - 2304) ext ⋆ FullMem c s` is strictly
      disjoint in `Mem 64` and frames automatically over ALL 270+ existing `Full1..3`/`M4`/`M5`/
-     `BcpS15`/`CompactFlush`/`w2c..w2h` proofs with zero edits!
+     `BcpS15`/`CompactFlush`/`FullM6*` proofs unchanged.
 2. **Exact `M6HdrExt` Byte Map (`288` `u64` words = `2,304 B`, at `(u64)h - 2304ULL`):**
    - Word `0` (`+0..+7`): `m6_magic` (`0x4D36484452455831ULL`, `"M6HDREX1"`).
-   - Words `1..7` (`+8..+63`, `56 B`, `w2b` `decision_rate`): `dr_state` (dedicated `u64` replacing
+   - Words `1..7` (`+8..+63`, `56 B`, `decision_rate`): `dr_state` (dedicated `u64` replacing
      `h->delayed_len`), `dr_prev[2]`, `dr_sb[2]`, `dr_se[2]` (replacing `h->delayed[0..11]`).
-   - Words `8..287` (`+64..+2303`, `2,240 B`, `w2a` tiers/delay/watermarks/glue bins): `tier1[2]`,
+   - Words `8..287` (`+64..+2303`, `2,240 B`, tiers/delay/watermarks/glue bins): `tier1[2]`,
      `tier2[2]`, `glue_next_confl`, `glue_interval`, `total_used[2]`, `delay_cnt[4]`,
      `delay_cur[4]`, `watermarks[8]`, `used_0[128]`, `used_1[128]`.
-3. **Init, Reset, Workspace Allocator & Repointed `w2a`/`w2b` Adapters (`27` fns + `5` externs):**
+3. **Init, Reset, Workspace Allocator & Header-Backed Adapters (`27` fns + `5` externs):**
    - `m6_hdr_init`, `m6_hdr_reset`, `m6_ext_ensure_init`, `m6_hdr_ext_ready`, `full_m6_mem_init`
      (carving `3,456 B` header cleanly with `avail >= 3456` / wraparound guards).
-   - Repointed `w2a` tiers, `used[2].glue[128]`, `delay[4]`, and 8 separate tick watermarks.
-   - Repointed `w2b` `decision_rate`, `m6_hdr_decide`, `m6_hdr_analyze_rsn`, and composed `w2a`+
-     `w2b` `m6_hdr_analyze` entry hook (`m6_hdr_update_tier_limits` + `m6_hdr_dr_update` +
+   - Header-backed tiers, `used[2].glue[128]`, `delay[4]`, and 8 separate tick watermarks.
+   - Header-backed `decision_rate`, `m6_hdr_decide`, `m6_hdr_analyze_rsn`, and composed
+     `m6_hdr_analyze` entry hook (`m6_hdr_update_tier_limits` + `m6_hdr_dr_update` +
      `full_analyze`).
 -/
 
@@ -75,33 +75,33 @@ def fullM6HdrGlueBins : Nat := 128
 
 /-- Word index `0`: `m6_magic` (byte offset `+0`). -/
 def m6WMagic : Nat := 0
-/-- Word index `1`: `w2b` `dr_state` `[bit63 | last_sw(7b) | decs(56b)]` (byte offset `+8`). -/
+/-- Word index `1`: `dr_state` `[bit63 | last_sw(7b) | decs(56b)]` (byte offset `+8`). -/
 def m6WDrState : Nat := 1
-/-- Word indices `2..3`: `w2b` `dr_prev[2]` (byte offsets `+16`, `+24`). -/
+/-- Word indices `2..3`: `dr_prev[2]` (byte offsets `+16`, `+24`). -/
 def m6WDrPrev : Nat := 2
-/-- Word indices `4..5`: `w2b` `dr_sb[2]` Q32 EMA biased (byte offsets `+32`, `+40`). -/
+/-- Word indices `4..5`: `dr_sb[2]` Q32 EMA biased (byte offsets `+32`, `+40`). -/
 def m6WDrSb : Nat := 4
-/-- Word indices `6..7`: `w2b` `dr_se[2]` Q32 EMA exp (byte offsets `+48`, `+56`). -/
+/-- Word indices `6..7`: `dr_se[2]` Q32 EMA exp (byte offsets `+48`, `+56`). -/
 def m6WDrSe : Nat := 6
-/-- Word indices `8..9`: `w2a` `tier1[2]` (byte offsets `+64`, `+72`). -/
+/-- Word indices `8..9`: `tier1[2]` (byte offsets `+64`, `+72`). -/
 def m6WTier1 : Nat := 8
-/-- Word indices `10..11`: `w2a` `tier2[2]` (byte offsets `+80`, `+88`). -/
+/-- Word indices `10..11`: `tier2[2]` (byte offsets `+80`, `+88`). -/
 def m6WTier2 : Nat := 10
-/-- Word index `12`: `w2a` `glue_next_confl` (byte offset `+96`). -/
+/-- Word index `12`: `glue_next_confl` (byte offset `+96`). -/
 def m6WGlueNext : Nat := 12
-/-- Word index `13`: `w2a` `glue_interval` (byte offset `+104`). -/
+/-- Word index `13`: `glue_interval` (byte offset `+104`). -/
 def m6WGlueInterval : Nat := 13
-/-- Word indices `14..15`: `w2a` `total_used[2]` (byte offsets `+112`, `+120`). -/
+/-- Word indices `14..15`: `total_used[2]` (byte offsets `+112`, `+120`). -/
 def m6WTotalUsed : Nat := 14
-/-- Word indices `16..19`: `w2a` `delay_cnt[4]` (byte offsets `+128..+152`). -/
+/-- Word indices `16..19`: `delay_cnt[4]` (byte offsets `+128..+152`). -/
 def m6WDelayCnt : Nat := 16
-/-- Word indices `20..23`: `w2a` `delay_cur[4]` (byte offsets `+160..+184`). -/
+/-- Word indices `20..23`: `delay_cur[4]` (byte offsets `+160..+184`). -/
 def m6WDelayCur : Nat := 20
-/-- Word indices `24..31`: `w2a` `watermarks[8]` (byte offsets `+192..+248`). -/
+/-- Word indices `24..31`: `watermarks[8]` (byte offsets `+192..+248`). -/
 def m6WWmBase : Nat := 24
-/-- Word indices `32..159`: `w2a` `used_0[128]` focused glue bins (byte offsets `+256..+1272`). -/
+/-- Word indices `32..159`: `used_0[128]` focused glue bins (byte offsets `+256..+1272`). -/
 def m6WUsed0 : Nat := 32
-/-- Word indices `160..287`: `w2a` `used_1[128]` stable glue bins (byte offsets `+1280..+2296`). -/
+/-- Word indices `160..287`: `used_1[128]` stable glue bins (byte offsets `+1280..+2296`). -/
 def m6WUsed1 : Nat := 160
 
 /-- Byte offsets inside `M6HdrExt` (relative to `(u64)h - 2304ULL`). -/
@@ -559,11 +559,11 @@ def m6HdrExterns : List Extern :=
   , ⟨"full_analyze_rsn", [i64, i32, i32], [.bool]⟩
   , ⟨"full_analyze", [i64], [i64]⟩ ]
 
-/-- Standalone Wave-3 prep `FullM6Hdr` module (`27` functions + `5` externs, `0` exits). -/
+/-- Standalone `FullM6Hdr` module (`27` functions + `5` externs, `0` exits). -/
 def m6HdrModule : LeanQbe.T.Module :=
   { fns := m6Hdr_fns, externs := m6HdrExterns, exits := [] }
 
-/-- Drop-in Wave-3 `Fn` handles replacing `w2a`/`w2b` `h->delayed*`-backed helpers. -/
+/-- Drop-in M6 `Fn` handles replacing `h->delayed*`-backed tier/decision-rate helpers. -/
 def m6HdrExtReadyFn : Fn := ⟨"full_m6_ext_ready", [i64], [.bool], m6_hdr_ext_ready_body⟩
 def m6HdrSyncLegacyTiersFn : Fn :=
   ⟨"full_m6_sync_legacy_tiers", [i64], [], m6_hdr_sync_legacy_tiers_body⟩

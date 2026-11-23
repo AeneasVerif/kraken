@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Amd64.IselLemmas2
 
 /-!
-# x64 Scalar `GprTarget` Proofs — Part 3 (`T8`)
+# x64 Scalar `GprTarget` Proofs — Part 3
 
 Completes `opCmp`, `opSelect`, `opShift`, and `opFunnel` correctness
 (`opDiv`/`opAddc`/`opSubb`/`opMulw`, `supportsScalarOp` 1-for-1, and `x64GprSpec`

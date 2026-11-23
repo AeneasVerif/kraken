@@ -6,17 +6,17 @@ public import LeanQbeTest.T.Smoke
 public import LeanQbeTest.T.NotationTest
 
 /-!
-# Target-parameterized legalisation tests (`T5`)
+# Target-parameterized legalisation tests (`LeanQbe.T.Legal`)
 
 Exercises `Func.legal` / `Fn.legal`, `Func.legal_wf`, `Func.legal_wp` / `Func.legal_spec`,
 `Func.legal_isLegal`, and computable kernel `rfl` checks (`t_kernel_rfl`) across:
-1. All 8 `T1` spike-4 functions (`LeanQbeTest.T.Examples`) on `x64AVX512`, `x64SSE`, and `aarch64`.
-2. `T1` smoke tests (`LeanQbeTest.T.Smoke`), `T3` `tqbe` notation programs
-   (`LeanQbeTest.T.NotationTest`), and `T4` Union-Find (`LeanQbe.T.Examples.UnionFind`).
+1. All 8 example functions (`LeanQbeTest.T.Examples`) on `x64AVX512`, `x64SSE`, and `aarch64`.
+2. Smoke tests (`LeanQbeTest.T.Smoke`), `tqbe` notation programs (`LeanQbeTest.T.NotationTest`),
+   and Union-Find (`LeanQbe.T.Examples.UnionFind`).
 3. Dedicated coverage of legalisation rules (a)–(d): pair splitting & aligned/unaligned memory,
    narrow/odd `bits n` widening (`n ∈ {0, 7, 12, 24}`), vector halving & scalarization,
    SIMD shuffle/blend/shift expansions, `bool`/`ternlog`/`bitcast` expansions, scalar-float
-   pass-through on `x64`/`scalar64` (noting `H4` `backendOk` handles x64 scalar-FP rejection
+   pass-through on `x64`/`scalar64` (noting `Fn.backendOk` handles x64 scalar-FP rejection
    separately), and negative `isLegal` / `supportsSource` checks.
 -/
 
@@ -34,7 +34,7 @@ abbrev sse : LegalTarget := LegalTarget.x64SSE
 abbrev arm : LegalTarget := LegalTarget.aarch64
 abbrev sc64 : LegalTarget := LegalTarget.scalar64
 
-/-! ## 1. `T1` `Examples` through `Func.legal` (`_wf`, `_isLegal` rfl, `_wp`/`_spec`) -/
+/-! ## 1. `Examples` through `Func.legal` (`_wf`, `_isLegal` rfl, `_wp`/`_spec`) -/
 
 -- 1a. `add128`: splits `u128 = .pair i64 i64` on both x64 and AArch64,
 -- eliminating `mkpair`/`unpair`
@@ -232,7 +232,7 @@ theorem vumin3_legal_sse_isLegal_rfl : ((Examples.vumin 3).legal sse).isLegal ss
 theorem vumin3_legal_arm_isLegal_rfl : ((Examples.vumin 3).legal arm).isLegal arm = true := by
   t_kernel_rfl
 
-/-! ## 2. `T1` `Smoke`, `T3` `NotationTest`, and `T4` `UnionFind` through `Func.legal` -/
+/-! ## 2. `Smoke`, `NotationTest`, and `UnionFind` through `Func.legal` -/
 
 theorem evenOdd_wf : Smoke.evenOdd.Wf := by t_wf_reify
 theorem evenOdd_supp_x64 : Smoke.evenOdd.supportsSource x64 = true := by t_kernel_rfl
@@ -287,7 +287,7 @@ theorem caller_legal_x64_spec (Γ : Env) (hg : Γ "g" [i64] [.bool, i64] = Smoke
   Func.legal_spec x64 Smoke.caller caller_wf caller_supp_x64 Γ (a, ()) m _ _
     (Smoke.caller_correct Γ hg a m)
 
--- T3 `NotationTest` programs through `Func.legal` / `Fn.legal`
+-- `NotationTest` programs through `Func.legal` / `Fn.legal`
 
 theorem notation_add128_legal_x64_isLegal_rfl :
     (NotationTest.add128.legal x64).isLegal x64 = true := by t_kernel_rfl
@@ -332,7 +332,7 @@ theorem notation_namedFn_legal_x64_wf : (NotationTest.namedFn.legal x64).Wf :=
 theorem notation_namedFn_legal_x64_isLegal_rfl :
     (NotationTest.namedFn.legal x64).body.isLegal x64 = true := by t_kernel_rfl
 
--- T4 `UnionFind` through `Func.legal`
+-- `UnionFind` through `Func.legal`
 
 theorem uf_find_legal_x64_wf : (Examples.UnionFind.find.legal x64).Wf :=
   Func.legal_wf x64 Examples.UnionFind.find_wf
@@ -454,7 +454,7 @@ theorem derivedOpsFn_legal_arm_isLegal_rfl : (derivedOpsFn.legal arm).isLegal ar
 
 /-- Rule (e): scalar float ops and float bitwise expansion (`xor`/`not` via integer `bitcast`).
 Passes `Legal` on `x64` and `scalar64` (backend scalar-FP rejection on x64 is enforced separately
-by `H4` `backendOk`); rejected by `supportsSource` on `aarch64`. -/
+by `Fn.backendOk`); rejected by `supportsSource` on `aarch64`. -/
 def scalarFloatFn : Func [f32, f32, i32] [f64, .bool] :=
   fun _ _ (x, y, n, ()) =>
     .let_ (op2 (.fadd f32) (.var x) (.var y)) fun (s, ()) =>

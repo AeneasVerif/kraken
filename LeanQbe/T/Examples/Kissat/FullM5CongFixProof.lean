@@ -570,7 +570,7 @@ theorem m5_cong_work_step_wp (Γ : Env)
                           exact hJins () m ⟨_, ws32_probe_insert_ok hokp hg_lt hg_le_ht hht_le
                             hslot_lt hgat, hm_ins⟩
                         · m3_let; exact hJins () mp ⟨stp, hokp, hmp⟩
-                    · -- `ent != 0xFFFFFFFFu`: check self-match `ent == (u32)g` first!
+                    · -- `ent != 0xFFFFFFFFu`: check self-match `ent == (u32)g` first
                       have hent_ne : ent ≠ 0xFFFFFFFF#32 := beq_eq_false_iff_ne.mp hc
                       clear hc; m3_split_fast
                       · -- `ent == (u32)g` -> `seen_self = true; continue;`
@@ -2002,7 +2002,7 @@ theorem m5CongFix_moduleOk : ModuleOk m5CongFixEnv m5CongFixModule :=
   Env.ofTable_moduleOk m5CongFix_acyclic (m5Fix_allFns_of_forall m5CongFix_fns_wf)
     m5CongFix_tableImpl
 
-/-- Direct composition (`PR-W1E` ready): `FullM5CongBins.full_congruence_dense` calling
+/-- Direct composition: `FullM5CongBins.full_congruence_dense` calling
 `FullM5CongFix`'s widened `full_cong_extract` + `full_cong_work_step` satisfies exact canonical
 `FullM3CongBva.m3CongruenceDenseSpec`. -/
 theorem m5_congruence_dense_fix_wp (Γ : Env)

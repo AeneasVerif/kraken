@@ -40,7 +40,7 @@ namespace LeanQbe.T
 
 open Std Std.ExtHashMap
 
-/-! ## 1. First-Class Lawful Lenses (`C0Lens`) & `LengthsOk` Preservation Tactic -/
+/-! ## 1. Lawful Lenses (`C0Lens`) & `LengthsOk` Preservation Tactic -/
 
 /-- Lawful lens into a C0 state record `σ` focusing field `α`. -/
 structure C0Lens (σ α : Type) where

@@ -4,7 +4,7 @@ public import LeanQbe.T.MainInline
 public import LeanQbe.T.FlatLemmas
 
 /-!
-# Train B5-4 `InlinePolicy` Tests
+# `InlinePolicy` Threshold, Exclusion, and Soundness Tests
 
 Covers:
 1. `leafMax`: leaf callee (`size ∈ (40, leafMax]`) with `≥ 2` sites inlines while a same-size
@@ -18,7 +18,7 @@ Covers:
    inline regardless of budget/leaf/single-site thresholds.
 5. `InlinePolicy.b5` preset check and verified soundness (`optInlinePolicy_wf`,
    `optInlinePolicy_spec`, `optInlinePolicy_callsOk`, `optInlinePolicy_acyclic`,
-   `optInlinePolicy_supportsSource`) with single-line `<115c` `std3` `#print axioms`.
+   `optInlinePolicy_supportsSource`) with single-line standard-axiom `#print axioms`.
 -/
 
 set_option autoImplicit false

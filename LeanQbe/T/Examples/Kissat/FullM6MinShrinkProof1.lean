@@ -10,7 +10,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 `PR-W2B` Proof Shard 1 (Sorted VMTF Bumping & Delayed Analyze Restore)
+# Kissat M6 Minimization/Shrink Proof Shard 1 (Sorted VMTF Bumping & Delayed Restore)
 
 Proves `Func.wp` for `4` functions in `FullM6MinShrink.lean` (UNSAT-only, no `@[expose]`):
 1. `full_ana_sift_m6` (`m6AnaSiftSpec`)
@@ -40,7 +40,7 @@ open scoped LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open scoped LeanQbe.T.Examples.Kissat.Full.FullMinTactics
 open Kraken.Bedrock2.Test
 
-/-! ## 1. Wave-2B Specs for `ana_sift`, `sort_ana_qs`, and `restore_bump_ana` -/
+/-! ## 1. M6 Specs for `ana_sift`, `sort_ana_qs`, and `restore_bump_ana` -/
 
 /-- Heap sift contract for `full_ana_sift_m6(qs, ana, cv, start, n)`. -/
 def m6AnaSiftSpec : Spec [i64, i64, i64, i64, i64] [] :=

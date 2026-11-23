@@ -7,8 +7,8 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat M7 Search Parity C0 Overrides (`FullM7Search`)
 
-Strictly additive Kissat 4.0.4 search-fidelity module closing `audit-quick60-gaps` Gaps #2, #3,
-#5, and #7 (`0` edits to `FullHdr` / `144` words frozen, `0` edits to `Full1..6*`):
+Additive Kissat 4.0.4 search-parity module over the unchanged `144`-word `FullHdr` layout
+(late lucky checks, clause tumbling, focused `randec`/phase alternation, and EMA mode swap):
 1. `full_lucky_late_m7` & `full_lucky_polar_m7` (`src/lucky.c`, `src/search.c:188-189`):
    post-preprocessing level-0 late lucky assignment checks (level-0 unit propagation guard,
    polarity sweeps skipping already-satisfied clauses, plus forward/backward `full_lucky_scan`
@@ -194,7 +194,7 @@ void full_m7_state_init(FullHdr *h) {
     full_m7_set64(h, M7_GU_EMA0_SE, init_exp);
   }
   full_m7_set64(h, M7_GU_RANDEC_REM, 0ULL);
-  full_m7_set64(h, M7_GU_RANDEC_LIM, 500ULL);
+  full_m7_set64(h, M7_GU_RANDEC_LIM, h->conflicts + 500ULL);
   full_m7_set64(h, M7_GU_RANDEC_SEQ, 0ULL);
   full_m7_set64(h, M7_GU_RANDEC_CFL, h->conflicts);
 }
@@ -556,14 +556,13 @@ void full_switch_mode_m7(FullHdr *h) {
     h->rel_v = 1ULL;
     h->rel_trigger = 0ULL;
     u64 cv = h->cur_vars;
-    i8 *vals = (i8 *)h->values;
     u32 *fl = (u32 *)h->flags;
     u32 *hp = (u32 *)h->heap;
     u32 *ps = (u32 *)h->pos;
     u64 n = 0ULL;
     u64 v = 0ULL;
     while (v < cv) {
-      if ((fl[v] & FL_ACTIVE) != 0u && vals[v << 1] == (i8)0) {
+      if ((fl[v] & FL_ACTIVE) != 0u) {
         hp[n] = (u32)v;
         ps[v] = (u32)n;
         n = n + 1ULL;

@@ -47,7 +47,7 @@ void expect_traps(const char* name, Fn&& fn) {
     try {
       (void)fn();
     } catch (const tqbe::UbException&) {
-      // Must NEVER throw UbException when TQBE_CATCH_UB is not defined (Rule A6).
+      // Must never throw UbException when TQBE_CATCH_UB is not defined.
       ::_exit(125);
     } catch (...) {
       ::_exit(124);

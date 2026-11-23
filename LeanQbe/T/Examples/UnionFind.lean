@@ -6,9 +6,9 @@ public import LeanQbe.T.Logic.Mem
 public import LeanQbe.T.Examples.UnionFindProg
 
 /-!
-# Union-Find (Disjoint Set Union) in `LeanQbe.T` (`T4`)
+# Union-Find (Disjoint Set Union) in `LeanQbe.T`
 
-Typed-IR counterpart of `LeanQbe/Examples/UnionFind.lean`:
+Typed-IR Union-Find implementation and separation-logic specification:
 * `find` — iterative root lookup with path halving (`findK` loop).
 * `union` — merges the trees containing two elements, calling `find`.
 * `unionInline` — merges two elements with two inlined `findK` loops.

@@ -6,7 +6,7 @@ public import LeanQbe.T.Logic.Rules
 import LeanQbe.T.FlatLemmas
 
 /-!
-# Canonical Cyclic (`isEven`/`isOdd`) & Fuel-Guarded (`recSum`) Examples (`B1.1`)
+# Canonical Cyclic (`isEven`/`isOdd`) & Fuel-Guarded (`recSum`) Examples
 
 * Mutually recursive `isEven`/`isOdd` (`evenOddRecMod`), `Func.Wf` (`t_wf_reify`), `checkCyclic`,
   `ModuleRecOk`, and measure-indexed `Env.sound_rec` proofs.

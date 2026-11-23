@@ -4,7 +4,7 @@ public import LeanQbe.T.Amd64.Base
 public import LeanQbe.T.IselStepAttr
 
 /-!
-# Typed x64 Scalar Instruction Selection (`T8`)
+# Typed x64 Scalar Instruction Selection
 
 Implements `x64Gpr : GprIsa Reg64 RegMm CondCode Directive` over `LeanQbe.T.Amd64.Base` (`x64Mach`,
 `x64Scratch := [.r10, .r11]`, `x64CondReads`, `x64NegCond`):
@@ -324,7 +324,7 @@ def opNegIns (w : Width) (pa : PArg Reg64 RegMm CondCode (.bits w.bits)) (rd : R
     some (pre ++ [x64InsI w (.neg (.reg (regW w rd)))], maskAll)
   | .vec _  => none
 
-/-- Lower `.not (.bits w.bits)` into `rd` (`not` leaves all status flags intact!). -/
+/-- Lower `.not (.bits w.bits)` into `rd` (`not` leaves all status flags intact). -/
 def opNotIns (w : Width) (pa : PArg Reg64 RegMm CondCode (.bits w.bits)) (rd : Reg64) :
     Option (List Instr × FlagMask) :=
   match pa with
@@ -1523,7 +1523,7 @@ def x64ZeroUpper32Op : {sig rs : List Ty} → OpCode sig rs →
     | _ => false
   | _, _, _, _, _ => false
 
-/-- Typed x64 scalar `GprIsa` instance (`T8`). -/
+/-- Typed x64 scalar `GprIsa` instance. -/
 def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   condReads := x64CondReads
   negCond := x64NegCond

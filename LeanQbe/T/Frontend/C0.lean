@@ -12,7 +12,7 @@ public import LeanQbe.T.Frontend.C0.LayoutElab
 set_option autoImplicit false
 
 /-!
-# C0 Frontend for `LeanQbe.T` (`X0-core`)
+# C0 Frontend for `LeanQbe.T`
 
 Umbrella module re-exporting the untrusted, shape-stable, PHOAS-first C0 frontend:
 * `Syntax`: C0 AST

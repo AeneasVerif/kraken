@@ -4,7 +4,7 @@ public import LeanQbe.T.LinkSccLemmas2
 import LeanQbe.T.WPLemmas
 
 /-!
-# Knaster–Tarski `Env.lfp`, Kleene Approximants, and `link_scc_static` (`R-B` / `Lfp` Follow-Up)
+# Knaster–Tarski `Env.lfp`, Kleene Approximants, and `link_scc_static`
 
 Purely additive semantic fixed-point layer complementing `LinkScc`:
 * **Impredicative `Env.lfp`:** `Env.le`, `Env.mono`, `Env.lfp`, `Env.lfp_le`, `Env.lfp_pre`,

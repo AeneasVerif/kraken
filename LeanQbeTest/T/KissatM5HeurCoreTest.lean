@@ -12,7 +12,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Backend Compilation Guards, and Axiom Audit for Kissat M5 Wave 1 (`PR-W1A`)
+# Verification, Backend Compilation Guards, and Axiom Audit for Kissat M5 (`FullM5HeurCore`)
 
 1. Executable `#guard` checks on `m5HeurCoreModule` (`11` fns + `24` externs, `0` exits),
    `checkAcyclic = true`, `m5HeurCoreSpecTable` (`35` rows), drop-in replacement `Fn` handles,
@@ -20,7 +20,7 @@ meta import LeanQbe.T.Legal
 2. Audit-ready restated headline theorems for `m5HeurCore_fns_wf`, `m5HeurCore_acyclic`, all `11`
    parametric `Func.wp` contracts, closed `35`-row `m5HeurCore_moduleOk`, and concrete `Mem 64`
    UNSAT non-vacuity (`XPost := False`, `0` SAT proofs).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false

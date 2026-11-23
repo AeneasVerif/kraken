@@ -14,7 +14,7 @@ meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.Examples.Kissat.Full
 
 /-!
-# Tests of `LeanQbe.T.LoopRotate` (`Fable Track C4`)
+# Tests of `LeanQbe.T.LoopRotate`
 
 Covers:
 1. Exact kernel-checked (`t_kernel_rfl`) loop rotation on `dir = true` (`sumWhileLoop`),

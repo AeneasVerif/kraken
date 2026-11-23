@@ -15,7 +15,7 @@ import all Kraken.Separation
 # Soundness Proofs for Kissat `D-Full` DIMACS Body Ingestion (`Stage 4`, Part 1)
 
 Defines strictly scoped `FullDimacsBodyTactics`, mirrored `FullDimacsBodySpecs` matching
-`FullSpec1`/`FullSpec2` (including `#1037` `probing` framing and `#1043`/`#1045` witness
+`FullSpec1`/`FullSpec2` (including `probing` framing and witness
 entailment threading), and proves `full_skip_cl_wp` (`Full1.full_skip_cl`).
 -/
 

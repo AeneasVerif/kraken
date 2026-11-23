@@ -5,20 +5,20 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat `D-Full` M5 Orchestration & Budget Upgrades (`PR-W1E`, `RC-14` & `RC-15`)
+# Kissat `D-Full` M5 Orchestration & Budget Upgrades (`FullM5Orch`)
 
-Standalone pre-staged `PR-W1E` (`FullM5Orch`) C0 module covering all `19` orchestration,
+Standalone `D-Full M5` (`FullM5Orch`) C0 module covering all `19` orchestration,
 initialization-cap, and effort/budget upgrades against the frozen `144`-word `FullHdr`:
-1. **`RC-15` Caps & Init (`3` fns):** `full_calc_ext_cap_m5` (`4M`), `full_calc_scr_cap_m5` (`1M`),
+1. **Caps & Init (`3` fns):** `full_calc_ext_cap_m5` (`4M`), `full_calc_scr_cap_m5` (`1M`),
    and `full_init_state_m5` wiring both `[38]` & `[39]`.
-2. **`RC-15` Effort & Budgets (`7` fns):** `full_probe_dticks_m5` & `full_elim_dticks_m5`
+2. **Effort & Budgets (`7` fns):** `full_probe_dticks_m5` & `full_elim_dticks_m5`
    (`10_000_000ULL` `mineffort` floor), `full_trans_lit_m5` (`dst > src` + `ant_sz` inside BFS) &
    `full_transitive_m5`, `full_vivify_tier_m5` & `full_vivify_m5` (no `1024/512` cap via
    `0xFFFFFFFFULL`, rolling cumulative 3:3:1:3 `tick_cap`, 100% tier 0 when `num_redundant == 0`,
    delegating to `FullM4VivBce.full_viv_*_m4`), `full_sweep_dense_m5` (no `16384/32` clamps,
    `eff_ref`-scaled `kitten_ticks`, delegating to `FullM4Sweep.full_m4_sweep_var`), and
    `full_probe_tail_m5`.
-3. **`RC-14` Orchestration Parity (`9` fns):** `full_reduce_m5` (no `full_promote_reasons`),
+3. **Orchestration Parity (`9` fns):** `full_reduce_m5` (no `full_promote_reasons`),
    `full_reorder_m5` (queue-only, no heap reorder / clause tumble), `full_probe_m5` (drop dense
    gate & `full_ternary`, `<= 2` rounds `congruence -> sweep -> substitute`), `full_eliminate_m5`
    (wire `full_bce_m4`, drop BVA `num_binary == 0 && num_irred > 4096` skip, uncapped

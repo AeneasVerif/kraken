@@ -32,7 +32,7 @@ open LeanQbe.T LeanQbe.T.Arm64
 
 /-! ## Helpers -/
 
-/-- Hints from the production heuristics (`Fn.computeHints` = `Spill.hints ∘ Fn.mid`). -/
+/-- Hints from the default heuristics (`Fn.computeHints` = `Spill.hints ∘ Fn.mid`). -/
 meta def hintsOf (fs : List Fn) : List armTarget.toIsa.Hints :=
   fs.map (Fn.computeHints armTarget.toIsa armLegalTarget)
 
@@ -145,7 +145,7 @@ meta def selTree : Live.Tree × List (Nat × Ty) × Nat × Nat × Nat × Trie Ty
   let ips := slotMoveIps selHints selTree.2.2.2.2.1
   cs.length == 1 && ips.length == 2 && ips.all fun ip => cs.any fun c => ip == c || ip == c + 1
 
-/-! ## 5. Stage 1a `[base + disp]` addressing on AArch64 (`armSupportsAddrDisp`) -/
+/-! ## 5. `[base + disp]` addressing on AArch64 (`armSupportsAddrDisp`) -/
 
 meta def isArmAddSubOrPoolDir (d : armTarget.toIsa.Directive) : Bool :=
   let s := Kraken.AArch64.Print.directive d
@@ -196,7 +196,7 @@ meta def addrSkipArm64Fn : Fn :=
 #guard (Fn.computeHints armTarget.toIsa armLegalTarget addrSkipArm64Fn).elide.getD 2 false == false
 #guard (Fn.computeHints armTarget.toIsa armLegalTarget addrSkipArm64Fn).elide.getD 4 false == false
 
-/-! ## 6. Track C6 `[base, idx, lsl #k]` scaled-index addressing (`armSupportsAddrIdx`) -/
+/-! ## 6. `[base, idx, lsl #k]` scaled-index addressing (`armSupportsAddrIdx`) -/
 
 meta def isArmAddSubShlOrPoolDir (d : armTarget.toIsa.Directive) : Bool :=
   let s := Kraken.AArch64.Print.directive d
@@ -262,7 +262,7 @@ meta def sibSkipArm64Fn : Fn :=
 #guard (Fn.computeHints armTarget.toIsa armLegalTarget sibSkipArm64Fn).elide.getD 3 false == false
 #guard countDirs isArmSibDir (codeOf [sibSkipArm64Fn]) == 0
 
-/-! ## 7. Track C1c upper-32 zeroing parity (`zext 32->64` elision vs `sext 32->64`) -/
+/-! ## 7. Upper-32 zeroing parity (`zext 32->64` elision vs `sext 32->64`) -/
 
 meta def isArmOrrWOrUbfmDir (d : armTarget.toIsa.Directive) : Bool :=
   let s := Kraken.AArch64.Print.directive d

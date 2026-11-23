@@ -7,7 +7,7 @@ import LeanQbe.T.Examples.Kissat.FullDenseWatchLemmas1
 # Kissat M6 Congruence Closure & 2-Round Substitute Proofs — Part 2d
 
 Builds on `FullM6CongSubstProof2c` to prove parametric `(Γ : Env)` `Func.wp`
-contract (`FullM6CongSubst.lean` #22):
+contract (`FullM6CongSubst.lean` fn 22):
 22. `full_cong_fwd_subsume` (`full_cong_fwd_subsume_wp`, `m6CongFwdSubsumeSpec`)
 
 All proofs operate strictly within UNSAT-only `FullDenseInvW` / `M6FsScanInv` /
@@ -763,7 +763,7 @@ private theorem m6Fs_base_lm_lt {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List
 
 end Helpers
 
-/-! ## 2. `#22` `full_cong_fwd_subsume_wp` (`m6CongFwdSubsumeSpec`) -/
+/-! ## 2. `full_cong_fwd_subsume_wp` (`m6CongFwdSubsumeSpec`) -/
 
 section FwdSubsumeProof
 

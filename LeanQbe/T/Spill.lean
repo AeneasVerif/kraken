@@ -4,9 +4,9 @@ public import LeanQbe.T.Live
 public import LeanQbe.T.SpillFlags
 
 /-!
-# Priority Graph-Coloring Register Allocator & Spilling Oracle (`T7a`, `L-E1.2`, untrusted)
+# Priority Graph-Coloring Register Allocator & Spilling Oracle (untrusted)
 
-Full port of E1's priority graph-coloring allocator extended to typed banks (`GPR` + `Vec` + local
+Priority graph-coloring register allocator over typed banks (`GPR` + `Vec` + local
 flag hints): scoped loop-depth & branch-discounted weights, exact dual reload/def pressure points
 with callee-saved/flag credit, identity self-jump filtering, dying-operand 2-address + block-edge
 coalescing with parallel-move conflict avoidance, per-call live-range splitting (lazy for cold
@@ -14,7 +14,7 @@ calls inside or outside loops, eager-backed for loop-crossing invariants), strai
 spill-store elision and spilled-operand register caching, slot-direct block parameters,
 `VariantHint.disp` (`lea`) probing, and GPR/Vec parallel-move cycle breaking.
 
-Train B5-1 (`Cfg`) adds four spill-placement refinements: slot-home stores are deferred past
+`Spill.Cfg` adds four spill-placement refinements: slot-home stores are deferred past
 straight-line code and sunk into `jnz` arms (`sink`), hot join parameters stay out of
 slot-direct `Entry.ploc` (`joinGuard`), a spilled variable keeps a soft cache register that
 later-colored interfering variables avoid (`cacheHint`), and a block may take a spilled live-in
@@ -268,7 +268,7 @@ def opProducesZ32Static (I : Isa) (r0? : Option I.Reg) {ts : List Ty} (op : Op V
 
 /-! ## Interference, Weights, Pressure Points, and Priority Coloring -/
 
-/-- Train B5-1 heuristic switches (untrusted: `Rega.lowerFn` re-checks every hint). `sink` defers
+/-- `Spill.Cfg` heuristic switches (untrusted: `Rega.lowerFn` re-checks every hint). `sink` defers
 slot-home spill stores past straight-line code and into `jnz` arms; `joinGuard` keeps hot join
 parameters out of slot-direct `Entry.ploc`; `cacheHint` gives a spilled variable a soft register
 that later-colored interfering variables avoid; `regEntry` lets a block take a spilled live-in
@@ -276,7 +276,7 @@ in the register its predecessors hold it in. -/
 structure Cfg where
   (sink joinGuard cacheHint regEntry : Bool := true)
 
-/-- Pre-B5-1 behaviour (all switches off), for ablation and regression tests. -/
+/-- Baseline configuration (all `Spill.Cfg` switches off), for ablation and regression tests. -/
 def Cfg.legacy : Cfg :=
   { sink := false, joinGuard := false, cacheHint := false, regEntry := false }
 
@@ -1466,6 +1466,10 @@ def jumpSlotMoves {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (slotOk : Tr
                 | some tmp => mvs ++ [.ld (gOf tmp) s', .st s (gOf tmp)]
                 | none => mvs
           | .gpr r => mvs ++ [.st s (gOf r)]
+          | .flag cc =>
+            match tmp? with
+            | some tmp => mvs ++ [.setcc (gOf tmp) cc, .st s (gOf tmp)]
+            | none => mvs
           | _ => mvs
         | some (.immBits _ k) =>
           match tmp? with

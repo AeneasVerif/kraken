@@ -4,7 +4,7 @@ public import LeanQbe.T.RegaLemmas1
 public import LeanQbe.T.WPLemmas
 
 /-!
-# `T7b` Part 3: Operands, Ops/Loads/Stores, and Structural `LabelsUnique` (Guardrail 5)
+# `RegaLemmas` Part 3: Operands, Ops/Loads/Stores, and Structural `LabelsUnique`
 
 * `tryArg_ok`, `pickPArgs_ok`, `tryAddr_ok`, `lowerOp_ok`, `lowerLoad_ok`, `lowerStore_ok`.
 * Structural label bounds (`LabelClean`, `lname_inj`, `lowerExpr_labels`/`lowerBlocks_labels`): every
@@ -1958,7 +1958,7 @@ theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
 
 end Lemmas
 
-/-! ## Part B: structural `LabelsUnique` (Guardrail 5) -/
+/-! ## Part B: structural `LabelsUnique` -/
 
 section Labels
 variable {I : Isa}
@@ -2865,7 +2865,7 @@ theorem lowerFn_labOk {hints : I.Hints} {E : Ext} {f : Fn} {code : List I.Direct
   · obtain ⟨j, -, -, rfl⟩ := h2; exact lname_ne h1
   · exact h.imp id fun ⟨j, _, _, e⟩ => ⟨j, e⟩
 
-/-- Guardrail 5: labels of a lowered function are pairwise distinct (structurally, no `decide`). -/
+/-- Labels of a lowered function are pairwise distinct (proved structurally, without `decide`). -/
 theorem lowerFn_labelsUnique {hints : I.Hints} {E : Ext} {f : Fn} {code : List I.Directive}
     (hcl : LabelClean I) (h : lowerFn I hints E f = .ok code) :
     ∀ (i j : Nat) l, code[i]? = some (I.frame.label l) → code[j]? = some (I.frame.label l) → i = j :=

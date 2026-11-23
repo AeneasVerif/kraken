@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainMinLemmas2
 
 /-!
-# Soundness Proofs for Kissat `D-Plain` Shrink & Minimization (`Wave 2b Shard 5`, Part 3)
+# Soundness Proofs for Kissat `D-Plain` Shrink & Minimization (Part 3)
 
 Shared block-shrink and minimization invariants, trail-count & reason-coverage lemmas,
 state-stepping lemmas for `plain_min_mark`, `shrink_blk_success_finish`, `shrink_after_min_lit_ok`,

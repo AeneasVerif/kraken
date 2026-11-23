@@ -7,7 +7,7 @@ import LeanQbe.T.Examples.Kissat.FullM4BvaLemmas2
 /-!
 # Kissat M5 Dense-Safe Proofs — Part 2 (`full_bva_commit_m5`)
 
-Proves `full_bva_commit_m5_wp` against canonical `FullM4Bva.m4BvaCommitSpec` (`RC-04`):
+Proves `full_bva_commit_m5_wp` against canonical `FullM4Bva.m4BvaCommitSpec`:
 1. Returns `false` immediately if `h->oom != 0ULL` on entry.
 2. Budgets `2 * wvec[l].sz + 2` copying growth per touched literal in `need_w` across `dm` factor
    literals and `mn` top-row clauses, defragging `watch_stk` if needed before mutating state.
@@ -1663,7 +1663,7 @@ private theorem m5_bva_phase1b_wp {Γ : Env} {Q : Post [.bool]} {X : XPost}
         sGrp64_64_32, sGrp32b, sThen, sElse, sDummyTup, sDummyVal, i64, i32,
         full_bva_commit_m5_body] at hp2
       exact hp2
-    · -- `ok1b = false`: zero `cnt[0..2*cur_vars)` & return `false` (0 originals deleted!)
+    · -- `ok1b = false`: zero `cnt[0..2*cur_vars)` & return `false` (0 originals deleted)
       have hcl1b := hinv1b.1.core_ok; have hsc1b := hinv1b.1.scratch_ok
       have hcv1b_le : old_cv + 1 ≤ c.max_vars := by have := hcl1b.cur_vars_le; omega
       have h2cv :

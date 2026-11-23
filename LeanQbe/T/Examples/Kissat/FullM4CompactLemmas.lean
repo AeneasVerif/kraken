@@ -300,7 +300,7 @@ theorem unfocus_heap_arrays {c : FullCfg} {s : FullState} {hp' ps' : List (BitVe
 
 /-! ## 2. `FullCfgCompat`, `FullCfg.shrinkMv`, & header shrink stores -/
 
-/-- Configuration compatibility after dead-variable compaction shrinks `d.mv` (`#1991`):
+/-- Configuration compatibility after dead-variable compaction shrinks `d.mv`:
 preserves `hdr`, `avail`, `max_vars`, and all buffer capacities, keeping pointers and `pad` equal
 while allowing `mv` to decrease (`bva_cap := max_vars - mv`). -/
 structure FullCfgCompat (c c' : FullCfg) : Prop where

@@ -6,7 +6,7 @@ public import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
 public import LeanQbe.T.Examples.Kissat.FullProbeTransLemmas5
 
 /-!
-# Kissat M5 Wave 1 (`PR-W1B`): `full_probe_prop_lit_m5` Proof & UNSAT NV (`FullM5ProbePropProof`)
+# Kissat M5 `full_probe_prop_lit_m5` Proof & UNSAT NV (`FullM5ProbePropProof`)
 
 Proves:
 1. `full_probe_prop_lit_m5_wp` against unchanged canonical `Full.fullProbePropLitSpec`

@@ -6,7 +6,7 @@ public import LeanQbe.T.Amd64.Frame
 public import LeanQbe.T.Legal
 
 /-!
-# SysV x64 Pure `Isa` & `LegalTarget` (`P2-B`)
+# SysV x64 Pure `Isa` & `LegalTarget`
 
 Provides `x64Isa : Isa` and `x64LegalTarget : LegalTarget` with zero `*Lemmas*` imports so
 executables (`leanqbe`) and pure compilation consumers do not link verification proof objects.

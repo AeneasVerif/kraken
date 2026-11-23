@@ -13,7 +13,7 @@ import all Kraken.Separation
 Provides:
 1. Strictly file/section-local `FullLuckyTactics` (`open scoped FullArenaTactics`) and BV helpers.
 2. `FullLuckySpecs`: UNSAT-only Stage-4 `Spec` contracts aligned with `FullSpec{1,2,3}.lean`
-   plus `#1058`/`#1063`/`#1064` callee alignment catches (`full_assign`, `full_backtrack`,
+   plus callee alignment (`full_assign`, `full_backtrack`,
    `full_propagate`, `full_analyze`) and the `3` owned specs (`full_lucky_polar`,
    `full_lucky_scan`, `full_lucky`).
 3. Pure invariant, backtrack/propagate/decide, OTFS level-0 collapse, and `trail_end` bound lemmas.
@@ -367,7 +367,7 @@ def FullTrailExt (k k' : FullCoreState) : Prop :=
   (∀ i < k.trail_end,
     k'.lvl[(k.trl[i]?.getD 0#32).toNat / 2]? = k.lvl[(k.trl[i]?.getD 0#32).toNat / 2]?)
 
-/-! ### 2.1 Callee `Spec` contracts (`Full1`, `Full2` aligned + `#1058`/`#1063`/`#1064`) -/
+/-! ### 2.1 Callee `Spec` contracts (`Full1`, `Full2` aligned) -/
 
 def fullArenaNextSpec : Spec [i64, i32] [i32] := fun (h, cref, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),

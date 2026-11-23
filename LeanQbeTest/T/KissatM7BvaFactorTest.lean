@@ -12,7 +12,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Compilation Guards, and Axiom Audit for Kissat Wave-4F `FullM7BvaFactor`
+# Verification, Compilation Guards, and Axiom Audit for Kissat M7 (`FullM7BvaFactor`)
 
 1. Executable `#guard` checks on `m7BvaFactorModule` (`3` fns, `6` externs, `0` exits),
    `m7BvaFullModule` (`270` fns, `0` externs, `0` exits), `PrintCpp`, `PrintQbe`, and 4-ISA
@@ -21,7 +21,7 @@ meta import LeanQbe.T.Legal
    contracts, closed standalone `m7BvaFactor_moduleOk`, concrete `Mem 64` UNSAT non-vacuity
    (`XPost := False`), and `270`-fn spliced `FullM5` compatibility (`m7BvaFull_acyclic`,
    `m7BvaFull_fns_wf`, `m7BvaFull_moduleOk_of`).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
@@ -180,7 +180,7 @@ theorem full_mod_of (Γ : Env)
 
 end LeanQbeTest.T.KissatM7BvaFactorTest
 
-/-! ## 3. Single-Line `#print axioms` Audit (`std3` Only) -/
+/-! ## 3. Single-Line `#print axioms` Audit (Standard Axioms) -/
 
 abbrev m7bf_init_wf := @LeanQbeTest.T.KissatM7BvaFactorTest.init_wf
 abbrev m7bf_try_wf := @LeanQbeTest.T.KissatM7BvaFactorTest.trylit_wf

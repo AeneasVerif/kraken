@@ -18,7 +18,7 @@ namespace LeanQbe.T.Notation
 
 open Lean Elab Command Term Meta
 
-/-! ## Statement, group, and §2 sugar elaboration -/
+/-! ## Statement, group, and control-flow sugar elaboration -/
 
 meta def contTy (ctx : Ctx) : List Lean.Expr → Lean.Expr
   | [] => ctx.exprTy

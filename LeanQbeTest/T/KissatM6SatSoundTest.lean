@@ -6,16 +6,18 @@ import LeanQbe.T.Examples.Kissat.FullM6Hdr
 import LeanQbe.T.Examples.Kissat.FullProof
 
 /-!
-# Kissat `D-Full` M6 End-to-End UNSAT+SAT Soundness & Concrete Non-Vacuity Tests
+# Kissat `D-Full` M6 UNSAT+SAT Soundness Combinators & Concrete Non-Vacuity Tests
 
-Standalone test suite verifying:
+Standalone test suite verifying `FullM6SatSound` and `FullM6SatNv` (parameterized combinators and
+component witnesses; full `M6` module assembly and native `LinkedCert` proofs are separate):
 1. Concrete kernel checks (`decide` / `rfl`) on `nvM6Mem`, `M6Hdr`'s `3,456 B` prefix layout
    (`fullM6WorkBase`, `fullM6WorkHdr`, `fullM6ValuesFieldPtr`), `fullM6HdrMagic`, and
    `readModelFromWorkM6`.
-2. Direct instantiation of generic `FullM6` combinators (`fullM6_solve_bytes_sound_combinator`,
-   `fullM6_solve_bytes_moduleOk_combinator`, `fullM6_respec_tail_moduleOk`,
-   `fullM6_host_sound_lift`).
-3. Concrete Tier-3b non-vacuity witnesses (`fullM6_unsat_nv`, `fullM6_sat_nv`, `nvM6Mem_sat`,
+2. Direct instantiation of parameterized `FullM6` combinators
+   (`fullM6_solve_bytes_sound_combinator`, `fullM6_solve_bytes_moduleOk_combinator`,
+   `fullM6_respec_tail_moduleOk`, `fullM6_host_sound_lift`, plus parameterized `fullM6_unsat_nv`
+   and `fullM6_sat_nv` conditioned on `fullM6SolveBytesCoreModelSpec` / `fullM6SolveBytesSpec`).
+3. Concrete source-level `Mem 64` component witnesses (`nvM6Mem_sat`,
    `nvM6_unsat_full_m6_mem_init`, `nvM6_sat_full_m6_mem_init`, `nvM6_unsat_init_parse_wp`,
    `nvM6_sat_checkModel_wp`, `nvM6_sat_extend_check_wp`).
 4. Single-line `#print axioms` checks strictly within `[propext, Classical.choice, Quot.sound]`.

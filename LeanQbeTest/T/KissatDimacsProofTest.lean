@@ -8,14 +8,14 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Verification, Non-Vacuity, and Axiom Audit for `X1` Stage B1 (`Kissat.DimacsLemmas`)
+# Verification, Non-Vacuity, and Axiom Audit for `Kissat.DimacsLemmas`
 
 1. Executable `#guard` checks covering `runKissatCheckModel`, `nextLitPure`, `modelOfVals`,
    SAT / UNSAT / empty / comment+CRLF / wrong-model / unassigned / `mv > mv_max` / malformed inputs.
 2. Concrete-memory source-level `Func.wp` non-vacuity theorems (`X = False`) for
    `kissat_check_model` (SAT positive, SAT negative-only, UNSAT, malformed) and
    `kissat_parse_header` (valid and malformed).
-3. Single-line `#print axioms` audit on all key exported Stage-B1 theorems, checking strictly
+3. Single-line `#print axioms` audit on all key exported DIMACS lemmas, checking strictly
    `[propext, Classical.choice, Quot.sound]`.
 -/
 

@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalMemLemmas1
 
 /-!
-# Legalization `legalExpr_wp`, `Func.legal_wp`, and `Func.legal_spec` (`T5`, Part 4b)
+# Legalization `legalExpr_wp`, `Func.legal_wp`, and `Func.legal_spec` (Part 4b)
 -/
 
 set_option autoImplicit false
@@ -296,7 +296,7 @@ theorem Func.legal_wp_of_refines (target : LegalTarget) {as rs : List Ty} (f : F
     (exprSupports_of_reify target f hf hsupp xs)
     hwp
 
-/-- Main `T5` semantic preservation theorem for `Func.legal` with canonical `legalEnv`. -/
+/-- Main legalization semantic preservation theorem for `Func.legal` with canonical `legalEnv`. -/
 theorem Func.legal_wp (target : LegalTarget) {as rs : List Ty} (f : Func as rs)
     (hf : f.Wf) (hsupp : f.supportsSource target = true)
     (Γ : Env) (xs : Tup Val as) (m : Mem 64) (Q : Post rs) (X : XPost) :
@@ -305,7 +305,7 @@ theorem Func.legal_wp (target : LegalTarget) {as rs : List Ty} (f : Func as rs)
       (legalPost target Q) (legalXPost target X) :=
   Func.legal_wp_of_refines target f hf hsupp (envRefines_legalEnv target Γ) xs m Q X
 
-/-- Specification-style consequence of `Func.legal_wp` matching E1's `Spec` convention. -/
+/-- Specification-style consequence of `Func.legal_wp` in `Func.spec` form. -/
 theorem Func.legal_spec (target : LegalTarget) {as rs : List Ty} (f : Func as rs)
     (hf : f.Wf) (hsupp : f.supportsSource target = true)
     (Γ : Env) (xs : Tup Val as) (m : Mem 64) (Q : Post rs) (X : XPost) :

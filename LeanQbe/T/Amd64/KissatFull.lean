@@ -6,6 +6,18 @@ import LeanQbe.T.Logic.MemLemmas
 import all Std.Sat.CNF.Basic
 import all Kraken.Mem
 import all Kraken.Separation
+
+/-!
+# Kissat `D-Full` (`fullModule`, `166` fns) Unconditional SysV x64 Theorems
+
+Composes `KissatFullCert.fullCert` with `FullProof` source verification to prove:
+* `full_module_fnspec`: SysV x64 `Target.FnSpec` for every function in `fullModule`.
+* `full_solve_bytes_unsat_x64`: unconditional end-to-end SysV x64 UNSAT soundness and memory
+  framing for `kissat_solve_bytes`.
+* `full_unsat_nonvacuous_x64`: concrete machine-state witness returning `20` on an unsatisfiable
+  DIMACS input.
+-/
+
 set_option autoImplicit false
 @[expose] public section
 namespace LeanQbe.T.Amd64.KissatFull

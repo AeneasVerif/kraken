@@ -5,15 +5,15 @@ meta import LeanQbe.T.Examples.Kissat.Full2
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat M7 Wave 4I: ProbSAT Local Search (`walk.c`) & Full Warmup (`warmup.c`)
+# Kissat M7 ProbSAT Local Search (`walk.c`) & Full Warmup (`warmup.c`)
 
-Strictly additive `T4/T3 -> T1` Kissat 4.0.4 fidelity upgrade over `Full2` (`full_walk*`,
+Additive Kissat 4.0.4 parity upgrade over `Full2` (`full_walk*`,
 `full_warmup`) and `FullM6WalkParse` (`0` edits to frozen `Full1..6*`):
 1. **`full_walk_cb_inv_m7` + `full_walk_init_table_m7` (`src/walk.c:cbvals`):** full 6-node
    piecewise-linear `cbvals` fit `(0, 2.00)-(3, 2.50)-(4, 2.85)-(5, 3.70)-(6, 5.10)-(7, 7.40)`
    toggled with `cb = 2.00` by `walk_cnt_stat & 1`, precomputing monotone `Q30` exponential table
    `scores[0..31]` (`0` `double`/`pow`, `O(1)` lookup in `pick_literal`).
-2. **`full_walk_effort_m7` (`V3b_walk_eff` + `SET_EFFORT_LIMIT`):** combines `V3b` adaptive flip
+2. **`full_walk_effort_m7` (adaptive effort + `SET_EFFORT_LIMIT`):** combines adaptive flip
    scaling `clamp(2 * ncl, 256, 4096)` with upstream `dticks / 20` `walk_steps` budget (`[500k,
    40M]`).
 3. **O(1) incremental ProbSAT local search (`full_walk_collect_m7`, `full_walk_build_occ_m7`,
@@ -640,6 +640,7 @@ void full_walk_m7(FullHdr *h) {
   u64 inv_q16 = full_walk_cb_inv_m7(h, ncl, tot_lits);
   full_walk_init_table_m7(h, inv_q16);
   u64 ulen = full_walk_build_occ_m7(h, ncl);
+  u64 init_u = ulen;
   u64 max_flips = ncl << 1;
   if (max_flips < 256ULL) { max_flips = 256ULL; }
   if (max_flips > 4096ULL) { max_flips = 4096ULL; }
@@ -710,7 +711,9 @@ void full_walk_m7(FullHdr *h) {
     }
     flips = flips + 1ULL;
   }
-  full_walk_save_min_m7(h, best_pos, trail_ok);
+  if (best_u < init_u) {
+    full_walk_save_min_m7(h, best_pos, trail_ok);
+  }
   h->walk_cnt_stat = h->walk_cnt_stat + 1ULL;
 }
 

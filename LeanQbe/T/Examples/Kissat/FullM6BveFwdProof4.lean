@@ -11,7 +11,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-2 `PR-W2D` (`RC-22`) Proofs — Part 4 (Cluster 3: BVE & Gate Extraction)
+# Kissat M6 BVE/Forward Proofs — Part 4 (Cluster 3: BVE & Gate Extraction)
 
 M1-clean proof module (`public section`, `0` `@[expose]`, `0` `import all`, `private` helpers):
 1. `full_bve_collect_m6_wp` (certifies canonical `Full.fullBveCollectSpec`)

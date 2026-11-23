@@ -13,7 +13,7 @@ This file is meant to be read by a human auditor. It restates, with every hypoth
 postcondition written out in full (no wrapper `abbrev`s introduced here), the end-to-end theorems
 about the **x86-64 machine code** that the `LeanQbe.T` compiler emits for `kissat_solve_bytes`,
 and proves each restatement by the corresponding library theorem. It imports `Kraken.X64` only
-(never `Kraken.AArch64`); `KissatAuditArm64.lean` is the AArch64 mirror, and
+(never `Kraken.AArch64`); `KissatLegacyAuditArm64.lean` is the AArch64 mirror, and
 `KissatAuditSpec.lean` audits `parseDimacs`, `CNF.Unsat` and `CNF.Sat`.
 
 ## How to read the statements
@@ -34,17 +34,17 @@ and proves each restatement by the corresponding library theorem. It imports `Kr
   `s` at `pc` reaches, after finitely many steps, a state satisfying `P` (no undefined behaviour,
   no getting stuck, termination for every fuel value).
 * Postconditions: `st.pc = ra` (returned to the caller); `rax ∈ {0, 10, 20}`; `20 →` the input
-  parses to an unsatisfiable CNF; (`D-Plain` only) `10 →` it parses to a satisfiable CNF; the
-  callee-saved registers `rbx, rbp, r12..r15` are restored; `rsp` is popped by 8 (`ret`); the
-  input bytes are unchanged (read-only), the workspace is again a `region`, the stack frame is
-  again a `region`, and `R` is untouched.
+  parses to an unsatisfiable CNF; the callee-saved registers `rbx, rbp, r12..r15` are restored;
+  `rsp` is popped by 8 (`ret`); the input bytes are unchanged (read-only), the workspace is again
+  a `region`, the stack frame is again a `region`, and `R` is untouched.
 
-## `D-Full` status
+## Legacy build status
 
-The `D-Full` (166-function) theorems are **unconditional** (`166/166` `ModuleOk fullEnv fullModule`
-discharged by `FullProof.fullEnv_moduleOk`, combining `FullBridgeLemmas1`–`9`,
-`FullOneLitConflLemmas`, and `FullDeduce1UipLemmas`), matching `D-Plain`. Model reconstruction
-after inprocessing is intentionally unverified, so `10` is not certified; only UNSAT (`20`) is.
+The `D-Full` (`166` functions) and `D-Full M2 Fast` (`196` functions) theorems are
+**unconditional** (`166/166` and `196/196` `ModuleOk` discharged by `FullProof.fullEnv_moduleOk`
+and `FullFast.fastEnv_moduleOk`). Model reconstruction after inprocessing is unverified in these
+legacy builds, so `10` is not certified; only UNSAT (`20`) is. The superseded `FullFastSched`
+(`173` functions, Section 2) takes an undischarged `ModuleOk schedEnv schedModule` hypothesis.
 -/
 
 set_option autoImplicit false
@@ -162,7 +162,7 @@ theorem audit_full_x64_unsat_nonvacuous [Host]
         ⟨s, Labels.label "kissat_solve_bytes"⟩ :=
   KissatFull.full_unsat_nonvacuous_x64 k₀ hc hu
 
-/-! ## 2. M2a Fast Scheduler (`Amd64.KissatFastSched`, parameterized over `ModuleOk schedEnv`) -/
+/-! ## 2. M2 Fast Scheduler (`Amd64.KissatFastSched`, parameterized over `ModuleOk schedEnv`) -/
 
 section M2aFastSchedX64
 

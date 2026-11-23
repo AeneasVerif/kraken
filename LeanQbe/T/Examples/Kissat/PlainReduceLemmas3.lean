@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainReduceLemmas2
 
 /-!
-# Kissat `D-Plain` Compaction GC Helpers (`PlainReduceLemmas3`) (`Wave 2b`)
+# Kissat `D-Plain` Compaction GC Helpers (`PlainReduceLemmas3`)
 
 Provides shared Phase 1/2/3 invariants, `BitVec` arithmetic lemmas, and pure state-transition
 helpers used by `plain_sweep_wp` in `PlainReduceLemmas4`.

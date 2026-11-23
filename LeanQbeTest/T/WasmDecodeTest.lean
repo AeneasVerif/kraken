@@ -12,7 +12,7 @@ meta import LeanQbe.T.Module
 /-!
 # WebAssembly Binary Decoder & End-to-End Sandbox Compilation Test Suite
 
-Verifies Phase 2A WebAssembly binary module decoding (`LeanQbe.T.Wasm.Decode`), validation,
+Verifies WebAssembly binary module decoding (`LeanQbe.T.Wasm.Decode`), validation,
 lowering, and verified compilation across SysV x86-64 and AAPCS64 AArch64 targets:
 
 1. **Negative / Robustness Unit Tests**:
@@ -27,7 +27,7 @@ lowering, and verified compilation across SysV x86-64 and AAPCS64 AArch64 target
    - Cross-function recursion: recursive `call` with bounded stack budget.
    - Attack sandbox defense modules: OOB memory loads and division by zero.
 
-3. **Real Compiled C Guest Module**:
+3. **Clang-Compiled C Guest Module**:
    Complete WebAssembly binary compiled from C using host `clang --target=wasm32 -O2 -nostdlib
    -Wl,--no-entry -Wl,--export=square -Wl,--strip-all` (Debian Clang 21.1.8 + wasm-ld):
    decoded, exported symbols preserved, validated, lowered, and verified under `semScc`.
@@ -334,7 +334,7 @@ def modAttackBytes : ByteArray := ⟨#[
     checkBudgetRecCompile LegalTarget.aarch64 qm
   | .error _ => false
 
-/-! ## 4. Real Compiled C Guest Module -/
+/-! ## 4. Clang-Compiled C Guest Module -/
 
 /-- Real WebAssembly binary compiled from C using:
 `clang --target=wasm32 -O2 -nostdlib -Wl,--no-entry -Wl,--export=square -Wl,--strip-all`

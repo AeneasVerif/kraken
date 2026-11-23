@@ -7,9 +7,9 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat Wave 2 `PR-W2A` (`RC-19`) `Func.wp` Proofs — Part 1a (`FullM6TiersProof1a`)
+# Kissat M6 Tiers `Func.wp` Proofs — Part 1a (`FullM6TiersProof1a`)
 
-Proves `Func.wp` (strictly UNSAT-only, ZERO SAT/model proofs) for the first `5` Wave-2
+Proves `Func.wp` (strictly UNSAT-only, ZERO SAT/model proofs) for the first `5` M6
 orchestrator upgrades in `FullM6Tiers`:
 1. `full_switch_mode_m6` against `Full.fullSwitchModeSpec` (`focused`/`stable` tick watermarks).
 2. `full_rephase_m6` against `m6RephaseSpec` (reducing to `Full.fullRephaseSpec` on `stable ≠ 0`).

@@ -5,9 +5,9 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Stage-5 Fast BCP C0 Upgrades (`FullFastCore`)
+# Kissat `D-Full` M2 Fast BCP C0 Upgrades (`FullFastCore`)
 
-Ports the **M2 core BCP speedups** from `prototype/kissat-fast-c0` (`Fast1.lean`) while preserving
+Implements the **M2 Fast core BCP optimizations** while preserving
 the exact byte-identical `FullHdr` (`135` `u64` words after `KissatDimacs`):
 
 - Inline assignment (`vals`, `phases`, `lvl`, `rsns`, `flags`, `trail_pos`, `trail`), inline

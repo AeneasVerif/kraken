@@ -13,7 +13,7 @@ meta import LeanQbe.T.Amd64.Bignum
 Self-contained machine-level audit for compiled `chacha20Block` (128-bit `v4i32` SIMD),
 Curve25519 bignum kernels (`mul4x4` using `mulx`/`adcx`/`adox` with zero `setcc`,
 `addMod25519`, `subMod25519`), and Union-Find (`find`, `union`, `unionInline`) on SysV x86-64
-(`Kraken.X64`). This module imports ONLY `Kraken.X64` (`LeanQbe.T.Amd64.*`), never
+(`Kraken.X64`). This module imports only `Kraken.X64` (`LeanQbe.T.Amd64.*`), never
 `Kraken.AArch64`.
 
 ## What This Workstream Proves

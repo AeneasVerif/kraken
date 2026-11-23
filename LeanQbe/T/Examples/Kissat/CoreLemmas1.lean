@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.Core
 
 /-!
-# Soundness Proofs for the Kissat Abstract CDCL Core (`X2-LayerA`, Part 1)
+# Soundness Proofs for the Kissat Abstract CDCL Core (Layer A, Part 1)
 
 Proves foundational semantic soundness for `LeanQbe.T.Examples.Kissat.Core` over
 `Std.Sat.CNF Nat` (pure Lean, zero `Kraken.Mem`):

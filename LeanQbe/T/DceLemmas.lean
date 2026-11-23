@@ -4,7 +4,7 @@ public import LeanQbe.T.Dce
 public import LeanQbe.T.OptUtilLemmas
 
 /-!
-# Soundness and Relational Well-Formedness of Dead-Code Elimination (`T6`, `O-M2`)
+# Soundness and Relational Well-Formedness of Dead-Code Elimination
 
 * `OpCode.wp_exists`: any satisfied `OpCode.wp` guarantees existence of output tuples (exhibiting
   the canonical quiet NaN witness via `isFloatNaN_packedNaN` when quantifiers arise from NaNs,

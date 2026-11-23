@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.CorePlusMinimizeLemmas1
 
 /-!
-# Kissat `CorePlus` Iterative Literal and Clause Minimization Proofs (`Wave 1b`)
+# Kissat `CorePlus` Iterative Literal and Clause Minimization Proofs
 
 Proves the remaining two minimization functions in `CorePlus.lean` on top of
 `CorePlusMinimizeLemmas1`:
