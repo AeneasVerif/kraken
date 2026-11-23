@@ -1765,16 +1765,20 @@ def deferLeaNext {rs : List Ty} (I : Isa) (h : I.Hints) (nv ip : Nat)
     (st1 : SymState I) {ts : List Ty} (op : Op VNat ts) (k' : Expr VNat LNat rs) : Bool :=
   if !isLeaDeferCand op.code then false
   else
-    match ts, recordDef st1.defs op.code op.args, k' with
-    | [_], some df, .let_ (ts := ts2) op2 k2 =>
-      exprFreeOfVar h nv (k2 (Tup.levels ts2 (nv + 1))) (nv + 1 + ts2.length) &&
+    match ts, k' with
+    | [_], .let_ (ts := ts2) op2 k2 =>
+      match recordDef st1.defs op.code op.args with
+      | some df =>
         match stepPre I h (ip + 1) { st1 with defs := st1.defs.insert nv df } with
         | some (_, stAfter) =>
           match resolveDsts I h ts2 (nv + 1) with
-          | some dsts2 => (tryLeaArith I stAfter op2.code op2.args dsts2).isSome
+          | some dsts2 =>
+            (tryLeaArith I stAfter op2.code op2.args dsts2).isSome &&
+              exprFreeOfVar h nv (k2 (Tup.levels ts2 (nv + 1))) (nv + 1 + ts2.length)
           | none => false
         | none => false
-    | _, _, _ => false
+      | none => false
+    | _, _ => false
 
 mutual
 def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :

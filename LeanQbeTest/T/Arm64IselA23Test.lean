@@ -147,31 +147,55 @@ theorem armIsa_a2_a3_rfl :
 /-- `full_prop_lit_raw`-style bitmask test `(x & 0x80000000) != 0` emits 1 `ANDS_i`. -/
 meta def bitTestImm32Fn : Fn :=
   ⟨"bitTestImm32", [i32, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
-    .let_ (op2 (.and i32) (.var x) (.imm 0x80000000)) fun (t, ()) =>
-    .let_ (op2 (.cmp .ne i32) (.var t) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op2 (.and i32) (.var x) (.imm 0x80000000)) fun (t, ()) =>
+        .let_ (op2 (.cmp .ne i32) (.var t) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- Register bit-test `(x & y) == 0` emits 1 `ANDS_s`, 0 `AND`/`CMP`. -/
 meta def bitTestReg64Fn : Fn :=
   ⟨"bitTestReg64", [i64, i64, i64, i64], [i64], fun _ _ (x, y, a, b, ()) =>
-    .let_ (op2 (.and i64) (.var x) (.var y)) fun (t, ()) =>
-    .let_ (op2 (.cmp .eq i64) (.var t) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op2 (.and i64) (.var x) (.var y)) fun (t, ()) =>
+        .let_ (op2 (.cmp .eq i64) (.var t) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- `LratBytes` LEB128 bit-7 test `((load i8 p) & 0x80) != 0` emits `ANDS_i`, 0 `UBFM`/`CMP`. -/
 meta def leb128Bit7Fn : Fn :=
   ⟨"leb128Bit7", [i64, i64, i64], [i64], fun _ _ (p, a, b, ()) =>
-    .load i8 (.var p) fun v =>
-    .let_ (op2 (.and i8) (.var v) (.imm 0x80)) fun (t, ()) =>
-    .let_ (op2 (.cmp .ne i8) (.var t) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .load i8 (.var p) fun v =>
+        .let_ (op2 (.and i8) (.var v) (.imm 0x80)) fun (t, ()) =>
+        .let_ (op2 (.cmp .ne i8) (.var t) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- `Rega.tryExtCmp`: `sext 8 64` + `cmp .slt (-1)` folds without widening. -/
 meta def extCmpSext8Fn : Fn :=
   ⟨"extCmpSext8", [i8, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
-    .let_ (op1 (.sext 8 64) (.var x)) fun (sx, ()) =>
-    .let_ (op2 (.cmp .slt i64) (.var sx) (.imm (-1))) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op1 (.sext 8 64) (.var x)) fun (sx, ()) =>
+        .let_ (op2 (.cmp .slt i64) (.var sx) (.imm (-1))) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- `wdata[i + 1]` load & store (`base + (i << 2) + 4`) fuse into `ADD_s x16` + `[x16, #4]`. -/
 meta def baseIdxDisp4Fn : Fn :=
@@ -198,9 +222,15 @@ meta def baseIdxNegDispFn : Fn :=
 /-- Multi-bit mask test `(x & 0x6) != 0` emits 1 `ANDS_i` (not single-bit `TBZ`/`TBNZ`). -/
 meta def bitTestMultiImm32Fn : Fn :=
   ⟨"bitTestMultiImm32", [i32, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
-    .let_ (op2 (.and i32) (.var x) (.imm 0x6)) fun (t, ()) =>
-    .let_ (op2 (.cmp .ne i32) (.var t) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op2 (.and i32) (.var x) (.imm 0x6)) fun (t, ()) =>
+        .let_ (op2 (.cmp .ne i32) (.var t) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 #guard chk [bitTestImm32Fn]
 #guard countDirs isTbzOrTbnzDir (codeOf [bitTestImm32Fn]) == 1

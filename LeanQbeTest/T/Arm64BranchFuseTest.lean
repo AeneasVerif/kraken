@@ -131,46 +131,88 @@ theorem armSingleBit_checks :
 /-- `x == 0` at `i64` emits `CBZ` (0 `SUBS`, 0 `B.cond`). -/
 meta def cbz64Fn : Fn :=
   ⟨"cbz64", [i64, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
-    .let_ (op2 (.cmp .eq i64) (.var x) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var x) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op2 (.cmp .eq i64) (.var x) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- `0 != x` (commutative zero) at `i32` emits `CBNZ`. -/
 meta def cbnz32CommFn : Fn :=
   ⟨"cbnz32Comm", [i32, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
-    .let_ (op2 (.cmp .ne i32) (.imm 0) (.var x)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op2 (.cmp .ne i32) (.imm 0) (.var x)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- Narrow `i8` `x == 0` uses `UBFM` + `CBZ`, 0 `SUBS`. -/
 meta def cbz8Fn : Fn :=
   ⟨"cbz8", [i8, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
-    .let_ (op2 (.cmp .eq i8) (.var x) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op2 (.cmp .eq i8) (.var x) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- Signed `x < 0` at `i32` emits `TBNZ w, #31` (0 `SUBS`/`B.LT`). -/
 meta def sltZero32Fn : Fn :=
   ⟨"sltZero32", [i32, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
-    .let_ (op2 (.cmp .slt i32) (.var x) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op2 (.cmp .slt i32) (.var x) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- Unsigned `x > 0` (`ugt 0`) emits `CBNZ`. -/
 meta def ugtZero64Fn : Fn :=
   ⟨"ugtZero64", [i64, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
-    .let_ (op2 (.cmp .ugt i64) (.var x) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op2 (.cmp .ugt i64) (.var x) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- Single-bit test `(x & (1 << 5)) == 0` at `i64` emits `TBZ x, #5`. -/
 meta def tbz64Bit5Fn : Fn :=
   ⟨"tbz64Bit5", [i64, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
-    .let_ (op2 (.and i64) (.var x) (.imm 32)) fun (t, ()) =>
-    .let_ (op2 (.cmp .eq i64) (.var t) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op2 (.and i64) (.var x) (.imm 32)) fun (t, ()) =>
+        .let_ (op2 (.cmp .eq i64) (.var t) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- `sext 8 64` + `<s 0` narrows through `sextVar` and emits `TBNZ w, #7`. -/
 meta def sextSltZeroFn : Fn :=
   ⟨"sextSltZero", [i8, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
-    .let_ (op1 (.sext 8 64) (.var x)) fun (sx, ()) =>
-    .let_ (op2 (.cmp .slt i64) (.var sx) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+    .group (sig := [[], []])
+      (fun _ => Blocks.cons (fun () => .ret (.var a, ()))
+        (Blocks.cons (fun () =>
+          .let_ (op2 (.add i64) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ()))
+          Blocks.nil))
+      fun (j0, j1, ()) =>
+        .let_ (op1 (.sext 8 64) (.var x)) fun (sx, ()) =>
+        .let_ (op2 (.cmp .slt i64) (.var sx) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
 /-- Branch inversion: threading `true` arm (`jump j0`) flips `== 0` (`CBZ`) to `CBNZ`. -/
 meta def cbzFlipThreadFn : Fn :=
