@@ -8,7 +8,7 @@ public import LeanQbe.T.Examples.Kissat.FullM5HeurCoreProof2b
 public import LeanQbe.T.Examples.Kissat.FullOneLitConflLemmas
 
 /-!
-# Kissat M5 Wave 1 (`PR-W1A`): `ModuleOk` & Concrete `Mem 64` UNSAT NV (`FullM5HeurCoreProof`)
+# Kissat M5 Heuristics: `ModuleOk` & Concrete `Mem 64` UNSAT NV (`FullM5HeurCoreProof`)
 
 Combines the `11` parametric UNSAT-only `Func.wp` proofs (`Proof0`, `Proof1`, `Proof2a`, `Proof2b`)
 into:

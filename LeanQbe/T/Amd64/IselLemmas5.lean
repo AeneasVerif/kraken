@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Amd64.IselLemmasBitcnt
 
 /-!
-# x64 Scalar `GprTarget` Proofs — Part 5 (`T8`)
+# x64 Scalar `GprTarget` Proofs — Part 5
 
 1-for-1 `x64SupportsScalarOp` soundness & completeness, unified `x64Gpr_op_spec`,
 and assembled `x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch`.

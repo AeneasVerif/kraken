@@ -9,7 +9,7 @@ meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.Full
 
 /-!
-# Stage 4 (`D-Full`) Kissat Native Certificate Slice 2/7 on SysV x64
+# Kissat `D-Full` Native Certificate Slice 2/7 on SysV x64
 
 Kernel-checked native compilation certificate (`cert2`) for slice `[38, 67)` (`29` functions) of
 `LeanQbe.T.Examples.Kissat.Full.fullFns` on `x64Target`.

@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalWpBaseLemmas1
 
 /-!
-# Legalization semantic preservation BitVec widening & shifts (`T5`, Part 1b)
+# Legalization semantic preservation BitVec widening & shifts (Part 1b)
 -/
 
 set_option autoImplicit false

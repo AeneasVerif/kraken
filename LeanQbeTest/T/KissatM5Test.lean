@@ -18,8 +18,8 @@ import Kraken.Separation
    exits/externs, concrete `fullNvUnsatBytes` payload bounds, `PrintCpp`, `PrintQbe`, and
    `Fn.legal` / `isLegal` across `.aarch64`, `.scalar64`, `.x64AVX512`, and `.x64AVX2`.
 2. Concrete `Mem 64` source-level `Func.wp` sanity check (`m5_unsat_payload`, `XPost := False`,
-   canonical `270`-function `m5Env`, strictly UNSAT-only — ZERO SAT / model-finding proofs).
-3. Root-namespace short aliases for single-line `#print axioms` audit (`< 115` chars) covering
+   canonical `270`-function `m5Env`, strictly UNSAT-only — no SAT / model-finding proofs).
+3. Root-namespace short aliases for single-line `#print axioms` audit covering
    `Func.Wf`, acyclicity, `270`-row table metadata, unconditional `270/270` `ModuleOk`
    (`m5Env` & `m5UnsatEnv`), `m5_solve_bytes_correct`, `m5_unsat_nonvacuous`, and
    `m5_fwd_unsat_nonvacuous` (`⊆ [propext, Classical.choice, Quot.sound]`).

@@ -1,6 +1,6 @@
 #include "../../LeanQbe/T/Frontend/C0/c0.h"
 
-/* V1: Layout parity fixtures matching Kissat & Lean 4 LP64 layouts */
+/* Layout parity fixtures matching Kissat & Lean 4 LP64 layouts */
 
 typedef union {
   struct {

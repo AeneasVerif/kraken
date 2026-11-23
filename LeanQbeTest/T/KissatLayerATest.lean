@@ -17,10 +17,10 @@ Executable `#guard` and `#eval` tests exercising:
 1. Lazy `(level, trailPos)` ordering, `seedRemovable`, early failures (`poisoned`, `maxDepth`),
    binary-chain caching, and multi-depth iterative DFS worklist minimization.
 2. `shrinkBlockExec` and multi-block `shrinkClauseExec` (`alwaysMin` / `resolveLarge` fallback).
-3. `analyzeFailedLiteralExec` intermediate unit emission and `G4` empty-trail guard.
+3. `analyzeFailedLiteralExec` intermediate unit emission and empty-trail guard.
 4. `markGarbageIf`, `deleteUnreferencedClauses`, `sweepClauses` + `applyRefTargets` (binary
    promotion + root-literal stripping), `partitionIrredFirst`, and `reduceAndCollect`.
-5. Single-line `#print axioms` checks (`<= 120` cols, standard axioms only).
+5. Single-line `#print axioms` checks (standard axioms only).
 -/
 
 set_option autoImplicit false
@@ -38,7 +38,7 @@ open LeanQbe.T.Examples.Kissat
   -- x1 (2): decision @ level 1, trail[1]
   -- x2 (4): decision @ level 2, trail[2]
   -- x3 (6): large 0 [3, 5, 6] @ level 2, trail[3]
-  -- x4 (8): binary 3 [3, 8] @ lazy level 1, trail[4] (later than level-2 x2, x3!)
+  -- x4 (8): binary 3 [3, 8] @ lazy level 1, trail[4] (later than level-2 x2, x3).
   -- x5 (10): large 1 [1, 9, 10] @ level 2, trail[5] (depends on root0 ¬x0 + lazy ¬x4)
   -- x6 (12): large 2 [11, 7, 12] @ level 2, trail[6] (multi-depth DAG via x5 and x3)
   { f0 := cnfOfClauses [[0], [3, 8], [3, 5, 6], [1, 9, 10], [11, 7, 12]]
@@ -162,8 +162,8 @@ private def failedLitExecCdcl : CdclState :=
 @[expose] public def collectRichState : CdclState :=
   -- x0 (0): unit @ level 0 (so lit 0 is root-true, lit 1 is root-false)
   -- x1 (2): decision @ level 1
-  -- x2 (4): large 0 [1, 3, 4] @ level 1 -> root-false lit 1 stripped -> [3, 4] -> binary!
-  -- x3 (6): large 5 [3, 5, 6] @ level 1 -> 3-literal irredundant clause moved to front!
+  -- x2 (4): large 0 [1, 3, 4] @ level 1 -> root-false lit 1 stripped -> [3, 4] -> binary.
+  -- x3 (6): large 5 [3, 5, 6] @ level 1 -> 3-literal irredundant clause moved to front.
   { f0 := cnfOfClauses [[0], [1, 3, 4], [0, 5], [3, 5, 7], [2, 5, 7], [3, 5, 6]]
     numVars := 4
     clauses := #[
@@ -645,7 +645,7 @@ public theorem nv_core_flush_reduce :
   exact ⟨hfl.1, hfl.2.1, hfl.2.2.1, hrd.1, fun α hα =>
     hrd.2.2.2.2.2.2.2.1 α (by rw [hfl.2.2.2.1, h5.2, h4.2, h3.2, h2.2, h1.2, h0.2]; exact hα)⟩
 
-/-! ## 5. Single-line `#print axioms` checks (`<= 120` cols) -/
+/-! ## 5. Single-line `#print axioms` checks -/
 
 #print axioms LeanQbe.T.Examples.Kissat.seedRemovable_preserves
 #print axioms LeanQbe.T.Examples.Kissat.cut_delete_sound

@@ -5,17 +5,17 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat M6 Wave 2 (`RC-26b` + `RC-27`): Parse-Time Unit BCP, ProbSAT Walk & VSIDS Rescale
+# Kissat M6 Parse-Time Unit BCP, ProbSAT Walk & VSIDS Rescale (`FullM6WalkParse`)
 
-Standalone `FullHdr`-free drop-in C0 overrides (`0` edits to `Full1..3`, `FullM4*`, `FullM5*`, or
-`FullHdr`), implementing two high-ROI Wave-2 upgrades:
-1. **`RC-26b` (`full_parse_body_m6`):** Eager level-0 unit propagation during DIMACS clause
+Standalone C0 overrides preserving the unchanged `144`-word `FullHdr` layout,
+implementing parse-time unit propagation and ProbSAT local search / EVSIDS rescaling:
+1. **Parse-time unit BCP (`full_parse_body_m6`):** Eager level-0 unit propagation during DIMACS
    ingestion (`src/internal.c:351-364`). Calls canonical `full_ingest_cl` and runs
    `full_propagate` immediately whenever at least one binary/large clause has been added and new
    level-0 units await propagation (saving/restoring `fuel` and `search_ticks`, clearing `oom` on
    abort, and leaving pure `UnitUnsatTrace` paths untouched), satisfying exact canonical
    `Full.fullParseBodySpec`.
-2. **`RC-27` (`full_rescale_m6`, ProbSAT `V3b` `full_walk_core_m6`, `full_walk_m6`):**
+2. **EVSIDS rescale & ProbSAT walk (`full_rescale_m6`, `full_walk_core_m6`, `full_walk_m6`):**
    - `full_rescale_m6`: finer EVSIDS rescaling (`>> 16ULL`, preserving 12 extra bits of activity
      ranking; exact `Full.fullRescaleSpec`).
    - `full_walk_core_m6` (+ 6 pure/CSR helpers): zero-`malloc`, zero-`double` Q30 integer ProbSAT
@@ -23,7 +23,7 @@ Standalone `FullHdr`-free drop-in C0 overrides (`0` edits to `Full1..3`, `FullM4
      `tarjan_reach`/`wsort`/`scratch_buf`), with `walk.c` piecewise-linear `cb`, adaptive flip
      budget `clamp(2 * ncl, 256, 4096)`, O(deg) CSR break/flip maintenance, and lazy best-phase
      trail, satisfying exact canonical `Full.fullWalkSpec`.
-   - `full_walk_m6`: wires `full_warmup` (landed `PR-W1A` `FullM5HeurCore.m5WarmupFn`) directly
+   - `full_walk_m6`: wires `full_warmup` (`FullM5HeurCore.m5WarmupFn`) directly
      before `full_walk_core_m6` (`src/walk.c:960-965`), satisfying `m6WalkSpec` (identical footprint
      to `Full.fullWarmupSpec`).
 -/
@@ -561,7 +561,7 @@ def m6WalkParseExterns : List Extern :=
   , ⟨"full_propagate", [i64], [i64]⟩
   , ⟨"full_warmup", [i64], []⟩ ]
 
-/-- Standalone M6 Wave-2 `RC-26b` + `RC-27` module (`11` functions + `7` externs, `0` exits). -/
+/-- Standalone M6 parse-BCP / ProbSAT walk module (`11` functions + `7` externs, `0` exits). -/
 def m6WalkParseModule : LeanQbe.T.Module :=
   { fns := m6WalkParse_fns, externs := m6WalkParseExterns, exits := [] }
 

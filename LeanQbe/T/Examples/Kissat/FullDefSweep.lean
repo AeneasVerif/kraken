@@ -7,7 +7,7 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat `D-Full` Semantic Gate Mining + `kitten`-Backed Cone Sweeping & Dense Congruence
 
-Ports from `prototype/kissat-fast-c0` (`Fast.lean` + `Fast4.lean`) onto the byte-identical
+Implements semantic gate mining, dense congruence, and `kitten`-backed sweeping on the
 `144`-word (`FullHdr`) arena layout (`Full1.lean`, omitting dead `h->def_cnt` updates):
 1. Semantic gate mining (`definition.c`):
    - `full_bve_mark_and` (duplicate-literal guard via `lm[ot] == 2` + `nmask` bitmask)

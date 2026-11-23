@@ -12,7 +12,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Compilation Checks, & Axiom Audit for Kissat Wave-2 `PR-W2C` (`FullM6VivBackbone`)
+# Verification, Compilation Checks, & Axiom Audit for Kissat M6 (`FullM6VivBackbone`)
 
 1. Executable `#guard` checks on `m6VivBackboneModule` (`40` new functions + `15` canonical
    externs, `0` exits), `checkAcyclic = true`, `m6VivBackboneSpecTable` (`55` rows), `PrintCpp`,
@@ -25,7 +25,7 @@ meta import LeanQbe.T.Legal
    `full_viv_clause_m6`), unconditional `m6VivBackbone_moduleOk : ModuleOk m6VivBackboneEnv
    m6VivBackboneModule`, and concrete `Mem 64` UNSAT non-vacuity theorems (`XPost := False`,
    `nvM6F0.Unsat`, `0` SAT model proofs).
-3. Single-line `< 115`-col `#print axioms` audit on all `25` restated theorems (strictly
+3. Single-line `#print axioms` audit on all `25` restated theorems (strictly
    `⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
@@ -60,11 +60,11 @@ open Kraken.Bedrock2.Test
 
 section AuditSpec
 
-/-- Every function in `m6VivBackbone_fns` (`40` Wave-2 `PR-W2C` functions) is well-formed. -/
+/-- Every function in `m6VivBackbone_fns` (`40` M6 functions) is well-formed. -/
 theorem m6_wf : ∀ f ∈ m6VivBackbone_fns, f.Wf :=
   m6VivBackbone_fns_wf
 
-/-- Standalone `PR-W2C` module `m6VivBackboneModule` passes `checkAcyclic = true`. -/
+/-- Standalone M6 module `m6VivBackboneModule` passes `checkAcyclic = true`. -/
 theorem m6_acyc : m6VivBackboneModule.checkAcyclic = true :=
   m6VivBackbone_acyclic
 
@@ -76,11 +76,11 @@ theorem m6_tbl_len : m6VivBackboneSpecTable.length = 55 :=
 theorem m6_tbl_nd : (m6VivBackboneSpecTable.map SpecEntry.name).Nodup :=
   m6VivBackboneSpecTable_nodup
 
-/-- Standalone `PR-W2C` module has zero exits (`noExit = true`). -/
+/-- Standalone M6 vivification/backbone module has zero exits (`noExit = true`). -/
 theorem m6_no_exit : m6VivBackboneModule.exits = [] :=
   m6VivBackboneModule_noExit
 
-/-- Unconditional closed `55`-row `ModuleOk` certifying all `40` `PR-W2C` functions. -/
+/-- Unconditional closed `55`-row `ModuleOk` certifying all `40` M6 functions. -/
 theorem m6_mod_ok : ModuleOk m6VivBackboneEnv m6VivBackboneModule :=
   m6VivBackbone_moduleOk
 

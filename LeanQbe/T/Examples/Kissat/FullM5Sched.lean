@@ -5,10 +5,10 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Stage-3 M5 Scheduler Parity v2 C0 Upgrades (`FullM5Sched`)
+# Kissat `D-Full M5` Scheduler, EMA & Mode-Switching C0 Upgrades (`FullM5Sched`)
 
-Drop-in verified C0 replacements targeting Kissat 4.0.4 (`C1`) scheduler, EMA, mode-switching,
-rephase, and limit-scaling parity (`PR-W1C`, `RC-13`) while preserving the exact `FullHdr` layout
+Drop-in verified C0 replacements targeting Kissat 4.0.4 scheduler, EMA, mode-switching,
+rephase, and limit-scaling parity while preserving the exact `FullHdr` layout
 (`0` new or borrowed header fields) and unchanged `Full` / `FullFastSched` contracts:
 
 - `full_log10_q16`: pure Q16 fixed-point `log10(x)` via Q32 repeated squaring (`u64`-safe).

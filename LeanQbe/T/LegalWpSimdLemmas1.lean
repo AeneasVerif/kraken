@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalWpBaseLemmas
 
 /-!
-# Legalization word-stream and 128-bit SIMD/SHA-256 lowering `_wp` lemmas (`T5`, Part 2)
+# Legalization word-stream and 128-bit SIMD/SHA-256 lowering `_wp` lemmas (Part 2)
 -/
 
 set_option autoImplicit false

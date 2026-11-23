@@ -5,9 +5,9 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Wave 4 `PR-W4B`: Weighted Literal Occurrence VMTF Reorder (`FullM7Reorder`)
+# Kissat M7 Weighted Literal Occurrence VMTF Reorder (`FullM7Reorder`)
 
-Purely additive `T1` direct replacement for `FullM4Ternary.full_reorder_queue` matching upstream
+Additive direct replacement for `FullM4Ternary.full_reorder_queue` matching upstream
 Kissat 4.0.4 `src/reorder.c:24-217` (`compute_weights`, `less_focused_order`, `reorder_focused`):
 - `full_reorder_weight_m7(sz)`: quantized `2^-(sz - 2)` weight `(1ULL << 40) >> (sz - 2)` for
   `2 <= sz <= 42` (`0` otherwise, avoiding `u64` overflow up to `16M` clauses per literal).
@@ -308,11 +308,11 @@ def m7ReorderExterns : List Extern :=
 /-- Standalone `m7Reorder` function list (`3` functions). -/
 def m7ReorderFns : List Fn := m7_reorder_fns
 
-/-- Drop-in Wave-3/4 `Fn` handle preserving canonical `"full_reorder_queue"` (`[i64] -> [i64]`). -/
+/-- Drop-in M6/M7 `Fn` handle preserving canonical `"full_reorder_queue"` (`[i64] -> [i64]`). -/
 def m7ReorderQueueFn : Fn :=
   ⟨"full_reorder_queue", [i64], [i64], full_reorder_queue_m7_body⟩
 
-/-- Standalone Wave-4 `PR-W4B` module (`3` functions, `1` extern, `0` exits). -/
+/-- Standalone M7 VMTF reorder module (`3` functions, `1` extern, `0` exits). -/
 def m7ReorderModule : LeanQbe.T.Module :=
   { fns := m7ReorderFns, externs := m7ReorderExterns, exits := [] }
 

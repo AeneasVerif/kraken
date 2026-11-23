@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Standalone CI guardrail runner for c11_* W0/W1 regression canaries,
-# OOM/witness/h->oom monotonicity fuzzing, C3b structural invariants,
-# and C1-vs-C3b differential telemetry. Does not modify repo state.
+# Standalone guardrail runner for c11_* regression canaries, OOM/witness/h->oom monotonicity
+# fuzzing, PrintCpp C++20 (C3b) structural invariants, and upstream Kissat (C1) vs C3b telemetry.
+# Does not modify repository state.
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"

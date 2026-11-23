@@ -15,7 +15,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-4H Proofs: `Func.wp`, `ModuleOk`, & UNSAT Non-Vacuity (`FullM7BumpProof`)
+# Kissat M7 Bump/RNG Proofs: `Func.wp`, `ModuleOk`, & UNSAT Non-Vacuity (`FullM7BumpProof`)
 
 M1-clean verification (`public section`, zero `@[expose]`) for `FullM7Bump`:
 1. Exact Knuth LCG spec (`m7RngNextExactSpec`) and canonical `Full.fullRngNextSpec` for

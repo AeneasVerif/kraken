@@ -18,7 +18,7 @@ meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.Examples.Kissat.FullM4
 
 /-!
-# B5-5 Regression, Soundness & Axiom Tests: Nested `IfOpt` + Partial `LoopRotate`
+# Regression, Soundness & Axiom Tests: Nested `IfOpt` + Partial `LoopRotate`
 
 Covers:
 1. Nested 2-level & 3-level `IfOpt` / `IfOptBits` (`cmov`/branchless select chains) modeling
@@ -199,7 +199,7 @@ theorem threeLevelCall_callsOk :
   Func.ifOpt_callsOk (by t_wf_reify) (by
     simp [threeLevelCallDiamond, Expr.callsOk, Blocks.callsOk])
 
-/-- Negative guard: nested inner `.load` (as in `full_sort_tmp_sift`) MUST NOT be hoisted. -/
+/-- Negative guard: nested inner `.load` (as in `full_sort_tmp_sift`) must not be hoisted. -/
 def nestedLoadGuardDiamond : Func [.bool, .bool, i64, i64] [i64] :=
   fun _ _ (c1, c2, p, x, ()) =>
   .group (sig := [[i64]])
@@ -215,7 +215,7 @@ theorem nestedLoadGuard_unchanged :
     Func.ifOpt nestedLoadGuardDiamond = nestedLoadGuardDiamond := by
   t_kernel_rfl
 
-/-- Negative guard: nested partial `.udiv` MUST NOT be hoisted. -/
+/-- Negative guard: nested partial `.udiv` must not be hoisted. -/
 def nestedUdivDiamond : Func [.bool, .bool, i64, i64] [i64] :=
   fun _ _ (c1, c2, x, d, ()) =>
   .group (sig := [[i64]])
@@ -229,7 +229,7 @@ def nestedUdivDiamond : Func [.bool, .bool, i64, i64] [i64] :=
 
 theorem nestedUdiv_unchanged : Func.ifOpt nestedUdivDiamond = nestedUdivDiamond := by t_kernel_rfl
 
-/-- Negative guard: >4 total safe `.let_` ops inside nested arm MUST NOT be hoisted. -/
+/-- Negative guard: >4 total safe `.let_` ops inside nested arm must not be hoisted. -/
 def nestedOver4OpsDiamond : Func [.bool, .bool, i64] [i64] := fun _ _ (c1, c2, x, ()) =>
   .group (sig := [[i64]])
     (fun _ => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
@@ -445,7 +445,7 @@ theorem loadHdrBlocked_default_noRot :
   t_kernel_rfl
 
 /-- Negative guard: loop whose back-edges are all direct conditional jumps (`condBack == backJumps`,
-so `expCount = 0`) MUST NOT trigger partial rotation. -/
+so `expCount = 0`) must not trigger partial rotation. -/
 def allCondNoPartialLoop : Func [i64, i64] [i64] := fun _ _ (n, acc0, ()) =>
   loop1 (ts := [i64, i64])
     (fun loop (i, acc, ()) =>

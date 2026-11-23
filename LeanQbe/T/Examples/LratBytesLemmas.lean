@@ -5,7 +5,7 @@ import LeanQbe.T.Examples.LratBytesRupLemmas
 import LeanQbe.T.Examples.LratBytesCheckLemmas
 
 /-!
-# Total-Correctness and `ModuleOk` Proofs for `lratBytesModule` in `LeanQbe.T` (`T16` / `K1a`)
+# Total-Correctness and `ModuleOk` Proofs for `lratBytesModule` in `LeanQbe.T`
 
 Links the per-function and pure-mirror proofs from:
 - `LratBytesSpec.lean`: `lratBytesFns_wf`, pure mirror `runLratCheckBytes`, `WorkState`, contracts
@@ -477,7 +477,7 @@ theorem lratCheckBytes_rejects_nonvacuous :
       fun m' hm' => ⟨rfl, hm'⟩⟩
 
 /-- Short-name alias of `lratCheckBytes_accepts_nonvacuous` so `#print axioms` stays ≤ 120 cols
-(single-line report for `scripts/check.sh` Step 4). -/
+(single-line report for `scripts/check.sh` axiom audits). -/
 theorem lratCheckBytes_accepts :
     let cnf_ptr : BitVec 64 := 0x1000#64
     let prf_ptr : BitVec 64 := cnf_ptr + BitVec.ofNat 64 nvDimacsBytes.length
@@ -495,7 +495,7 @@ theorem lratCheckBytes_accepts :
   lratCheckBytes_accepts_nonvacuous
 
 /-- Short-name alias of `lratCheckBytes_rejects_nonvacuous` so `#print axioms` stays ≤ 120 cols
-(single-line report for `scripts/check.sh` Step 4). -/
+(single-line report for `scripts/check.sh` axiom audits). -/
 theorem lratCheckBytes_rejects :
     let cnf_ptr : BitVec 64 := 0x1000#64
     let prf_ptr : BitVec 64 := cnf_ptr + BitVec.ofNat 64 nvDimacsBytes.length

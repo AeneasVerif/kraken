@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalWpBaseLemmas2
 
 /-!
-# Legalization semantic preservation relational tree `_wp` lemmas (`T5`, Part 1c)
+# Legalization semantic preservation relational tree `_wp` lemmas (Part 1c)
 -/
 
 set_option autoImplicit false

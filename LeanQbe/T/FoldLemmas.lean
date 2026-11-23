@@ -5,7 +5,7 @@ public import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.OpsLemmas
 
 /-!
-# Correctness of `fold` (`T6`)
+# Correctness of `fold`
 
 * `OpCode.eval?_sound`: evaluating an immediate `OpCode` refines `OpCode.wp` (using `canonNaN` and
   `isFloatNaN_packedNaN` for nondeterministic float NaNs).

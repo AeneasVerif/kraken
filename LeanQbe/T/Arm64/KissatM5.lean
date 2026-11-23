@@ -10,12 +10,12 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# KissatM5 (`270` fns, Inlined-`b5`) Unconditional AAPCS64 Arm64 Theorems
+# KissatM5 (`270` fns, `InlinePolicy.b5`) Unconditional AAPCS64 Arm64 Theorems
 
 Combines `KissatM5Cert.m5Cert` (`FullM5.m5Module.optInlinePolicy InlinePolicy.b5`) and
 `KissatM5CertLink` with `FullM5Proof` contracts (`m5Env_moduleOk`, `m5UnsatEnv_moduleOk`) to
 establish unconditional AAPCS64 Arm64 UNSAT soundness (`Eventually (step1 Host.exe)` + `cnf.Unsat`)
-and both arbitrary-host and closed concrete-host UNSAT non-vacuity (`XPost := False`, `std3`).
+and both arbitrary-host and concrete-host UNSAT non-vacuity (`XPost := False`, standard axioms).
 -/
 
 set_option autoImplicit false
@@ -83,7 +83,7 @@ variable [hh : Host] (k₀ : Nat)
 include hh k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen hcfit hwfit s ra R
   hx0 hx1 hx2 hx3 hx4 hra hsp hmem
 
-/-- Unconditional end-to-end AAPCS64 Arm64 UNSAT soundness + framing for inlined-`b5` `m5Module`.
+/-- Unconditional AAPCS64 Arm64 UNSAT soundness + framing for `InlinePolicy.b5` `m5Module`.
 -/
 theorem m5_solve_bytes_unsat_arm64 :
     Eventually (step1 Host.exe)
@@ -139,7 +139,7 @@ theorem m5_solve_bytes_unsat_arm64 :
   rw [← sep_assoc] at hst'
   exact ⟨hpc, hdom, hu', hcal, hsp', hst'⟩
 
-/-- Answer-only AAPCS64 Arm64 UNSAT soundness corollary for inlined-`b5` `m5Module`. -/
+/-- Answer-only AAPCS64 Arm64 UNSAT soundness corollary for `InlinePolicy.b5` `m5Module`. -/
 theorem kissat_m5_arm64_unsat_correct :
     Eventually (step1 Host.exe)
       (fun st =>
@@ -156,7 +156,7 @@ theorem kissat_m5_arm64_unsat_correct :
 
 end Unsat
 
-/-- Unconditional concrete AAPCS64 Arm64 UNSAT non-vacuity for inlined-`b5` `FullM5.m5Module`
+/-- Unconditional concrete AAPCS64 Arm64 UNSAT non-vacuity for `InlinePolicy.b5` `FullM5.m5Module`
 (`270` fns): there exists a well-formed call on `fullNvUnsatBytes` (`4096`-byte workspace,
 `fuel = 16`) that returns `X0 = 20#64` with `parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`. -/
 theorem m5_arm64_unsat_nonvacuous [hh : Host] (k₀ : Nat)

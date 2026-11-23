@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Copy and tuple-pair propagation (`T6`)
+# Copy and tuple-pair propagation
 
 PHOAS-to-PHOAS optimisation pass `copy : Nat → Expr (CVal V) L rs → Expr V L rs` where every
 variable carries:

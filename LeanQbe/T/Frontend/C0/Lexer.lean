@@ -5,7 +5,7 @@ import Std.Data.HashMap
 import Std.Data.HashSet
 
 /-!
-# Self-Contained C0 Lexer & Preprocessor (`X0-core`)
+# Self-Contained C0 Lexer & Preprocessor
 
 Tokenizes `.c`/`.h` source strings with exact 1-based line numbers, object-like
 `#define`/`#undef` macro expansion, `#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif`,

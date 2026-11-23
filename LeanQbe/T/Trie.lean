@@ -3,11 +3,11 @@ module
 public import Lean.ToExpr
 
 /-!
-# Structural `O(log n)` Binary `Nat`-Keyed Trie (`B2`)
+# Structural `O(log n)` Binary `Nat`-Keyed Trie
 
 Kernel-reducible (`rfl`-safe: no `WellFounded.fix`, structural `fuel := n + 1` on `insert`)
 binary trie with `Lean.ToExpr` deriving and verified `find?`/`insert`/`erase` laws, shared by
-`LeanQbe.T.Target` (`Hints`), `T7` (`R_slot`, `defs`), and Wave 4 passes.
+`LeanQbe.T.Target` (`Hints`), `Rega` (`slots`, `defs`), and mid-end optimization passes.
 -/
 
 set_option autoImplicit false
@@ -17,7 +17,7 @@ set_option autoImplicit false
 namespace LeanQbe.T
 
 /-- Structural `O(log n)` binary trie (`rfl`-safe: no `WellFounded.fix`,
-`fuel := n + 1` on `insert`, `#165`/`#167`). -/
+`fuel := n + 1` on `insert`). -/
 inductive Trie (α : Type) where
   | empty
   | node (val : Option α) (even odd : Trie α)

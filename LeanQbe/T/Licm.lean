@@ -24,7 +24,7 @@ Two-phase PHOAS loop-invariant code motion pass following the `TFlat` guess-and-
      `.let_` directly before `.group` (binding hoisted values lexically across `bodies` and `k`
      with zero block-parameter plumbing).
    - Replaces matching in-loop `.let_` nodes via `GvnTbl V` lookups.
-   - Zero-overhead fast path: returns `f` unchanged when `plan.hasHoists = false`.
+   - No-op fast path: returns `f` unchanged when `plan.hasHoists = false`.
 
 Correctness (`LeanQbe/T/LicmLemmas.lean`): `OpCode.isLicmPure_spec`, `licmSweep_wf`,
 `licmSweep_wp`, `Func.licm_wf`, `Func.licm_spec`, `Func.licm_supportsSource`, `Fn.licm_wf`,

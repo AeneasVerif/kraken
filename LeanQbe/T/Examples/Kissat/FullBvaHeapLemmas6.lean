@@ -349,7 +349,7 @@ theorem full_factor_wp (Γ : Env)
             (fun _ mf => mf = ml)
             (fun _ _ mf hmf => ?_)
             (fun Jmain hJmain => ?_)
-          · -- Exit main loop (elaborated once!): zero `hp[0..2*cur_vars)` & `ps`, return `1ULL`
+          · -- Exit main loop (elaborated once): zero `hp[0..2*cur_vars)` & `ps`, return `1ULL`
             subst mf
             have h2cvl : (BitVec.ofNat 64 stl.core.cur_vars <<< (1 : Nat)).toNat =
                 2 * stl.core.cur_vars := by

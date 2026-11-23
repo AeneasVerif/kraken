@@ -15,7 +15,7 @@ Builds on `CorePlusArena` to define:
    `addClause_preserves_core`, `swapClause_preserves_core`, `minMarkInv_*`,
    `entails_of_minMarkInv`).
 3. Unit-witness trace predicates (`UnitSatTrace`, `UnitUnsatTrace`) and pure DIMACS/CNF helpers
-   for non-vacuity and Wave 1b proofs (`CorePlusSpec` holds per-fn contracts & `Env.ofTable`).
+   for non-vacuity and `Func.wp` proofs (`CorePlusSpec` holds per-fn contracts & `Env.ofTable`).
 -/
 
 set_option autoImplicit false

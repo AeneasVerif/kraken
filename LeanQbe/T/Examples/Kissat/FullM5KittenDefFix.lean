@@ -5,23 +5,23 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat `M5` Wave 0 (`RC-08`): Kitten Safety, VMTF Queue, & `full_find_definition` Fixes
+# Kissat `M5`: Kitten Safety, VMTF Queue, & `full_find_definition` Fixes
 
 Standalone drop-in replacements for `[170] full_find_definition` and `FullKitten`
 (`full_kitten_{add_clause,ana_clause,build_failing,solve,core}`), `0` edits to `FullKitten.lean`,
 `FullDefSweep.lean`, `Full1..3`, or `FullM4.lean`:
 
-1. **`full_kitten_add_clause_m5` (`S08-06`)**: rejects unit clauses cleanly (`return false`) when
+1. **`full_kitten_add_clause_m5`**: rejects unit clauses cleanly (`return false`) when
    `k[KH_NUNITS] >= 256u` before mutating arena/`nc`/`orig_nc`, preventing silent unit drops.
-2. **`full_kitten_ana_clause_m5` (`S08-06`)**: marks level-`0` variables (`KO_FLAGS[v] |= 2u`,
+2. **`full_kitten_ana_clause_m5`**: marks level-`0` variables (`KO_FLAGS[v] |= 2u`,
    pushed to `KO_ANA`) so each level-`0` reason is recorded in `KO_RES` at most once.
-3. **`full_kitten_build_failing_m5` & `full_kitten_core_m5` (`S08-06`)**: clears stale `KM_CORE`
+3. **`full_kitten_build_failing_m5` & `full_kitten_core_m5`**: clears stale `KM_CORE`
    bits across `0 .. k[KH_NC]` on BOTH `INCONS` and `FAILING` paths before seeding the core.
-4. **`full_kitten_solve_m5` (`S08-05`)**: saturates `u32` `KH_TICK_LIM` at `0xFFFFFFFFu` without
+4. **`full_kitten_solve_m5`**: saturates `u32` `KH_TICK_LIM` at `0xFFFFFFFFu` without
    modulo-`2^32` wraparound, loops strictly on `k[KH_TICKS] < k[KH_TICK_LIM]`, clears stale
    `KH_FAILING` on pre-existing `KH_INCONS`, and delegates failing assumptions to
    `full_kitten_build_failing_m5`.
-5. **`full_find_definition_m5` (`S08-01`, `S08-07`, `S06-03`)**: repairs VMTF queue pointers
+5. **`full_find_definition_m5`**: repairs VMTF queue pointers
    (`QLAST = QSEARCH = nv - 1u`, `QSTAMP = nv`, `QNEXT[nv - 1u] = 0xFFFFFFFFu`) after finalizing
    `nv > 0`, and snapshots the valid 1st-core `pmask`/`nmask` before `full_kitten_shrink` so a
    2nd-solve timeout preserves the already-proven gate core.

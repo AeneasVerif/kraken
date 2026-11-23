@@ -6,7 +6,7 @@ public import LeanQbe.T.WP
 import LeanQbe.T.OptUtilLemmas
 
 /-!
-# Correctness of Acyclic Small-Callee Inlining (`O-M1`)
+# Correctness of Acyclic Small-Callee Inlining
 
 * `lookupCallee_mem`: callee lookup witnesses matching `Fn` in candidate list.
 * `spliceRet_wp`, `spliceRet_wf`, `spliceRet_callsOk`: soundness, well-formedness, and
@@ -14,7 +14,7 @@ import LeanQbe.T.OptUtilLemmas
 * `inline_wp`, `inline_wf`, `inline_callsOk`: expression-level soundness, relational `Wf`, and
   `callsOk` preservation.
 * `Func.inline_wf`, `Func.inline_spec`: closed-function specifications.
-* `Module.inline_sigs`, `Module.inline_names`, `Module.inline_namesNodup`, and the flagship
+* `Module.inline_sigs`, `Module.inline_names`, `Module.inline_namesNodup`, and the main
   module theorem `Module.inline_ok`: `ModuleOk Γ M → ModuleOk Γ (M.inline maxSize)`.
 -/
 
@@ -666,7 +666,7 @@ private theorem inlineFnsPolicy_ok {Γ : Env} (policy : InlinePolicy)
             (seenSigs ++ [fn.sig]) cands' rest hwp' hcalls' hrest' tl fn' post' htl
           simpa [hsig, List.append_assoc] using ih
 
-/-- Flagship module correctness theorem for policy-driven acyclic inlining. -/
+/-- Module correctness theorem for policy-driven acyclic inlining. -/
 theorem Module.inlinePolicy_ok {Γ : Env} {M : Module} (policy : InlinePolicy := {}) :
     ModuleOk Γ M → ModuleOk Γ (M.inlinePolicy policy) := fun hM => by
   refine ⟨(Module.inlinePolicy_namesNodup M policy).symm ▸ hM.nodup, fun pre fn post hsplit => ?_⟩
@@ -679,7 +679,7 @@ theorem Module.inlinePolicy_ok {Γ : Env} {M : Module} (policy : InlinePolicy :=
     (fun pre0 fn0 post0 hsp0 => by simpa using hM.fnsOk pre0 fn0 post0 hsp0)
     pre fn post hsplit
 
-/-- Flagship module correctness theorem: acyclic small-callee inlining preserves `ModuleOk Γ`. -/
+/-- Module correctness theorem: acyclic small-callee inlining preserves `ModuleOk Γ`. -/
 theorem Module.inline_ok {Γ : Env} {M : Module} (maxSize : Nat := 40) :
     ModuleOk Γ M → ModuleOk Γ (M.inline maxSize) :=
   Module.inlinePolicy_ok (InlinePolicy.const maxSize)

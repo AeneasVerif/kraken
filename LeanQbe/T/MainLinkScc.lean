@@ -236,7 +236,7 @@ private theorem legalEnv_callSlot_ext {mod : Module} {lt : LegalTarget} {Γext :
 /-- **One-shot `DepthEnv.lfp_le` SCC linking theorem (`link_scc_depth_lfp`):**
 proves `T.Defined` and `T.FnSpec` for `DepthEnv.semScc mod Γext d` at stack bound
 `M.baseBound + d * M.stepBound` for every `d ≤ fuel`, with zero induction over compiler
-internals (ready for Stage 3's `.tailCall` arm). -/
+internals (structured to accommodate future `.tailCall` support). -/
 theorem link_scc_depth_lfp {T : Target} {lt : LegalTarget}
     {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel : Nat}
     {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}

@@ -852,7 +852,7 @@ theorem full_cong_extract_ite_wp (Γ : Env)
                     refine ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hnd, hcl0, hc_lt, hm0,
                       fun ok hok => ?_⟩
                     fc_split
-                    · -- ok = true -> emit ITE gate!
+                    · -- ok = true -> emit ITE gate
                       have hne_ce : c_lit ≠ e ^^^ 1 :=
                         bv32_ne_of_div2_ne (div2_ne_of_xor1 (Ne.symm hec))
                       have hne_cy : c_lit ≠ y := bv32_ne_of_div2_ne hcy

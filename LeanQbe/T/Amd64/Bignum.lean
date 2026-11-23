@@ -13,7 +13,7 @@ meta import LeanQbe.T.Amd64.TargLemmas
 meta import LeanQbe.T.Examples.Bignum
 
 /-!
-# Curve25519 Bignum Kernels on SysV x64 (`T13`)
+# Curve25519 Bignum Kernels on SysV x64
 
 Instantiates the typed-IR bignum modules (`mul4x4Module`, `addMod25519Module`, `subMod25519Module`)
 on `x64Target` (`x64LegalTarget`, `x64Layout`, `x64LabelClean`) with:

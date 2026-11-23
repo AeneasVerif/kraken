@@ -8,7 +8,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 `PR-W2B` Proof Shard 3a (`full_deduce_1uip_m6`)
+# Kissat M6 Minimization/Shrink Proof Shard 3a (`full_deduce_1uip_m6`)
 
 Proves `full_deduce_1uip_m6_wp` establishing canonical `Full.fullDeduce1uipSpec` for
 `full_deduce_1uip_m6_body` (`FullM6MinShrink.lean`), reusing resolvent theory and semantic step

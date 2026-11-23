@@ -12,10 +12,10 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave 4G Proof Shard 0: `full_sort_u32_m7`, `full_log10_q16_m7`, `full_rephase_m7`
+# Kissat M7 Analyze/Sort Proof Shard 0: `full_sort_u32_m7`, `full_log10_q16_m7`, `full_rephase_m7`
 
 M1-clean UNSAT-only `Func.wp` proofs (`public section`, `0 @[expose]`, `0 import all`):
-1. Public Wave-4G specifications (`m7SortU32SortedSpec`, `m7SortTmpHeapSpec`, `m7SortTmpSpec`,
+1. Public M7 specifications (`m7SortU32SortedSpec`, `m7SortTmpHeapSpec`, `m7SortTmpSpec`,
    `m7Log10Q16Spec`) with `_of`, `_elim`, `_monoX`, `toCanonical`, and `SafetySlice` bridges.
 2. `full_sort_u32_m7_wp`: proves Shellsort against `m7SortU32SortedSpec` (`Perm`, length, suffix,
    ascending `u32` order) and derives canonical `Full.fullSortU32Spec`.
@@ -43,7 +43,7 @@ open scoped LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open scoped LeanQbe.T.Examples.Kissat.Full.FullMinTactics
 open Kraken.Bedrock2.Test
 
-/-! ## 1. Wave-4G Public Spec Definitions & Constructors (Opaque M1) -/
+/-! ## 1. M7 Public Spec Definitions & Constructors (Opaque) -/
 
 /-- Monotonic non-decreasing predicate on `arr[0 ..< n)` in `u32` numeric order. -/
 def M7SortedU32 (arr : List (BitVec 32)) (n : Nat) : Prop :=
@@ -161,7 +161,7 @@ theorem m7SortTmpHeapSpec_monoX {a : Tup Val [i64, i64, i64, i64]} {m : Mem 64}
     {Q : Post []} {X₁ X₂ : XPost} (h : m7SortTmpHeapSpec a m Q X₁) :
     m7SortTmpHeapSpec a m Q X₂ := h
 
-/-- Wave-4G `sort_deduced_clause` contract (`full_sort_tmp_m7`). Strengthens `Full.fullSortTmpSpec`
+/-- M7 `sort_deduced_clause` contract (`full_sort_tmp_m7`). Strengthens `Full.fullSortTmpSpec`
 with exact `(level, trail_pos)` `fullTmpLe` order while isolating scratch mutation strictly to
 idle `wsort` when `17 ≤ tmp_len` (leaving `work_stk2` and all other scratch unchanged). -/
 def m7SortTmpSpec : Spec [i64] [] := fun (h, ()) m Q _ =>

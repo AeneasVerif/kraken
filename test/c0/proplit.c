@@ -1,6 +1,6 @@
 #include "../../LeanQbe/T/Frontend/C0/c0.h"
 
-/* V2: C0 port of Kissat watch-list propagation (proplit.h, COMPACT mode) */
+/* C0 port of Kissat watch-list propagation (proplit.h, COMPACT mode) */
 
 typedef union {
   struct {

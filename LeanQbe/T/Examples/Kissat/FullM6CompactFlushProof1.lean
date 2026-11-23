@@ -498,7 +498,7 @@ public theorem full_compact_flush_m6cf_wp (Γ : Env)
                 c0_hsplit
                 · -- `sr == 0`
                   c0_hsplit
-                  · -- `propagated >= trail_end`: break!
+                  · -- `propagated >= trail_end`: break
                     have hge_pt2 : s2.core.trail_end ≤ s2.core.propagated := by c0_bound
                     have heq_pt2 : s2.core.propagated = s2.core.trail_end := by omega
                     c0_hsteps
@@ -821,7 +821,7 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                     have h1 := hc; simp only [hli_mod] at h1
                     rw [List.getElem?_eq_getElem hlit_lvl_bd, Option.getD_some]; exact h1
                   c0_hsplit
-                  · -- `vals < 0`: root-false -> SKIP!
+                  · -- `vals < 0`: root-false -> skip
                     have hvf : ((s.core.vals[lit.toNat]?.getD 0#8).signExtend 32).slt 0#32 =
                         true := by
                       have h1 := hc; simp only [hli_mod] at h1
@@ -830,7 +830,7 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                     c0_hsteps
                     exact hJk keep (by
                       dsimp only [cnt]; rw [extKeepCount_succ, hfk]; simpa using hkeep_eq)
-                  · -- `vals >= 0`: KEEP!
+                  · -- `vals >= 0`: keep
                     have hvnf : ((s.core.vals[lit.toNat]?.getD 0#8).signExtend 32).slt 0#32 ≠
                         true := by
                       have h1 := hc; simp only [hli_mod] at h1
@@ -839,20 +839,20 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                     c0_hsteps
                     exact hJs () m
                       ⟨rfl, extLitKeep_eq_true hlit_ar hne_bl (fun ⟨_, _, hv⟩ => hvnf hv)⟩
-                · -- `lvl != 0`: KEEP!
+                · -- `lvl != 0`: keep
                   have hlvlne : s.core.lvl[lit.toNat / 2]?.getD 0#32 ≠ 0#32 := by
                     have h1 := hc; simp only [hli_mod] at h1
                     rw [List.getElem?_eq_getElem hlit_lvl_bd, Option.getD_some]; exact h1
                   c0_hsteps
                   exact hJs () m
                     ⟨rfl, extLitKeep_eq_true hlit_ar hne_bl (fun ⟨_, h0, _⟩ => hlvlne h0)⟩
-              · -- `lit >= nlits`: KEEP!
+              · -- `lit >= nlits`: keep
                 have hlit_ge : ¬ lit.toNat < 2 * s.core.cur_vars := by
                   have h1 := hc; simp only [hli_mod, h2cv] at h1; exact h1
                 c0_hsteps
                 exact hJs () m
                   ⟨rfl, extLitKeep_eq_true hlit_ar hne_bl (fun ⟨hlt, _, _⟩ => hlit_ge hlt)⟩
-          · -- `lit == bl`: SKIP!
+          · -- `lit == bl`: skip
             have heq_bl :
                 (s.core.arena[cref.toNat + 3 + i.toNat]?.getD 0#32) &&& 0x7FFFFFFF#32 = bl := by
               rw [hlit_ar]; have h1 := hc; simp only [hli_mod] at h1; exact h1
@@ -972,7 +972,7 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                           have h1 := hc; simp only [hli2_mod] at h1
                           rw [List.getElem?_eq_getElem hlit_lvl_bd, Option.getD_some]; exact h1
                         c0_hsplit
-                        · -- `vals < 0`: root-false -> SKIP!
+                        · -- `vals < 0`: root-false -> skip
                           have hvf : ((s.core.vals[lit2.toNat]?.getD 0#8).signExtend 32).slt
                               0#32 = true := by
                             have h1 := hc; simp only [hli2_mod] at h1
@@ -982,7 +982,7 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                           exact hJw (p, ext2) m2
                             ⟨by dsimp only [cnt]; rw [extKeepCount_succ, hfk]; simpa using hp_eq,
                              hext2, hm2⟩
-                        · -- `vals >= 0`: WRITE!
+                        · -- `vals >= 0`: write
                           have hvnf : ((s.core.vals[lit2.toNat]?.getD 0#8).signExtend 32).slt
                               0#32 ≠ true := by
                             have h1 := hc; simp only [hli2_mod] at h1
@@ -991,20 +991,20 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                           c0_hsteps
                           exact hJs () m2 ⟨rfl, extLitKeep_eq_true hlit2_ar hne_bl
                             (fun ⟨_, _, hv⟩ => hvnf hv)⟩
-                      · -- `lvl != 0`: WRITE!
+                      · -- `lvl != 0`: write
                         have hlvlne : s.core.lvl[lit2.toNat / 2]?.getD 0#32 ≠ 0#32 := by
                           have h1 := hc; simp only [hli2_mod] at h1
                           rw [List.getElem?_eq_getElem hlit_lvl_bd, Option.getD_some]; exact h1
                         c0_hsteps
                         exact hJs () m2 ⟨rfl, extLitKeep_eq_true hlit2_ar hne_bl
                           (fun ⟨_, h0, _⟩ => hlvlne h0)⟩
-                    · -- `lit2 >= nlits`: WRITE!
+                    · -- `lit2 >= nlits`: write
                       have hlit_ge : ¬ lit2.toNat < 2 * s.core.cur_vars := by
                         have h1 := hc; simp only [hli2_mod, h2cv] at h1; exact h1
                       c0_hsteps
                       exact hJs () m2 ⟨rfl, extLitKeep_eq_true hlit2_ar hne_bl
                         (fun ⟨hlt, _, _⟩ => hlit_ge hlt)⟩
-                · -- `lit2 == bl`: SKIP!
+                · -- `lit2 == bl`: skip
                   have heq_bl :
                       (s.core.arena[cref.toNat + 3 + i2.toNat]?.getD 0#32) &&& 0x7FFFFFFF#32 =
                       bl := by

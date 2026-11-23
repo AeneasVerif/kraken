@@ -23,7 +23,7 @@ Covers:
 4. `leafNoLoopMaxDup`: allows higher total duplication (`<= 800`) for loop-free leaf callees
    under `Module.inlinePolicy` (`maxTotalDup := 450`), while keeping loop callees capped.
 5. `InlinePolicy.b5` invariants and kernel-checked `Module.inlinePolicy_ok` /
-   `Module.optInlinePolicy_*` soundness preservation (`#print axioms` `<115c` `std3`).
+   `Module.optInlinePolicy_*` soundness preservation (standard-axiom `#print axioms`).
 -/
 
 set_option autoImplicit false
@@ -250,7 +250,7 @@ private def dupPol : InlinePolicy :=
 #guard hasCall "wide_leaf"
     (((dupMod.inlinePolicy { dupPol with leafNoLoopMaxDup := 0 }).fns.getD 1 dummyFn)) == true
 
-/-! ## 5. Kernel-checked soundness & `InlinePolicy.b5` defaults (`std3` `<115c`) -/
+/-! ## 5. Kernel-checked soundness & `InlinePolicy.b5` defaults (standard axioms) -/
 
 theorem b5_defaults :
     InlinePolicy.b5.leafMax = 115 ∧

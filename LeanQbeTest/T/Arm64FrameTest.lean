@@ -4,7 +4,7 @@ public import LeanQbe.T.Arm64.FrameLemmas
 import Kraken.AArch64.Parser
 
 /-!
-# AAPCS64 Arm64 Frame & ABI Verification Tests (`T11b`)
+# AAPCS64 Arm64 Frame & ABI Verification Tests
 
 Standalone downstream module verifying:
 1. Kernel `rfl` reduction of `armFrame` (`bitWidths`, `raBytes`, registers, `frameSize` at

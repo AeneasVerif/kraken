@@ -961,7 +961,7 @@ theorem full_arena_sweep_wp (Γ : Env)
                        fun hpos => by omega, hmC⟩
                     rw [hnsrc64] at hlt ⊢; exact hnxt_mem.resolve_left (by omega)
                   · intro hc3; simp only [LeanQbe.T.Arg.val_var, beq_eq_false_iff_ne, ne_eq] at hc3
-                    -- Live compacted block: `3 ≤ new_sz ≤ old_sz`!
+                    -- Live compacted block: `3 ≤ new_sz ≤ old_sz`
                     clear hcl0_of_special hJE JE hcmpL htailL
                     obtain ⟨hnew3, hnew_le, hnew_lt, hnew_sub, hnew_ent, hbinC⟩ :=
                       sweep_copy_new_props hw0 hbinL hresC hdec_cl0 hcvL
@@ -1184,7 +1184,7 @@ theorem full_arena_sweep_wp (Γ : Env)
                                       exact hvI_r'
                                     fr_tiny_lets
                                     apply wp_jnz_of
-                                    · -- HIT! `rsns[v] = (u32)dst; break`
+                                    · -- Match found: `rsns[v] = (u32)dst; break`
                                       intro hc
                                       simp only [LeanQbe.T.Arg.val_var, beq_iff_eq] at hc
                                       fr_tiny_lets

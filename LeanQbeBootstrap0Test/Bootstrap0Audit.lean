@@ -11,11 +11,11 @@ meta import LeanQbe.T.Bootstrap0.Cert
 # Bootstrap Stage A (`LeanQbeBootstrap0`) — Certification Scope & TCB Audit
 
 This file is meant to be read by a human auditor. It restates, with full unabbreviated types, the
-four Stage-A artifacts currently certified by the Lean 4 kernel for `leanqbe0Compile`, followed by
-a candid Trusted Computing Base (TCB) and Non-Claims Checklist separating what Stage A proves today
-from what Stage B is actively building.
+four Stage-A artifacts certified by the Lean 4 kernel for `leanqbe0Mod0` / `leanqbe0Cert`,
+followed by a Trusted Computing Base (TCB) and Non-Claims Checklist separating what Stage A proves
+from what Stage B/C audit separately and what remains unproved.
 
-## What Stage A Proves Today
+## What Stage A Proves
 
 1. **`audit_leanqbe0Mod0_wf`** (`leanqbe0Mod0_wf`): every one of the `124` functions in the
    lowered `LeanQbe.T.Module` `leanqbe0Mod0` satisfies parametric PHOAS well-formedness (`Fn.Wf`).
@@ -32,23 +32,24 @@ from what Stage B is actively building.
 ## TCB & Non-Claims Checklist (What Stage A Does NOT Prove)
 
 Do **not** interpret Stage A (`leanqbe0Cert`) as a "self-certified compiler" claim. The following
-remain in the TCB or in-flight for Stage B:
+remain outside Stage A or in the TCB:
 
 1. **No `ModuleOk` / `FnSpec` / `Eventually` for `leanqbe0Mod0`:** `leanqbe0Cert` is a syntactic
    IR-to-x64 compilation certificate only. Because `lcnf_rt.c` externs (`rtCalls` / `rtExterns`)
    and `lcnf_panic` carry no formal behavioral contracts — only assumed `64`-byte stack/exit bounds
-   (`rtExtBounds0`, `nX = 64`) — `leanqbe0Cert` does not yet instantiate `x64Target.FnSpec` or
-   `Eventually (step1 Host.exe)`.
+   (`rtExtBounds0`, `nX = 64`) — `leanqbe0Cert` does not instantiate `x64Target.FnSpec` or
+   `Eventually (step1 Host.exe)` for the compiled `leanqbe0` binary itself.
 2. **Untrusted `LeanLCNF` meta extraction (`lcnf_of_lean!` / `splice_lcnf_tflat!`):** extracting
    `leanqbe0LcMod` from Lean's compiler IR and lowering it to `leanqbe0Mod0` proves `Fn.Wf` and
    `checkAcyclic = true`, **not** semantic equivalence to Lean's `leanqbe0Compile` evaluation.
-3. **No `Sound0` compiler-correctness proof (`Compiler0.lean`):** `leanqbe0Compile` (including
-   `PrePass0`, `Legal0`, `Isel0`, `Rega0`, and `.tailCall`) has zero `Func.wp` or `x64`
-   correctness proofs today (and `preWorkLoop0` / `regaWorkLoop0` use bounded `0x7fffffff` fuel).
-4. **Unverified `Bridge0` / `Codec0` & unwired `PrintAsm0`:** `Bridge0` (`ofTFlatModule`,
-   `toAmd64Program`) and binary/ELF emission (`Codec0`) are unverified; `PrintAsm0Lemmas` proves
-   `printModule0 = Driver.emitAsm` on `DirSubset0`, but `PrintAsm0` is not yet wired into
-   `leanqbe0`; and a native binary self-compilation fixpoint has not yet been executed or proved.
+3. **Separate Stage-B / Stage-C scope (`Sound0`, `Codec0`, `PrintDir0`, `PrintAsm0`, `StageC`):**
+   semantic soundness for `leanqbe0Compile` on guarded scalar programs (with bounded `0x7fffffff`
+   worklist fuel in `preWorkLoop0` / `regaWorkLoop0`), binary codec round-trips (`Codec0`), and
+   AT&T printer parity (`PrintAsm0`, `PrintDir0`) are proved and audited separately in
+   `Sound0Test.lean`, `Codec0Test.lean`, `PrintDir0Test.lean`, `PrintAsm0Test.lean`, and
+   `StageCTest.lean`, rather than discharged through `leanqbe0Cert` itself.
+4. **No native binary self-compilation fixpoint:** a native `leanqbe0` binary compiling itself to a
+   verified fixpoint has not yet been executed or proved.
 -/
 
 set_option autoImplicit false

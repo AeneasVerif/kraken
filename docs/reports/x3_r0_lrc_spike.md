@@ -1,4 +1,6 @@
-# X3-R0 Report: Lean `λRC` / `Lean.IR.Decl` → `LeanQbe.T` Spike & Tier-0a Runtime
+> **[Historical design note]** Written during the initial `LeanLRC` prototype; `LeanQbe.T.LeanLRC.*` and `test/lrc/run.sh` have since been wired into the main build and cyclic/SCC linking (`LinkRec`, `LinkScc`) has since landed. See `LeanQbe-README.md` for current paths and status.
+
+# Lean `λRC` / `Lean.IR.Decl` → `LeanQbe.T` Prototype & Tier-0a Runtime
 
 ## 1. Architecture & Deliverables Summary
 
@@ -9,10 +11,6 @@
 | `LeanQbe/T/LeanLRC/ToT.lean` | `LrcModule → TFlatFn` lowering (`rt` threading, `loop1` tail calls, `jdecl`/`jmp`, `reset`/`reuse` ctor fallback, `pap`/`ap`), 4 bench modules + `realLeanIrMod` | 992 | `TFlat.wfCheck`, `tflatFnsToFns_wf`, x64/Arm64 compile |
 | `LeanQbeTest/T/LeanLRCTest.lean` | Kernel `Func.Wf` proofs, `#guard` suites, `scalarStructMod` coverage, single-line `#print axioms`, C++20/QBE codegen | 403 | 0 sorry, 0 native tactics, `[propext, Classical.choice, Quot.sound]` |
 | `test/lrc/run.sh` | 7-way differential suite (`leanc`, `g++`, `clang++` ASan+UBSan, native x64, Arm64/QEMU, stock QBE x64 & Arm64) + exit traps | 86 | Bit-identical outputs & traps pass |
-
-> **Scope note on `LeanQbe.lean` / `scripts/all.sh`:**
-> Per X3-R0 ownership rules, `LeanQbe.lean` and `scripts/all.sh` were left untouched;
-> `k1a-lander` wires the public `LeanQbe.T.LeanLRC.*` exports and `test/lrc/run.sh` on landing.
 
 ## 2. Tier-0a ABI, Layout, and Lowering Design
 
@@ -64,10 +62,10 @@ Total across all `28` C0-elaborated runtime helpers (`657` x64 / `662` Arm64 mac
 
 Note: Tail-recursive functions (`lrc_sumToAcc`, `lrc_mapAdd_build`, `lrc_foldMap_build`,
 `leanSumToAcc`, `leanListBuild`, `leanListFoldl`) eliminate self-call cycles via `loop1`; thus
-`sumToMod` linked with `rtBase_fns` already satisfies `Module.checkAcyclic = true`! Non-tail
+`sumToMod` linked with `rtBase_fns` already satisfies `Module.checkAcyclic = true`. Non-tail
 recursive modules (`mapAddMod`, `tree2Mod`, `foldMapMod`, `realLeanIrMod`) have self/indirect
 calls rejected by `Module.checkAcyclic`. Across our test corpus all static SCCs are size 1 because
-user `ap` callers invoke `lean_apply_k` rather than direct mutual cycles; once `link_rec` links
+user `ap` callers invoke `lean_apply_k` rather than direct mutual cycles; once cyclic linking links
 `ap -> lean_apply_k -> papTarget`, higher-order mutual cycles (`f -> lean_apply_k -> g -> f`)
 form non-trivial SCCs including `lean_apply_k` itself.
 
@@ -100,9 +98,9 @@ to the `5` targets with `arity ≥ 2` and adds the `rem == 1` over-application p
 - **Dynamic per-call overhead:** Every non-tail function pays 2 extra calls (`enter` on entry,
   `leave` before `ret`) checking `rt->fuel` and `rt->depth` in memory. Each tail `loop1` iteration
   pays 1 `lean_rt_tick` call checking/decrementing `rt->fuel` only.
-- **Optimization path post-X3:** Once `B1.1` / inlining lands, inlining `lean_rt_{enter,tick,leave}`
-  (keeping `rt` or its `fuel`/`depth` fields in registers across `loop1`) eliminates all per-iteration
-  call overhead (~2 instructions: `decq`/`cbz`!).
+- **Follow-up optimization path:** With cyclic linking and inlining, inlining
+  `lean_rt_{enter,tick,leave}` (keeping `rt` or its `fuel`/`depth` fields in registers across
+  `loop1`) eliminates per-iteration call overhead (~2 instructions: `decq`/`cbz`).
 
 ## 4. Differential Validation Results
 
@@ -123,28 +121,28 @@ Observed identical vectors:
 - Abnormal traps (`g++` `ExitException`, native x64 & Arm64 `setjmp`/`longjmp`):
   `lean_out_of_fuel`, `lean_stack_overflow`, `lean_oom` all trap as expected.
 
-## 5. Readiness Analysis for `B1.1` `link_rec`
+## 5. Readiness Analysis for Cyclic Recursion Linking (`LinkRec`)
 
-The Tier-0a `λRC` pipeline exposes three concrete requirements for `B1.1` (`link_rec` supporting
-arbitrary mutually recursive modules and closures):
+The Tier-0a `λRC` pipeline exposes three concrete requirements for cyclic/mutually recursive linking
+(`LinkRec`/`LinkScc` supporting arbitrary mutually recursive modules and closures):
 
 1. **Coinductive / Fixed-Point `ModuleOk` (`Env` Least-Fixed-Point / Fuel-Indexed `wp`):**
-   - Current `LeanQbe/T/Module.lean` requires `M.fns = pre ++ fn :: post`
+   - Acyclic `LeanQbe/T/Module.lean` requires `M.fns = pre ++ fn :: post`
      with `fn.callsOk (pre.map Fn.sig ++ ext.map Extern.sig)`. This handles `sumToMod` (`loop1`),
-     but immediately rejects non-tail recursion (`lrc_treeSum`, `lrc_mapAdd_map`) and `lean_apply_k`
+     but rejects non-tail recursion (`lrc_treeSum`, `lrc_mapAdd_map`) and `lean_apply_k`
      ↔ user closure SCCs (`realLeanIrMod`, `foldMapMod`).
-   - **Action for `B1.1`:** Replace linear `pre ++ fn :: post` prefix restriction with a cyclic
+   - **Design requirement:** Replace the linear `pre ++ fn :: post` prefix restriction with a cyclic
      `M.callsOk (allSigs := M.sigs)` predicate plus a mutual/fuel-indexed or coinductive `Env`
      hypothesis: assuming every `g ∈ M.sigs` meets `Γ g` at strictly smaller recursion measure `(fuel,
-     depth)` (matching our explicit `rt->fuel` and `rt->depth`!), every SCC in `M` discharges `ModuleOk`
-     by induction on `rt->fuel`. Notice `rt->fuel` and `rt->depth` in `LeanRt` ALREADY provide the
-     exact semantic termination witness needed for **total correctness** (`Func.wp` with `exits`) over
-     arbitrary recursive Lean programs!
+     depth)` (matching explicit `rt->fuel` and `rt->depth`), every SCC in `M` discharges `ModuleOk`
+     by induction on `rt->fuel`. Both `rt->fuel` and `rt->depth` in `LeanRt` provide the semantic
+     termination witness needed for total correctness (`Func.wp` with `exits`) over recursive Lean
+     programs.
 
 2. **Sound Whole-Module Stack Bounds (`stackBound_rec`):**
-   - Current `LeanQbe/T/Main.lean` `calleesBound` computes
+   - Acyclic `LeanQbe/T/Main.lean` `calleesBound` computes
      `max(F + ra + bound(callee))` assuming an acyclic DAG (`Option Nat` fails or diverges on cycles).
-   - **Action for `B1.1`:** Two clean options exist and compose naturally with `X3-R0`:
+   - **Design options:** Two approaches compose directly with `LeanLRC`:
      - *Dynamic `depth` guard (already live in Tier-0a):* `rt->depth` caps call chain length at `D0`,
        so peak stack usage of any cyclic SCC `S` is statically bounded by `D0 * (max_{f ∈ S} (F_f + ra))`
        (plus acyclic prefix/suffix bounds). In the stack-frame invariant, lowering passes `rt->depth` as
@@ -156,9 +154,9 @@ arbitrary mutually recursive modules and closures):
    - Because `lean_apply_k` branches on `cl->m_fun_id` and saturates/chains all `N` `pap` targets,
      `lean_apply_k` connects caller SCCs to every closure target in the module, inflating the worst-case
      callees-set of `lean_apply_k`.
-   - **Action for `B1.1`:** Separate *type-safe indirect specification* (`closureSpec cl` indexing a
+   - **Design requirement:** Separate *type-safe indirect specification* (`closureSpec cl` indexing a
      relational closure table by `(fun_id, nfix, args)`) from *monolithic inlined SCCs*: `lean_apply_k`'s
-     `wp` postcondition can dispatch cleanly to `(targets[fid].spec)` at `fuel' = fuel - 1`, letting
+     `wp` postcondition can dispatch to `(targets[fid].spec)` at `fuel' = fuel - 1`, letting
      callers (`listMap`, `listFoldl`) stay modular without knowing unrelated closure targets' frames,
      while per-target ABI conformance (`params.all (·.toTTy == i64)`) is already enforced in
      `lowerLrcProgram`.

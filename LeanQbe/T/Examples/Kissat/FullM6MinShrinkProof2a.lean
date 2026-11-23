@@ -8,7 +8,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 `PR-W2B` Proof Shard 2a (`full_min_lit_dfs_m6`, `full_min_lit_m6`, `shrink_lower`)
+# Kissat M6 Min/Shrink Proof Shard 2a (`full_min_lit_dfs_m6`, `full_min_lit_m6`, `shrink_lower`)
 
 Proves `Func.wp` for `3` minimization DFS/lower-literal functions in `FullM6MinShrink.lean`
 (UNSAT-only, no `@[expose]`):
@@ -38,7 +38,7 @@ open scoped LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open scoped LeanQbe.T.Examples.Kissat.Full.FullMinTactics
 open Kraken.Bedrock2.Test
 
-/-! ## 1. Wave-2B Spec & `Full` <-> `FullMinSpecs` Bridges -/
+/-! ## 1. M6 Spec & `Full` <-> `FullMinSpecs` Bridges -/
 
 private theorem toSpecsMinInv {k : FullCoreState} {keep : List Nat}
     (h : Full.FullMinMarkInv k keep) : FullMinMarkInv k keep :=

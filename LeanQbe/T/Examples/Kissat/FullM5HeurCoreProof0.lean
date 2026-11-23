@@ -10,17 +10,17 @@ public import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.C0Agrees
 
 /-!
-# Kissat M5 Wave 1 (`PR-W1A`) `Func.wp` Proofs — Part 0 (`FullM5HeurCoreProof0`)
+# Kissat M5 Heuristics `Func.wp` Proofs — Part 0 (`FullM5HeurCoreProof0`)
 
 Proves UNSAT-only parametric `Func.wp` contracts (`XPost := False`, `0` SAT proofs) for the first
 `6` functions of `FullM5HeurCore`:
-1. `full_save_target_best_m5_wp` against canonical `Full.fullSaveTargetBestSpec` (`RC-12`).
+1. `full_save_target_best_m5_wp` against canonical `Full.fullSaveTargetBestSpec`.
 2. `fullBacktrackRawSpec` + `full_backtrack_raw_m5_wp` (`rfl`-bridged from
    `FullIngestLemmas2.full_backtrack_wp`).
-3. `full_backtrack_m5_wp` against canonical `Full.fullBacktrackSpec` (`RC-12`).
-4. `full_warmup_m5_wp` against canonical `Full.fullWarmupSpec` (`RC-12`).
-5. `full_analyze_rsn_m5_wp` against canonical `Full.fullAnalyzeRsnSpec` (`RC-09`).
-6. `full_otfs_subsume_m5_wp` against canonical `Full.fullOtfsSubsumeSpec` (`RC-09`).
+3. `full_backtrack_m5_wp` against canonical `Full.fullBacktrackSpec`.
+4. `full_warmup_m5_wp` against canonical `Full.fullWarmupSpec`.
+5. `full_analyze_rsn_m5_wp` against canonical `Full.fullAnalyzeRsnSpec`.
+6. `full_otfs_subsume_m5_wp` against canonical `Full.fullOtfsSubsumeSpec`.
 -/
 
 set_option autoImplicit false
@@ -967,7 +967,7 @@ theorem full_warmup_m5_wp (Γ : Env)
 
 end WarmupProof
 
-/-! ## 4. `full_analyze_rsn_m5` & `full_otfs_subsume_m5` (`RC-09`) -/
+/-! ## 4. `full_analyze_rsn_m5` & `full_otfs_subsume_m5` -/
 
 section AnalyzeRsnAndOtfsProof
 
@@ -1175,7 +1175,7 @@ private theorem m5_arenaSetGlue_preserves_fullWitnessCut {c : FullCfg} {F0 : CNF
     (fun x => (x &&& ~~~0x0007FFFF#32) ||| ng) k.arena_garbage ni' nr'
     (m5_bv32_setGlue_garb _ ng hng) (m5_bv32_setGlue_shrk _ ng hng)
 
-/-- `full_analyze_rsn_m5` unconditionally sets `used = 31u` for all redundant reasons (`RC-09`,
+/-- `full_analyze_rsn_m5` unconditionally sets `used = 31u` for all redundant reasons (
 `deduce.c:14-27`) and satisfies canonical `Full.fullAnalyzeRsnSpec`. -/
 theorem full_analyze_rsn_m5_wp (Γ : Env)
     (hLit : ∀ a m Q X, fullAnalyzeLitSpec a m Q X →

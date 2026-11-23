@@ -7,7 +7,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Stage-3 M7 Search Parity Closed `ModuleOk` & Concrete UNSAT NV (`FullM7SearchProof`)
+# Kissat M7 Search Parity Closed `ModuleOk` & Concrete UNSAT NV (`FullM7SearchProof`)
 
 Combines all `15` parametric `(Γ : Env)` `Func.wp` proofs from `FullM7SearchProof{0,1,2}` and the
 `8` extern `FullSpec*` specs into a closed `23`-row `SpecTable`:
@@ -18,7 +18,7 @@ Combines all `15` parametric `(Γ : Env)` `Func.wp` proofs from `FullM7SearchPro
 - Concrete `Mem 64` UNSAT non-vacuity (`nv_m7_tumble`, `nv_m7_lucky_late`, `nv_m7_randec_step`,
   `nv_m7_decide`, `nv_m7_switch_mode`) with `XPost := fun _ _ _ _ => False`.
 
-> **Pitfall `#3909` (Solver Loop Integration Guard)**: `full_lucky_late_m7` MUST run **ONCE**
+> **Caller Precondition (Single-Invocation Guard)**: `full_lucky_late_m7` MUST run **ONCE**
 > before the main search loop starts (e.g., at pre-search root initialization), **NEVER** inside
 > the inner decision/conflict loop. Calling it inside the search loop repeatedly invokes level-0
 > lucky probing and full restarts/backtracks on every decision iteration.
@@ -147,7 +147,7 @@ theorem m7Search_moduleOk : ModuleOk m7SearchEnv m7SearchModule :=
 /-! ## 2. Canonical `FullSpec` Drop-In `Fn` Handles -/
 
 /-- Drop-in `Full.fullLuckySpec` WP proof for `full_lucky_late_m7`.
-Pitfall `#3909`: invoke ONLY ONCE before the solver search loop, never per iteration. -/
+Caller precondition: invoke ONLY ONCE before the solver search loop, never per iteration. -/
 theorem m7LuckyLateFn_dropin_wp (Γ : Env)
     (hPolar : EnvSpec Γ "full_lucky_polar_m7" fullLuckyPolarSpec)
     (hScan : EnvSpec Γ "full_lucky_scan" fullLuckyScanSpec)

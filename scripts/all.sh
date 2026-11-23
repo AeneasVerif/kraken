@@ -5,16 +5,16 @@
 #                            closures, axiom audit
 #   test/run.sh              x64 litmus tests: leanqbe and stock QBE
 #   test/arm64/run.sh        AArch64 litmus tests under qemu: leanqbe-arm64 and stock QBE
-#   test/cpp/run.sh          C++20 PrintCpp differential and Rule A6 trap-default tests
+#   test/cpp/run.sh          C++20 PrintCpp differential and trap-default tests
 #   tool/test_lrat_check.sh  lrat_check: unit, command-line and differential tests
 #   bench/run.sh             benchmark table; every row must print the C baseline's result hashes
-#   test/c0/run.sh           C0 frontend V1 layout, C99/C++20 differential & 111 probe tests
+#   test/c0/run.sh           C0 frontend layout, C99/C++20 differential & 111 probe tests
 #   test/t_lrat/run.sh       typed-IR LRAT bytes checker C++20 differential & ASan/UBSan tests
 #   test/t_bignum/run.sh     typed-IR bignum x64 + AArch64 native differential tests
 #   test/t_chacha/run.sh     typed-IR ChaCha20 x64 + AArch64 RFC 8439 & differential tests
 #   test/t_qbe/run.sh        typed-IR PrintQbe stock QBE (x64 + arm64) round-trip tests
 #   test/lrc/run.sh          Lean λRC / Lean.IR -> LeanQbe.T C++/x64/arm64/QBE differential tests
-#   test/kissat/run.sh       Kissat X1 Stage A C0 SAT solver differential & native tests
+#   test/kissat/run.sh       Kissat C0 SAT solver differential & native tests
 #   test/lcnf/run.sh         LeanLCNF impure LCNF -> LeanQbe.T C++/x64/arm64 differential & bench tests
 #
 # Runs scripts/check.sh first, then runs the remaining thirteen scripts (sequentially when

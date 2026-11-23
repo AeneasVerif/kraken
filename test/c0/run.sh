@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# C0 frontend V1 layout parity, C0/C99/C++20 compilation, and D2 differential test suite.
+# C0 frontend layout parity, C0/C99/C++20 compilation, and differential test suite.
 # Writes all generated C++ headers, object files, and binaries strictly under /tmp/.
 set -euo pipefail
 

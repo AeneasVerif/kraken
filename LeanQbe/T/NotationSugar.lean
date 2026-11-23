@@ -21,14 +21,14 @@ public meta import Lean.Elab.Tactic
 * Multi-result and pair operations:
   `%s, %c =l addc %a, %b, %ci`, `%lo, %hi =l umulw %a, %b`, `%p =(l,l) mkpair %a, %b`,
   `%a0, %a1 = unpair %p`, `%x = fst %p`, `%y = snd %p`, `%_` wildcard binders.
-* Structured control-flow sugar (macro/elaborator sugar only, no mutable locals; `G6`):
+* Structured control-flow sugar (macro/elaborator sugar only, no mutable locals):
   - `loop @l(%x:t = init, …) { … }`, optionally with `-> @brk(%r:t)` or `%r:t <- loop …`,
   - `break` / `break(args)` / `break @k(args)` and `continue` / `continue(args)` / `continue @l(args)`,
   - `check %c else <target>`,
   - `switch %v { k => <target>, …, _ => <target> }` (omitting `_ =>` emits `.hlt` on fallthrough).
 * Lane-wise vector immediates (`[a₀, a₁, …]`, `splat c`, `((a, b), (c, d))`, or scalar broadcast).
 * Infer `group` block signatures directly from `@label(%x:t, …)` parameter annotations.
-* **Performance design (`T2` `#29`):** emits projection lambdas `fun p => … p.1` / `p.2.1`
+* **Performance design:** emits projection lambdas `fun p => … p.1` / `p.2.1`
   (`Prod.fst` / `Prod.snd`) instead of pattern-matching lambdas `fun (x, ()) => …`, and explicit
   `Op.mk` applications with explicit `{rs}`/`{sig}` arguments, avoiding `LCNF base` blowup and
   making executable (`def`) 2000-instruction functions elaborate and compile fast.

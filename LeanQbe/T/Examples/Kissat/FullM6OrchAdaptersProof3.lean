@@ -447,7 +447,7 @@ theorem full_bump_analyzed_m6_hdr_wp (Γ : Env)
           c0_hsteps
           exact hJsrt () m3 ⟨ws3, hws3, bump_perm_marksCov hcv_le hws2 hws3 hcov2 hperm, hm3⟩
         · exact hJsrt () m2 ⟨ws2, hws2, hcov2, hm2⟩
-    · -- `if (allow)` producer (`Jallow`): call `m6_hdr_dr_allow(h)` first!
+    · -- `if (allow)` producer (`Jallow`): call `m6_hdr_dr_allow(h)` first
       m6h_call hDrAllow
       refine m6HdrDrAllowSpec_of hcfg hext hlen ((fullM6HdrMem_iff ..).mpr hm)
         fun allow ext1 m1 hinit1 hext_eq hm1 => ?_

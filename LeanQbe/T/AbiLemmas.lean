@@ -6,10 +6,10 @@ public import LeanQbe.T.Logic.Bytes
 import all Kraken.Separation
 
 /-!
-# Target-Generic ABI, Stack Alignment, Region, and Slot-Frame Lemmas (`T11b`)
+# Target-Generic ABI, Stack Alignment, Region, and Slot-Frame Lemmas
 
-Target-generic helpers (zero `Amd64`/`Arm64`/`Kraken.X64`/`Kraken.AArch64` imports, zero E1
-imports) supporting `FrameTarget` proofs and downstream `Rega`/`Main`:
+Target-generic helpers (zero `Amd64`/`Arm64`/`Kraken.X64`/`Kraken.AArch64` imports, zero
+untyped-IR imports) supporting `FrameTarget` proofs and downstream `Rega`/`Main`:
 * 64-bit stack-pointer alignment and `Int64`/`BitVec 64` arithmetic (`aligned16_*`,
   `ofInt_toInt_*`).
 * `AbiGprHolds` canonicalization from sub-word `GprHolds` (`abiGprHolds_*_of_gprHolds`).

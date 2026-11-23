@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Arm64.IselLemmas1
 
 /-!
-# AArch64 Scalar Instruction Selection Proofs — Part 2 (`T9`)
+# AArch64 Scalar Instruction Selection Proofs — Part 2
 
 Weakest-precondition correctness invariants for core scalar `armOp` builders: `armBoolOp`,
 `armCopyBits`, `armZextOp`, `armSextOp`, `armTruncOp`, `armOfBoolOp`, `armBinOp`, `neg`,

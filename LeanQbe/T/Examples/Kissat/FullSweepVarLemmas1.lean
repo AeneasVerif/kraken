@@ -12,7 +12,7 @@ public meta import LeanQbe.T.Logic.C0Step
 # Kissat `D-Full` SAT-Sweeping Top Shard — Part 1 (`Stage 4`)
 
 Defines local `FullSweepVarSpecs` (matching `FullSpec1`/`FullSpec2`/`FullSpec3` 1:1, with the
-`#1039` `nv ≤ s.core.cur_vars` / `nv.toNat ≤ 2 * c.max_vars` cone-bound fix), strictly scoped
+`nv ≤ s.core.cur_vars` / `nv.toNat ≤ 2 * c.max_vars` cone bounds), strictly scoped
 `FullSweepVarTactics`, invariant/BitVec/semantic sweeping helpers, and the parametric `(Γ : Env)`
 `Func.wp` proof for:
 1. `full_sweep_seed_sim` (`full_sweep_seed_sim_wp`)

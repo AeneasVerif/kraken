@@ -5,9 +5,9 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Wave-4 Dynamic Congruence Hash Table (`FullM7CongHash`)
+# Kissat M7 Dynamic Congruence Hash Table (`FullM7CongHash`)
 
-Strictly additive C0 helpers closing Gap #4 from `#3254` (`ht_sz <= 4096` / `3,072`-gate ceiling):
+Additive C0 helpers lifting the fixed `ht_sz <= 4096` / `3,072`-gate congruence hash-table cap:
 - `full_cong_ht_init_m7(h, ctrl_off, ht_off, max_sz)`: initializes the hash-table slice inside
   `h->scratch_buf[ht_off ..< ht_off + sz)` (`sz ∈ [16, 131072]` power of 2, capping gracefully at
   the largest fitting power of 2 in `h->scratch_cap - ht_off`), records `ht_off`/`sz` in

@@ -4,7 +4,7 @@ public import LeanQbe.T.Module
 public import LeanQbe.T.OptUtil
 
 /-!
-# Acyclic Small-Callee Inlining (`O-M1`)
+# Acyclic Small-Callee Inlining (`Module.inline`, `Module.inlinePolicy`)
 
 Pure 100%-PHOAS module-level small-callee inliner (`Module.inline`) with zero de Bruijn shifting:
 

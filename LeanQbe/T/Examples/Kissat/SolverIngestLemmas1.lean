@@ -5,7 +5,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Soundness Proofs for Kissat C0 State Init & Syntax Skip (`X1` Stage B2, Part 1)
+# Soundness Proofs for Kissat `D-Min` C0 State Init & Syntax Skip (Part 1)
 
 Proves `Func.wp` specifications for the 4 initialization and clause-ingestion functions in
 `LeanQbe.T.Examples.Kissat.Solver`:

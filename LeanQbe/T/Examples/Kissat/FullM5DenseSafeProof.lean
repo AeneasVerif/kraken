@@ -11,7 +11,7 @@ public import LeanQbe.T.Examples.Kissat.FullBvaHeapLemmas
 /-!
 # Kissat M5 Dense-Safe Closed `ModuleOk` & Concrete `Mem 64` UNSAT Non-Vacuity
 
-Top-level umbrella proof module for `PR-W0B` (`RC-02`, `RC-03`, `RC-04`):
+Top-level umbrella proof module for `FullM5DenseSafe` (dense-mode OOM, dedup, BVA headroom):
 1. Publicly re-exports `FullM5DenseSafe` and all `8` parametric `Func.wp` proofs across
    `FullM5DenseSafeProof{0,1a,1b,2}` (`full_enter_dense_m5_wp`, `full_subst_rewrite_bins_m5_wp`,
    `full_subst_rewrite_ar_m5_wp`, `full_substitute_m5_wp`, `full_fwd_check_cl_m5_wp`,

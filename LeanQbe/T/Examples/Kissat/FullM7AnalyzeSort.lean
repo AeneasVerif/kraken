@@ -5,7 +5,7 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat Wave 4G (`FullM7AnalyzeSort`): `sort_deduced_clause`, Shell `sort_u32`, 6-Step `rephase`
+# Kissat M7 (`FullM7AnalyzeSort`): `sort_deduced_clause`, Shell `sort_u32`, 6-Step `rephase`
 
 Purely additive C0 extension module on top of frozen `FullHdr` (`144` `u64` words = `1152` bytes;
 zero edits to `Full1..6*`, `FullM6*`, or sibling `FullM7*` modules), bringing three core routines
@@ -14,7 +14,7 @@ to upstream Kissat 4.0.4 parity:
 1. **`full_sort_tmp_m7` (`src/analyze.c:sort_deduced_clause` parity, ascending `(lvl, tpos)`):**
    - Fast exits for `tmp_len <= 2` or `tmp_len > max_vars`, 1-compare specialization for
      `tmp_len == 3`, and low-overhead `(lvl, tpos)` insertion sort for `4 <= tmp_len <= 16`.
- *   - For `tmp_len > 16`: single pass copies `tmp[1..tmp_len)` into idle `wsort[1..tmp_len)` and
+   - For `tmp_len > 16`: single pass copies `tmp[1..tmp_len)` into idle `wsort[1..tmp_len)` and
      tracks `[min_l, max_l]`. If `span == 1` or `span > max_vars` or `span > 4 * n`, dispatches
      to inlined `(lvl, tpos)` heapsort (`full_sort_tmp_heap_m7` / `full_sort_tmp_sift_m7`).
      Otherwise performs `O(n + span)` histogram + prefix-sum scatter using `wsort[mv..mv+span)`
@@ -431,11 +431,11 @@ def m7AnalyzeSortExterns : List Extern :=
   [ ⟨"full_backtrack", [i64, i64], []⟩
   , ⟨"full_walk", [i64], []⟩ ]
 
-/-- Standalone Wave-4G module (`6` functions + `2` externs, `0` exits). -/
+/-- Standalone M7 analyze/sort/rephase module (`6` functions + `2` externs, `0` exits). -/
 def m7AnalyzeSortModule : LeanQbe.T.Module :=
   { fns := m7AnalyzeSort_fns, externs := m7AnalyzeSortExterns, exits := [] }
 
-/-! ## Drop-In Replacement `Fn` Handles for Wave-3 / Wave-4 Unification -/
+/-! ## Drop-In Replacement `Fn` Handles for M6 / M7 Unification -/
 
 def m7SortTmpSiftFn : Fn :=
   ⟨"full_sort_tmp_sift", [i64, i64, i64, i64, i64], [], full_sort_tmp_sift_m7_body⟩

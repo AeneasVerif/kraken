@@ -9,13 +9,13 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-3 Prep: Repointed `w2a` (`M6Tiers`) Proofs (`FullM6HdrProof1`)
+# Kissat M6 `FullM6Hdr` Tier, Delay & Watermark Proofs (`FullM6HdrProof1`)
 
 M1-clean proof module (`public section`, opaque definitions, standard imports, UNSAT-only):
-Proves parametric `(Γ : Env)` `Func.wp` contracts for all `14` Group-B repointed `w2a` helpers
+Proves parametric `(Γ : Env)` `Func.wp` contracts for all `14` Group-B tier/watermark helpers
 operating on the disjoint `M6HdrExt` prefix at `(u64)h - 2304ULL` (words `8..287`), preserving
 `s.core` verbatim, `FullProbeScratchPres`, `M6HdrBaseDelayedPres` (`h->delayed*` untouched), and
-`M6ExtW2bPres` (`w2b` words `1..7` untouched):
+`M6ExtW2bPres` (`decision_rate` words `1..7` untouched):
 1. `m6_hdr_sync_legacy_tiers`
 2. `m6_hdr_recompute_tiers_mode`
 3. `m6_hdr_recompute_tiers`

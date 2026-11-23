@@ -6,15 +6,15 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Verification, UNSAT Non-Vacuity, and Axiom Audit for Kissat M4d (`FullM4Bva`)
+# Verification, UNSAT Non-Vacuity, and Axiom Audit for Kissat M4 (`FullM4Bva`)
 
 1. Executable `#guard` checks on `m4Bva_fns` (`10` upgraded fns), `m4BvaModule.checkAcyclic`,
    `m4BvaSpecTable` (`33` rows), `m4BvaFullFns` (`204` fns), `m4BvaFullModule.checkAcyclic`,
    `m4BvaFullSpecTable` (`204` rows), `full_bva_m4`, and `fullNvUnsatBytes`.
 2. Concrete-memory source-level `Func.wp` sanity check (`unsat_payload`, `X = False`,
-   closed `204`-function `m4BvaFullEnv`, strictly UNSAT-only — ZERO SAT / model-finding checks).
-3. Explicit-type audit theorems and single-line `#print axioms` (`< 115` chars per line) covering
-   `Func.Wf`, acyclicity, all `11` upgraded/re-specced M4d `Func.wp` proofs, standalone
+   closed `204`-function `m4BvaFullEnv`, strictly UNSAT-only — no SAT / model-finding checks).
+3. Explicit-type audit theorems and single-line `#print axioms` covering
+   `Func.Wf`, acyclicity, all `11` upgraded/re-specced M4 BVA `Func.wp` proofs, standalone
    `m4Bva_moduleOk`, closed `204/204` `m4BvaFullEnv_moduleOk` & `m4BvaFullUnsatEnv_moduleOk`,
    `m4_bva_solve_bytes_correct`, and all concrete `Mem 64` UNSAT non-vacuity theorems
    (`⊆ [propext, Classical.choice, Quot.sound]`).
@@ -66,7 +66,7 @@ theorem unsat_payload :
   m4_bva_solve_bytes_correct (R := emp) (by decide) (by decide)
     (by rw [sep_emp]; exact fullPayload_sep fullNvUnsatBytes (by decide))
 
-/-! ## 3. Explicit-type audit handles & single-line `#print axioms` (`< 115` chars) -/
+/-! ## 3. Explicit-type audit handles & single-line `#print axioms` -/
 
 theorem fns_wf : ∀ f ∈ m4Bva_fns, f.Wf := m4Bva_fns_wf
 theorem mod_acyc : m4BvaModule.checkAcyclic = true := m4Bva_acyclic

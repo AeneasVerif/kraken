@@ -12,7 +12,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-2 `PR-W2D` (`RC-22`) Proofs — Part 6 (Cluster 4: Max-Heap BVE & Orchestrator)
+# Kissat M6 BVE/Forward Proofs — Part 6 (Cluster 4: Max-Heap BVE & Orchestrator)
 
 M1-clean proof module (`public section`, `0` `@[expose]`, `0` `import all`, `private` helpers):
 - `full_bve_var_key_m6_wp`, `full_bve_heap_{up,down,push,pop}_m6_wp` (BVE max-heap scoring &

@@ -45,7 +45,7 @@ open LeanQbe.T LeanQbe.T.C0Step LeanQbe.T.C0HeadStep LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.LratBytes LeanQbe.T.Examples.Kissat LeanQbe.T.Examples.Kissat.Full
 open Kraken.Bedrock2.Test
 
-/-! ## 1. `RC-15` Caps (`4M` / `1M`) & `full_init_state_m5` -/
+/-! ## 1. Caps (`4M` / `1M`) & `full_init_state_m5` -/
 
 /-- Relational specification matching `Full.fullCalcExtCapSpec` with `4194304` (`4M`) cap. -/
 def fullCalcExtCapM5Spec : Spec [i64] [i64] := fun (rem, ()) m Q _ =>
@@ -1077,7 +1077,7 @@ theorem full_init_state_m5_wp (Γ : Env)
 
 end CapsAndInitProofs
 
-/-! ## 2. `RC-15` Effort Floors (`10M` `mineffort`): `probe_dticks` & `elim_dticks` -/
+/-! ## 2. Effort Floors (`10M` `mineffort`): `probe_dticks` & `elim_dticks` -/
 
 section DticksProofs
 
@@ -1119,7 +1119,7 @@ theorem full_elim_dticks_m5_wp (Γ : Env)
 
 end DticksProofs
 
-/-! ## 3. `RC-15` Transitive Reduction (`dst > src` & `ant_sz` inside BFS) -/
+/-! ## 3. Transitive Reduction (`dst > src` & `ant_sz` inside BFS) -/
 
 section TransitiveProofs
 
@@ -2089,7 +2089,7 @@ theorem full_transitive_m5_wp (Γ : Env)
 
 end TransitiveProofs
 
-/-! ## 4. `RC-15` Vivification (`full_vivify_tier_m5` & `full_vivify_m5`) -/
+/-! ## 4. Vivification (`full_vivify_tier_m5` & `full_vivify_m5`) -/
 
 /-- Specification for M5 per-tier vivification
 `full_vivify_tier_m5(h, tier_mode, budget, tick_lim)`. -/
@@ -2439,7 +2439,7 @@ theorem full_vivify_m5_wp (Γ : Env)
 
 end VivifyProofs
 
-/-! ## 5. `RC-15` Dense Sweeping (`full_sweep_dense_m5`, `16384` Clamp Lifted) -/
+/-! ## 5. Dense Sweeping (`full_sweep_dense_m5`, `16384` Clamp Lifted) -/
 
 section SweepDenseProofs
 

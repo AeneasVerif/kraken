@@ -16,7 +16,7 @@ public meta import LeanQbe.T.Scc
 /-!
 # Mixed Acyclic + Cyclic-SCC Compilation Certificates (`MainCertScc`)
 
-S1(a)-compliant certificate layer (`addNoncomputable` / `compile := false` defaults) over
+Noncomputable-by-default certificate layer (`addNoncomputable` / `compile := false` defaults) over
 `MainLinkScc`, `MainCertCore`, `MainCertProof`, and `MainCertElab`:
 * `LinkedCertScc`: closed whole-module certificate mixing `.acyc` (`CompiledChunk`) and
   `.recSCC` (`CompiledRec` assembled from parallel-checked `RecSubChunk`s) against canonical
@@ -24,7 +24,7 @@ S1(a)-compliant certificate layer (`addNoncomputable` / `compile := false` defau
 * `compile_linked_scc!`: partitions `mod.fns` in source list order into minimal acyclic spans
   and closed SCC chunks, evaluates all functions once in parallel worker tasks, verifies
   per-subchunk kernel theorems in parallel, links chunks in O(#subchunks), and emits a
-  `std3`-clean `LinkedCertScc` with tiny `.c`/`.ir`/`.olean.private` footprints.
+  standard-axiom `LinkedCertScc` with tiny `.c`/`.ir`/`.olean.private` footprints.
 -/
 
 set_option autoImplicit false
@@ -381,7 +381,7 @@ theorem checkLinkSccList_map_acyc {T : Target} (L : TargetLayout T) {lt : LegalT
 /-! ## 2. `LinkedCertScc` Certificate Structure & Proof API -/
 
 /-- Closed whole-module native compilation and linking certificate over mixed `.acyc` and
-`.recSCC` chunks (`MainLinkScc`), following S1(a) `noncomputable` cert hygiene. -/
+`.recSCC` chunks (`MainLinkScc`), emitting `noncomputable` certificates by default. -/
 structure LinkedCertScc (T : Target) (L : TargetLayout T) (lt : LegalTarget)
     (hcl : Rega.LabelClean T.toIsa) (mod : Module)
     (ext₀ : List (SigEntry × Nat) := []) (exits : List Sym := []) (nX : Nat := 0)
@@ -1690,7 +1690,7 @@ partitions `mod.fns` in list order into `.acyc` spans and closed `.recSCC` SCC c
 large SCCs into `RecSubChunk`s capped at `chunkSize` / `maxDirs`, checks per-leaf theorems in
 parallel via the kernel (with `supportsSource` fused into `compileModule` /
 `compileModuleRecAuxSupp`), links all chunks via `checkLinkSccList` + `checkChunksCalls`, and
-defines `certName : LinkedCertScc ...` with `std3` axioms only. -/
+defines `certName : LinkedCertScc ...` with standard Lean axioms only. -/
 scoped syntax "compile_linked_scc! " ident
     term:arg term:arg term:arg term:arg term:arg num
     ("(" ident " := " term ")")* : command
@@ -1701,7 +1701,7 @@ scoped syntax "compile_linked_scc! " ident
 partitions `budgetMod.fns` into `.acyc` spans (preserving exact `effFrame + raBytes`) and closed
 `.recBudgetSCC` SCC chunks using `link_scc_budget_lfp` (`effFrame + raBytes ≤ bfn.maxFrame` and
 per-function `bfn.minEntry`, with no SCC-wide `baseBound` bleed), emitting
-`certName : LinkedCertScc ... budgetMod.toModule ...` with `std3` axioms only. -/
+`certName : LinkedCertScc ... budgetMod.toModule ...` with standard Lean axioms only. -/
 scoped syntax "compile_linked_budget_scc! " ident
     term:arg term:arg term:arg term:arg term:arg num
     ("(" ident " := " term ")")* : command

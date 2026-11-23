@@ -10,10 +10,10 @@ public meta import LeanQbe.T.MainSplice
 public meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
-# End-to-End `T12g` Driver, `Compiled` Certificate Harness, & `TargetInit` Test
+# End-to-End Driver, `Compiled` Certificate Harness, & `TargetInit` Test
 
-Verifies `LeanQbe.T.Main` and `LeanQbe.T.MainLemmas` above `RegaLitmus.litmusTarget` (with zero
-E1 or target-specific arch crate imports):
+Verifies `LeanQbe.T.Main` and `LeanQbe.T.MainLemmas` above `RegaLitmus.litmusTarget` (with no
+legacy untyped-IR or target-specific architecture imports):
 1. `litmusLabelClean : Rega.LabelClean litmusTarget.toIsa` (`Rega.NoLab` on every ISA snippet).
 2. `litmusLayout : TargetLayout litmusTarget` (structural `ofClean` + explicit `labelsNodupBy` check).
 3. `litmusInit : TargetInit litmusTarget` (general `setAbiRegs` over all legal `as : List Ty` +
@@ -32,7 +32,7 @@ namespace LeanQbeTest.T.MainTest
 
 open LeanQbe.T LeanQbe.T.RegaLitmus Std Std.ExtHashMap Kraken.Bedrock2.Test
 
-/-! ## 1. `Rega.LabelClean litmusTarget.toIsa` (`#247` F.1) -/
+/-! ## 1. `Rega.LabelClean litmusTarget.toIsa` -/
 
 private def isNoLabel (c : List Instr) : Bool :=
   c.all fun | .label _ => false | _ => true
@@ -578,7 +578,7 @@ theorem litmusCaller_run_sep :
     (Q := fun rets m' => rets = (44#64, ()) ∧ m' = [0x2a].At 0x1000#64) ⟨rfl, rfl⟩
     (fun _ _ h => ⟨h.1, h.2.symm⟩)
 
-/-! ## 6. Abnormal `exit`, Non-Empty `extCallees`, and Callee Signature Rejection (`#270`) -/
+/-! ## 6. Abnormal `exit`, Non-Empty `extCallees`, and Callee Signature Rejection -/
 
 /-- `guard(x)`: abnormally exits to `"abort"(x)` when `x == 0`, otherwise returns `x + 1`. -/
 def fnExitGuard : Fn := ⟨"guard", [i64], [i64], fun _ _ (x, ()) =>

@@ -12,8 +12,8 @@ import Kraken.Separation
 # Kissat `D-Full` M6 End-to-End UNSAT + SAT Soundness Bridge (`FullM6SatSound`)
 
 Additive end-to-end soundness scaffolding over `M6Hdr`'s `3,456 B` header prefix (`2,304 B`
-`M6HdrExt` + `1,152 B` `FullHdr`), bridging `PR-M6B` (`FullM6Orch`) and `PR-M6C`
-(`KissatM6Cert` + `KissatM6Sound`) cleanly with ZERO edits to frozen `Full1..5*` or `FullM6Hdr`:
+`M6HdrExt` + `1,152 B` `FullHdr`), bridging `FullM6Orch` and machine-code soundness
+(`KissatM6Cert` + `KissatM6Sound`) over the unchanged `Full1..5*` / `FullM6Hdr` layouts:
 
 1. **Offset & Constructive Model Reader (`readModelFromWorkM6`)**: reads `h->values` from
    `work_ptr + fullAlignPad work_ptr + 2368#64` (`fullM6ExtBytes + 64`, since `FullHdr` starts
@@ -1181,7 +1181,7 @@ theorem fullM6_solve_bytes_moduleOk_combinator (Γ : Env) (M : Module) (fnName :
   exact fullM6_solve_bytes_sound_combinator Γ fnBody
     (fun a m0 Q X hsp => hfn a m0 Q X (hSpec a m0 Q X hsp)) hcfit hwfit hm
 
-/-- Tail-respec helper for `PR-M6B` / `PR-M6C`: upgrades a verified UNSAT-only `Module`
+/-- Tail-respec helper: upgrades a verified UNSAT-only `Module`
 whose suffix `tail` implements `fullM6SolveBytesSpec` into `ModuleOk Γ₁ M`. -/
 theorem fullM6_respec_tail_moduleOk {Γ₀ Γ₁ : Env} {M : Module} {pfx tail : List Fn}
     (hMod : ModuleOk Γ₀ M) (hsplit : M.fns = pfx ++ tail)
@@ -1192,7 +1192,7 @@ theorem fullM6_respec_tail_moduleOk {Γ₀ Γ₁ : Env} {M : Module} {pfx tail :
     ModuleOk Γ₁ M :=
   ModuleOk.respec_tail hMod hsplit hpfx htail
 
-/-- Architecture-agnostic machine-memory soundness lift for `PR-M6C` (`KissatM6Sound` on x64 and
+/-- Architecture-agnostic machine-memory soundness lift (`KissatM6Sound` on x64 and
 Arm64): extracts UNSAT soundness, host-framed `readModelFromWorkM6 st_dmem work_ptr` SAT
 soundness, `r ∈ {0, 10, 20}`, and host memory preservation directly from a `fullM6SolveBytesSpec`
 postcondition `Q (r, ()) m'` plus machine heap split `(Eq m' ⋆ F_host) st_dmem`. -/

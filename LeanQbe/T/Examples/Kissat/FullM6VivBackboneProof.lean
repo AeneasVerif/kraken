@@ -6,9 +6,9 @@ public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof4b
 public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof4c
 
 /-!
-# Kissat Wave-2 `PR-W2C` (`RC-20, RC-21`) — Closed `ModuleOk` & Concrete `Mem 64` UNSAT NV
+# Kissat M6 Vivification & Backbone — Closed `ModuleOk` & Concrete `Mem 64` UNSAT NV
 
-Closes the standalone Wave-2 `PR-W2C` verification suite (`FullM6VivBackbone.lean`,
+Closes the standalone M6 vivification/backbone verification suite (`FullM6VivBackbone.lean`,
 `FullM6VivBackboneProof{0,1,2a,2b,3a,3b,4a,4b,4c}.lean`, `FullM6VivBackboneProof.lean`;
 `0` edits to existing files, `0` custom axioms, `XPost := False`, `0` SAT model proofs):
 
@@ -101,7 +101,7 @@ end ProbeCanonBridge
 
 section ModuleOkSection
 
-/-- Closed `55`-row specification table (`40` Wave-2 `PR-W2C` functions + `15` canonical externs,
+/-- Closed `55`-row specification table (`40` `FullM6VivBackbone` functions + `15` externs,
 all `noExit = true`). Headline entrypoints carry exact canonical drop-in specs:
 `full_add_bin_m6` (`Full.fullAddBinSpec` / `fullAddBinM6Spec`), `full_init_fresh_var_m6`
 (`Full.fullInitFreshVarSpec`), `full_probe_assume_pair_m6` (`Full.fullProbeAssumePairSpec`),
@@ -177,7 +177,7 @@ theorem m6VivBackboneSpecTable_noExit : ∀ e ∈ m6VivBackboneSpecTable, e.noEx
 
 theorem m6VivBackboneModule_noExit : m6VivBackboneModule.exits = [] := rfl
 
-/-- Closed environment for `m6VivBackboneModule` (`40` Wave-2 functions + `15` externs). -/
+/-- Closed environment for `m6VivBackboneModule` (`40` M6 functions + `15` externs). -/
 def m6VivBackboneEnv : Env := Env.ofTable m6VivBackboneSpecTable
 
 theorem m6VivBackboneEnv_noExit :
@@ -549,7 +549,7 @@ theorem m6VivBackbone_tableImpl :
     m6_backbone_prop_impl, m6_backbone_analyze_impl, m6_backbone_round_impl,
     m6_backbone_impl, m6_trans_lit_impl, m6_trans_sort_impl, m6_transitive_impl, trivial⟩
 
-/-- Unconditional `ModuleOk` certifying all `40` Wave-2 `PR-W2C` functions under the closed
+/-- Unconditional `ModuleOk` certifying all `40` `FullM6VivBackbone` functions under the closed
 `55`-row `m6VivBackboneEnv`. -/
 theorem m6VivBackbone_moduleOk : ModuleOk m6VivBackboneEnv m6VivBackboneModule :=
   Env.ofTable_moduleOk m6VivBackbone_acyclic m6VivBackbone_allFns_wf m6VivBackbone_tableImpl

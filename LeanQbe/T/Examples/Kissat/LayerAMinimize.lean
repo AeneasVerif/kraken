@@ -10,10 +10,10 @@ Builds on `LayerAMinimize3` (pure Lean, zero `Kraken.Mem` imports):
 1. **`minimizeBlockExec_sound` and `shrink_clause_sound`** (`kissat_shrink_clause`, `shrink.c`):
    end-to-end soundness of `splitLevelBlocksRev`, `shrinkBlockExec`, and `minimizeBlockExec`
    fallback across all maximal level blocks, plus `resetPoisoned`.
-2. **Failed-literal backward analysis (`analyze_failed_literal`, `analyze.c:390-517`, §3.4)**:
+2. **Failed-literal backward analysis (`analyze_failed_literal`, `analyze.c:390-517`)**:
    - Executable `analyzeFailedLiteralExec` modeling conflict scanning, backward trail resolution,
      `unresolved == 1` unit extraction, the `other == unit` skip (`analyze.c:473`), `goto DONE`,
-     and trail-start guard `G4`.
+     and trail-start guard (`t == 0`).
    - `failedLit_other_ne_unit`: proves `other == unit` is unreachable under `ReasonDagInv` and
      `vars_nodup`.
    - `analyzeFailedLiteralExec_sound`: proves every emitted unit (both intermediate units and
@@ -331,7 +331,7 @@ theorem shrink_clause_sound {s : MinState} (h : MinBaseInv s) {C : List Nat}
     · intro l hl; simpa [MinState.cdcl_resetPoisoned] using hmain.2.2.2.2.2.1 l hl
     · intro w hw; rw [MinState.isRemovable_resetPoisoned]; exact hmain.2.2.2.2.2.2 w hw
 
-/-! ## 2. Failed-literal backward analysis (`analyze.c:390-517`, §3.4) -/
+/-! ## 2. Failed-literal backward analysis (`analyze.c:390-517`) -/
 
 /-- Scan conflict clause in `analyze_failed_literal` (`analyze.c:410-426`), collecting level-1
 falsified trail literals in `A` or returning `none` (`goto DONE`) if `notFailed ∈ conflict`. -/
@@ -367,9 +367,9 @@ def resolveLargeFailed (s : CdclState) (lit notFailed : Nat) (prevUnit : Option 
       let A' := if A.any (fun a => litVar a == litVar t) then A else t :: A
       resolveLargeFailed s lit notFailed prevUnit rest A'
 
-/-- Backward trail walk in `analyze_failed_literal` (`analyze.c:428-497`), guarded at `t == 0`
-(guard `G4`), emitting additional units when `unresolved == 1` (`A_rest.isEmpty`), and appending
-`notFailed` at `DONE`. -/
+/-- Backward trail walk in `analyze_failed_literal` (`analyze.c:428-497`), stopping at `t == 0`,
+emitting additional units when `unresolved == 1` (`A_rest.isEmpty`), and appending `notFailed` at
+`DONE`. -/
 def analyzeFailedLoop (s : CdclState) (notFailed : Nat) :
     Nat → List Nat → List Nat → Option Nat → List Nat
   | t, A, units, prevUnit =>
@@ -458,8 +458,8 @@ theorem failedLit_other_ne_unit {s : CdclState} (hinv : LazyTrailInv s)
   have hkj := hinv.vars_nodup k j hk hj hv
   omega
 
-/-- Semantic soundness of `litNeg failed` (`¬failed`) at any level-1 conflict (`analyze.c:499-500`,
-§3.4): holds independently of how many backward resolution steps occur before `DONE`. -/
+/-- Semantic soundness of `litNeg failed` (`¬failed`) at any level-1 conflict (`analyze.c:499-500`):
+holds independently of how many backward resolution steps occur before `DONE`. -/
 theorem failedLit_not_failed_sound {s : CdclState} (hinv : LazyTrailInv s)
     (hlvl : s.level = 1) {failed : Nat}
     (hf_trl : failed ∈ s.trail.toList)
@@ -1118,7 +1118,7 @@ private theorem analyzeFailedLoop_sound {s : CdclState} (hinv : LazyTrailInv s)
           intro v hv; obtain ⟨j, hj, hlt, he⟩ := hpu v hv; exact ⟨j, hj, by omega, he⟩
         exact ih A units prevUnit hu_ent hpu' hA' hnd hent u hu_mem
 
-/-- **§3.4 End-to-end failed-literal analysis soundness**: every unit literal produced by
+/-- **End-to-end failed-literal analysis soundness**: every unit literal produced by
 `analyzeFailedLiteralExec` (both intermediate `unresolved == 1` units and `litNeg failed`) is
 entailed by `F₀`, with `other == unit` (`analyze.c:473`) proved unreachable by
 `failedLit_other_ne_unit`. -/

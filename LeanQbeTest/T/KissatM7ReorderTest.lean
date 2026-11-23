@@ -19,7 +19,7 @@ meta import LeanQbe.T.Legal
 2. Audit-ready restated headline theorems covering `Wf`, `checkAcyclic`, `Func.wp` against
    canonical `FullM4Ternary.fullReorderQueueSpec`, `m7ReorderEnv_noExit`, closed `ModuleOk`, and
    concrete `Mem 64` UNSAT non-vacuity (`XPost := False`, zero SAT proofs).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
@@ -107,7 +107,7 @@ theorem m7_nv :
 
 end LeanQbeTest.T.KissatM7ReorderTest
 
-/-! ## 3. Single-Line `#print axioms` Audit (`std3` Only) -/
+/-! ## 3. Single-Line `#print axioms` Audit (Standard Axioms) -/
 
 abbrev m7r_wf_weight := @LeanQbeTest.T.KissatM7ReorderTest.m7_wf_weight
 abbrev m7r_wf_sift := @LeanQbeTest.T.KissatM7ReorderTest.m7_wf_sift

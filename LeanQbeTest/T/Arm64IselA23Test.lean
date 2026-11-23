@@ -14,17 +14,19 @@ meta import LeanQbe.T.Examples.Kissat.FullM4Bcp
 meta import LeanQbe.T.Spill
 
 /-!
-# AArch64 `A2` (`armTestOp` / `supportsTestFuse`) + `A3` (`baseIdxDisp`) Regression Tests
+# AArch64 `armTestOp` (`supportsTestFuse`) + `baseIdxDisp` Regression Tests
 
-Verifies levers `A2` and `A3` through `armTarget` and `Rega.lowerFn`:
-1. `A2` (`armTestOp` + `armIsa.supportsTestFuse := true`):
+Verifies test-fusion and base-index-displacement addressing through `armTarget` and
+`Rega.lowerFn`:
+1. Test fusion (`armTestOp` + `armIsa.supportsTestFuse := true`):
    - `ANDS_i` for bitmask immediates (`0x80000000`, `0x80`, `1`), `ANDS_s` for register/all-ones;
    - `8`/`16`-bit `(gpr, imm)` without `UBFM`, `(gpr, gpr)` with 1 `UBFM` + `ANDS_s`;
    - `Rega.tryExtCmp` fusing `sext`/`zext` + `cmp` at narrow width.
-2. `A3` (`armSupportsAddrIdx` + `armSetupAddrIns` for `.baseIdxDisp` with `disp != 0`):
+2. Base-index-displacement addressing (`armSupportsAddrIdx` + `armSetupAddrIns` for `.baseIdxDisp`
+   with `disp != 0`):
    - `ADD_s x16, rb, ri, lsl #s` + `[x16, #disp]` for scaled offsets (`4`, `4100`, unaligned `sc`);
    - `ADD_e`/`SUB_e x16, rb, #imm` + `[x16, ri, lsl #amt]` for negative/unaligned 12-bit disps.
-3. End-to-end checks on `FullM4Bcp`, `LratBytes`, and `std3` `#print axioms`.
+3. End-to-end checks on `FullM4Bcp`, `LratBytes`, and standard `#print axioms`.
 -/
 
 set_option autoImplicit false
@@ -97,7 +99,7 @@ meta def isExtDir : Directive → Bool
   | .instr { operation := .SBFM _ _ 0 15, .. } => true
   | _ => false
 
-/-! ## 1. `A2` + `A3` Isa & Isel unit checks -/
+/-! ## 1. Test-fusion & `baseIdxDisp` Isa & Isel unit checks -/
 
 theorem armIsa_a2_a3_rfl :
     armTarget.toIsa.supportsTestFuse = true ∧

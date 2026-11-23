@@ -11,8 +11,7 @@ import all Kraken.Separation
 1. Executable `#guard` checks on `fullKitten_fns` (`15` functions), names & signatures,
    `fullKittenModule.checkAcyclic`, `fullKittenSpecTable` (`15` rows, all `noExit = true`),
    and `nvKittenBytes.length == nvKittenCfg.avail` (`42716`).
-2. Short root-namespace audit theorems + single-line `#print axioms` (`<= 100` cols, every
-   `depends on axioms: [...]` output `< 115` chars on one line) on `fullKitten_fns_wf`,
+2. Short root-namespace audit theorems + single-line `#print axioms` on `fullKitten_fns_wf`,
    `fullKitten_acyclic`, all `15/15` `Func.wp` proofs, `fullKittenEnv_noExit`,
    `mkFullKittenEnv_moduleOk_of_parts`, unconditional `fullKittenEnv_moduleOk`, and concrete
    `Mem 64` UNSAT non-vacuity (`nv_full_kitten_solve`, `nv_full_kitten_solve_unsat20`).

@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainMinLemmas4
 
 /-!
-# Soundness Proofs for Kissat `D-Plain` Main Minimization (`Wave 2b Shard 5`, Part 5)
+# Soundness Proofs for Kissat `D-Plain` Main Minimization (Part 5)
 
 Proves parametric `(Γ : Env)` `Func.wp` contract for `plain_min_shrink`
 (`plainMinShrinkSpec`, `plain_min_shrink_wp`, `PlainSpec.lean:1008`).

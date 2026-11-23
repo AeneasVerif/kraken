@@ -6,7 +6,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat C0 Arena Layout, `BitVec` Helpers, and Semantic Bridges (`X1` Stage B2)
+# Kissat `D-Min` C0 Arena Layout, `BitVec` Helpers, and Semantic Bridges
 
 Defines:
 1. 1-based to 0-based CNF shift (`shiftDownCnf`), propositional entailment/resolution bridges,

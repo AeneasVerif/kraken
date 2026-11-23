@@ -14,8 +14,8 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Splice Parity, Backend Guards, and Axiom Audit for Kissat M6 Wave 2
-(`FullM6CompactFlush`, `RC-23` non-watch-gc items)
+# Verification, Splice Parity, Backend Guards, and Axiom Audit for Kissat M6 Compact & Flush
+(`FullM6CompactFlush`)
 
 1. Executable `#guard` checks on `m6CompactFlushModule` (`8` fns + `7` externs, `0` exits),
    `checkAcyclic = true`, `m6CompactFlushSpecTable` (`15` rows), exact signature parity and
@@ -25,7 +25,7 @@ meta import LeanQbe.T.Legal
 2. Audit-ready restated headline theorems for `m6CompactFlush_fns_wf`, `m6CompactFlush_acyclic`,
    all `8` parametric `Func.wp` proofs (plus `TmkZero` variants), closed `15`-row
    `m6CompactFlush_moduleOk`, and concrete `Mem 64` UNSAT non-vacuity (`XPost := False`).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
@@ -83,7 +83,7 @@ section AuditSpec
 public theorem m6cf_wf : ∀ f ∈ m6CompactFlush_fns, f.Wf :=
   m6CompactFlush_fns_wf
 
-/-- Standalone Wave-2 module `m6CompactFlushModule` passes `checkAcyclic = true`. -/
+/-- Standalone M6 compact/flush module `m6CompactFlushModule` passes `checkAcyclic = true`. -/
 public theorem m6cf_acyc : m6CompactFlushModule.checkAcyclic = true :=
   m6CompactFlush_acyclic
 

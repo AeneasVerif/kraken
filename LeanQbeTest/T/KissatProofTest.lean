@@ -6,13 +6,13 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Verification, Non-Vacuity, and Axiom Audit for `X1` Stage B2 (`Kissat.SolverLemmas`)
+# Verification, Non-Vacuity, and Axiom Audit for `Kissat.SolverLemmas`
 
 1. Executable `#guard` checks on `kissatFns` (25 functions), `kissatModule.checkAcyclic`,
    concrete witness byte vectors (`nvUnsatBytes`, `nvSatBytes`), and arena size bounds.
 2. Concrete-memory source-level `Func.wp` sanity checks under `kissatEnv`,
    `kissatUnsatWitnessEnv`, and `kissatSatWitnessEnv` (`X = False`).
-3. Single-line `#print axioms` audit on all exported Stage-B2 theorems (strictly
+3. Single-line `#print axioms` audit on all exported solver theorems (strictly
    `[propext, Classical.choice, Quot.sound]`). Note: architecture-specific Kraken `Eventually`
    theorems are audited separately in `Amd64.Kissat` and `Arm64.Kissat` (zero cross-arch imports).
 -/
@@ -72,7 +72,7 @@ theorem nv_general_sat_payload :
   kissat_solve_bytes_correct (R := emp) (by decide) (by decide)
     (by rw [sep_emp]; exact kissatPayload_sep nvSatBytes (by decide))
 
-/-! ## 3. Single-line `#print axioms` audit on exported Stage-B2 theorems -/
+/-! ## 3. Single-line `#print axioms` audit on exported solver theorems -/
 
 #print axioms LeanQbe.T.Examples.Kissat.kissatFns_wf
 #print axioms LeanQbe.T.Examples.Kissat.kissatModule_checkAcyclic

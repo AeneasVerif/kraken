@@ -9,7 +9,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification and Stock-QBE Smoke Tests for `LeanQbe.T.Examples.Litmus` (`W3.1`)
+# Verification and Stock-QBE Smoke Tests for `LeanQbe.T.Examples.Litmus`
 
 * Kernel `t_kernel_rfl` checks on `isLegal`, `supportsSource`, and `checkAcyclic`.
 * `#print axioms` audit on all source contracts, `*_moduleOk` theorems, and `tracer_nonvacuous`.

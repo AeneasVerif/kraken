@@ -9,7 +9,7 @@ public import LeanQbe.T.LegalOpWpLemmas2
 public import LeanQbe.T.LegalMemLemmas
 
 /-!
-# Correctness proofs facade for `LeanQbe.T.Legal` (`T5`, `G13`)
+# Correctness proofs facade for `LeanQbe.T.Legal`
 
 Re-exports `LegalWfBaseLemmas`, `LegalWfOpsLemmas`, `LegalWpBaseLemmas`, `LegalWpSimdLemmas`,
 `LegalOpWpLemmas1`, `LegalOpWpLemmas2`, and `LegalMemLemmas`:

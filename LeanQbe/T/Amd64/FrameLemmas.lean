@@ -5,7 +5,7 @@ public import LeanQbe.T.AbiLemmas
 import Kraken.X64.Parser
 
 /-!
-# SysV x64 Frame Verification (`T11b`)
+# SysV x64 Frame Verification
 
 Proves `x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads`, `NoLab` invariants for all
 frame/call/ABI snippets, and `ParserChecks` against `Kraken.X64.Parser`.

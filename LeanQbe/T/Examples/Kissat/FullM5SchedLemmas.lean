@@ -12,7 +12,7 @@ import Kraken.Separation
 /-!
 # Kissat Stage-3 M5 Scheduler Parity v2 `Func.wp` Proofs (`FullM5SchedLemmas`, UNSAT-Only)
 
-Proves `Func.wp` for all `6` C0 functions in `FullM5Sched.lean` (`PR-W1C`, `RC-13`) directly
+Proves `Func.wp` for all `6` C0 functions in `FullM5Sched.lean` directly
 against canonical `FullSpec` / `FullFastSched`-compatible contracts (strictly UNSAT-only, ZERO
 SAT/model proofs):
 1. `full_log10_q16_wp` against `m5Log10Q16Spec` (pure, `Mem`-preserving, `< 20 * 65536`,

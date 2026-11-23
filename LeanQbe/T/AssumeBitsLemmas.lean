@@ -9,7 +9,7 @@ import LeanQbe.T.WPLemmas
 import LeanQbe.T.WfLemmas
 
 /-!
-# Correctness of `assumeBits` (`Train B5-2`)
+# Correctness of `assumeBits`
 
 * Semantic invariant: every `ABVal` agrees with its value (`ABGood`): its known-zero mask is
   sound (`KZOk`), its identity is bound in the identity environment `ρ`, and its zero / nonzero

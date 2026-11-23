@@ -7,8 +7,8 @@ public import LeanQbe.T.Examples.LratTrimProg
 /-!
 # The `lrat-trim` Kernel in Typed `LeanQbe.T` (`tqbe`) Notation
 
-Non-proof Wave 3 transliteration of E1 `LeanQbe/Examples/LratRup.lean` and
-`LeanQbe/Examples/LratTrim.lean` into `LeanQbe.T.Func` / `LeanQbe.T.Module`:
+Non-proof typed-IR transliteration of the `lrat-trim` kernel into
+`LeanQbe.T.Func` / `LeanQbe.T.Module`:
 
 * `checkRup` (`br_check_clause_non_strictly_by_propagation`)
 * `strictCheck` (`br_check_clause_strictly_by_resolution`)
@@ -16,7 +16,7 @@ Non-proof Wave 3 transliteration of E1 `LeanQbe/Examples/LratRup.lean` and
 * `checkProof` (`br_check_proof`)
 * `trimProof` (`br_trim_proof`)
 
-E1's untyped `jnz` low-32 tests are translated explicitly into `.bool` (`:b`) conditions via
+Low-32 `jnz` tests are translated explicitly into `.bool` (`:b`) conditions via
 `cnew` / `cnel` against `0`, and boolean loop flags (`%first`, `%used`, `%wu`, `%io`, `%orig`)
 are typed natively as `.bool`.
 

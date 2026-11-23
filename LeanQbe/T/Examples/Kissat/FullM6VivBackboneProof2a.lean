@@ -7,10 +7,10 @@ import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.ControlComb
 
 /-!
-# Kissat Wave-2 PR-W2C (`RC-20`) — Vivification Simplify, Commit, & Deduce (`Proof2`)
+# Kissat M6 Vivification — Simplify, Commit, & Deduce (`Proof2a`)
 
 Certifies UNSAT-sound `Func.wp` (`XPost := False`, `0` SAT model proofs) for the `3` heavy
-`RC-20` vivification engine functions in `FullM6VivBackbone.lean`:
+vivification engine functions in `FullM6VivBackbone.lean`:
 1. `full_viv_simplify_m6_wp` (`fullVivSimplifyM6Spec`, glue lowering, `full_add_bin_m6`, OOM `2ULL`)
 2. `full_viv_commit_m6_wp` (`fullVivCommitM6Spec`, prefix-preserving `target = olen - 2` commit at
    arbitrary `cur_level` via `NonActiveReason` + `full_viv_unreason_m6` + `full_viv_best_watch_m6`)

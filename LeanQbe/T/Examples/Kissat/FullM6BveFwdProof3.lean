@@ -11,7 +11,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-2 `PR-W2D` (`RC-22`) Proofs — Part 3 (Cluster 2b: Forward Subsumption Parity)
+# Kissat M6 BVE/Forward Proofs — Part 3 (Cluster 2b: Forward Subsumption Parity)
 
 M1-clean proof module (`public section`, `0` `@[expose]`, `0` `import all`, `private` helpers):
 1. `full_fwd_scan_lit_m6_wp` (min-occ watch scan `<= 1000` + `NOT(lit)` self-subsuming resolution)
@@ -1515,7 +1515,7 @@ theorem full_fwd_check_cl_m6_wp (Γ : Env)
                             (fun h => by cases h) hmf
                         · have hnsz_lt_sz : nsz.toNat < sz.toNat := by omega
                           c0_hsplit
-                          · -- `nsz == 0`: empty clause entailed → UNSAT!
+                          · -- `nsz == 0`: empty clause entailed → UNSAT
                             have hnsz0 : nsz.toNat = 0 := by rw [hc]; rfl
                             rw [hnsz0, List.take_zero, List.map_nil] at htmp_ent
                             have hunsat : (cnfOfClauses F_cur).Unsat :=

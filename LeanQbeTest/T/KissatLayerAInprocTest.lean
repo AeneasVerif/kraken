@@ -13,7 +13,7 @@ meta import LeanQbe.T.Examples.Kissat.LayerABve
 # Verification and Axiom Audit for Kissat Pure-Lean Layer-A Inprocessing
 
 Executable `#guard` / `#eval` tests, closed non-vacuity theorems, and single-line
-`#print axioms` reports (`<= 120` cols, standard axioms only) covering:
+`#print axioms` reports (standard axioms only) covering:
 1. Subsumption & Self-Subsuming Resolution / OTFS (`LayerASubsume`).
 2. Failed-literal probing & Vivification strengthening (`LayerAVivify`).
 3. Bounded Variable Elimination (`BVE`), LIFO witness reconstruction (`extendBve` /
@@ -87,7 +87,7 @@ open LeanQbe.T.Examples.Kissat
   !(cs1.any fun c => c.any fun l => litVar l == 0)
 
 #guard
-  -- Iterated BVE on `[0, 1]` + `cdclSolve` + `extendBveArray` yields a full verified model!
+  -- Iterated BVE on `[0, 1]` + `cdclSolve` + `extendBveArray` yields a verified model.
   let (red, stack) := bveElim bveSatSample [0, 1]
   match cdclSolve 64 (cnfOfClauses red) with
   | .sat σ =>
@@ -114,7 +114,7 @@ open LeanQbe.T.Examples.Kissat
   | .sat σ => some (extendBveArray stack σ)
   | _ => none
 
-/-! ## 4. Closed non-vacuity theorems (`<= 120`-col axiom reports) -/
+/-! ## 4. Closed non-vacuity theorems -/
 
 /-- Closed non-vacuity corollary for `LayerASubsume`: exercises `subsume_clauses_equiv`,
 `ssr_clauses_equiv`, and `subsume_ssr_equiv` on `subsumeSample`. -/
@@ -254,7 +254,7 @@ public theorem nv_cdcl_bve_sound :
   ⟨cdclSolveAfterBve_sound 64 (cnfOfClauses bveSatSample) [0, 1],
    cdclSolveAfterBve_sound 32 (cnfOfClauses bveUnsatSample) [0, 1]⟩
 
-/-! ## 5. Single-line `#print axioms` checks (`<= 120` cols) -/
+/-! ## 5. Single-line `#print axioms` checks -/
 
 #print axioms LeanQbe.T.Examples.Kissat.subsume_cnf_equiv
 #print axioms LeanQbe.T.Examples.Kissat.subsume_clauses_equiv

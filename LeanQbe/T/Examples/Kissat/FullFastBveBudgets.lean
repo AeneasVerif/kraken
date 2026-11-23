@@ -5,11 +5,11 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat `D-Full` M2 Tier-A BVE / Tarjan / Budgeted Inprocessing & Init-Hdr Upgrades
+# Kissat `D-Full` M2 Fast BVE / Tarjan / Budgeted Inprocessing & Init-Hdr Upgrades
 
-Ports the `6` Tier-A mandatory changed functions plus `full_init_hdr` from
-`prototype/kissat-fast-c0` (`076fcb00`) onto the byte-identical `144`-word (`FullHdr`) layout
-(`4` `KissatDimacs` words + `140` tail words; `0` layout churn):
+Provides `7` budgeted inprocessing and header-init overrides (`full_init_hdr` plus `6` pass
+upgrades) preserving the byte-identical `144`-word (`FullHdr`) layout
+(`4` `KissatDimacs` words + `140` tail words):
 1. `full_init_hdr`: tunes `probe_limit: 500 -> 2000`, `elim_limit: 1500 -> 5000`.
 2. `full_probe_run`: early guard `if (budget == 0ULL || h->num_binary == 0ULL) return 1ULL;`.
 3. `full_transitive(h, tick_lim)`: `u64` tick limit parameter + early guard

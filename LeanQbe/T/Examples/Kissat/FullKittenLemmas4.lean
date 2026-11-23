@@ -1726,7 +1726,7 @@ theorem full_kitten_analyze_wp (Γ : Env)
                            ⟨qf', ql', qs', qst', qp', qn', qsa',
                             by dsimp only [st5']; rw [hst5_eq]⟩,
                            hsh5', kittenMem_to_amem hsh5' hm5'⟩
-                      · -- Exit MTF loop (`ai5 == nana`): Phases 6 & 7!
+                      · -- Exit MTF loop (`ai5 == nana`): Phases 6 & 7
                         have hinv5 : st5.Inv acap := by
                           rw [hst5_eq] at hsh5 ⊢
                           exact kittenState_setQueue_preserves_inv hinvBt hsh5.qprev_len
@@ -2061,7 +2061,7 @@ theorem full_kitten_analyze_wp (Γ : Env)
                                         have hnkl_f : stF.nkl = st5.nkl := by rw [hst5_eq, hbt_nkl]
                                         rw [hst8]; kstate_ext <;>
                                           (first | rfl | (dsimp only [ar8']; rw [hnkl_f]))
-                                      · -- Exit copy loop 2 (`i8 == nr`): meta, watch, assign!
+                                      · -- Exit copy loop 2 (`i8 == nr`): meta, watch, assign
                                         have hi8_eq : i8.toNat = nr.toNat := by
                                           have h1 : ¬ i8.toNat < nr.toNat := hc; omega
                                         rw [hi8_eq] at har8_ants
@@ -2348,7 +2348,7 @@ theorem full_kitten_analyze_wp (Γ : Env)
               have hfl_nz : (st.flags[p.toNat / 2]?.getD 0#32 &&& 2#32) ≠ 0#32 := by
                 rw [hidx_mod] at hc; exact hc
               c0_hsplit
-              · -- `lvlArr[pv] == clvl`: hit! decrement `status`
+              · -- `lvlArr[pv] == clvl`: hit; decrement `status`
                 have hlvl_hit : st.lvlArr[p.toNat / 2]?.getD 0#32 = st.lvl := by
                   rw [hidx_mod] at hc; rw [hpresL.lvl, ← hpres_k1.lvl]; exact hc
                 let st1 : KittenState := { st with status := st.status - 1#32 }
@@ -2370,7 +2370,7 @@ theorem full_kitten_analyze_wp (Γ : Env)
                   obtain ⟨hlt1, hent1⟩ := hres_L ha1 hnr1
                   exact ⟨hlt1, kana_clause_entails_of_subset hsub_s1 (by rwa [hidx_succ])⟩
                 c0_hsplit
-                · -- `status == 0`: 1UIP found! `uip = p ^ 1`, `break`!
+                · -- `status == 0`: 1UIP found; `uip = p ^ 1`, `break`
                   have hst1_0 : st1.status = 0#32 := by
                     dsimp only [st1]; simp only [KittenState.putHdr] at hc; exact hc
                   have hm_s1 : (KittenMemA kPtr acap st1 ⋆ R) m := by
@@ -2399,7 +2399,7 @@ theorem full_kitten_analyze_wp (Γ : Env)
                   obtain ⟨_, _, _, hrsn_ne, hrsn_lt, hp_mem, hp_uniq, hothers⟩ :=
                     kana_rsn_pre hinv_s1 hidx'_te hst1_pos hlvl_hit
                   c0_hsplit
-                  · -- `rsn == 0xFFFFFFFF`: dead code!
+                  · -- `rsn == 0xFFFFFFFF`: unreachable
                     rw [hidx_mod] at hc; exact absurd hc hrsn_ne
                   · -- `rsn != 0xFFFFFFFF`: call `full_kitten_ana_clause(k, rsn, pv)`
                     obtain ⟨_, hm_s1m⟩ := kittenMemA_to_mem hm_s1

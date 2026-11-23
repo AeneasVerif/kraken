@@ -7,17 +7,17 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 
 /-!
-# Tests of `LeanQbe.T.MemLoad`, `Func.deadLoadElim`, and `Func.assumeElim` (`O-M2`)
+# Tests of `LeanQbe.T.MemLoad`, `Func.deadLoadElim`, and `Func.assumeElim`
 
 Tests:
-1. `MB5`-style struct-field store-to-load forwarding and disjoint-offset frame preservation
+1. Struct-field store-to-load forwarding and disjoint-offset frame preservation
    (`off = 0, 8, 12, 16`, distinct non-overlapping sizes, chained `add`/`sub` wraparound),
    and forwarding to `ret`/`add`, `Func.checkTFlat`, `Func.memLoad_wf`, `Func.memLoad_spec`.
 2. Aliasing store (unknown pointer `q` and overlapping `i32` store at `base + 4` inside `i64` at
    `base + 0`) kills overlapping entries while preserving disjoint `base + 16`.
 3. `.call` flushes the dominating memory cache; `.jnz` inherits outer cache across both arms.
-4. `.group` summaries (`MB5` read-only body preserves cache; disjoint-field body store preserves
-   cache; write-aliasing in `bodies` OR group entry `k` flushes cache in `bodies`).
+4. `.group` summaries (read-only body preserves cache; disjoint-field body store preserves
+   cache; write-aliasing in `bodies` or group entry `k` flushes cache in `bodies`).
 5. Optional `Func.deadLoadElim` drops unused `.load` while keeping used `.load`, and composes
    cleanly with `Func.memLoad`.
 6. `Func.assumeElim` rewrites `.jnz c t .hlt → t` and `.jnz c .hlt e → e` (including nested and
@@ -33,7 +33,7 @@ namespace LeanQbe.T.MemLoadTest
 
 open LeanQbe.T Std.ExtHashMap
 
-/-! ## 1. `MB5`-style struct fields (`i64`/`i32`/`.bool`/`i64`, chained `add`/`sub`) -/
+/-! ## 1. Struct-field store-to-load forwarding (`i64`/`i32`/`.bool`/`i64`, chained `add`/`sub`) -/
 
 /-- `store v0 (base+0); store v1 (base+8); store vb (base+12); store v2 (base+16);`
 `load x0 (base+0); load x1 (p1 := base+4; p1+4); load x2 (p2 := base+24; p2-8); ret [x0, x1, x2]` -/
@@ -157,7 +157,7 @@ theorem wrap_wf : (Func.memLoad wrapProg).Wf := Func.memLoad_wf (by t_wf_reify)
 /-! ## 2. Aliasing store kills overlapping entries while preserving disjoint entries -/
 
 /-- Store to unknown `q` kills `base + 0`; partial overlapping `i32` store at `base + 4` kills
-`i64` at `base + 0` while keeping `i64` at `base + 16` cached! -/
+`i64` at `base + 0` while keeping `i64` at `base + 16` cached. -/
 def aliasProg : Func [i64, i64, i64, i32] [i64, i64, i64] := fun _ _ p =>
   let base := p.1
   let q := p.2.1
@@ -221,9 +221,9 @@ theorem callJnz_out : Func.memLoad callJnzProg = fun _ _ p =>
 
 theorem callJnz_wf : (Func.memLoad callJnzProg).Wf := Func.memLoad_wf (by t_wf_reify)
 
-/-! ## 4. `.group` summaries (`MB5` read-only body, disjoint write, entry-kill soundness) -/
+/-! ## 4. `.group` summaries (read-only body, disjoint write, entry-kill soundness) -/
 
-/-- `MB5`-style struct fields stored before read-only `.group`: both `entry` and `bodies` keep
+/-- Struct fields stored before a read-only `.group`: both `entry` and `bodies` keep
 and forward `(base+0)` and `(base+8)` directly without reloading from memory. -/
 def mb5GroupProg : Func [i64, i64, i64, .bool] [i64] := fun _ _ p =>
   let base := p.1
@@ -300,7 +300,7 @@ theorem groupDisjWrite_out : Func.memLoad groupDisjWriteProg = fun _ _ p =>
   t_kernel_rfl
 
 /-- Group soundness: `bodies` is read-only at `base`, while entry `k` writes `v1` to `base`
-before jumping to `blk`. Cache in `bodies` MUST be flushed so `bodies` reloads `v1`, NOT `v0`. -/
+before jumping to `blk`. Cache in `bodies` must be flushed so `bodies` reloads `v1`, not `v0`. -/
 def groupEntryKillProg : Func [i64, i64, i64] [i64] := fun _ _ p =>
   let base := p.1
   let v0 := p.2.1

@@ -26,7 +26,7 @@ import all Kraken.Separation
 2. Restated audit theorems covering `m5Otfs_fns_wf`, `m5Otfs_acyclic`, all `8` parametric
    `Func.wp` proofs against canonical `FullSpec2` contracts, `m5Otfs_moduleOk`, and
    concrete `Mem 64` UNSAT non-vacuity (`XPost := False`, `0` SAT model proofs).
-3. Single-line `< 115`-col `#print axioms` audit across all exported theorems
+3. Single-line `#print axioms` audit across all exported theorems
    (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 

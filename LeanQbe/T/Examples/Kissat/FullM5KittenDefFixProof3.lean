@@ -5,13 +5,13 @@ public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas1
 import LeanQbe.T.Logic.ControlComb
 
 /-!
-# Kissat `M5` Wave 0 (`RC-08`) `full_find_definition_m5` `Func.wp` Proof (`Part 3`)
+# Kissat `M5` `full_find_definition_m5` `Func.wp` Proof (`Part 3`)
 
 Proves `full_find_definition_m5_wp` against canonical `FullDefSweep.fullFindDefinitionSpec`:
 1. VMTF queue repair (`KH_QLAST`, `KH_QSEARCH`, `KH_QSTAMP`, `KO_QNEXT[nv - 1]`) via
-   `KittenInvLawsM5.set_nv_vmtf` (`S08-01`).
+   `KittenInvLawsM5.set_nv_vmtf`.
 2. Snapshot of 1st-core `(pmask, nmask)` before `full_kitten_shrink`, preserving the valid UNSAT
-   gate core if the 2nd `full_kitten_solve_m5(h, 16384)` times out (`S06-03`).
+   gate core if the 2nd `full_kitten_solve_m5(h, 16384)` times out.
 -/
 
 set_option autoImplicit false
@@ -2037,7 +2037,7 @@ private theorem def_find_k_loop_wp {Γ : Env} {Q : Post []} {X : XPost}
 
 
 /-- **`full_find_definition_m5`**: M5 drop-in replacement for `full_find_definition` with VMTF
-queue repair (`S08-01`) and 1st-core snapshot before `full_kitten_shrink` (`S06-03`), proving
+queue repair and 1st-core snapshot before `full_kitten_shrink`, proving
 canonical `FullDefSweep.fullFindDefinitionSpec`. -/
 theorem full_find_definition_m5_wp (Γ : Env)
     {KInv : Nat → List (Nat × List Nat) → Bool → KittenPhase → List (BitVec 32) → Prop}

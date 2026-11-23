@@ -11,7 +11,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave 4G Top-Level Module Soundness & Concrete NV (`FullM7AnalyzeSortProof`)
+# Kissat M7 `FullM7AnalyzeSort` Module Soundness & Concrete NV (`FullM7AnalyzeSortProof`)
 
 Combines all `6` C0 `Func.wp` theorems from `FullM7AnalyzeSortProof{0,1,4}` and the `2`
 extern specs (`full_backtrack`, `full_walk`) into a closed `8`-row `SpecTable`:

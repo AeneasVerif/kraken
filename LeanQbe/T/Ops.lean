@@ -8,9 +8,9 @@ public import Kraken.Mem
 
 * Operands `Arg V t` (`var` or `imm`), operation structures `Op V rs` pairing a signature-indexed
   `OpCode as rs` with an operand tuple `Tup (Arg V) as`.
-* Multi-result target-neutral `OpCode` covering §0 scalar/vector/shuffle/SHA/float opcodes plus
-  semantics-only opcodes (full integer/FP/conversion suite). `cmp`, `fcmp`, and `blend` carry
-  `(m : Ty := t.mask) (h : m = t.mask := by rfl)` (variant C) so `deriving DecidableEq` succeeds.
+* Multi-result target-neutral `OpCode` covering scalar/vector/shuffle/SHA/float opcodes plus
+  semantics-only opcodes (integer, FP, and conversion ops). `cmp`, `fcmp`, and `blend` carry
+  `(m : Ty := t.mask) (h : m = t.mask := by rfl)` so `deriving DecidableEq` succeeds.
 * **Relational** `OpCode.wp` (`UB = False`, `unspecified = ∀`), using Lean's `Float.Model` for
   IEEE floating-point operations (leaving NaN results nondeterministic).
 * Partial memory `loadVal`, `storeOk`, `storeMem` over `Kraken.Mem 64`.
@@ -122,7 +122,7 @@ inductive OpCode : List Ty → List Ty → Type
   | cmp (o : CmpOp) (t : Ty) (m : Ty := t.mask) (h : m = t.mask := by rfl) : OpCode [t, t] [m]
   /-- Scalar conditional select (`cmovcc`/`CSEL`). -/
   | select (t : Ty) : OpCode [.bool, t, t] [t]
-  /-- Lane-wise select on a mask tree (variant C for `DecidableEq`). -/
+  /-- Lane-wise select on a mask tree (equality index `h` keeps `DecidableEq` derivable). -/
   | blend (t : Ty) (m : Ty := t.mask) (h : m = t.mask := by rfl) : OpCode [m, t, t] [t]
   /-- Integer width extensions, truncations, and boolean materialisation.
   `zext`/`sext` require `m ≤ n` and `trunc` requires `n ≤ m`; wrong directions are UB (`False`). -/

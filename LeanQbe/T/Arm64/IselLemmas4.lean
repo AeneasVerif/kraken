@@ -4,7 +4,7 @@ public import LeanQbe.T.Arm64.IselLemmas3
 import Kraken.AArch64.Parser
 
 /-!
-# AArch64 Scalar Instruction Selection Proofs — Part 4 (`T9`)
+# AArch64 Scalar Instruction Selection Proofs — Part 4
 
 `armMulwOp_wp`, `armFunnelOp_wp`, top-level `armOp_spec`, `armGprSpec : GprTarget armMach armGpr armScratch`,
 `armOp_noLab`, and kernel `rfl` `ParserChecks` against `Kraken.AArch64.Parser`.
@@ -1591,7 +1591,7 @@ theorem armTestJcc_spec {h : Host} {k j : Nat} {neg : Bool} {n : Nat} {r : Reg}
       · simpa [hev, hbit] using ht
       · simpa [hev, hbit] using hf
 
-/-- Verified AArch64 scalar `GprTarget` specification (`T9`). -/
+/-- Verified AArch64 scalar `GprTarget` specification. -/
 theorem armGprSpec : GprTarget armMach armGpr armScratch where
   negCond_reads := armNegCond_reads
   negCond_eval s c := armNegCond_interp c s.status

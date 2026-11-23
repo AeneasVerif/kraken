@@ -12,7 +12,7 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Compilation Checks, and Axiom Audit for Kissat `M5` Wave 0 (`FullM5KittenDefFix`)
+# Verification, Compilation Checks, and Axiom Audit for Kissat `M5` (`FullM5KittenDefFix`)
 
 1. Executable `#guard` checks on `m5KittenDefFixModule` (`6` owned `_m5` functions + `7` canonical
    `FullKitten` externs, `0` exits), `checkAcyclic = true`, `m5KittenDefFixSpecTable` (`13` rows),
@@ -20,7 +20,7 @@ meta import LeanQbe.T.Legal
 2. Audit-ready restated headline theorems for all `6` parametric `Func.wp` contracts,
    `m5KittenDefFix_moduleOk : ModuleOk m5KittenDefFixEnv m5KittenDefFixModule`, and all `7`
    concrete `Mem 64` UNSAT non-vacuity witnesses (`XPost := False`, `0` SAT model proofs).
-3. Single-line `< 115`-col `#print axioms` audit (strictly `⊆ [propext, Classical.choice,
+3. Single-line `#print axioms` audit (strictly `⊆ [propext, Classical.choice,
    Quot.sound]`).
 -/
 

@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof1
 
 /-!
-# Kissat M6 `PR-W2E-lite` Proofs Part 1b: Binary Dedup & Watch Sweep (`full_sweep_bins_m6`)
+# Kissat M6 Watch/GC Proofs Part 1b: Binary Dedup & Watch Sweep (`full_sweep_bins_m6`)
 
 Proves `WatchSliceLtOk`, `full_sweep_bins_range_m6_wp`, and `full_sweep_bins_m6_wp`.
 -/

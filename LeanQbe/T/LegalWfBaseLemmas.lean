@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalWfBaseLemmas1
 
 /-!
-# Legalization well-formedness base lemmas (`T5`, `G13`, Part 1b)
+# Legalization well-formedness base lemmas (Part 1b)
 -/
 
 set_option autoImplicit false

@@ -11,14 +11,14 @@ meta import LeanQbe.T.MainLinkScc
 meta import LeanQbe.T.Module
 
 /-!
-# WebAssembly Phase 2B Bulk-Memory & Growth Verification (`WasmBulkMemTest`)
+# WebAssembly Bulk-Memory & Growth Verification (`WasmBulkMemTest`)
 
 Arch-neutral verification and test suite for WebAssembly linear-memory growth and bulk-memory
 instructions (`memory.size`, `memory.grow`, `memory.fill`, `memory.copy`):
 
 1. Binary decode & validation unit + negative tests (`0x3F 0x00`, `0x40 0x00`,
    `0xFC 0x0A 0x00 0x00`, `0xFC 0x0B 0x00`, non-zero memidx / missing memory rejections).
-2. Real `clang --target=wasm32 -O2 -mbulk-memory` binary test (`probeWasm` -> `bulkMod`/`bulkQbe`):
+2. `clang --target=wasm32 -O2 -mbulk-memory` binary test (`probeWasm` -> `bulkMod`/`bulkQbe`):
    decoded, validated, compiled for both `LegalTarget.x64` and `LegalTarget.aarch64`, and
    verified via `lowerModule_moduleOk` & `decodeAndLowerWasm_semScc`.
 3. Concrete `Func.wp` behavioral & adversarial soundness theorems:
@@ -1790,7 +1790,7 @@ theorem bm_copy_wrap (Γ : Env) (vmCtx memBase memCap fuel : BitVec 64)
   rw [wp_ret_]
   exact ⟨by simp [vals], rfl, ⟨hcap, hsep⟩⟩
 
-/-! ## 5. Axiom Audit (`< 115c` Single-Line `std3`) -/
+/-! ## 5. Axiom Audit (Standard Axioms) -/
 
 #print axioms bm_valid
 #print axioms bm_acyclic

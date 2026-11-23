@@ -5,7 +5,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat C0 1UIP Conflict Analysis `Func.wp` Proof (`X1` Stage B2, Part 2)
+# Kissat `D-Min` C0 1UIP Conflict Analysis `Func.wp` Proof (Part 2)
 
 Builds on `SolverAnalyzeLemmas1` (`kissat_analyze_clause`, `kissat_clear_marks`, `kissat_decide`)
 to specify and verify `kissat_analyze` (`kissatAnalyzeSpec`, `kissat_analyze_wp`).
@@ -911,7 +911,7 @@ theorem kissat_analyze_wp (Γ : Env)
                     (by rw [hac_d2, hbt_d2]) (by rw [hac_fu, hbt_fu])
                     (fun hc => by cases hc) (fun hc => by cases hc) hmac,
                   fun hz => ?_⟩
-                -- Both `new_cid ≠ 0xFFFFFFFF` and `vals[uip_lit] == 0` -> call `kissat_assign`!
+                -- Both `new_cid ≠ 0xFFFFFFFF` and `vals[uip_lit] == 0` -> call `kissat_assign`
                 have hlits_lt : ∀ l ∈ (sbt.tmp.take tl_b).map BitVec.toNat, l < 2 * c.mv := by
                   rw [hbt_tmp]; intro l hl
                   rcases hsw_mem l hl with rfl | ⟨j, hj1, hj2, hjeq⟩
@@ -1077,7 +1077,7 @@ theorem kissat_analyze_wp (Γ : Env)
             rw [hpl_eq, h, bv32_ofNat_toNat hlen.cur_level_lt]
         rw [hpl_iff]
         refine ⟨fun hpl_cl => ?_, fun hpl_ne => hskip_step (fun h => hpl_ne h.2)⟩
-        -- Both `mrk[pv] ≠ 0` and `lvl[pv] == cur_lvl`!
+        -- Both `mrk[pv] ≠ 0` and `lvl[pv] == cur_lvl`
         have hidx_eq : idx - 1 + 1 = idx := by omega
         have hmnz' : mrk_l[(s.trl[idx - 1]?.getD 0#32).toNat / 2]?.getD 0#8 ≠ 0#8 := by
           simpa [hp_get] using hmnz
@@ -1102,7 +1102,7 @@ theorem kissat_analyze_wp (Γ : Env)
         dsimp only [sl1]
         rw [bv_eq_zero_iff (by omega)]
         refine ⟨fun htc_hit0 => ?_, fun htc_gt0 => ?_⟩
-        · -- Found 1UIP! Break!
+        · -- Found 1UIP; break
           have htc_is1 : tc_l - 1 = 0 := htc_hit0
           have hct_nil : curTrailIdxs s mrk_l (idx - 1) = [] :=
             List.eq_nil_of_length_eq_zero (by omega)

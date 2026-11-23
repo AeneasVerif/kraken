@@ -12,7 +12,7 @@ meta import LeanQbe.T.Main
 meta import LeanQbe.T.Spill
 
 /-!
-# Train B5-1 Spill-Placement Heuristics on x64 (`Spill.Cfg`)
+# Spill-Placement Heuristics on x64 (`Spill.Cfg`)
 
 Regression tests for the untrusted spill-placement heuristics switched by `Spill.Cfg`, on the
 x64 target (`Kraken.X64` through `LeanQbe.T.Amd64.Targ`; an AArch64 module could not share this
@@ -288,7 +288,7 @@ meta def propLitRaw : Fn := midOf "full_prop_lit_raw"
   "full_analyze_lit"].all fun n => noWorse (midOf n)
 #guard Examples.LratBytes.lratBytesFns.all fun f => noWorse (f.mid x64LegalTarget)
 
-/-! ## 6. Leaf & low-call caller-saved preference (Rank #6) -/
+/-! ## 6. Leaf & low-call caller-saved register preference -/
 
 /-- Leaf function with 3 returns avoids saving callee-saved registers. -/
 meta def leafFn : Fn :=

@@ -6,14 +6,14 @@ public import LeanQbeTest.T.Smoke
 meta import Lean.Elab.Term
 
 /-!
-# Typed IR Notation Tests (`T3`)
+# Typed IR Notation Tests (`tqbe`)
 
 Covers:
 1. Kernel definitional equality (`rfl`) between `tqbe` notation and hand-written `LeanQbe.T` terms
    (`add128`, `mulByAdd`, `qrStep` with lane-wise `[16, 16, 16, 16]` and `splat 16`, `vumin`,
-   `evenOdd`, `readLeb128T`, and `lbCheckPrf` modeled after `LeanQbe/Examples/LratBytes.lean`).
+   `evenOdd`, `readLeb128T`, and `lbCheckPrf` modeled after `LeanQbe/T/Examples/LratBytes.lean`).
 2. `Func.Wf` via `t_wf_reify` (and `t_wf_tac` for polymorphic `vumin k`) plus `checkTFlat`.
-3. All §2 structured sugar forms (`loop`/`break`/`continue`/`check`/`switch`), multi-result ops
+3. Structured sugar forms (`loop`/`break`/`continue`/`check`/`switch`), multi-result ops
    (`addc`/`subb`/`umulw`/`smulw`), `pair` ops (`mkpair`/`unpair`/`fst`/`snd`), lane-wise vector
    immediates, float/cast/SIMD/memory/call/exit/hlt ops, nested groups, `tqbe ->`, `tqbe $sym`,
    and `tqbe_def`.
@@ -560,7 +560,7 @@ tqbe_def tqbeDefFn : Func [i64] [i64] := tqbe(%x:l) -> l {
 
 theorem tqbeDefFn_wf : Func.Wf tqbeDefFn := by t_wf_reify
 
-/-! ## 5. Scaling acceptance test: executable `def` 2000-instruction function in `T3` notation -/
+/-! ## 5. Scaling acceptance test: executable `def` 2000-instruction function in `tqbe` notation -/
 
 set_option maxRecDepth 16384 in
 def sl2000 : Func [i64] [i64] := gen_tqbe_sl 2000
@@ -1033,7 +1033,7 @@ def immBoundaries64 : Func [i64, Ty.bits 1] [i64, Ty.bits 1] :=
 theorem immBoundaries64_wf : Func.Wf immBoundaries64 := by t_wf_reify
 theorem immBoundaries64_check : Func.checkTFlat immBoundaries64 = true := by decide
 
-/-! ### Negative `#guard_msgs` tests for T3 review findings -/
+/-! ### Negative `#guard_msgs` diagnostic tests for `tqbe` notation -/
 
 /-- error: tqbe: `break @outerLoop` targets loop header @outerLoop, not a loop break label (use `continue @outerLoop`) -/
 #guard_msgs in

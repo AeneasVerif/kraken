@@ -4,10 +4,10 @@ public import LeanQbe
 public import LeanQbeTest.T.Examples
 
 /-!
-# Proof-kit verification tests (`T4`)
+# Proof-kit verification tests (`LeanQbe.T.Logic`)
 
-Re-proves all 8 `T1` spike-4 tests (`add128`, `add256`, `mac`, `ult128`, `umin`, `mulByAdd`,
-`qrStep`, `vumin`) dramatically more concisely using `LeanQbe.T.Logic`, verifies `T3` `tqbe`
+Re-proves all 8 example functions from `Examples.lean` (`add128`, `add256`, `mac`, `ult128`,
+`umin`, `mulByAdd`, `qrStep`, `vumin`) concisely using `LeanQbe.T.Logic`, verifies `tqbe`
 notation counterparts (including `t_wf_reify`), and exercises `smulw`/`smulw_toInt`, `Vec`
 lane specs (`vpaddd`, `vpternlogd`, `vprord`, `vpsrld`, `lane_liftCmp`, `lane_blendV`),
 `Arith` (`≥ 2^128` without `omega`), scalar op specs, and separation-logic memory rules.
@@ -24,9 +24,9 @@ open Kraken.Bedrock2.Test
 open LeanQbe.T
 open LeanQbe.T.Examples
 
-/-! ## 1. All 8 `T1` spike-4 specs re-proved with the `T4` proof kit -/
+/-! ## 1. All 8 `Examples.lean` specs re-proved with `LeanQbe.T.Logic` -/
 
-/-- `add128` re-proved via `wp_unfold` + `wp_addc_mk` + `add2_combine` (no manual `vals`!). -/
+/-- `add128` re-proved via `wp_unfold` + `wp_addc_mk` + `add2_combine` (no manual `vals`). -/
 theorem add128_kit (Γ : Env) (X : XPost) (m : Mem 64) (a b : Val u128) :
     Func.wp Γ add128 (a, b, ()) m
       (fun (s, c, ()) _ => c.toNat * 2 ^ 128 + U128.toNat s = U128.toNat a + U128.toNat b) X := by
@@ -169,7 +169,7 @@ theorem mulByAdd_kit (Γ : Env) (X : XPost) (m : Mem 64) (n b : BitVec 64) :
   · wp_unfold
     exact hJ n.toNat (n, 0, 0, ()) m ⟨rfl, by simp⟩
 
-/-- `qrStep` (`v4i32`) re-proved in 2 lines via `wp_unfold`! -/
+/-- `qrStep` (`v4i32`) re-proved in 2 lines via `wp_unfold`. -/
 theorem qrStep_kit (Γ : Env) (X : XPost) (m : Mem 64)
     (a0 a1 a2 a3 b0 b1 b2 b3 d0 d1 d2 d3 : BitVec 32) :
     Func.wp Γ qrStep (((a0, a1), a2, a3), ((b0, b1), b2, b3), ((d0, d1), d2, d3), ()) m
@@ -180,7 +180,8 @@ theorem qrStep_kit (Γ : Env) (X : XPost) (m : Mem 64)
   dsimp only [Func.wp, qrStep]
   wp_unfold
 
-/-- `vumin k` (for ALL `k : Nat`, arbitrary `2^k` lanes!) proved via `wp_unfold` + `lanewise3_iff_lane` + `lane_blend_liftCmp_bits`. -/
+/-- `vumin k` (for all `k : Nat`, arbitrary `2^k` lanes) proved via `wp_unfold` +
+`lanewise3_iff_lane` + `lane_blend_liftCmp_bits`. -/
 theorem vumin_kit (k : Nat) (Γ : Env) (X : XPost) (m : Mem 64)
     (a b : Val (Ty.vec k i32)) :
     Func.wp Γ (vumin k) (a, b, ()) m
@@ -193,7 +194,7 @@ theorem vumin_kit (k : Nat) (Γ : Env) (X : XPost) (m : Mem 64)
   rw [lane_blend_liftCmp_bits]
   by_cases h : (lane k a i).toNat < (lane k b i).toNat <;> simp [h] <;> omega
 
-/-! ## 2. `T3` `tqbe` notation versions of the `T1` tests + `t_wf_reify` -/
+/-! ## 2. `tqbe` notation versions of the `Examples.lean` tests + `t_wf_reify` -/
 
 def add128Tqbe : Func [u128, u128] [u128, .bool] :=
   tqbe(%a:u128, %b:u128) -> (u128, b) {

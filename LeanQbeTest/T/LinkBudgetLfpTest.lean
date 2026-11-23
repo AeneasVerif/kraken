@@ -5,7 +5,7 @@ import LeanQbe.T.WPLemmas
 import LeanQbe.T.AbiLemmas
 
 /-!
-# Tests for `LeanQbe.T.LinkBudgetLfp` (`PR-B1`)
+# Tests for `LeanQbe.T.LinkBudgetLfp`
 
 Exercises:
 1. Knaster–Tarski `BudgetEnv.lfp` lattice laws, `lfp_budget_mono`, `lfp_wf`, and
@@ -18,7 +18,7 @@ Exercises:
 4. Legacy acyclic `ModuleOk` embedding (`moduleOk_embeds_into_budget_semScc`).
 5. Single-shot machine pre-fixpoint and `Target.FnSpec` bridge (`semScc_le_mach_single_shot`,
    `budget_semScc_to_target_fnSpec`).
-6. Single-line `#print axioms` audit (`< 115c`, `std3`-clean).
+6. Single-line `#print axioms` audit (`[propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
@@ -406,7 +406,7 @@ theorem mach_bridge_ok (T : Target) (h : T.mach.Host) (nX : Nat)
   Target.FnSpec.mono_stack T
     (budget_semScc_to_target_fnSpec T h nX hlow (by omega) sym as bs) hsb hsb'
 
-/-! ## 7. Single-Line Axiom Audit (`< 115c`, `std3`-clean) -/
+/-! ## 7. Single-Line Axiom Audit (`[propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms LeanQbe.T.BudgetEnv.lfp_le
 #print axioms LeanQbe.T.BudgetEnv.lfp_fix

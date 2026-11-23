@@ -4,7 +4,7 @@ public import LeanQbe.T.Amd64.FrameLemmas
 import Kraken.X64.Parser
 
 /-!
-# SysV x64 Frame & ABI Verification Tests (`T11b`)
+# SysV x64 Frame & ABI Verification Tests
 
 Standalone downstream module verifying:
 1. Kernel `rfl` / `t_kernel_rfl` reduction of `x64Frame` (`bitWidths`, `raBytes`, registers,

@@ -7,7 +7,7 @@ public import LeanQbe.T.Logic.C0Agrees
 import LeanQbe.T.Examples.Kissat.FullArena
 
 /-!
-# Kissat M7 Wave 4I Walk & Warmup Proofs — Part 0 (`FullM7WalkProof0`)
+# Kissat M7 Walk & Warmup Proofs — Part 0 (`FullM7WalkProof0`)
 
 Proves UNSAT-only memory-safety and invariant `Func.wp` contracts (`XPost := False`, `0` SAT
 model proofs) for the `10` core-preserving ProbSAT local-search helpers in `FullM7Walk`.

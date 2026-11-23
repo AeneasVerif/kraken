@@ -1,7 +1,8 @@
-# `t9-arm64`: AArch64 Scalar `GprIsa` + `GprTarget` (`T9`)
+> **[Historical design note]** Written during an earlier milestone (at commit `27aa0ae`); module sizes and helper layout have since evolved. See `LeanQbe-README.md` for current paths and architecture.
 
-Owner: `t9-arm64` (forked cleanly from `main` after `T11b @ 27aa0ae`).
-Owned files:
+# AArch64 Scalar Instruction Selection (`LeanQbe.T.Arm64`: `GprIsa` + `GprTarget`)
+
+Modules covered:
 - `LeanQbe/T/Arm64/Isel.lean`
 - `LeanQbe/T/Arm64/IselLemmas1.lean`
 - `LeanQbe/T/Arm64/IselLemmas2.lean`
@@ -51,8 +52,8 @@ Owned files:
 ## Hygiene, Build, Import-Closure & Axiom Audit
 - **Build & co-import**: `timeout 300 time lake build --wfail LeanQbe.T.Arm64.FrameLemmas LeanQbe.T.Arm64.Isel LeanQbe.T.Arm64.IselLemmas1 LeanQbe.T.Arm64.IselLemmas2 LeanQbe.T.Arm64.IselLemmas3 LeanQbe.T.Arm64.IselLemmas4 LeanQbeTest.T.Arm64IselTest` exited `0` (`118` jobs, `26.67s`), simultaneous co-import of `Frame` + `FrameLemmas` + `Isel` + `IselLemmas1..4` passed with zero symbol collisions, and every module passed standalone `lake env lean -DwarningAsError=true` in `≤ 7.5s`.
 - **No `sorry` or native tactics**: Zero `sorry`/`admit`/`axiom` declarations, zero `bv_decide`, `native_decide`, `decide +native`, `ofReduceBool`, `ofReduceNat`, `maxHeartbeats`, or `maxRecDepth`.
-- **Import-closure audit**: Inspected transitive `.header.moduleNames` closure across all 6 owned modules (`2,517` modules): strictly `LeanQbe.T.*` (no `Amd64`, no untyped E1 `LeanQbe.*`), `LeanQbeTest.T.Arm64IselTest`, and `Kraken.*` (no `Kraken.X64.*`).
+- **Import-closure audit**: Inspected transitive `.header.moduleNames` closure across all 6 modules (`2,517` modules): strictly `LeanQbe.T.*` (no `Amd64`, no earlier untyped-IR `LeanQbe.*`), `LeanQbeTest.T.Arm64IselTest`, and `Kraken.*` (no `Kraken.X64.*`).
 - **Axioms (`#print axioms`)**: `armGprSpec`, all 10 `NoLab` theorems, and all 7 `Arm64IselTest` witness theorems depend strictly on `[propext, Classical.choice, Quot.sound]`.
 
-## Optional Post-Merge Cleanup (Not Modified Here)
-- Per `#266`, local `armDirFallsTo` / `armWp_cons` / `armWp_append` / `armFallsTo_of_wp` helpers in `IselLemmas1.lean` (mirroring `FrameLemmas.lean`) were kept untouched and can be consolidated into `LeanQbe/T/Arm64/Base.lean` post-merge.
+## Follow-up Note
+- Local `armDirFallsTo` / `armWp_cons` / `armWp_append` / `armFallsTo_of_wp` helpers in `IselLemmas1.lean` (mirroring `FrameLemmas.lean`) were initially kept local and can be shared through `LeanQbe/T/Arm64/Base.lean`.

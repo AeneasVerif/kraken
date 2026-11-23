@@ -11,8 +11,7 @@ import all Kraken.Separation
 1. Executable `#guard` checks on `bvaHeap_fns` (`13` functions), names & signatures,
    `bvaHeapModule.externs` (`6` canonical `Full` externs), `bvaHeapModule.checkAcyclic`,
    the `19`-row `bvaHeapSpecTable`, and `nvBvaDenseBytes.length == 1756`.
-2. Short root-namespace audit theorems + single-line `#print axioms` (`<= 100` cols, every
-   `depends on axioms: [...]` output on one complete line `< 115` chars) covering all exported
+2. Short root-namespace audit theorems + single-line `#print axioms` covering all exported
    `Func.Wf`, acyclicity, generalized BVA soundness (`extUnsatSound_bvaExtendGen`), all `13`
    `Func.wp` proofs (+ canonical `full_init_fresh_var_wp`), `bvaHeapEnv_noExit`,
    `bvaHeap_moduleOk`, and all concrete `Mem 64` UNSAT non-vacuity proofs

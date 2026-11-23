@@ -16,7 +16,7 @@ meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
-# Kissat `D-Plain` C0 SAT Solver (`plainModule`) Compilation Certificate on SysV x64 (`Stage 3`)
+# Kissat `D-Plain` C0 SAT Solver (`plainModule`) Compilation Certificate on SysV x64
 
 Combines the 6 parallel kernel-checked slices (`KissatPlainCert1`..`KissatPlainCert6`) via
 `LinkedCert.append` into `plainCert` over `LeanQbe.T.Examples.Kissat.Plain.plainModule` (`59`

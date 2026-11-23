@@ -7,9 +7,9 @@ public meta import LeanQbe.T.LeanLRC.Basic
 public meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Tier-0a C0 Runtime & Defunctionalized `lean_apply_k` Generator (`X3-R0`)
+# Minimal C0 Runtime & Defunctionalized `lean_apply_k` Generator
 
-Elaborates the Tier-0a `λRC` runtime via `LeanQbe.T.Frontend.C0`:
+Elaborates the minimal `λRC` C0 runtime via `LeanQbe.T.Frontend.C0`:
 * `LeanRt` state (`base`, `cur`, `end`, `fuel`, `depth`, `env`)
 * 64-bit LE `lean_object` header (`rc` 0-31, `cs_sz` 32-47, `other` 48-55, `tag` 56-63)
 * Tagged scalars `(2*n + 1)`, `lean_box`/`lean_unbox`/`lean_obj_tag`
@@ -26,7 +26,7 @@ namespace LeanQbe.T.LeanLRC
 open LeanQbe.T
 open LeanQbe.T.Frontend.C0
 
-/-- Shared C0 struct and extern declarations for the Tier-0a `λRC` runtime. -/
+/-- Shared C0 struct and extern declarations for the `λRC` runtime. -/
 def rtC0Header : String := "#include \"c0.h\"
 typedef struct { u64 base; u64 cur; u64 end; u64 fuel; u64 depth; u64 env; } LeanRt;
 typedef struct { i32 m_rc; u16 m_cs_sz; u8 m_other; u8 m_tag; } lean_object;
@@ -40,7 +40,7 @@ extern void lean_oom(u64 rt);
 extern void lean_panic(u64 rt);
 "
 
-/-! ## Meta Elaboration of Static Tier-0a Runtime Definitions -/
+/-! ## Meta Elaboration of Static Runtime Definitions -/
 
 meta section
 open Lean Elab Command
@@ -54,7 +54,7 @@ elab "lrc_elab_rt_c0!" pfx:ident src:str : command =>
 
 end
 
-/- Static Tier-0a C0 runtime elaborated directly via `LeanQbe.T.Frontend.C0`. -/
+/- Static C0 runtime elaborated directly via `LeanQbe.T.Frontend.C0`. -/
 lrc_elab_rt_c0! rtBase "#include \"c0.h\"
 typedef struct { u64 base; u64 cur; u64 end; u64 fuel; u64 depth; u64 env; } LeanRt;
 typedef struct { i32 m_rc; u16 m_cs_sz; u8 m_other; u8 m_tag; } lean_object;

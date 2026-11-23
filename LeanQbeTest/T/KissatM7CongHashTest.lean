@@ -32,7 +32,7 @@ open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Full
 open LeanQbe.T.Examples.Kissat.FullM7CongHash
 
-/-! ## 1. Linear-State Pure-Lean Reference Simulator (`0` `.eq_def` M1 Leaks) -/
+/-! ## 1. Linear-State Pure-Lean Reference Simulator (`0` `.eq_def` Reduction Leaks) -/
 
 private def simEmpty : UInt32 := 0xFFFFFFFF
 

@@ -4,7 +4,7 @@ public import LeanQbe.T.IL
 public meta import Lean
 
 /-!
-# `λRC` / `Lean.IR` Representation & `Lean.IR.Decl` Reader (`X3-R0`)
+# `λRC` / `Lean.IR` Representation & `Lean.IR.Decl` Reader
 
 Minimal typed `λRC` / `Lean.IR` intermediate representation (`LrcVal`, `LrcExpr`, `LrcFn`,
 `LrcModule`) covering constructor allocation/projection (`ctor`, `proj`, `uproj`, `sproj`),
@@ -22,7 +22,7 @@ namespace LeanQbe.T.LeanLRC
 
 open LeanQbe.T
 
-/-- Runtime abnormal exit symbols used by Tier-0a C0 runtime helpers. -/
+/-- Runtime abnormal exit symbols used by the C0 runtime helpers. -/
 def rtExits : List Sym :=
   ["lean_out_of_fuel", "lean_stack_overflow", "lean_oom", "lean_panic"]
 

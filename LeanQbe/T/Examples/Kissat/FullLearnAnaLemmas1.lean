@@ -13,7 +13,7 @@ import all Kraken.Separation
 # Kissat `D-Full` Learn/Analyze Top Helpers & Specs (`Stage 4`, Part 1)
 
 Defines strictly scoped `FullLearnAnaTactics`, local `FullLearnAnaSpecs` matching
-`FullSpec1.lean` / `FullSpec2.lean` 1:1 (including `#1017` `cur_vars`, `FullOtfsInvW`,
+`FullSpec1.lean` / `FullSpec2.lean` 1:1 (including `cur_vars`, `FullOtfsInvW`,
 `FullOtfsWitnessInv.toWitness_of_level0`, `FullLastLearnedWf`, and the `FullLearnAna`
 callee alignment clauses), and pure invariant / witness preservation lemmas for
 `full_eager_subsume`, `full_learn_clause`, and `full_analyze`.

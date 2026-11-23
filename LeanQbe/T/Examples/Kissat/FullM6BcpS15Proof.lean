@@ -1560,7 +1560,7 @@ theorem full_prop_lit_raw_s15_wp (Γ : Env)
             rw [htend_eq, hunass_eq, hunfl_eq, fastPropMem_def] at hm
             exact hm
           exact hLsync () m ⟨sem_s, hpi_s, rfl, rfl, hm_s⟩
-    · -- Main `while (p < end)` loop body (100% call-free!)
+    · -- Main `while (p < end)` loop body (call-free)
       rintro B L rem ⟨tend_v, unass_v, unfl_v, ticks_v, p_v, q_v, di_v, ovf_v, ⟨⟩⟩ ml hB ih
         ⟨sem, dlen, rfl, rfl, hpi, hdi_eq, hdlen_le, hdel_ok, hd0_sem, htend_eq, hunass_eq,
           hunfl_eq, hnl_eq, hoom_st, hct_st, hml⟩

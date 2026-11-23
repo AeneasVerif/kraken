@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalWfBaseLemmas
 
 /-!
-# Legalization semantic preservation base and tree lemmas (`T5`, Part 1)
+# Legalization semantic preservation base and tree lemmas (Part 1)
 -/
 
 set_option autoImplicit false

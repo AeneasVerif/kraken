@@ -13,7 +13,7 @@ meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.Examples.ChaCha
 
 /-!
-# ChaCha20 Block (Scalarized) on AArch64 (`T14`)
+# ChaCha20 Block (Scalarized) on AArch64
 
 Instantiates `chacha20Module` (`chacha20Block`) on `armTarget` (`armLegalTarget`, `armLayout`,
 `armLabelClean`), where `armLegalTarget` scalarizes `v4i32` rows down to `i32` lanes:

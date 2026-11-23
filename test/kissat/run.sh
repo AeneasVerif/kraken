@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Differential verification suite for X1 Stage A (LeanQbe.T.Examples.Kissat):
+# Differential verification suite for LeanQbe.T.Examples.Kissat:
 # Compares across:
-#   1. X2-LayerA pure-Lean cdclSolve (verified during artifact generation)
+#   1. Pure-Lean cdclSolve reference model (verified during artifact generation)
 #   2. PrintCpp + g++ -std=c++20 -O2 -DTQBE_CATCH_UB (aligned + unaligned work_ptr)
 #   3. PrintCpp + clang++ -std=c++20 -O2 -fsanitize=undefined,address -DTQBE_CATCH_UB
 #   4. Native x64 assembly (x64Target) + mmap guard pages + DIMACS model verifier

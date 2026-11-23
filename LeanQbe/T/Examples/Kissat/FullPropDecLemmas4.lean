@@ -596,7 +596,7 @@ theorem full_prop_lit_wp (Γ : Env)
       have h1_64 : ((1 : BitVec 64)).toNat = 1 := rfl
       have hp1_pre : (p_v + (1 : BitVec 64)).toNat = p_v.toNat + 1 := bv64_add1_toNat (by omega)
       fp_head_steps
-      · -- Binary watch, `other >= nlits` (dead!)
+      · -- Binary watch, `other >= nlits` (unreachable)
         have hp_lt : p_v.toNat < end_v.toNat := by assumption
         have hw0_get : st.core.wstk[p_v.toNat]? = some (st.core.wstk[p_v.toNat]'(by omega)) :=
           List.getElem?_eq_getElem (by omega)
@@ -740,7 +740,7 @@ theorem full_prop_lit_wp (Γ : Env)
             tr := (hpi.tr.congr (k2 := st1.core) rfl rfl rfl).trans htr12
             perm := hpi.perm, sc_eq := by dsimp only [st2, st1]; rw [hpi.sc_eq]
             not_f := hnot_f2 }
-      · -- Large watch, `p + 1 >= end` (dead!)
+      · -- Large watch, `p + 1 >= end` (unreachable)
         have hp_lt : p_v.toNat < end_v.toNat := by assumption
         have hw0_get : st.core.wstk[p_v.toNat]? = some (st.core.wstk[p_v.toNat]'(by omega)) :=
           List.getElem?_eq_getElem (by omega)
@@ -880,7 +880,7 @@ theorem full_prop_lit_wp (Γ : Env)
                   have hunit := propLit_hunit hpi1.nw hcr_ref1 hng1 (by omega) har3 har4
                     hpi1.not_f hfind_bad
                   fp_head_steps
-                  · -- `(u64)cref == ignore_ref`: keep watch & continue!
+                  · -- `(u64)cref == ignore_ref`: keep watch & continue
                     exact ih _ (off_v, p_v + (1 : BitVec 64) + (1 : BitVec 64),
                         q_v + (2 : BitVec 64), end_v, ()) m (by omega)
                       ⟨_, rfl, propLit_inv_keep_large hpi1 hpi1.sw hnot_st1 hq1_nat hq2_nat
