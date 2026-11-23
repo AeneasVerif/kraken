@@ -4,8 +4,8 @@ public import LeanQbe.T.Examples.Kissat.FullM7SearchProof0
 import LeanQbe.T.Examples.Kissat.FullArena
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0Agrees
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Kissat Stage-3 M7 Search Parity `Func.wp` Proofs — Part 1 (`Group B` WPs & Drop-In Bridges)

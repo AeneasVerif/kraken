@@ -4,8 +4,8 @@ public import LeanQbe.T.Examples.Kissat.FullM7SearchProof1
 import LeanQbe.T.Examples.Kissat.FullArena
 import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.C0HeadStep
-import all Kraken.Mem
-import all Kraken.Separation
+import Kraken.Mem
+import Kraken.Separation
 
 /-!
 # Kissat Stage-3 M7 Search Parity `Func.wp` Proofs — Part 2
@@ -1081,5 +1081,1008 @@ theorem full_switch_mode_m7_dropin_wp (Γ : Env)
   fun _ _ _ _ hs =>
     full_switch_mode_m7_wp Γ hIlog hHeapDown hEmaSwap hLog10 _ _ _ _
       (m7SwitchModeSpec_to_canon hs)
+
+/-! ## 4. `full_randec_var_m7` `Func.wp` Proof -/
+
+private theorem p2_sext32_eq0 (x : BitVec 8) (h : BitVec.signExtend 32 x = 0#32) :
+    x = 0#8 := by
+  revert x h; decide
+
+/-- Parametric WP proof for `full_randec_var_m7` against `m7RandecVarSpec`. -/
+theorem full_randec_var_m7_wp (Γ : Env)
+    (hLcg : EnvSpec Γ "full_lcg_next_m7" m7LcgNextSpec)
+    (hInit : EnvSpec Γ "full_m7_state_init" m7StateInitSpec)
+    (hGet : EnvSpec Γ "full_m7_get64" m7Get64Spec)
+    (hSet : EnvSpec Γ "full_m7_set64" m7Set64Spec)
+    (hLog10 : EnvSpec Γ "full_log10_q16_m7" m7Log10Q16Spec) :
+    ∀ a m Q X, m7RandecVarSpec a m Q X → Func.wp Γ full_randec_var_m7_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hspec
+  obtain ⟨c, s, R, rfl, hlen, hm, hQ⟩ := m7RandecVarSpec_elim hspec
+  have hmx : c.max_vars < 2 * dimacsBound := c.hmaxv
+  unfold dimacsBound at hmx
+  have hok := hlen.core_ok
+  have hsok := hlen.scratch_ok
+  have hcv_le := hok.cur_vars_le
+  let mkS : List (BitVec 32) → BitVec 64 → FullState := fun gu rng =>
+    { s with scratch := { s.scratch with glue_used := gu, rng_state := rng } }
+  have mkS_len : ∀ gu rng, gu.length = 64 → (mkS gu rng).LengthsOk c := fun gu rng hgu =>
+    ⟨hlen.core_ok, { hsok with glue_used_len := hgu }⟩
+  let ret_neg1 := fun {gu : List (BitVec 32)} {rng : BitVec 64} {ml : Mem 64}
+      (hln : (mkS gu rng).LengthsOk c) (hp : M7GuPrefixPres s (mkS gu rng))
+      (hml : (FullMem c (mkS gu rng) ⋆ R) ml) =>
+    hQ 0xFFFFFFFFFFFFFFFF#64 (mkS gu rng) ml rfl hln
+      ⟨p2_probePres_refl s, hp, Or.inl rfl⟩ hml
+  unfold Func.wp full_randec_var_m7_body
+  p2_steps
+  · exact hQ 0xFFFFFFFFFFFFFFFF#64 s m rfl hlen
+      ⟨p2_probePres_refl s, M7GuPrefixPres.refl s, Or.inl rfl⟩ hm
+  · exact hQ 0xFFFFFFFFFFFFFFFF#64 s m rfl hlen
+      ⟨p2_probePres_refl s, M7GuPrefixPres.refl s, Or.inl rfl⟩ hm
+  · exact hQ 0xFFFFFFFFFFFFFFFF#64 s m rfl hlen
+      ⟨p2_probePres_refl s, M7GuPrefixPres.refl s, Or.inl rfl⟩ hm
+  · have hcv_pos : 0 < s.core.cur_vars := Nat.pos_of_ne_zero fun h0 => by
+      simp_all
+    p2_call hInit
+    refine m7StateInitSpec_of hlen hm fun hlen0 hi0 hp0 m0 hm0 => ?_
+    let gu0 := m7StateInitGu s.scratch
+    have hgu0 : gu0.length = 64 := hi0.len
+    have hm0' : (FullMem c (mkS gu0 s.scratch.rng_state) ⋆ R) m0 := hm0
+    have hlen0' : (mkS gu0 s.scratch.rng_state).LengthsOk c := mkS_len gu0 _ hgu0
+    have hp0' : M7GuPrefixPres s (mkS gu0 s.scratch.rng_state) := hp0
+    p2_steps_raw
+    p2_call hGet
+    refine m7Get64Spec_of hlen0' hm0' ?_
+    p2_steps_raw
+    p2_call hGet
+    refine m7Get64Spec_of hlen0' hm0' ?_
+    p2_steps_raw
+    refine wp_join_group (ts := [i64])
+      (fun _ m1 => ∃ gu1 : List (BitVec 32), gu1.length = 64 ∧
+        M7GuPrefixPres s (mkS gu1 s.scratch.rng_state) ∧
+        (FullMem c (mkS gu1 s.scratch.rng_state) ⋆ R) m1) ?_ ?_
+    · rintro J1 ⟨rem1, ⟨⟩⟩ m1 ⟨gu1, hgu1, hp1, hm1⟩
+      rw [Blocks.get_here]
+      have hlen1 := mkS_len gu1 s.scratch.rng_state hgu1
+      p2_steps_raw
+      refine wp_join_group (ts := [i64])
+        (fun _ m2 => ∃ gu2 : List (BitVec 32), gu2.length = 64 ∧
+          M7GuPrefixPres s (mkS gu2 s.scratch.rng_state) ∧
+          (FullMem c (mkS gu2 s.scratch.rng_state) ⋆ R) m2) ?_ ?_
+      · rintro J2 ⟨rem2, ⟨⟩⟩ m2 ⟨gu2, hgu2, hp2, hm2⟩
+        rw [Blocks.get_here]
+        have hlen2 := mkS_len gu2 s.scratch.rng_state hgu2
+        p2_steps_raw
+        let max_tries : BitVec 64 :=
+          if (BitVec.ofNat 64 s.core.cur_vars) < 4096#64 then
+            BitVec.ofNat 64 s.core.cur_vars * 4#64 + 16#64
+          else 16384#64
+        refine wp_join_group (ts := [i64])
+          (fun (mt, ()) m3 => mt.toNat ≤ 16400 ∧
+            (FullMem c (mkS gu2 s.scratch.rng_state) ⋆ R) m3) ?_ ?_
+        · rintro J3 ⟨mt, ⟨⟩⟩ m3 ⟨hmt, hm3⟩
+          rw [Blocks.get_here]
+          p2_steps_raw
+          refine wp_loop_inv (ts := [i64])
+            (fun (tries, ()) mL => ∃ (guL : List (BitVec 32)) (rngL : BitVec 64),
+              guL.length = 64 ∧ M7GuPrefixPres s (mkS guL rngL) ∧
+              tries.toNat ≤ mt.toNat ∧ (FullMem c (mkS guL rngL) ⋆ R) mL)
+            (fun (tries, ()) _ => mt.toNat - tries.toNat) ?_ ?_
+          · intro JL hJL
+            p2_steps_raw
+            exact hJL (0#64, ()) m3 ⟨gu2, s.scratch.rng_state, hgu2, hp2, Nat.zero_le _, hm3⟩
+          · rintro JL ⟨tries, ⟨⟩⟩ mL ⟨guL, rngL, hguL, hpL, htr_le, hmL⟩ hJL
+            rw [Blocks.get_here]
+            have hlenL := mkS_len guL rngL hguL
+            p2_steps_raw
+            p2_jnz_split hlt
+            · simp only [BitVec.ult, decide_eq_true_eq] at hlt
+              p2_steps_raw
+              p2_call hLcg
+              refine m7LcgNextSpec_of hlenL hmL fun lcg_r s' m' hc' hlen' ⟨hr_eq, hsc'⟩ hm' => ?_
+              have hs'_eq : s' = mkS guL (m7LcgNextVal rngL).1 := by
+                cases s'; simp only [mkS] at *; exact congr (congrArg FullState.mk hc') hsc'
+              rw [hs'_eq] at hlen' hm'
+              have hp' : M7GuPrefixPres s (mkS guL (m7LcgNextVal rngL).1) :=
+                @M7GuPrefixPres.congr_glue s (mkS guL rngL) s (mkS guL (m7LcgNextVal rngL).1)
+                  rfl rfl hpL
+              have hcv_nat : (BitVec.ofNat 64 s.core.cur_vars).toNat = s.core.cur_vars :=
+                p2_bv64_ofNat_toNat (by omega)
+              let idx := lcg_r % BitVec.ofNat 64 s.core.cur_vars
+              have hidx_lt : idx.toNat < s.core.cur_vars := by
+                dsimp only [idx]; rw [BitVec.toNat_umod, hcv_nat]; exact Nat.mod_lt _ hcv_pos
+              have hidx_fl : idx.toNat < s.core.flags.length := by rw [hok.flags_len]; omega
+              have hidx_v : (idx <<< 1#64).toNat = 2 * idx.toNat :=
+                M7SearchTactics.bv64_shl1_toNat (by omega)
+              have hidx_v2 : (idx <<< 1#64).toNat < s.core.vals.length := by
+                rw [hidx_v, hok.vals_len]; omega
+              p2_steps_raw
+              refine wp_join_group (ts := []) (fun _ mN => mN = m') ?_ ?_
+              · rintro Jnext ⟨⟩ mN hmN
+                subst hmN
+                rw [Blocks.get_here]
+                p2_steps_raw
+                have htr1 : (tries + 1#64).toNat = tries.toNat + 1 :=
+                  p2_bv64_add1_toNat (by omega)
+                exact hJL (tries + 1#64, ()) mN (by dsimp only; rw [htr1]; omega)
+                  ⟨guL, (m7LcgNextVal rngL).1, hguL, hp', by rw [htr1]; exact hlt, hm'⟩
+              · intro Jnext hJnext
+                p2_steps_raw
+                p2_jnz_split hact
+                · p2_steps_raw
+                  p2_jnz_split hval0
+                  · p2_steps_raw
+                    have hfl0 : (mkS guL (m7LcgNextVal rngL).1).core.flags[idx.toNat]?.getD 0#32 &&&
+                        1#32 ≠ 0#32 := by
+                      rw [List.getElem?_eq_getElem hidx_fl, Option.getD_some]
+                      simpa [mkS, idx] using hact
+                    have hv0 : (mkS guL (m7LcgNextVal rngL).1).core.vals[2 * idx.toNat]?.getD
+                        0#8 = 0#8 := by
+                      rw [← hidx_v, List.getElem?_eq_getElem hidx_v2, Option.getD_some]
+                      exact p2_sext32_eq0 _ (by simpa [mkS, idx] using hval0)
+                    exact hQ idx (mkS guL (m7LcgNextVal rngL).1) m' rfl hlen'
+                      ⟨p2_probePres_refl s, hp', Or.inr ⟨hidx_lt, hfl0, hv0⟩⟩ hm'
+                  · p2_steps_raw; exact hJnext () m' rfl
+                · p2_steps_raw; exact hJnext () m' rfl
+            · p2_steps_raw
+              exact ret_neg1 hlenL hpL hmL
+        · intro J3 hJ3
+          p2_steps_raw
+          p2_jnz_split hcv_lt
+          · have hcv_nat : (BitVec.ofNat 64 s.core.cur_vars).toNat = s.core.cur_vars :=
+              p2_bv64_ofNat_toNat (by omega)
+            have hcv_lt_nat : s.core.cur_vars < 4096 := by
+              have h := hcv_lt
+              simp only [BitVec.ult, hcv_nat] at h
+              exact of_decide_eq_true (by simpa using h)
+            p2_steps_raw
+            have hmt_le : (BitVec.ofNat 64 s.core.cur_vars * 4#64 + 16#64).toNat ≤ 16400 := by
+              bv_omega
+            exact hJ3 (_, ()) m2 ⟨hmt_le, hm2⟩
+          · p2_steps_raw
+            exact hJ3 (16384#64, ()) m2 ⟨by decide, hm2⟩
+      · intro J2 hJ2
+        p2_steps_raw
+        p2_jnz_split hrem0
+        · p2_steps_raw
+          p2_jnz_split hcl0
+          · p2_steps_raw; exact ret_neg1 hlen1 hp1 hm1
+          · p2_steps_raw
+            p2_call hGet
+            refine m7Get64Spec_of hlen1 hm1 ?_
+            p2_steps_raw
+            p2_jnz_split hclim
+            · p2_steps_raw; exact ret_neg1 hlen1 hp1 hm1
+            · p2_steps_raw
+              p2_call hGet
+              refine m7Get64Spec_of hlen1 hm1 ?_
+              p2_steps_raw
+              p2_call hSet
+              refine m7Set64Spec_of hlen1 hm1 fun hlen2 m2 hm2 => ?_
+              obtain ⟨hlen2', hm2'⟩ :=
+                p2_m7Set64_step (n := 60) (by decide) (by decide) hlen2 hm2
+              let gu2 := m7Set64List gu1 60 (m7Get64Val gu1 60 + 1#64)
+              have hgu2 : gu2.length = 64 := by rw [m7Set64List_length]; exact hgu1
+              have hp2 : M7GuPrefixPres s (mkS gu2 s.scratch.rng_state) :=
+                M7GuPrefixPres.trans hp1 (M7GuPrefixPres.of_set64 _ (by decide))
+              p2_steps_raw
+              refine wp_join_group (ts := [i64])
+                (fun _ mq => (FullMem c (mkS gu2 s.scratch.rng_state) ⋆ R) mq) ?_ ?_
+              · rintro Jq ⟨qarg, ⟨⟩⟩ mq hmq
+                rw [Blocks.get_here]
+                p2_steps_raw
+                p2_call hLog10
+                refine m7Log10Q16Spec_of fun lg _ _ => ?_
+                p2_steps_raw
+                refine wp_join_group (ts := [i64])
+                  (fun _ ml => (FullMem c (mkS gu2 s.scratch.rng_state) ⋆ R) ml) ?_ ?_
+                · rintro Jl ⟨len, ⟨⟩⟩ ml hml
+                  rw [Blocks.get_here]
+                  p2_steps_raw
+                  p2_call hSet
+                  refine m7Set64Spec_of hlen2' hml fun hlen3 m3 hm3 => ?_
+                  obtain ⟨hlen3', hm3'⟩ :=
+                    p2_m7Set64_step (n := 56) (by decide) (by decide) hlen3 hm3
+                  let gu3 := m7Set64List gu2 56 len
+                  have hgu3 : gu3.length = 64 := by rw [m7Set64List_length]; exact hgu2
+                  have hp3 : M7GuPrefixPres s (mkS gu3 s.scratch.rng_state) :=
+                    M7GuPrefixPres.trans hp2 (M7GuPrefixPres.of_set64 _ (by decide))
+                  p2_steps_raw
+                  p2_call hSet
+                  refine m7Set64Spec_of hlen3' hm3' fun hlen4 m4 hm4 => ?_
+                  obtain ⟨hlen4', hm4'⟩ :=
+                    p2_m7Set64_step (n := 58) (by decide) (by decide) hlen4 hm4
+                  let gu4 :=
+                    m7Set64List gu3 58 (s.scratch.conflicts + ((500#64 * lg) >>> 16#64))
+                  have hgu4 : gu4.length = 64 := by rw [m7Set64List_length]; exact hgu3
+                  have hp4 : M7GuPrefixPres s (mkS gu4 s.scratch.rng_state) :=
+                    M7GuPrefixPres.trans hp3 (M7GuPrefixPres.of_set64 _ (by decide))
+                  p2_steps_raw
+                  exact hJ2 (len, ()) m4 ⟨gu4, hgu4, hp4, hm4'⟩
+                · intro Jl hJl
+                  p2_steps_raw
+                  p2_jnz_split hlen10 <;> p2_steps_raw <;> exact hJl _ mq (by assumption)
+              · intro Jq hJq
+                p2_steps_raw
+                p2_jnz_split hqarg <;> p2_steps_raw <;> exact hJq _ m2 hm2'
+        · p2_steps_raw
+          exact hJ2 (rem1, ()) m1 ⟨gu1, hgu1, hp1, hm1⟩
+    · intro J1 hJ1
+      p2_steps_raw
+      p2_jnz_split hcfl
+      · p2_steps_raw
+        refine wp_join_group (ts := [i64])
+          (fun _ mr => (FullMem c (mkS gu0 s.scratch.rng_state) ⋆ R) mr) ?_ ?_
+        · rintro Jr ⟨rem', ⟨⟩⟩ mr hmr
+          rw [Blocks.get_here]
+          p2_steps_raw
+          p2_call hSet
+          refine m7Set64Spec_of hlen0' hmr fun hlen1a m1a hm1a => ?_
+          obtain ⟨hlen1a', hm1a'⟩ :=
+            p2_m7Set64_step (n := 56) (by decide) (by decide) hlen1a hm1a
+          let gu1a := m7Set64List gu0 56 rem'
+          have hgu1a : gu1a.length = 64 := by rw [m7Set64List_length]; exact hgu0
+          have hp1a : M7GuPrefixPres s (mkS gu1a s.scratch.rng_state) :=
+            M7GuPrefixPres.trans hp0' (M7GuPrefixPres.of_set64 _ (by decide))
+          p2_steps_raw
+          p2_call hSet
+          refine m7Set64Spec_of hlen1a' hm1a' fun hlen1b m1b hm1b => ?_
+          obtain ⟨hlen1b', hm1b'⟩ :=
+            p2_m7Set64_step (n := 62) (by decide) (by decide) hlen1b hm1b
+          let gu1b := m7Set64List gu1a 62 s.scratch.conflicts
+          have hgu1b : gu1b.length = 64 := by rw [m7Set64List_length]; exact hgu1a
+          have hp1b : M7GuPrefixPres s (mkS gu1b s.scratch.rng_state) :=
+            M7GuPrefixPres.trans hp1a (M7GuPrefixPres.of_set64 _ (by decide))
+          p2_steps_raw
+          exact hJ1 (rem', ()) m1b ⟨gu1b, hgu1b, hp1b, hm1b'⟩
+        · intro Jr hJr
+          p2_steps_raw
+          p2_jnz_split hremdc <;> p2_steps_raw <;> exact hJr _ m0 hm0'
+      · p2_steps_raw
+        exact hJ1 (m7Get64Val gu0 56, ()) m0 ⟨gu0, hgu0, hp0', hm0'⟩
+
+/-- Canonical `Full.fullNextDecVarSpec` drop-in WP proof for `full_randec_var_m7`. -/
+theorem full_randec_var_m7_dropin_wp (Γ : Env)
+    (hLcg : EnvSpec Γ "full_lcg_next_m7" m7LcgNextSpec)
+    (hInit : EnvSpec Γ "full_m7_state_init" m7StateInitSpec)
+    (hGet : EnvSpec Γ "full_m7_get64" m7Get64Spec)
+    (hSet : EnvSpec Γ "full_m7_set64" m7Set64Spec)
+    (hLog10 : EnvSpec Γ "full_log10_q16_m7" m7Log10Q16Spec) :
+    ∀ a m Q X, Full.fullNextDecVarSpec a m Q X →
+      Func.wp Γ full_randec_var_m7_body a m Q X :=
+  fun _ _ _ _ hs =>
+    full_randec_var_m7_wp Γ hLcg hInit hGet hSet hLog10 _ _ _ _ (m7RandecVarSpec_to_canon hs)
+
+/-! ## 5. `full_decide_m7` `Func.wp` Proof -/
+
+/-- Parametric WP proof for `full_decide_m7` against `m7DecideSpec`. -/
+theorem full_decide_m7_wp (Γ : Env)
+    (hRandec : EnvSpec Γ "full_randec_var_m7" m7RandecVarSpec)
+    (hNextDec : EnvSpec Γ "full_next_dec_var" fullNextDecVarSpec)
+    (hAssign : EnvSpec Γ "full_assign" fullAssignSpec) :
+    ∀ a m Q X, m7DecideSpec a m Q X → Func.wp Γ full_decide_m7_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hspec
+  obtain ⟨c, F0, s, R, rfl, hinv, hm, hQ⟩ := m7DecideSpec_elim hspec
+  have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
+  unfold Func.wp full_decide_m7_body
+  p2_steps_raw
+  p2_call hRandec
+  refine m7RandecVarSpec_of hinv.lengths hm
+    fun chosen s1 m1 hc1 hlen1 hp1 _ hch1 hm1 => ?_
+  have hinv1 : FullCoreInv c F0 s1 := hinv.with_fuel_scratch_spec hlen1 hc1
+  p2_steps_raw
+  refine wp_join_group (ts := [i64])
+    (fun (ch, ()) m2 => ∃ s2 : FullState,
+      s2.core = s.core ∧ s2.LengthsOk c ∧ FullExtScratchPres s s2 ∧
+      (ch = 0xFFFFFFFFFFFFFFFF#64 ∨
+        ch.toNat < s.core.cur_vars ∧ s.core.vals[2 * ch.toNat]?.getD 0#8 = 0#8) ∧
+      (FullMem c s2 ⋆ R) m2) ?_ ?_
+  · rintro Jc ⟨ch, ⟨⟩⟩ m2 ⟨s2, hc2, hlen2, hext2, hch2, hm2⟩
+    rw [Blocks.get_here]
+    have hinv2 : FullCoreInv c F0 s2 := hinv.with_fuel_scratch_spec hlen2 hc2
+    have hcl2 := hinv2.lengths.core_ok
+    have hsok2 := hinv2.lengths.scratch_ok
+    p2_steps_raw
+    p2_jnz_split h_neg1
+    · p2_steps_raw
+      cases s2; dsimp only at hc2; subst hc2
+      exact hQ 0#64 s.core.vals s.core.flags s.core.lvl s.core.rsns s.core.trl s.core.trail_pos
+        s.core.frame_trail s.core.frame_dec s.core.trail_end s.core.cur_level s.core.unassigned
+        s.core.unflushed _ m2 hinv2 hext2 (Or.inl rfl) (fun _ => ⟨rfl, rfl⟩)
+        (fun h01 => by cases h01) hm2
+    · obtain ⟨hv_lt, hval0⟩ := hch2.resolve_left (by simpa using h_neg1)
+      have hcv2 : s.core.cur_vars ≤ c.max_vars := hc2 ▸ hcl2.cur_vars_le
+      have hch_lt_max : ch.toNat < c.max_vars := by omega
+      have hch_lt30 : ch.toNat < 2 ^ 30 := by omega
+      have hv_tgt : ch.toNat < s2.scratch.phases_target.length := by
+        rw [hsok2.phases_target_len]; omega
+      have hv_ph : ch.toNat < s2.scratch.phases.length := by
+        rw [hsok2.phases_len]; omega
+      p2_steps_raw
+      refine wp_join_group (fun _ md1 => m2 = md1) ?_ ?_
+      · rintro Jd1 ⟨dph1, ⟨⟩⟩ _ rfl
+        rw [Blocks.get_here]
+        p2_steps_raw
+        refine wp_join_group (fun _ md2 => m2 = md2) ?_ ?_
+        · rintro Jd2 ⟨dph2, ⟨⟩⟩ _ rfl
+          rw [Blocks.get_here]
+          p2_steps_raw
+          refine wp_join_group (fun _ md3 => m2 = md3) ?_ ?_
+          · rintro Jd3 ⟨dph3, ⟨⟩⟩ _ rfl
+            rw [Blocks.get_here]
+            p2_steps_raw
+            refine wp_join_group (ts := [i32])
+              (fun (lit, ()) ml => m2 = ml ∧
+                (lit.toNat = 2 * ch.toNat ∨ lit.toNat = 2 * ch.toNat + 1)) ?_ ?_
+            · rintro Jl ⟨lit, ⟨⟩⟩ _ ⟨rfl, hlit_eq⟩
+              rw [Blocks.get_here]
+              cases s2 with | mk sc_c sc_sc =>
+              dsimp only at hc2; subst hc2
+              have hinv2' : FullCoreInv c F0 { core := s.core, scratch := sc_sc } := hinv2
+              have hcl2' := hinv2'.lengths.core_ok
+              have hsok2' := hinv2'.lengths.scratch_ok
+              have hte2 : s.core.trail_end ≤ s.core.cur_vars := hcl2'.trail_end_le
+              have hcv2' : s.core.cur_vars ≤ c.max_vars := hcl2'.cur_vars_le
+              obtain ⟨_, hw2⟩ := hinv2'.witness
+              have hcl2_le : s.core.cur_level ≤ s.core.trail_end := hw2.cur_level_le
+              have hnlvl_bv : (BitVec.ofNat 64 s.core.cur_level + 1#64).toNat =
+                  s.core.cur_level + 1 := by
+                have := p2_bv64_ofNat_toNat (n := s.core.cur_level) (by omega)
+                bv_omega
+              have hnlvl_nat := hnlvl_bv
+              have hftrl1 : s.core.frame_trail.length = c.max_vars + 1 := hcl2'.frame_trail_len
+              have hfdec1 : s.core.frame_dec.length = c.max_vars + 1 := hcl2'.frame_dec_len
+              p2_steps_raw
+              p2_jnz_split hnlvl_gt
+              · p2_steps_raw
+                exact hQ 0#64 s.core.vals s.core.flags s.core.lvl s.core.rsns s.core.trl
+                  s.core.trail_pos s.core.frame_trail s.core.frame_dec s.core.trail_end
+                  s.core.cur_level s.core.unassigned s.core.unflushed _ m2 hinv2' hext2
+                  (Or.inl rfl) (fun _ => ⟨rfl, rfl⟩) (fun h01 => by cases h01) hm2
+              · have hnlvl_le : s.core.cur_level + 1 ≤ c.max_vars := by
+                  have h := hnlvl_gt
+                  have h1 : (1 : BitVec 64) = 1#64 := rfl
+                  have hm1 : (BitVec.ofNat 64 c.max_vars).toNat = c.max_vars :=
+                    p2_bv64_ofNat_toNat (by omega)
+                  simp only [BitVec.ult, h1, hnlvl_bv, hm1] at h
+                  exact Nat.le_of_not_lt (of_decide_eq_false h)
+                have hft_lt : (BitVec.ofNat 64 s.core.cur_level + 1#64).toNat <
+                    s.core.frame_trail.length := by
+                  rw [hnlvl_bv, hftrl1]; omega
+                have hfd_lt : (BitVec.ofNat 64 s.core.cur_level + 1#64).toNat <
+                    s.core.frame_dec.length := by
+                  rw [hnlvl_bv, hfdec1]; omega
+                have ⟨_, hun, hte_lt, _⟩ := m7_decide_preserves_fullCore hinv2' hsok2'
+                  hcl2'.flags_len hv_lt hval0 hlit_eq (flags' := s.core.flags)
+                  (unas' := s.core.unassigned) (unfl' := s.core.unflushed)
+                let nlvl := s.core.cur_level + 1
+                let ftrl' := s.core.frame_trail.set nlvl (BitVec.ofNat 32 s.core.trail_end)
+                let fdec' := s.core.frame_dec.set nlvl lit
+                let s_pre : FullState :=
+                  { core := { s.core with frame_trail := ftrl', frame_dec := fdec',
+                                          cur_level := nlvl }
+                    scratch := sc_sc }
+                have hlen_pre : s_pre.LengthsOk c :=
+                  ⟨{ hcl2' with
+                      frame_trail_len := by
+                        dsimp only [s_pre, ftrl']; rw [List.length_set]; exact hftrl1
+                      frame_dec_len := by
+                        dsimp only [s_pre, fdec']; rw [List.length_set]; exact hfdec1 },
+                    hsok2'⟩
+                have hte_bv : (BitVec.ofNat 64 s.core.trail_end).setWidth 32 =
+                    BitVec.ofNat 32 s.core.trail_end := by
+                  apply BitVec.eq_of_toNat_eq
+                  rw [BitVec.toNat_setWidth, p2_bv64_ofNat_toNat (by omega),
+                    M7SearchTactics.bv32_ofNat_toNat (by omega), Nat.mod_eq_of_lt (by omega)]
+                p2_steps_raw
+                have hte_lt' : s.core.trail_end < s.core.cur_vars := hte_lt
+                have hte_max : s.core.trail_end < c.max_vars := Nat.lt_of_lt_of_le hte_lt' hcv2'
+                have hlit_v : lit.toNat / 2 = ch.toNat := by omega
+                have hng : ¬ (s_pre.core.cur_vars ≤ lit.toNat / 2 ∨
+                    c.max_vars ≤ s_pre.core.trail_end ∨
+                    s_pre.core.vals[lit.toNat]?.getD 0#8 ≠ 0#8) := by
+                  change ¬ (s.core.cur_vars ≤ lit.toNat / 2 ∨
+                    c.max_vars ≤ s.core.trail_end ∨
+                    s.core.vals[lit.toNat]?.getD 0#8 ≠ 0#8)
+                  simp only [hun, ne_eq, not_true_eq_false, or_false]; rw [hlit_v]; omega
+                p2_call hAssign
+                refine ⟨c, s_pre, R, rfl, hlen_pre, by dsimp [s_pre, nlvl]; omega, ?_, ?_⟩
+                · dsimp only [s_pre, ftrl', fdec', nlvl]
+                  have h1 : (BitVec.ofNat 64 s.core.cur_level + (1 : BitVec 64)).toNat =
+                      s.core.cur_level + 1 := hnlvl_bv
+                  rw [← h1, ← hte_bv]
+                  assumption
+                · simp only [hng, ↓reduceIte]
+                  intro flags' unas' phases' m3 hfl_l hph_l hm3
+                  have hsok3 : ({ sc_sc with phases := phases' } : FullScratch).LengthsOk c :=
+                    { hsok2' with phases_len := hph_l }
+                  have ⟨hinv3, _, _, _⟩ := m7_decide_preserves_fullCore hinv2' hsok3 hfl_l
+                    hv_lt hval0 hlit_eq (flags' := flags')
+                    (unas' := unas') (unfl' := s.core.unflushed)
+                  have hnl_ne0 : nlvl ≠ 0 := by dsimp [nlvl]; omega
+                  have hff : (4294967295 : BitVec 32) = 0xFFFFFFFF#32 := rfl
+                  have htrl_lt : s.core.trail_end <
+                      (s.core.trl.set s.core.trail_end lit).length := by
+                    rw [List.length_set, hcl2'.trl_len]; omega
+                  have htrl_val : s.core.vals[((s.core.trl.set s.core.trail_end
+                      lit)[s.core.trail_end]?.getD 0#32).toNat]?.getD 0#8 = 0#8 := by
+                    rw [List.getElem?_set_self (by rw [hcl2'.trl_len]; omega), Option.getD_some]
+                    exact hun
+                  have hm3' : (FullMem c
+                      { core := { s.core with
+                          vals := (s.core.vals.set lit.toNat 1#8).set (lit.toNat ^^^ 1) 0xFF#8
+                          flags := flags'
+                          lvl := s.core.lvl.set (lit.toNat / 2) (BitVec.ofNat 32 nlvl)
+                          rsns := s.core.rsns.set (lit.toNat / 2) 0xFFFFFFFF#32
+                          trl := s.core.trl.set s.core.trail_end lit
+                          trail_pos := s.core.trail_pos.set (lit.toNat / 2)
+                            (BitVec.ofNat 32 s.core.trail_end)
+                          frame_trail := ftrl', frame_dec := fdec'
+                          trail_end := s.core.trail_end + 1, cur_level := nlvl
+                          unassigned := unas', unflushed := s.core.unflushed }
+                        scratch := { sc_sc with phases := phases' } } ⋆ R) m3 := by
+                    simpa only [s_pre, hnl_ne0, ↓reduceIte, hff] using hm3
+                  p2_steps_raw
+                  exact hQ 1#64 _ flags' _ _ _ _ ftrl' fdec' (s.core.trail_end + 1) nlvl unas'
+                    s.core.unflushed { sc_sc with phases := phases' } m3 hinv3 hext2 (Or.inr rfl)
+                    (fun h10 => by cases h10)
+                    (fun _ => ⟨rfl, rfl, htrl_lt, htrl_val⟩) hm3'
+            · intro Jl hJl
+              p2_steps
+              · exact hJl _ m2 ⟨rfl, Or.inr (M7SearchTactics.bv32_lit_odd hch_lt30)⟩
+              · exact hJl _ m2 ⟨rfl, Or.inl (M7SearchTactics.bv32_lit_even hch_lt30)⟩
+          · intro Jd3 hJd3
+            p2_steps <;> exact hJd3 _ m2 rfl
+        · intro Jd2 hJd2
+          p2_steps <;> exact hJd2 _ m2 rfl
+      · intro Jd1 hJd1
+        p2_steps <;> exact hJd1 _ m2 rfl
+  · intro Jc hJc
+    p2_steps_raw
+    p2_jnz_split hc_neg1
+    · p2_steps_raw
+      p2_call hNextDec
+      refine show Full.fullNextDecVarSpec _ _ _ _ from ⟨c, s1, R, rfl, hlen1, hm1,
+        fun ⟨chosen', ⟨⟩⟩ s2 m2 hc2 hlen2 ⟨hext2, hch2⟩ hm2 => ?_⟩
+      have hc2' : s2.core = s.core := Eq.trans hc2 hc1
+      have hext2' : FullExtScratchPres s s2 :=
+        ⟨hext2.1.trans hp1.1.1, hext2.2.trans hp1.1.2⟩
+      have hch2' : chosen' = 0xFFFFFFFFFFFFFFFF#64 ∨
+          chosen'.toNat < s.core.cur_vars ∧ s.core.vals[2 * chosen'.toNat]?.getD 0#8 = 0#8 := by
+        simpa [hc1] using hch2
+      p2_steps_raw
+      exact hJc (chosen', ()) m2 ⟨s2, hc2', hlen2, hext2', hch2', hm2⟩
+    · p2_steps_raw
+      obtain ⟨hv_lt, _, hv0⟩ := hch1.resolve_left (by simpa using hc_neg1)
+      exact hJc (chosen, ()) m1 ⟨s1, hc1, hlen1, hp1.1, Or.inr ⟨hv_lt, hv0⟩, hm1⟩
+
+/-- Canonical `Full.fullDecideSpec` drop-in WP proof for `full_decide_m7`. -/
+theorem full_decide_m7_dropin_wp (Γ : Env)
+    (hRandec : EnvSpec Γ "full_randec_var_m7" m7RandecVarSpec)
+    (hNextDec : EnvSpec Γ "full_next_dec_var" fullNextDecVarSpec)
+    (hAssign : EnvSpec Γ "full_assign" fullAssignSpec) :
+    ∀ a m Q X, Full.fullDecideSpec a m Q X → Func.wp Γ full_decide_m7_body a m Q X :=
+  fun _ _ _ _ hs =>
+    full_decide_m7_wp Γ hRandec hNextDec hAssign _ _ _ _ (m7DecideSpec_to_canon hs)
+
+/-! ## 6. `full_lucky_late_m7` `Func.wp` Proof -/
+
+private theorem p2_fullSparseInv_of_m7Decide {c : FullCfg} {F0 : CNF Nat} {s : FullState}
+    (hsp : FullSparseInv c F0 s) {v : Nat} {lit : BitVec 32}
+    {flags' : List (BitVec 32)} {unas' unfl' : BitVec 64} {phases' : List (BitVec 8)}
+    (hfl_len : flags'.length = c.max_vars) (hph_len : phases'.length = c.max_vars)
+    (hv_lt : v < s.core.cur_vars) (hval0 : s.core.vals[2 * v]?.getD 0#8 = 0#8)
+    (hlit_eq : lit.toNat = 2 * v ∨ lit.toNat = 2 * v + 1) :
+    let nlvl := s.core.cur_level + 1
+    let ftrl' := s.core.frame_trail.set nlvl (BitVec.ofNat 32 s.core.trail_end)
+    let fdec' := s.core.frame_dec.set nlvl lit
+    let s' : FullState :=
+      { core :=
+          { s.core with
+            vals := (s.core.vals.set lit.toNat 1#8).set (lit.toNat ^^^ 1) 0xFF#8
+            flags := flags', lvl := s.core.lvl.set (lit.toNat / 2) (BitVec.ofNat 32 nlvl)
+            rsns := s.core.rsns.set (lit.toNat / 2) 0xFFFFFFFF#32
+            trl := s.core.trl.set s.core.trail_end lit
+            trail_pos := s.core.trail_pos.set (lit.toNat / 2) (BitVec.ofNat 32 s.core.trail_end)
+            frame_trail := ftrl', frame_dec := fdec'
+            trail_end := s.core.trail_end + 1, cur_level := nlvl
+            unassigned := unas', unflushed := unfl' }
+        scratch := { s.scratch with phases := phases' } }
+    FullSparseInv c F0 s' ∧ s.core.vals[lit.toNat]?.getD 0#8 = 0#8 ∧
+    s.core.trail_end < s.core.cur_vars ∧ nlvl ≤ c.max_vars := by
+  intro nlvl ftrl' fdec' s'
+  have hsok' : ({ s.scratch with phases := phases' } : FullScratch).LengthsOk c :=
+    { hsp.1.lengths.scratch_ok with phases_len := hph_len }
+  obtain ⟨hc', hv, hte, hnl⟩ := m7_decide_preserves_fullCore hsp.1 hsok' hfl_len hv_lt hval0
+    hlit_eq (flags' := flags') (unas' := unas') (unfl' := unfl')
+  refine ⟨⟨hc', hsp.2.1, hsp.2.2.1, hsp.2.2.2.1, hsp.2.2.2.2⟩, hv, hte, hnl⟩
+
+private theorem p2_lucky_bt0_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat} {s : FullState}
+    {R : Mem 64 → Prop} {m : Mem 64} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {k_bt : Tup Val [] → Expr Val Cont rs}
+    (hBt : EnvSpec Γ "full_backtrack" fullBacktrackSpec)
+    (hsp : FullSparseInv c F0 s) (hm : (FullMem c s ⋆ R) m)
+    (hK : ∀ s' m', s'.LengthsOk c → s'.core.fuel = s.core.fuel →
+      FullSparseInv c F0 s' → s'.core.cur_level = 0 →
+      (FullMem c s' ⋆ R) m' → wp Γ Q X (k_bt ()) m') :
+    wp Γ Q X (@Expr.call Val Cont rs "full_backtrack" [i64, i64] []
+      (Arg.var c.hdr, Arg.imm (0 : BitVec 64), PUnit.unit) k_bt) m := by
+  have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
+  have hcv_le := hsp.1.lengths.core_ok.cur_vars_le
+  have hte_le := hsp.1.lengths.core_ok.trail_end_le
+  obtain ⟨F_cur, hw⟩ := hsp.1.witness
+  have hcl_lt : s.core.cur_level < 2 ^ 64 := by have := hw.cur_level_le; omega
+  p2_call hBt
+  refine ⟨c, s, R, rfl, hsp.1.lengths, hcl_lt,
+    fun _ => by
+      have h0 : (0 : BitVec 64).toNat = 0 := rfl
+      rw [h0]; have := hw.cur_level_le; omega,
+    hw.trail_lits_lt, hm, ?_⟩
+  dsimp only
+  intro vals' lvl' rsns' trl' tp' te' prop' cl' unass' sc' m'
+    hlen' _ _ hcl' hps _ _ _ hwt _ hm'
+  let s_bt : FullState :=
+    { core := { s.core with
+        vals := vals', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
+        trail_end := te', propagated := prop', cur_level := cl', unassigned := unass' }
+      scratch := sc' }
+  have hsp_bt : FullSparseInv c F0 s_bt :=
+    fullSparseInv_of_fullBacktrack hsp hlen'
+      (hwt F0 F_cur hw (Nat.zero_le _)) rfl rfl rfl rfl rfl hps.1.1 hps.1.2
+  have hcl0_bt : s_bt.core.cur_level = 0 := by change cl' = 0; rw [hcl']; simp
+  exact hK s_bt m' hlen' rfl hsp_bt hcl0_bt hm'
+
+/-- Parametric WP proof for `full_lucky_late_m7` against `m7LuckyLateSpec`. -/
+theorem full_lucky_late_m7_wp (Γ : Env)
+    (hPolar : EnvSpec Γ "full_lucky_polar_m7" fullLuckyPolarSpec)
+    (hScan : EnvSpec Γ "full_lucky_scan" fullLuckyScanSpec)
+    (hAssign : EnvSpec Γ "full_assign" fullAssignSpec)
+    (hBt : EnvSpec Γ "full_backtrack" fullBacktrackSpec)
+    (hProp : EnvSpec Γ "full_propagate" fullPropagateSpec) :
+    ∀ a m Q X, m7LuckyLateSpec a m Q X → Func.wp Γ full_lucky_late_m7_body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hspec
+  obtain ⟨c, F0, s, R, rfl, hsp, hm, hQ⟩ := m7LuckyLateSpec_elim hspec
+  have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
+  unfold Func.wp full_lucky_late_m7_body
+  p2_steps_raw
+  p2_jnz_split hinc
+  · have hinc_ne : s.core.inconsistent ≠ 0#64 := by simpa using hinc
+    have hunsat : F0.Unsat := hsp.inconsistent_unsat hinc_ne
+    p2_steps_raw
+    let s' : FullState := { s with core := { s.core with probing := 0#64 } }
+    have hsp' : FullSparseInv c F0 s' := fullSparseInv_with_probing hsp 0#64
+    exact hQ 20#64 s' m hsp'.1.lengths (Or.inr (Or.inr (Or.inr rfl))) (Nat.le_refl _) rfl
+      (fun _ => hunsat) (fun h => by rcases h with h | h <;> cases h)
+      (fun h => by cases h) (by assumption)
+  · p2_steps_raw
+    refine wp_join_group (ts := [])
+      (fun _ m1 => ∃ s1 : FullState, FullSparseInv c F0 s1 ∧ s1.core.cur_level = 0 ∧
+        s1.core.fuel.toNat ≤ s.core.fuel.toNat ∧ (FullMem c s1 ⋆ R) m1) ?_ ?_
+    · rintro J1 ⟨⟩ m1 ⟨s1, hsp1, hcl1_0, hfl1, hm1⟩
+      rw [Blocks.get_here]
+      p2_steps_raw
+      refine wp_join_group (ts := [])
+        (fun _ m2 => ∃ s2 : FullState, FullSparseInv c F0 s2 ∧ s2.core.cur_level = 0 ∧
+          s2.core.fuel.toNat ≤ s.core.fuel.toNat ∧ (FullMem c s2 ⋆ R) m2) ?_ ?_
+      · rintro J2 ⟨⟩ m2 ⟨s2, hsp2, hcl2_0, hfl2, hm2⟩
+        rw [Blocks.get_here]
+        p2_steps_raw
+        let s3 : FullState := { s2 with core := { s2.core with probing := 1#64 } }
+        have hsp3 : FullSparseInv c F0 s3 := fullSparseInv_with_probing hsp2 1#64
+        have hcl3_0 : s3.core.cur_level = 0 := hcl2_0
+        p2_call hPolar
+        refine ⟨c, F0, s3, R, rfl, hsp3.1, by assumption, ?_⟩
+        intro pol hpol
+        p2_steps_raw
+        p2_jnz_split hpol0
+        · p2_steps_raw
+          refine wp_loop_inv (ts := [i64])
+            (fun (idx, ()) ml => ∃ st : FullState,
+              idx.toNat ≤ s3.core.cur_vars ∧ st.core.cur_vars = s3.core.cur_vars ∧
+              FullSparseInv c F0 st ∧ st.core.fuel.toNat ≤ s.core.fuel.toNat ∧
+              (FullMem c st ⋆ R) ml)
+            (fun (idx, ()) _ => s3.core.cur_vars - idx.toNat) ?_ ?_
+          · intro Jloop hJloop
+            p2_steps_raw
+            exact hJloop (0#64, ()) _ ⟨s3, Nat.zero_le _, rfl, hsp3, hfl2, by assumption⟩
+          · rintro Jloop ⟨idx, ⟨⟩⟩ ml ⟨st, hidx_le, hcv_eq, hst, hfl, hml⟩ hJloop
+            rw [Blocks.get_here]
+            have hcv_le := hst.1.lengths.core_ok.cur_vars_le
+            have hcl_ok := hst.1.lengths.core_ok
+            p2_steps_raw
+            p2_jnz_split hidx_lt_cv
+            · have hidx_lt : idx.toNat < st.core.cur_vars := by
+                have hlt : idx.toNat < st.core.cur_vars % 2 ^ 64 := by
+                  simpa [BitVec.ult] using hidx_lt_cv
+                rw [Nat.mod_eq_of_lt (by omega)] at hlt; exact hlt
+              have hidx1_nat : (idx + 1#64).toNat = idx.toNat + 1 :=
+                p2_bv64_add1_toNat (by omega)
+              have hidx_fl : idx.toNat < st.core.flags.length := by rw [hcl_ok.flags_len]; omega
+              have h2v : (idx <<< 1#64).toNat = 2 * idx.toNat :=
+                M7SearchTactics.bv64_shl1_toNat (by omega)
+              have hidx2_vl : (idx <<< 1#64).toNat < st.core.vals.length := by
+                rw [h2v, hcl_ok.vals_len]; omega
+              p2_steps_raw
+              refine wp_join_group (ts := []) (fun _ mn =>
+                ∃ st' : FullState, st'.core.cur_vars = s3.core.cur_vars ∧
+                  FullSparseInv c F0 st' ∧ st'.core.fuel.toNat ≤ s.core.fuel.toNat ∧
+                  (FullMem c st' ⋆ R) mn) ?_ ?_
+              · rintro Jnext ⟨⟩ mn ⟨st', hcv', hst', hfl', hmn⟩
+                rw [Blocks.get_here]
+                p2_steps_raw
+                exact hJloop (idx + 1#64, ()) mn (by dsimp only; rw [hidx1_nat]; omega)
+                  ⟨st', by rw [hidx1_nat]; omega, hcv', hst', hfl', hmn⟩
+              · intro Jnext hJnext
+                p2_steps_raw
+                p2_jnz_split hact
+                · p2_steps_raw
+                  p2_jnz_split hval0_b
+                  · have hval0 : st.core.vals[2 * idx.toNat]?.getD 0#8 = 0#8 := by
+                      rw [← h2v, List.getElem?_eq_getElem hidx2_vl, Option.getD_some]
+                      exact p2_sext32_eq0 _ (by simpa using hval0_b)
+                    p2_steps_raw
+                    p2_jnz_split hfuel0
+                    · p2_steps_raw
+                      refine p2_lucky_bt0_wp hBt hst hml
+                        fun s_bt mb _ hfl_b hsp_b hcl0_b hmb => ?_
+                      p2_steps_raw
+                      let s' : FullState := { s_bt with core := { s_bt.core with probing := 0#64 } }
+                      have hsp' : FullSparseInv c F0 s' := fullSparseInv_with_probing hsp_b 0#64
+                      have hfl' : s'.core.fuel.toNat ≤ s.core.fuel.toNat := by
+                        change s_bt.core.fuel.toNat ≤ s.core.fuel.toNat; rw [hfl_b]; exact hfl
+                      exact hQ 2#64 s' _ hsp'.1.lengths (Or.inr (Or.inl rfl)) hfl' rfl
+                        (fun h => by cases h) (fun _ => ⟨hsp', hcl0_b⟩)
+                        (fun h => by cases h) (by assumption)
+                    · have hfl_ne : st.core.fuel ≠ 0#64 := by simpa using hfuel0
+                      have hfl_sub : (st.core.fuel - 1#64).toNat = st.core.fuel.toNat - 1 :=
+                        p2_bv64_sub1_toNat hfl_ne
+                      let st1 : FullState :=
+                        { st with core := { st.core with fuel := st.core.fuel - 1#64 } }
+                      have hst1 : FullSparseInv c F0 st1 :=
+                        fullSparseInv_with_fuel hst (st.core.fuel - 1#64)
+                      have hfl1 : st1.core.fuel.toNat ≤ s.core.fuel.toNat := by
+                        change (st.core.fuel - 1#64).toNat ≤ s.core.fuel.toNat
+                        rw [hfl_sub]; omega
+                      p2_steps_raw
+                      refine wp_join_group (ts := [i32]) (fun (lit, _) mlit =>
+                        (FullMem c st1 ⋆ R) mlit ∧
+                          (lit.toNat = 2 * idx.toNat ∨ lit.toNat = 2 * idx.toNat + 1)) ?_ ?_
+                      · rintro Jlit ⟨lit, ⟨⟩⟩ mlit ⟨hmlit, hlit_eq⟩
+                        rw [Blocks.get_here]
+                        obtain ⟨_, hw_1⟩ := hst1.1.witness
+                        have hcv1_le := hst1.1.lengths.core_ok.cur_vars_le
+                        have hcl1_le : st1.core.cur_level ≤ st1.core.trail_end := hw_1.cur_level_le
+                        have hte1_le : st1.core.trail_end ≤ st1.core.cur_vars :=
+                          hst1.1.lengths.core_ok.trail_end_le
+                        have hnlvl_bv : (BitVec.ofNat 64 st1.core.cur_level + 1#64).toNat =
+                            st1.core.cur_level + 1 := by
+                          have := p2_bv64_ofNat_toNat (n := st1.core.cur_level) (by omega)
+                          bv_omega
+                        p2_steps_raw
+                        p2_jnz_split hnlvl_gt
+                        · p2_steps_raw
+                          refine p2_lucky_bt0_wp hBt hst1 hmlit
+                            fun s_bt mb _ hfl_b hsp_b hcl0_b hmb => ?_
+                          p2_steps_raw
+                          let s' : FullState :=
+                            { s_bt with core := { s_bt.core with probing := 0#64 } }
+                          have hsp' : FullSparseInv c F0 s' :=
+                            fullSparseInv_with_probing hsp_b 0#64
+                          have hfl' : s'.core.fuel.toNat ≤ s.core.fuel.toNat := by
+                            change s_bt.core.fuel.toNat ≤ s.core.fuel.toNat
+                            rw [hfl_b]; exact hfl1
+                          exact hQ 0#64 s' _ hsp'.1.lengths (Or.inl rfl) hfl' rfl
+                            (fun h => by cases h) (fun _ => ⟨hsp', hcl0_b⟩)
+                            (fun h => by cases h) (by assumption)
+                        · have hdec1 := p2_fullSparseInv_of_m7Decide hst1
+                            hst1.1.lengths.core_ok.flags_len
+                            hst1.1.lengths.scratch_ok.phases_len hidx_lt hval0 hlit_eq
+                            (flags' := st1.core.flags) (unas' := st1.core.unassigned)
+                            (unfl' := st1.core.unflushed) (phases' := st1.scratch.phases)
+                          have hun := hdec1.2.1
+                          have hte_lt := hdec1.2.2.1
+                          have hnlvl_le := hdec1.2.2.2
+                          let nlvl := st1.core.cur_level + 1
+                          let ftrl' := st1.core.frame_trail.set nlvl
+                            (BitVec.ofNat 32 st1.core.trail_end)
+                          let fdec' := st1.core.frame_dec.set nlvl lit
+                          let s_dec : FullState :=
+                            { st1 with core := { st1.core with
+                                cur_level := nlvl, frame_trail := ftrl', frame_dec := fdec' } }
+                          have hftrl1 := hst1.1.lengths.core_ok.frame_trail_len
+                          have hfdec1 := hst1.1.lengths.core_ok.frame_dec_len
+                          have hdec_len : s_dec.LengthsOk c :=
+                            ⟨{ hst1.1.lengths.core_ok with
+                                frame_trail_len := by
+                                  dsimp only [s_dec, ftrl']; rw [List.length_set]; exact hftrl1
+                                frame_dec_len := by
+                                  dsimp only [s_dec, fdec']; rw [List.length_set]; exact hfdec1 },
+                              hst1.1.lengths.scratch_ok⟩
+                          have hte_bv : (BitVec.ofNat 64 st1.core.trail_end).setWidth 32 =
+                              BitVec.ofNat 32 st1.core.trail_end := by
+                            apply BitVec.eq_of_toNat_eq
+                            rw [BitVec.toNat_setWidth, p2_bv64_ofNat_toNat (by omega),
+                              M7SearchTactics.bv32_ofNat_toNat (by omega),
+                              Nat.mod_eq_of_lt (by omega)]
+                          have hnlvl_lt_len :
+                              (BitVec.ofNat 64 st1.core.cur_level + 1#64).toNat <
+                                st1.core.frame_trail.length := by
+                            rw [hnlvl_bv, hftrl1]; omega
+                          have hnlvl_lt_dlen :
+                              (BitVec.ofNat 64 st1.core.cur_level + 1#64).toNat <
+                                st1.core.frame_dec.length := by
+                            rw [hnlvl_bv, hfdec1]; omega
+                          p2_steps_raw
+                          have hidx_lt1 : idx.toNat < st1.core.cur_vars := hidx_lt
+                          have hte_lt' : st1.core.trail_end < st1.core.cur_vars := hte_lt
+                          have hte_max : st1.core.trail_end < c.max_vars :=
+                            Nat.lt_of_lt_of_le hte_lt' hcv1_le
+                          have hlit_v : lit.toNat / 2 = idx.toNat := by omega
+                          have hng : ¬ (s_dec.core.cur_vars ≤ lit.toNat / 2 ∨
+                              c.max_vars ≤ s_dec.core.trail_end ∨
+                              s_dec.core.vals[lit.toNat]?.getD 0#8 ≠ 0#8) := by
+                            change ¬ (st1.core.cur_vars ≤ lit.toNat / 2 ∨
+                              c.max_vars ≤ st1.core.trail_end ∨
+                              st1.core.vals[lit.toNat]?.getD 0#8 ≠ 0#8)
+                            simp only [hun, ne_eq, not_true_eq_false, or_false]
+                            rw [hlit_v]; omega
+                          p2_call hAssign
+                          refine ⟨c, s_dec, R, rfl, hdec_len, by dsimp [s_dec, nlvl]; omega,
+                            ?_, ?_⟩
+                          · dsimp only [s_dec, ftrl', fdec', nlvl]
+                            have h1 :
+                                (BitVec.ofNat 64 st1.core.cur_level + (1 : BitVec 64)).toNat =
+                                  st1.core.cur_level + 1 := hnlvl_bv
+                            rw [← h1, ← hte_bv]
+                            assumption
+                          · simp only [hng, ↓reduceIte]
+                            intro flags' unas' phases' ma hfl_len hph_len hma
+                            have hsp_asn0 := (p2_fullSparseInv_of_m7Decide hst1 hfl_len hph_len
+                              hidx_lt hval0 hlit_eq (flags' := flags') (unas' := unas')
+                              (unfl' := st1.core.unflushed) (phases' := phases')).1
+                            let s_asn : FullState :=
+                              { core := { s_dec.core with
+                                  vals := (st1.core.vals.set lit.toNat 1#8).set
+                                    (lit.toNat ^^^ 1) 0xFF#8
+                                  flags := flags'
+                                  lvl := st1.core.lvl.set (lit.toNat / 2)
+                                    (BitVec.ofNat 32 nlvl)
+                                  rsns := st1.core.rsns.set (lit.toNat / 2) 0xFFFFFFFF#32
+                                  trl := st1.core.trl.set st1.core.trail_end lit
+                                  trail_pos := st1.core.trail_pos.set (lit.toNat / 2)
+                                    (BitVec.ofNat 32 st1.core.trail_end)
+                                  trail_end := st1.core.trail_end + 1
+                                  unassigned := unas', unflushed := st1.core.unflushed }
+                                scratch := { st1.scratch with phases := phases' } }
+                            have hsp_asn : FullSparseInv c F0 s_asn := by
+                              have hnl_ne0 : nlvl ≠ 0 := by dsimp [nlvl]; omega
+                              simpa only [s_asn, s_dec, ftrl', fdec'] using hsp_asn0
+                            have hma' : (FullMem c s_asn ⋆ R) ma := by
+                              have hnl_ne0 : nlvl ≠ 0 := by dsimp [nlvl]; omega
+                              have hff : (4294967295 : BitVec 32) = 0xFFFFFFFF#32 := rfl
+                              simpa only [s_asn, s_dec, hnl_ne0, ↓reduceIte, hff] using hma
+                            obtain ⟨F_cur_a, hw_a⟩ := hsp_asn.1.witness
+                            p2_steps_raw
+                            p2_call hProp
+                            refine ⟨c, F0, F_cur_a, s_asn, R, rfl, hsp_asn.1.lengths, hw_a,
+                              hsp_asn.2.2.2.2, hma', ?_⟩
+                            dsimp only
+                            intro pr vals'' flags'' lvl'' rsns'' trl'' tp'' te'' prop''
+                              unass'' unfl'' wvec'' arena'' wstk'' wlen'' wu'' fuel'' ctype''
+                              cref'' c0'' c1'' oom'' ticks'' wsort'' phases'' mp
+                              hlen_p hw_p htr_p hperm_p hfl_p hr_or _ _ _ _ hmp
+                            let s_p : FullState :=
+                              { core := { s_asn.core with
+                                  vals := vals'', flags := flags'', lvl := lvl'', rsns := rsns'',
+                                  trl := trl'', trail_pos := tp'', trail_end := te'',
+                                  propagated := prop'', unassigned := unass'', unflushed := unfl'',
+                                  wvec := wvec'', arena := arena'', wstk := wstk'', wlen := wlen'',
+                                  wusable := wu'', fuel := fuel'', confl_type := ctype'',
+                                  confl_ref := cref'', confl_lit0 := c0'', confl_lit1 := c1'',
+                                  oom := oom'' }
+                                scratch := { s_asn.scratch with
+                                  search_ticks := ticks'', wsort := wsort'', phases := phases'' } }
+                            have hsp_p : FullSparseInv c F0 s_p :=
+                              fullSparseInv_of_fullPropagate hsp_asn hlen_p hw_p hperm_p
+                                rfl rfl rfl rfl rfl
+                            have hfl_p' : s_p.core.fuel.toNat ≤ s.core.fuel.toNat :=
+                              Nat.le_trans hfl_p hfl1
+                            have hcv_p : s_p.core.cur_vars = s3.core.cur_vars := by
+                              change st.core.cur_vars = s3.core.cur_vars; exact hcv_eq
+                            p2_steps_raw
+                            p2_jnz_split hpr2
+                            · p2_steps_raw
+                              refine p2_lucky_bt0_wp hBt hsp_p hmp
+                                fun s_bt mb _ hfl_b hsp_b hcl0_b hmb => ?_
+                              p2_steps_raw
+                              let s' : FullState :=
+                                { s_bt with core := { s_bt.core with probing := 0#64 } }
+                              have hsp' : FullSparseInv c F0 s' :=
+                                fullSparseInv_with_probing hsp_b 0#64
+                              have hfl' : s'.core.fuel.toNat ≤ s.core.fuel.toNat := by
+                                change s_bt.core.fuel.toNat ≤ s.core.fuel.toNat
+                                rw [hfl_b]; exact hfl_p'
+                              exact hQ 2#64 s' _ hsp'.1.lengths (Or.inr (Or.inl rfl)) hfl' rfl
+                                (fun h => by cases h) (fun _ => ⟨hsp', hcl0_b⟩)
+                                (fun h => by cases h) (by assumption)
+                            · p2_steps_raw
+                              p2_jnz_split hpr1
+                              · p2_steps_raw
+                                refine p2_lucky_bt0_wp hBt hsp_p hmp
+                                  fun s_bt mb _ hfl_b hsp_b hcl0_b hmb => ?_
+                                p2_steps_raw
+                                let s' : FullState :=
+                                  { s_bt with core := { s_bt.core with probing := 0#64 } }
+                                have hsp' : FullSparseInv c F0 s' :=
+                                  fullSparseInv_with_probing hsp_b 0#64
+                                have hfl' : s'.core.fuel.toNat ≤ s.core.fuel.toNat := by
+                                  change s_bt.core.fuel.toNat ≤ s.core.fuel.toNat
+                                  rw [hfl_b]; exact hfl_p'
+                                exact hQ 0#64 s' _ hsp'.1.lengths (Or.inl rfl) hfl' rfl
+                                  (fun h => by cases h) (fun _ => ⟨hsp', hcl0_b⟩)
+                                  (fun h => by cases h) (by assumption)
+                              · p2_steps_raw
+                                exact hJnext () mp ⟨s_p, hcv_p, hsp_p, hfl_p', hmp⟩
+                      · intro Jlit hJlit
+                        p2_steps_raw
+                        p2_jnz_split hsp_cond
+                        · p2_steps_raw
+                          have hlt30 : idx.toNat < 2 ^ 30 := by omega
+                          exact hJlit (_, ()) _
+                            ⟨by assumption, Or.inl (M7SearchTactics.bv32_lit_even hlt30)⟩
+                        · p2_steps_raw
+                          have hlt30 : idx.toNat < 2 ^ 30 := by omega
+                          exact hJlit (_, ()) _
+                            ⟨by assumption, Or.inr (M7SearchTactics.bv32_lit_odd hlt30)⟩
+                  · p2_steps_raw; exact hJnext () ml ⟨st, hcv_eq, hst, hfl, hml⟩
+                · p2_steps_raw; exact hJnext () ml ⟨st, hcv_eq, hst, hfl, hml⟩
+            · p2_steps_raw
+              let st' : FullState := { st with core := { st.core with probing := 0#64 } }
+              have hst' : FullSparseInv c F0 st' := fullSparseInv_with_probing hst 0#64
+              exact hQ 10#64 st' _ hst'.1.lengths (Or.inr (Or.inr (Or.inl rfl))) hfl rfl
+                (fun h => absurd h (by decide)) (fun h => by rcases h with h | h <;> cases h)
+                (fun _ => hst'.2.2.2.1.2) (by assumption)
+        · let LuckyRet : Tup Val [i64] → Mem 64 → Prop := fun (r, _) mr =>
+            ∃ sr : FullState, sr.LengthsOk c ∧ (r = 0#64 ∨ r = 2#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+              sr.core.fuel.toNat ≤ s.core.fuel.toNat ∧ (r = 20#64 → F0.Unsat) ∧
+              (r = 0#64 ∨ r = 2#64 → FullSparseInv c F0 sr ∧ sr.core.cur_level = 0) ∧
+              (r = 10#64 → sr.scratch.extend_len ≤ c.extend_cap) ∧ (FullMem c sr ⋆ R) mr
+          p2_steps_raw
+          p2_call hScan
+          refine ⟨c, F0, s3, R, rfl, hsp3, hcl3_0, by assumption, ?_⟩
+          intro r1 s1_ m1_ hlen1_ hr1_ hfl1_ huns1_ h02_1_ h10_1_ hm1_
+          p2_steps_raw
+          refine wp_join_group (ts := [i64]) LuckyRet ?_ ?_
+          · rintro JsA ⟨rA, ⟨⟩⟩ mA ⟨srA, hlenA, hrA, hflA, hunsA, h02A, h10A, hmA⟩
+            rw [Blocks.get_here]
+            p2_steps_raw
+            refine wp_join_group (ts := [i64]) LuckyRet ?_ ?_
+            · rintro JsB ⟨rB, ⟨⟩⟩ mB ⟨srB, hlenB, hrB, hflB, hunsB, h02B, h10B, hmB⟩
+              rw [Blocks.get_here]
+              p2_steps_raw
+              refine wp_join_group (ts := [i64]) LuckyRet ?_ ?_
+              · rintro JsC ⟨rC, ⟨⟩⟩ mC ⟨srC, hlenC, hrC, hflC, hunsC, h02C, h10C, hmC⟩
+                rw [Blocks.get_here]
+                p2_steps_raw
+                let sr' : FullState := { srC with core := { srC.core with probing := 0#64 } }
+                have hlenC' : sr'.LengthsOk c :=
+                  ⟨{ hlenC.core_ok with vals_len := hlenC.core_ok.vals_len }, hlenC.scratch_ok⟩
+                exact hQ rC sr' _ hlenC' hrC hflC rfl hunsC
+                  (fun h02 => let ⟨hspC, hclC⟩ := h02C h02
+                    ⟨fullSparseInv_with_probing hspC 0#64, hclC⟩)
+                  h10C (by assumption)
+              · intro JsC hJsC
+                p2_steps_raw
+                p2_jnz_split hrB0
+                · obtain ⟨hspB, hclB⟩ := h02B (Or.inl (by simpa using hrB0))
+                  p2_steps_raw
+                  p2_call hScan
+                  refine ⟨c, F0, srB, R, rfl, hspB, hclB, hmB, ?_⟩
+                  intro r4 s4 m4 hlen4 hr4 hfl4 huns4 h02_4 h10_4 hm4
+                  exact hJsC (r4, ()) m4 ⟨s4, hlen4, hr4, Nat.le_trans hfl4 hflB, huns4, h02_4,
+                    h10_4, hm4⟩
+                · p2_steps_raw
+                  exact hJsC (rB, ()) mB ⟨srB, hlenB, hrB, hflB, hunsB, h02B, h10B, hmB⟩
+            · intro JsB hJsB
+              p2_steps_raw
+              p2_jnz_split hrA0
+              · obtain ⟨hspA, hclA⟩ := h02A (Or.inl (by simpa using hrA0))
+                p2_steps_raw
+                p2_call hScan
+                refine ⟨c, F0, srA, R, rfl, hspA, hclA, hmA, ?_⟩
+                intro r3 s3_ m3 hlen3 hr3 hfl3 huns3 h02_3 h10_3 hm3
+                exact hJsB (r3, ()) m3 ⟨s3_, hlen3, hr3, Nat.le_trans hfl3 hflA, huns3, h02_3,
+                  h10_3, hm3⟩
+              · p2_steps_raw
+                exact hJsB (rA, ()) mA ⟨srA, hlenA, hrA, hflA, hunsA, h02A, h10A, hmA⟩
+          · intro JsA hJsA
+            p2_steps_raw
+            p2_jnz_split hr10
+            · obtain ⟨hsp1_, hcl1_⟩ := h02_1_ (Or.inl (by simpa using hr10))
+              p2_steps_raw
+              p2_call hScan
+              refine ⟨c, F0, s1_, R, rfl, hsp1_, hcl1_, hm1_, ?_⟩
+              intro r2 s2_ m2 hlen2 hr2 hfl2_ huns2 h02_2 h10_2 hm2
+              exact hJsA (r2, ()) m2 ⟨s2_, hlen2, hr2, Nat.le_trans hfl2_ (Nat.le_trans hfl1_ hfl2),
+                huns2, h02_2, h10_2, hm2⟩
+            · p2_steps_raw
+              exact hJsA (r1, ()) m1_ ⟨s1_, hlen1_, hr1_, Nat.le_trans hfl1_ hfl2, huns1_,
+                h02_1_, h10_1_, hm1_⟩
+      · intro J2 hJ2
+        p2_steps_raw
+        p2_jnz_split hprop_lt
+        · obtain ⟨F_cur1, hw1⟩ := hsp1.1.witness
+          p2_steps_raw
+          p2_call hProp
+          refine ⟨c, F0, F_cur1, s1, R, rfl, hsp1.1.lengths, hw1, hsp1.2.2.2.2, hm1, ?_⟩
+          dsimp only
+          intro pr0 vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena'
+            wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m_p
+            hlen_p hw_p htr_p hperm_p hfl_p hr_or _ h1_p _ _ hm_p
+          let s_p : FullState :=
+            { core := { s1.core with
+                vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl',
+                trail_pos := tp', trail_end := te', propagated := prop', unassigned := unass',
+                unflushed := unfl', wvec := wvec', arena := arena', wstk := wstk',
+                wlen := wlen', wusable := wu', fuel := fuel', confl_type := ctype',
+                confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1', oom := oom' }
+              scratch := { s1.scratch with
+                search_ticks := ticks', wsort := wsort', phases := phases' } }
+          have hsp_p : FullSparseInv c F0 s_p :=
+            fullSparseInv_of_fullPropagate hsp1 hlen_p hw_p hperm_p rfl rfl rfl rfl rfl
+          have hfl_p' : s_p.core.fuel.toNat ≤ s.core.fuel.toNat := Nat.le_trans hfl_p hfl1
+          have hcl_p0 : s_p.core.cur_level = 0 := hcl1_0
+          p2_steps_raw
+          p2_jnz_split hpr0_1
+          · obtain ⟨_, _, hconf⟩ := h1_p (by simpa using hpr0_1)
+            have hunsat : F0.Unsat := level0_unsat_of_conflict_okW hw_p hcl_p0 hconf
+            p2_steps_raw
+            let s_inc : FullState :=
+              { s_p with core := { s_p.core with inconsistent := 1#64, probing := 0#64 } }
+            have hlen_inc : s_inc.LengthsOk c :=
+              ⟨{ hlen_p.core_ok with vals_len := hlen_p.core_ok.vals_len }, hlen_p.scratch_ok⟩
+            exact hQ 20#64 s_inc _ hlen_inc (Or.inr (Or.inr (Or.inr rfl))) hfl_p'
+              rfl (fun _ => hunsat) (fun h => by rcases h with h | h <;> cases h)
+              (fun h => by cases h) (by assumption)
+          · p2_steps_raw
+            p2_jnz_split hpr0_2
+            · p2_steps_raw
+              let s_pr : FullState := { s_p with core := { s_p.core with probing := 0#64 } }
+              have hsp_pr : FullSparseInv c F0 s_pr := fullSparseInv_with_probing hsp_p 0#64
+              exact hQ 2#64 s_pr _ hsp_pr.1.lengths (Or.inr (Or.inl rfl)) hfl_p' rfl
+                (fun h => by cases h) (fun _ => ⟨hsp_pr, hcl_p0⟩) (fun h => by cases h)
+                (by assumption)
+            · p2_steps_raw
+              exact hJ2 () m_p ⟨s_p, hsp_p, hcl_p0, hfl_p', hm_p⟩
+        · p2_steps_raw
+          exact hJ2 () m1 ⟨s1, hsp1, hcl1_0, hfl1, hm1⟩
+    · intro J1 hJ1
+      p2_steps_raw
+      p2_jnz_split hcl0
+      · p2_steps_raw
+        refine p2_lucky_bt0_wp hBt hsp hm fun s1 m1 _ hfl_eq hsp1 hcl1_0 hm1 => ?_
+        p2_steps_raw
+        exact hJ1 () m1 ⟨s1, hsp1, hcl1_0, by rw [hfl_eq]; exact Nat.le_refl _, hm1⟩
+      · have hcl_lt64 : s.core.cur_level < 2 ^ 64 := by
+          have := hsp.1.lengths.core_ok.trail_end_le
+          have := hsp.1.lengths.core_ok.cur_vars_le
+          obtain ⟨_, hw0⟩ := hsp.1.witness
+          have := hw0.cur_level_le; omega
+        have hcl_eq0 : s.core.cur_level = 0 := by
+          have h := hcl0
+          simp only [BitVec.ult, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hcl_lt64] at h
+          exact Nat.eq_zero_of_not_pos (of_decide_eq_false h)
+        p2_steps_raw
+        exact hJ1 () m ⟨s, hsp, hcl_eq0, Nat.le_refl _, hm⟩
+
+/-- Canonical `Full.fullLuckySpec` drop-in WP proof for `full_lucky_late_m7`. -/
+theorem full_lucky_late_m7_dropin_wp (Γ : Env)
+    (hPolar : EnvSpec Γ "full_lucky_polar_m7" fullLuckyPolarSpec)
+    (hScan : EnvSpec Γ "full_lucky_scan" fullLuckyScanSpec)
+    (hAssign : EnvSpec Γ "full_assign" fullAssignSpec)
+    (hBt : EnvSpec Γ "full_backtrack" fullBacktrackSpec)
+    (hProp : EnvSpec Γ "full_propagate" fullPropagateSpec) :
+    ∀ a m Q X, Full.fullLuckySpec a m Q X → Func.wp Γ full_lucky_late_m7_body a m Q X :=
+  fun _ _ _ _ hs =>
+    full_lucky_late_m7_wp Γ hPolar hScan hAssign hBt hProp _ _ _ _ (m7LuckyLateSpec_to_canon hs)
 
 end LeanQbe.T.Examples.Kissat.FullM7Search
