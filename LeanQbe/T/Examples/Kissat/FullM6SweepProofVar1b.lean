@@ -1911,4 +1911,241 @@ theorem full_m6_refine_partition_wp (Γ : Env)
               exact hQ new_n scr1 sstk2 wsort1 m2 hsl1 hss2_len hws1_len hpre1 hnn_le
                 ⟨by rw [hss2_len]; exact hnn_le, hnx1, hj_eq ▸ hok2⟩ hm2))
 
+theorem m6_arenaVarsNodup_eq {s s' : FullState}
+    (ha : s'.core.arena = s.core.arena) (hal : s'.core.arena_len = s.core.arena_len)
+    (h : FullArenaVarsNodup s) : FullArenaVarsNodup s' := by
+  intro r hr hng
+  have hrefs : fullArenaClauseRefs s' = fullArenaClauseRefs s := by
+    unfold fullArenaClauseRefs fullArenaClauseRefsCore; rw [ha, hal]
+  have hgarb : fullArenaClauseGarb s' r = fullArenaClauseGarb s r := by
+    unfold fullArenaClauseGarb fullArenaClauseGarbCore fullArenaHdrCore; rw [ha]
+  have hlits : fullArenaClauseLits s' r = fullArenaClauseLits s r := by
+    unfold fullArenaClauseLits fullArenaClauseLitsCore fullArenaClauseSizeCore; rw [ha]
+  rw [hrefs] at hr; rw [hgarb] at hng; rw [hlits]; exact h r hr hng
+
+theorem m6_denseInvW_watchPop {c : FullCfg} {F0 : CNF Nat}
+    {F_cur : List (List Nat)} {s : FullState} (hinv : FullDenseInvW c F0 F_cur s)
+    {l popK : Nat} (hl : l < 2 * s.core.cur_vars)
+    (hpop : popK ≤ fullWatchSize s l) (wu' : BitVec 64)
+    (hsl' : DenseWatchSliceOk F_cur s.core l (fullWatchOff s l + popK) (fullWatchSize s l - popK)) :
+    let off := fullWatchOff s l
+    let sz := fullWatchSize s l
+    let wvec' := (s.core.wvec.set (2 * l) (BitVec.ofNat 32 (off + popK))).set (2 * l + 1)
+      (BitVec.ofNat 32 (sz - popK))
+    FullDenseInvW c F0 F_cur
+      { s with core := { s.core with wvec := wvec', wusable := wu' } } := by
+  intro off sz wvec'
+  let s' : FullState := { s with core := { s.core with wvec := wvec', wusable := wu' } }
+  have hcl := hinv.1.core_ok; have hw := hinv.2.1
+  have hwm := hw.watches; unfold ModeWatchesInv at hwm
+  rw [ite_eq_right (fun h0 => hinv.2.2.2.2.2.2 h0)] at hwm
+  have hcv_le := hcl.cur_vars_le; have hwvl := hcl.wvec_len
+  have hbd_l := hwm.layout.bounds l hl
+  have hoff_eq : off = fullWatchOffCore s.core l := rfl
+  have hsz_eq : sz = fullWatchSizeCore s.core l := rfl
+  have hpop_c : popK ≤ fullWatchSizeCore s.core l := hpop
+  have hwc := c.hwcap; unfold dimacsBound at hwc
+  have hwlen_le := hcl.wlen_le
+  have hlen' : s'.LengthsOk c :=
+    ⟨{ hcl with wvec_len := by simp [s', wvec', hwvl] }, hinv.1.scratch_ok⟩
+  have hlt32_o : off + popK < 2 ^ 32 := by rw [hoff_eq]; omega
+  have hlt32_s : sz - popK < 2 ^ 32 := by rw [hsz_eq]; omega
+  have hoff_l' : fullWatchOffCore s'.core l = off + popK := by
+    unfold fullWatchOffCore; dsimp only [s', wvec']
+    rw [List.getElem?_set_ne (by omega), List.getElem?_set_self (by omega), Option.getD_some,
+      BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt32_o]
+  have hsz_l' : fullWatchSizeCore s'.core l = sz - popK := by
+    unfold fullWatchSizeCore; dsimp only [s', wvec']
+    rw [List.getElem?_set_self (by rw [List.length_set]; omega), Option.getD_some,
+      BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt32_s]
+  have hoth : ∀ l' ≠ l,
+      fullWatchOffCore s'.core l' = fullWatchOffCore s.core l' ∧
+      fullWatchSizeCore s'.core l' = fullWatchSizeCore s.core l' := fun l' hne => by
+    unfold fullWatchOffCore fullWatchSizeCore; dsimp only [s', wvec']
+    exact ⟨by rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)],
+           by rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]⟩
+  have hlay' : WatchStackLayout s'.core := by
+    refine ⟨?_, ?_, ?_, ?_⟩
+    · intro l' hl'
+      by_cases hll : l' = l
+      · rw [hll, hoff_l', hsz_l', hoff_eq, hsz_eq]
+        change fullWatchOffCore s.core l + popK + (fullWatchSizeCore s.core l - popK) ≤
+          s.core.wlen
+        omega
+      · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho, hs]; exact hwm.layout.bounds l' hl'
+    · intro l' hl' hpos
+      by_cases hll : l' = l
+      · rw [hll, hoff_l', hoff_eq]; rw [hll, hsz_l', hsz_eq] at hpos
+        have := hwm.layout.pos_off l hl (by omega); omega
+      · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho]; rw [hs] at hpos
+        exact hwm.layout.pos_off l' hl' hpos
+    · intro l1 l2 h1 h2 hne hp1 hp2
+      have hb1 : fullWatchOffCore s.core l1 ≤ fullWatchOffCore s'.core l1 ∧
+          fullWatchOffCore s'.core l1 + fullWatchSizeCore s'.core l1 =
+            fullWatchOffCore s.core l1 + fullWatchSizeCore s.core l1 ∧
+          0 < fullWatchSizeCore s.core l1 := by
+        by_cases h1l : l1 = l
+        · rw [h1l, hoff_l', hsz_l', hoff_eq, hsz_eq]; rw [h1l, hsz_l', hsz_eq] at hp1
+          exact ⟨by omega, by omega, by omega⟩
+        · obtain ⟨ho, hs⟩ := hoth l1 h1l; rw [ho, hs]; exact ⟨le_refl _, rfl, hs ▸ hp1⟩
+      have hb2 : fullWatchOffCore s.core l2 ≤ fullWatchOffCore s'.core l2 ∧
+          fullWatchOffCore s'.core l2 + fullWatchSizeCore s'.core l2 =
+            fullWatchOffCore s.core l2 + fullWatchSizeCore s.core l2 ∧
+          0 < fullWatchSizeCore s.core l2 := by
+        by_cases h2l : l2 = l
+        · rw [h2l, hoff_l', hsz_l', hoff_eq, hsz_eq]; rw [h2l, hsz_l', hsz_eq] at hp2
+          exact ⟨by omega, by omega, by omega⟩
+        · obtain ⟨ho, hs⟩ := hoth l2 h2l; rw [ho, hs]; exact ⟨le_refl _, rfl, hs ▸ hp2⟩
+      have hd := hwm.layout.disjoint l1 l2 h1 h2 hne hb1.2.2 hb2.2.2
+      omega
+    · intro l' hl' idx hidx
+      by_cases hll : l' = l
+      · rw [hll, hoff_l', hoff_eq]; rw [hll, hsz_l', hsz_eq] at hidx
+        simpa [s', show fullWatchOffCore s.core l + popK + idx =
+          fullWatchOffCore s.core l + (popK + idx) by omega] using
+          hwm.layout.no_sentinel l hl (popK + idx) (by omega)
+      · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho]; rw [hs] at hidx
+        exact hwm.layout.no_sentinel l' hl' idx hidx
+  have hrefl : (cnfOfClauses F_cur).Entails (cnfOfClauses F_cur) := by
+    rw [CNF.entails_def]; exact fun _ h => h
+  have hwat' : ModeWatchesInv F_cur s'.core := by
+    unfold ModeWatchesInv; rw [ite_eq_right (fun h0 => hinv.2.2.2.2.2.2 h0)]
+    refine ⟨hlay', fun l' hl' => ?_⟩
+    by_cases hll : l' = l
+    · rw [hll, hoff_l', hsz_l']
+      exact DenseWatchSliceOk.relocate (k := s.core) (k' := s'.core) hrefl (le_refl _)
+        (fun _ r => r) (fun _ _ => rfl) hsl'
+    · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho, hs]
+      exact DenseWatchSliceOk.relocate (k := s.core) (k' := s'.core) hrefl (le_refl _)
+        (fun _ r => r) (fun _ _ => rfl) (hwm.slices l' hl')
+  exact ⟨hlen', { hw with arena := { hw.arena with len_ok := hw.arena.len_ok }, watches := hwat' },
+    hinv.2.2.1, m6_arenaVarsNodup_eq rfl rfl hinv.2.2.2.1,
+    hinv.2.2.2.2.1, hinv.2.2.2.2.2.1, hinv.2.2.2.2.2.2⟩
+
+theorem m6_denseInvW_watchCompact {c : FullCfg} {F0 : CNF Nat}
+    {F_cur : List (List Nat)} {s : FullState} (hinv : FullDenseInvW c F0 F_cur s)
+    {ot newSz : Nat} (hot : ot < 2 * s.core.cur_vars) (hle_sz : newSz ≤ fullWatchSize s ot)
+    {wstk' : List (BitVec 32)} (hwl' : wstk'.length = c.wcap)
+    (hout : ∀ i, i < fullWatchOff s ot ∨ fullWatchOff s ot + fullWatchSize s ot ≤ i →
+      wstk'[i]? = s.core.wstk[i]?)
+    (hsl' : DenseWatchSliceOk F_cur { s.core with wstk := wstk' } ot (fullWatchOff s ot) newSz)
+    (wu' nb' : BitVec 64) :
+    let wvec' := s.core.wvec.set (2 * ot + 1) (BitVec.ofNat 32 newSz)
+    FullDenseInvW c F0 F_cur
+      { s with core := { s.core with
+        wvec := wvec', wstk := wstk', wusable := wu', num_binary := nb' } } := by
+  intro wvec'
+  let s' : FullState :=
+    { s with core := { s.core with
+      wvec := wvec', wstk := wstk', wusable := wu', num_binary := nb' } }
+  have hcl := hinv.1.core_ok; have hw := hinv.2.1
+  have hwm := hw.watches; unfold ModeWatchesInv at hwm
+  rw [ite_eq_right (fun h0 => hinv.2.2.2.2.2.2 h0)] at hwm
+  have hcv_le := hcl.cur_vars_le; have hwvl := hcl.wvec_len
+  have hwc := c.hwcap; unfold dimacsBound at hwc
+  have hbd_ot := hwm.layout.bounds ot hot
+  have hwlen_le := hcl.wlen_le
+  let off := fullWatchOff s ot
+  let sz := fullWatchSize s ot
+  have hlen' : s'.LengthsOk c :=
+    ⟨{ hcl with wvec_len := by simp [s', wvec', hwvl], wstk_len_arr := hwl' }, hinv.1.scratch_ok⟩
+  have hlt32_s : newSz < 2 ^ 32 := by
+    have : sz ≤ s.core.wlen := by change fullWatchSizeCore s.core ot ≤ s.core.wlen; omega
+    omega
+  have hoff_ot' : fullWatchOffCore s'.core ot = off := by
+    unfold fullWatchOffCore; dsimp only [s', wvec']
+    rw [List.getElem?_set_ne (by omega)]; rfl
+  have hsz_ot' : fullWatchSizeCore s'.core ot = newSz := by
+    unfold fullWatchSizeCore; dsimp only [s', wvec']
+    rw [List.getElem?_set_self (by rw [hwvl]; omega), Option.getD_some,
+      BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt32_s]
+  have hoth : ∀ l' ≠ ot,
+      fullWatchOffCore s'.core l' = fullWatchOffCore s.core l' ∧
+      fullWatchSizeCore s'.core l' = fullWatchSizeCore s.core l' := fun l' hne => by
+    unfold fullWatchOffCore fullWatchSizeCore; dsimp only [s', wvec']
+    rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
+    exact ⟨rfl, rfl⟩
+  have hdisj_sub : ∀ l' < 2 * s.core.cur_vars, l' ≠ ot → 0 < fullWatchSizeCore s.core l' →
+      ∀ idx < fullWatchSizeCore s.core l',
+        wstk'[fullWatchOffCore s.core l' + idx]? = s.core.wstk[fullWatchOffCore s.core l' + idx]? :=
+    fun l' hl' hne hpos idx hidx => by
+      by_cases hsz0 : fullWatchSizeCore s.core ot = 0
+      · exact hout _ (by change _ < fullWatchOffCore s.core ot ∨
+          fullWatchOffCore s.core ot + fullWatchSizeCore s.core ot ≤ _; omega)
+      · have hd := hwm.layout.disjoint l' ot hl' hot hne hpos (by omega)
+        exact hout _ (by
+          change _ < fullWatchOffCore s.core ot ∨
+            fullWatchOffCore s.core ot + fullWatchSizeCore s.core ot ≤ _
+          cases hd with
+          | inl h => exact Or.inl (by omega)
+          | inr h => exact Or.inr (by omega))
+  have hlay' : WatchStackLayout s'.core := by
+    refine ⟨?_, ?_, ?_, ?_⟩
+    · intro l' hl'
+      by_cases hll : l' = ot
+      · rw [hll, hoff_ot', hsz_ot']; change fullWatchOffCore s.core ot + newSz ≤ s.core.wlen
+        change newSz ≤ fullWatchSizeCore s.core ot at hle_sz; omega
+      · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho, hs]; exact hwm.layout.bounds l' hl'
+    · intro l' hl' hpos
+      by_cases hll : l' = ot
+      · rw [hll, hoff_ot']; rw [hll, hsz_ot'] at hpos
+        exact hwm.layout.pos_off ot hot
+          (by change newSz ≤ fullWatchSizeCore s.core ot at hle_sz; omega)
+      · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho]; rw [hs] at hpos
+        exact hwm.layout.pos_off l' hl' hpos
+    · intro l1 l2 h1 h2 hne hp1 hp2
+      have hb1 : fullWatchOffCore s.core l1 ≤ fullWatchOffCore s'.core l1 ∧
+          fullWatchOffCore s'.core l1 + fullWatchSizeCore s'.core l1 ≤
+            fullWatchOffCore s.core l1 + fullWatchSizeCore s.core l1 ∧
+          0 < fullWatchSizeCore s.core l1 := by
+        by_cases h1l : l1 = ot
+        · rw [h1l, hoff_ot', hsz_ot']; rw [h1l, hsz_ot'] at hp1
+          exact ⟨le_refl _, (by
+            change fullWatchOffCore s.core ot + newSz ≤
+              fullWatchOffCore s.core ot + fullWatchSizeCore s.core ot
+            change newSz ≤ fullWatchSizeCore s.core ot at hle_sz; omega),
+            (by change newSz ≤ fullWatchSizeCore s.core ot at hle_sz; omega)⟩
+        · obtain ⟨ho, hs⟩ := hoth l1 h1l; rw [ho, hs]; exact ⟨le_refl _, le_refl _, hs ▸ hp1⟩
+      have hb2 : fullWatchOffCore s.core l2 ≤ fullWatchOffCore s'.core l2 ∧
+          fullWatchOffCore s'.core l2 + fullWatchSizeCore s'.core l2 ≤
+            fullWatchOffCore s.core l2 + fullWatchSizeCore s.core l2 ∧
+          0 < fullWatchSizeCore s.core l2 := by
+        by_cases h2l : l2 = ot
+        · rw [h2l, hoff_ot', hsz_ot']; rw [h2l, hsz_ot'] at hp2
+          exact ⟨le_refl _, (by
+            change fullWatchOffCore s.core ot + newSz ≤
+              fullWatchOffCore s.core ot + fullWatchSizeCore s.core ot
+            change newSz ≤ fullWatchSizeCore s.core ot at hle_sz; omega),
+            (by change newSz ≤ fullWatchSizeCore s.core ot at hle_sz; omega)⟩
+        · obtain ⟨ho, hs⟩ := hoth l2 h2l; rw [ho, hs]; exact ⟨le_refl _, le_refl _, hs ▸ hp2⟩
+      have hd := hwm.layout.disjoint l1 l2 h1 h2 hne hb1.2.2 hb2.2.2
+      omega
+    · intro l' hl' idx hidx
+      by_cases hll : l' = ot
+      · rw [hll, hoff_ot']; rw [hll, hsz_ot'] at hidx
+        exact hsl'.ne_sentinel idx hidx
+      · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho]; rw [hs] at hidx
+        change wstk'[fullWatchOffCore s.core l' + idx]? ≠ some 0xFFFFFFFF#32
+        rw [hdisj_sub l' hl' hll (by omega) idx hidx]
+        exact hwm.layout.no_sentinel l' hl' idx hidx
+  have hrefl : (cnfOfClauses F_cur).Entails (cnfOfClauses F_cur) := by
+    rw [CNF.entails_def]; exact fun _ h => h
+  have hwat' : ModeWatchesInv F_cur s'.core := by
+    unfold ModeWatchesInv; rw [ite_eq_right (fun h0 => hinv.2.2.2.2.2.2 h0)]
+    refine ⟨hlay', fun l' hl' => ?_⟩
+    by_cases hll : l' = ot
+    · rw [hll, hoff_ot', hsz_ot']
+      exact DenseWatchSliceOk.relocate (k := { s.core with wstk := wstk' }) (k' := s'.core)
+        hrefl (le_refl _) (fun _ r => r) (fun _ _ => rfl) hsl'
+    · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho, hs]
+      by_cases hpos : 0 < fullWatchSizeCore s.core l'
+      · exact DenseWatchSliceOk.relocate (k := s.core) (k' := s'.core) hrefl (le_refl _)
+          (fun _ r => r) (fun idx hidx => hdisj_sub l' hl' hll hpos idx hidx)
+          (hwm.slices l' hl')
+      · have hz : fullWatchSizeCore s.core l' = 0 := by omega
+        rw [hz]; exact .empty
+  exact ⟨hlen', { hw with arena := { hw.arena with len_ok := hw.arena.len_ok }, watches := hwat' },
+    hinv.2.2.1, m6_arenaVarsNodup_eq rfl rfl hinv.2.2.2.1,
+    hinv.2.2.2.2.1, hinv.2.2.2.2.2.1, hinv.2.2.2.2.2.2⟩
+
 end LeanQbe.T.Examples.Kissat.FullM6Sweep

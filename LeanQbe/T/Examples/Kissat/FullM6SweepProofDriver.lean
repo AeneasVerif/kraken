@@ -1,6 +1,7 @@
 module
 
-public import LeanQbe.T.Examples.Kissat.FullM6SweepProofEls2
+public import LeanQbe.T.Examples.Kissat.FullM6SweepProofVar2b
+public import LeanQbe.T.Examples.Kissat.FullM6SweepProofCands
 public import LeanQbe.T.Examples.Kissat.FullM4SweepProof
 public import LeanQbe.T.Examples.Kissat.FullDefSweepLemmas1
 public import Kraken.Mem
@@ -259,23 +260,36 @@ theorem full_m6_sweep_dense_wp (Γ : Env)
                   · c0_hsplit
                     · have hrd1 : (rd + 1#64).toNat = rd.toNat + 1 := by bv_omega
                       c0_hsteps_nogrp
-                      c0_call hSweepVars
-                      refine ⟨c, F0, sL, R, rfl, hinvL, htmkL, hmL,
-                        fun rV sV mV hinvV hcvV hfuelV htmkV hrV hunsV hmV => ?_⟩
-                      c0_hsplit
-                      · have hr20 : rV = 20#64 := ‹_›
-                        c0_hsteps!
-                        exact hQ 20#64 sV mV hinvV (hcvV.trans hcvL) (Nat.le_trans hfuelV hfuelL)
-                          (Or.inr rfl) (fun _ => hunsV hr20) hmV
-                      · c0_hsteps_nogrp
+                      refine wp_join_state (ts := [i64])
+                        (proj := fun rlim : BitVec 64 => (rlim, ()))
+                        (fun _ mR => mR = mL) ?_ ?_
+                      · rintro _ rlim mR rfl
+                        c0_hsteps_nogrp
                         c0_hsplit
                         · c0_hsteps!
-                          exact ihB (rd, sV) mV
-                            ⟨hinvV, hcvV.trans hcvL, Nat.le_trans hfuelV hfuelL, hmV⟩
-                        · c0_hsteps!
-                          exact ihL2 (rd + 1#64, sV) mV (by dsimp only; rw [hrd1]; omega)
-                            ⟨by dsimp only; rw [hrd1]; omega, hinvV, htmkV, hcvV.trans hcvL,
-                             Nat.le_trans hfuelV hfuelL, hmV⟩
+                          exact ihB (rd, sL) mR ⟨hinvL, hcvL, hfuelL, hmL⟩
+                        · c0_hsteps_nogrp
+                          c0_call hSweepVars
+                          refine ⟨c, F0, sL, R, rfl, hinvL, htmkL, hmL,
+                            fun rV sV mV hinvV hcvV hfuelV htmkV hrV hunsV hmV => ?_⟩
+                          c0_hsplit
+                          · have hr20 : rV = 20#64 := ‹_›
+                            c0_hsteps!
+                            exact hQ 20#64 sV mV hinvV (hcvV.trans hcvL)
+                              (Nat.le_trans hfuelV hfuelL) (Or.inr rfl) (fun _ => hunsV hr20) hmV
+                          · c0_hsteps_nogrp
+                            c0_hsplit
+                            · c0_hsteps!
+                              exact ihB (rd, sV) mV
+                                ⟨hinvV, hcvV.trans hcvL, Nat.le_trans hfuelV hfuelL, hmV⟩
+                            · c0_hsteps!
+                              exact ihL2 (rd + 1#64, sV) mV (by dsimp only; rw [hrd1]; omega)
+                                ⟨by dsimp only; rw [hrd1]; omega, hinvV, htmkV, hcvV.trans hcvL,
+                                 Nat.le_trans hfuelV hfuelL, hmV⟩
+                      · intro Jrl hJrl
+                        c0_hsplit
+                        · c0_hsteps!; exact hJrl _ mL rfl
+                        · c0_hsteps!; exact hJrl _ mL rfl
                     · c0_hsteps!
                       exact ihB (rd, sL) mL ⟨hinvL, hcvL, hfuelL, hmL⟩
                   · c0_hsteps!
@@ -491,22 +505,10 @@ theorem full_sweep_sat_m6_wp (Γ : Env)
 theorem m6Sweep_allFns_wf : AllFns Fn.Wf m6SweepModule.fns :=
   m6_allFns_of_mem m6Sweep_fns_wf
 
-/-- Parametric `TableImpl` assembly for `m6SweepModule` under `m6SweepEnv`, taking only the 6
-    unproved `Var2a`/`Cands` function specs as hypotheses and instantiating all 33 proved
-    functions (`Kitten*`, `DenseProp`, `Cone`, `Var1a`, `Var1b`, `Els`, `Els2`, `Driver`). -/
-theorem m6Sweep_tableImpl_of_parts
-    (hUnits : ∀ args m Q X, m6SweepUnitsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_units_body args m Q X)
-    (hClasses : ∀ args m Q X, m6SweepClassesSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_classes_body args m Q X)
-    (hVar : ∀ args m Q X, m6SweepVarSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_var_body args m Q X)
-    (hSift : ∀ args m Q X, m6CandSiftSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_cand_sift_body args m Q X)
-    (hCollect : ∀ args m Q X, m6CollectCandsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_collect_cands_body args m Q X)
-    (hVars : ∀ args m Q X, m6SweepVarsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_vars_body args m Q X) :
+/-- Closed `TableImpl` assembly for `m6SweepModule` under `m6SweepEnv`, joining all 39
+    functions (`Kitten*`, `DenseProp`, `Cone`, `Var1a`, `Var1b`, `Els`, `Els2`, `Var2a`, `Var2b`,
+    `Cands`, `Driver`). -/
+theorem m6Sweep_tableImpl_of_parts :
     TableImpl m6SweepEnv m6SweepModule.fns m6SweepSpecTable := by
   have e_max_v : M6EnvSpec m6SweepEnv "full_m6_max_v" m6MaxVSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
@@ -534,9 +536,13 @@ theorem m6Sweep_tableImpl_of_parts
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   have e_flip : M6EnvSpec m6SweepEnv "full_k6_flip" k6FlipSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_add_live : M6EnvSpec m6SweepEnv "full_k512_add_live_m6" k6AddLiveSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   have e_dpl : M6EnvSpec m6SweepEnv "full_m6_dense_prop_lit" m6DensePropLitSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   have e_dp : M6EnvSpec m6SweepEnv "full_m6_dense_prop" m6DensePropSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_cone : M6EnvSpec m6SweepEnv "full_m6_sweep_cone" m6SweepConeSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   have e_refsig : M6EnvSpec m6SweepEnv "full_m6_sweep_refine_sig" m6SweepRefineSigSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
@@ -546,11 +552,33 @@ theorem m6Sweep_tableImpl_of_parts
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   have e_fliprd : M6EnvSpec m6SweepEnv "full_m6_sweep_flip_round" m6SweepFlipRoundSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_sim : M6EnvSpec m6SweepEnv "full_m6_sweep_sim" m6SweepSimSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_rearm : M6EnvSpec m6SweepEnv "full_m6_sweep_rearm" m6SweepRearmSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_bpht : M6EnvSpec m6SweepEnv "full_m6_sweep_build_pht" m6SweepBuildPhtSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_epht : M6EnvSpec m6SweepEnv "full_m6_extract_pht" m6ExtractPhtSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_refp : M6EnvSpec m6SweepEnv "full_m6_refine_partition" m6RefinePartitionSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_units : M6EnvSpec m6SweepEnv "full_m6_sweep_units" m6SweepUnitsSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_cls : M6EnvSpec m6SweepEnv "full_m6_sweep_classes" m6SweepClassesSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   have e_els_ar : M6EnvSpec m6SweepEnv "full_m6_els_ar" m6ElsArSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   have e_els_lit : M6EnvSpec m6SweepEnv "full_m6_els_lit" m6ElsLitSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   have e_els_fold : M6EnvSpec m6SweepEnv "full_m6_els_fold" m6ElsFoldSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_dels : M6EnvSpec m6SweepEnv "full_m6_dense_els" m6DenseElsSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_swvar : M6EnvSpec m6SweepEnv "full_m6_sweep_var" m6SweepVarSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_sift : M6EnvSpec m6SweepEnv "full_m6_cand_sift" m6CandSiftSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_coll : M6EnvSpec m6SweepEnv "full_m6_collect_cands" m6CollectCandsSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
   have e_swvars : M6EnvSpec m6SweepEnv "full_m6_sweep_vars" m6SweepVarsSpec :=
     m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
@@ -609,43 +637,33 @@ theorem m6Sweep_tableImpl_of_parts
   refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_sweep_build_pht_wp m6SweepEnv e_max_v⟩, ?_⟩
   refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_extract_pht_wp m6SweepEnv e_max_v⟩, ?_⟩
   refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_refine_partition_wp m6SweepEnv e_max_v⟩, ?_⟩
-  refine ⟨⟨⟨rfl, rfl, rfl⟩, hUnits⟩, ?_⟩
-  refine ⟨⟨⟨rfl, rfl, rfl⟩, hClasses⟩, ?_⟩
+  refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_sweep_units_wp m6SweepEnv e_max_v e_flip e_refsig e_ssolve
+    e_addunit e_add_live e_rearm⟩, ?_⟩
+  refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_sweep_classes_wp m6SweepEnv e_max_v e_bpht e_epht e_flip
+    e_refsig e_refp e_ssolve e_add_live e_rearm⟩, ?_⟩
   refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_els_ar_wp m6SweepEnv e_wpush e_addunit e_addbin⟩, ?_⟩
   refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_els_lit_wp m6SweepEnv e_addunit e_addbin e_els_ar⟩, ?_⟩
   refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_els_fold_wp m6SweepEnv e_addunit e_extp2 e_setinact⟩, ?_⟩
   refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_dense_els_wp m6SweepEnv e_els_fold e_els_lit e_dp⟩, ?_⟩
-  refine ⟨⟨⟨rfl, rfl, rfl⟩, hVar⟩, ?_⟩
-  refine ⟨⟨⟨rfl, rfl, rfl⟩, hSift⟩, ?_⟩
-  refine ⟨⟨⟨rfl, rfl, rfl⟩, hCollect⟩, ?_⟩
-  refine ⟨⟨⟨rfl, rfl, rfl⟩, hVars⟩, ?_⟩
+  refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_sweep_var_wp m6SweepEnv e_max_v e_cone e_sim e_units
+    e_cls e_dels⟩, ?_⟩
+  refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_cand_sift_wp m6SweepEnv⟩, ?_⟩
+  refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_collect_cands_wp m6SweepEnv e_sift⟩, ?_⟩
+  refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_sweep_vars_wp m6SweepEnv e_max_v e_dp e_coll e_swvar⟩, ?_⟩
   refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_sweep_dense_wp m6SweepEnv e_max_v e_swvars⟩, ?_⟩
   refine ⟨⟨⟨rfl, rfl, rfl⟩, full_m6_sweep_sat_wp m6SweepEnv e_bt e_max_v e_enterd e_swdense
     e_rebw e_prop e_subst⟩, ?_⟩
   exact ⟨⟨⟨rfl, rfl, rfl⟩, full_sweep_sat_m6_wp m6SweepEnv e_swsat⟩, trivial⟩
 
-/-- Top-level parametric `ModuleOk` assembly theorem for `m6SweepModule` under `m6SweepEnv`,
+/-- Closed top-level `ModuleOk` assembly theorem for `m6SweepModule` under `m6SweepEnv`,
     additionally checking `m6SweepSpecTable_sigs` (by `t_kernel_rfl`), `m6SweepSpecTable_nodup`,
     and `m6SweepSpecTable_noExit`. -/
-theorem m6Sweep_moduleOk_of_parts
-    (hUnits : ∀ args m Q X, m6SweepUnitsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_units_body args m Q X)
-    (hClasses : ∀ args m Q X, m6SweepClassesSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_classes_body args m Q X)
-    (hVar : ∀ args m Q X, m6SweepVarSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_var_body args m Q X)
-    (hSift : ∀ args m Q X, m6CandSiftSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_cand_sift_body args m Q X)
-    (hCollect : ∀ args m Q X, m6CollectCandsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_collect_cands_body args m Q X)
-    (hVars : ∀ args m Q X, m6SweepVarsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_vars_body args m Q X) :
+theorem m6Sweep_moduleOk_of_parts :
     ModuleOk m6SweepEnv m6SweepModule := by
   have _ := m6SweepSpecTable_sigs
   have _ := m6SweepSpecTable_nodup
   have _ := m6SweepSpecTable_noExit
-  exact Env.ofTable_moduleOk m6Sweep_acyclic m6Sweep_allFns_wf
-    (m6Sweep_tableImpl_of_parts hUnits hClasses hVar hSift hCollect hVars)
+  exact Env.ofTable_moduleOk m6Sweep_acyclic m6Sweep_allFns_wf m6Sweep_tableImpl_of_parts
 
 /-! ## 5. Concrete `Mem 64` UNSAT Non-Vacuity (`XPost := False`) -/
 
@@ -1266,6 +1284,30 @@ theorem nv_m6_sweep_var_of
        rw [sep_emp] at hm'
        exact ⟨s', hd, ht, hdom, FullM4Sweep.nvM4SweepF0_unsat, hm'⟩⟩
 
+/-- Closed concrete `Mem 64` UNSAT non-vacuity (`XPost := False`) for `full_m6_sweep_var`. -/
+theorem nv_m6_sweep_var :
+    Func.wp m6SweepEnv full_m6_sweep_var_body
+      (FullM4Sweep.nvM4SweepCfg.hdr, 0#32, 8192#64, ()) nvM6SweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInvW FullM4Sweep.nvM4SweepCfg Full.nvOneLitF0 [[0], [1]] s' ∧
+        M6TmkZero s' ∧ (r = 1#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧ FullMem FullM4Sweep.nvM4SweepCfg s' m')
+      (fun _ _ _ _ => False) := by
+  have e_max_v : M6EnvSpec m6SweepEnv "full_m6_max_v" m6MaxVSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_cone : M6EnvSpec m6SweepEnv "full_m6_sweep_cone" m6SweepConeSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_sim : M6EnvSpec m6SweepEnv "full_m6_sweep_sim" m6SweepSimSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_units : M6EnvSpec m6SweepEnv "full_m6_sweep_units" m6SweepUnitsSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_cls : M6EnvSpec m6SweepEnv "full_m6_sweep_classes" m6SweepClassesSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_dels : M6EnvSpec m6SweepEnv "full_m6_dense_els" m6DenseElsSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  exact nv_m6_sweep_var_of
+    (full_m6_sweep_var_wp m6SweepEnv e_max_v e_cone e_sim e_units e_cls e_dels)
+
 /-- Concrete `Mem 64` UNSAT non-vacuity (`XPost := False`) for `full_m6_sweep_vars`,
     parameterized by `full_m6_sweep_vars_wp`. -/
 theorem nv_m6_sweep_vars_of
@@ -1286,6 +1328,25 @@ theorem nv_m6_sweep_vars_of
      fun r s' m' hd _ _ ht hdom _ hm' => by
        rw [sep_emp] at hm'
        exact ⟨s', hd, ht, hdom, FullM4Sweep.nvM4SweepF0_unsat, hm'⟩⟩
+
+/-- Closed concrete `Mem 64` UNSAT non-vacuity (`XPost := False`) for `full_m6_sweep_vars`. -/
+theorem nv_m6_sweep_vars :
+    Func.wp m6SweepEnv full_m6_sweep_vars_body
+      (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) nvM6SweepMem
+      (fun (r, ()) m' => ∃ s',
+        FullDenseInv FullM4Sweep.nvM4SweepCfg Full.nvOneLitF0 s' ∧
+        M6TmkZero s' ∧ (r = 1#64 ∨ r = 20#64) ∧
+        Full.nvOneLitF0.Unsat ∧ FullMem FullM4Sweep.nvM4SweepCfg s' m')
+      (fun _ _ _ _ => False) := by
+  have e_max_v : M6EnvSpec m6SweepEnv "full_m6_max_v" m6MaxVSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_coll : M6EnvSpec m6SweepEnv "full_m6_collect_cands" m6CollectCandsSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_swvar : M6EnvSpec m6SweepEnv "full_m6_sweep_var" m6SweepVarSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  have e_dp : M6EnvSpec m6SweepEnv "full_m6_dense_prop" m6DensePropSpec :=
+    m6_row (by repeat (first | exact List.Mem.head _ | apply List.Mem.tail)) (fun _ _ _ _ h => h)
+  exact nv_m6_sweep_vars_of (full_m6_sweep_vars_wp m6SweepEnv e_max_v e_dp e_coll e_swvar)
 
 /-- Concrete `Mem 64` UNSAT non-vacuity for `full_m6_sweep_dense` under `m6SweepEnv` with
     `inconsistent = 0#64` and `XPost := fun _ _ _ _ => False`. -/

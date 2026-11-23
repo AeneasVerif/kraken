@@ -353,18 +353,6 @@ private theorem m6_denseSlice_step_occ {F_cur : List (List Nat)} {k : FullCoreSt
     rw [hp] at hp'; cases Option.some.inj hp'
     exact ⟨by omega, h3, _, hp1, hlt, href, hrest⟩
 
-private theorem m6_arenaVarsNodup_eq {s s' : FullState}
-    (ha : s'.core.arena = s.core.arena) (hal : s'.core.arena_len = s.core.arena_len)
-    (h : FullArenaVarsNodup s) : FullArenaVarsNodup s' := by
-  intro r hr hng
-  have hrefs : fullArenaClauseRefs s' = fullArenaClauseRefs s := by
-    unfold fullArenaClauseRefs fullArenaClauseRefsCore; rw [ha, hal]
-  have hgarb : fullArenaClauseGarb s' r = fullArenaClauseGarb s r := by
-    unfold fullArenaClauseGarb fullArenaClauseGarbCore fullArenaHdrCore; rw [ha]
-  have hlits : fullArenaClauseLits s' r = fullArenaClauseLits s r := by
-    unfold fullArenaClauseLits fullArenaClauseLitsCore fullArenaClauseSizeCore; rw [ha]
-  rw [hrefs] at hr; rw [hgarb] at hng; rw [hlits]; exact h r hr hng
-
 private theorem m6_lits_eq_of_hold {ar1 ar2 : List (BitVec 32)} {cr sz : Nat}
     (hb1 : cr + 3 + sz ≤ ar1.length) (hb2 : cr + 3 + sz ≤ ar2.length)
     (h : ∀ j < sz, ar2[cr + 3 + j]? = ar1[cr + 3 + j]?) :
@@ -643,105 +631,6 @@ private theorem m6_denseInvW_watchPush {c : FullCfg} {F0 : CNF Nat}
       exact DenseWatchSliceOk.relocate (k := s.core) (k' := k') hrefl (le_refl _)
         (fun _ r => r) hslice (hwm.slices l hl)
   exact ⟨hsok', { hw with arena := { hw.arena with len_ok := hw.arena.len_ok }, watches := hwat' },
-    hinv.2.2.1, m6_arenaVarsNodup_eq rfl rfl hinv.2.2.2.1,
-    hinv.2.2.2.2.1, hinv.2.2.2.2.2.1, hinv.2.2.2.2.2.2⟩
-
-private theorem m6_denseInvW_watchPop {c : FullCfg} {F0 : CNF Nat}
-    {F_cur : List (List Nat)} {s : FullState} (hinv : FullDenseInvW c F0 F_cur s)
-    {l popK : Nat} (hl : l < 2 * s.core.cur_vars)
-    (hpop : popK ≤ fullWatchSize s l) (wu' : BitVec 64)
-    (hsl' : DenseWatchSliceOk F_cur s.core l (fullWatchOff s l + popK) (fullWatchSize s l - popK)) :
-    let off := fullWatchOff s l
-    let sz := fullWatchSize s l
-    let wvec' := (s.core.wvec.set (2 * l) (BitVec.ofNat 32 (off + popK))).set (2 * l + 1)
-      (BitVec.ofNat 32 (sz - popK))
-    FullDenseInvW c F0 F_cur
-      { s with core := { s.core with wvec := wvec', wusable := wu' } } := by
-  intro off sz wvec'
-  let s' : FullState := { s with core := { s.core with wvec := wvec', wusable := wu' } }
-  have hcl := hinv.1.core_ok; have hw := hinv.2.1
-  have hwm := hw.watches; unfold ModeWatchesInv at hwm
-  rw [ite_eq_right (fun h0 => hinv.2.2.2.2.2.2 h0)] at hwm
-  have hcv_le := hcl.cur_vars_le; have hwvl := hcl.wvec_len
-  have hbd_l := hwm.layout.bounds l hl
-  have hoff_eq : off = fullWatchOffCore s.core l := rfl
-  have hsz_eq : sz = fullWatchSizeCore s.core l := rfl
-  have hpop_c : popK ≤ fullWatchSizeCore s.core l := hpop
-  have hwc := c.hwcap; unfold dimacsBound at hwc
-  have hwlen_le := hcl.wlen_le
-  have hlen' : s'.LengthsOk c :=
-    ⟨{ hcl with wvec_len := by simp [s', wvec', hwvl] }, hinv.1.scratch_ok⟩
-  have hlt32_o : off + popK < 2 ^ 32 := by rw [hoff_eq]; omega
-  have hlt32_s : sz - popK < 2 ^ 32 := by rw [hsz_eq]; omega
-  have hoff_l' : fullWatchOffCore s'.core l = off + popK := by
-    unfold fullWatchOffCore; dsimp only [s', wvec']
-    rw [List.getElem?_set_ne (by omega), List.getElem?_set_self (by omega), Option.getD_some,
-      BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt32_o]
-  have hsz_l' : fullWatchSizeCore s'.core l = sz - popK := by
-    unfold fullWatchSizeCore; dsimp only [s', wvec']
-    rw [List.getElem?_set_self (by rw [List.length_set]; omega), Option.getD_some,
-      BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt32_s]
-  have hoth : ∀ l' ≠ l,
-      fullWatchOffCore s'.core l' = fullWatchOffCore s.core l' ∧
-      fullWatchSizeCore s'.core l' = fullWatchSizeCore s.core l' := fun l' hne => by
-    unfold fullWatchOffCore fullWatchSizeCore; dsimp only [s', wvec']
-    exact ⟨by rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)],
-           by rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]⟩
-  have hlay' : WatchStackLayout s'.core := by
-    refine ⟨?_, ?_, ?_, ?_⟩
-    · intro l' hl'
-      by_cases hll : l' = l
-      · rw [hll, hoff_l', hsz_l', hoff_eq, hsz_eq]
-        change fullWatchOffCore s.core l + popK + (fullWatchSizeCore s.core l - popK) ≤
-          s.core.wlen
-        omega
-      · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho, hs]; exact hwm.layout.bounds l' hl'
-    · intro l' hl' hpos
-      by_cases hll : l' = l
-      · rw [hll, hoff_l', hoff_eq]; rw [hll, hsz_l', hsz_eq] at hpos
-        have := hwm.layout.pos_off l hl (by omega); omega
-      · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho]; rw [hs] at hpos
-        exact hwm.layout.pos_off l' hl' hpos
-    · intro l1 l2 h1 h2 hne hp1 hp2
-      have hb1 : fullWatchOffCore s.core l1 ≤ fullWatchOffCore s'.core l1 ∧
-          fullWatchOffCore s'.core l1 + fullWatchSizeCore s'.core l1 =
-            fullWatchOffCore s.core l1 + fullWatchSizeCore s.core l1 ∧
-          0 < fullWatchSizeCore s.core l1 := by
-        by_cases h1l : l1 = l
-        · rw [h1l, hoff_l', hsz_l', hoff_eq, hsz_eq]; rw [h1l, hsz_l', hsz_eq] at hp1
-          exact ⟨by omega, by omega, by omega⟩
-        · obtain ⟨ho, hs⟩ := hoth l1 h1l; rw [ho, hs]; exact ⟨le_refl _, rfl, hs ▸ hp1⟩
-      have hb2 : fullWatchOffCore s.core l2 ≤ fullWatchOffCore s'.core l2 ∧
-          fullWatchOffCore s'.core l2 + fullWatchSizeCore s'.core l2 =
-            fullWatchOffCore s.core l2 + fullWatchSizeCore s.core l2 ∧
-          0 < fullWatchSizeCore s.core l2 := by
-        by_cases h2l : l2 = l
-        · rw [h2l, hoff_l', hsz_l', hoff_eq, hsz_eq]; rw [h2l, hsz_l', hsz_eq] at hp2
-          exact ⟨by omega, by omega, by omega⟩
-        · obtain ⟨ho, hs⟩ := hoth l2 h2l; rw [ho, hs]; exact ⟨le_refl _, rfl, hs ▸ hp2⟩
-      have hd := hwm.layout.disjoint l1 l2 h1 h2 hne hb1.2.2 hb2.2.2
-      omega
-    · intro l' hl' idx hidx
-      by_cases hll : l' = l
-      · rw [hll, hoff_l', hoff_eq]; rw [hll, hsz_l', hsz_eq] at hidx
-        simpa [s', show fullWatchOffCore s.core l + popK + idx =
-          fullWatchOffCore s.core l + (popK + idx) by omega] using
-          hwm.layout.no_sentinel l hl (popK + idx) (by omega)
-      · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho]; rw [hs] at hidx
-        exact hwm.layout.no_sentinel l' hl' idx hidx
-  have hrefl : (cnfOfClauses F_cur).Entails (cnfOfClauses F_cur) := by
-    rw [CNF.entails_def]; exact fun _ h => h
-  have hwat' : ModeWatchesInv F_cur s'.core := by
-    unfold ModeWatchesInv; rw [ite_eq_right (fun h0 => hinv.2.2.2.2.2.2 h0)]
-    refine ⟨hlay', fun l' hl' => ?_⟩
-    by_cases hll : l' = l
-    · rw [hll, hoff_l', hsz_l']
-      exact DenseWatchSliceOk.relocate (k := s.core) (k' := s'.core) hrefl (le_refl _)
-        (fun _ r => r) (fun _ _ => rfl) hsl'
-    · obtain ⟨ho, hs⟩ := hoth l' hll; rw [ho, hs]
-      exact DenseWatchSliceOk.relocate (k := s.core) (k' := s'.core) hrefl (le_refl _)
-        (fun _ r => r) (fun _ _ => rfl) (hwm.slices l' hl')
-  exact ⟨hlen', { hw with arena := { hw.arena with len_ok := hw.arena.len_ok }, watches := hwat' },
     hinv.2.2.1, m6_arenaVarsNodup_eq rfl rfl hinv.2.2.2.1,
     hinv.2.2.2.2.1, hinv.2.2.2.2.2.1, hinv.2.2.2.2.2.2⟩
 
@@ -1466,6 +1355,18 @@ private theorem m6_els_ar_same_ok {c : FullCfg} {F0 : CNF Nat} {F_cur : List (Li
     (by rw [hlits_eq]; exact hhent4)
   exact ⟨har4_sz, hinv4, hrefs4⟩
 
+private structure M6ElsLitLoop (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
+    (s sL : FullState) : Prop where
+  dinv : FullDenseInvW c F0 F_cur sL
+  cv : sL.core.cur_vars = s.core.cur_vars
+  fuel : sL.core.fuel = s.core.fuel
+  repr : sL.core.repr = s.core.repr
+  tmk : sL.scratch.tarjan_mark = s.scratch.tarjan_mark
+  trh : sL.scratch.tarjan_reach = s.scratch.tarjan_reach
+  scr : sL.scratch.scratch_buf = s.scratch.scratch_buf
+  ws1 : sL.scratch.work_stk1 = s.scratch.work_stk1
+  ws2 : sL.scratch.work_stk2 = s.scratch.work_stk2
+
 /-- `29/39`: Parametric `Func.wp` proof for `full_m6_els_ar`. -/
 theorem full_m6_els_ar_wp (Γ : Env)
     (hWatch : M6EnvSpec Γ "full_watch_push" Full.fullWatchPushSpec)
@@ -1486,26 +1387,17 @@ theorem full_m6_els_ar_wp (Γ : Env)
     have := hwf_cr.2.2.1; have := hwf_cr.2.2.2.1; omega
   have hcr2_bd : cr.toNat + 2 < s.core.arena.length := by
     have := hwf_cr.2.2.1; have := hwf_cr.2.2.2.1; omega
-  have hcr1_eq : (cr.setWidth 64 + 1#64).toNat = cr.toNat + 1 := by
-    rw [BitVec.toNat_add, BitVec.toNat_setWidth, show (1#64 : BitVec 64).toNat = 1 from rfl,
-      Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-  have hcr2_eq : (cr.setWidth 64 + 2#64).toNat = cr.toNat + 2 := by
-    rw [BitVec.toNat_add, BitVec.toNat_setWidth, show (2#64 : BitVec 64).toNat = 2 from rfl,
-      Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
+  have hcr1_eq : (cr.setWidth 64 + 1#64).toNat = cr.toNat + 1 := by bv_omega
+  have hcr2_eq : (cr.setWidth 64 + 2#64).toNat = cr.toNat + 2 := by bv_omega
   have hcr2_mod : (cr.toNat + 2) % 2 ^ 64 = cr.toNat + 2 := Nat.mod_eq_of_lt (by omega)
   have hsz_core : fullArenaClauseSizeCore s.core cr.toNat =
       (s.core.arena[cr.toNat + 2]'hcr2_bd).toNat := by
-    unfold fullArenaClauseSizeCore
-    rw [List.getElem?_eq_getElem hcr2_bd, Option.getD_some]
+    unfold fullArenaClauseSizeCore; rw [List.getElem?_eq_getElem hcr2_bd, Option.getD_some]
   have hsz_core_3 : 3 ≤ (s.core.arena[cr.toNat + 2]'hcr2_bd).toNat := by
     simpa [hsz_core] using hwf_cr.2.1
   have hsz_core_bd : cr.toNat + 3 + (s.core.arena[cr.toNat + 2]'hcr2_bd).toNat ≤
       s.core.arena_len := by
-    have h1 : cr.toNat + 3 + fullArenaClauseSizeCore s.core cr.toNat ≤
-        fullArenaNextOff s.core.arena s.core.arena_len cr.toNat := hwf_cr.2.2.1
-    have h2 : fullArenaNextOff s.core.arena s.core.arena_len cr.toNat ≤ s.core.arena_len :=
-      hwf_cr.2.2.2.1
-    omega
+    have := hwf_cr.2.2.1; have := hwf_cr.2.2.2.1; omega
   have hsz32_mod : s.core.arena[(cr.toNat + 2) % 2 ^ 64]'(by
       rw [hcr2_mod]; exact hcr2_bd) = s.core.arena[cr.toNat + 2]'hcr2_bd :=
     m6_getElem_congr hcr2_mod (by rw [hcr2_mod]; exact hcr2_bd) hcr2_bd
@@ -1520,12 +1412,10 @@ theorem full_m6_els_ar_wp (Γ : Env)
     rw [congrArg BitVec.toNat hsz32_mod] at h2; omega
   c0_hsplit
   · exfalso
-    have hlt : s.core.arena_len % 2 ^ 64 < (cr.toNat + 3 +
-        (s.core.arena[(cr.toNat + 2) % 2 ^ 64]'(by
-          rw [hcr2_mod]; exact hcr2_bd)).toNat) % 2 ^ 64 := by assumption
-    rw [congrArg BitVec.toNat hsz32_mod] at hlt
-    rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)] at hlt
-    omega
+    have hlt : s.core.arena_len % 2 ^ 64 < (cr.toNat + 3 + (s.core.arena[(cr.toNat + 2) % 2 ^ 64]'
+        (by rw [hcr2_mod]; exact hcr2_bd)).toNat) % 2 ^ 64 := by assumption
+    rw [congrArg BitVec.toNat hsz32_mod, Nat.mod_eq_of_lt (by omega),
+      Nat.mod_eq_of_lt (by omega)] at hlt; omega
   -- Now `cr.toNat ∈ fullArenaClauseRefs s` is non-garbage (`PH_GARB = 0`).
   have hng_cr : fullArenaClauseGarb s cr.toNat = false := by
     unfold fullArenaClauseGarb fullArenaClauseGarbCore fullArenaHdrCore
@@ -1541,8 +1431,7 @@ theorem full_m6_els_ar_wp (Γ : Env)
   have hsz_ar_bd : cr.toNat + 3 + sz32.toNat ≤ s.core.arena.length := by omega
   have hsz_lt_dim : sz32.toNat < 2 ^ 31 := by omega
   have hcr_lt_dim : cr.toNat < 0x80000000 := by omega
-  have hcr_ne : cr ≠ 0xFFFFFFFF#32 := by
-    intro h'; rw [h'] at hcr_lt_dim; revert hcr_lt_dim; decide
+  have hcr_ne : cr ≠ 0xFFFFFFFF#32 := by intro h'; rw [h'] at hcr_lt_dim; revert hcr_lt_dim; decide
   have hlits_lt_k : ∀ i (hi : i < sz32.toNat),
       (s.core.arena[cr.toNat + 3 + i]'(by omega)).toNat < 2 * s.core.cur_vars := by
     intro i hi
@@ -1552,8 +1441,7 @@ theorem full_m6_els_ar_wp (Γ : Env)
       rw [mem_fullArenaClauseLitsCore_iff (by rw [hsz_c]; exact hsz_ar_bd)]
       exact ⟨i, by rw [hsz_c]; exact hi, rfl⟩
     exact hw.arena.lits_lt cr.toNat hcr_ref hng_cr _ hmem
-  have hmaxv_pos : 0 < c.max_vars := by
-    have := hlits_lt_k 0 (by omega); omega
+  have hmaxv_pos : 0 < c.max_vars := by have := hlits_lt_k 0 (by omega); omega
   have hent_cr : (cnfOfClauses F_cur).EntailsClause (cnfClause (fullArenaClauseLits s cr.toNat)) :=
     hw.arena.entails cr.toNat hcr_ref hng_cr
   have hlits_all_repr : ∀ i (hi : i < sz32.toNat),
@@ -1697,37 +1585,22 @@ theorem full_m6_els_ar_wp (Γ : Env)
               refine wp_join_group (ts := []) (fun () mU =>
                   (FullMem c sG ⋆ R) mU ∧ ¬ (taut2 = false ∧ nsz2.toNat = 0)) ?_ ?_
               · rintro _ ⟨⟩ mU ⟨hmU, _⟩
-                refine wp_join_group (ts := []) (fun () mB =>
-                    ∃ sB : FullState,
-                      FullDenseInvW c F0 F_cur sB ∧ sB.core.cur_vars = s.core.cur_vars ∧
-                      sB.core.fuel = s.core.fuel ∧ sB.core.repr = s.core.repr ∧
-                      sB.core.tmp = tmp2 ∧
-                      sB.scratch.tarjan_mark = s.scratch.tarjan_mark ∧
-                      sB.scratch.tarjan_reach = s.scratch.tarjan_reach ∧
-                      sB.scratch.scratch_buf = s.scratch.scratch_buf ∧
-                      sB.scratch.work_stk1 = s.scratch.work_stk1 ∧
-                      sB.scratch.work_stk2 = s.scratch.work_stk2 ∧ (FullMem c sB ⋆ R) mB) ?_ ?_
-                · rintro _ ⟨⟩ mB ⟨sB, hinvB, hcvB, hflB, hrpB, htmpB, htmkB, htrhB, hscrB,
-                      hws1B, hws2B, hmB⟩
-                  refine wp_join_group (ts := []) (fun () mRet =>
-                      ∃ sR : FullState,
-                        FullDenseInvW c F0 F_cur sR ∧ sR.core.cur_vars = s.core.cur_vars ∧
-                        sR.core.fuel = s.core.fuel ∧ sR.core.repr = s.core.repr ∧
-                        sR.scratch.tarjan_mark = s.scratch.tarjan_mark ∧
-                        sR.scratch.tarjan_reach = s.scratch.tarjan_reach ∧
-                        sR.scratch.scratch_buf = s.scratch.scratch_buf ∧
-                        sR.scratch.work_stk1 = s.scratch.work_stk1 ∧
-                        sR.scratch.work_stk2 = s.scratch.work_stk2 ∧ (FullMem c sR ⋆ R) mRet) ?_ ?_
-                  · rintro _ ⟨⟩ mRet ⟨sR, hinvR, hcvR, hflR, hrpR, htmkR, htrhR, hscrR,
-                        hws1R, hws2R, hmR⟩
+                refine wp_join_group (ts := []) (fun () mB => ∃ sB : FullState,
+                    M6ElsLitLoop c F0 F_cur s sB ∧ sB.core.tmp = tmp2 ∧ (FullMem c sB ⋆ R) mB) ?_ ?_
+                · rintro _ ⟨⟩ mB
+                    ⟨sB, ⟨hinvB, hcvB, hflB, hrpB, htmkB, htrhB, hscrB, hws1B, hws2B⟩, htmpB, hmB⟩
+                  refine wp_join_group (ts := []) (fun () mRet => ∃ sR : FullState,
+                      M6ElsLitLoop c F0 F_cur s sR ∧ (FullMem c sR ⋆ R) mRet) ?_ ?_
+                  · rintro _ ⟨⟩ mRet
+                        ⟨sR, ⟨hinvR, hcvR, hflR, hrpR, htmkR, htrhR, hscrR, hws1R, hws2R⟩, hmR⟩
                     c0_hsteps!
                     exact hQ true sR mRet hinvR hcvR hflR hrpR htmkR htrhR hscrR hws1R hws2R
                       (fun h => Bool.noConfusion h) hmR
-                  · intro J6 hJ6
+                  · intro JW hJW
                     c0_hsplit
                     · c0_hsteps!
-                      exact hJ6 () mB ⟨sB, hinvB, hcvB, hflB, hrpB, htmkB, htrhB, hscrB,
-                        hws1B, hws2B, hmB⟩
+                      exact hJW () mB
+                        ⟨sB, ⟨hinvB, hcvB, hflB, hrpB, htmkB, htrhB, hscrB, hws1B, hws2B⟩, hmB⟩
                     · have htf : taut2 = false := by
                         cases taut2 <;> first | rfl | contradiction | exact absurd rfl ‹_›
                       c0_hsplit
@@ -1770,16 +1643,23 @@ theorem full_m6_els_ar_wp (Γ : Env)
                           c0_hsteps!
                           exact hQ false sBn mBn hinvBn hcvB hflB hrpB htmkB htrhB hscrB
                             hws1B hws2B (fun _ => hr20 hrB) hmBn
+                        try refine wp_unroll_group fun _ _ => ?_
+                        c0_hsplit
                         · c0_hsteps!
-                          exact hJ6 () mBn ⟨sBn, hinvBn, hcvB, hflB, hrpB, htmkB, htrhB,
-                            hscrB, hws1B, hws2B, hmBn⟩
+                          exact hJW () _ ⟨{ sBn with core := { sBn.core with oom := 1#64 } },
+                            ⟨m6_denseInvW_set_oom hinvBn, hcvB, hflB, hrpB, htmkB, htrhB, hscrB,
+                              hws1B, hws2B⟩, by assumption⟩
+                        · c0_hsteps!
+                          exact hJW () mBn ⟨sBn, ⟨hinvBn, hcvB, hflB, hrpB, htmkB, htrhB,
+                            hscrB, hws1B, hws2B⟩, hmBn⟩
                       · c0_hsteps!
-                        exact hJ6 () mB ⟨sB, hinvB, hcvB, hflB, hrpB, htmkB, htrhB, hscrB,
-                          hws1B, hws2B, hmB⟩
+                        exact hJW () mB
+                          ⟨sB, ⟨hinvB, hcvB, hflB, hrpB, htmkB, htrhB, hscrB, hws1B, hws2B⟩, hmB⟩
                 · intro J5 hJ5
                   c0_hsplit
                   · c0_hsteps!
-                    exact hJ5 () mU ⟨sG, hinvG, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, hmU⟩
+                    exact hJ5 () mU
+                      ⟨sG, ⟨hinvG, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, hmU⟩
                   · have htf : taut2 = false := by
                       cases taut2 <;> first | rfl | contradiction | exact absurd rfl ‹_›
                     c0_hsplit
@@ -1812,7 +1692,7 @@ theorem full_m6_els_ar_wp (Γ : Env)
                       c0_hsplit
                       · c0_hsteps!
                         exact hJ5 () mUn
-                          ⟨sU, hinvU, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, hmUn⟩
+                          ⟨sU, ⟨hinvU, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, hmUn⟩
                       · have hokf : okU = false := by
                           cases okU <;> first | rfl | contradiction | exact absurd rfl ‹_›
                         c0_hsteps!
@@ -1820,7 +1700,7 @@ theorem full_m6_els_ar_wp (Γ : Env)
                           (fun _ => hfail htmp0_lt hokf) hmUn
                     · c0_hsteps!
                       exact hJ5 () mU
-                        ⟨sG, hinvG, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, hmU⟩
+                        ⟨sG, ⟨hinvG, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, hmU⟩
               · intro J4 hJ4
                 c0_hsplit
                 · c0_hsteps!
@@ -1926,18 +1806,10 @@ theorem full_m6_els_ar_wp (Γ : Env)
                           { sC with core := { sC.core with arena := ar5 } } := by
                         rw [hrefs5, hsc_refs]; exact hcr_ref
                       c0_hsteps_nogrp
-                      refine wp_join_group (ts := []) (fun () mRet =>
-                          ∃ sR : FullState,
-                            FullDenseInvW c F0 F_cur sR ∧ sR.core.cur_vars = s.core.cur_vars ∧
-                            sR.core.fuel = s.core.fuel ∧ sR.core.repr = s.core.repr ∧
-                            sR.scratch.tarjan_mark = s.scratch.tarjan_mark ∧
-                            sR.scratch.tarjan_reach = s.scratch.tarjan_reach ∧
-                            sR.scratch.scratch_buf = s.scratch.scratch_buf ∧
-                            sR.scratch.work_stk1 = s.scratch.work_stk1 ∧
-                            sR.scratch.work_stk2 = s.scratch.work_stk2 ∧
-                            (FullMem c sR ⋆ R) mRet) ?_ ?_
-                      · rintro _ ⟨⟩ mRet ⟨sR, hinvR, hcvR, hflR, hrpR, htmkR, htrhR, hscrR,
-                            hws1R, hws2R, hmR⟩
+                      refine wp_join_group (ts := []) (fun () mRet => ∃ sR : FullState,
+                          M6ElsLitLoop c F0 F_cur s sR ∧ (FullMem c sR ⋆ R) mRet) ?_ ?_
+                      · rintro _ ⟨⟩ mRet
+                            ⟨sR, ⟨hinvR, hcvR, hflR, hrpR, htmkR, htrhR, hscrR, hws1R, hws2R⟩, hmR⟩
                         c0_hsteps!
                         exact hQ true sR mRet hinvR hcvR hflR hrpR htmkR htrhR hscrR hws1R hws2R
                           (fun h => Bool.noConfusion h) hmR
@@ -1948,12 +1820,12 @@ theorem full_m6_els_ar_wp (Γ : Env)
                             hm' => ?_
                         c0_hsplit
                         · c0_hsteps!
-                          exact hJW () m' ⟨s', hinv', hcv', hfl', hrp', htmk', htrh', hscr',
-                            hws1', hws2', hm'⟩
+                          exact hJW () m' ⟨s', ⟨hinv', hcv', hfl', hrp', htmk', htrh', hscr',
+                            hws1', hws2'⟩, hm'⟩
                         · c0_hsteps!
                           exact hJW () _ ⟨{ s' with core := { s'.core with oom := 1#64 } },
-                            m6_denseInvW_set_oom hinv', hcv', hfl', hrp', htmk', htrh', hscr',
-                            hws1', hws2', by assumption⟩
+                            ⟨m6_denseInvW_set_oom hinv', hcv', hfl', hrp', htmk', htrh', hscr',
+                              hws1', hws2'⟩, by assumption⟩
                     · intro J5 hJ5
                       c0_hsplit
                       · -- `nsz2 < sz32`: shrink!
@@ -1977,6 +1849,16 @@ theorem full_m6_els_ar_wp (Γ : Env)
                         · rintro _ ⟨⟩ m6 ⟨ar5, hinv5, hrefs5, hm6⟩
                           c0_hsteps!; exact hJ5 () m6 ⟨ar5, hinv5, hrefs5, hm6⟩
                         · intro J6 hJ6
+                          have hcr2_bv : (BitVec.setWidth 64 cr + (2 : BitVec 64)).toNat =
+                              cr.toNat + 2 := by
+                            simp only [bv_c0, bv_c0_zext32_64,
+                              show ((2 : BitVec 64)).toNat = 2 from rfl]
+                            exact Nat.mod_eq_of_lt (by omega)
+                          have hcr1_bv : (BitVec.setWidth 64 cr + (1 : BitVec 64)).toNat =
+                              cr.toNat + 1 := by
+                            simp only [bv_c0, bv_c0_zext32_64,
+                              show ((1 : BitVec 64)).toNat = 1 from rfl]
+                            exact Nat.mod_eq_of_lt (by omega)
                           c0_hsplit
                           · -- `(hdr &&& PH_SHRK) = 0#32`
                             have hhd0 : (s.core.arena[cr.toNat]'hcr_bd &&& 0x00800000#32) = 0#32 :=
@@ -1990,16 +1872,6 @@ theorem full_m6_els_ar_wp (Γ : Env)
                               change s.core.arena[cr.toNat]'hcr_bd =
                                 s.core.arena[cr.toNat]?.getD 0#32
                               rw [List.getElem?_eq_getElem hcr_bd, Option.getD_some]
-                            have hcr2_bv : (BitVec.setWidth 64 cr + (2 : BitVec 64)).toNat =
-                                cr.toNat + 2 := by
-                              simp only [bv_c0, bv_c0_zext32_64,
-                                show ((2 : BitVec 64)).toNat = 2 from rfl]
-                              exact Nat.mod_eq_of_lt (by omega)
-                            have hcr1_bv : (BitVec.setWidth 64 cr + (1 : BitVec 64)).toNat =
-                                cr.toNat + 1 := by
-                              simp only [bv_c0, bv_c0_zext32_64,
-                                show ((1 : BitVec 64)).toNat = 1 from rfl]
-                              exact Nat.mod_eq_of_lt (by omega)
                             have hcr3_bv : (BitVec.setWidth 64 cr + (3 : BitVec 64) +
                                   BitVec.setWidth 64 sz32 - (1 : BitVec 64)).toNat =
                                 cr.toNat + 3 + sz32.toNat - 1 := by bv_omega
@@ -2010,8 +1882,7 @@ theorem full_m6_els_ar_wp (Γ : Env)
                               rw [m6_getElem_congr hcr2_mod _ hcr2_bd]; exact hcr3_bv
                             c0_hsteps!
                             refine hJ6 () _ ⟨_, hinv5, hrefs5, ?_⟩
-                            dsimp only
-                            rw [← hhd_sC', ← hcr2_bv, ← hcr1_bv]
+                            dsimp only; rw [← hhd_sC', ← hcr2_bv, ← hcr1_bv]
                             first
                             | (rw [← hcr3_bv]; assumption)
                             | (rw [← hcr3_bv_mod]; assumption)
@@ -2023,16 +1894,6 @@ theorem full_m6_els_ar_wp (Γ : Env)
                             obtain ⟨_, hinv5, hrefs5⟩ := m6_els_ar_shrink1_ok hinvC
                               (hsc_refs ▸ hcr_ref) hng_cr hcr_bd har4 hcr_bd2 hcr_bd1 har_set_sz
                               rfl rfl hsz_def h3n hlt_sz hhd1 hout4 htmp_cp hmap2 hhent4
-                            have hcr2_bv : (BitVec.setWidth 64 cr + (2 : BitVec 64)).toNat =
-                                cr.toNat + 2 := by
-                              simp only [bv_c0, bv_c0_zext32_64,
-                                show ((2 : BitVec 64)).toNat = 2 from rfl]
-                              exact Nat.mod_eq_of_lt (by omega)
-                            have hcr1_bv : (BitVec.setWidth 64 cr + (1 : BitVec 64)).toNat =
-                                cr.toNat + 1 := by
-                              simp only [bv_c0, bv_c0_zext32_64,
-                                show ((1 : BitVec 64)).toNat = 1 from rfl]
-                              exact Nat.mod_eq_of_lt (by omega)
                             c0_hsteps!
                             refine hJ6 () _ ⟨_, hinv5, hrefs5, ?_⟩
                             dsimp only; rw [← hcr2_bv, ← hcr1_bv]; assumption
@@ -2233,16 +2094,9 @@ theorem full_m6_els_ar_wp (Γ : Env)
             exact hje
     · -- `chg1 = false`: push original clause `(sz & PW_LIT_MASK, cr)` & return `true`!
       c0_hsteps_nogrp
-      refine wp_join_group (ts := []) (fun () mRet =>
-          ∃ sR : FullState,
-            FullDenseInvW c F0 F_cur sR ∧ sR.core.cur_vars = s.core.cur_vars ∧
-            sR.core.fuel = s.core.fuel ∧ sR.core.repr = s.core.repr ∧
-            sR.scratch.tarjan_mark = s.scratch.tarjan_mark ∧
-            sR.scratch.tarjan_reach = s.scratch.tarjan_reach ∧
-            sR.scratch.scratch_buf = s.scratch.scratch_buf ∧
-            sR.scratch.work_stk1 = s.scratch.work_stk1 ∧
-            sR.scratch.work_stk2 = s.scratch.work_stk2 ∧ (FullMem c sR ⋆ R) mRet) ?_ ?_
-      · rintro _ ⟨⟩ mRet ⟨sR, hinvR, hcvR, hflR, hrpR, htmkR, htrhR, hscrR, hws1R, hws2R, hmR⟩
+      refine wp_join_group (ts := []) (fun () mRet => ∃ sR : FullState,
+          M6ElsLitLoop c F0 F_cur s sR ∧ (FullMem c sR ⋆ R) mRet) ?_ ?_
+      · rintro _ ⟨⟩ mRet ⟨sR, ⟨hinvR, hcvR, hflR, hrpR, htmkR, htrhR, hscrR, hws1R, hws2R⟩, hmR⟩
         c0_hsteps!
         exact hQ true sR mRet hinvR hcvR hflR hrpR htmkR htrhR hscrR hws1R hws2R
           (fun h => Bool.noConfusion h) hmR
@@ -2257,10 +2111,10 @@ theorem full_m6_els_ar_wp (Γ : Env)
           hcr_ref hm fun ok s' m' hinv' hcv' hfl' hrp' htmk' htrh' hscr' hws1' hws2' hm' => ?_
         c0_hsplit
         · c0_hsteps!
-          exact hJW () m' ⟨s', hinv', hcv', hfl', hrp', htmk', htrh', hscr', hws1', hws2', hm'⟩
+          exact hJW () m' ⟨s', ⟨hinv', hcv', hfl', hrp', htmk', htrh', hscr', hws1', hws2'⟩, hm'⟩
         · c0_hsteps!
           exact hJW () _ ⟨{ s' with core := { s'.core with oom := 1#64 } },
-            m6_denseInvW_set_oom hinv', hcv', hfl', hrp', htmk', htrh', hscr', hws1', hws2',
+            ⟨m6_denseInvW_set_oom hinv', hcv', hfl', hrp', htmk', htrh', hscr', hws1', hws2'⟩,
             by assumption⟩
   · -- Loop 1 (`group(J1) [[i32]]`):
     intro J1 hJ1
@@ -2308,18 +2162,6 @@ theorem full_m6_els_ar_wp (Γ : Env)
 
 /-! ## 4. `full_m6_els_lit_wp` (`30/39`) -/
 
-private structure M6ElsLitLoop (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
-    (s sL : FullState) : Prop where
-  dinv : FullDenseInvW c F0 F_cur sL
-  cv : sL.core.cur_vars = s.core.cur_vars
-  fuel : sL.core.fuel = s.core.fuel
-  repr : sL.core.repr = s.core.repr
-  tmk : sL.scratch.tarjan_mark = s.scratch.tarjan_mark
-  trh : sL.scratch.tarjan_reach = s.scratch.tarjan_reach
-  scr : sL.scratch.scratch_buf = s.scratch.scratch_buf
-  ws1 : sL.scratch.work_stk1 = s.scratch.work_stk1
-  ws2 : sL.scratch.work_stk2 = s.scratch.work_stk2
-
 private theorem m6_elsLitLoop_exit {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
     {s sL : FullState} {R : Mem 64 → Prop} {mL : Mem 64} {Q : Post [.bool]}
     (h : M6ElsLitLoop c F0 F_cur s sL) (hmL : (FullMem c sL ⋆ R) mL)
@@ -2341,6 +2183,362 @@ private theorem m6_elsLitLoop_exit {c : FullCfg} {F0 : CNF Nat} {F_cur : List (L
   · rw [decide_eq_false hinc]
     exact hQ false sL mL h.dinv h.cv h.fuel h.repr h.tmk h.trh h.scr h.ws1 h.ws2
       (fun _ => ⟨h.dinv.2.1.ext_sound.2 (h.dinv.2.1.inconsistent_sound hinc), hinc⟩) hmL
+
+private theorem m6_els_compact_ot_watches {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {s1 : FullState}
+    {R : Mem 64 → Prop} {m : Mem 64} {l ot : BitVec 32} {ooff_v oend_v : BitVec 64}
+    {Jc2 : Cont []}
+    (hinv1 : FullDenseInvW c F0 F_cur s1) (hot_lt : ot.toNat < 2 * s1.core.cur_vars)
+    (hosz_pos : 0 < fullWatchSize s1 ot.toNat)
+    (hooff_v : ooff_v = BitVec.ofNat 64 (fullWatchOff s1 ot.toNat))
+    (hoend_v : oend_v = BitVec.ofNat 64 (fullWatchOff s1 ot.toNat + fullWatchSize s1 ot.toNat))
+    (hm1 : (FullMem c s1 ⋆ R) m)
+    (hCont : ∀ (wvec' wstk' : List (BitVec 32)) (wu' nb' : BitVec 64) (mf : Mem 64),
+      FullDenseInvW c F0 F_cur { s1 with core := { s1.core with
+        wvec := wvec', wstk := wstk', wusable := wu', num_binary := nb' } } →
+      (FullMem c { s1 with core := { s1.core with
+        wvec := wvec', wstk := wstk', wusable := wu', num_binary := nb' } } ⋆ R) mf →
+      Jc2 () mf) :
+    wp Γ Q X
+      (Expr.group (sig := [[i64, i64, .bool]]) (fun Js => Blocks.cons (fun p =>
+        Expr.let_ (Op.mk (OpCode.cmp CmpOp.ult i64) (Arg.var p.fst, Arg.var oend_v, ()))
+          fun p1 => Expr.jnz (Arg.var p1.fst)
+          (Expr.let_ (Op.mk (OpCode.mul i64) (Arg.var p.fst, Arg.imm 4, ())) fun p2 =>
+            Expr.let_ (Op.mk (OpCode.add i64) (Arg.var c.pWstk, Arg.var p2.fst, ())) fun p3 =>
+            Expr.load i32 (Arg.var p3.fst) fun ld =>
+            Expr.let_ (Op.mk (OpCode.add i64) (Arg.var p.fst, Arg.imm 1, ())) fun p4 =>
+            Expr.group (sig := [[i64, i64, .bool]]) (fun _ => Blocks.cons (fun q =>
+              Expr.jump Js.fst (Arg.var q.fst, Arg.var q.snd.fst, Arg.var q.snd.snd.fst, ()))
+              Blocks.nil) fun Js =>
+            Expr.let_ (Op.mk (OpCode.and i32) (Arg.var ld, Arg.imm 2147483648, ())) fun p5 =>
+            Expr.let_ (Op.mk (OpCode.cmp CmpOp.ne i32) (Arg.var p5.fst, Arg.imm 0, ())) fun p6 =>
+            Expr.jnz (Arg.var p6.fst)
+              (Expr.group (sig := [[i64, .bool]]) (fun _ => Blocks.cons (fun q =>
+                Expr.jump Js.fst (Arg.var p4.fst, Arg.var q.fst, Arg.var q.snd.fst, ()))
+                Blocks.nil) fun Js =>
+                Expr.group (sig := [[]]) (fun _ => Blocks.cons (fun _ =>
+                  Expr.let_ (Op.mk (OpCode.mul i64) (Arg.var p.snd.fst, Arg.imm 4, ())) fun q8 =>
+                  Expr.let_ (Op.mk (OpCode.add i64) (Arg.var c.pWstk, Arg.var q8.fst, ()))
+                    fun q9 => Expr.store (t := i32) (Arg.var ld) (Arg.var q9.fst)
+                    (Expr.let_ (Op.mk (OpCode.add i64) (Arg.var p.snd.fst, Arg.imm 1, ()))
+                      fun q10 => Expr.jump Js.fst (Arg.var q10.fst, Arg.var p.snd.snd.fst, ())))
+                  Blocks.nil) fun Js1 =>
+                Expr.jnz (Arg.var p.snd.snd.fst) (Expr.jump Js1.fst ())
+                  (Expr.let_ (Op.mk (OpCode.and i32) (Arg.var ld, Arg.imm 2147483647, ()))
+                    fun q7 => Expr.let_ (Op.mk (OpCode.cmp CmpOp.eq i32)
+                      (Arg.var q7.fst, Arg.var l, ())) fun q8 =>
+                    Expr.jnz (Arg.var q8.fst)
+                      (Expr.jump Js.fst (Arg.var p.snd.fst, Arg.imm true, ()))
+                      (Expr.jump Js1.fst ())))
+              (Expr.group (sig := [[i64, i64]]) (fun _ => Blocks.cons (fun q7 =>
+                Expr.jump Js.fst (Arg.var q7.fst, Arg.var q7.snd.fst, Arg.var p.snd.snd.fst, ()))
+                Blocks.nil) fun Js =>
+                Expr.let_ (Op.mk (OpCode.cmp CmpOp.ult i64) (Arg.var p4.fst, Arg.var oend_v, ()))
+                  fun q7 => Expr.jnz (Arg.var q7.fst)
+                  (Expr.let_ (Op.mk (OpCode.mul i64) (Arg.var p.snd.fst, Arg.imm 4, ())) fun q8 =>
+                    Expr.let_ (Op.mk (OpCode.add i64) (Arg.var c.pWstk, Arg.var q8.fst, ()))
+                      fun q9 => Expr.store (t := i32) (Arg.var ld) (Arg.var q9.fst)
+                      (Expr.let_ (Op.mk (OpCode.add i64) (Arg.var p.snd.fst, Arg.imm 1, ()))
+                        fun q10 => Expr.let_ (Op.mk (OpCode.mul i64)
+                          (Arg.var q10.fst, Arg.imm 4, ())) fun q11 =>
+                        Expr.let_ (Op.mk (OpCode.add i64) (Arg.var c.pWstk, Arg.var q11.fst, ()))
+                          fun q12 => Expr.let_ (Op.mk (OpCode.mul i64)
+                            (Arg.var p4.fst, Arg.imm 4, ())) fun q13 =>
+                          Expr.let_ (Op.mk (OpCode.add i64) (Arg.var c.pWstk, Arg.var q13.fst, ()))
+                            fun q14 => Expr.load i32 (Arg.var q14.fst) fun ld2 =>
+                            Expr.store (t := i32) (Arg.var ld2) (Arg.var q12.fst)
+                              (Expr.let_ (Op.mk (OpCode.add i64)
+                                (Arg.var p.snd.fst, Arg.imm 2, ())) fun r1 =>
+                                Expr.let_ (Op.mk (OpCode.add i64) (Arg.var p4.fst, Arg.imm 1, ()))
+                                  fun r2 => Expr.jump Js.fst (Arg.var r2.fst, Arg.var r1.fst, ()))))
+                  (Expr.jump Js.fst (Arg.var p4.fst, Arg.var p.snd.fst, ()))))
+          (Expr.group (sig := [[i64]]) (fun Js => Blocks.cons (fun pk =>
+            Expr.let_ (Op.mk (OpCode.cmp CmpOp.ult i64) (Arg.var pk.fst, Arg.var oend_v, ()))
+              fun pk1 => Expr.jnz (Arg.var pk1.fst)
+              (Expr.let_ (Op.mk (OpCode.mul i64) (Arg.var pk.fst, Arg.imm 4, ())) fun pk2 =>
+                Expr.let_ (Op.mk (OpCode.add i64) (Arg.var c.pWstk, Arg.var pk2.fst, ()))
+                  fun pk3 => Expr.store (t := i32) (Arg.imm 4294967295) (Arg.var pk3.fst)
+                  (Expr.let_ (Op.mk (OpCode.add i64) (Arg.var pk.fst, Arg.imm 1, ())) fun pk4 =>
+                    Expr.jump Js.fst (Arg.var pk4.fst, ())))
+              (Expr.let_ (Op.mk (OpCode.zext 32 64) (Arg.var ot, ())) fun w4 =>
+                Expr.let_ (Op.mk (OpCode.sext 32 64) (Arg.imm 1, ())) fun w5 =>
+                Expr.let_ (Op.mk (OpCode.shl i64) (Arg.var w4.fst, Arg.var w5.fst, ())) fun w6 =>
+                Expr.let_ (Op.mk (OpCode.add i64) (Arg.var w6.fst, Arg.imm 1, ())) fun w7 =>
+                Expr.let_ (Op.mk (OpCode.mul i64) (Arg.var w7.fst, Arg.imm 4, ())) fun w8 =>
+                Expr.let_ (Op.mk (OpCode.add i64) (Arg.var c.pWvec, Arg.var w8.fst, ())) fun w9 =>
+                Expr.let_ (Op.mk (OpCode.sub i64) (Arg.var p.snd.fst, Arg.var ooff_v, ()))
+                  fun w10 => Expr.let_ (Op.mk (OpCode.trunc 64 32) (Arg.var w10.fst, ()))
+                  fun w11 => Expr.store (t := i32) (Arg.var w11.fst) (Arg.var w9.fst)
+                  (Expr.let_ (Op.mk (OpCode.add i64) (Arg.var c.hdr, Arg.imm 464, ())) fun u1 =>
+                    Expr.load i64 (Arg.var u1.fst) fun ldu =>
+                    Expr.let_ (Op.mk (OpCode.sub i64) (Arg.var oend_v, Arg.var p.snd.fst, ()))
+                      fun u2 => Expr.let_ (Op.mk (OpCode.add i64)
+                        (Arg.var ldu, Arg.var u2.fst, ())) fun u3 =>
+                      Expr.let_ (Op.mk (OpCode.add i64) (Arg.var c.hdr, Arg.imm 464, ())) fun u4 =>
+                      Expr.store (t := i64) (Arg.var u3.fst) (Arg.var u4.fst)
+                        (Expr.group (sig := [[]]) (fun _ => Blocks.cons (fun _ =>
+                          Expr.jump Jc2 ()) Blocks.nil) fun Js =>
+                          Expr.jnz (Arg.var p.snd.snd.fst)
+                            (Expr.let_ (Op.mk (OpCode.add i64) (Arg.var c.hdr, Arg.imm 504, ()))
+                              fun n1 => Expr.load i64 (Arg.var n1.fst) fun ldn =>
+                              Expr.let_ (Op.mk (OpCode.cmp CmpOp.ugt i64)
+                                (Arg.var ldn, Arg.imm 0, ())) fun n2 =>
+                              Expr.jnz (Arg.var n2.fst)
+                                (Expr.let_ (Op.mk (OpCode.add i64)
+                                  (Arg.var c.hdr, Arg.imm 504, ())) fun n3 =>
+                                  Expr.load i64 (Arg.var n3.fst) fun ldn2 =>
+                                  Expr.let_ (Op.mk (OpCode.sub i64) (Arg.var ldn2, Arg.imm 1, ()))
+                                    fun n4 => Expr.let_ (Op.mk (OpCode.add i64)
+                                      (Arg.var c.hdr, Arg.imm 504, ())) fun n5 =>
+                                    Expr.store (t := i64) (Arg.var n4.fst) (Arg.var n5.fst)
+                                      (Expr.jump Js.fst ()))
+                                (Expr.jump Js.fst ()))
+                            (Expr.jump Js.fst ()))))) Blocks.nil)
+            fun Js => Expr.jump Js.fst (Arg.var p.snd.fst, ()))) Blocks.nil)
+        fun Js => Expr.jump Js.fst (Arg.var ooff_v, Arg.var ooff_v, Arg.imm false, ()))
+      m := by
+  have hcl1 := hinv1.1.core_ok; have hwm1 := hinv1.2.1.watches; unfold ModeWatchesInv at hwm1
+  rw [ite_eq_right (fun h0 => hinv1.2.2.2.2.2.2 h0)] at hwm1
+  have hwc := c.hwcap; unfold dimacsBound at hwc
+  let ooff := fullWatchOff s1 ot.toNat; let osz := fullWatchSize s1 ot.toNat; let oend := ooff + osz
+  have hbd_ot := hwm1.layout.bounds ot.toNat hot_lt
+  have hwlen_le1 := hcl1.wlen_le; have hwstk_len1 := hcl1.wstk_len_arr
+  have hoend_le : oend ≤ s1.core.wstk.length := by
+    dsimp only [oend, ooff, osz]; rw [hwstk_len1]; exact Nat.le_trans hbd_ot hwlen_le1
+  have hoend_cap : oend ≤ c.wcap := hwstk_len1 ▸ hoend_le
+  have hoend_lt64 : oend < 2 ^ 64 := by omega
+  have hosz_lt32 : osz < 2 ^ 32 := by
+    unfold osz fullWatchSize fullWatchSizeCore; exact BitVec.isLt _
+  have hooff_bv : ooff_v.toNat = ooff := by
+    rw [hooff_v, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+  have hoend_bv : oend_v.toNat = oend := by
+    rw [hoend_v, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hoend_lt64]
+  have hslice_ot := hwm1.slices ot.toNat hot_lt
+  refine wp_while_state (ts := [i64, i64, .bool])
+    (proj := fun p : BitVec 64 × BitVec 64 × Bool => (p.1, p.2.1, p.2.2, ()))
+    (μ := fun p => oend - p.1.toNat)
+    (Inv := fun (op, oq, _orem) mop => ooff ≤ oq.toNat ∧ oq.toNat ≤ op.toNat ∧
+      op.toNat ≤ oend ∧ ∃ wstkL : List (BitVec 32), wstkL.length = c.wcap ∧
+        (∀ i, i < ooff ∨ op.toNat ≤ i → wstkL[i]? = s1.core.wstk[i]?) ∧
+        DenseWatchSliceOk F_cur { s1.core with wstk := wstkL } ot.toNat ooff (oq.toNat - ooff) ∧
+        DenseWatchSliceOk F_cur s1.core ot.toNat op.toNat (oend - op.toNat) ∧
+        (FullMem c { s1 with core := { s1.core with wstk := wstkL } } ⋆ R) mop) ?_ ?_
+  · intro J1 hJ1; c0_hsteps!
+    refine hJ1 (ooff_v, ooff_v, false) _ ⟨by rw [hooff_bv]; exact le_refl _,
+      by rw [hooff_bv]; exact le_refl _, by rw [hooff_bv]; omega,
+      s1.core.wstk, hwstk_len1, fun _ _ => rfl, ?_, ?_, hm1⟩
+    · rw [hooff_bv, Nat.sub_self]; exact .empty
+    · rw [hooff_bv]; change DenseWatchSliceOk F_cur s1.core ot.toNat ooff ((ooff + osz) - ooff)
+      rw [Nat.add_sub_cancel_left]; exact hslice_ot
+  · rintro J1 ⟨op, oq, orem⟩ mop
+      ⟨hooff_oq, hoq_op, hop_end, wstkL, hwlL, houtL, hsl_pre, hsl_suf, hmop⟩ ih1
+    c0_hsplit
+    · have hop_lt : op.toNat < oend := by rw [← hoend_bv]; exact hc
+      have hop_bd : op.toNat < wstkL.length := by rw [hwlL]; omega
+      have hop1 : (op + 1#64).toNat = op.toNat + 1 := by bv_omega
+      let ow := wstkL[op.toNat]'hop_bd
+      have how_s : s1.core.wstk[op.toNat]? = some ow := by
+        have hq := houtL op.toNat (Or.inr (le_refl _)); rw [← hq, List.getElem?_eq_getElem hop_bd]
+      c0_hsteps_nogrp
+      refine wp_unroll_group fun Jbin hJbin => ?_
+      c0_hsplit
+      · have how_bin : (ow &&& 0x80000000#32) ≠ 0#32 := by
+          rw [show (0x80000000#32 : BitVec 32) = (2147483648 : BitVec 32) from rfl]
+          dsimp only [ow]; exact hc
+        obtain ⟨how_ne, how_lt, hent_ow, hsl_suf1⟩ :=
+          m6_denseSlice_step_bin hsl_suf (by omega) how_s how_bin
+        have hoq_bd : oq.toNat < wstkL.length := by rw [hwlL]; omega
+        have hoq1 : (oq + 1#64).toNat = oq.toNat + 1 := by bv_omega
+        let wstkL' := wstkL.set oq.toNat ow
+        have hsl_pre' : DenseWatchSliceOk F_cur { s1.core with wstk := wstkL' }
+            ot.toNat ooff (oq.toNat + 1 - ooff) := by
+          rw [show oq.toNat + 1 - ooff = (oq.toNat - ooff) + 1 by omega]
+          refine DenseWatchSliceOk.append_bin (k := { s1.core with wstk := wstkL })
+            (k' := { s1.core with wstk := wstkL' }) (le_refl _) (fun _ r => r)
+            (fun idx hidx => by simp only [wstkL']; rw [List.getElem?_set_ne (by omega)])
+            hsl_pre ?_ how_bin how_ne how_lt hent_ow
+          simp only [wstkL']
+          rw [show ooff + (oq.toNat - ooff) = oq.toNat by omega, List.getElem?_set_self hoq_bd]
+        have hkeep : ∀ (orem' : Bool) (m' : Mem 64),
+            (FullMem c { s1 with core := { s1.core with wstk := wstkL' } } ⋆ R) m' →
+            J1 (op + 1#64, oq + 1#64, orem', ()) m' := fun orem' m' hm' =>
+          ih1 (op + 1#64, oq + 1#64, orem') m' (by dsimp only; rw [hop1]; omega)
+            ⟨by rw [hoq1]; omega, by rw [hoq1, hop1]; omega, by rw [hop1]; omega, wstkL',
+             by rw [List.length_set, hwlL], fun i hi => by
+               simp only [wstkL']; rw [List.getElem?_set_ne (by rcases hi with h | h <;> omega)]
+               exact houtL i (Or.imp (fun _ => by omega) (fun _ => by omega) hi),
+             by rw [hoq1]; exact hsl_pre', by
+               rw [hop1, show oend - (op.toNat + 1) = oend - op.toNat - 1 by omega]; exact hsl_suf1,
+             hm'⟩
+        refine wp_unroll_group fun Jrem hJrem => ?_
+        c0_hsteps!
+        all_goals first
+          | exact hkeep _ _ (by assumption)
+          | exact ih1 (op + 1#64, oq, true) _ (by dsimp only; rw [hop1]; omega)
+              ⟨hooff_oq, by rw [hop1]; omega, by rw [hop1]; omega, wstkL, hwlL,
+               (fun i hi => houtL i (Or.imp (fun _ => by omega) (fun _ => by omega) hi)),
+               hsl_pre, by rw [hop1, show oend - (op.toNat + 1) = oend - op.toNat - 1 by omega]
+                           exact hsl_suf1,
+               by assumption⟩
+      · have how_occ : (ow &&& 0x80000000#32) = 0#32 := by
+          rw [show (0x80000000#32 : BitVec 32) = (2147483648 : BitVec 32) from rfl]
+          dsimp only [ow]; exact hc
+        obtain ⟨hrem2, hsz3, cr_w, hcr_s, hcr_lt, hcr_ref, hsl_suf2⟩ :=
+          m6_denseSlice_step_occ hsl_suf (by omega) how_s how_occ
+        have hop1_lt : (op + 1#64).toNat < oend := by rw [hop1]; omega
+        have hop2 : (op + 1#64 + 1#64).toNat = op.toNat + 2 := by bv_omega
+        have hop1_bd : (op + 1#64).toNat < wstkL.length := by rw [hwlL]; omega
+        have hoq_bd : oq.toNat < wstkL.length := by rw [hwlL]; omega
+        have hoq1 : (oq + 1#64).toNat = oq.toNat + 1 := by bv_omega
+        have hoq2 : (oq + 2#64).toNat = oq.toNat + 2 := by bv_omega
+        have hcr_L : wstkL[(op + 1#64).toNat]'hop1_bd = cr_w := by
+          have h1 := houtL (op.toNat + 1) (Or.inr (by omega))
+          rw [← hop1, List.getElem?_eq_getElem hop1_bd] at h1
+          rw [← hop1] at hcr_s; exact Option.some.inj (h1.trans hcr_s)
+        have hmem_occ : (wstkL.set oq.toNat ow)[(op + 1#64).toNat]'(by
+            rw [List.length_set]; exact hop1_bd) = cr_w := by
+          rw [List.getElem_set_ne (by rw [hop1]; omega)]; exact hcr_L
+        let wstkL' := (wstkL.set oq.toNat ow).set (oq.toNat + 1) cr_w
+        have hsl_pre' : DenseWatchSliceOk F_cur { s1.core with wstk := wstkL' }
+            ot.toNat ooff (oq.toNat + 2 - ooff) := by
+          rw [show oq.toNat + 2 - ooff = (oq.toNat - ooff) + 2 by omega]
+          refine DenseWatchSliceOk.append_occ (k := { s1.core with wstk := wstkL })
+            (k' := { s1.core with wstk := wstkL' }) (le_refl _) (fun _ r => r) (fun idx hidx => by
+              simp only [wstkL']
+              rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)])
+            hsl_pre ?_ ?_ how_occ hsz3 hcr_lt hcr_ref
+          · simp only [wstkL']; rw [show ooff + (oq.toNat - ooff) = oq.toNat by omega,
+              List.getElem?_set_ne (by omega), List.getElem?_set_self hoq_bd]
+          · simp only [wstkL']; rw [show ooff + (oq.toNat - ooff) + 1 = oq.toNat + 1 by omega,
+              List.getElem?_set_self (by rw [List.length_set, hwlL]; omega)]
+        have hwstk_eq : (wstkL.set oq.toNat (wstkL[op.toNat]'hop_bd)).set
+            (oq + (1 : BitVec 64)).toNat ((wstkL.set oq.toNat
+              (wstkL[op.toNat]'hop_bd))[(op + (1 : BitVec 64)).toNat]'(by
+              rw [List.length_set]; exact hop1_bd)) = wstkL' := by
+          have hoq1' : (oq + (1 : BitVec 64)).toNat = oq.toNat + 1 := hoq1
+          have hmem' : (wstkL.set oq.toNat (wstkL[op.toNat]'hop_bd))[(op +
+              (1 : BitVec 64)).toNat]'(by rw [List.length_set]; exact hop1_bd) = cr_w := hmem_occ
+          simp only [wstkL', ow]; rw [hoq1', hmem']
+        c0_hsteps!
+        exact ih1 (op + 1#64 + 1#64, oq + 2#64, orem) _ (by dsimp only; rw [hop2]; omega)
+          ⟨by rw [hoq2]; omega, by rw [hoq2, hop2]; omega, by rw [hop2]; omega,
+           wstkL', by rw [List.length_set, List.length_set, hwlL], fun i hi => by
+             simp only [wstkL']; rw [List.getElem?_set_ne (by rcases hi with h | h <;> omega),
+               List.getElem?_set_ne (by rcases hi with h | h <;> omega)]
+             exact houtL i (Or.imp (fun _ => by omega) (fun _ => by omega) hi),
+           by rw [hoq2]; exact hsl_pre', by
+             rw [hop2, show oend - (op.toNat + 2) = oend - op.toNat - 2 by omega]; exact hsl_suf2,
+           by dsimp only at hm ⊢; rwa [← hwstk_eq]⟩
+    · have hop_eq : op.toNat = oend := by
+        have hge : oend_v.toNat ≤ op.toNat := Nat.le_of_not_lt hc; rw [hoend_bv] at hge; omega
+      rw [hop_eq] at houtL; clear hsl_suf hslice_ot hwm1 hbd_ot; c0_hsteps_nogrp
+      refine wp_while_state (ts := [i64]) (proj := fun ok : BitVec 64 => (ok, ()))
+        (μ := fun ok => oend - ok.toNat)
+        (Inv := fun ok mok => oq.toNat ≤ ok.toNat ∧ ok.toNat ≤ oend ∧
+          ∃ wstkK : List (BitVec 32), wstkK.length = c.wcap ∧
+            (∀ i, i < ooff ∨ oend ≤ i → wstkK[i]? = s1.core.wstk[i]?) ∧
+            (∀ i, ooff ≤ i → i < oq.toNat → wstkK[i]? = wstkL[i]?) ∧
+            (FullMem c { s1 with core := { s1.core with wstk := wstkK } } ⋆ R) mok) ?_ ?_
+      · intro J2 hJ2; c0_hsteps!
+        exact hJ2 oq _ ⟨le_refl _, by omega, wstkL, hwlL, houtL, fun _ _ _ => rfl, hmop⟩
+      · rintro J2 ok mok ⟨hok_lo, hok_hi, wstkK, hwlK, houtK, hpreK, hmok⟩ ih2
+        c0_hsplit
+        · have hok_lt : ok.toNat < oend := by rw [← hoend_bv]; exact hc
+          have hok_bd : ok.toNat < wstkK.length := by rw [hwlK]; omega
+          have hok1 : (ok + 1#64).toNat = ok.toNat + 1 := by bv_omega
+          let wstkK' := wstkK.set ok.toNat 0xFFFFFFFF#32; c0_hsteps!
+          exact ih2 (ok + 1#64) _ (by rw [hok1]; omega)
+            ⟨by rw [hok1]; omega, by rw [hok1]; omega, wstkK', by rw [List.length_set, hwlK],
+             fun i hi => by
+               simp only [wstkK']; rw [List.getElem?_set_ne (by rcases hi with h | h <;> omega)]
+               exact houtK i hi,
+             fun i hi1 hi2 => by
+               simp only [wstkK']; rw [List.getElem?_set_ne (by omega)]; exact hpreK i hi1 hi2,
+             by assumption⟩
+        · let newSz := oq.toNat - ooff
+          have hle_oq : oq.toNat ≤ oend := Nat.le_trans hok_lo hok_hi
+          have hle_sz : newSz ≤ osz := by omega
+          have hnew_c0 : (oq - ooff_v).setWidth 32 = BitVec.ofNat 32 newSz := by
+            apply BitVec.eq_of_toNat_eq
+            rw [BitVec.toNat_setWidth, BitVec.toNat_sub, hooff_bv, BitVec.toNat_ofNat]
+            have hlt32 : newSz < 2 ^ 32 := Nat.lt_of_le_of_lt hle_sz hosz_lt32
+            have hlt64 : newSz < 2 ^ 64 := Nat.lt_trans hlt32 (by decide)
+            rw [show (2 ^ 64 - ooff + oq.toNat) % 2 ^ 64 = newSz by omega,
+              Nat.mod_eq_of_lt hlt32]
+          have hwu_c0 : oend_v - oq = BitVec.ofNat 64 (oend - oq.toNat) := by
+            apply BitVec.eq_of_toNat_eq
+            rw [BitVec.toNat_sub, hoend_bv, BitVec.toNat_ofNat,
+              Nat.mod_eq_of_lt (by omega : oend - oq.toNat < 2 ^ 64)]; omega
+          have h2ot1_c0 : (ot.setWidth 64 <<< (1 : Nat) + 1#64).toNat = 2 * ot.toNat + 1 := by
+            rw [BitVec.toNat_add, m6_els_bv64_shl1_nat, bv_c0_zext32_64,
+              show (1#64 : BitVec 64).toNat = 1 from rfl, Nat.mod_eq_of_lt (by omega),
+              Nat.mod_eq_of_lt (by omega)]
+          have h2ot1_bd : (ot.setWidth 64 <<< (1 : Nat) + 1#64).toNat < s1.core.wvec.length := by
+            have := hcl1.cur_vars_le; rw [h2ot1_c0, hcl1.wvec_len]; omega
+          have hslK : DenseWatchSliceOk F_cur { s1.core with wstk := wstkK } ot.toNat ooff
+              newSz := DenseWatchSliceOk.relocate (k := { s1.core with wstk := wstkL })
+              (k' := { s1.core with wstk := wstkK })
+              (by rw [CNF.entails_def]; exact fun _ h => h) (le_refl _) (fun _ r => r)
+              (fun idx hidx => hpreK (ooff + idx) (by omega) (by omega)) hsl_pre
+          have hinv_k : ∀ (wu' nb' : BitVec 64), FullDenseInvW c F0 F_cur
+                { s1 with core := { s1.core with
+                    wvec := s1.core.wvec.set (2 * ot.toNat + 1) (BitVec.ofNat 32 newSz),
+                    wstk := wstkK, wusable := wu', num_binary := nb' } } := fun wu' nb' =>
+            m6_denseInvW_watchCompact hinv1 hot_lt hle_sz hwlK houtK hslK wu' nb'
+          c0_hsteps_nogrp
+          refine wp_join_group (ts := []) (fun () mf => ∃ nb' : BitVec 64,
+              (FullMem c { s1 with core := { s1.core with
+                  wvec := s1.core.wvec.set (2 * ot.toNat + 1) (BitVec.ofNat 32 newSz),
+                  wstk := wstkK, wusable := s1.core.wusable + BitVec.ofNat 64 (oend - oq.toNat),
+                  num_binary := nb' } } ⋆ R) mf) ?_ ?_
+          · rintro _ ⟨⟩ mf ⟨nb', hmf⟩; c0_hsteps!
+            exact hCont _ _ _ _ mf (hinv_k _ nb') hmf
+          · intro Jnb hJnb; c0_hsplit
+            · c0_hsplit
+              · c0_hsteps!; refine hJnb () _ ⟨s1.core.num_binary - 1#64, ?_⟩
+                rw [← h2ot1_c0, ← hnew_c0, ← hwu_c0]; assumption
+              · c0_hsteps!; refine hJnb () _ ⟨s1.core.num_binary, ?_⟩
+                rw [← h2ot1_c0, ← hnew_c0, ← hwu_c0]; assumption
+            · c0_hsteps!; refine hJnb () _ ⟨s1.core.num_binary, ?_⟩
+              rw [← h2ot1_c0, ← hnew_c0, ← hwu_c0]; assumption
+
+private theorem m6_els_wvec_pop_eq {k : Nat} (sL : FullState) (l : BitVec 32) {offL szL : Nat}
+    (hk_le : k ≤ szL) (hk_lt : k < 2 ^ 64) (hoff_lt : offL + k < 2 ^ 32) (hsz_lt : szL < 2 ^ 32)
+    (h2l0_c0 : (BitVec.setWidth 64 l <<< (1 : Nat)).toNat = 2 * l.toNat)
+    (h2l1_c0 : (BitVec.setWidth 64 l <<< (1 : Nat) + (1 : BitVec 64)).toNat = 2 * l.toNat + 1)
+    {h0 : (BitVec.setWidth 64 l <<< (1 : Nat)).toNat < sL.core.wvec.length}
+    {h1 : (BitVec.setWidth 64 l <<< (1 : Nat) + (1 : BitVec 64)).toNat < sL.core.wvec.length}
+    (hoffL_bv :
+      (BitVec.setWidth 64 (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'h0)).toNat =
+        offL)
+    (hszL_bv :
+      (BitVec.setWidth 64 (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat) +
+        (1 : BitVec 64)).toNat]'h1)).toNat = szL) :
+    (sL.core.wvec.set (BitVec.setWidth 64 l <<< (1 : Nat)).toNat (BitVec.setWidth 32
+        (BitVec.setWidth 64 (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'h0) +
+          BitVec.ofNat 64 k))).set
+      (BitVec.setWidth 64 l <<< (1 : Nat) + (1 : BitVec 64)).toNat
+      (BitVec.setWidth 32 (BitVec.setWidth 64 (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat) +
+        (1 : BitVec 64)).toNat]'h1) - BitVec.ofNat 64 k)) =
+    (sL.core.wvec.set (2 * l.toNat) (BitVec.ofNat 32 (offL + k))).set
+      (2 * l.toNat + 1) (BitVec.ofNat 32 (szL - k)) := by
+  have hoff64 : offL < 2 ^ 64 := by omega
+  have hsz64 : szL < 2 ^ 64 := by omega
+  refine m6_list_set2_eq sL.core.wvec h2l0_c0 h2l1_c0 ?_ ?_
+  · apply BitVec.eq_of_toNat_eq
+    have hv : BitVec.setWidth 64 (sL.core.wvec[_]'h0) = BitVec.ofNat 64 offL :=
+      BitVec.eq_of_toNat_eq (by rw [hoffL_bv, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hoff64])
+    rw [hv, BitVec.toNat_setWidth, show (BitVec.ofNat 64 offL + BitVec.ofNat 64 k).toNat =
+      offL + k by rw [BitVec.toNat_add, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
+        Nat.mod_eq_of_lt hoff64, Nat.mod_eq_of_lt hk_lt, Nat.mod_eq_of_lt (by omega)],
+      BitVec.toNat_ofNat]
+  · apply BitVec.eq_of_toNat_eq
+    have hv : BitVec.setWidth 64 (sL.core.wvec[_]'h1) = BitVec.ofNat 64 szL :=
+      BitVec.eq_of_toNat_eq (by rw [hszL_bv, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hsz64])
+    rw [hv, BitVec.toNat_setWidth, show (BitVec.ofNat 64 szL - BitVec.ofNat 64 k).toNat =
+      szL - k by rw [BitVec.toNat_sub, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
+        Nat.mod_eq_of_lt hsz64, Nat.mod_eq_of_lt hk_lt]; omega,
+      BitVec.toNat_ofNat]
 
 /-- `30/39`: Parametric `Func.wp` proof for `full_m6_els_lit`. -/
 theorem full_m6_els_lit_wp (Γ : Env)
@@ -2464,10 +2662,11 @@ theorem full_m6_els_lit_wp (Γ : Env)
       let ot := sL.core.wstk[offL]'hoffL_lt &&& 0x7FFFFFFF#32
       let wvec1 := (sL.core.wvec.set (2 * l.toNat) (BitVec.ofNat 32 (offL + 1))).set
         (2 * l.toNat + 1) (BitVec.ofNat 32 (szL - 1))
-      let s1 : FullState := { sL with core := { sL.core with
-        wvec := wvec1, wusable := sL.core.wusable + 1#64 } }
-      have hinv1 := m6_denseInvW_watchPop hinvL hl_ltL (by omega : 1 ≤ szL)
-        (sL.core.wusable + 1#64) hsl_nxt
+      obtain ⟨s1, hs1_def⟩ : ∃ s1 : FullState, s1 = { sL with core := { sL.core with
+          wvec := wvec1, wusable := sL.core.wusable + 1#64 } } := ⟨_, rfl⟩
+      have hinv1 : FullDenseInvW c F0 F_cur s1 :=
+        hs1_def.symm ▸ m6_denseInvW_watchPop hinvL hl_ltL (by omega : 1 ≤ szL)
+          (sL.core.wusable + 1#64) hsl_nxt
       have hrepr1 : M6ReprFlatInv F_cur (2 * sL.core.cur_vars) sL.core.repr := by
         rw [hLoop.repr, hLoop.cv]; exact hrepr_inv
       have hrot_lt : (sL.core.repr[ot.toNat]'hot_rp).toNat < 2 * sL.core.cur_vars := by
@@ -2480,109 +2679,227 @@ theorem full_m6_els_lit_wp (Γ : Env)
       have hent_rep : (cnfOfClauses F_cur).EntailsClause
           (cnfClause [rl.toNat, (sL.core.repr[ot.toNat]'hot_rp).toNat]) :=
         m6_entails_bin_subst hlr_eq hrot_eqv hent_bin
-      have hwv_pop1 :
-          (sL.core.wvec.set (BitVec.setWidth 64 l <<< (1 : Nat)).toNat
-            (BitVec.setWidth 32 (BitVec.setWidth 64
-              (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'(by
-                rw [h2l0_c0, hclL.wvec_len]; omega)) + (1 : BitVec 64)))).set
-            (BitVec.setWidth 64 l <<< (1 : Nat) + (1 : BitVec 64)).toNat
-            (BitVec.setWidth 32 (BitVec.setWidth 64
-              (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat) + (1 : BitVec 64)).toNat]'(by
-                rw [h2l1_c0, hclL.wvec_len]; omega)) - (1 : BitVec 64))) = wvec1 := by
-        refine m6_list_set2_eq sL.core.wvec h2l0_c0 h2l1_c0 ?_ ?_
-        · apply BitVec.eq_of_toNat_eq
-          have h0_bv : BitVec.setWidth 64
-              (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'(by
-                rw [h2l0_c0, hclL.wvec_len]; omega)) = BitVec.ofNat 64 offL :=
-            BitVec.eq_of_toNat_eq (by
-              rw [hoffL_bv, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)])
-          rw [h0_bv, BitVec.toNat_setWidth,
-            show (BitVec.ofNat 64 offL + (1 : BitVec 64)).toNat = offL + 1 by bv_omega,
-            BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-        · apply BitVec.eq_of_toNat_eq
-          have h1_bv : BitVec.setWidth 64
-              (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat) + (1 : BitVec 64)).toNat]'(by
-                rw [h2l1_c0, hclL.wvec_len]; omega)) = BitVec.ofNat 64 szL :=
-            BitVec.eq_of_toNat_eq (by
-              rw [hszL_bv, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)])
-          rw [h1_bv, BitVec.toNat_setWidth,
-            show (BitVec.ofNat 64 szL - (1 : BitVec 64)).toNat = szL - 1 by bv_omega,
-            BitVec.toNat_ofNat]
+      have hsz_lt32 : szL < 2 ^ 32 := by
+        unfold szL fullWatchSize fullWatchSizeCore; exact BitVec.isLt _
+      have hwv_pop1 := m6_els_wvec_pop_eq (k := 1) sL l (by omega) (by decide) (by omega) hsz_lt32
+        h2l0_c0 h2l1_c0 hoffL_bv hszL_bv
       c0_hsteps_nogrp
-      refine wp_join_state (ts := [i32]) (proj := fun rot : BitVec 32 => (rot, ()))
-        (fun rot m1 => rot = sL.core.repr[ot.toNat]'hot_rp ∧ (FullMem c s1 ⋆ R) m1) ?_ ?_
-      · rintro _ rot m1 ⟨rfl, hm1⟩
+      have hot_eq_c0 : (sL.core.wstk[offL]'hoffL_lt &&& 0x7FFFFFFF#32) = ot := rfl
+      have hpop1_m : (FullMem c s1 ⋆ R) m := by
+        rw [hs1_def]; dsimp only [wvec1]; rw [← hwv_pop1]; assumption
+      refine wp_join_group (ts := []) (fun () mC =>
+          ∃ sC : FullState, M6ElsLitLoop c F0 F_cur s sC ∧ (FullMem c sC ⋆ R) mC) ?_ ?_
+      · rintro _ ⟨⟩ mC ⟨sC, ⟨hinvC, hcvC, hflC, hrpC, htmkC, htrhC, hscrC, hws1C, hws2C⟩, hmC⟩
+        have hclC := hinvC.1.core_ok
+        have hot_ltC : ot.toNat < 2 * sC.core.cur_vars := by rw [hcvC, ← hLoop.cv]; exact hot_lt_s
+        have hot_rpC : ot.toNat < sC.core.repr.length := by rw [hclC.repr_len]; omega
+        have hreprC : M6ReprFlatInv F_cur (2 * sC.core.cur_vars) sC.core.repr := by
+          rw [hrpC, hcvC, ← hLoop.repr, ← hLoop.cv]; exact hrepr1
+        have hrot_ltC : (sC.core.repr[ot.toNat]'hot_rpC).toNat < 2 * sC.core.cur_vars := by
+          have := m6_reprFlat_lt hreprC hot_ltC
+          rwa [List.getElem?_eq_getElem hot_rpC, Option.getD_some] at this
+        have hrot_eqC : sC.core.repr[ot.toNat]'hot_rpC = sL.core.repr[ot.toNat]'hot_rp := by
+          simp only [hrpC, hLoop.repr]
         c0_hsteps_nogrp
-        c0_hsplit
-        · exfalso
-          simp only [bv_c0, bv_c0_zext32_64, BitVec.toNat_ofNat] at *
-          have hcv_eq := hLoop.cv
-          have : 2 * sL.core.cur_vars < 2 ^ 64 := by omega
-          omega
-        c0_hsplit
-        · -- `rl == (rot ^ 1)`: tautology, continue!
-          c0_hsteps!
-          exact hL (gL - 1#64, s1) m1 (by dsimp only; omega)
-            ⟨⟨hinv1, hLoop.cv, hLoop.fuel, hLoop.repr, hLoop.tmk, hLoop.trh, hLoop.scr,
-              hLoop.ws1, hLoop.ws2⟩, hm1⟩
-        c0_hsplit
-        · -- `rl == rot`: `full_add_unit(h, rl)`!
-          have hrr : rl.toNat = (sL.core.repr[ot.toNat]'hot_rp).toNat := by
-            have : rl = sL.core.repr[ot.toNat]'hot_rp := ‹_›
-            rw [this]
-          rw [← hrr] at hent_rep
-          have hent_u := m6_entails_unit_of_dup hent_rep
-          c0_hsteps_nogrp
-          c0_call hAddUnit
-          refine ⟨c, F0, F_cur, s1, R, rfl, hinv1.1, hinv1.2.1, fun _ => hent_u, hm1, ?_⟩
-          intro okU vals' flags' lvl' rsns' trl' tp' te' prop' cl' unass' unfl' inc'
-            phases' ta' ba' pt' pb' hp' ps' hl' qsi' qss' mU sU hlenU hwU hclU hfail _ hmU
-          have hinvU := m6_denseInvW_after_addUnit hinv1 hlenU hwU hclU
+        refine wp_join_state (ts := [i32]) (proj := fun rot : BitVec 32 => (rot, ()))
+          (fun rot m1 => rot = sL.core.repr[ot.toNat]'hot_rp ∧ (FullMem c sC ⋆ R) m1) ?_ ?_
+        · rintro _ rot m1 ⟨rfl, hm1⟩
           c0_hsplit
-          · c0_hsteps!
-            exact hL (gL - 1#64, sU) mU (by dsimp only; omega)
-              ⟨⟨hinvU, hLoop.cv, hLoop.fuel, hLoop.repr, hLoop.tmk, hLoop.trh, hLoop.scr,
-                hLoop.ws1, hLoop.ws2⟩, hmU⟩
-          · have hokf : okU = false := by
-              cases okU <;> first | rfl | contradiction | exact absurd rfl ‹_›
+          · exfalso
+            simp only [bv_c0, bv_c0_zext32_64, BitVec.toNat_ofNat, m6_els_bv64_shl1_nat] at *
+            have hcv_eq := hLoop.cv
+            have hcv_s_eq : s.core.cur_vars = sC.core.cur_vars := hcvC.symm
+            omega
+          c0_hsplit
+          · -- `rl == (rot ^ 1)`: tautology, continue!
             c0_hsteps!
-            exact hQ false sU mU hinvU hLoop.cv hLoop.fuel hLoop.repr hLoop.tmk hLoop.trh hLoop.scr
-              hLoop.ws1 hLoop.ws2 (fun _ => hfail (by rw [hLoop.cv]; exact hrl_lt) hokf) hmU
-        · -- `full_add_bin(h, rl, rot)`!
-          c0_hsteps_nogrp
-          c0_call hAddBin
-          refine ⟨c, F0, F_cur, s1, R, rfl, hinv1.1, hinv1.2.1, hinv1.2.2.2.2.2.1,
-            fun _ _ => hent_rep, hm1, ?_⟩
-          intro rB vals' flags' lvl' rsns' trl' tp' te' unass' unfl' wvec' wstk' wlen' wu'
-            nb' oom' inc' phases' wsort' mB sB hlenB hwB _ hr20 _ hmB
-          have hinvB := m6_denseInvW_after_addBin hinv1 hlenB hwB
+            exact hL (gL - 1#64, sC) m1 (by dsimp only; omega)
+              ⟨⟨hinvC, hcvC, hflC, hrpC, htmkC, htrhC, hscrC, hws1C, hws2C⟩, hm1⟩
           c0_hsplit
-          · have hrB : rB = 20#64 := by bv_omega
+          · -- `rl == rot`: `full_add_unit(h, rl)`!
+            have hrr : rl.toNat = (sL.core.repr[ot.toNat]'hot_rp).toNat := by
+              have : rl = sL.core.repr[ot.toNat]'hot_rp := ‹_›
+              rw [this]
+            rw [← hrr] at hent_rep
+            have hent_u := m6_entails_unit_of_dup hent_rep
+            c0_hsteps_nogrp
+            c0_call hAddUnit
+            refine ⟨c, F0, F_cur, sC, R, rfl, hinvC.1, hinvC.2.1, fun _ => hent_u, hm1, ?_⟩
+            intro okU vals' flags' lvl' rsns' trl' tp' te' prop' cl' unass' unfl' inc'
+              phases' ta' ba' pt' pb' hp' ps' hl' qsi' qss' mU sU hlenU hwU hclU hfail _ hmU
+            have hinvU := m6_denseInvW_after_addUnit hinvC hlenU hwU hclU
+            c0_hsplit
+            · c0_hsteps!
+              exact hL (gL - 1#64, sU) mU (by dsimp only; omega)
+                ⟨⟨hinvU, hcvC, hflC, hrpC, htmkC, htrhC, hscrC, hws1C, hws2C⟩, hmU⟩
+            · have hokf : okU = false := by
+                cases okU <;> first | rfl | contradiction | exact absurd rfl ‹_›
+              c0_hsteps!
+              exact hQ false sU mU hinvU hcvC hflC hrpC htmkC htrhC hscrC hws1C hws2C
+                (fun _ => hfail (by rw [hcvC]; exact hrl_lt) hokf) hmU
+          · -- `full_add_bin(h, rl, rot)`!
+            c0_hsteps_nogrp
+            c0_call hAddBin
+            refine ⟨c, F0, F_cur, sC, R, rfl, hinvC.1, hinvC.2.1, hinvC.2.2.2.2.2.1,
+              fun _ _ => hent_rep, hm1, ?_⟩
+            intro rB vals' flags' lvl' rsns' trl' tp' te' unass' unfl' wvec' wstk' wlen' wu'
+              nb' oom' inc' phases' wsort' mB sB hlenB hwB _ hr20 _ hmB
+            have hinvB := m6_denseInvW_after_addBin hinvC hlenB hwB
+            c0_hsplit
+            · have hrB : rB = 20#64 := by bv_omega
+              c0_hsteps!
+              exact hQ false sB mB hinvB hcvC hflC hrpC htmkC htrhC hscrC hws1C hws2C
+                (fun _ => hr20 hrB) hmB
+            c0_hsplit
+            · c0_hsteps!
+              exact hQ true { sB with core := { sB.core with oom := 1#64 } } _
+                (m6_denseInvW_set_oom hinvB) hcvC hflC hrpC htmkC htrhC hscrC hws1C hws2C
+                (fun h => Bool.noConfusion h) (by assumption)
+            · c0_hsteps!
+              exact hL (gL - 1#64, sB) mB (by dsimp only; omega)
+                ⟨⟨hinvB, hcvC, hflC, hrpC, htmkC, htrhC, hscrC, hws1C, hws2C⟩, hmB⟩
+        · intro Jr hJr
+          c0_hsplit
+          · have hot_rp_c0 : (BitVec.setWidth 64 (sL.core.wstk[(BitVec.setWidth 64
+                (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'(by
+                  rw [h2l0_c0, hclL.wvec_len]; omega))).toNat]'hws_off_lt &&&
+                (2147483647 : BitVec 32))).toNat < sC.core.repr.length := by
+              rw [hw0_c0_eq, show (2147483647 : BitVec 32) = 0x7FFFFFFF#32 from rfl,
+                bv_c0_zext32_64]
+              exact hot_rpC
             c0_hsteps!
-            exact hQ false sB mB hinvB hLoop.cv hLoop.fuel hLoop.repr hLoop.tmk hLoop.trh hLoop.scr
-              hLoop.ws1 hLoop.ws2 (fun _ => hr20 hrB) hmB
-          c0_hsplit
-          · c0_hsteps!
-            exact hQ true sB mB hinvB hLoop.cv hLoop.fuel hLoop.repr hLoop.tmk hLoop.trh hLoop.scr
-              hLoop.ws1 hLoop.ws2 (fun h => Bool.noConfusion h) hmB
-          · c0_hsteps!
-            exact hL (gL - 1#64, sB) mB (by dsimp only; omega)
-              ⟨⟨hinvB, hLoop.cv, hLoop.fuel, hLoop.repr, hLoop.tmk, hLoop.trh, hLoop.scr,
-                hLoop.ws1, hLoop.ws2⟩, hmB⟩
-      · intro Jr hJr
-        c0_hsplit
-        · simp only [hw0_c0_eq]
-          c0_hsteps!
-          refine hJr (sL.core.repr[ot.toNat]'hot_rp) _ ⟨rfl, ?_⟩
-          dsimp only [s1]; rw [← hwv_pop1]; assumption
-        · exfalso
-          simp only [bv_c0] at *
-          have hcv_eq := hLoop.cv
-          have hm1 : (sL.core.wstk[offL]'hoffL_lt &&& (2147483647 : BitVec 32)).toNat =
-              (sL.core.wstk[offL]'hoffL_lt &&& 0x7FFFFFFF#32).toNat := rfl
-          simp only [hwv0_eq, hm1] at *
-          have : 2 * sL.core.cur_vars < 2 ^ 64 := by omega
-          omega
+            have hrot_arg : sC.core.repr[(BitVec.setWidth 64 (sL.core.wstk[(BitVec.setWidth 64
+                (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'(by
+                  rw [h2l0_c0, hclL.wvec_len]; omega))).toNat]'hws_off_lt &&&
+                (2147483647 : BitVec 32))).toNat]'hot_rp_c0 = sL.core.repr[ot.toNat]'hot_rp := by
+              rw [m6_getElem_congr (by
+                rw [hw0_c0_eq, show (2147483647 : BitVec 32) = 0x7FFFFFFF#32 from rfl,
+                  bv_c0_zext32_64]) hot_rp_c0 hot_rpC, hrot_eqC]
+            exact hJr _ _ ⟨hrot_arg, hmC⟩
+          · exfalso
+            have hcv_s_eq : s.core.cur_vars = sC.core.cur_vars := hcvC.symm
+            have hot_lt_64 : (BitVec.setWidth 64 ot).toNat <
+                ((BitVec.ofNat 64 s.core.cur_vars) <<< (1 : Nat)).toNat := by
+              rw [m6_els_bv64_shl1_nat, bv_c0_zext32_64, BitVec.toNat_ofNat,
+                Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega), ← hLoop.cv]
+              exact hot_lt_s
+            have hot_lt_c64 : (BitVec.setWidth 64 (sL.core.wstk[(BitVec.setWidth 64
+                (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'(by
+                  rw [h2l0_c0, hclL.wvec_len]; omega))).toNat]'hws_off_lt &&&
+                (2147483647 : BitVec 32))).toNat <
+                ((BitVec.ofNat 64 s.core.cur_vars) <<< (1 : Nat)).toNat := by
+              rw [hw0_c0_eq, show (2147483647 : BitVec 32) = 0x7FFFFFFF#32 from rfl]
+              exact hot_lt_64
+            have hnot : ¬ (BitVec.setWidth 64 (sL.core.wstk[(BitVec.setWidth 64
+                (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'(by
+                  rw [h2l0_c0, hclL.wvec_len]; omega))).toNat]'hws_off_lt &&&
+                (2147483647 : BitVec 32))).toNat <
+                ((BitVec.ofNat 64 s.core.cur_vars) <<< (1 : Nat)).toNat := by
+              try exact hc
+              try (bv_omega)
+            exact hnot hot_lt_c64
+      · intro Jc hJc
+        have hcl1 := hinv1.1.core_ok
+        have hcv1_eq : s1.core.cur_vars = s.core.cur_vars := hs1_def.symm ▸ hLoop.cv
+        have hw1 := hinv1.2.1
+        have hwm1 := hw1.watches; unfold ModeWatchesInv at hwm1
+        rw [ite_eq_right (fun h0 => hinv1.2.2.2.2.2.2 h0)] at hwm1
+        have hot_lt1 : ot.toNat < 2 * s1.core.cur_vars := by
+          rw [hcv1_eq, ← hLoop.cv]; exact hot_lt_s
+        have h2ot0_lt : 2 * ot.toNat < 4 * c.max_vars := by omega
+        have h2ot1_lt : 2 * ot.toNat + 1 < 4 * c.max_vars := by omega
+        have h2ot0_wvec : 2 * ot.toNat < s1.core.wvec.length := hcl1.wvec_len ▸ h2ot0_lt
+        have h2ot1_wvec : 2 * ot.toNat + 1 < s1.core.wvec.length := hcl1.wvec_len ▸ h2ot1_lt
+        have h2ot0_bd : (ot.setWidth 64 <<< (1 : Nat)).toNat < s1.core.wvec.length := by
+          rw [m6_els_bv64_shl1_nat, bv_c0_zext32_64, hcl1.wvec_len, Nat.mod_eq_of_lt (by omega)]
+          exact h2ot0_lt
+        have h2ot1_bd : (ot.setWidth 64 <<< (1 : Nat) + (1 : BitVec 64)).toNat <
+            s1.core.wvec.length := by
+          rw [BitVec.toNat_add, m6_els_bv64_shl1_nat, bv_c0_zext32_64,
+            show ((1 : BitVec 64)).toNat = 1 from rfl, hcl1.wvec_len,
+            Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]; exact h2ot1_lt
+        c0_hsplit; rotate_left
+        · c0_hsteps!
+          exact hJc () _ ⟨s1, ⟨hinv1, hcv1_eq, hs1_def.symm ▸ hLoop.fuel,
+            hs1_def.symm ▸ hLoop.repr, hs1_def.symm ▸ hLoop.tmk, hs1_def.symm ▸ hLoop.trh,
+            hs1_def.symm ▸ hLoop.scr, hs1_def.symm ▸ hLoop.ws1, hs1_def.symm ▸ hLoop.ws2⟩, hpop1_m⟩
+        let ooff := fullWatchOff s1 ot.toNat
+        let osz := fullWatchSize s1 ot.toNat
+        let oend := ooff + osz
+        have h2ot0_eq : (ot.setWidth 64 <<< (1 : Nat)).toNat = 2 * ot.toNat := by
+          rw [m6_els_bv64_shl1_nat, bv_c0_zext32_64, Nat.mod_eq_of_lt (by omega)]
+        have h2ot1_eq : (ot.setWidth 64 <<< (1 : Nat) + (1 : BitVec 64)).toNat =
+            2 * ot.toNat + 1 := by
+          rw [BitVec.toNat_add, m6_els_bv64_shl1_nat, bv_c0_zext32_64,
+            show ((1 : BitVec 64)).toNat = 1 from rfl, Nat.mod_eq_of_lt (by omega),
+            Nat.mod_eq_of_lt (by omega)]
+        have hooff_bv : (BitVec.setWidth 64
+            (s1.core.wvec[(ot.setWidth 64 <<< (1 : Nat)).toNat]'h2ot0_bd)).toNat = ooff := by
+          rw [bv_c0_zext32_64, m6_getElem_congr h2ot0_eq h2ot0_bd h2ot0_wvec]
+          unfold ooff fullWatchOff fullWatchOffCore
+          rw [@List.getElem?_eq_getElem _ s1.core.wvec (2 * ot.toNat) h2ot0_wvec, Option.getD_some]
+        have hosz_bv : (BitVec.setWidth 64
+            (s1.core.wvec[(ot.setWidth 64 <<< (1 : Nat) + (1 : BitVec 64)).toNat]'
+              h2ot1_bd)).toNat = osz := by
+          rw [bv_c0_zext32_64, m6_getElem_congr h2ot1_eq h2ot1_bd h2ot1_wvec]
+          unfold osz fullWatchSize fullWatchSizeCore
+          rw [@List.getElem?_eq_getElem _ s1.core.wvec (2 * ot.toNat + 1) h2ot1_wvec,
+            Option.getD_some]
+        have hbd_ot := hwm1.layout.bounds ot.toNat hot_lt1
+        have hwlen_le1 := hcl1.wlen_le; have hwstk_len1 := hcl1.wstk_len_arr
+        have hoend_le : oend ≤ s1.core.wstk.length := by
+          dsimp only [oend, ooff, osz]; rw [hwstk_len1]; exact Nat.le_trans hbd_ot hwlen_le1
+        have hoend_cap : oend ≤ c.wcap := hwstk_len1 ▸ hoend_le
+        have hoend_lt64 : oend < 2 ^ 64 := by have := hoend_cap; omega
+        have hosz_lt32 : osz < 2 ^ 32 := by
+          unfold osz fullWatchSize fullWatchSizeCore; exact BitVec.isLt _
+        have hslice_ot := hwm1.slices ot.toNat hot_lt1
+        let ot_c0 := sL.core.wstk[(BitVec.setWidth 64 (sL.core.wvec[(BitVec.setWidth 64 l <<<
+          (1 : Nat)).toNat]'(by rw [h2l0_c0, hclL.wvec_len]; omega))).toNat]'hws_off_lt &&&
+          (2147483647 : BitVec 32)
+        have hot_c0_eq : ot_c0 = ot := by dsimp only [ot_c0, ot]; rw [hw0_c0_eq]; rfl
+        have h2ot0_bd_c0 : (ot_c0.setWidth 64 <<< (1 : Nat)).toNat < s1.core.wvec.length :=
+          hot_c0_eq ▸ h2ot0_bd
+        have h2ot1_bd_c0 : (ot_c0.setWidth 64 <<< (1 : Nat) + (1 : BitVec 64)).toNat <
+            s1.core.wvec.length := hot_c0_eq ▸ h2ot1_bd
+        have hooff_c0_eq : s1.core.wvec[(ot_c0.setWidth 64 <<< (1 : Nat)).toNat]'h2ot0_bd_c0 =
+            s1.core.wvec[(ot.setWidth 64 <<< (1 : Nat)).toNat]'h2ot0_bd :=
+          m6_getElem_congr (by rw [hot_c0_eq]) h2ot0_bd_c0 h2ot0_bd
+        have hosz_c0_eq : s1.core.wvec[(ot_c0.setWidth 64 <<< (1 : Nat) +
+              (1 : BitVec 64)).toNat]'h2ot1_bd_c0 =
+            s1.core.wvec[(ot.setWidth 64 <<< (1 : Nat) + (1 : BitVec 64)).toNat]'h2ot1_bd :=
+          m6_getElem_congr (by rw [hot_c0_eq]) h2ot1_bd_c0 h2ot1_bd
+        c0_hsteps_nogrp
+        refine wp_join_group (ts := []) (fun () mc =>
+            ∃ sC2 : FullState, M6ElsLitLoop c F0 F_cur s sC2 ∧ (FullMem c sC2 ⋆ R) mc)
+          (fun _ () mc ⟨sC2, hLC2, hm2⟩ => by c0_hsteps!; exact hJc () mc ⟨sC2, hLC2, hm2⟩) ?_
+        intro Jc2 hJc2; c0_hsplit; rotate_left
+        · c0_hsteps!; exact hJc2 () _ ⟨s1, ⟨hinv1, hcv1_eq, hs1_def.symm ▸ hLoop.fuel,
+            hs1_def.symm ▸ hLoop.repr, hs1_def.symm ▸ hLoop.tmk, hs1_def.symm ▸ hLoop.trh,
+            hs1_def.symm ▸ hLoop.scr, hs1_def.symm ▸ hLoop.ws1, hs1_def.symm ▸ hLoop.ws2⟩, hpop1_m⟩
+        have hosz_pos : 0 < osz := by
+          repeat rw [m6_getElem_eq_getD s1.core.wvec (d := 0#32)] at hc
+          repeat rw [m6_getElem_eq_getD sL.core.wstk (d := 0#32)] at hc
+          rw [hwv0_eq, @List.getElem?_eq_getElem _ sL.core.wstk offL hoffL_lt,
+            Option.getD_some, show (2147483647 : BitVec 32) = 0x7FFFFFFF#32 from rfl,
+            show BitVec.toNat 1 = 1 from rfl, Nat.mod_eq_of_lt (by omega),
+            @List.getElem?_eq_getElem _ s1.core.wvec (2 * ot.toNat + 1) h2ot1_wvec,
+            Option.getD_some] at hc
+          unfold osz fullWatchSize fullWatchSizeCore; rw [@List.getElem?_eq_getElem _ s1.core.wvec
+            (2 * ot.toNat + 1) h2ot1_wvec, Option.getD_some]; exact hc
+        c0_hsteps_nogrp; dsimp only [Prod.fst]
+        refine m6_els_compact_ot_watches (ot := ot_c0) hinv1 (hot_c0_eq.symm ▸ hot_lt1)
+          (hot_c0_eq.symm ▸ hosz_pos) ?_ ?_ hpop1_m ?_
+        · apply BitVec.eq_of_toNat_eq
+          rw [hooff_c0_eq, hooff_bv, hot_c0_eq, BitVec.toNat_ofNat]
+          exact (Nat.mod_eq_of_lt (by omega)).symm
+        · apply BitVec.eq_of_toNat_eq
+          rw [BitVec.toNat_add, hooff_c0_eq, hosz_c0_eq, hooff_bv, hosz_bv, hot_c0_eq,
+            BitVec.toNat_ofNat]
+        · intro _ _ _ _ mf hinv2 hmf
+          exact hJc2 () mf ⟨_, ⟨hinv2, hcv1_eq, hs1_def.symm ▸ hLoop.fuel,
+            hs1_def.symm ▸ hLoop.repr, hs1_def.symm ▸ hLoop.tmk, hs1_def.symm ▸ hLoop.trh,
+            hs1_def.symm ▸ hLoop.scr, hs1_def.symm ▸ hLoop.ws1, hs1_def.symm ▸ hLoop.ws2⟩, hmf⟩
     · -- Occurrence watch (`(w0 &&& 0x80000000#32) = 0#32`)
       have hw0_some : sL.core.wstk[offL]? = some (sL.core.wstk[offL]'hoffL_lt) :=
         List.getElem?_eq_getElem hoffL_lt
@@ -2628,67 +2945,38 @@ theorem full_m6_els_lit_wp (Γ : Env)
           rw [show s1.core.cur_vars = s.core.cur_vars from hLoop.cv,
             show s1.core.repr = s.core.repr from hLoop.repr]; exact hrepr_inv
         have hcr_ref1 : cr.toNat ∈ fullArenaClauseRefs s1 := hcr_ref
-        have hwv_pop2 :
-            (sL.core.wvec.set (BitVec.setWidth 64 l <<< (1 : Nat)).toNat
-              (BitVec.setWidth 32 (BitVec.setWidth 64
-                (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'(by
-                  rw [h2l0_c0, hclL.wvec_len]; omega)) + (2 : BitVec 64)))).set
-              (BitVec.setWidth 64 l <<< (1 : Nat) + (1 : BitVec 64)).toNat
-              (BitVec.setWidth 32 (BitVec.setWidth 64
-                (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat) + (1 : BitVec 64)).toNat]'(by
-                  rw [h2l1_c0, hclL.wvec_len]; omega)) - (2 : BitVec 64))) = wvec1 := by
-          refine m6_list_set2_eq sL.core.wvec h2l0_c0 h2l1_c0 ?_ ?_
-          · apply BitVec.eq_of_toNat_eq
-            have h0_bv : BitVec.setWidth 64
-                (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'(by
-                  rw [h2l0_c0, hclL.wvec_len]; omega)) = BitVec.ofNat 64 offL :=
-              BitVec.eq_of_toNat_eq (by
-                rw [hoffL_bv, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)])
-            rw [h0_bv, BitVec.toNat_setWidth,
-              show (BitVec.ofNat 64 offL + (2 : BitVec 64)).toNat = offL + 2 by bv_omega,
-              BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
-          · apply BitVec.eq_of_toNat_eq
-            have h1_bv : BitVec.setWidth 64
-                (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat) + (1 : BitVec 64)).toNat]'(by
-                  rw [h2l1_c0, hclL.wvec_len]; omega)) = BitVec.ofNat 64 szL :=
-              BitVec.eq_of_toNat_eq (by
-                rw [hszL_bv, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)])
-            rw [h1_bv, BitVec.toNat_setWidth,
-              show (BitVec.ofNat 64 szL - (2 : BitVec 64)).toNat = szL - 2 by bv_omega,
-              BitVec.toNat_ofNat]
-        have hws_off1_lt : (BitVec.setWidth 64
-            (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'(by
-              rw [h2l0_c0, hclL.wvec_len]; omega)) + (1 : BitVec 64)).toNat <
+        have hsz_lt32 : szL < 2 ^ 32 := by
+          unfold szL fullWatchSize fullWatchSizeCore; exact BitVec.isLt _
+        have hwv_pop2 := m6_els_wvec_pop_eq (k := 2) sL l hsz2_l (by decide) (by omega) hsz_lt32
+          h2l0_c0 h2l1_c0 hoffL_bv hszL_bv
+        have hws_off1_lt : (BitVec.setWidth 64 (sL.core.wvec[(BitVec.setWidth 64 l <<<
+            (1 : Nat)).toNat]'(by rw [h2l0_c0, hclL.wvec_len]; omega)) + (1 : BitVec 64)).toNat <
             sL.core.wstk.length := by
           rw [BitVec.toNat_add, hoffL_bv, show ((1 : BitVec 64)).toNat = 1 from rfl,
             Nat.mod_eq_of_lt (by omega)]; exact hoff1_lt
-        have hcr_c0_eq : sL.core.wstk[(BitVec.setWidth 64
-            (sL.core.wvec[(BitVec.setWidth 64 l <<< (1 : Nat)).toNat]'(by
-              rw [h2l0_c0, hclL.wvec_len]; omega)) + (1 : BitVec 64)).toNat]'hws_off1_lt = cr := by
-          have hoff1_c0 : (BitVec.setWidth 64 (sL.core.wvec[(BitVec.setWidth 64 l <<<
-              (1 : Nat)).toNat]'(by rw [h2l0_c0, hclL.wvec_len]; omega)) +
-              (1 : BitVec 64)).toNat = offL + 1 := by
-            rw [BitVec.toNat_add, hoffL_bv, show ((1 : BitVec 64)).toNat = 1 from rfl,
-              Nat.mod_eq_of_lt (by omega)]
+        have hoff1_c0 : (BitVec.setWidth 64 (sL.core.wvec[(BitVec.setWidth 64 l <<<
+            (1 : Nat)).toNat]'(by rw [h2l0_c0, hclL.wvec_len]; omega)) +
+            (1 : BitVec 64)).toNat = offL + 1 := by
+          rw [BitVec.toNat_add, hoffL_bv, show ((1 : BitVec 64)).toNat = 1 from rfl,
+            Nat.mod_eq_of_lt (by omega)]
+        have hcr_c0_eq : sL.core.wstk[(BitVec.setWidth 64 (sL.core.wvec[(BitVec.setWidth 64 l <<<
+            (1 : Nat)).toNat]'(by rw [h2l0_c0, hclL.wvec_len]; omega)) +
+            (1 : BitVec 64)).toNat]'hws_off1_lt = cr := by
           rw [m6_getElem_congr hoff1_c0 hws_off1_lt hoff1_lt]; exact hcr_eq
-        dsimp only [Prod.fst]
-        c0_hsteps_nogrp
-        c0_call hElsAr
+        dsimp only [Prod.fst]; c0_hsteps_nogrp; c0_call hElsAr
         refine ⟨c, F0, F_cur, s1, R, rfl, hinv1, hcr_c0_eq.symm ▸ hcr_eq ▸ hcr_ref1,
           (by rw [show s1.core.cur_vars = s.core.cur_vars from hLoop.cv]; exact hrl_lt),
           hrepr1, ?_, ?_⟩
-        · dsimp only [s1]; rw [← hwv_pop2]; assumption
+        · dsimp only [s1, wvec1]; rw [← hwv_pop2]; assumption
         intro okA sA mA hinvA hcvA hflA hrpA htmkA htrhA hscrA hws1A hws2A hokfA hmA
         c0_hsplit
-        · c0_hsteps!
-          exact hL (gL - 1#64, sA) mA (by dsimp only; omega)
+        · c0_hsteps!; exact hL (gL - 1#64, sA) mA (by dsimp only; omega)
             ⟨⟨hinvA, hcvA.trans hLoop.cv, hflA.trans hLoop.fuel, hrpA.trans hLoop.repr,
               htmkA.trans hLoop.tmk, htrhA.trans hLoop.trh, hscrA.trans hLoop.scr,
               hws1A.trans hLoop.ws1, hws2A.trans hLoop.ws2⟩, hmA⟩
         · have hokf : okA = false := by
             cases okA <;> first | rfl | contradiction | exact absurd rfl ‹_›
-          c0_hsteps!
-          exact hQ false sA mA hinvA (hcvA.trans hLoop.cv) (hflA.trans hLoop.fuel)
+          c0_hsteps!; exact hQ false sA mA hinvA (hcvA.trans hLoop.cv) (hflA.trans hLoop.fuel)
             (hrpA.trans hLoop.repr) (htmkA.trans hLoop.tmk) (htrhA.trans hLoop.trh)
             (hscrA.trans hLoop.scr) (hws1A.trans hLoop.ws1) (hws2A.trans hLoop.ws2)
             (fun _ => hokfA hokf) hmA
@@ -2696,8 +2984,8 @@ theorem full_m6_els_lit_wp (Γ : Env)
     have h2l_c0 : (BitVec.setWidth 64 l <<< (1 : Nat) + (1 : BitVec 64)).toNat =
         2 * l.toNat + 1 := by
       rw [BitVec.toNat_add, m6_els_bv64_shl1_nat, bv_c0_zext32_64,
-        show ((1 : BitVec 64)).toNat = 1 from rfl,
-        Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
+        show ((1 : BitVec 64)).toNat = 1 from rfl, Nat.mod_eq_of_lt (by omega),
+        Nat.mod_eq_of_lt (by omega)]
     rw [m6_getElem_congr h2l_c0 (by rw [h2l_c0]; exact h2l_bd) h2l_bd,
       ← @Option.getD_some _ (s.core.wvec[2 * l.toNat + 1]'h2l_bd) 0#32,
       ← List.getElem?_eq_getElem h2l_bd]

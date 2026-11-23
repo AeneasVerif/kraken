@@ -1316,7 +1316,13 @@ theorem full_m6_sweep_classes_wp (Γ : Env)
         List.getElem?_eq_getElem (by rw [hla]; exact hj_len)] at hq
       simpa only [List.getElem_drop] using Option.some.inj hq
   clear hL_def
-  unfold Func.wp full_m6_sweep_classes_body
+  unfold Func.wp
+  run_tac do
+    let g ← Lean.Elab.Tactic.getMainGoal
+    let ty := (← Lean.instantiateMVars (← g.getType)).consumeMData.headBeta
+    let e' ← Lean.Meta.whnf (ty.getArg! 4)
+    let ty' := Lean.mkAppN ty.getAppFn (ty.getAppArgs.set! 4 e')
+    Lean.Elab.Tactic.replaceMainGoal [← g.change ty' (checkDefEq := false)]
   m6_steps
   refine m6_call_max_v hMaxV (c := c) rfl ?_
   m6_split
@@ -1466,6 +1472,32 @@ theorem full_m6_sweep_classes_wp (Γ : Env)
               · have hc_lt : cNode.toNat < nv.toNat := by
                   have : ¬ nv.toNat ≤ cNode.toNat := ‹_›; omega
                 have hc_mv : cNode.toNat < L.maxV := Nat.lt_of_lt_of_le hc_lt hnv_L
+                have ha_ws : (a.setWidth 64).toNat < D.st.scratch.work_stk1.length := by
+                  rw [hlenD.scratch_ok.work_stk1_len, bv_c0_zext32_64]; omega
+                have hc_ws : (cNode.setWidth 64).toNat < D.st.scratch.work_stk1.length := by
+                  rw [hlenD.scratch_ok.work_stk1_len, bv_c0_zext32_64]; omega
+                let gv_a := D.st.scratch.work_stk1[(a.setWidth 64).toNat]'ha_ws
+                let gv_c := D.st.scratch.work_stk1[(cNode.setWidth 64).toNat]'hc_ws
+                have hgva_ws : (ws1[a.toNat]?.getD 0#32).toNat = gv_a.toNat := by
+                  have h_wlen := hlenD.scratch_ok.work_stk1_len
+                  dsimp only [gv_a, ws1]
+                  rw [← D.ws, List.getElem?_eq_getElem (by rw [h_wlen]; omega), Option.getD_some]
+                  exact congrArg BitVec.toNat (m6_list_getElem_congr (bv_c0_zext32_64 a)
+                    (by rw [h_wlen]; omega) (by rw [h_wlen]; omega)).symm
+                have hgvc_ws : (ws1[cNode.toNat]?.getD 0#32).toNat = gv_c.toNat := by
+                  have h_wlen := hlenD.scratch_ok.work_stk1_len
+                  dsimp only [gv_c, ws1]
+                  rw [← D.ws, List.getElem?_eq_getElem (by rw [h_wlen]; omega), Option.getD_some]
+                  exact congrArg BitVec.toNat (m6_list_getElem_congr (bv_c0_zext32_64 cNode)
+                    (by rw [h_wlen]; omega) (by rw [h_wlen]; omega)).symm
+                have hgva_lt : gv_a.toNat < s.core.cur_vars := by
+                  rw [← hgva_ws]; exact hws_lt a.toNat ha_lt
+                have hgvc_lt : gv_c.toNat < s.core.cur_vars := by
+                  rw [← hgvc_ws]; exact hws_lt cNode.toNat hc_lt
+                have ha_fl : (gv_a.setWidth 64).toNat < D.st.core.flags.length := by
+                  rw [hlenD.core_ok.flags_len, bv_c0_zext32_64]; omega
+                have hc_fl : (gv_c.setWidth 64).toNat < D.st.core.flags.length := by
+                  rw [hlenD.core_ok.flags_len, bv_c0_zext32_64]; omega
                 change wp _ _ _ _ _
                 c0_hsteps_nogrp; try dsimp only [Prod.fst]
                 try rw [hmv_eq]; try rw [hpm_c0]; try rw [hpn_c0]; try rw [hpn_c0']
@@ -1484,29 +1516,11 @@ theorem full_m6_sweep_classes_wp (Γ : Env)
                   · m6_steps; exact hJ_un () ml rfl
                   open scoped M6PhtMem M6Var2PhtMem in m6_split
                   · m6_steps; exact hJ_un () ml rfl
-                  -- Unmerged pair `(a, c)`: check flip, `d1`, `d2`, merge
-                  have ha_ws : (a.setWidth 64).toNat < D.st.scratch.work_stk1.length := by
-                    rw [hlenD.scratch_ok.work_stk1_len, bv_c0_zext32_64]; omega
-                  have hc_ws : (cNode.setWidth 64).toNat < D.st.scratch.work_stk1.length := by
-                    rw [hlenD.scratch_ok.work_stk1_len, bv_c0_zext32_64]; omega
-                  let gv_a := D.st.scratch.work_stk1[(a.setWidth 64).toNat]'ha_ws
-                  let gv_c := D.st.scratch.work_stk1[(cNode.setWidth 64).toNat]'hc_ws
-                  have hgva_ws : (ws1[a.toNat]?.getD 0#32).toNat = gv_a.toNat := by
-                    have h_wlen := hlenD.scratch_ok.work_stk1_len
-                    dsimp only [gv_a, ws1]
-                    rw [← D.ws, List.getElem?_eq_getElem (by rw [h_wlen]; omega), Option.getD_some]
-                    exact congrArg BitVec.toNat (m6_list_getElem_congr (bv_c0_zext32_64 a)
-                      (by rw [h_wlen]; omega) (by rw [h_wlen]; omega)).symm
-                  have hgvc_ws : (ws1[cNode.toNat]?.getD 0#32).toNat = gv_c.toNat := by
-                    have h_wlen := hlenD.scratch_ok.work_stk1_len
-                    dsimp only [gv_c, ws1]
-                    rw [← D.ws, List.getElem?_eq_getElem (by rw [h_wlen]; omega), Option.getD_some]
-                    exact congrArg BitVec.toNat (m6_list_getElem_congr (bv_c0_zext32_64 cNode)
-                      (by rw [h_wlen]; omega) (by rw [h_wlen]; omega)).symm
-                  have hgva_lt : gv_a.toNat < s.core.cur_vars := by
-                    rw [← hgva_ws]; exact hws_lt a.toNat ha_lt
-                  have hgvc_lt : gv_c.toNat < s.core.cur_vars := by
-                    rw [← hgvc_ws]; exact hws_lt cNode.toNat hc_lt
+                  m6_split
+                  · m6_steps; exact hJ_un () ml rfl
+                  m6_split
+                  · m6_steps; exact hJ_un () ml rfl
+                  -- Active, unmerged pair `(a, c)`: check flip, `d1`, `d2`, merge
                   have ha_mc : (a.setWidth 64).toNat < D.st.core.min_clr.length := by
                     rw [hlenD.core_ok.min_clr_len_arr, bv_c0_zext32_64]; omega
                   have hc_mc : (cNode.setWidth 64).toNat < D.st.core.min_clr.length := by

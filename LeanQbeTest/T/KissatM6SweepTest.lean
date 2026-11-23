@@ -104,37 +104,11 @@ theorem m6sw_top (Γ : Env)
       Func.wp Γ full_sweep_sat_m6_body args m Q X :=
   full_sweep_sat_m6_wp Γ hSat
 
-theorem m6sw_tbl
-    (hUnits : ∀ args m Q X, m6SweepUnitsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_units_body args m Q X)
-    (hClasses : ∀ args m Q X, m6SweepClassesSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_classes_body args m Q X)
-    (hVar : ∀ args m Q X, m6SweepVarSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_var_body args m Q X)
-    (hSift : ∀ args m Q X, m6CandSiftSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_cand_sift_body args m Q X)
-    (hCollect : ∀ args m Q X, m6CollectCandsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_collect_cands_body args m Q X)
-    (hVars : ∀ args m Q X, m6SweepVarsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_vars_body args m Q X) :
-    TableImpl m6SweepEnv m6SweepModule.fns m6SweepSpecTable :=
-  m6Sweep_tableImpl_of_parts hUnits hClasses hVar hSift hCollect hVars
+theorem m6sw_tbl : TableImpl m6SweepEnv m6SweepModule.fns m6SweepSpecTable :=
+  m6Sweep_tableImpl_of_parts
 
-theorem m6sw_mod
-    (hUnits : ∀ args m Q X, m6SweepUnitsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_units_body args m Q X)
-    (hClasses : ∀ args m Q X, m6SweepClassesSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_classes_body args m Q X)
-    (hVar : ∀ args m Q X, m6SweepVarSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_var_body args m Q X)
-    (hSift : ∀ args m Q X, m6CandSiftSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_cand_sift_body args m Q X)
-    (hCollect : ∀ args m Q X, m6CollectCandsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_collect_cands_body args m Q X)
-    (hVars : ∀ args m Q X, m6SweepVarsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_vars_body args m Q X) :
-    ModuleOk m6SweepEnv m6SweepModule :=
-  m6Sweep_moduleOk_of_parts hUnits hClasses hVar hSift hCollect hVars
+theorem m6sw_mod : ModuleOk m6SweepEnv m6SweepModule :=
+  m6Sweep_moduleOk_of_parts
 
 theorem m6sw_nv_m :
     Full.FullMem FullM4Sweep.nvM4SweepCfg nvM6SweepState nvM6SweepMem :=
@@ -177,9 +151,7 @@ theorem m6sw_nv_c :
       (fun _ _ _ _ => False) :=
   nv_m6_sweep_cone
 
-theorem m6sw_nv_v
-    (hVar : ∀ args m Q X, m6SweepVarSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_var_body args m Q X) :
+theorem m6sw_nv_v :
     Func.wp m6SweepEnv full_m6_sweep_var_body
       (FullM4Sweep.nvM4SweepCfg.hdr, 0#32, 8192#64, ()) nvM6SweepMem
       (fun (r, ()) m' => ∃ s',
@@ -187,11 +159,9 @@ theorem m6sw_nv_v
         M6TmkZero s' ∧ (r = 1#64 ∨ r = 20#64) ∧
         Full.nvOneLitF0.Unsat ∧ Full.FullMem FullM4Sweep.nvM4SweepCfg s' m')
       (fun _ _ _ _ => False) :=
-  nv_m6_sweep_var_of hVar
+  nv_m6_sweep_var
 
-theorem m6sw_nv_vs
-    (hVars : ∀ args m Q X, m6SweepVarsSpec args m Q X →
-      Func.wp m6SweepEnv full_m6_sweep_vars_body args m Q X) :
+theorem m6sw_nv_vs :
     Func.wp m6SweepEnv full_m6_sweep_vars_body
       (FullM4Sweep.nvM4SweepCfg.hdr, 10#64, 8192#64, ()) nvM6SweepMem
       (fun (r, ()) m' => ∃ s',
@@ -199,7 +169,7 @@ theorem m6sw_nv_vs
         M6TmkZero s' ∧ (r = 1#64 ∨ r = 20#64) ∧
         Full.nvOneLitF0.Unsat ∧ Full.FullMem FullM4Sweep.nvM4SweepCfg s' m')
       (fun _ _ _ _ => False) :=
-  nv_m6_sweep_vars_of hVars
+  nv_m6_sweep_vars
 
 theorem m6sw_nv_d :
     Func.wp m6SweepEnv full_m6_sweep_dense_body

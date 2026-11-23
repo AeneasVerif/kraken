@@ -435,6 +435,8 @@ private theorem m6_cone_push_var_step_ok {c : FullCfg} {F_cur : List (List Nat)}
     st'.scratch.tarjan_mark[v_new.toNat]?.getD 0#32 ≠ 0#32 := by
   intro tmk ws1 st'
   have hmL := L.hmaxV
+  have hmL_lo : 512 ≤ L.maxV := hmL.1
+  have hmL_hi : L.maxV ≤ 8192 := hmL.2
   have hcv_eq := m6_hag_cur_vars hag
   have hpush := m6ConeInv_push_var hlen hcone hnv_max (hcv_eq.symm ▸ hv_lt) hmiss
   have hnv_lt : nv.toNat < s.core.cur_vars := hcv_eq ▸ hpush.1
@@ -647,6 +649,8 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
   have hL_mv : L.maxV = k6MaxV c.scratch_cap := by rw [hL_def]; rfl
   clear hL_def
   have hmL := L.hmaxV
+  have hmL_lo : 512 ≤ L.maxV := hmL.1
+  have hmL_hi : L.maxV ≤ 8192 := hmL.2
   have hmv_bounds := k6MaxV_bounds hcap
   have hmv64_lt : k6MaxV c.scratch_cap < 2 ^ 32 := by omega
   let mv : BitVec 32 := (BitVec.ofNat 64 (k6MaxV c.scratch_cap)).setWidth 32
@@ -710,23 +714,40 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
     m6ConeInv_init (F_cur := F_cur) hlen hL_len hroot htmk hscr0 hK0 hsy0 (hnv0.trans hmv_eq)
       hnc0 hlvl0 htr0 hna0
   clear hm
-  m6_steps
-  -- Outer BFS loop: `while (qi < nv && depth < 3u && !limit_reached && nc < max_orig)`
-  refine wp_loop_inv (ts := [i32, i32, i32, i32, .bool])
-    (fun (nv, nc, qi, depth, _lim, ()) mo =>
-      qi.toNat ≤ nv.toNat ∧ depth.toNat ≤ 3 ∧ ∃ st : FullState,
-        st.LengthsOk c ∧ AgreesExcept m6ConeMask s st ∧ M6ConeInv F_cur L st nv.toNat nc.toNat ∧
-        (FullMem c st ⋆ R) mo)
-    (fun (_, _, _, depth, _, ()) _ => 3 - depth.toNat)
-    (fun _ hJ_out => by
-      m6_steps
-      refine hJ_out (1#32, 0#32, 0#32, 0#32, false, ()) _
-        ⟨Nat.zero_le _, Nat.zero_le _, _, hlen1, hag1, hcone1, ?_⟩
-      simpa only [s0w, s0, show (BitVec.signExtend 64 (0 : BitVec 32)).toNat = 0 from rfl,
-        bv_c0_zext32_64] using (by assumption : (FullMem c _ ⋆ R) _))
-    (fun _ (nv, nc, qi, depth, lim, ()) mo ⟨hqi_le, hdep_le, st, hlen_st, hag_st, hcone_st, hmo⟩
-        hJ_out => by
-      clear hm hcone1 hag1 hlen1 hrt_tm0 s0w h0_wk0 _hpre0 _hpr0 _hun0 _hin0 _hst0 _ho0 _hnq0
+  c0_hsteps_nogrp
+  obtain ⟨st0, hst0_def⟩ : ∃ st0 : FullState, st0 =
+    { s0w with scratch :=
+      { s0w.scratch with
+        tarjan_mark := s0w.scratch.tarjan_mark.set (BitVec.setWidth 64 root_v).toNat 1#32 } } :=
+    ⟨_, rfl⟩
+  refine wp_join_group (ts := [i32])
+    (fun (mv_c, ()) mm => mv_c = 256#32 ∧ (FullMem c st0 ⋆ R) mm) ?_ ?_
+  · rintro _ ⟨mv_c, ⟨⟩⟩ mm ⟨hmv_c, hmm⟩
+    subst mv_c
+    c0_hsteps_nogrp
+    refine wp_join_group (ts := [i32])
+      (fun (mc_c, ()) mm2 => mc_c = 1024#32 ∧ (FullMem c st0 ⋆ R) mm2) ?_ ?_
+    · rintro _ ⟨mc_c, ⟨⟩⟩ mm2 ⟨hmc_c, hmm2⟩
+      subst mc_c
+      c0_hsteps_nogrp
+      -- Outer BFS loop: `while (qi < nv && depth < 2u && !limit_reached && nc < mc_c)`
+      refine wp_loop_inv (ts := [i32, i32, i32, i32, .bool])
+        (fun (nv, nc, qi, depth, _lim, ()) mo =>
+          qi.toNat ≤ nv.toNat ∧ depth.toNat ≤ 2 ∧ ∃ st : FullState,
+            st.LengthsOk c ∧ AgreesExcept m6ConeMask s st ∧
+            M6ConeInv F_cur L st nv.toNat nc.toNat ∧ (FullMem c st ⋆ R) mo)
+        (fun (_, _, _, depth, _, ()) _ => 2 - depth.toNat) ?_ ?_
+      · intro _ hJ_out
+        m6_steps
+        refine hJ_out (1#32, 0#32, 0#32, 0#32, false, ()) _
+          ⟨Nat.zero_le _, Nat.zero_le _, _, hlen1, hag1, hcone1, ?_⟩
+        simpa only [hst0_def, s0w, s0,
+          show (BitVec.signExtend 64 (0 : BitVec 32)).toNat = 0 from rfl,
+          bv_c0_zext32_64] using hmm2
+      rintro _ ⟨nv, nc, qi, depth, lim, ⟨⟩⟩ mo
+        ⟨hqi_le, hdep_le, st, hlen_st, hag_st, hcone_st, hmo⟩ hJ_out
+      clear hm hmm hmm2 hst0_def st0 hcone1 hag1 hlen1 hrt_tm0 s0w h0_wk0 _hpre0 _hpr0 _hun0
+        _hin0 _hst0 _ho0 _hnq0
         hlen0 hK0 hsy0 hnv0 hnc0 hlvl0 htr0 hna0 hL0_len hL0_mv hscr0 s0 scr0
       m6_to_group
       refine wp_join_group (ts := [])
@@ -799,13 +820,15 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
           have hqi_lt : qi.toNat < nv.toNat := hc
           m6_split; rotate_left
           · m6_steps; exact hJ_ex () mo ⟨st, hlen_st, hag_st, hcone_st, hmo⟩
-          have hdep_lt : depth.toNat < 3 := hc
+          have hdep_lt : depth.toNat < 2 := hc
           m6_split
           · m6_steps; exact hJ_ex () mo ⟨st, hlen_st, hag_st, hcone_st, hmo⟩
           have hlim_f : lim = false := by cases lim <;> simp at hc ⊢
           m6_split; rotate_left
           · m6_steps; exact hJ_ex () mo ⟨st, hlen_st, hag_st, hcone_st, hmo⟩
-          have hnc_lt : nc.toNat < L.maxOrig := by rw [← hmo_nat]; exact hc
+          have hnc_lt : nc.toNat < L.maxOrig := by
+            have : nc.toNat < 1024 := hc
+            unfold K6Layout.maxOrig; omega
           have hdep1 : (depth + 1#32).toNat = depth.toNat + 1 :=
             m6_bv32_add1 (by omega)
           obtain ⟨layer_end, hle_def⟩ : ∃ layer_end : BitVec 32, layer_end = nv := ⟨_, rfl⟩
@@ -941,7 +964,9 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                               (by dsimp only; rw [hqi1]; exact m6_nat_sub1_lt hqi_l_lt rfl)
                               ⟨by rw [hqi1]; exact hqi_l_lt, hle_nv_q, st_q,
                                hb_q.hlen, hb_q.hag, hb_q.hcone, hmq⟩
-                          have hncq_lt : nc_q.toNat < L.maxOrig := by rw [← hmo_nat]; exact hc
+                          have hncq_lt : nc_q.toNat < L.maxOrig := by
+                            have : nc_q.toNat < 1024 := hc
+                            unfold K6Layout.maxOrig; omega
                           obtain ⟨lit, hlit_def⟩ : ∃ lit : BitVec 32,
                               lit = ((cv <<< (1 : Nat)) ||| pol_q) := ⟨_, rfl⟩
                           have hlit_eq : lit.toNat = 2 * cv.toNat + pol_q.toNat := by
@@ -1095,7 +1120,8 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                   · m6_steps; exact hJ_we (nv_w, nc_w, lim_w, p, ()) mw
                                       ⟨hnv_w_mono, st_w, hb_w, hmw⟩
                                   have hncw_lt : nc_w.toNat < L.maxOrig := by
-                                    rw [← hmo_nat]; exact hc
+                                    have : nc_w.toNat < 1024 := hc
+                                    unfold K6Layout.maxOrig; omega
                                   have hwstk_eq : st_w.core.wstk = s.core.wstk :=
                                     m6_hag_wstk hb_w.hag
                                   have hcv_w : st_w.core.cur_vars = s.core.cur_vars :=
@@ -1229,6 +1255,7 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                           (st_w.core.wstk[(p + 1#64).toNat]'hp1_wstk)).toNat <
                                           st_w.core.arena.length := by
                                       rw [hcr_w_p1, bv_c0_zext32_64]; exact har_cr_bd
+                                    m6_split; · m6_steps; exact hocc_done
                                     have har_cr2_bd' :
                                         (BitVec.setWidth 64
                                           (st_w.core.wstk[(p + 1#64).toNat]'hp1_wstk) +
@@ -1250,6 +1277,7 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                                         2 from rfl,
                                             Nat.mod_eq_of_lt (by omega)]
                                         · exact hp_mod
+                                    m6_split; · m6_steps; exact hocc_done
                                     obtain ⟨hng, hcr_sz_le, hsz_cv, hcr3_bd⟩ :=
                                       m6_cone_occ_hdr_ok hlen hw hnd har_eq hcr_ref hsz_core hgr0
                                     have hsz_ar :
@@ -1663,6 +1691,25 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                                             hidx_bd_w >>> (1 : Nat))).toNat <
                                                         st_k.scratch.tarjan_mark.length := by
                                                       rw [h_ar_lk_w]; exact hlv_tm_k
+                                                    have hfl_k := hs_k.hlen.core_ok.flags_len
+                                                    have hlv_fl_k : (BitVec.setWidth 64
+                                                        (lit_k >>> (1 : Nat))).toNat <
+                                                        st_k.core.flags.length := by
+                                                      rw [hfl_k, bv_c0_zext32_64]; omega
+                                                    have hlv_fl_k_w : (BitVec.setWidth 64
+                                                        (st_k.core.arena[(BitVec.setWidth 64
+                                                          (st_w.core.wstk[(p +
+                                                            1#64).toNat]'hp1_wstk) + 3#64 +
+                                                            BitVec.setWidth 64 idx).toNat]'
+                                                            hidx_bd_w >>> (1 : Nat))).toNat <
+                                                        st_k.core.flags.length := by
+                                                      rw [h_ar_lk_w]; exact hlv_fl_k
+                                                    m6_split
+                                                    · m6_steps
+                                                      exact hJ_occ (nv_k, lim_w, true, cnt, idx,
+                                                        ()) mk
+                                                        ⟨st_k, hs_k.toM6ConeSavedBase,
+                                                         (fun h => by cases h), hmk⟩
                                                     m6_to_group
                                                     refine wp_join_group (ts := [])
                                                       (fun () m_d => m_d = mk)
@@ -1841,8 +1888,10 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                                                        (fun h => by cases h), hmk⟩
                                                                   · have hnv_k_max :
                                                                         nv_k.toNat < L.maxV := by
-                                                                      rw [← hmv_nat]
-                                                                      exact Nat.lt_of_not_le hc
+                                                                      have : ¬ 256 ≤ nv_k.toNat :=
+                                                                        hc
+                                                                      have := hmL_lo
+                                                                      omega
                                                                     have hqi_nv_k :
                                                                         qi_l.toNat < nv_k.toNat :=
                                                                       Nat.lt_of_lt_of_le
@@ -2000,7 +2049,9 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                       · m6_steps; exact hJ_bp () mp ⟨hle_nv_p, st_p, hb_p, hmp⟩
                       m6_split; rotate_left
                       · m6_steps; exact hJ_bp () mp ⟨hle_nv_p, st_p, hb_p, hmp⟩
-                      have hncp_lt : nc_p.toNat < L.maxOrig := by rw [← hmo_nat]; exact hc
+                      have hncp_lt : nc_p.toNat < L.maxOrig := by
+                        have : nc_p.toNat < 1024 := hc
+                        unfold K6Layout.maxOrig; omega
                       obtain ⟨lit, hlit_def⟩ : ∃ lit : BitVec 32,
                           lit = ((cv <<< (1 : Nat)) ||| pol) := ⟨_, rfl⟩
                       have hlit_eq : lit.toNat = 2 * cv.toNat + pol.toNat := by
@@ -2144,7 +2195,9 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                               m6_split; rotate_left
                               · m6_steps; exact hJ_we (nv_w, nc_w, lim_w, p, ()) mw
                                   ⟨hnv_w_mono, st_w, hb_w, hmw⟩
-                              have hncw_lt : nc_w.toNat < L.maxOrig := by rw [← hmo_nat]; exact hc
+                              have hncw_lt : nc_w.toNat < L.maxOrig := by
+                                have : nc_w.toNat < 1024 := hc
+                                unfold K6Layout.maxOrig; omega
                               have hwstk_eq : st_w.core.wstk = s.core.wstk :=
                                 m6_hag_wstk hb_w.hag
                               have hcv_w : st_w.core.cur_vars = s.core.cur_vars :=
@@ -2188,8 +2241,21 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                   rw [hov_def]; exact m6_bv32_shr1_toNat ot
                                 have hov_lt : ov.toNat < s.core.cur_vars := by omega
                                 have hvals_w := hb_w.hlen.core_ok.vals_len
+                                have hfl_w := hb_w.hlen.core_ok.flags_len
                                 have htm_w := hb_w.hlen.scratch_ok.tarjan_mark_len
                                 have hwk_w_len := hb_w.hlen.scratch_ok.work_stk1_len
+                                have hcv_w' := m6_hag_cur_vars hb_w.hag
+                                have hov_fl : (BitVec.setWidth 64 ov).toNat <
+                                    st_w.core.flags.length := by
+                                  rw [hfl_w, bv_c0_zext32_64]; omega
+                                have hov_fl_p : (BitVec.setWidth 64
+                                    ((st_w.core.wstk[p.toNat]'hp_wstk_w &&&
+                                      (2147483647 : BitVec 32)) >>> (1 : Nat))).toNat <
+                                    st_w.core.flags.length := by
+                                  rw [← hw0_def,
+                                    show (2147483647 : BitVec 32) = 0x7FFFFFFF#32 from rfl,
+                                    ← hot_def, ← hov_def]
+                                  exact hov_fl
                                 have hot_vals : (BitVec.setWidth 64 ot).toNat <
                                     st_w.core.vals.length := by
                                   rw [hvals_w, bv_c0_zext32_64]; omega
@@ -2211,6 +2277,15 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                       ⟨by rw [hp1]; exact hp_lt, hnvb,
                                         by rw [hp1, m6_cone_sub_sub_eq]; exact hslice1,
                                         st_b, hbb, hmb⟩
+                                -- `if ((u64)ov >= h->cur_vars || (fl[ov] & FL_ACTIVE) == 0u)`
+                                m6_split
+                                · exfalso
+                                  have hge_cv : st_w.core.cur_vars ≤ ov.toNat := by
+                                    rw [← hov_def, ← hot_def, ← hw0_def] at *; bv_omega
+                                  omega
+                                m6_split
+                                · m6_steps
+                                  exact hstep_bin nv_w nc_w lim_w st_w mw hnv_w_mono hb_w hmw
                                 -- `if (ovv > 0) continue`
                                 m6_split
                                 · m6_steps
@@ -2246,9 +2321,6 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                           0x7FFFFFFF#32) = (cv <<< (1 : Nat) ||| pol) at hc
                                         rw [← hlit_def] at hc
                                         exact hc
-                                      m6_split; rotate_left
-                                      · m6_steps; exact hJ_ov (nc_w, lim_w, ()) mw ⟨st_w, hb_w, hmw⟩
-                                      have hpol0 : pol = 0#32 := hc
                                       have hnv_w_max := hb_w.hcone.nv_leMax
                                       have htmp_w0 : 0 < st_w.core.tmp.length := by
                                         rw [hb_w.hlen.core_ok.tmp_len_arr]; omega
@@ -2256,14 +2328,14 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                           (cnfClause [lit.toNat]) := by
                                         apply m6_entails_singleton_of_dup
                                         simpa only [← hot_def, ← hot_eq_lit] using hent_bin
-                                      have hmap_l : (qi_l <<< (1 : Nat)).toNat = 2 * qi_l.toNat :=
-                                        by
-                                        bv_omega
+                                      have hmap_lp : ((qi_l <<< (1 : Nat)) ||| pol).toNat =
+                                          2 * qi_l.toNat + pol.toNat :=
+                                        m6_bv32_shl1_or_pol qi_l pol (by omega) hpol_lt
                                       obtain ⟨hl_st, hlts_u, hent_u⟩ :=
                                         m6_cone_unit_tmp_prep (nv := nv_w) (qi0 := qi_l)
-                                          (pol := pol) (u := qi_l <<< (1 : Nat)) hb_w.hlen
+                                          (pol := pol) (u := (qi_l <<< (1 : Nat)) ||| pol) hb_w.hlen
                                           htmp_w0 (by omega) (by omega) hpol_lt (by omega)
-                                          (by rw [hmap_l, hpol0]; rfl)
+                                          hmap_lp
                                           (by rw [hb_w.hwk, ← hlit_eq]) hent_self
                                       m6_to_group
                                       try refine wp_unroll_group fun _ _ => ?_
@@ -2289,7 +2361,8 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                           exact htmp_w0)
                                         hlts_u hent_u
                                         (m6_fullMem_tmp0_congr
-                                          (congrArg (fun x : BitVec 32 => x <<< (1 : Nat)) hm_tmk0)
+                                          (congrArg (fun x : BitVec 32 =>
+                                            (x <<< (1 : Nat)) ||| pol) hm_tmk0)
                                           hm)
                                         (fun ok st' m' hl' ha' hc' _ ht' hw' hm' => by
                                           m6_split
@@ -2695,7 +2768,9 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                               exact hJ_we (nv_w, nc_w, true, p + 1#64, ()) mw
                                                 ⟨hnv_w_mono, st_w, hb_w, hmw⟩
                                             · have hnv_lt_max : nv_w.toNat < L.maxV := by
-                                                rw [← hmv_nat]; exact Nat.lt_of_not_le hc
+                                                have : ¬ 256 ≤ nv_w.toNat := hc
+                                                have := hmL_lo
+                                                omega
                                               have hqi_nv_w : qi_l.toNat < nv_w.toNat :=
                                                 Nat.lt_of_lt_of_le hqi_l_lt hnv_w_mono
                                               have hs_w_sav : M6ConeSavedBase F_cur L c s cv qi_l
@@ -2773,6 +2848,22 @@ theorem full_m6_sweep_cone_wp (Γ : Env)
                                           exact hstep_bin nv_w nc_w lim_w st_w mw hnv_w_mono
                                             hb_w hmw
                                         · m6_steps; exact hJ_d () mw rfl
-                                      · m6_steps; exact hJ_d () mw rfl))))))))
+                                      · m6_steps; exact hJ_d () mw rfl)))))))
+    · intro _ hJ_mc
+      m6_split
+      · exfalso
+        have : (mv * 3#32).toNat < 1024 := hc
+        rw [hmo_nat] at this
+        unfold K6Layout.maxOrig at this
+        omega
+      · m6_steps; exact hJ_mc (1024#32, ()) _ ⟨rfl, hmm⟩
+  · intro _ hJ_mv
+    m6_split
+    · exfalso; have : mv.toNat < 256 := hc; omega
+    · m6_steps
+      refine hJ_mv (256#32, ()) _ ⟨rfl, ?_⟩
+      simpa only [hst0_def, s0w, s0,
+        show (BitVec.signExtend 64 (0 : BitVec 32)).toNat = 0 from rfl,
+        bv_c0_zext32_64] using (by assumption : (FullMem c _ ⋆ R) _)
 
 end LeanQbe.T.Examples.Kissat.FullM6Sweep

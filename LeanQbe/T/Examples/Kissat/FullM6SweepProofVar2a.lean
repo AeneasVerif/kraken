@@ -913,6 +913,7 @@ theorem full_m6_sweep_units_wp (Γ : Env)
                     have hi_mv : i.toNat < L.maxV := Nat.lt_of_lt_of_le hi_lt hnv_L
                     have hi1 : (i + 1#32).toNat = i.toNat + 1 := m6_bv32_add1 (by omega)
                     have hwsL_len := hlenL.scratch_ok.work_stk1_len
+                    have hflL_len := hlenL.core_ok.flags_len
                     have hvalL_len := hlenL.core_ok.vals_len
                     have hsigL_len := hlenL.scratch_ok.sim_sig_len
                     have hKL : K6Inv L P (k6StateOfScratch L sL.scratch.scratch_buf) :=
@@ -939,29 +940,41 @@ theorem full_m6_sweep_units_wp (Γ : Env)
                     have hgv_lt : gv.toNat < s.core.cur_vars := by
                       rw [← hgv_eq_ws]; exact hws_lt i.toNat hi_lt
                     have hgv_ltL : gv.toNat < sL.core.cur_vars := hcvL ▸ hgv_lt
+                    have hgv_fl : (gv.setWidth 64).toNat < sL.core.flags.length := by
+                      rw [hflL_len, bv_c0_zext32_64]; omega
                     have h2gv_lt :
                         ((gv <<< (1 : Nat)).setWidth 64).toNat < sL.core.vals.length := by
                       rw [hvalL_len, bv_c0_zext32_64, m6_bv32_shl1_lt (by omega)]; omega
-                    m6_split
-                    · -- `vals[gv << 1] != 0`: mark merged and continue
-                      change wp _ _ _ _ _
-                      c0_hsteps_nogrp; try dsimp only [Prod.fst]; try rw [hmv_eq]; try rw [hpm_c0]
-                      open scoped M6Var2PhtMem in m6_steps
-                      have hlt_k6 : L.phtMerged + i.toNat < L.k6Base := by omega
-                      let scrM := sL.scratch.scratch_buf.set (L.phtMerged + i.toNat) 1#32
-                      let sM : FullState :=
-                        { sL with scratch := { sL.scratch with scratch_buf := scrM } }
-                      have hslM : scrM.length = c.scratch_cap := List.length_set.trans hscrL_len
-                      have hKM : K6Inv L P (k6StateOfScratch L scrM) := by
-                        rw [m6_k6Inv_of_prefix_set hlt_k6 hKL]; exact hKL
-                      have hnvM : (k6StateOfScratch L scrM).nv = nv := by
-                        rw [m6_k6Inv_of_prefix_set hlt_k6 hKL, hnvL]
-                      have hinvM := m6_fullDenseInvW_with_scratch hinvL hslM (fuel' := sL.core.fuel)
-                      exact hJu (i + 1#32, rbit, smask, ()) _
-                        (by dsimp only; rw [hi1]; exact Nat.sub_lt_sub_left hi_lt (by omega))
-                        ⟨by omega, ⟨hrb_le, sM, hinvM, hcvL, hfuelL, hwsL, htmkL, htrhL,
-                         hmk_cone sM hslM hcvL hwsL hKM hnvM, by assumption⟩, trivial⟩
-                    · -- Unassigned `gv`: check signature
+                    m6_to_group
+                    refine wp_join_group (ts := [])
+                      (fun () mM => mM = ml)
+                      (fun _ () mM hmM => by
+                        subst mM
+                        change wp _ _ _ _ _
+                        c0_hsteps_nogrp; try dsimp only [Prod.fst]
+                        try rw [hmv_eq]; try rw [hpm_c0]
+                        open scoped M6Var2PhtMem in m6_steps
+                        have hlt_k6 : L.phtMerged + i.toNat < L.k6Base := by omega
+                        let scrM := sL.scratch.scratch_buf.set (L.phtMerged + i.toNat) 1#32
+                        let sM : FullState :=
+                          { sL with scratch := { sL.scratch with scratch_buf := scrM } }
+                        have hslM : scrM.length = c.scratch_cap := List.length_set.trans hscrL_len
+                        have hKM : K6Inv L P (k6StateOfScratch L scrM) := by
+                          rw [m6_k6Inv_of_prefix_set hlt_k6 hKL]; exact hKL
+                        have hnvM : (k6StateOfScratch L scrM).nv = nv := by
+                          rw [m6_k6Inv_of_prefix_set hlt_k6 hKL, hnvL]
+                        have hinvM := m6_fullDenseInvW_with_scratch hinvL hslM
+                          (fuel' := sL.core.fuel)
+                        exact hJu (i + 1#32, rbit, smask, ()) _
+                          (by dsimp only; rw [hi1]; exact Nat.sub_lt_sub_left hi_lt (by omega))
+                          ⟨by omega, ⟨hrb_le, sM, hinvM, hcvL, hfuelL, hwsL, htmkL, htrhL,
+                           hmk_cone sM hslM hcvL hwsL hKM hnvM, by assumption⟩, trivial⟩)
+                     (fun _ hJ_m => by
+                      m6_split
+                      · m6_steps; exact hJ_m () ml rfl
+                      m6_split
+                      · m6_steps; exact hJ_m () ml rfl
+                      -- Active and unassigned `gv`: check signature
                       have hgv_sig : (gv.setWidth 64).toNat < sL.scratch.sim_sig.length := by
                         rw [hsigL_len, bv_c0_zext32_64]; omega
                       m6_to_group
@@ -1256,7 +1269,7 @@ theorem full_m6_sweep_units_wp (Γ : Env)
                               m6_steps
                               exact hJif (rbit, smask, ()) ml
                                 ⟨⟨hrb_le, sL, hinvL, hcvL, hfuelL, hwsL, htmkL, htrhL, hconeL,
-                                 hml⟩, trivial⟩)))))
+                                 hml⟩, trivial⟩))))))
           (fun _ hJsm => by
             m6_split
             · m6_steps; exact hJsm _ m1 rfl
