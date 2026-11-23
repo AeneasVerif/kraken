@@ -238,14 +238,18 @@ theorem dupPol_filters :
 /-! ## 6. `InlinePolicy.b5` & full soundness (`optInlinePolicy_*`) -/
 
 theorem b5_params :
-    InlinePolicy.b5.leafMax = 106 ∧
+    InlinePolicy.b5.leafMax = 115 ∧
       InlinePolicy.b5.singleSiteMax = 190 ∧
       InlinePolicy.b5.maxCallerSize = 660 ∧
       InlinePolicy.b5.maxCalleeCalls = 2 ∧
       InlinePolicy.b5.maxCalleeLoops = some 2 ∧
       InlinePolicy.b5.maxTotalDup = 450 ∧
+      InlinePolicy.b5.leafNoLoopMaxDup = 800 ∧
       InlinePolicy.b5.requireLoopSite = true ∧
-      InlinePolicy.b5.maxCallerCalls = 4 ∧
+      InlinePolicy.b5.maxCallerCalls = 6 ∧
+      InlinePolicy.b5.exemptNoLoopMax = 190 ∧
+      InlinePolicy.b5.maxCallerLoopDup = 4 ∧
+      InlinePolicy.b5.coldLoopGuardMax = 50 ∧
       InlinePolicy.b5.keepOutOfLine = [] := by
   decide
 

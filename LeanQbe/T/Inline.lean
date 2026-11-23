@@ -348,10 +348,22 @@ structure InlinePolicy where
   maxCalleeLoops : Option Nat := none
   /-- Max total duplicated nodes `sites * fn.size` for candidates `> budget` (`0` uncapped). -/
   maxTotalDup : Nat := 0
+  /-- Elevated total duplicated node cap for loop-free leaf callees when site counts are
+  collected (`maxTotalDup > 0` or `singleSiteMax > 0`; `0` uses `maxTotalDup`). -/
+  leafNoLoopMaxDup : Nat := 0
   /-- Require ≥ 1 loop-nest call site for candidates exceeding base `budget`. -/
   requireLoopSite : Bool := false
-  /-- Max `.call` count in a caller allowed to inline candidates `> budget` (`0` uncapped). -/
+  /-- Max `.call` count in a caller allowed to inline elevated callees (`0` uncapped). -/
   maxCallerCalls : Nat := 0
+  /-- Loop-free callee size cap allowed even when caller exceeds `maxCallerCalls` (`0` off). -/
+  exemptNoLoopMax : Nat := 0
+  /-- Max `callsInCaller * callee.numLoops` per `(caller, callee)` pair (`0` uncapped). -/
+  maxCallerLoopDup : Nat := 0
+  /-- Minimum callee size eligible for cold single-sided guard exclusion. -/
+  coldLoopGuardMin : Nat := 20
+  /-- In loop-free callers, block loop callees up to this size when all sites sit behind
+  trivial `.jump`/`.ret` `.jnz` guards (`0` off). -/
+  coldLoopGuardMax : Nat := 0
   /-- Optional caller-supplied callee symbols that stay out-of-line. -/
   keepOutOfLine : List String := []
 
@@ -359,19 +371,23 @@ structure InlinePolicy where
 def InlinePolicy.const (maxSize : Nat := 40) : InlinePolicy :=
   { budget := fun _ => maxSize }
 
-/-- Tuned general Train B5-4 inline policy: keeps `keepOutOfLine := []` and pairs
-`leafMax`/`singleSiteMax` elevation with structural callee/caller/duplication caps and
-loop-context call-site selection under a `660`-node caller cap. -/
+/-- Tuned general `b5` inline policy: combines loop-free leaf/hot-helper elevation with
+multi-call loop duplication and cold single-sided slow-path guard caps under a `660`-node
+caller budget. -/
 def InlinePolicy.b5 : InlinePolicy :=
   { budget := fun _ => 40
-    leafMax := 106
+    leafMax := 115
     singleSiteMax := 190
     maxCallerSize := 660
     maxCalleeCalls := 2
     maxCalleeLoops := some 2
     maxTotalDup := 450
+    leafNoLoopMaxDup := 800
     requireLoopSite := true
-    maxCallerCalls := 4
+    maxCallerCalls := 6
+    exemptNoLoopMax := 190
+    maxCallerLoopDup := 4
+    coldLoopGuardMax := 50
     keepOutOfLine := [] }
 
 /-- Effective size budget for `sym` given its static call-site count `sites` and leaf flag. -/
@@ -392,9 +408,13 @@ def InlinePolicy.structuralOk (policy : InlinePolicy) (sites loopSites sz : Nat)
   let base := policy.budget fn.name
   if sz ≤ base then true
   else
+    let dupCap :=
+      if fn.isLeaf && fn.numLoops == 0 then
+        Nat.max policy.maxTotalDup policy.leafNoLoopMaxDup
+      else policy.maxTotalDup
     (policy.maxCalleeCalls == 0 || fn.numCalls ≤ policy.maxCalleeCalls) &&
     (match policy.maxCalleeLoops with | none => true | some cap => fn.numLoops ≤ cap) &&
-    (policy.maxTotalDup == 0 || sites * sz ≤ policy.maxTotalDup) &&
+    (dupCap == 0 || sites * sz ≤ dupCap) &&
     (!policy.requireLoopSite || loopSites > 0)
 
 /-- True iff `fn` is not in `keepOutOfLine`, satisfies `policy`'s budget and structural gates,
@@ -441,6 +461,42 @@ def selectCandsAux (callerCalls : List (Sym × Nat)) (maxSz : Nat) :
       else
         selectCandsAux callerCalls maxSz curSz cs
 
+/-- True if a branch arm contains only pure `let_` bindings before `.jump` or `.ret`. -/
+def isTrivialArm {L : List Ty → Type} {rs : List Ty} :
+    Expr (fun _ => Unit) L rs → Bool
+  | .let_ _ k => isTrivialArm (k (Tup.units _))
+  | .jump _ _ | .ret _ => true
+  | _ => false
+
+mutual
+/-- Collect `(callee, inTrivialSiblingGuard)` pairs across all call sites of an `Expr`. -/
+def exprTrivGuardCalls {rs : List Ty} (nl : Nat) (inTriv : Bool) :
+    Expr (fun _ => Unit) (fun _ => Nat) rs → List (Sym × Bool)
+  | .let_ _ k => exprTrivGuardCalls nl inTriv (k (Tup.units _))
+  | .load _ _ k => exprTrivGuardCalls nl inTriv (k ())
+  | .store _ _ k => exprTrivGuardCalls nl inTriv k
+  | .call f (bs := bs) _ k =>
+      (f, inTriv) :: exprTrivGuardCalls nl inTriv (k (Tup.units bs))
+  | .jnz _ t e =>
+      exprTrivGuardCalls nl (inTriv || isTrivialArm e) t ++
+        exprTrivGuardCalls nl (inTriv || isTrivialArm t) e
+  | .jump _ _ | .ret _ | .exit _ _ | .hlt => []
+  | .group (sig := sig) bodies k =>
+      let ls := Tup.levels sig nl
+      let nl' := nl + sig.length
+      blocksTrivGuardCalls nl' inTriv (bodies ls) ++
+        exprTrivGuardCalls nl' inTriv (k ls)
+
+/-- Collect `(callee, inTrivialSiblingGuard)` pairs across all blocks of a `Blocks`. -/
+def blocksTrivGuardCalls {rs : List Ty} (nl : Nat) (inTriv : Bool) :
+    {sig : List (List Ty)} → Blocks (fun _ => Unit) (fun _ => Nat) rs sig →
+    List (Sym × Bool)
+  | _, .nil => []
+  | _, .cons b bs =>
+      exprTrivGuardCalls nl inTriv (b (Tup.units _)) ++
+        blocksTrivGuardCalls nl inTriv bs
+end
+
 /-- Filter `cands` for caller `fn` according to `policy.maxCallerSize` and
 `policy.maxCallerCalls` in linear `O(N)` pass over `cands` (`Fn.size` computed once per called
 candidate). -/
@@ -451,7 +507,40 @@ def selectCandsForCaller (policy : InlinePolicy) (cands : List Fn) (fn : Fn) : L
       exprCallSites [] (fn.body (fun _ => Unit) (fun _ => Unit) (Tup.units fn.as))
     let callerNCalls := callerCalls.foldl (fun a p => a + p.2) 0
     let allowElevated := policy.maxCallerCalls == 0 || callerNCalls ≤ policy.maxCallerCalls
-    let rel := filterRelevantCands callerCalls allowElevated policy.budget cands
+    let useGates :=
+      policy.maxCallerLoopDup > 0 || policy.coldLoopGuardMax > 0 ||
+        policy.exemptNoLoopMax > 0
+    let effAllow := if useGates then false else allowElevated
+    let effBudget : Sym → Nat :=
+      if !useGates then policy.budget
+      else
+        let callerLoops := fn.numLoops
+        let trivCalls :=
+          if policy.coldLoopGuardMax > 0 && callerLoops == 0 then
+            exprTrivGuardCalls 0 false
+              (fn.body (fun _ => Unit) (fun _ => Nat) (Tup.units fn.as))
+          else []
+        fun s =>
+          match cands.find? (fun c => c.name == s) with
+          | none => policy.budget s
+          | some c =>
+            let k := lookupCallSite callerCalls s
+            let csz := c.size
+            let clp := c.numLoops
+            let lpDupFail :=
+              policy.maxCallerLoopDup > 0 && clp > 0 &&
+                k * clp > policy.maxCallerLoopDup
+            let coldGuardFail :=
+              policy.coldLoopGuardMax > 0 && callerLoops == 0 && clp > 0 &&
+                csz ≥ policy.coldLoopGuardMin && csz ≤ policy.coldLoopGuardMax &&
+                trivCalls.any (fun p => p.1 == s) &&
+                trivCalls.all (fun p => p.1 != s || p.2)
+            if lpDupFail || coldGuardFail then 0
+            else if allowElevated || (policy.exemptNoLoopMax > 0 && clp == 0 &&
+                csz ≤ policy.exemptNoLoopMax) then
+              Nat.max (policy.budget s) csz
+            else policy.budget s
+    let rel := filterRelevantCands callerCalls effAllow effBudget cands
     if policy.maxCallerSize == 0 then rel.map Prod.fst
     else
       let fsz := fn.size
