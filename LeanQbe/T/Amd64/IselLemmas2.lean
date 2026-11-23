@@ -262,6 +262,66 @@ theorem fallsTo_leaSIB (w : Width) (hw : w = .W32 ∨ w = .W64) (s : MachineData
   intro _ _ _ _ _ hk
   exact fallsTo_leaSIB_z w hw s rd rb ri _ _ _ _ fun s' ⟨rv, h1, _, h2⟩ => hk s' ⟨rv, h1, h2⟩
 
+private theorem setWidth_shiftLeft_32 (v : BitVec 64) (sc : AddrScale) :
+    (v <<< sc.shift).setWidth 32 = (v.setWidth 32) <<< sc.shift := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  have hi64 : i < 64 := by omega
+  cases sc <;> simp [AddrScale.shift, hi, hi64]
+  all_goals (by_cases h : i < 1 <;> simp [h] <;> try omega)
+
+theorem fallsTo_leaSIB_disp_z (w : Width) (hw : w = .W32 ∨ w = .W64) (s : MachineData)
+    (rd rb ri : Reg64) (sc : AddrScale) (off : Int64) :
+    Directive.FallsTo (insW w (.lea (regW w rd) (atSIB rb ri sc off))) s (fun s' =>
+      ∃ rv, rv.setWidth w.bits =
+          (s.regs.get64 rb).setWidth w.bits +
+            ((s.regs.get64 ri).setWidth w.bits <<< sc.shift) + off.toBitVec.setWidth w.bits ∧
+        (w = .W32 → rv = ((s.regs.get64 rb).setWidth w.bits +
+          ((s.regs.get64 ri).setWidth w.bits <<< sc.shift) +
+          off.toBitVec.setWidth w.bits).setWidth 64) ∧
+        s' = { s with regs := s.regs.set64 rd rv }) := by
+  intro _ p _ _ _ hk
+  rcases hw with rfl | rfl
+  · simp only [insW, regW, t_step_simp, Reg64s.set]
+    have hsib := atSIB_interp s.regs rb ri sc off p
+    have h32 : (@AddrExpr.interp _ ⟨.W64⟩ (atSIB rb ri sc off) s.regs p).zeroExtend 32 =
+        (s.regs.get64 rb).setWidth 32 + ((s.regs.get64 ri).setWidth 32 <<< sc.shift) +
+          off.toBitVec.setWidth 32 := by
+      rw [BitVec.zeroExtend_eq_setWidth]
+      have : ((@AddrExpr.interp _ ⟨.W64⟩ (atSIB rb ri sc off) s.regs p).zeroExtend 64).setWidth
+          32 = (@AddrExpr.interp _ ⟨.W64⟩ (atSIB rb ri sc off) s.regs p).setWidth 32 := by
+        rw [BitVec.zeroExtend_eq_setWidth, BitVec.setWidth_setWidth_of_le _ (by decide)]
+      rw [← this, hsib, setWidth_add_le (by decide), setWidth_add_le (by decide),
+        setWidth_shiftLeft_32]
+    rw [h32]
+    exact hk _ ⟨_, by simp [Width.bits], (fun _ => by simp), rfl⟩
+  · simp only [insW, regW, t_step_simp, Reg64s.set, atSIB_interp]
+    exact hk _ ⟨_, by simp [Width.bits, BitVec.setWidth_eq], (fun h => by cases h), rfl⟩
+
+theorem fallsTo_leaIdx_z (w : Width) (hw : w = .W32 ∨ w = .W64) (s : MachineData)
+    (rd ri : Reg64) (sc : AddrScale) (off : Int64) :
+    Directive.FallsTo (insW w (.lea (regW w rd) (atIdx ri sc off))) s (fun s' =>
+      ∃ rv, rv.setWidth w.bits =
+          ((s.regs.get64 ri).setWidth w.bits <<< sc.shift) + off.toBitVec.setWidth w.bits ∧
+        (w = .W32 → rv = (((s.regs.get64 ri).setWidth w.bits <<< sc.shift) +
+          off.toBitVec.setWidth w.bits).setWidth 64) ∧
+        s' = { s with regs := s.regs.set64 rd rv }) := by
+  intro _ p _ _ _ hk
+  rcases hw with rfl | rfl
+  · simp only [insW, regW, t_step_simp, Reg64s.set]
+    have hidx := atIdx_interp s.regs ri sc off p
+    have h32 : (@AddrExpr.interp _ ⟨.W64⟩ (atIdx ri sc off) s.regs p).zeroExtend 32 =
+        ((s.regs.get64 ri).setWidth 32 <<< sc.shift) + off.toBitVec.setWidth 32 := by
+      rw [BitVec.zeroExtend_eq_setWidth]
+      have : ((@AddrExpr.interp _ ⟨.W64⟩ (atIdx ri sc off) s.regs p).zeroExtend 64).setWidth 32 =
+          (@AddrExpr.interp _ ⟨.W64⟩ (atIdx ri sc off) s.regs p).setWidth 32 := by
+        rw [BitVec.zeroExtend_eq_setWidth, BitVec.setWidth_setWidth_of_le _ (by decide)]
+      rw [← this, hidx, setWidth_add_le (by decide), setWidth_shiftLeft_32]
+    rw [h32]
+    exact hk _ ⟨_, by simp [Width.bits], (fun _ => by simp), rfl⟩
+  · simp only [insW, regW, t_step_simp, Reg64s.set, atIdx_interp]
+    exact hk _ ⟨_, by simp [Width.bits, BitVec.setWidth_eq], (fun h => by cases h), rfl⟩
+
 local macro "close_alu_z" : tactic => `(tactic|
   (refine ⟨_, _, ?_, ?_, rfl⟩
    · first | exact replaceLow_setWidth_le (by decide) _ _

@@ -308,6 +308,11 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
   rmwMem : (w : Nat) → OpCode [.bits w, .bits w] [.bits w] → AddrArg Reg →
     PArg Reg VReg Cond (.bits w) → Option (List Directive × FlagMask) :=
     fun _ _ _ _ => none
+  /-- Fused 3-op address-arithmetic lowering: `rd := (base? + (idx <<< sc.shift) + disp)`. -/
+  leaArith : (w : Nat) → Option Reg → Reg → AddrScale → Int64 → Reg →
+    Option (List Directive × FlagMask) := fun _ _ _ _ _ _ => none
+  /-- `true` when `leaArith` at `w = 32` zeroes bits `32..63` of `rd`. -/
+  zeroUpper32LeaArith : Bool := false
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -725,6 +730,27 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
     M.FallsTo g.condReads h k c scratch [] clob s
       (fun s' => ∃ rv : BitVec w, P (rv, ()) ∧
         M.mem s' = storeMem (M.mem s) (.bits w) (a.eval (M.getGpr s)) rv) post :=
+    by intros; contradiction
+  leaArith_spec : ∀ {h k w base? idx sc disp rd c clob vb vi s post},
+    g.leaArith w base? idx sc disp rd = some (c, clob) →
+    (∀ r, base? = some r → r ∉ scratch) → idx ∉ scratch → rd ∉ scratch →
+    (∀ r, base? = some r → GprHolds (M.getGpr s r) (.bits w) vb) →
+    GprHolds (M.getGpr s idx) (.bits w) vi →
+    let res : BitVec w :=
+      (if base?.isSome then vb else 0#w) + (vi <<< sc.shift) + disp.toBitVec.setWidth w
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => GprHolds (M.getGpr s' rd) (.bits w) res ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  leaArith_zero32 : g.zeroUpper32LeaArith = true →
+    ∀ {h k base? idx sc disp rd c clob vb vi s post},
+    g.leaArith 32 base? idx sc disp rd = some (c, clob) →
+    (∀ r, base? = some r → r ∉ scratch) → idx ∉ scratch → rd ∉ scratch →
+    (∀ r, base? = some r → GprHolds (M.getGpr s r) (.bits 32) vb) →
+    GprHolds (M.getGpr s idx) (.bits 32) vi →
+    let res : BitVec 32 :=
+      (if base?.isSome then vb else 0#32) + (vi <<< sc.shift) + disp.toBitVec.setWidth 32
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => M.getGpr s' rd = res.setWidth 64 ∧ M.mem s' = M.mem s) post :=
     by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where
