@@ -39,8 +39,8 @@ separate files, so no module imports both `Kraken.X64` and `Kraken.AArch64`.
 
 | Component | What is audited | Audit files |
 |---|---|---|
-| Kissat SAT solver — certified machine code ([details](#verified-kissat-sat-solver)) | **`FullM6`** (`382` fns, primary): dual-arch x86-64 and AArch64 `LinkedCert` UNSAT soundness and concrete UNSAT non-vacuity (runtime `kissat_check_model` on SAT); **`FullM5`** (`270` fns, earlier baseline): dual-arch SAT (with constructive model soundness) and UNSAT machine-code proofs plus concrete UNSAT non-vacuity | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [M6X64](LeanQbeTest/T/KissatM6AuditX64.lean), [M6Arm64](LeanQbeTest/T/KissatM6AuditArm64.lean), [M6Proof](LeanQbeTest/T/KissatM6ProofTest.lean), [M6Sat](LeanQbeTest/T/KissatM6SatSoundTest.lean), [X64](LeanQbeTest/T/KissatAuditX64.lean), [Arm64](LeanQbeTest/T/KissatAuditArm64.lean), [M5X64](LeanQbeTest/T/KissatM5AuditX64.lean), [M5Arm64](LeanQbeTest/T/KissatM5AuditArm64.lean), [M5SoundX64](LeanQbeTest/T/KissatM5SoundAuditX64.lean), [M5SoundArm64](LeanQbeTest/T/KissatM5SoundAuditArm64.lean), [M5Test](LeanQbeTest/T/KissatM5Test.lean), [SatSound](LeanQbeTest/T/KissatSatSoundTest.lean) |
-| Kissat SAT solver — source & PGO-inlined WP ([details](#verified-kissat-sat-solver)) | **`FullM7Plus`** (`410` fns) and **`FullM7Fidelity`** (`413` fns, upstream Kissat 4.0.4 fidelity): closed `0`-hook `ModuleOk`, `m7InlPolicy` PGO-inlined IR equivalence, `Func.wp` UNSAT soundness, and concrete UNSAT non-vacuity (`LinkedCert`s in progress); **`FullM7FidelityCore`** (`9`-fn subsystem / `412`-fn spliced) | [M7PlusSpec](LeanQbeTest/T/KissatM7PlusAuditSpec.lean), [M7PlusAsm](LeanQbeTest/T/KissatM7PlusAssemblyTest.lean), [M7FidSpec](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean), [M7FidCore](LeanQbeTest/T/KissatM7FidelityCoreTest.lean) |
+| Kissat SAT solver — certified machine code ([details](#verified-kissat-sat-solver)) | **`FullM7Plus`** (`410` fns) and **`FullM6`** (`382` fns): dual-arch x86-64 and AArch64 `LinkedCert` UNSAT soundness and concrete UNSAT non-vacuity (runtime `kissat_check_model` on SAT); **`FullM5`** (`270` fns, earlier baseline): dual-arch SAT (with constructive model soundness) and UNSAT machine-code proofs plus concrete UNSAT non-vacuity | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [M7PlusX64](LeanQbeTest/T/KissatM7PlusAuditX64.lean), [M7PlusArm64](LeanQbeTest/T/KissatM7PlusAuditArm64.lean), [M7PlusSpec](LeanQbeTest/T/KissatM7PlusAuditSpec.lean), [M7PlusAsm](LeanQbeTest/T/KissatM7PlusAssemblyTest.lean), [M6X64](LeanQbeTest/T/KissatM6AuditX64.lean), [M6Arm64](LeanQbeTest/T/KissatM6AuditArm64.lean), [M6Proof](LeanQbeTest/T/KissatM6ProofTest.lean), [M6Sat](LeanQbeTest/T/KissatM6SatSoundTest.lean), [X64](LeanQbeTest/T/KissatAuditX64.lean), [Arm64](LeanQbeTest/T/KissatAuditArm64.lean), [M5X64](LeanQbeTest/T/KissatM5AuditX64.lean), [M5Arm64](LeanQbeTest/T/KissatM5AuditArm64.lean), [M5SoundX64](LeanQbeTest/T/KissatM5SoundAuditX64.lean), [M5SoundArm64](LeanQbeTest/T/KissatM5SoundAuditArm64.lean), [M5Test](LeanQbeTest/T/KissatM5Test.lean), [SatSound](LeanQbeTest/T/KissatSatSoundTest.lean) |
+| Kissat SAT solver — source/IR-level UNSAT proofs ([details](#verified-kissat-sat-solver)) | **`FullM7Fidelity`** (`413` fns, upstream Kissat 4.0.4 fidelity): closed `0`-hook `ModuleOk`, verified inlining equivalence, source/IR `Func.wp` UNSAT soundness, and concrete UNSAT non-vacuity (`LinkedCert`s in progress; compiler backend not yet proved for this target); **`FullM7FidelityCore`** (`9`-fn subsystem / `412`-fn spliced) | [M7FidSpec](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean), [M7FidCore](LeanQbeTest/T/KissatM7FidelityCoreTest.lean) |
 | Compiler and linker ([details](#compiler-optimization-and-lowering-pipeline)) | Optimization passes, inlining, `LinkedCert`, and linking of recursive and mutually recursive functions (`LinkRec`, `LinkScc`) | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
 | Lean 4 `LCNF` / `LeanLRC` lowering | Well-formedness (`Fn.Wf`) of code lowered from the Lean compiler's `LCNF` intermediate representation ([`LeanLCNF`](LeanQbe/T/LeanLCNF/), [`LeanLRC`](LeanQbe/T/LeanLRC/)) into `LeanQbe.T` | [Audit](LeanQbeTest/T/LcnfAudit.lean) |
 | LRAT proof checker | `lrat_check_bytes` returns `1` only for a well-formed DIMACS input whose CNF is unsatisfiable | [Spec](LeanQbeTest/T/LratAuditSpec.lean), [X64](LeanQbeTest/T/LratAuditX64.lean), [Arm64](LeanQbeTest/T/LratAuditArm64.lean) |
@@ -244,21 +244,36 @@ The back end consists of an unverified hint analysis followed by verified loweri
 
 The largest program verified with this toolchain is a port of the
 [Kissat](https://github.com/arminbiere/kissat) SAT solver to C0. Active solver modules on `main`
-fall into two tiers: **certified machine-code solvers** (`LinkedCert`s on both x86-64 and AArch64)
-and **source / PGO-inlined WP-verified next-generation solvers** whose dual-arch machine-code
-certificates are in progress.
+fall into two verification tiers: **certified machine-code solvers** (end-to-end `LinkedCert`s
+checked down to x86-64 and AArch64 assembly: `FullM7Plus`, `FullM6`, and `FullM5`) and
+**source/IR-level UNSAT-verified targets** (`FullM7Fidelity`, proved under `Func.wp` on source and
+inlined IR while its dual-arch machine-code `LinkedCert`s are in progress). Inlining policies such
+as `m7InlPolicy` and `m6InlPolicy` are purely untrusted performance heuristics: Lean's kernel checks
+their effect via `Module.optInlinePolicy_ok`, so inlining adds no assumptions and does not affect
+theorem strength.
 
 | Module | Fns | Verification tier on `main` | Inlining policy | Key proved guarantees |
 |---|---:|---|---|---|
-| **`FullM6`** ([`FullM6.lean`](LeanQbe/T/Examples/Kissat/FullM6.lean#L210)) | `382` | **Certified machine code** (primary; x86-64 & AArch64 `LinkedCert`s) | [`m6InlPolicy`](LeanQbe/T/Examples/Kissat/FullM6InlPolicy.lean#L107) ([`FullM6Inl.lean`](LeanQbe/T/Examples/Kissat/FullM6Inl.lean#L46), 6 chunks) | `0`-hook `ModuleOk`, dual-arch machine-code **UNSAT soundness** + concrete **UNSAT non-vacuity**; runtime `kissat_check_model` on SAT |
+| **`FullM7Plus`** ([`FullM7PlusAssembly.lean`](LeanQbe/T/Examples/Kissat/FullM7PlusAssembly.lean#L250)) | `410` | **Certified machine code** (latest; x86-64 & AArch64 `LinkedCert`s) | [`m7InlPolicy`](LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean#L113) ([`FullM7PlusInl.lean`](LeanQbe/T/Examples/Kissat/FullM7PlusInl.lean#L62), 13 chunks) | `0`-hook `ModuleOk`, dual-arch machine-code **UNSAT soundness** + concrete **UNSAT non-vacuity**; runtime `kissat_check_model` on SAT |
+| **`FullM6`** ([`FullM6.lean`](LeanQbe/T/Examples/Kissat/FullM6.lean#L210)) | `382` | **Certified machine code** (x86-64 & AArch64 `LinkedCert`s) | [`m6InlPolicy`](LeanQbe/T/Examples/Kissat/FullM6InlPolicy.lean#L107) ([`FullM6Inl.lean`](LeanQbe/T/Examples/Kissat/FullM6Inl.lean#L46), 6 chunks) | `0`-hook `ModuleOk`, dual-arch machine-code **UNSAT soundness** + concrete **UNSAT non-vacuity**; runtime `kissat_check_model` on SAT |
 | **`FullM5`** ([`FullM5.lean`](LeanQbe/T/Examples/Kissat/FullM5.lean#L354)) | `270` | **Certified machine code** (earlier baseline; x86-64 & AArch64 `LinkedCert`s) | [`InlinePolicy.b5`](LeanQbe/T/Inline.lean#L377) ([`FullM5InlB5.lean`](LeanQbe/T/Examples/Kissat/FullM5InlB5.lean#L31)) | `0`-hook `ModuleOk`, dual-arch machine-code **SAT (constructive model) + UNSAT soundness** + concrete UNSAT non-vacuity; source SAT non-vacuity |
-| **`FullM7Plus`** ([`FullM7PlusAssembly.lean`](LeanQbe/T/Examples/Kissat/FullM7PlusAssembly.lean#L250)) | `410` | **WP + PGO-inlined IR verified** (dual-arch `LinkedCert`s in progress) | [`m7InlPolicy`](LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean#L113) ([`FullM7PlusInl.lean`](LeanQbe/T/Examples/Kissat/FullM7PlusInl.lean#L62), 13 chunks) | `0`-hook `ModuleOk`, `m7InlPolicy` equivalence, source & inlined `Func.wp` **UNSAT soundness** + concrete UNSAT non-vacuity |
-| **`FullM7Fidelity`** ([`FullM7FidelityAssembly.lean`](LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean#L336)) | `413` | **WP + PGO-inlined IR verified** (dual-arch `LinkedCert`s in progress) | [`m7InlPolicy`](LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean#L113) ([`FullM7FidelityInl.lean`](LeanQbe/T/Examples/Kissat/FullM7FidelityInl.lean#L62), 13 chunks) | `0`-hook `ModuleOk`, `m7InlPolicy` equivalence, source & inlined `Func.wp` **UNSAT soundness** + concrete UNSAT non-vacuity |
+| **`FullM7Fidelity`** ([`FullM7FidelityAssembly.lean`](LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean#L336)) | `413` | **Source & IR verified (`Func.wp`)** (dual-arch `LinkedCert`s in progress) | [`m7InlPolicy`](LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean#L113) ([`FullM7FidelityInl.lean`](LeanQbe/T/Examples/Kissat/FullM7FidelityInl.lean#L62), 13 chunks) | `0`-hook `ModuleOk`, verified inlining equivalence, source & IR `Func.wp` **UNSAT soundness** + concrete UNSAT non-vacuity |
 
 #### Solver progression
 
-- **Certified machine-code solvers (`FullM6` and `FullM5`):**
-  - **`FullM6`** (`382` fns, **primary certified solver**) extends `FullM5` (`+112` fns) with a
+- **Certified machine-code solvers (`FullM7Plus`, `FullM6`, and `FullM5`):**
+  - **`FullM7Plus`** (`410` fns, **latest certified solver**) builds on `FullM7` (`+28` fns over
+    `FullM6`: analyze-sort, RNG score bumping/rescaling, hot ignore-set BCP, 2-literal hash
+    congruence & ITE/AND/XOR BVE gate extraction, BVA factoring, queue/heap reordering, full
+    random-walk local search with break counts, and EMA multi-mode search with target/best phase
+    saving) and splices `17` targeted improvements (`FullM7BvaGuFix`, `FullM7CompactFix`,
+    `FullM7BvaV5Fix`, `FullM7ParityVivTiers`, `FullM7ParityBvaTie`). Its machine-code certificates
+    ([`kissatM7Plus_compiled_x64`](LeanQbe/T/Amd64/KissatM7Plus.lean#L33) and
+    [`kissatM7Plus_compiled_arm64`](LeanQbe/T/Arm64/KissatM7Plus.lean#L33)) establish
+    unconditional (`0`-hook) x86-64 and AArch64 **UNSAT soundness** and **concrete UNSAT
+    non-vacuity**, while runtime `kissat_check_model` checks candidate SAT assignments before
+    returning `10`.
+  - **`FullM6`** (`382` fns) extends `FullM5` (`+112` fns) with a
     unified `3,456 B` `M6Hdr` layout, watch-list GC/defrag (`FullM6WatchGc`), compact flush and
     arena sweep (`FullM6CompactFlush`), recursive clause minimization and shrinking
     (`FullM6MinShrink`), 3-tier learned-clause management (`FullM6Tiers`), chronological
@@ -275,33 +290,21 @@ certificates are in progress.
     congruence, ternary HBR, probing, and embedded Kitten definition extraction. It remains active
     because its machine-code proofs cover **both SAT (constructive model extraction) and UNSAT**
     on x86-64 and AArch64.
-- **Next-generation WP-verified solvers (`FullM7Plus` and `FullM7Fidelity`):**
-  - Both build atop the intermediate `410`-function `FullM7`
-    ([`FullM7.lean`](LeanQbe/T/Examples/Kissat/FullM7.lean#L397)) base (`+28` fns over `FullM6`,
-    adding analyze-sort, RNG score bumping/rescaling, hot ignore-set BCP, 2-literal hash
-    congruence & ITE/AND/XOR BVE gate extraction, BVA factoring, queue/heap reordering, full
-    random-walk local search with break counts, and EMA multi-mode search with target/best phase
-    saving).
-  - **`FullM7Plus`** (`410` fns) splices `17` disjoint canonical replacements onto `FullM7`
-    (`FullM7BvaGuFix`, `FullM7CompactFix`, `FullM7BvaV5Fix`, `FullM7ParityVivTiers`,
-    `FullM7ParityBvaTie`) and is proved closed (`0`-hook `ModuleOk`, PGO-inlined equivalence,
-    `Func.wp` UNSAT soundness, and concrete UNSAT non-vacuity) in
-    [`FullM7PlusAssemblyProof.lean`](LeanQbe/T/Examples/Kissat/FullM7PlusAssemblyProof.lean#L931)
-    and [`KissatM7PlusAuditSpec.lean`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean).
+- **Upcoming upstream-fidelity solver (`FullM7Fidelity`, source/IR verified):**
   - **`FullM7Fidelity`** (`413` fns) is a high-fidelity C0 replica of upstream Kissat 4.0.4,
     applying `29` canonical replacements and `3` inserted helpers onto `FullM7` — including the
     upstream scheduling/search/core fidelity modules `FullM7Fidelity{Sched,SchedFix,Core,Search}`
     (where `FullM7FidelityCore`
     ([`FullM7FidelityCore.lean`](LeanQbe/T/Examples/Kissat/FullM7FidelityCore.lean#L777)) also
-    exposes standalone `9`-fn and spliced `412`-fn WP audits in
+    exposes standalone `9`-fn and spliced `412`-fn audits in
     [`KissatM7FidelityCoreTest.lean`](LeanQbeTest/T/KissatM7FidelityCoreTest.lean)). Its closed
-    `0`-hook `ModuleOk`, PGO-inlined equivalence, `Func.wp` UNSAT soundness, and concrete UNSAT
+    `0`-hook `ModuleOk`, inlined-IR equivalence, `Func.wp` UNSAT soundness, and concrete UNSAT
     non-vacuity are audited in
     [`FullM7FidelityAssemblyProof.lean`](LeanQbe/T/Examples/Kissat/FullM7FidelityAssemblyProof.lean#L1107)
     and [`KissatM7FidelityAuditSpec.lean`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean).
-  - Neither `FullM7Plus` nor `FullM7Fidelity` has machine-code `LinkedCert`s on `main` yet;
-    their native binaries therefore require `--allow-uncertified` in `build_solver.sh` until
-    their dual-arch `LinkedCert`s land. Earlier superseded solver generations (`Plain`, `Full`,
+  - `FullM7Fidelity` (along with the intermediate [`FullM7.lean`](LeanQbe/T/Examples/Kissat/FullM7.lean#L397) base) does not have machine-code `LinkedCert`s on `main` yet;
+    its native binary therefore requires `--allow-uncertified` in `build_solver.sh` until
+    its dual-arch `LinkedCert`s land. Earlier superseded solver generations (`Plain`, `Full`,
     `FullFast`, `FullM3`, `FullM4`) live in [`LeanQbeLegacyTest/`](LeanQbeLegacyTest/).
 
 All active Kissat modules export the same C entry point:
@@ -323,14 +326,15 @@ for AArch64 binaries on an x86-64 host, `aarch64-linux-gnu-gcc` and `qemu-aarch6
 
 [`bench/kissat/build_solver.sh`](bench/kissat/build_solver.sh) builds the Lean code, prints the
 assembly for the selected module and architecture, and links it with the command-line wrapper
-[`bench/kissat/kissat_cli.c`](bench/kissat/kissat_cli.c). Both `--module FullM6` (`382` fns,
-matching `kissatM6_compiled_{x64,arm64}.code`) and `--module FullM5` (`270` fns, script default)
-build **certified** binaries without `--allow-uncertified`. The WP-verified next-generation
-modules (`--module FullM7Plus`, `--module FullM7Fidelity`, and `--module FullM7`) are fail-closed
-and require `--allow-uncertified` until their machine-code `LinkedCert`s land.
+[`bench/kissat/kissat_cli.c`](bench/kissat/kissat_cli.c). `--module FullM7Plus` (`410` fns),
+`--module FullM6` (`382` fns), and `--module FullM5` (`270` fns, script default) build
+**certified** binaries without `--allow-uncertified`. Targets whose machine-code `LinkedCert`s
+are still in progress (`--module FullM7Fidelity` and `--module FullM7`) are fail-closed
+and require `--allow-uncertified` until their `LinkedCert`s land.
 
 ```bash
-# Certified FullM6 (382 fns, primary certified solver) on x86-64 and AArch64
+# Certified FullM7Plus (410 fns) and FullM6 (382 fns) on x86-64 and AArch64
+bash bench/kissat/build_solver.sh --module FullM7Plus --arch x64 -o /tmp/kissat-leanqbe-m7plus
 bash bench/kissat/build_solver.sh --module FullM6 --arch x64 -o /tmp/kissat-leanqbe-fullm6
 bash bench/kissat/build_solver.sh --module FullM6 --arch arm64 -o /tmp/kissat-leanqbe-fullm6-arm64
 
@@ -338,8 +342,7 @@ bash bench/kissat/build_solver.sh --module FullM6 --arch arm64 -o /tmp/kissat-le
 bash bench/kissat/build_solver.sh --module FullM5 --arch x64 -o /tmp/kissat-leanqbe-fullm5
 bash bench/kissat/build_solver.sh --module FullM5 --arch arm64 -o /tmp/kissat-leanqbe-fullm5-arm64
 
-# WP-verified next-generation solvers (uncertified native codegen until LinkedCerts land)
-bash bench/kissat/build_solver.sh --module FullM7Plus --allow-uncertified --arch x64 -o /tmp/kissat-leanqbe-m7plus
+# Source/IR-verified solver (uncertified native codegen until LinkedCerts land)
 bash bench/kissat/build_solver.sh --module FullM7Fidelity --allow-uncertified --arch x64 -o /tmp/kissat-leanqbe-m7fid
 
 # Usage: kissat-leanqbe [--work-mb <MB>] [--fuel <N>] [-n|--no-model] <input.cnf | ->
@@ -357,10 +360,10 @@ The program prints a DIMACS status line (`s SATISFIABLE`, `s UNSATISFIABLE`, or 
 exits with status `10`, `20`, or `0` respectively; for satisfiable inputs it also prints the
 model as `v ... 0` lines unless `-n` is given. Exit status `1` indicates a usage or I/O error.
 
-The emitted assembly matches the `LinkedCert` only for certified modules (`FullM6`, `FullM5`)
-built with the default settings (`--inline-max 0`). The options `--inline-max <N>` with `N > 0`
-and `--debug` change the generated code and print a warning; binaries built with them, or with
-`--allow-uncertified`, are not covered by machine-code proofs.
+The emitted assembly matches the `LinkedCert` only for certified modules (`FullM7Plus`, `FullM6`,
+`FullM5`) built with the default settings (`--inline-max 0`). The options `--inline-max <N>`
+with `N > 0` and `--debug` change the generated code and print a warning; binaries built with
+them, or with `--allow-uncertified`, are not covered by machine-code proofs.
 
 Tests and proofs:
 
@@ -369,13 +372,14 @@ Tests and proofs:
 # and checks certification gating, exit codes, DIMACS models, -n, stdin, and workspace guard pages.
 bash test/kissat/test_cli_solver.sh
 
-# Machine-code and source/IR audit files for FullM6, FullM5, FullM7Plus, and FullM7Fidelity.
+# Machine-code and source/IR audit files for FullM7Plus, FullM6, FullM5, and FullM7Fidelity.
 lake build --wfail LeanQbeTest.T.KissatAuditSpec \
+  LeanQbeTest.T.KissatM7PlusAuditX64 LeanQbeTest.T.KissatM7PlusAuditArm64 \
+  LeanQbeTest.T.KissatM7PlusAuditSpec LeanQbeTest.T.KissatM7PlusAssemblyTest \
   LeanQbeTest.T.KissatM6AuditX64 LeanQbeTest.T.KissatM6AuditArm64 \
   LeanQbeTest.T.KissatM6ProofTest LeanQbeTest.T.KissatM6SatSoundTest \
   LeanQbeTest.T.KissatAuditX64 LeanQbeTest.T.KissatAuditArm64 \
   LeanQbeTest.T.KissatM5Test LeanQbeTest.T.KissatSatSoundTest \
-  LeanQbeTest.T.KissatM7PlusAuditSpec LeanQbeTest.T.KissatM7PlusAssemblyTest \
   LeanQbeTest.T.KissatM7FidelityAuditSpec LeanQbeTest.T.KissatM7FidelityCoreTest
 ```
 
@@ -383,6 +387,24 @@ lake build --wfail LeanQbeTest.T.KissatAuditSpec \
 
 The audit files restate the main theorems with full types:
 
+- **FullM7Plus (`410` functions, certified machine code):**
+  [`KissatM7PlusAuditX64.lean`](LeanQbeTest/T/KissatM7PlusAuditX64.lean) and
+  [`KissatM7PlusAuditArm64.lean`](LeanQbeTest/T/KissatM7PlusAuditArm64.lean) audit the compiled
+  x86-64 and AArch64 machine-code UNSAT soundness and non-vacuity theorems from
+  [`Amd64/KissatM7Plus.lean`](LeanQbe/T/Amd64/KissatM7Plus.lean) and
+  [`Arm64/KissatM7Plus.lean`](LeanQbe/T/Arm64/KissatM7Plus.lean) (32 audited theorems in
+  [`scripts/headlines.d/kissat_m7_plus.txt`](scripts/headlines.d/kissat_m7_plus.txt)).
+  [`KissatM7PlusAuditSpec.lean`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean) and
+  [`KissatM7PlusAssemblyTest.lean`](LeanQbeTest/T/KissatM7PlusAssemblyTest.lean) additionally audit
+  the closed `0`-hook `ModuleOk` ([`audit_m7p_mod_ok`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L110)),
+  inlined-module equivalence ([`audit_m7p_inl_ok`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L136)),
+  source & inlined `Func.wp` UNSAT soundness
+  ([`audit_m7p_unsat`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L142),
+  [`audit_m7p_inl_wp`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L192)), concrete `8,192 B` UNSAT
+  non-vacuity ([`audit_m7p_nv`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L217),
+  [`audit_m7p_inl_nv`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L232)), and 4-ISA legalization
+  guards (`aarch64`, `scalar64`, `x64AVX2`, `x64AVX512`; 33 entries in
+  [`scripts/headlines.d/kissat_m7_plus_spec.txt`](scripts/headlines.d/kissat_m7_plus_spec.txt)).
 - **FullM6 (`382` functions, certified machine code):**
   [`KissatM6AuditX64.lean`](LeanQbeTest/T/KissatM6AuditX64.lean) and
   [`KissatM6AuditArm64.lean`](LeanQbeTest/T/KissatM6AuditArm64.lean) audit the compiled x86-64 and
@@ -406,25 +428,12 @@ The audit files restate the main theorems with full types:
   [`KissatM5Test.lean`](LeanQbeTest/T/KissatM5Test.lean) and
   [`KissatSatSoundTest.lean`](LeanQbeTest/T/KissatSatSoundTest.lean) cover source-level `ModuleOk`,
   SAT and UNSAT soundness, and a concrete SAT non-vacuity example.
-- **FullM7Plus (`410` functions, source & PGO-inlined WP):**
-  [`KissatM7PlusAuditSpec.lean`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean) and
-  [`KissatM7PlusAssemblyTest.lean`](LeanQbeTest/T/KissatM7PlusAssemblyTest.lean) audit the closed
-  `0`-hook `ModuleOk` ([`audit_m7p_mod_ok`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L110)),
-  `m7InlPolicy` PGO-inlined equivalence and `ModuleOk`
-  ([`audit_m7p_inl_ok`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L136)), source & inlined
-  `Func.wp` UNSAT soundness ([`audit_m7p_unsat`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L142),
-  [`audit_m7p_inl_wp`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L192)), concrete `8,192 B` UNSAT
-  non-vacuity ([`audit_m7p_nv`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L217),
-  [`audit_m7p_inl_nv`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L232)), and 4-ISA legalization
-  guards (`aarch64`, `scalar64`, `x64AVX2`, `x64AVX512`). Audited headline list:
-  [`scripts/headlines.d/kissat_m7_plus_spec.txt`](scripts/headlines.d/kissat_m7_plus_spec.txt)
-  (33 constants/theorems). No machine-code `LinkedCert` is claimed here.
-- **FullM7Fidelity (`413` functions, source & PGO-inlined WP):**
+- **FullM7Fidelity (`413` functions, source- and IR-level UNSAT proofs):**
   [`KissatM7FidelityAuditSpec.lean`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean) audits the
   closed `0`-hook `ModuleOk` ([`m7f_mod_ok`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L113)),
-  `m7InlPolicy` PGO-inlined equivalence and `ModuleOk`
-  ([`m7f_inl_ok`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L139)), source & inlined `Func.wp`
-  UNSAT soundness ([`m7f_unsat`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L146),
+  inlined-module equivalence ([`m7f_inl_ok`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L139)),
+  source & inlined `Func.wp` UNSAT soundness
+  ([`m7f_unsat`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L146),
   [`m7f_inl_wp`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L196)), and concrete `8,192 B` UNSAT
   non-vacuity ([`m7f_nv`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L222),
   [`m7f_inl_nv`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L237)).
@@ -433,17 +442,25 @@ The audit files restate the main theorems with full types:
   ([`fidCorePatched_moduleOk`](LeanQbe/T/Examples/Kissat/FullM7FidelityCoreProof.lean#L1364)).
   Audited headline list:
   [`scripts/headlines.d/kissat_m7_fidelity_spec.txt`](scripts/headlines.d/kissat_m7_fidelity_spec.txt)
-  (24 constants/theorems). No machine-code `LinkedCert` is claimed here.
+  (24 constants/theorems). *Note: machine-code `LinkedCert`s for `FullM7Fidelity` are still in
+  progress, so its theorems establish correctness only up to `LeanQbe.T` IR and still trust the
+  compiler backend.*
 - **Specification:** [`KissatAuditSpec.lean`](LeanQbeTest/T/KissatAuditSpec.lean) audits the
   DIMACS parser `parseDimacs` and the predicates `CNF.Unsat` and `CNF.Sat`.
 
 #### Machine-code soundness
 
-For **`FullM6`**, [`m6_solve_bytes_unsat_x64`](LeanQbe/T/Amd64/KissatM6.lean#L114) and
+For **`FullM7Plus`** (`410` fns) and **`FullM6`** (`382` fns),
+[`m7Plus_solve_bytes_unsat_x64`](LeanQbe/T/Amd64/KissatM7Plus.lean#L117) /
+[`m7Plus_solve_bytes_unsat_arm64`](LeanQbe/T/Arm64/KissatM7Plus.lean#L116) and
+[`m6_solve_bytes_unsat_x64`](LeanQbe/T/Amd64/KissatM6.lean#L114) /
 [`m6_solve_bytes_unsat_arm64`](LeanQbe/T/Arm64/KissatM6.lean#L113) (with answer-only corollaries
-[`kissat_m6_x64_unsat_correct`](LeanQbe/T/Amd64/KissatM6.lean#L171) and
+[`kissat_m7Plus_x64_unsat_correct`](LeanQbe/T/Amd64/KissatM7Plus.lean#L173),
+[`kissat_m7Plus_arm64_unsat_correct`](LeanQbe/T/Arm64/KissatM7Plus.lean#L171),
+[`kissat_m6_x64_unsat_correct`](LeanQbe/T/Amd64/KissatM6.lean#L171), and
 [`kissat_m6_arm64_unsat_correct`](LeanQbe/T/Arm64/KissatM6.lean#L169)) state the following over
-the compiled 382-function module ([`kissatM6_compiled_x64`](LeanQbe/T/Amd64/KissatM6.lean#L37) or
+the compiled module (`kissatM7Plus_compiled_{x64,arm64}` or
+[`kissatM6_compiled_x64`](LeanQbe/T/Amd64/KissatM6.lean#L37) /
 [`kissatM6_compiled_arm64`](LeanQbe/T/Arm64/KissatM6.lean#L37)). Take any executable containing the
 compiled code and any call to `kissat_solve_bytes` that follows the platform ABI, passes DIMACS
 bytes and a suitably aligned workspace, has enough stack, and has a caller frame `R`. Then
@@ -456,8 +473,8 @@ execution terminates and returns to the caller with:
 - the input bytes unchanged, the workspace and stack frame accounted for as separate memory
   regions, and the caller frame `R` untouched.
 
-Per project scope, the `FullM6` machine-code theorems certify UNSAT soundness and memory/register
-framing and omit machine-code SAT model-check proofs.
+Per project scope, the `FullM7Plus` and `FullM6` machine-code theorems certify UNSAT soundness and
+memory/register framing and omit machine-code SAT model-check proofs.
 
 For **`FullM5`**, [`m5_solve_bytes_model_x64`](LeanQbe/T/Amd64/KissatM5Sound.lean#L89) and
 [`m5_solve_bytes_model_arm64`](LeanQbe/T/Arm64/KissatM5Sound.lean#L88) (together with the
@@ -493,6 +510,13 @@ to UNSAT soundness and non-vacuity.
 A soundness theorem whose hypotheses can never be met would be vacuous. The repository therefore
 also shows that the hypotheses are satisfiable and that the interesting results are reachable:
 
+- Machine code (`FullM7Plus` UNSAT):
+  [`audit_m7p_x64_nv_closed`](LeanQbeTest/T/KissatM7PlusAuditX64.lean#L139) and
+  [`audit_m7p_arm_nv_closed`](LeanQbeTest/T/KissatM7PlusAuditArm64.lean#L137) (along with
+  concrete-host execution witnesses [`m7Plus_x64_run_unsat`](LeanQbe/T/Amd64/KissatM7Plus.lean#L299)
+  and [`m7Plus_arm64_run_unsat`](LeanQbe/T/Arm64/KissatM7Plus.lean#L297)) instantiate the
+  machine-code theorems on `kissatM7Plus_compiled_x64.host` and `kissatM7Plus_compiled_arm64.host`
+  and show that executions returning `20` exist.
 - Machine code (`FullM6` UNSAT):
   [`audit_m6_x64_nv_closed`](LeanQbeTest/T/KissatM6AuditX64.lean#L138) and
   [`audit_m6_arm_nv_closed`](LeanQbeTest/T/KissatM6AuditArm64.lean#L149) (along with concrete-host
@@ -509,13 +533,11 @@ also shows that the hypotheses are satisfiable and that the interesting results 
   (audited as [`audit_m5_sat_nv`](LeanQbeTest/T/KissatSatSoundTest.lean#L151)) runs the
   solver on `"p cnf 1 1\n1 0\n"` under `Func.wp` with a 4096-byte workspace and `fuel = 16`, and
   shows that it returns `10` with a satisfying assignment readable via `readModelFromWork`.
-- Source & PGO-inlined IR (`FullM7Plus` and `FullM7Fidelity` UNSAT):
-  [`audit_m7p_nv`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L217) /
-  [`audit_m7p_inl_nv`](LeanQbeTest/T/KissatM7PlusAuditSpec.lean#L232) and
-  [`m7f_nv`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L222) /
+- Source and IR (`FullM7Fidelity` UNSAT):
+  [`m7f_nv`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L222) and
   [`m7f_inl_nv`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L237) show deterministic `Func.wp`
   executions returning `20` on `8,192 B` `nvM6UnsatInitMem` (`XPost := False`) on both the
-  un-inlined and `m7InlPolicy`-inlined modules.
+  original and inlined modules.
 
 #### Axioms
 
@@ -527,9 +549,10 @@ this for all tracked `.lean` files.
 ### Trusted computing base
 
 To conclude that a `kissat-leanqbe` binary built with the default settings prints
-`s UNSATISFIABLE` only for unsatisfiable inputs (for both `FullM6` and `FullM5`), and
+`s UNSATISFIABLE` only for unsatisfiable inputs (`FullM7Plus`, `FullM6`, and `FullM5`), and
 `s SATISFIABLE` with a satisfying model only for satisfiable inputs (proved at the machine-code
-level for `FullM5`, and checked at runtime by `kissat_check_model` for `FullM6`), one must trust:
+level for `FullM5`, and checked at runtime by `kissat_check_model` for `FullM7Plus` and
+`FullM6`), one must trust:
 
 1. **The specification:** `Std.Sat.CNF.Unsat` and `Std.Sat.CNF.Sat` from the Lean standard library,
    and [`parseDimacs`](LeanQbe/T/Examples/LratBytes.lean#L150), a pure ASCII DIMACS parser
@@ -551,13 +574,13 @@ level for `FullM5`, and checked at runtime by `kissat_check_model` for `FullM6`)
    read-write between inaccessible guard pages, calls `kissat_solve_bytes`, and prints the result
    and model; and the C runtime it links against.
 
-The following are not trusted for certified binaries (`FullM6` and `FullM5`), because they are
-checked by the Lean kernel: the C0 solver sources, the C0 elaborator, the inlining policy and its
-materialization, every compiler pass (optimization, legalization, register allocation, instruction
-selection, and linking), and all `Func.wp` proofs. For `FullM7Plus` and `FullM7Fidelity`, the
-source C0, `m7InlPolicy` materialization, and `Func.wp` UNSAT proofs are kernel-checked on `main`,
-while native code generation remains outside the certified TCB until their dual-arch `LinkedCert`s
-land.
+The following are not trusted for certified binaries (`FullM7Plus`, `FullM6`, and `FullM5`),
+because they are checked by the Lean kernel: the C0 solver sources, the C0 elaborator, the
+inlining policy and its materialization, every compiler pass (optimization, legalization,
+register allocation, instruction selection, and linking), and all `Func.wp` proofs. For
+`FullM7Fidelity`, only the source C0, inlining equivalence, and `Func.wp` UNSAT proofs are
+kernel-checked on `main`; native code generation remains outside the certified TCB until its
+dual-arch `LinkedCert`s land.
 
 ### Benchmarks and differential testing
 
@@ -602,10 +625,10 @@ generation:
 - **`C3b`**: the same module lowered to `LeanQbe.T` and emitted via `PrintCpp`
   (`-DTQBE_NATIVE_MEM`), compiled with `clang++ -std=c++20 -O3`.
 - **`C4`**: the same module compiled by LeanQbe's x86-64 pipeline (`toATTAligned`, linked
-  `-no-pie`). For `FullM6` (`FullM6Inl.m6InlFns`) and `FullM5` (`InlinePolicy.b5`), `C4` matches
-  the kernel-checked `LinkedCert` assembly; for `FullM7Plus` (`FullM7PlusInl.m7PlusInlFns`) and
-  `FullM7Fidelity` (`FullM7FidelityInl.m7FidInlFns`), `C4` exercises the WP-verified PGO-inlined
-  IR while dual-arch `LinkedCert`s are in progress.
+  `-no-pie`). For `FullM7Plus` (`FullM7PlusInl.m7PlusInlFns`), `FullM6` (`FullM6Inl.m6InlFns`),
+  and `FullM5` (`InlinePolicy.b5`), `C4` matches the kernel-checked `LinkedCert` assembly; for
+  `FullM7Fidelity` (`FullM7FidelityInl.m7FidInlFns`), `C4` exercises the source/IR-verified module
+  while dual-arch `LinkedCert`s are in progress.
 
 Pairwise ratios decompose the end-to-end runtime gap (`C4 / C1`) into three orthogonal stages:
 
@@ -634,7 +657,7 @@ python3 bench/kissat/compare_4way_min.py --module FullM6 --c1 /path/to/kissat \
 python3 bench/kissat/run_4way_stage1.py --module FullM6 --jobs 8 \
   --out-json /tmp/m6_4way.json --out-md /tmp/m6_4way.md
 
-# Same 4-way harness on WP-verified next-gen modules (uncertified native codegen; add --limit 2 for a quick parity smoke test)
+# Full Stage-1 benchmark or quick parity smoke test (--limit 2) on certified FullM7Plus and upcoming FullM7Fidelity
 python3 bench/kissat/run_4way_stage1.py --module FullM7Plus --jobs 8 --limit 2 \
   --out-json /tmp/m7plus_smoke.json --out-md /tmp/m7plus_smoke.md
 python3 bench/kissat/run_4way_stage1.py --module FullM7Fidelity --jobs 8 --limit 2 \
@@ -688,18 +711,19 @@ Gap attribution on mutually solved Stage-1 CNFs (`FullM6` on `b200244a`):
 - Total verified compiler overhead vs `clang -O3` on identical C0 (`C4 / C0-direct`): `1.1025x` Wall GM / `1.1337x` Int GM (`1.1539x` Wall AM).
 - On All-140 PAR-2 (`30.0 s` cap, `60.0 s` penalty), `C4` is `1.1003x` AM (`1.1040x` GM) vs `C0-direct`, `1.0300x` AM (`1.0573x` GM) vs `C3b`, and `1.5412x` AM (`1.2366x` GM) vs `C1`.
 
-##### Code size, emission, and parity summary across active modules (`b200244a`)
+##### Code size, emission, and parity summary across active modules
 
-For the WP-verified next-generation modules (`FullM7Plus` and `FullM7Fidelity`), full 140-CNF
-wall-clock tables will be published once their dual-arch `LinkedCert`s land; deterministic x86-64
-code-size, emission, and smoke-parity metrics verified directly on `b200244a` are:
+For `FullM7Plus` (newly certified in `a9063ffb`) and `FullM7Fidelity` (`LinkedCert`s in progress),
+full 140-CNF wall-clock tables will be published once `FullM7Fidelity` lands and clean quiet-host
+runs finish; deterministic x86-64 code-size, emission, and smoke-parity metrics verified on
+identical C0/IR (`b200244a`) are:
 
-| Target | Verification status | Fns | `C4` Emit Time / `.s` (B) | `C4` Linked `.text` (B) / Non-NOP Insns | `C0-direct` Linked `.text` (B) / Insns | `C3b` Linked `.text` (B) / Insns | Parity check on `b200244a` |
+| Target | Verification status on `main` | Fns | `C4` Emit Time / `.s` (B) | `C4` Linked `.text` (B) / Non-NOP Insns | `C0-direct` Linked `.text` (B) / Insns | `C3b` Linked `.text` (B) / Insns | Parity check (`b200244a`) |
 |---|---|---:|---:|---:|---:|---:|---|
 | `C1` (Kissat 4.0.4, `clang -O3`) | Upstream reference | — | — | — | `373,722 / 92,883` *(ref)* | — | Reference solver |
+| **`FullM7Plus`** (`m7InlPolicy`) | **Certified x86-64 & AArch64 `LinkedCert`** | `410` | `12.20 s / 1,458,034` | `259,208 / 63,488` | `262,616 / 64,978` | `225,832 / 55,366` | `410/410` fn parity; `2/2` `--limit 2` 35-key bit-exact (`0` diffs) |
 | **`FullM6`** (`m6InlPolicy`) | **Certified x86-64 & AArch64 `LinkedCert`** | `382` | `7.98 s / 1,139,941` | `206,024 / 49,848` | `249,464 / 60,963` | `215,960 / 52,430` | `382/382` fn parity; `130/130` 140-CNF 35-key bit-exact (`0` diffs) |
-| **`FullM7Plus`** (`m7InlPolicy`) | WP + PGO-inlined IR (`LinkedCert` pending) | `410` | `12.20 s / 1,458,034` | `259,208 / 63,488` | `262,616 / 64,978` | `225,832 / 55,366` | `410/410` fn parity; `2/2` `--limit 2` 35-key bit-exact (`0` diffs) |
-| **`FullM7Fidelity`** (`m7InlPolicy`) | WP + PGO-inlined IR (`LinkedCert` pending) | `413` | `12.12 s / 1,466,178` | `260,792 / 63,876` | `265,224 / 65,582` | `227,928 / 55,859` | `413/413` fn parity; `2/2` `--limit 2` 35-key bit-exact (`0` diffs) |
+| **`FullM7Fidelity`** (`m7InlPolicy`) | Source/IR `Func.wp` (`LinkedCert` pending) | `413` | `12.12 s / 1,466,178` | `260,792 / 63,876` | `265,224 / 65,582` | `227,928 / 55,859` | `413/413` fn parity; `2/2` `--limit 2` 35-key bit-exact (`0` diffs) |
 
 ## Bootstrapping compiler
 
