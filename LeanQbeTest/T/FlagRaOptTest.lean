@@ -322,6 +322,31 @@ meta def addrSibNoElideFn : Fn :=
 #guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibNoElideFn).elide.getD 3 false == false
 #guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibNoElideFn).elide.getD 6 false == false
 
+/-- `wstk[end + 1ULL]` scaled address folding (`H01 S03 sib-scaled-addr`): `end = off + sz`
+(represented as `addrSum off sz 0 0`) followed by `p = end + 1`, `sh = p << 2`, `ptr = wstk + sh`
+records `ptr` as `addrSum wstk end 2 4`, emitting `4(%wstk,%end,4)` and eliding `p`, `sh`, `ptr`. -/
+meta def addrSibScaledDispFn : Fn :=
+  ⟨"addrSibScaledDispX64", [i64, i64, i64, i32], [i32],
+    fun _ _ (wstk, off, sz, val, ()) =>
+      .let_ (op2 (.add i64) (.var off) (.var sz)) fun (endv, ()) =>
+      .let_ (op2 (.add i64) (.var endv) (.imm 1)) fun (p1, ()) =>
+      .let_ (op2 (.shl i64) (.var p1) (.imm 2)) fun (sh1, ()) =>
+      .let_ (op2 (.add i64) (.var wstk) (.var sh1)) fun (ptr1, ()) =>
+      .let_ (op2 (.add i64) (.var endv) (.imm 2)) fun (p2, ()) =>
+      .let_ (op2 (.shl i64) (.var p2) (.imm 2)) fun (sh2, ()) =>
+      .let_ (op2 (.add i64) (.var wstk) (.var sh2)) fun (ptr2, ()) =>
+      .store (t := i32) (.var val) (.var ptr1) (
+      .load i32 (.var ptr2) fun r =>
+      .ret (.var r, ()))⟩
+
+meta def addrSibScaledDispHints : x64Target.toIsa.Hints :=
+  Fn.computeHints x64Target.toIsa x64LegalTarget addrSibScaledDispFn
+
+#guard chk [addrSibScaledDispFn]
+#guard countDirs isSibMemDir (codeOf [addrSibScaledDispFn]) == 2
+#guard countDirs isShlDir (codeOf [addrSibScaledDispFn]) == 0
+#guard [1, 2, 3, 4, 5, 6].all fun ip => addrSibScaledDispHints.elide.getD ip false == true
+
 /-- Non-destructive 3-address `lea` (`C1b`) for live inputs (`x + y`, `x + 3`, `y - 2`) with both
 `x` and `y` live to the return tuple, emitting `lea` instead of `mov + add/sub`, plus `cmp`/`select`
 with `0 setcc` across `x + 3`/`y - 2`. -/

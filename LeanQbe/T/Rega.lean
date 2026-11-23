@@ -573,7 +573,9 @@ def recordAddVarImm (defs : Trie DefFact) (x : Nat) (c : BitVec 64) : DefFact :=
   | some (.imm64 c0) => .imm64 (c0 + c)
   | some (.addImm64 b d) => .addImm64 b (d + c)
   | some (.scaleOff idx sh d) => .scaleOff idx sh (d + c)
-  | some (.addrSum b idx sh d) => .addrSum b idx sh (d + c)
+  | some (.addrSum b idx sh d) =>
+    if Nat.beq sh 0 then .addImm64 x c
+    else .addrSum b idx sh (d + c)
   | _ => .addImm64 x c
 
 def recordAddScale (dfx : DefFact) (dfy? : Option DefFact) (y : Nat) : Option DefFact :=
