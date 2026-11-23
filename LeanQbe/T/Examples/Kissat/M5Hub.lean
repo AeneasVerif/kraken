@@ -202,10 +202,17 @@ public import LeanQbe.T.Examples.Kissat.FullM7BvaGuFixProof
 public import LeanQbe.T.Examples.Kissat.FullM7BvaV5Fix
 public import LeanQbe.T.Examples.Kissat.FullM7BvaV5FixProof
 public import LeanQbe.T.Examples.Kissat.FullM7BveGates
+public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof
 public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof0
+public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof1
+public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof2
 public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof3
+public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof3b
 public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof4a
 public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof4b
+public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof5
+public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof6
+public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof6a
 public import LeanQbe.T.Examples.Kissat.FullM7CompactFix
 public import LeanQbe.T.Examples.Kissat.FullM7CompactFixProof
 public import LeanQbe.T.Examples.Kissat.FullM7CongHash
