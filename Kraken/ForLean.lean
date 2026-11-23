@@ -133,4 +133,13 @@ def rwTarget (goal: Grind.Goal) (symm : Bool) (term : Expr) : Grind.GrindTacticM
         return { goal with mvarId }
     pure ({ goal with mvarId }, sideGoals)
 
+-- NOTE: a copy-paste of Lean's private `Lean.Elab.Tactic.Grind.getOrCreateBackwardRule`
+/-- Get or create a `BackwardRule` for a declaration, using the `Grind.State` name cache. -/
+def getOrCreateBackwardRule (declName : Name) : Grind.GrindTacticM Sym.BackwardRule := do
+  if let some rule := (← get).cache.backwardRuleName.find? declName then
+    return rule
+  let rule ← Sym.mkBackwardRuleFromDecl declName
+  modify fun s => { s with cache.backwardRuleName := s.cache.backwardRuleName.insert declName rule }
+  return rule
+
 end

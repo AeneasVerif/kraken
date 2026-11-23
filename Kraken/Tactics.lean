@@ -232,7 +232,7 @@ public def stepAt? (maxInstrCount : Option (IO.Ref Nat)) (goal : Grind.Goal) :
   Grind.GrindTacticM (Option Grind.Goal) := do
   if (← maxInstrCount.mapM (·.get)) == some 0 then
     return none
-  let stepAtRule ← Sym.mkBackwardRuleFromDecl `step_at
+  let stepAtRule ← getOrCreateBackwardRule `step_at
   let .goals [reflPrecond, mvarId, _d] ← Grind.liftGrindM (stepAtRule.apply goal.mvarId) | throwError m!"Help me!"
   reflPrecond.refl
   return some {goal with mvarId}
