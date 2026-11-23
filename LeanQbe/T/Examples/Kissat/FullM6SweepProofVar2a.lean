@@ -1089,9 +1089,7 @@ theorem full_m6_sweep_units_wp (Γ : Env)
                                     have hconeS := hmk_cone sS hscrS_len hcvL hwsL hKS hnvS'
                                     m6_to_group; refine wp_unroll_group fun _ _ => ?_
                                     m6_split
-                                    · have hd20 : d = 20#64 := by
-                                        clear hK_scr hcone1 hconeL hconeF hconeS hmk_cone hQ
-                                        bv_omega
+                                    · have hd20 : d = 20#64 := hc
                                       have huns_t :
                                           ∀ β, P β → ¬ (unitsCnf [test_lit.toNat]).Sat β :=
                                         fun β hβ => by

@@ -1271,7 +1271,8 @@ theorem full_m6_sweep_classes_wp (Γ : Env)
     have hL_eq : L = k6LayoutOfCap s.scratch.scratch_buf.length hge_s hlt_s :=
       (k6LayoutOfCap_eq (hL_len.trans hscr_len.symm)
         (by rw [hscr_len]; exact hL_mv) hge_s hlt_s).symm
-    rw [hL_eq, hnv_eq]; exact BitVec.eq_of_toNat_eq (by simp)
+    rw [hL_eq, hnv_eq]
+    exact BitVec.eq_of_toNat_eq (by rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt nv.isLt])
   have hmv64_lt : k6MaxV c.scratch_cap < 2 ^ 32 := by rw [← hL_mv]; omega
   have hmv_eq : BitVec.setWidth 32 (BitVec.ofNat 64 (k6MaxV c.scratch_cap)) = L.mv32 := by
     apply BitVec.eq_of_toNat_eq

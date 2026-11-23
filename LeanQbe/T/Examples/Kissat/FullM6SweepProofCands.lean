@@ -25,6 +25,8 @@ open LeanQbe.T.Examples.Kissat.Full LeanQbe.T.Examples.Kissat.FullM4Sweep
 open Kraken.Bedrock2.Test
 open FullArenaTactics
 open scoped FullArenaTactics
+local elab "c0_hfast" : tactic =>
+  LeanQbe.T.C0HeadStep.headSteps { pruneJnz := false } 10000
 
 /-! ## 1. Pure BitVector, `array` Focusing, `FullMem` Framing, & Call Helpers -/
 
