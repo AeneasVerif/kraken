@@ -266,6 +266,12 @@ class GenCertSlicesTest(unittest.TestCase):
         self.assertIn("public import LeanQbe.T.MainCertInline", cert_x64)
         self.assertIn("(m6Module.optInlinePolicy m6InlPolicy)", cert_x64)
         self.assertIn("m6InlCert.castModule m6InlMod.eq", cert_x64)
+        self.assertIn("allChunks_link", cert_x64)
+        self.assertIn("public section", cert_x64)
+        self.assertNotIn("@[expose] public section", cert_x64)
+        self.assertNotIn("LinkedCert.append", cert_x64)
+        self.assertNotIn("set_option profiler", cert_x64)
+        self.assertTrue(all(len(ln) <= 100 for ln in cert_x64.splitlines()))
 
         for arch_dir, tag in (("Amd64", "x64"), ("Arm64", "arm64")):
             link = by_path[f"LeanQbe/T/{arch_dir}/KissatM6CertLink.lean"]
