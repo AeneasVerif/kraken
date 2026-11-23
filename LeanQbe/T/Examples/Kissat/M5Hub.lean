@@ -44,6 +44,7 @@ public import LeanQbe.T.Examples.Kissat.FullM5Proof1
 public import LeanQbe.T.Examples.Kissat.FullM5SatNv
 public import LeanQbe.T.Examples.Kissat.FullM5Sched
 public import LeanQbe.T.Examples.Kissat.FullM5SchedLemmas
+public import LeanQbe.T.Examples.Kissat.FullM6
 public import LeanQbe.T.Examples.Kissat.FullM6BcpS15
 public import LeanQbe.T.Examples.Kissat.FullM6BcpS15Proof
 public import LeanQbe.T.Examples.Kissat.FullM6BcpS15Proof1
@@ -89,6 +90,8 @@ public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3a
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3b
 public import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof3b1
+public import LeanQbe.T.Examples.Kissat.FullM6Orch
+public import LeanQbe.T.Examples.Kissat.FullM6OrchAdapters
 public import LeanQbe.T.Examples.Kissat.FullM6ProofUtil
 public import LeanQbe.T.Examples.Kissat.FullM6SatNv
 public import LeanQbe.T.Examples.Kissat.FullM6SatSound
