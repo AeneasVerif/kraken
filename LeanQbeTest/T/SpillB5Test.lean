@@ -396,4 +396,34 @@ meta def flagJumpSlotFn : Fn :=
 #guard (compile x64Target.toIsa x64LegalTarget [flagJumpSlotFn]
   [Fn.computeHints x64Target.toIsa x64LegalTarget flagJumpSlotFn]).isOk = true
 
+/-! ## 9. Two-hop affinity & loop block-parameter weighting (`S11`/`S15`) -/
+
+/-- Single-use `.load` feeding `.add` feeding `.call` arg 0 coalesces cleanly to `%rdi`. -/
+meta def twoHopLoadCallFn : Fn :=
+  ⟨"twoHopLoadCallB5", [i64, i64], [i64], fun _ _ (p, off, ()) =>
+    .load i64 (.var p) fun v =>
+    .let_ (op2 (.add i64) (.var v) (.var off)) fun (arg0, ()) =>
+    .call (as := [i64]) (bs := [i64]) "extFn" (.var arg0, ()) fun (r, ()) =>
+    .ret (.var r, ())⟩
+
+/-- Loop-carried counter `i` stays in a GPR (`0` slot-direct `ploc`s) when competing with
+temporary loop computations. -/
+meta def loopBpGprFn : Fn :=
+  ⟨"loopBpGprB5", [i64, i64], [i64], fun _ _ (n, q, ()) =>
+    loop1 (ts := [i64, i64])
+      (fun L (i, acc, ()) =>
+        .let_ (op2 (.cmp .ult i64) (.var i) (.var n)) fun (c, ()) =>
+        .jnz (.var c)
+          (.load i64 (.var q) fun x =>
+           .let_ (op2 (.add i64) (.var acc) (.var x)) fun (acc', ()) =>
+           .let_ (op2 (.add i64) (.var i) (.imm 1)) fun (i', ()) =>
+           .jump L (.var i', .var acc', ()))
+          (.ret (.var acc, ())))
+      (fun L => .jump L (.imm 0, .imm 0, ()))⟩
+
+#guard lowers {} twoHopLoadCallFn
+#guard (hintsOf {} twoHopLoadCallFn).dest.find? 2 == some (.gpr .rdi)
+#guard lowers {} loopBpGprFn
+#guard slotPlocs (hintsOf {} loopBpGprFn) (Live.Tree.ofFn loopBpGprFn).2.2.2.1 == 0
+
 end LeanQbeTest.T.SpillB5Test

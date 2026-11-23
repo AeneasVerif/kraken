@@ -630,4 +630,79 @@ meta def jnzJump0 : Expr Rega.VNat Rega.LNat [i64] :=
   Rega.zeroMoveJump? x64Target.toIsa h 2 rdiSymSt jnzJump0 == none &&
     chkHints jnzPreElseFn h
 
+/-! ## 9. Zero-instruction `.not .bool` flag-home coloring (`S06`) -/
+
+meta def isXorDir : Directive → Bool
+  | .instr (.regular _ _ (.xor _ _)) => true
+  | _ => false
+
+/-- `.not .bool` of a flag-homed `cmp` keeps a negated `.flag` home and feeds `jnz` directly
+with `0` `setcc`, `0` `movzx`, and `0` `xor`. -/
+meta def boolNotJnzFn : Fn :=
+  ⟨"boolNotJnzX64", [i64, i64, i64, i64], [i64], fun _ _ (x, y, a, b, ()) =>
+    .let_ (op2 (.cmp .ult i64) (.var x) (.var y)) fun (c, ()) =>
+    .let_ (op1 (.not .bool) (.var c)) fun (nc, ()) =>
+    .jnz (.var nc) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+
+/-- `.not .bool` feeding `select` keeps `0` `setcc`, `0` `movzx`, and `0` `xor`. -/
+meta def boolNotSelectFn : Fn :=
+  ⟨"boolNotSelectX64", [i32, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
+    .let_ (op2 (.cmp .eq i32) (.var x) (.imm 0#32)) fun (c, ()) =>
+    .let_ (op1 (.not .bool) (.var c)) fun (nc, ()) =>
+    .let_ (op3 (.select i64) (.var nc) (.var a) (.var b)) fun (r, ()) =>
+    .ret (.var r, ())⟩
+
+/-- Chained double negation `!!c` preserves zero-instruction flag-home lowering. -/
+meta def boolDoubleNotFn : Fn :=
+  ⟨"boolDoubleNotX64", [i64, i64, i64, i64], [i64], fun _ _ (x, y, a, b, ()) =>
+    .let_ (op2 (.cmp .slt i64) (.var x) (.var y)) fun (c, ()) =>
+    .let_ (op1 (.not .bool) (.var c)) fun (n1, ()) =>
+    .let_ (op1 (.not .bool) (.var n1)) fun (n2, ()) =>
+    .jnz (.var n2) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+
+/-- Negated flag-homed `.bool` stays in `.flag` across non-clobbering `lea` (`maskNone`) and
+feeds both `select` (`cmovcc`) and `jnz` with `0` `setcc`, `0` `movzx`, and `0` `xor`. -/
+meta def boolNotAcrossLeaFn : Fn :=
+  ⟨"boolNotAcrossLeaX64", [i64, i64, i64, i64], [i64], fun _ _ (x, y, a, b, ()) =>
+    .let_ (op2 (.cmp .ult i64) (.var x) (.imm 5#64)) fun (c1, ()) =>
+    .let_ (op2 (.add i64) (.var y) (.imm 8#64)) fun (y8, ()) =>
+    .let_ (op1 (.not .bool) (.var c1)) fun (nc1, ()) =>
+    .let_ (op2 (.sub i64) (.var a) (.imm 4#64)) fun (a4, ()) =>
+    .let_ (op3 (.select i64) (.var nc1) (.var y8) (.var a4)) fun (r, ()) =>
+    .jnz (.var nc1) (.ret (.var r, ())) (.ret (.var b, ()))⟩
+
+/-- Interfering `c || (!c && b)` across flag-clobbering `.and .bool` falls back safely. -/
+meta def boolNotInterfFallbackFn : Fn :=
+  ⟨"boolNotInterfFallbackX64", [i64, i64, .bool], [.bool], fun _ _ (x, y, b, ()) =>
+    .let_ (op2 (.cmp .eq i64) (.var x) (.var y)) fun (c, ()) =>
+    .let_ (op1 (.not .bool) (.var c)) fun (nc, ()) =>
+    .let_ (op2 (.and .bool) (.var b) (.var nc)) fun (z, ()) =>
+    .let_ (op2 (.or .bool) (.var c) (.var z)) fun (w, ()) =>
+    .ret (.var w, ())⟩
+
+#guard chk [boolNotJnzFn]
+#guard countDirs isSetccDir (codeOf [boolNotJnzFn]) == 0
+#guard countDirs isMovzxOrSxDir (codeOf [boolNotJnzFn]) == 0
+#guard countDirs isXorDir (codeOf [boolNotJnzFn]) == 0
+#guard match (hintsOf [boolNotJnzFn]).head?.bind (·.dest.find? 5) with
+  | some (.flag .ae) => true
+  | _ => false
+
+#guard chk [boolNotSelectFn]
+#guard countDirs isSetccDir (codeOf [boolNotSelectFn]) == 0
+#guard countDirs isMovzxOrSxDir (codeOf [boolNotSelectFn]) == 0
+#guard countDirs isXorDir (codeOf [boolNotSelectFn]) == 0
+
+#guard chk [boolDoubleNotFn]
+#guard countDirs isSetccDir (codeOf [boolDoubleNotFn]) == 0
+#guard countDirs isMovzxOrSxDir (codeOf [boolDoubleNotFn]) == 0
+#guard countDirs isXorDir (codeOf [boolDoubleNotFn]) == 0
+
+#guard chk [boolNotAcrossLeaFn]
+#guard countDirs isSetccDir (codeOf [boolNotAcrossLeaFn]) == 0
+#guard countDirs isMovzxOrSxDir (codeOf [boolNotAcrossLeaFn]) == 0
+#guard countDirs isXorDir (codeOf [boolNotAcrossLeaFn]) == 0
+
+#guard chk [boolNotInterfFallbackFn]
+
 end LeanQbeTest.T.FlagRaOptTest
