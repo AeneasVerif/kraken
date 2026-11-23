@@ -9,6 +9,8 @@ public import LeanQbe.T.Frontend.C0.Elab
 public import LeanQbe.T.Frontend.C0.ToFlat
 public import LeanQbe.T.Frontend.C0.LayoutElab
 
+set_option autoImplicit false
+
 /-!
 # C0 Frontend for `LeanQbe.T` (`X0-core`)
 

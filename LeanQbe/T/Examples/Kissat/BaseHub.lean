@@ -229,6 +229,8 @@ public import LeanQbe.T.Examples.Kissat.PlainSearchLemmas1
 public import LeanQbe.T.Examples.Kissat.PlainSpec
 public import LeanQbe.T.Examples.Kissat.PlainSpec1
 public import LeanQbe.T.Examples.Kissat.PlainSpec2
+public import LeanQbe.T.Examples.Kissat.PolicyFrame
+public import LeanQbe.T.Examples.Kissat.PolicyFrameExample
 public import LeanQbe.T.Examples.Kissat.Solver
 public import LeanQbe.T.Examples.Kissat.SolverAnalyzeLemmas
 public import LeanQbe.T.Examples.Kissat.SolverAnalyzeLemmas1
