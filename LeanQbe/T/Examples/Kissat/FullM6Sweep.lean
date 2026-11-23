@@ -613,31 +613,34 @@ u64 full_m6_sweep_cone(FullHdr *h, u32 root_v) {
   u32 *cone_v = (u32 *)h->work_stk1; u32 *tmk = (u32 *)h->tarjan_mark;
   u32 *wvec = (u32 *)h->watch_vec; u32 *wstk = (u32 *)h->watch_stk;
   u32 *ar = (u32 *)h->arena; i8 *vals = (i8 *)h->values; u32 *tmp = (u32 *)h->tmp_lits;
+  u32 *fl = (u32 *)h->flags;
   full_k6_init(h, mv);
   u32 *k = ((u32 *)h->scratch_buf) + (1280u + (mv << 1));
   u32 nv = 1u; u32 nc = 0u;
   cone_v[0] = root_v; tmk[root_v] = 1u;
   u32 qi = 0u; u32 depth = 0u; bool limit_reached = false;
-  while (qi < nv && depth < 3u && !limit_reached && nc < max_orig) {
+  u32 mv_c = (mv < 256u) ? mv : 256u; u32 mc_c = (max_orig < 1024u) ? max_orig : 1024u;
+  while (qi < nv && depth < 2u && !limit_reached && nc < mc_c) {
     u32 layer_end = nv; depth = depth + 1u;
-    while (qi < layer_end && !limit_reached && nc < max_orig) {
+    while (qi < layer_end && !limit_reached && nc < mc_c) {
       u32 cv = cone_v[qi]; u32 cur_tmk = tmk[cv]; u32 map_c = cur_tmk - 1u;
       qi = qi + 1u;
       u32 pol = 0u;
-      while (pol < 2u && !limit_reached && nc < max_orig) {
+      while (pol < 2u && !limit_reached && nc < mc_c) {
         u32 lit = (cv << 1) | pol;
         u64 off = (u64)wvec[(u64)lit << 1];
         u64 end = off + (u64)wvec[((u64)lit << 1) + 1ULL];
         u64 p = off;
-        while (p < end && !limit_reached && nc < max_orig) {
+        while (p < end && !limit_reached && nc < mc_c) {
           u32 w0 = wstk[p]; p = p + 1ULL;
           if ((w0 & PW_BIN_FLAG) == 0u) { p = p + 1ULL; continue; }
           u32 ot = w0 & PW_LIT_MASK; u32 ov = ot >> 1;
+          if ((u64)ov >= h->cur_vars || (fl[ov] & FL_ACTIVE) == 0u) { continue; }
           i8 ovv = vals[ot];
           if (ovv > (i8)0) { continue; }
           if (ov == cv) {
-            if (ot == lit && pol == 0u) {
-              tmp[0] = map_c << 1;
+            if (ot == lit) {
+              tmp[0] = (map_c << 1) | pol;
               if (full_k6_add_clause(h, tmp, 1u)) {
                 nc = nc + 1u;
                 if (k[K6H_INCONS] != 0u) { limit_reached = true; }
@@ -656,7 +659,7 @@ u64 full_m6_sweep_cone(FullHdr *h, u32 root_v) {
           if (tmk[ov] != 0u && tmk[ov] < cur_tmk) { continue; }
           u32 saved_nv = nv;
           if (tmk[ov] == 0u) {
-            if (nv >= mv) { limit_reached = true; break; }
+            if (nv >= mv_c) { limit_reached = true; break; }
             cone_v[nv] = ov; nv = nv + 1u; tmk[ov] = nv;
           }
           tmp[0] = (map_c << 1) | pol;
@@ -671,29 +674,34 @@ u64 full_m6_sweep_cone(FullHdr *h, u32 root_v) {
         pol = pol + 1u;
       }
       pol = 0u;
-      while (pol < 2u && !limit_reached && nc < max_orig) {
+      while (pol < 2u && !limit_reached && nc < mc_c) {
         u32 lit = (cv << 1) | pol;
         u64 off = (u64)wvec[(u64)lit << 1];
         u64 end = off + (u64)wvec[((u64)lit << 1) + 1ULL];
         u64 p = off;
-        while (p < end && !limit_reached && nc < max_orig) {
+        while (p < end && !limit_reached && nc < mc_c) {
           u32 w0 = wstk[p]; p = p + 1ULL;
           if ((w0 & PW_BIN_FLAG) != 0u) { continue; }
           if (p >= end) { break; }
-          u32 cr = wstk[p]; p = p + 1ULL; u32 sz = ar[(u64)cr + 2ULL];
-          if ((ar[cr] & (PH_GARB | PH_RED)) != 0u || sz < 3u) { continue; }
+          u32 cr = wstk[p]; p = p + 1ULL;
+          if ((u64)cr + 3ULL > h->arena_len) { continue; }
+          u32 sz = ar[(u64)cr + 2ULL];
+          if ((ar[cr] & (PH_GARB | PH_RED)) != 0u || sz < 3u ||
+              (u64)cr + 3ULL + (u64)sz > h->arena_len) { continue; }
           u32 saved_nv = nv; bool drop = false; u32 cnt = 0u; u32 idx = 0u;
           while (idx < sz) {
             u32 l = ar[(u64)cr + 3ULL + (u64)idx];
             i8 lv_val = vals[l];
             if (lv_val > (i8)0) { drop = true; break; }
             if (lv_val == (i8)0) {
-              u32 lv = l >> 1; u32 ltm = tmk[lv];
+              u32 lv = l >> 1;
+              if ((fl[lv] & FL_ACTIVE) == 0u) { drop = true; break; }
+              u32 ltm = tmk[lv];
               if ((ltm != 0u && ltm < cur_tmk) || (lv == cv && (l & 1u) < pol)) {
                 drop = true; break;
               }
               if (ltm == 0u) {
-                if (nv >= mv) { limit_reached = true; drop = true; break; }
+                if (nv >= mv_c) { limit_reached = true; drop = true; break; }
                 cone_v[nv] = lv; nv = nv + 1u; tmk[lv] = nv;
               }
               tmp[cnt] = ((tmk[lv] - 1u) << 1) | (l & 1u); cnt = cnt + 1u;
@@ -962,14 +970,16 @@ u64 full_m6_sweep_units(FullHdr *h, u32 nv, u32 rbit_in, u64 tick_lim) {
   u32 *scr = (u32 *)h->scratch_buf; u32 *pht_merged = scr + (PHT_NEXT + mv);
   u32 *k = scr + (1280u + (mv << 1)); u32 *assump = k + (32u + 9u * mv);
   u32 *cone_v = (u32 *)h->work_stk1; u64 *sig = (u64 *)h->sim_sig;
-  i8 *vals = (i8 *)h->values;
+  i8 *vals = (i8 *)h->values; u32 *fl = (u32 *)h->flags;
   u32 i = 0u; while (i < nv) { pht_merged[i] = 0u; i = i + 1u; }
   u32 rbit = rbit_in;
   u64 smask = (rbit >= 64u) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << rbit) - 1ULL);
   i = 0u;
   while (i < nv && h->inconsistent == 0ULL && h->fuel > 0ULL && (u64)k[K6H_TICKS] < tick_lim) {
     u32 gv = cone_v[i];
-    if (vals[gv << 1] != (i8)0) { pht_merged[i] = 1u; i = i + 1u; continue; }
+    if ((fl[gv] & FL_ACTIVE) == 0u || vals[gv << 1] != (i8)0) {
+      pht_merged[i] = 1u; i = i + 1u; continue;
+    }
     u64 s0 = sig[gv] & smask;
     if (s0 == 0ULL || s0 == smask) {
       u32 wf = (s0 == 0ULL) ? 0u : 1u;
@@ -1023,12 +1033,13 @@ u64 full_m6_sweep_classes(FullHdr *h, u32 nv, u32 rbit_in, u64 tick_lim) {
     steps = steps - 1u;
     u32 a = heads[ncls - 1u]; u32 c = pht_next[a];
     if (c >= nv) { ncls = ncls - 1u; continue; }
-    if (pht_merged[a] != 0u || pht_merged[c] != 0u) {
+    u32 gv_a = cone_v[a]; u32 gv_c = cone_v[c];
+    if (pht_merged[a] != 0u || pht_merged[c] != 0u ||
+        (fl[gv_a] & FL_ACTIVE) == 0u || (fl[gv_c] & FL_ACTIVE) == 0u) {
       pht_next[a] = pht_next[c];
       if (pht_next[a] >= nv) { ncls = ncls - 1u; }
       continue;
     }
-    u32 gv_a = cone_v[a]; u32 gv_c = cone_v[c];
     u32 pa = pols[a] & 1u; u32 pc = pols[c] & 1u; u32 pol = pa ^ pc;
     u32 fa = (kvals[a << 1] == 1u) ? (a << 1) : ((a << 1) | 1u);
     u32 fc = (kvals[c << 1] == 1u) ? (c << 1) : ((c << 1) | 1u);
@@ -1121,6 +1132,7 @@ bool full_m6_els_ar(FullHdr *h, u32 cr, u32 rl) {
     if (!taut && nsz == 2u) {
       u64 ab = full_add_bin(h, tmp[0], tmp[1]);
       if (ab == 20ULL) { return false; }
+      if (ab == 2ULL) { h->oom = 1ULL; }
     }
     return true;
   }
@@ -1150,12 +1162,32 @@ bool full_m6_els_lit(FullHdr *h, u32 l, u32 rl) {
       wvec[((u64)l << 1) + 1ULL] = (u32)(sz - 1ULL);
       h->wusable = h->wusable + 1ULL;
       u32 ot = w0 & PW_LIT_MASK;
+      if ((u64)ot < nlits) {
+        u64 ooff = (u64)wvec[(u64)ot << 1];
+        u64 osz = (u64)wvec[((u64)ot << 1) + 1ULL];
+        if (osz > 0ULL) {
+          u64 op = ooff; u64 oq = ooff; u64 oend = ooff + osz; bool orem = false;
+          while (op < oend) {
+            u32 ow = wstk[op]; op = op + 1ULL;
+            if ((ow & PW_BIN_FLAG) != 0u) {
+              if (!orem && (ow & PW_LIT_MASK) == l) { orem = true; }
+              else { wstk[oq] = ow; oq = oq + 1ULL; }
+            } else if (op < oend) {
+              wstk[oq] = ow; wstk[oq + 1ULL] = wstk[op]; oq = oq + 2ULL; op = op + 1ULL;
+            }
+          }
+          u64 ok = oq; while (ok < oend) { wstk[ok] = 0xFFFFFFFFu; ok = ok + 1ULL; }
+          wvec[((u64)ot << 1) + 1ULL] = (u32)(oq - ooff);
+          h->wusable = h->wusable + (oend - oq);
+          if (orem && h->num_binary > 0ULL) { h->num_binary = h->num_binary - 1ULL; }
+        }
+      }
       u32 rot = ((u64)ot < nlits) ? repr[ot] : ot;
       if ((u64)rot >= nlits || rl == (rot ^ 1u)) { continue; }
       if (rl == rot) { if (!full_add_unit(h, rl)) { return false; } continue; }
       u64 ab = full_add_bin(h, rl, rot);
       if (ab == 20ULL) { return false; }
-      if (ab == 2ULL) { return true; }
+      if (ab == 2ULL) { h->oom = 1ULL; return true; }
       continue;
     }
     if (sz < 2ULL) { wvec[((u64)l << 1) + 1ULL] = 0u; break; }
@@ -1356,10 +1388,13 @@ u64 full_m6_sweep_dense(FullHdr *h, u64 budget, u64 tick_lim) {
   }
   u32 *tmk = (u32 *)h->tarjan_mark; u64 cv = h->cur_vars;
   u64 i = 0ULL; while (i < cv) { tmk[i] = 0u; i = i + 1ULL; }
+  u64 half = tick_lim >> 1;
   u64 round = 0ULL;
   while (round < 2ULL && h->oom == 0ULL && h->fuel > 0ULL && h->inconsistent == 0ULL) {
+    u64 rlim = (round == 0ULL) ? (tick_lim - half) : half;
+    if (rlim == 0ULL) { break; }
     u64 before = h->sweep_cnt;
-    if (full_m6_sweep_vars(h, budget, tick_lim) == 20ULL) { return 20ULL; }
+    if (full_m6_sweep_vars(h, budget, rlim) == 20ULL) { return 20ULL; }
     if (h->sweep_cnt == before) { break; }
     round = round + 1ULL;
   }
