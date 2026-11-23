@@ -90,15 +90,6 @@ theorem supportsAll_budget_leaf (lt : LegalTarget) (bfs : List BudgetFn)
   obtain ⟨b, hb, rfl⟩ := List.mem_map.mp hf
   exact h b hb
 
-theorem supportsAll_append_pred {lt : LegalTarget} {fs₁ fs₂ : List Fn}
-    (h₁ : ∀ f ∈ fs₁, (f.earlyOpt).body.supportsSource lt = true)
-    (h₂ : ∀ f ∈ fs₂, (f.earlyOpt).body.supportsSource lt = true) :
-    ∀ f ∈ fs₁ ++ fs₂, (f.earlyOpt).body.supportsSource lt = true := by
-  intro f hf
-  rcases List.mem_append.mp hf with h | h
-  · exact h₁ f h
-  · exact h₂ f h
-
 theorem supportsAll_leaf {lt : LegalTarget} {fs : List Fn}
     (h : checkSupportsChunk lt fs = true) :
     ∀ f ∈ fs, (f.earlyOpt).body.supportsSource lt = true :=
