@@ -468,17 +468,10 @@ def MachineData.storeAvx (s : MachineData) (addr : BitVec 64) {w : AvxWidth} (v 
 class Labels where label? : Label → Option Int64
 export Labels (label?)
 
-def Labels.label! [Labels] (l : Label) : Int64 :=
-  match label? l with
-  | .some a => a
-  | .none => panic! s!"unresolved label: {l}"
-export Labels (label!)
+abbrev Labels.label! [Labels] (l : Label) : Int64 :=
+  (label? l).get!
 
-@[grind =]
-theorem Labels.label!_eq_get!_label? {_ : Labels} (l : Label) :
-    label! l = (label? l).get! := by
-  simp only [label!, Option.get!]
-  cases label? l <;> rfl
+export Labels (label!)
 
 @[simp]
 theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label? l = some a) :
