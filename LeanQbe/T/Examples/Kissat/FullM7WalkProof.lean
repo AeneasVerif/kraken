@@ -422,7 +422,11 @@ private theorem m7Propagate_call {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XP
     (hhdr : args.fst.val = c.hdr) (hinv : FullCoreInv c F0 s) (hd0 : s.core.dense_mode = 0#64)
     (hm : (FullMem c s ⋆ R) m)
     (hk : ∀ (r : BitVec 64) s' m', FullCoreInv c F0 s' → FullArenaPermEq s.core s'.core →
-      s'.core.fuel.toNat ≤ s.core.fuel.toNat → FullExtScratchPres s s' →
+      s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+      (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
+      (r = 0#64 → s.core.propagated < s.core.trail_end → s'.core.fuel.toNat < s.core.fuel.toNat) →
+      (r = 1#64 → s'.core.fuel.toNat < s.core.fuel.toNat) →
+      FullExtScratchPres s s' →
       s'.core.probing = s.core.probing → s'.core.cur_level = s.core.cur_level →
       s'.core.dense_mode = s.core.dense_mode → s'.core.inconsistent = s.core.inconsistent →
       s'.core.cur_vars = s.core.cur_vars → s'.core.d_cur = s.core.d_cur →
@@ -441,9 +445,11 @@ private theorem m7Propagate_call {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XP
   refine wp_call_of_spec args k ?_
   refine hProp _ _ _ _ ⟨c, F0, F_cur, s, R, hhdr, hlen, hw, hd0, hm, ?_⟩
   intro r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
-    fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m' _ hs' hw' _ hperm hfuel _ _ _ _ _ hm'
-  exact hk r _ m' ⟨hs', F_cur, hw'⟩ hperm hfuel ⟨rfl, rfl⟩ rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl hm'
+    fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' m' _ hs' hw' _ hperm hfuel hr_dom hr0
+    hr1 _ _ hm'
+  exact hk r _ m' ⟨hs', F_cur, hw'⟩ hperm hfuel hr_dom
+    (fun h0 hlt => (hr0 h0).2.2 hlt) (fun h1 => (hr1 h1).1) ⟨rfl, rfl⟩ rfl rfl rfl rfl rfl rfl
+    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl hm'
 
 /-! ### `M7WarmupCoreEq`: fixed-core-field tracking across warmup steps -/
 
@@ -662,7 +668,8 @@ theorem full_walk_m7_wp (Γ : Env)
       let sE' : FullState := { sE with scratch :=
         { sE.scratch with walk_cnt_stat := sE.scratch.walk_cnt_stat + 1#64 } }
       have hlenE' : sE'.LengthsOk c := ⟨hlenE.core_ok, { hlenE.scratch_ok with }⟩
-      exact m7Walk_close_Q hQ (by simp [sE', hcoreE]) hlenE' (Nat.le_refl _) hpresE hm)
+      exact m7Walk_close_Q hQ (by simp [sE', hcoreE]) hlenE' (Nat.le_refl _) hpresE
+        (by assumption))
     (fun J26 hJ26 => by
       c0_hsplit
       · c0_hsteps; exact hJ26 () m2 ⟨s2, hcore20, hlen2, hpres20, hm2⟩
@@ -772,7 +779,10 @@ theorem full_walk_m7_wp (Γ : Env)
                                     32 + 4 * ncl.toNat from hbase,
                                   Nat.mod_eq_of_lt (by omega)]
                                 omega
+                              have huc_ne : uc ≠ 0#64 := fun h0 => by
+                                rw [h0] at huc_pos; simp at huc_pos
                               c0_hstep; c0_hstep; c0_hstep; c0_hstep; c0_hstep
+                              c0_hstep; c0_hstep; c0_hstep; c0_hstep
                               let sL1 : FullState := { sL with core := { sL.core with
                                 fuel := fuelL - 1#64 } }
                               have hcoreL1 : sL1.core = { s.core with fuel := fuelL - 1#64 } := by
@@ -783,14 +793,17 @@ theorem full_walk_m7_wp (Γ : Env)
                               have hpresL1 : FullExtScratchPres s sL1 := hpresL
                               have hslot_sb1 : (32#64 + 4#64 * (rcol >>> 32#64) + flp % uc).toNat <
                                   sL1.scratch.scratch_buf.length := hslot_sb
-                              refine wp_load_of
-                                (FullArenaTactics.c0_load_full_scratch_buf hslot_sb1 ‹_›) ?_
+                              have hmL1 : (FullMem c sL1 ⋆ R) m := by
+                                rw [hcoreL_fl] at hm
+                                exact hm
+                              refine C0HeadStep.head_wp_load ?_
+                                (FullArenaTactics.c0_load_full_scratch_buf hslot_sb1 hmL1) ?_
+                              · rfl
                               c0_hsplit
-                              · -- (v75.setWidth 64) ≥ ncl -> continue
+                              · -- (v75.setWidth 64) ≥ ncl -> break -> J53X
                                 c0_hsteps
-                                exact hJ53 (fn - 1) hlt_n _ _
-                                  ⟨sL1, fuelL - 1#64, hcoreL1, hfn_sub, hfuelL1, hlenL1, hpresL1,
-                                    ‹_›⟩
+                                exact hJ53X _ m
+                                  ⟨sL1, fuelL - 1#64, hcoreL1, hfuelL1, hlenL1, hpresL1, ‹_›⟩
                               · -- pick + flip + wsort + best
                                 c0_hsteps_nogrp
                                 refine m7Pick_call hPick rfl hlenL1 ‹_›
@@ -803,7 +816,7 @@ theorem full_walk_m7_wp (Γ : Env)
                                 c0_hsplit
                                 · -- v80 ≥ 2 * cur_vars -> continue
                                   c0_hsteps
-                                  exact hJ53 (fn - 1) hlt_n _ _
+                                  exact hJ53 (fn - 1) _ _ hlt_n
                                     ⟨sL2, fuelL - 1#64, hcoreL2', hfn_sub, hfuelL1, hlenL2,
                                       hpresL20, hmL2⟩
                                 · -- call full_walk_flip_m7
@@ -816,7 +829,7 @@ theorem full_walk_m7_wp (Γ : Env)
                                   have hpresL30 : FullExtScratchPres s sL3 :=
                                     ⟨hpresL3.1.trans hpresL20.1, hpresL3.2.trans hpresL20.2⟩
                                   c0_hsteps_nogrp
-                                  -- J_fin (mh', bc', fl')
+                                  -- J_fin (@L5: ml', bc', fl')
                                   refine wp_join_group (ts := [i64, i64, Ty.bool])
                                     (fun _ mFin => ∃ sFin,
                                       sFin.core = { s.core with fuel := fuelL - 1#64 } ∧
@@ -825,6 +838,7 @@ theorem full_walk_m7_wp (Γ : Env)
                                     (fun _ ⟨mhF, bcF, flF, ⟨⟩⟩ mFin
                                         ⟨sFin, hcoreFin, hlenFin, hpresFin, hmFin⟩ => by
                                       c0_hsteps_nogrp
+                                      -- J_done (@L13)
                                       refine wp_join_group
                                         (ts := [i64, i64, i64, Ty.bool])
                                         (fun _ mD => ∃ sD,
@@ -834,74 +848,93 @@ theorem full_walk_m7_wp (Γ : Env)
                                         (fun _ ⟨buD, mhD, bcD, flD, ⟨⟩⟩ mD
                                             ⟨sD, hcoreD, hlenD, hpresD, hmD⟩ => by
                                           c0_hsteps
-                                          exact hJ53 (fn - 1) hlt_n _ _
+                                          exact hJ53 (fn - 1) _ _ hlt_n
                                             ⟨sD, fuelL - 1#64, hcoreD, hfn_sub, hfuelL1, hlenD,
                                               hpresD, hmD⟩)
                                         (fun J_done hJ_done => by
                                           c0_hsplit
-                                          · -- v88 < bu -> check flF -> maybe copy walk_best
-                                            c0_hsplit
-                                            · c0_hsteps
-                                              exact hJ_done _ mFin ⟨sFin, hcoreFin, hlenFin,
-                                                hpresFin, hmFin⟩
-                                            · refine wp_loop_group (ts := [i64])
-                                                (fun nb ⟨idx, ⟨⟩⟩ mB => ∃ sB,
-                                                  idx.toNat ≤ s.core.cur_vars ∧
-                                                  nb = s.core.cur_vars - idx.toNat ∧
-                                                  sB.core = { s.core with fuel := fuelL - 1#64 } ∧
-                                                  sB.LengthsOk c ∧ FullExtScratchPres s sB ∧
-                                                  (FullMem c sB ⋆ R) mB)
-                                                ?_ ?_
-                                              · intro J97 nb ⟨idx, ⟨⟩⟩ mB hJ97
-                                                  ⟨sB, hidx, hnb, hcoreB, hlenB, hpresB, hmB⟩
-                                                have hcvB : sB.core.cur_vars = s.core.cur_vars :=
-                                                  by rw [hcoreB]
-                                                c0_hsteps_nogrp
-                                                c0_hsplit
-                                                · have hidx_lt : idx.toNat < s.core.cur_vars := by
-                                                    rw [hcvB, BitVec.toNat_ofNat,
-                                                      Nat.mod_eq_of_lt (by omega)] at hc
-                                                    exact hc
-                                                  have h2idx :
-                                                      (idx <<< BitVec.signExtend 64 1#32).toNat <
-                                                      sB.scratch.walk_vals.length := by
-                                                    rw [m7p_bv64_shl1 (by omega),
-                                                      hlenB.scratch_ok.walk_vals_len]
-                                                    omega
-                                                  have hidx_wb :
-                                                      idx.toNat < sB.scratch.walk_best.length := by
-                                                    rw [hlenB.scratch_ok.walk_best_len]; omega
-                                                  have hidx1 : (idx + 1#64).toNat = idx.toNat + 1 :=
-                                                    m7p_bv64_add1_lt hidx_lt (by omega)
-                                                  c0_hsteps
-                                                  let wb' := sB.scratch.walk_best.set idx.toNat
-                                                    (sB.scratch.walk_vals[(idx <<<
-                                                      BitVec.signExtend 64
-                                                        1#32).toNat]?.getD 0#8)
-                                                  let sB' : FullState := FullState.mk sB.core
-                                                    { sB.scratch with walk_best := wb' }
-                                                  have hlenB' : sB'.LengthsOk c :=
-                                                    ⟨hlenB.core_ok, m7ScratchLengths_with_wv
-                                                      hlenB.scratch_ok
-                                                      (by simp [hlenB.scratch_ok.walk_best_len])⟩
-                                                  exact hJ97 (s.core.cur_vars - (idx.toNat + 1))
-                                                    (by omega) _ _
-                                                    ⟨sB', by rw [hidx1]; omega, by rw [hidx1],
-                                                      hcoreB, hlenB', hpresB, ‹_›⟩
-                                                · c0_hsteps
-                                                  exact hJ_done _ mB
-                                                    ⟨sB, hcoreB, hlenB, hpresB, hmB⟩
-                                              · intro J97 hJ97
+                                          · -- v91 < bu -> @L14 join -> check flF -> maybe copy
+                                            refine wp_join_group (ts := [i64, i64, Ty.bool])
+                                              (fun _ m14 => ∃ s14,
+                                                s14.core = { s.core with fuel := fuelL - 1#64 } ∧
+                                                s14.LengthsOk c ∧ FullExtScratchPres s s14 ∧
+                                                (FullMem c s14 ⋆ R) m14)
+                                              (fun _ _ m14 ⟨s14, hcore14, hlen14, hpres14, hm14⟩ =>
+                                                by
                                                 c0_hsteps
-                                                exact hJ97 s.core.cur_vars _ mFin
-                                                  ⟨sFin, Nat.zero_le _, by rfl, hcoreFin, hlenFin,
+                                                exact hJ_done _ m14 ⟨s14, hcore14, hlen14,
+                                                  hpres14, hm14⟩)
+                                              (fun J14 hJ14 => by
+                                                c0_hsplit
+                                                · c0_hsteps
+                                                  exact hJ14 _ mFin ⟨sFin, hcoreFin, hlenFin,
                                                     hpresFin, hmFin⟩
+                                                · refine wp_loop_group (ts := [i64])
+                                                    (fun nb ⟨idx, ⟨⟩⟩ mB => ∃ sB,
+                                                      idx.toNat ≤ s.core.cur_vars ∧
+                                                      nb = s.core.cur_vars - idx.toNat ∧
+                                                      sB.core =
+                                                        { s.core with fuel := fuelL - 1#64 } ∧
+                                                      sB.LengthsOk c ∧ FullExtScratchPres s sB ∧
+                                                      (FullMem c sB ⋆ R) mB)
+                                                    ?_ ?_
+                                                  · intro J97 nb ⟨idx, ⟨⟩⟩ mB hJ97
+                                                      ⟨sB, hidx, hnb, hcoreB, hlenB, hpresB, hmB⟩
+                                                    have hcvB : sB.core.cur_vars = s.core.cur_vars
+                                                      := by rw [hcoreB]
+                                                    c0_hsplit
+                                                    · have hidx_lt : idx.toNat < s.core.cur_vars :=
+                                                        by
+                                                        rw [Nat.mod_eq_of_lt (by omega)] at hc
+                                                        exact hc
+                                                      have h2idx :
+                                                          (idx <<< (1 : BitVec 64)).toNat <
+                                                          sB.scratch.walk_vals.length := by
+                                                        change (idx <<< BitVec.signExtend 64 1#32
+                                                          ).toNat < sB.scratch.walk_vals.length
+                                                        rw [m7p_bv64_shl1 (by omega),
+                                                          hlenB.scratch_ok.walk_vals_len]
+                                                        omega
+                                                      have hidx_wb :
+                                                          idx.toNat < sB.scratch.walk_best.length :=
+                                                        by
+                                                        rw [hlenB.scratch_ok.walk_best_len]
+                                                        omega
+                                                      have hidx1 : (idx + (1 : BitVec 64)).toNat =
+                                                          idx.toNat + 1 := by
+                                                        simpa using
+                                                          m7p_bv64_add1_lt hidx_lt (by omega)
+                                                      c0_hsteps
+                                                      let wb' := sB.scratch.walk_best.set idx.toNat
+                                                        sB.scratch.walk_vals[
+                                                          (idx <<< (1 : BitVec 64)).toNat]
+                                                      let sB' : FullState := FullState.mk sB.core
+                                                        { sB.scratch with walk_best := wb' }
+                                                      have hlenB' : sB'.LengthsOk c :=
+                                                        ⟨hlenB.core_ok, m7ScratchLengths_with_wv
+                                                          hlenB.scratch_ok
+                                                          (by
+                                                            simp [wb',
+                                                              hlenB.scratch_ok.walk_best_len])⟩
+                                                      exact hJ97 (s.core.cur_vars - (idx.toNat + 1))
+                                                        _ _ (by omega)
+                                                        ⟨sB', by rw [hidx1]; omega, by rw [hidx1],
+                                                          hcoreB, hlenB', hpresB, ‹_›⟩
+                                                    · c0_hsteps
+                                                      exact hJ14 _ mB
+                                                        ⟨sB, hcoreB, hlenB, hpresB, hmB⟩
+                                                  · intro J97 hJ97
+                                                    c0_hsteps
+                                                    exact hJ97 s.core.cur_vars _ mFin
+                                                      ⟨sFin, Nat.zero_le _, by rfl, hcoreFin,
+                                                        hlenFin, hpresFin, hmFin⟩)
                                           · c0_hsteps
                                             exact hJ_done _ mFin ⟨sFin, hcoreFin, hlenFin, hpresFin,
                                               hmFin⟩))
                                     (fun J_fin hJ_fin => by
                                       c0_hsplit
-                                      · -- clean_flag = true: update wsort + maybe flush to phases
+                                      · -- fl = true: @L6 (J93) -> @L12 (J96) -> @L5 (J_fin)
+                                        clear hc
                                         refine wp_join_group (ts := [i64, i64, Ty.bool])
                                           (fun _ m93 => ∃ s93,
                                             s93.core = { s.core with fuel := fuelL - 1#64 } ∧
@@ -909,9 +942,48 @@ theorem full_walk_m7_wp (Γ : Env)
                                             (FullMem c s93 ⋆ R) m93)
                                           (fun _ ⟨ml0, bc0, fl0, ⟨⟩⟩ m93
                                               ⟨s93, hcore93, hlen93, hpres93, hm93⟩ => by
-                                            c0_hsteps_nogrp
+                                            refine wp_join_group (ts := [i64])
+                                              (fun _ m96 => ∃ s96,
+                                                s96.core = { s.core with fuel := fuelL - 1#64 } ∧
+                                                s96.LengthsOk c ∧ FullExtScratchPres s s96 ∧
+                                                (FullMem c s96 ⋆ R) m96)
+                                              (fun _ ⟨ml1, ⟨⟩⟩ m96
+                                                  ⟨s96, hcore96, hlen96, hpres96, hm96⟩ => by
+                                                c0_hsteps
+                                                exact hJ_fin _ m96 ⟨s96, hcore96, hlen96, hpres96,
+                                                  hm96⟩)
+                                              (fun J96 hJ96 => by
+                                                c0_hsplit
+                                                · clear hc
+                                                  c0_hsplit
+                                                  · have hml_ws :
+                                                        ml0.toNat < s93.scratch.wsort.length := by
+                                                      rw [hlen93.scratch_ok.wsort_len]
+                                                      have hlt : ml0.toNat < (BitVec.ofNat 64
+                                                          s.core.cur_vars >>>
+                                                          BitVec.signExtend 64 2#32 + 1#64).toNat
+                                                        := hc
+                                                      omega
+                                                    c0_hsteps
+                                                    let ws96 := s93.scratch.wsort.set ml0.toNat
+                                                      ((BitVec.setWidth 32
+                                                        (rpick &&& 4294967295#64)) >>> 1#32)
+                                                    let s96 := FullState.mk s93.core
+                                                      { s93.scratch with wsort := ws96 }
+                                                    have hws96 := hlen93.scratch_ok.wsort_len
+                                                    have hlen96 : s96.LengthsOk c :=
+                                                      ⟨hlen93.core_ok, m7ScratchLengths_with_wsort
+                                                        hlen93.scratch_ok
+                                                        (by simp [ws96, hws96])⟩
+                                                    exact hJ96 _ _ ⟨s96, hcore93, hlen96,
+                                                      hpres93, ‹_›⟩
+                                                  · c0_hsteps; exact hJ96 _ m93
+                                                      ⟨s93, hcore93, hlen93, hpres93, hm93⟩
+                                                · c0_hsteps; exact hJ96 _ m93
+                                                    ⟨s93, hcore93, hlen93, hpres93, hm93⟩))
+                                          (fun J93 hJ93 => by
                                             c0_hsplit
-                                            · -- ml0 ≥ wsort_cap
+                                            · -- ml ≥ limit -> @L7 (J93b) -> @L6 (J93)
                                               refine wp_join_group (ts := [i64, i64, Ty.bool])
                                                 (fun _ mB => ∃ sB,
                                                   sB.core = { s.core with fuel := fuelL - 1#64 } ∧
@@ -919,34 +991,28 @@ theorem full_walk_m7_wp (Γ : Env)
                                                   (FullMem c sB ⋆ R) mB)
                                                 (fun _ _ mB ⟨sB, hcoreB, hlenB, hpresB, hmB⟩ => by
                                                   c0_hsteps
-                                                  exact hJ_fin _ mB ⟨sB, hcoreB, hlenB, hpresB,
-                                                    hmB⟩)
+                                                  exact hJ93 _ mB ⟨sB, hcoreB, hlenB, hpresB, hmB⟩)
                                                 (fun J93b hJ93b => by
                                                   c0_hsplit
-                                                  · have hbc_gt0 := hc; clear hc
+                                                  · have hbc_pos : 0 < bc.toNat := by
+                                                      simpa using hc
+                                                    clear hc
                                                     c0_hsplit
-                                                    · have hbc_le_cond := hc; clear hc
+                                                    · have hbc_le : bc.toNat ≤ ml.toNat := hc
+                                                      clear hc
                                                       c0_hsplit
-                                                      · have hbc_pos : 0 < bc0.toNat := by
-                                                          rw [show (0#64 : BitVec 64).toNat = 0
-                                                            from rfl] at hbc_gt0
-                                                          exact hbc_gt0
-                                                        have hbc_le : bc0.toNat ≤ ml0.toNat := by
-                                                          rw [Bool.not_eq_true] at hbc_le_cond
-                                                          exact hbc_le_cond
-                                                        have hml_le :
-                                                            ml0.toNat ≤ (BitVec.ofNat 64
+                                                      · have hml_le :
+                                                            ml.toNat ≤ (BitVec.ofNat 64
                                                               s.core.cur_vars >>>
                                                               BitVec.signExtend 64 2#32 +
-                                                              1#64).toNat :=
-                                                          Nat.le_of_not_lt (fun hgt => hc hgt)
+                                                              1#64).toNat := hc
                                                         have hml_wsort :
-                                                            ml0.toNat ≤ 2 * c.max_vars := by
+                                                            ml.toNat ≤ 2 * c.max_vars := by
                                                           omega
                                                         refine wp_loop_group (ts := [i64])
                                                           (fun nk ⟨k, ⟨⟩⟩ mK => ∃ sK,
-                                                            k.toNat ≤ bc0.toNat ∧
-                                                            nk = bc0.toNat - k.toNat ∧
+                                                            k.toNat ≤ bc.toNat ∧
+                                                            nk = bc.toNat - k.toNat ∧
                                                             sK.core =
                                                               { s.core with fuel := fuelL - 1#64 } ∧
                                                             sK.LengthsOk c ∧
@@ -959,100 +1025,105 @@ theorem full_walk_m7_wp (Γ : Env)
                                                           have hcvK :
                                                               sK.core.cur_vars = s.core.cur_vars :=
                                                             by rw [hcoreK]
-                                                          c0_hsteps_nogrp
                                                           c0_hsplit
-                                                          · have hk_lt : k.toNat < bc0.toNat := hc
+                                                          · have hk_lt : k.toNat < bc.toNat := hc
+                                                            clear hc
                                                             have hk_ws :
                                                                 k.toNat < sK.scratch.wsort.length :=
                                                               by
                                                               rw [hlenK.scratch_ok.wsort_len]
                                                               omega
                                                             have hk1 :
-                                                                (k + 1#64).toNat = k.toNat + 1 :=
-                                                              m7p_bv64_add1_lt hk_lt (by omega)
+                                                                (k + (1 : BitVec 64)).toNat =
+                                                                k.toNat + 1 := by
+                                                              simpa using
+                                                                m7p_bv64_add1_lt hk_lt (by omega)
                                                             c0_hsteps_nogrp
-                                                            c0_hsplit
-                                                            · -- w < cur_vars
-                                                              have hw_lt_cond := hc; clear hc
-                                                              let w32 :=
-                                                                sK.scratch.wsort[k.toNat]?.getD 0#32
-                                                              have hw_lt : w32.toNat <
-                                                                  sK.scratch.phases.length := by
-                                                                rw [hlenK.scratch_ok.phases_len]
-                                                                have hwv : (w32.setWidth 64).toNat <
-                                                                    (BitVec.ofNat 64
-                                                                      s.core.cur_vars).toNat :=
-                                                                  by simpa [hcvK] using hw_lt_cond
-                                                                rw [m7p_zext32, BitVec.toNat_ofNat,
-                                                                  Nat.mod_eq_of_lt (by omega)]
-                                                                  at hwv
-                                                                omega
-                                                              c0_hsteps_nogrp
-                                                              refine wp_join_group (ts := [i8])
-                                                                (fun _ mP => ∃ sP,
-                                                                  sP.core = { s.core with
-                                                                    fuel := fuelL - 1#64 } ∧
-                                                                  sP.LengthsOk c ∧
-                                                                  FullExtScratchPres s sP ∧
-                                                                  (FullMem c sP ⋆ R) mP)
-                                                                (fun ⟨phP, ⟨⟩⟩ mP
-                                                                    ⟨sP, hcoreP, hlenP, hpresP,
-                                                                      hmP⟩ => by
-                                                                  c0_hsteps
-                                                                  exact hJ97
-                                                                    (bc0.toNat - (k.toNat + 1))
-                                                                    (by omega) _ _
-                                                                    ⟨sP, by rw [hk1]; omega,
-                                                                      by rw [hk1], hcoreP, hlenP,
-                                                                      hpresP, hmP⟩)
-                                                                (fun J106 hJ106 => by
-                                                                  c0_hsplit
-                                                                  · c0_hsteps
-                                                                    let ph1 :=
-                                                                      sK.scratch.phases.set
-                                                                        w32.toNat 1#8
+                                                            -- @L9 join after if ((u64)w < cv)
+                                                            refine wp_join_group (ts := [])
+                                                              (fun _ m99 => ∃ s99,
+                                                                s99.core = { s.core with
+                                                                  fuel := fuelL - 1#64 } ∧
+                                                                s99.LengthsOk c ∧
+                                                                FullExtScratchPres s s99 ∧
+                                                                (FullMem c s99 ⋆ R) m99)
+                                                              (fun _ ⟨⟩ m99
+                                                                  ⟨s99, hcore99, hlen99, hpres99,
+                                                                    hm99⟩ => by
+                                                                c0_hsteps
+                                                                exact hJ97
+                                                                  (bc.toNat - (k.toNat + 1))
+                                                                  _ _ (by omega)
+                                                                  ⟨s99, by rw [hk1]; omega,
+                                                                    by rw [hk1], hcore99, hlen99,
+                                                                    hpres99, hm99⟩)
+                                                              (fun J99 hJ99 => by
+                                                                c0_hsplit
+                                                                · -- w < cur_vars
+                                                                  have hw_lt_cond := hc; clear hc
+                                                                  let w32 :=
+                                                                    sK.scratch.wsort[k.toNat]
+                                                                  have hw_lt : w32.toNat <
+                                                                      sK.scratch.walk_best.length :=
+                                                                    by
+                                                                    rw [
+                                                                      hlenK.scratch_ok.walk_best_len
+                                                                      ]
+                                                                    have hwv :
+                                                                        (w32.setWidth 64).toNat <
+                                                                        (BitVec.ofNat 64
+                                                                          s.core.cur_vars).toNat :=
+                                                                      by simpa [hcvK] using
+                                                                        hw_lt_cond
+                                                                    rw [m7p_zext32,
+                                                                      BitVec.toNat_ofNat,
+                                                                      Nat.mod_eq_of_lt (by omega)]
+                                                                      at hwv
+                                                                    omega
+                                                                  have hw64_lt :
+                                                                      (w32.setWidth 64).toNat <
+                                                                      sK.scratch.walk_best.length :=
+                                                                    by
+                                                                    rw [BitVec.toNat_setWidth,
+                                                                      Nat.mod_eq_of_lt (by
+                                                                        have := w32.isLt; omega)]
+                                                                    exact hw_lt
+                                                                  c0_hsteps_nogrp
+                                                                  refine wp_join_group (ts := [i32])
+                                                                    (fun _ mP => mP = mK) ?_ ?_
+                                                                  · intro _ ⟨phP, ⟨⟩⟩ mP hmEq
+                                                                    subst hmEq
+                                                                    c0_hsteps!
+                                                                    let wb1 :=
+                                                                      sK.scratch.walk_best.set
+                                                                        (w32.setWidth 64).toNat
+                                                                        (phP.setWidth 8)
                                                                     let sP := FullState.mk
                                                                       sK.core { sK.scratch with
-                                                                        phases := ph1 }
-                                                                    have hphP :=
-                                                                      hlenK.scratch_ok.phases_len
+                                                                        walk_best := wb1 }
+                                                                    have hwbP :=
+                                                                      hlenK.scratch_ok.walk_best_len
                                                                     have hlenP : sP.LengthsOk c :=
                                                                       ⟨hlenK.core_ok,
-                                                                        m7ScratchLengths_with_phases
-                                                                          hlenK.scratch_ok
-                                                                          (by simp [ph1, hphP])⟩
-                                                                    exact hJ106 (1#8, ()) _
+                                                                        m7ScratchLengths_with_wv
+                                                                          hlenK.scratch_ok (by
+                                                                            simp [wb1, hwbP])⟩
+                                                                    exact hJ99 () _
                                                                       ⟨sP, hcoreK, hlenP, hpresK,
                                                                         ‹_›⟩
-                                                                  · c0_hsteps
-                                                                    let ph1 :=
-                                                                      sK.scratch.phases.set
-                                                                        w32.toNat (-1#8)
-                                                                    let sP := FullState.mk
-                                                                      sK.core { sK.scratch with
-                                                                        phases := ph1 }
-                                                                    have hphP :=
-                                                                      hlenK.scratch_ok.phases_len
-                                                                    have hlenP : sP.LengthsOk c :=
-                                                                      ⟨hlenK.core_ok,
-                                                                        m7ScratchLengths_with_phases
-                                                                          hlenK.scratch_ok
-                                                                          (by simp [ph1, hphP])⟩
-                                                                    exact hJ106 (-1#8, ()) _
-                                                                      ⟨sP, hcoreK, hlenP, hpresK,
-                                                                        ‹_›⟩)
-                                                            · c0_hsteps
-                                                              exact hJ97 (bc0.toNat - (k.toNat + 1))
-                                                                (by omega) _ _
-                                                                ⟨sK, by rw [hk1]; omega,
-                                                                  by rw [hk1], hcoreK, hlenK,
-                                                                  hpresK, hmK⟩
-                                                          · -- k ≥ bc0 -> compact J100
+                                                                  · intro J106 hJ106
+                                                                    c0_hsteps <;>
+                                                                      exact hJ106 _ _ rfl
+                                                                · c0_hsteps
+                                                                  exact hJ99 () mK
+                                                                    ⟨sK, hcoreK, hlenK, hpresK,
+                                                                      hmK⟩)
+                                                          · -- k ≥ bc -> compact J100
                                                             c0_hsteps_nogrp
                                                             refine wp_loop_group (ts := [i64])
                                                               (fun nj ⟨j, ⟨⟩⟩ mJ => ∃ sJ,
-                                                                j.toNat ≤ (ml0 - bc0).toNat ∧
-                                                                nj = (ml0 - bc0).toNat - j.toNat ∧
+                                                                j.toNat ≤ (ml - bc).toNat ∧
+                                                                nj = (ml - bc).toNat - j.toNat ∧
                                                                 sJ.core =
                                                                   { s.core with
                                                                     fuel := fuelL - 1#64 } ∧
@@ -1063,18 +1134,17 @@ theorem full_walk_m7_wp (Γ : Env)
                                                             · intro J100 nj ⟨j, ⟨⟩⟩ mJ hJ100
                                                                 ⟨sJ, hj_le, hnj, hcoreJ, hlenJ,
                                                                   hpresJ, hmJ⟩
-                                                              c0_hsteps_nogrp
                                                               c0_hsplit
                                                               · have hj_lt :
-                                                                    j.toNat < (ml0 - bc0).toNat :=
+                                                                    j.toNat < (ml - bc).toNat :=
                                                                   hc
-                                                                have hsub_eq : (ml0 - bc0).toNat =
-                                                                    ml0.toNat - bc0.toNat := by
+                                                                have hsub_eq : (ml - bc).toNat =
+                                                                    ml.toNat - bc.toNat := by
                                                                   rw [BitVec.toNat_sub]
-                                                                  have := bc0.isLt
-                                                                  have := ml0.isLt
+                                                                  have := bc.isLt
+                                                                  have := ml.isLt
                                                                   omega
-                                                                have hsrc : (bc0 + j).toNat <
+                                                                have hsrc : (bc + j).toNat <
                                                                     sJ.scratch.wsort.length := by
                                                                   rw [hlenJ.scratch_ok.wsort_len,
                                                                     BitVec.toNat_add,
@@ -1085,13 +1155,14 @@ theorem full_walk_m7_wp (Γ : Env)
                                                                   rw [hlenJ.scratch_ok.wsort_len]
                                                                   omega
                                                                 have hj1 :
-                                                                  (j + 1#64).toNat = j.toNat + 1 :=
-                                                                  m7p_bv64_add1_lt hj_lt (by omega)
+                                                                    (j + (1 : BitVec 64)).toNat =
+                                                                    j.toNat + 1 := by
+                                                                  simpa using m7p_bv64_add1_lt
+                                                                    hj_lt (by omega)
                                                                 c0_hsteps
                                                                 let wsJ :=
                                                                   sJ.scratch.wsort.set j.toNat
-                                                                    (sJ.scratch.wsort[(bc0 +
-                                                                      j).toNat]?.getD 0#32)
+                                                                    sJ.scratch.wsort[(bc + j).toNat]
                                                                 let sJ' := FullState.mk sJ.core
                                                                   { sJ.scratch with wsort := wsJ }
                                                                 have hwsJ :=
@@ -1102,9 +1173,8 @@ theorem full_walk_m7_wp (Γ : Env)
                                                                       hlenJ.scratch_ok
                                                                       (by simp [wsJ, hwsJ])⟩
                                                                 exact hJ100
-                                                                  ((ml0 - bc0).toNat -
-                                                                    (j.toNat + 1))
-                                                                  (by omega) _ _
+                                                                  ((ml - bc).toNat - (j.toNat + 1))
+                                                                  _ _ (by omega)
                                                                   ⟨sJ', by rw [hj1]; omega,
                                                                     by rw [hj1], hcoreJ, hlenJ',
                                                                     hpresJ, ‹_›⟩
@@ -1113,58 +1183,23 @@ theorem full_walk_m7_wp (Γ : Env)
                                                                   hpresJ, hmJ⟩
                                                             · intro J100 hJ100
                                                               c0_hsteps
-                                                              exact hJ100 (ml0 - bc0).toNat _ mK
+                                                              exact hJ100 (ml - bc).toNat _ mK
                                                                 ⟨sK, Nat.zero_le _, by rfl, hcoreK,
                                                                   hlenK, hpresK, hmK⟩
                                                         · intro J97 hJ97
                                                           c0_hsteps
-                                                          exact hJ97 bc0.toNat _ m93
-                                                            ⟨s93, Nat.zero_le _, by rfl, hcore93,
-                                                              hlen93, hpres93, hm93⟩
-                                                      · c0_hsteps; exact hJ93b _ m93
-                                                          ⟨s93, hcore93, hlen93, hpres93, hm93⟩
-                                                    · c0_hsteps; exact hJ93b _ m93
-                                                        ⟨s93, hcore93, hlen93, hpres93, hm93⟩
-                                                  · c0_hsteps; exact hJ93b _ m93
-                                                      ⟨s93, hcore93, hlen93, hpres93, hm93⟩)
+                                                          exact hJ97 bc.toNat _ mL3
+                                                            ⟨sL3, Nat.zero_le _, by rfl, hcoreL3',
+                                                              hlenL3, hpresL30, hmL3⟩
+                                                      · c0_hsteps; exact hJ93b _ mL3
+                                                          ⟨sL3, hcoreL3', hlenL3, hpresL30, hmL3⟩
+                                                    · c0_hsteps; exact hJ93b _ mL3
+                                                        ⟨sL3, hcoreL3', hlenL3, hpresL30, hmL3⟩
+                                                  · c0_hsteps; exact hJ93b _ mL3
+                                                      ⟨sL3, hcoreL3', hlenL3, hpresL30, hmL3⟩)
                                             · c0_hsteps
-                                              exact hJ_fin _ m93 ⟨s93, hcore93, hlen93, hpres93,
-                                                hm93⟩)
-                                          (fun J93 hJ93 => by
-                                            refine wp_join_group (ts := [i64])
-                                              (fun _ m96 => ∃ s96,
-                                                s96.core = { s.core with fuel := fuelL - 1#64 } ∧
-                                                s96.LengthsOk c ∧ FullExtScratchPres s s96 ∧
-                                                (FullMem c s96 ⋆ R) m96)
-                                              (fun _ ⟨ml1, ⟨⟩⟩ m96
-                                                  ⟨s96, hcore96, hlen96, hpres96, hm96⟩ => by
-                                                c0_hsteps
-                                                exact hJ93 _ m96 ⟨s96, hcore96, hlen96, hpres96,
-                                                  hm96⟩)
-                                              (fun J96 hJ96 => by
-                                                c0_hsplit
-                                                · c0_hsplit
-                                                  · have hml_ws :
-                                                        ml.toNat < sL3.scratch.wsort.length := by
-                                                      rw [hlenL3.scratch_ok.wsort_len]
-                                                      have hlt := hc
-                                                      omega
-                                                    c0_hsteps
-                                                    let ws96 :=
-                                                      sL3.scratch.wsort.set ml.toNat (v80 >>> 1#32)
-                                                    let s96 := FullState.mk sL3.core
-                                                      { sL3.scratch with wsort := ws96 }
-                                                    have hws96 := hlenL3.scratch_ok.wsort_len
-                                                    have hlen96 : s96.LengthsOk c :=
-                                                      ⟨hlenL3.core_ok, m7ScratchLengths_with_wsort
-                                                        hlenL3.scratch_ok
-                                                        (by simp [ws96, hws96])⟩
-                                                    exact hJ96 _ m96 ⟨s96, hcoreL3', hlen96,
-                                                      hpresL30, ‹_›⟩
-                                                  · c0_hsteps; exact hJ96 _ mL3
-                                                      ⟨sL3, hcoreL3', hlenL3, hpresL30, hmL3⟩
-                                                · c0_hsteps; exact hJ96 _ mL3
-                                                    ⟨sL3, hcoreL3', hlenL3, hpresL30, hmL3⟩))
+                                              exact hJ93 _ mL3 ⟨sL3, hcoreL3', hlenL3, hpresL30,
+                                                hmL3⟩)
                                       · c0_hsteps
                                         exact hJ_fin _ mL3 ⟨sL3, hcoreL3', hlenL3, hpresL30, hmL3⟩)
                             · c0_hsteps; exact hJ53X _ mL
@@ -1281,7 +1316,6 @@ theorem full_warmup_m7_wp (Γ : Env)
         have hcvL : sL.core.cur_vars = s.core.cur_vars := heqL.cur_vars_eq
         have hincL : sL.core.inconsistent = s.core.inconsistent := heqL.inconsistent_eq
         have hlenL := hinvL.lengths
-        c0_hsteps_nogrp
         c0_hsplit
         · -- steps < cv
           have hk_lt_bv : k.toNat < s.core.cur_vars % 2 ^ 64 := by assumption
@@ -1291,13 +1325,10 @@ theorem full_warmup_m7_wp (Γ : Env)
           have hk1 : (k + 1#64).toNat = k.toNat + 1 :=
             m7p_bv64_add1_lt hk_lt (by omega)
           have hlt_n : s.core.cur_vars - (k.toNat + 1) < fn := by omega
-          c0_hsteps_nogrp
           c0_hsplit
           · -- unassigned > 0
-            c0_hsteps_nogrp
             c0_hsplit
             · -- oom == 0
-              c0_hsteps_nogrp
               c0_hsplit
               · -- fuel > 0
                 c0_hsteps_nogrp
@@ -1348,10 +1379,9 @@ theorem full_warmup_m7_wp (Γ : Env)
                           have hcl_L2 : sL2.core.cur_level ≤ sL2.core.cur_vars := by
                             obtain ⟨_, hwL2⟩ := hinvL2.witness
                             exact Nat.le_trans hwL2.cur_level_le hlenL2.core_ok.trail_end_le
-                          c0_hsteps_nogrp
                           c0_hsplit
                           · -- nlvl > max_vars -> exit
-                            try c0_hsteps
+                            c0_hsteps
                             exact hJ46E (k, ()) m62
                               ⟨sL2, hinvL2, hpermL2, hfuelL2, hpresL20, heqL2, hdL2, hm62⟩
                           · have hmv := c.hmaxv
@@ -1424,7 +1454,8 @@ theorem full_warmup_m7_wp (Γ : Env)
                             refine ⟨c, sDec, R, rfl, hlenDec,
                               (by dsimp [sDec, nlvl]; have := hnlvl_le; have := c.hmaxv;
                                   unfold Examples.LratBytes.dimacsBound at this; omega),
-                              (by simp only [sDec, nlvl, ft', fd', ← hnlvl_nat, ← hte_bv]; exact hm), ?_⟩
+                              (by simp only [sDec, nlvl, ft', fd', ← hnlvl_nat, ← hte_bv]
+                                  exact hm), ?_⟩
                             split
                             · rename_i h; exact False.elim (hguard_false h)
                             · intro v rsn' unfl' flagsA unassA phasesA mA hflA hphA sA' hmA
@@ -1470,43 +1501,79 @@ theorem full_warmup_m7_wp (Γ : Env)
                                 (fun _ ⟨⟩ mJ
                                     ⟨sJ, hinvJ, hpermJ, hfuelJ, hpresJ, heqJ, hdJ, hmJ⟩ => by
                                   c0_hsteps
-                                  exact hJ46 (s.core.cur_vars - (k.toNat + 1)) (k + 1#64, ()) mJ hlt_n
+                                  exact hJ46 (s.core.cur_vars - (k.toNat + 1)) (k + 1#64, ())
+                                    mJ hlt_n
                                     ⟨sJ, by rw [hk1]; omega, by rw [hk1], hinvJ, hpermJ,
                                       hfuelJ, hpresJ, heqJ, hdJ, hmJ⟩)
                                 (fun J75 hJ75 => by
-                                  c0_hsteps_nogrp
-                                  c0_hsplit
-                                  · c0_hsteps_nogrp
+                                  refine wp_loop_group (ts := [])
+                                    (fun fn _ mP => ∃ sP, fn = sP.core.fuel.toNat ∧
+                                      FullCoreInv c F0 sP ∧ FullArenaPermEq s.core sP.core ∧
+                                      sP.core.fuel.toNat ≤ s.core.fuel.toNat ∧
+                                      FullExtScratchPres s sP ∧ M7WarmupCoreEq s.core sP.core ∧
+                                      sP.core.dense_mode = 0#64 ∧ (FullMem c sP ⋆ R) mP) ?_ ?_
+                                  · intro J_prop fn ⟨⟩ mP hJ_prop
+                                      ⟨sP, hfnP, hinvP, hpermP, hfuelP, hpresP, heqP, hdP, hmP⟩
+                                    have hlenP := hinvP.lengths
                                     c0_hsplit
-                                    · c0_hsteps_nogrp
+                                    · have hprop_lt : sP.core.propagated < sP.core.trail_end := by
+                                        have := hlenP.core_ok.trail_end_le
+                                        have := hlenP.core_ok.propagated_le
+                                        have := hlenP.core_ok.cur_vars_le
+                                        have := c.hmaxv
+                                        unfold Examples.LratBytes.dimacsBound at this
+                                        change (BitVec.ofNat 64 sP.core.propagated).toNat <
+                                            (BitVec.ofNat 64 sP.core.trail_end).toNat at hc
+                                        rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat,
+                                          Nat.mod_eq_of_lt (by omega),
+                                          Nat.mod_eq_of_lt (by omega)] at hc
+                                        exact hc
                                       c0_hsplit
-                                      · c0_hsteps_nogrp
-                                        refine m7Propagate_call hProp rfl hinvA hdA hmA
-                                          fun rprop sP mP hinvP hpermP hfuelP hpresP hprobP hclP hdP
-                                            hincP hcvP hd1P hd2P hgarbP hagP hfrP hniP hnrP hnbP
-                                            htcP htlP hmclP hmcfP hlmP hmrkP htmpP hmcP hfdP hrepP
-                                            hmstkP hmP => ?_
-                                        have hpermP0 := m7ArenaPermEq_trans hpermA hpermP
-                                        have hpresP0 : FullExtScratchPres s sP :=
-                                          ⟨hpresP.1.trans hpresA.1, hpresP.2.trans hpresA.2⟩
-                                        have heqP0 : M7WarmupCoreEq s.core sP.core := by
-                                          refine m7WarmupCoreEq_trans heqA ?_
-                                          exact ⟨hd1P, hd2P, hcvP, hpermP.arena_len_eq, hgarbP,
-                                            hagP, hfrP, hniP, hnrP, hnbP, htcP, htlP, hmclP,
-                                            hdP, hincP, hmcfP, hlmP, hmrkP, htmpP, hrepP, hmstkP⟩
-                                        c0_hsplit
+                                      · c0_hsplit
+                                        · c0_hsteps_nogrp
+                                          refine m7Propagate_call hProp rfl hinvP hdP hmP
+                                            fun r sP2 mP2 hinvP2 hpermP2 hfuelP2 hr_dom hr0_fuel
+                                              hr1_fuel hpresP2 hprobP2 hclP2 hdP2 hincP2 hcvP2
+                                              hd1P2 hd2P2 hgarbP2 hagP2 hfrP2 hniP2 hnrP2 hnbP2
+                                              htcP2 htlP2 hmclP2 hmcfP2 hlmP2 hmrkP2 htmpP2 hmcP2
+                                              hfdP2 hrepP2 hmstkP2 hmP2 => ?_
+                                          have hpermP0 := m7ArenaPermEq_trans hpermP hpermP2
+                                          have hfuelP0 : sP2.core.fuel.toNat ≤ s.core.fuel.toNat :=
+                                            Nat.le_trans hfuelP2 hfuelP
+                                          have hpresP0 : FullExtScratchPres s sP2 :=
+                                            ⟨hpresP2.1.trans hpresP.1, hpresP2.2.trans hpresP.2⟩
+                                          have heqP0 : M7WarmupCoreEq s.core sP2.core := by
+                                            refine m7WarmupCoreEq_trans heqP ?_
+                                            exact ⟨hd1P2, hd2P2, hcvP2, hpermP2.1,
+                                              hgarbP2, hagP2, hfrP2, hniP2, hnrP2, hnbP2, htcP2,
+                                              htlP2, hmclP2, hdP2, hincP2, hmcfP2, hlmP2, hmrkP2,
+                                              htmpP2, hrepP2, hmstkP2⟩
+                                          have hdP0 : sP2.core.dense_mode = 0#64 := by
+                                            rw [hdP2, hdP]
+                                          c0_hsplit
+                                          · c0_hsteps; exact hJ75 () mP2
+                                              ⟨sP2, hinvP2, hpermP0, hfuelP0, hpresP0, heqP0,
+                                                hdP0, hmP2⟩
+                                          · have hlt_fuel : sP2.core.fuel.toNat < fn := by
+                                              rw [hfnP]
+                                              rcases hr_dom with rfl | rfl | rfl
+                                              · exact hr0_fuel rfl hprop_lt
+                                              · exact hr1_fuel rfl
+                                              · exact absurd rfl hc
+                                            c0_hsteps
+                                            exact hJ_prop sP2.core.fuel.toNat () mP2 hlt_fuel
+                                              ⟨sP2, rfl, hinvP2, hpermP0, hfuelP0, hpresP0, heqP0,
+                                                hdP0, hmP2⟩
                                         · c0_hsteps; exact hJ75 () mP
-                                            ⟨sP, hinvP, hpermP0, by omega, hpresP0, heqP0,
-                                              by rw [hdP, hdA], hmP⟩
-                                        · c0_hsteps; exact hJ75 () mP
-                                            ⟨sP, hinvP, hpermP0, by omega, hpresP0, heqP0,
-                                              by rw [hdP, hdA], hmP⟩
-                                      · c0_hsteps; exact hJ75 () mA
-                                          ⟨sA, hinvA, hpermA, hfuelA, hpresA, heqA, hdA, hmA⟩
-                                    · c0_hsteps; exact hJ75 () mA
-                                        ⟨sA, hinvA, hpermA, hfuelA, hpresA, heqA, hdA, hmA⟩
-                                  · c0_hsteps; exact hJ75 () mA
-                                      ⟨sA, hinvA, hpermA, hfuelA, hpresA, heqA, hdA, hmA⟩))
+                                            ⟨sP, hinvP, hpermP, hfuelP, hpresP, heqP, hdP, hmP⟩
+                                      · c0_hsteps; exact hJ75 () mP
+                                          ⟨sP, hinvP, hpermP, hfuelP, hpresP, heqP, hdP, hmP⟩
+                                    · c0_hsteps; exact hJ75 () mP
+                                        ⟨sP, hinvP, hpermP, hfuelP, hpresP, heqP, hdP, hmP⟩
+                                  · intro J_prop hJ_prop
+                                    c0_hsteps
+                                    exact hJ_prop sA.core.fuel.toNat () mA
+                                      ⟨sA, rfl, hinvA, hpermA, hfuelA, hpresA, heqA, hdA, hmA⟩))
                         (fun J62 hJ62 => by
                           have hr29 : r.toNat < 2 ^ 29 := by
                             have := hr_lt
@@ -1523,19 +1590,18 @@ theorem full_warmup_m7_wp (Γ : Env)
                               ⟨Or.inl (m7p_lit_pos_shl64 hr29), hm61⟩))
                     (fun J61 hJ61 => by
                       c0_hsplit
-                      · c0_hsteps_nogrp
-                        c0_hsplit
+                      · c0_hsplit
                         · c0_hsteps; exact hJ61 _ _ hmL2
                         · c0_hsteps; exact hJ61 _ _ hmL2
                       · c0_hsteps; exact hJ61 _ _ hmL2)
-                · try c0_hsteps
-                  exact hJ46E (k, ()) mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
-              · try c0_hsteps
+              · c0_hsteps
                 exact hJ46E (k, ()) mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
-            · try c0_hsteps
+            · c0_hsteps
               exact hJ46E (k, ()) mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
-          · try c0_hsteps
+          · c0_hsteps
             exact hJ46E (k, ()) mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
+        · c0_hsteps
+          exact hJ46E (k, ()) mL ⟨sL, hinvL, hpermL, hfuelL, hpresL, heqL, hdL, hmL⟩
       · intro J46 hJ46
         c0_hsteps
         exact hJ46 s.core.cur_vars (0#64, ()) m
