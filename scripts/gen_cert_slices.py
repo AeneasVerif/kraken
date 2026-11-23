@@ -413,9 +413,69 @@ class ModulePreset:
     hdr_model: str = "full"
     default_max_dirs: int = DEFAULT_MAX_DIRS
     emit_sound: bool = True
+    source_ns: str | None = None
+    proof_ns: str | None = None
+    solve_spec_intro: str = "fullM6SolveBytesCoreModelSpec_intro"
+    solve_spec_has_sat: bool = True
+    solve_mem_thm: str | None = None
 
 
 MODULE_PRESETS: dict[str, ModulePreset] = {
+    "FullM7Fidelity": ModulePreset(
+        name="FullM7Fidelity",
+        prefix="KissatM7Fidelity",
+        stem="m7Fidelity",
+        source_mod="LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof",
+        hub_mod="LeanQbe.T.Examples.Kissat.M5Hub",
+        module_ok="m7Fidelity_moduleOk",
+        no_exit="m7FidelityEnv_noExit",
+        entry_const="FullM6Orch.m6oSolveBytesFn",
+        entry_spec="m7FidSolveBytesSpec",
+        default_total_fns=413,
+        inl_mod="LeanQbe.T.Examples.Kissat.FullM7FidelityInl",
+        inl_policy_mod="LeanQbe.T.Examples.Kissat.FullM7InlPolicy",
+        inl_fns="m7FidInlFns",
+        inl_mod_sym="m7FidInlMod",
+        inl_policy="m7InlPolicy",
+        sat_sound_mod="",
+        sat_nv_mod="LeanQbe.T.Examples.Kissat.FullM6SatNv",
+        hdr_model="m6",
+        default_max_dirs=M6_MAX_DIRS,
+        emit_sound=False,
+        source_ns="LeanQbe.T.Examples.Kissat.FullM7Fidelity",
+        proof_ns="LeanQbe.T.Examples.Kissat.FullM7Fidelity",
+        solve_spec_intro="m7FidSolveBytesSpec_intro",
+        solve_spec_has_sat=False,
+        solve_mem_thm="m7Fidelity_solveBytes_mem",
+    ),
+    "FullM7Plus": ModulePreset(
+        name="FullM7Plus",
+        prefix="KissatM7Plus",
+        stem="m7Plus",
+        source_mod="LeanQbe.T.Examples.Kissat.FullM7PlusAssembly",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullM7PlusAssemblyProof",
+        hub_mod="LeanQbe.T.Examples.Kissat.M5Hub",
+        module_ok="m7Plus_moduleOk",
+        entry_const="FullM6Orch.m6oSolveBytesFn",
+        entry_spec="m7PlusSolveBytesSpec",
+        default_total_fns=410,
+        inl_mod="LeanQbe.T.Examples.Kissat.FullM7PlusInl",
+        inl_policy_mod="LeanQbe.T.Examples.Kissat.FullM7InlPolicy",
+        inl_fns="m7PlusInlFns",
+        inl_mod_sym="m7PlusInlMod",
+        inl_policy="m7InlPolicy",
+        sat_sound_mod="",
+        sat_nv_mod="LeanQbe.T.Examples.Kissat.FullM6SatNv",
+        hdr_model="m6",
+        default_max_dirs=M6_MAX_DIRS,
+        emit_sound=False,
+        source_ns="LeanQbe.T.Examples.Kissat.FullM7Plus",
+        proof_ns="LeanQbe.T.Examples.Kissat.FullM7Plus",
+        solve_spec_intro="m7PlusSolveBytesSpec_intro",
+        solve_spec_has_sat=False,
+        solve_mem_thm="m7Plus_solveBytes_mem",
+    ),
     "FullM7": ModulePreset(
         name="FullM7",
         prefix="KissatM7",
@@ -526,6 +586,11 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
 
 PRESET_ALIASES: dict[str, str] = {
     **{k.lower(): k for k in MODULE_PRESETS},
+    "m7fidelity": "FullM7Fidelity",
+    "m7_fidelity": "FullM7Fidelity",
+    "m7fid": "FullM7Fidelity",
+    "m7plus": "FullM7Plus",
+    "m7_plus": "FullM7Plus",
     "m7": "FullM7",
     "m6": "FullM6",
     "m5": "FullM5",
@@ -571,6 +636,7 @@ class FnMetric:
     calls: int
     cost: float
     source: str
+    work: int = 0
 
 
 @dataclass(frozen=True)
@@ -651,11 +717,26 @@ class CertConfig:
     sound_env: str = ""
     sound_module_ok: str = ""
     sound_no_exit: str = ""
+    source_ns: str = ""
+    proof_ns: str = ""
+    solve_spec_intro: str = "fullM6SolveBytesCoreModelSpec_intro"
+    solve_spec_has_sat: bool = True
+    solve_mem_thm: str | None = None
 
     @property
     def is_inlined(self) -> bool:
         """Whether slices compile an external chunked/materialized `inl_mod`."""
         return bool(self.inl_mod)
+
+    @property
+    def open_source_ns(self) -> str:
+        """Namespace exported by `source_mod` (defaults to `source_mod`)."""
+        return self.source_ns or self.source_mod
+
+    @property
+    def open_proof_ns(self) -> str:
+        """Namespace exported by `proof_mod` (defaults to `proof_mod`)."""
+        return self.proof_ns or self.proof_mod
 
     @property
     def cert_fns(self) -> str:
@@ -666,6 +747,11 @@ class CertConfig:
     def cert_source_mod(self) -> str:
         """Module defining `cert_fns` for `Bounds` and `Cert1..N`."""
         return self.inl_mod if self.is_inlined and self.inl_mod else self.source_mod
+
+    @property
+    def cert_source_ns(self) -> str:
+        """Namespace for `cert_source_mod`."""
+        return self.inl_mod if self.is_inlined and self.inl_mod else self.open_source_ns
 
     @property
     def target_mod_expr(self) -> str:
@@ -810,6 +896,29 @@ def _split_top_level(expr: str, sep: str) -> list[str]:
     return parts
 
 
+def _split_top_level_ws(expr: str) -> list[str]:
+    """Split `expr` on whitespace outside parentheses/brackets/angle-brackets."""
+    parts: list[str] = []
+    depth = 0
+    cur: list[str] = []
+    for ch in expr:
+        if ch in "([⟨":
+            depth += 1
+            cur.append(ch)
+        elif ch in ")]⟩":
+            depth = max(0, depth - 1)
+            cur.append(ch)
+        elif depth == 0 and ch.isspace():
+            if cur:
+                parts.append("".join(cur))
+                cur = []
+        else:
+            cur.append(ch)
+    if cur:
+        parts.append("".join(cur))
+    return parts
+
+
 def _scan_kissat_sources(
     kissat_dir: Path,
 ) -> tuple[
@@ -817,15 +926,17 @@ def _scan_kissat_sources(
     dict[str, list[tuple[str, str]]],
     dict[str, str],
     dict[str, tuple[str, str]],
+    dict[str, str],
 ]:
-    """Collect C0 body metrics, `<pfx>_fns` literals, `List Fn` defs, and `Fn` aliases."""
+    """Collect C0 body metrics, `<pfx>_fns` literals, `List Fn`/`befores` defs, and `Fn` aliases."""
     c_metrics: dict[str, dict[str, int | str]] = {}
     list_literals: dict[str, list[tuple[str, str]]] = {}
     list_exprs: dict[str, str] = {}
     fn_aliases: dict[str, tuple[str, str]] = {}
+    before_exprs: dict[str, str] = {}
 
     if not kissat_dir.is_dir():
-        return c_metrics, list_literals, list_exprs, fn_aliases
+        return c_metrics, list_literals, list_exprs, fn_aliases, before_exprs
 
     for lean_file in sorted(kissat_dir.glob("*.lean")):
         txt = lean_file.read_text(encoding="utf-8")
@@ -844,23 +955,43 @@ def _scan_kissat_sources(
                     fn_aliases[f"Full.{n}"] = (n, n)
 
         clean = _strip_lean_comments(txt)
+        body_aliases: dict[str, str] = {}
+        for bm in re.finditer(
+            r"(?:def|private\s+def|abbrev)\s+(\w+)(?:\s*:\s*Func\b.*?)?\s*:=\s*(.*?)"
+            r"(?=\n(?:def|private|theorem|abbrev|end|@|/-))",
+            clean,
+            re.S,
+        ):
+            m_bdy = re.search(
+                r"\b((?:full|kissat|plain|m6)_[a-zA-Z0-9_]+?)_body\b", bm.group(2)
+            )
+            if m_bdy:
+                body_aliases[bm.group(1)] = m_bdy.group(1)
+
         for dm in re.finditer(
             r"(?:def|private\s+def|abbrev)\s+(\w+)\s*:\s*Fn\s*:=\s*(.*?)"
-            r"(?=\n(?:def|private|theorem|end|@|/-))",
+            r"(?=\n(?:def|private|theorem|abbrev|end|@|/-))",
             clean,
             re.S,
         ):
             lhs, rhs = dm.group(1), dm.group(2)
             m_nm = re.search(r'"([a-zA-Z0-9_]+)"', rhs)
-            m_bdy = re.search(r"\b((?:full|kissat|plain)_[a-zA-Z0-9_]+?)_body\b", rhs)
-            src_nm = m_bdy.group(1) if m_bdy else (m_nm.group(1) if m_nm else lhs)
+            m_bdy = re.search(r"\b((?:full|kissat|plain|m6)_[a-zA-Z0-9_]+?)_body\b", rhs)
+            src_nm = m_bdy.group(1) if m_bdy else None
+            if src_nm is None:
+                for tok in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", rhs):
+                    if tok in body_aliases:
+                        src_nm = body_aliases[tok]
+                        break
+            if src_nm is None:
+                src_nm = m_nm.group(1) if m_nm else lhs
             out_nm = m_nm.group(1) if m_nm else src_nm
             fn_aliases[lhs] = (out_nm, src_nm)
             fn_aliases[f"{mod_short}.{lhs}"] = (out_nm, src_nm)
 
         for lm in re.finditer(
             r"(?:def|private\s+def|abbrev)\s+(\w+)\s*:\s*List\s+Fn\s*:=\s*(.*?)"
-            r"(?=\n(?:def|private|theorem|end|@|/\-))",
+            r"(?=\n(?:def|private|theorem|abbrev|end|@|/\-))",
             clean,
             re.S,
         ):
@@ -868,7 +999,17 @@ def _scan_kissat_sources(
             list_exprs.setdefault(lhs, rhs)
             list_exprs[f"{mod_short}.{lhs}"] = rhs
 
-    return c_metrics, list_literals, list_exprs, fn_aliases
+        for bef in re.finditer(
+            r"(?:def|private\s+def|abbrev)\s+(\w+)\s*:\s*List\s*\(\s*Sym\s*×\s*List\s+Fn\s*\)\s*:=\s*(.*?)"
+            r"(?=\n(?:def|private|theorem|abbrev|end|@|/\-))",
+            clean,
+            re.S,
+        ):
+            lhs, rhs = bef.group(1), bef.group(2)
+            before_exprs.setdefault(lhs, rhs)
+            before_exprs[f"{mod_short}.{lhs}"] = rhs
+
+    return c_metrics, list_literals, list_exprs, fn_aliases, before_exprs
 
 
 def _eval_fn_lists(
@@ -876,9 +1017,11 @@ def _eval_fn_lists(
     list_literals: dict[str, list[tuple[str, str]]],
     list_exprs: dict[str, str],
     fn_aliases: dict[str, tuple[str, str]],
+    before_exprs: dict[str, str] | None = None,
 ) -> list[tuple[str, str]]:
-    """Statically evaluate `++`, `.take`, `.drop`, `[..]` over parsed `List Fn` defs."""
+    """Statically evaluate `++`, `.take`, `.drop`, `[..]`, `spliceFns`, `patchFns`."""
     memo: dict[str, list[tuple[str, str]]] = {}
+    bef_map_src = before_exprs or {}
 
     def eval_fn_item(item: str) -> tuple[str, str]:
         s = item.strip()
@@ -889,6 +1032,34 @@ def _eval_fn_lists(
             return fn_aliases[s]
         short = s.split(".")[-1]
         return fn_aliases.get(short, (short, short))
+
+    def eval_befores(expr: str, seen: set[str]) -> list[tuple[str, list[tuple[str, str]]]]:
+        p = _unwrap_parens(expr)
+        if "++" in p:
+            parts = _split_top_level(p, "++")
+            if len(parts) > 1:
+                out_b: list[tuple[str, list[tuple[str, str]]]] = []
+                for part in parts:
+                    out_b.extend(eval_befores(part, seen))
+                return out_b
+        if p.startswith("[") and p.endswith("]"):
+            inner = p[1:-1].strip()
+            if not inner:
+                return []
+            out_b = []
+            for it in _split_top_level(inner, ","):
+                tup = _unwrap_parens(it)
+                pair = _split_top_level(tup, ",")
+                if len(pair) == 2:
+                    m_anc = re.search(r'"([^"]+)"', pair[0])
+                    if m_anc:
+                        out_b.append((m_anc.group(1), eval_expr(pair[1], seen)))
+            return out_b
+        short = p.split(".")[-1]
+        resolved = p if p in bef_map_src else (short if short in bef_map_src else "")
+        if not resolved or resolved in seen:
+            return []
+        return eval_befores(bef_map_src[resolved], seen | {resolved})
 
     def eval_list(key: str, seen: set[str]) -> list[tuple[str, str]]:
         if key in memo:
@@ -915,6 +1086,31 @@ def _eval_fn_lists(
             if not inner:
                 return []
             return [eval_fn_item(it) for it in _split_top_level(inner, ",") if it.strip()]
+        m_patch = re.match(r"^(?:mfPatchFns|fidPatchFns|patchFns)\s+(.+)$", p, re.S)
+        if m_patch:
+            args = _split_top_level_ws(m_patch.group(1))
+            if len(args) == 3:
+                rep_pairs = eval_expr(args[0], seen)
+                bef_list = eval_befores(args[1], seen)
+                fs_pairs = eval_expr(args[2], seen)
+                rep_map = {out_nm: (out_nm, src_nm) for out_nm, src_nm in rep_pairs}
+                bef_by_anchor: dict[str, list[tuple[str, str]]] = {}
+                for anc, hs in bef_list:
+                    bef_by_anchor.setdefault(anc, []).extend(hs)
+                out_p: list[tuple[str, str]] = []
+                for out_nm, src_nm in fs_pairs:
+                    if out_nm in bef_by_anchor:
+                        out_p.extend(bef_by_anchor[out_nm])
+                    out_p.append(rep_map.get(out_nm, (out_nm, src_nm)))
+                return out_p
+        m_splice = re.match(r"^(?:mpSpliceFns|spliceFns)\s+(.+)$", p, re.S)
+        if m_splice:
+            args = _split_top_level_ws(m_splice.group(1))
+            if len(args) == 2:
+                rep_pairs = eval_expr(args[0], seen)
+                fs_pairs = eval_expr(args[1], seen)
+                rep_map = {out_nm: (out_nm, src_nm) for out_nm, src_nm in rep_pairs}
+                return [rep_map.get(out_nm, (out_nm, src_nm)) for out_nm, src_nm in fs_pairs]
         m_take = re.match(r"^(.*)\.take\s+(\d+)$", p, re.S)
         if m_take:
             return eval_expr(m_take.group(1), seen)[: int(m_take.group(2))]
@@ -972,12 +1168,18 @@ def resolve_static_metrics(
 ) -> tuple[FnMetric, ...]:
     """Estimate per-function compilation metrics from Lean/C0 sources without Lean."""
     kissat_dir = root / "LeanQbe" / "T" / "Examples" / "Kissat"
-    c_metrics, list_literals, list_exprs, fn_aliases = _scan_kissat_sources(kissat_dir)
+    c_metrics, list_literals, list_exprs, fn_aliases, before_exprs = _scan_kissat_sources(
+        kissat_dir
+    )
     src_short = source_mod.split(".")[-1]
-    fn_pairs = _eval_fn_lists(f"{src_short}.{fns_sym}", list_literals, list_exprs, fn_aliases)
+    fn_pairs = _eval_fn_lists(
+        f"{src_short}.{fns_sym}", list_literals, list_exprs, fn_aliases, before_exprs
+    )
 
     if not fn_pairs and stem == "m5":
-        m4_pairs = _eval_fn_lists("FullM4.m4Fns", list_literals, list_exprs, fn_aliases)
+        m4_pairs = _eval_fn_lists(
+            "FullM4.m4Fns", list_literals, list_exprs, fn_aliases, before_exprs
+        )
         if m4_pairs:
             fn_pairs = _synthesize_m5_fn_pairs(m4_pairs, kissat_dir, total_fns)
 
@@ -1049,18 +1251,29 @@ def load_profile_json(profile_path: Path) -> tuple[FnMetric, ...]:
         name = str(row.get("name", f"fn_{fn_idx}"))
         size = int(
             row.get(
-                "mid_tflat_size",
+                "ir_size",
                 row.get(
-                    "tflat_size",
-                    row.get("inl_tflat_size", row.get("raw_size", row.get("size", 80))),
+                    "mid_tflat_size",
+                    row.get(
+                        "tflat_size",
+                        row.get("inl_tflat_size", row.get("raw_size", row.get("size", 80))),
+                    ),
                 ),
             )
         )
         loops = int(row.get("mid_loops", row.get("loops", row.get("raw_loops", 0))))
         groups = int(row.get("mid_groups", row.get("groups", row.get("raw_groups", 1))))
         calls = int(row.get("mid_calls", row.get("calls", row.get("raw_calls", 0))))
+        work = int(
+            row.get("work", int(row.get("jnz", 0)) + int(row.get("defer", 0)))
+        )
         explicit = row.get("cost", row.get("weight"))
-        cost = float(explicit) if explicit is not None else compute_fn_cost(size, loops, groups, calls)
+        if explicit is not None:
+            cost = float(explicit)
+        elif work > 0:
+            cost = max(1.0, 68.38 * size + 2.355 * work)
+        else:
+            cost = compute_fn_cost(size, loops, groups, calls)
         metrics.append(
             FnMetric(
                 index=fn_idx,
@@ -1071,6 +1284,7 @@ def load_profile_json(profile_path: Path) -> tuple[FnMetric, ...]:
                 calls=calls,
                 cost=max(1.0, cost),
                 source="profile-json",
+                work=work,
             )
         )
     metrics.sort(key=lambda m: m.index)
@@ -1263,6 +1477,59 @@ def autobalance_slices(
     return tuple(
         SliceRange(index=idx, start=s, count=e - s)
         for idx, (s, e) in enumerate(chosen, start=1)
+    )
+
+
+def singleton_isolated_slices(
+    metrics: tuple[FnMetric, ...],
+    singleton_size: int = 350,
+    singleton_work: int = 2100,
+    max_slice_size: int = 500,
+    max_slice_count: int = 10,
+) -> tuple[SliceRange, ...]:
+    """Isolate heavy functions (`size >= singleton_size` or `work >= singleton_work`)
+    as singletons and pack remaining functions under `max_slice_size` and `max_slice_count`."""
+    if not metrics:
+        raise ValueError("cannot slice 0 functions")
+    if not 1 <= max_slice_count <= MAX_SLICE_SIZE:
+        raise ValueError(
+            f"max_slice_count must be in [1, {MAX_SLICE_SIZE}], got {max_slice_count}"
+        )
+    if max_slice_size <= 0:
+        raise ValueError(f"max_slice_size must be positive, got {max_slice_size}")
+    ranges: list[tuple[int, int]] = []
+    cur_start: int | None = None
+    cur_cnt = 0
+    cur_sz = 0
+    for idx, m in enumerate(metrics):
+        is_heavy = (singleton_size > 0 and m.size >= singleton_size) or (
+            singleton_work > 0 and m.work >= singleton_work
+        )
+        if is_heavy:
+            if cur_start is not None:
+                ranges.append((cur_start, idx))
+                cur_start = None
+                cur_cnt = 0
+                cur_sz = 0
+            ranges.append((idx, idx + 1))
+        else:
+            if cur_start is not None and (
+                cur_cnt >= max_slice_count or cur_sz + m.size > max_slice_size
+            ):
+                ranges.append((cur_start, idx))
+                cur_start = idx
+                cur_cnt = 1
+                cur_sz = m.size
+            else:
+                if cur_start is None:
+                    cur_start = idx
+                cur_cnt += 1
+                cur_sz += m.size
+    if cur_start is not None:
+        ranges.append((cur_start, len(metrics)))
+    return tuple(
+        SliceRange(index=i, start=s, count=e - s)
+        for i, (s, e) in enumerate(ranges, start=1)
     )
 
 
@@ -1491,7 +1758,7 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
         f"namespace {ns}",
         "",
-        *wrap_open_pairs(["LeanQbe.T", arch.ns_prefix, cert_src]),
+        *wrap_open_pairs(["LeanQbe.T", arch.ns_prefix, cfg.cert_source_ns]),
         "",
         "-- Auto-computed reversed `(sig, bound)` accumulator for the full module.",
         eval_call,
@@ -1535,7 +1802,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
     open_parts = ["LeanQbe.T", arch.ns_prefix]
     if uses_ext:
         open_parts.append(bounds_mod)
-    open_parts.append(cert_src)
+    open_parts.append(cfg.cert_source_ns)
 
     if total_slices == 1:
         mod_rhs = cert_fns
@@ -1651,7 +1918,7 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
         f"meta import {cfg.cert_source_mod}",
     ]
 
-    open_items = ["LeanQbe.T", arch.ns_prefix, cfg.source_mod]
+    open_items = ["LeanQbe.T", arch.ns_prefix, cfg.open_source_ns]
     if is_inl:
         if cfg.inl_mod:
             open_items.append(cfg.inl_mod)
@@ -1991,13 +2258,56 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
             f"    {cfg.acyclic} {cfg.wf} {cfg.legal_sig} hsound hf (hnoex f hf)",
         ]
 
-    # Single-line `< 115c` axiom audit: alias `solve_*_of_fnspec` when needed.
+    # Single-line `< 115c` axiom audit: alias long names when needed.
+    legal_alias_lines: list[str] = []
     axiom_section: list[str] = []
     if cfg.print_axioms:
         audit_names: list[str] = []
-        for cand in (cfg.legal_sig, "mk_module_fnspec"):
-            if worst_case_axiom_len(ns, cand) <= MAX_AXIOM_REPORT_LEN:
-                audit_names.append(cand)
+        if worst_case_axiom_len(ns, cfg.legal_sig) <= MAX_AXIOM_REPORT_LEN:
+            audit_names.append(cfg.legal_sig)
+        elif worst_case_axiom_len(ns, "ax_legal") <= MAX_AXIOM_REPORT_LEN:
+            legal_alias_lines = [
+                "",
+                f"theorem ax_legal : LegalSigAll {arch.lt} {cfg.fns} :=",
+                f"  {cfg.legal_sig}",
+            ]
+            audit_names.append("ax_legal")
+        if worst_case_axiom_len(ns, "mk_module_fnspec") <= MAX_AXIOM_REPORT_LEN:
+            audit_names.append("mk_module_fnspec")
+        elif worst_case_axiom_len(ns, "ax_fnspec") <= MAX_AXIOM_REPORT_LEN:
+            if cfg.is_inlined:
+                fnspec_alias_lines = [
+                    "",
+                    "theorem ax_fnspec (Γ : Env)",
+                    f"    (hM : ModuleOk Γ {cfg.mod})",
+                    f"    (hnoex : ∀ g ∈ {cfg.fns}, ∀ args m Q X X',",
+                    "      Γ g.name g.as g.rs args m Q X → Γ g.name g.as g.rs args m Q X')",
+                    f"    (k₀ : Nat) (hc : {cfg.cert_name}.code.IsInfixAt Host.prog k₀)",
+                    "    (hu : Host.LabelsUnique)",
+                    f"    {{f : Fn}} (hf : f ∈ {cfg.mod}.fns) :",
+                    f"    {arch.targ}.Defined hh f.name ∧",
+                    f"      {arch.targ}.FnSpec hh f.name (Γ f.name f.as f.rs) "
+                    f"({cfg.cert_name}.bound f.name) 0 :=",
+                    "  mk_module_fnspec Γ hM hnoex k₀ hc hu hf",
+                ]
+            else:
+                fnspec_alias_lines = [
+                    "",
+                    "theorem ax_fnspec (Γ : Env)",
+                    f"    (hsound : ∀ f ∈ {cfg.fns}, ∀ args m Q X,",
+                    "      Γ f.name f.as f.rs args m Q X → Func.wp Γ f.body args m Q X)",
+                    f"    (hnoex : ∀ g ∈ {cfg.fns}, ∀ args m Q X X',",
+                    "      Γ g.name g.as g.rs args m Q X → Γ g.name g.as g.rs args m Q X')",
+                    f"    (k₀ : Nat) (hc : {cfg.cert_name}.code.IsInfixAt Host.prog k₀)",
+                    "    (hu : Host.LabelsUnique)",
+                    f"    {{f : Fn}} (hf : f ∈ {cfg.mod}.fns) :",
+                    f"    {arch.targ}.Defined hh f.name ∧",
+                    f"      {arch.targ}.FnSpec hh f.name (Γ f.name f.as f.rs) "
+                    f"({cfg.cert_name}.bound f.name) 0 :=",
+                    "  mk_module_fnspec Γ hsound hnoex k₀ hc hu hf",
+                ]
+            mk_fnspec_lines.extend(fnspec_alias_lines)
+            audit_names.append("ax_fnspec")
         if worst_case_axiom_len(ns, solve_name) <= MAX_AXIOM_REPORT_LEN:
             audit_names.append(solve_name)
         elif worst_case_axiom_len(ns, "ax_solve") <= MAX_AXIOM_REPORT_LEN:
@@ -2037,7 +2347,7 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
         f"namespace {ns}",
         "",
         *wrap_open_pairs(
-            ["LeanQbe.T", arch.ns_prefix, cert_mod, cfg.source_mod, "Kraken"]
+            ["LeanQbe.T", arch.ns_prefix, cert_mod, cfg.open_source_ns, "Kraken"]
         ),
         "",
         f"private theorem {cfg.stem}_legalSig_check :",
@@ -2048,6 +2358,7 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
         f"`{arch.lt}.legalSig`. -/",
         f"theorem {cfg.legal_sig} : LegalSigAll {arch.lt} {cfg.fns} :=",
         f"  legalSigAll_of_check {cfg.stem}_legalSig_check",
+        *legal_alias_lines,
         "",
         "section Generic",
         "variable [hh : Host]",
@@ -2098,12 +2409,20 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         pub_imports.append(f"public import {cfg.proof_mod}")
     priv_imports: list[str] = [f"import {arch.lemmas_mod}"]
     if cfg.wrapper_mode == "full" and cfg.hdr_model == "m6":
-        sound_mod = cfg.sat_sound_mod or "LeanQbe.T.Examples.Kissat.FullM6SatSound"
+        sound_mod = (
+            cfg.sat_sound_mod
+            if cfg.sat_sound_mod is not None
+            else "LeanQbe.T.Examples.Kissat.FullM6SatSound"
+        )
         nv_mod = cfg.sat_nv_mod or "LeanQbe.T.Examples.Kissat.FullM6SatNv"
         if cfg.emit_sound:
-            pub_imports.extend([f"public import {sound_mod}", f"public import {nv_mod}"])
+            if sound_mod:
+                pub_imports.append(f"public import {sound_mod}")
+            pub_imports.append(f"public import {nv_mod}")
         else:
-            priv_imports.extend([f"import {sound_mod}", f"import {nv_mod}"])
+            if sound_mod:
+                priv_imports.append(f"import {sound_mod}")
+            priv_imports.append(f"import {nv_mod}")
     if cfg.wrapper_mode == "full":
         priv_imports.extend(
             [
@@ -2120,7 +2439,7 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         "LeanQbe.T",
         "LeanQbe.T.Examples.Kissat",
         "LeanQbe.T.Examples.LratBytes",
-        cfg.source_mod,
+        cfg.open_source_ns,
         arch.ns_prefix,
         link_mod,
         "Kraken",
@@ -2131,7 +2450,7 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
                 "LeanQbe.T.Examples.Kissat.FullM6",
                 "LeanQbe.T.Examples.Kissat.FullM6Hdr",
                 "LeanQbe.T.Examples.Kissat.FullM6Orch",
-                cfg.proof_mod,
+                cfg.open_proof_ns,
             ]
         )
     if cfg.wrapper_mode == "full" and (
@@ -2214,13 +2533,23 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
                 f"{cfg.fns}_nodup",
                 "",
             ]
-        body.extend(
-            [
+        if cfg.solve_mem_thm:
+            solve_in_lines = [
+                f"theorem solve_in_{cfg.mod} :",
+                f"    {cfg.entry_const} ∈ {cfg.mod}.fns :=",
+                f"  {cfg.solve_mem_thm}",
+            ]
+        else:
+            solve_in_lines = [
                 f"theorem solve_in_{cfg.mod} :",
                 f"    {cfg.entry_const} ∈ {cfg.mod}.fns := by",
                 "  exact List.mem_of_getElem?",
                 f"    (by t_kernel_rfl : ({cfg.mod}.fns)[{cfg.entry_idx}]? = "
                 f"some {cfg.entry_const})",
+            ]
+        body.extend(
+            [
+                *solve_in_lines,
                 "",
                 *extra_helpers,
                 "theorem sep_exists_eq {P Q : Mem 64 → Prop} {M : Mem 64}",
@@ -2240,10 +2569,32 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         audit_names: list[str] = []
         if worst_case_axiom_len(ns, compiled_name) <= MAX_AXIOM_REPORT_LEN:
             audit_names.append(compiled_name)
-        if cfg.wrapper_mode in ("fnspec", "full") and (
-            worst_case_axiom_len(ns, fnspec_thm) <= MAX_AXIOM_REPORT_LEN
-        ):
-            audit_names.append(fnspec_thm)
+        elif worst_case_axiom_len(ns, "ax_compiled") <= MAX_AXIOM_REPORT_LEN:
+            body.extend(
+                [
+                    f"noncomputable abbrev ax_compiled := {compiled_name}",
+                    "",
+                ]
+            )
+            audit_names.append("ax_compiled")
+        if cfg.wrapper_mode in ("fnspec", "full"):
+            if worst_case_axiom_len(ns, fnspec_thm) <= MAX_AXIOM_REPORT_LEN:
+                audit_names.append(fnspec_thm)
+            elif worst_case_axiom_len(ns, "ax_fnspec") <= MAX_AXIOM_REPORT_LEN:
+                body.extend(
+                    [
+                        "theorem ax_fnspec [hh : Host] (k₀ : Nat)",
+                        f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
+                        "    (hu : Host.LabelsUnique)",
+                        f"    {{f : Fn}} (hf : f ∈ {cfg.mod}.fns) :",
+                        f"    {arch.targ}.Defined hh f.name ∧",
+                        f"      {arch.targ}.FnSpec hh f.name ({cfg.env} f.name f.as f.rs)",
+                        f"        ({compiled_name}.bound f.name) 0 :=",
+                        f"  {fnspec_thm} k₀ hc hu hf",
+                        "",
+                    ]
+                )
+                audit_names.append("ax_fnspec")
         audit_names.extend(unsat_audit)
         if audit_names:
             axiom_section = [*render_axiom_prints(ns, audit_names), ""]
@@ -2285,8 +2636,15 @@ def _render_nv_payload_helpers(stem: str) -> list[str]:
     return [
         f"def {stem}NvWorkLen : Nat := {M6_NV_WORK_LEN}",
         "",
+        f"theorem {stem}NvWorkLen_eq : {stem}NvWorkLen = {M6_NV_WORK_LEN} := by",
+        f"  unfold {stem}NvWorkLen; rfl",
+        "",
         f"def {stem}NvPayload (cnfBytes : List UInt8) : List UInt8 :=",
         f"  cnfBytes ++ List.replicate {stem}NvWorkLen 0",
+        "",
+        f"theorem {stem}NvPayload_eq (cnfBytes : List UInt8) :",
+        f"    {stem}NvPayload cnfBytes = cnfBytes ++ List.replicate {M6_NV_WORK_LEN} 0 := by",
+        f"  unfold {stem}NvPayload {stem}NvWorkLen; rfl",
         "",
         f"theorem {stem}NvPayload_length (cnfBytes : List UInt8) :",
         f"    ({stem}NvPayload cnfBytes).length = cnfBytes.length + {stem}NvWorkLen := by",
@@ -2349,6 +2707,54 @@ def render_m6_unsat_section(
         f"      ⟨s, {entry_label}⟩",
     ]
 
+    unsat_lam = (
+        "        (fun _ _ hdom hu _ _ hm' =>"
+        if cfg.solve_spec_has_sat
+        else "        (fun _ _ hdom hu _ hm' =>"
+    )
+    nv_lam = (
+        "        (fun _ _ _ _ _ htr _ =>"
+        if cfg.solve_spec_has_sat
+        else "        (fun _ _ _ _ htr _ =>"
+    )
+    run_lam = (
+        "      (fun _ m' _ _ _ htr hm' =>"
+        if cfg.solve_spec_has_sat
+        else "      (fun _ m' _ _ htr hm' =>"
+    )
+    nv_ret = [
+        "    ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) "
+        "(wlen : Nat)",
+        "      (s : MachineData) (ra : Int64) (R : Mem 64 → Prop),",
+        "      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧",
+        "      work_ptr.toNat + wlen < 2 ^ 64 ∧",
+        *arch.nv_reg_preds(bound_expr),
+        "      Eventually (step1 Host.exe)",
+        f"        (fun st => st.pc = ra ∧ {arch.ret_reg} = 20#64 ∧",
+        "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)",
+        f"        ⟨s, {entry_label}⟩",
+    ]
+    run_ret = [
+        f"    Eventually ({arch.targ}.mach.step {compiled_name}.host)",
+        "      (fun st =>",
+        f"        {arch.targ}.mach.pc st = {arch.init_name}.ra0 ∧",
+        f"        {arch.ret_gpr_expr} = 20#64 ∧",
+        f"        ({arch.targ}.mach.mem ({arch.targ}.mach.data st) =⋆",
+        "          (fun m' => nvM6UnsatCnf.Unsat ∧",
+        "            (bytes nvM6CnfPtr nvM6UnsatBytes ⋆",
+        f"              region nvM6UnsatWorkPtr {nv_wlen} ⋆ emp) m') ⋆",
+        f"          {arch.targ}.Exit {arch.init_name}.sp0",
+        f"            ({compiled_name}.bound \"{cfg.entry_fn}\") ⋆ emp))",
+        f"      ({arch.targ}.mach.mkState",
+        f"        ({arch.init_name}.initState (as := [i64, i64, i64, i64, i64])",
+        f"          ({compiled_name}.bound \"{cfg.entry_fn}\")",
+        f"          ({nv_pay} nvM6UnsatBytes)",
+        "          (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,",
+        f"            nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ()))",
+        f"        ({arch.targ}.mach.labelAddr {compiled_name}.host "
+        f"\"{cfg.entry_fn}\"))",
+    ]
+
     lines = [
         *_render_nv_payload_helpers(cfg.stem),
         "section Unsat",
@@ -2391,9 +2797,9 @@ def render_m6_unsat_section(
         "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
         "      (fun _ _ _ _ => False) :=",
         f"    {cfg.env}_solve_bytes_iff.mpr",
-        "      (fullM6SolveBytesCoreModelSpec_intro (R := emp) hcfit hwfit",
+        f"      ({cfg.solve_spec_intro} (R := emp) hcfit hwfit",
         "        (by rw [sep_emp]; exact hm_in)",
-        "        (fun _ _ hdom hu _ _ hm' =>",
+        unsat_lam,
         "          by rw [sep_emp] at hm'; exact ⟨hdom, hu, hm'⟩))",
         "  refine eventually_weaken _ _ _ _ ?_",
         f"    ({cfg.prefix}CertLink.{solve_name} hfn cnf_ptr _ "
@@ -2468,16 +2874,8 @@ def render_m6_unsat_section(
         f"theorem {nv_thm} [hh : Host] (k₀ : Nat)",
         f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀) "
         "(hu : Host.LabelsUnique) :",
-        "    ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) "
-        "(wlen : Nat)",
-        "      (s : MachineData) (ra : Int64) (R : Mem 64 → Prop),",
-        "      cnf_ptr.toNat + cnfBytes.length < 2 ^ 64 ∧",
-        "      work_ptr.toNat + wlen < 2 ^ 64 ∧",
-        *arch.nv_reg_preds(bound_expr),
-        "      Eventually (step1 Host.exe)",
-        f"        (fun st => st.pc = ra ∧ {arch.ret_reg} = 20#64 ∧",
-        "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat)",
-        f"        ⟨s, {entry_label}⟩ := by",
+        *nv_ret[:-1],
+        f"{nv_ret[-1]} := by",
         f"  have hfn : {arch.targ}.FnSpec hh \"{cfg.entry_fn}\"",
         f"      ({cfg.unsat_env} \"{cfg.entry_fn}\" "
         "[i64, i64, i64, i64, i64] [i64])",
@@ -2507,12 +2905,12 @@ def render_m6_unsat_section(
         "      (bs.At 0x1000#64) (fun r _ => r.fst = 20#64 ∧ nvM6UnsatCnf.Unsat)",
         "      (fun _ _ _ _ => False) :=",
         f"    {cfg.unsat_env}_solve_bytes_iff.mpr",
-        "      (fullM6SolveBytesCoreModelSpec_intro (R := emp) "
+        f"      ({cfg.solve_spec_intro} (R := emp) "
         "(by decide) (by decide)",
         "        (by",
         f"          rw [sep_emp, nvM6UnsatWorkPtr_eq_fullNvWorkPtr]",
         f"          exact {nv_pay}_sep nvM6UnsatBytes (by decide))",
-        "        (fun _ _ _ _ _ htr _ =>",
+        nv_lam,
         f"          ⟨htr 1 2 9 (by decide) (by decide) (by decide) "
         f"{cfg.stem}Nv_unsat_bound",
         "            (by decide) nvM6Unsat_header nvM6Unsat_unitTrace, "
@@ -2532,26 +2930,10 @@ def render_m6_unsat_section(
             f"on `{compiled_name}.host` (`432`-word `FullM6Hdr`). -/"
         ),
         f"theorem {run_thm} :",
-        f"    Eventually ({arch.targ}.mach.step {compiled_name}.host)",
-        "      (fun st =>",
-        f"        {arch.targ}.mach.pc st = {arch.init_name}.ra0 ∧",
-        f"        {arch.ret_gpr_expr} = 20#64 ∧",
-        f"        ({arch.targ}.mach.mem ({arch.targ}.mach.data st) =⋆",
-        "          (fun m' => nvM6UnsatCnf.Unsat ∧",
-        "            (bytes nvM6CnfPtr nvM6UnsatBytes ⋆",
-        f"              region nvM6UnsatWorkPtr {nv_wlen} ⋆ emp) m') ⋆",
-        f"          {arch.targ}.Exit {arch.init_name}.sp0",
-        f"            ({compiled_name}.bound \"{cfg.entry_fn}\") ⋆ emp))",
-        f"      ({arch.targ}.mach.mkState",
-        f"        ({arch.init_name}.initState (as := [i64, i64, i64, i64, i64])",
-        f"          ({compiled_name}.bound \"{cfg.entry_fn}\")",
-        f"          ({nv_pay} nvM6UnsatBytes)",
-        "          (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,",
-        f"            nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ()))",
-        f"        ({arch.targ}.mach.labelAddr {compiled_name}.host "
-        f"\"{cfg.entry_fn}\")) := by",
-        f"  refine {compiled_name}.eventually_ret1_sep_i64_of_legalSigAll_optInlinePolicy "
-        f"{arch.init_name}",
+        *run_ret[:-1],
+        f"{run_ret[-1]} := by",
+        f"  refine {compiled_name}.eventually_ret1_sep_i64_of_legalSigAll_optInlinePolicy",
+        f"    {arch.init_name}",
         f"    {cfg.unsat_env} {cfg.unsat_module_ok} {cfg.legal_sig} "
         f"solve_in_{cfg.mod} rfl",
         f"    ({cfg.unsat_no_exit} \"{cfg.entry_fn}\" "
@@ -2569,12 +2951,12 @@ def render_m6_unsat_section(
         f"        region nvM6UnsatWorkPtr {nv_wlen} ⋆ emp) m')",
         "    ?_ (fun _ _ h => h) (by decide)",
         f"  exact {cfg.unsat_env}_solve_bytes_iff.mpr",
-        "    (fullM6SolveBytesCoreModelSpec_intro (R := emp) "
+        f"    ({cfg.solve_spec_intro} (R := emp) "
         "(by decide) (by decide)",
         "      (by",
         f"        rw [sep_emp, nvM6UnsatWorkPtr_eq_fullNvWorkPtr]",
         f"        exact {nv_pay}_sep nvM6UnsatBytes (by decide))",
-        "      (fun _ m' _ _ _ htr hm' =>",
+        run_lam,
         f"        ⟨congrArg (·, ()) (htr 1 2 9 (by decide) (by decide) (by decide) "
         f"{cfg.stem}Nv_unsat_bound",
         "          (by decide) nvM6Unsat_header nvM6Unsat_unitTrace),",
@@ -2583,9 +2965,34 @@ def render_m6_unsat_section(
         ]
     )
 
-    for cand in (nv_thm, run_thm):
-        if worst_case_axiom_len(ns, cand) <= MAX_AXIOM_REPORT_LEN:
-            audit_names.append(cand)
+    if worst_case_axiom_len(ns, nv_thm) <= MAX_AXIOM_REPORT_LEN:
+        audit_names.append(nv_thm)
+    elif cfg.print_axioms and worst_case_axiom_len(ns, "ax_unsat_nv") <= MAX_AXIOM_REPORT_LEN:
+        lines.extend(
+            [
+                "theorem ax_unsat_nv [hh : Host] (k₀ : Nat)",
+                f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀) "
+                "(hu : Host.LabelsUnique) :",
+                *nv_ret[:-1],
+                f"{nv_ret[-1]} :=",
+                f"  {nv_thm} k₀ hc hu",
+                "",
+            ]
+        )
+        audit_names.append("ax_unsat_nv")
+    if worst_case_axiom_len(ns, run_thm) <= MAX_AXIOM_REPORT_LEN:
+        audit_names.append(run_thm)
+    elif cfg.print_axioms and worst_case_axiom_len(ns, "ax_run_unsat") <= MAX_AXIOM_REPORT_LEN:
+        lines.extend(
+            [
+                "theorem ax_run_unsat :",
+                *run_ret[:-1],
+                f"{run_ret[-1]} :=",
+                f"  {run_thm}",
+                "",
+            ]
+        )
+        audit_names.append("ax_run_unsat")
     return lines, audit_names
 
 
@@ -3400,8 +3807,28 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         if args.hdr_model != "auto"
         else (preset.hdr_model if preset else "full")
     )
-    sat_sound_mod = args.sat_sound_mod or (preset.sat_sound_mod if preset else None)
+    sat_sound_mod = (
+        args.sat_sound_mod
+        if args.sat_sound_mod is not None
+        else (preset.sat_sound_mod if preset else None)
+    )
     sat_nv_mod = args.sat_nv_mod or (preset.sat_nv_mod if preset else None)
+    source_ns = args.source_ns or (preset.source_ns if preset and preset.source_ns else source_mod)
+    proof_ns = args.proof_ns or (preset.proof_ns if preset and preset.proof_ns else proof_mod)
+    emit_sound = (
+        args.emit_sound
+        if args.emit_sound is not None
+        else (preset.emit_sound if preset else True)
+    )
+    solve_spec_intro = args.solve_spec_intro or (
+        preset.solve_spec_intro if preset else "fullM6SolveBytesCoreModelSpec_intro"
+    )
+    solve_spec_has_sat = (
+        False
+        if args.solve_spec_no_sat
+        else (preset.solve_spec_has_sat if preset else True)
+    )
+    solve_mem_thm = args.solve_mem_thm or (preset.solve_mem_thm if preset else None)
     max_dirs = (
         args.max_dirs
         if args.max_dirs is not None
@@ -3450,6 +3877,17 @@ def build_config(args: argparse.Namespace) -> CertConfig:
 
     if explicit_sizes is not None:
         slices = compute_slices(total_fns, args.slice_size, explicit_sizes)
+    elif args.max_slice_size is not None or args.singleton_size is not None:
+        sing_sz = args.singleton_size if args.singleton_size is not None else 350
+        sing_wk = args.singleton_work if args.singleton_work is not None else sing_sz * 6
+        max_sz = args.max_slice_size if args.max_slice_size is not None else 500
+        slices = singleton_isolated_slices(
+            fn_metrics,
+            singleton_size=sing_sz,
+            singleton_work=sing_wk,
+            max_slice_size=max_sz,
+            max_slice_count=args.slice_size,
+        )
     elif args.balance:
         slices = autobalance_slices(
             fn_metrics,
@@ -3528,13 +3966,18 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         sat_sound_mod=sat_sound_mod,
         sat_nv_mod=sat_nv_mod,
         hdr_model=hdr_model,
-        emit_sound=preset.emit_sound if preset else True,
+        emit_sound=emit_sound,
         unsat_env=unsat_env,
         unsat_module_ok=unsat_module_ok,
         unsat_no_exit=unsat_no_exit,
         sound_env=sound_env,
         sound_module_ok=sound_module_ok,
         sound_no_exit=sound_no_exit,
+        source_ns=source_ns,
+        proof_ns=proof_ns,
+        solve_spec_intro=solve_spec_intro,
+        solve_spec_has_sat=solve_spec_has_sat,
+        solve_mem_thm=solve_mem_thm,
     )
 
 
@@ -3566,7 +4009,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--root", default=".", help="Repository root for total-fn inference.")
     ap.add_argument("--out-dir", default=".", help="Output root directory (default: .).")
     ap.add_argument("--source-mod", help="Source Kissat module (e.g. ...FullM6).")
+    ap.add_argument("--source-ns", help="Namespace exported by --source-mod (if different).")
     ap.add_argument("--proof-mod", help="Proof module (default: <source-mod>Proof).")
+    ap.add_argument("--proof-ns", help="Namespace exported by --proof-mod (if different).")
     ap.add_argument("--inl-mod", help="Optional chunked/inlined module (e.g. ...FullM6Inl).")
     ap.add_argument("--inl-policy-mod", help="Inline policy module (e.g. ...FullM6InlPolicy).")
     ap.add_argument("--inl-fns", help="Inlined function list identifier (default: <stem>InlFns).")
@@ -3579,6 +4024,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument("--sat-sound-mod", help="M6Hdr SAT+UNSAT soundness bridge module.")
     ap.add_argument("--sat-nv-mod", help="M6Hdr concrete non-vacuity witness module.")
+    ap.add_argument(
+        "--sound",
+        dest="emit_sound",
+        action="store_true",
+        default=None,
+        help="Emit `<Prefix>Sound.lean` wrapper for m6 model (default: per preset or on).",
+    )
+    ap.add_argument(
+        "--no-sound",
+        dest="emit_sound",
+        action="store_false",
+        help="Omit `<Prefix>Sound.lean` wrapper (UNSAT-only).",
+    )
+    ap.add_argument(
+        "--solve-spec-intro",
+        help="Intro constructor lemma for solve bytes spec (default: fullM6SolveBytesCoreModelSpec_intro).",
+    )
+    ap.add_argument(
+        "--solve-spec-no-sat",
+        action="store_true",
+        help="Solve spec intro callback takes 6 args (no SAT model hypothesis).",
+    )
+    ap.add_argument(
+        "--solve-mem-thm",
+        help="Optional `<entry_const> ∈ <mod>.fns` theorem (avoids `t_kernel_rfl`).",
+    )
     ap.add_argument(
         "--hdr-model",
         choices=("auto", "full", "m6"),
@@ -3618,9 +4089,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--total-fns", type=int, help="Total functions in module.")
     ap.add_argument(
         "--slice-size",
+        "--max-slice-count",
+        dest="slice_size",
         type=int,
         default=MAX_SLICE_SIZE,
         help=f"Max functions per slice, 1..{MAX_SLICE_SIZE} (default: {MAX_SLICE_SIZE}).",
+    )
+    ap.add_argument(
+        "--max-slice-size",
+        type=int,
+        default=None,
+        help="Optional max cumulative IR size per multi-fn slice (enables singleton isolation).",
+    )
+    ap.add_argument(
+        "--singleton-size",
+        type=int,
+        default=None,
+        help="Optional IR size floor isolating heavy functions as singletons (e.g. 350).",
+    )
+    ap.add_argument(
+        "--singleton-work",
+        type=int,
+        default=None,
+        help="Optional Rega lookahead work floor isolating heavy singletons (default: 6*singleton_size).",
     )
     ap.add_argument(
         "--slice-sizes",
