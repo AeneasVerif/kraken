@@ -248,6 +248,8 @@ public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof
 public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof0
 public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof1
 public import LeanQbe.T.Examples.Kissat.FullM7OrchProof0
+public import LeanQbe.T.Examples.Kissat.FullM7ParityBvaTie
+public import LeanQbe.T.Examples.Kissat.FullM7ParityBvaTieProof
 public import LeanQbe.T.Examples.Kissat.FullM7ParityVivTiers
 public import LeanQbe.T.Examples.Kissat.FullM7ParityVivTiersProof
 public import LeanQbe.T.Examples.Kissat.FullM7ParityVivTiersProof0
