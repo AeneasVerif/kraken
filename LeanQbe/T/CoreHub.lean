@@ -25,6 +25,7 @@ public import LeanQbe.T.IL
 public import LeanQbe.T.IfOpt
 public import LeanQbe.T.IfOptLemmas
 public import LeanQbe.T.Inline
+public import LeanQbe.T.InlineChunk
 public import LeanQbe.T.InlineLemmas
 public import LeanQbe.T.IselStepAttr
 public import LeanQbe.T.Legal
@@ -91,6 +92,7 @@ public import LeanQbe.T.Main
 public import LeanQbe.T.MainCertCore
 public import LeanQbe.T.MainCertElab
 public import LeanQbe.T.MainCertInline
+public import LeanQbe.T.MainCertInlineChunk
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.MainCertScc
 public import LeanQbe.T.MainInline
