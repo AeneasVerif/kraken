@@ -77,6 +77,7 @@ structure SymState (I : Isa) where
   defs : Trie DefFact
   vecWidths : Trie SlotWidth
   memDefs : Trie (Ty × Arg VNat i64) := .empty
+  zeroExt32 : List I.Reg := []
 
 structure Ext where
   callees : List (Sym × List Ty × List Ty) := []
@@ -188,6 +189,9 @@ def killRegs (I : Isa) (gClob : List I.Reg) (vClob : List I.VReg) (fClob : FlagM
     List (SymArg × RegLoc I.Reg I.VReg I.Cond) :=
   R.filter fun p => keepRegLoc I gClob vClob fClob p.2
 
+def killZeroExt {Reg : Type} [DecidableEq Reg] (gClob : List Reg) (zeroExt : List Reg) : List Reg :=
+  zeroExt.filter fun r => !(gClob.contains r)
+
 def eraseIfOverlaps (i d : Nat) (slots : Trie SlotEntry) : Trie SlotEntry :=
   if Nat.ble d i then
     match slots.find? (i - d) with
@@ -252,14 +256,25 @@ def execMove (I : Isa) (nslots : Nat) (saved : List I.Reg) (mv : I.Move) (st : S
   | .mov d s =>
     if !isMoveGpr I saved d then none
     else if d == s then some (I.gpr.mov d s, st)
-    else some (I.gpr.mov d s,
-      { st with regs := (gprTaggedEntries s st.regs).map (fun (sa, z) =>
-                          (sa, if z then RegLoc.gprZ d else .gpr d)) ++
-                        killRegs I [d] [] FlagMask.none st.regs })
+    else
+      let zExt := if st.zeroExt32.contains s then d :: killZeroExt [d] st.zeroExt32
+                  else killZeroExt [d] st.zeroExt32
+      some (I.gpr.mov d s,
+        { st with
+          regs := (gprTaggedEntries s st.regs).map (fun (sa, z) =>
+                    (sa, if z then RegLoc.gprZ d else .gpr d)) ++
+                  killRegs I [d] [] FlagMask.none st.regs
+          zeroExt32 := zExt })
   | .movi d c =>
     if !isMoveGpr I saved d then none
-    else some (I.gpr.movi d c,
-      { st with regs := (.immBits 64 c, .gpr d) :: killRegs I (d :: I.frame.scratch) [] FlagMask.none st.regs })
+    else
+      let clob := d :: I.frame.scratch
+      let zExt := if (c.setWidth 32).setWidth 64 == c then d :: killZeroExt clob st.zeroExt32
+                  else killZeroExt clob st.zeroExt32
+      some (I.gpr.movi d c,
+        { st with
+          regs := (.immBits 64 c, .gpr d) :: killRegs I clob [] FlagMask.none st.regs
+          zeroExt32 := zExt })
   | .ld d i =>
     if !(isAllocGpr I saved d && Nat.ble (i + 1) nslots) then none
     else
@@ -268,18 +283,23 @@ def execMove (I : Isa) (nslots : Nat) (saved : List I.Reg) (mv : I.Move) (st : S
         | some (.gprZ sas) => sas.map fun (sa, z) => (sa, if z then .gprZ d else .gpr d)
         | _ => []
       some (I.frame.slotLd d i,
-        { st with regs := copied ++ killRegs I (d :: I.frame.scratch) [] FlagMask.none st.regs })
+        { st with
+          regs := copied ++ killRegs I (d :: I.frame.scratch) [] FlagMask.none st.regs
+          zeroExt32 := killZeroExt (d :: I.frame.scratch) st.zeroExt32 })
   | .st i s =>
     if !(!(I.frame.scratch.contains s) && Nat.ble (i + 1) nslots) then none
     else some (I.frame.slotSt i s,
       { st with
         regs := killRegs I I.frame.scratch [] FlagMask.none st.regs
-        slots := (clearSlotRange i 1 st.slots).insert i (.gprZ (gprTaggedEntries s st.regs)) })
+        slots := (clearSlotRange i 1 st.slots).insert i (.gprZ (gprTaggedEntries s st.regs))
+        zeroExt32 := killZeroExt I.frame.scratch st.zeroExt32 })
   | .setcc d c =>
     if !isAllocGpr I saved d then none
     else some (I.gpr.setcc d c,
-      { st with regs := (flagEntries c st.regs).map (·, .gpr d) ++
-                        killRegs I (d :: I.frame.scratch) [] FlagMask.none st.regs })
+      { st with
+        regs := (flagEntries c st.regs).map (·, .gpr d) ++
+                killRegs I (d :: I.frame.scratch) [] FlagMask.none st.regs
+        zeroExt32 := killZeroExt (d :: I.frame.scratch) st.zeroExt32 })
   | .vmov w d s =>
     if !isMoveVec I d then none
     else some (I.vec.vmov w d s,
@@ -290,20 +310,27 @@ def execMove (I : Isa) (nslots : Nat) (saved : List I.Reg) (mv : I.Move) (st : S
     else match I.vec.vmovi w d c with
       | none => none
       | some code => some (code,
-          { st with regs := (.immVec w c, .vec d) ::
-                            killRegs I I.frame.scratch (d :: I.vec.vecScratch) FlagMask.none st.regs })
+          { st with
+            regs := (.immVec w c, .vec d) ::
+                    killRegs I I.frame.scratch (d :: I.vec.vecScratch) FlagMask.none st.regs
+            zeroExt32 := killZeroExt I.frame.scratch st.zeroExt32 })
   | .vld w d i =>
     if !(isAllocVec I d && Nat.ble (i + w.slots) nslots) then none
     else
       let copied := match st.slots.find? i with
         | some (.vec w' sas) => if slotWidthEq w' w then sas.map (·, .vec d) else [] | _ => []
       some (I.vec.vslotLd w d i,
-        { st with regs := copied ++ killRegs I I.frame.scratch (d :: I.vec.vecScratch) FlagMask.none st.regs })
+        { st with
+          regs := copied ++ killRegs I I.frame.scratch (d :: I.vec.vecScratch) FlagMask.none st.regs
+          zeroExt32 := killZeroExt I.frame.scratch st.zeroExt32 })
   | .vst w i s =>
     if !(!(I.vec.vecScratch.contains s) && Nat.ble (i + w.slots) nslots) then none
     else some (I.vec.vslotSt w i s,
-      { st with regs := killRegs I I.frame.scratch I.vec.vecScratch FlagMask.none st.regs,
-                slots := (clearSlotRange i w.slots st.slots).insert i (.vec w (vecEntries st.vecWidths w s st.regs)) })
+      { st with
+        regs := killRegs I I.frame.scratch I.vec.vecScratch FlagMask.none st.regs
+        slots := (clearSlotRange i w.slots st.slots).insert i
+          (.vec w (vecEntries st.vecWidths w s st.regs))
+        zeroExt32 := killZeroExt I.frame.scratch st.zeroExt32 })
 
 def execMoves (I : Isa) (nslots : Nat) (saved : List I.Reg) :
     List I.Move → SymState I → Option (List I.Directive × SymState I)
@@ -312,8 +339,10 @@ def execMoves (I : Isa) (nslots : Nat) (saved : List I.Reg) :
       (execMoves I nslots saved mvs st1).map fun (c2, st2) => (c1 ++ c2, st2)
 
 def execClearFlags (I : Isa) (st : SymState I) : List I.Directive × SymState I :=
-  (I.gpr.clearFlags, { st with regs := I.gpr.zeroFlags.map (.immBool false, .flag ·) ++
-                                       killRegs I I.frame.scratch [] FlagMask.all st.regs })
+  (I.gpr.clearFlags, { st with
+    regs := I.gpr.zeroFlags.map (.immBool false, .flag ·) ++
+            killRegs I I.frame.scratch [] FlagMask.all st.regs
+    zeroExt32 := killZeroExt I.frame.scratch st.zeroExt32 })
 
 def stepPre (I : Isa) (h : I.Hints) (ip : Nat) (st : SymState I) : Option (List I.Directive × SymState I) :=
   match h.pre.find? ip with
@@ -483,24 +512,33 @@ def abiTargets (I : Isa) :
     | some sa, some rest => some ((sa, match loc with | .gpr r => .gpr r | .vec v => .vec v) :: rest)
     | _, _ => none
 
-/-- `true` when `R` proves GPR `r` already holds the canonical (zero-extended ABI) form of `sa`:
-a `.gprZ r` variable, or an exact 64-bit immediate equal to the zero-extended constant. -/
-def abiHeld (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) (r : I.Reg) :
-    SymArg → Bool
-  | .var x => R.any fun (sa', rl) => symArgEq sa' (.var x) && regLocEq rl (.gprZ r)
+def hasVarGpr (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond))
+    (x : Nat) (rd : I.Reg) : Bool :=
+  R.any fun (sa, rl) => symArgEq sa (.var x) && regLocMatchesGpr rl rd
+
+/-- `true` when `R` and `zeroExt` prove GPR `r` already holds the canonical
+(zero-extended ABI) form of `sa`: a `.gprZ r` variable, a zero-extended `.bits 32`
+variable in `zeroExt`, or an exact 64-bit immediate. -/
+def abiHeld (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond))
+    (zeroExt : List I.Reg) (t : Ty) (r : I.Reg) : SymArg → Bool
+  | .var x =>
+    (tyEq t (.bits 32) && zeroExt.contains r && hasVarGpr I R x r) ||
+    R.any fun (sa', rl) => symArgEq sa' (.var x) && regLocEq rl (.gprZ r)
   | .immBits _ c => R.any fun (sa', rl) => symArgEq sa' (.immBits 64 c) && regLocMatchesGpr rl r
   | .immBool b => R.any fun (sa', rl) =>
     symArgEq sa' (.immBits 64 (if b then 1#64 else 0#64)) && regLocMatchesGpr rl r
   | .immVec _ _ => false
 
-/-- Per-position `canonAbi` skip flags of ABI targets `args`/`locs` against post-shuffle `R`. -/
-def abiSkips (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) :
+/-- Per-position `canonAbi` skip flags of ABI targets `args`/`locs` against
+post-shuffle `R` and `zeroExt`. -/
+def abiSkips (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond))
+    (zeroExt : List I.Reg) :
     {ts : List Ty} → Tup (Arg VNat) ts → Tup (AbiReg I.Reg I.VReg) ts → List Bool
   | [], (), () => []
   | t :: _, (a, as), (loc, locs) =>
     (match loc, toSymArg I t a with
-     | .gpr r, some sa => abiHeld I R r sa
-     | _, _ => false) :: abiSkips I R as locs
+     | .gpr r, some sa => abiHeld I R zeroExt t r sa
+     | _, _ => false) :: abiSkips I R zeroExt as locs
 
 /-- ABI canonicalization code, skipping GPR positions flagged in `sk` (see `abiSkips`). -/
 def canonAbiCode (I : Isa) :
@@ -688,12 +726,14 @@ def hasVarGprZ (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond))
     (x : Nat) (rd : I.Reg) : Bool :=
   R.any fun (sa, rl) => symArgEq sa (.var x) && regLocEq rl (.gprZ rd)
 
-/-- `.zext m n` of a `.gprZ rd` (canonical zero-extended) input into the same `rd` is a no-op. -/
-def elideZext32? (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) :
+/-- `.zext m n` of a `.gprZ rd` (or zero-extended 32-bit in `rd`) into the same `rd` is a no-op. -/
+def elideZext32? (I : Isa) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond))
+    (zeroExt : List I.Reg) :
     {sig ts : List Ty} → OpCode sig ts → Tup (Arg VNat) sig →
     Tup (PDst I.Reg I.VReg I.Cond) ts → Bool
-  | _, _, .zext _ n, (.var x, ()), (.gpr rd, ()) =>
-    Nat.ble n 64 && I.gpr.elideZext32 && hasVarGprZ I R x rd
+  | _, _, .zext m n, (.var x, ()), (.gpr rd, ()) =>
+    Nat.ble n 64 && I.gpr.elideZext32 &&
+      (hasVarGprZ I R x rd || (Nat.beq m 32 && zeroExt.contains rd && hasVarGpr I R x rd))
   | _, _, _, _, _ => false
 
 def opProducesZ32 (I : Isa) {sig : List Ty} : {rs : List Ty} → OpCode sig rs →
@@ -1023,7 +1063,7 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
       let defs1 := match recordDef st1.defs op.code op.args with
         | some df => st1.defs.insert nv df
         | none => st1.defs
-      if elideZext32? I st1.regs op.code op.args dsts then
+      if elideZext32? I st1.regs st1.zeroExt32 op.code op.args dsts then
         -- no code: every register fact survives and the result shares `rd` canonically
         let regs1 := match ts, dsts with
           | [_], (.gpr rd, ()) => (.var nv, RegLoc.gprZ rd) :: st1.regs
@@ -1045,14 +1085,21 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
           (c, cl, false, z32))) : Option (List I.Directive × FlagMask × Bool × Bool)).map
           fun (code, clob, isVec, z32) =>
           let vClob := if isVec then dstVecs ++ I.vec.vecScratch else []
-          let killed := killRegs I (dstGprs ++ I.frame.scratch) vClob clob st1.regs
-          let (regs1, vw1) :=
+          let gClob := dstGprs ++ I.frame.scratch
+          let killed := killRegs I gClob vClob clob st1.regs
+          let zExt := killZeroExt gClob st1.zeroExt32
+          let (regs1, vw1, zExt1) :=
             if z32 then
               match ts, dsts with
-              | [.bits 32], (.gpr rd, ()) => ((.var nv, RegLoc.gprZ rd) :: killed, st1.vecWidths)
-              | _, _ => bindDsts I dsts nv (killed, st1.vecWidths)
-            else bindDsts I dsts nv (killed, st1.vecWidths)
-          (code, { st1 with regs := regs1, defs := defs1, vecWidths := vw1 })
+              | [.bits 32], (.gpr rd, ()) =>
+                ((.var nv, RegLoc.gprZ rd) :: killed, st1.vecWidths, rd :: zExt)
+              | _, _ =>
+                let (r, v) := bindDsts I dsts nv (killed, st1.vecWidths)
+                (r, v, zExt)
+            else
+              let (r, v) := bindDsts I dsts nv (killed, st1.vecWidths)
+              (r, v, zExt)
+          (code, { st1 with regs := regs1, defs := defs1, vecWidths := vw1, zeroExt32 := zExt1 })
 
 /-! ## Block Entry, Jumps, and Core PHOAS Lowering -/
 
@@ -1096,7 +1143,9 @@ def bindAbiParams (I : Isa) : {ts : List Ty} → Tup (AbiReg I.Reg I.VReg) ts �
   | [], (), _, st => some st
   | t :: _, (.gpr r, locs), nv, st =>
     if isGprTy I t then
-      bindAbiParams I locs (nv + 1) { st with regs := (.var nv, .gprZ r) :: st.regs }
+      let zExt := if tyEq t (.bits 32) then r :: killZeroExt [r] st.zeroExt32 else st.zeroExt32
+      bindAbiParams I locs (nv + 1)
+        { st with regs := (.var nv, .gprZ r) :: st.regs, zeroExt32 := zExt }
     else none
   | t :: _, (.vec v, locs), nv, st => (vecWidth? I t).bind fun w =>
     bindAbiParams I locs (nv + 1) { st with regs := (.var nv, .vec v) :: st.regs, vecWidths := st.vecWidths.insert nv w }
@@ -1114,8 +1163,9 @@ def jumpLocOk (I : Isa) (nslots : Nat) : I.Loc → Bool
 def afterCallState (I : Isa) (saved : List I.Reg) (st : SymState I) : SymState I :=
   { st with
     regs := st.regs.filter fun (_, rl) =>
-      match rl with | .gpr r | .gprZ r => saved.contains r | _ => false
-    memDefs := .empty }
+      match rl with | .gpr r | .gprZ r => saved.contains r | _ => false,
+    memDefs := .empty,
+    zeroExt32 := st.zeroExt32.filter saved.contains }
 def calleeAllowed (E : Ext) (f : Sym) (as bs : List Ty) : Bool :=
   E.callees.any fun (g, gas, gbs) => g == f && listTyEq gas as && listTyEq gbs bs
 def prepend {I : Isa} (pre : List I.Directive) : Res I → Res I
@@ -1168,9 +1218,10 @@ def jnzMode {rs : List Ty} (I : Isa) (h : I.Hints) (ipT ipE : Nat) (st : SymStat
 def gprThread? {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (ipT : Nat) (st1 : SymState I)
     (r : I.Reg) : Expr VNat LNat rs → Option Nat
   | .jump j args =>
-    zeroMoveJump? (rs := rs) I h ipT
-      { st1 with regs := killRegs I I.frame.scratch [] (I.gpr.jnzGpr r (lname fn j)).2 st1.regs }
-      (.jump j args)
+    let stB := { st1 with
+      regs := killRegs I I.frame.scratch [] (I.gpr.jnzGpr r (lname fn j)).2 st1.regs
+      zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 }
+    zeroMoveJump? (rs := rs) I h ipT stB (.jump j args)
   | _ => none
 
 def threadFusedArm {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (ipA : Nat)
@@ -1179,7 +1230,9 @@ def threadFusedArm {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (ipA : Nat)
   match arm with
   | .jump j _ =>
     (emit (lname fn j)).bind fun (br, cl) =>
-      let stB := { st1 with regs := killRegs I I.frame.scratch [] cl st1.regs }
+      let stB := { st1 with
+        regs := killRegs I I.frame.scratch [] cl st1.regs
+        zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 }
       if zeroMoveJump? I h ipA stB arm == some j then some (j, br, stB) else none
   | _ => none
 
@@ -1189,7 +1242,9 @@ def fuseJnzChoice {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE 
     Option (Bool × Option Nat × List I.Directive × SymState I) :=
   let invChoice := h.invertJnz.getD (ipE - 1) false
   (emit invChoice (lname fn nl)).map fun (brNl, clNl) =>
-    let stNl := { st1 with regs := killRegs I I.frame.scratch [] clNl st1.regs }
+    let stNl := { st1 with
+      regs := killRegs I I.frame.scratch [] clNl st1.regs
+      zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 }
     let fwd? := threadFusedArm I h fn ipT st1 (emit false) t
     let inv? := threadFusedArm I h fn ipE st1 (emit true) e
     match fwd?, inv? with
@@ -1204,16 +1259,23 @@ def jnzSetup {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat
     (st1 : SymState I) (t e : Expr VNat LNat rs) (ft : Option Nat) :
     JnzCond I → Option (Bool × Option Nat × List I.Directive × SymState I)
   | .flag cc =>
-    let stB := { st1 with regs := killRegs I I.frame.scratch [] FlagMask.none st1.regs }
+    let stB := { st1 with
+      regs := killRegs I I.frame.scratch [] FlagMask.none st1.regs
+      zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 }
     let p := jnzMode I h ipT ipE stB true t e ft
     some (p.1, p.2, I.gpr.jcc (if p.1 then I.gpr.negCond cc else cc)
       (lname fn (p.2.getD nl)), stB)
   | .gpr r =>
     let tg := gprThread? I h fn ipT st1 r t
     let p := I.gpr.jnzGpr r (lname fn (tg.getD nl))
-    some (false, tg, p.1, { st1 with regs := killRegs I I.frame.scratch [] p.2 st1.regs })
+    let stB := { st1 with
+      regs := killRegs I I.frame.scratch [] p.2 st1.regs
+      zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 }
+    some (false, tg, p.1, stB)
   | .slot idx =>
-    let stB := { st1 with regs := killRegs I I.frame.scratch [] FlagMask.all st1.regs }
+    let stB := { st1 with
+      regs := killRegs I I.frame.scratch [] FlagMask.all st1.regs
+      zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 }
     let p := jnzMode I h ipT ipE stB true t e ft
     (I.gpr.jnzMem (spAddr I idx) p.1 (lname fn (p.2.getD nl))).bind fun (br, cl) =>
       if cl == FlagMask.all then some (p.1, p.2, br, stB) else none
@@ -1281,13 +1343,17 @@ def lowerStore (I : Isa) (st1 : SymState I) (vh : VariantHint) :
       match pa with | .vec vs => tryAddr I st1 vh addr (I.vec.vstore (.pair a b) vs) | _ => none).map fun (c, clob) =>
       (c, { st1 with
             regs := killRegs I I.frame.scratch I.vec.vecScratch clob st1.regs
-            memDefs := .empty })
+            memDefs := .empty
+            zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 })
   | t, v, addr =>
     if !isGprTy I t then none
     else
       ((tryArg I st1 [] t v fun pa => tryAddr I st1 vh addr (I.gpr.store t pa)) <|>
        tryRmwStore I st1 vh t v addr).map fun (c, clob) =>
-        (c, { st1 with regs := killRegs I I.frame.scratch [] clob st1.regs, memDefs := .empty })
+        (c, { st1 with
+              regs := killRegs I I.frame.scratch [] clob st1.regs
+              memDefs := .empty
+              zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 })
 
 /-- `some (m, n, x)` when the operation is `sext m n (.var x)`. -/
 def sextVar? : {sig ts : List Ty} → OpCode sig ts → Tup (Arg VNat) sig → Option (Nat × Nat × Nat)
@@ -1369,17 +1435,21 @@ def lowerLoad (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) (t : Ty) 
     | some (.gpr d) =>
       if !(isAllocGpr I h.saved d && isGprTy I t) then none
       else (tryAddr I st1 vh a (I.gpr.load t d)).map fun (c, clob) =>
-        let rl := if I.gpr.zeroExtLoad || (I.gpr.zeroUpper32Load && tyEq t (.bits 32)) then
-          RegLoc.gprZ d else .gpr d
+        let isZ32 := I.gpr.zeroUpper32Load && tyEq t (.bits 32)
+        let rl := if I.gpr.zeroExtLoad || isZ32 then RegLoc.gprZ d else .gpr d
+        let zExt := killZeroExt (d :: I.frame.scratch) st1.zeroExt32
+        let zExt1 := if isZ32 then d :: zExt else zExt
         (c, { st1 with
-              regs := (.var nv, rl) :: killRegs I (d :: I.frame.scratch) [] clob st1.regs })
+              regs := (.var nv, rl) :: killRegs I (d :: I.frame.scratch) [] clob st1.regs
+              zeroExt32 := zExt1 })
     | some (.vec vd) => (vecWidth? I t).bind fun w =>
       if !isAllocVec I vd then none
       else (tryAddr I st1 vh a (I.vec.vload t vd)).map fun (c, clob) =>
         (c, { st1 with
               regs := (.var nv, .vec vd) ::
                 killRegs I I.frame.scratch (vd :: I.vec.vecScratch) clob st1.regs
-              vecWidths := st1.vecWidths.insert nv w })
+              vecWidths := st1.vecWidths.insert nv w
+              zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 })
     | _ => none
 
 /-- `true` when target `I` elides the stack frame completely for a 0-slot leaf function. -/
@@ -1406,7 +1476,7 @@ def lowerTail {ts : List Ty} (I : Isa) (h : I.Hints) (E : Ext) (st1 : SymState I
   | some tgts => match shuffle I h.nslots h.saved st1 tgts with
     | none => .error "tail: shuffle"
     | some (sc, st') =>
-      .ok (mc ++ sc ++ canonAbiCode I locs (abiSkips I st'.regs args locs) ++
+      .ok (mc ++ sc ++ canonAbiCode I locs (abiSkips I st'.regs st'.zeroExt32 args locs) ++
         restoreCs I h.nslots h.saved ++ fnEpilogue I h E ++ tail, nv, nl, ip + 1)
 
 mutual
@@ -1542,7 +1612,8 @@ def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
             | some (sc, st2) => match bindAbiParams I retLocs nv (afterCallState I h.saved st2) with
               | none => .error "call: ret bind"
               | some st4 =>
-                prepend (mc ++ sc ++ canonAbiCode I argLocs (abiSkips I st2.regs args argLocs) ++
+                prepend (mc ++ sc ++
+                    canonAbiCode I argLocs (abiSkips I st2.regs st2.zeroExt32 args argLocs) ++
                     I.frame.call f)
                   (lowerExpr I h E fn (k (Tup.levels bs nv)) (nv + bs.length) nl (ip + 1) st4 ft)
         | _, _ => .error "call: abi"

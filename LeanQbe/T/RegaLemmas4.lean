@@ -113,6 +113,7 @@ theorem Agree.base {G : VCtx} {nvg nv : Nat} {st : SymState T.toIsa} {s : T.mach
   regs_lt p hp := by simp at hp
   slots_lt i se h := by simp [Trie.find?] at h
   defs_lt x d h := Nat.lt_of_lt_of_le (hA.defs_lt x d h) hle
+  zeroExt32_ok r hr := by simp at hr
   vw_lt x w h := Nat.lt_of_lt_of_le (hA.vw_lt x w h) hle
   vt := hA.vt
 
@@ -443,7 +444,9 @@ private theorem threadFusedArm_spec {I : Isa} {h : I.Hints} {fn : Sym} {ipA : Na
     (ht : threadFusedArm I h fn ipA st1 emit arm = some (j, br, stB)) :
     zeroMoveJump? I h ipA stB arm = some j ∧ stB.memDefs = st1.memDefs ∧
       ∃ cl, emit (lname fn j) = some (br, cl) ∧
-        stB = { st1 with regs := killRegs I I.frame.scratch [] cl st1.regs } := by
+        stB = { st1 with
+          regs := killRegs I I.frame.scratch [] cl st1.regs
+          zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 } := by
   unfold threadFusedArm at ht
   split at ht
   · simp only [Option.bind_eq_some_iff] at ht
@@ -464,7 +467,9 @@ private theorem fuseJnzChoice_spec {I : Isa} {h : I.Hints} {fn : Sym} {nl ipT ip
     (hf : fuseJnzChoice I h fn nl ipT ipE st1 t e ft emit = some (inv, tgt, br, stBr)) :
     stBr.memDefs = st1.memDefs ∧
     (∃ cl, emit inv (lname fn (tgt.getD nl)) = some (br, cl) ∧
-      stBr = { st1 with regs := killRegs I I.frame.scratch [] cl st1.regs }) ∧
+      stBr = { st1 with
+        regs := killRegs I I.frame.scratch [] cl st1.regs
+        zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32 }) ∧
     (∀ j, tgt = some j →
       (inv = false → zeroMoveJump? I h ipT stBr t = some j) ∧
       (inv = true → zeroMoveJump? I h ipE stBr e = some j)) := by
@@ -596,10 +601,14 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
     refine T.gprSpec.jcc_spec hbr hla fun s' hfr hm => ?_
     have := kont s' (hA1.kill hfr) (hI1.keep hm (keep_of_frame_scratch hfr))
     have hev : T.mach.evalCond s1 (if (jnzMode T.toIsa hints ipT ipE
-        { st1 with regs := killRegs T.toIsa T.frame.scratch [] FlagMask.none st1.regs } true t e ft).1
+        { st1 with
+          regs := killRegs T.toIsa T.frame.scratch [] FlagMask.none st1.regs
+          zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32 } true t e ft).1
         then T.gpr.negCond cc else cc) =
         (if (jnzMode T.toIsa hints ipT ipE
-        { st1 with regs := killRegs T.toIsa T.frame.scratch [] FlagMask.none st1.regs } true t e ft).1
+        { st1 with
+          regs := killRegs T.toIsa T.frame.scratch [] FlagMask.none st1.regs
+          zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32 } true t e ft).1
         then !cv else cv) := by
       split <;> simp_all [T.gprSpec.negCond_eval]
     rw [hev]; exact this
