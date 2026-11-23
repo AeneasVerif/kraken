@@ -85,3 +85,11 @@ public unsafe def getEnvironmentForElabModule (elabModule : Name) : IO Environme
       pure env
 
 end Lean
+
+public section
+
+theorem List.mem_takeWhile {α : Type _} {p : α → Bool} {l : List α} {x : α}
+    (hx : x ∈ l.takeWhile p) : p x = true := by
+  induction l <;> grind [List.takeWhile_cons, List.takeWhile_nil]
+
+end
