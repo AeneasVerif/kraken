@@ -702,6 +702,210 @@ def fullPropagateSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
       (FullMem c s' ⋆ R) m' → Q (r, ()) m'
 
+def fullPropagateIgnoreDelSpec : Spec [i64, i64] [i64] := fun (h, ignore_ref, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
+    s.core.dense_mode = 0#64 ∧ (FullMem c s ⋆ R) m ∧
+    ∀ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+      fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' m',
+      let s' : FullState :=
+        { s with
+          core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                trl := trl', trail_pos := tp', trail_end := te',
+                                propagated := prop', unassigned := unass', unflushed := unfl',
+                                wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                                wusable := wu', fuel := fuel', confl_type := ctype',
+                                confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                                oom := oom' }
+          scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                      phases := phases', delayed := delayed' } }
+      s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
+      FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
+      fuel'.toNat ≤ s.core.fuel.toNat → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
+      (r = 0#64 → prop' = te' ∧ ctype' = s.core.confl_type ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
+        (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
+      (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧ FullConflictOkW F_cur s' ∧
+        (ctype' = 2#64 → cref' ≠ ignore_ref)) →
+      (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
+      (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
+      (FullMem c s' ⋆ R) m' → Q (r, ()) m'
+
+theorem fullPropagateIgnoreDelSpec_of {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {s : FullState} {ignore_ref : BitVec 64} {R : Mem 64 → Prop} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost} (hlen : s.LengthsOk c)
+    (hw : FullWitnessInv c F0 F_cur s.core) (hdm : s.core.dense_mode = 0#64)
+    (hm : (FullMem c s ⋆ R) m)
+    (hQ : ∀ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+      fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' m',
+      let s' : FullState :=
+        { s with
+          core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                trl := trl', trail_pos := tp', trail_end := te',
+                                propagated := prop', unassigned := unass', unflushed := unfl',
+                                wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                                wusable := wu', fuel := fuel', confl_type := ctype',
+                                confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                                oom := oom' }
+          scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                      phases := phases', delayed := delayed' } }
+      s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
+      FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
+      fuel'.toNat ≤ s.core.fuel.toNat → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
+      (r = 0#64 → prop' = te' ∧ ctype' = s.core.confl_type ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
+        (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
+      (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧ FullConflictOkW F_cur s' ∧
+        (ctype' = 2#64 → cref' ≠ ignore_ref)) →
+      (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
+      (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
+      (FullMem c s' ⋆ R) m' → Q (r, ()) m') :
+    fullPropagateIgnoreDelSpec (c.hdr, ignore_ref, ()) m Q X :=
+  ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩
+
+theorem fullPropagateIgnoreDelSpec_elim {h ignore_ref : BitVec 64} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost} (hs : fullPropagateIgnoreDelSpec (h, ignore_ref, ()) m Q X) :
+    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
+      s.core.dense_mode = 0#64 ∧ (FullMem c s ⋆ R) m ∧
+      ∀ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+        fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' m',
+        let s' : FullState :=
+          { s with
+            core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                  trl := trl', trail_pos := tp', trail_end := te',
+                                  propagated := prop', unassigned := unass', unflushed := unfl',
+                                  wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                                  wusable := wu', fuel := fuel', confl_type := ctype',
+                                  confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                                  oom := oom' }
+            scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                        phases := phases', delayed := delayed' } }
+        s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
+        FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
+        fuel'.toNat ≤ s.core.fuel.toNat → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
+        (r = 0#64 → prop' = te' ∧ ctype' = s.core.confl_type ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
+          (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
+        (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧ FullConflictOkW F_cur s' ∧
+          (ctype' = 2#64 → cref' ≠ ignore_ref)) →
+        (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
+        (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
+        (FullMem c s' ⋆ R) m' → Q (r, ()) m' :=
+  hs
+
+theorem fullPropagateIgnoreDelSpec_monoX {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : fullPropagateIgnoreDelSpec xs m Q X) :
+    fullPropagateIgnoreDelSpec xs m Q X' := by
+  rcases xs with ⟨_, _, ⟨⟩⟩; exact h
+
+theorem fullPropagateIgnoreSpec_of_del {a : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost} (h : fullPropagateIgnoreDelSpec a m Q X) :
+    fullPropagateIgnoreSpec a m Q X := by
+  rcases a with ⟨hptr, ig, ⟨⟩⟩
+  obtain ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩ := h
+  exact ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm,
+    fun r v f lv rs tr tp te pr un uf wv ar ws wl wu fu ct cr c0 c1 oo tk wso ph m'
+        hlen' hw' htr hap hfl hd h0 h1 h2 heq hm' =>
+      hQ r v f lv rs tr tp te pr un uf wv ar ws wl wu fu ct cr c0 c1 oo tk wso ph
+        s.scratch.delayed m' hlen' hw' htr hap hfl hd h0 h1 h2 heq hm'⟩
+
+def fullPropagateDelSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
+    s.core.dense_mode = 0#64 ∧ (FullMem c s ⋆ R) m ∧
+    ∀ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+      fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' m',
+      let s' : FullState :=
+        { s with
+          core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                trl := trl', trail_pos := tp', trail_end := te',
+                                propagated := prop', unassigned := unass', unflushed := unfl',
+                                wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                                wusable := wu', fuel := fuel', confl_type := ctype',
+                                confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                                oom := oom' }
+          scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                      phases := phases', delayed := delayed' } }
+      s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
+      FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
+      fuel'.toNat ≤ s.core.fuel.toNat → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
+      (r = 0#64 → prop' = te' ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
+        (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
+      (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧ FullConflictOkW F_cur s') →
+      (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
+      (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
+      (FullMem c s' ⋆ R) m' → Q (r, ()) m'
+
+theorem fullPropagateDelSpec_of {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {s : FullState} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hlen : s.LengthsOk c) (hw : FullWitnessInv c F0 F_cur s.core) (hdm : s.core.dense_mode = 0#64)
+    (hm : (FullMem c s ⋆ R) m)
+    (hQ : ∀ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+      fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' m',
+      let s' : FullState :=
+        { s with
+          core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                trl := trl', trail_pos := tp', trail_end := te',
+                                propagated := prop', unassigned := unass', unflushed := unfl',
+                                wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                                wusable := wu', fuel := fuel', confl_type := ctype',
+                                confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                                oom := oom' }
+          scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                      phases := phases', delayed := delayed' } }
+      s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
+      FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
+      fuel'.toNat ≤ s.core.fuel.toNat → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
+      (r = 0#64 → prop' = te' ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
+        (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
+      (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧ FullConflictOkW F_cur s') →
+      (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
+      (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
+      (FullMem c s' ⋆ R) m' → Q (r, ()) m') :
+    fullPropagateDelSpec (c.hdr, ()) m Q X :=
+  ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩
+
+theorem fullPropagateDelSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hs : fullPropagateDelSpec (h, ()) m Q X) :
+    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧
+      s.core.dense_mode = 0#64 ∧ (FullMem c s ⋆ R) m ∧
+      ∀ r vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl' wvec' arena' wstk' wlen' wu'
+        fuel' ctype' cref' c0' c1' oom' ticks' wsort' phases' delayed' m',
+        let s' : FullState :=
+          { s with
+            core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
+                                  trl := trl', trail_pos := tp', trail_end := te',
+                                  propagated := prop', unassigned := unass', unflushed := unfl',
+                                  wvec := wvec', arena := arena', wstk := wstk', wlen := wlen',
+                                  wusable := wu', fuel := fuel', confl_type := ctype',
+                                  confl_ref := cref', confl_lit0 := c0', confl_lit1 := c1',
+                                  oom := oom' }
+            scratch := { s.scratch with search_ticks := ticks', wsort := wsort',
+                                        phases := phases', delayed := delayed' } }
+        s'.LengthsOk c → FullWitnessInv c F0 F_cur s'.core →
+        FullTrailExt s.core s'.core → FullArenaPermEq s.core s'.core →
+        fuel'.toNat ≤ s.core.fuel.toNat → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64) →
+        (r = 0#64 → prop' = te' ∧ (s.core.oom = 0#64 → oom' = 0#64) ∧
+          (s.core.propagated < s.core.trail_end → fuel'.toNat < s.core.fuel.toNat)) →
+        (r = 1#64 → fuel'.toNat < s.core.fuel.toNat ∧ oom' = 0#64 ∧ FullConflictOkW F_cur s') →
+        (r = 2#64 → oom' ≠ 0#64 ∨ fuel' = 0#64) →
+        (s.core.propagated = s.core.trail_end → r = 0#64 ∧ s' = s) →
+        (FullMem c s' ⋆ R) m' → Q (r, ()) m' :=
+  hs
+
+theorem fullPropagateDelSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]}
+    {X X' : XPost} (h : fullPropagateDelSpec xs m Q X) : fullPropagateDelSpec xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
+theorem fullPropagateSpec_of_del {a : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : fullPropagateDelSpec a m Q X) : fullPropagateSpec a m Q X := by
+  rcases a with ⟨hptr, ⟨⟩⟩
+  obtain ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm, hQ⟩ := h
+  exact ⟨c, F0, F_cur, s, R, rfl, hlen, hw, hdm, hm,
+    fun r v f lv rs tr tp te pr un uf wv ar ws wl wu fu ct cr c0 c1 oo tk wso ph m'
+        hlen' hw' htr hap hfl hd h0 h1 h2 heq hm' =>
+      hQ r v f lv rs tr tp te pr un uf wv ar ws wl wu fu ct cr c0 c1 oo tk wso ph
+        s.scratch.delayed m' hlen' hw' htr hap hfl hd h0 h1 h2 heq hm'⟩
+
 def fullMarkReasonsSpec : Spec [i64, .bool] [] := fun (h, set_flag, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ s.LengthsOk c ∧ FullWitnessInv c F0 F_cur s.core ∧ (FullMem c s ⋆ R) m ∧

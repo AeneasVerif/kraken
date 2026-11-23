@@ -1218,7 +1218,44 @@ theorem full_trans_sort_m6_wp (Γ : Env) :
     exact hQ wsg mg hwsg_len (t4b_sparse_with_ws1 hsp hwsg_len) hokg hmg
 
 /-- `full_transitive_m6` satisfies canonical **`FullFastBveBudgets.fullTransitiveFastSpec`**. -/
-theorem full_transitive_m6_wp (Γ : Env)
+private theorem t4b_fullPropagate_del_sparse {c : FullCfg} {F0 : CNF Nat}
+    {F_cur : List (List Nat)} {s s' : FullState} {vals' : List (BitVec 8)}
+    {flags' lvl' rsns' trl' tp' : List (BitVec 32)} {te' prop' : Nat} {unass' unfl' : BitVec 64}
+    {wvec' arena' wstk' : List (BitVec 32)} {wlen' : Nat}
+    {wu' fuel' ctype' cref' c0' c1' oom' ticks' : BitVec 64}
+    {wsort' : List (BitVec 32)} {phases' : List (BitVec 8)} {delayed' : List (BitVec 32)}
+    (hsp : FullSparseInv c F0 s)
+    (hs' : s' = { s with
+      core := { s.core with
+        vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
+        trail_end := te', propagated := prop', unassigned := unass', unflushed := unfl',
+        wvec := wvec', arena := arena', wstk := wstk', wlen := wlen', wusable := wu',
+        fuel := fuel', confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
+        confl_lit1 := c1', oom := oom' }
+      scratch := { s.scratch with
+        search_ticks := ticks', wsort := wsort', phases := phases', delayed := delayed' } })
+    (hlen' : s'.LengthsOk c) (hw' : FullWitnessInv c F0 F_cur s'.core)
+    (hperm' : FullArenaPermEq s.core s'.core) : FullSparseInv c F0 s' := by
+  let s0' : FullState := { s' with scratch := { s'.scratch with delayed := s.scratch.delayed } }
+  have hlen0' : s0'.LengthsOk c :=
+    ⟨hlen'.core_ok,
+      { hlen'.scratch_ok with delayed_len_arr := hsp.1.lengths.scratch_ok.delayed_len_arr }⟩
+  have hw0' : FullWitnessInv c F0 F_cur s0'.core := hw'
+  have hperm0' : FullArenaPermEq s.core s0'.core := hperm'
+  have hs0' : s0' = { s with
+      core := { s.core with
+        vals := vals', flags := flags', lvl := lvl', rsns := rsns', trl := trl', trail_pos := tp',
+        trail_end := te', propagated := prop', unassigned := unass', unflushed := unfl',
+        wvec := wvec', arena := arena', wstk := wstk', wlen := wlen', wusable := wu',
+        fuel := fuel', confl_type := ctype', confl_ref := cref', confl_lit0 := c0',
+        confl_lit1 := c1', oom := oom' }
+      scratch := { s.scratch with
+        search_ticks := ticks', wsort := wsort', phases := phases' } } := by
+    subst hs'; rfl
+  have hsp0' := fullPropagate_sparse hsp hs0' hlen0' hw0' hperm0'
+  exact ⟨⟨hlen', F_cur, hw'⟩, hsp0'.2⟩
+
+theorem full_transitive_m6_del_wp (Γ : Env)
     (h_backtrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
     (h_prio : ∀ a m Q X, fullPrioritizeBinariesM6Spec a m Q X →
@@ -1227,7 +1264,7 @@ theorem full_transitive_m6_wp (Γ : Env)
       Γ "full_trans_sort_m6" [i64, i64] [] a m Q X)
     (h_trans_lit : ∀ a m Q X, fullTransLitM6Spec a m Q X →
       Γ "full_trans_lit_m6" [i64, i32, .bool] [.bool] a m Q X)
-    (h_propagate : ∀ a m Q X, fullPropagateSpec a m Q X →
+    (h_propagate : ∀ a m Q X, fullPropagateDelSpec a m Q X →
       Γ "full_propagate" [i64] [i64] a m Q X)
     (h_defrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
       Γ "full_wstack_defrag" [i64] [] a m Q X) :
@@ -1445,8 +1482,10 @@ theorem full_transitive_m6_wp (Γ : Env)
                           refine ⟨c, F0, F_ct0, st0, R, rfl, hspt0.1.lengths, hwt0, hspt0.2.2.2.2,
                             hm3, fun r_p0 vals' flags' lvl' rsns' trl' tp' te' prop' unass' unfl'
                               wvec' arena' wstk' wlen' wu' fuel' ctype' cref' c0' c1' oom' ticks'
-                              wsort' phases' m4 hlen4 hw4 _ hperm4 hfu4 _ _ hr1 _ _ hm4 => ?_⟩
-                          have hsp_p0 := fullPropagate_sparse hspt0 rfl hlen4 hw4 hperm4
+                              wsort' phases' delayed' m4 hlen4 hw4 _ hperm4 hfu4 _ _ hr1 _ _ hm4 =>
+                            ?_⟩
+                          have hsp_p0 :=
+                            t4b_fullPropagate_del_sparse hspt0 rfl hlen4 hw4 hperm4
                           have hfu_p0 : fuel'.toNat ≤ s.core.fuel.toNat := Nat.le_trans hfu4 hfu_t0
                           c0_hsplit
                           · c0_hsteps
@@ -1471,7 +1510,8 @@ theorem full_transitive_m6_wp (Γ : Env)
                                       fun h => by dsimp only at h; exact absurd h (by decide), hm4⟩
                                   · let st_p0 : FullState := { st0 with
                                       scratch := { st0.scratch with
-                                        search_ticks := ticks', wsort := wsort', phases := phases' }
+                                        search_ticks := ticks', wsort := wsort',
+                                        phases := phases', delayed := delayed' }
                                       core := { st0.core with
                                         vals := vals', flags := flags', lvl := lvl', rsns := rsns',
                                         trl := trl', trail_pos := tp', trail_end := te',
@@ -1514,9 +1554,11 @@ theorem full_transitive_m6_wp (Γ : Env)
                                       c0_hsteps_nogrp; c0_call h_propagate
                                       refine ⟨c, F0, F_ct1, st1, R, rfl, hspt1.1.lengths, hwt1,
                                         hspt1.2.2.2.2, hm5,
-                                        fun _ _ flags2 _ _ _ _ _ _ _ _ _ _ _ _ _ fuel2 _ _ _ _ _ _ _
-                                          _ m6 hlen6 hw6 _ hperm6 hfu6 _ _ hr1_2 _ _ hm6 => ?_⟩
-                                      have hsp_p1 := fullPropagate_sparse hspt1 rfl hlen6 hw6 hperm6
+                                        fun _ _ flags2 _ _ _ _ _ _ _ _ _ _ _ _ _ fuel2 _ _ _ _ _
+                                          _ _ _ delayed2 m6 hlen6 hw6 _ hperm6 hfu6 _ _ hr1_2 _ _
+                                          hm6 => ?_⟩
+                                      have hsp_p1 :=
+                                        t4b_fullPropagate_del_sparse hspt1 rfl hlen6 hw6 hperm6
                                       have hfu_p1 : fuel2.toNat ≤ s.core.fuel.toNat :=
                                         Nat.le_trans hfu6 hfu_t1
                                       c0_hsplit
@@ -1551,7 +1593,7 @@ theorem full_transitive_m6_wp (Γ : Env)
                                                     confl_lit0 := _, confl_lit1 := _, oom := _ }
                                                   scratch := { st1.scratch with
                                                     search_ticks := _, wsort := _,
-                                                    phases := _ } } :=
+                                                    phases := _, delayed := delayed2 } } :=
                                                   fullSparseInv_clear_fl_trans hsp_p1
                                                 exact hJc (1#64, ()) _ ⟨rfl, _, hsp_cl2, hclt1,
                                                   hcv_t1, hfu_p1, hws1_t1,
@@ -1611,6 +1653,24 @@ theorem full_transitive_m6_wp (Γ : Env)
         have h1 : s.core.cur_level % 2 ^ 64 = 0 := by c0_bound
         rwa [Nat.mod_eq_of_lt hcl_lt] at h1
       exact hJ1 () m0 ⟨s, hsp, hcl0', Nat.le_refl _, hm0⟩
+
+theorem full_transitive_m6_wp (Γ : Env)
+    (h_backtrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
+      Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (h_prio : ∀ a m Q X, fullPrioritizeBinariesM6Spec a m Q X →
+      Γ "full_prioritize_binaries_m6" [i64] [.bool] a m Q X)
+    (h_sort : ∀ a m Q X, fullTransSortM6Spec a m Q X →
+      Γ "full_trans_sort_m6" [i64, i64] [] a m Q X)
+    (h_trans_lit : ∀ a m Q X, fullTransLitM6Spec a m Q X →
+      Γ "full_trans_lit_m6" [i64, i32, .bool] [.bool] a m Q X)
+    (h_propagate : ∀ a m Q X, fullPropagateSpec a m Q X →
+      Γ "full_propagate" [i64] [i64] a m Q X)
+    (h_defrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
+      Γ "full_wstack_defrag" [i64] [] a m Q X) :
+    ∀ a m Q X, FullFastBveBudgets.fullTransitiveFastSpec a m Q X →
+      Func.wp Γ full_transitive_m6_body a m Q X :=
+  full_transitive_m6_del_wp Γ h_backtrack h_prio h_sort h_trans_lit
+    (fun a m Q X h => h_propagate a m Q X (fullPropagateSpec_of_del h)) h_defrag
 
 end TransTopM6Proofs
 

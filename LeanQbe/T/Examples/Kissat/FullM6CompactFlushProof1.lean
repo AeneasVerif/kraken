@@ -187,10 +187,11 @@ end SharedHelpers
 
 section FlushTrailProof
 
-public theorem full_flush_trail_wp (Γ : Env)
+public theorem full_flush_trail_del_wp (Γ : Env)
     (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
-    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X) :
+    (hProp : ∀ a m Q X, fullPropagateDelSpec a m Q X →
+      Γ "full_propagate" [i64] [i64] a m Q X) :
     ∀ a m Q X, fullFlushTrailSpec a m Q X → Func.wp Γ full_flush_trail_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, F0, s, R, rfl, hsp0, hm, hQ⟩
   obtain ⟨F_cur, hspw0⟩ := hsp0.exists_witness
@@ -252,7 +253,7 @@ public theorem full_flush_trail_wp (Γ : Env)
             have hlt_pt : s1.core.propagated < s1.core.trail_end := by c0_bound
             c0_hsteps; c0_call hProp
             refine ⟨c, F0, F_cur, s1, R, rfl, hspw1.1, hspw1.2.1, hspw1.2.2.2.2.2, hm1, ?_⟩
-            intro pr _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ fuel2 _ _ _ _ _ _ _ _ m2 s2
+            intro pr _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ fuel2 _ _ _ _ _ _ _ _ delayed2 m2 s2
               hlen2 hw2 _ hperm2 hfl2 _ hpr0 hpr1 _ _ hm2
             have hspw2 := m6cf_fullSparseInvW_of_perm hspw1 hlen2 hw2 hperm2 rfl rfl rfl ⟨rfl, rfl⟩
             have hcl2 : s2.core.cur_level = 0 := hcl1
@@ -320,6 +321,14 @@ public theorem full_flush_trail_wp (Γ : Env)
       · have hcl0 : s.core.cur_level = 0 := by c0_bound
         c0_hsteps
         exact hJb s m ⟨hspw0, hcl0, hinc0, rfl, rfl, fun _ => rfl, hm⟩
+
+public theorem full_flush_trail_wp (Γ : Env)
+    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
+      Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hProp : ∀ a m Q X, fullPropagateSpec a m Q X → Γ "full_propagate" [i64] [i64] a m Q X) :
+    ∀ a m Q X, fullFlushTrailSpec a m Q X → Func.wp Γ full_flush_trail_body a m Q X :=
+  full_flush_trail_del_wp Γ hBacktrack
+    (fun a m Q X h => hProp a m Q X (fullPropagateSpec_of_del h))
 
 end FlushTrailProof
 
@@ -646,12 +655,22 @@ private def extKeepCount (ar : List (BitVec 32)) (vals : List (BitVec 8))
     extKeepCount ar vals lvl cref nlits bl n +
       if extLitKeep ar vals lvl cref nlits bl n then 1 else 0
 
+private theorem extKeepCount_zero (ar : List (BitVec 32)) (vals : List (BitVec 8))
+    (lvl : List (BitVec 32)) (cref nlits : Nat) (bl : BitVec 32) :
+    extKeepCount ar vals lvl cref nlits bl 0 = 0 := rfl
+
+private theorem extKeepCount_succ (ar : List (BitVec 32)) (vals : List (BitVec 8))
+    (lvl : List (BitVec 32)) (cref nlits : Nat) (bl : BitVec 32) (n : Nat) :
+    extKeepCount ar vals lvl cref nlits bl (n + 1) =
+      extKeepCount ar vals lvl cref nlits bl n +
+        if extLitKeep ar vals lvl cref nlits bl n then 1 else 0 := rfl
+
 private theorem extKeepCount_le (ar : List (BitVec 32)) (vals : List (BitVec 8))
     (lvl : List (BitVec 32)) (cref nlits : Nat) (bl : BitVec 32) :
     ∀ n, extKeepCount ar vals lvl cref nlits bl n ≤ n
   | 0 => Nat.le_refl 0
   | n + 1 => by
-    unfold extKeepCount
+    rw [extKeepCount_succ]
     have ih := extKeepCount_le ar vals lvl cref nlits bl n
     split <;> omega
 
@@ -663,7 +682,7 @@ private theorem extKeepCount_mono (ar : List (BitVec 32)) (vals : List (BitVec 8
     induction hab with
     | refl => exact Nat.le_refl _
     | step _ ih =>
-      rw [extKeepCount]
+      rw [extKeepCount_succ]
       split <;> omega
 
 private theorem extLitKeep_eq_true {ar : List (BitVec 32)} {vals : List (BitVec 8)}
@@ -783,7 +802,7 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
             · rintro _ ⟨⟩ m' ⟨rfl, htk⟩
               c0_hsteps
               exact hJk (keep + 1#64) (by
-                dsimp only [cnt]; rw [extKeepCount, htk, hkp1_eq, hkeep_eq]; rfl)
+                dsimp only [cnt]; rw [extKeepCount_succ, htk, hkp1_eq, hkeep_eq]; rfl)
             · intro Js hJs
               c0_hsplit
               · -- `lit < nlits`
@@ -810,7 +829,7 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                     have hfk := extLitKeep_eq_false_skip (bl := bl) hlit_ar hlit_lt hlvl0 hvf
                     c0_hsteps
                     exact hJk keep (by
-                      dsimp only [cnt]; rw [extKeepCount, hfk]; simpa using hkeep_eq)
+                      dsimp only [cnt]; rw [extKeepCount_succ, hfk]; simpa using hkeep_eq)
                   · -- `vals >= 0`: KEEP!
                     have hvnf : ((s.core.vals[lit.toNat]?.getD 0#8).signExtend 32).slt 0#32 ≠
                         true := by
@@ -841,7 +860,7 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
               (nlits := 2 * s.core.cur_vars) heq_bl
             c0_hsteps
             exact hJk keep (by
-              dsimp only [cnt]; rw [extKeepCount, hfk]; simpa using hkeep_eq)
+              dsimp only [cnt]; rw [extKeepCount_succ, hfk]; simpa using hkeep_eq)
       · -- Exit Pass 1 (`i = sz`, `keep = cnt sz`)
         have hi_eq : i.toNat = sz := by
           have h1 := hc; simp only [hcr2_mod] at h1; dsimp only [sz, szBv] at hi_le ⊢; omega
@@ -877,7 +896,7 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                 refine hLoop2 (0#32, BitVec.ofNat 64 s.scratch.extend_len + 1#64, ()) _
                   ⟨Nat.zero_le _, ?_, _, by simp [hesl], hm⟩
                 have h032 : (0#32 : BitVec 32).toNat = 0 := rfl
-                rw [h032]; dsimp only [cnt, extKeepCount]
+                rw [h032]; dsimp only [cnt]; rw [extKeepCount_zero]
                 rw [BitVec.toNat_add, h0_el, show (1#64 : BitVec 64).toNat = 1 from rfl,
                   Nat.mod_eq_of_lt (by omega)])
               (fun J2 ⟨i2, p, ⟨⟩⟩ m2 ⟨hi2_le, hp_eq, ext2, hext2, hm2⟩ hLoop2 => ?_)
@@ -924,7 +943,7 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                         (2 * s.core.cur_vars) bl i2.toNat = true) ?_ ?_
                   · rintro _ ⟨⟩ m' ⟨rfl, htk⟩
                     have hstep : cnt (i2.toNat + 1) = cnt i2.toNat + 1 := by
-                      dsimp only [cnt]; rw [extKeepCount, htk]; rfl
+                      dsimp only [cnt]; rw [extKeepCount_succ, htk]; rfl
                     have hp_lt : p.toNat < ext2.length := by rw [hext2]; omega
                     have hp1 : (p + 1#64).toNat =
                         s.scratch.extend_len + 1 + cnt (i2.toNat + 1) := by
@@ -961,7 +980,7 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                           have hfk := extLitKeep_eq_false_skip (bl := bl) hlit2_ar hlit_lt hlvl0 hvf
                           c0_hsteps
                           exact hJw (p, ext2) m2
-                            ⟨by dsimp only [cnt]; rw [extKeepCount, hfk]; simpa using hp_eq,
+                            ⟨by dsimp only [cnt]; rw [extKeepCount_succ, hfk]; simpa using hp_eq,
                              hext2, hm2⟩
                         · -- `vals >= 0`: WRITE!
                           have hvnf : ((s.core.vals[lit2.toNat]?.getD 0#8).signExtend 32).slt
@@ -994,7 +1013,8 @@ public theorem full_extend_push_cl_m6cf_tmk_wp (Γ : Env) :
                     (nlits := 2 * s.core.cur_vars) heq_bl
                   c0_hsteps
                   exact hJw (p, ext2) m2
-                    ⟨by dsimp only [cnt]; rw [extKeepCount, hfk]; simpa using hp_eq, hext2, hm2⟩
+                    ⟨by dsimp only [cnt]; rw [extKeepCount_succ, hfk]; simpa using hp_eq,
+                     hext2, hm2⟩
             · -- Exit Pass 2 (`i2 = sz`): `h->extend_len = p; return true`
               have hi2_eq : i2.toNat = sz := by
                 have h1 := hc; simp only [hcr2_mod] at h1; dsimp only [sz, szBv] at hi2_le ⊢; omega
