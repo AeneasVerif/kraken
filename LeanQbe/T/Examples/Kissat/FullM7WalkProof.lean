@@ -737,14 +737,26 @@ theorem full_walk_m7_wp (Γ : Env)
                 (fun _ ⟨_, _, buX, _, flX, _, _, ⟨⟩⟩ mX
                     ⟨sX, fuelX, hcoreX, hfuelX, hlenX, hpresX, hmX⟩ => by
                   c0_hsteps_nogrp
-                  refine m7SaveMin_call hSaveMin rfl hlenX hmX
-                    fun sY mY hcoreY hlenY hpresY hmY => ?_
-                  c0_hsteps
-                  let sY' : FullState := { sY with scratch :=
-                    { sY.scratch with walk_cnt_stat := sY.scratch.walk_cnt_stat + 1#64 } }
-                  have hlenY' : sY'.LengthsOk c := ⟨hlenY.core_ok, { hlenY.scratch_ok with }⟩
-                  exact m7Walk_close_Q hQ (by simp [sY', hcoreY, hcoreX]) hlenY' hfuelX
-                    ⟨hpresY.1.trans hpresX.1, hpresY.2.trans hpresX.2⟩ (by assumption))
+                  refine wp_join_group (ts := [])
+                    (fun _ mZ => ∃ sZ, sZ.core = { s.core with fuel := fuelX } ∧
+                      sZ.LengthsOk c ∧ FullExtScratchPres s sZ ∧ (FullMem c sZ ⋆ R) mZ)
+                    (fun _ ⟨⟩ mZ ⟨sZ, hcoreZ, hlenZ, hpresZ, hmZ⟩ => by
+                      c0_hsteps
+                      let sZ' : FullState := { sZ with scratch :=
+                        { sZ.scratch with walk_cnt_stat := sZ.scratch.walk_cnt_stat + 1#64 } }
+                      have hlenZ' : sZ'.LengthsOk c := ⟨hlenZ.core_ok, { hlenZ.scratch_ok with }⟩
+                      exact m7Walk_close_Q hQ (by simp [sZ', hcoreZ]) hlenZ' hfuelX
+                        hpresZ (by assumption))
+                    (fun _ hJsave => by
+                      c0_hsplit
+                      · c0_hsteps_nogrp
+                        refine m7SaveMin_call hSaveMin rfl hlenX hmX
+                          fun sY mY hcoreY hlenY hpresY hmY => ?_
+                        c0_hsteps
+                        exact hJsave () mY ⟨sY, hcoreY.trans hcoreX, hlenY,
+                          ⟨hpresY.1.trans hpresX.1, hpresY.2.trans hpresX.2⟩, hmY⟩
+                      · c0_hsteps
+                        exact hJsave () mX ⟨sX, hcoreX, hlenX, hpresX, hmX⟩))
                 (fun J53X hJ53X => by
                   refine wp_loop_group (ts := [i64, i64, i64, i64, Ty.bool, i64, i64])
                     (fun fn _ mL => ∃ sL fuelL, sL.core = { s.core with fuel := fuelL } ∧

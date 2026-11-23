@@ -194,7 +194,7 @@ void full_m7_state_init(FullHdr *h) {
     full_m7_set64(h, M7_GU_EMA0_SE, init_exp);
   }
   full_m7_set64(h, M7_GU_RANDEC_REM, 0ULL);
-  full_m7_set64(h, M7_GU_RANDEC_LIM, 500ULL);
+  full_m7_set64(h, M7_GU_RANDEC_LIM, h->conflicts + 500ULL);
   full_m7_set64(h, M7_GU_RANDEC_SEQ, 0ULL);
   full_m7_set64(h, M7_GU_RANDEC_CFL, h->conflicts);
 }
@@ -556,14 +556,13 @@ void full_switch_mode_m7(FullHdr *h) {
     h->rel_v = 1ULL;
     h->rel_trigger = 0ULL;
     u64 cv = h->cur_vars;
-    i8 *vals = (i8 *)h->values;
     u32 *fl = (u32 *)h->flags;
     u32 *hp = (u32 *)h->heap;
     u32 *ps = (u32 *)h->pos;
     u64 n = 0ULL;
     u64 v = 0ULL;
     while (v < cv) {
-      if ((fl[v] & FL_ACTIVE) != 0u && vals[v << 1] == (i8)0) {
+      if ((fl[v] & FL_ACTIVE) != 0u) {
         hp[n] = (u32)v;
         ps[v] = (u32)n;
         n = n + 1ULL;
