@@ -838,7 +838,6 @@ structure FrameSpec {R V C D : Type} (M : Machine R V C D) (f : FrameIsa R D)
       M.getGpr s' f.sp = M.getGpr s f.sp + BitVec.ofNat 64 f.raBytes →
       M.mem s' = M.mem s → Eventually (M.step h) post (M.mkState s' ra)) →
     M.Run h k s post
-  leafZeroFrame_ok : f.leafZeroFrame = true → f.raRegs = [] := by intro h; cases h
   saveRegs_spec : ∀ {fn h k i rs s G post},
     f.saveRegs? = some fn → 8 * i + 8 * rs.length ≤ 2 ^ 64 →
     (∀ r ∈ rs, r ∉ f.scratch) → P.spOk (M.getGpr s f.sp) →
@@ -985,10 +984,6 @@ theorem ret_spec (ft : FrameTarget M f condReads) : ∀ {h k s ra R post},
       M.mem s' = M.mem s → Eventually (M.step h) post (M.mkState s' ra)) →
     M.Run h k s post :=
   ft.spec.ret_spec
-
-theorem leafZeroFrame_ok (ft : FrameTarget M f condReads) :
-    f.leafZeroFrame = true → f.raRegs = [] :=
-  ft.spec.leafZeroFrame_ok
 
 theorem saveRegs_spec (ft : FrameTarget M f condReads) : ∀ {fn h k i rs s G post},
     f.saveRegs? = some fn → 8 * i + 8 * rs.length ≤ 2 ^ 64 →

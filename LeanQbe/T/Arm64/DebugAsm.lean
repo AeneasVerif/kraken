@@ -317,10 +317,80 @@ private def collectTailRestores (fn : Sym) (nonLocal : HashSet Sym) (epi : List 
 private def isSuffixOf {α : Type} [BEq α] (suf xs : List α) : Bool :=
   suf.length <= xs.length && xs.drop (xs.length - suf.length) == suf
 
-private def inferFnSaved (fn : Sym) (nonLocal : HashSet Sym) (body : List Directive) :
-    Except String (Nat × List Reg) :=
+private structure FnFrameInfo where
+  zeroFrame : Bool
+  nslots : Nat
+  saved : List Reg
+
+private def regOrSpIsSp {w : RegWidth} : RegOrSp w → Bool
+  | .low .SP _ => true
+  | _ => false
+
+private def regOrSpIsSpOrX30 {w : RegWidth} : RegOrSp w → Bool
+  | .low .SP _ => true
+  | .low (.reg .X30) _ => true
+  | _ => false
+
+private def regOrZrIsX30 {w : RegWidth} : RegOrZr w → Bool
+  | .low (.reg .X30) _ => true
+  | _ => false
+
+private def addrUsesSp (a : AddrExpr) : Bool :=
+  regOrSpIsSp a.base
+
+private def uaddrUsesSp (a : UnscaledAddrExpr) : Bool :=
+  regOrSpIsSp a.base
+
+private def addrOrLitUsesSp : AddrOrLit → Bool
+  | .addr a => addrUsesSp a
+  | .lit _ => false
+
+private def opIsNonLeafOrFrame {w : RegWidth} : Operation w → Bool
+  | .LDR dst src => regOrZrIsX30 dst || addrOrLitUsesSp src
+  | .STR src dst => regOrZrIsX30 src || addrUsesSp dst
+  | .LDUR dst src => regOrZrIsX30 dst || uaddrUsesSp src
+  | .STUR src dst => regOrZrIsX30 src || uaddrUsesSp dst
+  | .LDP d1 d2 src => regOrZrIsX30 d1 || regOrZrIsX30 d2 || addrUsesSp src
+  | .STP s1 s2 dst => regOrZrIsX30 s1 || regOrZrIsX30 s2 || addrUsesSp dst
+  | .LDRB dst src | .LDRSB dst src | .LDRH dst src | .LDRSH dst src =>
+    regOrZrIsX30 dst || addrUsesSp src
+  | .LDURB dst src | .LDURSB dst src | .LDURH dst src | .LDURSH dst src | .LDURSW dst src =>
+    regOrZrIsX30 dst || uaddrUsesSp src
+  | .STRB src dst | .STRH src dst => regOrZrIsX30 src || addrUsesSp dst
+  | .STURB src dst | .STURH src dst => regOrZrIsX30 src || uaddrUsesSp dst
+  | .LDRSW dst src => regOrZrIsX30 dst || addrOrLitUsesSp src
+  | .LDPSW d1 d2 src => regOrZrIsX30 d1 || regOrZrIsX30 d2 || addrUsesSp src
+  | .ADD_e dst s1 _ | .SUB_e dst s1 _ => regOrSpIsSpOrX30 dst || regOrSpIsSp s1
+  | .ADDS_e dst s1 _ | .SUBS_e dst s1 _ => regOrZrIsX30 dst || regOrSpIsSp s1
+  | .AND_i dst _ _ | .ORR_i dst _ _ | .EOR_i dst _ _ => regOrSpIsSpOrX30 dst
+  | .ADD_s dst _ _ | .ADDS_s dst _ _ | .SUB_s dst _ _ | .SUBS_s dst _ _
+  | .ADC dst _ _ | .ADCS dst _ _ | .SBC dst _ _ | .SBCS dst _ _
+  | .SDIV dst _ _ | .UDIV dst _ _ | .MADD dst _ _ _ | .MSUB dst _ _ _
+  | .SMULH dst _ _ | .UMULH dst _ _ | .SMADDL dst _ _ _ | .UMADDL dst _ _ _
+  | .SMSUBL dst _ _ _ | .UMSUBL dst _ _ _
+  | .AND_s dst _ _ | .ANDS_i dst _ _ | .ANDS_s dst _ _ | .ORR_s dst _ _
+  | .ORN_s dst _ _ | .EOR_s dst _ _ | .EON_s dst _ _ | .BIC_s dst _ _ | .BICS_s dst _ _
+  | .BFM dst _ _ _ | .SBFM dst _ _ _ | .UBFM dst _ _ _
+  | .CLZ dst _ | .CLS dst _ | .RBIT dst _ | .REV dst _ | .REV16 dst _ | .REV32 dst _
+  | .EXTR dst _ _ _ | .MOVZ dst _ _ | .MOVK dst _ _ | .MOVN dst _ _
+  | .LSLV dst _ _ | .LSRV dst _ _ | .ASRV dst _ _ | .RORV dst _ _
+  | .CSEL dst _ _ _ | .CSINC dst _ _ _ | .CSINV dst _ _ _ | .CSNEG dst _ _ _
+  | .ADR dst _ | .ADRP dst _ => regOrZrIsX30 dst
+  | .BL _ | .BLR _ | .BR _ => true
+  | _ => false
+
+private def isNonLeafOrFrameDir : Directive → Bool
+  | .instr i => opIsNonLeafOrFrame i.operation
+  | _ => false
+
+private def inferFnFrame (fn : Sym) (nonLocal : HashSet Sym) (body : List Directive) :
+    Except String FnFrameInfo :=
   match matchArmSubSp body with
-  | none => .error s!"function '{fn}': unrecognized Arm64 prologue sub sp"
+  | none =>
+    if armFrame.leafZeroFrame && !body.any isNonLeafOrFrameDir then
+      .ok ⟨true, 0, []⟩
+    else
+      .error s!"function '{fn}': unrecognized Arm64 prologue sub sp"
   | some (sz, afterSub) =>
     match matchArmStSpX afterSub with
     | some (raOff, .X30, _, afterRa) =>
@@ -343,7 +413,7 @@ private def inferFnSaved (fn : Sym) (nonLocal : HashSet Sym) (body : List Direct
               else
                 tryLen m
         match tryLen cands.length with
-        | some res => .ok res
+        | some (nslots, saved) => .ok ⟨false, nslots, saved⟩
         | none => .error s!"function '{fn}': could not infer Arm64 callee-saved slots"
     | _ => .error s!"function '{fn}': unrecognized Arm64 prologue x30 save"
 
@@ -398,79 +468,89 @@ private def armRestoreChunks : Nat → List Reg → List (List Reg × List Direc
       armRestoreChunks (i + 2) rs
   | i, r :: rs => ([r], armSlotLd r i) :: armRestoreChunks (i + 1) rs
 
-private def emitArm64Fn (fn : Sym) (nslots : Nat) (saved : List Reg) (nonLocal : HashSet Sym)
+private def emitArm64Header (fn : Sym) (sz : Nat) (saved : List Reg) (comments : Bool)
+    (out : Array String) : Array String :=
+  let savedNames := String.intercalate "," (saved.map cfiReg)
+  let out :=
+    if comments then
+      out.push s!"// fn {fn}: frame={sz}B cfa=sp+{sz} saved=[{savedNames}]"
+    else out
+  out
+    |>.push "\t.p2align 2"
+    |>.push s!"\t.globl {fn}"
+    |>.push s!"\t.type {fn}, %function"
+    |>.push s!"{fn}:"
+    |>.push "\t.cfi_startproc"
+
+private def emitArm64Fn (fn : Sym) (info : FnFrameInfo) (nonLocal : HashSet Sym)
     (comments : Bool) (body : List Directive) (out : Array String) :
     Except String (Array String) :=
-  let ns := nslots + saved.length
-  let sz := armFrameSize ns
-  let subSp := emitClean (armSubSpIns sz)
-  let stX30 := emitClean (armStSpXRegIns .X30 (8 * ns))
-  match dropPrefix? subSp body with
-  | none => .error s!"function '{fn}': Arm64 prologue sub sp mismatch (totalSlots={ns})"
-  | some afterSub =>
-    match dropPrefix? stX30 afterSub with
-    | none => .error s!"function '{fn}': Arm64 prologue x30 save mismatch (totalSlots={ns})"
-    | some afterRa =>
-      let rec consumeSaves (idx : Nat) (ds : List Directive) (acc : Array String) :
-          List Reg → Except String (Array String × List Directive)
-        | [] => .ok (acc, ds)
-        | [r] =>
-          let st := armSlotSt idx r
-          match dropPrefix? st ds with
-          | none =>
-            .error s!"function '{fn}': saveCs mismatch for {cfiReg r} at slot {idx}"
-          | some rest =>
-            let cfaOff := sz - 8 * idx
-            let acc := (pushDirLines fn nonLocal st acc).push
-              s!"\t.cfi_offset {cfiReg r}, -{cfaOff}"
-            .ok (acc, rest)
-        | .reg r1 :: .reg r2 :: rs =>
-          let st := emitClean (armStpSpXRegIns r1 r2 (8 * idx))
-          match dropPrefix? st ds with
-          | none =>
-            .error s!"function '{fn}': saveCs mismatch for {cfiReg (.reg r1)} at slot {idx}"
-          | some rest =>
-            let cfaOff1 := sz - 8 * idx
-            let cfaOff2 := sz - 8 * (idx + 1)
-            let acc := (pushDirLines fn nonLocal st acc)
-              |>.push s!"\t.cfi_offset {cfiReg (.reg r1)}, -{cfaOff1}"
-              |>.push s!"\t.cfi_offset {cfiReg (.reg r2)}, -{cfaOff2}"
-            consumeSaves (idx + 2) rest acc rs
-        | r :: rs =>
-          let st := armSlotSt idx r
-          match dropPrefix? st ds with
-          | none =>
-            .error s!"function '{fn}': saveCs mismatch for {cfiReg r} at slot {idx}"
-          | some rest =>
-            let cfaOff := sz - 8 * idx
-            let acc := (pushDirLines fn nonLocal st acc).push
-              s!"\t.cfi_offset {cfiReg r}, -{cfaOff}"
-            consumeSaves (idx + 1) rest acc rs
-      let savedNames := String.intercalate "," (saved.map cfiReg)
-      let out :=
-        if comments then
-          out.push s!"// fn {fn}: frame={sz}B cfa=sp+{sz} saved=[{savedNames}]"
-        else out
-      let out := out
-        |>.push "\t.p2align 2"
-        |>.push s!"\t.globl {fn}"
-        |>.push s!"\t.type {fn}, %function"
-        |>.push s!"{fn}:"
-        |>.push "\t.cfi_startproc"
-      let out := (pushDirLines fn nonLocal subSp out).push s!"\t.cfi_def_cfa_offset {sz}"
-      let raCfaOff := sz - 8 * ns
-      let out := (pushDirLines fn nonLocal stX30 out).push s!"\t.cfi_offset x30, -{raCfaOff}"
-      match consumeSaves nslots afterRa out saved with
-      | .error e => .error e
-      | .ok (out, restBody) =>
-        let restoreChunks := armRestoreChunks nslots saved
-        let restoreFlat := restoreChunks.flatMap Prod.snd
-        let ldX30 := emitClean (armLdSpXRegIns .X30 (8 * ns))
-        let addSp := emitClean (armAddSpIns sz)
-        let out := emitBodyTails fn nonLocal comments restoreChunks restoreFlat
-          ldX30 addSp restBody.length restBody out
-        let out := out.push "\t.cfi_endproc" |>.push s!"\t.size {fn}, .-{fn}"
-        .ok (out.push "\t.ltorg")
+  if info.zeroFrame then
+    let out := emitArm64Header fn 0 [] comments out
+    let out := pushDirLines fn nonLocal body out
+    let out := out.push "\t.cfi_endproc" |>.push s!"\t.size {fn}, .-{fn}"
+    .ok (out.push "\t.ltorg")
+  else
+    let ns := info.nslots + info.saved.length
+    let sz := armFrameSize ns
+    let subSp := emitClean (armSubSpIns sz)
+    let stX30 := emitClean (armStSpXRegIns .X30 (8 * ns))
+    match dropPrefix? subSp body with
+    | none => .error s!"function '{fn}': Arm64 prologue sub sp mismatch (totalSlots={ns})"
+    | some afterSub =>
+      match dropPrefix? stX30 afterSub with
+      | none => .error s!"function '{fn}': Arm64 prologue x30 save mismatch (totalSlots={ns})"
+      | some afterRa =>
+        let rec consumeSaves (idx : Nat) (ds : List Directive) (acc : Array String) :
+            List Reg → Except String (Array String × List Directive)
+          | [] => .ok (acc, ds)
+          | [r] =>
+            let st := armSlotSt idx r
+            match dropPrefix? st ds with
+            | none =>
+              .error s!"function '{fn}': saveCs mismatch for {cfiReg r} at slot {idx}"
+            | some rest =>
+              let cfaOff := sz - 8 * idx
+              let acc := (pushDirLines fn nonLocal st acc).push
+                s!"\t.cfi_offset {cfiReg r}, -{cfaOff}"
+              .ok (acc, rest)
+          | .reg r1 :: .reg r2 :: rs =>
+            let st := emitClean (armStpSpXRegIns r1 r2 (8 * idx))
+            match dropPrefix? st ds with
+            | none =>
+              .error s!"function '{fn}': saveCs mismatch for {cfiReg (.reg r1)} at slot {idx}"
+            | some rest =>
+              let cfaOff1 := sz - 8 * idx
+              let cfaOff2 := sz - 8 * (idx + 1)
+              let acc := (pushDirLines fn nonLocal st acc)
+                |>.push s!"\t.cfi_offset {cfiReg (.reg r1)}, -{cfaOff1}"
+                |>.push s!"\t.cfi_offset {cfiReg (.reg r2)}, -{cfaOff2}"
+              consumeSaves (idx + 2) rest acc rs
+          | r :: rs =>
+            let st := armSlotSt idx r
+            match dropPrefix? st ds with
+            | none =>
+              .error s!"function '{fn}': saveCs mismatch for {cfiReg r} at slot {idx}"
+            | some rest =>
+              let cfaOff := sz - 8 * idx
+              let acc := (pushDirLines fn nonLocal st acc).push
+                s!"\t.cfi_offset {cfiReg r}, -{cfaOff}"
+              consumeSaves (idx + 1) rest acc rs
+        let out := emitArm64Header fn sz info.saved comments out
+        let out := (pushDirLines fn nonLocal subSp out).push s!"\t.cfi_def_cfa_offset {sz}"
+        let raCfaOff := sz - 8 * ns
+        let out := (pushDirLines fn nonLocal stX30 out).push s!"\t.cfi_offset x30, -{raCfaOff}"
+        match consumeSaves info.nslots afterRa out info.saved with
+        | .error e => .error e
+        | .ok (out, restBody) =>
+          let restoreChunks := armRestoreChunks info.nslots info.saved
+          let restoreFlat := restoreChunks.flatMap Prod.snd
+          let ldX30 := emitClean (armLdSpXRegIns .X30 (8 * ns))
+          let addSp := emitClean (armAddSpIns sz)
+          let out := emitBodyTails fn nonLocal comments restoreChunks restoreFlat
+            ldX30 addSp restBody.length restBody out
+          let out := out.push "\t.cfi_endproc" |>.push s!"\t.size {fn}, .-{fn}"
+          .ok (out.push "\t.ltorg")
 
 /-- Emit ELF + DWARF CFI + `.L`-scrubbed AAPCS64 assembly from compiled `fs` and `code`.
 When `hints?` is supplied, exact `(nslots, saved)` values are enforced against `code`; otherwise
@@ -481,20 +561,33 @@ def emitArm64DebugAsmChecked (fs : List Fn) (code : List Directive)
   let names := fs.map (·.name)
   let slices ← splitFnSlices names code
   let nonLocal := (names ++ exits).foldl (fun s k => s.insert k) ({} : HashSet Sym)
-  let pairs : List ((Sym × List Directive) × (Nat × List Reg)) ←
+  let pairs : List ((Sym × List Directive) × FnFrameInfo) ←
     match hints? with
     | some hs =>
       if hs.length != fs.length then
         .error s!"hints length {hs.length} != functions length {fs.length}"
       else
-        .ok (slices.zip (hs.map fun h => (h.nslots, h.saved)))
+        (slices.zip hs).mapM fun ((fn, body), h) => do
+          let ns := h.nslots + h.saved.length
+          if ns == 0 && armFrame.leafZeroFrame then
+            let pro := emitClean (armSubSpIns (armFrameSize 0)) ++
+              emitClean (armStSpXRegIns .X30 0)
+            match dropPrefix? pro body with
+            | some _ => .ok ((fn, body), ⟨false, 0, []⟩)
+            | none =>
+              if !body.any isNonLeafOrFrameDir then
+                .ok ((fn, body), ⟨true, 0, []⟩)
+              else
+                .error s!"function '{fn}': Arm64 prologue mismatch (totalSlots=0)"
+          else
+            .ok ((fn, body), ⟨false, h.nslots, h.saved⟩)
     | none =>
       slices.mapM fun (fn, body) => do
-        let info ← inferFnSaved fn nonLocal body
+        let info ← inferFnFrame fn nonLocal body
         .ok ((fn, body), info)
   let mut out : Array String := #[".text"]
-  for ((fn, body), (nslots, saved)) in pairs do
-    out ← emitArm64Fn fn nslots saved nonLocal comments body out
+  for ((fn, body), info) in pairs do
+    out ← emitArm64Fn fn info nonLocal comments body out
   return String.intercalate "\n" out.toList ++ "\n"
 
 /-- Infallible wrapper around `emitArm64DebugAsmChecked` for CLI assembly emission. -/

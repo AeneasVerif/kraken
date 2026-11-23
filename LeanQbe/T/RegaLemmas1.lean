@@ -277,7 +277,7 @@ def Inv (m : Mem 64) (s : T.mach.MData) (σ : List (BitVec 64)) (zl : Bool := fa
   (∀ r ∈ T.frame.calleeSaved, r ∉ hints.saved → T.mach.getGpr s r = T.mach.getGpr s₀ r) ∧
   (T.mach.mem s =⋆ Eq m ⋆ (array64 (baseZ T hints s₀ zl) σ ⋆ FrZ T hints s₀ ra n Rf zl)) ∧
   (∀ r ∈ hints.saved, r ∈ T.frame.calleeSaved) ∧ hints.saved.Nodup ∧
-  (zl = true → hints.totalSlots = 0 ∧ T.frameSpec.raReg s₀ ra ∧ T.frame.raRegs = [])
+  (zl = true → hints.totalSlots = 0 ∧ T.frameSpec.raReg s ra)
 
 end Frame
 
@@ -825,7 +825,7 @@ theorem Inv.unwindow {zl : Bool} {σ ws : List (BitVec 64)}
     (hg : ∀ r, r ∉ T.frame.scratch → T.mach.getGpr s' r = T.mach.getGpr s r) :
     Inv T hints s₀ ra n Rf m s' (splice σ i k ws) zl := by
   obtain ⟨hl, hsp, hcs, -, hsv, hnd, hzl⟩ := hI
-  refine ⟨by rw [length_splice h hw, hl], ?_, fun r hr hns => ?_, ?_, hsv, hnd, hzl⟩
+  refine ⟨by rw [length_splice h hw, hl], ?_, fun r hr hns => ?_, ?_, hsv, hnd, fun h => ?_⟩
   · rw [hg _ T.frameSpec.sp_disj.1]; exact hsp
   · rw [hg r fun hs => (T.frameSpec.scratch_disj r hs).2.1 hr]; exact hcs r hr hns
   · have e := array64_splice_eq (baseZ T hints s₀ zl) (σ.take i) ws (σ.drop (i + k))
@@ -833,6 +833,9 @@ theorem Inv.unwindow {zl : Bool} {σ ws : List (BitVec 64)}
     show (Eq m ⋆ (array64 (baseZ T hints s₀ zl) (σ.take i ++ ws ++ σ.drop (i + k)) ⋆
       FrZ T hints s₀ ra n Rf zl)) (T.mach.mem s')
     rw [e]; rw [hsp] at hmem; dsimp only [Rest] at hmem; exact sep_cast hmem (by ac_rfl)
+  · obtain ⟨htot, hra⟩ := hzl h
+    exact ⟨htot, T.frameSpec.raReg_of_raRegs s s' ra
+      (fun r hr => hg r (T.frameSpec.ra_disj r hr).2.1) hra⟩
 
 theorem Agree.writeSlot (hA : Agree T G nv st s σ) {i k : Nat} (h : i + k ≤ σ.length) {ws : List (BitVec 64)}
     (hw : ws.length = k) {E : SlotEntry} (hE : SlotOk G (splice σ i k ws) i E)
@@ -897,12 +900,17 @@ theorem Inv.keep {zl : Bool} {m : Mem 64} {s s' : T.mach.MData} {σ : List (BitV
     Inv T hints s₀ ra n Rf m s' σ zl := by
   obtain ⟨hl, hsp, hcs, hmem, hsv, hnd, hzl⟩ := hI
   have sd := T.frameSpec.sp_disj
-  refine ⟨hl, ?_, fun r hr hns => ?_, by rw [hm]; exact hmem, hsv, hnd, hzl⟩
+  refine ⟨hl, ?_, fun r hr hns => ?_, by rw [hm]; exact hmem, hsv, hnd, fun h => ?_⟩
   · rw [hs _ (isMoveGpr_false sd.2.1 (fun h => sd.2.2.1 (hsv _ h)) sd.2.2.2.1 sd.2.2.2.2.1 sd.1)]
     exact hsp
   · have cd := T.frameSpec.cs_disj r hr
     rw [hs r (isMoveGpr_false cd.1 hns cd.2.1 cd.2.2 fun h => (T.frameSpec.scratch_disj r h).2.1 hr)]
     exact hcs r hr hns
+  · obtain ⟨htot, hra⟩ := hzl h
+    refine ⟨htot, T.frameSpec.raReg_of_raRegs s s' ra (fun r hr => ?_) hra⟩
+    have rd := T.frameSpec.ra_disj r hr
+    exact hs r (isMoveGpr_false rd.1 (fun h => rd.2.2.1 (hsv r h))
+      rd.2.2.2.1 rd.2.2.2.2 rd.2.1)
 
 theorem not_scratch_of_isAllocGpr (hsv : ∀ r ∈ hints.saved, r ∈ T.frame.calleeSaved) {r : T.Reg}
     (h : isAllocGpr T.toIsa hints.saved r = true) : r ∉ T.frame.scratch := by
