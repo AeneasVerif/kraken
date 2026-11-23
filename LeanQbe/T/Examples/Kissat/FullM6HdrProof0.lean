@@ -212,6 +212,9 @@ theorem M6HdrScratchPres.res_sz {s s' : FullState} (h : M6HdrScratchPres s s') :
 theorem M6HdrScratchPres.delayed {s s' : FullState} (h : M6HdrScratchPres s s') :
     M6HdrBaseDelayedPres s s' := h.2
 
+theorem M6HdrScratchPres.probePres {s s' : FullState} (h : M6HdrScratchPres s s') :
+    FullProbeScratchPres s s' := h.1
+
 theorem FullM6HdrInv.mk_inv {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)}
     {s : FullState} (hc : FullM6HdrCfgOk c) (he : M6HdrExtOk ext) (hs : FullSparseInv c F0 s) :
     FullM6HdrInv c F0 ext s := ⟨hc, he, hs⟩
