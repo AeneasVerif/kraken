@@ -6,7 +6,7 @@ public import LeanQbe.T.Examples.Kissat.FullReduceLemmas2
 public import LeanQbe.T.Examples.Kissat.FullIngestLemmas1
 
 /-!
-# Kissat M6 `PR-W2E-lite` Proofs Part 1: Radix Sort, Watch Defrag, `lit_rank`, & Binary Dedup
+# Kissat M6 Watch/GC Proofs Part 1: Radix Sort, Watch Defrag, `lit_rank`, & Binary Dedup
 
 Proves:
 1. `full_wstack_radix_sort_m6_wp`: 256-bucket LSB radix sort with `max_off` early exit.

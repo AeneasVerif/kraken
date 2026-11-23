@@ -6,12 +6,12 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Verification, UNSAT Non-Vacuity, and Axiom Audit for `FullFastBveBudgets` (M2 Tier-A)
+# Verification, UNSAT Non-Vacuity, and Axiom Audit for `FullFastBveBudgets` (M2)
 
 1. Executable `#guard` checks on `fastBveBudgets_fns` (`7` upgraded functions), names & signatures,
    `fastBveBudgetsExterns` (`21` externs), `fastBveBudgetsModule.checkAcyclic`, and the `28`-row
    `fastBveBudgetsSpecTable`.
-2. Short root-namespace audit theorems + single-line `#print axioms` (`<= 100` cols, every
+2. Short root-namespace audit theorems + single-line `#print axioms` (every
    `depends on axioms: [...]` output on one complete line) on all exported `Func.Wf`, acyclicity,
    gate soundness, UNSAT-only `Func.wp`, `SpecEntry.Impl`, `ModuleOk`, and concrete `Mem 64`
    UNSAT non-vacuity theorems (`⊆ [propext, Classical.choice, Quot.sound]`).

@@ -6,12 +6,12 @@ public import LeanQbe.T.Examples.Kissat.FullM5HeurCoreProof1
 import LeanQbe.T.Examples.Kissat.FullLearnAnaLemmas1
 
 /-!
-# Kissat M5 Wave 1 (`PR-W1A`) `Func.wp` Proofs — Part 2b (`FullM5HeurCoreProof2b`)
+# Kissat M5 Heuristics `Func.wp` Proofs — Part 2b (`FullM5HeurCoreProof2b`)
 
 Proves UNSAT-only parametric `Func.wp` contracts (`XPost := False`, `0` SAT proofs) for:
-1. `full_learn_clause_m5_wp` against canonical `Full.fullLearnClauseSpec` (`RC-09`: sets
+1. `full_learn_clause_m5_wp` against canonical `Full.fullLearnClauseSpec` (sets
    `used = 31u` via `ar[new_ref] |= 31u << 27` on every newly learned large clause).
-2. `full_analyze_m5_wp` against canonical `Full.fullAnalyzeSpec` (`RC-10`: `probing == 0` guard
+2. `full_analyze_m5_wp` against canonical `Full.fullAnalyzeSpec` (`probing == 0` guard
    around OTFS `tmp[0]` + `full_restore_bump_ana_m5`, post-`full_min_shrink`
    `full_restore_bump_ana_m5` + `full_tick_rel`, and `full_ema_update`).
 -/

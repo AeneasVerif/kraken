@@ -3,14 +3,14 @@ module
 public import LeanQbe.T.Flat
 
 /-!
-# Target-parameterized IR legalisation (`T5`, `G13`)
+# Target-Parameterized IR Legalization (`PackOracle`, `LegalTarget`)
 
-Implements the `G13` packing oracle and target capability specification (`PackOracle`,
-`LegalTarget`), the PHOAS-to-PHOAS legalisation pass (`legalExpr`, `Func.legal`), and the
+Implements the packing oracle and target capability specification (`PackOracle`,
+`LegalTarget`), the PHOAS-to-PHOAS legalization pass (`legalExpr`, `Func.legal`), and the
 decidable/computable `TFlat.isLegal` / `Func.isLegal` predicate:
 
-* **`G13` packing oracle (`PackOracle`, `LegalTarget`)**: target-neutral capability record
-  (importing neither `Kraken.X64` nor `Kraken.AArch64`), reusable directly by `T7` (`Rega`).
+* **Packing oracle (`PackOracle`, `LegalTarget`)**: target-neutral capability record
+  (importing neither `Kraken.X64` nor `Kraken.AArch64`), reused directly by `Rega`.
   `PackOracle.g13` keeps balanced `Ty.vec k leaf` of target vector register width packed and splits
   all other `pair a b` values into their scalar/packed leaves.
 * **(a) Pair & wide-vector splitting**: splits non-packed `pair`s and over-wide vectors across
@@ -21,9 +21,9 @@ decidable/computable `TFlat.isLegal` / `Func.isLegal` predicate:
   supported width with zero-extension invariant (`x' = x.setWidth w`), masking arithmetic/bitwise/
   shift/multiply/conversion results and sign-extending operands (`shl` + `ashr`) for signed
   comparisons, `ashr`, `sdiv`/`srem`/`sdiv0`, `smulw`, `cls`, `sext`, and `sitofp`.
-* **(c) Vector halving & scalarization**: recursively halves `vec (k + 1) t = .pair (vec k t) (vec k
-  t)`
-  (§0f) down to target vector register widths (`512 → 256 → 128`) or down to scalar leaves.
+* **(c) Vector halving & scalarization**: recursively halves `vec (k + 1) t`
+  (`= .pair (vec k t) (vec k t)`) down to target vector register widths (`512 → 256 → 128`) or
+  down to scalar leaves.
 * **(d) Derived opcode expansion**: expands `blend` on `bool` leaves into scalar `select`s,
   expands vector `shl` by uniform immediate into `rotr` + `and` (and `rotl` by uniform immediate
   into `rotr`), scalarizes unsupported vector ops, expands scalar `ternlog` into `and`/`or`/`not`,
@@ -41,10 +41,10 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 
-/-! ## `G13` packing oracle and target capabilities -/
+/-! ## Packing oracle and target capabilities -/
 
-/-- `G13` packing oracle: decides which `.pair` types stay packed as a single register/value unit
-(vs splitting along `.pair a b`). Reused directly by `T7` (`Rega`). -/
+/-- Packing oracle: decides which `.pair` types stay packed as a single register/value unit
+(vs splitting along `.pair a b`). Reused directly by `Rega`. -/
 structure PackOracle where
   /-- True iff `t` (when a `.pair`) is kept packed as a single unit. -/
   keepPacked : Ty → Bool
@@ -54,7 +54,7 @@ structure PackOracle where
   | .pair a b => o.keepPacked (.pair a b)
   | _ => false
 
-/-- Oracle that splits every `.pair` down to scalar leaves (e.g. AArch64 per §0). -/
+/-- Oracle that splits every `.pair` down to scalar leaves (e.g. scalar AArch64). -/
 def PackOracle.none : PackOracle := ⟨fun _ => false⟩
 
 /-- If `t` is a balanced tree `Ty.vec k leaf` with `leaf ∈ vecLeaves`, return `some (k, leaf)`. -/
@@ -66,7 +66,7 @@ def matchVecOf (vecLeaves : List Ty) (t : Ty) : Option (Nat × Ty) :=
       else none
     | _ => none
 
-/-- Baseline `G13` type-directed packing oracle: keeps balanced `Ty.vec k leaf` trees packed
+/-- Baseline type-directed packing oracle: keeps balanced `Ty.vec k leaf` trees packed
 when `leaf ∈ vecLeaves`, `t` is a `.pair`, and `t.size ∈ vecWidths`; splits all other pairs. -/
 def PackOracle.g13 (vecWidths : List Nat) (vecLeaves : List Ty) : PackOracle where
   keepPacked t :=
@@ -77,9 +77,9 @@ def PackOracle.g13 (vecWidths : List Nat) (vecLeaves : List Ty) : PackOracle whe
       | Option.none => false
     | _ => false
 
-/-- Target capability specification for `T5` legalisation and `T7` register allocation. -/
+/-- Target capability specification for IR legalization and register allocation (`Rega`). -/
 structure LegalTarget where
-  /-- Packing oracle (`G13`) deciding which `.pair` types stay packed in vector registers. -/
+  /-- Packing oracle deciding which `.pair` types stay packed in vector registers. -/
   oracle : PackOracle
   /-- Whether packed vector boundary `mkpair`/`unpair` bridges are permitted (false on scalar-only
   targets like AArch64; true on vector targets like x64). -/
@@ -115,7 +115,7 @@ def isF32Vec : Ty → Bool
   | .pair a b => a == b && isF32Vec a
   | _ => false
 
-/-- AArch64 scalar target (no vector or FP registers in upstream Kraken per §0). -/
+/-- AArch64 scalar target (no vector or FP registers modeled in Kraken AArch64). -/
 def LegalTarget.aarch64 : LegalTarget where
   oracle := .none
   allowPackBridge := false
@@ -134,7 +134,7 @@ def LegalTarget.scalar64 : LegalTarget where
   vecFloatOpSupported _ _ := false
 
 /-- x64 target parameterized by supported vector register bit widths (`[128]`, `[128, 256]`, or
-`[128, 256, 512]`), supporting the §0 `i32`/`f32` vector subset. -/
+`[128, 256, 512]`), supporting the `i32`/`f32` vector subset. -/
 def LegalTarget.x64 (vecWidths : List Nat := [128, 256, 512]) : LegalTarget where
   oracle := PackOracle.g13 vecWidths [i32, f32]
   allowPackBridge := !vecWidths.isEmpty

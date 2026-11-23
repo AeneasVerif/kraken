@@ -7,7 +7,7 @@ import all Kraken.Separation
 /-!
 # `lbReadAddLits` and `lbRupCheck`: correctness and pure RUP soundness in `LeanQbe.T`
 
-Self-contained (`G5`) typed-IR proofs of:
+Self-contained typed-IR proofs of:
 1. `lbReadAddLits_correct` (zig-zag LEB128 literal decoding).
 2. Propagation-state helpers (`PState`, `assignedLit_pstate`, `store_assignLit_pstate`,
    `backtrack_spec`) and `rupPhase1_spec` / `rupInner_spec` / `lbRupCheck_correct`.

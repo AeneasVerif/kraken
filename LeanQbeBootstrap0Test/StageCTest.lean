@@ -11,17 +11,18 @@ meta import LeanQbe.T.Bootstrap0.StageC
 /-!
 # Verification Suite for Stage C End-to-End Native Emission & Execution (`StageCTest`)
 
-Validates `LeanQbe.T.Bootstrap0.StageC`:
-1. Arm64 zero-cross-import check (verifying zero `LeanQbe.T.Arm64` / `Kraken.AArch64` imports).
-2. Concrete machine-code execution theorems on the verified concrete x86-64 machine
+Validates `LeanQbe.T.Bootstrap0.StageC` on seven small scalar C0 functions (`stageCTfs`) compiled
+through `Bridge0`, `leanqbe0Compile`, `Sound0`, and `PrintAsm0`:
+1. Arm64 zero-cross-import check (confirming no `LeanQbe.T.Arm64` / `Kraken.AArch64` imports).
+2. Concrete single-input execution theorems under Kraken x86-64 scalar semantics
    (`Eventually (x64ScalarMach.step stageCHost)`):
    - `stageC_sqr_exec7`: `c0_sqr 7#64 = 49#64` (arithmetic)
-   - `stageC_pipe_exec100`: multi-fn pipeline `c0_pipeline 100#64 = 160#64` (multi-fn call chain)
-   - `stageC_sat_var_exec42`: SAT/LRAT literal variable `sat_lit_var 42#64 = 21#64` (DIMACS var)
-   - `stageC_sat_sign_exec43`: SAT/LRAT literal sign `sat_lit_sign 43#64 = 1#64` (DIMACS sign)
-   - `stageC_sat_neg_exec42`: SAT/LRAT literal negation `sat_lit_neg 42#64 = 43#64` (DIMACS neg)
-3. Assembly printer agreement and static bounds checks across all Stage C kernels.
-4. Single-line `#print axioms` (`< 115c`, strictly `[propext, Classical.choice, Quot.sound]`).
+   - `stageC_pipe_exec100`: `c0_pipeline 100#64 = 160#64` (multi-function call chain)
+   - `stageC_sat_var_exec42`: `sat_lit_var 42#64 = 21#64` (literal variable helper)
+   - `stageC_sat_sign_exec43`: `sat_lit_sign 43#64 = 1#64` (literal sign helper)
+   - `stageC_sat_neg_exec42`: `sat_lit_neg 42#64 = 43#64` (literal negation helper)
+3. `PrintAsm0` / `Kraken.X64.toATT` parity and static directive/slot/stack bounds on `stageCTfs`.
+4. Single-line `#print axioms` checks (`[propext, Classical.choice, Quot.sound]` only).
 -/
 
 set_option autoImplicit false
@@ -166,7 +167,7 @@ theorem stageC_printAsm_eq_toATT :
 
 #guard (stageCBounds.map Prod.snd).all (· ≤ 2048)
 
-/-! ## 4. Single-Line `#print axioms` Audit (`< 115c`, strictly `std3`) -/
+/-! ## 4. Single-Line `#print axioms` Audit (`[propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms stageC_bridge_ok
 #print axioms stageC_compile_ok

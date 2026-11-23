@@ -17,7 +17,7 @@ onto SysV x86-64 (`x64Target`) via `compile_linked_chunks!` and proves end-to-en
 `Eventually (step1 Host.exe)` soundness and host-frame preservation for both valid and
 adversarial OOB wraparound calls.
 
-This module imports ONLY `Kraken.X64` (`LeanQbe.T.Amd64.*`), never `Kraken.AArch64`.
+This module imports only `Kraken.X64` (`LeanQbe.T.Amd64.*`), never `Kraken.AArch64`.
 -/
 
 set_option autoImplicit false
@@ -369,7 +369,7 @@ theorem x64_bm_oob [hh : Host] (k₀ : Nat)
   rintro st ⟨hpc, _, _, hdmem, status, _, hst, _, hrax, _⟩
   exact ⟨hpc, hdmem, status, hst, hrax⟩
 
-/-! ## 3. Logical Foundations Audit (`< 115c` Single-Line `std3`) -/
+/-! ## 3. Logical Foundations Audit (Standard Axioms) -/
 
 #print axioms x64_bm_legalSig
 #print axioms x64_bm_fnspec

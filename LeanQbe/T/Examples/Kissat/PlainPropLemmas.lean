@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainPropLemmas1
 
 /-!
-# Kissat `D-Plain` BCP `Func.wp` Proofs (`Stage 3`, Wave 2b Shard 3, Part 2)
+# Kissat `D-Plain` BCP `Func.wp` Proofs (Part 2)
 
 Builds on `PlainPropLemmas1` to prove parametric `(Γ : Env)` `Func.wp` contracts for:
 1. `plain_prop_lit` (`plain_prop_lit_wp` → `plainPropLitSpec`)
@@ -1047,7 +1047,7 @@ theorem plain_prop_lit_wp (Γ : Env)
       have h1_64 : ((1 : BitVec 64)).toNat = 1 := rfl
       have hp1_pre : (p_v + (1 : BitVec 64)).toNat = p_v.toNat + 1 := bv64_add1_toNat (by omega)
       pp_head_steps
-      · -- Binary watch, `other >= nlits` (dead!)
+      · -- Binary watch, `other >= nlits` (unreachable)
         have hp_lt : p_v.toNat < end_v.toNat := by assumption
         have hw0_get : st.wstk[p_v.toNat]? = some (st.wstk[p_v.toNat]'(by omega)) :=
           List.getElem?_eq_getElem (by omega)
@@ -1157,7 +1157,7 @@ theorem plain_prop_lit_wp (Γ : Env)
               wstk := st1.wstk, heur := st2.heur })
             tr := (hpi.tr.congr (s2 := st1) rfl rfl rfl).trans htr12 hcl_eq
             rel := hpi.rel, not_f := hnot_f2 }
-      · -- Large watch, `p + 1 >= end` (dead!)
+      · -- Large watch, `p + 1 >= end` (unreachable)
         have hp_lt : p_v.toNat < end_v.toNat := by assumption
         have hw0_get : st.wstk[p_v.toNat]? = some (st.wstk[p_v.toNat]'(by omega)) :=
           List.getElem?_eq_getElem (by omega)

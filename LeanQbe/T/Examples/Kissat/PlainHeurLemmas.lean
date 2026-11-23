@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.PlainHeurLemmas1
 
 /-!
-# Kissat `D-Plain` Heuristic `Func.wp` Proofs — Part 2 (`Wave 2b`)
+# Kissat `D-Plain` Heuristic `Func.wp` Proofs — Part 2
 
 Proves parametric `(Γ : Env)` `Func.wp` contracts for 11 helpers in `Plain1`
 matching `plainSpecTable` rows (`PlainSpec.lean:837-847`):

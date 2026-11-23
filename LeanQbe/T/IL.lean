@@ -5,9 +5,9 @@ public import LeanQbe.T.Ops
 /-!
 # The typed IL term
 
-Spike-2 shape (`Expr`/`Blocks` mutual inductives with head-bound `Tup` binders and `group`
-join-point groups) extended with multi-result `let_`, typed `load`/`store`, signature-indexed
-`call`, `exit` (decision D5), and `hlt`:
+PHOAS representation (`Expr`/`Blocks` mutual inductives with head-bound `Tup` binders and `group`
+join-point groups) supporting multi-result `let_`, typed `load`/`store`, signature-indexed
+`call`, abnormal `exit`, and `hlt`:
 
 * A function is `Func as rs := ∀ V L, Tup V as → Expr V L rs`.
 * Block parameters, call results, and multi-result operations bind all values at once via `Tup`.
@@ -39,7 +39,7 @@ inductive Expr (V : Ty → Type) (L : List Ty → Type) (rs : List Ty) : Type
   | jump {ts : List Ty} (j : L ts) (args : Tup (Arg V) ts)
   /-- `ret vs` -/
   | ret (vs : Tup (Arg V) rs)
-  /-- Abnormal exit: tail call to `f` with `args`, which does not return (decision D5). -/
+  /-- Abnormal exit: tail call to `f` with `args`, which does not return. -/
   | exit (f : Sym) {as : List Ty} (args : Tup (Arg V) as)
   /-- Unreachable / undefined behaviour. -/
   | hlt

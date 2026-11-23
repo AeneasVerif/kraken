@@ -8,7 +8,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 `PR-W2B` Proof Shard 2c (`full_min_shrink_m6`)
+# Kissat M6 Minimization/Shrink Proof Shard 2c (`full_min_shrink_m6`)
 
 Proves `Func.wp` for `full_min_shrink_m6_body` certifying `Full.fullMinShrinkSpec` (UNSAT-only,
 no `@[expose]`, zero `FullHdr` changes):

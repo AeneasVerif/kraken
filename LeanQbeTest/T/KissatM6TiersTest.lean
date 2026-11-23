@@ -24,12 +24,12 @@ import Kraken.Separation
    - Legacy `delayed_cap = 0` fallback on `nvOneLitMem` (`full_m6_ext_ready` returns `false` and
      preserves `s' = nvOneLitState`).
    - Extended `delayed_cap = 200` (`nvM6ExtCfg` / `nvM6ExtState` / `nvM6ExtMem`, `4156` bytes)
-     with nonzero `w2b` sentinel words `del[0..15] = [101..116]` proving BOTH `nvOneLitF0.Unsat` AND
+     with nonzero sentinel words `del[0..15] = [101..116]` proving both `nvOneLitF0.Unsat` and
      `∀ k < 16, sc'.delayed[k]? = nvM6ExtDel[k]?` across `full_m6_ext_ready`, mode-split tiers,
      `used[2].glue[128]`, `delay[4]` backoff, separate watermarks, `full_switch_mode_m6`,
      `full_rephase_m6`, `full_reduce_m6`, `full_analyze_rsn_m6`, `full_analyze_m6`, `full_probe`,
      and `full_eliminate`.
-3. Single-line `#print axioms` audit (`< 115c`, `std3`-clean) across all exported `_wf`, `_wp`,
+3. Single-line `#print axioms` audit (standard axioms) across all exported `_wf`, `_wp`,
    `ModuleOk`, `noExit`, and concrete NV theorems.
 -/
 
@@ -101,8 +101,8 @@ private theorem nvOneLitF0_unsat : nvOneLitF0.Unsat := by
 private theorem nvOneLitMem_sep : (FullMem nvOneLitCfg nvOneLitState ⋆ emp) nvOneLitMem := by
   rw [sep_emp]; exact nvOneLitMem_ok
 
-/-- Nonzero `w2b` sentinel words `del[0..15] = [101..116]` plus `584` zero `u32` words for
-`M6HdrExt` (`600 = 3 * 200`). -/
+/-- Nonzero decision-rate sentinel words `del[0..15] = [101..116]` plus `584` zero `u32` words
+for `M6HdrExt` (`600 = 3 * 200`). -/
 def nvM6ExtDel : List (BitVec 32) :=
   (List.range 16).map (fun k => BitVec.ofNat 32 (k + 101)) ++ List.replicate 584 0#32
 
@@ -502,7 +502,7 @@ theorem full_m6_ext_ready_legacy_nv :
         exact ⟨hrf, hm', nvOneLitF0_unsat⟩⟩
 
 /-- Extended `delayed_cap = 200` NV on `nvM6ExtMem`: `full_m6_ext_ready` returns `true`, writes
-`fullM6Magic`, and preserves `w2b` sentinel words `del[0..15] = [101..116]`. -/
+`fullM6Magic`, and preserves sentinel words `del[0..15] = [101..116]`. -/
 theorem full_m6_ext_ready_ext_nv :
     Func.wp m6TiersEnv full_m6_ext_ready_body (nvM6ExtCfg.hdr, ()) nvM6ExtMem
       (fun (r, ()) m' => ∃ s',
@@ -530,7 +530,7 @@ theorem full_recompute_tiers_legacy_nv :
       fun () s' m' hco hln _ hm' => by
         rw [sep_emp] at hm'; exact ⟨s', hco, hln, nvOneLitF0_unsat, hm'⟩⟩
 
-/-- Extended `delayed_cap = 200` NV for `full_recompute_tiers_m6` preserving `w2b` `del[0..15]`. -/
+/-- Extended `delayed_cap = 200` NV for `full_recompute_tiers_m6` preserving `del[0..15]`. -/
 theorem full_recompute_tiers_ext_nv :
     Func.wp m6TiersEnv full_recompute_tiers_m6_body (nvM6ExtCfg.hdr, ()) nvM6ExtMem
       (fun () m' => ∃ s',
@@ -544,7 +544,7 @@ theorem full_recompute_tiers_ext_nv :
       fun () s' m' hco hln hpr hm' => by
         rw [sep_emp] at hm'; exact ⟨s', hco, hpr.2, hln, nvOneLitF0_unsat, hm'⟩⟩
 
-/-- Extended NV for `full_m6_update_tier_limits` (`w2b` prefix & `Mem 64` preservation). -/
+/-- Extended NV for `full_m6_update_tier_limits` (`del[0..15]` prefix & `Mem 64` preservation). -/
 theorem full_m6_update_tier_limits_ext_nv :
     Func.wp m6TiersEnv full_m6_update_tier_limits_body (nvM6ExtCfg.hdr, ()) nvM6ExtMem
       (fun () m' => ∃ s',
@@ -724,7 +724,7 @@ theorem full_eliminate_ext_nv :
 
 end LeanQbeTest.T.KissatM6TiersTest
 
-/-! ## 4. Single-Line `#print axioms` Audit (`< 115c`, `std3`-Clean) -/
+/-! ## 4. Single-Line `#print axioms` Audit (Standard Axioms) -/
 
 abbrev m6t_00_wf := @LeanQbe.T.Examples.Kissat.FullM6Tiers.full_m6_hdr_sizeof_wf
 abbrev m6t_01_wf := @LeanQbe.T.Examples.Kissat.FullM6Tiers.full_m6_ext_sizeof_wf

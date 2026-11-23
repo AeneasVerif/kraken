@@ -643,7 +643,7 @@ def gen_big_family(out, counts):
         write_cnf(os.path.join(out, f"big_unsat_trans_n{n}.cnf"), n, cls_u)
         counts["big"] += 1
 
-        # SAT: pick a split k; seq[0..k-1] = False, seq[k..n-1] = True satisfies all seq[i]->seq[j]!
+        # SAT: pick a split k; seq[0..k-1] = False, seq[k..n-1] = True satisfies all seq[i]->seq[j].
         k = n // 3
         sol = [False] * (n + 1)
         for idx, l in enumerate(seq):

@@ -7,7 +7,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# A Small Executable x64-Flavoured `Target` for the `T7b` Litmus Suite (`G12a`/`G12d`)
+# A Small Executable x64-Flavoured `Target` for the `Rega` Litmus Suite
 
 A toy machine (`Instr`, `MData`, `exec`; x64 register numbers `rax=0 … rsp=4 … rdi=7 r8..r15`),
 512-bit vector registers, flags `CF`/`ZF`/`OF` (mask bits 0/3/5), byte memory `Mem 64`, `call`/`ret`

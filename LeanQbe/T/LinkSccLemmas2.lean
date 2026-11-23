@@ -4,7 +4,7 @@ public import LeanQbe.T.LinkSccLemmas1
 import LeanQbe.T.WPLemmas
 
 /-!
-# Soundness of `LeanQbe.T.LinkScc` — Part 2 (`R-B`)
+# Soundness of `LeanQbe.T.LinkScc` — Part 2
 
 Top-level `CompiledRec`-backed theorems:
 * `link_scc_compiled` (+ `link_scc_compiled_le`, `_host`, `_src`, `_src_noExit`): well-founded
@@ -59,9 +59,9 @@ private theorem mem_unique_fst_sig : ∀ {xs : List SigEntry}, (xs.map Prod.fst)
       · cases e2; exact absurd rfl (hnd.1 _ h1)
       · exact mem_unique_fst_sig hnd.2 h1 h2
 
--- HOOK (F-A): `link_scc_compiled_split` will replace `ModuleSccOk` here with split call/tail
+-- Extension point: `link_scc_compiled_split` will replace `ModuleSccOk` here with split call/tail
 -- obligations, keeping `Env.exportScc` and `link_scc_export` unchanged for downstream SCCs.
-/-- **`R-B` headline theorem:** well-founded index-parameterized linking over any `CompiledRec`
+/-- **Main SCC-linking theorem:** well-founded index-parameterized linking over any `CompiledRec`
 certificate and compatible host `h`, for any `i : ι` whose stack budget fits within `maxBound`
 and `2 ^ 64`. -/
 theorem link_scc_compiled {ι : Type} (idx : RecIdx ι) {T : Target} {lt : LegalTarget}
@@ -180,7 +180,7 @@ theorem link_scc_compiled_src_noExit {ι : Type} (idx : RecIdx ι) {T : Target} 
     link_scc_compiled_src idx M mod hfs Γrec Γext hM hsupp i hbound hra hf has hbs
   ⟨hd, Target.FnSpec.of_spec T hs fun args m Q X h => hnoex args m Q X _ h⟩
 
-/-- **`R-B` static-budget export theorem:** packages all indices `i : ι` with `idx.depth i ≤ fuel`
+/-- **Static-budget export theorem:** packages all indices `i : ι` with `idx.depth i ≤ fuel`
 into `Env.exportScc idx Γrec fuel` at uniform stack bound `M.baseBound + fuel * M.stepBound`. -/
 theorem link_scc_export {ι : Type} (idx : RecIdx ι) {T : Target} {lt : LegalTarget}
     {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel : Nat}

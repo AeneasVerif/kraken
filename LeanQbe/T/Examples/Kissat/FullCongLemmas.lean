@@ -753,7 +753,7 @@ theorem full_cong_hash_step_wp (Γ : Env)
               rintro _ ⟨⟩ m_ai hmai; subst m_ai
               fc_to_group
               refine wp_join_group (ts := []) (fun () m_after_xor => m_after_xor = ms) ?_ ?_
-              · -- Normal hash-table lookup / insertion path!
+              · -- Normal hash-table lookup / insertion path
                 rintro _ ⟨⟩ m_ax hmax; subst m_ax
                 fc_let; refine wp_loop_inv
                   (fun (ih_v, _hv, ()) mhv => mhv = ms ∧ ih_v.toNat ≤ arity.toNat)
@@ -812,7 +812,7 @@ theorem full_cong_hash_step_wp (Γ : Env)
                           0xFFFFFFFF#32 = ent := by
                         rw [← hhts_n, List.getElem?_eq_getElem hhts_arr, Option.getD_some]
                       clear hc; fc_split_fast
-                      · -- ent == 0xFFFFFFFF -> insert (u32)g and break!
+                      · -- ent == 0xFFFFFFFF -> insert (u32)g and break
                         have hg_tr : (g.setWidth 32).toNat = g.toNat := by
                           rw [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (by omega)]
                         have hfs_p := focus_full_scratch_buf hmp; clear hmp
@@ -1253,7 +1253,7 @@ theorem full_congruence_wp (Γ : Env)
             exact hJht (64#64, ()) m2 ⟨rfl, by decide, by decide, show 64 ≤ c.scratch_cap by omega⟩)
           (fun Jht (ht_sz, ()) mht ⟨hmht, hht64, hht_le8, hht_sc⟩ ih_ht => ?_)
         subst mht; fc_to_group; refine wp_join_group (ts := []) (fun () me => me = m2) ?_ ?_
-        · -- Post-ht_sz-loop body (written ONCE!)
+        · -- Post-ht_sz-loop body (written once)
           rintro _ ⟨⟩ me hme; subst me
           have hht_off : (BitVec.ofNat 64 c.scratch_cap - ht_sz).toNat =
               c.scratch_cap - ht_sz.toNat := by bv_omega

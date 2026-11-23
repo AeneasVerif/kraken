@@ -1,10 +1,10 @@
 #ifndef BENCH_KISSAT_C3B_LOCKSTEP_TRACE_HPP
 #define BENCH_KISSAT_C3B_LOCKSTEP_TRACE_HPP
 
-// Opt-in diagnostic hook for PrintCpp C3b Kissat builds:
+// Opt-in diagnostic hook for PrintCpp C++20 (C3b) Kissat builds:
 //   -DKISSAT_LOCKSTEP_TRACE : emit canonical sorted-DIMACS event trace to
 //     getenv("KISSAT_LOCKSTEP_TRACE") (file path or "stderr"/"-").
-//   -DKISSAT_EXTENDED_TELEM : collect §3 Layer 2 extended per-pass counters
+//   -DKISSAT_EXTENDED_TELEM : collect extended per-pass telemetry counters
 //     into the unused h->delayed[0..31] u64 buffer (0 verified-proof churn).
 // When neither macro is defined, all hooks compile away to empty inline no-ops.
 

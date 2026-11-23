@@ -536,7 +536,7 @@ private theorem full_reduce_tail_wp (Γ : Env)
         (fun _ => hoom5) hm5)
     (fun J5 hJ5 => ?_)
   c0_to_group
-  -- Join `Jthen`: the `while (true)` sweep loop (appears ONCE!).
+  -- Join `Jthen`: the `while (true)` sweep loop (appears once).
   refine wp_join_group
     (fun _ mT =>
       ∃ sT : FullState, ReduceStateOk c F0 F_cur s sT ∧

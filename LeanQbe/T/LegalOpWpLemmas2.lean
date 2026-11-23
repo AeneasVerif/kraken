@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LegalOpWpLemmas2a
 
 /-!
-# Legalization `legalOp_wp` semantic preservation for all `OpCode`s (`T5`, Part 3b)
+# Legalization `legalOp_wp` semantic preservation for all `OpCode`s (Part 3b)
 -/
 
 set_option autoImplicit false

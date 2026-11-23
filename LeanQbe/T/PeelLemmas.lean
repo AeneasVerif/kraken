@@ -6,9 +6,9 @@ public import LeanQbe.T.WP
 import LeanQbe.T.OptUtilLemmas
 
 /-!
-# Correctness of Bounded 1-Iteration Loop Peeling (`O-M2`)
+# Correctness of Bounded 1-Iteration Loop Peeling
 
-Style-A PHOAS soundness and relational well-formedness for `LeanQbe.T.Peel`:
+PHOAS soundness and relational well-formedness for `LeanQbe.T.Peel`:
 
 * `Peel.peelMetrics_eq`: `Wf`-related expressions yield identical `peelMetrics` (when label
   constructors agree), ensuring `canPeel` agrees across any two instantiations.
@@ -865,7 +865,7 @@ theorem peelAux_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
 
 end Peel
 
-/-! ## Main Style-A soundness and well-formedness theorems -/
+/-! ## Main soundness and well-formedness theorems -/
 
 /-- Expression-level relational well-formedness preservation for `peel`, proved via `Wf.induct`. -/
 theorem peel_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}

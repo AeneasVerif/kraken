@@ -6,7 +6,7 @@ public import LeanQbe.T.Module
 public meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat C0 DIMACS Parser and Mandatory Model Checker (`X1` Stage A)
+# Kissat C0 DIMACS Parser and Mandatory Model Checker
 
 C0 implementation of the ASCII DIMACS CNF parser and read-only model verifier (`kissat_check_model`)
 matching the exact byte grammar of `LeanQbe.T.Examples.LratBytes.parseDimacs` and literal encoding

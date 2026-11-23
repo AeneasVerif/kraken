@@ -26,7 +26,7 @@ Tests:
 3. End-to-end `c0_decl_and_layout!` struct/array loop + strict unmatched-memory diagnostics.
 4. Synthetic asymptotic scaling chains (`N = 20, 40, 80` on `Op.mk` and `op2`, up to `240` ops).
 5. Real `LratBytes` (`isWsByte`) and real Kissat `D-Full` C0 functions (`full_find_repl_body`,
-   `full_cong_find_body`) with ZERO shard-local stepper macros.
+   `full_cong_find_body`) with no shard-local stepper macros.
 6. `#print axioms` strictly `⊆ [propext, Classical.choice, Quot.sound]`.
 -/
 
@@ -343,8 +343,8 @@ private theorem find_repl_bad_oob_aux {s : FullState} {cref r idx nlits : Nat}
   subst hidx; unfold fullFindReplBad; refine Or.inl ?_
   rw [List.getElem?_eq_getElem hi_lt, Option.getD_some]; omega
 
-/-- Real Kissat `D-Full` `full_find_repl_body` proved using ONLY `c0_hsteps_nogrp` / `c0_hsteps`
-(ZERO `FullPropDecTactics` macros, `O(1)` head stepping + two-level `AddrKey` dispatch). -/
+/-- Kissat `D-Full` `full_find_repl_body` proved using only `c0_hsteps_nogrp` / `c0_hsteps`
+(no `FullPropDecTactics` macros, `O(1)` head stepping + two-level `AddrKey` dispatch). -/
 theorem full_find_repl_hsteps (Γ : Env) :
     ∀ args m Q X, fullFindReplSpec args m Q X → Func.wp Γ full_find_repl_body args m Q X := by
   rintro ⟨h, cref, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hc3, hsz3, hfit, hm, hNone, hSome⟩
@@ -429,8 +429,8 @@ theorem full_find_repl_hsteps (Γ : Env) :
     · exact hJ (2#32, ()) m ⟨by decide, by c0_bound, rfl⟩
     · exact hJ (sr0, ()) m ⟨by c0_bound, by c0_bound, rfl⟩
 
-/-- Real Kissat `D-Full` `full_cong_find_body` proved using ONLY `c0_hsteps`
-(ZERO `FullCongTactics` macros). -/
+/-- Kissat `D-Full` `full_cong_find_body` proved using only `c0_hsteps`
+(no `FullCongTactics` macros). -/
 theorem full_cong_find_hsteps (Γ : Env) :
     ∀ args m Q X, fullCongFindSpec args m Q X → Func.wp Γ full_cong_find_body args m Q X := by
   rintro ⟨repr_ptr, l, ⟨⟩⟩ m0 Q X ⟨F_cur, nlits, repr, R, hinv, hl_lt, hm0, hQ⟩

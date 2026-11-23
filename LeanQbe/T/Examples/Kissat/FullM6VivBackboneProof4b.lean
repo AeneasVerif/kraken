@@ -6,7 +6,7 @@ import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
 
 /-!
-# Kissat Wave-2 `PR-W2C` (`RC-21`) Transitive Reduction Proofs (`FullM6VivBackboneProof4b`)
+# Kissat M6 Transitive Reduction Proofs (`FullM6VivBackboneProof4b`)
 
 Proves the 3 transitive reduction functions (`full_trans_lit_m6`, `full_trans_sort_m6`,
 `full_transitive_m6`), certifying exact canonical `FullFastBveBudgets.fullTransitiveFastSpec`.
@@ -918,7 +918,7 @@ theorem full_trans_lit_m6_wp (Γ : Env)
                                 let ot := st_q.core.wstk[q.toNat]'hq_len &&& 0x7FFFFFFF#32
                                 have hent_ot := entails_pair_trans hent_lit (by rwa [← hnl_eq])
                                 c0_hsplit
-                                · -- `ot == dst`: transitive!
+                                · -- `ot == dst`: transitive
                                   have hdst_eq : st_q.core.wstk[q.toNat] &&& 0x7FFFFFFF#32 = dst :=
                                     hc
                                   rw [congrArg BitVec.toNat hdst_eq] at hent_ot
@@ -948,7 +948,7 @@ theorem full_trans_lit_m6_wp (Γ : Env)
                                     have hdom_ot := hu_q.vals_domain hw0 hpre_vals hcv_st hot_st
                                     c0_hsplit
                                     · c0_hsplit
-                                      · -- `vals[ot] < 0`: failed literal `src`!
+                                      · -- `vals[ot] < 0`: failed literal `src`
                                         have hval_ff := t4b_vals_ff_of_domain (z := 0#32) hdom_ot
                                           rfl (by rw [List.getElem?_eq_getElem hot_vlen]; exact hc)
                                         have hent_src := hu_q.entails_src_of_falsified hw0 hpre_vals

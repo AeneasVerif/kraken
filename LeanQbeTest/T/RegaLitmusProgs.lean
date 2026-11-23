@@ -8,7 +8,7 @@ public meta import LeanQbe.T.Spill
 public meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
-# `G12a`/`G12d` Litmus Programs, Untrusted `Spill` Hints, and Kernel-Checked Lowering
+# `Rega` Litmus Programs, Untrusted `Spill` Hints, and Kernel-Checked Lowering
 
 Programs over the typed PHOAS IL lowered by `Rega.lowerFn RegaLitmus.isa` with untrusted hints
 computed directly by `Spill.hints`, spliced as literals, and checked by a single kernel `rfl` per
@@ -24,7 +24,7 @@ open LeanQbe.T
 
 abbrev v2i32 : Ty := Ty.vec 1 i32
 
-/-! ## 1. `G12a` Programs -/
+/-! ## 1. Core `Rega` Litmus Programs -/
 
 /-- `|a - b| + 1` through a diamond joining at a block with a parameter. -/
 def fnBranches : Fn := ⟨"branches", [i64, i64], [i64], fun _ _ (a, b, ()) =>
@@ -119,7 +119,7 @@ def fnBits8 : Fn := ⟨"bits8", [i64, i8], [i8], fun _ _ (p, b, ()) =>
   .let_ (op2 (.ult i8) (.var x) (.var b)) fun (c, ()) =>
   .jnz (.var c) (.ret (.var x, ())) (.ret (.var b, ())))⟩
 
-/-! ## 2. `G12d` Programs -/
+/-! ## 2. Carry-Chain, Variant-Hint, and Addressing Litmus Programs -/
 
 /-- `cmp → jcc`: unsigned minimum through a branch on `CF`. -/
 def fnCmpJcc : Fn := ⟨"cmpJcc", [i64, i64], [i64], fun _ _ (a, b, ()) =>
@@ -172,7 +172,7 @@ def fnAddrCall : Fn := ⟨"addrCall", [i64], [i64], fun _ _ (p, ()) =>
   .let_ (op2 (.add i64) (.var r) (.var x)) fun (s, ()) =>
   .ret (.var s, ())⟩
 
-/-- Stage 1b SIB scaled-index elision: `(idx + 2) << 2 + p` and `((idx << 3) + p) - 8` both fold
+/-- SIB scaled-index elision: `(idx + 2) << 2 + p` and `((idx << 3) + p) - 8` both fold
 into `[base + idx*scale + disp]` with zero emitted shift/ALU/LEA instructions. -/
 def fnAddrSib : Fn := ⟨"addrSib", [i64, i64, i64], [i64], fun _ _ (p, idx, v, ()) =>
   .let_ (op2 (.add i64) (.var idx) (.imm 2)) fun (i2, ()) =>
@@ -344,7 +344,7 @@ theorem cfLoop_cf_writers :
     codeCfLoop.filter Instr.writesCF = [.xorz 11, .adc 64 0 (.reg 0) (.reg 6)] ∧
     codeCfLoop.filter Instr.flagMove = [.setcc 2 .cf] := ⟨by t_kernel_rfl, by t_kernel_rfl⟩
 
-/-- `G12a` highlights: `jcc` on flags for every branch, `vmovi` + 2×i32 `vbin`, a carry spilled
+/-- Core litmus highlights: `jcc` on flags for every branch, `vmovi` + 2×i32 `vbin`, a carry spilled
 across `call` via `setc`/slot/`bt`, and 8-bit `lshr`/`cmp`/`jcc`. -/
 theorem g12a_code_highlights :
     codeBranches.contains (.jcc .cf "branches.L1") = true ∧
@@ -361,7 +361,7 @@ theorem g12a_code_highlights :
     codeBits8.contains (.jcc .cf "bits8.L0") = true := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> t_kernel_rfl
 
-/-- Stage 1a elides both `add` (`+16`) and `sub` (`-(-8)`) in `fnAddrDisp` and elides `+8` across
+/-- Base+disp elides both `add` (`+16`) and `sub` (`-(-8)`) in `fnAddrDisp` and elides `+8` across
 `"inc"` in `fnAddrCall`, folding `[rb + disp]` directly into `.st`/`.ld` with zero `lea`/ALU. -/
 theorem stage1a_addr_highlights :
     hintsAddrDisp.elide.getD 0 false = true ∧
@@ -377,7 +377,7 @@ theorem stage1a_addr_highlights :
       = true := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> t_kernel_rfl
 
-/-- Stage 1b elides all six address ops in `fnAddrSib` and folds `[base + idx*4 + 8]` and
+/-- SIB addressing elides all six address ops in `fnAddrSib` and folds `[base + idx*4 + 8]` and
 `[base + idx*8 - 8]` into `.st` and `.ld` with zero `.bin` or `.lea` emitted. -/
 theorem stage1b_sib_highlights :
     hintsAddrSib.elide.getD 0 false = true ∧

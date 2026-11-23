@@ -8,7 +8,7 @@ public import LeanQbe.T.Examples.Kissat.LayerAMinimize2
 Builds on `LayerAMinimize1` and `LayerAMinimize2` (pure Lean, zero `Kraken.Mem` imports):
 
 1. **Block replacement (`shrink`, `shrink.c`)** under Kissat's lazy `(level, trailPos)` ordering
-   (`kissat_direct_verification.md` §3.5):
+   (`RemovableInv` / `shrink_block_cut_sound`):
    - `shrink_block_cut_sound`: semantic soundness of replacing level-`L` block `B` (`0 < L`) with
      `¬uip` and marking all resolved block variables `S` as `removable`, preserving both
      `F₀.EntailsClause` and `MinState.RemovableInv` even when `< L` side literals sit later on
@@ -16,10 +16,10 @@ Builds on `LayerAMinimize1` and `LayerAMinimize2` (pure Lean, zero `Kraken.Mem` 
    - Executable `shrinkLiteralExec`, `shrinkWalk`, `shrinkBlockExec`, `shrinkClauseExec` matching
      `shrink.c` (including optional `alwaysMin` calling `minimizeLiteralWorklist` at depth 1 and
      fallback `minimizeBlockExec`), proved sound by `shrink_block_sound` and `shrink_clause_sound`.
-2. **Failed-literal backward analysis (`analyze_failed_literal`, `analyze.c:390-517`, §3.4)**:
+2. **Failed-literal backward analysis (`analyze_failed_literal`, `analyze.c:390-517`)**:
    - Executable `analyzeFailedLiteralExec` modeling conflict scanning, backward trail resolution,
      `unresolved == 1` unit extraction, the `other == unit` skip (`analyze.c:473`), `goto DONE`,
-     and trail-start guard `G4`.
+     and trail-start guard (`t == 0`).
    - `failedLit_other_ne_unit`: proves `other == unit` is unreachable under `ReasonDagInv` and
      `vars_nodup`.
    - `analyzeFailedLiteralExec_sound`: proves every emitted unit (both intermediate units and

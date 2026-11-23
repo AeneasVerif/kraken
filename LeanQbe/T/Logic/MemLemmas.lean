@@ -7,7 +7,7 @@ import all Kraken.Separation
 import all Kraken.Mem
 
 /-!
-# Separation-logic and memory framing lemmas for `LeanQbe.T` (`T4`)
+# Separation-logic and memory framing lemmas for `LeanQbe.T`
 
 * Separation glue: `sep_ex_l`, `sep_ex_r`, `sep_pure_l`, `sep_pure_r`, `sep_cast`,
   `eq_empty_eq_emp`, `ProofUtil.sep_ac`, `sep_mono`, `sep_mono_r`, `sep_mono2`, `sep_mono_mid`.

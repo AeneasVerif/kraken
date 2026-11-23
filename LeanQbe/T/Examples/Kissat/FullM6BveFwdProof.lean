@@ -8,9 +8,9 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-2 `PR-W2D` (`RC-22`) Module Assembly & Concrete `Mem 64` UNSAT Non-Vacuity
+# Kissat M6 `FullM6BveFwd` Module Assembly & Concrete `Mem 64` UNSAT Non-Vacuity
 
-Assembles all `24` Wave-2 `PR-W2D` (`FullM6BveFwd`) UNSAT-only `Func.wp` proofs into a closed
+Assembles all `24` `FullM6BveFwd` UNSAT-only `Func.wp` proofs into a closed
 `48`-row specification table (`24` owned `_m6` functions + `24` canonical externs), proves
 unconditional `m6BveFwd_moduleOk : ModuleOk m6BveFwdEnv m6BveFwdModule`, exports canonical
 UNSAT-soundness bridges, and establishes concrete `100060`-byte `Mem 64` UNSAT non-vacuity
@@ -321,7 +321,7 @@ private theorem m6_eliminate_impl :
     (m6_row 22 rfl fun _ _ _ _ h => h) (m6_row 46 rfl fun _ _ _ _ h => h)
     (m6_row 47 rfl fun _ _ _ _ h => h))
 
-/-- Unconditional `ModuleOk` certifying all `24/24` owned Wave-2 `PR-W2D` functions of
+/-- Unconditional `ModuleOk` certifying all `24/24` `FullM6BveFwd` functions of
 `m6BveFwdModule` against the closed `48`-row `m6BveFwdEnv`. -/
 theorem m6BveFwd_moduleOk : ModuleOk m6BveFwdEnv m6BveFwdModule :=
   Env.ofTable_moduleOk m6BveFwdModule_acyclic m6BveFwd_allFns_wf

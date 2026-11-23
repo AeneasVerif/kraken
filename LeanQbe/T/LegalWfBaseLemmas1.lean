@@ -4,7 +4,7 @@ public import LeanQbe.T.Legal
 public import LeanQbe.T.LegalEmit
 
 /-!
-# Correctness and legality proofs for `LeanQbe.T.Legal` (`T5`, `G13`)
+# Correctness and legality proofs for `LeanQbe.T.Legal`
 
 Proves the three main theorems for `Func.legal` using `Wf.induct`:
 

@@ -10,7 +10,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-4F (`PR-W4F`) Proofs — Part 0 (`init_fresh_var` & `bva_try_lit`)
+# Kissat M7 BVA/Factor Proofs — Part 0 (`init_fresh_var` & `bva_try_lit`)
 
 Proves M1-clean (`0` `import all`, `0` `sorry`/`bv_decide`/`maxHeartbeats`) parametric `(Γ : Env)`
 `Func.wp` contracts for:

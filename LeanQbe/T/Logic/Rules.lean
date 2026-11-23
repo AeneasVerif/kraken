@@ -6,7 +6,7 @@ public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbe.T.Logic.BitVec
 
 /-!
-# Proof rules and `wp_unfold` tactics for `LeanQbe.T` (`T4`)
+# Proof rules and `wp_unfold` tactics for `LeanQbe.T`
 
 * Block-projection helpers (`Blocks.get_here`, `Blocks.get_there`).
 * Group-matched loop/join/unroll rules (`wp_loop_group`, `wp_join_group`, `wp_loop_break_group`,
@@ -198,7 +198,7 @@ end
 
 /-! ## `wp_unfold`, `wp_unfold_all`, `wp_step`, `branch_t`, `branch_f` -/
 
-/-- Shared base simp list for `t_wp_unfold` and `t_wp_unfold_all` (`B6`). -/
+/-- Shared base simp list for `t_wp_unfold` and `t_wp_unfold_all`. -/
 macro "t_wp_unfold_with" "[" extra:Lean.Parser.Tactic.simpLemma,* "]" : tactic =>
   `(tactic| simp only [
     LeanQbe.T.op1_eq_mk, LeanQbe.T.op2_eq_mk, LeanQbe.T.op3_eq_mk,

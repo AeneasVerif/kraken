@@ -38,7 +38,7 @@ open LeanQbe.T LeanQbe.T.Amd64
 
 /-! ## Helpers -/
 
-/-- Hints from the production heuristics (`Fn.computeHints` = `Spill.hints ∘ Fn.mid`). -/
+/-- Hints from the default heuristics (`Fn.computeHints` = `Spill.hints ∘ Fn.mid`). -/
 meta def hintsOf (fs : List Fn) : List x64Target.toIsa.Hints :=
   fs.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
 
@@ -166,7 +166,7 @@ meta def selTree : Live.Tree × List (Nat × Ty) × Nat × Nat × Nat × Trie Ty
   let ips := slotMoveIps selHints selTree.2.2.2.2.1
   cs.length == 1 && ips.length == 2 && ips.all fun ip => cs.any fun c => ip == c || ip == c + 1
 
-/-! ## 5. Stage 1a `[base + disp]` addressing via `Hints.elide` + `DefFact.addImm64` -/
+/-! ## 5. `[base + disp]` addressing via `Hints.elide` + `DefFact.addImm64` -/
 
 meta def isAddSubLeaDir : Directive → Bool
   | .instr (.regular _ .W64 (.add (.reg (.low .rsp .W64)) _))
@@ -225,7 +225,7 @@ meta def addrNoElideFn : Fn :=
 #guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrNoElideFn).elide.getD 0 false == false
 #guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrNoElideFn).elide.getD 2 false == false
 
-/-! ## 6. Stage 1b `[base + idx * scale + disp]` SIB addressing (`Hints.elide` + `DefFact`) -/
+/-! ## 6. `[base + idx * scale + disp]` SIB addressing (`Hints.elide` + `DefFact`) -/
 
 meta def isSibMemDir : Directive → Bool
   | .instr (.regular _ _ (.mov dst src)) =>
@@ -322,7 +322,7 @@ meta def addrSibNoElideFn : Fn :=
 #guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibNoElideFn).elide.getD 3 false == false
 #guard (Fn.computeHints x64Target.toIsa x64LegalTarget addrSibNoElideFn).elide.getD 6 false == false
 
-/-- `wstk[end + 1ULL]` scaled address folding (`H01 S03 sib-scaled-addr`): `end = off + sz`
+/-- `wstk[end + 1ULL]` scaled address folding (SIB scaled addressing): `end = off + sz`
 (represented as `addrSum off sz 0 0`) followed by `p = end + 1`, `sh = p << 2`, `ptr = wstk + sh`
 records `ptr` as `addrSum wstk end 2 4`, emitting `4(%wstk,%end,4)` and eliding `p`, `sh`, `ptr`. -/
 meta def addrSibScaledDispFn : Fn :=
@@ -347,7 +347,7 @@ meta def addrSibScaledDispHints : x64Target.toIsa.Hints :=
 #guard countDirs isShlDir (codeOf [addrSibScaledDispFn]) == 0
 #guard [1, 2, 3, 4, 5, 6].all fun ip => addrSibScaledDispHints.elide.getD ip false == true
 
-/-- Non-destructive 3-address `lea` (`C1b`) for live inputs (`x + y`, `x + 3`, `y - 2`) with both
+/-- Non-destructive 3-address `lea` for live inputs (`x + y`, `x + 3`, `y - 2`) with both
 `x` and `y` live to the return tuple, emitting `lea` instead of `mov + add/sub`, plus `cmp`/`select`
 with `0 setcc` across `x + 3`/`y - 2`. -/
 meta def leaNonDestructFn : Fn :=
@@ -377,7 +377,7 @@ meta def isLeaDir : Directive → Bool
 #guard countDirs isLeaDir (codeOf [leaNonDestructFn]) == 3
 #guard countDirs isSetccDir (codeOf [leaNonDestructFn]) == 0
 
-/-! ## 7. Upper-32 zero tracking: `zext 32 64` elision (`C1c`) -/
+/-! ## 7. Upper-32 zero tracking: `zext 32 64` elision -/
 
 meta def isMovlRegDir : Directive → Bool
   | .instr (.regular _ .W32 (.mov (.reg (.low _ .W32)) (.regOrMem (.reg (.low _ .W32))))) => true
@@ -407,7 +407,7 @@ meta def zext32UpperZeroFn : Fn :=
     .let_ (op2 (.add i64) (.var z) (.var r0)) fun (ans, ()) =>
     .ret (.var ans, ())⟩
 
-/-- `trunc 64 32` can leave non-zero upper bits; `zext 32 64` MUST retain a `movl`. -/
+/-- `trunc 64 32` can leave non-zero upper bits; `zext 32 64` must retain a `movl`. -/
 meta def zext32AfterTruncFn : Fn :=
   ⟨"zext32AfterTruncX64", [i64], [i64], fun _ _ (x, ()) =>
     .let_ (op1 (.trunc 64 32) (.var x)) fun (y, ()) =>
@@ -421,7 +421,7 @@ meta def zext32AfterTruncFn : Fn :=
 #guard chk [zext32AfterTruncFn]
 #guard countDirs isMovlRegDir (codeOf [zext32AfterTruncFn]) >= 1
 
-/-! ## 8. Track C4c Flag/Mem-Compare Fusion & Track C5 Zero-Frame Leaf Elision -/
+/-! ## 8. Flag/Mem-Compare Fusion & Zero-Frame Leaf Elision -/
 
 meta def isTestDir : Directive → Bool
   | .instr (.regular _ _ (.test _ _)) => true
@@ -500,7 +500,7 @@ meta def cmpbMemZextFn : Fn :=
     .let_ (op2 (.cmp .eq i32) (.var z) (.imm 5#32)) fun (c, ()) =>
     .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
 
-/-- Negative test: intervening `store` MUST block load-into-`cmp` elision (aliasing soundness). -/
+/-- Negative test: intervening `store` must block load-into-`cmp` elision (aliasing soundness). -/
 meta def cmpMemStoreBlockFn : Fn :=
   ⟨"cmpMemStoreBlockX64", [i64, i64, i64, i64], [i64], fun _ _ (p, q, a, b, ()) =>
     .load i32 (.var p) fun v =>
@@ -508,7 +508,7 @@ meta def cmpMemStoreBlockFn : Fn :=
     .let_ (op2 (.cmp .eq i32) (.var v) (.imm 0#32)) fun (c, ()) =>
     .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ())))⟩
 
-/-- Negative test: signed `<s` on `zext 8 32` MUST NOT narrow-fuse to signed `cmpb`. -/
+/-- Negative test: signed `<s` on `zext 8 32` must not narrow-fuse to signed `cmpb`. -/
 meta def cmpZextSignedNoFuseFn : Fn :=
   ⟨"cmpZextSignedNoFuseX64", [i64, i64, i64], [i64], fun _ _ (p, a, b, ()) =>
     .load i8 (.var p) fun v =>

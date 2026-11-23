@@ -4,7 +4,7 @@ public import LeanQbe.T.IselStepAttr
 public import LeanQbe.T.Amd64.Base
 
 /-!
-# Thin SysV x64 `@[scoped isel_step]` Rules & `isel_x64_frame_all` (`Stage 0`)
+# Thin SysV x64 `@[scoped isel_step]` Rules & `isel_x64_frame_all`
 
 Core address/move/ALU stepping rules over `LeanQbe.T.Amd64.Base`, registered strictly as
 `@[scoped isel_step]` inside `namespace LeanQbe.T.Amd64.IselStep` (zero global `@[` attributes).

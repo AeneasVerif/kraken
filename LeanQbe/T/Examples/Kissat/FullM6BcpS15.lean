@@ -7,8 +7,8 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat M6 `S1.5`: Single-Function In-Place Delayed-Watch BCP (`FullM6BcpS15`)
 
-Single-function call-free hot-loop BCP preserving frozen `FullHdr` (`144` words) and landed
-`RC-11` improvements (`vals[blk] > 0` checked before `PW_BIN_FLAG`, cache-line + propagation
+Single-function call-free hot-loop BCP preserving frozen `FullHdr` (`144` words) and M5
+BCP improvements (`vals[blk] > 0` checked before `PW_BIN_FLAG`, cache-line + propagation
 ticks gated strictly on `h->probing == 0ULL`, dead-tail `0xFFFFFFFFu` sentinel fill):
 1. Inline watch replacement in `full_prop_lit_raw_s15`: first attempts in-place sentinel-reuse
    (`wstk[rwend] == 0xFFFFFFFFu && wstk[rwend + 1] == 0xFFFFFFFFu`) or end-of-stack append

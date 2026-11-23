@@ -15,12 +15,12 @@ meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
 
 /-!
-# Verification, Axiom Audit, and Differential Suite for `Kissat` Stage A (`X1`)
+# Verification, Axiom Audit, and Differential Suite for `Kissat` C0 Solver
 
 * Checks `dimacsModule.checkAcyclic`, `kissatModule.checkAcyclic`, `PrintCpp`, `PrintQbe`, and
   `Legal` emission across `aarch64` / `scalar64` / `x64AVX2`.
 * Single-line `#print axioms` audit (`[propext, Classical.choice, Quot.sound]`).
-* Cross-checks `X2-LayerA` `cdclSolve` across a 51-case SAT/UNSAT/edge-case DIMACS corpus.
+* Cross-checks pure-Lean `cdclSolve` across a 51-case SAT/UNSAT/edge-case DIMACS corpus.
 * Emits `kissat_gen.hpp`, `kissat.ssa`, `kissat_driver.cpp`, and `kissat_cases.h` for
   `test/kissat/run.sh`.
 -/

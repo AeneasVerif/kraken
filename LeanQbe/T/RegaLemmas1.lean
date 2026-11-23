@@ -9,14 +9,14 @@ import all Kraken.Separation
 import all Kraken.Mem
 
 /-!
-# `T7b` Part 1: Semantic Invariants, Frame `Inv`, Checked Moves, and `shuffle`
+# `RegaLemmas` Part 1: Semantic Invariants, Frame `Inv`, Checked Moves, and `shuffle`
 
 Interface shared by `RegaLemmas2` (operands/ABI/frame code) and `RegaLemmas3` (`Wf.induct`):
 * `GprSym`/`VecSym`/`FlagSym`: what a `SymArg` entry asserts about a 64-bit GPR word, a
   512-bit vector (truncated to a slot width), or a flag, quantified over *all* context entries
-  `⟨t, v, x⟩ ∈ G` (so out-of-scope ids are vacuous, Trap 3).
+  `⟨t, v, x⟩ ∈ G` (so out-of-scope ids are vacuous).
 * `Agree G nv st s σ`: every register/slot/def/width fact of `st` holds in `(s, σ)`.
-* `Inv hints s₀ ra n Rf m s σ`: the frame invariant (E1 port, typed `array64` slots).
+* `Inv hints s₀ ra n Rf m s σ`: the frame invariant (typed `array64` slots).
 * `execMoves_ok`, `stepPre_ok`, `holdsLoc_ok`, `shuffle_ok`.
 -/
 
@@ -235,7 +235,7 @@ theorem tyEq_iff {a b : Ty} : tyEq a b = true ↔ a = b := by
   | pair a1 b1 ih1 ih2 => cases b <;> simp [tyEq, ih1, ih2]
   | _ => cases b <;> simp [tyEq]
 
-/-! ## 3. The frame invariant (E1 port) -/
+/-! ## 3. The frame invariant -/
 
 section Frame
 variable (T : Target) (hints : T.toIsa.Hints) (s₀ : T.mach.MData) (ra : T.mach.Addr) (n : Nat)

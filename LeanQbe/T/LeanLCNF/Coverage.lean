@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.LeanLCNF.Basic
 
 /-!
-# P5 Coverage Lean 4 Programs (`LeanQbe.T.LeanLCNF.Coverage`)
+# Coverage Lean 4 Programs (`LeanQbe.T.LeanLCNF.Coverage`)
 
 Real Lean 4 functions compiled through impure `LCNF` → `LeanQbe.T` covering:
 1. String literals (ASCII, 8-byte boundaries, empty, UTF-8 multibyte) & string building

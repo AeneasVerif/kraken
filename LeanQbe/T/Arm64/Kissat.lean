@@ -13,7 +13,7 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Examples.Kissat.Solver
 
 /-!
-# Kissat `D-Min` C0 SAT Solver (`kissatFns`) on AArch64 (`X1` Stage B)
+# Kissat Minimal C0 SAT Solver (`kissatFns`, `25` fns) on AArch64
 
 Instantiates the 25-function typed-IR Kissat SAT solver module `kissatModule`
 (`dimacs_fns ++ solver_fns`) on `armTarget` (`armLegalTarget`, `armLayout`, `armLabelClean`) with:

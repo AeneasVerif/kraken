@@ -5,7 +5,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat C0 Propagation `Func.wp` Proofs (`X1` Stage B2)
+# Kissat `D-Min` C0 Propagation `Func.wp` Proofs
 
 Builds on `SolverSpec` to specify and verify:
 1. `kissat_find_repl` (`kissatFindReplSpec`, `kissat_find_repl_wp`)

@@ -13,7 +13,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave 4G Proof Shard 4: Modular Phase WP Proofs for `full_sort_tmp_m7`
+# Kissat M7 Analyze/Sort Proof Shard 4: Modular Phase WP Proofs for `full_sort_tmp_m7`
 
 Splits the large C0 AST of `full_sort_tmp_m7_body` into `7` same-file `private abbrev`
 sub-expressions (unifying via `rfl` / `change` with `0 @[expose]`), proves each phase WP

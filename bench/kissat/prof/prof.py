@@ -51,7 +51,7 @@ TOP_FN_CLASS_COLS = [
 
 
 def demangle_symbol(name):
-    """Strip C4 `.L<n>` block suffixes and demangle QBE `_ZN8tqbe_gen<len><sym>` names."""
+    """Strip LeanQbe x64 `.L<n>` block suffixes and demangle `_ZN8tqbe_gen<len><sym>` names."""
     base = re.sub(r"\.L\d+$", "", name.strip())
     m = _TQBE_RE.match(base)
     if m:

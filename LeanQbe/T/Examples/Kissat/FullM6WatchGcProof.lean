@@ -8,7 +8,7 @@ public import LeanQbe.T.Examples.Kissat.FullWalkExtLemmas1
 public import LeanQbe.T.Examples.Kissat.FullFastCoreLemmas
 
 /-!
-# Kissat M6 `PR-W2E-lite` Proofs Part 3: Remaining 5 Overrides, Closed `ModuleOk`, & UNSAT NV
+# Kissat M6 Watch/GC Proofs Part 3: Remaining 5 Overrides, Closed `ModuleOk`, & UNSAT NV
 
 Proves the remaining `5 / 17` standalone overrides and closes `m6WatchGcModule`:
 1. `full_mark_reasons_m6_wp` (`Full.fullMarkReasonsSpec`, skipping level-0 and starting at
@@ -17,7 +17,7 @@ Proves the remaining `5 / 17` standalone overrides and closes `m6WatchGcModule`:
 3. `m6IngestClSpec` & `full_parse_body_m6_wp` (`Full.fullParseBodySpec`, with parse-time level-0
    unit BCP preserving `fuel` and `oom = 0`).
 4. `full_extend_push2_m6_wp` & `full_extend_push_cl_m6_wp` (`Full.fullExtendPush2Spec`,
-   `Full.fullExtendPushClSpec`, skipping root-false literals with `RC-01` capacity bounds).
+   `Full.fullExtendPushClSpec`, skipping root-false literals with overflow-safe bounds).
 5. Closed `25`-row `m6WatchGcSpecTable`, `m6WatchGc_noExit`, `m6WatchGc_tableImpl`,
    `m6WatchGc_moduleOk`, and concrete `Mem 64` UNSAT soundness (`nv_m6_watch_gc_sound`).
 -/

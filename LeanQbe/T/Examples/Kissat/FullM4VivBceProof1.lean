@@ -2037,7 +2037,7 @@ theorem full_viv_sort_sched_m4_wp (Γ : Env) :
           rintro _ ⟨dpk1, ⟨⟩⟩ mp1 hmp1; rw [hmp1]
           fvt_to_group
           · exact hB (sj, ()) mj ⟨rrj, hsj_lt, hrrj_len, hokj, hmj⟩
-          · -- Join after `if (dpk0 == dk0) { ... }` -> single shift copy!
+          · -- Join after `if (dpk0 == dk0) { ... }` -> single shift copy
             refine wp_join_group (ts := []) (fun () ms => ms = mj) ?_ ?_
             · rintro _ ⟨⟩ ms hms; rw [hms]
               have hjb_nat : (sj * 3).toNat = 3 * sj.toNat := m4_mul3_toNat (by omega)
@@ -2255,7 +2255,7 @@ theorem full_viv_keys_m4_wp (Γ : Env) :
       have hbdc : cr.toNat + 3 + szc.toNat ≤ s.core.arena.length := by
         have := hwfcr.2.2.1; have := hwfcr.2.2.2.1; omega
       fvt_steps
-      -- Inner key-selection loop `while (j < szc)` (read-only on memory!)
+      -- Inner key-selection loop `while (j < szc)` (read-only on memory)
       refine wp_loop_inv (ts := [i32, i32, i32, i32, i32])
         (fun (k0, d0, k1, d1, j, ()) mj => j.toNat ≤ szc.toNat ∧ mj = mbi)
         (fun (_, _, _, _, j, ()) _ => szc.toNat - j.toNat) ?_ ?_
@@ -2602,7 +2602,7 @@ theorem full_vivify_m4_wp (Γ : Env)
               (by rw [hbi1]; omega)
               ⟨s_p, by rw [hbi1]; omega, rfl, hsw_p.toSparse, hfl_p',
                 hrefs_p.trans hrefs_vc2, hrr_vc5, hm_p⟩
-        · -- `cur_level != 0`: keep trail alive for next clause!
+        · -- `cur_level != 0`: keep trail alive for next clause
           exact hL (bn.toNat - (bi + 1#64).toNat) (budget - 1#64, bi + 1#64, ()) m_vc
             (by rw [hbi1]; omega)
             ⟨s_vc, by rw [hbi1]; omega, rfl, hsw_vc.toSparse, hfl_vc', hrefs_vc2, hrr_vc5, hm_vc⟩

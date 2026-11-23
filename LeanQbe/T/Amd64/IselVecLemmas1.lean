@@ -4,7 +4,7 @@ public import LeanQbe.T.Amd64.IselVec
 public import LeanQbe.T.Amd64.FrameLemmas
 
 /-!
-# SysV x64 Vector Target Verification — Part 1 (`T10`)
+# SysV x64 Vector Target Verification — Part 1
 
 Bank invariants, Kraken `RegZmms`/`AvxOperation` step helpers, `BitVec.ofLanes` bit extraction,
 64-byte slot/region bridges, `x64VecSpec` non-op obligations (`vmov`, `vmovi`, `vslotSt`, `vslotLd`,

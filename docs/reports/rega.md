@@ -1,21 +1,21 @@
-> **[Historical design note]** Written during an earlier milestone; several `LeanQbe/*.lean` (E1) paths referenced below have since moved to `LeanQbe/T/`. See `README.md` for current paths.
+> **[Historical design note]** Written during an earlier untyped-IR prototype milestone; several `LeanQbe/*.lean` paths referenced below have since moved to `LeanQbe/T/`. See `LeanQbe-README.md` for current paths.
 
-# rega: verified lowering, pipeline, litmus tests
+# Verified Lowering, Pipeline, and Litmus Tests (Untyped Prototype)
 
-Owner: `rega`. Files: `LeanQbe/{Rega,RegaLemmas,Main,MainLemmas}.lean`, `LeanQbe/{Live,Spill}.lean`,
+Files (at prototype time): `LeanQbe/{Rega,RegaLemmas,Main,MainLemmas}.lean`, `LeanQbe/{Live,Spill}.lean`,
 `Main.lean` (CLI), `LeanQbe/Examples/Litmus*.lean`, `test/`, `spike/e3/`.
 
 ## Status
 
-| Milestone | State |
+| Stage | State |
 |---|---|
-| Proof skeleton against a mock target (E1) | done, scratch only (not in the repo), no sorry |
-| R1: `lower` for param/let/store/ret, generic proof, x64 tracer | done: generic-host Kraken-only theorem plus non-vacuity |
-| R2, E1 half: control-flow litmus, oracle, pipeline | done: five programs checked by kernel `rfl`, with FnSpec instances and native runs; `sumto` end to end with a loop proof |
-| R2, E3 half: the same skeleton in E3, the D8 comparison | done (`spike/e3/`, written by helper `e3`; see below) |
-| R3: calls, exits, stack spills, prologue/epilogue, oracle, module linking, 4-way litmus | done: `lower_correct`, `lowerFn_correct`, `compileFn_correct`, `compile_correct`, `callinc` / `twice` / `spill10` / `sumcall` checked 4 ways |
-| Step 5 (x64): linked `[find, union]` Union-Find end to end on Kraken x64 | done: `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous`, `test/uf_main.c` |
-| Step 7 (x64): linked `lratCheckFns` LRAT-trim checker end to end on Kraken x64 | done: `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous`, `checkProof_x64_accepts`, `test/lrat_trim_main.c` |
+| Proof skeleton against a mock target (untyped IR) | done, scratch only (not in the repo), no sorry |
+| Leaf lowering (`param`/`let`/`store`/`ret`), generic proof, x64 tracer | done: generic-host Kraken-only theorem plus non-vacuity |
+| Control-flow litmus, oracle, pipeline (flat PHOAS) | done: five programs checked by kernel `rfl`, with `FnSpec` instances and native runs; `sumto` end to end with a loop proof |
+| Alternative nested-blocks IR comparison (`spike/e3/`) | done (see comparison below) |
+| Calls, exits, stack spills, prologue/epilogue, oracle, module linking, 4-way litmus | done: `lower_correct`, `lowerFn_correct`, `compileFn_correct`, `compile_correct`, `callinc` / `twice` / `spill10` / `sumcall` checked 4 ways |
+| Linked `[find, union]` Union-Find end to end on Kraken x64 | done: `uf_module_fnspec`, `find_x64_correct`, `union_x64_correct`, `find_x64_nonvacuous`, `union_x64_nonvacuous`, `test/uf_main.c` |
+| Linked `lratCheckFns` LRAT-trim checker end to end on Kraken x64 | done: `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous`, `checkProof_x64_accepts`, `test/lrat_trim_main.c` |
 | Untrusted-bytes LRAT checker (x64): linked 6-fn `lratBytesFns` (`Amd64.fastTarget`) end to end on Kraken x64 | done: `lrat_bytes_module_compile`, `lrat_bytes_module_fnspec`, `lrat_check_bytes_x64_correct`, `lrat_check_bytes_x64_unsat`, `lrat_check_bytes_x64_accepts`, `lrat_check_bytes_x64_rejects`, `test/lrat_bytes_main.c` (26/26 PASS in `test/run.sh`) |
 
 ## What exists
@@ -96,7 +96,7 @@ recursion over the PHOAS term at `V := Nat, L := Nat`.
   `Γ f.name → Func.spec Γ f.body`, external callee `FnSpec`s, and exit `Defined`ness to obtain
   `T.Defined h p.1 ∧ T.FnSpec h p.1 (Γ p.1) p.2 nX` for every `p ∈ bounds`.
 
-### Litmus, Step 5 Union-Find, Step 7 LRAT-trim, and Untrusted-Bytes LRAT (`LeanQbe/Examples/Litmus*.lean`, `test/`)
+### Litmus, Union-Find, LRAT-trim, and Untrusted-Bytes LRAT (`LeanQbe/Examples/Litmus*.lean`, `test/`)
 
 All 13 litmus suites (`tracer`, `ifelse`, `sumto`, `evenodd`, `nested`, `swap`, `callinc`, `twice`,
 `spill10`, `sumcall`, `uf`, `lrat_trim`, `lrat_bytes`) pass all four checks:
@@ -117,15 +117,15 @@ Closed Kraken-x64-only end-to-end theorems + concrete non-vacuity instances:
 - `lrat_module_compile`, `lrat_module_fnspec`, `checkProof_x64_correct`, `checkProof_x64_nonvacuous`, `checkProof_x64_accepts` (`LeanQbe/Examples/LitmusLrat.lean`: linked 4-function LRAT checker module `[checkRup, strictCheck, checkClause, checkProof]` via `compile_sound`, with computed bounds `[472, 296, 520, 584]`, entering at `Labels.label "br_check_proof"` and concluding `cnf₀.Unsat` on normal return or exit to `Labels.label "lrat_fail"`, plus concrete accepting execution `checkProof_x64_accepts` on `nvAcceptBytes` concluding `st.pc = 0x1234 ∧ nvAcceptCnf.Unsat` with exit postcondition `False`)
 - `lrat_bytes_module_compile`, `lrat_bytes_module_fnspec`, `lrat_check_bytes_x64_correct`, `lrat_check_bytes_x64_unsat`, `lrat_check_bytes_x64_accepts`, `lrat_check_bytes_x64_rejects` (`LeanQbe/Examples/LitmusLratBytesCode.lean` + `LeanQbe/Examples/LitmusLratBytes.lean`: linked 6-function untrusted-bytes ASCII DIMACS + Binary LRAT checker module `lratBytesFns` on `Amd64.fastTarget` via `compile_sound`, 2,268 Kraken-parsed x64 directives, computed bounds `[136, 664, 168, 632, 728, 968]`, `exits = []`, proving both full ABI preservation on arbitrary byte buffers (`rax = 1 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat`), the parser-free trivial-postcondition corollary `lrat_check_bytes_x64_unsat` on `(encodeDimacs cnf)` (`st.pc = ra ∧ (rax = 0 ∨ rax = 1) ∧ (rax = 1 → cnf.Unsat)`), and concrete machine-level accepting (`rax = 1 ∧ nvBytesCnf.Unsat`) and rejecting (`rax = 0`) executions in `lratBytesHost`)
 
-## D8 and D9 evidence (R2)
+## Direct PHOAS Lowering and IR Shape Comparison
 
-**D9 (direct lowering from PHOAS) holds** through calls, exits, and stack spills (`RegaLemmas.lean`,
-1250 lines total). The `toFlat` fallback is not needed.
+**Direct lowering from PHOAS** holds through calls, exits, and stack spills (`RegaLemmas.lean`,
+1250 lines total). Falling back to first-order `toFlat` is not needed.
 
-**D8 (E1 against E3)** compares the same lowering proof against the same mock target (`spike/e3/`,
-full table in `spike/e3/README.md`):
+**Flat PHOAS (`E1`) vs structured blocks (`E3`)** compares the same lowering proof against the same
+mock target (historical prototype `spike/e3/`):
 
-| | E1 | E3 |
+| | Flat PHOAS (`E1`) | Structured blocks (`E3`) |
 |---|---|---|
 | main lemma | 215 lines, one `induction hwf` | 214 + 16 lines, three mutual lemmas, no hand-written induction principle needed |
 | junk cases | 3 constructs (`args = []` in 7 cases, block without a pending label, the `acc`/`pend` invariant everywhere), about 14 lines | none |

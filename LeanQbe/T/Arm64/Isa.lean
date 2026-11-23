@@ -5,7 +5,7 @@ public import LeanQbe.T.Arm64.Frame
 public import LeanQbe.T.Legal
 
 /-!
-# AAPCS64 Arm64 Pure `Isa` & `LegalTarget` (`P2-B`)
+# AAPCS64 Arm64 Pure `Isa` & `LegalTarget`
 
 Provides `armIsa : Isa` and `armLegalTarget : LegalTarget` with zero `*Lemmas*` imports so
 executables (`leanqbe-arm64`) and pure compilation consumers do not link verification proof objects.

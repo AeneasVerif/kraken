@@ -2,7 +2,7 @@
 """Deterministic 10-family adversarial tricky-UNSAT canary suite for C0 Kissat.
 
 Every generated CNF is mathematically UNSAT and targets a concrete algorithmic
-or capacity cliff audited in `kissat_c0_faithfulness_and_benchmarking_plan.md`:
+or capacity cliff across the Kissat C0 inprocessing and search passes:
   01_php_bva          - PHP(10..12) + 6-CNF/7-CNF product BVA matrices (sz > 5)
   02_deep_miter       - 16/32-bit adder miters (depth > 6), 5x5 mult, pure-3-CNF XOR/ITE
   03_sweep_algebraic  - Non-structural algebraic sweeping miters (cones 120..240 vars)

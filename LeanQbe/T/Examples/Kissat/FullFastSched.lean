@@ -9,9 +9,9 @@ set_option autoImplicit false
 /-!
 # Kissat `D-Full` M2 Fast-Scheduler C0 Upgrades (`FullFastSched`)
 
-Surgical, zero-layout-churn C0 upgrades extracted from `prototype/kissat-fast-c0` on top of
-unchanged `FullHdr` (`144` `u64` words = `4` `KissatDimacs` + `140` tail words; `0` `FullCfg` /
-`FullState` / `FullMem` / `FullInv` churn):
+Self-contained C0 scheduler upgrades over unchanged `FullHdr` (`144` `u64` words =
+`4` `KissatDimacs` + `140` tail words), preserving `FullCfg`, `FullState`, `FullMem`,
+and `FullInv`:
 1. **Level-0 Binary-Sweep Completeness Fix**:
    - `full_sweep_bins`: guards falsified-literal binary deletion by `h->propagated >= h->trail_end`
      (always keeping unsatisfied binaries while level-0 propagation is pending) and preserves

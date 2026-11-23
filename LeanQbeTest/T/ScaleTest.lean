@@ -3,12 +3,12 @@ module
 public import LeanQbe.T.FlatLemmas
 
 /-!
-# Scaling checks for `TFlat` reification (`T2`)
+# Scaling checks for `TFlat` reification
 
 Verifies `Func.Wf` by kernel `rfl` (`t_wf_reify`) and `Func.checkTFlat ... = true` at
 250, 1000, and 2000 `let`s (`sl 250`, `sl 1000`, `sl 2000`), a self-jumping 50-block `group`
 (`bl 50`, 151 instructions), and a cross-block jumping 50-block `group` (`bl50_cross`). Detailed
-elaboration, codegen, and kernel timings for literal syntax programs vs E1 are recorded in
+elaboration, codegen, and kernel timings for literal syntax programs are recorded in
 `docs/reports/core.md`.
 -/
 

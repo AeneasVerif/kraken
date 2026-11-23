@@ -10,12 +10,12 @@ public import LeanQbe.T.Target
 public import LeanQbe.T.StepSimp
 
 /-!
-# Shared Kraken AArch64 Target Base (`T-prep`)
+# Shared Kraken AArch64 Target Base
 
 Shared directive/register/memory abbreviations, `get`/`wr` register-file accessors, `ArmCond`
 (restricting `CondCode` to the 14 invertible conditions), flag masks, `armCondReads`,
 `armNegCond`, `armMach : Machine Reg Empty ArmCond Directive`, `keepsFlags_of_bits`, and
-`[t_step_simp]` rules for `LeanQbe.T.Arm64.*` (`T8`, `T9`, `T11b`).
+`[t_step_simp]` rules for `LeanQbe.T.Arm64.*` (isel and frames).
 -/
 
 set_option autoImplicit false

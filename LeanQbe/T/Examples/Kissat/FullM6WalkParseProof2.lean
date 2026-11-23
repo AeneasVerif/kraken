@@ -8,7 +8,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 Wave 2 (`RC-26b` + `RC-27`) `Func.wp` Proofs — Part 2 (`FullM6WalkParseProof2`)
+# Kissat M6 Parse-BCP & Walk `Func.wp` Proofs — Part 2 (`FullM6WalkParseProof2`)
 
 Proves UNSAT-only parametric `Func.wp` contracts (`XPost := False`, `0` SAT proofs) for the
 ProbSAT CSR collection and construction helpers:
@@ -603,7 +603,7 @@ theorem full_walk_collect_m6_wp (Γ : Env)
                 (fun Jc3 hJc3 => ?_)
               c0_hsteps_nogrp
               · exact hJc3 (n4, tot4, _k, ()) m_a ⟨s4, hceq4, hs4, hn4, htot4, hok4, hpres4, hm4⟩
-              · -- `!rsat && unass >= 2 && unass <= occ_cap - tot4`: commit clause!
+              · -- `!rsat && unass >= 2 && unass <= occ_cap - tot4`: commit clause
                 have hsbl4 := hs4.scratch_ok.scratch_buf_len
                 have h2n : (n4 <<< (1 : Nat)).toNat = 2 * n4.toNat := m6_shl1_64 (by omega)
                 have h2n_lt : 2 * n4.toNat + 1 < s4.scratch.scratch_buf.length := by
@@ -895,7 +895,7 @@ theorem full_walk_collect_m6_wp (Γ : Env)
                     ⟨sw', hcore', hs', by omega, by omega, hnw', htotw', hok', hpres', hsl1, hm'⟩)
                 (fun Jb2 hJb2 => ?_)
               c0_hsteps_nogrp
-              · -- `l < ot && vals[ot] == 0`: push binary entry!
+              · -- `l < ot && vals[ot] == 0`: push binary entry
                 clear hsl1 hoff_lt hoff_le hend0_eq hcore2 hs2 hm2 hlle2 hnle2 htot2 hok2 hpres2
                   hceq2 hl1 hJstep hJw
                 have hsblw := hsw.scratch_ok.scratch_buf_len

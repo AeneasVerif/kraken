@@ -8,11 +8,11 @@ public import LeanQbe.T.Target
 public import LeanQbe.T.StepSimp
 
 /-!
-# Shared Kraken x64 Target Base (`T-prep`)
+# Shared Kraken x64 Target Base
 
 Shared directive/register/memory abbreviations, flag clobber masks, condition-code helpers,
 `x64Mach : Machine Reg64 RegMm CondCode Directive`, `[t_step_simp]` rules, and self-contained
-`Directive.FallsTo` / `Program.wp` combinators for `LeanQbe.T.Amd64.*` (`T8`, `T9`, `T11b`).
+`Directive.FallsTo` / `Program.wp` combinators for `LeanQbe.T.Amd64.*` (isel and frames).
 -/
 
 set_option autoImplicit false
@@ -176,7 +176,7 @@ theorem keepsFlags_of_bits {s s' : MachineData} {clob : FlagMask}
     (try rw [hsf (flag_bit_clear (b := 4) (by decide) hdisj)]) <;>
     (try rw [hof (flag_bit_clear (b := 5) (by decide) hdisj)])
 
-/-! ## 4. Self-contained `Directive.FallsTo` and `Program.wp` helpers (`T8`–`T11b`) -/
+/-! ## 4. Self-contained `Directive.FallsTo` and `Program.wp` helpers -/
 
 /-- Directive `d`, run from `s`, falls through into a state satisfying `Q`. -/
 def Directive.FallsTo (d : Directive) (s : MachineData) (Q : MachineData → Prop) : Prop :=

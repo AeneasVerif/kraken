@@ -29,7 +29,7 @@ open LeanQbe.T LeanQbe.T.Amd64
 
 /-! ## Helpers -/
 
-/-- Hints from the production heuristics (`Fn.computeHints` = `Spill.hints ∘ Fn.mid`). -/
+/-- Hints from the default heuristics (`Fn.computeHints` = `Spill.hints ∘ Fn.mid`). -/
 meta def hintsOf (fs : List Fn) : List x64Target.toIsa.Hints :=
   fs.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
 

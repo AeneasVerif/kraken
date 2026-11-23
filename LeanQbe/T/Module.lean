@@ -4,12 +4,12 @@ public import LeanQbe.T.WP
 public import LeanQbe.T.Wf
 
 /-!
-# Typed IR modules, acyclic `ModuleOk`, and `Env.ofModule` (`H2`)
+# Typed IR modules, acyclic `ModuleOk`, and `Env.ofModule`
 
 100%-PHOAS module representation (`Module := {fns, externs, exits}`), acyclic callees-first
-`ModuleOk Γ M` (rejecting all call cycles/SCCs; `link_rec` deferred post-T16),
+`ModuleOk Γ M` (acyclic modules; cyclic recursion is handled separately in `LinkRec`/`LinkScc`),
 `wp_env_agree_of_callsOk` via `Wf.induct`, and `Env.ofModule` with signature-isolation lemmas
-resolving Seam 4.4 (`legalEnv` colliding-signature hazard).
+preventing colliding-signature hazards in `legalEnv`.
 -/
 
 set_option autoImplicit false
@@ -263,7 +263,7 @@ theorem selfRec_not_moduleOk (Γ : Env) (exts : List Extern) (exits : List Sym) 
   exact hnd.1 ex hex (congrArg Prod.fst hsig)
 
 
-/-! ## Decidable-free `ModuleOk` checker (`T-prep`) -/
+/-! ## Decidable-free `ModuleOk` checker -/
 
 /-- Boolean equality on `SigEntry`, kernel-reducible by `rfl`. -/
 def SigEntry.beq (a b : SigEntry) : Bool :=

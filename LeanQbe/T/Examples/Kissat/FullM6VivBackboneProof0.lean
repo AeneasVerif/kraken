@@ -15,7 +15,7 @@ import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
 
 /-!
-# Kissat Wave-2 `PR-W2C` Shared Proof Foundations & Base Overrides (`Proof0`)
+# Kissat M6 Vivification & Backbone Shared Proof Foundations & Base Overrides (`Proof0`)
 
 Provides M1-clean (`public section`, `0` `import all`, `private` helpers) foundational lemmas
 shared by `FullM6VivBackboneProof{1,2,3,}` plus parametric `Func.wp` proofs for:
@@ -770,7 +770,7 @@ end ArenaCoreLemmas
 
 section SemanticHelpers
 
-/-- 1-step resolution soundness for vivification instantiation strengthening (`RC-20`, `S05-08`):
+/-- 1-step resolution soundness for vivification instantiation strengthening:
 if `F ⊨ out`, `F ⊨ rest ++ [lit]`, and every literal in `out` is either `lit ^^^ 1` or in `rest`,
 then `F ⊨ rest`. -/
 theorem inst_resolve_entails {F : CNF Nat} {out rest : List Nat} {lit : Nat}
@@ -793,7 +793,7 @@ theorem inst_resolve_entails {F : CNF Nat} {out rest : List Nat} {lit : Nat}
       exact ((sat_cnfClause_litNeg_iff α lit).mp hx_neg) hy_pos
   · exact (clause_sat_cnfClause_iff α _).mpr ⟨x, hx_rest, hx_sat⟩
 
-/-- 2-literal resolution for multi-level backbone 1UIP (`RC-21`, `S05-09`):
+/-- 2-literal resolution for multi-level backbone 1UIP:
 resolving `[x ^^^ 1, y ^^^ 1]` with `[x, p ^^^ 1]` gives `[p ^^^ 1, y ^^^ 1]`. -/
 theorem backbone_resolve2 {F : CNF Nat} {x y p : Nat}
     (h1 : F.EntailsClause (cnfClause [x ^^^ 1, y ^^^ 1]))

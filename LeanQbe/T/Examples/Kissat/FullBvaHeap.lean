@@ -7,8 +7,8 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat `D-Full` 3-Hop Complement-Overlap BVA & Max-Degree Binary Heap Factoring (`C0`)
 
-Additive port of the Stage-5 BVA + max-degree factoring upgrades from
-`prototype/kissat-fast-c0:LeanQbe/T/Examples/Kissat/Fast.lean` onto the exact existing
+Additive C0 module implementing 3-hop BVA and max-degree binary-heap factoring
+over the existing
 `FullHdr` (`144` `u64` words = `1,152` bytes) and `Full` external callees:
 
 1. `full_init_fresh_var`: initializes a fresh extension variable with `q_first` VMTF placement

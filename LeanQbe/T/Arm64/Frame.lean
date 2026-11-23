@@ -4,7 +4,7 @@ public import LeanQbe.T.Arm64.Base
 public import LeanQbe.T.IselStepAttr
 
 /-!
-# AAPCS64 Arm64 Frame ISA (`T11b`)
+# AAPCS64 Arm64 Frame ISA
 
 Defines `armFrame : FrameIsa Reg Directive` implementing AAPCS64 stack frames, slot access,
 ABI register canonicalization (`UBFM` / `MOV Wd, Ws`, zero-extending low bits to 64 bits with no

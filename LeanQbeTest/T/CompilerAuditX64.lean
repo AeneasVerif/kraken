@@ -15,7 +15,7 @@ import all Kraken.Separation
 # SysV x86-64 Backend, Multi-Chunk Linker, Cyclic Recursion, & Litmus Audit
 
 Self-contained machine-level audit for the SysV x86-64 (`Kraken.X64`) backend of `lean-qbe`.
-This module imports ONLY `Kraken.X64` (`LeanQbe.T.Amd64.*`), never `Kraken.AArch64`.
+This module imports only `Kraken.X64` (`LeanQbe.T.Amd64.*`), never `Kraken.AArch64`.
 
 ## What This Workstream Proves
 1. **Verified x86-64 backend contracts (`Amd64.Targ`, `Amd64.TargLemmas`)**:

@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2c
 
 /-!
-# Kissat M6 `PR-W2E-lite` Proofs Part 2d: Pure Arena Sweep & Reason Bridges
+# Kissat M6 Watch/GC Proofs Part 2d: Pure Arena Sweep & Reason Bridges
 
 Pure arena compaction prefix, header bitfield, and `SweepReasonMapInv` bridge theorems
 used by `full_arena_sweep_m6_wp`.

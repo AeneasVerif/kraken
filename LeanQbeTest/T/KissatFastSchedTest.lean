@@ -12,8 +12,8 @@ import all Kraken.Separation
    `schedModule.checkAcyclic`, `schedProvedIndices` (`16` proved entries), spliced function names,
    concrete UNSAT witness bytes (`schedNvUnsatBytes`), and `4096`-byte workspace bounds.
 2. Concrete-memory source-level `Func.wp` sanity check (`sched_unsat_payload`, `X = False`,
-   `schedEnv`, strictly UNSAT-only — ZERO SAT / model-finding checks).
-3. Single-line `#print axioms` audit (`<= 100` cols) on all exported `FullFastSched` and
+   `schedEnv`, strictly UNSAT-only — no SAT / model-finding checks).
+3. Single-line `#print axioms` audit on all exported `FullFastSched` and
    `FullFastSchedLemmas` theorems (strictly `⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 

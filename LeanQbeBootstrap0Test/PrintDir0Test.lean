@@ -29,7 +29,7 @@ Verifies `LeanQbe.T.Bootstrap0.PrintDir0` and `LeanQbe.T.Bootstrap0.PrintDir0Lem
 2. Concrete round-trip `#guard`s across ALL `27` `Dir0` constructors and compiled modules
    (`dummyAddMod0`, `dummyLoopMod0`, `dummyCallTailMod0`), comparing `printDir0Bytes` /
    `printDirs0Bytes` / `printModule0Bytes` against `Kraken.X64.toATT (Bridge0.dir0ToAmd64 ...)`.
-3. Single-line `#print axioms` (`< 115c`, strictly `⊆ [propext, Classical.choice, Quot.sound]`)
+3. Single-line `#print axioms` (strictly `⊆ [propext, Classical.choice, Quot.sound]`)
    plus MetaM import-closure isolation, `collectAxioms`, and `0` opaque/unsafe checks.
 -/
 
@@ -225,7 +225,7 @@ private def compiledModMatchesATT (m : TFlatModule0) : Bool :=
 #guard compiledModMatchesATT dummyLoopMod0
 #guard compiledModMatchesATT dummyCallTailMod0
 
-/-! ## 3. Single-Line `#print axioms` Audit (`< 115c`, `std3`) -/
+/-! ## 3. Single-Line `#print axioms` Audit (`[propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms LeanQbe.T.Bootstrap0.dir0ToAmd64_dirSubset0
 #print axioms LeanQbe.T.Bootstrap0.printDir0Bytes_eq_toATT

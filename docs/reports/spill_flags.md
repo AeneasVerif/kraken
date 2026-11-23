@@ -1,10 +1,12 @@
+> **[Historical design note]** Written during an earlier milestone; line counts and `Spill.lean` heuristics have since evolved. See `LeanQbe-README.md` for current architecture and file paths.
+
 # Spill Flag & Variant Allocator Upgrade (`Spill.lean`)
 
-Forked from `main @ 2a28b05` (non-proof heuristic track — 0 proof files modified).
+Snapshot from commit `2a28b05` (untrusted heuristic allocator only; no proof files modified).
 
 ## 1. Summary of Changes
 
-Upgraded the untrusted flag/variant allocator in `LeanQbe/T/Spill.lean` (`800` LOC, `≤ 800` cap) and removed `Patch` / `patchHints` / `patchAdcxAdox` / `patchCfLoop` from `LeanQbeTest/T/RegaLitmusProgs.lean` so all 13 `G12` litmus programs lower via unpatched `Spill.hints`:
+Upgraded the untrusted flag/variant allocator in `LeanQbe/T/Spill.lean` (`800` LOC at the time) and removed `Patch` / `patchHints` / `patchAdcxAdox` / `patchCfLoop` from `LeanQbeTest/T/RegaLitmusProgs.lean` so all 13 register-allocator litmus programs lower via unpatched `Spill.hints`:
 
 1. **Multi-op & multi-consumer flag webs (`scanDefs`, `scanRanges`, `tryColorWeb`)**:
    - Replaced the single-instruction `localOnly` check with exact live-range tracking over `Tree` (`liveIn`, `liveAfter`, `varLiveIps`, `usesOf`), supporting `.cmp`, `.addc`, and `.subb` `.bool` outputs across multi-op gaps (e.g., `mul4x4`'s `umulw`s, `addMod25519`'s 4 `select`s) and dead final carry-outs (`_c2` in `fnAdcChain`, final carries in `Bignum.mulRow0K`/`mulRowAccK`).
@@ -19,7 +21,7 @@ Upgraded the untrusted flag/variant allocator in `LeanQbe/T/Spill.lean` (`800` L
 
 ## 2. Before / After Metrics
 
-### `G12d` Litmus Programs (`RegaLitmus.isa`, unpatched `Spill.hints`)
+### Flag-Carry Litmus Programs (`RegaLitmus.isa`, unpatched `Spill.hints`)
 
 | Program | Before (instrs / `setcc` / `bt0`) | After (instrs / `setcc` / `bt0`) | Notes |
 |---|---:|---:|---|
@@ -42,4 +44,4 @@ Extended `RegaLitmus.isa` in a standalone `/tmp/` Lean check with `umulw` (`.def
 
 - `timeout 300 lake build --wfail LeanQbe.T.Spill LeanQbeTest.T.RegaLitmusTest LeanQbeTest.T.RegaScaleTest LeanQbeTest.T.MainTest`: exited 0 (`126` jobs), all theorems `0 sorry` using only `[propext, Classical.choice, Quot.sound]`.
 - `LeanQbe/T/Spill.lean`: `800` LOC (zero proof files touched).
-- `LeanQbeTest/T/RegaLitmusProgs.lean`: `patchAdcxAdox`, `patchCfLoop`, `patchHints`, and `Patch` deleted; all 13 `G12` litmus programs lower via unpatched `Spill.hints isa fn`; `cmpJcc_code`, `adcChain_code`, `adcxAdox_code`, `cfLoop_code`, `cfLoop_cf_writers`, `g12a_code_highlights`, `*_nonvacuous`, and `*_correct` all green.
+- `LeanQbeTest/T/RegaLitmusProgs.lean`: `patchAdcxAdox`, `patchCfLoop`, `patchHints`, and `Patch` deleted; all 13 litmus programs lower via unpatched `Spill.hints isa fn`; `cmpJcc_code`, `adcChain_code`, `adcxAdox_code`, `cfLoop_code`, `cfLoop_cf_writers`, `g12a_code_highlights`, `*_nonvacuous`, and `*_correct` all pass.

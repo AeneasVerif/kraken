@@ -5,10 +5,10 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat `D-Full` M6 Congruence Closure & 2-Round Substitute (`FullM6CongSubst`, `RC-25`)
+# Kissat `D-Full` M6 Congruence Closure & 2-Round Substitute (`FullM6CongSubst`)
 
 Standalone `FullHdr`-free (`144`-word layout, zero `Full1..3` / `FullM4*` / `FullM5*` edits)
-implementation of `RC-25` upgrades with `RC-17` congruence fixes and `RC-02`/`RC-03` OOM/dedup
+implementation of dense congruence closure, 2-round substitution, and OOM/dedup
 safety:
 1. **Single-pass `wvec` Tarjan SCC & 2-round `substitute`**:
    - `full_tarjan_scc`: folds pass-2 lowlink scan into the single `wvec[nl]` DFS traversal while
@@ -17,7 +17,7 @@ safety:
      `h->oom` abort without false `20ULL` UNSAT returns.
    - `full_substitute`: 2-round fixpoint (`round < 2ULL`), rewrites if `ucnt > 0 || subst > 0`,
      runs `full_arena_sweep` before `full_propagate`.
-2. **Dense Congruence Closure (`RC-25` + `RC-17`)**:
+2. **Dense Congruence Closure**:
    - `full_cong_count_bins`: populates `negbincount[0..nlits)` in `work_stk1` (`O(nlits + bins)`).
    - `full_cong_extract_binaries`: `negbincount`-filtered, ticks-bounded ternary resolution.
    - `full_cong_find_units_equivs`: dense binary `find_units` + `find_equivalences` before gating.

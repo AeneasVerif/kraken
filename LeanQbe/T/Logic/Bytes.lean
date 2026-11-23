@@ -5,9 +5,9 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Concrete bytes and untyped regions for `LeanQbe.T` (`T4`)
+# Concrete bytes and untyped regions for `LeanQbe.T`
 
-Typed-IR counterpart of `LeanQbe/Logic/Bytes.lean`:
+Typed-IR byte-slice and untyped memory-region lemmas:
 * `bytesN n xs`, `byte1Array_eq`, `int4Array_eq`, `word8Array_eq`, `t_solve_bytes_at`
   (and scoped `solve_bytes_at` in `LeanQbe.T`).
 * `loadu8_At` (`loadVal m i8` from a `bytes` / `Eq (bs.At base)` slice) and `expectByte_branch`.

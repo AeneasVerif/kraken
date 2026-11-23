@@ -39,7 +39,7 @@ class GenCertSlicesTest(unittest.TestCase):
         self.assertLess(sched.max_mean_ratio, 1.15)
 
     def test_autobalance_isolates_stragglers_and_packs_leaves(self) -> None:
-        # 12 tiny leaves, 1 massive straggler, 12 tiny leaves, 1 prop_lit_raw straggler, 8 leaves.
+        # 12 tiny leaves, 1 large straggler, 12 tiny leaves, 1 prop_lit_raw straggler, 8 leaves.
         metrics: list[gcs.FnMetric] = []
         idx = 0
         for k in range(12):

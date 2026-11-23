@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Differential verification suite for X3-R0 (`LeanQbe.T.LeanLRC`):
+# Differential verification suite for LeanQbe.T.LeanLRC (Lean λRC -> LeanQbe.T):
 # Compares bit-for-bit across:
 #   1. Native Lean 4 reference (`lean -c` + `leanc`)
 #   2. `PrintCpp` + `g++ -std=c++20 -O2` (with `-DTQBE_CATCH_UB` trap tests)

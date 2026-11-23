@@ -262,7 +262,7 @@ theorem DepthEnv.tailSlot_depth_mono {M : Module} {Γext : Env} {G : DepthEnv}
   ∀ ⦃C₁ C₂ T₁ T₂ : Env⦄, Env.le C₁ C₂ → Env.le T₁ T₂ → Env.le (op₂ C₁ T₁) (op₂ C₂ T₂)
 
 /-- Lift a two-slot environment transformer `op₂ Γcall Γtail` into a `DepthEnv → DepthEnv` module
-operator via `DepthEnv.callSlot` and `DepthEnv.tailSlot`. Ready for Stage 2's `wpSplit`. -/
+operator via `DepthEnv.callSlot` and `DepthEnv.tailSlot`, ready for split `wpSplit` semantics. -/
 @[expose] def DepthEnv.mkSccOp (M : Module) (Γext : Env) (op₂ : Env → Env → Env)
     (G : DepthEnv) (d : Nat) : Env :=
   op₂ (DepthEnv.callSlot M Γext G d) (DepthEnv.tailSlot M Γext G d)
@@ -310,8 +310,8 @@ theorem DepthEnv.lfp_wf_mkSccOp {ι : Type} {lt : ι → ι → Prop} (hwf : Wel
     exact Or.inl ⟨hSj.1, j, hlt, hdep, hSj⟩
   · exact DepthEnv.extStep_le_sccStep M _ Γext
 
-/-- Stage-1 depth-indexed module operator for `M` over `Γext` (evaluating `fn.body` against the
-non-tail call slot `DepthEnv.callSlot`; Stage 2 upgrades this to `Func.wpSplit Γcall Γtail`). -/
+/-- Depth-indexed module operator for `M` over `Γext` (evaluating `fn.body` against the
+non-tail call slot `DepthEnv.callSlot`, extensible to `Func.wpSplit Γcall Γtail`). -/
 @[expose] def DepthEnv.sccOp (M : Module) (Γext : Env) : DepthEnv → DepthEnv :=
   DepthEnv.mkSccOp M Γext fun Γcall _ =>
     fun f as bs xs m Q X =>

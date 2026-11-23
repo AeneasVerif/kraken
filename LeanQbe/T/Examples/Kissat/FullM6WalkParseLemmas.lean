@@ -9,7 +9,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 Wave 2 (`RC-26b` + `RC-27`): `ModuleOk` & Concrete `Mem 64` UNSAT NV
+# Kissat M6 Parse-BCP & Walk: `ModuleOk` & Concrete `Mem 64` UNSAT NV
 
 Combines the `11` parametric UNSAT-only `Func.wp` proofs (`Proof1`, `Proof2`, `Proof3`) into:
 1. Closed `18`-row `m6WalkParseSpecTable` (`11` defined functions + `7` canonical externs, all

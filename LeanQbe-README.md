@@ -17,8 +17,8 @@ module imports both `Kraken.X64` and `Kraken.AArch64`.
 
 | # | Workstream | What is audited | Audit files |
 |---|---|---|---|
-| 1 | **Verified Kissat SAT solver** (`D-Full M5` flagship; `D-Full M6` source/inl landed) | SAT+UNSAT model soundness (`readModelFromWork`) + closed UNSAT NV ([details](#verified-kissat)) | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [X64](LeanQbeTest/T/KissatAuditX64.lean), [Arm64](LeanQbeTest/T/KissatAuditArm64.lean), [M5X64](LeanQbeTest/T/KissatM5AuditX64.lean), [M5Arm64](LeanQbeTest/T/KissatM5AuditArm64.lean), [M5SoundX64](LeanQbeTest/T/KissatM5SoundAuditX64.lean), [M5SoundArm64](LeanQbeTest/T/KissatM5SoundAuditArm64.lean), [SatSound](LeanQbeTest/T/KissatSatSoundTest.lean), [M6Sat](LeanQbeTest/T/KissatM6SatSoundTest.lean), [Legacy](LeanQbeLegacyTest/KissatM4LegacyAuditX64.lean) |
-| 2 | **Compiler, pipeline & linker** | Mid-end, policy/chunked inlining, Batch Y passes, `LinkedCert`, `LinkRec`/`LinkScc` ([details](#compiler-optimization-and-lowering-pipeline)) | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
+| 1 | **Verified Kissat SAT solver** (`D-Full M5` active default; `D-Full M6` source/inlining landed) | SAT+UNSAT model soundness (`readModelFromWork`) + closed UNSAT NV ([details](#verified-kissat)) | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [X64](LeanQbeTest/T/KissatAuditX64.lean), [Arm64](LeanQbeTest/T/KissatAuditArm64.lean), [M5X64](LeanQbeTest/T/KissatM5AuditX64.lean), [M5Arm64](LeanQbeTest/T/KissatM5AuditArm64.lean), [M5SoundX64](LeanQbeTest/T/KissatM5SoundAuditX64.lean), [M5SoundArm64](LeanQbeTest/T/KissatM5SoundAuditArm64.lean), [SatSound](LeanQbeTest/T/KissatSatSoundTest.lean), [M6Sat](LeanQbeTest/T/KissatM6SatSoundTest.lean), [Legacy](LeanQbeLegacyTest/KissatM4LegacyAuditX64.lean) |
+| 2 | **Compiler, pipeline & linker** | Mid-end, policy/chunked inlining, loop/memory/flag-register passes, `LinkedCert`, `LinkRec`/`LinkScc` ([details](#compiler-optimization-and-lowering-pipeline)) | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
 | 3 | **Impure Lean 4 `LCNF`/`LeanLRC`** | Structural `Fn.Wf` of `LeanQbe/T/LeanLCNF` and `LeanQbe/T/LeanLRC` lowering into `LeanQbe.T` | [Audit](LeanQbeTest/T/LcnfAudit.lean) |
 | 4 | **Native LRAT proof checker** | `lrat_check_bytes` returns `1` only for valid DIMACS of an unsatisfiable CNF | [Spec](LeanQbeTest/T/LratAuditSpec.lean), [X64](LeanQbeTest/T/LratAuditX64.lean), [Arm64](LeanQbeTest/T/LratAuditArm64.lean) |
 | 5 | **Crypto, bignum & pointer code** | `ChaCha20` SIMD, Curve25519 `Bignum`, and `UnionFind` source and machine-code proofs | [Spec](LeanQbeTest/T/WorkloadsAuditSpec.lean), [X64](LeanQbeTest/T/WorkloadsAuditX64.lean), [Arm64](LeanQbeTest/T/WorkloadsAuditArm64.lean) |
@@ -50,9 +50,10 @@ lake build --wfail LeanQbeTest.T.KissatAuditSpec LeanQbeTest.T.KissatAuditX64 \
 `LeanQbeBootstrap0Test` in `full` and `x64` scopes) with warnings as errors, scans tracked
 `.lean` files for `sorry`, `admit`, non-meta `axiom `, `@[implemented_by]`, `@[extern]`,
 `trustCompiler`, and native-code tactics (`native_decide`, `bv_decide`, `ofReduceBool`, …), checks
-architecture and active-vs-legacy import closures, enforces L1–L4 module-boundary firewall rules and
-15 synchronized barrel/hub files (`1019` tracked modules), and audits `#print axioms` across the
-build and [`scripts/headlines.d`](scripts/headlines.d). Run
+architecture and active-vs-legacy import closures, enforces module-boundary firewall rules
+(`L1`–`L4`: `MainLemmas`, `Targ`, `TargLemmas`, and `Main`/`Isa`) and 15 synchronized barrel/hub
+files (`1028` tracked modules), and audits `#print axioms` across the build and
+[`scripts/headlines.d`](scripts/headlines.d). Run
 `INCLUDE_LEGACY=1 ./scripts/check.sh` or [`scripts/tier3_check.sh`](scripts/tier3_check.sh) to
 also build and audit the retired `LeanQbeLegacy*` targets.
 
@@ -185,9 +186,9 @@ Cross-checked against [`Opt.lean`](LeanQbe/T/Opt.lean) and [`Main.lean`](LeanQbe
      [`LinkLfp.lean#L240`](LeanQbe/T/LinkLfp.lean#L240)).
 
 - **Incrementality & hub discipline:** [`scripts/sync_hubs.py`](scripts/sync_hubs.py) (`--check`)
-  validates the 15 pure re-export barrel/hub files across `1019` tracked modules, and
-  [`scripts/check_firewall.py`](scripts/check_firewall.py) (`--require-isa`) verifies L1–L4
-  (`MainLemmas`, `Targ`, `TargLemmas`, `Main`/`Isa`) have zero `*Lemmas*` leaks.
+  validates the 15 pure re-export barrel/hub files across `1028` tracked modules, and
+  [`scripts/check_firewall.py`](scripts/check_firewall.py) (`--require-isa`) verifies layers
+  `L1`–`L4` (`MainLemmas`, `Targ`, `TargLemmas`, `Main`/`Isa`) have zero `*Lemmas*` leaks.
 
 ## Verified Kissat
 
@@ -196,7 +197,7 @@ theorems:
 
 | Solver | Lean module | Fns | Status | Proved |
 |---|---|---|---|---|
-| `D-Full M5` | `LeanQbe.T.Examples.Kissat.FullM5` | 270 | Active flagship | **UNSAT (`20`) + constructive SAT (`10`)** (`InlinePolicy.b5`), x64 & Arm64, closed UNSAT NV (`KissatM5Audit*`, `KissatM5SoundAudit*`), source SAT NV |
+| `D-Full M5` | `LeanQbe.T.Examples.Kissat.FullM5` | 270 | Active default | **UNSAT (`20`) + constructive SAT (`10`)** (`InlinePolicy.b5`), x64 & Arm64, closed UNSAT NV (`KissatM5Audit*`, `KissatM5SoundAudit*`), source SAT NV |
 | `D-Full M6` | `LeanQbe.T.Examples.Kissat.FullM6` | 382 | Source/inl landed | WF/acyclic, chunked [`FullM6Inl`](LeanQbe/T/Examples/Kissat/FullM6Inl.lean#L46) (`63` budgets), `FullM6OrchProof2`, [`FullM6SatSound`](LeanQbe/T/Examples/Kissat/FullM6SatSound.lean); `FullM6Proof` + `KissatM6*` certs in progress |
 | `D-Full M4` | `LeanQbe.T.Examples.Kissat.FullM4` | 231 | Retired legacy | **UNSAT (`20`) + SAT (`10`) model soundness** & closed UNSAT NV, x64 & Arm64 (`KissatM4LegacyAudit*`) |
 | `D-Full M3` | `LeanQbe.T.Examples.Kissat.FullM3` | 204 | Retired legacy | **UNSAT (`20`) soundness + closed UNSAT NV**, x64 & Arm64 (`KissatM3PlainLegacyAudit*`) |
@@ -221,21 +222,26 @@ Prerequisites: `elan` (picks up `lean-toolchain`), a C compiler, and for AArch64
 host `aarch64-linux-gnu-gcc` and `qemu-aarch64`.
 
 ```bash
-# On this branch, build_solver.sh accepts --module FullM3|Plain|Full|FullFast|FullM4
-# (default FullM3). Non-Plain builds pass -DKISSAT_UNSAT_ONLY=1 to kissat_cli.c
-# (mapping r == 10 to "s UNKNOWN", exit 0); CLI wiring for FullM5/FullM6 and `v ... 0` is WIP.
-bash bench/kissat/build_solver.sh --module FullM3 --arch x64 -o /tmp/kissat-leanqbe-fullm3
-/tmp/kissat-leanqbe-fullm3 [--work-mb <MB>] [--fuel <N>] <input.cnf | ->
-printf 'p cnf 1 2\n1 0\n-1 0\n' | /tmp/kissat-leanqbe-fullm3 -      # s UNSATISFIABLE, exit 20
+# build_solver.sh accepts --module FullM5|FullM6|FullM7|FullM4|FullM3|Plain|Full|FullFast
+# (aliases m5..m3; default FullM5, --arch x64, --inline-max 0).
+# Default --inline-max 0 emits the certified policy/IR (InlinePolicy.b5 for FullM5,
+# FullM6Inl.m6InlFns for FullM6, FullM7Inl.m7InlFns/m7InlPolicy for FullM7, inline=0 elsewhere).
+# FullM5, FullM4 (via KissatM4Sound), and Plain build in SAT+UNSAT mode, printing
+# "s SATISFIABLE" + DIMACS `v ... 0` models on exit 10 (pass -n/--no-model to suppress `v ... 0`).
+bash bench/kissat/build_solver.sh --module FullM5 --arch x64 -o /tmp/kissat-leanqbe-fullm5
+/tmp/kissat-leanqbe-fullm5 [--work-mb <MB>] [--fuel <N>] [-n|--no-model] <input.cnf | ->
+printf 'p cnf 1 2\n1 0\n-1 0\n' | /tmp/kissat-leanqbe-fullm5 -      # s UNSATISFIABLE, exit 20
+printf 'p cnf 1 1\n1 0\n'       | /tmp/kissat-leanqbe-fullm5 -      # s SATISFIABLE + v 1 0, exit 10
 
-# D-Plain SAT+UNSAT binary, AArch64 (runs under qemu-aarch64 on x86-64 hosts).
-# Plain compiles without -DKISSAT_UNSAT_ONLY=1, so r == 10 prints "s SATISFIABLE" (exit 10).
-bash bench/kissat/build_solver.sh --module Plain --arch arm64 -o /tmp/kissat-leanqbe-plain-arm64
-qemu-aarch64 -L /usr/aarch64-linux-gnu /tmp/kissat-leanqbe-plain-arm64 input.cnf
+# AArch64 certified SAT+UNSAT build (runs under qemu-aarch64 on x86-64 hosts).
+bash bench/kissat/build_solver.sh --module FullM5 --arch arm64 -o /tmp/kissat-leanqbe-fullm5-arm64
+qemu-aarch64 -L /usr/aarch64-linux-gnu /tmp/kissat-leanqbe-fullm5-arm64 input.cnf
 
-# Uncertified options warn on stderr and diverge from LinkedCert:
+# Cert gating and uncertified options (warn on stderr and diverge from LinkedCert):
+#   --module FullM6|FullM7 require KissatM6Sound/KissatM7Sound for the target arch unless
+#     --allow-uncertified is passed (FullM7.lean is not yet present on this branch).
+#   --module FullM3|Full|FullFast pass -DKISSAT_UNSAT_ONLY=1 (mapping r == 10 to "s UNKNOWN", exit 0).
 #   --inline-max <N> (N > 0) or --debug rewrites IR/directives outside LinkedCert.
-#   --module FullM4 currently requires --allow-uncertified in build_solver.sh.
 
 # Differential test suites (x86-64 + AArch64 + C++ ASan/UBSan, optional reference Kissat).
 bash test/kissat/run.sh
@@ -295,7 +301,7 @@ verified `kissat_check_model` directly against the read-only DIMACS buffer (prov
 [`readModelFromWork`](LeanQbe/T/Examples/Kissat/FullSatSound.lean#L102) (otherwise `0`).
 [`FullSatSound.lean`](LeanQbe/T/Examples/Kissat/FullSatSound.lean#L42) uses `ModuleOk.respec_tail`
 to transport the `268`-function prefix (and `230`-function M4 prefix) into `m5SoundEnv` /
-`m4SoundEnv` cleanly.
+`m4SoundEnv` without re-proving prefix functions.
 
 **Non-vacuity:**
 - Machine code (UNSAT): [`audit_m5_x64_nv_closed`](LeanQbeTest/T/KissatM5AuditX64.lean#L137) and
@@ -361,8 +367,10 @@ prints `s UNSATISFIABLE` for unsatisfiable inputs (and, for certified SAT builds
    `Kraken.AArch64.Print`) into an executable.
 4. **The harness:** [`kissat_cli.c`](bench/kissat/kissat_cli.c) (reads input, checks
    `RLIMIT_STACK >= 65536` B, maps input read-only and workspace read-write between `PROT_NONE`
-   guard pages, calls `kissat_solve_bytes`, and maps `r == 10` to `s UNKNOWN` under
-   `-DKISSAT_UNSAT_ONLY=1` or `s SATISFIABLE` otherwise) and the C runtime it links against.
+   guard pages, calls `kissat_solve_bytes`, maps `r == 10` to `s UNKNOWN` under
+   `-DKISSAT_UNSAT_ONLY=1`, and otherwise prints `s SATISFIABLE` followed by DIMACS `v ... 0`
+   model lines read from the workspace header unless `-n`/`--no-model` is passed) and the C
+   runtime it links against.
 
 Not trusted: the C0 solver sources, C0 elaborator, `InlinePolicy` / inlining materialization, every
 `LeanQbe.T` compiler pass (optimization, legalization, register allocation, instruction selection,
@@ -409,7 +417,7 @@ verified stages:
     behavior and `rtExtBounds0 = 64` / `nX = 64` are assumed).
   - `LeanLCNF` meta extraction (`lcnf_of_lean!` / `splice_lcnf_tflat!`) proves `Fn.Wf`, not
     semantic equivalence to Lean evaluation of `leanqbe0Compile`.
-  - A full native binary self-compilation fixpoint has not yet been executed or proved.
+  - A native binary self-compilation fixpoint has not yet been executed or proved.
 
 **File-organization & verification policy.** Modules follow conceptual boundaries (`~1k–3k` LOC
 typical, shorter fine) bounded by per-file resource caps (`≤ 120s` / `≤ 300s` `*Cert*`,
@@ -430,4 +438,4 @@ compilation proofs.
 | `LeanQbeLegacyTest/` | retired `D-Full M4`, `M3`, `Plain`, `D-Full`, and `M2 Fast` audits (`INCLUDE_LEGACY=1`) |
 | `bench/kissat/` | solver CLI (`kissat_cli.c`), build script, CNF generators, differential suites |
 | `scripts/` | [`check.sh`](scripts/check.sh), [`tier3_check.sh`](scripts/tier3_check.sh), `sync_hubs.py`, `check_firewall.py`, `gen_cert_slices.py`, `headlines.d/` |
-| `docs/reports/` | design notes per component (older E1-era notes carry a historical banner) |
+| `docs/reports/` | design notes per component (historical notes from earlier untyped-IR and pre-M5 milestones carry a banner) |

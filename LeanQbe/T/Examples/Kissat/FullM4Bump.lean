@@ -5,9 +5,9 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
 /-!
-# Kissat M4g (`A5a` / `VarF`): Focused-Mode `full_heap_up` Elision in `full_bump_var_m4`
+# Kissat `D-Full M4`: Focused-Mode `full_heap_up` Elision in `full_bump_var_m4`
 
-Standalone M4g C0 optimization off `main @ d8468dce` (`0` edits to landed `Full*` / `FullM3*`),
+Standalone `D-Full M4` C0 optimization for variable bumping,
 keeping the byte-identical `144`-word `FullHdr` layout and exact `Full.fullBumpVarSpec` contract:
 
 - `full_bump_var_m4(FullHdr *h, u32 v)` always updates the VSIDS score `h->score[v]` (and calls

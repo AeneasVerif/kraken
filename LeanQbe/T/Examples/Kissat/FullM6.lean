@@ -38,7 +38,7 @@ meta import LeanQbe.T.Legal
 # Kissat `D-Full` Unified `M6.0` Solver (`FullM6`)
 
 Splices all `382` `M6.0` functions in strict topological call order (`externs := []`,
-`exits := []`), integrating all ready Wave-2/3 modules (`FullM6Hdr`, `FullM6BcpS15`,
+`exits := []`), integrating the `M6` pass modules (`FullM6Hdr`, `FullM6BcpS15`,
 `FullM6BvaNoHops`, `FullM6CompactFlush`, `FullM6MinShrink`, `FullM6WalkParse`, `FullM6WatchGc`,
 `FullM6VivBackbone`, `FullM6CongSubst`, `FullM6BveFwd`), `FullM7Reorder`, `FullM6OrchAdapters`,
 and `FullM6Orch`:

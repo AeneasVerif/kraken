@@ -20,13 +20,13 @@ meta import LeanQbe.T.Examples.Kissat.Full1
 # Tests of `LeanQbe.T.Licm` (`Func.licm`)
 
 Covers:
-1. `mb2`-style arithmetic transitive chain hoisting (`mb2ArithLoop`): exact AST check via
-   `t_kernel_rfl`, `Func.licm_wf`, `Func.licm_supportsSource`, and full `Func.spec` proof
+1. Arithmetic transitive chain hoisting (`mb2ArithLoop`): exact AST check via
+   `t_kernel_rfl`, `Func.licm_wf`, `Func.licm_supportsSource`, and `Func.spec` proof
    (including `0`-trip preservation).
-2. `mb2`-style array address/stride/mask loop (`mb2AddrLoop`): exact AST check, memory-backed
+2. Array address/stride/mask loop (`mb2AddrLoop`): exact AST check, memory-backed
    `Func.spec` proof (`wp_loop1` + `loadVal_cell64`), and `Func.licm_supportsSource`.
-3. Nested 2D `mb2` loop (`mb2NestedLoop`, outer- vs inner-loop placement) and large `> 24`-node
-   `mb2` loop (`mb2LargeLoop`, where `Func.peelFast` does not run): `countLoopLets` reduction,
+3. Nested 2D loop (`mb2NestedLoop`, outer- vs inner-loop placement) and large `> 24`-node
+   loop (`mb2LargeLoop`, where `Func.peelFast` does not run): `countLoopLets` reduction,
    `Func.checkTFlat`, `Func.licm_wf`, and `Func.licm_supportsSource`.
 4. Conditional branch deduplication (`branchDedupeLoop`) and cold exit-only preservation
    (`coldExitLoop`, verifying backedge-reachability filtering).
@@ -74,7 +74,7 @@ end
 def funcLoopLets {as rs : List Ty} (f : Func as rs) : Nat :=
   countLoopLets false (reifyFunc f)
 
-/-! ## 1. `mb2`-style arithmetic transitive chain (`mb2ArithLoop`) -/
+/-! ## 1. Arithmetic transitive chain hoisting (`mb2ArithLoop`) -/
 
 /-- Loop computing invariant chain `((a + b) * 3) ^ d` on every iteration. -/
 def mb2ArithLoop : Func [i64, i64, i64, i64] [i64] := fun _ _ (n, a, b, d, ()) =>
@@ -191,7 +191,7 @@ theorem mb2ArithLoop_licm_spec (Γ : Env) (n a b d : BitVec 64) (m : Mem 64) (X 
       lwp_base
       exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩)
 
-/-! ## 2. `mb2`-style row-address + mask load loop (`mb2AddrLoop`) -/
+/-! ## 2. Row-address + mask load loop (`mb2AddrLoop`) -/
 
 /-- Loop computing invariant row pointer `base + ((row * stride) << 3)` and mask
 `(k1 * k2) ^ 0x5A5A` on every iteration while loading from the row cell. -/
@@ -266,7 +266,7 @@ theorem mb2AddrLoop_licm_spec (Γ : Env) (base row stride n k1 k2 v : BitVec 64)
       lwp_base
       exact hJ n.toNat (n, 0#64, ()) m ⟨rfl, rfl, by simp⟩)
 
-/-! ## 3. Nested 2D `mb2` loop (`mb2NestedLoop`) and `> 24`-node loop (`mb2LargeLoop`) -/
+/-! ## 3. Nested 2D loop (`mb2NestedLoop`) and `> 24`-node loop (`mb2LargeLoop`) -/
 
 /-- Nested 2D loop (`tflatLoops = 2`, skipped by `Func.peelFast`): outer-invariant chain hoists
 before `outer`, while `i`-dependent inner-invariant address/mask chain hoists before `inner`. -/
@@ -433,7 +433,7 @@ theorem coldExitLoop_licm_out : Func.licm coldExitLoop = fun _ _ (n, a, b, ()) =
       (fun (lp, ()) => .jump lp (.var n, .imm 0, ())) := by
   t_kernel_rfl
 
-/-! ## 5. Soundness exclusions: UB partial ops, loads, and floats are NEVER hoisted -/
+/-! ## 5. Soundness exclusions: UB partial ops, loads, and floats are never hoisted -/
 
 /-- Loop containing invariant `udiv`, `sdiv`, `urem`, `srem`, `fadd`, and `load`: none are pure
 total deterministic integer ops, so `Func.licm` must leave the loop untouched. -/
@@ -459,7 +459,7 @@ def ubAndMemLoop : Func [i64, i64, i64, i64, f32] [i64] := fun _ _ (n, a, b, ptr
 
 theorem ubAndMemLoop_licm_untouched : Func.licm ubAndMemLoop = ubAndMemLoop := by t_kernel_rfl
 
-/-- Guarded `udiv` loop: safe when `n = 0` even if `b = 0` because `udiv` is never hoisted! -/
+/-- Guarded `udiv` loop: safe when `n = 0` even if `b = 0` because `udiv` is never hoisted. -/
 def guardedDivLoop : Func [i64, i64, i64] [i64] := fun _ _ (n, a, b, ()) =>
   loop1 (ts := [i64, i64])
     (fun lp (i, acc, ()) =>

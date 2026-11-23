@@ -5,7 +5,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# Kissat `D-Core+` BCP `Func.wp` Proofs (`Stage 2`, Wave 1b)
+# Kissat `D-Core+` BCP `Func.wp` Proofs
 
 Builds directly on `CorePlusSpec` (using `C0Step` tactics and `@[c0_load]`/`@[c0_store]` helpers
 from `CorePlusArena`) to verify:

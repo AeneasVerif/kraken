@@ -6,7 +6,7 @@ public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 
 /-!
-# `λRC` → `LeanQbe.T` Lowering, Benchmarks & Real `Lean.IR` Splicing (`X3-R0`)
+# `λRC` → `LeanQbe.T` Lowering, Benchmarks & Real `Lean.IR` Splicing
 
 Lowers typed `λRC` / `Lean.IR` modules (`LrcModule`) to scope-checked `LeanQbe.T.TFlat`
 (`TFlatFn`) and reified PHOAS `Fn` / `Module`:
@@ -982,7 +982,7 @@ def leanListFoldl (f : Nat → Nat → Nat) (acc : Nat) : List Nat → Nat
 def leanFoldMap (n k : Nat) : Nat :=
   leanListFoldl (fun a b => a + b + (k + 1)) 0 (leanListBuild n [])
 
-/- Real `Lean.IR.Decl` module spliced from compiler environment! -/
+/- Real `Lean.IR.Decl` module spliced from the compiler environment. -/
 lrc_of_lean! realLeanIrMod [leanSumTo, leanMapAddSum, leanTree2, leanFoldMap]
 
 /-- Combined module merging all 4 hand-written `LrcModule`s + `realLeanIrMod`. -/

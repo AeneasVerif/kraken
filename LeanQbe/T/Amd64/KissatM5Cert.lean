@@ -42,7 +42,7 @@ meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.FullM5InlB5
 
 /-!
-# KissatM5 Inlined-`b5` Native Compilation Certificate on SysV x64
+# KissatM5 (`InlinePolicy.b5`) Native Compilation Certificate on SysV x64
 
 Combines all `34` flat 1-tier slices (`KissatM5Cert1`..`KissatM5Cert34`) via `LinkedCert.append`
 into `m5InlB5Cert` over `LeanQbe.T.Examples.Kissat.FullM5InlB5.m5InlB5Mod` (`270` functions) and

@@ -9,7 +9,7 @@ public meta import LeanQbe.T.MainCertScc
 public meta import LeanQbeTest.T.RegaLitmusTarget
 
 /-!
-# Smoke, Linking, & Axiom Audit Test for Stage 1 (`LinkDepthLfp` + `MainLinkScc` + `MainCertScc`)
+# Smoke, Linking, & Axiom Audit Tests (`LinkDepthLfp` + `MainLinkScc` + `MainCertScc`)
 
 1. Pure `LinkDepthLfp` tests: `DepthEnv.lfp_le`, `DepthEnv.lfp_closed`, `DepthEnv.lfp_fix`,
    `DepthEnv.lfp_mono`, `DepthEnv.lfp_depth_mono`, `DepthEnv.lfp_wf_mkSccOp` on both a
@@ -22,7 +22,7 @@ public meta import LeanQbeTest.T.RegaLitmusTarget
      `append`, direct `compileCheckedRecLit`, and negative validation `#guard`s.
    * Closed semantic linking against `cert.sem` + `DepthEnv.lfp_wf_mkSccOp`, and concrete
      `litmusInit` `Eventually` execution (`fnSum(5) = 15`, `fnEven(4) = 1`, `fnTop(5) = 16`).
-3. Single-line `< 115` char `#print axioms` strictly `⊆ [propext, Classical.choice, Quot.sound]`.
+3. Single-line `#print axioms` audit strictly `⊆ [propext, Classical.choice, Quot.sound]`.
 -/
 
 set_option autoImplicit false
@@ -106,7 +106,7 @@ theorem tailOnly_zero_eq_flat :
 * `"wrap"` makes a depth-preserving tail call (`n ≤ n`) to `"rec"`.
 * `"rec"` makes a depth-decreasing non-tail call (`n - 1 < n`) to `"wrap"`.
 Exercises BOTH `lt j i ∧ depth j < depth i` (`Γcall`) and `lt j i ∧ depth j ≤ depth i`
-(`Γtail`) simultaneously! -/
+(`Γtail`) simultaneously. -/
 def mixedOp₂ (Γcall Γtail : Env) : Env :=
   fun f as bs xs m Q X =>
     ∃ (ha : as = [i64]) (hb : bs = [i64]),
@@ -255,7 +255,7 @@ theorem mixedMod_wf : ∀ f ∈ mixedMod.fns, f.Wf := by
   · exact fnOdd_wf
   · exact fnTop_wf
 
--- Emit `mixedCert1` (`chunkSize := 1`, splitting `[fnEven, fnOdd]` into 2 `RecSubChunk`s!)
+-- Emit `mixedCert1` (`chunkSize := 1`, splitting `[fnEven, fnOdd]` into 2 `RecSubChunk`s).
 compile_linked_scc! mixedCert1 litmusTarget litmusLayout LegalTarget.aarch64 litmusLabelClean
   mixedMod 1 (fuel := 16) (maxBound := 2048)
 

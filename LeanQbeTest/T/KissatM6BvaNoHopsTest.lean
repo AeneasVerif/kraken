@@ -19,7 +19,7 @@ meta import LeanQbe.T.Legal
 2. Audit-ready restated headline theorems covering `Wf`, `checkAcyclic`, callee-free `Func.wp`
    against canonical `FullBvaHeap.fullBvaPickCandSpec`, closed `ModuleOk`, and concrete `Mem 64`
    UNSAT non-vacuity (`XPost := False`, zero SAT proofs).
-3. Single-line `< 115`-col `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
+3. Single-line `#print axioms` audit (`⊆ [propext, Classical.choice, Quot.sound]`).
 -/
 
 set_option autoImplicit false
@@ -93,7 +93,7 @@ theorem bva_nh_nv :
 
 end LeanQbeTest.T.KissatM6BvaNoHopsTest
 
-/-! ## 3. Single-Line `#print axioms` Audit (`std3` Only) -/
+/-! ## 3. Single-Line `#print axioms` Audit (Standard Axioms) -/
 
 abbrev m6bnh_wf := @LeanQbeTest.T.KissatM6BvaNoHopsTest.bva_nh_wf
 abbrev m6bnh_fns_wf := @LeanQbeTest.T.KissatM6BvaNoHopsTest.bva_nh_fns_wf

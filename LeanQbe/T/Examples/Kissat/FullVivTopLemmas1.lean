@@ -11,7 +11,7 @@ import LeanQbe.T.Logic.C0Step
 Provides:
 1. Strictly file/section-local `FullVivTopTactics` (`open scoped FullArenaTactics`) and BV helpers.
 2. `FullVivTopSpecs`: exact Stage-4 UNSAT-only `Spec` contracts aligned with `FullSpec{1,2,3}.lean`
-   (including `#985` explicit `F_cur` threading / existential `F_cur` and `9e397b5` `taut` fix) for
+   (including explicit `F_cur` threading / existential `F_cur` and tautology handling) for
    all `9` callees (`full_arena_next`, `full_assign`, `full_backtrack`, `full_propagate_ignore`,
    `full_propagate`, `full_viv_simplify`, `full_viv_sort_lits`, `full_viv_deduce`,
    `full_viv_commit`) and the `2` owned target functions (`full_viv_clause`, `full_vivify`).

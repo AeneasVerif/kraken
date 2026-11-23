@@ -13,11 +13,11 @@ public meta import LeanQbe.T.Notation
 public meta import Lean.Elab.Command
 
 /-!
-# C0 Direct PHOAS Elaborator, `c0_decl!`, `c0_file!`, and `#c0_shape` (`X0-core`)
+# C0 Direct PHOAS Elaborator, `c0_decl!`, `c0_file!`, and `#c0_shape`
 
 Elaborates lowered C0 functions (`LFn`) directly into kernel `LeanQbe.T.Fn` definitions using
 projection lambdas (`Prod.fst`/`Prod.snd`) and explicit `Op.mk` applications
-(`Notation.lean` `#29`),
+(matching `Notation.lean`'s elaboration strategy),
 checks acyclic `Module` ordering, and registers `#c0_shape` metadata for proof authors.
 -/
 

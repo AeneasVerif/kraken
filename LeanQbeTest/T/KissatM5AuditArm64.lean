@@ -5,7 +5,7 @@ meta import LeanQbe.T.Examples.Kissat.FullM5
 meta import LeanQbe.T.Examples.Kissat.FullM5InlB5
 
 /-!
-# Kissat M5 (`D-Full M5`, `270` fns, Inlined-`b5`) Audit: AAPCS64 AArch64 machine-code theorems
+# Kissat M5 (`D-Full M5`, `270` fns, `InlinePolicy.b5`) Audit: AAPCS64 AArch64 machine-code theorems
 
 Standalone audit restating, with every hypothesis and postcondition written out in full (no wrapper
 `abbrev`s introduced here), the end-to-end theorems about the **inlined `InlinePolicy.b5` AArch64
@@ -14,9 +14,9 @@ functions). It imports `Kraken.AArch64` only (zero x86-64 imports); `KissatM5Aud
 x86-64 mirror.
 
 * **`D-Full M5` (`InlinePolicy.b5`)** (`LeanQbe.T.Arm64.KissatM5`, `270` functions): **UNSAT
-  (`20`)** soundness (`Eventually (step1 Host.exe)` + `cnf.Unsat`) + both arbitrary-host and closed
-  concrete-host (`kissatM5_compiled_arm64.host`) non-vacuity (`XPost := False`, `std3` axioms),
-  unconditional (no SAT/model proofs).
+  (`20`)** soundness (`Eventually (step1 Host.exe)` + `cnf.Unsat`) + arbitrary-host and closed
+  concrete-host (`kissatM5_compiled_arm64.host`) non-vacuity (`XPost := False`, standard axioms),
+  unconditional (UNSAT-only; SAT model soundness is in `KissatM5SoundAuditArm64.lean`).
 -/
 
 set_option autoImplicit false

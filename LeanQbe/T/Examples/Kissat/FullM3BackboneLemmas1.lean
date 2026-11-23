@@ -765,7 +765,7 @@ theorem m3_backbone_lit_entails_wp (Γ : Env)
     have hwm := hw0.watches; unfold ModeWatchesInv at hwm
     simp only [hdm0, ↓reduceIte] at hwm; exact hwm
   ft_to_group
-  -- Outer BFS loop: `(ticks, prop, failed)` (check SSA tuple order!)
+  -- Outer BFS loop: `(ticks, prop, failed)` (SSA tuple order)
   refine wp_loop_group (ts := [i64, i64, Ty.bool])
     (Inv := fun nb xs m2 => let tk := xs.1; let prop := xs.2.1; let fb := xs.2.2.1
       ∃ st_b : FullState, saved ≤ prop.toNat ∧ prop.toNat ≤ st_b.core.trail_end ∧

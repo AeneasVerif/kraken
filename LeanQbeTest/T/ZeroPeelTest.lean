@@ -7,7 +7,7 @@ public import LeanQbe.T.Logic.Rules
 import all LeanQbe.T.ZeroPeel
 
 /-!
-# Tests of `LeanQbe.T.ZeroPeel` (`O-M3`)
+# Tests of `LeanQbe.T.ZeroPeel`
 
 Covers:
 1. Bounded 1st-iteration loop peeling (`peelSingle`) on an LEB128-style single-byte fast-path

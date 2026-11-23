@@ -9,7 +9,7 @@ import all Kraken.Separation
 meta import LeanQbe.T.Examples.Kissat.Plain
 
 /-!
-# End-to-End AAPCS64 Arm64 Native Correctness for Kissat `D-Plain` (`Stage 3`)
+# End-to-End AAPCS64 Arm64 Native Correctness for Kissat `D-Plain`
 
 Combines the kernel-checked `59`-function native AArch64 compilation certificate
 (`LeanQbe.T.Arm64.KissatPlainCert.plainCert`) with the `59`-function `plainEnv` soundness proof

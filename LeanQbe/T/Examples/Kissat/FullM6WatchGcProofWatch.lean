@@ -7,7 +7,7 @@ public meta import Lean.Elab.Tactic
 public meta import LeanQbe.T.Logic.C0Step
 
 /-!
-# Kissat M6 `PR-W2E-lite` Proofs — Proactive 75% Watch Push (`full_watch_push_m6`)
+# Kissat M6 Watch/GC Proofs — Proactive 75% Watch Push (`full_watch_push_m6`)
 
 Proves `full_watch_push_m6_wp` against exact canonical `Full.fullWatchPushSpec`,
 including the proactive `wlen * 4 >= wcap * 3 && wusable * 4 >= wlen` defrag branch

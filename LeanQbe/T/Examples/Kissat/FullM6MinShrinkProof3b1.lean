@@ -9,7 +9,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 `PR-W2B` Proof Shard 3b1 (`m6AnaFailedLitSpec` & Helpers)
+# Kissat M6 Minimization/Shrink Proof Shard 3b1 (`m6AnaFailedLitSpec` & Helpers)
 
 Defines `m6AnaFailedLitSpec`, `FailedStateOk`, `FailedMarkedCut`, `flIdxs`, `flLits`, and proves
 the pure CNF resolution, trail implication, marking, assignment, and arena indexing lemmas used

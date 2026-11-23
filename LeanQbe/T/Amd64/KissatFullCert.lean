@@ -15,7 +15,7 @@ meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Examples.Kissat.Full
 
 /-!
-# Stage 4 (`D-Full`) Kissat Native Compilation Certificate on SysV x64
+# Kissat `D-Full` Native Compilation Certificate on SysV x64
 
 Combines the 7 parallel kernel-checked compilation slices (`KissatFullCert1`..`KissatFullCert7`)
 via `LinkedCert.append` into `fullCert` over `LeanQbe.T.Examples.Kissat.Full.fullModule` (`166`

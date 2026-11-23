@@ -1,21 +1,21 @@
-> **[Historical design note]** Written during an earlier milestone; `scripts/headline.txt` referenced below has since been split into `scripts/headlines.d/*.txt`. See `README.md` for current paths.
+> **[Historical design note]** Written during an earlier milestone (at commit `a9503f6`); `scripts/headline.txt` referenced below has since been split into `scripts/headlines.d/*.txt`, and additional mid-end passes (`ZeroPeel`, `AssumeBits`, `Licm`, `LoopRotate`, `DceParam`) have since been added. See `LeanQbe-README.md` for current paths and pipeline order.
 
-# `O-Track` Wave 3 Report: Staged Typed-IR Optimizer, Mid-End Unifications, & Benchmarks
+# Staged Typed-IR Optimizer, Mid-End Unifications, & Benchmarks
 
-## 1. Scope & Architecture (`o-wire` on `main @ a9503f6`)
+## 1. Scope & Architecture (Snapshot at `a9503f6`)
 
-This wave wires the full `O-M1` + `O-M2` optimizer passes into a staged kernel-checked pipeline,
-resolves `#014-B1`, `#014-B2`, and `#015-B1` mid-end code-health unifications, updates all `10`
-native x64/Arm64 compiler certificates and test suites, and verifies end-to-end correctness and
-benchmark speedups.
+This milestone wired the first-generation typed-IR optimizer passes (`Canon`, `DivConst`, `MemLoad`,
+`IfOpt`, `SimplifyGroup`, `Peel`, `Inline`) into a staged kernel-checked pipeline, unified shared
+mid-end helpers, updated all `10` native x64/Arm64 compiler certificates and test suites, and
+measured benchmark performance.
 
-### 1.1 Mid-End Code-Health Unifications (`#014-B1`, `#014-B2`, `#015-B1`)
+### 1.1 Mid-End Code-Health Unifications
 
-| Ticket | Unification | Target Modules | Result |
+| Area | Unification | Target Modules | Result |
 |---|---|---|---|
-| `#014-B1` | Shared `CmpOp.swap` & `swap_evalBits` / `swap_evalFloat` | `LeanQbe/T/Ops.lean`, `OpsLemmas.lean` | Removed duplicates in `Canon`, `Amd64/Isel*`, `Arm64/Isel*` |
-| `#014-B2` | Shared `lift2_comm` & `lift2_assoc` | `LeanQbe/T/OpsLemmas.lean` | Removed duplicates in `CanonLemmas`, `FoldLemmas` (`1,482` LOC) |
-| `#015-B1` | Shared `flattenArg`/`Args`/`Op`, `toArgTup`, `OptV`, `someTup`/`noneTup`, `argSweep` + WP/WF transport lemmas | `LeanQbe/T/OptUtil.lean` (`292` LOC), `LeanQbe/T/OptUtilLemmas.lean` (`447` LOC) | Unified `Dce*`, `Inline*`, `DivConst*`, `Peel*`, `SimplifyGroup*` (`-344` net LOC across touched files before new `OptTest`/`InlineTest`/docs) |
+| Comparisons | Shared `CmpOp.swap` & `swap_evalBits` / `swap_evalFloat` | `LeanQbe/T/Ops.lean`, `OpsLemmas.lean` | Removed duplicates in `Canon`, `Amd64/Isel*`, `Arm64/Isel*` |
+| Comm/Assoc | Shared `lift2_comm` & `lift2_assoc` | `LeanQbe/T/OpsLemmas.lean` | Removed duplicates in `CanonLemmas`, `FoldLemmas` (`1,482` LOC) |
+| Opt helpers | Shared `flattenArg`/`Args`/`Op`, `toArgTup`, `OptV`, `someTup`/`noneTup`, `argSweep` + WP/WF transport lemmas | `LeanQbe/T/OptUtil.lean` (`292` LOC), `LeanQbe/T/OptUtilLemmas.lean` (`447` LOC) | Unified `Dce*`, `Inline*`, `DivConst*`, `Peel*`, `SimplifyGroup*` (`-344` net LOC across touched files before new `OptTest`/`InlineTest`/docs) |
 
 ### 1.2 Staged Optimizer Pipeline (`LeanQbe/T/Opt.lean`, `OptLemmas.lean`, `Main.lean`, `MainLemmas.lean`, `Driver.lean`)
 
@@ -36,7 +36,7 @@ benchmark speedups.
 * **Two-Stage `Fn.mid` (`Main.lean`, `MainLemmas.lean`):**
   * **Stage 1 (`Func.earlyOpt`, pre-`Legal`):**
     `fold → canon → copy → gvn → copy → fold → simplifyGroupFast → peelFast 24 → dce → renorm`
-    (simplifies source/inlined bodies while preserving `C4`–`C9` widening `addc`/`subb`/`mulx`
+    (simplifies source/inlined bodies while preserving multi-word widening `addc`/`subb`/`mulx`
     chains; checked by `(f.earlyOpt).body.supportsSource legalTarget`).
   * **Stage 2 (`Func.lateOpt`, post-`Legal`):**
     `renorm (dce (renorm (assumeElim (deadLoadElim (simplifyGroupFast (ifOptBits (renorm (fold (gvn (memLoad (renorm (copy (divConst (canon (fold f)))))))))))))))`
@@ -48,7 +48,7 @@ benchmark speedups.
 
 ## 2. Headline Benchmarks (`bench/run.sh`)
 
-Comparison of `lean-qbe` pre-`O-Track` (`main @ a9503f6`) vs post-`O-Track` (all 13 rows pass
+Comparison of `lean-qbe` before (`a9503f6`) vs after the staged optimizer (all 13 rows pass
 exact C hash verification `0xd88e09b152cc8e5a / 0x0000092c781efeb6 / 0x00000000005b645a`):
 
 | Variant | UF (call) ms | UF (inline) ms | UF insns (x64 / arm64) | LRAT (full) ms | LRAT (rup) ms | LRAT insns (x64 / arm64) |
@@ -57,19 +57,19 @@ exact C hash verification `0xd88e09b152cc8e5a / 0x0000092c781efeb6 / 0x000000000
 | `clang -O2 (C)` | `68.31` | `66.82` | `-` | `20.48` | `9.05` | `-` |
 | `stock QBE` | `79.77` | `76.69` | `77` / `91` | `43.34` | `18.32` | `717` / `732` |
 | `lean-qbe` pre (`a9503f6`) | `81.64` | `79.76` | `91` / `82` | `42.55` | `17.65` | `872` / `669` |
-| **`lean-qbe` post (`O-Track`)** | **`79.49`** (`-2.6%`) | `80.41` (`+0.8%`) | `128` / `107` | **`42.11`** (`-1.0%`) | **`17.61`** (`-0.2%`) | `901` / `691` |
+| **`lean-qbe` post (staged opt)** | **`79.49`** (`-2.6%`) | `80.41` (`+0.8%`) | `128` / `107` | **`42.11`** (`-1.0%`) | **`17.61`** (`-0.2%`) | `901` / `691` |
 
 `lean-qbe (x64)` beats `stock QBE` on `UF (call)` (`79.49 ms` vs `79.77 ms`), `LRAT (full)`
 (`42.11 ms` vs `43.34 ms`), and `LRAT (rup)` (`17.61 ms` vs `18.32 ms`).
 
 ---
 
-## 3. Targeted Microbenchmarks (`MB1`–`MB8`)
+## 3. Targeted Microbenchmarks (`mb1`–`mb8`)
 
 Five-run x64 medians (`ms`) and emitted instruction counts (`x64` / `arm64`, with `qemu-aarch64`
 hash parity verified across all variants and C baselines):
 
-| MB | Kernel | Pre (`a9503f6`) ms | Post (`O-Track`) ms | Delta vs Pre | Stock QBE ms | Pre insns (x64 / arm64) | Post insns (x64 / arm64) |
+| Microbench | Kernel | Pre (`a9503f6`) ms | Post (staged opt) ms | Delta vs Pre | Stock QBE ms | Pre insns (x64 / arm64) | Post insns (x64 / arm64) |
 |---|---|---:|---:|---:|---:|---:|---:|
 | `mb1` | `addr_scan` | `112.13` | `112.15` | `+0.0%` | `73.61` | `51` / `38` | `51` / `39` |
 | `mb2` | `licm` | `160.39` | `161.20` | `+0.5%` | `76.21` | `48` / `37` | `47` / `37` |
@@ -89,7 +89,7 @@ Key takeaways:
 * **`mb5_load_opt` (`-31.6%`):** `Func.memLoad` store-to-load forwarding and redundant load
   elimination trim `7` insns on x64 (`4` on arm64) and speed up execution `1.46x`.
 * **`mb8_const_div` (`-50.1%`):** `Func.divConst` replaces hardware `udiv`/`urem` by `3, 10, 65521`
-  with magic multiply-shift sequences (`2.00x` speedup vs both pre-`O-Track` and stock QBE).
+  with magic multiply-shift sequences (`2.00x` speedup vs both baseline and stock QBE).
 * **`mb7_rotate` (`-5.9%`):** `Func.peelFast` reduces runtime to `77.73 ms` (`2.08x` faster than
   stock QBE `161.47 ms`).
 
@@ -104,7 +104,7 @@ Key takeaways:
 * **`mul4x4` Carry-Chain Preservation (`LeanQbe/T/Amd64/Bignum.lean`):**
   `#guard` assertions verify `mulx == 11`, `adcx == 12`, `adox == 12`, `setcc == 0` (`1,022 B`
   `.text`), and `ChaCha` shrinks (`77 → 75` dirs / `365 B` x64, `485 → 481` dirs / `1,928 B` Arm64).
-* **`scripts/headline.txt` (`+13` O-Track Spec Theorems):**
+* **Optimizer Spec Theorems Audited (then in `scripts/headline.txt`, now `scripts/headlines.d/`):**
   Added single-line `[propext, Classical.choice, Quot.sound]` axiom audits for `Module.inline_ok`,
   `Func.renorm_spec`, `Func.canon_spec`, `Func.divConst_spec`, `Func.memLoad_spec`,
   `Func.deadLoadElim_spec`, `Func.assumeElim_spec`, `Func.ifOpt_spec`, `Func.simplifyGroup_spec`,

@@ -8,7 +8,7 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat M6 Wave 2 (`RC-26b` + `RC-27`) `Func.wp` Proofs — Part 3 (`FullM6WalkParseProof3`)
+# Kissat M6 Parse-BCP & Walk `Func.wp` Proofs — Part 3 (`FullM6WalkParseProof3`)
 
 Proves UNSAT-only parametric `Func.wp` contracts (`XPost := False`, `0` SAT proofs) for:
 1. `m6WalkPickSpec` and `full_walk_pick_m6_wp`.
@@ -1274,7 +1274,7 @@ private theorem m6_walkEntriesOk_fuel_rng {s0 sf sr : FullState} {n : Nat} {f1 f
   rw [hsb, hcv, hal, har]
   exact h
 
-/-- `full_walk_core_m6` satisfies exact canonical `Full.fullWalkSpec` (adaptive ProbSAT V3b). -/
+/-- `full_walk_core_m6` satisfies exact canonical `Full.fullWalkSpec` (adaptive ProbSAT). -/
 theorem full_walk_core_m6_wp (Γ : Env)
     (hCollect : ∀ a m Q X,
       m6WalkCollectSpec a m Q X → Γ "full_walk_collect_m6" [i64, i64, i64] [i64] a m Q X)

@@ -8,15 +8,15 @@ meta import LeanQbe.T.Frontend.C0
 meta import LeanQbe.T.PrintCpp
 
 /-!
-# Verification & Differential Test Suite for C0 Frontend (`X0-core`)
+# Verification & Differential Test Suite for C0 Frontend
 
 Covers:
-* `(V1)` Layout parity on Kissat `watch`, `clause`, `assigned`, `lean_object`, `mixed_bf`
-* `(V2)` Kissat `search_propagate_literal` (`test/c0/proplit.c`) + `Func.Wf` via `t_wf_reify`
-* `(V3)` Lean Tier-0 runtime RC + forward `goto DONE` + multi-return + short-circuit (`test/c0/lean_rc.c`)
-  + `Func.Wf` + `ModuleOk`
-* `(V4)` `T4` total-correctness `wp` smoke test (`sum_pos64`) using `wp_loop_group` / `wp_join_group`
-* C++20 code generation (`PrintCpp`) for D2 differential testing in `test/c0/run.sh`
+1. Layout parity on Kissat `watch`, `clause`, `assigned`, `lean_object`, `mixed_bf`
+2. Kissat `search_propagate_literal` (`test/c0/proplit.c`) + `Func.Wf` via `t_wf_reify`
+3. Lean core runtime RC + forward `goto DONE` + multi-return + short-circuit (`test/c0/lean_rc.c`)
+   + `Func.Wf` + `ModuleOk`
+4. Total-correctness `wp` smoke test (`sum_pos64`) using `wp_loop_group` / `wp_join_group`
+5. C++20 code generation (`PrintCpp`) for differential testing in `test/c0/run.sh`
 -/
 
 set_option autoImplicit false
@@ -29,7 +29,7 @@ open LeanQbe.T
 open LeanQbe.T.Frontend.C0
 open Std.ExtHashMap
 
-/-! ## (V1) Layout Parity & Bitfield Packing -/
+/-! ## 1. Layout Parity & Bitfield Packing -/
 
 section V1Layout
 
@@ -82,7 +82,7 @@ theorem read_lean_header_word_wf : Func.Wf read_lean_header_word_body := by t_wf
 
 end V1Layout
 
-/-! ## (V2) Kissat Watch-List Propagation (`test/c0/proplit.c`) -/
+/-! ## 2. Kissat Watch-List Propagation (`test/c0/proplit.c`) -/
 
 section V2Proplit
 
@@ -96,7 +96,7 @@ theorem search_propagate_literal_wf : Func.Wf search_propagate_literal_body := b
 
 end V2Proplit
 
-/-! ## (V3) Lean Tier-0 Runtime RC + Goto + Multi-Return + Short-Circuit (`test/c0/lean_rc.c`) -/
+/-! ## 3. Lean Core Runtime RC + Goto + Multi-Return + Short-Circuit (`test/c0/lean_rc.c`) -/
 
 section V3LeanRc
 
@@ -182,7 +182,7 @@ theorem leanrc_moduleOk : ModuleOk (fun _ _ _ _ _ _ _ => False) leanrc_module :=
 
 end V3LeanRc
 
-/-! ## (V4) `T4` `wp` Proof Ergonomics Smoke Test (`sum_pos64`) -/
+/-! ## 4. `wp` Proof Ergonomics Smoke Test (`sum_pos64`) -/
 
 section V4WpSmoke
 
@@ -272,7 +272,7 @@ theorem test_switch_loops_wf : Func.Wf test_switch_loops_body := by t_wf_reify
 
 end ExtraCF
 
-/-! ## Negative Diagnostics & `ToFlat` Smoke (`#203`, `#018-B1`) -/
+/-! ## Negative Diagnostics & `ToFlat` Smoke Tests -/
 
 section Diagnostics
 

@@ -1,11 +1,12 @@
-> **[Historical design note]** Written during an earlier milestone; several `LeanQbe/*.lean` (E1) and `scripts/headline.txt` paths referenced below have since moved to `LeanQbe/T/` and `scripts/headlines.d/`. See `README.md` for current paths.
+> **[Historical design note]** Written during early untyped-IR (`E1`) and initial typed-IR (`LeanQbe.T`) milestones; several `LeanQbe/*.lean` and `scripts/headline.txt` paths referenced below have since been retired or moved to `LeanQbe/T/` and `scripts/headlines.d/`. See `LeanQbe-README.md` for current paths.
 
-# core: repository setup and the IR
+# Core IR, Well-Formedness, Reification, and Early Mid-End Notes
 
-Owner: `core`. Files: `lakefile.toml`, `lean-toolchain`, `.gitignore`, library roots, `scripts/`,
-`spike/{e1,a,k}`, `LeanQbe/{Ops,IL,WP,Wf,Print}*.lean`, later `LeanQbe/{Copy,Fold,Gvn}*.lean`.
+Early files: `lakefile.toml`, `lean-toolchain`, `.gitignore`, library roots, `scripts/`,
+`spike/{e1,a,k}`, untyped-IR `LeanQbe/{Ops,IL,WP,Wf,Print,Copy,Fold,Gvn}*.lean`, and typed-IR
+`LeanQbe/T/{Ty,Ops,IL,WP,Wf,Flat}*.lean`.
 
-## C0: skeleton (done)
+## Repository Skeleton (Untyped Prototype)
 
 - Lake package `LeanQbe`, toolchain `leanprover/lean4:nightly-2026-11-08`, `requiresModuleSystem = true`
   (every file starts with `module`), `autoImplicit = false`. Path dependency on the Kraken consumer
@@ -25,22 +26,22 @@ Owner: `core`. Files: `lakefile.toml`, `lean-toolchain`, `.gitignore`, library r
   `public meta import Lean` + `meta partial def nfData` (helpers of an `elab` must be `meta`).
 - Timing: full `scripts/check.sh` on a warm Kraken build, about 5 s.
 
-## C1: the IR interface (done, 7c8dc63; review requested)
+## Untyped IR Interface (`7c8dc63`)
 
 - `LeanQbe/Ops.lean`: `Val`, `Cls`, `Sz`, `BinOp`, `CmpOp`, `Arg V = var | imm`, pure `Op V`
   (`bin`, `cmp`, `ext`, `copy`), `Op.eval : Op Val → Option Val`; memory on Kraken `Mem 64`:
   `loadVal`, `storeOk`, `storeMem` (definitionally Kraken's `Mem.loadInt` / `Mem.storeInt` at that width).
-- `LeanQbe/IL.lean`: E1 `Expr V L` + `load`, `store`, `call f args k`, `exit f args`, multi-result `ret`.
+- `LeanQbe/IL.lean`: untyped `Expr V L` + `load`, `store`, `call f args k`, `exit f args`, multi-result `ret`.
 - `LeanQbe/WP.lean`: `wp Γ Q X e args acc m` with callee contracts `Γ : Sym → Spec` (call: `∃ P E` so
-  `wp_mono` needs nothing about `Γ`), exit postcondition `X` (D5), `jnz` on `Truthy c := lo32 c ≠ 0`
+  `wp_mono` needs nothing about `Γ`), exit postcondition `X`, `jnz` on `Truthy c := lo32 c ≠ 0`
   (QBE uses the argument at class `w`).
 - `LeanQbe/Wf.lean`: `ArgRel`, `OpRel`, `Wf G D e₁ e₂`, `Func.Wf`, tactic `wf_tac`.
 - Lemmas: `wp_mono`, `Func.spec_mono`, `closed_param`, `forall_args_nil`, `wp_call_of_spec`, `Wf.weaken`.
 - `spike/il/Smoke.lean`: tracer function (wp + Wf), even/odd join points, call + exit example.
-- Design choices on request of `logic`: `∃` forms (not `match`) for `Op.wp`, `load`, `storeOk`; user simp set
-  then needs `Option.some.injEq, exists_eq_left'`.
+- Design choices for program-logic ergonomics: `∃` forms (not `match`) for `Op.wp`, `load`, `storeOk`;
+  user simp set then needs `Option.some.injEq, exists_eq_left'`.
 
-## C2: printer (done)
+## QBE Printer and Differential Tests
 
 - `LeanQbe/Print.lean`: `Print.fn`, `Print.module` at `V := Nat`, `L := Nat`. Every value at class `l`;
   class-`w` operations computed at `w` (or `l` for `ext`) and zero-extended with `extuw`; block parameters
@@ -53,15 +54,15 @@ Owner: `core`. Files: `lakefile.toml`, `lean-toolchain`, `.gitignore`, library r
   First run found one printer bug (QBE rejects `extsw` at class `w`), no semantic mismatch.
 - `spike/il/PrintTest.lean`: `#guard` regression of the printed tracer and of the junk rejections.
 
-### C2 follow-ups
+### Printer Follow-ups
 
-- `checker` found that stock QBE amd64 tests all 64 bits in `jnz` when the condition is a 64-bit
-  flag-setting op in the same block (upstream bug; QBE's doc says 32). The printer now emits
-  `%c =w cnew c, 0` before every `jnz`. Difftest now uses an interpreter oracle (in `scripts/QbeDiff.lean`,
+- Differential testing found that stock QBE amd64 tests all 64 bits in `jnz` when the condition is
+  a 64-bit flag-setting op in the same block (upstream bug; QBE's doc says 32). The printer now emits
+  `%c =w cnew c, 0` before every `jnz`. Difftest uses an interpreter oracle (in `scripts/QbeDiff.lean`,
   built from `Op.eval`, `loadVal`, `storeOk`/`storeMem` on a concrete `Mem 64`, `Truthy`), covers `jnz` on
-  `add.l`, and runs an `exit` path: 46068 results equal on amd64 and arm64 (25b3206, reproduced by checker).
+  `add.l`, and runs an `exit` path: 46068 results equal on amd64 and arm64 (`25b3206`).
 
-## Step 2e, part 1: constant folding + copy propagation (done, c2482e9)
+## Constant Folding + Copy Propagation (`c2482e9`)
 
 - `LeanQbe/Fold.lean` (90 lines): `fold n : Expr (Arg V) L → Expr V L`, read at `V' := Arg V` so that
   substitution is instantiation. Removes constant operations (when defined), `copy.l`, and `jnz` on an
@@ -80,7 +81,7 @@ Owner: `core`. Files: `lakefile.toml`, `lean-toolchain`, `.gitignore`, library r
   `match` that blocks later rewrites (use definitional `have` instead), (3) name resolution inside
   `theorem Func.x` picking `Func.y` over the root `y`.
 
-## Step 2e, part 2: common-subexpression elimination (done, c146d07)
+## Common-Subexpression Elimination (`c146d07`)
 
 - `LeanQbe/Gvn.lean` (73 lines): `gvn n next tbl : Expr (Arg V × Key) L → Expr V L`. Input variables carry
   their replacement operand and a key (`Arg Nat`: a counter-assigned name, because variables of an
@@ -98,7 +99,7 @@ Owner: `core`. Files: `lakefile.toml`, `lean-toolchain`, `.gitignore`, library r
   the kernel accepts it at once (and rejects a wrong right-hand side). The test uses Spike A's
   `kernel_rfl` (hand `Eq.refl` to the kernel). Same pitfall family as Spike A's.
 
-## Step 2e verdict (plan risk 5)
+## PHOAS Pass Assessment
 
 PHOAS-to-PHOAS passes are cheap in Lean for this IR. Both passes went through on the first design except
 for one semantic point (junk shapes, see Fold). Effort: about one hour for Fold+Copy, under an hour for
@@ -109,17 +110,17 @@ instantiation (`Arg V`, `Arg V × Key`) so that the analysis result is just the 
 value numbering across join points (needs dominance information at block entries), folding of branches
 on values known only through the table.
 
-## Mid-end pipeline (done, 64df075)
+## Mid-End Pipeline (`64df075`)
 
 `LeanQbe/Opt.lean`: `Func.opt = fold ∘ gvn ∘ fold`; `OptLemmas`: `Func.opt_wf`, `Func.opt_spec` (three lines
-each, by composition). Used by rega's `compileFn` (Main.lean) and `compileFn_correct`.
+each, by composition). Used by `compileFn` (`Main.lean`) and `compileFn_correct`.
 
-## Plan risk 8: elaboration and checking of large programs
+## Elaboration and Checking of Large Programs
 
 Programs generated by `scratch/scale/gen.py` (historical scratch generator): straight-line chains
 `%x_i = op %x_{i-1}, %a` ("sl", every instruction also uses the first parameter, the worst case for
 context lookups) and chains of `k` join points with 3 instructions each ("bl", 3k+1 instructions), written
-in logic's `qbe` notation, `def prog : Fn`. Times from `-Dprofiler=true`, this machine, one file each.
+in `qbe` notation, `def prog : Fn`. Times from `-Dprofiler=true`, one file each.
 
 | program | def elab (macro notation) | def elab (term elaborator, 7b0044b) | codegen | `wf_tac` | `wf_reify` kernel | `lowerFn` kernel |
 |---|---|---|---|---|---|---|
@@ -145,14 +146,14 @@ Findings and fixes:
    already constructors. Reverted; the trie version is kept in scratch.
 2. **Definition elaboration** was quadratic in the elaborator itself, also for plain constructor syntax
    (1000 → 1.0 s, 2000 → 3.3 s), so not the notation's fault. A term elaborator that builds the `Expr`
-   directly is linear (my 30-line probe: 4000 lets in 16 ms); logic turned the notation into one
-   (7b0044b), 4× faster. What remains is Lean's definition pipeline ("process pre-definitions",
+   directly is linear (a 30-line probe: 4000 lets in 16 ms); `Notation.lean` adopted that approach
+   (`7b0044b`), 4× faster. What remains is Lean's definition pipeline ("process pre-definitions",
    quadratic: 6 s at 4000 even for a directly built term) and code generation (10 s at 4000). Declaring
-   the same term with `addDecl` directly takes 0.9 s at 4000 including the kernel check: a `qbe_def`
-   command that does this would make big proof-side programs linear (suggested to logic, #129).
+   the same term with `addDecl` directly takes 0.9 s at 4000 including the kernel check, motivating a
+   `qbe_def` command for large proof-side programs.
    `noncomputable` removes codegen for programs used only in proofs.
-3. **`lowerFn` by kernel evaluation** is superlinear (250 → 2.4 s, 1000 → 28 s); reported to rega
-   (list-based maps in the oracle and the symbolic register file are the likely cause).
+3. **`lowerFn` by kernel evaluation** is superlinear (250 → 2.4 s, 1000 → 28 s), due to list-based
+   maps in the oracle and the symbolic register file.
 4. Practical guidance today: split programs into Lean-level helpers (as LratRup does), use `wf_reify`,
    `noncomputable def` for proof-only programs, kernel-only `rfl` for big equalities.
 
@@ -172,7 +173,7 @@ Findings and fixes:
   definitions local and function parameters in outer lexical scope). **17 of the 19 parsed QBE tests
   compile through `compile Amd64.isa`, link with QBE's C drivers, and pass natively** (`cmp1`, `conaddr`,
   `copy`, `cup`, `eucl`, `fold1`, `gvn1`, `gvn2`, `isel1`, `isel3`, `isel4`, `ldhoist`, `loop`, `philv`,
-  `prime`, `rega1`, `sum`; the other 2 exceed D6 register-parameter arity: `isel6` has 9 call arguments,
+  `prime`, `rega1`, `sum`; the other 2 exceed the register-parameter arity limit: `isel6` has 9 call arguments,
   `spill1` has 17 loop phis).
 
 ## Algebraic simplifications and strength reductions in `Fold` (done)
@@ -208,36 +209,36 @@ Extended `LeanQbe/Fold.lean` (249 lines) and `LeanQbe/FoldLemmas.lean` (580 line
 
 ---
 
-## T1: Typed IR Core and `wp` (`LeanQbe.T`)
+## Typed IR Core and `wp` (`LeanQbe.T`)
 
-Implemented the target-neutral typed IR and relational total-correctness weakest precondition in namespace `LeanQbe.T`, leaving all existing E1 compiler files (`LeanQbe/{Ops,IL,WP,Wf,Flat,Fold,Gvn,Opt,Rega,Abi,Main}*.lean`, `LeanQbe/{Amd64,Arm64}/*.lean`, `LeanQbe/Examples/*.lean`) untouched (`G5`).
+Implemented the target-neutral typed IR and relational total-correctness weakest precondition in namespace `LeanQbe.T`, leaving the earlier untyped-IR compiler files (`LeanQbe/{Ops,IL,WP,Wf,Flat,Fold,Gvn,Opt,Rega,Abi,Main}*.lean`, `LeanQbe/{Amd64,Arm64}/*.lean`, `LeanQbe/Examples/*.lean`) isolated.
 
 - **Types & bit views (`LeanQbe/T/Ty.lean`, `LeanQbe/T/TyLemmas.lean`)**:
   - `Ty := bool | bits n | float f | pair a b`, IEEE format `Fmt := h | s | d | q`, semantic domain `Val : Ty → Type`, low-priority `@[instance_reducible]` `Val.{decEq, inhabited, repr}` (avoiding `--wfail` reducibility warnings and stdlib instance shadowing), balanced `2^k`-lane trees `Ty.vec k t` (`v4i32`, `v8i32`, `v2i64`, `v4f32`), `Ty.mask`, `Ty.size`, `Ty.bytes`, `toBits`/`ofBits`, `bitcastVal`, `lane`, and right-nested `Unit`-terminated `Tup` + `Member`/`TRel`/`EnvRel`.
   - Round-trip and layout lemmas: `Ty.vec_size`, `Ty.hasFloat_vec`, `Ty.isFloatTree_vec`, `Ty.bswapOk_vec`, `Ty.size_le_eight_bytes`, `setWidth_bytes_size`, `ofBits_toBits`, `toBits_ofBits`, `toBits_inj`, `ofBits_inj`, `bitcastVal_self`, `bitcastVal_bitcastVal`, `Tup.get_map`, `TRel.mono`, `envRel_toTup`.
 - **Operations & partial memory (`LeanQbe/T/Ops.lean`, `LeanQbe/T/OpsLemmas.lean`)**:
-  - 64-constructor multi-result `OpCode sig rs` covering all §0 scalar, multi-result (`addc`, `subb`, `umulw`, `smulw`), comparison/select/blend, pair/bitcast, shuffle/align/blendw (`shufd`, `shufb`, `alignr`, `blendw`), SHA-256 (`sha256rnds2`, `sha256msg1`, `sha256msg2`), and IEEE float ops (`fadd`, `fsub`, `fmul`, `fdiv`, `ffma`, `fsqrt`, `fneg`, `fabs`, `fcmp`, `fptoui`, `fptosi`, `uitofp`, `sitofp`, `fcvt`), plus semantics-only ops (`ternlog`, `fshl`, `fshr`, `clz`, `cls`, `rbit`, `ctz`, `popcnt`, `udiv`/`sdiv`/`urem`/`srem`, `udiv0`/`sdiv0`, `rotl`, `rotr`, `bswap`, `ofBool`).
-  - Variant C parameters `(m : Ty := t.mask) (h : m = t.mask := by rfl)` on `cmp`, `blend`, and `fcmp` so `deriving DecidableEq` succeeds on both `OpCode` and `(sig : List Ty) × (rs : List Ty) × OpCode sig rs`.
+  - 64-constructor multi-result `OpCode sig rs` covering scalar, multi-result (`addc`, `subb`, `umulw`, `smulw`), comparison/select/blend, pair/bitcast, shuffle/align/blendw (`shufd`, `shufb`, `alignr`, `blendw`), SHA-256 (`sha256rnds2`, `sha256msg1`, `sha256msg2`), and IEEE float ops (`fadd`, `fsub`, `fmul`, `fdiv`, `ffma`, `fsqrt`, `fneg`, `fabs`, `fcmp`, `fptoui`, `fptosi`, `uitofp`, `sitofp`, `fcvt`), plus semantics-only ops (`ternlog`, `fshl`, `fshr`, `clz`, `cls`, `rbit`, `ctz`, `popcnt`, `udiv`/`sdiv`/`urem`/`srem`, `udiv0`/`sdiv0`, `rotl`, `rotr`, `bswap`, `ofBool`).
+  - Parameterized `(m : Ty := t.mask) (h : m = t.mask := by rfl)` on `cmp`, `blend`, and `fcmp` so `deriving DecidableEq` succeeds on both `OpCode` and `(sig : List Ty) × (rs : List Ty) × OpCode sig rs`.
   - Relational `OpCode.wp` (`UB = False`, NaN payloads universally quantified `∀ r, isFloatNaN f r = true → k r` via Lean's `Float.Model`, leaf-wise vector/pair lifting) and partial byte memory (`loadVal`, `storeOk`, `storeMem`) over `Kraken.Mem 64`.
   - `OpsLemmas`: `OpCode.wp_mono`, `Op.wp_mono`, `isFloatNaN_packedNaN`, all 64 `@[simp]` `OpCode.wp_<ctor>` tuple-argument rewrite lemmas (avoiding 64-way pattern-matcher unfolding blowup under nested `let_` binders), arithmetic carry/borrow/mul lemmas (`addc_toNat`, `subb_toNat`, `umulw_toNat`), `lane_lift1`/`2`, `loadInt_empty`, `storeOk_empty`, `loadVal_storeMem`, partial-overlap unmapped lemmas (`loadBytes_eq_none_of_unmapped`, `loadVal_of_unmapped`, `not_storeOk_of_unmapped`), disjoint-address frame preservation (`loadBytes_storeInt_disjoint`, `loadVal_storeMem_disjoint`, `storeOk_storeMem_disjoint`), and `storeOk_storeMem`.
 - **Typed IL & `wp` (`LeanQbe/T/IL.lean`, `LeanQbe/T/WP.lean`, `LeanQbe/T/WPLemmas.lean`)**:
-  - Spike-2 head-bound `Tup` binders and mutual `Expr`/`Blocks` with `group`, `load`, `store`, signature-indexed `call`, `exit` (D5), `hlt`, `Func`, `Fn`, `Blocks.get`, and `loop1`.
+  - Head-bound `Tup` binders and mutual `Expr`/`Blocks` with `group`, `load`, `store`, signature-indexed `call`, `exit`, `hlt`, `Func`, `Fn`, `Blocks.get`, and `loop1`.
   - Total-correctness `wp`, `Closed`, `Func.wp`/`Func.spec`, `Expr.induct`, `closed_iff`, `wp_mono` (via `induction e using Expr.induct`), `Spec.Mono`, `Func.spec_mono`, `wp_env_mono`, `Func.spec_env_mono`, `wp_loop`, `wp_loop1`, `wp_join`, `wp_let`, `wp_let_op1..3`, `wp_call_of_spec`/`wp_call_ret1`, and `wp_addc`/`wp_subb`/`wp_umulw`.
   - Re-exported from `LeanQbe.lean` with no `Kraken.X64` or `Kraken.AArch64` imports.
 - **Tests (`LeanQbeTest/T/Examples.lean`, `LeanQbeTest/T/Smoke.lean`)**:
-  - Ported all 8 spike-4 programs (`add128`, `addLimbs`/`add256`, `mac`, `ult128`, `umin`, `mulByAdd`, `qrStep`, `vumin`) with 12 proved theorems (`add128_spec`, `wp_addLimbs`, `add256_spec`, `mac_spec`, `ult128_spec`, `umin_spec`, `mulByAdd_spec`, `qrStep_spec`, `add_v8_split`, `blend_ult_min`, `vumin_spec`, `bitcast_v4i32_u128`).
+  - Ported 8 arithmetic/SIMD programs (`add128`, `addLimbs`/`add256`, `mac`, `ult128`, `umin`, `mulByAdd`, `qrStep`, `vumin`) with 12 proved theorems (`add128_spec`, `wp_addLimbs`, `add256_spec`, `mac_spec`, `ult128_spec`, `umin_spec`, `mulByAdd_spec`, `qrStep_spec`, `add_v8_split`, `blend_ult_min`, `vumin_spec`, `bitcast_v4i32_u128`).
   - Added 57 smoke and edge-case theorems in `LeanQbeTest.T.Smoke` covering mutual groups (`evenOdd_correct`, `sumLanes_correct`), partial memory round-trip, empty/partial-overlap UB, and disjoint-address frame preservation (`tracer_correct`, `tracer_unmapped_false`, `partial_unmapped_store_false`, `partial_unmapped_load_false`, `store_disjoint_load_preserves`), signature-indexed `call`/`exit` (`caller_correct`), non-vacuity (`spin_false`), div/rem UB vs AArch64 `udiv0`/`sdiv0`, full IEEE float ops (`fadd`/`fsub`/`fmul`/`fdiv`/`ffma`/`fsqrt`/`fneg`/`fabs`/`fcmp`/`fptoui`/`fptosi`/`uitofp`/`sitofp`/`fcvt`) including quantified NaNs and conversions/overflows, `ternlog`, `shufd`/`shufb`/`alignr`/`blendw`, non-zero FIPS SHA-256 vectors (`sha256rnds2_fips`, `sha256msg1_concrete`, `sha256msg2_concrete`), bit-manipulation/shift ops, `smulw`, and `DecidableEq` (including `cmp`, `fcmp`, `blend`, `bitcast`).
 - **Gate & Axiom Checks (`scripts/check.sh`, `scripts/headline.txt`)**:
-  - Added 46 `T1` headline theorems to `scripts/headline.txt` (under `LeanQbe.T.WPLemmas`, `LeanQbeTest.T.Examples`, and `LeanQbeTest.T.Smoke`).
+  - Added 46 typed-IR headline theorems to `scripts/headline.txt` (under `LeanQbe.T.WPLemmas`, `LeanQbeTest.T.Examples`, and `LeanQbeTest.T.Smoke`).
   - `bash scripts/check.sh`: passes under `--wfail`, zero `sorry`, zero native-code axioms, clean import closures, `179 complete reports for 179 headline theorems` strictly within `[propext, Classical.choice, Quot.sound]`, `== check.sh: ALL PASSED`.
 
 ---
 
-## T2: Relational `Wf`, `Wf.induct`, and Computable `TFlat` Reification (`LeanQbe.T`)
+## Relational `Wf`, `Wf.induct`, and Computable `TFlat` Reification (`LeanQbe.T`)
 
-Implemented parametric well-formedness (`Wf` / `WfB`), dependent one-motive induction (`Wf.induct`), and total computable de Bruijn reification (`TFlat` / `TBlocks`) for `LeanQbe.T`, leaving all E1 files untouched (`G5`) and importing neither `Kraken.X64` nor `Kraken.AArch64` in `LeanQbe.lean`.
+Implemented parametric well-formedness (`Wf` / `WfB`), dependent one-motive induction (`Wf.induct`), and total computable de Bruijn reification (`TFlat` / `TBlocks`) for `LeanQbe.T`, keeping earlier untyped-IR files isolated and importing neither `Kraken.X64` nor `Kraken.AArch64` in `LeanQbe.lean`.
 
-### 1. Opportunistic `T1` Review `#18` Cleanups
+### 1. Core Semantics Cleanups
 
 - **`LeanQbe/T/Ty.lean`**: Documented bit-packed pair layout on `Ty.size`, `Ty.bytes`, `toBits`, and `ofBits` (no inter-field padding; first pair component in low bits; `bytes = ⌈t.size / 8⌉`; e.g., `.pair .bool i8` has `size = 9`, `bytes = 2`, with the `i8` straddling bits `1..8` across the byte 0 / byte 1 boundary).
 - **`LeanQbe/T/Ops.lean`, `LeanQbe/T/OpsLemmas.lean`, `LeanQbeTest/T/Smoke.lean`**:
@@ -248,10 +249,10 @@ Implemented parametric well-formedness (`Wf` / `WfB`), dependent one-motive indu
 ### 2. Well-Formedness and `Wf.induct` (`LeanQbe/T/Wf.lean`, `LeanQbe/T/WfLemmas.lean`)
 
 - **Relational definitions (`LeanQbe/T/Wf.lean`)**:
-  - `ArgRel G t a₁ a₂` (paired variable in `G : Ctx V₁ V₂`, or equal immediate `Val t`), `OpRel G op₁ op₂` (equal `OpCode` and `TRel (ArgRel G)` operands), mutual `Wf G D e₁ e₂` / `WfB G D bs₁ bs₂` matching spike-2 head-bound `Tup` binders (`Tup.zip xs₁ xs₂ ++ G` for `let_` / `call` / block params; `⟨t, v₁, v₂⟩ :: G` for `load`; `Tup.zip Js₁ Js₂ ++ D` for `group`), `Func.Wf`, `Fn.Wf`, and syntax-directed `t_wf_tac` (using `TRel.nil'`/`TRel.cons'` and `Tup.zip` simplification so all `Examples` and `Smoke` functions including symbolic `vumin k` discharge with zero warnings).
+  - `ArgRel G t a₁ a₂` (paired variable in `G : Ctx V₁ V₂`, or equal immediate `Val t`), `OpRel G op₁ op₂` (equal `OpCode` and `TRel (ArgRel G)` operands), mutual `Wf G D e₁ e₂` / `WfB G D bs₁ bs₂` matching head-bound `Tup` binders (`Tup.zip xs₁ xs₂ ++ G` for `let_` / `call` / block params; `⟨t, v₁, v₂⟩ :: G` for `load`; `Tup.zip Js₁ Js₂ ++ D` for `group`), `Func.Wf`, `Fn.Wf`, and syntax-directed `t_wf_tac` (using `TRel.nil'`/`TRel.cons'` and `Tup.zip` simplification so all `Examples` and `Smoke` functions including symbolic `vumin k` discharge with zero warnings).
 - **Lemmas and dependent induction (`LeanQbe/T/WfLemmas.lean`)**:
   - Positional block projection `WfB.get` and reconstruction `WfB.of_get` (so inductive motives only need a single block-body expression case rather than a second `WfB` motive).
-  - Dependent one-motive `Wf.induct` / `WfB.induct_get` (usable via `induction hwf using Wf.induct`) mirroring `Typed2.lean`, exposing derivations and sub-derivations for downstream `T5`/`T6` passes.
+  - Dependent one-motive `Wf.induct` / `WfB.induct_get` (usable via `induction hwf using Wf.induct`), exposing derivations and sub-derivations for downstream legalization and optimization passes.
   - Context weakening and congruence (`ArgRel.weaken`, `TRel.argRel_weaken`, `OpRel.weaken`, `Wf.weaken`, `WfB.weaken`, `Wf.weaken_G`, `Wf.weaken_D`, `Wf.cons_G`, `Wf.append_G`, `Wf.append_D`, `Wf.congr`, `WfB.congr`), tuple/op mapping (`TRel.cons_iff`, `TRel.map`, `ArgRel.mapV`, `OpRel.mapV`), symmetry (`Ctx.flip`, `Wf.symm`, `WfB.symm`, `Func.Wf.refl`), and inversion helpers (`Wf.{let,load,store,call,jnz,group,jump,ret,exit}_inv`, `WfB.cons_inv`, `ArgRel.{var,imm}_iff`, `OpRel.mk_iff`).
 
 ### 3. First-Order Mirror and Computable Reification (`LeanQbe/T/Flat.lean`, `LeanQbe/T/FlatLemmas.lean`)
@@ -266,25 +267,25 @@ Implemented parametric well-formedness (`Wf` / `WfB`), dependent one-motive indu
   - Kernel-only `Eq.refl` tactic `t_kernel_rfl` and `t_wf_reify` (`refine Func.wf_of_reify ?_; t_kernel_rfl`), named with `t_` prefix so importing both `LeanQbe.FlatLemmas` and `LeanQbe.T.FlatLemmas` in `LeanQbe.lean` causes no syntax collision.
   - Note on `Ty.vec k`: symbolic `k : Nat` blocks kernel `rfl` inside `tyDecEq`/`castTy` (as in `vumin (k : Nat)`), whereas any concrete `k` (`0`, `2`, `3`) succeeds with `t_wf_reify`; parametric `vumin_wf (k : Nat)` is proved directly via `t_wf_tac` in `ReifyTest.lean`.
 
-### 4. Tests and Scaling Benchmarks vs E1 (`LeanQbeTest/T/{ReifyTest,ScaleTest}.lean`)
+### 4. Tests and Scaling Benchmarks vs Untyped IR (`LeanQbeTest/T/{ReifyTest,ScaleTest}.lean`)
 
-- **`LeanQbeTest/T/ReifyTest.lean`**: `t_wf_reify` on all 8 spike-4 programs (`add128`, `add256`, `mac`, `ult128`, `umin`, `mulByAdd`, `qrStep`, and `vumin` at `k = 0, 2, 3`, plus parametric `∀ k, Func.Wf (vumin k)` via `t_wf_tac`), all 6 closed functions in `Smoke.lean` (`evenOdd`, `sumLanes`, `tracer`, `storeThenLoadOther`, `caller`, `spin`), direct `Func.wf_of_reify rfl`, `Func.checkTFlat ... = true`, `Func.denote_noHlt_of_check` soundness tests, negative tests (`oobRawExpr`, `illTypedTFlat` failing `wfCheck` and `Expr.NoHlt` while still satisfying `denote_wf`), and `Wf.induct` / `Wf.weaken` checks.
+- **`LeanQbeTest/T/ReifyTest.lean`**: `t_wf_reify` on all 8 arithmetic/SIMD programs (`add128`, `add256`, `mac`, `ult128`, `umin`, `mulByAdd`, `qrStep`, and `vumin` at `k = 0, 2, 3`, plus parametric `∀ k, Func.Wf (vumin k)` via `t_wf_tac`), all 6 closed functions in `Smoke.lean` (`evenOdd`, `sumLanes`, `tracer`, `storeThenLoadOther`, `caller`, `spin`), direct `Func.wf_of_reify rfl`, `Func.checkTFlat ... = true`, `Func.denote_noHlt_of_check` soundness tests, negative tests (`oobRawExpr`, `illTypedTFlat` failing `wfCheck` and `Expr.NoHlt` while still satisfying `denote_wf`), and `Wf.induct` / `Wf.weaken` checks.
 - **`LeanQbeTest/T/ScaleTest.lean`**: Kernel `t_wf_reify` and `Func.checkTFlat ... = true` checks for `sl 250`, `sl 1000`, `sl 2000`, and `bl 50` (50-block `group`, 151 instructions).
 
-Benchmark comparison on literal straight-line chains (`sl 250/1000/2000`, using both previous result and first parameter `%a`) and 50-block `group` (`bl 50`), profiled with `-Dprofiler=true` on literal `noncomputable def` constructor terms (`set_option maxRecDepth 16384 maxHeartbeats 4000000`) alongside live E1 constructor terms (`wf_reify`) and E1's historical baseline above (`T3` has not yet introduced its direct `Expr` term elaborator):
+Benchmark comparison on literal straight-line chains (`sl 250/1000/2000`, using both previous result and first parameter `%a`) and 50-block `group` (`bl 50`), profiled with `-Dprofiler=true` on literal `noncomputable def` constructor terms (`set_option maxRecDepth 16384 maxHeartbeats 4000000`) alongside untyped-IR constructor terms (`wf_reify`) and the earlier baseline above (prior to adding the direct `tqbe` term elaborator):
 
-| Program | T2 total elab (`process pre-def`) | E1 live elab (`process pre-def` / hist. macro) | T2 `t_wf_reify` kernel (`checkTFlat`) | E1 live `wf_reify` (hist.) | T2 / E1 kernel ratio (live / hist.) | Notes (`>2×` flagged) |
+| Program | Typed total elab (`process pre-def`) | Untyped live elab (`process pre-def` / hist. macro) | Typed `t_wf_reify` kernel (`checkTFlat`) | Untyped live `wf_reify` (hist.) | Typed / Untyped kernel ratio (live / hist.) | Notes (`>2×` flagged) |
 |---|---|---|---|---|---|---|
 | `sl 250` | `0.990 s` (`0.126 s`) | `0.120 s` (`0.029 s` / `0.16 s`) | `0.371 s` (`0.252 s`) | `0.166 s` (`0.16 s`) | **`2.23×`** / **`2.32×`** | Kernel **`>2×`** (`2.23×` live); total elab **`8.25×` vs live** (`6.19×` vs macro) |
 | `sl 1000` | `7.04 s` (`1.88 s`) | `0.948 s` (`0.403 s` / `1.46 s`) | `2.22 s` (`1.76 s`) | `1.42 s` (`1.6 s`) | `1.56×` / `1.39×` | Kernel within `2×`; total elab **`7.43×` vs live** (`4.82×` vs macro) |
 | `sl 2000` | `27.3 s` (`7.78 s`) | `3.20 s` (`1.62 s` / `5.2 s`) | `6.67 s` (`5.43 s`) | `4.99 s` (`5.2 s`) | `1.34×` / `1.28×` | Kernel within `2×`; total elab **`8.53×` vs live** (`5.25×` vs macro) |
 | `bl 50 (151)` | `0.636 s` (`0.019 s`) | `0.096 s` (`0.011 s` / `0.12 s`) | `0.243 s` (`~0.10 s`) | `0.125 s` (`0.13 s`) | `1.94×` / `1.87×` | Kernel borderline `<2×` (`1.94×`); total elab **`6.63×` vs live** (`5.30×` vs macro) |
 
-Key scaling findings and guidance for `T3`:
+Key scaling findings and guidance for `LeanQbe/T/Notation.lean`:
 
 1. **Rejected `TFlat` designs**:
-   - Intrinsically typed `Member`-indexed `TFlat rs Γ Δ`: `0.625 s` at `sl 250` and **`8.63 s` at `sl 1000` (`6.0×` E1)** due to `O(N^2)` context/index AST terms.
+   - Intrinsically typed `Member`-indexed `TFlat rs Γ Δ`: `0.625 s` at `sl 250` and **`8.63 s` at `sl 1000` (`6.0×` untyped baseline)** due to `O(N^2)` context/index AST terms.
    - Skew-binary random-access list (`RList`) contexts: `0.576 s` / `2.97 s` / `7.1 s` at `sl 250/1000/2000`, slower than `List` because open-binder evaluation does not cache `rCons` reductions.
    - Storing de Bruijn *levels* inside `TFlat` (`n - 1 - i` subtraction during `denote`): `0.382 s` / `2.59 s` / `8.58 s` / `0.265 s` (`sl 250/1000/2000`/`bl 50`), slower than pre-converting to de Bruijn indices in `toTFlat`.
-2. **Literal `def` elaboration (`6.6×`–`8.5×` total elab / `4.3×`–`4.8×` `process pre-def`, flagged `>2×`)**: Before `T3` introduces a direct `qbe` term elaborator, plain constructor `def`s spend `27.3 s` total elaboration (`7.78 s` `process pre-definitions`) at `sl 2000` due to dependent `Expr` constructors, `Op.mk` sigma indices, `op2` unfolding, and pattern-matching `fun (x, ()) =>` lambdas. Switching literal terms to `.1` projections + explicit `⟨code, args⟩` cuts `sl 2000` total elab from `27.3 s` to `17.8 s` (`process pre-definitions` `5.26 s`), while `T3`'s direct term elaborator (like E1's `7b0044b`) is expected to drop term elaboration to milliseconds.
-3. **Codegen `LCNF base` blowup (`>2×`, flagged)**: Compiling literal non-`noncomputable` functions written with pattern-matching lambdas `fun (x, ()) => ...` took `0.46 s` (`sl 250`), `9.02–13.4 s` (`sl 1000`), and timed out (`>120 s`) at `sl 2000` (vs E1 `0.05 s`/`0.58 s`/`2.4 s`), because Lean's LCNF base compiler performs nested `Prod`/`PUnit` `cases` analysis (`O(N^2)`). Switching the continuation binder to projection syntax `fun p => ... p.1` cut `LCNF base` at `sl 1000` by `40×` to `0.335 s` (`LCNF mono` `1.14 s`; vs E1 `0.108 s` / `0.450 s`), and `noncomputable def` removes codegen completely (`0 ms`). **Recommendation for `T3` (`Notation.lean`)**: desugar typed binders directly as `fun p =>` with `.1` projections and explicit `{sig}` `Op.mk` in a term elaborator rather than `fun (x, ()) =>` pattern-matching lambdas, and prefer `noncomputable def` for proof-only programs.
+2. **Literal `def` elaboration (`6.6×`–`8.5×` total elab / `4.3×`–`4.8×` `process pre-def`, flagged `>2×`)**: Before introducing a direct `tqbe` term elaborator, plain constructor `def`s spend `27.3 s` total elaboration (`7.78 s` `process pre-definitions`) at `sl 2000` due to dependent `Expr` constructors, `Op.mk` sigma indices, `op2` unfolding, and pattern-matching `fun (x, ()) =>` lambdas. Switching literal terms to `.1` projections + explicit `⟨code, args⟩` cuts `sl 2000` total elab from `27.3 s` to `17.8 s` (`process pre-definitions` `5.26 s`), while a direct term elaborator drops term elaboration to milliseconds.
+3. **Codegen `LCNF base` blowup (`>2×`, flagged)**: Compiling literal non-`noncomputable` functions written with pattern-matching lambdas `fun (x, ()) => ...` took `0.46 s` (`sl 250`), `9.02–13.4 s` (`sl 1000`), and timed out (`>120 s`) at `sl 2000` (vs `0.05 s`/`0.58 s`/`2.4 s`), because Lean's LCNF base compiler performs nested `Prod`/`PUnit` `cases` analysis (`O(N^2)`). Switching the continuation binder to projection syntax `fun p => ... p.1` cut `LCNF base` at `sl 1000` by `40×` to `0.335 s` (`LCNF mono` `1.14 s`; vs `0.108 s` / `0.450 s`), and `noncomputable def` removes codegen (`0 ms`). **Design conclusion for `Notation.lean`**: desugar typed binders directly as `fun p =>` with `.1` projections and explicit `{sig}` `Op.mk` in a term elaborator rather than `fun (x, ()) =>` pattern-matching lambdas, and prefer `noncomputable def` for proof-only programs.

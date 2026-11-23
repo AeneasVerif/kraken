@@ -20,10 +20,10 @@ ignore exit continuations with `Env.ofTable_noExit`.
 * The six fields the code never touches (`cap`, `level`, `flags`, `aux0`, `aux1`, and `found` in
   `sv_backtrack`) are never mentioned: stores produce record updates `{ s with f := v }`, and the
   `sv_backtrack` contract and invariant frame them with `AgreesExcept btMask s s'`.
-* Sections `v2.1`–`v2.4` exercise recursive embedded-struct flattening (`#025-B2`), combined
-  single-source `c0_layout_lemmas!`, `.sdiv`/`.srem`/`.addc`/`.subb`/`.umulw` (`#679`),
-  `D-Plain` 32-bit `ward` dynamic-offset array access & slice framing, and crisp diagnostic
-  error reporting on untagged/non-matching `loadVal` / `storeMem` goals.
+* Later sections exercise recursive embedded-struct flattening, combined single-source
+  `c0_layout_lemmas!`, `.sdiv`/`.srem`/`.addc`/`.subb`/`.umulw`, `D-Plain` 32-bit `ward`
+  dynamic-offset array access & slice framing, and diagnostic error reporting on
+  untagged/non-matching `loadVal` / `storeMem` goals.
 
 ## Proof-to-C0 LOC ratio
 
@@ -182,7 +182,7 @@ theorem svEnv_noExit : ∀ f as bs xs m Q X X', svEnv f as bs xs m Q X → svEnv
 #print axioms svEnv_moduleOk
 #print axioms svEnv_noExit
 
-/-! ## v2.1: Embedded-struct flattening (`#025-B2`) & single-source `c0_layout_lemmas!` -/
+/-! ## Embedded-struct flattening & single-source `c0_layout_lemmas!` -/
 
 c0_decl_and_layout! nested "
 typedef struct {
@@ -245,7 +245,7 @@ u64 single_swap(SingleBox *b, u64 v) {
 }
 "
 
-/-! Verify exact SysV LP64 sizes and flattened offsets/types (`#025-B2`). -/
+/-! Verify exact SysV LP64 sizes and flattened offsets/types. -/
 
 example : KissatDimacs.sizeof = 32 := rfl
 example : TagBox.sizeof = 8 := rfl
@@ -315,7 +315,7 @@ u32 pt_sum(Pt *p) { return p->x + p->y; }
 example : Pt.sizeof = 8 := rfl
 end CombinedSolo
 
-/-! ## v2.2: `.sdiv`, `.srem`, pointer subtraction, `.addc`, `.subb`, `.umulw` (`#679`) -/
+/-! ## `.sdiv`, `.srem`, pointer subtraction, `.addc`, `.subb`, `.umulw` -/
 
 c0_decl! arith "
 i64 sdiv_srem_pos(i64 a, i64 b) {
@@ -398,7 +398,7 @@ theorem arith_ext_wp (Γ : Env) (a b : BitVec 64) (cin : Bool) (m : Mem 64)
   c0_steps!
   exact hQ
 
-/-! ## v2.3: `D-Plain` 32-bit `ward` dynamic indexing & slice framing -/
+/-! ## `D-Plain` 32-bit `ward` dynamic indexing & slice framing -/
 
 c0_decl! ward "
 u32 ward_shl2_rw(u64 arena, u64 off, u64 k, u32 v) {
@@ -478,7 +478,7 @@ theorem ward_slice_roundtrip (arena off : BitVec 64) (ws ys : List (BitVec 32))
   rw [ward_slice_replace arena ws ys hlen hy]
   c0_frame
 
-/-! ## v2.3b: Plain-array backwards compatibility (`a[i + 1]` priority and `a[0]` without
+/-! ## Plain-array backwards compatibility (`a[i + 1]` priority and `a[0]` without
 global `BitVec.add_zero` rewriting) -/
 
 c0_decl! compat "
@@ -555,7 +555,7 @@ theorem arr32_deref_zero_wp (Γ : Env) (a : BitVec 64) (ws : List (BitVec 32))
   c0_steps!
   exact hQ
 
-/-! ## v2.4: Crisp diagnostic reporting on untagged / non-matching `load` / `store` goals -/
+/-! ## Diagnostic reporting on untagged / non-matching `load` / `store` goals -/
 
 /-- Intentionally untagged footprint predicate for testing diagnostic error messages. -/
 def RawBox (p v : BitVec 64) : Mem 64 → Prop := cell (t := i64) p v

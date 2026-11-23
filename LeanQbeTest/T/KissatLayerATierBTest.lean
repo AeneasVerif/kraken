@@ -7,9 +7,9 @@ meta import LeanQbe.T.Examples.Kissat.LayerASubstitute
 meta import LeanQbe.T.Examples.Kissat.LayerAGates
 
 /-!
-# Verification, Closed Sample Theorems, and Axiom Audit for Kissat Stage 4 Tier-B Theories
+# Verification, Closed Sample Theorems, and Axiom Audit for Kissat `D-Full` Elimination Theories
 
-Executable `#guard` / `#eval` checks, closed end-to-end theorems, and single-line `<= 120`-col
+Executable `#guard` / `#eval` checks, closed end-to-end theorems, and single-line
 `#print axioms` audits covering:
 1. `LayerASubstitute`: single-step & multi-step `SubstTrace` substitution, SCC reachability
    (`BinReach`), simultaneous representative maps (`substMapCnf`), and `Array Bool` witness
@@ -51,7 +51,7 @@ def substReducedModel : Array Bool := #[false, false, true, true]
   let full := substTraceExtendArr substSampleTrace substReducedModel
   full == #[false, false, true, true] && checkModel substSampleCnf full
 
--- Flip x2 = false, x3 = false so x1 must reconstruct to true and x0 must reconstruct to true!
+-- Flip x2 = false, x3 = false so x1 must reconstruct to true and x0 must reconstruct to true.
 def substReducedModelFlip : Array Bool := #[false, false, false, false]
 
 #guard checkModel (substTraceApply substSampleTrace substSampleCnf) substReducedModelFlip
@@ -81,7 +81,7 @@ theorem sample_subst_sat :
   exact ⟨(checkModel_iff_sat _ _).mp hfull, (checkModel_sound hfull).1⟩
 
 -- SCC contradiction formula: x0 → x1 ([1, 2]), x1 → ¬x0 ([3, 1]), ¬x0 → ¬x1 ([0, 3]),
--- ¬x1 → x0 ([2, 0]). Thus x0 and ¬x0 lie in the same SCC -> immediate UNSAT!
+-- ¬x1 → x0 ([2, 0]). Thus x0 and ¬x0 lie in the same SCC -> immediate UNSAT.
 def sccContraClauses : List (List Nat) :=
   [[1, 2], [3, 1], [0, 3], [2, 0]]
 
@@ -97,7 +97,7 @@ theorem sample_scc_unsat : (cnfOfClauses sccContraClauses).Unsat := by
 
 -- Closed UNSAT theorem via single-step substitution:
 -- x0 ↔ x1 ([1, 2], [0, 3]), [0], [3] -> substituting x0 ↦ x1 turns [0] into [2],
--- contradicting [3] -> UNSAT!
+-- contradicting [3] -> UNSAT.
 def substUnsatClauses : List (List Nat) :=
   [[1, 2], [0, 3], [0], [3]]
 
@@ -116,8 +116,8 @@ theorem sample_subst_unsat : (cnfOfClauses substUnsatClauses).Unsat := by
 
 -- Clauses over x0 (0/1), x1 (2/3), x2 (4/5):
 -- c1 = [0, 2] blocked on x0 (0): only clause with ¬x0 (1) is c2 = [1, 3, 4],
--- resolvent [2, 3, 4] is tautological (2, 3)!
--- After eliminating c1, c2 = [1, 3, 4] is blocked on ¬x0 (1): no remaining clause has x0 (0)!
+-- resolvent [2, 3, 4] is tautological (2, 3).
+-- After eliminating c1, c2 = [1, 3, 4] is blocked on ¬x0 (1): no remaining clause has x0 (0).
 -- Remaining clause: [4, 2].
 def bceSampleClauses : List (List Nat) :=
   [[0, 2], [1, 3, 4], [4, 2]]
@@ -126,8 +126,8 @@ def bceSampleStack : BceReconStack :=
   [{ lit := 0, clause := [0, 2] }, { lit := 1, clause := [1, 3, 4] }]
 
 -- Reduced model satisfies [4, 2] with x0 = true, x1 = true, x2 = false:
--- falsifies c2 = [1, 3, 4]! Stack must flip x0 := false to satisfy c2, then c1 = [0, 2] is
--- already satisfied by x1 = true!
+-- falsifies c2 = [1, 3, 4]; stack must flip x0 := false to satisfy c2, then c1 = [0, 2] is
+-- already satisfied by x1 = true.
 def bceReducedModel : Array Bool := #[true, true, false]
 
 #guard isBlockedOnBool (bceSampleClauses.erase [0, 2]) [0, 2] 0
@@ -159,7 +159,7 @@ theorem sample_bce_sat :
 --   P_g = [[0, 3, 5]], N_g = [[1, 2], [1, 4]]
 -- Non-gate clauses on x0:
 --   P_ng = [[0, 6]], N_ng = [[1, 8]], rest = [[7, 9]].
--- Non-tautological P_ng × N_ng resolvent [6, 8] is truly skipped by gateBveClauses!
+-- Non-tautological P_ng × N_ng resolvent [6, 8] is skipped by gateBveClauses.
 def andGatePart : GatePartition :=
   { posGate := [[0, 3, 5]]
     posNonGate := [[0, 6]]
@@ -171,7 +171,7 @@ def andGatePart : GatePartition :=
 #guard fullBveClauses 0 andGatePart == [[7, 9], [3, 5, 8], [6, 2], [6, 4], [6, 8]]
 
 -- Model of gateBveClauses: x0=false, x1=true, x2=true, x3=false, x4=true.
--- Under x0=false, [0, 3, 5] and [0, 6] are FALSIFIED, so extendGateBve MUST flip x0 := true!
+-- Under x0=false, [0, 3, 5] and [0, 6] are falsified, so extendGateBve flips x0 := true.
 def andGateReducedModel : Array Bool := #[false, true, true, false, true]
 
 #guard checkModel (cnfOfClauses (gateBveClauses 0 andGatePart)) andGateReducedModel
@@ -225,7 +225,7 @@ theorem sample_xorGate_unsat : (cnfOfClauses xorUnsatPart.allClauses).Unsat := b
   rw [h3, h5] at h35v; cases h35v
 
 -- Blocked non-gate resolvent example (`gateBlocked_bve_sat`):
--- P_ng = [[0, 2]], N_ng = [[1, 4]], rest = [[3, 6]]; skipped resolvent [2, 4] is blocked on 4!
+-- P_ng = [[0, 2]], N_ng = [[1, 4]], rest = [[3, 6]]; skipped resolvent [2, 4] is blocked on 4.
 def blockedGatePart : GatePartition :=
   { posGate := []
     posNonGate := [[0, 2]]
@@ -274,7 +274,7 @@ theorem sample_blocked_gate :
 
 -- 2 x 3 biclique over variables 0..4:
 -- Dividers L = [0, 2] (x0, x1); Quotients Q = [[4], [6], [8]] (x2, x3, x4).
--- Fresh variable z = 5 (lits 10 / 11) factors the 6 product clauses into 2 + 3 = 5 clauses!
+-- Fresh variable z = 5 (lits 10 / 11) factors the 6 product clauses into 2 + 3 = 5 clauses.
 def bvaSampleClauses : List (List Nat) :=
   [[0, 4], [0, 6], [0, 8], [2, 4], [2, 6], [2, 8], [1, 3]]
 
@@ -331,7 +331,7 @@ theorem sample_bva_unsat : (cnfOfClauses bvaUnsatClauses).Unsat := by
     rw [show (11 : Nat) = litNeg 10 by decide, evalLitVal_litNeg, h10]; rfl
   rw [h11] at h11f; cases h11f
 
-/-! ## 5. Unified Tier-B Pipeline (`Subst` + `BCE` + `Gate-BVE` + `BVA/Factor`) -/
+/-! ## 5. Unified Elimination Pipeline (`Subst` + `BCE` + `Gate-BVE` + `BVA/Factor`) -/
 
 -- Starting formula on variables x0..x6 (lits 0..13):
 --   Equivalence x0 ↔ x1: [1, 2], [0, 3]
@@ -339,10 +339,10 @@ theorem sample_bva_unsat : (cnfOfClauses bvaUnsatClauses).Unsat := by
 --   AND gate on x1 ↔ (x2 ∧ x3): [2, 5, 7], [3, 4], [3, 6]
 --   Non-gate clauses using x0: [0, 8], [1, 9]
 --   Rest clauses forming a 2 x 2 biclique with [8, 4], [8, 6]: [12, 4], [12, 6]
--- Step 1: Subst x0 ↦ x1 (2)  (drops [1, 2], [0, 3] as tautologies!)
--- Step 2: BCE [10, 8] blocked on 10 (no clause has 11!)
--- Step 3: Gate-BVE on x1 (var 1) using AND gate [[2, 5, 7]] / [[3, 4], [3, 6]]!
--- Step 4: BVA/Factor on fresh z = 7 (lits 14/15) factoring {8, 12} × {[4], [6]}!
+-- Step 1: Subst x0 ↦ x1 (2)  (drops [1, 2], [0, 3] as tautologies)
+-- Step 2: BCE [10, 8] blocked on 10 (no clause has 11)
+-- Step 3: Gate-BVE on x1 (var 1) using AND gate [[2, 5, 7]] / [[3, 4], [3, 6]]
+-- Step 4: BVA/Factor on fresh z = 7 (lits 14/15) factoring {8, 12} × {[4], [6]}
 def pipeInitClauses : List (List Nat) :=
   [[1, 2], [0, 3], [10, 8], [2, 5, 7], [3, 4], [3, 6], [0, 8], [1, 9], [12, 4], [12, 6]]
 
@@ -365,7 +365,7 @@ def pipeAfterGate : List (List Nat) :=
 def pipeTrace : TierBTrace :=
   [.subst 0 2, .bce 10 [10, 8], .gateBve 1 pipeGatePart, .bvaFactor 7 [8, 12] [[4], [6]]]
 
--- Reduced model sets x2=true, x3=true, x7(fresh)=true (all other vars false!).
+-- Reduced model sets x2=true, x3=true, x7(fresh)=true (all other vars false).
 def pipeReducedModel : Array Bool := #[false, false, true, true, false, false, false, true]
 
 #guard tierBTraceApply pipeTrace pipeInitClauses ==
@@ -410,7 +410,7 @@ theorem sample_pipe_sat :
 #eval extendGateBveArr 0 andGatePart.posClauses andGateReducedModel
 #eval tierBTraceExtendArr pipeTrace pipeReducedModel
 
-/-! ## 6. Single-line `#print axioms` checks (`<= 120` cols) -/
+/-! ## 6. Single-line `#print axioms` checks -/
 
 #print axioms LeanQbe.T.Examples.Kissat.subst_unsat_sound
 #print axioms LeanQbe.T.Examples.Kissat.subst_sat_reconstruct

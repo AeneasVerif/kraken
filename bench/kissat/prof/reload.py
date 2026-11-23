@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Estimate dynamically-redundant `%rsp` stack reloads within C4 straight-line regions."""
+"""Estimate redundant `%rsp` stack reloads within LeanQbe native x64 (C4) straight-line regions."""
 
 import sys
 

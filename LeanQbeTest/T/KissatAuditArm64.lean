@@ -8,7 +8,7 @@ public import LeanQbeTest.T.KissatM5SoundAuditArm64
 
 This file is the active top-level AAPCS64 AArch64 Kissat machine-code audit entry point. It is
 the exact AArch64 mirror of `KissatAuditX64.lean`, re-exporting the active **`D-Full M5`**
-(`LeanQbe.T.Arm64.KissatM5`, `270` functions, Inlined-`b5`) theorem suite from
+(`LeanQbe.T.Arm64.KissatM5`, `270` functions, `InlinePolicy.b5`) theorem suite from
 `LeanQbeTest.T.KissatM5AuditArm64` and `LeanQbeTest.T.KissatM5SoundAuditArm64`
 (`audit_m5_arm_fnspec`, `audit_m5_arm_unsat`, `audit_m5_arm_sound`, `audit_m5_arm_nv`,
 `audit_m5_arm_nv_closed`, `audit_m5_arm_sat_fnspec`, `audit_m5_arm_model`, `audit_m5_arm_sat_sound`,
@@ -19,7 +19,7 @@ the exact AArch64 mirror of `KissatAuditX64.lean`, re-exporting the active **`D-
 
 ## Active vs. legacy solver status
 
-* **`D-Full M5`** (`LeanQbe.T.Arm64.KissatM5`, `270` functions): **active** flagship native build,
+* **`D-Full M5`** (`LeanQbe.T.Arm64.KissatM5`, `270` functions): **active** native build,
   **SAT (`10`) and UNSAT (`20`)** soundness + both arbitrary-host and closed concrete-host
   (`kissatM5_compiled_arm64.host`) non-vacuity, unconditional.
 * Retired machine-code theorems live under `LeanQbeLegacyTest/` (checked when `INCLUDE_LEGACY=1`):

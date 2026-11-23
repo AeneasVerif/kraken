@@ -14,9 +14,9 @@ meta import LeanQbe.T.Examples.Kissat.FullM4Bcp
 meta import LeanQbe.T.Spill
 
 /-!
-# AArch64 `S2`: `CBZ`/`CBNZ` & `TBZ`/`TBNZ` Branch Fusion Tests
+# AArch64 `CBZ`/`CBNZ` & `TBZ`/`TBNZ` Branch Fusion Tests
 
-Verifies verified compare-against-zero and single-bit test branch fusion through
+Verifies compare-against-zero and single-bit test branch fusion through
 `armGpr`, `armTarget`, `Rega.lowerFn`, `FullM4Bcp`, and `Arm64.LratBytes`.
 -/
 

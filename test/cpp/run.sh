@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# C++20 differential & Rule A6 trap-default test suite for LeanQbe.T.PrintCpp.
+# C++20 differential & default-trap test suite for LeanQbe.T.PrintCpp.
 # Writes all generated C++ files and binaries to a temporary directory under /tmp/.
 set -euo pipefail
 

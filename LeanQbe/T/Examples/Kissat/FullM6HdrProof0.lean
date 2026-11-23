@@ -10,13 +10,13 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Wave-3 Prep: `FullM6HdrMem` / `FullM6HdrInv`, Framing & Group-A Proofs (`FullM6HdrProof0`)
+# Kissat M6 `FullM6HdrMem` / `FullM6HdrInv`, Framing & Group-A Proofs (`FullM6HdrProof0`)
 
 M1-clean proof module (`public section`, opaque definitions, standard imports):
 1. `FullM6HdrMem c ext s := m6ExtMem (m6ExtAddr c.hdr) ext ⋆ FullMem c s` extending frozen
    `FullMem` by strict separation-logic framing over the `2,304`-byte prefix `M6HdrExt` at
    `c.hdr - 2304#64` (zero edits to `FullArena1`, `Full1..3`, `FullM4*`, `FullM5*`, or any
-   Wave-2 module), plus `FullM6HdrInv` / `FullM6HdrInvW` / `FullM6HdrCoreInv` and region
+   `FullM6*` module), plus `FullM6HdrInv` / `FullM6HdrInvW` / `FullM6HdrCoreInv` and region
    collapse `fullM6HdrMem_to_region`.
 2. Automatic framing bridges (`fullM6Hdr_frame_full`, `fullM6Hdr_frame_analyze`,
    `fullM6Hdr_frame_prop_lit`, `fullM6Hdr_frame_safety_void`) proving every existing `FullMem`
@@ -89,15 +89,15 @@ def FullM6HdrCoreInv (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64))
 def M6HdrBaseDelayedPres (s s' : FullState) : Prop :=
   s'.scratch.delayed = s.scratch.delayed ∧ s'.scratch.delayed_len = s.scratch.delayed_len
 
-/-- `w2b` non-interference inside `M6HdrExt`: words `1..7` (`dr_*`) untouched. -/
+/-- Decision-rate non-interference inside `M6HdrExt`: words `1..7` (`dr_*`) untouched. -/
 def M6ExtW2bPres (ext ext' : List (BitVec 64)) : Prop :=
   ∀ k, 1 ≤ k → k < 8 → ext'[k]? = ext[k]?
 
-/-- `w2a` non-interference inside `M6HdrExt`: `m6_magic` (word `0`) and words `8..287` untouched. -/
+/-- Tier/watermark non-interference inside `M6HdrExt`: word `0` and words `8..287` untouched. -/
 def M6ExtW2aPres (ext ext' : List (BitVec 64)) : Prop :=
   ext'[0]? = ext[0]? ∧ ∀ k, 8 ≤ k → k < fullM6ExtWords → ext'[k]? = ext[k]?
 
-/-- Combined probe-scratch and base `delayed*` preservation for repointed `w2a`/`w2b` helpers. -/
+/-- Combined probe-scratch and base `delayed*` preservation for `FullM6Hdr` helpers. -/
 def M6HdrScratchPres (s s' : FullState) : Prop :=
   FullProbeScratchPres s s' ∧ M6HdrBaseDelayedPres s s'
 
@@ -317,7 +317,7 @@ theorem fullM6HdrMem_to_region {c : FullCfg} {ext : List (BitVec 64)} {s : FullS
 
 /-! ## 2. Automatic Separation-Logic Framing Bridges Over `FullMem` -/
 
-/-- Generic framing theorem: any `Full1..3` / `M4` / `M5` / `BcpS15` / `CompactFlush` / `w2c..w2h`
+/-- Generic framing theorem: any `Full1..3` / `M4` / `M5` / `BcpS15` / `CompactFlush` / `FullM6*`
 contract parameterized by `(FullMem c s ⋆ R) m` lifts automatically to `FullM6HdrMem c ext s ⋆ R`
 preserving `ext` verbatim with zero edits to the underlying proof. -/
 theorem fullM6Hdr_frame_full {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
@@ -564,9 +564,9 @@ def fullM6MemInitSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
         (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c ext s ⋆ R) m' →
         Q (c.hdr, ()) m')
 
-/-- Shared contract for all repointed `w2a` (`M6Tiers`) helpers operating on `FullM6HdrMem`:
+/-- Shared contract for all `FullM6Hdr` tier/delay/watermark helpers on `FullM6HdrMem`:
 preserves `s.core` verbatim, `FullProbeScratchPres`, `M6HdrBaseDelayedPres` (`h->delayed*`
-untouched), and `M6ExtW2bPres` (once initialized, `M6HdrExtInitOk` & `w2b` words `1..7` hold). -/
+untouched), and `M6ExtW2bPres` (once initialized, `M6HdrExtInitOk` & words `1..7` hold). -/
 def m6HdrW2aSpec (extraArgs rs : List Ty) : Spec (i64 :: extraArgs) rs :=
   fun args m Q _ =>
     ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
@@ -577,9 +577,9 @@ def m6HdrW2aSpec (extraArgs rs : List Ty) : Spec (i64 :: extraArgs) rs :=
         M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ M6ExtW2bPres ext ext') →
         (FullM6HdrMem c ext' s' ⋆ R) m' → Q r m'
 
-/-- Contract for repointed `w2b` `decision_rate` mutators (`m6_hdr_dr_init`, `m6_hdr_dr_update`):
-zero writes to `FullMem` (`s` unchanged!), zero collision with `h->delayed*`, and once initialized
-preserves `m6_magic` + all `w2a` words `8..287` (`M6ExtW2aPres`). -/
+/-- Contract for `FullM6Hdr` `decision_rate` mutators (`m6_hdr_dr_init`, `m6_hdr_dr_update`):
+zero writes to `FullMem` (`s` unchanged), zero collision with `h->delayed*`, and once initialized
+preserves `m6_magic` + all tier/watermark words `8..287` (`M6ExtW2aPres`). -/
 def m6HdrDrMutSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
     h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
@@ -587,7 +587,7 @@ def m6HdrDrMutSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
     ∀ ext' m', M6HdrExtInitOk ext' → (M6HdrExtInitOk ext → M6ExtW2aPres ext ext') →
       (FullM6HdrMem c ext' s ⋆ R) m' → Q () m'
 
-/-- Contract for repointed `w2b` `m6_hdr_dr_allow`: zero writes to `FullMem`, pure read when
+/-- Contract for `FullM6Hdr` `m6_hdr_dr_allow`: zero writes to `FullMem`, pure read when
 already initialized (`ext' = ext`). -/
 def m6HdrDrAllowSpec : Spec [i64] [.bool] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
@@ -673,7 +673,7 @@ def m6HdrAnalyzeRsnSpec : Spec [i64, i32, i32] [.bool] := fun (h, rsn, skip_var,
       (FullM6HdrMem c ext' s' ⋆ R) m' → Q (ok, ()) m'
 
 /-- Lifted canonical `Full.fullAnalyzeSpec` over `FullM6HdrMem` (`m6_hdr_analyze`), composing
-`w2a` `m6_hdr_update_tier_limits` + `w2b` `m6_hdr_dr_update` + `full_analyze`. -/
+`m6_hdr_update_tier_limits` + `m6_hdr_dr_update` + `full_analyze`. -/
 def m6HdrAnalyzeSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (ext : List (BitVec 64))
     (s : FullState) (R : Mem 64 → Prop),

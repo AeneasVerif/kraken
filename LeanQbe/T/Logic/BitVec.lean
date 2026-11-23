@@ -4,9 +4,9 @@ public import LeanQbe.T.OpsLemmas
 import all Kraken.Mem
 
 /-!
-# Bit-vector and address arithmetic for `LeanQbe.T` proofs (`T4`)
+# Bit-vector and address arithmetic for `LeanQbe.T` proofs
 
-Port of `LeanQbe/Logic/BitVec.lean` for 64-bit pointers (`BitVec 64`) and `Nat`/`UInt8` helpers.
+64-bit pointer (`BitVec 64`) arithmetic and `Nat`/`UInt8` helpers for `LeanQbe.T` proofs.
 -/
 
 set_option autoImplicit false

@@ -33,7 +33,7 @@ Verifies `LeanQbe.T.Amd64.PrintAsm0` and `LeanQbe.T.Amd64.PrintAsm0Lemmas`:
 3. `CheckLeanQbe0Clean` LCNF gates on `printAsm0LcMod`: `0` closures (`papTargets = []`,
    `maxAp = 0`), `0` globals (`consts/strs/bigNats = []`), `≤ 80` decls, `Func.checkTFlat`,
    `Module.checkAcyclic = true`, and `< 250` compiled x64 directives per lowered function.
-4. Single-line `#print axioms` (`⊆ [propext, Classical.choice, Quot.sound]`, `< 115c`) plus MetaM
+4. Single-line `#print axioms` (`⊆ [propext, Classical.choice, Quot.sound]`) plus MetaM
    `Lean.collectAxioms` and import-closure isolation (`0` `Arm64`/`Kraken.AArch64` imports, `0`
    `IselVec`/`*Lemmas*`/`PrintATT` leaks in `PrintAsm0`).
 -/
@@ -312,7 +312,7 @@ private def printAsm0MaxCompiledDirs : Except String Nat := do
   | .ok maxD => maxD < 250
   | .error _ => false
 
-/-! ## 4. `#print axioms` Audit (`⊆ [propext, Classical.choice, Quot.sound]`, `< 115c`) -/
+/-! ## 4. `#print axioms` Audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms LeanQbe.T.Amd64.emitDir0_eq
 #print axioms LeanQbe.T.Amd64.printAmd64Asm0_eq_toATT

@@ -4,7 +4,7 @@ public import LeanQbe.T.OptUtil
 public import LeanQbe.T.Flat
 
 /-!
-# Lexical Memory Load/Store Optimization (`MemLoad`) and `AssumeElim` (`O-M2`)
+# Lexical Memory Load/Store Optimization (`MemLoad`) and `AssumeElim`
 
 1. **`Func.memLoad`**: two-phase PHOAS lexical load CSE and store-to-load forwarding:
    - Phase 1 (`analyzeMem` / `analyzeMemB` at `K`, `KL`): builds a `MemSumTree` computing

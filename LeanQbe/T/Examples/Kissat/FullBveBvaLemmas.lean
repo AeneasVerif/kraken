@@ -9,7 +9,7 @@ public import LeanQbe.T.Examples.Kissat.FullBveBvaLemmas3
 
 Re-exports the 6 assigned parametric `(Γ : Env)` `Func.wp` theorems for `full_bve_collect`,
 `full_bve_mark_and`, `full_bve_gates`, `full_bve_resolve_pair`, `full_bve_weaken`, and
-`full_bve_try_bce` (`Full.lean` lines 680–848, aligned 1:1 to `FullSpec3` + `#1050` weak bounds).
+`full_bve_try_bce` (`Full.lean` lines 680–848, aligned to `FullSpec3` with weak `garb` bounds).
 -/
 
 set_option autoImplicit false

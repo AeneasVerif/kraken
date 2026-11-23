@@ -5,7 +5,7 @@ public import LeanQbe.T.AbiLemmas
 import Kraken.AArch64.Parser
 
 /-!
-# AAPCS64 Arm64 Frame Verification (`T11b`)
+# AAPCS64 Arm64 Frame Verification
 
 Proves `armFrameSpec : FrameTarget armMach armFrame armCondReads`, `NoLab` invariants for all
 frame/slot/ABI/call snippets, and `ParserChecks` against `Kraken.AArch64.Parser`.

@@ -7,7 +7,7 @@ import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.Logic.Arith
 
 /-!
-# Correctness of `DivConst` (`O-M1`)
+# Correctness of `DivConst`
 
 Proves elementary arithmetic soundness of the boolean certificates (`uNoAddCert_sound`,
 `uAddShiftCert_sound`, `sPow2Cert_sound`, `sDivCert_sound`) without external-solver or

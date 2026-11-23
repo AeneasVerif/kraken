@@ -7,7 +7,7 @@ public import Kraken.X64.PrintATT
 import Std.Data.HashSet
 
 /-!
-# SysV x64 Debug Assembly & CFI Unwind Emitter (`P0 + P1`)
+# SysV x64 Debug Assembly & CFI Unwind Emitter
 
 Transforms verified `List Kraken.X64.Directive` output from `LeanQbe.T.compile` into ELF-clean
 AT&T assembly with **zero** machine-code changes in `.text`:

@@ -7,8 +7,8 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat M7 Search Parity C0 Overrides (`FullM7Search`)
 
-Strictly additive Kissat 4.0.4 search-fidelity module closing `audit-quick60-gaps` Gaps #2, #3,
-#5, and #7 (`0` edits to `FullHdr` / `144` words frozen, `0` edits to `Full1..6*`):
+Additive Kissat 4.0.4 search-parity module over the unchanged `144`-word `FullHdr` layout
+(late lucky checks, clause tumbling, focused `randec`/phase alternation, and EMA mode swap):
 1. `full_lucky_late_m7` & `full_lucky_polar_m7` (`src/lucky.c`, `src/search.c:188-189`):
    post-preprocessing level-0 late lucky assignment checks (level-0 unit propagation guard,
    polarity sweeps skipping already-satisfied clauses, plus forward/backward `full_lucky_scan`

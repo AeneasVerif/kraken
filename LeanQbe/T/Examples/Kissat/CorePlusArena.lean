@@ -11,8 +11,8 @@ import all Kraken.Separation
 # Kissat `CorePlus` Arena Layout, State, and Separation-Logic Helpers (`Stage 2`)
 
 Defines:
-1. `CorePlusCfg` extending the `X1` `ArenaCfg` layout with `pHeap`, `pPos`, `pScore`, `pPhases`,
-   `pMinStk`, `pMinClr`, and `minDepth` (`pMinDepth`), plus `regions_to_avail`.
+1. `CorePlusCfg` extending the `D-Min` `ArenaCfg` layout with `pHeap`, `pPos`, `pScore`,
+   `pPhases`, `pMinStk`, `pMinClr`, and `minDepth` (`pMinDepth`), plus `regions_to_avail`.
 2. `HeurState` (heuristic scalars & arrays, zero soundness invariants), `CorePlusState`, and
    `LengthsOk` bounds predicates.
 3. `CorePlusMem`, `CorePlusArenaInv`, `CorePlusRest`, region collapse (`to_region`),

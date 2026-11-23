@@ -5,7 +5,7 @@ public import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.OpsLemmas
 
 /-!
-# Correctness of lexical GVN / CSE (`T6`)
+# Correctness of lexical GVN / CSE
 
 * `OpCode.wp_self`: any satisfied `OpCode.wp` delivers outputs that satisfy every other valid
   postcondition of the same opcode & operands (handling deterministic ops, UB `False`, and

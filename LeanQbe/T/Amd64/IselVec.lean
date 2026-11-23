@@ -3,7 +3,7 @@ module
 public import LeanQbe.T.Amd64.Frame
 
 /-!
-# SysV x64 Vector Instruction Selection (`T10`)
+# SysV x64 Vector Instruction Selection
 
 Target-level `VecIsa` instantiation for System V AMD64 (`x64Vec`):
 * Vector registers restricted to `mm0..mm15` so both legacy 128-bit SSE instructions (`pshufd`,

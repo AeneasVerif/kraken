@@ -13,7 +13,7 @@ import all Kraken.Mem
 import all Kraken.Separation
 
 /-!
-# End-to-End Kissat `D-Core+` `kissat_solve_bytes` Verification & Non-Vacuity (`Wave 1b`)
+# End-to-End Kissat `D-Core+` `kissat_solve_bytes` Verification & Non-Vacuity
 
 Proves:
 1. `kissat_solve_bytes_core_wp` / `kissat_solve_bytes_wp`: full termination (`h->fuel.toNat`

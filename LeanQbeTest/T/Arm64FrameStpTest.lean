@@ -9,7 +9,7 @@ meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Spill
 
 /-!
-# AAPCS64 Arm64 `STP`/`LDP` Callee-Saved Pairing Tests (`A5`)
+# AAPCS64 Arm64 `STP`/`LDP` Callee-Saved Pairing Tests
 
 Verifies:
 1. Even (`4` regs) and odd (`3` regs) callee-saved save/restore pairing (`stp`/`ldp` + trailing
@@ -18,7 +18,7 @@ Verifies:
    at slot `64` falls back cleanly to `str`/`ldr`).
 3. End-to-end `checkCompile` / `compileModule` emission counts (`stp`/`ldp` vs `str`/`ldr`) on
    `armTarget` with `armLabelClean` and `armLayout`.
-4. `armFrameSpec.saveRegs_spec` / `armFrameSpec.restoreRegs_spec` round-trip proof and `std3`
+4. `armFrameSpec.saveRegs_spec` / `armFrameSpec.restoreRegs_spec` round-trip proof and standard
    `#print axioms` audit.
 -/
 
@@ -182,7 +182,7 @@ theorem armSaveRestore_roundtrip {h : Host} {k : Nat} {s : MachineData} {R : Mem
     exact hk s2 (hq2.1 (.reg .X19) (by simp [rs])) (hq2.1 (.reg .X20) (by simp [rs]))
       (hq2.1 (.reg .X21) (by simp [rs]))
 
-/-! ## 4. Axiom audit (`std3`) -/
+/-! ## 4. Axiom audit (`[propext, Classical.choice, Quot.sound]`) -/
 
 #print axioms LeanQbe.T.Arm64.armFrameSpec
 #print axioms LeanQbe.T.Arm64.armSaveRegs_noLab

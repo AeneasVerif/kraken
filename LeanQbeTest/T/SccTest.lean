@@ -9,7 +9,7 @@ meta import LeanQbe.T.Module
 meta import LeanQbe.T.Notation
 
 /-!
-# Tests for Call Graph Extraction, Tarjan Condensation, and `checkSccOrder` (`R-B`)
+# Tests for Call Graph Extraction, Tarjan Condensation, and `checkSccOrder`
 
 Exercises `LeanQbe.T.Scc` and `LeanQbe.T.SccLemmas`:
 1. Multi-SCC call graph extraction (`callGraph`), Tarjan condensation (`sccOrder`), and
