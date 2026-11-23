@@ -170,6 +170,8 @@ public import LeanQbe.T.Examples.Kissat.FullM7BumpProof
 public import LeanQbe.T.Examples.Kissat.FullM7BvaFactor
 public import LeanQbe.T.Examples.Kissat.FullM7BvaFactorProof
 public import LeanQbe.T.Examples.Kissat.FullM7BvaFactorProof0
+public import LeanQbe.T.Examples.Kissat.FullM7BvaGuFix
+public import LeanQbe.T.Examples.Kissat.FullM7BvaGuFixProof
 public import LeanQbe.T.Examples.Kissat.FullM7BveGates
 public import LeanQbe.T.Examples.Kissat.FullM7CongHash
 public import LeanQbe.T.Examples.Kissat.FullM7CongHashProof
