@@ -469,6 +469,38 @@ partial def evalTacKStep : Tactic :=
   let (_, st) ← (evalSymKStepCore config maxSteps?).runAtGoal (← getMainGoal) (← Grind.mkDefaultParams {}) (sym := true)
   replaceMainGoal (st.goals.map (·.mvarId))
 
+syntax (name := symKStepKStep) "kstep_kstep" : grind
+syntax (name := symKStepKSimp) "kstep_ksimp" : grind
+syntax (name := symKStepStepAt) "kstep_step_at" : grind
+syntax (name := symKStepKMem) "kstep_kmem" : grind
+
+@[grind_tactic symKStepKStep]
+def evalSymKStepKStep : Grind.GrindTactic := fun _ => do
+  let goal ← Grind.getMainGoal
+  let goal ← applyKStepDSimp goal
+  Grind.replaceMainGoal [goal]
+
+@[grind_tactic symKStepKSimp]
+def evalSymKStepKSimp : Grind.GrindTactic := fun _ => do
+  let goal ← Grind.getMainGoal
+  let simpMethods ← mkSimpMethods
+  let (_, goal) ← applyKSimp simpMethods goal
+  Grind.replaceMainGoal [goal]
+
+@[grind_tactic symKStepStepAt]
+def evalSymKStepStepAt : Grind.GrindTactic := fun _ => do
+  let goal ← Grind.getMainGoal
+  let some goal ← stepAt? none goal | throwError "kstep_step_at: could not apply `step_at`"
+  Grind.replaceMainGoal [goal]
+
+@[grind_tactic symKStepKMem]
+def evalSymKStepKMem : Grind.GrindTactic := fun _ => do
+  let goal ← Grind.getMainGoal
+  let simpMethods ← mkSimpMethods
+  match ← applyKMem simpMethods goal with
+  | .done goal | .noMatch goal | .progress goal => Grind.replaceMainGoal [goal]
+  | .subgoals goal subGoals => Grind.replaceMainGoal (subGoals ++ [goal])
+
 syntax (name := symRotateRight) "rotate_right" (ppSpace num)? : grind
 
 @[grind_tactic symRotateRight]
