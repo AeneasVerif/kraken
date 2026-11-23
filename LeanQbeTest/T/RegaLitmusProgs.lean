@@ -335,9 +335,9 @@ theorem adcxAdox_code : codeAdcxAdox =
 /-- Loop-carried `CF`: `adc` produces it, `lea`/`dec`/`tstz`/`jcc`/`mov`/`jmp` preserve it around
 the back-edge into the next `adc`; it is materialised (`setc`) only on exit. -/
 theorem cfLoop_code : codeCfLoop =
-    [.label "cfLoop", .spAdd 0#64, .mov 1 7, .xorz 11, .movi 0 0#64,
-     .label "cfLoop.L0", .adc 64 0 (.reg 0) (.reg 6), .lea 6 6 8#64, .dec 64 1 (.reg 1),
-     .tstz 64 (.reg 1), .jcc .nzf "cfLoop.L0", .setcc 2 .cf, .zext 8 2, .spAdd 0#64,
+    [.label "cfLoop", .spAdd 0#64, .xorz 11, .movi 0 0#64,
+     .label "cfLoop.L0", .adc 64 0 (.reg 0) (.reg 6), .lea 6 6 8#64, .dec 64 7 (.reg 7),
+     .tstz 64 (.reg 7), .jcc .nzf "cfLoop.L0", .setcc 2 .cf, .zext 8 2, .spAdd 0#64,
      .ret] := by t_kernel_rfl
 
 theorem cfLoop_cf_writers :

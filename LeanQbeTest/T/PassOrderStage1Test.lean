@@ -94,14 +94,11 @@ def abMaskProg : Func [i32] [i64] := fun _ _ (w0, ()) =>
     (.ret (.imm 0, ()))
 
 theorem abMask_late_out : Func.lateOpt abMaskProg = fun _ _ (w0, ()) =>
-    .group (sig := [[i64]])
-      (fun (_, ()) => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
-      (fun (exit_lbl, ()) =>
-        .let_ (op2 (.and i32) (.var w0) (.imm 0x80000000)) fun (bin, ()) =>
-        .let_ (op2 (.eq i32) (.var bin) (.imm 0)) fun (c, ()) =>
-        .jnz (.var c)
-          (.let_ (op1 (.zext 32 64) (.var w0)) fun (z, ()) => .jump exit_lbl (.var z, ()))
-          (.jump exit_lbl (.imm 0, ()))) := by
+    .let_ (op2 (.and i32) (.var w0) (.imm 0x80000000)) fun (bin, ()) =>
+    .let_ (op2 (.eq i32) (.var bin) (.imm 0)) fun (c, ()) =>
+    .let_ (op1 (.zext 32 64) (.var w0)) fun (z, ()) =>
+    .let_ (op3 (.select i64) (.var c) (.var z) (.imm 0)) fun (sel, ()) =>
+    .ret (.var sel, ()) := by
   t_kernel_rfl
 
 theorem abMask_wf : abMaskProg.Wf := by t_wf_reify
