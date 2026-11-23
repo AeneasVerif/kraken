@@ -8,7 +8,7 @@ public import LeanQbe.T.Examples.Kissat.FullM6
 public import LeanQbe.T.Examples.Kissat.FullM6Transport0
 public import LeanQbe.T.Examples.Kissat.FullM6WalkParseProof3
 public import LeanQbe.T.Examples.Kissat.FullM6OrchAdaptersProof0
-public import LeanQbe.T.Examples.Kissat.FullM6OrchProof2
+public import LeanQbe.T.Examples.Kissat.FullM6OrchProof
 public import LeanQbe.T.Examples.Kissat.FullM6S15Bridge
 public import LeanQbe.T.Examples.Kissat.FullM6ProofUtil
 import LeanQbe.T.Examples.Kissat.FullDenseWatchLemmas2
@@ -24,8 +24,8 @@ import Kraken.Separation
 
 Assembles `m6RowsPart1 tPfx` aligned 1-to-1 with `FullM6.m6FnsPart1`, proves `sigs`/`noExit`
 metadata, defines the shared `M6OrchPfxTblSpecs` and `M6Part1Callees` contracts, and certifies all
-`112` functions of Part 1 (`Dimacs` through `full_reduce_m6`) in `Env.ofTable tbl`, with `0`
-`@[expose]` tags and plain `public section`.
+`112` functions of Part 1 (`Dimacs` through `full_reduce_m6`) in `Env.ofTable tbl`, with zero
+`expose` attributes and plain `public section`.
 -/
 
 set_option autoImplicit false
@@ -1158,5 +1158,106 @@ theorem m6Part1TailCallees_of_sub {tPfx tbl : List SpecEntry}
       exact List.mem_of_getElem? hmi)
     , hsub _ (by
       unfold m6RowsPart1; apply List.mem_append_left; exact List.mem_of_getElem? hck) ⟩
+
+/-- Part 1 external callee memberships required by `m6Orch_fns.take 24`. -/
+structure M6Part1ExtCallees (tbl : List SpecEntry) : Prop where
+  wstackDefragM6 :
+    (⟨"full_wstack_defrag_m6", [i64], [], Full.fullWstackDefragSpec, true⟩ : SpecEntry) ∈ tbl
+  watchPushM6 :
+    (⟨"full_watch_push_m6", [i64, i32, i32, i32, i32], [.bool],
+      Full.fullWatchPushSpec, true⟩ : SpecEntry) ∈ tbl
+  rescaleM6 :
+    (⟨"full_rescale_m6", [i64], [], Full.fullRescaleSpec, true⟩ : SpecEntry) ∈ tbl
+  parseBodyM6 :
+    (⟨"full_parse_body_m6", [i64, i64], [i64], Full.fullParseBodySpec, true⟩ : SpecEntry) ∈ tbl
+  litRankM6 :
+    (⟨"full_lit_rank_m6", [i64, i64, i32], [i64], Full.fullLitRankSpec, true⟩ : SpecEntry) ∈ tbl
+  sweepBinsM6cf :
+    (⟨"full_sweep_bins_m6cf", [i64], [], Full.fullSweepBinsSpec, true⟩ : SpecEntry) ∈ tbl
+  rewatchArenaM6 :
+    (⟨"full_rewatch_arena_m6", [i64, i64], [.bool],
+      Full.fullRewatchArenaSpec, true⟩ : SpecEntry) ∈ tbl
+  arenaSweepM6 :
+    (⟨"full_arena_sweep_m6", [i64], [i64], Full.fullArenaSweepSpec, true⟩ : SpecEntry) ∈ tbl
+  markReasonsM6 :
+    (⟨"full_mark_reasons_m6", [i64, .bool], [], Full.fullMarkReasonsSpec, true⟩ : SpecEntry) ∈ tbl
+  recomputeTiers :
+    (⟨"m6_hdr_recompute_tiers", [i64], [], FullM6Hdr.m6HdrW2aSpec [] [], true⟩ : SpecEntry) ∈ tbl
+  sortReds :
+    (⟨"full_sort_reds", [i64, i64], [], Full.fullSortRedsSpec, true⟩ : SpecEntry) ∈ tbl
+  setWm :
+    (⟨"m6_hdr_set_watermark", [i64, i64, i64], [], FullM6Hdr.m6HdrW2aSpec [i64, i64] [], true⟩ :
+      SpecEntry) ∈ tbl
+  recordUsed :
+    (⟨"m6_hdr_record_used", [i64, i64], [], FullM6Hdr.m6HdrW2aSpec [i64] [], true⟩ :
+      SpecEntry) ∈ tbl
+  extReady :
+    (⟨"m6_hdr_ext_ready", [i64], [.bool], FullM6Hdr.m6HdrExtReadySpec, true⟩ : SpecEntry) ∈ tbl
+  getWm :
+    (⟨"m6_hdr_get_watermark", [i64, i64], [i64], FullM6Hdr.m6HdrW2aSpec [i64] [i64], true⟩ :
+      SpecEntry) ∈ tbl
+  heapDown :
+    (⟨"full_heap_down", [i64, i32], [], Full.fullHeapDownSpec, true⟩ : SpecEntry) ∈ tbl
+  delaying :
+    (⟨"m6_hdr_delaying", [i64, i64], [.bool], FullM6Hdr.m6HdrW2aSpec [i64] [.bool], true⟩ :
+      SpecEntry) ∈ tbl
+  reduceDelay :
+    (⟨"m6_hdr_reduce_delay", [i64, i64], [], FullM6Hdr.m6HdrW2aSpec [i64] [], true⟩ :
+      SpecEntry) ∈ tbl
+  bumpDelay :
+    (⟨"m6_hdr_bump_delay", [i64, i64], [], FullM6Hdr.m6HdrW2aSpec [i64] [], true⟩ :
+      SpecEntry) ∈ tbl
+
+theorem m6Part1ExtCallees_of_sub {tPfx tbl : List SpecEntry}
+    (hsub : ∀ e ∈ m6RowsPart1 tPfx, e ∈ tbl) : M6Part1ExtCallees tbl := by
+  have sub_wg0 : ∀ e ∈ p1WatchGc0Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart1; iterate 2 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_heap : ∀ e ∈ p1HeapRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart1; iterate 4 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_resc : ∀ e ∈ p1RescaleM6Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart1; iterate 5 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_hdr0 : ∀ e ∈ p1Hdr0ExactRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart1; iterate 10 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_pb : ∀ e ∈ p1ParseBodyM6Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart1; iterate 15 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_wg1 : ∀ e ∈ p1WatchGc1Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart1; iterate 18 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_wg2 : ∀ e ∈ p1WatchGc2Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart1; iterate 19 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_swb : ∀ e ∈ p1SweepBinsM6cfRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart1; iterate 21 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_wg3 : ∀ e ∈ p1WatchGc3Rows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart1; iterate 25 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  have sub_reds : ∀ e ∈ p1RedsRows, e ∈ tbl := fun _ h => hsub _ (by
+    unfold m6RowsPart1; iterate 28 apply List.mem_append_right
+    exact List.mem_append_left _ h)
+  refine ⟨ sub_wg0 _ (List.mem_of_getElem? (i := 1) rfl)
+         , sub_wg0 _ (List.mem_of_getElem? (i := 2) rfl)
+         , sub_resc _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_pb _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_wg1 _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_swb _ (List.mem_of_getElem? (i := 0) rfl)
+         , sub_wg2 _ (List.mem_of_getElem? (i := 1) rfl)
+         , sub_wg3 _ (List.mem_of_getElem? (i := 3) rfl)
+         , sub_wg3 _ (List.mem_of_getElem? (i := 4) rfl)
+         , sub_hdr0 _ (List.mem_of_getElem? (i := 9) rfl)
+         , sub_reds _ (List.mem_of_getElem? (i := 2) rfl)
+         , sub_hdr0 _ (List.mem_of_getElem? (i := 19) rfl)
+         , sub_hdr0 _ (List.mem_of_getElem? (i := 11) rfl)
+         , sub_hdr0 _ (List.mem_of_getElem? (i := 5) rfl)
+         , sub_hdr0 _ (List.mem_of_getElem? (i := 18) rfl)
+         , sub_heap _ (List.mem_of_getElem? (i := 1) rfl)
+         , sub_hdr0 _ (List.mem_of_getElem? (i := 14) rfl)
+         , sub_hdr0 _ (List.mem_of_getElem? (i := 16) rfl)
+         , sub_hdr0 _ (List.mem_of_getElem? (i := 15) rfl) ⟩
 
 end LeanQbe.T.Examples.Kissat.FullM6Proof

@@ -889,7 +889,8 @@ if [ "${CHECK_TIMES:-0}" = "1" ]; then
   [ "$RESOLVED_SCOPE" != "arm64" ] && cand_arches+=(Amd64)
   [ "$RESOLVED_SCOPE" != "x64" ] && cand_arches+=(Arm64)
   for arch in "${cand_arches[@]}"; do
-    for mod in LratBytes KissatM5Cert1 KissatM5Cert KissatM5CertLink KissatM5 KissatM5Sound; do
+    for mod in LratBytes KissatM5Cert1 KissatM5Cert KissatM5CertLink KissatM5 KissatM5Sound \
+        KissatM6Cert1 KissatM6Cert KissatM6CertLink KissatM6; do
       [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
     done
     if [ "$INCLUDE_LEGACY" = "1" ]; then
