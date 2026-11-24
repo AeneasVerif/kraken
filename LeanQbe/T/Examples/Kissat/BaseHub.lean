@@ -131,6 +131,8 @@ public import LeanQbe.T.Examples.Kissat.FullLearnAnaLemmas2
 public import LeanQbe.T.Examples.Kissat.FullLuckyLemmas
 public import LeanQbe.T.Examples.Kissat.FullLuckyLemmas1
 public import LeanQbe.T.Examples.Kissat.FullLuckyLemmas2
+public import LeanQbe.T.Examples.Kissat.FullM8SbvaTie
+public import LeanQbe.T.Examples.Kissat.FullM8SbvaTieProof
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas1
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas2
