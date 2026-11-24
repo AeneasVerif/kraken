@@ -325,6 +325,8 @@ public import LeanQbe.T.Examples.Kissat.FullM7Transport0
 public import LeanQbe.T.Examples.Kissat.FullM7Transport1
 public import LeanQbe.T.Examples.Kissat.FullM7Transport2
 public import LeanQbe.T.Examples.Kissat.FullM7V2Robust
+public import LeanQbe.T.Examples.Kissat.FullM7V2RobustProof
+public import LeanQbe.T.Examples.Kissat.FullM7V2RobustProof0
 public import LeanQbe.T.Examples.Kissat.FullM7Walk
 public import LeanQbe.T.Examples.Kissat.FullM7WalkProof
 public import LeanQbe.T.Examples.Kissat.FullM7WalkProof0
