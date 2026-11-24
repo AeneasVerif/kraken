@@ -5,11 +5,17 @@ public import LeanQbe.T.Logic.C0Step
 import all Kraken.Separation
 
 /-!
-# Soundness Proofs for `LcnfC0Rt` (Milestone R0)
+# Soundness Proofs for `LcnfC0Rt` (Milestone R0: M0a + M0b)
 
-Proves `Func.wp` contracts against `rtC0Env` for the C0 runtime functions in `LcnfC0Rt.lean`:
+Proves `Func.wp` contracts against `rtC0Env` for all 5 C0 runtime functions in `LcnfC0Rt.lean`:
 - `lcnf_alloc` (`lcnfAllocSpec`)
 - `lcnf_free_obj` (`lcnfFreeObjSpec`)
+- `lcnf_dec_ref_cold` (`lcnfDecRefColdSpec`)
+- `lcnf_mark_persistent` (`lcnfMarkPersistentSpec`)
+- `lcnf_clo_under` (`lcnfCloUnderSpec`)
+
+Closes `rtR0Mod_ok : ModuleOk rtC0Env rtR0Mod` across all 5 runtime functions, plus concrete
+`Mem 64` non-vacuity DAG theorems (`nv_dec_ref_cold_dag`, `nv_mark_persistent_dag`).
 -/
 
 set_option autoImplicit false
@@ -2054,9 +2060,9 @@ theorem lcnf_free_obj_wp (Γ : Env) :
           clear hm0
           let EpiPost : Tup Val [] → Mem 64 → Prop := fun _ m2 =>
             ∃ stTmp : RtC0State, stTmp.PreservesMeta st ∧ stTmp.rem = st.rem ∧
-              (rtC0Inv rt stTmp ⋆ R) m2
+              stTmp.workBuf = st.workBuf ∧ (rtC0Inv rt stTmp ⋆ R) m2
           refine wp_join_group EpiPost ?_ ?_
-          · intro _ ⟨⟩ m2 ⟨stTmp, hMeta, hRem, hmem⟩
+          · intro _ ⟨⟩ m2 ⟨stTmp, hMeta, hRem, hWb, hmem⟩
             unfold rtC0Inv at hmem
             have hHdr := free_obj_pull_hdr hmem
             clear hmem
@@ -2077,7 +2083,7 @@ theorem lcnf_free_obj_wp (Γ : Env) :
             refine hQ stTmp.withFreeStats m2b
               ⟨hMeta.1, hMeta.2.1, hMeta.2.2.1, hMeta.2.2.2.1, hMeta.2.2.2.2.1,
                 hMeta.2.2.2.2.2.1, hMeta.2.2.2.2.2.2.1, hMeta.2.2.2.2.2.2.2.1,
-                hMeta.2.2.2.2.2.2.2.2⟩ hRem ?_
+                hMeta.2.2.2.2.2.2.2.2⟩ hRem hWb ?_
             unfold rtC0Inv
             exact free_obj_back_hdr hm2b
           · intro Jepi hJepi
@@ -2127,7 +2133,7 @@ theorem lcnf_free_obj_wp (Γ : Env) :
                 dsimp [Arg.val] at hm3
                 rw [hget] at hm3
                 refine hJepi () m3 ⟨st.withFreeSmall (bytes / 8) o,
-                  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, ?_⟩
+                  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, rfl, ?_⟩
                 exact free_obj_post_small_finish hoNz hoAl hmin hmax hmod hsmall rfl hm3
               · intro hc
                 exfalso
@@ -2176,7 +2182,7 @@ theorem lcnf_free_obj_wp (Γ : Env) :
                 clear hm3Hdr
                 c0_steps
                 refine hJepi () m4 ⟨st.withFreeLarge o bytes,
-                  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, ?_⟩
+                  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, rfl, ?_⟩
                 exact free_obj_post_large_finish hoNz hoAl h512 hmax hmod hOldHd hm4
       · intro Jsw hJsw
         by_cases ht246 : (hdr >>> 56).toNat = arrayTag
@@ -3392,7 +3398,7 @@ theorem lcnf_clo_under_wp (Γ : Env)
               refine ⟨st', fc.header, fc.totalBytes, (C_mem ⋆ lcnfHeap objs) ⋆ R, hf_ne0, hf_al,
                 hfcWf.2.2.2.2.2.2.1, hfcWf.2.2.2.2.2.2.2.1, hfcWf.2.2.2.2.2.2.2.2.1,
                 hFreePre, ?_⟩
-              intro st'' mFree hMeta2 hRem2 hmFree
+              intro st'' mFree hMeta2 hRem2 _hWb2 hmFree
               apply hJ2 () mFree
               refine hPost c st'' objs mFree hcNe0 hcAlign
                 (preservesMeta_trans hMeta1 hMeta2) (by omega) (by simp [hrc1]) ?_
@@ -3713,5 +3719,3039 @@ theorem rtR0ModM0a_ok : ModuleOk rtC0M0aEnv rtR0ModM0a := by
 theorem rtC0Env_clo_under_wp : ∀ xs m Q X,
     lcnfCloUnderSpec xs m Q X → Func.wp rtC0Env lcnf_clo_under.body xs m Q X :=
   lcnf_clo_under_wp rtC0Env rtC0Env_alloc rtC0Env_free_obj
+
+/-! ## Shared DFS, Worklist, and Heap Helpers -/
+
+private def SameNonRc (a b : LcnfObj) : Prop :=
+  b.addr = a.addr ∧ b.csSz = a.csSz ∧ b.other = a.other ∧ b.tag = a.tag ∧
+  b.funId = a.funId ∧ b.arity = a.arity ∧ b.cap = a.cap ∧ b.arrSize = a.arrSize ∧
+  b.strLen = a.strLen ∧ b.fields = a.fields ∧ b.scalarData = a.scalarData ∧ b.limbs = a.limbs
+
+private theorem SameNonRc.refl (a : LcnfObj) : SameNonRc a a :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+private theorem SameNonRc.trans {a b c : LcnfObj} (h1 : SameNonRc a b) (h2 : SameNonRc b c) :
+    SameNonRc a c :=
+  ⟨h2.1.trans h1.1, h2.2.1.trans h1.2.1, h2.2.2.1.trans h1.2.2.1,
+   h2.2.2.2.1.trans h1.2.2.2.1, h2.2.2.2.2.1.trans h1.2.2.2.2.1,
+   h2.2.2.2.2.2.1.trans h1.2.2.2.2.2.1, h2.2.2.2.2.2.2.1.trans h1.2.2.2.2.2.2.1,
+   h2.2.2.2.2.2.2.2.1.trans h1.2.2.2.2.2.2.2.1, h2.2.2.2.2.2.2.2.2.1.trans h1.2.2.2.2.2.2.2.2.1,
+   h2.2.2.2.2.2.2.2.2.2.1.trans h1.2.2.2.2.2.2.2.2.2.1,
+   h2.2.2.2.2.2.2.2.2.2.2.1.trans h1.2.2.2.2.2.2.2.2.2.2.1,
+   h2.2.2.2.2.2.2.2.2.2.2.2.trans h1.2.2.2.2.2.2.2.2.2.2.2⟩
+
+private theorem SameNonRc.withRc_r {a b : LcnfObj} (h : SameNonRc a b) (rc' : BitVec 32) :
+    SameNonRc a (b.withRc rc') := h
+
+private theorem SameNonRc.childFields_eq {a b : LcnfObj} (h : SameNonRc a b) :
+    b.childFields = a.childFields := by
+  unfold LcnfObj.childFields
+  rw [h.2.2.2.1, h.2.2.2.2.2.2.2.2.2.1]
+
+private def LcnfObj.fieldsOff (o : LcnfObj) : BitVec 64 :=
+  if o.tag = closureTag ∨ o.tag = arrayTag then 24#64 else 8#64
+
+private theorem objWf_childFields_lt {o : LcnfObj} (hwf : o.Wf) :
+    o.childFields.length < 2 ^ 64 := by
+  unfold LcnfObj.childFields
+  rcases hwf with ⟨_, _, _, _, hoth, _, _, _, _, hsp⟩
+  by_cases hc : o.tag = closureTag
+  · simp only [hc, true_or, or_true, ↓reduceIte] at hsp ⊢; have := hsp.2.1; omega
+  · by_cases ha : o.tag = arrayTag
+    · simp only [ha, show arrayTag ≠ closureTag by decide, or_true, ↓reduceIte] at hsp ⊢
+      have := hsp.1; have := hsp.2; omega
+    · by_cases hsa : o.tag = sarrayTag
+      · simp [hsa, closureTag, arrayTag, sarrayTag]
+      · by_cases hstr : o.tag = stringTag
+        · simp [hstr, closureTag, arrayTag, stringTag]
+        · by_cases hmpz : o.tag = mpzTag
+          · simp [hmpz, closureTag, arrayTag, mpzTag]
+          · simp only [hc, ha, hsa, hstr, hmpz, ↓reduceIte] at hsp
+            have h1 := hsp.1; have h2 := hsp.2.1
+            simp only [h1, true_or, ↓reduceIte]; omega
+
+private theorem objWf_addr_even {o : LcnfObj} (hwf : o.Wf) :
+    (o.addr &&& 1#64) = 0#64 := by
+  have hal := hwf.2.1
+  apply BitVec.eq_of_toNat_eq
+  have h1m : (1#64).toNat = 1 := by decide
+  have h0m : (0#64).toNat = 0 := by decide
+  rw [BitVec.toNat_and, h1m, Nat.and_one_is_mod, h0m]; omega
+
+private theorem objWf_rc_pos {o : LcnfObj} (hwf : o.Wf) (hnz : o.rc ≠ 0#32) :
+    0 < o.rc.toInt := by
+  have hnn := hwf.2.2.1
+  rw [BitVec.toInt_eq_toNat_cond] at hnn ⊢
+  have hne0 : o.rc.toNat ≠ 0 := fun hz => hnz (BitVec.eq_of_toNat_eq hz)
+  split at hnn <;> simp_all <;> omega
+
+private theorem objWf_rc_lt {o : LcnfObj} (hwf : o.Wf) :
+    o.rc.toNat < 2147483648 := by
+  have hnn := hwf.2.2.1
+  rw [BitVec.toInt_eq_toNat_cond] at hnn
+  split at hnn <;> omega
+
+private theorem objWf_withRc_zero {o : LcnfObj} (hwf : o.Wf) :
+    (o.withRc 0#32).Wf :=
+  lcnfObjWf_withRc hwf (by decide)
+
+private theorem objWf_rc_sub1_toInt {o : LcnfObj} (hwf : o.Wf) (hgt : 1 < o.rc.toNat) :
+    (o.rc - 1#32).toInt = o.rc.toInt - 1 := by
+  have hlt := objWf_rc_lt hwf
+  rw [BitVec.toInt_eq_toNat_cond, BitVec.toInt_eq_toNat_cond]
+  have hsub : (o.rc - 1#32).toNat = o.rc.toNat - 1 := by bv_omega
+  rw [hsub]
+  split <;> split <;> omega
+
+private theorem objRc_sub1_toNat {o : LcnfObj} (hgt : 1 < o.rc.toNat) :
+    (o.rc - 1#32).toNat = o.rc.toNat - 1 := by
+  bv_omega
+
+private def RtC0State.withWorkBuf (st : RtC0State) (wb : List (BitVec 64))
+    (hlen : wb.length = st.hdr.s_work_cap.toNat) : RtC0State where
+  extraArgs := st.extraArgs
+  globals := st.globals
+  freeList := st.freeList
+  hdr := st.hdr
+  workBuf := wb
+  smallPools := st.smallPools
+  largeNodes := st.largeNodes
+  extraLen := st.extraLen
+  globalsLen := st.globalsLen
+  freeListLen := st.freeListLen
+  workLen := hlen
+  curLeEnd := st.curLeEnd
+  arenaAlign := st.arenaAlign
+  curNz := st.curNz
+
+private def RtC0State.withColdDecsInc (st : RtC0State) : RtC0State where
+  extraArgs := st.extraArgs
+  globals := st.globals
+  freeList := st.freeList
+  hdr := { st.hdr with s_st_cold_decs := st.hdr.s_st_cold_decs + 1#64 }
+  workBuf := st.workBuf
+  smallPools := st.smallPools
+  largeNodes := st.largeNodes
+  extraLen := st.extraLen
+  globalsLen := st.globalsLen
+  freeListLen := st.freeListLen
+  workLen := st.workLen
+  curLeEnd := st.curLeEnd
+  arenaAlign := st.arenaAlign
+  curNz := st.curNz
+
+private def RtC0State.withPersistInc (st : RtC0State) : RtC0State where
+  extraArgs := st.extraArgs
+  globals := st.globals
+  freeList := st.freeList
+  hdr := { st.hdr with s_st_persistent := st.hdr.s_st_persistent + 1#64 }
+  workBuf := st.workBuf
+  smallPools := st.smallPools
+  largeNodes := st.largeNodes
+  extraLen := st.extraLen
+  globalsLen := st.globalsLen
+  freeListLen := st.freeListLen
+  workLen := st.workLen
+  curLeEnd := st.curLeEnd
+  arenaAlign := st.arenaAlign
+  curNz := st.curNz
+
+private theorem sep_pull_heap {rt : BitVec 64} {st : RtC0State} {objs : List LcnfObj}
+    {R : Mem 64 → Prop} {m : Mem 64}
+    (hm : (rtC0Inv rt st ⋆ lcnfHeap objs ⋆ R) m) :
+    (lcnfHeap objs ⋆ (rtC0Inv rt st ⋆ R)) m :=
+  sep_cast hm (by ac_rfl)
+
+private theorem rtC0Inv_hdr_focus {rt : BitVec 64} {st : RtC0State} {H R : Mem 64 → Prop}
+    {m : Mem 64} (hm : (rtC0Inv rt st ⋆ H ⋆ R) m) :
+    (LcnfC0Rt.At rt st.hdr ⋆
+      (array64 rt st.extraArgs ⋆ array64 (rt + BitVec.ofNat 64 rtGlobalsOff) st.globals ⋆
+        array64 (rt + 33024#64) st.freeList ⋆ array64 st.hdr.s_work st.workBuf ⋆
+        smallPoolsAt st.freeList st.smallPools rtNumClasses ⋆
+        largeFreeList st.hdr.s_large_free st.largeNodes ⋆
+        region st.hdr.s_cur st.rem ⋆ H ⋆ R)) m := by
+  unfold rtC0Inv at hm
+  exact sep_cast hm (by ac_rfl)
+
+private theorem rtC0Inv_work_focus {rt : BitVec 64} {st : RtC0State} {H R : Mem 64 → Prop}
+    {m : Mem 64} (hm : (rtC0Inv rt st ⋆ H ⋆ R) m) :
+    (array64 st.hdr.s_work st.workBuf ⋆
+      (array64 rt st.extraArgs ⋆ array64 (rt + BitVec.ofNat 64 rtGlobalsOff) st.globals ⋆
+        array64 (rt + 33024#64) st.freeList ⋆ LcnfC0Rt.At rt st.hdr ⋆
+        smallPoolsAt st.freeList st.smallPools rtNumClasses ⋆
+        largeFreeList st.hdr.s_large_free st.largeNodes ⋆
+        region st.hdr.s_cur st.rem ⋆ H ⋆ R)) m := by
+  unfold rtC0Inv at hm
+  exact sep_cast hm (by ac_rfl)
+
+private theorem rtC0Inv_load_s_work {rt : BitVec 64} {st : RtC0State} {H R : Mem 64 → Prop}
+    {m : Mem 64} (hm : (rtC0Inv rt st ⋆ H ⋆ R) m) :
+    loadVal m i64 (rt + 33568#64) = some st.hdr.s_work :=
+  LcnfC0Rt.load_s_work (rtC0Inv_hdr_focus hm)
+
+private theorem rtC0Inv_load_s_work_cap {rt : BitVec 64} {st : RtC0State} {H R : Mem 64 → Prop}
+    {m : Mem 64} (hm : (rtC0Inv rt st ⋆ H ⋆ R) m) :
+    loadVal m i64 (rt + 33576#64) = some st.hdr.s_work_cap :=
+  LcnfC0Rt.load_s_work_cap (rtC0Inv_hdr_focus hm)
+
+private theorem rtC0Inv_load_s_st_cold_decs {rt : BitVec 64} {st : RtC0State} {H R : Mem 64 → Prop}
+    {m : Mem 64} (hm : (rtC0Inv rt st ⋆ H ⋆ R) m) :
+    loadVal m i64 (rt + 33656#64) = some st.hdr.s_st_cold_decs :=
+  LcnfC0Rt.load_s_st_cold_decs (rtC0Inv_hdr_focus hm)
+
+private theorem rtC0Inv_store_s_st_cold_decs {rt : BitVec 64} {st : RtC0State}
+    {H R : Mem 64 → Prop} {m : Mem 64} (hm : (rtC0Inv rt st ⋆ H ⋆ R) m) :
+    storeOk m i64 (rt + 33656#64) ∧
+      ((rtC0Inv rt st.withColdDecsInc ⋆ H) ⋆ R)
+        (storeMem m i64 (rt + 33656#64) (st.hdr.s_st_cold_decs + 1#64)) := by
+  have h1 := LcnfC0Rt.store_s_st_cold_decs (st.hdr.s_st_cold_decs + 1#64) (rtC0Inv_hdr_focus hm)
+  refine ⟨h1.1, ?_⟩
+  unfold rtC0Inv
+  exact sep_cast h1.2 (by ac_rfl)
+
+private theorem rtC0Inv_load_s_st_persistent {rt : BitVec 64} {st : RtC0State}
+    {H R : Mem 64 → Prop} {m : Mem 64} (hm : (rtC0Inv rt st ⋆ H ⋆ R) m) :
+    loadVal m i64 (rt + 33640#64) = some st.hdr.s_st_persistent :=
+  LcnfC0Rt.load_s_st_persistent (rtC0Inv_hdr_focus hm)
+
+private theorem rtC0Inv_store_s_st_persistent {rt : BitVec 64} {st : RtC0State}
+    {H R : Mem 64 → Prop} {m : Mem 64} (hm : (rtC0Inv rt st ⋆ H ⋆ R) m) :
+    storeOk m i64 (rt + 33640#64) ∧
+      ((rtC0Inv rt st.withPersistInc ⋆ H) ⋆ R)
+        (storeMem m i64 (rt + 33640#64) (st.hdr.s_st_persistent + 1#64)) := by
+  have h1 := LcnfC0Rt.store_s_st_persistent (st.hdr.s_st_persistent + 1#64) (rtC0Inv_hdr_focus hm)
+  refine ⟨h1.1, ?_⟩
+  unfold rtC0Inv
+  exact sep_cast h1.2 (by ac_rfl)
+
+private theorem rtC0Inv_load_work {rt : BitVec 64} {st : RtC0State} {H R : Mem 64 → Prop}
+    {m : Mem 64} {i : Nat} (hi : i < st.workBuf.length) (hm : (rtC0Inv rt st ⋆ H ⋆ R) m) :
+    loadVal m i64 (st.hdr.s_work + BitVec.ofNat 64 (8 * i)) = some (st.workBuf[i]'hi) :=
+  loadVal_array64 hi (rtC0Inv_work_focus hm)
+
+private theorem rtC0Inv_store_work {rt : BitVec 64} {st : RtC0State} {H R : Mem 64 → Prop}
+    {m : Mem 64} {i : Nat} (hi : i < st.workBuf.length) (v : BitVec 64)
+    (hm : (rtC0Inv rt st ⋆ H ⋆ R) m) :
+    storeOk m i64 (st.hdr.s_work + BitVec.ofNat 64 (8 * i)) ∧
+      ((rtC0Inv rt (st.withWorkBuf (st.workBuf.set i v) (by rw [List.length_set]; exact st.workLen))
+        ⋆ H) ⋆ R) (storeMem m i64 (st.hdr.s_work + BitVec.ofNat 64 (8 * i)) v) := by
+  have h1 := store_array64 v hi (rtC0Inv_work_focus hm)
+  refine ⟨h1.1, ?_⟩
+  unfold rtC0Inv
+  exact sep_cast h1.2 (by ac_rfl)
+
+private theorem lcnfObjMem_load_header {o : LcnfObj} {F : Mem 64 → Prop} {m : Mem 64}
+    (hm : (lcnfObjMem o ⋆ F) m) : loadVal m i64 o.addr = some o.header := by
+  rw [lcnfObjMem_eq_header_body] at hm
+  exact loadVal_cell64 (sep_assoc_lr hm)
+
+private theorem lcnfObjMem_load_cloMeta {o : LcnfObj} (ht : o.tag = closureTag)
+    {F : Mem 64 → Prop} {m : Mem 64} (hm : (lcnfObjMem o ⋆ F) m) :
+    loadVal m i64 (o.addr + 16#64) = some o.cloMeta := by
+  unfold lcnfObjMem at hm
+  rw [ite_eq_left ht] at hm
+  have h1 : (cell64 (o.addr + 16#64) o.cloMeta ⋆
+      (cell64 o.addr o.header ⋆ cell64 (o.addr + 8#64) o.funId ⋆
+        array64 (o.addr + 24#64) o.fields ⋆
+        region (o.addr + BitVec.ofNat 64 (24 + 8 * o.fields.length))
+          (o.csSz - (24 + 8 * o.fields.length)) ⋆ F)) m :=
+    sep_cast hm (by ac_rfl)
+  exact loadVal_cell64 h1
+
+private theorem lcnfObjMem_load_arrSize {o : LcnfObj} (ht : o.tag = arrayTag)
+    {F : Mem 64 → Prop} {m : Mem 64} (hm : (lcnfObjMem o ⋆ F) m) :
+    loadVal m i64 (o.addr + 8#64) = some (BitVec.ofNat 64 o.fields.length) := by
+  unfold lcnfObjMem at hm
+  rw [ite_eq_right (by rw [ht]; decide), ite_eq_left ht] at hm
+  have h1 : (cell64 (o.addr + 8#64) (BitVec.ofNat 64 o.fields.length) ⋆
+      (cell64 o.addr o.header ⋆ cell64 (o.addr + 16#64) (BitVec.ofNat 64 o.cap) ⋆
+        array64 (o.addr + 24#64) o.fields ⋆
+        region (o.addr + BitVec.ofNat 64 (24 + 8 * o.fields.length))
+          (8 * (o.cap - o.fields.length)) ⋆ F)) m :=
+    sep_cast hm (by ac_rfl)
+  exact loadVal_cell64 h1
+
+private theorem lcnfObjMem_load_child {o : LcnfObj} (_hwf : o.Wf) {F : Mem 64 → Prop}
+    {m : Mem 64} (hm : (lcnfObjMem o ⋆ F) m) {i : Nat} (hi : i < o.childFields.length) :
+    loadVal m i64 ((o.addr + o.fieldsOff) + BitVec.ofNat 64 (8 * i)) =
+      some (o.childFields[i]'hi) := by
+  unfold lcnfObjMem at hm
+  unfold LcnfObj.fieldsOff
+  unfold LcnfObj.childFields at hi ⊢
+  by_cases hc : o.tag = closureTag
+  · simp only [hc, ↓reduceIte, true_or, or_true] at hm hi ⊢
+    have h1 : (array64 (o.addr + 24#64) o.fields ⋆
+        (cell64 o.addr o.header ⋆ cell64 (o.addr + 8#64) o.funId ⋆
+          cell64 (o.addr + 16#64) o.cloMeta ⋆
+          region (o.addr + BitVec.ofNat 64 (24 + 8 * o.fields.length))
+            (o.csSz - (24 + 8 * o.fields.length)) ⋆ F)) m :=
+      sep_cast hm (by ac_rfl)
+    exact loadVal_array64 hi h1
+  · by_cases ha : o.tag = arrayTag
+    · simp only [ha, show arrayTag ≠ closureTag by decide, ↓reduceIte, or_true] at hm hi ⊢
+      have h1 : (array64 (o.addr + 24#64) o.fields ⋆
+          (cell64 o.addr o.header ⋆ cell64 (o.addr + 8#64) (BitVec.ofNat 64 o.fields.length) ⋆
+            cell64 (o.addr + 16#64) (BitVec.ofNat 64 o.cap) ⋆
+            region (o.addr + BitVec.ofNat 64 (24 + 8 * o.fields.length))
+              (8 * (o.cap - o.fields.length)) ⋆ F)) m :=
+        sep_cast hm (by ac_rfl)
+      exact loadVal_array64 hi h1
+    · by_cases hle : o.tag ≤ 244
+      · have hsa : o.tag ≠ sarrayTag := by unfold sarrayTag; omega
+        have hstr : o.tag ≠ stringTag := by unfold stringTag; omega
+        have hmpz : o.tag ≠ mpzTag := by unfold mpzTag; omega
+        simp only [hc, ha, hsa, hstr, hmpz, hle, true_or, or_self, ↓reduceIte] at hm hi ⊢
+        have h1 : (array64 (o.addr + 8#64) o.fields ⋆
+            (cell64 o.addr o.header ⋆
+              bytes (o.addr + BitVec.ofNat 64 (8 + 8 * o.fields.length)) o.scalarData ⋆
+              region (o.addr + BitVec.ofNat 64 (8 + 8 * o.fields.length + o.scalarData.length))
+                (o.csSz - (8 + 8 * o.fields.length + o.scalarData.length)) ⋆ F)) m :=
+          sep_cast hm (by ac_rfl)
+        exact loadVal_array64 hi h1
+      · simp only [hc, ha, hle, or_self, ↓reduceIte] at hi
+        simp at hi
+
+private theorem lcnfObjMem_store_rc {o : LcnfObj} (rc' : BitVec 32) {F : Mem 64 → Prop}
+    {m : Mem 64} (hm : (lcnfObjMem o ⋆ F) m) :
+    storeOk m i64 o.addr ∧
+      (lcnfObjMem (o.withRc rc') ⋆ F) (storeMem m i64 o.addr (o.withRc rc').header) := by
+  rw [lcnfObjMem_eq_header_body] at hm
+  have h1 := store_cell64 (o.withRc rc').header (sep_assoc_lr hm)
+  refine ⟨h1.1, ?_⟩
+  rw [lcnfObjMem_eq_header_body, lcnfObjBody_withRc]
+  exact sep_assoc_rl h1.2
+
+private theorem lcnfHeap_load_header {objs : List LcnfObj} {idx : Nat} (hidx : idx < objs.length)
+    {F : Mem 64 → Prop} {m : Mem 64} (hm : (lcnfHeap objs ⋆ F) m) :
+    loadVal m i64 objs[idx].addr = some objs[idx].header := by
+  rw [lcnfHeap_focus objs hidx] at hm
+  exact lcnfObjMem_load_header (sep_assoc_lr hm)
+
+private theorem lcnfHeap_load_cloMeta {objs : List LcnfObj} {idx : Nat} (hidx : idx < objs.length)
+    (ht : objs[idx].tag = closureTag) {F : Mem 64 → Prop} {m : Mem 64}
+    (hm : (lcnfHeap objs ⋆ F) m) :
+    loadVal m i64 (objs[idx].addr + 16#64) = some objs[idx].cloMeta := by
+  rw [lcnfHeap_focus objs hidx] at hm
+  exact lcnfObjMem_load_cloMeta ht (sep_assoc_lr hm)
+
+private theorem lcnfHeap_load_arrSize {objs : List LcnfObj} {idx : Nat} (hidx : idx < objs.length)
+    (ht : objs[idx].tag = arrayTag) {F : Mem 64 → Prop} {m : Mem 64}
+    (hm : (lcnfHeap objs ⋆ F) m) :
+    loadVal m i64 (objs[idx].addr + 8#64) = some (BitVec.ofNat 64 objs[idx].fields.length) := by
+  rw [lcnfHeap_focus objs hidx] at hm
+  exact lcnfObjMem_load_arrSize ht (sep_assoc_lr hm)
+
+private theorem lcnfHeap_load_child {objs : List LcnfObj} {idx : Nat} (hidx : idx < objs.length)
+    (hwf : objs[idx].Wf) {F : Mem 64 → Prop} {m : Mem 64} (hm : (lcnfHeap objs ⋆ F) m)
+    {i : Nat} (hi : i < objs[idx].childFields.length) :
+    loadVal m i64 ((objs[idx].addr + objs[idx].fieldsOff) + BitVec.ofNat 64 (8 * i)) =
+      some (objs[idx].childFields[i]'hi) := by
+  rw [lcnfHeap_focus objs hidx] at hm
+  exact lcnfObjMem_load_child hwf (sep_assoc_lr hm) hi
+
+private theorem lcnfHeap_store_rc {objs : List LcnfObj} {idx : Nat} (hidx : idx < objs.length)
+    (rc' : BitVec 32) {F : Mem 64 → Prop} {m : Mem 64} (hm : (lcnfHeap objs ⋆ F) m) :
+    storeOk m i64 objs[idx].addr ∧
+      (lcnfHeap (objs.set idx (objs[idx].withRc rc')) ⋆ F)
+        (storeMem m i64 objs[idx].addr (objs[idx].withRc rc').header) := by
+  rw [lcnfHeap_focus objs hidx] at hm
+  have h1 := lcnfObjMem_store_rc rc' (sep_assoc_lr hm)
+  refine ⟨h1.1, ?_⟩
+  rw [lcnfHeap_set objs hidx]
+  exact sep_assoc_rl h1.2
+
+private theorem nodup_getElem_inj {α : Type _} {xs : List α} (hnd : xs.Nodup)
+    {i j : Nat} (hi : i < xs.length) (hj : j < xs.length) (heq : xs[i] = xs[j]) : i = j := by
+  have hp := List.pairwise_iff_getElem.mp hnd
+  by_cases hlt : i < j
+  · exact absurd heq (hp i j hi hj hlt)
+  · by_cases hgt : j < i
+    · exact absurd heq.symm (hp j i hj hi hgt)
+    · omega
+
+private theorem lcnfHeap_nodup_addrs {objs : List LcnfObj} {R : Mem 64 → Prop} {m : Mem 64}
+    (h : (lcnfHeap objs ⋆ R) m) : (objs.map LcnfObj.addr).Nodup := by
+  rw [List.Nodup, List.pairwise_iff_getElem]
+  intro i j hi hj hij
+  simp only [List.length_map] at hi hj
+  simp only [List.getElem_map]
+  exact lcnfHeap_addr_lt h hij hj
+
+private theorem nodup_addr_eq_of_mem {objs : List LcnfObj} (hnd : (objs.map LcnfObj.addr).Nodup)
+    {a b : LcnfObj} (ha : a ∈ objs) (hb : b ∈ objs) (heq : a.addr = b.addr) : a = b := by
+  rw [List.mem_iff_getElem] at ha hb
+  obtain ⟨i, hi, rfl⟩ := ha
+  obtain ⟨j, hj, rfl⟩ := hb
+  have hij : i = j :=
+    nodup_getElem_inj hnd (by simpa using hi) (by simpa using hj) (by simpa using heq)
+  subst hij; rfl
+
+private theorem nodup_addr_idx_eq {objs : List LcnfObj} (hnd : (objs.map LcnfObj.addr).Nodup)
+    {i j : Nat} (hi : i < objs.length) (hj : j < objs.length)
+    (heq : objs[i].addr = objs[j].addr) : i = j :=
+  nodup_getElem_inj hnd (by simpa using hi) (by simpa using hj) (by simpa using heq)
+
+private theorem list_take_set_append {α : Type _} (wb : List α) {len : Nat}
+    (hlen : len < wb.length) (v : α) :
+    (wb.set len v).take (len + 1) = wb.take len ++ [v] := by
+  apply List.ext_getElem
+  · simp; omega
+  · intro j hj1 hj2
+    have hlt : j < len + 1 := by
+      have : j < min (len + 1) (wb.set len v).length := by simpa [List.length_take] using hj1
+      omega
+    by_cases hjl : j = len
+    · subst hjl
+      rw [List.getElem_take, List.getElem_set_self]
+      have hlenT : (wb.take j).length = j := List.length_take_of_le (by omega)
+      rw [List.getElem_append_right (by omega)]
+      simp [hlenT]
+    · have hjlt : j < len := by omega
+      have hlenT : (wb.take len).length = len := List.length_take_of_le (by omega)
+      rw [List.getElem_take, List.getElem_set_ne (Ne.symm hjl)]
+      rw [List.getElem_append_left (by omega), List.getElem_take]
+
+private theorem nodup_length_le_of_subset {α : Type _} [DecidableEq α] :
+    ∀ (xs ys : List α), xs.Nodup → (∀ a ∈ xs, a ∈ ys) → xs.length ≤ ys.length
+  | [], _, _, _ => Nat.zero_le _
+  | x :: xs, ys, hnd, hsub => by
+    rw [List.nodup_cons] at hnd
+    have hxMem : x ∈ ys := hsub x List.mem_cons_self
+    rw [List.mem_iff_getElem] at hxMem
+    obtain ⟨idx, hidx, hxEq⟩ := hxMem
+    have hsub' : ∀ a ∈ xs, a ∈ ys.eraseIdx idx := by
+      intro a ha
+      have hne : a ≠ x := fun h => hnd.1 (h ▸ ha)
+      have haMem : a ∈ ys := hsub a (List.mem_cons_of_mem _ ha)
+      rw [List.mem_iff_getElem] at haMem
+      obtain ⟨j, hj, rfl⟩ := haMem
+      have hji : j ≠ idx := fun h => hne (by subst h; exact hxEq)
+      rw [List.eraseIdx_eq_take_drop_succ, List.mem_append]
+      by_cases hlt : j < idx
+      · left; rw [List.mem_iff_getElem]
+        exact ⟨j, by rw [List.length_take]; omega, by simp [List.getElem_take]⟩
+      · right; rw [List.mem_iff_getElem]
+        exact ⟨j - (idx + 1), by rw [List.length_drop]; omega,
+          by rw [List.getElem_drop]; congr 1; omega⟩
+    have ih := nodup_length_le_of_subset xs (ys.eraseIdx idx) hnd.2 hsub'
+    rw [List.length_eraseIdx_of_lt hidx] at ih
+    simp only [List.length_cons]
+    omega
+
+private theorem nodup_addr_length_le {xs : List (BitVec 64)} {objs : List LcnfObj}
+    (hnd : xs.Nodup) (hsub : ∀ a ∈ xs, ∃ o ∈ objs, o.addr = a) : xs.length ≤ objs.length := by
+  have h1 := nodup_length_le_of_subset xs (objs.map LcnfObj.addr) hnd fun a ha => by
+    obtain ⟨o, ho, rfl⟩ := hsub a ha
+    exact List.mem_map_of_mem ho
+  simpa using h1
+
+private theorem work_push_lt_cap {wl : List (BitVec 64)} {xAddr c : BitVec 64}
+    {curObjs : List LcnfObj} {cap : Nat}
+    (hnd : wl.Nodup) (hxNot : xAddr ∉ wl) (hcNot : c ∉ wl) (hne : c ≠ xAddr)
+    (hxMem : ∃ o ∈ curObjs, o.addr = xAddr) (hcMem : ∃ o ∈ curObjs, o.addr = c)
+    (hwlMem : ∀ a ∈ wl, ∃ o ∈ curObjs, o.addr = a) (hcap : curObjs.length ≤ cap) :
+    wl.length < cap := by
+  have hnd2 : (c :: xAddr :: wl).Nodup := by
+    rw [List.nodup_cons, List.nodup_cons]
+    exact ⟨fun h => by rcases List.mem_cons.mp h with rfl | h' <;> contradiction, hxNot, hnd⟩
+  have hsub : ∀ a ∈ c :: xAddr :: wl, ∃ o ∈ curObjs, o.addr = a := by
+    intro a ha
+    rcases List.mem_cons.mp ha with rfl | ha'
+    · exact hcMem
+    · rcases List.mem_cons.mp ha' with rfl | ha''
+      · exact hxMem
+      · exact hwlMem a ha''
+  have hle := nodup_addr_length_le hnd2 hsub
+  simp only [List.length_cons] at hle
+  omega
+
+private def unmarkedCount (objs : List LcnfObj) : Nat :=
+  (objs.filter (fun o => o.rc != 0#32)).length
+
+private theorem unmarkedCount_set_zero :
+    ∀ (objs : List LcnfObj) {idx : Nat} (hidx : idx < objs.length),
+      objs[idx].rc ≠ 0#32 →
+      unmarkedCount (objs.set idx (objs[idx].withRc 0#32)) + 1 = unmarkedCount objs
+  | [], _, hi, _ => by simp at hi
+  | o :: os, 0, _, hnz => by
+    simp only [List.set_cons_zero, List.getElem_cons_zero] at hnz ⊢
+    unfold unmarkedCount
+    have h1 : (o.rc != 0#32) = true := bne_iff_ne.mpr hnz
+    have h2 : ((o.withRc 0#32).rc != 0#32) = false := by simp [LcnfObj.withRc]
+    simp [h1, h2]
+  | o :: os, idx + 1, hi, hnz => by
+    simp only [List.set_cons_succ, List.getElem_cons_succ] at hnz ⊢
+    have ih := unmarkedCount_set_zero os (by simp at hi; omega) hnz
+    unfold unmarkedCount at ih ⊢
+    by_cases h : (o.rc != 0#32) = true
+    · simp only [List.filter_cons, h, ↓reduceIte, List.length_cons]; omega
+    · have hf : (o.rc != 0#32) = false := Bool.eq_false_iff.mpr h
+      simp only [List.filter_cons, hf, Bool.false_eq_true, ↓reduceIte]; exact ih
+
+private theorem nonPersistRefs_foldl_shift (objs : List LcnfObj) (a : BitVec 64) (init : Nat) :
+    objs.foldl (fun acc p => if p.rc = 0#32 then acc else acc + p.childFields.count a) init =
+      init + nonPersistRefs objs a := by
+  unfold nonPersistRefs
+  induction objs generalizing init with
+  | nil => simp
+  | cons o os ih =>
+    simp only [List.foldl_cons]
+    by_cases h0 : o.rc = 0#32
+    · simp only [h0, ↓reduceIte]; exact ih init
+    · simp only [h0, ↓reduceIte]
+      rw [ih (init + o.childFields.count a), ih (0 + o.childFields.count a)]
+      omega
+
+private theorem nonPersistRefs_cons (o : LcnfObj) (os : List LcnfObj) (a : BitVec 64) :
+    nonPersistRefs (o :: os) a =
+      (if o.rc = 0#32 then 0 else o.childFields.count a) + nonPersistRefs os a := by
+  unfold nonPersistRefs
+  simp only [List.foldl_cons]
+  split
+  · simp
+  · rw [nonPersistRefs_foldl_shift]
+    change 0 + o.childFields.count a + nonPersistRefs os a = _ + nonPersistRefs os a
+    omega
+
+private theorem nonPersistRefs_append (xs ys : List LcnfObj) (a : BitVec 64) :
+    nonPersistRefs (xs ++ ys) a = nonPersistRefs xs a + nonPersistRefs ys a := by
+  induction xs with
+  | nil => simp [nonPersistRefs]
+  | cons x xs ih =>
+    simp only [List.cons_append, nonPersistRefs_cons, ih]; omega
+
+private theorem nonPersistRefs_focus (objs : List LcnfObj) {idx : Nat} (hidx : idx < objs.length)
+    (a : BitVec 64) :
+    nonPersistRefs objs a =
+      (if objs[idx].rc = 0#32 then 0 else objs[idx].childFields.count a) +
+      nonPersistRefs (objs.eraseIdx idx) a := by
+  have hsp : objs = objs.take idx ++ objs[idx] :: objs.drop (idx + 1) := by
+    have h1 := List.take_append_drop idx objs
+    have h2 : objs.drop idx = objs[idx] :: objs.drop (idx + 1) :=
+      List.drop_eq_getElem_cons hidx
+    rw [h2] at h1; exact h1.symm
+  conv => lhs; rw [hsp]
+  rw [nonPersistRefs_append, nonPersistRefs_cons, List.eraseIdx_eq_take_drop_succ,
+    nonPersistRefs_append]
+  omega
+
+private theorem nonPersistRefs_set_same_nz (objs : List LcnfObj) {idx : Nat}
+    (hidx : idx < objs.length) {rc' : BitVec 32} (h1 : objs[idx].rc ≠ 0#32) (h2 : rc' ≠ 0#32)
+    (a : BitVec 64) :
+    nonPersistRefs (objs.set idx (objs[idx].withRc rc')) a = nonPersistRefs objs a := by
+  have hsp1 := nonPersistRefs_focus objs hidx a
+  have hidx' : idx < (objs.set idx (objs[idx].withRc rc')).length := by simp [hidx]
+  have hsp2 := nonPersistRefs_focus (objs.set idx (objs[idx].withRc rc')) hidx' a
+  have her : (objs.set idx (objs[idx].withRc rc')).eraseIdx idx = objs.eraseIdx idx := by
+    rw [List.eraseIdx_eq_take_drop_succ, List.eraseIdx_eq_take_drop_succ]
+    congr 1
+    · apply List.ext_getElem
+      · simp
+      · intro j hj1 hj2
+        have hlt : j < idx := by
+          have : j < min idx (objs.set idx (objs[idx].withRc rc')).length := by
+            simpa [List.length_take] using hj1
+          omega
+        simp [List.getElem_take, List.getElem_set_ne (by omega : idx ≠ j)]
+    · apply List.ext_getElem
+      · simp
+      · intro j hj1 hj2
+        simp only [List.getElem_drop, List.getElem_set_ne (by omega : idx ≠ idx + 1 + j)]
+  rw [hsp1, hsp2, her, List.getElem_set_self]
+  simp only [LcnfObj.withRc, LcnfObj.childFields, h1, h2, ↓reduceIte]
+  rfl
+
+private theorem nonPersistRefs_eq_zero_imp (objs : List LcnfObj) (a : BitVec 64)
+    (h0 : nonPersistRefs objs a = 0) :
+    ∀ p ∈ objs, p.rc ≠ 0#32 → a ∉ p.childFields := by
+  induction objs with
+  | nil => intro p hp; nomatch hp
+  | cons x xs ih =>
+    rw [nonPersistRefs_cons] at h0
+    intro p hp hnz
+    rcases List.mem_cons.mp hp with rfl | hmem
+    · simp only [hnz, ↓reduceIte] at h0
+      intro hmemC
+      have hpos : 0 < List.count a p.childFields := List.count_pos_iff.mpr hmemC
+      omega
+    · exact ih (by omega) p hmem hnz
+
+private theorem nonPersistRefs_filter_step :
+    ∀ (xs : List LcnfObj) (p q : BitVec 64 → Bool) (xAddr : BitVec 64)
+      (xFields : List (BitVec 64)),
+      (xs.map LcnfObj.addr).Nodup →
+      (∀ a, a ≠ xAddr → p a = q a) →
+      p xAddr = false → q xAddr = true →
+      (∃ ox ∈ xs, ox.addr = xAddr ∧ ox.rc ≠ 0#32 ∧ ox.childFields = xFields) →
+      ∀ y, nonPersistRefs (xs.filter (fun o => q o.addr)) y =
+        nonPersistRefs (xs.filter (fun o => p o.addr)) y + xFields.count y
+  | [], _, _, _, _, _, _, _, _, ⟨_, h, _⟩, _ => nomatch h
+  | o :: os, p, q, xAddr, xFields, hnd, hagree, hp0, hq1, hex, y => by
+    rw [List.map_cons, List.nodup_cons] at hnd
+    by_cases ho : o.addr = xAddr
+    · obtain ⟨ox, hoxMem, hoxAddr, hoxNz, hoxF⟩ := hex
+      have hoxEq : ox = o := by
+        rcases List.mem_cons.mp hoxMem with rfl | htl
+        · rfl
+        · exfalso; exact hnd.1 (ho ▸ hoxAddr ▸ List.mem_map_of_mem htl)
+      subst hoxEq
+      have htlEq : os.filter (fun z => q z.addr) = os.filter (fun z => p z.addr) := by
+        refine List.filter_congr fun z hz => ?_
+        have hne : z.addr ≠ xAddr := fun h => hnd.1 (ho ▸ h ▸ List.mem_map_of_mem hz)
+        exact (hagree z.addr hne).symm
+      simp only [List.filter_cons, ho, hp0, hq1, Bool.false_eq_true, ↓reduceIte, htlEq,
+        nonPersistRefs_cons, hoxNz, hoxF]
+      omega
+    · obtain ⟨ox, hoxMem, hoxAddr, hoxNz, hoxF⟩ := hex
+      have hoxTl : ox ∈ os := by
+        rcases List.mem_cons.mp hoxMem with rfl | htl
+        · exact absurd hoxAddr ho
+        · exact htl
+      have ih := nonPersistRefs_filter_step os p q xAddr xFields hnd.2 hagree hp0 hq1
+        ⟨ox, hoxTl, hoxAddr, hoxNz, hoxF⟩ y
+      have hpq : q o.addr = p o.addr := (hagree o.addr ho).symm
+      simp only [List.filter_cons, hpq]
+      cases p o.addr
+      · simpa using ih
+      · simp only [↓reduceIte, nonPersistRefs_cons, ih]; omega
+
+private theorem freedObjs_self (objs : List LcnfObj) : freedObjs objs objs = [] := by
+  unfold freedObjs
+  rw [List.filter_eq_nil_iff]
+  intro o ho
+  simp [List.mem_map_of_mem ho]
+
+private theorem freedObjs_set_rc (objs curObjs : List LcnfObj) {idx : Nat}
+    (hidx : idx < curObjs.length) (rc' : BitVec 32) :
+    freedObjs objs (curObjs.set idx (curObjs[idx].withRc rc')) = freedObjs objs curObjs := by
+  unfold freedObjs
+  have hmap : (curObjs.set idx (curObjs[idx].withRc rc')).map LcnfObj.addr =
+      curObjs.map LcnfObj.addr := by
+    apply List.ext_getElem
+    · simp
+    · intro j hj1 hj2
+      simp only [List.getElem_map]
+      by_cases hji : j = idx
+      · subst hji; simp [LcnfObj.withRc]
+      · simp [List.getElem_set_ne (Ne.symm hji)]
+  rw [hmap]
+
+private theorem map_addr_eraseIdx_mem {curObjs : List LcnfObj}
+    (hnd : (curObjs.map LcnfObj.addr).Nodup) {idx : Nat} (hidx : idx < curObjs.length)
+    (a : BitVec 64) :
+    (a ∈ (curObjs.eraseIdx idx).map LcnfObj.addr) ↔
+      (a ∈ curObjs.map LcnfObj.addr ∧ a ≠ curObjs[idx].addr) := by
+  constructor
+  · intro hm
+    rw [List.mem_map] at hm
+    obtain ⟨o, ho, rfl⟩ := hm
+    have ho' : o ∈ curObjs := List.mem_of_mem_eraseIdx ho
+    refine ⟨List.mem_map_of_mem ho', ?_⟩
+    intro heq
+    have hsp := List.eraseIdx_eq_take_drop_succ (l := curObjs) (i := idx)
+    rw [hsp, List.mem_append] at ho
+    rcases ho with ht | hd
+    · rw [List.mem_iff_getElem] at ht
+      obtain ⟨j, hj, rfl⟩ := ht
+      have hlt : j < idx := by
+        have : j < min idx curObjs.length := by simpa [List.length_take] using hj
+        omega
+      rw [List.getElem_take] at heq
+      have : j = idx := nodup_addr_idx_eq hnd (by omega) hidx heq
+      omega
+    · rw [List.mem_iff_getElem] at hd
+      obtain ⟨j, hj, rfl⟩ := hd
+      rw [List.getElem_drop] at heq
+      have hj' : idx + 1 + j < curObjs.length := by simp [List.length_drop] at hj; omega
+      have : idx + 1 + j = idx := nodup_addr_idx_eq hnd hj' hidx heq
+      omega
+  · intro ⟨hm, hne⟩
+    rw [List.mem_map] at hm
+    obtain ⟨o, ho, rfl⟩ := hm
+    rw [List.mem_iff_getElem] at ho
+    obtain ⟨j, hj, rfl⟩ := ho
+    have hji : j ≠ idx := fun h => hne (by subst h; rfl)
+    rw [List.mem_map]
+    refine ⟨curObjs[j], ?_, rfl⟩
+    rw [List.eraseIdx_eq_take_drop_succ, List.mem_append]
+    by_cases hlt : j < idx
+    · left; rw [List.mem_iff_getElem]
+      exact ⟨j, by rw [List.length_take]; omega, by simp [List.getElem_take]⟩
+    · right; rw [List.mem_iff_getElem]
+      exact ⟨j - (idx + 1), by rw [List.length_drop]; omega,
+        by rw [List.getElem_drop]; congr 1; omega⟩
+
+private theorem nonPersistRefs_freedObjs_eraseIdx {objs curObjs : List LcnfObj}
+    (hndO : (objs.map LcnfObj.addr).Nodup) (hndC : (curObjs.map LcnfObj.addr).Nodup)
+    {idx : Nat} (hidx : idx < curObjs.length)
+    (horig : ∃ ox ∈ objs, ox.addr = curObjs[idx].addr ∧ ox.rc ≠ 0#32 ∧
+      ox.childFields = curObjs[idx].childFields) (y : BitVec 64) :
+    nonPersistRefs (freedObjs objs (curObjs.eraseIdx idx)) y =
+      nonPersistRefs (freedObjs objs curObjs) y + curObjs[idx].childFields.count y := by
+  unfold freedObjs
+  refine nonPersistRefs_filter_step objs
+    (fun a => !(curObjs.map LcnfObj.addr).contains a)
+    (fun a => !((curObjs.eraseIdx idx).map LcnfObj.addr).contains a)
+    curObjs[idx].addr curObjs[idx].childFields hndO ?_ ?_ ?_ horig y
+  · intro a hne
+    have hiff := map_addr_eraseIdx_mem hndC hidx a
+    by_cases hm : a ∈ curObjs.map LcnfObj.addr
+    · have hm' : a ∈ (curObjs.eraseIdx idx).map LcnfObj.addr := hiff.mpr ⟨hm, hne⟩
+      simp [hm, hm']
+    · have hm' : a ∉ (curObjs.eraseIdx idx).map LcnfObj.addr := fun h => hm (hiff.mp h).1
+      simp [hm, hm']
+  · have hm : curObjs[idx].addr ∈ curObjs.map LcnfObj.addr :=
+      List.mem_map_of_mem (List.getElem_mem hidx)
+    simp [hm]
+  · have hm' : curObjs[idx].addr ∉ (curObjs.eraseIdx idx).map LcnfObj.addr := by
+      intro h; exact (map_addr_eraseIdx_mem hndC hidx _).mp h |>.2 rfl
+    simp [hm']
+
+private theorem wp_let_copy64_eq {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    (args : Tup (Arg Val) [i64]) (k : Tup Val [i64] → Expr Val Cont rs) :
+    wp Γ Q X (Expr.let_ { sig := [i64], code := OpCode.copy i64, args := args } k) m =
+      wp Γ Q X (k (args.fst.val, ())) m := by
+  rw [wp_let_copy_eq]
+
+local macro "dfs_pure_steps" : tactic =>
+  `(tactic| (
+    repeat (first
+      | rw [wp_let_copy64_eq]
+      | rw [wp_let_add64_eq]
+      | rw [wp_let_sub64_eq]
+      | rw [wp_let_mul64_eq]
+      | rw [wp_let_and64_eq]
+      | rw [wp_let_lshr64_eq]
+      | rw [wp_let_sext32_64_eq])
+    try dsimp [Arg.val]))
+
+private theorem bv64_mul8_comm (n : Nat) :
+    BitVec.ofNat 64 n * 8#64 = BitVec.ofNat 64 (8 * n) := by
+  apply BitVec.eq_of_toNat_eq; simp [Nat.mul_comm]
+
+private theorem bv64_8_mul (n : Nat) :
+    8#64 * BitVec.ofNat 64 n = BitVec.ofNat 64 (8 * n) := by
+  apply BitVec.eq_of_toNat_eq; simp
+
+private theorem lcnfObjHeader_sub1_wf (o : LcnfObj) (hw : o.Wf) (hgt : 1 < o.rc.toNat) :
+    o.header - 1#64 = (o.withRc (o.rc - 1#32)).header :=
+  lcnfObjHeader_sub1 o hw.2.2.2.1 hw.2.2.2.2.1 hw.2.2.2.2.2.1 hw.2.2.1 hgt
+
+private theorem nonPersistReach_root_nz {objs : List LcnfObj} {root a : BitVec 64}
+    (h : NonPersistReach objs root a) : ∃ o' ∈ objs, o'.addr = root ∧ o'.rc ≠ 0#32 := by
+  induction h with
+  | refl h0 => exact h0
+  | step _ _ _ _ ih => exact ih
+
+private theorem nonPersistReach_mark_complete {objs curObjs : List LcnfObj} {root : BitVec 64}
+    (hlen : curObjs.length = objs.length)
+    (hnd : (objs.map LcnfObj.addr).Nodup)
+    (hroot : ∀ k (hk : k < objs.length) (hk' : k < curObjs.length),
+      objs[k].addr = root → curObjs[k].rc = 0#32)
+    (haddr : ∀ k (hk : k < objs.length) (hk' : k < curObjs.length),
+      SameNonRc objs[k] curObjs[k])
+    (hstep : ∀ k (hk : k < objs.length) (hk' : k < curObjs.length),
+      objs[k].rc ≠ 0#32 → curObjs[k].rc = 0#32 →
+      ∀ f ∈ curObjs[k].childFields, (f &&& 1#64) = 0#64 →
+        ∃ q ∈ curObjs, q.addr = f ∧ q.rc = 0#32)
+    {a : BitVec 64} (hreach : NonPersistReach objs root a) :
+    ∃ k, ∃ hk : k < curObjs.length, curObjs[k].addr = a ∧ curObjs[k].rc = 0#32 := by
+  induction hreach with
+  | refl h =>
+    obtain ⟨obj, hmem, rfl, _⟩ := h
+    rw [List.mem_iff_getElem] at hmem
+    obtain ⟨k, hk, rfl⟩ := hmem
+    have hk' : k < curObjs.length := by omega
+    exact ⟨k, hk', (haddr k hk hk').1, hroot k hk hk' rfl⟩
+  | @step u v _ hchild hv0 _ ih =>
+    obtain ⟨ku, hku', hkuAddr, hkuRc⟩ := ih
+    have hku : ku < objs.length := by omega
+    obtain ⟨ou, houMem, houAddr, hvIn⟩ := hchild
+    have houEq' : ou = objs[ku] := by
+      refine nodup_addr_eq_of_mem hnd houMem (List.getElem_mem hku) ?_
+      rw [houAddr, ← hkuAddr, (haddr ku hku hku').1]
+    subst houEq'
+    have hkuOrigNz : objs[ku].rc ≠ 0#32 := by
+      cases ‹NonPersistReach objs root u› with
+      | refl h =>
+        obtain ⟨o0, ho0, ho0Addr, ho0Nz⟩ := h
+        have := nodup_addr_eq_of_mem hnd ho0 (List.getElem_mem hku)
+          (by rw [ho0Addr, ← hkuAddr, (haddr ku hku hku').1])
+        rwa [← this]
+      | step _ _ _ h' =>
+        obtain ⟨o0, ho0, ho0Addr, ho0Nz⟩ := h'
+        have := nodup_addr_eq_of_mem hnd ho0 (List.getElem_mem hku)
+          (by rw [ho0Addr, ← hkuAddr, (haddr ku hku hku').1])
+        rwa [← this]
+    have hvInCur : v ∈ curObjs[ku].childFields := by
+      rw [(haddr ku hku hku').childFields_eq]; exact hvIn
+    obtain ⟨q, hqMem, hqAddr, hqRc⟩ := hstep ku hku hku' hkuOrigNz hkuRc v hvInCur hv0
+    rw [List.mem_iff_getElem] at hqMem
+    obtain ⟨kv, hkv', rfl⟩ := hqMem
+    exact ⟨kv, hkv', hqAddr, hqRc⟩
+
+/-! ## `lcnf_mark_persistent_wp` -/
+
+theorem lcnf_mark_persistent_wp (Γ : Env) :
+    ∀ (xs : Tup Val lcnf_mark_persistent.as) (m : Mem 64)
+      (Q : Post lcnf_mark_persistent.rs) (X : XPost),
+      lcnfMarkPersistentSpec xs m Q X →
+      Func.wp Γ lcnf_mark_persistent.body xs m Q X := by
+  dsimp [lcnf_mark_persistent]
+  intro ⟨rt, o, ⟨⟩⟩ m Q X hSpec
+  dsimp [Func.wp, lcnf_mark_persistent_body]
+  dsimp [lcnfMarkPersistentSpec] at hSpec
+  split at hSpec
+  · rename_i hodd
+    rcases hSpec with ⟨st, R, _hm, hQ⟩
+    dfs_pure_steps
+    refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+    dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+    constructor
+    · intro _; exact hQ
+    · intro hf; exfalso; exact of_decide_eq_false hf hodd
+  · rename_i hevenNot
+    have heven : (o &&& 1#64) = 0#64 := Classical.byContradiction hevenNot
+    rcases hSpec with ⟨st, objs, R, hCapLe, hm, hRootEx, hObjsWf, hObjsCl, hPost⟩
+    have hndO : (objs.map LcnfObj.addr).Nodup :=
+      lcnfHeap_nodup_addrs (sep_pull_heap hm)
+    obtain ⟨obj0, hobj0Mem, hobj0Addr⟩ := hRootEx
+    rw [List.mem_iff_getElem] at hobj0Mem
+    obtain ⟨idx0, hidx0, rfl⟩ := hobj0Mem
+    have hobj0Wf : objs[idx0].Wf := hObjsWf objs[idx0] (List.getElem_mem hidx0)
+    have hcs0 := hobj0Wf.2.2.2.1
+    have hoth0 := hobj0Wf.2.2.2.2.1
+    have htag0 := hobj0Wf.2.2.2.2.2.1
+    dfs_pure_steps
+    refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+    dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+    constructor
+    · intro ht; exfalso; exact of_decide_eq_true ht heven
+    · intro _
+      have hld0 : loadVal m i64 o = some objs[idx0].header := by
+        rw [← hobj0Addr]
+        exact lcnfHeap_load_header hidx0 (sep_pull_heap hm)
+      refine wp_load_of hld0 ?_
+      dfs_pure_steps
+      rw [LcnfObj.header_rc objs[idx0] hcs0 hoth0 htag0]
+      refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+      dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+      constructor
+      · intro hrc0Eq
+        have hrc064 : BitVec.ofNat 64 objs[idx0].rc.toNat = 0#64 := of_decide_eq_true hrc0Eq
+        have hrc0 : objs[idx0].rc = 0#32 := by
+          apply BitVec.eq_of_toNat_eq
+          have := congrArg BitVec.toNat hrc064
+          simpa [Nat.mod_eq_of_lt (by omega : objs[idx0].rc.toNat < 2 ^ 64)] using this
+        refine hPost st objs m ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ rfl ?_ hm
+        refine ⟨rfl, hObjsWf, hObjsCl, hObjsCl, ?_⟩
+        intro p hp
+        rw [List.mem_iff_getElem] at hp
+        obtain ⟨k, hk, rfl⟩ := hp
+        have hk0 : k < objs.length := by rw [List.length_zip, Nat.min_self] at hk; exact hk
+        rw [List.getElem_zip]
+        refine ⟨hObjsWf objs[k] (List.getElem_mem hk0), rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+          rfl, rfl, rfl, rfl, ?_, Or.inl rfl, ?_⟩
+        · intro had
+          have heq := nodup_addr_eq_of_mem hndO (List.getElem_mem hk0) (List.getElem_mem hidx0)
+            (had.trans hobj0Addr.symm)
+          rw [heq, hrc0]
+        · intro hknz
+          constructor
+          · intro hk0'; exact absurd hk0' hknz
+          · intro hreach
+            exfalso
+            obtain ⟨o', ho', ho'Addr, ho'Nz⟩ := nonPersistReach_root_nz hreach
+            have heq := nodup_addr_eq_of_mem hndO ho' (List.getElem_mem hidx0)
+              (ho'Addr.trans hobj0Addr.symm)
+            rw [heq] at ho'Nz
+            exact ho'Nz hrc0
+      · intro hrc0NeEq
+        have hrc0Nz64 : BitVec.ofNat 64 objs[idx0].rc.toNat ≠ 0#64 := of_decide_eq_false hrc0NeEq
+        have hrc0Nz : objs[idx0].rc ≠ 0#32 := fun h => hrc0Nz64 (by rw [h]; rfl)
+        dfs_pure_steps
+        rw [LcnfObj.header_clear_rc objs[idx0] hcs0 hoth0 htag0]
+        have hst0 := lcnfHeap_store_rc hidx0 0#32 (sep_pull_heap hm)
+        rw [hobj0Addr] at hst0
+        refine wp_store_sep (R := rtC0Inv rt st ⋆ R) hst0 ?_
+        intro m1 hm1
+        let objs1 : List LcnfObj := objs.set idx0 (objs[idx0].withRc 0#32)
+        have hm1' : (rtC0Inv rt st ⋆ lcnfHeap objs1 ⋆ R) m1 := sep_cast hm1 (by ac_rfl)
+        dfs_pure_steps
+        refine wp_load_of (rtC0Inv_load_s_st_persistent hm1') ?_
+        dfs_pure_steps
+        refine wp_store_sep (rtC0Inv_store_s_st_persistent hm1') ?_
+        intro m2 hm2
+        let st1 := st.withPersistInc
+        dfs_pure_steps
+        refine wp_load_of (rtC0Inv_load_s_work hm2) ?_
+        dfs_pure_steps
+        refine wp_load_of (rtC0Inv_load_s_work_cap hm2) ?_
+        refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+        dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+        constructor
+        · intro hcap0
+          exfalso
+          have h0 : st1.hdr.s_work_cap = 0#64 := of_decide_eq_true hcap0
+          have h0n : st.workCap = 0 := by
+            unfold RtC0State.workCap; change st1.hdr.s_work_cap.toNat = 0; rw [h0]; rfl
+          omega
+        · intro _hcapNz
+          dfs_pure_steps
+          have h0lt : 0 < st1.workBuf.length := by
+            rw [st1.workLen]; change 0 < st.workCap; omega
+          have hstW0 := rtC0Inv_store_work h0lt o hm2
+          have hmul0 : (0#64 : BitVec 64) * 8#64 = BitVec.ofNat 64 (8 * 0) := by decide
+          rw [← hmul0] at hstW0
+          refine wp_store_sep hstW0 ?_
+          intro m3 hm3
+          let st2 := st1.withWorkBuf (st1.workBuf.set 0 o)
+            (by rw [List.length_set]; exact st1.workLen)
+          let OuterInv : Nat → Tup Val [i64] → Mem 64 → Prop := fun n (lenBV, _) mCur =>
+            ∃ (stCur : RtC0State) (curObjs : List LcnfObj) (len : Nat),
+              stCur.PreservesMeta st ∧ stCur.rem = st.rem ∧
+              len ≤ st.workCap ∧ lenBV = BitVec.ofNat 64 len ∧
+              2 * unmarkedCount curObjs + len = n ∧
+              curObjs.length = objs.length ∧ lcnfHeapClosed curObjs ∧
+              (rtC0Inv rt stCur ⋆ lcnfHeap curObjs ⋆ R) mCur ∧
+              (stCur.workBuf.take len).Nodup ∧
+              (∀ a ∈ stCur.workBuf.take len, ∃ k, ∃ hk : k < curObjs.length,
+                curObjs[k].addr = a ∧ curObjs[k].rc = 0#32 ∧ NonPersistReach objs o a) ∧
+              (∀ k (hk : k < objs.length) (hk' : k < curObjs.length),
+                SameNonRc objs[k] curObjs[k] ∧ curObjs[k].Wf ∧
+                (objs[k].addr = o → curObjs[k].rc = 0#32) ∧
+                (curObjs[k].rc = objs[k].rc ∨ curObjs[k].rc = 0#32) ∧
+                (objs[k].rc ≠ 0#32 → curObjs[k].rc = 0#32 → NonPersistReach objs o objs[k].addr) ∧
+                (objs[k].rc ≠ 0#32 → curObjs[k].rc = 0#32 →
+                  curObjs[k].addr ∉ stCur.workBuf.take len →
+                  ∀ f ∈ curObjs[k].childFields, (f &&& 1#64) = 0#64 →
+                    ∃ q ∈ curObjs, q.addr = f ∧ q.rc = 0#32))
+          refine wp_loop_group OuterInv ?_ (fun J0 hJ0 => by
+            dsimp
+            have htk1 : st2.workBuf.take 1 = [o] := by
+              simpa [st2, RtC0State.withWorkBuf] using list_take_set_append st1.workBuf h0lt o
+            have hlen1 : objs1.length = objs.length := List.length_set
+            have hcl1 : lcnfHeapClosed objs1 := lcnfHeapClosed_set_withRc hObjsCl hidx0 0#32
+            refine hJ0 (2 * unmarkedCount objs1 + 1) (1#64, ()) m3
+              ⟨st2, objs1, 1, ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl,
+                by omega, rfl, rfl, hlen1, hcl1, hm3, by rw [htk1]; simp, ?_, ?_⟩
+            · intro a ha
+              rw [htk1, List.mem_singleton] at ha; subst ha
+              exact ⟨idx0, by omega, by simp [objs1, LcnfObj.withRc, hobj0Addr],
+                by simp [objs1, LcnfObj.withRc],
+                NonPersistReach.refl ⟨objs[idx0], List.getElem_mem hidx0, hobj0Addr, hrc0Nz⟩⟩
+            · intro k hk hk'
+              by_cases hki : k = idx0
+              · subst hki
+                refine ⟨by simp [objs1, SameNonRc.withRc_r (SameNonRc.refl _)],
+                  by simp [objs1, objWf_withRc_zero hobj0Wf],
+                  fun _ => by simp [objs1, LcnfObj.withRc],
+                  Or.inr (by simp [objs1, LcnfObj.withRc]),
+                  fun _ _ => hobj0Addr.symm ▸ NonPersistReach.refl
+                    ⟨objs[k], List.getElem_mem hk, hobj0Addr, hrc0Nz⟩,
+                  fun _ _ hnot => by
+                    exfalso; apply hnot; rw [htk1]; simp [objs1, LcnfObj.withRc, hobj0Addr]⟩
+              · have hget : objs1[k]'hk' = objs[k]'hk := List.getElem_set_ne (Ne.symm hki) hk'
+                rw [hget]
+                refine ⟨SameNonRc.refl _, hObjsWf objs[k] (List.getElem_mem hk),
+                  fun had => by
+                    exfalso
+                    exact hki (nodup_addr_idx_eq hndO hk hidx0 (had.trans hobj0Addr.symm)),
+                  Or.inl rfl, fun hnz h0 => absurd h0 hnz, fun hnz h0 => absurd h0 hnz⟩)
+          intro J0 n ⟨lenBV, ⟨⟩⟩ mCur hIH0
+            ⟨stCur, curObjs, len, hMeta, hRem, hLenLe, hLenBV, hMeas, hCurLen, hCurCl, hmCur,
+              hWlNd, hWlMem, hCurProp⟩
+          have hWorkEq : stCur.hdr.s_work = st.hdr.s_work := hMeta.2.2.2.2.1.symm
+          have hCapEq : stCur.hdr.s_work_cap = st.hdr.s_work_cap := hMeta.2.2.2.2.2.1.symm
+          have hCapNat : stCur.workBuf.length = st.workCap := by
+            rw [stCur.workLen, hCapEq]; rfl
+          have hLen64 : (BitVec.ofNat 64 len).toNat = len :=
+            Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hLenLe st.hdr.s_work_cap.isLt)
+          dfs_pure_steps
+          refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+          dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+          constructor
+          · intro hLenPosEq
+            have hLenPos : 0 < len := by
+              rw [hLenBV, BitVec.ult, hLen64] at hLenPosEq
+              have h0m : (0#64).toNat = 0 := by decide
+              rw [h0m] at hLenPosEq
+              exact of_decide_eq_true hLenPosEq
+            let len0 : Nat := len - 1
+            have hLen0Lt : len0 < stCur.workBuf.length := by omega
+            have hSubBV : lenBV - 1#64 = BitVec.ofNat 64 len0 := by
+              rw [hLenBV]
+              apply BitVec.eq_of_toNat_eq
+              have hlt64 : len < 2 ^ 64 := Nat.lt_of_le_of_lt hLenLe st.hdr.s_work_cap.isLt
+              bv_omega
+            dfs_pure_steps
+            rw [hSubBV]
+            have hldX : loadVal mCur i64 (st.hdr.s_work + BitVec.ofNat 64 len0 * 8#64) =
+                some (stCur.workBuf[len0]'hLen0Lt) := by
+              rw [← hWorkEq, bv64_mul8_comm]
+              exact rtC0Inv_load_work hLen0Lt hmCur
+            refine wp_load_of hldX ?_
+            let xAddr : BitVec 64 := stCur.workBuf[len0]'hLen0Lt
+            have hTkPop : stCur.workBuf.take len = stCur.workBuf.take len0 ++ [xAddr] := by
+              have h1 : len = len0 + 1 := by omega
+              rw [h1]
+              exact List.take_succ_eq_append_getElem hLen0Lt
+            have hxInWl : xAddr ∈ stCur.workBuf.take len := by rw [hTkPop]; simp
+            have hWl0Nd : (stCur.workBuf.take len0).Nodup := by
+              rw [hTkPop, List.nodup_append] at hWlNd; exact hWlNd.1
+            have hxNotWl0 : xAddr ∉ stCur.workBuf.take len0 := by
+              rw [hTkPop, List.nodup_append] at hWlNd
+              intro hm; exact hWlNd.2.2 xAddr hm xAddr List.mem_cons_self rfl
+            obtain ⟨idx_x, hidx_x, hxAddrEq, hxRc0, hxReach⟩ := hWlMem xAddr hxInWl
+            let x : LcnfObj := curObjs[idx_x]'hidx_x
+            have hxProp := hCurProp idx_x (by omega) hidx_x
+            have hxWf : x.Wf := hxProp.2.1
+            have hxCs := hxWf.2.2.2.1
+            have hxOth := hxWf.2.2.2.2.1
+            have hxTag := hxWf.2.2.2.2.2.1
+            have hldHdr : loadVal mCur i64 xAddr = some x.header := by
+              rw [← hxAddrEq]
+              exact lcnfHeap_load_header hidx_x (sep_pull_heap hmCur)
+            refine wp_load_of hldHdr ?_
+            dfs_pure_steps
+            have htagShift : x.header >>> 56 = BitVec.ofNat 64 x.tag :=
+              LcnfObj.header_tag x hxCs hxOth hxTag
+            let DispPost : Tup Val [i64, i64] → Mem 64 → Prop := fun (nBV, offBV, _) mD =>
+              nBV = BitVec.ofNat 64 x.childFields.length ∧ offBV = x.fieldsOff ∧ mD = mCur
+            refine wp_join_group DispPost ?_ ?_
+            · intro _ ⟨nBV, offBV, ⟨⟩⟩ mD ⟨hnBV, hoffBV, hmD⟩
+              subst mD; subst hnBV hoffBV
+              let InnerInv : Nat → Tup Val [i64, i64] → Mem 64 → Prop :=
+                fun rem (lenBV', iBV, _) mIn =>
+                  ∃ (stIn : RtC0State) (inObjs : List LcnfObj) (len' i : Nat),
+                    stIn.PreservesMeta st ∧ stIn.rem = st.rem ∧
+                    len' ≤ st.workCap ∧ lenBV' = BitVec.ofNat 64 len' ∧
+                    i ≤ x.childFields.length ∧ iBV = BitVec.ofNat 64 i ∧
+                    rem = x.childFields.length - i ∧
+                    2 * unmarkedCount inObjs + len' ≤ 2 * unmarkedCount curObjs + len0 ∧
+                    inObjs.length = objs.length ∧ lcnfHeapClosed inObjs ∧
+                    inObjs[idx_x]? = some x ∧
+                    (rtC0Inv rt stIn ⋆ lcnfHeap inObjs ⋆ R) mIn ∧
+                    (stIn.workBuf.take len').Nodup ∧ xAddr ∉ stIn.workBuf.take len' ∧
+                    (∀ a ∈ stIn.workBuf.take len', ∃ k, ∃ hk : k < inObjs.length,
+                      inObjs[k].addr = a ∧ inObjs[k].rc = 0#32 ∧ NonPersistReach objs o a) ∧
+                    (∀ f ∈ x.childFields.take i, (f &&& 1#64) = 0#64 →
+                      ∃ q ∈ inObjs, q.addr = f ∧ q.rc = 0#32) ∧
+                    (∀ k (hk : k < objs.length) (hk' : k < inObjs.length),
+                      SameNonRc objs[k] inObjs[k] ∧ inObjs[k].Wf ∧
+                      (objs[k].addr = o → inObjs[k].rc = 0#32) ∧
+                      (inObjs[k].rc = objs[k].rc ∨ inObjs[k].rc = 0#32) ∧
+                      (objs[k].rc ≠ 0#32 → inObjs[k].rc = 0#32 →
+                        NonPersistReach objs o objs[k].addr) ∧
+                      (objs[k].rc ≠ 0#32 → inObjs[k].rc = 0#32 →
+                        inObjs[k].addr ∉ stIn.workBuf.take len' →
+                        inObjs[k].addr ≠ xAddr →
+                        ∀ f ∈ inObjs[k].childFields, (f &&& 1#64) = 0#64 →
+                          ∃ q ∈ inObjs, q.addr = f ∧ q.rc = 0#32))
+              refine wp_loop_group InnerInv ?_ (fun J4 hJ4 => by
+                dsimp
+                refine hJ4 x.childFields.length (BitVec.ofNat 64 len0, 0#64, ()) mCur
+                  ⟨stCur, curObjs, len0, 0, hMeta, hRem, by omega, rfl, Nat.zero_le _, rfl, rfl,
+                    Nat.le_refl _, hCurLen, hCurCl, List.getElem?_eq_getElem hidx_x, hmCur,
+                    hWl0Nd, hxNotWl0, ?_, by simp, ?_⟩
+                · intro a ha
+                  exact hWlMem a (by rw [hTkPop]; exact List.mem_append_left _ ha)
+                · intro k hk hk'
+                  have hp := hCurProp k hk hk'
+                  refine ⟨hp.1, hp.2.1, hp.2.2.1, hp.2.2.2.1, hp.2.2.2.2.1, ?_⟩
+                  intro hnz h0 hnotWl0 hneX
+                  have hnotWl : curObjs[k].addr ∉ stCur.workBuf.take len := by
+                    rw [hTkPop, List.mem_append, List.mem_singleton]
+                    rintro (h | h)
+                    · exact hnotWl0 h
+                    · exact hneX h
+                  exact hp.2.2.2.2.2 hnz h0 hnotWl)
+              intro J4 rem ⟨lenBV', iBV, ⟨⟩⟩ mIn hIH4
+                ⟨stIn, inObjs, len', i, hMetaIn, hRemIn, hLenInLe, hLenInBV, hiLe, hiBV, hRemEq,
+                  hMeasIn, hInLen, hInCl, hInX, hmIn, hWlInNd, hxNotWlIn, hWlInMem, hDoneI,
+                  hInProp⟩
+              have hidx_x_in : idx_x < inObjs.length := by omega
+              have hInX' : inObjs[idx_x]'hidx_x_in = x :=
+                Option.some.inj (by rwa [List.getElem?_eq_getElem hidx_x_in] at hInX)
+              have hWorkInEq : stIn.hdr.s_work = st.hdr.s_work := hMetaIn.2.2.2.2.1.symm
+              have hCapInEq : stIn.hdr.s_work_cap = st.hdr.s_work_cap := hMetaIn.2.2.2.2.2.1.symm
+              have hCapInNat : stIn.workBuf.length = st.workCap := by
+                rw [stIn.workLen, hCapInEq]; rfl
+              have hChildLt : x.childFields.length < 2 ^ 64 := objWf_childFields_lt hxWf
+              have hi64 : (BitVec.ofNat 64 i).toNat = i := Nat.mod_eq_of_lt (by omega)
+              have hn64 : (BitVec.ofNat 64 x.childFields.length).toNat = x.childFields.length :=
+                Nat.mod_eq_of_lt hChildLt
+              dfs_pure_steps
+              refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+              dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+              constructor
+              · intro hiUlt
+                have hiLt : i < x.childFields.length := by
+                  rw [hiBV, BitVec.ult, hi64, hn64] at hiUlt
+                  exact of_decide_eq_true hiUlt
+                dfs_pure_steps
+                have hldC : loadVal mIn i64 ((xAddr + x.fieldsOff) + 8#64 * iBV) =
+                    some (x.childFields[i]'hiLt) := by
+                  have h1 := lcnfHeap_load_child hidx_x_in (by rw [hInX']; exact hxWf)
+                    (sep_pull_heap hmIn) (by rw [hInX']; exact hiLt)
+                  simpa [x, hInX', hxAddrEq, hiBV, bv64_8_mul] using h1
+                refine wp_load_of hldC ?_
+                let c : BitVec 64 := x.childFields[i]'hiLt
+                let StepPost : Tup Val [i64] → Mem 64 → Prop := fun (lenBV'', _) mStep =>
+                  ∃ (stOut : RtC0State) (outObjs : List LcnfObj) (len'' : Nat),
+                    stOut.PreservesMeta st ∧ stOut.rem = st.rem ∧
+                    len'' ≤ st.workCap ∧ lenBV'' = BitVec.ofNat 64 len'' ∧
+                    2 * unmarkedCount outObjs + len'' ≤ 2 * unmarkedCount curObjs + len0 ∧
+                    outObjs.length = objs.length ∧ lcnfHeapClosed outObjs ∧
+                    outObjs[idx_x]? = some x ∧
+                    (rtC0Inv rt stOut ⋆ lcnfHeap outObjs ⋆ R) mStep ∧
+                    (stOut.workBuf.take len'').Nodup ∧ xAddr ∉ stOut.workBuf.take len'' ∧
+                    (∀ a ∈ stOut.workBuf.take len'', ∃ k, ∃ hk : k < outObjs.length,
+                      outObjs[k].addr = a ∧ outObjs[k].rc = 0#32 ∧ NonPersistReach objs o a) ∧
+                    (∀ f ∈ x.childFields.take (i + 1), (f &&& 1#64) = 0#64 →
+                      ∃ q ∈ outObjs, q.addr = f ∧ q.rc = 0#32) ∧
+                    (∀ k (hk : k < objs.length) (hk' : k < outObjs.length),
+                      SameNonRc objs[k] outObjs[k] ∧ outObjs[k].Wf ∧
+                      (objs[k].addr = o → outObjs[k].rc = 0#32) ∧
+                      (outObjs[k].rc = objs[k].rc ∨ outObjs[k].rc = 0#32) ∧
+                      (objs[k].rc ≠ 0#32 → outObjs[k].rc = 0#32 →
+                        NonPersistReach objs o objs[k].addr) ∧
+                      (objs[k].rc ≠ 0#32 → outObjs[k].rc = 0#32 →
+                        outObjs[k].addr ∉ stOut.workBuf.take len'' →
+                        outObjs[k].addr ≠ xAddr →
+                        ∀ f ∈ outObjs[k].childFields, (f &&& 1#64) = 0#64 →
+                          ∃ q ∈ outObjs, q.addr = f ∧ q.rc = 0#32))
+                refine wp_join_group StepPost ?_ ?_
+                · intro _ ⟨lenBV'', ⟨⟩⟩ mStep ⟨stOut, outObjs, len'', h1, h2, h3, h4, h5, h6, h7,
+                    h8, h9, h10, h11, h12, h13, h14⟩
+                  dsimp [Blocks.get]
+                  dfs_pure_steps
+                  have hi1BV : iBV + 1#64 = BitVec.ofNat 64 (i + 1) := by
+                    rw [hiBV]; apply BitVec.eq_of_toNat_eq; simp
+                  rw [hi1BV]
+                  exact hIH4 (x.childFields.length - (i + 1)) (lenBV'', BitVec.ofNat 64 (i + 1), ())
+                    mStep (by omega)
+                    ⟨stOut, outObjs, len'', i + 1, h1, h2, h3, h4, by omega, rfl, rfl, h5, h6, h7,
+                      h8, h9, h10, h11, h12, h13, h14⟩
+                · intro J5 hJ5
+                  dfs_pure_steps
+                  refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+                  dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+                  constructor
+                  · intro hcEvenEq
+                    have hcEven : (c &&& 1#64) = 0#64 := of_decide_eq_true hcEvenEq
+                    have hcInX : c ∈ inObjs[idx_x].childFields := by
+                      rw [hInX']; exact List.getElem_mem hiLt
+                    obtain ⟨oc, hocMem, hocAddr⟩ :=
+                      hInCl inObjs[idx_x] (List.getElem_mem (by omega))
+                      c hcInX hcEven
+                    rw [List.mem_iff_getElem] at hocMem
+                    obtain ⟨idx_c, hidx_c, rfl⟩ := hocMem
+                    have hcProp := hInProp idx_c (by omega) hidx_c
+                    have hcWf : inObjs[idx_c].Wf := hcProp.2.1
+                    have hldChdr : loadVal mIn i64 c = some inObjs[idx_c].header := by
+                      rw [← hocAddr]
+                      exact lcnfHeap_load_header hidx_c (sep_pull_heap hmIn)
+                    refine wp_load_of hldChdr ?_
+                    refine wp_join_group StepPost
+                      (fun _ xs m6 h => by rcases xs with ⟨v, ⟨⟩⟩; exact hJ5 (v, ()) m6 h) ?_
+                    intro J6 hJ6
+                    dfs_pure_steps
+                    rw [LcnfObj.header_rc inObjs[idx_c] hcWf.2.2.2.1 hcWf.2.2.2.2.1
+                      hcWf.2.2.2.2.2.1]
+                    refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+                    dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+                    constructor
+                    · intro hCrcNzEq
+                      have hCrcNz64 : BitVec.ofNat 64 inObjs[idx_c].rc.toNat ≠ 0#64 :=
+                        of_decide_eq_true hCrcNzEq
+                      have hCrcNz : inObjs[idx_c].rc ≠ 0#32 := fun h => hCrcNz64 (by rw [h]; rfl)
+                      have hOrigCNz : (objs[idx_c]'(by omega)).rc ≠ 0#32 := by
+                        rcases hcProp.2.2.2.1 with h | h
+                        · rw [← h]; exact hCrcNz
+                        · exact absurd h hCrcNz
+                      have hneCX : c ≠ xAddr := by
+                        intro heq
+                        have hndIn : (inObjs.map LcnfObj.addr).Nodup :=
+                          lcnfHeap_nodup_addrs (sep_pull_heap hmIn)
+                        have hEqObj := nodup_addr_eq_of_mem hndIn (List.getElem_mem hidx_c)
+                          (List.getElem_mem (by omega : idx_x < inObjs.length))
+                          (by rw [hocAddr, heq, hInX', hxAddrEq])
+                        rw [hEqObj, hInX'] at hCrcNz
+                        exact hCrcNz hxRc0
+                      have hidxNe : idx_c ≠ idx_x := fun h =>
+                        hneCX (by subst h; rw [← hocAddr, hInX', hxAddrEq])
+                      have hcNotWl : c ∉ stIn.workBuf.take len' := by
+                        intro hmem
+                        obtain ⟨k, hk, hkAddr, hkRc0, _⟩ := hWlInMem c hmem
+                        have hndIn : (inObjs.map LcnfObj.addr).Nodup :=
+                          lcnfHeap_nodup_addrs (sep_pull_heap hmIn)
+                        have hEqObj := nodup_addr_eq_of_mem hndIn (List.getElem_mem hidx_c)
+                          (List.getElem_mem hk) (hocAddr.trans hkAddr.symm)
+                        rw [hEqObj] at hCrcNz
+                        exact hCrcNz hkRc0
+                      have hLenLtCap : len' < st.workCap := by
+                        have hle := work_push_lt_cap hWlInNd hxNotWlIn hcNotWl hneCX
+                          ⟨inObjs[idx_x]'(by omega), List.getElem_mem (by omega),
+                            by rw [hInX']; exact hxAddrEq⟩
+                          ⟨inObjs[idx_c], List.getElem_mem hidx_c, hocAddr⟩
+                          (fun a ha => by
+                            obtain ⟨k, hk, hka, _, _⟩ := hWlInMem a ha
+                            exact ⟨inObjs[k], List.getElem_mem hk, hka⟩)
+                          (by omega : inObjs.length ≤ st.workCap)
+                        simpa [List.length_take, hCapInNat, Nat.min_eq_left hLenInLe] using hle
+                      dfs_pure_steps
+                      rw [LcnfObj.header_clear_rc inObjs[idx_c] hcWf.2.2.2.1 hcWf.2.2.2.2.1
+                        hcWf.2.2.2.2.2.1]
+                      have hstC := lcnfHeap_store_rc hidx_c 0#32 (sep_pull_heap hmIn)
+                      rw [hocAddr] at hstC
+                      refine wp_store_sep (R := rtC0Inv rt stIn ⋆ R) hstC ?_
+                      intro mC hmC
+                      let inObjs' := inObjs.set idx_c (inObjs[idx_c].withRc 0#32)
+                      have hmC' : (rtC0Inv rt stIn ⋆ lcnfHeap inObjs' ⋆ R) mC :=
+                        sep_cast hmC (by ac_rfl)
+                      dfs_pure_steps
+                      refine wp_load_of (rtC0Inv_load_s_st_persistent hmC') ?_
+                      dfs_pure_steps
+                      refine wp_store_sep (rtC0Inv_store_s_st_persistent hmC') ?_
+                      intro mP hmP
+                      let stIn1 := stIn.withPersistInc
+                      refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+                      dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+                      constructor
+                      · intro hEqCap
+                        exfalso
+                        have heq : BitVec.ofNat 64 len' = st.hdr.s_work_cap := by
+                          rw [← hLenInBV]; exact of_decide_eq_true hEqCap
+                        have hn := congrArg BitVec.toNat heq
+                        rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt
+                          (Nat.lt_of_le_of_lt hLenInLe st.hdr.s_work_cap.isLt)] at hn
+                        change len' = st.workCap at hn
+                        omega
+                      · intro _hNeCap
+                        dfs_pure_steps
+                        have hLen'Lt : len' < stIn1.workBuf.length := by
+                          rw [stIn1.workLen]; change len' < stIn.hdr.s_work_cap.toNat
+                          rw [hCapInEq]; exact hLenLtCap
+                        have hstW := rtC0Inv_store_work hLen'Lt c hmP
+                        have hWorkIn1 : stIn1.hdr.s_work = st.hdr.s_work := hWorkInEq
+                        rw [hWorkIn1, ← bv64_mul8_comm len', ← hLenInBV] at hstW
+                        refine wp_store_sep hstW ?_
+                        intro mW hmW
+                        let stIn2 := stIn1.withWorkBuf (stIn1.workBuf.set len' c)
+                          (by rw [List.length_set]; exact stIn1.workLen)
+                        dfs_pure_steps
+                        have hLen1BV : lenBV' + 1#64 = BitVec.ofNat 64 (len' + 1) := by
+                          rw [hLenInBV]; apply BitVec.eq_of_toNat_eq; simp
+                        rw [hLen1BV]
+                        have hTkPush : stIn2.workBuf.take (len' + 1) =
+                            stIn.workBuf.take len' ++ [c] :=
+                          list_take_set_append stIn.workBuf hLen'Lt c
+                        have hcReach : NonPersistReach objs o c := by
+                          refine NonPersistReach.step hxReach
+                            ⟨objs[idx_x]'(by omega), List.getElem_mem (by omega), ?_, ?_⟩
+                            hcEven
+                            ⟨objs[idx_c]'(by omega), List.getElem_mem (by omega), ?_, hOrigCNz⟩
+                          · rw [← (hInProp idx_x (by omega) (by omega)).1.1, hInX', hxAddrEq]
+                          · rw [← (hInProp idx_x (by omega) (by omega)).1.childFields_eq, hInX']
+                            exact List.getElem_mem hiLt
+                          · rw [← hcProp.1.1, hocAddr]
+                        have hUnmDec : unmarkedCount inObjs' + 1 = unmarkedCount inObjs :=
+                          unmarkedCount_set_zero inObjs hidx_c hCrcNz
+                        have hZeroPres : ∀ q ∈ inObjs, q.rc = 0#32 →
+                            ∃ q' ∈ inObjs', q'.addr = q.addr ∧ q'.rc = 0#32 := by
+                          intro q hq hq0
+                          rw [List.mem_iff_getElem] at hq
+                          obtain ⟨kq, hkq, rfl⟩ := hq
+                          have hkq' : kq < inObjs'.length := by simp [inObjs', hkq]
+                          refine ⟨inObjs'[kq]'hkq', List.getElem_mem hkq', ?_, ?_⟩
+                          · by_cases hkqC : kq = idx_c
+                            · subst hkqC; simp [inObjs', LcnfObj.withRc]
+                            · simp [inObjs', List.getElem_set_ne (Ne.symm hkqC)]
+                          · by_cases hkqC : kq = idx_c
+                            · subst hkqC; simp [inObjs', LcnfObj.withRc]
+                            · simp [inObjs', List.getElem_set_ne (Ne.symm hkqC), hq0]
+                        apply hJ6 (BitVec.ofNat 64 (len' + 1), ()) mW
+                        refine ⟨stIn2, inObjs', len' + 1,
+                          preservesMeta_trans hMetaIn ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩,
+                          hRemIn, by omega, rfl, by omega, by simp [inObjs', hInLen],
+                          lcnfHeapClosed_set_withRc hInCl hidx_c 0#32,
+                          by rw [List.getElem?_set_ne hidxNe]; exact hInX,
+                          hmW, ?_, ?_, ?_, ?_, ?_⟩
+                        · rw [hTkPush, List.nodup_append]
+                          refine ⟨hWlInNd, by simp, fun a ha b hb => ?_⟩
+                          rw [List.mem_singleton] at hb; subst hb
+                          exact fun heq => hcNotWl (heq ▸ ha)
+                        · rw [hTkPush, List.mem_append, List.mem_singleton]
+                          rintro (h | h)
+                          · exact hxNotWlIn h
+                          · exact hneCX h.symm
+                        · intro a ha
+                          rw [hTkPush, List.mem_append, List.mem_singleton] at ha
+                          rcases ha with haOld | rfl
+                          · obtain ⟨k, hk, hkAddr, hkRc, hkReach⟩ := hWlInMem a haOld
+                            have hk' : k < inObjs'.length := by simp [inObjs', hk]
+                            refine ⟨k, hk', ?_, ?_, hkReach⟩
+                            · by_cases hkc : k = idx_c
+                              · subst hkc; simp [inObjs', LcnfObj.withRc, hkAddr]
+                              · simp [inObjs', List.getElem_set_ne (Ne.symm hkc), hkAddr]
+                            · by_cases hkc : k = idx_c
+                              · subst hkc; simp [inObjs', LcnfObj.withRc]
+                              · simp [inObjs', List.getElem_set_ne (Ne.symm hkc), hkRc]
+                          · exact ⟨idx_c, by simp [inObjs', hidx_c],
+                              by simp [inObjs', LcnfObj.withRc, hocAddr],
+                              by simp [inObjs', LcnfObj.withRc], hcReach⟩
+                        · intro f hf hf0
+                          rw [List.take_succ_eq_append_getElem hiLt, List.mem_append,
+                            List.mem_singleton] at hf
+                          rcases hf with hfOld | rfl
+                          · obtain ⟨q, hq, hqa, hq0⟩ := hDoneI f hfOld hf0
+                            obtain ⟨q', hq', hq'a, hq'0⟩ := hZeroPres q hq hq0
+                            exact ⟨q', hq', hq'a.trans hqa, hq'0⟩
+                          · exact ⟨inObjs'[idx_c]'(by simp [inObjs', hidx_c]),
+                              List.getElem_mem _, by simp [inObjs', LcnfObj.withRc, hocAddr, c],
+                              by simp [inObjs', LcnfObj.withRc]⟩
+                        · intro k hk hk'
+                          have hkin : k < inObjs.length := by simp [inObjs'] at hk'; exact hk'
+                          have hp := hInProp k hk hkin
+                          by_cases hkc : k = idx_c
+                          · subst hkc
+                            simp only [inObjs', List.getElem_set_self]
+                            refine ⟨hp.1.withRc_r 0#32, objWf_withRc_zero hcWf,
+                              fun _ => rfl, Or.inr rfl,
+                              fun _ _ => by rw [← hp.1.1, hocAddr]; exact hcReach,
+                              fun _ _ hnotWl => by
+                                exfalso; apply hnotWl
+                                rw [hTkPush]; simp [LcnfObj.withRc, hocAddr]⟩
+                          · have hget : inObjs'[k]'hk' = inObjs[k]'hkin :=
+                              List.getElem_set_ne (Ne.symm hkc) hk'
+                            rw [hget]
+                            refine ⟨hp.1, hp.2.1, hp.2.2.1, hp.2.2.2.1, hp.2.2.2.2.1, ?_⟩
+                            intro hnz h0 hnotWl hneX f hf hf0
+                            have hnotOld : inObjs[k].addr ∉ stIn.workBuf.take len' := fun h =>
+                              hnotWl (by rw [hTkPush]; exact List.mem_append_left _ h)
+                            obtain ⟨q, hq, hqa, hq0⟩ := hp.2.2.2.2.2 hnz h0 hnotOld hneX f hf hf0
+                            obtain ⟨q', hq', hq'a, hq'0⟩ := hZeroPres q hq hq0
+                            exact ⟨q', hq', hq'a.trans hqa, hq'0⟩
+                    · intro hCrc0Eq
+                      have hCrc064 : BitVec.ofNat 64 inObjs[idx_c].rc.toNat = 0#64 :=
+                        Classical.byContradiction (of_decide_eq_false hCrc0Eq)
+                      have hCrc0 : inObjs[idx_c].rc = 0#32 := by
+                        apply BitVec.eq_of_toNat_eq
+                        have := congrArg BitVec.toNat hCrc064
+                        simpa [Nat.mod_eq_of_lt (by omega : inObjs[idx_c].rc.toNat < 2 ^ 64)]
+                          using this
+                      apply hJ6 (lenBV', ()) mIn
+                      refine ⟨stIn, inObjs, len', hMetaIn, hRemIn, hLenInLe, hLenInBV, hMeasIn,
+                        hInLen, hInCl, hInX, hmIn, hWlInNd, hxNotWlIn, hWlInMem, ?_, hInProp⟩
+                      intro f hf hf0
+                      rw [List.take_succ_eq_append_getElem hiLt, List.mem_append,
+                        List.mem_singleton] at hf
+                      rcases hf with hfOld | rfl
+                      · exact hDoneI f hfOld hf0
+                      · exact ⟨inObjs[idx_c], List.getElem_mem hidx_c, hocAddr, hCrc0⟩
+                  · intro hcOddEq
+                    have hcOdd : (c &&& 1#64) ≠ 0#64 := of_decide_eq_false hcOddEq
+                    apply hJ5 (lenBV', ()) mIn
+                    refine ⟨stIn, inObjs, len', hMetaIn, hRemIn, hLenInLe, hLenInBV, hMeasIn,
+                      hInLen, hInCl, hInX, hmIn, hWlInNd, hxNotWlIn, hWlInMem, ?_, hInProp⟩
+                    intro f hf hf0
+                    rw [List.take_succ_eq_append_getElem hiLt, List.mem_append,
+                      List.mem_singleton] at hf
+                    rcases hf with hfOld | rfl
+                    · exact hDoneI f hfOld hf0
+                    · exact absurd hf0 hcOdd
+              · intro hiNotUlt
+                have hiEq : i = x.childFields.length := by
+                  rw [hiBV, BitVec.ult, hi64, hn64] at hiNotUlt
+                  have : ¬ i < x.childFields.length := of_decide_eq_false hiNotUlt
+                  omega
+                subst hiEq
+                rw [List.take_of_length_le (Nat.le_refl _)] at hDoneI
+                refine hIH0 (2 * unmarkedCount inObjs + len') (lenBV', ()) mIn (by omega)
+                  ⟨stIn, inObjs, len', hMetaIn, hRemIn, hLenInLe, hLenInBV, rfl, hInLen, hInCl,
+                    hmIn, hWlInNd, hWlInMem, ?_⟩
+                intro k hk hk'
+                have hp := hInProp k hk hk'
+                refine ⟨hp.1, hp.2.1, hp.2.2.1, hp.2.2.2.1, hp.2.2.2.2.1, ?_⟩
+                intro hnz h0 hnotWl f hf hf0
+                by_cases hkx : inObjs[k].addr = xAddr
+                · have hndIn : (inObjs.map LcnfObj.addr).Nodup :=
+                    lcnfHeap_nodup_addrs (sep_pull_heap hmIn)
+                  have hEqObj := nodup_addr_eq_of_mem hndIn (List.getElem_mem hk')
+                    (List.getElem_mem (by omega : idx_x < inObjs.length))
+                    (by rw [hkx, hInX', hxAddrEq])
+                  rw [hEqObj, hInX'] at hf
+                  exact hDoneI f hf hf0
+                · exact hp.2.2.2.2.2 hnz h0 hnotWl hkx f hf hf0
+            · intro J1 hJ1
+              rw [htagShift]
+              refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+              dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+              constructor
+              · intro htCloEq
+                have htClo : x.tag = closureTag := by
+                  have h := congrArg BitVec.toNat (of_decide_eq_true htCloEq)
+                  simpa [closureTag, Nat.mod_eq_of_lt (by omega : x.tag < 2 ^ 64)] using h
+                dfs_pure_steps
+                have hldM : loadVal mCur i64 (xAddr + 16#64) = some x.cloMeta := by
+                  rw [← hxAddrEq]
+                  exact lcnfHeap_load_cloMeta hidx_x htClo (sep_pull_heap hmCur)
+                refine wp_load_of hldM ?_
+                dfs_pure_steps
+                have hsp := hxWf.2.2.2.2.2.2.2.2.2
+                simp only [htClo, ↓reduceIte] at hsp
+                rw [LcnfObj.cloMeta, cloMetaWord_nfix x.arity x.fields.length hsp.1 hsp.2.1]
+                exact hJ1 _ mCur ⟨by simp [LcnfObj.childFields, htClo],
+                  by simp [LcnfObj.fieldsOff, htClo], rfl⟩
+              · intro htCloNe
+                have htNotClo : x.tag ≠ closureTag := fun h =>
+                  of_decide_eq_false htCloNe (by rw [h]; rfl)
+                refine wp_join_group DispPost
+                  (fun _ xs mD h => by rcases xs with ⟨a, b, ⟨⟩⟩; exact hJ1 (a, b, ()) mD h) ?_
+                intro J2 hJ2
+                refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+                dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+                constructor
+                · intro htArrEq
+                  have htArr : x.tag = arrayTag := by
+                    have h := congrArg BitVec.toNat (of_decide_eq_true htArrEq)
+                    simpa [arrayTag, Nat.mod_eq_of_lt (by omega : x.tag < 2 ^ 64)] using h
+                  dfs_pure_steps
+                  have hldA : loadVal mCur i64 (xAddr + 8#64) =
+                      some (BitVec.ofNat 64 x.fields.length) := by
+                    rw [← hxAddrEq]
+                    exact lcnfHeap_load_arrSize hidx_x htArr (sep_pull_heap hmCur)
+                  refine wp_load_of hldA ?_
+                  exact hJ2 _ mCur ⟨by simp [LcnfObj.childFields, htArr],
+                    by simp [LcnfObj.fieldsOff, htArr], rfl⟩
+                · intro htArrNe
+                  have htNotArr : x.tag ≠ arrayTag := fun h =>
+                    of_decide_eq_false htArrNe (by rw [h]; rfl)
+                  refine wp_join_group DispPost
+                    (fun _ xs mD h => by rcases xs with ⟨a, b, ⟨⟩⟩; exact hJ2 (a, b, ()) mD h) ?_
+                  intro J3 hJ3
+                  refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+                  dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+                  constructor
+                  · intro htCtorEq
+                    have htLe : x.tag ≤ 244 := by
+                      have h244 : (244#64).toNat = 244 := by decide
+                      have htag64 : (BitVec.ofNat 64 x.tag).toNat = x.tag :=
+                        Nat.mod_eq_of_lt (by omega)
+                      simp only [BitVec.ule, htag64, h244] at htCtorEq
+                      exact of_decide_eq_true htCtorEq
+                    dfs_pure_steps
+                    rw [LcnfObj.header_other x hxCs hxOth hxTag]
+                    have hsp := hxWf.2.2.2.2.2.2.2.2.2
+                    have hsa : x.tag ≠ sarrayTag := by unfold sarrayTag; omega
+                    have hstr : x.tag ≠ stringTag := by unfold stringTag; omega
+                    have hmpz : x.tag ≠ mpzTag := by unfold mpzTag; omega
+                    simp only [htNotClo, htNotArr, hsa, hstr, hmpz, ↓reduceIte] at hsp
+                    exact hJ3 _ mCur ⟨by simp [LcnfObj.childFields, htLe, hsp.2.1],
+                      by simp [LcnfObj.fieldsOff, htNotClo, htNotArr], rfl⟩
+                  · intro htOtherEq
+                    have htGt : ¬ x.tag ≤ 244 := by
+                      have h244 : (244#64).toNat = 244 := by decide
+                      have htag64 : (BitVec.ofNat 64 x.tag).toNat = x.tag :=
+                        Nat.mod_eq_of_lt (by omega)
+                      simp only [BitVec.ule, htag64, h244] at htOtherEq
+                      exact of_decide_eq_false htOtherEq
+                    exact hJ3 _ mCur ⟨by simp [LcnfObj.childFields, htGt, htNotClo, htNotArr],
+                      by simp [LcnfObj.fieldsOff, htNotClo, htNotArr], rfl⟩
+          · intro hLenZeroEq
+            have hLenZero : len = 0 := by
+              rw [hLenBV, BitVec.ult, hLen64] at hLenZeroEq
+              have h0m : (0#64).toNat = 0 := by decide
+              rw [h0m] at hLenZeroEq
+              have : ¬ 0 < len := of_decide_eq_false hLenZeroEq
+              omega
+            subst hLenZero
+            refine hPost stCur curObjs mCur hMeta hRem ?_ hmCur
+            refine ⟨hCurLen, hObjsWf, hObjsCl, hCurCl, ?_⟩
+            intro p hp
+            rw [List.mem_iff_getElem] at hp
+            obtain ⟨k, hk, rfl⟩ := hp
+            have hk0 : k < objs.length := by
+              rw [List.length_zip, hCurLen, Nat.min_self] at hk; exact hk
+            have hk' : k < curObjs.length := by omega
+            simp only [List.getElem_zip]
+            have hp0 := hCurProp k hk0 hk'
+            refine ⟨hp0.2.1, hp0.1.1, hp0.1.2.1, hp0.1.2.2.1, hp0.1.2.2.2.1, hp0.1.2.2.2.2.1,
+              hp0.1.2.2.2.2.2.1, hp0.1.2.2.2.2.2.2.1, hp0.1.2.2.2.2.2.2.2.1,
+              hp0.1.2.2.2.2.2.2.2.2.1, hp0.1.2.2.2.2.2.2.2.2.2.1, hp0.1.2.2.2.2.2.2.2.2.2.2.1,
+              hp0.1.2.2.2.2.2.2.2.2.2.2.2, hp0.2.2.1, hp0.2.2.2.1, ?_⟩
+            intro hknz
+            constructor
+            · exact hp0.2.2.2.2.1 hknz
+            · intro hreach
+              obtain ⟨kr, hkr', hkrAddr, hkr0⟩ := nonPersistReach_mark_complete hCurLen hndO
+                (fun j hj hj' => (hCurProp j hj hj').2.2.1)
+                (fun j hj hj' => (hCurProp j hj hj').1)
+                (fun j hj hj' hnz h0 => (hCurProp j hj hj').2.2.2.2.2 hnz h0 (by simp))
+                hreach
+              have hndCur : (curObjs.map LcnfObj.addr).Nodup :=
+                lcnfHeap_nodup_addrs (sep_pull_heap hmCur)
+              have hEqObj := nodup_addr_eq_of_mem hndCur (List.getElem_mem hk')
+                (List.getElem_mem hkr') (by rw [hp0.1.1, hkrAddr])
+              rw [hEqObj]; exact hkr0
+
+/-! ## `lcnf_dec_ref_cold_wp` -/
+
+theorem lcnf_dec_ref_cold_wp (Γ : Env)
+    (hFree : ∀ xs m Q X, lcnfFreeObjSpec xs m Q X →
+      Γ "lcnf_free_obj" [i64, i64] [] xs m Q X) :
+    ∀ (xs : Tup Val lcnf_dec_ref_cold.as) (m : Mem 64)
+      (Q : Post lcnf_dec_ref_cold.rs) (X : XPost),
+      lcnfDecRefColdSpec xs m Q X →
+      Func.wp Γ lcnf_dec_ref_cold.body xs m Q X := by
+  dsimp [lcnf_dec_ref_cold]
+  intro ⟨rt, o, ⟨⟩⟩ m Q X hSpec
+  dsimp [Func.wp, lcnf_dec_ref_cold_body]
+  rcases hSpec with ⟨heven, st, objs, R, hCapLe, hm, hRootEx, hObjsWf, hObjsCl, hRcSound, hPost⟩
+  have hndO : (objs.map LcnfObj.addr).Nodup := lcnfHeap_nodup_addrs (sep_pull_heap hm)
+  obtain ⟨obj0, hobj0Mem, hobj0Addr, hobj0Rc⟩ := hRootEx
+  dfs_pure_steps
+  refine wp_load_of (rtC0Inv_load_s_st_cold_decs hm) ?_
+  dfs_pure_steps
+  refine wp_store_sep (rtC0Inv_store_s_st_cold_decs hm) ?_
+  intro m1 hm1
+  let st1 := st.withColdDecsInc
+  dfs_pure_steps
+  refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+  dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+  constructor
+  · intro ht; exfalso; exact of_decide_eq_true ht heven
+  · intro _
+    dfs_pure_steps
+    refine wp_load_of (rtC0Inv_load_s_work hm1) ?_
+    dfs_pure_steps
+    refine wp_load_of (rtC0Inv_load_s_work_cap hm1) ?_
+    refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+    dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+    constructor
+    · intro hcap0
+      exfalso
+      have h0 : st1.hdr.s_work_cap = 0#64 := of_decide_eq_true hcap0
+      have h0n : st.workCap = 0 := by
+        unfold RtC0State.workCap; change st1.hdr.s_work_cap.toNat = 0; rw [h0]; rfl
+      have hpos : 0 < objs.length := List.length_pos_of_mem hobj0Mem
+      omega
+    · intro _
+      dfs_pure_steps
+      have h0lt : 0 < st1.workBuf.length := by
+        rw [st1.workLen]; change 0 < st.workCap
+        have hpos : 0 < objs.length := List.length_pos_of_mem hobj0Mem
+        omega
+      have hstW0 := rtC0Inv_store_work h0lt o hm1
+      have hmul0 : (0#64 : BitVec 64) * 8#64 = BitVec.ofNat 64 (8 * 0) := by decide
+      rw [← hmul0] at hstW0
+      refine wp_store_sep hstW0 ?_
+      intro m2 hm2
+      let st2 := st1.withWorkBuf (st1.workBuf.set 0 o) (by rw [List.length_set]; exact st1.workLen)
+      let OuterInv : Nat → Tup Val [i64] → Mem 64 → Prop := fun n (lenBV, _) mCur =>
+        ∃ (stCur : RtC0State) (curObjs : List LcnfObj) (len : Nat),
+          stCur.PreservesMeta st ∧ stCur.rem = st.rem ∧
+          len ≤ st.workCap ∧ lenBV = BitVec.ofNat 64 len ∧
+          curObjs.length = n ∧ curObjs.length ≤ objs.length ∧
+          (∀ o' ∈ curObjs, o'.Wf) ∧ lcnfHeapClosed curObjs ∧
+          (rtC0Inv rt stCur ⋆ lcnfHeap curObjs ⋆ R) mCur ∧
+          (stCur.workBuf.take len).Nodup ∧
+          (o ∈ stCur.workBuf.take len ∨ ∀ o' ∈ curObjs, o'.addr ≠ o) ∧
+          (∀ a ∈ stCur.workBuf.take len,
+            ∃ obj ∈ curObjs, obj.addr = a ∧ obj.rc = 1#32 ∧ NonPersistReach objs o a) ∧
+          (∀ p ∈ curObjs, p.rc = 0#32 → ∀ f ∈ p.childFields, (f &&& 1#64) = 0#64 →
+            ∃ q ∈ curObjs, q.addr = f ∧ q.rc = 0#32) ∧
+          (∀ y ∈ curObjs, 0 < y.rc.toInt →
+            nonPersistRefs curObjs y.addr + (stCur.workBuf.take len).count y.addr ≤ y.rc.toNat) ∧
+          (∀ o' ∈ curObjs, ∃ orig ∈ objs, SameNonRc orig o' ∧
+            ((orig.rc = 0#32 ∧ o'.rc = 0#32) ∨
+             (0 < orig.rc.toInt ∧ 0 < o'.rc.toInt ∧ o'.rc.toInt ≤ orig.rc.toInt))) ∧
+          (∀ orig ∈ objs, orig.rc = 0#32 → ∃ o' ∈ curObjs, o'.addr = orig.addr ∧ o'.rc = 0#32) ∧
+          (∀ orig ∈ objs, 0 < orig.rc.toInt →
+            let dropped :=
+              (if orig.addr = o then 1 else 0) + nonPersistRefs (freedObjs objs curObjs) orig.addr
+            (∀ o' ∈ curObjs, o'.addr = orig.addr →
+              o'.rc.toNat + dropped = orig.rc.toNat + (stCur.workBuf.take len).count orig.addr) ∧
+            (orig ∈ freedObjs objs curObjs →
+              orig.rc.toNat = dropped ∧ NonPersistReach objs o orig.addr))
+      refine wp_loop_group OuterInv ?_ (fun J0 hJ0 => by
+        dsimp
+        have htk1 : st2.workBuf.take 1 = [o] := by
+          simpa [st2, RtC0State.withWorkBuf] using list_take_set_append st1.workBuf h0lt o
+        refine hJ0 objs.length (1#64, ()) m2
+          ⟨st2, objs, 1, ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl,
+            by have := List.length_pos_of_mem hobj0Mem; omega, rfl, rfl, Nat.le_refl _,
+            hObjsWf, hObjsCl, hm2, by rw [htk1]; simp, Or.inl (by rw [htk1]; simp), ?_,
+            hRcSound.1, ?_, ?_, ?_, ?_⟩
+        · intro a ha
+          rw [htk1, List.mem_singleton] at ha; subst ha
+          exact ⟨obj0, hobj0Mem, hobj0Addr, hobj0Rc,
+            NonPersistReach.refl ⟨obj0, hobj0Mem, hobj0Addr, by rw [hobj0Rc]; decide⟩⟩
+        · intro y hy hyPos
+          have hcnt : (st2.workBuf.take 1).count y.addr = if y.addr = o then 1 else 0 := by
+            rw [htk1, List.count_singleton]
+            by_cases h : y.addr = o
+            · simp [h]
+            · simp [h, Ne.symm h]
+          rw [hcnt]; exact hRcSound.2 y hy hyPos
+        · intro o' ho'
+          refine ⟨o', ho', SameNonRc.refl o', ?_⟩
+          by_cases h0 : o'.rc = 0#32
+          · exact Or.inl ⟨h0, h0⟩
+          · exact Or.inr ⟨objWf_rc_pos (hObjsWf o' ho') h0,
+              objWf_rc_pos (hObjsWf o' ho') h0, Int.le_refl _⟩
+        · intro orig horig h0
+          exact ⟨orig, horig, rfl, h0⟩
+        · intro orig horig _
+          rw [freedObjs_self]
+          simp only [nonPersistRefs, List.foldl_nil, Nat.add_zero]
+          refine ⟨fun o' ho' had => ?_, fun h => nomatch h⟩
+          have heq := nodup_addr_eq_of_mem hndO ho' horig had
+          subst heq
+          have hcnt : (st2.workBuf.take 1).count o'.addr = if o'.addr = o then 1 else 0 := by
+            rw [htk1, List.count_singleton]
+            by_cases h : o'.addr = o
+            · simp [h]
+            · simp [h, Ne.symm h]
+          rw [hcnt]
+      )
+      intro J0 n ⟨lenBV, ⟨⟩⟩ mCur hIH0
+        ⟨stCur, curObjs, len, hMeta, hRem, hLenLe, hLenBV, hCurLen, hCurLeO, hCurWf, hCurCl, hmCur,
+          hWlNd, hRootState, hWlMem, hPersCl, hRcCur, hCurOrig, hOrigPers, hOrigEq⟩
+      have hWorkEq : stCur.hdr.s_work = st.hdr.s_work := hMeta.2.2.2.2.1.symm
+      have hCapEq : stCur.hdr.s_work_cap = st.hdr.s_work_cap := hMeta.2.2.2.2.2.1.symm
+      have hCapNat : stCur.workBuf.length = st.workCap := by rw [stCur.workLen, hCapEq]; rfl
+      have hLen64 : (BitVec.ofNat 64 len).toNat = len :=
+        Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hLenLe st.hdr.s_work_cap.isLt)
+      dfs_pure_steps
+      refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+      dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+      constructor
+      · intro hLenPosEq
+        have hLenPos : 0 < len := by
+          rw [hLenBV, BitVec.ult, hLen64] at hLenPosEq
+          have h0m : (0#64).toNat = 0 := by decide
+          rw [h0m] at hLenPosEq
+          exact of_decide_eq_true hLenPosEq
+        let len0 : Nat := len - 1
+        have hLen0Lt : len0 < stCur.workBuf.length := by omega
+        have hSubBV : lenBV - 1#64 = BitVec.ofNat 64 len0 := by
+          rw [hLenBV]
+          apply BitVec.eq_of_toNat_eq
+          have hlt64 : len < 2 ^ 64 := Nat.lt_of_le_of_lt hLenLe st.hdr.s_work_cap.isLt
+          bv_omega
+        dfs_pure_steps
+        rw [hSubBV]
+        have hldX : loadVal mCur i64 (st.hdr.s_work + BitVec.ofNat 64 len0 * 8#64) =
+            some (stCur.workBuf[len0]'hLen0Lt) := by
+          rw [← hWorkEq, bv64_mul8_comm]
+          exact rtC0Inv_load_work hLen0Lt hmCur
+        refine wp_load_of hldX ?_
+        let xAddr : BitVec 64 := stCur.workBuf[len0]'hLen0Lt
+        have hTkPop : stCur.workBuf.take len = stCur.workBuf.take len0 ++ [xAddr] := by
+          have h1 : len = len0 + 1 := by omega
+          rw [h1]; exact List.take_succ_eq_append_getElem hLen0Lt
+        have hxInWl : xAddr ∈ stCur.workBuf.take len := by rw [hTkPop]; simp
+        have hWl0Nd : (stCur.workBuf.take len0).Nodup := by
+          rw [hTkPop, List.nodup_append] at hWlNd; exact hWlNd.1
+        have hxNotWl0 : xAddr ∉ stCur.workBuf.take len0 := by
+          rw [hTkPop, List.nodup_append] at hWlNd
+          intro hm; exact hWlNd.2.2 xAddr hm xAddr List.mem_cons_self rfl
+        obtain ⟨xObj, hxMem, hxAddrEq, hxRc1, hxReach⟩ := hWlMem xAddr hxInWl
+        rw [List.mem_iff_getElem] at hxMem
+        obtain ⟨idx_x, hidx_x, rfl⟩ := hxMem
+        let x : LcnfObj := curObjs[idx_x]'hidx_x
+        have hxWf : x.Wf := hCurWf x (List.getElem_mem hidx_x)
+        have hndCur : (curObjs.map LcnfObj.addr).Nodup :=
+          lcnfHeap_nodup_addrs (sep_pull_heap hmCur)
+        -- Crucial: no object in `curObjs` points to `xAddr`!
+        have hxNoRefs : ∀ p ∈ curObjs, xAddr ∉ p.childFields := by
+          have hxPos : 0 < x.rc.toInt := by rw [hxRc1]; decide
+          have hrcX := hRcCur x (List.getElem_mem hidx_x) hxPos
+          rw [hxAddrEq, hxRc1] at hrcX
+          have hcnt1 : 1 ≤ (stCur.workBuf.take len).count xAddr := List.count_pos_iff.mpr hxInWl
+          have h1n : (1#32).toNat = 1 := rfl
+          rw [h1n] at hrcX
+          have hnp0 : nonPersistRefs curObjs xAddr = 0 := by omega
+          intro p hp hmemC
+          by_cases hp0 : p.rc = 0#32
+          · obtain ⟨q, hqMem, hqAddr, hq0⟩ :=
+              hPersCl p hp hp0 xAddr hmemC (hxAddrEq ▸ objWf_addr_even hxWf)
+            have hEq := nodup_addr_eq_of_mem hndCur hqMem (List.getElem_mem hidx_x)
+              (hqAddr.trans hxAddrEq.symm)
+            rw [hEq] at hq0
+            exact absurd (hq0.symm.trans hxRc1) (by decide)
+          · exact nonPersistRefs_eq_zero_imp curObjs xAddr hnp0 p hp hp0 hmemC
+        -- Exact original object matching `x` and its RC equation:
+        obtain ⟨origX, horigXMem, horigXSame, horigXRc⟩ := hCurOrig x (List.getElem_mem hidx_x)
+        have horigXPos : 0 < origX.rc.toInt := by
+          rcases horigXRc with ⟨_, h0⟩ | ⟨hpos, _, _⟩
+          · exact absurd (h0.symm.trans hxRc1) (by decide)
+          · exact hpos
+        have horigXAddr : origX.addr = xAddr := by rw [← horigXSame.1, hxAddrEq]
+        have horigXDrop : origX.rc.toNat =
+            (if origX.addr = o then 1 else 0) +
+              nonPersistRefs (freedObjs objs curObjs) origX.addr := by
+          have hEq := (hOrigEq origX horigXMem horigXPos).1 x (List.getElem_mem hidx_x) horigXSame.1
+          have hcntX : (stCur.workBuf.take len).count origX.addr = 1 := by
+            rw [horigXAddr, hTkPop, List.count_append, List.count_eq_zero.mpr hxNotWl0]
+            simp
+          rw [hcntX, hxRc1] at hEq
+          have h1n : (1#32).toNat = 1 := rfl
+          rw [h1n] at hEq; omega
+        have hldHdr : loadVal mCur i64 xAddr = some x.header := by
+          rw [← hxAddrEq]; exact lcnfHeap_load_header hidx_x (sep_pull_heap hmCur)
+        refine wp_load_of hldHdr ?_
+        dfs_pure_steps
+        have hxCs := hxWf.2.2.2.1; have hxOth := hxWf.2.2.2.2.1; have hxTag := hxWf.2.2.2.2.2.1
+        have htagShift : x.header >>> 56 = BitVec.ofNat 64 x.tag :=
+          LcnfObj.header_tag x hxCs hxOth hxTag
+        let DispPost : Tup Val [i64, i64] → Mem 64 → Prop := fun (nBV, offBV, _) mD =>
+          nBV = BitVec.ofNat 64 x.childFields.length ∧ offBV = x.fieldsOff ∧ mD = mCur
+        refine wp_join_group DispPost ?_ ?_
+        · intro _ ⟨nBV, offBV, ⟨⟩⟩ mD ⟨hnBV, hoffBV, hmD⟩
+          subst mD; subst hnBV hoffBV
+          let InnerInv : Nat → Tup Val [i64, i64] → Mem 64 → Prop :=
+            fun rem (lenBV', iBV, _) mIn =>
+              ∃ (stIn : RtC0State) (inObjs : List LcnfObj) (len' i : Nat),
+                stIn.PreservesMeta st ∧ stIn.rem = st.rem ∧
+                len' ≤ st.workCap ∧ lenBV' = BitVec.ofNat 64 len' ∧
+                i ≤ x.childFields.length ∧ iBV = BitVec.ofNat 64 i ∧
+                rem = x.childFields.length - i ∧
+                inObjs.length = curObjs.length ∧ inObjs.length ≤ objs.length ∧
+                inObjs[idx_x]? = some x ∧
+                (∀ o' ∈ inObjs, o'.Wf) ∧ lcnfHeapClosed inObjs ∧
+                (∀ p ∈ inObjs, xAddr ∉ p.childFields) ∧
+                freedObjs objs inObjs = freedObjs objs curObjs ∧
+                (rtC0Inv rt stIn ⋆ lcnfHeap inObjs ⋆ R) mIn ∧
+                (stIn.workBuf.take len').Nodup ∧ xAddr ∉ stIn.workBuf.take len' ∧
+                (o ∈ stIn.workBuf.take len' ∨ o = xAddr ∨ ∀ o' ∈ inObjs, o'.addr ≠ o) ∧
+                (∀ a ∈ stIn.workBuf.take len',
+                  ∃ obj ∈ inObjs, obj.addr = a ∧ obj.rc = 1#32 ∧ NonPersistReach objs o a) ∧
+                (∀ p ∈ inObjs, p.rc = 0#32 → ∀ f ∈ p.childFields, (f &&& 1#64) = 0#64 →
+                  ∃ q ∈ inObjs, q.addr = f ∧ q.rc = 0#32) ∧
+                (∀ y ∈ inObjs, y.addr ≠ xAddr → 0 < y.rc.toInt →
+                  nonPersistRefs (inObjs.eraseIdx idx_x) y.addr +
+                    (x.childFields.drop i).count y.addr +
+                    (stIn.workBuf.take len').count y.addr ≤ y.rc.toNat) ∧
+                (∀ o' ∈ inObjs, ∃ orig ∈ objs, SameNonRc orig o' ∧
+                  ((orig.rc = 0#32 ∧ o'.rc = 0#32) ∨
+                   (0 < orig.rc.toInt ∧ 0 < o'.rc.toInt ∧ o'.rc.toInt ≤ orig.rc.toInt))) ∧
+                (∀ orig ∈ objs, orig.rc = 0#32 →
+                  ∃ o' ∈ inObjs, o'.addr = orig.addr ∧ o'.rc = 0#32) ∧
+                (∀ orig ∈ objs, 0 < orig.rc.toInt →
+                  let dropped :=
+                    (if orig.addr = o then 1 else 0) +
+                      nonPersistRefs (freedObjs objs inObjs) orig.addr
+                  (∀ o' ∈ inObjs, o'.addr = orig.addr → o'.addr ≠ xAddr →
+                    o'.rc.toNat + dropped + (x.childFields.take i).count orig.addr =
+                      orig.rc.toNat + (stIn.workBuf.take len').count orig.addr) ∧
+                  (orig ∈ freedObjs objs inObjs →
+                    orig.rc.toNat = dropped ∧ NonPersistReach objs o orig.addr))
+          refine wp_loop_group InnerInv ?_ (fun J4 hJ4 => by
+            dsimp
+            refine hJ4 x.childFields.length (BitVec.ofNat 64 len0, 0#64, ()) mCur
+              ⟨stCur, curObjs, len0, 0, hMeta, hRem, by omega, rfl, Nat.zero_le _, rfl, rfl,
+                rfl, hCurLeO, List.getElem?_eq_getElem hidx_x, hCurWf, hCurCl, hxNoRefs, rfl,
+                hmCur, hWl0Nd, hxNotWl0, ?_,
+                ?_, hPersCl, ?_, hCurOrig, hOrigPers, ?_⟩
+            · rcases hRootState with hIn | hOut
+              · rw [hTkPop, List.mem_append, List.mem_singleton] at hIn
+                rcases hIn with h0 | rfl
+                · exact Or.inl h0
+                · exact Or.inr (Or.inl rfl)
+              · exact Or.inr (Or.inr hOut)
+            · intro a ha
+              exact hWlMem a (by rw [hTkPop]; exact List.mem_append_left _ ha)
+            · intro y hy hyNe hyPos
+              have hrcY := hRcCur y hy hyPos
+              have hsp := nonPersistRefs_focus curObjs hidx_x y.addr
+              have hnzX : x.rc ≠ 0#32 := by rw [hxRc1]; decide
+              change nonPersistRefs curObjs y.addr =
+                (if x.rc = 0#32 then 0 else x.childFields.count y.addr) +
+                nonPersistRefs (curObjs.eraseIdx idx_x) y.addr at hsp
+              simp only [hnzX, ↓reduceIte] at hsp
+              have hcntY : (stCur.workBuf.take len).count y.addr =
+                  (stCur.workBuf.take len0).count y.addr := by
+                rw [hTkPop, List.count_append, List.count_singleton]
+                simp [Ne.symm hyNe]
+              rw [hsp, hcntY] at hrcY
+              simp only [List.drop_zero]
+              omega
+            · intro orig horig hpos
+              have hEq := hOrigEq orig horig hpos
+              refine ⟨fun o' ho' had hneX => ?_, hEq.2⟩
+              have h1 := hEq.1 o' ho' had
+              have hcntO : (stCur.workBuf.take len).count orig.addr =
+                  (stCur.workBuf.take len0).count orig.addr := by
+                rw [hTkPop, List.count_append, List.count_singleton]
+                have : orig.addr ≠ xAddr := had ▸ hneX
+                simp [Ne.symm this]
+              rw [hcntO] at h1
+              simpa using h1)
+          intro J4 rem ⟨lenBV', iBV, ⟨⟩⟩ mIn hIH4
+            ⟨stIn, inObjs, len', i, hMetaIn, hRemIn, hLenInLe, hLenInBV, hiLe, hiBV, hRemEq,
+              hInLen, hInLeO, hInX, hInWf, hInCl, hNoRefsIn, hFreedEq, hmIn, hWlInNd, hxNotWlIn,
+              hRootIn, hWlInMem, hPersIn, hRcIn, hInOrig, hOrigPersIn, hOrigEqIn⟩
+          have hidx_x_in : idx_x < inObjs.length := by omega
+          have hInX' : inObjs[idx_x]'hidx_x_in = x :=
+            Option.some.inj (by rwa [List.getElem?_eq_getElem hidx_x_in] at hInX)
+          have hWorkInEq : stIn.hdr.s_work = st.hdr.s_work := hMetaIn.2.2.2.2.1.symm
+          have hCapInEq : stIn.hdr.s_work_cap = st.hdr.s_work_cap := hMetaIn.2.2.2.2.2.1.symm
+          have hCapInNat : stIn.workBuf.length = st.workCap := by
+            rw [stIn.workLen, hCapInEq]; rfl
+          have hChildLt : x.childFields.length < 2 ^ 64 := objWf_childFields_lt hxWf
+          have hi64 : (BitVec.ofNat 64 i).toNat = i := Nat.mod_eq_of_lt (by omega)
+          have hn64 : (BitVec.ofNat 64 x.childFields.length).toNat = x.childFields.length :=
+            Nat.mod_eq_of_lt hChildLt
+          have hndIn : (inObjs.map LcnfObj.addr).Nodup :=
+            lcnfHeap_nodup_addrs (sep_pull_heap hmIn)
+          dfs_pure_steps
+          refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+          dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+          constructor
+          · intro hiUlt
+            have hiLt : i < x.childFields.length := by
+              rw [hiBV, BitVec.ult, hi64, hn64] at hiUlt; exact of_decide_eq_true hiUlt
+            dfs_pure_steps
+            have hldC : loadVal mIn i64 ((xAddr + x.fieldsOff) + 8#64 * iBV) =
+                some (x.childFields[i]'hiLt) := by
+              have h1 := lcnfHeap_load_child hidx_x_in (by rw [hInX']; exact hxWf)
+                (sep_pull_heap hmIn) (by rw [hInX']; exact hiLt)
+              simpa [x, hInX', hxAddrEq, hiBV, bv64_8_mul] using h1
+            refine wp_load_of hldC ?_
+            let c : BitVec 64 := x.childFields[i]'hiLt
+            have hDropCons : x.childFields.drop i = c :: x.childFields.drop (i + 1) :=
+              List.drop_eq_getElem_cons hiLt
+            have hTakeSucc : x.childFields.take (i + 1) = x.childFields.take i ++ [c] :=
+              List.take_succ_eq_append_getElem hiLt
+            let StepPost : Tup Val [i64] → Mem 64 → Prop := fun (lenBV'', _) mStep =>
+              ∃ (stOut : RtC0State) (outObjs : List LcnfObj) (len'' : Nat),
+                stOut.PreservesMeta st ∧ stOut.rem = st.rem ∧
+                len'' ≤ st.workCap ∧ lenBV'' = BitVec.ofNat 64 len'' ∧
+                outObjs.length = curObjs.length ∧ outObjs.length ≤ objs.length ∧
+                outObjs[idx_x]? = some x ∧
+                (∀ o' ∈ outObjs, o'.Wf) ∧ lcnfHeapClosed outObjs ∧
+                (∀ p ∈ outObjs, xAddr ∉ p.childFields) ∧
+                freedObjs objs outObjs = freedObjs objs curObjs ∧
+                (rtC0Inv rt stOut ⋆ lcnfHeap outObjs ⋆ R) mStep ∧
+                (stOut.workBuf.take len'').Nodup ∧ xAddr ∉ stOut.workBuf.take len'' ∧
+                (o ∈ stOut.workBuf.take len'' ∨ o = xAddr ∨ ∀ o' ∈ outObjs, o'.addr ≠ o) ∧
+                (∀ a ∈ stOut.workBuf.take len'',
+                  ∃ obj ∈ outObjs, obj.addr = a ∧ obj.rc = 1#32 ∧ NonPersistReach objs o a) ∧
+                (∀ p ∈ outObjs, p.rc = 0#32 → ∀ f ∈ p.childFields, (f &&& 1#64) = 0#64 →
+                  ∃ q ∈ outObjs, q.addr = f ∧ q.rc = 0#32) ∧
+                (∀ y ∈ outObjs, y.addr ≠ xAddr → 0 < y.rc.toInt →
+                  nonPersistRefs (outObjs.eraseIdx idx_x) y.addr +
+                    (x.childFields.drop (i + 1)).count y.addr +
+                    (stOut.workBuf.take len'').count y.addr ≤ y.rc.toNat) ∧
+                (∀ o' ∈ outObjs, ∃ orig ∈ objs, SameNonRc orig o' ∧
+                  ((orig.rc = 0#32 ∧ o'.rc = 0#32) ∨
+                   (0 < orig.rc.toInt ∧ 0 < o'.rc.toInt ∧ o'.rc.toInt ≤ orig.rc.toInt))) ∧
+                (∀ orig ∈ objs, orig.rc = 0#32 →
+                  ∃ o' ∈ outObjs, o'.addr = orig.addr ∧ o'.rc = 0#32) ∧
+                (∀ orig ∈ objs, 0 < orig.rc.toInt →
+                  let dropped :=
+                    (if orig.addr = o then 1 else 0) +
+                      nonPersistRefs (freedObjs objs outObjs) orig.addr
+                  (∀ o' ∈ outObjs, o'.addr = orig.addr → o'.addr ≠ xAddr →
+                    o'.rc.toNat + dropped + (x.childFields.take (i + 1)).count orig.addr =
+                      orig.rc.toNat + (stOut.workBuf.take len'').count orig.addr) ∧
+                  (orig ∈ freedObjs objs outObjs →
+                    orig.rc.toNat = dropped ∧ NonPersistReach objs o orig.addr))
+            refine wp_join_group StepPost ?_ ?_
+            · intro _ ⟨lenBV'', ⟨⟩⟩ mStep ⟨stOut, outObjs, len'', h1, h2, h3, h4, h5, h6, h7, h8,
+                h9, h10, h11, h12, h13, h14, h15, h16, h17, h18, h19, h20, h21⟩
+              dsimp [Blocks.get]
+              dfs_pure_steps
+              have hi1BV : iBV + 1#64 = BitVec.ofNat 64 (i + 1) := by
+                rw [hiBV]; apply BitVec.eq_of_toNat_eq; simp
+              rw [hi1BV]
+              exact hIH4 (x.childFields.length - (i + 1)) (lenBV'', BitVec.ofNat 64 (i + 1), ())
+                mStep (by omega)
+                ⟨stOut, outObjs, len'', i + 1, h1, h2, h3, h4, by omega, rfl, rfl, h5, h6, h7, h8,
+                  h9, h10, h11, h12, h13, h14, h15, h16, h17, h18, h19, h20, h21⟩
+            · intro J5 hJ5
+              dfs_pure_steps
+              refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+              dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+              constructor
+              · intro hcEvenEq
+                have hcEven : (c &&& 1#64) = 0#64 := of_decide_eq_true hcEvenEq
+                have hcInX : c ∈ inObjs[idx_x].childFields := by
+                  rw [hInX']; exact List.getElem_mem hiLt
+                obtain ⟨oc, hocMem, hocAddr⟩ :=
+                  hInCl inObjs[idx_x] (List.getElem_mem (by omega)) c hcInX hcEven
+                rw [List.mem_iff_getElem] at hocMem
+                obtain ⟨idx_c, hidx_c, rfl⟩ := hocMem
+                have hcWf : inObjs[idx_c].Wf := hInWf inObjs[idx_c] (List.getElem_mem hidx_c)
+                have hneCX : c ≠ xAddr := fun h =>
+                  hNoRefsIn inObjs[idx_x] (List.getElem_mem (by omega)) (h ▸ hcInX)
+                have hidxNe : idx_c ≠ idx_x := fun h =>
+                  hneCX (by subst h; rw [← hocAddr, hInX', hxAddrEq])
+                have hldChdr : loadVal mIn i64 c = some inObjs[idx_c].header := by
+                  rw [← hocAddr]; exact lcnfHeap_load_header hidx_c (sep_pull_heap hmIn)
+                refine wp_load_of hldChdr ?_
+                dfs_pure_steps
+                rw [LcnfObj.header_rc inObjs[idx_c] hcWf.2.2.2.1 hcWf.2.2.2.2.1 hcWf.2.2.2.2.2.1]
+                refine wp_join_group StepPost
+                  (fun _ xs m6 h => by rcases xs with ⟨v, ⟨⟩⟩; exact hJ5 (v, ()) m6 h) ?_
+                intro J6 hJ6
+                refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+                dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+                constructor
+                · intro hCrc1Eq
+                  have hCrc164 : BitVec.ofNat 64 inObjs[idx_c].rc.toNat = 1#64 :=
+                    of_decide_eq_true hCrc1Eq
+                  have hCrc1 : inObjs[idx_c].rc = 1#32 := by
+                    apply BitVec.eq_of_toNat_eq
+                    have := congrArg BitVec.toNat hCrc164
+                    simpa [Nat.mod_eq_of_lt (by omega : inObjs[idx_c].rc.toNat < 2 ^ 64)] using this
+                  have hrcC := hRcIn inObjs[idx_c] (List.getElem_mem hidx_c)
+                    (hocAddr.symm ▸ hneCX) (by rw [hCrc1]; decide)
+                  rw [hocAddr, hDropCons, List.count_cons_self, hCrc1] at hrcC
+                  have h1n : (1#32).toNat = 1 := rfl
+                  rw [h1n] at hrcC
+                  have hcNotWl : c ∉ stIn.workBuf.take len' := by
+                    intro hmem
+                    have hpos : 1 ≤ (stIn.workBuf.take len').count c := List.count_pos_iff.mpr hmem
+                    omega
+                  have hLenLtCap : len' < st.workCap := by
+                    have hle := work_push_lt_cap hWlInNd hxNotWlIn hcNotWl hneCX
+                      ⟨inObjs[idx_x]'(by omega), List.getElem_mem (by omega),
+                        by rw [hInX']; exact hxAddrEq⟩
+                      ⟨inObjs[idx_c], List.getElem_mem hidx_c, hocAddr⟩
+                      (fun a ha => by
+                        obtain ⟨obj, hobj, hoba, _, _⟩ := hWlInMem a ha
+                        exact ⟨obj, hobj, hoba⟩)
+                      (by omega : inObjs.length ≤ st.workCap)
+                    simpa [List.length_take, hCapInNat, Nat.min_eq_left hLenInLe] using hle
+                  refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+                  dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+                  constructor
+                  · intro hEqCap
+                    exfalso
+                    have heq : BitVec.ofNat 64 len' = st.hdr.s_work_cap := by
+                      rw [← hLenInBV]; exact of_decide_eq_true hEqCap
+                    have hn := congrArg BitVec.toNat heq
+                    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt
+                      (Nat.lt_of_le_of_lt hLenInLe st.hdr.s_work_cap.isLt)] at hn
+                    change len' = st.workCap at hn
+                    omega
+                  · intro _
+                    dfs_pure_steps
+                    have hLen'Lt : len' < stIn.workBuf.length := by rw [hCapInNat]; exact hLenLtCap
+                    have hstW := rtC0Inv_store_work hLen'Lt c hmIn
+                    rw [hWorkInEq, ← bv64_mul8_comm len', ← hLenInBV] at hstW
+                    refine wp_store_sep hstW ?_
+                    intro mW hmW
+                    let stIn' := stIn.withWorkBuf (stIn.workBuf.set len' c)
+                      (by rw [List.length_set]; exact stIn.workLen)
+                    dfs_pure_steps
+                    have hLen1BV : lenBV' + 1#64 = BitVec.ofNat 64 (len' + 1) := by
+                      rw [hLenInBV]; apply BitVec.eq_of_toNat_eq; simp
+                    rw [hLen1BV]
+                    have hTkPush : stIn'.workBuf.take (len' + 1) =
+                        stIn.workBuf.take len' ++ [c] :=
+                      list_take_set_append stIn.workBuf hLen'Lt c
+                    obtain ⟨origC, horigCMem, horigCSame, horigCRc⟩ :=
+                      hInOrig inObjs[idx_c] (List.getElem_mem hidx_c)
+                    have horigCNz : origC.rc ≠ 0#32 := by
+                      rcases horigCRc with ⟨_, h0⟩ | ⟨hpos, _, _⟩
+                      · exact absurd (h0.symm.trans hCrc1) (by decide)
+                      · intro h0; rw [h0] at hpos; exact absurd hpos (by decide)
+                    have hcReach : NonPersistReach objs o c := by
+                      refine NonPersistReach.step hxReach
+                        ⟨origX, horigXMem, horigXAddr, ?_⟩ hcEven
+                        ⟨origC, horigCMem, by rw [← horigCSame.1, hocAddr], horigCNz⟩
+                      rw [← horigXSame.childFields_eq]; exact List.getElem_mem hiLt
+                    apply hJ6 (BitVec.ofNat 64 (len' + 1), ()) mW
+                    refine ⟨stIn', inObjs, len' + 1,
+                      preservesMeta_trans hMetaIn ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩,
+                      hRemIn, by omega, rfl, hInLen, hInLeO, hInX, hInWf, hInCl, hNoRefsIn,
+                      hFreedEq, hmW, ?_, ?_, ?_, ?_, hPersIn, ?_, hInOrig, hOrigPersIn, ?_⟩
+                    · rw [hTkPush, List.nodup_append]
+                      refine ⟨hWlInNd, by simp, fun a ha b hb => ?_⟩
+                      rw [List.mem_singleton] at hb; subst hb
+                      exact fun heq => hcNotWl (heq ▸ ha)
+                    · rw [hTkPush, List.mem_append, List.mem_singleton]
+                      rintro (h | h)
+                      · exact hxNotWlIn h
+                      · exact hneCX h.symm
+                    · rcases hRootIn with hIn | hEqX | hOut
+                      · exact Or.inl (by rw [hTkPush]; exact List.mem_append_left _ hIn)
+                      · exact Or.inr (Or.inl hEqX)
+                      · exact Or.inr (Or.inr hOut)
+                    · intro a ha
+                      rw [hTkPush, List.mem_append, List.mem_singleton] at ha
+                      rcases ha with haOld | rfl
+                      · exact hWlInMem a haOld
+                      · exact ⟨inObjs[idx_c], List.getElem_mem hidx_c, hocAddr, hCrc1, hcReach⟩
+                    · intro y hy hyNe hyPos
+                      have hrcY := hRcIn y hy hyNe hyPos
+                      rw [hDropCons, List.count_cons] at hrcY
+                      rw [hTkPush, List.count_append, List.count_singleton]
+                      by_cases hyc : c = y.addr
+                      · rw [hyc] at hrcY ⊢; simp at hrcY ⊢; omega
+                      · simp at hrcY ⊢; omega
+                    · intro orig horig hpos
+                      have hEq := hOrigEqIn orig horig hpos
+                      refine ⟨fun o' ho' had hneX => ?_, hEq.2⟩
+                      have h1 := hEq.1 o' ho' had hneX
+                      rw [hTakeSucc, hTkPush, List.count_append, List.count_append,
+                        List.count_singleton]
+                      omega
+                · intro hCrcNe1Eq
+                  have hCrcNe1 : inObjs[idx_c].rc ≠ 1#32 := fun h =>
+                    of_decide_eq_false hCrcNe1Eq (by rw [h]; rfl)
+                  refine wp_join_group (fun _ m7 => StepPost (lenBV', ()) m7)
+                    (fun _ _ m7 h => by dsimp; exact hJ6 (lenBV', ()) m7 h) ?_
+                  intro J7 hJ7
+                  have hrc64 : (BitVec.ofNat 64 inObjs[idx_c].rc.toNat).toNat =
+                      inObjs[idx_c].rc.toNat :=
+                    Nat.mod_eq_of_lt (by omega : inObjs[idx_c].rc.toNat < 2 ^ 64)
+                  refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+                  dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+                  constructor
+                  · intro hGt1Eq
+                    have hGt1 : 1 < inObjs[idx_c].rc.toNat := by
+                      have h1m : (1#64).toNat = 1 := by decide
+                      rw [BitVec.ult, h1m, hrc64] at hGt1Eq
+                      exact of_decide_eq_true hGt1Eq
+                    refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+                    dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+                    constructor
+                    · intro _hLt214
+                      dfs_pure_steps
+                      rw [lcnfObjHeader_sub1_wf inObjs[idx_c] hcWf hGt1]
+                      have hstC := lcnfHeap_store_rc hidx_c (inObjs[idx_c].rc - 1#32)
+                        (sep_pull_heap hmIn)
+                      rw [hocAddr] at hstC
+                      refine wp_store_sep (R := rtC0Inv rt stIn ⋆ R) hstC ?_
+                      intro mC hmC
+                      let rc' : BitVec 32 := inObjs[idx_c].rc - 1#32
+                      let inObjs' := inObjs.set idx_c (inObjs[idx_c].withRc rc')
+                      have hmC' : (rtC0Inv rt stIn ⋆ lcnfHeap inObjs' ⋆ R) mC :=
+                        sep_cast hmC (by ac_rfl)
+                      have hrc'Int : rc'.toInt = inObjs[idx_c].rc.toInt - 1 :=
+                        objWf_rc_sub1_toInt hcWf hGt1
+                      have hrc'Pos : 0 < rc'.toInt := by
+                        have hpos := objWf_rc_pos hcWf (fun h => by rw [h] at hGt1; simp at hGt1)
+                        have hgtI : 1 < inObjs[idx_c].rc.toInt := by
+                          have hlt := objWf_rc_lt hcWf
+                          rw [BitVec.toInt_eq_toNat_cond]; split <;> omega
+                        omega
+                      have hrc'Nz : rc' ≠ 0#32 := fun h => by
+                        rw [h] at hrc'Pos; exact absurd hrc'Pos (by decide)
+                      have hrcOldNz : inObjs[idx_c].rc ≠ 0#32 := fun h => by
+                        rw [h] at hGt1; simp at hGt1
+                      have hrc'Nat : rc'.toNat = inObjs[idx_c].rc.toNat - 1 :=
+                        objRc_sub1_toNat hGt1
+                      have hcWf' : (inObjs[idx_c].withRc rc').Wf :=
+                        lcnfObjWf_withRc hcWf (by omega)
+                      have hFreed' : freedObjs objs inObjs' = freedObjs objs curObjs := by
+                        rw [freedObjs_set_rc, hFreedEq]
+                      have hErEq : ∀ a, nonPersistRefs (inObjs'.eraseIdx idx_x) a =
+                          nonPersistRefs (inObjs.eraseIdx idx_x) a := by
+                        intro a
+                        have h1 :=
+                          nonPersistRefs_focus inObjs' (idx := idx_x) (by simp [inObjs']; omega) a
+                        have h2 := nonPersistRefs_focus inObjs (idx := idx_x) hidx_x_in a
+                        have hsetX : inObjs'[idx_x]'(by simp [inObjs']; omega) = x := by
+                          simp [inObjs', List.getElem_set_ne hidxNe, hInX']
+                        have hnpEq := nonPersistRefs_set_same_nz inObjs hidx_c hrcOldNz hrc'Nz a
+                        change nonPersistRefs inObjs' a = nonPersistRefs inObjs a at hnpEq
+                        rw [hsetX] at h1; rw [hInX'] at h2; omega
+                      apply hJ7 () mC
+                      refine ⟨stIn, inObjs', len', hMetaIn, hRemIn, hLenInLe, hLenInBV,
+                        by simp [inObjs', hInLen], by simp [inObjs', hInLeO],
+                        by rw [List.getElem?_set_ne hidxNe]; exact hInX, ?_,
+                        lcnfHeapClosed_set_withRc hInCl hidx_c rc', ?_, hFreed', hmC',
+                        hWlInNd, hxNotWlIn, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+                      · intro o' ho'
+                        rw [List.mem_iff_getElem] at ho'
+                        obtain ⟨k, hk, rfl⟩ := ho'
+                        have hkin : k < inObjs.length := by simp [inObjs'] at hk; exact hk
+                        by_cases hkc : k = idx_c
+                        · subst hkc; simpa [inObjs'] using hcWf'
+                        · rw [List.getElem_set_ne (Ne.symm hkc) hk]
+                          exact hInWf inObjs[k] (List.getElem_mem hkin)
+                      · intro p hp
+                        rw [List.mem_iff_getElem] at hp
+                        obtain ⟨k, hk, rfl⟩ := hp
+                        have hkin : k < inObjs.length := by simp [inObjs'] at hk; exact hk
+                        by_cases hkc : k = idx_c
+                        · subst hkc; simpa [inObjs', LcnfObj.withRc, LcnfObj.childFields] using
+                            hNoRefsIn inObjs[k] (List.getElem_mem hkin)
+                        · rw [List.getElem_set_ne (Ne.symm hkc) hk]
+                          exact hNoRefsIn inObjs[k] (List.getElem_mem hkin)
+                      · rcases hRootIn with hIn | hEqX | hOut
+                        · exact Or.inl hIn
+                        · exact Or.inr (Or.inl hEqX)
+                        · right; right; intro o' ho'
+                          rw [List.mem_iff_getElem] at ho'
+                          obtain ⟨k, hk, rfl⟩ := ho'
+                          have hkin : k < inObjs.length := by simp [inObjs'] at hk; exact hk
+                          by_cases hkc : k = idx_c
+                          · subst hkc; simpa [inObjs', LcnfObj.withRc] using
+                              hOut inObjs[k] (List.getElem_mem hkin)
+                          · rw [List.getElem_set_ne (Ne.symm hkc) hk]
+                            exact hOut inObjs[k] (List.getElem_mem hkin)
+                      · intro a ha
+                        obtain ⟨obj, hobjMem, hobjAddr, hobjRc, hobjReach⟩ := hWlInMem a ha
+                        rw [List.mem_iff_getElem] at hobjMem
+                        obtain ⟨k, hk, rfl⟩ := hobjMem
+                        have hkc : k ≠ idx_c := fun h => by
+                          subst h; rw [hobjRc] at hGt1; simp at hGt1
+                        exact ⟨inObjs'[k]'(by simp [inObjs', hk]), List.getElem_mem _,
+                          by simp [inObjs', List.getElem_set_ne (Ne.symm hkc), hobjAddr],
+                          by simp [inObjs', List.getElem_set_ne (Ne.symm hkc), hobjRc], hobjReach⟩
+                      · intro p hp hp0 f hf hf0
+                        rw [List.mem_iff_getElem] at hp
+                        obtain ⟨k, hk, rfl⟩ := hp
+                        have hkin : k < inObjs.length := by simp [inObjs'] at hk; exact hk
+                        have hkc : k ≠ idx_c := fun h => by
+                          subst h; simp [inObjs', LcnfObj.withRc] at hp0; exact hrc'Nz hp0
+                        rw [List.getElem_set_ne (Ne.symm hkc) hk] at hp0 hf
+                        obtain ⟨q, hqMem, hqAddr, hq0⟩ := hPersIn inObjs[k]
+                          (List.getElem_mem hkin) hp0 f hf hf0
+                        rw [List.mem_iff_getElem] at hqMem
+                        obtain ⟨kq, hkq, rfl⟩ := hqMem
+                        have hqne : kq ≠ idx_c := fun h => by subst h; exact hrcOldNz hq0
+                        exact ⟨inObjs'[kq]'(by simp [inObjs', hkq]), List.getElem_mem _,
+                          by simp [inObjs', List.getElem_set_ne (Ne.symm hqne), hqAddr],
+                          by simp [inObjs', List.getElem_set_ne (Ne.symm hqne), hq0]⟩
+                      · intro y hy hyNe hyPos
+                        rw [List.mem_iff_getElem] at hy
+                        obtain ⟨k, hk, rfl⟩ := hy
+                        have hkin : k < inObjs.length := by simp [inObjs'] at hk; exact hk
+                        rw [hErEq]
+                        by_cases hkc : k = idx_c
+                        · subst hkc
+                          simp only [inObjs', List.getElem_set_self, LcnfObj.withRc] at hyNe ⊢
+                          have hrcY := hRcIn inObjs[k] (List.getElem_mem hkin) hyNe
+                            (objWf_rc_pos hcWf hrcOldNz)
+                          rw [hocAddr, hDropCons, List.count_cons_self] at hrcY
+                          rw [hocAddr, hrc'Nat]
+                          omega
+                        · rw [List.getElem_set_ne (Ne.symm hkc) hk] at hyNe hyPos ⊢
+                          have hrcY := hRcIn inObjs[k] (List.getElem_mem hkin) hyNe hyPos
+                          rw [hDropCons, List.count_cons] at hrcY
+                          have hneY : inObjs[k].addr ≠ c := by
+                            intro heq
+                            exact hkc (nodup_addr_idx_eq hndIn hkin hidx_c (heq.trans hocAddr.symm))
+                          have : (c == inObjs[k].addr) = false :=
+                            beq_eq_false_iff_ne.mpr (Ne.symm hneY)
+                          simp [this] at hrcY; exact hrcY
+                      · intro o' ho'
+                        rw [List.mem_iff_getElem] at ho'
+                        obtain ⟨k, hk, rfl⟩ := ho'
+                        have hkin : k < inObjs.length := by simp [inObjs'] at hk; exact hk
+                        by_cases hkc : k = idx_c
+                        · subst hkc
+                          obtain ⟨orig, horig, hsame, hrc⟩ :=
+                            hInOrig inObjs[k] (List.getElem_mem hkin)
+                          refine ⟨orig, horig, by simpa [inObjs'] using hsame.withRc_r rc', ?_⟩
+                          rcases hrc with ⟨_, h0⟩ | ⟨hp1, _, hle⟩
+                          · exact absurd h0 hrcOldNz
+                          · exact Or.inr ⟨hp1, by simpa [inObjs', LcnfObj.withRc] using hrc'Pos,
+                              by simp [inObjs', LcnfObj.withRc]; omega⟩
+                        · rw [List.getElem_set_ne (Ne.symm hkc) hk]
+                          exact hInOrig inObjs[k] (List.getElem_mem hkin)
+                      · intro orig horig h0
+                        obtain ⟨o', ho', hoad, ho0⟩ := hOrigPersIn orig horig h0
+                        rw [List.mem_iff_getElem] at ho'
+                        obtain ⟨k, hk, rfl⟩ := ho'
+                        have hkc : k ≠ idx_c := fun h => by subst h; exact hrcOldNz ho0
+                        exact ⟨inObjs'[k]'(by simp [inObjs', hk]), List.getElem_mem _,
+                          by simp [inObjs', List.getElem_set_ne (Ne.symm hkc), hoad],
+                          by simp [inObjs', List.getElem_set_ne (Ne.symm hkc), ho0]⟩
+                      · intro orig horig hpos
+                        have hEq := hOrigEqIn orig horig hpos
+                        rw [freedObjs_set_rc]
+                        refine ⟨fun o' ho' had hneX => ?_, hEq.2⟩
+                        rw [List.mem_iff_getElem] at ho'
+                        obtain ⟨k, hk, rfl⟩ := ho'
+                        have hkin : k < inObjs.length := by simp [inObjs'] at hk; exact hk
+                        by_cases hkc : k = idx_c
+                        · subst hkc
+                          simp only [inObjs', List.getElem_set_self, LcnfObj.withRc] at had hneX ⊢
+                          have h1 := hEq.1 inObjs[k] (List.getElem_mem hkin) had hneX
+                          have hadC : orig.addr = c := had.symm.trans hocAddr
+                          rw [hTakeSucc, List.count_append, List.count_singleton, hrc'Nat]
+                          rw [hadC] at h1 ⊢
+                          simp only [beq_self_eq_true, ↓reduceIte]
+                          omega
+                        · rw [List.getElem_set_ne (Ne.symm hkc) hk] at had hneX ⊢
+                          have h1 := hEq.1 inObjs[k] (List.getElem_mem hkin) had hneX
+                          have hneY : orig.addr ≠ c := by
+                            intro heq
+                            exact hkc (nodup_addr_idx_eq hndIn hkin hidx_c
+                              (had.trans (heq.trans hocAddr.symm)))
+                          rw [hTakeSucc, List.count_append, List.count_singleton]
+                          have : (c == orig.addr) = false := beq_eq_false_iff_ne.mpr (Ne.symm hneY)
+                          simp [this, h1]
+                    · intro hNotLt214
+                      exfalso
+                      have hlt := objWf_rc_lt hcWf
+                      have h214 : (2147483648#64).toNat = 2147483648 := by decide
+                      have hUltTrue :
+                          (BitVec.ofNat 64 inObjs[idx_c].rc.toNat).ult 2147483648#64 = true := by
+                        simp only [BitVec.ult, hrc64, h214, decide_eq_true_eq]; omega
+                      rw [hUltTrue] at hNotLt214; contradiction
+                  · intro hNotGt1
+                    have hCrc0 : inObjs[idx_c].rc = 0#32 := by
+                      have h1m : (1#64).toNat = 1 := by decide
+                      rw [BitVec.ult, h1m, hrc64] at hNotGt1
+                      have hle1 : inObjs[idx_c].rc.toNat ≤ 1 :=
+                        Nat.le_of_not_lt (of_decide_eq_false hNotGt1)
+                      have hne1 : inObjs[idx_c].rc.toNat ≠ 1 := fun h =>
+                        hCrcNe1 (BitVec.eq_of_toNat_eq (by simp [h]))
+                      apply BitVec.eq_of_toNat_eq; simp; omega
+                    apply hJ7 () mIn
+                    refine ⟨stIn, inObjs, len', hMetaIn, hRemIn, hLenInLe, hLenInBV, hInLen,
+                      hInLeO, hInX, hInWf, hInCl, hNoRefsIn, hFreedEq, hmIn, hWlInNd, hxNotWlIn,
+                      hRootIn, hWlInMem, hPersIn, ?_, hInOrig, hOrigPersIn, ?_⟩
+                    · intro y hy hyNe hyPos
+                      have hrcY := hRcIn y hy hyNe hyPos
+                      have hneY : y.addr ≠ c := by
+                        intro heq
+                        have hEq := nodup_addr_eq_of_mem hndIn hy (List.getElem_mem hidx_c)
+                          (heq.trans hocAddr.symm)
+                        rw [hEq, hCrc0] at hyPos; exact absurd hyPos (by decide)
+                      rw [hDropCons, List.count_cons] at hrcY
+                      have : (c == y.addr) = false := beq_eq_false_iff_ne.mpr (Ne.symm hneY)
+                      simp [this] at hrcY; exact hrcY
+                    · intro orig horig hpos
+                      have hEq := hOrigEqIn orig horig hpos
+                      refine ⟨fun o' ho' had hneX => ?_, hEq.2⟩
+                      have h1 := hEq.1 o' ho' had hneX
+                      have hneY : orig.addr ≠ c := by
+                        intro heq
+                        have hEqO := nodup_addr_eq_of_mem hndIn ho' (List.getElem_mem hidx_c)
+                          (had.trans (heq.trans hocAddr.symm))
+                        obtain ⟨orig', horig', hsame', hrc'⟩ := hInOrig o' ho'
+                        have horigEq := nodup_addr_eq_of_mem hndO horig' horig
+                          (by rw [← hsame'.1, had])
+                        subst horigEq
+                        rw [hEqO, hCrc0] at hrc'
+                        rcases hrc' with ⟨h0, _⟩ | ⟨_, h0, _⟩
+                        · rw [h0] at hpos; exact absurd hpos (by decide)
+                        · exact absurd h0 (by decide)
+                      rw [hTakeSucc, List.count_append, List.count_singleton]
+                      have : (c == orig.addr) = false := beq_eq_false_iff_ne.mpr (Ne.symm hneY)
+                      simp [this, h1]
+              · intro hcOddEq
+                have hcOdd : (c &&& 1#64) ≠ 0#64 := of_decide_eq_false hcOddEq
+                apply hJ5 (lenBV', ()) mIn
+                refine ⟨stIn, inObjs, len', hMetaIn, hRemIn, hLenInLe, hLenInBV, hInLen,
+                  hInLeO, hInX, hInWf, hInCl, hNoRefsIn, hFreedEq, hmIn, hWlInNd, hxNotWlIn,
+                  hRootIn, hWlInMem, hPersIn, ?_, hInOrig, hOrigPersIn, ?_⟩
+                · intro y hy hyNe hyPos
+                  have hrcY := hRcIn y hy hyNe hyPos
+                  have hneY : y.addr ≠ c := fun h => hcOdd (h ▸ objWf_addr_even (hInWf y hy))
+                  rw [hDropCons, List.count_cons] at hrcY
+                  have : (c == y.addr) = false := beq_eq_false_iff_ne.mpr (Ne.symm hneY)
+                  simp [this] at hrcY; exact hrcY
+                · intro orig horig hpos
+                  have hEq := hOrigEqIn orig horig hpos
+                  refine ⟨fun o' ho' had hneX => ?_, hEq.2⟩
+                  have h1 := hEq.1 o' ho' had hneX
+                  have hneY : orig.addr ≠ c := fun h =>
+                    hcOdd (h ▸ objWf_addr_even (hObjsWf orig horig))
+                  rw [hTakeSucc, List.count_append, List.count_singleton]
+                  have : (c == orig.addr) = false := beq_eq_false_iff_ne.mpr (Ne.symm hneY)
+                  simp [this, h1]
+          · intro hiNotUlt
+            have hiEq : i = x.childFields.length := by
+              rw [hiBV, BitVec.ult, hi64, hn64] at hiNotUlt
+              have : ¬ i < x.childFields.length := of_decide_eq_false hiNotUlt
+              omega
+            subst hiEq
+            -- Free `x` via `lcnf_free_obj`!
+            let nextObjs : List LcnfObj := inObjs.eraseIdx idx_x
+            have hFreePre : (rtC0Inv rt stIn ⋆ freeObjLayout xAddr x.totalBytes x.header ⋆
+                (lcnfHeap nextObjs ⋆ R)) mIn := by
+              have h1 := hmIn
+              rw [lcnfHeap_focus inObjs hidx_x_in, hInX', ← lcnfHeap_eraseIdx inObjs] at h1
+              have h2 : (rtC0Inv rt stIn ⋆ (lcnfObjMem x ⋆ (lcnfHeap nextObjs ⋆ R))) mIn :=
+                sep_cast h1 (by ac_rfl)
+              have h3 : (rtC0Inv rt stIn ⋆ (freeObjLayout x.addr x.totalBytes x.header ⋆
+                  (lcnfHeap nextObjs ⋆ R))) mIn :=
+                sep_mono_r (fun _ hz =>
+                  sep_mono (fun _ hx => lcnfObjMem_to_freeObjLayout hxWf hx) hz) h2
+              rw [hxAddrEq] at h3
+              exact sep_cast h3 (by ac_rfl)
+            refine wp_call_of_spec _ _ ?_
+            apply hFree
+            have hxEven : (xAddr &&& 1#64 ≠ 0#64) = False := by
+              apply propext; constructor
+              · intro hne; exact hne (hxAddrEq ▸ objWf_addr_even hxWf)
+              · exact False.elim
+            dsimp [lcnfFreeObjSpec, Arg.val]
+            change (if (xAddr &&& 1#64) ≠ 0#64 then _ else _)
+            simp only [hxEven, ↓reduceIte]
+            refine ⟨stIn, x.header, x.totalBytes, lcnfHeap nextObjs ⋆ R,
+              (by change xAddr ≠ 0#64; rw [← hxAddrEq]; exact hxWf.1),
+              (by change xAddr.toNat % 8 = 0; rw [← hxAddrEq]; exact hxWf.2.1),
+              hxWf.2.2.2.2.2.2.1, hxWf.2.2.2.2.2.2.2.1, hxWf.2.2.2.2.2.2.2.2.1, hFreePre, ?_⟩
+            intro stOut mOut hMetaOut hRemOut hWbOut hmOut
+            have hmOut' : (rtC0Inv rt stOut ⋆ lcnfHeap nextObjs ⋆ R) mOut :=
+              sep_cast hmOut (by ac_rfl)
+            have hNextLen : nextObjs.length = curObjs.length - 1 := by
+              simp [nextObjs, List.length_eraseIdx_of_lt hidx_x_in, hInLen]
+            have hMemNext : ∀ o' ∈ nextObjs, o' ∈ inObjs ∧ o'.addr ≠ xAddr := by
+              intro o' ho'
+              have h1 := List.mem_of_mem_eraseIdx ho'
+              have h2 : o'.addr ∈ nextObjs.map LcnfObj.addr := List.mem_map_of_mem ho'
+              have h3 := (map_addr_eraseIdx_mem hndIn hidx_x_in o'.addr).mp h2
+              rw [hInX', hxAddrEq] at h3
+              exact ⟨h1, h3.2⟩
+            have hInNext : ∀ o' ∈ inObjs, o'.addr ≠ xAddr → o' ∈ nextObjs := by
+              intro o' ho' hne
+              have h1 : o'.addr ∈ nextObjs.map LcnfObj.addr :=
+                (map_addr_eraseIdx_mem hndIn hidx_x_in o'.addr).mpr
+                  ⟨List.mem_map_of_mem ho', by rw [hInX', hxAddrEq]; exact hne⟩
+              rw [List.mem_map] at h1
+              obtain ⟨o'', ho'', heq⟩ := h1
+              have hEq := nodup_addr_eq_of_mem hndIn (List.mem_of_mem_eraseIdx ho'') ho' heq
+              rwa [← hEq]
+            have hNextCl : lcnfHeapClosed nextObjs := by
+              intro p hp f hf hf0
+              obtain ⟨hpIn, _⟩ := hMemNext p hp
+              obtain ⟨q, hqIn, hqAddr⟩ := hInCl p hpIn f hf hf0
+              have hqNe : q.addr ≠ xAddr := fun h =>
+                hNoRefsIn p hpIn (by rw [← h, hqAddr]; exact hf)
+              exact ⟨q, hInNext q hqIn hqNe, hqAddr⟩
+            have hNextFreeEq : ∀ y,
+                nonPersistRefs (freedObjs objs nextObjs) y =
+                  nonPersistRefs (freedObjs objs inObjs) y + x.childFields.count y := by
+              intro y
+              have horigX : ∃ ox ∈ objs, ox.addr = inObjs[idx_x].addr ∧ ox.rc ≠ 0#32 ∧
+                  ox.childFields = inObjs[idx_x].childFields := by
+                refine ⟨origX, horigXMem, by rw [hInX', horigXSame.1],
+                  fun h0 => by rw [h0] at horigXPos; exact absurd horigXPos (by decide),
+                  by rw [hInX', horigXSame.childFields_eq]⟩
+              have hstep := nonPersistRefs_freedObjs_eraseIdx hndO hndIn hidx_x_in horigX y
+              simpa [nextObjs, hInX'] using hstep
+            refine hIH0 nextObjs.length (lenBV', ()) mOut (by omega)
+              ⟨stOut, nextObjs, len', preservesMeta_trans hMetaIn hMetaOut,
+                hRemOut.trans hRemIn, hLenInLe, hLenInBV, rfl, by omega,
+                fun o' ho' => hInWf o' (hMemNext o' ho').1, hNextCl, hmOut',
+                by rw [hWbOut]; exact hWlInNd, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+            · rw [hWbOut]
+              rcases hRootIn with hIn | rfl | hOut
+              · exact Or.inl hIn
+              · exact Or.inr fun o' ho' => (hMemNext o' ho').2
+              · exact Or.inr fun o' ho' => hOut o' (hMemNext o' ho').1
+            · rw [hWbOut]
+              intro a ha
+              obtain ⟨obj, hobjIn, hobjAddr, hobjRc, hobjReach⟩ := hWlInMem a ha
+              have hne : obj.addr ≠ xAddr := fun h => hxNotWlIn (h ▸ hobjAddr ▸ ha)
+              exact ⟨obj, hInNext obj hobjIn hne, hobjAddr, hobjRc, hobjReach⟩
+            · intro p hp hp0 f hf hf0
+              obtain ⟨hpIn, _⟩ := hMemNext p hp
+              obtain ⟨q, hqIn, hqAddr, hq0⟩ := hPersIn p hpIn hp0 f hf hf0
+              have hne : q.addr ≠ xAddr := fun h => hNoRefsIn p hpIn (by rw [← h, hqAddr]; exact hf)
+              exact ⟨q, hInNext q hqIn hne, hqAddr, hq0⟩
+            · rw [hWbOut]
+              intro y hy hyPos
+              obtain ⟨hyIn, hyNe⟩ := hMemNext y hy
+              have hrcY := hRcIn y hyIn hyNe hyPos
+              simp only [List.drop_length, List.count_nil, Nat.add_zero] at hrcY
+              exact hrcY
+            · intro o' ho'
+              exact hInOrig o' (hMemNext o' ho').1
+            · intro orig horig h0
+              obtain ⟨o', ho'In, hoad, ho0⟩ := hOrigPersIn orig horig h0
+              have hne : o'.addr ≠ xAddr := by
+                intro h
+                have hEq := nodup_addr_eq_of_mem hndIn ho'In (List.getElem_mem hidx_x_in)
+                  (by rw [h, hInX', hxAddrEq])
+                rw [hEq, hInX'] at ho0
+                exact absurd (ho0.symm.trans hxRc1) (by decide)
+              exact ⟨o', hInNext o' ho'In hne, hoad, ho0⟩
+            · rw [hWbOut]
+              intro orig horig hpos
+              have hEq := hOrigEqIn orig horig hpos
+              rw [hNextFreeEq]
+              refine ⟨fun o' ho' had => ?_, fun hfreeNew => ?_⟩
+              · obtain ⟨ho'In, ho'Ne⟩ := hMemNext o' ho'
+                have h1 := hEq.1 o' ho'In had ho'Ne
+                rw [List.take_of_length_le (Nat.le_refl _)] at h1
+                omega
+              · simp only [freedObjs, List.mem_filter, Bool.not_eq_true'] at hfreeNew
+                have hNotNext : orig.addr ∉ nextObjs.map LcnfObj.addr := by
+                  intro hmem
+                  have hc : (nextObjs.map LcnfObj.addr).contains orig.addr = true :=
+                    List.contains_iff_mem.mpr hmem
+                  rw [hc] at hfreeNew; exact absurd hfreeNew.2 (by decide)
+                by_cases hadX : orig.addr = xAddr
+                · have hEqO :=
+                    nodup_addr_eq_of_mem hndO horig horigXMem (hadX.trans horigXAddr.symm)
+                  subst hEqO
+                  have hxCnt0 : x.childFields.count orig.addr = 0 := by
+                    rw [horigXAddr, List.count_eq_zero]
+                    have hnr := hNoRefsIn inObjs[idx_x] (List.getElem_mem hidx_x_in)
+                    rwa [hInX'] at hnr
+                  rw [hxCnt0, hFreedEq, Nat.add_zero]
+                  exact ⟨horigXDrop, horigXAddr ▸ hxReach⟩
+                · have hNotIn : orig.addr ∉ inObjs.map LcnfObj.addr := by
+                    intro hmem
+                    exact hNotNext ((map_addr_eraseIdx_mem hndIn hidx_x_in orig.addr).mpr
+                      ⟨hmem, by rw [hInX', hxAddrEq]; exact hadX⟩)
+                  have hfreeOld : orig ∈ freedObjs objs inObjs := by
+                    simp only [freedObjs, List.mem_filter, Bool.not_eq_true']
+                    refine ⟨horig, ?_⟩
+                    cases hct : (inObjs.map LcnfObj.addr).contains orig.addr
+                    · rfl
+                    · exact absurd (List.contains_iff_mem.mp hct) hNotIn
+                  have h2 := hEq.2 hfreeOld
+                  have hxCnt0 : x.childFields.count orig.addr = 0 := by
+                    rw [List.count_eq_zero]
+                    intro hmemC
+                    have hEvenO : (orig.addr &&& 1#64) = 0#64 :=
+                      objWf_addr_even (hObjsWf orig horig)
+                    obtain ⟨q, hqIn, hqAddr⟩ := hInCl inObjs[idx_x] (List.getElem_mem hidx_x_in)
+                      orig.addr (by rw [hInX']; exact hmemC) hEvenO
+                    exact hNotIn (hqAddr ▸ List.mem_map_of_mem hqIn)
+                  rw [hxCnt0, Nat.add_zero]
+                  exact h2
+        · intro J1 hJ1
+          rw [htagShift]
+          refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+          dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+          constructor
+          · intro htCloEq
+            have htClo : x.tag = closureTag := by
+              have h := congrArg BitVec.toNat (of_decide_eq_true htCloEq)
+              simpa [closureTag, Nat.mod_eq_of_lt (by omega : x.tag < 2 ^ 64)] using h
+            dfs_pure_steps
+            have hldM : loadVal mCur i64 (xAddr + 16#64) = some x.cloMeta := by
+              rw [← hxAddrEq]
+              exact lcnfHeap_load_cloMeta hidx_x htClo (sep_pull_heap hmCur)
+            refine wp_load_of hldM ?_
+            dfs_pure_steps
+            have hsp := hxWf.2.2.2.2.2.2.2.2.2
+            simp only [htClo, ↓reduceIte] at hsp
+            rw [LcnfObj.cloMeta, cloMetaWord_nfix x.arity x.fields.length hsp.1 hsp.2.1]
+            exact hJ1 _ mCur ⟨by simp [LcnfObj.childFields, htClo],
+              by simp [LcnfObj.fieldsOff, htClo], rfl⟩
+          · intro htCloNe
+            have htNotClo : x.tag ≠ closureTag := fun h =>
+              of_decide_eq_false htCloNe (by rw [h]; rfl)
+            refine wp_join_group DispPost
+              (fun _ xs mD h => by rcases xs with ⟨a, b, ⟨⟩⟩; exact hJ1 (a, b, ()) mD h) ?_
+            intro J2 hJ2
+            refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+            dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+            constructor
+            · intro htArrEq
+              have htArr : x.tag = arrayTag := by
+                have h := congrArg BitVec.toNat (of_decide_eq_true htArrEq)
+                simpa [arrayTag, Nat.mod_eq_of_lt (by omega : x.tag < 2 ^ 64)] using h
+              dfs_pure_steps
+              have hldA : loadVal mCur i64 (xAddr + 8#64) =
+                  some (BitVec.ofNat 64 x.fields.length) := by
+                rw [← hxAddrEq]
+                exact lcnfHeap_load_arrSize hidx_x htArr (sep_pull_heap hmCur)
+              refine wp_load_of hldA ?_
+              exact hJ2 _ mCur ⟨by simp [LcnfObj.childFields, htArr],
+                by simp [LcnfObj.fieldsOff, htArr], rfl⟩
+            · intro htArrNe
+              have htNotArr : x.tag ≠ arrayTag := fun h =>
+                of_decide_eq_false htArrNe (by rw [h]; rfl)
+              refine wp_join_group DispPost
+                (fun _ xs mD h => by rcases xs with ⟨a, b, ⟨⟩⟩; exact hJ2 (a, b, ()) mD h) ?_
+              intro J3 hJ3
+              refine wp_let_cmp _ _ rfl _ _ _ rfl ?_
+              dsimp [liftCmp, CmpOp.evalBool, CmpOp.evalBits]
+              constructor
+              · intro htCtorEq
+                have htLe : x.tag ≤ 244 := by
+                  have h244 : (244#64).toNat = 244 := by decide
+                  have htag64 : (BitVec.ofNat 64 x.tag).toNat = x.tag :=
+                    Nat.mod_eq_of_lt (by omega)
+                  simp only [BitVec.ule, htag64, h244] at htCtorEq
+                  exact of_decide_eq_true htCtorEq
+                dfs_pure_steps
+                rw [LcnfObj.header_other x hxCs hxOth hxTag]
+                have hsp := hxWf.2.2.2.2.2.2.2.2.2
+                have hsa : x.tag ≠ sarrayTag := by unfold sarrayTag; omega
+                have hstr : x.tag ≠ stringTag := by unfold stringTag; omega
+                have hmpz : x.tag ≠ mpzTag := by unfold mpzTag; omega
+                simp only [htNotClo, htNotArr, hsa, hstr, hmpz, ↓reduceIte] at hsp
+                exact hJ3 _ mCur ⟨by simp [LcnfObj.childFields, htLe, hsp.2.1],
+                  by simp [LcnfObj.fieldsOff, htNotClo, htNotArr], rfl⟩
+              · intro htOtherEq
+                have htGt : ¬ x.tag ≤ 244 := by
+                  have h244 : (244#64).toNat = 244 := by decide
+                  have htag64 : (BitVec.ofNat 64 x.tag).toNat = x.tag :=
+                    Nat.mod_eq_of_lt (by omega)
+                  simp only [BitVec.ule, htag64, h244] at htOtherEq
+                  exact of_decide_eq_false htOtherEq
+                exact hJ3 _ mCur ⟨by simp [LcnfObj.childFields, htGt, htNotClo, htNotArr],
+                  by simp [LcnfObj.fieldsOff, htNotClo, htNotArr], rfl⟩
+      · intro hLenZeroEq
+        have hLenZero : len = 0 := by
+          rw [hLenBV, BitVec.ult, hLen64] at hLenZeroEq
+          have h0m : (0#64).toNat = 0 := by decide
+          rw [h0m] at hLenZeroEq
+          have : ¬ 0 < len := of_decide_eq_false hLenZeroEq
+          omega
+        subst hLenZero
+        have hRootGone : ∀ o' ∈ curObjs, o'.addr ≠ o := by
+          rcases hRootState with hIn | hOut
+          · simp at hIn
+          · exact hOut
+        refine hPost stCur curObjs mCur hMeta hRem ?_ hmCur
+        refine ⟨⟨obj0, hobj0Mem, hobj0Addr, hobj0Rc⟩, hObjsWf, hObjsCl, hCurCl, ?_, hPersCl, ?_,
+          hOrigPers, ?_⟩
+        · intro o' ho'
+          obtain ⟨orig, horig, hsame, hrc⟩ := hCurOrig o' ho'
+          exact ⟨hCurWf o' ho', hRootGone o' ho', orig, horig, hsame.1.symm, hsame.2.1, hsame.2.2.1,
+            hsame.2.2.2.1, hsame.2.2.2.2.1, hsame.2.2.2.2.2.1, hsame.2.2.2.2.2.2.1,
+            hsame.2.2.2.2.2.2.2.1, hsame.2.2.2.2.2.2.2.2.1, hsame.2.2.2.2.2.2.2.2.2.1,
+            hsame.2.2.2.2.2.2.2.2.2.2.1, hsame.2.2.2.2.2.2.2.2.2.2.2, hrc⟩
+        · intro y hy hyPos
+          have hrcY := hRcCur y hy hyPos
+          simpa using hrcY
+        · intro orig horig hpos
+          have hEq := hOrigEq orig horig hpos
+          simpa using hEq
+
+/-! ## Closed R0 Verified Runtime Table (`rtR0Mod_ok`) -/
+
+theorem rtC0Env_dec_ref_cold_wp : ∀ xs m Q X,
+    lcnfDecRefColdSpec xs m Q X → Func.wp rtC0Env lcnf_dec_ref_cold.body xs m Q X :=
+  lcnf_dec_ref_cold_wp rtC0Env rtC0Env_free_obj
+
+theorem rtC0Env_mark_persistent_wp : ∀ xs m Q X,
+    lcnfMarkPersistentSpec xs m Q X → Func.wp rtC0Env lcnf_mark_persistent.body xs m Q X :=
+  lcnf_mark_persistent_wp rtC0Env
+
+theorem rtR0Mod_ok : ModuleOk rtC0Env rtR0Mod := by
+  refine Env.ofTable_moduleOk rtR0Mod_checkAcyclic ?_ ?_
+  · refine ⟨lcnf_alloc_wf, lcnf_free_obj_wf, lcnf_dec_ref_cold_wf,
+      lcnf_mark_persistent_wf, lcnf_clo_under_wf, trivial⟩
+  · refine ⟨⟨⟨rfl, rfl, rfl⟩, fun xs m Q X h => lcnf_alloc_wp rtC0Env xs m Q X h⟩,
+      ⟨⟨rfl, rfl, rfl⟩, fun xs m Q X h => lcnf_free_obj_wp rtC0Env xs m Q X h⟩,
+      ⟨⟨rfl, rfl, rfl⟩, fun xs m Q X h =>
+        lcnf_dec_ref_cold_wp rtC0Env rtC0Env_free_obj xs m Q X h⟩,
+      ⟨⟨rfl, rfl, rfl⟩, fun xs m Q X h => lcnf_mark_persistent_wp rtC0Env xs m Q X h⟩,
+      ⟨⟨rfl, rfl, rfl⟩, fun xs m Q X h =>
+        lcnf_clo_under_wp rtC0Env rtC0Env_alloc rtC0Env_free_obj xs m Q X h⟩,
+      trivial⟩
+
+/-! ## Concrete `Mem 64` Non-Vacuity (`XPost := False`, Multi-Node Ctor/Closure DAG) -/
+
+def nvRtBase : BitVec 64 := 0x10000#64
+def nvWorkCap : Nat := 8
+def nvRem : Nat := 64
+
+def nvRtState : RtC0State :=
+  initRtC0State nvRtBase nvWorkCap nvRem (by decide) (by decide)
+
+def nvDagBase : BitVec 64 := nvRtBase + 33800#64
+def nvAddrA : BitVec 64 := nvDagBase
+def nvAddrB : BitVec 64 := nvDagBase + 24#64
+def nvAddrC : BitVec 64 := nvDagBase + 56#64
+def nvAddrP : BitVec 64 := nvDagBase + 80#64
+def nvAddrU : BitVec 64 := nvDagBase + 96#64
+
+/-- Root ctor `A` (`rc=1`) referencing exclusive closure `B` and shared ctor `C`. -/
+def nvObjA : LcnfObj :=
+  { addr := nvAddrA, rc := 1#32, csSz := 24, other := 2, tag := 0,
+    fields := [nvAddrB, nvAddrC] }
+
+/-- Exclusive closure `B` (`rc=1`, `arity=2`) capturing shared ctor `C`. -/
+def nvObjB : LcnfObj :=
+  { addr := nvAddrB, rc := 1#32, csSz := 32, other := 0, tag := closureTag,
+    funId := 0x400#64, arity := 2, fields := [nvAddrC] }
+
+/-- Shared ctor `C` (`rc=3`) referencing scalar `7#64` and persistent leaf `P`. -/
+def nvObjC : LcnfObj :=
+  { addr := nvAddrC, rc := 3#32, csSz := 24, other := 2, tag := 1,
+    fields := [7#64, nvAddrP] }
+
+/-- Persistent leaf ctor `P` (`rc=0`) holding scalar `11#64`. -/
+def nvObjP : LcnfObj :=
+  { addr := nvAddrP, rc := 0#32, csSz := 16, other := 1, tag := 2,
+    fields := [11#64] }
+
+/-- Unreachable ctor `U` (`rc=2`) holding scalar `13#64`. -/
+def nvObjU : LcnfObj :=
+  { addr := nvAddrU, rc := 2#32, csSz := 16, other := 1, tag := 3,
+    fields := [13#64] }
+
+def nvDagObjs : List LcnfObj := [nvObjA, nvObjB, nvObjC, nvObjP, nvObjU]
+
+def nvHdrWords (h : LcnfC0Rt) : List (BitVec 64) :=
+  [ h.s_large_free, h.s_ba_empty, h.s_cur, h.s_end, h.s_work, h.s_work_cap,
+    h.s_chunks, h.s_nchunks, h.s_chunks_cap, h.s_st_allocs, h.s_st_frees,
+    h.s_st_live, h.s_st_peak_live, h.s_st_persistent, h.s_st_reused,
+    h.s_st_cold_decs, h.s_st_bytes ]
+
+def nvRtBytes : List UInt8 :=
+  bytes64 nvRtState.extraArgs ++ bytes64 nvRtState.globals ++
+  bytes64 nvRtState.freeList ++ bytes64 (nvHdrWords nvRtState.hdr) ++
+  bytes64 nvRtState.workBuf ++ List.replicate nvRem 0
+
+def nvObjABytes : List UInt8 := bytes64 [nvObjA.header, nvAddrB, nvAddrC]
+def nvObjBBytes : List UInt8 := bytes64 [nvObjB.header, nvObjB.funId, nvObjB.cloMeta, nvAddrC]
+def nvObjCBytes : List UInt8 := bytes64 [nvObjC.header, 7#64, nvAddrP]
+def nvObjPBytes : List UInt8 := bytes64 [nvObjP.header, 11#64]
+def nvObjUBytes : List UInt8 := bytes64 [nvObjU.header, 13#64]
+
+def nvDagBytes : List UInt8 :=
+  nvObjABytes ++ nvObjBBytes ++ nvObjCBytes ++ nvObjPBytes ++ nvObjUBytes
+
+/-- Concrete `Mem 64` image packing the `LcnfC0Rt` slab (`33800B`) + 5-node DAG (`112B`). -/
+def nvDagMem : Mem 64 := (nvRtBytes ++ nvDagBytes).At nvRtBase
+
+private theorem nv_sep_append {P Q : Mem 64 → Prop} {a : BitVec 64}
+    {bs1 bs2 : List UInt8} {n1 n2 : Nat}
+    (h1 : bs1.length = n1) (h2 : bs2.length = n2) (hfit : n1 + n2 ≤ 2 ^ 64)
+    (hp : P (bs1.At a)) (hq : Q (bs2.At (a + BitVec.ofNat 64 n1))) :
+    (P ⋆ Q) ((bs1 ++ bs2).At a) := by
+  have hs := congrFun (Mem.At_append_sep bs1 bs2 a (by omega)) ((bs1 ++ bs2).At a)
+  obtain ⟨m1, m2, hu, hd, rfl, rfl⟩ := hs.mp rfl
+  refine ⟨bs1.At a, bs2.At (a + BitVec.ofNat 64 bs1.length), hu, hd, hp, ?_⟩
+  rwa [h1]
+
+private theorem array64_hdrWords_to_At (rt : BitVec 64) (h : LcnfC0Rt) {m : Mem 64}
+    (hm : array64 (rt + 33536#64) (nvHdrWords h) m) : LcnfC0Rt.At rt h m := by
+  unfold nvHdrWords at hm
+  simp only [array64, cell64_eq_cell, sep_emp, BitVec.add_assoc] at hm
+  unfold LcnfC0Rt.At
+  exact sep_cast hm (by ac_rfl)
+
+private theorem nvRtBytes_ok :
+    nvRtBytes.length = 33800 ∧ rtC0Inv nvRtBase nvRtState (nvRtBytes.At nvRtBase) := by
+  let b0 := bytes64 nvRtState.extraArgs
+  let b1 := bytes64 nvRtState.globals
+  let b2 := bytes64 nvRtState.freeList
+  let b3 := bytes64 (nvHdrWords nvRtState.hdr)
+  let b4 := bytes64 nvRtState.workBuf
+  let b5 := List.replicate nvRem (0 : UInt8)
+  have hl0 : b0.length = 256 := by
+    simp [b0, bytes64_length, nvRtState.extraLen, rtExtraSlots]
+  have hl1 : b1.length = 32768 := by
+    simp [b1, bytes64_length, nvRtState.globalsLen, rtGlobalSlots]
+  have hl2 : b2.length = 512 := by
+    simp [b2, bytes64_length, nvRtState.freeListLen, rtNumClasses]
+  have hl3 : b3.length = 136 := by
+    simp [b3, bytes64_length, nvHdrWords]
+  have hl4 : b4.length = 64 := by
+    have hwl : nvRtState.workBuf.length = 8 := by
+      simp [nvRtState, initRtC0State, nvWorkCap]
+    simp [b4, bytes64_length, hwl]
+  have hl5 : b5.length = 64 := by simp [b5, nvRem]
+  have htot : nvRtBytes.length = 33800 := by
+    change (((((b0 ++ b1) ++ b2) ++ b3) ++ b4) ++ b5).length = 33800
+    simp only [List.length_append, hl0, hl1, hl2, hl3, hl4, hl5]
+  refine ⟨htot, ?_⟩
+  have h0 : array64 nvRtBase nvRtState.extraArgs (b0.At nvRtBase) :=
+    array64_bytes nvRtBase nvRtState.extraArgs (by rw [nvRtState.extraLen]; decide)
+  have h1 : array64 (nvRtBase + BitVec.ofNat 64 rtGlobalsOff) nvRtState.globals
+      (b1.At (nvRtBase + BitVec.ofNat 64 256)) :=
+    array64_bytes (nvRtBase + BitVec.ofNat 64 rtGlobalsOff) nvRtState.globals
+      (by rw [nvRtState.globalsLen]; decide)
+  have h2 : array64 (nvRtBase + 33024#64) nvRtState.freeList
+      (b2.At (nvRtBase + BitVec.ofNat 64 33024)) :=
+    array64_bytes (nvRtBase + 33024#64) nvRtState.freeList
+      (by rw [nvRtState.freeListLen]; decide)
+  have h3 : LcnfC0Rt.At nvRtBase nvRtState.hdr (b3.At (nvRtBase + BitVec.ofNat 64 33536)) :=
+    array64_hdrWords_to_At nvRtBase nvRtState.hdr
+      (array64_bytes (nvRtBase + 33536#64) (nvHdrWords nvRtState.hdr) (by decide))
+  have h4 : array64 nvRtState.hdr.s_work nvRtState.workBuf
+      (b4.At (nvRtBase + BitVec.ofNat 64 33672)) := by
+    have hs : nvRtState.hdr.s_work = nvRtBase + BitVec.ofNat 64 33672 := rfl
+    rw [hs]
+    exact array64_bytes _ nvRtState.workBuf (by
+      have hwl : nvRtState.workBuf.length = 8 := by simp [nvRtState, initRtC0State, nvWorkCap]
+      rw [hwl]; decide)
+  have h5 : region nvRtState.hdr.s_cur nvRem (b5.At (nvRtBase + BitVec.ofNat 64 33736)) := by
+    have hc : nvRtState.hdr.s_cur = nvRtBase + BitVec.ofNat 64 33736 := by
+      simp [nvRtState, initRtC0State, nvWorkCap]
+    rw [hc]
+    exact ⟨b5, hl5, rfl⟩
+  have h01 := nv_sep_append hl0 hl1 (by decide) h0 h1
+  have h012 := nv_sep_append (by simp [hl0, hl1] : (b0 ++ b1).length = 33024) hl2 (by decide) h01 h2
+  have h0123 := nv_sep_append (by simp [hl0, hl1, hl2] : ((b0 ++ b1) ++ b2).length = 33536) hl3
+    (by decide) h012 h3
+  have h01234 := nv_sep_append
+    (by simp [hl0, hl1, hl2, hl3] : (((b0 ++ b1) ++ b2) ++ b3).length = 33672)
+    hl4 (by decide) h0123 h4
+  have h012345 := nv_sep_append
+    (by simp [hl0, hl1, hl2, hl3, hl4] : ((((b0 ++ b1) ++ b2) ++ b3) ++ b4).length = 33736)
+    hl5 (by decide) h01234 h5
+  exact rtC0Inv_init_satisfiable nvRtBase nvWorkCap nvRem (by decide) (by decide) h012345
+
+private theorem array64_ctor_to_objMem {o : LcnfObj}
+    (ht : o.tag ≠ closureTag ∧ o.tag ≠ arrayTag ∧ o.tag ≠ sarrayTag ∧
+      o.tag ≠ stringTag ∧ o.tag ≠ mpzTag)
+    (hdat : o.scalarData = []) (hcs : o.csSz = 8 + 8 * o.fields.length)
+    {m : Mem 64} (hm : array64 o.addr (o.header :: o.fields) m) : lcnfObjMem o m := by
+  have hbnil : ∀ a : BitVec 64, bytes a [] = emp := fun a => (eq_nil_At a).symm
+  unfold lcnfObjMem
+  simp only [ht.1, ht.2.1, ht.2.2.1, ht.2.2.2.1, ht.2.2.2.2, ↓reduceIte, hdat,
+    List.length_nil, Nat.add_zero, hcs, Nat.sub_self, hbnil, region_zero, sep_emp]
+  exact hm
+
+private theorem array64_clo_to_objMem {o : LcnfObj}
+    (ht : o.tag = closureTag) (hcs : o.csSz = 24 + 8 * o.fields.length)
+    {m : Mem 64} (hm : array64 o.addr (o.header :: o.funId :: o.cloMeta :: o.fields) m) :
+    lcnfObjMem o m := by
+  unfold lcnfObjMem
+  simp only [ht, ↓reduceIte, hcs, Nat.sub_self, region_zero, sep_emp]
+  simp only [array64, BitVec.add_assoc] at hm
+  exact sep_cast hm (by ac_rfl)
+
+private theorem nvDagBytes_ok :
+    nvDagBytes.length = 112 ∧ lcnfHeap nvDagObjs (nvDagBytes.At nvDagBase) := by
+  have hlA : nvObjABytes.length = 24 := by simp [nvObjABytes, bytes64_length]
+  have hlB : nvObjBBytes.length = 32 := by simp [nvObjBBytes, bytes64_length]
+  have hlC : nvObjCBytes.length = 24 := by simp [nvObjCBytes, bytes64_length]
+  have hlP : nvObjPBytes.length = 16 := by simp [nvObjPBytes, bytes64_length]
+  have hlU : nvObjUBytes.length = 16 := by simp [nvObjUBytes, bytes64_length]
+  have htot : nvDagBytes.length = 112 := by
+    simp [nvDagBytes, hlA, hlB, hlC, hlP, hlU]
+  refine ⟨htot, ?_⟩
+  have hA : lcnfObjMem nvObjA (nvObjABytes.At nvDagBase) :=
+    array64_ctor_to_objMem (by decide) rfl rfl
+      (array64_bytes nvAddrA [nvObjA.header, nvAddrB, nvAddrC] (by decide))
+  have hB : lcnfObjMem nvObjB (nvObjBBytes.At (nvDagBase + BitVec.ofNat 64 24)) :=
+    array64_clo_to_objMem rfl rfl
+      (array64_bytes nvAddrB [nvObjB.header, nvObjB.funId, nvObjB.cloMeta, nvAddrC] (by decide))
+  have hC : lcnfObjMem nvObjC (nvObjCBytes.At (nvDagBase + BitVec.ofNat 64 56)) :=
+    array64_ctor_to_objMem (by decide) rfl rfl
+      (array64_bytes nvAddrC [nvObjC.header, 7#64, nvAddrP] (by decide))
+  have hP : lcnfObjMem nvObjP (nvObjPBytes.At (nvDagBase + BitVec.ofNat 64 80)) :=
+    array64_ctor_to_objMem (by decide) rfl rfl
+      (array64_bytes nvAddrP [nvObjP.header, 11#64] (by decide))
+  have hU : lcnfObjMem nvObjU (nvObjUBytes.At (nvDagBase + BitVec.ofNat 64 96)) :=
+    array64_ctor_to_objMem (by decide) rfl rfl
+      (array64_bytes nvAddrU [nvObjU.header, 13#64] (by decide))
+  have hAB := nv_sep_append hlA hlB (by decide) hA hB
+  have hABC := nv_sep_append (by simp [hlA, hlB] : (nvObjABytes ++ nvObjBBytes).length = 56)
+    hlC (by decide) hAB hC
+  have hABCP := nv_sep_append
+    (by simp [hlA, hlB, hlC] : ((nvObjABytes ++ nvObjBBytes) ++ nvObjCBytes).length = 80)
+    hlP (by decide) hABC hP
+  have hABCPU := nv_sep_append
+    (by simp [hlA, hlB, hlC, hlP] :
+      (((nvObjABytes ++ nvObjBBytes) ++ nvObjCBytes) ++ nvObjPBytes).length = 96)
+    hlU (by decide) hABCP hU
+  simp only [nvDagObjs, lcnfHeap, sep_emp]
+  exact sep_cast hABCPU (by ac_rfl)
+
+theorem nvDagMem_ok : (rtC0Inv nvRtBase nvRtState ⋆ lcnfHeap nvDagObjs) nvDagMem := by
+  have ⟨hlRt, hRt⟩ := nvRtBytes_ok
+  have ⟨hlDag, hDag⟩ := nvDagBytes_ok
+  exact nv_sep_append hlRt hlDag (by decide) hRt hDag
+
+private theorem nvDagObjs_wf : ∀ o ∈ nvDagObjs, o.Wf := by
+  intro o ho
+  simp only [nvDagObjs, List.mem_cons, List.not_mem_nil, or_false] at ho
+  rcases ho with rfl | rfl | rfl | rfl | rfl <;>
+    (unfold LcnfObj.Wf LcnfObj.totalBytes; decide)
+
+private theorem nvObjA_ch : nvObjA.childFields = [nvAddrB, nvAddrC] := rfl
+private theorem nvObjB_ch : nvObjB.childFields = [nvAddrC] := rfl
+private theorem nvObjC_ch : nvObjC.childFields = [7#64, nvAddrP] := rfl
+private theorem nvObjP_ch : nvObjP.childFields = [11#64] := rfl
+private theorem nvObjU_ch : nvObjU.childFields = [13#64] := rfl
+
+private theorem nvDagObjs_closed : lcnfHeapClosed nvDagObjs := by
+  intro o ho f hf hf0
+  simp only [nvDagObjs, List.mem_cons, List.not_mem_nil, or_false] at ho
+  rcases ho with rfl | rfl | rfl | rfl | rfl
+  · rw [nvObjA_ch] at hf; simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+    rcases hf with rfl | rfl
+    · exact ⟨nvObjB, by simp [nvDagObjs], rfl⟩
+    · exact ⟨nvObjC, by simp [nvDagObjs], rfl⟩
+  · rw [nvObjB_ch] at hf; simp only [List.mem_singleton] at hf; subst hf
+    exact ⟨nvObjC, by simp [nvDagObjs], rfl⟩
+  · rw [nvObjC_ch] at hf; simp only [List.mem_cons, List.not_mem_nil, or_false] at hf
+    rcases hf with rfl | rfl
+    · exact absurd hf0 (by decide)
+    · exact ⟨nvObjP, by simp [nvDagObjs], rfl⟩
+  · rw [nvObjP_ch] at hf; simp only [List.mem_singleton] at hf; subst hf
+    exact absurd hf0 (by decide)
+  · rw [nvObjU_ch] at hf; simp only [List.mem_singleton] at hf; subst hf
+    exact absurd hf0 (by decide)
+
+private theorem nvDagObjs_rcSound : RcSound nvAddrA nvDagObjs := by
+  constructor
+  · intro p hp hp0 f hf hf0
+    simp only [nvDagObjs, List.mem_cons, List.not_mem_nil, or_false] at hp
+    rcases hp with rfl | rfl | rfl | rfl | rfl
+    · exact absurd hp0 (by decide)
+    · exact absurd hp0 (by decide)
+    · exact absurd hp0 (by decide)
+    · rw [nvObjP_ch] at hf; simp only [List.mem_singleton] at hf; subst hf
+      exact absurd hf0 (by decide)
+    · exact absurd hp0 (by decide)
+  · intro y hy hyPos
+    simp only [nvDagObjs, List.mem_cons, List.not_mem_nil, or_false] at hy
+    rcases hy with rfl | rfl | rfl | rfl | rfl
+    · decide
+    · decide
+    · decide
+    · exact absurd hyPos (by decide)
+    · decide
+
+private theorem nvDag_not_reach_U : ¬ NonPersistReach nvDagObjs nvAddrA nvAddrU := by
+  intro hr
+  have hNoU : ∀ a, NonPersistReach nvDagObjs nvAddrA a → a ≠ nvAddrU := by
+    intro a h
+    induction h with
+    | refl _ => decide
+    | @step u v _ hch hv0 _ ih =>
+      obtain ⟨ou, hou, houa, hv⟩ := hch
+      simp only [nvDagObjs, List.mem_cons, List.not_mem_nil, or_false] at hou
+      rcases hou with rfl | rfl | rfl | rfl | rfl
+      · rw [nvObjA_ch] at hv; simp only [List.mem_cons, List.not_mem_nil, or_false] at hv
+        rcases hv with rfl | rfl <;> decide
+      · rw [nvObjB_ch] at hv; simp only [List.mem_singleton] at hv; subst hv; decide
+      · rw [nvObjC_ch] at hv; simp only [List.mem_cons, List.not_mem_nil, or_false] at hv
+        rcases hv with rfl | rfl <;> decide
+      · rw [nvObjP_ch] at hv; simp only [List.mem_singleton] at hv; subst hv
+        exact absurd hv0 (by decide)
+      · exact absurd houa.symm ih
+  exact hNoU nvAddrU hr rfl
+
+/-- Concrete `Mem 64` non-vacuity (`XPost := False`) for `lcnf_dec_ref_cold`:
+dropping root ctor `A` (`rc=1`) cascadingly frees exclusive closure `B` (`rc=1`), decrements
+shared ctor `C` from `rc=3` to `rc=1`, and preserves persistent leaf `P` (`rc=0`) and
+unreachable ctor `U` (`rc=2`). -/
+theorem nv_dec_ref_cold_dag :
+    Func.wp rtC0Env lcnf_dec_ref_cold.body (nvRtBase, nvAddrA, ()) nvDagMem
+      (fun () m' => ∃ st' objs',
+        st'.PreservesMeta nvRtState ∧ st'.rem = nvRtState.rem ∧
+        (rtC0Inv nvRtBase st' ⋆ lcnfHeap objs') m' ∧
+        (∀ o' ∈ objs', o'.addr ≠ nvAddrA ∧ o'.addr ≠ nvAddrB) ∧
+        (∃ oC ∈ objs', oC.addr = nvAddrC ∧ oC.rc = 1#32) ∧
+        (∃ oP ∈ objs', oP.addr = nvAddrP ∧ oP.rc = 0#32) ∧
+        (∃ oU ∈ objs', oU.addr = nvAddrU ∧ oU.rc = 2#32))
+      (fun _ _ _ _ => False) := by
+  have hm : (rtC0Inv nvRtBase nvRtState ⋆ lcnfHeap nvDagObjs ⋆ emp) nvDagMem := by
+    rw [sep_emp]; exact nvDagMem_ok
+  refine rtC0Env_dec_ref_cold_wp (nvRtBase, nvAddrA, ()) nvDagMem _ _
+    ⟨by decide, nvRtState, nvDagObjs, emp, by decide, hm,
+      ⟨nvObjA, by simp [nvDagObjs], rfl, rfl⟩, nvDagObjs_wf, nvDagObjs_closed,
+      nvDagObjs_rcSound, ?_⟩
+  intro st' objs' m' hMeta hRem hRel hm'
+  rw [sep_emp] at hm'
+  rcases hRel with ⟨_, _, _, _, hSurv, _, _, hPersSurv, hExact⟩
+  have hNotA : ∀ o' ∈ objs', o'.addr ≠ nvAddrA := fun o' ho' => (hSurv o' ho').2.1
+  have hAfree : nvObjA ∈ freedObjs nvDagObjs objs' := by
+    simp only [freedObjs, List.mem_filter, Bool.not_eq_true']
+    refine ⟨by simp [nvDagObjs], ?_⟩
+    change (objs'.map LcnfObj.addr).contains nvAddrA = false
+    cases hc : (objs'.map LcnfObj.addr).contains nvAddrA
+    · rfl
+    · have hmA := List.contains_iff_mem.mp hc
+      rw [List.mem_map] at hmA
+      obtain ⟨o', ho', heq⟩ := hmA
+      exact absurd heq (hNotA o' ho')
+  have hNotB : ∀ o' ∈ objs', o'.addr ≠ nvAddrB := by
+    intro o' ho' heq
+    have hEqB := (hExact nvObjB (by simp [nvDagObjs]) (by decide)).1 o' ho' heq
+    have hSurvB := hSurv o' ho'
+    have hPosB : 0 < o'.rc.toNat := by
+      rcases hSurvB.2.2 with ⟨orig, horig, had, _, _, _, _, _, _, _, _, _, _, _, hrc⟩
+      have hOrigB : orig = nvObjB := by
+        simp only [nvDagObjs, List.mem_cons, List.not_mem_nil, or_false] at horig
+        rcases horig with rfl | rfl | rfl | rfl | rfl <;>
+          first | rfl | exact absurd (had.trans heq) (by decide)
+      subst hOrigB
+      rcases hrc with ⟨h0, _⟩ | ⟨_, hpos, _⟩
+      · exact absurd h0 (by decide)
+      · have hlt := objWf_rc_lt hSurvB.1
+        rw [BitVec.toInt_eq_toNat_cond] at hpos; split at hpos <;> omega
+    have hRefB : 1 ≤ nonPersistRefs (freedObjs nvDagObjs objs') nvAddrB := by
+      rw [List.mem_iff_getElem] at hAfree
+      obtain ⟨i, hi, hAi⟩ := hAfree
+      have hsp := nonPersistRefs_focus (freedObjs nvDagObjs objs') hi nvAddrB
+      rw [hAi] at hsp
+      have h1 : nvObjA.childFields.count nvAddrB = 1 := by decide
+      have hnz : nvObjA.rc ≠ 0#32 := by decide
+      simp only [hnz, ↓reduceIte, h1] at hsp; omega
+    have h1B : nvObjB.rc.toNat = 1 := rfl
+    have hba : nvObjB.addr = nvAddrB := rfl
+    have hneBA : (if nvAddrB = nvAddrA then 1 else 0) = 0 := by decide
+    rw [h1B, hba, hneBA] at hEqB; omega
+  have hBfree : nvObjB ∈ freedObjs nvDagObjs objs' := by
+    simp only [freedObjs, List.mem_filter, Bool.not_eq_true']
+    refine ⟨by simp [nvDagObjs], ?_⟩
+    change (objs'.map LcnfObj.addr).contains nvAddrB = false
+    cases hc : (objs'.map LcnfObj.addr).contains nvAddrB
+    · rfl
+    · have hmB := List.contains_iff_mem.mp hc
+      rw [List.mem_map] at hmB
+      obtain ⟨o', ho', heq⟩ := hmB
+      exact absurd heq (hNotB o' ho')
+  have hPSurv : ∃ oP ∈ objs', oP.addr = nvAddrP ∧ oP.rc = 0#32 :=
+    hPersSurv nvObjP (by simp [nvDagObjs]) rfl
+  have hPnotFree : nvObjP ∉ freedObjs nvDagObjs objs' := by
+    intro hmem
+    simp only [freedObjs, List.mem_filter, Bool.not_eq_true'] at hmem
+    obtain ⟨oP, hoP, hoPa, _⟩ := hPSurv
+    have hc : (objs'.map LcnfObj.addr).contains nvAddrP = true :=
+      List.contains_iff_mem.mpr (hoPa ▸ List.mem_map_of_mem hoP)
+    have hpa : nvObjP.addr = nvAddrP := rfl
+    rw [hpa, hc] at hmem; exact absurd hmem.2 (by decide)
+  have hUnotFree : nvObjU ∉ freedObjs nvDagObjs objs' := fun hmem =>
+    nvDag_not_reach_U ((hExact nvObjU (by simp [nvDagObjs]) (by decide)).2 hmem).2
+  have hCnotFree : nvObjC ∉ freedObjs nvDagObjs objs' := by
+    intro hmem
+    have hEqC := ((hExact nvObjC (by simp [nvDagObjs]) (by decide)).2 hmem).1
+    have hle : nonPersistRefs (freedObjs nvDagObjs objs') nvAddrC ≤
+        nonPersistRefs nvDagObjs nvAddrC := by
+      have hsub : ∀ (xs : List LcnfObj) (p : LcnfObj → Bool),
+          nonPersistRefs (xs.filter p) nvAddrC ≤ nonPersistRefs xs nvAddrC := by
+        intro xs p
+        induction xs with
+        | nil => simp [nonPersistRefs]
+        | cons z zs ih =>
+          rw [List.filter_cons, nonPersistRefs_cons]
+          cases p z
+          · simp only [Bool.false_eq_true, ↓reduceIte]; omega
+          · simp only [↓reduceIte, nonPersistRefs_cons]; omega
+      exact hsub nvDagObjs _
+    have h2 : nonPersistRefs nvDagObjs nvAddrC = 2 := by decide
+    have h3 : nvObjC.rc.toNat = 3 := rfl
+    have hne : (if nvObjC.addr = nvAddrA then 1 else 0) = 0 := by decide
+    have hcAddr : nvObjC.addr = nvAddrC := rfl
+    rw [h3, hne, hcAddr] at hEqC; omega
+  have hFreeEq : freedObjs nvDagObjs objs' = [nvObjA, nvObjB] := by
+    have hfA : (objs'.map LcnfObj.addr).contains nvAddrA = false := by
+      simp only [freedObjs, List.mem_filter, Bool.not_eq_true'] at hAfree; exact hAfree.2
+    have hfB : (objs'.map LcnfObj.addr).contains nvAddrB = false := by
+      simp only [freedObjs, List.mem_filter, Bool.not_eq_true'] at hBfree; exact hBfree.2
+    have hfC : (objs'.map LcnfObj.addr).contains nvAddrC = true := by
+      cases h : (objs'.map LcnfObj.addr).contains nvAddrC
+      · exfalso; apply hCnotFree
+        simp only [freedObjs, List.mem_filter, Bool.not_eq_true']
+        exact ⟨by simp [nvDagObjs], h⟩
+      · rfl
+    have hfP : (objs'.map LcnfObj.addr).contains nvAddrP = true := by
+      cases h : (objs'.map LcnfObj.addr).contains nvAddrP
+      · exfalso; apply hPnotFree
+        simp only [freedObjs, List.mem_filter, Bool.not_eq_true']
+        exact ⟨by simp [nvDagObjs], h⟩
+      · rfl
+    have hfU : (objs'.map LcnfObj.addr).contains nvAddrU = true := by
+      cases h : (objs'.map LcnfObj.addr).contains nvAddrU
+      · exfalso; apply hUnotFree
+        simp only [freedObjs, List.mem_filter, Bool.not_eq_true']
+        exact ⟨by simp [nvDagObjs], h⟩
+      · rfl
+    change (nvDagObjs.filter (fun o => !(objs'.map LcnfObj.addr).contains o.addr)) =
+      [nvObjA, nvObjB]
+    simp only [nvDagObjs, List.filter_cons, List.filter_nil]
+    change (if !(objs'.map LcnfObj.addr).contains nvAddrA then nvObjA :: _ else _) = _
+    rw [hfA]; simp only [Bool.not_false, ↓reduceIte]
+    change _ :: (if !(objs'.map LcnfObj.addr).contains nvAddrB then nvObjB :: _ else _) = _
+    rw [hfB]; simp only [Bool.not_false, ↓reduceIte]
+    change _ :: _ :: (if !(objs'.map LcnfObj.addr).contains nvAddrC then nvObjC :: _ else _) = _
+    rw [hfC]; simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte]
+    change _ :: _ :: (if !(objs'.map LcnfObj.addr).contains nvAddrP then nvObjP :: _ else _) = _
+    rw [hfP]; simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte]
+    change _ :: _ :: (if !(objs'.map LcnfObj.addr).contains nvAddrU then nvObjU :: _ else _) = _
+    rw [hfU]; simp
+  have hCSurv : ∃ oC ∈ objs', oC.addr = nvAddrC ∧ oC.rc = 1#32 := by
+    have hIn : nvAddrC ∈ objs'.map LcnfObj.addr := by
+      cases hc : (objs'.map LcnfObj.addr).contains nvAddrC
+      · exfalso; apply hCnotFree
+        simp only [freedObjs, List.mem_filter, Bool.not_eq_true']
+        exact ⟨by simp [nvDagObjs], hc⟩
+      · exact List.contains_iff_mem.mp hc
+    rw [List.mem_map] at hIn
+    obtain ⟨oC, hoC, hoCa⟩ := hIn
+    have hEqC := (hExact nvObjC (by simp [nvDagObjs]) (by decide)).1 oC hoC hoCa
+    rw [hFreeEq] at hEqC
+    have hdrop : (if nvObjC.addr = nvAddrA then 1 else 0) +
+        nonPersistRefs [nvObjA, nvObjB] nvObjC.addr = 2 := by decide
+    have h3 : nvObjC.rc.toNat = 3 := rfl
+    rw [hdrop, h3] at hEqC
+    exact ⟨oC, hoC, hoCa, BitVec.eq_of_toNat_eq (by change oC.rc.toNat = 1; omega)⟩
+  have hUSurv : ∃ oU ∈ objs', oU.addr = nvAddrU ∧ oU.rc = 2#32 := by
+    have hIn : nvAddrU ∈ objs'.map LcnfObj.addr := by
+      cases hc : (objs'.map LcnfObj.addr).contains nvAddrU
+      · exfalso; apply hUnotFree
+        simp only [freedObjs, List.mem_filter, Bool.not_eq_true']
+        exact ⟨by simp [nvDagObjs], hc⟩
+      · exact List.contains_iff_mem.mp hc
+    rw [List.mem_map] at hIn
+    obtain ⟨oU, hoU, hoUa⟩ := hIn
+    have hEqU := (hExact nvObjU (by simp [nvDagObjs]) (by decide)).1 oU hoU hoUa
+    rw [hFreeEq] at hEqU
+    have hdrop : (if nvObjU.addr = nvAddrA then 1 else 0) +
+        nonPersistRefs [nvObjA, nvObjB] nvObjU.addr = 0 := by decide
+    have h2 : nvObjU.rc.toNat = 2 := rfl
+    rw [hdrop, h2] at hEqU
+    exact ⟨oU, hoU, hoUa, BitVec.eq_of_toNat_eq (by change oU.rc.toNat = 2; omega)⟩
+  exact ⟨st', objs', hMeta, hRem, hm', fun o' ho' => ⟨hNotA o' ho', hNotB o' ho'⟩,
+    hCSurv, hPSurv, hUSurv⟩
+
+/-- Concrete `Mem 64` non-vacuity (`XPost := False`) for `lcnf_mark_persistent`:
+marking root ctor `A` recursively marks closure `B` and shared ctor `C` persistent (`rc=0`),
+keeps persistent leaf `P` (`rc=0`), and leaves unreachable ctor `U` untouched (`rc=2`). -/
+theorem nv_mark_persistent_dag :
+    Func.wp rtC0Env lcnf_mark_persistent.body (nvRtBase, nvAddrA, ()) nvDagMem
+      (fun () m' => ∃ st' objs',
+        st'.PreservesMeta nvRtState ∧ st'.rem = nvRtState.rem ∧
+        (rtC0Inv nvRtBase st' ⋆ lcnfHeap objs') m' ∧
+        objs'.length = 5 ∧
+        (∀ h0 : 0 < objs'.length, objs'[0].addr = nvAddrA ∧ objs'[0].rc = 0#32) ∧
+        (∀ h1 : 1 < objs'.length, objs'[1].addr = nvAddrB ∧ objs'[1].rc = 0#32) ∧
+        (∀ h2 : 2 < objs'.length, objs'[2].addr = nvAddrC ∧ objs'[2].rc = 0#32) ∧
+        (∀ h3 : 3 < objs'.length, objs'[3].addr = nvAddrP ∧ objs'[3].rc = 0#32) ∧
+        (∀ h4 : 4 < objs'.length, objs'[4].addr = nvAddrU ∧ objs'[4].rc = 2#32))
+      (fun _ _ _ _ => False) := by
+  have hm : (rtC0Inv nvRtBase nvRtState ⋆ lcnfHeap nvDagObjs ⋆ emp) nvDagMem := by
+    rw [sep_emp]; exact nvDagMem_ok
+  refine rtC0Env_mark_persistent_wp (nvRtBase, nvAddrA, ()) nvDagMem _ _ ?_
+  dsimp [lcnfMarkPersistentSpec]
+  have hEven : (nvAddrA &&& 1#64 ≠ 0#64) = False := by decide
+  simp only [hEven, ↓reduceIte]
+  refine ⟨nvRtState, nvDagObjs, emp, by decide, hm, ⟨nvObjA, by simp [nvDagObjs], rfl⟩,
+    nvDagObjs_wf, nvDagObjs_closed, ?_⟩
+  intro st' objs' m' hMeta hRem hRel hm'
+  rw [sep_emp] at hm'
+  rcases hRel with ⟨hlen, _, _, _, hZip⟩
+  have hlen5 : objs'.length = 5 := by simpa [nvDagObjs] using hlen
+  have hAt : ∀ k (hk : k < 5), (nvDagObjs[k], objs'[k]'(by omega)) ∈ nvDagObjs.zip objs' := by
+    intro k hk
+    rw [List.mem_iff_getElem]
+    exact ⟨k, by rw [List.length_zip, hlen5]; simp [nvDagObjs]; omega,
+      by rw [List.getElem_zip]; rfl⟩
+  have hReachA : NonPersistReach nvDagObjs nvAddrA nvAddrA :=
+    NonPersistReach.refl ⟨nvObjA, by simp [nvDagObjs], rfl, by decide⟩
+  have hReachB : NonPersistReach nvDagObjs nvAddrA nvAddrB :=
+    NonPersistReach.step hReachA ⟨nvObjA, by simp [nvDagObjs], rfl, by decide⟩ (by decide)
+      ⟨nvObjB, by simp [nvDagObjs], rfl, by decide⟩
+  have hReachC : NonPersistReach nvDagObjs nvAddrA nvAddrC :=
+    NonPersistReach.step hReachB ⟨nvObjB, by simp [nvDagObjs], rfl, by decide⟩ (by decide)
+      ⟨nvObjC, by simp [nvDagObjs], rfl, by decide⟩
+  rcases hZip _ (hAt 0 (by decide)) with ⟨_, h0a, _, _, _, _, _, _, _, _, _, _, _, h0r, _, _⟩
+  rcases hZip _ (hAt 1 (by decide)) with ⟨_, h1a, _, _, _, _, _, _, _, _, _, _, _, _, _, h1i⟩
+  rcases hZip _ (hAt 2 (by decide)) with ⟨_, h2a, _, _, _, _, _, _, _, _, _, _, _, _, _, h2i⟩
+  rcases hZip _ (hAt 3 (by decide)) with ⟨_, h3a, _, _, _, _, _, _, _, _, _, _, _, _, h3o, _⟩
+  rcases hZip _ (hAt 4 (by decide)) with ⟨_, h4a, _, _, _, _, _, _, _, _, _, _, _, _, h4o, h4i⟩
+  refine ⟨st', objs', hMeta, hRem, hm', hlen5, ?_, ?_, ?_, ?_, ?_⟩
+  · intro _; exact ⟨h0a, h0r rfl⟩
+  · intro _; exact ⟨h1a, (h1i (by dsimp only; decide)).mpr hReachB⟩
+  · intro _; exact ⟨h2a, (h2i (by dsimp only; decide)).mpr hReachC⟩
+  · intro _; refine ⟨h3a, ?_⟩; rcases h3o with h | h <;> exact h
+  · intro _
+    refine ⟨h4a, ?_⟩
+    rcases h4o with h | h
+    · exact h
+    · exact absurd ((h4i (by dsimp only; decide)).mp h) nvDag_not_reach_U
 
 end LeanQbe.T.LeanLCNF
