@@ -99,6 +99,7 @@ public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.MainCertScc
 public import LeanQbe.T.MainCertSlices
 public import LeanQbe.T.MainInline
+public import LeanQbe.T.MainLateInline
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.MainLink
 public import LeanQbe.T.MainLinkReuse
@@ -118,6 +119,7 @@ public import LeanQbe.T.Ops
 public import LeanQbe.T.OpsLemmas
 public import LeanQbe.T.Opt
 public import LeanQbe.T.OptLemmas
+public import LeanQbe.T.OptPolicy
 public import LeanQbe.T.OptUtil
 public import LeanQbe.T.OptUtilLemmas
 public import LeanQbe.T.Peel
@@ -135,8 +137,10 @@ public import LeanQbe.T.Scc
 public import LeanQbe.T.SccLemmas
 public import LeanQbe.T.SimplifyGroupPlan
 public import LeanQbe.T.SimplifyGroupPlanLemmas
+public import LeanQbe.T.SnippetCheck
 public import LeanQbe.T.Spill
 public import LeanQbe.T.SpillFlags
+public import LeanQbe.T.SpillSnippet
 public import LeanQbe.T.StepSimp
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas

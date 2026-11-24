@@ -235,6 +235,7 @@ public import LeanQbe.T.Amd64.PrintATTAlign
 public import LeanQbe.T.Amd64.PrintAsm0
 public import LeanQbe.T.Amd64.PrintAsm0Lemmas
 public import LeanQbe.T.Amd64.ScalarTarg
+public import LeanQbe.T.Amd64.Snippet
 public import LeanQbe.T.Amd64.Targ
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Amd64.UnionFind
