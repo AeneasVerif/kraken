@@ -100,6 +100,10 @@ public import LeanQbe.T.MainInline
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.MainLink
 public import LeanQbe.T.MainLinkReuse
+public import LeanQbe.T.MainLinkReuseCalls
+public import LeanQbe.T.MainLinkReuseCover
+public import LeanQbe.T.MainLinkReuseElab
+public import LeanQbe.T.MainLinkReuseLegalCalls
 public import LeanQbe.T.MainLinkScc
 public import LeanQbe.T.MainLinkSplice
 public import LeanQbe.T.MainSplice

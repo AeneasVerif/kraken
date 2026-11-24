@@ -584,6 +584,111 @@ class GenCertSlicesTest(unittest.TestCase):
             self.assertIn("← reuse_m7p_eq_2]", b_cert)
             self.assertNotIn("private theorem reuse_eq", b_cert)
 
+            # Pruned-relink mode via CLI flag emits eval_raw_callees! + relinkChunkListCover.
+            p_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullM7Fidelity",
+                    "--total-fns",
+                    "40",
+                    "--profile",
+                    str(p_path),
+                    "--reuse-spec",
+                    str(b_path),
+                    "--reuse-mode",
+                    "pruned_relink",
+                    "--singleton-size",
+                    "400",
+                    "--max-slice-size",
+                    "650",
+                    "--max-slice-count",
+                    "10",
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            p_cfg = gcs.build_config(p_args)
+            self.assertEqual(p_cfg.reuse_mode, "pruned_relink")
+            p_files = dict(gcs.build_plan(p_cfg, ["amd64", "arm64"]))
+            self._assert_hygiene(list(p_files.items()))
+            for arch_dir in ("Amd64", "Arm64"):
+                p_cert = p_files[f"LeanQbe/T/{arch_dir}/KissatM7FidelityCert.lean"]
+                self.assertIn("public import LeanQbe.T.MainLinkReuseCover", p_cert)
+                self.assertIn("meta import LeanQbe.T.MainLinkReuseElab", p_cert)
+                self.assertIn("eval_raw_callees! rCallees", p_cert)
+                self.assertIn("eval_pruned_ext! rExt", p_cert)
+                self.assertIn("calleesCover_of_checkRaw", p_cert)
+                self.assertIn("relinkChunkListCover", p_cert)
+                self.assertIn("relinkChunkListCover_fns", p_cert)
+                self.assertIn("relinkChunkListCover_maxBound", p_cert)
+                self.assertIn("private theorem reuseBaseFns_wf", p_cert)
+
+            # JSON-configured pruned_relink with custom proof module & src_start works.
+            pr_path = Path(tmp) / "reuse_pruned.json"
+            pr_path.write_text(
+                json.dumps(
+                    {
+                        "reuse_prefix": "KissatM7Plus",
+                        "reuse_mode": "pruned_relink",
+                        "reuse_inl_mod": "LeanQbe.T.Examples.Kissat.FullM7PlusInl",
+                        "reuse_inl_fns": "m7PlusInlFns",
+                        "reuse_inl_mod_sym": "m7PlusInlMod",
+                        "reuse_inl_policy": "m7InlPolicy",
+                        "reuse_proof_mod": "LeanQbe.T.Examples.Kissat.FullM7PlusAssemblyProof0",
+                        "reuse_proof_ns": "LeanQbe.T.Examples.Kissat.FullM7Plus",
+                        "reuse_acyclic": "m7Plus_acyclic",
+                        "reuse_wf": "m7PlusFns_wf",
+                        "reused_slices": [
+                            {"src_index": 2, "start": 12, "src_start": 10, "count": 12}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            pr_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullM7Fidelity",
+                    "--total-fns",
+                    "40",
+                    "--profile",
+                    str(p_path),
+                    "--reuse-spec",
+                    str(pr_path),
+                    "--singleton-size",
+                    "400",
+                    "--max-slice-size",
+                    "650",
+                    "--max-slice-count",
+                    "10",
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            pr_cfg = gcs.build_config(pr_args)
+            pr_files = dict(gcs.build_plan(pr_cfg, ["amd64", "arm64"]))
+            self._assert_hygiene(list(pr_files.items()))
+            pr_cert = pr_files["LeanQbe/T/Amd64/KissatM7FidelityCert.lean"]
+            self.assertIn("(m7PlusInlFns.drop 10).take 12", pr_cert)
+            self.assertIn("FullM7PlusAssemblyProof0", pr_cert)
+            self.assertIn("m7Plus_acyclic m7PlusFns_wf", pr_cert)
+
+            bad_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullM7Fidelity",
+                    "--reuse-mode",
+                    "pruned_relink",
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            with self.assertRaises(ValueError):
+                gcs.build_config(bad_args)
+
 
 if __name__ == "__main__":
     unittest.main()

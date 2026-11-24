@@ -626,10 +626,16 @@ class SliceRange:
     start: int
     count: int
     reuse_src_index: int | None = None
+    src_start: int | None = None
 
     @property
     def end(self) -> int:
         return self.start + self.count
+
+    @property
+    def reuse_src_start(self) -> int:
+        """Starting index in the reuse source module's `fns` list."""
+        return self.src_start if self.src_start is not None else self.start
 
 
 @dataclass(frozen=True)
@@ -736,6 +742,13 @@ class CertConfig:
     reuse_inl_fns: str | None = None
     reuse_bridge_mod: str | None = None
     reuse_thm_prefix: str | None = None
+    reuse_mode: str = "verbatim"
+    reuse_proof_mod: str | None = None
+    reuse_proof_ns: str | None = None
+    reuse_acyclic: str | None = None
+    reuse_wf: str | None = None
+    reuse_inl_mod_sym: str | None = None
+    reuse_inl_policy: str | None = None
 
     @property
     def is_inlined(self) -> bool:
@@ -1558,14 +1571,22 @@ def plan_slices_with_reuse(
     max_slice_size: int | None,
     heavy_thresh: float | None,
 ) -> tuple[SliceRange, ...]:
-    """Partition `[0, len(metrics))` keeping verbatim reused slices and slicing uncovered gaps."""
+    """Partition `[0, len(metrics))` keeping reused slices and slicing uncovered gaps."""
     total_fns = len(metrics)
     reused = sorted(
-        [(int(r["start"]), int(r["count"]), int(r["src_index"])) for r in reuse_entries],
+        [
+            (
+                int(r["start"]),
+                int(r["count"]),
+                int(r["src_index"]),
+                int(r["src_start"]) if "src_start" in r and r["src_start"] is not None else None,
+            )
+            for r in reuse_entries
+        ],
         key=lambda x: x[0],
     )
     prev_end = 0
-    for st, cnt, src_idx in reused:
+    for st, cnt, src_idx, _ in reused:
         if cnt <= 0 or st < 0 or st + cnt > total_fns:
             raise ValueError(f"invalid reused slice src={src_idx} [{st}, {st + cnt})")
         if st < prev_end:
@@ -1604,10 +1625,16 @@ def plan_slices_with_reuse(
             )
 
     pos = 0
-    for st, cnt, src_idx in reused:
+    for st, cnt, src_idx, s_start in reused:
         slice_gap(pos, st)
         combined.append(
-            SliceRange(index=src_idx, start=st, count=cnt, reuse_src_index=src_idx)
+            SliceRange(
+                index=src_idx,
+                start=st,
+                count=cnt,
+                reuse_src_index=src_idx,
+                src_start=s_start,
+            )
         )
         pos = st + cnt
     slice_gap(pos, total_fns)
@@ -1972,6 +1999,48 @@ def _format_cert_sig(arch: ArchSpec, mod_expr: str, max_bound: int) -> list[str]
     ]
 
 
+def _wrap_lean_app(prefix: str, args: list[str], indent: str = "    ") -> list[str]:
+    """Format a Lean application on 1 line if <= `MAX_LINE_LEN`, else indented lines."""
+    one = f"{prefix} " + " ".join(args)
+    if len(one) <= MAX_LINE_LEN:
+        return [one]
+    lines = [prefix]
+    cur = indent
+    for a in args:
+        cand = a if cur == indent else f"{cur} {a}"
+        if cur == indent:
+            cur = f"{indent}{a}"
+        elif len(cur) + 1 + len(a) <= MAX_LINE_LEN:
+            cur = f"{cur} {a}"
+        else:
+            lines.append(cur)
+            cur = f"{indent}{a}"
+    if cur != indent:
+        lines.append(cur)
+    return lines
+
+
+def _wrap_rw_items(items: list[str], base_indent: str = "  ") -> list[str]:
+    """Wrap `rw [a, b, ...]` within `MAX_LINE_LEN`."""
+    one = f"{base_indent}rw [" + ", ".join(items) + "]"
+    if len(one) <= MAX_LINE_LEN:
+        return [one]
+    cont = f"{base_indent}  "
+    lines: list[str] = []
+    cur = f"{base_indent}rw ["
+    for idx, item in enumerate(items):
+        suffix = "]" if idx == len(items) - 1 else ","
+        tok = item + suffix
+        sep = "" if cur.endswith("[") else " "
+        if len(cur) + len(sep) + len(tok) <= MAX_LINE_LEN:
+            cur = f"{cur}{sep}{tok}"
+        else:
+            lines.append(cur)
+            cur = f"{cont}{tok}"
+    lines.append(cur)
+    return lines
+
+
 def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
     """Render `<Prefix>Cert.lean` combining slices via single-shot `checkLinkList`."""
     ns = f"{arch.ns_prefix}.{cfg.prefix}Cert"
@@ -1979,6 +2048,8 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
     cert_fns = cfg.cert_fns
     is_inl = cfg.is_inlined
     has_reuse = bool(cfg.reuse_prefix)
+    pruned_relink = has_reuse and cfg.reuse_mode == "pruned_relink"
+    bounds_mod = f"{arch.ns_prefix}.{cfg.prefix}Bounds"
 
     def slice_mod_short(sl: SliceRange) -> str:
         if sl.reuse_src_index is not None:
@@ -1998,16 +2069,41 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
             return f"{slice_mod_short(sl)}.slice{k}Mod"
         return f"slice{sl.index}Mod"
 
+    def slice_chunks_expr(pos: int, sl: SliceRange) -> str:
+        if pruned_relink and sl.reuse_src_index is not None:
+            return f"rChunks{pos}"
+        return f"{cert_expr(sl)}.chunks"
+
+    def reuse_raw_fns(sl: SliceRange) -> str:
+        base_fns = cfg.reuse_inl_fns if (is_inl and cfg.reuse_inl_fns) else cert_fns
+        st = sl.reuse_src_start
+        if st == 0:
+            return f"({base_fns}.take {sl.count})"
+        return f"(({base_fns}.drop {st}).take {sl.count})"
+
+    wf_mod = cfg.reuse_proof_mod or cfg.proof_mod
+    wf_ns = cfg.reuse_proof_ns or cfg.open_proof_ns
+    wf_acyc = cfg.reuse_acyclic or cfg.acyclic
+    wf_thm = cfg.reuse_wf or cfg.wf
+    wf_pol = cfg.reuse_inl_policy or cfg.inl_policy
+    wf_inl_mod_sym = cfg.reuse_inl_mod_sym or cfg.inl_mod_sym
+    wf_fns = cfg.reuse_inl_fns if (is_inl and cfg.reuse_inl_fns) else cert_fns
+
     pub_imports = [
         "public import LeanQbe.T.MainCertInline"
         if is_inl
         else "public import LeanQbe.T.MainCertProof",
+        *(["public import LeanQbe.T.MainLinkReuseCover"] if pruned_relink else []),
         *[
             f"public import {arch.ns_prefix}.{slice_mod_short(sl)}"
             for sl in cfg.slices
         ],
         f"public import {cfg.source_mod}",
     ]
+    if pruned_relink:
+        pub_imports.append(f"public import {bounds_mod}")
+        if wf_mod:
+            pub_imports.append(f"public import {wf_mod}")
     if is_inl:
         if cfg.inl_policy_mod and cfg.inl_policy_mod != cfg.inl_mod:
             pub_imports.append(f"public import {cfg.inl_policy_mod}")
@@ -2017,16 +2113,25 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
         pub_imports.append(f"public import {cfg.reuse_inl_mod}")
     if has_reuse and cfg.reuse_bridge_mod:
         pub_imports.append(f"public import {cfg.reuse_bridge_mod}")
+    pub_imports = list(dict.fromkeys(pub_imports))
 
     meta_imports = [
         "meta import Lean",
+        *(["meta import LeanQbe.T.MainLinkReuseElab"] if pruned_relink else []),
         f"meta import {arch.targ_mod}",
         f"meta import {cfg.cert_source_mod}",
     ]
+    if pruned_relink:
+        meta_imports.append(f"meta import {bounds_mod}")
     if has_reuse and cfg.reuse_inl_mod:
         meta_imports.append(f"meta import {cfg.reuse_inl_mod}")
+    meta_imports = list(dict.fromkeys(meta_imports))
 
     open_items = ["LeanQbe.T", arch.ns_prefix, cfg.open_source_ns]
+    if pruned_relink:
+        open_items.append(bounds_mod)
+        if wf_ns:
+            open_items.append(wf_ns)
     if is_inl:
         if cfg.inl_mod:
             open_items.append(cfg.inl_mod)
@@ -2048,31 +2153,142 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
     base_cert_name = inl_cert_name if is_inl else cfg.cert_name
     base_mod_name = cfg.inl_mod_sym if is_inl and cfg.inl_mod_sym else cfg.mod
     base_vis = "private noncomputable def" if is_inl else "noncomputable def"
+    chunk_ty = f"CompiledChunk {arch.targ} {arch.lt} [] 0"
+    indexed = list(enumerate(cfg.slices, start=1))
+
+    if pruned_relink:
+        if is_inl:
+            assert wf_pol is not None and wf_inl_mod_sym is not None
+            ladder_defs.extend(
+                [
+                    f"private theorem reuseBaseFns_wf : ∀ f ∈ {wf_fns}, f.Wf := by",
+                    *_wrap_lean_app(
+                        "  have hwf :=",
+                        ["Module.optInlinePolicy_wf", wf_pol, wf_acyc, wf_thm],
+                    ),
+                    f"  rw [← {wf_inl_mod_sym}.eq] at hwf",
+                    "  exact hwf",
+                    "",
+                ]
+            )
+        else:
+            ladder_defs.extend(
+                [
+                    f"private theorem reuseBaseFns_wf : ∀ f ∈ {wf_fns}, f.Wf :=",
+                    f"  {wf_thm}",
+                    "",
+                ]
+            )
+
+        for pos, sl in indexed:
+            if sl.reuse_src_index is None:
+                continue
+            rfns = reuse_raw_fns(sl)
+            ce = cert_expr(sl)
+            me = mod_expr(sl)
+            ext_e = f"({cfg.stem}ExtPrefix {sl.start})"
+            ladder_defs.extend(
+                [
+                    *_wrap_lean_app(
+                        f"eval_raw_callees! rCallees{pos}", [arch.lt, rfns], indent="  "
+                    ),
+                    *_wrap_lean_app(
+                        f"eval_pruned_ext! rExt{pos}", [f"rCallees{pos}", ext_e], indent="  "
+                    ),
+                    f"private theorem rRaw{pos} :",
+                    f"    checkRawCallsCover {arch.lt}",
+                    f"      {rfns} rCallees{pos} = true := by",
+                    "  t_kernel_rfl",
+                    f"private theorem rCov{pos} :",
+                    f"    CalleesCover {arch.lt} (chunksFns {ce}.chunks) rCallees{pos} := by",
+                    f"  have hc := {ce}.fns_eq",
+                    f"  dsimp only [{me}] at hc",
+                    "  rw [← hc]",
+                    "  exact calleesCover_of_checkRaw",
+                    f"    (wf_of_take_drop {sl.reuse_src_start} {sl.count} reuseBaseFns_wf)",
+                    f"    rRaw{pos}",
+                    f"private theorem rAgree{pos} :",
+                    f"    checkChunksExtAgreeOn rCallees{pos}",
+                    f"      {ce}.chunks rExt{pos} = true := by",
+                    "  t_kernel_rfl",
+                    f"private noncomputable def rChunks{pos} : List ({chunk_ty}) :=",
+                    *_wrap_lean_app(
+                        "  relinkChunkListCover",
+                        [
+                            f"{ce}.chunks",
+                            f"rExt{pos}",
+                            f"rCallees{pos}",
+                            f"rCov{pos}",
+                            f"rAgree{pos}",
+                        ],
+                    ),
+                    f"private theorem rMaxB{pos} :",
+                    f"    chunksMaxBound rChunks{pos} ≤ {cfg.max_bound} := by",
+                    f"  dsimp only [rChunks{pos}]",
+                    "  rw [relinkChunkListCover_maxBound]",
+                    f"  exact {ce}.maxBound_le",
+                    "",
+                ]
+            )
+
+    def maxb_thm_for(pos: int, sl: SliceRange) -> str:
+        if pruned_relink and sl.reuse_src_index is not None:
+            return f"rMaxB{pos}"
+        return f"{cert_expr(sl)}.maxBound_le"
 
     if total_slices == 1:
         sl0 = cfg.slices[0]
         sig_lines = _format_cert_sig(arch, base_mod_name, cfg.max_bound)
-        if is_inl:
-            rhs_lines = [
-                f"  {cert_expr(sl0)}.castFns (by dsimp only [{mod_expr(sl0)}, {cert_fns}]; rfl)"
-            ]
+        if pruned_relink and sl0.reuse_src_index is not None:
+            ce0 = cert_expr(sl0)
+            me0 = mod_expr(sl0)
+            ladder_defs.extend(
+                [
+                    "private theorem singleLink :",
+                    f"    checkLinkList {arch.layout} [] rChunks1 = true := by",
+                    "  t_kernel_rfl",
+                    "private theorem singleFnsEq :",
+                    f"    {base_mod_name}.fns = chunksFns rChunks1 := by",
+                    f"  have hc := {ce0}.fns_eq",
+                    f"  dsimp only [{me0}] at hc",
+                    "  dsimp only [rChunks1]",
+                    "  rw [relinkChunkListCover_fns, ← hc]",
+                    f"  dsimp only [{base_mod_name}]",
+                    "  rfl",
+                    *wrap_comment_lines(
+                        f"/-- Full kernel-checked cert covering `{cfg.total_fns}` "
+                        f"functions in `{base_mod_name}` on {arch.isa_title}. -/"
+                    ),
+                    f"{base_vis} {base_cert_name} :",
+                    *sig_lines,
+                    "  { chunks := rChunks1",
+                    "    linkCheck := singleLink",
+                    "    fns_eq := singleFnsEq",
+                    "    supportsAll := supportsAll_of_eq singleFnsEq",
+                    "      (supportsAll_of_chunks rChunks1)",
+                    "    maxBound_le := rMaxB1 }",
+                    "",
+                ]
+            )
         else:
-            rhs_lines = [f"  {cert_expr(sl0)}"]
-        ladder_defs.extend(
-            [
-                f"/-- Full kernel-checked cert covering `{cfg.total_fns}` "
-                f"functions in `{base_mod_name}` on {arch.isa_title}. -/",
-                f"{base_vis} {base_cert_name} :",
-                *sig_lines,
-                *rhs_lines,
-                "",
-            ]
-        )
+            if is_inl:
+                rhs_lines = [
+                    f"  {cert_expr(sl0)}.castFns (by dsimp only [{mod_expr(sl0)}, {cert_fns}]; rfl)"
+                ]
+            else:
+                rhs_lines = [f"  {cert_expr(sl0)}"]
+            ladder_defs.extend(
+                [
+                    f"/-- Full kernel-checked cert covering `{cfg.total_fns}` "
+                    f"functions in `{base_mod_name}` on {arch.isa_title}. -/",
+                    f"{base_vis} {base_cert_name} :",
+                    *sig_lines,
+                    *rhs_lines,
+                    "",
+                ]
+            )
     else:
-        chunk_ty = f"CompiledChunk {arch.targ} {arch.lt} [] 0"
-        indexed = list(enumerate(cfg.slices, start=1))
         last_pos, last_sl = indexed[-1]
-
         def chunk_name(pos: int) -> str:
             return "allChunks" if pos == 1 else f"sufChunks{pos}"
 
@@ -2086,12 +2302,14 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
                 f"  {rhs}",
             ]
 
-        ladder_defs.extend(fmt_chunk_def(chunk_name(last_pos), f"{cert_expr(last_sl)}.chunks"))
+        ladder_defs.extend(
+            fmt_chunk_def(chunk_name(last_pos), slice_chunks_expr(last_pos, last_sl))
+        )
         for pos, sl in reversed(indexed[:-1]):
             ladder_defs.extend(
                 fmt_chunk_def(
                     chunk_name(pos),
-                    f"{cert_expr(sl)}.chunks ++ {chunk_name(pos + 1)}",
+                    f"{slice_chunks_expr(pos, sl)} ++ {chunk_name(pos + 1)}",
                 )
             )
         ladder_defs.append("")
@@ -2110,12 +2328,17 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
             for pos, sl in indexed:
                 if sl.reuse_src_index is None:
                     continue
-                if sl.start == 0:
-                    lhs_e = f"{cert_fns}.take {sl.count}"
-                    rhs_e = f"{cfg.reuse_inl_fns}.take {sl.count}"
-                else:
-                    lhs_e = f"({cert_fns}.drop {sl.start}).take {sl.count}"
-                    rhs_e = f"({cfg.reuse_inl_fns}.drop {sl.start}).take {sl.count}"
+                lhs_e = (
+                    f"{cert_fns}.take {sl.count}"
+                    if sl.start == 0
+                    else f"({cert_fns}.drop {sl.start}).take {sl.count}"
+                )
+                rs_st = sl.reuse_src_start
+                rhs_e = (
+                    f"{cfg.reuse_inl_fns}.take {sl.count}"
+                    if rs_st == 0
+                    else f"({cfg.reuse_inl_fns}.drop {rs_st}).take {sl.count}"
+                )
                 ladder_defs.extend(
                     [
                         f"private theorem reuse_eq{pos} :",
@@ -2140,14 +2363,27 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
                 f"private theorem fns_eq{last_pos} :\n"
                 f"    {cert_fns}.drop {last_sl.start} = chunksFns {last_nm} := by"
             )
-        ladder_defs.extend(
-            [
-                last_sig,
-                f"  have h := {cert_expr(last_sl)}.fns_eq",
-                f"  dsimp only [{mod_expr(last_sl)}] at h",
-                "  exact h",
-            ]
-        )
+        if pruned_relink and last_sl.reuse_src_index is not None:
+            rthm_last = reuse_thm_for(last_pos, last_sl)
+            ladder_defs.extend(
+                [
+                    last_sig,
+                    f"  have hc := {cert_expr(last_sl)}.fns_eq",
+                    f"  dsimp only [{mod_expr(last_sl)}] at hc",
+                    f"  dsimp only [{last_nm}, rChunks{last_pos}]",
+                    "  rw [relinkChunkListCover_fns, ← hc]",
+                    f"  exact {rthm_last}.symm",
+                ]
+            )
+        else:
+            ladder_defs.extend(
+                [
+                    last_sig,
+                    f"  have hc := {cert_expr(last_sl)}.fns_eq",
+                    f"  dsimp only [{mod_expr(last_sl)}] at hc",
+                    "  exact hc",
+                ]
+            )
         for pos, sl in reversed(indexed[1:-1]):
             nm = chunk_name(pos)
             sig = (
@@ -2159,30 +2395,27 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
                     f"private theorem fns_eq{pos} :\n"
                     f"    {cert_fns}.drop {sl.start} = chunksFns {nm} := by"
                 )
+            use_pruned = pruned_relink and sl.reuse_src_index is not None
+            rw_items = ([] if use_pruned else [nm]) + ["chunksFns_append"]
+            if use_pruned:
+                rw_items.append("relinkChunkListCover_fns")
+            rw_items.extend([f"← fns_eq{pos + 1}", "← hc"])
             if sl.reuse_src_index is not None:
-                rthm = reuse_thm_for(pos, sl)
-                rw_ln = f"  rw [{nm}, chunksFns_append, ← fns_eq{pos + 1}, ← hc, ← {rthm}]"
-                if len(rw_ln) > MAX_LINE_LEN:
-                    rw_ln = (
-                        f"  rw [{nm}, chunksFns_append,\n"
-                        f"    ← fns_eq{pos + 1}, ← hc, ← {rthm}]"
-                    )
-            else:
-                rw_ln = f"  rw [{nm}, chunksFns_append, ← fns_eq{pos + 1}, ← hc]"
-                if len(rw_ln) > MAX_LINE_LEN:
-                    rw_ln = f"  rw [{nm}, chunksFns_append,\n    ← fns_eq{pos + 1}, ← hc]"
+                rw_items.append(f"← {reuse_thm_for(pos, sl)}")
             drop_ln = f"  exact (drop_take_append_drop {cert_fns} {sl.start} {sl.count}).symm"
             if len(drop_ln) > MAX_LINE_LEN:
                 drop_ln = (
                     f"  exact (drop_take_append_drop {cert_fns}\n"
                     f"    {sl.start} {sl.count}).symm"
                 )
+            dsimp_lns = [f"  dsimp only [{nm}, rChunks{pos}]"] if use_pruned else []
             ladder_defs.extend(
                 [
                     sig,
                     f"  have hc := {cert_expr(sl)}.fns_eq",
                     f"  dsimp only [{mod_expr(sl)}] at hc",
-                    rw_ln,
+                    *dsimp_lns,
+                    *_wrap_rw_items(rw_items),
                     drop_ln,
                 ]
             )
@@ -2196,10 +2429,17 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
                 f"    exact (List.take_append_drop {sl1.count}\n"
                 f"      {cert_fns}).symm"
             )
-        rw1_ln = (
-            f"    rw [chunksFns_append, ← fns_eq2, ← hc, ← {reuse_thm_for(1, sl1)}]"
-            if sl1.reuse_src_index is not None
-            else "    rw [chunksFns_append, ← fns_eq2, ← hc]"
+        use_pruned1 = pruned_relink and sl1.reuse_src_index is not None
+        rw1_items = ["chunksFns_append"]
+        if use_pruned1:
+            rw1_items.append("relinkChunkListCover_fns")
+        rw1_items.extend(["← fns_eq2", "← hc"])
+        if sl1.reuse_src_index is not None:
+            rw1_items.append(f"← {reuse_thm_for(1, sl1)}")
+        dsimp1_ln = (
+            "    dsimp only [allChunks, rChunks1]"
+            if use_pruned1
+            else "    dsimp only [allChunks]"
         )
         ladder_defs.extend(
             [
@@ -2208,8 +2448,8 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
                 f"  have hc := {cert_expr(sl1)}.fns_eq",
                 f"  dsimp only [{mod_expr(sl1)}] at hc",
                 h1_ln,
-                "    dsimp only [allChunks]",
-                rw1_ln,
+                dsimp1_ln,
+                *_wrap_rw_items(rw1_items, base_indent="    "),
                 take_ln,
                 "  exact h1",
                 "",
@@ -2220,7 +2460,7 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
             [
                 f"private theorem maxB{last_pos} :",
                 f"    chunksMaxBound {last_nm} ≤ {cfg.max_bound} :=",
-                f"  {cert_expr(last_sl)}.maxBound_le",
+                f"  {maxb_thm_for(last_pos, last_sl)}",
             ]
         )
         for pos, sl in reversed(indexed[:-1]):
@@ -2234,10 +2474,11 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
                     f"private theorem {thm} :\n"
                     f"    chunksMaxBound {nm} ≤ {cfg.max_bound} := by"
                 )
-            app_ln = f"    chunksMaxBound_append_le {cert_expr(sl)}.maxBound_le maxB{pos + 1}"
+            mb_ref = maxb_thm_for(pos, sl)
+            app_ln = f"    chunksMaxBound_append_le {mb_ref} maxB{pos + 1}"
             if len(app_ln) > MAX_LINE_LEN:
                 app_ln = (
-                    f"    chunksMaxBound_append_le {cert_expr(sl)}.maxBound_le\n"
+                    f"    chunksMaxBound_append_le {mb_ref}\n"
                     f"      maxB{pos + 1}"
                 )
             ladder_defs.extend(
@@ -2302,9 +2543,10 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
 
     reused_cnt = sum(1 for s in cfg.slices if s.reuse_src_index is not None)
     fresh_cnt = total_slices - reused_cnt
+    reuse_desc = "callee-pruned relinked" if pruned_relink else "verbatim reused"
     doc_summary = (
         f"Combines `{fresh_cnt}` fresh `{cfg.prefix}Cert1..{fresh_cnt}` slices and "
-        f"`{reused_cnt}` verbatim reused `{cfg.reuse_prefix}Cert*` slices via "
+        f"`{reused_cnt}` {reuse_desc} `{cfg.reuse_prefix}Cert*` slices via "
         f"a single-shot `checkLinkList` proof into `{cfg.cert_name}` over "
         f"`{cfg.source_mod}.{cfg.target_mod_expr}` (`{cfg.total_fns}` functions)."
         if has_reuse
@@ -4056,6 +4298,13 @@ def build_config(args: argparse.Namespace) -> CertConfig:
     reuse_inl_fns: str | None = None
     reuse_bridge_mod: str | None = None
     reuse_thm_prefix: str | None = None
+    reuse_mode: str = "verbatim"
+    reuse_proof_mod: str | None = None
+    reuse_proof_ns: str | None = None
+    reuse_acyclic: str | None = None
+    reuse_wf: str | None = None
+    reuse_inl_mod_sym: str | None = None
+    reuse_inl_policy: str | None = None
     if args.reuse_spec:
         rspec = json.loads(Path(args.reuse_spec).read_text(encoding="utf-8"))
         reuse_prefix = str(rspec["reuse_prefix"])
@@ -4063,6 +4312,15 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         reuse_inl_fns = str(rspec["reuse_inl_fns"])
         reuse_bridge_mod = rspec.get("reuse_bridge_mod")
         reuse_thm_prefix = rspec.get("reuse_thm_prefix")
+        reuse_mode = args.reuse_mode or str(rspec.get("reuse_mode", "verbatim"))
+        if reuse_mode not in ("verbatim", "pruned_relink"):
+            raise ValueError(f"unsupported reuse_mode '{reuse_mode}'")
+        reuse_proof_mod = rspec.get("reuse_proof_mod")
+        reuse_proof_ns = rspec.get("reuse_proof_ns")
+        reuse_acyclic = rspec.get("reuse_acyclic")
+        reuse_wf = rspec.get("reuse_wf")
+        reuse_inl_mod_sym = rspec.get("reuse_inl_mod_sym")
+        reuse_inl_policy = rspec.get("reuse_inl_policy")
         slices = plan_slices_with_reuse(
             fn_metrics,
             rspec["reused_slices"],
@@ -4074,6 +4332,8 @@ def build_config(args: argparse.Namespace) -> CertConfig:
             max_slice_size=args.max_slice_size,
             heavy_thresh=args.heavy_thresh,
         )
+    elif args.reuse_mode and args.reuse_mode != "verbatim":
+        raise ValueError(f"--reuse-mode {args.reuse_mode} requires --reuse-spec")
     elif explicit_sizes is not None:
         slices = compute_slices(total_fns, args.slice_size, explicit_sizes)
     elif args.max_slice_size is not None or args.singleton_size is not None:
@@ -4183,6 +4443,13 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         reuse_inl_fns=reuse_inl_fns,
         reuse_bridge_mod=reuse_bridge_mod,
         reuse_thm_prefix=reuse_thm_prefix,
+        reuse_mode=reuse_mode,
+        reuse_proof_mod=reuse_proof_mod,
+        reuse_proof_ns=reuse_proof_ns,
+        reuse_acyclic=reuse_acyclic,
+        reuse_wf=reuse_wf,
+        reuse_inl_mod_sym=reuse_inl_mod_sym,
+        reuse_inl_policy=reuse_inl_policy,
     )
 
 
@@ -4328,7 +4595,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument(
         "--reuse-spec",
-        help="Optional JSON spec naming verbatim reused slices from a sibling cert family.",
+        help="Optional JSON spec naming reused slices from a sibling cert family.",
+    )
+    ap.add_argument(
+        "--reuse-mode",
+        choices=("verbatim", "pruned_relink"),
+        default=None,
+        help=(
+            "Reuse linking strategy with --reuse-spec: 'verbatim' (direct chunk reuse) "
+            "or 'pruned_relink' (MainLinkReuseCover + eval_raw_callees!/eval_pruned_ext!)."
+        ),
     )
     ap.add_argument(
         "--balance",
