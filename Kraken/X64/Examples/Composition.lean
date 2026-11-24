@@ -5,7 +5,7 @@ import Kraken.X64.Parser
 import Kraken.X64.OmniSemantics
 import Kraken
 
-open Kraken (WellFormedLayout)
+open Kraken (Layout)
 
 /-- Swaps `rax` and `rbx`-/
 def swap := ⸨prog|
@@ -15,7 +15,7 @@ swap: xor %rax, %rbx
       jmp %rcx
 ⸩
 
-theorem swap.sem [l : WellFormedLayout swap]
+theorem swap.sem (l : Layout) [l.WellFormed swap]
   (st : MachineData) :
     letI e : Executable := l.apply swap
     letI : Labels := e.labels
@@ -53,7 +53,7 @@ def client := ⸨prog|
 
 def final := client ++ swap
 
-theorem final.sem [l : WellFormedLayout final]
+theorem final.sem (l : Layout) [hl : l.WellFormed final]
   (st : MachineData) :
     letI e : Executable := l.apply final
     Eventually (step1 e)
@@ -62,14 +62,16 @@ theorem final.sem [l : WellFormedLayout final]
         st'.regs.rax = 42 ∧
         st'.regs.rbx = 41)
       ⟨st, l.start⟩ := by
-  let lclient := l.drop client
   kprologue final with st
   sym => kstep 4; tactic =>
-  have addrOf_7 : Kraken.Layout.start swap = final.toExecutable.addrOf 7 := rfl
-  refine eventually_trans _ _ _ _ (Eventually.append_right (layout := l) client swap _ _ (addrOf_7 ▸ swap.sem _)) ?_
+  have : (l.offset client).WellFormed swap := Layout.WellFormed.append_right (p₂ := swap) hl
+  -- `swap` starts where `client` ends: definitionally the address of directive 7 of `final`.
+  have addrOf_7 : (l.offset client).start = (l.apply final).addrOf 7 := rfl
+  refine eventually_trans _ _ _ _
+    (Eventually.append_right (p₁ := client) (p₂ := swap) hl (addrOf_7 ▸ swap.sem (l.offset client) _)) ?_
   rintro ⟨st2, pc⟩ ⟨_, rfl, pc_toUInt64⟩
   dsimp at *
-  have addrOf_5 : pc = final.toExecutable.addrOf 5 := by bv_decide
+  have addrOf_5 : pc = (l.apply final).addrOf 5 := by bv_decide
   rw [addrOf_5]
   sym => kstep 1; tactic =>
   apply Eventually.done
