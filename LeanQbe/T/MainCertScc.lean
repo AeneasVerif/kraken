@@ -1052,7 +1052,7 @@ private def evalSccItemsCore (I : Isa) (lt : LegalTarget) (raBytes : Nat)
                           let sccCh := EvalSccChunk.recSCC
                             (Lean.toExpr acc) (Lean.toExpr recSigs) sccFuel leaves
                           let sccSigs := recSigs.map (fun s => (s, totB))
-                          let acc2 := sccSigs ++ acc
+                          let acc2 := sccSigs.reverse ++ acc
                           let avail2 := sccSrcSigs ++ availSigs
                           let idx2 := idx + len
                           walk fuel' idx2 avail2 acc2 acc2 idx2 0 [] tl' (sccCh :: out1)
@@ -1070,7 +1070,7 @@ private def evalSccItemsCore (I : Isa) (lt : LegalTarget) (raBytes : Nat)
                             (Lean.toExpr acc) (Lean.toExpr recSigs) leaves
                           let sccSigs := recSigs.map (fun s =>
                             (s, budgetBound exportBounds maxBound s.1))
-                          let acc2 := sccSigs ++ acc
+                          let acc2 := sccSigs.reverse ++ acc
                           let avail2 := sccSrcSigs ++ availSigs
                           let idx2 := idx + len
                           walk fuel' idx2 avail2 acc2 acc2 idx2 0 [] tl' (sccCh :: out1)

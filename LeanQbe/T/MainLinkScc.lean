@@ -2061,7 +2061,7 @@ preceding chunks plus `ext₀`. -/
   | [] => true
   | c :: cs =>
       checkExtCompat acc c.extCallees &&
-      checkSccChunksExt (c.sigBounds ++ acc) cs
+      checkSccChunksExt (c.sigBounds.reverse ++ acc) cs
 
 /-- O(N) metadata-only linker validator for a mixed list of `.acyc` and `.recSCC` chunks. -/
 @[expose] def checkLinkSccList {T : Target} (L : TargetLayout T) {lt : LegalTarget}
@@ -2680,13 +2680,16 @@ private theorem linkChunks_aux {T : Target} {lt : LegalTarget}
                 sigBoundsBudgetRecOf, List.mem_map] at hp
               obtain ⟨b, hb, rfl⟩ := hp
               exact ⟨b.toFn, List.mem_map_of_mem hb, rfl⟩
-        have hacc' : ∀ p ∈ c.sigBounds ++ acc,
+        have hsigB_names_rev : ∀ p ∈ c.sigBounds.reverse, ∃ g ∈ c.fns,
+            p = ((g.name, lt.legalSig g.as, lt.legalSig g.rs), c.bound g.name) :=
+          fun p hp => hsigB_names p (List.mem_reverse.mp hp)
+        have hacc' : ∀ p ∈ c.sigBounds.reverse ++ acc,
             T.FnSpec h p.1.1
               (legalEnv lt (Env.restrict (c.sem extSigs Γcur) (c.fns.map Fn.sig ++ extSigs))
                 p.1.1 p.1.2.1 p.1.2.2) p.2 nX := by
           intro p hp
           rcases List.mem_append.mp hp with hp_c | hp_acc
-          · obtain ⟨g, hg, rfl⟩ := hsigB_names p hp_c
+          · obtain ⟨g, hg, rfl⟩ := hsigB_names_rev p hp_c
             refine Target.FnSpec.of_spec T (hchunk_spec g hg).2 fun args m0 Q X hleg => ?_
             rcases hleg with ⟨as₀, bs₀, has₀, hbs₀, xs₀, P₀, E₀, hxs₀, hQ₀, hX₀, hmemS, hΓ⟩
             have hmapFst : (c.fns.map Fn.sig ++ extSigs).map Prod.fst =
@@ -2732,28 +2735,29 @@ private theorem linkChunks_aux {T : Target} {lt : LegalTarget}
                       exact absurd h1' hnot_sig
                     · exact h2
               exact ⟨as₀, bs₀, has₀, hbs₀, xs₀, P₀, E₀, hxs₀, hQ₀, hX₀, hm_e, hΓ0⟩
-        have hacc_uniq' : ∀ p ∈ c.sigBounds ++ acc, ∀ q ∈ c.sigBounds ++ acc,
-            p.1.1 = q.1.1 → p.2 = q.2 := by
+        have hacc_uniq' : ∀ p ∈ c.sigBounds.reverse ++ acc,
+            ∀ q ∈ c.sigBounds.reverse ++ acc, p.1.1 = q.1.1 → p.2 = q.2 := by
           intro p hp q hq hnm
           rcases List.mem_append.mp hp with hp_c | hp_acc <;>
             rcases List.mem_append.mp hq with hq_c | hq_acc
-          · obtain ⟨g₁, hg₁, rfl⟩ := hsigB_names p hp_c
-            obtain ⟨g₂, hg₂, rfl⟩ := hsigB_names q hq_c
+          · obtain ⟨g₁, hg₁, rfl⟩ := hsigB_names_rev p hp_c
+            obtain ⟨g₂, hg₂, rfl⟩ := hsigB_names_rev q hq_c
             obtain rfl := fn_eq_of_mem_fns hnd_fns.1 hg₁ hg₂ hnm
             rfl
-          · obtain ⟨g₁, hg₁, rfl⟩ := hsigB_names p hp_c
+          · obtain ⟨g₁, hg₁, rfl⟩ := hsigB_names_rev p hp_c
             exact absurd (hnm ▸ List.mem_map_of_mem hg₁) (hdisj_c_ext q hq_acc)
-          · obtain ⟨g₂, hg₂, rfl⟩ := hsigB_names q hq_c
+          · obtain ⟨g₂, hg₂, rfl⟩ := hsigB_names_rev q hq_c
             exact absurd (hnm.symm ▸ List.mem_map_of_mem hg₂) (hdisj_c_ext p hp_acc)
           · exact hacc_uniq p hp_acc q hq_acc hnm
-        have hacc_disj' : ∀ p ∈ c.sigBounds ++ acc, p.1.1 ∉ (sccChunksFns cs).map Fn.name := by
+        have hacc_disj' : ∀ p ∈ c.sigBounds.reverse ++ acc,
+            p.1.1 ∉ (sccChunksFns cs).map Fn.name := by
           intro p hp hm
           rcases List.mem_append.mp hp with hp_c | hp_acc
-          · obtain ⟨g, hg, rfl⟩ := hsigB_names p hp_c
+          · obtain ⟨g, hg, rfl⟩ := hsigB_names_rev p hp_c
             exact hnd_fns.2.2 g.name (List.mem_map_of_mem hg) g.name hm rfl
           · refine hacc_disj p hp_acc ?_
             dsimp only [sccChunksFns]; rw [List.map_append]; exact List.mem_append_right _ hm
-        exact linkChunks_aux h cs (k₀ + c.code.length) (c.sigBounds ++ acc)
+        exact linkChunks_aux h cs (k₀ + c.code.length) (c.sigBounds.reverse ++ acc)
           (c.fns.map Fn.sig ++ extSigs) (c.sem extSigs Γcur) hinf_cs hu hchkExt.2 hcalls_cs
           hnd_cs (fun g hg => hwf g (List.mem_append_right _ hg))
           (fun g hg => hsupp g (List.mem_append_right _ hg))

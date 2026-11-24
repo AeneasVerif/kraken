@@ -658,14 +658,44 @@ theorem checkExtCompat_lookupBound {acc ext : List (SigEntry × Nat)}
   · intro g bg hg
     exact beq_iff_eq.mp (List.all_eq_true.mp hall (g, bg) (lookupBound_mem hg))
 
+/-- `find?` is invariant under reversal when no two elements both satisfy `p`. -/
+theorem find?_reverse_of_pairwise {α : Type} (p : α → Bool) :
+    ∀ {xs : List α}, xs.Pairwise (fun a b => ¬ (p a = true ∧ p b = true)) →
+      xs.reverse.find? p = xs.find? p
+  | [], _ => rfl
+  | x :: xs, hpw => by
+    have hpw' := List.pairwise_cons.mp hpw
+    rw [List.reverse_cons, List.find?_append, find?_reverse_of_pairwise p hpw'.2]
+    cases hx : p x
+    · simp [hx]
+    · have hnone : xs.find? p = none :=
+        List.find?_eq_none.mpr fun y hy hpy => hpw'.1 y hy ⟨hx, hpy⟩
+      simp [hx, hnone]
+
+/-- Reversing a name-unique block of `sigBounds` in front of `acc` does not change `lookupBound`. -/
+theorem lookupBound_reverse_append {xs acc : List (SigEntry × Nat)}
+    (hnd : (xs.map (fun p => p.1.1)).Nodup) (g : SigEntry) :
+    lookupBound (xs.reverse ++ acc) g = lookupBound (xs ++ acc) g := by
+  have hpw : xs.Pairwise
+      (fun a b => ¬ (SigEntry.beq a.1 g = true ∧ SigEntry.beq b.1 g = true)) := by
+    refine (List.pairwise_map.mp hnd).imp ?_
+    intro a b hab hboth
+    rw [SigEntry.beq_iff_eq, SigEntry.beq_iff_eq] at hboth
+    exact hab (by rw [hboth.1, hboth.2])
+  dsimp only [lookupBound]
+  rw [List.find?_append, List.find?_append, find?_reverse_of_pairwise _ hpw]
+
 /-- Check that every chunk's `extCallees` is compatible with the accumulated `sigBounds` of
-preceding chunks plus `ext₀`. -/
+preceding chunks plus `ext₀`. The accumulator is threaded newest-first (`sigBounds.reverse ++ acc`),
+exactly like `compileModule`'s own `(sig, b) :: acc` and `evalPrefixExtWithLen`'s literals, so the
+O(|ext|) `extListBeq` fast path of `checkExtCompat` hits on every chunk (multi-function chunks and
+slice-prefix boundaries alike) instead of falling back to O(|ext|·|acc|) `lookupBound` scans. -/
 @[expose] def checkChunksExt {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat}
     (acc : List (SigEntry × Nat)) : List (CompiledChunk T lt exits nX) → Bool
   | [] => true
   | c :: cs =>
     checkExtCompat acc c.extCallees &&
-    checkChunksExt (c.compiled.sigBounds ++ acc) cs
+    checkChunksExt (c.compiled.sigBounds.reverse ++ acc) cs
 
 /-- O(N) metadata-only linker validator for a list of pre-compiled chunks using structural
 `fnNameOk` + `stringsNodup` + `L.progSmall` (with zero compiler re-evaluation when chunks are
@@ -735,8 +765,10 @@ theorem compileModule_chunks_eq {T : Target} {lt : LegalTarget}
         .ok (c.compiled.code, c.compiled.bounds) :=
       compileModule_mono_lookupBound (checkExtCompat_lookupBound hchk.1) c.compiled.compileModule_eq
     have hcs_ext := compileModule_chunks_eq cs hchk.2 hnd_split.2.1
+    have hnames : (c.compiled.sigBounds.map (fun p => p.1.1)).Nodup := by
+      rw [sigBoundsOf_eq, sigBoundsOf_names]; exact hnd_split.1
     exact compileModule_append hc_ext hcs_ext hnd_split.1
-      (fun _ _ hg => by simpa [sigBoundsOf_eq] using hg)
+      (fun g _ hg => by rw [lookupBound_reverse_append hnames g] at hg; exact hg)
 
 theorem chunks_bound_mem {T : Target} {lt : LegalTarget}
     {exits : List Sym} {nX : Nat} :

@@ -113,7 +113,8 @@ def evalOneFn (I : Isa) (lt : LegalTarget) (raBytes : Nat)
 /-- Compiled meta evaluator splitting `fs` into callee-first chunks of at most `chunkSize`
 functions (clamped to `≥ 1`) and, when `maxDirs > 0`, capping each multi-function chunk at
 `maxDirs` emitted directives so heavy functions automatically receive dedicated single-function
-chunks. Threads `sigBoundsOf` accumulators matching `checkChunksExt` and returns pure `Lean.Expr`
+chunks. Threads newest-first `sigBoundsOf` accumulators matching `checkChunksExt` (and
+`compileModule`/`evalPrefixExtWithLen`) and returns pure `Lean.Expr`
 literals for every chunk. -/
 def evalLinkedChunks (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (ext0 : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat)
@@ -190,7 +191,7 @@ def evalLinkedChunks (I : Isa) (lt : LegalTarget) (raBytes : Nat)
           codeLit := Lean.toExpr code
           boundsLit := Lean.toExpr bounds
         }
-        groupChunks fuel (idx + grp.length) (sigs ++ acc) rest' (entry :: out)
+        groupChunks fuel (idx + grp.length) (sigs.reverse ++ acc) rest' (entry :: out)
     pure (groupChunks (compiled.length + 1) 0 ext0 compiled [])
 
 def addCertDef (declNm : Name) (ty val : Lean.Expr) (compile : Bool := true) : CoreM Unit :=
