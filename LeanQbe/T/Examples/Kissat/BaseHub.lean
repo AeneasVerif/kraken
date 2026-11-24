@@ -147,6 +147,15 @@ public import LeanQbe.T.Examples.Kissat.FullM8SweepV2Proof
 public import LeanQbe.T.Examples.Kissat.FullM8SweepV2VarProof
 public import LeanQbe.T.Examples.Kissat.FullM8WaveACore
 public import LeanQbe.T.Examples.Kissat.FullM8WaveACoreProof
+public import LeanQbe.T.Examples.Kissat.FullM8XorAssembly
+public import LeanQbe.T.Examples.Kissat.FullM8XorAssemblyProof
+public import LeanQbe.T.Examples.Kissat.FullM8XorGauss
+public import LeanQbe.T.Examples.Kissat.FullM8XorGaussProof
+public import LeanQbe.T.Examples.Kissat.FullM8XorGaussProof0
+public import LeanQbe.T.Examples.Kissat.FullM8XorGaussProof1a
+public import LeanQbe.T.Examples.Kissat.FullM8XorGaussProof1b
+public import LeanQbe.T.Examples.Kissat.FullM8XorGaussProof2
+public import LeanQbe.T.Examples.Kissat.FullM8XorGaussProof2a
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas1
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas2
@@ -217,6 +226,7 @@ public import LeanQbe.T.Examples.Kissat.LayerAMinimize3
 public import LeanQbe.T.Examples.Kissat.LayerASubstitute
 public import LeanQbe.T.Examples.Kissat.LayerASubsume
 public import LeanQbe.T.Examples.Kissat.LayerAVivify
+public import LeanQbe.T.Examples.Kissat.LayerAXorF2
 public import LeanQbe.T.Examples.Kissat.PatchModule
 public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Examples.Kissat.Plain1
