@@ -142,4 +142,14 @@ def getOrCreateBackwardRule (declName : Name) : Grind.GrindTacticM Sym.BackwardR
   modify fun s => { s with cache.backwardRuleName := s.cache.backwardRuleName.insert declName rule }
   return rule
 
+open Lean Meta Elab Tactic in
+macro "run_grind_tac " e:doSeq : tactic => do `(tactic|
+  run_tac withMainContext do
+    let mvarId : MVarId ← Tactic.getMainGoal
+    let params ← Grind.mkDefaultParams {}
+    let ⟨_, st⟩ ← Grind.GrindTacticM.runAtGoal mvarId params (sym := true) <| do
+      $e
+    Tactic.replaceMainGoal (st.goals.map (·.mvarId))
+)
+
 end
