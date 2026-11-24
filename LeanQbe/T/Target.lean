@@ -99,6 +99,9 @@ structure Hints (Reg VReg Cond : Type) where
   variant : Trie VariantHint := .empty
   elide : Trie Bool := .empty
   invertJnz : Trie Bool := .empty
+  /-- `ip`s of `let [.bool] …; jnz (.var nv) t e` sites whose flag is dead in both arms
+  (precomputed `Rega.exprFreeOfVar` lookahead; consumed by `Rega.deferJnzNext`). -/
+  deferJnz : Trie Bool := .empty
   nslots : Nat := 0
   saved : List Reg := []
   deriving Repr, Lean.ToExpr

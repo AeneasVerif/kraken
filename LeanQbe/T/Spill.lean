@@ -2090,9 +2090,11 @@ def hints (I : Isa) (f : Fn)
   let st := emit c
   let finalSlots :=
     if I.frame.scratch.isEmpty then cs.nslots else min cs.nslots (usedSlotCount nip nl st)
-  { dest := st.dest, entry := st.entry, pre := st.pre, variant := st.variant, elide := elideIps,
-    invertJnz := acc.invertJnz,
-    nslots := finalSlots, saved := st.usedCs.map fun r => c.gReg.getD r I.frame.sp }
+  let h0 : I.Hints :=
+    { dest := st.dest, entry := st.entry, pre := st.pre, variant := st.variant, elide := elideIps,
+      invertJnz := acc.invertJnz,
+      nslots := finalSlots, saved := st.usedCs.map fun r => c.gReg.getD r I.frame.sp }
+  Rega.addDeferJnzHints h0 f
 
 end Spill
 end LeanQbe.T
