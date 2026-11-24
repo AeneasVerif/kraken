@@ -7,12 +7,14 @@ public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.Legal
+public import LeanQbeTest.T.KissatC0Harness
 meta import LeanQbe.T.Examples.Kissat.Full
 meta import LeanQbe.T.Examples.Kissat.Core
 meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
 meta import LeanQbe.T.Legal
+meta import LeanQbeTest.T.KissatC0Harness
 
 /-!
 # Verification, Axiom Audit, and Differential Suite for `Kissat` `D-Full`
@@ -36,6 +38,7 @@ open LeanQbe.T.PrintCpp
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Full
 open LeanQbe.T.Examples.LratBytes
+open LeanQbeTest.T.KissatC0Harness
 
 /-! ## 1. Static Checks & Single-Line Axiom Audit -/
 
@@ -98,204 +101,9 @@ open LeanQbe.T.Examples.LratBytes
 #print axioms LeanQbe.T.Examples.Kissat.Full.full_eliminate_wf
 #print axioms LeanQbe.T.Examples.Kissat.Full.kissat_solve_bytes_full_wf
 
-/-! ## 2. Formula Generators & Differential / Inprocessing Corpus -/
+/-! ## 2. Test Corpus (63 Cases) -/
 
-private def joinLines (ls : List String) : String :=
-  String.intercalate "\n" ls ++ "\n"
-
-private def mkHeader (mv nc : Nat) : String :=
-  s!"p cnf {mv} {nc}"
-
-private def mkPhpDimacs (pigeons holes : Nat) : String :=
-  let mv := pigeons * holes
-  let alo := (List.range pigeons).map fun i =>
-    let ls := (List.range holes).map fun j => toString (i * holes + j + 1)
-    String.intercalate " " (ls ++ ["0"])
-  let amo := (List.range holes).flatMap fun j =>
-    (List.range pigeons).flatMap fun i1 =>
-      (List.range pigeons).filterMap fun i2 =>
-        if i1 < i2 then some s!"-{i1 * holes + j + 1} -{i2 * holes + j + 1} 0" else none
-  let cls := alo ++ amo
-  joinLines (mkHeader mv cls.length :: cls)
-
-private def mkAllCubeDimacs (n : Nat) : String :=
-  let cls := (List.range (1 <<< n)).map fun mask =>
-    let ls := (List.range n).map fun i =>
-      if (mask >>> i) % 2 == 1 then s!"-{i + 1}" else s!"{i + 1}"
-    String.intercalate " " (ls ++ ["0"])
-  joinLines (mkHeader n cls.length :: cls)
-
-private def mkParity4Unsat : String :=
-  let mkPar (rem : Nat) :=
-    (List.range 16).filterMap fun mask =>
-      let negs := (List.range 4).foldl (fun acc i => acc + (mask >>> i) % 2) 0
-      if negs % 2 == rem then
-        let ls := (List.range 4).map fun i =>
-          if (mask >>> i) % 2 == 1 then s!"-{i + 1}" else s!"{i + 1}"
-        some (String.intercalate " " (ls ++ ["0"]))
-      else none
-  let all := mkPar 1 ++ mkPar 0
-  joinLines (mkHeader 4 all.length :: all)
-
-private def lcgNext (x : Nat) : Nat :=
-  (x * 1664525 + 1013904223) % (1 <<< 32)
-
-private def mkPlanted3Sat (nv nc seed : Nat) : String := Id.run do
-  let mut s := seed
-  let mut cls : List String := []
-  for _ in [:nc] do
-    s := lcgNext s
-    let v0 := (s >>> 8) % nv
-    s := lcgNext s
-    let v1 := (v0 + 1 + ((s >>> 8) % (nv - 1))) % nv
-    s := lcgNext s
-    let v2 := (v1 + 1 + ((s >>> 8) % (nv - 1))) % nv
-    s := lcgNext s
-    let p0 := (v0 % 3 == 0)
-    let p1 := ((s >>> 16) % 2 == 0)
-    let p2 := ((s >>> 17) % 2 == 0)
-    let fmt := fun v p => if p then s!"{v + 1}" else s!"-{v + 1}"
-    cls := cls ++ [s!"{fmt v0 p0} {fmt v1 p1} {fmt v2 p2} 0"]
-  return joinLines (mkHeader nv cls.length :: cls)
-
-private def mkImplChain (n : Nat) (unsat : Bool) : String :=
-  let edges := (List.range (n - 1)).map fun i => s!"-{i + 1} {i + 2} 0"
-  let cls := ["1 0"] ++ edges ++ (if unsat then [s!"-{n} 0"] else [])
-  joinLines (mkHeader n cls.length :: cls)
-
-private def mkLongClause (n : Nat) (unsat : Bool) : String :=
-  let longCl := String.intercalate " " ((List.range n).map (fun i => toString (i + 1)) ++ ["0"])
-  let lim := if unsat then n else n - 1
-  let cls := longCl :: (List.range lim).map fun i => s!"-{i + 1} 0"
-  joinLines (mkHeader n cls.length :: cls)
-
-private def mk2SatCycleUnsat : String :=
-  joinLines (mkHeader 5 6 ::
-    [ "-1 2 0", "-2 3 0", "-3 -1 0", "1 4 0", "-4 5 0", "-5 1 0" ])
-
-private def mk1UipDiamondUnsat : String :=
-  joinLines (mkHeader 5 7 ::
-    [ "1 2 0", "-1 3 0", "-1 4 0", "-3 -4 5 0", "-4 -5 0", "-2 3 0", "-2 4 0" ])
-
-private def mkMinDiamondUnsat : String :=
-  joinLines (mkHeader 8 10 ::
-    [ "1 2 3 0", "-2 4 0", "-3 4 0", "-4 5 0", "-5 6 0"
-    , "-4 -6 7 0", "-6 -7 0", "-1 8 0", "-1 -8 0", "-2 -3 0" ])
-
-private def mkShrinkBinaryUnsat : String :=
-  joinLines (mkHeader 7 10 ::
-    [ "1 2 3 4 0", "-2 5 0", "-3 5 0", "-5 6 0", "-5 -6 0"
-    , "1 -2 -3 4 0", "-1 7 0", "-1 -7 0", "-4 7 0", "-4 -7 0" ])
-
-private def mkOrdering4 : String :=
-  let vars (i j : Nat) := i * 3 + (if j < i then j else j - 1) + 1
-  let asym := (List.range 4).flatMap fun i =>
-    ((List.range 4).filter (i < ·)).map fun j => s!"-{vars i j} -{vars j i} 0"
-  let trans := (List.range 4).flatMap fun i =>
-    (List.range 4).flatMap fun j =>
-      (List.range 4).filterMap fun k =>
-        if i != j && j != k && i != k then
-          some s!"-{vars i j} -{vars j k} {vars i k} 0"
-        else none
-  let tot := (List.range 4).map fun i =>
-    let ls := ((List.range 4).filter (· != i)).map fun j => toString (vars j i)
-    String.intercalate " " (ls ++ ["0"])
-  let cls := asym ++ trans ++ tot
-  joinLines (mkHeader 12 cls.length :: cls)
-
-private def mkProbeHbrSat : String :=
-  joinLines (mkHeader 8 9 ::
-    [ "-1 2 0", "-1 3 0", "-2 -3 4 0", "4 5 6 0", "-4 -5 -6 0"
-    , "5 7 8 0", "-5 -7 -8 0", "-1 7 8 0", "1 7 -8 0" ])
-
-private def mkTransitiveSat : String :=
-  joinLines (mkHeader 6 9 ::
-    [ "-1 2 0", "-2 3 0", "-1 3 0", "3 4 5 0", "-3 -4 -5 0"
-    , "4 5 6 0", "-4 -5 -6 0", "-1 4 6 0", "1 4 -6 0" ])
-
-private def mkVivifySat : String :=
-  joinLines (mkHeader 6 8 ::
-    [ "1 2 3 4 0", "1 3 0", "1 5 -6 0", "1 -5 6 0"
-    , "2 5 6 0", "2 -5 -6 0", "3 4 5 0", "-3 -4 -6 0" ])
-
-private def mkSubstSccSat : String :=
-  joinLines (mkHeader 6 8 ::
-    [ "-1 2 0", "-2 1 0", "-2 3 0", "-3 2 0"
-    , "3 4 5 0", "-3 -4 6 0", "4 5 -6 0", "-4 -5 6 0" ])
-
-private def mkSubstSccUnsat : String :=
-  joinLines (mkHeader 3 6 ::
-    [ "-1 2 0", "-2 3 0", "-3 -1 0", "1 -2 0", "2 -3 0", "3 1 0" ])
-
-private def mkCongAndSat : String :=
-  joinLines (mkHeader 7 10 ::
-    [ "-3 1 0", "-3 2 0", "3 -1 -2 0"
-    , "-4 1 0", "-4 2 0", "4 -1 -2 0"
-    , "3 -4 5 0", "-3 4 5 0", "5 6 7 0", "-5 -6 -7 0" ])
-
-private def mkCongIteUnsat : String :=
-  joinLines (mkHeader 6 12 ::
-    [ "-1 -4 2 0", "-1 4 -2 0", "1 -4 3 0", "1 4 -3 0"
-    , "-1 -5 2 0", "-1 5 -2 0", "1 -5 3 0", "1 5 -3 0"
-    , "4 5 6 0", "-4 -5 6 0", "4 5 -6 0", "-4 -5 -6 0" ])
-
-private def mkCongXorUnsat : String :=
-  joinLines (mkHeader 5 12 ::
-    [ "-3 1 2 0", "-3 -1 -2 0", "3 -1 2 0", "3 1 -2 0"
-    , "-4 1 2 0", "-4 -1 -2 0", "4 -1 2 0", "4 1 -2 0"
-    , "3 4 5 0", "-3 -4 5 0", "3 4 -5 0", "-3 -4 -5 0" ])
-
-private def mkSweepConeSat : String :=
-  joinLines (mkHeader 8 13 ::
-    [ "-3 1 0", "-3 2 0", "3 -1 -2 0"
-    , "-4 1 0", "-4 5 0", "4 -1 -5 0"
-    , "-5 2 0", "-5 6 0", "5 -2 -6 0"
-    , "-1 6 0", "3 -4 7 0", "-3 4 7 0", "7 8 0" ])
-
-private def mkFwdSubStrSat : String :=
-  joinLines (mkHeader 9 11 ::
-    [ "1 2 3 4 5 0"
-    , "1 6 7 0", "1 -6 -7 0", "1 8 9 0", "1 -8 -9 0"
-    , "-1 2 3 0", "-1 2 3 0"
-    , "-1 6 -7 0", "-1 -6 7 0", "-1 8 -9 0", "-1 -8 9 0" ])
-
-private def mkBveGatesSat : String :=
-  joinLines (mkHeader 8 10 ::
-    [ "-3 1 0", "-3 2 0", "3 -1 -2 0"
-    , "3 4 5 0", "-3 5 6 0", "-4 -5 -6 0"
-    , "4 5 -6 0", "7 8 0", "-7 4 5 0", "7 -4 -5 0" ])
-
-private def mkBceSat : String :=
-  joinLines (mkHeader 9 10 ::
-    [ "1 2 3 0"
-    , "1 4 5 0", "1 -4 -5 0", "1 5 6 0", "1 -5 -6 0"
-    , "-1 -2 7 8 0", "-1 -2 -7 -8 0", "-1 -2 8 9 0"
-    , "-1 -2 -8 -9 0", "-1 -2 7 -9 0" ])
-
-private def mkBvaFactorSat : String :=
-  let grid :=
-    [ "-1 -3 0", "-1 -4 0", "-1 -5 0"
-    , "-2 -3 0", "-2 -4 0", "-2 -5 0" ]
-  let guard1 :=
-    [ "1 6 7 0", "1 6 -7 0", "1 -6 7 0", "1 7 8 0", "1 -7 8 0"
-    , "2 6 7 0", "2 6 -7 0", "2 -6 7 0", "2 7 8 0", "2 -7 8 0" ]
-  let guard2 :=
-    [ "3 9 10 0", "3 9 -10 0", "3 -9 10 0", "3 10 11 0", "3 -10 11 0"
-    , "4 9 10 0", "4 9 -10 0", "4 -9 10 0", "4 10 11 0", "4 -10 11 0"
-    , "5 9 10 0", "5 9 -10 0", "5 -9 10 0", "5 10 11 0", "5 -10 11 0" ]
-  let cls := grid ++ guard1 ++ guard2
-  joinLines (mkHeader 11 cls.length :: cls)
-
-structure FullCase where
-  name : String
-  cnf : String
-  workLen : Nat
-  fuel : Nat
-  expected : Nat
-  reqMask : Nat := 0
-  checkLayerA : Bool := true
-
-private def corpus : List FullCase :=
+private def corpus : List KissatCase :=
   let nvStr := String.fromUTF8! nvDimacsBytes.toByteArray
   let php32 := mkPhpDimacs 3 2
   let php43 := mkPhpDimacs 4 3
@@ -372,59 +180,10 @@ private def corpus : List FullCase :=
   , ⟨"bad_var_overflow", "p cnf 268435456 1\n0\n", 8192, 100, 0, 0, false⟩
   ]
 
-private def checkLayerACase (tc : FullCase) : Bool :=
-  if !tc.checkLayerA then true
-  else
-    match parseDimacs tc.cnf.toUTF8.toList with
-    | none => false
-    | some cnf =>
-      match cdclSolve tc.fuel cnf with
-      | .sat σ => tc.expected == 10 && checkModel cnf σ
-      | .unsat => tc.expected == 20
-      | .unknown => false
-
 #guard corpus.length == 63
 #guard corpus.all checkLayerACase
 
 /-! ## 3. Artifact Generator (`full_gen.hpp`, `full.ssa`, `full_cases.h`, `full_driver.cpp`) -/
-
-private def cEscapeString (s : String) : String :=
-  let hex (n : Nat) : Char :=
-    if n < 10 then Char.ofNat ('0'.toNat + n) else Char.ofNat ('a'.toNat + n - 10)
-  String.ofList <| s.toUTF8.toList.foldr (fun b acc =>
-    let n := b.toNat
-    if n == '\\'.toNat then '\\' :: '\\' :: acc
-    else if n == '"'.toNat then '\\' :: '"' :: acc
-    else if n == '\n'.toNat then '\\' :: 'n' :: acc
-    else if n == '\r'.toNat then '\\' :: 'r' :: acc
-    else if n == '\t'.toNat then '\\' :: 't' :: acc
-    else if n < 32 || n >= 127 then
-      '\\' :: 'x' :: hex (n / 16) :: hex (n % 16) :: acc
-    else Char.ofNat n :: acc) []
-
-private def mkCasesHeader (cases : List FullCase) : String :=
-  let rows := cases.map fun c =>
-    s!"  \{\"{c.name}\", \"{cEscapeString c.cnf}\", {c.cnf.toUTF8.size}ULL, " ++
-    s!"{c.workLen}ULL, {c.fuel}ULL, {c.expected}ULL, {c.reqMask}ULL},"
-  String.intercalate "\n"
-    ([ "#pragma once"
-     , "#include <stddef.h>"
-     , "#include <stdint.h>"
-     , ""
-     , "typedef struct {"
-     , "  const char *name;"
-     , "  const char *cnf;"
-     , "  uint64_t cnf_len;"
-     , "  uint64_t work_len;"
-     , "  uint64_t fuel;"
-     , "  uint64_t expected;"
-     , "  uint64_t req_mask;"
-     , "} KissatDiffCase;"
-     , ""
-     , "static const KissatDiffCase kKissatCases[] = {" ] ++
-     rows ++
-     [ "};"
-     , "static const size_t kKissatCaseCount = sizeof(kKissatCases) / sizeof(kKissatCases[0]);" ])
 
 private def mkDriverCpp : String :=
   String.intercalate "\n"
@@ -770,23 +529,8 @@ private def mkDriverCpp : String :=
     , "  return 0;"
     , "}" ]
 
-def generateArtifacts (outDir : System.FilePath) : IO UInt32 := do
-  for c in corpus do
-    if !checkLayerACase c then
-      throw (IO.userError s!"X2-LayerA cdclSolve mismatch on case '{c.name}'")
-  IO.FS.createDirAll outDir
-  let cpp ← match ppTModule fullModule with
-    | .ok s => pure s
-    | .error e => throw (IO.userError e)
-  let qbe ← match PrintQbe.module fullModule with
-    | .ok s => pure s
-    | .error e => throw (IO.userError e)
-  IO.FS.writeFile (outDir / "full_gen.hpp") cpp
-  IO.FS.writeFile (outDir / "full.ssa") (qbe ++ "\n")
-  IO.FS.writeFile (outDir / "full_cases.h") (mkCasesHeader corpus ++ "\n")
-  IO.FS.writeFile (outDir / "full_driver.cpp") (mkDriverCpp ++ "\n")
-  IO.println s!"Generated Full C0 artifacts ({corpus.length} cases) in {outDir}."
-  pure 0
+def generateArtifacts (outDir : System.FilePath) : IO UInt32 :=
+  writeC0Artifacts outDir fullModule corpus "full" mkDriverCpp true "Full"
 
 end LeanQbeTest.T.KissatFullC0Test
 

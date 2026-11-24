@@ -3,9 +3,13 @@ module
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Spill
+public import LeanQbeTest.T.RegaTestKit
+public import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Examples.Bignum
 meta import LeanQbe.T.Spill
+meta import LeanQbeTest.T.RegaTestKit
+meta import LeanQbeTest.T.Arm64DirPreds
 public meta import Kraken.AArch64.Print
 
 /-!
@@ -29,47 +33,24 @@ set_option autoImplicit false
 namespace LeanQbeTest.T.FlagRaOptArm64Test
 
 open LeanQbe.T LeanQbe.T.Arm64
+open LeanQbeTest.T.RegaTestKit
+open LeanQbeTest.T.Arm64DirPreds
 
 /-! ## Helpers -/
 
 /-- Hints from the default heuristics (`Fn.computeHints` = `Spill.hints ∘ Fn.mid`). -/
 meta def hintsOf (fs : List Fn) : List armTarget.toIsa.Hints :=
-  fs.map (Fn.computeHints armTarget.toIsa armLegalTarget)
+  RegaTestKit.hintsOf armTarget armLegalTarget fs
 
 /-- End-to-end verified compilation check (lowering, labels, stack bounds). -/
 meta def chk (fs : List Fn) : Bool :=
-  checkCompile armTarget armLayout armLegalTarget [] [] 0 fs (hintsOf fs) 2048
+  RegaTestKit.chk armTarget armLayout armLegalTarget fs
 
 /-- Emitted code of a module (empty on a compile error). -/
 meta def codeOf (fs : List Fn) : List armTarget.toIsa.Directive :=
-  extractCode (compileModule armTarget.toIsa armLegalTarget armTarget.frame.raBytes [] [] 0 fs
-    (hintsOf fs))
-
-/-- `cset` is `CSINC xd, xzr, xzr, ¬c`. -/
-meta def isCsetDir (d : armTarget.toIsa.Directive) : Bool :=
-  (Kraken.AArch64.Print.directive d).startsWith "csinc"
-
-meta def countDirs (p : armTarget.toIsa.Directive → Bool) (ds : List armTarget.toIsa.Directive) :
-    Nat :=
-  (ds.filter p).length
+  RegaTestKit.codeOf armTarget armLegalTarget fs
 
 /-! ## 1. Flag fusion: `240` `cmp` cases, zero `cset` -/
-
-meta def cmpOps : List CmpOp := [.eq, .ne, .ult, .ule, .ugt, .uge, .slt, .sle, .sgt, .sge]
-
-/-- `cmp co` at width `w`, operand form `form` (`0` reg-reg, `1` reg-imm, `2` imm-reg), feeding
-a `jnz` (`jnz? = true`) or a `select`. -/
-meta def cmpFn (co : CmpOp) (w form : Nat) (jnz? : Bool) : Fn :=
-  ⟨"cmpCase", [.bits w, .bits w, i64, i64], [i64], fun V _ (x, y, a, b, ()) =>
-    let l : Arg V (.bits w) := if form == 2 then .imm 5 else .var x
-    let r : Arg V (.bits w) := if form == 1 then .imm 5 else .var y
-    .let_ (op2 (.cmp co (.bits w)) l r) fun (c, ()) =>
-    if jnz? then .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))
-    else .let_ (op3 (.select i64) (.var c) (.var a) (.var b)) fun (s, ()) => .ret (.var s, ())⟩
-
-meta def cmpCases : List Fn :=
-  cmpOps.flatMap fun co => [8, 16, 32, 64].flatMap fun w =>
-    [0, 1, 2].flatMap fun form => [false, true].map (cmpFn co w form)
 
 #guard cmpCases.length == 240
 #guard cmpCases.all fun f => chk [f]
@@ -83,56 +64,11 @@ meta def cmpCases : List Fn :=
 
 /-! ## 3. `SpillFlags` fixpoint: no failed `adcx`/`adox` speculation -/
 
-/-- `c = cmp co x y` stays live across an `addc` with a dead carry-out, then feeds a `select`. -/
-meta def addcAfter (nm : Sym) (co : CmpOp) : Fn :=
-  ⟨nm, [i64, i64, i64, i64], [i64, i64], fun _ _ (x, y, a, b, ()) =>
-    .let_ (op2 (.cmp co i64) (.var x) (.var y)) fun (c, ()) =>
-    .let_ (op3 (.addc 64) (.var a) (.var b) (.imm false)) fun (s0, _c0, ()) =>
-    .let_ (op3 (.select i64) (.var c) (.var s0) (.imm 0)) fun (r, ()) =>
-    .ret (.var r, .var s0, ())⟩
-
 #guard chk [addcAfter "addcAfterUlt" .ult]
 #guard chk [addcAfter "addcAfterCmp" .eq]
 #guard chk [addcAfter "addcAfterSlt" .slt]
 
 /-! ## 4. Per-call splitting: cold-branch call, spill-free fast path -/
-
-meta def slowFn : Fn :=
-  ⟨"slow", [i64], [i64], fun _ _ (x, ()) =>
-    .let_ (op2 (.mul i64) (.var x) (.var x)) fun (r, ()) => .ret (.var r, ())⟩
-
-/-- `sel x y`: the fast path returns `x + y`; the cold path calls `slow x` with `y` live across. -/
-meta def selFn : Fn :=
-  ⟨"sel", [i64, i64], [i64], fun _ _ (x, y, ()) =>
-    .let_ (op2 (.and i64) (.var x) (.imm 1)) fun (t, ()) =>
-    .let_ (op2 (.cmp .eq i64) (.var t) (.imm 0)) fun (c, ()) =>
-    .jnz (.var c)
-      (.let_ (op2 (.add i64) (.var x) (.var y)) fun (r, ()) => .ret (.var r, ()))
-      (.call "slow" (as := [i64]) (bs := [i64]) (.var x, ()) fun (s, ()) =>
-        .let_ (op2 (.add i64) (.var s) (.var y)) fun (r, ()) => .ret (.var r, ()))⟩
-
-mutual
-meta def callIps : Live.Tree → List Nat
-  | .call _ ip _ _ _ _ _ k => ip :: callIps k
-  | .let_ _ _ _ _ _ k | .load _ _ _ _ _ k | .store _ _ _ _ _ k | .skip _ _ k => callIps k
-  | .jnz _ _ _ _ t e => callIps t ++ callIps e
-  | .group _ bs k => callIpsB bs ++ callIps k
-  | _ => []
-
-meta def callIpsB : Live.TreeBlocks → List Nat
-  | .nil => []
-  | .cons _ _ b bs => callIps b ++ callIpsB bs
-end
-
-meta def isSlotMove : armTarget.toIsa.Move → Bool
-  | .st .. | .ld .. | .vst .. | .vld .. => true
-  | _ => false
-
-/-- `PreStep` ips (below `nip`) that move a value between a register and a stack slot. -/
-meta def slotMoveIps (h : armTarget.toIsa.Hints) (nip : Nat) : List Nat :=
-  (List.range nip).filter fun ip => match h.pre.find? ip with
-    | some ps => ps.moves.any isSlotMove
-    | none => false
 
 meta def selMid : Fn := selFn.mid armLegalTarget
 meta def selHints : armTarget.toIsa.Hints := Spill.hints armTarget.toIsa selMid
@@ -146,11 +82,6 @@ meta def selTree : Live.Tree × List (Nat × Ty) × Nat × Nat × Nat × Trie Ty
   cs.length == 1 && ips.length == 2 && ips.all fun ip => cs.any fun c => ip == c || ip == c + 1
 
 /-! ## 5. `[base + disp]` addressing on AArch64 (`armSupportsAddrDisp`) -/
-
-meta def isArmAddSubOrPoolDir (d : armTarget.toIsa.Directive) : Bool :=
-  let s := Kraken.AArch64.Print.directive d
-  !(s.startsWith "add sp," || s.startsWith "sub sp,") &&
-    (s.startsWith "add " || s.startsWith "sub " || s.contains '=')
 
 /-- Scaled positive offset (`+16` for `i32`/`i64`) is elided cleanly across `cmp` (`0 cset`). -/
 meta def addrDispFn : Fn :=
@@ -197,16 +128,6 @@ meta def addrSkipArm64Fn : Fn :=
 #guard (Fn.computeHints armTarget.toIsa armLegalTarget addrSkipArm64Fn).elide.getD 4 false == false
 
 /-! ## 6. `[base, idx, lsl #k]` scaled-index addressing (`armSupportsAddrIdx`) -/
-
-meta def isArmAddSubShlOrPoolDir (d : armTarget.toIsa.Directive) : Bool :=
-  let s := Kraken.AArch64.Print.directive d
-  !(s.startsWith "add sp," || s.startsWith "sub sp," || s.endsWith ", #0") &&
-    (s.startsWith "add " || s.startsWith "sub " || s.startsWith "lsl " || s.contains '=')
-
-meta def isArmSibDir (d : armTarget.toIsa.Directive) : Bool :=
-  let s := Kraken.AArch64.Print.directive d
-  (s.startsWith "ldr" || s.startsWith "str") &&
-    (s.contains ", lsl #1" || s.contains ", lsl #2" || s.contains ", lsl #3")
 
 /-- `(idx <<< 2) + base` and `base + (idx <<< 3)` are folded into `[xb, xm, lsl #2/#3]`. -/
 meta def sibIdx64Fn : Fn :=
@@ -263,14 +184,6 @@ meta def sibSkipArm64Fn : Fn :=
 #guard countDirs isArmSibDir (codeOf [sibSkipArm64Fn]) == 0
 
 /-! ## 7. Upper-32 zeroing parity (`zext 32->64` elision vs `sext 32->64`) -/
-
-meta def isArmOrrWOrUbfmDir (d : armTarget.toIsa.Directive) : Bool :=
-  let s := Kraken.AArch64.Print.directive d
-  s.startsWith "orr w" || s.startsWith "ubfm"
-
-meta def isArmSext32Dir (d : armTarget.toIsa.Directive) : Bool :=
-  let s := Kraken.AArch64.Print.directive d
-  s.startsWith "sbfm x" && s.contains ", #0, #31"
 
 /-- `zext 32 64` after `load i32`, `add i32`, and `sext 8->32` is elided (`0` `orr w`/`ubfm`). -/
 meta def zextElideArm64Fn : Fn :=
