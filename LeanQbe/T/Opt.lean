@@ -13,6 +13,7 @@ public import LeanQbe.T.Peel
 public import LeanQbe.T.IfOpt
 public import LeanQbe.T.SimplifyGroupPlan
 public import LeanQbe.T.Licm
+public import LeanQbe.T.AddrRangeOpt
 public import LeanQbe.T.LoopRotate
 public import LeanQbe.T.ZeroPeel
 public import LeanQbe.T.AssumeBits
@@ -30,9 +31,10 @@ public import LeanQbe.T.Module
   arithmetic (`addc`/`subb`/`mulx` chains).
 * `Func.lateOpt`: post-`Legal` pipeline (`fold → canon → divConst → copy → renorm → memLoad →
   gvn → assumeBits → fold → renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
-  assumeElim → fold → gvn → renorm → licm → dceP → loopRotate → renorm`), running target-safe
-  scalar division reduction, memory load forwarding, known-bits simplification, machine-width
-  if-conversion, loop-invariant code motion, CFG loop rotation, and cleanup on legalized IR.
+  assumeElim → fold → addrRangeOpt → gvn → renorm → licm → dceP → loopRotate → renorm`), running
+  target-safe scalar division reduction, memory load forwarding, known-bits simplification,
+  machine-width if-conversion, loop-aware address reassociation and range-check collapse,
+  loop-invariant code motion, CFG loop rotation, and cleanup on legalized IR.
 * `Fn.renorm` / `Module.optInline`: acyclic small-callee inlining followed by materialized
   AST renormalization.
 
@@ -213,10 +215,10 @@ def Func.lateCore {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.lateCorePost (Func.renorm (Func.lateCorePre f))
 
 /-- Post-`Legal` CFG/cleanup pre-`licm` core (`ifOptBits → simplifyGroupFast → deadLoadElim →
-assumeElim → fold → gvn`). -/
+assumeElim → fold → addrRangeOpt → gvn`). -/
 def Func.lateCfgPre {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.gvn (Func.fold (Func.assumeElim (Func.deadLoadElim
-    (Func.simplifyGroupFast (Func.ifOptBits f)))))
+  Func.gvn (Func.addrRangeOpt (Func.fold (Func.assumeElim (Func.deadLoadElim
+    (Func.simplifyGroupFast (Func.ifOptBits f))))))
 
 /-- Post-`Legal` CFG/cleanup post-`licm` core (`licm → dceP`). -/
 def Func.lateCfgPost {as rs : List Ty} (f : Func as rs) : Func as rs :=
@@ -227,7 +229,7 @@ def Func.lateLoopRotate {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.mergeRets (Func.loopRotate (Func.lateCfgPost f))
 
 /-- Post-`Legal` CFG/cleanup core (`renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
-assumeElim → fold → gvn → renorm → licm → dceP`). -/
+assumeElim → fold → addrRangeOpt → gvn → renorm → licm → dceP`). -/
 def Func.lateCfg {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.lateCfgPost (Func.renorm (Func.lateCfgPre (Func.renorm f)))
 
@@ -291,8 +293,8 @@ theorem Func.lateCore_eq {as rs : List Ty} (f : Func as rs) :
 
 theorem Func.lateCfgPre_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateCfgPre f =
-      Func.gvn (Func.fold (Func.assumeElim (Func.deadLoadElim
-        (Func.simplifyGroupFast (Func.ifOptBits f))))) :=
+      Func.gvn (Func.addrRangeOpt (Func.fold (Func.assumeElim (Func.deadLoadElim
+        (Func.simplifyGroupFast (Func.ifOptBits f)))))) :=
   rfl
 
 theorem Func.lateCfgPost_eq {as rs : List Ty} (f : Func as rs) :
@@ -303,10 +305,14 @@ theorem Func.lateLoopRotate_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateLoopRotate f = Func.mergeRets (Func.loopRotate (Func.lateCfgPost f)) :=
   rfl
 
+theorem Func.lateCfg_def {as rs : List Ty} (f : Func as rs) :
+    Func.lateCfg f = Func.lateCfgPost (Func.renorm (Func.lateCfgPre (Func.renorm f))) :=
+  rfl
+
 theorem Func.lateCfg_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateCfg f =
-      Func.dceP (Func.licm (Func.renorm (Func.gvn (Func.fold (Func.assumeElim
-        (Func.deadLoadElim (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f))))))))) :=
+      Func.dceP (Func.licm (Func.renorm (Func.gvn (Func.addrRangeOpt (Func.fold (Func.assumeElim
+        (Func.deadLoadElim (Func.simplifyGroupFast (Func.ifOptBits (Func.renorm f)))))))))) :=
   rfl
 
 theorem Func.lateOpt_eq {as rs : List Ty} (f : Func as rs) :

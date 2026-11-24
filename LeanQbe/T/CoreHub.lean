@@ -1,6 +1,8 @@
 module
 
 public import LeanQbe.T.AbiLemmas
+public import LeanQbe.T.AddrRangeOpt
+public import LeanQbe.T.AddrRangeOptLemmas
 public import LeanQbe.T.AssumeBits
 public import LeanQbe.T.AssumeBitsLemmas
 public import LeanQbe.T.Canon
