@@ -24,8 +24,9 @@ existing `m6ExtMem`):
    `m6_hdr_reduce_delay` extended to `id < 8` (slots `4..7` at `M8W_DEL_CNT_BASE = 120..123`,
    `M8W_DEL_CUR_BASE = 124..127`).
 3. **Instance-Adaptive Inprocessing Throttling (`#3`):**
-   - `full_vivify_tier_m6_hdr`: skips `count`/`keys`/`sort_sched` when
-     `tier_mode == 0 && h->num_irred / 10 <= h->num_redundant`, records `e[M8W_VIV_LAST_TRIED]`.
+   - `full_vivify_tier_m6_hdr`: sorts candidates (`count`/`keys`/`sort_sched`) when
+     `tier_mode != 0 || h->num_irred / 10 <= h->num_redundant` (skipping sorting only when
+     `tier_mode == 0 && h->num_irred / 10 > h->num_redundant`), records `e[M8W_VIV_LAST_TRIED]`.
    - `full_vivify_m6_hdr`: applies `M8_DELAY_VIVIFY_IRR` (`4`) backoff on low-yield tier-0 runs.
    - `full_eliminate_m6`: tracks `M8W_BVE_STALL` (`128`) & `M8W_BVE_THROTTLED` (`119`) backoff.
    - `full_probe_tail_m6`: applies `M8_DELAY_BACKBONE` (`6`, cap `4`) backoff before backbone.
@@ -268,7 +269,7 @@ u64 full_vivify_tier_m6_hdr(FullHdr *h, u64 tier_mode, u64 budget, u64 tick_lim)
   u32 *rr = (u32 *)h->red_refs;
   u64 bmax = h->red_cap / 3ULL;
   u64 bn = full_viv_collect_m6(h, tier_mode);
-  if (!(tier_mode == 0ULL && h->num_irred / 10ULL <= h->num_redundant)) {
+  if (tier_mode != 0ULL || h->num_irred / 10ULL <= h->num_redundant) {
     full_viv_count_m6(h, bn);
     full_viv_keys_m6(h, bn);
     full_viv_sort_sched_m6(h, bn);

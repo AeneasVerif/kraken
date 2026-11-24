@@ -170,6 +170,7 @@ public import LeanQbe.T.Examples.Kissat.FullM8SweepV2Proof
 public import LeanQbe.T.Examples.Kissat.FullM8SweepV2VarProof
 public import LeanQbe.T.Examples.Kissat.FullM8WaveACore
 public import LeanQbe.T.Examples.Kissat.FullM8WaveACoreProof
+public import LeanQbe.T.Examples.Kissat.FullM8WaveACoreProof0
 public import LeanQbe.T.Examples.Kissat.FullM8XorAssembly
 public import LeanQbe.T.Examples.Kissat.FullM8XorAssemblyProof
 public import LeanQbe.T.Examples.Kissat.FullM8XorGauss
