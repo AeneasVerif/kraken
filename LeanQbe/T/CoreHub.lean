@@ -98,6 +98,7 @@ public import LeanQbe.T.MainCertScc
 public import LeanQbe.T.MainInline
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.MainLink
+public import LeanQbe.T.MainLinkReuse
 public import LeanQbe.T.MainLinkScc
 public import LeanQbe.T.MainLinkSplice
 public import LeanQbe.T.MainSplice
