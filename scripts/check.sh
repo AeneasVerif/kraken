@@ -17,8 +17,16 @@
 #       Controls whether `scripts/headlines.d/*legacy*.txt` files are audited in Step 4.
 #       Defaults to `0` if `LeanQbeLegacy*` targets exist in `lakefile.toml`, else `1`.
 #   LAKE_JOBS=<N>
-#       If set, runs Step 1 `lake build` with `LEAN_NUM_THREADS=$LAKE_JOBS` (Lake 5.0 controls
-#       build concurrency via `LEAN_NUM_THREADS`, as `lake build -j` does not exist).
+#       Sets `LEAN_NUM_THREADS=$LAKE_JOBS` for Step 1 `lake build` (defaults to
+#       `${LEAN_NUM_THREADS:-6}` so uncapped runs never spawn `nproc` `lean` workers;
+#       Lake 5.0 controls build concurrency via `LEAN_NUM_THREADS`, as `lake build -j`
+#       does not exist).
+#   CHECK_LOCK_FILE=<path>
+#       Advisory `flock` lockfile serializing Step 1 `lake build` across worktrees
+#       (default: `/tmp/leanqbe_check_build.lock`). Set `CHECK_NO_LOCK=1` to bypass.
+#   CHECK_MEM_MAX=<size>
+#       `MemoryMax` passed to `systemd-run --user --scope` for Step 1 `lake build`
+#       (default: `48G`, `OOMPolicy=kill`). Set `CHECK_NO_SCOPE=1` to bypass.
 #   CHECK_TIMES=0|1
 #       Set to `1` to enable standalone Step 5 re-elaboration CPU timing.
 #
@@ -123,7 +131,7 @@ while [ $# -gt 0 ]; do
     --classify-stdin) MODE="classify_stdin"; shift ;;
     --print-scope) MODE="print_scope"; shift ;;
     -h|--help)
-      sed -n '2,38p' "${BASH_SOURCE[0]}"
+      sed -n '2,51p' "${BASH_SOURCE[0]}"
       exit 0 ;;
     *)
       echo "check.sh: unknown option: $1" >&2
@@ -138,6 +146,11 @@ fi
 
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
 LEAN_TIMEOUT="${LEAN_TIMEOUT:-600}"
+LAKE_JOBS="${LAKE_JOBS:-${LEAN_NUM_THREADS:-6}}"
+CHECK_LOCK_FILE="${CHECK_LOCK_FILE:-/tmp/leanqbe_check_build.lock}"
+CHECK_MEM_MAX="${CHECK_MEM_MAX:-48G}"
+CHECK_NO_LOCK="${CHECK_NO_LOCK:-0}"
+CHECK_NO_SCOPE="${CHECK_NO_SCOPE:-0}"
 ALLOWED="propext Classical.choice Quot.sound"
 
 if [ -z "${CHECK_SCOPE:-}" ]; then
@@ -190,7 +203,21 @@ if [ "$MODE" = "print_scope" ]; then
 fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-check.XXXXXX")"
-trap 'rm -rf "$TMP"' EXIT
+SCOPE_UNIT=""
+build_pid=""
+cleanup() {
+  if [ -n "$SCOPE_UNIT" ]; then
+    systemctl --user stop "$SCOPE_UNIT" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$build_pid" ]; then
+    kill "$build_pid" 2>/dev/null || true
+  fi
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap 'cleanup; exit 129' HUP
 fail=0
 err() { echo "FAIL: $*"; fail=1; }
 
@@ -620,10 +647,34 @@ else
   TARGETS+=("${SCOPED_TESTS[@]}")
 fi
 
-echo "== 1. build (warnings as errors): ${TARGETS[*]}"
-timeout "$BUILD_TIMEOUT" env ${LAKE_JOBS:+LEAN_NUM_THREADS="$LAKE_JOBS"} \
-  lake build --wfail "${TARGETS[@]}" >"$TMP/build.log" 2>&1
-rc=$?
+echo "== 1. build (warnings as errors, LAKE_JOBS=$LAKE_JOBS): ${TARGETS[*]}"
+build_cmd=(timeout --foreground "$BUILD_TIMEOUT" env "LEAN_NUM_THREADS=$LAKE_JOBS" lake build --wfail "${TARGETS[@]}")
+if [ "$CHECK_NO_SCOPE" != "1" ] \
+    && command -v systemd-run >/dev/null 2>&1 \
+    && systemd-run --user --scope true >/dev/null 2>&1; then
+  SCOPE_UNIT="leanqbe-check-${$}-$(date +%s).scope"
+  build_cmd=(systemd-run --user --scope --quiet --unit="$SCOPE_UNIT" \
+    -p "MemoryMax=$CHECK_MEM_MAX" -p OOMPolicy=kill "${build_cmd[@]}")
+fi
+if [ "$CHECK_NO_LOCK" != "1" ] && command -v flock >/dev/null 2>&1; then
+  if ! flock -n "$CHECK_LOCK_FILE" true 2>/dev/null; then
+    echo "   waiting for build lock: $CHECK_LOCK_FILE"
+  fi
+  flock -F "$CHECK_LOCK_FILE" "${build_cmd[@]}" >"$TMP/build.log" 2>&1 &
+  build_pid=$!
+  wait "$build_pid"
+  rc=$?
+else
+  "${build_cmd[@]}" >"$TMP/build.log" 2>&1 &
+  build_pid=$!
+  wait "$build_pid"
+  rc=$?
+fi
+build_pid=""
+if [ -n "$SCOPE_UNIT" ]; then
+  systemctl --user stop "$SCOPE_UNIT" >/dev/null 2>&1 || true
+  SCOPE_UNIT=""
+fi
 grep -E '^(✖|error|warning)|warning:|error:' "$TMP/build.log" | head -100
 tail -n 1 "$TMP/build.log"
 [ $rc -eq 0 ] || err "lake build exited with $rc (124 = timeout); full log: rerun 'lake build --wfail ${TARGETS[*]}'"
