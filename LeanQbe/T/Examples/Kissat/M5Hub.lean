@@ -278,9 +278,12 @@ public import LeanQbe.T.Examples.Kissat.FullM7Inl9
 public import LeanQbe.T.Examples.Kissat.FullM7InlBase
 public import LeanQbe.T.Examples.Kissat.FullM7InlPolicy
 public import LeanQbe.T.Examples.Kissat.FullM7MemShrink
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkAssembly
 public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof
 public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof0
 public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkProof1
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkV5
+public import LeanQbe.T.Examples.Kissat.FullM7MemShrinkV5Proof
 public import LeanQbe.T.Examples.Kissat.FullM7OrchProof0
 public import LeanQbe.T.Examples.Kissat.FullM7ParityBvaTie
 public import LeanQbe.T.Examples.Kissat.FullM7ParityBvaTieProof

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract spliced Kissat C0 functions (m5|m6|m7|m7plus|m7fidelity) into a standalone C99 translation unit."""
+"""Extract spliced Kissat C0 functions (m5|m6|m7|m7plus|m7fidelity|m7plus-memshrink|m7fidelity-memshrink) into a standalone C99 translation unit."""
 import argparse
 import pathlib
 import re
@@ -348,7 +348,12 @@ def check_fns(fns, spec, root, imp_mod, open_ns, sym):
 
 def main():
     ap = argparse.ArgumentParser(description="Extract spliced Kissat C0 functions to C99.")
-    ap.add_argument("--target", choices=["m5", "m6", "m7", "m7plus", "m7fidelity"], default="m5")
+    ap.add_argument(
+        "--target",
+        choices=["m5", "m6", "m7", "m7plus", "m7fidelity",
+                 "m7plus-memshrink", "m7fidelity-memshrink"],
+        default="m5",
+    )
     ap.add_argument("--out", required=True)
     ap.add_argument("--check-fns", default=None)
     args = ap.parse_args()
@@ -360,6 +365,12 @@ def main():
         "m7": ("FullM7", "FullM7", "m7Fns"),
         "m7plus": ("FullM7PlusAssembly", "FullM7Plus", "m7PlusFns"),
         "m7fidelity": ("FullM7FidelityAssembly", "FullM7Fidelity", "m7FidelityFns"),
+        "m7plus-memshrink": (
+            "FullM7MemShrinkAssembly", "FullM7MemShrinkV5", "m7PlusMemShrinkFns"
+        ),
+        "m7fidelity-memshrink": (
+            "FullM7MemShrinkAssembly", "FullM7MemShrinkV5", "m7FidelityMemShrinkFns"
+        ),
     }[args.target]
     if not (kdir / f"{file_mod}.lean").exists():
         sys.exit(f"ERROR: {kdir / f'{file_mod}.lean'} not found (--target {args.target} not landed yet)")
