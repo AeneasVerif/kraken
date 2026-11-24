@@ -63,9 +63,11 @@ forbidden_class0_re = re.compile(
     r"|scripts/check\.sh|scripts/headline\.txt|scripts/headlines\.d/)"
 )
 class0_re = re.compile(
-    r"^(?:README\.md|docs/.*|bench/.*"
+    r"^(?:(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md"
+    r"|docs/.*|bench/.*"
     r"|test/.*\.(?:c|h|py|sh|cnf|lrat)"
-    r"|scripts/(?:fast_land|tier3_check|all)\.sh)$"
+    r"|scripts/(?:fast_land|tier3_check|all)\.sh"
+    r"|scripts/(?:gen_cert_slices|test_gen_cert_slices|merge_lean_imports)\.py)$"
 )
 x64_lean_re = re.compile(
     r"^(?:LeanQbe/T/Amd64/.*|LeanQbeTest/T/[^/]*(?:X64|Amd64)[^/]*)\.lean$"
@@ -74,10 +76,10 @@ arm64_lean_re = re.compile(
     r"^(?:LeanQbe/T/Arm64/.*|LeanQbeTest/T/[^/]*Arm64[^/]*)\.lean$"
 )
 x64_nonlean_re = re.compile(
-    r"^(?:README\.md|docs/.*|scripts/headlines\.d/amd64\.txt)$"
+    r"^(?:(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md|docs/.*|scripts/headlines\.d/amd64\.txt)$"
 )
 arm64_nonlean_re = re.compile(
-    r"^(?:README\.md|docs/.*|scripts/headlines\.d/arm64\.txt)$"
+    r"^(?:(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md|docs/.*|scripts/headlines\.d/arm64\.txt)$"
 )
 
 if all(
@@ -267,6 +269,10 @@ def strip_lean(src: str) -> str:
         i += 1
     return "".join(out)
 
+pre_re = re.compile(
+    r"\b(?:sorry|admit|bv_decide|native_decide|ofReduceBool|ofReduceNat"
+    r"|trustCompiler|axiom|implemented_by|extern)\b|\+native"
+)
 tok_re = re.compile(
     r"\b(sorry|admit|bv_decide|native_decide|ofReduceBool|ofReduceNat|trustCompiler)\b"
     r"|decide\s+\+native"
@@ -282,7 +288,10 @@ for rel in files:
     if not p.is_file():
         hits.append(f"{rel}: tracked file missing from working tree")
         continue
-    cleaned = strip_lean(p.read_text(encoding="utf-8"))
+    raw = p.read_text(encoding="utf-8")
+    if not pre_re.search(raw):
+        continue
+    cleaned = strip_lean(raw)
     for lineno, line in enumerate(cleaned.splitlines(), 1):
         m = tok_re.search(line) or axiom_re.search(line)
         if m:
@@ -338,6 +347,17 @@ if [ "$RESOLVED_SCOPE" = "class0" ]; then
     timeout 30 env PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$TMP/pycache" \
       python3 -m py_compile "${py_files[@]}" || err "python3 -m py_compile failed"
   fi
+
+  echo "== 2c0b. generator unit tests & pure-Python gates (0 lake calls)"
+  if [ -f scripts/test_gen_cert_slices.py ]; then
+    timeout 120 env PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/test_gen_cert_slices.py \
+      >"$TMP/test_gen_cert_slices.log" 2>&1 \
+      || { tail -n 30 "$TMP/test_gen_cert_slices.log"; err "scripts/test_gen_cert_slices.py failed"; }
+  fi
+  timeout 60 python3 -B "$ROOT/scripts/check_firewall.py" --root "$ROOT" --require-isa \
+    || err "incrementality firewall check failed (check_firewall.py)"
+  timeout 60 python3 -B "$ROOT/scripts/sync_hubs.py" --root "$ROOT" --check \
+    || err "barrel/hub check failed (sync_hubs.py --check)"
 
   echo "== 3c0. forbidden tokens, native-code tactics & tracked-file hygiene (0 lake calls)"
   scan_lean_forbidden_tokens \
@@ -618,61 +638,50 @@ scan_lean_forbidden_tokens \
   || err "forbidden token (sorry/admit/axiom/@[implemented_by]/@[extern]/trustCompiler/native tactic) in a .lean file"
 
 echo "== 3. import closures"
-closure() { # $1 = root module; prints the module names in its import closure
-  cat >"$TMP/Closure_$1.lean" <<EOF
-import Lean
-import $1
-open Lean in
-#eval show CoreM Unit from do
-  for n in (← getEnv).header.moduleNames do
-    IO.println s!"MOD {n}"
-EOF
-  timeout "$LEAN_TIMEOUT" lake env lean "$TMP/Closure_$1.lean" 2>&1 | sed -n 's/^MOD //p'
-}
-case "$RESOLVED_SCOPE" in
-  x64)   closure_roots=(LeanQbe LeanQbeAmd64) ;;
-  arm64) closure_roots=(LeanQbe LeanQbeArm64) ;;
-  full)  closure_roots=(LeanQbe LeanQbeAmd64 LeanQbeArm64) ;;
-esac
-closure_pids=()
-for r in "${closure_roots[@]}"; do
-  (closure "$r" | sort >"$TMP/closure_$r.txt") &
-  closure_pids+=("$!")
-done
-for i in "${!closure_roots[@]}"; do
-  wait "${closure_pids[$i]}" || err "closure check for ${closure_roots[$i]} failed"
-done
-if grep -E '^Kraken\.(X64|AArch64)(\.|$)' "$TMP/closure_LeanQbe.txt"; then
-  err "the generic LeanQbe imports an architecture (modules above)"
-fi
-if [ "$RESOLVED_SCOPE" != "arm64" ] \
-   && grep -E '^Kraken\.AArch64(\.|$)' "$TMP/closure_LeanQbeAmd64.txt"; then
-  err "LeanQbeAmd64 imports Kraken.AArch64 (modules above)"
-fi
-if [ "$RESOLVED_SCOPE" != "x64" ] \
-   && grep -E '^Kraken\.X64(\.|$)' "$TMP/closure_LeanQbeArm64.txt"; then
-  err "LeanQbeArm64 imports Kraken.X64 (modules above)"
-fi
-for r in "${closure_roots[@]}"; do
-  if grep -q "^$r$" "$TMP/closure_$r.txt"; then :; else err "could not compute the closure of $r"; fi
-done
-legacy_cert_re='^LeanQbe\.T\.(Amd64|Arm64)\.'
-legacy_cert_re+='(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*'
-legacy_cert_re+='|KissatPlain.*|KissatM3.*|KissatM4.*)$'
-if [ "$RESOLVED_SCOPE" != "arm64" ] \
-   && grep -E "$legacy_cert_re" "$TMP/closure_LeanQbeAmd64.txt"; then
-  err "active LeanQbeAmd64 closure imports legacy Kissat certs (modules above)"
-fi
-if [ "$RESOLVED_SCOPE" != "x64" ] \
-   && grep -E "$legacy_cert_re" "$TMP/closure_LeanQbeArm64.txt"; then
-  err "active LeanQbeArm64 closure imports legacy Kissat certs (modules above)"
-fi
-python3 - "$TMP" <<'PY'
-import pathlib, re, subprocess, sys
+python3 - "$TMP" "$RESOLVED_SCOPE" <<'PY' || err "import closure or reachability check failed"
+import json, pathlib, re, subprocess, sys
+
 tmp = pathlib.Path(sys.argv[1])
+scope = sys.argv[2]
+
 imp_re = re.compile(
     r"^\s*(?:(?:public|private|meta)\s+)*import\s+(?:all\s+)?([A-Za-z0-9_.']+)"
 )
+
+def extract_imports(p: pathlib.Path):
+    imps = []
+    depth = 0
+    with p.open("r", encoding="utf-8") as f:
+        for line in f:
+            if depth == 0 and "import" not in line and "/-" not in line:
+                continue
+            out = []
+            i, n = 0, len(line)
+            while i < n:
+                if depth > 0:
+                    if i + 1 < n and line[i:i+2] == "/-":
+                        depth += 1
+                        i += 2
+                    elif i + 1 < n and line[i:i+2] == "-/":
+                        depth -= 1
+                        i += 2
+                    else:
+                        i += 1
+                elif i + 1 < n and line[i:i+2] == "--":
+                    break
+                elif i + 1 < n and line[i:i+2] == "/-":
+                    depth += 1
+                    i += 2
+                else:
+                    out.append(line[i])
+                    i += 1
+            cleaned_line = "".join(out).strip()
+            if cleaned_line:
+                m = imp_re.match(cleaned_line)
+                if m:
+                    imps.append(m.group(1))
+    return imps
+
 def closure(roots):
     seen, stack = set(), list(roots)
     while stack:
@@ -682,15 +691,89 @@ def closure(roots):
         seen.add(mod)
         p = pathlib.Path(mod.replace(".", "/") + ".lean")
         if p.is_file():
-            for line in p.read_text().splitlines():
-                m = imp_re.match(line)
-                if m:
-                    stack.append(m.group(1))
+            for imp in extract_imports(p):
+                stack.append(imp)
     return sorted(seen)
+
+# Fallback guard: if lake-manifest.json has external dependencies, use Lean #eval
+has_external_packages = False
+manifest_p = pathlib.Path("lake-manifest.json")
+if manifest_p.is_file():
+    try:
+        data = json.loads(manifest_p.read_text(encoding="utf-8"))
+        if data.get("packages"):
+            has_external_packages = True
+    except Exception:
+        pass
+
+if has_external_packages:
+    def lean_closure(root):
+        lean_src = f"import Lean\nimport {root}\nopen Lean in\n#eval show CoreM Unit from do\n  for n in (← getEnv).header.moduleNames do\n    IO.println s!\"MOD {{n}}\"\n"
+        f = tmp / f"Closure_{root}.lean"
+        f.write_text(lean_src, encoding="utf-8")
+        out = subprocess.check_output(["lake", "env", "lean", str(f)]).decode("utf-8")
+        return [l[4:].strip() for l in out.splitlines() if l.startswith("MOD ")]
+    active_fn = lean_closure
+else:
+    active_fn = lambda r: closure([r])
+
+case_roots = {
+    "x64": ["LeanQbe", "LeanQbeAmd64"],
+    "arm64": ["LeanQbe", "LeanQbeArm64"],
+    "full": ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64"],
+}[scope]
+
+closures = {}
+for r in case_roots:
+    c = active_fn(r)
+    closures[r] = set(c)
+    (tmp / f"closure_{r}.txt").write_text("\n".join(c) + "\n", encoding="utf-8")
+
+errors = []
+
+# Generic LeanQbe architecture check
+if "LeanQbe" in closures:
+    kraken_in_gen = [m for m in closures["LeanQbe"] if m.startswith(("Kraken.X64", "Kraken.AArch64"))]
+    if kraken_in_gen:
+        errors.append(f"the generic LeanQbe imports an architecture ({', '.join(kraken_in_gen)})")
+
+if scope != "arm64" and "LeanQbeAmd64" in closures:
+    kraken_aarch = [m for m in closures["LeanQbeAmd64"] if m.startswith("Kraken.AArch64")]
+    if kraken_aarch:
+        errors.append(f"LeanQbeAmd64 imports Kraken.AArch64 ({', '.join(kraken_aarch)})")
+
+if scope != "x64" and "LeanQbeArm64" in closures:
+    kraken_x64 = [m for m in closures["LeanQbeArm64"] if m.startswith("Kraken.X64")]
+    if kraken_x64:
+        errors.append(f"LeanQbeArm64 imports Kraken.X64 ({', '.join(kraken_x64)})")
+
+for r in case_roots:
+    if r not in closures[r]:
+        errors.append(f"could not compute the closure of {r}")
+
+legacy_cert_re = re.compile(
+    r"^LeanQbe\.T\.(Amd64|Arm64)\.(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*|KissatPlain.*|KissatM3.*|KissatM4.*)$"
+)
+if scope != "arm64" and "LeanQbeAmd64" in closures:
+    legacy_in_x64 = [m for m in closures["LeanQbeAmd64"] if legacy_cert_re.match(m)]
+    if legacy_in_x64:
+        errors.append(f"active LeanQbeAmd64 closure imports legacy Kissat certs ({', '.join(legacy_in_x64)})")
+
+if scope != "x64" and "LeanQbeArm64" in closures:
+    legacy_in_arm = [m for m in closures["LeanQbeArm64"] if legacy_cert_re.match(m)]
+    if legacy_in_arm:
+        errors.append(f"active LeanQbeArm64 closure imports legacy Kissat certs ({', '.join(legacy_in_arm)})")
+
+# Legacy & Bootstrap0 closures
 for arch in ("Amd64", "Arm64"):
     mods = closure([f"LeanQbeLegacy{arch}"])
-    (tmp / f"legacy_closure_{arch}.txt").write_text("\n".join(mods) + "\n")
-(tmp / "bootstrap0_closure.txt").write_text("\n".join(closure(["LeanQbeBootstrap0"])) + "\n")
+    closures[f"legacy_{arch}"] = set(mods)
+    (tmp / f"legacy_closure_{arch}.txt").write_text("\n".join(mods) + "\n", encoding="utf-8")
+
+b0_mods = closure(["LeanQbeBootstrap0"])
+closures["bootstrap0"] = set(b0_mods)
+(tmp / "bootstrap0_closure.txt").write_text("\n".join(b0_mods) + "\n", encoding="utf-8")
+
 raw_b0t = subprocess.check_output(
     ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "LeanQbeBootstrap0Test"]
 )
@@ -699,32 +782,58 @@ b0t_roots = [
     for f in raw_b0t.split(b"\0")
     if f and f.decode("utf-8").endswith(".lean")
 ]
-(tmp / "bootstrap0_test_closure.txt").write_text("\n".join(closure(b0t_roots)) + "\n")
+b0t_mods = closure(b0t_roots)
+closures["bootstrap0_test"] = set(b0t_mods)
+(tmp / "bootstrap0_test_closure.txt").write_text("\n".join(b0t_mods) + "\n", encoding="utf-8")
+
+if scope != "arm64":
+    if any(m.startswith(("Kraken.AArch64", "LeanQbe.T.Arm64.")) for m in closures["legacy_Amd64"]):
+        errors.append("LeanQbeLegacyAmd64 imports AArch64/Arm64 modules")
+    if any(m.startswith(("Kraken.AArch64", "LeanQbe.T.Arm64.")) for m in closures["bootstrap0"]):
+        errors.append("LeanQbeBootstrap0 imports AArch64/Arm64 modules")
+    if any(m.startswith(("Kraken.AArch64", "LeanQbe.T.Arm64.")) for m in closures["bootstrap0_test"]):
+        errors.append("LeanQbeBootstrap0Test imports AArch64/Arm64 modules")
+    if any(legacy_cert_re.match(m) for m in closures["bootstrap0"]):
+        errors.append("LeanQbeBootstrap0 closure imports legacy Kissat certs")
+    if any(legacy_cert_re.match(m) for m in closures["bootstrap0_test"]):
+        errors.append("LeanQbeBootstrap0Test closure imports legacy Kissat certs")
+
+if scope != "x64":
+    if any(m.startswith(("Kraken.X64", "LeanQbe.T.Amd64.")) for m in closures["legacy_Arm64"]):
+        errors.append("LeanQbeLegacyArm64 imports X64/Amd64 modules")
+
+# Reachability check of tracked LeanQbe/T/*.lean files
+raw_tracked = subprocess.check_output(
+    ["git", "ls-files", "-z", "--cached", "LeanQbe/T/*.lean", "LeanQbe/T/**/*.lean"]
+)
+tracked_files = sorted(f.decode("utf-8") for f in raw_tracked.split(b"\0") if f)
+
+for f in tracked_files:
+    m = f[:-5].replace("/", ".")
+    if m.startswith("LeanQbe.T.Amd64."):
+        if scope == "arm64":
+            continue
+        if m not in closures.get("LeanQbeAmd64", set()) and m not in closures.get("legacy_Amd64", set()):
+            errors.append(f"{f} is not imported by LeanQbeAmd64.lean or LeanQbeLegacyAmd64.lean")
+    elif m.startswith("LeanQbe.T.Bootstrap0."):
+        if scope == "arm64":
+            continue
+        if m not in closures.get("bootstrap0", set()):
+            errors.append(f"{f} is not imported by LeanQbeBootstrap0.lean")
+    elif m.startswith("LeanQbe.T.Arm64."):
+        if scope == "x64":
+            continue
+        if m not in closures.get("LeanQbeArm64", set()) and m not in closures.get("legacy_Arm64", set()):
+            errors.append(f"{f} is not imported by LeanQbeArm64.lean or LeanQbeLegacyArm64.lean")
+    else:
+        if m not in closures.get("LeanQbe", set()):
+            errors.append(f"{f} is not imported by the root LeanQbe.lean (so it is not built)")
+
+if errors:
+    for e in errors:
+        print(f"FAIL: {e}", file=sys.stderr)
+    sys.exit(1)
 PY
-if [ "$RESOLVED_SCOPE" != "arm64" ] \
-   && grep -E '^Kraken\.AArch64(\.|$)|^LeanQbe\.T\.Arm64\.' "$TMP/legacy_closure_Amd64.txt"; then
-  err "LeanQbeLegacyAmd64 imports AArch64/Arm64 modules (modules above)"
-fi
-if [ "$RESOLVED_SCOPE" != "arm64" ] \
-   && grep -E '^Kraken\.AArch64(\.|$)|^LeanQbe\.T\.Arm64\.' "$TMP/bootstrap0_closure.txt"; then
-  err "LeanQbeBootstrap0 imports AArch64/Arm64 modules (modules above)"
-fi
-if [ "$RESOLVED_SCOPE" != "arm64" ] \
-   && grep -E '^Kraken\.AArch64(\.|$)|^LeanQbe\.T\.Arm64\.' "$TMP/bootstrap0_test_closure.txt"; then
-  err "LeanQbeBootstrap0Test imports AArch64/Arm64 modules (modules above)"
-fi
-if [ "$RESOLVED_SCOPE" != "arm64" ] \
-   && grep -E "$legacy_cert_re" "$TMP/bootstrap0_closure.txt"; then
-  err "LeanQbeBootstrap0 closure imports legacy Kissat certs (modules above)"
-fi
-if [ "$RESOLVED_SCOPE" != "arm64" ] \
-   && grep -E "$legacy_cert_re" "$TMP/bootstrap0_test_closure.txt"; then
-  err "LeanQbeBootstrap0Test closure imports legacy Kissat certs (modules above)"
-fi
-if [ "$RESOLVED_SCOPE" != "x64" ] \
-   && grep -E '^Kraken\.X64(\.|$)|^LeanQbe\.T\.Amd64\.' "$TMP/legacy_closure_Arm64.txt"; then
-  err "LeanQbeLegacyArm64 imports X64/Amd64 modules (modules above)"
-fi
 if git ls-files --cached 'LeanQbe/*.lean' 'LeanQbe/**/*.lean' | grep -v '^LeanQbe/T/'; then
   err "retired untyped E1 .lean files remain tracked under LeanQbe/ outside LeanQbe/T/"
 fi
@@ -734,32 +843,6 @@ fi
 if git ls-files --cached 'LeanQbeTest/*SpikeS2*' 'LeanQbeTest/**/*SpikeS2*' | grep .; then
   err "temporary SpikeS2 files remain tracked under LeanQbeTest/"
 fi
-while IFS= read -r f; do
-  m="${f%.lean}"; m="${m//\//.}"
-  case "$m" in
-    LeanQbe.T.Amd64.*)
-      [ "$RESOLVED_SCOPE" = "arm64" ] && continue
-      grep -qx "$m" "$TMP/closure_LeanQbeAmd64.txt" ||
-        grep -qx "$m" "$TMP/legacy_closure_Amd64.txt" ||
-        err "$f is not imported by LeanQbeAmd64.lean or LeanQbeLegacyAmd64.lean"
-      ;;
-    LeanQbe.T.Bootstrap0.*)
-      [ "$RESOLVED_SCOPE" = "arm64" ] && continue
-      grep -qx "$m" "$TMP/bootstrap0_closure.txt" ||
-        err "$f is not imported by LeanQbeBootstrap0.lean"
-      ;;
-    LeanQbe.T.Arm64.*)
-      [ "$RESOLVED_SCOPE" = "x64" ] && continue
-      grep -qx "$m" "$TMP/closure_LeanQbeArm64.txt" ||
-        grep -qx "$m" "$TMP/legacy_closure_Arm64.txt" ||
-        err "$f is not imported by LeanQbeArm64.lean or LeanQbeLegacyArm64.lean"
-      ;;
-    *)
-      grep -qx "$m" "$TMP/closure_LeanQbe.txt" ||
-        err "$f is not imported by the root LeanQbe.lean (so it is not built)"
-      ;;
-  esac
-done < <(git ls-files --cached 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' | sort -u)
 if git ls-files -z 'LeanQbe/T/*.lean' 'LeanQbe/T/**/*.lean' \
     | (set +o pipefail; xargs -0 grep -HnE '^\s*(public\s+|meta\s+)*import\s+(all\s+)?LeanQbe\.([^T]|T[^.])' 2>/dev/null); then
   err "LeanQbe/T module imports untyped E1 module (G5 violation)"
