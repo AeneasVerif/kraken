@@ -145,6 +145,8 @@ public import LeanQbe.T.Examples.Kissat.FullM8SweepV2ConeProof
 public import LeanQbe.T.Examples.Kissat.FullM8SweepV2KittenProof
 public import LeanQbe.T.Examples.Kissat.FullM8SweepV2Proof
 public import LeanQbe.T.Examples.Kissat.FullM8SweepV2VarProof
+public import LeanQbe.T.Examples.Kissat.FullM8WaveACore
+public import LeanQbe.T.Examples.Kissat.FullM8WaveACoreProof
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas1
 public import LeanQbe.T.Examples.Kissat.FullMinLemmas2
