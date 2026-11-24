@@ -5,47 +5,13 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include "../guarded_buf.h"
 #include "kissat_cases.h"
 #include "kissat_verify.h"
 
 extern uint64_t kissat_solve_bytes(
     const uint8_t *cnf_ptr, uint64_t cnf_len,
     uint8_t *work_ptr, uint64_t work_len, uint64_t fuel);
-
-typedef struct {
-  void *base;
-  size_t total;
-  uint8_t *ptr;
-  size_t len;
-} guarded_buf_t;
-
-static guarded_buf_t alloc_guarded(const uint8_t *init, size_t len, int writable) {
-  size_t pg = (size_t)sysconf(_SC_PAGESIZE);
-  size_t data_pages = ((len == 0 ? 1 : len) + pg - 1) / pg;
-  size_t total = (data_pages + 2) * pg;
-  uint8_t *base = (uint8_t *)mmap(NULL, total, PROT_NONE,
-      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  assert(base != MAP_FAILED);
-  uint8_t *mid = base + pg;
-  int rc = mprotect(mid, data_pages * pg, PROT_READ | PROT_WRITE);
-  assert(rc == 0);
-  memset(mid, 0xAA, data_pages * pg);
-  uint8_t *ptr = mid + data_pages * pg - len;
-  if (init && len > 0) {
-    memcpy(ptr, init, len);
-  }
-  if (!writable) {
-    rc = mprotect(mid, data_pages * pg, PROT_READ);
-    assert(rc == 0);
-  }
-  guarded_buf_t g = { base, total, ptr, len };
-  return g;
-}
-
-static void free_guarded(guarded_buf_t g) {
-  int rc = munmap(g.base, g.total);
-  assert(rc == 0);
-}
 
 int main(void) {
   size_t pg = (size_t)sysconf(_SC_PAGESIZE);

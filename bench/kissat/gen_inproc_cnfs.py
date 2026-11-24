@@ -2,43 +2,27 @@
 """Deterministic 300+ CNF inprocessing & search-heuristic stress suite for Kissat 4.0.4."""
 
 import sys
+from pathlib import Path
 
 sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import argparse
 import os
 import random
 
-
-def verify_model(nvars, clauses, model):
-    assert len(model) >= nvars + 1
-    for cl in clauses:
-        ok = False
-        for lit in cl:
-            v = abs(lit)
-            assert 1 <= v <= nvars
-            if (lit > 0 and model[v]) or (lit < 0 and not model[v]):
-                ok = True
-                break
-        if not ok:
-            raise AssertionError(f"Model failed clause {cl}")
-
-
-def write_cnf(path, nvars, clauses, comment=None, model=None):
-    assert nvars >= 1, f"invalid nvars={nvars} for {path}"
-    for cl in clauses:
-        assert len(cl) >= 1, f"empty clause in {path}"
-        for lit in cl:
-            assert lit != 0 and 1 <= abs(lit) <= nvars, f"bad lit {lit} in {path}"
-    if model is not None:
-        verify_model(nvars, clauses, model)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        if comment:
-            f.write(f"c {comment}\n")
-        f.write(f"p cnf {nvars} {len(clauses)}\n")
-        for cl in clauses:
-            f.write(" ".join(str(x) for x in cl) + " 0\n")
+from cnf_families import (
+    encode_xor_lits,
+    gen_graph_kcol,
+    gen_php,
+    gen_rand3sat,
+    gen_tseitin,
+    make_circulant_edges,
+    make_grid_edges,
+    make_prism_edges,
+    verify_model,
+    write_cnf,
+)
 
 
 def lit_sign(var, val):
@@ -61,18 +45,6 @@ def make_sat_clause_from_model(vars_list, model, rng):
 # ---------------------------------------------------------------------------
 # 1. Pigeonhole Principle (PHP) — 24 CNFs (12 UNSAT, 12 SAT)
 # ---------------------------------------------------------------------------
-def gen_php(pigeons, holes):
-    nvars = pigeons * holes
-    clauses = []
-    for i in range(pigeons):
-        clauses.append([i * holes + j + 1 for j in range(holes)])
-    for j in range(holes):
-        for i1 in range(pigeons):
-            for i2 in range(i1 + 1, pigeons):
-                clauses.append([-(i1 * holes + j + 1), -(i2 * holes + j + 1)])
-    return nvars, clauses
-
-
 def gen_php_family(out, counts):
     # 6 standard UNSAT + 6 standard SAT
     for p in (3, 4, 5, 6, 7, 8):
@@ -123,23 +95,6 @@ def gen_php_family(out, counts):
 # ---------------------------------------------------------------------------
 # 2. Tseitin Parity on Graphs — 32 CNFs (16 UNSAT, 16 SAT)
 # ---------------------------------------------------------------------------
-def gen_tseitin(nverts, edges, charges):
-    inc = [[] for _ in range(nverts)]
-    for eidx, (u, v) in enumerate(edges):
-        var = eidx + 1
-        inc[u].append(var)
-        inc[v].append(var)
-    clauses = []
-    for v in range(nverts):
-        vs = inc[v]
-        d = len(vs)
-        target = charges[v] & 1
-        for mask in range(1 << d):
-            if (mask.bit_count() & 1) != target:
-                clauses.append([-var if ((mask >> bit) & 1) else var for bit, var in enumerate(vs)])
-    return len(edges), clauses
-
-
 def solve_tseitin_model(nverts, edges, charges, seed):
     assert sum(charges) % 2 == 0
     rng = random.Random(seed)
@@ -175,39 +130,6 @@ def solve_tseitin_model(nverts, edges, charges, seed):
         pe = parent[u][1]
         val[pe + 1] = (cur ^ (charges[u] & 1)) == 1
     return val
-
-
-def make_circulant_edges(n):
-    edges = []
-    seen = set()
-    for i in range(n):
-        for j in ((i + 1) % n, (i + n // 2) % n):
-            a, b = (i, j) if i < j else (j, i)
-            if a != b and (a, b) not in seen:
-                seen.add((a, b))
-                edges.append((a, b))
-    return edges
-
-
-def make_grid_edges(rows, cols):
-    edges = []
-    for r in range(rows):
-        for c in range(cols):
-            u = r * cols + c
-            if r + 1 < rows:
-                edges.append((u, (r + 1) * cols + c))
-            if c + 1 < cols:
-                edges.append((u, r * cols + (c + 1)))
-    return edges
-
-
-def make_prism_edges(n):
-    edges = []
-    for i in range(n):
-        edges.append((i, (i + 1) % n))
-        edges.append((n + i, n + (i + 1) % n))
-        edges.append((i, n + i))
-    return edges
 
 
 def make_cube3_edges():
@@ -257,19 +179,6 @@ def gen_tseitin_family(out, counts):
 # ---------------------------------------------------------------------------
 # 3. XOR Chains & GF(2) Linear Systems — 36 CNFs (18 UNSAT, 18 SAT)
 # ---------------------------------------------------------------------------
-def encode_xor_lits(lits, rhs):
-    """Emit clauses enforcing XOR(lits) == rhs (lits are signed nonzero ints)."""
-    k = len(lits)
-    clauses = []
-    for mask in range(1 << k):
-        # Under assignment x_i = (mask>>i)&1 where lits[i] > 0 means x_i, < 0 means ~x_i:
-        # Let val(lits[i]) = ((mask >> i) & 1) directly, so cl forbids val(lits[i]) == ((mask>>i)&1)
-        if (mask.bit_count() & 1) != (rhs & 1):
-            cl = [-(l) if ((mask >> bit) & 1) else l for bit, l in enumerate(lits)]
-            clauses.append(cl)
-    return clauses
-
-
 def lit_val(lit, model):
     v = model[abs(lit)]
     return v if lit > 0 else (not v)
@@ -926,21 +835,6 @@ def gen_bva_family(out, counts):
 # ---------------------------------------------------------------------------
 # 8. Chronological-Backtrack & WalkSAT / VMTF Stress — 36 CNFs (18 UNSAT, 18 SAT)
 # ---------------------------------------------------------------------------
-def gen_graph_kcol(nverts, edges, k):
-    # var(v, c) = v * k + c + 1
-    nvars = nverts * k
-    clauses = []
-    for v in range(nverts):
-        clauses.append([v * k + c + 1 for c in range(k)])
-        for c1 in range(k):
-            for c2 in range(c1 + 1, k):
-                clauses.append([-(v * k + c1 + 1), -(v * k + c2 + 1)])
-    for u, v in edges:
-        for c in range(k):
-            clauses.append([-(u * k + c + 1), -(v * k + c + 1)])
-    return nvars, clauses
-
-
 def gen_nqueens(n):
     nvars = n * n
     clauses = []
@@ -1135,15 +1029,6 @@ def gen_search_stress_family(out, counts):
 # ---------------------------------------------------------------------------
 # 9. Random 3-SAT Phase Transition — 40 CNFs (mixed SAT/UNSAT)
 # ---------------------------------------------------------------------------
-def gen_rand3sat(n, m, seed):
-    rng = random.Random(seed)
-    clauses = []
-    for _ in range(m):
-        vs = rng.sample(range(1, n + 1), 3)
-        clauses.append([v if rng.getrandbits(1) else -v for v in vs])
-    return n, clauses
-
-
 def gen_rand3sat_family(out, counts):
     specs = [
         (18, 77), (24, 102), (32, 136), (42, 179),

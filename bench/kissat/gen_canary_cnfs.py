@@ -15,66 +15,25 @@ or capacity cliff across the Kissat C0 inprocessing and search passes:
   10_dead_var_compact - 5k..10k trivially eliminable dead vars wrapping an UNSAT core
 """
 
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import argparse
 import json
 import os
 import random
-import sys
 
-sys.dont_write_bytecode = True
-
-
-def write_cnf(path, nvars, clauses, comment=None):
-    assert nvars >= 1, f"invalid nvars={nvars} for {path}"
-    assert len(clauses) >= 1, f"no clauses for {path}"
-    n_bin = 0
-    max_sz = 0
-    min_sz = 1 << 30
-    for cl in clauses:
-        sz = len(cl)
-        assert sz >= 1, f"empty clause in {path}"
-        if sz == 2:
-            n_bin += 1
-        if sz > max_sz:
-            max_sz = sz
-        if sz < min_sz:
-            min_sz = sz
-        for lit in cl:
-            assert lit != 0 and 1 <= abs(lit) <= nvars, f"bad lit {lit} in {path}"
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        if comment:
-            f.write(f"c {comment}\n")
-        f.write(f"p cnf {nvars} {len(clauses)}\n")
-        for cl in clauses:
-            f.write(" ".join(str(x) for x in cl) + " 0\n")
-    return {
-        "vars": nvars,
-        "clauses": len(clauses),
-        "binaries": n_bin,
-        "min_cl": min_sz,
-        "max_cl": max_sz,
-    }
-
-
-def encode_xor_lits(lits, rhs):
-    k = len(lits)
-    clauses = []
-    for mask in range(1 << k):
-        if (mask.bit_count() & 1) != (rhs & 1):
-            clauses.append([-l if ((mask >> b) & 1) else l for b, l in enumerate(lits)])
-    return clauses
-
-
-def gen_php(pigeons, holes, v_off=0):
-    clauses = []
-    for i in range(pigeons):
-        clauses.append([v_off + i * holes + j + 1 for j in range(holes)])
-    for j in range(holes):
-        for i1 in range(pigeons):
-            for i2 in range(i1 + 1, pigeons):
-                clauses.append([-(v_off + i1 * holes + j + 1), -(v_off + i2 * holes + j + 1)])
-    return pigeons * holes, clauses
+from cnf_families import (
+    encode_xor_lits,
+    gen_graph_kcol,
+    gen_pebbling_pyramid,
+    gen_php,
+    make_prism_edges,
+    write_cnf,
+)
 
 
 class CircuitBuilder:
@@ -443,15 +402,6 @@ def gen_tseitin_3reg(nverts, edges, charges):
     return len(edges), clauses
 
 
-def make_prism_edges(m):
-    edges = []
-    for i in range(m):
-        edges.append((i, (i + 1) % m))
-        edges.append((m + i, m + (i + 1) % m))
-        edges.append((i, m + i))
-    return edges
-
-
 def gen_urquhart_pure3(m):
     """Urquhart parity formula U_m on m x m 4-regular torus, split into pure 3-CNF."""
     # Vertices (r, c) in Z_m x Z_m: degree 4 (horiz + vert torus edges)
@@ -799,36 +749,6 @@ def gen_ordering_principle(n):
     return nxt - 1, clauses
 
 
-def gen_pebbling_pyramid(h):
-    """2-pebbling contradiction on a pyramid DAG of height h (UNSAT)."""
-    # Nodes (r, c) for r in 0..h-1, c in 0..r; each node has 2 vars (p0, p1)
-    nodes = {}
-    nxt = 1
-    for r in range(h):
-        for c in range(r + 1):
-            nodes[(r, c)] = (nxt, nxt + 1)
-            nxt += 2
-    clauses = []
-    # Base row (r = h-1) is pebbled: p0 \/ p1
-    for c in range(h):
-        a, b = nodes[(h - 1, c)]
-        clauses.append([a, b])
-    # Propagation: (left pebbled) /\ (right pebbled) => parent pebbled
-    for r in range(h - 1):
-        for c in range(r + 1):
-            pa, pb = nodes[(r, c)]
-            la, lb = nodes[(r + 1, c)]
-            ra, rb = nodes[(r + 1, c + 1)]
-            for lv in (la, lb):
-                for rv in (ra, rb):
-                    clauses.append([-lv, -rv, pa, pb])
-    # Root (0, 0) is NOT pebbled: ~pa /\ ~pb
-    ra, rb = nodes[(0, 0)]
-    clauses.append([-ra])
-    clauses.append([-rb])
-    return nxt - 1, clauses
-
-
 def gen_mycielski_edges(k):
     """Construct Mycielski graph M_k (chromatic number = k). M_2 = K_2."""
     n = 2
@@ -845,23 +765,6 @@ def gen_mycielski_edges(k):
         n = 2 * old_n + 1
         edges = new_edges
     return n, edges
-
-
-def gen_graph_kcol(nverts, edges, k):
-    """Encode k-coloring of graph (UNSAT when chromatic number > k)."""
-    def var(v, c):
-        return v * k + c + 1
-
-    clauses = []
-    for v in range(nverts):
-        clauses.append([var(v, c) for c in range(k)])
-        for c1 in range(k):
-            for c2 in range(c1 + 1, k):
-                clauses.append([-var(v, c1), -var(v, c2)])
-    for u, v in edges:
-        for c in range(k):
-            clauses.append([-var(u, c), -var(v, c)])
-    return nverts * k, clauses
 
 
 def gen_schur_unsat(k_colors, n_nums):

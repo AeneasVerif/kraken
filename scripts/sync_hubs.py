@@ -23,15 +23,20 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lean_imports import (
+    IMPORT_LINE_RE,
+    ImportStmt,
+    mod_to_rel_path,
+    parse_imports,
+    rel_path_to_mod,
+    strip_comments_line,
+)
+
 LEGACY_CERT_DEFAULT = (
     r"^LeanQbe\.T\.(Amd64|Arm64)\."
     r"(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*"
     r"|KissatPlain.*|KissatM3.*|KissatM4.*)$"
-)
-
-IMPORT_LINE_RE = re.compile(
-    r"^\s*(?:(public|private)\s+)?(?:(meta)\s+)?import\s+(?:(all)\s+)?"
-    r"([A-Za-z_][A-Za-z0-9_'.]*)\s*$"
 )
 
 SUBSYSTEM_HUBS: tuple[str, ...] = (
@@ -118,99 +123,6 @@ HUB_DOCSTRINGS: dict[str, str] = {
 }
 
 ALL_HUBS: tuple[str, ...] = ROOT_LIBS + SUBSYSTEM_HUBS
-
-
-@dataclass(frozen=True)
-class ImportStmt:
-    """Parsed import statement from a Lean source file."""
-
-    line: int
-    module: str
-    is_public: bool
-    is_meta: bool
-    is_all: bool
-
-
-def mod_to_rel_path(mod: str) -> Path:
-    """Convert a Lean module name into its relative `.lean` path."""
-    return Path(*mod.split(".")).with_suffix(".lean")
-
-
-def rel_path_to_mod(rel: Path) -> str:
-    """Convert a relative `.lean` path into its Lean module name."""
-    return ".".join(rel.with_suffix("").parts)
-
-
-def strip_comments_line(
-    raw_line: str, depth: int
-) -> tuple[str, int, bool]:
-    """Strip `--` and nested `/- ... -/` comments from a single line."""
-    out: list[str] = []
-    i = 0
-    n = len(raw_line)
-    saw_doc_open = False
-    while i < n:
-        ch = raw_line[i]
-        nxt = raw_line[i + 1] if i + 1 < n else ""
-        if depth > 0:
-            if ch == "/" and nxt == "-":
-                depth += 1
-                i += 2
-                continue
-            if ch == "-" and nxt == "/":
-                depth -= 1
-                i += 2
-                continue
-            i += 1
-            continue
-        if ch == "-" and nxt == "-":
-            break
-        if ch == "/" and nxt == "-":
-            if i + 2 < n and raw_line[i + 2] == "!":
-                saw_doc_open = True
-            depth = 1
-            i += 2
-            continue
-        out.append(ch)
-        i += 1
-    return "".join(out).strip(), depth, saw_doc_open
-
-
-def parse_imports(path: Path) -> tuple[bool, list[ImportStmt]]:
-    """Parse header import statements from a Lean file quickly."""
-    uses_module_system = False
-    seen_header = False
-    imports: list[ImportStmt] = []
-    depth = 0
-
-    with path.open("r", encoding="utf-8") as fh:
-        for lineno, raw_line in enumerate(fh, start=1):
-            s, depth, _ = strip_comments_line(raw_line, depth)
-            if not s:
-                continue
-            if not seen_header and s in ("module", "prelude"):
-                if s == "module":
-                    uses_module_system = True
-                seen_header = True
-                continue
-            m = IMPORT_LINE_RE.match(s)
-            if m:
-                seen_header = True
-                vis = m.group(1)
-                is_public = (vis == "public") if uses_module_system else True
-                imports.append(
-                    ImportStmt(
-                        line=lineno,
-                        module=m.group(4),
-                        is_public=is_public,
-                        is_meta=m.group(2) is not None,
-                        is_all=m.group(3) is not None,
-                    )
-                )
-                continue
-            if seen_header or depth == 0:
-                break
-    return uses_module_system, imports
 
 
 def parse_barrel_file(path: Path) -> tuple[list[ImportStmt], list[str]]:

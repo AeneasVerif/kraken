@@ -27,21 +27,14 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-IMPORT_RE = re.compile(
-    r"^\s*(?:(public)\s+)?(?:(meta)\s+)?import\s+(?:all\s+)?([A-Za-z_][A-Za-z0-9_'.]*)\s*$"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lean_imports import (
+    ImportStmt,
+    module_to_path,
+    parse_imports,
 )
 
 TARG_MOD_RE = re.compile(r"^LeanQbe\.T\.(?:Amd64|Arm64)\.Targ(?:Lemmas)?$")
-
-
-@dataclass(frozen=True)
-class ImportStmt:
-    """Parsed Lean import statement with line number and visibility."""
-
-    line: int
-    module: str
-    is_public: bool
-    is_meta: bool
 
 
 @dataclass
@@ -65,79 +58,6 @@ class LeakGroupReport:
     files: list[str]
     missing_files: list[str] = field(default_factory=list)
     violations: list[Violation] = field(default_factory=list)
-
-
-def parse_imports(path: Path) -> tuple[bool, list[ImportStmt]]:
-    """Parse header import statements from a Lean file quickly.
-
-    Stops immediately at the first non-comment, non-import line so large proof
-    or data modules are scanned in microseconds.
-    """
-    uses_module_system = False
-    seen_header = False
-    imports: list[ImportStmt] = []
-    depth = 0
-
-    with path.open("r", encoding="utf-8") as fh:
-        for lineno, raw_line in enumerate(fh, start=1):
-            out: list[str] = []
-            i = 0
-            n = len(raw_line)
-            while i < n:
-                ch = raw_line[i]
-                nxt = raw_line[i + 1] if i + 1 < n else ""
-                if depth > 0:
-                    if ch == "/" and nxt == "-":
-                        depth += 1
-                        i += 2
-                        continue
-                    if ch == "-" and nxt == "/":
-                        depth -= 1
-                        i += 2
-                        continue
-                    i += 1
-                    continue
-                if ch == "-" and nxt == "-":
-                    break
-                if ch == "/" and nxt == "-":
-                    depth = 1
-                    i += 2
-                    continue
-                out.append(ch)
-                i += 1
-
-            s = "".join(out).strip()
-            if not s:
-                continue
-            if not seen_header and s == "module":
-                uses_module_system = True
-                seen_header = True
-                continue
-            m = IMPORT_RE.match(s)
-            if m:
-                seen_header = True
-                has_public = m.group(1) is not None
-                has_meta = m.group(2) is not None
-                is_public = has_public if uses_module_system else True
-                imports.append(
-                    ImportStmt(
-                        line=lineno,
-                        module=m.group(3),
-                        is_public=is_public,
-                        is_meta=has_meta,
-                    )
-                )
-                continue
-            if seen_header or depth == 0:
-                break
-    return uses_module_system, imports
-
-
-def module_to_path(root: Path, mod: str) -> Path | None:
-    """Resolve a workspace-local Lean module name to a `.lean` path."""
-    rel = Path(*mod.split(".")).with_suffix(".lean")
-    candidate = root / rel
-    return candidate if candidate.is_file() else None
 
 
 def find_transitive_leaks(
