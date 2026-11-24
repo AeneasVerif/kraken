@@ -3,25 +3,26 @@ module
 public import Kraken.X64.Semantics
 public import Kraken.Data.List.Infix
 
-open Kraken (Layout WellFormedLayout)
+open Kraken (Layout)
 
 public class Host where
   prog : Program
-  layout : WellFormedLayout prog
+  layout : Layout
+  wf : layout.WellFormed prog
 
-public instance [Host] : WellFormedLayout Host.prog := Host.layout
+public instance [Host] : Host.layout.WellFormed Host.prog := Host.wf
 
-@[expose] public def Host.exe [Host] : Executable := Host.prog.toExecutable
+@[expose] public def Host.exe [Host] : Executable := Host.layout.apply Host.prog
 
 @[expose] public def Host.addrOf [Host] (k : Nat) : Int64 := Host.exe.addrOf k
 
-public abbrev Host.size [Host] (i : Nat) : Nat := Host.layout.size i
+public abbrev Host.size [Host] (i : Nat) : Nat := Host.layout.dirSize Host.prog i
 
 public instance [Host] : Labels := Executable.labels Host.exe
 
 public theorem Host.sizeBefore_eq_of_addrOf_eq [Host] {j k : Nat} (h : Host.addrOf j = Host.addrOf k) :
     Host.exe.sizeBefore j = Host.exe.sizeBefore k :=
-  Kraken.Program.sizeBefore_eq_of_addrOf_eq Host.prog h
+  Kraken.Program.sizeBefore_eq_of_addrOf_eq Host.wf h
 @[expose] public def Host.startAddr [Host] {p : Program} (h : p.IsInfix Host.prog) : Int64 :=
   Host.addrOf (p.infixIdx Host.prog h)
 

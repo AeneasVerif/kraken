@@ -16,7 +16,7 @@ import Kraken.Tactics
 import Std.Tactic.BVDecide
 
 
-open Kraken (Layout WellFormedLayout)
+open Kraken (Layout)
 open Kraken.AArch64
 open Kraken.AArch64.Parser
 
@@ -49,10 +49,10 @@ def swap : Program := ⸨prog|
   eor x0, x0, x1
 ⸩
 
-theorem swap_correct [layout : WellFormedLayout swap] (d : MachineData) :
-    Eventually (step1 swap.toExecutable)
+theorem swap_correct (layout : Layout) [layout.WellFormed swap] (d : MachineData) :
+    Eventually (step1 (layout.apply swap))
       (fun s' =>
-        s'.pc = swap.toExecutable.addrOf swap.length ∧
+        s'.pc = (layout.apply swap).addrOf swap.length ∧
         s'.1.regs.getRegOrZr .X0 = d.regs.getRegOrZr .X1 ∧
         s'.1.regs.getRegOrZr .X1 = d.regs.getRegOrZr .X0)
       ⟨d, layout.start⟩ := by
@@ -68,10 +68,10 @@ def arith_shift : Program := ⸨prog|
   sub x3, x2, x0
 ⸩
 
-theorem arith_shift_correct [layout : WellFormedLayout arith_shift] (d : MachineData) :
-    Eventually (step1 arith_shift.toExecutable)
+theorem arith_shift_correct (layout : Layout) [layout.WellFormed arith_shift] (d : MachineData) :
+    Eventually (step1 (layout.apply arith_shift))
       (fun s' =>
-        s'.pc = arith_shift.toExecutable.addrOf arith_shift.length ∧
+        s'.pc = (layout.apply arith_shift).addrOf arith_shift.length ∧
         s'.1.regs.getRegOrZr .X3 = 3 * (d.regs.getRegOrZr .X1 + 42))
       ⟨d, layout.start⟩ := by
   kprologue arith_shift with d
@@ -90,9 +90,9 @@ start:
   mov x1, #42
 ⸩
 
-theorem p4_correct [layout : WellFormedLayout controlflow] (d : MachineData) :
-    Eventually (step1 controlflow.toExecutable)
-      (fun s' => s'.pc = controlflow.toExecutable.addrOf controlflow.length ∧ s'.1.regs.X1 = 42)
+theorem p4_correct (layout : Layout) [layout.WellFormed controlflow] (d : MachineData) :
+    Eventually (step1 (layout.apply controlflow))
+      (fun s' => s'.pc = (layout.apply controlflow).addrOf controlflow.length ∧ s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
   kprologue controlflow with d
   sym => kstep; tactic =>
@@ -113,9 +113,9 @@ loop:
   mov x1, #42
 ⸩
 
-theorem controlflow_jump_correct [layout : WellFormedLayout controlflow_jump] (d : MachineData) :
-    Eventually (step1 controlflow_jump.toExecutable)
-      (fun s' => s'.pc = controlflow_jump.toExecutable.addrOf controlflow_jump.length ∧ s'.1.regs.X1 = 42)
+theorem controlflow_jump_correct (layout : Layout) [layout.WellFormed controlflow_jump] (d : MachineData) :
+    Eventually (step1 (layout.apply controlflow_jump))
+      (fun s' => s'.pc = (layout.apply controlflow_jump).addrOf controlflow_jump.length ∧ s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
   kprologue controlflow_jump with d
   sym => kstep; tactic =>
@@ -142,14 +142,14 @@ def move_2_regs_to_heap : Program := ⸨prog|
     ldr x4, [x2, #8]
 ⸩
 
-theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_heap]
+theorem move_2_regs_to_heap_correct (layout : Layout) [layout.WellFormed move_2_regs_to_heap]
     (s₀ : MachineData)
     (v1 v2 : UInt64)
     (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.X2.toBitVec) ⋆ Eq (v2.At (s₀.regs.X2.toBitVec + 8#64)) ⋆ R) :
-    Eventually (step1 move_2_regs_to_heap.toExecutable)
+    Eventually (step1 (layout.apply move_2_regs_to_heap))
       (fun s' =>
-        s'.pc = move_2_regs_to_heap.toExecutable.addrOf move_2_regs_to_heap.length ∧
+        s'.pc = (layout.apply move_2_regs_to_heap).addrOf move_2_regs_to_heap.length ∧
         s'.1.regs.X3 = s₀.regs.X0 ∧
         s'.1.regs.X4 = s₀.regs.X1 ∧
         s'.1.regs.X2 = s₀.regs.X2)
@@ -191,12 +191,12 @@ def reg_offset_example : Program := ⸨prog|
     ldr x3, [x1, x2, lsl #3]
 ⸩
 
-theorem reg_offset_example_correct [layout : WellFormedLayout reg_offset_example]
+theorem reg_offset_example_correct (layout : Layout) [layout.WellFormed reg_offset_example]
     (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.X1.toBitVec + BitVec.ofInt 64 (s₀.regs.X2.toBitVec.toNat <<< 3))) ⋆ R) :
-    Eventually (step1 reg_offset_example.toExecutable)
-      (fun s' => s'.pc = reg_offset_example.toExecutable.addrOf reg_offset_example.length ∧
+    Eventually (step1 (layout.apply reg_offset_example))
+      (fun s' => s'.pc = (layout.apply reg_offset_example).addrOf reg_offset_example.length ∧
         s'.1.regs.X3 = 42)
       ⟨s₀, layout.start⟩ := by
   kprologue reg_offset_example with s₀

@@ -575,8 +575,8 @@ info: ⸨prog|
 
 /-- info: ⸨dir 1| addq $1, %rax ⸩ : Sized _root_.Directive -/
 #guard_msgs (whitespace := lax) in
-variable {p : Program} [l : Kraken.Layout p] in
-#check ({directive := ⸨dir| addq $1, %rax ⸩, size := l.size 1} : Sized _root_.Directive)
+variable {p : Program} (l : Kraken.Layout) in
+#check ({directive := ⸨dir| addq $1, %rax ⸩, size := l.dirSize p 1} : Sized _root_.Directive)
 
 end syntax_cat_and_include
 
