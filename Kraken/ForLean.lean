@@ -92,4 +92,8 @@ theorem List.mem_takeWhile {α : Type _} {p : α → Bool} {l : List α} {x : α
     (hx : x ∈ l.takeWhile p) : p x = true := by
   induction l <;> grind [List.takeWhile_cons, List.takeWhile_nil]
 
+@[grind hom] theorem Int64.toBitVec_ofNat_eq_ofNat (a : Nat) :
+    (Int64.ofNat a).toBitVec = OfNat.ofNat a := by
+  rw [Int64.toBitVec_ofNat']; rfl
+
 end
