@@ -81,6 +81,7 @@ public import LeanQbe.T.Logic.ControlComb
 public import LeanQbe.T.Logic.Mem
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbe.T.Logic.Ops
+public import LeanQbe.T.Logic.ProofKit
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Logic.SepTree
 public import LeanQbe.T.Logic.SlabChain

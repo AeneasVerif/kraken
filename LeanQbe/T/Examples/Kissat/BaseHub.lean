@@ -200,6 +200,7 @@ public import LeanQbe.T.Examples.Kissat.LayerAMinimize3
 public import LeanQbe.T.Examples.Kissat.LayerASubstitute
 public import LeanQbe.T.Examples.Kissat.LayerASubsume
 public import LeanQbe.T.Examples.Kissat.LayerAVivify
+public import LeanQbe.T.Examples.Kissat.PatchModule
 public import LeanQbe.T.Examples.Kissat.Plain
 public import LeanQbe.T.Examples.Kissat.Plain1
 public import LeanQbe.T.Examples.Kissat.PlainAnalyzeLemmas
