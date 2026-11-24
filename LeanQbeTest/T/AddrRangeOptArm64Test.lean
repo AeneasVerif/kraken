@@ -48,6 +48,10 @@ meta def isUbfmDir : Directive → Bool
   | .instr { operation := .UBFM .., .. } => true
   | _ => false
 
+meta def isAddShift2Dir : Directive → Bool
+  | .instr { operation := .ADD_s _ _ sr, .. } => sr.shift == .LSL && sr.amount == 2
+  | _ => false
+
 meta def isSubsDir : Directive → Bool
   | .instr { operation := .SUBS_e .., .. }
   | .instr { operation := .SUBS_s .., .. } => true
@@ -113,9 +117,11 @@ meta def arm64LoopZextIdxFn : Fn :=
 #guard chk [arm64LoopIdxFn]
 #guard chk [arm64LoopZextIdxFn]
 #guard countDirs isIdxScale2Ldr (codeOf [arm64LoopIdxFn]) == 1
-#guard countDirs isUbfmDir (codeOf [arm64LoopIdxFn]) == 1
+#guard countDirs isUbfmDir (codeOf [arm64LoopIdxFn]) == 0
+#guard countDirs isAddShift2Dir (codeOf [arm64LoopIdxFn]) == 1
 #guard countDirs isIdxScale2Ldr (codeOf [arm64LoopZextIdxFn]) == 1
-#guard countDirs isUbfmDir (codeOf [arm64LoopZextIdxFn]) == 1
+#guard countDirs isUbfmDir (codeOf [arm64LoopZextIdxFn]) == 0
+#guard countDirs isAddShift2Dir (codeOf [arm64LoopZextIdxFn]) == 1
 
 /-! ## 2. Collapsed Range Checks (Zero `AND`/`CSET`, Single Compare) -/
 

@@ -22,6 +22,7 @@ import LeanQbe.T.SimplifyGroupPlanLemmas
 import LeanQbe.T.LicmLemmas
 import LeanQbe.T.AddrRangeOptLemmas
 import LeanQbe.T.LoopRotateLemmas
+import LeanQbe.T.CondThreadOptLemmas
 import LeanQbe.T.ZeroPeelLemmas
 import LeanQbe.T.AssumeBitsLemmas
 
@@ -421,6 +422,23 @@ theorem Func.lateCfg_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
   have hs2r := Func.renorm_spec h2 hs2
   exact Func.lateCfgPost_spec h2r hs2r
 
+/-- `Func.lateCondThread` preserves well-formedness. -/
+theorem Func.lateCondThread_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
+    (Func.lateCondThread f).Wf := by
+  rw [Func.lateCondThread_eq]
+  exact Func.dceP_wf (Func.fold_wf (Func.condThreadLateOpt_wf f))
+
+/-- `Func.lateCondThread` refines function contracts. -/
+theorem Func.lateCondThread_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCondThread f) xs m Q X := by
+  rw [Func.lateCondThread_eq]
+  have hct_wf := Func.condThreadLateOpt_wf f
+  have hct_sp := Func.condThreadLateOpt_spec hf h
+  have hfd_wf := Func.fold_wf hct_wf
+  have hfd_sp := Func.fold_spec hct_wf hct_sp
+  exact Func.dceP_spec hfd_wf hfd_sp
+
 /-- Post-`Legal` mid-end (`Func.lateOpt`) preserves well-formedness. -/
 theorem Func.lateOpt_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.lateOpt f).Wf := by
@@ -438,7 +456,11 @@ theorem Func.lateOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
   have hscfg := Func.lateCfg_spec hcore hscore
   have hrot := Func.lateLoopRotate_wf hcfg
   have hsrot := Func.lateLoopRotate_spec hcfg hscfg
-  exact Func.renorm_spec hrot hsrot
+  have hr4 := Func.renorm_wf (Func.lateLoopRotate (Func.lateCfg (Func.lateCore f)))
+  have hsr4 := Func.renorm_spec hrot hsrot
+  have hct := Func.lateCondThread_wf hr4
+  have hsct := Func.lateCondThread_spec hr4 hsr4
+  exact Func.renorm_spec hct hsct
 
 /-- `Fn.renorm` unconditionally produces a well-formed function body. -/
 theorem Fn.renorm_wf (fn : Fn) : (Fn.renorm fn).Wf :=

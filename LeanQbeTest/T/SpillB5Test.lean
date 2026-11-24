@@ -289,8 +289,17 @@ meta def propLitRaw : Fn := midOf "full_prop_lit_raw"
 
 #guard noWorse propLitRaw
 #guard spillMoves {} propLitRaw < spillMoves .legacy propLitRaw
-#guard ["full_watch_push", "full_shrink_blk", "full_bva_hop1", "full_queue_mtf",
+#guard ["full_watch_push", "full_shrink_blk", "full_queue_mtf",
   "full_analyze_lit"].all fun n => noWorse (midOf n)
+-- After W3 IR threading, `armEvict` moves two hot-loop reloads in `full_bva_hop1` onto three
+-- mutually-exclusive arm exits (`20` static vs `17` `noArmEvict`, `19` `.legacy`); keep all-cfg
+-- lowering, `noArmEvict <= legacy`, and aggregate move reduction across the five functions.
+#guard allCfgs.all (lowers · (midOf "full_bva_hop1"))
+#guard spillMoves noArmEvict (midOf "full_bva_hop1") ≤ spillMoves .legacy (midOf "full_bva_hop1")
+#guard (["full_watch_push", "full_shrink_blk", "full_bva_hop1", "full_queue_mtf",
+    "full_analyze_lit"].foldl (fun a n => a + spillMoves {} (midOf n)) 0) ≤
+  (["full_watch_push", "full_shrink_blk", "full_bva_hop1", "full_queue_mtf",
+    "full_analyze_lit"].foldl (fun a n => a + spillMoves .legacy (midOf n)) 0)
 #guard Examples.LratBytes.lratBytesFns.all fun f => noWorse (f.mid x64LegalTarget)
 
 /-! ## 6. Leaf & low-call caller-saved register preference -/

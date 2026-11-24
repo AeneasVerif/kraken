@@ -51,21 +51,22 @@ structure MidBody (as rs : List Ty) where
   body : Func as rs
 
 /-- Materialize the post-`earlyOpt` mid-end pipeline (`Legal lt → lateCorePre → renorm →
-lateCorePost → renorm → lateCfgPre → renorm → lateCfgPost → loopRotate → renorm`), using
-`Fn.renorm` at every stage boundary so PHOAS closures stay flat. -/
+lateCorePost → renorm → lateCfgPre → renorm → lateCfgPost → loopRotate → mergeRets → renorm →
+lateCondThread → renorm`), using `Fn.renorm` at every stage boundary so PHOAS closures stay flat. -/
 def Fn.midStage (lt : LegalTarget) (ef : Fn) :
     MidBody (lt.legalSig ef.as) (lt.legalSig ef.rs) :=
   let lf := ef.legal lt
   let s1 := Fn.renorm ⟨lf.name, lf.as, lf.rs, Func.lateCorePre lf.body⟩
   let s2 := Fn.renorm ⟨s1.name, s1.as, s1.rs, Func.lateCorePost s1.body⟩
   let s3 := Fn.renorm ⟨s2.name, s2.as, s2.rs, Func.lateCfgPre s2.body⟩
-  ⟨(Fn.renorm ⟨s3.name, s3.as, s3.rs, Func.lateLoopRotate s3.body⟩).body⟩
+  let s4 := Fn.renorm ⟨s3.name, s3.as, s3.rs, Func.lateLoopRotate s3.body⟩
+  ⟨(Fn.renorm ⟨s4.name, s4.as, s4.rs, Func.lateCondThread s4.body⟩).body⟩
 
 theorem Fn.midStage_eq (lt : LegalTarget) (ef : Fn) :
     (Fn.midStage lt ef).body =
-      Func.renorm (Func.lateLoopRotate (Func.renorm (Func.lateCfgPre
-        (Func.renorm (Func.lateCorePost (Func.renorm (Func.lateCorePre
-          (Func.legal lt ef.body)))))))) := by
+      Func.renorm (Func.lateCondThread (Func.renorm (Func.lateLoopRotate
+        (Func.renorm (Func.lateCfgPre (Func.renorm (Func.lateCorePost
+          (Func.renorm (Func.lateCorePre (Func.legal lt ef.body)))))))))) := by
   dsimp only [Fn.midStage, Fn.renorm, Fn.legal, Func.renorm]
 
 attribute [irreducible] Fn.midStage
