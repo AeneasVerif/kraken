@@ -268,6 +268,63 @@ theorem region_store_w (w : WMemWidth) {base : BitVec 64} {len ea : Nat}
     exact region_store_bits (n := 64) rfl (by decide) hlen hbnd v
       (fun _ hl => toBytes_ofBytes_w .w64 hl) hm
 
+/-! ### `WasmMemFocus`: Separation Focusing on `WasmMemInv` Components -/
+
+theorem WasmMemInv.focus_base {vmCtx memBase curLen memCap : BitVec 64}
+    {R : Mem 64 → Prop} {mem : Mem 64}
+    (hm : WasmMemInv true vmCtx memBase curLen memCap R mem) :
+    (cell64 vmCtx memBase ⋆ (cell64 (vmCtx + 8#64) curLen ⋆
+      cell64 (vmCtx + 16#64) memCap ⋆ region memBase memCap.toNat ⋆ R)) mem :=
+  sep_cast hm.2 (by ac_rfl)
+
+theorem WasmMemInv.focus_len {vmCtx memBase curLen memCap : BitVec 64}
+    {R : Mem 64 → Prop} {mem : Mem 64}
+    (hm : WasmMemInv true vmCtx memBase curLen memCap R mem) :
+    (cell64 (vmCtx + 8#64) curLen ⋆ (cell64 vmCtx memBase ⋆
+      cell64 (vmCtx + 16#64) memCap ⋆ region memBase memCap.toNat ⋆ R)) mem :=
+  sep_cast hm.2 (by ac_rfl)
+
+theorem WasmMemInv.focus_cap {vmCtx memBase curLen memCap : BitVec 64}
+    {R : Mem 64 → Prop} {mem : Mem 64}
+    (hm : WasmMemInv true vmCtx memBase curLen memCap R mem) :
+    (cell64 (vmCtx + 16#64) memCap ⋆ (cell64 vmCtx memBase ⋆
+      cell64 (vmCtx + 8#64) curLen ⋆ region memBase memCap.toNat ⋆ R)) mem :=
+  sep_cast hm.2 (by ac_rfl)
+
+theorem WasmMemInv.focus_region {vmCtx memBase curLen memCap : BitVec 64}
+    {R : Mem 64 → Prop} {mem : Mem 64}
+    (hm : WasmMemInv true vmCtx memBase curLen memCap R mem) :
+    (region memBase memCap.toNat ⋆ (cell64 vmCtx memBase ⋆
+      cell64 (vmCtx + 8#64) curLen ⋆ cell64 (vmCtx + 16#64) memCap ⋆ R)) mem :=
+  sep_cast hm.2 (by ac_rfl)
+
+theorem WasmMemInv.load_w {vmCtx memBase curLen memCap : BitVec 64}
+    {R : Mem 64 → Prop} {mem : Mem 64}
+    (hm : WasmMemInv true vmCtx memBase curLen memCap R mem)
+    (w : WMemWidth) {ea : Nat} (hbnd : ea + w.bytes ≤ memCap.toNat) :
+    ∃ v : Val w.memTy, loadVal mem w.memTy (memBase + BitVec.ofNat 64 ea) = some v :=
+  region_load_w w (Nat.le_of_lt memCap.isLt) hbnd hm.focus_region
+
+theorem WasmMemInv.store_w {vmCtx memBase curLen memCap : BitVec 64}
+    {R : Mem 64 → Prop} {mem : Mem 64}
+    (hm : WasmMemInv true vmCtx memBase curLen memCap R mem)
+    (w : WMemWidth) {ea : Nat} (hbnd : ea + w.bytes ≤ memCap.toNat) (v : Val w.memTy) :
+    storeOk mem w.memTy (memBase + BitVec.ofNat 64 ea) ∧
+      WasmMemInv true vmCtx memBase curLen memCap R
+        (storeMem mem w.memTy (memBase + BitVec.ofNat 64 ea) v) := by
+  rcases region_store_w w (Nat.le_of_lt memCap.isLt) hbnd v hm.focus_region with ⟨hsok, hreg⟩
+  exact ⟨hsok, hm.1, sep_cast hreg (by ac_rfl)⟩
+
+theorem WasmMemInv.store_len {vmCtx memBase curLen memCap : BitVec 64}
+    {R : Mem 64 → Prop} {mem : Mem 64}
+    (hm : WasmMemInv true vmCtx memBase curLen memCap R mem)
+    (newLen : BitVec 64) (hle : newLen.toNat ≤ memCap.toNat) :
+    storeOk mem T.i64 (vmCtx + 8#64) ∧
+      WasmMemInv true vmCtx memBase newLen memCap R
+        (storeMem mem T.i64 (vmCtx + 8#64) newLen) := by
+  rcases store_cell64 newLen hm.focus_len with ⟨hsok, h8⟩
+  exact ⟨hsok, hle, sep_cast h8 (by ac_rfl)⟩
+
 theorem memBounds_toNat {idx32 off32 : BitVec 32} {bytes : Nat} {memLen : BitVec 64}
     (hb : bytes ≤ 8)
     (hule : (((idx32.setWidth 64 + BitVec.ofNat 64 off32.toNat) +
@@ -373,6 +430,35 @@ theorem wp_mkStatusTrapExpr {Γ : Env} {X : XPost} {hasMem : Bool}
   simp only [mkStatusTrapExpr]
   rw [wp_ret_]
   exact ⟨hs, hf, curLen, hlen, hm⟩
+
+macro "wasm_wp_let" : tactic =>
+  `(tactic| (
+    rw [wp_let_]
+    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
+      Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
+    try refine ⟨by decide, ?_⟩))
+
+theorem wp_wasm_load_w {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {vmCtx memBase curLen memCap : BitVec 64} {R : Mem 64 → Prop} {mem : Mem 64}
+    (hm : WasmMemInv true vmCtx memBase curLen memCap R mem)
+    (w : WMemWidth) {ea : Nat} (hbnd : ea + w.bytes ≤ memCap.toNat)
+    {k : Val w.memTy → Expr Val Cont rs}
+    (hk : ∀ raw : Val w.memTy, wp Γ Q X (k raw) mem) :
+    wp Γ Q X (.load w.memTy (.var (memBase + BitVec.ofNat 64 ea)) k) mem := by
+  rcases hm.load_w w hbnd with ⟨raw, hraw⟩
+  rw [wp_load_]
+  exact ⟨raw, hraw, hk raw⟩
+
+theorem wp_wasm_store_w {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {vmCtx memBase curLen memCap : BitVec 64} {R : Mem 64 → Prop} {mem : Mem 64}
+    (hm : WasmMemInv true vmCtx memBase curLen memCap R mem)
+    (w : WMemWidth) {ea : Nat} (hbnd : ea + w.bytes ≤ memCap.toNat)
+    (v : Arg Val w.memTy) {k : Expr Val Cont rs}
+    (hk : ∀ m', WasmMemInv true vmCtx memBase curLen memCap R m' → wp Γ Q X k m') :
+    wp Γ Q X (.store (t := w.memTy) v (.var (memBase + BitVec.ofNat 64 ea)) k) mem := by
+  rcases hm.store_w w hbnd v.val with ⟨hsok, hm'⟩
+  rw [wp_store_]
+  exact ⟨hsok, hk _ hm'⟩
 
 theorem emitLoadVmCtx_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {vmCtx memBase curLen memCap : BitVec 64} {R : Mem 64 → Prop} {mem : Mem 64}

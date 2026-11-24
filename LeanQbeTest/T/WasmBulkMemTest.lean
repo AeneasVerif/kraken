@@ -1240,8 +1240,7 @@ theorem bm_fill_ok (Γ : Env) (vmCtx memBase memLen memCap fuel : BitVec 64)
       rw [hfEq]
       exact ⟨rfl, hm'⟩)
     (fun _ _ => ?_)
-  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, labelSig,
-    List.map, List.cons_append, List.nil_append]
+  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, List.map]
   refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
     (fun _ xs m' ⟨hfEq, hm'⟩ => by
       rcases xs with ⟨fBlk, b0, b1, b2, ⟨⟩⟩
@@ -1360,8 +1359,7 @@ theorem bm_copy_fwd (Γ : Env) (vmCtx memBase memLen memCap fuel : BitVec 64)
       rw [hfEq]
       exact ⟨rfl, hm'⟩)
     (fun _ _ => ?_)
-  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, labelSig,
-    List.map, List.cons_append, List.nil_append]
+  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, List.map]
   refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
     (fun _ xs m' ⟨hfEq, hm'⟩ => by
       rcases xs with ⟨fBlk, b0, b1, b2, ⟨⟩⟩
@@ -1511,8 +1509,7 @@ theorem bm_copy_bwd (Γ : Env) (vmCtx memBase memLen memCap fuel : BitVec 64)
       rw [hfEq]
       exact ⟨rfl, hm'⟩)
     (fun _ _ => ?_)
-  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, labelSig,
-    List.map, List.cons_append, List.nil_append]
+  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, List.map]
   refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
     (fun _ xs m' ⟨hfEq, hm'⟩ => by
       rcases xs with ⟨fBlk, b0, b1, b2, ⟨⟩⟩
@@ -1660,8 +1657,7 @@ theorem bm_fill_oob (Γ : Env) (vmCtx memBase memCap fuel : BitVec 64)
     List.map, List.append, List.cons_append, List.nil_append,
     WMemSpec.maxBytes, WMemSpec.effectiveMaxPages, WValTy.toTy, labelSig]
   refine wp_join_group (fun _ _ => False) (fun _ _ _ h => False.elim h) (fun _ _ => ?_)
-  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, labelSig,
-    List.map, List.cons_append, List.nil_append]
+  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, List.map]
   refine wp_join_group (fun _ _ => False) (fun _ _ _ h => False.elim h) (fun _ _ => ?_)
   simp only [lowerSimpleInstr]
   dsimp only [appendZeroLocals, zeroArgs, pushArgsAux, getLocal,
@@ -1727,8 +1723,7 @@ theorem bm_copy_wrap (Γ : Env) (vmCtx memBase memCap fuel : BitVec 64)
     List.map, List.append, List.cons_append, List.nil_append,
     WMemSpec.maxBytes, WMemSpec.effectiveMaxPages, WValTy.toTy, labelSig]
   refine wp_join_group (fun _ _ => False) (fun _ _ _ h => False.elim h) (fun _ _ => ?_)
-  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, labelSig,
-    List.map, List.cons_append, List.nil_append]
+  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, List.map]
   refine wp_join_group (fun _ _ => False) (fun _ _ _ h => False.elim h) (fun _ _ => ?_)
   simp only [lowerSimpleInstr]
   dsimp only [appendZeroLocals, zeroArgs, pushArgsAux, getLocal,

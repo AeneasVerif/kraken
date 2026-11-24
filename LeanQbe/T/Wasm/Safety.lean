@@ -33,26 +33,19 @@ open LeanQbe.T LeanQbe.T.LinkScc
 /-! ## Instruction & Structured Control WP Lemmas -/
 
 
-private theorem wp_pure_bin {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    {m : Mem 64} {n : Nat} (code : OpCode [.bits n, .bits n] [.bits n])
-    (hc : code = .lshr (.bits n) ∨ code = .and (.bits n) ∨ code = .sub (.bits n) ∨
-          code = .add (.bits n) ∨ code = .mul (.bits n))
-    (x y : Arg Val (.bits n)) (k : Tup Val [.bits n] → Expr Val Cont rs)
-    (hk : ∀ r, wp Γ Q X (k (r, ())) m) :
-    wp Γ Q X (.let_ (.mk code (x, y, ())) k) m := by
-  rw [wp_let_]
-  rcases hc with rfl | rfl | rfl | rfl | rfl <;>
-  · simp only [Op.wp, OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-    exact hk _
+private theorem emitPopcntCore_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {m : Mem 64} (n : Nat) (m1 m2 m4 mul sh : BitVec n) (x : Arg Val (.bits n))
+    (k : Arg Val (.bits n) → Expr Val Cont rs) (hk : ∀ y, wp Γ Q X (k y) m) :
+    wp Γ Q X (emitPopcntCore n m1 m2 m4 mul sh x k) m := by
+  simp only [emitPopcntCore]
+  repeat' (rw [wp_let_]; simp only [Op.wp, OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte])
+  exact hk _
 
 private theorem emitPopcnt_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} (w : WValTy) (x : Arg Val w.toTy) (k : Arg Val w.toTy → Expr Val Cont rs)
     (hk : ∀ y, wp Γ Q X (k y) m) :
     wp Γ Q X (emitPopcnt w x k) m := by
-  cases w <;> simp only [emitPopcnt] <;>
-  repeat first
-    | exact hk _
-    | refine wp_pure_bin _ (by simp) _ _ _ fun _ => ?_
+  cases w <;> exact emitPopcntCore_wp _ _ _ _ _ _ x k hk
 
 private theorem emitUnOp_wp {Γ : Env} {X : XPost} {hasMem : Bool}
     {vmCtx memBase memLen0 curLen memCap fuel0 : BitVec 64} {retTys : List WValTy}
@@ -64,29 +57,11 @@ private theorem emitUnOp_wp {Γ : Env} {X : XPost} {hasMem : Bool}
     (hk : ∀ y, wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X (k y) mem) :
     wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X
       (emitUnOp retTys fuel w op x k) mem := by
-  cases w <;> cases op <;> simp only [emitUnOp]
-  · rw [wp_let_]; simp only [Op.wp, OpCode.wp]; exact hk _
-  · rw [wp_let_]; simp only [Op.wp, OpCode.wp]; exact hk _
-  · exact emitPopcnt_wp .i32 x k hk
-  · rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-    refine ⟨by decide, ?_⟩
-    rw [wp_let_]; simp only [Op.wp, OpCode.wp]; refine ⟨by decide, hk _⟩
-  · rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-    refine ⟨by decide, ?_⟩
-    rw [wp_let_]; simp only [Op.wp, OpCode.wp]; refine ⟨by decide, hk _⟩
-  · exact wp_mkTrapExpr retTys 1#32 (Or.inr (Or.inl rfl)) hf hlen0 hm
-  · rw [wp_let_]; simp only [Op.wp, OpCode.wp]; exact hk _
-  · rw [wp_let_]; simp only [Op.wp, OpCode.wp]; exact hk _
-  · exact emitPopcnt_wp .i64 x k hk
-  · rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-    refine ⟨by decide, ?_⟩
-    rw [wp_let_]; simp only [Op.wp, OpCode.wp]; refine ⟨by decide, hk _⟩
-  · rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-    refine ⟨by decide, ?_⟩
-    rw [wp_let_]; simp only [Op.wp, OpCode.wp]; refine ⟨by decide, hk _⟩
-  · rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-    refine ⟨by decide, ?_⟩
-    rw [wp_let_]; simp only [Op.wp, OpCode.wp]; refine ⟨by decide, hk _⟩
+  cases w <;> cases op <;> simp only [emitUnOp] <;>
+  first
+  | exact emitPopcnt_wp _ x k hk
+  | exact wp_mkTrapExpr retTys 1#32 (Or.inr (Or.inl rfl)) hf hlen0 hm
+  | (repeat' wasm_wp_let); exact hk _
 
 private theorem sdivDefined_of_guards {n : Nat} {a b minConst neg1Const : BitVec n}
     (hiMin : BitVec.intMin n = minConst) (hiAll : BitVec.allOnes n = neg1Const)
@@ -103,6 +78,38 @@ private theorem sdivDefined_of_guards {n : Nat} {a b minConst neg1Const : BitVec
 private theorem arg_imm_val {t : Ty} (c : Val t) : (Arg.imm c).val = c := rfl
 private theorem arg_var_val {t : Ty} (v : Val t) : (Arg.var v).val = v := rfl
 
+private theorem emitDivRemCore_wp {Γ : Env} {X : XPost} {hasMem : Bool}
+    {vmCtx memBase memLen0 curLen memCap fuel0 : BitVec 64} {retTys : List WValTy}
+    {fuel : Arg Val T.i64} (hf : fuel.val.toNat ≤ fuel0.toNat)
+    (hlen0 : memLen0.toNat ≤ curLen.toNat)
+    {R : Mem 64 → Prop} {mem : Mem 64} (hm : WasmMemInv hasMem vmCtx memBase curLen memCap R mem)
+    (n : Nat) (minC neg1C : BitVec n) (signed trapOvf : Bool)
+    (code : OpCode [.bits n, .bits n] [.bits n])
+    (hcode : ∀ (x y : BitVec n) (Q' : Tup Val [.bits n] → Prop),
+      decide (y = 0#n) = false →
+      (signed = true → (decide (x = minC) && decide (y = neg1C)) = false) →
+      (∀ r, Q' (r, ())) → OpCode.wp code (x, y, ()) Q')
+    (a b : Arg Val (.bits n))
+    (k : Arg Val (.bits n) → Expr Val Cont (wasmRetSig retTys))
+    (hk : ∀ y, wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X (k y) mem) :
+    wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X
+      (emitDivRemCore retTys fuel n minC neg1C signed trapOvf code a b k) mem := by
+  have htrap := wp_mkTrapExpr (Γ := Γ) (X := X) retTys 1#32 (Or.inr (Or.inl rfl)) hf hlen0 hm
+  simp only [emitDivRemCore]
+  wasm_wp_let
+  rw [wp_jnz_]
+  refine ⟨fun _ => htrap, fun hz => ?_⟩
+  rw [arg_var_val] at hz
+  cases signed <;> simp only [↓reduceIte, Bool.false_eq_true]
+  · rw [wp_let_]; exact hcode a.val b.val _ hz (fun h => by cases h) (fun r => hk (.var r))
+  · repeat' wasm_wp_let
+    rw [wp_jnz_]
+    refine ⟨fun _ => ?_, fun hov => ?_⟩
+    · cases trapOvf <;> simp only [↓reduceIte, Bool.false_eq_true] <;>
+        first | exact htrap | exact hk _
+    · rw [arg_var_val] at hov
+      rw [wp_let_]; exact hcode a.val b.val _ hz (fun _ => hov) (fun r => hk (.var r))
+
 private theorem emitBinOp_wp {Γ : Env} {X : XPost} {hasMem : Bool}
     {vmCtx memBase memLen0 curLen memCap fuel0 : BitVec 64} {retTys : List WValTy}
     {fuel : Arg Val T.i64} (hf : fuel.val.toNat ≤ fuel0.toNat)
@@ -113,52 +120,15 @@ private theorem emitBinOp_wp {Γ : Env} {X : XPost} {hasMem : Bool}
     (hk : ∀ y, wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X (k y) mem) :
     wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X
       (emitBinOp retTys fuel w op a b k) mem := by
-  have htrap : wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X
-      (mkTrapExpr retTys 1#32 fuel) mem :=
-    wp_mkTrapExpr retTys 1#32 (Or.inr (Or.inl rfl)) hf hlen0 hm
   cases op <;> cases w <;> simp only [emitBinOp] <;>
   first
-  | (rw [wp_let_]
-     simp only [Op.wp, OpCode.wp, vals, arg_imm_val, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-     exact hk _)
-  | (rw [wp_let_]
-     simp only [Op.wp, OpCode.wp, vals, arg_imm_val, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-       liftCmp, CmpOp.evalBits]
-     rw [wp_jnz_]
-     refine ⟨fun _ => htrap, fun hz => ?_⟩
-     rw [arg_var_val] at hz
-     simp only [wp_let_, Op.wp, OpCode.wp, vals, arg_imm_val, arg_var_val, Ty.hasFloat,
-       Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-     rw [wp_jnz_]
-     refine ⟨fun _ => htrap, fun hov => ?_⟩
-     rw [arg_var_val] at hov
-     rw [wp_let_]
-     simp only [Op.wp, OpCode.wp, vals]
-     refine ⟨sdivDefined_of_guards rfl rfl hz hov, hk _⟩)
-  | (rw [wp_let_]
-     simp only [Op.wp, OpCode.wp, vals, arg_imm_val, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-       liftCmp, CmpOp.evalBits]
-     rw [wp_jnz_]
-     refine ⟨fun _ => htrap, fun hz => ?_⟩
-     rw [arg_var_val] at hz
-     simp only [wp_let_, Op.wp, OpCode.wp, vals, arg_imm_val, arg_var_val, Ty.hasFloat,
-       Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-     rw [wp_jnz_]
-     refine ⟨fun _ => hk _, fun hov => ?_⟩
-     rw [arg_var_val] at hov
-     rw [wp_let_]
-     simp only [Op.wp, OpCode.wp, vals]
-     refine ⟨sdivDefined_of_guards rfl rfl hz hov, hk _⟩)
-  | (rw [wp_let_]
-     simp only [Op.wp, OpCode.wp, vals, arg_imm_val, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-       liftCmp, CmpOp.evalBits]
-     rw [wp_jnz_]
-     refine ⟨fun _ => htrap, fun hz => ?_⟩
-     rw [arg_var_val] at hz
-     have hz' := of_decide_eq_false hz
-     rw [wp_let_]
-     simp only [Op.wp, OpCode.wp, vals]
-     exact ⟨by simpa [BitVec.toNat_eq] using hz', hk _⟩)
+  | (wasm_wp_let; exact hk _)
+  | (refine emitDivRemCore_wp hf hlen0 hm _ _ _ false false _ ?_ a b k hk
+     intro x y Q' hz _ hQ; simp only [OpCode.wp]
+     exact ⟨by simpa [BitVec.toNat_eq] using of_decide_eq_false hz, hQ _⟩)
+  | (refine emitDivRemCore_wp hf hlen0 hm _ _ _ true _ _ ?_ a b k hk
+     intro x y Q' hz hs hQ; simp only [OpCode.wp]
+     exact ⟨sdivDefined_of_guards rfl rfl hz (hs rfl), hQ _⟩)
 
 private theorem emitLoadCast_wp {Γ : Env} {X : XPost} {hasMem : Bool}
     {vmCtx memBase memLen0 curLen memCap fuel0 : BitVec 64} {retTys : List WValTy}
@@ -170,14 +140,9 @@ private theorem emitLoadCast_wp {Γ : Env} {X : XPost} {hasMem : Bool}
     (hk : ∀ y, wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X (k y) mem) :
     wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X
       (emitLoadCast (mkTrapExpr retTys 1#32 fuel) resTy width signed raw k) mem := by
-  have htrap : wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X
-      (mkTrapExpr retTys 1#32 fuel) mem :=
-    wp_mkTrapExpr retTys 1#32 (Or.inr (Or.inl rfl)) hf hlen0 hm
+  have htrap := wp_mkTrapExpr (Γ := Γ) (X := X) retTys 1#32 (Or.inr (Or.inl rfl)) hf hlen0 hm
   cases resTy <;> cases width <;> cases signed <;> simp only [emitLoadCast] <;>
-  first
-  | exact htrap
-  | exact hk _
-  | (rw [wp_let_]; simp only [Op.wp, OpCode.wp]; exact ⟨by decide, hk _⟩)
+  first | exact htrap | exact hk _ | (wasm_wp_let; exact hk _)
 
 private theorem emitStoreCast_wp {Γ : Env} {X : XPost} {hasMem : Bool}
     {vmCtx memBase memLen0 curLen memCap fuel0 : BitVec 64} {retTys : List WValTy}
@@ -189,14 +154,29 @@ private theorem emitStoreCast_wp {Γ : Env} {X : XPost} {hasMem : Bool}
     (hk : ∀ y, wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X (k y) mem) :
     wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X
       (emitStoreCast (mkTrapExpr retTys 1#32 fuel) srcTy width v k) mem := by
-  have htrap : wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 retTys R) X
-      (mkTrapExpr retTys 1#32 fuel) mem :=
-    wp_mkTrapExpr retTys 1#32 (Or.inr (Or.inl rfl)) hf hlen0 hm
+  have htrap := wp_mkTrapExpr (Γ := Γ) (X := X) retTys 1#32 (Or.inr (Or.inl rfl)) hf hlen0 hm
   cases srcTy <;> cases width <;> simp only [emitStoreCast] <;>
-  first
-  | exact htrap
-  | exact hk _
-  | (rw [wp_let_]; simp only [Op.wp, OpCode.wp]; exact ⟨by decide, hk _⟩)
+  first | exact htrap | exact hk _ | (wasm_wp_let; exact hk _)
+
+private theorem emitSelect_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    {trap : Expr Val Cont rs} (htrap : wp Γ Q X trap m)
+    (c : Arg Val T.i32) (v1 v2 : SVal Val) (k : SVal Val → Expr Val Cont rs)
+    (hk : ∀ y, wp Γ Q X (k y) m) :
+    wp Γ Q X (emitSelect trap c v1 v2 k) m := by
+  cases v1 <;> cases v2 <;> simp only [emitSelect] <;>
+  first | exact htrap | ((repeat' wasm_wp_let); exact hk _)
+
+private theorem emitEqz_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    (w : WValTy) (x : Arg Val w.toTy) (k : Arg Val T.i32 → Expr Val Cont rs)
+    (hk : ∀ y, wp Γ Q X (k y) m) :
+    wp Γ Q X (emitEqz w x k) m := by
+  cases w <;> simp only [emitEqz] <;> (repeat' wasm_wp_let) <;> exact hk _
+
+private theorem emitRelOp_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    (w : WValTy) (op : WRelOp) (a b : Arg Val w.toTy) (k : Arg Val T.i32 → Expr Val Cont rs)
+    (hk : ∀ y, wp Γ Q X (k y) m) :
+    wp Γ Q X (emitRelOp w op a b k) m := by
+  cases w <;> simp only [emitRelOp] <;> (repeat' wasm_wp_let) <;> exact hk _
 
 private theorem eqRec_cont_wp {locTys : List WValTy} {ts₁ ts₂ : List WValTy}
     {hasMem : Bool} {vmCtx memBase curLen memCap fuel : BitVec 64} {R : Mem 64 → Prop}
@@ -226,8 +206,7 @@ private theorem emitBrTable_wp {Γ : Env} {X : XPost} {locTys retTys : List WVal
   intro i ts
   induction ts generalizing i with
   | nil =>
-    simp only [emitBrTable]
-    rw [wp_jump_]
+    simp only [emitBrTable]; rw [wp_jump_]
     exact hlabs defLbl hdef curLen _ mem (Nat.le_refl _) hf hm
   | cons t rest ih =>
     simp only [emitBrTable]
@@ -237,9 +216,7 @@ private theorem emitBrTable_wp {Γ : Env} {X : XPost} {locTys retTys : List WVal
       have hlblMem : lbl ∈ labs := List.mem_of_getElem? hget
       by_cases hty : lbl.argTys = defLbl.argTys
       · simp only [hty, ↓reduceDIte]
-        rw [wp_let_]
-        simp only [Op.wp, OpCode.wp, vals, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-          liftCmp, CmpOp.evalBits]
+        wasm_wp_let
         rw [wp_jnz_]
         refine ⟨fun _ => ?_, fun _ => ih (i + 1)⟩
         rw [wp_jump_]
@@ -268,22 +245,57 @@ private theorem lowerSimpleInstr_wp {Γ : Env} {X : XPost} (ctx : WLowerCtx)
     {mem : Mem 64} (hm : WasmMemInv hasMem vmCtx memBase curLen memCap R mem) :
     wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 ctx.retTys R) X
       (lowerSimpleInstr ctx vc f locs stk labs instr k) mem := by
-  have htrap : wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 ctx.retTys R) X
-      (mkTrapExpr ctx.retTys 1#32 f) mem :=
-    wp_mkTrapExpr ctx.retTys 1#32 (Or.inr (Or.inl rfl)) hf0 hlen0 hm
+  have htrap := wp_mkTrapExpr (Γ := Γ) (X := X) (vmCtx := vmCtx) (memBase := memBase)
+    (memLen0 := memLen0) (memCap := memCap) (fuel0 := fuel0) ctx.retTys 1#32
+    (Or.inr (Or.inl rfl)) hf0 hlen0 hm
   have hk0 : ∀ (locs' : Tup (Arg Val) (ctx.locTys.map WValTy.toTy)) stk',
       wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 ctx.retTys R) X
         (k f locs' stk') mem :=
     fun locs' stk' => hk f curLen locs' stk' mem (Nat.le_refl _) (Nat.le_refl _) hm hlabs hcal
   cases instr with
-  | nop => exact hk0 locs stk
-  | br_if depth =>
+  | load resTy width signed _ =>
     simp only [lowerSimpleInstr]
-    cases pop32 stk with
+    by_cases hok : (ctx.hasMem && validateLoad resTy width signed) = true
+    · simp only [hok, ↓reduceIte]
+      have hhm : hasMem = true := by simp only [Bool.and_eq_true] at hok; rw [← hmem, hok.1]
+      subst hhm
+      cases pop32 stk with
+      | none => exact htrap
+      | some p =>
+        rcases p with ⟨idx32, s1⟩; dsimp only
+        refine emitMemBounds_wp vc f hvc hf0 hlen0 hm idx32 _ _ _ fun ea hba =>
+          wp_wasm_load_w hm _ hba fun raw =>
+            emitLoadCast_wp hf0 hlen0 hm _ _ _ raw _ fun v => hk0 locs (SVal.ofArg _ v :: s1)
+    · simp only [hok, Bool.false_eq_true, ↓reduceIte]; exact htrap
+  | store srcTy width _ =>
+    simp only [lowerSimpleInstr]
+    by_cases hok : (ctx.hasMem && validateStore srcTy width) = true
+    · simp only [hok, ↓reduceIte]
+      have hhm : hasMem = true := by simp only [Bool.and_eq_true] at hok; rw [← hmem, hok.1]
+      subst hhm
+      cases popExpectS _ stk with
+      | none => exact htrap
+      | some p =>
+        rcases p with ⟨sv, s1⟩; dsimp only
+        cases pop32 s1 with
+        | none => exact htrap
+        | some p2 =>
+          rcases p2 with ⟨idx32, s2⟩; dsimp only
+          refine emitMemBounds_wp vc f hvc hf0 hlen0 hm idx32 _ _ _ fun ea hba =>
+            emitStoreCast_wp hf0 hlen0 hm _ _ sv _ fun memVal =>
+              wp_wasm_store_w hm _ hba memVal fun _ hm' =>
+                hk f curLen locs s2 _ (Nat.le_refl _) (Nat.le_refl _) hm' hlabs hcal
+    · simp only [hok, Bool.false_eq_true, ↓reduceIte]; exact htrap
+  | _ =>
+  simp only [lowerSimpleInstr] <;>
+  first
+  | exact htrap
+  | exact hk0 locs _
+  | (cases pop32 stk with
     | none => exact htrap
     | some p =>
       rcases p with ⟨c, r⟩
-      cases hget : labs[depth]? with
+      cases hget : labs[‹Nat›]? with
       | none => exact htrap
       | some lbl =>
         have hlblMem : lbl ∈ labs := List.mem_of_getElem? hget
@@ -291,18 +303,12 @@ private theorem lowerSimpleInstr_wp {Γ : Env} {X : XPost} (ctx : WLowerCtx)
         cases popArgsAux lbl.argTys r with
         | none => exact htrap
         | some p' =>
-          rcases p' with ⟨ba, _⟩
-          dsimp only
-          rw [wp_let_]
-          simp only [Op.wp, OpCode.wp, vals, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-            liftCmp, CmpOp.evalBits]
-          rw [wp_jnz_]
+          rcases p' with ⟨ba, _⟩; dsimp only
+          wasm_wp_let; rw [wp_jnz_]
           refine ⟨fun _ => ?_, fun _ => hk0 locs r⟩
           rw [wp_jump_]
-          exact hlabs lbl hlblMem curLen _ mem (Nat.le_refl _) (Nat.le_refl _) hm
-  | call fnIdx =>
-    simp only [lowerSimpleInstr]
-    cases hc : ctx.funcs[fnIdx]? with
+          exact hlabs lbl hlblMem curLen _ mem (Nat.le_refl _) (Nat.le_refl _) hm)
+  | (cases hc : ctx.funcs[‹Nat›]? with
     | none => exact htrap
     | some callee =>
       dsimp only
@@ -313,43 +319,27 @@ private theorem lowerSimpleInstr_wp {Γ : Env} {X : XPost} (ctx : WLowerCtx)
         cases popArgsAux ft.params stk with
         | none => exact htrap
         | some p =>
-          rcases p with ⟨ca, s1⟩
-          dsimp only
-          rw [wp_let_]
-          simp only [Op.wp, OpCode.wp, vals, Arg.val, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-            liftCmp, CmpOp.evalBits]
-          rw [wp_jnz_]
+          rcases p with ⟨ca, s1⟩; dsimp only
+          wasm_wp_let; rw [wp_jnz_]
           refine ⟨fun _ => wp_mkTrapExpr ctx.retTys 2#32 (Or.inr (Or.inr rfl)) hf0 hlen0 hm,
             fun hz => ?_⟩
-          have hne : f.val ≠ 0#64 := decide_eq_false_iff_not.mp hz
-          have hlt : (f.val - 1#64).toNat < f.val.toNat := bv64_sub_one_lt hne
-          rw [wp_let_]
-          simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-            Bool.false_eq_true, ↓reduceIte]
-          rw [wp_call_]
+          have hlt : (f.val - 1#64).toNat < f.val.toNat :=
+            bv64_sub_one_lt (decide_eq_false_iff_not.mp hz)
+          wasm_wp_let; rw [wp_call_]
           refine ⟨WasmPost hasMem vmCtx memBase curLen memCap (f.val - 1#64) ft.results R,
             fun _ _ _ _ => False, ?_, ?_, fun _ _ _ _ h => False.elim h⟩
           · rw [vals_wasmAbi, hvc]
-            exact hcal fnIdx callee ft hc hft curLen (f.val - 1#64) (vals ca) mem hlt hm
+            exact hcal _ callee ft hc hft curLen (f.val - 1#64) (vals ca) mem hlt hm
           · intro r m' ⟨hst, hrf, curLen', hcurLe, hm'⟩
-            rw [wp_let_]
-            simp only [Op.wp, OpCode.wp, vals, Arg.val, Ty.hasFloat, Bool.false_eq_true,
-              ↓reduceIte, liftCmp, CmpOp.evalBits]
-            rw [wp_jnz_]
+            wasm_wp_let; rw [wp_jnz_]
             have hle : r.2.1.toNat ≤ f.val.toNat := Nat.le_trans hrf (Nat.le_of_lt hlt)
             refine ⟨fun _ => hk (.var r.2.1) curLen' locs
                 (pushArgsAux ft.results (varsTup r.2.2) s1) m' hle hcurLe hm'
                 (LabsSafe.mono hcurLe hle hlabs) (WasmCalleeEnvOk.mono_fuel hle hcal),
               fun _ => wp_mkStatusTrapExpr ctx.retTys (status := .var r.1) hst
-                (Nat.le_trans hle hf0) (Nat.le_trans hlen0 hcurLe) hm'⟩
-  | drop =>
-    simp only [lowerSimpleInstr]
-    cases stk with
-    | nil => exact htrap
-    | cons _ r => exact hk0 locs r
-  | select =>
-    simp only [lowerSimpleInstr]
-    cases pop32 stk with
+                (Nat.le_trans hle hf0) (Nat.le_trans hlen0 hcurLe) hm'⟩)
+  | (cases stk with | nil => exact htrap | cons _ r => exact hk0 locs r)
+  | (cases pop32 stk with
     | none => exact htrap
     | some p =>
       rcases p with ⟨c, r⟩
@@ -357,275 +347,156 @@ private theorem lowerSimpleInstr_wp {Γ : Env} {X : XPost} (ctx : WLowerCtx)
       | nil => exact htrap
       | cons v₂ r2 =>
         cases r2 with
-        | nil => cases v₂ <;> exact htrap
-        | cons v₁ r3 =>
-          cases v₂ <;> cases v₁ <;> dsimp only
-          · rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-            rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-            exact hk0 locs _
-          · exact htrap
-          · exact htrap
-          · rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-            rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-            exact hk0 locs _
-  | local_get idx =>
-    simp only [lowerSimpleInstr]
-    cases getLocal ctx.locTys locs idx with
-    | none => exact htrap
-    | some v => exact hk0 locs (v :: stk)
-  | local_set idx =>
-    simp only [lowerSimpleInstr]
-    cases stk with
+        | nil => exact htrap
+        | cons v₁ r3 => exact emitSelect_wp htrap c v₁ v₂ _ fun y => hk0 locs (y :: r3))
+  | (cases getLocal ctx.locTys locs ‹Nat› with | none => exact htrap | some v => exact hk0 locs _)
+  | (cases stk with
     | nil => exact htrap
-    | cons v r =>
-      dsimp only
-      cases setLocal ctx.locTys locs idx v with
-      | none => exact htrap
-      | some locs' => exact hk0 locs' r
-  | local_tee idx =>
-    simp only [lowerSimpleInstr]
-    cases stk with
+    | cons v r => dsimp only; cases setLocal ctx.locTys locs ‹Nat› v with
+      | none => exact htrap | some locs' => exact hk0 locs' _)
+  | (cases ctx.globals[‹Nat›]? with | none => exact htrap | some g => exact hk0 locs _)
+  | (by_cases hmFlag : ctx.hasMem = true
+     · simp only [hmFlag, ↓reduceIte]
+       have hhm : hasMem = true := hmem.symm.trans hmFlag; subst hhm
+       exact emitMemSize_wp vc hvc hm _ (hk0 locs _)
+     · simp only [hmFlag, Bool.false_eq_true, ↓reduceIte]; exact htrap)
+  | (by_cases hmFlag : ctx.hasMem = true
+     · simp only [hmFlag, ↓reduceIte]
+       have hhm : hasMem = true := hmem.symm.trans hmFlag; subst hhm
+       cases pop32 stk with
+       | none => exact htrap
+       | some p =>
+         rcases p with ⟨delta, s1⟩; dsimp only
+         exact emitMemGrow_wp ctx.memMaxBytes vc f delta hvc hf0 hlen0 hm _
+           fun f' res len' m' hf' hle hm' =>
+             hk f' len' locs (.i32 res :: s1) m' hf' hle hm'
+               (LabsSafe.mono hle hf' hlabs) (WasmCalleeEnvOk.mono_fuel hf' hcal)
+     · simp only [hmFlag, Bool.false_eq_true, ↓reduceIte]; exact htrap)
+  | (by_cases hmFlag : ctx.hasMem = true
+     · simp only [hmFlag, ↓reduceIte]
+       have hhm : hasMem = true := hmem.symm.trans hmFlag; subst hhm
+       cases pop32 stk with
+       | none => exact htrap
+       | some p1 =>
+         rcases p1 with ⟨n32, s1⟩; dsimp only
+         cases pop32 s1 with
+         | none => exact htrap
+         | some p2 =>
+           rcases p2 with ⟨v32, s2⟩; dsimp only
+           cases pop32 s2 with
+           | none => exact htrap
+           | some p3 =>
+             rcases p3 with ⟨d32, s3⟩; dsimp only
+             exact emitMemFill_wp vc f d32 v32 n32 hvc hf0 hlen0 hm _ fun f' m' hf' hm' =>
+               hk f' curLen locs s3 m' hf' (Nat.le_refl _) hm'
+                 (LabsSafe.mono (Nat.le_refl _) hf' hlabs) (WasmCalleeEnvOk.mono_fuel hf' hcal)
+     · simp only [hmFlag, Bool.false_eq_true, ↓reduceIte]; exact htrap)
+  | (by_cases hmFlag : ctx.hasMem = true
+     · simp only [hmFlag, ↓reduceIte]
+       have hhm : hasMem = true := hmem.symm.trans hmFlag; subst hhm
+       cases pop32 stk with
+       | none => exact htrap
+       | some p1 =>
+         rcases p1 with ⟨n32, s1⟩; dsimp only
+         cases pop32 s1 with
+         | none => exact htrap
+         | some p2 =>
+           rcases p2 with ⟨sr32, s2⟩; dsimp only
+           cases pop32 s2 with
+           | none => exact htrap
+           | some p3 =>
+             rcases p3 with ⟨d32, s3⟩; dsimp only
+             exact emitMemCopy_wp vc f d32 sr32 n32 hvc hf0 hlen0 hm _ fun f' m' hf' hm' =>
+               hk f' curLen locs s3 m' hf' (Nat.le_refl _) hm'
+                 (LabsSafe.mono (Nat.le_refl _) hf' hlabs) (WasmCalleeEnvOk.mono_fuel hf' hcal)
+     · simp only [hmFlag, Bool.false_eq_true, ↓reduceIte]; exact htrap)
+  | (cases ‹WValTy› <;> cases stk with
     | nil => exact htrap
-    | cons v r =>
-      dsimp only
-      cases setLocal ctx.locTys locs idx v with
-      | none => exact htrap
-      | some locs' => exact hk0 locs' (v :: r)
-  | global_get idx =>
-    simp only [lowerSimpleInstr]
-    cases ctx.globals[idx]? with
-    | none => exact htrap
-    | some g => exact hk0 locs _
-  | load resTy width signed arg =>
-    simp only [lowerSimpleInstr]
-    by_cases hok : (ctx.hasMem && validateLoad resTy width signed) = true
-    · simp only [hok, ↓reduceIte]
-      have hhm : hasMem = true := by
-        simp only [Bool.and_eq_true] at hok; rw [← hmem, hok.1]
-      subst hhm
-      cases pop32 stk with
-      | none => exact htrap
-      | some p =>
-        rcases p with ⟨idx32, s1⟩
-        dsimp only
-        refine emitMemBounds_wp vc f hvc hf0 hlen0 hm idx32 arg width _ fun ea hba => ?_
-        have hreg : (region memBase memCap.toNat ⋆ (cell64 vmCtx memBase ⋆
-            cell64 (vmCtx + 8#64) curLen ⋆ cell64 (vmCtx + 16#64) memCap ⋆ R)) mem :=
-          sep_cast hm.2 (by ac_rfl)
-        have hlen : memCap.toNat ≤ 2 ^ 64 := Nat.le_of_lt memCap.isLt
-        rcases region_load_w width hlen hba hreg with ⟨raw, hraw⟩
-        rw [wp_load_]
-        refine ⟨raw, hraw, ?_⟩
-        exact emitLoadCast_wp hf0 hlen0 hm resTy width signed raw _ fun v =>
-          hk0 locs (SVal.ofArg resTy v :: s1)
-    · simp only [hok, Bool.false_eq_true, ↓reduceIte]; exact htrap
-  | store srcTy width arg =>
-    simp only [lowerSimpleInstr]
-    by_cases hok : (ctx.hasMem && validateStore srcTy width) = true
-    · simp only [hok, ↓reduceIte]
-      have hhm : hasMem = true := by
-        simp only [Bool.and_eq_true] at hok; rw [← hmem, hok.1]
-      subst hhm
-      cases popExpectS srcTy stk with
-      | none => exact htrap
-      | some p =>
-        rcases p with ⟨sv, s1⟩
-        dsimp only
-        cases pop32 s1 with
-        | none => exact htrap
-        | some p2 =>
-          rcases p2 with ⟨idx32, s2⟩
-          dsimp only
-          refine emitMemBounds_wp vc f hvc hf0 hlen0 hm idx32 arg width _ fun ea hba => ?_
-          refine emitStoreCast_wp hf0 hlen0 hm srcTy width sv _ fun memVal => ?_
-          have hreg : (region memBase memCap.toNat ⋆ (cell64 vmCtx memBase ⋆
-              cell64 (vmCtx + 8#64) curLen ⋆ cell64 (vmCtx + 16#64) memCap ⋆ R)) mem :=
-            sep_cast hm.2 (by ac_rfl)
-          have hlen : memCap.toNat ≤ 2 ^ 64 := Nat.le_of_lt memCap.isLt
-          rcases region_store_w width hlen hba memVal.val hreg with ⟨hsok, hmem'⟩
-          rw [wp_store_]
-          refine ⟨hsok, ?_⟩
-          have hm' : WasmMemInv true vmCtx memBase curLen memCap R
-              (storeMem mem width.memTy (memBase + BitVec.ofNat 64 ea) memVal.val) :=
-            ⟨hm.1, sep_cast hmem' (by ac_rfl)⟩
-          exact hk f curLen locs s2 _ (Nat.le_refl _) (Nat.le_refl _) hm' hlabs hcal
-    · simp only [hok, Bool.false_eq_true, ↓reduceIte]; exact htrap
-  | memory_size =>
-    simp only [lowerSimpleInstr]
-    by_cases hmFlag : ctx.hasMem = true
-    · simp only [hmFlag, ↓reduceIte]
-      have hhm : hasMem = true := hmem.symm.trans hmFlag
-      subst hhm
-      exact emitMemSize_wp vc hvc hm _ (hk0 locs _)
-    · simp only [hmFlag, Bool.false_eq_true, ↓reduceIte]; exact htrap
-  | memory_grow =>
-    simp only [lowerSimpleInstr]
-    by_cases hmFlag : ctx.hasMem = true
-    · simp only [hmFlag, ↓reduceIte]
-      have hhm : hasMem = true := hmem.symm.trans hmFlag
-      subst hhm
-      cases pop32 stk with
-      | none => exact htrap
-      | some p =>
-        rcases p with ⟨delta, s1⟩
-        dsimp only
-        exact emitMemGrow_wp ctx.memMaxBytes vc f delta hvc hf0 hlen0 hm _
-          fun f' res len' m' hf' hle hm' =>
-            hk f' len' locs (.i32 res :: s1) m' hf' hle hm'
-              (LabsSafe.mono hle hf' hlabs) (WasmCalleeEnvOk.mono_fuel hf' hcal)
-    · simp only [hmFlag, Bool.false_eq_true, ↓reduceIte]; exact htrap
-  | memory_fill =>
-    simp only [lowerSimpleInstr]
-    by_cases hmFlag : ctx.hasMem = true
-    · simp only [hmFlag, ↓reduceIte]
-      have hhm : hasMem = true := hmem.symm.trans hmFlag
-      subst hhm
-      cases pop32 stk with
-      | none => exact htrap
-      | some p1 =>
-        rcases p1 with ⟨n32, s1⟩
-        dsimp only
-        cases pop32 s1 with
-        | none => exact htrap
-        | some p2 =>
-          rcases p2 with ⟨val32, s2⟩
-          dsimp only
-          cases pop32 s2 with
-          | none => exact htrap
-          | some p3 =>
-            rcases p3 with ⟨dst32, s3⟩
-            dsimp only
-            exact emitMemFill_wp vc f dst32 val32 n32 hvc hf0 hlen0 hm _
-              fun f' m' hf' hm' =>
-                hk f' curLen locs s3 m' hf' (Nat.le_refl _) hm'
-                  (LabsSafe.mono (Nat.le_refl _) hf' hlabs) (WasmCalleeEnvOk.mono_fuel hf' hcal)
-    · simp only [hmFlag, Bool.false_eq_true, ↓reduceIte]; exact htrap
-  | memory_copy =>
-    simp only [lowerSimpleInstr]
-    by_cases hmFlag : ctx.hasMem = true
-    · simp only [hmFlag, ↓reduceIte]
-      have hhm : hasMem = true := hmem.symm.trans hmFlag
-      subst hhm
-      cases pop32 stk with
-      | none => exact htrap
-      | some p1 =>
-        rcases p1 with ⟨n32, s1⟩
-        dsimp only
-        cases pop32 s1 with
-        | none => exact htrap
-        | some p2 =>
-          rcases p2 with ⟨src32, s2⟩
-          dsimp only
-          cases pop32 s2 with
-          | none => exact htrap
-          | some p3 =>
-            rcases p3 with ⟨dst32, s3⟩
-            dsimp only
-            exact emitMemCopy_wp vc f dst32 src32 n32 hvc hf0 hlen0 hm _
-              fun f' m' hf' hm' =>
-                hk f' curLen locs s3 m' hf' (Nat.le_refl _) hm'
-                  (LabsSafe.mono (Nat.le_refl _) hf' hlabs) (WasmCalleeEnvOk.mono_fuel hf' hcal)
-    · simp only [hmFlag, Bool.false_eq_true, ↓reduceIte]; exact htrap
-  | i32_const _ => exact hk0 locs _
-  | i64_const _ => exact hk0 locs _
-  | eqz w =>
-    simp only [lowerSimpleInstr]
-    cases w with
-    | i32 =>
-      cases stk with
-      | nil => exact htrap
-      | cons x _ =>
-        cases x with
-        | i32 _ =>
-          rw [wp_let_]
-          simp only [Op.wp, OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-          rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-          exact hk0 locs _
-        | i64 _ => exact htrap
-    | i64 =>
-      cases stk with
-      | nil => exact htrap
-      | cons x _ =>
-        cases x with
-        | i32 _ => exact htrap
-        | i64 _ =>
-          rw [wp_let_]
-          simp only [Op.wp, OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-          rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-          exact hk0 locs _
-  | unop w op =>
-    simp only [lowerSimpleInstr]
-    cases popExpectS w stk with
+    | cons x r =>
+      cases x <;> first | exact htrap | exact emitEqz_wp _ _ _ fun y => hk0 locs (.i32 y :: r))
+  | (cases popExpectS _ stk with
     | none => exact htrap
     | some p =>
-      rcases p with ⟨x, s1⟩
-      dsimp only
-      exact emitUnOp_wp hf0 hlen0 hm w op x _ fun y => hk0 locs (SVal.ofArg w y :: s1)
-  | binop w op =>
-    simp only [lowerSimpleInstr]
-    cases popExpectS w stk with
+      rcases p with ⟨x, _⟩; dsimp only
+      exact emitUnOp_wp hf0 hlen0 hm _ _ x _ fun _ => hk0 locs _)
+  | (cases popExpectS _ stk with
     | none => exact htrap
     | some p =>
-      rcases p with ⟨b, s1⟩
-      dsimp only
-      cases popExpectS w s1 with
+      rcases p with ⟨b, s1⟩; dsimp only
+      cases popExpectS _ s1 with
       | none => exact htrap
       | some p2 =>
-        rcases p2 with ⟨a, s2⟩
-        dsimp only
-        exact emitBinOp_wp hf0 hlen0 hm w op a b _ fun y => hk0 locs (SVal.ofArg w y :: s2)
-  | relop w op =>
-    simp only [lowerSimpleInstr]
-    cases popExpectS w stk with
+        rcases p2 with ⟨a, _⟩; dsimp only
+        exact emitBinOp_wp hf0 hlen0 hm _ _ a b _ fun _ => hk0 locs _)
+  | (cases popExpectS _ stk with
     | none => exact htrap
     | some p =>
-      rcases p with ⟨b, s1⟩
-      dsimp only
-      cases popExpectS w s1 with
+      rcases p with ⟨b, s1⟩; dsimp only
+      cases popExpectS _ s1 with
       | none => exact htrap
       | some p2 =>
-        rcases p2 with ⟨a, s2⟩
-        dsimp only
-        cases w <;>
-        · rw [wp_let_]
-          simp only [Op.wp, OpCode.wp, vals, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-          rw [wp_let_]
-          simp only [Op.wp, OpCode.wp]
-          exact hk0 locs _
-  | wrap_i64 =>
-    simp only [lowerSimpleInstr]
-    cases pop64 stk with
+        rcases p2 with ⟨a, _⟩; dsimp only
+        exact emitRelOp_wp _ _ a b _ fun _ => hk0 locs _)
+  | (cases pop64 stk with
     | none => exact htrap
-    | some p =>
-      rcases p with ⟨_, s1⟩
-      dsimp only
-      rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-      exact ⟨by decide, hk0 locs _⟩
-  | extend_i32_s =>
-    simp only [lowerSimpleInstr]
-    cases pop32 stk with
+    | some p => rcases p with ⟨_, _⟩; dsimp only; wasm_wp_let; exact hk0 locs _)
+  | (cases pop32 stk with
     | none => exact htrap
-    | some p =>
-      rcases p with ⟨_, s1⟩
-      dsimp only
-      rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-      exact ⟨by decide, hk0 locs _⟩
-  | extend_i32_u =>
-    simp only [lowerSimpleInstr]
-    cases pop32 stk with
+    | some p => rcases p with ⟨_, _⟩; dsimp only; wasm_wp_let; exact hk0 locs _)
+  | (cases pop32 stk with
     | none => exact htrap
-    | some p =>
-      rcases p with ⟨_, s1⟩
-      dsimp only
-      rw [wp_let_]; simp only [Op.wp, OpCode.wp]
-      exact ⟨by decide, hk0 locs _⟩
-  | unreachable => exact htrap
-  | block _ _ => exact htrap
-  | loop _ _ => exact htrap
-  | if_ _ _ _ => exact htrap
-  | br _ => exact htrap
-  | br_table _ _ => exact htrap
-  | return_ => exact htrap
+    | some p => rcases p with ⟨_, _⟩; dsimp only; wasm_wp_let; exact hk0 locs _)
+
+private theorem lowerGroupJoin_wp {Γ : Env} {X : XPost} (ctx : WLowerCtx) (ft : WFuncTy)
+    {hasMem : Bool} {vmCtx memBase memLen0 curLen memCap fuel0 : BitVec 64} {R : Mem 64 → Prop}
+    {f : Arg Val T.i64} (hf0 : f.val.toNat ≤ fuel0.toNat) (hlen0 : memLen0.toNat ≤ curLen.toNat)
+    (labs : List (WLabel Val Cont ctx.locTys)) (sa : List (SVal Val))
+    (hlabs : LabsSafe ctx.locTys hasMem vmCtx memBase curLen memCap f.val R labs)
+    (hcal : WasmCalleeEnvOk Γ ctx.funcs ctx.types hasMem vmCtx memBase memCap f.val R)
+    (body : WLabel Val Cont ctx.locTys → WCont Val Cont ctx.locTys ctx.retTys →
+      Expr Val Cont (wasmRetSig ctx.retTys))
+    (after : WCont Val Cont ctx.locTys ctx.retTys) {mem : Mem 64}
+    (hafter : ∀ curLen' (f' : Arg Val T.i64) locs' stk' m',
+      curLen.toNat ≤ curLen'.toNat → f'.val.toNat ≤ f.val.toNat →
+      WasmMemInv hasMem vmCtx memBase curLen' memCap R m' →
+      LabsSafe ctx.locTys hasMem vmCtx memBase curLen' memCap f'.val R labs →
+      WasmCalleeEnvOk Γ ctx.funcs ctx.types hasMem vmCtx memBase memCap f'.val R →
+      wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 ctx.retTys R) X
+        (after f' locs' stk') m')
+    (hbody : ∀ (lbl' : WLabel Val Cont ctx.locTys) (fall : WCont Val Cont ctx.locTys ctx.retTys),
+      LabsSafe ctx.locTys hasMem vmCtx memBase curLen memCap f.val R (lbl' :: labs) →
+      (∀ f' curLen' locs' stk' m', f'.val.toNat ≤ f.val.toNat → curLen.toNat ≤ curLen'.toNat →
+        WasmMemInv hasMem vmCtx memBase curLen' memCap R m' →
+        wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 ctx.retTys R) X
+          (fall f' locs' stk') m') →
+      wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 ctx.retTys R) X
+        (body lbl' fall) mem) :
+    wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 ctx.retTys R) X
+      (lowerGroupJoin ctx ft sa body after) mem := by
+  simp only [lowerGroupJoin]
+  rw [wp_group_]
+  intro Js hcl
+  rw [closed_cons_] at hcl
+  have hJoin : ∀ curLen' (xs : Tup Val (labelSig ctx.locTys ft.results)) m',
+      curLen.toNat ≤ curLen'.toNat → xs.1.toNat ≤ f.val.toNat →
+      WasmMemInv hasMem vmCtx memBase curLen' memCap R m' → Js.1 xs m' := by
+    intro curLen' xs m' hcur hxs hm'
+    exact hcl.1 xs m' (hafter curLen' (.var xs.1) _ _ m' hcur hxs hm'
+      (LabsSafe.mono hcur hxs hlabs) (WasmCalleeEnvOk.mono_fuel hxs hcal))
+  let lbl' : WLabel Val Cont ctx.locTys := ⟨ft.results, Js.1⟩
+  have hlabs' : LabsSafe ctx.locTys hasMem vmCtx memBase curLen memCap f.val R (lbl' :: labs) := by
+    intro l hl curLen' xs m' hcur hxs hm'
+    rcases List.mem_cons.mp hl with rfl | hl
+    · exact hJoin curLen' xs m' hcur hxs hm'
+    · exact hlabs l hl curLen' xs m' hcur hxs hm'
+  refine hbody lbl' _ hlabs' fun f' curLen' locs' stk' m' hf' hcur' hm' => ?_
+  cases popArgsAux ft.results stk' with
+  | none =>
+    exact wp_mkTrapExpr ctx.retTys 1#32 (Or.inr (Or.inl rfl))
+      (Nat.le_trans hf' hf0) (Nat.le_trans hlen0 hcur') hm'
+  | some p' =>
+    rcases p' with ⟨ra, _⟩; dsimp only; rw [wp_jump_]
+    exact hJoin curLen' _ m' hcur' hf' hm'
 
 /-- Universal WP theorem for `lowerSeq`: arbitrary instruction sequences preserve host frame `R`,
 respect fuel bounds, grow memory monotonically (`curLen ≤ curLen'`), and never trap outside
@@ -656,9 +527,9 @@ theorem lowerSeq_wp_aux {Γ : Env} {X : XPost} (ctx : WLowerCtx)
   induction sz using Nat.strongRecOn with
   | _ sz ih =>
     intro curLen f hf0 hlen0 hcal locs stk labs hlabs instrs hsz k hk mem hm
-    have htrap : wp Γ (WasmPost hasMem vmCtx memBase memLen0 memCap fuel0 ctx.retTys R) X
-        (mkTrapExpr ctx.retTys 1#32 f) mem :=
-      wp_mkTrapExpr ctx.retTys 1#32 (Or.inr (Or.inl rfl)) hf0 hlen0 hm
+    have htrap := wp_mkTrapExpr (Γ := Γ) (X := X) (vmCtx := vmCtx) (memBase := memBase)
+      (memLen0 := memLen0) (memCap := memCap) (fuel0 := fuel0) ctx.retTys 1#32
+      (Or.inr (Or.inl rfl)) hf0 hlen0 hm
     cases instrs with
     | nil =>
       simp only [lowerSeq]
@@ -677,9 +548,7 @@ theorem lowerSeq_wp_aux {Γ : Env} {X : XPost} (ctx : WLowerCtx)
           cases popArgsAux lbl.argTys stk with
           | none => exact htrap
           | some p =>
-            rcases p with ⟨ba, _⟩
-            dsimp only
-            rw [wp_jump_]
+            rcases p with ⟨ba, _⟩; dsimp only; rw [wp_jump_]
             exact hlabs lbl hlblMem curLen _ mem (Nat.le_refl _) (Nat.le_refl _) hm
       | br_table targets defTarget =>
         simp only [lowerSeq]
@@ -695,8 +564,7 @@ theorem lowerSeq_wp_aux {Γ : Env} {X : XPost} (ctx : WLowerCtx)
             cases popArgsAux defLbl.argTys s1 with
             | none => exact htrap
             | some p' =>
-              rcases p' with ⟨ba, _⟩
-              dsimp only
+              rcases p' with ⟨ba, _⟩; dsimp only
               exact emitBrTable_wp labs hlabs locs f hf0 (Nat.le_refl _) idx32 defLbl hdefMem ba
                 hlen0 hm 0 targets
       | return_ =>
@@ -704,9 +572,7 @@ theorem lowerSeq_wp_aux {Γ : Env} {X : XPost} (ctx : WLowerCtx)
         cases popArgsAux ctx.retTys stk with
         | none => exact htrap
         | some p =>
-          rcases p with ⟨ra, _⟩
-          dsimp only
-          rw [wp_ret_]
+          rcases p with ⟨ra, _⟩; dsimp only; rw [wp_ret_]
           exact ⟨Or.inl rfl, hf0, curLen, hlen0, hm⟩
       | block bt body =>
         simp only [lowerSeq]
@@ -717,42 +583,21 @@ theorem lowerSeq_wp_aux {Γ : Env} {X : XPost} (ctx : WLowerCtx)
           cases popArgsAux ft.params stk with
           | none => exact htrap
           | some p =>
-            rcases p with ⟨ia, sa⟩
-            dsimp only
+            rcases p with ⟨ia, sa⟩; dsimp only
             have hszBody : sizeOf body < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
             have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-            rw [wp_group_]
-            intro Js hcl
-            rw [closed_cons_] at hcl
-            have hJoin : ∀ curLen' xs m', curLen.toNat ≤ curLen'.toNat →
-                xs.1.toNat ≤ f.val.toNat →
-                WasmMemInv hasMem vmCtx memBase curLen' memCap R m' → Js.1 xs m' := by
-              intro curLen' xs m' hcur hxs hm'
-              apply hcl.1 xs m'
-              exact ih _ hszRest' curLen' (.var xs.1) (Nat.le_trans hxs hf0)
-                (Nat.le_trans hlen0 hcur) (WasmCalleeEnvOk.mono_fuel hxs hcal) _ _ labs
-                (LabsSafe.mono hcur hxs hlabs) rest (Nat.le_refl _) k
-                (fun f' curLen'' locs' stk' m'' hf' hcur' hm'' hl' hc' =>
-                  hk f' curLen'' locs' stk' m'' (Nat.le_trans hf' hxs) (Nat.le_trans hcur hcur')
-                    hm'' hl' hc') hm'
-            let lbl' : WLabel Val Cont ctx.locTys := ⟨ft.results, Js.1⟩
-            have hlabs' : LabsSafe ctx.locTys hasMem vmCtx memBase curLen memCap f.val R
-                (lbl' :: labs) := by
-              intro l hl curLen' xs m' hcur hxs hm'
-              rcases List.mem_cons.mp hl with rfl | hl
-              · exact hJoin curLen' xs m' hcur hxs hm'
-              · exact hlabs l hl curLen' xs m' hcur hxs hm'
-            refine ih _ hszBody curLen f hf0 hlen0 hcal locs _ (lbl' :: labs) hlabs' body
-              (Nat.le_refl _) _ (fun f' curLen' locs' stk' m' hf' hcur' hm' _ _ => ?_) hm
-            cases popArgsAux ft.results stk' with
-            | none =>
-              exact wp_mkTrapExpr ctx.retTys 1#32 (Or.inr (Or.inl rfl))
-                (Nat.le_trans hf' hf0) (Nat.le_trans hlen0 hcur') hm'
-            | some p' =>
-              rcases p' with ⟨ra, _⟩
-              dsimp only
-              rw [wp_jump_]
-              exact hJoin curLen' _ m' hcur' hf' hm'
+            refine lowerGroupJoin_wp ctx ft hf0 hlen0 labs sa hlabs hcal _ _
+              (fun curLen' f' l' s' m' hcur hf' hm' hl' hc' =>
+                ih _ hszRest' curLen' f' (Nat.le_trans hf' hf0) (Nat.le_trans hlen0 hcur) hc'
+                  l' s' labs hl' rest (Nat.le_refl _) k
+                  (fun f'' curLen'' l'' s'' m'' hf'' hcur'' hm'' hl'' hc'' =>
+                    hk f'' curLen'' l'' s'' m'' (Nat.le_trans hf'' hf')
+                      (Nat.le_trans hcur hcur'') hm'' hl'' hc'') hm')
+              (fun lbl' fall hlabs' hfall =>
+                ih _ hszBody curLen f hf0 hlen0 hcal locs _ (lbl' :: labs) hlabs' body
+                  (Nat.le_refl _) fall
+                  (fun f' curLen' locs' stk' m' hf' hcur' hm' _ _ =>
+                    hfall f' curLen' locs' stk' m' hf' hcur' hm') hm)
       | loop bt body =>
         simp only [lowerSeq]
         cases bt.resolve ctx.types with
@@ -762,24 +607,17 @@ theorem lowerSeq_wp_aux {Γ : Env} {X : XPost} (ctx : WLowerCtx)
           cases popArgsAux ft.params stk with
           | none => exact htrap
           | some p =>
-            rcases p with ⟨ia, sa⟩
-            dsimp only
+            rcases p with ⟨ia, sa⟩; dsimp only
             have hszBody : sizeOf body < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
             have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-            rw [wp_group_]
-            intro JsAfter hclAfter
-            rw [closed_cons_] at hclAfter
-            have hAfter : ∀ curLen' xs m', curLen.toNat ≤ curLen'.toNat →
-                xs.1.toNat ≤ f.val.toNat →
-                WasmMemInv hasMem vmCtx memBase curLen' memCap R m' → JsAfter.1 xs m' := by
-              intro curLen' xs m' hcur hxs hm'
-              apply hclAfter.1 xs m'
-              exact ih _ hszRest' curLen' (.var xs.1) (Nat.le_trans hxs hf0)
-                (Nat.le_trans hlen0 hcur) (WasmCalleeEnvOk.mono_fuel hxs hcal) _ _ labs
-                (LabsSafe.mono hcur hxs hlabs) rest (Nat.le_refl _) k
-                (fun f' curLen'' locs' stk' m'' hf' hcur' hm'' hl' hc' =>
-                  hk f' curLen'' locs' stk' m'' (Nat.le_trans hf' hxs) (Nat.le_trans hcur hcur')
-                    hm'' hl' hc') hm'
+            refine lowerGroupJoin_wp ctx ft hf0 hlen0 labs sa hlabs hcal _ _
+              (fun curLen' f' l' s' m' hcur hf' hm' hl' hc' =>
+                ih _ hszRest' curLen' f' (Nat.le_trans hf' hf0) (Nat.le_trans hlen0 hcur) hc'
+                  l' s' labs hl' rest (Nat.le_refl _) k
+                  (fun f'' curLen'' l'' s'' m'' hf'' hcur'' hm'' hl'' hc'' =>
+                    hk f'' curLen'' l'' s'' m'' (Nat.le_trans hf'' hf')
+                      (Nat.le_trans hcur hcur'') hm'' hl'' hc'') hm')
+              (fun _ fall hlabsAfter hfall => ?_)
             rw [wp_group_]
             intro JsHdr hclHdr
             rw [closed_cons_] at hclHdr
@@ -791,17 +629,13 @@ theorem lowerSeq_wp_aux {Γ : Env} {X : XPost} (ctx : WLowerCtx)
               | _ n ihn =>
                 intro curLen' xs m' hcur' hxn hnf hm'
                 apply hclHdr.1 xs m'
-                rw [wp_let_]
-                simp only [Op.wp, OpCode.wp, vals, Arg.val, Ty.hasFloat,
-                  Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-                rw [wp_jnz_]
+                wasm_wp_let; rw [wp_jnz_]
                 refine ⟨fun _ => wp_mkTrapExpr ctx.retTys 2#32 (Or.inr (Or.inr rfl))
                   (Nat.le_trans (hxn.symm ▸ hnf) hf0) (Nat.le_trans hlen0 hcur') hm', fun hz => ?_⟩
-                have hne : xs.1 ≠ 0#64 := decide_eq_false_iff_not.mp hz
-                have hlt : (xs.1 - 1#64).toNat < xs.1.toNat := bv64_sub_one_lt hne
+                have hlt : (xs.1 - 1#64).toNat < xs.1.toNat :=
+                  bv64_sub_one_lt (decide_eq_false_iff_not.mp hz)
                 have hnextLe : (xs.1 - 1#64).toNat ≤ f.val.toNat := by omega
-                rw [wp_let_]
-                simp only [Op.wp, OpCode.wp, vals, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
+                wasm_wp_let
                 let fNext : Arg Val T.i64 := .var (xs.1 - 1#64)
                 let lbl' : WLabel Val Cont ctx.locTys := ⟨ft.params, JsHdr.1⟩
                 have hlabs' : LabsSafe ctx.locTys hasMem vmCtx memBase curLen' memCap fNext.val R
@@ -813,23 +647,15 @@ theorem lowerSeq_wp_aux {Γ : Env} {X : XPost} (ctx : WLowerCtx)
                       (Nat.le_trans (Nat.le_of_lt hlt') hnf) hm''
                   · exact hlabs l hl curLen'' ys m'' (Nat.le_trans hcur' hcur'')
                       (Nat.le_trans hys hnextLe) hm''
-                refine ih _ hszBody curLen' fNext (Nat.le_trans hnextLe hf0)
+                exact ih _ hszBody curLen' fNext (Nat.le_trans hnextLe hf0)
                   (Nat.le_trans hlen0 hcur') (WasmCalleeEnvOk.mono_fuel hnextLe hcal) _ _
-                  (lbl' :: labs) hlabs' body (Nat.le_refl _) _
-                  (fun f' curLen'' locs' stk' m'' hf' hcur'' hm'' _ _ => ?_) hm'
-                have hf'Le : f'.val.toNat ≤ f.val.toNat := Nat.le_trans hf' hnextLe
-                have hcur''Le : curLen.toNat ≤ curLen''.toNat := Nat.le_trans hcur' hcur''
-                cases popArgsAux ft.results stk' with
-                | none =>
-                  exact wp_mkTrapExpr ctx.retTys 1#32 (Or.inr (Or.inl rfl))
-                    (Nat.le_trans hf'Le hf0) (Nat.le_trans hlen0 hcur''Le) hm''
-                | some p' =>
-                  rcases p' with ⟨ra, _⟩
-                  dsimp only
-                  rw [wp_jump_]
-                  exact hAfter curLen'' _ m'' hcur''Le hf'Le hm''
+                  (lbl' :: labs) hlabs' body (Nat.le_refl _) fall
+                  (fun f' curLen'' locs' stk' m'' hf' hcur'' hm'' _ _ =>
+                    hfall f' curLen'' locs' stk' m'' (Nat.le_trans hf' hnextLe)
+                      (Nat.le_trans hcur' hcur'') hm'') hm'
             rw [wp_jump_]
-            exact hHdr f.val.toNat curLen _ mem (Nat.le_refl _) rfl (Nat.le_refl _) hm
+            exact hHdr f.val.toNat curLen (vals (f, tupAppend locs ia)) mem
+              (Nat.le_refl _) rfl (Nat.le_refl _) hm
       | if_ bt thenBody elseBody =>
         simp only [lowerSeq]
         cases bt.resolve ctx.types with
@@ -839,64 +665,30 @@ theorem lowerSeq_wp_aux {Γ : Env} {X : XPost} (ctx : WLowerCtx)
           cases pop32 stk with
           | none => exact htrap
           | some p =>
-            rcases p with ⟨cond, stk1⟩
-            dsimp only
+            rcases p with ⟨cond, stk1⟩; dsimp only
             cases popArgsAux ft.params stk1 with
             | none => exact htrap
             | some p' =>
-              rcases p' with ⟨ia, sa⟩
-              dsimp only
+              rcases p' with ⟨ia, sa⟩; dsimp only
               have hszT : sizeOf thenBody < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
               have hszE : sizeOf elseBody < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
               have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-              rw [wp_group_]
-              intro Js hcl
-              rw [closed_cons_] at hcl
-              have hJoin : ∀ curLen' xs m', curLen.toNat ≤ curLen'.toNat →
-                  xs.1.toNat ≤ f.val.toNat →
-                  WasmMemInv hasMem vmCtx memBase curLen' memCap R m' → Js.1 xs m' := by
-                intro curLen' xs m' hcur hxs hm'
-                apply hcl.1 xs m'
-                exact ih _ hszRest' curLen' (.var xs.1) (Nat.le_trans hxs hf0)
-                  (Nat.le_trans hlen0 hcur) (WasmCalleeEnvOk.mono_fuel hxs hcal) _ _ labs
-                  (LabsSafe.mono hcur hxs hlabs) rest (Nat.le_refl _) k
-                  (fun f' curLen'' locs' stk' m'' hf' hcur' hm'' hl' hc' =>
-                    hk f' curLen'' locs' stk' m'' (Nat.le_trans hf' hxs) (Nat.le_trans hcur hcur')
-                      hm'' hl' hc') hm'
-              let lbl' : WLabel Val Cont ctx.locTys := ⟨ft.results, Js.1⟩
-              have hlabs' : LabsSafe ctx.locTys hasMem vmCtx memBase curLen memCap f.val R
-                  (lbl' :: labs) := by
-                intro l hl curLen' xs m' hcur hxs hm'
-                rcases List.mem_cons.mp hl with rfl | hl
-                · exact hJoin curLen' xs m' hcur hxs hm'
-                · exact hlabs l hl curLen' xs m' hcur hxs hm'
-              rw [wp_let_]
-              simp only [Op.wp, OpCode.wp, vals, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-                liftCmp, CmpOp.evalBits]
-              rw [wp_jnz_]
-              refine ⟨fun _ => ?_, fun _ => ?_⟩
-              · refine ih _ hszT curLen f hf0 hlen0 hcal locs _ (lbl' :: labs) hlabs' thenBody
-                  (Nat.le_refl _) _ (fun f' curLen' locs' stk' m' hf' hcur' hm' _ _ => ?_) hm
-                cases popArgsAux ft.results stk' with
-                | none =>
-                  exact wp_mkTrapExpr ctx.retTys 1#32 (Or.inr (Or.inl rfl))
-                    (Nat.le_trans hf' hf0) (Nat.le_trans hlen0 hcur') hm'
-                | some p'' =>
-                  rcases p'' with ⟨ra, _⟩
-                  dsimp only
-                  rw [wp_jump_]
-                  exact hJoin curLen' _ m' hcur' hf' hm'
-              · refine ih _ hszE curLen f hf0 hlen0 hcal locs _ (lbl' :: labs) hlabs' elseBody
-                  (Nat.le_refl _) _ (fun f' curLen' locs' stk' m' hf' hcur' hm' _ _ => ?_) hm
-                cases popArgsAux ft.results stk' with
-                | none =>
-                  exact wp_mkTrapExpr ctx.retTys 1#32 (Or.inr (Or.inl rfl))
-                    (Nat.le_trans hf' hf0) (Nat.le_trans hlen0 hcur') hm'
-                | some p'' =>
-                  rcases p'' with ⟨ra, _⟩
-                  dsimp only
-                  rw [wp_jump_]
-                  exact hJoin curLen' _ m' hcur' hf' hm'
+              refine lowerGroupJoin_wp ctx ft hf0 hlen0 labs sa hlabs hcal _ _
+                (fun curLen' f' l' s' m' hcur hf' hm' hl' hc' =>
+                  ih _ hszRest' curLen' f' (Nat.le_trans hf' hf0) (Nat.le_trans hlen0 hcur) hc'
+                    l' s' labs hl' rest (Nat.le_refl _) k
+                    (fun f'' curLen'' l'' s'' m'' hf'' hcur'' hm'' hl'' hc'' =>
+                      hk f'' curLen'' l'' s'' m'' (Nat.le_trans hf'' hf')
+                        (Nat.le_trans hcur hcur'') hm'' hl'' hc'') hm')
+                (fun lbl' fall hlabs' hfall => by
+                  wasm_wp_let; rw [wp_jnz_]
+                  refine ⟨
+                    fun _ => ih _ hszT curLen f hf0 hlen0 hcal locs _ (lbl' :: labs) hlabs'
+                      thenBody (Nat.le_refl _) fall (fun f' curLen' locs' stk' m' hf' hcur' hm'
+                        _ _ => hfall f' curLen' locs' stk' m' hf' hcur' hm') hm,
+                    fun _ => ih _ hszE curLen f hf0 hlen0 hcal locs _ (lbl' :: labs) hlabs'
+                      elseBody (Nat.le_refl _) fall (fun f' curLen' locs' stk' m' hf' hcur' hm'
+                        _ _ => hfall f' curLen' locs' stk' m' hf' hcur' hm') hm⟩)
       | _ =>
         simp only [lowerSeq]
         have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
@@ -953,12 +745,12 @@ theorem lowerFuncBody_wp {Γ : Env} {X : XPost} (m : WModule) (f : WFunc) (ft : 
     exact ⟨Or.inl rfl, hf', curLen', hcur', hm'⟩
 
 /-- `callsOk` preservation for lowered Wasm instruction helpers and sequences. -/
-private theorem emitPopcnt_callsOk (allowed : List SigEntry) (exits : List Sym) {rs : List Ty}
-    (w : WValTy) (x : Arg (fun _ => Unit) w.toTy)
-    (k : Arg (fun _ => Unit) w.toTy → Expr (fun _ => Unit) (fun _ => Unit) rs)
+private theorem emitPopcntCore_callsOk (allowed : List SigEntry) (exits : List Sym) {rs : List Ty}
+    (n : Nat) (m1 m2 m4 mul sh : BitVec n) (x : Arg (fun _ => Unit) (.bits n))
+    (k : Arg (fun _ => Unit) (.bits n) → Expr (fun _ => Unit) (fun _ => Unit) rs)
     (hk : ∀ y, (k y).callsOk allowed exits) :
-    (emitPopcnt w x k).callsOk allowed exits := by
-  cases w <;> simp only [emitPopcnt, Expr.callsOk] <;> exact hk _
+    (emitPopcntCore n m1 m2 m4 mul sh x k).callsOk allowed exits := by
+  simp only [emitPopcntCore, Expr.callsOk]; exact hk _
 
 private theorem emitUnOp_callsOk (allowed : List SigEntry) (exits : List Sym)
     (retTys : List WValTy) (f : Arg (fun _ => Unit) T.i64) (w : WValTy) (op : WUnOp)
@@ -966,8 +758,8 @@ private theorem emitUnOp_callsOk (allowed : List SigEntry) (exits : List Sym)
     (k : Arg (fun _ => Unit) w.toTy → Expr (fun _ => Unit) (fun _ => Unit) (wasmRetSig retTys))
     (hk : ∀ y, (k y).callsOk allowed exits) :
     (emitUnOp retTys f w op x k).callsOk allowed exits := by
-  cases w <;> cases op <;> simp only [emitUnOp, Expr.callsOk] <;>
-  first | exact hk _ | exact emitPopcnt_callsOk allowed exits _ x k hk | trivial
+  cases w <;> cases op <;> simp only [emitUnOp, emitPopcnt, Expr.callsOk] <;>
+  first | exact hk _ | exact emitPopcntCore_callsOk allowed exits _ _ _ _ _ _ x k hk | trivial
 
 private theorem emitBinOp_callsOk (allowed : List SigEntry) (exits : List Sym)
     (retTys : List WValTy) (f : Arg (fun _ => Unit) T.i64) (w : WValTy) (op : WBinOp)
@@ -975,7 +767,7 @@ private theorem emitBinOp_callsOk (allowed : List SigEntry) (exits : List Sym)
     (k : Arg (fun _ => Unit) w.toTy → Expr (fun _ => Unit) (fun _ => Unit) (wasmRetSig retTys))
     (hk : ∀ y, (k y).callsOk allowed exits) :
     (emitBinOp retTys f w op a b k).callsOk allowed exits := by
-  cases op <;> cases w <;> simp only [emitBinOp, Expr.callsOk] <;>
+  cases op <;> cases w <;> simp only [emitBinOp, emitDivRemCore, Expr.callsOk] <;>
   first
   | exact hk _
   | exact ⟨trivial, hk _⟩
@@ -1001,6 +793,29 @@ private theorem emitStoreCast_callsOk (allowed : List SigEntry) (exits : List Sy
   cases srcTy <;> cases width <;> simp only [emitStoreCast, Expr.callsOk] <;>
   first | exact htrap | exact hk _
 
+private theorem emitSelect_callsOk (allowed : List SigEntry) (exits : List Sym) {rs : List Ty}
+    {trap : Expr (fun _ => Unit) (fun _ => Unit) rs} (htrap : trap.callsOk allowed exits)
+    (c : Arg (fun _ => Unit) T.i32) (v1 v2 : SVal (fun _ => Unit))
+    (k : SVal (fun _ => Unit) → Expr (fun _ => Unit) (fun _ => Unit) rs)
+    (hk : ∀ y, (k y).callsOk allowed exits) :
+    (emitSelect trap c v1 v2 k).callsOk allowed exits := by
+  cases v1 <;> cases v2 <;> simp only [emitSelect, Expr.callsOk] <;>
+  first | exact htrap | exact hk _
+
+private theorem emitEqz_callsOk (allowed : List SigEntry) (exits : List Sym) {rs : List Ty}
+    (w : WValTy) (x : Arg (fun _ => Unit) w.toTy)
+    (k : Arg (fun _ => Unit) T.i32 → Expr (fun _ => Unit) (fun _ => Unit) rs)
+    (hk : ∀ y, (k y).callsOk allowed exits) :
+    (emitEqz w x k).callsOk allowed exits := by
+  cases w <;> simp only [Expr.callsOk] <;> exact hk _
+
+private theorem emitRelOp_callsOk (allowed : List SigEntry) (exits : List Sym) {rs : List Ty}
+    (w : WValTy) (op : WRelOp) (a b : Arg (fun _ => Unit) w.toTy)
+    (k : Arg (fun _ => Unit) T.i32 → Expr (fun _ => Unit) (fun _ => Unit) rs)
+    (hk : ∀ y, (k y).callsOk allowed exits) :
+    (emitRelOp w op a b k).callsOk allowed exits := by
+  cases w <;> simp only [Expr.callsOk] <;> exact hk _
+
 private theorem emitBrTable_callsOk (allowed : List SigEntry) (exits : List Sym)
     (locTys retTys : List WValTy)
     (labs : List (WLabel (fun _ => Unit) (fun _ => Unit) locTys))
@@ -1019,8 +834,7 @@ private theorem emitBrTable_callsOk (allowed : List SigEntry) (exits : List Sym)
     | none => exact trivial
     | some l =>
       by_cases hlt : l.argTys = defLbl.argTys
-      · simp only [hlt, ↓reduceDIte, Expr.callsOk]
-        exact ⟨trivial, ih (i + 1)⟩
+      · simp only [hlt, ↓reduceDIte, Expr.callsOk]; exact ⟨trivial, ih (i + 1)⟩
       · simp only [hlt, ↓reduceDIte]; exact trivial
 
 private theorem lowerSimpleInstr_callsOk (ctx : WLowerCtx) (allowed : List SigEntry)
@@ -1036,217 +850,164 @@ private theorem lowerSimpleInstr_callsOk (ctx : WLowerCtx) (allowed : List SigEn
     (hk : ∀ f' l' s', (k f' l' s').callsOk allowed exits) :
     (lowerSimpleInstr ctx vc f locs stk labs instr k).callsOk allowed exits := by
   cases instr with
-  | nop => exact hk f locs stk
-  | br_if depth =>
+  | load resTy width signed _ =>
     simp only [lowerSimpleInstr]
-    cases pop32 stk with
+    by_cases hok : (ctx.hasMem && validateLoad resTy width signed) = true
+    · simp only [hok, ↓reduceIte]; cases pop32 stk with
+      | none => exact trivial
+      | some p =>
+        rcases p with ⟨idx32, s1⟩; dsimp only
+        exact emitMemBounds_callsOk allowed exits ctx.retTys vc f idx32 _ _ _ fun _ => by
+          simp only [Expr.callsOk]
+          exact emitLoadCast_callsOk allowed exits (by simp [Expr.callsOk]) _ _ _ () _
+            fun v => hk f locs (SVal.ofArg _ v :: s1)
+    · simp only [hok, Bool.false_eq_true, ↓reduceIte]; exact trivial
+  | store srcTy width _ =>
+    simp only [lowerSimpleInstr]
+    by_cases hok : (ctx.hasMem && validateStore srcTy width) = true
+    · simp only [hok, ↓reduceIte]; cases popExpectS _ stk with
+      | none => exact trivial
+      | some p =>
+        rcases p with ⟨sv, s1⟩; dsimp only
+        cases pop32 s1 with
+        | none => exact trivial
+        | some p2 =>
+          rcases p2 with ⟨idx32, s2⟩; dsimp only
+          exact emitMemBounds_callsOk allowed exits ctx.retTys vc f idx32 _ _ _ fun _ =>
+            emitStoreCast_callsOk allowed exits (by simp [Expr.callsOk]) _ _ sv _ fun _ => by
+              simp only [Expr.callsOk]; exact hk f locs s2
+    · simp only [hok, Bool.false_eq_true, ↓reduceIte]; exact trivial
+  | _ =>
+  simp only [lowerSimpleInstr] <;>
+  first
+  | exact trivial
+  | exact hk f locs _
+  | (cases pop32 stk with
     | none => exact trivial
     | some p =>
       rcases p with ⟨c, r⟩
-      cases labs[depth]? with
+      cases labs[‹Nat›]? with
       | none => exact trivial
-      | some l =>
-        dsimp only
-        cases popArgsAux l.argTys r with
+      | some l => dsimp only; cases popArgsAux l.argTys r with
         | none => exact trivial
-        | some p' => rcases p' with ⟨_, _⟩; simp only [Expr.callsOk]; exact ⟨trivial, hk f locs r⟩
-  | call fnIdx =>
-    simp only [lowerSimpleInstr]
-    cases hc : ctx.funcs[fnIdx]? with
+        | some p' => rcases p' with ⟨_, _⟩; simp only [Expr.callsOk]; exact ⟨trivial, hk f locs r⟩)
+  | (cases hc : ctx.funcs[‹Nat›]? with
     | none => exact trivial
-    | some callee =>
-      dsimp only
-      cases hft : ctx.types[callee.typeIdx]? with
+    | some callee => dsimp only; cases hft : ctx.types[callee.typeIdx]? with
       | none => exact trivial
-      | some ft =>
-        dsimp only
-        cases popArgsAux ft.params stk with
+      | some ft => dsimp only; cases popArgsAux ft.params stk with
         | none => exact trivial
-        | some p =>
-          rcases p with ⟨_, _⟩
-          simp only [Expr.callsOk]
-          exact ⟨trivial, hcal fnIdx callee ft hc hft, hk _ locs _, trivial⟩
-  | drop =>
-    simp only [lowerSimpleInstr]
-    cases stk with | nil => exact trivial | cons _ r => exact hk f locs r
-  | select =>
-    simp only [lowerSimpleInstr]
-    cases pop32 stk with
+        | some p => rcases p with ⟨_, _⟩; simp only [Expr.callsOk]
+                    exact ⟨trivial, hcal _ callee ft hc hft, hk _ locs _, trivial⟩)
+  | (cases stk with | nil => exact trivial | cons _ r => exact hk f locs r)
+  | (cases pop32 stk with
     | none => exact trivial
     | some p =>
-      rcases p with ⟨_, r⟩
+      rcases p with ⟨c, r⟩
       cases r with
       | nil => exact trivial
       | cons v₂ r2 =>
         cases r2 with
-        | nil => cases v₂ <;> exact trivial
+        | nil => exact trivial
         | cons v₁ r3 =>
-          cases v₂ <;> cases v₁ <;> dsimp only <;> first | exact trivial | exact hk f locs _
-  | local_get idx =>
-    simp only [lowerSimpleInstr]
-    cases getLocal ctx.locTys locs idx with | none => exact trivial | some v => exact hk f locs _
-  | local_set idx =>
-    simp only [lowerSimpleInstr]
-    cases stk with
+          exact emitSelect_callsOk allowed exits (by simp [Expr.callsOk]) c v₁ v₂ _
+            fun y => hk f locs (y :: r3))
+  | (cases getLocal ctx.locTys locs ‹Nat› with
+    | none => exact trivial
+    | some v => exact hk f locs _)
+  | (cases stk with
     | nil => exact trivial
-    | cons v r => dsimp only; cases setLocal ctx.locTys locs idx v with
-      | none => exact trivial | some l' => exact hk f l' r
-  | local_tee idx =>
-    simp only [lowerSimpleInstr]
-    cases stk with
+    | cons v r => dsimp only; cases setLocal ctx.locTys locs ‹Nat› v with
+      | none => exact trivial | some l' => exact hk f l' _)
+  | (cases ctx.globals[‹Nat›]? with | none => exact trivial | some g => exact hk f locs _)
+  | (by_cases hm : ctx.hasMem = true
+     · simp only [hm, ↓reduceIte]; exact emitMemSize_callsOk allowed exits vc _ fun _ => hk f locs _
+     · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact trivial)
+  | (by_cases hm : ctx.hasMem = true
+     · simp only [hm, ↓reduceIte]; cases pop32 stk with
+       | none => exact trivial
+       | some p =>
+         rcases p with ⟨delta, s1⟩; dsimp only
+         exact emitMemGrow_callsOk allowed exits ctx.retTys ctx.memMaxBytes vc f delta _
+           fun f' r => hk f' locs (.i32 r :: s1)
+     · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact trivial)
+  | (by_cases hm : ctx.hasMem = true
+     · simp only [hm, ↓reduceIte]; cases pop32 stk with
+       | none => exact trivial
+       | some p1 =>
+         rcases p1 with ⟨n32, s1⟩; dsimp only; cases pop32 s1 with
+         | none => exact trivial
+         | some p2 =>
+           rcases p2 with ⟨v32, s2⟩; dsimp only; cases pop32 s2 with
+           | none => exact trivial
+           | some p3 =>
+             rcases p3 with ⟨d32, s3⟩; dsimp only
+             exact emitMemFill_callsOk allowed exits ctx.retTys vc f d32 v32 n32 _
+               fun f' => hk f' locs s3
+     · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact trivial)
+  | (by_cases hm : ctx.hasMem = true
+     · simp only [hm, ↓reduceIte]; cases pop32 stk with
+       | none => exact trivial
+       | some p1 =>
+         rcases p1 with ⟨n32, s1⟩; dsimp only; cases pop32 s1 with
+         | none => exact trivial
+         | some p2 =>
+           rcases p2 with ⟨sr32, s2⟩; dsimp only; cases pop32 s2 with
+           | none => exact trivial
+           | some p3 =>
+             rcases p3 with ⟨d32, s3⟩; dsimp only
+             exact emitMemCopy_callsOk allowed exits ctx.retTys vc f d32 sr32 n32 _
+               fun f' => hk f' locs s3
+     · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact trivial)
+  | (cases ‹WValTy› <;> cases stk with
     | nil => exact trivial
-    | cons v r => dsimp only; cases setLocal ctx.locTys locs idx v with
-      | none => exact trivial | some l' => exact hk f l' (v :: r)
-  | global_get idx =>
-    simp only [lowerSimpleInstr]
-    cases ctx.globals[idx]? with | none => exact trivial | some g => exact hk f locs _
-  | load resTy width signed arg =>
-    simp only [lowerSimpleInstr]
-    by_cases hok : (ctx.hasMem && validateLoad resTy width signed) = true
-    · simp only [hok, ↓reduceIte]
-      cases pop32 stk with
-      | none => exact trivial
-      | some p =>
-        rcases p with ⟨idx32, _⟩
-        dsimp only
-        exact emitMemBounds_callsOk allowed exits ctx.retTys vc f idx32 arg width.bytes _
-          fun _ => emitLoadCast_callsOk allowed exits (by simp [Expr.callsOk])
-            resTy width signed () _ fun _ => hk f locs _
-    · simp only [hok, Bool.false_eq_true, ↓reduceIte]; exact trivial
-  | store srcTy width arg =>
-    simp only [lowerSimpleInstr]
-    by_cases hok : (ctx.hasMem && validateStore srcTy width) = true
-    · simp only [hok, ↓reduceIte]
-      cases popExpectS srcTy stk with
-      | none => exact trivial
-      | some p =>
-        rcases p with ⟨sv, s1⟩
-        dsimp only
-        cases pop32 s1 with
-        | none => exact trivial
-        | some p2 =>
-          rcases p2 with ⟨idx32, s2⟩
-          dsimp only
-          exact emitMemBounds_callsOk allowed exits ctx.retTys vc f idx32 arg width.bytes _
-            fun _ => emitStoreCast_callsOk allowed exits (by simp [Expr.callsOk])
-              srcTy width sv _ fun _ => hk f locs s2
-    · simp only [hok, Bool.false_eq_true, ↓reduceIte]; exact trivial
-  | memory_size =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      exact emitMemSize_callsOk allowed exits vc _ fun _ => hk f locs _
-    · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact trivial
-  | memory_grow =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      cases pop32 stk with
-      | none => exact trivial
-      | some p =>
-        rcases p with ⟨delta, s1⟩
-        dsimp only
-        exact emitMemGrow_callsOk allowed exits ctx.retTys ctx.memMaxBytes vc f delta _
-          fun f' r => hk f' locs (.i32 r :: s1)
-    · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact trivial
-  | memory_fill =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      cases pop32 stk with
-      | none => exact trivial
-      | some p1 =>
-        rcases p1 with ⟨n32, s1⟩
-        dsimp only
-        cases pop32 s1 with
-        | none => exact trivial
-        | some p2 =>
-          rcases p2 with ⟨val32, s2⟩
-          dsimp only
-          cases pop32 s2 with
-          | none => exact trivial
-          | some p3 =>
-            rcases p3 with ⟨dst32, s3⟩
-            dsimp only
-            exact emitMemFill_callsOk allowed exits ctx.retTys vc f dst32 val32 n32 _
-              fun f' => hk f' locs s3
-    · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact trivial
-  | memory_copy =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      cases pop32 stk with
-      | none => exact trivial
-      | some p1 =>
-        rcases p1 with ⟨n32, s1⟩
-        dsimp only
-        cases pop32 s1 with
-        | none => exact trivial
-        | some p2 =>
-          rcases p2 with ⟨src32, s2⟩
-          dsimp only
-          cases pop32 s2 with
-          | none => exact trivial
-          | some p3 =>
-            rcases p3 with ⟨dst32, s3⟩
-            dsimp only
-            exact emitMemCopy_callsOk allowed exits ctx.retTys vc f dst32 src32 n32 _
-              fun f' => hk f' locs s3
-    · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact trivial
-  | i32_const _ => exact hk f locs _
-  | i64_const _ => exact hk f locs _
-  | eqz w =>
-    simp only [lowerSimpleInstr]
-    cases w <;> cases stk with
-    | nil => exact trivial
-    | cons x _ => cases x <;> dsimp only <;> first | exact trivial | exact hk f locs _
-  | unop w op =>
-    simp only [lowerSimpleInstr]
-    cases popExpectS w stk with
+    | cons x t =>
+      cases x <;> first
+        | exact trivial
+        | exact emitEqz_callsOk allowed exits _ _ _ fun r => hk f locs (.i32 r :: t))
+  | (cases popExpectS _ stk with
     | none => exact trivial
     | some p =>
-      rcases p with ⟨x, _⟩
-      dsimp only
-      exact emitUnOp_callsOk allowed exits ctx.retTys f w op x _ fun _ => hk f locs _
-  | binop w op =>
-    simp only [lowerSimpleInstr]
-    cases popExpectS w stk with
+      rcases p with ⟨x, _⟩; dsimp only
+      exact emitUnOp_callsOk allowed exits ctx.retTys f _ _ x _ fun _ => hk f locs _)
+  | (cases popExpectS _ stk with
     | none => exact trivial
     | some p =>
-      rcases p with ⟨b, s1⟩
-      dsimp only
-      cases popExpectS w s1 with
+      rcases p with ⟨b, s1⟩; dsimp only; cases popExpectS _ s1 with
       | none => exact trivial
       | some p2 =>
-        rcases p2 with ⟨a, _⟩
-        dsimp only
-        exact emitBinOp_callsOk allowed exits ctx.retTys f w op a b _ fun _ => hk f locs _
-  | relop w op =>
-    simp only [lowerSimpleInstr]
-    cases popExpectS w stk with
+        rcases p2 with ⟨a, _⟩; dsimp only
+        exact emitBinOp_callsOk allowed exits ctx.retTys f _ _ a b _ fun _ => hk f locs _)
+  | (cases popExpectS _ stk with
     | none => exact trivial
     | some p =>
-      rcases p with ⟨b, s1⟩
-      dsimp only
-      cases popExpectS w s1 with
+      rcases p with ⟨b, s1⟩; dsimp only; cases popExpectS _ s1 with
       | none => exact trivial
-      | some p2 => rcases p2 with ⟨a, _⟩; dsimp only; cases w <;> exact hk f locs _
-  | wrap_i64 =>
-    simp only [lowerSimpleInstr]
-    cases pop64 stk with | none => exact trivial | some p => rcases p with ⟨_, _⟩; exact hk f locs _
-  | extend_i32_s =>
-    simp only [lowerSimpleInstr]
-    cases pop32 stk with | none => exact trivial | some p => rcases p with ⟨_, _⟩; exact hk f locs _
-  | extend_i32_u =>
-    simp only [lowerSimpleInstr]
-    cases pop32 stk with | none => exact trivial | some p => rcases p with ⟨_, _⟩; exact hk f locs _
-  | unreachable => exact trivial
-  | block _ _ => exact trivial
-  | loop _ _ => exact trivial
-  | if_ _ _ _ => exact trivial
-  | br _ => exact trivial
-  | br_table _ _ => exact trivial
-  | return_ => exact trivial
+      | some p2 =>
+        rcases p2 with ⟨a, _⟩; dsimp only
+        exact emitRelOp_callsOk allowed exits _ _ a b _ fun _ => hk f locs _)
+  | (cases pop64 stk with
+    | none => exact trivial | some p => rcases p with ⟨_, _⟩; exact hk f locs _)
+  | (cases pop32 stk with
+    | none => exact trivial | some p => rcases p with ⟨_, _⟩; exact hk f locs _)
+  | (cases pop32 stk with
+    | none => exact trivial | some p => rcases p with ⟨_, _⟩; exact hk f locs _)
+
+private theorem lowerGroupJoin_callsOk (ctx : WLowerCtx) (allowed : List SigEntry)
+    (exits : List Sym) (ft : WFuncTy) (sa : List (SVal (fun _ => Unit)))
+    (body : WLabel (fun _ => Unit) (fun _ => Unit) ctx.locTys →
+      WCont (fun _ => Unit) (fun _ => Unit) ctx.locTys ctx.retTys →
+      Expr (fun _ => Unit) (fun _ => Unit) (wasmRetSig ctx.retTys))
+    (after : WCont (fun _ => Unit) (fun _ => Unit) ctx.locTys ctx.retTys)
+    (hbody : ∀ lbl fall, (∀ f' l' s', (fall f' l' s').callsOk allowed exits) →
+      (body lbl fall).callsOk allowed exits)
+    (hafter : ∀ f' l' s', (after f' l' s').callsOk allowed exits) :
+    (lowerGroupJoin ctx ft sa body after).callsOk allowed exits := by
+  simp only [Expr.callsOk, Blocks.callsOk]
+  refine ⟨⟨hafter _ _ _, trivial⟩, hbody _ _ fun _ _ s' => ?_⟩
+  cases popArgsAux ft.results s' with
+  | none => simp [Expr.callsOk]
+  | some p' => rcases p' with ⟨_, _⟩; exact trivial
 
 private theorem lowerSeq_callsOk_aux (ctx : WLowerCtx) (allowed : List SigEntry)
     (exits : List Sym)
@@ -1275,102 +1036,69 @@ private theorem lowerSeq_callsOk_aux (ctx : WLowerCtx) (allowed : List SigEntry)
         simp only [lowerSeq]
         cases labs[depth]? with
         | none => exact trivial
-        | some lbl =>
-          dsimp only
-          cases popArgsAux lbl.argTys stk with
-          | none => exact trivial
-          | some p => rcases p with ⟨_, _⟩; exact trivial
+        | some lbl => dsimp only; cases popArgsAux lbl.argTys stk with
+          | none => exact trivial | some p => rcases p with ⟨_, _⟩; exact trivial
       | br_table targets defTarget =>
         simp only [lowerSeq]
         cases pop32 stk with
         | none => exact trivial
-        | some p =>
-          rcases p with ⟨idx32, s1⟩
-          cases labs[defTarget]? with
+        | some p => rcases p with ⟨idx32, s1⟩; cases labs[defTarget]? with
           | none => exact trivial
-          | some defLbl =>
-            dsimp only
-            cases popArgsAux defLbl.argTys s1 with
+          | some defLbl => dsimp only; cases popArgsAux defLbl.argTys s1 with
             | none => exact trivial
-            | some p' =>
-              rcases p' with ⟨ba, _⟩
-              dsimp only
-              exact emitBrTable_callsOk allowed exits ctx.locTys ctx.retTys labs locs f idx32 defLbl
-                ba 0 targets
+            | some p' => rcases p' with ⟨ba, _⟩; dsimp only
+                         exact emitBrTable_callsOk allowed exits ctx.locTys ctx.retTys labs locs
+                           f idx32 defLbl ba 0 targets
       | return_ =>
-        simp only [lowerSeq]
-        cases popArgsAux ctx.retTys stk with
-        | none => exact trivial
-        | some p => rcases p with ⟨_, _⟩; exact trivial
+        simp only [lowerSeq]; cases popArgsAux ctx.retTys stk with
+        | none => exact trivial | some p => rcases p with ⟨_, _⟩; exact trivial
       | block bt body =>
         simp only [lowerSeq]
         cases bt.resolve ctx.types with
         | none => exact trivial
-        | some ft =>
-          dsimp only
-          cases popArgsAux ft.params stk with
+        | some ft => dsimp only; cases popArgsAux ft.params stk with
           | none => exact trivial
-          | some p =>
-            rcases p with ⟨_, _⟩
-            dsimp only
-            have hszBody : sizeOf body < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
-            have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-            simp only [Expr.callsOk, Blocks.callsOk]
-            refine ⟨⟨ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk, trivial⟩, ?_⟩
-            refine ih _ hszBody vc f locs _ _ body (Nat.le_refl _) _ fun _ _ s' => ?_
-            cases popArgsAux ft.results s' with
-            | none => exact trivial
-            | some p' => rcases p' with ⟨_, _⟩; exact trivial
+          | some p => rcases p with ⟨_, sa⟩; dsimp only
+                      have hszBody : sizeOf body < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
+                      have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
+                      exact lowerGroupJoin_callsOk ctx allowed exits ft sa _ _
+                        (fun _ fall hfall =>
+                          ih _ hszBody vc f locs _ _ body (Nat.le_refl _) fall hfall)
+                        (fun _ _ _ => ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk)
       | loop bt body =>
         simp only [lowerSeq]
         cases bt.resolve ctx.types with
         | none => exact trivial
-        | some ft =>
-          dsimp only
-          cases popArgsAux ft.params stk with
+        | some ft => dsimp only; cases popArgsAux ft.params stk with
           | none => exact trivial
-          | some p =>
-            rcases p with ⟨_, _⟩
-            dsimp only
-            have hszBody : sizeOf body < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
-            have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-            simp only [Expr.callsOk, Blocks.callsOk]
-            refine ⟨⟨ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk, trivial⟩,
-              ⟨⟨⟨trivial, ?_⟩, trivial⟩, trivial⟩⟩
-            refine ih _ hszBody vc _ _ _ _ body (Nat.le_refl _) _ fun _ _ s' => ?_
-            cases popArgsAux ft.results s' with
-            | none => exact trivial
-            | some p' => rcases p' with ⟨_, _⟩; exact trivial
+          | some p => rcases p with ⟨_, sa⟩; dsimp only
+                      have hszBody : sizeOf body < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
+                      have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
+                      refine lowerGroupJoin_callsOk ctx allowed exits ft sa _ _
+                        (fun _ fall hfall => ?_)
+                        (fun _ _ _ => ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk)
+                      simp only [Expr.callsOk, Blocks.callsOk]
+                      exact ⟨⟨⟨trivial,
+                        ih _ hszBody vc _ _ _ _ body (Nat.le_refl _) fall hfall⟩, trivial⟩, trivial⟩
       | if_ bt thenBody elseBody =>
         simp only [lowerSeq]
         cases bt.resolve ctx.types with
         | none => exact trivial
-        | some ft =>
-          dsimp only
-          cases pop32 stk with
+        | some ft => dsimp only; cases pop32 stk with
           | none => exact trivial
-          | some p =>
-            rcases p with ⟨_, s1⟩
-            dsimp only
-            cases popArgsAux ft.params s1 with
+          | some p => rcases p with ⟨_, s1⟩; dsimp only; cases popArgsAux ft.params s1 with
             | none => exact trivial
             | some p' =>
-              rcases p' with ⟨_, _⟩
-              dsimp only
+              rcases p' with ⟨_, sa⟩; dsimp only
               have hszT : sizeOf thenBody < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
               have hszE : sizeOf elseBody < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
               have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-              simp only [Expr.callsOk, Blocks.callsOk]
-              refine ⟨⟨ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk, trivial⟩,
-                ?_, ?_⟩
-              · refine ih _ hszT vc f locs _ _ thenBody (Nat.le_refl _) _ fun _ _ s' => ?_
-                cases popArgsAux ft.results s' with
-                | none => exact trivial
-                | some p'' => rcases p'' with ⟨_, _⟩; exact trivial
-              · refine ih _ hszE vc f locs _ _ elseBody (Nat.le_refl _) _ fun _ _ s' => ?_
-                cases popArgsAux ft.results s' with
-                | none => exact trivial
-                | some p'' => rcases p'' with ⟨_, _⟩; exact trivial
+              refine lowerGroupJoin_callsOk ctx allowed exits ft sa _ _
+                (fun _ fall hfall => ?_)
+                (fun _ _ _ => ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk)
+              simp only [Expr.callsOk]
+              exact ⟨ih _ hszT vc f locs _ _ thenBody (Nat.le_refl _) fall hfall,
+                     ih _ hszE vc f locs _ _ elseBody (Nat.le_refl _) fall hfall⟩
       | _ =>
         simp only [lowerSeq]
         have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
@@ -1576,6 +1304,21 @@ private theorem lowerSimpleInstr_take_eq {V : Ty → Type} {L : List Ty → Type
     cases stk <;> first | rfl | (dsimp only; cases setLocal ctx.locTys locs idx _ <;> rfl)
   | _ => simp only [lowerSimpleInstr] <;> try rfl
 
+private theorem lowerGroupJoin_take_eq {V : Ty → Type} {L : List Ty → Type}
+    (ctx : WLowerCtx) (funcs' : List WFunc) (ft : WFuncTy) (sa : List (SVal V))
+    (body₁ body₂ : WLabel V L ctx.locTys → WCont V L ctx.locTys ctx.retTys →
+      Expr V L (wasmRetSig ctx.retTys))
+    (after₁ after₂ : WCont V L ctx.locTys ctx.retTys)
+    (hbody : ∀ lbl fall, body₁ lbl fall = body₂ lbl fall)
+    (hafter : ∀ f' l' s', after₁ f' l' s' = after₂ f' l' s') :
+    lowerGroupJoin { ctx with funcs := funcs' } ft sa body₁ after₁ =
+      lowerGroupJoin ctx ft sa body₂ after₂ := by
+  simp only [lowerGroupJoin]
+  exact congr
+    (congrArg Expr.group (funext fun _ => congrArg (fun b => Blocks.cons b Blocks.nil)
+      (funext fun _ => hafter _ _ _)))
+    (funext fun _ => hbody _ _)
+
 private theorem lowerSeq_take_eq_aux {V : Ty → Type} {L : List Ty → Type}
     (ctx : WLowerCtx) (fs : List WFunc) (bound : Nat) (hfs : ctx.funcs = fs)
     (sz : Nat) :
@@ -1604,57 +1347,63 @@ private theorem lowerSeq_take_eq_aux {V : Ty → Type} {L : List Ty → Type}
       cases instr with
       | block bt body =>
         simp only [wasmInstrCallsBelow] at hi
-        have hszBody : sizeOf body < sizeOf (WInstr.block bt body :: rest) := by simp +arith
-        have hszBody' : sizeOf body ≤ sz := Nat.le_of_lt_succ (Nat.lt_of_lt_of_le hszBody hsz)
+        have hszBody' : sizeOf body ≤ sz :=
+          Nat.le_of_lt_succ (Nat.lt_of_lt_of_le (by simp +arith) hsz)
         simp only [lowerSeq]
-        split
-        · rfl
-        · split
-          · rfl
-          · exact congr
-              (congrArg Expr.group (funext fun _ => congrArg (fun b => Blocks.cons b Blocks.nil)
-                (funext fun _ => ih _ _ _ _ _ rest hszRest' hrest _ _ hk)))
-              (funext fun _ => ih _ _ _ _ _ body hszBody' hi _ _ (fun _ _ _ => rfl))
+        cases bt.resolve ctx.types with
+        | none => rfl
+        | some ft =>
+          dsimp only
+          cases popArgsAux ft.params stk with
+          | none => rfl
+          | some _ =>
+            exact lowerGroupJoin_take_eq ctx (fs.take bound) ft _ _ _ _ _
+              (fun _ _ => ih _ _ _ _ _ body hszBody' hi _ _ (fun _ _ _ => rfl))
+              (fun _ _ _ => ih _ _ _ _ _ rest hszRest' hrest _ _ hk)
       | loop bt body =>
         simp only [wasmInstrCallsBelow] at hi
-        have hszBody : sizeOf body < sizeOf (WInstr.loop bt body :: rest) := by simp +arith
-        have hszBody' : sizeOf body ≤ sz := Nat.le_of_lt_succ (Nat.lt_of_lt_of_le hszBody hsz)
+        have hszBody' : sizeOf body ≤ sz :=
+          Nat.le_of_lt_succ (Nat.lt_of_lt_of_le (by simp +arith) hsz)
         simp only [lowerSeq]
-        split
-        · rfl
-        · split
-          · rfl
-          · refine congr
-              (congrArg Expr.group (funext fun _ => congrArg (fun b => Blocks.cons b Blocks.nil)
-                (funext fun _ => ih _ _ _ _ _ rest hszRest' hrest _ _ hk)))
-              (funext fun _ => congrArg (fun b => Expr.group b _) (funext fun _ =>
+        cases bt.resolve ctx.types with
+        | none => rfl
+        | some ft =>
+          dsimp only
+          cases popArgsAux ft.params stk with
+          | none => rfl
+          | some _ =>
+            refine lowerGroupJoin_take_eq ctx (fs.take bound) ft _ _ _ _ _
+              (fun _ fall => congrArg (fun b => Expr.group b _) (funext fun _ =>
                 congrArg (fun b => Blocks.cons b Blocks.nil) (funext fun _ =>
                   congrArg (Expr.let_ _) (funext fun _ => congrArg (Expr.jnz _ _)
                     (congrArg (Expr.let_ _) (funext fun _ =>
                       ih _ _ _ _ _ body hszBody' hi _ _ (fun _ _ _ => rfl)))))))
+              (fun _ _ _ => ih _ _ _ _ _ rest hszRest' hrest _ _ hk)
       | if_ bt thenBody elseBody =>
         simp only [wasmInstrCallsBelow, Bool.and_eq_true] at hi
         rcases hi with ⟨hT, hE⟩
-        have hszT : sizeOf thenBody < sizeOf (WInstr.if_ bt thenBody elseBody :: rest) := by
-          simp +arith
-        have hszE : sizeOf elseBody < sizeOf (WInstr.if_ bt thenBody elseBody :: rest) := by
-          simp +arith
-        have hszT' : sizeOf thenBody ≤ sz := Nat.le_of_lt_succ (Nat.lt_of_lt_of_le hszT hsz)
-        have hszE' : sizeOf elseBody ≤ sz := Nat.le_of_lt_succ (Nat.lt_of_lt_of_le hszE hsz)
+        have hszT' : sizeOf thenBody ≤ sz :=
+          Nat.le_of_lt_succ (Nat.lt_of_lt_of_le (by simp +arith) hsz)
+        have hszE' : sizeOf elseBody ≤ sz :=
+          Nat.le_of_lt_succ (Nat.lt_of_lt_of_le (by simp +arith) hsz)
         simp only [lowerSeq]
-        split
-        · rfl
-        · split
-          · rfl
-          · split
-            · rfl
-            · exact congr
-                (congrArg Expr.group (funext fun _ => congrArg (fun b => Blocks.cons b Blocks.nil)
-                  (funext fun _ => ih _ _ _ _ _ rest hszRest' hrest _ _ hk)))
-                (funext fun _ => congrArg (Expr.let_ _) (funext fun _ =>
+        cases bt.resolve ctx.types with
+        | none => rfl
+        | some ft =>
+          dsimp only
+          cases pop32 stk with
+          | none => rfl
+          | some _ =>
+            dsimp only
+            cases popArgsAux ft.params _ with
+            | none => rfl
+            | some _ =>
+              refine lowerGroupJoin_take_eq ctx (fs.take bound) ft _ _ _ _ _
+                (fun _ _ => congrArg (Expr.let_ _) (funext fun _ =>
                   congr (congrArg (Expr.jnz _)
                     (ih _ _ _ _ _ thenBody hszT' hT _ _ (fun _ _ _ => rfl)))
                     (ih _ _ _ _ _ elseBody hszE' hE _ _ (fun _ _ _ => rfl))))
+                (fun _ _ _ => ih _ _ _ _ _ rest hszRest' hrest _ _ hk)
       | unreachable => simp only [lowerSeq]
       | br depth =>
         simp only [lowerSeq]
@@ -1668,13 +1417,12 @@ private theorem lowerSeq_take_eq_aux {V : Ty → Type} {L : List Ty → Type}
         cases popArgsAux ctx.retTys stk <;> rfl
       | _ =>
         simp only [lowerSeq]
-        have hszRest' : sizeOf rest ≤ sz := Nat.le_of_lt_succ (Nat.lt_of_lt_of_le hszRest hsz)
         first
         | rfl
         | (rw [lowerSimpleInstr_take_eq ctx fs bound hfs vc f locs stk labs _ hi]
            exact congrArg (lowerSimpleInstr ctx vc f locs stk labs _)
-             (funext fun f' => funext fun l' => funext fun s' =>
-               ih vc f' l' s' labs rest hszRest' hrest k₁ k₂ hk))
+             (funext fun _ => funext fun _ => funext fun _ =>
+               ih _ _ _ _ _ rest hszRest' hrest k₁ k₂ hk))
 
 private theorem lowerFn_callsOk_take (m : WModule) (bound : Nat) (f : WFunc)
     (hb : wasmSeqCallsBelow bound f.body = true) :

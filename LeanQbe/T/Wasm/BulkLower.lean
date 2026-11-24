@@ -1231,6 +1231,56 @@ theorem mkTrapExpr_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List W
     (toTFlat (mkTrapExpr (L := KL) retTys code f) nv nl).supportsSource lt = true := by
   simpa [mkTrapExpr, toTFlat, TFlat.supportsSource] using wasmRetSig_supportsTy hv retTys
 
+theorem mkStatusTrapExpr_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
+    (st : Arg K T.i32) (f : Arg K T.i64) (nv nl : Nat) :
+    (toTFlat (mkStatusTrapExpr (L := KL) retTys st f) nv nl).supportsSource lt = true := by
+  simpa [mkStatusTrapExpr, toTFlat, TFlat.supportsSource] using wasmRetSig_supportsTy hv retTys
+
+theorem tflat_ret_ss (lt : LegalTarget) {rs : List Ty} (args : Tup (Arg K) rs)
+    {nv nl : Nat} (hrs : rs.all lt.supportsTy = true) :
+    (toTFlat (.ret args) nv nl).supportsSource lt = true := by
+  simpa [toTFlat, TFlat.supportsSource] using hrs
+
+theorem tflat_call_ss (lt : LegalTarget) {rs as bs : List Ty} (f : Sym)
+    (args : Tup (Arg K) as) {k : Tup K bs → Expr K KL rs} {nv nl : Nat}
+    (has : as.all lt.supportsTy = true) (hbs : bs.all lt.supportsTy = true)
+    (hk : (toTFlat (k (Tup.levels bs nv)) (nv + bs.length) nl).supportsSource lt = true) :
+    (toTFlat (.call f args k) nv nl).supportsSource lt = true := by
+  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
+  exact ⟨⟨has, hbs⟩, hk⟩
+
+theorem supportsTy_bool {lt : LegalTarget} : lt.supportsTy .bool = true := by
+  simp [LegalTarget.supportsTy]
+
+macro "tflat_op_ss" hv:ident : tactic =>
+  `(tactic| (
+    simp only [LegalTarget.supportsOpCode, Bool.and_eq_true]
+    repeat' constructor
+    all_goals (try assumption)
+    all_goals (try exact supportsTy_le64 $hv (by omega))
+    all_goals (try exact supportsTy_bool)
+    all_goals (try decide)))
+
+macro "tflat_step_ss" hv:ident : tactic =>
+  `(tactic| first
+    | assumption
+    | (apply_assumption; done)
+    | exact mkTrapExpr_ss $hv _ _ _ _ _
+    | exact mkStatusTrapExpr_ss $hv _ _ _ _ _
+    | refine tflat_let1_ss _ _ _ (by tflat_op_ss $hv) ?_
+    | refine tflat_let2_ss _ _ _ _ (by tflat_op_ss $hv) ?_
+    | refine tflat_let3_ss _ _ _ _ _ (by tflat_op_ss $hv) ?_
+    | refine tflat_load_ss _ _ _ (supportsTy_le64 $hv (by omega)) (by decide) ?_
+    | refine tflat_store_ss _ _ _ (supportsTy_le64 $hv (by omega)) (by decide) ?_
+    | refine tflat_jnz_ss _ _ ?_ ?_
+    | refine tflat_call_ss _ _ _ (wasmAbiParams_supportsTy $hv _) (wasmRetSig_supportsTy $hv _) ?_
+    | exact tflat_ret_ss _ _ (wasmRetSig_supportsTy $hv _)
+    | exact tflat_jump_ss _ _ _ (labelSig_supportsTy $hv _ _)
+    | exact labelSig_supportsTy_pair $hv _ _)
+
+macro "tflat_builder_ss!" hv:ident : tactic =>
+  `(tactic| repeat tflat_step_ss $hv)
+
 theorem emitLoadVmCtx_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     (vmCtx : Arg K T.i64) (k : Arg K T.i64 → Arg K T.i64 → Expr K KL rs)
     (hk : ∀ mb ml nv' nl', (toTFlat (k mb ml) nv' nl').supportsSource lt = true) :
