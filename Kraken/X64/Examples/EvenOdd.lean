@@ -38,27 +38,6 @@ odd_zero:
   ret
 ⸩
 
--- section testing
-
--- variable [layout : Kraken.Layout (even ++ odd)]
-
--- set_option maxHeartbeats 4000000 in
--- set_option trace.profiler true in
--- example :
---   letI := layout.take even
---   (even ++ odd).toExecutable.addrOf 3 = even.toExecutable.addrOf 3 := by
---     dsimp [List.toExecutable, Kraken.Layout.take, Kraken.Executable.addrOf, Kraken.Layout.apply,
---       Kraken.Layout.start, Kraken.Layout.instrSize]
---     refine congrArg (fun x => layout.start + Int64.ofNat x) ?_
---     dsimp [Kraken.Executable.sizeBefore]
---     rfl
-
--- example :
---   letI := layout.drop even
---   (even ++ odd).toExecutable.addrOf 3 = odd.toExecutable.addrOf 3 := by
---     rfl -- FAILS!
-
--- end testing
 
 def body (succLabel zeroLabel otherLabel: Label) (ret : Int64) : Program := ⸨prog|
 ❰.label succLabel❱
@@ -76,7 +55,7 @@ theorem even_body : even = body "even" "even_zero" "odd" 1:= rfl
 
 theorem odd_body : odd = body "odd" "odd_zero" "even" 0 := rfl
 
-open Kraken (WellFormedLayout Layout)
+open Kraken (Layout)
 open Labels (label!)
 open Std.ExtHashMap
 
@@ -169,11 +148,11 @@ attribute [local kstep] RelRegOrMem.interp
 
 theorem body.spec
   (succLabel zeroLabel otherLabel: Label) (ret : Int64)
-  [layout : WellFormedLayout (body succLabel zeroLabel otherLabel ret)]
+  (layout : Layout) [hl : layout.WellFormed (body succLabel zeroLabel otherLabel ret)]
   (st : MachineData)
   (n : UInt64)
   (hd : st.regs.rdi = n) :
-    letI e : Executable := (body succLabel zeroLabel otherLabel ret).toExecutable
+    letI e : Executable := layout.apply (body succLabel zeroLabel otherLabel ret)
     letI := e.labels
     Eventually (step1 e)
       (post := fun ⟨st', pc⟩ => ∃ status,
@@ -190,7 +169,7 @@ theorem body.spec
           pc = e.addrOf 4
       )
       ⟨st, label! succLabel⟩ := by
-  let e : Executable := (body succLabel zeroLabel otherLabel ret).toExecutable
+  let e : Executable := layout.apply (body succLabel zeroLabel otherLabel ret)
   let labels := Executable.labels e
   have addrOf_0 : label! succLabel = e.addrOf 0 := by
     rw [Labels.label!_of_label? (label?_eq_some_addrOf (p := body succLabel zeroLabel otherLabel ret)
@@ -198,7 +177,8 @@ theorem body.spec
   rw [addrOf_0]
   change (Eventually (step1 (Kraken.Layout.apply (body succLabel zeroLabel otherLabel ret) _)) _
     ⟨st, e.addrOf 0⟩)
-  dsimp at *
+  -- Keep `e.addrOf 0`: `kstep` steps from `addrOf k`, and `addrOf_zero` would rewrite it away.
+  dsimp [-Kraken.Executable.addrOf_zero] at *
   sym => kstep; tactic =>
   rename_i v _
   if h : v = 0#64 then
@@ -206,7 +186,7 @@ theorem body.spec
     simp [Effects.All]
     have : label? zeroLabel = some (e.addrOf 6) := by
       have hne : succLabel ≠ zeroLabel := by
-        simpa [body, Kraken.Program.labels] using layout.unique_labels
+        simpa [body, Kraken.Program.labels] using hl.unique_labels
       exact label?_eq_some_addrOf (p := body succLabel zeroLabel otherLabel ret)
         (by simp [body, List.findIdx?_cons, hne])
     rw [this]
@@ -229,10 +209,8 @@ theorem body.spec
     simp
     grind
 
-private theorem addrOf_take_le {p₁ p₂ : Program} [l : Layout (p₁ ++ p₂)] {k : Nat} (hk : k ≤ p₁.length) :
-    letI := l.take p₁
-    (p₁ ++ p₂).toExecutable.addrOf k = p₁.toExecutable.addrOf k := by
-  letI := l.take p₁
+private theorem addrOf_append_left (l : Layout) {p₁ p₂ : Program} {k : Nat} (hk : k ≤ p₁.length) :
+    (l.apply (p₁ ++ p₂)).addrOf k = (l.apply p₁).addrOf k := by
   simp only [Kraken.Executable.addrOf, Kraken.Executable.sizeBefore, Kraken.Layout.apply,
     List.mapIdx_append]
   rw [List.take_append_of_le_length (by simpa using hk)]
@@ -242,35 +220,33 @@ private theorem addrOf_take_le {p₁ p₂ : Program} [l : Layout (p₁ ++ p₂)]
   · have hi₁ : i < p₁.length := Nat.lt_of_lt_of_le hi (Nat.min_le_right _ _)
     have hik : i < k := Nat.lt_of_lt_of_le hi (Nat.min_le_left _ _)
     simp [List.getElem?_map, List.getElem?_mapIdx,
-      List.getElem?_eq_getElem hi₁, hik, Kraken.Layout.size_take p₁ hi₁]
+      List.getElem?_eq_getElem hi₁, hik, Kraken.Layout.dirSize_append_left p₁ p₂ l hi₁]
   · by_cases hik : i < k
     · have hi₁ : p₁.length ≤ i := by omega
       simp [List.getElem?_map, List.getElem?_mapIdx, hik, List.getElem?_eq_none hi₁]
     · simp [List.getElem?_take, hik]
 
-private theorem addrOf_drop {p₁ p₂ : Program} [l : Layout (p₁ ++ p₂)] (k : Nat) :
-    letI := l.drop p₁
-    (p₁ ++ p₂).toExecutable.addrOf (k + p₁.length) = p₂.toExecutable.addrOf k := by
-  letI := l.drop p₁
+private theorem addrOf_append_right (l : Layout) {p₁ p₂ : Program} (k : Nat) :
+    (l.apply (p₁ ++ p₂)).addrOf (k + p₁.length) = ((l.offset p₁).apply p₂).addrOf k := by
   simp only [Kraken.Executable.addrOf]
-  have hdrop : (((p₁ ++ p₂).toExecutable.program.drop p₁.length).take k).map (·.size) =
-      (p₂.toExecutable.program.take k).map (·.size) := by
+  have hdrop : ((((l.apply (p₁ ++ p₂))).program.drop p₁.length).take k).map (·.size) =
+      (((l.offset p₁).apply p₂).program.take k).map (·.size) := by
     simp only [Kraken.Layout.apply, List.mapIdx_append,
       List.drop_left' (by simp : (p₁.mapIdx _).length = p₁.length), List.map_take]
     congr 1
     refine List.ext_getElem? fun i => ?_
     by_cases hi : i < p₂.length
     · simp [List.getElem?_map, List.getElem?_mapIdx, List.getElem?_eq_getElem hi,
-        Kraken.Layout.size_drop]
+        Kraken.Layout.dirSize_offset]
     · simp [List.getElem?_map, List.getElem?_mapIdx, List.getElem?_eq_none (Nat.le_of_not_lt hi)]
-  have hpre : (((p₁ ++ p₂).toExecutable.program.take p₁.length).map (·.size)).sum =
-      (p₁.mapIdx fun i _ => l.size i).sum := by
+  have hpre : (((l.apply (p₁ ++ p₂)).program.take p₁.length).map (·.size)).sum = Kraken.Program.size p₁ l := by
     simp only [Kraken.Layout.apply, List.mapIdx_append,
-      List.take_left' (by simp : (p₁.mapIdx _).length = p₁.length)]
+      List.take_left' (by simp : (p₁.mapIdx _).length = p₁.length), Kraken.Program.size]
     congr 1
     refine List.ext_getElem? fun i => ?_
     by_cases hi : i < p₁.length
-    · simp [List.getElem?_map, List.getElem?_mapIdx, List.getElem?_eq_getElem hi]
+    · simp [List.getElem?_map, List.getElem?_mapIdx, List.getElem?_eq_getElem hi,
+        Kraken.Layout.dirSize_append_left p₁ p₂ l hi]
     · simp [List.getElem?_map, List.getElem?_mapIdx, List.getElem?_eq_none (Nat.le_of_not_lt hi)]
   rw [Nat.add_comm k p₁.length, Kraken.Executable.sizeBefore_add, Kraken.Executable.sizeBefore,
     Kraken.Executable.sizeBefore, hpre, hdrop]
@@ -286,13 +262,13 @@ private theorem Int64.ofBitVec_ofBytes_toBytes (x : Int64) :
   simp only [BitVec.toNat_ofInt, BitVec.toInt_eq_toNat_cond]
   split <;> omega
 
-private theorem step_ret (e_prog : Program) [layout : WellFormedLayout e_prog]
+private theorem step_ret (e_prog : Program) (layout : Layout) [layout.WellFormed e_prog]
     {k : Nat} (hk : e_prog[k]? = some (.instr (.regular .W64 .W64 .ret)))
     (st : MachineData) (ra : Int64) (R : DataMem → Prop)
     (h_mem : st.dmem =⋆ (st.regs.rsp ↦ ra.toUInt64) ⋆ R)
     (post : MachineState → Prop)
     (h_post : post ⟨{ st with regs := { st.regs with rsp := st.regs.rsp + 8 } }, ra⟩) :
-    Eventually (step1 e_prog.toExecutable) post ⟨st, e_prog.toExecutable.addrOf k⟩ := by
+    Eventually (step1 (layout.apply e_prog)) post ⟨st, (layout.apply e_prog).addrOf k⟩ := by
   refine step_at hk ?_
   have hload := Mem.loadInt_sep (Int.toBytes 8 ra.toInt) st.regs.rsp.toBitVec 8 R st.dmem
     h_mem (Int.toBytes_length 8 _) (by decide)
@@ -310,20 +286,20 @@ private theorem step_ret (e_prog : Program) [layout : WellFormedLayout e_prog]
     rw [Int64.ofBitVec_ofBytes_toBytes]
     exact .done _ h_post
 
-private theorem step_call (e_prog : Program) [layout : WellFormedLayout e_prog]
+private theorem step_call (e_prog : Program) (layout : Layout) [layout.WellFormed e_prog]
     {k : Nat} {tgt : Label}
     (hk : e_prog[k]? = some (.instr (.regular .W64 .W64 (.call (.rel (.sub (.label tgt) .after_current_instruction))))))
     (st : MachineData) (tgt_addr : Int64)
-    (htgt : @Labels.label? (Executable.labels e_prog.toExecutable) tgt = some tgt_addr)
+    (htgt : @Labels.label? (Executable.labels (layout.apply e_prog)) tgt = some tgt_addr)
     (old : List UInt8) (h_len : old.length = 8) (R : DataMem → Prop)
     (h_mem : st.dmem =⋆ Eq (old.At (st.regs.rsp.toBitVec - 8#64)) ⋆ R)
     (post : MachineState → Prop)
     (h_post : post ⟨{ st with
         regs := { st.regs with rsp := st.regs.rsp - 8 },
-        dmem := st.dmem.storeInt (st.regs.rsp.toBitVec - 8#64) 8 (e_prog.toExecutable.addrOf (k + 1)).toInt },
+        dmem := st.dmem.storeInt (st.regs.rsp.toBitVec - 8#64) 8 ((layout.apply e_prog).addrOf (k + 1)).toInt },
       tgt_addr⟩) :
-    Eventually (step1 e_prog.toExecutable) post ⟨st, e_prog.toExecutable.addrOf k⟩ := by
-  letI := Executable.labels e_prog.toExecutable
+    Eventually (step1 (layout.apply e_prog)) post ⟨st, (layout.apply e_prog).addrOf k⟩ := by
+  letI := Executable.labels (layout.apply e_prog)
   refine step_at hk ?_
   have h_load := Mem.loadInt_sep old (st.regs.rsp.toBitVec - 8#64) 8 R st.dmem h_mem h_len (by decide)
   dsimp only [Directive.interp, Instr.interp, Operation.interp, RelRegOrMem.interp,
@@ -356,9 +332,9 @@ private theorem stack_split_sep (s₁ s₂ : List UInt8) (rsp : BitVec 64) (k : 
   rw [h_addr1, h_addr2]
   ac_rfl
 
-private theorem even_body.spec [layout : WellFormedLayout (even ++ odd)]
+private theorem even_body.spec (layout : Layout) [hl : layout.WellFormed (even ++ odd)]
     (st : MachineData) (n : UInt64) (hd : st.regs.rdi = n) :
-    letI e : Executable := (even ++ odd).toExecutable
+    letI e : Executable := layout.apply (even ++ odd)
     letI := e.labels
     Eventually (step1 e)
       (post := fun ⟨st', pc⟩ => ∃ status,
@@ -366,34 +342,32 @@ private theorem even_body.spec [layout : WellFormedLayout (even ++ odd)]
         | 0 => st' = { st with regs.rax := 1, status } ∧ pc = e.addrOf 8
         | n' + 1 => st' = { st with regs.rdi := UInt64.ofNat n', status } ∧ pc = e.addrOf 4)
       ⟨st, label! "even"⟩ := by
-  letI e : Executable := (even ++ odd).toExecutable
+  letI e : Executable := layout.apply (even ++ odd)
   letI := e.labels
-  letI l_even := layout.take even
-  have h_spec := body.spec "even" "even_zero" "odd" 1 (layout := even_body ▸ l_even) st n hd
+  have h_spec := body.spec "even" "even_zero" "odd" 1 layout (hl := hl.append_left) st n hd
   simp only [← even_body] at h_spec
   have h_lbl_eq : @Labels.label! e.labels "even" =
-      @Labels.label! (Executable.labels even.toExecutable) "even" := by
+      @Labels.label! (Executable.labels (layout.apply even)) "even" := by
     rw [Labels.label!_of_label? (label?_eq_some_addrOf (p := even ++ odd) (k := 0) (by simp [even, List.findIdx?_cons])),
         Labels.label!_of_label? (label?_eq_some_addrOf (p := even) (k := 0) (by simp [even, List.findIdx?_cons])),
-        addrOf_take_le (by decide)]
-    rfl
+        addrOf_append_left layout (by decide)]
   rw [h_lbl_eq]
-  refine eventually_weaken _ _ _ _ ?_ (Eventually.append_left even odd _ _ h_spec)
+  refine eventually_weaken _ _ _ _ ?_ (Eventually.append_left hl h_spec)
   rintro ⟨st', pc⟩ ⟨status, hs⟩
   refine ⟨status, ?_⟩
   cases hn : n.toNat with
   | zero =>
     simp only [hn] at hs
     rcases hs with ⟨rfl, rfl⟩
-    exact ⟨rfl, (addrOf_take_le (by decide)).symm⟩
+    exact ⟨rfl, (addrOf_append_left layout (by decide)).symm⟩
   | succ n' =>
     simp only [hn] at hs
     rcases hs with ⟨rfl, rfl⟩
-    exact ⟨rfl, (addrOf_take_le (by decide)).symm⟩
+    exact ⟨rfl, (addrOf_append_left layout (by decide)).symm⟩
 
-private theorem odd_body.spec [layout : WellFormedLayout (even ++ odd)]
+private theorem odd_body.spec (layout : Layout) [hl : layout.WellFormed (even ++ odd)]
     (st : MachineData) (n : UInt64) (hd : st.regs.rdi = n) :
-    letI e : Executable := (even ++ odd).toExecutable
+    letI e : Executable := layout.apply (even ++ odd)
     letI := e.labels
     Eventually (step1 e)
       (post := fun ⟨st', pc⟩ => ∃ status,
@@ -401,34 +375,32 @@ private theorem odd_body.spec [layout : WellFormedLayout (even ++ odd)]
         | 0 => st' = { st with regs.rax := 0, status } ∧ pc = e.addrOf (8 + even.length)
         | n' + 1 => st' = { st with regs.rdi := UInt64.ofNat n', status } ∧ pc = e.addrOf (4 + even.length))
       ⟨st, label! "odd"⟩ := by
-  letI e : Executable := (even ++ odd).toExecutable
+  letI e : Executable := layout.apply (even ++ odd)
   letI := e.labels
-  letI l_odd := layout.drop even
-  have h_spec := body.spec "odd" "odd_zero" "even" 0 (layout := odd_body ▸ l_odd) st n hd
+  have h_spec := body.spec "odd" "odd_zero" "even" 0 (layout.offset even) (hl := hl.append_right) st n hd
   simp only [← odd_body] at h_spec
   have h_lbl_eq : @Labels.label! e.labels "odd" =
-      @Labels.label! (Executable.labels odd.toExecutable) "odd" := by
+      @Labels.label! (Executable.labels ((layout.offset even).apply odd)) "odd" := by
     rw [Labels.label!_of_label? (label?_eq_some_addrOf (p := even ++ odd) (k := 0 + even.length) (by simp [even, odd, List.findIdx?_cons])),
         Labels.label!_of_label? (label?_eq_some_addrOf (p := odd) (k := 0) (by simp [odd, List.findIdx?_cons])),
-        addrOf_drop]
-    rfl
+        addrOf_append_right layout 0]
   rw [h_lbl_eq]
-  refine eventually_weaken _ _ _ _ ?_ (Eventually.append_right even odd _ _ h_spec)
+  refine eventually_weaken _ _ _ _ ?_ (Eventually.append_right hl h_spec)
   rintro ⟨st', pc⟩ ⟨status, hs⟩
   refine ⟨status, ?_⟩
   cases hn : n.toNat with
   | zero =>
     simp only [hn] at hs
     rcases hs with ⟨rfl, rfl⟩
-    exact ⟨rfl, (addrOf_drop 8).symm⟩
+    exact ⟨rfl, (addrOf_append_right layout 8).symm⟩
   | succ n' =>
     simp only [hn] at hs
     rcases hs with ⟨rfl, rfl⟩
-    exact ⟨rfl, (addrOf_drop 4).symm⟩
+    exact ⟨rfl, (addrOf_append_right layout 4).symm⟩
 
-private theorem body_in_even_odd.spec [layout : WellFormedLayout (even ++ odd)]
+private theorem body_in_even_odd.spec (layout : Layout) [hl : layout.WellFormed (even ++ odd)]
     (isEven : Bool) (st : MachineData) (n : UInt64) (hd : st.regs.rdi = n) :
-    letI e : Executable := (even ++ odd).toExecutable
+    letI e : Executable := layout.apply (even ++ odd)
     letI := e.labels
     Eventually (step1 e)
       (post := fun ⟨st', pc⟩ => ∃ status,
@@ -439,17 +411,17 @@ private theorem body_in_even_odd.spec [layout : WellFormedLayout (even ++ odd)]
                     pc = e.addrOf (if isEven then 4 else 4 + even.length))
       ⟨st, if isEven then label! "even" else label! "odd"⟩ := by
   cases isEven
-  · exact odd_body.spec st n hd
-  · exact even_body.spec st n hd
+  · exact odd_body.spec layout st n hd
+  · exact even_body.spec layout st n hd
 
-private theorem even_odd.base [layout : WellFormedLayout (even ++ odd)]
+private theorem even_odd.base (layout : Layout) [hl : layout.WellFormed (even ++ odd)]
     (isEven : Bool) (n : UInt64) (st : MachineData) (ra : Int64)
     (stack : List UInt8) (R : DataMem → Prop)
     (hn0 : n.toNat = 0) (hlen : stack.length = 8 * 0) (hd : st.regs.rdi = n)
     (hmem : st.dmem =⋆
       Eq (stack.At (st.regs.rsp.toBitVec - BitVec.ofNat 64 (8 * 0))) ⋆
       Eq ((Int.toBytes 8 ra.toInt).At st.regs.rsp.toBitVec) ⋆ R) :
-    letI e : Executable := (even ++ odd).toExecutable
+    letI e : Executable := layout.apply (even ++ odd)
     letI := e.labels
     Eventually (step1 e)
       (post := fun ⟨st', pc⟩ =>
@@ -461,28 +433,28 @@ private theorem even_odd.base [layout : WellFormedLayout (even ++ odd)]
           Eq ((Int.toBytes 8 ra.toInt).At st.regs.rsp.toBitVec) ⋆ R) ∧
         pc = ra)
       ⟨st, if isEven then label! "even" else label! "odd"⟩ := by
-  refine eventually_trans _ _ _ _ (body_in_even_odd.spec isEven st n hd) ?_
+  refine eventually_trans _ _ _ _ (body_in_even_odd.spec layout isEven st n hd) ?_
   rintro ⟨st₁, pc₁⟩ ⟨status, h1⟩
   simp only [hn0] at h1
   rcases h1 with ⟨rfl, rfl⟩
   have hk_ret : (even ++ odd)[if isEven then 8 else 8 + even.length]? =
       some (.instr (.regular .W64 .W64 .ret)) := by
     cases isEven <;> decide
-  refine step_ret (even ++ odd) hk_ret _ ra
+  refine step_ret (even ++ odd) layout hk_ret _ ra
     (Eq (stack.At (st.regs.rsp.toBitVec - BitVec.ofNat 64 (8 * 0))) ⋆ R)
     (cast (congrFun (by ac_rfl) _) hmem) _
     ⟨stack, hlen, ?_, rfl, cast (congrFun (by ac_rfl) _) hmem, rfl⟩
   dsimp only
   cases isEven <;> rfl
 
-private theorem even_odd.step [layout : WellFormedLayout (even ++ odd)]
+private theorem even_odd.step (layout : Layout) [hl : layout.WellFormed (even ++ odd)]
     (k' : Nat) (isEven : Bool)
     (h_rec : ∀ (n : UInt64) (st : MachineData) (ra : Int64) (stack : List UInt8) (R : DataMem → Prop),
       n.toNat = k' → 8 * k' ≤ 2 ^ 64 → stack.length = 8 * k' → st.regs.rdi = n →
       (st.dmem =⋆
         Eq (stack.At (st.regs.rsp.toBitVec - BitVec.ofNat 64 (8 * k'))) ⋆
         Eq ((Int.toBytes 8 ra.toInt).At st.regs.rsp.toBitVec) ⋆ R) →
-      letI e : Executable := (even ++ odd).toExecutable
+      letI e : Executable := layout.apply (even ++ odd)
       letI := e.labels
       Eventually (step1 e)
         (post := fun ⟨st', pc⟩ =>
@@ -501,7 +473,7 @@ private theorem even_odd.step [layout : WellFormedLayout (even ++ odd)]
     (hmem : st.dmem =⋆
       Eq (stack.At (st.regs.rsp.toBitVec - BitVec.ofNat 64 (8 * (k' + 1)))) ⋆
       Eq ((Int.toBytes 8 ra.toInt).At st.regs.rsp.toBitVec) ⋆ R) :
-    letI e : Executable := (even ++ odd).toExecutable
+    letI e : Executable := layout.apply (even ++ odd)
     letI := e.labels
     Eventually (step1 e)
       (post := fun ⟨st', pc⟩ =>
@@ -513,9 +485,9 @@ private theorem even_odd.step [layout : WellFormedLayout (even ++ odd)]
           Eq ((Int.toBytes 8 ra.toInt).At st.regs.rsp.toBitVec) ⋆ R) ∧
         pc = ra)
       ⟨st, if isEven then label! "even" else label! "odd"⟩ := by
-  letI e : Executable := (even ++ odd).toExecutable
+  letI e : Executable := layout.apply (even ++ odd)
   letI := e.labels
-  refine eventually_trans _ _ _ _ (body_in_even_odd.spec isEven st n hd) ?_
+  refine eventually_trans _ _ _ _ (body_in_even_odd.spec layout isEven st n hd) ?_
   rintro ⟨st₁, pc₁⟩ ⟨status, h1⟩
   simp only [hnk] at h1
   rcases h1 with ⟨rfl, rfl⟩
@@ -547,7 +519,7 @@ private theorem even_odd.step [layout : WellFormedLayout (even ++ odd)]
       rw [Labels.label!_of_label? h_odd_lbl, h_odd_lbl]
   let call_idx := if isEven then 4 else 4 + even.length
   let ret_pc := e.addrOf (call_idx + 1)
-  refine eventually_trans _ _ _ _ (step_call (even ++ odd) hk_call
+  refine eventually_trans _ _ _ _ (step_call (even ++ odd) layout hk_call
     { st with regs := { st.regs with rdi := UInt64.ofNat k' }, status }
     (if !isEven then label! "even" else label! "odd")
     htgt_lbl (stack.drop (8 * k')) h_len_drop
@@ -576,7 +548,7 @@ private theorem even_odd.step [layout : WellFormedLayout (even ++ odd)]
     simp only [UInt64.toBitVec_add, UInt64.toBitVec_sub, BitVec.sub_add_cancel]
   have h_ret_idx : (even ++ odd)[call_idx + 1]? = some (.instr (.regular .W64 .W64 .ret)) := by
     dsimp only [call_idx]; cases isEven <;> decide
-  refine step_ret (even ++ odd) h_ret_idx st₂ ra
+  refine step_ret (even ++ odd) layout h_ret_idx st₂ ra
     (Eq (stack_rec.At ((st.regs.rsp.toBitVec - 8#64) - BitVec.ofNat 64 (8 * k'))) ⋆
      Eq ((Int.toBytes 8 ret_pc.toInt).At (st.regs.rsp.toBitVec - 8#64)) ⋆ R)
     ?_ _ ?_
@@ -595,7 +567,7 @@ private theorem even_odd.step [layout : WellFormedLayout (even ++ odd)]
       simp only [UInt64.toBitVec_sub] at h_mem₂
       exact cast (congrFun (by ac_rfl) _) h_mem₂
 
-theorem even_odd.spec [layout : WellFormedLayout (even ++ odd)] :
+theorem even_odd.spec (layout : Layout) [hl : layout.WellFormed (even ++ odd)] :
     ∀ (k : Nat) (isEven : Bool) (n : UInt64) (st : MachineData) (ra : Int64)
       (stack : List UInt8) (R : DataMem → Prop),
       n.toNat = k →
@@ -605,7 +577,7 @@ theorem even_odd.spec [layout : WellFormedLayout (even ++ odd)] :
       (st.dmem =⋆
         Eq (stack.At (st.regs.rsp.toBitVec - BitVec.ofNat 64 (8 * k))) ⋆
         Eq ((Int.toBytes 8 ra.toInt).At st.regs.rsp.toBitVec) ⋆ R) →
-      letI e : Executable := (even ++ odd).toExecutable
+      letI e : Executable := layout.apply (even ++ odd)
       letI := e.labels
       Eventually (step1 e)
         (post := fun ⟨st', pc⟩ =>
@@ -619,10 +591,10 @@ theorem even_odd.spec [layout : WellFormedLayout (even ++ odd)] :
         ⟨st, if isEven then label! "even" else label! "odd"⟩ := by
   intro k
   induction k with
-  | zero => exact fun isEven n st ra stack R hn0 _ hlen hd hmem => even_odd.base isEven n st ra stack R hn0 hlen hd hmem
-  | succ k' ih => exact fun isEven => even_odd.step k' isEven (ih (!isEven))
+  | zero => exact fun isEven n st ra stack R hn0 _ hlen hd hmem => even_odd.base layout isEven n st ra stack R hn0 hlen hd hmem
+  | succ k' ih => exact fun isEven => even_odd.step layout k' isEven (ih (!isEven))
 
-theorem even.spec [layout : WellFormedLayout (even ++ odd)]
+theorem even.spec (layout : Layout) [hl : layout.WellFormed (even ++ odd)]
     (n : UInt64) (st : MachineData) (ra : Int64)
     (stack : List UInt8) (h_bound : 8 * n.toNat ≤ 2 ^ 64) (h_len : stack.length = 8 * n.toNat)
     (R : DataMem → Prop)
@@ -630,7 +602,7 @@ theorem even.spec [layout : WellFormedLayout (even ++ odd)]
       Eq (stack.At (st.regs.rsp.toBitVec - BitVec.ofNat 64 (8 * n.toNat))) ⋆
       Eq ((Int.toBytes 8 ra.toInt).At st.regs.rsp.toBitVec) ⋆ R)
     (hd : st.regs.rdi = n) :
-    letI e : Executable := (even ++ odd).toExecutable
+    letI e : Executable := layout.apply (even ++ odd)
     letI := e.labels
     Eventually (step1 e)
       (post := fun ⟨st', pc⟩ =>
@@ -642,14 +614,14 @@ theorem even.spec [layout : WellFormedLayout (even ++ odd)]
           Eq ((Int.toBytes 8 ra.toInt).At st.regs.rsp.toBitVec) ⋆ R) ∧
         pc = ra)
       ⟨st, label! "even"⟩ := by
-  have hspec := even_odd.spec n.toNat true n st ra stack R rfl h_bound h_len hd h_mem
+  have hspec := even_odd.spec layout n.toNat true n st ra stack R rfl h_bound h_len hd h_mem
   have hmod : (n % 2 == 0) = (n.toNat % 2 == 0) := by
     rw [Bool.eq_iff_iff]
     simp only [beq_iff_eq, ← UInt64.toNat_inj, UInt64.toNat_mod]
     simp
   simpa [hmod] using hspec
 
-theorem odd.spec [layout : WellFormedLayout (even ++ odd)]
+theorem odd.spec (layout : Layout) [hl : layout.WellFormed (even ++ odd)]
     (n : UInt64) (st : MachineData) (ra : Int64)
     (stack : List UInt8) (h_bound : 8 * n.toNat ≤ 2 ^ 64) (h_len : stack.length = 8 * n.toNat)
     (R : DataMem → Prop)
@@ -657,7 +629,7 @@ theorem odd.spec [layout : WellFormedLayout (even ++ odd)]
       Eq (stack.At (st.regs.rsp.toBitVec - BitVec.ofNat 64 (8 * n.toNat))) ⋆
       Eq ((Int.toBytes 8 ra.toInt).At st.regs.rsp.toBitVec) ⋆ R)
     (hd : st.regs.rdi = n) :
-    letI e : Executable := (even ++ odd).toExecutable
+    letI e : Executable := layout.apply (even ++ odd)
     letI := e.labels
     Eventually (step1 e)
       (post := fun ⟨st', pc⟩ =>
@@ -669,7 +641,7 @@ theorem odd.spec [layout : WellFormedLayout (even ++ odd)]
           Eq ((Int.toBytes 8 ra.toInt).At st.regs.rsp.toBitVec) ⋆ R) ∧
         pc = ra)
       ⟨st, label! "odd"⟩ := by
-  have hspec := even_odd.spec n.toNat false n st ra stack R rfl h_bound h_len hd h_mem
+  have hspec := even_odd.spec layout n.toNat false n st ra stack R rfl h_bound h_len hd h_mem
   have hmod : (n % 2 == 1) = (n.toNat % 2 == 1) := by
     rw [Bool.eq_iff_iff]
     simp only [beq_iff_eq, ← UInt64.toNat_inj, UInt64.toNat_mod]
