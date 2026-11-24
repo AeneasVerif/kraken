@@ -6,12 +6,16 @@ public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.Kissat.FullM4Bcp
 public import LeanQbe.T.Spill
+public import LeanQbeTest.T.RegaTestKit
+public import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Arm64.LratBytes
 meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.Examples.Kissat.FullM4Bcp
 meta import LeanQbe.T.Spill
+meta import LeanQbeTest.T.RegaTestKit
+meta import LeanQbeTest.T.Arm64DirPreds
 
 /-!
 # AArch64 Constant Materialization, Sub-Word Compare & `zeroExtLoad` Regression Tests
@@ -36,80 +40,19 @@ set_option autoImplicit false
 namespace LeanQbeTest.T.Arm64IselB5Test
 
 open LeanQbe.T LeanQbe.T.Arm64
+open LeanQbeTest.T.RegaTestKit
+open LeanQbeTest.T.Arm64DirPreds
 
 /-! ## Helpers -/
 
 meta def hintsOf (fs : List Fn) : List armTarget.toIsa.Hints :=
-  fs.map (Fn.computeHints armTarget.toIsa armLegalTarget)
+  RegaTestKit.hintsOf armTarget armLegalTarget fs
 
 meta def chk (fs : List Fn) (exs : List (SigEntry × Nat) := []) : Bool :=
-  checkCompile armTarget armLayout armLegalTarget exs [] 0 fs (hintsOf fs) 2048
+  RegaTestKit.chk armTarget armLayout armLegalTarget fs exs
 
 meta def codeOf (fs : List Fn) (exs : List (SigEntry × Nat) := []) : List Directive :=
-  extractCode (compileModule armTarget.toIsa armLegalTarget armTarget.frame.raBytes exs [] 0 fs
-    (hintsOf fs))
-
-meta def countDirs (p : Directive → Bool) (ds : List Directive) : Nat :=
-  (ds.filter p).length
-
-meta def isMovnDir : Directive → Bool
-  | .instr { operation := .MOVN .., .. } => true
-  | _ => false
-
-meta def isMovz0Dir : Directive → Bool
-  | .instr { operation := .MOVZ _ (.int64 0) _, .. } => true
-  | _ => false
-
-meta def isMovzDir : Directive → Bool
-  | .instr { operation := .MOVZ .., .. } => true
-  | _ => false
-
-meta def isMovkDir : Directive → Bool
-  | .instr { operation := .MOVK .., .. } => true
-  | _ => false
-
-meta def isLdrPoolDir : Directive → Bool
-  | .instr { operation := .LDR _ (.lit (.pool _)), .. } => true
-  | _ => false
-
-meta def isOrrImmDir : Directive → Bool
-  | .instr { operation := .ORR_i .., .. } => true
-  | _ => false
-
-meta def isSubZrDir : Directive → Bool
-  | .instr { operation := .SUB_s _ (.low .XZR _) _, .. } => true
-  | _ => false
-
-meta def isAddImmDir : Directive → Bool
-  | .instr { operation := .ADD_e .., .. } => true
-  | _ => false
-
-meta def isSubImmDir : Directive → Bool
-  | .instr { operation := .SUB_e .., .. } => true
-  | _ => false
-
-meta def isAddsImmDir : Directive → Bool
-  | .instr { operation := .ADDS_e .., .. } => true
-  | _ => false
-
-meta def isSubsImmDir : Directive → Bool
-  | .instr { operation := .SUBS_e .., .. } => true
-  | _ => false
-
-meta def isUbfmZext8Dir : Directive → Bool
-  | .instr { operation := .UBFM _ _ 0 7, .. } => true
-  | _ => false
-
-meta def isUbfmZext16Dir : Directive → Bool
-  | .instr { operation := .UBFM _ _ 0 15, .. } => true
-  | _ => false
-
-meta def isExt32Dir : Directive → Bool
-  | .instr { operation := .UBFM _ _ 0 7, .. }
-  | .instr { operation := .SBFM _ _ 0 7, .. }
-  | .instr { operation := .UBFM _ _ 0 15, .. }
-  | .instr { operation := .SBFM _ _ 0 15, .. } => true
-  | _ => false
+  RegaTestKit.codeOf armTarget armLegalTarget fs exs
 
 /-! ## 1. Constant materialization, `ADD`/`SUB` flip, and `CMN` -/
 
