@@ -2094,7 +2094,7 @@ def hints (I : Isa) (f : Fn)
     { dest := st.dest, entry := st.entry, pre := st.pre, variant := st.variant, elide := elideIps,
       invertJnz := acc.invertJnz,
       nslots := finalSlots, saved := st.usedCs.map fun r => c.gReg.getD r I.frame.sp }
-  Rega.addDeferJnzHints h0 f
+  Rega.addDeferHints h0 f
 
 end Spill
 end LeanQbe.T

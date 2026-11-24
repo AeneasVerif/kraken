@@ -102,6 +102,9 @@ structure Hints (Reg VReg Cond : Type) where
   /-- `ip`s of `let [.bool] …; jnz (.var nv) t e` sites whose flag is dead in both arms
   (precomputed `Rega.exprFreeOfVar` lookahead; consumed by `Rega.deferJnzNext`). -/
   deferJnz : Trie Bool := .empty
+  /-- `ip`s of `let [_] op …; let op2 k` sites (`Rega.isLeaDeferCand op`) whose result is dead in
+  `k` (precomputed `Rega.exprFreeOfVar` lookahead; consumed by `Rega.deferLeaNext`). -/
+  deferLea : Trie Bool := .empty
   nslots : Nat := 0
   saved : List Reg := []
   deriving Repr, Lean.ToExpr

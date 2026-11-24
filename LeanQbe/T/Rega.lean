@@ -1737,7 +1737,7 @@ end
 
 /-- Lookahead deferring `.cmp` against `0`/bit-test feeding a single-use `.jnz` via
 `I.gpr.cmpZeroJcc` / `I.gpr.testJcc`. Single-use-ness (the flag is dead in both `jnz` arms) is read
-in O(1) from the untrusted `h.deferJnz` hint (computed natively by `deferJnzScan`) instead of
+in O(1) from the untrusted `h.deferJnz` hint (computed natively by `deferScan`) instead of
 re-walking both arms with `exprFreeOfVar` inside the kernel (O(size²) per function). A wrong hint
 can only change the `df` flag passed to `lowerOp`, which the lowering proofs treat as opaque. -/
 def deferJnzNext {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nv nl ip : Nat)
@@ -1757,65 +1757,22 @@ def deferJnzNext {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nv nl ip : N
       | none => false
   | _, _ => false
 
-mutual
-/-- Untrusted prepass computing `Hints.deferJnz`: at every `let [.bool] …; jnz (.var nv) t e` site
-(keyed by the `let`'s `ip`) records whether `nv` is dead in both arms, i.e. exactly the
-`exprFreeOfVar` lookahead `deferJnzNext` used to evaluate. Walks `(nv, nl, ip)` like
-`exprIpCount` / `lowerExpr`. Returns `(acc, nv', nl', ip')`. -/
-def deferJnzScan {I : Isa} (h : I.Hints) {rs : List Ty} :
-    Expr VNat LNat rs → Nat → Nat → Nat → Trie Bool → Trie Bool × Nat × Nat × Nat
-  | .let_ (ts := ts) _ k, nv, nl, ip, acc =>
-    let k' := k (Tup.levels ts nv)
-    let acc := match ts, k' with
-      | [.bool], .jnz (.var cx) t e =>
-        if Nat.beq cx nv && exprFreeOfVar h nv t (nv + 1) && exprFreeOfVar h nv e (nv + 1) then
-          acc.insert ip true
-        else acc
-      | _, _ => acc
-    deferJnzScan h k' (nv + ts.length) nl (ip + 1) acc
-  | .load _ _ k, nv, nl, ip, acc => deferJnzScan h (k nv) (nv + 1) nl (ip + 1) acc
-  | .store _ _ k, nv, nl, ip, acc => deferJnzScan h k nv nl (ip + 1) acc
-  | .call (bs := bs) _ _ k, nv, nl, ip, acc =>
-    deferJnzScan h (k (Tup.levels bs nv)) (nv + bs.length) nl (ip + 1) acc
-  | .jnz (.imm b) t e, nv, nl, ip, acc =>
-    if b then deferJnzScan h t nv nl (ip + 1) acc else deferJnzScan h e nv nl (ip + 1) acc
-  | .jnz (.var _) t e, nv, nl, ip, acc =>
-    let (acc1, nv1, nl1, ip1) := deferJnzScan h e nv (nl + 1) (ip + 1) acc
-    deferJnzScan h t nv1 nl1 ip1 acc1
-  | .jump _ _, nv, nl, ip, acc | .ret _, nv, nl, ip, acc | .exit _ _, nv, nl, ip, acc
-  | .hlt, nv, nl, ip, acc => (acc, nv, nl, ip + 1)
-  | .group (sig := sig) bodies k, nv, nl, ip, acc =>
-    let ls := Tup.levels sig nl
-    let (acc1, nv1, nl1, ip1) := deferJnzScan h (k ls) nv (nl + sig.length) ip acc
-    deferJnzScanBlocks h (bodies ls) nv1 nl1 ip1 acc1
-
-def deferJnzScanBlocks {I : Isa} (h : I.Hints) {rs : List Ty} :
-    {sig : List (List Ty)} → Blocks VNat LNat rs sig → Nat → Nat → Nat → Trie Bool →
-      Trie Bool × Nat × Nat × Nat
-  | _, .nil, nv, nl, ip, acc => (acc, nv, nl, ip)
-  | _, .cons (ts := ts) b bs, nv, nl, ip, acc =>
-    let (acc1, nv1, nl1, ip1) := deferJnzScan h (b (Tup.levels ts nv)) (nv + ts.length) nl ip acc
-    deferJnzScanBlocks h bs nv1 nl1 ip1 acc1
-end
-
-/-- Fill `h.deferJnz` for `f` (the mid-end function later passed to `lowerFn`). -/
-def addDeferJnzHints {I : Isa} (h : I.Hints) (f : Fn) : I.Hints :=
-  { h with deferJnz :=
-      (deferJnzScan h (f.body VNat LNat (Tup.levels f.as 0)) f.as.length 0 0 .empty).1 }
-
 def isLeaDeferCand {sig ts : List Ty} (code : OpCode sig ts) : Bool :=
   match ts, code with
   | [.bits w], .shl (.bits _) | [.bits w], .add (.bits _) | [.bits w], .sub (.bits _) =>
     Nat.beq w 32 || Nat.beq w 64
   | _, _ => false
 
-/-- Lookahead deferring shift/add/sub arithmetic feeding a single-use `tryLeaArith` consumer. -/
+/-- Lookahead deferring shift/add/sub arithmetic feeding a single-use `tryLeaArith` consumer.
+Single-use-ness (`nv` dead in the continuation after the consumer) is read in O(1) from the
+untrusted `h.deferLea` hint (computed natively by `deferScan`) instead of an in-kernel
+`exprFreeOfVar` walk of the rest of the block. -/
 def deferLeaNext {rs : List Ty} (I : Isa) (h : I.Hints) (nv ip : Nat)
     (st1 : SymState I) {ts : List Ty} (op : Op VNat ts) (k' : Expr VNat LNat rs) : Bool :=
   if !isLeaDeferCand op.code then false
   else
     match ts, k' with
-    | [_], .let_ (ts := ts2) op2 k2 =>
+    | [_], .let_ (ts := ts2) op2 _k2 =>
       match recordDef st1.defs op.code op.args with
       | some df =>
         match stepPre I h (ip + 1) { st1 with defs := st1.defs.insert nv df } with
@@ -1823,11 +1780,71 @@ def deferLeaNext {rs : List Ty} (I : Isa) (h : I.Hints) (nv ip : Nat)
           match resolveDsts I h ts2 (nv + 1) with
           | some dsts2 =>
             (tryLeaArith I stAfter op2.code op2.args dsts2).isSome &&
-              exprFreeOfVar h nv (k2 (Tup.levels ts2 (nv + 1))) (nv + 1 + ts2.length)
+              h.deferLea.getD ip false
           | none => false
         | none => false
       | none => false
     | _, _ => false
+
+/-- Accumulator of `deferScan`: `(deferJnz, deferLea)` hint tries. -/
+abbrev DeferAcc := Trie Bool × Trie Bool
+
+mutual
+/-- Untrusted prepass computing `Hints.deferJnz` / `Hints.deferLea`, i.e. exactly the
+`exprFreeOfVar` lookaheads `deferJnzNext` / `deferLeaNext` used to re-walk inside the kernel
+(O(size²) per function):
+* at every `let [.bool] …; jnz (.var nv) t e` site, whether `nv` is dead in both arms;
+* at every `let [_] op …; let op2 k2` site with `isLeaDeferCand op.code`, whether `nv` is dead in
+  the continuation `k2`.
+Both are keyed by the first `let`'s `ip`; the walk follows `(nv, nl, ip)` exactly like
+`exprIpCount` / `lowerExpr`. Returns `(acc, nv', nl', ip')`. -/
+def deferScan {I : Isa} (h : I.Hints) {rs : List Ty} :
+    Expr VNat LNat rs → Nat → Nat → Nat → DeferAcc → DeferAcc × Nat × Nat × Nat
+  | .let_ (ts := ts) op k, nv, nl, ip, acc =>
+    let k' := k (Tup.levels ts nv)
+    let accJ := match ts, k' with
+      | [.bool], .jnz (.var cx) t e =>
+        if Nat.beq cx nv && exprFreeOfVar h nv t (nv + 1) && exprFreeOfVar h nv e (nv + 1) then
+          acc.1.insert ip true
+        else acc.1
+      | _, _ => acc.1
+    let accL := if !isLeaDeferCand op.code then acc.2 else
+      match ts, k' with
+      | [_], .let_ (ts := ts2) _ k2 =>
+        if exprFreeOfVar h nv (k2 (Tup.levels ts2 (nv + 1))) (nv + 1 + ts2.length) then
+          acc.2.insert ip true
+        else acc.2
+      | _, _ => acc.2
+    deferScan h k' (nv + ts.length) nl (ip + 1) (accJ, accL)
+  | .load _ _ k, nv, nl, ip, acc => deferScan h (k nv) (nv + 1) nl (ip + 1) acc
+  | .store _ _ k, nv, nl, ip, acc => deferScan h k nv nl (ip + 1) acc
+  | .call (bs := bs) _ _ k, nv, nl, ip, acc =>
+    deferScan h (k (Tup.levels bs nv)) (nv + bs.length) nl (ip + 1) acc
+  | .jnz (.imm b) t e, nv, nl, ip, acc =>
+    if b then deferScan h t nv nl (ip + 1) acc else deferScan h e nv nl (ip + 1) acc
+  | .jnz (.var _) t e, nv, nl, ip, acc =>
+    let (acc1, nv1, nl1, ip1) := deferScan h e nv (nl + 1) (ip + 1) acc
+    deferScan h t nv1 nl1 ip1 acc1
+  | .jump _ _, nv, nl, ip, acc | .ret _, nv, nl, ip, acc | .exit _ _, nv, nl, ip, acc
+  | .hlt, nv, nl, ip, acc => (acc, nv, nl, ip + 1)
+  | .group (sig := sig) bodies k, nv, nl, ip, acc =>
+    let ls := Tup.levels sig nl
+    let (acc1, nv1, nl1, ip1) := deferScan h (k ls) nv (nl + sig.length) ip acc
+    deferScanBlocks h (bodies ls) nv1 nl1 ip1 acc1
+
+def deferScanBlocks {I : Isa} (h : I.Hints) {rs : List Ty} :
+    {sig : List (List Ty)} → Blocks VNat LNat rs sig → Nat → Nat → Nat → DeferAcc →
+      DeferAcc × Nat × Nat × Nat
+  | _, .nil, nv, nl, ip, acc => (acc, nv, nl, ip)
+  | _, .cons (ts := ts) b bs, nv, nl, ip, acc =>
+    let (acc1, nv1, nl1, ip1) := deferScan h (b (Tup.levels ts nv)) (nv + ts.length) nl ip acc
+    deferScanBlocks h bs nv1 nl1 ip1 acc1
+end
+
+/-- Fill `h.deferJnz` / `h.deferLea` for `f` (the mid-end function later passed to `lowerFn`). -/
+def addDeferHints {I : Isa} (h : I.Hints) (f : Fn) : I.Hints :=
+  let r := deferScan h (f.body VNat LNat (Tup.levels f.as 0)) f.as.length 0 0 (.empty, .empty)
+  { h with deferJnz := r.1.1, deferLea := r.1.2 }
 
 mutual
 def lowerExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
