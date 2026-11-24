@@ -6,12 +6,16 @@ public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.Kissat.FullM4Bcp
 public import LeanQbe.T.Spill
+public import LeanQbeTest.T.RegaTestKit
+public import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Arm64.LratBytes
 meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.Examples.Kissat.FullM4Bcp
 meta import LeanQbe.T.Spill
+meta import LeanQbeTest.T.RegaTestKit
+meta import LeanQbeTest.T.Arm64DirPreds
 
 /-!
 # AArch64 `CBZ`/`CBNZ` & `TBZ`/`TBNZ` Branch Fusion Tests
@@ -27,51 +31,19 @@ public section
 namespace LeanQbeTest.T.Arm64BranchFuseTest
 
 open LeanQbe.T LeanQbe.T.Arm64
+open LeanQbeTest.T.RegaTestKit
+open LeanQbeTest.T.Arm64DirPreds
 
 /-! ## Helpers -/
 
 meta def hintsOf (fs : List Fn) : List armTarget.toIsa.Hints :=
-  fs.map (Fn.computeHints armTarget.toIsa armLegalTarget)
+  RegaTestKit.hintsOf armTarget armLegalTarget fs
 
 meta def chk (fs : List Fn) (exs : List (SigEntry × Nat) := []) : Bool :=
-  checkCompile armTarget armLayout armLegalTarget exs [] 0 fs (hintsOf fs) 2048
+  RegaTestKit.chk armTarget armLayout armLegalTarget fs exs
 
 meta def codeOf (fs : List Fn) (exs : List (SigEntry × Nat) := []) : List Directive :=
-  extractCode (compileModule armTarget.toIsa armLegalTarget armTarget.frame.raBytes exs [] 0 fs
-    (hintsOf fs))
-
-meta def countDirs (p : Directive → Bool) (ds : List Directive) : Nat :=
-  (ds.filter p).length
-
-meta def isCbzDir : Directive → Bool
-  | .instr { operation := .CBZ .., .. } => true
-  | _ => false
-
-meta def isCbnzDir : Directive → Bool
-  | .instr { operation := .CBNZ .., .. } => true
-  | _ => false
-
-meta def isTbzDir : Directive → Bool
-  | .instr { operation := .TBZ .., .. } => true
-  | _ => false
-
-meta def isTbnzDir : Directive → Bool
-  | .instr { operation := .TBNZ .., .. } => true
-  | _ => false
-
-meta def isSubsDir : Directive → Bool
-  | .instr { operation := .SUBS_e .., .. }
-  | .instr { operation := .SUBS_s .., .. } => true
-  | _ => false
-
-meta def isAndsDir : Directive → Bool
-  | .instr { operation := .ANDS_i .., .. }
-  | .instr { operation := .ANDS_s .., .. } => true
-  | _ => false
-
-meta def isBcondDir : Directive → Bool
-  | .instr { operation := .B_cond .., .. } => true
-  | _ => false
+  RegaTestKit.codeOf armTarget armLegalTarget fs exs
 
 /-! ## 1. ISA `cmpZeroJcc` and `testJcc` unit checks -/
 

@@ -4,6 +4,7 @@ public import LeanQbe.T.Amd64.PrintAsm0
 public import LeanQbe.T.Amd64.Isa
 public import LeanQbe.T.Driver
 public import Kraken.X64.PrintATT
+import LeanQbe.T.Logic.ByteArrayDecimal
 import all Kraken.X64.PrintATT
 import all Kraken.X64.PrintIntel
 
@@ -32,6 +33,7 @@ public section
 namespace LeanQbe.T.Amd64
 
 open Kraken.X64
+open ByteArrayDecimal
 
 /-! ## 1. Decidable `DirSubset0` Envelope Predicate -/
 
@@ -132,89 +134,17 @@ open Kraken.X64
 
 /-! ## 2. `ByteArray` / `String.toUTF8` Algebra Helpers -/
 
-private theorem toString_str (s : String) : toString s = s := rfl
-
-private theorem ba_eq_of_data_toList {a b : ByteArray} (h : a.data.toList = b.data.toList) :
-    a = b := by
-  cases a with
-  | mk da =>
-    cases b with
-    | mk db =>
-      congr 1
-      exact Array.ext' h
-
-private theorem ba_push_data_toList (ba : ByteArray) (b : UInt8) :
-    (ba.push b).data.toList = ba.data.toList ++ [b] := by
-  cases ba with
-  | mk ds =>
-    dsimp only [ByteArray.push]
-    exact Array.toList_push
-
-private theorem ba_push_eq_append (ba : ByteArray) (b : UInt8) (s : String)
-    (h : s.toUTF8.data.toList = [b]) : ba.push b = ba ++ s.toUTF8 := by
-  apply ba_eq_of_data_toList
-  rw [ba_push_data_toList, ByteArray.toList_data_append, h]
-
 private theorem e2_eq_append (ba : ByteArray) (a b : UInt8) (s : String)
-    (h : s.toUTF8.data.toList = [a, b]) : PrintAsm0.e2 ba a b = ba ++ s.toUTF8 := by
-  apply ba_eq_of_data_toList
-  dsimp only [PrintAsm0.e2]
-  rw [ba_push_data_toList, ba_push_data_toList, ByteArray.toList_data_append, h,
-    List.append_assoc]
-  rfl
+    (h : s.toUTF8.data.toList = [a, b]) : PrintAsm0.e2 ba a b = ba ++ s.toUTF8 :=
+  ba_push2_eq_append ba a b s h
 
 private theorem e3_eq_append (ba : ByteArray) (a b c : UInt8) (s : String)
-    (h : s.toUTF8.data.toList = [a, b, c]) : PrintAsm0.e3 ba a b c = ba ++ s.toUTF8 := by
-  apply ba_eq_of_data_toList
-  dsimp only [PrintAsm0.e3]
-  rw [ba_push_data_toList, ba_push_data_toList, ba_push_data_toList,
-    ByteArray.toList_data_append, h, List.append_assoc, List.append_assoc]
-  rfl
+    (h : s.toUTF8.data.toList = [a, b, c]) : PrintAsm0.e3 ba a b c = ba ++ s.toUTF8 :=
+  ba_push3_eq_append ba a b c s h
 
 private theorem e4_eq_append (ba : ByteArray) (a b c d : UInt8) (s : String)
-    (h : s.toUTF8.data.toList = [a, b, c, d]) : PrintAsm0.e4 ba a b c d = ba ++ s.toUTF8 := by
-  apply ba_eq_of_data_toList
-  dsimp only [PrintAsm0.e4]
-  rw [ba_push_data_toList, ba_push_data_toList, ba_push_data_toList,
-    ba_push_data_toList, ByteArray.toList_data_append, h, List.append_assoc,
-    List.append_assoc, List.append_assoc]
-  rfl
-
-private theorem toUTF8_append (s t : String) : (s ++ t).toUTF8 = s.toUTF8 ++ t.toUTF8 := by
-  rw [String.toUTF8_eq_toByteArray, String.toUTF8_eq_toByteArray,
-    String.toUTF8_eq_toByteArray, String.toByteArray_append]
-
-private theorem toUTF8_empty : "".toUTF8 = ByteArray.empty := by
-  rw [String.toUTF8_eq_toByteArray, String.toByteArray_empty]
-
-private theorem toUTF8_concat_l (s1 s2 : String) (r : ByteArray) :
-    s1.toUTF8 ++ (s2.toUTF8 ++ r) = (s1 ++ s2).toUTF8 ++ r := by
-  rw [← ByteArray.append_assoc, ← toUTF8_append]
-
-private theorem ite_true_eq {p : Prop} [Decidable p] {α : Sort _} {a b : α} (h : p) :
-    (if p then a else b) = a := by
-  cases ‹Decidable p› with
-  | isTrue _ => rfl
-  | isFalse hn => exact absurd h hn
-
-private theorem ite_false_eq {p : Prop} [Decidable p] {α : Sort _} {a b : α} (h : ¬ p) :
-    (if p then a else b) = b := by
-  cases ‹Decidable p› with
-  | isTrue hp => exact absurd hp h
-  | isFalse _ => rfl
-
-private theorem dite_true_eq {p : Prop} [Decidable p] {α : Sort _} {a : p → α} {b : ¬ p → α}
-    (h : p) : (if h' : p then a h' else b h') = a h := by
-  cases ‹Decidable p› with
-  | isTrue _ => rfl
-  | isFalse hn => exact absurd h hn
-
-private theorem fromUTF8!_toUTF8 (s : String) : String.fromUTF8! s.toUTF8 = s := by
-  dsimp only [String.fromUTF8!]
-  rw [String.toUTF8_eq_toByteArray, dite_true_eq s.isValidUTF8, String.fromUTF8_eq_ofByteArray]
-
-private theorem emptyWithCapacity_eq_empty (c : Nat) :
-    ByteArray.emptyWithCapacity c = ByteArray.empty := rfl
+    (h : s.toUTF8.data.toList = [a, b, c, d]) : PrintAsm0.e4 ba a b c d = ba ++ s.toUTF8 :=
+  ba_push4_eq_append ba a b c d s h
 
 private theorem eCommaSp_eq (ba : ByteArray) :
     PrintAsm0.eCommaSp ba = ba ++ ", ".toUTF8 :=
@@ -230,373 +160,23 @@ private theorem eWidth_eq (ba : ByteArray) (w : Width) :
 
 /-! ## 3. String Byte Copy (`emitStr`) Equivalence -/
 
-private theorem toUTF8_data_length (s : String) :
-    s.toUTF8.data.toList.length = s.utf8ByteSize := by
-  rw [String.toUTF8_eq_toByteArray, Array.length_toList]
-  rfl
-
-private theorem list_drop_eq_cons {α : Type} :
-    ∀ (xs : List α) (i : Nat) (h : i < xs.length),
-      xs.drop i = xs[i] :: xs.drop (i + 1)
-  | [], _, h => absurd h (Nat.not_lt_zero _)
-  | _ :: _, 0, _ => rfl
-  | _ :: xs, i + 1, h => list_drop_eq_cons xs i (Nat.lt_of_succ_lt_succ h)
-
-private theorem emitStrLoop_eq (s : String) :
-    ∀ (k i : Nat) (ba : ByteArray),
-      k = s.utf8ByteSize - i →
-      (PrintAsm0.emitStrLoop ba s i).data.toList =
-        ba.data.toList ++ s.toUTF8.data.toList.drop i
-  | 0, i, ba, hk => by
-    have hge : ¬ i < s.utf8ByteSize := by omega
-    rw [PrintAsm0.emitStrLoop.eq_def]
-    simp only [hge, ↓reduceDIte]
-    have hlen := toUTF8_data_length s
-    have hdrop : s.toUTF8.data.toList.drop i = [] := List.drop_eq_nil_of_le (by omega)
-    rw [hdrop, List.append_nil]
-  | k + 1, i, ba, hk => by
-    have hlt : i < s.utf8ByteSize := by omega
-    rw [PrintAsm0.emitStrLoop.eq_def]
-    simp only [hlt, ↓reduceDIte]
-    have hstep : k = s.utf8ByteSize - Nat.add i 1 := by
-      rw [Nat.add_eq]; omega
-    have ih := emitStrLoop_eq s k (Nat.add i 1) (ba.push (s.getUTF8Byte ⟨i⟩ hlt)) hstep
-    rw [ih, ba_push_data_toList, List.append_assoc]
-    congr 1
-    have hlen : i < s.toUTF8.data.toList.length := by
-      rw [toUTF8_data_length]; exact hlt
-    have hbyte : s.getUTF8Byte ⟨i⟩ hlt = s.toUTF8.data.toList[i]'hlen := by
-      rw [String.getUTF8Byte_eq_getElem]
-      simp only [String.toUTF8_eq_toByteArray]
-      rfl
-    rw [hbyte, List.cons_append, List.nil_append, Nat.add_eq]
-    exact (list_drop_eq_cons s.toUTF8.data.toList i hlen).symm
-
 private theorem emitStr_eq (ba : ByteArray) (s : String) :
-    PrintAsm0.emitStr ba s = ba ++ s.toUTF8 := by
-  apply ba_eq_of_data_toList
-  dsimp only [PrintAsm0.emitStr]
-  rw [emitStrLoop_eq s s.utf8ByteSize 0 ba (by omega),
-    List.drop_zero, ByteArray.toList_data_append]
+    PrintAsm0.emitStr ba s = ba ++ s.toUTF8 :=
+  emitStr_eq_of_steps PrintAsm0.emitStrLoop
+    (fun _ _ _ h => by rw [PrintAsm0.emitStrLoop.eq_def]; simp only [h, ↓reduceDIte])
+    (fun _ _ _ h => by rw [PrintAsm0.emitStrLoop.eq_def]; simp only [h, ↓reduceDIte])
+    ba s
 
 /-! ## 4. Exact `UInt64` / `Int64` Decimal Formatting Equivalence -/
 
-private def digitsPow10 : Nat → Nat → List UInt8
-  | 0, n => [UInt8.ofNat (48 + n)]
-  | k + 1, n => UInt8.ofNat (48 + n / 10 ^ (k + 1)) :: digitsPow10 k (n % 10 ^ (k + 1))
-
-private theorem emitPowDown_zero (ba : ByteArray) (n p : UInt64) :
-    PrintAsm0.emitPowDown 0 ba n p = ba.push (48 + (n / p).toUInt8) := rfl
-
-private theorem emitPowDown_succ (fuel : Nat) (ba : ByteArray) (n p : UInt64) :
-    PrintAsm0.emitPowDown (fuel + 1) ba n p =
-      let ba' := ba.push (48 + (n / p).toUInt8)
-      if p == 1 then ba' else PrintAsm0.emitPowDown fuel ba' (n % p) (p / 10) := rfl
-
-private theorem pow10Up_succ (fuel : Nat) (q p : UInt64) :
-    PrintAsm0.pow10Up (fuel + 1) q p =
-      if p ≤ q then PrintAsm0.pow10Up fuel q (p * 10) else p := rfl
-
-private theorem pow10_lt_u64 {k : Nat} (hk : k ≤ 19) : 10 ^ k < 2 ^ 64 := by
-  have h19 : 10 ^ 19 < 2 ^ 64 := by decide
-  exact Nat.lt_of_le_of_lt (Nat.pow_le_pow_right (by omega) hk) h19
-
-private theorem u64_ofNat_toNat_pow10 {k : Nat} (hk : k ≤ 19) :
-    (UInt64.ofNat (10 ^ k)).toNat = 10 ^ k := by
-  rw [UInt64.toNat_ofNat', Nat.mod_eq_of_lt (pow10_lt_u64 hk)]
-
-private theorem emitPowDown_eq_digitsPow10 :
-    ∀ (k fuel : Nat) (ba : ByteArray) (n : UInt64),
-      k ≤ fuel → k ≤ 19 → n.toNat < 10 ^ (k + 1) →
-      (PrintAsm0.emitPowDown fuel ba n (UInt64.ofNat (10 ^ k))).data.toList =
-        ba.data.toList ++ digitsPow10 k n.toNat
-  | 0, fuel, ba, n, _, _, hn => by
-    have h1 : UInt64.ofNat (10 ^ 0) = 1 := rfl
-    have hdiv : (n / 1).toNat = n.toNat := by
-      rw [UInt64.toNat_div]; exact Nat.div_one _
-    have hd : (48 + (n / 1).toUInt8) = UInt8.ofNat (48 + n.toNat) := by
-      apply UInt8.eq_of_toBitVec_eq
-      apply BitVec.eq_of_toNat_eq
-      change (48 + (n / 1).toUInt8).toNat = (UInt8.ofNat (48 + n.toNat)).toNat
-      rw [UInt8.toNat_add, UInt64.toNat_toUInt8, hdiv, UInt8.toNat_ofNat']
-      have hn10 : n.toNat < 10 := by simpa using hn
-      change (48 + n.toNat % 256) % 256 = (48 + n.toNat) % 256
-      omega
-    rw [h1]
-    cases fuel with
-    | zero =>
-      rw [emitPowDown_zero, ba_push_data_toList, hd]
-      rfl
-    | succ fuel' =>
-      rw [emitPowDown_succ]
-      simp only [beq_self_eq_true, ↓reduceIte, ba_push_data_toList, hd]
-      rfl
-  | k + 1, fuel, ba, n, hle, hk, hn => by
-    cases fuel with
-    | zero => omega
-    | succ fuel' =>
-      have hk19 : k ≤ 19 := by omega
-      have hp_toNat : (UInt64.ofNat (10 ^ (k + 1))).toNat = 10 ^ (k + 1) :=
-        u64_ofNat_toNat_pow10 hk
-      have hp_ne1 : (UInt64.ofNat (10 ^ (k + 1)) == 1) = false := by
-        apply beq_false_of_ne
-        intro hEq
-        have hgt : 10 ≤ 10 ^ (k + 1) := by
-          have := Nat.pow_le_pow_right (by omega : 0 < 10) (by omega : 1 ≤ k + 1)
-          simpa using this
-        have hNat := congrArg UInt64.toNat hEq
-        rw [hp_toNat] at hNat
-        change 10 ^ (k + 1) = 1 at hNat
-        omega
-      have hdiv_p : UInt64.ofNat (10 ^ (k + 1)) / 10 = UInt64.ofNat (10 ^ k) := by
-        apply UInt64.eq_of_toBitVec_eq
-        apply BitVec.eq_of_toNat_eq
-        change (UInt64.ofNat (10 ^ (k + 1)) / 10).toNat = (UInt64.ofNat (10 ^ k)).toNat
-        rw [UInt64.toNat_div, hp_toNat, u64_ofNat_toNat_pow10 hk19]
-        change 10 ^ (k + 1) / 10 = 10 ^ k
-        rw [Nat.pow_succ, Nat.mul_div_cancel _ (by omega)]
-      have hmod_lt : (n % UInt64.ofNat (10 ^ (k + 1))).toNat < 10 ^ (k + 1) := by
-        rw [UInt64.toNat_mod, hp_toNat]
-        exact Nat.mod_lt _ (Nat.pow_pos (by omega))
-      have hd : (48 + (n / UInt64.ofNat (10 ^ (k + 1))).toUInt8) =
-          UInt8.ofNat (48 + n.toNat / 10 ^ (k + 1)) := by
-        have hq_lt : n.toNat / 10 ^ (k + 1) < 10 := by
-          rw [Nat.div_lt_iff_lt_mul (Nat.pow_pos (by omega))]
-          have hp : 10 * 10 ^ (k + 1) = 10 ^ (k + 2) := by
-            rw [Nat.mul_comm, ← Nat.pow_succ]
-          omega
-        apply UInt8.eq_of_toBitVec_eq
-        apply BitVec.eq_of_toNat_eq
-        change (48 + (n / UInt64.ofNat (10 ^ (k + 1))).toUInt8).toNat =
-          (UInt8.ofNat (48 + n.toNat / 10 ^ (k + 1))).toNat
-        rw [UInt8.toNat_add, UInt64.toNat_toUInt8, UInt64.toNat_div, hp_toNat, UInt8.toNat_ofNat']
-        change (48 + (n.toNat / 10 ^ (k + 1)) % 256) % 256 = (48 + n.toNat / 10 ^ (k + 1)) % 256
-        omega
-      rw [emitPowDown_succ]
-      simp only [hp_ne1, Bool.false_eq_true, ↓reduceIte, hdiv_p]
-      rw [emitPowDown_eq_digitsPow10 k fuel' _ (n % UInt64.ofNat (10 ^ (k + 1)))
-          (by omega) hk19 hmod_lt]
-      rw [ba_push_data_toList, List.append_assoc, hd, UInt64.toNat_mod, hp_toNat,
-        List.singleton_append]
-      rfl
-
-private theorem pow10Up_spec_aux (n : UInt64) :
-    ∀ (fuel j : Nat),
-      j + fuel = 20 → j ≤ 19 → (j = 0 ∨ 10 ^ j ≤ n.toNat) →
-      ∃ k, k ≤ 19 ∧ PrintAsm0.pow10Up fuel (n / 10) (UInt64.ofNat (10 ^ j)) =
-          UInt64.ofNat (10 ^ k) ∧
-        (k = 0 ∨ 10 ^ k ≤ n.toNat) ∧ n.toNat < 10 ^ (k + 1)
-  | 0, j, hsum, hj, _ => by omega
-  | fuel' + 1, j, hsum, hj, hlow => by
-    rw [pow10Up_succ]
-    have hp_toNat : (UInt64.ofNat (10 ^ j)).toNat = 10 ^ j := u64_ofNat_toNat_pow10 hj
-    have hq_toNat : (n / 10).toNat = n.toNat / 10 := by
-      rw [UInt64.toNat_div]; rfl
-    by_cases hle : UInt64.ofNat (10 ^ j) ≤ n / 10
-    · simp only [hle, ↓reduceIte]
-      have hle_nat : 10 ^ j ≤ n.toNat / 10 := by
-        have h := UInt64.le_iff_toNat_le.mp hle
-        rwa [hp_toNat, hq_toNat] at h
-      have hnext_le : 10 ^ (j + 1) ≤ n.toNat := by
-        rw [Nat.pow_succ]
-        omega
-      have hn_lt20 : n.toNat < 10 ^ 20 := by
-        have h264 : 2 ^ 64 < 10 ^ 20 := by decide
-        exact Nat.lt_trans n.toNat_lt_size h264
-      have hj1 : j + 1 ≤ 19 := by
-        by_cases h19 : j + 1 ≤ 19
-        · exact h19
-        · have hge20 : 20 ≤ j + 1 := by omega
-          have hpow : 10 ^ 20 ≤ 10 ^ (j + 1) := Nat.pow_le_pow_right (by omega) hge20
-          omega
-      have hmul : UInt64.ofNat (10 ^ j) * 10 = UInt64.ofNat (10 ^ (j + 1)) := by
-        apply UInt64.eq_of_toBitVec_eq
-        apply BitVec.eq_of_toNat_eq
-        change (UInt64.ofNat (10 ^ j) * 10).toNat = (UInt64.ofNat (10 ^ (j + 1))).toNat
-        rw [UInt64.toNat_mul, hp_toNat, u64_ofNat_toNat_pow10 hj1]
-        change (10 ^ j * 10) % 2 ^ 64 = 10 ^ (j + 1)
-        rw [← Nat.pow_succ, Nat.mod_eq_of_lt (pow10_lt_u64 hj1)]
-      rw [hmul]
-      exact pow10Up_spec_aux n fuel' (j + 1) (by omega) hj1 (Or.inr hnext_le)
-    · simp only [hle, ↓reduceIte]
-      have hgt_nat : n.toNat / 10 < 10 ^ j := by
-        have h : ¬ (UInt64.ofNat (10 ^ j)).toNat ≤ (n / 10).toNat :=
-          fun hle' => hle (UInt64.le_iff_toNat_le.mpr hle')
-        rw [hp_toNat, hq_toNat] at h
-        omega
-      have hlt_next : n.toNat < 10 ^ (j + 1) := by
-        rw [Nat.pow_succ]
-        omega
-      exact ⟨j, hj, rfl, hlow, hlt_next⟩
-
-private theorem mod_ten_mul_div_ten (m p : Nat) (hp : 0 < p) :
-    m % (10 * p) / 10 = m / 10 % p := by
-  have h1 : m = 10 * (m / 10) + m % 10 := (Nat.div_add_mod m 10).symm
-  have h2 : m / 10 = p * (m / 10 / p) + m / 10 % p := (Nat.div_add_mod (m / 10) p).symm
-  have hrem_lt : 10 * (m / 10 % p) + m % 10 < 10 * p := by
-    have ha : m / 10 % p < p := Nat.mod_lt _ hp
-    have hb : m % 10 < 10 := Nat.mod_lt _ (by omega)
-    omega
-  have hdecomp : m = (10 * p) * (m / 10 / p) + (10 * (m / 10 % p) + m % 10) := by
-    have : 10 * (p * (m / 10 / p) + m / 10 % p) =
-        (10 * p) * (m / 10 / p) + 10 * (m / 10 % p) := by
-      rw [Nat.mul_add, Nat.mul_assoc]
-    omega
-  have hmod : m % (10 * p) = 10 * (m / 10 % p) + m % 10 := by
-    calc m % (10 * p)
-        = ((10 * p) * (m / 10 / p) + (10 * (m / 10 % p) + m % 10)) % (10 * p) :=
-          congrArg (· % (10 * p)) hdecomp
-      _ = (10 * (m / 10 % p) + m % 10) % (10 * p) := Nat.mul_add_mod _ _ _
-      _ = 10 * (m / 10 % p) + m % 10 := Nat.mod_eq_of_lt hrem_lt
-  rw [hmod]
-  have hb : m % 10 < 10 := Nat.mod_lt _ (by omega)
-  omega
-
-private theorem digitsPow10_succ_right :
-    ∀ (k m : Nat),
-      digitsPow10 (k + 1) m = digitsPow10 k (m / 10) ++ [UInt8.ofNat (48 + m % 10)]
-  | 0, _ => rfl
-  | k + 1, m => by
-    change UInt8.ofNat (48 + m / 10 ^ (k + 2)) :: digitsPow10 (k + 1) (m % 10 ^ (k + 2)) =
-      (UInt8.ofNat (48 + (m / 10) / 10 ^ (k + 1)) :: digitsPow10 k ((m / 10) % 10 ^ (k + 1))) ++
-        [UInt8.ofNat (48 + m % 10)]
-    rw [List.cons_append, digitsPow10_succ_right k (m % 10 ^ (k + 2))]
-    have hdiv : m / 10 ^ (k + 2) = (m / 10) / 10 ^ (k + 1) := by
-      rw [Nat.div_div_eq_div_mul]
-      congr 1
-      rw [Nat.pow_succ, Nat.mul_comm]
-    have hmod_div : m % 10 ^ (k + 2) / 10 = m / 10 % 10 ^ (k + 1) := by
-      have hp : 10 ^ (k + 2) = 10 * 10 ^ (k + 1) := by
-        rw [Nat.pow_succ, Nat.mul_comm]
-      rw [hp]
-      exact mod_ten_mul_div_ten m (10 ^ (k + 1)) (Nat.pow_pos (by omega))
-    have hmod_mod : m % 10 ^ (k + 2) % 10 = m % 10 := by
-      have hdvd : 10 ∣ 10 ^ (k + 2) := ⟨10 ^ (k + 1), by rw [Nat.pow_succ, Nat.mul_comm]⟩
-      exact Nat.mod_mod_of_dvd m hdvd
-    rw [hdiv, hmod_div, hmod_mod]
-
-private theorem digitChar_0 : Nat.digitChar 0 = '0' := Nat.digitChar_eq_zero.mpr rfl
-private theorem digitChar_1 : Nat.digitChar 1 = '1' := Nat.digitChar_eq_one.mpr rfl
-private theorem digitChar_2 : Nat.digitChar 2 = '2' := Nat.digitChar_eq_two.mpr rfl
-private theorem digitChar_3 : Nat.digitChar 3 = '3' := Nat.digitChar_eq_three.mpr rfl
-private theorem digitChar_4 : Nat.digitChar 4 = '4' := Nat.digitChar_eq_four.mpr rfl
-private theorem digitChar_5 : Nat.digitChar 5 = '5' := Nat.digitChar_eq_five.mpr rfl
-private theorem digitChar_6 : Nat.digitChar 6 = '6' := Nat.digitChar_eq_six.mpr rfl
-private theorem digitChar_7 : Nat.digitChar 7 = '7' := Nat.digitChar_eq_seven.mpr rfl
-private theorem digitChar_8 : Nat.digitChar 8 = '8' := Nat.digitChar_eq_eight.mpr rfl
-private theorem digitChar_9 : Nat.digitChar 9 = '9' := Nat.digitChar_eq_nine.mpr rfl
-
-private theorem digit_toUTF8_eq (d : Nat) (hd : d < 10) :
-    (String.singleton d.digitChar).toUTF8.data.toList = [UInt8.ofNat (48 + d)] := by
-  match d, hd with
-  | 0, _ => rw [digitChar_0]; rfl
-  | 1, _ => rw [digitChar_1]; rfl
-  | 2, _ => rw [digitChar_2]; rfl
-  | 3, _ => rw [digitChar_3]; rfl
-  | 4, _ => rw [digitChar_4]; rfl
-  | 5, _ => rw [digitChar_5]; rfl
-  | 6, _ => rw [digitChar_6]; rfl
-  | 7, _ => rw [digitChar_7]; rfl
-  | 8, _ => rw [digitChar_8]; rfl
-  | 9, _ => rw [digitChar_9]; rfl
-  | d + 10, hd => omega
-
-private theorem digitsPow10_eq_natRepr :
-    ∀ (k m : Nat), (k = 0 ∨ 10 ^ k ≤ m) → m < 10 ^ (k + 1) →
-      digitsPow10 k m = (Nat.repr m).toUTF8.data.toList
-  | 0, m, _, hm => by
-    have hm10 : m < 10 := by simpa using hm
-    rw [Nat.repr_of_lt hm10, digit_toUTF8_eq m hm10]
-    rfl
-  | k + 1, m, hlow, hm => by
-    have hge_pow : 10 ^ (k + 1) ≤ m := by
-      rcases hlow with h | h
-      · exact absurd h (Nat.succ_ne_zero k)
-      · exact h
-    have hge10 : 10 ≤ m := by
-      have h10 : 10 ≤ 10 ^ (k + 1) := by
-        have := Nat.pow_le_pow_right (by omega : 0 < 10) (by omega : 1 ≤ k + 1)
-        simpa using this
-      omega
-    have hdiv_lt : m / 10 < 10 ^ (k + 1) := by
-      rw [Nat.div_lt_iff_lt_mul (by omega)]
-      have hp : 10 ^ (k + 1) * 10 = 10 ^ (k + 2) := (Nat.pow_succ ..).symm
-      omega
-    have hdiv_low : k = 0 ∨ 10 ^ k ≤ m / 10 := by
-      right
-      rw [Nat.le_div_iff_mul_le (by omega)]
-      have hp : 10 ^ k * 10 = 10 ^ (k + 1) := (Nat.pow_succ ..).symm
-      omega
-    rw [digitsPow10_succ_right, digitsPow10_eq_natRepr k (m / 10) hdiv_low hdiv_lt]
-    rw [Nat.repr_of_ge hge10, toUTF8_append, ByteArray.toList_data_append]
-    rw [digit_toUTF8_eq (m % 10) (Nat.mod_lt m (by omega))]
-
 private theorem emitU64Dec_eq (ba : ByteArray) (n : UInt64) :
-    PrintAsm0.emitU64Dec ba n = ba ++ (Nat.repr n.toNat).toUTF8 := by
-  obtain ⟨k, hk, hpow, hlow, hlt⟩ := pow10Up_spec_aux n 20 0 rfl (by omega) (Or.inl rfl)
-  apply ba_eq_of_data_toList
-  dsimp only [PrintAsm0.emitU64Dec]
-  rw [show (1 : UInt64) = UInt64.ofNat (10 ^ 0) from rfl, hpow]
-  rw [emitPowDown_eq_digitsPow10 k 20 ba n (by omega) hk hlt]
-  rw [digitsPow10_eq_natRepr k n.toNat hlow hlt, ByteArray.toList_data_append]
-
-private theorem int64_toInt_eq_u64 (i : Int64) :
-    ((i.toUInt64 >>> 63) = 1 →
-      i.toInt = -((0 - i.toUInt64).toNat : Int) ∧ 0 < (0 - i.toUInt64).toNat) ∧
-    ((i.toUInt64 >>> 63) ≠ 1 → i.toInt = (i.toUInt64.toNat : Int)) := by
-  have hlt : i.toUInt64.toNat < 2 ^ 64 := i.toUInt64.toNat_lt_size
-  have hsh : (i.toUInt64 >>> 63).toNat = i.toUInt64.toNat / 2 ^ 63 := by
-    rw [UInt64.toNat_shiftRight]
-    change i.toUInt64.toNat >>> (63 % 64) = i.toUInt64.toNat / 2 ^ 63
-    rw [Nat.mod_eq_of_lt (by omega), Nat.shiftRight_eq_div_pow]
-  have htoInt : i.toInt =
-      if 2 * i.toUInt64.toNat < 2 ^ 64 then (i.toUInt64.toNat : Int)
-      else (i.toUInt64.toNat : Int) - (2 ^ 64 : Nat) := rfl
-  rw [htoInt]
-  constructor
-  · intro hneg
-    have hq : i.toUInt64.toNat / 2 ^ 63 = 1 := by
-      have := congrArg UInt64.toNat hneg
-      rwa [hsh] at this
-    have hcond : ¬ (2 * i.toUInt64.toNat < 2 ^ 64) := by omega
-    simp only [hcond, ↓reduceIte]
-    have hsub : (0 - i.toUInt64).toNat = 2 ^ 64 - i.toUInt64.toNat := by
-      rw [UInt64.toNat_sub, UInt64.toNat_zero, Nat.add_zero]
-      exact Nat.mod_eq_of_lt (by omega)
-    rw [hsub]
-    omega
-  · intro hpos
-    have hq : i.toUInt64.toNat / 2 ^ 63 = 0 := by
-      match Nat.eq_zero_or_pos (i.toUInt64.toNat / 2 ^ 63) with
-      | .inl hz => exact hz
-      | .inr hp =>
-        exfalso
-        apply hpos
-        apply UInt64.eq_of_toBitVec_eq
-        apply BitVec.eq_of_toNat_eq
-        change (i.toUInt64 >>> 63).toNat = 1
-        omega
-    have hcond : 2 * i.toUInt64.toNat < 2 ^ 64 := by omega
-    simp only [hcond, ↓reduceIte]
+    PrintAsm0.emitU64Dec ba n = ba ++ (Nat.repr n.toNat).toUTF8 :=
+  emitU64Dec_eq_of_steps PrintAsm0.pow10Up PrintAsm0.emitPowDown
+    (fun _ _ _ _ => rfl) (fun _ _ _ => rfl) (fun _ _ _ _ _ => rfl) ba n
 
 private theorem emitI64Dec_eq (ba : ByteArray) (i : Int64) :
-    PrintAsm0.emitI64Dec ba i.toUInt64 = ba ++ (toString i).toUTF8 := by
-  have ⟨hneg, hpos⟩ := int64_toInt_eq_u64 i
-  change PrintAsm0.emitI64Dec ba i.toUInt64 = ba ++ (Int.repr i.toInt).toUTF8
-  dsimp only [PrintAsm0.emitI64Dec]
-  by_cases h : (i.toUInt64 >>> 63) = 1
-  · simp only [h, beq_self_eq_true, ↓reduceIte]
-    obtain ⟨hi, hm⟩ := hneg h
-    rw [hi, Int.repr_eq_ite]
-    have hneg_lt : ¬ (0 ≤ -((0 - i.toUInt64).toNat : Int)) := by omega
-    simp only [hneg_lt, ↓reduceIte, Int.neg_neg, Int.toNat_natCast]
-    rw [emitU64Dec_eq, toUTF8_append, ba_push_eq_append ba 0x2d "-" rfl, ByteArray.append_assoc]
-  · have hbf : ((i.toUInt64 >>> 63) == 1) = false := beq_false_of_ne h
-    simp only [hbf, Bool.false_eq_true, ↓reduceIte]
-    rw [hpos h, Int.repr_eq_ite]
-    have hge0 : (0 : Int) ≤ (i.toUInt64.toNat : Int) := Int.natCast_nonneg _
-    simp only [hge0, ↓reduceIte, Int.toNat_natCast]
-    exact emitU64Dec_eq ba i.toUInt64
+    PrintAsm0.emitI64Dec ba i.toUInt64 = ba ++ (toString i).toUTF8 :=
+  emitI64Dec_eq_of_u64 PrintAsm0.emitU64Dec emitU64Dec_eq ba i
 
 /-! ## 5. Registers, Condition Codes, Constants, Addresses, Operands -/
 
@@ -606,7 +186,8 @@ private theorem emitReg64_ext_eq (ba : ByteArray) (w : Width) (r : Reg64) (idx :
       ba ++ ("%r" ++ Nat.repr idx.toNat ++
         match w with | .W64 => "" | .W32 => "d" | .W16 => "w" | .W8 => "b").toUTF8 := by
   dsimp only [PrintAsm0.emitReg64]
-  rw [hidx, ite_true_eq hge]
+  rw [hidx]
+  simp only [hge, ↓reduceIte]
   rw [ba_push_eq_append ba 0x25 "%" rfl, ba_push_eq_append _ 0x72 "r" rfl,
     ByteArray.append_assoc, ← toUTF8_append, emitU64Dec_eq]
   have hpr : "%" ++ "r" = "%r" := rfl
@@ -631,22 +212,26 @@ private theorem emitReg64_lo_eq (ba : ByteArray) (w : Width) (r : Reg64)
   dsimp only [PrintAsm0.emitReg64]
   rw [hlo]
   have hlt : ¬ ((0 : UInt64) ≥ 8) := by decide
-  rw [ite_false_eq hlt]
+  simp only [hlt, ↓reduceIte]
   rfl
 
-private theorem nat_repr_1d (d : Nat) (hd : d < 10) (c : Char) (hc : Nat.digitChar d = c) :
-    Nat.repr d = String.singleton c := by
-  rw [Nat.repr_of_lt hd, hc]
+private theorem emitReg64_ext1 {ba : ByteArray} {w : Width} {r : Reg64} {idx : UInt64} {c : Char}
+    (hidx : PrintAsm0.regExtNum r = idx) (hge : idx ≥ 8) (hd : idx.toNat < 10)
+    (hc : Nat.digitChar idx.toNat = c)
+    (hatt : ∀ w, ATT.reg (Reg.low r w) = "%r" ++ String.singleton c ++
+      match w with | .W64 => "" | .W32 => "d" | .W16 => "w" | .W8 => "b") :
+    PrintAsm0.emitReg64 ba w r = ba ++ (ATT.reg (Reg.low r w)).toUTF8 := by
+  rw [emitReg64_ext_eq ba w r idx hidx hge, u64_repr_1d idx idx.toNat rfl hd c hc, hatt w]
 
-private theorem u64_repr_1d (u : UInt64) (d : Nat) (hu : u.toNat = d) (hd : d < 10) (c : Char)
-    (hc : Nat.digitChar d = c) : Nat.repr u.toNat = String.singleton c := by
-  rw [hu, Nat.repr_of_lt hd, hc]
-
-private theorem u64_repr_2d (u : UInt64) (n : Nat) (hu : u.toNat = n) (h10 : 10 ≤ n)
-    (hd1 : n / 10 < 10) (c1 c2 : Char)
-    (hc1 : Nat.digitChar (n / 10) = c1) (hc2 : Nat.digitChar (n % 10) = c2) :
-    Nat.repr u.toNat = String.singleton c1 ++ String.singleton c2 := by
-  rw [hu, Nat.repr_of_ge h10, Nat.repr_of_lt hd1, hc1, hc2]
+private theorem emitReg64_ext2 {ba : ByteArray} {w : Width} {r : Reg64} {idx : UInt64}
+    {c1 c2 : Char} (hidx : PrintAsm0.regExtNum r = idx) (hge : idx ≥ 8) (h10 : 10 ≤ idx.toNat)
+    (hd1 : idx.toNat / 10 < 10) (hc1 : Nat.digitChar (idx.toNat / 10) = c1)
+    (hc2 : Nat.digitChar (idx.toNat % 10) = c2)
+    (hatt : ∀ w, ATT.reg (Reg.low r w) = "%r" ++ (String.singleton c1 ++ String.singleton c2) ++
+      match w with | .W64 => "" | .W32 => "d" | .W16 => "w" | .W8 => "b") :
+    PrintAsm0.emitReg64 ba w r = ba ++ (ATT.reg (Reg.low r w)).toUTF8 := by
+  rw [emitReg64_ext_eq ba w r idx hidx hge,
+    u64_repr_2d idx idx.toNat rfl h10 hd1 c1 c2 hc1 hc2, hatt w]
 
 private theorem emitReg64_eq (ba : ByteArray) (w : Width) (r : Reg64) :
     PrintAsm0.emitReg64 ba w r = ba ++ (ATT.reg (Reg.low r w)).toUTF8 := by
@@ -659,37 +244,29 @@ private theorem emitReg64_eq (ba : ByteArray) (w : Width) (r : Reg64) :
       simp only [ba_push_data_toList, ByteArray.toList_data_append, List.append_assoc]
       rfl)
   | r8 =>
-    rw [emitReg64_ext_eq ba w .r8 8 rfl (by decide),
-      u64_repr_1d 8 8 rfl (by omega) '8' digitChar_8]
-    cases w <;> rfl
+    exact emitReg64_ext1 (r := .r8) (idx := 8) rfl (by decide) (by decide) digitChar_8
+      (fun w => by cases w <;> rfl)
   | r9 =>
-    rw [emitReg64_ext_eq ba w .r9 9 rfl (by decide),
-      u64_repr_1d 9 9 rfl (by omega) '9' digitChar_9]
-    cases w <;> rfl
+    exact emitReg64_ext1 (r := .r9) (idx := 9) rfl (by decide) (by decide) digitChar_9
+      (fun w => by cases w <;> rfl)
   | r10 =>
-    rw [emitReg64_ext_eq ba w .r10 10 rfl (by decide),
-      u64_repr_2d 10 10 rfl (by omega) (by omega) '1' '0' digitChar_1 digitChar_0]
-    cases w <;> rfl
+    exact emitReg64_ext2 (r := .r10) (idx := 10) rfl (by decide) (by decide) (by decide)
+      digitChar_1 digitChar_0 (fun w => by cases w <;> rfl)
   | r11 =>
-    rw [emitReg64_ext_eq ba w .r11 11 rfl (by decide),
-      u64_repr_2d 11 11 rfl (by omega) (by omega) '1' '1' digitChar_1 digitChar_1]
-    cases w <;> rfl
+    exact emitReg64_ext2 (r := .r11) (idx := 11) rfl (by decide) (by decide) (by decide)
+      digitChar_1 digitChar_1 (fun w => by cases w <;> rfl)
   | r12 =>
-    rw [emitReg64_ext_eq ba w .r12 12 rfl (by decide),
-      u64_repr_2d 12 12 rfl (by omega) (by omega) '1' '2' digitChar_1 digitChar_2]
-    cases w <;> rfl
+    exact emitReg64_ext2 (r := .r12) (idx := 12) rfl (by decide) (by decide) (by decide)
+      digitChar_1 digitChar_2 (fun w => by cases w <;> rfl)
   | r13 =>
-    rw [emitReg64_ext_eq ba w .r13 13 rfl (by decide),
-      u64_repr_2d 13 13 rfl (by omega) (by omega) '1' '3' digitChar_1 digitChar_3]
-    cases w <;> rfl
+    exact emitReg64_ext2 (r := .r13) (idx := 13) rfl (by decide) (by decide) (by decide)
+      digitChar_1 digitChar_3 (fun w => by cases w <;> rfl)
   | r14 =>
-    rw [emitReg64_ext_eq ba w .r14 14 rfl (by decide),
-      u64_repr_2d 14 14 rfl (by omega) (by omega) '1' '4' digitChar_1 digitChar_4]
-    cases w <;> rfl
+    exact emitReg64_ext2 (r := .r14) (idx := 14) rfl (by decide) (by decide) (by decide)
+      digitChar_1 digitChar_4 (fun w => by cases w <;> rfl)
   | r15 =>
-    rw [emitReg64_ext_eq ba w .r15 15 rfl (by decide),
-      u64_repr_2d 15 15 rfl (by omega) (by omega) '1' '5' digitChar_1 digitChar_5]
-    cases w <;> rfl
+    exact emitReg64_ext2 (r := .r15) (idx := 15) rfl (by decide) (by decide) (by decide)
+      digitChar_1 digitChar_5 (fun w => by cases w <;> rfl)
 
 private theorem emitReg_eq (ba : ByteArray) {w : Width} (r : Reg w) :
     PrintAsm0.emitReg ba w r = ba ++ (ATT.reg r).toUTF8 := by
@@ -720,7 +297,7 @@ private theorem emitAddrDisp_i64_zero (ba : ByteArray) (hv : 0 < 2 ^ 64) :
     (if (Int64.ofBitVec ⟨⟨0, hv⟩⟩).toUInt64 == 0 then ba
       else PrintAsm0.emitI64Dec ba (Int64.ofBitVec ⟨⟨0, hv⟩⟩).toUInt64) = ba ++ "".toUTF8 := by
   have hz : ((Int64.ofBitVec ⟨⟨0, hv⟩⟩).toUInt64 == 0) = true := rfl
-  rw [hz, ite_true_eq rfl, toUTF8_empty, ByteArray.append_empty]
+  simp only [hz, ↓reduceIte, toUTF8_empty, ByteArray.append_empty]
 
 private theorem emitAddrDisp_i64_succ (ba : ByteArray) (v : Nat) (hv : v + 1 < 2 ^ 64) :
     (if (Int64.ofBitVec ⟨⟨v + 1, hv⟩⟩).toUInt64 == 0 then ba
@@ -730,7 +307,7 @@ private theorem emitAddrDisp_i64_succ (ba : ByteArray) (v : Nat) (hv : v + 1 < 2
     apply beq_false_of_ne
     intro heq
     exact Nat.succ_ne_zero v (congrArg UInt64.toNat heq)
-  rw [hu, ite_false_eq Bool.false_ne_true]
+  simp only [hu, Bool.false_eq_true, ↓reduceIte]
   exact emitI64Dec_eq ba _
 
 private theorem emitScaleByte_eq (ba : ByteArray) (s : Width) :
@@ -745,9 +322,87 @@ private theorem emitScaleByte_eq (ba : ByteArray) (s : Width) :
   · rw [show toString Width.W64.bytes = "8" from nat_repr_1d 8 (by omega) '8' digitChar_8]
     exact ba_push_eq_append ba 0x38 "8" rfl
 
+private theorem emitAddrDisp_eq (ba : ByteArray) (base : Option RegOrRip) (disp : ConstExpr)
+    (h : (match base, disp with
+      | some .rip, .sub e .after_current_instruction => isConst0 e
+      | _, d => isConst0 d) = true) :
+    PrintAsm0.emitAddrDisp ba base disp =
+      ba ++ (match base, disp with
+        | some .rip, .sub e .after_current_instruction => ATT.const e
+        | _, .int64 0 => ""
+        | _, d => ATT.const d).toUTF8 := by
+  cases disp with
+  | int64 i =>
+    rcases i with ⟨⟨⟨v, hv⟩⟩⟩
+    rcases base with _ | ⟨_ | _⟩ <;> cases v <;>
+      first | exact emitAddrDisp_i64_zero ba hv | exact emitAddrDisp_i64_succ ba _ hv
+  | label l => rcases base with _ | ⟨_ | _⟩ <;> exact emitStr_eq ba l
+  | sub e rhs =>
+    rcases base with _ | ⟨_ | _⟩
+    · cases h
+    · cases h
+    · cases rhs <;> first | exact emitConst_eq ba e h | cases h
+  | before_current_instruction | after_current_instruction | add _ _ =>
+    rcases base with _ | ⟨_ | _⟩ <;> cases h
+
+private theorem emitAddrBase_eq (ba : ByteArray) (base : Option RegOrRip) :
+    (match base with
+      | some (.reg r) => PrintAsm0.emitReg64 ba .W64 r
+      | some .rip => PrintAsm0.e4 ba 0x25 0x72 0x69 0x70
+      | none => ba) =
+      ba ++ (match base with
+        | some (.reg r) => ATT.reg (.low r .W64)
+        | some .rip => "%rip"
+        | none => "").toUTF8 := by
+  rcases base with _ | ⟨r | _⟩
+  · rw [toUTF8_empty, ByteArray.append_empty]
+  · exact emitReg64_eq ba .W64 r
+  · exact e4_eq_append ba 0x25 0x72 0x69 0x70 "%rip" rfl
+
+private theorem emitAddrIdx_eq (ba : ByteArray) (idx : Option AddrIndex) :
+    (match idx with
+      | some idx' =>
+        PrintAsm0.emitScaleByte ((PrintAsm0.emitReg64 (ba.push 0x2c) .W64 idx'.reg).push 0x2c)
+          idx'.scale
+      | none => ba) =
+      ba ++ (match idx with
+        | some ⟨r, s⟩ => s!",{ATT.reg (.low r .W64)},{s.bytes}"
+        | none => "").toUTF8 := by
+  rcases idx with _ | ⟨r, s⟩
+  · rw [toUTF8_empty, ByteArray.append_empty]
+  · dsimp only
+    rw [ba_push_eq_append _ 0x2c "," rfl, emitReg64_eq _ .W64 r,
+      ba_push_eq_append _ 0x2c "," rfl, emitScaleByte_eq _ s]
+    simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
+
+private theorem emitAddr_nonAbs_eq (ba : ByteArray) (base : Option RegOrRip)
+    (idx : Option AddrIndex) (disp : ConstExpr)
+    (h : (match base, disp with
+      | some .rip, .sub e .after_current_instruction => isConst0 e
+      | _, d => isConst0 d) = true)
+    (hnone : (base.isNone && idx.isNone) = false) :
+    (let ba1 := (PrintAsm0.emitAddrDisp ba base disp).push 0x28
+     let ba2 := match base with
+       | some (.reg r) => PrintAsm0.emitReg64 ba1 .W64 r
+       | some .rip => PrintAsm0.e4 ba1 0x25 0x72 0x69 0x70
+       | none => ba1
+     let ba3 := match idx with
+       | some idx' =>
+         PrintAsm0.emitScaleByte ((PrintAsm0.emitReg64 (ba2.push 0x2c) .W64 idx'.reg).push 0x2c)
+           idx'.scale
+       | none => ba2
+     ba3.push 0x29) = ba ++ (ATT.addr .W64 ⟨base, idx, disp⟩).toUTF8 := by
+  dsimp only [ATT.addr]
+  simp only [hnone, Bool.false_eq_true, ↓reduceIte]
+  rw [emitAddrDisp_eq ba base disp h, ba_push_eq_append _ 0x28 "(" rfl,
+    emitAddrBase_eq, emitAddrIdx_eq, ba_push_eq_append _ 0x29 ")" rfl]
+  simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
+  rfl
+
 private theorem emitAddr_eq (ba : ByteArray) (a : AddrExpr) (h : isAddr0 a = true) :
     PrintAsm0.emitAddr ba a = ba ++ (ATT.addr .W64 a).toUTF8 := by
   rcases a with ⟨base, idx, disp⟩
+  dsimp only [isAddr0] at h
   cases base with
   | none =>
     cases idx with
@@ -756,113 +411,16 @@ private theorem emitAddr_eq (ba : ByteArray) (a : AddrExpr) (h : isAddr0 a = tru
       simp only [Option.isNone_none, Bool.and_self, ↓reduceIte]
       exact emitConst_eq ba disp h
     | some idx' =>
-      rcases idx' with ⟨ir, is⟩
-      dsimp only [PrintAsm0.emitAddr, ATT.addr]
-      simp only [Option.isNone_none, Option.isNone_some, Bool.and_false,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [ba_push_eq_append _ 0x28 "(" rfl, ba_push_eq_append _ 0x2c "," rfl]
-      rw [emitReg64_eq _ .W64 ir, ba_push_eq_append _ 0x2c "," rfl]
-      rw [emitScaleByte_eq _ is, ba_push_eq_append _ 0x29 ")" rfl]
-      simp only [toString_str, toUTF8_append, ByteArray.append_assoc, toUTF8_empty,
-        ByteArray.empty_append]
-      rw [← @ByteArray.append_assoc ba]
-      apply congrArg (· ++ _)
-      cases disp with
-      | int64 i =>
-        rcases i with ⟨⟨⟨v, hv⟩⟩⟩
-        cases v with
-        | zero => exact emitAddrDisp_i64_zero ba hv
-        | succ v' => exact emitAddrDisp_i64_succ ba v' hv
-      | label l => exact emitStr_eq ba l
-      | before_current_instruction | after_current_instruction | add _ _ | sub _ _ => cases h
+      dsimp only [PrintAsm0.emitAddr]
+      exact emitAddr_nonAbs_eq ba none (some idx') disp h rfl
   | some b =>
-    cases b with
-    | reg br =>
-      cases idx with
-      | none =>
-        dsimp only [PrintAsm0.emitAddr, ATT.addr]
-        simp only [Option.isNone_some, Bool.false_and, Bool.false_eq_true, ↓reduceIte]
-        rw [ba_push_eq_append _ 0x28 "(" rfl, emitReg64_eq _ .W64 br]
-        rw [ba_push_eq_append _ 0x29 ")" rfl]
-        simp only [toString_str, String.append_empty, toUTF8_append, ByteArray.append_assoc]
-        rw [← @ByteArray.append_assoc ba]
-        apply congrArg (· ++ _)
-        cases disp with
-        | int64 i =>
-          rcases i with ⟨⟨⟨v, hv⟩⟩⟩
-          cases v with
-          | zero => exact emitAddrDisp_i64_zero ba hv
-          | succ v' => exact emitAddrDisp_i64_succ ba v' hv
-        | label l => exact emitStr_eq ba l
-        | before_current_instruction | after_current_instruction | add _ _ | sub _ _ => cases h
-      | some idx' =>
-        rcases idx' with ⟨ir, is⟩
-        dsimp only [PrintAsm0.emitAddr, ATT.addr]
-        simp only [Option.isNone_some, Bool.false_and, Bool.false_eq_true, ↓reduceIte]
-        rw [ba_push_eq_append _ 0x28 "(" rfl, emitReg64_eq _ .W64 br]
-        rw [ba_push_eq_append _ 0x2c "," rfl, emitReg64_eq _ .W64 ir]
-        rw [ba_push_eq_append _ 0x2c "," rfl, emitScaleByte_eq _ is]
-        rw [ba_push_eq_append _ 0x29 ")" rfl]
-        simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-        rw [← @ByteArray.append_assoc ba]
-        apply congrArg (· ++ _)
-        cases disp with
-        | int64 i =>
-          rcases i with ⟨⟨⟨v, hv⟩⟩⟩
-          cases v with
-          | zero => exact emitAddrDisp_i64_zero ba hv
-          | succ v' => exact emitAddrDisp_i64_succ ba v' hv
-        | label l => exact emitStr_eq ba l
-        | before_current_instruction | after_current_instruction | add _ _ | sub _ _ => cases h
-    | rip =>
-      cases idx with
-      | none =>
-        dsimp only [PrintAsm0.emitAddr, ATT.addr]
-        simp only [Option.isNone_some, Bool.false_and, Bool.false_eq_true, ↓reduceIte]
-        rw [ba_push_eq_append _ 0x28 "(" rfl, e4_eq_append _ 0x25 0x72 0x69 0x70 "%rip" rfl]
-        rw [ba_push_eq_append _ 0x29 ")" rfl]
-        simp only [toString_str, String.append_empty, toUTF8_append, ByteArray.append_assoc]
-        rw [← @ByteArray.append_assoc ba]
-        apply congrArg (· ++ _)
-        cases disp with
-        | int64 i =>
-          rcases i with ⟨⟨⟨v, hv⟩⟩⟩
-          cases v with
-          | zero => exact emitAddrDisp_i64_zero ba hv
-          | succ v' => exact emitAddrDisp_i64_succ ba v' hv
-        | label l => exact emitStr_eq ba l
-        | sub e rhs =>
-          cases rhs with
-          | after_current_instruction =>
-            dsimp only [PrintAsm0.emitAddrDisp]
-            exact emitConst_eq ba e h
-          | label _ | int64 _ | before_current_instruction | add _ _ | sub _ _ => cases h
-        | before_current_instruction | after_current_instruction | add _ _ => cases h
-      | some idx' =>
-        rcases idx' with ⟨ir, is⟩
-        dsimp only [PrintAsm0.emitAddr, ATT.addr]
-        simp only [Option.isNone_some, Bool.false_and, Bool.false_eq_true, ↓reduceIte]
-        rw [ba_push_eq_append _ 0x28 "(" rfl, e4_eq_append _ 0x25 0x72 0x69 0x70 "%rip" rfl]
-        rw [ba_push_eq_append _ 0x2c "," rfl, emitReg64_eq _ .W64 ir]
-        rw [ba_push_eq_append _ 0x2c "," rfl, emitScaleByte_eq _ is]
-        rw [ba_push_eq_append _ 0x29 ")" rfl]
-        simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-        rw [← @ByteArray.append_assoc ba]
-        apply congrArg (· ++ _)
-        cases disp with
-        | int64 i =>
-          rcases i with ⟨⟨⟨v, hv⟩⟩⟩
-          cases v with
-          | zero => exact emitAddrDisp_i64_zero ba hv
-          | succ v' => exact emitAddrDisp_i64_succ ba v' hv
-        | label l => exact emitStr_eq ba l
-        | sub e rhs =>
-          cases rhs with
-          | after_current_instruction =>
-            dsimp only [PrintAsm0.emitAddrDisp]
-            exact emitConst_eq ba e h
-          | label _ | int64 _ | before_current_instruction | add _ _ | sub _ _ => cases h
-        | before_current_instruction | after_current_instruction | add _ _ => cases h
+    cases idx with
+    | none =>
+      dsimp only [PrintAsm0.emitAddr]
+      exact emitAddr_nonAbs_eq ba (some b) none disp h rfl
+    | some idx' =>
+      dsimp only [PrintAsm0.emitAddr]
+      exact emitAddr_nonAbs_eq ba (some b) (some idx') disp h rfl
 
 private theorem emitRm_eq (ba : ByteArray) {w : Width} (rm : RegOrMem w) (h : isRm0 rm = true) :
     PrintAsm0.emitRm ba w rm = ba ++ (ATT.rm .W64 rm).toUTF8 := by
@@ -909,376 +467,212 @@ private theorem emitTarget_eq (ba : ByteArray) (t : RelRegOrMem) (h : isTarget0 
 
 /-! ## 6. Shared Operation-Format Lemmas & Complete `Operation` Equivalence -/
 
-private theorem eOp1W_eq (ba : ByteArray) (mn : String) {w : Width} (d : RegOrMem w)
-    (hd : isRm0 d = true) :
-    PrintAsm0.eOp1W (ba ++ mn.toUTF8) w d =
-      ba ++ s!"{mn}{ATT.suffix w} {ATT.rm .W64 d}".toUTF8 := by
-  dsimp only [PrintAsm0.eOp1W]
+private theorem eOp1W_eq {ba ba' : ByteArray} {mn : String} (hba : ba' = ba ++ mn.toUTF8)
+    {w : Width} {d : RegOrMem w} (hd : isRm0 d = true) :
+    PrintAsm0.eOp1W ba' w d = ba ++ s!"{mn}{ATT.suffix w} {ATT.rm .W64 d}".toUTF8 := by
+  subst hba; dsimp only [PrintAsm0.eOp1W]
   rw [eWidth_eq, ba_push_eq_append _ 0x20 " " rfl, emitRm_eq _ d hd]
   simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
 
-private theorem eOp2W_eq (ba : ByteArray) (mn : String) {w : Width}
-    (d : RegOrMem w) (x : Operand w) (hd : isRm0 d = true) (hx : isOpd0 x = true) :
-    PrintAsm0.eOp2W (ba ++ mn.toUTF8) w d x =
+private theorem eOp2W_eq {ba ba' : ByteArray} {mn : String} (hba : ba' = ba ++ mn.toUTF8)
+    {w : Width} {d : RegOrMem w} {x : Operand w} (h : (isRm0 d && isOpd0 x) = true) :
+    PrintAsm0.eOp2W ba' w d x =
       ba ++ s!"{mn}{ATT.suffix w} {ATT.operand .W64 x}, {ATT.rm .W64 d}".toUTF8 := by
-  dsimp only [PrintAsm0.eOp2W]
+  have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
+  subst hba; dsimp only [PrintAsm0.eOp2W]
   rw [eWidth_eq, ba_push_eq_append _ 0x20 " " rfl, emitOpd_eq _ x hx, eCommaSp_eq, emitRm_eq _ d hd]
   simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
 
-private theorem eShW_eq (ba : ByteArray) (mn : String) {w : Width}
-    (d : RegOrMem w) (c : ShiftCountExpr) (hd : isRm0 d = true) (hc : isCount0 c = true) :
-    PrintAsm0.eShW (ba ++ mn.toUTF8) w d c =
+private theorem eShW_eq {ba ba' : ByteArray} {mn : String} (hba : ba' = ba ++ mn.toUTF8)
+    {w : Width} {d : RegOrMem w} {c : ShiftCountExpr} (h : (isRm0 d && isCount0 c) = true) :
+    PrintAsm0.eShW ba' w d c =
       ba ++ s!"{mn}{ATT.suffix w} {ATT.count c}, {ATT.rm .W64 d}".toUTF8 := by
-  dsimp only [PrintAsm0.eShW]
+  have ⟨hd, hc⟩ := Bool.and_eq_true_iff.mp h
+  subst hba; dsimp only [PrintAsm0.eShW]
   rw [eWidth_eq, ba_push_eq_append _ 0x20 " " rfl, emitCount_eq _ c hc, eCommaSp_eq,
     emitRm_eq _ d hd]
   simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
 
-private theorem eRmReg_eq (ba : ByteArray) (mn : String) {w : Width}
-    (d : Reg w) (x : RegOrMem w) (hx : isRm0 x = true) :
-    PrintAsm0.eRmReg (ba ++ mn.toUTF8) w d x =
-      ba ++ s!"{mn} {ATT.rm .W64 x}, {ATT.reg d}".toUTF8 := by
-  dsimp only [PrintAsm0.eRmReg]
+private theorem eRmReg_eq {ba ba' : ByteArray} {mn : String} (hba : ba' = ba ++ mn.toUTF8)
+    {w : Width} {d : Reg w} {x : RegOrMem w} (hx : isRm0 x = true) :
+    PrintAsm0.eRmReg ba' w d x = ba ++ s!"{mn} {ATT.rm .W64 x}, {ATT.reg d}".toUTF8 := by
+  subst hba; dsimp only [PrintAsm0.eRmReg]
   rw [ba_push_eq_append _ 0x20 " " rfl, emitRm_eq _ x hx, eCommaSp_eq, emitReg_eq _ d]
   simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
 
-private theorem eBmi2Shift_eq (ba : ByteArray) (mn : String) {w : Width}
-    (d : Reg w) (x : RegOrMem w) (c : Reg w) (hx : isRm0 x = true) :
-    PrintAsm0.eBmi2Shift (ba ++ mn.toUTF8) w d x c =
+private theorem eBmi2Shift_eq {ba ba' : ByteArray} {mn : String} (hba : ba' = ba ++ mn.toUTF8)
+    {w : Width} {d : Reg w} {x : RegOrMem w} {c : Reg w} (hx : isRm0 x = true) :
+    PrintAsm0.eBmi2Shift ba' w d x c =
       ba ++ s!"{mn} {ATT.reg c}, {ATT.rm .W64 x}, {ATT.reg d}".toUTF8 := by
-  dsimp only [PrintAsm0.eBmi2Shift]
+  subst hba; dsimp only [PrintAsm0.eBmi2Shift]
   rw [ba_push_eq_append _ 0x20 " " rfl, emitReg_eq _ c, eCommaSp_eq, emitRm_eq _ x hx,
     eCommaSp_eq, emitReg_eq _ d]
   simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
+
+private theorem emitMovExt_eq (ba : ByteArray) {w w' : Width} (isSign : Bool)
+    (d : RegOrMem w) (x : RegOrMem w') (hd : isRm0 d = true) (hx : isRm0 x = true) :
+    PrintAsm0.emitMovExt ba w w' isSign d x =
+      let pfx := if isSign then "movs" else "movz"
+      ba ++ (match x with
+        | .mem a => s!"{pfx}{ATT.suffix w'}{ATT.suffix w} {ATT.addr .W64 a}, {ATT.rm .W64 d}"
+        | .reg r => s!"{pfx}x {ATT.reg r}, {ATT.rm .W64 d}").toUTF8 := by
+  have htag : PrintAsm0.e4 ba 0x6d 0x6f 0x76 (if isSign then 0x73 else 0x7a) =
+      ba ++ (if isSign then "movs" else "movz").toUTF8 := by
+    cases isSign
+    · exact e4_eq_append ba 0x6d 0x6f 0x76 0x7a "movz" rfl
+    · exact e4_eq_append ba 0x6d 0x6f 0x76 0x73 "movs" rfl
+  cases x with
+  | mem a =>
+    dsimp only [PrintAsm0.emitMovExt]
+    rw [htag, eWidth_eq, eWidth_eq, ba_push_eq_append _ 0x20 " " rfl,
+      emitAddr_eq _ a hx, eCommaSp_eq, emitRm_eq _ d hd]
+    simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
+  | reg r =>
+    dsimp only [PrintAsm0.emitMovExt]
+    rw [htag, e2_eq_append _ 0x78 0x20 "x " rfl,
+      emitReg_eq _ r, eCommaSp_eq, emitRm_eq _ d hd]
+    simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
+
+private theorem eShd_eq {ba ba' : ByteArray} {mn : String} (hba : ba' = ba ++ mn.toUTF8)
+    {w : Width} {d : RegOrMem w} {x : Reg w} {c : ShiftCountExpr}
+    (h : (isRm0 d && isCount0 c) = true) :
+    PrintAsm0.emitRm (PrintAsm0.eCommaSp (PrintAsm0.emitReg (PrintAsm0.eCommaSp
+      (PrintAsm0.emitCount (ba'.push 0x20) c)) w x)) w d =
+      ba ++ s!"{mn} {ATT.count c}, {ATT.reg x}, {ATT.rm .W64 d}".toUTF8 := by
+  have ⟨hd, hc⟩ := Bool.and_eq_true_iff.mp h
+  subst hba
+  rw [ba_push_eq_append _ 0x20 " " rfl, emitCount_eq _ c hc, eCommaSp_eq,
+    emitReg_eq _ x, eCommaSp_eq, emitRm_eq _ d hd]
+  simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
+
+local macro "unfold_emit_op" : tactic =>
+  `(tactic| dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
+    PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
+    PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
+    PrintAsm0.emitOpCtrl, ATT.operation])
 
 private theorem emitOpData_eq (ba : ByteArray) {w : Width} (op : Operation w)
     (h : isOp0 op = true) :
     PrintAsm0.emitOpData ba w op = ba ++ (ATT.operation .W64 op).toUTF8 := by
   cases op with
-  | mov d x =>
-    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, ATT.operation]
-    rw [e3_eq_append ba 0x6d 0x6f 0x76 "mov" rfl]
-    exact eOp2W_eq ba "mov" d x hd hx
-  | @movsx w' d x =>
-    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
-    cases x with
-    | mem a =>
-      dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitMovExt, ATT.operation]
-      simp only [↓reduceIte]
-      rw [e4_eq_append ba 0x6d 0x6f 0x76 0x73 "movs" rfl, eWidth_eq, eWidth_eq,
-        ba_push_eq_append _ 0x20 " " rfl, emitAddr_eq _ a hx, eCommaSp_eq, emitRm_eq _ d hd]
-      change _ = ba ++
-        s!"movs{ATT.suffix w'}{ATT.suffix w} {ATT.addr .W64 a}, {ATT.rm .W64 d}".toUTF8
-      simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-    | reg r =>
-      dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitMovExt, ATT.operation]
-      simp only [↓reduceIte]
-      rw [e4_eq_append ba 0x6d 0x6f 0x76 0x73 "movs" rfl, e2_eq_append _ 0x78 0x20 "x " rfl,
-        emitReg_eq _ r, eCommaSp_eq, emitRm_eq _ d hd]
-      change _ = ba ++ s!"movsx {ATT.reg r}, {ATT.rm .W64 d}".toUTF8
-      simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-      rw [toUTF8_concat_l "movs" "x "]
-      rfl
-  | @movzx w' d x =>
-    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
-    cases x with
-    | mem a =>
-      dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitMovExt, ATT.operation]
-      simp only [Bool.false_eq_true, ↓reduceIte]
-      rw [e4_eq_append ba 0x6d 0x6f 0x76 0x7a "movz" rfl, eWidth_eq, eWidth_eq,
-        ba_push_eq_append _ 0x20 " " rfl, emitAddr_eq _ a hx, eCommaSp_eq, emitRm_eq _ d hd]
-      change _ = ba ++
-        s!"movz{ATT.suffix w'}{ATT.suffix w} {ATT.addr .W64 a}, {ATT.rm .W64 d}".toUTF8
-      simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-    | reg r =>
-      dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitMovExt, ATT.operation]
-      simp only [Bool.false_eq_true, ↓reduceIte]
-      rw [e4_eq_append ba 0x6d 0x6f 0x76 0x7a "movz" rfl, e2_eq_append _ 0x78 0x20 "x " rfl,
-        emitReg_eq _ r, eCommaSp_eq, emitRm_eq _ d hd]
-      change _ = ba ++ s!"movzx {ATT.reg r}, {ATT.rm .W64 d}".toUTF8
-      simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-      rw [toUTF8_concat_l "movz" "x "]
-      rfl
+  | mov d x => unfold_emit_op; exact eOp2W_eq (e3_eq_append ba 0x6d 0x6f 0x76 "mov" rfl) h
+  | movsx d x =>
+    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h; unfold_emit_op
+    have he := emitMovExt_eq ba true d x hd hx; cases x <;> exact he
+  | movzx d x =>
+    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h; unfold_emit_op
+    have he := emitMovExt_eq ba false d x hd hx; cases x <;> exact he
   | setcc cc d =>
-    dsimp only [PrintAsm0.emitOpData, ATT.operation]
+    unfold_emit_op
     rw [e3_eq_append ba 0x73 0x65 0x74 "set" rfl, emitCc_eq,
       ba_push_eq_append _ 0x20 " " rfl, emitRm_eq _ d h]
     simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
   | cmovcc cc d x =>
-    dsimp only [PrintAsm0.emitOpData, ATT.operation]
+    unfold_emit_op
     rw [e4_eq_append ba 0x63 0x6d 0x6f 0x76 "cmov" rfl, emitCc_eq,
-      ByteArray.append_assoc, ← toUTF8_append]
-    rw [eRmReg_eq ba ("cmov" ++ toString cc) d x h]
+      ByteArray.append_assoc, ← toUTF8_append, eRmReg_eq (mn := "cmov" ++ toString cc) rfl h]
     simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
   | lea d a =>
-    dsimp only [PrintAsm0.emitOpData, ATT.operation]
+    unfold_emit_op
     rw [e4_eq_append ba 0x6c 0x65 0x61 0x20 "lea " rfl, emitAddr_eq _ a h,
       eCommaSp_eq, emitReg_eq _ d]
     simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-  | add d x =>
-    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, ATT.operation]
-    rw [e3_eq_append ba 0x61 0x64 0x64 "add" rfl]
-    exact eOp2W_eq ba "add" d x hd hx
-  | sub d x =>
-    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, ATT.operation]
-    rw [e3_eq_append ba 0x73 0x75 0x62 "sub" rfl]
-    exact eOp2W_eq ba "sub" d x hd hx
-  | and d x =>
-    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, ATT.operation]
-    rw [e3_eq_append ba 0x61 0x6e 0x64 "and" rfl]
-    exact eOp2W_eq ba "and" d x hd hx
-  | or d x =>
-    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, ATT.operation]
-    rw [e2_eq_append ba 0x6f 0x72 "or" rfl]
-    exact eOp2W_eq ba "or" d x hd hx
-  | xor d x =>
-    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, ATT.operation]
-    rw [e3_eq_append ba 0x78 0x6f 0x72 "xor" rfl]
-    exact eOp2W_eq ba "xor" d x hd hx
-  | cmp a b =>
-    have ⟨ha, hb⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2, ATT.operation]
-    rw [e3_eq_append ba 0x63 0x6d 0x70 "cmp" rfl]
-    exact eOp2W_eq ba "cmp" a b ha hb
+  | add d x => unfold_emit_op; exact eOp2W_eq (e3_eq_append ba 0x61 0x64 0x64 "add" rfl) h
+  | sub d x => unfold_emit_op; exact eOp2W_eq (e3_eq_append ba 0x73 0x75 0x62 "sub" rfl) h
+  | and d x => unfold_emit_op; exact eOp2W_eq (e3_eq_append ba 0x61 0x6e 0x64 "and" rfl) h
+  | or d x => unfold_emit_op; exact eOp2W_eq (e2_eq_append ba 0x6f 0x72 "or" rfl) h
+  | xor d x => unfold_emit_op; exact eOp2W_eq (e3_eq_append ba 0x78 0x6f 0x72 "xor" rfl) h
+  | cmp a b => unfold_emit_op; exact eOp2W_eq (e3_eq_append ba 0x63 0x6d 0x70 "cmp" rfl) h
   | test a b =>
-    have ⟨ha, hb⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2, ATT.operation]
-    rw [e4_eq_append ba 0x74 0x65 0x73 0x74 "test" rfl]
-    exact eOp2W_eq ba "test" a b ha hb
-  | neg d =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2, ATT.operation]
-    rw [e3_eq_append ba 0x6e 0x65 0x67 "neg" rfl]
-    exact eOp1W_eq ba "neg" d h
-  | not d =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2, ATT.operation]
-    rw [e3_eq_append ba 0x6e 0x6f 0x74 "not" rfl]
-    exact eOp1W_eq ba "not" d h
-  | mul x =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, ATT.operation]
-    rw [e3_eq_append ba 0x6d 0x75 0x6c "mul" rfl]
-    exact eOp1W_eq ba "mul" x h
-  | div x =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, ATT.operation]
-    rw [e3_eq_append ba 0x64 0x69 0x76 "div" rfl]
-    exact eOp1W_eq ba "div" x h
-  | idiv x =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, ATT.operation]
-    rw [e4_eq_append ba 0x69 0x64 0x69 0x76 "idiv" rfl]
-    exact eOp1W_eq ba "idiv" x h
-  | imul1 x =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, ATT.operation]
-    rw [e4_eq_append ba 0x69 0x6d 0x75 0x6c "imul" rfl]
-    exact eOp1W_eq ba "imul" x h
+    unfold_emit_op; exact eOp2W_eq (e4_eq_append ba 0x74 0x65 0x73 0x74 "test" rfl) h
+  | neg d => unfold_emit_op; exact eOp1W_eq (e3_eq_append ba 0x6e 0x65 0x67 "neg" rfl) h
+  | not d => unfold_emit_op; exact eOp1W_eq (e3_eq_append ba 0x6e 0x6f 0x74 "not" rfl) h
+  | mul x => unfold_emit_op; exact eOp1W_eq (e3_eq_append ba 0x6d 0x75 0x6c "mul" rfl) h
+  | div x => unfold_emit_op; exact eOp1W_eq (e3_eq_append ba 0x64 0x69 0x76 "div" rfl) h
+  | idiv x => unfold_emit_op; exact eOp1W_eq (e4_eq_append ba 0x69 0x64 0x69 0x76 "idiv" rfl) h
+  | imul1 x => unfold_emit_op; exact eOp1W_eq (e4_eq_append ba 0x69 0x6d 0x75 0x6c "imul" rfl) h
   | imul d a b =>
     cases d with
-    | none =>
-      have ⟨ha, hb⟩ := Bool.and_eq_true_iff.mp h
-      dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-        PrintAsm0.emitOpMulDiv, ATT.operation]
-      rw [e4_eq_append ba 0x69 0x6d 0x75 0x6c "imul" rfl]
-      exact eOp2W_eq ba "imul" a b ha hb
+    | none => unfold_emit_op; exact eOp2W_eq (e4_eq_append ba 0x69 0x6d 0x75 0x6c "imul" rfl) h
     | some _ => cases h
   | mulx hi lo x =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, ATT.operation]
+    unfold_emit_op
     rw [e4_eq_append ba 0x6d 0x75 0x6c 0x78 "mulx" rfl, ba_push_eq_append _ 0x20 " " rfl,
       emitRm_eq _ x h, eCommaSp_eq, emitReg_eq _ lo, eCommaSp_eq, emitReg_eq _ hi]
     simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-    rw [toUTF8_concat_l "mulx" " "]
-    rfl
-  | adc d x =>
-    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, ATT.operation]
-    rw [e3_eq_append ba 0x61 0x64 0x63 "adc" rfl]
-    exact eOp2W_eq ba "adc" d x hd hx
-  | sbb d x =>
-    have ⟨hd, hx⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, ATT.operation]
-    rw [e3_eq_append ba 0x73 0x62 0x62 "sbb" rfl]
-    exact eOp2W_eq ba "sbb" d x hd hx
+    rw [toUTF8_concat_l "mulx" " "]; rfl
+  | adc d x => unfold_emit_op; exact eOp2W_eq (e3_eq_append ba 0x61 0x64 0x63 "adc" rfl) h
+  | sbb d x => unfold_emit_op; exact eOp2W_eq (e3_eq_append ba 0x73 0x62 0x62 "sbb" rfl) h
   | adcx d x =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, ATT.operation]
-    rw [e4_eq_append ba 0x61 0x64 0x63 0x78 "adcx" rfl]
-    exact eRmReg_eq ba "adcx" d x h
+    unfold_emit_op; exact eRmReg_eq (e4_eq_append ba 0x61 0x64 0x63 0x78 "adcx" rfl) h
   | adox d x =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, ATT.operation]
-    rw [e4_eq_append ba 0x61 0x64 0x6f 0x78 "adox" rfl]
-    exact eRmReg_eq ba "adox" d x h
-  | inc d =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, ATT.operation]
-    rw [e3_eq_append ba 0x69 0x6e 0x63 "inc" rfl]
-    exact eOp1W_eq ba "inc" d h
-  | dec d =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, ATT.operation]
-    rw [e3_eq_append ba 0x64 0x65 0x63 "dec" rfl]
-    exact eOp1W_eq ba "dec" d h
-  | shl d c =>
-    have ⟨hd, hc⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1, ATT.operation]
-    rw [e3_eq_append ba 0x73 0x68 0x6c "shl" rfl]
-    exact eShW_eq ba "shl" d c hd hc
-  | shr d c =>
-    have ⟨hd, hc⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1, ATT.operation]
-    rw [e3_eq_append ba 0x73 0x68 0x72 "shr" rfl]
-    exact eShW_eq ba "shr" d c hd hc
-  | sar d c =>
-    have ⟨hd, hc⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1, ATT.operation]
-    rw [e3_eq_append ba 0x73 0x61 0x72 "sar" rfl]
-    exact eShW_eq ba "sar" d c hd hc
-  | rol d c =>
-    have ⟨hd, hc⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, ATT.operation]
-    rw [e3_eq_append ba 0x72 0x6f 0x6c "rol" rfl]
-    exact eShW_eq ba "rol" d c hd hc
-  | ror d c =>
-    have ⟨hd, hc⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, ATT.operation]
-    rw [e3_eq_append ba 0x72 0x6f 0x72 "ror" rfl]
-    exact eShW_eq ba "ror" d c hd hc
+    unfold_emit_op; exact eRmReg_eq (e4_eq_append ba 0x61 0x64 0x6f 0x78 "adox" rfl) h
+  | inc d => unfold_emit_op; exact eOp1W_eq (e3_eq_append ba 0x69 0x6e 0x63 "inc" rfl) h
+  | dec d => unfold_emit_op; exact eOp1W_eq (e3_eq_append ba 0x64 0x65 0x63 "dec" rfl) h
+  | shl d c => unfold_emit_op; exact eShW_eq (e3_eq_append ba 0x73 0x68 0x6c "shl" rfl) h
+  | shr d c => unfold_emit_op; exact eShW_eq (e3_eq_append ba 0x73 0x68 0x72 "shr" rfl) h
+  | sar d c => unfold_emit_op; exact eShW_eq (e3_eq_append ba 0x73 0x61 0x72 "sar" rfl) h
+  | rol d c => unfold_emit_op; exact eShW_eq (e3_eq_append ba 0x72 0x6f 0x6c "rol" rfl) h
+  | ror d c => unfold_emit_op; exact eShW_eq (e3_eq_append ba 0x72 0x6f 0x72 "ror" rfl) h
   | shld d x c =>
-    have ⟨hd, hc⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, ATT.operation]
-    rw [e4_eq_append ba 0x73 0x68 0x6c 0x64 "shld" rfl, ba_push_eq_append _ 0x20 " " rfl,
-      emitCount_eq _ c hc, eCommaSp_eq, emitReg_eq _ x, eCommaSp_eq, emitRm_eq _ d hd]
-    simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-    rw [toUTF8_concat_l "shld" " "]
-    rfl
+    unfold_emit_op; exact eShd_eq (e4_eq_append ba 0x73 0x68 0x6c 0x64 "shld" rfl) h
   | shrd d x c =>
-    have ⟨hd, hc⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, ATT.operation]
-    rw [e4_eq_append ba 0x73 0x68 0x72 0x64 "shrd" rfl, ba_push_eq_append _ 0x20 " " rfl,
-      emitCount_eq _ c hc, eCommaSp_eq, emitReg_eq _ x, eCommaSp_eq, emitRm_eq _ d hd]
-    simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-    rw [toUTF8_concat_l "shrd" " "]
-    rfl
+    unfold_emit_op; exact eShd_eq (e4_eq_append ba 0x73 0x68 0x72 0x64 "shrd" rfl) h
   | bswap d =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, ATT.operation]
+    unfold_emit_op
     rw [e4_eq_append ba 0x62 0x73 0x77 0x61 "bswa" rfl, ba_push_eq_append _ 0x70 "p" rfl,
       ba_push_eq_append _ 0x20 " " rfl, emitReg_eq _ d]
     simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-    rw [toUTF8_concat_l "p" " ", toUTF8_concat_l "bswa" ("p" ++ " ")]
-    rfl
+    rw [toUTF8_concat_l "p" " ", toUTF8_concat_l "bswa" ("p" ++ " ")]; rfl
   | lzcnt d x =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, ATT.operation]
+    unfold_emit_op
     have hmn : (PrintAsm0.e4 ba 0x6c 0x7a 0x63 0x6e).push 0x74 = ba ++ "lzcnt".toUTF8 := by
       rw [e4_eq_append ba 0x6c 0x7a 0x63 0x6e "lzcn" rfl, ba_push_eq_append _ 0x74 "t" rfl,
         ByteArray.append_assoc, ← toUTF8_append]; rfl
-    rw [hmn]
-    exact eRmReg_eq ba "lzcnt" d x h
+    exact eRmReg_eq hmn h
   | tzcnt d x =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, ATT.operation]
+    unfold_emit_op
     have hmn : (PrintAsm0.e4 ba 0x74 0x7a 0x63 0x6e).push 0x74 = ba ++ "tzcnt".toUTF8 := by
       rw [e4_eq_append ba 0x74 0x7a 0x63 0x6e "tzcn" rfl, ba_push_eq_append _ 0x74 "t" rfl,
         ByteArray.append_assoc, ← toUTF8_append]; rfl
-    rw [hmn]
-    exact eRmReg_eq ba "tzcnt" d x h
+    exact eRmReg_eq hmn h
   | popcnt d x =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, ATT.operation]
+    unfold_emit_op
     have hmn : PrintAsm0.e3 (PrintAsm0.e3 ba 0x70 0x6f 0x70) 0x63 0x6e 0x74 =
         ba ++ "popcnt".toUTF8 := by
       rw [e3_eq_append ba 0x70 0x6f 0x70 "pop" rfl, e3_eq_append _ 0x63 0x6e 0x74 "cnt" rfl,
         ByteArray.append_assoc, ← toUTF8_append]; rfl
-    rw [hmn]
-    exact eRmReg_eq ba "popcnt" d x h
+    exact eRmReg_eq hmn h
   | shlx d x c =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2, ATT.operation]
-    rw [e4_eq_append ba 0x73 0x68 0x6c 0x78 "shlx" rfl]
-    exact eBmi2Shift_eq ba "shlx" d x c h
+    unfold_emit_op; exact eBmi2Shift_eq (e4_eq_append ba 0x73 0x68 0x6c 0x78 "shlx" rfl) h
   | shrx d x c =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2, ATT.operation]
-    rw [e4_eq_append ba 0x73 0x68 0x72 0x78 "shrx" rfl]
-    exact eBmi2Shift_eq ba "shrx" d x c h
+    unfold_emit_op; exact eBmi2Shift_eq (e4_eq_append ba 0x73 0x68 0x72 0x78 "shrx" rfl) h
   | sarx d x c =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2, ATT.operation]
-    rw [e4_eq_append ba 0x73 0x61 0x72 0x78 "sarx" rfl]
-    exact eBmi2Shift_eq ba "sarx" d x c h
+    unfold_emit_op; exact eBmi2Shift_eq (e4_eq_append ba 0x73 0x61 0x72 0x78 "sarx" rfl) h
   | rorx d x i =>
-    have ⟨hx, hi⟩ := Bool.and_eq_true_iff.mp h
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2, ATT.operation]
+    have ⟨hx, hi⟩ := Bool.and_eq_true_iff.mp h; unfold_emit_op
     rw [e4_eq_append ba 0x72 0x6f 0x72 0x78 "rorx" rfl, e2_eq_append _ 0x20 0x24 " $" rfl,
       emitConst_eq _ i hi, eCommaSp_eq, emitRm_eq _ x hx, eCommaSp_eq, emitReg_eq _ d]
     simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-    rw [toUTF8_concat_l "rorx" " $"]
-    rfl
+    rw [toUTF8_concat_l "rorx" " $"]; rfl
   | jcc cc l =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
-      PrintAsm0.emitOpCtrl, ATT.operation]
+    unfold_emit_op
     rw [ba_push_eq_append ba 0x6a "j" rfl, emitCc_eq, ba_push_eq_append _ 0x20 " " rfl,
       emitStr_eq _ l]
     simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
   | jmp t =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
-      PrintAsm0.emitOpCtrl, ATT.operation]
+    unfold_emit_op
     rw [e4_eq_append ba 0x6a 0x6d 0x70 0x20 "jmp " rfl, emitTarget_eq _ t h]
     simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
   | call t =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
-      PrintAsm0.emitOpCtrl, ATT.operation]
+    unfold_emit_op
     rw [e4_eq_append ba 0x63 0x61 0x6c 0x6c "call" rfl, ba_push_eq_append _ 0x20 " " rfl,
       emitTarget_eq _ t h]
     simp only [toString_str, toUTF8_append, ByteArray.append_assoc]
-    rw [toUTF8_concat_l "call" " "]
-    rfl
-  | ret =>
-    dsimp only [PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
-      PrintAsm0.emitOpCtrl, ATT.operation]
-    exact e3_eq_append ba 0x72 0x65 0x74 "ret" rfl
+    rw [toUTF8_concat_l "call" " "]; rfl
+  | ret => unfold_emit_op; exact e3_eq_append ba 0x72 0x65 0x74 "ret" rfl
   | push _ | pop _ | movs _ | stos _ | rcl _ _ | rcr _ _
-  | cld | std | nop _ | nopalign _ _ =>
-    cases h
+  | cld | std | nop _ | nopalign _ _ => cases h
 
 /-! ## 7. Headline Directive, Program, and Module Equivalence Theorems -/
 
