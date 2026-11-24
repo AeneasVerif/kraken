@@ -71,6 +71,7 @@ public import LeanQbe.T.LinkSccLemmas2
 public import LeanQbe.T.Live
 public import LeanQbe.T.Logic.Arith
 public import LeanQbe.T.Logic.BitVec
+public import LeanQbe.T.Logic.ByteArrayDecimal
 public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.C0Agrees
 public import LeanQbe.T.Logic.C0HeadStep

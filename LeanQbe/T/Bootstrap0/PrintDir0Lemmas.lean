@@ -5,6 +5,7 @@ public import LeanQbe.T.Bootstrap0.Bridge0
 public import LeanQbe.T.Amd64.PrintAsm0
 public import LeanQbe.T.Amd64.PrintAsm0Lemmas
 public import Kraken.X64.PrintATT
+import LeanQbe.T.Logic.ByteArrayDecimal
 
 /-!
 # Bit-for-Bit Equivalence Proofs for `PrintDir0` (`PrintDir0Lemmas`)
@@ -30,6 +31,7 @@ namespace LeanQbe.T.Bootstrap0
 
 open LeanQbe.T.Amd64
 open Kraken.X64
+open LeanQbe.T.ByteArrayDecimal
 
 /-! ## 1. Symbol-Table Validity Predicates -/
 
@@ -80,183 +82,62 @@ public theorem SymTabOk.dir0SymsOk {symBytes : ByteArray} {symOffs : Array Nat}
   | callSym id => exact htab.2.2.2 id (of_decide_eq_true hbound)
   | _ => trivial
 
-/-! ## 2. `ByteArray` and `String.toUTF8` Algebra Helpers -/
-
-private theorem ba_eq_of_data_toList {a b : ByteArray} (h : a.data.toList = b.data.toList) :
-    a = b := by
-  cases a with
-  | mk da =>
-    cases b with
-    | mk db =>
-      congr 1
-      exact Array.ext' h
-
-private theorem ba_push_data_toList (ba : ByteArray) (b : UInt8) :
-    (ba.push b).data.toList = ba.data.toList ++ [b] := by
-  cases ba with
-  | mk ds =>
-    dsimp only [ByteArray.push]
-    exact Array.toList_push
-
-private theorem ba_push_eq_append (ba : ByteArray) (b : UInt8) (s : String)
-    (h : s.toUTF8.data.toList = [b]) : ba.push b = ba ++ s.toUTF8 := by
-  apply ba_eq_of_data_toList
-  rw [ba_push_data_toList, ByteArray.toList_data_append, h]
-
-private theorem toUTF8_append (s t : String) : (s ++ t).toUTF8 = s.toUTF8 ++ t.toUTF8 := by
-  rw [String.toUTF8_eq_toByteArray, String.toUTF8_eq_toByteArray,
-    String.toUTF8_eq_toByteArray, String.toByteArray_append]
-
-private theorem toUTF8_empty : "".toUTF8 = ByteArray.empty := by
-  rw [String.toUTF8_eq_toByteArray, String.toByteArray_empty]
-
-private theorem emptyWithCapacity_eq_empty (c : Nat) :
-    ByteArray.emptyWithCapacity c = ByteArray.empty := rfl
-
-private theorem ite_true_eq {p : Prop} [Decidable p] {α : Sort _} {a b : α} (h : p) :
-    (if p then a else b) = a := by
-  cases ‹Decidable p› with
-  | isTrue _ => rfl
-  | isFalse hn => exact absurd h hn
-
-private theorem dite_true_eq {p : Prop} [Decidable p] {α : Sort _} {a : p → α} {b : ¬ p → α}
-    (h : p) : (if h' : p then a h' else b h') = a h := by
-  cases ‹Decidable p› with
-  | isTrue _ => rfl
-  | isFalse hn => exact absurd h hn
-
-private theorem fromUTF8!_toUTF8 (s : String) : String.fromUTF8! s.toUTF8 = s := by
-  dsimp only [String.fromUTF8!]
-  rw [String.toUTF8_eq_toByteArray, dite_true_eq s.isValidUTF8, String.fromUTF8_eq_ofByteArray]
-
-private theorem toUTF8_data_length (s : String) :
-    s.toUTF8.data.toList.length = s.utf8ByteSize := by
-  rw [String.toUTF8_eq_toByteArray, Array.length_toList]
-  rfl
-
-private theorem list_drop_eq_cons {α : Type} :
-    ∀ (xs : List α) (i : Nat) (h : i < xs.length),
-      xs.drop i = xs[i] :: xs.drop (i + 1)
-  | [], _, h => absurd h (Nat.not_lt_zero _)
-  | _ :: _, 0, _ => rfl
-  | _ :: xs, i + 1, h => list_drop_eq_cons xs i (Nat.lt_of_succ_lt_succ h)
-
-private theorem emitStrLoop_eq (s : String) :
-    ∀ (k i : Nat) (ba : ByteArray),
-      k = s.utf8ByteSize - i →
-      (PrintAsm0.emitStrLoop ba s i).data.toList =
-        ba.data.toList ++ s.toUTF8.data.toList.drop i
-  | 0, i, ba, hk => by
-    have hge : ¬ i < s.utf8ByteSize := by omega
-    rw [PrintAsm0.emitStrLoop.eq_def]
-    simp only [hge, ↓reduceDIte]
-    have hlen := toUTF8_data_length s
-    have hdrop : s.toUTF8.data.toList.drop i = [] := List.drop_eq_nil_of_le (by omega)
-    rw [hdrop, List.append_nil]
-  | k + 1, i, ba, hk => by
-    have hlt : i < s.utf8ByteSize := by omega
-    rw [PrintAsm0.emitStrLoop.eq_def]
-    simp only [hlt, ↓reduceDIte]
-    have hstep : k = s.utf8ByteSize - Nat.add i 1 := by
-      rw [Nat.add_eq]; omega
-    have ih := emitStrLoop_eq s k (Nat.add i 1) (ba.push (s.getUTF8Byte ⟨i⟩ hlt)) hstep
-    rw [ih, ba_push_data_toList, List.append_assoc]
-    congr 1
-    have hlen : i < s.toUTF8.data.toList.length := by
-      rw [toUTF8_data_length]; exact hlt
-    have hbyte : s.getUTF8Byte ⟨i⟩ hlt = s.toUTF8.data.toList[i]'hlen := by
-      rw [String.getUTF8Byte_eq_getElem]
-      simp only [String.toUTF8_eq_toByteArray]
-      rfl
-    rw [hbyte, List.cons_append, List.nil_append, Nat.add_eq]
-    exact (list_drop_eq_cons s.toUTF8.data.toList i hlen).symm
+/-! ## 2. String Byte Copy & Decimal Formatting Equivalence (`PrintDir0` = `PrintAsm0`) -/
 
 private theorem emitStr_eq (ba : ByteArray) (s : String) :
-    PrintAsm0.emitStr ba s = ba ++ s.toUTF8 := by
-  apply ba_eq_of_data_toList
-  dsimp only [PrintAsm0.emitStr]
-  rw [emitStrLoop_eq s s.utf8ByteSize 0 ba (by omega),
-    List.drop_zero, ByteArray.toList_data_append]
+    PrintAsm0.emitStr ba s = ba ++ s.toUTF8 :=
+  emitStr_eq_of_steps PrintAsm0.emitStrLoop
+    (fun _ _ _ h => by rw [PrintAsm0.emitStrLoop.eq_def]; simp only [h, ↓reduceDIte])
+    (fun _ _ _ h => by rw [PrintAsm0.emitStrLoop.eq_def]; simp only [h, ↓reduceDIte])
+    ba s
 
-/-! ## 3. Decimal Formatting & Primitive Equivalence (`PrintDir0` = `PrintAsm0`) -/
+private theorem u32_ofNat_succ_sub_one {k : Nat} (hk : k < 20) :
+    UInt32.ofNat (k + 1) ≠ 0 ∧ UInt32.ofNat (k + 1) - 1 = UInt32.ofNat k := by
+  refine ⟨?_, ?_⟩
+  · intro h
+    have hn := congrArg UInt32.toNat h
+    rw [UInt32.toNat_ofNat', Nat.mod_eq_of_lt (by omega)] at hn
+    exact Nat.succ_ne_zero k hn
+  · apply UInt32.eq_of_toBitVec_eq; apply BitVec.eq_of_toNat_eq
+    change (UInt32.ofNat (k + 1) - 1).toNat = (UInt32.ofNat k).toNat
+    have h1 : (1 : UInt32) ≤ UInt32.ofNat (k + 1) := by
+      rw [UInt32.le_iff_toNat_le, UInt32.toNat_ofNat', Nat.mod_eq_of_lt (by omega)]
+      change 1 ≤ k + 1; omega
+    rw [UInt32.toNat_sub_of_le _ _ h1, UInt32.toNat_ofNat', UInt32.toNat_ofNat',
+      Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
+    change k + 1 - 1 = k; omega
 
-private theorem pow10Up_eq_asm0 :
-    ∀ (k : Nat) (q p : UInt64), k ≤ 20 →
-      PrintDir0.pow10Up (UInt32.ofNat k) q p = PrintAsm0.pow10Up k q p
-  | 0, q, p, _ => by
-    rw [PrintDir0.pow10Up.eq_def]
-    have hz : (UInt32.ofNat 0 = 0) := rfl
-    simp only [hz, ↓reduceDIte]
-    rfl
-  | k + 1, q, p, hk => by
-    rw [PrintDir0.pow10Up.eq_def]
-    have hne : UInt32.ofNat (k + 1) ≠ 0 := by
-      intro h
-      have hn := congrArg UInt32.toNat h
-      rw [UInt32.toNat_ofNat', Nat.mod_eq_of_lt (by omega)] at hn
-      exact Nat.succ_ne_zero k hn
-    have hsub : UInt32.ofNat (k + 1) - 1 = UInt32.ofNat k := by
-      apply UInt32.eq_of_toBitVec_eq
-      apply BitVec.eq_of_toNat_eq
-      change (UInt32.ofNat (k + 1) - 1).toNat = (UInt32.ofNat k).toNat
-      have h1 : (1 : UInt32) ≤ UInt32.ofNat (k + 1) := by
-        rw [UInt32.le_iff_toNat_le, UInt32.toNat_ofNat', Nat.mod_eq_of_lt (by omega)]
-        change 1 ≤ k + 1; omega
-      rw [UInt32.toNat_sub_of_le _ _ h1, UInt32.toNat_ofNat', UInt32.toNat_ofNat',
-        Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-      change k + 1 - 1 = k; omega
-    simp only [hne, ↓reduceDIte, hsub]
-    dsimp only [PrintAsm0.pow10Up]
-    by_cases hle : p ≤ q
-    · simp only [hle, ↓reduceIte]
-      exact pow10Up_eq_asm0 k q (p * 10) (by omega)
-    · simp only [hle, ↓reduceIte]
+private theorem emitU64Dec_dir0_eq (ba : ByteArray) (n : UInt64) :
+    PrintDir0.emitU64Dec ba n = ba ++ (Nat.repr n.toNat).toUTF8 := by
+  dsimp only [PrintDir0.emitU64Dec]
+  rw [show (20 : UInt32) = UInt32.ofNat 20 from rfl]
+  exact emitU64Dec_eq_of_steps
+    (fun k => PrintDir0.pow10Up (UInt32.ofNat k))
+    (fun k => PrintDir0.emitPowDown (UInt32.ofNat k))
+    (fun f q p hf => by
+      obtain ⟨hne, hsub⟩ := u32_ofNat_succ_sub_one hf
+      rw [PrintDir0.pow10Up.eq_def]; simp only [hne, ↓reduceDIte, hsub])
+    (fun ba' n' p' => by
+      have hz : UInt32.ofNat 0 = 0 := rfl
+      rw [PrintDir0.emitPowDown.eq_def]; simp only [hz, ↓reduceDIte])
+    (fun f ba' n' p' hf => by
+      obtain ⟨hne, hsub⟩ := u32_ofNat_succ_sub_one hf
+      rw [PrintDir0.emitPowDown.eq_def]; simp only [hne, ↓reduceDIte, hsub])
+    ba n
 
-private theorem emitPowDown_eq_asm0 :
-    ∀ (k : Nat) (ba : ByteArray) (n p : UInt64), k ≤ 20 →
-      PrintDir0.emitPowDown (UInt32.ofNat k) ba n p = PrintAsm0.emitPowDown k ba n p
-  | 0, ba, n, p, _ => by
-    rw [PrintDir0.emitPowDown.eq_def]
-    have hz : (UInt32.ofNat 0 = 0) := rfl
-    simp only [hz, ↓reduceDIte]
-    rfl
-  | k + 1, ba, n, p, hk => by
-    rw [PrintDir0.emitPowDown.eq_def]
-    have hne : UInt32.ofNat (k + 1) ≠ 0 := by
-      intro h
-      have hn := congrArg UInt32.toNat h
-      rw [UInt32.toNat_ofNat', Nat.mod_eq_of_lt (by omega)] at hn
-      exact Nat.succ_ne_zero k hn
-    have hsub : UInt32.ofNat (k + 1) - 1 = UInt32.ofNat k := by
-      apply UInt32.eq_of_toBitVec_eq
-      apply BitVec.eq_of_toNat_eq
-      change (UInt32.ofNat (k + 1) - 1).toNat = (UInt32.ofNat k).toNat
-      have h1 : (1 : UInt32) ≤ UInt32.ofNat (k + 1) := by
-        rw [UInt32.le_iff_toNat_le, UInt32.toNat_ofNat', Nat.mod_eq_of_lt (by omega)]
-        change 1 ≤ k + 1; omega
-      rw [UInt32.toNat_sub_of_le _ _ h1, UInt32.toNat_ofNat', UInt32.toNat_ofNat',
-        Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-      change k + 1 - 1 = k; omega
-    simp only [hne, ↓reduceDIte, hsub]
-    dsimp only [PrintAsm0.emitPowDown]
-    by_cases hp : p == 1
-    · simp only [hp, ↓reduceIte]
-    · simp only [hp, Bool.false_eq_true, ↓reduceIte]
-      exact emitPowDown_eq_asm0 k (ba.push (48 + (n / p).toUInt8)) (n % p) (p / 10) (by omega)
+private theorem emitU64Dec_asm0_eq (ba : ByteArray) (n : UInt64) :
+    PrintAsm0.emitU64Dec ba n = ba ++ (Nat.repr n.toNat).toUTF8 :=
+  emitU64Dec_eq_of_steps PrintAsm0.pow10Up PrintAsm0.emitPowDown
+    (fun _ _ _ _ => rfl) (fun _ _ _ => rfl) (fun _ _ _ _ _ => rfl) ba n
 
 private theorem emitU64Dec_eq_asm0 (ba : ByteArray) (n : UInt64) :
     PrintDir0.emitU64Dec ba n = PrintAsm0.emitU64Dec ba n := by
-  dsimp only [PrintDir0.emitU64Dec, PrintAsm0.emitU64Dec]
-  rw [show (20 : UInt32) = UInt32.ofNat 20 from rfl,
-    pow10Up_eq_asm0 20 (n / 10) 1 (by omega),
-    emitPowDown_eq_asm0 20 ba n _ (by omega)]
+  rw [emitU64Dec_dir0_eq, emitU64Dec_asm0_eq]
 
 private theorem emitI64Dec_eq_asm0 (ba : ByteArray) (bits : UInt64) :
     PrintDir0.emitI64Dec ba bits = PrintAsm0.emitI64Dec ba bits := by
   dsimp only [PrintDir0.emitI64Dec, PrintAsm0.emitI64Dec]
-  by_cases h : (bits >>> 63) == 1
-  · simp only [h, ↓reduceIte, emitU64Dec_eq_asm0]
-  · simp only [h, Bool.false_eq_true, ↓reduceIte, emitU64Dec_eq_asm0]
+  split <;> exact emitU64Dec_eq_asm0 _ _
 
 private theorem emitReg64_eq_asm0 (ba : ByteArray) (w : Width) (r : Reg64) :
     PrintDir0.emitReg64 ba w r = PrintAsm0.emitReg64 ba w r := by
@@ -276,251 +157,6 @@ private theorem emitReg64_eq_asm0 (ba : ByteArray) (w : Width) (r : Reg64) :
 private theorem emitCc_eq_asm0 (ba : ByteArray) (cc : CondCode) :
     PrintDir0.emitCc ba cc = PrintAsm0.emitCc ba cc := by
   cases cc <;> rfl
-
-/-! ## 4. Exact `UInt64` Decimal Equivalence (for `.loc` labels) -/
-
-private def digitsPow10 : Nat → Nat → List UInt8
-  | 0, n => [UInt8.ofNat (48 + n)]
-  | k + 1, n => UInt8.ofNat (48 + n / 10 ^ (k + 1)) :: digitsPow10 k (n % 10 ^ (k + 1))
-
-private theorem emitPowDown_zero (ba : ByteArray) (n p : UInt64) :
-    PrintAsm0.emitPowDown 0 ba n p = ba.push (48 + (n / p).toUInt8) := rfl
-
-private theorem emitPowDown_succ (fuel : Nat) (ba : ByteArray) (n p : UInt64) :
-    PrintAsm0.emitPowDown (fuel + 1) ba n p =
-      let ba' := ba.push (48 + (n / p).toUInt8)
-      if p == 1 then ba' else PrintAsm0.emitPowDown fuel ba' (n % p) (p / 10) := rfl
-
-private theorem pow10Up_succ (fuel : Nat) (q p : UInt64) :
-    PrintAsm0.pow10Up (fuel + 1) q p =
-      if p ≤ q then PrintAsm0.pow10Up fuel q (p * 10) else p := rfl
-
-private theorem pow10_lt_u64 {k : Nat} (hk : k ≤ 19) : 10 ^ k < 2 ^ 64 := by
-  have h19 : 10 ^ 19 < 2 ^ 64 := by decide
-  exact Nat.lt_of_le_of_lt (Nat.pow_le_pow_right (by omega) hk) h19
-
-private theorem u64_ofNat_toNat_pow10 {k : Nat} (hk : k ≤ 19) :
-    (UInt64.ofNat (10 ^ k)).toNat = 10 ^ k := by
-  rw [UInt64.toNat_ofNat', Nat.mod_eq_of_lt (pow10_lt_u64 hk)]
-
-private theorem emitPowDown_eq_digitsPow10 :
-    ∀ (k fuel : Nat) (ba : ByteArray) (n : UInt64),
-      k ≤ fuel → k ≤ 19 → n.toNat < 10 ^ (k + 1) →
-      (PrintAsm0.emitPowDown fuel ba n (UInt64.ofNat (10 ^ k))).data.toList =
-        ba.data.toList ++ digitsPow10 k n.toNat
-  | 0, fuel, ba, n, _, _, hn => by
-    have h1 : UInt64.ofNat (10 ^ 0) = 1 := rfl
-    have hdiv : (n / 1).toNat = n.toNat := by
-      rw [UInt64.toNat_div]; exact Nat.div_one _
-    have hd : (48 + (n / 1).toUInt8) = UInt8.ofNat (48 + n.toNat) := by
-      apply UInt8.eq_of_toBitVec_eq
-      apply BitVec.eq_of_toNat_eq
-      change (48 + (n / 1).toUInt8).toNat = (UInt8.ofNat (48 + n.toNat)).toNat
-      rw [UInt8.toNat_add, UInt64.toNat_toUInt8, hdiv, UInt8.toNat_ofNat']
-      have hn10 : n.toNat < 10 := by simpa using hn
-      change (48 + n.toNat % 256) % 256 = (48 + n.toNat) % 256
-      omega
-    rw [h1]
-    cases fuel with
-    | zero => rw [emitPowDown_zero, ba_push_data_toList, hd]; rfl
-    | succ fuel' =>
-      rw [emitPowDown_succ]
-      simp only [beq_self_eq_true, ↓reduceIte, ba_push_data_toList, hd]
-      rfl
-  | k + 1, fuel, ba, n, hle, hk, hn => by
-    cases fuel with
-    | zero => omega
-    | succ fuel' =>
-      have hk19 : k ≤ 19 := by omega
-      have hp_toNat : (UInt64.ofNat (10 ^ (k + 1))).toNat = 10 ^ (k + 1) :=
-        u64_ofNat_toNat_pow10 hk
-      have hp_ne1 : (UInt64.ofNat (10 ^ (k + 1)) == 1) = false := by
-        apply beq_false_of_ne
-        intro hEq
-        have hgt : 10 ≤ 10 ^ (k + 1) := by
-          have := Nat.pow_le_pow_right (by omega : 0 < 10) (by omega : 1 ≤ k + 1)
-          simpa using this
-        have hNat := congrArg UInt64.toNat hEq
-        rw [hp_toNat] at hNat
-        change 10 ^ (k + 1) = 1 at hNat
-        omega
-      have hdiv_p : UInt64.ofNat (10 ^ (k + 1)) / 10 = UInt64.ofNat (10 ^ k) := by
-        apply UInt64.eq_of_toBitVec_eq
-        apply BitVec.eq_of_toNat_eq
-        change (UInt64.ofNat (10 ^ (k + 1)) / 10).toNat = (UInt64.ofNat (10 ^ k)).toNat
-        rw [UInt64.toNat_div, hp_toNat, u64_ofNat_toNat_pow10 hk19]
-        change 10 ^ (k + 1) / 10 = 10 ^ k
-        rw [Nat.pow_succ, Nat.mul_div_cancel _ (by omega)]
-      have hmod_lt : (n % UInt64.ofNat (10 ^ (k + 1))).toNat < 10 ^ (k + 1) := by
-        rw [UInt64.toNat_mod, hp_toNat]
-        exact Nat.mod_lt _ (Nat.pow_pos (by omega))
-      have hd : (48 + (n / UInt64.ofNat (10 ^ (k + 1))).toUInt8) =
-          UInt8.ofNat (48 + n.toNat / 10 ^ (k + 1)) := by
-        have hq_lt : n.toNat / 10 ^ (k + 1) < 10 := by
-          rw [Nat.div_lt_iff_lt_mul (Nat.pow_pos (by omega))]
-          have hp : 10 * 10 ^ (k + 1) = 10 ^ (k + 2) := by
-            rw [Nat.mul_comm, ← Nat.pow_succ]
-          omega
-        apply UInt8.eq_of_toBitVec_eq
-        apply BitVec.eq_of_toNat_eq
-        change (48 + (n / UInt64.ofNat (10 ^ (k + 1))).toUInt8).toNat =
-          (UInt8.ofNat (48 + n.toNat / 10 ^ (k + 1))).toNat
-        rw [UInt8.toNat_add, UInt64.toNat_toUInt8, UInt64.toNat_div, hp_toNat, UInt8.toNat_ofNat']
-        change (48 + (n.toNat / 10 ^ (k + 1)) % 256) % 256 = (48 + n.toNat / 10 ^ (k + 1)) % 256
-        omega
-      rw [emitPowDown_succ]
-      simp only [hp_ne1, Bool.false_eq_true, ↓reduceIte, hdiv_p]
-      rw [emitPowDown_eq_digitsPow10 k fuel' _ (n % UInt64.ofNat (10 ^ (k + 1)))
-          (by omega) hk19 hmod_lt]
-      rw [ba_push_data_toList, List.append_assoc, hd, UInt64.toNat_mod, hp_toNat,
-        List.singleton_append]
-      rfl
-
-private theorem pow10Up_spec_aux (n : UInt64) :
-    ∀ (fuel j : Nat),
-      j + fuel = 20 → j ≤ 19 → (j = 0 ∨ 10 ^ j ≤ n.toNat) →
-      ∃ k, k ≤ 19 ∧ PrintAsm0.pow10Up fuel (n / 10) (UInt64.ofNat (10 ^ j)) =
-          UInt64.ofNat (10 ^ k) ∧
-        (k = 0 ∨ 10 ^ k ≤ n.toNat) ∧ n.toNat < 10 ^ (k + 1)
-  | 0, j, hsum, hj, _ => by omega
-  | fuel' + 1, j, hsum, hj, hlow => by
-    rw [pow10Up_succ]
-    have hp_toNat : (UInt64.ofNat (10 ^ j)).toNat = 10 ^ j := u64_ofNat_toNat_pow10 hj
-    have hq_toNat : (n / 10).toNat = n.toNat / 10 := by
-      rw [UInt64.toNat_div]; rfl
-    by_cases hle : UInt64.ofNat (10 ^ j) ≤ n / 10
-    · simp only [hle, ↓reduceIte]
-      have hle_nat : 10 ^ j ≤ n.toNat / 10 := by
-        have h := UInt64.le_iff_toNat_le.mp hle
-        rwa [hp_toNat, hq_toNat] at h
-      have hnext_le : 10 ^ (j + 1) ≤ n.toNat := by
-        rw [Nat.pow_succ]; omega
-      have hn_lt20 : n.toNat < 10 ^ 20 := by
-        have h264 : 2 ^ 64 < 10 ^ 20 := by decide
-        exact Nat.lt_trans n.toNat_lt_size h264
-      have hj1 : j + 1 ≤ 19 := by
-        by_cases h19 : j + 1 ≤ 19
-        · exact h19
-        · have hge20 : 20 ≤ j + 1 := by omega
-          have hpow : 10 ^ 20 ≤ 10 ^ (j + 1) := Nat.pow_le_pow_right (by omega) hge20
-          omega
-      have hmul : UInt64.ofNat (10 ^ j) * 10 = UInt64.ofNat (10 ^ (j + 1)) := by
-        apply UInt64.eq_of_toBitVec_eq
-        apply BitVec.eq_of_toNat_eq
-        change (UInt64.ofNat (10 ^ j) * 10).toNat = (UInt64.ofNat (10 ^ (j + 1))).toNat
-        rw [UInt64.toNat_mul, hp_toNat, u64_ofNat_toNat_pow10 hj1]
-        change (10 ^ j * 10) % 2 ^ 64 = 10 ^ (j + 1)
-        rw [← Nat.pow_succ, Nat.mod_eq_of_lt (pow10_lt_u64 hj1)]
-      rw [hmul]
-      exact pow10Up_spec_aux n fuel' (j + 1) (by omega) hj1 (Or.inr hnext_le)
-    · simp only [hle, ↓reduceIte]
-      have hgt_nat : n.toNat / 10 < 10 ^ j := by
-        have h : ¬ (UInt64.ofNat (10 ^ j)).toNat ≤ (n / 10).toNat :=
-          fun hle' => hle (UInt64.le_iff_toNat_le.mpr hle')
-        rw [hp_toNat, hq_toNat] at h
-        omega
-      have hlt_next : n.toNat < 10 ^ (j + 1) := by
-        rw [Nat.pow_succ]; omega
-      exact ⟨j, hj, rfl, hlow, hlt_next⟩
-
-private theorem mod_ten_mul_div_ten (m p : Nat) (hp : 0 < p) :
-    m % (10 * p) / 10 = m / 10 % p := by
-  have h1 : m = 10 * (m / 10) + m % 10 := (Nat.div_add_mod m 10).symm
-  have h2 : m / 10 = p * (m / 10 / p) + m / 10 % p := (Nat.div_add_mod (m / 10) p).symm
-  have hrem_lt : 10 * (m / 10 % p) + m % 10 < 10 * p := by
-    have ha : m / 10 % p < p := Nat.mod_lt _ hp
-    have hb : m % 10 < 10 := Nat.mod_lt _ (by omega)
-    omega
-  have hdecomp : m = (10 * p) * (m / 10 / p) + (10 * (m / 10 % p) + m % 10) := by
-    have : 10 * (p * (m / 10 / p) + m / 10 % p) =
-        (10 * p) * (m / 10 / p) + 10 * (m / 10 % p) := by
-      rw [Nat.mul_add, Nat.mul_assoc]
-    omega
-  have hmod : m % (10 * p) = 10 * (m / 10 % p) + m % 10 := by
-    calc m % (10 * p)
-        = ((10 * p) * (m / 10 / p) + (10 * (m / 10 % p) + m % 10)) % (10 * p) :=
-          congrArg (· % (10 * p)) hdecomp
-      _ = (10 * (m / 10 % p) + m % 10) % (10 * p) := Nat.mul_add_mod _ _ _
-      _ = 10 * (m / 10 % p) + m % 10 := Nat.mod_eq_of_lt hrem_lt
-  rw [hmod]
-  have hb : m % 10 < 10 := Nat.mod_lt _ (by omega)
-  omega
-
-private theorem digitsPow10_succ_right :
-    ∀ (k m : Nat),
-      digitsPow10 (k + 1) m = digitsPow10 k (m / 10) ++ [UInt8.ofNat (48 + m % 10)]
-  | 0, _ => rfl
-  | k + 1, m => by
-    change UInt8.ofNat (48 + m / 10 ^ (k + 2)) :: digitsPow10 (k + 1) (m % 10 ^ (k + 2)) =
-      (UInt8.ofNat (48 + (m / 10) / 10 ^ (k + 1)) :: digitsPow10 k ((m / 10) % 10 ^ (k + 1))) ++
-        [UInt8.ofNat (48 + m % 10)]
-    rw [List.cons_append, digitsPow10_succ_right k (m % 10 ^ (k + 2))]
-    have hdiv : m / 10 ^ (k + 2) = (m / 10) / 10 ^ (k + 1) := by
-      rw [Nat.div_div_eq_div_mul]
-      congr 1
-      rw [Nat.pow_succ, Nat.mul_comm]
-    have hmod_div : m % 10 ^ (k + 2) / 10 = m / 10 % 10 ^ (k + 1) := by
-      have hp : 10 ^ (k + 2) = 10 * 10 ^ (k + 1) := by rw [Nat.pow_succ, Nat.mul_comm]
-      rw [hp]
-      exact mod_ten_mul_div_ten m (10 ^ (k + 1)) (Nat.pow_pos (by omega))
-    have hmod_mod : m % 10 ^ (k + 2) % 10 = m % 10 := by
-      have hdvd : 10 ∣ 10 ^ (k + 2) := ⟨10 ^ (k + 1), by rw [Nat.pow_succ, Nat.mul_comm]⟩
-      exact Nat.mod_mod_of_dvd m hdvd
-    rw [hdiv, hmod_div, hmod_mod]
-
-private theorem digit_toUTF8_eq (d : Nat) (hd : d < 10) :
-    (String.singleton d.digitChar).toUTF8.data.toList = [UInt8.ofNat (48 + d)] := by
-  match d, hd with
-  | 0, _ => rw [Nat.digitChar_eq_zero.mpr rfl]; rfl
-  | 1, _ => rw [Nat.digitChar_eq_one.mpr rfl]; rfl
-  | 2, _ => rw [Nat.digitChar_eq_two.mpr rfl]; rfl
-  | 3, _ => rw [Nat.digitChar_eq_three.mpr rfl]; rfl
-  | 4, _ => rw [Nat.digitChar_eq_four.mpr rfl]; rfl
-  | 5, _ => rw [Nat.digitChar_eq_five.mpr rfl]; rfl
-  | 6, _ => rw [Nat.digitChar_eq_six.mpr rfl]; rfl
-  | 7, _ => rw [Nat.digitChar_eq_seven.mpr rfl]; rfl
-  | 8, _ => rw [Nat.digitChar_eq_eight.mpr rfl]; rfl
-  | 9, _ => rw [Nat.digitChar_eq_nine.mpr rfl]; rfl
-  | d + 10, hd => omega
-
-private theorem digitsPow10_eq_natRepr :
-    ∀ (k m : Nat), (k = 0 ∨ 10 ^ k ≤ m) → m < 10 ^ (k + 1) →
-      digitsPow10 k m = (Nat.repr m).toUTF8.data.toList
-  | 0, m, _, hm => by
-    have hm10 : m < 10 := by simpa using hm
-    rw [Nat.repr_of_lt hm10, digit_toUTF8_eq m hm10]
-    rfl
-  | k + 1, m, hlow, hm => by
-    have hge_pow : 10 ^ (k + 1) ≤ m := by
-      rcases hlow with h | h
-      · exact absurd h (Nat.succ_ne_zero k)
-      · exact h
-    have hge10 : 10 ≤ m := by
-      have h10 : 10 ≤ 10 ^ (k + 1) := by
-        have := Nat.pow_le_pow_right (by omega : 0 < 10) (by omega : 1 ≤ k + 1)
-        simpa using this
-      omega
-    have hdiv_lt : m / 10 < 10 ^ (k + 1) := by
-      rw [Nat.div_lt_iff_lt_mul (by omega)]
-      have hp : 10 ^ (k + 1) * 10 = 10 ^ (k + 2) := (Nat.pow_succ ..).symm
-      omega
-    have hdiv_low : k = 0 ∨ 10 ^ k ≤ m / 10 := by
-      right
-      rw [Nat.le_div_iff_mul_le (by omega)]
-      have hp : 10 ^ k * 10 = 10 ^ (k + 1) := (Nat.pow_succ ..).symm
-      omega
-    rw [digitsPow10_succ_right, digitsPow10_eq_natRepr k (m / 10) hdiv_low hdiv_lt]
-    rw [Nat.repr_of_ge hge10, toUTF8_append, ByteArray.toList_data_append]
-    rw [digit_toUTF8_eq (m % 10) (Nat.mod_lt m (by omega))]
-
-private theorem emitU64Dec_asm0_eq (ba : ByteArray) (n : UInt64) :
-    PrintAsm0.emitU64Dec ba n = ba ++ (Nat.repr n.toNat).toUTF8 := by
-  obtain ⟨k, hk, hpow, hlow, hlt⟩ := pow10Up_spec_aux n 20 0 rfl (by omega) (Or.inl rfl)
-  apply ba_eq_of_data_toList
-  dsimp only [PrintAsm0.emitU64Dec]
-  rw [show (1 : UInt64) = UInt64.ofNat (10 ^ 0) from rfl, hpow]
-  rw [emitPowDown_eq_digitsPow10 k 20 ba n (by omega) hk hlt]
-  rw [digitsPow10_eq_natRepr k n.toNat hlow hlt, ByteArray.toList_data_append]
 
 /-! ## 5. Symbol-Table Slice & `Label0` Equivalence -/
 
@@ -667,12 +303,8 @@ private theorem emitLabel0_eq_emitStr (symBytes : ByteArray) (symOffs : Array Na
     rw [emitStr_eq, emitU64Dec_eq_asm0, emitU64Dec_eq_asm0]
     have hpush : ∀ ba : ByteArray, ba.push 0x5f = ba ++ "_".toUTF8 :=
       fun ba => ba_push_eq_append ba 0x5f "_" rfl
-    have hpfx : PrintDir0.e3 out 0x2e 0x4c 0x5f = out ++ ".L_".toUTF8 := by
-      apply ba_eq_of_data_toList
-      dsimp only [PrintDir0.e3]
-      rw [ba_push_data_toList, ba_push_data_toList, ba_push_data_toList,
-        ByteArray.toList_data_append, List.append_assoc, List.append_assoc]
-      rfl
+    have hpfx : PrintDir0.e3 out 0x2e 0x4c 0x5f = out ++ ".L_".toUTF8 :=
+      ba_push3_eq_append out 0x2e 0x4c 0x5f ".L_" rfl
     apply ba_eq_of_data_toList
     rw [hpfx, emitU64Dec_asm0_eq, hpush, emitU64Dec_asm0_eq]
     have hf : fnId.toUInt64.toNat = fnId.toNat := UInt32.toNat_toUInt64 fnId
@@ -688,88 +320,34 @@ private theorem emitLabel0_eq_emitStr (symBytes : ByteArray) (symOffs : Array Na
 
 private theorem dir0ToAmd64_ne_nil (symName : Sym0 → Sym) (d : Dir0) :
     dir0ToAmd64 symName d ≠ [] := by
-  cases d <;> dsimp only [dir0ToAmd64]
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
-  · rename_i w _ _; cases w <;> intro h <;> cases h
-  · rename_i w1 _ w2 _; cases w1 <;> cases w2 <;> intro h <;> cases h
-  · rename_i w _ _; cases w <;> intro h <;> cases h
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
-  · rename_i b _; cases b <;> intro h <;> cases h
-  · rename_i b _; cases b <;> intro h <;> cases h
-  · intro h; cases h
-  · rename_i _ b _; cases b <;> intro h <;> cases h
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
-  · rename_i w b _; cases w <;> cases b <;> intro h <;> cases h
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
-  · intro h; cases h
+  cases d
+  all_goals try cases ‹Width›
+  all_goals try cases ‹Width›
+  all_goals try cases ‹Bool›
+  all_goals (dsimp only [dir0ToAmd64]; intro h; cases h)
 
 private theorem dir0ToAmd64_dirSubset0_aux (symName : Sym0 → Sym) (d : Dir0) :
     ∀ x ∈ dir0ToAmd64 symName d, DirSubset0 x := by
-  cases d <;> intro x hx
+  cases d <;> intro x hx <;> dsimp only [dir0ToAmd64] at hx
+  all_goals try cases ‹Width›
+  all_goals try cases ‹Width›
+  all_goals try cases ‹Bool›
+  all_goals try cases ‹AluKind0›
+  all_goals try cases ‹ShiftKind0›
   all_goals
-    dsimp only [dir0ToAmd64] at hx
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; cases ‹Width› <;> rfl
-  · simp only [List.mem_singleton] at hx; subst hx
-    rename_i rd imm
-    dsimp only [moviD, moviI]
-    by_cases hfit : fitsUImm32 (BitVec.ofNat 64 imm.toNat) = true
-    · simp only [hfit]; rfl
-    · simp only [hfit]; rfl
-  · rename_i w _ _; cases w <;> (simp only [List.mem_singleton] at hx; subst hx; rfl)
-  · rename_i w1 _ w2 _; cases w1 <;> cases w2 <;>
-      (simp only [List.mem_singleton] at hx; subst hx; rfl)
-  · rename_i w _ _; cases w <;> (simp only [List.mem_singleton] at hx; subst hx; rfl)
-  · simp only [List.mem_singleton] at hx; subst hx; cases ‹Width› <;> rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · rename_i b _; cases b <;> (simp only [List.mem_singleton] at hx; subst hx; rfl)
-  · rename_i b _; cases b <;> (simp only [List.mem_singleton] at hx; subst hx; rfl)
-  · simp only [List.mem_singleton] at hx; subst hx
-    cases ‹Width› <;> cases ‹AluKind0› <;> rfl
-  · rename_i w b _; cases b <;> (simp only [List.mem_singleton] at hx; subst hx; cases w <;> rfl)
-  · simp only [List.mem_singleton] at hx; subst hx
-    cases ‹Width› <;> cases ‹ShiftKind0› <;> rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; cases ‹Width› <;> rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; cases ‹Width› <;> rfl
-  · rename_i w b _; cases w <;> cases b <;>
-      (simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
+    first
+    | (simp only [List.mem_singleton] at hx; subst hx
+       first | rfl | (dsimp only [moviD, moviI]; split <;> rfl))
+    | (simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
        rcases hx with rfl | rfl | rfl <;> rfl)
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
-  · simp only [List.mem_singleton] at hx; subst hx; rfl
 
-private theorem int64_ofNat_toUInt64 (x : UInt64) : (Int64.ofNat x.toNat).toUInt64 = x := by
-  apply UInt64.eq_of_toBitVec_eq
-  apply BitVec.eq_of_toNat_eq
-  change ((Int64.ofNat x.toNat).toUInt64).toNat = x.toNat
-  rw [Int64.toUInt64_ofNat', UInt64.toNat_ofNat', Nat.mod_eq_of_lt x.toNat_lt_size]
+private theorem int64_ofNat_toUInt64 (x : UInt64) : (Int64.ofNat x.toNat).toUInt64 = x :=
+  u64_ext <| by
+    change ((Int64.ofNat x.toNat).toUInt64).toNat = x.toNat
+    rw [Int64.toUInt64_ofNat', UInt64.toNat_ofNat', Nat.mod_eq_of_lt x.toNat_lt_size]
 
 private theorem int64_ofBitVec_ofNat_toUInt64 (x : UInt64) :
-    (Int64.ofBitVec (BitVec.ofNat 64 x.toNat)).toUInt64 = x := by
-  apply UInt64.eq_of_toBitVec_eq
-  apply BitVec.eq_of_toNat_eq
+    (Int64.ofBitVec (BitVec.ofNat 64 x.toNat)).toUInt64 = x := u64_ext <| by
   change (BitVec.ofNat 64 x.toNat).toNat = x.toNat
   rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt x.toNat_lt_size]
 
@@ -854,6 +432,42 @@ private theorem eDivCore_eq (symName : Sym0 → Sym) (w : Width) (isSigned : Boo
       ↓reduceIte, Bool.false_eq_true, h0, h31, h63]
     try rfl
 
+local macro "emit_dir_equiv!" : tactic =>
+  `(tactic| (
+    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
+      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
+      PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
+      PrintDir0.printDir0CmpTest, PrintDir0.printDir0Cond, PrintDir0.printDir0DivMulRet,
+      PrintDir0.eMovzx32, PrintDir0.eMovsx, PrintDir0.eLdMem, PrintDir0.eRegMemAt,
+      PrintDir0.eSlotMem, PrintDir0.eSlotIdxMem, PrintDir0.eMovReg, PrintDir0.eImmReg,
+      PrintDir0.eWidth, PrintDir0.eCommaSp, PrintDir0.e2, PrintDir0.e3, PrintDir0.e4,
+      PrintDir0.emitAluMn, PrintDir0.emitShiftMn,
+      dir0ToAmd64, alu0ToOp, shift0ToOp, moviD, moviI,
+      ins, ins8, ins32, insW, x64InsI, x64SubSpD, x64AddSpD,
+      x64JmpD, x64JmpI, x64CallD, x64CallI,
+      PrintAsm0.emitDirsNoTrailLoop, emitDir0,
+      PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
+      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
+      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
+      PrintAsm0.emitOpCtrl, PrintAsm0.emitMovExt,
+      PrintAsm0.eOp1W, PrintAsm0.eOp2W, PrintAsm0.eShW, PrintAsm0.eRmReg,
+      PrintAsm0.eWidth, PrintAsm0.eCommaSp, PrintAsm0.e2, PrintAsm0.e3, PrintAsm0.e4,
+      PrintAsm0.emitTarget, PrintAsm0.emitCount, PrintAsm0.emitOpd, PrintAsm0.emitConst,
+      PrintAsm0.emitRm, PrintAsm0.emitAddr, PrintAsm0.emitAddrDisp,
+      PrintAsm0.emitScaleByte, PrintAsm0.emitReg]
+    repeat
+      first
+      | rw [ite_eq_left.mpr (fun _ => rfl)]
+      | rw [ite_eq_right.mpr Bool.false_ne_true]
+      | rw [eRegRegW_eq]
+      | rw [emitReg64_eq_asm0]
+      | rw [eWidth_eq_asm0]
+      | rw [emitCc_eq_asm0]
+      | rw [emitU64Dec_eq_asm0]
+      | rw [emitI64Dec_eq_asm0]
+      | rw [int64_ofNat_toUInt64]
+    try rfl))
+
 private theorem printDir0Bytes_eq_emitDirsNoTrailLoop (symBytes : ByteArray)
     (symOffs : Array Nat) (symName : Sym0 → Sym) (d : Dir0) (out : ByteArray)
     (hok : Dir0SymsOk symBytes symOffs symName d) :
@@ -867,223 +481,37 @@ private theorem printDir0Bytes_eq_emitDirsNoTrailLoop (symBytes : ByteArray)
       rw [emitLabel0_eq_emitStr symBytes symOffs symName _ out hBa hOffs hSym]
   | jmp l =>
     cases l <;>
-    · dsimp only [printDir0Bytes, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0,
-        x64JmpD, x64JmpI, ins, PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-        PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-        PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
-        PrintAsm0.emitOpCtrl, PrintAsm0.emitTarget, PrintAsm0.emitConst]
+    · emit_dir_equiv!
       rw [emitLabel0_eq_emitStr symBytes symOffs symName _ _ hBa hOffs hSym]
-      rfl
   | jcc cc l =>
     cases l <;>
-    · dsimp only [printDir0Bytes, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0,
-        ins, PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-        PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-        PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
-        PrintAsm0.emitOpCtrl]
-      rw [emitCc_eq_asm0, emitLabel0_eq_emitStr symBytes symOffs symName _ _ hBa hOffs hSym]
+    · emit_dir_equiv!
+      rw [emitLabel0_eq_emitStr symBytes symOffs symName _ _ hBa hOffs hSym]
   | callSym sym =>
     dsimp only at hSym
-    dsimp only [printDir0Bytes, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0,
-      x64CallD, x64CallI, ins, PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
-      PrintAsm0.emitOpCtrl, PrintAsm0.emitTarget, PrintAsm0.emitConst]
+    emit_dir_equiv!
     rw [emitSym_eq symBytes symOffs symName sym _ hBa hOffs hSym, emitStr_eq]
-    rfl
-  | movRR w rd rs =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, dir0ToAmd64,
-      PrintAsm0.emitDirsNoTrailLoop, emitDir0, insW, x64InsI, PrintAsm0.emitOpData]
-    exact eRegRegW_eq _ w rd rs
   | movRI rd imm =>
     dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, dir0ToAmd64,
       PrintAsm0.emitDirsNoTrailLoop, emitDir0, moviD, moviI]
     rw [fitsUImm32_eq imm]
-    cases h : (imm >>> 32) == 0
-    · dsimp only [x64InsI, PrintAsm0.emitOpData]
-      exact eImmReg_eq _ .W64 rd imm
-    · dsimp only [x64InsI, PrintAsm0.emitOpData]
-      exact eImmReg_eq _ .W32 rd imm
-  | movzx32 wSrc rd rs =>
-    cases wSrc <;>
-    · dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-        PrintDir0.eMovzx32, PrintDir0.eMovReg, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop,
-        emitDir0, ins32, ins, x64InsI, PrintAsm0.emitOpData, PrintAsm0.emitMovExt,
-        PrintAsm0.eOp2W, PrintAsm0.emitOpd, PrintAsm0.emitRm, PrintAsm0.emitReg,
-        PrintDir0.eRegRegW]
-      simp only [emitReg64_eq_asm0, eWidth_eq_asm0]
-      rfl
-  | movsx wDst rd wSrc rs =>
-    cases wDst <;> cases wSrc <;>
-    · dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-        PrintDir0.eMovsx, PrintDir0.eMovReg, PrintDir0.eRegRegW, dir0ToAmd64,
-        PrintAsm0.emitDirsNoTrailLoop, emitDir0, ins, ins32, insW, x64InsI,
-        PrintAsm0.emitOpData, PrintAsm0.emitMovExt, PrintAsm0.eOp2W, PrintAsm0.emitOpd,
-        PrintAsm0.emitRm, PrintAsm0.emitReg]
-      simp only [emitReg64_eq_asm0, eWidth_eq_asm0]
-      rfl
-  | ldMem w rd base =>
-    cases w <;>
-    · dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-        PrintDir0.printDir0LdSt, PrintDir0.eLdMem, PrintDir0.eRegMemAt, dir0ToAmd64,
-        PrintAsm0.emitDirsNoTrailLoop, emitDir0, ins32, ins, x64InsI, PrintAsm0.emitOpData,
-        PrintAsm0.emitMovExt, PrintAsm0.eOp2W, PrintAsm0.emitOpd, PrintAsm0.emitRm,
-        PrintAsm0.emitAddr, PrintAsm0.emitAddrDisp, PrintAsm0.emitReg]
-      simp only [emitReg64_eq_asm0]
-      rfl
-  | stMem w base val =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.eRegMemAt, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop,
-      emitDir0, insW, x64InsI, PrintAsm0.emitOpData, PrintAsm0.eOp2W, PrintAsm0.emitOpd,
-      PrintAsm0.emitRm, PrintAsm0.emitAddr, PrintAsm0.emitAddrDisp, PrintAsm0.emitReg]
-    rw [eWidth_eq_asm0, emitReg64_eq_asm0, emitReg64_eq_asm0]
-    cases w <;> rfl
-  | ldSlot rd disp =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.eSlotMem,
-      dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0, ins,
-      PrintAsm0.emitOpData, PrintAsm0.eOp2W, PrintAsm0.emitOpd, PrintAsm0.emitRm,
-      PrintAsm0.emitAddr, PrintAsm0.emitAddrDisp, PrintAsm0.emitReg]
-    rw [int64_ofNat_toUInt64]
-    by_cases hd : disp == 0
-    · simp only [hd, ↓reduceIte, eSpSuffix_eq, emitReg64_eq_asm0]; rfl
-    · simp only [hd, Bool.false_eq_true, ↓reduceIte, eSpSuffix_eq, emitI64Dec_eq_asm0,
-        emitReg64_eq_asm0]; rfl
-  | stSlot disp rs =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.eSlotMem,
-      dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0, ins,
-      PrintAsm0.emitOpData, PrintAsm0.eOp2W, PrintAsm0.emitOpd, PrintAsm0.emitRm,
-      PrintAsm0.emitAddr, PrintAsm0.emitAddrDisp, PrintAsm0.emitReg]
-    rw [int64_ofNat_toUInt64]
-    by_cases hd : disp == 0
-    · simp only [hd, ↓reduceIte, eSpSuffix_eq, emitReg64_eq_asm0]; rfl
-    · simp only [hd, Bool.false_eq_true, ↓reduceIte, eSpSuffix_eq, emitI64Dec_eq_asm0,
-        emitReg64_eq_asm0]; rfl
-  | ldSlotIdx rd idx =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-      PrintDir0.eSlotIdxMem, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0, ins,
-      PrintAsm0.emitOpData, PrintAsm0.eOp2W, PrintAsm0.emitOpd, PrintAsm0.emitRm,
-      PrintAsm0.emitAddr, PrintAsm0.emitAddrDisp, PrintAsm0.emitScaleByte, PrintAsm0.emitReg]
-    simp only [emitReg64_eq_asm0]
-    rfl
-  | stSlotIdx idx rs =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-      PrintDir0.eSlotIdxMem, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0, ins,
-      PrintAsm0.emitOpData, PrintAsm0.eOp2W, PrintAsm0.emitOpd, PrintAsm0.emitRm,
-      PrintAsm0.emitAddr, PrintAsm0.emitAddrDisp, PrintAsm0.emitScaleByte, PrintAsm0.emitReg]
-    simp only [emitReg64_eq_asm0]
-    rfl
-  | spAdd isSub imm32 =>
-    cases isSub <;>
-    · dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-        PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-        PrintDir0.printDir0Sp, PrintDir0.eImmReg, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop,
-        emitDir0, x64SubSpD, x64AddSpD, ins, PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1,
-        PrintAsm0.eOp2W, PrintAsm0.emitOpd, PrintAsm0.emitConst, PrintAsm0.emitRm,
-        PrintAsm0.emitReg]
-      rw [int64_ofNat_toUInt64, emitI64Dec_eq_asm0, emitReg64_eq_asm0]
-      rfl
-  | spAddReg isSub r =>
-    cases isSub <;>
-    · dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-        PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-        PrintDir0.printDir0Sp, PrintDir0.eRegRegW, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop,
-        emitDir0, ins, PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.eOp2W,
-        PrintAsm0.emitOpd, PrintAsm0.emitRm, PrintAsm0.emitReg]
-      rw [emitReg64_eq_asm0, emitReg64_eq_asm0]
-      rfl
-  | aluRR w k rd rs =>
-    cases k <;>
-    · dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-        PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-        PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.emitAluMn, dir0ToAmd64,
-        alu0ToOp, PrintAsm0.emitDirsNoTrailLoop, emitDir0, insW, x64InsI,
-        PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-        PrintAsm0.emitOpMulDiv]
-      exact eRegRegW_eq _ w rd rs
-  | unary w isNeg rd =>
-    cases isNeg <;>
-    · dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-        PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-        PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, dir0ToAmd64,
-        PrintAsm0.emitDirsNoTrailLoop, emitDir0, insW, x64InsI, PrintAsm0.emitOpData,
-        PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2, PrintAsm0.eOp1W, PrintAsm0.emitRm,
-        PrintAsm0.emitReg]
-      rw [eWidth_eq_asm0, emitReg64_eq_asm0]
-      cases w <;> rfl
-  | shiftCl w k rd =>
-    cases k <;>
-    · dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-        PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-        PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
-        PrintDir0.emitShiftMn, dir0ToAmd64, shift0ToOp, PrintAsm0.emitDirsNoTrailLoop,
-        emitDir0, insW, x64InsI, PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1,
-        PrintAsm0.emitOpAlu2, PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry,
-        PrintAsm0.emitOpShift1, PrintAsm0.emitOpShift2, PrintAsm0.eShW,
-        PrintAsm0.emitCount, PrintAsm0.emitRm, PrintAsm0.emitReg]
-      rw [eWidth_eq_asm0, emitReg64_eq_asm0]
-      cases w <;> rfl
-  | shMaskCl imm =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-      PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
-      PrintDir0.eImmReg, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0, ins32,
-      PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.eOp2W, PrintAsm0.emitOpd,
-      PrintAsm0.emitConst, PrintAsm0.emitRm, PrintAsm0.emitReg]
-    rw [int64_ofNat_toUInt64, emitI64Dec_eq_asm0, emitReg64_eq_asm0]
-    rfl
-  | cmpRR w ra rb =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-      PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
-      PrintDir0.printDir0CmpTest, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0,
-      insW, x64InsI, PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2]
-    exact eRegRegW_eq _ w ra rb
-  | testbRR ra rb =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-      PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
-      PrintDir0.printDir0CmpTest, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0,
-      ins8, PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2]
-    exact eRegRegW_eq _ .W8 ra rb
-  | setcc cc rd =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-      PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
-      PrintDir0.printDir0CmpTest, PrintDir0.printDir0Cond, dir0ToAmd64,
-      PrintAsm0.emitDirsNoTrailLoop, emitDir0, ins8, PrintAsm0.emitOpData,
-      PrintAsm0.emitRm, PrintAsm0.emitReg]
-    rw [emitCc_eq_asm0, emitReg64_eq_asm0]
-    rfl
-  | cmovcc w cc rd rs =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-      PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
-      PrintDir0.printDir0CmpTest, PrintDir0.printDir0Cond, PrintDir0.eMovReg, dir0ToAmd64,
-      PrintAsm0.emitDirsNoTrailLoop, emitDir0, insW, x64InsI, PrintAsm0.emitOpData,
-      PrintAsm0.eRmReg, PrintAsm0.emitRm, PrintAsm0.emitReg]
-    rw [emitCc_eq_asm0, emitReg64_eq_asm0, emitReg64_eq_asm0]
-    cases w <;> rfl
+    cases (imm >>> 32) == 0 <;>
+      dsimp only [x64InsI, PrintAsm0.emitOpData] <;> exact eImmReg_eq _ _ rd imm
+  | movzx32 wSrc _ _ => cases wSrc <;> emit_dir_equiv!
+  | movsx wDst _ wSrc _ => cases wDst <;> cases wSrc <;> emit_dir_equiv!
+  | ldMem w _ _ | stMem w _ _ | cmovcc w _ _ _ => cases w <;> emit_dir_equiv!
+  | movRR _ _ _ | ldSlot _ _ | stSlot _ _ | ldSlotIdx _ _ | stSlotIdx _ _
+  | shMaskCl _ | cmpRR _ _ _ | testbRR _ _ | setcc _ _ | mulq _ | ret => emit_dir_equiv!
+  | spAdd isSub _ | spAddReg isSub _ => cases isSub <;> emit_dir_equiv!
+  | aluRR _ k _ _ => cases k <;> emit_dir_equiv!
+  | unary w isNeg _ => cases isNeg <;> cases w <;> emit_dir_equiv!
+  | shiftCl w k _ => cases k <;> cases w <;> emit_dir_equiv!
   | divCore w isSigned rhs =>
     dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
       PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
       PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
       PrintDir0.printDir0CmpTest, PrintDir0.printDir0Cond, PrintDir0.printDir0DivMulRet]
     exact eDivCore_eq symName w isSigned rhs out
-  | mulq rhs =>
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-      PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
-      PrintDir0.printDir0CmpTest, PrintDir0.printDir0Cond, PrintDir0.printDir0DivMulRet,
-      dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0, ins, PrintAsm0.emitOpData,
-      PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2, PrintAsm0.emitOpMulDiv,
-      PrintAsm0.eOp1W, PrintAsm0.emitRm, PrintAsm0.emitReg]
-    rw [emitReg64_eq_asm0]
-    rfl
-  | ret => rfl
 
 /-! ## 7. Bridging `PrintAsm0.emitDirsNoTrailLoop` to `PrintAsm0Lemmas` -/
 
@@ -1303,10 +731,10 @@ private theorem printGlobl0Bytes_eq_aux (symBytes : ByteArray) (symOffs : Array 
     dsimp only [printGlobl0Bytes]
     have hpfx : PrintDir0.e4 (PrintDir0.e3 out 0x2e 0x67 0x6c) 0x6f 0x62 0x6c 0x20 =
         out ++ ".globl ".toUTF8 := by
-      apply ba_eq_of_data_toList
       dsimp only [PrintDir0.e4, PrintDir0.e3]
-      simp only [ba_push_data_toList, ByteArray.toList_data_append, List.append_assoc]
-      rfl
+      rw [ba_push3_eq_append out 0x2e 0x67 0x6c ".gl" rfl,
+        ba_push4_eq_append _ 0x6f 0x62 0x6c 0x20 "obl " rfl,
+        ByteArray.append_assoc, ← toUTF8_append]; rfl
     rw [hpfx, emitSym_eq symBytes symOffs symName s _ hBa hOffs h0,
       ba_push_eq_append _ 0x0a "\n" rfl,
       printGlobl0Bytes_eq_aux symBytes symOffs symName hBa hOffs rest _ htl,
@@ -1339,10 +767,10 @@ public theorem printModule0Bytes_eq_toATT (symBytes : ByteArray) (symOffs : Arra
   rw [emptyWithCapacity_eq_empty]
   have htxt : PrintDir0.e4 (PrintDir0.e2 ByteArray.empty 0x2e 0x74) 0x65 0x78 0x74 0x0a =
       ".text\n".toUTF8 := by
-    apply ba_eq_of_data_toList
     dsimp only [PrintDir0.e4, PrintDir0.e2]
-    simp only [ba_push_data_toList, List.append_assoc]
-    rfl
+    rw [ba_push2_eq_append ByteArray.empty 0x2e 0x74 ".t" rfl,
+      ba_push4_eq_append _ 0x65 0x78 0x74 0x0a "ext\n" rfl,
+      ByteArray.append_assoc, ← toUTF8_append]; rfl
   rw [htxt, printGlobl0Bytes_eq symBytes symOffs symName hBa hOffs fnSyms _ hFns,
     printDirs0LinesBytes_eq_toATT symBytes symOffs symName ds _ hDirs]
   simp only [toUTF8_append, ByteArray.append_assoc]
