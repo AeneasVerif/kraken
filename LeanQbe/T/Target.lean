@@ -319,6 +319,27 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
     Option (List Directive × FlagMask) := fun _ _ _ _ _ _ => none
   /-- `true` when `leaArith` at `w = 32` zeroes bits `32..63` of `rd`. -/
   zeroUpper32LeaArith : Bool := false
+  /-- Optional polarity-aware GPR branch: jumps to `sym` iff `(if inv then !b else b) = true`. -/
+  jnzGprInv? : Option (Reg → Bool → Sym → List Directive × FlagMask) := none
+  /-- Condition code corresponding to `CmpOp` after subtracting `lhs - rhs`. -/
+  condOfCmp? : CmpOp → Option Cond := fun _ => none
+  /-- Condition code carrying the `.bool` GPR result when simultaneously computed in flags. -/
+  boolFlagOut? : {sig : List Ty} → OpCode sig [.bool] → Tup (PArg Reg VReg Cond) sig →
+    PDst Reg VReg Cond .bool → Option Cond := fun _ _ _ => none
+  /-- For `.cmp co (.bits w) .bool _`, returns `some true` (`sub va vb`) or `some false` (`sub vb va`)
+  when flags hold `FlagCmpOk`. -/
+  cmpFlagsOut? : (co : CmpOp) → (w : Nat) → PArg Reg VReg Cond (.bits w) →
+    PArg Reg VReg Cond (.bits w) → PDst Reg VReg Cond .bool → Option Bool :=
+    fun _ _ _ _ _ => none
+  /-- For `[.bits w]` ops into `.gpr` leaving flags compared against `0#w` when `clob ≠ .none`,
+  returns `some eqNeOnly`. -/
+  aluZeroOut? : {sig : List Ty} → (w : Nat) → OpCode sig [.bits w] →
+    PDst Reg VReg Cond (.bits w) → Option Bool := fun _ _ _ => none
+  /-- `true` when flag-writing `testOp`/`testMem` leave `condOfCmp? (if neg then .ne else .eq)`
+  equal to the boolean result. -/
+  hasTestFlags : Bool := false
+  /-- Returns `some lhsFirst` when `cmpMem` leaves `FlagCmpOk` in `(lhs, rhs)` order. -/
+  cmpMemFlagsOut? : CmpOp → PDst Reg VReg Cond .bool → Option Bool := fun _ _ => none
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -563,6 +584,13 @@ def AbiHolds (s : M.MData) : (t : Ty) → AbiReg R V t → Val t → Prop
   | t, .vec vr, v => VecHolds (M.getVec s vr) t v
 end Machine
 
+/-- Machine flags in `s` match comparing `va` against `vb` (`sub va vb`), or zero-equality
+(`==`, `!=`) only when `eqNeOnly = true`. -/
+def FlagCmpOk {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
+    (s : M.MData) {w : Nat} (va vb : BitVec w) (eqNeOnly : Bool) : Prop :=
+  ∀ co cc, (!eqNeOnly || co == .eq || co == .ne) = true → g.condOfCmp? co = some cc →
+    M.evalCond s cc = co.evalBits va vb
+
 structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
     (scratch : List R) : Prop where
   negCond_reads : ∀ c, g.condReads (g.negCond c) = g.condReads c
@@ -757,6 +785,84 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
       (if base?.isSome then vb else 0#32) + (vi <<< sc.shift) + disp.toBitVec.setWidth 32
     M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
       (fun s' => M.getGpr s' rd = res.setWidth 64 ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  jnzGprInv_spec : ∀ {fn h k j r inv l b s post},
+    g.jnzGprInv? = some fn →
+    (fn r inv l).1.IsInfixAt (M.prog h) k → M.labelAddr h l = M.addrOf h j →
+    r ∉ scratch → GprHolds (M.getGpr s r) .bool b →
+    (∀ s', M.Frame g.condReads s s' scratch [] (fn r inv l).2 → M.mem s' = M.mem s →
+      ((if inv then !b else b) = true → M.Run h j s' post) ∧
+      ((if inv then !b else b) = false → M.Run h (k + (fn r inv l).1.length) s' post)) →
+    M.Run h k s post :=
+    by intros; contradiction
+  op_boolFlag_spec : ∀ {h k sig} {code : OpCode sig [.bool]} {pas pd cc vh c clob vs P s post},
+    g.boolFlagOut? code pas pd = some cc →
+    g.op code pas (pd, ()) vh = some (c, clob) →
+    (∀ r ∈ tupArgGprs pas, r ∉ scratch) → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    TRel (M.PArgHolds s) pas vs → code.wp vs P →
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' => (∃ b : Bool, P (b, ()) ∧ M.PDstHolds s' .bool pd b ∧
+          M.evalCond s' cc = b) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  op_cmpFlags_spec : ∀ {h k co w pa pb pd lhsFirst vh c clob va vb s post},
+    g.cmpFlagsOut? co w pa pb pd = some lhsFirst →
+    g.op (.cmp co (.bits w) .bool rfl) (pa, pb, ()) (pd, ()) vh = some (c, clob) →
+    (∀ r ∈ pa.gprs ++ pb.gprs, r ∉ scratch) → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    M.PArgHolds s (.bits w) pa va → M.PArgHolds s (.bits w) pb vb →
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' => M.PDstHolds s' .bool pd (co.evalBits va vb) ∧
+        FlagCmpOk M g s' (if lhsFirst then va else vb) (if lhsFirst then vb else va) false ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  op_aluZero_spec : ∀ {h k sig w} {code : OpCode sig [.bits w]} {pas pd eqNe vh c clob vs P s post},
+    g.aluZeroOut? w code pd = some eqNe →
+    clob ≠ FlagMask.none →
+    g.op code pas (pd, ()) vh = some (c, clob) →
+    (∀ r ∈ tupArgGprs pas, r ∉ scratch) → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    TRel (M.PArgHolds s) pas vs → code.wp vs P →
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' => (∃ rv : BitVec w, P (rv, ()) ∧ M.PDstHolds s' (.bits w) pd rv ∧
+          (∀ rd, w = 32 → pd = .gpr rd → g.zeroUpper32Op code pas (.gpr rd, ()) = true →
+            M.getGpr s' rd = rv.setWidth 64) ∧
+          FlagCmpOk M g s' rv 0#w eqNe) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  testOp_boolFlag_spec : g.hasTestFlags = true →
+    ∀ {h k w neg pa pb pd c clob va vb cc s post},
+    clob ≠ FlagMask.none →
+    g.condOfCmp? (if neg then .ne else .eq) = some cc →
+    g.testOp w neg pa pb pd = some (c, clob) →
+    (∀ r ∈ pa.gprs ++ pb.gprs, r ∉ scratch) → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    M.PArgHolds s (.bits w) pa va → M.PArgHolds s (.bits w) pb vb →
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' =>
+        let res := (if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& vb) 0#w
+        M.PDstHolds s' .bool pd res ∧ M.evalCond s' cc = res ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  testMem_boolFlag_spec : g.hasTestFlags = true →
+    ∀ {h k w neg a pb pd c clob va vb cc s post},
+    clob ≠ FlagMask.none →
+    g.condOfCmp? (if neg then .ne else .eq) = some cc →
+    g.testMem w neg a pb pd = some (c, clob) →
+    (∀ r ∈ a.regs ++ pb.gprs, r ∉ scratch) → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    loadVal (M.mem s) (.bits w) (a.eval (M.getGpr s)) = some va →
+    M.PArgHolds s (.bits w) pb vb →
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' =>
+        let res := (if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& vb) 0#w
+        M.PDstHolds s' .bool pd res ∧ M.evalCond s' cc = res ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  cmpMem_flags_spec : ∀ {h k co w a pb pd lhsFirst c clob va vb s post},
+    g.cmpMemFlagsOut? co pd = some lhsFirst →
+    g.cmpMem co w a pb pd = some (c, clob) →
+    (∀ r ∈ a.regs ++ pb.gprs, r ∉ scratch) → (∀ r ∈ pd.gprs, r ∉ scratch) →
+    loadVal (M.mem s) (.bits w) (a.eval (M.getGpr s)) = some va →
+    M.PArgHolds s (.bits w) pb vb →
+    M.FallsTo g.condReads h k c (pd.gprs ++ scratch) [] clob s
+      (fun s' => M.PDstHolds s' .bool pd (co.evalBits va vb) ∧
+        FlagCmpOk M g s' (if lhsFirst then va else vb) (if lhsFirst then vb else va) false ∧
+        M.mem s' = M.mem s) post :=
     by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where

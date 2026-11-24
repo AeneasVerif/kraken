@@ -61,6 +61,26 @@ def VecTy (G : VCtx) : SymArg → Prop
   | .var x => ∀ t v, ⟨t, v, x⟩ ∈ G → ∃ a b, t = .pair a b
   | _ => True
 
+def SymBits (G : VCtx) (w : Nat) (bv : BitVec w) : SymArg → Prop
+  | .var x => ∀ v : BitVec w, ⟨.bits w, v, x⟩ ∈ G → v = bv
+  | .immBits w' c => w' = w ∧ c.setWidth w = bv
+  | _ => False
+
+def FlagFactOk (T : Target) (G : VCtx) (s : T.mach.MData) : Option FlagFact → Prop
+  | none => True
+  | some (.cmp w lhs rhs eqNe) =>
+    w ≤ 64 ∧ ∃ va vb : BitVec w, SymBits G w va lhs ∧ SymBits G w vb rhs ∧
+      FlagCmpOk T.mach T.gpr s va vb eqNe
+
+def FlagFactScope (nv : Nat) : Option FlagFact → Prop
+  | none => True
+  | some (.cmp _ lhs rhs _) => symArgScopeOk nv lhs = true ∧ symArgScopeOk nv rhs = true
+
+@[simp] theorem FlagFactOk_none (T : Target) (G : VCtx) (s : T.mach.MData) :
+    FlagFactOk T G s none = True := rfl
+
+@[simp] theorem FlagFactScope_none (nv : Nat) : FlagFactScope nv none = True := rfl
+
 def SlotEntry.sas : SlotEntry → List SymArg
   | .gpr sas => sas | .gprZ sas => sas.map (·.1) | .vec _ sas => sas
 
@@ -215,6 +235,8 @@ structure Agree (T : Target) (G : VCtx) (nv : Nat) (st : SymState T.toIsa) (s : 
   vt : ∀ x t v, ⟨t, v, x⟩ ∈ G → st.vecWidths.find? x = none → ∀ a b, t ≠ .pair a b
   zeroExt32_ok : ∀ r ∈ st.zeroExt32,
     T.mach.getGpr s r = ((T.mach.getGpr s r).setWidth 32).setWidth 64
+  flags_ok : FlagFactOk T G s st.flags
+  flags_lt : FlagFactScope nv st.flags
 
 theorem setWidth_setWidth_64_32 (w : BitVec 64) :
     ((w.setWidth 32).setWidth 64).setWidth 32 = w.setWidth 32 := by
@@ -492,6 +514,10 @@ theorem FlagSym.tr {b : Bool} (h : FlagSym G' b sa) : FlagSym G b sa := by
   cases sa <;> first | exact h | exact fun t v hm => h t v (hT _ rfl t v hm)
 theorem VecTy.tr (h : VecTy G' sa) : VecTy G sa := by
   cases sa <;> first | exact h | exact fun t v hm => h t v (hT _ rfl t v hm)
+theorem SymBits.tr {w : Nat} {bv : BitVec w} (h : SymBits G' w bv sa) : SymBits G w bv sa := by
+  cases sa with
+  | var x => exact fun v hm => h v (hT x rfl (.bits w) v hm)
+  | _ => exact h
 theorem RegLocOk.tr {R V C D : Type} {M : Machine R V C D} {s : M.MData} {rl : RegLoc R V C}
     (h : RegLocOk M G' s sa rl) : RegLocOk M G s sa rl := by
   cases rl with
@@ -673,15 +699,93 @@ theorem zeroExt32_frame {gClob : List T.Reg} {vClob : List T.VReg} {fClob : Flag
   rw [hfr.1 r hr_not]
   exact hA.zeroExt32_ok r hr.1
 
+theorem keepFlagCmp_none (I : Isa) (eqNe : Bool) : keepFlagCmp I FlagMask.none eqNe = true := by
+  unfold keepFlagCmp; rw [List.all_eq_true]; intro co _
+  cases h : I.gpr.condOfCmp? co <;> simp [FlagMask.disjoint, FlagMask.none]
+
+theorem killFlags_none (I : Isa) (fl : Option FlagFact) : killFlags I FlagMask.none fl = fl := by
+  cases fl with
+  | none => rfl
+  | some f => cases f; simp [killFlags, keepFlagCmp_none]
+
+theorem FlagFactOk.frame {gClob : List T.Reg} {vClob : List T.VReg} {fClob : FlagMask}
+    (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob)
+    (hf : fClob = FlagMask.none) {fl : Option FlagFact} (h : FlagFactOk T G s fl) :
+    FlagFactOk T G s' fl := by
+  cases fl with
+  | none => trivial
+  | some f =>
+    cases f with
+    | cmp w lhs rhs eqNe =>
+      obtain ⟨hw, va, vb, ha, hb, hcmp⟩ := h
+      refine ⟨hw, va, vb, ha, hb, fun co cc hco hcc => ?_⟩
+      subst hf
+      rw [hfr.2.2 cc (by simp [FlagMask.disjoint, FlagMask.none])]
+      exact hcmp co cc hco hcc
+
+theorem FlagFactOk.kill {gClob : List T.Reg} {vClob : List T.VReg} {fClob : FlagMask}
+    (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob)
+    {fl : Option FlagFact} (h : FlagFactOk T G s fl) :
+    FlagFactOk T G s' (killFlags T.toIsa fClob fl) := by
+  cases fl with
+  | none => simp [killFlags]
+  | some f =>
+    cases f with
+    | cmp w lhs rhs eqNe =>
+      simp only [killFlags]
+      split
+      · rename_i hk
+        obtain ⟨hw, va, vb, ha, hb, hcmp⟩ := h
+        refine ⟨hw, va, vb, ha, hb, fun co cc hco hcc => ?_⟩
+        unfold keepFlagCmp at hk
+        have hmem : co ∈ (if eqNe then [.eq, .ne]
+            else [.eq, .ne, .ult, .ule, .ugt, .uge, .slt, .sle, .sgt, .sge]) := by
+          cases eqNe <;> cases co <;> simp at hco ⊢
+        have hd := List.all_eq_true.mp hk co hmem
+        rw [hcc] at hd
+        rw [hfr.2.2 cc hd]
+        exact hcmp co cc hco hcc
+      · trivial
+
+theorem symArgScopeOk_mono {nv nv' : Nat} (hle : nv ≤ nv') {sa : SymArg}
+    (h : symArgScopeOk nv sa = true) : symArgScopeOk nv' sa = true := by
+  cases sa <;> simp only [symArgScopeOk, Nat.ble_eq] at h ⊢ <;> omega
+
+theorem FlagFactScope.mono {nv nv' : Nat} (hle : nv ≤ nv') {fl : Option FlagFact}
+    (h : FlagFactScope nv fl) : FlagFactScope nv' fl := by
+  cases fl with
+  | none => trivial
+  | some f => cases f; exact ⟨symArgScopeOk_mono hle h.1, symArgScopeOk_mono hle h.2⟩
+
+theorem FlagFactOk.tr {G G' : VCtx} {nv : Nat} {s : T.mach.MData} {fl : Option FlagFact}
+    (hG : ∀ p ∈ G', p ∈ G ∨ nv ≤ p.2.2) (hsc : FlagFactScope nv fl)
+    (h : FlagFactOk T G s fl) : FlagFactOk T G' s fl := by
+  cases fl with
+  | none => trivial
+  | some f =>
+    cases f with
+    | cmp w lhs rhs eqNe =>
+      obtain ⟨hw, va, vb, ha, hb, hcmp⟩ := h
+      exact ⟨hw, va, vb, SymBits.tr (mem_grow hG hsc.1) ha,
+        SymBits.tr (mem_grow hG hsc.2) hb, hcmp⟩
+
+theorem FlagFactScope.kill {I : Isa} {nv : Nat} {fClob : FlagMask} {fl : Option FlagFact}
+    (h : FlagFactScope nv fl) : FlagFactScope nv (killFlags I fClob fl) := by
+  cases fl with
+  | none => trivial
+  | some f => cases f; simp only [killFlags]; split; exact h; trivial
+
 theorem Agree.setRegs (hA : Agree T G nv st s σ) (R : List (SymArg × RegLoc T.Reg T.VReg T.Cond))
     (hR : ∀ p ∈ R, RegLocOk T.mach G s' p.1 p.2 ∧ symArgScopeOk nv p.1 = true)
     {zExt : List T.Reg}
-    (hz : ∀ r ∈ zExt, T.mach.getGpr s' r = ((T.mach.getGpr s' r).setWidth 32).setWidth 64) :
+    (hz : ∀ r ∈ zExt, T.mach.getGpr s' r = ((T.mach.getGpr s' r).setWidth 32).setWidth 64)
+    (hfl : FlagFactOk T G s' st.flags) :
     Agree T G nv { st with
       regs := R
       zeroExt32 := zExt } s' σ :=
   { hA with
-    regs := fun p hp => (hR p hp).1, regs_lt := fun p hp => (hR p hp).2, zeroExt32_ok := hz }
+    regs := fun p hp => (hR p hp).1, regs_lt := fun p hp => (hR p hp).2, zeroExt32_ok := hz,
+    flags_ok := hfl }
 
 theorem kill_ok (hA : Agree T G nv st s σ) {gClob : List T.Reg} {vClob : List T.VReg} {fClob : FlagMask}
     (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob) {p : SymArg × RegLoc T.Reg T.VReg T.Cond}
@@ -731,12 +835,14 @@ theorem isMoveGpr_of_alloc {saved : List T.Reg} {r : T.Reg} (h : isAllocGpr T.to
 theorem Agree.frame (hA : Agree T G nv st s σ) {gClob : List T.Reg} {vClob : List T.VReg} {fClob : FlagMask}
     (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob)
     (hk : ∀ p ∈ st.regs, keepRegLoc T.toIsa gClob vClob fClob p.2 = true)
-    (hz : ∀ r ∈ st.zeroExt32, T.mach.getGpr s' r = ((T.mach.getGpr s' r).setWidth 32).setWidth 64) :
+    (hz : ∀ r ∈ st.zeroExt32, T.mach.getGpr s' r = ((T.mach.getGpr s' r).setWidth 32).setWidth 64)
+    (hf : fClob = FlagMask.none := by rfl) :
     Agree T G nv st s' σ := by
   have hR : ∀ p ∈ st.regs, RegLocOk T.mach G s' p.1 p.2 ∧ symArgScopeOk nv p.1 = true :=
     fun p hp => ⟨keepRegLoc_frame hfr (hk p hp) (hA.regs p hp), hA.regs_lt p hp⟩
   exact { hA with
-    regs := fun p hp => (hR p hp).1, regs_lt := fun p hp => (hR p hp).2, zeroExt32_ok := hz }
+    regs := fun p hp => (hR p hp).1, regs_lt := fun p hp => (hR p hp).2, zeroExt32_ok := hz,
+    flags_ok := hA.flags_ok.frame hfr hf }
 
 theorem mem_gprTaggedEntries {I : Isa} {r : I.Reg} {R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)}
     {sa : SymArg} {z : Bool} (h : (sa, z) ∈ gprTaggedEntries r R) :
@@ -855,8 +961,14 @@ theorem Agree.kill {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s s' : T.mach.
     (hA : Agree T G nv st s σ) (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob) :
     Agree T G nv { st with
       regs := killRegs T.toIsa gClob vClob fClob st.regs
-      zeroExt32 := killZeroExt gClob st.zeroExt32 } s' σ :=
-  hA.setRegs _ (fun _ hp => kill_ok hA hfr hp) (zeroExt32_frame hA hfr)
+      zeroExt32 := killZeroExt gClob st.zeroExt32
+      flags := killFlags T.toIsa fClob st.flags } s' σ :=
+  { hA with
+    regs := fun _ hp => (kill_ok hA hfr hp).1
+    regs_lt := fun _ hp => (kill_ok hA hfr hp).2
+    zeroExt32_ok := zeroExt32_frame hA hfr
+    flags_ok := hA.flags_ok.kill hfr
+    flags_lt := hA.flags_lt.kill }
 
 /-- `Agree` is stable when the value context grows by binders at or above `nv`; the vector-width
 trie may simultaneously gain entries for those new binders. -/
@@ -878,10 +990,8 @@ theorem Agree.extend {G G' : VCtx} {nv nv' : Nat} {st : SymState T.toIsa} {s : T
       exact hA.vw x w h t v (mem_grow hG (sa := .var x)
         (by simp only [symArgScopeOk, Nat.ble_eq]; omega) x rfl t v hm)
     · exact (hvw x w h (by omega)).2 t v hm
-  regs_lt p hp := by
-    have := hA.regs_lt p hp; revert this; cases p.1 <;> simp [symArgScopeOk, Nat.ble_eq] <;> omega
-  slots_lt i se h sa hsa := by
-    have := hA.slots_lt i se h sa hsa; revert this; cases sa <;> simp [symArgScopeOk, Nat.ble_eq] <;> omega
+  regs_lt p hp := symArgScopeOk_mono hle (hA.regs_lt p hp)
+  slots_lt i se h sa hsa := symArgScopeOk_mono hle (hA.slots_lt i se h sa hsa)
   defs_lt x d h := Nat.lt_of_lt_of_le (hA.defs_lt x d h) hle
   vw_lt x w h := by
     by_cases hx : x < nv
@@ -892,6 +1002,8 @@ theorem Agree.extend {G G' : VCtx} {nv nv' : Nat} {st : SymState T.toIsa} {s : T
     · have hx : x < nv := hA.ctx_lt _ h; rw [hvw0 x hx] at hn; exact hA.vt x t v h hn
     · exact hty _ hm h hn
   zeroExt32_ok := hA.zeroExt32_ok
+  flags_ok := hA.flags_ok.tr hG hA.flags_lt
+  flags_lt := hA.flags_lt.mono hle
 
 /-- `Inv` survives register writes outside `allocatable ∪ saved ∪ arg ∪ ret ∪ scratch`. -/
 theorem Inv.keep {zl : Bool} {m : Mem 64} {s s' : T.mach.MData} {σ : List (BitVec 64)}
@@ -953,20 +1065,23 @@ theorem Agree.addKillZ (hA : Agree T G nv st s σ)
     (L : List (SymArg × RegLoc T.Reg T.VReg T.Cond))
     (hL : ∀ p ∈ L, RegLocOk T.mach G s' p.1 p.2 ∧ symArgScopeOk nv p.1 = true)
     (zExt : List T.Reg)
-    (hz : ∀ r ∈ zExt, T.mach.getGpr s' r = ((T.mach.getGpr s' r).setWidth 32).setWidth 64) :
+    (hz : ∀ r ∈ zExt, T.mach.getGpr s' r = ((T.mach.getGpr s' r).setWidth 32).setWidth 64)
+    (hf : fC = FlagMask.none := by rfl) :
     Agree T G nv { st with
       regs := L ++ killRegs T.toIsa gC vC fC st.regs
       zeroExt32 := zExt } s' σ :=
   hA.setRegs _ (fun p hp => (List.mem_append.mp hp).elim (hL p) (kill_ok hA hfr)) hz
+    (hA.flags_ok.frame hfr hf)
 
 theorem Agree.addKill (hA : Agree T G nv st s σ) {gC : List T.Reg} {vC : List T.VReg} {fC : FlagMask}
     (hfr : T.mach.Frame T.gpr.condReads s s' gC vC fC)
     (L : List (SymArg × RegLoc T.Reg T.VReg T.Cond))
-    (hL : ∀ p ∈ L, RegLocOk T.mach G s' p.1 p.2 ∧ symArgScopeOk nv p.1 = true) :
+    (hL : ∀ p ∈ L, RegLocOk T.mach G s' p.1 p.2 ∧ symArgScopeOk nv p.1 = true)
+    (hf : fC = FlagMask.none := by rfl) :
     Agree T G nv { st with
       regs := L ++ killRegs T.toIsa gC vC fC st.regs
       zeroExt32 := killZeroExt gC st.zeroExt32 } s' σ :=
-  hA.addKillZ hfr L hL _ (zeroExt32_frame hA hfr)
+  hA.addKillZ hfr L hL _ (zeroExt32_frame hA hfr) hf
 
 theorem moveCons {saved : List T.Reg} {d : T.Reg} (hd : isMoveGpr T.toIsa saved d = true) :
     ∀ r ∈ d :: T.frame.scratch, isMoveGpr T.toIsa saved r = true := fun _ hr =>
@@ -1082,7 +1197,13 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
     refine T.frameSpec.slotSt_spec hg.1 hsp (sep_mono (fun _ => cell64_region) hw) hc
       fun s1 hm1 hfr => kont s1 (splice σ i 1 [T.mach.getGpr s r]) ?_
         (Inv.unwindow hI h1 rfl (by rw [array64_single]; exact hm1) hfr.1)
-    refine (hA.kill hfr).writeSlot h1 rfl ⟨T.mach.getGpr s r, ?_, fun q hq => ?_⟩
+    have hK : Agree T G nv
+        { st with
+          regs := killRegs T.toIsa T.frame.scratch [] FlagMask.none st.regs
+          zeroExt32 := killZeroExt T.frame.scratch st.zeroExt32 } s1 σ := by
+      simpa [killFlags_none] using hA.kill hfr
+    refine hK.writeSlot h1 rfl (E := .gprZ (gprTaggedEntries r st.regs))
+      ⟨T.mach.getGpr s r, ?_, fun q hq => ?_⟩
       fun sa hsa => by
         obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hsa
         exact rsc (mem_gprTaggedEntries hq)
@@ -1141,7 +1262,13 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
     have hlen := unpackSlotWords_length w (T.mach.getVec s r)
     refine T.vecSpec.vslotSt_spec hg.1 hsp hreg hc fun s1 hm1 hfr =>
       kont s1 (splice σ i w.slots (unpackSlotWords w (T.mach.getVec s r))) ?_ (Inv.unwindow hI hk hlen hm1 hfr.1)
-    refine (hA.kill hfr).writeSlot hk hlen ⟨T.mach.getVec s r, slice_splice_self hk hlen, fun sa hsa => ?_⟩
+    have hK : Agree T G nv
+        { st with
+          regs := killRegs T.toIsa T.frame.scratch T.vec.vecScratch FlagMask.none st.regs
+          zeroExt32 := killZeroExt T.frame.scratch st.zeroExt32 } s1 σ := by
+      simpa [killFlags_none] using hA.kill hfr
+    refine hK.writeSlot hk hlen (E := .vec w (vecEntries st.vecWidths w r st.regs))
+      ⟨T.mach.getVec s r, slice_splice_self hk hlen, fun sa hsa => ?_⟩
       fun sa hsa => rsc (mem_vecEntries hsa).1
     obtain ⟨hm, wsa, hw, hle⟩ := mem_vecEntries hsa
     exact VecSym.narrow hA hw hle (hA.regs _ hm)
@@ -1188,8 +1315,26 @@ theorem stepPre_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
       have hc' := hc.append
       refine execMoves_ok hspE _ _ _ _ _ _ _ h1 hc'.1 hA hI fun s1 σ1 hA1 hI1 =>
         T.gprSpec.clearFlags_spec hc'.2 fun s2 ⟨hz, hm2⟩ hfr => ?_
-      have hA2 := hA1.addKill hfr (T.gpr.zeroFlags.map (SymArg.immBool false, RegLoc.flag ·)) fun p hp => by
-        obtain ⟨c, hcz, rfl⟩ := List.mem_map.mp hp; exact ⟨hz c hcz, rfl⟩
+      have hA2 : Agree T G nv
+          { st1 with
+            regs := T.gpr.zeroFlags.map (SymArg.immBool false, RegLoc.flag ·) ++
+                    killRegs T.toIsa T.frame.scratch [] FlagMask.all st1.regs
+            zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32
+            flags := none } s2 σ1 :=
+        { hA1 with
+          regs := fun p hp => (List.mem_append.mp hp).elim
+            (fun hp' => by
+              obtain ⟨c, hcz, rfl⟩ := List.mem_map.mp hp'
+              exact hz c hcz)
+            (fun hp' => (kill_ok hA1 hfr hp').1)
+          regs_lt := fun p hp => (List.mem_append.mp hp).elim
+            (fun hp' => by
+              obtain ⟨c, _, rfl⟩ := List.mem_map.mp hp'
+              rfl)
+            (fun hp' => (kill_ok hA1 hfr hp').2)
+          zeroExt32_ok := zeroExt32_frame hA1 hfr
+          flags_ok := trivial
+          flags_lt := trivial }
       simpa [Nat.add_assoc] using
         kont s2 σ1 hA2 (inv_of_frame hI1 hm2 hfr.1 fun _ h => isMoveGpr_scratch h)
     · simp only [Prod.mk.injEq] at he; obtain ⟨rfl, rfl⟩ := he
@@ -1422,7 +1567,7 @@ theorem Agree.pushRegZ (hA : Agree T G nv st s σ) {sa : SymArg} {rl : RegLoc T.
       regs := (sa, rl) :: st.regs
       zeroExt32 := zExt } s σ :=
   hA.setRegs _ (fun p hp => (List.mem_cons.mp hp).elim (fun e => e ▸ ⟨h, hsc⟩)
-    fun hp => ⟨hA.regs p hp, hA.regs_lt p hp⟩) hz
+    fun hp => ⟨hA.regs p hp, hA.regs_lt p hp⟩) hz hA.flags_ok
 
 theorem Agree.pushReg (hA : Agree T G nv st s σ) {sa : SymArg} {rl : RegLoc T.Reg T.VReg T.Cond}
     (h : RegLocOk T.mach G s sa rl) (hsc : symArgScopeOk nv sa = true) : Agree T G nv

@@ -290,7 +290,7 @@ private theorem bitcnt_wide_step_wp_z [Host] {E : Int64 → MachineData → Prop
     refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_lzcntW w hw _ rd .r11)) ?_
     rintro s4 ⟨rvd, st4, hrvd, rfl⟩
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_decW_z w _ rd)) ?_
-    rintro s5 ⟨rvd', st5, hrvd', hrvd'z, _, rfl⟩
+    rintro s5 ⟨rvd', st5, hrvd', hrvd'z, _, _, rfl⟩
     let rv11 := ((s.regs.get64 ra).setWidth w.bits).setWidth 64
     have hrv11 : rv11.setWidth w.bits = va := by
       dsimp only [rv11]

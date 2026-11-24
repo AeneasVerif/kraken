@@ -1013,7 +1013,9 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
           have hs' : r ∈ hints.saved := by simpa [List.contains_iff_mem] using hr.2
           have hcs : r ∈ T.frame.calleeSaved := hsub r hs'
           rw [hkeep r hcs, hcs1 r hcs]
-          exact hA.zeroExt32_ok r hr.1 }
+          exact hA.zeroExt32_ok r hr.1
+        flags_ok := trivial
+        flags_lt := trivial }
     have hI' : Inv T hints s₀ ra n Rf m' (T.mach.data st0) σ false := by
       refine ⟨hσ, by show T.mach.getGpr (T.mach.data st0) T.frame.sp = base T hints s₀
                      rw [hspr, hsp2, BitVec.sub_add_cancel],
