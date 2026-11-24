@@ -442,10 +442,12 @@ BASELINE_FALLBACKS = {
 
 
 def lookup_baseline_run(base_runs, name):
-    """Look up baseline run record for `name` with M6->M5->M4->M3 fallback."""
+    """Look up baseline run record for `name` (Fidelity and M8Opt profiles never cross-fallback)."""
     rec = base_runs.get(name)
     if rec is not None:
         return rec
+    if name.startswith(("KissatFidelity_", "KissatM8Opt_", "Plain_")):
+        return None
     for prefix, fallbacks in BASELINE_FALLBACKS.items():
         if name.startswith(prefix):
             for fb in fallbacks:
@@ -532,6 +534,12 @@ def merge_baseline_doc(existing, results, configs, args):
 def main():
     ap = argparse.ArgumentParser(description="Run and verify 10-family Kissat UNSAT canaries.")
     ap.add_argument("--cnf-dir", help="Directory with generated canaries (auto-generated if omitted)")
+    ap.add_argument("--plain-c4", help="Path to C4 native x64 Plain bench_main binary")
+    ap.add_argument("--plain-c3b", help="Path to C3b PrintCpp-native-mem Plain bench_main binary")
+    ap.add_argument("--fid-c4", help="Path to C4 native x64 KissatFidelity bench_main binary")
+    ap.add_argument("--fid-c3b", help="Path to C3b PrintCpp-native-mem KissatFidelity bench_main binary")
+    ap.add_argument("--opt-c4", "--m8-c4", dest="opt_c4", help="Path to C4 native x64 KissatM8Opt bench_main binary")
+    ap.add_argument("--opt-c3b", "--m8-c3b", dest="opt_c3b", help="Path to C3b PrintCpp-native-mem KissatM8Opt bench_main binary")
     ap.add_argument("--full-c4", help="Path to C4 native x64 Full bench_main binary")
     ap.add_argument("--full-c3b", help="Path to C3b PrintCpp-native-mem Full bench_main binary")
     ap.add_argument("--fast-c4", help="Path to C4 native x64 FullFast bench_main binary")
@@ -567,13 +575,15 @@ def main():
     args = ap.parse_args()
 
     if not any([
+        args.plain_c4, args.plain_c3b, args.fid_c4, args.fid_c3b,
+        args.opt_c4, args.opt_c3b,
         args.full_c4, args.full_c3b, args.fast_c4, args.fast_c3b,
         args.m3_c4, args.m3_c3b, args.m4_c4, args.m4_c3b,
         args.m5_c4, args.m5_c3b, args.m6_c4, args.m6_c3b, args.c3b_gen_hpp,
     ]):
         ap.error(
             "specify at least one solver binary or --c3b-gen-hpp "
-            "(--full-*/--fast-*/--m3-*/--m4-*/--m5-*/--m6-*)"
+            "(--plain-*/--fid-*/--opt-*/--m8-*/--full-*/--fast-*/--m3-*/--m4-*/--m5-*/--m6-*)"
         )
 
     kissat_bin = None
@@ -613,6 +623,18 @@ def main():
 
     c3b_tmp_ctx = None
     configs = []
+    if args.plain_c4:
+        configs.append(("Plain_C4", args.plain_c4, True))
+    if args.plain_c3b:
+        configs.append(("Plain_C3b", args.plain_c3b, True))
+    if args.fid_c4:
+        configs.append(("KissatFidelity_C4", args.fid_c4, True))
+    if args.fid_c3b:
+        configs.append(("KissatFidelity_C3b", args.fid_c3b, True))
+    if args.opt_c4:
+        configs.append(("KissatM8Opt_C4", args.opt_c4, True))
+    if args.opt_c3b:
+        configs.append(("KissatM8Opt_C3b", args.opt_c3b, True))
     if args.full_c4:
         configs.append(("Full_C4", args.full_c4, False))
     if args.full_c3b:
@@ -648,6 +670,7 @@ def main():
     parity_fails = []
     all_gaps = []
     base_c1_checked = 0
+    no_baseline_runs = {}
 
     hdr = (
         f"{'Canary':<28} {'Cfg':<12} {'St':>3} {'ms':>8} {'Confl':>8} "
@@ -710,6 +733,8 @@ def main():
                 base_runs = base_entry.get("runs", {})
                 base_rec = lookup_baseline_run(base_runs, name)
                 base_c1 = base_entry.get("c1")
+            if baseline and base_rec is None:
+                no_baseline_runs[name] = no_baseline_runs.get(name, 0) + 1
             eval_k = k_rec if k_rec is not None else base_c1
             if k_rec is None and base_c1 is not None:
                 base_c1_checked += 1
@@ -742,6 +767,11 @@ def main():
         print(f"  {name:<14}: {solved:2d}/{tot} UNSAT solved{extra}  (total {tot_ms:.1f} ms)")
     if base_c1_checked > 0:
         print(f"  C1 baseline ceiling enforced from JSON on {base_c1_checked} run(s)")
+    for name, cnt in no_baseline_runs.items():
+        print(
+            f"  NOTE: {args.baseline} has no {name} record for {cnt}/{tot} canaries; conflict"
+            " ratchet NOT enforced there (refresh with --update-baseline)"
+        )
 
     for base_mod in collect_parity_models(configs):
         c4_k, c3b_k = f"{base_mod}_C4", f"{base_mod}_C3b"

@@ -12,7 +12,13 @@ KISSAT_BIN="${KISSAT_BIN:-}"
 C4_BIN=""
 C3B_BIN=""
 GEN_HPP=""
-LABEL="FullM4"
+if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+  LABEL="KissatFidelity"
+elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
+  LABEL="FullM7Fidelity"
+else
+  LABEL="FullM4"
+fi
 PER_TIMEOUT=15
 QUICK=0
 WITH_BASE=0
@@ -225,6 +231,9 @@ if [[ -n "$KISSAT_BIN" ]]; then
 fi
 if [[ -n "$C4_BIN" ]]; then
   case "$LABEL" in
+    Plain) CANARY_ARGS+=(--plain-c4 "$C4_BIN") ;;
+    KissatFidelity|FullM7Fidelity) CANARY_ARGS+=(--fid-c4 "$C4_BIN") ;;
+    KissatM8Opt|FullM8) CANARY_ARGS+=(--opt-c4 "$C4_BIN") ;;
     FullM3) CANARY_ARGS+=(--m3-c4 "$C4_BIN") ;;
     FullM4) CANARY_ARGS+=(--m4-c4 "$C4_BIN") ;;
     FullM5) CANARY_ARGS+=(--m5-c4 "$C4_BIN") ;;
@@ -235,6 +244,9 @@ if [[ -n "$C4_BIN" ]]; then
 fi
 if [[ -n "$C3B_BIN" ]]; then
   case "$LABEL" in
+    Plain) CANARY_ARGS+=(--plain-c3b "$C3B_BIN") ;;
+    KissatFidelity|FullM7Fidelity) CANARY_ARGS+=(--fid-c3b "$C3B_BIN") ;;
+    KissatM8Opt|FullM8) CANARY_ARGS+=(--opt-c3b "$C3B_BIN") ;;
     FullM3) CANARY_ARGS+=(--m3-c3b "$C3B_BIN") ;;
     FullM4) CANARY_ARGS+=(--m4-c3b "$C3B_BIN") ;;
     FullM5) CANARY_ARGS+=(--m5-c3b "$C3B_BIN") ;;

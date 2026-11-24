@@ -3,7 +3,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TARGET="m5"
+if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+  TARGET="fidelity"
+elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
+  TARGET="m7fidelity"
+else
+  TARGET="m5"
+fi
 OUT_DIR="/tmp/kissat-c0direct"
 OUT_BIN=""
 ASAN=0
@@ -12,7 +18,8 @@ CHECK_FNS=""
 usage() {
   cat <<'EOF'
 usage: bash bench/kissat/build_c0_direct.sh [options]
-  --target <m5|m6|m7|m7plus|m7fidelity>  Kissat C0 splice target (default: m5)
+  --target <fidelity|m8opt|plain|m7fidelity|m7plus|m7|m6|m5>
+                         Kissat C0 splice target (aliases: fid, opt, m8; default: auto fidelity/m7fidelity)
   --out-dir <dir>        Output directory for .c/.o/binary (default: /tmp/kissat-c0direct)
   -o, --out <bin>        Explicit output binary path (default: <out-dir>/bench_c0direct_<target>[_asan])
   --asan                 Enable -fsanitize=undefined,address -fno-sanitize-recover=all
@@ -34,8 +41,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$TARGET" in
-  m5|m6|m7|m7plus|m7fidelity) ;;
-  *) echo "ERROR: --target must be m5, m6, m7, m7plus, or m7fidelity (got '$TARGET')" >&2; exit 2 ;;
+  plain|fidelity|fid|m8opt|opt|m8|m5|m6|m7|m7plus|m7fidelity|m7plus-memshrink|m7fidelity-memshrink) ;;
+  *) echo "ERROR: unsupported --target '$TARGET'" >&2; exit 2 ;;
 esac
 
 mkdir -p "$OUT_DIR"
@@ -59,6 +66,9 @@ t1_ns="$(date +%s%N)"
 
 CC="${CC:-clang}"
 C0_FLAGS=(-std=c99 -O3 -fwrapv -fno-strict-aliasing -Wall -Wextra -Werror)
+# Plain's C0 has one unparenthesized `a || b && c` (clang -Wlogical-op-parentheses,
+# gcc -Wparentheses); fidelity/opt targets stay warning-free without it.
+if [ "$TARGET" = plain ]; then C0_FLAGS+=(-Wno-parentheses); fi
 MAIN_FLAGS=(-std=c99 -O3 -Wall -Wextra -Werror)
 
 timeout 60 "$CC" "${C0_FLAGS[@]}" "${SAN_FLAGS[@]}" \

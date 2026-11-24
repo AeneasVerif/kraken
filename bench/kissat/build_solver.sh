@@ -2,7 +2,7 @@
 # Build a native `kissat-leanqbe` binary from the verified LeanQbe Kissat solver.
 #
 #   bash bench/kissat/build_solver.sh
-#     [--module FullM5|FullM6|FullM7|FullM7Plus|FullM7Fidelity|FullM4|FullM3|Plain|Full|FullFast]
+#     [--module KissatFidelity|KissatM8Opt|Plain|FullM7Fidelity|FullM7Plus|FullM7|FullM6|FullM5|FullM4|FullM3|Full|FullFast]
 #     [--arch x64|arm64] [--inline-max <N>] [--allow-uncertified] [--debug|-g]
 #     [--keep-asm] [--save-asm <path>] [-o <output_bin>]
 #
@@ -10,17 +10,20 @@
 #    (skipped when `STAGE_LEAN_PATH` is set).
 # 2. Compiles `<Module>Module` with `Driver.compileFns` (matching `LinkedCert`) for x86-64
 #    (`toATTAligned`) or AArch64 (`Kraken.AArch64.Print.directive`) into a `.s` file. Default
-#    `--inline-max 0` emits the exact certified policy/IR (`InlinePolicy.b5` for `FullM5`,
+#    `--inline-max 0` emits the exact certified policy/IR (`FullFidelityInl.fidInlFns` for
+#    `KissatFidelity`, `FullM8OptInl.m8OptInlFns` for `KissatM8Opt`, `InlinePolicy.b5` for `FullM5`,
 #    `FullM6Inl.m6InlFns` matching `kissatM6_compiled_{x64,arm64}.code` for `FullM6`,
 #    `FullM7Inl.m7InlFns`/`InlinePolicy.b5` for `FullM7`, `inline=0` elsewhere);
 #    `--inline-max <N>` (`N > 0`) and `--debug` apply uncertified transforms outside `LinkedCert`.
 # 3. Links that assembly with `bench/kissat/kissat_cli.c` into `<output_bin>`. `Plain`, `FullM5`,
-#    and `FullM4` (via `KissatM4Sound`) build with certified `SAT+UNSAT`; `FullM6` (via dual-arch
-#    `KissatM6` `LinkedCert`s) builds with certified UNSAT + runtime-checked SAT (`kissat_check_model`)
-#    without needing `--allow-uncertified`; `FullM7` requires `--allow-uncertified` until `KissatM7`
-#    certs land; `FullM3`/`Full`/`FullFast` compile with `-DKISSAT_UNSAT_ONLY=1` so `10` returns UNKNOWN.
+#    and `FullM4` (via `KissatM4Sound`) build with certified `SAT+UNSAT`; `KissatFidelity`,
+#    `KissatM8Opt`, `FullM7Fidelity`, and `FullM6` build with certified UNSAT + runtime-checked SAT
+#    (`kissat_check_model`) without needing `--allow-uncertified`; uncertified targets require
+#    `--allow-uncertified`; `FullM3`/`Full`/`FullFast` compile with `-DKISSAT_UNSAT_ONLY=1` so `10`
+#    returns UNKNOWN.
 #
-# Defaults: --module FullM5 --arch x64 --inline-max 0 -o /tmp/kissat-leanqbe-<module>[-arm64].
+# Defaults: --module KissatFidelity (falls back to FullM7Fidelity until KissatFidelity.lean lands)
+#   --arch x64 --inline-max 0 -o /tmp/kissat-leanqbe-<module>[-arm64].
 # Intermediate files live in a temp directory removed on exit; the repository is never written to
 # except for Lake's .lake/ build cache. For --arch arm64 on a non-AArch64 host, builds with
 # aarch64-linux-gnu-gcc (override with CC=...) and runs under qemu-aarch64, e.g.
@@ -29,7 +32,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CALLER_PWD="$PWD"
-MODULE=FullM5
+MODULE=""
 ARCH=x64
 INLINE_MAX="${INLINE_MAX:-0}"
 OUTPUT=""
@@ -40,10 +43,10 @@ ALLOW_UNCERTIFIED=0
 
 usage() {
   echo "usage: bash bench/kissat/build_solver.sh" \
-    "[--module FullM5|FullM6|FullM7|FullM7Plus|FullM7Fidelity|FullM4|FullM3|Plain|Full|FullFast]" \
+    "[--module KissatFidelity|KissatM8Opt|Plain|FullM7Fidelity|FullM7Plus|FullM7|FullM6|FullM5|FullM4|FullM3|Full|FullFast]" \
     "[--arch x64|arm64] [--inline-max <N>] [--allow-uncertified] [--debug|-g]" \
     "[--keep-asm] [--save-asm <path>] [-o <output_bin>]"
-  echo "  aliases: m5, m6, m7, m7plus, m7fidelity, m7fid, m4, m3 (case-insensitive)."
+  echo "  aliases: fidelity, fid, m8opt, opt, m8, m7fidelity, m7fid, m7plus, m7, m6, m5, m4, m3 (case-insensitive)."
   echo "  note: --inline-max > 0 and --debug rewrite IR/directives outside LinkedCert;" \
     "uncertified modules require --allow-uncertified."
 }
@@ -74,8 +77,31 @@ case "$INLINE_MAX" in
     exit 2 ;;
 esac
 
+case "${ARCH,,}" in
+  x64|amd64|x86_64) ARCH=x64; ARCH_DIR=Amd64; SUFFIX="" ;;
+  arm64|aarch64) ARCH=arm64; ARCH_DIR=Arm64; SUFFIX="-arm64" ;;
+  *) echo "ERROR: unknown arch '$ARCH' (expected x64 | arm64)" >&2; exit 2 ;;
+esac
+
+if [ -z "$MODULE" ]; then
+  if [ -f "$ROOT/LeanQbe/T/$ARCH_DIR/KissatFidelity.lean" ] && \
+     [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+    MODULE=KissatFidelity
+  elif [ -f "$ROOT/LeanQbe/T/$ARCH_DIR/KissatM7Fidelity.lean" ]; then
+    MODULE=FullM7Fidelity
+  else
+    MODULE=FullM5
+  fi
+fi
+
 LEAN_MOD=""
 case "${MODULE,,}" in
+  kissatfidelity|fullfidelity|fidelity|fid)
+    MODULE=KissatFidelity; LEAN_MOD=FullFidelityAssembly
+    EXPR=LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule ;;
+  kissatm8opt|fullm8opt|m8opt|opt|fullm8|m8)
+    MODULE=KissatM8Opt; LEAN_MOD=FullM8OptAssembly
+    EXPR=LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule ;;
   full) MODULE=Full; LEAN_MOD=Full; EXPR=LeanQbe.T.Examples.Kissat.Full.fullModule ;;
   fullfast) MODULE=FullFast; LEAN_MOD=FullFast; EXPR=LeanQbe.T.Examples.Kissat.FullFast.fastModule ;;
   fullm3|m3) MODULE=FullM3; LEAN_MOD=FullM3; EXPR=LeanQbe.T.Examples.Kissat.FullM3.m3Module ;;
@@ -89,17 +115,11 @@ case "${MODULE,,}" in
   fullm7fidelity|m7fidelity|m7fid)
     MODULE=FullM7Fidelity; LEAN_MOD=FullM7FidelityAssembly
     EXPR=LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule ;;
-  plain) MODULE=Plain; LEAN_MOD=Plain; EXPR=LeanQbe.T.Examples.Kissat.Plain.plainModule ;;
+  plain|kissatplain) MODULE=Plain; LEAN_MOD=Plain; EXPR=LeanQbe.T.Examples.Kissat.Plain.plainModule ;;
   *)
     echo "ERROR: unknown module '$MODULE'" \
-      "(expected FullM5|FullM6|FullM7|FullM7Plus|FullM7Fidelity|FullM4|FullM3|Plain|Full|FullFast)" >&2
+      "(expected KissatFidelity|KissatM8Opt|Plain|FullM7Fidelity|FullM7Plus|FullM7|FullM6|FullM5|FullM4|FullM3|Full|FullFast)" >&2
     exit 2 ;;
-esac
-
-case "${ARCH,,}" in
-  x64|amd64|x86_64) ARCH=x64; ARCH_DIR=Amd64; SUFFIX="" ;;
-  arm64|aarch64) ARCH=arm64; ARCH_DIR=Arm64; SUFFIX="-arm64" ;;
-  *) echo "ERROR: unknown arch '$ARCH' (expected x64 | arm64)" >&2; exit 2 ;;
 esac
 OUTPUT="${OUTPUT:-/tmp/kissat-leanqbe-${MODULE,,}$SUFFIX}"
 case "$OUTPUT" in /*) ;; *) OUTPUT="$CALLER_PWD/$OUTPUT" ;; esac
@@ -137,8 +157,12 @@ case "$MODULE" in
       exit 2
     fi
     ;;
-  FullM6|FullM7|FullM7Plus|FullM7Fidelity)
-    CERT_PFX="Kissat${MODULE#Full}"
+  KissatFidelity|KissatM8Opt|FullM6|FullM7|FullM7Plus|FullM7Fidelity)
+    if [ "$MODULE" = KissatFidelity ] || [ "$MODULE" = KissatM8Opt ]; then
+      CERT_PFX="$MODULE"
+    else
+      CERT_PFX="Kissat${MODULE#Full}"
+    fi
     SOUND_LEAN="$ROOT/LeanQbe/T/$ARCH_DIR/${CERT_PFX}Sound.lean"
     CERT_LEAN="$ROOT/LeanQbe/T/$ARCH_DIR/${CERT_PFX}.lean"
     if [ -f "$SOUND_LEAN" ]; then
@@ -260,6 +284,42 @@ import LeanQbe.T.Examples.Kissat.FullM7PlusInl"
   LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullM7PlusInl)
   FNS_EXPR="LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns"
   INL_DESC="inline-policy=m7InlPolicy (FullM7PlusInl)"
+elif [ "$MODULE" = KissatFidelity ]; then
+  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInl.lean" ]; then
+    IMPORTS="$IMPORTS
+import LeanQbe.T.Examples.Kissat.FullFidelityInl"
+    LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullFidelityInl)
+    FNS_EXPR="LeanQbe.T.Examples.Kissat.FullFidelityInl.fidInlFns"
+    INL_DESC="inline-policy=fidInlPolicy (FullFidelityInl; matches kissatFidelity_compiled_${ARCH}.code)"
+  elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
+    IMPORTS="$IMPORTS
+import LeanQbe.T.MainInline
+import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy"
+    LAKE_EXTRA+=(LeanQbe.T.MainInline LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy)
+    FNS_EXPR="(($EXPR).optInlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns"
+    INL_DESC="inline-policy=fidInlPolicy"
+  else
+    FNS_EXPR="($EXPR).fns"
+    INL_DESC="inline-max=0"
+  fi
+elif [ "$MODULE" = KissatM8Opt ]; then
+  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptInl.lean" ]; then
+    IMPORTS="$IMPORTS
+import LeanQbe.T.Examples.Kissat.FullM8OptInl"
+    LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullM8OptInl)
+    FNS_EXPR="LeanQbe.T.Examples.Kissat.FullM8OptInl.m8OptInlFns"
+    INL_DESC="inline-policy=m8InlPolicy (FullM8OptInl; matches kissatM8Opt_compiled_${ARCH}.code)"
+  elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
+    IMPORTS="$IMPORTS
+import LeanQbe.T.MainInline
+import LeanQbe.T.Examples.Kissat.FullM8InlPolicy"
+    LAKE_EXTRA+=(LeanQbe.T.MainInline LeanQbe.T.Examples.Kissat.FullM8InlPolicy)
+    FNS_EXPR="(($EXPR).optInlinePolicy LeanQbe.T.Examples.Kissat.FullM8InlPolicy.m8InlPolicy).fns"
+    INL_DESC="inline-policy=m8InlPolicy"
+  else
+    FNS_EXPR="($EXPR).fns"
+    INL_DESC="inline-max=0"
+  fi
 elif [ "$MODULE" = FullM7Fidelity ]; then
   IMPORTS="$IMPORTS
 import LeanQbe.T.Examples.Kissat.FullM7FidelityInl"

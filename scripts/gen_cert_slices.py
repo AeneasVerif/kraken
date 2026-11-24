@@ -11,12 +11,17 @@ Generates five Lean module families per architecture (`Amd64`, `Arm64`):
                                  and UNSAT correctness wrappers
 
 Supports:
-  - `--module FullM7`, `--module FullM6` (chunked `FullM6Inl`/`FullM7Inl`,
-    `--max-dirs 600`, `432`-word `FullM6Hdr` / `readModelFromWorkM6` SAT+UNSAT
-    soundness & non-vacuity wrappers for `Amd64` and `Arm64`), `--module FullM5`
-    (matching `M5Hub` and `MainCertCore`/`Proof`/`Elab` noncomputable cert-def
-    pattern from `feed185f`) alongside `FullM4`, `FullM3`, `FullFast`,
-    `FullFastSched`, `Full`, and `Plain`.
+  - `--module FullFidelity` (aliases `KissatFidelity`, `fidelity`, `fid`):
+    standalone 469-fn `KissatFidelity` solver (`FullFidelityInl`, `--max-dirs 600`,
+    `--cert-style slices`, `--abi-common --hdr-model m6 --no-sound`).
+  - `--module FullM8Opt` (aliases `KissatM8Opt`, `m8opt`, `opt`, `FullM8`, `m8`):
+    494-fn beyond-upstream `KissatM8Opt` solver (`FullM8OptInl`, `--cert-style slices`,
+    `--abi-common --hdr-model m6 --no-sound`, `--reuse-prefix KissatFidelity
+    --reuse-mode pruned_relink` when `--reuse-spec` is provided).
+  - `--module FullM7Fidelity`, `--module FullM7`, `--module FullM6`, `--module FullM5`,
+    alongside `FullM4`, `FullM3`, `FullFast`, `FullFastSched`, `Full`, and `Plain`.
+  - `--pin-cuts <json>`: splits autobalanced slices cleanly at specified cut
+    boundaries (e.g. `KissatFidelity` -> `KissatM8Opt` diff boundaries).
   - LPT (Longest-Processing-Time-first) cost-weighted bin-packing and
     straggler-isolated contiguous slicing driven either by a Lean `--profile`
     JSON table or by built-in static C0/AST complexity estimation (`r ~ 0.98`).
@@ -68,7 +73,11 @@ C_TYPE_RE = (
     r"(?:u8|u16|u32|u64|i8|i16|i32|i64|s32|s64|"
     r"uint64_t|uint32_t|int64_t|int32_t|int|void|bool|size_t)\s*\*?\s*"
 )
-C_FN_HDR_RE = re.compile(C_TYPE_RE + r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^;{}]*?\)\s*\{")
+# The lookbehind keeps a call site such as `if (!full_shrink_blk_bool_m6(h)) {` from
+# being parsed as the definition of a function `_m6` returning `bool`.
+C_FN_HDR_RE = re.compile(
+    r"(?<![A-Za-z0-9_])" + C_TYPE_RE + r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^;{}]*?\)\s*\{"
+)
 C0_BLOCK_RE = re.compile(r'kissat_c0!\s+(\S+)\s+"(.*?)"(?=\s*\n)', re.S)
 
 
@@ -427,9 +436,107 @@ class ModulePreset:
     reuse_inl_fns: str | None = None
     reuse_bridge_mod: str | None = None
     reuse_thm_prefix: str | None = None
+    reuse_proof_mod: str | None = None
+    reuse_proof_ns: str | None = None
+    reuse_acyclic: str | None = None
+    reuse_wf: str | None = None
+    reuse_inl_mod_sym: str | None = None
+    reuse_inl_policy: str | None = None
+    default_reuse_mode: str = "verbatim"
+    default_cert_style: str = "ladder"
+    default_abi_common: bool = False
+    fns_length_thm: str | None = None
 
 
 MODULE_PRESETS: dict[str, ModulePreset] = {
+    "FullFidelity": ModulePreset(
+        name="FullFidelity",
+        prefix="KissatFidelity",
+        stem="fid",
+        source_mod="LeanQbe.T.Examples.Kissat.FullFidelityAssembly",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullFidelityAssemblyProof",
+        fns="fidFns",
+        mod="fidModule",
+        cert_name="fidCert",
+        acyclic="fid_acyclic",
+        wf="fidFns_wf",
+        env="fidEnv",
+        spec_table="fidSpecTable",
+        spec_sigs="fidSpecTable_sigs",
+        module_ok="fid_moduleOk",
+        no_exit="fidEnv_noExit",
+        entry_const="FullM6Orch.m6oSolveBytesFn",
+        entry_spec="m7FidSolveBytesSpec",
+        default_total_fns=469,
+        inl_mod="LeanQbe.T.Examples.Kissat.FullFidelityInl",
+        inl_policy_mod="LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy",
+        inl_fns="fidInlFns",
+        inl_mod_sym="fidInlMod",
+        inl_policy="fidInlPolicy",
+        sat_sound_mod="",
+        sat_nv_mod="LeanQbe.T.Examples.Kissat.FullM6SatNv",
+        hdr_model="m6",
+        default_max_dirs=M6_MAX_DIRS,
+        emit_sound=False,
+        source_ns="LeanQbe.T.Examples.Kissat.FullFidelityAssembly",
+        proof_ns="LeanQbe.T.Examples.Kissat.FullFidelityAssembly",
+        solve_spec_intro="FullM7Fidelity.m7FidSolveBytesSpec_intro",
+        solve_spec_has_sat=False,
+        solve_mem_thm="fid_solveBytes_mem",
+        default_cert_style="slices",
+        default_abi_common=True,
+        fns_length_thm="fidInlFns_length",
+    ),
+    "FullM8Opt": ModulePreset(
+        name="FullM8Opt",
+        prefix="KissatM8Opt",
+        stem="m8Opt",
+        source_mod="LeanQbe.T.Examples.Kissat.FullM8OptAssembly",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullM8OptAssemblyProof",
+        fns="m8OptFns",
+        mod="m8OptModule",
+        cert_name="m8OptCert",
+        acyclic="m8Opt_acyclic",
+        wf="m8OptFns_wf",
+        env="m8OptEnv",
+        spec_table="m8OptSpecTable",
+        spec_sigs="m8OptSpecTable_sigs",
+        module_ok="m8Opt_moduleOk",
+        no_exit="m8OptEnv_noExit",
+        entry_const="FullM6Orch.m6oSolveBytesFn",
+        entry_spec="m7FidSolveBytesSpec",
+        default_total_fns=494,
+        inl_mod="LeanQbe.T.Examples.Kissat.FullM8OptInl",
+        inl_policy_mod="LeanQbe.T.Examples.Kissat.FullM8InlPolicy",
+        inl_fns="m8OptInlFns",
+        inl_mod_sym="m8OptInlMod",
+        inl_policy="m8InlPolicy",
+        sat_sound_mod="",
+        sat_nv_mod="LeanQbe.T.Examples.Kissat.FullM6SatNv",
+        hdr_model="m6",
+        default_max_dirs=M6_MAX_DIRS,
+        emit_sound=False,
+        source_ns="LeanQbe.T.Examples.Kissat.FullM8OptAssembly",
+        proof_ns="LeanQbe.T.Examples.Kissat.FullM8OptAssembly",
+        solve_spec_intro="FullM7Fidelity.m7FidSolveBytesSpec_intro",
+        solve_spec_has_sat=False,
+        solve_mem_thm="m8Opt_solveBytes_mem",
+        reuse_prefix="KissatFidelity",
+        reuse_inl_mod="LeanQbe.T.Examples.Kissat.FullFidelityInl",
+        reuse_inl_fns="fidInlFns",
+        reuse_inl_mod_sym="fidInlMod",
+        reuse_inl_policy="fidInlPolicy",
+        reuse_proof_mod="LeanQbe.T.Examples.Kissat.FullFidelityAssemblyProof",
+        reuse_proof_ns="LeanQbe.T.Examples.Kissat.FullFidelityAssembly",
+        reuse_acyclic="fid_acyclic",
+        reuse_wf="fidFns_wf",
+        reuse_bridge_mod="LeanQbe.T.Examples.Kissat.FullFidelityM8OptBridge",
+        reuse_thm_prefix="reuse_fid_eq_",
+        default_reuse_mode="pruned_relink",
+        default_cert_style="slices",
+        default_abi_common=True,
+        fns_length_thm="m8OptInlFns_length",
+    ),
     "FullM7Fidelity": ModulePreset(
         name="FullM7Fidelity",
         prefix="KissatM7Fidelity",
@@ -596,6 +703,15 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
 
 PRESET_ALIASES: dict[str, str] = {
     **{k.lower(): k for k in MODULE_PRESETS},
+    "kissatfidelity": "FullFidelity",
+    "fidelity": "FullFidelity",
+    "fid": "FullFidelity",
+    "kissatm8opt": "FullM8Opt",
+    "m8opt": "FullM8Opt",
+    "opt": "FullM8Opt",
+    "fullm8": "FullM8Opt",
+    "m8": "FullM8Opt",
+    "kissatplain": "Plain",
     "m7fidelity": "FullM7Fidelity",
     "m7_fidelity": "FullM7Fidelity",
     "m7fid": "FullM7Fidelity",
@@ -996,7 +1112,7 @@ def _scan_kissat_sources(
             re.S,
         ):
             m_bdy = re.search(
-                r"\b((?:full|kissat|plain|m6)_[a-zA-Z0-9_]+?)_body\b", bm.group(2)
+                r"\b((?:full|kissat|plain|m6|m8)_[a-zA-Z0-9_]+?)_body\b", bm.group(2)
             )
             if m_bdy:
                 body_aliases[bm.group(1)] = m_bdy.group(1)
@@ -1009,7 +1125,7 @@ def _scan_kissat_sources(
         ):
             lhs, rhs = dm.group(1), dm.group(2)
             m_nm = re.search(r'"([a-zA-Z0-9_]+)"', rhs)
-            m_bdy = re.search(r"\b((?:full|kissat|plain|m6)_[a-zA-Z0-9_]+?)_body\b", rhs)
+            m_bdy = re.search(r"\b((?:full|kissat|plain|m6|m8)_[a-zA-Z0-9_]+?)_body\b", rhs)
             src_nm = m_bdy.group(1) if m_bdy else None
             if src_nm is None:
                 for tok in re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", rhs):
@@ -1061,6 +1177,13 @@ def _eval_fn_lists(
         m_lit = re.match(r'^⟨"([^"]+)"\s*,.*?,\s*([A-Za-z0-9_.]+)_body\s*⟩$', s, re.S)
         if m_lit:
             return (m_lit.group(1), m_lit.group(2).split(".")[-1])
+        m_rec = re.match(
+            r'^\{\s*name\s*:=\s*"([^"]+)"[^{}]*?\bbody\s*:=\s*([A-Za-z0-9_.]+)_body\s*\}$',
+            s,
+            re.S,
+        )
+        if m_rec:
+            return (m_rec.group(1), m_rec.group(2).split(".")[-1])
         if s in fn_aliases:
             return fn_aliases[s]
         short = s.split(".")[-1]
@@ -1114,6 +1237,13 @@ def _eval_fn_lists(
 
     def eval_expr(expr: str, seen: set[str]) -> list[tuple[str, str]]:
         p = _unwrap_parens(expr)
+        if "++" in p:
+            parts = _split_top_level(p, "++")
+            if len(parts) > 1:
+                out_app: list[tuple[str, str]] = []
+                for part in parts:
+                    out_app.extend(eval_expr(part, seen))
+                return out_app
         if p.startswith("[") and p.endswith("]"):
             inner = p[1:-1].strip()
             if not inner:
@@ -1373,6 +1503,48 @@ def classify_stragglers(
     return is_singleton, is_heavy
 
 
+def load_pin_cuts(path: Path, total_fns: int) -> tuple[int, ...]:
+    """Load function-index cut boundaries from JSON (`list[int]`, `{cuts}`, or `{runs}`)."""
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    cuts: set[int] = set()
+    if isinstance(raw, list):
+        cuts.update(int(x) for x in raw)
+    elif isinstance(raw, dict):
+        if "cuts" in raw or "pin_cuts" in raw:
+            seq = raw.get("cuts", raw.get("pin_cuts", []))
+            cuts.update(int(x) for x in seq)
+        if "runs" in raw:
+            for item in raw["runs"]:
+                if isinstance(item, dict):
+                    st = int(item["start"])
+                    en = int(item["end"]) if "end" in item else st + int(item["count"])
+                    cuts.update((st, en))
+                elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                    cuts.update((int(item[0]), int(item[1])))
+    else:
+        raise ValueError(f"unsupported --pin-cuts JSON format in {path}")
+    return tuple(sorted(c for c in cuts if 0 < c < total_fns))
+
+
+def apply_pin_cuts(
+    ranges: list[tuple[int, int]],
+    pin_cuts: tuple[int, ...] | list[int] | None,
+) -> list[tuple[int, int]]:
+    """Split any `(start, end)` slice straddling a boundary in `pin_cuts`."""
+    if not pin_cuts:
+        return ranges
+    cuts = sorted(set(int(c) for c in pin_cuts))
+    out: list[tuple[int, int]] = []
+    for s, e in ranges:
+        cur = s
+        for c in cuts:
+            if cur < c < e:
+                out.append((cur, c))
+                cur = c
+        out.append((cur, e))
+    return out
+
+
 def autobalance_slices(
     metrics: tuple[FnMetric, ...],
     slice_size: int = MAX_SLICE_SIZE,
@@ -1380,6 +1552,7 @@ def autobalance_slices(
     target_slices: int | None = None,
     heavy_thresh: float | None = None,
     file_overhead: float = DEFAULT_FILE_OVERHEAD,
+    pin_cuts: tuple[int, ...] | list[int] | None = None,
 ) -> tuple[SliceRange, ...]:
     """Partition `[0, N)` into balanced `<= slice_size` contiguous cert slices.
 
@@ -1507,6 +1680,7 @@ def autobalance_slices(
             chosen = dp_partition(sum(costs) + n * file_overhead, allow_co_heavy=True)
             assert chosen is not None
 
+    chosen = apply_pin_cuts(chosen, pin_cuts)
     return tuple(
         SliceRange(index=idx, start=s, count=e - s)
         for idx, (s, e) in enumerate(chosen, start=1)
@@ -4990,9 +5164,23 @@ def build_config(args: argparse.Namespace) -> CertConfig:
     reuse_wf: str | None = None
     reuse_inl_mod_sym: str | None = None
     reuse_inl_policy: str | None = None
-    cert_style: str = args.cert_style
-    abi_common: bool = bool(args.abi_common)
-    fns_length_thm: str | None = args.fns_length_thm
+    cert_style: str = args.cert_style or (preset.default_cert_style if preset else "ladder")
+    abi_common: bool = (
+        args.abi_common
+        if args.abi_common is not None
+        else (preset.default_abi_common if preset else False)
+    )
+    cert_fns_sym = inl_fns if inl_mod and inl_fns else fns
+    preset_cert_fns: str | None = None
+    if preset is not None:
+        preset_cert_fns = (
+            preset.inl_fns
+            if preset.inl_mod and preset.inl_fns
+            else (preset.fns or f"{preset.stem}Fns")
+        )
+    fns_length_thm: str | None = args.fns_length_thm or (
+        preset.fns_length_thm if preset is not None and cert_fns_sym == preset_cert_fns else None
+    )
     if abi_common:
         if args.wrapper_mode == "full" and hdr_model != "m6":
             raise ValueError("--abi-common with --wrapper-mode full requires --hdr-model m6")
@@ -5000,22 +5188,55 @@ def build_config(args: argparse.Namespace) -> CertConfig:
             raise ValueError("--abi-common with --wrapper-mode full requires an inlined module")
         if args.max_bound != 2048:
             raise ValueError("--abi-common requires --max-bound 2048")
+    pin_cuts = load_pin_cuts(Path(args.pin_cuts), total_fns) if args.pin_cuts else None
     if args.reuse_spec:
         rspec = json.loads(Path(args.reuse_spec).read_text(encoding="utf-8"))
-        reuse_prefix = str(rspec["reuse_prefix"])
-        reuse_inl_mod = str(rspec["reuse_inl_mod"])
-        reuse_inl_fns = str(rspec["reuse_inl_fns"])
-        reuse_bridge_mod = rspec.get("reuse_bridge_mod")
-        reuse_thm_prefix = rspec.get("reuse_thm_prefix")
-        reuse_mode = args.reuse_mode or str(rspec.get("reuse_mode", "verbatim"))
+        reuse_prefix = args.reuse_prefix or rspec.get("reuse_prefix") or (
+            preset.reuse_prefix if preset else None
+        )
+        if not reuse_prefix:
+            raise ValueError("--reuse-spec requires reuse_prefix (in JSON, CLI, or preset)")
+        reuse_prefix = str(reuse_prefix)
+        reuse_inl_mod = args.reuse_inl_mod or rspec.get("reuse_inl_mod") or (
+            preset.reuse_inl_mod if preset else None
+        )
+        reuse_inl_fns = args.reuse_inl_fns or rspec.get("reuse_inl_fns") or (
+            preset.reuse_inl_fns if preset else None
+        )
+        if not reuse_inl_mod or not reuse_inl_fns:
+            raise ValueError("--reuse-spec requires reuse_inl_mod and reuse_inl_fns")
+        reuse_inl_mod = str(reuse_inl_mod)
+        reuse_inl_fns = str(reuse_inl_fns)
+        reuse_bridge_mod = args.reuse_bridge_mod or rspec.get("reuse_bridge_mod") or (
+            preset.reuse_bridge_mod if preset else None
+        )
+        reuse_thm_prefix = args.reuse_thm_prefix or rspec.get("reuse_thm_prefix") or (
+            preset.reuse_thm_prefix if preset else None
+        )
+        reuse_mode = args.reuse_mode or str(
+            rspec.get("reuse_mode")
+            or (preset.default_reuse_mode if preset else "verbatim")
+        )
         if reuse_mode not in ("verbatim", "pruned_relink"):
             raise ValueError(f"unsupported reuse_mode '{reuse_mode}'")
-        reuse_proof_mod = rspec.get("reuse_proof_mod")
-        reuse_proof_ns = rspec.get("reuse_proof_ns")
-        reuse_acyclic = rspec.get("reuse_acyclic")
-        reuse_wf = rspec.get("reuse_wf")
-        reuse_inl_mod_sym = rspec.get("reuse_inl_mod_sym")
-        reuse_inl_policy = rspec.get("reuse_inl_policy")
+        reuse_proof_mod = args.reuse_proof_mod or rspec.get("reuse_proof_mod") or (
+            preset.reuse_proof_mod if preset else None
+        )
+        reuse_proof_ns = args.reuse_proof_ns or rspec.get("reuse_proof_ns") or (
+            preset.reuse_proof_ns if preset else None
+        )
+        reuse_acyclic = args.reuse_acyclic or rspec.get("reuse_acyclic") or (
+            preset.reuse_acyclic if preset else None
+        )
+        reuse_wf = args.reuse_wf or rspec.get("reuse_wf") or (
+            preset.reuse_wf if preset else None
+        )
+        reuse_inl_mod_sym = args.reuse_inl_mod_sym or rspec.get("reuse_inl_mod_sym") or (
+            preset.reuse_inl_mod_sym if preset else None
+        )
+        reuse_inl_policy = args.reuse_inl_policy or rspec.get("reuse_inl_policy") or (
+            preset.reuse_inl_policy if preset else None
+        )
         slices = plan_slices_with_reuse(
             fn_metrics,
             rspec["reused_slices"],
@@ -5035,13 +5256,21 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         sing_sz = args.singleton_size if args.singleton_size is not None else 350
         sing_wk = args.singleton_work if args.singleton_work is not None else sing_sz * 6
         max_sz = args.max_slice_size if args.max_slice_size is not None else 500
-        slices = singleton_isolated_slices(
+        raw_slices = singleton_isolated_slices(
             fn_metrics,
             singleton_size=sing_sz,
             singleton_work=sing_wk,
             max_slice_size=max_sz,
             max_slice_count=args.slice_size,
         )
+        if pin_cuts:
+            cut_ranges = apply_pin_cuts([(s.start, s.end) for s in raw_slices], pin_cuts)
+            slices = tuple(
+                SliceRange(index=idx, start=s, count=e - s)
+                for idx, (s, e) in enumerate(cut_ranges, start=1)
+            )
+        else:
+            slices = raw_slices
     elif args.balance:
         slices = autobalance_slices(
             fn_metrics,
@@ -5049,9 +5278,17 @@ def build_config(args: argparse.Namespace) -> CertConfig:
             workers=args.workers,
             target_slices=args.target_slices,
             heavy_thresh=args.heavy_thresh,
+            pin_cuts=pin_cuts,
         )
     else:
-        slices = uniform_slices
+        if pin_cuts:
+            cut_ranges = apply_pin_cuts([(s.start, s.end) for s in uniform_slices], pin_cuts)
+            slices = tuple(
+                SliceRange(index=idx, start=s, count=e - s)
+                for idx, (s, e) in enumerate(cut_ranges, start=1)
+            )
+        else:
+            slices = uniform_slices
 
     after_stats = compute_slice_stats(fn_metrics, slices, workers=args.workers)
 
@@ -5162,13 +5399,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--module",
         help=(
-            "Solver preset name (e.g. FullM7, FullM6, FullM5, FullM4, FullM3, "
-            "FullFast, FullFastSched, Full, Plain). Supplies canonical paths."
+            "Solver preset name (e.g. FullFidelity, FullM8Opt, FullM7Fidelity, "
+            "FullM7, FullM6, FullM5, FullM4, FullM3, FullFast, Full, Plain). "
+            "Supplies canonical paths and defaults; explicit flags override them."
         ),
     )
     ap.add_argument(
         "--prefix",
-        help="Certificate module prefix (e.g. KissatM4, KissatM5, KissatM6, KissatM7).",
+        help="Certificate module prefix (e.g. KissatFidelity, KissatM8Opt, KissatPlain).",
     )
     ap.add_argument(
         "--arch",
@@ -5295,6 +5533,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--reuse-spec",
         help="Optional JSON spec naming reused slices from a sibling cert family.",
     )
+    ap.add_argument("--reuse-prefix", help="Override reused cert prefix (e.g. KissatFidelity).")
+    ap.add_argument("--reuse-inl-mod", help="Override reused inlined module.")
+    ap.add_argument("--reuse-inl-fns", help="Override reused inlined fn list identifier.")
+    ap.add_argument("--reuse-inl-mod-sym", help="Override reused inlined module identifier.")
+    ap.add_argument("--reuse-inl-policy", help="Override reused inlined policy identifier.")
+    ap.add_argument("--reuse-proof-mod", help="Override reused proof module.")
+    ap.add_argument("--reuse-proof-ns", help="Override reused proof namespace.")
+    ap.add_argument("--reuse-acyclic", help="Override reused acyclic theorem.")
+    ap.add_argument("--reuse-wf", help="Override reused wf theorem.")
+    ap.add_argument("--reuse-bridge-mod", help="Override reused slice-equality bridge module.")
+    ap.add_argument("--reuse-thm-prefix", help="Override reused bridge theorem prefix.")
     ap.add_argument(
         "--reuse-mode",
         choices=("verbatim", "pruned_relink"),
@@ -5303,6 +5552,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Reuse linking strategy with --reuse-spec: 'verbatim' (direct chunk reuse) "
             "or 'pruned_relink' (MainLinkReuseCover + eval_raw_callees!/eval_pruned_ext!)."
         ),
+    )
+    ap.add_argument(
+        "--pin-cuts",
+        help="Optional JSON file of fn-index cut boundaries to split slices cleanly.",
     )
     ap.add_argument(
         "--balance",
@@ -5367,31 +5620,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--cert-style",
         choices=("ladder", "slices"),
-        default="ladder",
+        default=None,
         help=(
-            "Certificate assembly style in <Prefix>Cert.lean: legacy 'ladder' "
-            "(default) or O(1)-boilerplate 'slices' (LinkedCert.ofChunkSlices)."
+            "Certificate assembly style in <Prefix>Cert.lean: 'ladder' or "
+            "O(1)-boilerplate 'slices' (LinkedCert.ofChunkSlices). Default: per "
+            "preset (FullFidelity/FullM8Opt: slices), else ladder."
         ),
     )
     ap.add_argument(
         "--abi-common",
         dest="abi_common",
         action="store_true",
-        default=False,
+        default=None,
         help=(
             "Delegate <Prefix>CertLink.lean and M6Hdr <Prefix>.lean proofs to "
-            "arch-free KissatCertCommon + {Amd64,Arm64}.KissatAbi (opt-in)."
+            "arch-free KissatCertCommon + {Amd64,Arm64}.KissatAbi. Default: per "
+            "preset (FullFidelity/FullM8Opt: on), else off."
         ),
     )
     ap.add_argument(
         "--no-abi-common",
         dest="abi_common",
         action="store_false",
-        help="Emit inline per-arch CertLink/Top proofs (default).",
+        help="Emit inline per-arch CertLink/Top proofs (overrides a preset default).",
     )
     ap.add_argument(
         "--fns-length-thm",
-        help="Explicit `<cert_fns>.length = total` theorem name for --cert-style slices.",
+        help="`<cert_fns>.length = total` theorem for --cert-style slices (default: per preset).",
     )
     ap.add_argument(
         "--solve-bytes-suffix",
