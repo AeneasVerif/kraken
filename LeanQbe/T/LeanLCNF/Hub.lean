@@ -4,6 +4,9 @@ public import LeanQbe.T.LeanLCNF.Basic
 public import LeanQbe.T.LeanLCNF.Coverage
 public import LeanQbe.T.LeanLCNF.Demo
 public import LeanQbe.T.LeanLCNF.FromIR
+public import LeanQbe.T.LeanLCNF.LcnfC0Rt
+public import LeanQbe.T.LeanLCNF.LcnfC0RtProof
+public import LeanQbe.T.LeanLCNF.LcnfC0RtSpec
 public import LeanQbe.T.LeanLCNF.Lower
 public import LeanQbe.T.LeanLCNF.Lower1
 
