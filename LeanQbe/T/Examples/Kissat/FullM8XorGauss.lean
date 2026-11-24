@@ -13,7 +13,8 @@ meta import LeanQbe.T.Frontend.C0
 
 Purely additive C0 subsystem (`Class S`, zero changes to `FullHdr` layout or `FullM7*` modules)
 implementing sparse-mode root-level XOR extraction, degree-2 chain merging, connected-component
-partitioning, bit-packed $\mathbb{F}_2$ Gauss-Jordan elimination (`c0_ctz64`, `c0_popcnt64`), and
+partitioning, bit-packed $\mathbb{F}_2$ Gauss-Jordan elimination (`c0_ctz64`, Kernighan weight
+counts), and
 entailed lemma/contradiction emission:
 
 1. `full_xor_sort5` / `full_xor_parity_mask` / `full_xor_ht_insert`: sorted canonicalization and
@@ -674,7 +675,11 @@ u64 full_xor_emit_mat(FullHdr *h, u64 mat, u64 nrows, u64 ncols) {
       if (w == last_w) {
         wv = wv & last_mask;
       }
-      wt = wt + c0_popcnt64(wv);
+      u64 wv_t = wv;
+      while (wv_t != 0ULL && wt <= 4ULL) {
+        wt = wt + 1ULL;
+        wv_t = wv_t & (wv_t - 1ULL);
+      }
       if (wt > 4ULL) {
         break;
       }
@@ -760,7 +765,7 @@ u64 full_xor_emit_mat(FullHdr *h, u64 mat, u64 nrows, u64 ncols) {
           u64 lim = 1ULL << nbits;
           u64 m = 0ULL;
           while (m < lim) {
-            if ((c0_popcnt64(m) & 1ULL) != rhs_bit) {
+            if (((m ^ (m >> 1ULL) ^ (m >> 2ULL) ^ (m >> 3ULL)) & 1ULL) != rhs_bit) {
               tmp[0] = (v0 << 1u) | (u32)(m & 1ULL);
               tmp[1] = (v1 << 1u) | (u32)((m >> 1ULL) & 1ULL);
               tmp[2] = (v2 << 1u) | (u32)((m >> 2ULL) & 1ULL);

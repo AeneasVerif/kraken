@@ -345,18 +345,35 @@ private theorem bv32_mask_lit_toNat {v : BitVec 32} {m : BitVec 64} {i : Nat}
   · simp [mkLit, h0]
   · simp [mkLit, h1]
 
-private theorem maskParity_of_cpop_ne {k : Nat} {m rhs_bit : BitVec 64}
+/-- Low-nibble parity `(m ^ m>>1 ^ m>>2 ^ m>>3) & 1` used by `full_xor_emit_mat`. -/
+private abbrev nibPar (m : BitVec 64) : BitVec 64 :=
+  (m ^^^ (m >>> (1 : Nat)) ^^^ (m >>> (2 : Nat)) ^^^ (m >>> (3 : Nat))) &&& 1#64
+
+private theorem maskParity3_eq_nibPar {m : Nat} (hm : m < 8) :
+    maskParity 3 m = (nibPar (BitVec.ofNat 64 m) != 0#64) := by
+  have hc : m = 0 ∨ m = 1 ∨ m = 2 ∨ m = 3 ∨ m = 4 ∨ m = 5 ∨ m = 6 ∨ m = 7 := by omega
+  rcases hc with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide
+
+private theorem maskParity4_eq_nibPar {m : Nat} (hm : m < 16) :
+    maskParity 4 m = (nibPar (BitVec.ofNat 64 m) != 0#64) := by
+  have hc : m = 0 ∨ m = 1 ∨ m = 2 ∨ m = 3 ∨ m = 4 ∨ m = 5 ∨ m = 6 ∨ m = 7 ∨
+      m = 8 ∨ m = 9 ∨ m = 10 ∨ m = 11 ∨ m = 12 ∨ m = 13 ∨ m = 14 ∨ m = 15 := by omega
+  rcases hc with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide
+
+private theorem maskParity_of_nibPar_ne {k : Nat} {m rhs_bit : BitVec 64}
     (hk : k = 3 ∨ k = 4) (hm : m.toNat < 2 ^ k)
-    (hrb : rhs_bit = 0#64 ∨ rhs_bit = 1#64) (hne : (m.cpop &&& 1#64) ≠ rhs_bit) :
+    (hrb : rhs_bit = 0#64 ∨ rhs_bit = 1#64) (hne : nibPar m ≠ rhs_bit) :
     maskParity k m.toNat = !(rhs_bit != 0#64) := by
   have hof : BitVec.ofNat 64 m.toNat = m := BitVec.eq_of_toNat_eq (Nat.mod_eq_of_lt m.isLt)
-  have hmp : maskParity k m.toNat = ((m.cpop &&& 1#64) != 0#64) := by
+  have hmp : maskParity k m.toNat = (nibPar m != 0#64) := by
     rcases hk with rfl | rfl
-    · simpa [hof] using maskParity3_eq_cpop hm
-    · simpa [hof] using maskParity4_eq_cpop hm
-  have hcp : (m.cpop &&& 1#64) = 0#64 ∨ (m.cpop &&& 1#64) = 1#64 := by
-    have := (bv64_shr_and1 (x := m.cpop) (k := 0)).1
-    simpa using this
+    · simpa [hof] using maskParity3_eq_nibPar hm
+    · simpa [hof] using maskParity4_eq_nibPar hm
+  have hcp : nibPar m = 0#64 ∨ nibPar m = 1#64 := by
+    have := (bv64_shr_and1 (x := m ^^^ (m >>> (1 : Nat)) ^^^ (m >>> (2 : Nat)) ^^^
+      (m >>> (3 : Nat))) (k := 0)).1
+    simpa [nibPar] using this
   rw [hmp]
   rcases hcp with h0 | h1 <;> rcases hrb with r0 | r1 <;> simp_all
 
@@ -436,7 +453,7 @@ private theorem emit_tmp_clause_ok {F : CNF Nat} {c2v : List (BitVec 32)} {cv : 
     (hcv_lt : cv < 2 ^ 30) (h34 : nbits = 3#64 ∨ nbits = 4#64)
     (hm_lt : m_bv.toNat < 2 ^ nbits.toNat)
     (hrb01 : rhs_bit = 0#64 ∨ rhs_bit = 1#64) (hrb_val : (rhs_bit != 0#64) = rhs)
-    (hpar_ne : (m_bv.cpop &&& 1#64) ≠ rhs_bit)
+    (hpar_ne : nibPar m_bv ≠ rhs_bit)
     (hv0_cv : v0.toNat < cv) (hv1_cv : v1.toNat < cv) (hv2_cv : v2.toNat < cv)
     (hv01 : v0 ≠ v1) (hv02 : v0 ≠ v2) (hv12 : v1 ≠ v2)
     (hv3_ok : nbits = 4#64 → v3.toNat < cv ∧ v3 ≠ v0 ∧ v3 ≠ v1 ∧ v3 ≠ v2)
@@ -467,7 +484,7 @@ private theorem emit_tmp_clause_ok {F : CNF Nat} {c2v : List (BitVec 32)} {cv : 
   have hd0 : l0.toNat / 2 = v0.toNat := by rw [hl0]; exact litVar_mkLit _ _
   have hd1 : l1.toNat / 2 = v1.toNat := by rw [hl1]; exact litVar_mkLit _ _
   have hd2 : l2.toNat / 2 = v2.toNat := by rw [hl2]; exact litVar_mkLit _ _
-  have hmp := maskParity_of_cpop_ne (k := nbits.toNat)
+  have hmp := maskParity_of_nibPar_ne (k := nbits.toNat)
     (by rcases h34 with rfl | rfl <;> simp) hm_lt hrb01 hpar_ne
   rw [hrb_val] at hmp
   rcases h34 with rfl | rfl
@@ -604,14 +621,32 @@ private def emitMatWtLoopExpr (pScr rbase w64 wlast wmask : Val i64)
                   (.var pScr, .var p_3.fst, ()) fun p_4 =>
                 .group (sig := [[i64]])
                   (fun _ => .cons (fun p_5 =>
-                    .let_ (Op.mk (.popcnt 64) (.var p_5.fst, ())) fun p_6 =>
-                      .let_ (Op.mk (.add i64) (.var p.fst, .var p_6.fst, ())) fun p_7 =>
-                        .let_ (Op.mk (.cmp .ugt i64 .bool rfl)
-                            (.var p_7.fst, .imm 4, ())) fun p_8 =>
-                          .jnz (.var p_8.fst)
-                            (.jump Jwt (.var p_7.fst, .var p.snd.fst, ()))
-                            (.let_ (Op.mk (.add i64) (.var p.snd.fst, .imm 1, ())) fun p =>
-                              .jump Js_1.fst (.var p_7.fst, .var p.fst, ()))) .nil)
+                    .group (sig := [[i64, i64]])
+                      (fun Js_3 => .cons (fun p_6 =>
+                        .group (sig := [[]])
+                          (fun _ => .cons (fun _ =>
+                            .let_ (Op.mk (.cmp .ugt i64 .bool rfl)
+                                (.var p_6.fst, .imm 4, ())) fun p_8 =>
+                              .jnz (.var p_8.fst)
+                                (.jump Jwt (.var p_6.fst, .var p.snd.fst, ()))
+                                (.let_ (Op.mk (.add i64) (.var p.snd.fst, .imm 1, ())) fun p =>
+                                  .jump Js_1.fst (.var p_6.fst, .var p.fst, ()))) .nil)
+                          (fun Js =>
+                            .let_ (Op.mk (.cmp .ne i64 .bool rfl)
+                                (.var p_6.snd.fst, .imm 0, ())) fun p =>
+                              .jnz (.var p.fst)
+                                (.let_ (Op.mk (.cmp .ule i64 .bool rfl)
+                                    (.var p_6.fst, .imm 4, ())) fun p =>
+                                  .jnz (.var p.fst)
+                                    (.let_ (Op.mk (.add i64) (.var p_6.fst, .imm 1, ())) fun p =>
+                                      .let_ (Op.mk (.sub i64)
+                                          (.var p_6.snd.fst, .imm 1, ())) fun p_9 =>
+                                        .let_ (Op.mk (.and i64)
+                                            (.var p_6.snd.fst, .var p_9.fst, ())) fun p_10 =>
+                                          .jump Js_3.fst (.var p.fst, .var p_10.fst, ()))
+                                    (.jump Js.fst ()))
+                                (.jump Js.fst ()))) .nil)
+                      (fun Js => .jump Js.fst (.var p.fst, .var p_5.fst, ()))) .nil)
                   (fun Js =>
                     .let_ (Op.mk (.cmp .eq i64 .bool rfl) (.var p.snd.fst, .var wlast, ())) fun p =>
                       .jnz (.var p.fst)
@@ -670,25 +705,47 @@ private theorem emit_mat_wt_loop_wp {Γ : Env} {Q : Post [i64]} {X : XPost}
       (fun wv0 mw0 => mw0 = mr ∧ wv0 = maskedRowWord scr0 rbase_nat ncols_nat w.toNat) ?_ ?_
     · intro Jm0 wv0 mw0 ⟨hmw0, hwv0_eq⟩
       cases hmw0
-      have hcp_le : wv0.cpop.toNat ≤ 64 := cpop64_toNat_le wv0
-      have hsum_nat : (wt + wv0.cpop).toNat = wt.toNat + wv0.cpop.toNat := by bv_omega
-      c0_hsplit
-      · c0_hstraight
-        exact hJwt (wt + wv0.cpop, w, ()) mr ⟨rfl, fun h0 => by bv_omega⟩
-      · have hsum_le4 : (wt + wv0.cpop).toNat ≤ 4 := by bv_omega
-        c0_hstraight
-        refine ihw (wt + wv0.cpop, w + 1#64, ()) mr (by dsimp only; rw [hw_succ]; omega)
-          ⟨rfl, by rw [hw_succ]; omega, hsum_le4, fun h0 w' hw' => ?_⟩
-        have hsum0 : wt.toNat + wv0.cpop.toNat = 0 := by rw [← hsum_nat, h0]; rfl
-        have hwt_eq0 : wt = 0#64 :=
-          BitVec.eq_of_toNat_eq (by rw [show (0#64).toNat = 0 from rfl]; omega)
-        have hcp_eq0 : wv0.cpop = 0#64 :=
-          BitVec.eq_of_toNat_eq (by rw [show (0#64).toNat = 0 from rfl]; omega)
-        have hwv_eq0 : wv0 = 0#64 := (cpop64_eq_zero_iff wv0).mp hcp_eq0
-        rw [hw_succ] at hw'
-        rcases Nat.lt_or_eq_of_le (Nat.lt_succ_iff.mp hw') with hlt | rfl
-        · exact hwt0 hwt_eq0 w' hlt
-        · rw [← hwv0_eq, hwv_eq0]
+      refine wp_loop_inv
+        (fun (wt', wv_t, ()) mk =>
+          mk = mr ∧ wt.toNat ≤ wt'.toNat ∧ (wt' = wt → wv_t = wv0))
+        (fun (wt', _, ()) _ => 5 - wt'.toNat)
+        (fun Jk hJk => by
+          c0_hstraight
+          exact hJk (wt, wv0, ()) mr ⟨rfl, Nat.le_refl _, fun _ => rfl⟩)
+        (fun Jk (wt', wv_t, ()) mk ⟨hmk, hwt_le', hwv_t⟩ ihk => ?_)
+      cases hmk
+      refine wp_join0 (fun mx => mx = mr ∧ (wv_t = 0#64 ∨ 4 < wt'.toNat)) ?_ ?_
+      · intro Jx mx ⟨hmx, hex⟩
+        cases hmx
+        c0_hsplit
+        · c0_hstraight
+          exact hJwt (wt', w, ()) mr ⟨rfl, fun h0 => by bv_omega⟩
+        · have hle4 : wt'.toNat ≤ 4 := by bv_omega
+          c0_hstraight
+          refine ihw (wt', w + 1#64, ()) mr (by dsimp only; rw [hw_succ]; omega)
+            ⟨rfl, by rw [hw_succ]; omega, hle4, fun h0 w' hw' => ?_⟩
+          have hwt'0 : wt'.toNat = 0 := by rw [h0]; rfl
+          have hwt_eq0 : wt = 0#64 :=
+            BitVec.eq_of_toNat_eq (by rw [show (0#64).toNat = 0 from rfl]; omega)
+          have hwv_eq0 : wv0 = 0#64 := by
+            rw [← hwv_t (by rw [h0, hwt_eq0])]
+            rcases hex with h | h
+            · exact h
+            · omega
+          rw [hw_succ] at hw'
+          rcases Nat.lt_or_eq_of_le (Nat.lt_succ_iff.mp hw') with hlt | rfl
+          · exact hwt0 hwt_eq0 w' hlt
+          · rw [← hwv0_eq, hwv_eq0]
+      · intro Jx hJx
+        c0_hsplit
+        · c0_hsplit
+          · have hle4 : wt'.toNat ≤ 4 := by bv_omega
+            have hsucc : (wt' + 1#64).toNat = wt'.toNat + 1 := by bv_omega
+            c0_hstraight
+            exact ihk (wt' + 1#64, wv_t &&& (wv_t - 1#64), ()) mr (by dsimp only; omega)
+              ⟨rfl, by omega, fun h => by have := congrArg BitVec.toNat h; omega⟩
+          · c0_hstraight; exact hJx mr ⟨rfl, Or.inr (by bv_omega)⟩
+        · c0_hstraight; exact hJx mr ⟨rfl, Or.inl (by bv_omega)⟩
     · intro Jm0 hJm0
       c0_hsplit
       · have hlast : w.toNat = ncols_nat / 64 := by rw [← hwlast_nat]; bv_omega
@@ -1031,8 +1088,13 @@ private def emitMatMLoopExpr (hdr pTmp emitted_cl wlim nbits rhs_bit : Val i64)
               .let_ (Op.mk (.add i64) (.var p96.snd.fst, .imm 1, ())) fun v59 =>
                 .jump Js96.fst (.var p104.fst, .var v59.fst, ())) .nil)
             (fun Js104 =>
-              .let_ (Op.mk (.popcnt 64) (.var p96.snd.fst, ())) fun v59 =>
-              .let_ (Op.mk (.and i64) (.var v59.fst, .imm 1, ())) fun v60 =>
+              .let_ (Op.mk (.lshr i64) (.var p96.snd.fst, .imm 1, ())) fun q1 =>
+              .let_ (Op.mk (.xor i64) (.var p96.snd.fst, .var q1.fst, ())) fun q2 =>
+              .let_ (Op.mk (.lshr i64) (.var p96.snd.fst, .imm 2, ())) fun q3 =>
+              .let_ (Op.mk (.xor i64) (.var q2.fst, .var q3.fst, ())) fun q4 =>
+              .let_ (Op.mk (.lshr i64) (.var p96.snd.fst, .imm 3, ())) fun q5 =>
+              .let_ (Op.mk (.xor i64) (.var q4.fst, .var q5.fst, ())) fun q6 =>
+              .let_ (Op.mk (.and i64) (.var q6.fst, .imm 1, ())) fun v60 =>
               .let_ (Op.mk (.cmp .ne i64 .bool rfl) (.var v60.fst, .var rhs_bit, ())) fun v61 =>
               .jnz (.var v61.fst)
                 (.let_ (Op.mk (.sext 32 64) (.imm 0#32, ())) fun v62 =>
@@ -1175,7 +1237,7 @@ private theorem emit_mat_m_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
           ⟨sm', by rw [hm_succ]; omega, hok', hm'⟩)
       (fun Jmstep hJmstep => ?_)
     c0_hsplit
-    · have hpar_ne : (m_bv.cpop &&& 1#64) ≠ rhs_bit := by assumption
+    · have hpar_ne : nibPar m_bv ≠ rhs_bit := by assumption
       have htmp_len : sm.core.tmp.length = c.max_vars := hok_m.1.1.1.tmp_len_arr
       let l0 : BitVec 32 := (v0 <<< (1 : Nat)) ||| (m_bv &&& 1#64).setWidth 32
       let l1 : BitVec 32 := (v1 <<< (1 : Nat)) ||| ((m_bv >>> (1 : Nat)) &&& 1#64).setWidth 32

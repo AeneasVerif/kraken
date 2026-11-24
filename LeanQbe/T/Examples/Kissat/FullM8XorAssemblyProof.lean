@@ -1698,12 +1698,30 @@ theorem nv_m8_xor_emit_mat_concrete {m1 : Mem 64}
           refine wp_join_group (fun (wv, ()) mw' => wv = 31#64 ∧ mw' = m1) ?_ ?_
           · rintro _ ⟨wv, ⟨⟩⟩ mw' ⟨rfl, hmw'_eq⟩
             subst mw'
-            have hcpop31 : (0#64 + (31#64).cpop : BitVec 64) = 5#64 := rfl
-            c0_hsplit
-            · c0_hstraight
-              exact hJwt_exit (0#64 + (31#64).cpop, 0#64, ()) m1 ⟨hcpop31, rfl⟩
-            · exfalso
-              exact absurd (by decide : (4#64).toNat < (0 + (31#64).cpop.toNat) % 2 ^ 64) hc
+            -- Kernighan weight loop on `31`: `(0,31) → (1,30) → … → (5,0)`, exit at `wt = 5`.
+            refine wp_loop_inv
+              (fun (wt', wv_t, ()) mk => mk = m1 ∧
+                (wt' = 0#64 ∧ wv_t = 31#64 ∨ wt' = 1#64 ∧ wv_t = 30#64 ∨
+                 wt' = 2#64 ∧ wv_t = 28#64 ∨ wt' = 3#64 ∧ wv_t = 24#64 ∨
+                 wt' = 4#64 ∧ wv_t = 16#64 ∨ wt' = 5#64 ∧ wv_t = 0#64))
+              (fun (wt', _, ()) _ => 5 - wt'.toNat)
+              (fun _ h => by
+                c0_hstraight; exact h (0#64, 31#64, ()) m1 ⟨rfl, Or.inl ⟨rfl, rfl⟩⟩) ?_
+            rintro _ ⟨wt', wv_t, ⟨⟩⟩ mk ⟨hmk, hk⟩ ihk
+            subst mk
+            refine wp_join0 (fun mx => mx = m1 ∧ wt' = 5#64) ?_ ?_
+            · rintro _ mx ⟨hmx, rfl⟩
+              subst mx
+              c0_hsplit
+              · c0_hstraight; exact hJwt_exit (5#64, 0#64, ()) m1 ⟨rfl, rfl⟩
+              · exfalso; bv_omega
+            · intro _ hJx
+              rcases hk with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ |
+                ⟨rfl, rfl⟩
+              all_goals (c0_hsplit <;> (try c0_hsplit) <;> first
+                | (exfalso; bv_omega)
+                | (c0_hstraight; exact hJx m1 ⟨rfl, rfl⟩)
+                | (c0_hstraight; exact ihk _ m1 (by dsimp only; decide) ⟨rfl, by decide⟩))
           · intro _ hJw
             c0_hsplit
             · c0_hstraight
@@ -1761,13 +1779,22 @@ theorem nv_m8_xor_emit_mat_concrete {m1 : Mem 64}
             refine wp_join_group (fun (wv, ()) mw' => wv = 0#64 ∧ mw' = m1) ?_ ?_
             · rintro _ ⟨wv, ⟨⟩⟩ mw' ⟨rfl, hmw'_eq⟩
               subst mw'
-              have hcpop0 : (0#64 + (0#64).cpop : BitVec 64) = 0#64 := rfl
-              c0_hsplit
-              · exfalso
-                exact (by decide : ¬ (4#64).toNat < (0 + (0#64).cpop.toNat) % 2 ^ 64) hc
-              · c0_hstraight
-                exact ihw (0#64 + (0#64).cpop, 0#64 + 1#64, ()) m1 (by decide)
-                  ⟨hcpop0, Or.inr rfl, rfl⟩
+              refine wp_loop_inv (fun (wt', wv_t, ()) mk => mk = m1 ∧ wt' = 0#64 ∧ wv_t = 0#64)
+                (fun _ _ => 0)
+                (fun _ h => by c0_hstraight; exact h (0#64, 0#64, ()) m1 ⟨rfl, rfl, rfl⟩) ?_
+              rintro _ ⟨wt', wv_t, ⟨⟩⟩ mk ⟨hmk, rfl, rfl⟩ _
+              subst mk
+              refine wp_join0 (fun mx => mx = m1) ?_ ?_
+              · intro _ mx hmx
+                subst mx
+                c0_hsplit
+                · exfalso; bv_omega
+                · c0_hstraight
+                  exact ihw (0#64, 0#64 + 1#64, ()) m1 (by decide) ⟨rfl, Or.inr rfl, rfl⟩
+              · intro _ hJx
+                c0_hsplit
+                · exfalso; exact absurd hc (by decide)
+                · c0_hstraight; exact hJx m1 rfl
             · intro _ hJw
               c0_hsplit
               · c0_hstraight
