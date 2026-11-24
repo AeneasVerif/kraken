@@ -70,19 +70,14 @@ native_exe() {
   fi
   timeout 300 leanc -o "$OUT/bin/$exe" "${objs[@]}"
 }
-native_exe emit_x64 "$T/emit_x64.lean" LeanQbe.T.LeanLCNF.Lower1 LeanQbe.T.LeanLCNF.Demo \
-  LeanQbe.T.LeanLCNF.Coverage LeanQbe.T.Driver LeanQbe.T.Amd64.Targ \
-  LeanQbe.T.Amd64.PrintATTAlign
-native_exe emit_arm64 "$T/emit_arm64.lean" LeanQbe.T.LeanLCNF.Lower1 LeanQbe.T.LeanLCNF.Demo \
-  LeanQbe.T.LeanLCNF.Coverage LeanQbe.T.Driver LeanQbe.T.Arm64.Targ Kraken.AArch64.Print
 native_exe lcnf_test - LeanQbeTest.T.LeanLCNFTest
 native_exe lcnf_p5_test - LeanQbeTest.T.LcnfP5Test
 
 echo "== 3. PrintCpp TU, x86-64 / Arm64 assembly, stage-by-stage traces =="
 timeout 120 "$OUT/bin/lcnf_test" "$OUT"
 timeout 120 "$OUT/bin/lcnf_p5_test" "$OUT"
-timeout 120 "$OUT/bin/emit_x64" "$OUT/lcnf_x64.s" "$OUT/lcnf_p5_x64.s"
-timeout 120 "$OUT/bin/emit_arm64" "$OUT/lcnf_arm64.s" "$OUT/lcnf_p5_arm64.s"
+timeout 300 lake env lean --run test/common/emit.lean --arch x64 --suite lcnf "$OUT/lcnf_x64.s" "$OUT/lcnf_p5_x64.s"
+timeout 300 lake env lean --run test/common/emit.lean --arch arm64 --suite lcnf "$OUT/lcnf_arm64.s" "$OUT/lcnf_p5_arm64.s"
 # One function of an assembly file: from its label to the next function label.
 asm_fn() {
   awk -v s="$1:" '$0 == s {p = 1} p && /^[A-Za-z_][A-Za-z0-9_]*:$/ && $0 != s {exit} p' "$2"

@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
+public import LeanQbeTest.T.Common.Fixtures
 public import Std.Sat.CNF
 import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
@@ -10,6 +11,7 @@ import all Kraken.Separation
 public meta import Lean
 public meta import LeanQbe.T.MainCertInline
 public meta import LeanQbe.T.Amd64.Targ
+public meta import LeanQbeTest.T.Common.Fixtures
 
 /-!
 # Certified Inlined Compilation Bridge Tests on SysV x64 (`MainCertInline`)
@@ -37,43 +39,10 @@ namespace LeanQbeTest.T.MainCertInlineTest
 
 open Std Std.ExtHashMap Std.Sat
 open LeanQbe.T LeanQbe.T.Amd64 Kraken
+open LeanQbeTest.T.Common.Fixtures
 
-/-! ## 1. Four-function acyclic module (`fnAdd45` triggers `b5` `leafMax`) -/
-
-def addChain : (n : Nat) → {V : Ty → Type} → {L : List Ty → Type} →
-    Arg V i64 → Expr V L [i64]
-  | 0, _, _, a => .ret (a, ())
-  | n + 1, _, _, a =>
-      .let_ ⟨.add i64, (a, .imm 1#64, ())⟩ fun (y, ()) =>
-      addChain n (.var y)
-
-def fnInc : Fn :=
-  ⟨"inc", [i64, i64], [i64], fun _ _ (p, d, ()) =>
-    .load i64 (.var p) fun v =>
-    .let_ ⟨.add i64, (.var v, .var d, ())⟩ fun (s, ()) =>
-    .store (.var s) (.var p) (.ret (.var s, ()))⟩
-
-def fnAdd45 : Fn :=
-  ⟨"add45", [i64], [i64], fun _ _ (x, ()) => addChain 45 (.var x)⟩
-
-def fnStep : Fn :=
-  ⟨"step", [i64, i64], [i64], fun _ _ (p, d, ()) =>
-    .call "inc" (as := [i64, i64]) (bs := [i64]) (.var p, .var d, ()) fun (r1, ()) =>
-    .let_ ⟨.add i64, (.var r1, .imm 10#64, ())⟩ fun (s, ()) =>
-    .ret (.var s, ())⟩
-
-def fnEntry : Fn :=
-  ⟨"entry", [i64, i64], [i64], fun _ _ (p, d, ()) =>
-    .group (sig := [[i64]])
-      (fun (lp, ()) => .cons (fun (acc, ()) =>
-        .call "step" (as := [i64, i64]) (bs := [i64]) (.var p, .var d, ()) fun (r1, ()) =>
-        .call "add45" (as := [i64]) (bs := [i64]) (.var r1, ()) fun (r2, ()) =>
-        .let_ ⟨.add i64, (.var acc, .var r2, ())⟩ fun (s, ()) =>
-        .jnz (.imm false) (.jump lp (.var s, ())) (.ret (.var s, ()))) .nil)
-      (fun (lp, ()) => .jump lp (.imm 5#64, ()))⟩
-
-def inlSrcMod : Module :=
-  { fns := [fnInc, fnAdd45, fnStep, fnEntry] }
+abbrev fnStep := fnStepInl
+abbrev fnEntry := fnEntryInl
 
 /-! ## 2. Materialized inlined modules via `inline_mod!` + `#guard` inlining assertions -/
 
@@ -89,123 +58,8 @@ def dummyFn : Fn := ⟨"", [], [], fun _ _ _ => .hlt⟩
 #guard !(inlMod40.fns.getD 3 dummyFn).checkCallsOk [] []
 #guard (inlModB5.fns.getD 3 dummyFn).checkCallsOk [] []
 
-/-! ## 3. Source `ModuleOk` and `LegalSigAll` -/
-
-theorem inlSrcMod_acyclic : inlSrcMod.checkAcyclic = true := by t_kernel_rfl
-
-theorem fnInc_wf : fnInc.Wf := by t_wf_reify
-theorem fnAdd45_wf : fnAdd45.Wf := by t_wf_reify
-theorem fnStep_wf : fnStep.Wf := by t_wf_reify
-theorem fnEntry_wf : fnEntry.Wf := by t_wf_reify
-
-theorem inlSrcMod_wf : ∀ f ∈ inlSrcMod.fns, f.Wf := by
-  intro f hf
-  simp only [inlSrcMod, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl
-  · exact fnInc_wf
-  · exact fnAdd45_wf
-  · exact fnStep_wf
-  · exact fnEntry_wf
-
 theorem inlSrcMod_legalSig : LegalSigAll x64LegalTarget inlSrcMod.fns :=
   legalSigAll_of_check (by t_kernel_rfl)
-
-def entryVal (v d : BitVec 64) : BitVec 64 := 5#64 + ((v + d + 10#64) + 45#64)
-
-def incSpec : Spec [i64, i64] [i64] := fun (p, d, ()) m Q _ =>
-  ∃ v R, (m =⋆ cell64 p v ⋆ R) ∧ (∀ m', (m' =⋆ cell64 p (v + d) ⋆ R) → Q (v + d, ()) m')
-
-def add45Spec : Spec [i64] [i64] := fun (x, ()) m Q _ =>
-  Q (x + 45#64, ()) m
-
-def stepSpec : Spec [i64, i64] [i64] := fun (p, d, ()) m Q _ =>
-  ∃ v R, (m =⋆ cell64 p v ⋆ R) ∧
-    (∀ m', (m' =⋆ cell64 p (v + d) ⋆ R) → Q (v + d + 10#64, ()) m')
-
-def entrySpec : Spec [i64, i64] [i64] := fun (p, d, ()) m Q _ =>
-  ∃ v R, (m =⋆ cell64 p v ⋆ R) ∧
-    (∀ m', (m' =⋆ cell64 p (v + d) ⋆ R) → Q (entryVal v d, ()) m')
-
-def inlΓ : Env
-  | "inc", [.bits 64, .bits 64], [.bits 64], xs, m, Q, X => incSpec xs m Q X
-  | "add45", [.bits 64], [.bits 64], xs, m, Q, X => add45Spec xs m Q X
-  | "step", [.bits 64, .bits 64], [.bits 64], xs, m, Q, X => stepSpec xs m Q X
-  | "entry", [.bits 64, .bits 64], [.bits 64], xs, m, Q, X => entrySpec xs m Q X
-  | _, _, _, _, _, _, _ => False
-
-theorem inlΓ_noExit : ∀ f as bs xs m Q X X',
-    inlΓ f as bs xs m Q X → inlΓ f as bs xs m Q X' := by
-  intro f as bs xs m Q X X' h
-  unfold inlΓ at h ⊢
-  split at h <;> exact h
-
-private theorem addChain_wp (Γ : Env) :
-    ∀ (n : Nat) (x : BitVec 64) (m : Mem 64) (Q : Post [i64]) (X : XPost),
-      Q (x + BitVec.ofNat 64 n, ()) m →
-      wp Γ Q X (addChain n (.var x)) m
-  | 0, x, m, Q, _, h => by
-      dsimp only [addChain, wp, vals]
-      rw [show BitVec.ofNat 64 0 = 0#64 from rfl, BitVec.add_zero] at h
-      exact h
-  | n + 1, x, m, Q, X, h => by
-      dsimp only [addChain, wp, Op.wp, OpCode.wp, lift2, Ty.hasFloat, Arg.val, vals]
-      refine addChain_wp Γ n (x + 1#64) m Q X ?_
-      have hn : BitVec.ofNat 64 (n + 1) = 1#64 + BitVec.ofNat 64 n := by
-        rw [Nat.add_comm n 1, BitVec.ofNat_add]
-      simpa [BitVec.add_assoc, hn] using h
-
-private theorem inc_wp {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : incSpec xs m Q X) : Func.wp inlΓ fnInc.body xs m Q X := by
-  rcases xs with ⟨p, d, ⟨⟩⟩
-  rcases h with ⟨v, R, hm, hQ⟩
-  dsimp only [Func.wp, fnInc, wp, Op.wp, op2, OpCode.wp, lift2, Ty.hasFloat, Arg.val, vals]
-  refine ⟨v, loadVal_cell64 hm, ?_⟩
-  obtain ⟨hok, hst⟩ := store_cell64 (v + d) hm
-  exact ⟨hok, hQ _ hst⟩
-
-private theorem add45_wp {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : add45Spec xs m Q X) : Func.wp inlΓ fnAdd45.body xs m Q X := by
-  rcases xs with ⟨x, ⟨⟩⟩
-  exact addChain_wp inlΓ 45 x m Q X h
-
-private theorem step_wp {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : stepSpec xs m Q X) : Func.wp inlΓ fnStep.body xs m Q X := by
-  rcases xs with ⟨p, d, ⟨⟩⟩
-  rcases h with ⟨v, R, hm, hQ⟩
-  dsimp only [Func.wp, fnStep, wp, Op.wp, op2, OpCode.wp, lift2, Ty.hasFloat, Arg.val, vals]
-  refine ⟨fun (r, _) m₁ => r = v + d ∧ (m₁ =⋆ cell64 p (v + d) ⋆ R), X,
-    ⟨v, R, hm, fun m' hm' => ⟨rfl, hm'⟩⟩, ?_, fun _ _ _ _ hx => hx⟩
-  rintro ⟨r₁, ⟨⟩⟩ m₁ ⟨rfl, hm₁⟩
-  exact hQ m₁ hm₁
-
-private theorem entry_wp {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : entrySpec xs m Q X) : Func.wp inlΓ fnEntry.body xs m Q X := by
-  rcases xs with ⟨p, d, ⟨⟩⟩
-  rcases h with ⟨v, R, hm, hQ⟩
-  dsimp only [Func.wp, fnEntry, wp, vals]
-  intro Js hClosed
-  refine hClosed.1 (5#64, ()) m ?_
-  dsimp only [wp, Op.wp, OpCode.wp, lift2, Ty.hasFloat, Arg.val, vals]
-  refine ⟨fun (r, _) m₁ => r = v + d + 10#64 ∧ (m₁ =⋆ cell64 p (v + d) ⋆ R), X,
-    ⟨v, R, hm, fun m' hm' => ⟨rfl, hm'⟩⟩, ?_, fun _ _ _ _ hx => hx⟩
-  rintro ⟨r₁, ⟨⟩⟩ m₁ ⟨rfl, hm₁⟩
-  refine ⟨fun (r, _) m₂ => r = (v + d + 10#64) + 45#64 ∧ m₂ = m₁, X, ⟨rfl, rfl⟩, ?_,
-    fun _ _ _ _ hx => hx⟩
-  rintro ⟨r₂, ⟨⟩⟩ m₂ ⟨rfl, hm₂⟩
-  subst hm₂
-  constructor
-  · intro hc; cases hc
-  · intro _; exact hQ m₂ hm₁
-
-theorem inlSrcMod_modOk : ModuleOk inlΓ inlSrcMod := by
-  refine Module.moduleOk_of_checkAcyclic inlSrcMod_acyclic inlSrcMod_wf ?_
-  intro f hf xs m Q X hΓ
-  simp only [inlSrcMod, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl
-  · exact inc_wp hΓ
-  · exact add45_wp hΓ
-  · exact step_wp hΓ
-  · exact entry_wp hΓ
 
 /-! ## 4. Multi-slice `compile_linked_chunks!` + `castModule` certificates -/
 
@@ -318,16 +172,6 @@ theorem x64_run_b5_sep :
   simpa using hm'
 
 /-! ## 6. Mini UNSAT Witness (`cnf.Unsat` from Inlined Machine Code) -/
-
-def miniUnsatCnf : CNF Nat :=
-  (CNF.empty.add (CNF.Clause.empty.add 1 true)).add
-    (CNF.Clause.empty.add 1 false)
-
-theorem miniUnsatCnf_unsat : miniUnsatCnf.Unsat := by
-  intro a
-  simp only [miniUnsatCnf, CNF.eval_add, CNF.eval_empty, CNF.Clause.eval_add,
-    CNF.Clause.eval_empty, Bool.or_false, Bool.and_true]
-  cases a 1 <;> simp
 
 theorem x64_run_b5_unsat :
     Eventually (x64Target.mach.step certB5.host)

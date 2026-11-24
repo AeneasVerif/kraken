@@ -56,14 +56,14 @@ timeout 60 clang++ $COMMON_CXX -fsanitize=undefined,address -DTQBE_CATCH_UB \
 timeout 60 "$OUT/kissat_asan"
 
 echo "== 4. native x64 codegen (x64Target + gcc + mmap guard pages) =="
-run_lean 120 --run test/kissat/emit_x64.lean "$OUT/kissat_x64.s"
+run_lean 120 --run test/common/emit.lean --arch x64 --suite kissat "$OUT/kissat_x64.s"
 timeout 60 gcc $COMMON_C -no-pie test/kissat/kissat_main.c "$OUT/kissat_x64.s" \
   -o "$OUT/kissat_x64"
 timeout 60 "$OUT/kissat_x64" > "$OUT/x64.out"
 tail -n 1 "$OUT/x64.out"
 
 echo "== 5. native Arm64 codegen (armTarget + aarch64-linux-gnu-gcc + qemu-aarch64) =="
-run_lean 120 --run test/kissat/emit_arm64.lean "$OUT/kissat_arm64.s"
+run_lean 120 --run test/common/emit.lean --arch arm64 --suite kissat "$OUT/kissat_arm64.s"
 timeout 60 aarch64-linux-gnu-gcc $COMMON_C test/kissat/kissat_main.c "$OUT/kissat_arm64.s" \
   -o "$OUT/kissat_arm64" 2>"$OUT/arm64_cc.log" || { cat "$OUT/arm64_cc.log" >&2; exit 1; }
 grep -v -e 'SFrame' "$OUT/arm64_cc.log" >&2 || true
@@ -132,8 +132,8 @@ if [ -z "${STAGE_LEAN_PATH:-}" ] && [ "${SKIP_BUILD:-0}" != "1" ]; then
     LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
     Kraken.X64.PrintATT Kraken.AArch64.Print LeanQbe.T.Amd64.PrintATTAlign
 fi
-run_lean 180 --run test/kissat/emit_m3_x64.lean "$OUT/m3_x64.s" "$OUT/m3_gen.hpp"
-run_lean 180 --run test/kissat/emit_m3_arm64.lean "$OUT/m3_arm64.s"
+run_lean 180 --run test/common/emit.lean --arch x64 --suite m3 "$OUT/m3_x64.s" "$OUT/m3_gen.hpp"
+run_lean 180 --run test/common/emit.lean --arch arm64 --suite m3 "$OUT/m3_arm64.s"
 
 cat > "$OUT/m3_bridge.cpp" <<'CPP'
 #include <cstdint>
@@ -227,8 +227,8 @@ if [ -z "${STAGE_LEAN_PATH:-}" ] && [ "${SKIP_BUILD:-0}" != "1" ]; then
     LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
     Kraken.X64.PrintATT Kraken.AArch64.Print LeanQbe.T.Amd64.PrintATTAlign
 fi
-run_lean 300 --run test/kissat/emit_m4_x64.lean "$OUT/m4_x64.s" "$OUT/m4_gen.hpp"
-run_lean 300 --run test/kissat/emit_m4_arm64.lean "$OUT/m4_arm64.s"
+run_lean 300 --run test/common/emit.lean --arch x64 --suite m4 "$OUT/m4_x64.s" "$OUT/m4_gen.hpp"
+run_lean 300 --run test/common/emit.lean --arch arm64 --suite m4 "$OUT/m4_arm64.s"
 
 cat > "$OUT/m4_bridge.cpp" <<'CPP'
 #include <cstdint>

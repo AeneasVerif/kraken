@@ -50,13 +50,13 @@ timeout 60 clang++ $COMMON_CXX -fsanitize=undefined,address -DTQBE_CATCH_UB \
 timeout 60 "$OUT/coreplus_asan"
 
 echo "== 3. CorePlus native x64 + Arm64 guarded corpus + D-Min x64 build =="
-timeout 120 lake env lean --run test/kissat/emit_coreplus_x64.lean "$OUT/coreplus_x64.s"
+timeout 120 lake env lean --run test/common/emit.lean --arch x64 --suite coreplus "$OUT/coreplus_x64.s"
 timeout 60 gcc $COMMON_C -I"$OUT/coreplus_hdr" -no-pie test/kissat/kissat_main.c \
   "$OUT/coreplus_x64.s" -o "$OUT/coreplus_corpus_x64"
 timeout 60 "$OUT/coreplus_corpus_x64" > "$OUT/corpus_x64.out"
 tail -n 1 "$OUT/corpus_x64.out"
 
-timeout 120 lake env lean --run test/kissat/emit_coreplus_arm64.lean "$OUT/coreplus_arm64.s"
+timeout 120 lake env lean --run test/common/emit.lean --arch arm64 --suite coreplus "$OUT/coreplus_arm64.s"
 timeout 60 aarch64-linux-gnu-gcc $COMMON_C -I"$OUT/coreplus_hdr" test/kissat/kissat_main.c \
   "$OUT/coreplus_arm64.s" -o "$OUT/coreplus_corpus_arm64" 2>"$OUT/arm64_cc.log" || {
     cat "$OUT/arm64_cc.log" >&2; exit 1;
@@ -67,7 +67,7 @@ timeout 60 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/coreplus_corpus_arm64" \
 diff -u "$OUT/corpus_x64.out" "$OUT/corpus_arm64.out"
 echo "PASS: CorePlus x64 == Arm64 guarded corpus differential"
 
-timeout 120 lake env lean --run test/kissat/emit_x64.lean "$OUT/dmin_x64.s"
+timeout 120 lake env lean --run test/common/emit.lean --arch x64 --suite kissat "$OUT/dmin_x64.s"
 timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/dmin_x64.s" \
   -o "$OUT/bench_dmin_x64"
 timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/coreplus_x64.s" \

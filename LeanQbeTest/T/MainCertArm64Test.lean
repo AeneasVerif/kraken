@@ -3,12 +3,14 @@ module
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
+public import LeanQbeTest.T.Common.Fixtures
 import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 public meta import Lean
 public meta import LeanQbe.T.MainCertElab
 public meta import LeanQbe.T.Arm64.Targ
+public meta import LeanQbeTest.T.Common.Fixtures
 
 /-!
 # Chunked Native Compilation Certificate Test on AAPCS64 Arm64 (`MainCert`)
@@ -35,211 +37,12 @@ namespace LeanQbeTest.T.MainCertArm64Test
 
 open Std Std.ExtHashMap
 open LeanQbe.T LeanQbe.T.Arm64 Kraken
+open LeanQbeTest.T.Common.Fixtures
 
-/-! ## 1. Six-function acyclic module and source specifications -/
-
-def fnInc : Fn :=
-  ⟨"inc", [i64, i64], [i64], fun _ _ (p, d, ()) =>
-    .load i64 (.var p) fun v =>
-    .let_ ⟨.add i64, (.var v, .var d, ())⟩ fun (s, ()) =>
-    .store (.var s) (.var p) (.ret (.var s, ()))⟩
-
-def fnScale : Fn :=
-  ⟨"scale", [i64], [i64], fun _ _ (x, ()) =>
-    .let_ ⟨.add i64, (.var x, .var x, ())⟩ fun (s, ()) =>
-    .ret (.var s, ())⟩
-
-def fnStep : Fn :=
-  ⟨"step", [i64, i64], [i64], fun _ _ (p, d, ()) =>
-    .call "inc" (as := [i64, i64]) (bs := [i64]) (.var p, .var d, ()) fun (r1, ()) =>
-    .call "scale" (as := [i64]) (bs := [i64]) (.var d, ()) fun (r2, ()) =>
-    .let_ ⟨.add i64, (.var r1, .var r2, ())⟩ fun (s, ()) =>
-    .ret (.var s, ())⟩
-
-def fnPair : Fn :=
-  ⟨"pair", [i64, i64], [i64], fun _ _ (p, d, ()) =>
-    .call "step" (as := [i64, i64]) (bs := [i64]) (.var p, .var d, ()) fun (r1, ()) =>
-    .let_ ⟨.add i64, (.var d, .imm 1#64, ())⟩ fun (d1, ()) =>
-    .call "step" (as := [i64, i64]) (bs := [i64]) (.var p, .var d1, ()) fun (r2, ()) =>
-    .let_ ⟨.add i64, (.var r1, .var r2, ())⟩ fun (s, ()) =>
-    .ret (.var s, ())⟩
-
-def fnWrap : Fn :=
-  ⟨"wrap", [i64, i64], [i64], fun _ _ (p, d, ()) =>
-    .call "pair" (as := [i64, i64]) (bs := [i64]) (.var p, .var d, ()) fun (r, ()) =>
-    .let_ ⟨.add i64, (.var r, .imm 7#64, ())⟩ fun (s, ()) =>
-    .ret (.var s, ())⟩
-
-def fnMain : Fn :=
-  ⟨"main_entry", [i64, i64], [i64], fun _ _ (p, d, ()) =>
-    .call "wrap" (as := [i64, i64]) (bs := [i64]) (.var p, .var d, ()) fun (r1, ()) =>
-    .call "scale" (as := [i64]) (bs := [i64]) (.var d, ()) fun (r2, ()) =>
-    .let_ ⟨.add i64, (.var r1, .var r2, ())⟩ fun (s, ()) =>
-    .ret (.var s, ())⟩
-
-def fnExit : Fn :=
-  ⟨"guard_exit", [.bool, i64], [i64], fun _ _ (b, x, ()) =>
-    .jnz (.var b) (.exit (as := [i64]) "bail" (.var x, ())) (.ret (.var x, ()))⟩
-
-def certMod : Module :=
-  { fns := [fnInc, fnScale, fnStep, fnPair, fnWrap, fnMain] }
-
-def exitMod : Module :=
-  { fns := [fnScale, fnExit], exits := ["bail"] }
-
-def emptyMod : Module :=
-  { fns := [] }
-
-def extSubMod : Module :=
-  { fns := [fnStep, fnPair] }
-
-def extCalleesSample : List (SigEntry × Nat) :=
-  [(("inc", [i64, i64], [i64]), 16), (("scale", [i64], [i64]), 16)]
-
-def part1Mod : Module :=
-  { fns := [fnInc, fnScale, fnStep] }
-
-def part2Mod : Module :=
-  { fns := [fnPair, fnWrap, fnMain] }
-
-theorem certMod_acyclic : certMod.checkAcyclic = true := by t_kernel_rfl
-
-theorem fnInc_wf : fnInc.Wf := by t_wf_reify
-theorem fnScale_wf : fnScale.Wf := by t_wf_reify
-theorem fnStep_wf : fnStep.Wf := by t_wf_reify
-theorem fnPair_wf : fnPair.Wf := by t_wf_reify
-theorem fnWrap_wf : fnWrap.Wf := by t_wf_reify
-theorem fnMain_wf : fnMain.Wf := by t_wf_reify
-
-theorem certMod_wf : ∀ f ∈ certMod.fns, f.Wf := by
-  intro f hf
-  simp only [certMod, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
-  · exact fnInc_wf
-  · exact fnScale_wf
-  · exact fnStep_wf
-  · exact fnPair_wf
-  · exact fnWrap_wf
-  · exact fnMain_wf
+def extCalleesSample : List (SigEntry × Nat) := extCalleesSampleArm
 
 theorem certMod_legalSig : LegalSigAll armLegalTarget certMod.fns :=
   legalSigAll_of_check (by t_kernel_rfl)
-
-def stepVal (v d : BitVec 64) : BitVec 64 := (v + d) + (d + d)
-def pairMem (v d : BitVec 64) : BitVec 64 := (v + d) + (d + 1#64)
-def pairVal (v d : BitVec 64) : BitVec 64 := stepVal v d + stepVal (v + d) (d + 1#64)
-def wrapVal (v d : BitVec 64) : BitVec 64 := pairVal v d + 7#64
-def mainVal (v d : BitVec 64) : BitVec 64 := wrapVal v d + (d + d)
-
-def incSpec : Spec [i64, i64] [i64] := fun (p, d, ()) m Q _ =>
-  ∃ v R, (m =⋆ cell64 p v ⋆ R) ∧ (∀ m', (m' =⋆ cell64 p (v + d) ⋆ R) → Q (v + d, ()) m')
-
-def scaleSpec : Spec [i64] [i64] := fun (x, ()) m Q _ => Q (x + x, ()) m
-
-def stepSpec : Spec [i64, i64] [i64] := fun (p, d, ()) m Q _ =>
-  ∃ v R, (m =⋆ cell64 p v ⋆ R) ∧
-    (∀ m', (m' =⋆ cell64 p (v + d) ⋆ R) → Q (stepVal v d, ()) m')
-
-def pairSpec : Spec [i64, i64] [i64] := fun (p, d, ()) m Q _ =>
-  ∃ v R, (m =⋆ cell64 p v ⋆ R) ∧
-    (∀ m', (m' =⋆ cell64 p (pairMem v d) ⋆ R) → Q (pairVal v d, ()) m')
-
-def wrapSpec : Spec [i64, i64] [i64] := fun (p, d, ()) m Q _ =>
-  ∃ v R, (m =⋆ cell64 p v ⋆ R) ∧
-    (∀ m', (m' =⋆ cell64 p (pairMem v d) ⋆ R) → Q (wrapVal v d, ()) m')
-
-def mainSpec : Spec [i64, i64] [i64] := fun (p, d, ()) m Q _ =>
-  ∃ v R, (m =⋆ cell64 p v ⋆ R) ∧
-    (∀ m', (m' =⋆ cell64 p (pairMem v d) ⋆ R) → Q (mainVal v d, ()) m')
-
-def certΓ : Env
-  | "inc", [.bits 64, .bits 64], [.bits 64], xs, m, Q, X => incSpec xs m Q X
-  | "scale", [.bits 64], [.bits 64], xs, m, Q, X => scaleSpec xs m Q X
-  | "step", [.bits 64, .bits 64], [.bits 64], xs, m, Q, X => stepSpec xs m Q X
-  | "pair", [.bits 64, .bits 64], [.bits 64], xs, m, Q, X => pairSpec xs m Q X
-  | "wrap", [.bits 64, .bits 64], [.bits 64], xs, m, Q, X => wrapSpec xs m Q X
-  | "main_entry", [.bits 64, .bits 64], [.bits 64], xs, m, Q, X => mainSpec xs m Q X
-  | _, _, _, _, _, _, _ => False
-
-theorem certΓ_noExit : ∀ f as bs xs m Q X X',
-    certΓ f as bs xs m Q X → certΓ f as bs xs m Q X' := by
-  intro f as bs xs m Q X X' h
-  unfold certΓ at h ⊢
-  split at h <;> exact h
-
-private theorem inc_wp {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : incSpec xs m Q X) : Func.wp certΓ fnInc.body xs m Q X := by
-  rcases xs with ⟨p, d, ⟨⟩⟩
-  rcases h with ⟨v, R, hm, hQ⟩
-  dsimp only [Func.wp, fnInc, wp, Op.wp, op2, OpCode.wp, lift2, Ty.hasFloat, Arg.val, vals]
-  refine ⟨v, loadVal_cell64 hm, ?_⟩
-  obtain ⟨hok, hst⟩ := store_cell64 (v + d) hm
-  exact ⟨hok, hQ _ hst⟩
-
-private theorem scale_wp {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : scaleSpec xs m Q X) : Func.wp certΓ fnScale.body xs m Q X := by
-  rcases xs with ⟨x, ⟨⟩⟩
-  dsimp only [Func.wp, fnScale, wp, Op.wp, op2, OpCode.wp, lift2, Ty.hasFloat, Arg.val, vals]
-  exact h
-
-private theorem step_wp {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : stepSpec xs m Q X) : Func.wp certΓ fnStep.body xs m Q X := by
-  rcases xs with ⟨p, d, ⟨⟩⟩
-  rcases h with ⟨v, R, hm, hQ⟩
-  dsimp only [Func.wp, fnStep, wp, Op.wp, op2, OpCode.wp, lift2, Ty.hasFloat, Arg.val, vals]
-  refine ⟨fun (r, _) m₁ => r = v + d ∧ (m₁ =⋆ cell64 p (v + d) ⋆ R), X,
-    ⟨v, R, hm, fun m' hm' => ⟨rfl, hm'⟩⟩, ?_, fun _ _ _ _ hx => hx⟩
-  rintro ⟨r₁, ⟨⟩⟩ m₁ ⟨rfl, hm₁⟩
-  refine ⟨fun (r, _) m₂ => r = d + d ∧ m₂ = m₁, X, ⟨rfl, rfl⟩, ?_, fun _ _ _ _ hx => hx⟩
-  rintro ⟨r₂, ⟨⟩⟩ m₂ ⟨rfl, rfl⟩
-  exact hQ m₂ hm₁
-
-private theorem pair_wp {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : pairSpec xs m Q X) : Func.wp certΓ fnPair.body xs m Q X := by
-  rcases xs with ⟨p, d, ⟨⟩⟩
-  rcases h with ⟨v, R, hm, hQ⟩
-  dsimp only [Func.wp, fnPair, wp, Op.wp, op2, OpCode.wp, lift2, Ty.hasFloat, Arg.val, vals]
-  refine ⟨fun (r, _) m₁ => r = stepVal v d ∧ (m₁ =⋆ cell64 p (v + d) ⋆ R), X,
-    ⟨v, R, hm, fun m' hm' => ⟨rfl, hm'⟩⟩, ?_, fun _ _ _ _ hx => hx⟩
-  rintro ⟨r₁, ⟨⟩⟩ m₁ ⟨rfl, hm₁⟩
-  refine ⟨fun (r, _) m₂ => r = stepVal (v + d) (d + 1#64) ∧ (m₂ =⋆ cell64 p (pairMem v d) ⋆ R),
-    X, ⟨v + d, R, hm₁, fun m' hm' => ⟨rfl, hm'⟩⟩, ?_, fun _ _ _ _ hx => hx⟩
-  rintro ⟨r₂, ⟨⟩⟩ m₂ ⟨rfl, hm₂⟩
-  exact hQ m₂ hm₂
-
-private theorem wrap_wp {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : wrapSpec xs m Q X) : Func.wp certΓ fnWrap.body xs m Q X := by
-  rcases xs with ⟨p, d, ⟨⟩⟩
-  rcases h with ⟨v, R, hm, hQ⟩
-  dsimp only [Func.wp, fnWrap, wp, Op.wp, op2, OpCode.wp, lift2, Ty.hasFloat, Arg.val, vals]
-  refine ⟨fun (r, _) m₁ => r = pairVal v d ∧ (m₁ =⋆ cell64 p (pairMem v d) ⋆ R), X,
-    ⟨v, R, hm, fun m' hm' => ⟨rfl, hm'⟩⟩, ?_, fun _ _ _ _ hx => hx⟩
-  rintro ⟨r, ⟨⟩⟩ m₁ ⟨rfl, hm₁⟩
-  exact hQ m₁ hm₁
-
-private theorem main_wp {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : mainSpec xs m Q X) : Func.wp certΓ fnMain.body xs m Q X := by
-  rcases xs with ⟨p, d, ⟨⟩⟩
-  rcases h with ⟨v, R, hm, hQ⟩
-  dsimp only [Func.wp, fnMain, wp, Op.wp, op2, OpCode.wp, lift2, Ty.hasFloat, Arg.val, vals]
-  refine ⟨fun (r, _) m₁ => r = wrapVal v d ∧ (m₁ =⋆ cell64 p (pairMem v d) ⋆ R), X,
-    ⟨v, R, hm, fun m' hm' => ⟨rfl, hm'⟩⟩, ?_, fun _ _ _ _ hx => hx⟩
-  rintro ⟨r₁, ⟨⟩⟩ m₁ ⟨rfl, hm₁⟩
-  refine ⟨fun (r, _) m₂ => r = d + d ∧ m₂ = m₁, X, ⟨rfl, rfl⟩, ?_, fun _ _ _ _ hx => hx⟩
-  rintro ⟨r₂, ⟨⟩⟩ m₂ ⟨rfl, rfl⟩
-  exact hQ m₂ hm₁
-
-theorem certMod_wp : ∀ f ∈ certMod.fns, ∀ xs m Q X,
-    certΓ f.name f.as f.rs xs m Q X → Func.wp certΓ f.body xs m Q X := by
-  intro f hf xs m Q X hΓ
-  simp only [certMod, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
-  · exact inc_wp hΓ
-  · exact scale_wp hΓ
-  · exact step_wp hΓ
-  · exact pair_wp hΓ
-  · exact wrap_wp hΓ
-  · exact main_wp hΓ
 
 /-! ## 2. Chunked native certificates via `compile_linked_chunks!` -/
 
@@ -304,7 +107,7 @@ theorem arm_main_fnSpec :
       armTarget.FnSpec armCert3.host "main_entry" mainSpec
         (armCert3.bound "main_entry") 0 :=
   armCert3.fnSpec_host_of_legalSigAll certΓ certMod_acyclic certMod_wf certMod_legalSig
-    certMod_wp (f := fnMain) (by simp [certMod]) (certΓ_noExit "main_entry" [i64, i64] [i64])
+    certMod_wp (f := fnMain) fnMain_mem_certMod (certΓ_noExit "main_entry" [i64, i64] [i64])
 
 /-- Arbitrary-`Host` concrete Kraken Arm64 `Eventually (step1 Host.exe)` theorem. -/
 theorem arm_main_eventually [hh : Host] (k₀ : Nat)
@@ -329,7 +132,7 @@ theorem arm_main_eventually [hh : Host] (k₀ : Nat)
         (armCert3.bound "main_entry") ⋆ R :=
     ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, rfl, hf⟩, hmR⟩
   have hfn : armTarget.FnSpec hh "main_entry" mainSpec (armCert3.bound "main_entry") 0 :=
-    (arm_module_fnspec k₀ hc hu (f := fnMain) (by simp [certMod])).2
+    (arm_module_fnspec k₀ hc hu (f := fnMain) fnMain_mem_certMod).2
   have hargs : armTarget.ArgsIn (as := [i64, i64]) (p, d, ()) s :=
     ⟨_, rfl,
       .cons ⟨by decide, by simpa [get_reg] using hx0⟩
@@ -366,7 +169,7 @@ theorem arm_run_main_sep :
           (0x1000#64, 5#64, ()))
         (armTarget.mach.labelAddr armCert3.host "main_entry")) := by
   refine armCert3.eventually_ret1_sep_i64 armInit certΓ certMod_acyclic certMod_wf certMod_wp
-    (f := fnMain) (by simp [certMod]) rfl rfl rfl (certΓ_noExit "main_entry" [i64, i64] [i64])
+    (f := fnMain) fnMain_mem_certMod rfl rfl rfl (certΓ_noExit "main_entry" [i64, i64] [i64])
     initMemBytes (0x1000#64, 5#64, ()) 75#64 (cell64 0x1000#64 21#64 ⋆ emp) initMemBytes_len rfl
     (Q := fun rets m' => rets = (75#64, ()) ∧ (cell64 0x1000#64 21#64 ⋆ emp) m') ?_
     (fun _ _ h => h) (by decide)
@@ -386,7 +189,7 @@ theorem arm_cert2_run_sep :
           (0x1000#64, 5#64, ()))
         (armTarget.mach.labelAddr armCert2.host "main_entry")) := by
   refine armCert2.eventually_ret1_sep_i64 armInit certΓ certMod_acyclic certMod_wf certMod_wp
-    (f := fnMain) (by simp [certMod]) rfl rfl rfl (certΓ_noExit "main_entry" [i64, i64] [i64])
+    (f := fnMain) fnMain_mem_certMod rfl rfl rfl (certΓ_noExit "main_entry" [i64, i64] [i64])
     initMemBytes (0x1000#64, 5#64, ()) 75#64 (cell64 0x1000#64 21#64 ⋆ emp) initMemBytes_len rfl
     (Q := fun rets m' => rets = (75#64, ()) ∧ (cell64 0x1000#64 21#64 ⋆ emp) m') ?_
     (fun _ _ h => h) (by decide)
@@ -406,7 +209,7 @@ theorem arm_appended_run_sep :
           (0x1000#64, 5#64, ()))
         (armTarget.mach.labelAddr armAppendedCert.host "main_entry")) := by
   refine armAppendedCert.eventually_ret1_sep_i64_of_legalSigAll armInit certΓ certMod_acyclic
-    certMod_wf certMod_legalSig certMod_wp (f := fnMain) (by simp [certMod]) rfl
+    certMod_wf certMod_legalSig certMod_wp (f := fnMain) fnMain_mem_certMod rfl
     (certΓ_noExit "main_entry" [i64, i64] [i64]) initMemBytes (0x1000#64, 5#64, ()) 75#64
     (cell64 0x1000#64 21#64 ⋆ emp) initMemBytes_len rfl
     (Q := fun rets m' => rets = (75#64, ()) ∧ (cell64 0x1000#64 21#64 ⋆ emp) m') ?_

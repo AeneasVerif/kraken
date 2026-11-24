@@ -5,10 +5,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PATCH_FILE="$ROOT/bench/kissat/kissat_lockstep_trace.patch"
-DEFAULT_SRC="/usr/local/google/home/andreser/.gemini/jetski/brain/f0cea481-7468-44ed-8bb8-8bc2c8436b38/scratch/kissat-ref-clang"
+DEFAULT_SRC="${KISSAT_SRC:-$ROOT/scratch/kissat}"
+DEFAULT_OUT="${KISSAT_TRACED_BIN:-${TMPDIR:-/tmp}/kissat-traced}"
 
 SRC_DIR="${1:-$DEFAULT_SRC}"
-OUT_BIN="${2:-/usr/local/google/home/andreser/.gemini/jetski/brain/f0cea481-7468-44ed-8bb8-8bc2c8436b38/scratch/fidelity_lockstep/kissat-traced}"
+OUT_BIN="${2:-$DEFAULT_OUT}"
 CC="${CC:-clang}"
 
 if [ ! -d "$SRC_DIR/src" ]; then

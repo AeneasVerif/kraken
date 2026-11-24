@@ -19,13 +19,20 @@ import tempfile
 
 sys.dont_write_bytecode = True
 
-DEFAULT_KISSAT_REF = (
-    "/usr/local/google/home/andreser/.gemini/jetski/brain/"
-    "f0cea481-7468-44ed-8bb8-8bc2c8436b38/scratch/kissat-ref-clang/build/kissat"
+DEFAULT_KISSAT_REF = os.environ.get(
+    "KISSAT_REF_BIN",
+    os.environ.get(
+        "KISSAT_BIN",
+        str(ROOT / "scratch/kissat-ref-clang/build/kissat")
+        if (ROOT / "scratch/kissat-ref-clang/build/kissat").is_file()
+        else str(ROOT / "scratch/kissat/build/kissat")
+    )
 )
-DEFAULT_KISSAT_SRC = (
-    "/usr/local/google/home/andreser/.gemini/jetski/brain/"
-    "f0cea481-7468-44ed-8bb8-8bc2c8436b38/scratch/kissat-ref-clang"
+DEFAULT_KISSAT_SRC = os.environ.get(
+    "KISSAT_SRC",
+    str(ROOT / "scratch/kissat-ref-clang")
+    if (ROOT / "scratch/kissat-ref-clang").is_dir()
+    else str(ROOT / "scratch/kissat")
 )
 COARSE_KINDS = {"UNIT0", "INPROC", "MODE", "RED", "RST", "END"}
 

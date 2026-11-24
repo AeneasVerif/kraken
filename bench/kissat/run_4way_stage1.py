@@ -34,19 +34,20 @@ sys.dont_write_bytecode = True
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-DEFAULT_MANIFEST_CANDIDATES = (
-    ROOT / "bench/kissat/manifest_stage1.json",
-    pathlib.Path(
-        "/usr/local/google/home/andreser/.gemini/jetski/brain/"
-        "f0cea481-7468-44ed-8bb8-8bc2c8436b38/scratch/stage12_bench/manifest_stage1.json"
-    ),
+DEFAULT_MANIFEST_CANDIDATES = tuple(
+    p for p in (
+        pathlib.Path(os.environ["STAGE1_MANIFEST"]) if "STAGE1_MANIFEST" in os.environ else None,
+        ROOT / "bench/kissat/manifest_stage1.json",
+    ) if p is not None
 )
 
-DEFAULT_C1_CANDIDATES = (
-    pathlib.Path(
-        "/usr/local/google/home/andreser/.gemini/jetski/brain/"
-        "f0cea481-7468-44ed-8bb8-8bc2c8436b38/scratch/kissat-ref-clang/build/kissat"
-    ),
+DEFAULT_C1_CANDIDATES = tuple(
+    p for p in (
+        pathlib.Path(os.environ["KISSAT_REF_BIN"]) if "KISSAT_REF_BIN" in os.environ else None,
+        pathlib.Path(os.environ["KISSAT_BIN"]) if "KISSAT_BIN" in os.environ else None,
+        ROOT / "scratch/kissat-ref-clang/build/kissat",
+        ROOT / "scratch/kissat/build/kissat",
+    ) if p is not None
 )
 
 SUITE_ORDER = (
@@ -66,162 +67,91 @@ ALL_TELEM_KEYS = (
 )
 
 
+def load_solvers_registry():
+    solvers_file = ROOT / "bench/kissat/solvers.json"
+    with open(solvers_file, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def resolve_module_spec(raw_name):
     key = raw_name.strip().lower()
-    aliases = {
-        "fullm5": "FullM5",
-        "m5": "FullM5",
-        "fullm6": "FullM6",
-        "m6": "FullM6",
-        "fullm7": "FullM7",
-        "m7": "FullM7",
-        "fullm7plus": "FullM7Plus",
-        "m7plus": "FullM7Plus",
-        "fullm7fidelity": "FullM7Fidelity",
-        "m7fidelity": "FullM7Fidelity",
-        "m7fid": "FullM7Fidelity",
-    }
-    if key not in aliases:
+    registry = load_solvers_registry()
+    matched = None
+    for mod_name, entry in registry.items():
+        if key == mod_name.lower() or key in [a.lower() for a in entry.get("aliases", [])]:
+            matched = entry
+            break
+    if not matched:
         raise SystemExit(
             f"ERROR: unknown --module '{raw_name}' "
             "(expected FullM5|FullM6|FullM7|FullM7Plus|FullM7Fidelity)"
         )
-    mod = aliases[key]
+    mod = matched["module"]
     kdir = ROOT / "LeanQbe/T/Examples/Kissat"
-    lean_file_map = {
-        "FullM5": "FullM5",
-        "FullM6": "FullM6",
-        "FullM7": "FullM7",
-        "FullM7Plus": "FullM7PlusAssembly",
-        "FullM7Fidelity": "FullM7FidelityAssembly",
-    }
-    lean_file = lean_file_map[mod]
+    lean_file = matched["mod_file"]
     if not (kdir / f"{lean_file}.lean").is_file():
         raise SystemExit(f"ERROR: {kdir / f'{lean_file}.lean'} is not present in {ROOT}")
 
-    if mod == "FullM5":
-        return {
-            "module": "FullM5",
-            "tag": "m5",
-            "c0_target": "m5",
-            "lean_mod": "LeanQbe.T.Examples.Kissat.FullM5",
-            "mod_expr": "LeanQbe.T.Examples.Kissat.FullM5.m5Module",
-            "extra_imports": ["LeanQbe.T.MainInline"],
-            "fns_expr": "((LeanQbe.T.Examples.Kissat.FullM5.m5Module).optInlinePolicy LeanQbe.T.InlinePolicy.b5).fns",
-            "policy_desc": "InlinePolicy.b5 (certified kissatM5_compiled_x64)",
-            "certified_x64": (ROOT / "LeanQbe/T/Amd64/KissatM5.lean").is_file(),
-        }
-    if mod == "FullM6":
-        return {
-            "module": "FullM6",
-            "tag": "m6",
-            "c0_target": "m6",
-            "lean_mod": "LeanQbe.T.Examples.Kissat.FullM6",
-            "mod_expr": "LeanQbe.T.Examples.Kissat.FullM6.m6Module",
-            "extra_imports": ["LeanQbe.T.Examples.Kissat.FullM6Inl"],
-            "fns_expr": "LeanQbe.T.Examples.Kissat.FullM6Inl.m6InlFns",
-            "policy_desc": "m6InlPolicy / FullM6Inl (certified kissatM6_compiled_x64)",
-            "certified_x64": (ROOT / "LeanQbe/T/Amd64/KissatM6.lean").is_file(),
-        }
+    extra_imports = list(matched.get("extra_imports", []))
+    fns_expr = matched["fns_expr"]
+    policy_desc = matched["policy_desc"]
+    cert_x64 = (ROOT / matched["cert_x64_file"]).is_file() if "cert_x64_file" in matched else False
+
     if mod == "FullM7":
         if (kdir / "FullM7Inl.lean").is_file():
-            extra = ["LeanQbe.T.Examples.Kissat.FullM7Inl"]
+            extra_imports = ["LeanQbe.T.Examples.Kissat.FullM7Inl"]
             fns_expr = "LeanQbe.T.Examples.Kissat.FullM7Inl.m7InlFns"
-            pdesc = "m7InlPolicy / FullM7Inl"
+            policy_desc = "m7InlPolicy / FullM7Inl"
         elif (kdir / "FullM7InlPolicy.lean").is_file():
-            extra = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
+            extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
             fns_expr = (
                 "((LeanQbe.T.Examples.Kissat.FullM7.m7Module).optInlinePolicy "
                 "LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
             )
-            pdesc = "m7InlPolicy"
-        else:
-            extra = ["LeanQbe.T.MainInline"]
-            fns_expr = (
-                "((LeanQbe.T.Examples.Kissat.FullM7.m7Module).optInlinePolicy "
-                "LeanQbe.T.InlinePolicy.b5).fns"
-            )
-            pdesc = "InlinePolicy.b5"
-        return {
-            "module": "FullM7",
-            "tag": "m7",
-            "c0_target": "m7",
-            "lean_mod": "LeanQbe.T.Examples.Kissat.FullM7",
-            "mod_expr": "LeanQbe.T.Examples.Kissat.FullM7.m7Module",
-            "extra_imports": extra,
-            "fns_expr": fns_expr,
-            "policy_desc": pdesc,
-            "certified_x64": (ROOT / "LeanQbe/T/Amd64/KissatM7.lean").is_file(),
-        }
-    if mod == "FullM7Plus":
-        cert_ok = (ROOT / "LeanQbe/T/Amd64/KissatM7Plus.lean").is_file()
+            policy_desc = "m7InlPolicy"
+    elif mod == "FullM7Plus":
         if (kdir / "FullM7PlusInl.lean").is_file():
-            extra = ["LeanQbe.T.Examples.Kissat.FullM7PlusInl"]
+            extra_imports = ["LeanQbe.T.Examples.Kissat.FullM7PlusInl"]
             fns_expr = "LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns"
-            pdesc = (
+            policy_desc = (
                 "m7InlPolicy / FullM7PlusInl (certified kissatM7Plus_compiled_x64)"
-                if cert_ok
+                if cert_x64
                 else "m7InlPolicy / FullM7PlusInl (WP-verified IR; x64 LinkedCert pending)"
             )
         elif (kdir / "FullM7InlPolicy.lean").is_file():
-            extra = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
+            extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
             fns_expr = (
                 "((LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule).optInlinePolicy "
                 "LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
             )
-            pdesc = "m7InlPolicy"
-        else:
-            extra = ["LeanQbe.T.MainInline"]
-            fns_expr = (
-                "((LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule).optInlinePolicy "
-                "LeanQbe.T.InlinePolicy.b5).fns"
+            policy_desc = "m7InlPolicy"
+    elif mod == "FullM7Fidelity":
+        if (kdir / "FullM7FidelityInl.lean").is_file():
+            extra_imports = ["LeanQbe.T.Examples.Kissat.FullM7FidelityInl"]
+            fns_expr = "LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns"
+            policy_desc = (
+                "m7InlPolicy / FullM7FidelityInl (certified kissatM7Fidelity_compiled_x64)"
+                if cert_x64
+                else "m7InlPolicy / FullM7FidelityInl (WP-verified IR; x64 LinkedCert pending)"
             )
-            pdesc = "InlinePolicy.b5"
-        return {
-            "module": "FullM7Plus",
-            "tag": "m7plus",
-            "c0_target": "m7plus",
-            "lean_mod": "LeanQbe.T.Examples.Kissat.FullM7PlusAssembly",
-            "mod_expr": "LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule",
-            "extra_imports": extra,
-            "fns_expr": fns_expr,
-            "policy_desc": pdesc,
-            "certified_x64": cert_ok,
-        }
-    # FullM7Fidelity
-    cert_ok = (ROOT / "LeanQbe/T/Amd64/KissatM7Fidelity.lean").is_file()
-    if (kdir / "FullM7FidelityInl.lean").is_file():
-        extra = ["LeanQbe.T.Examples.Kissat.FullM7FidelityInl"]
-        fns_expr = "LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns"
-        pdesc = (
-            "m7InlPolicy / FullM7FidelityInl (certified kissatM7Fidelity_compiled_x64)"
-            if cert_ok
-            else "m7InlPolicy / FullM7FidelityInl (WP-verified IR; x64 LinkedCert pending)"
-        )
-    elif (kdir / "FullM7InlPolicy.lean").is_file():
-        extra = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
-        fns_expr = (
-            "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy "
-            "LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
-        )
-        pdesc = "m7InlPolicy"
-    else:
-        extra = ["LeanQbe.T.MainInline"]
-        fns_expr = (
-            "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy "
-            "LeanQbe.T.InlinePolicy.b5).fns"
-        )
-        pdesc = "InlinePolicy.b5"
+        elif (kdir / "FullM7InlPolicy.lean").is_file():
+            extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
+            fns_expr = (
+                "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy "
+                "LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
+            )
+            policy_desc = "m7InlPolicy"
+
     return {
-        "module": "FullM7Fidelity",
-        "tag": "m7fidelity",
-        "c0_target": "m7fidelity",
-        "lean_mod": "LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly",
-        "mod_expr": "LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule",
-        "extra_imports": extra,
+        "module": mod,
+        "tag": matched["tag"],
+        "c0_target": matched["c0_target"],
+        "lean_mod": matched["lean_mod"],
+        "mod_expr": matched["mod_expr"],
+        "extra_imports": extra_imports,
         "fns_expr": fns_expr,
-        "policy_desc": pdesc,
-        "certified_x64": cert_ok,
+        "policy_desc": policy_desc,
+        "certified_x64": cert_x64,
     }
 
 

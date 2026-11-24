@@ -21,8 +21,8 @@ else
 fi
 
 echo "== 2. emit native assembly =="
-timeout 120 lake env lean --run test/t_chacha/emit_x64.lean "$OUT"
-timeout 120 lake env lean --run test/t_chacha/emit_arm64.lean "$OUT"
+timeout 120 lake env lean --run test/common/emit.lean --arch x64 --suite chacha "$OUT"
+timeout 120 lake env lean --run test/common/emit.lean --arch arm64 --suite chacha "$OUT"
 
 echo "== 3. assemble, link, and run native x64 =="
 CC_X64="${CC:-cc}"

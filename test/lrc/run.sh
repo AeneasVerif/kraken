@@ -56,13 +56,13 @@ timeout 30 "$OUT/lrc_scalar_asan" > "$OUT/scalar_asan.out"
 diff -u "$OUT/scalar_gpp.out" "$OUT/scalar_asan.out"
 
 echo "== 5. native x64 codegen (x64Target + gcc) =="
-timeout 120 lake env lean --run test/lrc/emit_x64.lean "$OUT/lrc_x64.s"
+timeout 120 lake env lean --run test/common/emit.lean --arch x64 --suite lrc "$OUT/lrc_x64.s"
 timeout 60 gcc -O1 -no-pie test/lrc/lrc_main.c "$OUT/lrc_x64.s" -o "$OUT/lrc_x64"
 timeout 30 "$OUT/lrc_x64" > "$OUT/x64.out"
 diff -u "$OUT/ref.out" "$OUT/x64.out"
 
 echo "== 6. native Arm64 codegen (armTarget + aarch64-linux-gnu-gcc + qemu-aarch64) =="
-timeout 120 lake env lean --run test/lrc/emit_arm64.lean "$OUT/lrc_arm64.s"
+timeout 120 lake env lean --run test/common/emit.lean --arch arm64 --suite lrc "$OUT/lrc_arm64.s"
 timeout 60 aarch64-linux-gnu-gcc -O1 test/lrc/lrc_main.c "$OUT/lrc_arm64.s" \
   -o "$OUT/lrc_arm64" 2>&1 | grep -v -e 'SFrame' || true
 timeout 30 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/lrc_arm64" > "$OUT/arm64.out"
