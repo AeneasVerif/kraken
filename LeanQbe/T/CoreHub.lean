@@ -97,6 +97,7 @@ public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.MainCertInlineChunk
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.MainCertScc
+public import LeanQbe.T.MainCertSlices
 public import LeanQbe.T.MainInline
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.MainLink

@@ -14,6 +14,7 @@ public import LeanQbe.T.Arm64.IselLemmas2
 public import LeanQbe.T.Arm64.IselLemmas3
 public import LeanQbe.T.Arm64.IselLemmas4
 public import LeanQbe.T.Arm64.IselStepRules
+public import LeanQbe.T.Arm64.KissatAbi
 public import LeanQbe.T.Arm64.KissatM5
 public import LeanQbe.T.Arm64.KissatM5Bounds
 public import LeanQbe.T.Arm64.KissatM5Cert

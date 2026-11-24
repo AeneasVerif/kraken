@@ -689,6 +689,221 @@ class GenCertSlicesTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 gcs.build_config(bad_args)
 
+    def test_opt_in_cert_style_slices_and_abi_common_standalone_m8(self) -> None:
+        # Standalone M8 simulation via explicit opt-in `--cert-style slices --abi-common`.
+        args = gcs.parse_args(
+            [
+                "--prefix",
+                "KissatM8",
+                "--stem",
+                "m8",
+                "--source-mod",
+                "LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly",
+                "--source-ns",
+                "LeanQbe.T.Examples.Kissat.FullM7Fidelity",
+                "--proof-mod",
+                "LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof",
+                "--proof-ns",
+                "LeanQbe.T.Examples.Kissat.FullM7Fidelity",
+                "--inl-mod",
+                "LeanQbe.T.Examples.Kissat.FullM7FidelityInl",
+                "--inl-policy-mod",
+                "LeanQbe.T.Examples.Kissat.FullM7InlPolicy",
+                "--inl-fns",
+                "m8InlFns",
+                "--inl-mod-sym",
+                "m8InlMod",
+                "--inl-policy",
+                "m7InlPolicy",
+                "--fns",
+                "m8Fns",
+                "--mod",
+                "m8Module",
+                "--env",
+                "m8Env",
+                "--module-ok",
+                "m8_moduleOk",
+                "--no-exit",
+                "m8Env_noExit",
+                "--entry-const",
+                "FullM6Orch.m6oSolveBytesFn",
+                "--solve-spec-intro",
+                "m7FidSolveBytesSpec_intro",
+                "--solve-spec-no-sat",
+                "--solve-mem-thm",
+                "m8_solveBytes_mem",
+                "--hdr-model",
+                "m6",
+                "--no-sound",
+                "--sat-sound-mod",
+                "",
+                "--total-fns",
+                "415",
+                "--cert-style",
+                "slices",
+                "--abi-common",
+                "--fns-length-thm",
+                "m8InlFns_length",
+                "--max-dirs",
+                "600",
+                "--root",
+                str(REPO_ROOT),
+                "--dry-run",
+            ]
+        )
+        cfg = gcs.build_config(args)
+        self.assertEqual(cfg.cert_style, "slices")
+        self.assertTrue(cfg.abi_common)
+        self.assertEqual(cfg.fns_length_thm, "m8InlFns_length")
+        files = dict(gcs.build_plan(cfg, ["amd64", "arm64"]))
+        self._assert_hygiene(list(files.items()))
+
+        ladder_args = gcs.parse_args(
+            [
+                "--prefix",
+                "KissatM8",
+                "--stem",
+                "m8",
+                "--source-mod",
+                "LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly",
+                "--source-ns",
+                "LeanQbe.T.Examples.Kissat.FullM7Fidelity",
+                "--proof-mod",
+                "LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof",
+                "--proof-ns",
+                "LeanQbe.T.Examples.Kissat.FullM7Fidelity",
+                "--inl-mod",
+                "LeanQbe.T.Examples.Kissat.FullM7FidelityInl",
+                "--inl-policy-mod",
+                "LeanQbe.T.Examples.Kissat.FullM7InlPolicy",
+                "--inl-fns",
+                "m8InlFns",
+                "--inl-mod-sym",
+                "m8InlMod",
+                "--inl-policy",
+                "m7InlPolicy",
+                "--fns",
+                "m8Fns",
+                "--mod",
+                "m8Module",
+                "--env",
+                "m8Env",
+                "--module-ok",
+                "m8_moduleOk",
+                "--no-exit",
+                "m8Env_noExit",
+                "--entry-const",
+                "FullM6Orch.m6oSolveBytesFn",
+                "--solve-spec-intro",
+                "m7FidSolveBytesSpec_intro",
+                "--solve-spec-no-sat",
+                "--solve-mem-thm",
+                "m8_solveBytes_mem",
+                "--hdr-model",
+                "m6",
+                "--no-sound",
+                "--sat-sound-mod",
+                "",
+                "--total-fns",
+                "415",
+                "--cert-style",
+                "ladder",
+                "--max-dirs",
+                "600",
+                "--root",
+                str(REPO_ROOT),
+                "--dry-run",
+            ]
+        )
+        ladder_files = dict(gcs.build_plan(gcs.build_config(ladder_args), ["amd64", "arm64"]))
+
+        for arch_dir, abi_const, tag in (
+            ("Amd64", "x64KissatAbi", "x64"),
+            ("Arm64", "arm64KissatAbi", "arm64"),
+        ):
+            cert = files[f"LeanQbe/T/{arch_dir}/KissatM8Cert.lean"]
+            ladder_cert = ladder_files[f"LeanQbe/T/{arch_dir}/KissatM8Cert.lean"]
+            self.assertIn("public import LeanQbe.T.MainCertSlices", cert)
+            self.assertIn("public import LeanQbe.T.MainCertInline", cert)
+            self.assertIn("ChunkSlice.ofCert", cert)
+            self.assertIn("ChunkSlice.ofDrop", cert)
+            self.assertIn("LinkedCert.ofChunkSlices", cert)
+            self.assertIn("m8InlFns_length", cert)
+            self.assertIn("allSlices_link", cert)
+            self.assertIn("m8InlCert.castModule m8InlMod.eq", cert)
+            self.assertIn("#print axioms m8Cert", cert)
+            self.assertNotIn("sufChunks", cert)
+            self.assertNotIn("private theorem fns_eq", cert)
+            self.assertNotIn("private theorem maxB", cert)
+            self.assertLess(len(cert.splitlines()), len(ladder_cert.splitlines()))
+
+            link = files[f"LeanQbe/T/{arch_dir}/KissatM8CertLink.lean"]
+            ladder_link = ladder_files[f"LeanQbe/T/{arch_dir}/KissatM8CertLink.lean"]
+            self.assertIn("public import LeanQbe.T.Examples.Kissat.KissatCertCommon", link)
+            self.assertIn(f"import LeanQbe.T.{arch_dir}.KissatAbi", link)
+            self.assertIn("KissatCertCommon.solve_of_abi_fnspec", link)
+            self.assertIn(abi_const, link)
+            self.assertIn(f"solve_{tag}_of_fnspec", link)
+            self.assertIn("#print axioms", link)
+            self.assertLess(len(link.splitlines()), len(ladder_link.splitlines()))
+
+            top = files[f"LeanQbe/T/{arch_dir}/KissatM8.lean"]
+            ladder_top = ladder_files[f"LeanQbe/T/{arch_dir}/KissatM8.lean"]
+            self.assertIn("public import LeanQbe.T.Examples.Kissat.KissatCertCommon", top)
+            self.assertIn(f"import LeanQbe.T.{arch_dir}.KissatAbi", top)
+            self.assertIn("private def m8UnsatPkg : KissatUnsatPkg where", top)
+            self.assertIn("m6NvWorkLen", top)
+            self.assertIn("m6NvPayload", top)
+            self.assertIn("KissatCertCommon.module_fnspec_of_abi", top)
+            self.assertIn("KissatCertCommon.solve_bytes_unsat_of_abi", top)
+            self.assertIn("KissatCertCommon.unsat_correct_of_abi", top)
+            self.assertIn("KissatCertCommon.unsat_nonvacuous_of_abi", top)
+            self.assertIn("KissatCertCommon.run_unsat_of_abi", top)
+            self.assertNotIn("def m8NvWorkLen", top)
+            self.assertNotIn("def m8NvPayload", top)
+            self.assertNotIn("theorem sep_exists_eq", top)
+            self.assertIn(f"#print axioms m8_{tag}_run_unsat", top)
+            self.assertLess(len(top.splitlines()), len(ladder_top.splitlines()))
+
+            self.assertNotIn(f"LeanQbe/T/{arch_dir}/KissatM8Sound.lean", files)
+
+        # Single-slice uninlined `--cert-style slices` uses ChunkSlice.ofDrop directly.
+        single_args = gcs.parse_args(
+            [
+                "--module",
+                "FullM5",
+                "--cert-style",
+                "slices",
+                "--slice-sizes",
+                ",".join(["12"] * 19 + ["6"]),
+                "--root",
+                str(REPO_ROOT),
+                "--dry-run",
+            ]
+        )
+        single_cfg = gcs.build_config(single_args)
+        single_files = dict(gcs.build_plan(single_cfg, ["amd64"]))
+        self._assert_hygiene(list(single_files.items()))
+        m5_cert = single_files["LeanQbe/T/Amd64/KissatM5Cert.lean"]
+        self.assertIn("ChunkSlice.ofDrop", m5_cert)
+        self.assertIn("m5Fns_length", m5_cert)
+        self.assertIn("LinkedCert.ofChunkSlices", m5_cert)
+        self.assertNotIn("sufChunks", m5_cert)
+
+        # Fail closed when `--abi-common` is requested without m6 hdr model or inlined module.
+        bad_abi_args = gcs.parse_args(
+            [
+                "--module",
+                "FullM5",
+                "--abi-common",
+                "--root",
+                str(REPO_ROOT),
+                "--dry-run",
+            ]
+        )
+        with self.assertRaises(ValueError):
+            gcs.build_config(bad_abi_args)
+
 
 if __name__ == "__main__":
     unittest.main()

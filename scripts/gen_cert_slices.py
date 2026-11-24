@@ -106,6 +106,7 @@ class ArchSpec:
     init_mem_entry: str
     sp_init_val: str
     ret_gpr_expr: str
+    kissat_abi: str
 
     def unsat_reg_hyps(self, bound_expr: str, indent: str = "  ") -> list[str]:
         if self.key == "amd64":
@@ -318,6 +319,7 @@ ARCH_SPECS: dict[str, ArchSpec] = {
         init_mem_entry="x64InitMem_entry",
         sp_init_val="0x0ff8#64",
         ret_gpr_expr="x64Target.mach.getGpr (x64Target.mach.data st) x64Init.ret0",
+        kissat_abi="x64KissatAbi",
     ),
     "arm64": ArchSpec(
         key="arm64",
@@ -375,6 +377,7 @@ ARCH_SPECS: dict[str, ArchSpec] = {
         init_mem_entry="armInitMem_entry",
         sp_init_val="0x1000#64",
         ret_gpr_expr="armTarget.mach.getGpr (armTarget.mach.data st) armInit.ret0",
+        kissat_abi="arm64KissatAbi",
     ),
 }
 
@@ -749,6 +752,9 @@ class CertConfig:
     reuse_wf: str | None = None
     reuse_inl_mod_sym: str | None = None
     reuse_inl_policy: str | None = None
+    cert_style: str = "ladder"
+    abi_common: bool = False
+    fns_length_thm: str | None = None
 
     @property
     def is_inlined(self) -> bool:
@@ -2041,8 +2047,408 @@ def _wrap_rw_items(items: list[str], base_indent: str = "  ") -> list[str]:
     return lines
 
 
+def _wrap_list_elems(prefix: str, elems: list[str], indent: str = "    ") -> list[str]:
+    """Format `[e1, e2, ...]` wrapped cleanly within `MAX_LINE_LEN`."""
+    one = f"{prefix} [" + ", ".join(elems) + "]"
+    if len(one) <= MAX_LINE_LEN:
+        return [one]
+    lines: list[str] = []
+    cur = f"{prefix} ["
+    for idx, el in enumerate(elems):
+        suffix = "]" if idx == len(elems) - 1 else ","
+        tok = el + suffix
+        sep = "" if cur.endswith("[") else " "
+        if len(cur) + len(sep) + len(tok) <= MAX_LINE_LEN:
+            cur = f"{cur}{sep}{tok}"
+        else:
+            lines.append(cur)
+            cur = f"{indent}{tok}"
+    lines.append(cur)
+    return lines
+
+
+def render_cert_slices(cfg: CertConfig, arch: ArchSpec) -> str:
+    """Render standalone O(1)-boilerplate `<Prefix>Cert.lean` using `LinkedCert.ofChunkSlices`."""
+    ns = f"{arch.ns_prefix}.{cfg.prefix}Cert"
+    total_slices = len(cfg.slices)
+    cert_fns = cfg.cert_fns
+    is_inl = cfg.is_inlined
+    has_reuse = bool(cfg.reuse_prefix)
+    pruned_relink = has_reuse and cfg.reuse_mode == "pruned_relink"
+    bounds_mod = f"{arch.ns_prefix}.{cfg.prefix}Bounds"
+    len_thm = cfg.fns_length_thm or f"{cert_fns}_length"
+
+    def slice_mod_short(sl: SliceRange) -> str:
+        if sl.reuse_src_index is not None:
+            assert cfg.reuse_prefix is not None
+            return f"{cfg.reuse_prefix}Cert{sl.reuse_src_index}"
+        return f"{cfg.prefix}Cert{sl.index}"
+
+    def cert_expr(sl: SliceRange) -> str:
+        if has_reuse:
+            k = sl.reuse_src_index if sl.reuse_src_index is not None else sl.index
+            return f"{slice_mod_short(sl)}.cert{k}"
+        return f"cert{sl.index}"
+
+    def mod_expr(sl: SliceRange) -> str:
+        if has_reuse:
+            k = sl.reuse_src_index if sl.reuse_src_index is not None else sl.index
+            return f"{slice_mod_short(sl)}.slice{k}Mod"
+        return f"slice{sl.index}Mod"
+
+    def reuse_raw_fns(sl: SliceRange) -> str:
+        base_fns = cfg.reuse_inl_fns if (is_inl and cfg.reuse_inl_fns) else cert_fns
+        st = sl.reuse_src_start
+        if st == 0:
+            return f"({base_fns}.take {sl.count})"
+        return f"(({base_fns}.drop {st}).take {sl.count})"
+
+    wf_mod = cfg.reuse_proof_mod or cfg.proof_mod
+    wf_ns = cfg.reuse_proof_ns or cfg.open_proof_ns
+    wf_acyc = cfg.reuse_acyclic or cfg.acyclic
+    wf_thm = cfg.reuse_wf or cfg.wf
+    wf_pol = cfg.reuse_inl_policy or cfg.inl_policy
+    wf_inl_mod_sym = cfg.reuse_inl_mod_sym or cfg.inl_mod_sym
+    wf_fns = cfg.reuse_inl_fns if (is_inl and cfg.reuse_inl_fns) else cert_fns
+
+    pub_imports = [
+        "public import LeanQbe.T.MainCertSlices",
+        *(["public import LeanQbe.T.MainCertInline"] if is_inl else []),
+        *(["public import LeanQbe.T.MainLinkReuseCover"] if pruned_relink else []),
+        *[
+            f"public import {arch.ns_prefix}.{slice_mod_short(sl)}"
+            for sl in cfg.slices
+        ],
+        f"public import {cfg.source_mod}",
+    ]
+    if pruned_relink:
+        pub_imports.append(f"public import {bounds_mod}")
+        if wf_mod:
+            pub_imports.append(f"public import {wf_mod}")
+    if is_inl:
+        if cfg.inl_policy_mod and cfg.inl_policy_mod != cfg.inl_mod:
+            pub_imports.append(f"public import {cfg.inl_policy_mod}")
+        if cfg.inl_mod:
+            pub_imports.append(f"public import {cfg.inl_mod}")
+    if has_reuse and cfg.reuse_inl_mod:
+        pub_imports.append(f"public import {cfg.reuse_inl_mod}")
+    if has_reuse and cfg.reuse_bridge_mod:
+        pub_imports.append(f"public import {cfg.reuse_bridge_mod}")
+    pub_imports = list(dict.fromkeys(pub_imports))
+
+    meta_imports = [
+        "meta import Lean",
+        *(["meta import LeanQbe.T.MainLinkReuseElab"] if pruned_relink else []),
+        f"meta import {arch.targ_mod}",
+        f"meta import {cfg.cert_source_mod}",
+    ]
+    if pruned_relink:
+        meta_imports.append(f"meta import {bounds_mod}")
+    if has_reuse and cfg.reuse_inl_mod:
+        meta_imports.append(f"meta import {cfg.reuse_inl_mod}")
+    meta_imports = list(dict.fromkeys(meta_imports))
+
+    open_items = ["LeanQbe.T", arch.ns_prefix, cfg.open_source_ns]
+    if pruned_relink:
+        open_items.append(bounds_mod)
+        if wf_ns:
+            open_items.append(wf_ns)
+    if is_inl:
+        if cfg.inl_mod:
+            open_items.append(cfg.inl_mod)
+        if cfg.inl_policy_mod and cfg.inl_policy_mod != cfg.inl_mod:
+            open_items.append(cfg.inl_policy_mod)
+    if has_reuse and cfg.reuse_inl_mod:
+        open_items.append(cfg.reuse_inl_mod)
+    if has_reuse and cfg.reuse_bridge_mod:
+        open_items.append(cfg.reuse_bridge_mod)
+    open_items = list(dict.fromkeys(open_items))
+    slice_ns = (
+        []
+        if has_reuse
+        else [f"{arch.ns_prefix}.{cfg.prefix}Cert{sl.index}" for sl in cfg.slices]
+    )
+
+    slice_defs: list[str] = []
+    inl_cert_name = f"{cfg.stem}InlCert"
+    base_cert_name = inl_cert_name if is_inl else cfg.cert_name
+    base_mod_name = cfg.inl_mod_sym if is_inl and cfg.inl_mod_sym else cfg.mod
+    base_vis = "private noncomputable def" if is_inl else "noncomputable def"
+    slice_ty = f"ChunkSlice {arch.targ} {arch.lt} [] 0 {cfg.max_bound} {base_mod_name}.fns"
+    indexed = list(enumerate(cfg.slices, start=1))
+
+    if pruned_relink:
+        assert wf_pol is not None and wf_inl_mod_sym is not None
+        if is_inl:
+            slice_defs.extend(
+                [
+                    f"private theorem reuseBaseFns_wf : ∀ f ∈ {wf_fns}, f.Wf := by",
+                    *_wrap_lean_app(
+                        "  have hwf :=",
+                        ["Module.optInlinePolicy_wf", wf_pol, wf_acyc, wf_thm],
+                    ),
+                    f"  rw [← {wf_inl_mod_sym}.eq] at hwf",
+                    "  exact hwf",
+                    "",
+                ]
+            )
+        else:
+            slice_defs.extend(
+                [
+                    f"private theorem reuseBaseFns_wf : ∀ f ∈ {wf_fns}, f.Wf :=",
+                    f"  {wf_thm}",
+                    "",
+                ]
+            )
+
+    if has_reuse and not cfg.reuse_bridge_mod:
+        assert cfg.reuse_inl_fns is not None
+        for pos, sl in indexed:
+            if sl.reuse_src_index is None:
+                continue
+            lhs_e = (
+                f"{cert_fns}.take {sl.count}"
+                if sl.start == 0
+                else f"({cert_fns}.drop {sl.start}).take {sl.count}"
+            )
+            rs_st = sl.reuse_src_start
+            rhs_e = (
+                f"{cfg.reuse_inl_fns}.take {sl.count}"
+                if rs_st == 0
+                else f"({cfg.reuse_inl_fns}.drop {rs_st}).take {sl.count}"
+            )
+            slice_defs.extend(
+                [
+                    f"private theorem reuse_eq{pos} :",
+                    f"    {lhs_e} = {rhs_e} := by",
+                    "  t_kernel_rfl",
+                ]
+            )
+        slice_defs.append("")
+
+    def reuse_thm_for(pos: int, sl: SliceRange) -> str:
+        if cfg.reuse_bridge_mod and cfg.reuse_thm_prefix:
+            return f"{cfg.reuse_thm_prefix}{sl.reuse_src_index}"
+        return f"reuse_eq{pos}"
+
+    slice_names: list[str] = []
+    for pos, sl in indexed:
+        sl_nm = f"slice{pos}"
+        slice_names.append(sl_nm)
+        ce = cert_expr(sl)
+        me = mod_expr(sl)
+        if sl.reuse_src_index is not None and pruned_relink:
+            rfns = reuse_raw_fns(sl)
+            ext_e = f"({cfg.stem}ExtPrefix {sl.start})"
+            chunk_ty = f"CompiledChunk {arch.targ} {arch.lt} [] 0"
+            rthm = reuse_thm_for(pos, sl)
+            slice_defs.extend(
+                [
+                    *_wrap_lean_app(
+                        f"eval_raw_callees! rCallees{pos}", [arch.lt, rfns], indent="  "
+                    ),
+                    *_wrap_lean_app(
+                        f"eval_pruned_ext! rExt{pos}",
+                        [f"rCallees{pos}", ext_e],
+                        indent="  ",
+                    ),
+                    f"private theorem rRaw{pos} :",
+                    f"    checkRawCallsCover {arch.lt}",
+                    f"      {rfns} rCallees{pos} = true := by",
+                    "  t_kernel_rfl",
+                    f"private theorem rCov{pos} :",
+                    f"    CalleesCover {arch.lt} (chunksFns {ce}.chunks) rCallees{pos} := by",
+                    f"  have hc := {ce}.fns_eq",
+                    f"  dsimp only [{me}] at hc",
+                    "  rw [← hc]",
+                    "  exact calleesCover_of_checkRaw",
+                    f"    (wf_of_take_drop {sl.reuse_src_start} {sl.count} reuseBaseFns_wf)",
+                    f"    rRaw{pos}",
+                    f"private theorem rAgree{pos} :",
+                    f"    checkChunksExtAgreeOn rCallees{pos}",
+                    f"      {ce}.chunks rExt{pos} = true := by",
+                    "  t_kernel_rfl",
+                    f"private noncomputable def rChunks{pos} : List ({chunk_ty}) :=",
+                    *_wrap_lean_app(
+                        "  relinkChunkListCover",
+                        [
+                            f"{ce}.chunks",
+                            f"rExt{pos}",
+                            f"rCallees{pos}",
+                            f"rCov{pos}",
+                            f"rAgree{pos}",
+                        ],
+                    ),
+                    f"private theorem rMaxB{pos} :",
+                    f"    chunksMaxBound rChunks{pos} ≤ {cfg.max_bound} := by",
+                    f"  dsimp only [rChunks{pos}]",
+                    "  rw [relinkChunkListCover_maxBound]",
+                    f"  exact {ce}.maxBound_le",
+                    f"private theorem rFnsEq{pos} :",
+                    f"    ({base_mod_name}.fns.drop {sl.start}).take {sl.count} =",
+                    f"      chunksFns rChunks{pos} := by",
+                    f"  have hc := {ce}.fns_eq",
+                    f"  dsimp only [{me}] at hc",
+                    f"  dsimp only [rChunks{pos}]",
+                    "  rw [relinkChunkListCover_fns, ← hc]",
+                    f"  exact {rthm}",
+                    f"private noncomputable def {sl_nm} :",
+                    f"    {slice_ty} :=",
+                    f"  {{ start := {sl.start}, count := {sl.count}, chunks := rChunks{pos},",
+                    f"    fns_eq := rFnsEq{pos}, maxBound_le := rMaxB{pos} }}",
+                ]
+            )
+        elif sl.reuse_src_index is not None:
+            rthm = reuse_thm_for(pos, sl)
+            slice_defs.extend(
+                [
+                    f"private noncomputable def {sl_nm} :",
+                    f"    {slice_ty} :=",
+                    f"  ChunkSlice.ofCert {sl.start} {sl.count} {ce}",
+                    f"    (by first | exact {rthm} | (dsimp only [{me}]; exact {rthm}))",
+                ]
+            )
+        elif sl.end == cfg.total_fns:
+            slice_defs.extend(
+                [
+                    f"private noncomputable def {sl_nm} :",
+                    f"    {slice_ty} :=",
+                    *_wrap_lean_app(
+                        "  ChunkSlice.ofDrop",
+                        [
+                            str(sl.start),
+                            str(sl.count),
+                            ce,
+                            f"(by dsimp only [{base_mod_name}]; exact {len_thm})",
+                            "(by decide)",
+                            f"(by dsimp only [{base_mod_name}, {me}] <;> rfl)",
+                        ],
+                    ),
+                ]
+            )
+        else:
+            slice_defs.extend(
+                [
+                    f"private noncomputable def {sl_nm} :",
+                    f"    {slice_ty} :=",
+                    *_wrap_lean_app(
+                        "  ChunkSlice.ofCert",
+                        [
+                            str(sl.start),
+                            str(sl.count),
+                            ce,
+                            f"(by dsimp only [{base_mod_name}, {me}] <;> rfl)",
+                        ],
+                    ),
+                ]
+            )
+
+    slices_list_name = f"{cfg.stem}Slices"
+    slice_defs.extend(
+        [
+            "",
+            f"private noncomputable def {slices_list_name} :",
+            f"    List ({slice_ty}) :=",
+            *_wrap_list_elems(" ", slice_names, indent="    "),
+            "",
+            "private theorem allSlices_link :",
+            f"    checkLinkList {arch.layout} [] (ChunkSlice.allChunks {slices_list_name}) = true := by",
+            "  t_kernel_rfl",
+            "",
+        ]
+    )
+    if len(slice_defs[-3]) > MAX_LINE_LEN:
+        slice_defs[-3] = (
+            f"    checkLinkList {arch.layout} []\n"
+            f"      (ChunkSlice.allChunks {slices_list_name}) = true := by"
+        )
+
+    sig_lines = _format_cert_sig(arch, base_mod_name, cfg.max_bound)
+    of_slices_lines = _wrap_lean_app(
+        "  LinkedCert.ofChunkSlices",
+        [
+            slices_list_name,
+            f"(by dsimp only [{base_mod_name}]; exact {len_thm})",
+            "(by decide)",
+            "allSlices_link",
+        ],
+    )
+    slice_defs.extend(
+        [
+            *wrap_comment_lines(
+                f"/-- Standalone kernel-checked slice-list cert covering all "
+                f"`{cfg.total_fns}` functions in `{base_mod_name}` on {arch.isa_title}. -/"
+            ),
+            f"{base_vis} {base_cert_name} :",
+            *sig_lines,
+            *of_slices_lines,
+            "",
+        ]
+    )
+
+    if is_inl:
+        target_expr = f"({cfg.target_mod_expr})"
+        cast_sig = _format_cert_sig(arch, target_expr, cfg.max_bound)
+        slice_defs.extend(
+            [
+                *wrap_comment_lines(
+                    f"/-- Full kernel-checked inlined cert over "
+                    f"`{cfg.target_mod_expr}` on {arch.isa_title}, "
+                    f"transported in O(1) via `LinkedCert.castModule "
+                    f"{base_mod_name}.eq`. -/"
+                ),
+                f"noncomputable def {cfg.cert_name} :",
+                *cast_sig,
+                f"  {inl_cert_name}.castModule {base_mod_name}.eq",
+                "",
+            ]
+        )
+
+    axiom_lines: list[str] = []
+    if cfg.print_axioms and worst_case_axiom_len(ns, cfg.cert_name) <= MAX_AXIOM_REPORT_LEN:
+        axiom_lines = [*render_axiom_prints(ns, [cfg.cert_name]), ""]
+
+    doc_summary = (
+        f"Combines all `{total_slices}` flat 1-tier slices via "
+        f"`LinkedCert.ofChunkSlices` into `{cfg.cert_name}` over "
+        f"`{cfg.source_mod}.{cfg.target_mod_expr}` (`{cfg.total_fns}` functions)."
+    )
+    open_block = [*wrap_open_pairs(open_items)]
+    if slice_ns:
+        open_block.extend(wrap_open_pairs(slice_ns))
+
+    lines = [
+        "module",
+        "",
+        *pub_imports,
+        *meta_imports,
+        "",
+        "/-!",
+        f"# {cfg.prefix} Native Compilation Certificate on {arch.isa_title}",
+        "",
+        *wrap_comment_lines(doc_summary),
+        "-/",
+        "",
+        "set_option autoImplicit false",
+        "",
+        "public section",
+        "",
+        f"namespace {ns}",
+        "",
+        *open_block,
+        "",
+        *slice_defs,
+        *axiom_lines,
+        f"end {ns}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
     """Render `<Prefix>Cert.lean` combining slices via single-shot `checkLinkList`."""
+    if cfg.cert_style == "slices":
+        return render_cert_slices(cfg, arch)
     ns = f"{arch.ns_prefix}.{cfg.prefix}Cert"
     total_slices = len(cfg.slices)
     cert_fns = cfg.cert_fns
@@ -2615,22 +3021,57 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
         *arch.solve_stack_post,
         f"      ⟨s, Labels.label \"{cfg.entry_fn}\"⟩",
     ]
+    if cfg.abi_common:
+        abi_args = (
+            "⟨hrdi, hrsi, hrdx, hrcx, hr8⟩ hsp"
+            if arch.key == "amd64"
+            else "⟨hx0, hx1, hx2, hx3, hx4⟩ ⟨hra, hsp⟩"
+        )
+        solve_body = [
+            "  refine eventually_weaken _ _ _ _",
+            "    (fun _ ⟨hpc, ⟨hcal, hsp'⟩, m', hQ, hm'⟩ => ⟨hpc, hcal, hsp', m', hQ, hm'⟩)",
+            *_wrap_lean_app(
+                "    (Examples.Kissat.KissatCertCommon.solve_of_abi_fnspec",
+                [
+                    arch.kissat_abi,
+                    "hh",
+                    f'"{cfg.entry_fn}"',
+                    "hfnspec",
+                    "cnf_ptr",
+                    "cnf_len",
+                    "work_ptr",
+                    "work_len",
+                    "fuel",
+                    "hspec",
+                    "s",
+                    "ra",
+                    "R",
+                    abi_args,
+                    "hmem)",
+                ],
+                indent="      ",
+            ),
+        ]
+    else:
+        solve_body = [
+            f"  have hargs : {arch.targ}.ArgsIn (as := [i64, i64, i64, i64, i64])",
+            "      (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) s :=",
+            "    ⟨_, rfl,",
+            *arch.solve_hargs_chain,
+            "  refine eventually_weaken _ _ _ _ ?_",
+            f"    ({arch.of_returns_fn} hfnspec hspec s ra R hargs {arch.of_returns_args})",
+            f"  rintro st ⟨hpc, {arch.solve_rintro_cal}, hsp', rets, m', hQ, hrets, hm'⟩",
+            "  rcases rets with ⟨r, ⟨⟩⟩",
+            *arch.rets_extract_lines,
+            f"  exact ⟨hpc, {arch.solve_rintro_cal}, hsp', m', hQ, hm'⟩",
+        ]
     solve_block = [
         f"/-- Lifting any `FnSpec` for `\"{cfg.entry_fn}\"` at stack bound "
         "`b` and contract",
         f"`spec` to {arch.kraken_isa} `Eventually` via `{arch.of_returns_fn}`. -/",
         *solve_sig_lines[:-1],
         f"{solve_sig_lines[-1]} := by",
-        f"  have hargs : {arch.targ}.ArgsIn (as := [i64, i64, i64, i64, i64])",
-        "      (cnf_ptr, cnf_len, work_ptr, work_len, fuel, ()) s :=",
-        "    ⟨_, rfl,",
-        *arch.solve_hargs_chain,
-        "  refine eventually_weaken _ _ _ _ ?_",
-        f"    ({arch.of_returns_fn} hfnspec hspec s ra R hargs {arch.of_returns_args})",
-        f"  rintro st ⟨hpc, {arch.solve_rintro_cal}, hsp', rets, m', hQ, hrets, hm'⟩",
-        "  rcases rets with ⟨r, ⟨⟩⟩",
-        *arch.rets_extract_lines,
-        f"  exact ⟨hpc, {arch.solve_rintro_cal}, hsp', m', hQ, hm'⟩",
+        *solve_body,
     ]
 
     if cfg.is_inlined:
@@ -2736,12 +3177,23 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
         if audit_names:
             axiom_section = ["", *render_axiom_prints(ns, audit_names)]
 
+    link_pub_imports = [f"public import {cert_mod}"]
+    link_priv_imports: list[str] = []
+    link_open_items = ["LeanQbe.T", arch.ns_prefix, cert_mod, cfg.open_source_ns]
+    if cfg.abi_common:
+        link_pub_imports.append(
+            "public import LeanQbe.T.Examples.Kissat.KissatCertCommon"
+        )
+        link_priv_imports.append(f"import {arch.ns_prefix}.KissatAbi")
+        link_open_items.append("LeanQbe.T.Examples.Kissat.KissatCertCommon")
+    link_open_items.append("Kraken")
+    link_priv_imports.extend(["import Kraken.Mem", "import Kraken.Separation"])
+
     lines = [
         "module",
         "",
-        f"public import {cert_mod}",
-        "import Kraken.Mem",
-        "import Kraken.Separation",
+        *link_pub_imports,
+        *link_priv_imports,
         "",
         "/-!",
         f"# {cfg.prefix} Legal-Sig & Host Linking Helpers on {arch.isa_title}",
@@ -2759,9 +3211,7 @@ def render_cert_link(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
         f"namespace {ns}",
         "",
-        *wrap_open_pairs(
-            ["LeanQbe.T", arch.ns_prefix, cert_mod, cfg.open_source_ns, "Kraken"]
-        ),
+        *wrap_open_pairs(link_open_items),
         "",
         f"private theorem {cfg.stem}_legalSig_check :",
         f"    checkLegalSigAll {arch.lt} {cfg.fns} = true := by",
@@ -2821,6 +3271,10 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
     if cfg.wrapper_mode != "compiled":
         pub_imports.append(f"public import {cfg.proof_mod}")
     priv_imports: list[str] = [f"import {arch.lemmas_mod}"]
+    abi_full = cfg.abi_common and cfg.wrapper_mode == "full" and cfg.hdr_model == "m6"
+    if abi_full:
+        pub_imports.append("public import LeanQbe.T.Examples.Kissat.KissatCertCommon")
+        priv_imports.append(f"import {arch.ns_prefix}.KissatAbi")
     if cfg.wrapper_mode == "full" and cfg.hdr_model == "m6":
         sound_mod = (
             cfg.sat_sound_mod
@@ -2832,7 +3286,7 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
             if sound_mod:
                 pub_imports.append(f"public import {sound_mod}")
             pub_imports.append(f"public import {nv_mod}")
-        else:
+        elif not abi_full:
             if sound_mod:
                 priv_imports.append(f"import {sound_mod}")
             priv_imports.append(f"import {nv_mod}")
@@ -2857,6 +3311,8 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         link_mod,
         "Kraken",
     ]
+    if abi_full:
+        open_parts.append("LeanQbe.T.Examples.Kissat.KissatCertCommon")
     if cfg.wrapper_mode == "full" and cfg.hdr_model == "m6":
         open_parts.extend(
             [
@@ -2885,9 +3341,112 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         "",
     ]
 
+    abi_full = cfg.abi_common and cfg.wrapper_mode == "full" and cfg.hdr_model == "m6"
+    if cfg.wrapper_mode == "full":
+        if cfg.solve_mem_thm:
+            solve_in_lines = [
+                f"theorem solve_in_{cfg.mod} :",
+                f"    {cfg.entry_const} ∈ {cfg.mod}.fns :=",
+                f"  {cfg.solve_mem_thm}",
+            ]
+        else:
+            solve_in_lines = [
+                f"theorem solve_in_{cfg.mod} :",
+                f"    {cfg.entry_const} ∈ {cfg.mod}.fns := by",
+                "  exact List.mem_of_getElem?",
+                f"    (by t_kernel_rfl : ({cfg.mod}.fns)[{cfg.entry_idx}]? = "
+                f"some {cfg.entry_const})",
+            ]
+    else:
+        solve_in_lines = []
+
+    pkg_lines: list[str] = []
+    unsat_pkg = f"{cfg.stem}UnsatPkg"
+    nv_unsat_pkg = unsat_pkg
+    if abi_full:
+        assert cfg.inl_policy is not None
+        def _mk_unsat_pkg_lines(
+            pkg_nm: str, env_nm: str, mod_ok_nm: str, no_ex_nm: str
+        ) -> list[str]:
+            if cfg.solve_spec_has_sat:
+                spec_cb = [
+                    "        (fun r m' hdom hu _ htr hm' =>",
+                    "          hreq r m' hdom hu htr hm'))",
+                ]
+            else:
+                spec_cb = []
+            if not spec_cb:
+                intro_lines = _wrap_lean_app(
+                    f"      ({cfg.solve_spec_intro}",
+                    ["hcfit", "hwfit", "hm", "hreq)"],
+                    indent="        ",
+                )
+            else:
+                intro_lines = [
+                    f"      ({cfg.solve_spec_intro} hcfit hwfit hm",
+                    *spec_cb,
+                ]
+            return [
+                f"private def {pkg_nm} : KissatUnsatPkg where",
+                f"  mod := {cfg.mod}",
+                f"  inlPolicy := {cfg.inl_policy}",
+                f'  entryFn := "{cfg.entry_fn}"',
+                f"  entryFn_fn := {cfg.entry_const}",
+                "  entryFn_sig := ⟨rfl, rfl, rfl⟩",
+                f"  entry_mem := solve_in_{cfg.mod}",
+                f"  env := {env_nm}",
+                f"  moduleOk := {mod_ok_nm}",
+                f"  noExit := fun g _ => {no_ex_nm} g.name g.as g.rs",
+                "  solve_intro hcfit hwfit hm hreq :=",
+                f"    {env_nm}{cfg.solve_bytes_suffix}",
+                *intro_lines,
+                "",
+            ]
+
+        pkg_lines.extend(
+            [
+                *solve_in_lines,
+                "",
+                *_mk_unsat_pkg_lines(
+                    unsat_pkg, cfg.env, cfg.module_ok, cfg.no_exit
+                ),
+            ]
+        )
+        if (
+            cfg.unsat_env != cfg.env
+            or cfg.unsat_module_ok != cfg.module_ok
+            or cfg.unsat_no_exit != cfg.no_exit
+        ):
+            nv_unsat_pkg = f"{cfg.stem}NvUnsatPkg"
+            pkg_lines.extend(
+                _mk_unsat_pkg_lines(
+                    nv_unsat_pkg,
+                    cfg.unsat_env,
+                    cfg.unsat_module_ok,
+                    cfg.unsat_no_exit,
+                )
+            )
+        body.extend(pkg_lines)
+
     fnspec_thm = f"{cfg.stem}_module_fnspec"
     if cfg.wrapper_mode in ("fnspec", "full"):
-        if cfg.is_inlined:
+        if abi_full:
+            mk_call = _wrap_lean_app(
+                "  Examples.Kissat.KissatCertCommon.module_fnspec_of_abi",
+                [
+                    arch.kissat_abi,
+                    unsat_pkg,
+                    compiled_name,
+                    cfg.legal_sig,
+                    "hh",
+                    "k₀",
+                    "hc",
+                    "hu",
+                    "hf",
+                ],
+                indent="    ",
+            )
+        elif cfg.is_inlined:
             mk_call = [
                 f"  {cfg.prefix}CertLink.mk_module_fnspec {cfg.env} {cfg.module_ok}",
                 f"    (fun g _ => {cfg.no_exit} g.name g.as g.rs) k₀ hc hu hf",
@@ -2923,7 +3482,12 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
     if cfg.wrapper_mode == "full":
         if cfg.hdr_model == "m6":
             unsat_lines, unsat_audit = render_m6_unsat_section(
-                cfg, arch, compiled_name, ns
+                cfg,
+                arch,
+                compiled_name,
+                ns,
+                unsat_pkg=unsat_pkg,
+                nv_unsat_pkg=nv_unsat_pkg,
             )
             extra_helpers: list[str] = []
         else:
@@ -2948,36 +3512,25 @@ def render_top_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
                 f"{cfg.fns}_nodup",
                 "",
             ]
-        if cfg.solve_mem_thm:
-            solve_in_lines = [
-                f"theorem solve_in_{cfg.mod} :",
-                f"    {cfg.entry_const} ∈ {cfg.mod}.fns :=",
-                f"  {cfg.solve_mem_thm}",
-            ]
+        if abi_full:
+            body.extend(unsat_lines)
         else:
-            solve_in_lines = [
-                f"theorem solve_in_{cfg.mod} :",
-                f"    {cfg.entry_const} ∈ {cfg.mod}.fns := by",
-                "  exact List.mem_of_getElem?",
-                f"    (by t_kernel_rfl : ({cfg.mod}.fns)[{cfg.entry_idx}]? = "
-                f"some {cfg.entry_const})",
-            ]
-        body.extend(
-            [
-                *solve_in_lines,
-                "",
-                *extra_helpers,
-                "theorem sep_exists_eq {P Q : Mem 64 → Prop} {M : Mem 64}",
-                "    (h : (P ⋆ Q) M) : ∃ m : Mem 64, P m ∧ (Eq m ⋆ Q) M := by",
-                "  have hm := sep_mono (Q := Q)",
-                "    (fun x hx => (⟨x, ⟨hx, rfl⟩⟩ : ∃ m : Mem 64, P m ∧ Eq m x)) h",
-                "  rw [sep_ex_l] at hm",
-                "  obtain ⟨m, hm'⟩ := hm",
-                "  exact ⟨m, sep_pure_l (φ := P m) (P := Eq m) (R := Q).mp hm'⟩",
-                "",
-                *unsat_lines,
-            ]
-        )
+            body.extend(
+                [
+                    *solve_in_lines,
+                    "",
+                    *extra_helpers,
+                    "theorem sep_exists_eq {P Q : Mem 64 → Prop} {M : Mem 64}",
+                    "    (h : (P ⋆ Q) M) : ∃ m : Mem 64, P m ∧ (Eq m ⋆ Q) M := by",
+                    "  have hm := sep_mono (Q := Q)",
+                    "    (fun x hx => (⟨x, ⟨hx, rfl⟩⟩ : ∃ m : Mem 64, P m ∧ Eq m x)) h",
+                    "  rw [sep_ex_l] at hm",
+                    "  obtain ⟨m, hm'⟩ := hm",
+                    "  exact ⟨m, sep_pure_l (φ := P m) (P := Eq m) (R := Q).mp hm'⟩",
+                    "",
+                    *unsat_lines,
+                ]
+            )
 
     axiom_section: list[str] = []
     if cfg.print_axioms:
@@ -3084,7 +3637,12 @@ def _render_nv_payload_helpers(stem: str) -> list[str]:
 
 
 def render_m6_unsat_section(
-    cfg: CertConfig, arch: ArchSpec, compiled_name: str, ns: str
+    cfg: CertConfig,
+    arch: ArchSpec,
+    compiled_name: str,
+    ns: str,
+    unsat_pkg: str = "",
+    nv_unsat_pkg: str = "",
 ) -> tuple[list[str], list[str]]:
     """Render `432`-word `FullM6Hdr` UNSAT soundness and concrete non-vacuity wrappers."""
     unsat_thm = f"{cfg.stem}_solve_bytes_unsat_{arch.arch_tag}"
@@ -3094,8 +3652,8 @@ def render_m6_unsat_section(
     entry_label = f'Labels.label "{cfg.entry_fn}"'
     bound_expr = f"({compiled_name}.bound \"{cfg.entry_fn}\")"
     solve_name = f"solve_{arch.arch_tag}_of_fnspec"
-    nv_wlen = f"{cfg.stem}NvWorkLen"
-    nv_pay = f"{cfg.stem}NvPayload"
+    nv_wlen = "m6NvWorkLen" if cfg.abi_common else f"{cfg.stem}NvWorkLen"
+    nv_pay = "m6NvPayload" if cfg.abi_common else f"{cfg.stem}NvPayload"
 
     sound_ret = [
         "    Eventually (step1 Host.exe)",
@@ -3171,8 +3729,128 @@ def render_m6_unsat_section(
         f"\"{cfg.entry_fn}\"))",
     ]
     solve_iff = cfg.solve_bytes_suffix
+    if cfg.abi_common:
+        pkg_nm = unsat_pkg or f"{cfg.stem}UnsatPkg"
+        nv_pkg_nm = nv_unsat_pkg or pkg_nm
+        abi_args = (
+            "⟨hrdi, hrsi, hrdx, hrcx, hr8⟩ hsp"
+            if arch.key == "amd64"
+            else "⟨hx0, hx1, hx2, hx3, hx4⟩ ⟨hra, hsp⟩"
+        )
+        nv_exact = (
+            "  exact ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,\n"
+            "    h0, h1, h2, h3, h4, hsp, hdm, hev⟩"
+            if arch.key == "amd64"
+            else "  exact ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,\n"
+            "    h0, h1, h2, h3, h4, hsp.1, hsp.2, hdm, hev⟩"
+        )
+        unsat_proof_lines = [
+            "  refine eventually_weaken _ _ _ _",
+            "    (fun _ ⟨hpc, hdom, hu', ⟨hcal, hsp'⟩, hst⟩ =>",
+            "      ⟨hpc, hdom, hu', hcal, hsp', hst⟩)",
+            *_wrap_lean_app(
+                "    (Examples.Kissat.KissatCertCommon.solve_bytes_unsat_of_abi",
+                [
+                    arch.kissat_abi,
+                    pkg_nm,
+                    compiled_name,
+                    cfg.legal_sig,
+                    "hh",
+                    "k₀",
+                    "hc",
+                    "hu",
+                    "cnf_ptr",
+                    "work_ptr",
+                    "fuel",
+                    "cnfBytes",
+                    "wlen",
+                    "hcfit",
+                    "hwfit",
+                    "s",
+                    "ra",
+                    "R",
+                    abi_args,
+                    "hmem)",
+                ],
+                indent="      ",
+            ),
+        ]
+        correct_proof_lines = _wrap_lean_app(
+            "  Examples.Kissat.KissatCertCommon.unsat_correct_of_abi",
+            [
+                arch.kissat_abi,
+                pkg_nm,
+                compiled_name,
+                cfg.legal_sig,
+                "hh",
+                "k₀",
+                "hc",
+                "hu",
+                "cnf_ptr",
+                "work_ptr",
+                "fuel",
+                "cnfBytes",
+                "wlen",
+                "hcfit",
+                "hwfit",
+                "s",
+                "ra",
+                "R",
+                abi_args,
+                "hmem",
+            ],
+        )
+        nv_prefix_helpers: list[str] = []
+        unsat_head = [f"theorem {unsat_thm} :", *unsat_ret[:-1], f"{unsat_ret[-1]} := by"]
+        sound_head = [f"theorem {sound_thm} :", *sound_ret[:-1], f"{sound_ret[-1]} :="]
+    else:
+        nv_prefix_helpers = _render_nv_payload_helpers(cfg.stem)
+        unsat_head = [f"theorem {unsat_thm} :", *unsat_ret[:-1], f"{unsat_ret[-1]} := by"]
+        unsat_proof_lines = [
+            f"  have hfn := ({cfg.stem}_module_fnspec k₀ hc hu "
+            f"solve_in_{cfg.mod}).2",
+            *arch.unsat_hm0(bound_expr),
+            "    rw [← sep_assoc]; exact hmem",
+            "  obtain ⟨m, hm_in, hm_dmem⟩ := sep_exists_eq hm0",
+            *arch.unsat_hm_dmem(bound_expr),
+            "    rw [sep_assoc]; exact hm_dmem",
+            f"  have hspec : {cfg.env} \"{cfg.entry_fn}\" "
+            "[i64, i64, i64, i64, i64] [i64]",
+            "      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr,",
+            "        BitVec.ofNat 64 wlen, fuel, ()) m",
+            "      (fun r m' =>",
+            "        (r.fst = 0#64 ∨ r.fst = 10#64 ∨ r.fst = 20#64) ∧",
+            "        (r.fst = 20#64 →",
+            "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
+            "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
+            "      (fun _ _ _ _ => False) :=",
+            f"    {cfg.env}{solve_iff}",
+            f"      ({cfg.solve_spec_intro} (R := emp) hcfit hwfit",
+            "        (by rw [sep_emp]; exact hm_in)",
+            unsat_lam,
+            "          by rw [sep_emp] at hm'; exact ⟨hdom, hu, hm'⟩))",
+            "  refine eventually_weaken _ _ _ _ ?_",
+            f"    ({cfg.prefix}CertLink.{solve_name} hfn cnf_ptr _ "
+            "work_ptr _ fuel",
+            f"      hspec s ra R {arch.unsat_solve_call_hyps})",
+            f"  rintro st ⟨hpc, {arch.unsat_rintro_cal}, {arch.unsat_rintro_sp}, "
+            "m', ⟨hdom, hu', hm'⟩, hst⟩",
+            "  rw [sep_assoc] at hst",
+            "  have hst' := sep_mono (fun _ heq => heq ▸ hm') hst",
+            "  rw [← sep_assoc] at hst'",
+            f"  exact ⟨hpc, hdom, hu', {arch.unsat_rintro_cal}, "
+            f"{arch.unsat_rintro_sp}, hst'⟩",
+        ]
+        sound_head = [f"theorem {sound_thm} :", *sound_ret[:-1], f"{sound_ret[-1]} :="]
+        correct_proof_lines = [
+            "  eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1, h.2.2.1⟩)",
+            f"    ({unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
+            "hcfit hwfit",
+            f"      s ra R {arch.solve_call_hyps})",
+        ]
+
     lines = [
-        *_render_nv_payload_helpers(cfg.stem),
+        *nv_prefix_helpers,
         "section Unsat",
         "",
         "variable [hh : Host] (k₀ : Nat)",
@@ -3192,54 +3870,15 @@ def render_m6_unsat_section(
             f"/-- Unconditional end-to-end {arch.isa_title} UNSAT soundness + "
             f"framing for `{cfg.mod}` (`432`-word `FullM6Hdr`). -/"
         ),
-        f"theorem {unsat_thm} :",
-        *unsat_ret[:-1],
-        f"{unsat_ret[-1]} := by",
-        f"  have hfn := ({cfg.stem}_module_fnspec k₀ hc hu "
-        f"solve_in_{cfg.mod}).2",
-        *arch.unsat_hm0(bound_expr),
-        "    rw [← sep_assoc]; exact hmem",
-        "  obtain ⟨m, hm_in, hm_dmem⟩ := sep_exists_eq hm0",
-        *arch.unsat_hm_dmem(bound_expr),
-        "    rw [sep_assoc]; exact hm_dmem",
-        f"  have hspec : {cfg.env} \"{cfg.entry_fn}\" "
-        "[i64, i64, i64, i64, i64] [i64]",
-        "      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr,",
-        "        BitVec.ofNat 64 wlen, fuel, ()) m",
-        "      (fun r m' =>",
-        "        (r.fst = 0#64 ∨ r.fst = 10#64 ∨ r.fst = 20#64) ∧",
-        "        (r.fst = 20#64 →",
-        "          ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧",
-        "        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen) m')",
-        "      (fun _ _ _ _ => False) :=",
-        f"    {cfg.env}{solve_iff}",
-        f"      ({cfg.solve_spec_intro} (R := emp) hcfit hwfit",
-        "        (by rw [sep_emp]; exact hm_in)",
-        unsat_lam,
-        "          by rw [sep_emp] at hm'; exact ⟨hdom, hu, hm'⟩))",
-        "  refine eventually_weaken _ _ _ _ ?_",
-        f"    ({cfg.prefix}CertLink.{solve_name} hfn cnf_ptr _ "
-        "work_ptr _ fuel",
-        f"      hspec s ra R {arch.unsat_solve_call_hyps})",
-        f"  rintro st ⟨hpc, {arch.unsat_rintro_cal}, {arch.unsat_rintro_sp}, "
-        "m', ⟨hdom, hu', hm'⟩, hst⟩",
-        "  rw [sep_assoc] at hst",
-        "  have hst' := sep_mono (fun _ heq => heq ▸ hm') hst",
-        "  rw [← sep_assoc] at hst'",
-        f"  exact ⟨hpc, hdom, hu', {arch.unsat_rintro_cal}, "
-        f"{arch.unsat_rintro_sp}, hst'⟩",
+        *unsat_head,
+        *unsat_proof_lines,
         "",
         *wrap_comment_lines(
             f"/-- Answer-only {arch.isa_title} UNSAT soundness corollary for "
             f"`{cfg.mod}`. -/"
         ),
-        f"theorem {sound_thm} :",
-        *sound_ret[:-1],
-        f"{sound_ret[-1]} :=",
-        "  eventually_weaken _ _ _ _ (fun _ h => ⟨h.1, h.2.1, h.2.2.1⟩)",
-        f"    ({unsat_thm} k₀ hc hu cnf_ptr work_ptr fuel cnfBytes wlen "
-        "hcfit hwfit",
-        f"      s ra R {arch.solve_call_hyps})",
+        *sound_head,
+        *correct_proof_lines,
         "",
     ]
 
@@ -3278,106 +3917,150 @@ def render_m6_unsat_section(
         )
         audit_names.append("ax_unsat_sound")
 
+    if cfg.abi_common:
+        pkg_nm = unsat_pkg or f"{cfg.stem}UnsatPkg"
+        nv_pkg_nm = nv_unsat_pkg or pkg_nm
+        nv_exact = (
+            "  exact ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,\n"
+            "    h0, h1, h2, h3, h4, hsp, hdm, hev⟩"
+            if arch.key == "amd64"
+            else "  exact ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,\n"
+            "    h0, h1, h2, h3, h4, hsp.1, hsp.2, hdm, hev⟩"
+        )
+        nv_body_lines = [
+            f"theorem {nv_thm} [hh : Host] (k₀ : Nat)",
+            f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀) "
+            "(hu : Host.LabelsUnique) :",
+            *nv_ret[:-1],
+            f"{nv_ret[-1]} := by",
+            "  obtain ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,",
+            "    ⟨h0, h1, h2, h3, h4⟩, hsp, hdm, hev⟩ :=",
+            *_wrap_lean_app(
+                "    Examples.Kissat.KissatCertCommon.unsat_nonvacuous_of_abi",
+                [arch.kissat_abi, nv_pkg_nm, compiled_name, cfg.legal_sig, "hh", "k₀", "hc", "hu"],
+                indent="      ",
+            ),
+            *nv_exact.splitlines(),
+            "",
+        ]
+        run_body_lines = [
+            f"theorem {run_thm} :",
+            *run_ret[:-1],
+            f"{run_ret[-1]} :=",
+            *_wrap_lean_app(
+                "  Examples.Kissat.KissatCertCommon.run_unsat_of_abi",
+                [arch.kissat_abi, nv_pkg_nm, compiled_name, cfg.legal_sig],
+            ),
+            "",
+        ]
+    else:
+        nv_body_lines = [
+            f"theorem {nv_thm} [hh : Host] (k₀ : Nat)",
+            f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀) "
+            "(hu : Host.LabelsUnique) :",
+            *nv_ret[:-1],
+            f"{nv_ret[-1]} := by",
+            f"  have hfn : {arch.targ}.FnSpec hh \"{cfg.entry_fn}\"",
+            f"      ({cfg.unsat_env} \"{cfg.entry_fn}\" "
+            "[i64, i64, i64, i64, i64] [i64])",
+            f"      ({compiled_name}.bound \"{cfg.entry_fn}\") 0 :=",
+            f"    ({cfg.prefix}CertLink.mk_module_fnspec {cfg.unsat_env} "
+            f"{cfg.unsat_module_ok}",
+            f"      (fun g _ => {cfg.unsat_no_exit} g.name g.as g.rs) k₀ hc hu "
+            f"solve_in_{cfg.mod}).2",
+            f"  let b := {compiled_name}.bound \"{cfg.entry_fn}\"",
+            f"  let bs := {nv_pay} nvM6UnsatBytes",
+            f"  let s := {arch.init_name}.initState "
+            "(as := [i64, i64, i64, i64, i64]) b bs",
+            "    (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,",
+            f"      nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ())",
+            *arch.sat_nv_init_proof(
+                compiled_name, "nvM6UnsatBytes", "nvM6UnsatWorkPtr", nv_wlen, nv_pay
+            ),
+            f"  refine ⟨nvM6CnfPtr, nvM6UnsatWorkPtr, 16#64, nvM6UnsatBytes, "
+            f"{nv_wlen},",
+            "    s, 0x1234, emp, by decide, by decide, rfl, rfl, rfl, rfl, rfl,",
+            *([] if arch.key == "amd64" else ["    rfl,"]),
+            "    hhsp, hdm, ?_⟩",
+            f"  have hspec : {cfg.unsat_env} \"{cfg.entry_fn}\" "
+            "[i64, i64, i64, i64, i64] [i64]",
+            "      (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,",
+            f"        nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ())",
+            "      (bs.At 0x1000#64) (fun r _ => r.fst = 20#64 ∧ nvM6UnsatCnf.Unsat)",
+            "      (fun _ _ _ _ => False) :=",
+            f"    {cfg.unsat_env}{solve_iff}",
+            f"      ({cfg.solve_spec_intro} (R := emp) "
+            "(by decide) (by decide)",
+            "        (by",
+            f"          rw [sep_emp, nvM6UnsatWorkPtr_eq_fullNvWorkPtr]",
+            f"          exact {nv_pay}_sep nvM6UnsatBytes (by decide))",
+            nv_lam,
+            f"          ⟨htr 1 2 9 (by decide) (by decide) (by decide) "
+            f"{cfg.stem}Nv_unsat_bound",
+            "            (by decide) nvM6Unsat_header nvM6Unsat_unitTrace, "
+            "nvM6UnsatCnf_unsat⟩))",
+            f"  have hev := {cfg.prefix}CertLink.{solve_name} hfn nvM6CnfPtr _",
+            "    nvM6UnsatWorkPtr _ 16#64 hspec s 0x1234 emp",
+            "    rfl rfl rfl rfl rfl"
+            + ("" if arch.key == "amd64" else " rfl")
+            + " hhsp h1'",
+            "  exact eventually_weaken _ _ _ _",
+            "    (fun _ ⟨hpc, _, _, _, ⟨h20, huns⟩, _⟩ =>",
+            "      ⟨hpc, h20, nvM6UnsatCnf, parseDimacs_nvM6UnsatBytes, huns⟩)",
+            "    hev",
+            "",
+        ]
+        run_body_lines = [
+            f"theorem {run_thm} :",
+            *run_ret[:-1],
+            f"{run_ret[-1]} := by",
+            f"  refine {compiled_name}.eventually_ret1_sep_i64_of_legalSigAll_optInlinePolicy",
+            f"    {arch.init_name}",
+            f"    {cfg.unsat_env} {cfg.unsat_module_ok} {cfg.legal_sig} "
+            f"solve_in_{cfg.mod} rfl",
+            f"    ({cfg.unsat_no_exit} \"{cfg.entry_fn}\" "
+            "[i64, i64, i64, i64, i64] [i64])",
+            f"    ({nv_pay} nvM6UnsatBytes)",
+            "    (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,",
+            f"      nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ())",
+            "    20#64",
+            "    (fun m' => nvM6UnsatCnf.Unsat ∧",
+            "      (bytes nvM6CnfPtr nvM6UnsatBytes ⋆",
+            f"        region nvM6UnsatWorkPtr {nv_wlen} ⋆ emp) m')",
+            f"    (by rw [{nv_pay}_length]; unfold {nv_wlen}; decide) rfl",
+            "    (Q := fun r m' => r = (20#64, ()) ∧ nvM6UnsatCnf.Unsat ∧",
+            "      (bytes nvM6CnfPtr nvM6UnsatBytes ⋆",
+            f"        region nvM6UnsatWorkPtr {nv_wlen} ⋆ emp) m')",
+            "    ?_ (fun _ _ h => h) (by decide)",
+            f"  exact {cfg.unsat_env}{solve_iff}",
+            f"    ({cfg.solve_spec_intro} (R := emp) "
+            "(by decide) (by decide)",
+            "      (by",
+            f"        rw [sep_emp, nvM6UnsatWorkPtr_eq_fullNvWorkPtr]",
+            f"        exact {nv_pay}_sep nvM6UnsatBytes (by decide))",
+            run_lam,
+            f"        ⟨congrArg (·, ()) (htr 1 2 9 (by decide) (by decide) (by decide) "
+            f"{cfg.stem}Nv_unsat_bound",
+            "          (by decide) nvM6Unsat_header nvM6Unsat_unitTrace),",
+            "         nvM6UnsatCnf_unsat, hm'⟩))",
+            "",
+        ]
+
     lines.extend(
         [
             "end Unsat",
             "",
             *wrap_comment_lines(
-            f"/-- Unconditional concrete {arch.isa_title} UNSAT non-vacuity for "
-            f"`{cfg.mod}` on `432`-word `FullM6Hdr` (`nvM6UnsatBytes`, "
-            f"`{M6_NV_WORK_LEN}`-byte workspace, `fuel = 16`). -/"
-        ),
-        f"theorem {nv_thm} [hh : Host] (k₀ : Nat)",
-        f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀) "
-        "(hu : Host.LabelsUnique) :",
-        *nv_ret[:-1],
-        f"{nv_ret[-1]} := by",
-        f"  have hfn : {arch.targ}.FnSpec hh \"{cfg.entry_fn}\"",
-        f"      ({cfg.unsat_env} \"{cfg.entry_fn}\" "
-        "[i64, i64, i64, i64, i64] [i64])",
-        f"      ({compiled_name}.bound \"{cfg.entry_fn}\") 0 :=",
-        f"    ({cfg.prefix}CertLink.mk_module_fnspec {cfg.unsat_env} "
-        f"{cfg.unsat_module_ok}",
-        f"      (fun g _ => {cfg.unsat_no_exit} g.name g.as g.rs) k₀ hc hu "
-        f"solve_in_{cfg.mod}).2",
-        f"  let b := {compiled_name}.bound \"{cfg.entry_fn}\"",
-        f"  let bs := {nv_pay} nvM6UnsatBytes",
-        f"  let s := {arch.init_name}.initState "
-        "(as := [i64, i64, i64, i64, i64]) b bs",
-        "    (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,",
-        f"      nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ())",
-        *arch.sat_nv_init_proof(
-            compiled_name, "nvM6UnsatBytes", "nvM6UnsatWorkPtr", nv_wlen, nv_pay
-        ),
-        f"  refine ⟨nvM6CnfPtr, nvM6UnsatWorkPtr, 16#64, nvM6UnsatBytes, "
-        f"{nv_wlen},",
-        "    s, 0x1234, emp, by decide, by decide, rfl, rfl, rfl, rfl, rfl,",
-        *([] if arch.key == "amd64" else ["    rfl,"]),
-        "    hhsp, hdm, ?_⟩",
-        f"  have hspec : {cfg.unsat_env} \"{cfg.entry_fn}\" "
-        "[i64, i64, i64, i64, i64] [i64]",
-        "      (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,",
-        f"        nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ())",
-        "      (bs.At 0x1000#64) (fun r _ => r.fst = 20#64 ∧ nvM6UnsatCnf.Unsat)",
-        "      (fun _ _ _ _ => False) :=",
-        f"    {cfg.unsat_env}{solve_iff}",
-        f"      ({cfg.solve_spec_intro} (R := emp) "
-        "(by decide) (by decide)",
-        "        (by",
-        f"          rw [sep_emp, nvM6UnsatWorkPtr_eq_fullNvWorkPtr]",
-        f"          exact {nv_pay}_sep nvM6UnsatBytes (by decide))",
-        nv_lam,
-        f"          ⟨htr 1 2 9 (by decide) (by decide) (by decide) "
-        f"{cfg.stem}Nv_unsat_bound",
-        "            (by decide) nvM6Unsat_header nvM6Unsat_unitTrace, "
-        "nvM6UnsatCnf_unsat⟩))",
-        f"  have hev := {cfg.prefix}CertLink.{solve_name} hfn nvM6CnfPtr _",
-        "    nvM6UnsatWorkPtr _ 16#64 hspec s 0x1234 emp",
-        "    rfl rfl rfl rfl rfl"
-        + ("" if arch.key == "amd64" else " rfl")
-        + " hhsp h1'",
-        "  exact eventually_weaken _ _ _ _",
-        "    (fun _ ⟨hpc, _, _, _, ⟨h20, huns⟩, _⟩ =>",
-        "      ⟨hpc, h20, nvM6UnsatCnf, parseDimacs_nvM6UnsatBytes, huns⟩)",
-        "    hev",
-        "",
-        *wrap_comment_lines(
-            f"/-- Closed concrete-host {arch.isa_title} UNSAT execution witness "
-            f"on `{compiled_name}.host` (`432`-word `FullM6Hdr`). -/"
-        ),
-        f"theorem {run_thm} :",
-        *run_ret[:-1],
-        f"{run_ret[-1]} := by",
-        f"  refine {compiled_name}.eventually_ret1_sep_i64_of_legalSigAll_optInlinePolicy",
-        f"    {arch.init_name}",
-        f"    {cfg.unsat_env} {cfg.unsat_module_ok} {cfg.legal_sig} "
-        f"solve_in_{cfg.mod} rfl",
-        f"    ({cfg.unsat_no_exit} \"{cfg.entry_fn}\" "
-        "[i64, i64, i64, i64, i64] [i64])",
-        f"    ({nv_pay} nvM6UnsatBytes)",
-        "    (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,",
-        f"      nvM6UnsatWorkPtr, BitVec.ofNat 64 {nv_wlen}, 16#64, ())",
-        "    20#64",
-        "    (fun m' => nvM6UnsatCnf.Unsat ∧",
-        "      (bytes nvM6CnfPtr nvM6UnsatBytes ⋆",
-        f"        region nvM6UnsatWorkPtr {nv_wlen} ⋆ emp) m')",
-        f"    (by rw [{nv_pay}_length]; unfold {nv_wlen}; decide) rfl",
-        "    (Q := fun r m' => r = (20#64, ()) ∧ nvM6UnsatCnf.Unsat ∧",
-        "      (bytes nvM6CnfPtr nvM6UnsatBytes ⋆",
-        f"        region nvM6UnsatWorkPtr {nv_wlen} ⋆ emp) m')",
-        "    ?_ (fun _ _ h => h) (by decide)",
-        f"  exact {cfg.unsat_env}{solve_iff}",
-        f"    ({cfg.solve_spec_intro} (R := emp) "
-        "(by decide) (by decide)",
-        "      (by",
-        f"        rw [sep_emp, nvM6UnsatWorkPtr_eq_fullNvWorkPtr]",
-        f"        exact {nv_pay}_sep nvM6UnsatBytes (by decide))",
-        run_lam,
-        f"        ⟨congrArg (·, ()) (htr 1 2 9 (by decide) (by decide) (by decide) "
-        f"{cfg.stem}Nv_unsat_bound",
-        "          (by decide) nvM6Unsat_header nvM6Unsat_unitTrace),",
-        "         nvM6UnsatCnf_unsat, hm'⟩))",
-        "",
+                f"/-- Unconditional concrete {arch.isa_title} UNSAT non-vacuity for "
+                f"`{cfg.mod}` on `432`-word `FullM6Hdr` (`nvM6UnsatBytes`, "
+                f"`{M6_NV_WORK_LEN}`-byte workspace, `fuel = 16`). -/"
+            ),
+            *nv_body_lines,
+            *wrap_comment_lines(
+                f"/-- Closed concrete-host {arch.isa_title} UNSAT execution witness "
+                f"on `{compiled_name}.host` (`432`-word `FullM6Hdr`). -/"
+            ),
+            *run_body_lines,
         ]
     )
 
@@ -4245,7 +4928,9 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         if args.solve_spec_no_sat
         else (preset.solve_spec_has_sat if preset else True)
     )
-    solve_bytes_suffix = preset.solve_bytes_suffix if preset else "_solve_bytes_iff.mpr"
+    solve_bytes_suffix = args.solve_bytes_suffix or (
+        preset.solve_bytes_suffix if preset else "_solve_bytes_iff.mpr"
+    )
     solve_mem_thm = args.solve_mem_thm or (preset.solve_mem_thm if preset else None)
     max_dirs = (
         args.max_dirs
@@ -4305,6 +4990,16 @@ def build_config(args: argparse.Namespace) -> CertConfig:
     reuse_wf: str | None = None
     reuse_inl_mod_sym: str | None = None
     reuse_inl_policy: str | None = None
+    cert_style: str = args.cert_style
+    abi_common: bool = bool(args.abi_common)
+    fns_length_thm: str | None = args.fns_length_thm
+    if abi_common:
+        if args.wrapper_mode == "full" and hdr_model != "m6":
+            raise ValueError("--abi-common with --wrapper-mode full requires --hdr-model m6")
+        if args.wrapper_mode == "full" and not inl_mod:
+            raise ValueError("--abi-common with --wrapper-mode full requires an inlined module")
+        if args.max_bound != 2048:
+            raise ValueError("--abi-common requires --max-bound 2048")
     if args.reuse_spec:
         rspec = json.loads(Path(args.reuse_spec).read_text(encoding="utf-8"))
         reuse_prefix = str(rspec["reuse_prefix"])
@@ -4450,6 +5145,9 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         reuse_wf=reuse_wf,
         reuse_inl_mod_sym=reuse_inl_mod_sym,
         reuse_inl_policy=reuse_inl_policy,
+        cert_style=cert_style,
+        abi_common=abi_common,
+        fns_length_thm=fns_length_thm,
     )
 
 
@@ -4665,6 +5363,39 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=("full", "fnspec", "compiled"),
         default="full",
         help="Top wrapper detail level in <Prefix>.lean (default: full).",
+    )
+    ap.add_argument(
+        "--cert-style",
+        choices=("ladder", "slices"),
+        default="ladder",
+        help=(
+            "Certificate assembly style in <Prefix>Cert.lean: legacy 'ladder' "
+            "(default) or O(1)-boilerplate 'slices' (LinkedCert.ofChunkSlices)."
+        ),
+    )
+    ap.add_argument(
+        "--abi-common",
+        dest="abi_common",
+        action="store_true",
+        default=False,
+        help=(
+            "Delegate <Prefix>CertLink.lean and M6Hdr <Prefix>.lean proofs to "
+            "arch-free KissatCertCommon + {Amd64,Arm64}.KissatAbi (opt-in)."
+        ),
+    )
+    ap.add_argument(
+        "--no-abi-common",
+        dest="abi_common",
+        action="store_false",
+        help="Emit inline per-arch CertLink/Top proofs (default).",
+    )
+    ap.add_argument(
+        "--fns-length-thm",
+        help="Explicit `<cert_fns>.length = total` theorem name for --cert-style slices.",
+    )
+    ap.add_argument(
+        "--solve-bytes-suffix",
+        help="Override `<env><suffix>` bridge for M6Hdr solve spec (default: preset or _solve_bytes_iff.mpr).",
     )
     ap.add_argument(
         "--dry-run",

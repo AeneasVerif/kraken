@@ -20,6 +20,7 @@ public import LeanQbe.T.Amd64.IselVec
 public import LeanQbe.T.Amd64.IselVecLemmas1
 public import LeanQbe.T.Amd64.IselVecLemmas2
 public import LeanQbe.T.Amd64.IselVecLemmas3
+public import LeanQbe.T.Amd64.KissatAbi
 public import LeanQbe.T.Amd64.KissatM5
 public import LeanQbe.T.Amd64.KissatM5Bounds
 public import LeanQbe.T.Amd64.KissatM5Cert
