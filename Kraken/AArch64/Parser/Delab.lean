@@ -937,7 +937,8 @@ def sizedUnexpander : Unexpander
   | `($_ $dir $sz) => do
     let `(⸨dir| $dir⸩) := dir | throw ()
     let i ← match sz with
-      | `(Kraken.Layout.size $i) | `(Layout.size $i) | `(size $i) => pure i
+      | `(Kraken.Layout.dirSize $_ $_ $i) | `(Layout.dirSize $_ $_ $i) | `(dirSize $_ $_ $i)
+      | `($(_).dirSize $_ $i) => pure i
       | _ => throw ()
     `(⸨dir $i | $dir ⸩)
   | _ => throw ()

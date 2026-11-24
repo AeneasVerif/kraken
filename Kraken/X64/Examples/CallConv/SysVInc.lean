@@ -13,7 +13,7 @@ public import Kraken.X64.SysV
 Both satisfy `IncSpec`.
 -/
 
-open Kraken (WellFormedLayout)
+open Kraken (Layout)
 open Kraken.X64
 open Kraken.X64.Parser
 open Kraken.X64.Stack
@@ -36,25 +36,25 @@ sysv_caller:
   addq $8, %rsp
   ret⸩
 
-variable [WellFormedLayout prog]
+variable (layout : Layout) [layout.WellFormed prog]
 
 /-- The address of label `l` in `prog`. -/
-abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels prog.toExecutable) l
+abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels (layout.apply prog)) l
 
-private theorem lbl_inc : lbl "sysv_inc" = prog.toExecutable.addrOf 0 :=
+private theorem lbl_inc : lbl layout "sysv_inc" = (layout.apply prog).addrOf 0 :=
   Labels.label!_of_label? (label?_eq_some_addrOf rfl)
 
-private theorem lbl_caller : lbl "sysv_caller" = prog.toExecutable.addrOf 4 :=
+private theorem lbl_caller : lbl layout "sysv_caller" = (layout.apply prog).addrOf 4 :=
   Labels.label!_of_label? (label?_eq_some_addrOf rfl)
 
 /-- The specification of an increment procedure at `entry` that needs `d` bytes of stack. -/
 abbrev IncSpec (d : Nat) (entry : Int64) : Prop :=
   ∀ (n : BitVec 64) (R : Mem 64 → Prop) (ra : Int64),
-    prog.toExecutable.ProcSpec entry ra
+    (layout.apply prog).ProcSpec entry ra
       (fun t => SysV.Call d R ra t ∧ ArgU64 t n)
       (fun t s => SysV.Ret d R ra t s ∧ RetU64 s (n + 1))
 
-theorem inc_spec : IncSpec 0 (lbl "sysv_inc") := by
+theorem inc_spec : IncSpec layout 0 (lbl layout "sysv_inc") := by
   rw [lbl_inc]
   rintro n R ra t ⟨⟨-, hdf, hmem⟩, harg⟩
   sym => kstep; tactic =>
@@ -64,15 +64,15 @@ theorem inc_spec : IncSpec 0 (lbl "sysv_inc") := by
   · exact Owned.intro hmem (Int.toBytes_length _ _)
   · simp (config := { zetaDelta := true }) [harg, BitVec.add_comm]
 
-omit [WellFormedLayout prog] in
+omit [layout.WellFormed prog] in
 private theorem reserve16_eq (r : BitVec 64) :
     Reserve 16 r = Owned 8 (r - 8 - 8) ⋆ Owned 8 (r - 8) := by
   rw [Reserve, show (16 : Nat) = 8 + 8 from rfl, Owned.split 8 8 _ (by omega)]
   congr 2 <;> bv_omega
 
 /-- The caller needs 16 bytes of stack: 8 of padding and 8 for the callee's return address. -/
-theorem caller_spec (hinc : IncSpec 0 (lbl "sysv_inc")) :
-    IncSpec 16 (lbl "sysv_caller") := by
+theorem caller_spec (hinc : IncSpec layout 0 (lbl layout "sysv_inc")) :
+    IncSpec layout 16 (lbl layout "sysv_caller") := by
   rw [lbl_inc] at hinc
   rw [lbl_caller]
   rintro n R ra t ⟨⟨hal, hdf, hmem⟩, harg⟩
@@ -88,10 +88,10 @@ theorem caller_spec (hinc : IncSpec 0 (lbl "sysv_inc")) :
   have hr : r = t.regs.rsp.toBitVec - 8 - 8 := by simp (config := { zetaDelta := true })
   clear_value v st r
   subst hr
-  have hpush := Mem.storeInt_sep _ 8 bs _ _ ⟨hmem, hbs⟩ (prog.toExecutable.addrOf 7).toBitVec.toInt
+  have hpush := Mem.storeInt_sep _ 8 bs _ _ ⟨hmem, hbs⟩ ((layout.apply prog).addrOf 7).toBitVec.toInt
   refine eventually_trans _ _ _ _
     (hinc n (RetCell ra t.regs.rsp.toBitVec ⋆ (Owned 8 (t.regs.rsp.toBitVec - 8) ⋆ R))
-      (prog.toExecutable.addrOf 7) _ ⟨⟨?_, hdf, ?_⟩, harg⟩) ?_
+      ((layout.apply prog).addrOf 7) _ ⟨⟨?_, hdf, ?_⟩, harg⟩) ?_
   · dsimp only at hal ⊢
     bv_omega
   · simp only [Owned.zero, emp_sep]

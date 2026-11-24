@@ -5,7 +5,7 @@ import Kraken.AArch64.Parser
 import Kraken.AArch64.Semantics
 import Kraken.Tactics
 
-open Kraken (Layout WellFormedLayout)
+open Kraken (Layout)
 open Kraken.AArch64
 open Kraken.AArch64.Parser
 
@@ -25,8 +25,8 @@ done:
 ⸩
 
 -- The hygienic state alias must not capture an existing `ss`.
-example [layout : Layout kprologueTestProgram] (P : Prop) (ss : Nat) (s : MachineData) (hP : P) :
-    Eventually (step1 kprologueTestProgram.toExecutable) (fun _ => P) ⟨s, layout.start⟩ := by
+example (layout : Layout) (P : Prop) (ss : Nat) (s : MachineData) (hP : P) :
+    Eventually (step1 (layout.apply kprologueTestProgram)) (fun _ => P) ⟨s, layout.start⟩ := by
   kprologue kprologueTestProgram with s
   have _ : Nat := ss
   have _ : UInt64 := X30
@@ -39,22 +39,22 @@ example [layout : Layout kprologueTestProgram] (P : Prop) (ss : Nat) (s : Machin
 error: kprologue: refusing to shadow existing locals: X0
 -/
 #guard_msgs in
-example [layout : Layout kprologueTestProgram] (X0 : UInt64) (s : MachineData) :
-    Eventually (step1 kprologueTestProgram.toExecutable) (fun _ => True) ⟨s, layout.start⟩ := by
+example (layout : Layout) (X0 : UInt64) (s : MachineData) :
+    Eventually (step1 (layout.apply kprologueTestProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
   kprologue kprologueTestProgram with s
 
 #guard_msgs (substring := true) in
 /--
 error: 'change' tactic failed
 -/
-example [layout : Layout kprologueTestProgram] [Layout kprologueOtherProgram] (s : MachineData) :
-    Eventually (step1 kprologueTestProgram.toExecutable) (fun _ => True) ⟨s, layout.start⟩ := by
+example (layout : Layout) (s : MachineData) :
+    Eventually (step1 (layout.apply kprologueTestProgram)) (fun _ => True) ⟨s, layout.start⟩ := by
   kprologue kprologueOtherProgram with s
 
 -- `kstep 1` skips leading zero-size `.label` directives and steps one instruction.
-example [layout : WellFormedLayout kstepLabelProgram] (s : MachineData) :
-    Eventually (step1 kstepLabelProgram.toExecutable)
-      (fun s' => s'.pc = kstepLabelProgram.toExecutable.addrOf 2 ∧ s'.1.regs.X0 = 1)
+example (layout : Layout) [layout.WellFormed kstepLabelProgram] (s : MachineData) :
+    Eventually (step1 (layout.apply kstepLabelProgram))
+      (fun s' => s'.pc = (layout.apply kstepLabelProgram).addrOf 2 ∧ s'.1.regs.X0 = 1)
       ⟨s, layout.start⟩ := by
   kprologue kstepLabelProgram with s
   sym => kstep 1; tactic =>
@@ -63,9 +63,9 @@ example [layout : WellFormedLayout kstepLabelProgram] (s : MachineData) :
   bv_decide
 
 -- `kstep` follows unconditional branches to internal labels.
-example [layout : WellFormedLayout kstepJumpProgram] (s : MachineData) :
-    Eventually (step1 kstepJumpProgram.toExecutable)
-      (fun s' => s'.pc = kstepJumpProgram.toExecutable.addrOf kstepJumpProgram.length ∧ s'.1.regs.X0 = 42)
+example (layout : Layout) [layout.WellFormed kstepJumpProgram] (s : MachineData) :
+    Eventually (step1 (layout.apply kstepJumpProgram))
+      (fun s' => s'.pc = (layout.apply kstepJumpProgram).addrOf kstepJumpProgram.length ∧ s'.1.regs.X0 = 42)
       ⟨s, layout.start⟩ := by
   kprologue kstepJumpProgram with s
   sym => kstep; tactic =>
