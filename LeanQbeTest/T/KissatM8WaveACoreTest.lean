@@ -227,13 +227,16 @@ theorem wac_before_sigs :
 
 theorem wac_nv_log2 :
     Func.wp waveACoreEnv m8_log2_q16_body (1#64 <<< 44, ()) nvOneLitMem
-      (fun (r, ()) m' => 44 * 65536 ≤ r.toNat ∧ r.toNat < 45 * 65536 ∧ m' = nvOneLitMem)
+      (fun (r, ()) m' => r = 44#64 <<< 16 ∧ 44 * 65536 ≤ r.toNat ∧
+        r.toNat < 45 * 65536 ∧ m' = nvOneLitMem)
       (fun _ _ _ _ => False) :=
   nv_m8_log2_q16_pow44
 
 theorem wac_nv_tanh :
     Func.wp waveACoreEnv m8_ae_bump_decay_body (nvOneLitCfg.hdr, ()) nvAeTanhMem
-      (fun () m' => ∃ s', PreservesCoreSlice FullState.core nvAeTanhState s' ∧
+      (fun () m' => ∃ s', s'.core = nvAeTanhState.core ∧
+        (1#64 <<< 44).toNat < s'.scratch.scinc.toNat ∧
+        PreservesCoreSlice FullState.core nvAeTanhState s' ∧
         s'.LengthsOk nvOneLitCfg ∧ FullProbeScratchPres nvAeTanhState s' ∧
         nvOneLitF0.Unsat ∧ FullMem nvOneLitCfg s' m')
       (fun _ _ _ _ => False) :=
@@ -255,33 +258,33 @@ theorem wac_nv_tiers :
   nv_m8_recompute_tiers_mode
 
 theorem wac_nv_rec_used :
-    Func.wp waveACoreEnv m8_hdr_record_used_body (nvOneLitCfg.hdr, 80#64, ()) nvM6HdrMem
-      (fun () m' => ∃ ext' s', s'.LengthsOk nvOneLitCfg ∧ M6HdrExtOk ext' ∧
-        nvOneLitF0.Unsat ∧ FullM6HdrMem nvOneLitCfg ext' s' m')
+    Func.wp waveACoreEnv m8_hdr_record_used_body (nvOneLitCfg.hdr, 80#64, ()) nvM8DelayMem
+      (fun () m' => nvOneLitF0.Unsat ∧
+        FullM6HdrMem nvOneLitCfg ((nvM8DelayExt.set 95 1#64).set 14 1#64) nvOneLitState m')
       (fun _ _ _ _ => False) :=
   nv_m8_record_used_clamp64
 
 theorem wac_nv_del6 :
     Func.wp waveACoreEnv FullM8WaveACore.m6_hdr_delaying_body (nvOneLitCfg.hdr, 6#64, ())
       nvM8DelayMem
-      (fun (b, ()) m' => ∃ ext' s', (b = true ∨ b = false) ∧ s'.LengthsOk nvOneLitCfg ∧
-        M6HdrExtOk ext' ∧ nvOneLitF0.Unsat ∧ FullM6HdrMem nvOneLitCfg ext' s' m')
+      (fun (b, ()) m' => b = true ∧ nvOneLitF0.Unsat ∧
+        FullM6HdrMem nvOneLitCfg (nvM8DelayExt.set 122 1#64) nvOneLitState m')
       (fun _ _ _ _ => False) :=
   nv_m8_delay_slot6_delaying
 
 theorem wac_nv_bump4 :
     Func.wp waveACoreEnv FullM8WaveACore.m6_hdr_bump_delay_body (nvOneLitCfg.hdr, 4#64, ())
       nvM8DelayMem
-      (fun () m' => ∃ ext' s', s'.LengthsOk nvOneLitCfg ∧ M6HdrExtOk ext' ∧
-        nvOneLitF0.Unsat ∧ FullM6HdrMem nvOneLitCfg ext' s' m')
+      (fun () m' => nvOneLitF0.Unsat ∧
+        FullM6HdrMem nvOneLitCfg ((nvM8DelayExt.set 124 1#64).set 120 1#64) nvOneLitState m')
       (fun _ _ _ _ => False) :=
   nv_m8_delay_slot4_bump
 
 theorem wac_nv_red6 :
     Func.wp waveACoreEnv FullM8WaveACore.m6_hdr_reduce_delay_body (nvOneLitCfg.hdr, 6#64, ())
       nvM8DelayMem
-      (fun () m' => ∃ ext' s', s'.LengthsOk nvOneLitCfg ∧ M6HdrExtOk ext' ∧
-        nvOneLitF0.Unsat ∧ FullM6HdrMem nvOneLitCfg ext' s' m')
+      (fun () m' => nvOneLitF0.Unsat ∧
+        FullM6HdrMem nvOneLitCfg ((nvM8DelayExt.set 126 2#64).set 122 2#64) nvOneLitState m')
       (fun _ _ _ _ => False) :=
   nv_m8_delay_slot6_reduce
 
@@ -296,13 +299,31 @@ theorem wac_nv_viv_tier :
   nv_m8_vivify_tier
 
 theorem wac_nv_viv :
-    Func.wp waveACoreEnv FullM8WaveACore.full_vivify_m6_hdr_body (nvOneLitCfg.hdr, ()) nvM6HdrMem
-      (fun (r, ()) m' => ∃ ext' s', M6HdrExtOk ext' ∧ FullSparseInv nvOneLitCfg nvOneLitF0 s' ∧
-        s'.core.cur_level = 0 ∧ s'.core.probing = 0#64 ∧
-        (r = 1#64 ∨ r = 20#64) ∧ (r = 20#64 → nvOneLitF0.Unsat) ∧
+    Func.wp waveACoreEnv FullM8WaveACore.full_vivify_m6_hdr_body (nvOneLitCfg.hdr, ()) nvM8VivMem
+      (fun (r, ()) m' => ∃ ext' s', M6HdrExtInitOk ext' ∧ M6ExtW2bPres nvM8VivExt ext' ∧
+        FullSparseInv nvOneLitCfg nvOneLitF0 s' ∧ s'.core.cur_level = 0 ∧
+        s'.core.probing = 0#64 ∧ (r = 1#64 ∨ r = 20#64) ∧ (r = 20#64 → nvOneLitF0.Unsat) ∧
         FullM6HdrMem nvOneLitCfg ext' s' m')
       (fun _ _ _ _ => False) :=
   nv_m8_vivify
+
+theorem wac_nv_viv_skip :
+    Func.wp nvWacDetEnv FullM8WaveACore.full_vivify_m6_hdr_body (nvOneLitCfg.hdr, ()) nvM8VivMem
+      (fun (r, ()) m' => r = 1#64 ∧ FullSparseInv nvOneLitCfg nvOneLitF0 nvM8VivState ∧
+        M6HdrExtInitOk ((nvM8VivExt.set 120 1#64).set 133 1#64) ∧ nvOneLitF0.Unsat ∧
+        FullM6HdrMem nvOneLitCfg ((nvM8VivExt.set 120 1#64).set 133 1#64) nvM8VivState m')
+      (fun _ _ _ _ => False) :=
+  nv_m8_vivify_irr_skip
+
+theorem wac_nv_viv_bump :
+    Func.wp nvWacVivBumpEnv FullM8WaveACore.full_vivify_m6_hdr_body (nvOneLitCfg.hdr, ())
+      nvM8VivBumpMem
+      (fun (r, ()) m' => r = 1#64 ∧ FullSparseInv nvOneLitCfg nvOneLitF0 nvM8VivState ∧
+        M6HdrExtInitOk (((nvM8DelayExt.set 118 1#64).set 124 1#64).set 120 1#64) ∧
+        nvOneLitF0.Unsat ∧ FullM6HdrMem nvOneLitCfg
+          (((nvM8DelayExt.set 118 1#64).set 124 1#64).set 120 1#64) nvM8VivState m')
+      (fun _ _ _ _ => False) :=
+  nv_m8_vivify_irr_bump
 
 theorem wac_nv_elim_i :
     Func.wp waveACoreEnv m8_eliminate_m6_body (nvOneLitCfg.hdr, true, ()) nvM6HdrMem
@@ -313,12 +334,20 @@ theorem wac_nv_elim_i :
   nv_m8_eliminate_init
 
 theorem wac_nv_elim_p :
-    Func.wp waveACoreEnv m8_eliminate_m6_body (nvOneLitCfg.hdr, false, ()) nvM8DelayMem
-      (fun (r, ()) m' => ∃ ext' s', M6HdrExtOk ext' ∧ FullSparseInv nvOneLitCfg nvOneLitF0 s' ∧
-        s'.core.cur_level = 0 ∧ (r = 1#64 ∨ r = 20#64) ∧ nvOneLitF0.Unsat ∧
-        FullM6HdrMem nvOneLitCfg ext' s' m')
+    Func.wp waveACoreEnv m8_eliminate_m6_body (nvOneLitCfg.hdr, false, ()) nvM8ElimMem
+      (fun (r, ()) m' => ∃ ext' s', M6HdrExtInitOk ext' ∧ M6ExtW2bPres nvM8DelayExt ext' ∧
+        FullSparseInv nvOneLitCfg nvOneLitF0 s' ∧ s'.core.cur_level = 0 ∧
+        (r = 1#64 ∨ r = 20#64) ∧ nvOneLitF0.Unsat ∧ FullM6HdrMem nvOneLitCfg ext' s' m')
       (fun _ _ _ _ => False) :=
   nv_m8_eliminate_post
+
+theorem wac_nv_elim_thr :
+    Func.wp nvWacDetEnv m8_eliminate_m6_body (nvOneLitCfg.hdr, false, ()) nvM8ElimMem
+      (fun (r, ()) m' => r = 1#64 ∧ FullSparseInv nvOneLitCfg nvOneLitF0 nvM8ElimPostState ∧
+        M6HdrExtInitOk ((nvM8DelayExt.set 128 1#64).set 119 1#64) ∧ nvOneLitF0.Unsat ∧
+        FullM6HdrMem nvOneLitCfg ((nvM8DelayExt.set 128 1#64).set 119 1#64) nvM8ElimPostState m')
+      (fun _ _ _ _ => False) :=
+  nv_m8_eliminate_throttle
 
 theorem wac_nv_ptail6 :
     Func.wp waveACoreEnv FullM8WaveACore.full_probe_tail_m6_body
@@ -365,8 +394,11 @@ abbrev m8wac_nv_bmp4 := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_bump4
 abbrev m8wac_nv_red6 := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_red6
 abbrev m8wac_nv_vivt := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_viv_tier
 abbrev m8wac_nv_viv := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_viv
+abbrev m8wac_nv_vivs := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_viv_skip
+abbrev m8wac_nv_vivb := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_viv_bump
 abbrev m8wac_nv_eli := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_elim_i
 abbrev m8wac_nv_elp := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_elim_p
+abbrev m8wac_nv_elt := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_elim_thr
 abbrev m8wac_nv_ptl6 := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_ptail6
 
 #print axioms m8wac_fns_wf
@@ -401,6 +433,9 @@ abbrev m8wac_nv_ptl6 := @LeanQbeTest.T.KissatM8WaveACoreTest.wac_nv_ptail6
 #print axioms m8wac_nv_red6
 #print axioms m8wac_nv_vivt
 #print axioms m8wac_nv_viv
+#print axioms m8wac_nv_vivs
+#print axioms m8wac_nv_vivb
 #print axioms m8wac_nv_eli
 #print axioms m8wac_nv_elp
+#print axioms m8wac_nv_elt
 #print axioms m8wac_nv_ptl6
