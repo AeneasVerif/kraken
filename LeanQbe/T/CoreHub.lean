@@ -27,6 +27,7 @@ public import LeanQbe.T.IfOptLemmas
 public import LeanQbe.T.Inline
 public import LeanQbe.T.InlineChunk
 public import LeanQbe.T.InlineLemmas
+public import LeanQbe.T.InterpKissat
 public import LeanQbe.T.IselStepAttr
 public import LeanQbe.T.Legal
 public import LeanQbe.T.LegalBase
