@@ -2,9 +2,13 @@ module
 
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.Spill
+public import LeanQbeTest.T.RegaTestKit
+public import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Spill
+meta import LeanQbeTest.T.RegaTestKit
+meta import LeanQbeTest.T.Arm64DirPreds
 
 /-!
 # InvertJnz Regression and Fallthrough Layout Tests on AArch64
@@ -29,59 +33,30 @@ public section
 namespace LeanQbeTest.T.InvertJnzArm64Test
 
 open LeanQbe.T LeanQbe.T.Arm64
+open LeanQbeTest.T.RegaTestKit
+open LeanQbeTest.T.Arm64DirPreds
 
 /-! ## Helpers -/
 
 /-- Hints from the default heuristics (`Fn.computeHints` = `Spill.hints ∘ Fn.mid`). -/
 meta def hintsOf (fs : List Fn) : List armTarget.toIsa.Hints :=
-  fs.map (Fn.computeHints armTarget.toIsa armLegalTarget)
+  RegaTestKit.hintsOf armTarget armLegalTarget fs
 
 /-- End-to-end verified compilation check (lowering, labels, stack bounds). -/
 meta def chk (fs : List Fn) : Bool :=
-  checkCompile armTarget armLayout armLegalTarget [] [] 0 fs (hintsOf fs) 2048
+  RegaTestKit.chk armTarget armLayout armLegalTarget fs
 
 /-- Emitted code of a module (empty on a compile error). -/
 meta def codeOf (fs : List Fn) : List armTarget.toIsa.Directive :=
-  extractCode (compileModule armTarget.toIsa armLegalTarget armTarget.frame.raBytes [] [] 0 fs
-    (hintsOf fs))
-
-meta def isCbzDir : Directive → Bool
-  | .instr { operation := .CBZ .., .. } => true
-  | _ => false
-
-meta def isCbnzDir : Directive → Bool
-  | .instr { operation := .CBNZ .., .. } => true
-  | _ => false
+  RegaTestKit.codeOf armTarget armLegalTarget fs
 
 /-! ## Test Programs -/
 
-/-- Loop where then-arm continues the loop and else-arm exits.
-`mT > mE` causes `Spill.hints` to record `invertJnz = true`. -/
-def hotLoopFn : Fn :=
-  ⟨"hotLoopArm", [i64, i64], [i64], fun _ _ (n, a, ()) =>
-    .group (sig := [[i64, i64]])
-      (fun (loopLbl, ()) => .cons (ts := [i64, i64]) (fun (i, acc, ()) =>
-        .let_ (op2 (.cmp .eq i64) (.var i) (.imm 0)) fun (c, ()) =>
-        .jnz (.var c)
-          (.let_ (op2 (.add i64) (.var acc) (.var i)) fun (acc', ()) =>
-           .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
-           .jump loopLbl (.var i', .var acc', ()))
-          (.ret (.var acc, ()))) .nil)
-      (fun (loopLbl, ()) => .jump loopLbl (.var n, .var a, ()))⟩
+/-- Loop where then-arm continues the loop and else-arm exits. -/
+def hotLoopFn : Fn := RegaTestKit.hotLoopFn "hotLoopArm"
 
-/-- Loop where then-arm exits and else-arm continues the loop.
-`mE > mT` causes `Spill.hints` to keep `invertJnz = false`. -/
-def coldThenFn : Fn :=
-  ⟨"coldThenArm", [i64, i64], [i64], fun _ _ (n, a, ()) =>
-    .group (sig := [[i64, i64]])
-      (fun (loopLbl, ()) => .cons (ts := [i64, i64]) (fun (i, acc, ()) =>
-        .let_ (op2 (.cmp .eq i64) (.var i) (.imm 0)) fun (c, ()) =>
-        .jnz (.var c)
-          (.ret (.var acc, ()))
-          (.let_ (op2 (.add i64) (.var acc) (.var i)) fun (acc', ()) =>
-           .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
-           .jump loopLbl (.var i', .var acc', ()))) .nil)
-      (fun (loopLbl, ()) => .jump loopLbl (.var n, .var a, ()))⟩
+/-- Loop where then-arm exits and else-arm continues the loop. -/
+def coldThenFn : Fn := RegaTestKit.coldThenFn "coldThenArm"
 
 /-! ## Guard Checks -/
 
