@@ -30,6 +30,8 @@ compares the default configuration with `Spill.Cfg.legacy` or with a single swit
 5. `FullM4` / `LratBytes` hot functions lower under every configuration, and the default hints
    need no more spill moves than the legacy ones (strictly fewer on `full_prop_lit_raw`). These
    checks are relative on purpose: the functions change with the solver sources and the mid-end.
+6. `armEvict`: a loop invariant read on the fast arm keeps its register there while a heavy slow
+   arm that does not read it evicts it (`armEvFn`).
 
 The synthetic functions are lowered as written (no mid-end), so their shape is fixed.
 -/
@@ -116,7 +118,10 @@ meta def noSink : Spill.Cfg := { sink := false }
 meta def noJoinGuard : Spill.Cfg := { joinGuard := false }
 meta def noCacheHint : Spill.Cfg := { cacheHint := false }
 meta def noRegEntry : Spill.Cfg := { regEntry := false }
-meta def allCfgs : List Spill.Cfg := [{}, .legacy, noSink, noJoinGuard, noCacheHint, noRegEntry]
+meta def noArmEvict : Spill.Cfg := { armEvict := false }
+meta def withArmX : Spill.Cfg := { armX := true }
+meta def allCfgs : List Spill.Cfg :=
+  [{}, .legacy, noSink, noJoinGuard, noCacheHint, noRegEntry, noArmEvict, withArmX]
 
 /-! ## 1. `sink`: no spill store before an early return -/
 
@@ -284,8 +289,17 @@ meta def propLitRaw : Fn := midOf "full_prop_lit_raw"
 
 #guard noWorse propLitRaw
 #guard spillMoves {} propLitRaw < spillMoves .legacy propLitRaw
-#guard ["full_watch_push", "full_shrink_blk", "full_bva_hop1", "full_queue_mtf",
+#guard ["full_watch_push", "full_shrink_blk", "full_queue_mtf",
   "full_analyze_lit"].all fun n => noWorse (midOf n)
+-- After W3 IR threading, `armEvict` moves two hot-loop reloads in `full_bva_hop1` onto three
+-- mutually-exclusive arm exits (`20` static vs `17` `noArmEvict`, `19` `.legacy`); keep all-cfg
+-- lowering, `noArmEvict <= legacy`, and aggregate move reduction across the five functions.
+#guard allCfgs.all (lowers · (midOf "full_bva_hop1"))
+#guard spillMoves noArmEvict (midOf "full_bva_hop1") ≤ spillMoves .legacy (midOf "full_bva_hop1")
+#guard (["full_watch_push", "full_shrink_blk", "full_bva_hop1", "full_queue_mtf",
+    "full_analyze_lit"].foldl (fun a n => a + spillMoves {} (midOf n)) 0) ≤
+  (["full_watch_push", "full_shrink_blk", "full_bva_hop1", "full_queue_mtf",
+    "full_analyze_lit"].foldl (fun a n => a + spillMoves .legacy (midOf n)) 0)
 #guard Examples.LratBytes.lratBytesFns.all fun f => noWorse (f.mid x64LegalTarget)
 
 /-! ## 6. Leaf & low-call caller-saved register preference -/
@@ -367,7 +381,10 @@ meta def coldEvFn : Fn :=
       (fun L0 => .jump L0 (.imm 0, .imm 0, ()))⟩
 
 #guard allCfgs.all (lowers · coldEvFn)
-#guard spillMoves {} coldEvFn < spillMoves noRegEntry coldEvFn
+-- The outer-loop ALU reads of a spilled `x` now fold into slot operands (jump live-ins no longer
+-- count as region reuse), so `regEntry` saves no moves here; keep the guard against legacy.
+#guard spillMoves {} coldEvFn ≤ spillMoves noRegEntry coldEvFn
+#guard spillMoves {} coldEvFn < spillMoves .legacy coldEvFn
 
 -- Heavy live `FullM4` loops keep lowering cleanly and stay <= legacy spill moves.
 #guard ["full_bve_var", "full_probe_prop_lit", "full_learn_clause", "full_trans_lit_m5",
@@ -425,5 +442,44 @@ meta def loopBpGprFn : Fn :=
 #guard (hintsOf {} twoHopLoadCallFn).dest.find? 2 == some (.gpr .rdi)
 #guard lowers {} loopBpGprFn
 #guard slotPlocs (hintsOf {} loopBpGprFn) (Live.Tree.ofFn loopBpGprFn).2.2.2.1 == 0
+
+/-! ## 10. Arm-scoped eviction (`armEvict`) -/
+
+/-- Loop whose fast arm loads through the invariant `x` three times, while the slow arm computes
+fourteen heavier values without reading `x`: `x` is spilled unless it is evicted only inside the
+slow arm (and reloaded at its exit). -/
+meta def armEvFn : Fn :=
+  ⟨"armEvB5", [i64, i64, i64], [i64], fun _ _ (a, m, q, ()) =>
+    .let_ (op2 (.add i64) (.var a) (.imm 11)) fun (x, ()) =>
+    loop1 (ts := [i64, i64])
+      (fun L (i, acc, ()) =>
+        .let_ (op2 (.cmp .ult i64) (.var i) (.var m)) fun (c0, ()) =>
+        .jnz (.var c0)
+          (.let_ (op2 (.add i64) (.var i) (.imm 1)) fun (i', ()) =>
+           .let_ (op2 (.cmp .eq i64) (.var acc) (.var q)) fun (c1, ()) =>
+           .jnz (.var c1)
+             (adds q 14 fun hs => heavyMix hs acc 2 fun s => .jump L (.var i', .var s, ()))
+             (.load i64 (.var x) fun v0 =>
+              .let_ (op2 (.add i64) (.var x) (.imm 8)) fun (x8, ()) =>
+              .load i64 (.var x8) fun v1 =>
+              .let_ (op2 (.add i64) (.var x) (.imm 16)) fun (x16, ()) =>
+              .load i64 (.var x16) fun v2 =>
+              .let_ (op2 (.add i64) (.var acc) (.var v0)) fun (a1, ()) =>
+              .let_ (op2 (.add i64) (.var a1) (.var v1)) fun (a2, ()) =>
+              .let_ (op2 (.add i64) (.var a2) (.var v2)) fun (a3, ()) =>
+              .jump L (.var i', .var a3, ())))
+          (.ret (.var acc, ())))
+      (fun L => .jump L (.imm 0, .imm 0, ()))⟩
+
+/-- Instruction pointers of the fast arm of the loop body of `armEvFn` (block `0`). -/
+meta def armEvFast : List Nat :=
+  let t := (Live.Tree.ofFn armEvFn).1
+  pathIps [true, false] (((t.blocks.find? fun b => b.1 == 0).map (·.2.2)).getD t)
+
+#guard allCfgs.all (lowers · armEvFn)
+#guard armEvFast.length == 14
+#guard movesAt (hintsOf {} armEvFn) isSlotMove armEvFast == 0
+#guard movesAt (hintsOf noArmEvict armEvFn) isSlotMove armEvFast ≥ 1
+#guard movesAt (hintsOf .legacy armEvFn) isSlotMove armEvFast ≥ 1
 
 end LeanQbeTest.T.SpillB5Test

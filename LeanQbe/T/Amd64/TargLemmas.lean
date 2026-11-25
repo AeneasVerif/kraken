@@ -43,6 +43,7 @@ theorem x64LabelClean : Rega.LabelClean x64Target.toIsa where
   jmp tgt l := x64Gpr_jmp_noLab tgt l
   jcc cc tgt l := x64Gpr_jcc_noLab cc tgt l
   jnzGpr r tgt l := x64Gpr_jnzGpr_noLab r tgt l
+  jnzGprInv _ r inv tgt h l := by cases h; exact x64Gpr_jnzGprInv_noLab r inv tgt l
   op _ _ _ _ _ _ h l := x64Gpr_op_noLab h l
   testOp _ _ _ _ _ _ _ h l := x64Gpr_testOp_noLab h l
   cmpMem _ _ _ _ _ _ _ h l := x64Gpr_cmpMem_noLab h l

@@ -205,38 +205,38 @@ meta def cmpZeroReuseFn : Fn :=
     .jnz (.var c) (.ret (.var c, ())) (.ret (.imm false, ()))⟩
 
 #guard chk [cbz64Fn]
-#guard countDirs isCbzDir (codeOf [cbz64Fn]) == 1
+#guard countDirs isCbnzDir (codeOf [cbz64Fn]) == 1
 #guard countDirs isSubsDir (codeOf [cbz64Fn]) == 0
 #guard countDirs isBcondDir (codeOf [cbz64Fn]) == 0
 
 #guard chk [cbnz32CommFn]
-#guard countDirs isCbnzDir (codeOf [cbnz32CommFn]) == 1
+#guard countDirs isCbzDir (codeOf [cbnz32CommFn]) == 1
 #guard countDirs isSubsDir (codeOf [cbnz32CommFn]) == 0
 #guard countDirs isBcondDir (codeOf [cbnz32CommFn]) == 0
 
 #guard chk [cbz8Fn]
-#guard countDirs isCbzDir (codeOf [cbz8Fn]) == 1
+#guard countDirs isCbnzDir (codeOf [cbz8Fn]) == 1
 #guard countDirs isSubsDir (codeOf [cbz8Fn]) == 0
 
 #guard chk [sltZero32Fn]
-#guard countDirs isTbnzDir (codeOf [sltZero32Fn]) == 1
+#guard countDirs isTbzDir (codeOf [sltZero32Fn]) == 1
 #guard countDirs isSubsDir (codeOf [sltZero32Fn]) == 0
 
 #guard chk [ugtZero64Fn]
-#guard countDirs isCbnzDir (codeOf [ugtZero64Fn]) == 1
+#guard countDirs isCbzDir (codeOf [ugtZero64Fn]) == 1
 #guard countDirs isSubsDir (codeOf [ugtZero64Fn]) == 0
 
 #guard chk [tbz64Bit5Fn]
-#guard countDirs isTbzDir (codeOf [tbz64Bit5Fn]) == 1
+#guard countDirs isTbnzDir (codeOf [tbz64Bit5Fn]) == 1
 #guard countDirs isAndsDir (codeOf [tbz64Bit5Fn]) == 0
 
 #guard chk [sextSltZeroFn]
-#guard countDirs isTbnzDir (codeOf [sextSltZeroFn]) == 1
+#guard countDirs isTbzDir (codeOf [sextSltZeroFn]) == 1
 #guard countDirs isSubsDir (codeOf [sextSltZeroFn]) == 0
 
 #guard chk [cbzFlipThreadFn]
-#guard countDirs isCbnzDir (codeOf [cbzFlipThreadFn]) == 1
-#guard countDirs isCbzDir (codeOf [cbzFlipThreadFn]) == 0
+#guard countDirs isCbzDir (codeOf [cbzFlipThreadFn]) == 1
+#guard countDirs isCbnzDir (codeOf [cbzFlipThreadFn]) == 0
 
 #guard chk [cmpZeroReuseFn]
 

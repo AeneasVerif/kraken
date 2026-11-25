@@ -67,11 +67,15 @@ theorem ofBool_uses_movzbl_rfl :
 
 theorem bool_and_uses_b8_rfl :
     x64Gpr.op (.and .bool) (.gpr .rax, .gpr .rcx, ()) (.gpr .rdx, ()) .default =
-      some ([ins8 (.mov (.reg (b8 .r11)) (.reg (b8 .rax))),
-             ins8 (.mov (.reg (b8 .r10)) (.reg (b8 .rcx))),
-             ins8 (.and (.reg (b8 .r11)) (.reg (b8 .r10))),
-             ins32 (.movzx (.reg (d .rdx)) (.reg (b8 .r11)))], maskAll) :=
-  rfl
+      some ([ins8 (.mov (.reg (b8 .rdx)) (.reg (b8 .rax))),
+             ins8 (.and (.reg (b8 .rdx)) (.reg (b8 .rcx)))], maskAll) ∧
+    x64Gpr.op (.and .bool) (.gpr .rdx, .flag .z, ()) (.gpr .rdx, ()) .default =
+      some ([ins8 (.setcc .z (.reg (b8 .r10))),
+             ins8 (.and (.reg (b8 .rdx)) (.reg (b8 .r10)))], maskAll) ∧
+    x64Gpr.op (.and .bool) (.gpr .rax, .flag .z, ()) (.gpr .rdx, ()) .default =
+      some ([ins8 (.setcc .z (.reg (b8 .rdx))),
+             ins8 (.and (.reg (b8 .rdx)) (.reg (b8 .rax)))], maskAll) :=
+  ⟨rfl, rfl, rfl⟩
 
 theorem addc_gpr_carry_in_out_rfl :
     x64Gpr.op (.addc 64) (.gpr .rax, .gpr .rsi, .gpr .rcx, ()) (.gpr .rax, .gpr .rdx, ()) .default =

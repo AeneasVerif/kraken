@@ -1,10 +1,14 @@
 module
 
 public import LeanQbe.T.AbiLemmas
+public import LeanQbe.T.AddrRangeOpt
+public import LeanQbe.T.AddrRangeOptLemmas
 public import LeanQbe.T.AssumeBits
 public import LeanQbe.T.AssumeBitsLemmas
 public import LeanQbe.T.Canon
 public import LeanQbe.T.CanonLemmas
+public import LeanQbe.T.CondThreadOpt
+public import LeanQbe.T.CondThreadOptLemmas
 public import LeanQbe.T.Copy
 public import LeanQbe.T.CopyLemmas
 public import LeanQbe.T.Dce
