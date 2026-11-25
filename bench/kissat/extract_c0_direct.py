@@ -95,6 +95,7 @@ def load_kissat(kdir):
             fns = parse_c0_block(m.group(2), f"{fp.name}:{pfx}")
             for f in fns:
                 body_map[f"{ns}.{f['orig']}_body"] = f
+                fn_envs.setdefault(f"{ns}.{f['orig']}", {**f, "name": f["orig"]})
             list_envs[f"{ns}.{pfx}_fns"] = fns
     ren_map_re = re.compile(
         r"^def\s+(\w+)\s*:\s*Sym\s*→\s*Sym\s*(.*?)"
@@ -107,6 +108,9 @@ def load_kissat(kdir):
     fn_rec_re = re.compile(
         r'def\s+(\w+)\s*:\s*Fn\s*:=\s*\{\s*name\s*:=\s*"([^"]+)"[^{}]*?'
         r'\bbody\s*:=\s*([A-Za-z0-9_.]+)\s*\}', re.S)
+    fn_alias_re = re.compile(
+        r"^\s*(?:private\s+|protected\s+)?(?:def|abbrev)\s+([A-Za-z0-9_]+)\s*:\s*Fn\s*:=\s*"
+        r"([A-Za-z0-9_.]+)(?:\s*--[^\n]*)?$", re.M)
     list_re = re.compile(
         r"^def\s+(\w+)\s*:\s*List\s+Fn\s*:=\s*(.*?)"
         r"(?=\n(?:def|theorem|private|end|kissat_c0!|/-|\Z))", re.M | re.S)
@@ -135,18 +139,34 @@ def load_kissat(kdir):
                 for old, new in pairs:
                     code = re.sub(rf"\b{re.escape(old)}(?=\s*\()", new, code)
                 body_map[f"{ns}.{bname}"] = {**base, "text": code}
+    alias_defs = []
     for _, txt, opens in files:
         for m in (*fn_re.finditer(txt), *fn_rec_re.finditer(txt)):
             ns, fvar, exp, bref = _ns_at(txt, m.start()), m.group(1), m.group(2), m.group(3)
             base = _resolve_body(bref, ns, opens)
             if base is not None:
                 fn_envs[f"{ns}.{fvar}"] = {**base, "name": exp}
+        for m in fn_alias_re.finditer(txt):
+            alias_defs.append((_ns_at(txt, m.start()), opens, m.group(1), m.group(2)))
         for m in list_re.finditer(txt):
             ns = _ns_at(txt, m.start())
             list_envs[f"{ns}.{m.group(1)}"] = (ns, opens, m.group(2))
         for m in before_re.finditer(txt):
             ns = _ns_at(txt, m.start())
             before_envs[f"{ns}.{m.group(1)}"] = (ns, opens, m.group(2))
+    for _ in range(4):
+        progressed = False
+        for ns, opens, lhs, rhs in alias_defs:
+            q_lhs = f"{ns}.{lhs}"
+            if q_lhs in fn_envs:
+                continue
+            for c in (rhs, f"{ns}.{rhs}", *(f"{o}.{rhs}" for o in opens), f"{KISSAT_NS}.{rhs}"):
+                if c in fn_envs:
+                    fn_envs[q_lhs] = fn_envs[c]
+                    progressed = True
+                    break
+        if not progressed:
+            break
     return fn_envs, list_envs, before_envs
 
 
@@ -255,18 +275,40 @@ def eval_list(qname, list_envs, fn_envs, cache, before_envs=None):
                     if pk() == ",":
                         nx()
                 nx()
-            elif pk() in ("mpSpliceFns", "spliceFns"):
+            elif pk() in (
+                "mpSpliceFns", "spliceFns",
+                "FullM7Splice.mpSpliceFns", "FullM7Splice.spliceFns",
+                "PatchModule.spliceFns",
+            ):
                 nx()
                 repls = parse_term()
                 base = parse_term()
                 rmap = {f["name"]: f for f in repls}
                 val = [rmap.get(f["name"], f) for f in base]
-            elif pk() in ("mfPatchFns", "patchFns", "fidPatchFns"):
+            elif pk() in (
+                "mfPatchFns", "patchFns", "fidPatchFns",
+                "FullM7Splice.mfPatchFns", "FullM7Splice.patchFns",
+                "PatchModule.patchFns",
+            ):
                 nx()
                 repls = parse_term()
-                bname = nx()
-                befores = eval_befores(f"{ns}.{bname}" if "." not in bname else bname,
-                                       before_envs or {}, fn_envs, bcache, eval_nm)
+                if pk() == "[":
+                    depth, btoks = 0, []
+                    while pk() is not None:
+                        t = nx()
+                        btoks.append(t)
+                        depth += (t == "[") - (t == "]")
+                        if depth == 0:
+                            break
+                    assert depth == 0, f"unclosed '[' in befores for {ns}"
+                    if btoks == ["[", "]"]:
+                        befores = []
+                    else:
+                        benv = {**(before_envs or {}), "__inline__": (ns, opens, " ".join(btoks))}
+                        befores = eval_befores("__inline__", benv, fn_envs, dict(bcache), eval_nm)
+                else:
+                    bq, _ = res(nx(), ns, opens, before_envs or {})
+                    befores = eval_befores(bq, before_envs or {}, fn_envs, bcache, eval_nm)
                 base = parse_term()
                 rmap = {f["name"]: f for f in repls}
                 bmap = {}
@@ -380,6 +422,7 @@ def main():
         "plain": ("Plain", "Plain", "plainFns"),
         "fidelity": ("FullFidelityAssembly", "FullFidelityAssembly", "fidFns"),
         "fid": ("FullFidelityAssembly", "FullFidelityAssembly", "fidFns"),
+        "fidelity-c0": ("FullFidelityC0Assembly", "FullFidelityC0Assembly", "fidC0Fns"),
         "m8opt": ("FullM8OptAssembly", "FullM8OptAssembly", "m8OptFns"),
         "opt": ("FullM8OptAssembly", "FullM8OptAssembly", "m8OptFns"),
         "m8": ("FullM8OptAssembly", "FullM8OptAssembly", "m8OptFns"),

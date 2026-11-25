@@ -45,9 +45,17 @@ geometric-mean wall time vs `clang -O3` on the same C0 source, 1.02x vs `clang++
   [`ModuleOk`](LeanQbe/T/Module.lean#L196) records that every function of a module meets its
   specification under the specifications of the functions it calls.
 - **C0** ([`LeanQbe/T/Frontend/C0.lean`](LeanQbe/T/Frontend/C0.lean)): a subset of C (integer
-  types, pointers, structs and unions, structured control flow, function calls, and a small
-  preprocessor) parsed and elaborated into `LeanQbe.T` by a Lean macro. Most verified programs in
-  this repository are written in C0 and proved against `Func.wp` specifications.
+  types, pointers, structs and unions, structured control flow, `offsetof`/`_Static_assert`,
+  function calls, and a preprocessor supporting `#include`, object/function-like macros, and
+  `#pragma` checks — see [`C0ExtensionsTest.lean`](LeanQbeTest/T/C0ExtensionsTest.lean) and
+  [`test/c0/run.sh`](test/c0/run.sh)) parsed and elaborated into `LeanQbe.T` by a Lean macro. Most
+  verified programs in this repository are written in C0 and proved against `Func.wp`
+  specifications.
+- **Additional verified frontends**: besides C0 and `LeanLCNF`, [`Unified`](LeanQbe/T/Unified/)
+  connects [`Kraken.Bedrock2`](LeanQbe/T/Unified/Frontend/Bedrock2.lean) (via PHOAS lowering in
+  [`Bedrock2/`](LeanQbe/T/Bedrock2/)) and structured CFG recovery over
+  [`BedrockWord`](LeanQbe/T/BedrockWord/) / [`Xcap`](LeanQbe/T/Xcap/) to the shared compiler
+  pipeline.
 - **The compiler** ([`Main.lean`](LeanQbe/T/Main.lean)): performs whole-module inlining, pre- and
   post-legalization SSA/loop optimizations, target legalization, hint-validated register
   allocation, instruction selection, and compositional linking. Every pass is proved to preserve
@@ -72,10 +80,11 @@ Architecture-specific audits live in separate files so no module imports both `K
 |---|---|---|
 | Kissat SAT solver ([details](#verified-kissat-sat-solver)) | `FullM7Fidelity` (413 fns): x86-64 & AArch64 `LinkedCert` UNSAT soundness and concrete UNSAT non-vacuity (runtime `kissat_check_model` on SAT); `KissatPlain` (59 fns, optional `LeanQbeLegacy*` library): x86-64 & AArch64 SAT and UNSAT soundness + concrete SAT/UNSAT non-vacuity | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [M7FidSpec](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean), [M7FidX64](LeanQbeTest/T/KissatM7FidelityAuditX64.lean), [M7FidArm64](LeanQbeTest/T/KissatM7FidelityAuditArm64.lean), [PlainX64](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean), [PlainArm64](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean) |
 | Compiler and linker ([details](#compiler-optimization-and-lowering-pipeline)) | Optimization passes, inlining, `LinkedCert`, and linking of recursive and mutually recursive functions (`LinkRec`, `LinkScc`) | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
-| Lean 4 `LCNF` / `LeanLRC` lowering | Well-formedness (`Fn.Wf`) of code lowered from the Lean compiler's `LCNF` intermediate representation ([`LeanLCNF`](LeanQbe/T/LeanLCNF/), [`LeanLRC`](LeanQbe/T/LeanLRC/)) into `LeanQbe.T`, plus source-level `Func.wp` / `ModuleOk` proofs and concrete `Mem 64` non-vacuity for the C0 slab allocator/reference-counting ([`LcnfC0Rt`](LeanQbe/T/LeanLCNF/LcnfC0Rt.lean)) and arbitrary-precision `Nat`/`Int` ([`LcnfC0BigNum`](LeanQbe/T/LeanLCNF/LcnfC0BigNum.lean)) runtime primitives | [Audit](LeanQbeTest/T/LcnfAudit.lean), [C0Rt](LeanQbeTest/T/LcnfC0RtTest.lean), [C0BigNum](LeanQbeTest/T/LcnfC0BigNumTest.lean) |
+| Lean 4 `LCNF` / `LeanLRC` lowering | Well-formedness (`Fn.Wf`) of code lowered from the Lean compiler's `LCNF` intermediate representation ([`LeanLCNF`](LeanQbe/T/LeanLCNF/), [`LeanLRC`](LeanQbe/T/LeanLRC/)) into `LeanQbe.T`, plus source-level `Func.wp` / `ModuleOk` proofs and concrete `Mem 64` non-vacuity for the C0 slab allocator/reference-counting ([`LcnfC0Rt`](LeanQbe/T/LeanLCNF/LcnfC0Rt.lean)), arbitrary-precision `Nat`/`Int` ([`LcnfC0BigNum`](LeanQbe/T/LeanLCNF/LcnfC0BigNum.lean)), and copy-on-write `ByteArray`/`Array` ([`LcnfC0Containers`](LeanQbe/T/LeanLCNF/LcnfC0Containers.lean)) runtime primitives | [Audit](LeanQbeTest/T/LcnfAudit.lean), [C0Rt](LeanQbeTest/T/LcnfC0RtTest.lean), [C0BigNum](LeanQbeTest/T/LcnfC0BigNumTest.lean), [C0Containers](LeanQbeTest/T/LcnfC0ContainersTest.lean) |
 | LRAT proof checker | `lrat_check_bytes` returns `1` only for a well-formed DIMACS input whose CNF is unsatisfiable | [Spec](LeanQbeTest/T/LratAuditSpec.lean), [X64](LeanQbeTest/T/LratAuditX64.lean), [Arm64](LeanQbeTest/T/LratAuditArm64.lean) |
 | Cryptography, bignum, and pointer code | ChaCha20 (SIMD), Curve25519 field arithmetic (`Bignum`), and union-find: source and machine-code proofs | [Spec](LeanQbeTest/T/WorkloadsAuditSpec.lean), [X64](LeanQbeTest/T/WorkloadsAuditX64.lean), [Arm64](LeanQbeTest/T/WorkloadsAuditArm64.lean) |
-| C0 front end and proof tooling | `Func.wp` rules, the C0 elaborator and its well-formedness results, C0 step lemmas ([`C0Step`](LeanQbe/T/Logic/C0Step.lean), [`C0HeadStep`](LeanQbe/T/Logic/C0HeadStep.lean), [`C0Agrees`](LeanQbe/T/Logic/C0Agrees.lean)), and separation-style memory reasoning ([`MemLemmas`](LeanQbe/T/Logic/MemLemmas.lean), [`SepTree`](LeanQbe/T/Logic/SepTree.lean), [`SlabChain`](LeanQbe/T/Logic/SlabChain.lean), [`SlabLayoutElab`](LeanQbe/T/Logic/SlabLayoutElab.lean), [`ProofKit`](LeanQbe/T/Logic/ProofKit.lean)) | [Audit](LeanQbeTest/T/C0LogicAudit.lean), [ProofKit](LeanQbeTest/T/ProofKitTest.lean) |
+| C0 front end and proof tooling | `Func.wp` rules, the C0 elaborator and preprocessor/layout extensions, C0 step lemmas ([`C0Step`](LeanQbe/T/Logic/C0Step.lean), [`C0HeadStep`](LeanQbe/T/Logic/C0HeadStep.lean), [`C0Agrees`](LeanQbe/T/Logic/C0Agrees.lean)), and separation-style memory reasoning ([`MemLemmas`](LeanQbe/T/Logic/MemLemmas.lean), [`SepTree`](LeanQbe/T/Logic/SepTree.lean), [`SlabChain`](LeanQbe/T/Logic/SlabChain.lean), [`SlabLayoutElab`](LeanQbe/T/Logic/SlabLayoutElab.lean), [`ProofKit`](LeanQbe/T/Logic/ProofKit.lean)) | [Audit](LeanQbeTest/T/C0LogicAudit.lean), [C0Ext](LeanQbeTest/T/C0ExtensionsTest.lean), [ProofKit](LeanQbeTest/T/ProofKitTest.lean) |
+| `Unified`, `Bedrock2`, & `BedrockWord` | Spec-preserving frontend/stage composition ([`Unified`](LeanQbe/T/Unified/)), `Kraken.Bedrock2` lowering on x86-64 & AArch64, and generic [`Xcap`](LeanQbe/T/Xcap/) / [`BedrockWord`](LeanQbe/T/BedrockWord/) CFG recovery | [Unified](LeanQbeTest/T/UnifiedPipelineTest.lean), [Bedrock2](LeanQbeTest/T/UnifiedBedrock2Test.lean), [Bedrock2X64](LeanQbeTest/T/UnifiedBedrock2X64Test.lean), [Bedrock2Arm64](LeanQbeTest/T/UnifiedBedrock2Arm64Test.lean), [Phoas](LeanQbeTest/T/Bedrock2PhoasTest.lean), [CfgRec](LeanQbeTest/T/BedrockCfgRecoveryTest.lean) |
 | WebAssembly memory sandbox | Module validation (`validateModule`), software-fault-isolation bounds on linear memory (`WasmMemInv`), and preservation of the host's caller frame on x86-64 and AArch64 | [Spec](LeanQbeTest/T/WasmAuditSpec.lean), [X64](LeanQbeTest/T/WasmAuditX64.lean), [Arm64](LeanQbeTest/T/WasmAuditArm64.lean) |
 | Bootstrapping compiler ([details](#bootstrapping-compiler)) | A small compiler written in Lean, lowered to `LeanQbe.T` and certified for x86-64, with soundness, serialization, and printer proofs | [Bootstrap0](LeanQbeBootstrap0Test/Bootstrap0Audit.lean), [Codec0](LeanQbeBootstrap0Test/Codec0Test.lean), [PrintDir0](LeanQbeBootstrap0Test/PrintDir0Test.lean), [PrintAsm0](LeanQbeTest/T/PrintAsm0Test.lean), [Sound0](LeanQbeBootstrap0Test/Sound0Test.lean), [StageC](LeanQbeBootstrap0Test/StageCTest.lean) |
 
@@ -88,6 +97,9 @@ lake build --wfail LeanQbeTest.T.KissatAuditSpec \
   LeanQbeTest.T.CompilerAuditSpec LeanQbeTest.T.CompilerAuditX64 \
   LeanQbeTest.T.CompilerAuditArm64 LeanQbeTest.T.LcnfAudit \
   LeanQbeTest.T.LcnfC0RtTest LeanQbeTest.T.LcnfC0BigNumTest \
+  LeanQbeTest.T.LcnfC0ContainersTest LeanQbeTest.T.C0ExtensionsTest \
+  LeanQbeTest.T.UnifiedPipelineTest LeanQbeTest.T.BedrockCfgRecoveryTest \
+  LeanQbeTest.T.UnifiedBedrock2X64Test LeanQbeTest.T.UnifiedBedrock2Arm64Test \
   LeanQbeTest.T.LratAuditSpec LeanQbeTest.T.LratAuditX64 LeanQbeTest.T.LratAuditArm64 \
   LeanQbeTest.T.WorkloadsAuditSpec LeanQbeTest.T.WorkloadsAuditX64 \
   LeanQbeTest.T.WorkloadsAuditArm64 LeanQbeTest.T.C0LogicAudit \
@@ -139,13 +151,13 @@ per-function optimization runs.
   Kissat build uses [`m7InlPolicy`](LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean#L113), applied
   by [`Module.inlinePolicy`](LeanQbe/T/Inline.lean#L572).
 - Correctness: [`Module.inline_ok`](LeanQbe/T/InlineLemmas.lean#L683),
-  [`Module.optInlinePolicy_ok`](LeanQbe/T/MainInline.lean#L110), and
+  [`Module.optInlinePolicy_ok`](LeanQbe/T/MainInline.lean#L106), and
   [`Module.optInline_ok`](LeanQbe/T/OptLemmas.lean#L552).
 - For large modules, the inlined module is computed once at elaboration time and recorded
   together with a kernel-checked equation relating it to `Module.optInlinePolicy`
-  ([`inline_mod!`](LeanQbe/T/MainCertInline.lean#L571)). A chunked variant
+  ([`inline_mod!`](LeanQbe/T/MainCertInline.lean#L587)). A chunked variant
   ([`InlineChunk.lean`](LeanQbe/T/InlineChunk.lean),
-  [`inline_chunk_base!`](LeanQbe/T/MainCertInlineChunk.lean#L586), `inline_mod_chunk!`,
+  [`inline_chunk_base!`](LeanQbe/T/MainCertInlineChunk.lean#L381), `inline_mod_chunk!`,
   `inline_mod_join!`) processes the module in pieces to bound memory use. Tests:
   [`InlineB5Test.lean`](LeanQbeTest/T/InlineB5Test.lean) and
   [`InlinePolicyB5Test.lean`](LeanQbeTest/T/InlinePolicyB5Test.lean).
@@ -158,7 +170,7 @@ per-function optimization runs.
 1. [`Func.fold`](LeanQbe/T/Fold.lean#L868) — constant folding and algebraic simplification
    ([`FoldLemmas.lean#L2964`](LeanQbe/T/FoldLemmas.lean#L2964)).
 2. [`Func.canon`](LeanQbe/T/Canon.lean#L254) — ordering of commutative operands and reassociation
-   of constant chains ([`CanonLemmas.lean#L829`](LeanQbe/T/CanonLemmas.lean#L829)).
+   of constant chains ([`CanonLemmas.lean#L760`](LeanQbe/T/CanonLemmas.lean#L760)).
 3. [`Func.copy`](LeanQbe/T/Copy.lean#L187) — copy propagation
    ([`CopyLemmas.lean#L849`](LeanQbe/T/CopyLemmas.lean#L849)).
 4. [`Func.gvn`](LeanQbe/T/Gvn.lean#L259) — global value numbering
@@ -166,7 +178,7 @@ per-function optimization runs.
 5. `Func.copy`, then `Func.fold` again.
 6. [`Func.ifOpt`](LeanQbe/T/IfOpt.lean#L436) — if-conversion of branch diamonds into `select`
    instructions ([`Func.ifOptWith`](LeanQbe/T/IfOpt.lean#L431);
-   [`IfOptLemmas.lean#L2395`](LeanQbe/T/IfOptLemmas.lean#L2395)).
+   [`IfOptLemmas.lean#L2243`](LeanQbe/T/IfOptLemmas.lean#L2243)).
 7. [`Func.simplifyGroupFast`](LeanQbe/T/Opt.lean#L123) /
    [`Func.simplifyGroupPlan`](LeanQbe/T/SimplifyGroupPlan.lean#L449) — control-flow
    simplification
@@ -179,7 +191,7 @@ per-function optimization runs.
    [`ZeroPeelLemmas1.lean`](LeanQbe/T/ZeroPeelLemmas1.lean)).
 10. `Func.copy`, then `Func.fold` again.
 11. [`Func.dceP`](LeanQbe/T/DceParam.lean#L279) — dead-code elimination, including unused block
-    parameters ([`DceParamLemmas.lean#L688`](LeanQbe/T/DceParamLemmas.lean#L688)).
+    parameters ([`DceParamLemmas.lean#L673`](LeanQbe/T/DceParamLemmas.lean#L673)).
 12. `Func.renorm` — renumbering into a normalized form ([`Flat.lean`](LeanQbe/T/Flat.lean),
     [`FlatLemmas.lean#L756`](LeanQbe/T/FlatLemmas.lean#L756)).
 
@@ -202,17 +214,17 @@ order, renormalizing (`Func.renorm`) between groups:
    shifts; [`DivConstLemmas.lean#L1385`](LeanQbe/T/DivConstLemmas.lean#L1385)), `Func.copy`.
 2. [`Func.lateCorePost`](LeanQbe/T/Opt.lean#L207):
    [`Func.memLoad`](LeanQbe/T/MemLoad.lean#L425) (load common-subexpression elimination and
-   store-to-load forwarding; [`MemLoadLemmas.lean#L1761`](LeanQbe/T/MemLoadLemmas.lean#L1761)),
+   store-to-load forwarding; [`MemLoadLemmas.lean#L1706`](LeanQbe/T/MemLoadLemmas.lean#L1706)),
    `Func.gvn`, [`Func.assumeBits`](LeanQbe/T/AssumeBits.lean#L301) (simplification using
-   known-bits facts; [`AssumeBitsLemmas.lean#L1114`](LeanQbe/T/AssumeBitsLemmas.lean#L1114)),
+   known-bits facts; [`AssumeBitsLemmas.lean#L1067`](LeanQbe/T/AssumeBitsLemmas.lean#L1067)),
    `Func.fold`.
 3. [`Func.lateCfgPre`](LeanQbe/T/Opt.lean#L217):
    [`Func.ifOptBits`](LeanQbe/T/IfOpt.lean#L440) (if-conversion restricted to machine integer
-   types; [`IfOptLemmas.lean#L2401`](LeanQbe/T/IfOptLemmas.lean#L2401)),
+   types; [`IfOptLemmas.lean#L2249`](LeanQbe/T/IfOptLemmas.lean#L2249)),
    `Func.simplifyGroupFast`, [`Func.deadLoadElim`](LeanQbe/T/Dce.lean#L153) (removal of unused
    loads; [`DceLemmas.lean#L451`](LeanQbe/T/DceLemmas.lean#L451)),
    [`Func.assumeElim`](LeanQbe/T/MemLoad.lean#L465) (removal of branches whose other arm halts;
-   [`MemLoadLemmas.lean#L1865`](LeanQbe/T/MemLoadLemmas.lean#L1865)), `Func.fold`, `Func.gvn`.
+   [`MemLoadLemmas.lean#L1809`](LeanQbe/T/MemLoadLemmas.lean#L1809)), `Func.fold`, `Func.gvn`.
 4. [`Func.lateCfgPost`](LeanQbe/T/Opt.lean#L222) and
    [`Func.lateLoopRotate`](LeanQbe/T/Opt.lean#L226):
    [`Func.licm`](LeanQbe/T/Licm.lean#L885) (loop-invariant code motion;
@@ -643,6 +655,9 @@ The following are assumed rather than proved:
 |---|---|
 | `LeanQbe/T/` | IR, `Func.wp` logic, compiler and inliner passes, linking proofs |
 | `LeanQbe/T/Frontend/C0/` | C0 lexer, parser, and elaborator |
+| `LeanQbe/T/Unified/`, `LeanQbe/T/Xcap/` | Multi-frontend stage pipeline, `Kraken.Bedrock2` lowering, CFG recovery, and generic XCAP core |
+| `LeanQbe/T/BedrockWord/`, `LeanQbe/T/Bedrock2/` | Structured jump-to-word IR (`BedrockWord`) and PHOAS `Bedrock2` lowering |
+| `LeanQbe/T/LeanLCNF/`, `LeanQbe/T/LeanLRC/` | `LCNF` lowering and verified C0 runtime components (`LcnfC0Rt`, `LcnfC0BigNum`, `LcnfC0Containers`) |
 | `LeanQbe/T/Wasm/` | WebAssembly validator, sandboxed lowering, and linear-memory safety proofs |
 | `LeanQbe/T/Bootstrap0/` | Bootstrapping compiler `leanqbe0Compile`, its certificate, and its proofs |
 | `LeanQbe/T/Examples/Kissat/` | C0 sources, specifications, inlining policies, and `Func.wp` proofs of the Kissat solver |
@@ -650,6 +665,6 @@ The following are assumed rather than proved:
 | `LeanQbeTest/T/`, `LeanQbeBootstrap0Test/` | Active tests and standalone audit files (each imports at most one architecture) |
 | `LeanQbeLegacyTest/` | Optional audit files for `KissatPlain` and earlier archived Kissat builds |
 | `bench/kissat/` | Solver CLI wrapper, build script (`build_solver.sh`), 4-way benchmarks (`compare_4way_min.py`, `run_4way_stage1.py`), C0-to-C99 extractor (`extract_c0_direct.py`), and differential tools |
-| `test/kissat/` | CLI solver tests (`test_cli_solver.sh`), OOM/witness fuzzer (`fuzz_oom_witness.py`), and test helpers |
+| `test/c0/`, `test/kissat/` | C0 preprocessor/differential tests (`run.sh`), CLI solver tests (`test_cli_solver.sh`), OOM/witness fuzzer, and test helpers |
 | `scripts/` | [`check.sh`](scripts/check.sh), hub and import checks, theorem lists (`headlines.d/`) |
 | `docs/reports/` | Design notes on individual components |

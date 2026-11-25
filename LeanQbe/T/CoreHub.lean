@@ -5,6 +5,14 @@ public import LeanQbe.T.AddrRangeOpt
 public import LeanQbe.T.AddrRangeOptLemmas
 public import LeanQbe.T.AssumeBits
 public import LeanQbe.T.AssumeBitsLemmas
+public import LeanQbe.T.Bedrock2.Flat
+public import LeanQbe.T.Bedrock2.FromKraken
+public import LeanQbe.T.Bedrock2.FromKrakenCore
+public import LeanQbe.T.Bedrock2.Phoas
+public import LeanQbe.T.Bedrock2.ToT
+public import LeanQbe.T.BedrockWord.Core
+public import LeanQbe.T.BedrockWord.Exec
+public import LeanQbe.T.BedrockWord.Ops
 public import LeanQbe.T.Canon
 public import LeanQbe.T.CanonLemmas
 public import LeanQbe.T.CondThreadOpt
@@ -15,6 +23,7 @@ public import LeanQbe.T.Dce
 public import LeanQbe.T.DceLemmas
 public import LeanQbe.T.DceParam
 public import LeanQbe.T.DceParamLemmas
+public import LeanQbe.T.DebugAsmCommon
 public import LeanQbe.T.DivConst
 public import LeanQbe.T.DivConstLemmas
 public import LeanQbe.T.Driver
@@ -127,6 +136,7 @@ public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.OptPolicy
 public import LeanQbe.T.OptUtil
 public import LeanQbe.T.OptUtilLemmas
+public import LeanQbe.T.PassEnvKit
 public import LeanQbe.T.Peel
 public import LeanQbe.T.PeelLemmas
 public import LeanQbe.T.PrintCpp
@@ -156,6 +166,15 @@ public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Ty
 public import LeanQbe.T.TyLemmas
+public import LeanQbe.T.Unified.Caps
+public import LeanQbe.T.Unified.CfgRecovery
+public import LeanQbe.T.Unified.CfgRecoveryLemmas
+public import LeanQbe.T.Unified.CfgRecoveryProof
+public import LeanQbe.T.Unified.Core
+public import LeanQbe.T.Unified.Driver
+public import LeanQbe.T.Unified.DriverLemmas
+public import LeanQbe.T.Unified.Frontend.Bedrock2
+public import LeanQbe.T.Unified.Ssa
 public import LeanQbe.T.WP
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.Wasm.Ast
@@ -167,6 +186,9 @@ public import LeanQbe.T.Wasm.Safety
 public import LeanQbe.T.Wasm.Validate
 public import LeanQbe.T.Wf
 public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.Xcap.Core
+public import LeanQbe.T.Xcap.Lfp
+public import LeanQbe.T.Xcap.Link
 public import LeanQbe.T.ZeroPeel
 public import LeanQbe.T.ZeroPeelLemmas
 public import LeanQbe.T.ZeroPeelLemmas1

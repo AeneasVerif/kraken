@@ -588,16 +588,16 @@ theorem m8_analyze_m8_wp (Γ : Env)
 
 /-! ## 2. `FullM8FidV12.m8_analyze_core_m6` Bridge (`m8_analyze_core_m6_m8_wp`) -/
 
-/-- Canonical `FullM6Hdr.m6HdrAnalyzeSpec` theorem for `FullM8FidV12.m8_analyze_core_m6_body`
-when `"full_min_shrink_m6"` uses `m8MinShrinkSpec` (`minimizeticks=1`). -/
-theorem m8_analyze_core_m6_m8_wp (Γ : Env)
+/-- Generalized `FullM6Hdr.m6HdrAnalyzeSpec` theorem parameterized by monotone `Pext`. -/
+theorem m8_analyze_core_m6_m8_wp_gen (Pext : List (BitVec 64) → List (BitVec 64) → Prop)
+    (Γ : Env)
     (hOneLit : ∀ a m Q X, Full.fullOneLitConflSpec a m Q X →
       Γ "full_one_lit_confl" [i64] [i64] a m Q X)
-    (hFailed : ∀ a m Q X, FullM6OrchAdapters.m6aAnaFailedLitSpec a m Q X →
+    (hFailed : ∀ a m Q X, FullM6OrchAdapters.m6aAnaFailedLitSpecP Pext a m Q X →
       Γ "full_ana_failed_lit_m6_hdr" [i64] [i64] a m Q X)
     (hDeduce : ∀ a m Q X, m7Deduce1uipHdrSpec a m Q X →
       Γ "full_deduce_1uip_m6_hdr" [i64] [i64] a m Q X)
-    (hRestore : ∀ a m Q X, FullM6OrchAdapters.m6aRestoreBumpAnaSpec a m Q X →
+    (hRestore : ∀ a m Q X, FullM6OrchAdapters.m6aRestoreBumpAnaSpecP Pext a m Q X →
       Γ "full_restore_bump_ana_m6_hdr" [i64] [] a m Q X)
     (hMinShrink : ∀ a m Q X, m8MinShrinkSpec a m Q X →
       Γ "full_min_shrink_m6" [i64] [] a m Q X)
@@ -639,7 +639,7 @@ theorem m8_analyze_core_m6_m8_wp (Γ : Env)
       · rcases h0 rfl with ⟨cut2, hcut2_le, hcut2, hlvl2, hlle2, hcf2⟩
         c0_hsteps_nogrp
         · c0_call hFailed
-          refine FullM6OrchAdapters.m6aAnaFailedLitSpec_of hinv.cfgOk hext1 hcut2 hlvl2 hcf2 hm2'
+          refine FullM6OrchAdapters.m6aAnaFailedLitSpecP_ofP hinv.cfgOk hext1 hcut2 hlvl2 hcf2 hm2'
             ?_
           intro r ext3 s3 m3 hext3 _ hlen3 hr hcv3 hfu3 hws3 hr20 hr0 hr1 hm3
           exact hQ r ext3 s3 m3 hext3 hlen3 hr (hcv3.trans (hcv2.trans hcv1))
@@ -781,7 +781,7 @@ theorem m8_analyze_core_m6_m8_wp (Γ : Env)
                   ⟨ho, hp, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10⟩
               c0_hsteps_nogrp
               · c0_call hRestore
-                refine FullM6OrchAdapters.m6aRestoreBumpAnaSpec_of hinv.cfgOk hext3 hlen4 hmc4.1
+                refine FullM6OrchAdapters.m6aRestoreBumpAnaSpecP_ofP hinv.cfgOk hext3 hlen4 hmc4.1
                   hm4' ?_
                 intro mrk5 mcl5 sc5 ext5 m5 _s5 hlen5 hmz5 _ _ hpres5 hws5 hext5 _ hm5
                 let s5 : FullState :=
@@ -831,7 +831,7 @@ theorem m8_analyze_core_m6_m8_wp (Γ : Env)
                     (FullMem c st ⋆ (m6ExtMem (m6ExtAddr c.hdr) ext3 ⋆ R)) m') ?_ ?_
                 · rintro J5 s4 m4 ⟨⟨hcut4_le, hcut4, hcf4, hcv4, hfu4, hcl4, hws4⟩, hm4⟩
                   c0_hsteps_nogrp; c0_call hRestore
-                  refine FullM6OrchAdapters.m6aRestoreBumpAnaSpec_of hinv.cfgOk hext3 hcut4.1
+                  refine FullM6OrchAdapters.m6aRestoreBumpAnaSpecP_ofP hinv.cfgOk hext3 hcut4.1
                     hcut4.2.2.1.1 (fullM6HdrMem_unfocus hm4) ?_
                   intro mrk5 mcl5 sc5 ext5 m5 _s5 hlen5 hmz5 _ _ hpres5 hws5 hext5 _ hm5
                   let s5 : FullState :=
@@ -953,5 +953,30 @@ theorem m8_analyze_core_m6_m8_wp (Γ : Env)
         (by rw [hfu1]; exact Nat.le_refl _)
         ⟨hws1, fun h => by cases h⟩ (fun h => by cases h)
         (fun _ => hcut1.toOtfs) (fun h => by cases h) (fullM6HdrMem_unfocus hm1)
+
+/-- Canonical `FullM6Hdr.m6HdrAnalyzeSpec` theorem for `FullM8FidV12.m8_analyze_core_m6_body`
+when `"full_min_shrink_m6"` uses `m8MinShrinkSpec` (`minimizeticks=1`). -/
+theorem m8_analyze_core_m6_m8_wp (Γ : Env)
+    (hOneLit : ∀ a m Q X, Full.fullOneLitConflSpec a m Q X →
+      Γ "full_one_lit_confl" [i64] [i64] a m Q X)
+    (hFailed : ∀ a m Q X, FullM6OrchAdapters.m6aAnaFailedLitSpec a m Q X →
+      Γ "full_ana_failed_lit_m6_hdr" [i64] [i64] a m Q X)
+    (hDeduce : ∀ a m Q X, m7Deduce1uipHdrSpec a m Q X →
+      Γ "full_deduce_1uip_m6_hdr" [i64] [i64] a m Q X)
+    (hRestore : ∀ a m Q X, FullM6OrchAdapters.m6aRestoreBumpAnaSpec a m Q X →
+      Γ "full_restore_bump_ana_m6_hdr" [i64] [] a m Q X)
+    (hMinShrink : ∀ a m Q X, m8MinShrinkSpec a m Q X →
+      Γ "full_min_shrink_m6" [i64] [] a m Q X)
+    (hTick : ∀ a m Q X, Full.fullTickRelSpec a m Q X → Γ "full_tick_rel" [i64] [] a m Q X)
+    (hEma : ∀ a m Q X, Full.fullEmaUpdateSpec a m Q X →
+      Γ "full_ema_update" [i64, i64] [] a m Q X)
+    (hLearn : ∀ a m Q X, Full.fullLearnClauseSpec a m Q X →
+      Γ "full_learn_clause" [i64, i64] [i64] a m Q X) :
+    ∀ a m Q X, FullM6Hdr.m6HdrAnalyzeSpec a m Q X →
+      Func.wp Γ m8_analyze_core_m6_body a m Q X :=
+  m8_analyze_core_m6_m8_wp_gen Eq Γ hOneLit
+    (fun _ _ _ _ h => hFailed _ _ _ _ (FullM6OrchAdapters.m6aAnaFailedLitSpec_of_eq h)) hDeduce
+    (fun _ _ _ _ h => hRestore _ _ _ _ (FullM6OrchAdapters.m6aRestoreBumpAnaSpec_of_eq h))
+    hMinShrink hTick hEma hLearn
 
 end LeanQbe.T.Examples.Kissat.FullM8CoreParity

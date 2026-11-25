@@ -41,17 +41,12 @@ theorem moduleOk_parts {Γ : Env} {mod : Module} (hM : ModuleOk Γ mod) :
     mod.checkAcyclic = true ∧
     (∀ f ∈ mod.fns, f.Wf) ∧
     (∀ f ∈ mod.fns, ∀ xs m Q X, Γ f.name f.as f.rs xs m Q X → Func.wp Γ f.body xs m Q X) := by
-  refine ⟨?_, ?_, ?_⟩
+  refine ⟨?_, fun f hf => ?_, fun f hf => ?_⟩
   · simp only [Module.checkAcyclic, Bool.and_eq_true]
-    exact ⟨listNodup_iff.mpr hM.nodup,
-      checkFnsCallsOk_of_forall _ _ [] _ fun pre fn post hsp => by
-        simpa using (hM.fnsOk pre fn post hsp).2.1⟩
-  · intro f hf
-    obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hf
-    exact (hM.fnsOk pre f post hsp).1
-  · intro f hf
-    obtain ⟨pre, post, hsp⟩ := List.mem_iff_append.mp hf
-    exact (hM.fnsOk pre f post hsp).2.2
+    exact ⟨listNodup_iff.mpr hM.nodup, checkFnsCallsOk_of_forall _ _ [] _ fun p fn q hsp => by
+      simpa using (hM.fnsOk p fn q hsp).2.1⟩
+  · obtain ⟨p, q, hsp⟩ := List.mem_iff_append.mp hf; exact (hM.fnsOk p f q hsp).1
+  · obtain ⟨p, q, hsp⟩ := List.mem_iff_append.mp hf; exact (hM.fnsOk p f q hsp).2.2
 
 namespace LinkedCert
 
@@ -71,11 +66,9 @@ variable {T : Target} {L : TargetLayout T} {lt : LegalTarget}
   supportsAll := fun f hf => cert.supportsAll f (h ▸ hf)
   maxBound_le := cert.maxBound_le
 
-/-- Transport a `LinkedCert` along a module equality `h : mod₁ = mod₂` in O(1) without
-re-checking any compiled chunk or link check. -/
+/-- Transport a `LinkedCert` along `h : mod₁ = mod₂` in O(1) without re-checking any chunk. -/
 @[expose] noncomputable def castModule
-    (cert : LinkedCert T L lt hcl mod₁ ext₀ exits nX maxBound)
-    (h : mod₁ = mod₂) :
+    (cert : LinkedCert T L lt hcl mod₁ ext₀ exits nX maxBound) (h : mod₁ = mod₂) :
     LinkedCert T L lt hcl mod₂ ext₀ exits nX maxBound :=
   cert.castFns (congrArg Module.fns h)
 
@@ -96,76 +89,66 @@ theorem fnSpec_optInlinePolicy
     (hext_uniq : (∀ p ∈ ext₀, ∀ q ∈ ext₀, p.1.1 = q.1.1 → p.2 = q.2) ∧
       (∀ p ∈ ext₀, p.1.1 ∉ mod.fns.map Fn.name))
     (hexits : ∀ g ∈ exits, T.Defined h g) {f : Fn} (hf : f ∈ mod.fns) :
-    T.Defined h f.name ∧ T.FnSpec h f.name
-      (legalEnv lt (Env.ofModule mod Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
-      (cert.bound f.name) nX := by
+    InlOutSpec T h lt mod Γ f.name f (cert.bound f.name) nX := by
   have ⟨hacyc, hwf, hwp⟩ := moduleOk_parts hM
   exact cert.compiled.fnSpec_optInlinePolicy mod policy cert.fns_eq h Γ k₀ hc hu
     hacyc hwf cert.supportsAll hwp hext hext_uniq hexits hf
 
-/-- Self-contained `Defined` + `FnSpec` on `cert.host` (`ext₀ = []`) for
-`mod.optInlinePolicy policy` from source `ModuleOk Γ mod`. -/
+/-- Self-contained `Defined` + `FnSpec` on `cert.host` (`ext₀ = []`) for `optInlinePolicy`. -/
 theorem fnSpec_host_optInlinePolicy
     (cert : LinkedCert T L lt hcl (mod.optInlinePolicy policy) [] exits nX maxBound)
     (Γ : Env) (hM : ModuleOk Γ mod) {f : Fn} (hf : f ∈ mod.fns) :
-    T.Defined cert.host f.name ∧ T.FnSpec cert.host f.name
-      (legalEnv lt (Env.ofModule mod Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
-      (cert.bound f.name) nX :=
+    InlOutSpec T cert.host lt mod Γ f.name f (cert.bound f.name) nX :=
   cert.fnSpec_optInlinePolicy cert.host Γ 0 cert.code_infix_host cert.labelsUnique hM
     (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
     (fun _ hg => cert.defined_exit_host hg) hf
 
-/-- Source-level `Defined` + `FnSpec` on `cert.host` (`ext₀ = []`) for
-`mod.optInlinePolicy policy` when `lt.legalSig` fixes `(f.as, f.rs)` and `Γ` ignores exits. -/
+/-- Source-level `Defined` + `FnSpec` on `cert.host` (`ext₀ = []`) when `lt.legalSig` fixes
+`(f.as, f.rs)` and `Γ` ignores exits. -/
 theorem fnSpec_host_src_optInlinePolicy
     (cert : LinkedCert T L lt hcl (mod.optInlinePolicy policy) [] exits nX maxBound)
     (Γ : Env) (hM : ModuleOk Γ mod) {f : Fn} (hf : f ∈ mod.fns)
-    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X') :
+    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs) (hnoex : InlNoExit Γ f) :
     T.Defined cert.host f.name ∧
       T.FnSpec cert.host f.name (Γ f.name f.as f.rs) (cert.bound f.name) nX := by
   obtain ⟨hdef, hspec⟩ := cert.fnSpec_host_optInlinePolicy Γ hM hf
   exact ⟨hdef, fnSpec_of_legalEnv_legalSig_eq_noExit has hrs
     (List.mem_append_left _ (List.mem_map_of_mem hf)) hnoex hspec⟩
 
-/-- Source-level `Defined` + `FnSpec` on `cert.host` (`ext₀ = []`) for
-`mod.optInlinePolicy policy` given `LegalSigAll lt mod.fns`. -/
+/-- `LegalSigAll` specialization of `fnSpec_host_src_optInlinePolicy`. -/
 theorem fnSpec_host_of_legalSigAll_optInlinePolicy
     (cert : LinkedCert T L lt hcl (mod.optInlinePolicy policy) [] exits nX maxBound)
     (Γ : Env) (hM : ModuleOk Γ mod) (hleg : LegalSigAll lt mod.fns)
-    {f : Fn} (hf : f ∈ mod.fns)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X') :
+    {f : Fn} (hf : f ∈ mod.fns) (hnoex : InlNoExit Γ f) :
     T.Defined cert.host f.name ∧
       T.FnSpec cert.host f.name (Γ f.name f.as f.rs) (cert.bound f.name) nX :=
   have ⟨has, hrs⟩ := hleg f hf
   cert.fnSpec_host_src_optInlinePolicy Γ hM hf has hrs hnoex
 
-/-- Arbitrary-host `FnSpec` over `mod.optInlinePolicy policy` (`ext₀ = []`, `exits = []`) from
-source `ModuleOk Γ mod`. -/
+/-- Arbitrary-host `FnSpec` over `mod.optInlinePolicy policy` (`ext₀ = []`, `exits = []`). -/
 theorem fnSpec_noExit_id_optInlinePolicy
     (cert : LinkedCert T L lt hcl (mod.optInlinePolicy policy) [] [] nX maxBound)
     (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
     (hc : cert.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
     (hM : ModuleOk Γ mod) {f : Fn} (hf : f ∈ mod.fns)
-    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X') :
+    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs) (hnoex : InlNoExit Γ f) :
     T.Defined h f.name ∧ T.FnSpec h f.name (Γ f.name f.as f.rs) (cert.bound f.name) nX := by
   have ⟨hacyc, hwf, hwp⟩ := moduleOk_parts hM
   exact cert.compiled.fnSpec_noExit_id_optInlinePolicy mod policy cert.fns_eq h Γ k₀ hc hu
     hacyc hwf cert.supportsAll hwp hf has hrs hnoex
 
-/-- Arbitrary-host `fnSpec_noExit_id_optInlinePolicy` specialized with `LegalSigAll lt mod.fns`. -/
+/-- `LegalSigAll` specialization of `fnSpec_noExit_id_optInlinePolicy`. -/
 theorem fnSpec_noExit_of_legalSigAll_optInlinePolicy
     (cert : LinkedCert T L lt hcl (mod.optInlinePolicy policy) [] [] nX maxBound)
     (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
     (hc : cert.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
     (hM : ModuleOk Γ mod) (hleg : LegalSigAll lt mod.fns) {f : Fn} (hf : f ∈ mod.fns)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X') :
+    (hnoex : InlNoExit Γ f) :
     T.Defined h f.name ∧ T.FnSpec h f.name (Γ f.name f.as f.rs) (cert.bound f.name) nX :=
   have ⟨has, hrs⟩ := hleg f hf
   cert.fnSpec_noExit_id_optInlinePolicy h Γ k₀ hc hu hM hf has hrs hnoex
 
-/-- `Module.optInline maxSize` convenience specialization of `fnSpec_optInlinePolicy`. -/
+/-- `Module.optInline maxSize` specialization of `fnSpec_optInlinePolicy`. -/
 theorem fnSpec_optInline {maxSize : Nat}
     (cert : LinkedCert T L lt hcl (mod.optInline maxSize) ext₀ exits nX maxBound)
     (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
@@ -176,39 +159,33 @@ theorem fnSpec_optInline {maxSize : Nat}
     (hext_uniq : (∀ p ∈ ext₀, ∀ q ∈ ext₀, p.1.1 = q.1.1 → p.2 = q.2) ∧
       (∀ p ∈ ext₀, p.1.1 ∉ mod.fns.map Fn.name))
     (hexits : ∀ g ∈ exits, T.Defined h g) {f : Fn} (hf : f ∈ mod.fns) :
-    T.Defined h f.name ∧ T.FnSpec h f.name
-      (legalEnv lt (Env.ofModule mod Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
-      (cert.bound f.name) nX :=
+    InlOutSpec T h lt mod Γ f.name f (cert.bound f.name) nX :=
   cert.fnSpec_optInlinePolicy h Γ k₀ hc hu hM hext hext_uniq hexits hf
 
-/-- `Module.optInline maxSize` convenience specialization of `fnSpec_host_optInlinePolicy`. -/
+/-- `Module.optInline maxSize` specialization of `fnSpec_host_optInlinePolicy`. -/
 theorem fnSpec_host_optInline {maxSize : Nat}
     (cert : LinkedCert T L lt hcl (mod.optInline maxSize) [] exits nX maxBound)
     (Γ : Env) (hM : ModuleOk Γ mod) {f : Fn} (hf : f ∈ mod.fns) :
-    T.Defined cert.host f.name ∧ T.FnSpec cert.host f.name
-      (legalEnv lt (Env.ofModule mod Γ) f.name (lt.legalSig f.as) (lt.legalSig f.rs))
-      (cert.bound f.name) nX :=
+    InlOutSpec T cert.host lt mod Γ f.name f (cert.bound f.name) nX :=
   cert.fnSpec_host_optInlinePolicy Γ hM hf
 
-/-- `Module.optInline maxSize` convenience specialization of `fnSpec_noExit_id_optInlinePolicy`. -/
+/-- `Module.optInline maxSize` specialization of `fnSpec_noExit_id_optInlinePolicy`. -/
 theorem fnSpec_noExit_id_optInline {maxSize : Nat}
     (cert : LinkedCert T L lt hcl (mod.optInline maxSize) [] [] nX maxBound)
     (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
     (hc : cert.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
     (hM : ModuleOk Γ mod) {f : Fn} (hf : f ∈ mod.fns)
-    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X') :
+    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs) (hnoex : InlNoExit Γ f) :
     T.Defined h f.name ∧ T.FnSpec h f.name (Γ f.name f.as f.rs) (cert.bound f.name) nX :=
   cert.fnSpec_noExit_id_optInlinePolicy h Γ k₀ hc hu hM hf has hrs hnoex
 
-/-- `Module.optInline maxSize` convenience specialization of
-`fnSpec_noExit_of_legalSigAll_optInlinePolicy`. -/
+/-- `Module.optInline maxSize` specialization of `fnSpec_noExit_of_legalSigAll_optInlinePolicy`. -/
 theorem fnSpec_noExit_of_legalSigAll_optInline {maxSize : Nat}
     (cert : LinkedCert T L lt hcl (mod.optInline maxSize) [] [] nX maxBound)
     (h : T.mach.Host) (Γ : Env) (k₀ : Nat)
     (hc : cert.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
     (hM : ModuleOk Γ mod) (hleg : LegalSigAll lt mod.fns) {f : Fn} (hf : f ∈ mod.fns)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X') :
+    (hnoex : InlNoExit Γ f) :
     T.Defined h f.name ∧ T.FnSpec h f.name (Γ f.name f.as f.rs) (cert.bound f.name) nX :=
   cert.fnSpec_noExit_of_legalSigAll_optInlinePolicy h Γ k₀ hc hu hM hleg hf hnoex
 
@@ -218,16 +195,27 @@ section ConcreteInit
 
 variable {maxStack maxMem : Nat}
 
-/-- End-to-end `Eventually` theorem from source `ModuleOk Γ mod` to execution in `cert.host`
-of the inlined module `mod.optInlinePolicy policy` (`ext₀ = []`). -/
+/-- Postcondition for non-exiting `i64`-returning `Eventually` lifts on `cert.host`. -/
+abbrev InlRet1SepEv
+    (cert : LinkedCert T L lt hcl mod [] exits nX maxBound)
+    (I : TargetInit T maxStack maxMem) (f : Fn) (bsMem : List UInt8) (args : Tup Val f.as)
+    (v : Val i64) (P : Mem 64 → Prop) : Prop :=
+  Eventually (T.mach.step cert.host)
+    (fun st => T.mach.pc st = I.ra0 ∧ T.mach.getGpr (T.mach.data st) I.ret0 = v ∧
+      (T.mach.mem (T.mach.data st) =⋆ P ⋆ T.Exit I.sp0 (cert.bound f.name) ⋆
+        Std.ExtHashMap.emp))
+    (T.mach.mkState (I.initState (cert.bound f.name) bsMem args)
+      (T.mach.labelAddr cert.host f.name))
+
+/-- End-to-end `Eventually` theorem from source `ModuleOk Γ mod` to execution on `cert.host`. -/
 theorem eventually_fnSpec_optInlinePolicy
     (cert : LinkedCert T L lt hcl (mod.optInlinePolicy policy) [] exits nX maxBound)
     (I : TargetInit T maxStack maxMem) (Γ : Env) (hM : ModuleOk Γ mod)
     {f : Fn} (hf : f ∈ mod.fns) (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X')
-    (bsMem : List UInt8) (args : Tup Val f.as) (hbs : bsMem.length ≤ maxMem)
-    (hargs : (T.toIsa.assignArgs f.as).isSome = true) {Q : Post f.rs} {X : XPost}
-    (hspec : Γ f.name f.as f.rs args (bsMem.At 0x1000#64) Q X) {post : T.mach.State → Prop}
+    (hnoex : InlNoExit Γ f) (bsMem : List UInt8) (args : Tup Val f.as)
+    (hbs : bsMem.length ≤ maxMem) (hargs : (T.toIsa.assignArgs f.as).isSome = true)
+    {Q : Post f.rs} {X : XPost} (hspec : Γ f.name f.as f.rs args (bsMem.At 0x1000#64) Q X)
+    {post : T.mach.State → Prop}
     (hpost : ∀ st,
       (T.mach.pc st = I.ra0 ∧ ∃ rets m', Q rets m' ∧ T.RetsIn rets (T.mach.data st) ∧
         (T.mach.mem (T.mach.data st) =⋆ Eq m' ⋆ T.Exit I.sp0 (cert.bound f.name) ⋆
@@ -241,25 +229,19 @@ theorem eventually_fnSpec_optInlinePolicy
   cert.run_fnSpec I (cert.fnSpec_host_src_optInlinePolicy Γ hM hf has hrs hnoex).2
     bsMem args hbs hargs hspec hpost hbound
 
-/-- End-to-end `Eventually` theorem for a non-exiting `i64`-returning `f ∈ mod.fns` on the
-inlined `cert.host` establishing final heap postcondition `P`. -/
+/-- Non-exiting `i64`-returning `Eventually` theorem on `cert.host` establishing post `P`. -/
 theorem eventually_ret1_sep_i64_optInlinePolicy
     (cert : LinkedCert T L lt hcl (mod.optInlinePolicy policy) [] exits nX maxBound)
     (I : TargetInit T maxStack maxMem) (Γ : Env) (hM : ModuleOk Γ mod)
     {f : Fn} (hf : f ∈ mod.fns) (hret : f.rs = [i64])
-    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X')
+    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs) (hnoex : InlNoExit Γ f)
     (bsMem : List UInt8) (args : Tup Val f.as) (v : Val i64) (P : Mem 64 → Prop)
     (hbs : bsMem.length ≤ maxMem) (hargs : (T.toIsa.assignArgs f.as).isSome = true)
     {Q : Post [i64]}
     (hspec : Γ f.name f.as [i64] args (bsMem.At 0x1000#64) Q (fun _ _ _ _ => False))
     (hQ : ∀ rets m', Q rets m' → rets = (v, ()) ∧ P m')
     (hbound : maxBound ≤ maxStack := by omega) :
-    Eventually (T.mach.step cert.host)
-      (fun st => T.mach.pc st = I.ra0 ∧ T.mach.getGpr (T.mach.data st) I.ret0 = v ∧
-        (T.mach.mem (T.mach.data st) =⋆ P ⋆ T.Exit I.sp0 (cert.bound f.name) ⋆ Std.ExtHashMap.emp))
-      (T.mach.mkState (I.initState (cert.bound f.name) bsMem args)
-        (T.mach.labelAddr cert.host f.name)) := by
+    InlRet1SepEv cert I f bsMem args v P := by
   have hfn := (cert.fnSpec_host_src_optInlinePolicy Γ hM hf has hrs hnoex).2
   rw [hret] at hfn
   exact cert.run_ret1_sep_i64 I hfn bsMem args v P hbs hargs hspec hQ hbound
@@ -269,33 +251,25 @@ theorem eventually_ret1_sep_i64_of_legalSigAll_optInlinePolicy
     (cert : LinkedCert T L lt hcl (mod.optInlinePolicy policy) [] exits nX maxBound)
     (I : TargetInit T maxStack maxMem) (Γ : Env) (hM : ModuleOk Γ mod)
     (hleg : LegalSigAll lt mod.fns) {f : Fn} (hf : f ∈ mod.fns) (hret : f.rs = [i64])
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X')
-    (bsMem : List UInt8) (args : Tup Val f.as) (v : Val i64) (P : Mem 64 → Prop)
-    (hbs : bsMem.length ≤ maxMem) (hargs : (T.toIsa.assignArgs f.as).isSome = true)
-    {Q : Post [i64]}
+    (hnoex : InlNoExit Γ f) (bsMem : List UInt8) (args : Tup Val f.as)
+    (v : Val i64) (P : Mem 64 → Prop) (hbs : bsMem.length ≤ maxMem)
+    (hargs : (T.toIsa.assignArgs f.as).isSome = true) {Q : Post [i64]}
     (hspec : Γ f.name f.as [i64] args (bsMem.At 0x1000#64) Q (fun _ _ _ _ => False))
     (hQ : ∀ rets m', Q rets m' → rets = (v, ()) ∧ P m')
     (hbound : maxBound ≤ maxStack := by omega) :
-    Eventually (T.mach.step cert.host)
-      (fun st => T.mach.pc st = I.ra0 ∧ T.mach.getGpr (T.mach.data st) I.ret0 = v ∧
-        (T.mach.mem (T.mach.data st) =⋆ P ⋆ T.Exit I.sp0 (cert.bound f.name) ⋆ Std.ExtHashMap.emp))
-      (T.mach.mkState (I.initState (cert.bound f.name) bsMem args)
-        (T.mach.labelAddr cert.host f.name)) :=
+    InlRet1SepEv cert I f bsMem args v P :=
   have ⟨has, hrs⟩ := hleg f hf
   cert.eventually_ret1_sep_i64_optInlinePolicy I Γ hM hf hret has hrs hnoex
     bsMem args v P hbs hargs hspec hQ hbound
 
-/-- End-to-end `Eventually` theorem for a non-exiting `i64`-returning `f ∈ mod.fns` on the
-inlined `cert.host` projecting `I.ra0` and `I.ret0`. -/
+/-- Non-exiting `i64`-returning `Eventually` theorem projecting `I.ra0` and `I.ret0`. -/
 theorem eventually_ret1_i64_optInlinePolicy
     (cert : LinkedCert T L lt hcl (mod.optInlinePolicy policy) [] exits nX maxBound)
     (I : TargetInit T maxStack maxMem) (Γ : Env) (hM : ModuleOk Γ mod)
     {f : Fn} (hf : f ∈ mod.fns) (hret : f.rs = [i64])
-    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X')
-    (bsMem : List UInt8) (args : Tup Val f.as) (v : Val i64)
-    (hbs : bsMem.length ≤ maxMem) (hargs : (T.toIsa.assignArgs f.as).isSome = true)
-    {Q : Post [i64]}
+    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs) (hnoex : InlNoExit Γ f)
+    (bsMem : List UInt8) (args : Tup Val f.as) (v : Val i64) (hbs : bsMem.length ≤ maxMem)
+    (hargs : (T.toIsa.assignArgs f.as).isSome = true) {Q : Post [i64]}
     (hspec : Γ f.name f.as [i64] args (bsMem.At 0x1000#64) Q (fun _ _ _ _ => False))
     (hQ : ∀ rets m', Q rets m' → rets = (v, ()))
     (hbound : maxBound ≤ maxStack := by omega) :
@@ -313,19 +287,14 @@ theorem eventually_ret1_sep_i64_optInline {maxSize : Nat}
     (cert : LinkedCert T L lt hcl (mod.optInline maxSize) [] exits nX maxBound)
     (I : TargetInit T maxStack maxMem) (Γ : Env) (hM : ModuleOk Γ mod)
     {f : Fn} (hf : f ∈ mod.fns) (hret : f.rs = [i64])
-    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs)
-    (hnoex : ∀ args m Q X X', Γ f.name f.as f.rs args m Q X → Γ f.name f.as f.rs args m Q X')
+    (has : lt.legalSig f.as = f.as) (hrs : lt.legalSig f.rs = f.rs) (hnoex : InlNoExit Γ f)
     (bsMem : List UInt8) (args : Tup Val f.as) (v : Val i64) (P : Mem 64 → Prop)
     (hbs : bsMem.length ≤ maxMem) (hargs : (T.toIsa.assignArgs f.as).isSome = true)
     {Q : Post [i64]}
     (hspec : Γ f.name f.as [i64] args (bsMem.At 0x1000#64) Q (fun _ _ _ _ => False))
     (hQ : ∀ rets m', Q rets m' → rets = (v, ()) ∧ P m')
     (hbound : maxBound ≤ maxStack := by omega) :
-    Eventually (T.mach.step cert.host)
-      (fun st => T.mach.pc st = I.ra0 ∧ T.mach.getGpr (T.mach.data st) I.ret0 = v ∧
-        (T.mach.mem (T.mach.data st) =⋆ P ⋆ T.Exit I.sp0 (cert.bound f.name) ⋆ Std.ExtHashMap.emp))
-      (T.mach.mkState (I.initState (cert.bound f.name) bsMem args)
-        (T.mach.labelAddr cert.host f.name)) :=
+    InlRet1SepEv cert I f bsMem args v P :=
   cert.eventually_ret1_sep_i64_optInlinePolicy I Γ hM hf hret has hrs hnoex
     bsMem args v P hbs hargs hspec hQ hbound
 
@@ -359,19 +328,28 @@ def evalOptInlinePolicyData (M : Module) (policy : InlinePolicy) : MatModData :=
     externs := M'.externs
     exits := M'.exits }
 
-private def mkListLit (u : Level) (ty : Lean.Expr) (elems : List Lean.Expr) : Lean.Expr :=
-  elems.foldr
-    (fun x acc => mkApp3 (Lean.mkConst ``List.cons [u]) ty x acc)
+-- Shared MetaM AST literal builders and elaboration helpers for `inline_mod!` and chunking.
+namespace InlineMeta
+
+def mkListLit (u : Level) (ty : Lean.Expr) (elems : List Lean.Expr) : Lean.Expr :=
+  elems.reverse.foldl
+    (fun acc x => mkApp3 (Lean.mkConst ``List.cons [u]) ty x acc)
     (mkApp (Lean.mkConst ``List.nil [u]) ty)
 
-private def listTyToExpr (ts : List Ty) : Lean.Expr :=
+private def mkPairTy (a b : Lean.Expr) : Lean.Expr :=
+  mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) a b
+
+private def mkPair (a b x y : Lean.Expr) : Lean.Expr :=
+  mkApp4 (Lean.mkConst ``Prod.mk [.zero, .zero]) a b x y
+
+def listTyToExpr (ts : List Ty) : Lean.Expr :=
   mkListLit .zero (Lean.mkConst ``LeanQbe.T.Ty) (ts.map tyToExpr)
 
-private def listListTyToExpr (tss : List (List Ty)) : Lean.Expr :=
+def listListTyToExpr (tss : List (List Ty)) : Lean.Expr :=
   let listTy := mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.Ty)
   mkListLit .zero listTy (tss.map listTyToExpr)
 
-private def cmpOpToExpr : CmpOp → Lean.Expr
+def cmpOpToExpr : CmpOp → Lean.Expr
   | .eq => Lean.mkConst ``LeanQbe.T.CmpOp.eq
   | .ne => Lean.mkConst ``LeanQbe.T.CmpOp.ne
   | .ult => Lean.mkConst ``LeanQbe.T.CmpOp.ult
@@ -383,7 +361,7 @@ private def cmpOpToExpr : CmpOp → Lean.Expr
   | .sgt => Lean.mkConst ``LeanQbe.T.CmpOp.sgt
   | .sge => Lean.mkConst ``LeanQbe.T.CmpOp.sge
 
-private def fcmpOpToExpr : FCmpOp → Lean.Expr
+def fcmpOpToExpr : FCmpOp → Lean.Expr
   | .eq => Lean.mkConst ``LeanQbe.T.FCmpOp.eq
   | .ne => Lean.mkConst ``LeanQbe.T.FCmpOp.ne
   | .lt => Lean.mkConst ``LeanQbe.T.FCmpOp.lt
@@ -393,7 +371,7 @@ private def fcmpOpToExpr : FCmpOp → Lean.Expr
   | .ord => Lean.mkConst ``LeanQbe.T.FCmpOp.ord
   | .uno => Lean.mkConst ``LeanQbe.T.FCmpOp.uno
 
-private def valToExpr : (t : Ty) → Val t → Lean.Expr
+def valToExpr : (t : Ty) → Val t → Lean.Expr
   | .bool, v => Lean.toExpr (v : Bool)
   | .bits n, v => @Lean.toExpr (BitVec n) _ v
   | .float f, v => @Lean.toExpr (BitVec f.width) _ v
@@ -402,7 +380,7 @@ private def valToExpr : (t : Ty) → Val t → Lean.Expr
     let tb := mkApp (Lean.mkConst ``LeanQbe.T.Val) (tyToExpr b)
     mkApp4 (Lean.mkConst ``Prod.mk [.zero, .zero]) ta tb (valToExpr a v.1) (valToExpr b v.2)
 
-private def argKToExpr (t : Ty) : Arg K t → Lean.Expr
+def argKToExpr (t : Ty) : Arg K t → Lean.Expr
   | .var idx =>
     mkApp3 (Lean.mkConst ``LeanQbe.T.Arg.var) (Lean.mkConst ``LeanQbe.T.K)
       (tyToExpr t) (mkNatLit idx)
@@ -410,7 +388,7 @@ private def argKToExpr (t : Ty) : Arg K t → Lean.Expr
     mkApp3 (Lean.mkConst ``LeanQbe.T.Arg.imm) (Lean.mkConst ``LeanQbe.T.K)
       (tyToExpr t) (valToExpr t c)
 
-private def tupArgKToExpr : (ts : List Ty) → Tup (Arg K) ts → Lean.Expr
+def tupArgKToExpr : (ts : List Ty) → Tup (Arg K) ts → Lean.Expr
   | [], () => Lean.mkConst ``Unit.unit
   | t :: ts, (a, as) =>
     let kE := Lean.mkConst ``LeanQbe.T.K
@@ -428,7 +406,12 @@ private def mkNatOpExpr (nm : Name) (n : Nat) : Lean.Expr :=
 private def mkTyImmOpExpr (nm : Name) (t : Ty) (imm : BitVec 8) : Lean.Expr :=
   mkApp2 (Lean.mkConst nm) (tyToExpr t) (Lean.toExpr imm)
 
-private def opCodeToExpr {sig rs : List Ty} : OpCode sig rs → Lean.Expr
+private def mkCmpOpExpr (nm : Name) (opE : Lean.Expr) (t m : Ty) : Lean.Expr :=
+  let me := tyToExpr m
+  mkApp4 (Lean.mkConst nm) opE (tyToExpr t) me
+    (mkApp2 (Lean.mkConst ``Eq.refl [.one]) (Lean.mkConst ``LeanQbe.T.Ty) me)
+
+def opCodeToExpr {sig rs : List Ty} : OpCode sig rs → Lean.Expr
   | .copy t => mkTyOpExpr ``LeanQbe.T.OpCode.copy t
   | .add t => mkTyOpExpr ``LeanQbe.T.OpCode.add t
   | .sub t => mkTyOpExpr ``LeanQbe.T.OpCode.sub t
@@ -452,10 +435,7 @@ private def opCodeToExpr {sig rs : List Ty} : OpCode sig rs → Lean.Expr
   | .rbit n => mkNatOpExpr ``LeanQbe.T.OpCode.rbit n
   | .ctz n => mkNatOpExpr ``LeanQbe.T.OpCode.ctz n
   | .popcnt n => mkNatOpExpr ``LeanQbe.T.OpCode.popcnt n
-  | .cmp o t m _ =>
-    let me := tyToExpr m
-    mkApp4 (Lean.mkConst ``LeanQbe.T.OpCode.cmp) (cmpOpToExpr o) (tyToExpr t) me
-      (mkApp2 (Lean.mkConst ``Eq.refl [.one]) (Lean.mkConst ``LeanQbe.T.Ty) me)
+  | .cmp o t m _ => mkCmpOpExpr ``LeanQbe.T.OpCode.cmp (cmpOpToExpr o) t m
   | .select t => mkTyOpExpr ``LeanQbe.T.OpCode.select t
   | .blend t m _ =>
     let me := tyToExpr m
@@ -495,22 +475,19 @@ private def opCodeToExpr {sig rs : List Ty} : OpCode sig rs → Lean.Expr
   | .fsqrt t => mkTyOpExpr ``LeanQbe.T.OpCode.fsqrt t
   | .fneg t => mkTyOpExpr ``LeanQbe.T.OpCode.fneg t
   | .fabs t => mkTyOpExpr ``LeanQbe.T.OpCode.fabs t
-  | .fcmp o t m _ =>
-    let me := tyToExpr m
-    mkApp4 (Lean.mkConst ``LeanQbe.T.OpCode.fcmp) (fcmpOpToExpr o) (tyToExpr t) me
-      (mkApp2 (Lean.mkConst ``Eq.refl [.one]) (Lean.mkConst ``LeanQbe.T.Ty) me)
+  | .fcmp o t m _ => mkCmpOpExpr ``LeanQbe.T.OpCode.fcmp (fcmpOpToExpr o) t m
   | .fptoui f n => mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.fptoui) (Lean.toExpr f) (mkNatLit n)
   | .fptosi f n => mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.fptosi) (Lean.toExpr f) (mkNatLit n)
   | .uitofp n f => mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.uitofp) (mkNatLit n) (Lean.toExpr f)
   | .sitofp n f => mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.sitofp) (mkNatLit n) (Lean.toExpr f)
   | .fcvt f g => mkApp2 (Lean.mkConst ``LeanQbe.T.OpCode.fcvt) (Lean.toExpr f) (Lean.toExpr g)
 
-private def opKToExpr {rs : List Ty} (op : Op K rs) : Lean.Expr :=
+def opKToExpr {rs : List Ty} (op : Op K rs) : Lean.Expr :=
   mkApp5 (Lean.mkConst ``LeanQbe.T.Op.mk) (Lean.mkConst ``LeanQbe.T.K)
     (listTyToExpr rs) (listTyToExpr op.sig) (opCodeToExpr op.code) (tupArgKToExpr op.sig op.args)
 
 mutual
-private def tflatToExpr (rs : List Ty) : TFlat rs → Lean.Expr
+def tflatToExpr (rs : List Ty) : TFlat rs → Lean.Expr
   | .let_ (ts := ts) op k =>
     mkApp4 (Lean.mkConst ``LeanQbe.T.TFlat.let_) (listTyToExpr rs) (listTyToExpr ts)
       (opKToExpr op) (tflatToExpr rs k)
@@ -539,29 +516,68 @@ private def tflatToExpr (rs : List Ty) : TFlat rs → Lean.Expr
     mkApp4 (Lean.mkConst ``LeanQbe.T.TFlat.group) (listTyToExpr rs) (listListTyToExpr sig)
       (tblocksToExpr rs bodies) (tflatToExpr rs k)
 
-private def tblocksToExpr (rs : List Ty) :
-    {sig : List (List Ty)} → TBlocks rs sig → Lean.Expr
+def tblocksToExpr (rs : List Ty) : {sig : List (List Ty)} → TBlocks rs sig → Lean.Expr
   | _, .nil => mkApp (Lean.mkConst ``LeanQbe.T.TBlocks.nil) (listTyToExpr rs)
   | _, .cons (ts := ts) (sig := sig') b bs =>
     mkApp5 (Lean.mkConst ``LeanQbe.T.TBlocks.cons) (listTyToExpr rs) (listTyToExpr ts)
       (listListTyToExpr sig') (tflatToExpr rs b) (tblocksToExpr rs bs)
 end
 
-private def matFnToExpr (f : MatFnData) : Lean.Expr :=
+def matFnToExpr (f : MatFnData) : Lean.Expr :=
   let asE := listTyToExpr f.as
   let rsE := listTyToExpr f.rs
   let bodyE := mkApp3 (Lean.mkConst ``LeanQbe.T.denoteFunc) asE rsE (tflatToExpr f.rs f.flat)
   mkApp4 (Lean.mkConst ``LeanQbe.T.Fn.mk) (Lean.toExpr f.name) asE rsE bodyE
 
-private def externToExpr (e : Extern) : Lean.Expr :=
+def externToExpr (e : Extern) : Lean.Expr :=
   mkApp3 (Lean.mkConst ``LeanQbe.T.Extern.mk) (Lean.toExpr e.name)
     (listTyToExpr e.as) (listTyToExpr e.rs)
 
+def listExternToExpr (es : List Extern) : Lean.Expr :=
+  mkListLit .zero (Lean.mkConst ``LeanQbe.T.Extern) (es.map externToExpr)
+
+def listSymToExpr (ss : List Sym) : Lean.Expr :=
+  mkListLit .zero (Lean.mkConst ``LeanQbe.T.Sym) (ss.map Lean.toExpr)
+
+def sigEntryToExpr (s : SigEntry) : Lean.Expr :=
+  let listTy := mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.Ty)
+  mkPair (Lean.mkConst ``LeanQbe.T.Sym) (mkPairTy listTy listTy) (Lean.toExpr s.1)
+    (mkPair listTy listTy (listTyToExpr s.2.1) (listTyToExpr s.2.2))
+
+def listSigToExpr (ss : List SigEntry) : Lean.Expr :=
+  mkListLit .zero (Lean.mkConst ``LeanQbe.T.SigEntry) (ss.map sigEntryToExpr)
+
+def listSymNatToExpr (xs : List (Sym × Nat)) : Lean.Expr :=
+  let symE := Lean.mkConst ``LeanQbe.T.Sym
+  let natE := Lean.mkConst ``Nat
+  mkListLit .zero (mkPairTy symE natE)
+    (xs.map fun (s, n) => mkPair symE natE (Lean.toExpr s) (mkNatLit n))
+
+def elabModAndPolicy (srcModT policyT : Syntax) : TermElabM (Lean.Expr × Lean.Expr) := do
+  let srcModE ← Term.elabTerm srcModT (some (Lean.mkConst ``LeanQbe.T.Module))
+  let policyE ← Term.elabTerm policyT (some (Lean.mkConst ``LeanQbe.T.InlinePolicy))
+  Term.synthesizeSyntheticMVarsNoPostponing
+  return (← instantiateMVars srcModE, ← instantiateMVars policyE)
+
+def emitMatFnDefs (pfx : Name) (fns : List MatFnData) : CoreM (List Lean.Expr) := do
+  let fnTy := Lean.mkConst ``LeanQbe.T.Fn
+  let mut fnConsts : Array Lean.Expr := #[]
+  let mut idx : Nat := 0
+  for f in fns do
+    let fnNm := pfx ++ `fn ++ Name.mkSimple s!"f{idx}"
+    addCertDef fnNm fnTy (matFnToExpr f) true
+    fnConsts := fnConsts.push (Lean.mkConst fnNm)
+    idx := idx + 1
+  return fnConsts.toList
+
+end InlineMeta
+
+open InlineMeta
+
 private def matModExpr (fnConsts : List Lean.Expr) (m : MatModData) : Lean.Expr :=
   let fnsE := mkListLit .one (Lean.mkConst ``LeanQbe.T.Fn) fnConsts
-  let extsE := mkListLit .zero (Lean.mkConst ``LeanQbe.T.Extern) (m.externs.map externToExpr)
-  let exitsE := mkListLit .zero (Lean.mkConst ``LeanQbe.T.Sym) (m.exits.map Lean.toExpr)
-  mkApp3 (Lean.mkConst ``LeanQbe.T.Module.mk) fnsE extsE exitsE
+  mkApp3 (Lean.mkConst ``LeanQbe.T.Module.mk) fnsE
+    (listExternToExpr m.externs) (listSymToExpr m.exits)
 
 /-- `inline_mod! inlModName srcMod policy` evaluates `srcMod.optInlinePolicy policy` once in
 MetaM, emits per-function literal `denoteFunc`-backed `Fn` definitions assembled into
@@ -575,34 +591,21 @@ scoped elab_rules : command
     let ns ← getCurrNamespace
     let inlNm := ns ++ inlId.getId
     let (matData, optInlE) ← liftTermElabM do
-      let srcModE ← Term.elabTerm srcModT (some (Lean.mkConst ``LeanQbe.T.Module))
-      let policyE ← Term.elabTerm policyT (some (Lean.mkConst ``LeanQbe.T.InlinePolicy))
-      Term.synthesizeSyntheticMVarsNoPostponing
-      let srcModE ← instantiateMVars srcModE
-      let policyE ← instantiateMVars policyE
+      let (srcModE, policyE) ← elabModAndPolicy srcModT policyT
       let callE := mkApp2 (Lean.mkConst ``LeanQbe.T.evalOptInlinePolicyData) srcModE policyE
       let matData ← unsafe evalExpr MatModData (Lean.mkConst ``LeanQbe.T.MatModData) callE
       let optInlE ← instantiateMVars
         (mkApp2 (Lean.mkConst ``LeanQbe.T.Module.optInlinePolicy) srcModE policyE)
       return (matData, optInlE)
-    let fnTy := Lean.mkConst ``LeanQbe.T.Fn
     let modTy := Lean.mkConst ``LeanQbe.T.Module
     liftCoreM do
-      let mut fnConsts : List Lean.Expr := []
-      let mut idx : Nat := 0
-      for f in matData.fns do
-        let fnNm := inlNm ++ `fn ++ Name.mkSimple s!"f{idx}"
-        addCertDef fnNm fnTy (matFnToExpr f) true
-        fnConsts := fnConsts ++ [Lean.mkConst fnNm]
-        idx := idx + 1
-      let modVal := matModExpr fnConsts matData
-      addCertDef inlNm modTy modVal true
+      let fnConsts ← emitMatFnDefs inlNm matData.fns
+      addCertDef inlNm modTy (matModExpr fnConsts matData) true
       addKernelEqThm (inlNm ++ `eq) modTy (Lean.mkConst inlNm) optInlE .one
     let (fnsEqTy, fnsEqProof) ← liftTermElabM do
       let proof ← mkAppM ``congrArg
         #[Lean.mkConst ``LeanQbe.T.Module.fns, Lean.mkConst (inlNm ++ `eq)]
-      let ty ← inferType proof
-      return (← instantiateMVars ty, ← instantiateMVars proof)
+      return (← instantiateMVars (← inferType proof), ← instantiateMVars proof)
     liftCoreM <| addCertThm (inlNm ++ `fns_eq) fnsEqTy fnsEqProof
 
 end

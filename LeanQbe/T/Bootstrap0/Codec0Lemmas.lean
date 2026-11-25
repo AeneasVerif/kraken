@@ -171,6 +171,106 @@ private theorem decodeTFlatLoop0_step (fuel : UInt32) (hf : fuel ≠ 0) (ba : By
   conv => lhs; unfold Codec0.decodeTFlatLoop0; rw [dite_false_eq hf]
   rfl
 
+private theorem decodeSymTys0_of_bytes (ba : ByteArray) (pos : Nat) (fnSym : Sym0)
+    (as : List Ty0) (rest : List UInt8) (ha : as.length < 2 ^ 32)
+    (h : ba.data.toList.drop pos = u32Bytes fnSym ++ (tyListBytes as ++ rest)) :
+    Codec0.decodeSymTys0 ba pos = .ok fnSym as (pos + 4 + (tyListBytes as).length) := by
+  have hd := Codec0Kit.drop_append_step h; rw [u32Bytes_length] at hd
+  dsimp only [Codec0.decodeSymTys0]
+  rw [decodeU32_of_bytes ba pos fnSym _ h]; dsimp only
+  rw [decodeTyList0_of_bytes ba (pos + 4) as rest ha hd, Nat.add_assoc]
+
+private theorem decodeCallSig0_of_bytes (ba : ByteArray) (pos : Nat) (fnSym : Sym0)
+    (as bs : List Ty0) (rest : List UInt8) (ha : as.length < 2 ^ 32) (hb : bs.length < 2 ^ 32)
+    (h : ba.data.toList.drop pos =
+      u32Bytes fnSym ++ (tyListBytes as ++ (tyListBytes bs ++ rest))) :
+    Codec0.decodeCallSig0 ba pos =
+      .ok fnSym as bs (pos + 4 + (tyListBytes as).length + (tyListBytes bs).length) := by
+  have hd1 := Codec0Kit.drop_append_step h; rw [u32Bytes_length] at hd1
+  have hd2 := Codec0Kit.drop_append_step hd1
+  dsimp only [Codec0.decodeCallSig0]
+  rw [decodeSymTys0_of_bytes ba pos fnSym as _ ha h]; dsimp only
+  rw [decodeTyList0_of_bytes ba (pos + 4 + (tyListBytes as).length) bs rest hb hd2]
+
+private theorem decodeLoop_linPush {ba : ByteArray} {pos pos1 : Nat}
+    {f : Codec0.DecFrame0} {t k : TFlat0} {frames : List Codec0.DecFrame0} {fuel : UInt32}
+    (hih : Codec0.decodeTFlatLoop0 (fuel - 1) ba pos1 (f :: frames) =
+      frameApplyResult ba (pos1 + (tflatBytes k).length) k (f :: frames) (fuel - 1))
+    (happly : Codec0.decodeApplyFrames0 ba (pos1 + (tflatBytes k).length) k (f :: frames) =
+      Codec0.decodeApplyFrames0 ba (pos1 + (tflatBytes k).length) t frames)
+    (hnodes : tflatNodes t = 1 + tflatNodes k)
+    (hlen : pos1 + (tflatBytes k).length = pos + (tflatBytes t).length)
+    (hfuel : tflatNodes t ≤ fuel.toNat)
+    (hstep : Codec0.decodeNodeStep0 ba pos = .push pos1 f) :
+    Codec0.decodeTFlatLoop0 fuel ba pos frames =
+      frameApplyResult ba (pos + (tflatBytes t).length) t frames fuel := by
+  have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
+  rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; dsimp only [Codec0.stepLoopFrame0]
+  rw [hih]; dsimp only [frameApplyResult]
+  rw [happly, hlen, Codec0Kit.u32_sub1_sub (by omega), ← hnodes]
+
+private theorem decodeLoop_leaf {ba : ByteArray} {pos : Nat} {t : TFlat0}
+    {frames : List Codec0.DecFrame0} {fuel : UInt32}
+    (hfuel : 1 ≤ fuel.toNat) (hnodes : tflatNodes t = 1)
+    (hstep : Codec0.decodeNodeStep0 ba pos = .leaf (pos + (tflatBytes t).length) t) :
+    Codec0.decodeTFlatLoop0 fuel ba pos frames =
+      frameApplyResult ba (pos + (tflatBytes t).length) t frames fuel := by
+  have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos hfuel
+  rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]
+  dsimp only [Codec0.stepLoopFrame0, frameApplyResult]; rw [hnodes]; rfl
+
+private theorem decodeLoop_tailOrExit (isExit : Bool) (ba : ByteArray) (pos : Nat)
+    (f : Sym0) (as : List Ty0) (args : List Arg0) (frames : List Codec0.DecFrame0)
+    (rest : List UInt8) (fuel : UInt32)
+    (ha : as.length < 2 ^ 32) (hargs : args.length < 2 ^ 32) (hfuel : 1 ≤ fuel.toNat)
+    (hdrop : ba.data.toList.drop pos =
+      tflatBytes (if isExit then .exit f as args else .tailCall f as args) ++ rest) :
+    Codec0.decodeTFlatLoop0 fuel ba pos frames =
+      frameApplyResult ba
+        (pos + (tflatBytes (if isExit then .exit f as args else .tailCall f as args)).length)
+        (if isExit then .exit f as args else .tailCall f as args) frames fuel := by
+  have hd1 : ba.data.toList.drop (pos + 1) =
+      u32Bytes f ++ (tyListBytes as ++ (argListBytes args ++ rest)) := by
+    rw [drop_pos_add]
+    cases isExit <;> (
+      simp only [Bool.false_eq_true, ite_true, ite_false, tflatBytes] at hdrop
+      rw [hdrop]; simp [List.append_assoc])
+  have hd2 := Codec0Kit.drop_append_step hd1; rw [u32Bytes_length] at hd2
+  have hd3 := Codec0Kit.drop_append_step hd2
+  apply decodeLoop_leaf hfuel
+  · cases isExit <;> rfl
+  · cases isExit <;> (
+      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeLeafStep0,
+        Codec0.decodeLeafHiStep0, Codec0.decodeTailOrExitStep0, Codec0.finishTailOrExit0,
+        Codec0.mkTailOrExit0]
+      simp only [Bool.false_eq_true, ite_true, ite_false, tflatBytes] at hdrop
+      rw [decodeU8_of_bytes ba pos _ _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
+      c0_decide_ite; rw [decodeSymTys0_of_bytes ba (pos + 1) f as _ ha hd1]; dsimp only
+      rw [decodeArgList0_of_bytes ba _ args rest hargs hd3]
+      simp only [Bool.false_eq_true, ite_true, ite_false]
+      congr 1; simp only [tflatBytes, List.length_cons, List.length_append, u32Bytes_length]; omega)
+
+section
+local macro "c0_prep" : tactic =>
+  `(tactic| dsimp only [TFlat0ListBounded, Blocks0ListBounded, tflatNodes, tflatBytes,
+      blocksNodes, blocksBytes] at *)
+
+local macro "c0_tag" h:term:arg n:num : tactic =>
+  `(tactic| (
+      have hd_tag := $h
+      rw [decodeU8_of_bytes _ _ $n _ (by simpa [List.append_assoc, Nat.add_comm] using hd_tag)]
+      dsimp only; c0_decide_ite))
+
+local macro "c0_lin_push" recFn:term:arg k:term:arg f:term:arg hk:term:arg hd:term:arg
+    hfuel:term:arg : tactic =>
+  `(tactic| (
+      refine decodeLoop_linPush
+        ($recFn $k _ _ ($f :: _) _ (_ - 1) $hk (Codec0Kit.u32_sub1_ge (by omega)) $hd)
+        rfl ?_ ?_ $hfuel ?_
+      · first | rfl | (dsimp only [Codec0.applyLinFrame0, tflatNodes, blocksNodes]; omega)
+      · (try simp only [Codec0.applyLinFrame0, Codec0.applyLinLowFrame0, tflatBytes, blocksBytes,
+          List.length_cons, List.length_append, List.length_nil, u32Bytes_length]); omega))
+
 mutual
 private theorem decodeTFlatLoop0_of_bytes :
     ∀ (t : TFlat0) (ba : ByteArray) (pos : Nat) (frames : List Codec0.DecFrame0)
@@ -180,312 +280,121 @@ private theorem decodeTFlatLoop0_of_bytes :
       Codec0.decodeTFlatLoop0 fuel ba pos frames =
         frameApplyResult ba (pos + (tflatBytes t).length) t frames fuel
   | .let1 op args k, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) =
-        opBytes op ++ (argListBytes args ++ (tflatBytes k ++ rest)) := by
-      rw [drop_pos_add, hdrop]; simp [List.append_assoc]
-    have hd2 := Codec0Kit.drop_append_step hd1
-    have hd3 := Codec0Kit.drop_append_step hd2
-    have hstep : Codec0.decodeNodeStep0 ba pos =
-        .push (pos + 1 + (opBytes op).length + (argListBytes args).length) (.let1 op args) := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeLinLowStep0, Codec0.decodeLet1Step0,
-        Codec0.finishLet1Step0, Codec0.mkLet1Step0]
-      rw [decodeU8_of_bytes ba pos 0 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite
-      rw [decodeOpCode0_of_bytes ba (pos + 1) op _ hd1]; dsimp only
-      rw [decodeArgList0_of_bytes ba (pos + 1 + (opBytes op).length) args _ hb.1 hd2]
-    refine Codec0Kit.workloop_lin_push_of_steps Codec0.decodeTFlatLoop0 frameApplyResult
-      tflatNodes tflatBytes (t := TFlat0.let1 op args k) hfuel rfl
-      (by rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl)
-      (decodeTFlatLoop0_of_bytes k ba _ (.let1 op args :: frames) rest (fuel - 1) hb.2
-        (Codec0Kit.u32_sub1_ge hfuel) hd3) ?_
-    dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.applyLinFrame0,
-      Codec0.applyLinLowFrame0, tflatNodes, tflatBytes]
-    rw [show pos + 1 + (opBytes op).length + (argListBytes args).length + (tflatBytes k).length =
-        pos + (0 :: opBytes op ++ argListBytes args ++ tflatBytes k).length by
-      simp only [List.length_cons, List.length_append]; omega, Codec0Kit.u32_sub1_sub hfuel]
+    c0_prep; have hd1 := Codec0Kit.drop_cons_step (by simpa [List.append_assoc] using hdrop)
+    have hd2 := Codec0Kit.drop_append_step hd1; have hd3 := Codec0Kit.drop_append_step hd2
+    c0_lin_push decodeTFlatLoop0_of_bytes k (.let1 op args) hb.2 hd3 hfuel
+    dsimp only [Codec0.decodeNodeStep0, Codec0.decodeLinLowStep0, Codec0.decodeLet1Step0,
+      Codec0.finishLet1Step0, Codec0.mkLet1Step0]
+    c0_tag hdrop 0; rw [decodeOpCode0_of_bytes ba (pos + 1) op _ hd1]; dsimp only
+    rw [decodeArgList0_of_bytes ba _ args _ hb.1 hd2]
   | .let2Umulw64 a b k, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) =
-        argBytes a ++ (argBytes b ++ (tflatBytes k ++ rest)) := by
-      rw [drop_pos_add, hdrop]; simp [List.append_assoc]
-    have hd2 := Codec0Kit.drop_append_step hd1
-    have hd3 := Codec0Kit.drop_append_step hd2
-    have hstep : Codec0.decodeNodeStep0 ba pos =
-        .push (pos + 1 + (argBytes a).length + (argBytes b).length) (.let2Umulw64 a b) := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeLinLowStep0, Codec0.decodeLet2Step0]
-      rw [decodeU8_of_bytes ba pos 1 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite
-      rw [decodeArg0_of_bytes ba (pos + 1) a _ hd1]; dsimp only
-      rw [decodeArg0_of_bytes ba (pos + 1 + (argBytes a).length) b _ hd2]
-    refine Codec0Kit.workloop_lin_push_of_steps Codec0.decodeTFlatLoop0 frameApplyResult
-      tflatNodes tflatBytes (t := TFlat0.let2Umulw64 a b k) hfuel rfl
-      (by rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl)
-      (decodeTFlatLoop0_of_bytes k ba _ (.let2Umulw64 a b :: frames) rest (fuel - 1) hb
-        (Codec0Kit.u32_sub1_ge hfuel) hd3) ?_
-    dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.applyLinFrame0,
-      Codec0.applyLinLowFrame0, tflatNodes, tflatBytes]
-    rw [show pos + 1 + (argBytes a).length + (argBytes b).length + (tflatBytes k).length =
-        pos + (1 :: argBytes a ++ argBytes b ++ tflatBytes k).length by
-      simp only [List.length_cons, List.length_append]; omega, Codec0Kit.u32_sub1_sub hfuel]
+    c0_prep; have hd1 := Codec0Kit.drop_cons_step (by simpa [List.append_assoc] using hdrop)
+    have hd2 := Codec0Kit.drop_append_step hd1; have hd3 := Codec0Kit.drop_append_step hd2
+    c0_lin_push decodeTFlatLoop0_of_bytes k (.let2Umulw64 a b) hb hd3 hfuel
+    dsimp only [Codec0.decodeNodeStep0, Codec0.decodeLinLowStep0, Codec0.decodeLet2Step0]
+    c0_tag hdrop 1; rw [decodeArg0_of_bytes ba (pos + 1) a _ hd1]; dsimp only
+    rw [decodeArg0_of_bytes ba _ b _ hd2]
   | .load ty addr k, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) =
-        Codec0.ty0Tag ty :: (argBytes addr ++ (tflatBytes k ++ rest)) := by
-      rw [drop_pos_add, hdrop]; simp [List.append_assoc]
-    have hd2 : ba.data.toList.drop (pos + 2) = argBytes addr ++ (tflatBytes k ++ rest) := by
-      rw [show pos + 2 = (pos + 1) + 1 by omega, Codec0Kit.drop_cons_step hd1]
-    have hd3 := Codec0Kit.drop_append_step hd2
-    have hstep : Codec0.decodeNodeStep0 ba pos =
-        .push (pos + 2 + (argBytes addr).length) (.load ty addr) := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeLinLowStep0, Codec0.decodeLoadStep0]
-      rw [decodeU8_of_bytes ba pos 2 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite; rw [decodeTy0_of_bytes ba (pos + 1) ty _ hd1]; dsimp only
-      rw [show pos + 1 + 1 = pos + 2 by omega, decodeArg0_of_bytes ba (pos + 2) addr _ hd2]
-    refine Codec0Kit.workloop_lin_push_of_steps Codec0.decodeTFlatLoop0 frameApplyResult
-      tflatNodes tflatBytes (t := TFlat0.load ty addr k) hfuel rfl
-      (by rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl)
-      (decodeTFlatLoop0_of_bytes k ba _ (.load ty addr :: frames) rest (fuel - 1) hb
-        (Codec0Kit.u32_sub1_ge hfuel) hd3) ?_
-    dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.applyLinFrame0,
-      Codec0.applyLinLowFrame0, tflatNodes, tflatBytes]
-    rw [show pos + 2 + (argBytes addr).length + (tflatBytes k).length =
-        pos + (2 :: Codec0.ty0Tag ty :: argBytes addr ++ tflatBytes k).length by
-      simp only [List.length_cons, List.length_append]; omega, Codec0Kit.u32_sub1_sub hfuel]
+    c0_prep; have hd1 := Codec0Kit.drop_cons_step (by simpa [List.append_assoc] using hdrop)
+    have hd2 := Codec0Kit.drop_cons_step hd1; have hd3 := Codec0Kit.drop_append_step hd2
+    c0_lin_push decodeTFlatLoop0_of_bytes k (.load ty addr) hb hd3 hfuel
+    dsimp only [Codec0.decodeNodeStep0, Codec0.decodeLinLowStep0, Codec0.decodeLoadStep0]
+    c0_tag hdrop 2; rw [decodeTy0_of_bytes ba (pos + 1) ty _ hd1]; dsimp only
+    rw [decodeArg0_of_bytes ba (pos + 1 + 1) addr _ hd2]
   | .store ty val addr k, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) = Codec0.ty0Tag ty :: (argBytes val ++
-        (argBytes addr ++ (tflatBytes k ++ rest))) := by
-      rw [drop_pos_add, hdrop]; simp [List.append_assoc]
-    have hd2 : ba.data.toList.drop (pos + 2) =
-        argBytes val ++ (argBytes addr ++ (tflatBytes k ++ rest)) := by
-      rw [show pos + 2 = (pos + 1) + 1 by omega, Codec0Kit.drop_cons_step hd1]
-    have hd3 := Codec0Kit.drop_append_step hd2
-    have hd4 := Codec0Kit.drop_append_step hd3
-    have hstep : Codec0.decodeNodeStep0 ba pos =
-        .push (pos + 2 + (argBytes val).length + (argBytes addr).length) (.store ty val addr) := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeLinLowStep0, Codec0.decodeStoreStep0,
-        Codec0.finishStoreStep0]
-      rw [decodeU8_of_bytes ba pos 3 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite; rw [decodeTy0_of_bytes ba (pos + 1) ty _ hd1]; dsimp only
-      rw [show pos + 1 + 1 = pos + 2 by omega, decodeArg0_of_bytes ba _ val _ hd2]; dsimp only
-      rw [decodeArg0_of_bytes ba (pos + 2 + (argBytes val).length) addr _ hd3]
-    refine Codec0Kit.workloop_lin_push_of_steps Codec0.decodeTFlatLoop0 frameApplyResult
-      tflatNodes tflatBytes (t := TFlat0.store ty val addr k) hfuel rfl
-      (by rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl)
-      (decodeTFlatLoop0_of_bytes k ba _ (.store ty val addr :: frames) rest (fuel - 1) hb
-        (Codec0Kit.u32_sub1_ge hfuel) hd4) ?_
-    dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.applyLinFrame0,
-      Codec0.applyLinLowFrame0, tflatNodes, tflatBytes]
-    rw [show pos + 2 + (argBytes val).length + (argBytes addr).length + (tflatBytes k).length =
-        pos + (3 :: Codec0.ty0Tag ty :: argBytes val ++ argBytes addr ++ tflatBytes k).length by
-      simp only [List.length_cons, List.length_append]; omega, Codec0Kit.u32_sub1_sub hfuel]
+    c0_prep; have hd1 := Codec0Kit.drop_cons_step (by simpa [List.append_assoc] using hdrop)
+    have hd2 := Codec0Kit.drop_cons_step hd1; have hd3 := Codec0Kit.drop_append_step hd2
+    c0_lin_push decodeTFlatLoop0_of_bytes k (.store ty val addr) hb
+      (Codec0Kit.drop_append_step hd3) hfuel
+    dsimp only [Codec0.decodeNodeStep0, Codec0.decodeLinLowStep0, Codec0.decodeStoreStep0,
+      Codec0.finishStoreStep0]
+    c0_tag hdrop 3; rw [decodeTy0_of_bytes ba (pos + 1) ty _ hd1]; dsimp only
+    rw [decodeArg0_of_bytes ba (pos + 1 + 1) val _ hd2]; dsimp only
+    rw [decodeArg0_of_bytes ba _ addr _ hd3]
   | .call f as bs args k, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) = u32Bytes f ++ (tyListBytes as ++
-        (tyListBytes bs ++ (argListBytes args ++ (tflatBytes k ++ rest)))) := by
-      rw [drop_pos_add, hdrop]; simp [List.append_assoc]
-    have hd2 : ba.data.toList.drop (pos + 5) = tyListBytes as ++ (tyListBytes bs ++
-        (argListBytes args ++ (tflatBytes k ++ rest))) := by
-      rw [show pos + 5 = (pos + 1) + 4 by omega, drop_pos_add, hd1]; exact List.drop_left' rfl
-    have hd3 := Codec0Kit.drop_append_step hd2
-    have hd4 := Codec0Kit.drop_append_step hd3
-    have hd5 := Codec0Kit.drop_append_step hd4
-    have hstep : Codec0.decodeNodeStep0 ba pos = .push (pos + 5 + (tyListBytes as).length +
-        (tyListBytes bs).length + (argListBytes args).length) (.call f as bs args) := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeCallStep0, Codec0.finishCallStep0,
-        Codec0.mkCallStep0, Codec0.decodeCallSig0, Codec0.decodeSymTys0]
-      rw [decodeU8_of_bytes ba pos 4 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite; rw [decodeU32_of_bytes ba (pos + 1) f _ hd1]; dsimp only
-      rw [show pos + 1 + 4 = pos + 5 by omega,
-        decodeTyList0_of_bytes ba (pos + 5) as _ hb.1 hd2]; dsimp only
-      rw [decodeTyList0_of_bytes ba (pos + 5 + (tyListBytes as).length) bs _ hb.2.1 hd3]; dsimp only
-      rw [decodeArgList0_of_bytes ba _ args _ hb.2.2.1 hd4]
-    refine Codec0Kit.workloop_lin_push_of_steps Codec0.decodeTFlatLoop0 frameApplyResult
-      tflatNodes tflatBytes (t := TFlat0.call f as bs args k) hfuel rfl
-      (by rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl)
-      (decodeTFlatLoop0_of_bytes k ba _ (.call f as bs args :: frames) rest (fuel - 1) hb.2.2.2
-        (Codec0Kit.u32_sub1_ge hfuel) hd5) ?_
-    dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.applyLinFrame0,
-      tflatNodes, tflatBytes]
-    rw [show pos + 5 + (tyListBytes as).length + (tyListBytes bs).length +
-        (argListBytes args).length + (tflatBytes k).length =
-        pos + (4 :: u32Bytes f ++ tyListBytes as ++ tyListBytes bs ++
-          argListBytes args ++ tflatBytes k).length by
-      simp only [List.length_cons, List.length_append, u32Bytes_length]; omega,
-      Codec0Kit.u32_sub1_sub hfuel]
-  | .tailCall f as args, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) =
-        u32Bytes f ++ (tyListBytes as ++ (argListBytes args ++ rest)) := by
-      rw [drop_pos_add, hdrop]; simp [List.append_assoc]
-    have hd2 : ba.data.toList.drop (pos + 5) = tyListBytes as ++ (argListBytes args ++ rest) := by
-      rw [show pos + 5 = (pos + 1) + 4 by omega, drop_pos_add, hd1]; exact List.drop_left' rfl
-    have hd3 := Codec0Kit.drop_append_step hd2
-    have hstep : Codec0.decodeNodeStep0 ba pos = .leaf (pos + 5 + (tyListBytes as).length +
-        (argListBytes args).length) (.tailCall f as args) := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeLeafStep0,
-        Codec0.decodeTailOrExitStep0, Codec0.finishTailOrExit0, Codec0.mkTailOrExit0,
-        Codec0.decodeSymTys0]
-      rw [decodeU8_of_bytes ba pos 5 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite; rw [decodeU32_of_bytes ba (pos + 1) f _ hd1]; dsimp only
-      rw [show pos + 1 + 4 = pos + 5 by omega,
-        decodeTyList0_of_bytes ba (pos + 5) as _ hb.1 hd2]; dsimp only
-      rw [decodeArgList0_of_bytes ba _ args _ hb.2 hd3]; rfl
-    refine Codec0Kit.workloop_leaf_of_steps Codec0.decodeTFlatLoop0 frameApplyResult tflatBytes
-      (by rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl) ?_
-    dsimp only [tflatBytes]; simp only [List.length_cons, List.length_append, u32Bytes_length]
-    omega
+    c0_prep; have hd1 := Codec0Kit.drop_cons_step (by simpa [List.append_assoc] using hdrop)
+    have hd2 := Codec0Kit.drop_append_step hd1; rw [u32Bytes_length] at hd2
+    have hd4 := Codec0Kit.drop_append_step (Codec0Kit.drop_append_step hd2)
+    c0_lin_push decodeTFlatLoop0_of_bytes k (.call f as bs args) hb.2.2.2
+      (Codec0Kit.drop_append_step hd4) hfuel
+    dsimp only [Codec0.decodeNodeStep0, Codec0.decodeCallStep0, Codec0.finishCallStep0,
+      Codec0.mkCallStep0]
+    c0_tag hdrop 4; rw [decodeCallSig0_of_bytes ba (pos + 1) f as bs _ hb.1 hb.2.1 hd1]; dsimp only
+    rw [decodeArgList0_of_bytes ba _ args _ hb.2.2.1 hd4]
+  | .tailCall f as args, ba, pos, frames, rest, fuel, hb, hfuel, hdrop =>
+    decodeLoop_tailOrExit false ba pos f as args frames rest fuel hb.1 hb.2 hfuel hdrop
   | .jnz c t1 t2, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) =
-        argBytes c ++ (tflatBytes t1 ++ (tflatBytes t2 ++ rest)) := by
-      rw [drop_pos_add, hdrop]; simp [List.append_assoc]
+    c0_prep; have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
+    have hd1 := Codec0Kit.drop_cons_step (by simpa [List.append_assoc] using hdrop)
     have hd2 := Codec0Kit.drop_append_step hd1
-    have hd3 := Codec0Kit.drop_append_step hd2
     have hstep : Codec0.decodeNodeStep0 ba pos =
         .push (pos + 1 + (argBytes c).length) (.jnzL c) := by
       dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0]
-      rw [decodeU8_of_bytes ba pos 6 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite; rw [decodeArg0_of_bytes ba (pos + 1) c _ hd1]
+      c0_tag hdrop 6; rw [decodeArg0_of_bytes ba (pos + 1) c _ hd1]
     rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; dsimp only [Codec0.stepLoopFrame0]
     rw [decodeTFlatLoop0_of_bytes t1 ba _ (.jnzL c :: frames) (tflatBytes t2 ++ rest) (fuel - 1)
       hb.1 (Codec0Kit.u32_sub1_ge (by omega)) hd2]
     dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.stepNonLinFrame0, tflatNodes]
-    have hfuel2 : tflatNodes t2 ≤ (fuel - 1 - UInt32.ofNat (tflatNodes t1)).toNat := by
-      rw [Codec0Kit.u32_sub1_sub (by omega), Codec0Kit.u32_sub_ofNat_toNat (by omega)]; omega
-    rw [decodeTFlatLoop0_of_bytes t2 ba _ (.jnzR c t1 :: frames) rest _ hb.2 hfuel2 hd3]
+    rw [decodeTFlatLoop0_of_bytes t2 ba _ (.jnzR c t1 :: frames) rest _ hb.2
+      (by rw [Codec0Kit.u32_sub1_sub (by omega), Codec0Kit.u32_sub_ofNat_toNat (by omega)]; omega)
+      (Codec0Kit.drop_append_step hd2)]
     dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.applyLinFrame0, tflatNodes]
-    have hsub_eq : fuel - 1 - UInt32.ofNat (tflatNodes t1) - UInt32.ofNat (tflatNodes t2) =
-        fuel - UInt32.ofNat (1 + tflatNodes t1 + tflatNodes t2) := by
-      rw [Codec0Kit.u32_sub1_sub (by omega), Codec0Kit.u32_sub_sub_ofNat (by omega), Nat.add_assoc]
     rw [show pos + 1 + (argBytes c).length + (tflatBytes t1).length + (tflatBytes t2).length =
         pos + (6 :: argBytes c ++ tflatBytes t1 ++ tflatBytes t2).length by
-      simp only [List.length_cons, List.length_append]; omega, hsub_eq]
+      simp only [List.length_cons, List.length_append]; omega,
+      Codec0Kit.u32_sub1_sub (by omega), Codec0Kit.u32_sub_sub_ofNat (by omega), Nat.add_assoc]
   | .jump j args, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) = u32Bytes j ++ (argListBytes args ++ rest) := by
-      rw [drop_pos_add, hdrop]; simp [List.append_assoc]
-    have hd2 : ba.data.toList.drop (pos + 5) = argListBytes args ++ rest := by
-      rw [show pos + 5 = (pos + 1) + 4 by omega, drop_pos_add, hd1]; exact List.drop_left' rfl
-    have hstep : Codec0.decodeNodeStep0 ba pos =
-        .leaf (pos + 5 + (argListBytes args).length) (.jump j args) := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeLeafStep0,
+    c0_prep; have hd1 := Codec0Kit.drop_cons_step (by simpa [List.append_assoc] using hdrop)
+    have hd2 := Codec0Kit.drop_append_step hd1; rw [u32Bytes_length] at hd2
+    apply decodeLoop_leaf (t := .jump j args) hfuel; · rfl
+    · dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeLeafStep0,
         Codec0.decodeJumpStep0]
-      rw [decodeU8_of_bytes ba pos 7 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite; rw [decodeU32_of_bytes ba (pos + 1) j _ hd1]; dsimp only
-      rw [show pos + 1 + 4 = pos + 5 by omega, decodeArgList0_of_bytes ba (pos + 5) args _ hb hd2]
-    refine Codec0Kit.workloop_leaf_of_steps Codec0.decodeTFlatLoop0 frameApplyResult tflatBytes
-      (by rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl) ?_
-    dsimp only [tflatBytes]; simp only [List.length_cons, List.length_append, u32Bytes_length]
-    omega
+      c0_tag hdrop 7; rw [decodeU32_of_bytes ba (pos + 1) j _ hd1]; dsimp only
+      rw [decodeArgList0_of_bytes ba (pos + 1 + 4) args rest hb hd2,
+        show pos + 1 + 4 + (argListBytes args).length = pos + (tflatBytes (.jump j args)).length by
+          simp only [tflatBytes, List.length_cons, List.length_append, u32Bytes_length]; omega]
   | .ret vs, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) = argListBytes vs ++ rest := by
-      rw [drop_pos_add, hdrop]; rfl
-    have hstep : Codec0.decodeNodeStep0 ba pos = .leaf (pos + 1 + (argListBytes vs).length)
-        (.ret vs) := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeLeafStep0,
+    c0_prep; have hd1 := Codec0Kit.drop_cons_step hdrop
+    apply decodeLoop_leaf (t := .ret vs) hfuel; · rfl
+    · dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeLeafStep0,
         Codec0.decodeLeafHiStep0]
-      rw [decodeU8_of_bytes ba pos 8 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite; rw [decodeArgList0_of_bytes ba (pos + 1) vs _ hb hd1]
-    refine Codec0Kit.workloop_leaf_of_steps Codec0.decodeTFlatLoop0 frameApplyResult tflatBytes
-      (by rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl) ?_
-    dsimp only [tflatBytes]; simp only [List.length_cons]; omega
-  | .exit f as args, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) =
-        u32Bytes f ++ (tyListBytes as ++ (argListBytes args ++ rest)) := by
-      rw [drop_pos_add, hdrop]; simp [List.append_assoc]
-    have hd2 : ba.data.toList.drop (pos + 5) = tyListBytes as ++ (argListBytes args ++ rest) := by
-      rw [show pos + 5 = (pos + 1) + 4 by omega, drop_pos_add, hd1]; exact List.drop_left' rfl
-    have hd3 := Codec0Kit.drop_append_step hd2
-    have hstep : Codec0.decodeNodeStep0 ba pos = .leaf (pos + 5 + (tyListBytes as).length +
-        (argListBytes args).length) (.exit f as args) := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeLeafStep0,
-        Codec0.decodeLeafHiStep0, Codec0.decodeTailOrExitStep0, Codec0.finishTailOrExit0,
-        Codec0.mkTailOrExit0, Codec0.decodeSymTys0]
-      rw [decodeU8_of_bytes ba pos 9 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite; rw [decodeU32_of_bytes ba (pos + 1) f _ hd1]; dsimp only
-      rw [show pos + 1 + 4 = pos + 5 by omega,
-        decodeTyList0_of_bytes ba (pos + 5) as _ hb.1 hd2]; dsimp only
-      rw [decodeArgList0_of_bytes ba _ args _ hb.2 hd3]; rfl
-    refine Codec0Kit.workloop_leaf_of_steps Codec0.decodeTFlatLoop0 frameApplyResult tflatBytes
-      (by rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl) ?_
-    dsimp only [tflatBytes]; simp only [List.length_cons, List.length_append, u32Bytes_length]
-    omega
+      c0_tag hdrop 8; rw [decodeArgList0_of_bytes ba (pos + 1) vs rest hb hd1,
+        show pos + 1 + (argListBytes vs).length = pos + (tflatBytes (.ret vs)).length by
+          simp only [tflatBytes, List.length_cons]; omega]
+  | .exit f as args, ba, pos, frames, rest, fuel, hb, hfuel, hdrop =>
+    decodeLoop_tailOrExit true ba pos f as args frames rest fuel hb.1 hb.2 hfuel hdrop
   | .hlt, ba, pos, frames, rest, fuel, _, hfuel, hdrop => by
-    dsimp only [tflatNodes, tflatBytes] at hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hstep : Codec0.decodeNodeStep0 ba pos = .leaf (pos + 1) .hlt := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeLeafStep0,
+    c0_prep; apply decodeLoop_leaf (t := .hlt) hfuel; · rfl
+    · dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeLeafStep0,
         Codec0.decodeLeafHiStep0]; rw [decodeU8_of_bytes ba pos 10 rest hdrop]; rfl
-    rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl
   | .group [] k, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, tflatNodes, tflatBytes, blocksNodes, blocksBytes]
-      at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hd1 : ba.data.toList.drop (pos + 1) = u32Bytes (UInt32.ofNat 0) ++
-        (tflatBytes k ++ rest) := by rw [drop_pos_add, hdrop]; simp [List.append_assoc]
-    have hd2 : ba.data.toList.drop (pos + 5) = tflatBytes k ++ rest := by
-      rw [show pos + 5 = (pos + 1) + 4 by omega, drop_pos_add, hd1]; exact List.drop_left' rfl
-    have hstep : Codec0.decodeNodeStep0 ba pos = .push (pos + 5) .groupKEmpty := by
-      dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeGroupStep0]
-      rw [decodeU8_of_bytes ba pos 11 _ (by simpa [List.append_assoc] using hdrop)]; dsimp only
-      c0_decide_ite; rw [decodeU32_of_bytes ba (pos + 1) 0 _ hd1]; rfl
-    refine Codec0Kit.workloop_lin_push_of_steps Codec0.decodeTFlatLoop0 frameApplyResult
-      tflatNodes tflatBytes (t := TFlat0.group [] k) hfuel (by dsimp only [tflatNodes, blocksNodes])
-      (by rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; rfl)
-      (decodeTFlatLoop0_of_bytes k ba (pos + 5) (.groupKEmpty :: frames) rest (fuel - 1) hb.2.2
-        (Codec0Kit.u32_sub1_ge (by omega)) hd2) ?_
-    dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.applyLinFrame0,
-      tflatNodes, blocksNodes, tflatBytes, blocksBytes]
-    rw [show pos + 5 + (tflatBytes k).length = pos + (11 :: u32Bytes
-          (UInt32.ofNat ([] : List (List Ty0 × TFlat0)).length) ++ [] ++ tflatBytes k).length by
-        simp only [List.length_cons, List.length_append, u32Bytes_length, List.length_nil]; omega,
-      show 1 + 0 + tflatNodes k = 1 + tflatNodes k by omega, Codec0Kit.u32_sub1_sub (by omega)]
+    c0_prep; have hd1 := Codec0Kit.drop_cons_step (by simpa [List.append_assoc] using hdrop)
+    have hd2 := Codec0Kit.drop_append_step hd1; rw [u32Bytes_length] at hd2
+    c0_lin_push decodeTFlatLoop0_of_bytes k .groupKEmpty hb.2.2 hd2 hfuel
+    dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeGroupStep0]
+    c0_tag hdrop 11; rw [decodeU32_of_bytes ba (pos + 1) 0 _ hd1]; rfl
   | .group ((ts0, b0) :: tl) k, ba, pos, frames, rest, fuel, hb, hfuel, hdrop => by
-    dsimp only [TFlat0ListBounded, Blocks0ListBounded, tflatNodes, tflatBytes,
-      blocksNodes, blocksBytes] at hb hfuel hdrop ⊢
-    have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
-    have hlen_lt : tl.length + 1 < 2 ^ 32 := by have h := hb.1; simp at h; omega
-    have hd1 : ba.data.toList.drop (pos + 1) = u32Bytes (UInt32.ofNat (1 + tl.length)) ++
-        (tyListBytes ts0 ++ (tflatBytes b0 ++ (blocksBytes tl ++ (tflatBytes k ++ rest)))) := by
-      rw [drop_pos_add, hdrop]; simp [List.append_assoc, Nat.add_comm]
-    have hd2 : ba.data.toList.drop (pos + 5) = tyListBytes ts0 ++ (tflatBytes b0 ++
-        (blocksBytes tl ++ (tflatBytes k ++ rest))) := by
-      rw [show pos + 5 = (pos + 1) + 4 by omega, drop_pos_add, hd1]; exact List.drop_left' rfl
-    have hd3 := Codec0Kit.drop_append_step hd2
-    have hcnt_ne : UInt32.ofNat (1 + tl.length) ≠ 0 := by
-      rw [Nat.add_comm]; exact (Codec0Kit.u32_ofNat_succ_sub_one hlen_lt).1
-    have hcnt_sub : UInt32.ofNat (1 + tl.length) - 1 = UInt32.ofNat tl.length := by
-      rw [Nat.add_comm]; exact (Codec0Kit.u32_ofNat_succ_sub_one hlen_lt).2
-    have hstep : Codec0.decodeNodeStep0 ba pos = .push (pos + 5 + (tyListBytes ts0).length)
+    c0_prep; have hf0 : fuel ≠ 0 := Codec0Kit.u32_ne_zero_of_toNat_pos (by omega)
+    have hlen_lt : tl.length + 1 < 2 ^ 32 := by simpa using hb.1
+    have hd1 := Codec0Kit.drop_cons_step (by simpa [List.append_assoc] using hdrop)
+    have hd2 := Codec0Kit.drop_append_step hd1; rw [u32Bytes_length] at hd2
+    obtain ⟨hcnt_ne, hcnt_sub⟩ := Codec0Kit.u32_ofNat_succ_sub_one hlen_lt
+    have hstep : Codec0.decodeNodeStep0 ba pos = .push (pos + 1 + 4 + (tyListBytes ts0).length)
         (.groupBody (UInt32.ofNat tl.length) ts0 []) := by
       dsimp only [Codec0.decodeNodeStep0, Codec0.decodeBranchStep0, Codec0.decodeGroupStep0]
-      rw [decodeU8_of_bytes ba pos 11 _ (by simpa [List.append_assoc, Nat.add_comm] using hdrop)]
-      dsimp only; c0_decide_ite
-      rw [decodeU32_of_bytes ba (pos + 1) (UInt32.ofNat (1 + tl.length)) _ hd1]; dsimp only
-      rw [Codec0Kit.ite_false_beq hcnt_ne, show pos + 1 + 4 = pos + 5 by omega,
-        decodeTyList0_of_bytes ba (pos + 5) ts0 _ hb.2.1.1 hd2, hcnt_sub]
+      c0_tag hdrop 11; rw [decodeU32_of_bytes ba (pos + 1) _ _ hd1]; dsimp only
+      rw [show UInt32.ofNat tl.length + 1 = UInt32.ofNat (tl.length + 1) from
+          (UInt32.ofNat_add _ 1).symm,
+        Codec0Kit.ite_false_beq hcnt_ne, decodeTyList0_of_bytes ba (pos + 1 + 4) ts0 _ hb.2.1.1
+          (by simpa [Nat.add_assoc] using hd2), hcnt_sub]
     rw [decodeTFlatLoop0_step fuel hf0 ba pos frames, hstep]; dsimp only [Codec0.stepLoopFrame0]
-    rw [decodeGroupBlocks0_of_bytes tl ts0 b0 k [] ba (pos + 5 + (tyListBytes ts0).length)
-      frames rest (fuel - 1) (by omega) hb.2.1.2.1 hb.2.1.2.2 hb.2.2
-      (Codec0Kit.u32_sub1_ge (by omega)) hd3]
+    rw [decodeGroupBlocks0_of_bytes tl ts0 b0 k [] ba _ frames rest (fuel - 1) (by omega)
+      hb.2.1.2.1 hb.2.1.2.2 hb.2.2 (Codec0Kit.u32_sub1_ge (by omega))
+      (Codec0Kit.drop_append_step hd2)]
     dsimp only [frameApplyResult, tflatNodes, blocksNodes]; simp only [List.reverse_nil,
       List.nil_append, show 1 + (tflatNodes b0 + blocksNodes tl) + tflatNodes k =
         1 + (tflatNodes b0 + blocksNodes tl + tflatNodes k) by omega]
-    rw [show pos + 5 + (tyListBytes ts0).length +
+    rw [show pos + 1 + 4 + (tyListBytes ts0).length +
           ((tflatBytes b0).length + (blocksBytes tl).length + (tflatBytes k).length) =
         pos + (11 :: u32Bytes (UInt32.ofNat ((ts0, b0) :: tl).length) ++
           (tyListBytes ts0 ++ tflatBytes b0 ++ blocksBytes tl) ++ tflatBytes k).length by
@@ -518,22 +427,15 @@ private theorem decodeGroupBlocks0_of_bytes :
     rw [decodeTFlatLoop0_of_bytes b0 ba pos (.groupBody (UInt32.ofNat 0) ts0 doneRev :: frames)
       (tflatBytes k ++ rest) fuel hb0 (by omega) (by simpa using hdrop)]
     dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.stepNonLinFrame0,
-      Codec0.applyGroupBody0, Codec0.nextGroupFrame0]
-    c0_decide_ite
+      Codec0.applyGroupBody0, Codec0.nextGroupFrame0]; c0_decide_ite
     rw [Codec0Kit.revList_eq_of_steps Codec0.revBlocks0 (fun _ => rfl) (fun _ _ _ => rfl),
       List.append_nil, List.reverse_cons]; dsimp only
-    have hfuelk : tflatNodes k ≤ (fuel - UInt32.ofNat (tflatNodes b0)).toNat := by
-      rw [Codec0Kit.u32_sub_ofNat_toNat (by omega)]; omega
-    have hdk : ba.data.toList.drop (pos + (tflatBytes b0).length) = tflatBytes k ++ rest := by
-      rw [drop_pos_add, hdrop, List.nil_append]; exact List.drop_left
     rw [decodeTFlatLoop0_of_bytes k ba _ (.groupK (doneRev.reverse ++ [(ts0, b0)]) :: frames)
-      rest _ hk hfuelk hdk]
+      rest _ hk (by rw [Codec0Kit.u32_sub_ofNat_toNat (by omega)]; omega)
+      (Codec0Kit.drop_append_step (by simpa using hdrop))]
     dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.applyLinFrame0,
       tflatNodes, blocksNodes]
-    have hsub_eq : fuel - UInt32.ofNat (tflatNodes b0) - UInt32.ofNat (tflatNodes k) =
-        fuel - UInt32.ofNat (tflatNodes b0 + 0 + tflatNodes k) :=
-      Codec0Kit.u32_sub_sub_ofNat (by omega)
-    simp only [Nat.add_zero, Nat.add_assoc] at hsub_eq ⊢; rw [hsub_eq]
+    simp only [Nat.add_zero, Nat.add_assoc]; rw [Codec0Kit.u32_sub_sub_ofNat (by omega)]
   | (ts1, b1) :: tl', ts0, b0, k, doneRev, ba, pos, frames, rest, fuel, htl, hb0, hbtl, hk,
       hfuel, hdrop => by
     dsimp only [Blocks0ListBounded, blocksNodes, blocksBytes] at hbtl hfuel hdrop ⊢
@@ -543,33 +445,24 @@ private theorem decodeGroupBlocks0_of_bytes :
       fuel hb0 (by omega) (by simpa [List.append_assoc] using hdrop)]
     dsimp only [frameApplyResult, Codec0.decodeApplyFrames0, Codec0.stepNonLinFrame0,
       Codec0.applyGroupBody0, Codec0.nextGroupFrame0, Codec0.nextGroupBodyCont0]
-    have hlen1 : tl'.length + 1 < 2 ^ 32 := by simp only [List.length_cons] at htl; exact htl
-    have hne0 : UInt32.ofNat ((ts1, b1) :: tl').length ≠ 0 :=
-      (Codec0Kit.u32_ofNat_succ_sub_one hlen1).1
-    have hsub1 : UInt32.ofNat ((ts1, b1) :: tl').length - 1 = UInt32.ofNat tl'.length :=
-      (Codec0Kit.u32_ofNat_succ_sub_one hlen1).2
+    have hlen1 : tl'.length + 1 < 2 ^ 32 := by simpa using htl
+    obtain ⟨hne0, hsub1⟩ := Codec0Kit.u32_ofNat_succ_sub_one hlen1
     have hdts : ba.data.toList.drop (pos + (tflatBytes b0).length) =
         tyListBytes ts1 ++ (tflatBytes b1 ++ (blocksBytes tl' ++ (tflatBytes k ++ rest))) := by
       rw [drop_pos_add, hdrop, List.drop_left]; simp [List.append_assoc]
-    rw [Codec0Kit.ite_false_beq hne0,
-      decodeTyList0_of_bytes ba _ ts1 _ hbtl.1 hdts]; dsimp only; rw [hsub1]
-    have hfuel1 : tflatNodes b1 + blocksNodes tl' + tflatNodes k ≤
-        (fuel - UInt32.ofNat (tflatNodes b0)).toNat := by
-      rw [Codec0Kit.u32_sub_ofNat_toNat (by omega)]; omega
-    have hdb1 := Codec0Kit.drop_append_step hdts
-    rw [decodeGroupBlocks0_of_bytes tl' ts1 b1 k ((ts0, b0) :: doneRev) ba _ frames rest _
-      (by omega) hbtl.2.1 hbtl.2.2 hk hfuel1 hdb1]
-    have hsub_eq : fuel - UInt32.ofNat (tflatNodes b0) -
-          UInt32.ofNat (tflatNodes b1 + blocksNodes tl' + tflatNodes k) =
-        fuel - UInt32.ofNat (tflatNodes b0 + (tflatNodes b1 + blocksNodes tl') + tflatNodes k) := by
-      rw [Codec0Kit.u32_sub_sub_ofNat (by omega)]; congr 2; omega
+    rw [show UInt32.ofNat ((ts1, b1) :: tl').length = UInt32.ofNat (tl'.length + 1) from rfl,
+      Codec0Kit.ite_false_beq hne0, decodeTyList0_of_bytes ba _ ts1 _ hbtl.1 hdts]
+    dsimp only; rw [hsub1, decodeGroupBlocks0_of_bytes tl' ts1 b1 k ((ts0, b0) :: doneRev) ba _
+      frames rest _ (by omega) hbtl.2.1 hbtl.2.2 hk
+      (by rw [Codec0Kit.u32_sub_ofNat_toNat (by omega)]; omega) (Codec0Kit.drop_append_step hdts)]
     simp only [List.reverse_cons, List.append_assoc, List.cons_append, List.nil_append,
-      List.length_append, Nat.add_assoc] at hsub_eq ⊢; rw [hsub_eq]
+      List.length_append, Nat.add_assoc]; rw [Codec0Kit.u32_sub_sub_ofNat (by omega)]
 termination_by tl _ b0 k _ _ _ _ _ _ => tflatNodes b0 + blocksNodes tl + tflatNodes k
 decreasing_by
   all_goals (have _ := tflatNodes_pos b0; have _ := tflatNodes_pos k)
   all_goals (try have _ := tflatNodes_pos b1)
   all_goals (dsimp only [blocksNodes]; omega)
+end
 end
 
 private theorem decodeTFlat0_of_bytes (ba : ByteArray) (pos : Nat) (t : TFlat0)
@@ -580,12 +473,11 @@ private theorem decodeTFlat0_of_bytes (ba : ByteArray) (pos : Nat) (t : TFlat0)
   have hlen_rem : (tflatBytes t).length ≤ ba.size - pos := by
     have := congrArg List.length h
     rw [List.length_drop, ba_data_toList_length, List.length_append] at this; omega
-  have hnodes_le_rem : tflatNodes t ≤ ba.size - pos :=
-    Nat.le_trans (tflatNodes_le_bytes_length t) hlen_rem
   have hfuel : tflatNodes t ≤
       (if ba.size - pos < 0xffffffff then UInt32.ofNat (ba.size - pos) else 0xffffffff).toNat := by
     by_cases hsmall : ba.size - pos < 0xffffffff
-    · rw [ite_true_eq hsmall, Codec0Kit.u32_ofNat_toNat_lt (by omega)]; exact hnodes_le_rem
+    · rw [ite_true_eq hsmall, Codec0Kit.u32_ofNat_toNat_lt (by omega)]
+      exact Nat.le_trans (tflatNodes_le_bytes_length t) hlen_rem
     · rw [ite_false_eq hsmall]; exact hb.2
   rw [decodeTFlatLoop0_of_bytes t ba pos [] rest _ hb.1 hfuel h]; rfl
 
@@ -647,6 +539,29 @@ private def frameNodes : Codec0.DecFrame0 → Nat
 private def framesNodes (frames : List Codec0.DecFrame0) : Nat :=
   frames.foldr (fun f acc => acc + frameNodes f) 0
 
+private theorem decodeSymTys0_ok_bytes (ba : ByteArray) (pos : Nat) (fnSym : Sym0)
+    (as : List Ty0) (pos' : Nat) (h : Codec0.decodeSymTys0 ba pos = .ok fnSym as pos') :
+    pos ≤ pos' ∧ pos' ≤ ba.size ∧ as.length < 2 ^ 32 ∧
+      baSlice ba pos pos' = u32Bytes fnSym ++ tyListBytes as := by
+  dsimp only [Codec0.decodeSymTys0] at h
+  codec_match sym, p1, hf ← Codec0.decodeU32 ba pos at h
+  codec_match tys, p2, has ← Codec0.decodeTyList0 ba p1 at h
+  obtain ⟨_, _, hp1, hs1⟩ := decodeU32_ok_bytes ba pos sym p1 hf; subst hp1
+  obtain ⟨_, h2s, hbl, hs2⟩ := decodeTyList0_ok_bytes ba (pos + 4) tys p2 has
+  cases h; exact ⟨by omega, h2s, hbl, by ba_slice_join [hs1, hs2]⟩
+
+private theorem decodeCallSig0_ok_bytes (ba : ByteArray) (pos : Nat) (fnSym : Sym0)
+    (as bs : List Ty0) (pos' : Nat)
+    (h : Codec0.decodeCallSig0 ba pos = .ok fnSym as bs pos') :
+    pos ≤ pos' ∧ pos' ≤ ba.size ∧ as.length < 2 ^ 32 ∧ bs.length < 2 ^ 32 ∧
+      baSlice ba pos pos' = u32Bytes fnSym ++ tyListBytes as ++ tyListBytes bs := by
+  dsimp only [Codec0.decodeCallSig0] at h
+  codec_match sym, as', p1, hs ← Codec0.decodeSymTys0 ba pos at h
+  codec_match bs', p2, hbs ← Codec0.decodeTyList0 ba p1 at h
+  obtain ⟨_, _, ha, hs1⟩ := decodeSymTys0_ok_bytes ba pos sym as' p1 hs
+  obtain ⟨_, h2s, hb, hs2⟩ := decodeTyList0_ok_bytes ba p1 bs' p2 hbs
+  cases h; exact ⟨by omega, h2s, ha, hb, by ba_slice_join [hs1, hs2]⟩
+
 private theorem decodeTailOrExitStep0_ok_bytes (ba : ByteArray) (pos : Nat)
     (isExit : Bool) (step : Codec0.DecStep0) :
     Codec0.decodeTailOrExitStep0 ba pos isExit = step →
@@ -657,32 +572,45 @@ private theorem decodeTailOrExitStep0_ok_bytes (ba : ByteArray) (pos : Nat)
         (if isExit then 9 else 5) :: baSlice ba pos pos1 = tflatBytes v ∧
         TFlat0ListBounded v ∧ tflatNodes v = 1) := by
   intro h
-  dsimp only [Codec0.decodeTailOrExitStep0, Codec0.finishTailOrExit0,
-    Codec0.mkTailOrExit0, Codec0.decodeSymTys0] at h
-  codec_step fnSym, p1, hf ← Codec0.decodeU32 ba pos at h
-  codec_step as, p2, has ← Codec0.decodeTyList0 ba p1 at h
-  codec_step args, p3, hargs ← Codec0.decodeArgList0 ba p2 at h
-  subst h
-  obtain ⟨h01, _, hp1, hs1⟩ := decodeU32_ok_bytes ba pos fnSym p1 hf; subst hp1
-  obtain ⟨h12, _, hbl1, hs2⟩ := decodeTyList0_ok_bytes ba (pos + 4) as p2 has
-  obtain ⟨h23, h3s, hbl2, hs3⟩ := decodeArgList0_ok_bytes ba p2 args p3 hargs
-  have hsl : baSlice ba pos p3 = u32Bytes fnSym ++ tyListBytes as ++ argListBytes args := by
-    ba_slice_join [hs1, hs2, hs3]
-  cases isExit <;> (
-    try dsimp only
-    refine ⟨by omega, h3s, ?_, ⟨hbl1, hbl2⟩, rfl⟩
-    rw [hsl]; dsimp only [tflatBytes]
-    simp only [List.append_assoc, Bool.false_eq_true, ite_true, ite_false]; rfl)
+  dsimp only [Codec0.decodeTailOrExitStep0, Codec0.finishTailOrExit0, Codec0.mkTailOrExit0] at h
+  cases hs : Codec0.decodeSymTys0 ba pos with
+  | none => rw [hs] at h; subst h; trivial
+  | ok fnSym as p1 =>
+    rw [hs] at h; dsimp only at h
+    codec_step args, p2, hargs ← Codec0.decodeArgList0 ba p1 at h
+    subst h
+    obtain ⟨_, _, hbl1, hs1⟩ := decodeSymTys0_ok_bytes ba pos fnSym as p1 hs
+    obtain ⟨_, h2s, hbl2, hs2⟩ := decodeArgList0_ok_bytes ba p1 args p2 hargs
+    have hsl : baSlice ba pos p2 = u32Bytes fnSym ++ tyListBytes as ++ argListBytes args := by
+      ba_slice_join [hs1, hs2]
+    cases isExit <;> (
+      try dsimp only
+      refine ⟨by omega, h2s, ?_, ⟨hbl1, hbl2⟩, rfl⟩
+      rw [hsl]; dsimp only [tflatBytes]
+      simp only [List.append_assoc, Bool.false_eq_true, ite_true, ite_false]; rfl)
+
+private theorem decodeTailOrExit_ok_join {ba : ByteArray} {pos : Nat} {isExit : Bool}
+    (hs1 : baSlice ba pos (pos + 1) = [if isExit then 9 else 5]) :
+    match Codec0.decodeTailOrExitStep0 ba (pos + 1) isExit with
+    | .none => True
+    | .push pos1 f => pos < pos1 ∧ pos1 ≤ ba.size ∧ baSlice ba pos pos1 = framePreBytes f ∧
+        frameBounded f ∧ frameNodes f = 1
+    | .leaf pos1 v => pos < pos1 ∧ pos1 ≤ ba.size ∧ baSlice ba pos pos1 = tflatBytes v ∧
+        TFlat0ListBounded v ∧ tflatNodes v = 1 := by
+  have hte := decodeTailOrExitStep0_ok_bytes ba (pos + 1) isExit _ rfl
+  cases hd : Codec0.decodeTailOrExitStep0 ba (pos + 1) isExit with
+  | none => trivial | push _ _ => rw [hd] at hte; exact False.elim hte
+  | leaf _ _ =>
+    rw [hd] at hte; obtain ⟨h1p, hps', heq, hbl, hnv⟩ := hte
+    refine ⟨by omega, hps', ?_, hbl, hnv⟩; rw [baSlice_trans (by omega) h1p, hs1, ← heq]; rfl
 
 private theorem decodeNodeStep0_ok_bytes (ba : ByteArray) (pos : Nat) (step : Codec0.DecStep0) :
     Codec0.decodeNodeStep0 ba pos = step →
     (match step with
     | .none => True
-    | .push pos1 f =>
-      pos < pos1 ∧ pos1 ≤ ba.size ∧ baSlice ba pos pos1 = framePreBytes f ∧
+    | .push pos1 f => pos < pos1 ∧ pos1 ≤ ba.size ∧ baSlice ba pos pos1 = framePreBytes f ∧
         frameBounded f ∧ frameNodes f = 1
-    | .leaf pos1 v =>
-      pos < pos1 ∧ pos1 ≤ ba.size ∧ baSlice ba pos pos1 = tflatBytes v ∧
+    | .leaf pos1 v => pos < pos1 ∧ pos1 ≤ ba.size ∧ baSlice ba pos pos1 = tflatBytes v ∧
         TFlat0ListBounded v ∧ tflatNodes v = 1) := by
   intro h; dsimp only [Codec0.decodeNodeStep0] at h
   codec_step tag, p1, hu ← Codec0.decodeU8 ba pos at h
@@ -694,30 +622,26 @@ private theorem decodeNodeStep0_ok_bytes (ba : ByteArray) (pos : Nat) (step : Co
        subst ht3; dsimp only [Codec0.decodeStoreStep0, Codec0.finishStoreStep0] at h
        codec_step ty, p2, ht ← Codec0.decodeTy0 ba (pos + 1) at h
        codec_step val, p3, hv ← Codec0.decodeArg0 ba p2 at h
-       codec_step addr, p4, ha ← Codec0.decodeArg0 ba p3 at h
-       subst h
+       codec_step addr, p4, ha ← Codec0.decodeArg0 ba p3 at h; subst h
        obtain ⟨h12, _, hp2, hs2⟩ := decodeTy0_ok_bytes ba (pos + 1) ty p2 ht; subst hp2
        obtain ⟨h23, _, hs3⟩ := decodeArg0_ok_bytes ba (pos + 1 + 1) val p3 hv
        obtain ⟨h34, h4s, hs4⟩ := decodeArg0_ok_bytes ba p3 addr p4 ha
        exact ⟨by omega, h4s, by ba_slice_join [hs1, hs2, hs3, hs4], trivial, rfl⟩)
     · dsimp only [Codec0.decodeLet1Step0, Codec0.finishLet1Step0, Codec0.mkLet1Step0] at h
       codec_step op, p2, hop ← Codec0.decodeOpCode0 ba (pos + 1) at h
-      codec_step args, p3, hargs ← Codec0.decodeArgList0 ba p2 at h
-      subst h
+      codec_step args, p3, hargs ← Codec0.decodeArgList0 ba p2 at h; subst h
       obtain ⟨h12, _, hs2⟩ := decodeOpCode0_ok_bytes ba (pos + 1) op p2 hop
       obtain ⟨h23, h3s, hbl, hs3⟩ := decodeArgList0_ok_bytes ba p2 args p3 hargs
       exact ⟨by omega, h3s, by ba_slice_join [hs1, hs2, hs3], hbl, rfl⟩
     · dsimp only [Codec0.decodeLet2Step0] at h
       codec_step a, p2, ha ← Codec0.decodeArg0 ba (pos + 1) at h
-      codec_step b, p3, hb ← Codec0.decodeArg0 ba p2 at h
-      subst h
+      codec_step b, p3, hb ← Codec0.decodeArg0 ba p2 at h; subst h
       obtain ⟨h12, _, hs2⟩ := decodeArg0_ok_bytes ba (pos + 1) a p2 ha
       obtain ⟨h23, h3s, hs3⟩ := decodeArg0_ok_bytes ba p2 b p3 hb
       exact ⟨by omega, h3s, by ba_slice_join [hs1, hs2, hs3], trivial, rfl⟩
     · dsimp only [Codec0.decodeLoadStep0] at h
       codec_step ty, p2, ht ← Codec0.decodeTy0 ba (pos + 1) at h
-      codec_step addr, p3, ha ← Codec0.decodeArg0 ba p2 at h
-      subst h
+      codec_step addr, p3, ha ← Codec0.decodeArg0 ba p2 at h; subst h
       obtain ⟨h12, _, hp2, hs2⟩ := decodeTy0_ok_bytes ba (pos + 1) ty p2 ht; subst hp2
       obtain ⟨h23, h3s, hs3⟩ := decodeArg0_ok_bytes ba (pos + 1 + 1) addr p3 ha
       exact ⟨by omega, h3s, by ba_slice_join [hs1, hs2, hs3], trivial, rfl⟩
@@ -728,31 +652,19 @@ private theorem decodeNodeStep0_ok_bytes (ba : ByteArray) (pos : Nat) (step : Co
          (dsimp only [Codec0.decodeLeafStep0, Codec0.decodeLeafHiStep0] at h
           decode_ite_chain h with (try (subst h; exact ⟨by omega, h1s, hs1, trivial, rfl⟩))
             else (subst h; trivial)
-          · have hte := decodeTailOrExitStep0_ok_bytes ba (pos + 1) false step h
-            cases step with
-            | none => trivial | push _ _ => exact False.elim hte
-            | leaf p1' v =>
-              obtain ⟨h1p, hps', heq, hbl, hnv⟩ := hte; refine ⟨by omega, hps', ?_, hbl, hnv⟩
-              rw [baSlice_trans (by omega) h1p, hs1, ← heq]; rfl
+          · subst h; exact decodeTailOrExit_ok_join hs1
           · dsimp only [Codec0.decodeJumpStep0] at h
             codec_step j, p2, hj ← Codec0.decodeU32 ba (pos + 1) at h
-            codec_step args, p3, hargs ← Codec0.decodeArgList0 ba p2 at h
-            subst h
+            codec_step args, p3, hargs ← Codec0.decodeArgList0 ba p2 at h; subst h
             obtain ⟨h12, _, hp2, hs2⟩ := decodeU32_ok_bytes ba (pos + 1) j p2 hj; subst hp2
             obtain ⟨h23, h3s, hbl, hs3⟩ := decodeArgList0_ok_bytes ba (pos + 1 + 4) args p3 hargs
             exact ⟨by omega, h3s, by ba_slice_join [hs1, hs2, hs3], hbl, rfl⟩
-          · codec_step vs, p2, hvs ← Codec0.decodeArgList0 ba (pos + 1) at h
-            subst h
+          · codec_step vs, p2, hvs ← Codec0.decodeArgList0 ba (pos + 1) at h; subst h
             obtain ⟨h12, h2s, hbl, hs2⟩ := decodeArgList0_ok_bytes ba (pos + 1) vs p2 hvs
             exact ⟨by omega, h2s, by ba_slice_join [hs1, hs2], hbl, rfl⟩
-          · have hte := decodeTailOrExitStep0_ok_bytes ba (pos + 1) true step h
-            cases step with
-            | none => trivial | push _ _ => exact False.elim hte
-            | leaf p1' v =>
-              obtain ⟨h1p, hps', heq, hbl, hnv⟩ := hte; refine ⟨by omega, hps', ?_, hbl, hnv⟩
-              rw [baSlice_trans (by omega) h1p, hs1, ← heq]; rfl)
-       · codec_step c, p2, hc ← Codec0.decodeArg0 ba (pos + 1) at h
-         subst h; obtain ⟨h12, h2s, hs2⟩ := decodeArg0_ok_bytes ba (pos + 1) c p2 hc
+          · subst h; exact decodeTailOrExit_ok_join hs1)
+       · codec_step c, p2, hc ← Codec0.decodeArg0 ba (pos + 1) at h; subst h
+         obtain ⟨h12, h2s, hs2⟩ := decodeArg0_ok_bytes ba (pos + 1) c p2 hc
          exact ⟨by omega, h2s, by ba_slice_join [hs1, hs2], trivial, rfl⟩
        · dsimp only [Codec0.decodeGroupStep0] at h
          codec_step cnt, p2, hcnt ← Codec0.decodeU32 ba (pos + 1) at h
@@ -761,33 +673,25 @@ private theorem decodeNodeStep0_ok_bytes (ba : ByteArray) (pos : Nat) (step : Co
          · subst hc0; c0_decide_ite_at h; subst h
            exact ⟨by omega, h2s, by ba_slice_join [hs1, hs2], trivial, rfl⟩
          · rw [Codec0Kit.ite_false_beq hc0] at h
-           codec_step ts0, p3, hts ← Codec0.decodeTyList0 ba (pos + 1 + 4) at h
-           subst h
+           codec_step ts0, p3, hts ← Codec0.decodeTyList0 ba (pos + 1 + 4) at h; subst h
            obtain ⟨h23, h3s, hbl, hs3⟩ := decodeTyList0_ok_bytes ba (pos + 1 + 4) ts0 p3 hts
            have hrem : 0 + 1 + (cnt - 1).toNat < 2 ^ 32 := by
              rw [Codec0Kit.u32_toNat_sub_of_le_toNat cnt 1
-                 (Codec0Kit.u32_toNat_pos_of_ne_zero hc0),
-               show (1 : UInt32).toNat = 1 from rfl]
-             have := cnt.toNat_lt; omega
-           have hcnt_eq : (UInt32.ofNat ([] : List (List Ty0 × TFlat0)).length +
-               1 + (cnt - 1)) = cnt := by
-             rw [List.length_nil]
-             exact (Codec0Kit.u32_cnt_sub1_add (done := 0) hc0).trans (UInt32.zero_add cnt)
+               (Codec0Kit.u32_toNat_pos_of_ne_zero hc0)]
+             have := cnt.toNat_lt; have : (1 : UInt32).toNat = 1 := rfl; omega
+           have hcnt_eq := (Codec0Kit.u32_cnt_sub1_add (done := 0) hc0).trans (UInt32.zero_add cnt)
            refine ⟨by omega, h3s, ?_, ⟨hrem, hbl, trivial⟩, rfl⟩
-           dsimp only [framePreBytes]; rw [hcnt_eq]; ba_slice_join [hs1, hs2, hs3])
-    · dsimp only [Codec0.decodeCallStep0, Codec0.finishCallStep0, Codec0.mkCallStep0,
-        Codec0.decodeCallSig0, Codec0.decodeSymTys0] at h
-      codec_step fnSym, p2, hf ← Codec0.decodeU32 ba (pos + 1) at h
-      codec_step as, p3, has ← Codec0.decodeTyList0 ba p2 at h
-      codec_step bs, p4, hbs ← Codec0.decodeTyList0 ba p3 at h
-      codec_step args, p5, hargs ← Codec0.decodeArgList0 ba p4 at h
-      subst h
-      obtain ⟨h12, _, hp2, hs2⟩ := decodeU32_ok_bytes ba (pos + 1) fnSym p2 hf; subst hp2
-      obtain ⟨h23, _, hbl1, hs3⟩ := decodeTyList0_ok_bytes ba (pos + 1 + 4) as p3 has
-      obtain ⟨h34, _, hbl2, hs4⟩ := decodeTyList0_ok_bytes ba p3 bs p4 hbs
-      obtain ⟨h45, h5s, hbl3, hs5⟩ := decodeArgList0_ok_bytes ba p4 args p5 hargs
-      refine ⟨by omega, h5s, ?_, ⟨hbl1, hbl2, hbl3⟩, rfl⟩
-      dsimp only [framePreBytes]; ba_slice_join [hs1, hs2, hs3, hs4, hs5]
+           dsimp only [framePreBytes]; rw [List.length_nil, hcnt_eq]; ba_slice_join [hs1, hs2, hs3])
+    · dsimp only [Codec0.decodeCallStep0, Codec0.finishCallStep0, Codec0.mkCallStep0] at h
+      cases hsig : Codec0.decodeCallSig0 ba (pos + 1) with
+      | none => rw [hsig] at h; subst h; trivial
+      | ok fnSym as bs p2 =>
+        rw [hsig] at h; dsimp only at h
+        codec_step args, p3, hargs ← Codec0.decodeArgList0 ba p2 at h; subst h
+        obtain ⟨_, _, hbl1, hbl2, hs2⟩ := decodeCallSig0_ok_bytes ba (pos + 1) fnSym as bs p2 hsig
+        obtain ⟨_, h3s, hbl3, hs3⟩ := decodeArgList0_ok_bytes ba p2 args p3 hargs
+        refine ⟨by omega, h3s, ?_, ⟨hbl1, hbl2, hbl3⟩, rfl⟩
+        dsimp only [framePreBytes]; ba_slice_join [hs1, hs2, hs3]
 
 private theorem applyLinFrame0_spec (f : Codec0.DecFrame0) (v : TFlat0)
     (hnl : match f with | .jnzL _ | .groupBody _ _ _ => False | _ => True) :
@@ -796,12 +700,9 @@ private theorem applyLinFrame0_spec (f : Codec0.DecFrame0) (v : TFlat0)
     frameNodes f + tflatNodes v = tflatNodes (Codec0.applyLinFrame0 f v) := by
   cases f with
   | jnzL _ | groupBody _ _ _ => exact False.elim hnl
-  | let1 _ _ => exact ⟨rfl, fun hf hv => ⟨hf, hv⟩, rfl⟩
-  | let2Umulw64 _ _ => exact ⟨rfl, fun _ hv => hv, rfl⟩
-  | load _ _ => exact ⟨rfl, fun _ hv => hv, rfl⟩
-  | store _ _ _ => exact ⟨rfl, fun _ hv => hv, rfl⟩
+  | let1 _ _ | jnzR _ _ => exact ⟨rfl, fun hf hv => ⟨hf, hv⟩, rfl⟩
+  | let2Umulw64 _ _ | load _ _ | store _ _ _ => exact ⟨rfl, fun _ hv => hv, rfl⟩
   | call _ _ _ _ => exact ⟨rfl, fun hf hv => ⟨hf.1, hf.2.1, hf.2.2, hv⟩, rfl⟩
-  | jnzR _ _ => exact ⟨rfl, fun hf hv => ⟨hf, hv⟩, rfl⟩
   | groupKEmpty =>
     refine ⟨?_, fun _ hv => ⟨by decide, trivial, hv⟩, rfl⟩
     dsimp only [framePreBytes, Codec0.applyLinFrame0, tflatBytes, blocksBytes]
@@ -1021,15 +922,9 @@ private theorem encodeExt0_bytes (ba : ByteArray) (ex : ExtSig0) :
   rw [encodeTyList0_bytes, encodeTyList0_bytes, encodeU32_bytes]; simp only [List.append_assoc]
 
 private theorem encodeExtList0_bytes (ba : ByteArray) (xs : List ExtSig0) :
-    (Codec0.encodeExtList0 ba xs).data.toList = ba.data.toList ++ extListBytes xs :=
-  Codec0Kit.encodeList_bytes_of_steps Codec0.encodeExtList0 Codec0.encodeExtListLoop0
-    Codec0.encodeU32 Codec0.lenExtsU32 u32Bytes extSeqBytes extListBytes (fun _ _ => rfl)
-    (Codec0Kit.encodeListLoop_bytes_of_steps Codec0.encodeExtListLoop0 Codec0.encodeExt0
-      extBytes extSeqBytes (fun _ => rfl) (fun _ _ _ => rfl)
-      encodeExt0_bytes rfl (fun _ _ => rfl))
-    encodeU32_bytes
-    (Codec0Kit.lenU32_eq_of_steps Codec0.lenExtsU32 (fun _ => rfl) (fun _ _ _ => rfl))
-    (fun _ => rfl) ba xs
+    (Codec0.encodeExtList0 ba xs).data.toList = ba.data.toList ++ extListBytes xs := by
+  c0_encode_list! Codec0.encodeExtList0 Codec0.encodeExtListLoop0 Codec0.encodeExt0
+    Codec0.lenExtsU32 extBytes extSeqBytes extListBytes encodeExt0_bytes
 
 private theorem encodeFn0_bytes (ba : ByteArray) (fn : TFlatFn0) :
     (Codec0.encodeFn0 ba fn).data.toList = ba.data.toList ++ fnBytes fn := by
@@ -1038,15 +933,9 @@ private theorem encodeFn0_bytes (ba : ByteArray) (fn : TFlatFn0) :
   simp only [List.append_assoc]
 
 private theorem encodeFnList0_bytes (ba : ByteArray) (xs : List TFlatFn0) :
-    (Codec0.encodeFnList0 ba xs).data.toList = ba.data.toList ++ fnListBytes xs :=
-  Codec0Kit.encodeList_bytes_of_steps Codec0.encodeFnList0 Codec0.encodeFnListLoop0
-    Codec0.encodeU32 Codec0.lenFnsU32 u32Bytes fnSeqBytes fnListBytes (fun _ _ => rfl)
-    (Codec0Kit.encodeListLoop_bytes_of_steps Codec0.encodeFnListLoop0 Codec0.encodeFn0
-      fnBytes fnSeqBytes (fun _ => rfl) (fun _ _ _ => rfl)
-      encodeFn0_bytes rfl (fun _ _ => rfl))
-    encodeU32_bytes
-    (Codec0Kit.lenU32_eq_of_steps Codec0.lenFnsU32 (fun _ => rfl) (fun _ _ _ => rfl))
-    (fun _ => rfl) ba xs
+    (Codec0.encodeFnList0 ba xs).data.toList = ba.data.toList ++ fnListBytes xs := by
+  c0_encode_list! Codec0.encodeFnList0 Codec0.encodeFnListLoop0 Codec0.encodeFn0
+    Codec0.lenFnsU32 fnBytes fnSeqBytes fnListBytes encodeFn0_bytes
 
 private theorem encodeMod0_bytes (m : TFlatModule0) : (encodeMod0 m).data.toList = modBytes m := by
   dsimp only [encodeMod0, modBytes]
@@ -1057,28 +946,18 @@ private theorem decodeExt0_of_bytes (ba : ByteArray) (pos : Nat) (ex : ExtSig0)
     (rest : List UInt8) (hb : ExtSig0Bounded ex)
     (h : ba.data.toList.drop pos = extBytes ex ++ rest) :
     Codec0.decodeExt0 ba pos = .ok ex (pos + (extBytes ex).length) := by
-  dsimp only [extBytes] at h ⊢; rw [List.append_assoc, List.append_assoc] at h
-  have hd1 : ba.data.toList.drop (pos + 4) = tyListBytes ex.as ++ (tyListBytes ex.rs ++ rest) := by
-    rw [drop_pos_add, h]; exact List.drop_left' rfl
-  have hd2 := Codec0Kit.drop_append_step hd1
-  dsimp only [Codec0.decodeExt0, Codec0.decodeCallSig0, Codec0.decodeSymTys0]
-  rw [decodeU32_of_bytes ba pos ex.name _ h]; dsimp only
-  rw [decodeTyList0_of_bytes ba (pos + 4) ex.as _ hb.1 hd1]; dsimp only
-  rw [decodeTyList0_of_bytes ba _ ex.rs rest hb.2 hd2]
+  dsimp only [Codec0.decodeExt0, extBytes] at h ⊢
+  rw [decodeCallSig0_of_bytes ba pos ex.name ex.as ex.rs rest hb.1 hb.2
+    (by simpa [List.append_assoc] using h)]
   simp only [List.length_append, u32Bytes_length, Nat.add_assoc]
 
 private theorem decodeExt0_ok_bytes (ba : ByteArray) (pos : Nat) (ex : ExtSig0) (pos' : Nat)
     (h : Codec0.decodeExt0 ba pos = .ok ex pos') :
     pos ≤ pos' ∧ pos' ≤ ba.size ∧ ExtSig0Bounded ex ∧ baSlice ba pos pos' = extBytes ex := by
-  dsimp only [Codec0.decodeExt0, Codec0.decodeCallSig0, Codec0.decodeSymTys0] at h
-  codec_match name, p1, hu ← Codec0.decodeU32 ba pos at h
-  codec_match as, p2, has ← Codec0.decodeTyList0 ba p1 at h
-  codec_match rs, p3, hrs ← Codec0.decodeTyList0 ba p2 at h
-  obtain ⟨_, _, hp1, hs1⟩ := decodeU32_ok_bytes ba pos name p1 hu; subst hp1
-  obtain ⟨_, _, hb1, hs2⟩ := decodeTyList0_ok_bytes ba (pos + 4) as p2 has
-  obtain ⟨_, h3s, hb2, hs3⟩ := decodeTyList0_ok_bytes ba p2 rs p3 hrs
-  cases h; refine ⟨by omega, h3s, ⟨hb1, hb2⟩, ?_⟩
-  dsimp only [extBytes]; ba_slice_join [hs1, hs2, hs3]
+  dsimp only [Codec0.decodeExt0] at h
+  codec_match name, as, rs, p1, hsig ← Codec0.decodeCallSig0 ba pos at h
+  obtain ⟨h01, h1s, ha, hr, hs1⟩ := decodeCallSig0_ok_bytes ba pos name as rs p1 hsig
+  cases h; exact ⟨h01, h1s, ⟨ha, hr⟩, hs1⟩
 
 private theorem decodeFn0_of_bytes (ba : ByteArray) (pos : Nat) (fn : TFlatFn0)
     (rest : List UInt8) (hb : Fn0Bounded fn) (h : ba.data.toList.drop pos = fnBytes fn ++ rest) :
@@ -1087,10 +966,9 @@ private theorem decodeFn0_of_bytes (ba : ByteArray) (pos : Nat) (fn : TFlatFn0)
   let ex : ExtSig0 := { name := fn.name, as := fn.as, rs := fn.rs }
   have hd_ex : ba.data.toList.drop pos = extBytes ex ++ (tflatBytes fn.body ++ rest) := by
     dsimp only [ex, extBytes]; rw [h]; simp only [List.append_assoc]
-  have hd_body := Codec0Kit.drop_append_step hd_ex
   dsimp only [Codec0.decodeFn0]
   rw [decodeExt0_of_bytes ba pos ex _ ⟨hb.1, hb.2.1⟩ hd_ex]; dsimp only
-  rw [decodeTFlat0_of_bytes ba _ fn.body rest hb.2.2 hd_body]
+  rw [decodeTFlat0_of_bytes ba _ fn.body rest hb.2.2 (Codec0Kit.drop_append_step hd_ex)]
   dsimp only [ex, extBytes]; simp only [List.length_append, Nat.add_assoc]
 
 private theorem decodeFn0_ok_bytes (ba : ByteArray) (pos : Nat) (fn : TFlatFn0) (pos' : Nat)
@@ -1106,94 +984,34 @@ private theorem decodeFn0_ok_bytes (ba : ByteArray) (pos : Nat) (fn : TFlatFn0) 
 private theorem decodeExtList0_of_bytes (ba : ByteArray) (pos : Nat) (xs : List ExtSig0)
     (rest : List UInt8) (hlen_lt : xs.length < 2 ^ 32) (hbx : ∀ ex ∈ xs, ExtSig0Bounded ex)
     (h : ba.data.toList.drop pos = extListBytes xs ++ rest) :
-    Codec0.decodeExtList0 ba pos = .ok xs (pos + (extListBytes xs).length) :=
-  Codec0Kit.decodeList_of_bytes_of_steps Codec0.DecExtsRes.ok Codec0.decodeExtList0
-    Codec0.decodeExtListLoop0 (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes
-    extSeqBytes extListBytes ExtSig0Bounded
-    (fun b p v hv => by dsimp only [Codec0.decodeExtList0]; rw [hv])
-    (fun b p v r hr => decodeU32_of_bytes b p v r hr)
-    (Codec0Kit.decodeListLoop_of_bytes_of_steps Codec0.DecExtsRes.ok Codec0.decodeExtListLoop0
-      (fun b p v p' => Codec0.decodeExt0 b p = .ok v p') Codec0.revExts0
-      extBytes extSeqBytes ExtSig0Bounded
-      (fun b p acc => by unfold Codec0.decodeExtListLoop0; rw [dite_true_eq rfl])
-      (fun b p rem acc ex p1 hne hex => by
-        conv => lhs; unfold Codec0.decodeExtListLoop0
-        rw [dite_false_eq hne, hex])
-      (Codec0Kit.revList_eq_of_steps Codec0.revExts0 (fun _ => rfl) (fun _ _ _ => rfl))
-      rfl (fun _ _ => rfl) decodeExt0_of_bytes)
-    u32Bytes_length (fun _ => rfl) ba pos xs rest hlen_lt hbx h
+    Codec0.decodeExtList0 ba pos = .ok xs (pos + (extListBytes xs).length) := by
+  c0_decode_list_of! Codec0.DecExtsRes.ok Codec0.decodeExtList0 Codec0.decodeExtListLoop0
+    Codec0.decodeExt0 Codec0.revExts0 extBytes extSeqBytes extListBytes ExtSig0Bounded
+    decodeExt0_of_bytes hbx
 
 private theorem decodeExtList0_ok_bytes (ba : ByteArray) (pos : Nat)
     (xs : List ExtSig0) (pos' : Nat) (h : Codec0.decodeExtList0 ba pos = .ok xs pos') :
     pos ≤ pos' ∧ pos' ≤ ba.size ∧ xs.length < 2 ^ 32 ∧
-      (∀ ex ∈ xs, ExtSig0Bounded ex) ∧ baSlice ba pos pos' = extListBytes xs :=
-  Codec0Kit.decodeList_ok_bytes_of_steps Codec0.DecExtsRes.ok Codec0.decodeExtList0
-    Codec0.decodeExtListLoop0 (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes
-    extSeqBytes extListBytes ExtSig0Bounded
-    (fun b p res q hdec => by
-      dsimp only [Codec0.decodeExtList0] at hdec
-      codec_match cnt, p1, hu ← Codec0.decodeU32 b p at hdec
-      exact ⟨cnt, p1, rfl, hdec⟩)
-    decodeU32_ok_bytes
-    (Codec0Kit.decodeListLoop_ok_bytes_of_steps Codec0.DecExtsRes.ok Codec0.decodeExtListLoop0
-      Codec0.revExts0 extBytes extSeqBytes ExtSig0Bounded
-      (fun b p acc res q h0 => by
-        unfold Codec0.decodeExtListLoop0 at h0; rw [dite_true_eq rfl] at h0
-        cases h0; exact ⟨rfl, rfl⟩)
-      (fun b p rem acc res q hne h1 => by
-        unfold Codec0.decodeExtListLoop0 at h1; rw [dite_false_eq hne] at h1
-        codec_match ex, p1, hex ← Codec0.decodeExt0 b p at h1
-        obtain ⟨h01, h1s, hbx, hs1⟩ := decodeExt0_ok_bytes b p ex p1 hex
-        exact ⟨ex, p1, h01, fun _ => h1s, hbx, hs1, h1⟩)
-      (Codec0Kit.revList_eq_of_steps Codec0.revExts0 (fun _ => rfl) (fun _ _ _ => rfl))
-      rfl (fun _ _ => rfl))
-    (fun _ => rfl) ba pos xs pos' h
+      (∀ ex ∈ xs, ExtSig0Bounded ex) ∧ baSlice ba pos pos' = extListBytes xs := by
+  c0_decode_list_ok! Codec0.DecExtsRes.ok Codec0.decodeExtList0 Codec0.decodeExtListLoop0
+    Codec0.decodeExt0 Codec0.revExts0 extBytes extSeqBytes extListBytes ExtSig0Bounded
+    decodeExt0_ok_bytes
 
 private theorem decodeFnList0_of_bytes (ba : ByteArray) (pos : Nat) (xs : List TFlatFn0)
     (rest : List UInt8) (hlen_lt : xs.length < 2 ^ 32) (hbf : ∀ fn ∈ xs, Fn0Bounded fn)
     (h : ba.data.toList.drop pos = fnListBytes xs ++ rest) :
-    Codec0.decodeFnList0 ba pos = .ok xs (pos + (fnListBytes xs).length) :=
-  Codec0Kit.decodeList_of_bytes_of_steps Codec0.DecFnsRes.ok Codec0.decodeFnList0
-    Codec0.decodeFnListLoop0 (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes
-    fnSeqBytes fnListBytes Fn0Bounded
-    (fun b p v hv => by dsimp only [Codec0.decodeFnList0]; rw [hv])
-    (fun b p v r hr => decodeU32_of_bytes b p v r hr)
-    (Codec0Kit.decodeListLoop_of_bytes_of_steps Codec0.DecFnsRes.ok Codec0.decodeFnListLoop0
-      (fun b p v p' => Codec0.decodeFn0 b p = .ok v p') Codec0.revFns0
-      fnBytes fnSeqBytes Fn0Bounded
-      (fun b p acc => by unfold Codec0.decodeFnListLoop0; rw [dite_true_eq rfl])
-      (fun b p rem acc fn p1 hne hfn => by
-        conv => lhs; unfold Codec0.decodeFnListLoop0
-        rw [dite_false_eq hne, hfn])
-      (Codec0Kit.revList_eq_of_steps Codec0.revFns0 (fun _ => rfl) (fun _ _ _ => rfl))
-      rfl (fun _ _ => rfl) decodeFn0_of_bytes)
-    u32Bytes_length (fun _ => rfl) ba pos xs rest hlen_lt hbf h
+    Codec0.decodeFnList0 ba pos = .ok xs (pos + (fnListBytes xs).length) := by
+  c0_decode_list_of! Codec0.DecFnsRes.ok Codec0.decodeFnList0 Codec0.decodeFnListLoop0
+    Codec0.decodeFn0 Codec0.revFns0 fnBytes fnSeqBytes fnListBytes Fn0Bounded
+    decodeFn0_of_bytes hbf
 
 private theorem decodeFnList0_ok_bytes (ba : ByteArray) (pos : Nat)
     (xs : List TFlatFn0) (pos' : Nat) (h : Codec0.decodeFnList0 ba pos = .ok xs pos') :
     pos ≤ pos' ∧ pos' ≤ ba.size ∧ xs.length < 2 ^ 32 ∧
-      (∀ fn ∈ xs, Fn0Bounded fn) ∧ baSlice ba pos pos' = fnListBytes xs :=
-  Codec0Kit.decodeList_ok_bytes_of_steps Codec0.DecFnsRes.ok Codec0.decodeFnList0
-    Codec0.decodeFnListLoop0 (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes
-    fnSeqBytes fnListBytes Fn0Bounded
-    (fun b p res q hdec => by
-      dsimp only [Codec0.decodeFnList0] at hdec
-      codec_match cnt, p1, hu ← Codec0.decodeU32 b p at hdec
-      exact ⟨cnt, p1, rfl, hdec⟩)
-    decodeU32_ok_bytes
-    (Codec0Kit.decodeListLoop_ok_bytes_of_steps Codec0.DecFnsRes.ok Codec0.decodeFnListLoop0
-      Codec0.revFns0 fnBytes fnSeqBytes Fn0Bounded
-      (fun b p acc res q h0 => by
-        unfold Codec0.decodeFnListLoop0 at h0; rw [dite_true_eq rfl] at h0
-        cases h0; exact ⟨rfl, rfl⟩)
-      (fun b p rem acc res q hne h1 => by
-        unfold Codec0.decodeFnListLoop0 at h1; rw [dite_false_eq hne] at h1
-        codec_match fn, p1, hfn ← Codec0.decodeFn0 b p at h1
-        obtain ⟨h01, h1s, hbf, hs1⟩ := decodeFn0_ok_bytes b p fn p1 hfn
-        exact ⟨fn, p1, h01, fun _ => h1s, hbf, hs1, h1⟩)
-      (Codec0Kit.revList_eq_of_steps Codec0.revFns0 (fun _ => rfl) (fun _ _ _ => rfl))
-      rfl (fun _ _ => rfl))
-    (fun _ => rfl) ba pos xs pos' h
+      (∀ fn ∈ xs, Fn0Bounded fn) ∧ baSlice ba pos pos' = fnListBytes xs := by
+  c0_decode_list_ok! Codec0.DecFnsRes.ok Codec0.decodeFnList0 Codec0.decodeFnListLoop0
+    Codec0.decodeFn0 Codec0.revFns0 fnBytes fnSeqBytes fnListBytes Fn0Bounded
+    decodeFn0_ok_bytes
 
 /-! ## 6. Verified Round-Trip, Determinism, and Injectivity Theorems -/
 
@@ -1201,8 +1019,7 @@ private theorem decodeMod0_some_bytes {ba : ByteArray} {m : TFlatModule0}
     (h : decodeMod0 ba = some m) : Mod0Bounded m ∧ ba.data.toList = modBytes m := by
   dsimp only [decodeMod0] at h
   by_cases hhdr : Codec0.checkHeader ba = true
-  · rw [ite_true_eq hhdr] at h
-    obtain ⟨_, hs0⟩ := checkHeader_ok_bytes ba hhdr
+  · rw [ite_true_eq hhdr] at h; obtain ⟨_, hs0⟩ := checkHeader_ok_bytes ba hhdr
     dsimp only [Codec0.decodeModBody0, Codec0.decodeModTail0, Codec0.decodeModExits0,
       Codec0.mkModIfEof0] at h
     codec_match fns, p1, hfns ← Codec0.decodeFnList0 ba 5 at h
@@ -1214,16 +1031,14 @@ private theorem decodeMod0_some_bytes {ba : ByteArray} {m : TFlatModule0}
       obtain ⟨_, _, hle, hbe, hs2⟩ := decodeExtList0_ok_bytes ba p1 exts p2 hexts
       obtain ⟨_, _, hlx, hs3⟩ := decodeSymList0_ok_bytes ba p2 exits p3 hexits
       refine ⟨⟨hlf, hle, hlx, hbf, hbe⟩, ?_⟩
-      rw [← baSlice_zero_self ba, ← heof]
-      dsimp only [modBytes]; ba_slice_join [hs0, hs1, hs2, hs3]
+      rw [← baSlice_zero_self ba, ← heof]; dsimp only [modBytes]; ba_slice_join [hs0, hs1, hs2, hs3]
     · rw [Codec0Kit.ite_false_beq heof] at h; cases h
   · rw [ite_false_eq hhdr] at h; cases h
 
 /-- Verified encoder/decoder round-trip for every 32-bit bounded `TFlatModule0`. -/
 public theorem decodeMod0_encodeMod0 (m : TFlatModule0) (hm : Mod0Bounded m) :
     decodeMod0 (encodeMod0 m) = some m := by
-  let ba := encodeMod0 m
-  have hba : ba.data.toList = modBytes m := encodeMod0_bytes m
+  let ba := encodeMod0 m; have hba : ba.data.toList = modBytes m := encodeMod0_bytes m
   have hd0 : ba.data.toList = headerBytes ++
       (fnListBytes m.fns ++ extListBytes m.externs ++ symListBytes m.exits) := by
     dsimp only [modBytes] at hba; rw [hba]; simp only [List.append_assoc]
@@ -1231,17 +1046,15 @@ public theorem decodeMod0_encodeMod0 (m : TFlatModule0) (hm : Mod0Bounded m) :
       fnListBytes m.fns ++ (extListBytes m.externs ++ symListBytes m.exits) := by
     have := congrArg (List.drop 5) hd0; dsimp only [headerBytes] at this
     simpa [List.append_assoc] using this
-  have hd2 := Codec0Kit.drop_append_step hd1
-  have hd3 := Codec0Kit.drop_append_step hd2
+  have hd2 := Codec0Kit.drop_append_step hd1; have hd3 := Codec0Kit.drop_append_step hd2
   have heof : 5 + (fnListBytes m.fns).length + (extListBytes m.externs).length +
       (symListBytes m.exits).length = ba.size := by
     rw [← ba_data_toList_length ba, hba]; dsimp only [modBytes, headerBytes]
     simp only [List.length_append, List.length_cons, List.length_nil]
-  dsimp only [decodeMod0]
-  rw [ite_true_eq (checkHeader_of_bytes ba _ hd0)]
-  dsimp only [Codec0.decodeModBody0, Codec0.decodeModTail0, Codec0.decodeModExits0,
+  dsimp only [decodeMod0, Codec0.decodeModBody0, Codec0.decodeModTail0, Codec0.decodeModExits0,
     Codec0.mkModIfEof0]
-  rw [decodeFnList0_of_bytes ba 5 m.fns _ hm.1 hm.2.2.2.1 hd1]; dsimp only
+  rw [ite_true_eq (checkHeader_of_bytes ba _ hd0),
+    decodeFnList0_of_bytes ba 5 m.fns _ hm.1 hm.2.2.2.1 hd1]; dsimp only
   rw [decodeExtList0_of_bytes ba _ m.externs _ hm.2.1 hm.2.2.2.2 hd2]; dsimp only
   rw [decodeSymList0_of_bytes ba _ m.exits [] hm.2.2.1 (by simpa using hd3)]; dsimp only
   rw [ite_true_eq (beq_iff_eq.mpr heof)]

@@ -31,7 +31,7 @@ open Lean Elab Command Term Meta
 open LeanQbe.T
 open LeanQbe.T.Notation
 
-/-! ## `#c0_shape` Environment Extension -/
+/-! ## `#c0_shape`, `c0_header!`, and `#c0_audit` Environment Extensions -/
 
 meta initialize c0ShapeExt :
     SimpleScopedEnvExtension (Name × FnShape) (NameMap FnShape × Std.HashMap String FnShape) ←
@@ -40,6 +40,504 @@ meta initialize c0ShapeExt :
     initial := ({}, {})
     addEntry := fun (byLean, byC) (nm, sh) => (byLean.insert nm sh, byC.insert sh.name sh)
   }
+
+meta initialize c0HeaderExt :
+    SimpleScopedEnvExtension (String × String) (Std.HashMap String String) ←
+  registerSimpleScopedEnvExtension {
+    name := `LeanQbe.T.Frontend.C0.c0HeaderExt
+    initial := {}
+    addEntry := fun map (k, v) => map.insert k v
+  }
+
+/-- Retrieve all currently registered C0 headers from the environment. -/
+meta def getC0Headers (env : Lean.Environment) : Std.HashMap String String :=
+  c0HeaderExt.getState env
+
+/-- Upstream provenance metadata captured from `#pragma c0_upstream`. -/
+meta structure Provenance : Type where
+  loc : String
+  upstreamFn : String
+  deriving Repr, BEq, Inhabited
+
+/-- Function fidelity classification. -/
+meta inductive FnTag : Type
+  | fidelity
+  | extension
+  | unannotated
+  deriving Repr, BEq, Inhabited
+
+meta def FnTag.toString : FnTag → String
+  | .fidelity => "@fidelity"
+  | .extension => "@extension"
+  | .unannotated => "@unannotated"
+
+/-- Single loop audit verdict. -/
+meta inductive LoopAuditVerdict : Type
+  | okBoundedByPragma (reason : String)
+  | okTickGuarded (detail : String)
+  | okTickUpdated (detail : String)
+  | okConstantBound (bound : Nat)
+  | violationUnboundedLoop (detail : String)
+  deriving Repr, BEq, Inhabited
+
+meta def LoopAuditVerdict.isOk : LoopAuditVerdict → Bool
+  | .violationUnboundedLoop _ => false
+  | _ => true
+
+/-- Audit record for a single loop. -/
+meta structure LoopAudit : Type where
+  loopIndex : Nat
+  loopKind : String
+  condStr : String
+  verdict : LoopAuditVerdict
+  deriving Repr, BEq, Inhabited
+
+/-- Audit report for a single function. -/
+meta structure FnAuditReport : Type where
+  fnName : String
+  provenance : Option Provenance := none
+  tag : FnTag := .unannotated
+  directCallees : List String := []
+  reachableCallees : List String := []
+  extensionCallsReachable : List String := []
+  loops : List LoopAudit := []
+  isFidelityClean : Bool := true
+  hasLoopViolations : Bool := false
+  deriving Repr, BEq, Inhabited
+
+/-- Module audit report aggregating all functions. -/
+meta structure ModuleAuditReport : Type where
+  moduleName : String
+  fnReports : List FnAuditReport := []
+  totalFns : Nat := 0
+  passedFns : Nat := 0
+  hasViolations : Bool := false
+  deriving Repr, BEq, Inhabited
+
+/-- Formatted display for a function audit report. -/
+meta def FnAuditReport.format (r : FnAuditReport) : String :=
+  let provStr := match r.provenance with
+    | some p => s!"{p.loc} ({p.upstreamFn})"
+    | none => "(unannotated)"
+  let tagStr := r.tag.toString
+  let extStr :=
+    if r.tag == .extension then
+      "N/A (@extension function)"
+    else if r.extensionCallsReachable.isEmpty then
+      "PASS (0 @extension calls reachable)"
+    else
+      s!"FAIL (reaches @extension: {String.intercalate ", " r.extensionCallsReachable})"
+  let loopLines :=
+    if r.loops.isEmpty then
+      ["  (no loops in function body)"]
+    else
+      r.loops.map fun l =>
+        let vStr := match l.verdict with
+          | .okBoundedByPragma reason => s!"[PASS: bounded] {reason}"
+          | .okTickGuarded msg => s!"[PASS: tick-guarded] {msg}"
+          | .okTickUpdated msg => s!"[PASS: tick-updated] {msg}"
+          | .okConstantBound b => s!"[PASS: constant-bound <= {b}]"
+          | .violationUnboundedLoop msg => s!"[FAIL: UNBOUNDED] {msg}"
+        s!"  - Loop #{l.loopIndex} ({l.loopKind}): {vStr}\n    guard: {l.condStr}"
+  let overallPass := r.isFidelityClean && !r.hasLoopViolations
+  let statusStr :=
+    if overallPass then
+      "PASS (0 violations)"
+    else
+      let fidErr :=
+        if !r.isFidelityClean then
+          [s!"fidelity violation ({r.extensionCallsReachable.length} ext calls)"]
+        else []
+      let loopErr :=
+        if r.hasLoopViolations then
+          let violCount := (r.loops.filter (fun l => !l.verdict.isOk)).length
+          [s!"{violCount} loop tick-accounting violation(s)"]
+        else []
+      s!"FAIL ({String.intercalate ", " (fidErr ++ loopErr)})"
+  s!"============================================================\n" ++
+  s!"C0 Audit Report: {r.fnName}\n" ++
+  s!"============================================================\n" ++
+  s!"* Provenance:  {provStr}\n" ++
+  s!"* Tag:         {tagStr}\n" ++
+  s!"* Extensions:  {extStr}\n" ++
+  s!"* Loops ({r.loops.length}):\n" ++
+  String.intercalate "\n" loopLines ++ "\n" ++
+  s!"------------------------------------------------------------\n" ++
+  s!"Result: {statusStr}\n" ++
+  s!"============================================================"
+
+/-- Formatted display for a module audit report. -/
+meta def ModuleAuditReport.format (m : ModuleAuditReport) : String :=
+  let fnSummaries := m.fnReports.map fun r =>
+    let prov := match r.provenance with
+      | some p => s!" -> {p.loc}"
+      | none => ""
+    let status := if r.isFidelityClean && !r.hasLoopViolations then "PASS" else "FAIL"
+    s!"  - {r.fnName} [{r.tag.toString}]{prov} -> {status}"
+  let statusStr := if !m.hasViolations then "PASS" else "FAIL (violations found)"
+  let bodyStr :=
+    if fnSummaries.isEmpty then "  (no functions)" else String.intercalate "\n" fnSummaries
+  s!"============================================================\n" ++
+  s!"C0 Module Audit: {m.moduleName} ({m.passedFns}/{m.totalFns} passed)\n" ++
+  s!"============================================================\n" ++
+  bodyStr ++ "\n" ++
+  s!"------------------------------------------------------------\n" ++
+  s!"Overall Module Status: {statusStr}\n" ++
+  s!"============================================================"
+
+meta inductive AuditEntry : Type
+  | fn (rep : FnAuditReport)
+  | mod (rep : ModuleAuditReport)
+  deriving Repr, Inhabited
+
+meta initialize c0AuditExt :
+    SimpleScopedEnvExtension (Name × AuditEntry)
+      (NameMap AuditEntry × Std.HashMap String AuditEntry) ←
+  registerSimpleScopedEnvExtension {
+    name := `LeanQbe.T.Frontend.C0.c0AuditExt
+    initial := ({}, {})
+    addEntry := fun (byLean, byC) (nm, ent) =>
+      let cName := match ent with
+        | .fn rep => rep.fnName
+        | .mod rep => rep.moduleName
+      (byLean.insert nm ent, byC.insert cName ent)
+  }
+
+private meta def toLowerChar (c : Char) : Char :=
+  if 'A' <= c && c <= 'Z' then Char.ofNat (c.toNat + 32) else c
+
+private meta def stringContainsCI (haystack needle : String) : Bool :=
+  let hcs := haystack.toList.map toLowerChar
+  let ncs := needle.toList.map toLowerChar
+  if ncs.isEmpty then true
+  else
+    let rec go : List Char → Bool
+      | [] => false
+      | cs@(_ :: rest) =>
+        if cs.take ncs.length == ncs then true
+        else go rest
+    go hcs
+
+private meta partial def exprToString : Expr → String
+  | .intLit v _ _ => s!"{v}"
+  | .floatLit _ => "float"
+  | .boolLit b => s!"{b}"
+  | .null => "NULL"
+  | .var s => s
+  | .cast ty e => s!"({c0TypeToString ty}){exprToString e}"
+  | .sizeofTy ty => s!"sizeof({c0TypeToString ty})"
+  | .sizeofExpr e => s!"sizeof({exprToString e})"
+  | .offsetof ty fld => s!"offsetof({c0TypeToString ty}, {fld})"
+  | .unary op e => s!"{unaryOpToString op}{exprToString e}"
+  | .binary op l r => s!"{exprToString l} {binOpToString op} {exprToString r}"
+  | .ternary c t e => s!"{exprToString c} ? {exprToString t} : {exprToString e}"
+  | .field e f => s!"{exprToString e}.{f}"
+  | .arrow e f => s!"{exprToString e}->{f}"
+  | .index a i => s!"{exprToString a}[{exprToString i}]"
+  | .call fn args => s!"{fn}({String.intercalate ", " (args.map exprToString)})"
+where
+  c0TypeToString : C0Type → String
+    | .u8 => "u8" | .u16 => "u16" | .u32 => "u32" | .u64 => "u64"
+    | .i8 => "i8" | .i16 => "i16" | .i32 => "i32" | .i64 => "i64"
+    | .bool => "bool" | .void => "void" | .f64 => "f64"
+    | .ptr t => s!"{c0TypeToString t}*"
+    | .structRef s => s!"struct {s}"
+    | .unionRef s => s!"union {s}"
+    | .typedefRef s => s
+    | _ => "type"
+  unaryOpToString : UnaryOp → String
+    | .neg => "-" | .pos => "+" | .bitnot => "~" | .lognot => "!"
+    | .deref => "*" | .addrOf => "&"
+  binOpToString : BinOp → String
+    | .add => "+" | .sub => "-" | .mul => "*" | .div => "/" | .mod => "%"
+    | .bitand => "&" | .bitor => "|" | .bitxor => "^" | .shl => "<<" | .shr => ">>"
+    | .eq => "==" | .ne => "!=" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
+    | .logand => "&&" | .logor => "||"
+
+private meta partial def exprVarNames : Expr → List String
+  | .var nm => [nm]
+  | .cast _ e | .sizeofExpr e | .unary _ e | .field e _ | .arrow e _ => exprVarNames e
+  | .binary _ l r => exprVarNames l ++ exprVarNames r
+  | .ternary c t e => exprVarNames c ++ exprVarNames t ++ exprVarNames e
+  | .index a i => exprVarNames a ++ exprVarNames i
+  | .call _ args => args.flatMap exprVarNames
+  | _ => []
+
+private meta def isTickName (s : String) : Bool :=
+  stringContainsCI s "tick"
+
+private meta def isLimitName (s : String) : Bool :=
+  stringContainsCI s "lim" || stringContainsCI s "limit" ||
+  stringContainsCI s "bound" || stringContainsCI s "budget" || stringContainsCI s "max"
+
+private meta def checkCondTickGuarded (cond : Expr) : Option String :=
+  let vars := exprVarNames cond
+  let hasTick := vars.any isTickName
+  let hasLim := vars.any isLimitName
+  if hasTick && hasLim then
+    some "guarded by ticks and limit/bound"
+  else if hasLim then
+    some "guarded by limit/bound variable"
+  else if hasTick then
+    some "guarded by tick condition"
+  else
+    none
+
+private meta def checkSmallConstantBound (cond : Expr) : Option Nat :=
+  match cond with
+  | .binary op (.var _) (.intLit val _ _)
+  | .binary op (.cast _ (.var _)) (.intLit val _ _) =>
+    if (op == .lt || op == .le || op == .ne) && val > 0 && val ≤ 128 then
+      some val.toNat
+    else none
+  | .binary op (.intLit val _ _) (.var _)
+  | .binary op (.intLit val _ _) (.cast _ (.var _)) =>
+    if (op == .gt || op == .ge || op == .ne) && val > 0 && val ≤ 128 then
+      some val.toNat
+    else none
+  | _ => none
+
+private meta partial def findSmallConstantBound : Expr → Option Nat
+  | .binary .logand l r => findSmallConstantBound l <|> findSmallConstantBound r
+  | e => checkSmallConstantBound e
+
+private meta def lvalMentionsTick : LVal → Bool
+  | .var nm => isTickName nm
+  | .arrow _ fld => isTickName fld
+  | .dot b fld => isTickName fld || lvalMentionsTick b
+  | .index a i => (exprVarNames a ++ exprVarNames i).any isTickName
+  | .deref p => (exprVarNames p).any isTickName
+
+private meta partial def stmtUpdatesTicks : Stmt → Option String
+  | .assign lv _ _ =>
+    if lvalMentionsTick lv then some "ticks assigned via lvalue" else none
+  | .incDec lv _ =>
+    if lvalMentionsTick lv then some "ticks incremented/decremented" else none
+  | .callStmt _ fn args =>
+    if isTickName fn || (args.flatMap exprVarNames).any isTickName then
+      some s!"call '{fn}' updating ticks"
+    else none
+  | .block stmts =>
+    stmts.findSome? stmtUpdatesTicks
+  | .ifStmt _ thn els? =>
+    stmtUpdatesTicks thn <|> (els?.bind stmtUpdatesTicks)
+  | .whileStmt _ b | .doWhileStmt b _ =>
+    stmtUpdatesTicks b
+  | .forStmt _ _ step? b =>
+    (step?.bind stmtUpdatesTicks) <|> stmtUpdatesTicks b
+  | .labelStmt _ s =>
+    stmtUpdatesTicks s
+  | .switchStmt _ arms =>
+    arms.findSome? fun arm => arm.body.findSome? stmtUpdatesTicks
+  | _ => none
+
+private meta structure LoopRecord where
+  index : Nat
+  kind : String
+  cond : Option Expr
+  step : Option Stmt
+  body : Stmt
+
+private meta partial def collectLoopRecords (body : Stmt) : List LoopRecord :=
+  let rec go (s : Stmt) (idx : Nat) : List LoopRecord × Nat :=
+    match s with
+    | .whileStmt cond b =>
+      let rec0 : LoopRecord :=
+        { index := idx, kind := "while", cond := some cond, step := none, body := b }
+      let (inner, nextIdx) := go b (idx + 1)
+      (rec0 :: inner, nextIdx)
+    | .doWhileStmt b cond =>
+      let rec0 : LoopRecord :=
+        { index := idx, kind := "do-while", cond := some cond, step := none, body := b }
+      let (inner, nextIdx) := go b (idx + 1)
+      (rec0 :: inner, nextIdx)
+    | .forStmt _ cond? step? b =>
+      let rec0 : LoopRecord :=
+        { index := idx, kind := "for", cond := cond?, step := step?, body := b }
+      let (stepLoops, idx2) := match step? with | some st => go st (idx + 1) | none => ([], idx + 1)
+      let (bodyLoops, idx3) := go b idx2
+      (rec0 :: stepLoops ++ bodyLoops, idx3)
+    | .block stmts =>
+      stmts.foldl (fun (acc, curIdx) st =>
+        let (sub, nextIdx) := go st curIdx
+        (acc ++ sub, nextIdx)
+      ) ([], idx)
+    | .ifStmt _ thn els? =>
+      let (thnLoops, idx2) := go thn idx
+      let (elsLoops, idx3) := match els? with | some els => go els idx2 | none => ([], idx2)
+      (thnLoops ++ elsLoops, idx3)
+    | .labelStmt _ st => go st idx
+    | .switchStmt _ arms =>
+      arms.foldl (fun (acc, curIdx) arm =>
+        let (sub, nextIdx) := arm.body.foldl (fun (aAcc, aIdx) st =>
+          let (subSt, nextIdxSt) := go st aIdx
+          (aAcc ++ subSt, nextIdxSt)
+        ) ([], curIdx)
+        (acc ++ sub, nextIdx)
+      ) ([], idx)
+    | _ => ([], idx)
+  (go body 0).1
+
+private meta def auditLoopRecord (lr : LoopRecord) (fd : FnDef) : LoopAudit :=
+  let loopReason? := fd.boundedLoops.lookup lr.index
+  let fnReason? := if !fd.boundedReasons.isEmpty then
+    some (String.intercalate "; " fd.boundedReasons)
+  else none
+  let condStr := match lr.cond with
+    | some c => exprToString c
+    | none => "(none)"
+  let stepTicks := match lr.step with
+    | some st => stmtUpdatesTicks st
+    | none => none
+  let bodyTicks := stmtUpdatesTicks lr.body
+  let condTickMsg? := match lr.cond with
+    | some c => checkCondTickGuarded c
+    | none => none
+  let condBound? := match lr.cond with
+    | some c => findSmallConstantBound c
+    | none => none
+  let tickUpdateMsg? := stepTicks <|> bodyTicks
+  let verdict : LoopAuditVerdict :=
+    if let some r := loopReason? then
+      .okBoundedByPragma r
+    else if let some r := fnReason? then
+      .okBoundedByPragma r
+    else if let some msg := condTickMsg? then
+      .okTickGuarded msg
+    else if let some tickMsg := tickUpdateMsg? then
+      .okTickUpdated tickMsg
+    else if let some bound := condBound? then
+      .okConstantBound bound
+    else
+      .violationUnboundedLoop
+        s!"non-trivial loop lacking tick update, limit guard, or #pragma c0_bounded: '{condStr}'"
+  { loopIndex := lr.index, loopKind := lr.kind, condStr, verdict }
+
+private meta partial def exprCallees : Expr → List String
+  | .call fn args => fn :: args.flatMap exprCallees
+  | .unary _ e | .cast _ e | .sizeofExpr e | .field e _ | .arrow e _ => exprCallees e
+  | .binary _ l r => exprCallees l ++ exprCallees r
+  | .ternary c t e => exprCallees c ++ exprCallees t ++ exprCallees e
+  | .index a i => exprCallees a ++ exprCallees i
+  | _ => []
+
+private meta partial def stmtCallees : Stmt → List String
+  | .callStmt _ fn args => fn :: args.flatMap exprCallees
+  | .assign _ _ rhs => exprCallees rhs
+  | .ifStmt c thn els? => exprCallees c ++ stmtCallees thn ++ (els?.map stmtCallees |>.getD [])
+  | .whileStmt c b => exprCallees c ++ stmtCallees b
+  | .doWhileStmt b c => stmtCallees b ++ exprCallees c
+  | .forStmt init? cond? step? b =>
+    (init?.map stmtCallees |>.getD []) ++
+    (cond?.map exprCallees |>.getD []) ++
+    (step?.map stmtCallees |>.getD []) ++
+    stmtCallees b
+  | .switchStmt c arms =>
+    exprCallees c ++ arms.flatMap (fun a => a.body.flatMap stmtCallees)
+  | .block stmts => stmts.flatMap stmtCallees
+  | .labelStmt _ s => stmtCallees s
+  | .retStmt es => es.flatMap exprCallees
+  | .assumeStmt c | .checkStmt c _ | .assertStmt c _ => exprCallees c
+  | _ => []
+
+private meta def fnCallees (fd : FnDef) : List String := Id.run do
+  let raw := fd.body.flatMap stmtCallees
+  let mut seen : Std.HashSet String := {}
+  let mut out : List String := []
+  for c in raw do
+    if !seen.contains c then
+      seen := seen.insert c
+      out := out ++ [c]
+  return out
+
+private meta partial def computeReachable (start : String)
+    (callMap : Std.HashMap String (List String)) : List String :=
+  let rec bfs (work : List String) (visited : Std.HashSet String) (acc : List String) :
+      List String :=
+    match work with
+    | [] => acc
+    | cur :: rest =>
+      let callees := callMap.get? cur |>.getD []
+      let (nextWork, newVisited, newAcc) :=
+        callees.foldl (fun (w, v, a) callee =>
+          if !v.contains callee then
+            (w ++ [callee], v.insert callee, a ++ [callee])
+          else (w, v, a)
+        ) (rest, visited, acc)
+      bfs nextWork newVisited newAcc
+  bfs [start] (Std.HashSet.emptyWithCapacity.insert start) []
+
+/-- Audit a single parsed C0 function definition against a whole-module context. -/
+meta def auditFunction (fd : FnDef) (callMap : Std.HashMap String (List String))
+    (tagMap : Std.HashMap String FnTag) (defaultTag : FnTag := .unannotated) : FnAuditReport :=
+  let provenance : Option Provenance := fd.upstreamLoc.map fun loc =>
+    { loc, upstreamFn := fd.upstreamFn.getD fd.name }
+  let tag : FnTag :=
+    if fd.isExtension then .extension
+    else if fd.isFidelity then .fidelity
+    else defaultTag
+  let direct := fnCallees fd
+  let reachable := computeReachable fd.name callMap
+  let extReach := reachable.filter (fun c => (tagMap.get? c).getD .unannotated == .extension)
+  let isFidelityClean := if tag == .fidelity then extReach.isEmpty else true
+  let loops := (collectLoopRecords (.block fd.body)).map (fun lr => auditLoopRecord lr fd)
+  let hasLoopViolations := loops.any (fun l => !l.verdict.isOk)
+  {
+    fnName := fd.name
+    provenance
+    tag
+    directCallees := direct
+    reachableCallees := reachable
+    extensionCallsReachable := extReach
+    loops
+    isFidelityClean
+    hasLoopViolations
+  }
+
+/-- Audit an entire parsed `TranslationUnit`. -/
+meta def auditTranslationUnit (tu : TranslationUnit) (modName : String := "c0_module") :
+    ModuleAuditReport := Id.run do
+  let hasModFid := tu.decls.any fun | .pragma .fidelity => true | _ => false
+  let hasModExt := tu.decls.any fun | .pragma .extension => true | _ => false
+  let defaultTag : FnTag :=
+    if hasModExt && !hasModFid then .extension
+    else if hasModFid && !hasModExt then .fidelity
+    else .unannotated
+  let mut fnDefs : List FnDef := []
+  let mut callMap : Std.HashMap String (List String) := {}
+  let mut tagMap : Std.HashMap String FnTag := {}
+  for d in tu.decls do
+    if let .fnDef fd := d then
+      fnDefs := fnDefs ++ [fd]
+      callMap := callMap.insert fd.name (fnCallees fd)
+      let tag := if fd.isExtension then .extension
+        else if fd.isFidelity then .fidelity
+        else defaultTag
+      tagMap := tagMap.insert fd.name tag
+  let fnReports := fnDefs.map (fun fd => auditFunction fd callMap tagMap defaultTag)
+  let passedFns := (fnReports.filter (fun r => r.isFidelityClean && !r.hasLoopViolations)).length
+  let hasViolations := passedFns < fnReports.length
+  return {
+    moduleName := modName
+    fnReports
+    totalFns := fnReports.length
+    passedFns
+    hasViolations
+  }
+
+/-- Audit a C0 source string directly (with optional header map). -/
+meta def auditC0Source (src : String) (modName : String := "c0_module")
+    (headers : Std.HashMap String String := {}) : Except String ModuleAuditReport := do
+  let tu ← parseC0 src headers
+  pure (auditTranslationUnit tu modName)
+
+/-- Look up a single function's audit report from a C0 source string. -/
+meta def auditC0Fn (src : String) (fnName : String)
+    (headers : Std.HashMap String String := {}) : Except String FnAuditReport := do
+  let rep ← auditC0Source src "c0_module" headers
+  match rep.fnReports.find? (·.fnName == fnName) with
+  | some r => pure r
+  | none => throw s!"function '{fnName}' not found in audit"
 
 /-! ## Direct PHOAS `Lean.Expr` Builder from `LExpr` -/
 
@@ -366,7 +864,9 @@ is given. `exits` lists runtime symbols whose calls are promoted into `.exit` te
 meta def elabC0Module (modPrefix? : Option Name) (src : String) (exits : List Sym := [])
     (forceExpose : Bool := false) (registerShapes : Bool := true) (emitModule : Bool := true) :
     CommandElabM Unit := do
-  let tu ← match parseC0 src with
+  let env ← getEnv
+  let hdrMap := getC0Headers env
+  let tu ← match parseC0 src hdrMap with
     | .ok tu => pure tu
     | .error err => throwError err
   let lmod ← match lowerTranslationUnit tu with
@@ -377,6 +877,7 @@ meta def elabC0Module (modPrefix? : Option Name) (src : String) (exits : List Sy
   if let .error err := checkLModuleAcyclic lmod then
     throwError err
   let ns ← getCurrNamespace
+  let modAudit := auditTranslationUnit tu (modPrefix?.map (·.toString) |>.getD "anon_module")
   let mut fnConstNames : List Name := []
   for lfn in lmod.fns do
     let leanName := ns ++ Name.mkSimple lfn.name
@@ -392,8 +893,14 @@ meta def elabC0Module (modPrefix? : Option Name) (src : String) (exits : List Sy
       modifyEnv fun env =>
         let env := c0ShapeExt.addEntry env (leanName, lfn.shape)
         c0ShapeExt.addEntry env (bodyName, lfn.shape)
+    if let some fnRep := modAudit.fnReports.find? (·.fnName == lfn.name) then
+      modifyEnv fun env =>
+        let env := c0AuditExt.addEntry env (leanName, .fn fnRep)
+        c0AuditExt.addEntry env (bodyName, .fn fnRep)
     fnConstNames := fnConstNames ++ [leanName]
   if let some pfx := modPrefix? then
+    let modLeanName := ns ++ pfx
+    modifyEnv fun env => c0AuditExt.addEntry env (modLeanName, .mod modAudit)
     let fnType := Lean.mkConst ``LeanQbe.T.Fn
     let fnsName := ns ++ Name.mkSimple (pfx.toString ++ "_fns")
     let fnsTy := mkApp (Lean.mkConst ``List [.one]) fnType
@@ -409,12 +916,22 @@ meta def elabC0Module (modPrefix? : Option Name) (src : String) (exits : List Sy
         (Lean.mkConst fnsName) extsExpr exitsExpr
       liftCoreM <| addExposedDecl modName (Lean.mkConst ``LeanQbe.T.Module) modVal forceExpose
 
+syntax "c0_header! " ident str : command
+syntax "c0_header! " str str : command
 syntax "c0_decl! " (ident)? str : command
 syntax "c0_file! " (ident)? str : command
 syntax "#c0_shape " ident : command
 syntax "#c0_shape " str : command
+syntax "#c0_audit " ident : command
+syntax "#c0_audit " str : command
 
 elab_rules : command
+  | `(c0_header! $id:ident $src:str) => do
+    let name := id.getId.toString
+    modifyEnv fun env => c0HeaderExt.addEntry env (name, src.getString)
+  | `(c0_header! $id:str $src:str) => do
+    let name := id.getString
+    modifyEnv fun env => c0HeaderExt.addEntry env (name, src.getString)
   | `(c0_decl! $[$pfx:ident]? $src:str) =>
     elabC0Module (pfx.map (·.getId)) src.getString
   | `(c0_file! $[$pfx:ident]? $path:str) => do
@@ -433,5 +950,20 @@ elab_rules : command
     match byC.get? nm.getString with
     | some sh => logInfo sh.format
     | none => throwErrorAt nm s!"no C0 shape metadata registered for \"{nm.getString}\""
+  | `(#c0_audit $id:ident) => do
+    let (byLean, byC) := c0AuditExt.getState (← getEnv)
+    let ns ← getCurrNamespace
+    let ent? := byLean.find? id.getId <|> byLean.find? (ns ++ id.getId) <|>
+      byC.get? id.getId.toString
+    match ent? with
+    | some (.fn rep) => logInfo rep.format
+    | some (.mod rep) => logInfo rep.format
+    | none => throwErrorAt id s!"no C0 audit metadata registered for '{id.getId}'"
+  | `(#c0_audit $nm:str) => do
+    let (_, byC) := c0AuditExt.getState (← getEnv)
+    match byC.get? nm.getString with
+    | some (.fn rep) => logInfo rep.format
+    | some (.mod rep) => logInfo rep.format
+    | none => throwErrorAt nm s!"no C0 audit metadata registered for \"{nm.getString}\""
 
 end LeanQbe.T.Frontend.C0

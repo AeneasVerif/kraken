@@ -544,6 +544,9 @@ mutual
       let ty ← MonadExcept.ofExcept (inferTy ctx env sub false true)
       let (sz, _) ← MonadExcept.ofExcept (typeSizeAlign ctx.layout ty)
       k .u64 (.imm i64 (BitVec.ofNat 64 sz))
+    | .offsetof ty fld =>
+      let off ← MonadExcept.ofExcept (fieldByteOffset ctx.layout ty fld)
+      k .u64 (.imm i64 (BitVec.ofNat 64 off))
     | .unary .pos sub =>
       lowerExpr ctx env sub fun ty a =>
         let pty := intPromote ty
@@ -1321,6 +1324,11 @@ mutual
         lowerCond ctx env cond (pure body)
           (pure (.exit "c0_abort" [i32] [.imm i32 (BitVec.ofInt 32 line)]))
       else k env
+    | .staticAssertStmt cond msg =>
+      let res ← MonadExcept.ofExcept (evalConstIntExpr ctx.layout ctx.enums cond)
+      if res == 0 then
+        throw s!"static assertion failed: \"{msg}\""
+      k env
     | .switchStmt scrut arms => lowerSwitch ctx env scrut arms k
     | .ifStmt _ _ _ | .whileStmt _ _ | .doWhileStmt _ _ | .forStmt _ _ _ _ =>
       lowerPlainStmts ctx env [s] k

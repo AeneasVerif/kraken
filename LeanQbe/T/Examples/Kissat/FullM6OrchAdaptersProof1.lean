@@ -269,15 +269,18 @@ private abbrev BumpSt := List (BitVec 8) × Nat × List (BitVec 32)
 
 /-! ## 2. `full_restore_bump_ana_m6_hdr` (`m6aRestoreBumpAnaSpec`) -/
 
-theorem full_restore_bump_ana_m6_hdr_wp (Γ : Env)
-    (hBumpAna : ∀ a m Q X, m6aBumpAnalyzedSpec a m Q X →
+theorem full_restore_bump_ana_m6_hdr_wp_gen
+    (Pext : List (BitVec 64) → List (BitVec 64) → Prop) (hRefl : ∀ ext, Pext ext ext)
+    (Γ : Env)
+    (hBumpAna : ∀ a m Q X, m6aBumpAnalyzedSpecP Pext a m Q X →
       Γ "full_bump_analyzed_m6_hdr" [i64] [] a m Q X)
     (hClearAna : ∀ a m Q X, Full.fullClearAnaSpec a m Q X →
       Γ "full_clear_ana" [i64] [] a m Q X) :
-    ∀ a m Q X, m6aRestoreBumpAnaSpec a m Q X →
+    ∀ a m Q X, m6aRestoreBumpAnaSpecP Pext a m Q X →
       Func.wp Γ full_restore_bump_ana_m6_hdr_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m Q X hs
-  obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hmrk0, hm, hQ⟩ := m6aRestoreBumpAnaSpec_elim hs
+  obtain ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hmrk0, hm, hQ⟩ :=
+    m6aRestoreBumpAnaSpecP_elimP hs
   have hmaxv := c.hmaxv; unfold LratBytes.dimacsBound at hmaxv
   have hco := hlen.core_ok; have hso := hlen.scratch_ok
   have hcv_le := hco.cur_vars_le
@@ -288,7 +291,7 @@ theorem full_restore_bump_ana_m6_hdr_wp (Γ : Env)
   c0_hsteps_nogrp
   · exact hQ s.core.mrk s.core.min_clr_len s.scratch ext m hlen hmrk0
       (fun hp => absurd hp (by assumption))
-      (fun _ => rfl) ⟨rfl, rfl⟩ rfl hext (fun hi => ⟨hi, rfl⟩)
+      (fun _ => rfl) ⟨rfl, rfl⟩ rfl hext (fun hi => ⟨hi, hRefl ext⟩)
       ((fullM6HdrMem_iff ..).mpr hm)
   · have hprob0 : s.core.probing = 0#64 := by assumption
     let R_hdr : Mem 64 → Prop := array64 (c.hdr - 2304) ext ⋆ R
@@ -392,7 +395,7 @@ theorem full_restore_bump_ana_m6_hdr_wp (Γ : Env)
                 { s with core := { s.core with mrk := mrk_o, min_clr_len := 0 }, scratch := sc_o }
               s_o.LengthsOk c ∧ (∀ v < c.max_vars, mrk_o[v]?.getD 0#8 = 0#8) ∧
               FullExtScratchPres s s_o ∧ sc_o.work_stk2 = s.scratch.work_stk2 ∧
-              M6HdrExtOk ext_o ∧ (M6HdrExtInitOk ext → M6HdrExtInitOk ext_o ∧ ext_o = ext) ∧
+              M6HdrExtOk ext_o ∧ (M6HdrExtInitOk ext → M6HdrExtInitOk ext_o ∧ Pext ext ext_o) ∧
               (FullM6HdrMem c ext_o s_o ⋆ R) m_out)
             (fun _ () m_out ⟨mrk_o, sc_o, ext_o, hlo, hmo, hpo, hw2o, hext_o, hinit_o, hm_o⟩ => by
               rw [Blocks.get_here]; c0_hsteps
@@ -401,7 +404,7 @@ theorem full_restore_bump_ana_m6_hdr_wp (Γ : Env)
             (fun Jret hJret => ?_)
           c0_hsteps_nogrp
           · m6h_call hBumpAna
-            refine m6aBumpAnalyzedSpec_of hcfg hext hlen_pre hcovf ((fullM6HdrMem_iff ..).mpr (by
+            refine m6aBumpAnalyzedSpecP_ofP hcfg hext hlen_pre hcovf ((fullM6HdrMem_iff ..).mpr (by
                 simpa [R_hdr, s_pre, mkBumpState, bv64_ofNat_toNat (by omega : wf < 2 ^ 64),
                   Nat.mod_eq_of_lt (by omega : wf < 2 ^ 64)] using hm))
               fun mrk_b mcl_b sc_b ext' m_b hlen_b hcov_b hpre_b hws2_b hext_b hinit_b hm_b => ?_
@@ -433,7 +436,7 @@ theorem full_restore_bump_ana_m6_hdr_wp (Γ : Env)
             c0_hsteps
             exact hJret () m ⟨mrkf, (mkBumpState s mrkf 0 wsf).scratch, ext,
               mkBumpState_lengths hlen hmrkf hwsf (Nat.zero_le _), hmrk0', ⟨rfl, rfl⟩, rfl,
-              hext, fun hi => ⟨hi, rfl⟩, (fullM6HdrMem_iff ..).mpr hm2'⟩
+              hext, fun hi => ⟨hi, hRefl ext⟩, (fullM6HdrMem_iff ..).mpr hm2'⟩
         · c0_hsteps_nogrp
           · have htl_le : s.core.tmp_len ≤ s.core.cur_vars := by
               have htl64 : s.core.tmp_len < 2 ^ 64 := by have := hco.tmp_len_le; omega
@@ -541,5 +544,17 @@ theorem full_restore_bump_ana_m6_hdr_wp (Γ : Env)
         have hres_bv : BitVec.ofNat 64 s.scratch.res_sz.toNat = s.scratch.res_sz :=
           BitVec.eq_of_toNat_eq (bv64_ofNat_toNat (by omega))
         simpa [hres_bv] using hJa s.scratch.res_sz.toNat m ⟨hle, rfl⟩
+
+theorem full_restore_bump_ana_m6_hdr_wp (Γ : Env)
+    (hBumpAna : ∀ a m Q X, m6aBumpAnalyzedSpec a m Q X →
+      Γ "full_bump_analyzed_m6_hdr" [i64] [] a m Q X)
+    (hClearAna : ∀ a m Q X, Full.fullClearAnaSpec a m Q X →
+      Γ "full_clear_ana" [i64] [] a m Q X) :
+    ∀ a m Q X, m6aRestoreBumpAnaSpec a m Q X →
+      Func.wp Γ full_restore_bump_ana_m6_hdr_body a m Q X :=
+  fun _ _ _ _ hs =>
+    full_restore_bump_ana_m6_hdr_wp_gen Eq (fun _ => rfl) Γ
+      (fun _ _ _ _ h => hBumpAna _ _ _ _ (m6aBumpAnalyzedSpec_of_eq h)) hClearAna _ _ _ _
+      (m6aRestoreBumpAnaSpecP_of_eq hs)
 
 end LeanQbe.T.Examples.Kissat.FullM6OrchAdapters
