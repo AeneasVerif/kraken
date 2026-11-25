@@ -4,6 +4,7 @@ public import LeanQbe.T.LeanLRC.ToT
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
+public import LeanQbeTest.T.LcnfAudit
 meta import LeanQbe.T.LeanLRC.ToT
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
@@ -107,69 +108,8 @@ def scalarStructMod : LrcModule :=
 
 /-! ## 2. Kernel `Func.Wf` Proofs for Static C0 Runtime & Lowered `λRC` Functions -/
 
-theorem wf_is_scalar : Func.Wf lean_is_scalar_body := by t_wf_reify
-theorem wf_box : Func.Wf lean_box_body := by t_wf_reify
-theorem wf_unbox : Func.Wf lean_unbox_body := by t_wf_reify
-theorem wf_obj_tag : Func.Wf lean_obj_tag_body := by t_wf_reify
-theorem wf_rt_enter : Func.Wf lean_rt_enter_body := by t_wf_reify
-theorem wf_rt_tick : Func.Wf lean_rt_tick_body := by t_wf_reify
-theorem wf_rt_leave : Func.Wf lean_rt_leave_body := by t_wf_reify
-theorem wf_alloc_small : Func.Wf lean_alloc_small_body := by t_wf_reify
-theorem wf_alloc_ctor : Func.Wf lean_alloc_ctor_body := by t_wf_reify
-theorem wf_ctor_get : Func.Wf lean_ctor_get_body := by t_wf_reify
-theorem wf_ctor_set : Func.Wf lean_ctor_set_body := by t_wf_reify
-theorem wf_ctor_set_tag : Func.Wf lean_ctor_set_tag_body := by t_wf_reify
-theorem wf_inc : Func.Wf lean_inc_body := by t_wf_reify
-theorem wf_dec : Func.Wf lean_dec_body := by t_wf_reify
-theorem wf_is_shared : Func.Wf lean_is_shared_body := by t_wf_reify
-theorem wf_alloc_clo : Func.Wf lean_alloc_closure_body := by t_wf_reify
-theorem wf_clo_get : Func.Wf lean_closure_get_body := by t_wf_reify
-theorem wf_clo_set : Func.Wf lean_closure_set_body := by t_wf_reify
-theorem wf_box_u64 : Func.Wf lean_box_u64_body := by t_wf_reify
-theorem wf_unbox_u64 : Func.Wf lean_unbox_u64_body := by t_wf_reify
-theorem wf_nat_add : Func.Wf lean_nat_add_body := by t_wf_reify
-theorem wf_nat_sub : Func.Wf lean_nat_sub_body := by t_wf_reify
-theorem wf_nat_mul : Func.Wf lean_nat_mul_body := by t_wf_reify
-theorem wf_nat_div : Func.Wf lean_nat_div_body := by t_wf_reify
-theorem wf_nat_mod : Func.Wf lean_nat_mod_body := by t_wf_reify
-theorem wf_nat_eq : Func.Wf lean_nat_dec_eq_body := by t_wf_reify
-theorem wf_nat_le : Func.Wf lean_nat_dec_le_body := by t_wf_reify
-theorem wf_nat_lt : Func.Wf lean_nat_dec_lt_body := by t_wf_reify
-
-/-- All 28 static core C0 runtime functions satisfy `Fn.Wf`. -/
-theorem wf_rt : ∀ f ∈ rtBase_fns, f.Wf := by
-  intro f hf
-  simp only [rtBase_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact wf_is_scalar
-  · exact wf_box
-  · exact wf_unbox
-  · exact wf_obj_tag
-  · exact wf_rt_enter
-  · exact wf_rt_tick
-  · exact wf_rt_leave
-  · exact wf_alloc_small
-  · exact wf_alloc_ctor
-  · exact wf_ctor_get
-  · exact wf_ctor_set
-  · exact wf_ctor_set_tag
-  · exact wf_inc
-  · exact wf_dec
-  · exact wf_is_shared
-  · exact wf_alloc_clo
-  · exact wf_clo_get
-  · exact wf_clo_set
-  · exact wf_box_u64
-  · exact wf_unbox_u64
-  · exact wf_nat_add
-  · exact wf_nat_sub
-  · exact wf_nat_mul
-  · exact wf_nat_div
-  · exact wf_nat_mod
-  · exact wf_nat_eq
-  · exact wf_nat_le
-  · exact wf_nat_lt
+/-- All 28 static core C0 runtime functions satisfy `Fn.Wf` (reused from `LcnfAudit`). -/
+theorem wf_rt : ∀ f ∈ rtBase_fns, f.Wf := LcnfAudit.audit_lrc_rt_wf
 
 /-- Every function in `rtBase_fns ++ tflatFnsToFns tfs` satisfies `Fn.Wf`. -/
 theorem wf_lrc (tfs : List TFlatFn) :
@@ -234,9 +174,9 @@ private def diagStr : String :=
 
 #print axioms wf_rt
 #print axioms wf_lrc
-#print axioms wf_rt_enter
-#print axioms wf_alloc_ctor
-#print axioms wf_nat_add
+#print axioms LcnfAudit.wf_rt_enter
+#print axioms LcnfAudit.wf_alloc_ctor
+#print axioms LcnfAudit.wf_nat_add
 
 /-! ## 5. C++20 Differential & QBE Generator (`main`) -/
 
