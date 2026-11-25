@@ -53,9 +53,10 @@
 #     active, `LeanQbeBootstrap0`, or `LeanQbeLegacy{Amd64,Arm64}` roots; no retired untyped files).
 #  3b. Incrementality firewall (`check_firewall.py --require-isa`) and barrel/hub lint
 #      (`sync_hubs.py --check` when present).
-#  4. Parallel axiom audit (`Audit_generic`, `Audit_x64`, `Audit_arm64`, isolated root-`main`
-#     batches, with 16-way per-module fallback) for active `scripts/headlines.d/*.txt` (or
-#     `scripts/headline.txt` if `headlines.d` is absent).
+#  4. Single-session compiled `.olean` axiom & `isUnsafe` audit (`audit_axioms` over
+#     `importModules (loadExts := false)`) for active `scripts/headlines.d/*.txt` (or
+#     `scripts/headline.txt` if `headlines.d` is absent), plus `#print axioms` verification
+#     from the Step 1 build log (`<= std3` and `!isUnsafe`).
 #  5. Standalone re-elaboration timing when `CHECK_TIMES=1`.
 #
 # Every command runs under `timeout`. Exit code 0 iff all checks pass.
@@ -628,11 +629,9 @@ def run_audit_batches(tmp, scope, rdeps_filter_path=None):
         main_memo[mod] = found
         return found
 
-    buckets = {b: ([], []) for b in ("generic", "x64", "arm64")}
+    buckets = {b: [] for b in ("generic", "x64", "arm64")}
     solo_buckets = {}
-    conflict_mods = []
-    seen_mods = {b: set() for b in ("generic", "x64", "arm64")}
-    seen_conf = set()
+    conflict_buckets = {}
     selected = []
 
     for raw in (tmp / "headlines_all.txt").read_text().splitlines():
@@ -652,34 +651,35 @@ def run_audit_batches(tmp, scope, rdeps_filter_path=None):
             continue
         selected.append(f"{mod} {const}")
         if b == "conflict":
-            if mod not in seen_conf:
-                seen_conf.add(mod)
-                conflict_mods.append(mod)
+            conflict_buckets.setdefault(mod, []).append((mod, const))
             continue
         if has_root_main(mod, set()):
-            solo_buckets.setdefault(mod, []).append(const)
+            solo_buckets.setdefault(mod, []).append((mod, const))
             continue
-        if mod not in seen_mods[b]:
-            seen_mods[b].add(mod)
-            buckets[b][0].append(mod)
-        buckets[b][1].append(const)
+        buckets[b].append((mod, const))
 
     out_sel = "\n".join(selected) + ("\n" if selected else "")
     (tmp / "selected_headlines.txt").write_text(out_sel)
 
-    for b, (mods, consts) in buckets.items():
-        if not mods:
+    manifest_lines = []
+    for b in ("generic", "x64", "arm64"):
+        entries = buckets[b]
+        if not entries:
             continue
-        lines = [f"import {m}" for m in mods] + [f"#print axioms {c}" for c in consts]
-        (tmp / f"Batch_{b}.lean").write_text("\n".join(lines) + "\n")
-        (tmp / f"mods_batch_{b}.txt").write_text("\n".join(mods) + "\n")
-    for idx, (mod, consts) in enumerate(solo_buckets.items(), 1):
-        b = f"solo_{idx}"
-        lines = [f"import {mod}"] + [f"#print axioms {c}" for c in consts]
-        (tmp / f"Batch_{b}.lean").write_text("\n".join(lines) + "\n")
-        (tmp / f"mods_batch_{b}.txt").write_text(f"{mod}\n")
-    if conflict_mods:
-        (tmp / "mods_conflict.txt").write_text("\n".join(conflict_mods) + "\n")
+        manifest_lines.append(f"GROUP {b}")
+        for mod, const in entries:
+            manifest_lines.append(f"{mod} {const}")
+    for idx, (_mod, entries) in enumerate(solo_buckets.items(), 1):
+        manifest_lines.append(f"GROUP solo_{idx}")
+        for mod, const in entries:
+            manifest_lines.append(f"{mod} {const}")
+    for idx, (_mod, entries) in enumerate(conflict_buckets.items(), 1):
+        manifest_lines.append(f"GROUP conflict_{idx}")
+        for mod, const in entries:
+            manifest_lines.append(f"{mod} {const}")
+    (tmp / "audit_manifest.txt").write_text(
+        "\n".join(manifest_lines) + ("\n" if manifest_lines else "")
+    )
 
 
 mode = sys.argv[1]
@@ -1026,13 +1026,15 @@ if [ -f "$ROOT/scripts/sync_hubs.py" ]; then
     || err "barrel/hub check failed (sync_hubs.py --check)"
 fi
 
-echo "== 4. axiom audit"
+echo "== 4. axiom & isUnsafe audit"
 # Build log: every `#print axioms` that the build printed.
 grep -E "depends on axioms|does not depend on any axioms" "$TMP/build.log" >"$TMP/axioms.txt" || true
 # Headline theorems: `<Module> <constant>` from scripts/headlines.d/*.txt (or
-# scripts/headline.txt), filtered by INCLUDE_LEGACY and CHECK_SCOPE, partitioned into
-# parallel batches (generic, x64, arm64, plus isolated root-`main` modules so separate
-# executables never collide on `main`). Falls back to 16-way per-module audit if needed.
+# scripts/headline.txt), filtered by INCLUDE_LEGACY and CHECK_SCOPE, audited in a
+# single compiled `audit_axioms` session (`importModules (loadExts := false)`,
+# O(V+E) shared `Std.HashSet Name`, verifying `<= std3` and `!isUnsafe`).
+want=0
+got=0
 if [ "$headline_total" -gt 0 ]; then
   rdeps_filter_arg=""
   [ "$RESOLVED_SCOPE" = "rdeps" ] && [ -f "$TMP/rdeps_headlines_filter.txt" ] \
@@ -1042,82 +1044,60 @@ if [ "$headline_total" -gt 0 ]; then
 
   want="$(wc -l <"$TMP/selected_headlines.txt" | tr -d ' ')"
   if [ "$want" -gt 0 ]; then
-    batch_names=()
-    batch_pids=()
-    batch_jobs="${AUDIT_JOBS:-16}"
-    : >"$TMP/fallback_mods.txt"
-    [ -s "$TMP/mods_conflict.txt" ] && cat "$TMP/mods_conflict.txt" >>"$TMP/fallback_mods.txt"
-    for audit_lean in "$TMP"/Batch_*.lean; do
-      [ -s "$audit_lean" ] || continue
-      b="$(basename "$audit_lean" .lean)"
-      b="${b#Batch_}"
-      while [ "$(jobs -rp | wc -l)" -ge "$batch_jobs" ]; do
-        wait -n 2>/dev/null || true
-      done
-      timeout "$LEAN_TIMEOUT" lake env lean "$audit_lean" \
-        >"$TMP/audit_batch_${b}.out" 2>&1 &
-      batch_pids+=("$!")
-      batch_names+=("$b")
-    done
-    for i in "${!batch_names[@]}"; do
-      b="${batch_names[$i]}"
-      if ! wait "${batch_pids[$i]}"; then
-        echo "NOTE: batch audit_${b} failed; falling back to per-module parallel audit"
-        rm -f "$TMP/audit_batch_${b}.out"
-        cat "$TMP/mods_batch_${b}.txt" >>"$TMP/fallback_mods.txt"
-      fi
-    done
-
-    if [ -s "$TMP/fallback_mods.txt" ]; then
-      fb_jobs="${AUDIT_JOBS:-16}"
-      fb_idx=0
-      fb_pids=()
-      fb_mods=()
-      while IFS= read -r mod; do
-        [ -n "$mod" ] || continue
-        fb_idx=$((fb_idx + 1))
-        f="$TMP/Audit_fb_${fb_idx}.lean"
-        echo "import $mod" >"$f"
-        awk -v m="$mod" '$1 == m {print "#print axioms " $2}' "$TMP/selected_headlines.txt" >>"$f"
-        while [ "$(jobs -rp | wc -l)" -ge "$fb_jobs" ]; do
-          wait -n 2>/dev/null || true
-        done
-        timeout "$LEAN_TIMEOUT" lake env lean "$f" >"$TMP/audit_fb_${fb_idx}.out" 2>&1 &
-        fb_pids+=("$!")
-        fb_mods+=("$mod:$fb_idx")
-      done <"$TMP/fallback_mods.txt"
-      for i in "${!fb_pids[@]}"; do
-        if ! wait "${fb_pids[$i]}"; then
-          IFS=: read -r mod idx <<<"${fb_mods[$i]}"
-          cat "$TMP/audit_fb_${idx}.out"
-          err "axiom audit of $mod failed to elaborate"
+    audit_key="$(cat "$ROOT/lean-toolchain" "$ROOT/scripts/AuditAxioms.lean" | sha256sum | cut -c1-16)"
+    local_bin="$ROOT/.lake/build/bin/audit_axioms"
+    local_key_file="$ROOT/.lake/build/bin/audit_axioms.key"
+    cache_dir="${AUDIT_AXIOMS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/lean-qbe}"
+    cache_bin="$cache_dir/audit_axioms-${audit_key}"
+    AUDIT_BIN=""
+    if [ -x "$local_bin" ] && [ -f "$local_key_file" ] \
+        && [ "$(cat "$local_key_file" 2>/dev/null || true)" = "$audit_key" ]; then
+      AUDIT_BIN="$local_bin"
+    elif [ -x "$cache_bin" ]; then
+      AUDIT_BIN="$cache_bin"
+    else
+      if timeout "$LEAN_TIMEOUT" env "LEAN_NUM_THREADS=$LAKE_JOBS" \
+          lake build --wfail audit_axioms >"$TMP/audit_build.log" 2>&1; then
+        AUDIT_BIN="$local_bin"
+        printf '%s\n' "$audit_key" >"$local_key_file" 2>/dev/null || true
+        if mkdir -p "$cache_dir" 2>/dev/null; then
+          cp -f "$local_bin" "$cache_bin.tmp.$$" 2>/dev/null \
+            && chmod +x "$cache_bin.tmp.$$" 2>/dev/null \
+            && mv -f "$cache_bin.tmp.$$" "$cache_bin" 2>/dev/null \
+            || rm -f "$cache_bin.tmp.$$" 2>/dev/null || true
         fi
-      done
+      else
+        cat "$TMP/audit_build.log" >&2
+        err "failed to build audit_axioms executable"
+      fi
     fi
 
-    for outf in "$TMP"/audit_*.out; do
-      [ -f "$outf" ] || continue
-      sed 's/^/headline: /' "$outf"
-      cat "$outf" >>"$TMP/axioms.txt"
-    done
+    if [ -n "$AUDIT_BIN" ]; then
+      if timeout "$LEAN_TIMEOUT" lake env "$AUDIT_BIN" "$TMP/audit_manifest.txt" \
+          >"$TMP/audit_axioms.out" 2>&1; then
+        cat "$TMP/audit_axioms.out"
+        got="$(sed -n 's/^audit_axioms: TOTAL \([0-9][0-9]*\) theorems verified.*/\1/p' \
+          "$TMP/audit_axioms.out" | tail -n 1)"
+        got="${got:-0}"
+      else
+        cat "$TMP/audit_axioms.out" >&2
+        err "audit_axioms failed (disallowed axiom, unsafe decl, or missing theorem)"
+      fi
+    fi
   elif [ "$RESOLVED_SCOPE" = "rdeps" ]; then
     echo "   0 headline theorems match rdeps scope; passing cleanly"
   else
     err "no headline theorems selected for scope=$RESOLVED_SCOPE (INCLUDE_LEGACY=$INCLUDE_LEGACY)"
   fi
 else
-  want=0
   err "no headline theorem to audit in scripts/headlines.d/ or scripts/headline.txt"
 fi
-# Every headline theorem must have one complete report: the loop below fails on the lines that are
-# not a complete report, and this count fails if a report is missing.
-got="$(cat "$TMP"/audit_*.out 2>/dev/null | grep -cE 'depends on axioms: \[.*\]$|does not depend on any axioms$' || true)"
-got="${got:-0}"
 ax_lines="$(grep -c . "$TMP/axioms.txt" || true)"
 ax_lines="${ax_lines:-0}"
-echo "$ax_lines lines of axiom reports; $got complete reports for $want headline theorems"
-[ "$got" -eq "$want" ] || err "$got complete one-line axiom reports for $want headline theorems"
+echo "$ax_lines build-log axiom lines; $got/$want headline theorems verified (0 unsafe, <= std3)"
+[ "$got" -eq "$want" ] || err "$got verified headline theorems for $want expected headline theorems"
 while IFS= read -r line; do
+  [ -n "$line" ] || continue
   case "$line" in
     *"does not depend on any axioms") continue ;;
     *"depends on axioms: ["*"]") ;;

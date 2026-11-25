@@ -1,6 +1,7 @@
 module
 
-public import LeanQbe
+public import LeanQbe.T.CoreHub
+public import LeanQbe.T.Examples.UnionFindLemmas
 public import LeanQbeTest.T.Examples
 public import LeanQbeTest.T.Smoke
 public import LeanQbeTest.T.NotationTest

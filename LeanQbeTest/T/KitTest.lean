@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe
+public import LeanQbe.T.CoreHub
 public import LeanQbeTest.T.Examples
 
 /-!
@@ -313,7 +313,8 @@ theorem vecLaneOpsTqbe_lane_spec (Γ : Env) (X : XPost) (m : Mem 64) (a b c : Va
     Func.wp Γ vecLaneOpsTqbe (a, b, c, ()) m
       (fun (q, ()) _ => ∀ i < 4,
         lane 2 q i =
-          (ternaryLogic (lane 2 a i + lane 2 b i) (lane 2 b i) (lane 2 c i) 0x96#8).rotateRight 7 >>> 3)
+          (ternaryLogic (lane 2 a i + lane 2 b i) (lane 2 b i)
+            (lane 2 c i) 0x96#8).rotateRight 7 >>> 3)
       X := by
   dsimp only [Func.wp, vecLaneOpsTqbe]
   refine wp_vec_add _ _ _ fun s hs => ?_
@@ -326,7 +327,8 @@ theorem vecLaneOpsTqbe_lane_spec (Γ : Env) (X : XPost) (m : Mem 64) (a b c : Va
   rw [hq i, hr i, ht i, hs i]
 
 /-- Polymorphic `qrStepK` across `2^k` 32-bit lanes, verified by `wp_vec_*` + `lanewise*`. -/
-def qrStepK (k : Nat) : Func [Ty.vec k i32, Ty.vec k i32, Ty.vec k i32] [Ty.vec k i32, Ty.vec k i32] :=
+def qrStepK (k : Nat) :
+    Func [Ty.vec k i32, Ty.vec k i32, Ty.vec k i32] [Ty.vec k i32, Ty.vec k i32] :=
   fun _ _ (a, b, d, ()) =>
     .let_ (op2 (.add (Ty.vec k i32)) (.var a) (.var b)) fun (a', ()) =>
     .let_ (op2 (.xor (Ty.vec k i32)) (.var d) (.var a')) fun (x, ()) =>
@@ -358,7 +360,8 @@ theorem lanewiseX_blend_cmp_test (a b x y : Val v4i32) :
       lane 2 (blendV v4i32 (liftCmp CmpOp.ult.evalBits CmpOp.ult.evalBool v4i32 a b) x y) i =
         if (lane 2 a i).ult (lane 2 b i) then lane 2 x i else lane 2 y i := by
   intro i _
-  simpa [BitVec.ult] using lane_blend_liftCmp_bits CmpOp.ult.evalBits CmpOp.ult.evalBool 32 2 a b x y i
+  simpa [BitVec.ult] using
+    lane_blend_liftCmp_bits CmpOp.ult.evalBits CmpOp.ult.evalBool 32 2 a b x y i
 
 /-! ## 4. Signed widening multiply (`wp_smulw` + `smulw_toInt`) and big-int `≥ 2^128` arithmetic -/
 
@@ -380,7 +383,8 @@ theorem smulw8_spec (Γ : Env) (X : XPost) (m : Mem 64) (a b : BitVec 8) :
 /-- Edge cases for `smulw`: `intMin * intMin`, `intMin * (-1)`, negative * positive, and `0`. -/
 theorem smulw8_edge_cases (Γ : Env) (X : XPost) (m : Mem 64) :
     Func.wp Γ smulw8Tqbe (-128#8, -128#8, ()) m
-      (fun (lo, hi, ()) _ => hi.toInt * 2 ^ 8 + (lo.toNat : Int) = 16384 ∧ hi.toInt = 64 ∧ lo = 0#8) X ∧
+      (fun (lo, hi, ()) _ =>
+        hi.toInt * 2 ^ 8 + (lo.toNat : Int) = 16384 ∧ hi.toInt = 64 ∧ lo = 0#8) X ∧
     Func.wp Γ smulw8Tqbe (-128#8, -1#8, ()) m
       (fun (lo, hi, ()) _ => hi.toInt * 2 ^ 8 + (lo.toNat : Int) = 128 ∧ hi = 0#8 ∧ lo = 128#8) X ∧
     Func.wp Γ smulw8Tqbe (-5#8, 3#8, ()) m
@@ -593,7 +597,8 @@ theorem findZeroTqbe_spec (Γ : Env) (X : XPost) (m : Mem 64) (n : BitVec 64) :
   dsimp only [Func.wp, findZeroTqbe]
   refine wp_loop_break_group
     (fun (r : Tup Val [i64]) _ => if 2 < n.toNat then r.1 = 2 else r.1 = 0)
-    (fun k (i : Tup Val [i64]) _ => k = i.1.toNat ∧ i.1.toNat ≤ n.toNat ∧ (i.1.toNat ≤ 2 → n.toNat ≤ 2))
+    (fun k (i : Tup Val [i64]) _ =>
+      k = i.1.toNat ∧ i.1.toNat ≤ n.toNat ∧ (i.1.toNat ≤ 2 → n.toNat ≤ 2))
     (fun _ r _ h => by dsimp only [Blocks.get_here]; wp_unfold; exact h)
     (fun _ _ k (i, ⟨⟩) m' hB hL ⟨hk, hle, hi2⟩ => by
       dsimp only [Blocks.get_here] at hk hle hi2 ⊢
@@ -613,7 +618,8 @@ theorem findZeroTqbe_spec (Γ : Env) (X : XPost) (m : Mem 64) (n : BitVec 64) :
           have hn2 : 2 < n.toNat := by omega
           apply hB (i - 1, ()) m'
           simpa [hn2] using hhit
-        · have hne2 : (i - 1).toNat ≠ 2 := fun h2 => hmiss (BitVec.eq_of_toNat_eq (by simpa using h2))
+        · have hne2 : (i - 1).toNat ≠ 2 := fun h2 =>
+            hmiss (BitVec.eq_of_toNat_eq (by simpa using h2))
           refine hL (i.toNat - 1) (i - 1, ()) m' (by omega) ?_
           dsimp only
           exact ⟨hsub1.symm, by omega, fun hsub => hi2 (by omega)⟩)
@@ -777,9 +783,13 @@ theorem floatOpsKit_spec (Γ : Env) (X : XPost) (m : Mem 64) :
                       .let_ (Op.mk (.fptosi .d 64) (.var fs.1, ())) fun si =>
                         .let_ (Op.mk (.fadd (.float .d)) (.var fd.1, .var fd.1, ())) fun fa =>
                           .let_ (Op.mk (.fsub (.float .d)) (.var fa.1, .var fd.1, ())) fun fsu =>
-                            .let_ (Op.mk (.fmul (.float .d)) (.var fsu.1, .var fa.1, ())) fun fm =>
-                              .let_ (Op.mk (.fdiv (.float .d)) (.var fm.1, .var fa.1, ())) fun fdv =>
-                                .let_ (Op.mk (.ffma (.float .d)) (.var fdv.1, .var fa.1, .var fa.1, ())) fun fma =>
+                            .let_ (Op.mk (.fmul (.float .d)) (.var fsu.1, .var fa.1, ()))
+                              fun fm =>
+                              .let_ (Op.mk (.fdiv (.float .d)) (.var fm.1, .var fa.1, ()))
+                                fun fdv =>
+                                .let_ (Op.mk (.ffma (.float .d))
+                                    (.var fdv.1, .var fa.1, .var fa.1, ()))
+                                  fun fma =>
                                   .let_ (Op.mk (.fsqrt (.float .d)) (.imm 0#64, ())) fun fsq =>
                                     .ret (.var ui.1, .var si.1, .var fma.1, .var fsq.1, ())) m := by
   refine wp_fneg .d _ _ fun x hx => ?_; subst hx
@@ -790,20 +800,22 @@ theorem floatOpsKit_spec (Γ : Env) (X : XPost) (m : Mem 64) :
   refine wp_sitofp 64 .d _ _ fun fs hfs => ?_; subst hfs
   refine wp_fcvt .d .s _ _ ?_
   dsimp only [Arg.val_var, Arg.val_imm]
-  rw [show ((0x3ff0000000000000#64 ^^^ 1#64 <<< (Fmt.d.width - 1)) &&& ~~~(1#64 <<< (Fmt.d.width - 1))) =
-      0x3ff0000000000000#64 from by decide]
+  rw [show ((0x3ff0000000000000#64 ^^^ 1#64 <<< (Fmt.d.width - 1)) &&&
+      ~~~(1#64 <<< (Fmt.d.width - 1))) = 0x3ff0000000000000#64 from by decide]
   have hfc : fcmpLeaf .eq .d 0x3ff0000000000000#64 0x3ff0000000000000#64 = true := by decide
   rw [hfc, show BitVec.ofNat 64 true.toNat = 1#64 from rfl]
   have hf1 : packFloat .d (Float.Model.UnpackedFloat.ofInt Fmt.d.format (BitVec.ofNat 64 1).toNat) =
       0x3ff0000000000000#64 := by decide
-  have hfneg1 : packFloat .d (Float.Model.UnpackedFloat.ofInt Fmt.d.format (-1#64 : BitVec 64).toInt) =
+  have hfneg1 :
+      packFloat .d (Float.Model.UnpackedFloat.ofInt Fmt.d.format (-1#64 : BitVec 64).toInt) =
       0xbff0000000000000#64 := by decide
   rw [hf1, hfneg1]
   have hcvt1 : convertFloat .d .s 0x3ff0000000000000#64 = fun k => k 0x3f800000#32 := by
     funext k; rfl
   rw [hcvt1]
   refine wp_fptoui .s 64 _ _ (z := 1) (by decide) (by omega) (by decide) fun ui hui => ?_
-  refine wp_fptosi .d 64 _ _ (by decide) (z := -1) (by decide) (by decide) (by decide) fun si hsi => ?_
+  refine wp_fptosi .d 64 _ _ (by decide) (z := -1)
+    (by decide) (by decide) (by decide) fun si hsi => ?_
   refine wp_fadd .d _ _ _ ?_
   have hfa (k : BitVec 64 → Prop) : floatResultWp .d (Float.Model.UnpackedFloat.add Fmt.d.format
       (unpackFloat .d 0x3ff0000000000000#64) (unpackFloat .d 0x3ff0000000000000#64)) k =
@@ -840,12 +852,14 @@ theorem floatNaN_nonvacuous_test (Γ : Env) (X : XPost) (m : Mem 64) :
     wp (rs := [.float .d]) Γ (fun r _ => isFloatNaN .d r.1 = true) X
       (.let_ (Op.mk (.fsqrt (.float .d)) (.imm 0xbff0000000000000#64, ())) fun r =>
         .ret (.var r.1, ())) m ∧
-    isFloatNaN .d ((Float.Model.UnpackedFloat.packedNaN Fmt.d.format).cast (Fmt.format_numBits .d)) =
+    isFloatNaN .d
+      ((Float.Model.UnpackedFloat.packedNaN Fmt.d.format).cast (Fmt.format_numBits .d)) =
       true := by
   refine ⟨?_, isFloatNaN_packedNaN .d⟩
   refine wp_fsqrt .d _ _ ?_
   dsimp only [floatResultWp, Arg.val_imm]
-  have hnan : (Float.Model.UnpackedFloat.sqrt Fmt.d.format (unpackFloat .d 0xbff0000000000000#64)).isNaN =
+  have hnan :
+      (Float.Model.UnpackedFloat.sqrt Fmt.d.format (unpackFloat .d 0xbff0000000000000#64)).isNaN =
       true := by decide
   simp only [hnan, ↓reduceIte]
   intro r hr
@@ -866,11 +880,13 @@ theorem arith256_schoolbook_test
     (hm : hi.toNat * 2 ^ 64 + lo.toNat = a0.toNat * b0.toNat)
     (hs1 : c1s.toNat * 2 ^ 64 + c1.toNat = lo.toNat + accLo.toNat + ci1.toNat)
     (hs2 : c2s.toNat * 2 ^ 64 + c2.toNat = hi.toNat + accHi.toNat + ci2.toNat) :
-    (co3.toNat * 2 ^ 256 + (s3.toNat * 2 ^ 192 + s2.toNat * 2 ^ 128 + s1.toNat * 2 ^ 64 + s0.toNat) =
+    (co3.toNat * 2 ^ 256 +
+        (s3.toNat * 2 ^ 192 + s2.toNat * 2 ^ 128 + s1.toNat * 2 ^ 64 + s0.toNat) =
       (a3.toNat * 2 ^ 192 + a2.toNat * 2 ^ 128 + a1.toNat * 2 ^ 64 + a0.toNat) +
         (b3.toNat * 2 ^ 192 + b2.toNat * 2 ^ 128 + b1.toNat * 2 ^ 64 + b0.toNat)) ∧
     (c2s.toNat * (2 ^ 64 * 2 ^ 64) + (c2.toNat * 2 ^ 64 + c1.toNat) + c1s.toNat * 2 ^ 64 =
-      a0.toNat * b0.toNat + (accHi.toNat * 2 ^ 64 + accLo.toNat) + ci1.toNat + ci2.toNat * 2 ^ 64) :=
+      a0.toNat * b0.toNat + (accHi.toNat * 2 ^ 64 + accLo.toNat) +
+        ci1.toNat + ci2.toNat * 2 ^ 64) :=
   ⟨add256_combine0 h0 h1 h2 h3, schoolbook_2carry_step hm hs1 hs2⟩
 
 def arrayIdxStepTqbe : Func [i64, i64] [i64] :=
@@ -981,7 +997,8 @@ theorem vecMulNeg_shuf_sha_spec (Γ : Env) (X : XPost) (m : Mem 64) (a b : Val v
   · simp [hsr, hm2, hm1, hbw, hal, hsb, hs]
 
 theorem lane_liftFCmp_test (k : Nat) (a b : Val (Ty.vec k f32)) (i : Nat) :
-    maskLane f32 k (liftFCmp .lt (Ty.vec k f32) a b) i = fcmpLeaf .lt .s (lane k a i) (lane k b i) :=
+    maskLane f32 k (liftFCmp .lt (Ty.vec k f32) a b) i =
+      fcmpLeaf .lt .s (lane k a i) (lane k b i) :=
   lane_liftFCmp_float .lt .s k a b i
 
 end LeanQbe.T.Test.KitTest

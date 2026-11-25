@@ -1,5 +1,5 @@
 module
-public import LeanQbe
+public import LeanQbe.T.CoreHub
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Target
 
@@ -7,7 +7,7 @@ public import LeanQbe.T.Target
 # Cross-Module `t_kernel_rfl`, Co-Import, `ToExpr`, and Axiom Audit for `Target.lean`
 
 Verifies in a separate downstream `module` that:
-1. `Target` co-imports cleanly alongside the `LeanQbe` root (no `region`/`cell64`/`array64`
+1. `Target` co-imports cleanly alongside `LeanQbe.T.CoreHub` (no `region`/`cell64`/`array64`
    collisions).
 2. `Fn.backendOk` (across `.let_` `zext`/`bswap`/`add`, `.group`/`.jump`, `.load`/`.store`,
    `assignArgs`/`assignRets`) and `Trie.insert`/`erase`/`find?` reduce in the Lean kernel across a
@@ -43,7 +43,8 @@ def sampleFn : Fn := ⟨"f", [i32, i64], [i64], fun _ _ (a, ptr, ()) =>
   .let_ ⟨.zext 32 64, (.var a, ())⟩ fun (z, ()) =>
   .let_ ⟨.bswap i64, (.var z, ())⟩ fun (sw, ()) =>
   .group (sig := [[i64]])
-    (fun _ => .cons (ts := [i64]) (fun (acc, ()) => .store (.var acc) (.var ptr) (.ret (.var acc, ()))) .nil)
+    (fun _ => .cons (ts := [i64])
+      (fun (acc, ()) => .store (.var acc) (.var ptr) (.ret (.var acc, ()))) .nil)
     (fun (lbl, ()) => .jump lbl (.var sw, ()))⟩
 
 def badFloatFn : Fn := ⟨"bad", [i64], [i64], fun _ _ (a, ()) =>
@@ -53,7 +54,8 @@ theorem backendOk_cross_module_rfl : sampleFn.backendOk toyIsa = true := by t_ke
 theorem backendOk_rejects_float_rfl : badFloatFn.backendOk toyIsa = false := by t_kernel_rfl
 
 theorem trie_cross_module_rfl :
-    (((Trie.empty.insert (2 ^ 80 + 5) (42 : Nat)).insert 7 99).erase 7).find? (2 ^ 80 + 5) = some 42 ∧
+    (((Trie.empty.insert (2 ^ 80 + 5) (42 : Nat)).insert 7 99).erase 7).find? (2 ^ 80 + 5) =
+      some 42 ∧
     (((Trie.empty.insert (2 ^ 80 + 5) (42 : Nat)).insert 7 99).erase 7).find? 7 = none := by
   exact ⟨by t_kernel_rfl, by t_kernel_rfl⟩
 

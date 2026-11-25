@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe
+public import LeanQbe.T.CoreHub
 public import LeanQbeTest.T.Examples
 public import LeanQbeTest.T.Smoke
 meta import Lean.Elab.Term
@@ -317,28 +317,34 @@ def lbCheckPrfHand : Func [i64, i64] [i64] := fun _ _ (hdr, prf_end, _) =>
                     (Expr.let_ (op2 (OpCode.lshr i64) (Arg.var uid) (Arg.imm 1)) fun (id, _) =>
                     Expr.let_ (op2 (OpCode.ult i64) (Arg.var nc) (Arg.var id)) fun (gt_nc, _) =>
                     Expr.jnz (Arg.var gt_nc)
-                      (Expr.let_ (op2 (OpCode.ult i64) (Arg.var id) (Arg.var cap)) fun (lt_cap, _) =>
+                      (Expr.let_ (op2 (OpCode.ult i64) (Arg.var id) (Arg.var cap))
+                        fun (lt_cap, _) =>
                       Expr.jnz (Arg.var lt_cap)
                         (Expr.let_ (op2 (OpCode.shl i64) (Arg.var id) (Arg.imm 3)) fun (off, _) =>
                         Expr.let_ (op2 (OpCode.add i64) (Arg.var cb) (Arg.var off)) fun (slot, _) =>
                         Expr.load i64 (Arg.var slot) fun old =>
-                        Expr.let_ (op2 (OpCode.eq i64) (Arg.var old) (Arg.imm 0)) fun (ok_unused, _) =>
+                        Expr.let_ (op2 (OpCode.eq i64) (Arg.var old) (Arg.imm 0))
+                          fun (ok_unused, _) =>
                         Expr.jnz (Arg.var ok_unused)
                           (Expr.store (Arg.var cur2) (Arg.var p72)
                             (Expr.load i64 (Arg.var p64) fun c_ptr =>
                             Expr.call (as := [i64, i64]) (bs := [i64]) "lb_read_add_lits"
                               (Arg.var hdr, Arg.var prf_end, ()) fun (lstat, _) =>
-                            Expr.let_ (op2 (OpCode.ne i64) (Arg.var lstat) (Arg.imm 0)) fun (lok, _) =>
+                            Expr.let_ (op2 (OpCode.ne i64) (Arg.var lstat) (Arg.imm 0))
+                              fun (lok, _) =>
                             Expr.jnz (Arg.var lok)
                               (Expr.call (as := [i64, i64, i64, i64]) (bs := [i64]) "lb_rup_check"
                                 (Arg.var hdr, Arg.var id, Arg.var c_ptr, Arg.var prf_end, ())
                                 fun (rok, _) =>
-                              Expr.let_ (op2 (OpCode.ne i64) (Arg.var rok) (Arg.imm 0)) fun (rok_nz, _) =>
+                              Expr.let_ (op2 (OpCode.ne i64) (Arg.var rok) (Arg.imm 0))
+                                fun (rok_nz, _) =>
                               Expr.jnz (Arg.var rok_nz)
-                                (Expr.let_ (op2 (OpCode.eq i64) (Arg.var lstat) (Arg.imm 2)) fun (is_emp, _) =>
+                                (Expr.let_ (op2 (OpCode.eq i64) (Arg.var lstat) (Arg.imm 2))
+                                  fun (is_emp, _) =>
                                 Expr.jnz (Arg.var is_emp)
                                   (Expr.ret (Arg.imm 1, ()))
-                                  (Expr.store (Arg.var c_ptr) (Arg.var slot) (Expr.jump rec_loop ())))
+                                  (Expr.store (Arg.var c_ptr) (Arg.var slot)
+                                    (Expr.jump rec_loop ())))
                                 (Expr.jump fail ()))
                               (Expr.jump fail ())))
                           (Expr.jump fail ()))
@@ -354,18 +360,26 @@ def lbCheckPrfHand : Func [i64, i64] [i64] := fun _ _ (hdr, prf_end, _) =>
                           Expr.let_ (op2 (OpCode.eq i64) (Arg.var u) (Arg.imm 0)) fun (uz, _) =>
                           Expr.jnz (Arg.var uz)
                             (Expr.store (Arg.var dcur2) (Arg.var p72) (Expr.jump rec_loop ()))
-                            (Expr.let_ (op2 (OpCode.and i64) (Arg.var u) (Arg.imm 1)) fun (odd, _) =>
-                            Expr.let_ (op2 (OpCode.eq i64) (Arg.var odd) (Arg.imm 0)) fun (ok_even, _) =>
+                            (Expr.let_ (op2 (OpCode.and i64) (Arg.var u) (Arg.imm 1))
+                              fun (odd, _) =>
+                            Expr.let_ (op2 (OpCode.eq i64) (Arg.var odd) (Arg.imm 0))
+                              fun (ok_even, _) =>
                             Expr.jnz (Arg.var ok_even)
-                              (Expr.let_ (op2 (OpCode.lshr i64) (Arg.var u) (Arg.imm 1)) fun (did, _) =>
-                              Expr.let_ (op2 (OpCode.ne i64) (Arg.var did) (Arg.imm 0)) fun (dnz, _) =>
+                              (Expr.let_ (op2 (OpCode.lshr i64) (Arg.var u) (Arg.imm 1))
+                                fun (did, _) =>
+                              Expr.let_ (op2 (OpCode.ne i64) (Arg.var did) (Arg.imm 0))
+                                fun (dnz, _) =>
                               Expr.jnz (Arg.var dnz)
-                                (Expr.let_ (op2 (OpCode.ult i64) (Arg.var did) (Arg.var cap)) fun (lt_cap, _) =>
+                                (Expr.let_ (op2 (OpCode.ult i64) (Arg.var did) (Arg.var cap))
+                                  fun (lt_cap, _) =>
                                 Expr.jnz (Arg.var lt_cap)
-                                  (Expr.let_ (op2 (OpCode.shl i64) (Arg.var did) (Arg.imm 3)) fun (off, _) =>
-                                  Expr.let_ (op2 (OpCode.add i64) (Arg.var cb) (Arg.var off)) fun (slot, _) =>
+                                  (Expr.let_ (op2 (OpCode.shl i64) (Arg.var did) (Arg.imm 3))
+                                    fun (off, _) =>
+                                  Expr.let_ (op2 (OpCode.add i64) (Arg.var cb) (Arg.var off))
+                                    fun (slot, _) =>
                                   Expr.load i64 (Arg.var slot) fun old =>
-                                  Expr.let_ (op2 (OpCode.ne i64) (Arg.var old) (Arg.imm 0)) fun (act, _) =>
+                                  Expr.let_ (op2 (OpCode.ne i64) (Arg.var old) (Arg.imm 0))
+                                    fun (act, _) =>
                                   Expr.jnz (Arg.var act)
                                     (Expr.store (Arg.imm (t := i64) 0) (Arg.var slot)
                                       (Expr.jump del_loop (Arg.var dcur2, ())))
@@ -851,7 +865,8 @@ def userLoopLabel : Func [i64] [i64] := tqbe(%n:l) -> l {
 theorem userLoopLabel_eq_hand : userLoopLabel = fun _ _ (n, _) =>
   Expr.group (sig := [[i64]]) (fun _ => Blocks.cons (fun (v, _) => .ret (.var v, ())) .nil)
     fun (uLoop, _) =>
-      Expr.group (sig := [[i64]]) (fun _ => Blocks.cons (fun (i, _) => .jump uLoop (.var i, ())) .nil)
+      Expr.group (sig := [[i64]])
+        (fun _ => Blocks.cons (fun (i, _) => .jump uLoop (.var i, ())) .nil)
         fun (lp, _) => .jump lp (.var n, ()) := rfl
 
 theorem userLoopLabel_wf : Func.Wf userLoopLabel := by t_wf_reify
@@ -872,7 +887,8 @@ theorem userBreakLabel_eq_hand : userBreakLabel = fun _ _ (n, _) =>
     fun (uBreak, _) =>
       Expr.group (sig := [[i64]]) (fun _ => Blocks.cons (fun (r, _) => .ret (.var r, ())) .nil)
         fun _ =>
-          Expr.group (sig := [[i64]]) (fun _ => Blocks.cons (fun (i, _) => .jump uBreak (.var i, ())) .nil)
+          Expr.group (sig := [[i64]])
+            (fun _ => Blocks.cons (fun (i, _) => .jump uBreak (.var i, ())) .nil)
             fun (lp, _) => .jump lp (.var n, ()) := rfl
 
 theorem userBreakLabel_wf : Func.Wf userBreakLabel := by t_wf_reify
@@ -940,7 +956,8 @@ def floatImmForms : Func [i64, f64, v4f32] [f64, v4f32] :=
     %y =d fadd %x, imm ⟨0x3ff8000000000000#64⟩ : d
     store imm ⟨0x0000000000000000#64⟩ : d, %p
     store splat imm ⟨0x3f800000#32⟩ : v4f32, %p
-    %z =v4f32 fmul %vf, [imm ⟨0x3f800000#32⟩, imm ⟨0x40000000#32⟩, imm ⟨0x40400000#32⟩, imm ⟨0x40800000#32⟩]
+    %z =v4f32 fmul %vf,
+      [imm ⟨0x3f800000#32⟩, imm ⟨0x40000000#32⟩, imm ⟨0x40400000#32⟩, imm ⟨0x40800000#32⟩]
     ret %y, %z
   }
 
@@ -995,7 +1012,8 @@ theorem loopInitLeanCap_eq_hand {V : Ty → Type} {L : List Ty → Type} (done :
     loopInitLeanCap (V := V) (L := L) done =
       Expr.group (sig := [[i64]]) (fun _ => Blocks.cons (fun (r, _) => .ret (.var r, ())) .nil)
         fun (brk, _) =>
-          Expr.group (sig := [[i64]]) (fun _ => Blocks.cons (fun (i, _) => .jump brk (.var i, ())) .nil)
+          Expr.group (sig := [[i64]])
+            (fun _ => Blocks.cons (fun (i, _) => .jump brk (.var i, ())) .nil)
             fun (lp, _) => .jump lp (.var done, ()) := rfl
 
 def switchNestedCmp : Func [i64, Ty.bool] [Ty.bool] := tqbe(%x:l, %_cmp:b) -> b {

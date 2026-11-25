@@ -9,6 +9,10 @@ public import LeanQbe.T.Examples.Kissat.BaseHub
 public import LeanQbe.T.Examples.Kissat.M3Hub
 public import LeanQbe.T.Examples.Kissat.M4Hub
 public import LeanQbe.T.Examples.Kissat.M5Hub
+public import LeanQbe.T.Examples.Kissat.M6Hub
+public import LeanQbe.T.Examples.Kissat.M7Hub
+public import LeanQbe.T.Examples.Kissat.M8Hub
+public import LeanQbe.T.Examples.Kissat.FidelityHub
 
 set_option autoImplicit false
 
