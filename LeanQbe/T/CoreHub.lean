@@ -147,6 +147,8 @@ public import LeanQbe.T.Spill
 public import LeanQbe.T.SpillFlags
 public import LeanQbe.T.SpillSnippet
 public import LeanQbe.T.StepSimp
+public import LeanQbe.T.TailDup
+public import LeanQbe.T.TailDupLemmas
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.Trie
