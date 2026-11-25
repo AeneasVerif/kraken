@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe
+public import LeanQbe.T.CoreHub
 public import LeanQbe.T.Arm64.Base
 public import LeanQbe.T.Arm64.Bignum
 public import LeanQbe.T.Arm64.ChaCha

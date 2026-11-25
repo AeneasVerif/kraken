@@ -44,7 +44,7 @@ DOC_ONLY_RE = re.compile(
     r"^(?:.*\.md|docs/.*|scripts/headlines\.d/.*|scripts/headline\.txt|\.gitignore)$"
 )
 
-SCRIPT_ONLY_RE = re.compile(r"^scripts/.*\.(?:sh|py)$")
+SCRIPT_ONLY_RE = re.compile(r"^scripts/.*\.(?:sh|py|lean)$")
 
 PROOF_LEAN_RE = re.compile(
     r"(?:Proof|Lemmas|Audit|Spec|Bridge|Nv|SatSound)[0-9]*\.lean$"

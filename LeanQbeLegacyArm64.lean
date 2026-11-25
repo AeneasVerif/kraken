@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe
+public import LeanQbe.T.CoreHub
 public import LeanQbe.T.Arm64.Kissat
 public import LeanQbe.T.Arm64.KissatCorePlus
 public import LeanQbe.T.Arm64.KissatFast

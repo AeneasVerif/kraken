@@ -9,6 +9,210 @@ restoreAllArtifacts = true
 autoImplicit = false
 relaxedAutoImplicit = false
 
+# Optional fine-grained non-default libraries (listed before `LeanQbe`/`LeanQbeTest`
+# so Lake's reverse `Package.findModule?` lookup keeps canonical module ownership on
+# `LeanQbe` and `LeanQbeTest`).
+
+# Non-Kissat generic core + frontends + non-Kissat examples (0 Kissat modules).
+[[lean_lib]]
+name = "LeanQbeCore"
+roots = []
+globs = [
+  "LeanQbe.T.CoreHub",
+  "LeanQbe.T.Frontend.C0.Hub",
+  "LeanQbe.T.LeanLCNF.Hub",
+  "LeanQbe.T.LeanLRC.Hub",
+  "LeanQbe.T.Examples.Hub",
+]
+
+# Non-cert x64 backend modules (0 Kissat cert/spec modules).
+[[lean_lib]]
+name = "LeanQbeAmd64Core"
+roots = []
+globs = [
+  "LeanQbe.T.Amd64.Base",
+  "LeanQbe.T.Amd64.Bignum",
+  "LeanQbe.T.Amd64.ChaCha",
+  "LeanQbe.T.Amd64.DebugAsm",
+  "LeanQbe.T.Amd64.Frame",
+  "LeanQbe.T.Amd64.FrameLemmas",
+  "LeanQbe.T.Amd64.Isa",
+  "LeanQbe.T.Amd64.Isel",
+  "LeanQbe.T.Amd64.IselLemmas1",
+  "LeanQbe.T.Amd64.IselLemmas2",
+  "LeanQbe.T.Amd64.IselLemmas3",
+  "LeanQbe.T.Amd64.IselLemmas4",
+  "LeanQbe.T.Amd64.IselLemmas5",
+  "LeanQbe.T.Amd64.IselLemmasBitcnt",
+  "LeanQbe.T.Amd64.IselStepRules",
+  "LeanQbe.T.Amd64.IselVec",
+  "LeanQbe.T.Amd64.IselVecLemmas1",
+  "LeanQbe.T.Amd64.IselVecLemmas2",
+  "LeanQbe.T.Amd64.IselVecLemmas3",
+  "LeanQbe.T.Amd64.LinkRec",
+  "LeanQbe.T.Amd64.Litmus",
+  "LeanQbe.T.Amd64.LratBytes",
+  "LeanQbe.T.Amd64.PrintATTAlign",
+  "LeanQbe.T.Amd64.PrintAsm0",
+  "LeanQbe.T.Amd64.PrintAsm0Lemmas",
+  "LeanQbe.T.Amd64.ScalarTarg",
+  "LeanQbe.T.Amd64.Snippet",
+  "LeanQbe.T.Amd64.Targ",
+  "LeanQbe.T.Amd64.TargLemmas",
+  "LeanQbe.T.Amd64.UnionFind",
+]
+
+# Non-cert AArch64 backend modules (0 Kissat cert/spec modules).
+[[lean_lib]]
+name = "LeanQbeArm64Core"
+roots = []
+globs = [
+  "LeanQbe.T.Arm64.Base",
+  "LeanQbe.T.Arm64.Bignum",
+  "LeanQbe.T.Arm64.ChaCha",
+  "LeanQbe.T.Arm64.DebugAsm",
+  "LeanQbe.T.Arm64.Frame",
+  "LeanQbe.T.Arm64.FrameLemmas",
+  "LeanQbe.T.Arm64.Isa",
+  "LeanQbe.T.Arm64.Isel",
+  "LeanQbe.T.Arm64.IselLemmas1",
+  "LeanQbe.T.Arm64.IselLemmas2",
+  "LeanQbe.T.Arm64.IselLemmas3",
+  "LeanQbe.T.Arm64.IselLemmas4",
+  "LeanQbe.T.Arm64.IselStepRules",
+  "LeanQbe.T.Arm64.LinkRec",
+  "LeanQbe.T.Arm64.Litmus",
+  "LeanQbe.T.Arm64.LratBytes",
+  "LeanQbe.T.Arm64.Snippet",
+  "LeanQbe.T.Arm64.Targ",
+  "LeanQbe.T.Arm64.TargLemmas",
+  "LeanQbe.T.Arm64.UnionFind",
+]
+
+# Non-Kissat core/frontend/backend unit tests (0 `Examples.Kissat.*` modules).
+[[lean_lib]]
+name = "LeanQbeCoreTest"
+roots = []
+globs = [
+  "LeanQbeTest.T.Amd64FrameTest",
+  "LeanQbeTest.T.Amd64IselTest",
+  "LeanQbeTest.T.Amd64VecTest",
+  "LeanQbeTest.T.Arm64DirPreds",
+  "LeanQbeTest.T.Arm64FrameStpTest",
+  "LeanQbeTest.T.Arm64FrameTest",
+  "LeanQbeTest.T.Arm64IselTest",
+  "LeanQbeTest.T.Arm64LeafZeroTest",
+  "LeanQbeTest.T.Bedrock2PhoasTest",
+  "LeanQbeTest.T.BedrockCfgRecoveryTest",
+  "LeanQbeTest.T.C0AgreesTest",
+  "LeanQbeTest.T.C0LogicAudit",
+  "LeanQbeTest.T.C0StepTest",
+  "LeanQbeTest.T.C0Test",
+  "LeanQbeTest.T.CanonAbiZextTest",
+  "LeanQbeTest.T.CanonTest",
+  "LeanQbeTest.T.CertAutoExtArm64Test",
+  "LeanQbeTest.T.CertAutoExtTest",
+  "LeanQbeTest.T.CfgOptTest",
+  "LeanQbeTest.T.CombLegalTest",
+  "LeanQbeTest.T.Common.CertHarness",
+  "LeanQbeTest.T.Common.Fixtures",
+  "LeanQbeTest.T.CompilerAuditArm64",
+  "LeanQbeTest.T.CompilerAuditSpec",
+  "LeanQbeTest.T.CompilerAuditX64",
+  "LeanQbeTest.T.CopyTest",
+  "LeanQbeTest.T.DceTest",
+  "LeanQbeTest.T.DebugAsmTest",
+  "LeanQbeTest.T.DivConstTest",
+  "LeanQbeTest.T.Examples",
+  "LeanQbeTest.T.FlagRaOptArm64Test",
+  "LeanQbeTest.T.FlagRaOptTest",
+  "LeanQbeTest.T.FoldTest",
+  "LeanQbeTest.T.GroupLfpTest",
+  "LeanQbeTest.T.GvnTest",
+  "LeanQbeTest.T.IfOptB5Test",
+  "LeanQbeTest.T.IfOptTest",
+  "LeanQbeTest.T.InlineB5Test",
+  "LeanQbeTest.T.InlinePolicyB5Test",
+  "LeanQbeTest.T.InlineTest",
+  "LeanQbeTest.T.InvertJnzArm64Test",
+  "LeanQbeTest.T.InvertJnzTest",
+  "LeanQbeTest.T.KitTest",
+  "LeanQbeTest.T.LcnfAudit",
+  "LeanQbeTest.T.LcnfC0BigNumTest",
+  "LeanQbeTest.T.LcnfC0ContainersTest",
+  "LeanQbeTest.T.LcnfC0RtTest",
+  "LeanQbeTest.T.LcnfP5Test",
+  "LeanQbeTest.T.LeanLCNFFromIRTest",
+  "LeanQbeTest.T.LeanLCNFTest",
+  "LeanQbeTest.T.LeanLRCTest",
+  "LeanQbeTest.T.LegalTest",
+  "LeanQbeTest.T.LinkBudgetLfpTest",
+  "LeanQbeTest.T.LinkLfpTest",
+  "LeanQbeTest.T.LinkRecTest",
+  "LeanQbeTest.T.LinkSccTest",
+  "LeanQbeTest.T.LitmusProgsTest",
+  "LeanQbeTest.T.LratAuditArm64",
+  "LeanQbeTest.T.LratAuditSpec",
+  "LeanQbeTest.T.LratAuditX64",
+  "LeanQbeTest.T.LratBytesTest",
+  "LeanQbeTest.T.MainCertArm64Test",
+  "LeanQbeTest.T.MainCertBudgetSccTest",
+  "LeanQbeTest.T.MainCertInlineArm64Test",
+  "LeanQbeTest.T.MainCertInlineChunkTest",
+  "LeanQbeTest.T.MainCertInlineTest",
+  "LeanQbeTest.T.MainCertSccFixtures",
+  "LeanQbeTest.T.MainCertSccTest",
+  "LeanQbeTest.T.MainCertTest",
+  "LeanQbeTest.T.MainLinkAmd64Test",
+  "LeanQbeTest.T.MainLinkArm64Test",
+  "LeanQbeTest.T.MainLinkFixtures",
+  "LeanQbeTest.T.MainLinkReuseAmd64Test",
+  "LeanQbeTest.T.MainTest",
+  "LeanQbeTest.T.MemLoadB5Test",
+  "LeanQbeTest.T.MemLoadTest",
+  "LeanQbeTest.T.NotationTest",
+  "LeanQbeTest.T.OptTest",
+  "LeanQbeTest.T.PassOrderStage1Test",
+  "LeanQbeTest.T.PeelTest",
+  "LeanQbeTest.T.PrintATTAlignX64Test",
+  "LeanQbeTest.T.PrintAsm0Test",
+  "LeanQbeTest.T.PrintCppTest",
+  "LeanQbeTest.T.PrintQbeTest",
+  "LeanQbeTest.T.ProofKitTest",
+  "LeanQbeTest.T.RegaLitmusProgs",
+  "LeanQbeTest.T.RegaLitmusTarget",
+  "LeanQbeTest.T.RegaLitmusTest",
+  "LeanQbeTest.T.RegaScaleTest",
+  "LeanQbeTest.T.RegaTestKit",
+  "LeanQbeTest.T.ReifyTest",
+  "LeanQbeTest.T.ScalarTargTest",
+  "LeanQbeTest.T.ScaleTest",
+  "LeanQbeTest.T.SccTest",
+  "LeanQbeTest.T.SlabLayoutTest",
+  "LeanQbeTest.T.SlotCmpRmwX64Test",
+  "LeanQbeTest.T.Smoke",
+  "LeanQbeTest.T.TargetConsumerTest",
+  "LeanQbeTest.T.UnifiedBedrock2Arm64Test",
+  "LeanQbeTest.T.UnifiedBedrock2Test",
+  "LeanQbeTest.T.UnifiedBedrock2X64Test",
+  "LeanQbeTest.T.UnifiedPipelineTest",
+  "LeanQbeTest.T.WasmAuditArm64",
+  "LeanQbeTest.T.WasmAuditSpec",
+  "LeanQbeTest.T.WasmAuditX64",
+  "LeanQbeTest.T.WasmBulkMemArm64",
+  "LeanQbeTest.T.WasmBulkMemTest",
+  "LeanQbeTest.T.WasmBulkMemX64",
+  "LeanQbeTest.T.WasmCertKit",
+  "LeanQbeTest.T.WasmDecodeTest",
+  "LeanQbeTest.T.WorkloadsAuditArm64",
+  "LeanQbeTest.T.WorkloadsAuditSpec",
+  "LeanQbeTest.T.WorkloadsAuditX64",
+  "LeanQbeTest.T.X64Lea3Test",
+  "LeanQbeTest.T.X64Zext32ElideTest",
+  "LeanQbeTest.T.ZeroPeelKernelTest",
+  "LeanQbeTest.T.ZeroPeelTest",
+]
+
 # Generic: must never import Kraken.X64 or Kraken.AArch64 (directly or transitively).
 [[lean_lib]]
 name = "LeanQbe"
@@ -59,6 +263,12 @@ root = "Main"
 [[lean_exe]]
 name = "leanqbe-arm64"
 root = "MainArm64"
+
+# Optional compiled single-session `.olean` axiom and `isUnsafe` auditor (Step 4 of check.sh).
+[[lean_exe]]
+name = "audit_axioms"
+root = "scripts.AuditAxioms"
+supportInterpreter = true
 
 # Kraken (same repository). Not in defaultTargets: build explicitly with
 # `lake build Kraken KrakenAArch64 ...` when needed.

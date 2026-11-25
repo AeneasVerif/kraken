@@ -27,6 +27,7 @@ FAIL_CLOSED_FILES: frozenset[str] = frozenset(
         "lean-toolchain",
         "lake-manifest.json",
         "scripts/check.sh",
+        "scripts/AuditAxioms.lean",
         "scripts/rdeps_scope.py",
         "scripts/lean_imports.py",
         "scripts/sync_hubs.py",

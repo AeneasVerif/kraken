@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit & smoke tests for P0-1/P0-2/P0-4/P0-5/P2-2 infrastructure scripts."""
+"""Unit & smoke tests for P0-1/P0-2/P0-4/P0-5/P1-1/P2-1/P2-2 infrastructure scripts."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -100,13 +101,13 @@ class TestRdepsScope(unittest.TestCase):
             REPO_ROOT,
             [
                 "LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean",
-                "LeanQbe/T/Examples/Kissat/BaseHub.lean",
+                "LeanQbe/T/Examples/Kissat/FidelityHub.lean",
             ],
         )
         self.assertIsNotNone(mods)
         assert mods is not None
         self.assertIn("LeanQbe.T.Examples.Kissat.FullFidelityAssembly", mods)
-        self.assertNotIn("LeanQbe.T.Examples.Kissat.BaseHub", mods)
+        self.assertNotIn("LeanQbe.T.Examples.Kissat.FidelityHub", mods)
         self.assertLess(len(mods), 40)
 
     def test_fail_closed_cases(self) -> None:
@@ -115,7 +116,13 @@ class TestRdepsScope(unittest.TestCase):
         # Deletion / missing file
         self.assertIsNone(rs.compute_rdeps(REPO_ROOT, ["LeanQbe/T/DoesNotExist.lean"]))
         # Toolchain / gate files
-        for f in ("lakefile.toml", "lean-toolchain", "lake-manifest.json", "scripts/check.sh"):
+        for f in (
+            "lakefile.toml",
+            "lean-toolchain",
+            "lake-manifest.json",
+            "scripts/check.sh",
+            "scripts/AuditAxioms.lean",
+        ):
             self.assertIsNone(rs.compute_rdeps(REPO_ROOT, [f]), f)
         # Barrel-only edit -> no non-barrel seeds -> fail closed
         self.assertIsNone(rs.compute_rdeps(REPO_ROOT, ["LeanQbe.lean"]))
@@ -263,6 +270,7 @@ class TestCheckAndFastLandSmoke(unittest.TestCase):
 
         self.assertEqual(classify(["scripts/preflight.sh", "scripts/select_tests.py"]), "class0")
         self.assertEqual(classify(["scripts/check.sh"]), "full")
+        self.assertEqual(classify(["scripts/AuditAxioms.lean"]), "full")
         self.assertEqual(classify(["LeanQbe/T/Amd64/Frame.lean"]), "x64")
         self.assertEqual(classify(["LeanQbe/T/Arm64/Frame.lean"]), "arm64")
 
@@ -378,6 +386,82 @@ class TestCheckAndFastLandSmoke(unittest.TestCase):
             self.assertEqual(det_override.returncode, 0, det_override.stdout + det_override.stderr)
             self.assertIn("will CAS-update refs/heads/feature", det_override.stdout)
             self.assertIn("CHECK_SCOPE=auto", det_override.stdout)
+
+
+class TestP1DecouplingAndHubs(unittest.TestCase):
+    def test_kissat_hub_split_classification(self) -> None:
+        pfx = "LeanQbe.T.Examples.Kissat."
+        cases = {
+            f"{pfx}FullFidelityAssembly": f"{pfx}FidelityHub",
+            f"{pfx}FullM8CoreParity": f"{pfx}M8Hub",
+            f"{pfx}FullM7": f"{pfx}M7Hub",
+            f"{pfx}FullM6": f"{pfx}M6Hub",
+            f"{pfx}FullM5": f"{pfx}M5Hub",
+            f"{pfx}FullM4": f"{pfx}M4Hub",
+            f"{pfx}FullM3": f"{pfx}M3Hub",
+            f"{pfx}Core": f"{pfx}BaseHub",
+        }
+        for mod, want in cases.items():
+            self.assertEqual(sh.classify_module(mod, li.LEGACY_CERT_RE), want, mod)
+            self.assertIn(want, sh.ALL_HUBS)
+            self.assertIn(want, rs.BARRELS)
+
+    def test_arch_roots_import_corehub_not_leanqbe(self) -> None:
+        for root_mod in (
+            "LeanQbeAmd64",
+            "LeanQbeArm64",
+            "LeanQbeLegacyAmd64",
+            "LeanQbeLegacyArm64",
+        ):
+            _, imps = li.parse_imports(REPO_ROOT / li.mod_to_rel_path(root_mod))
+            direct = {i.module for i in imps}
+            self.assertIn("LeanQbe.T.CoreHub", direct, root_mod)
+            self.assertNotIn("LeanQbe", direct, root_mod)
+
+    def test_four_unit_tests_decoupled_from_kissat(self) -> None:
+        imp_cache: dict[str, list[str]] = {}
+
+        def local_closure(root_mod: str) -> set[str]:
+            seen: set[str] = set()
+            stack = [root_mod]
+            while stack:
+                cur = stack.pop()
+                if cur in seen:
+                    continue
+                p = REPO_ROOT / li.mod_to_rel_path(cur)
+                if not p.is_file():
+                    continue
+                seen.add(cur)
+                if cur not in imp_cache:
+                    imp_cache[cur] = [i.module for i in li.parse_imports(p)[1]]
+                for nxt in imp_cache[cur]:
+                    if nxt not in seen:
+                        stack.append(nxt)
+            return seen
+
+        for test_mod in (
+            "LeanQbeTest.T.KitTest",
+            "LeanQbeTest.T.LegalTest",
+            "LeanQbeTest.T.NotationTest",
+            "LeanQbeTest.T.TargetConsumerTest",
+        ):
+            cl = local_closure(test_mod)
+            self.assertLess(len(cl), 220, f"{test_mod} closure too large: {len(cl)}")
+            kissat = [m for m in cl if "Examples.Kissat" in m]
+            self.assertEqual(kissat, [], f"{test_mod} leaked Kissat modules: {kissat[:5]}")
+
+    def test_optional_lakefile_targets_preserve_defaults(self) -> None:
+        data = tomllib.loads((REPO_ROOT / "lakefile.toml").read_text(encoding="utf-8"))
+        self.assertEqual(
+            data["defaultTargets"],
+            ["LeanQbe", "LeanQbeAmd64", "LeanQbeArm64", "LeanQbeTest", "leanqbe", "leanqbe-arm64"],
+        )
+        libs = {entry["name"] for entry in data.get("lean_lib", [])}
+        for name in ("LeanQbeCore", "LeanQbeAmd64Core", "LeanQbeArm64Core", "LeanQbeCoreTest"):
+            self.assertIn(name, libs)
+        exes = {entry["name"]: entry for entry in data.get("lean_exe", [])}
+        self.assertIn("audit_axioms", exes)
+        self.assertEqual(exes["audit_axioms"]["root"], "scripts.AuditAxioms")
 
 
 if __name__ == "__main__":
