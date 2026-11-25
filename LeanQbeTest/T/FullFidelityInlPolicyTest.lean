@@ -26,7 +26,7 @@ on the purified `469`-function `KissatFidelity` spine (excising `D-11` `full_bve
 `m8SweepV2CoreParityModule`):
 
 * **Post-inline module metrics (`469` fns, `0` `m8Opt`/`xor`/`prelearn`/`wavea`/`sbva` fns):**
-  - IR static call sites: `951 -> 731` (`-220`, loop calls `627 -> 468`)
+  - IR static call sites: `951 -> 749` (`-202`, loop calls `627 -> 478`; `full_unwatch_large` OOL)
   - Max post-inline function IR size: `1,009 -> 2,792` (`<= 3,500`, `0` fns `> 3,500`)
   - Dual-arch `Driver.compileFns` checks: `469/469` pass cleanly on both `x86-64` and `AArch64`
   - `x86-64` static ELF `.text` & ASM calls (`pureFidMod`):
@@ -324,10 +324,15 @@ theorem pureFidFns_wf : ∀ f ∈ pureFidMod.fns, f.Wf := by
 #guard fidInlPolicy.maxCalleeLoops == some 1
 #guard fidInlPolicy.maxTotalDup == 1500
 #guard fidInlPolicy.maxCallerCalls == 24
-#guard fidInlPolicy.keepOutOfLine == ["m6_hdr_init"]
+#guard fidInlPolicy.keepOutOfLine == ["m6_hdr_init", "full_watch_push_slow_m6"]
 
--- Keep `m6_hdr_init` strictly OOL (`budget = 0` + `keepOutOfLine`)
+-- Keep `m6_hdr_init` and `full_watch_push_slow_m6` strictly OOL (`budget = 0` + `keepOutOfLine`)
 #guard fidPgoBudget "m6_hdr_init" == 0
+#guard fidPgoBudget "full_watch_push_slow_m6" == 0
+#guard fidPgoBudget "full_unwatch_large" == 0
+#guard fidPgoBudget "full_watch_push_m6" == 150
+#guard fidPgoBudget "full_k6_ana_cl_fid" == 145
+#guard fidPgoBudget "full_cong_sift_pairs_fid" == 95
 -- Fixed underbudgeted PGO entries
 #guard fidPgoBudget "full_cong_find" >= 50
 #guard fidPgoBudget "full_sort_u32" >= 160
@@ -346,7 +351,7 @@ theorem pureFidFns_wf : ∀ f ∈ pureFidMod.fns, f.Wf := by
 #guard fidPgoBudget "full_cong_unit_fold" >= 72
 #guard fidPgoBudget "m6_hdr_dr_init" >= 60
 #guard fidPgoBudget "m6_hdr_sync_legacy_tiers" >= 30
-#guard fidPgoBudget "m6_hdr_decide_fid" >= 90
+#guard fidPgoBudget "m6_hdr_decide_fid" >= 130
 #guard fidPgoBudget "full_bump_var" >= 175
 #guard fidPgoBudget "full_m6_dense_prop" >= 44
 #guard fidPgoBudget "full_elim_dticks" >= 42
@@ -388,8 +393,8 @@ def fidComparisonOk : Bool :=
     checkDriver fid.fns "full_k6_extract_and_solve_m8" 739 2
   rawOk &&
     m7.fns.length == 469 && fid.fns.length == 469 &&
-    m7Calls == 951 && fidCalls == 731 && fidCalls < m7Calls &&
-    m7LpCalls == 627 && fidLpCalls == 468 && fidLpCalls < m7LpCalls &&
+    m7Calls == 951 && fidCalls == 749 && fidCalls < m7Calls &&
+    m7LpCalls == 627 && fidLpCalls == 478 && fidLpCalls < m7LpCalls &&
     m7MaxSz == 1009 && fidMaxSz == 2792 && noOversize &&
     fid.checkAcyclic == true && drvOk
 

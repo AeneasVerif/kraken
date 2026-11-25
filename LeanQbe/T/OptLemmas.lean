@@ -23,6 +23,7 @@ import LeanQbe.T.LicmLemmas
 import LeanQbe.T.AddrRangeOptLemmas
 import LeanQbe.T.LoopRotateLemmas
 import LeanQbe.T.CondThreadOptLemmas
+import LeanQbe.T.TailDupLemmas
 import LeanQbe.T.ZeroPeelLemmas
 import LeanQbe.T.AssumeBitsLemmas
 
@@ -424,7 +425,8 @@ theorem Func.lateCfg_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
 theorem Func.lateCondThread_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.lateCondThread f).Wf := by
   rw [Func.lateCondThread_eq]
-  exact Func.mergeRets_wf (Func.dceP_wf (Func.fold_wf (Func.condThreadLateOpt_wf f)))
+  exact Func.mergeRets_wf
+    (Func.tailDup_wf (Func.dceP_wf (Func.fold_wf (Func.condThreadLateOpt_wf f))))
 
 /-- `Func.lateCondThread` refines function contracts. -/
 theorem Func.lateCondThread_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
@@ -437,13 +439,17 @@ theorem Func.lateCondThread_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) 
   have hfd_sp := Func.fold_spec hct_wf hct_sp
   have hdp_wf := Func.dceP_wf hfd_wf
   have hdp_sp := Func.dceP_spec hfd_wf hfd_sp
-  exact Func.mergeRets_spec hdp_wf hdp_sp
+  exact Func.mergeRets_spec (Func.tailDup_wf hdp_wf) (tailDup_wp hdp_wf {} hdp_sp)
 
 /-- Post-`Legal` mid-end (`Func.lateOpt`) preserves well-formedness. -/
 theorem Func.lateOpt_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.lateOpt f).Wf := by
   rw [Func.lateOpt_eq]
   exact Func.renorm_wf _
+
+section LateOptIrred
+
+attribute [local irreducible] Func.renorm Func.tailDup Func.dceP Func.fold Func.condThreadLateOpt
 
 /-- Post-`Legal` mid-end (`Func.lateOpt`) refines function contracts across every pass. -/
 theorem Func.lateOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
@@ -452,6 +458,8 @@ theorem Func.lateOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
   rw [Func.lateOpt_eq]
   apply Func.renorm_spec (Func.mergeRets_wf (Func.renorm_wf _))
   apply Func.mergeRets_spec (Func.renorm_wf _)
+  apply Func.renorm_spec (Func.tailDup_wf (Func.renorm_wf _) {})
+  apply tailDup_wp (Func.renorm_wf _) {}
   apply Func.renorm_spec (Func.dceP_wf (Func.fold_wf (Func.renorm_wf _)))
   apply Func.dceP_spec (Func.fold_wf (Func.renorm_wf _))
   apply Func.fold_spec (Func.renorm_wf _)
@@ -467,6 +475,8 @@ theorem Func.lateOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
   apply Func.lateCorePost_spec (Func.renorm_wf _)
   apply Func.renorm_spec (Func.lateCorePre_wf hf)
   exact Func.lateCorePre_spec hf h
+
+end LateOptIrred
 
 /-- `Fn.renorm` unconditionally produces a well-formed function body. -/
 theorem Fn.renorm_wf (fn : Fn) : (Fn.renorm fn).Wf :=

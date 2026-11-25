@@ -81,7 +81,13 @@ def fidPgoBudget : Sym → Nat
   | "m6_hdr_reduce_delay" => 48
   | "m6_hdr_dr_init" => 60
   | "m6_hdr_sync_legacy_tiers" => 30
-  | "m6_hdr_decide_fid" => 90
+  | "m6_hdr_decide_fid" => 130
+  -- Keep slow/cold watch helpers OOL; inline hot `full_watch_push_m6`, `k6`, & `cong` helpers
+  | "full_watch_push_m6" => 150
+  | "full_watch_push_slow_m6" => 0
+  | "full_unwatch_large" => 0
+  | "full_k6_ana_cl_fid" => 145
+  | "full_cong_sift_pairs_fid" => 95
   -- Newly covered hot leaves and Fidelity helpers (`0` beyond-upstream heuristics)
   | "full_bva_match_large_fid" => 65
   | "full_reorder_sift_fid" => 105
@@ -125,7 +131,7 @@ def fidPgoBudget : Sym → Nat
   | s => m7PgoBudget s
 
 /-- Profile-guided `InlinePolicy` for `KissatFidelity` (`maxCallerSize := 4000`, `leafMax := 165`,
-`m6_hdr_init` kept out-of-line). -/
+`m6_hdr_init` and `full_watch_push_slow_m6` kept out-of-line). -/
 def fidInlPolicy : InlinePolicy :=
   { m7InlPolicy with
     budget := fidPgoBudget
@@ -134,7 +140,7 @@ def fidInlPolicy : InlinePolicy :=
     maxCalleeLoops := some 1
     maxTotalDup := 1500
     maxCallerCalls := 24
-    keepOutOfLine := ["m6_hdr_init"] }
+    keepOutOfLine := ["m6_hdr_init", "full_watch_push_slow_m6"] }
 
 /-- Zero-scan chunkable `InlinePolicy` matching `fidInlPolicy` on `KissatFidelity`: sets
 `singleSiteMax := 0`, `maxTotalDup := 0`, and `requireLoopSite := false` so `inlSiteCounts` and
