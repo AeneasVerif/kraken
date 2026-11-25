@@ -307,9 +307,9 @@ def lateLicmAddrLoop : Func [i64, i32, i64] [i64] := fun _ _ (ar, cref, n, ()) =
 
 theorem lateLicmAddrLoop_lateOpt_out : Func.lateOpt lateLicmAddrLoop =
     fun _ _ (ar, cref, n, ()) =>
-      .group (sig := [])
-        (fun _ => .nil)
-        (fun _ =>
+      .group (sig := [[i64]])
+        (fun (_, ()) => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+        (fun (exit_lbl, ()) =>
           .let_ (op1 (.zext 32 64) (.var cref)) fun (c64, ()) =>
           .let_ (op2 (.add i64) (.var c64) (.imm 3)) fun (c3, ()) =>
           .let_ (op2 (.shl i64) (.var c3) (.imm 2)) fun (off, ()) =>
@@ -323,11 +323,11 @@ theorem lateLicmAddrLoop_lateOpt_out : Func.lateOpt lateLicmAddrLoop =
               .let_ (op2 (.add i64) (.var acc) (.var w64)) fun (acc', ()) =>
               .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
               .let_ (op2 (.cmp .eq i64) (.var i') (.imm 0)) fun (z1, ()) =>
-              .jnz (.var z1) (.ret (.var acc', ()))
+              .jnz (.var z1) (.jump exit_lbl (.var acc', ()))
                 (.jump lp (.var i', .var acc', ()))) .nil)
             (fun (lp, ()) =>
               .let_ (op2 (.cmp .eq i64) (.var n) (.imm 0)) fun (z0, ()) =>
-              .jnz (.var z0) (.ret (.imm 0, ())) (.jump lp (.var n, .imm 0, ())))) := by
+              .jnz (.var z0) (.jump exit_lbl (.imm 0, ())) (.jump lp (.var n, .imm 0, ())))) := by
   t_kernel_rfl
 
 theorem lateLicmAddrLoop_wf : lateLicmAddrLoop.Wf := by t_wf_reify

@@ -138,8 +138,20 @@ structure CmpImmDef (V : Ty → Type) : Type where
   lhsKey : FKey (.bits w)
   imm : BitVec w
 
+/-- Provenance of a zero-extended `.bits m → .bits n` value (`0 < m < n`). -/
+structure ZextDef (V : Ty → Type) (n : Nat) : Type where
+  m : Nat
+  hm0 : 0 < m
+  hmn : m < n
+  src : Arg V (.bits m)
+  srcKey : FKey (.bits m)
+
 /-- Provenance of a `.bits n` linear address term, tracking operand loop depths. -/
 inductive AddrDef (V : Ty → Type) (n : Nat) : Type
+  /-- `x + disp` where `x` is a variable at loop depth `dx`. -/
+  | addVC (x : Arg V (.bits n)) (dx : Nat) (disp : BitVec n)
+  /-- `(x <<< sh) + disp` where `sh < n` and `x` has loop depth `dx`. -/
+  | shlVC (x : Arg V (.bits n)) (dx : Nat) (sh : Nat) (hsh : sh < n) (disp : BitVec n)
   /-- `x + y + disp` where `x, y` are variables at loop depths `dx, dy`. -/
   | addVV (x : Arg V (.bits n)) (dx : Nat) (y : Arg V (.bits n)) (dy : Nat) (disp : BitVec n)
   /-- `x - y + disp` where `x, y` are variables at loop depths `dx, dy`. -/
@@ -151,19 +163,24 @@ inductive AddrDef (V : Ty → Type) (n : Nat) : Type
   | shlSubVV (x : Arg V (.bits n)) (dx : Nat) (y : Arg V (.bits n)) (dy : Nat)
       (sh : Nat) (hsh : sh < n) (disp : BitVec n)
 
+/-- Combined `.bits n` provenance: optional linear address and optional zero-extension source. -/
+structure BitsProv (V : Ty → Type) (n : Nat) : Type where
+  addr? : Option (AddrDef V n) := none
+  zext? : Option (ZextDef V n) := none
+
 /-- Type-indexed provenance carried by `ARVal`:
 * `.bool`: optional immediate comparison `CmpImmDef V`;
-* `.bits n`: optional linear address term `AddrDef V n` (populated for `n = 64`);
+* `.bits n`: `BitsProv V n` (`addr?` for `n = 64` linear addresses, `zext?` for `.zext m n`);
 * all other types: `Unit`. -/
 abbrev ARProv (V : Ty → Type) : Ty → Type
   | .bool => Option (CmpImmDef V)
-  | .bits n => Option (AddrDef V n)
+  | .bits n => BitsProv V n
   | .float _ | .pair _ _ => Unit
 
 /-- Absence of provenance at any type `t`. -/
 def ARProv.none {V : Ty → Type} : {t : Ty} → ARProv V t
   | .bool => Option.none
-  | .bits _ => Option.none
+  | .bits _ => {}
   | .float _ | .pair _ _ => ()
 
 /-- Value representation threaded through `addrRangeSweep`. -/
@@ -276,7 +293,7 @@ def tryAddrReassocOne {V : Ty → Type} {n : Nat}
   if base.arOut.imm?.isSome then none
   else
     let bd := base.arDepth
-    match off.arProv with
+    match off.arProv.addr? with
     | some (.shlAddVV x dx y dy sh hsh disp) =>
       if Nat.blt (Nat.max bd dx) dy then
         some (.addrShl n false base.arOut x y dy sh hsh disp)
@@ -297,7 +314,7 @@ def tryAddrReassocOne {V : Ty → Type} {n : Nat}
       if Nat.blt (Nat.max bd dy) dx then
         some (.addrPlain n true base.arOut y x (Nat.max bd dy) dx disp)
       else none
-    | none => none
+    | some (.addVC _ _ _) | some (.shlVC _ _ _ _ _) | none => none
 
 /-- Try collapsing `.and .bool` or `.or .bool` on two same-operand immediate comparisons into a
 single unsigned range check (or constant bool). -/
@@ -329,26 +346,37 @@ def tryRangeStep {V : Ty → Type} (isOr : Bool) (outD next : Nat)
     else none
   | _, _ => none
 
+/-- Shift the constant displacement of an `AddrDef` by `c`. -/
+def AddrDef.shiftDisp {V : Ty → Type} {n : Nat} (c : BitVec n) : AddrDef V n → AddrDef V n
+  | .addVC x dx d => .addVC x dx (d + c)
+  | .shlVC x dx sh hsh d => .shlVC x dx sh hsh (d + c)
+  | .addVV x dx y dy d => .addVV x dx y dy (d + c)
+  | .subVV x dx y dy d => .subVV x dx y dy (d + c)
+  | .shlAddVV x dx y dy sh hsh d => .shlAddVV x dx y dy sh hsh (d + c)
+  | .shlSubVV x dx y dy sh hsh d => .shlSubVV x dx y dy sh hsh (d + c)
+
 /-- Record `AddrDef` provenance on a kept `.add (.bits n)` operation (populated for `n = 64`). -/
 def recordAddProv {V : Ty → Type} {n : Nat}
     (a b : Arg (ARVal V) (.bits n)) : Option (AddrDef V n) :=
   if n != 64 then none
   else match a.arOut.imm?, b.arOut.imm? with
-  | none, none => some (.addVV a.arOut a.arDepth b.arOut b.arDepth 0#n)
+  | none, none =>
+    match a.arProv.addr?, b.arProv.addr? with
+    | some (.addVC x dx d1), some (.addVC y dy d2) => some (.addVV x dx y dy (d1 + d2))
+    | some (.addVC x dx d1), _ => some (.addVV x dx b.arOut b.arDepth d1)
+    | _, some (.addVC y dy d2) => some (.addVV a.arOut a.arDepth y dy d2)
+    | some (.shlVC x dx sh1 hsh1 d1), some (.shlVC y dy sh2 _ d2) =>
+      if sh1 == sh2 then some (.shlAddVV x dx y dy sh1 hsh1 (d1 + d2))
+      else some (.addVV a.arOut a.arDepth b.arOut b.arDepth 0#n)
+    | _, _ => some (.addVV a.arOut a.arDepth b.arOut b.arDepth 0#n)
   | none, some c =>
-    match a.arProv with
-    | some (.addVV x dx y dy d) => some (.addVV x dx y dy (d + c))
-    | some (.subVV x dx y dy d) => some (.subVV x dx y dy (d + c))
-    | some (.shlAddVV x dx y dy sh hsh d) => some (.shlAddVV x dx y dy sh hsh (d + c))
-    | some (.shlSubVV x dx y dy sh hsh d) => some (.shlSubVV x dx y dy sh hsh (d + c))
-    | _ => none
+    match a.arProv.addr? with
+    | some ad => some (ad.shiftDisp c)
+    | none => some (.addVC a.arOut a.arDepth c)
   | some c, none =>
-    match b.arProv with
-    | some (.addVV x dx y dy d) => some (.addVV x dx y dy (d + c))
-    | some (.subVV x dx y dy d) => some (.subVV x dx y dy (d + c))
-    | some (.shlAddVV x dx y dy sh hsh d) => some (.shlAddVV x dx y dy sh hsh (d + c))
-    | some (.shlSubVV x dx y dy sh hsh d) => some (.shlSubVV x dx y dy sh hsh (d + c))
-    | _ => none
+    match b.arProv.addr? with
+    | some ad => some (ad.shiftDisp c)
+    | none => some (.addVC b.arOut b.arDepth c)
   | some _, some _ => none
 
 /-- Record `AddrDef` provenance on a kept `.sub (.bits n)` operation (populated for `n = 64`). -/
@@ -356,14 +384,19 @@ def recordSubProv {V : Ty → Type} {n : Nat}
     (a b : Arg (ARVal V) (.bits n)) : Option (AddrDef V n) :=
   if n != 64 then none
   else match a.arOut.imm?, b.arOut.imm? with
-  | none, none => some (.subVV a.arOut a.arDepth b.arOut b.arDepth 0#n)
+  | none, none =>
+    match a.arProv.addr?, b.arProv.addr? with
+    | some (.addVC x dx d1), some (.addVC y dy d2) => some (.subVV x dx y dy (d1 - d2))
+    | some (.addVC x dx d1), _ => some (.subVV x dx b.arOut b.arDepth d1)
+    | _, some (.addVC y dy d2) => some (.subVV a.arOut a.arDepth y dy (-d2))
+    | some (.shlVC x dx sh1 hsh1 d1), some (.shlVC y dy sh2 _ d2) =>
+      if sh1 == sh2 then some (.shlSubVV x dx y dy sh1 hsh1 (d1 - d2))
+      else some (.subVV a.arOut a.arDepth b.arOut b.arDepth 0#n)
+    | _, _ => some (.subVV a.arOut a.arDepth b.arOut b.arDepth 0#n)
   | none, some c =>
-    match a.arProv with
-    | some (.addVV x dx y dy d) => some (.addVV x dx y dy (d - c))
-    | some (.subVV x dx y dy d) => some (.subVV x dx y dy (d - c))
-    | some (.shlAddVV x dx y dy sh hsh d) => some (.shlAddVV x dx y dy sh hsh (d - c))
-    | some (.shlSubVV x dx y dy sh hsh d) => some (.shlSubVV x dx y dy sh hsh (d - c))
-    | _ => none
+    match a.arProv.addr? with
+    | some ad => some (ad.shiftDisp (-c))
+    | none => some (.addVC a.arOut a.arDepth (-c))
   | _, _ => none
 
 /-- Record `AddrDef` provenance on a kept `.shl (.bits n)` operation (populated for `n = 64`). -/
@@ -374,7 +407,11 @@ def recordShlProv {V : Ty → Type} {n : Nat}
   | some k =>
     let kn := k.toNat
     if hkn : 0 < kn ∧ kn < n then
-      match a.arProv with
+      match a.arProv.addr? with
+      | some (.addVC x dx d) => some (.shlVC x dx kn hkn.2 (d <<< kn))
+      | some (.shlVC x dx sh _ d) =>
+        if hsum : sh + kn < n then some (.shlVC x dx (sh + kn) hsum (d <<< kn))
+        else none
       | some (.addVV x dx y dy d) => some (.shlAddVV x dx y dy kn hkn.2 (d <<< kn))
       | some (.subVV x dx y dy d) => some (.shlSubVV x dx y dy kn hkn.2 (d <<< kn))
       | some (.shlAddVV x dx y dy sh _ d) =>
@@ -383,16 +420,47 @@ def recordShlProv {V : Ty → Type} {n : Nat}
       | some (.shlSubVV x dx y dy sh _ d) =>
         if hsum : sh + kn < n then some (.shlSubVV x dx y dy (sh + kn) hsum (d <<< kn))
         else none
-      | none => none
+      | none => some (.shlVC a.arOut a.arDepth kn hkn.2 0#n)
     else none
   | none => none
+
+/-- True iff `o` is a signed comparison (`slt`, `sle`, `sgt`, `sge`). -/
+def arCmpIsSigned : CmpOp → Bool
+  | .slt | .sle | .sgt | .sge => true
+  | _ => false
+
+/-- Convert signed comparison opcodes to unsigned counterparts, leaving `eq`/`ne`/unsigned as-is. -/
+def arCmpToUnsigned : CmpOp → CmpOp
+  | .slt => .ult | .sle => .ule | .sgt => .ugt | .sge => .uge | o => o
+
+/-- Record `ZextDef` provenance on a kept `.zext m n` operation when `0 < m < n`. -/
+def recordZextProv {V : Ty → Type} (m n : Nat) (a : Arg (ARVal V) (.bits m)) : BitsProv V n :=
+  if h : 0 < m ∧ m < n then
+    match a.arProv.zext? with
+    | some zd =>
+      { zext? := some ⟨zd.m, zd.hm0, Nat.lt_trans zd.hmn h.2, zd.src, zd.srcKey⟩ }
+    | none =>
+      { zext? := some ⟨m, h.1, h.2, a.arOut, a.arKey⟩ }
+  else {}
+
+/-- Build `CmpImmDef` for `a o c`, narrowing through `ZextDef` when `c` fits in `zd.m` bits. -/
+def mkCmpImmFromArg {V : Ty → Type} {n : Nat} (o : CmpOp)
+    (a : Arg (ARVal V) (.bits n)) (c : BitVec n) : CmpImmDef V :=
+  match a.arProv.zext? with
+  | some zd =>
+    let c' := c.setWidth zd.m
+    if c'.setWidth n == c then
+      let o' := if arCmpIsSigned o then arCmpToUnsigned o else o
+      ⟨zd.m, o', zd.src, zd.srcKey, c'⟩
+    else ⟨n, o, a.arOut, a.arKey, c⟩
+  | none => ⟨n, o, a.arOut, a.arKey, c⟩
 
 /-- Record `CmpImmDef` provenance on a kept `.cmp o (.bits w)` operation. -/
 def recordCmpImmProv {V : Ty → Type} {w : Nat} (o : CmpOp)
     (a b : Arg (ARVal V) (.bits w)) : Option (CmpImmDef V) :=
   match a.arOut.imm?, b.arOut.imm? with
-  | _, some c => some ⟨w, o, a.arOut, a.arKey, c⟩
-  | some c, none => some ⟨w, o.swap, b.arOut, b.arKey, c⟩
+  | _, some c => some (mkCmpImmFromArg o a c)
+  | some c, none => some (mkCmpImmFromArg o.swap b c)
   | none, none => none
 
 /-- Wrap the result(s) of a kept `.let_` operation into `ARVal V`s, recording provenance. -/
@@ -400,17 +468,20 @@ def wrapKept {V : Ty → Type} (outD next : Nat) {sig ts : List Ty}
     (code : OpCode sig ts) (args : Tup (Arg (ARVal V)) sig) (xs : Tup V ts) : Tup (ARVal V) ts :=
   match code, args, xs with
   | .add (.bits _), (a, b, ()), (r, ()) =>
-    (⟨.var r, .var next, outD, recordAddProv a b⟩, ())
+    (⟨.var r, .var next, outD, { addr? := recordAddProv a b }⟩, ())
   | .sub (.bits _), (a, b, ()), (r, ()) =>
-    (⟨.var r, .var next, outD, recordSubProv a b⟩, ())
+    (⟨.var r, .var next, outD, { addr? := recordSubProv a b }⟩, ())
   | .shl (.bits _), (a, b, ()), (r, ()) =>
-    (⟨.var r, .var next, outD, recordShlProv a b⟩, ())
+    (⟨.var r, .var next, outD, { addr? := recordShlProv a b }⟩, ())
+  | .zext m _, (a, ()), (r, ()) =>
+    (⟨.var r, .var next, outD, recordZextProv m _ a⟩, ())
   | .copy (.bits _), (a, ()), (r, ()) =>
     (⟨.var r, .var next, outD, a.arProv⟩, ())
   | .cmp o (.bits _) .bool _, (a, b, ()), (r, ()) =>
     (⟨.var r, .var next, outD, recordCmpImmProv o a b⟩, ())
   | .not .bool, (a, ()), (r, ()) =>
-    (⟨.var r, .var next, outD, a.arProv.map fun cm => ⟨cm.w, cm.op.neg, cm.lhs, cm.lhsKey, cm.imm⟩⟩, ())
+    (⟨.var r, .var next, outD,
+      a.arProv.map fun cm => ⟨cm.w, cm.op.neg, cm.lhs, cm.lhsKey, cm.imm⟩⟩, ())
   | .copy .bool, (a, ()), (r, ()) =>
     (⟨.var r, .var next, outD, a.arProv⟩, ())
   | _, _, xs => freshARVals outD ts xs next
@@ -443,7 +514,8 @@ def Op.arStep {V : Ty → Type} {ts : List Ty} (curD next : Nat) (op : Op (ARVal
     else
       match tryRangeStep false outD next a b with
       | some st => st
-      | none => .emit1 (op2 (.and .bool) a.arOut b.arOut) (fun xs => freshARVals outD [.bool] xs next)
+      | none =>
+        .emit1 (op2 (.and .bool) a.arOut b.arOut) (fun xs => freshARVals outD [.bool] xs next)
   | .or .bool, (a, b, ()) =>
     if a.arOut.imm? == some true || b.arOut.imm? == some true then
       .elim (ARVal.ofImm true, ())
@@ -454,7 +526,8 @@ def Op.arStep {V : Ty → Type} {ts : List Ty} (curD next : Nat) (op : Op (ARVal
     else
       match tryRangeStep true outD next a b with
       | some st => st
-      | none => .emit1 (op2 (.or .bool) a.arOut b.arOut) (fun xs => freshARVals outD [.bool] xs next)
+      | none =>
+        .emit1 (op2 (.or .bool) a.arOut b.arOut) (fun xs => freshARVals outD [.bool] xs next)
   | code, args =>
     .emit1 ⟨code, tupArOut args⟩ (wrapKept outD next code args)
 
@@ -490,11 +563,11 @@ def addrRangeSweep {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
       .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
       if disp == 0#n then
         addrRangeSweep curD (next + 1) kPlan
-          (k (⟨.var t2, .var next, ivD, some (.addVV (.var t1) invD iv ivD 0#n)⟩, ()))
+          (k (⟨.var t2, .var next, ivD, { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩, ()))
       else
         .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
         addrRangeSweep curD (next + 1) kPlan
-          (k (⟨.var t3, .var next, ivD, some (.addVV (.var t1) invD iv ivD disp)⟩, ()))
+          (k (⟨.var t3, .var next, ivD, { addr? := some (.addVV (.var t1) invD iv ivD disp) }⟩, ()))
   | .load t a k =>
     .load t a.arOut fun v => addrRangeSweep curD (next + 1) plan.step1 (k (ARVal.fresh v next curD))
   | .store v a k =>

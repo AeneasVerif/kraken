@@ -646,7 +646,7 @@ theorem fn_mid_wf {lt : LegalTarget} {f : Fn} (hwf : f.Wf) : (f.mid lt).Wf := by
 
 /-- End-to-end WP refinement across the staged `Fn.mid` pipeline (`earlyOpt → Legal lt →
 lateCorePre → renorm → lateCorePost → renorm → lateCfgPre → renorm → lateCfgPost →
-loopRotate → mergeRets → renorm → lateCondThread → renorm`). -/
+loopRotate → renorm → lateCondThread → renorm`). -/
 theorem fn_mid_spec {lt : LegalTarget} {f : Fn} (hwf : f.Wf)
     (hsupp : (f.earlyOpt).body.supportsSource lt = true) (Γ : Env)
     {xs : Tup Val f.as} {xs' : Tup Val (lt.legalSig f.as)} (hxs : encodeTup lt f.as xs = xs')
