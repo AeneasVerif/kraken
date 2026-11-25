@@ -66,6 +66,8 @@ inductive EdgeKind : Type
   | direct (targetPc : BitVec 64)
   | select (tPc ePc : BitVec 64)
   | strideTable (basePc : BitVec 64) (targets : List (BitVec 64)) (needGuard : Bool)
+  | memTableGuarded (tblBase : BitVec 64) (targets : List (BitVec 64))
+  | memTableRo (tblBase : BitVec 64) (targets : List (BitVec 64)) (needGuard : Bool)
   | contCall (callee : Sym) (calleePc : BitVec 64) (dualRet : Bool) (retPc : BitVec 64)
       (altRetPc? : Option (BitVec 64))
   | contRet (isAlt : Bool)
@@ -138,19 +140,31 @@ inductive SymFact : Type
   | ultBound (lvl : Nat) (bound : BitVec 64)
   deriving DecidableEq, Repr
 
+/-- Recorded 64-bit load from a stride jump-table address `tblBase + 8 * idxLvl`. -/
+structure MemLoadEntry : Type where
+  valLvl  : Nat
+  tblBase : BitVec 64
+  idxLvl  : Nat
+  clean   : Bool
+  deriving DecidableEq, Repr
+
 /-- Forward symbolic state synchronized with de Bruijn stack `vs` (head = index `0`). -/
 structure SymState : Type where
-  env   : List SymVal
-  ctx   : List Ty
-  facts : List SymFact
+  env       : List SymVal
+  ctx       : List Ty
+  facts     : List SymFact
+  memLoads  : List MemLoadEntry := []
+  hasStored : Bool := false
   deriving DecidableEq, Repr
 end
 
 /-- Initial symbolic state matching `regCtx` (`[r3, r2, r1, rv, rp, sp]`, levels `5..0`). -/
 @[expose] def SymState.init : SymState where
-  env   := [.top, .top, .top, .top, .rpOffset 0#64, .top]
-  ctx   := regCtx
-  facts := []
+  env       := [.top, .top, .top, .top, .rpOffset 0#64, .top]
+  ctx       := regCtx
+  facts     := []
+  memLoads  := []
+  hasStored := false
 
 /-- Look up a symbolic value by de Bruijn index (`0` = head). -/
 @[expose] def SymState.getSym (st : SymState) (idx : Nat) : SymVal :=
@@ -202,9 +216,9 @@ end
 
 /-- Push new result types + symbolic values preserving de Bruijn head-first alignment. -/
 @[expose] def SymState.pushRes (st : SymState) (ts : List Ty) (svs : List SymVal) : SymState :=
-  { env := svs ++ st.env
-    ctx := pushTypes ts st.ctx
-    facts := st.facts }
+  { st with
+    env := svs ++ st.env
+    ctx := pushTypes ts st.ctx }
 
 @[expose] def mkUntag (x y : SymVal) : SymVal :=
   match x, y with
@@ -330,16 +344,35 @@ structure SymLeaf : Type where
   target   : Arg K i64
   nextRegs : RegsExpr K
 
+/-- Record a loaded value from address `a : Arg K i64` if `a` matches `tblBase + (idx <<< 3)`. -/
+@[expose] def SymState.stepLoad (st : SymState) (t : Ty) (a : Arg K i64) : SymState :=
+  let memLoads' :=
+    match t with
+    | .bits 64 =>
+        match st.evalArg a with
+        | .stride tblBase idxLvl =>
+            ⟨st.env.length, tblBase, idxLvl, !st.hasStored⟩ :: st.memLoads
+        | _ => st.memLoads
+    | _ => st.memLoads
+  { st with env := .top :: st.env, ctx := t :: st.ctx, memLoads := memLoads' }
+
+/-- Look up a recorded `MemLoadEntry` for `(vLvl, tblBase)` (optionally requiring `clean`). -/
+@[expose] def SymState.findMemLoad? (st : SymState) (vLvl : Nat) (tblBase : BitVec 64)
+    (reqClean : Bool) : Option MemLoadEntry :=
+  st.memLoads.find? fun e =>
+    (e.valLvl == vLvl) && (e.tblBase == tblBase) &&
+    ((!reqClean) || e.clean) && st.levelHasTy e.idxLvl i64
+
 /-- Walk a `BlockFlat` symbolically collecting every `.ijmp` leaf `(path, st, tgt, nxt)`.
 Returns `none` if `.hlt` is encountered or `codeAddr sym` fails to resolve in `cm`. -/
 @[expose] def symEvalBlock (cm : CodeMap) :
     BlockFlat → BranchPath → SymState → Option (List SymLeaf)
   | .let_ (ts := ts) op k, path, st =>
       symEvalBlock cm k path (st.pushRes ts (symEvalOp st op))
-  | .load t _ k, path, st =>
-      symEvalBlock cm k path { st with env := .top :: st.env, ctx := t :: st.ctx }
+  | .load t a k, path, st =>
+      symEvalBlock cm k path (st.stepLoad t a)
   | .store _ _ k, path, st =>
-      symEvalBlock cm k path st
+      symEvalBlock cm k path { st with hasStored := true }
   | .codeAddr sym k, path, st =>
       match cm.addrOf? sym with
       | some a =>
@@ -392,6 +425,16 @@ structure CalleeMeta : Type where
   deriving DecidableEq, Repr
 end
 
+/-- Extract the index variable de Bruijn level if `tgt` is a recorded load from `tblBase`. -/
+@[expose] def SymState.memLoadIdx? (st : SymState) (tgt : Arg K i64) (tblBase : BitVec 64)
+    (reqClean : Bool) : Option Nat :=
+  match tgt with
+  | .var idx =>
+      match st.toLevel? idx with
+      | some vLvl => (st.findMemLoad? vLvl tblBase reqClean).map (·.idxLvl)
+      | none => none
+  | .imm _ => none
+
 /-- Verify one `(leaf, edge)` pair against symbolic state `st`, lexical `pcs`, `abi`, and
 available contified `callees`. -/
 @[expose] def checkEdgeLeaf (cm : CodeMap) (abi : RegionAbi) (callees : List CalleeMeta)
@@ -421,6 +464,16 @@ available contified `callees`. -/
           if needGuard then !abi.isContified
           else st.hasUltBound lvl targets.length
       | _ => false
+  | .memTableGuarded tblBase targets =>
+      (!abi.isContified) && (!targets.isEmpty) &&
+      targets.all (fun p => (findLabelIdx pcs p).isSome) &&
+      (st.memLoadIdx? leaf.target tblBase false).isSome
+  | .memTableRo tblBase targets needGuard =>
+      (!abi.isContified) && (!targets.isEmpty) &&
+      targets.all (fun p => (findLabelIdx pcs p).isSome) &&
+      match st.memLoadIdx? leaf.target tblBase true with
+      | some lvl => if needGuard then true else st.hasUltBound lvl targets.length
+      | none => false
   | .contCall callee calleePc dualRet retPc altRetPc? =>
       (!abi.isContified) &&
       (cm.addrOf? callee == some calleePc) &&
@@ -445,9 +498,39 @@ available contified `callees`. -/
       hotTargets.all (fun p => (findLabelIdx pcs p).isSome)
   | .bailout => !abi.isContified
 
+/-- True iff `BlockFlat` contains zero `.store` instructions. -/
+@[expose] def blockNoStore : BlockFlat → Bool
+  | .let_ _ k => blockNoStore k
+  | .load _ _ k => blockNoStore k
+  | .store _ _ _ => false
+  | .codeAddr _ k => blockNoStore k
+  | .jnz _ t e => blockNoStore t && blockNoStore e
+  | .ijmp _ _ => true
+  | .halt _ => true
+  | .hlt => true
+
+/-- True iff any edge witness in `rw` uses read-only elided table lookup `.memTableRo`. -/
+@[expose] def RegionWitness.hasMemTableRo (rw : RegionWitness) : Bool :=
+  rw.edges.any fun ew => match ew.kind with | .memTableRo _ _ _ => true | _ => false
+
+/-- True iff any region in `wit` uses `.memTableRo`. -/
+@[expose] def CfgWitness.hasMemTableRo (wit : CfgWitness) : Bool :=
+  wit.regions.any RegionWitness.hasMemTableRo
+
+/-- True iff `rw` is `.retEnvelope`, all blocks in `rw` have zero stores, and `rw` has no
+`.contCall` edges. -/
+@[expose] def RegionWitness.roSafe (cm : CodeMap) (rw : RegionWitness) : Bool :=
+  (!rw.abi.isContified) &&
+  rw.allPcs.all (fun pc =>
+    match cm.lookupAddr pc with
+    | some b => blockNoStore b
+    | none => false) &&
+  rw.edges.all (fun ew => match ew.kind with | .contCall _ _ _ _ _ => false | _ => true)
+
 /-- Verify all leaves of a block at `pc` inside lexical scope `pcs`. -/
 @[expose] def checkBlockLeaves (cm : CodeMap) (rw : RegionWitness) (callees : List CalleeMeta)
     (pcs : List (BitVec 64)) (pc : BitVec 64) : Bool :=
+  (!rw.hasMemTableRo || rw.roSafe cm) &&
   match cm.lookupAddr pc with
   | none => false
   | some b =>
@@ -531,6 +614,19 @@ end
           (lowerJumpTo pcs hPc (shiftRegsExpr (curShift + 1) nxt))
           (lowerGuardedCascade pcs tgt nxt (curShift + 1) rest))
 
+/-- Lower guarded or unguarded indexed jump-table dispatch (`strideTable` / `memTableRo`). -/
+@[expose] def lowerStrideOrRo (pcs : List (BitVec 64)) (idxVar : Nat)
+    (tgt : Arg K i64) (nxt : RegsExpr K) (targets : List (BitVec 64)) (needGuard : Bool) :
+    TFlat RegionAbi.retEnvelope.retSig :=
+  if needGuard then
+    let boundOp : Op K [.bool] :=
+      op2 (.cmp .ult i64) (.var idxVar) (.imm (BitVec.ofNat 64 targets.length))
+    .let_ boundOp
+      (.jnz (.var 0)
+        (lowerStrideCascade pcs idxVar nxt 0 1 targets)
+        (mkRetEnvelope (shiftArg 1 tgt) (shiftRegsExpr 1 nxt)))
+  else lowerStrideCascade pcs idxVar nxt 0 0 targets
+
 /-- Lower one checked `(ijmp tgt nxt, edgeKind)` leaf at `st` into `TFlat abi.retSig`. -/
 @[expose] def liftEdge (abi : RegionAbi) (pcs : List (BitVec 64)) (st : SymState)
     (tgt : Arg K i64) (nxt : RegsExpr K) (kind : EdgeKind) : TFlat abi.retSig :=
@@ -552,13 +648,16 @@ end
       match st.evalArg tgt with
       | .stride _ lvl =>
           let idxVar := st.env.length - 1 - lvl
-          let boundOp : Op K [.bool] :=
-            op2 (.cmp .ult i64) (.var idxVar) (.imm (BitVec.ofNat 64 targets.length))
-          .let_ boundOp
-            (.jnz (.var 0)
-              (lowerStrideCascade pcs idxVar nxt 0 1 targets)
-              (mkRetEnvelope (shiftArg 1 tgt) (shiftRegsExpr 1 nxt)))
+          lowerStrideOrRo pcs idxVar tgt nxt targets true
       | _ => .hlt
+  | .retEnvelope, .memTableGuarded _ targets =>
+      lowerGuardedCascade pcs tgt nxt 0 targets
+  | .retEnvelope, .memTableRo tblBase targets needGuard =>
+      match st.memLoadIdx? tgt tblBase true with
+      | some lvl =>
+          let idxVar := st.env.length - 1 - lvl
+          lowerStrideOrRo pcs idxVar tgt nxt targets needGuard
+      | none => .hlt
   | .retEnvelope, .contCall callee _ dualRet retPc altRetPc? =>
       let retSigC := (RegionAbi.contified dualRet).retSig
       if dualRet then
@@ -584,10 +683,9 @@ end
   | .let_ (ts := ts) op k, path, st =>
       .let_ op (liftBlock cm rw pcs pc k path (st.pushRes ts (symEvalOp st op)))
   | .load t a k, path, st =>
-      .load t a (liftBlock cm rw pcs pc k path
-        { st with env := .top :: st.env, ctx := t :: st.ctx })
+      .load t a (liftBlock cm rw pcs pc k path (st.stepLoad t a))
   | .store v a k, path, st =>
-      .store v a (liftBlock cm rw pcs pc k path st)
+      .store v a (liftBlock cm rw pcs pc k path { st with hasStored := true })
   | .codeAddr sym k, path, st =>
       match cm.addrOf? sym with
       | some a =>
@@ -634,6 +732,26 @@ end
   let pcs := pushLabelPcs entries []
   let bodies := liftGroupNodes cm rw pcs rw.tree
   .group bodies (lowerJumpTo pcs rw.entryPc ⟨.var 5, .var 4, .var 3, .var 2, .var 1, .var 0⟩)
+
+/-- Read-only dispatch table validity: every slot `k < targets.length` at `tblBase + 8 * k`
+contains the 64-bit PC `targets[k]`. -/
+@[expose] def RoTableOk (m : Mem 64) (tblBase : BitVec 64) (targets : List (BitVec 64)) : Prop :=
+  ∀ (k : Nat) (hk : k < targets.length),
+    loadVal m i64 (tblBase + BitVec.ofNat 64 (8 * k)) = some targets[k]
+
+/-- Whole-witness read-only jump-table precondition over initial memory `m`. -/
+@[expose] def WitRoOk (wit : CfgWitness) (m : Mem 64) : Prop :=
+  ∀ rw ∈ wit.regions, ∀ ew ∈ rw.edges,
+    match ew.kind with
+    | .memTableRo tblBase targets _ => RoTableOk m tblBase targets
+    | _ => True
+
+/-- Region-level read-only jump-table precondition over initial memory `m`. -/
+@[expose] def RegionRoOk (rw : RegionWitness) (m : Mem 64) : Prop :=
+  ∀ ew ∈ rw.edges,
+    match ew.kind with
+    | .memTableRo tblBase targets _ => RoTableOk m tblBase targets
+    | _ => True
 
 /-- Computable verifier checking ALL safety/WTO/typing conditions for one `RegionWitness`. -/
 @[expose] def RegionWitness.check (cm : CodeMap) (callees : List CalleeMeta)
@@ -815,6 +933,8 @@ private def directSuccsOf (edges : List EdgeWitness) (pc : BitVec 64) : List (Bi
       | .direct p => [p]
       | .select t e => [t, e]
       | .strideTable _ ts _ => ts
+      | .memTableGuarded _ ts => ts
+      | .memTableRo _ ts _ => ts
       | .contCall _ _ true r (some a) => [r, a]
       | .contCall _ _ _ r _ => [r]
       | .guarded hs => hs

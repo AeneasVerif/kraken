@@ -437,7 +437,7 @@ private theorem symStateOk_cons {t : Ty} (v : Val t) (sv : SymVal)
     (hst : SymStateOk bvs rp₀ st)
     (hsv : SymValMatch (⟨t, v⟩ :: bvs) rp₀ sv t v) :
     SymStateOk (⟨t, v⟩ :: bvs) rp₀
-      { env := sv :: st.env, ctx := t :: st.ctx, facts := st.facts } := by
+      { st with env := sv :: st.env, ctx := t :: st.ctx } := by
   refine ⟨by simp [hst.lenEq], .cons hst.ctxOk, ?_, symFactsOk_prepend [⟨t, v⟩] bvs hst.factsOk⟩
   intro idx hlt
   cases idx with
@@ -451,6 +451,174 @@ private theorem symStateOk_cons {t : Ty} (v : Val t) (sv : SymVal)
       · exact trivial
       · exact trivial
       · rw [h1, h2] at h0; exact symValMatch_prepend [⟨t, v⟩] bvs rp₀ _ _ _ h0
+
+private theorem symStateOk_store {bvs : List ((t : Ty) × Val t)} {rp₀ : BitVec 64}
+    {st : SymState} (hst : SymStateOk bvs rp₀ st) :
+    SymStateOk bvs rp₀ { st with hasStored := true } :=
+  ⟨hst.lenEq, hst.ctxOk, hst.valsOk, hst.factsOk⟩
+
+private theorem symStateOk_stepLoad {t : Ty} (v : Val t)
+    {bvs : List ((t' : Ty) × Val t')} {rp₀ : BitVec 64} {st : SymState}
+    (hst : SymStateOk bvs rp₀ st) (a : Arg K i64) :
+    SymStateOk (⟨t, v⟩ :: bvs) rp₀ (st.stepLoad t a) := by
+  have h := symStateOk_cons v .top hst trivial
+  exact ⟨h.lenEq, h.ctxOk, h.valsOk, h.factsOk⟩
+
+private def SymMemOk (m₀ mCur : Mem 64) (bvs : List ((t : Ty) × Val t)) (st : SymState) : Prop :=
+  (st.hasStored = false → mCur = m₀) ∧
+  ∀ e ∈ st.memLoads, e.clean = true →
+    ∃ (x v : Val i64),
+      levelVal bvs e.idxLvl = some x ∧
+      levelVal bvs e.valLvl = some v ∧
+      loadVal m₀ i64 (e.tblBase + BitVec.ofNat 64 (8 * x.toNat)) = some v
+
+private theorem symMemOk_init (r : Regs) (m : Mem 64) :
+    SymMemOk m m (pushRegsV r.toRegsV) SymState.init :=
+  ⟨fun _ => rfl, fun _ h => nomatch h⟩
+
+private theorem symMemOk_prepend {m₀ mCur : Mem 64} (extra bvs : List ((t : Ty) × Val t))
+    {st : SymState} (hm : SymMemOk m₀ mCur bvs st) :
+    ∀ env' ctx', SymMemOk m₀ mCur (extra ++ bvs) { st with env := env', ctx := ctx' } := by
+  intro env' ctx'
+  refine ⟨hm.1, fun e he hcl => ?_⟩
+  obtain ⟨x, v, hx, hv, hld⟩ := hm.2 e he hcl
+  exact ⟨x, v, levelVal_prepend extra bvs hx, levelVal_prepend extra bvs hv, hld⟩
+
+private theorem symMemOk_pushCondFact {m₀ mCur : Mem 64} {bvs : List ((t : Ty) × Val t)}
+    {st : SymState} (hm : SymMemOk m₀ mCur bvs st) (c : Arg K .bool) (taken : Bool) :
+    SymMemOk m₀ mCur bvs (st.pushCondFact c taken) := by
+  dsimp only [SymState.pushCondFact]
+  cases taken
+  · exact hm
+  · cases c with
+    | imm _ => exact hm
+    | var idx =>
+        simp only [↓reduceIte]
+        cases st.getSym idx <;> exact hm
+
+private theorem symMemOk_store {m₀ mCur mNext : Mem 64} {bvs : List ((t : Ty) × Val t)}
+    {st : SymState} (hm : SymMemOk m₀ mCur bvs st) :
+    SymMemOk m₀ mNext bvs { st with hasStored := true } :=
+  ⟨(fun h => by cases h), hm.2⟩
+
+private theorem castTy_self {V : Ty → Type} {t : Ty} (v : V t) : castTy t t v = some v := by
+  cases t with
+  | bool => rfl
+  | bits _ => simp [castTy]
+  | float _ => simp [castTy]
+  | pair a b =>
+      dsimp only [castTy]
+      cases h1 : tyDecEq a a with
+      | isFalse h => exact absurd rfl h
+      | isTrue e1 =>
+          cases h2 : tyDecEq b b with
+          | isFalse h => exact absurd rfl h
+          | isTrue e2 => rfl
+
+private theorem levelVal_cons_end {t : Ty} (v : Val t) (bvs : List ((t' : Ty) × Val t')) :
+    levelVal (⟨t, v⟩ :: bvs) bvs.length = some v := by
+  dsimp only [levelVal, List.length_cons]
+  rw [ite_eq_left (Nat.lt_succ_self _), Nat.add_sub_cancel, Nat.sub_self]
+  dsimp only [lookupV, listGet?]
+  exact castTy_self v
+
+private theorem symMemOk_stepLoad {m₀ mCur : Mem 64} {bvs : List ((t' : Ty) × Val t')}
+    {rp₀ : BitVec 64} {st : SymState} (hst : SymStateOk bvs rp₀ st)
+    (hm : SymMemOk m₀ mCur bvs st) (t : Ty) (a : Arg K i64) {a' : Arg Val i64}
+    (ha : denoteArg bvs a = some a') (v : Val t) (hload : loadVal mCur t a'.val = some v) :
+    SymMemOk m₀ mCur (⟨t, v⟩ :: bvs) (st.stepLoad t a) := by
+  dsimp only [SymState.stepLoad]
+  refine ⟨hm.1, fun e he hcl => ?_⟩
+  have hOld : ∀ e' ∈ st.memLoads, e'.clean = true →
+      ∃ (x w : Val i64), levelVal (⟨t, v⟩ :: bvs) e'.idxLvl = some x ∧
+        levelVal (⟨t, v⟩ :: bvs) e'.valLvl = some w ∧
+        loadVal m₀ i64 (e'.tblBase + BitVec.ofNat 64 (8 * x.toNat)) = some w := by
+    intro e' he' hcl'
+    obtain ⟨x, w, hx, hw, hld⟩ := hm.2 e' he' hcl'
+    exact ⟨x, w, levelVal_prepend [⟨t, v⟩] bvs hx, levelVal_prepend [⟨t, v⟩] bvs hw, hld⟩
+  cases t with
+  | bool | float _ | pair _ _ => exact hOld e he hcl
+  | bits n =>
+      by_cases h64 : n = 64
+      · subst h64
+        dsimp only at he
+        cases hev : st.evalArg a with
+        | stride tblBase idxLvl =>
+            rw [hev] at he
+            rcases List.mem_cons.1 he with rfl | he'
+            · simp only at hcl
+              have hSto : st.hasStored = false := by cases hhs : st.hasStored <;> simp_all
+              have hmt := evalArg_symValMatch hst ha; rw [hev] at hmt
+              obtain ⟨x, hx, haVal⟩ := hmt rfl
+              simp only [cast_eq] at haVal
+              refine ⟨x, v, levelVal_prepend [⟨i64, v⟩] bvs hx, ?_, ?_⟩
+              · rw [hst.lenEq]; exact levelVal_cons_end v bvs
+              · rw [← haVal, ← hm.1 hSto]; exact hload
+            · exact hOld e he' hcl
+        | _ => rw [hev] at he; exact hOld e he hcl
+      · dsimp only at he
+        split at he
+        · rename_i heq; cases heq; exact absurd rfl h64
+        · exact hOld e he hcl
+
+private theorem ctxTypes_lookupV {V : Ty → Type} :
+    ∀ {Γ : List Ty} {bvs : List ((t : Ty) × V t)} (_ : CtxTypes Γ bvs)
+      {i : Nat} {t : Ty}, listGet? Γ i = some t → ∃ v : V t, lookupV bvs t i = some v
+  | [], _, .nil, _, _, hg => by cases hg
+  | _ :: _, ⟨_, x⟩ :: _, .cons _, 0, _, rfl => ⟨x, castTy_self x⟩
+  | _ :: _, _ :: _, .cons h, _ + 1, t, hg => ctxTypes_lookupV h hg
+
+private theorem levelHasTy_lookupV {bvs : List ((t : Ty) × Val t)} {rp₀ : BitVec 64}
+    {st : SymState} (hst : SymStateOk bvs rp₀ st) {lvl : Nat} {t : Ty}
+    (hty : st.levelHasTy lvl t = true) :
+    ∃ x : Val t, lookupV bvs t (bvs.length - 1 - lvl) = some x ∧ lvl < bvs.length ∧
+      levelVal bvs lvl = some x := by
+  dsimp only [SymState.levelHasTy] at hty
+  split at hty <;> rename_i hlt
+  · have hlenCtx : st.ctx.length = bvs.length := ctxTypes_length hst.ctxOk
+    have hltB : lvl < bvs.length := hlenCtx ▸ hlt
+    rw [hlenCtx] at hty
+    cases hg : listGet? st.ctx (bvs.length - 1 - lvl) with
+    | none => rw [hg] at hty; cases hty
+    | some t' =>
+        rw [hg] at hty; dsimp only at hty
+        cases hdec : tyDecEq t' t with
+        | isFalse _ => rw [hdec] at hty; cases hty
+        | isTrue heq =>
+            subst heq
+            obtain ⟨x, hx⟩ := ctxTypes_lookupV hst.ctxOk hg
+            refine ⟨x, hx, hltB, ?_⟩
+            dsimp only [levelVal]; rw [ite_eq_left hltB]; exact hx
+  · cases hty
+
+private theorem symState_findMemLoad_spec {st : SymState} {tgt : Arg K i64}
+    {tblBase : BitVec 64} {reqClean : Bool} {lvl : Nat}
+    (h : st.memLoadIdx? tgt tblBase reqClean = some lvl) :
+    ∃ (idx vLvl : Nat) (e : MemLoadEntry),
+      tgt = .var idx ∧ st.toLevel? idx = some vLvl ∧
+      st.findMemLoad? vLvl tblBase reqClean = some e ∧ e ∈ st.memLoads ∧
+      e.idxLvl = lvl ∧ e.valLvl = vLvl ∧ e.tblBase = tblBase ∧
+      (reqClean = true → e.clean = true) ∧ st.levelHasTy e.idxLvl i64 = true := by
+  dsimp only [SymState.memLoadIdx?] at h
+  cases tgt with
+  | imm _ => cases h
+  | var idx =>
+      dsimp only at h
+      cases htl : st.toLevel? idx with
+      | none => rw [htl] at h; cases h
+      | some vLvl =>
+          rw [htl] at h; dsimp only at h
+          cases hfl : st.findMemLoad? vLvl tblBase reqClean with
+          | none => rw [hfl] at h; cases h
+          | some e =>
+              rw [hfl] at h; cases h
+              have hm := List.mem_of_find?_eq_some hfl
+              have hp := List.find?_some (by simpa [SymState.findMemLoad?] using hfl)
+              simp only [Bool.and_eq_true, beq_iff_eq, Bool.or_eq_true] at hp
+              refine ⟨idx, vLvl, e, rfl, htl, hfl, hm, rfl, hp.1.1.1, hp.1.1.2, ?_, hp.2⟩
+              intro hr; rcases hp.1.2 with hnc | hc
+              · simp [hr] at hnc
+              · exact hc
 
 private theorem var_levelVal {bvs : List ((t : Ty) × Val t)} {rp₀ : BitVec 64}
     {st : SymState} (hst : SymStateOk bvs rp₀ st) {t : Ty} {idx lvl : Nat}
@@ -1061,6 +1229,105 @@ private theorem checkStrideTargets_mem_isSome {pcs : List (BitVec 64)} {base : B
       · exact checkStrideTargets_mem_isSome (k + 1) ts i hchk.2 (by omega)
           (by simp [List.length_cons] at hhi ⊢; omega)
 
+private theorem checkStrideTargets_all_isSome (pcs : List (BitVec 64)) (base : BitVec 64) :
+    ∀ (k : Nat) (targets : List (BitVec 64)),
+      checkStrideTargets pcs base k targets = true →
+      targets.all (fun p => (findLabelIdx pcs p).isSome) = true
+  | _, [], _ => rfl
+  | k, _ :: ts, hchk => by
+      dsimp only [checkStrideTargets] at hchk
+      simp only [Bool.and_eq_true] at hchk
+      simp only [List.all_cons, Bool.and_eq_true]
+      exact ⟨hchk.1.2, checkStrideTargets_all_isSome pcs base (k + 1) ts hchk.2⟩
+
+private theorem checkStrideTargets_getElem (pcs : List (BitVec 64)) (base : BitVec 64) :
+    ∀ (k : Nat) (targets : List (BitVec 64)) (i : Nat) (hi : i < targets.length),
+      checkStrideTargets pcs base k targets = true →
+      targets[i]'hi = base + BitVec.ofNat 64 (8 * (k + i))
+  | _, [], _, hi, _ => absurd hi (Nat.not_lt_zero _)
+  | k, t :: ts, 0, _, hchk => by
+      dsimp only [checkStrideTargets] at hchk
+      simp only [Bool.and_eq_true] at hchk
+      simpa using of_decide_eq_true hchk.1.1
+  | k, _ :: ts, i + 1, hi, hchk => by
+      dsimp only [checkStrideTargets] at hchk
+      simp only [Bool.and_eq_true] at hchk
+      have ih := checkStrideTargets_getElem pcs base (k + 1) ts i
+        (Nat.lt_of_succ_lt_succ hi) hchk.2
+      simpa [Nat.add_assoc, Nat.add_comm 1 i] using ih
+
+private theorem lowerTableCascade_wp {rs : List Ty} {Γ : Env} {Q : Post rs} {X : XPost}
+    {pcs : List (BitVec 64)} {ls : List ((ts : List Ty) × Cont ts)} {Pred : CodeSpec}
+    (hls : LsMatch pcs ls Pred)
+    {bvs vsTail : List ((t : Ty) × Val t)}
+    {idxVar : Nat} {x : Val i64}
+    (hlook : lookupV bvs i64 idxVar = some x)
+    (hltIdx : idxVar < bvs.length)
+    {nxt : RegsExpr K} {nxt' : RegsExpr Val}
+    (hnxt : denoteRegsExpr (bvs ++ vsTail) nxt = some nxt')
+    {m : Mem 64} :
+    ∀ (k : Nat) (extra : List ((t : Ty) × Val t)) (targets : List (BitVec 64)),
+      targets ≠ [] →
+      targets.all (fun p => (findLabelIdx pcs p).isSome) = true →
+      k ≤ x.toNat →
+      (hkLt : x.toNat - k < targets.length) →
+      Pred (targets[x.toNat - k]'hkLt) ⟨nxt'.eval, m⟩ →
+      wp Γ Q X (denote Val Cont (lowerStrideCascade pcs idxVar nxt k extra.length targets)
+        (extra ++ bvs ++ vsTail) ls) m
+  | _, _, [], hne, _, _, _, _ => absurd rfl hne
+  | k, extra, [lastPc], _, hchk, hlo, hkLt, hP => by
+      have hsub : x.toNat - k = 0 := by simp at hkLt; omega
+      simp only [List.all_cons, List.all_nil, Bool.and_true] at hchk
+      rcases Option.isSome_iff_exists.1 hchk with ⟨j, hj⟩
+      have hLastEq : ([lastPc][x.toNat - k]'hkLt) = lastPc := by simp [hsub]
+      rw [hLastEq] at hP
+      dsimp only [lowerStrideCascade]
+      have hnxtS : denoteRegsExpr (extra ++ bvs ++ vsTail) (shiftRegsExpr extra.length nxt) =
+          some nxt' := by
+        rw [List.append_assoc, denoteRegsExpr_shift, hnxt]
+      exact lowerJumpTo_wp hls hj hnxtS hP
+  | k, extra, tPc :: r0 :: rest, _, hchk, hlo, hkLt, hP => by
+      dsimp only [List.all_cons] at hchk
+      rcases Bool.and_eq_true_iff.1 hchk with ⟨hchk1, hchk2⟩
+      rcases Option.isSome_iff_exists.1 hchk1 with ⟨j, hj⟩
+      dsimp only [lowerStrideCascade]
+      have hdenV : denoteArg (extra ++ bvs ++ vsTail) (.var (idxVar + extra.length)) =
+          some (.var x) := by
+        dsimp only [denoteArg]
+        rw [lookupV_extra_shift extra bvs vsTail hltIdx hlook]
+      dsimp only [denote, op2, denoteArgs]
+      rw [hdenV]
+      dsimp only [denoteArg, wp, Op.wp, OpCode.wp, vals, liftCmp, CmpOp.evalBits, Ty.hasFloat]
+      have hk64 : k < 2 ^ 64 := Nat.lt_of_le_of_lt hlo x.isLt
+      constructor
+      · intro htr
+        have hxEq : x = BitVec.ofNat 64 k := beq_iff_eq.1 htr
+        have hnat : x.toNat = k := by rw [hxEq, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hk64]
+        rw [show ((tPc :: r0 :: rest)[x.toNat - k]'hkLt) = tPc by simp [hnat]] at hP
+        have hnxtS : denoteRegsExpr (⟨.bool, (x == BitVec.ofNat 64 k)⟩ :: (extra ++ bvs ++ vsTail))
+            (shiftRegsExpr (extra.length + 1) nxt) = some nxt' := by
+          have hlen : (([⟨.bool, (x == BitVec.ofNat 64 k)⟩] :
+              List ((t : Ty) × Val t)) ++ extra).length = extra.length + 1 := by simp
+          rw [show (⟨.bool, (x == BitVec.ofNat 64 k)⟩ :: (extra ++ bvs ++ vsTail) :
+            List ((t : Ty) × Val t)) = ([⟨.bool, (x == BitVec.ofNat 64 k)⟩] ++ extra) ++
+              (bvs ++ vsTail) by simp [List.append_assoc], ← hlen, denoteRegsExpr_shift, hnxt]
+        exact lowerJumpTo_wp hls hj hnxtS hP
+      · intro hfl
+        have hne : x ≠ BitVec.ofNat 64 k := fun he => by simp [he] at hfl
+        have hnatNe : x.toNat ≠ k := fun he => hne (BitVec.eq_of_toNat_eq
+          (by rw [he, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hk64]))
+        have hkLt' : x.toNat - (k + 1) < (r0 :: rest).length := by
+          simp [List.length_cons] at hkLt ⊢; omega
+        have hRestEq : ((tPc :: r0 :: rest)[x.toNat - k]'hkLt) =
+            ((r0 :: rest)[x.toNat - (k + 1)]'hkLt') := by
+          have hpos : x.toNat - k ≠ 0 := by omega
+          have hsub : x.toNat - k - 1 = x.toNat - (k + 1) := by omega
+          simp [List.getElem_cons, hpos, hsub]
+        have ih := lowerTableCascade_wp (rs := rs) (Γ := Γ) (Q := Q) (X := X)
+          hls hlook hltIdx hnxt (k + 1) (⟨.bool, (x == BitVec.ofNat 64 k)⟩ :: extra)
+          (r0 :: rest) (by simp) hchk2 (by omega) hkLt' (hRestEq ▸ hP)
+        dsimp only [pushTup, List.length_cons] at ih ⊢; exact ih
+
 private theorem lowerStrideCascade_wp {rs : List Ty} {Γ : Env} {Q : Post rs} {X : XPost}
     {pcs : List (BitVec 64)} {ls : List ((ts : List Ty) × Cont ts)} {Pred : CodeSpec}
     (hls : LsMatch pcs ls Pred)
@@ -1070,73 +1337,19 @@ private theorem lowerStrideCascade_wp {rs : List Ty} {Γ : Env} {Q : Post rs} {X
     (hltIdx : idxVar < bvs.length)
     {nxt : RegsExpr K} {nxt' : RegsExpr Val}
     (hnxt : denoteRegsExpr (bvs ++ vsTail) nxt = some nxt')
-    {base : BitVec 64} {m : Mem 64} :
-    ∀ (k : Nat) (extra : List ((t : Ty) × Val t)) (targets : List (BitVec 64)),
-      targets ≠ [] →
-      checkStrideTargets pcs base k targets = true →
-      k ≤ x.toNat →
-      x.toNat < k + targets.length →
-      Pred (base + BitVec.ofNat 64 (8 * x.toNat)) ⟨nxt'.eval, m⟩ →
-      wp Γ Q X (denote Val Cont (lowerStrideCascade pcs idxVar nxt k extra.length targets)
-        (extra ++ bvs ++ vsTail) ls) m
-  | _, _, [], hne, _, _, _, _ => absurd rfl hne
-  | k, extra, [lastPc], _, hchk, hlo, hhi, hP => by
-      dsimp only [checkStrideTargets] at hchk
-      simp only [Bool.and_eq_true, Bool.and_true] at hchk
-      have hx : x.toNat = k := by simp at hhi; omega
-      have hlast : lastPc = base + BitVec.ofNat 64 (8 * k) := of_decide_eq_true hchk.1
-      rcases Option.isSome_iff_exists.1 hchk.2 with ⟨j, hj⟩
-      rw [hx, ← hlast] at hP
-      dsimp only [lowerStrideCascade]
-      have hnxtS : denoteRegsExpr (extra ++ bvs ++ vsTail) (shiftRegsExpr extra.length nxt) =
-          some nxt' := by
-        rw [List.append_assoc, denoteRegsExpr_shift, hnxt]
-      exact lowerJumpTo_wp hls hj hnxtS hP
-  | k, extra, tPc :: r0 :: rest, _, hchk, hlo, hhi, hP => by
-      dsimp only [checkStrideTargets] at hchk
-      rcases Bool.and_eq_true_iff.1 hchk with ⟨h1, hchkRest⟩
-      rcases Bool.and_eq_true_iff.1 h1 with ⟨htEqB, hlabB⟩
-      have htEq : tPc = base + BitVec.ofNat 64 (8 * k) := beq_iff_eq.1 htEqB
-      rcases Option.isSome_iff_exists.1 hlabB with ⟨j, hj⟩
-      dsimp only [lowerStrideCascade]
-      have hdenV : denoteArg (extra ++ bvs ++ vsTail) (.var (idxVar + extra.length)) =
-          some (.var x) := by
-        dsimp only [denoteArg]
-        rw [lookupV_extra_shift extra bvs vsTail hltIdx hlook]
-      dsimp only [denote, op2, denoteArgs]
-      rw [hdenV]
-      dsimp only [denoteArg, wp, Op.wp, OpCode.wp, vals, liftCmp, CmpOp.evalBits, Ty.hasFloat]
-      have hkLt : k < 2 ^ 64 := Nat.lt_of_le_of_lt hlo x.isLt
-      constructor
-      · intro htr
-        have hxEq : x = BitVec.ofNat 64 k := beq_iff_eq.1 htr
-        have hnat : x.toNat = k := by rw [hxEq, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hkLt]
-        rw [hnat, ← htEq] at hP
-        have hnxtS : denoteRegsExpr (⟨.bool, (x == BitVec.ofNat 64 k)⟩ :: (extra ++ bvs ++ vsTail))
-            (shiftRegsExpr (extra.length + 1) nxt) = some nxt' := by
-          have hcons : (⟨.bool, (x == BitVec.ofNat 64 k)⟩ :: (extra ++ bvs ++ vsTail) :
-              List ((t : Ty) × Val t)) =
-              ([⟨.bool, (x == BitVec.ofNat 64 k)⟩] ++ extra) ++ (bvs ++ vsTail) := by
-            simp [List.append_assoc]
-          rw [hcons]
-          have hlen : (([Sigma.mk Ty.bool (x == BitVec.ofNat 64 k)] :
-              List ((t : Ty) × Val t)) ++ extra).length = extra.length + 1 := by
-            simp
-          rw [← hlen, denoteRegsExpr_shift, hnxt]
-        exact lowerJumpTo_wp hls hj hnxtS hP
-      · intro hfl
-        have hne : x ≠ BitVec.ofNat 64 k := fun he => by simp [he] at hfl
-        have hnatNe : x.toNat ≠ k := by
-          intro he
-          apply hne
-          apply BitVec.eq_of_toNat_eq
-          rw [he, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hkLt]
-        have ih := lowerStrideCascade_wp (rs := rs) (Γ := Γ) (Q := Q) (X := X)
-          hls hlook hltIdx hnxt (k + 1)
-          (⟨.bool, (x == BitVec.ofNat 64 k)⟩ :: extra) (r0 :: rest)
-          (by simp) hchkRest (by omega) (by simp [List.length_cons] at hhi ⊢; omega) hP
-        dsimp only [pushTup, List.length_cons] at ih ⊢
-        exact ih
+    {base : BitVec 64} {m : Mem 64}
+    (k : Nat) (extra : List ((t : Ty) × Val t)) (targets : List (BitVec 64))
+    (hne : targets ≠ [])
+    (hchk : checkStrideTargets pcs base k targets = true)
+    (hlo : k ≤ x.toNat) (hhi : x.toNat < k + targets.length)
+    (hP : Pred (base + BitVec.ofNat 64 (8 * x.toNat)) ⟨nxt'.eval, m⟩) :
+    wp Γ Q X (denote Val Cont (lowerStrideCascade pcs idxVar nxt k extra.length targets)
+      (extra ++ bvs ++ vsTail) ls) m := by
+  have hkLt : x.toNat - k < targets.length := by omega
+  have hget := checkStrideTargets_getElem pcs base k targets (x.toNat - k) hkLt hchk
+  rw [show k + (x.toNat - k) = x.toNat by omega] at hget
+  exact lowerTableCascade_wp hls hlook hltIdx hnxt k extra targets hne
+    (checkStrideTargets_all_isSome pcs base k targets hchk) hlo hkLt (hget ▸ hP)
 
 private theorem vals_regsExpr_toTup (e : RegsExpr Val) :
     vals e.toTup = e.eval.toRegsV.toTup := rfl
@@ -1277,6 +1490,56 @@ private theorem lowerGuardedCascade_wp {Γ : Env} {X : XPost} {Ψ_cold Pred : Co
         dsimp only [pushTup, List.length_cons] at ih ⊢
         exact ih
 
+private theorem lowerStrideOrRo_wp {Γ : Env} {X : XPost} {Ψ_bail Pred : CodeSpec}
+    {pcs : List (BitVec 64)} {ls : List ((ts : List Ty) × Cont ts)}
+    (hls : LsMatch pcs ls Pred) {bvs vsTail : List ((t : Ty) × Val t)}
+    {rp₀ : BitVec 64} {st : SymState} (hst : SymStateOk bvs rp₀ st)
+    {lvl : Nat} {x : Val i64} (hlvX : levelVal bvs lvl = some x)
+    (hlook : lookupV bvs i64 (bvs.length - 1 - lvl) = some x) (hltB : lvl < bvs.length)
+    {tgt : Arg K i64} {tgt' : Arg Val i64} (htgt : denoteArg (bvs ++ vsTail) tgt = some tgt')
+    {nxt : RegsExpr K} {nxt' : RegsExpr Val}
+    (hnxt : denoteRegsExpr (bvs ++ vsTail) nxt = some nxt')
+    {m : Mem 64} (targets : List (BitVec 64)) (hne : targets ≠ [])
+    (hchk : targets.all (fun p => (findLabelIdx pcs p).isSome) = true)
+    (hHit : ∀ (hlt : x.toNat < targets.length), Pred (targets[x.toNat]'hlt) ⟨nxt'.eval, m⟩)
+    (hBail : Ψ_bail tgt'.val ⟨nxt'.eval, m⟩) :
+    wp Γ (regionRetPost RegionAbi.retEnvelope Ψ_bail rp₀) X
+      (denote Val Cont (lowerStrideOrRo pcs (st.env.length - 1 - lvl) tgt nxt targets true)
+        (bvs ++ vsTail) ls) m := by
+  have hdenX : denoteArg (bvs ++ vsTail) (.var (st.env.length - 1 - lvl)) = some (.var x) := by
+    dsimp only [denoteArg]; rw [levelVal_lookupV hst hlvX]
+  dsimp only [lowerStrideOrRo]
+  simp only [↓reduceIte]
+  dsimp only [denote, op2, denoteArgs]
+  rw [hdenX]
+  dsimp only [denoteArg, wp, Op.wp, OpCode.wp, vals, liftCmp, CmpOp.evalBits, Ty.hasFloat]
+  constructor
+  · intro htr
+    have hult : x.toNat < (BitVec.ofNat 64 targets.length).toNat := of_decide_eq_true htr
+    have hlt : x.toNat < targets.length := by
+      rw [BitVec.toNat_ofNat] at hult
+      have hmod : targets.length % 2 ^ 64 ≤ targets.length := Nat.mod_le _ _
+      omega
+    have hres := lowerTableCascade_wp (rs := RegionAbi.retEnvelope.retSig) (Γ := Γ)
+      (Q := regionRetPost RegionAbi.retEnvelope Ψ_bail rp₀) (X := X)
+      (extra := [⟨.bool, BitVec.ult x (BitVec.ofNat 64 targets.length)⟩])
+      hls hlook (by omega) hnxt 0 targets hne hchk (Nat.zero_le _) hlt (hHit hlt)
+    dsimp only [pushTup]
+    simpa [hst.lenEq, List.length_singleton] using hres
+  · intro _
+    dsimp only [mkRetEnvelope]
+    have htgtS : denoteArg (⟨.bool, BitVec.ult x (BitVec.ofNat 64 targets.length)⟩ ::
+        (bvs ++ vsTail)) (shiftArg 1 tgt) = some tgt' := by
+      rw [denoteArg_shift1]; exact htgt
+    have hnxtS : denoteRegsExpr (⟨.bool, BitVec.ult x (BitVec.ofNat 64 targets.length)⟩ ::
+        (bvs ++ vsTail)) (shiftRegsExpr 1 nxt) = some nxt' := by
+      rw [denoteRegsExpr_shift1]; exact hnxt
+    obtain ⟨args', hargs', hvals⟩ := denoteRegsExpr_toTup hnxtS
+    dsimp only [denote, pushTup, Arg.val]
+    rw [denoteArgs_retEnv htgtS hargs']
+    dsimp only [wp, regionRetPost]
+    exact retEnvQ_of_eq hvals hBail
+
 private theorem rpZero_nxtRp {bvs : List ((t : Ty) × Val t)} {rp₀ : BitVec 64} {st : SymState}
     (hst : SymStateOk bvs rp₀ st) {nxt : RegsExpr K} {nxt' : RegsExpr Val}
     (hnxtB : denoteRegsExpr bvs nxt = some nxt') {abi : RegionAbi}
@@ -1320,6 +1583,10 @@ private theorem rpZero_nxtRp {bvs : List ((t : Ty) × Val t)} {rp₀ : BitVec 64
   | boolConst _ | cmpUlt _ _ | top =>
       rw [hev] at hz; cases hz
 
+private def edgeRoOk (m : Mem 64) : EdgeKind → Prop
+  | .memTableRo b ts _ => RoTableOk m b ts
+  | _ => True
+
 private theorem liftEdge_wp {abi : RegionAbi} {Γ : Env} {X : XPost}
     {Ψ_bail Pred : CodeSpec}
     {cm : CodeMap} {callees : List CalleeMeta}
@@ -1333,7 +1600,9 @@ private theorem liftEdge_wp {abi : RegionAbi} {Γ : Env} {X : XPost}
     (hnxtB : denoteRegsExpr bvs nxt = some nxt') (hchkN : checkRegsExpr st.ctx nxt = true)
     {path : BranchPath} {kind : EdgeKind}
     (hEdge : checkEdgeLeaf cm abi callees pcs ⟨path, st, tgt, nxt⟩ kind = true)
-    {Ψ_step : CodeSpec} {m : Mem 64}
+    {Ψ_step : CodeSpec} {m₀ m : Mem 64}
+    (hMemOk : SymMemOk m₀ m bvs st)
+    (hRo : edgeRoOk m₀ kind)
     (hStep : Ψ_step tgt'.val ⟨nxt'.eval, m⟩)
     (hStepPred : ∀ pc s, (findLabelIdx pcs pc).isSome = true →
       (abi.isContified = true → s.regs.rp = rp₀) → Ψ_step pc s → Pred pc s)
@@ -1348,6 +1617,7 @@ private theorem liftEdge_wp {abi : RegionAbi} {Γ : Env} {X : XPost}
       (if dualRet then altRetPc? = some (retPc + 8#64) else altRetPc?.isNone) →
       (findLabelIdx pcs retPc).isSome = true →
       (if dualRet then (findLabelIdx pcs (retPc + 8#64)).isSome = true else True) →
+      (match kind with | .contCall _ _ _ _ _ => True | _ => False) →
       ∃ P E, Γ callee regSig (RegionAbi.contified dualRet).retSig
           (vals nxt'.toTup) m P E ∧
         (∀ r m', P r m' → retContPost dualRet Pred retPc r m') ∧
@@ -1410,7 +1680,7 @@ private theorem liftEdge_wp {abi : RegionAbi} {Γ : Env} {X : XPost}
         dsimp only at hEdge
         simp only [Bool.and_eq_true] at hEdge
         have hbeq : b = basePc := beq_iff_eq.1 hEdge.2.1.1
-        subst hbeq
+        subst b
         obtain ⟨x, hx, hxtgt⟩ := hmt rfl
         have hlvlLt : lvl < bvs.length := levelVal_lt_len hx
         have hlook : lookupV bvs i64 (bvs.length - 1 - lvl) = some x := by
@@ -1439,43 +1709,68 @@ private theorem liftEdge_wp {abi : RegionAbi} {Γ : Env} {X : XPost}
           simpa [hst.lenEq] using hres
         · cases abi
           · dsimp only
-            have hdenX : denoteArg (bvs ++ vsTail) (.var (st.env.length - 1 - lvl)) =
-                some (.var x) := by
-              dsimp only [denoteArg]; rw [levelVal_lookupV hst hx]
-            dsimp only [denote, op2, denoteArgs]
-            rw [hdenX]
-            dsimp only [denoteArg, wp, Op.wp, OpCode.wp, vals, liftCmp, CmpOp.evalBits, Ty.hasFloat]
-            constructor
-            · intro htr
-              have hult : x.toNat < (BitVec.ofNat 64 targets.length).toNat :=
-                of_decide_eq_true htr
-              have hlt : x.toNat < 0 + targets.length := by
-                rw [BitVec.toNat_ofNat] at hult
-                have hmod : targets.length % 2 ^ 64 ≤ targets.length := Nat.mod_le _ _
-                omega
-              have hres := lowerStrideCascade_wp
+            exact lowerStrideOrRo_wp hls hst hx hlook hlvlLt htgt hnxt targets hne
+              (checkStrideTargets_all_isSome pcs basePc 0 targets hEdge.1.2)
+              (fun hlt => by
+                have hget := checkStrideTargets_getElem pcs basePc 0 targets x.toNat hlt hEdge.1.2
+                simp only [Nat.zero_add] at hget
+                rw [hget]
+                exact hStepPred _ _ (checkStrideTargets_mem_isSome 0 targets x.toNat hEdge.1.2
+                  (Nat.zero_le _) (by simpa using hlt)) (fun h => by cases h) (hxtgt ▸ hStep))
+              (hStepBail _ _ hStep)
+          · simp [RegionAbi.isContified] at hEdge
+  | memTableGuarded _ targets =>
+      cases abi
+      · simp only [RegionAbi.isContified, Bool.not_false, Bool.true_and,
+          Bool.and_eq_true, List.all_eq_true] at hEdge
+        dsimp only [liftEdge]
+        exact lowerGuardedCascade_wp hls htgt hnxt [] targets
+          (by simpa [List.all_eq_true] using hEdge.1.2)
+          (fun p hp heq => hStepPred p _ (hEdge.1.2 p hp) (fun h => by cases h) (heq ▸ hStep))
+          (hStepBail _ _ hStep)
+      · simp [RegionAbi.isContified] at hEdge
+  | memTableRo tblBase targets needGuard =>
+      cases abi
+      · simp only [RegionAbi.isContified, Bool.not_false, Bool.true_and,
+          Bool.and_eq_true] at hEdge
+        have hne : targets ≠ [] := by intro he; simp [he] at hEdge
+        cases hml : st.memLoadIdx? tgt tblBase true with
+        | none => rw [hml] at hEdge; simp at hEdge
+        | some lvl =>
+            rw [hml] at hEdge; dsimp only at hEdge
+            obtain ⟨_, _, e, rfl, htl, _, heMem, rfl, rfl, rfl, hcl, hty⟩ :=
+              symState_findMemLoad_spec hml
+            obtain ⟨x, hx, hltB, hlvX⟩ := levelHasTy_lookupV hst hty
+            obtain ⟨x₀, v₀, hx₀, hv₀, hload₀⟩ := hMemOk.2 e heMem (hcl rfl)
+            rw [hlvX] at hx₀; cases hx₀
+            have hvTgt : levelVal bvs e.valLvl = some tgt'.val := var_levelVal hst htl htgtB
+            rw [hv₀] at hvTgt; cases hvTgt
+            have hHit : ∀ (hlt : x.toNat < targets.length),
+                Pred (targets[x.toNat]'hlt) ⟨nxt'.eval, m⟩ := fun hlt => by
+              have hldT := hRo x.toNat hlt; rw [hload₀, Option.some.injEq] at hldT
+              refine hStepPred _ _ (List.all_eq_true.1 hEdge.1.2 _ (List.getElem_mem hlt))
+                (fun h => by cases h) ?_
+              rw [← hldT]; exact hStep
+            dsimp only [liftEdge]; rw [hml]
+            cases needGuard
+            · have hult : st.hasUltBound e.idxLvl targets.length = true := hEdge.2
+              dsimp only [SymState.hasUltBound] at hult
+              rw [List.any_eq_true] at hult
+              obtain ⟨⟨l, bound⟩, hfMem, hfOk⟩ := hult
+              have hF := hst.factsOk (.ultBound l bound) hfMem
+              simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hfOk
+              rcases hfOk with ⟨rfl, hle⟩
+              obtain ⟨x', hx', hltBnd⟩ := hF
+              rw [hlvX] at hx'; cases hx'
+              have hlt : x.toNat < targets.length := by omega
+              dsimp only [lowerStrideOrRo, Bool.false_eq_true, ↓reduceIte]
+              simpa [hst.lenEq] using lowerTableCascade_wp
                 (rs := RegionAbi.retEnvelope.retSig) (Γ := Γ)
                 (Q := regionRetPost RegionAbi.retEnvelope Ψ_bail rp₀) (X := X)
-                (extra := [⟨.bool, BitVec.ult x (BitVec.ofNat 64 targets.length)⟩])
-                hls hlook (by omega) hnxt 0 targets hne hEdge.1.2 (Nat.zero_le _) hlt
-                (hStepPred _ _ (checkStrideTargets_mem_isSome 0 targets x.toNat hEdge.1.2
-                  (Nat.zero_le _) hlt) (fun h => by cases h) (hxtgt ▸ hStep))
-              dsimp only [pushTup]
-              simpa [hst.lenEq, List.length_singleton] using hres
-            · intro _
-              dsimp only [mkRetEnvelope]
-              have htgtS : denoteArg (⟨.bool, BitVec.ult x (BitVec.ofNat 64 targets.length)⟩ ::
-                  (bvs ++ vsTail)) (shiftArg 1 tgt) = some tgt' := by
-                rw [denoteArg_shift1]; exact htgt
-              have hnxtS : denoteRegsExpr (⟨.bool, BitVec.ult x (BitVec.ofNat 64 targets.length)⟩ ::
-                  (bvs ++ vsTail)) (shiftRegsExpr 1 nxt) = some nxt' := by
-                rw [denoteRegsExpr_shift1]; exact hnxt
-              obtain ⟨args', hargs', hvals⟩ := denoteRegsExpr_toTup hnxtS
-              dsimp only [denote, pushTup, Arg.val]
-              rw [denoteArgs_retEnv htgtS hargs']
-              dsimp only [wp, regionRetPost]
-              exact retEnvQ_of_eq hvals (hStepBail _ _ hStep)
-          · simp [RegionAbi.isContified] at hEdge
+                hls hx (by omega) hnxt 0 [] targets hne hEdge.1.2 (Nat.zero_le _) hlt (hHit hlt)
+            · exact lowerStrideOrRo_wp hls hst hlvX hx hltB htgt hnxt targets hne
+                hEdge.1.2 hHit (hStepBail _ _ hStep)
+      · simp [RegionAbi.isContified] at hEdge
   | contCall callee calleePc dualRet retPc altRetPc? =>
       cases abi
       · simp only [RegionAbi.isContified, Bool.not_false, Bool.true_and, Bool.and_eq_true] at hEdge
@@ -1506,7 +1801,7 @@ private theorem liftEdge_wp {abi : RegionAbi} {Γ : Env} {X : XPost}
             exact hEdge.2.2
         obtain ⟨P, E, hΓc, hP, hE⟩ :=
           hStepCall callee calleePc dualRet retPc altRetPc? rfl
-            hEdge.1.2 haddr htc hrpc hAltCond hEdge.1.1.2 hAltIn
+            hEdge.1.2 haddr htc hrpc hAltCond hEdge.1.1.2 hAltIn trivial
         dsimp only [liftEdge]
         cases dualRet
         · simp only [Bool.false_eq_true, ↓reduceIte]; dsimp only [denote]
@@ -1644,14 +1939,18 @@ private theorem liftBlock_wp {rw : RegionWitness} {Γ : Env} {X : XPost}
       (if dualRet then altRetPc? = some (retPc + 8#64) else altRetPc?.isNone) →
       (findLabelIdx pcs retPc).isSome = true →
       (if dualRet then (findLabelIdx pcs (retPc + 8#64)).isSome = true else True) →
+      (rw.edges.any (fun ew => match ew.kind with | .contCall _ _ _ _ _ => true | _ => false) =
+        true) →
       Ψ_step calleePc ⟨nxtR, m'⟩ →
       ∃ P E, Γ callee regSig (RegionAbi.contified dualRet).retSig
           nxtR.toRegsV.toTup m' P E ∧
         (∀ r m'', P r m'' → retContPost dualRet Pred retPc r m'') ∧
-        (∀ g cs xs m'', E g cs xs m'' → X g cs xs m'')) :
+        (∀ g cs xs m'', E g cs xs m'' → X g cs xs m''))
+    (m₀ : Mem 64) (hRo : RegionRoOk rw m₀) :
     ∀ (b : BlockFlat) (path : BranchPath) (st : SymState)
       (bvs vsTail : List ((t : Ty) × Val t)) (leaves : List SymLeaf) (m : Mem 64),
       SymStateOk bvs rp₀ st →
+      SymMemOk m₀ m bvs st →
       b.wfCheck st.ctx = true →
       b.noHlt = true →
       symEvalBlock cm b path st = some leaves →
@@ -1660,7 +1959,8 @@ private theorem liftBlock_wp {rw : RegionWitness} {Γ : Env} {X : XPost}
       b.wp cm.symEnv Ψ_step H bvs m →
       wp Γ (regionRetPost rw.abi Ψ_bail rp₀) X
         (denote Val Cont (liftBlock cm rw pcs pc b path st) (bvs ++ vsTail) ls) m
-  | .let_ (ts := ts) op k, path, st, bvs, vsTail, leaves, m, hst, hwf, hno, hlv, hleaves, hbp => by
+  | .let_ (ts := ts) op k, path, st, bvs, vsTail, leaves, m, hst, hmOk, hwf, hno, hlv,
+      hleaves, hbp => by
       dsimp only [BlockFlat.wfCheck] at hwf
       rcases Bool.and_eq_true_iff.1 hwf with ⟨hwfA, hwfK⟩
       dsimp only [BlockFlat.noHlt] at hno
@@ -1677,10 +1977,13 @@ private theorem liftBlock_wp {rw : RegionWitness} {Γ : Env} {X : XPost}
           dsimp only [wp]
           exact symEvalOp_wp_mono op hst hda (fun r hkr hst' => by
             rw [pushTup_append]
-            exact liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall k path
-              (st.pushRes ts (symEvalOp st op)) (pushTup r bvs) vsTail leaves m hst' hwfK hno
-              hlv hleaves hkr) hbp
-  | .load t a k, path, st, bvs, vsTail, leaves, m, hst, hwf, hno, hlv, hleaves, hbp => by
+            have hmOk' : SymMemOk m₀ m (pushTup r bvs) (st.pushRes ts (symEvalOp st op)) := by
+              rw [← List.nil_append bvs, pushTup_append r [] bvs]
+              exact symMemOk_prepend (pushTup r []) bvs hmOk _ _
+            exact liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall m₀ hRo k path
+              (st.pushRes ts (symEvalOp st op)) (pushTup r bvs) vsTail leaves m hst' hmOk' hwfK
+              hno hlv hleaves hkr) hbp
+  | .load t a k, path, st, bvs, vsTail, leaves, m, hst, hmOk, hwf, hno, hlv, hleaves, hbp => by
       dsimp only [BlockFlat.wfCheck] at hwf
       rcases Bool.and_eq_true_iff.1 hwf with ⟨hwfA, hwfK⟩
       dsimp only [BlockFlat.noHlt] at hno
@@ -1697,11 +2000,13 @@ private theorem liftBlock_wp {rw : RegionWitness} {Γ : Env} {X : XPost}
           rw [hda']
           dsimp only [wp]
           refine ⟨v, hv, ?_⟩
-          have hst' := symStateOk_cons v .top hst trivial
-          exact liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall k path
-            { st with env := .top :: st.env, ctx := t :: st.ctx }
-            (⟨t, v⟩ :: bvs) vsTail leaves m hst' hwfK hno hlv hleaves hkv
-  | .store (t := t) v a k, path, st, bvs, vsTail, leaves, m, hst, hwf, hno, hlv, hleaves, hbp => by
+          have hst' := symStateOk_stepLoad v hst a
+          have hmOk' := symMemOk_stepLoad hst hmOk t a hda v hv
+          exact liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall m₀ hRo k path
+            (st.stepLoad t a) (⟨t, v⟩ :: bvs) vsTail leaves m hst' hmOk' hwfK hno hlv
+            hleaves hkv
+  | .store (t := t) v a k, path, st, bvs, vsTail, leaves, m, hst, hmOk, hwf, hno, hlv,
+      hleaves, hbp => by
       dsimp only [BlockFlat.wfCheck] at hwf
       rcases Bool.and_eq_true_iff.1 hwf with ⟨hwfVA, hwfK⟩
       rcases Bool.and_eq_true_iff.1 hwfVA with ⟨hwfV, hwfA⟩
@@ -1722,9 +2027,11 @@ private theorem liftBlock_wp {rw : RegionWitness} {Γ : Env} {X : XPost}
                 rw [denoteArg_prefix vsTail hst.ctxOk hwfA, hda]
               dsimp only [liftBlock, denote]
               rw [hdv', hda']
-              exact ⟨hok, liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall k path st bvs
-                vsTail leaves _ hst hwfK hno hlv hleaves hk⟩
-  | .codeAddr sym k, path, st, bvs, vsTail, leaves, m, hst, hwf, hno, hlv, hleaves, hbp => by
+              exact ⟨hok, liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall m₀ hRo k path
+                { st with hasStored := true } bvs vsTail leaves _ (symStateOk_store hst)
+                (symMemOk_store hmOk) hwfK hno hlv hleaves hk⟩
+  | .codeAddr sym k, path, st, bvs, vsTail, leaves, m, hst, hmOk, hwf, hno, hlv,
+      hleaves, hbp => by
       dsimp only [BlockFlat.wfCheck] at hwf
       dsimp only [BlockFlat.noHlt] at hno
       dsimp only [symEvalBlock] at hlv
@@ -1745,12 +2052,15 @@ private theorem liftBlock_wp {rw : RegionWitness} {Γ : Env} {X : XPost}
             · simp only [ha, ↓reduceIte]; exact fun _ => ⟨rfl, beq_iff_eq.1 ha⟩
             · simp only [ha, Bool.false_eq_true, ↓reduceIte]; exact fun _ => rfl
           have hst' := symStateOk_cons (t := i64) a' _ hst hm
-          exact liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall k path
+          have hmOk' := symMemOk_prepend [⟨i64, a'⟩] bvs hmOk
+            ((if (a' &&& 7#64) == 0#64 then .alignedConst a' else .const a') :: st.env)
+            (i64 :: st.ctx)
+          exact liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall m₀ hRo k path
             { st with
               env := (if (a' &&& 7#64) == 0#64 then .alignedConst a' else .const a') :: st.env,
               ctx := i64 :: st.ctx }
-            (⟨i64, a'⟩ :: bvs) vsTail leaves m hst' hwf hno hlv hleaves hk
-  | .jnz c t e, path, st, bvs, vsTail, leaves, m, hst, hwf, hno, hlv, hleaves, hbp => by
+            (⟨i64, a'⟩ :: bvs) vsTail leaves m hst' hmOk' hwf hno hlv hleaves hk
+  | .jnz c t e, path, st, bvs, vsTail, leaves, m, hst, hmOk, hwf, hno, hlv, hleaves, hbp => by
       dsimp only [BlockFlat.wfCheck] at hwf
       rcases Bool.and_eq_true_iff.1 hwf with ⟨hwfCT, hwfE⟩
       rcases Bool.and_eq_true_iff.1 hwfCT with ⟨hwfC, hwfT⟩
@@ -1781,24 +2091,30 @@ private theorem liftBlock_wp {rw : RegionWitness} {Γ : Env} {X : XPost}
                     have hstT := pushCondFact_sound hst hdc true htr
                     have hwfT' : t.wfCheck (st.pushCondFact c true).ctx = true := by
                       rw [pushCondFact_ctx]; exact hwfT
-                    exact liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall t
+                    exact liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall m₀ hRo t
                       (path ++ [true]) (st.pushCondFact c true) bvs vsTail lt m hstT
-                      hwfT' hnoT hlt'
+                      (symMemOk_pushCondFact hmOk c true) hwfT' hnoT hlt'
                       (fun lf hmem => hleaves lf (List.mem_append_left le hmem)) (hbt htr)
                   · intro hfl
                     have hstE := pushCondFact_sound hst hdc false hfl
                     have hwfE' : e.wfCheck (st.pushCondFact c false).ctx = true := by
                       rw [pushCondFact_ctx]; exact hwfE
-                    exact liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall e
+                    exact liftBlock_wp hls pc rp₀ hH hStepPred hStepBail hStepCall m₀ hRo e
                       (path ++ [false]) (st.pushCondFact c false) bvs vsTail le m hstE
-                      hwfE' hnoE hle'
+                      (symMemOk_pushCondFact hmOk c false) hwfE' hnoE hle'
                       (fun lf hmem => hleaves lf (List.mem_append_right lt hmem)) (hbe hfl)
-  | .ijmp tgt nxt, path, st, bvs, vsTail, leaves, m, hst, hwf, _, hlv, hleaves, hbp => by
+  | .ijmp tgt nxt, path, st, bvs, vsTail, leaves, m, hst, hmOk, hwf, _, hlv, hleaves, hbp => by
       dsimp only [BlockFlat.wfCheck] at hwf
       rcases Bool.and_eq_true_iff.1 hwf with ⟨hwfT, hwfN⟩
       dsimp only [symEvalBlock] at hlv
       cases hlv
       obtain ⟨ew, hfind, hchk⟩ := hleaves ⟨path, st, tgt, nxt⟩ List.mem_cons_self
+      have hewMem : ew ∈ rw.edges := by
+        dsimp only [RegionWitness.findEdge] at hfind
+        exact List.mem_of_find?_eq_some hfind
+      have hRoEdge : edgeRoOk m₀ ew.kind := by
+        have h' := hRo ew hewMem
+        dsimp only [edgeRoOk]; exact h'
       dsimp only [BlockFlat.wp] at hbp
       cases hdt : denoteArg bvs tgt with
       | none => rw [hdt] at hbp; exact False.elim hbp
@@ -1810,13 +2126,19 @@ private theorem liftBlock_wp {rw : RegionWitness} {Γ : Env} {X : XPost}
               dsimp only at hbp
               dsimp only [liftBlock]
               rw [hfind]
-              refine liftEdge_wp hls hst hdt hwfT hdn hwfN hchk hbp hStepPred hStepBail ?_
+              refine liftEdge_wp hls hst hdt hwfT hdn hwfN hchk hmOk hRoEdge hbp hStepPred
+                hStepBail ?_
               intro callee calleePc dualRet retPc altRetPc?
-                hAb hcal haddr htc hrpc hAltC hRetIn hAltIn
+                hAb hcal haddr htc hrpc hAltC hRetIn hAltIn hIsCont
               rw [htc] at hbp
+              have hCont : rw.edges.any (fun ew =>
+                  match ew.kind with | .contCall _ _ _ _ _ => true | _ => false) = true :=
+                List.any_eq_true.2 ⟨ew, hewMem, by
+                  cases hkw : ew.kind <;> rw [hkw] at hIsCont <;>
+                    first | rfl | exact False.elim hIsCont⟩
               exact hStepCall callee calleePc dualRet _ m retPc altRetPc? hAb hcal haddr hrpc
-                hAltC hRetIn hAltIn hbp
-  | .halt c, _, st, bvs, vsTail, _, m, hst, hwf, _, _, _, hbp => by
+                hAltC hRetIn hAltIn hCont hbp
+  | .halt c, _, st, bvs, vsTail, _, m, hst, _, hwf, _, _, _, hbp => by
       dsimp only [BlockFlat.wfCheck] at hwf
       dsimp only [BlockFlat.wp] at hbp
       cases hdc : denoteArg bvs c with
@@ -1829,7 +2151,7 @@ private theorem liftBlock_wp {rw : RegionWitness} {Γ : Env} {X : XPost}
           rw [hdc']
           dsimp only [denoteArgs, wp, vals]
           exact hH c'.val m hbp
-  | .hlt, _, _, _, _, _, _, _, _, hno, _, _, _ => by
+  | .hlt, _, _, _, _, _, _, _, _, _, hno, _, _, _ => by
       dsimp only [BlockFlat.noHlt] at hno; cases hno
 
 theorem liftBlock_wp_init {rw : RegionWitness} {Γ : Env} {X : XPost}
@@ -1850,12 +2172,15 @@ theorem liftBlock_wp_init {rw : RegionWitness} {Γ : Env} {X : XPost}
       (if dualRet then altRetPc? = some (retPc + 8#64) else altRetPc?.isNone) →
       (findLabelIdx pcs retPc).isSome = true →
       (if dualRet then (findLabelIdx pcs (retPc + 8#64)).isSome = true else True) →
+      (rw.edges.any (fun ew => match ew.kind with | .contCall _ _ _ _ _ => true | _ => false) =
+        true) →
       Ψ_step calleePc ⟨nxtR, m'⟩ →
       ∃ P E, Γ callee regSig (RegionAbi.contified dualRet).retSig
           nxtR.toRegsV.toTup m' P E ∧
         (∀ r m'', P r m'' → retContPost dualRet Pred retPc r m'') ∧
         (∀ g cs xs m'', E g cs xs m'' → X g cs xs m''))
     (b : BlockFlat) (leaves : List SymLeaf) (m : Mem 64)
+    (hRo : RegionRoOk rw m)
     (hwf : b.wfCheck regCtx = true) (hno : b.noHlt = true)
     (hlv : symEvalBlock cm b [] SymState.init = some leaves)
     (hleaves : ∀ lf ∈ leaves, ∃ ew, rw.findEdge pc lf.path = some ew ∧
@@ -1864,8 +2189,9 @@ theorem liftBlock_wp_init {rw : RegionWitness} {Γ : Env} {X : XPost}
     wp Γ (regionRetPost rw.abi Ψ_bail r₀.rp) X
       (denote Val Cont (liftBlock cm rw pcs pc b [] SymState.init)
         (pushRegsV r₀.toRegsV) ls) m :=
-  liftBlock_wp hls pc r₀.rp hH hStepPred hStepBail hStepCall b [] SymState.init
-    (pushRegsV r₀.toRegsV) [] leaves m (symStateOk_init r₀) hwf hno hlv hleaves hbp
+  liftBlock_wp hls pc r₀.rp hH hStepPred hStepBail hStepCall m hRo b [] SymState.init
+    (pushRegsV r₀.toRegsV) [] leaves m (symStateOk_init r₀) (symMemOk_init r₀ m)
+    hwf hno hlv hleaves hbp
 
 /-! ## §4. Canonical `GroupTree` Helpers, `RegionStep`, `PsiReg`, and `PsiHyb` -/
 
@@ -1944,13 +2270,26 @@ theorem lsMatch_pushTup_group :
       lsMatch_pushTup_group gs Js (g.entryPc :: pcs) (⟨regSig, J⟩ :: ls) Pred hrest
         (lsMatch_cons hJ hls)
 
+/-- True iff `pc` belongs to a region in `wit` that uses `.memTableRo`. -/
+@[expose] def isRoPc (wit : CfgWitness) (pc : BitVec 64) : Bool :=
+  ((wit.regions.filter RegionWitness.hasMemTableRo).flatMap RegionWitness.allPcs).contains pc
+
+/-- Conditional `WitRoOk` wrapper parameterized by `(useRo, wit, pc)`. -/
+@[expose] def RoPred (useRo : Bool) (wit : CfgWitness) (pc : BitVec 64) (m : Mem 64) : Prop :=
+  if useRo && isRoPc wit pc then WitRoOk wit m else True
+
+@[expose] def RegionStepG (useRo : Bool) (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
+    (H : HaltPost) (Ψ : Xcap.Lfp.Pred (BitVec 64 × State)) : Xcap.Lfp.Pred (BitVec 64 × State) :=
+  fun p => ∃ b, cm.lookupAddr p.1 = some b ∧
+    (RoPred useRo wit p.1 p.2.mem →
+      b.wp cm.symEnv (fun pc' st' =>
+        if (wit.regions.flatMap RegionWitness.allPcs).contains pc' then
+          (RoPred useRo wit pc' st'.mem → Ψ (pc', st')) ∧ Ψ_cold pc' st'
+        else Ψ_cold pc' st') H (pushRegsV p.2.regs.toRegsV) p.2.mem)
+
 @[expose] def RegionStep (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec) (H : HaltPost)
     (Ψ : Xcap.Lfp.Pred (BitVec 64 × State)) : Xcap.Lfp.Pred (BitVec 64 × State) :=
-  fun p => ∃ b, cm.lookupAddr p.1 = some b ∧
-    b.wp cm.symEnv (fun pc' st' =>
-      if (wit.regions.flatMap RegionWitness.allPcs).contains pc' then
-        Ψ (pc', st') ∧ Ψ_cold pc' st'
-      else Ψ_cold pc' st') H (pushRegsV p.2.regs.toRegsV) p.2.mem
+  RegionStepG false cm wit Ψ_cold H Ψ
 
 theorem blockFlat_wp_mono {ρ : SymEnv} {Ψ₁ Ψ₂ : CodeSpec} {H : HaltPost}
     (hΨ : ∀ pc st, Ψ₁ pc st → Ψ₂ pc st) :
@@ -1999,22 +2338,40 @@ theorem blockFlat_wp_mono {ρ : SymEnv} {Ψ₁ Ψ₂ : CodeSpec} {H : HaltPost}
   | .halt _, _, _, h => h
   | .hlt, _, _, h => h
 
-theorem regionStep_mono (cm : CodeMap) (wit : CfgWitness)
+theorem regionStepG_mono (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
     (Ψ_cold : CodeSpec) (H : HaltPost) :
-    Xcap.Lfp.mono (RegionStep cm wit Ψ_cold H) := by
+    Xcap.Lfp.mono (RegionStepG useRo cm wit Ψ_cold H) := by
   rintro Ψ₁ Ψ₂ hle ⟨pc, st⟩ ⟨b, hlu, hbp⟩
-  refine ⟨b, hlu, blockFlat_wp_mono ?_ b _ _ hbp⟩
+  refine ⟨b, hlu, fun hRo => blockFlat_wp_mono ?_ b _ _ (hbp hRo)⟩
   intro pc' st' h
   by_cases hc : (wit.regions.flatMap RegionWitness.allPcs).contains pc' = true
   · simp only [hc, ↓reduceIte] at h ⊢
-    exact ⟨hle (pc', st') h.1, h.2⟩
+    exact ⟨fun hRo' => hle (pc', st') (h.1 hRo'), h.2⟩
   · simp only [hc, Bool.false_eq_true, ↓reduceIte] at h ⊢
     exact h
+
+theorem regionStep_mono (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) :
+    Xcap.Lfp.mono (RegionStep cm wit Ψ_cold H) :=
+  regionStepG_mono false cm wit Ψ_cold H
+
+/-- Generalized least Knaster–Tarski code specification covering `wit.regions`. -/
+@[expose] def PsiRegG (useRo : Bool) (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
+    (H : HaltPost) : CodeSpec :=
+  fun pc st => Xcap.Lfp.lfp (RegionStepG useRo cm wit Ψ_cold H) (pc, st)
 
 /-- Least Knaster–Tarski code specification covering all blocks inside `wit.regions`. -/
 @[expose] def PsiReg (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
     (H : HaltPost) : CodeSpec :=
-  fun pc st => Xcap.Lfp.lfp (RegionStep cm wit Ψ_cold H) (pc, st)
+  PsiRegG false cm wit Ψ_cold H
+
+/-- Generalized hybrid code specification over `wit.regions` + `Ψ_cold`. -/
+@[expose] def PsiHybG (useRo : Bool) (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
+    (H : HaltPost) : CodeSpec :=
+  fun pc st =>
+    if (wit.regions.flatMap RegionWitness.allPcs).contains pc then
+      (RoPred useRo wit pc st.mem → PsiRegG useRo cm wit Ψ_cold H pc st) ∧ Ψ_cold pc st
+    else Ψ_cold pc st
 
 /-- Hybrid code specification combining verified Tier-S lifted regions (`PsiReg`) inside
 `wit.allPcs` with cold/residual invariant `Ψ_cold`. -/
@@ -2024,6 +2381,14 @@ theorem regionStep_mono (cm : CodeMap) (wit : CfgWitness)
     if (wit.regions.flatMap RegionWitness.allPcs).contains pc then
       PsiReg cm wit Ψ_cold H pc st ∧ Ψ_cold pc st
     else Ψ_cold pc st
+
+theorem psiHybG_false_eq (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec) (H : HaltPost) :
+    PsiHybG false cm wit Ψ_cold H = PsiHyb cm wit Ψ_cold H := by
+  funext pc st
+  dsimp only [PsiHybG, PsiHyb, PsiReg, RoPred]
+  by_cases hc : (wit.regions.flatMap RegionWitness.allPcs).contains pc = true
+  · simp
+  · simp
 
 
 end LeanQbe.T.Unified

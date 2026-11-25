@@ -304,6 +304,45 @@ private theorem denote_lowerGuardedCascade_prefix {V : Ty → Type} {L : List Ty
               rw [List.append_assoc] at ht
               rw [ht, he]
 
+private theorem denote_lowerStrideOrRo_prefix {V : Ty → Type} {L : List Ty → Type}
+    (pcs : List (BitVec 64)) (idxVar : Nat) (tgt : Arg K i64) (nxt : RegsExpr K)
+    {Γ : List Ty} (hIdx : checkArg Γ i64 (.var idxVar) = true)
+    (hT : checkArg Γ i64 tgt = true) (hN : checkRegsExpr Γ nxt = true)
+    (vsTail : List ((t : Ty) × V t)) (ls : List ((ts : List Ty) × L ts))
+    {bvs : List ((t : Ty) × V t)} (hctx : CtxTypes Γ bvs)
+    (targets : List (BitVec 64)) :
+    denote V L (lowerStrideOrRo pcs idxVar tgt nxt targets true) (bvs ++ vsTail) ls =
+      denote V L (lowerStrideOrRo pcs idxVar tgt nxt targets true) bvs ls := by
+  dsimp only [lowerStrideOrRo]
+  simp only [↓reduceIte]
+  dsimp only [denote, op2, denoteArgs]
+  rw [denoteArg_prefix vsTail hctx hIdx]
+  cases denoteArg bvs (.var idxVar) with
+  | none => rfl
+  | some _ =>
+      dsimp only [denoteArg]
+      congr 1; funext xs
+      rcases xs with ⟨u, ⟨⟩⟩
+      dsimp only [pushTup]
+      have hu0 : lookupV (⟨.bool, u⟩ :: (bvs ++ vsTail)) .bool 0 =
+          lookupV (⟨.bool, u⟩ :: bvs) .bool 0 := rfl
+      rw [hu0]
+      cases lookupV (⟨.bool, u⟩ :: bvs) .bool 0 with
+      | none => rfl
+      | some _ =>
+          have hs := denote_lowerStrideCascade_prefix (rs := i64 :: regSig) pcs _ nxt
+            hIdx hN vsTail ls targets 0 1 [.bool] [⟨.bool, u⟩] bvs rfl (.cons .nil) hctx
+          have hT1 : checkArg (.bool :: Γ) i64 (shiftArg 1 tgt) = true :=
+            checkArg_shiftArg [.bool] Γ tgt hT
+          have hN1 : checkRegsExpr (.bool :: Γ) (shiftRegsExpr 1 nxt) = true :=
+            checkRegsExpr_shiftRegsExpr [.bool] Γ nxt hN
+          have hRetChk := checkArgs_cons hT1 (checkRegsExpr_toTup hN1)
+          dsimp only [RegsExpr.toTup] at hRetChk
+          dsimp only [List.cons_append, List.nil_append] at hs
+          dsimp only [mkRetEnvelope, denote, RegionAbi.retSig]
+          rw [hs, ← List.cons_append,
+            denoteArgs_prefix (ts := i64 :: regSig) vsTail (CtxTypes.cons (v := u) hctx) hRetChk]
+
 private theorem denote_liftEdge_prefix {V : Ty → Type} {L : List Ty → Type}
     {cm : CodeMap} {abi : RegionAbi} {callees : List CalleeMeta} {pcs : List (BitVec 64)}
     {st : SymState} {tgt : Arg K i64} {nxt : RegsExpr K} {path : BranchPath} {kind : EdgeKind}
@@ -343,35 +382,45 @@ private theorem denote_liftEdge_prefix {V : Ty → Type} {L : List Ty → Type}
       · exact denote_lowerStrideCascade_prefix pcs _ nxt hidx hN vsTail ls targets 0 0 [] [] bvs
           rfl .nil hctx
       · cases abi
-        · dsimp only [denote, op2, denoteArgs]
-          rw [denoteArg_prefix vsTail hctx hidx]
-          cases denoteArg bvs (.var (st.env.length - 1 - lvl)) with
-          | none => rfl
-          | some _ =>
-              dsimp only [denoteArg]
-              congr 1; funext xs
-              rcases xs with ⟨u, ⟨⟩⟩
-              dsimp only [pushTup]
-              have hu0 : lookupV (⟨.bool, u⟩ :: (bvs ++ vsTail)) .bool 0 =
-                  lookupV (⟨.bool, u⟩ :: bvs) .bool 0 := rfl
-              rw [hu0]
-              cases lookupV (⟨.bool, u⟩ :: bvs) .bool 0 with
-              | none => rfl
-              | some _ =>
-                  have hs := denote_lowerStrideCascade_prefix (rs := i64 :: regSig) pcs _ nxt
-                    hidx hN vsTail ls targets 0 1 [.bool] [⟨.bool, u⟩] bvs rfl (.cons .nil) hctx
-                  have hT1 : checkArg (.bool :: st.ctx) i64 (shiftArg 1 tgt) = true :=
-                    checkArg_shiftArg [.bool] st.ctx tgt hT
-                  have hN1 : checkRegsExpr (.bool :: st.ctx) (shiftRegsExpr 1 nxt) = true :=
-                    checkRegsExpr_shiftRegsExpr [.bool] st.ctx nxt hN
-                  have hRetChk := checkArgs_cons hT1 (checkRegsExpr_toTup hN1)
-                  dsimp only [RegsExpr.toTup] at hRetChk
-                  dsimp only [List.cons_append, List.nil_append] at hs
-                  dsimp only [mkRetEnvelope, denote, RegionAbi.retSig]
-                  rw [hs, ← List.cons_append,
-                    denoteArgs_prefix (ts := i64 :: regSig) vsTail
-                      (CtxTypes.cons (v := u) hctx) hRetChk]
+        · exact denote_lowerStrideOrRo_prefix pcs _ tgt nxt hidx hT hN vsTail ls hctx targets
         · simp [RegionAbi.isContified] at hEdge
+  | memTableGuarded _ targets =>
+      cases abi
+      · exact denote_lowerGuardedCascade_prefix pcs tgt nxt hT hN vsTail ls targets 0 [] [] bvs
+          rfl .nil hctx
+      · simp [RegionAbi.isContified] at hEdge
+  | memTableRo tblBase targets needGuard =>
+      cases abi
+      · simp only [RegionAbi.isContified, Bool.not_false, Bool.true_and,
+          Bool.and_eq_true] at hEdge
+        dsimp only [liftEdge]
+        cases hml : st.memLoadIdx? tgt tblBase true with
+        | none => rw [hml] at hEdge; simp at hEdge
+        | some lvl =>
+            rw [hml] at hEdge; dsimp only at hEdge
+            have hty : st.levelHasTy lvl i64 = true := by
+              dsimp only [SymState.memLoadIdx?] at hml
+              cases tgt with
+              | imm _ => cases hml
+              | var idx =>
+                  dsimp only at hml
+                  cases htl : st.toLevel? idx with
+                  | none => rw [htl] at hml; cases hml
+                  | some vLvl =>
+                      rw [htl] at hml; dsimp only at hml
+                      cases hfm : st.findMemLoad? vLvl tblBase true with
+                      | none => rw [hfm] at hml; cases hml
+                      | some e =>
+                          rw [hfm] at hml; cases hml
+                          have hP := List.find?_some (by simpa [SymState.findMemLoad?] using hfm)
+                          simp only [Bool.and_eq_true] at hP; exact hP.2
+            have hidx : checkArg st.ctx i64 (.var (st.env.length - 1 - lvl)) = true :=
+              checkArg_levelHasTy hlen hty
+            cases needGuard
+            · exact denote_lowerStrideCascade_prefix pcs _ nxt hidx hN vsTail ls targets 0 0
+                [] [] bvs rfl .nil hctx
+            · exact denote_lowerStrideOrRo_prefix pcs _ tgt nxt hidx hT hN vsTail ls hctx targets
+      · simp [RegionAbi.isContified] at hEdge
   | contCall callee calleePc dualRet retPc altRetPc? =>
       cases abi
       · simp only [RegionAbi.isContified, Bool.not_false, Bool.true_and, Bool.and_eq_true] at hEdge
@@ -498,14 +547,15 @@ private theorem denote_liftBlock_prefix {V : Ty → Type} {L : List Ty → Type}
       | some _ =>
           dsimp only; congr 1; funext v
           exact denote_liftBlock_prefix k path _ (⟨t, v⟩ :: bvs) vsTail leaves
-            (by simp [hlen]) (.cons hctx) hwfK hlv hleaves
+            (by dsimp only [SymState.stepLoad]; simp [hlen]) (.cons hctx) hwfK hlv hleaves
   | .store v a k, path, st, bvs, vsTail, leaves, hlen, hctx, hwf, hlv, hleaves => by
       dsimp only [BlockFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
       dsimp only [liftBlock, denote]
       rw [denoteArg_prefix vsTail hctx hwf.1.1, denoteArg_prefix vsTail hctx hwf.1.2]
       cases denoteArg bvs v <;> cases denoteArg bvs a <;> try rfl
       exact congrArg _
-        (denote_liftBlock_prefix k path st bvs vsTail leaves hlen hctx hwf.2 hlv hleaves)
+        (denote_liftBlock_prefix k path { st with hasStored := true } bvs vsTail leaves
+          hlen hctx hwf.2 hlv hleaves)
   | .codeAddr sym k, path, st, bvs, vsTail, leaves, hlen, hctx, hwf, hlv, hleaves => by
       dsimp only [symEvalBlock] at hlv
       dsimp only [liftBlock]
@@ -571,7 +621,7 @@ private theorem denote_liftGroupNode_prefix {V : Ty → Type} {L : List Ty → T
       dsimp only [checkGroupNode, checkBlockLeaves] at hchk
       dsimp only [liftGroupNode]
       cases hlu : cm.lookupAddr pc with
-      | none => rw [hlu] at hchk; cases hchk
+      | none => rw [hlu] at hchk; simp at hchk
       | some b =>
           rw [hlu] at hchk; simp only [Bool.and_eq_true] at hchk
           cases hsym : symEvalBlock cm b [] SymState.init with
@@ -581,12 +631,12 @@ private theorem denote_liftGroupNode_prefix {V : Ty → Type} {L : List Ty → T
               have hleaves : ∀ lf ∈ leaves, ∃ ew, rw.findEdge pc lf.path = some ew ∧
                   checkEdgeLeaf cm rw.abi callees pcs lf ew.kind = true := by
                 intro lf hm
-                have ha := List.all_eq_true.1 hchk.2 lf hm
+                have ha := List.all_eq_true.1 hchk.2.2 lf hm
                 cases hf : rw.findEdge pc lf.path with
                 | none => rw [hf] at ha; cases ha
                 | some ew => rw [hf] at ha; exact ⟨ew, rfl, ha⟩
               exact denote_liftBlock_prefix b [] SymState.init bvs vsTail leaves rfl hctx
-                hchk.1.1 hsym hleaves
+                hchk.2.1.1 hsym hleaves
   | pcs, .loop header nodes, hchk, bvs, vsTail, ls, hctx => by
       dsimp only [checkGroupNode] at hchk; simp only [Bool.and_eq_true] at hchk
       dsimp only [liftGroupNode, denote]
@@ -967,77 +1017,82 @@ private theorem canonNodesPred_mono {cm : CodeMap} {rw : RegionWitness} {Γ : En
   exact canonTupPred_mono hQ ((mono_zip _ _ hJs).append hD)
     (ctxRel_pushTup _ _ hRel) gs hJs pc st h
 
-private def regionBailPost (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
-    (H : HaltPost) (P : CodeSpec) : RegionAbi → CodeSpec
-  | .retEnvelope => PsiHyb cm wit Ψ_cold H
-  | .contified _ => fun pc' s' => P pc' s' ∧ PsiHyb cm wit Ψ_cold H pc' s'
+private def regionBailPostG (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (P : CodeSpec) : RegionAbi → CodeSpec
+  | .retEnvelope => PsiHybG useRo cm wit Ψ_cold H
+  | .contified _ => fun pc' s' =>
+      (RoPred useRo wit pc' s'.mem → P pc' s') ∧ PsiHybG useRo cm wit Ψ_cold H pc' s'
 
-private def regionQ (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec) (H : HaltPost)
-    (P : CodeSpec) (rw : RegionWitness) (rp₀ : BitVec 64) : Post rw.abi.retSig :=
-  regionRetPost rw.abi (regionBailPost cm wit Ψ_cold H P rw.abi) rp₀
+private def regionQG (useRo : Bool) (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
+    (H : HaltPost) (P : CodeSpec) (rw : RegionWitness) (rp₀ : BitVec 64) : Post rw.abi.retSig :=
+  regionRetPost rw.abi (regionBailPostG useRo cm wit Ψ_cold H P rw.abi) rp₀
 
-private theorem regionQ_mono_aux (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
-    (H : HaltPost) {P₁ P₂ : CodeSpec} (hP : ∀ pc st, P₁ pc st → P₂ pc st) (rp₀ : BitVec 64)
-    (m : Mem 64) :
-    ∀ (abi : RegionAbi) (vs : Tup Val abi.retSig),
-      regionRetPost abi (regionBailPost cm wit Ψ_cold H P₁ abi) rp₀ vs m →
-      regionRetPost abi (regionBailPost cm wit Ψ_cold H P₂ abi) rp₀ vs m
-  | .retEnvelope, _, h => h
-  | .contified dualRet, _, h => by
-      cases dualRet <;> exact ⟨hP _ _ h.1, h.2⟩
+private theorem regionQG_mono_aux (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) {P₁ P₂ : CodeSpec}
+    (hP : ∀ pc st, P₁ pc st → P₂ pc st) (rp₀ : BitVec 64) :
+    ∀ (abi : RegionAbi) (vs : Tup Val abi.retSig) (m : Mem 64),
+      regionRetPost abi (regionBailPostG useRo cm wit Ψ_cold H P₁ abi) rp₀ vs m →
+      regionRetPost abi (regionBailPostG useRo cm wit Ψ_cold H P₂ abi) rp₀ vs m
+  | .retEnvelope, _, _, h => h
+  | .contified dualRet, _, _, h => by
+      cases dualRet <;> exact ⟨fun hRo => hP _ _ (h.1 hRo), h.2⟩
 
-private theorem regionQ_mono (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec) (H : HaltPost)
-    {P₁ P₂ : CodeSpec} (hP : ∀ pc st, P₁ pc st → P₂ pc st) (rw : RegionWitness) (rp₀ : BitVec 64) :
-    ∀ vs m, regionQ cm wit Ψ_cold H P₁ rw rp₀ vs m → regionQ cm wit Ψ_cold H P₂ rw rp₀ vs m :=
-  fun vs m h => regionQ_mono_aux cm wit Ψ_cold H hP rp₀ m rw.abi vs h
+private theorem regionQG_mono (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) {P₁ P₂ : CodeSpec}
+    (hP : ∀ pc st, P₁ pc st → P₂ pc st) (rw : RegionWitness) (rp₀ : BitVec 64) :
+    ∀ vs m, regionQG useRo cm wit Ψ_cold H P₁ rw rp₀ vs m →
+      regionQG useRo cm wit Ψ_cold H P₂ rw rp₀ vs m :=
+  fun vs m h => regionQG_mono_aux useRo cm wit Ψ_cold H hP rp₀ rw.abi vs m h
 
-private def witStepTrans (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec) (H : HaltPost)
-    (X : XPost) (P : CodeSpec) : CodeSpec :=
+private def witStepTransG (useRo : Bool) (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
+    (H : HaltPost) (X : XPost) (P : CodeSpec) : CodeSpec :=
   fun pc st =>
     ∀ (pre : List RegionWitness) (rw : RegionWitness) (post : List RegionWitness),
       wit.regions = pre ++ rw :: post → pc ∈ rw.allPcs →
+      RoPred useRo wit pc st.mem →
       canonNodesPred cm rw (witEnvAux cm (fun _ _ _ _ _ _ _ => False) pre)
-        (regionQ cm wit Ψ_cold H P rw st.regs.rp) X rw.tree [] [] pc st
+        (regionQG useRo cm wit Ψ_cold H P rw st.regs.rp) X rw.tree [] [] pc st
 
-private theorem witStepTrans_mono (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
-    (H : HaltPost) (X : XPost) {P₁ P₂ : CodeSpec} (hP : ∀ pc st, P₁ pc st → P₂ pc st) :
-    ∀ pc st, witStepTrans cm wit Ψ_cold H X P₁ pc st →
-      witStepTrans cm wit Ψ_cold H X P₂ pc st := by
-  intro pc st h pre rw post hEq hMem
-  exact canonNodesPred_mono (regionQ_mono cm wit Ψ_cold H hP rw st.regs.rp)
-    MonoD.nil .nil rw.tree (h pre rw post hEq hMem)
+private theorem witStepTransG_mono (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (X : XPost) {P₁ P₂ : CodeSpec}
+    (hP : ∀ pc st, P₁ pc st → P₂ pc st) :
+    ∀ pc st, witStepTransG useRo cm wit Ψ_cold H X P₁ pc st →
+      witStepTransG useRo cm wit Ψ_cold H X P₂ pc st := by
+  intro pc st h pre rw post hEq hMem hRo
+  exact canonNodesPred_mono (regionQG_mono useRo cm wit Ψ_cold H hP rw st.regs.rp)
+    MonoD.nil .nil rw.tree (h pre rw post hEq hMem hRo)
 
-private def WitGfp (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec) (H : HaltPost)
-    (X : XPost) : CodeSpec :=
+private def WitGfpG (useRo : Bool) (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
+    (H : HaltPost) (X : XPost) : CodeSpec :=
   fun pc st => ∃ P : CodeSpec,
-    (∀ pc' st', P pc' st' → witStepTrans cm wit Ψ_cold H X P pc' st') ∧ P pc st
+    (∀ pc' st', P pc' st' → witStepTransG useRo cm wit Ψ_cold H X P pc' st') ∧ P pc st
 
-private theorem witGfp_post (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
+private theorem witGfpG_post (useRo : Bool) (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
     (H : HaltPost) (X : XPost) {pc st} :
-    WitGfp cm wit Ψ_cold H X pc st →
-    witStepTrans cm wit Ψ_cold H X (WitGfp cm wit Ψ_cold H X) pc st := by
+    WitGfpG useRo cm wit Ψ_cold H X pc st →
+    witStepTransG useRo cm wit Ψ_cold H X (WitGfpG useRo cm wit Ψ_cold H X) pc st := by
   rintro ⟨P, hP, hpc⟩
-  exact witStepTrans_mono cm wit Ψ_cold H X (fun _ _ h => ⟨P, hP, h⟩) pc st (hP pc st hpc)
+  exact witStepTransG_mono useRo cm wit Ψ_cold H X (fun _ _ h => ⟨P, hP, h⟩) pc st (hP pc st hpc)
 
-private theorem witGfp_pre (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
+private theorem witGfpG_pre (useRo : Bool) (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
     (H : HaltPost) (X : XPost) {pc st} :
-    witStepTrans cm wit Ψ_cold H X (WitGfp cm wit Ψ_cold H X) pc st →
-    WitGfp cm wit Ψ_cold H X pc st := by
+    witStepTransG useRo cm wit Ψ_cold H X (WitGfpG useRo cm wit Ψ_cold H X) pc st →
+    WitGfpG useRo cm wit Ψ_cold H X pc st := by
   intro h
-  refine ⟨fun pc' st' => WitGfp cm wit Ψ_cold H X pc' st' ∨
-      witStepTrans cm wit Ψ_cold H X (WitGfp cm wit Ψ_cold H X) pc' st', ?_, Or.inr h⟩
+  refine ⟨fun pc' st' => WitGfpG useRo cm wit Ψ_cold H X pc' st' ∨
+      witStepTransG useRo cm wit Ψ_cold H X (WitGfpG useRo cm wit Ψ_cold H X) pc' st', ?_, Or.inr h⟩
   intro pc' st' hq
-  apply witStepTrans_mono cm wit Ψ_cold H X (fun _ _ h' => Or.inl h')
+  apply witStepTransG_mono useRo cm wit Ψ_cold H X (fun _ _ h' => Or.inl h')
   rcases hq with hq | hq
-  · exact witGfp_post cm wit Ψ_cold H X hq
+  · exact witGfpG_post useRo cm wit Ψ_cold H X hq
   · exact hq
 
-private theorem witGfp_outside (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
-    (H : HaltPost) (X : XPost) {pc st}
+private theorem witGfpG_outside (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (X : XPost) {pc st}
     (hOut : ¬ (wit.regions.flatMap RegionWitness.allPcs).contains pc = true) :
-    WitGfp cm wit Ψ_cold H X pc st := by
-  apply witGfp_pre
-  intro pre rw post hEq hMem
+    WitGfpG useRo cm wit Ψ_cold H X pc st := by
+  apply witGfpG_pre
+  intro pre rw post hEq hMem _
   have hIn : (wit.regions.flatMap RegionWitness.allPcs).contains pc = true := by
     rw [List.contains_iff_mem, List.mem_flatMap]
     exact ⟨rw, by rw [hEq]; simp, hMem⟩
@@ -1131,79 +1186,342 @@ private theorem regionSpec_from_canonNodes {cm : CodeMap} {rw : RegionWitness} {
     canonTupPred_tupMemPred rw.tree _ fun g _ r m' h => h
   exact denote_lowerJumpTo_of_mem rw.tree _ [] [] _ r₀ m rw.entryPc hMem hEnt hCan
 
-private theorem canonNodes_step_aux (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
-    (H : HaltPost) (X : XPost) (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
-    (hChk : wit.check cm = true) {pc₀ : BitVec 64} {st₀ : State} {b : BlockFlat}
+private theorem regionRoOk_of_noRo (rw : RegionWitness) (m : Mem 64)
+    (hNo : rw.hasMemTableRo = false) : RegionRoOk rw m := by
+  intro ew hew
+  cases hk : ew.kind with
+  | memTableRo tblBase targets needGuard =>
+      have ha : rw.hasMemTableRo = true := by
+        dsimp only [RegionWitness.hasMemTableRo]
+        exact List.any_eq_true.2 ⟨ew, hew, by simp [hk]⟩
+      rw [hNo] at ha; cases ha
+  | _ => trivial
+
+private theorem regionRoOk_of_witRoOk (wit : CfgWitness) (rw : RegionWitness)
+    (hMem : rw ∈ wit.regions) (m : Mem 64) (hRo : WitRoOk wit m) : RegionRoOk rw m :=
+  fun ew hew => hRo rw hMem ew hew
+
+private theorem witHasMemTableRo_false_mem {wit : CfgWitness} (hNo : wit.hasMemTableRo = false)
+    {rw : RegionWitness} (hMem : rw ∈ wit.regions) : rw.hasMemTableRo = false := by
+  by_cases hr : rw.hasMemTableRo = true
+  · have hW : wit.hasMemTableRo = true := by
+      dsimp only [CfgWitness.hasMemTableRo]
+      exact List.any_eq_true.2 ⟨rw, hMem, hr⟩
+    rw [hNo] at hW; cases hW
+  · exact Bool.eq_false_iff.2 hr
+
+private theorem blockFlat_wp_noStore_mem {ρ : SymEnv} {Ψ : CodeSpec} {H : HaltPost} :
+    ∀ (b : BlockFlat) (vs : List ((t : Ty) × Val t)) (m : Mem 64),
+      blockNoStore b = true → b.wp ρ Ψ H vs m →
+      b.wp ρ (fun pc' st' => st'.mem = m ∧ Ψ pc' st') H vs m
+  | .let_ op k, vs, m, hns, h => by
+      dsimp only [BlockFlat.wp] at h ⊢
+      cases hda : denoteArgs vs op.args with
+      | none => rw [hda] at h; exact h
+      | some args' =>
+          rw [hda] at h
+          exact Op.wp_mono (fun r hr => blockFlat_wp_noStore_mem k (pushTup r vs) m hns hr) h
+  | .load t a k, vs, m, hns, h => by
+      dsimp only [BlockFlat.wp] at h ⊢
+      cases hda : denoteArg vs a with
+      | none => rw [hda] at h; exact h
+      | some a' =>
+          rw [hda] at h
+          rcases h with ⟨v, hv, hk⟩
+          exact ⟨v, hv, blockFlat_wp_noStore_mem k (⟨t, v⟩ :: vs) m hns hk⟩
+  | .store _ _ _, _, _, hns, _ => by cases hns
+  | .codeAddr sym k, vs, m, hns, ⟨a, ha, hk⟩ =>
+      ⟨a, ha, blockFlat_wp_noStore_mem k (⟨i64, a⟩ :: vs) m hns hk⟩
+  | .jnz c t e, vs, m, hns, h => by
+      dsimp only [blockNoStore] at hns; rcases Bool.and_eq_true_iff.1 hns with ⟨hnt, hne⟩
+      dsimp only [BlockFlat.wp] at h ⊢
+      cases hdc : denoteArg vs c with
+      | none => rw [hdc] at h; exact h
+      | some c' =>
+          rw [hdc] at h
+          exact ⟨fun ht => blockFlat_wp_noStore_mem t vs m hnt (h.1 ht),
+                 fun hf => blockFlat_wp_noStore_mem e vs m hne (h.2 hf)⟩
+  | .ijmp tgt nxt, vs, m, _, h => by
+      dsimp only [BlockFlat.wp] at h ⊢
+      cases h1 : denoteArg vs tgt with
+      | none => rw [h1] at h; exact h
+      | some tgt' =>
+          cases h2 : denoteRegsExpr vs nxt with
+          | none => rw [h1, h2] at h; exact h
+          | some nxt' => rw [h1, h2] at h; exact ⟨rfl, h⟩
+  | .halt _, _, _, _, h => h
+  | .hlt, _, _, _, h => h
+
+private theorem isRoPc_of_mem_true {wit : CfgWitness} {rw : RegionWitness}
+    (hMem : rw ∈ wit.regions) (hRo : rw.hasMemTableRo = true) {pc : BitVec 64}
+    (hpc : pc ∈ rw.allPcs) : isRoPc wit pc = true := by
+  dsimp only [isRoPc]
+  rw [List.contains_iff_mem, List.mem_flatMap]
+  exact ⟨rw, List.mem_filter.2 ⟨hMem, hRo⟩, hpc⟩
+
+private theorem roPred_of_noRo (useRo : Bool) (wit : CfgWitness) (pc : BitVec 64) (m : Mem 64)
+    (h : useRo = false ∨ isRoPc wit pc = false) : RoPred useRo wit pc m := by
+  dsimp only [RoPred]
+  rcases h with rfl | h'
+  · simp
+  · simp [h']
+
+private theorem checkGroupNode_roSafe (cm : CodeMap) (rw : RegionWitness)
+    (callees : List CalleeMeta) :
+    ∀ (g : GroupTree) (pcs : List (BitVec 64)),
+      checkGroupNode cm rw callees pcs g = true →
+      (!rw.hasMemTableRo || rw.roSafe cm) = true
+  | .leaf pc, pcs, hchk => by
+      dsimp only [checkGroupNode, checkBlockLeaves] at hchk
+      exact (Bool.and_eq_true_iff.1 hchk).1
+  | .loop _ nodes, pcs, hchk => by
+      dsimp only [checkGroupNode] at hchk
+      simp only [Bool.and_eq_true] at hchk
+      cases nodes with
+      | nil => simp at hchk
+      | cons g _ =>
+          dsimp only [checkGroupNodes] at hchk
+          exact checkGroupNode_roSafe cm rw callees g _ (Bool.and_eq_true_iff.1 hchk.2).1
+
+private theorem checkGroupNodes_roSafe (cm : CodeMap) (rw : RegionWitness)
+    (callees : List CalleeMeta) (pcs : List (BitVec 64)) :
+    ∀ gs : List GroupTree, (!gs.isEmpty) = true →
+      checkGroupNodes cm rw callees pcs gs = true →
+      (!rw.hasMemTableRo || rw.roSafe cm) = true
+  | [], hne, _ => by simp at hne
+  | g :: _, _, hchk =>
+      checkGroupNode_roSafe cm rw callees g pcs (Bool.and_eq_true_iff.1 hchk).1
+
+private theorem region_entryPc_mem_allPcs (cm : CodeMap) (wit : CfgWitness)
+    (hChk : wit.check cm = true) {rw : RegionWitness} (hMem : rw ∈ wit.regions) :
+    rw.entryPc ∈ rw.allPcs := by
+  rcases List.mem_iff_append.1 hMem with ⟨pre, post, hSplit⟩
+  dsimp only [CfgWitness.check] at hChk; simp only [Bool.and_eq_true] at hChk
+  have hAux := checkAux_append cm pre (rw :: post) [] (by simpa [hSplit] using hChk.2)
+  dsimp only [CfgWitness.checkAux] at hAux; simp only [Bool.and_eq_true] at hAux
+  have hRwChk := hAux.1
+  dsimp only [RegionWitness.check] at hRwChk; simp only [Bool.and_eq_true] at hRwChk
+  have hEntMap : rw.entryPc ∈ rw.tree.map GroupTree.entryPc := by
+    simpa using hRwChk.1.1.1.1.2
+  rw [List.mem_map] at hEntMap
+  rcases hEntMap with ⟨g, hgMem, hgEq⟩
+  have hm := checkGroupNode_entryPc_mem cm rw _ _ g
+    (checkGroupNodes_forall cm rw _ _ rw.tree hRwChk.1.1.2 g hgMem)
+  rw [hgEq] at hm
+  exact regionAllPcs_mem_of_tree hgMem hm
+
+private theorem flatMap_nodup_disjoint_split (pre : List RegionWitness) (a : RegionWitness)
+    (mid : List RegionWitness) (b : RegionWitness) (post : List RegionWitness)
+    (hNd : listNodup ((pre ++ a :: mid ++ b :: post).flatMap RegionWitness.allPcs) = true) :
+    ∀ pc, pc ∈ a.allPcs → pc ∉ b.allPcs := by
+  intro pc ha hb
+  have hApp : (pre ++ a :: mid ++ b :: post).flatMap RegionWitness.allPcs =
+      (pre.flatMap RegionWitness.allPcs ++ a.allPcs) ++
+      (mid.flatMap RegionWitness.allPcs ++ b.allPcs ++ post.flatMap RegionWitness.allPcs) := by
+    simp [List.flatMap_append, List.append_assoc]
+  rw [hApp] at hNd
+  exact listNodup_false_append hNd pc (List.mem_append_right _ ha) pc
+    (List.mem_append_left _ (List.mem_append_right _ hb)) rfl
+
+private theorem regionAllPcs_disjoint_of_ne (cm : CodeMap) (wit : CfgWitness)
+    (hChk : wit.check cm = true) {rw₁ rw₂ : RegionWitness}
+    (h1 : rw₁ ∈ wit.regions) (h2 : rw₂ ∈ wit.regions) (hne : rw₁ ≠ rw₂) :
+    ∀ pc, pc ∈ rw₁.allPcs → pc ∉ rw₂.allPcs := by
+  dsimp only [CfgWitness.check] at hChk; simp only [Bool.and_eq_true] at hChk
+  have hNd := hChk.1.2
+  rcases List.mem_iff_append.1 h1 with ⟨pre₁, post₁, hEq₁⟩
+  have h2' : rw₂ ∈ pre₁ ++ rw₁ :: post₁ := hEq₁ ▸ h2
+  rcases List.mem_append.1 h2' with hInPre | hInTail
+  · rcases List.mem_iff_append.1 hInPre with ⟨pre₂, mid₂, hPre₁Eq⟩
+    have hFull : wit.regions = pre₂ ++ rw₂ :: mid₂ ++ rw₁ :: post₁ := by
+      rw [hEq₁, hPre₁Eq, List.append_assoc]
+    rw [hFull] at hNd
+    intro pc h1p h2p
+    exact flatMap_nodup_disjoint_split pre₂ rw₂ mid₂ rw₁ post₁ hNd pc h2p h1p
+  · rcases List.mem_cons.1 hInTail with hSame | hInPost
+    · exact absurd hSame.symm hne
+    · rcases List.mem_iff_append.1 hInPost with ⟨mid₂, post₂, hPost₁Eq⟩
+      have hFull : wit.regions = pre₁ ++ rw₁ :: mid₂ ++ rw₂ :: post₂ := by
+        rw [hEq₁, hPost₁Eq]; simp [List.cons_append]
+      rw [hFull] at hNd
+      exact flatMap_nodup_disjoint_split pre₁ rw₁ mid₂ rw₂ post₂ hNd
+
+private theorem findLabelIdx_pushLabelPcs :
+    ∀ (xs acc : List (BitVec 64)) (p : BitVec 64),
+      (findLabelIdx (pushLabelPcs xs acc) p).isSome = true →
+      p ∈ xs ∨ (findLabelIdx acc p).isSome = true
+  | [], _, _, h => Or.inr h
+  | x :: xs, acc, p, h => by
+      rcases findLabelIdx_pushLabelPcs xs (x :: acc) p h with hx | ha
+      · exact Or.inl (List.mem_cons_of_mem _ hx)
+      · dsimp only [findLabelIdx] at ha
+        by_cases he : x = p
+        · exact Or.inl (he ▸ List.mem_cons_self)
+        · simp only [beq_false_of_ne he] at ha
+          rcases Option.isSome_iff_exists.1 ha with ⟨j, hj⟩
+          simp only [Bool.false_eq_true, ↓reduceIte, Option.map_eq_some_iff] at hj
+          rcases hj with ⟨k, hk, _⟩
+          exact Or.inr (by rw [hk]; rfl)
+
+private theorem roPred_of_region_mem (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (hChk : wit.check cm = true) (hMode : useRo = true ∨ wit.hasMemTableRo = false)
+    {rw : RegionWitness} (hMem : rw ∈ wit.regions) {pc₀ pc' : BitVec 64}
+    (hIn₀ : pc₀ ∈ rw.allPcs) (hIn' : pc' ∈ rw.allPcs) {m₀ m' : Mem 64}
+    (hRoIn : RoPred useRo wit pc₀ m₀) (hEqMem : rw.hasMemTableRo = true → m' = m₀) :
+    RoPred useRo wit pc' m' := by
+  by_cases hr : rw.hasMemTableRo = true
+  · have hu : useRo = true := by
+      rcases hMode with hu | hNo
+      · exact hu
+      · exfalso
+        have hw : wit.hasMemTableRo = true := List.any_eq_true.2 ⟨rw, hMem, hr⟩
+        rw [hNo] at hw; cases hw
+    have his₀ := isRoPc_of_mem_true hMem hr hIn₀
+    have hW₀ : WitRoOk wit m₀ := by
+      dsimp only [RoPred] at hRoIn; rw [hu, his₀] at hRoIn; exact hRoIn
+    rw [hEqMem hr]
+    dsimp only [RoPred]; split
+    · exact hW₀
+    · trivial
+  · have hIsF : isRoPc wit pc' = false := by
+      by_cases his : isRoPc wit pc' = true
+      · dsimp only [isRoPc] at his
+        rw [List.contains_iff_mem, List.mem_flatMap] at his
+        rcases his with ⟨rw', hRw'Filt, hPcRw'⟩
+        rw [List.mem_filter] at hRw'Filt
+        have hne : rw ≠ rw' := fun heq => by subst heq; exact hr hRw'Filt.2
+        exact absurd hPcRw' (regionAllPcs_disjoint_of_ne cm wit hChk hMem hRw'Filt.1 hne pc' hIn')
+      · exact Bool.eq_false_iff.2 his
+    exact roPred_of_noRo useRo wit pc' m' (Or.inr hIsF)
+
+private theorem canonNodes_step_auxG (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (X : XPost)
+    (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
+    (hChk : wit.check cm = true) (hMode : useRo = true ∨ wit.hasMemTableRo = false)
+    {pc₀ : BitVec 64} {st₀ : State} {b : BlockFlat}
     (hlu : cm.lookupAddr pc₀ = some b)
-    (hbp : b.wp cm.symEnv (fun pc' s' =>
-      if (wit.regions.flatMap RegionWitness.allPcs).contains pc' then
-        (PsiReg cm wit Ψ_cold H pc' s' ∧ WitGfp cm wit Ψ_cold H X pc' s') ∧ Ψ_cold pc' s'
-      else Ψ_cold pc' s') H (pushRegsV st₀.regs.toRegsV) st₀.mem)
     {pre : List RegionWitness} {rw : RegionWitness} {post : List RegionWitness}
     (hSplit : wit.regions = pre ++ rw :: post)
+    (hRoIn : RoPred useRo wit pc₀ st₀.mem)
+    (hInRw : pc₀ ∈ rw.allPcs)
+    (hbp : b.wp cm.symEnv (fun pc' s' =>
+      if (wit.regions.flatMap RegionWitness.allPcs).contains pc' then
+        (RoPred useRo wit pc' s'.mem → PsiRegG useRo cm wit Ψ_cold H pc' s' ∧
+          WitGfpG useRo cm wit Ψ_cold H X pc' s') ∧ Ψ_cold pc' s'
+      else Ψ_cold pc' s') H (pushRegsV st₀.regs.toRegsV) st₀.mem)
     (gs : List GroupTree) (pcsOuter : List (BitVec 64))
     (lsOuter : List ((ts : List Ty) × Cont ts)) :
     checkGroupNodes cm rw (calleesFold [] pre)
       (pushLabelPcs (gs.map GroupTree.entryPc) pcsOuter) gs = true →
     LsMatch pcsOuter lsOuter
       (fun pc' s' => (rw.abi.isContified = true → s'.regs.rp = st₀.regs.rp) ∧
-        WitGfp cm wit Ψ_cold H X pc' s') →
+        RoPred useRo wit pc' s'.mem ∧ WitGfpG useRo cm wit Ψ_cold H X pc' s') →
     (∀ pc' s', (rw.abi.isContified = true → s'.regs.rp = st₀.regs.rp) →
-      WitGfp cm wit Ψ_cold H X pc' s' →
+      RoPred useRo wit pc' s'.mem → WitGfpG useRo cm wit Ψ_cold H X pc' s' →
       canonNodesPred cm rw (witEnvAux cm (fun _ _ _ _ _ _ _ => False) pre)
-        (regionQ cm wit Ψ_cold H (WitGfp cm wit Ψ_cold H X) rw st₀.regs.rp) X
+        (regionQG useRo cm wit Ψ_cold H (WitGfpG useRo cm wit Ψ_cold H X) rw st₀.regs.rp) X
         gs pcsOuter lsOuter pc' s') →
+    (∀ pc' ∈ gs.flatMap GroupTree.allPcs, pc' ∈ rw.allPcs) →
+    (∀ p, (findLabelIdx pcsOuter p).isSome = true → p ∈ rw.allPcs) →
     pc₀ ∈ gs.flatMap GroupTree.allPcs →
     canonNodesPred cm rw (witEnvAux cm (fun _ _ _ _ _ _ _ => False) pre)
-      (regionQ cm wit Ψ_cold H (WitGfp cm wit Ψ_cold H X) rw st₀.regs.rp) X
+      (regionQG useRo cm wit Ψ_cold H (WitGfpG useRo cm wit Ψ_cold H X) rw st₀.regs.rp) X
       gs pcsOuter lsOuter pc₀ st₀ := by
-  intro hgsChk hlsOuter hEx _
+  intro hgsChk hlsOuter hEx hSubRw hSubPcs _
   simp only [canonNodesPred]
   let pcs' := pushLabelPcs (gs.map GroupTree.entryPc) pcsOuter
   let callees := calleesFold [] pre
   let Γ := witEnvAux cm (fun _ _ _ _ _ _ _ => False) pre
-  let Q := regionQ cm wit Ψ_cold H (WitGfp cm wit Ψ_cold H X) rw st₀.regs.rp
+  let Q := regionQG useRo cm wit Ψ_cold H (WitGfpG useRo cm wit Ψ_cold H X) rw st₀.regs.rp
   let bodies := fun (Jv : Tup Cont (gs.map fun _ => regSig)) =>
     denoteB Val Cont (liftGroupNodes cm rw pcs' gs) [] (pushTup Jv lsOuter)
   let Js := lfp Γ Q X bodies
   let Pred : CodeSpec := fun pc' s' =>
     (rw.abi.isContified = true → s'.regs.rp = st₀.regs.rp) ∧
-    WitGfp cm wit Ψ_cold H X pc' s'
+    RoPred useRo wit pc' s'.mem ∧ WitGfpG useRo cm wit Ψ_cold H X pc' s'
   have hMemTup : TupMemPred gs Js Pred :=
-    canonTupPred_tupMemPred gs Js fun g _ r m ⟨hRp, hPg⟩ => hEx g.entryPc ⟨r, m⟩ hRp hPg
+    canonTupPred_tupMemPred gs Js fun g _ r m ⟨hRp, hRo', hPg⟩ =>
+      hEx g.entryPc ⟨r, m⟩ hRp hRo' hPg
   have hls' : LsMatch pcs' (pushTup Js lsOuter) Pred :=
     lsMatch_pushTup_group gs Js pcsOuter lsOuter Pred hMemTup hlsOuter
   have hwfB : ∀ J₁ J₂, WfB [] (Tup.zip J₁ J₂ ++ diagCtxOfL lsOuter)
       (bodies J₁) (bodies J₂) := fun J₁ J₂ =>
     denoteB_wf (liftGroupNodes cm rw pcs' gs) .nil (ctxRel_pushTup J₁ J₂ (ctxRel_diagL lsOuter))
-  have hClosed := lfp_closed DiagV.nil (monoD_diagL lsOuter) hwfB
-    (Γ := Γ) (Q := Q) (X := X)
+  have hClosed := lfp_closed DiagV.nil (monoD_diagL lsOuter) hwfB (Γ := Γ) (Q := Q) (X := X)
+  have hAuxAll : CfgWitness.checkAux cm [] wit.regions = true := by
+    dsimp only [CfgWitness.check] at hChk; simp only [Bool.and_eq_true] at hChk; exact hChk.2
+  have hAux := checkAux_append cm pre (rw :: post) [] (by simpa [hSplit] using hAuxAll)
+  dsimp only [CfgWitness.checkAux] at hAux; simp only [Bool.and_eq_true] at hAux
+  have hRwChk := hAux.1
+  dsimp only [RegionWitness.check] at hRwChk; simp only [Bool.and_eq_true] at hRwChk
+  have hRwMemWit : rw ∈ wit.regions := by rw [hSplit]; simp
+  have hPcs'In : ∀ p, (findLabelIdx pcs' p).isSome = true → p ∈ rw.allPcs := by
+    intro p hp
+    rcases findLabelIdx_pushLabelPcs (gs.map GroupTree.entryPc) pcsOuter p hp with hm | ho
+    · rw [List.mem_map] at hm
+      rcases hm with ⟨g', hg'Mem, rfl⟩
+      have hmEnt := checkGroupNode_entryPc_mem cm rw callees pcs' g'
+        (checkGroupNodes_forall cm rw callees pcs' gs hgsChk g' hg'Mem)
+      exact hSubRw g'.entryPc (List.mem_flatMap.2 ⟨g', hg'Mem, hmEnt⟩)
+    · exact hSubPcs p ho
+  have hMemPost : b.wp cm.symEnv (fun pc' s' =>
+        (rw.hasMemTableRo = true → s'.mem = st₀.mem) ∧
+        (if (wit.regions.flatMap RegionWitness.allPcs).contains pc' then
+          (RoPred useRo wit pc' s'.mem → PsiRegG useRo cm wit Ψ_cold H pc' s' ∧
+            WitGfpG useRo cm wit Ψ_cold H X pc' s') ∧ Ψ_cold pc' s'
+        else Ψ_cold pc' s')) H (pushRegsV st₀.regs.toRegsV) st₀.mem := by
+    by_cases hr : rw.hasMemTableRo = true
+    · have hRoSafe : rw.roSafe cm = true := by
+        have h := checkGroupNodes_roSafe cm rw _ _ rw.tree hRwChk.1.1.1.1.1.1.2 hRwChk.1.1.2
+        simp [hr] at h; exact h
+      dsimp only [RegionWitness.roSafe] at hRoSafe
+      simp only [Bool.and_eq_true] at hRoSafe
+      have hNs : blockNoStore b = true := by
+        have ha := List.all_eq_true.1 hRoSafe.1.2 pc₀ hInRw
+        rw [hlu] at ha; exact ha
+      exact blockFlat_wp_mono (fun _ _ ⟨hEq, hS⟩ => ⟨fun _ => hEq, hS⟩)
+        b _ _ (blockFlat_wp_noStore_mem b _ st₀.mem hNs hbp)
+    · exact blockFlat_wp_mono (fun _ _ hS => ⟨fun h => absurd h hr, hS⟩) b _ _ hbp
+  have hRoReg : RegionRoOk rw st₀.mem := by
+    by_cases hr : rw.hasMemTableRo = true
+    · have hu : useRo = true := by
+        rcases hMode with hu | hNo
+        · exact hu
+        · exact absurd hr (witHasMemTableRo_false_mem hNo hRwMemWit ▸ Bool.false_ne_true)
+      have his := isRoPc_of_mem_true hRwMemWit hr hInRw
+      have hW : WitRoOk wit st₀.mem := by
+        dsimp only [RoPred] at hRoIn; rw [hu, his] at hRoIn; exact hRoIn
+      exact regionRoOk_of_witRoOk wit rw hRwMemWit st₀.mem hW
+    · exact regionRoOk_of_noRo rw st₀.mem (Bool.eq_false_iff.2 hr)
+  let PredStep : CodeSpec := fun pc' s' =>
+    (rw.hasMemTableRo = true → s'.mem = st₀.mem) ∧
+    (if (wit.regions.flatMap RegionWitness.allPcs).contains pc' then
+      (RoPred useRo wit pc' s'.mem → PsiRegG useRo cm wit Ψ_cold H pc' s' ∧
+        WitGfpG useRo cm wit Ψ_cold H X pc' s') ∧ Ψ_cold pc' s'
+    else Ψ_cold pc' s')
   have hStepPred : ∀ pc' s', (findLabelIdx pcs' pc').isSome = true →
       (rw.abi.isContified = true → s'.regs.rp = st₀.regs.rp) →
-      (if (wit.regions.flatMap RegionWitness.allPcs).contains pc' then
-        (PsiReg cm wit Ψ_cold H pc' s' ∧ WitGfp cm wit Ψ_cold H X pc' s') ∧ Ψ_cold pc' s'
-       else Ψ_cold pc' s') →
-      Pred pc' s' := by
-    intro pc' s' _ hRp hS
-    refine ⟨hRp, ?_⟩
+      PredStep pc' s' → Pred pc' s' := by
+    intro pc' s' hLab hRp ⟨hEqMem, hS⟩
+    have hRo' := roPred_of_region_mem useRo cm wit hChk hMode hRwMemWit hInRw
+      (hPcs'In pc' hLab) hRoIn hEqMem
+    refine ⟨hRp, hRo', ?_⟩
     by_cases hc : (wit.regions.flatMap RegionWitness.allPcs).contains pc' = true
-    · simp only [hc, ↓reduceIte] at hS; exact hS.1.2
-    · exact witGfp_outside cm wit Ψ_cold H X hc
-  have hStepBail : ∀ pc' s',
-      (if (wit.regions.flatMap RegionWitness.allPcs).contains pc' then
-        (PsiReg cm wit Ψ_cold H pc' s' ∧ WitGfp cm wit Ψ_cold H X pc' s') ∧ Ψ_cold pc' s'
-       else Ψ_cold pc' s') →
-      regionBailPost cm wit Ψ_cold H (WitGfp cm wit Ψ_cold H X) rw.abi pc' s' := by
-    intro pc' s' hS
-    have hHyb : PsiHyb cm wit Ψ_cold H pc' s' := by
-      dsimp only [PsiHyb]
+    · simp only [hc, ↓reduceIte] at hS; exact (hS.1 hRo').2
+    · exact witGfpG_outside useRo cm wit Ψ_cold H X hc
+  have hStepBail : ∀ pc' s', PredStep pc' s' →
+      regionBailPostG useRo cm wit Ψ_cold H (WitGfpG useRo cm wit Ψ_cold H X) rw.abi pc' s' := by
+    intro pc' s' ⟨_, hS⟩
+    have hHyb : PsiHybG useRo cm wit Ψ_cold H pc' s' := by
+      dsimp only [PsiHybG]
       by_cases hc : (wit.regions.flatMap RegionWitness.allPcs).contains pc' = true
-      · simp only [hc, ↓reduceIte] at hS ⊢; exact ⟨hS.1.1, hS.2⟩
+      · simp only [hc, ↓reduceIte] at hS ⊢; exact ⟨fun hRo' => (hS.1 hRo').1, hS.2⟩
       · simp only [hc, Bool.false_eq_true, ↓reduceIte] at hS ⊢; exact hS
-    have hWit : WitGfp cm wit Ψ_cold H X pc' s' := by
+    have hWit : RoPred useRo wit pc' s'.mem → WitGfpG useRo cm wit Ψ_cold H X pc' s' := by
+      intro hRo'
       by_cases hc : (wit.regions.flatMap RegionWitness.allPcs).contains pc' = true
-      · simp only [hc, ↓reduceIte] at hS; exact hS.1.2
-      · exact witGfp_outside cm wit Ψ_cold H X hc
+      · simp only [hc, ↓reduceIte] at hS; exact (hS.1 hRo').2
+      · exact witGfpG_outside useRo cm wit Ψ_cold H X hc
     cases rw.abi with
     | retEnvelope => exact hHyb
     | contified _ => exact ⟨hWit, hHyb⟩
@@ -1216,15 +1534,27 @@ private theorem canonNodes_step_aux (cm : CodeMap) (wit : CfgWitness) (Ψ_cold :
       (if dualRet then altRetPc? = some (retPc + 8#64) else altRetPc?.isNone) →
       (findLabelIdx pcs' retPc).isSome = true →
       (if dualRet then (findLabelIdx pcs' (retPc + 8#64)).isSome = true else True) →
-      (if (wit.regions.flatMap RegionWitness.allPcs).contains calleePc then
-        (PsiReg cm wit Ψ_cold H calleePc ⟨nxtR, m'⟩ ∧
-          WitGfp cm wit Ψ_cold H X calleePc ⟨nxtR, m'⟩) ∧ Ψ_cold calleePc ⟨nxtR, m'⟩
-       else Ψ_cold calleePc ⟨nxtR, m'⟩) →
+      (rw.edges.any (fun ew => match ew.kind with | .contCall _ _ _ _ _ => true | _ => false) =
+        true) →
+      PredStep calleePc ⟨nxtR, m'⟩ →
       ∃ P E, Γ callee regSig (RegionAbi.contified dualRet).retSig
           nxtR.toRegsV.toTup m' P E ∧
         (∀ r m'', P r m'' → retContPost dualRet Pred retPc r m'') ∧
         (∀ g cs xs m'', E g cs xs m'' → X g cs xs m'') := by
-    intro callee calleePc dualRet nxtR m' retPc _ hAbiF hcal _ hrp _ _ _ hS
+    intro callee calleePc dualRet nxtR m' retPc _ hAbiF hcal _ hrp _ hRetIn hAltIn hHasCont
+      ⟨_, hS⟩
+    have hNoRw : rw.hasMemTableRo = false := by
+      by_cases hr : rw.hasMemTableRo = true
+      · have hRoSafe : rw.roSafe cm = true := by
+          have h := checkGroupNodes_roSafe cm rw _ _ rw.tree hRwChk.1.1.1.1.1.1.2 hRwChk.1.1.2
+          simp [hr] at h; exact h
+        dsimp only [RegionWitness.roSafe] at hRoSafe
+        simp only [Bool.and_eq_true] at hRoSafe
+        rw [List.any_eq_true] at hHasCont
+        rcases hHasCont with ⟨ew, hewMem, hewCont⟩
+        have hBad := List.all_eq_true.1 hRoSafe.2 ew hewMem
+        cases hkw : ew.kind <;> simp_all
+      · exact Bool.eq_false_iff.2 hr
     rw [List.any_eq_true] at hcal
     obtain ⟨c, hcMem, hcEq⟩ := hcal
     simp only [Bool.and_eq_true, beq_iff_eq] at hcEq
@@ -1237,18 +1567,13 @@ private theorem canonNodes_step_aux (cm : CodeMap) (wit : CfgWitness) (Ψ_cold :
     | contified dualRet =>
         simp only [RegionWitness.toCalleeMeta?, hAbi_c, Option.some.injEq] at hToMeta
         subst hToMeta
-        have hAuxAll : CfgWitness.checkAux cm [] wit.regions = true := by
-          dsimp only [CfgWitness.check] at hChk
-          simp only [Bool.and_eq_true] at hChk; exact hChk.2
         have hSplit_c : wit.regions = pre_c ++ rw_c :: (post_c ++ rw :: post) := by
           rw [hSplit, hPreEq, List.append_assoc]; rfl
         have hAux_c := checkAux_append cm pre_c (rw_c :: (post_c ++ rw :: post)) []
           (hSplit_c ▸ hAuxAll)
-        dsimp only [CfgWitness.checkAux] at hAux_c
-        simp only [Bool.and_eq_true] at hAux_c
+        dsimp only [CfgWitness.checkAux] at hAux_c; simp only [Bool.and_eq_true] at hAux_c
         have hRwcChk := hAux_c.1
-        dsimp only [RegionWitness.check] at hRwcChk
-        simp only [Bool.and_eq_true] at hRwcChk
+        dsimp only [RegionWitness.check] at hRwcChk; simp only [Bool.and_eq_true] at hRwcChk
         have hEntMap : rw_c.entryPc ∈ rw_c.tree.map GroupTree.entryPc := by
           simpa using hRwcChk.1.1.1.1.2
         have hEntAll : rw_c.entryPc ∈ rw_c.allPcs := by
@@ -1261,15 +1586,32 @@ private theorem canonNodes_step_aux (cm : CodeMap) (wit : CfgWitness) (Ψ_cold :
         have hcInAll : (wit.regions.flatMap RegionWitness.allPcs).contains rw_c.entryPc =
             true := mem_allPcs_of_split hSplit_c hEntAll
         simp only [hcInAll, ↓reduceIte] at hS
-        have hPg_c := witGfp_post cm wit Ψ_cold H X hS.1.2 pre_c rw_c (post_c ++ rw :: post)
-          hSplit_c hEntAll
+        have hRoCal : RoPred useRo wit rw_c.entryPc m' := by
+          have hIsF : isRoPc wit rw_c.entryPc = false := by
+            by_cases his : isRoPc wit rw_c.entryPc = true
+            · dsimp only [isRoPc] at his
+              rw [List.contains_iff_mem, List.mem_flatMap] at his
+              rcases his with ⟨rw', hRw'Filt, hPcRw'⟩
+              rw [List.mem_filter] at hRw'Filt
+              by_cases hSame : rw' = rw_c
+              · subst hSame
+                have hRoSafe : rw'.roSafe cm = true := by
+                  have h := checkGroupNodes_roSafe cm rw' _ _ rw'.tree
+                    hRwcChk.1.1.1.1.1.1.2 hRwcChk.1.1.2
+                  simp [hRw'Filt.2] at h; exact h
+                simp [RegionWitness.roSafe, RegionAbi.isContified, hAbi_c] at hRoSafe
+              · exact absurd hPcRw' (regionAllPcs_disjoint_of_ne cm wit hChk
+                  (by rw [hSplit_c]; simp) hRw'Filt.1 (Ne.symm hSame) rw_c.entryPc hEntAll)
+            · exact Bool.eq_false_iff.2 his
+          exact roPred_of_noRo useRo wit rw_c.entryPc m' (Or.inr hIsF)
+        have hPg_c := witGfpG_post useRo cm wit Ψ_cold H X (hS.1 hRoCal).2 pre_c rw_c
+          (post_c ++ rw :: post) hSplit_c hEntAll hRoCal
         have hSpec_c := regionSpec_from_canonNodes hRwcChk.1.1.2 hEntMap nxtR m' hPg_c
         have hRetEq : rw_c.abi.retSig = (RegionAbi.contified dualRet).retSig :=
           congrArg RegionAbi.retSig hAbi_c
-        let Q₀ := regionQ cm wit Ψ_cold H (WitGfp cm wit Ψ_cold H X) rw_c nxtR.rp
+        let Q₀ := regionQG useRo cm wit Ψ_cold H (WitGfpG useRo cm wit Ψ_cold H X) rw_c nxtR.rp
         refine ⟨hRetEq ▸ Q₀, X, ?_, ?_, fun _ _ _ _ h => h⟩
-        · dsimp only [Γ]
-          rw [hPreEq]
+        · dsimp only [Γ]; rw [hPreEq]
           have hMemW := witEnvAux_mem_prefix cm (fun _ _ _ _ _ _ _ => False) pre_c rw_c
             post_c dualRet hAbi_c hSpec_c
           have hCast : ∀ {sig'} (he : rw_c.abi.retSig = sig') (Q' : Post rw_c.abi.retSig),
@@ -1283,17 +1625,36 @@ private theorem canonNodes_step_aux (cm : CodeMap) (wit : CfgWitness) (Ψ_cold :
           have hCast2 : ∀ {sig'} (he : rw_c.abi.retSig = sig') (Q' : Post rw_c.abi.retSig)
               (r' : Tup Val sig'), (he ▸ Q') r' m'' → Q' (he.symm ▸ r') m'' := by
             rintro _ rfl Q' r' h; exact h
+          have hRoAt : ∀ p, p ∈ rw.allPcs → RoPred useRo wit p m'' := fun p hp =>
+            roPred_of_region_mem useRo cm wit hChk hMode hRwMemWit hInRw hp
+              (roPred_of_noRo useRo wit pc₀ m'' (Or.inr (by
+                by_cases his : isRoPc wit pc₀ = true
+                · dsimp only [isRoPc] at his
+                  rw [List.contains_iff_mem, List.mem_flatMap] at his
+                  rcases his with ⟨rw', hRw'Filt, hPcRw'⟩
+                  rw [List.mem_filter] at hRw'Filt
+                  have hne : rw ≠ rw' := fun heq => by subst heq; simp [hNoRw] at hRw'Filt
+                  exact absurd hPcRw' (regionAllPcs_disjoint_of_ne cm wit hChk hRwMemWit
+                    hRw'Filt.1 hne pc₀ hInRw)
+                · exact Bool.eq_false_iff.2 his)))
+              (fun hr => absurd hr (by simp [hNoRw]))
           have hPostCast : ∀ (abi : RegionAbi) (hEq : abi = .contified dualRet)
               (r' : Tup Val abi.retSig),
-              regionRetPost abi (regionBailPost cm wit Ψ_cold H
-                (WitGfp cm wit Ψ_cold H X) abi) nxtR.rp r' m'' →
+              regionRetPost abi (regionBailPostG useRo cm wit Ψ_cold H
+                (WitGfpG useRo cm wit Ψ_cold H X) abi) nxtR.rp r' m'' →
               retContPost dualRet Pred retPc (congrArg RegionAbi.retSig hEq ▸ r') m'' := by
             rintro _ rfl r' h'
-            cases dualRet <;> dsimp only [regionRetPost, regionBailPost, retContPost] at h' ⊢
-            · rw [hrp] at h'; exact ⟨fun hCont => by simp [hAbiF] at hCont, h'.1⟩
+            cases dualRet <;> dsimp only [regionRetPost, regionBailPostG, retContPost] at h' ⊢
+            · rw [hrp] at h'
+              have hRoRet := hRoAt retPc (hPcs'In retPc hRetIn)
+              exact ⟨fun hCont => by simp [hAbiF] at hCont, hRoRet, h'.1 hRoRet⟩
             · rcases r' with ⟨isAlt, sp, rp, rv, r1, r2, r3, ⟨⟩⟩
               dsimp only at h' ⊢; rw [hrp] at h'
-              exact ⟨fun hCont => by simp [hAbiF] at hCont, h'.1⟩
+              have hRoRet : RoPred useRo wit (if isAlt then retPc + 8#64 else retPc) m'' := by
+                cases isAlt
+                · exact hRoAt retPc (hPcs'In retPc hRetIn)
+                · exact hRoAt (retPc + 8#64) (hPcs'In (retPc + 8#64) hAltIn)
+              exact ⟨fun hCont => by simp [hAbiF] at hCont, hRoRet, h'.1 hRoRet⟩
           have hSymInv : ∀ {sig'} (he : rw_c.abi.retSig = sig') (x : Tup Val sig'),
               (he ▸ (he.symm ▸ x)) = x := by rintro _ rfl x; rfl
           have res := hPostCast rw_c.abi hAbi_c (hRetEq.symm ▸ r) (hCast2 hRetEq Q₀ r hr)
@@ -1319,31 +1680,34 @@ private theorem canonNodes_step_aux (cm : CodeMap) (wit : CfgWitness) (Ψ_cold :
       rw [hlu] at hgChk ⊢
       simp only [Bool.and_eq_true] at hgChk
       cases hsym : symEvalBlock cm b [] SymState.init with
-      | none => rw [hsym] at hgChk; cases hgChk.2
+      | none => rw [hsym] at hgChk; simp at hgChk
       | some leaves =>
           rw [hsym] at hgChk
           have hleaves : ∀ lf ∈ leaves, ∃ ew, rw.findEdge pc₀ lf.path = some ew ∧
               checkEdgeLeaf cm rw.abi callees pcs' lf ew.kind = true := by
             intro lf hm
-            have ha := List.all_eq_true.1 hgChk.2 lf hm
+            have ha := List.all_eq_true.1 hgChk.2.2 lf hm
             cases hf : rw.findEdge pc₀ lf.path with
             | none => rw [hf] at ha; cases ha
             | some ew => rw [hf] at ha; exact ⟨ew, rfl, ha⟩
           exact liftBlock_wp_init hls' pc₀ st₀.regs hH hStepPred hStepBail hStepCall b leaves
-            st₀.mem hgChk.1.1 hgChk.1.2 hsym hleaves hbp
+            st₀.mem hRoReg hgChk.2.1.1 hgChk.2.1.2 hsym hleaves hMemPost
   | loop header nodes =>
       simp only [canonNodePred]
       dsimp only [checkGroupNode] at hgChk; simp only [Bool.and_eq_true] at hgChk
       by_cases hin : pc₀ ∈ nodes.flatMap GroupTree.allPcs
       · have hExSub : ∀ pc' s', (rw.abi.isContified = true → s'.regs.rp = st₀.regs.rp) →
-            WitGfp cm wit Ψ_cold H X pc' s' →
+            RoPred useRo wit pc' s'.mem → WitGfpG useRo cm wit Ψ_cold H X pc' s' →
             canonNodesPred cm rw Γ Q X nodes pcs' (pushTup Js lsOuter) pc' s' :=
-          fun pc' s' hRp hPg => by
-            have hG := hEx pc' s' hRp hPg
+          fun pc' s' hRp hRo' hPg => by
+            have hG := hEx pc' s' hRp hRo' hPg
             dsimp only [canonNodesPred] at hG
             exact (canonTupPred_get_eq gsPre (.loop header nodes) gsPost heq Js hG).2
-        have hSub := canonNodes_step_aux cm wit Ψ_cold H X hH hChk hlu hbp hSplit
-          nodes pcs' (pushTup Js lsOuter) hgChk.2 hls' hExSub hin
+        have hSubRwN : ∀ pc' ∈ nodes.flatMap GroupTree.allPcs, pc' ∈ rw.allPcs :=
+          fun pc' hpc' => hSubRw pc' (List.mem_flatMap.2 ⟨.loop header nodes, hgMem,
+            by simpa [GroupTree.allPcs] using hpc'⟩)
+        have hSub := canonNodes_step_auxG useRo cm wit Ψ_cold H X hH hChk hMode hlu hSplit hRoIn
+          hInRw hbp nodes pcs' (pushTup Js lsOuter) hgChk.2 hls' hExSub hSubRwN hPcs'In hin
         refine ⟨fun hEq => ?_, hSub⟩
         subst hEq
         apply (closed_iff Γ Q X _ Js).1 hClosed
@@ -1412,117 +1776,76 @@ decreasing_by
   simp only [treeSize] at hLt
   omega
 
-private theorem regionQ_retEnvelope_rp (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
-    (H : HaltPost) (P : CodeSpec) (rw : RegionWitness) (hEnv : rw.abi = .retEnvelope)
-    (rp₁ rp₂ : BitVec 64) :
-    regionQ cm wit Ψ_cold H P rw rp₁ = regionQ cm wit Ψ_cold H P rw rp₂ := by
+private theorem regionQG_retEnvelope_rp (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (P : CodeSpec) (rw : RegionWitness)
+    (hEnv : rw.abi = .retEnvelope) (rp₁ rp₂ : BitVec 64) :
+    regionQG useRo cm wit Ψ_cold H P rw rp₁ = regionQG useRo cm wit Ψ_cold H P rw rp₂ := by
   have hgen : ∀ (abi : RegionAbi), abi = .retEnvelope → ∀ (vs : Tup Val abi.retSig) (m : Mem 64),
-      regionRetPost abi (regionBailPost cm wit Ψ_cold H P abi) rp₁ vs m =
-      regionRetPost abi (regionBailPost cm wit Ψ_cold H P abi) rp₂ vs m := by
+      regionRetPost abi (regionBailPostG useRo cm wit Ψ_cold H P abi) rp₁ vs m =
+      regionRetPost abi (regionBailPostG useRo cm wit Ψ_cold H P abi) rp₂ vs m := by
     rintro _ rfl _ _; rfl
   funext vs m; exact hgen rw.abi hEnv vs m
 
-private theorem psiReg_implies_witGfp (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
-    (H : HaltPost) (X : XPost) (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
-    (hChk : wit.check cm = true) :
-    ∀ pc st, PsiReg cm wit Ψ_cold H pc st → WitGfp cm wit Ψ_cold H X pc st := by
-  intro pc st hReg
-  refine park_induction (P := fun p => WitGfp cm wit Ψ_cold H X p.1 p.2)
-    (regionStep_mono cm wit Ψ_cold H) ?_ (pc, st) hReg
-  rintro ⟨pc₀, st₀⟩ ⟨b, hlu, hbp⟩
-  apply witGfp_pre
-  intro pre rw post hSplit hpcMem
+private theorem psiRegG_implies_witGfpG (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (X : XPost)
+    (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
+    (hChk : wit.check cm = true) (hMode : useRo = true ∨ wit.hasMemTableRo = false) :
+    ∀ pc st, (RoPred useRo wit pc st.mem → PsiRegG useRo cm wit Ψ_cold H pc st) →
+      (RoPred useRo wit pc st.mem → WitGfpG useRo cm wit Ψ_cold H X pc st) := by
+  intro pc st hReg hRo
+  refine park_induction
+    (P := fun p => RoPred useRo wit p.1 p.2.mem → WitGfpG useRo cm wit Ψ_cold H X p.1 p.2)
+    (regionStepG_mono useRo cm wit Ψ_cold H) ?_ (pc, st) (hReg hRo) hRo
+  rintro ⟨pc₀, st₀⟩ ⟨b, hlu, hbp⟩ hRo₀
+  apply witGfpG_pre
+  intro pre rw post hSplit hpcMem hRo₀'
   have hAuxAll : CfgWitness.checkAux cm [] wit.regions = true := by
     dsimp only [CfgWitness.check] at hChk; simp only [Bool.and_eq_true] at hChk; exact hChk.2
   have hAux := checkAux_append cm pre (rw :: post) [] (by simpa [hSplit] using hAuxAll)
   dsimp only [CfgWitness.checkAux] at hAux; simp only [Bool.and_eq_true] at hAux
   have hRwChk := hAux.1
   dsimp only [RegionWitness.check] at hRwChk; simp only [Bool.and_eq_true] at hRwChk
-  exact canonNodes_step_aux cm wit Ψ_cold H X hH hChk hlu hbp hSplit rw.tree [] []
-    hRwChk.1.1.2 (lsMatch_nil _) (fun pc' s' hRp hPg => by
+  exact canonNodes_step_auxG useRo cm wit Ψ_cold H X hH hChk hMode hlu hSplit hRo₀' hpcMem
+    (blockFlat_wp_mono (fun pc' st' h => by
+      dsimp only [PsiRegG] at h ⊢
+      by_cases hc : (wit.regions.flatMap RegionWitness.allPcs).contains pc' = true
+      · simp only [hc, ↓reduceIte] at h ⊢
+        exact ⟨fun hR => ⟨(h.1 hR).1, (h.1 hR).2 hR⟩, h.2⟩
+      · simp only [hc, Bool.false_eq_true, ↓reduceIte] at h ⊢; exact h) b _ _ (hbp hRo₀'))
+    rw.tree [] [] hRwChk.1.1.2 (lsMatch_nil _) (fun pc' s' hRp hRo' hPg => by
       by_cases hc : pc' ∈ rw.allPcs
-      · have hPost := witGfp_post cm wit Ψ_cold H X hPg pre rw post hSplit hc
+      · have hPost := witGfpG_post useRo cm wit Ψ_cold H X hPg pre rw post hSplit hc hRo'
         cases hAbi : rw.abi with
         | retEnvelope =>
-            rwa [regionQ_retEnvelope_rp cm wit Ψ_cold H (WitGfp cm wit Ψ_cold H X) rw hAbi
-              st₀.regs.rp s'.regs.rp]
+            rwa [regionQG_retEnvelope_rp useRo cm wit Ψ_cold H
+              (WitGfpG useRo cm wit Ψ_cold H X) rw hAbi st₀.regs.rp s'.regs.rp]
         | contified _ =>
             rw [hRp (by simp [RegionAbi.isContified, hAbi])] at hPost
             exact hPost
-      · exact canonNodesPred_of_outside_all rw.tree [] [] hRwChk.1.1.2 hc) hpcMem
-
-private theorem region_entryPc_mem_allPcs (cm : CodeMap) (wit : CfgWitness)
-    (hChk : wit.check cm = true) {rw : RegionWitness} (hMem : rw ∈ wit.regions) :
-    rw.entryPc ∈ rw.allPcs := by
-  rcases List.mem_iff_append.1 hMem with ⟨pre, post, hSplit⟩
-  dsimp only [CfgWitness.check] at hChk; simp only [Bool.and_eq_true] at hChk
-  have hAux := checkAux_append cm pre (rw :: post) [] (by simpa [hSplit] using hChk.2)
-  dsimp only [CfgWitness.checkAux] at hAux; simp only [Bool.and_eq_true] at hAux
-  have hRwChk := hAux.1
-  dsimp only [RegionWitness.check] at hRwChk; simp only [Bool.and_eq_true] at hRwChk
-  have hEntMap : rw.entryPc ∈ rw.tree.map GroupTree.entryPc := by
-    simpa using hRwChk.1.1.1.1.2
-  rw [List.mem_map] at hEntMap
-  rcases hEntMap with ⟨g, hgMem, hgEq⟩
-  have hm := checkGroupNode_entryPc_mem cm rw _ _ g
-    (checkGroupNodes_forall cm rw _ _ rw.tree hRwChk.1.1.2 g hgMem)
-  rw [hgEq] at hm
-  exact regionAllPcs_mem_of_tree hgMem hm
-
-private theorem flatMap_nodup_disjoint_split (pre : List RegionWitness) (a : RegionWitness)
-    (mid : List RegionWitness) (b : RegionWitness) (post : List RegionWitness)
-    (hNd : listNodup ((pre ++ a :: mid ++ b :: post).flatMap RegionWitness.allPcs) = true) :
-    ∀ pc, pc ∈ a.allPcs → pc ∉ b.allPcs := by
-  intro pc ha hb
-  have hApp : (pre ++ a :: mid ++ b :: post).flatMap RegionWitness.allPcs =
-      (pre.flatMap RegionWitness.allPcs ++ a.allPcs) ++
-      (mid.flatMap RegionWitness.allPcs ++ b.allPcs ++ post.flatMap RegionWitness.allPcs) := by
-    simp [List.flatMap_append, List.append_assoc]
-  rw [hApp] at hNd
-  exact listNodup_false_append hNd pc (List.mem_append_right _ ha) pc
-    (List.mem_append_left _ (List.mem_append_right _ hb)) rfl
-
-private theorem regionAllPcs_disjoint_of_ne (cm : CodeMap) (wit : CfgWitness)
-    (hChk : wit.check cm = true) {rw₁ rw₂ : RegionWitness}
-    (h1 : rw₁ ∈ wit.regions) (h2 : rw₂ ∈ wit.regions) (hne : rw₁ ≠ rw₂) :
-    ∀ pc, pc ∈ rw₁.allPcs → pc ∉ rw₂.allPcs := by
-  dsimp only [CfgWitness.check] at hChk; simp only [Bool.and_eq_true] at hChk
-  have hNd := hChk.1.2
-  rcases List.mem_iff_append.1 h1 with ⟨pre₁, post₁, hEq₁⟩
-  have h2' : rw₂ ∈ pre₁ ++ rw₁ :: post₁ := hEq₁ ▸ h2
-  rcases List.mem_append.1 h2' with hInPre | hInTail
-  · rcases List.mem_iff_append.1 hInPre with ⟨pre₂, mid₂, hPre₁Eq⟩
-    have hFull : wit.regions = pre₂ ++ rw₂ :: mid₂ ++ rw₁ :: post₁ := by
-      rw [hEq₁, hPre₁Eq, List.append_assoc]
-    rw [hFull] at hNd
-    intro pc h1p h2p
-    exact flatMap_nodup_disjoint_split pre₂ rw₂ mid₂ rw₁ post₁ hNd pc h2p h1p
-  · rcases List.mem_cons.1 hInTail with hSame | hInPost
-    · exact absurd hSame.symm hne
-    · rcases List.mem_iff_append.1 hInPost with ⟨mid₂, post₂, hPost₁Eq⟩
-      have hFull : wit.regions = pre₁ ++ rw₁ :: mid₂ ++ rw₂ :: post₂ := by
-        rw [hEq₁, hPost₁Eq]; simp [List.cons_append]
-      rw [hFull] at hNd
-      exact flatMap_nodup_disjoint_split pre₁ rw₁ mid₂ rw₂ post₂ hNd
+      · exact canonNodesPred_of_outside_all rw.tree [] [] hRwChk.1.1.2 hc)
+    (fun _ hpc' => hpc') (fun _ h => by cases h) hpcMem
 
 /-! ## §5. Top-Level `Fn.mid` Lifting & `Ψ_hyb = Ψ_reg ∧ Ψ_cold` Soundness Theorems -/
 
-private theorem regionQ_to_retPost (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec)
-    (H : HaltPost) (X : XPost) (rp₀ : BitVec 64) (m' : Mem 64) :
+private theorem regionQG_to_retPost (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (X : XPost) (rp₀ : BitVec 64) (m' : Mem 64) :
     ∀ (abi : RegionAbi) (vs' : Tup Val abi.retSig),
-      regionRetPost abi (regionBailPost cm wit Ψ_cold H
-        (WitGfp cm wit Ψ_cold H X) abi) rp₀ vs' m' →
-      regionRetPost abi (PsiHyb cm wit Ψ_cold H) rp₀ vs' m'
+      regionRetPost abi (regionBailPostG useRo cm wit Ψ_cold H
+        (WitGfpG useRo cm wit Ψ_cold H X) abi) rp₀ vs' m' →
+      regionRetPost abi (PsiHybG useRo cm wit Ψ_cold H) rp₀ vs' m'
   | .retEnvelope, _, h => h
   | .contified dualRet, _, h => by cases dualRet <;> exact h.2
 
-/-- Lift `PsiReg` at region entry to `Func.spec` of `(liftRegion cm rw).body` over `witEnv`. -/
-theorem psiReg_to_func_spec (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec) (H : HaltPost)
-    (X : XPost) (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
-    (hChk : wit.check cm = true) {rw : RegionWitness} (hMem : rw ∈ wit.regions)
-    (r₀ : Regs) (m : Mem 64) (hReg : PsiReg cm wit Ψ_cold H rw.entryPc ⟨r₀, m⟩) :
+/-- Generalized `PsiRegG` lifting to `Func.spec` of `(liftRegion cm rw).body` over `witEnv`. -/
+theorem psiRegG_to_func_spec (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (X : XPost)
+    (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
+    (hChk : wit.check cm = true) (hMode : useRo = true ∨ wit.hasMemTableRo = false)
+    {rw : RegionWitness} (hMem : rw ∈ wit.regions)
+    (r₀ : Regs) (m : Mem 64) (hRo : RoPred useRo wit rw.entryPc m)
+    (hReg : PsiRegG useRo cm wit Ψ_cold H rw.entryPc ⟨r₀, m⟩) :
     Func.spec (witEnv cm wit) (liftRegion cm rw).body r₀.toRegsV.toTup m
-      (regionRetPost rw.abi (PsiHyb cm wit Ψ_cold H) r₀.rp) X := by
+      (regionRetPost rw.abi (PsiHybG useRo cm wit Ψ_cold H) r₀.rp) X := by
   rcases List.mem_iff_append.1 hMem with ⟨pre, post, hSplit⟩
   have hAuxAll : CfgWitness.checkAux cm [] wit.regions = true := by
     dsimp only [CfgWitness.check] at hChk; simp only [Bool.and_eq_true] at hChk; exact hChk.2
@@ -1533,14 +1856,16 @@ theorem psiReg_to_func_spec (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpe
   have hEntMap : rw.entryPc ∈ rw.tree.map GroupTree.entryPc := by
     simpa using hRwChk.1.1.1.1.2
   have hEntAll := region_entryPc_mem_allPcs cm wit hChk hMem
-  have hPg := witGfp_post cm wit Ψ_cold H X
-    (psiReg_implies_witGfp cm wit Ψ_cold H X hH hChk _ _ hReg) pre rw post hSplit hEntAll
+  have hPg := witGfpG_post useRo cm wit Ψ_cold H X
+    (psiRegG_implies_witGfpG useRo cm wit Ψ_cold H X hH hChk hMode _ _
+      (fun _ => hReg) hRo) pre rw post hSplit hEntAll hRo
   have hSpecPre := regionSpec_from_canonNodes hRwChk.1.1.2 hEntMap r₀ m hPg
-  have hQMono : ∀ vs m', regionQ cm wit Ψ_cold H (WitGfp cm wit Ψ_cold H X) rw r₀.rp vs m' →
-      regionRetPost rw.abi (PsiHyb cm wit Ψ_cold H) r₀.rp vs m' :=
-    fun vs m' hq => regionQ_to_retPost cm wit Ψ_cold H X r₀.rp m' rw.abi vs hq
+  have hQMono : ∀ vs m', regionQG useRo cm wit Ψ_cold H
+      (WitGfpG useRo cm wit Ψ_cold H X) rw r₀.rp vs m' →
+      regionRetPost rw.abi (PsiHybG useRo cm wit Ψ_cold H) r₀.rp vs m' :=
+    fun vs m' hq => regionQG_to_retPost useRo cm wit Ψ_cold H X r₀.rp m' rw.abi vs hq
   have hSpecEnv : Func.spec (witEnv cm wit) (liftRegion cm rw).body r₀.toRegsV.toTup m
-      (regionQ cm wit Ψ_cold H (WitGfp cm wit Ψ_cold H X) rw r₀.rp) X := by
+      (regionQG useRo cm wit Ψ_cold H (WitGfpG useRo cm wit Ψ_cold H X) rw r₀.rp) X := by
     refine Func.spec_env_mono ?_ hSpecPre
     intro f as bs xs m' P' E' hf
     dsimp only [witEnv]
@@ -1549,15 +1874,30 @@ theorem psiReg_to_func_spec (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpe
   exact Func.spec_mono (witEnv cm wit) (liftRegion cm rw).body _ m _ _ _ _ hQMono
     (fun _ _ _ _ h => h) hSpecEnv
 
-/-- Lift `PsiReg` through `Unified.Ssa.midEnd` (`Fn.mid`, `fn_mid_spec`). -/
-theorem psiReg_to_mid_spec (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec) (H : HaltPost)
-    (X : XPost) (lt : LegalTarget) (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
+/-- Lift `PsiReg` at region entry to `Func.spec` of `(liftRegion cm rw).body` over `witEnv`. -/
+theorem psiReg_to_func_spec (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec) (H : HaltPost)
+    (X : XPost) (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
     (hChk : wit.check cm = true) {rw : RegionWitness} (hMem : rw ∈ wit.regions)
+    (r₀ : Regs) (m : Mem 64) (hReg : PsiReg cm wit Ψ_cold H rw.entryPc ⟨r₀, m⟩)
+    (hNoRo : wit.hasMemTableRo = false := by decide) :
+    Func.spec (witEnv cm wit) (liftRegion cm rw).body r₀.toRegsV.toTup m
+      (regionRetPost rw.abi (PsiHyb cm wit Ψ_cold H) r₀.rp) X := by
+  have hSp := psiRegG_to_func_spec false cm wit Ψ_cold H X hH hChk (Or.inr hNoRo) hMem r₀ m
+    (roPred_of_noRo false wit rw.entryPc m (Or.inl rfl)) hReg
+  rwa [psiHybG_false_eq] at hSp
+
+/-- Generalized `PsiRegG` lifting through `Unified.Ssa.midEnd` (`Fn.mid`, `fn_mid_spec`). -/
+theorem psiRegG_to_mid_spec (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (X : XPost) (lt : LegalTarget)
+    (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
+    (hChk : wit.check cm = true) (hMode : useRo = true ∨ wit.hasMemTableRo = false)
+    {rw : RegionWitness} (hMem : rw ∈ wit.regions)
     (hSupp : ((liftRegion cm rw).earlyOpt).body.supportsSource lt = true)
-    (r₀ : Regs) (m : Mem 64) (hReg : PsiReg cm wit Ψ_cold H rw.entryPc ⟨r₀, m⟩) :
+    (r₀ : Regs) (m : Mem 64) (hRo : RoPred useRo wit rw.entryPc m)
+    (hReg : PsiRegG useRo cm wit Ψ_cold H rw.entryPc ⟨r₀, m⟩) :
     Func.spec (legalEnv lt (witEnv cm wit)) ((liftRegion cm rw).mid lt).body
       (encodeTup lt regSig r₀.toRegsV.toTup) m
-      (legalPost lt (regionRetPost rw.abi (PsiHyb cm wit Ψ_cold H) r₀.rp))
+      (legalPost lt (regionRetPost rw.abi (PsiHybG useRo cm wit Ψ_cold H) r₀.rp))
       (legalXPost lt X) := by
   let s : SSpec := {
     Γ := witEnv cm wit
@@ -1572,9 +1912,25 @@ theorem psiReg_to_mid_spec (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec
   have hMid := midEnd_sound lt (liftRegion cm rw) ((liftRegion cm rw).mid lt) s
     (liftRegion_wf cm rw) (by simp [hSupp]) hSat
   exact hMid (encodeTup lt regSig r₀.toRegsV.toTup) m _ _
-    ⟨rfl, rfl, r₀.toRegsV.toTup, regionRetPost rw.abi (PsiHyb cm wit Ψ_cold H) r₀.rp, X,
-      ⟨rfl, rfl, psiReg_to_func_spec cm wit Ψ_cold H X hH hChk hMem r₀ m hReg⟩,
+    ⟨rfl, rfl, r₀.toRegsV.toTup,
+      regionRetPost rw.abi (PsiHybG useRo cm wit Ψ_cold H) r₀.rp, X,
+      ⟨rfl, rfl, psiRegG_to_func_spec useRo cm wit Ψ_cold H X hH hChk hMode hMem r₀ m hRo hReg⟩,
       rfl, rfl, rfl⟩
+
+/-- Lift `PsiReg` through `Unified.Ssa.midEnd` (`Fn.mid`, `fn_mid_spec`). -/
+theorem psiReg_to_mid_spec (cm : CodeMap) (wit : CfgWitness) (Ψ_cold : CodeSpec) (H : HaltPost)
+    (X : XPost) (lt : LegalTarget) (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
+    (hChk : wit.check cm = true) {rw : RegionWitness} (hMem : rw ∈ wit.regions)
+    (hSupp : ((liftRegion cm rw).earlyOpt).body.supportsSource lt = true)
+    (r₀ : Regs) (m : Mem 64) (hReg : PsiReg cm wit Ψ_cold H rw.entryPc ⟨r₀, m⟩)
+    (hNoRo : wit.hasMemTableRo = false := by decide) :
+    Func.spec (legalEnv lt (witEnv cm wit)) ((liftRegion cm rw).mid lt).body
+      (encodeTup lt regSig r₀.toRegsV.toTup) m
+      (legalPost lt (regionRetPost rw.abi (PsiHyb cm wit Ψ_cold H) r₀.rp))
+      (legalXPost lt X) := by
+  have hSp := psiRegG_to_mid_spec false cm wit Ψ_cold H X lt hH hChk (Or.inr hNoRo) hMem hSupp
+    r₀ m (roPred_of_noRo false wit rw.entryPc m (Or.inl rfl)) hReg
+  rwa [psiHybG_false_eq] at hSp
 
 private theorem cm_wp_closed (cm : CodeMap) (H : HaltPost) :
     SpecsClosed cm cm.symEnv (cm.wp H) H := by
@@ -1590,7 +1946,8 @@ theorem checkAndLiftWitness_cm_wp_to_mid (cm : CodeMap) (wit : CfgWitness)
     (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
     {rw : RegionWitness} (hMem : rw ∈ wit.regions)
     (hSupp : ((liftRegion cm rw).earlyOpt).body.supportsSource lt = true)
-    (r₀ : Regs) (m : Mem 64) (hWp : cm.wp H rw.entryPc ⟨r₀, m⟩) :
+    (r₀ : Regs) (m : Mem 64) (hWp : cm.wp H rw.entryPc ⟨r₀, m⟩)
+    (hNoRo : wit.hasMemTableRo = false := by decide) :
     Func.spec (legalEnv lt (witEnv cm wit)) ((liftRegion cm rw).mid lt).body
       (encodeTup lt regSig r₀.toRegsV.toTup) m
       (legalPost lt (regionRetPost rw.abi (cm.wp H) r₀.rp)) (legalXPost lt X) := by
@@ -1608,10 +1965,14 @@ theorem checkAndLiftWitness_cm_wp_to_mid (cm : CodeMap) (wit : CfgWitness)
             · simp only [hc, Bool.false_eq_true, ↓reduceIte] at h; exact h) b _ _ hbp)
       by_cases hc : (wit.regions.flatMap RegionWitness.allPcs).contains pc = true
       · dsimp only [PsiHyb]; simp only [hc, ↓reduceIte]
-        refine ⟨Xcap.Lfp.lfp_closed (regionStep_mono cm wit (cm.wp H) H) (pc, st)
-          ⟨b, hlu, ?_⟩, hCold⟩
-        exact blockFlat_wp_mono (fun pc' st' h => by
-          dsimp only [PsiHyb] at h; exact h) b _ _ hbp
+        have hStepReg : RegionStepG false cm wit (cm.wp H) H
+            (fun p => PsiReg cm wit (cm.wp H) H p.1 p.2) (pc, st) := by
+          refine ⟨b, hlu, fun _ => blockFlat_wp_mono (fun pc' st' h => ?_) b _ _ hbp⟩
+          dsimp only [PsiHyb] at h
+          by_cases hc' : (wit.regions.flatMap RegionWitness.allPcs).contains pc' = true
+          · simp only [hc', ↓reduceIte] at h ⊢; exact ⟨fun _ => h.1, h.2⟩
+          · simp only [hc', Bool.false_eq_true, ↓reduceIte] at h ⊢; exact h
+        exact ⟨Xcap.Lfp.lfp_closed (regionStep_mono cm wit (cm.wp H) H) (pc, st) hStepReg, hCold⟩
       · dsimp only [PsiHyb]; simp only [hc, Bool.false_eq_true, ↓reduceIte]; exact hCold
     have hReg : PsiReg cm wit (cm.wp H) H rw.entryPc ⟨r₀, m⟩ := by
       have hHyb := hWp (PsiHyb cm wit (cm.wp H) H) hClosedHyb
@@ -1621,7 +1982,7 @@ theorem checkAndLiftWitness_cm_wp_to_mid (cm : CodeMap) (wit : CfgWitness)
       have hc := mem_allPcs_of_split hSplit hEntAll
       simp only [hc, ↓reduceIte] at hHyb
       exact hHyb.1
-    have hSpec := psiReg_to_mid_spec cm wit (cm.wp H) H X lt hH hChk hMem hSupp r₀ m hReg
+    have hSpec := psiReg_to_mid_spec cm wit (cm.wp H) H X lt hH hChk hMem hSupp r₀ m hReg hNoRo
     refine Func.spec_mono (legalEnv lt (witEnv cm wit)) ((liftRegion cm rw).mid lt).body _ m _ _ _ _
       (fun vs m' hPost => ?_) (fun _ _ _ _ h => h) hSpec
     rcases hPost with ⟨xs, rfl, hRet⟩
@@ -1653,42 +2014,42 @@ private theorem lookupAddr_filter_of_addr (cm : CodeMap) (p : BitVec 64 → Bool
       · subst heq; simp [hp, CodeMap.lookupAddr]
       · cases hpe : p e.addr <;> simp [beq_false_of_ne heq, CodeMap.lookupAddr, ih]
 
-/-- Hybrid soundness theorem (`Ψ_hyb = Ψ_reg ∧ Ψ_cold`): if `W_res` blocks satisfy `Ψ_cold`,
-lifted `(fn.mid lt)` specs satisfy `Ψ_cold` at region entries, and any dropped non-entry PCs
-preserve `Ψ_cold`, then `SpecsClosed cm cm.symEnv (PsiHyb cm wit Ψ_cold H) H` holds and
-`cm.wp H pc₀ st₀` implies `Ψ_cold pc₀ st₀`. -/
-theorem checkAndLiftWitness_hybrid_sound (cm : CodeMap) (wit : CfgWitness)
+private theorem checkAndLiftWitness_hybrid_soundG (useRo : Bool) (cm : CodeMap) (wit : CfgWitness)
     (Ψ_cold : CodeSpec) (H : HaltPost) (X : XPost) (lt : LegalTarget)
     {fns : List Fn} {wRes : CodeMap}
     (hLift : checkAndLiftWitness cm wit = .ok (fns, wRes))
     (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
+    (hMode : useRo = true ∨ wit.hasMemTableRo = false)
     (hSupp : ∀ rw ∈ wit.regions, ((liftRegion cm rw).earlyOpt).body.supportsSource lt = true)
     (hRes : SpecsClosed wRes cm.symEnv Ψ_cold H)
     (hEntry : ∀ rw ∈ wit.regions, ∀ r₀ m₀,
-      Func.spec (legalEnv lt (witEnv cm wit)) ((liftRegion cm rw).mid lt).body
-        (encodeTup lt regSig r₀.toRegsV.toTup) m₀
-        (legalPost lt (regionRetPost rw.abi (PsiHyb cm wit Ψ_cold H) r₀.rp))
-        (legalXPost lt X) →
+      (RoPred useRo wit rw.entryPc m₀ →
+        Func.spec (legalEnv lt (witEnv cm wit)) ((liftRegion cm rw).mid lt).body
+          (encodeTup lt regSig r₀.toRegsV.toTup) m₀
+          (legalPost lt (regionRetPost rw.abi (PsiHybG useRo cm wit Ψ_cold H) r₀.rp))
+          (legalXPost lt X)) →
       Ψ_cold rw.entryPc ⟨r₀, m₀⟩)
     (hDrop : ∀ rw ∈ wit.regions, rw.retainFallbacks = false →
       ∀ pc ∈ rw.allPcs, pc ≠ rw.entryPc → ∀ st,
-        PsiReg cm wit Ψ_cold H pc st → Ψ_cold pc st) :
-    SpecsClosed cm cm.symEnv (PsiHyb cm wit Ψ_cold H) H ∧
+        (RoPred useRo wit pc st.mem → PsiRegG useRo cm wit Ψ_cold H pc st) →
+        Ψ_cold pc st) :
+    SpecsClosed cm cm.symEnv (PsiHybG useRo cm wit Ψ_cold H) H ∧
       ∀ pc₀ st₀, cm.wp H pc₀ st₀ → Ψ_cold pc₀ st₀ := by
   dsimp only [checkAndLiftWitness] at hLift
   split at hLift
   · rename_i hChk
     cases hLift
-    have hClosed : SpecsClosed cm cm.symEnv (PsiHyb cm wit Ψ_cold H) H := by
+    have hClosed : SpecsClosed cm cm.symEnv (PsiHybG useRo cm wit Ψ_cold H) H := by
       intro pc b hlu st hbp
-      have hStepReg : RegionStep cm wit Ψ_cold H
-          (fun p => PsiReg cm wit Ψ_cold H p.1 p.2) (pc, st) :=
-        ⟨b, hlu, blockFlat_wp_mono (fun pc' st' h => h) b _ _ hbp⟩
-      have hRegPc : PsiReg cm wit Ψ_cold H pc st :=
-        Xcap.Lfp.lfp_closed (regionStep_mono cm wit Ψ_cold H) (pc, st) hStepReg
+      have hRegPc : RoPred useRo wit pc st.mem → PsiRegG useRo cm wit Ψ_cold H pc st := by
+        intro hRoIn
+        have hStepReg : RegionStepG useRo cm wit Ψ_cold H
+            (fun p => PsiRegG useRo cm wit Ψ_cold H p.1 p.2) (pc, st) :=
+          ⟨b, hlu, fun _ => blockFlat_wp_mono (fun pc' st' h => h) b _ _ hbp⟩
+        exact Xcap.Lfp.lfp_closed (regionStepG_mono useRo cm wit Ψ_cold H) (pc, st) hStepReg
       have hColdBp : b.wp cm.symEnv Ψ_cold H (pushRegsV st.regs.toRegsV) st.mem :=
         blockFlat_wp_mono (fun pc' st' h => by
-          dsimp only [PsiHyb] at h
+          dsimp only [PsiHybG] at h
           split at h
           · exact h.2
           · exact h) b _ _ hbp
@@ -1705,15 +2066,15 @@ theorem checkAndLiftWitness_hybrid_sound (cm : CodeMap) (wit : CfgWitness)
           simp [hNotEnt, hNotDrop]
         exact hRes pc b (by rw [hFilt]; exact hlu) st hColdBp
       by_cases hc : (wit.regions.flatMap RegionWitness.allPcs).contains pc = true
-      · dsimp only [PsiHyb]; simp only [hc, ↓reduceIte]
+      · dsimp only [PsiHybG]; simp only [hc, ↓reduceIte]
         refine ⟨hRegPc, ?_⟩
         rw [List.contains_iff_mem, List.mem_flatMap] at hc
         rcases hc with ⟨rw, hRwMem, hPcRw⟩
         by_cases hEqEnt : pc = rw.entryPc
         · subst hEqEnt
-          exact hEntry rw hRwMem st.regs st.mem
-            (psiReg_to_mid_spec cm wit Ψ_cold H X lt hH hChk hRwMem (hSupp rw hRwMem)
-              st.regs st.mem hRegPc)
+          exact hEntry rw hRwMem st.regs st.mem (fun hRo =>
+            psiRegG_to_mid_spec useRo cm wit Ψ_cold H X lt hH hChk hMode hRwMem
+              (hSupp rw hRwMem) st.regs st.mem hRo (hRegPc hRo))
         · by_cases hRet : rw.retainFallbacks = true
           · exact hResAt (fun hInEnt => by
               rw [List.mem_map] at hInEnt
@@ -1733,7 +2094,7 @@ theorem checkAndLiftWitness_hybrid_sound (cm : CodeMap) (wit : CfgWitness)
           · have hRetF : rw.retainFallbacks = false := by
               cases hrf : rw.retainFallbacks <;> simp_all
             exact hDrop rw hRwMem hRetF pc hPcRw hEqEnt st hRegPc
-      · dsimp only [PsiHyb]; simp only [hc, Bool.false_eq_true, ↓reduceIte]
+      · dsimp only [PsiHybG]; simp only [hc, Bool.false_eq_true, ↓reduceIte]
         exact hResAt (fun hInEnt => by
           rw [List.mem_map] at hInEnt
           rcases hInEnt with ⟨rw', hRw'Mem, hRw'Eq⟩
@@ -1745,11 +2106,70 @@ theorem checkAndLiftWitness_hybrid_sound (cm : CodeMap) (wit : CfgWitness)
           rw [List.mem_filter] at hRw'Filt
           exact hc (List.contains_iff_mem.2 (List.mem_flatMap.2 ⟨rw', hRw'Filt.1, hPcRw'⟩)))
     refine ⟨hClosed, fun pc₀ st₀ hWp => ?_⟩
-    have hHyb := hWp (PsiHyb cm wit Ψ_cold H) hClosed
-    dsimp only [PsiHyb] at hHyb
+    have hHyb := hWp (PsiHybG useRo cm wit Ψ_cold H) hClosed
+    dsimp only [PsiHybG] at hHyb
     split at hHyb
     · exact hHyb.2
     · exact hHyb
   · cases hLift
+
+/-- Hybrid soundness theorem (`Ψ_hyb = Ψ_reg ∧ Ψ_cold`): if `W_res` blocks satisfy `Ψ_cold`,
+lifted `(fn.mid lt)` specs satisfy `Ψ_cold` at region entries, and any dropped non-entry PCs
+preserve `Ψ_cold`, then `SpecsClosed cm cm.symEnv (PsiHyb cm wit Ψ_cold H) H` holds and
+`cm.wp H pc₀ st₀` implies `Ψ_cold pc₀ st₀`. -/
+theorem checkAndLiftWitness_hybrid_sound (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (X : XPost) (lt : LegalTarget)
+    {fns : List Fn} {wRes : CodeMap}
+    (hLift : checkAndLiftWitness cm wit = .ok (fns, wRes))
+    (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
+    (hSupp : ∀ rw ∈ wit.regions, ((liftRegion cm rw).earlyOpt).body.supportsSource lt = true)
+    (hRes : SpecsClosed wRes cm.symEnv Ψ_cold H)
+    (hEntry : ∀ rw ∈ wit.regions, ∀ r₀ m₀,
+      Func.spec (legalEnv lt (witEnv cm wit)) ((liftRegion cm rw).mid lt).body
+        (encodeTup lt regSig r₀.toRegsV.toTup) m₀
+        (legalPost lt (regionRetPost rw.abi (PsiHyb cm wit Ψ_cold H) r₀.rp))
+        (legalXPost lt X) →
+      Ψ_cold rw.entryPc ⟨r₀, m₀⟩)
+    (hDrop : ∀ rw ∈ wit.regions, rw.retainFallbacks = false →
+      ∀ pc ∈ rw.allPcs, pc ≠ rw.entryPc → ∀ st,
+        PsiReg cm wit Ψ_cold H pc st → Ψ_cold pc st)
+    (hNoRo : wit.hasMemTableRo = false := by decide) :
+    SpecsClosed cm cm.symEnv (PsiHyb cm wit Ψ_cold H) H ∧
+      ∀ pc₀ st₀, cm.wp H pc₀ st₀ → Ψ_cold pc₀ st₀ := by
+  have hMain := checkAndLiftWitness_hybrid_soundG false cm wit Ψ_cold H X lt hLift hH
+    (Or.inr hNoRo) hSupp hRes
+    (fun rw hRwMem r₀ m₀ hSp => by
+      have hSp' := hSp (roPred_of_noRo false wit rw.entryPc m₀ (Or.inl rfl))
+      rw [psiHybG_false_eq] at hSp'
+      exact hEntry rw hRwMem r₀ m₀ hSp')
+    (fun rw hRwMem hRet pc hpc hne st hReg =>
+      hDrop rw hRwMem hRet pc hpc hne st (hReg (roPred_of_noRo false wit pc st.mem (Or.inl rfl))))
+  rw [psiHybG_false_eq] at hMain
+  exact hMain
+
+/-- RO-table hybrid soundness theorem supporting `.memTableRo` regions guarded by `WitRoOk`:
+requires only `RoPred true wit rw.entryPc m₀` (`WitRoOk wit m₀` on RO-table entries). -/
+theorem checkAndLiftWitness_ro_hybrid_sound (cm : CodeMap) (wit : CfgWitness)
+    (Ψ_cold : CodeSpec) (H : HaltPost) (X : XPost) (lt : LegalTarget)
+    {fns : List Fn} {wRes : CodeMap}
+    (hLift : checkAndLiftWitness cm wit = .ok (fns, wRes))
+    (hH : ∀ c m', H c m' → X haltSym [i64] (c, ()) m')
+    (hSupp : ∀ rw ∈ wit.regions, ((liftRegion cm rw).earlyOpt).body.supportsSource lt = true)
+    (hRes : SpecsClosed wRes cm.symEnv Ψ_cold H)
+    (hEntry : ∀ rw ∈ wit.regions, ∀ r₀ m₀,
+      (RoPred true wit rw.entryPc m₀ →
+        Func.spec (legalEnv lt (witEnv cm wit)) ((liftRegion cm rw).mid lt).body
+          (encodeTup lt regSig r₀.toRegsV.toTup) m₀
+          (legalPost lt (regionRetPost rw.abi (PsiHybG true cm wit Ψ_cold H) r₀.rp))
+          (legalXPost lt X)) →
+      Ψ_cold rw.entryPc ⟨r₀, m₀⟩)
+    (hDrop : ∀ rw ∈ wit.regions, rw.retainFallbacks = false →
+      ∀ pc ∈ rw.allPcs, pc ≠ rw.entryPc → ∀ st,
+        (RoPred true wit pc st.mem → PsiRegG true cm wit Ψ_cold H pc st) →
+        Ψ_cold pc st) :
+    SpecsClosed cm cm.symEnv (PsiHybG true cm wit Ψ_cold H) H ∧
+      ∀ pc₀ st₀, cm.wp H pc₀ st₀ → Ψ_cold pc₀ st₀ :=
+  checkAndLiftWitness_hybrid_soundG true cm wit Ψ_cold H X lt hLift hH (Or.inl rfl) hSupp
+    hRes hEntry hDrop
 
 end LeanQbe.T.Unified
