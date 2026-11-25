@@ -132,6 +132,7 @@ public import LeanQbe.T.Examples.Kissat.FullIngestLemmas1
 public import LeanQbe.T.Examples.Kissat.FullIngestLemmas2
 public import LeanQbe.T.Examples.Kissat.FullInv1
 public import LeanQbe.T.Examples.Kissat.FullInv2
+public import LeanQbe.T.Examples.Kissat.FullKissatMath
 public import LeanQbe.T.Examples.Kissat.FullKitten
 public import LeanQbe.T.Examples.Kissat.FullKittenLemmas
 public import LeanQbe.T.Examples.Kissat.FullKittenLemmas1

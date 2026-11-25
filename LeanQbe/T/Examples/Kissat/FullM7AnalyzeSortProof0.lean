@@ -5,6 +5,7 @@ public import LeanQbe.T.Examples.Kissat.FullMinLemmas1
 public import LeanQbe.T.Examples.Kissat.FullCongLemmas1
 public import LeanQbe.T.Examples.Kissat.FullM5SchedLemmas
 import LeanQbe.T.Examples.Kissat.FullArena
+import LeanQbe.T.Examples.Kissat.FullKissatMath
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -426,43 +427,17 @@ theorem m7_arr_store_i32 {a i : BitVec 64} {xs : List (BitVec 32)} {F : Mem 64 �
     rw [show (4 : BitVec 64) = BitVec.ofNat 64 4 from rfl, c0_mul_ofNat]]
   exact store_array (t := i32) v (by decide) hi h
 
-private theorem wp_let_udiv64_m7 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    {m : Mem 64} {a b : Arg Val i64} {k : Tup Val [i64] → Expr Val Cont rs}
-    (hb : b.val ≠ 0#64) :
-    wp Γ Q X (.let_ (Op.mk (.udiv 64) (a, b, ())) k) m ↔
-      wp Γ Q X (k (a.val / b.val, ())) m := by
-  rw [wp_let_udiv_eq]; exact ⟨fun h => h.2, fun h => ⟨hb, h⟩⟩
-
-private theorem wp_let_udiv64_var_m7 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    {m : Mem 64} {a : Arg Val i64} {vb : BitVec 64} {k : Tup Val [i64] → Expr Val Cont rs}
-    (hb : vb ≠ 0#64) :
-    wp Γ Q X (.let_ (Op.mk (.udiv 64) (a, .var vb, ())) k) m ↔
-      wp Γ Q X (k (a.val / vb, ())) m :=
-  wp_let_udiv64_m7 hb
-
-private theorem wp_let_udiv64_imm_m7 {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    {m : Mem 64} {a : Arg Val i64} {ib : BitVec 64} {k : Tup Val [i64] → Expr Val Cont rs}
-    (hb : ib ≠ 0#64) :
-    wp Γ Q X (.let_ (Op.mk (.udiv 64) (a, .imm ib, ())) k) m ↔
-      wp Γ Q X (k (a.val / ib, ())) m :=
-  wp_let_udiv64_m7 hb
-
 theorem m7_bv64_add1 {x : BitVec 64} (hx : x.toNat + 1 < 2 ^ 64) :
-    (x + 1).toNat = x.toNat + 1 := by bv_omega
-
+    (x + 1).toNat = x.toNat + 1 := FullKissatMath.bv64_add1_toNat hx
 theorem m7_bv64_sub1 {x : BitVec 64} (hx : 1 ≤ x.toNat) :
     (x - 1).toNat = x.toNat - 1 := by bv_omega
-
 theorem m7_bv64_sub {a b : BitVec 64} (h : b.toNat ≤ a.toNat) :
-    (a - b).toNat = a.toNat - b.toNat := by bv_omega
-
+    (a - b).toNat = a.toNat - b.toNat := FullKissatMath.bv64_sub_toNat h
 theorem m7_bv64_add {a b : BitVec 64} (h : a.toNat + b.toNat < 2 ^ 64) :
-    (a + b).toNat = a.toNat + b.toNat := by bv_omega
-
+    (a + b).toNat = a.toNat + b.toNat := FullKissatMath.bv64_add_toNat h
 theorem m7_bv64_zext32_ushr1 (x : BitVec 32) :
-    ((x.setWidth 64) >>> (BitVec.signExtend 64 (1 : BitVec 32)).toNat).toNat = x.toNat / 2 := by
-  have h1 : (BitVec.signExtend 64 (1 : BitVec 32)).toNat = 1 := rfl
-  rw [h1]; bv_omega
+    ((x.setWidth 64) >>> (BitVec.signExtend 64 (1 : BitVec 32)).toNat).toNat = x.toNat / 2 :=
+  FullKissatMath.bv64_zext32_ushr1 x
 
 private theorem m7_perm_middle {α : Type _} (a : α) (l₁ l₂ : List α) :
     (l₁ ++ a :: l₂).Perm (a :: (l₁ ++ l₂)) := by
@@ -783,16 +758,12 @@ theorem full_sort_u32_m7_wp (Γ : Env) :
           have hc' : ¬ (arr[1]'ha1).toNat < (arr[0]'ha0).toNat := hc
           omega
         refine hJs () m0 (hQ arr m0 rfl (List.Perm.refl _) (fun _ _ => rfl) ?_ hm0)
-        intro i j hij hj
-        rw [hn2] at hj
-        rcases Nat.lt_or_eq_of_le (show j ≤ 1 by omega) with hj0 | rfl
-        · have : i = 0 := by omega
-          have : j = 0 := by omega
-          subst i j; exact le_refl _
-        · rcases Nat.lt_or_eq_of_le (show i ≤ 1 by omega) with hi0 | rfl
-          · have : i = 0 := by omega
-            subst i; simp [List.getElem?_eq_getElem ha0, List.getElem?_eq_getElem ha1, hle]
-          · exact le_refl _
+        intro i j hij hj; rw [hn2] at hj
+        rcases (by omega : (i = 0 ∧ j = 0) ∨ (i = 0 ∧ j = 1) ∨ (i = 1 ∧ j = 1)) with
+          ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
+        · exact Nat.le_refl _
+        · simp [List.getElem?_eq_getElem ha0, List.getElem?_eq_getElem ha1, hle]
+        · exact Nat.le_refl _
   · have hn_ge3 : 3 ≤ n.toNat := by
       have hn_nle1 : ¬ n.toNat ≤ 1 := by c0_cond hc; bv_omega
       have hn_ne2 : n.toNat ≠ 2 := by c0_cond hc; bv_omega
@@ -860,9 +831,8 @@ theorem full_sort_u32_m7_wp (Γ : Env) :
               subst hgo_t; clear hc
               c0_hsteps
               · have hlt_gap : j.toNat < gap.toNat := by c0_cond hc; bv_omega
-                exact ihj (j, false, ()) mj (by simp)
-                  ⟨arr_j, { hinv_j with gap_eq1_stop := (fun hg1 _ _ => by
-                    exfalso; rw [hg1] at hlt_gap; omega) }, hmj⟩
+                exact ihj (j, false, ()) mj (by simp) ⟨arr_j, { hinv_j with gap_eq1_stop :=
+                  (fun hg1 _ _ => by exfalso; rw [hg1] at hlt_gap; omega) }, hmj⟩
               · have hge_gap : gap.toNat ≤ j.toNat := by
                   have : ¬ j.toNat < gap.toNat := by assumption
                   omega
@@ -870,12 +840,11 @@ theorem full_sort_u32_m7_wp (Γ : Env) :
                 have hidx : (2 ^ 64 - gap.toNat + j.toNat) % 2 ^ 64 = j.toNat - gap.toNat := by
                   omega
                 have hle_px : (arr_j[j.toNat - gap.toNat]'hjg_lt).toNat ≤ x.toNat := by
-                  simp only [hidx] at hc
-                  exact hc
-                exact ihj (j, false, ()) mj (by simp)
-                  ⟨arr_j, { hinv_j with gap_eq1_stop := (fun hg1 _ _ => by
-                    have hj1_lt : j.toNat - 1 < arr_j.length := by omega
-                    rw [List.getElem?_eq_getElem hj1_lt, Option.getD_some]
+                  simp only [hidx] at hc; exact hc
+                exact ihj (j, false, ()) mj (by simp) ⟨arr_j, { hinv_j with gap_eq1_stop :=
+                  (fun hg1 _ _ => by
+                    rw [List.getElem?_eq_getElem (by omega : j.toNat - 1 < arr_j.length),
+                      Option.getD_some]
                     simpa [hg1] using hle_px) }, hmj⟩
               · have hge_gap : gap.toNat ≤ j.toNat := by
                   have : ¬ j.toNat < gap.toNat := by assumption
@@ -885,51 +854,39 @@ theorem full_sort_u32_m7_wp (Γ : Env) :
                 have hidx : (2 ^ 64 - gap.toNat + j.toNat) % 2 ^ 64 = j.toNat - gap.toNat := by
                   omega
                 have hgt_px : x.toNat < (arr_j[j.toNat - gap.toNat]'hjg_lt).toNat := by
-                  simp only [hidx] at hc
-                  change ¬ _ ≤ x.toNat at hc
-                  omega
-                have hinv' := shellInsInv_shift hinv_j hge_gap hg_pos hilt (by omega) hgt_px
-                have hdec : 2 * (j - gap).toNat + 1 < 2 * j.toNat + 1 := by
-                  rw [hjg_nat]; omega
-                refine ihj (j - gap, true, ()) m hdec
-                  ⟨arr_j.set j.toNat (arr_j[j.toNat - gap.toNat]'hjg_lt), ?_, ?_⟩
-                · rw [hjg_nat]; exact hinv'
-                · simpa only [hjg_nat] using hm
+                  simp only [hidx] at hc; change ¬ _ ≤ x.toNat at hc; omega
+                refine ihj (j - gap, true, ()) m (by simp only; rw [hjg_nat]; omega)
+                  ⟨arr_j.set j.toNat (arr_j[j.toNat - gap.toNat]'hjg_lt), ?_,
+                    by simpa only [hjg_nat] using hm⟩
+                rw [hjg_nat]; exact shellInsInv_shift hinv_j hge_gap hg_pos hilt (by omega) hgt_px
             · have hgo_f : go = false := by c0_cond hc; exact hc
               subst hgo_f
               let arr_next := arr_j.set j.toNat x
-              have hl_next : arr_next.length = arr.length := by simp [arr_next, hjl]
-              have hp_next : (arr_next.take n.toNat).Perm (arr.take n.toNat) :=
-                hinv_j.perm_hole.trans hperm2
-              have hs_next : ∀ k, n.toNat ≤ k → arr_next[k]? = arr[k]? := fun k hk => by
-                dsimp [arr_next]
-                rw [List.getElem?_set_ne (by omega)]
-                exact (hinv_j.suf_eq k hk).trans (hsuf2 k hk)
               have hsrt_next : gap.toNat = 1 → M7SortedU32 arr_next (i.toNat + 1) := fun hg1 =>
                 shellInsInv_finish_sorted (hg1 ▸ hinv_j) (by omega) hilt
               have hi1 : (i + 1#64).toNat = i.toNat + 1 := m7_bv64_add1 (by omega)
               refine ihi (i + 1#64, ()) _ (by simp only; rw [hi1]; omega)
-                ⟨arr_next, by rw [hi1]; omega, by rw [hi1]; omega, hl_next, hp_next, hs_next,
+                ⟨arr_next, by rw [hi1]; omega, by rw [hi1]; omega, by simp [arr_next, hjl],
+                  hinv_j.perm_hole.trans hperm2,
+                  fun k hk => by rw [List.getElem?_set_ne (by omega)]; exact
+                    (hinv_j.suf_eq k hk).trans (hsuf2 k hk),
                   fun hg1 => by rw [hi1]; exact hsrt_next hg1, hm⟩
-          · have hi_ge : n.toNat ≤ i.toNat := by c0_cond hc; rw [← hn64]; bv_omega
-            have hi_eq : i.toNat = n.toNat := Nat.le_antisymm hin hi_ge
-            have hsrt_full : gap.toNat = 1 → M7SortedU32 arr2 n.toNat := fun hg1 => by
-              rw [← hi_eq]; exact hsrt2 hg1
+          · have hi_eq : i.toNat = n.toNat :=
+              Nat.le_antisymm hin (by c0_cond hc; rw [← hn64]; bv_omega)
             have hdiv : (gap / 3#64).toNat = gap.toNat / 3 := by bv_omega
             have hdec : (gap / 3#64).toNat < gap.toNat := by rw [hdiv]; omega
             generalize hgn : gap.toNat = gn at hgp
             cases hgp with
             | one =>
-              have hdiv0 : gap / 3#64 = 0#64 := by
-                apply BitVec.eq_of_toNat_eq; rw [hdiv, hgn]; rfl
+              have hdiv0 : gap / 3#64 = 0#64 := by apply BitVec.eq_of_toNat_eq; rw [hdiv, hgn]; rfl
               exact ih (gap / 3#64, ()) _ hdec
-                ⟨arr2, hlen2, hperm2, hsuf2, Or.inl ⟨hdiv0, hsrt_full hgn⟩, hm2⟩
+                ⟨arr2, hlen2, hperm2, hsuf2, Or.inl ⟨hdiv0, by rw [← hi_eq]; exact hsrt2 hgn⟩,
+                  hm2⟩
             | step hgg =>
               rename_i g
               have hdiv_eq : (gap / 3#64).toNat = g := by rw [hdiv, hgn]; omega
-              have hgg1 : 1 ≤ g := gapPos_pos hgg
               exact ih (gap / 3#64, ()) _ hdec ⟨arr2, hlen2, hperm2, hsuf2,
-                Or.inr ⟨by rw [hdiv_eq]; exact hgg1, by rw [hdiv_eq]; exact hgg,
+                Or.inr ⟨by rw [hdiv_eq]; exact gapPos_pos hgg, by rw [hdiv_eq]; exact hgg,
                   by rw [hdiv_eq]; omega⟩, hm2⟩
       · have hg0 : gap = 0#64 := by
           apply BitVec.eq_of_toNat_eq
@@ -996,130 +953,87 @@ local elab "m7_to_div_or_ctrl" : tactic => do
       if isRem then break
     if !(← LeanQbe.T.C0Step.stepOnce) then break
 
-private theorem pow10_lt_64_m7 {d : Nat} (hd : d ≤ 18) : 10 ^ d < 2 ^ 64 :=
-  Nat.lt_of_le_of_lt (Nat.pow_le_pow_right (by omega) hd) (by decide)
-
 theorem full_log10_q16_m7_wp (Γ : Env) :
-    ∀ a m Q X, m7Log10Q16Spec a m Q X →
-      Func.wp Γ full_log10_q16_m7_body a m Q X := by
-  rintro ⟨n, ⟨⟩⟩ m0 Q X hQ
-  unfold Func.wp full_log10_q16_m7_body
-  c0_hsteps_nogrp
+    ∀ a m Q X, m7Log10Q16Spec a m Q X → Func.wp Γ full_log10_q16_m7_body a m Q X := by
+  rintro ⟨n, ⟨⟩⟩ m0 Q X hQ; unfold Func.wp full_log10_q16_m7_body; c0_hsteps_nogrp
   · exact hQ 0#64 (by decide) (fun h10 => by bv_omega)
   · have hn2 : 2 ≤ n.toNat := by bv_omega
     refine wp_loop_inv
-      (fun (d, p, ()) ml =>
-        ml = m0 ∧ d.toNat ≤ 18 ∧ p.toNat = 10 ^ d.toNat ∧ p.toNat ≤ n.toNat)
+      (fun (d, p, ()) ml => ml = m0 ∧ d.toNat ≤ 18 ∧ p.toNat = 10 ^ d.toNat ∧ p.toNat ≤ n.toNat)
       (fun (d, _, ()) _ => 18 - d.toNat)
       (fun J hJ => by
         c0_steps
-        exact hJ (0#64, 1#64, ()) m0
-          ⟨rfl, by decide, by decide, by rw [show (1#64).toNat = 1 from rfl]; omega⟩)
+        exact hJ (0#64, 1#64, ()) m0 ⟨rfl, by decide, by decide, by
+          rw [show (1#64).toNat = 1 from rfl]; omega⟩)
       (fun J (d, p, ()) ml ⟨hml0, hd18, hp_eq, hpn⟩ ih => ?_)
-    subst ml
-    c0_let_simp
+    subst ml; c0_let_simp
     have hp_ub : p.toNat ≤ 1000000000000000000 :=
       hp_eq ▸ Nat.pow_le_pow_right (by decide) hd18
     have hp1 : 1 ≤ p.toNat := by rw [hp_eq]; exact Nat.one_le_pow _ 10 (by decide)
     have hspan_nat : ((9 : BitVec 64) * p).toNat = 9 * p.toNat := by bv_omega
-    have hspan_nz : (9 : BitVec 64) * p ≠ 0#64 := by
-      intro h0
-      have ht := congrArg BitVec.toNat h0
-      rw [hspan_nat] at ht
-      change 9 * p.toNat = 0 at ht
-      omega
+    have hspan_nz : (9 : BitVec 64) * p ≠ 0#64 := fun h0 => by
+      have ht := congrArg BitVec.toNat h0; rw [hspan_nat] at ht
+      change 9 * p.toNat = 0 at ht; omega
     refine wp_join_group (ts := [])
       (fun () ml => ml = m0 ∧ d.toNat ≤ 18 ∧ p.toNat = 10 ^ d.toNat ∧ p.toNat ≤ n.toNat ∧
-        (d.toNat < 18 → n.toNat < 10 * p.toNat) ∧ (10 ≤ n.toNat → 1 ≤ d.toNat))
-      ?_ ?_
+        (d.toNat < 18 → n.toNat < 10 * p.toNat) ∧ (10 ≤ n.toNat → 1 ≤ d.toNat)) ?_ ?_
     · rintro _ ⟨⟩ ml1 ⟨hml1, hd18', hp_eq', hpn', hn_ub, h10_d⟩
-      subst ml1
-      c0_hsteps_nogrp
-      refine wp_join_group (ts := [i64]) (fun (frac, ()) ml2 => ml2 = m0 ∧ frac.toNat < 65536)
-        ?_ ?_
+      subst ml1; c0_hsteps_nogrp
+      refine wp_join_group (ts := [i64]) (fun (frac, ()) ml2 => ml2 = m0 ∧ frac.toNat < 65536) ?_ ?_
       · rintro _ ⟨frac, ⟨⟩⟩ ml2 ⟨hml2, hfr_lt⟩
         subst ml2; c0_hsteps
-        have hdr : (d <<< 16).toNat = d.toNat * 65536 := by
-          rw [BitVec.toNat_shiftLeft, Nat.shiftLeft_eq,
-            show d.toNat * 2 ^ 16 = d.toNat * 65536 from rfl, Nat.mod_eq_of_lt (by omega)]
-        have hsum : (d <<< 16 + frac).toNat = d.toNat * 65536 + frac.toNat := by
-          rw [BitVec.toNat_add, hdr, Nat.mod_eq_of_lt (by omega)]
-        exact hQ _ (by rw [hsum]; omega) (fun h10 => by have := h10_d h10; rw [hsum]; omega)
-      · intro _ hJf
-        c0_hsplit
+        obtain ⟨hlt, hge⟩ := FullKissatMath.q16_shl_bounds (by omega) hfr_lt h10_d
+        exact hQ _ hlt hge
+      · intro _ hJf; c0_hsplit
         · c0_hsplit
-          · m7_to_div_or_ctrl
-            rw [wp_let_udiv64_var_m7 hspan_nz]
-            c0_hsteps
-            have hdiv : ((n - p) <<< 16#64 / ((9 : BitVec 64) * p)).toNat =
-                ((n - p) <<< 16).toNat / (9 * p.toNat) := by
-              rw [BitVec.toNat_udiv, hspan_nat]; rfl
+          · m7_to_div_or_ctrl; rw [FullKissatMath.wp_let_udiv64_var_m hspan_nz]; c0_hsteps
             have hfrac_lt : ((n - p) <<< 16#64 / ((9 : BitVec 64) * p)).toNat < 65536 := by
-              rw [hdiv]
+              rw [BitVec.toNat_udiv, hspan_nat]
               by_cases hd13 : d.toNat ≤ 13
-              · have hp13 : p.toNat ≤ 10 ^ 13 :=
-                  hp_eq' ▸ Nat.pow_le_pow_right (by decide) hd13
-                have hn_lt : n.toNat < 10 * p.toNat := hn_ub (by omega)
-                have hnp_le : p ≤ n := BitVec.le_def.mpr hpn'
-                have hnp_sub : (n - p).toNat = n.toNat - p.toNat := BitVec.toNat_sub_of_le hnp_le
-                have hnp_lt : (n - p).toNat < 9 * p.toNat := by omega
+              · have hp13 : p.toNat ≤ 10 ^ 13 := hp_eq' ▸ Nat.pow_le_pow_right (by decide) hd13
+                have hn_lt := hn_ub (by omega)
+                have hnp_sub := BitVec.toNat_sub_of_le (BitVec.le_def.mpr hpn')
                 have h13 : 10 ^ 13 = 10000000000000 := by decide
-                have hsh : ((n - p) <<< 16).toNat = (n - p).toNat * 65536 := by
-                  rw [BitVec.toNat_shiftLeft, Nat.shiftLeft_eq,
+                have hsh : ((n - p) <<< 16#64).toNat = (n - p).toNat * 65536 := by
+                  rw [show (n - p) <<< 16#64 = (n - p) <<< (16 : Nat) from rfl,
+                    BitVec.toNat_shiftLeft, Nat.shiftLeft_eq,
                     show (n - p).toNat * 2 ^ 16 = (n - p).toNat * 65536 from rfl,
                     Nat.mod_eq_of_lt (by omega)]
                 rw [hsh]
                 exact Nat.div_lt_of_lt_mul (by rw [Nat.mul_comm (9 * p.toNat) 65536]; omega)
               · have hp14 : 10 ^ 14 ≤ p.toNat :=
                   hp_eq' ▸ Nat.pow_le_pow_right (by decide) (by omega)
-                have hnum : ((n - p) <<< 16).toNat < 2 ^ 64 := BitVec.isLt _
-                have hmul : 2 ^ 64 ≤ (9 * p.toNat) * 65536 := by
-                  have h14 : 10 ^ 14 = 100000000000000 := by decide
-                  omega
-                exact Nat.div_lt_of_lt_mul (lt_of_lt_of_le hnum hmul)
+                have h14 : 10 ^ 14 = 100000000000000 := by decide
+                exact Nat.div_lt_of_lt_mul (lt_of_lt_of_le (BitVec.isLt _) (by omega))
             exact hJf _ m0 ⟨rfl, hfrac_lt⟩
           · c0_hsteps; exact hJf _ m0 ⟨rfl, by decide⟩
         · c0_hsteps; exact hJf _ m0 ⟨rfl, by decide⟩
-    · intro _ hJexit
-      c0_hsplit
+    · intro _ hJexit; c0_hsplit
       · have hd_lt : d.toNat < 18 := by bv_omega
         m7_to_div_or_ctrl
-        rw [wp_let_udiv64_imm_m7 (by decide : (10 : BitVec 64) ≠ 0#64)]
-        c0_hsplit
-        · simp only [Arg.val] at *
-          have hp10_eq : p.toNat * 10 = 10 ^ (d.toNat + 1) := by
-            rw [Nat.pow_succ, hp_eq]
-          have hp10_lt64 : p.toNat * 10 < 2 ^ 64 :=
-            hp10_eq ▸ pow10_lt_64_m7 (by omega)
-          have hp10 : (p * 10#64).toNat = p.toNat * 10 := by
-            rw [BitVec.toNat_mul, show (10#64).toNat = 10 from rfl,
-              Nat.mod_eq_of_lt hp10_lt64]
+        rw [FullKissatMath.wp_let_udiv64_imm_m (by decide : (10 : BitVec 64) ≠ 0#64)]
+        c0_hsplit <;> simp only [Arg.val] at *
+        · obtain ⟨hp10_eq, _, hp10⟩ :=
+            FullKissatMath.pow10_succ_mul10 (by omega) (Nat.le_of_eq hp_eq)
           have hd1 : (d + 1#64).toNat = d.toNat + 1 := m7_bv64_add1 (by omega)
           have hpn1 : p.toNat * 10 ≤ n.toNat := by
-            have hle_div : p.toNat ≤ n.toNat / 10 := by
-              have hc' : p.toNat ≤ (n / 10#64).toNat := by bv_omega
-              rwa [BitVec.toNat_udiv, show (10#64).toNat = 10 from rfl] at hc'
-            exact Nat.le_trans (Nat.mul_le_mul_right 10 hle_div) (Nat.div_mul_le_self n.toNat 10)
-          c0_hsteps
-          exact ih (d + 1#64, p * 10#64, ()) m0 (by simp only; omega)
-            ⟨rfl, by rw [hd1]; omega, by rw [hd1, hp10, hp10_eq], by rw [hp10]; exact hpn1⟩
-        · simp only [Arg.val] at *
-          have hn_lt : n.toNat < 10 * p.toNat := by
-            have hgt : n.toNat / 10 < p.toNat := by
-              have hc' : (n / 10#64).toNat < p.toNat := by bv_omega
-              rwa [BitVec.toNat_udiv, show (10#64).toNat = 10 from rfl] at hc'
-            omega
-          have h10_d : 10 ≤ n.toNat → 1 ≤ d.toNat := by
-            intro h10
+            have hc' : p.toNat ≤ (n / 10#64).toNat := by bv_omega
+            rw [BitVec.toNat_udiv, show (10#64).toNat = 10 from rfl] at hc'
+            exact Nat.le_trans (Nat.mul_le_mul_right 10 hc') (Nat.div_mul_le_self n.toNat 10)
+          c0_hsteps; exact ih (d + 1#64, p * 10#64, ()) m0 (by simp only; omega)
+            ⟨rfl, by rw [hd1]; omega, by
+              rw [hd1, hp10, Nat.pow_succ, hp_eq], by rw [hp10]; exact hpn1⟩
+        · have hn_lt : n.toNat < 10 * p.toNat := by
+            have hc' : (n / 10#64).toNat < p.toNat := by bv_omega
+            rw [BitVec.toNat_udiv, show (10#64).toNat = 10 from rfl] at hc'; omega
+          have h10_d : 10 ≤ n.toNat → 1 ≤ d.toNat := fun h10 => by
             by_cases hd0 : d.toNat = 0
             · have hp0 : p.toNat = 1 := by rw [hp_eq, hd0]
               omega
             · omega
-          c0_hsteps
-          exact hJexit () m0 ⟨rfl, hd18, hp_eq, hpn, fun _ => hn_lt, h10_d⟩
+          c0_hsteps; exact hJexit () m0 ⟨rfl, hd18, hp_eq, hpn, fun _ => hn_lt, h10_d⟩
       · have hd18_eq : d.toNat = 18 := by bv_omega
-        c0_hsteps
-        exact hJexit () m0
+        c0_hsteps; exact hJexit () m0
           ⟨rfl, hd18, hp_eq, hpn, fun hlt => absurd hd18_eq (Nat.ne_of_lt hlt), fun _ => by omega⟩
 
 private theorem m7_core_upd_self (c : FullCoreState) (h0 : c.cur_level = 0) :
@@ -1251,14 +1165,10 @@ theorem full_rephase_m7_wp (Γ : Env)
             · intro _ hJsc
               c0_hsteps_nogrp
               · exact hJsc (_, ()) m4 hm4
-              · refine wp_join_group (ts := [i64]) (fun _ m5 => (FullMem c st3 ⋆ R) m5) ?_ ?_
-                · rintro _ ⟨nlim, ⟨⟩⟩ m5 hm5; c0_steps; exact hJsc (_, ()) m5 hm5
-                · intro _ hJnl; c0_steps
-                  · exact hJnl (100000000#64, ()) m4 hm4
-                  · exact hJnl (_, ()) m4 hm4
-          · intro _ hJnc; c0_steps
-            · exact hJnc (_, ()) m hm
-            · exact hJnc (1000000000000#64, ()) m hm
+              · refine wp_join_group (ts := [i64]) (fun _ m5 => (FullMem c st3 ⋆ R) m5)
+                  (fun _ ⟨nlim, ⟨⟩⟩ m5 hm5 => by c0_steps; exact hJsc (_, ()) m5 hm5)
+                  (fun _ hJnl => by c0_steps <;> exact hJnl (_, ()) m4 hm4)
+          · intro _ hJnc; c0_steps <;> exact hJnc (_, ()) m hm
       · intro Jsel hJsel
         have hll1 : sc2.last_learned = s.scratch.last_learned := hpres1.1
         have hext1 : sc2.extend_len = s.scratch.extend_len := hpres1.2
@@ -1325,46 +1235,26 @@ theorem full_rephase_m7_wp (Γ : Env)
                 c0_hsteps_nogrp
                 · exact hJwalk () m rfl
                 · exact hJwalk () m rfl
-                · refine wp_join_group (ts := []) RetP ?_ ?_
-                  · rintro _ ⟨⟩ m_out hret
-                    c0_steps
-                    exact hJ_after () m_out hret
-                  · intro J2 hJ2
-                    c0_hsteps_nogrp
-                    · refine wp_loop_inv
-                        (fun (k, ()) m3 => ∃ ph' : List (BitVec 8),
-                          k.toNat ≤ st1.core.cur_vars ∧ ph'.length = c.max_vars ∧
-                          (FullMem c { st2 with scratch := { sc2 with phases := ph' } } ⋆ R) m3)
-                        (fun (k, ()) _ => st1.core.cur_vars - k.toNat)
-                        (fun L hL => by
-                          c0_hsteps
-                          exact hL (0#64, ()) m
-                            ⟨sc2.phases, Nat.zero_le _, hsc2_ok.phases_len, hm⟩)
-                        (fun L (k, ()) m3 ⟨ph', hk_le, hph_l, hm3⟩ ihk => ?_)
-                      c0_hsteps
-                      · have hk_lt : k.toNat < st1.core.cur_vars := by c0_bound
-                        have hk1 : (k + 1#64).toNat = k.toNat + 1 := m7_bv64_add1 (by omega)
-                        exact ihk (k + 1#64, ()) _ (by dsimp only; omega)
-                          ⟨ph'.set k.toNat _, by omega, by simp [hph_l], hm⟩
-                      · exact hJ2 () m3 ⟨st1.core.fuel, { sc2 with phases := ph' },
-                          { hsc2_ok with phases_len := hph_l }, hfl1, hll1, hext1, hm3⟩
-                    · refine wp_loop_inv
-                        (fun (k, ()) m3 => ∃ ph' : List (BitVec 8),
-                          k.toNat ≤ st1.core.cur_vars ∧ ph'.length = c.max_vars ∧
-                          (FullMem c { st2 with scratch := { sc2 with phases := ph' } } ⋆ R) m3)
-                        (fun (k, ()) _ => st1.core.cur_vars - k.toNat)
-                        (fun L hL => by
-                          c0_hsteps
-                          exact hL (0#64, ()) m
-                            ⟨sc2.phases, Nat.zero_le _, hsc2_ok.phases_len, hm⟩)
-                        (fun L (k, ()) m3 ⟨ph', hk_le, hph_l, hm3⟩ ihk => ?_)
-                      c0_hsteps
-                      · have hk_lt : k.toNat < st1.core.cur_vars := by c0_bound
-                        have hk1 : (k + 1#64).toNat = k.toNat + 1 := m7_bv64_add1 (by omega)
-                        exact ihk (k + 1#64, ()) _ (by dsimp only; omega)
-                          ⟨ph'.set k.toNat _, by omega, by simp [hph_l], hm⟩
-                      · exact hJ2 () m3 ⟨st1.core.fuel, { sc2 with phases := ph' },
-                          { hsc2_ok with phases_len := hph_l }, hfl1, hll1, hext1, hm3⟩
+                · refine wp_join_group (ts := []) RetP
+                    (fun _ _ m_out hret => by c0_steps; exact hJ_after () m_out hret)
+                    fun J2 hJ2 => by
+                      c0_hsteps_nogrp <;> (
+                        refine wp_loop_inv
+                          (fun (k, ()) m3 => ∃ ph' : List (BitVec 8),
+                            k.toNat ≤ st1.core.cur_vars ∧ ph'.length = c.max_vars ∧
+                            (FullMem c { st2 with scratch := { sc2 with phases := ph' } } ⋆ R) m3)
+                          (fun (k, ()) _ => st1.core.cur_vars - k.toNat)
+                          (fun L hL => by
+                            c0_hsteps; exact hL (0#64, ()) m
+                              ⟨sc2.phases, Nat.zero_le _, hsc2_ok.phases_len, hm⟩)
+                          (fun L (k, ()) m3 ⟨ph', hk_le, hph_l, hm3⟩ ihk => by
+                            c0_hsteps
+                            · have hk_lt : k.toNat < st1.core.cur_vars := by c0_bound
+                              have hk1 : (k + 1#64).toNat = k.toNat + 1 := m7_bv64_add1 (by omega)
+                              exact ihk (k + 1#64, ()) _ (by dsimp only; omega)
+                                ⟨ph'.set k.toNat _, by omega, by simp [hph_l], hm⟩
+                            · exact hJ2 () m3 ⟨st1.core.fuel, { sc2 with phases := ph' },
+                                { hsc2_ok with phases_len := hph_l }, hfl1, hll1, hext1, hm3⟩))
     · intro Jbt hJbt
       c0_hsteps_nogrp
       · c0_call hBack

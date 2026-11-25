@@ -170,8 +170,7 @@ private theorem checkClauseValsAux_sat_exact {fuel mv : Nat} {valsBytes : List U
   induction fuel generalizing sat acc bs with
   | zero => simp [checkClauseValsAux] at h
   | succ fuel ih =>
-    rw [checkClauseValsAux] at h
-    rw [parseClauseAux_eq_nextLitPure]
+    rw [checkClauseValsAux] at h; rw [parseClauseAux_eq_nextLitPure]
     cases hn : nextLitPure mv bs with
     | err => rw [hn] at h; cases h
     | endClause rest' =>
@@ -181,22 +180,18 @@ private theorem checkClauseValsAux_sat_exact {fuel mv : Nat} {valsBytes : List U
       · intro lit hlit
         simp only [CNF.Clause.literals_ofLiterals, List.mem_reverse] at hlit
         exact hacc_bd lit hlit
-      · obtain ⟨lit, hmem, heq⟩ := hsat ht
-        rw [CNF.Clause.sat_iff_exists_mem_eq]
+      · obtain ⟨lit, hmem, heq⟩ := hsat ht; rw [CNF.Clause.sat_iff_exists_mem_eq]
         exact ⟨lit, by rw [← CNF.Clause.mem_literals_iff]; simp [hmem], heq⟩
     | lit l rest' =>
       rw [hn] at h
       have ⟨hlt, _, _⟩ := nextLitPure_lit_bounds hn
-      have hl_bd : 1 ≤ (kissatLitToDimacsLiteral l).1 ∧ (kissatLitToDimacsLiteral l).1 ≤ mv := by
+      have hl_bd : 1 ≤ (kissatLitToDimacsLiteral l).1 ∧
+          (kissatLitToDimacsLiteral l).1 ≤ mv := by
         simp only [kissatLitToDimacsLiteral, litVar]; omega
       refine ih (fun lit hlit => ?_) (fun ht => ?_) h
-      · rcases List.mem_cons.mp hlit with rfl | hmem
-        · exact hl_bd
-        · exact hacc_bd lit hmem
-      · simp only [Bool.or_eq_true] at ht
-        rcases ht with h1 | h2
-        · obtain ⟨lit, hmem, heq⟩ := hsat h1
-          exact ⟨lit, List.mem_cons_of_mem _ hmem, heq⟩
+      · rcases List.mem_cons.mp hlit with rfl | hmem; exact hl_bd; exact hacc_bd lit hmem
+      · rcases Bool.or_eq_true _ _ |>.mp ht with h1 | h2
+        · obtain ⟨lit, hmem, heq⟩ := hsat h1; exact ⟨lit, List.mem_cons_of_mem _ hmem, heq⟩
         · exact ⟨kissatLitToDimacsLiteral l, List.mem_cons_self, evalLitVals_implies_fn h2⟩
 
 private theorem checkClausesVals_sat_exact {mv k : Nat} {valsBytes bs : List UInt8}
@@ -217,24 +212,19 @@ private theorem checkClausesVals_sat_exact {mv k : Nat} {valsBytes bs : List UIn
     cases hc : checkClauseValsAux (bs.length + 1) mv valsBytes false bs with
     | none => rw [hc] at h; cases h
     | some p =>
-      rcases p with ⟨sat, rest⟩
-      rw [hc] at h
+      rcases p with ⟨sat, rest⟩; rw [hc] at h
       cases sat with
       | false => cases h
       | true =>
         obtain ⟨cl, hcl, hcl_bd, hcl_sat⟩ :=
           checkClauseValsAux_sat_exact (acc := []) (by simp) (by simp) hc
-        have hpc : parseClause mv bs = some (cl, rest) := hcl
-        have hadd_bd : ∀ c ∈ accCnf.add cl, ∀ lit ∈ c.literals, 1 ≤ lit.1 ∧ lit.1 ≤ mv := by
-          intro c hc_mem lit hlit
+        obtain ⟨cnf, hpc', hbd', hsat'⟩ := ih (fun c hc_mem lit hlit => by
           rcases CNF.mem_add.mp hc_mem with rfl | hmem
           · exact hcl_bd lit hlit
-          · exact hacc_bd c hmem lit hlit
-        have hadd_sat : (accCnf.add cl).Sat
-            (fun v => if v == 0 then false else i8BytePos (valsBytes.getD (2 * (v - 1)) 0)) :=
-          CNF.sat_add.mpr ⟨hcl_sat rfl, hacc_sat⟩
-        obtain ⟨cnf, hpc', hbd', hsat'⟩ := ih hadd_bd hadd_sat h
-        exact ⟨cnf, by simp [parseClauses, hpc, hpc'], hbd', hsat'⟩
+          · exact hacc_bd c hmem lit hlit)
+          (CNF.sat_add.mpr ⟨hcl_sat rfl, hacc_sat⟩) h
+        exact ⟨cnf, by simp [parseClauses, show parseClause mv bs = some (cl, rest) from hcl, hpc'],
+          hbd', hsat'⟩
 
 /-- Exact constructive soundness of `runKissatCheckModel`: returns `cnf` with variable bounds
 `1 ≤ lit.1 ≤ mv ≤ mv_max` and certifies satisfaction directly on the 1-based byte predicate. -/
@@ -460,202 +450,62 @@ private theorem sat_checkModel_post_to_region {c : FullCfg} {s : FullState}
     (bytes cnf_ptr cnfBytes ⋆ region c.hdr c.avail ⋆ R) m := by
   have hmx := c.hmaxv; have ha := c.harena; have hw := c.hwcap
   have hd := c.hdel; have hred := c.hred; have hext := c.hext; have hscr := c.hscr
-  have hmd := fullMinDepthOf_le c.max_vars
-  unfold dimacsBound at *
+  have hmd := fullMinDepthOf_le c.max_vars; unfold dimacsBound at *
   have hc := hlen.core_ok; have hs := hlen.scratch_ok
-  have h1 : ((bytes cnf_ptr cnfBytes ⋆ R) ⋆
-      ((dimacsState c.hdr mv' nc' cur' val' ⋆
-          array64 (c.hdr + 32) ((Full.hdrTailWords c s).set 94 bva_bv)) ⋆
-        ((bytes c.pVals (s.core.vals.map UInt8.ofBitVec) ⋆
-            array (t := i8) c.pWalkVals s.scratch.walk_vals ⋆
-            array (t := i8) c.pLitMark s.core.lit_mark) ⋆
-          (array (t := i8) c.pMark s.core.mrk ⋆ array (t := i8) c.pPhases s.scratch.phases ⋆
-            array (t := i8) c.pPhasesTarget s.scratch.phases_target ⋆
-            array (t := i8) c.pPhasesBest s.scratch.phases_best ⋆
-            array (t := i8) c.pWalkBest s.scratch.walk_best)) ⋆
-        (array (t := i32) c.pFlags s.core.flags ⋆ array (t := i32) c.pLevel s.core.lvl ⋆
-          array (t := i32) c.pReason s.core.rsns ⋆ array (t := i32) c.pTrail s.core.trl ⋆
-          array (t := i32) c.pTrailPos s.core.trail_pos) ⋆
-        (array (t := i32) c.pTmp s.core.tmp ⋆ array (t := i32) c.pHeap s.scratch.heap ⋆
-          array (t := i32) c.pPos s.scratch.pos ⋆ array (t := i32) c.pMinClr s.core.min_clr ⋆
-          array (t := i32) c.pShrinkStk s.scratch.shrink_stk) ⋆
-        (array (t := i32) c.pQPrev s.scratch.q_prev ⋆ array (t := i32) c.pQNext s.scratch.q_next ⋆
-          array (t := i32) c.pQStamp s.scratch.q_stamp ⋆
-          array (t := i32) c.pFrameTrail s.core.frame_trail ⋆
-          array (t := i32) c.pFrameDec s.core.frame_dec) ⋆
-        (array (t := i32) c.pWvec s.core.wvec ⋆ array (t := i32) c.pRepr s.core.repr ⋆
-          array (t := i32) c.pWsort s.scratch.wsort ⋆
-          array (t := i32) c.pWorkStk1 s.scratch.work_stk1 ⋆
-          array (t := i32) c.pWorkStk2 s.scratch.work_stk2 ⋆
-          array (t := i32) c.pTarjanMark s.scratch.tarjan_mark ⋆
-          array (t := i32) c.pTarjanReach s.scratch.tarjan_reach ⋆
-          array64 c.pScore s.scratch.score ⋆ array64 c.pSimSig s.scratch.sim_sig) ⋆
-        (array (t := i32) c.pMinStk s.core.min_stk ⋆
-          array (t := i32) c.pGlueUsed s.scratch.glue_used ⋆
-          array (t := i32) c.pLastLearned s.scratch.last_learned ⋆
-          array (t := i32) c.pArena s.core.arena ⋆ array (t := i32) c.pWstk s.core.wstk ⋆
-          array (t := i32) c.pDelayed s.scratch.delayed ⋆
-          array (t := i32) c.pRedRefs s.scratch.red_refs ⋆
-          array (t := i32) c.pExtendStk s.scratch.extend_stk ⋆
-          array (t := i32) c.pScratchBuf s.scratch.scratch_buf) ⋆
-        c.pad)) m := by
-    unfold SatCheckRest FullCoreU32A FullCoreU32B FullCoreDynArrs FullScratchArrays
-      FullScrByteArrs FullScrU32A FullScrWksArrs FullScrMetaArrs FullScrDynArrs at hm
-    exact sep_ac hm
-  have hHead : ∀ k,
-      (dimacsState c.hdr mv' nc' cur' val' ⋆
-        array64 (c.hdr + 32) ((Full.hdrTailWords c s).set 94 bva_bv)) k →
-      (region c.hdr 32 ⋆ region (c.hdr + BitVec.ofNat 64 32) 1120) k :=
-    sep_mono2 (fun _ hb => dimacsState_to_region hb)
-      (sat_arr64 1120 (by rw [List.length_set, Full.hdrTailWords_length])
-        (by decide) (by decide))
-  have hB : ∀ k,
-      ((bytes c.pVals (s.core.vals.map UInt8.ofBitVec) ⋆
-          array (t := i8) c.pWalkVals s.scratch.walk_vals ⋆
-          array (t := i8) c.pLitMark s.core.lit_mark) ⋆
-        (array (t := i8) c.pMark s.core.mrk ⋆ array (t := i8) c.pPhases s.scratch.phases ⋆
-          array (t := i8) c.pPhasesTarget s.scratch.phases_target ⋆
-          array (t := i8) c.pPhasesBest s.scratch.phases_best ⋆
-          array (t := i8) c.pWalkBest s.scratch.walk_best)) k →
-      ((region c.pVals (2 * c.max_vars) ⋆ region c.pWalkVals (2 * c.max_vars) ⋆
-          region c.pLitMark (2 * c.max_vars)) ⋆
-        (region c.pMark c.max_vars ⋆ region c.pPhases c.max_vars ⋆
-          region c.pPhasesTarget c.max_vars ⋆ region c.pPhasesBest c.max_vars ⋆
-          region c.pWalkBest c.max_vars)) k :=
-    sep_mono2
+  let a8 (a : BitVec 64) {xs n} (hn : xs.length = n) (hbd : n ≤ 2 ^ 64 := by omega) :=
+    @sat_arr8 a xs n hn hbd
+  let a32 (a : BitVec 64) (m : Nat) {xs n} (hn : xs.length = n) (hm : 4 * n = m := by rfl)
+      (hbd : m ≤ 2 ^ 64 := by omega) := @sat_arr32 m a xs n hn hm hbd
+  let a64 (a : BitVec 64) (m : Nat) {xs n} (hn : xs.length = n) (hm : 8 * n = m := by rfl)
+      (hbd : m ≤ 2 ^ 64 := by omega) := @sat_arr64 m a xs n hn hm hbd
+  unfold SatCheckRest FullCoreU32A FullCoreU32B FullCoreDynArrs FullScratchArrays
+    FullScrByteArrs FullScrU32A FullScrWksArrs FullScrMetaArrs FullScrDynArrs at hm
+  have hAll :=
+    sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
+      (sep_mono2 (fun k (hb : dimacsState c.hdr mv' nc' cur' val' k) => dimacsState_to_region hb)
+        (a64 (c.hdr + 32) 1120 (xs := (Full.hdrTailWords c s).set 94 bva_bv)
+          (by rw [List.length_set, Full.hdrTailWords_length]) (by decide) (by decide)))
       (sep_mono2
-        (sep_mono2
-          (fun x (hb : bytes c.pVals (s.core.vals.map UInt8.ofBitVec) x) => by
-            have hb' := bytes_to_region hb; simpa [hc.vals_len] using hb')
-          (sat_arr8 hs.walk_vals_len (by omega)))
-        (sat_arr8 hc.lit_mark_len (by omega)))
-      (sep_mono2
-        (sep_mono2
-          (sep_mono2 (sep_mono2 (sat_arr8 hc.mrk_len (by omega))
-              (sat_arr8 hs.phases_len (by omega)))
-            (sat_arr8 hs.phases_target_len (by omega)))
-          (sat_arr8 hs.phases_best_len (by omega)))
-        (sat_arr8 hs.walk_best_len (by omega)))
-  have hU1 : ∀ k,
-      (array (t := i32) c.pFlags s.core.flags ⋆ array (t := i32) c.pLevel s.core.lvl ⋆
-        array (t := i32) c.pReason s.core.rsns ⋆ array (t := i32) c.pTrail s.core.trl ⋆
-        array (t := i32) c.pTrailPos s.core.trail_pos) k →
-      (region c.pFlags (4 * c.max_vars) ⋆ region c.pLevel (4 * c.max_vars) ⋆
-        region c.pReason (4 * c.max_vars) ⋆ region c.pTrail (4 * c.max_vars) ⋆
-        region c.pTrailPos (4 * c.max_vars)) k :=
-    sep_mono2
-      (sep_mono2
-        (sep_mono2
-          (sep_mono2 (sat_arr32 (4 * c.max_vars) hc.flags_len rfl (by omega))
-            (sat_arr32 (4 * c.max_vars) hc.lvl_len rfl (by omega)))
-          (sat_arr32 (4 * c.max_vars) hc.rsns_len rfl (by omega)))
-        (sat_arr32 (4 * c.max_vars) hc.trl_len rfl (by omega)))
-      (sat_arr32 (4 * c.max_vars) hc.trail_pos_len rfl (by omega))
-  have hU2 : ∀ k,
-      (array (t := i32) c.pTmp s.core.tmp ⋆ array (t := i32) c.pHeap s.scratch.heap ⋆
-        array (t := i32) c.pPos s.scratch.pos ⋆ array (t := i32) c.pMinClr s.core.min_clr ⋆
-        array (t := i32) c.pShrinkStk s.scratch.shrink_stk) k →
-      (region c.pTmp (4 * c.max_vars) ⋆ region c.pHeap (4 * c.max_vars) ⋆
-        region c.pPos (4 * c.max_vars) ⋆ region c.pMinClr (4 * c.max_vars) ⋆
-        region c.pShrinkStk (4 * c.max_vars)) k :=
-    sep_mono2
-      (sep_mono2
-        (sep_mono2
-          (sep_mono2 (sat_arr32 (4 * c.max_vars) hc.tmp_len_arr rfl (by omega))
-            (sat_arr32 (4 * c.max_vars) hs.heap_len_arr rfl (by omega)))
-          (sat_arr32 (4 * c.max_vars) hs.pos_len rfl (by omega)))
-        (sat_arr32 (4 * c.max_vars) hc.min_clr_len_arr rfl (by omega)))
-      (sat_arr32 (4 * c.max_vars) hs.shrink_stk_len rfl (by omega))
-  have hU3 : ∀ k,
-      (array (t := i32) c.pQPrev s.scratch.q_prev ⋆ array (t := i32) c.pQNext s.scratch.q_next ⋆
-        array (t := i32) c.pQStamp s.scratch.q_stamp ⋆
-        array (t := i32) c.pFrameTrail s.core.frame_trail ⋆
-        array (t := i32) c.pFrameDec s.core.frame_dec) k →
-      (region c.pQPrev (4 * c.max_vars) ⋆ region c.pQNext (4 * c.max_vars) ⋆
-        region c.pQStamp (4 * c.max_vars) ⋆ region c.pFrameTrail (4 * (c.max_vars + 1)) ⋆
-        region c.pFrameDec (4 * (c.max_vars + 1))) k :=
-    sep_mono2
-      (sep_mono2
-        (sep_mono2
-          (sep_mono2 (sat_arr32 (4 * c.max_vars) hs.q_prev_len rfl (by omega))
-            (sat_arr32 (4 * c.max_vars) hs.q_next_len rfl (by omega)))
-          (sat_arr32 (4 * c.max_vars) hs.q_stamp_len rfl (by omega)))
-        (sat_arr32 (4 * (c.max_vars + 1)) hc.frame_trail_len rfl (by omega)))
-      (sat_arr32 (4 * (c.max_vars + 1)) hc.frame_dec_len rfl (by omega))
-  have hT1 : ∀ k,
-      (array (t := i32) c.pWvec s.core.wvec ⋆ array (t := i32) c.pRepr s.core.repr ⋆
-        array (t := i32) c.pWsort s.scratch.wsort ⋆
-        array (t := i32) c.pWorkStk1 s.scratch.work_stk1 ⋆
-        array (t := i32) c.pWorkStk2 s.scratch.work_stk2 ⋆
-        array (t := i32) c.pTarjanMark s.scratch.tarjan_mark ⋆
-        array (t := i32) c.pTarjanReach s.scratch.tarjan_reach ⋆
-        array64 c.pScore s.scratch.score ⋆ array64 c.pSimSig s.scratch.sim_sig) k →
-      (region c.pWvec (16 * c.max_vars) ⋆ region c.pRepr (8 * c.max_vars) ⋆
-        region c.pWsort (8 * c.max_vars) ⋆ region c.pWorkStk1 (8 * c.max_vars) ⋆
-        region c.pWorkStk2 (8 * c.max_vars) ⋆ region c.pTarjanMark (8 * c.max_vars) ⋆
-        region c.pTarjanReach (8 * c.max_vars) ⋆ region c.pScore (8 * c.max_vars) ⋆
-        region c.pSimSig (8 * c.max_vars)) k :=
-    sep_mono2
-      (sep_mono2
-        (sep_mono2
-          (sep_mono2
-            (sep_mono2
-              (sep_mono2
-                (sep_mono2
-                  (sep_mono2 (sat_arr32 (16 * c.max_vars) hc.wvec_len (by omega) (by omega))
-                    (sat_arr32 (8 * c.max_vars) hc.repr_len (by omega) (by omega)))
-                  (sat_arr32 (8 * c.max_vars) hs.wsort_len (by omega) (by omega)))
-                (sat_arr32 (8 * c.max_vars) hs.work_stk1_len (by omega) (by omega)))
-              (sat_arr32 (8 * c.max_vars) hs.work_stk2_len (by omega) (by omega)))
-            (sat_arr32 (8 * c.max_vars) hs.tarjan_mark_len (by omega) (by omega)))
-          (sat_arr32 (8 * c.max_vars) hs.tarjan_reach_len (by omega) (by omega)))
-        (sat_arr64 (8 * c.max_vars) hs.score_len rfl (by omega)))
-      (sat_arr64 (8 * c.max_vars) hs.sim_sig_len rfl (by omega))
-  have hT2 : ∀ k,
-      (array (t := i32) c.pMinStk s.core.min_stk ⋆
-        array (t := i32) c.pGlueUsed s.scratch.glue_used ⋆
-        array (t := i32) c.pLastLearned s.scratch.last_learned ⋆
-        array (t := i32) c.pArena s.core.arena ⋆ array (t := i32) c.pWstk s.core.wstk ⋆
-        array (t := i32) c.pDelayed s.scratch.delayed ⋆
-        array (t := i32) c.pRedRefs s.scratch.red_refs ⋆
-        array (t := i32) c.pExtendStk s.scratch.extend_stk ⋆
-        array (t := i32) c.pScratchBuf s.scratch.scratch_buf) k →
-      (region c.pMinStk (8 * c.minDepth) ⋆ region c.pGlueUsed 256 ⋆
-        region c.pLastLearned 64 ⋆ region c.pArena (4 * c.arena_cap) ⋆
-        region c.pWstk (4 * c.wcap) ⋆ region c.pDelayed (12 * c.delayed_cap) ⋆
-        region c.pRedRefs (4 * c.red_cap) ⋆ region c.pExtendStk (4 * c.extend_cap) ⋆
-        region c.pScratchBuf (4 * c.scratch_cap)) k :=
-    sep_mono2
-      (sep_mono2
-        (sep_mono2
-          (sep_mono2
-            (sep_mono2
-              (sep_mono2
-                (sep_mono2
-                  (sep_mono2
-                    (sat_arr32 (8 * c.minDepth) hc.min_stk_len
-                      (by unfold FullCfg.minDepth; omega) (by unfold FullCfg.minDepth; omega))
-                    (sat_arr32 256 hs.glue_used_len (by decide) (by decide)))
-                  (sat_arr32 64 hs.last_learned_len (by decide) (by decide)))
-                (sat_arr32 (4 * c.arena_cap) hc.arena_len_arr rfl (by omega)))
-              (sat_arr32 (4 * c.wcap) hc.wstk_len_arr rfl (by omega)))
-            (sat_arr32 (12 * c.delayed_cap) hs.delayed_len_arr (by omega) (by omega)))
-          (sat_arr32 (4 * c.red_cap) hs.red_refs_len rfl (by omega)))
-        (sat_arr32 (4 * c.extend_cap) hs.extend_stk_len rfl (by omega)))
-      (sat_arr32 (4 * c.scratch_cap) hs.scratch_buf_len rfl (by omega))
+        (sep_mono2 (sep_mono2
+          (fun k (hb : bytes c.pVals (s.core.vals.map UInt8.ofBitVec) k) => by
+            simpa [hc.vals_len] using bytes_to_region hb)
+          (a8 c.pWalkVals hs.walk_vals_len)) (a8 c.pLitMark hc.lit_mark_len))
+        (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (a8 c.pMark hc.mrk_len)
+          (a8 c.pPhases hs.phases_len)) (a8 c.pPhasesTarget hs.phases_target_len))
+          (a8 c.pPhasesBest hs.phases_best_len)) (a8 c.pWalkBest hs.walk_best_len))))
+      (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
+        (a32 c.pFlags _ hc.flags_len) (a32 c.pLevel _ hc.lvl_len))
+        (a32 c.pReason _ hc.rsns_len)) (a32 c.pTrail _ hc.trl_len))
+        (a32 c.pTrailPos _ hc.trail_pos_len)))
+      (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
+        (a32 c.pTmp _ hc.tmp_len_arr) (a32 c.pHeap _ hs.heap_len_arr))
+        (a32 c.pPos _ hs.pos_len)) (a32 c.pMinClr _ hc.min_clr_len_arr))
+        (a32 c.pShrinkStk _ hs.shrink_stk_len)))
+      (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
+        (a32 c.pQPrev _ hs.q_prev_len) (a32 c.pQNext _ hs.q_next_len))
+        (a32 c.pQStamp _ hs.q_stamp_len)) (a32 c.pFrameTrail _ hc.frame_trail_len))
+        (a32 c.pFrameDec _ hc.frame_dec_len)))
+      (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
+        (a32 c.pWvec (16 * c.max_vars) hc.wvec_len (by omega))
+        (a32 c.pRepr (8 * c.max_vars) hc.repr_len (by omega)))
+        (a32 c.pWsort (8 * c.max_vars) hs.wsort_len (by omega)))
+        (a32 c.pWorkStk1 (8 * c.max_vars) hs.work_stk1_len (by omega)))
+        (a32 c.pWorkStk2 (8 * c.max_vars) hs.work_stk2_len (by omega)))
+        (a32 c.pTarjanMark (8 * c.max_vars) hs.tarjan_mark_len (by omega)))
+        (a32 c.pTarjanReach (8 * c.max_vars) hs.tarjan_reach_len (by omega)))
+        (a64 c.pScore _ hs.score_len)) (a64 c.pSimSig _ hs.sim_sig_len)))
+      (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
+        (a32 c.pMinStk (8 * c.minDepth) hc.min_stk_len (by unfold FullCfg.minDepth; omega)
+          (by unfold FullCfg.minDepth; omega))
+        (a32 c.pGlueUsed 256 hs.glue_used_len (by decide) (by decide)))
+        (a32 c.pLastLearned 64 hs.last_learned_len (by decide) (by decide)))
+        (a32 c.pArena _ hc.arena_len_arr)) (a32 c.pWstk _ hc.wstk_len_arr))
+        (a32 c.pDelayed (12 * c.delayed_cap) hs.delayed_len_arr (by omega)))
+        (a32 c.pRedRefs _ hs.red_refs_len)) (a32 c.pExtendStk _ hs.extend_stk_len))
+        (a32 c.pScratchBuf _ hs.scratch_buf_len)))
+      (fun k (hb : c.pad k) => hb)
   have h2 : ((bytes cnf_ptr cnfBytes ⋆ R) ⋆ region c.hdr c.avail) m :=
-    sep_mono_r (fun _ h => c.regions_to_avail h)
-      (sep_mono_r
-        (sep_mono2
-          (sep_mono2
-            (sep_mono2
-              (sep_mono2
-                (sep_mono2 (sep_mono2 (sep_mono2 hHead hB) hU1) hU2)
-                hU3)
-              hT1)
-            hT2)
-          (fun _ hb => hb))
-        h1)
+    sep_mono_r (fun _ h => c.regions_to_avail h) (sep_mono_r hAll (sep_ac hm))
   exact sep_ac h2
 
 /-- Shared extend + verified `kissat_check_model` tail proof for both M4 and M5: keeps `hok`
@@ -702,22 +552,18 @@ private theorem sat_solve_bytes_extend_check {Γ : Env} {Q : Post [i64]} {X : XP
                       (Expr.jump Jr.fst (Arg.imm 0, ()))))) m3 := by
   dsimp only
   have hch2 : c2.hdr = hdr_ptr := hcompat.hdr.trans hch_ptr
-  have hch2_w : c2.hdr = work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr) :=
-    hcompat.hdr.trans hch
-  rw [← hch2]
-  c0_call hExt
+  have hch2_w : c2.hdr = work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr) := hcompat.hdr.trans hch
+  rw [← hch2]; c0_call hExt
   refine ⟨c2, s3, bytes cnf_ptr cnfBytes ⋆ region work_ptr (fullAlignPad work_ptr) ⋆ R,
     ⟨rfl, hext3⟩, hlen3,
     by dsimp only [Full.fullExtendSlice, SafetySlice.ofMask]; exact sep_ac hm3, ?_⟩
   intro ⟨⟩ s4 m4 _ hlen4 _ hm4
   dsimp only [Full.fullExtendSlice, SafetySlice.ofMask] at hm4
-  have hm4_f : (FullMem c2 s4 ⋆
-      (bytes cnf_ptr cnfBytes ⋆ region work_ptr (fullAlignPad work_ptr) ⋆ R)) m4 := sep_ac hm4
+  have hm4_f : (FullMem c2 s4 ⋆ (bytes cnf_ptr cnfBytes ⋆
+      region work_ptr (fullAlignPad work_ptr) ⋆ R)) m4 := sep_ac hm4
   refine wp_store_sep (FullM4Compact.full_store_mv_mid (BitVec.ofNat 64 c0.mv) hm4_f) ?_
-  intro m4_1 hm4_1
-  c0_step
-  refine wp_load_of (FullM4Compact.full_load_max_vars_mid hm4_1) ?_
-  c0_step
+  intro m4_1 hm4_1; c0_step
+  refine wp_load_of (FullM4Compact.full_load_max_vars_mid hm4_1) ?_; c0_step
   let bva_bv : BitVec 64 := BitVec.ofNat 64 c2.max_vars - BitVec.ofNat 64 c0.mv
   have hmid_arr : (array64 (c2.hdr + 32) (Full.hdrTailWords c2 s4) ⋆
       (dimacsState c2.hdr (BitVec.ofNat 64 c0.mv) (BitVec.ofNat 64 c2.nc)
@@ -727,64 +573,49 @@ private theorem sat_solve_bytes_extend_check {Γ : Env} {Q : Post [i64]} {X : XP
     unfold FullM4Compact.FullMemShrinkMid at hm4_1; exact sep_ac hm4_1
   obtain ⟨hst_bva_ok, hm4_bva⟩ := store_array64 (i := 94) bva_bv
     (by rw [Full.hdrTailWords_length]; decide) hmid_arr
-  have hptr784 : c2.hdr + 32 + BitVec.ofNat 64 (8 * 94) = c2.hdr + 784 := by
-    rw [BitVec.add_assoc, show (32 : BitVec 64) + BitVec.ofNat 64 (8 * 94) = 784 by decide]
-  rw [hptr784] at hst_bva_ok hm4_bva
-  refine wp_store_sep ⟨hst_bva_ok, hm4_bva⟩ ?_
-  intro m4_2 hm4_2
-  c0_step
+  rw [BitVec.add_assoc, show (32 : BitVec 64) + BitVec.ofNat 64 (8 * 94) = 784 by decide]
+    at hst_bva_ok hm4_bva
+  refine wp_store_sep ⟨hst_bva_ok, hm4_bva⟩ ?_; intro m4_2 hm4_2; c0_step
   have hget4 := loadVal_array64 (i := 4)
     (by rw [List.length_set, Full.hdrTailWords_length]; decide) hm4_2
-  rw [BitVec.add_assoc, show (32 : BitVec 64) + BitVec.ofNat 64 (8 * 4) = 64 by decide,
-    List.getElem_set_ne (by decide)] at hget4
   have hpv4 : (Full.hdrTailWords c2 s4)[4]'(by rw [Full.hdrTailWords_length]; decide) =
       c2.pVals := rfl
-  rw [hpv4] at hget4
+  rw [BitVec.add_assoc, show (32 : BitVec 64) + BitVec.ofNat 64 (8 * 4) = 64 by decide,
+    List.getElem_set_ne (by decide), hpv4] at hget4
   refine wp_load_of hget4 ?_
   have hmv0_bd := c0.hmv; have hmx0_bd := c0.hmaxv; have hbva0 := c0.hbva
-  unfold dimacsBound at hmv0_bd hmx0_bd
+  have hm2x := c2.hmaxv; unfold dimacsBound at hmv0_bd hmx0_bd hm2x
   let valsBytes : List UInt8 := s4.core.vals.map UInt8.ofBitVec
+  have ha1 : (array (t := i8) c2.pVals s4.core.vals ⋆
+      (bytes cnf_ptr cnfBytes ⋆ dimacsState c2.hdr (BitVec.ofNat 64 c0.mv)
+          (BitVec.ofNat 64 c2.nc) s4.core.d_cur s4.core.d_val ⋆
+        (SatCheckRest c2 s4 bva_bv ⋆ (region work_ptr (fullAlignPad work_ptr) ⋆ R)))) m4_2 := by
+    unfold SatCheckRest FullCoreArrays FullCoreByteArrs at *; exact sep_ac hm4_2
   have hm4_2_b : (bytes cnf_ptr cnfBytes ⋆
       dimacsState c2.hdr (BitVec.ofNat 64 c0.mv) (BitVec.ofNat 64 c2.nc)
-        s4.core.d_cur s4.core.d_val ⋆
-      bytes c2.pVals valsBytes ⋆
+        s4.core.d_cur s4.core.d_val ⋆ bytes c2.pVals valsBytes ⋆
       (SatCheckRest c2 s4 bva_bv ⋆ (region work_ptr (fullAlignPad work_ptr) ⋆ R))) m4_2 := by
-    have ha1 : (array (t := i8) c2.pVals s4.core.vals ⋆
-        (bytes cnf_ptr cnfBytes ⋆
-          dimacsState c2.hdr (BitVec.ofNat 64 c0.mv) (BitVec.ofNat 64 c2.nc)
-            s4.core.d_cur s4.core.d_val ⋆
-          (SatCheckRest c2 s4 bva_bv ⋆
-            (region work_ptr (fullAlignPad work_ptr) ⋆ R)))) m4_2 := by
-      unfold SatCheckRest FullCoreArrays FullCoreByteArrs at *; exact sep_ac hm4_2
-    have hm2x : c2.max_vars < 2 * dimacsBound := c2.hmaxv
-    unfold dimacsBound at hm2x
-    have ha2 : (bytes c2.pVals valsBytes ⋆
-        (bytes cnf_ptr cnfBytes ⋆
-          dimacsState c2.hdr (BitVec.ofNat 64 c0.mv) (BitVec.ofNat 64 c2.nc)
-            s4.core.d_cur s4.core.d_val ⋆
-          (SatCheckRest c2 s4 bva_bv ⋆
-            (region work_ptr (fullAlignPad work_ptr) ⋆ R)))) m4_2 := by
-      refine sep_mono (fun _ hf => ?_) ha1
-      have hbytes := array_eq_bytesOf (t := i8) c2.pVals s4.core.vals
-        (by simp [Ty.bytes, Ty.size, i8, hlen4.core_ok.vals_len]; omega) hf
-      rw [bytesOf_i8_eq_map] at hbytes; exact hbytes.symm
+    have ha2 : (bytes c2.pVals valsBytes ⋆ (bytes cnf_ptr cnfBytes ⋆
+        dimacsState c2.hdr (BitVec.ofNat 64 c0.mv) (BitVec.ofNat 64 c2.nc)
+          s4.core.d_cur s4.core.d_val ⋆
+        (SatCheckRest c2 s4 bva_bv ⋆ (region work_ptr (fullAlignPad work_ptr) ⋆ R)))) m4_2 :=
+      sep_mono (fun _ hf => by
+        have hbytes := array_eq_bytesOf (t := i8) c2.pVals s4.core.vals
+          (by simp [Ty.bytes, Ty.size, i8, hlen4.core_ok.vals_len]; omega) hf
+        rw [bytesOf_i8_eq_map] at hbytes; exact hbytes.symm) ha1
     exact sep_ac ha2
   have hvals_ge : 2 * c0.mv ≤ valsBytes.length := by
     have := hcompat.max_vars; simp [valsBytes, hlen4.core_ok.vals_len]; omega
-  have hvals_lt : valsBytes.length ≤ 2 ^ 64 := by
-    have := c2.hmaxv; unfold dimacsBound at this
-    simp [valsBytes, hlen4.core_ok.vals_len]; omega
+  have hvals_lt : valsBytes.length ≤ 2 ^ 64 := by simp [valsBytes, hlen4.core_ok.vals_len]; omega
   c0_call hCheck
   refine ⟨BitVec.ofNat 64 c0.mv, BitVec.ofNat 64 c2.nc, s4.core.d_cur, s4.core.d_val,
     cnfBytes, valsBytes, c0.mv,
     SatCheckRest c2 s4 bva_bv ⋆ (region work_ptr (fullAlignPad work_ptr) ⋆ R),
-    rfl, rfl, hcfit, by omega, hvals_ge, hvals_lt,
-    by simpa [sep_assoc] using hm4_2_b, ?_⟩
+    rfl, rfl, hcfit, by omega, hvals_ge, hvals_lt, by simpa [sep_assoc] using hm4_2_b, ?_⟩
   intro ok mv' nc' cur' val' m5 hok hm5
-  have hm5_reg : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m5 :=
-    sat_merge_reg hwfit hw_ge (by
-      rw [← hch, ← hca, ← hcompat.hdr, ← hcompat.avail]
-      exact sat_checkModel_post_to_region hlen4 (by simpa [sep_assoc] using hm5))
+  have hm5_reg := sat_merge_reg hwfit hw_ge (by
+    rw [← hch, ← hca, ← hcompat.hdr, ← hcompat.avail]
+    exact sat_checkModel_post_to_region hlen4 (by simpa [sep_assoc] using hm5))
   have hm5_ptr : loadVal m5 i64
       (work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr) + 64#64) = some c2.pVals := by
     have h_arr : (array64 (c2.hdr + 32) ((Full.hdrTailWords c2 s4).set 94 bva_bv) ⋆
@@ -800,38 +631,238 @@ private theorem sat_solve_bytes_extend_check {Γ : Env} {Q : Post [i64]} {X : XP
     rw [BitVec.add_assoc, show (32 : BitVec 64) + BitVec.ofNat 64 (8 * 4) = 64#64 by decide,
       List.getElem_set_ne (by decide), hpv4, hch2_w] at hld
     exact hld
-  have hm5_vals : (bytes c2.pVals valsBytes ⋆
-      (bytes cnf_ptr cnfBytes ⋆ dimacsState c2.hdr mv' nc' cur' val' ⋆
-        SatCheckRest c2 s4 bva_bv ⋆ (region work_ptr (fullAlignPad work_ptr) ⋆ R))) m5 :=
-    sep_ac hm5
+  have hm5_vals : (bytes c2.pVals valsBytes ⋆ (bytes cnf_ptr cnfBytes ⋆
+      dimacsState c2.hdr mv' nc' cur' val' ⋆ SatCheckRest c2 s4 bva_bv ⋆
+      (region work_ptr (fullAlignPad work_ptr) ⋆ R))) m5 := sep_ac hm5
   have h10_model : ok = 1#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧
       ∀ (F : Mem 64 → Prop) (M : Mem 64), (Eq m5 ⋆ F) M →
         cnf.Sat (readModelFromWork M work_ptr) := by
     intro hok1
     have hrun : runKissatCheckModel cnfBytes valsBytes c0.mv = true := by
       cases hrc : runKissatCheckModel cnfBytes valsBytes c0.mv
-      · rw [hrc] at hok; simp only [Bool.false_eq_true, ↓reduceIte] at hok
-        rw [hok1] at hok; cases hok
+      · rw [hrc] at hok; cases hok1 ▸ hok
       · rfl
-    obtain ⟨cnf, mv, hparse, hmv_le, hbd, hsat⟩ := runKissatCheckModel_sat_exact hrun
+    obtain ⟨cnf, _, hparse, _, hbd, hsat⟩ := runKissatCheckModel_sat_exact hrun
     refine ⟨cnf, hparse, fun F M hM => cnf_sat_congr (fun cl hcl lit hlit => ?_) hsat⟩
-    obtain ⟨hv_lo, hv_hi⟩ := hbd cl hcl lit hlit
+    obtain ⟨hv_lo, _⟩ := hbd cl hcl lit hlit
     have hidx : 2 * (lit.1 - 1) < valsBytes.length := by omega
-    have hbyte := load_bytes_at hidx hvals_lt hm5_vals
-    rw [readModelFromWork_frame hM hm5_ptr hbyte, u8_ofBitVec_ofNat_toNat]
-    have hv_ne : (lit.1 == 0) = false := beq_false_of_ne (by omega)
-    simp [hv_ne, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hidx]
+    rw [readModelFromWork_frame hM hm5_ptr (load_bytes_at hidx hvals_lt hm5_vals),
+      u8_ofBitVec_ofNat_toNat]
+    simp [beq_false_of_ne (by omega : lit.1 ≠ 0), List.getD_eq_getElem?_getD,
+      List.getElem?_eq_getElem hidx]
   refine wp_join_group (ts := [i64])
-    (fun (res_v, ()) m6 =>
-      (res_v = 0#64 ∨ res_v = 10#64) ∧
-      (res_v = 10#64 → ok = 1#64) ∧ m6 = m5)
+    (fun (res_v, ()) m6 => (res_v = 0#64 ∨ res_v = 10#64) ∧ (res_v = 10#64 → ok = 1#64) ∧ m6 = m5)
     (fun _ ⟨res_v, ⟨⟩⟩ m6 ⟨hres_v, hres10, hm6⟩ => by
-      rw [hm6]; c0_hsteps
-      exact hRet res_v m5 hres_v (fun h10 => h10_model (hres10 h10)) hm5_reg)
-    (fun Jr hJr => by
-      c0_hsteps
-      · exact hJr (10#64, ()) m5 ⟨Or.inr rfl, (fun _ => hc), rfl⟩
-      · exact hJr (0#64, ()) m5 ⟨Or.inl rfl, (fun h => by cases h), rfl⟩)
+      rw [hm6]; c0_hsteps; exact hRet res_v m5 hres_v (fun h10 => h10_model (hres10 h10)) hm5_reg)
+    fun Jr hJr => by
+      c0_hsteps <;> first
+      | exact hJr (10#64, ()) m5 ⟨Or.inr rfl, (fun _ => hc), rfl⟩
+      | exact hJr (0#64, ()) m5 ⟨Or.inl rfl, (fun h => by cases h), rfl⟩
+
+private def satSolveBytesBody (sInit sPre sSearch : Sym) : Func [i64, i64, i64, i64, i64] [i64] :=
+  fun _ _ p =>
+  Expr.let_ ⟨OpCode.cmp CmpOp.eq i64 Ty.bool rfl, (Arg.var p.snd.snd.snd.snd.fst, Arg.imm 0, ())⟩
+    fun p1 => Expr.jnz (Arg.var p1.fst) (Expr.ret (Arg.imm 0, ())) <|
+  Expr.let_ ⟨OpCode.cmp CmpOp.eq i64 Ty.bool rfl, (Arg.var p.fst, Arg.imm 0, ())⟩ fun p2 =>
+  Expr.jnz (Arg.var p2.fst) (Expr.ret (Arg.imm 0, ())) <|
+  Expr.let_ ⟨OpCode.cmp CmpOp.eq i64 Ty.bool rfl, (Arg.var p.snd.snd.fst, Arg.imm 0, ())⟩
+    fun p3 => Expr.jnz (Arg.var p3.fst) (Expr.ret (Arg.imm 0, ())) <|
+  Expr.let_ ⟨OpCode.not i64, (Arg.imm 0, ())⟩ fun p4 =>
+  Expr.let_ ⟨OpCode.sub i64, (Arg.var p4.fst, Arg.var p.fst, ())⟩ fun p5 =>
+  Expr.let_ ⟨OpCode.cmp CmpOp.ugt i64 Ty.bool rfl, (Arg.var p.snd.fst, Arg.var p5.fst, ())⟩
+    fun p6 => Expr.jnz (Arg.var p6.fst) (Expr.ret (Arg.imm 0, ())) <|
+  Expr.let_ ⟨OpCode.not i64, (Arg.imm 0, ())⟩ fun p7 =>
+  Expr.let_ ⟨OpCode.sub i64, (Arg.var p7.fst, Arg.var p.snd.snd.fst, ())⟩ fun p8 =>
+  Expr.let_ ⟨OpCode.cmp CmpOp.ugt i64 Ty.bool rfl,
+      (Arg.var p.snd.snd.snd.fst, Arg.var p8.fst, ())⟩
+    fun p9 => Expr.jnz (Arg.var p9.fst) (Expr.ret (Arg.imm 0, ())) <|
+  Expr.let_ ⟨OpCode.and i64, (Arg.var p.snd.snd.fst, Arg.imm 7, ())⟩ fun p10 =>
+  Expr.let_ ⟨OpCode.sub i64, (Arg.imm 8, Arg.var p10.fst, ())⟩ fun p11 =>
+  Expr.let_ ⟨OpCode.and i64, (Arg.var p11.fst, Arg.imm 7, ())⟩ fun p12 =>
+  Expr.let_ ⟨OpCode.add i64, (Arg.var p12.fst, Arg.imm 1152, ())⟩ fun p13 =>
+  Expr.let_ ⟨OpCode.cmp CmpOp.ult i64 Ty.bool rfl,
+      (Arg.var p.snd.snd.snd.fst, Arg.var p13.fst, ())⟩
+    fun p14 => Expr.jnz (Arg.var p14.fst) (Expr.ret (Arg.imm 0, ())) <|
+  Expr.let_ ⟨OpCode.add i64, (Arg.var p.snd.snd.fst, Arg.var p12.fst, ())⟩ fun p15 =>
+  Expr.let_ ⟨OpCode.sub i64, (Arg.var p.snd.snd.snd.fst, Arg.var p12.fst, ())⟩ fun p16 =>
+  Expr.let_ ⟨OpCode.add i64, (Arg.var p.fst, Arg.var p.snd.fst, ())⟩ fun p17 =>
+  Expr.call (as := [i64, i64, i64, i64, i64]) (bs := [.bool]) sInit
+    (Arg.var p.fst, Arg.var p17.fst, Arg.var p15.fst, Arg.var p16.fst,
+     Arg.var p.snd.snd.snd.snd.fst, ()) fun p18 =>
+  Expr.jnz (Arg.var p18.fst)
+    (Expr.call (as := [i64, i64]) (bs := [i64]) "full_parse_body"
+      (Arg.var p15.fst, Arg.var p17.fst, ()) fun p19 =>
+    Expr.let_ ⟨OpCode.cmp CmpOp.ne i64 Ty.bool rfl, (Arg.var p19.fst, Arg.imm 1, ())⟩ fun p20 =>
+    Expr.jnz (Arg.var p20.fst) (Expr.ret (Arg.var p19.fst, ())) <|
+    Expr.load i64 (Arg.var p15.fst) fun ld =>
+    Expr.call (as := [i64]) (bs := [i64]) sPre (Arg.var p15.fst, ()) fun p21 =>
+    Expr.let_ ⟨OpCode.cmp CmpOp.eq i64 Ty.bool rfl, (Arg.var p21.fst, Arg.imm 20, ())⟩ fun p22 =>
+    Expr.jnz (Arg.var p22.fst) (Expr.ret (Arg.imm 20, ())) <|
+    Expr.group (sig := [[i64]])
+      (fun _ => Blocks.cons (fun rv =>
+        Expr.let_ ⟨OpCode.cmp CmpOp.eq i64 Ty.bool rfl, (Arg.var rv.fst, Arg.imm 10, ())⟩
+          fun p23 =>
+        Expr.jnz (Arg.var p23.fst)
+          (Expr.call (as := [i64]) (bs := []) "full_extend" (Arg.var p15.fst, ()) fun _ =>
+          Expr.store (t := i64) (Arg.var ld) (Arg.var p15.fst) <|
+          Expr.let_ ⟨OpCode.add i64, (Arg.var p15.fst, Arg.imm 768, ())⟩ fun p_mx =>
+          Expr.load i64 (Arg.var p_mx.fst) fun ld_mx =>
+          Expr.let_ ⟨OpCode.sub i64, (Arg.var ld_mx, Arg.var ld, ())⟩ fun p_bva =>
+          Expr.let_ ⟨OpCode.add i64, (Arg.var p15.fst, Arg.imm 784, ())⟩ fun p_bva_addr =>
+          Expr.store (t := i64) (Arg.var p_bva.fst) (Arg.var p_bva_addr.fst) <|
+          Expr.let_ ⟨OpCode.add i64, (Arg.var p15.fst, Arg.imm 64, ())⟩ fun p1 =>
+          Expr.load i64 (Arg.var p1.fst) fun ld_v =>
+          Expr.call (as := [i64, i64, i64, i64, i64]) (bs := [i64]) "kissat_check_model"
+            (Arg.var p.fst, Arg.var p17.fst, Arg.var p15.fst, Arg.var ld_v, Arg.var ld, ())
+            fun p2 =>
+          Expr.group (sig := [[i64]])
+            (fun _ => Blocks.cons (fun p3 => Expr.ret (Arg.var p3.fst, ())) Blocks.nil)
+            fun Jr => Expr.let_ ⟨OpCode.cmp CmpOp.eq i64 Ty.bool rfl,
+                (Arg.var p2.fst, Arg.imm 1, ())⟩ fun p3 =>
+              Expr.jnz (Arg.var p3.fst) (Expr.jump Jr.fst (Arg.imm 10, ()))
+                (Expr.jump Jr.fst (Arg.imm 0, ())))
+          (Expr.ret (Arg.var rv.fst, ()))) Blocks.nil)
+      fun Js =>
+      Expr.let_ ⟨OpCode.cmp CmpOp.eq i64 Ty.bool rfl, (Arg.var p21.fst, Arg.imm 10, ())⟩ fun p24 =>
+      Expr.jnz (Arg.var p24.fst) (Expr.jump Js.fst (Arg.imm 10, ())) <|
+      Expr.group (sig := [[i64]])
+        (fun _ => Blocks.cons (fun rv2 => Expr.jump Js.fst (Arg.var rv2.fst, ())) Blocks.nil)
+        fun Js2 =>
+        Expr.let_ ⟨OpCode.cmp CmpOp.eq i64 Ty.bool rfl, (Arg.var p21.fst, Arg.imm 0, ())⟩
+          fun p25 =>
+        Expr.jnz (Arg.var p25.fst) (Expr.jump Js2.fst (Arg.imm 0, ())) <|
+        Expr.call (as := [i64]) (bs := [i64]) sSearch (Arg.var p15.fst, ()) fun r3 =>
+          Expr.jump Js2.fst (Arg.var r3.fst, ()))
+    (Expr.ret (Arg.imm 0, ()))
+
+private theorem sat_solve_bytes_model_wp_core (Γ : Env) {sInit sPre sSearch : Sym}
+    (hInit : ∀ a m Q X, Full.fullInitStateSpec a m Q X →
+      Γ sInit [i64, i64, i64, i64, i64] [.bool] a m Q X)
+    (hParse : ∀ a m Q X, Full.fullParseBodySpec a m Q X →
+      Γ "full_parse_body" [i64, i64] [i64] a m Q X)
+    (hPre : ∀ a m Q X, FullM4.m4PreprocessSpec a m Q X → Γ sPre [i64] [i64] a m Q X)
+    (hSearch : ∀ a m Q X, FullM4.m4SearchSpec a m Q X → Γ sSearch [i64] [i64] a m Q X)
+    (hExt : ∀ a m Q X, Full.fullExtendSpec a m Q X → Γ "full_extend" [i64] [] a m Q X)
+    (hCheck : ∀ a m Q X, kissatCheckModelExactSpec a m Q X →
+      Γ "kissat_check_model" [i64, i64, i64, i64, i64] [i64] a m Q X) :
+    ∀ a m Q X, fullSolveBytesModelSpec a m Q X →
+      Func.wp Γ (satSolveBytesBody sInit sPre sSearch) a m Q X := by
+  rintro ⟨cnf_ptr, cnf_len, work_ptr, work_len, fuel, ⟨⟩⟩ m Q X
+    ⟨cnfBytes, wlen, R, rfl, rfl, hcfit, hwfit, hm, hQ⟩
+  unfold Func.wp satSolveBytesBody; wp_unfold
+  have hret0 : ∀ m', (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m' → Q (0#64, ()) m' :=
+    fun _ => hQ 0#64 _ (Or.inl rfl) (fun h => by cases h) (fun h => by cases h)
+  refine ⟨fun _ => hret0 m hm, fun _ => ⟨fun _ => hret0 m hm, fun _ =>
+    ⟨fun _ => hret0 m hm, fun _ => ?_⟩⟩⟩
+  rw [show ~~~(0 : BitVec 64) = 0xFFFFFFFFFFFFFFFF#64 from rfl, sat_bv64_ugt_max_sub_false hcfit]
+  refine ⟨(fun h => by cases h), fun _ => ?_⟩
+  rw [sat_bv64_ugt_max_sub_false hwfit]
+  refine ⟨(fun h => by cases h), fun _ => ?_⟩
+  let pNat : Nat := fullAlignPad work_ptr
+  have hp_lt8 : pNat < 8 := fullAlignPad_lt8 work_ptr
+  have hpad_ult : (BitVec.ofNat 64 wlen).ult (((8 - (work_ptr &&& 7)) &&& 7) + 1152) =
+      decide (wlen < pNat + 1152) := by
+    rw [sat_alignPad_bv_eq work_ptr, show (1152 : BitVec 64) = BitVec.ofNat 64 1152 from rfl,
+      bv_add_ofNat, bv_ult_eq (by omega) (by omega)]
+  rw [hpad_ult]; simp only [decide_eq_true_eq, decide_eq_false_iff_not]
+  refine ⟨fun _ => hret0 m hm, fun hw_ge_not => ?_⟩
+  have hw_ok : pNat + 1152 ≤ wlen := by omega
+  let hdr_addr : BitVec 64 := work_ptr + BitVec.ofNat 64 pNat; let availNat : Nat := wlen - pNat
+  have hpad_bv : (8 - (work_ptr &&& 7)) &&& 7 = BitVec.ofNat 64 pNat := sat_alignPad_bv_eq work_ptr
+  have hhdr_bv : work_ptr + ((8 - (work_ptr &&& 7)) &&& 7) = hdr_addr := by rw [hpad_bv]
+  have hav_bv : BitVec.ofNat 64 wlen - ((8 - (work_ptr &&& 7)) &&& 7) =
+      BitVec.ofNat 64 availNat := by rw [hpad_bv]; exact bv_sub_ofNat (by omega) (by omega)
+  have hav_toNat : (BitVec.ofNat 64 wlen - ((8 - (work_ptr &&& 7)) &&& 7)).toNat = availNat := by
+    rw [hav_bv, bv64_ofNat_toNat (by omega)]
+  have hhdr_fit : hdr_addr.toNat + availNat < 2 ^ 64 := by rw [bv_add_ofNat_toNat (by omega)]; omega
+  have hsplit : (bytes cnf_ptr cnfBytes ⋆ region hdr_addr availNat ⋆
+      (region work_ptr pNat ⋆ R)) m := by
+    have h1 : (region work_ptr wlen ⋆ (bytes cnf_ptr cnfBytes ⋆ R)) m := sep_ac hm
+    exact sep_ac (sep_mono (fun _ f => region_work_to_hdr (by omega) (by omega) f) h1)
+  c0_call hInit
+  refine ⟨cnfBytes, region work_ptr pNat ⋆ R, rfl, hcfit,
+    by rw [hhdr_bv, hav_toNat]; exact hhdr_fit, by rw [hav_toNat]; omega,
+    by rw [hhdr_bv, hav_toNat]; exact hsplit, ?_, ?_⟩
+  · intro m' hm' _; wp_unfold
+    exact hret0 m' (sat_merge_reg hwfit (by omega) (by rw [hhdr_bv, hav_toNat] at hm'; exact hm'))
+  · intro c s0 j0 rest0 m0 hch_ptr hca0 hhdr0 hj0 hdrop0 hinv0 hcv0 hdcur0
+      hal0 _ hte0 hpr0 hcl0 _ _ hprob0 _ _ hoom0 hinc0 hvals0 hwvec0 _ _ _ hm0
+    have hch : c.hdr = hdr_addr := hch_ptr.trans hhdr_bv
+    have hca : c.avail = availNat := hca0.trans hav_toNat
+    c0_hsplit; rotate_left; · cases hc
+    c0_hsteps; c0_call hParse
+    refine ⟨c, s0, cnf_ptr, cnfBytes, j0, region work_ptr pNat ⋆ R,
+      hch_ptr.symm, rfl, hcfit, hj0, by rwa [hdrop0], hcv0, hdcur0, hcl0, hte0, hpr0, hal0,
+      hoom0, hprob0, hinc0, hvals0, hwvec0, hinv0, hm0, ?_⟩
+    intro pb s1 m1 hlen1 hpb_dom _ _ _ hpb20 hpb1 _ hm1; c0_hsteps
+    · rcases hpb_dom with rfl | h1 | rfl
+      · exact hret0 m1 (sat_merge_arena hwfit (by omega) hch hca hlen1 hm1)
+      · exact absurd h1 hc
+      · exact hQ 20#64 m1 (Or.inr (Or.inr rfl)) (fun _ => hpb20 rfl) (fun h => by cases h)
+          (sat_merge_arena hwfit (by omega) hch hca hlen1 hm1)
+    · obtain ⟨cnf, hparse, hinv1, hcl1⟩ := hpb1 hc
+      have hcnf_pos : CnfVarsPos cnf := sat_parseDimacs_vars_pos hparse
+      have hm1_load :
+          (FullMem c s1 ⋆ (bytes cnf_ptr cnfBytes ⋆ region work_ptr pNat ⋆ R)) m1 := sep_ac hm1
+      have hload_mv : loadVal m1 i64 (work_ptr + ((8 - (work_ptr &&& 7)) &&& 7)) =
+          some (BitVec.ofNat 64 c.mv) := by
+        rw [hhdr_bv, ← hch]; exact FullArenaTactics.load_full_mv hm1_load
+      refine wp_load_of hload_mv ?_; c0_call hPre
+      refine ⟨c, shiftDownCnf cnf, s1, bytes cnf_ptr cnfBytes ⋆ region work_ptr pNat ⋆ R,
+        hch_ptr.symm, hinv1, hcl1, sep_ac hm1, ?_⟩
+      intro pp c2 s2 m2 hcomp2 hlen2 hpp_dom _ hpp20 hpp1 hpp10 hm2
+      have hch2 : c2.hdr = hdr_addr := hcomp2.hdr.trans hch
+      have hca2 : c2.avail = availNat := hcomp2.avail.trans hca
+      c0_hsplit
+      · c0_hsteps
+        exact hQ 20#64 m2 (Or.inr (Or.inr rfl))
+          (fun _ => ⟨cnf, hparse, shiftDownCnf_unsat hcnf_pos (hpp20 hc)⟩)
+          (fun h => by cases h) (sat_merge_arena hwfit (by omega) hch2 hca2 hlen2 (sep_ac hm2))
+      c0_hsteps_nogrp
+      let Inv := fun (p : BitVec 64 × FullCfg × FullState) mr =>
+        FullM4Compact.FullCfgCompat c p.2.1 ∧ p.2.2.LengthsOk p.2.1 ∧
+        (p.1 = 0#64 ∨ p.1 = 10#64 ∨ p.1 = 20#64) ∧ (p.1 = 20#64 → cnf.Unsat) ∧
+        (p.1 = 10#64 → p.2.2.scratch.extend_len ≤ p.2.1.extend_cap) ∧
+        (bytes cnf_ptr cnfBytes ⋆ FullMem p.2.1 p.2.2 ⋆ (region work_ptr pNat ⋆ R)) mr
+      refine wp_join_state1 (α := BitVec 64 × FullCfg × FullState) Prod.fst Inv
+        (fun _ ⟨rv, cr, sr⟩ mr ⟨hcompr, hlen_r, hrv_dom, hrv_u, hrv_ext, hmr⟩ => by
+          have hchr : cr.hdr = hdr_addr := hcompr.hdr.trans hch
+          have hcar : cr.avail = availNat := hcompr.avail.trans hca
+          c0_hsteps
+          · exact sat_solve_bytes_extend_check hExt hCheck hcfit hwfit (by omega) hcompr
+              hch_ptr (by rw [← hpad_bv]; exact hch_ptr) hca hlen_r (hrv_ext hc) hmr
+              fun res m_end hres hmod hm_end =>
+                hQ res m_end (hres.elim Or.inl fun h => Or.inr (Or.inl h))
+                  (fun h20 => by rcases hres with rfl | rfl <;> cases h20) hmod hm_end
+          · exact hQ rv mr hrv_dom (fun h20 => ⟨cnf, hparse, hrv_u h20⟩)
+              (fun h10 => absurd h10 ‹rv ≠ 10#64›)
+              (sat_merge_arena hwfit (by omega) hchr hcar hlen_r hmr))
+        fun Jr hJr => by
+          c0_hsplit
+          · c0_hsteps
+            exact hJr (10#64, c2, s2) m2 ⟨hcomp2, hlen2, Or.inr (Or.inl rfl), (fun h => by cases h),
+              (fun _ => hpp10 hc), sep_ac hm2⟩
+          · c0_hsteps_nogrp
+            refine wp_join_state1 (α := BitVec 64 × FullCfg × FullState) Prod.fst Inv
+              (fun _ p mr hp => by c0_hsteps; exact hJr p mr hp)
+              fun Jr2 hJr2 => by
+                c0_hsplit
+                · c0_hsteps
+                  exact hJr2 (0#64, c2, s2) m2 ⟨hcomp2, hlen2, Or.inl rfl,
+                    (fun h => by cases h), (fun h => by cases h), sep_ac hm2⟩
+                · have hpp_eq1 : pp = 1#64 := by
+                    rcases hpp_dom with h0 | h1 | h10 | h20
+                    · exact absurd h0 hc
+                    · exact h1
+                    · exact absurd h10 (by assumption)
+                    · exact absurd h20 (by assumption)
+                  obtain ⟨hinv2, hcl2⟩ := hpp1 hpp_eq1
+                  c0_hsteps; rw [hhdr_bv, ← hch2]; c0_call hSearch
+                  refine ⟨c2, shiftDownCnf cnf, s2,
+                    bytes cnf_ptr cnfBytes ⋆ region work_ptr pNat ⋆ R, rfl, hinv2, hcl2, hm2,
+                    fun r3 c3 s3 m3 hcomp3 hlen3 hr3_dom hur3 hext3 hm3 => by
+                      c0_hsteps; exact hJr2 (r3, c3, s3) m3 ⟨hcomp2.trans hcomp3, hlen3, hr3_dom,
+                        fun h20 => shiftDownCnf_unsat hcnf_pos (hur3 h20), hext3, sep_ac hm3⟩⟩
 
 /-- Parametric `Func.wp` theorem for M5 `kissat_solve_bytes_m5` against `fullSolveBytesModelSpec`
 (UNSAT + constructive framed `readModelFromWork` SAT soundness). -/
@@ -849,147 +880,9 @@ theorem kissat_solve_bytes_m5_model_wp (Γ : Env)
       Γ "kissat_check_model" [i64, i64, i64, i64, i64] [i64] a m Q X) :
     ∀ a m Q X, fullSolveBytesModelSpec a m Q X →
       Func.wp Γ FullM5Orch.kissat_solve_bytes_m5_body a m Q X := by
-  rintro ⟨cnf_ptr, cnf_len, work_ptr, work_len, fuel, ⟨⟩⟩ m Q X
-    ⟨cnfBytes, wlen, R, rfl, rfl, hcfit, hwfit, hm, hQ⟩
-  unfold Func.wp FullM5Orch.kissat_solve_bytes_m5_body; wp_unfold
-  refine ⟨fun _ => hQ 0#64 m (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm,
-    fun _ => ?_⟩
-  refine ⟨fun _ => hQ 0#64 m (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm,
-    fun _ => ?_⟩
-  refine ⟨fun _ => hQ 0#64 m (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm,
-    fun _ => ?_⟩
-  have hnot0 : ~~~(0 : BitVec 64) = 0xFFFFFFFFFFFFFFFF#64 := rfl
-  rw [hnot0, sat_bv64_ugt_max_sub_false hcfit]
-  refine ⟨(fun h => by cases h), fun _ => ?_⟩
-  rw [sat_bv64_ugt_max_sub_false hwfit]
-  refine ⟨(fun h => by cases h), fun _ => ?_⟩
-  let pNat : Nat := fullAlignPad work_ptr
-  have hp_lt8 : pNat < 8 := fullAlignPad_lt8 work_ptr
-  have hpad_ult : (BitVec.ofNat 64 wlen).ult (((8 - (work_ptr &&& 7)) &&& 7) + 1152) =
-      decide (wlen < pNat + 1152) := by
-    rw [sat_alignPad_bv_eq work_ptr, show (1152 : BitVec 64) = BitVec.ofNat 64 1152 from rfl,
-      bv_add_ofNat, bv_ult_eq (by omega) (by omega)]
-  rw [hpad_ult]; simp only [decide_eq_true_eq, decide_eq_false_iff_not]
-  refine ⟨fun _ => hQ 0#64 m (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm,
-    fun hw_ge_not => ?_⟩
-  have hw_ok : pNat + 1152 ≤ wlen := by omega
-  let hdr_addr : BitVec 64 := work_ptr + BitVec.ofNat 64 pNat
-  let availNat : Nat := wlen - pNat
-  have hpad_bv : (8 - (work_ptr &&& 7)) &&& 7 = BitVec.ofNat 64 pNat := sat_alignPad_bv_eq work_ptr
-  have hhdr_bv : work_ptr + ((8 - (work_ptr &&& 7)) &&& 7) = hdr_addr := by rw [hpad_bv]
-  have hav_bv :
-      BitVec.ofNat 64 wlen - ((8 - (work_ptr &&& 7)) &&& 7) = BitVec.ofNat 64 availNat := by
-    rw [hpad_bv]; exact bv_sub_ofNat (by omega) (by omega)
-  have hav_toNat : (BitVec.ofNat 64 wlen - ((8 - (work_ptr &&& 7)) &&& 7)).toNat = availNat := by
-    rw [hav_bv, bv64_ofNat_toNat (by omega)]
-  have hhdr_fit : hdr_addr.toNat + availNat < 2 ^ 64 := by
-    rw [bv_add_ofNat_toNat (by omega)]; omega
-  have hsplit : (bytes cnf_ptr cnfBytes ⋆
-      region hdr_addr availNat ⋆ (region work_ptr pNat ⋆ R)) m := by
-    have h1 : (region work_ptr wlen ⋆ (bytes cnf_ptr cnfBytes ⋆ R)) m := sep_ac hm
-    have h2 : ((region work_ptr pNat ⋆ region hdr_addr availNat) ⋆
-        (bytes cnf_ptr cnfBytes ⋆ R)) m :=
-      sep_mono (fun _ f => region_work_to_hdr (by omega) (by omega) f) h1
-    exact sep_ac h2
-  c0_call hInit
-  refine ⟨cnfBytes, region work_ptr pNat ⋆ R, rfl, hcfit,
-    by rw [hhdr_bv, hav_toNat]; exact hhdr_fit,
-    by rw [hav_toNat]; omega,
-    by rw [hhdr_bv, hav_toNat]; exact hsplit, ?_, ?_⟩
-  · intro m' hm' _; wp_unfold
-    have hm'_r : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m' :=
-      sat_merge_reg hwfit (by omega) (by rw [hhdr_bv, hav_toNat] at hm'; exact hm')
-    exact hQ 0#64 m' (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm'_r
-  · intro c s0 j0 rest0 m0 hch_ptr hca0 hhdr0 hj0 hdrop0 hinv0 hcv0 hdcur0
-      hal0 _ hte0 hpr0 hcl0 _ _ hprob0 _ _ hoom0 hinc0 hvals0 hwvec0 _ _ _ hm0
-    have hch : c.hdr = hdr_addr := hch_ptr.trans hhdr_bv
-    have hca : c.avail = availNat := hca0.trans hav_toNat
-    c0_hsplit
-    rotate_left; · cases hc
-    c0_hsteps
-    c0_call hParse
-    refine ⟨c, s0, cnf_ptr, cnfBytes, j0, region work_ptr pNat ⋆ R,
-      hch_ptr.symm, rfl, hcfit, hj0, by rwa [hdrop0], hcv0, hdcur0, hcl0, hte0, hpr0, hal0,
-      hoom0, hprob0, hinc0, hvals0, hwvec0, hinv0, hm0, ?_⟩
-    intro pb s1 m1 hlen1 hpb_dom _ _ _ hpb20 hpb1 _ hm1; c0_hsteps
-    · rcases hpb_dom with rfl | h1 | rfl
-      · exact hQ 0#64 m1 (Or.inl rfl) (fun h => by cases h) (fun h => by cases h)
-          (sat_merge_arena hwfit (by omega) hch hca hlen1 hm1)
-      · exact absurd h1 hc
-      · exact hQ 20#64 m1 (Or.inr (Or.inr rfl)) (fun _ => hpb20 rfl) (fun h => by cases h)
-          (sat_merge_arena hwfit (by omega) hch hca hlen1 hm1)
-    · obtain ⟨cnf, hparse, hinv1, hcl1⟩ := hpb1 hc
-      have hcnf_pos : CnfVarsPos cnf := sat_parseDimacs_vars_pos hparse
-      have hm1_load :
-          (FullMem c s1 ⋆ (bytes cnf_ptr cnfBytes ⋆ region work_ptr pNat ⋆ R)) m1 := sep_ac hm1
-      have hload_mv : loadVal m1 i64 (work_ptr + ((8 - (work_ptr &&& 7)) &&& 7)) =
-          some (BitVec.ofNat 64 c.mv) := by
-        rw [hhdr_bv, ← hch]
-        exact FullArenaTactics.load_full_mv hm1_load
-      refine wp_load_of hload_mv ?_
-      c0_call hPre; refine ⟨c, shiftDownCnf cnf, s1,
-        bytes cnf_ptr cnfBytes ⋆ region work_ptr pNat ⋆ R,
-        hch_ptr.symm, hinv1, hcl1, sep_ac hm1, ?_⟩
-      intro pp c2 s2 m2 hcomp2 hlen2 hpp_dom _ hpp20 hpp1 hpp10 hm2
-      have hch2 : c2.hdr = hdr_addr := hcomp2.hdr.trans hch
-      have hca2 : c2.avail = availNat := hcomp2.avail.trans hca
-      c0_hsplit
-      · c0_hsteps
-        exact hQ 20#64 m2 (Or.inr (Or.inr rfl))
-          (fun _ => ⟨cnf, hparse, shiftDownCnf_unsat hcnf_pos (hpp20 hc)⟩)
-          (fun h => by cases h)
-          (sat_merge_arena hwfit (by omega) hch2 hca2 hlen2 (sep_ac hm2))
-      c0_hsteps_nogrp
-      refine wp_join_state1 (α := BitVec 64 × FullCfg × FullState) Prod.fst
-        (fun p mr => FullM4Compact.FullCfgCompat c p.2.1 ∧
-          p.2.2.LengthsOk p.2.1 ∧ (p.1 = 0#64 ∨ p.1 = 10#64 ∨ p.1 = 20#64) ∧
-          (p.1 = 20#64 → cnf.Unsat) ∧ (p.1 = 10#64 → p.2.2.scratch.extend_len ≤ p.2.1.extend_cap) ∧
-          (bytes cnf_ptr cnfBytes ⋆ FullMem p.2.1 p.2.2 ⋆ (region work_ptr pNat ⋆ R)) mr)
-        (fun _ ⟨rv, cr, sr⟩ mr ⟨hcompr, hlen_r, hrv_dom, hrv_u, hrv_ext, hmr⟩ => by
-          have hchr : cr.hdr = hdr_addr := hcompr.hdr.trans hch
-          have hcar : cr.avail = availNat := hcompr.avail.trans hca
-          c0_hsteps
-          · exact sat_solve_bytes_extend_check hExt hCheck hcfit hwfit (by omega) hcompr
-              hch_ptr (by rw [← hpad_bv]; exact hch_ptr) hca hlen_r (hrv_ext hc) hmr
-              fun res m_end hres hmod hm_end =>
-                hQ res m_end (hres.elim Or.inl fun h => Or.inr (Or.inl h))
-                  (fun h20 => by rcases hres with rfl | rfl <;> cases h20)
-                  hmod hm_end
-          · exact hQ rv mr hrv_dom (fun h20 => ⟨cnf, hparse, hrv_u h20⟩)
-              (fun h10 => absurd h10 ‹rv ≠ 10#64›)
-              (sat_merge_arena hwfit (by omega) hchr hcar hlen_r hmr))
-        (fun Jr hJr => by
-          c0_hsplit
-          · c0_hsteps
-            exact hJr (10#64, c2, s2) m2 ⟨hcomp2, hlen2, Or.inr (Or.inl rfl), (fun h => by cases h),
-              (fun _ => hpp10 hc), sep_ac hm2⟩
-          · c0_hsteps_nogrp
-            refine wp_join_state1 (α := BitVec 64 × FullCfg × FullState) Prod.fst
-              (fun p mr => FullM4Compact.FullCfgCompat c p.2.1 ∧
-                p.2.2.LengthsOk p.2.1 ∧ (p.1 = 0#64 ∨ p.1 = 10#64 ∨ p.1 = 20#64) ∧
-                (p.1 = 20#64 → cnf.Unsat) ∧
-                (p.1 = 10#64 → p.2.2.scratch.extend_len ≤ p.2.1.extend_cap) ∧
-                (bytes cnf_ptr cnfBytes ⋆ FullMem p.2.1 p.2.2 ⋆ (region work_ptr pNat ⋆ R)) mr)
-              (fun _ p mr hp => by c0_hsteps; exact hJr p mr hp)
-              (fun Jr2 hJr2 => by
-                c0_hsplit
-                · c0_hsteps
-                  exact hJr2 (0#64, c2, s2) m2 ⟨hcomp2, hlen2, Or.inl rfl,
-                    (fun h => by cases h), (fun h => by cases h), sep_ac hm2⟩
-                · have hpp_eq1 : pp = 1#64 := by
-                    rcases hpp_dom with h0 | h1 | h10 | h20
-                    · exact absurd h0 hc
-                    · exact h1
-                    · exact absurd h10 (by assumption)
-                    · exact absurd h20 (by assumption)
-                  obtain ⟨hinv2, hcl2⟩ := hpp1 hpp_eq1
-                  c0_hsteps; rw [hhdr_bv, ← hch2]; c0_call hSearch
-                  refine ⟨c2, shiftDownCnf cnf, s2,
-                    bytes cnf_ptr cnfBytes ⋆ region work_ptr pNat ⋆ R,
-                    rfl, hinv2, hcl2, hm2, ?_⟩
-                  intro r3 c3 s3 m3 hcomp3 hlen3 hr3_dom hur3 hext3 hm3; c0_hsteps
-                  exact hJr2 (r3, c3, s3) m3 ⟨hcomp2.trans hcomp3, hlen3, hr3_dom,
-                    fun h20 => shiftDownCnf_unsat hcnf_pos (hur3 h20), hext3, sep_ac hm3⟩))
+  rw [show FullM5Orch.kissat_solve_bytes_m5_body =
+      satSolveBytesBody "full_init_state_m5" "full_preprocess_m5" "full_search_m5" from rfl]
+  exact sat_solve_bytes_model_wp_core Γ hInit hParse hPre hSearch hExt hCheck
 
 /-- Parametric `Func.wp` theorem for M4 `kissat_solve_bytes` against `fullSolveBytesModelSpec`
 (UNSAT + constructive framed `readModelFromWork` SAT soundness). -/
@@ -1007,147 +900,9 @@ theorem m4_kissat_solve_bytes_model_wp (Γ : Env)
       Γ "kissat_check_model" [i64, i64, i64, i64, i64] [i64] a m Q X) :
     ∀ a m Q X, fullSolveBytesModelSpec a m Q X →
       Func.wp Γ FullM4.kissat_solve_bytes_body a m Q X := by
-  rintro ⟨cnf_ptr, cnf_len, work_ptr, work_len, fuel, ⟨⟩⟩ m Q X
-    ⟨cnfBytes, wlen, R, rfl, rfl, hcfit, hwfit, hm, hQ⟩
-  unfold Func.wp FullM4.kissat_solve_bytes_body; wp_unfold
-  refine ⟨fun _ => hQ 0#64 m (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm,
-    fun _ => ?_⟩
-  refine ⟨fun _ => hQ 0#64 m (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm,
-    fun _ => ?_⟩
-  refine ⟨fun _ => hQ 0#64 m (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm,
-    fun _ => ?_⟩
-  have hnot0 : ~~~(0 : BitVec 64) = 0xFFFFFFFFFFFFFFFF#64 := rfl
-  rw [hnot0, sat_bv64_ugt_max_sub_false hcfit]
-  refine ⟨(fun h => by cases h), fun _ => ?_⟩
-  rw [sat_bv64_ugt_max_sub_false hwfit]
-  refine ⟨(fun h => by cases h), fun _ => ?_⟩
-  let pNat : Nat := fullAlignPad work_ptr
-  have hp_lt8 : pNat < 8 := fullAlignPad_lt8 work_ptr
-  have hpad_ult : (BitVec.ofNat 64 wlen).ult (((8 - (work_ptr &&& 7)) &&& 7) + 1152) =
-      decide (wlen < pNat + 1152) := by
-    rw [sat_alignPad_bv_eq work_ptr, show (1152 : BitVec 64) = BitVec.ofNat 64 1152 from rfl,
-      bv_add_ofNat, bv_ult_eq (by omega) (by omega)]
-  rw [hpad_ult]; simp only [decide_eq_true_eq, decide_eq_false_iff_not]
-  refine ⟨fun _ => hQ 0#64 m (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm,
-    fun hw_ge_not => ?_⟩
-  have hw_ok : pNat + 1152 ≤ wlen := by omega
-  let hdr_addr : BitVec 64 := work_ptr + BitVec.ofNat 64 pNat
-  let availNat : Nat := wlen - pNat
-  have hpad_bv : (8 - (work_ptr &&& 7)) &&& 7 = BitVec.ofNat 64 pNat := sat_alignPad_bv_eq work_ptr
-  have hhdr_bv : work_ptr + ((8 - (work_ptr &&& 7)) &&& 7) = hdr_addr := by rw [hpad_bv]
-  have hav_bv :
-      BitVec.ofNat 64 wlen - ((8 - (work_ptr &&& 7)) &&& 7) = BitVec.ofNat 64 availNat := by
-    rw [hpad_bv]; exact bv_sub_ofNat (by omega) (by omega)
-  have hav_toNat : (BitVec.ofNat 64 wlen - ((8 - (work_ptr &&& 7)) &&& 7)).toNat = availNat := by
-    rw [hav_bv, bv64_ofNat_toNat (by omega)]
-  have hhdr_fit : hdr_addr.toNat + availNat < 2 ^ 64 := by
-    rw [bv_add_ofNat_toNat (by omega)]; omega
-  have hsplit : (bytes cnf_ptr cnfBytes ⋆
-      region hdr_addr availNat ⋆ (region work_ptr pNat ⋆ R)) m := by
-    have h1 : (region work_ptr wlen ⋆ (bytes cnf_ptr cnfBytes ⋆ R)) m := sep_ac hm
-    have h2 : ((region work_ptr pNat ⋆ region hdr_addr availNat) ⋆
-        (bytes cnf_ptr cnfBytes ⋆ R)) m :=
-      sep_mono (fun _ f => region_work_to_hdr (by omega) (by omega) f) h1
-    exact sep_ac h2
-  c0_call hInit
-  refine ⟨cnfBytes, region work_ptr pNat ⋆ R, rfl, hcfit,
-    by rw [hhdr_bv, hav_toNat]; exact hhdr_fit,
-    by rw [hav_toNat]; omega,
-    by rw [hhdr_bv, hav_toNat]; exact hsplit, ?_, ?_⟩
-  · intro m' hm' _; wp_unfold
-    have hm'_r : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m' :=
-      sat_merge_reg hwfit (by omega) (by rw [hhdr_bv, hav_toNat] at hm'; exact hm')
-    exact hQ 0#64 m' (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm'_r
-  · intro c s0 j0 rest0 m0 hch_ptr hca0 hhdr0 hj0 hdrop0 hinv0 hcv0 hdcur0
-      hal0 _ hte0 hpr0 hcl0 _ _ hprob0 _ _ hoom0 hinc0 hvals0 hwvec0 _ _ _ hm0
-    have hch : c.hdr = hdr_addr := hch_ptr.trans hhdr_bv
-    have hca : c.avail = availNat := hca0.trans hav_toNat
-    c0_hsplit
-    rotate_left; · cases hc
-    c0_hsteps
-    c0_call hParse
-    refine ⟨c, s0, cnf_ptr, cnfBytes, j0, region work_ptr pNat ⋆ R,
-      hch_ptr.symm, rfl, hcfit, hj0, by rwa [hdrop0], hcv0, hdcur0, hcl0, hte0, hpr0, hal0,
-      hoom0, hprob0, hinc0, hvals0, hwvec0, hinv0, hm0, ?_⟩
-    intro pb s1 m1 hlen1 hpb_dom _ _ _ hpb20 hpb1 _ hm1; c0_hsteps
-    · rcases hpb_dom with rfl | h1 | rfl
-      · exact hQ 0#64 m1 (Or.inl rfl) (fun h => by cases h) (fun h => by cases h)
-          (sat_merge_arena hwfit (by omega) hch hca hlen1 hm1)
-      · exact absurd h1 hc
-      · exact hQ 20#64 m1 (Or.inr (Or.inr rfl)) (fun _ => hpb20 rfl) (fun h => by cases h)
-          (sat_merge_arena hwfit (by omega) hch hca hlen1 hm1)
-    · obtain ⟨cnf, hparse, hinv1, hcl1⟩ := hpb1 hc
-      have hcnf_pos : CnfVarsPos cnf := sat_parseDimacs_vars_pos hparse
-      have hm1_load :
-          (FullMem c s1 ⋆ (bytes cnf_ptr cnfBytes ⋆ region work_ptr pNat ⋆ R)) m1 := sep_ac hm1
-      have hload_mv : loadVal m1 i64 (work_ptr + ((8 - (work_ptr &&& 7)) &&& 7)) =
-          some (BitVec.ofNat 64 c.mv) := by
-        rw [hhdr_bv, ← hch]
-        exact FullArenaTactics.load_full_mv hm1_load
-      refine wp_load_of hload_mv ?_
-      c0_call hPre; refine ⟨c, shiftDownCnf cnf, s1,
-        bytes cnf_ptr cnfBytes ⋆ region work_ptr pNat ⋆ R,
-        hch_ptr.symm, hinv1, hcl1, sep_ac hm1, ?_⟩
-      intro pp c2 s2 m2 hcomp2 hlen2 hpp_dom _ hpp20 hpp1 hpp10 hm2
-      have hch2 : c2.hdr = hdr_addr := hcomp2.hdr.trans hch
-      have hca2 : c2.avail = availNat := hcomp2.avail.trans hca
-      c0_hsplit
-      · c0_hsteps
-        exact hQ 20#64 m2 (Or.inr (Or.inr rfl))
-          (fun _ => ⟨cnf, hparse, shiftDownCnf_unsat hcnf_pos (hpp20 hc)⟩)
-          (fun h => by cases h)
-          (sat_merge_arena hwfit (by omega) hch2 hca2 hlen2 (sep_ac hm2))
-      c0_hsteps_nogrp
-      refine wp_join_state1 (α := BitVec 64 × FullCfg × FullState) Prod.fst
-        (fun p mr => FullM4Compact.FullCfgCompat c p.2.1 ∧
-          p.2.2.LengthsOk p.2.1 ∧ (p.1 = 0#64 ∨ p.1 = 10#64 ∨ p.1 = 20#64) ∧
-          (p.1 = 20#64 → cnf.Unsat) ∧ (p.1 = 10#64 → p.2.2.scratch.extend_len ≤ p.2.1.extend_cap) ∧
-          (bytes cnf_ptr cnfBytes ⋆ FullMem p.2.1 p.2.2 ⋆ (region work_ptr pNat ⋆ R)) mr)
-        (fun _ ⟨rv, cr, sr⟩ mr ⟨hcompr, hlen_r, hrv_dom, hrv_u, hrv_ext, hmr⟩ => by
-          have hchr : cr.hdr = hdr_addr := hcompr.hdr.trans hch
-          have hcar : cr.avail = availNat := hcompr.avail.trans hca
-          c0_hsteps
-          · exact sat_solve_bytes_extend_check hExt hCheck hcfit hwfit (by omega) hcompr
-              hch_ptr (by rw [← hpad_bv]; exact hch_ptr) hca hlen_r (hrv_ext hc) hmr
-              fun res m_end hres hmod hm_end =>
-                hQ res m_end (hres.elim Or.inl fun h => Or.inr (Or.inl h))
-                  (fun h20 => by rcases hres with rfl | rfl <;> cases h20)
-                  hmod hm_end
-          · exact hQ rv mr hrv_dom (fun h20 => ⟨cnf, hparse, hrv_u h20⟩)
-              (fun h10 => absurd h10 ‹rv ≠ 10#64›)
-              (sat_merge_arena hwfit (by omega) hchr hcar hlen_r hmr))
-        (fun Jr hJr => by
-          c0_hsplit
-          · c0_hsteps
-            exact hJr (10#64, c2, s2) m2 ⟨hcomp2, hlen2, Or.inr (Or.inl rfl), (fun h => by cases h),
-              (fun _ => hpp10 hc), sep_ac hm2⟩
-          · c0_hsteps_nogrp
-            refine wp_join_state1 (α := BitVec 64 × FullCfg × FullState) Prod.fst
-              (fun p mr => FullM4Compact.FullCfgCompat c p.2.1 ∧
-                p.2.2.LengthsOk p.2.1 ∧ (p.1 = 0#64 ∨ p.1 = 10#64 ∨ p.1 = 20#64) ∧
-                (p.1 = 20#64 → cnf.Unsat) ∧
-                (p.1 = 10#64 → p.2.2.scratch.extend_len ≤ p.2.1.extend_cap) ∧
-                (bytes cnf_ptr cnfBytes ⋆ FullMem p.2.1 p.2.2 ⋆ (region work_ptr pNat ⋆ R)) mr)
-              (fun _ p mr hp => by c0_hsteps; exact hJr p mr hp)
-              (fun Jr2 hJr2 => by
-                c0_hsplit
-                · c0_hsteps
-                  exact hJr2 (0#64, c2, s2) m2 ⟨hcomp2, hlen2, Or.inl rfl,
-                    (fun h => by cases h), (fun h => by cases h), sep_ac hm2⟩
-                · have hpp_eq1 : pp = 1#64 := by
-                    rcases hpp_dom with h0 | h1 | h10 | h20
-                    · exact absurd h0 hc
-                    · exact h1
-                    · exact absurd h10 (by assumption)
-                    · exact absurd h20 (by assumption)
-                  obtain ⟨hinv2, hcl2⟩ := hpp1 hpp_eq1
-                  c0_hsteps; rw [hhdr_bv, ← hch2]; c0_call hSearch
-                  refine ⟨c2, shiftDownCnf cnf, s2,
-                    bytes cnf_ptr cnfBytes ⋆ region work_ptr pNat ⋆ R,
-                    rfl, hinv2, hcl2, hm2, ?_⟩
-                  intro r3 c3 s3 m3 hcomp3 hlen3 hr3_dom hur3 hext3 hm3; c0_hsteps
-                  exact hJr2 (r3, c3, s3) m3 ⟨hcomp2.trans hcomp3, hlen3, hr3_dom,
-                    fun h20 => shiftDownCnf_unsat hcnf_pos (hur3 h20), hext3, sep_ac hm3⟩))
+  rw [show FullM4.kissat_solve_bytes_body =
+      satSolveBytesBody "full_init_state" "full_preprocess" "full_search" from rfl]
+  exact sat_solve_bytes_model_wp_core Γ hInit hParse hPre hSearch hExt hCheck
 
 end SolveModelProofs
 
@@ -1203,6 +958,13 @@ theorem m4SoundEnv_solve_bytes_model {a : Tup Val [i64, i64, i64, i64, i64]} {m 
 /-- Unconditional closed `ModuleOk` for `m4SoundEnv` on all `231` functions of `FullM4.m4Module`,
 transporting the `230`-function prefix verbatim from `FullM4.m4Env_moduleOk` via
 `ModuleOk.respec_tail`. -/
+private theorem m4Env_row {i : Nat} {e : SpecEntry}
+    (hget : (FullM4.m4SpecTable fullSolveBytesModelSpec)[i]? = some e := by rfl)
+    (hno : ∀ xs m Q X, e.spec xs m Q X → e.eff xs m Q X := by intro _ _ _ _ h; exact h) :
+    ∀ a m Q X, e.spec a m Q X →
+      m4SoundEnv e.name e.as e.rs a m Q X :=
+  FullM4.mkM4Env_row_at i e hget hno
+
 theorem m4SoundEnv_moduleOk : ModuleOk m4SoundEnv FullM4.m4Module := by
   have hsplit : FullM4.m4Module.fns = FullM4.m4Fns.take 230 ++ [FullM4.m4SolveBytesFn] := by
     change FullM4.m4Fns = FullM4.m4Fns.take 230 ++ [FullM4.m4SolveBytesFn]
@@ -1222,22 +984,48 @@ theorem m4SoundEnv_moduleOk : ModuleOk m4SoundEnv FullM4.m4Module := by
       (FullM4.m4SpecTable_nodup fullSolveBytesModelSpec) hsigs f as bs hmem xs m Q X
   refine FullM4.m4Env_moduleOk.respec_tail hsplit hagree fun fn hfn xs m Q X hs => ?_
   rcases List.mem_singleton.mp hfn with rfl
-  let h7 := FullM4.mkM4Env_row_at (mainSpec := fullSolveBytesModelSpec) 7
-    ⟨"kissat_check_model", [i64, i64, i64, i64, i64], [i64], kissatCheckModelExactSpec, true⟩
-  let h41 := FullM4.mkM4Env_row_at (mainSpec := fullSolveBytesModelSpec) 41
-    ⟨"full_init_state", [i64, i64, i64, i64, i64], [.bool], fullInitStateSpec, true⟩
-  let h44 := FullM4.mkM4Env_row_at (mainSpec := fullSolveBytesModelSpec) 44
-    ⟨"full_parse_body", [i64, i64], [i64], fullParseBodySpec, true⟩
-  let h100 := FullM4.mkM4Env_row_at (mainSpec := fullSolveBytesModelSpec) 100
-    ⟨"full_extend", [i64], [], fullExtendSpec, true⟩
-  let h227 := FullM4.mkM4Env_row_at (mainSpec := fullSolveBytesModelSpec) 227
-    ⟨"full_preprocess", [i64], [i64], FullM4.m4PreprocessSpec, true⟩
-  let h229 := FullM4.mkM4Env_row_at (mainSpec := fullSolveBytesModelSpec) 229
-    ⟨"full_search", [i64], [i64], FullM4.m4SearchSpec, true⟩
-  exact wp_noExit_lift (m4_kissat_solve_bytes_model_wp m4SoundEnv h41 h44 h227 h229 h100 h7
+  exact wp_noExit_lift (m4_kissat_solve_bytes_model_wp m4SoundEnv
+    (m4Env_row (i := 41)) (m4Env_row (i := 44)) (m4Env_row (i := 227))
+    (m4Env_row (i := 229)) (m4Env_row (i := 100)) (m4Env_row (i := 7))
     xs m Q _ (FullM4.mkM4Env_row_elim 230
       ⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], fullSolveBytesModelSpec, true⟩
       rfl rfl hs))
+
+private theorem sat_model_spec_intro {cnf_ptr work_ptr fuel : BitVec 64}
+    {cnfBytes : List UInt8} {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64} {X : XPost}
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m) :
+    fullSolveBytesModelSpec
+      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ()) m
+      (fun (r, ()) m' =>
+        (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+        (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+        (r = 10#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧
+          cnf.Sat (readModelFromWork m' work_ptr)) ∧
+        (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') X :=
+  ⟨cnfBytes, wlen, R, rfl, rfl, hcfit, hwfit, hm, fun _ m' hdom hu hmod hm' =>
+    ⟨hdom, hu, fun h10 => let ⟨cnf, hp, hf⟩ := hmod h10; ⟨cnf, hp, hf emp m' (by rw [sep_emp])⟩,
+      hm'⟩⟩
+
+private theorem sat_sound_of_model_wp {Γ : Env} {body : Func [i64, i64, i64, i64, i64] [i64]}
+    {a : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64}
+    {cnf_ptr work_ptr : BitVec 64} {cnfBytes : List UInt8} {wlen : Nat}
+    {R : Mem 64 → Prop} {X : XPost}
+    (hwp : Func.wp Γ body a m (fun (r, ()) m' =>
+      (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+      (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+      (r = 10#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧
+        cnf.Sat (readModelFromWork m' work_ptr)) ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') X) :
+    Func.wp Γ body a m (fun (r, ()) m' =>
+      (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+      (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+      (r = 10#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α) ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') X :=
+  wp_mono (fun (_, ()) _ ⟨hdom, hu, hmod, hm'⟩ =>
+    ⟨hdom, hu, fun h10 => let ⟨cnf, hp, hsat⟩ := hmod h10; ⟨cnf, hp, cnf_not_unsat_of_sat hsat⟩,
+      hm'⟩) (fun _ _ _ _ h => h) _ m hwp
 
 /-- Source-level UNSAT + constructive SAT model soundness of Unified M4 `kissat_solve_bytes`
 under `m4SoundEnv` (`231` functions): `r = 20` certifies `cnf.Unsat` and `r = 10` certifies
@@ -1261,11 +1049,7 @@ theorem m4_solve_bytes_model_correct
     have hdrop : FullM4.m4Fns.drop 230 = [FullM4.m4SolveBytesFn] := by t_kernel_rfl
     rw [← hdrop, List.take_append_drop]
   exact (m4SoundEnv_moduleOk.fnsOk _ _ _ hsplit).2.2 _ m _ X
-    (m4SoundEnv_solve_bytes_model
-      ⟨cnfBytes, wlen, R, rfl, rfl, hcfit, hwfit, hm, fun _ m' hdom hu hmod hm' =>
-        ⟨hdom, hu, fun h10 =>
-          let ⟨cnf, hp, hf⟩ := hmod h10
-          ⟨cnf, hp, hf emp m' (by rw [sep_emp])⟩, hm'⟩⟩)
+    (m4SoundEnv_solve_bytes_model (sat_model_spec_intro hcfit hwfit hm))
 
 /-- Source-level UNSAT + existential SAT soundness of Unified M4 `kissat_solve_bytes` under
 `m4SoundEnv` (`231` functions). -/
@@ -1282,13 +1066,7 @@ theorem m4_solve_bytes_sound_correct
         (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
         (r = 10#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α) ∧
         (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') X :=
-  wp_mono
-    (fun (_, ()) _ ⟨hdom, hu, hmod, hm'⟩ =>
-      ⟨hdom, hu, fun h10 =>
-        let ⟨cnf, hp, hsat⟩ := hmod h10
-        ⟨cnf, hp, cnf_not_unsat_of_sat hsat⟩, hm'⟩)
-    (fun _ _ _ _ h => h) _ m
-    (m4_solve_bytes_model_correct hcfit hwfit hm)
+  sat_sound_of_model_wp (m4_solve_bytes_model_correct hcfit hwfit hm)
 
 /-! ## 5. Closed `m5SoundEnv` (`270` fns) via `ModuleOk.respec_tail` -/
 
@@ -1365,11 +1143,7 @@ theorem m5_solve_bytes_model_correct
     have hdrop : FullM5.m5Fns.drop 269 = [FullM5.m5SolveBytesFwdFn] := by t_kernel_rfl
     rw [← hdrop, List.take_append_drop]
   exact (m5SoundEnv_moduleOk.fnsOk _ _ _ hsplit).2.2 _ m _ X
-    (m5SoundEnv_solve_bytes_model
-      ⟨cnfBytes, wlen, R, rfl, rfl, hcfit, hwfit, hm, fun _ m' hdom hu hmod hm' =>
-        ⟨hdom, hu, fun h10 =>
-          let ⟨cnf, hp, hf⟩ := hmod h10
-          ⟨cnf, hp, hf emp m' (by rw [sep_emp])⟩, hm'⟩⟩)
+    (m5SoundEnv_solve_bytes_model (sat_model_spec_intro hcfit hwfit hm))
 
 /-- Source-level UNSAT + existential SAT soundness of Unified M5 `kissat_solve_bytes` under
 `m5SoundEnv` (`270` functions). -/
@@ -1386,12 +1160,6 @@ theorem m5_solve_bytes_sound_correct
         (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
         (r = 10#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α) ∧
         (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m') X :=
-  wp_mono
-    (fun (_, ()) _ ⟨hdom, hu, hmod, hm'⟩ =>
-      ⟨hdom, hu, fun h10 =>
-        let ⟨cnf, hp, hsat⟩ := hmod h10
-        ⟨cnf, hp, cnf_not_unsat_of_sat hsat⟩, hm'⟩)
-    (fun _ _ _ _ h => h) _ m
-    (m5_solve_bytes_model_correct hcfit hwfit hm)
+  sat_sound_of_model_wp (m5_solve_bytes_model_correct hcfit hwfit hm)
 
 end LeanQbe.T.Examples.Kissat
