@@ -8,6 +8,10 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep7
 public import LeanQbe.T.Examples.Kissat.FullM5OrchProof0
 public import LeanQbe.T.Examples.Kissat.FullM6HdrProof0
 public import LeanQbe.T.Examples.Kissat.FullM7WalkProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof0a
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof0b
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof0c
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof0d
 import LeanQbe.T.Examples.Kissat.FullParseInitLemmas1
 import LeanQbe.T.Examples.Kissat.FullParseInitLemmas2
 import LeanQbe.T.Examples.Kissat.FullArena
@@ -26,6 +30,14 @@ UNSAT-only (`0` SAT model proofs), `X`-polymorphic `Func.wp` soundness theorems 
 pure-C0 replacements `full_calc_max_v` (`bva_cap ≤ 32768`), `full_calc_scr_cap_m5` (`8M` cap),
 `m6_hdr_init` (`watermarks[1] = 0`), `full_walk_cb_inv_m7` (fixed parity guard), plus the
 caller rewires `full_init_state_m5` (`8M` scratch cap) and `full_walk_m7` (`step7CbInvSpec`).
+
+Shard-0 umbrella: re-exports the sibling files
+- `FullFidelityStep7Proof0a` (+`0a0`/`0a1`): `full_sort_tmp_step7_wp` (`step7SortTmpSpec`,
+  insertion / counting / merge sort) and the `full_min_shrink_m6_step7_wp` rewire;
+- `FullFidelityStep7Proof0b`: `full_learn_clause_step7_wp` (`Full.fullLearnClauseSpec`);
+- `FullFidelityStep7Proof0c`: `full_bump_analyzed_m6_hdr_step7_wp` (`M6ExtW2bPres`) and the
+  `full_restore_bump_ana_m6_hdr` / `full_ana_failed_lit_m6_hdr` / `full_analyze_core_m6` rewires;
+- `FullFidelityStep7Proof0d`: `full_reduce_step7_wp` / `full_reduce_m6_step7_wp`.
 -/
 
 set_option autoImplicit false
