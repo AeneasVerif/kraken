@@ -44,106 +44,64 @@ open LeanQbe.T.Bootstrap0
 
 /-! ## 1. Structural Equality & Local `dummyAllOpsMod0` Witness -/
 
-private def ty0Eq : Ty0 → Ty0 → Bool
-  | .bool, .bool | .b8, .b8 | .b16, .b16 | .b32, .b32 | .b64, .b64 => true
-  | _, _ => false
-
-private def tyList0Eq : List Ty0 → List Ty0 → Bool
-  | [], [] => true
-  | a :: xs, b :: ys => ty0Eq a b && tyList0Eq xs ys
-  | _, _ => false
-
-private def widthEq : Width → Width → Bool
-  | .W8, .W8 | .W16, .W16 | .W32, .W32 | .W64, .W64 => true
-  | _, _ => false
-
-private def cmpOpEq : CmpOp → CmpOp → Bool
-  | .eq, .eq | .ne, .ne | .ult, .ult | .ule, .ule | .ugt, .ugt | .uge, .uge
-  | .slt, .slt | .sle, .sle | .sgt, .sgt | .sge, .sge => true
-  | _, _ => false
-
-private def unOp0Eq : UnOp0 → UnOp0 → Bool
-  | .copy, .copy | .neg, .neg | .not, .not => true
-  | _, _ => false
-
-private def binOp0Eq : BinOp0 → BinOp0 → Bool
-  | .add, .add | .sub, .sub | .mul, .mul | .and, .and | .or, .or | .xor, .xor
-  | .shl, .shl | .lshr, .lshr | .ashr, .ashr | .rotl, .rotl | .rotr, .rotr => true
-  | _, _ => false
-
-private def divOp0Eq : DivOp0 → DivOp0 → Bool
-  | .udiv, .udiv | .urem, .urem | .sdiv, .sdiv | .srem, .srem => true
-  | _, _ => false
-
-private def convOp0Eq : ConvOp0 → ConvOp0 → Bool
-  | .ofBool, .ofBool | .zext, .zext | .sext, .sext | .trunc, .trunc => true
-  | _, _ => false
+private def eqTyList (xs ys : List Ty0) : Bool :=
+  xs.isEqv ys fun a b => Codec0.ty0Tag a == Codec0.ty0Tag b
 
 private def arg0Eq : Arg0 → Arg0 → Bool
   | .var a, .var b => a == b
   | .immBool a, .immBool b => a == b
-  | .immBits wa va, .immBits wb vb => widthEq wa wb && va == vb
-  | _, _ => false
-
-private def argList0Eq : List Arg0 → List Arg0 → Bool
-  | [], [] => true
-  | a :: xs, b :: ys => arg0Eq a b && argList0Eq xs ys
+  | .immBits wa va, .immBits wb vb => Codec0.widthTag wa == Codec0.widthTag wb && va == vb
   | _, _ => false
 
 private def opCode0Eq : OpCode0 → OpCode0 → Bool
-  | .un oa ta, .un ob tb => unOp0Eq oa ob && ty0Eq ta tb
-  | .bin oa ta, .bin ob tb => binOp0Eq oa ob && ty0Eq ta tb
-  | .cmp ca ta, .cmp cb tb => cmpOpEq ca cb && ty0Eq ta tb
-  | .select ta, .select tb => ty0Eq ta tb
-  | .conv ca wsa wda, .conv cb wsb wdb => convOp0Eq ca cb && widthEq wsa wsb && widthEq wda wdb
-  | .div da wa, .div db wb => divOp0Eq da db && widthEq wa wb
+  | .un oa ta, .un ob tb =>
+    Codec0.unOp0Tag oa == Codec0.unOp0Tag ob && Codec0.ty0Tag ta == Codec0.ty0Tag tb
+  | .bin oa ta, .bin ob tb =>
+    Codec0.binOp0Tag oa == Codec0.binOp0Tag ob && Codec0.ty0Tag ta == Codec0.ty0Tag tb
+  | .cmp ca ta, .cmp cb tb =>
+    Codec0.cmpOpTag ca == Codec0.cmpOpTag cb && Codec0.ty0Tag ta == Codec0.ty0Tag tb
+  | .select ta, .select tb => Codec0.ty0Tag ta == Codec0.ty0Tag tb
+  | .conv ca wsa wda, .conv cb wsb wdb =>
+    Codec0.convOp0Tag ca == Codec0.convOp0Tag cb &&
+      Codec0.widthTag wsa == Codec0.widthTag wsb && Codec0.widthTag wda == Codec0.widthTag wdb
+  | .div da wa, .div db wb =>
+    Codec0.divOp0Tag da == Codec0.divOp0Tag db && Codec0.widthTag wa == Codec0.widthTag wb
   | .umulw64, .umulw64 => true
   | _, _ => false
 
 mutual
 private def tflat0Eq : TFlat0 → TFlat0 → Bool
-  | .let1 oa aa ka, .let1 ob ab kb => opCode0Eq oa ob && argList0Eq aa ab && tflat0Eq ka kb
+  | .let1 oa aa ka, .let1 ob ab kb => opCode0Eq oa ob && aa.isEqv ab arg0Eq && tflat0Eq ka kb
   | .let2Umulw64 a1 a2 ka, .let2Umulw64 b1 b2 kb =>
     arg0Eq a1 b1 && arg0Eq a2 b2 && tflat0Eq ka kb
-  | .load ta aa ka, .load tb ab kb => ty0Eq ta tb && arg0Eq aa ab && tflat0Eq ka kb
+  | .load ta aa ka, .load tb ab kb =>
+    Codec0.ty0Tag ta == Codec0.ty0Tag tb && arg0Eq aa ab && tflat0Eq ka kb
   | .store ta va aa ka, .store tb vb ab kb =>
-    ty0Eq ta tb && arg0Eq va vb && arg0Eq aa ab && tflat0Eq ka kb
+    Codec0.ty0Tag ta == Codec0.ty0Tag tb && arg0Eq va vb && arg0Eq aa ab && tflat0Eq ka kb
   | .call fa asa bsa aa ka, .call fb asb bsb ab kb =>
-    fa == fb && tyList0Eq asa asb && tyList0Eq bsa bsb && argList0Eq aa ab && tflat0Eq ka kb
+    fa == fb && eqTyList asa asb && eqTyList bsa bsb && aa.isEqv ab arg0Eq && tflat0Eq ka kb
   | .tailCall fa asa aa, .tailCall fb asb ab =>
-    fa == fb && tyList0Eq asa asb && argList0Eq aa ab
+    fa == fb && eqTyList asa asb && aa.isEqv ab arg0Eq
   | .jnz ca ta ea, .jnz cb tb eb => arg0Eq ca cb && tflat0Eq ta tb && tflat0Eq ea eb
-  | .jump ja aa, .jump jb ab => ja == jb && argList0Eq aa ab
-  | .ret va, .ret vb => argList0Eq va vb
-  | .exit fa asa aa, .exit fb asb ab => fa == fb && tyList0Eq asa asb && argList0Eq aa ab
+  | .jump ja aa, .jump jb ab => ja == jb && aa.isEqv ab arg0Eq
+  | .ret va, .ret vb => va.isEqv vb arg0Eq
+  | .exit fa asa aa, .exit fb asb ab => fa == fb && eqTyList asa asb && aa.isEqv ab arg0Eq
   | .hlt, .hlt => true
   | .group bsa ka, .group bsb kb => blocks0Eq bsa bsb && tflat0Eq ka kb
   | _, _ => false
 
 private def blocks0Eq : List (List Ty0 × TFlat0) → List (List Ty0 × TFlat0) → Bool
   | [], [] => true
-  | (ta, ba) :: xs, (tb, bb) :: ys => tyList0Eq ta tb && tflat0Eq ba bb && blocks0Eq xs ys
+  | (ta, ba) :: xs, (tb, bb) :: ys => eqTyList ta tb && tflat0Eq ba bb && blocks0Eq xs ys
   | _, _ => false
 end
 
-private def fn0Eq (a b : TFlatFn0) : Bool :=
-  a.name == b.name && tyList0Eq a.as b.as && tyList0Eq a.rs b.rs && tflat0Eq a.body b.body
-
-private def fnList0Eq : List TFlatFn0 → List TFlatFn0 → Bool
-  | [], [] => true
-  | a :: xs, b :: ys => fn0Eq a b && fnList0Eq xs ys
-  | _, _ => false
-
-private def ext0Eq (a b : ExtSig0) : Bool :=
-  a.name == b.name && tyList0Eq a.as b.as && tyList0Eq a.rs b.rs
-
-private def extList0Eq : List ExtSig0 → List ExtSig0 → Bool
-  | [], [] => true
-  | a :: xs, b :: ys => ext0Eq a b && extList0Eq xs ys
-  | _, _ => false
-
 private def mod0Eq (a b : TFlatModule0) : Bool :=
-  fnList0Eq a.fns b.fns && extList0Eq a.externs b.externs && a.exits == b.exits
+  (a.fns.isEqv b.fns fun x y =>
+    x.name == y.name && eqTyList x.as y.as && eqTyList x.rs y.rs && tflat0Eq x.body y.body) &&
+  (a.externs.isEqv b.externs fun x y =>
+    x.name == y.name && eqTyList x.as y.as && eqTyList x.rs y.rs) &&
+  a.exits == b.exits
 
 private def roundTripOk (m : TFlatModule0) : Bool :=
   checkMod0Bounded m &&
@@ -222,68 +180,51 @@ private def leanqbe0FullRoundTripCheck : Except String (Nat × Nat) := do
 private def dummyAddBytes : List UInt8 :=
   (encodeMod0 dummyAddMod0).data.toList
 
-private def mkBa (xs : List UInt8) : ByteArray :=
-  ByteArray.mk xs.toArray
+private def badModBuffers : List (List UInt8) :=
+  [ [], [0x4c, 0x51, 0x42], [0x4c, 0x51, 0x42, 0x31, 0x01],
+    [0x4c, 0x51, 0x42, 0x30, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0x4c, 0x51, 0x42, 0x30, 0x01, 1, 0, 0, 0],
+    dummyAddBytes ++ [0x00],
+    dummyAddBytes.take (dummyAddBytes.length - 1),
+    [0x4c, 0x51, 0x42, 0x30, 0x01,
+      1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0x4c, 0x51, 0x42, 0x30, 0x01, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 5, 0, 0, 0, 0, 10,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0x4c, 0x51, 0x42, 0x30, 0x01,
+      1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 1, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0x4c, 0x51, 0x42, 0x30, 0x01,
+      1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 99, 0, 0, 0, 0, 10,
+      0, 0, 0, 0, 0, 0, 0, 0] ]
 
-#guard (decodeMod0 (mkBa [])).isNone
-#guard (decodeMod0 (mkBa [0x4c, 0x51, 0x42])).isNone
-#guard (decodeMod0 (mkBa [0x4c, 0x51, 0x42, 0x31, 0x01])).isNone
-#guard (decodeMod0 (mkBa [0x4c, 0x51, 0x42, 0x30, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])).isNone
-#guard (decodeMod0 (mkBa [0x4c, 0x51, 0x42, 0x30, 0x01, 1, 0, 0, 0])).isNone
-#guard (decodeMod0 (mkBa (dummyAddBytes ++ [0x00]))).isNone
-#guard (decodeMod0 (mkBa (dummyAddBytes.take (dummyAddBytes.length - 1)))).isNone
-#guard (decodeMod0 (mkBa [0x4c, 0x51, 0x42, 0x30, 0x01,
-  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])).isNone
-#guard (decodeMod0 (mkBa [0x4c, 0x51, 0x42, 0x30, 0x01,
-  1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 5, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0])).isNone
-#guard (decodeMod0 (mkBa [0x4c, 0x51, 0x42, 0x30, 0x01,
-  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 1, 0, 0, 0, 9,
-  0, 0, 0, 0, 0, 0, 0, 0])).isNone
-#guard (decodeMod0 (mkBa [0x4c, 0x51, 0x42, 0x30, 0x01,
-  1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 99, 0, 0, 0, 0, 10,
-  0, 0, 0, 0, 0, 0, 0, 0])).isNone
+#guard badModBuffers.all fun bs => (decodeMod0 (ByteArray.mk bs.toArray)).isNone
 
 /-! ## 4. Closure-Free, Global-Free & x86-64 Directive Gate (`codec0DecodeLcMod` / `codec0LcMod`) -/
 
 private def lcGlobalsCount (m : LcModule) : Nat :=
   let consts := m.decls.filter fun d => d.params.isEmpty && !d.retTy.isScalar
   let allLits := m.decls.map (·.body.lits)
-  let strs := dedupStr (allLits.flatMap (·.1))
-  let bigNats := dedupNat (allLits.flatMap (·.2))
-  consts.length + strs.length + bigNats.length
+  consts.length + (dedupStr (allLits.flatMap (·.1))).length +
+    (dedupNat (allLits.flatMap (·.2))).length
 
 splice_lcnf_tflat! codec0DecodeTfs codec0DecodeLcMod
 def codec0DecodeMod : Module :=
-  { fns := LeanLRC.tflatFnsToFns codec0DecodeTfs
-    externs := rtExterns
-    exits := rtExitSyms }
+  { fns := LeanLRC.tflatFnsToFns codec0DecodeTfs, externs := rtExterns, exits := rtExitSyms }
 eval_dir_stats! codec0DecodeDirStats x64Target x64LegalTarget codec0DecodeMod
   rtExtBounds0 rtExitSyms
 
 splice_lcnf_tflat! codec0Tfs codec0LcMod
 def codec0Mod : Module :=
-  { fns := LeanLRC.tflatFnsToFns codec0Tfs
-    externs := rtExterns
-    exits := rtExitSyms }
+  { fns := LeanLRC.tflatFnsToFns codec0Tfs, externs := rtExterns, exits := rtExitSyms }
 eval_dir_stats! codec0DirStats x64Target x64LegalTarget codec0Mod
   rtExtBounds0 rtExitSyms
 
-#guard codec0DecodeLcMod.papTargets.isEmpty
-#guard codec0DecodeLcMod.maxAp == 0
-#guard lcGlobalsCount codec0DecodeLcMod == 0
-#guard codec0DecodeMod.fns.length == codec0DecodeDirStats.length
-#guard codec0DecodeDirStats.all fun p => p.2 <= 250
-#guard codec0DecodeMod.fns.all fun f => Func.checkTFlat f.body
-#guard codec0DecodeMod.checkAcyclic
+private def lcGateOk (lc : LcModule) (mod : Module) (stats : List (Sym × Nat)) : Bool :=
+  lc.papTargets.isEmpty && lc.maxAp == 0 && lcGlobalsCount lc == 0 &&
+    mod.fns.length == stats.length && (stats.all fun p => p.2 <= 250) &&
+    (mod.fns.all fun f => Func.checkTFlat f.body) && mod.checkAcyclic
 
-#guard codec0LcMod.papTargets.isEmpty
-#guard codec0LcMod.maxAp == 0
-#guard lcGlobalsCount codec0LcMod == 0
-#guard codec0Mod.fns.length == codec0DirStats.length
-#guard codec0DirStats.all fun p => p.2 <= 250
-#guard codec0Mod.fns.all fun f => Func.checkTFlat f.body
-#guard codec0Mod.checkAcyclic
+#guard lcGateOk codec0DecodeLcMod codec0DecodeMod codec0DecodeDirStats
+#guard lcGateOk codec0LcMod codec0Mod codec0DirStats
 
 private def maxDirsOf (stats : List (Sym × Nat)) : Nat :=
   stats.foldl (fun m p => Nat.max m p.2) 0

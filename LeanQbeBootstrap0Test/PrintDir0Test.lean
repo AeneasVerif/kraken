@@ -127,80 +127,31 @@ disp≠0, `spAdd`/`spAddReg` both signs, all `6` `AluKind0`s, `unary` neg/not, a
 `divCore` signed/unsigned at `W8/W16/W32/W64`, `label`/`jmp`/`jcc` `.sym` and `.loc`, `callSym`,
 `ret`, `INT64_MIN`). -/
 def all27Dir0Corpus : List Dir0 :=
-  [ .label (.sym 0)
-  , .label (.loc 12 34)
-  , .movRR .W8 .rax .rcx
-  , .movRR .W16 .rdx .rbx
-  , .movRR .W32 .r8 .r9
-  , .movRR .W64 .rdi .rsi
-  , .movRI .rax 0
-  , .movRI .r8 42
-  , .movRI .r9 0x100000000
-  , .movRI .r10 0x8000000000000000
-  , .movzx32 .W8 .rax .rcx
-  , .movzx32 .W16 .rdx .rsi
-  , .movzx32 .W32 .r8 .r9
-  , .movzx32 .W64 .r10 .r11
-  , .movsx .W64 .rax .W8 .r12
-  , .movsx .W64 .rbx .W16 .r13
-  , .movsx .W64 .rcx .W32 .r14
-  , .movsx .W64 .rdx .W64 .r15
-  , .movsx .W32 .rsi .W8 .rdi
-  , .movsx .W32 .rbp .W16 .rax
-  , .movsx .W32 .r8 .W32 .r9
-  , .movsx .W16 .r10 .W8 .r11
-  , .ldMem .W8 .rax .rdi
-  , .ldMem .W16 .rcx .rsi
-  , .ldMem .W32 .rdx .r8
-  , .ldMem .W64 .r9 .rsp
-  , .stMem .W8 .rdi .rax
-  , .stMem .W16 .rsi .rcx
-  , .stMem .W32 .r8 .rdx
-  , .stMem .W64 .rbp .r15
-  , .ldSlot .rax 0
-  , .ldSlot .r11 24
-  , .stSlot 0 .rcx
-  , .stSlot 40 .r12
-  , .ldSlotIdx .r15 .r10
-  , .stSlotIdx .r10 .r14
-  , .spAdd true 16
-  , .spAdd false 24
-  , .spAddReg true .r10
-  , .spAddReg false .r11
-  , .aluRR .W64 .add .rax .rdi
-  , .aluRR .W32 .sub .rcx .rsi
-  , .aluRR .W8 .mul .rdx .rbx
-  , .aluRR .W16 .and .r8 .r9
-  , .aluRR .W64 .or .r10 .r11
-  , .aluRR .W32 .xor .r12 .r13
-  , .unary .W64 true .rax
-  , .unary .W32 false .r8
-  , .shiftCl .W8 .shl .rax
-  , .shiftCl .W16 .lshr .rbx
-  , .shiftCl .W32 .ashr .r8
-  , .shiftCl .W64 .rotl .r9
-  , .shiftCl .W64 .rotr .r10
-  , .shMaskCl 63
-  , .cmpRR .W64 .rdi .rsi
-  , .cmpRR .W8 .rax .rdx
-  , .testbRR .rax .rax
-  , .setcc .z .rax
-  , .setcc .l .r15
-  , .cmovcc .W64 .nz .rax .rbx
-  , .cmovcc .W32 .ge .r8 .r9
-  , .divCore .W64 true .rcx
-  , .divCore .W64 false .r8
-  , .divCore .W32 true .rsi
-  , .divCore .W32 false .r9
-  , .divCore .W16 true .rbx
-  , .divCore .W8 false .rdi
-  , .mulq .r11
-  , .jmp (.sym 1)
-  , .jmp (.loc 3 7)
-  , .jcc .nz (.sym 2)
-  , .jcc .be (.loc 5 9)
-  , .callSym 3
-  , .ret ]
+  [ .label (.sym 0), .label (.loc 12 34),
+    .movRR .W8 .rax .rcx, .movRR .W16 .rdx .rbx, .movRR .W32 .r8 .r9, .movRR .W64 .rdi .rsi,
+    .movRI .rax 0, .movRI .r8 42, .movRI .r9 0x100000000, .movRI .r10 0x8000000000000000,
+    .movzx32 .W8 .rax .rcx, .movzx32 .W16 .rdx .rsi,
+    .movzx32 .W32 .r8 .r9, .movzx32 .W64 .r10 .r11,
+    .movsx .W64 .rax .W8 .r12, .movsx .W64 .rbx .W16 .r13,
+    .movsx .W64 .rcx .W32 .r14, .movsx .W64 .rdx .W64 .r15,
+    .movsx .W32 .rsi .W8 .rdi, .movsx .W32 .rbp .W16 .rax,
+    .movsx .W32 .r8 .W32 .r9, .movsx .W16 .r10 .W8 .r11,
+    .ldMem .W8 .rax .rdi, .ldMem .W16 .rcx .rsi, .ldMem .W32 .rdx .r8, .ldMem .W64 .r9 .rsp,
+    .stMem .W8 .rdi .rax, .stMem .W16 .rsi .rcx, .stMem .W32 .r8 .rdx, .stMem .W64 .rbp .r15,
+    .ldSlot .rax 0, .ldSlot .r11 24, .stSlot 0 .rcx, .stSlot 40 .r12,
+    .ldSlotIdx .r15 .r10, .stSlotIdx .r10 .r14,
+    .spAdd true 16, .spAdd false 24, .spAddReg true .r10, .spAddReg false .r11,
+    .aluRR .W64 .add .rax .rdi, .aluRR .W32 .sub .rcx .rsi, .aluRR .W8 .mul .rdx .rbx,
+    .aluRR .W16 .and .r8 .r9, .aluRR .W64 .or .r10 .r11, .aluRR .W32 .xor .r12 .r13,
+    .unary .W64 true .rax, .unary .W32 false .r8,
+    .shiftCl .W8 .shl .rax, .shiftCl .W16 .lshr .rbx, .shiftCl .W32 .ashr .r8,
+    .shiftCl .W64 .rotl .r9, .shiftCl .W64 .rotr .r10, .shMaskCl 63,
+    .cmpRR .W64 .rdi .rsi, .cmpRR .W8 .rax .rdx, .testbRR .rax .rax,
+    .setcc .z .rax, .setcc .l .r15, .cmovcc .W64 .nz .rax .rbx, .cmovcc .W32 .ge .r8 .r9,
+    .divCore .W64 true .rcx, .divCore .W64 false .r8, .divCore .W32 true .rsi,
+    .divCore .W32 false .r9, .divCore .W16 true .rbx, .divCore .W8 false .rdi,
+    .mulq .r11, .jmp (.sym 1), .jmp (.loc 3 7),
+    .jcc .nz (.sym 2), .jcc .be (.loc 5 9), .callSym 3, .ret ]
 
 #guard all27Dir0Corpus.all dir0MatchesATT
 #guard printDirs0Bytes testSymTab.1 testSymTab.2 all27Dir0Corpus ByteArray.empty ==
@@ -221,9 +172,7 @@ private def compiledModMatchesATT (m : TFlatModule0) : Bool :=
     got == exp
   | .err _ _ => false
 
-#guard compiledModMatchesATT dummyAddMod0
-#guard compiledModMatchesATT dummyLoopMod0
-#guard compiledModMatchesATT dummyCallTailMod0
+#guard [dummyAddMod0, dummyLoopMod0, dummyCallTailMod0].all compiledModMatchesATT
 
 /-! ## 3. Single-Line `#print axioms` Audit (`[propext, Classical.choice, Quot.sound]`) -/
 

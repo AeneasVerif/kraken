@@ -176,136 +176,69 @@ def stageCEnv : Env := fun nm as rs =>
   | "sat_lit_neg", [.bits 64], [.bits 64] => fun args m Q _ => Q (args.1 ^^^ 1#64, ()) m
   | _, _, _ => fun _ _ _ _ => False
 
+private theorem stageC_leaf_wp (Γ : Env) (m : Mem 64) (Q : Post [i64]) (X : XPost)
+    (op : OpCode [i64, i64] [i64]) (b0 : Arg K i64) (x bv : BitVec 64)
+    (tail : List ((t : Ty) × Val t))
+    (hb : (b0 = .var 0 ∧ bv = x) ∨ b0 = .imm bv)
+    (hq : OpCode.wp op (x, bv, ()) (fun xs => Q (xs.1, ()) m)) :
+    wp Γ Q X (denote Val Cont (.let_ (op2 op (.var 0) b0) (.ret (.var 0, ())) : TFlat [i64])
+      (pushTup (f := Val) (as := [i64]) (x, ()) tail) []) m := by
+  have ⟨b, hbv, hdenB⟩ : ∃ b : Arg Val i64, b.val = bv ∧
+      denoteArg (⟨i64, x⟩ :: tail) b0 = some b := by
+    rcases hb with ⟨rfl, rfl⟩ | rfl
+    · exact ⟨.var bv, rfl, by simp [denoteArg, lookupV, listGet?, castTy]⟩
+    · exact ⟨.imm bv, rfl, rfl⟩
+  have hden : denote Val Cont
+      (.let_ (op2 op (.var 0) b0) (.ret (.var 0, ())) : TFlat [i64])
+      (pushTup (f := Val) (as := [i64]) (x, ()) tail) [] =
+      Expr.let_ (op2 op (.var x) b) (fun xs => Expr.ret (.var xs.1, ())) := by
+    dsimp only [denote, op2, denoteArgs, pushTup]
+    have hx0 : denoteArg (⟨i64, x⟩ :: tail) (Arg.var 0 : Arg K i64) = some (Arg.var x) := by
+      simp [denoteArg, lookupV, listGet?, castTy]
+    rw [hx0, hdenB]; dsimp only; congr 1
+  rw [hden]; dsimp only [wp, Op.wp, op2, vals]; rw [hbv]; exact hq
+
+private theorem stageC_call_wp (Γ : Env) (m : Mem 64) (Q : Post [i64]) (X : XPost)
+    (callee : Sym) (x target k : BitVec 64)
+    (hcall : Γ callee [i64] [i64] (x, ()) m (fun r m' => r = (target, ()) ∧ m' = m)
+      (fun _ _ _ _ => False))
+    (hpost : Q (target + k, ()) m) :
+    wp Γ Q X (denote Val Cont (.call callee (as := [i64]) [i64] (.var 0, ())
+      (.let_ (op2 (.add i64) (.var 0) (.imm k)) (.ret (.var 0, ()))) : TFlat [i64])
+      (pushTup (f := Val) (as := [i64]) (x, ()) []) []) m := by
+  have hden : denote Val Cont (.call callee (as := [i64]) [i64] (.var 0, ())
+      (.let_ (op2 (.add i64) (.var 0) (.imm k)) (.ret (.var 0, ()))) : TFlat [i64])
+      (pushTup (f := Val) (as := [i64]) (x, ()) []) [] =
+      Expr.call callee (as := [i64]) (bs := [i64]) (Arg.var x, ()) (fun xs =>
+        denote Val Cont (.let_ (op2 (.add i64) (.var 0) (.imm k)) (.ret (.var 0, ())))
+          (pushTup (f := Val) (as := [i64]) xs [⟨i64, x⟩]) []) := rfl
+  rw [hden]; dsimp only [wp, vals, Arg.val]
+  refine ⟨fun r m' => r = (target, ()) ∧ m' = m, fun _ _ _ _ => False, hcall,
+    fun _ _ ⟨hr, hm⟩ => ?_, fun _ _ _ _ hf => hf.elim⟩
+  rw [hr, hm]
+  exact stageC_leaf_wp Γ m Q X (.add i64) (.imm k) target k [⟨i64, x⟩] (.inr rfl)
+    (by simpa [Ty.hasFloat, OpCode.wp, lift2] using hpost)
+
 /-- All kernels satisfy their operational specifications under `stageCEnv`. -/
 theorem stageC_moduleOk : ModuleOk stageCEnv stageCMod := by
   refine Module.moduleOk_of_checkAcyclic (by t_kernel_rfl) (fun fn hmem => ?_)
     (fun fn hmem => ?_)
   · simp only [stageCMod, stageCTfs, List.map_cons, List.map_nil, List.mem_cons,
       List.not_mem_nil, or_false] at hmem
-    rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    · exact Frontend.C0.TFlatFn.toFn_wf c0SqrTf
-    · exact Frontend.C0.TFlatFn.toFn_wf c0Step1Tf
-    · exact Frontend.C0.TFlatFn.toFn_wf c0Step2Tf
-    · exact Frontend.C0.TFlatFn.toFn_wf c0PipeTf
-    · exact Frontend.C0.TFlatFn.toFn_wf satLitVarTf
-    · exact Frontend.C0.TFlatFn.toFn_wf satLitSignTf
-    · exact Frontend.C0.TFlatFn.toFn_wf satLitNegTf
+    rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+      exact Frontend.C0.TFlatFn.toFn_wf _
   · simp only [stageCMod, stageCTfs, List.map_cons, List.map_nil, List.mem_cons,
       List.not_mem_nil, or_false] at hmem
-    rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    · intro xs m Q X hΓ
-      rcases xs with ⟨x, ⟨⟩⟩
-      dsimp only [stageCEnv] at hΓ
-      dsimp only [c0SqrTf, Frontend.C0.TFlatFn.toFn, Func.wp, denoteFunc]
-      have hden : denote Val Cont
-          (TFlat.let_ (op2 (.mul i64) (.var 0) (.var 0)) (.ret (Arg.var 0, ())) : TFlat [i64])
-          (pushTup (f := Val) (as := [i64]) (x, ()) []) [] =
-          (Expr.let_ (op2 (.mul i64) (.var x) (.var x))
-            (fun xs => Expr.ret (Arg.var xs.1, ())) : Expr Val Cont [i64]) := rfl
-      rw [hden]
-      dsimp only [wp, Op.wp, OpCode.wp, op2, lift2, vals, Arg.val]
-      simp only [Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-      exact hΓ
-    · intro xs m Q X hΓ
-      rcases xs with ⟨x, ⟨⟩⟩
-      dsimp only [stageCEnv] at hΓ
-      dsimp only [c0Step1Tf, Frontend.C0.TFlatFn.toFn, Func.wp, denoteFunc]
-      have hden : denote Val Cont
-          (TFlat.let_ (op2 (.add i64) (.var 0) (.imm 10#64)) (.ret (Arg.var 0, ())) : TFlat [i64])
-          (pushTup (f := Val) (as := [i64]) (x, ()) []) [] =
-          (Expr.let_ (op2 (.add i64) (.var x) (.imm 10#64))
-            (fun xs => Expr.ret (Arg.var xs.1, ())) : Expr Val Cont [i64]) := rfl
-      rw [hden]
-      dsimp only [wp, Op.wp, OpCode.wp, op2, lift2, vals, Arg.val]
-      simp only [Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-      exact hΓ
-    · intro xs m Q X hΓ
-      rcases xs with ⟨x, ⟨⟩⟩
-      dsimp only [stageCEnv] at hΓ
-      dsimp only [c0Step2Tf, Frontend.C0.TFlatFn.toFn, Func.wp, denoteFunc]
-      have hden : denote Val Cont
-          (TFlat.call "c0_step1" (as := [i64]) [i64] (Arg.var 0, ())
-            (.let_ (op2 (.add i64) (.var 0) (.imm 20#64)) (.ret (Arg.var 0, ()))))
-          (pushTup (f := Val) (as := [i64]) (x, ()) []) [] =
-          (Expr.call "c0_step1" (as := [i64]) (bs := [i64]) (Arg.var x, ()) (fun xs =>
-            denote Val Cont (.let_ (op2 (.add i64) (.var 0) (.imm 20#64)) (.ret (Arg.var 0, ())))
-              (pushTup (f := Val) (as := [i64]) xs [⟨i64, x⟩]) []) : Expr Val Cont [i64]) := rfl
-      rw [hden]
-      dsimp only [wp, vals, Arg.val]
-      refine ⟨fun r m' => r = (x + 10#64, ()) ∧ m' = m, fun _ _ _ _ => False, ⟨rfl, rfl⟩,
-        fun r m' ⟨hr, hm⟩ => ?_, fun _ _ _ _ hf => hf.elim⟩
-      subst hr; subst hm
-      have hden2 : denote Val Cont
-          (TFlat.let_ (op2 (.add i64) (.var 0) (.imm 20#64)) (.ret (Arg.var 0, ())) : TFlat [i64])
-          (pushTup (f := Val) (as := [i64]) (x + 10#64, ()) [⟨i64, x⟩]) [] =
-          (Expr.let_ (op2 (.add i64) (.var (x + 10#64)) (.imm 20#64))
-            (fun xs => Expr.ret (Arg.var xs.1, ())) : Expr Val Cont [i64]) := rfl
-      rw [hden2]
-      dsimp only [wp, Op.wp, OpCode.wp, op2, lift2, vals, Arg.val]
-      simp only [Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-      exact hΓ
-    · intro xs m Q X hΓ
-      rcases xs with ⟨x, ⟨⟩⟩
-      dsimp only [stageCEnv] at hΓ
-      dsimp only [c0PipeTf, Frontend.C0.TFlatFn.toFn, Func.wp, denoteFunc]
-      have hden : denote Val Cont
-          (TFlat.call "c0_step2" (as := [i64]) [i64] (Arg.var 0, ())
-            (.let_ (op2 (.add i64) (.var 0) (.imm 30#64)) (.ret (Arg.var 0, ()))))
-          (pushTup (f := Val) (as := [i64]) (x, ()) []) [] =
-          (Expr.call "c0_step2" (as := [i64]) (bs := [i64]) (Arg.var x, ()) (fun xs =>
-            denote Val Cont (.let_ (op2 (.add i64) (.var 0) (.imm 30#64)) (.ret (Arg.var 0, ())))
-              (pushTup (f := Val) (as := [i64]) xs [⟨i64, x⟩]) []) : Expr Val Cont [i64]) := rfl
-      rw [hden]
-      dsimp only [wp, vals, Arg.val]
-      refine ⟨fun r m' => r = (x + 10#64 + 20#64, ()) ∧ m' = m, fun _ _ _ _ => False, ⟨rfl, rfl⟩,
-        fun r m' ⟨hr, hm⟩ => ?_, fun _ _ _ _ hf => hf.elim⟩
-      subst hr; subst hm
-      have hden2 : denote Val Cont
-          (TFlat.let_ (op2 (.add i64) (.var 0) (.imm 30#64)) (.ret (Arg.var 0, ())) : TFlat [i64])
-          (pushTup (f := Val) (as := [i64]) (x + 10#64 + 20#64, ()) [⟨i64, x⟩]) [] =
-          (Expr.let_ (op2 (.add i64) (.var (x + 10#64 + 20#64)) (.imm 30#64))
-            (fun xs => Expr.ret (Arg.var xs.1, ())) : Expr Val Cont [i64]) := rfl
-      rw [hden2]
-      dsimp only [wp, Op.wp, OpCode.wp, op2, lift2, vals, Arg.val]
-      simp only [Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-      exact hΓ
-    · intro xs m Q X hΓ
-      rcases xs with ⟨x, ⟨⟩⟩
-      dsimp only [stageCEnv] at hΓ
-      dsimp only [satLitVarTf, Frontend.C0.TFlatFn.toFn, Func.wp, denoteFunc]
-      have hden : denote Val Cont
-          (TFlat.let_ (op2 (.lshr i64) (.var 0) (.imm 1#64)) (.ret (Arg.var 0, ())) : TFlat [i64])
-          (pushTup (f := Val) (as := [i64]) (x, ()) []) [] =
-          (Expr.let_ (op2 (.lshr i64) (.var x) (.imm 1#64))
-            (fun xs => Expr.ret (Arg.var xs.1, ())) : Expr Val Cont [i64]) := rfl
-      rw [hden]
-      dsimp only [wp, Op.wp, OpCode.wp, op2, lift2, vals, Arg.val]
-      simp only [Ty.hasFloat, Bool.false_eq_true, ↓reduceIte]
-      exact hΓ
-    · intro xs m Q X hΓ
-      rcases xs with ⟨x, ⟨⟩⟩
-      dsimp only [stageCEnv] at hΓ
-      dsimp only [satLitSignTf, Frontend.C0.TFlatFn.toFn, Func.wp, denoteFunc]
-      have hden : denote Val Cont
-          (TFlat.let_ (op2 (.and i64) (.var 0) (.imm 1#64)) (.ret (Arg.var 0, ())) : TFlat [i64])
-          (pushTup (f := Val) (as := [i64]) (x, ()) []) [] =
-          (Expr.let_ (op2 (.and i64) (.var x) (.imm 1#64))
-            (fun xs => Expr.ret (Arg.var xs.1, ())) : Expr Val Cont [i64]) := rfl
-      rw [hden]
-      dsimp only [wp, Op.wp, OpCode.wp, op2, lift2, vals, Arg.val]
-      exact hΓ
-    · intro xs m Q X hΓ
-      rcases xs with ⟨x, ⟨⟩⟩
-      dsimp only [stageCEnv] at hΓ
-      dsimp only [satLitNegTf, Frontend.C0.TFlatFn.toFn, Func.wp, denoteFunc]
-      have hden : denote Val Cont
-          (TFlat.let_ (op2 (.xor i64) (.var 0) (.imm 1#64)) (.ret (Arg.var 0, ())) : TFlat [i64])
-          (pushTup (f := Val) (as := [i64]) (x, ()) []) [] =
-          (Expr.let_ (op2 (.xor i64) (.var x) (.imm 1#64))
-            (fun xs => Expr.ret (Arg.var xs.1, ())) : Expr Val Cont [i64]) := rfl
-      rw [hden]
-      dsimp only [wp, Op.wp, OpCode.wp, op2, lift2, vals, Arg.val]
-      exact hΓ
+    rcases hmem with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+      · intro xs m Q X hΓ; rcases xs with ⟨x, ⟨⟩⟩
+        dsimp only [c0SqrTf, c0Step1Tf, c0Step2Tf, c0PipeTf, satLitVarTf, satLitSignTf,
+          satLitNegTf, Frontend.C0.TFlatFn.toFn, Func.wp, denoteFunc, stageCEnv] at hΓ ⊢
+        first
+        | exact stageC_call_wp stageCEnv m Q X _ x _ _ ⟨rfl, rfl⟩ hΓ
+        | exact stageC_leaf_wp stageCEnv m Q X _ _ x x [] (.inl ⟨rfl, rfl⟩)
+            (by simpa [Ty.hasFloat, OpCode.wp, lift2] using hΓ)
+        | exact stageC_leaf_wp stageCEnv m Q X _ _ x _ [] (.inr rfl)
+            (by simpa [Ty.hasFloat, OpCode.wp, lift2] using hΓ)
 
 /-! ## 4. Verified Host Layout & Concrete Machine Semantics -/
 
@@ -326,18 +259,12 @@ theorem stageC_host_ok :
         (Env.ofModule stageCMod stageCEnv tf.name tf.as tf.rs)
         ((lookupBound0 stageCBounds (lookupSymId? stageCTbl tf.name).get!).getD 0) 0 := by
   have hlt32 : decide (stageCTbl.length < 2 ^ 32) = true := by t_kernel_rfl
-  have hwf_c : ∀ tf ∈ stageCTfs, tf.flat.wfCheck (pushTypes tf.as []) [] = true := by
-    intro tf htf
-    simp only [stageCTfs, List.mem_cons, List.not_mem_nil, or_false] at htf
-    rcases htf with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> t_kernel_rfl
-  have hu32_c : ∀ tf ∈ stageCTfs, tflatIdxLtU32 tf.flat = true := by
-    intro tf htf
-    simp only [stageCTfs, List.mem_cons, List.not_mem_nil, or_false] at htf
-    rcases htf with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> t_kernel_rfl
-  have hnoloc_c : ∀ tf ∈ stageCTfs, symNoLocPrefix0 tf.name = true := by
-    intro tf htf
-    simp only [stageCTfs, List.mem_cons, List.not_mem_nil, or_false] at htf
-    rcases htf with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> t_kernel_rfl
+  have hwf_c := List.all_eq_true.mp
+    (by t_kernel_rfl : stageCTfs.all (fun tf => tf.flat.wfCheck (pushTypes tf.as []) []) = true)
+  have hu32_c := List.all_eq_true.mp
+    (by t_kernel_rfl : stageCTfs.all (fun tf => tflatIdxLtU32 tf.flat) = true)
+  have hnoloc_c := List.all_eq_true.mp
+    (by t_kernel_rfl : stageCTfs.all (fun tf => symNoLocPrefix0 tf.name) = true)
   obtain ⟨hu, hprint, hfns⟩ := bridge_leanqbe0Compile_layout (Γ := stageCEnv)
     stageCTfs [] [] stageC_bridge_ok stageC_compile_ok stageC_okGuards (of_decide_eq_true hlt32)
     hwf_c hu32_c stageC_acyc List.nodup_nil (fun _ h => nomatch h)

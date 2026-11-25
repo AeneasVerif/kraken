@@ -45,32 +45,24 @@ open LeanQbe.T.Bootstrap0
 
 eval_dir_stats! leanqbe0DirStats x64Target x64LegalTarget leanqbe0Mod0 rtExtBounds0 rtExitSyms
 
-#guard leanqbe0LcMod.papTargets.isEmpty
-#guard leanqbe0LcMod.maxAp == 0
-
 private def totalGlobalsCount : Nat :=
   let consts := leanqbe0LcMod.decls.filter fun d => d.params.isEmpty && !d.retTy.isScalar
   let allLits := leanqbe0LcMod.decls.map (·.body.lits)
-  let strs := dedupStr (allLits.flatMap (·.1))
-  let bigNats := dedupNat (allLits.flatMap (·.2))
-  consts.length + strs.length + bigNats.length
+  consts.length + (dedupStr (allLits.flatMap (·.1))).length +
+    (dedupNat (allLits.flatMap (·.2))).length
 
-#guard totalGlobalsCount == 0
-#guard leanqbe0Mod0.fns.length <= 125
-#guard leanqbe0Mod0.fns.length == 124
-#guard leanqbe0DirStats.length == leanqbe0Mod0.fns.length
-#guard leanqbe0DirStats.all fun p => p.2 <= 260
-#guard leanqbe0Mod0.fns.all fun f => Func.checkTFlat f.body
-#guard leanqbe0Mod0.checkAcyclic
+#guard leanqbe0LcMod.papTargets.isEmpty && leanqbe0LcMod.maxAp == 0 && totalGlobalsCount == 0 &&
+  leanqbe0Mod0.fns.length == 124 && leanqbe0DirStats.length == leanqbe0Mod0.fns.length &&
+  (leanqbe0DirStats.all fun p => p.2 <= 260) &&
+  (leanqbe0Mod0.fns.all fun f => Func.checkTFlat f.body) && leanqbe0Mod0.checkAcyclic
 
 example : leanqbe0Cert.bounds.length = 124 := leanqbe0Cert_bounds_len
 example : leanqbe0Cert.numChunks > 0 := leanqbe0Cert_numChunks_pos
 example : leanqbe0Cert.bounds.all (fun p => Nat.ble p.2 2048) = true := leanqbe0Cert_bounds_le
 example : (!leanqbe0Cert.code.isEmpty) = true := leanqbe0Cert_code_nonempty
 
-#guard match leanqbe0Compile dummyAddMod0 with | .ok _ _ => true | .err _ _ => false
-#guard match leanqbe0Compile dummyLoopMod0 with | .ok _ _ => true | .err _ _ => false
-#guard match leanqbe0Compile dummyCallTailMod0 with | .ok _ _ => true | .err _ _ => false
+#guard [dummyAddMod0, dummyLoopMod0, dummyCallTailMod0].all fun m =>
+  match leanqbe0Compile m with | .ok _ _ => true | .err _ _ => false
 
 /-- Exhaustive scalar opcode witness exercising `.un`, `.bin`, `.cmp`, `.select`, `.conv`, `.div`,
 `.let2Umulw64`, `.load`, `.store`, `.bool`, `.b8`/`.b16`/`.b32`/`.b64`, `.exit`, and `.hlt`. -/
@@ -284,12 +276,10 @@ private def runMod0 (m : TFlatModule0) (a0 a1 a2 : UInt64) : Option UInt64 :=
 
 #guard run0 group2Dirs0 1000 group2Dirs0
   { reg := fun _ => 9, slots := Array.replicate 16 0xdeadbeef, zf := false } == some 18
-#guard runMod0 group2Mod0 1 5 7 == some 12
-#guard runMod0 group2Mod0 0 5 7 == some 5
-#guard runMod0 group3Mod0 1 0 10 == some 11
-#guard runMod0 group3Mod0 1 1 10 == some 11
-#guard runMod0 group3Mod0 0 1 10 == some 12
-#guard runMod0 group3Mod0 0 0 10 == some 26
+#guard [(1, 5, 7, 12), (0, 5, 7, 5)].all fun (c, a, b, v) =>
+  runMod0 group2Mod0 c a b == some v
+#guard [(1, 0, 10, 11), (1, 1, 10, 11), (0, 1, 10, 12), (0, 0, 10, 26)].all fun (c, d, a, v) =>
+  runMod0 group3Mod0 c d a == some v
 
 /-! ## Regression: `.jump` into a `.group` opened after a `.jnz` (`lblSlots` indexing) -/
 
@@ -327,12 +317,10 @@ def jnzGroup2Fn0 : TFlatFn0 :=
 /-- Single-function module for `jnzGroup2Fn0`. -/
 def jnzGroup2Mod0 : TFlatModule0 := { fns := [jnzGroup2Fn0], externs := [], exits := [] }
 
-#guard runMod0 jnzGroupMod0 1 5 7 == some 7
-#guard runMod0 jnzGroupMod0 0 5 7 == some 5
-#guard runMod0 jnzGroup2Mod0 1 0 10 == some 10
-#guard runMod0 jnzGroup2Mod0 1 1 10 == some 10
-#guard runMod0 jnzGroup2Mod0 0 1 10 == some 7
-#guard runMod0 jnzGroup2Mod0 0 0 10 == some 20
+#guard [(1, 5, 7, 7), (0, 5, 7, 5)].all fun (c, a, b, v) =>
+  runMod0 jnzGroupMod0 c a b == some v
+#guard [(1, 0, 10, 10), (1, 1, 10, 10), (0, 1, 10, 7), (0, 0, 10, 20)].all fun (c, d, a, v) =>
+  runMod0 jnzGroup2Mod0 c d a == some v
 
 /-! ## Regression: `.un .neg .bool` is rejected by `checkOpArith0` -/
 
