@@ -1,9 +1,11 @@
 module
 
 public import LeanQbe.T.Logic.C0Step
+public import LeanQbe.T.Logic.C0HeadStepGuard
 public meta import Lean.Elab.Tactic
 public meta import LeanQbe.T.Logic.C0StepAttr
 public meta import LeanQbe.T.Logic.C0Step
+public meta import LeanQbe.T.Logic.C0HeadStepGuard
 
 /-!
 # `O(1)` Head-Only C0 Symbolic Execution (`C0HeadStep`)
@@ -1442,3 +1444,195 @@ elab "c0_split" : tactic => c0SplitLoop 100
 elab "c0_to_group" : tactic => c0ToGroupLoop 500
 
 end LeanQbe.T.C0HeadStep
+
+end
+
+public section
+
+open Lean Meta Elab Tactic
+
+namespace LeanQbe.T.C0HeadStep
+
+private meta def isWpGoal (g : MVarId) : MetaM Bool :=
+  g.withContext do
+    let ty := (← instantiateMVars (← g.getType)).consumeMData.headBeta.consumeMData
+    return ty.isAppOf ``LeanQbe.T.wp || ty.isAppOf ``LeanQbe.T.Func.wp
+
+private meta def evalExitTacOn? (gs : List MVarId)
+    (tac : TSyntax ``Lean.Parser.Tactic.tacticSeq) : TacticM Bool := do
+  let s ← saveState
+  try
+    setGoals gs
+    evalTactic (← `(tactic| all_goals ($tac:tacticSeq)))
+    if (← getUnsolvedGoals).isEmpty then
+      return true
+    s.restore
+    return false
+  catch _ =>
+    s.restore
+    return false
+
+private meta def stepStraightOnGoal (strictMem : Bool) (g : MVarId) :
+    TacticM (List MVarId) := do
+  setGoals [g]
+  let (_, err?) ← headStepsLoop { unrollGroup := false, splitJnz := false, strictMem } 5000
+  if strictMem then
+    if let some msg := err? then throwError msg
+  return ← getUnsolvedGoals
+
+private meta partial def splitSideAndSingleWp? (gs : List MVarId) :
+    MetaM (Option (List MVarId × MVarId)) := do
+  let mut sides : List MVarId := []
+  let mut wps : List MVarId := []
+  for g in gs do
+    if ← isWpGoal g then
+      wps := wps ++ [g]
+    else
+      sides := sides ++ [g]
+  match wps with
+  | [gWp] => return some (sides, gWp)
+  | _ => return none
+
+private meta partial def guardExitLoop (strictMem : Bool)
+    (exitTac? : Option (TSyntax ``Lean.Parser.Tactic.tacticSeq)) (fuel : Nat) (peeled : Bool)
+    (exits : Array MVarId) (g : MVarId) : TacticM (Array MVarId × List MVarId) := do
+  let gs ← stepStraightOnGoal strictMem g
+  if gs.isEmpty then
+    return (exits, [])
+  if fuel = 0 then
+    return (exits, gs)
+  let some (topSides, gCur) ← splitSideAndSingleWp? gs | return (exits, gs)
+  let isJnz ← gCur.withContext do
+    let ty := (← instantiateMVars (← gCur.getType)).consumeMData.headBeta.consumeMData
+    return isWpHeadExpr ty ``LeanQbe.T.Expr.jnz
+  if !isJnz then
+    return (exits, gs)
+  let sBeforeSplit ← saveState
+  setGoals [gCur]
+  let ok ← headStepOnce { unrollGroup := false, splitJnz := true, pruneJnz := true, strictMem }
+  if !ok then
+    sBeforeSplit.restore
+    return (exits, topSides ++ [← normStoppedGoal gCur])
+  let splitGoals ← getUnsolvedGoals
+  let exitsWithTop := exits ++ topSides.toArray
+  let contArm (nextGs : List MVarId) (exAcc : Array MVarId) :
+      TacticM (Array MVarId × List MVarId) := do
+    if nextGs.isEmpty then
+      return (exAcc, [])
+    if let some (sides, gNext) ← splitSideAndSingleWp? nextGs then
+      if let [gOnly] := nextGs then
+        guardExitLoop strictMem exitTac? (fuel - 1) true exAcc gOnly
+      else
+        let isNextJnz ← gNext.withContext do
+          let ty := (← instantiateMVars (← gNext.getType)).consumeMData.headBeta.consumeMData
+          return isWpHeadExpr ty ``LeanQbe.T.Expr.jnz
+        if isNextJnz then
+          guardExitLoop strictMem exitTac? (fuel - 1) true (exAcc ++ sides.toArray) gNext
+        else
+          return (exAcc, nextGs)
+    else
+      return (exAcc, nextGs)
+  match splitGoals with
+  | [] => return (exitsWithTop, [])
+  | [gOnly] =>
+      guardExitLoop strictMem exitTac? (fuel - 1) true exitsWithTop gOnly
+  | [g1, g2] =>
+      let gs1 ← stepStraightOnGoal strictMem g1
+      let gs2 ← stepStraightOnGoal strictMem g2
+      match exitTac? with
+      | some tac =>
+          if ← evalExitTacOn? gs1 tac then
+            contArm gs2 exitsWithTop
+          else if ← evalExitTacOn? gs2 tac then
+            contArm gs1 exitsWithTop
+          else
+            let _ := peeled
+            sBeforeSplit.restore
+            return (exits, topSides ++ [← normStoppedGoal gCur])
+      | none =>
+          let hasWp1 ← gs1.anyM fun m => (isWpGoal m : MetaM Bool)
+          let hasWp2 ← gs2.anyM fun m => (isWpGoal m : MetaM Bool)
+          if !hasWp1 && hasWp2 then
+            contArm gs2 (exitsWithTop ++ gs1.toArray)
+          else if hasWp1 && !hasWp2 then
+            contArm gs1 (exitsWithTop ++ gs2.toArray)
+          else if !hasWp1 && !hasWp2 then
+            return (exitsWithTop ++ gs1.toArray ++ gs2.toArray, [])
+          else
+            sBeforeSplit.restore
+            return (exits, topSides ++ [← normStoppedGoal gCur])
+  | multi =>
+      return (exitsWithTop, multi)
+
+private meta def runGuardExit (strictMem : Bool)
+    (exitTac? : Option (TSyntax ``Lean.Parser.Tactic.tacticSeq)) : TacticM Unit := do
+  let mut allOut : Array MVarId := #[]
+  for g in ← getUnsolvedGoals do
+    if ← g.isAssigned then continue
+    let (exits, live) ← guardExitLoop strictMem exitTac? 256 false #[] g
+    allOut := allOut ++ exits ++ live.toArray
+  setGoals allOut.toList
+
+private meta def runGuardExitWithKey (strictMem : Bool) (key : Syntax)
+    (tac : TSyntax ``Lean.Parser.Tactic.tacticSeq) : TacticM Unit := do
+  unless key.getId == `exit do
+    throwErrorAt key "expected `(exit := ...)`"
+  runGuardExit strictMem (some tac)
+
+/-- Straight-line `O(1)` head-only C0 stepper stopping before `Expr.jnz` and `Expr.group`.
+With `(exit := tac)`, also peels and discharges cascading early-return guard `jnz`s via `tac`. -/
+syntax "c0_hstraight" : tactic
+syntax "c0_hstraight!" : tactic
+syntax "c0_hstraight" " (" ident " := " ("by")? tacticSeq ")" : tactic
+syntax "c0_hstraight!" " (" ident " := " ("by")? tacticSeq ")" : tactic
+
+elab_rules : tactic
+  | `(tactic| c0_hstraight) =>
+      headSteps { unrollGroup := false, splitJnz := false } 10000
+  | `(tactic| c0_hstraight!) =>
+      headSteps { unrollGroup := false, splitJnz := false, strictMem := true } 10000
+  | `(tactic| c0_hstraight ($key:ident := $[by]? $tac:tacticSeq)) =>
+      runGuardExitWithKey false key tac
+  | `(tactic| c0_hstraight! ($key:ident := $[by]? $tac:tacticSeq)) =>
+      runGuardExitWithKey true key tac
+
+/-- Cascading C0 early-return guard stepper: executes straight-line up to `.jnz`, splits once,
+discharges pruned dead branches automatically, collects terminal early-return arms cleanly (or
+closes them via `(exit := tac)`), and continues straight-line execution down the live path. -/
+syntax "c0_guard_exit" : tactic
+syntax "c0_guard_exit!" : tactic
+syntax "c0_guard_exit" " (" ident " := " ("by")? tacticSeq ")" : tactic
+syntax "c0_guard_exit!" " (" ident " := " ("by")? tacticSeq ")" : tactic
+
+elab_rules : tactic
+  | `(tactic| c0_guard_exit) => runGuardExit false none
+  | `(tactic| c0_guard_exit!) => runGuardExit true none
+  | `(tactic| c0_guard_exit ($key:ident := $[by]? $tac:tacticSeq)) =>
+      runGuardExitWithKey false key tac
+  | `(tactic| c0_guard_exit! ($key:ident := $[by]? $tac:tacticSeq)) =>
+      runGuardExitWithKey true key tac
+
+/-- Alias for `c0_guard_exit` matching `c0_h*` head-stepper naming conventions. -/
+syntax "c0_hguard_exit" : tactic
+syntax "c0_hguard_exit!" : tactic
+syntax "c0_hguard_exit" " (" ident " := " ("by")? tacticSeq ")" : tactic
+syntax "c0_hguard_exit!" " (" ident " := " ("by")? tacticSeq ")" : tactic
+
+elab_rules : tactic
+  | `(tactic| c0_hguard_exit) => runGuardExit false none
+  | `(tactic| c0_hguard_exit!) => runGuardExit true none
+  | `(tactic| c0_hguard_exit ($key:ident := $[by]? $tac:tacticSeq)) =>
+      runGuardExitWithKey false key tac
+  | `(tactic| c0_hguard_exit! ($key:ident := $[by]? $tac:tacticSeq)) =>
+      runGuardExitWithKey true key tac
+
+/-- Apply `wp_join_ite` with invariant `P` to flatten a `jnz`-headed `Expr.group`. -/
+syntax "c0_join_ite " term : tactic
+
+elab_rules : tactic
+  | `(tactic| c0_join_ite $P:term) => do
+      evalTactic (← `(tactic| refine LeanQbe.T.wp_join_ite $P ?_ ?_ ?_))
+
+end LeanQbe.T.C0HeadStep
+
+end
