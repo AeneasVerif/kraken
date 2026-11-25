@@ -7,6 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 OUT="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-c0.XXXXXX")}"
+mkdir -p "$OUT/logs"
 echo "outputs in $OUT"
 
 echo "== 1. build C0 frontend & C0Test, generate C++20 headers into $OUT =="
@@ -22,43 +23,115 @@ C11_FLAGS="-std=c11 -O2 -fwrapv -fno-strict-aliasing -Wall -Wextra -Werror"
 CPP_INC="-I$ROOT/LeanQbe/T/Runtime -I$ROOT/LeanQbe/T/Frontend/C0 -I$ROOT/test/c0 -I$OUT"
 CPP_FLAGS="-std=c++20 -O2 -Wall -Wextra -Werror $CPP_INC"
 
-echo "== 2. (V1) compile & run C99/C11 layout parity checks (gcc + clang ASan/UBSan) =="
-timeout 60 gcc $C99_FLAGS "$ROOT/test/c0/test_layout_check.c" -o "$OUT/layout_gcc_c99"
-timeout 60 "$OUT/layout_gcc_c99"
-timeout 60 gcc $C11_FLAGS "$ROOT/test/c0/test_layout_check.c" -o "$OUT/layout_gcc_c11"
-timeout 60 "$OUT/layout_gcc_c11"
-timeout 60 clang $C99_FLAGS -fsanitize=undefined,address \
-  "$ROOT/test/c0/test_layout_check.c" -o "$OUT/layout_clang"
-timeout 60 "$OUT/layout_clang"
+run_v1_d2() {
+  echo "== 2. (V1) compile & run C99/C11 layout parity checks (gcc + clang ASan/UBSan) =="
+  (
+    timeout 60 gcc $C99_FLAGS "$ROOT/test/c0/test_layout_check.c" -o "$OUT/layout_gcc_c99"
+    timeout 60 "$OUT/layout_gcc_c99"
+  ) &
+  local p1=$!
+  (
+    timeout 60 gcc $C11_FLAGS "$ROOT/test/c0/test_layout_check.c" -o "$OUT/layout_gcc_c11"
+    timeout 60 "$OUT/layout_gcc_c11"
+  ) &
+  local p2=$!
+  (
+    timeout 60 clang $C99_FLAGS -fsanitize=undefined,address \
+      "$ROOT/test/c0/test_layout_check.c" -o "$OUT/layout_clang"
+    timeout 60 "$OUT/layout_clang"
+  ) &
+  local p3=$!
+  wait "$p1"; wait "$p2"; wait "$p3"
 
-cat > "$OUT/d2_main.cpp" <<'EOF'
+  cat > "$OUT/d2_main.cpp" <<'EOF'
 #include "c0.h"
 #include "d2_diff.h"
 int main() { return run_d2_tests(); }
 EOF
 
-echo "== 3. (D2) compile native C99 fixtures & run C++20 differential suite =="
-echo "   (gcc+g++ and clang+clang++ ASan/UBSan)"
-for cc_pair in "gcc:g++:" "clang:clang++:-fsanitize=undefined,address"; do
-  IFS=':' read -r CC CXX EXTRA <<< "$cc_pair"
-  echo "--- [$CC / $CXX ${EXTRA:-O2}] ---"
-  for src in test_layout.c proplit.c lean_rc.c v4_sum_pos64.c extra_cf.c; do
-    timeout 60 "$CC" $C99_FLAGS $EXTRA -c "$ROOT/test/c0/$src" -o "$OUT/${src%.c}.$CC.o"
-  done
-  timeout 60 "$CXX" $CPP_FLAGS $EXTRA \
-    "$OUT/d2_main.cpp" \
-    "$OUT/test_layout.$CC.o" \
-    "$OUT/proplit.$CC.o" \
-    "$OUT/lean_rc.$CC.o" \
-    "$OUT/v4_sum_pos64.$CC.o" \
-    "$OUT/extra_cf.$CC.o" \
-    -o "$OUT/d2_runner_$CXX"
-  timeout 60 "$OUT/d2_runner_$CXX"
-done
+  echo "== 3. (D2) compile native C99 fixtures & run C++20 differential suite =="
+  echo "   (gcc+g++ and clang+clang++ ASan/UBSan)"
+  run_d2_pair() {
+    local CC="$1" CXX="$2" EXTRA="$3"
+    local src_pids=()
+    echo "--- [$CC / $CXX ${EXTRA:-O2}] ---"
+    for src in test_layout.c proplit.c lean_rc.c v4_sum_pos64.c extra_cf.c; do
+      timeout 60 "$CC" $C99_FLAGS $EXTRA -c "$ROOT/test/c0/$src" -o "$OUT/${src%.c}.$CC.o" &
+      src_pids+=($!)
+    done
+    for pid in "${src_pids[@]}"; do wait "$pid"; done
+    timeout 60 "$CXX" $CPP_FLAGS $EXTRA \
+      "$OUT/d2_main.cpp" \
+      "$OUT/test_layout.$CC.o" \
+      "$OUT/proplit.$CC.o" \
+      "$OUT/lean_rc.$CC.o" \
+      "$OUT/v4_sum_pos64.$CC.o" \
+      "$OUT/extra_cf.$CC.o" \
+      -o "$OUT/d2_runner_$CXX"
+    timeout 60 "$OUT/d2_runner_$CXX"
+  }
+  run_d2_pair gcc g++ "" >"$OUT/logs/d2_gcc.log" 2>&1 &
+  local pd1=$!
+  run_d2_pair clang clang++ "-fsanitize=undefined,address" >"$OUT/logs/d2_clang.log" 2>&1 &
+  local pd2=$!
+  local d2_fail=0
+  wait "$pd1" || d2_fail=1
+  wait "$pd2" || d2_fail=1
+  cat "$OUT/logs/d2_gcc.log"
+  cat "$OUT/logs/d2_clang.log"
+  return "$d2_fail"
+}
 
-echo "== 4. (Regression) run all 111 adversarial differential probes under test/c0/probes/ =="
-timeout 300 python3 - "$ROOT" "$OUT" <<'PY'
-import concurrent.futures, glob, os, re, struct, subprocess, sys
+run_neg_diag() {
+  echo "== 5. (Negative diagnostics) verify #203 token-level parse & register bitfield errors =="
+  cat > "$OUT/neg_diag.lean" <<'EOF'
+import LeanQbe.T.Frontend.C0
+open LeanQbe.T.Frontend.C0
+
+private def assertErrContains (label : String) (r : Except String α)
+    (subs : List String) : IO Unit := do
+  match r with
+  | .ok _ => throw (IO.userError s!"{label}: expected failure, got .ok")
+  | .error e =>
+    for s in subs do
+      if (e.splitOn s).length ≤ 1 then
+        throw (IO.userError s!"{label}: error '{e}' missing '{s}'")
+
+def main : IO Unit := do
+  assertErrContains "parse-tok" (parseC0 "u32 f(u32 x) { return x + ; }")
+    ["line 1", "symbol ';'"]
+  assertErrContains "parse-do" (parseC0 "u32 f(u32 x) { do { x = 1; } x; }")
+    ["while", "identifier 'x'"]
+  let bfSrc :=
+    "typedef struct { u32 x : 5; u32 y : 27; } bf_t; u32 f(bf_t v) { v.x += 3; return v.x; }"
+  let regSrc := "typedef struct { u32 x; u32 y; } p_t; u32 f(p_t v) { v.x += 3; return v.x; }"
+  assertErrContains "reg-bf" (parseC0 bfSrc >>= lowerTranslationUnit) ["register bitfield", "v.x"]
+  assertErrContains "reg-val" (parseC0 regSrc >>= lowerTranslationUnit) ["register bitfield", "v.x"]
+  IO.println "Negative diagnostics (#203) passed."
+EOF
+  timeout 60 lake env lean --run "$OUT/neg_diag.lean"
+}
+
+echo "== 2-5. running Steps 2+3 (V1+D2) and Step 5 (neg_diag) concurrently with Step 4 (111 probes + PCH) =="
+run_v1_d2 >"$OUT/logs/v1_d2.log" 2>&1 &
+pid_v1_d2=$!
+run_neg_diag >"$OUT/logs/neg_diag.log" 2>&1 &
+pid_neg_diag=$!
+
+# Precompile tqbe_rt.hpp once for g++ (.gch) and clang++ ASan/UBSan (.pch) in parallel with Step 4.
+# Symlink tqbe_rt.hpp into $OUT so g++'s `#pragma once` matches `$OUT/tqbe_rt.hpp.gch` when
+# `<probe>.hpp` re-includes `"tqbe_rt.hpp"`. (Step 3 puts `-I$ROOT/LeanQbe/T/Runtime` before `-I$OUT`.)
+ln -sf "$ROOT/LeanQbe/T/Runtime/tqbe_rt.hpp" "$OUT/tqbe_rt.hpp"
+timeout 60 g++ -std=c++20 -O2 -w -DTQBE_CATCH_UB=1 -x c++-header \
+  "$OUT/tqbe_rt.hpp" -o "$OUT/tqbe_rt.hpp.gch" >"$OUT/logs/pch_gpp.log" 2>&1 &
+pid_gch=$!
+timeout 60 clang++ -std=c++20 -O2 -w -fsanitize=undefined,address -DTQBE_CATCH_UB=1 -x c++-header \
+  "$ROOT/LeanQbe/T/Runtime/tqbe_rt.hpp" -o "$OUT/tqbe_rt.hpp.pch" >"$OUT/logs/pch_clang.log" 2>&1 &
+pid_pch=$!
+
+step4_rc=0
+timeout 300 python3 -B - "$ROOT" "$OUT" "$pid_gch" "$pid_pch" >"$OUT/logs/probes.log" 2>&1 <<'PY' || step4_rc=$?
+import concurrent.futures, glob, os, re, struct, subprocess, sys, time
 
 ROOT, OUT = sys.argv[1], sys.argv[2]
 PDIR = os.path.join(OUT, "probes")
@@ -125,8 +198,10 @@ def scalar_u(ty, v):
 def gen_driver(name, specs, cpp):
     L = []
     if cpp:
+        # TQBE_CATCH_UB=1 is passed via -DTQBE_CATCH_UB=1 so precompiled tqbe_rt.hpp (.gch/.pch)
+        # is valid as the first header before any macro definitions.
         L += [
-            "#define TQBE_CATCH_UB 1", '#include "tqbe_rt.hpp"',
+            '#include "tqbe_rt.hpp"',
             f'#include "{name}.hpp"', "#include <tuple>",
         ]
     else:
@@ -311,6 +386,24 @@ for ln in (r.stdout + r.stderr).split("\n"):
     else:
         cur = None
 
+# Ensure background PCH/GCH builds have completed before launching C++ probe compiles.
+gch_path = os.path.join(OUT, "tqbe_rt.hpp.gch")
+pch_path = os.path.join(OUT, "tqbe_rt.hpp.pch")
+for pid_str in (sys.argv[3], sys.argv[4]):
+    pid = int(pid_str)
+    while os.path.exists(f"/proc/{pid}"):
+        try:
+            with open(f"/proc/{pid}/stat") as fh:
+                if fh.read().split()[2] == "Z":
+                    break
+        except OSError:
+            break
+        time.sleep(0.05)
+
+use_gch = os.path.isfile(gch_path)
+use_pch = os.path.isfile(pch_path)
+rt_dir = os.path.join(ROOT, "LeanQbe/T/Runtime")
+
 def check_one(n):
     hpp = os.path.join(PDIR, f"{n}.hpp")
     is_rej = (n.startswith("rej_") and n not in NOT_REJ) or n in EXPECTED_REJ
@@ -343,12 +436,16 @@ def check_one(n):
     nat_lines = rn.stdout.strip().split("\n") if rn.stdout.strip() else []
     if len(nat_lines) != total:
         return f"FAIL {n} native line count mismatch ({len(nat_lines)} vs {total})"
-    for cxx, extra in [("g++", []), ("clang++", ["-fsanitize=undefined,address"])]:
+    gpp_flags = (["-I", OUT] if use_gch else []) + ["-I", rt_dir]
+    clang_flags = (["-include-pch", pch_path] if use_pch else []) + ["-I", rt_dir]
+    for cxx, extra, inc_flags in [
+        ("g++", [], gpp_flags),
+        ("clang++", ["-fsanitize=undefined,address"], clang_flags),
+    ]:
         binp = os.path.join(PDIR, f"{n}_{cxx}")
         c2 = subprocess.run(
-            ["timeout", "60", cxx, "-std=c++20", "-O2", "-w"] + extra
-            + ["-I", os.path.join(ROOT, "LeanQbe/T/Runtime"),
-               "-I", PDIR, os.path.join(PDIR, f"{n}_low.cpp"), "-o", binp],
+            ["timeout", "60", cxx, "-std=c++20", "-O2", "-w", "-DTQBE_CATCH_UB=1"] + extra
+            + inc_flags + ["-I", PDIR, os.path.join(PDIR, f"{n}_low.cpp"), "-o", binp],
             capture_output=True, text=True,
         )
         if c2.returncode != 0:
@@ -379,7 +476,7 @@ def check_one(n):
     return ("PASS", checked)
 
 failures, rej_cnt, pass_cnt, case_cnt = [], 0, 0, 0
-with concurrent.futures.ThreadPoolExecutor(12) as ex:
+with concurrent.futures.ThreadPoolExecutor(16) as ex:
     for res in ex.map(check_one, names):
         if isinstance(res, str):
             failures.append(res)
@@ -399,32 +496,36 @@ print(
 )
 PY
 
-echo "== 5. (Negative diagnostics) verify #203 token-level parse & register bitfield errors =="
-cat > "$OUT/neg_diag.lean" <<'EOF'
-import LeanQbe.T.Frontend.C0
-open LeanQbe.T.Frontend.C0
+fail=0
+if ! wait "$pid_gch"; then
+  echo "FAIL: g++ precompiled header build failed:" >&2
+  cat "$OUT/logs/pch_gpp.log" >&2 || true
+  fail=1
+fi
+if ! wait "$pid_pch"; then
+  echo "FAIL: clang++ precompiled header build failed:" >&2
+  cat "$OUT/logs/pch_clang.log" >&2 || true
+  fail=1
+fi
+if ! wait "$pid_v1_d2"; then
+  echo "FAIL: Steps 2-3 (V1 + D2) failed:" >&2
+  fail=1
+fi
+cat "$OUT/logs/v1_d2.log"
+echo "== 4. (Regression) all 111 adversarial differential probes under test/c0/probes/ =="
+cat "$OUT/logs/probes.log"
+if [ "$step4_rc" -ne 0 ]; then
+  echo "FAIL: Step 4 (111 probes) exited with rc=$step4_rc" >&2
+  fail=1
+fi
+if ! wait "$pid_neg_diag"; then
+  echo "FAIL: Step 5 (negative diagnostics) failed:" >&2
+  fail=1
+fi
+cat "$OUT/logs/neg_diag.log"
 
-private def assertErrContains (label : String) (r : Except String α)
-    (subs : List String) : IO Unit := do
-  match r with
-  | .ok _ => throw (IO.userError s!"{label}: expected failure, got .ok")
-  | .error e =>
-    for s in subs do
-      if (e.splitOn s).length ≤ 1 then
-        throw (IO.userError s!"{label}: error '{e}' missing '{s}'")
-
-def main : IO Unit := do
-  assertErrContains "parse-tok" (parseC0 "u32 f(u32 x) { return x + ; }")
-    ["line 1", "symbol ';'"]
-  assertErrContains "parse-do" (parseC0 "u32 f(u32 x) { do { x = 1; } x; }")
-    ["while", "identifier 'x'"]
-  let bfSrc :=
-    "typedef struct { u32 x : 5; u32 y : 27; } bf_t; u32 f(bf_t v) { v.x += 3; return v.x; }"
-  let regSrc := "typedef struct { u32 x; u32 y; } p_t; u32 f(p_t v) { v.x += 3; return v.x; }"
-  assertErrContains "reg-bf" (parseC0 bfSrc >>= lowerTranslationUnit) ["register bitfield", "v.x"]
-  assertErrContains "reg-val" (parseC0 regSrc >>= lowerTranslationUnit) ["register bitfield", "v.x"]
-  IO.println "Negative diagnostics (#203) passed."
-EOF
-timeout 60 lake env lean --run "$OUT/neg_diag.lean"
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
 
 echo "== test/c0/run.sh: ALL PASSED =="

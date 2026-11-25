@@ -10,7 +10,7 @@ set -euo pipefail
 # 3. Reference clang -O3 (PrintCpp C3b) object
 # 4. Native test harness exercising arithmetic, multi-fn pipeline, loop,
 #    memory swap/add, and SAT/LRAT literal & clause evaluation
-# 5. Compile time & .text size comparison
+# 5. .text size comparison (+ optional 1,000-iter compile benchmark when STAGE_C_BENCH=1)
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -32,7 +32,7 @@ for tool in gcc clang size; do
   }
 done
 
-echo "[1/5] Emitting Stage C assembly from LeanQbe..."
+echo "[1/5] Emitting Stage C assembly from LeanQbe (single Lean invocation)..."
 cat > "$OUT/emit_stage_c.lean" <<'EOF'
 import LeanQbe.T.Bootstrap0.StageC
 import LeanQbe.T.Bootstrap0.Compiler0
@@ -81,17 +81,41 @@ def main (args : List String) : IO UInt32 := do
       return 1
   let asmFull := printModule0 fnNames dirsFull
   IO.FS.writeFile s!"{outDir}/stage_c_full_leanqbe.s" asmFull
+
+  -- 3. Optional 1,000-iteration compile benchmark (gated behind STAGE_C_BENCH=1)
+  if (← IO.getEnv "STAGE_C_BENCH") == some "1" then
+    let _ := leanqbe0Compile mod0
+    let _ := Driver.compileFns x64Isa x64LegalTarget fns
+    let iters := 1000
+    let t0 ← IO.monoNanosNow
+    for _ in [:iters] do
+      let _ := leanqbe0Compile mod0
+    let t1 ← IO.monoNanosNow
+    let t2 ← IO.monoNanosNow
+    for _ in [:iters] do
+      let _ := Driver.compileFns x64Isa x64LegalTarget fns
+    let t3 ← IO.monoNanosNow
+    let lq0PerIterUs := ((t1 - t0).toFloat / iters.toFloat) / 1000.0
+    let lqFullPerIterUs := ((t3 - t2).toFloat / iters.toFloat) / 1000.0
+    IO.FS.writeFile s!"{outDir}/compile_time.txt"
+      s!"COMPILE_TIME: leanqbe0={lq0PerIterUs} us/iter, full={lqFullPerIterUs} us/iter\n"
   return 0
 EOF
 
 timeout 120 lake env lean --run "$OUT/emit_stage_c.lean" "$OUT"
 
 echo "[2/5] Compiling C reference (clang -O3 / C3b) and assembling assemblies..."
-timeout 30 clang -O3 -c "$OUT/stage_c.c" -o "$OUT/stage_c_clang_O3.o"
-timeout 30 gcc -c "$OUT/stage_c_leanqbe0.s" -o "$OUT/stage_c_lq0_gcc.o"
-timeout 30 clang -c "$OUT/stage_c_leanqbe0.s" -o "$OUT/stage_c_lq0_clang.o"
-timeout 30 gcc -c "$OUT/stage_c_full_leanqbe.s" -o "$OUT/stage_c_full_gcc.o"
-timeout 30 clang -c "$OUT/stage_c_full_leanqbe.s" -o "$OUT/stage_c_full_clang.o"
+timeout 30 clang -O3 -c "$OUT/stage_c.c" -o "$OUT/stage_c_clang_O3.o" &
+p1=$!
+timeout 30 gcc -c "$OUT/stage_c_leanqbe0.s" -o "$OUT/stage_c_lq0_gcc.o" &
+p2=$!
+timeout 30 clang -c "$OUT/stage_c_leanqbe0.s" -o "$OUT/stage_c_lq0_clang.o" &
+p3=$!
+timeout 30 gcc -c "$OUT/stage_c_full_leanqbe.s" -o "$OUT/stage_c_full_gcc.o" &
+p4=$!
+timeout 30 clang -c "$OUT/stage_c_full_leanqbe.s" -o "$OUT/stage_c_full_clang.o" &
+p5=$!
+wait "$p1"; wait "$p2"; wait "$p3"; wait "$p4"; wait "$p5"
 
 echo "[3/5] Building differential native test harness..."
 cat > "$OUT/test_harness.c" <<'EOF'
@@ -158,12 +182,18 @@ int main(void) {
 }
 EOF
 
-# Link differential test matrix
-timeout 30 gcc "$OUT/test_harness.c" "$OUT/stage_c_lq0_gcc.o" -o "$OUT/bin_lq0_gcc"
-timeout 30 clang "$OUT/test_harness.c" "$OUT/stage_c_lq0_clang.o" -o "$OUT/bin_lq0_clang"
-timeout 30 gcc "$OUT/test_harness.c" "$OUT/stage_c_full_gcc.o" -o "$OUT/bin_full_gcc"
-timeout 30 clang "$OUT/test_harness.c" "$OUT/stage_c_full_clang.o" -o "$OUT/bin_full_clang"
-timeout 30 clang "$OUT/test_harness.c" "$OUT/stage_c_clang_O3.o" -o "$OUT/bin_clang_O3"
+# Link differential test matrix in parallel
+timeout 30 gcc "$OUT/test_harness.c" "$OUT/stage_c_lq0_gcc.o" -o "$OUT/bin_lq0_gcc" &
+l1=$!
+timeout 30 clang "$OUT/test_harness.c" "$OUT/stage_c_lq0_clang.o" -o "$OUT/bin_lq0_clang" &
+l2=$!
+timeout 30 gcc "$OUT/test_harness.c" "$OUT/stage_c_full_gcc.o" -o "$OUT/bin_full_gcc" &
+l3=$!
+timeout 30 clang "$OUT/test_harness.c" "$OUT/stage_c_full_clang.o" -o "$OUT/bin_full_clang" &
+l4=$!
+timeout 30 clang "$OUT/test_harness.c" "$OUT/stage_c_clang_O3.o" -o "$OUT/bin_clang_O3" &
+l5=$!
+wait "$l1"; wait "$l2"; wait "$l3"; wait "$l4"; wait "$l5"
 
 echo "[4/5] Executing differential native test matrix..."
 res1="$(timeout 30 "$OUT/bin_lq0_gcc")"
@@ -186,53 +216,12 @@ echo "  full lqbe (gcc):  $res3"
 echo "  full lqbe (clang):$res4"
 echo "  clang -O3 (C3b):  $res5"
 
-echo "[5/5] Measuring compile times & .text code sizes..."
-cat > "$OUT/bench_compile.lean" <<'EOF'
-import LeanQbe.T.Bootstrap0.StageC
-import LeanQbe.T.Bootstrap0.Compiler0
-import LeanQbe.T.Bootstrap0.Bridge0
-import LeanQbe.T.Driver
-import LeanQbe.T.Amd64.Isa
-import LeanQbe.T.Amd64.PrintAsm0
-
-open LeanQbe.T
-open LeanQbe.T.Amd64
-open LeanQbe.T.Bootstrap0
-open LeanQbe.T.Frontend.C0
-
-def main : IO Unit := do
-  let tfs ← match compileC0Source [] stageCSource with
-    | .ok t => pure t
-    | .error e => throw <| IO.userError s!"c0: {e}"
-  let (mod, _) ← match ofTFlatModule tfs [] [] with
-    | .ok p => pure p
-    | .error e => throw <| IO.userError s!"ofTFlat: {e}"
-  let fns := tfs.map (·.toFn)
-
-  -- Warm up
-  let _ := leanqbe0Compile mod
-  let _ := Driver.compileFns x64Isa x64LegalTarget fns
-
-  -- Benchmark 1000 iterations
-  let iters := 1000
-  let t0 ← IO.monoNanosNow
-  for _ in [:iters] do
-    let _ := leanqbe0Compile mod
-  let t1 ← IO.monoNanosNow
-
-  let t2 ← IO.monoNanosNow
-  for _ in [:iters] do
-    let _ := Driver.compileFns x64Isa x64LegalTarget fns
-  let t3 ← IO.monoNanosNow
-
-  let lq0Nanos := t1 - t0
-  let lqFullNanos := t3 - t2
-  let lq0PerIterUs := (lq0Nanos.toFloat / iters.toFloat) / 1000.0
-  let lqFullPerIterUs := (lqFullNanos.toFloat / iters.toFloat) / 1000.0
-  IO.println s!"COMPILE_TIME: leanqbe0={lq0PerIterUs} us/iter, full={lqFullPerIterUs} us/iter"
-EOF
-
-timeout 60 lake env lean --run "$OUT/bench_compile.lean"
+echo "[5/5] Measuring .text code sizes (and compile times when STAGE_C_BENCH=1)..."
+if [ -f "$OUT/compile_time.txt" ]; then
+  cat "$OUT/compile_time.txt"
+else
+  echo "NOTE: skipping 1000-iter compile benchmark (set STAGE_C_BENCH=1 to enable)"
+fi
 
 echo "OBJECT SIZES (.text section):"
 size "$OUT/stage_c_lq0_gcc.o" "$OUT/stage_c_full_gcc.o" "$OUT/stage_c_clang_O3.o"

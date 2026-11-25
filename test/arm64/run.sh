@@ -23,28 +23,75 @@ if [ -z "${NOQBE:-}" ] && [ -z "${QBE:-}" ]; then
     exit 1
   fi
 fi
+
 # ld of the cross toolchain warns about the SFrame format of crtbeginS.o; harmless.
-link() { rm -f "$1"; timeout 120 "$CC" -O1 -o "$1" "$2" "$3" 2>&1 | grep -v -e 'SFrame' >&2; [ -x "$1" ]; }
-fail=0
-run() { # $1 = label, $2 = binary
-  if timeout 60 $RUN "$2" >"$2.out" 2>&1; then echo "PASS $1"; else echo "FAIL $1: run"; cat "$2.out"; fail=1; fi
+link_logged() {
+  local out_bin="$1" src_c="$2" src_s="$3" log="$4"
+  rm -f "$out_bin"
+  timeout 120 "$CC" -O1 -o "$out_bin" "$src_c" "$src_s" 2>&1 | { grep -v -e 'SFrame' || true; } >>"$log"
+  [ -x "$out_bin" ]
 }
-for h in test/*_main.c test/arm64/*_main.c; do
-  [ -f "$h" ] || continue
+
+run_harness() {
+  local h="$1" name log rc=0
   name="$(basename "$h" _main.c)"
+  log="$OUT/$name.log"
+  : > "$log"
   # A harness whose program leanqbe-arm64 does not know fails here: the program table is the one
   # of leanqbe, so there is nothing to skip.
   if timeout 60 .lake/build/bin/leanqbe-arm64 "$name" >"$OUT/$name.s" &&
-     link "$OUT/$name" "$h" "$OUT/$name.s"; then
-    run "$name (arm64)" "$OUT/$name"
-  else echo "FAIL $name (arm64): emit, assemble or link"; fail=1; fi
+     link_logged "$OUT/$name" "$h" "$OUT/$name.s" "$log"; then
+    if timeout 60 $RUN "$OUT/$name" >"$OUT/$name.out" 2>&1; then
+      echo "PASS $name (arm64)" >>"$log"
+    else
+      echo "FAIL $name (arm64): run" >>"$log"
+      cat "$OUT/$name.out" >>"$log"
+      rc=1
+    fi
+  else
+    echo "FAIL $name (arm64): emit, assemble or link" >>"$log"
+    rc=1
+  fi
   if [ -z "${NOQBE:-}" ]; then
     if timeout 60 .lake/build/bin/leanqbe-arm64 --il "$name" >"$OUT/$name.ssa" &&
        timeout 60 "$QBE" -t arm64 -o "$OUT/$name.qbe.s" "$OUT/$name.ssa" &&
-       link "$OUT/$name.qbe" "$h" "$OUT/$name.qbe.s"; then
-      run "$name (stock qbe arm64)" "$OUT/$name.qbe"
-    else echo "FAIL $name (stock qbe arm64): print, qbe or link"; fail=1; fi
+       link_logged "$OUT/$name.qbe" "$h" "$OUT/$name.qbe.s" "$log"; then
+      if timeout 60 $RUN "$OUT/$name.qbe" >"$OUT/$name.qbe.out" 2>&1; then
+        echo "PASS $name (stock qbe arm64)" >>"$log"
+      else
+        echo "FAIL $name (stock qbe arm64): run" >>"$log"
+        cat "$OUT/$name.qbe.out" >>"$log"
+        rc=1
+      fi
+    else
+      echo "FAIL $name (stock qbe arm64): print, qbe or link" >>"$log"
+      rc=1
+    fi
   fi
+  return "$rc"
+}
+
+MAX_JOBS="${TEST_JOBS:-8}"
+fail=0
+running=0
+logs=()
+for h in test/*_main.c test/arm64/*_main.c; do
+  [ -f "$h" ] || continue
+  while [ "$running" -ge "$MAX_JOBS" ]; do
+    wait -n || fail=1
+    running=$((running - 1))
+  done
+  name="$(basename "$h" _main.c)"
+  logs+=("$OUT/$name.log")
+  run_harness "$h" &
+  running=$((running + 1))
+done
+while [ "$running" -gt 0 ]; do
+  wait -n || fail=1
+  running=$((running - 1))
+done
+for log in "${logs[@]}"; do
+  cat "$log"
 done
 echo "outputs in $OUT"
 exit $fail
