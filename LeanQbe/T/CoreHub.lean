@@ -123,6 +123,7 @@ public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.OptPolicy
 public import LeanQbe.T.OptUtil
 public import LeanQbe.T.OptUtilLemmas
+public import LeanQbe.T.PassEnvKit
 public import LeanQbe.T.Peel
 public import LeanQbe.T.PeelLemmas
 public import LeanQbe.T.PrintCpp
