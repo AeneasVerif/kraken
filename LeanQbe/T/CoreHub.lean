@@ -165,6 +165,7 @@ public import LeanQbe.T.Unified.CfgRecoveryProof
 public import LeanQbe.T.Unified.Core
 public import LeanQbe.T.Unified.Driver
 public import LeanQbe.T.Unified.DriverLemmas
+public import LeanQbe.T.Unified.Frontend.Bedrock2
 public import LeanQbe.T.Unified.Ssa
 public import LeanQbe.T.WP
 public import LeanQbe.T.WPLemmas
