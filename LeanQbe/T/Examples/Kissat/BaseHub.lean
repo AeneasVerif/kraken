@@ -140,6 +140,7 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityCongProofNv
 public import LeanQbe.T.Examples.Kissat.FullFidelityCongProofSplice
 public import LeanQbe.T.Examples.Kissat.FullFidelityCongProofSplice0
 public import LeanQbe.T.Examples.Kissat.FullFidelityInl
+public import LeanQbe.T.Examples.Kissat.FullFidelityInlBase
 public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep2S15
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweep
@@ -150,6 +151,13 @@ public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofVar
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofVar2
 public import LeanQbe.T.Examples.Kissat.FullFidelityTiers
 public import LeanQbe.T.Examples.Kissat.FullFidelityTiersProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof0a
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof0b
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof1a
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof1b
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof2
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas1
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas2
