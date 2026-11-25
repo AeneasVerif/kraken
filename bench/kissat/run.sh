@@ -26,54 +26,77 @@ if [ -z "$KISSAT_SRC" ] && [ -d "$ROOT/scratch/kissat" ]; then
 fi
 WORK_BYTES="${WORK_BYTES:-8388608}"
 FUEL="${FUEL:-400000}"
+MOD=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --module) MOD="$2"; shift 2 ;;
+    -h|--help) echo "usage: bash bench/kissat/run.sh [--module Plain|CorePlus]"; exit 0 ;;
+    *) echo "ERROR: unknown option '$1'" >&2; exit 2 ;;
+  esac
+done
+if [ -z "$MOD" ]; then
+  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/CorePlus.lean" ] && \
+     [ -f "$ROOT/LeanQbeTest/T/KissatCorePlusC0Test.lean" ]; then
+    MOD=CorePlus
+  else
+    MOD=Plain
+  fi
+fi
+case "${MOD,,}" in
+  plain)
+    MOD_NAME=Plain; TEST_MOD=KissatPlainC0Test; SUITE=plain; TAG=plain ;;
+  coreplus)
+    MOD_NAME=CorePlus; TEST_MOD=KissatCorePlusC0Test; SUITE=coreplus; TAG=coreplus ;;
+  *) echo "ERROR: --module must be Plain or CorePlus (got '$MOD')" >&2; exit 2 ;;
+esac
 
-echo "== 1. build CorePlus, Solver, Codegen Drivers, and KissatCorePlusC0Test =="
+echo "== 1. build $MOD_NAME, Solver, Codegen Drivers, and $TEST_MOD =="
 timeout 600 lake build --wfail \
-  LeanQbe.T.Examples.Kissat.CorePlus LeanQbe.T.Examples.Kissat.Solver \
+  "LeanQbe.T.Examples.Kissat.$MOD_NAME" LeanQbe.T.Examples.Kissat.Solver \
   LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
-  LeanQbeTest.T.KissatCorePlusC0Test
+  "LeanQbeTest.T.$TEST_MOD"
 
-mkdir -p "$OUT/coreplus_hdr" "$OUT/cnfs/gen" "$OUT/cnfs/kissat_test"
-timeout 120 lake env lean --run LeanQbeTest/T/KissatCorePlusC0Test.lean "$OUT"
-printf '#include "../coreplus_cases.h"\n' > "$OUT/coreplus_hdr/kissat_cases.h"
+mkdir -p "$OUT/${TAG}_hdr" "$OUT/cnfs/gen" "$OUT/cnfs/kissat_test"
+timeout 120 lake env lean --run "LeanQbeTest/T/${TEST_MOD}.lean" "$OUT"
+printf '#include "../%s_cases.h"\n' "$TAG" > "$OUT/${TAG}_hdr/kissat_cases.h"
 
 RT_INC="$ROOT/LeanQbe/T/Runtime"
 KTEST_INC="$ROOT/test/kissat"
 COMMON_CXX="-std=c++20 -O2 -Wall -Wextra -Werror -I$RT_INC -I$KTEST_INC -I$OUT"
 COMMON_C="-O2 -Wall -Wextra -Werror -I$KTEST_INC -I$OUT"
 
-echo "== 2. CorePlus PrintCpp (g++ + clang++ ASan/UBSan) differential corpus =="
-timeout 60 g++ $COMMON_CXX -DTQBE_CATCH_UB "$OUT/coreplus_driver.cpp" -o "$OUT/coreplus_gpp"
-timeout 60 "$OUT/coreplus_gpp"
+echo "== 2. $MOD_NAME PrintCpp (g++ + clang++ ASan/UBSan) differential corpus =="
+timeout 60 g++ $COMMON_CXX -DTQBE_CATCH_UB "$OUT/${TAG}_driver.cpp" -o "$OUT/${TAG}_gpp"
+timeout 60 "$OUT/${TAG}_gpp"
 timeout 60 clang++ $COMMON_CXX -fsanitize=undefined,address -DTQBE_CATCH_UB \
-  "$OUT/coreplus_driver.cpp" -o "$OUT/coreplus_asan"
-timeout 60 "$OUT/coreplus_asan"
+  "$OUT/${TAG}_driver.cpp" -o "$OUT/${TAG}_asan"
+timeout 60 "$OUT/${TAG}_asan"
 
-echo "== 3. CorePlus native x64 + Arm64 guarded corpus + D-Min x64 build =="
-timeout 120 lake env lean --run test/common/emit.lean --arch x64 --suite coreplus "$OUT/coreplus_x64.s"
-timeout 60 gcc $COMMON_C -I"$OUT/coreplus_hdr" -no-pie test/kissat/kissat_main.c \
-  "$OUT/coreplus_x64.s" -o "$OUT/coreplus_corpus_x64"
-timeout 60 "$OUT/coreplus_corpus_x64" > "$OUT/corpus_x64.out"
+echo "== 3. $MOD_NAME native x64 + Arm64 guarded corpus + D-Min x64 build =="
+timeout 120 lake env lean --run test/common/emit.lean --arch x64 --suite "$SUITE" "$OUT/${TAG}_x64.s"
+timeout 60 gcc $COMMON_C -I"$OUT/${TAG}_hdr" -no-pie test/kissat/kissat_main.c \
+  "$OUT/${TAG}_x64.s" -o "$OUT/${TAG}_corpus_x64"
+timeout 60 "$OUT/${TAG}_corpus_x64" > "$OUT/corpus_x64.out"
 tail -n 1 "$OUT/corpus_x64.out"
 
-timeout 120 lake env lean --run test/common/emit.lean --arch arm64 --suite coreplus "$OUT/coreplus_arm64.s"
-timeout 60 aarch64-linux-gnu-gcc $COMMON_C -I"$OUT/coreplus_hdr" test/kissat/kissat_main.c \
-  "$OUT/coreplus_arm64.s" -o "$OUT/coreplus_corpus_arm64" 2>"$OUT/arm64_cc.log" || {
+timeout 120 lake env lean --run test/common/emit.lean --arch arm64 --suite "$SUITE" "$OUT/${TAG}_arm64.s"
+timeout 60 aarch64-linux-gnu-gcc $COMMON_C -I"$OUT/${TAG}_hdr" test/kissat/kissat_main.c \
+  "$OUT/${TAG}_arm64.s" -o "$OUT/${TAG}_corpus_arm64" 2>"$OUT/arm64_cc.log" || {
     cat "$OUT/arm64_cc.log" >&2; exit 1;
   }
 grep -v -e 'SFrame' "$OUT/arm64_cc.log" >&2 || true
-timeout 60 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/coreplus_corpus_arm64" \
+timeout 60 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/${TAG}_corpus_arm64" \
   > "$OUT/corpus_arm64.out"
 diff -u "$OUT/corpus_x64.out" "$OUT/corpus_arm64.out"
-echo "PASS: CorePlus x64 == Arm64 guarded corpus differential"
+echo "PASS: $MOD_NAME x64 == Arm64 guarded corpus differential"
 
 timeout 120 lake env lean --run test/common/emit.lean --arch x64 --suite kissat "$OUT/dmin_x64.s"
 timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/dmin_x64.s" \
   -o "$OUT/bench_dmin_x64"
-timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/coreplus_x64.s" \
-  -o "$OUT/bench_coreplus_x64"
-timeout 60 aarch64-linux-gnu-gcc $COMMON_C bench/kissat/bench_main.c "$OUT/coreplus_arm64.s" \
-  -o "$OUT/bench_coreplus_arm64" 2>"$OUT/bench_arm64_cc.log" || {
+timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/${TAG}_x64.s" \
+  -o "$OUT/bench_${TAG}_x64"
+timeout 60 aarch64-linux-gnu-gcc $COMMON_C bench/kissat/bench_main.c "$OUT/${TAG}_arm64.s" \
+  -o "$OUT/bench_${TAG}_arm64" 2>"$OUT/bench_arm64_cc.log" || {
     cat "$OUT/bench_arm64_cc.log" >&2; exit 1;
   }
 grep -v -e 'SFrame' "$OUT/bench_arm64_cc.log" >&2 || true
@@ -120,11 +143,11 @@ fi
 
 echo "== 6. Run differential benchmark comparison & telemetry =="
 timeout 300 python3 - "$OUT" "$WORK_BYTES" "$FUEL" \
-  "$OUT/bench_dmin_x64" "$OUT/bench_coreplus_x64" "$OUT/bench_coreplus_arm64" \
-  "$KISSAT_BIN" <<'PY'
+  "$OUT/bench_dmin_x64" "$OUT/bench_${TAG}_x64" "$OUT/bench_${TAG}_arm64" \
+  "$KISSAT_BIN" "$MOD_NAME" <<'PY'
 import glob, os, statistics, subprocess, sys, time
 
-out, work_bytes, fuel, dmin_bin, cp_x64_bin, cp_arm_bin, kissat_bin = sys.argv[1:8]
+out, work_bytes, fuel, dmin_bin, cp_x64_bin, cp_arm_bin, kissat_bin, mod_name = sys.argv[1:9]
 gen_cnfs = sorted(glob.glob(os.path.join(out, "cnfs/gen/*.cnf")))
 ktest_cnfs = sorted(glob.glob(os.path.join(out, "cnfs/kissat_test/*.cnf")))
 all_cnfs = [(p, "gen/" + os.path.basename(p)) for p in gen_cnfs] + [
@@ -171,8 +194,8 @@ def run_kissat_mode(flags, cnf_paths):
 
 solvers = [
     ("D-Min (x64)", dmin_res),
-    ("CorePlus (x64)", cp_x64_res),
-    ("CorePlus (Arm64 qemu)", cp_arm_res),
+    (f"{mod_name} (x64)", cp_x64_res),
+    (f"{mod_name} (Arm64 qemu)", cp_arm_res),
 ]
 k_def = None
 if kissat_bin:
@@ -211,7 +234,7 @@ for name, tbl in solvers:
     avg_ms = statistics.mean(ms_list)
     max_ms = max(ms_list)
     note = ""
-    if "CorePlus" in name:
+    if mod_name in name:
         confs = sum(tbl[p][2] for p in paths)
         lrn = sum(tbl[p][3] for p in paths)
         mrem = sum(tbl[p][4] for p in paths)
@@ -219,7 +242,7 @@ for name, tbl in solvers:
         note = f"confl={confs} lrn={lrn} min_rem={mrem} ({pct:.1f}% stripped)"
     print(f"{name:<26} {len(solved):>4}/{tot:<4} {nsat:>5} {nunsat:>5} {avg_ms:>9.2f} {max_ms:>9.2f}  {note}")
 
-# Per-family breakdown on generated suite (D-Min vs CorePlus vs optional kissat default)
+# Per-family breakdown on generated suite (D-Min vs target solver vs optional kissat default)
 families = [
     ("php", lambda l: l.startswith("gen/php_")),
     ("tseitin", lambda l: l.startswith("gen/tseitin_")),
@@ -228,8 +251,8 @@ families = [
     ("r3sat", lambda l: l.startswith("gen/r3sat_")),
     ("kissat_test", lambda l: l.startswith("ktest/")),
 ]
-print("\n== Per-Family Solved Breakdown & CorePlus Minimization Impact ==")
-print(f"{'Family':<14} {'N':>4} {'D-Min':>7} {'Core+':>7} {'Kissat':>7} {'CP-confl':>10} {'CP-lrn':>9} {'MinRem(%)':>12}")
+print(f"\n== Per-Family Solved Breakdown & {mod_name} Minimization Impact ==")
+print(f"{'Family':<14} {'N':>4} {'D-Min':>7} {mod_name:>7} {'Kissat':>7} {'Confl':>10} {'Lrn':>9} {'MinRem(%)':>12}")
 for fam, pred in families:
     sub = [p for p, l in all_cnfs if pred(l)]
     if not sub:

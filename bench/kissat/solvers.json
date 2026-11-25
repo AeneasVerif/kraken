@@ -1,7 +1,7 @@
 {
   "Plain": {
     "module": "Plain",
-    "aliases": ["plain"],
+    "aliases": ["plain", "kissatplain"],
     "tag": "plain",
     "c0_target": "plain",
     "lean_mod": "LeanQbe.T.Examples.Kissat.Plain",
@@ -14,7 +14,47 @@
     "cert_x64_file": "LeanQbe/T/Amd64/KissatPlain.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatPlain.lean",
     "unsat_only": false,
-    "default_inline": 0
+    "default_inline": 0,
+    "is_fidelity": false,
+    "is_solver_extension": false
+  },
+  "KissatFidelity": {
+    "module": "KissatFidelity",
+    "aliases": ["fullfidelity", "fidelity", "fid"],
+    "tag": "fidelity",
+    "c0_target": "fidelity",
+    "lean_mod": "LeanQbe.T.Examples.Kissat.FullFidelityAssembly",
+    "mod_file": "FullFidelityAssembly",
+    "mod_expr": "LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule",
+    "extra_imports": ["LeanQbe.T.Examples.Kissat.FullFidelityInl"],
+    "fns_expr": "LeanQbe.T.Examples.Kissat.FullFidelityInl.fidInlFns",
+    "policy_desc": "fidInlPolicy / FullFidelityInl (Kissat 4.0.4 fidelity; certified UNSAT + runtime-checked SAT)",
+    "cert_name": "KissatFidelity",
+    "cert_x64_file": "LeanQbe/T/Amd64/KissatFidelity.lean",
+    "cert_arm64_file": "LeanQbe/T/Arm64/KissatFidelity.lean",
+    "unsat_only": false,
+    "default_inline": 0,
+    "is_fidelity": true,
+    "is_solver_extension": false
+  },
+  "KissatM8Opt": {
+    "module": "KissatM8Opt",
+    "aliases": ["fullm8opt", "m8opt", "opt", "fullm8", "m8"],
+    "tag": "m8opt",
+    "c0_target": "m8opt",
+    "lean_mod": "LeanQbe.T.Examples.Kissat.FullM8OptAssembly",
+    "mod_file": "FullM8OptAssembly",
+    "mod_expr": "LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule",
+    "extra_imports": ["LeanQbe.T.Examples.Kissat.FullM8OptInl"],
+    "fns_expr": "LeanQbe.T.Examples.Kissat.FullM8OptInl.m8OptInlFns",
+    "policy_desc": "m8InlPolicy / FullM8OptInl (beyond-upstream solver extensions; certified UNSAT + runtime-checked SAT)",
+    "cert_name": "KissatM8Opt",
+    "cert_x64_file": "LeanQbe/T/Amd64/KissatM8Opt.lean",
+    "cert_arm64_file": "LeanQbe/T/Arm64/KissatM8Opt.lean",
+    "unsat_only": false,
+    "default_inline": 0,
+    "is_fidelity": false,
+    "is_solver_extension": true
   },
   "CorePlus": {
     "module": "CorePlus",
@@ -31,7 +71,9 @@
     "cert_x64_file": "LeanQbe/T/Amd64/KissatCorePlus.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatCorePlus.lean",
     "unsat_only": false,
-    "default_inline": 0
+    "default_inline": 0,
+    "is_fidelity": false,
+    "is_solver_extension": false
   },
   "Full": {
     "module": "Full",
@@ -48,7 +90,9 @@
     "cert_x64_file": "LeanQbe/T/Amd64/KissatFull.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatFull.lean",
     "unsat_only": true,
-    "default_inline": 0
+    "default_inline": 0,
+    "is_fidelity": false,
+    "is_solver_extension": false
   },
   "FullFast": {
     "module": "FullFast",
@@ -65,7 +109,9 @@
     "cert_x64_file": "LeanQbe/T/Amd64/KissatFullFast.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatFullFast.lean",
     "unsat_only": true,
-    "default_inline": 0
+    "default_inline": 0,
+    "is_fidelity": false,
+    "is_solver_extension": false
   },
   "FullM3": {
     "module": "FullM3",
@@ -82,7 +128,9 @@
     "cert_x64_file": "LeanQbe/T/Amd64/KissatM3.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatM3.lean",
     "unsat_only": true,
-    "default_inline": 0
+    "default_inline": 0,
+    "is_fidelity": false,
+    "is_solver_extension": false
   },
   "FullM4": {
     "module": "FullM4",
@@ -99,7 +147,9 @@
     "cert_x64_file": "LeanQbe/T/Amd64/KissatM4.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatM4.lean",
     "unsat_only": false,
-    "default_inline": 40
+    "default_inline": 40,
+    "is_fidelity": false,
+    "is_solver_extension": false
   },
   "FullM5": {
     "module": "FullM5",
@@ -116,7 +166,9 @@
     "cert_x64_file": "LeanQbe/T/Amd64/KissatM5.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatM5.lean",
     "unsat_only": false,
-    "default_inline": 0
+    "default_inline": 0,
+    "is_fidelity": false,
+    "is_solver_extension": false
   },
   "FullM6": {
     "module": "FullM6",
@@ -133,7 +185,9 @@
     "cert_x64_file": "LeanQbe/T/Amd64/KissatM6.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatM6.lean",
     "unsat_only": false,
-    "default_inline": 0
+    "default_inline": 0,
+    "is_fidelity": false,
+    "is_solver_extension": false
   },
   "FullM7": {
     "module": "FullM7",
@@ -150,7 +204,9 @@
     "cert_x64_file": "LeanQbe/T/Amd64/KissatM7.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatM7.lean",
     "unsat_only": false,
-    "default_inline": 0
+    "default_inline": 0,
+    "is_fidelity": false,
+    "is_solver_extension": false
   },
   "FullM7Plus": {
     "module": "FullM7Plus",
@@ -167,7 +223,9 @@
     "cert_x64_file": "LeanQbe/T/Amd64/KissatM7Plus.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatM7Plus.lean",
     "unsat_only": false,
-    "default_inline": 0
+    "default_inline": 0,
+    "is_fidelity": false,
+    "is_solver_extension": true
   },
   "FullM7Fidelity": {
     "module": "FullM7Fidelity",
@@ -179,11 +237,13 @@
     "mod_expr": "LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule",
     "extra_imports": ["LeanQbe.T.MainInline"],
     "fns_expr": "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy LeanQbe.T.InlinePolicy.b5).fns",
-    "policy_desc": "InlinePolicy.b5",
+    "policy_desc": "InlinePolicy.b5 (transitional fidelity alias until KissatFidelity certs land)",
     "cert_name": "KissatM7Fidelity",
     "cert_x64_file": "LeanQbe/T/Amd64/KissatM7Fidelity.lean",
     "cert_arm64_file": "LeanQbe/T/Arm64/KissatM7Fidelity.lean",
     "unsat_only": false,
-    "default_inline": 0
+    "default_inline": 0,
+    "is_fidelity": true,
+    "is_solver_extension": false
   }
 }

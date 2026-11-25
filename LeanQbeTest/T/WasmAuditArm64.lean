@@ -1,6 +1,7 @@
 module
 
 public import LeanQbeTest.T.WasmAuditSpec
+public import LeanQbeTest.T.WasmCertKit
 public import LeanQbe.T.Arm64.TargLemmas
 public import LeanQbe.T.MainCertElab
 public meta import LeanQbeTest.T.WasmAuditSpec
@@ -27,7 +28,7 @@ namespace LeanQbeTest.T.WasmAuditArm64
 
 open Std Std.ExtHashMap
 open LeanQbe.T LeanQbe.T.Wasm LeanQbe.T.Arm64 Kraken
-open LeanQbeTest.T.WasmAuditSpec
+open LeanQbeTest.T.WasmAuditSpec LeanQbeTest.T.WasmCertKit
 
 /-! ## 1. Multi-Chunk AAPCS64 Compilation Certificate -/
 
@@ -39,9 +40,8 @@ theorem armWasmCert_chunks : armWasmCert.numChunks = 3 := rfl
 theorem armWasmCert_bound_le : armWasmCert.bound "sum_mix" ≤ 2048 :=
   armWasmCert.bound_le_max "sum_mix"
 
-theorem arm_wasm_legalSig : LegalSigAll armLegalTarget wasmQbeMod.fns := by
-  intro f hf
-  exact lowerModule_legalSig wasmAuditMod rfl rfl f hf
+theorem arm_wasm_legalSig : LegalSigAll armLegalTarget wasmQbeMod.fns :=
+  wasm_legalSigAll wasmAuditMod rfl rfl
 
 /-! ## 2. Whole-Module `FnSpec` & Kraken AArch64 `Eventually` Safety Theorems -/
 
@@ -52,9 +52,8 @@ theorem arm_wasm_fnspec [hh : Host] (k₀ : Nat)
     armTarget.Defined hh f.name ∧
       armTarget.FnSpec hh f.name (WasmSandboxEnvAny wasmAuditMod f.name f.as f.rs)
         (armWasmCert.bound f.name) 0 :=
-  armWasmCert.fnSpec_noExit_of_legalSigAll hh (WasmSandboxEnvAny wasmAuditMod) k₀ hc hu
-    wasmQbeMod_acyclic wasmQbeMod_wf arm_wasm_legalSig wasmQbeMod_wp hf
-    (fun args mem Q X X' h => wasmSandboxEnvAny_monoX f.name f.as f.rs args mem Q X X' h)
+  wasm_fnSpec_noExit armWasmCert wasmAuditMod_valid wasmQbeMod_acyclic arm_wasm_legalSig
+    hh k₀ hc hu hf
 
 /-- Linked-host `FnSpec` for `sum_mix` on `armWasmCert.host`. -/
 theorem arm_wasm_host :
@@ -63,85 +62,8 @@ theorem arm_wasm_host :
         (WasmSandboxEnvAny wasmAuditMod "sum_mix"
           [i64, i64, i32, i32] [i32, i64, i32])
         (armWasmCert.bound "sum_mix") 0 :=
-  armWasmCert.fnSpec_host_of_legalSigAll (WasmSandboxEnvAny wasmAuditMod)
-    wasmQbeMod_acyclic wasmQbeMod_wf arm_wasm_legalSig wasmQbeMod_wp
-    (f := lowerFn wasmAuditMod fnSumMix) (by simp [wasmQbeMod, lowerModule, wasmAuditMod])
-    (fun args mem Q X X' h =>
-      wasmSandboxEnvAny_monoX "sum_mix" [i64, i64, i32, i32] [i32, i64, i32]
-        args mem Q X X' h)
-
-private theorem arm_wasm_entry_eventually [hh : Host] (k₀ : Nat)
-    (hc : armWasmCert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    (wf : WFunc) (hwf : wf ∈ wasmAuditMod.funcs) (htidx : wf.typeIdx = 0)
-    (vmCtx memBase memLen memCap fuel : BitVec 64) (a0 a1 : BitVec 32)
-    (s : MachineData) (ra : Int64) (m₀ : Mem 64) (R : Mem 64 → Prop)
-    (hx0 : (s.regs.getXReg .X0).toBitVec = vmCtx)
-    (hx1 : (s.regs.getXReg .X1).toBitVec = fuel)
-    (hx2 : (s.regs.getXReg .X2).toBitVec = BitVec.setWidth 64 a0)
-    (hx3 : (s.regs.getXReg .X3).toBitVec = BitVec.setWidth 64 a1)
-    (hra : s.regs.X30 = ra.toUInt64) (hsp : s.regs.SP.toNat % 16 = 0)
-    (hm₀ : WasmMemInv true vmCtx memBase memLen memCap emp m₀)
-    (hmem : s.dmem =⋆ Eq m₀ ⋆
-      region (s.regs.SP.toBitVec - BitVec.ofNat 64 (armWasmCert.bound wf.name))
-        (armWasmCert.bound wf.name) ⋆ R) :
-    Eventually (step1 Host.exe)
-      (fun st =>
-        st.pc = ra ∧
-        (∀ r ∈ [XReg.X19, .X20, .X21, .X22, .X23, .X24, .X25, .X26, .X27, .X28, .X29],
-          st.data.regs.getXReg r = s.regs.getXReg r) ∧
-        st.data.regs.SP = s.regs.SP ∧
-        (∃ memLen', memLen.toNat ≤ memLen'.toNat ∧
-          WasmMemInv true vmCtx memBase memLen' memCap
-            (region (s.regs.SP.toBitVec - BitVec.ofNat 64 (armWasmCert.bound wf.name))
-              (armWasmCert.bound wf.name) ⋆ R) st.data.dmem) ∧
-        ∃ (status res : BitVec 32) (remFuel : BitVec 64),
-          (status = 0#32 ∨ status = 1#32 ∨ status = 2#32) ∧
-          remFuel.toNat ≤ fuel.toNat ∧
-          ((st.data.regs.getXReg .X0).toBitVec).truncate 32 = status ∧
-          (st.data.regs.getXReg .X1).toBitVec = remFuel ∧
-          ((st.data.regs.getXReg .X2).toBitVec).truncate 32 = res)
-      ⟨s, Labels.label wf.name⟩ := by
-  rcases wf with ⟨nm, ti, locs, bd⟩
-  dsimp only at hwf htidx hmem ⊢
-  subst htidx
-  have hfnMem : lowerFn wasmAuditMod ⟨nm, 0, locs, bd⟩ ∈ wasmQbeMod.fns :=
-    List.mem_map.mpr ⟨⟨nm, 0, locs, bd⟩, hwf, rfl⟩
-  have hfn : armTarget.FnSpec hh nm
-      (WasmSandboxEnvAny wasmAuditMod nm [i64, i64, i32, i32] [i32, i64, i32])
-      (armWasmCert.bound nm) 0 :=
-    (arm_wasm_fnspec k₀ hc hu hfnMem).2
-  have hargs : armTarget.ArgsIn (as := [i64, i64, i32, i32])
-      (vmCtx, fuel, a0, a1, ()) s :=
-    ⟨_, rfl, .cons ⟨by decide, by simpa [get_reg] using hx0⟩
-      (.cons ⟨by decide, by simpa [get_reg] using hx1⟩
-        (.cons ⟨by decide, by simpa [get_reg] using hx2⟩
-          (.cons ⟨by decide, by simpa [get_reg] using hx3⟩ .nil)))⟩
-  have hspec : WasmSandboxEnvAny wasmAuditMod nm [i64, i64, i32, i32] [i32, i64, i32]
-      (vmCtx, fuel, a0, a1, ()) m₀
-      (WasmPost true vmCtx memBase memLen memCap fuel [.i32] emp)
-      (fun _ _ _ _ => False) :=
-    ⟨fuel.toNat, ⟨nm, 0, locs, bd⟩, hwf, rfl, rfl, rfl, Nat.le_refl _, memBase, memLen, memCap,
-      emp, hm₀, fun _ _ h => h⟩
-  refine eventually_weaken _ _ _ _ ?_ (arm64_of_returns hfn hspec s ra R hargs hra hsp hmem)
-  rintro st ⟨hpc, hcal, hspr, ⟨st0, rf, r0, ⟨⟩⟩, m', hpost, hrets, hmem'⟩
-  rcases hpost with ⟨hst, hrf, memLen', hlen', hmInv⟩
-  rcases hmInv with ⟨hcap', hsepInv⟩
-  simp only [sep_emp] at hsepInv
-  rcases hrets with ⟨locsR, hlocR, hrelR⟩
-  have heqR : locsR = (.gpr (.reg .X0), .gpr (.reg .X1), .gpr (.reg .X2), ()) := by
-    injection hlocR with h1; exact h1.symm
-  subst heqR
-  cases hrelR; rename_i hx0' h1; cases h1; rename_i hx1' h2; cases h2; rename_i hx2' _
-  refine ⟨hpc, hcal, hspr, ⟨memLen', hlen', hcap', ?_⟩, st0, r0, rf, hst, hrf,
-    by simpa [get_reg, BitVec.truncate] using congrArg (BitVec.setWidth 32) hx0'.2,
-    by simpa [get_reg] using hx1'.2,
-    by simpa [get_reg, BitVec.truncate] using congrArg (BitVec.setWidth 32) hx2'.2⟩
-  have hmem'' : ((cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) memLen' ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ region memBase memCap.toNat) ⋆
-      region (s.regs.SP.toBitVec - BitVec.ofNat 64 (armWasmCert.bound nm))
-        (armWasmCert.bound nm) ⋆ R) st.data.dmem :=
-    sep_mono (fun _ => sep_mono (fun _ e => e ▸ hsepInv)) hmem'
-  exact sep_cast hmem'' (by ac_rfl)
+  wasm_fnSpec_host armWasmCert wasmAuditMod_valid wasmQbeMod_acyclic arm_wasm_legalSig
+    (wf := fnSumMix) (by simp [wasmAuditMod])
 
 /-- Closed Kraken AArch64 memory safety theorem for Wasm loop kernel `sum_mix`. -/
 theorem arm_wasm_sum_safe [hh : Host] (k₀ : Nat)
@@ -174,8 +96,13 @@ theorem arm_wasm_sum_safe [hh : Host] (k₀ : Nat)
           (st.data.regs.getXReg .X1).toBitVec = remFuel ∧
           ((st.data.regs.getXReg .X2).toBitVec).truncate 32 = res)
       ⟨s, Labels.label "sum_mix"⟩ :=
-  arm_wasm_entry_eventually k₀ hc hu fnSumMix (by simp [wasmAuditMod]) rfl
-    vmCtx memBase memLen memCap fuel ptr len s ra m₀ R hx0 hx1 hx2 hx3 hra hsp hm₀ hmem
+  wasm_of_returns_ret1_i32 (T := armTarget) rfl
+    (arm64_of_returns
+      (wasm_fnSpec_wf armWasmCert wasmAuditMod_valid wasmQbeMod_acyclic arm_wasm_legalSig
+        hh k₀ hc hu (wf := fnSumMix) (by simp [wasmAuditMod]) rfl rfl)
+      (wasm_sandbox_spec rfl (by simp [wasmAuditMod]) rfl rfl
+        vmCtx memBase memLen memCap fuel (ptr, len, ()) hm₀)
+      s ra R (wasm_argsIn_4 rfl hx0 hx1 hx2 hx3) hra hsp hmem)
 
 /-- Closed Kraken AArch64 memory safety theorem for Wasm store/if kernel `write_hash`. -/
 theorem arm_wasm_write_safe [hh : Host] (k₀ : Nat)
@@ -208,8 +135,13 @@ theorem arm_wasm_write_safe [hh : Host] (k₀ : Nat)
           (st.data.regs.getXReg .X1).toBitVec = remFuel ∧
           ((st.data.regs.getXReg .X2).toBitVec).truncate 32 = res)
       ⟨s, Labels.label "write_hash"⟩ :=
-  arm_wasm_entry_eventually k₀ hc hu fnWriteHash (by simp [wasmAuditMod]) rfl
-    vmCtx memBase memLen memCap fuel ptr word s ra m₀ R hx0 hx1 hx2 hx3 hra hsp hm₀ hmem
+  wasm_of_returns_ret1_i32 (T := armTarget) rfl
+    (arm64_of_returns
+      (wasm_fnSpec_wf armWasmCert wasmAuditMod_valid wasmQbeMod_acyclic arm_wasm_legalSig
+        hh k₀ hc hu (wf := fnWriteHash) (by simp [wasmAuditMod]) rfl rfl)
+      (wasm_sandbox_spec rfl (by simp [wasmAuditMod]) rfl rfl
+        vmCtx memBase memLen memCap fuel (ptr, word, ()) hm₀)
+      s ra R (wasm_argsIn_4 rfl hx0 hx1 hx2 hx3) hra hsp hmem)
 
 /-- Out-of-bounds Wasm guest call (`memLen = 4`, `len = 16`) still returns safely on AArch64 and
 preserves arbitrary host memory `R`. -/

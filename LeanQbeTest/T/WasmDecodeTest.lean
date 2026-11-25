@@ -111,94 +111,94 @@ def checkBudgetRecCompile
   (compileModuleBudgetRec wasmTestIsa lt wasmTestIsa.frame.raBytes [] [] 0
     maxBound bfs hints).isOk
 
+private def checkModOk (bs : ByteArray) (names : List String)
+    (hasMem : Bool := false) (numGlobals : Nat := 0) (checkAcyc : Bool := true) : Bool :=
+  match decodeAndLowerWasm bs with
+  | .ok (m, qm) =>
+    m.funcs.map (·.name) == names &&
+    (!hasMem || m.memory.isSome) &&
+    (numGlobals == 0 || m.globals.length == numGlobals) &&
+    (!checkAcyc ||
+      (checkAcyclicCompile LegalTarget.x64 qm && checkAcyclicCompile LegalTarget.aarch64 qm)) &&
+    checkBudgetRecCompile LegalTarget.x64 qm &&
+    checkBudgetRecCompile LegalTarget.aarch64 qm
+  | .error _ => false
+
+private def checkS33Ok (bytes : Array UInt8) (expected : Int) : Bool :=
+  match decodeS33 ⟨⟨bytes⟩, 0⟩ with
+  | .ok (v, r) => v == expected && r.remaining == 0
+  | .error _ => false
+
+private def checkOneInstrOk (opByte : UInt8) (okPred : WInstr → Bool) : Bool :=
+  match decodeOneInstr 10 opByte ⟨⟨#[]⟩, 0⟩ with
+  | .ok (instr, r) => okPred instr && r.remaining == 0
+  | .error _ => false
+
 /-! ## 2. Negative / Robustness Unit Tests -/
 
 -- 2.1 Corrupted magic header (`\0asp` instead of `\0asm`)
-def badMagicBytes : ByteArray := ⟨#[0x00, 0x61, 0x73, 0x70, 0x01, 0x00, 0x00, 0x00]⟩
-#guard !(decodeWasmBytes badMagicBytes).isOk
+#guard !(decodeWasmBytes ⟨#[0x00, 0x61, 0x73, 0x70, 0x01, 0x00, 0x00, 0x00]⟩).isOk
 
 -- 2.2 Unsupported binary version (version 2 instead of 1)
-def badVersionBytes : ByteArray := ⟨#[0x00, 0x61, 0x73, 0x6d, 0x02, 0x00, 0x00, 0x00]⟩
-#guard !(decodeWasmBytes badVersionBytes).isOk
+#guard !(decodeWasmBytes ⟨#[0x00, 0x61, 0x73, 0x6d, 0x02, 0x00, 0x00, 0x00]⟩).isOk
 
 -- 2.3 Truncated binary header (< 8 bytes)
-def tooShortBytes : ByteArray := ⟨#[0x00, 0x61, 0x73]⟩
-#guard !(decodeWasmBytes tooShortBytes).isOk
+#guard !(decodeWasmBytes ⟨#[0x00, 0x61, 0x73]⟩).isOk
 
 -- 2.4 Truncated LEB128 integer with high bit set at stream EOF
-def truncLebBytes : ByteArray :=
-  ⟨#[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x80]⟩
-#guard !(decodeWasmBytes truncLebBytes).isOk
+#guard !(decodeWasmBytes ⟨#[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x80]⟩).isOk
 
 -- 2.5 Overlong 5-byte LEB128 integer with invalid non-zero padding bits
-def overlongLebBytes : ByteArray :=
-  ⟨#[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x80, 0x80, 0x80, 0x80, 0x70]⟩
-#guard !(decodeWasmBytes overlongLebBytes).isOk
+#guard !(decodeWasmBytes ⟨#[
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x80, 0x80, 0x80, 0x80, 0x70
+]⟩).isOk
 
 -- 2.6 Out-of-order standard sections (Section 3 Function before Section 1 Type)
-def outOfOrderBytes : ByteArray := ⟨#[
+#guard !(decodeWasmBytes ⟨#[
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
   0x03, 0x02, 0x01, 0x00,
   0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f
-]⟩
-#guard !(decodeWasmBytes outOfOrderBytes).isOk
+]⟩).isOk
 
 -- 2.7 Duplicate non-custom section (two Section 1 Type sections)
-def dupSectionBytes : ByteArray := ⟨#[
+#guard !(decodeWasmBytes ⟨#[
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
   0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f,
   0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f
-]⟩
-#guard !(decodeWasmBytes dupSectionBytes).isOk
+]⟩).isOk
 
 -- 2.8 Unsupported section id (Section 2 Import rejected gracefully)
-def unsupportedSecBytes : ByteArray := ⟨#[
+#guard !(decodeWasmBytes ⟨#[
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
   0x02, 0x01, 0x00
-]⟩
-#guard !(decodeWasmBytes unsupportedSecBytes).isOk
+]⟩).isOk
 
 -- 2.9 Unmatched structured control flow: unexpected `else` opcode outside `if`
-def unmatchedElseBytes : ByteArray := ⟨#[
+#guard !(decodeWasmBytes ⟨#[
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
   0x01, 0x05, 0x01, 0x60, 0x00, 0x00,
   0x03, 0x02, 0x01, 0x00,
   0x0a, 0x04, 0x01, 0x02, 0x00, 0x05
-]⟩
-#guard !(decodeWasmBytes unmatchedElseBytes).isOk
+]⟩).isOk
 
 -- 2.10 Unsupported opcode (0xFF rejected with clear parse error)
-def unsupportedOpBytes : ByteArray := ⟨#[
+#guard !(decodeWasmBytes ⟨#[
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
   0x01, 0x05, 0x01, 0x60, 0x00, 0x00,
   0x03, 0x02, 0x01, 0x00,
   0x0a, 0x05, 0x01, 0x03, 0x00, 0xff, 0x0b
-]⟩
-#guard !(decodeWasmBytes unsupportedOpBytes).isOk
+]⟩).isOk
 
 -- 2.11 5-byte negative s33 LEB128 decoding (-1 and -2^32)
-#guard match decodeS33 ⟨⟨#[0xff, 0xff, 0xff, 0xff, 0x7f]⟩, 0⟩ with
-  | .ok (v, r) => v == -1 && r.remaining == 0
-  | .error _ => false
-
-#guard match decodeS33 ⟨⟨#[0x80, 0x80, 0x80, 0x80, 0x70]⟩, 0⟩ with
-  | .ok (v, r) => v == -4294967296 && r.remaining == 0
-  | .error _ => false
+#guard checkS33Ok #[0xff, 0xff, 0xff, 0xff, 0x7f] (-1)
+#guard checkS33Ok #[0x80, 0x80, 0x80, 0x80, 0x70] (-4294967296)
 
 -- 2.12 Standard conversion opcodes: 0xA7 (wrap_i64), 0xAC (extend_i32_s), 0xAD (extend_i32_u)
-#guard match decodeOneInstr 10 0xa7 ⟨⟨#[]⟩, 0⟩ with
-  | .ok (.wrap_i64, r) => r.remaining == 0
-  | _ => false
+#guard checkOneInstrOk 0xa7 fun | .wrap_i64 => true | _ => false
+#guard checkOneInstrOk 0xac fun | .extend_i32_s => true | _ => false
+#guard checkOneInstrOk 0xad fun | .extend_i32_u => true | _ => false
 
-#guard match decodeOneInstr 10 0xac ⟨⟨#[]⟩, 0⟩ with
-  | .ok (.extend_i32_s, r) => r.remaining == 0
-  | _ => false
-
-#guard match decodeOneInstr 10 0xad ⟨⟨#[]⟩, 0⟩ with
-  | .ok (.extend_i32_u, r) => r.remaining == 0
-  | _ => false
-
--- 2.13 Rejection of unsupported float / saturating opcodes (0xA6, 0xA8, 0xFC 0..4)
+-- 2.13 Rejection of unsupported float / saturating opcodes (0xA6, 0xA8, 0xFC 0..2)
 #guard !(decodeOneInstr 10 0xa6 ⟨⟨#[]⟩, 0⟩).isOk
 #guard !(decodeOneInstr 10 0xa8 ⟨⟨#[]⟩, 0⟩).isOk
 #guard !(decodeOneInstr 10 0xfc ⟨⟨#[0x00]⟩, 0⟩).isOk
@@ -206,34 +206,30 @@ def unsupportedOpBytes : ByteArray := ⟨#[
 #guard !(decodeOneInstr 10 0xfc ⟨⟨#[0x02]⟩, 0⟩).isOk
 
 -- 2.14 Mismatched global type (i64 declared with i32.const init)
-def badGlobalInitBytes : ByteArray := ⟨#[
+#guard !(decodeWasmBytes ⟨#[
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
   0x06, 0x06, 0x01, 0x7e, 0x00, 0x41, 0x00, 0x0b
-]⟩
-#guard !(decodeWasmBytes badGlobalInitBytes).isOk
+]⟩).isOk
 
 -- 2.15 Memory section count 0 with trailing garbage bytes
-def badMemTrailingBytes : ByteArray := ⟨#[
+#guard !(decodeWasmBytes ⟨#[
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
   0x05, 0x02, 0x00, 0xaa
-]⟩
-#guard !(decodeWasmBytes badMemTrailingBytes).isOk
+]⟩).isOk
 
 -- 2.16 Export section with invalid UTF-8 export symbol name
-def badExportUtf8Bytes : ByteArray := ⟨#[
+#guard !(decodeWasmBytes ⟨#[
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
   0x07, 0x05, 0x01, 0x01, 0xff, 0x00, 0x00
-]⟩
-#guard !(decodeWasmBytes badExportUtf8Bytes).isOk
+]⟩).isOk
 
 -- 2.17 Code section with malicious locCnt = 0xFFFFFFFF (DoS prevention)
-def maliciousLocCntBytes : ByteArray := ⟨#[
+#guard !(decodeWasmBytes ⟨#[
   0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
   0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
   0x03, 0x02, 0x01, 0x00,
   0x0a, 0x0a, 0x01, 0x08, 0x01, 0xff, 0xff, 0xff, 0xff, 0x0f, 0x7f, 0x0b
-]⟩
-#guard !(decodeWasmBytes maliciousLocCntBytes).isOk
+]⟩).isOk
 
 /-! ## 3. Hand-Assembled Binary Modules (All Opcode Families) -/
 
@@ -252,14 +248,7 @@ def modControlFlowBytes : ByteArray := ⟨#[
   0x20, 0x01, 0x41, 0x1e, 0x6a, 0x0b, 0x0b
 ]⟩
 
-#guard match decodeAndLowerWasm modControlFlowBytes with
-  | .ok (m, qm) =>
-    m.funcs.map (·.name) == ["dispatch"] &&
-    checkAcyclicCompile LegalTarget.x64 qm &&
-    checkAcyclicCompile LegalTarget.aarch64 qm &&
-    checkBudgetRecCompile LegalTarget.x64 qm &&
-    checkBudgetRecCompile LegalTarget.aarch64 qm
-  | .error _ => false
+#guard checkModOk modControlFlowBytes ["dispatch"]
 
 /-! ### 3.2 Arithmetic & Memory: `div_s`/`rem_s`, `popcnt`, unaligned loads/stores -/
 
@@ -277,15 +266,7 @@ def modArithMemBytes : ByteArray := ⟨#[
   0x07, 0x6f, 0x0b
 ]⟩
 
-#guard match decodeAndLowerWasm modArithMemBytes with
-  | .ok (m, qm) =>
-    m.funcs.map (·.name) == ["arith_mem"] &&
-    m.memory.isSome &&
-    checkAcyclicCompile LegalTarget.x64 qm &&
-    checkAcyclicCompile LegalTarget.aarch64 qm &&
-    checkBudgetRecCompile LegalTarget.x64 qm &&
-    checkBudgetRecCompile LegalTarget.aarch64 qm
-  | .error _ => false
+#guard checkModOk modArithMemBytes ["arith_mem"] (hasMem := true)
 
 /-! ### 3.3 Cross-Function Calls & Recursion Module -/
 
@@ -302,12 +283,7 @@ def modRecBytes : ByteArray := ⟨#[
   0x10, 0x00, 0x41, 0x2a, 0x6a, 0x0b
 ]⟩
 
-#guard match decodeAndLowerWasm modRecBytes with
-  | .ok (m, qm) =>
-    m.funcs.map (·.name) == ["fac", "call_fac"] &&
-    checkBudgetRecCompile LegalTarget.x64 qm &&
-    checkBudgetRecCompile LegalTarget.aarch64 qm
-  | .error _ => false
+#guard checkModOk modRecBytes ["fac", "call_fac"] (checkAcyc := false)
 
 /-! ### 3.4 Attack Sandbox Defense Module: OOB Memory Access & Div0 Traps -/
 
@@ -325,14 +301,7 @@ def modAttackBytes : ByteArray := ⟨#[
   0x00, 0x41, 0x00, 0x6d, 0x0b
 ]⟩
 
-#guard match decodeAndLowerWasm modAttackBytes with
-  | .ok (m, qm) =>
-    m.funcs.map (·.name) == ["attack_oob", "attack_div0"] &&
-    checkAcyclicCompile LegalTarget.x64 qm &&
-    checkAcyclicCompile LegalTarget.aarch64 qm &&
-    checkBudgetRecCompile LegalTarget.x64 qm &&
-    checkBudgetRecCompile LegalTarget.aarch64 qm
-  | .error _ => false
+#guard checkModOk modAttackBytes ["attack_oob", "attack_div0"]
 
 /-! ## 4. Clang-Compiled C Guest Module -/
 
@@ -350,17 +319,7 @@ def realCBytes : ByteArray := ⟨#[
   0x0a, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x00, 0x6c, 0x0b
 ]⟩
 
-#guard match decodeAndLowerWasm realCBytes with
-  | .ok (m, qm) =>
-    m.funcs.map (·.name) == ["square"] &&
-    m.memory.isSome &&
-    m.globals.length == 1 &&
-    qm.fns.length == 1 &&
-    checkAcyclicCompile LegalTarget.x64 qm &&
-    checkAcyclicCompile LegalTarget.aarch64 qm &&
-    checkBudgetRecCompile LegalTarget.x64 qm &&
-    checkBudgetRecCompile LegalTarget.aarch64 qm
-  | .error _ => false
+#guard checkModOk realCBytes ["square"] (hasMem := true) (numGlobals := 1)
 
 /-! ## 5. End-to-End Soundness Theorem & Axiom Audit -/
 

@@ -53,124 +53,89 @@ def Reader.readBytes (r : Reader) (len : Nat) : Except String (ByteArray × Read
   else
     .error s!"unexpected EOF reading {len} bytes at offset {r.pos}"
 
-/-- Strict unsigned 32-bit LEB128 decoder with overlong rejection (at most 5 bytes). -/
-def decodeU32 (r : Reader) : Except String (UInt32 × Reader) := do
+/-- Ensure no unread bytes remain in `r`. -/
+def Reader.ensureEmpty (what : String) (r : Reader) : Except String Unit :=
+  if r.remaining != 0 then .error s!"trailing {r.remaining} bytes in {what}" else .ok ()
+
+/-- Consume an expected trailing `0x00` byte. -/
+def Reader.expectZero (what : String) (r : Reader) : Except String Reader := do
+  let (b, r') ← r.readU8
+  if b == 0 then .ok r'
+  else .error s!"{what} expected trailing 0x00, got {b} at offset {r.pos}"
+
+/-- Strict bounded unsigned LEB128 decoder with overlong rejection. -/
+def decodeULeb (maxBytes lastMask : Nat) (label : String) (r : Reader) :
+    Except String (Nat × Reader) := do
   let mut res : Nat := 0
   let mut shift : Nat := 0
   let mut cur := r
-  for i in [0:5] do
+  for i in [0:maxBytes] do
     let (b, next) ← cur.readU8
     cur := next
     let valBits := (b.toNat &&& 0x7F)
-    if i == 4 then
-      if (b.toNat &&& 0x70) != 0 then
-        return ← .error s!"overlong u32 LEB128 at offset {cur.pos - 1}"
+    if i == maxBytes - 1 then
+      if (b.toNat &&& lastMask) != 0 then
+        return ← .error s!"overlong {label} LEB128 at offset {cur.pos - 1}"
       if (b.toNat &&& 0x80) != 0 then
-        return ← .error s!"u32 LEB128 exceeds 5 bytes at offset {cur.pos - 1}"
+        return ← .error s!"{label} LEB128 exceeds {maxBytes} bytes at offset {cur.pos - 1}"
     res := res ||| (valBits <<< shift)
     if (b.toNat &&& 0x80) == 0 then
-      return (UInt32.ofNat res, cur)
+      return (res, cur)
     shift := shift + 7
-  .error s!"u32 LEB128 overflow at offset {cur.pos}"
+  .error s!"{label} LEB128 overflow at offset {cur.pos}"
+
+/-- Strict unsigned 32-bit LEB128 decoder with overlong rejection (at most 5 bytes). -/
+def decodeU32 (r : Reader) : Except String (UInt32 × Reader) := do
+  let (v, r') ← decodeULeb 5 0x70 "u32" r
+  .ok (UInt32.ofNat v, r')
+
+/-- Decode an unsigned 32-bit LEB128 integer directly as `Nat`. -/
+@[reducible] def decodeU32Nat (r : Reader) : Except String (Nat × Reader) := do
+  let (v, r') ← decodeU32 r
+  .ok (v.toNat, r')
 
 /-- Strict unsigned 64-bit LEB128 decoder with overlong rejection (at most 10 bytes). -/
 def decodeU64 (r : Reader) : Except String (UInt64 × Reader) := do
+  let (v, r') ← decodeULeb 10 0x7E "u64" r
+  .ok (UInt64.ofNat v, r')
+
+/-- Strict bounded signed LEB128 decoder with overlong and sign-extension verification. -/
+def decodeSLeb (maxBytes signMask padMask : Nat) (label : String) (r : Reader) :
+    Except String (Int × Reader) := do
   let mut res : Nat := 0
   let mut shift : Nat := 0
   let mut cur := r
-  for i in [0:10] do
+  for i in [0:maxBytes] do
     let (b, next) ← cur.readU8
     cur := next
-    let valBits := (b.toNat &&& 0x7F)
-    if i == 9 then
-      if (b.toNat &&& 0x7E) != 0 then
-        return ← .error s!"overlong u64 LEB128 at offset {cur.pos - 1}"
-      if (b.toNat &&& 0x80) != 0 then
-        return ← .error s!"u64 LEB128 exceeds 10 bytes at offset {cur.pos - 1}"
-    res := res ||| (valBits <<< shift)
-    if (b.toNat &&& 0x80) == 0 then
-      return (UInt64.ofNat res, cur)
+    res := res ||| ((b.toNat &&& 0x7F) <<< shift)
     shift := shift + 7
-  .error s!"u64 LEB128 overflow at offset {cur.pos}"
+    if (b.toNat &&& 0x80) == 0 then
+      if i == maxBytes - 1 then
+        let signBit := (b.toNat &&& signMask) != 0
+        let padBits := b.toNat &&& padMask
+        if signBit && padBits != padMask then
+          return ← .error s!"invalid signed {label} sign padding at offset {cur.pos - 1}"
+        if !signBit && padBits != 0 then
+          return ← .error s!"invalid signed {label} zero padding at offset {cur.pos - 1}"
+      let val : Int :=
+        if (b.toNat &&& 0x40) != 0 then (res : Int) - ((1 : Int) <<< shift) else res
+      return (val, cur)
+  .error s!"{label} LEB128 overflow at offset {cur.pos}"
 
 /-- Strict signed 32-bit LEB128 decoder with overlong and sign-extension verification. -/
 def decodeS32 (r : Reader) : Except String (BitVec 32 × Reader) := do
-  let mut res : Nat := 0
-  let mut shift : Nat := 0
-  let mut cur := r
-  for i in [0:5] do
-    let (b, next) ← cur.readU8
-    cur := next
-    let valBits := (b.toNat &&& 0x7F)
-    res := res ||| (valBits <<< shift)
-    shift := shift + 7
-    if (b.toNat &&& 0x80) == 0 then
-      if i == 4 then
-        let signBit := (b.toNat &&& 0x08) != 0
-        let padBits := b.toNat &&& 0x70
-        if signBit && padBits != 0x70 then
-          return ← .error s!"invalid signed s32 sign padding at offset {cur.pos - 1}"
-        if !signBit && padBits != 0 then
-          return ← .error s!"invalid signed s32 zero padding at offset {cur.pos - 1}"
-      let signExt := (b.toNat &&& 0x40) != 0
-      if signExt && shift < 32 then
-        let pad := ((1 <<< (32 - shift)) - 1) <<< shift
-        res := res ||| pad
-      return (BitVec.ofNat 32 res, cur)
-  .error s!"s32 LEB128 overflow at offset {cur.pos}"
+  let (v, r') ← decodeSLeb 5 0x08 0x70 "s32" r
+  .ok (BitVec.ofInt 32 v, r')
 
 /-- Strict signed 64-bit LEB128 decoder with overlong and sign-extension verification. -/
 def decodeS64 (r : Reader) : Except String (BitVec 64 × Reader) := do
-  let mut res : Nat := 0
-  let mut shift : Nat := 0
-  let mut cur := r
-  for i in [0:10] do
-    let (b, next) ← cur.readU8
-    cur := next
-    let valBits := (b.toNat &&& 0x7F)
-    res := res ||| (valBits <<< shift)
-    shift := shift + 7
-    if (b.toNat &&& 0x80) == 0 then
-      if i == 9 then
-        let signBit := (b.toNat &&& 0x01) != 0
-        let padBits := b.toNat &&& 0x7E
-        if signBit && padBits != 0x7E then
-          return ← .error s!"invalid signed s64 sign padding at offset {cur.pos - 1}"
-        if !signBit && padBits != 0 then
-          return ← .error s!"invalid signed s64 zero padding at offset {cur.pos - 1}"
-      let signExt := (b.toNat &&& 0x40) != 0
-      if signExt && shift < 64 then
-        let pad := ((1 <<< (64 - shift)) - 1) <<< shift
-        res := res ||| pad
-      return (BitVec.ofNat 64 res, cur)
-  .error s!"s64 LEB128 overflow at offset {cur.pos}"
+  let (v, r') ← decodeSLeb 10 0x01 0x7E "s64" r
+  .ok (BitVec.ofInt 64 v, r')
 
 /-- Signed 33-bit LEB128 decoder for block type indices. -/
-def decodeS33 (r : Reader) : Except String (Int × Reader) := do
-  let mut res : Nat := 0
-  let mut shift : Nat := 0
-  let mut cur := r
-  for i in [0:5] do
-    let (b, next) ← cur.readU8
-    cur := next
-    let valBits := (b.toNat &&& 0x7F)
-    res := res ||| (valBits <<< shift)
-    shift := shift + 7
-    if (b.toNat &&& 0x80) == 0 then
-      if i == 4 then
-        let signBit := (b.toNat &&& 0x10) != 0
-        let padBits := b.toNat &&& 0x60
-        if signBit && padBits != 0x60 then
-          return ← .error s!"invalid s33 LEB128 sign padding at offset {cur.pos - 1}"
-        if !signBit && padBits != 0 then
-          return ← .error s!"invalid s33 LEB128 zero padding at offset {cur.pos - 1}"
-      let signExt := (b.toNat &&& 0x40) != 0
-      if signExt then
-        let val : Int := (res : Int) - ((1 : Int) <<< shift)
-        return (val, cur)
-      else
-        return ((res : Int), cur)
-  .error s!"s33 LEB128 overflow at offset {cur.pos}"
+def decodeS33 (r : Reader) : Except String (Int × Reader) :=
+  decodeSLeb 5 0x10 0x60 "s33" r
 
 /-- Decode a list of `cnt` elements using element decoder `dec`. -/
 def decodeList {α : Type} (fuel : Nat) (cnt : Nat)
@@ -216,7 +181,69 @@ def decodeMemArg (r : Reader) : Except String (WMemArg × Reader) := do
   let (offset, r2) ← decodeU32 r1
   return (⟨offset, align.toNat⟩, r2)
 
-/-! ## Instruction Sequence & Structured Control Decoder -/
+/-! ## Opcode Lookup Tables & Instruction Decoder -/
+
+def relOpTable : Array WRelOp :=
+  #[.eq, .ne, .lt_s, .lt_u, .gt_s, .gt_u, .le_s, .le_u, .ge_s, .ge_u]
+
+def binOpTable : Array WBinOp :=
+  #[.add, .sub, .mul, .div_s, .div_u, .rem_s, .rem_u, .and, .or, .xor,
+    .shl, .shr_s, .shr_u, .rotl, .rotr]
+
+def decodeLoadOp? : UInt8 → Option (WValTy × WMemWidth × Bool)
+  | 0x28 => some (.i32, .w32, false)
+  | 0x29 => some (.i64, .w64, false)
+  | 0x2C => some (.i32, .w8, true)
+  | 0x2D => some (.i32, .w8, false)
+  | 0x2E => some (.i32, .w16, true)
+  | 0x2F => some (.i32, .w16, false)
+  | 0x30 => some (.i64, .w8, true)
+  | 0x31 => some (.i64, .w8, false)
+  | 0x32 => some (.i64, .w16, true)
+  | 0x33 => some (.i64, .w16, false)
+  | 0x34 => some (.i64, .w32, true)
+  | 0x35 => some (.i64, .w32, false)
+  | _ => none
+
+def decodeStoreOp? : UInt8 → Option (WValTy × WMemWidth)
+  | 0x36 => some (.i32, .w32)
+  | 0x37 => some (.i64, .w64)
+  | 0x3A => some (.i32, .w8)
+  | 0x3B => some (.i32, .w16)
+  | 0x3C => some (.i64, .w8)
+  | 0x3D => some (.i64, .w16)
+  | 0x3E => some (.i64, .w32)
+  | _ => none
+
+def decodePureOp? (opByte : UInt8) : Option WInstr :=
+  let b := opByte.toNat
+  if 0x46 ≤ b && b ≤ 0x4F then relOpTable[b - 0x46]?.map (.relop .i32)
+  else if 0x51 ≤ b && b ≤ 0x5A then relOpTable[b - 0x51]?.map (.relop .i64)
+  else if 0x6A ≤ b && b ≤ 0x78 then binOpTable[b - 0x6A]?.map (.binop .i32)
+  else if 0x7C ≤ b && b ≤ 0x8A then binOpTable[b - 0x7C]?.map (.binop .i64)
+  else match opByte with
+    | 0x00 => some .unreachable
+    | 0x01 => some .nop
+    | 0x0F => some .return_
+    | 0x1A => some .drop
+    | 0x1B => some .select
+    | 0x45 => some (.eqz .i32)
+    | 0x50 => some (.eqz .i64)
+    | 0x67 => some (.unop .i32 .clz)
+    | 0x68 => some (.unop .i32 .ctz)
+    | 0x69 => some (.unop .i32 .popcnt)
+    | 0x79 => some (.unop .i64 .clz)
+    | 0x7A => some (.unop .i64 .ctz)
+    | 0x7B => some (.unop .i64 .popcnt)
+    | 0xA7 => some .wrap_i64
+    | 0xAC => some .extend_i32_s
+    | 0xAD => some .extend_i32_u
+    | 0xC0 => some (.unop .i32 .extend8_s)
+    | 0xC1 => some (.unop .i32 .extend16_s)
+    | 0xC2 => some (.unop .i64 .extend8_s)
+    | 0xC3 => some (.unop .i64 .extend16_s)
+    | 0xC4 => some (.unop .i64 .extend32_s)
+    | _ => none
 
 mutual
 /-- Decode a sequence of instructions until `0x0B` (`end`), or `0x05` (`else`) when
@@ -231,10 +258,8 @@ def decodeInstrSeq (fuel : Nat) (stopOnElse : Bool) (r : Reader) :
     if opByte == 0x0B then
       .ok ([], false, r1)
     else if opByte == 0x05 then
-      if stopOnElse then
-        .ok ([], true, r1)
-      else
-        .error s!"unexpected 'else' opcode 0x05 at offset {r.pos}"
+      if stopOnElse then .ok ([], true, r1)
+      else .error s!"unexpected 'else' opcode 0x05 at offset {r.pos}"
     else
       let (instr, r2) ← decodeOneInstr fuel opByte r1
       let (rest, endedElse, r3) ← decodeInstrSeq fuel stopOnElse r2
@@ -246,213 +271,55 @@ def decodeOneInstr (fuel : Nat) (opByte : UInt8) (r : Reader) :
   match fuel with
   | 0 => .error s!"decodeOneInstr: fuel exhausted at offset {r.pos}"
   | fuel + 1 => do
+    if let some instr := decodePureOp? opByte then
+      return (instr, r)
+    if let some (ty, w, sg) := decodeLoadOp? opByte then
+      let (arg, r1) ← decodeMemArg r
+      return (.load ty w sg arg, r1)
+    if let some (ty, w) := decodeStoreOp? opByte then
+      let (arg, r1) ← decodeMemArg r
+      return (.store ty w arg, r1)
     match opByte with
-    | 0x00 => .ok (.unreachable, r)
-    | 0x01 => .ok (.nop, r)
-    | 0x02 =>
+    | 0x02 | 0x03 =>
       let (bt, r1) ← decodeBlockTy r
       let (body, endedElse, r2) ← decodeInstrSeq fuel false r1
       if endedElse then
-        .error s!"block instruction closed with 'else' at offset {r1.pos}"
+        .error s!"structured block closed with 'else' at offset {r1.pos}"
       else
-        .ok (.block bt body, r2)
-    | 0x03 =>
-      let (bt, r1) ← decodeBlockTy r
-      let (body, endedElse, r2) ← decodeInstrSeq fuel false r1
-      if endedElse then
-        .error s!"loop instruction closed with 'else' at offset {r1.pos}"
-      else
-        .ok (.loop bt body, r2)
+        .ok (if opByte == 0x02 then .block bt body else .loop bt body, r2)
     | 0x04 =>
       let (bt, r1) ← decodeBlockTy r
       let (thenBody, endedElse, r2) ← decodeInstrSeq fuel true r1
       if endedElse then
         let (elseBody, endedElse2, r3) ← decodeInstrSeq fuel false r2
-        if endedElse2 then
-          .error s!"nested 'else' inside else-branch at offset {r2.pos}"
-        else
-          .ok (.if_ bt thenBody elseBody, r3)
+        if endedElse2 then .error s!"nested 'else' inside else-branch at offset {r2.pos}"
+        else .ok (.if_ bt thenBody elseBody, r3)
       else
         .ok (.if_ bt thenBody [], r2)
-    | 0x0C =>
-      let (d, r1) ← decodeU32 r
-      .ok (.br d.toNat, r1)
-    | 0x0D =>
-      let (d, r1) ← decodeU32 r
-      .ok (.br_if d.toNat, r1)
+    | 0x0C => let (d, r1) ← decodeU32Nat r; .ok (.br d, r1)
+    | 0x0D => let (d, r1) ← decodeU32Nat r; .ok (.br_if d, r1)
     | 0x0E =>
       let (cnt, r1) ← decodeU32 r
-      let (targets, r2) ← decodeList (r1.remaining + 1) cnt.toNat
-        (fun cur => do let (t, next) ← decodeU32 cur; return (t.toNat, next)) r1
-      let (defT, r3) ← decodeU32 r2
-      .ok (.br_table targets defT.toNat, r3)
-    | 0x0F => .ok (.return_, r)
-    | 0x10 =>
-      let (idx, r1) ← decodeU32 r
-      .ok (.call idx.toNat, r1)
-    | 0x1A => .ok (.drop, r)
-    | 0x1B => .ok (.select, r)
-    | 0x20 =>
-      let (idx, r1) ← decodeU32 r
-      .ok (.local_get idx.toNat, r1)
-    | 0x21 =>
-      let (idx, r1) ← decodeU32 r
-      .ok (.local_set idx.toNat, r1)
-    | 0x22 =>
-      let (idx, r1) ← decodeU32 r
-      .ok (.local_tee idx.toNat, r1)
-    | 0x23 =>
-      let (idx, r1) ← decodeU32 r
-      .ok (.global_get idx.toNat, r1)
-    | 0x28 =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i32 .w32 false arg, r1)
-    | 0x29 =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i64 .w64 false arg, r1)
-    | 0x2C =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i32 .w8 true arg, r1)
-    | 0x2D =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i32 .w8 false arg, r1)
-    | 0x2E =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i32 .w16 true arg, r1)
-    | 0x2F =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i32 .w16 false arg, r1)
-    | 0x30 =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i64 .w8 true arg, r1)
-    | 0x31 =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i64 .w8 false arg, r1)
-    | 0x32 =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i64 .w16 true arg, r1)
-    | 0x33 =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i64 .w16 false arg, r1)
-    | 0x34 =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i64 .w32 true arg, r1)
-    | 0x35 =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.load .i64 .w32 false arg, r1)
-    | 0x36 =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.store .i32 .w32 arg, r1)
-    | 0x37 =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.store .i64 .w64 arg, r1)
-    | 0x3A =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.store .i32 .w8 arg, r1)
-    | 0x3B =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.store .i32 .w16 arg, r1)
-    | 0x3C =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.store .i64 .w8 arg, r1)
-    | 0x3D =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.store .i64 .w16 arg, r1)
-    | 0x3E =>
-      let (arg, r1) ← decodeMemArg r
-      .ok (.store .i64 .w32 arg, r1)
-    | 0x3F =>
-      let (zeroByte, r1) ← r.readU8
-      if zeroByte == 0 then .ok (.memory_size, r1)
-      else .error s!"memory.size expected trailing 0x00, got {zeroByte} at offset {r.pos}"
-    | 0x40 =>
-      let (zeroByte, r1) ← r.readU8
-      if zeroByte == 0 then .ok (.memory_grow, r1)
-      else .error s!"memory.grow expected trailing 0x00, got {zeroByte} at offset {r.pos}"
-    | 0x41 =>
-      let (c, r1) ← decodeS32 r
-      .ok (.i32_const c, r1)
-    | 0x42 =>
-      let (c, r1) ← decodeS64 r
-      .ok (.i64_const c, r1)
-    | 0x45 => .ok (.eqz .i32, r)
-    | 0x46 => .ok (.relop .i32 .eq, r)
-    | 0x47 => .ok (.relop .i32 .ne, r)
-    | 0x48 => .ok (.relop .i32 .lt_s, r)
-    | 0x49 => .ok (.relop .i32 .lt_u, r)
-    | 0x4A => .ok (.relop .i32 .gt_s, r)
-    | 0x4B => .ok (.relop .i32 .gt_u, r)
-    | 0x4C => .ok (.relop .i32 .le_s, r)
-    | 0x4D => .ok (.relop .i32 .le_u, r)
-    | 0x4E => .ok (.relop .i32 .ge_s, r)
-    | 0x4F => .ok (.relop .i32 .ge_u, r)
-    | 0x50 => .ok (.eqz .i64, r)
-    | 0x51 => .ok (.relop .i64 .eq, r)
-    | 0x52 => .ok (.relop .i64 .ne, r)
-    | 0x53 => .ok (.relop .i64 .lt_s, r)
-    | 0x54 => .ok (.relop .i64 .lt_u, r)
-    | 0x55 => .ok (.relop .i64 .gt_s, r)
-    | 0x56 => .ok (.relop .i64 .gt_u, r)
-    | 0x57 => .ok (.relop .i64 .le_s, r)
-    | 0x58 => .ok (.relop .i64 .le_u, r)
-    | 0x59 => .ok (.relop .i64 .ge_s, r)
-    | 0x5A => .ok (.relop .i64 .ge_u, r)
-    | 0x67 => .ok (.unop .i32 .clz, r)
-    | 0x68 => .ok (.unop .i32 .ctz, r)
-    | 0x69 => .ok (.unop .i32 .popcnt, r)
-    | 0x6A => .ok (.binop .i32 .add, r)
-    | 0x6B => .ok (.binop .i32 .sub, r)
-    | 0x6C => .ok (.binop .i32 .mul, r)
-    | 0x6D => .ok (.binop .i32 .div_s, r)
-    | 0x6E => .ok (.binop .i32 .div_u, r)
-    | 0x6F => .ok (.binop .i32 .rem_s, r)
-    | 0x70 => .ok (.binop .i32 .rem_u, r)
-    | 0x71 => .ok (.binop .i32 .and, r)
-    | 0x72 => .ok (.binop .i32 .or, r)
-    | 0x73 => .ok (.binop .i32 .xor, r)
-    | 0x74 => .ok (.binop .i32 .shl, r)
-    | 0x75 => .ok (.binop .i32 .shr_s, r)
-    | 0x76 => .ok (.binop .i32 .shr_u, r)
-    | 0x77 => .ok (.binop .i32 .rotl, r)
-    | 0x78 => .ok (.binop .i32 .rotr, r)
-    | 0x79 => .ok (.unop .i64 .clz, r)
-    | 0x7A => .ok (.unop .i64 .ctz, r)
-    | 0x7B => .ok (.unop .i64 .popcnt, r)
-    | 0x7C => .ok (.binop .i64 .add, r)
-    | 0x7D => .ok (.binop .i64 .sub, r)
-    | 0x7E => .ok (.binop .i64 .mul, r)
-    | 0x7F => .ok (.binop .i64 .div_s, r)
-    | 0x80 => .ok (.binop .i64 .div_u, r)
-    | 0x81 => .ok (.binop .i64 .rem_s, r)
-    | 0x82 => .ok (.binop .i64 .rem_u, r)
-    | 0x83 => .ok (.binop .i64 .and, r)
-    | 0x84 => .ok (.binop .i64 .or, r)
-    | 0x85 => .ok (.binop .i64 .xor, r)
-    | 0x86 => .ok (.binop .i64 .shl, r)
-    | 0x87 => .ok (.binop .i64 .shr_s, r)
-    | 0x88 => .ok (.binop .i64 .shr_u, r)
-    | 0x89 => .ok (.binop .i64 .rotl, r)
-    | 0x8A => .ok (.binop .i64 .rotr, r)
-    | 0xA7 => .ok (.wrap_i64, r)
-    | 0xAC => .ok (.extend_i32_s, r)
-    | 0xAD => .ok (.extend_i32_u, r)
-    | 0xC0 => .ok (.unop .i32 .extend8_s, r)
-    | 0xC1 => .ok (.unop .i32 .extend16_s, r)
-    | 0xC2 => .ok (.unop .i64 .extend8_s, r)
-    | 0xC3 => .ok (.unop .i64 .extend16_s, r)
-    | 0xC4 => .ok (.unop .i64 .extend32_s, r)
+      let (targets, r2) ← decodeList (r1.remaining + 1) cnt.toNat decodeU32Nat r1
+      let (defT, r3) ← decodeU32Nat r2
+      .ok (.br_table targets defT, r3)
+    | 0x10 => let (idx, r1) ← decodeU32Nat r; .ok (.call idx, r1)
+    | 0x20 => let (idx, r1) ← decodeU32Nat r; .ok (.local_get idx, r1)
+    | 0x21 => let (idx, r1) ← decodeU32Nat r; .ok (.local_set idx, r1)
+    | 0x22 => let (idx, r1) ← decodeU32Nat r; .ok (.local_tee idx, r1)
+    | 0x23 => let (idx, r1) ← decodeU32Nat r; .ok (.global_get idx, r1)
+    | 0x3F => let r1 ← r.expectZero "memory.size"; .ok (.memory_size, r1)
+    | 0x40 => let r1 ← r.expectZero "memory.grow"; .ok (.memory_grow, r1)
+    | 0x41 => let (c, r1) ← decodeS32 r; .ok (.i32_const c, r1)
+    | 0x42 => let (c, r1) ← decodeS64 r; .ok (.i64_const c, r1)
     | 0xFC =>
       let (subOp, r1) ← decodeU32 r
       match subOp.toNat with
       | 0x0A =>
-        let (m1, r2) ← r1.readU8
-        let (m2, r3) ← r2.readU8
-        if m1 == 0 && m2 == 0 then .ok (.memory_copy, r3)
-        else .error s!"memory.copy expected trailing 0x00 0x00 at offset {r1.pos}"
-      | 0x0B =>
-        let (m1, r2) ← r1.readU8
-        if m1 == 0 then .ok (.memory_fill, r2)
-        else .error s!"memory.fill expected trailing 0x00, got {m1} at offset {r1.pos}"
+        let r2 ← r1.expectZero "memory.copy[0]"
+        let r3 ← r2.expectZero "memory.copy[1]"
+        .ok (.memory_copy, r3)
+      | 0x0B => let r2 ← r1.expectZero "memory.fill"; .ok (.memory_fill, r2)
       | _ => .error s!"unsupported 0xFC prefix opcode {subOp} at offset {r.pos}"
     | _ => .error s!"unsupported WebAssembly opcode {opByte} at offset {r.pos}"
 end
@@ -472,28 +339,21 @@ def decodeTypeSection (r : Reader) : Except String (List WFuncTy) := do
       let (rCount, c4) ← decodeU32 c3
       let (results, c5) ← decodeList (c4.remaining + 1) rCount.toNat decodeValTy c4
       return (⟨params, results⟩, c5)) r1
-  if cur.remaining != 0 then
-    .error s!"trailing {cur.remaining} bytes in type section"
-  else
-    .ok types
+  cur.ensureEmpty "type section"
+  .ok types
 
 /-- Parse Function section (id 3): list of type indices corresponding to code entries. -/
 def decodeFuncSection (r : Reader) : Except String (List Nat) := do
   let (count, r1) ← decodeU32 r
-  let (typeIndices, cur) ← decodeList (r1.remaining + 1) count.toNat (fun c => do
-    let (tIdx, cNext) ← decodeU32 c
-    return (tIdx.toNat, cNext)) r1
-  if cur.remaining != 0 then
-    .error s!"trailing {cur.remaining} bytes in function section"
-  else
-    .ok typeIndices
+  let (typeIndices, cur) ← decodeList (r1.remaining + 1) count.toNat decodeU32Nat r1
+  cur.ensureEmpty "function section"
+  .ok typeIndices
 
 /-- Parse Memory section (id 5): initial and optional maximum page count. -/
 def decodeMemorySection (r : Reader) : Except String (Option WMemSpec) := do
   let (count, cur) ← decodeU32 r
   if count == 0 then
-    if cur.remaining != 0 then
-      throw s!"trailing {cur.remaining} bytes in memory section"
+    cur.ensureEmpty "memory section"
     return none
   else if count > 1 then
     throw s!"multiple memories ({count}) unsupported in WebAssembly 1.0/2.0 sandbox"
@@ -501,16 +361,12 @@ def decodeMemorySection (r : Reader) : Except String (Option WMemSpec) := do
   let (minPages, r2) ← decodeU32 r1
   match flag with
   | 0x00 =>
-    if r2.remaining != 0 then
-      throw s!"trailing {r2.remaining} bytes in memory section"
-    else
-      .ok (some ⟨minPages.toNat, none⟩)
+    r2.ensureEmpty "memory section"
+    .ok (some ⟨minPages.toNat, none⟩)
   | 0x01 =>
     let (maxPages, r3) ← decodeU32 r2
-    if r3.remaining != 0 then
-      throw s!"trailing {r3.remaining} bytes in memory section"
-    else
-      .ok (some ⟨minPages.toNat, some maxPages.toNat⟩)
+    r3.ensureEmpty "memory section"
+    .ok (some ⟨minPages.toNat, some maxPages.toNat⟩)
   | _ => throw s!"invalid memory limits flag {flag} at offset {r1.pos}"
 
 /-- Parse Global section (id 6): declarations with `i32.const`/`i64.const` initializer. -/
@@ -542,10 +398,8 @@ def decodeGlobalSection (r : Reader) : Except String (List WGlobalDecl) := do
       throw s!"global init expr missing trailing 0x0B (got {endByte})"
     globals := ⟨ty, isMut, initVal⟩ :: globals
     cur := rNext
-  if cur.remaining != 0 then
-    throw s!"trailing {cur.remaining} bytes in global section"
-  else
-    .ok globals.reverse
+  cur.ensureEmpty "global section"
+  .ok globals.reverse
 
 /-- Parse Export section (id 7): collect exported function symbols `(fnIdx, name)`. -/
 def decodeExportSection (r : Reader) : Except String (List (Nat × String)) := do
@@ -564,10 +418,8 @@ def decodeExportSection (r : Reader) : Except String (List (Nat × String)) := d
     if kind == 0x00 then
       fnExports := (itemIdx.toNat, nameStr) :: fnExports
     cur := rNext
-  if cur.remaining != 0 then
-    throw s!"trailing {cur.remaining} bytes in export section"
-  else
-    .ok fnExports.reverse
+  cur.ensureEmpty "export section"
+  .ok fnExports.reverse
 
 /-- Parse Code section (id 10): locals declarations and structured instruction trees. -/
 def decodeCodeSection (r : Reader) (fnCount : Nat) (typeIndices : List Nat)
@@ -599,15 +451,12 @@ def decodeCodeSection (r : Reader) (fnCount : Nat) (typeIndices : List Nat)
     let (body, endedElse, rEnd) ← decodeInstrSeq (bodyReader.remaining + 1) false curLoc
     if endedElse then
       throw s!"function {i} code body terminated with unexpected 'else'"
-    if rEnd.remaining != 0 then
-      throw s!"function {i} code body has {rEnd.remaining} trailing unparsed bytes"
+    rEnd.ensureEmpty s!"function {i} code body"
     let tIdx := typeIndices[i]? |>.getD 0
     let fnName := (fnNames.find? (·.1 == i)).map (·.2) |>.getD s!"wasm_fn_{i}"
     funcs := ⟨fnName, tIdx, locals, body⟩ :: funcs
-  if cur.remaining != 0 then
-    throw s!"trailing {cur.remaining} bytes in code section"
-  else
-    .ok funcs.reverse
+  cur.ensureEmpty "code section"
+  .ok funcs.reverse
 
 /-! ## Top-Level Binary Module Decoder -/
 

@@ -406,23 +406,12 @@ theorem emitMemZeroPage_zero {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
       obtain ⟨hsok, hm''⟩ := store_array64 0#64 hcurLen hm'
       refine ⟨by simpa [Arg.val, hzPtr] using hsok, ?_⟩
       rw [replicate_drop_set hdn hlen] at hm''
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [wp_jump_]
+      wasm_wp_let; wasm_wp_let; rw [wp_jump_]
       refine hlZero (8192 - (done + 1)) (zRem - 8#64, zPtr + 8#64, ()) _ (by omega) ?_
-      refine ⟨done + 1, by omega, rfl, ?_, ?_, by simpa [hzPtr] using hm''⟩
+      refine ⟨done + 1, by omega, rfl, ?_, ?_, by simpa [Arg.val, hzPtr] using hm''⟩
       · rw [hzRem, bv64_8_mul_sub hdn]
-      · have hadd : BitVec.ofNat 64 (8 * done) + 8#64 = BitVec.ofNat 64 (8 * (done + 1)) := by
-          apply BitVec.eq_of_toNat_eq
-          simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
-          rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by decide : 8 < 2 ^ 64),
-            Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-          omega
-        rw [hzPtr, BitVec.add_assoc, hadd]
+      · rw [hzPtr, show (8#64 : BitVec 64) = BitVec.ofNat 64 8 from rfl, bv64_ptr_add,
+          show 8 * done + 8 = 8 * (done + 1) by omega]
   · rw [wp_jump_]
     refine hlZero 8192 (65536#64, pagePtr.val, ()) mem ?_
     refine ⟨0, by omega, rfl, rfl, ?_, ?_⟩
@@ -442,153 +431,127 @@ theorem listFillAux_length (b : BitVec 8) (dst : Nat) :
   | 0, _ => rfl
   | d + 1, bs => by simp [listFillAux_succ, listFillAux_length b dst d bs]
 
-/-- Reference specification for forward copy (`dst ≤ src`) of `d` bytes. -/
-def listCopyFwdAux (dst src : Nat) : Nat → List (BitVec 8) → List (BitVec 8)
+/-- Unified `memmove` specification parameterized by direction (`fwd = true` copies `0..d`,
+`fwd = false` copies `n-1..n-d`). -/
+def listCopyMemmove (fwd : Bool) (dst src n : Nat) : Nat → List (BitVec 8) → List (BitVec 8)
   | 0, bs => bs
   | d + 1, bs =>
-    let cur := listCopyFwdAux dst src d bs
-    cur.set (dst + d) (cur[src + d]?.getD 0#8)
+    let cur := listCopyMemmove fwd dst src n d bs
+    let k := if fwd then d else n - 1 - d
+    cur.set (dst + k) (cur[src + k]?.getD 0#8)
 
-private theorem listCopyFwdAux_zero (dst src : Nat) (bs : List (BitVec 8)) :
-    listCopyFwdAux dst src 0 bs = bs := rfl
+private theorem listCopyMemmove_succ (fwd : Bool) (dst src n d : Nat) (bs : List (BitVec 8)) :
+    listCopyMemmove fwd dst src n (d + 1) bs =
+      let k := if fwd then d else n - 1 - d
+      (listCopyMemmove fwd dst src n d bs).set (dst + k)
+        ((listCopyMemmove fwd dst src n d bs)[src + k]?.getD 0#8) := rfl
 
-private theorem listCopyFwdAux_succ (dst src d : Nat) (bs : List (BitVec 8)) :
-    listCopyFwdAux dst src (d + 1) bs =
-      (listCopyFwdAux dst src d bs).set (dst + d)
-        ((listCopyFwdAux dst src d bs)[src + d]?.getD 0#8) := rfl
+private theorem listCopyMemmove_true_n (dst src n : Nat) :
+    ∀ d bs, listCopyMemmove true dst src n d bs = listCopyMemmove true dst src 0 d bs
+  | 0, _ => rfl
+  | d + 1, bs => by simp [listCopyMemmove, listCopyMemmove_true_n dst src n d bs]
+
+theorem listCopyMemmove_length (fwd : Bool) (dst src n : Nat) :
+    ∀ d bs, (listCopyMemmove fwd dst src n d bs).length = bs.length
+  | 0, _ => rfl
+  | d + 1, bs => by simp [listCopyMemmove_succ, listCopyMemmove_length fwd dst src n d bs]
+
+theorem listCopyMemmove_memmove (fwd : Bool) (dst src n : Nat)
+    (hdir : if fwd then dst ≤ src else src < dst) :
+    ∀ d (bs : List (BitVec 8)), (fwd = false → d ≤ n) →
+      (if fwd then dst + d else dst + n) ≤ bs.length →
+      (if fwd then src + d else src + n) ≤ bs.length →
+      ∀ i, i < bs.length →
+        (listCopyMemmove fwd dst src n d bs)[i]?.getD 0#8 =
+          if (if fwd then dst else dst + (n - d)) ≤ i ∧
+              i < (if fwd then dst + d else dst + n) then
+            bs[src + (i - dst)]?.getD 0#8
+          else bs[i]?.getD 0#8
+  | 0, bs, _, _, _, i, _ => by
+    simp only [listCopyMemmove, Nat.sub_zero]
+    cases fwd <;> simp only [↓reduceIte, Bool.false_eq_true] <;> split <;> first | omega | rfl
+  | d + 1, bs, hdn, hd, hs, i, hi => by
+    have ih := listCopyMemmove_memmove fwd dst src n hdir d bs (fun hf => by have := hdn hf; omega)
+      (by cases fwd <;> simp only [↓reduceIte, Bool.false_eq_true] at hd ⊢ <;> omega)
+      (by cases fwd <;> simp only [↓reduceIte, Bool.false_eq_true] at hs ⊢ <;> omega)
+    have hcurLen : (listCopyMemmove fwd dst src n d bs).length = bs.length :=
+      listCopyMemmove_length fwd dst src n d bs
+    cases fwd
+    · have hdn' : d + 1 ≤ n := hdn rfl
+      simp only [listCopyMemmove_succ, ↓reduceIte, Bool.false_eq_true] at hdir hd hs ih ⊢
+      have hdk : dst + (n - 1 - d) < (listCopyMemmove false dst src n d bs).length := by
+        rw [hcurLen]; omega
+      have hsrcOrig : (listCopyMemmove false dst src n d bs)[src + (n - 1 - d)]?.getD 0#8 =
+          bs[src + (n - 1 - d)]?.getD 0#8 := by
+        have h := ih (src + (n - 1 - d)) (by omega)
+        have hnot : ¬ (dst + (n - d) ≤ src + (n - 1 - d) ∧
+            src + (n - 1 - d) < dst + n) := by omega
+        rw [ite_eq_right_of_eq_false _ _ (eq_false hnot)] at h; exact h
+      by_cases heq : i = dst + (n - 1 - d)
+      · subst heq
+        rw [List.getElem?_set_self hdk, Option.getD_some, hsrcOrig]
+        have hc : dst + (n - (d + 1)) ≤ dst + (n - 1 - d) ∧ dst + (n - 1 - d) < dst + n := by
+          omega
+        rw [ite_eq_left_of_eq_true _ _ (eq_true hc), Nat.add_sub_cancel_left]
+      · rw [List.getElem?_set_ne (Ne.symm heq), ih i hi]
+        have hc : (dst + (n - d) ≤ i ∧ i < dst + n) ↔
+            (dst + (n - (d + 1)) ≤ i ∧ i < dst + n) := by omega
+        simp [hc]
+    · simp only [listCopyMemmove_succ, ↓reduceIte] at hdir hd hs ih ⊢
+      have hdk : dst + d < (listCopyMemmove true dst src n d bs).length := by rw [hcurLen]; omega
+      have hsrcOrig : (listCopyMemmove true dst src n d bs)[src + d]?.getD 0#8 =
+          bs[src + d]?.getD 0#8 := by
+        have h := ih (src + d) (by omega)
+        have hnot : ¬ (dst ≤ src + d ∧ src + d < dst + d) := by omega
+        rw [ite_eq_right_of_eq_false _ _ (eq_false hnot)] at h; exact h
+      by_cases heq : i = dst + d
+      · subst heq
+        rw [List.getElem?_set_self hdk, Option.getD_some, hsrcOrig]
+        have hc : dst ≤ dst + d ∧ dst + d < dst + (d + 1) := by omega
+        rw [ite_eq_left_of_eq_true _ _ (eq_true hc), Nat.add_sub_cancel_left]
+      · rw [List.getElem?_set_ne (Ne.symm heq), ih i hi]
+        have hc : (dst ≤ i ∧ i < dst + d) ↔ (dst ≤ i ∧ i < dst + (d + 1)) := by omega
+        simp [hc]
+
+/-- Reference specification for forward copy (`dst ≤ src`) of `d` bytes. -/
+def listCopyFwdAux (dst src : Nat) : Nat → List (BitVec 8) → List (BitVec 8) :=
+  listCopyMemmove true dst src 0
 
 theorem listCopyFwdAux_length (dst src : Nat) :
-    ∀ d bs, (listCopyFwdAux dst src d bs).length = bs.length
-  | 0, _ => rfl
-  | d + 1, bs => by simp [listCopyFwdAux_succ, listCopyFwdAux_length dst src d bs]
+    ∀ d bs, (listCopyFwdAux dst src d bs).length = bs.length :=
+  listCopyMemmove_length true dst src 0
 
 theorem listCopyFwdAux_memmove (dst src : Nat) (hle : dst ≤ src) :
     ∀ d (bs : List (BitVec 8)), dst + d ≤ bs.length → src + d ≤ bs.length →
       ∀ i, i < bs.length →
         (listCopyFwdAux dst src d bs)[i]?.getD 0#8 =
           if dst ≤ i ∧ i < dst + d then bs[src + (i - dst)]?.getD 0#8
-          else bs[i]?.getD 0#8
-  | 0, bs, _, _, i, _ => by
-    simp only [listCopyFwdAux_zero]
-    split
-    · omega
-    · rfl
-  | d + 1, bs, hd, hs, i, hi => by
-    have ih := listCopyFwdAux_memmove dst src hle d bs (by omega) (by omega)
-    have hcurLen : (listCopyFwdAux dst src d bs).length = bs.length :=
-      listCopyFwdAux_length dst src d bs
-    have hdd : dst + d < (listCopyFwdAux dst src d bs).length := by omega
-    have hsrcOrig : (listCopyFwdAux dst src d bs)[src + d]?.getD 0#8 =
-        bs[src + d]?.getD 0#8 := by
-      have h := ih (src + d) (by omega)
-      have hnot : ¬ (dst ≤ src + d ∧ src + d < dst + d) := by omega
-      rw [ite_eq_right_of_eq_false _ _ (eq_false hnot)] at h
-      exact h
-    by_cases heq : i = dst + d
-    · subst heq
-      simp only [listCopyFwdAux_succ, List.getElem?_set_self hdd, Option.getD_some, hsrcOrig]
-      have hcond : dst ≤ dst + d ∧ dst + d < dst + (d + 1) := by omega
-      rw [ite_eq_left_of_eq_true _ _ (eq_true hcond), Nat.add_sub_cancel_left]
-    · simp only [listCopyFwdAux_succ, List.getElem?_set_ne (Ne.symm heq)]
-      rw [ih i hi]
-      have hc : (dst ≤ i ∧ i < dst + d) ↔ (dst ≤ i ∧ i < dst + (d + 1)) := by omega
-      simp [hc]
+          else bs[i]?.getD 0#8 :=
+  fun d bs => listCopyMemmove_memmove true dst src 0 hle d bs (fun h => by cases h)
 
 /-- Reference specification for backward copy (`src < dst`) of `d` steps out of `n`. -/
-def listCopyBwdAux (dst src n : Nat) : Nat → List (BitVec 8) → List (BitVec 8)
-  | 0, bs => bs
-  | d + 1, bs =>
-    let cur := listCopyBwdAux dst src n d bs
-    let k := n - 1 - d
-    cur.set (dst + k) (cur[src + k]?.getD 0#8)
-
-private theorem listCopyBwdAux_zero (dst src n : Nat) (bs : List (BitVec 8)) :
-    listCopyBwdAux dst src n 0 bs = bs := rfl
-
-private theorem listCopyBwdAux_succ (dst src n d : Nat) (bs : List (BitVec 8)) :
-    listCopyBwdAux dst src n (d + 1) bs =
-      (listCopyBwdAux dst src n d bs).set (dst + (n - 1 - d))
-        ((listCopyBwdAux dst src n d bs)[src + (n - 1 - d)]?.getD 0#8) := rfl
+def listCopyBwdAux (dst src n : Nat) : Nat → List (BitVec 8) → List (BitVec 8) :=
+  listCopyMemmove false dst src n
 
 theorem listCopyBwdAux_length (dst src n : Nat) :
-    ∀ d bs, (listCopyBwdAux dst src n d bs).length = bs.length
-  | 0, _ => rfl
-  | d + 1, bs => by simp [listCopyBwdAux_succ, listCopyBwdAux_length dst src n d bs]
+    ∀ d bs, (listCopyBwdAux dst src n d bs).length = bs.length :=
+  listCopyMemmove_length false dst src n
 
 theorem listCopyBwdAux_memmove (dst src n : Nat) (hlt : src < dst) :
     ∀ d (bs : List (BitVec 8)), d ≤ n → dst + n ≤ bs.length → src + n ≤ bs.length →
       ∀ i, i < bs.length →
         (listCopyBwdAux dst src n d bs)[i]?.getD 0#8 =
           if dst + (n - d) ≤ i ∧ i < dst + n then bs[src + (i - dst)]?.getD 0#8
-          else bs[i]?.getD 0#8
-  | 0, bs, _, _, _, i, _ => by
-    simp only [listCopyBwdAux_zero, Nat.sub_zero]
-    split
-    · omega
-    · rfl
-  | d + 1, bs, hdn, hd, hs, i, hi => by
-    have ih := listCopyBwdAux_memmove dst src n hlt d bs (by omega) hd hs
-    have hcurLen : (listCopyBwdAux dst src n d bs).length = bs.length :=
-      listCopyBwdAux_length dst src n d bs
-    have hk : n - 1 - d < n := by omega
-    have hdk : dst + (n - 1 - d) < (listCopyBwdAux dst src n d bs).length := by omega
-    have hsrcOrig : (listCopyBwdAux dst src n d bs)[src + (n - 1 - d)]?.getD 0#8 =
-        bs[src + (n - 1 - d)]?.getD 0#8 := by
-      have h := ih (src + (n - 1 - d)) (by omega)
-      have hnot : ¬ (dst + (n - d) ≤ src + (n - 1 - d) ∧
-          src + (n - 1 - d) < dst + n) := by omega
-      rw [ite_eq_right_of_eq_false _ _ (eq_false hnot)] at h
-      exact h
-    by_cases heq : i = dst + (n - 1 - d)
-    · subst heq
-      simp only [listCopyBwdAux_succ, List.getElem?_set_self hdk, Option.getD_some, hsrcOrig]
-      have hcond : dst + (n - (d + 1)) ≤ dst + (n - 1 - d) ∧
-          dst + (n - 1 - d) < dst + n := by omega
-      rw [ite_eq_left_of_eq_true _ _ (eq_true hcond), Nat.add_sub_cancel_left]
-    · simp only [listCopyBwdAux_succ, List.getElem?_set_ne (Ne.symm heq)]
-      rw [ih i hi]
-      have hc : (dst + (n - d) ≤ i ∧ i < dst + n) ↔
-          (dst + (n - (d + 1)) ≤ i ∧ i < dst + n) := by omega
-      simp [hc]
-
-private theorem bv64_sub_ne_zero {a b : Nat} (hlt : b < a) (ha : a < 2 ^ 64) :
-    BitVec.ofNat 64 (a - b) ≠ 0#64 := by
-  intro h
-  have hn := congrArg BitVec.toNat h
-  simp only [BitVec.toNat_ofNat] at hn
-  rw [Nat.mod_eq_of_lt (by omega)] at hn
-  omega
+          else bs[i]?.getD 0#8 :=
+  fun d bs hdn => listCopyMemmove_memmove false dst src n hlt d bs (fun _ => hdn)
 
 private theorem bv64_sub_one_nat {a b : Nat} (hlt : b < a) (ha : a < 2 ^ 64) :
     BitVec.ofNat 64 (a - b) - 1#64 = BitVec.ofNat 64 (a - (b + 1)) := by
   apply BitVec.eq_of_toNat_eq
-  have hle1 : (1#64 : BitVec 64) ≤ BitVec.ofNat 64 (a - b) := by
-    rw [BitVec.le_def, BitVec.toNat_ofNat, BitVec.toNat_ofNat,
-      Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-    omega
-  rw [BitVec.toNat_sub_of_le hle1]
-  simp only [BitVec.toNat_ofNat]
-  rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
+  rw [bv64_sub_one_eq (bv64_sub_ne_zero hlt ha)]
+  simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : a - b < 2 ^ 64),
+    Nat.mod_eq_of_lt (by omega : a - (b + 1) < 2 ^ 64)]
   omega
-
-private theorem bv64_add_one_nat (base : BitVec 64) (off : Nat) :
-    (base + BitVec.ofNat 64 off) + 1#64 = base + BitVec.ofNat 64 (off + 1) := by
-  rw [BitVec.add_assoc]
-  congr 1
-  apply BitVec.eq_of_toNat_eq
-  simp [BitVec.toNat_add, BitVec.toNat_ofNat]
-
-private theorem bv64_sub_one_nat_addr (base : BitVec 64) {x : Nat} (hx : 0 < x) :
-    (base + BitVec.ofNat 64 x) - 1#64 = base + BitVec.ofNat 64 (x - 1) := by
-  have h1 : BitVec.ofNat 64 (x - 1) + 1#64 = BitVec.ofNat 64 x := by
-    apply BitVec.eq_of_toNat_eq
-    simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
-    have hx' : x - 1 + 1 = x := by omega
-    rw [Nat.add_mod, Nat.mod_mod, ← Nat.add_mod, hx']
-  calc
-    (base + BitVec.ofNat 64 x) - 1#64
-      = (base + BitVec.ofNat 64 (x - 1) + 1#64) - 1#64 := by rw [← h1, BitVec.add_assoc]
-    _ = base + BitVec.ofNat 64 (x - 1) := BitVec.add_sub_cancel _ _
 
 theorem emitMemFillLoop_bytes {Γ : Env} {X : XPost} {retTys : List WValTy}
     {Q : Post (wasmRetSig retTys)} {memBase f n64 dstPtr0 : BitVec 64}
@@ -602,76 +565,170 @@ theorem emitMemFillLoop_bytes {Γ : Env} {X : XPost} {retTys : List WValTy}
     wp Γ Q X (emitMemFillLoop retTys jAfter (.var byteVal) (.var f) (.var n64) (.var dstPtr0))
       mem := by
   simp only [emitMemFillLoop]
-  let Inv : Nat → Tup Val [i64, i64, i64] → Mem 64 → Prop := fun r lxs m' =>
-    ∃ done, done ≤ n64.toNat ∧ r = n64.toNat - done ∧
-      lxs.1 = BitVec.ofNat 64 (f.toNat - done) ∧
-      lxs.2.1 = BitVec.ofNat 64 (n64.toNat - done) ∧
-      lxs.2.2.1 = memBase + BitVec.ofNat 64 (dstOff + done) ∧
+  let Inv : BitVec 64 → BitVec 64 → Tup Val [i64] → Mem 64 → Prop := fun fHdr rem st m' =>
+    ∃ done, done ≤ n64.toNat ∧
+      fHdr = BitVec.ofNat 64 (f.toNat - done) ∧ rem = BitVec.ofNat 64 (n64.toNat - done) ∧
+      st.1 = memBase + BitVec.ofNat 64 (dstOff + done) ∧
       (array (t := i8) memBase (listFillAux byteVal dstOff done bs) ⋆ R') m'
-  refine wp_loop_group Inv (fun lLoop r lxs m' hlLoop hinv => ?_)
-    (fun lLoop hlLoop => ?_)
-  · rcases lxs with ⟨fHdr, rem, ptr, ⟨⟩⟩
-    rcases hinv with ⟨done, hle, rfl, hfHdr, hrem, hptr, hm'⟩
-    dsimp only at hfHdr hrem hptr
-    dsimp only [Blocks.get_here]
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-    rw [wp_jnz_]
-    refine ⟨fun hz => ?_, fun hnz => ?_⟩
-    · have hz' : rem = 0#64 := by
-        by_cases h : rem = 0#64
-        · exact h
-        · simp [Arg.val, h] at hz
-      have hdone : done = n64.toNat := by
-        apply Classical.byContradiction; intro hne
-        exact bv64_sub_ne_zero (by omega) n64.isLt (hrem ▸ hz')
-      subst hdone
-      rw [wp_jump_]
-      have hfEq : fHdr = BitVec.ofNat 64 (f.toNat - n64.toNat) := hfHdr
-      rw [hfEq]
-      exact hj m' hm'
-    · have hdn : done < n64.toNat := by
+  have hFuelLe : ∀ f' r' st' m', Inv f' r' st' m' → r'.toNat ≤ f'.toNat := by
+    rintro _ _ _ _ ⟨done, hle, rfl, rfl, _, _⟩
+    simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : n64.toNat - done < 2 ^ 64),
+      Nat.mod_eq_of_lt (by omega : f.toNat - done < 2 ^ 64)]
+    omega
+  refine wp_exact_fuel_loop Inv hFuelLe (.var f, .var n64, .var dstPtr0, ()) mem
+    (fun fHdr _ => .jump jAfter (.var fHdr, ()))
+    (fun lLoop fNext rem st => .store (t := i8) (.var byteVal) (.var st.1)
+      (.let_ (.mk (.sub i64) (.var rem, .imm 1#64, ())) fun remN =>
+       .let_ (.mk (.add i64) (.var st.1, .imm 1#64, ())) fun ptrN =>
+         .jump lLoop (.var fNext, .var remN.1, .var ptrN.1, ())))
+    ⟨0, Nat.zero_le _, by simp [BitVec.ofNat_toNat], by simp [BitVec.ofNat_toNat],
+      by simpa using hdst, hm⟩
+    (fun fHdr _ m' ⟨done, _, hfHdr, hrem, _, hm'⟩ => by
+      have h0 : (BitVec.ofNat 64 (n64.toNat - done)).toNat = 0 := congrArg BitVec.toNat hrem.symm
+      simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : n64.toNat - done < 2 ^ 64)] at h0
+      have hd : done = n64.toNat := by omega
+      subst hd; rw [wp_jump_, hfHdr]; exact hj m' hm')
+    (fun lLoop fHdr rem st m' hneR _ _ hRec ⟨done, _, hfHdr, hrem, hptr, hm'⟩ => by
+      have hdn : done < n64.toNat := by
         apply Classical.byContradiction; intro hge
-        have hdone : done = n64.toNat := by omega
-        subst hdone
-        simp only [Nat.sub_self] at hrem; simp [Arg.val, hrem] at hnz
-      have hfne : fHdr ≠ 0#64 := hfHdr ▸ bv64_sub_ne_zero (by omega) f.isLt
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-      rw [wp_jnz_]
-      refine ⟨fun hfz => by simp [Arg.val, hfne] at hfz, fun _ => ?_⟩
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
+        have hd : done = n64.toNat := by omega
+        subst hd; simp only [Nat.sub_self] at hrem; exact hneR hrem
       have hidxLt : dstOff + done < (listFillAux byteVal dstOff done bs).length := by
         rw [listFillAux_length]; omega
       have hi8 : (i8 : Ty).bytes = 1 := rfl
       rw [wp_store_]
       obtain ⟨hsok, hm''⟩ := store_array (t := i8) byteVal (by decide) hidxLt hm'
       rw [hi8, Nat.one_mul, ← hptr] at hsok hm''
-      refine ⟨by simpa [Arg.val] using hsok, ?_⟩
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [wp_jump_]
-      refine hlLoop (n64.toNat - (done + 1)) (fHdr - 1#64, rem - 1#64, ptr + 1#64, ())
-        _ (by omega) ?_
-      refine ⟨done + 1, by omega, rfl, ?_, ?_, ?_, hm''⟩
-      · rw [hfHdr, bv64_sub_one_nat (by omega) f.isLt]
-      · rw [hrem, bv64_sub_one_nat hdn n64.isLt]
-      · rw [hptr, bv64_add_one_nat, Nat.add_assoc]
-  · rw [wp_jump_]
-    refine hlLoop n64.toNat (f, n64, dstPtr0, ()) mem ?_
-    refine ⟨0, Nat.zero_le _, rfl, ?_, ?_, ?_, hm⟩
-    · simp [BitVec.ofNat_toNat]
-    · simp [BitVec.ofNat_toNat]
-    · simp [hdst]
+      refine ⟨by simpa [arg_var_val] using hsok, ?_⟩
+      wasm_wp_let; wasm_wp_let; rw [wp_jump_]
+      refine hRec (fHdr - 1#64) (rem - 1#64) (st.1 + 1#64, ()) _ (bv64_sub_one_lt hneR) ?_
+      refine ⟨done + 1, by omega, hfHdr ▸ bv64_sub_one_nat (by omega) f.isLt,
+        hrem ▸ bv64_sub_one_nat hdn n64.isLt, ?_, hm''⟩
+      rw [hptr, show (1#64 : BitVec 64) = BitVec.ofNat 64 1 from rfl, bv64_ptr_add, Nat.add_assoc])
+
+private theorem wp_copy_byte_step {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {memBase dAddr sAddr : BitVec 64} {fwd : Bool} {dstOff srcOff n done : Nat}
+    {bs : List (BitVec 8)} {R' : Mem 64 → Prop} {m : Mem 64}
+    {cont : Val i8 → Expr Val Cont rs}
+    (hsBnd : srcOff + (if fwd then done else n - 1 - done) < bs.length)
+    (hdBnd : dstOff + (if fwd then done else n - 1 - done) < bs.length)
+    (hsAddr :
+      sAddr = memBase + BitVec.ofNat 64 (srcOff + (if fwd then done else n - 1 - done)))
+    (hdAddr :
+      dAddr = memBase + BitVec.ofNat 64 (dstOff + (if fwd then done else n - 1 - done)))
+    (hm : (array (t := i8) memBase (listCopyMemmove fwd dstOff srcOff n done bs) ⋆ R') m)
+    (hk : ∀ b : Val i8, ∀ m',
+      (array (t := i8) memBase (listCopyMemmove fwd dstOff srcOff n (done + 1) bs) ⋆ R') m' →
+      wp Γ Q X (cont b) m') :
+    wp Γ Q X (.load i8 (.var sAddr) fun b =>
+      .store (t := i8) (.var b) (.var dAddr) (cont b)) m := by
+  let cur := listCopyMemmove fwd dstOff srcOff n done bs
+  let k := if fwd then done else n - 1 - done
+  have hsLt : srcOff + k < cur.length := by rw [listCopyMemmove_length]; exact hsBnd
+  have hdLt : dstOff + k < cur.length := by rw [listCopyMemmove_length]; exact hdBnd
+  have hi8 : (i8 : Ty).bytes = 1 := rfl
+  rw [wp_load_]
+  have hload := loadVal_array (t := i8) (by decide) hsLt hm
+  rw [hi8, Nat.one_mul, ← hsAddr] at hload
+  refine ⟨cur[srcOff + k], by simpa [arg_var_val] using hload, ?_⟩
+  rw [wp_store_]
+  obtain ⟨hsok, hm'⟩ := store_array (t := i8) cur[srcOff + k] (by decide) hdLt hm
+  rw [hi8, Nat.one_mul, ← hdAddr] at hsok hm'
+  refine ⟨by simpa [arg_var_val] using hsok, hk _ _ ?_⟩
+  simpa [cur, k, listCopyMemmove_succ, List.getElem?_eq_getElem hsLt] using hm'
+
+private theorem emitMemCopyLoop_bytes {Γ : Env} {X : XPost} {retTys : List WValTy}
+    {Q : Post (wasmRetSig retTys)} (fwd : Bool)
+    {memBase f n64 dstPtr0 srcPtr0 : BitVec 64}
+    {dstOff srcOff : Nat} {bs : List (BitVec 8)}
+    {R' : Mem 64 → Prop} {mem : Mem 64} (jAfter : Cont [i64])
+    (hfn : n64.toNat ≤ f.toNat) (hdBnd : dstOff + n64.toNat ≤ bs.length)
+    (hsBnd : srcOff + n64.toNat ≤ bs.length)
+    (hdst : dstPtr0 = memBase + BitVec.ofNat 64 (dstOff + if fwd then 0 else n64.toNat))
+    (hsrc : srcPtr0 = memBase + BitVec.ofNat 64 (srcOff + if fwd then 0 else n64.toNat))
+    (hm : (array (t := i8) memBase bs ⋆ R') mem)
+    (hj : ∀ m',
+      (array (t := i8) memBase (listCopyMemmove fwd dstOff srcOff n64.toNat n64.toNat bs) ⋆ R') m' →
+      jAfter (BitVec.ofNat 64 (f.toNat - n64.toNat), ()) m') :
+    wp Γ Q X (emitMemCopyLoop fwd retTys jAfter (.var f) (.var n64) (.var dstPtr0) (.var srcPtr0))
+      mem := by
+  simp only [emitMemCopyLoop]
+  let Inv : BitVec 64 → BitVec 64 → Tup Val [i64, i64] → Mem 64 → Prop := fun fHdr rem st m' =>
+    ∃ done, done ≤ n64.toNat ∧
+      fHdr = BitVec.ofNat 64 (f.toNat - done) ∧ rem = BitVec.ofNat 64 (n64.toNat - done) ∧
+      let off := if fwd then done else n64.toNat - done
+      st.1 = memBase + BitVec.ofNat 64 (dstOff + off) ∧
+      st.2.1 = memBase + BitVec.ofNat 64 (srcOff + off) ∧
+      (array (t := i8) memBase (listCopyMemmove fwd dstOff srcOff n64.toNat done bs) ⋆ R') m'
+  have hFuelLe : ∀ f' r' st' m', Inv f' r' st' m' → r'.toNat ≤ f'.toNat := by
+    rintro _ _ _ _ ⟨done, hle, rfl, rfl, _, _⟩
+    simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : n64.toNat - done < 2 ^ 64),
+      Nat.mod_eq_of_lt (by omega : f.toNat - done < 2 ^ 64)]
+    omega
+  refine wp_exact_fuel_loop Inv hFuelLe (.var f, .var n64, .var dstPtr0, .var srcPtr0, ()) mem
+    (fun fHdr _ => .jump jAfter (.var fHdr, ()))
+    (fun lLoop fNext rem st =>
+      .let_ (.mk (.sub i64) (.var rem, .imm 1#64, ())) fun remN =>
+      if fwd then
+        .load i8 (.var st.2.1) fun b => .store (t := i8) (.var b) (.var st.1)
+          (.let_ (.mk (.add i64) (.var st.1, .imm 1#64, ())) fun dPtrN =>
+           .let_ (.mk (.add i64) (.var st.2.1, .imm 1#64, ())) fun sPtrN =>
+             .jump lLoop (.var fNext, .var remN.1, .var dPtrN.1, .var sPtrN.1, ()))
+      else
+        .let_ (.mk (.sub i64) (.var st.1, .imm 1#64, ())) fun dPtrP =>
+        .let_ (.mk (.sub i64) (.var st.2.1, .imm 1#64, ())) fun sPtrP =>
+        .load i8 (.var sPtrP.1) fun b => .store (t := i8) (.var b) (.var dPtrP.1)
+          (.jump lLoop (.var fNext, .var remN.1, .var dPtrP.1, .var sPtrP.1, ())))
+    ⟨0, Nat.zero_le _, by simp [BitVec.ofNat_toNat], by simp [BitVec.ofNat_toNat],
+      by simpa [Nat.sub_zero] using hdst, by simpa [Nat.sub_zero] using hsrc, hm⟩
+    (fun fHdr _ m' ⟨done, _, hfHdr, hrem, _, _, hm'⟩ => by
+      have h0 : (BitVec.ofNat 64 (n64.toNat - done)).toNat = 0 := congrArg BitVec.toNat hrem.symm
+      simp only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : n64.toNat - done < 2 ^ 64)] at h0
+      have hd : done = n64.toNat := by omega
+      subst hd; rw [wp_jump_, hfHdr]; exact hj m' hm')
+    (fun lLoop fHdr rem st m' hneR _ _ hRec ⟨done, _, hfHdr, hrem, hdPtr, hsPtr, hm'⟩ => by
+      have hdn : done < n64.toNat := by
+        apply Classical.byContradiction; intro hge
+        have hd : done = n64.toNat := by omega
+        subst hd; simp only [Nat.sub_self] at hrem; exact hneR hrem
+      have hfNext := hfHdr ▸ bv64_sub_one_nat (by omega) f.isLt
+      have hremNext := hrem ▸ bv64_sub_one_nat hdn n64.isLt
+      have hRemLt := bv64_sub_one_lt hneR
+      wasm_wp_let
+      cases fwd <;> simp only [↓reduceIte, Bool.false_eq_true] at hdPtr hsPtr hm' ⊢
+      · wasm_wp_let; wasm_wp_let
+        have hk : srcOff + (n64.toNat - done) - 1 = srcOff + (n64.toNat - 1 - done) := by omega
+        have hd : dstOff + (n64.toNat - done) - 1 = dstOff + (n64.toNat - 1 - done) := by omega
+        have hsSub : st.2.1 - 1#64 =
+            memBase + BitVec.ofNat 64 (srcOff + (n64.toNat - 1 - done)) := by
+          rw [hsPtr, bv64_ptr_sub_one (by omega), hk]
+        have hdSub : st.1 - 1#64 =
+            memBase + BitVec.ofNat 64 (dstOff + (n64.toNat - 1 - done)) := by
+          rw [hdPtr, bv64_ptr_sub_one (by omega), hd]
+        refine wp_copy_byte_step (fwd := false)
+          (by simpa using (by omega : srcOff + (n64.toNat - 1 - done) < bs.length))
+          (by simpa using (by omega : dstOff + (n64.toNat - 1 - done) < bs.length))
+          hsSub hdSub hm' fun _ m'' hm'' => ?_
+        rw [wp_jump_]
+        refine hRec _ (rem - 1#64) (st.1 - 1#64, st.2.1 - 1#64, ()) m'' hRemLt
+          ⟨done + 1, by omega, hfNext, hremNext, ?_, ?_, hm''⟩
+        · dsimp only; simp only [Bool.false_eq_true, ↓reduceIte]
+          rw [hdSub]; congr 2; omega
+        · dsimp only; simp only [Bool.false_eq_true, ↓reduceIte]
+          rw [hsSub]; congr 2; omega
+      · refine wp_copy_byte_step (fwd := true)
+          (by simpa using (by omega : srcOff + done < bs.length))
+          (by simpa using (by omega : dstOff + done < bs.length))
+          hsPtr hdPtr hm' fun _ m'' hm'' => ?_
+        wasm_wp_let; wasm_wp_let; rw [wp_jump_]
+        refine hRec _ (rem - 1#64) (st.1 + 1#64, st.2.1 + 1#64, ()) m'' hRemLt
+          ⟨done + 1, by omega, hfNext, hremNext, ?_, ?_, hm''⟩
+        · dsimp only; simp only [↓reduceIte]
+          rw [hdPtr, show (1#64 : BitVec 64) = BitVec.ofNat 64 1 from rfl, bv64_ptr_add,
+            Nat.add_assoc]
+        · dsimp only; simp only [↓reduceIte]
+          rw [hsPtr, show (1#64 : BitVec 64) = BitVec.ofNat 64 1 from rfl, bv64_ptr_add,
+            Nat.add_assoc])
 
 theorem emitMemCopyLoop_fwd_bytes {Γ : Env} {X : XPost} {retTys : List WValTy}
     {Q : Post (wasmRetSig retTys)} {memBase f n64 dstPtr0 srcPtr0 : BitVec 64}
@@ -686,95 +743,10 @@ theorem emitMemCopyLoop_fwd_bytes {Γ : Env} {X : XPost} {retTys : List WValTy}
       (array (t := i8) memBase (listCopyFwdAux dstOff srcOff n64.toNat bs) ⋆ R') m' →
       jAfter (BitVec.ofNat 64 (f.toNat - n64.toNat), ()) m') :
     wp Γ Q X (emitMemCopyLoop true retTys jAfter (.var f) (.var n64) (.var dstPtr0) (.var srcPtr0))
-      mem := by
-  simp only [emitMemCopyLoop]
-  let Inv : Nat → Tup Val [i64, i64, i64, i64] → Mem 64 → Prop := fun r lxs m' =>
-    ∃ done, done ≤ n64.toNat ∧ r = n64.toNat - done ∧
-      lxs.1 = BitVec.ofNat 64 (f.toNat - done) ∧
-      lxs.2.1 = BitVec.ofNat 64 (n64.toNat - done) ∧
-      lxs.2.2.1 = memBase + BitVec.ofNat 64 (dstOff + done) ∧
-      lxs.2.2.2.1 = memBase + BitVec.ofNat 64 (srcOff + done) ∧
-      (array (t := i8) memBase (listCopyFwdAux dstOff srcOff done bs) ⋆ R') m'
-  refine wp_loop_group Inv (fun lLoop r lxs m' hlLoop hinv => ?_)
-    (fun lLoop hlLoop => ?_)
-  · rcases lxs with ⟨fHdr, rem, dPtr, sPtr, ⟨⟩⟩
-    rcases hinv with ⟨done, hle, rfl, hfHdr, hrem, hdPtr, hsPtr, hm'⟩
-    dsimp only at hfHdr hrem hdPtr hsPtr
-    dsimp only [Blocks.get_here]
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-    rw [wp_jnz_]
-    refine ⟨fun hz => ?_, fun hnz => ?_⟩
-    · have hz' : rem = 0#64 := by
-        by_cases h : rem = 0#64
-        · exact h
-        · simp [Arg.val, h] at hz
-      have hdone : done = n64.toNat := by
-        apply Classical.byContradiction; intro hne
-        exact bv64_sub_ne_zero (by omega) n64.isLt (hrem ▸ hz')
-      subst hdone
-      rw [wp_jump_]
-      have hfEq : fHdr = BitVec.ofNat 64 (f.toNat - n64.toNat) := hfHdr
-      rw [hfEq]
-      exact hj m' hm'
-    · have hdn : done < n64.toNat := by
-        apply Classical.byContradiction; intro hge
-        have hdone : done = n64.toNat := by omega
-        subst hdone
-        simp only [Nat.sub_self] at hrem; simp [Arg.val, hrem] at hnz
-      have hfne : fHdr ≠ 0#64 := hfHdr ▸ bv64_sub_ne_zero (by omega) f.isLt
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-      rw [wp_jnz_]
-      refine ⟨fun hfz => by simp [Arg.val, hfne] at hfz, fun _ => ?_⟩
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      have hsLt : srcOff + done < (listCopyFwdAux dstOff srcOff done bs).length := by
-        rw [listCopyFwdAux_length]; omega
-      have hdLt : dstOff + done < (listCopyFwdAux dstOff srcOff done bs).length := by
-        rw [listCopyFwdAux_length]; omega
-      have hi8 : (i8 : Ty).bytes = 1 := rfl
-      rw [wp_load_]
-      have hload := loadVal_array (t := i8) (by decide) hsLt hm'
-      rw [hi8, Nat.one_mul, ← hsPtr] at hload
-      refine ⟨(listCopyFwdAux dstOff srcOff done bs)[srcOff + done], by simpa [Arg.val] using hload,
-        ?_⟩
-      rw [wp_store_]
-      obtain ⟨hsok, hm''⟩ := store_array (t := i8)
-        ((listCopyFwdAux dstOff srcOff done bs)[srcOff + done]) (by decide) hdLt hm'
-      rw [hi8, Nat.one_mul, ← hdPtr] at hsok hm''
-      refine ⟨by simpa [Arg.val] using hsok, ?_⟩
-      have hm''' : (array (t := i8) memBase (listCopyFwdAux dstOff srcOff (done + 1) bs) ⋆ R')
-          (storeMem m' i8 dPtr (listCopyFwdAux dstOff srcOff done bs)[srcOff + done]) := by
-        simpa [listCopyFwdAux_succ, List.getElem?_eq_getElem hsLt] using hm''
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [wp_jump_]
-      refine hlLoop (n64.toNat - (done + 1))
-        (fHdr - 1#64, rem - 1#64, dPtr + 1#64, sPtr + 1#64, ()) _ (by omega) ?_
-      refine ⟨done + 1, by omega, rfl, ?_, ?_, ?_, ?_, by simpa [Arg.val] using hm'''⟩
-      · rw [hfHdr, bv64_sub_one_nat (by omega) f.isLt]
-      · rw [hrem, bv64_sub_one_nat hdn n64.isLt]
-      · rw [hdPtr, bv64_add_one_nat, Nat.add_assoc]
-      · rw [hsPtr, bv64_add_one_nat, Nat.add_assoc]
-  · rw [wp_jump_]
-    refine hlLoop n64.toNat (f, n64, dstPtr0, srcPtr0, ()) mem ?_
-    refine ⟨0, Nat.zero_le _, rfl, ?_, ?_, ?_, ?_, hm⟩
-    · simp [BitVec.ofNat_toNat]
-    · simp [BitVec.ofNat_toNat]
-    · simp [hdst]
-    · simp [hsrc]
+      mem :=
+  emitMemCopyLoop_bytes true jAfter hfn hdBnd hsBnd
+    (by simpa using hdst) (by simpa using hsrc) hm
+    fun m' hm' => hj m' (by rwa [listCopyMemmove_true_n] at hm')
 
 theorem emitMemCopyLoop_bwd_bytes {Γ : Env} {X : XPost} {retTys : List WValTy}
     {Q : Post (wasmRetSig retTys)} {memBase f n64 dstPtr0 srcPtr0 : BitVec 64}
@@ -789,106 +761,8 @@ theorem emitMemCopyLoop_bwd_bytes {Γ : Env} {X : XPost} {retTys : List WValTy}
       (array (t := i8) memBase (listCopyBwdAux dstOff srcOff n64.toNat n64.toNat bs) ⋆ R') m' →
       jAfter (BitVec.ofNat 64 (f.toNat - n64.toNat), ()) m') :
     wp Γ Q X (emitMemCopyLoop false retTys jAfter (.var f) (.var n64) (.var dstPtr0) (.var srcPtr0))
-      mem := by
-  simp only [emitMemCopyLoop]
-  let Inv : Nat → Tup Val [i64, i64, i64, i64] → Mem 64 → Prop := fun r lxs m' =>
-    ∃ done, done ≤ n64.toNat ∧ r = n64.toNat - done ∧
-      lxs.1 = BitVec.ofNat 64 (f.toNat - done) ∧
-      lxs.2.1 = BitVec.ofNat 64 (n64.toNat - done) ∧
-      lxs.2.2.1 = memBase + BitVec.ofNat 64 (dstOff + (n64.toNat - done)) ∧
-      lxs.2.2.2.1 = memBase + BitVec.ofNat 64 (srcOff + (n64.toNat - done)) ∧
-      (array (t := i8) memBase (listCopyBwdAux dstOff srcOff n64.toNat done bs) ⋆ R') m'
-  refine wp_loop_group Inv (fun lLoop r lxs m' hlLoop hinv => ?_)
-    (fun lLoop hlLoop => ?_)
-  · rcases lxs with ⟨fHdr, rem, dPtr, sPtr, ⟨⟩⟩
-    rcases hinv with ⟨done, hle, rfl, hfHdr, hrem, hdPtr, hsPtr, hm'⟩
-    dsimp only at hfHdr hrem hdPtr hsPtr
-    dsimp only [Blocks.get_here]
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-    rw [wp_jnz_]
-    refine ⟨fun hz => ?_, fun hnz => ?_⟩
-    · have hz' : rem = 0#64 := by
-        by_cases h : rem = 0#64
-        · exact h
-        · simp [Arg.val, h] at hz
-      have hdone : done = n64.toNat := by
-        apply Classical.byContradiction; intro hne
-        exact bv64_sub_ne_zero (by omega) n64.isLt (hrem ▸ hz')
-      subst hdone
-      rw [wp_jump_]
-      have hfEq : fHdr = BitVec.ofNat 64 (f.toNat - n64.toNat) := hfHdr
-      rw [hfEq]
-      exact hj m' hm'
-    · have hdn : done < n64.toNat := by
-        apply Classical.byContradiction; intro hge
-        have hdone : done = n64.toNat := by omega
-        subst hdone
-        simp only [Nat.sub_self] at hrem; simp [Arg.val, hrem] at hnz
-      have hfne : fHdr ≠ 0#64 := hfHdr ▸ bv64_sub_ne_zero (by omega) f.isLt
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-      rw [wp_jnz_]
-      refine ⟨fun hfz => by simp [Arg.val, hfne] at hfz, fun _ => ?_⟩
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      rw [wp_let_]
-      simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-        Bool.false_eq_true, ↓reduceIte]
-      let k : Nat := n64.toNat - 1 - done
-      have hkEq : dstOff + (n64.toNat - done) - 1 = dstOff + k := by omega
-      have hskEq : srcOff + (n64.toNat - done) - 1 = srcOff + k := by omega
-      have hdSub : dPtr - 1#64 = memBase + BitVec.ofNat 64 (dstOff + k) := by
-        rw [hdPtr, bv64_sub_one_nat_addr memBase (by omega), hkEq]
-      have hsSub : sPtr - 1#64 = memBase + BitVec.ofNat 64 (srcOff + k) := by
-        rw [hsPtr, bv64_sub_one_nat_addr memBase (by omega), hskEq]
-      have hsLt : srcOff + k < (listCopyBwdAux dstOff srcOff n64.toNat done bs).length := by
-        rw [listCopyBwdAux_length]; omega
-      have hdLt : dstOff + k < (listCopyBwdAux dstOff srcOff n64.toNat done bs).length := by
-        rw [listCopyBwdAux_length]; omega
-      have hi8 : (i8 : Ty).bytes = 1 := rfl
-      rw [wp_load_]
-      have hload := loadVal_array (t := i8) (by decide) hsLt hm'
-      rw [hi8, Nat.one_mul, ← hsSub] at hload
-      refine ⟨(listCopyBwdAux dstOff srcOff n64.toNat done bs)[srcOff + k],
-        by simpa [Arg.val] using hload, ?_⟩
-      rw [wp_store_]
-      obtain ⟨hsok, hm''⟩ := store_array (t := i8)
-        ((listCopyBwdAux dstOff srcOff n64.toNat done bs)[srcOff + k]) (by decide) hdLt hm'
-      rw [hi8, Nat.one_mul, ← hdSub] at hsok hm''
-      refine ⟨by simpa [Arg.val] using hsok, ?_⟩
-      have hm''' :
-          (array (t := i8) memBase (listCopyBwdAux dstOff srcOff n64.toNat (done + 1) bs) ⋆ R')
-            (storeMem m' i8 (dPtr - 1#64)
-              (listCopyBwdAux dstOff srcOff n64.toNat done bs)[srcOff + k]) := by
-        simpa [listCopyBwdAux_succ, k, List.getElem?_eq_getElem hsLt] using hm''
-      rw [wp_jump_]
-      refine hlLoop (n64.toNat - (done + 1))
-        (fHdr - 1#64, rem - 1#64, dPtr - 1#64, sPtr - 1#64, ()) _ (by omega) ?_
-      refine ⟨done + 1, by omega, rfl, ?_, ?_, ?_, ?_, by simpa [Arg.val] using hm'''⟩
-      · rw [hfHdr, bv64_sub_one_nat (by omega) f.isLt]
-      · rw [hrem, bv64_sub_one_nat hdn n64.isLt]
-      · rw [hdSub]
-        exact congrArg (fun x => memBase + BitVec.ofNat 64 (dstOff + x)) (by dsimp only [k]; omega)
-      · rw [hsSub]
-        exact congrArg (fun x => memBase + BitVec.ofNat 64 (srcOff + x)) (by dsimp only [k]; omega)
-  · rw [wp_jump_]
-    refine hlLoop n64.toNat (f, n64, dstPtr0, srcPtr0, ()) mem ?_
-    refine ⟨0, Nat.zero_le _, rfl, ?_, ?_, ?_, ?_, hm⟩
-    · simp [BitVec.ofNat_toNat]
-    · simp [BitVec.ofNat_toNat]
-    · simpa [Nat.sub_zero] using hdst
-    · simpa [Nat.sub_zero] using hsrc
+      mem :=
+  emitMemCopyLoop_bytes false jAfter hfn hdBnd hsBnd hdst hsrc hm hj
 
 /-! ## 4. Concrete Behavioral & Adversarial `Func.wp` Proofs -/
 
@@ -900,16 +774,6 @@ private theorem get?Int_succ {α : Type} (a : α) (xs : List α) (n : Nat) :
 
 private theorem appendZeroLocals_nil {V : Ty → Type} (xs : Tup (Arg V) []) :
     appendZeroLocals [] [] xs = () := rfl
-
-private theorem bv32_toNat_eq_setWidth64 (v : BitVec 32) :
-    (v.setWidth 64).toNat = v.toNat := by
-  simp [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (Nat.lt_trans v.isLt (by decide : 2 ^ 32 < 2 ^ 64))]
-
-private theorem bv32_setWidth64_eq_ofNat (v : BitVec 32) :
-    v.setWidth 64 = BitVec.ofNat 64 v.toNat := by
-  apply BitVec.eq_of_toNat_eq
-  rw [bv32_toNat_eq_setWidth64, BitVec.toNat_ofNat,
-    Nat.mod_eq_of_lt (Nat.lt_trans v.isLt (by decide : 2 ^ 32 < 2 ^ 64))]
 
 /-- Concrete `Func.wp` behavioral proof for `memory.size`: returns current pages
 `(curLen >>> 16).setWidth 32` without touching memory (`mem' = mem`) or host frame `R`. -/
@@ -940,6 +804,75 @@ theorem bm_size_ok (Γ : Env) (vmCtx memBase curLen memCap fuel : BitVec 64)
     rw [wp_ret_]
     exact ⟨by simp [vals], rfl, hm⟩
 
+private theorem fnGrow_wp_step {Γ : Env} {X : XPost}
+    {vmCtx memBase curLen memCap fuel : BitVec 64} {delta32 : BitVec 32}
+    {R' : Mem 64 → Prop} {mem : Mem 64}
+    {P : BitVec 64 → BitVec 32 → Mem 64 → Prop} {PostQ : Post (wasmRetSig [.i32])}
+    (hNz : delta32 ≠ 0#32)
+    (hDone : ∀ f' r' m', P f' r' m' → PostQ (0#32, f', r', ()) m')
+    (hm : (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) curLen ⋆
+      cell64 (vmCtx + 16#64) memCap ⋆ R') mem)
+    (hFail : (curLen.ule (curLen + (delta32.setWidth 64 <<< 16)) &&
+        ((curLen + (delta32.setWidth 64 <<< 16)).ule memCap &&
+         (curLen + (delta32.setWidth 64 <<< 16)).ule 4294967296#64)) = false →
+      P fuel 0xFFFFFFFF#32 mem)
+    (hGrow : (curLen.ule (curLen + (delta32.setWidth 64 <<< 16)) &&
+        ((curLen + (delta32.setWidth 64 <<< 16)).ule memCap &&
+         (curLen + (delta32.setWidth 64 <<< 16)).ule 4294967296#64)) = true →
+      ∀ jDone : Cont [i64, i32], (∀ f' r' m', P f' r' m' → jDone (f', r', ()) m') →
+        wp Γ PostQ X (emitMemGrowLoop [.i32] jDone (.var (vmCtx + 8#64))
+          (.var (curLen + (delta32.setWidth 64 <<< 16)))
+          (.var ((curLen >>> 16).setWidth 32)) (.var fuel)
+          (.var (delta32.setWidth 64)) (.var (memBase + curLen))) mem) :
+    Func.wp Γ (lowerFn bulkMod fnGrow).body (vmCtx, fuel, delta32, ()) mem PostQ X := by
+  simp only [Func.wp, lowerFn, lowerFuncBody, bulkMod, fnGrow,
+    GetElem?.getElem?, get?Int_succ, get?Int_zero, Option.getD, Option.map, Option.isSome,
+    List.map, List.append, List.cons_append, List.nil_append,
+    WMemSpec.maxBytes, WMemSpec.effectiveMaxPages, WValTy.toTy, labelSig]
+  refine wp_join_group (fun xs m' => P xs.1 xs.2.2.1 m')
+    (fun _ xs m' h => by
+      rcases xs with ⟨fRet, dLoc, rRet, ⟨⟩⟩
+      dsimp only [Blocks.get_here, tupSplit, varsTup]
+      rw [wp_ret_]
+      exact hDone fRet rRet m' h)
+    (fun _ _ => ?_)
+  simp only [lowerSeq, lowerSimpleInstr, pop32, popArgsAux, popExpectS, Bind.bind,
+    Option.bind, varsTup, ↓reduceIte, emitMemGrow]
+  refine wp_join_group (fun xs m' => P xs.1 xs.2.1 m')
+    (fun _ xs m' h => by
+      rcases xs with ⟨fD, rD, ⟨⟩⟩
+      dsimp only [Blocks.get_here]
+      rw [wp_ret_]
+      dsimp only [vals]
+      exact hDone fD rD m' h)
+    (fun jDone hjDone => ?_)
+  have h0 : (cell64 vmCtx memBase ⋆ (cell64 (vmCtx + 8#64) curLen ⋆
+      cell64 (vmCtx + 16#64) memCap ⋆ R')) mem := sep_cast hm (by ac_rfl)
+  rw [wp_load_]; refine ⟨memBase, loadVal_cell64 h0, ?_⟩; wasm_wp_let
+  have h8 : (cell64 (vmCtx + 8#64) curLen ⋆ (cell64 vmCtx memBase ⋆
+      cell64 (vmCtx + 16#64) memCap ⋆ R')) mem := sep_cast hm (by ac_rfl)
+  rw [wp_load_]; refine ⟨curLen, loadVal_cell64 h8, ?_⟩; wasm_wp_let
+  have h16 : (cell64 (vmCtx + 16#64) memCap ⋆ (cell64 vmCtx memBase ⋆
+      cell64 (vmCtx + 8#64) curLen ⋆ R')) mem := sep_cast hm (by ac_rfl)
+  rw [wp_load_]; refine ⟨memCap, loadVal_cell64 h16, ?_⟩
+  have hsh16 : ((16#64 : BitVec 64).toNat % 64) = 16 := rfl
+  wasm_wp_let; simp only [hsh16]; wasm_wp_let; wasm_wp_let; rw [wp_jnz_]
+  refine ⟨fun hzero => (by
+    have hF : decide (delta32 = 0#32) = true → False := fun h => absurd (of_decide_eq_true h) hNz
+    exact False.elim (hF hzero)), fun _ => ?_⟩
+  wasm_wp_let; wasm_wp_let; simp only [hsh16]
+  wasm_wp_let; wasm_wp_let; wasm_wp_let; wasm_wp_let; wasm_wp_let; wasm_wp_let
+  rw [wp_jnz_]
+  refine ⟨fun hok => ?_, fun hnot => ?_⟩
+  · rw [arg_var_val, Bool.and_assoc,
+      show BitVec.ofNat 64 (Nat.min 65536 65536 * 65536) = 4294967296#64 from by decide] at hok
+    wasm_wp_let
+    exact hGrow hok jDone fun f' r' m' h => hjDone (f', r', ()) m' h
+  · rw [arg_var_val, Bool.and_assoc,
+      show BitVec.ofNat 64 (Nat.min 65536 65536 * 65536) = 4294967296#64 from by decide] at hnot
+    rw [wp_jump_]
+    exact hjDone (fuel, 0xFFFFFFFF#32, ()) mem (hFail hnot)
+
 /-- Concrete `Func.wp` behavioral proof for valid `memory.grow (delta := 1#32)`: zeroes all `8192`
 64-bit words in `[memBase + 65536, memBase + 131072)`, updates `[vmCtx + 8]` to `131072#64`,
 returns `(0#32, fuel - 1#64, 1#32, ())`, and preserves `memBase..+65536` and host frame `R`. -/
@@ -954,158 +887,52 @@ theorem bm_grow_ok (Γ : Env) (vmCtx memBase fuel : BitVec 64)
         (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) 131072#64 ⋆
           cell64 (vmCtx + 16#64) 131072#64 ⋆ region memBase 65536 ⋆
           array64 (memBase + 65536#64) (List.replicate 8192 0#64) ⋆ R) m') X := by
-  simp only [Func.wp, lowerFn, lowerFuncBody, bulkMod, fnGrow,
-    GetElem?.getElem?, get?Int_succ, get?Int_zero, Option.getD, Option.map, Option.isSome,
-    List.map, List.append, List.cons_append, List.nil_append,
-    WMemSpec.maxBytes, WMemSpec.effectiveMaxPages, WValTy.toTy, labelSig]
-  refine wp_join_group
-    (fun xs m' => xs.1 = fuel - 1#64 ∧ xs.2.2.1 = 1#32 ∧
+  let PostQ : Post (wasmRetSig [.i32]) := fun ys m' =>
+    ys = (0#32, fuel - 1#64, 1#32, ()) ∧
       (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) 131072#64 ⋆
         cell64 (vmCtx + 16#64) 131072#64 ⋆ region memBase 65536 ⋆
-        array64 (memBase + 65536#64) (List.replicate 8192 0#64) ⋆ R) m')
-    (fun _ xs m' h => ?_) (fun _ _ => ?_)
-  · rcases xs with ⟨fRet, dLoc, rRet, ⟨⟩⟩
-    rcases h with ⟨hfEq, hrEq, hm'⟩
-    dsimp only at hfEq hrEq
-    dsimp only [Blocks.get_here, tupSplit, varsTup]
-    rw [wp_ret_]
-    rw [hfEq, hrEq]
-    exact ⟨rfl, hm'⟩
-  · simp only [lowerSeq, lowerSimpleInstr, pop32, popArgsAux, popExpectS, Bind.bind,
-      Option.bind, varsTup, ↓reduceIte]
-    simp only [emitMemGrow]
-    refine wp_join_group
-      (fun xs m' => xs = (fuel - 1#64, 1#32, ()) ∧
-        (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) 131072#64 ⋆
-          cell64 (vmCtx + 16#64) 131072#64 ⋆ region memBase 65536 ⋆
-          array64 (memBase + 65536#64) (List.replicate 8192 0#64) ⋆ R) m')
-      (fun _ xs m' ⟨hxs, hm'⟩ => by
-        rcases xs with ⟨fD, rD, ⟨⟩⟩
-        dsimp only [Blocks.get_here]
-        rw [wp_ret_]
-        rcases hxs with ⟨rfl, rfl⟩
-        exact ⟨rfl, hm'⟩)
-      (fun jDone hjDone => ?_)
-    have h0 : (cell64 vmCtx memBase ⋆ (cell64 (vmCtx + 8#64) 65536#64 ⋆
+        array64 (memBase + 65536#64) (List.replicate 8192 0#64) ⋆ R) m'
+  let P : BitVec 64 → BitVec 32 → Mem 64 → Prop := fun f' r' m' =>
+    f' = fuel - 1#64 ∧ r' = 1#32 ∧
+      (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) 131072#64 ⋆
         cell64 (vmCtx + 16#64) 131072#64 ⋆ region memBase 65536 ⋆
-        array64 (memBase + 65536#64) oldWs ⋆ R)) mem :=
-      sep_cast hm (by ac_rfl)
-    rw [wp_load_]
-    refine ⟨memBase, loadVal_cell64 h0, ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_load_]
-    have h8 : (cell64 (vmCtx + 8#64) 65536#64 ⋆ (cell64 vmCtx memBase ⋆
-        cell64 (vmCtx + 16#64) 131072#64 ⋆ region memBase 65536 ⋆
-        array64 (memBase + 65536#64) oldWs ⋆ R)) mem :=
-      sep_cast hm (by ac_rfl)
-    refine ⟨65536#64, loadVal_cell64 h8, ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_load_]
-    have h16 : (cell64 (vmCtx + 16#64) 131072#64 ⋆ (cell64 vmCtx memBase ⋆
-        cell64 (vmCtx + 8#64) 65536#64 ⋆ region memBase 65536 ⋆
-        array64 (memBase + 65536#64) oldWs ⋆ R)) mem :=
-      sep_cast hm (by ac_rfl)
-    refine ⟨131072#64, loadVal_cell64 h16, ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val]
-    refine ⟨by decide, ?_⟩
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-    rw [wp_jnz_]
-    refine ⟨fun hz => by exfalso; dsimp only [Arg.val] at hz; revert hz; decide, fun _ => ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals]
-    refine ⟨by decide, ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-      liftCmp, CmpOp.evalBits]
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-      liftCmp, CmpOp.evalBits]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, Ty.hasFloat, Bool.false_eq_true,
-      ↓reduceIte, liftCmp, CmpOp.evalBits]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2]
-    rw [wp_jnz_]
-    refine ⟨fun _ => ?_, fun hbad => by
-      exfalso; revert hbad
-      dsimp only [Arg.val]; decide⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    simp only [emitMemGrowLoop]
-    refine wp_unroll_group (fun lPage hlPage => ?_)
-    rw [wp_jump_]
-    apply hlPage (fuel, 1#64, memBase + 65536#64, ()) mem
-    dsimp only [Blocks.get_here]
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-    rw [wp_jnz_]
-    refine ⟨fun h0 => by exfalso; dsimp only [Arg.val] at h0; revert h0; decide, fun _ => ?_⟩
-    have hfne : fuel ≠ 0#64 := fun h0 => by simp [h0] at hf
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-    rw [wp_jnz_]
-    refine ⟨fun hfz => by simp [Arg.val, hfne] at hfz, fun _ => ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    have hpage : (array64 (memBase + 65536#64) oldWs ⋆ (cell64 vmCtx memBase ⋆
-        cell64 (vmCtx + 8#64) 65536#64 ⋆ cell64 (vmCtx + 16#64) 131072#64 ⋆
-        region memBase 65536 ⋆ R)) mem :=
-      sep_cast hm (by ac_rfl)
-    refine emitMemZeroPage_zero hlen (.var (memBase + 65536#64)) rfl hpage _ fun m' hm' => ?_
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_jump_]
-    apply hlPage (fuel - 1#64, 0#64, memBase + 65536#64 + 65536#64, ()) m'
-    dsimp only [Blocks.get_here]
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-    rw [wp_jnz_]
-    refine ⟨fun _ => ?_, fun hnz => by exfalso; dsimp only [Arg.val] at hnz; revert hnz; decide⟩
-    have hm'8 : (cell64 (vmCtx + 8#64) 65536#64 ⋆ (cell64 vmCtx memBase ⋆
-        cell64 (vmCtx + 16#64) 131072#64 ⋆ region memBase 65536 ⋆
-        array64 (memBase + 65536#64) (List.replicate 8192 0#64) ⋆ R)) m' :=
-      sep_cast hm' (by ac_rfl)
-    rw [wp_store_]
-    obtain ⟨hsok, hm''⟩ := store_cell64 (131072#64) hm'8
-    refine ⟨by simpa [Arg.val,
-        show ((1#32 : BitVec 32).setWidth 64 <<< 16) = 65536#64 by decide,
-        show (65536#64 + 65536#64 : BitVec 64) = 131072#64 by decide] using hsok, ?_⟩
-    rw [wp_jump_]
-    exact hjDone (fuel - 1#64, ((65536#64 >>> 16 : BitVec 64).setWidth 32), ()) _
-      ⟨rfl, sep_cast hm'' (by ac_rfl)⟩
+        array64 (memBase + 65536#64) (List.replicate 8192 0#64) ⋆ R) m'
+  change Func.wp Γ (lowerFn bulkMod fnGrow).body (vmCtx, fuel, 1#32, ()) mem PostQ X
+  refine fnGrow_wp_step (P := P) (PostQ := PostQ)
+    (R' := region memBase 65536 ⋆ array64 (memBase + 65536#64) oldWs ⋆ R)
+    (by decide) (fun _ _ _ ⟨hf', hr', hm'⟩ => by subst hf'; subst hr'; exact ⟨rfl, hm'⟩)
+    (sep_cast hm (by ac_rfl)) (fun h => by exfalso; revert h; decide) (fun _ jDone hjDone => ?_)
+  simp only [emitMemGrowLoop]
+  refine wp_unroll_group (fun lPage hlPage => ?_)
+  rw [wp_jump_]
+  apply hlPage (fuel, 1#64, memBase + 65536#64, ()) mem
+  dsimp only [Blocks.get_here]
+  wasm_wp_let; rw [wp_jnz_]
+  refine ⟨fun h0 => by exfalso; revert h0; decide, fun _ => ?_⟩
+  have hfne : fuel ≠ 0#64 := fun h0 => by simp [h0] at hf
+  wasm_wp_let; rw [wp_jnz_]
+  refine ⟨fun hfz => by dsimp only [arg_var_val] at hfz; simp [hfne] at hfz, fun _ => ?_⟩
+  wasm_wp_let
+  have hpage : (array64 (memBase + 65536#64) oldWs ⋆ (cell64 vmCtx memBase ⋆
+      cell64 (vmCtx + 8#64) 65536#64 ⋆ cell64 (vmCtx + 16#64) 131072#64 ⋆
+      region memBase 65536 ⋆ R)) mem := sep_cast hm (by ac_rfl)
+  refine emitMemZeroPage_zero hlen (.var (memBase + 65536#64)) rfl hpage _ fun m' hm' => ?_
+  wasm_wp_let; wasm_wp_let; rw [wp_jump_]
+  apply hlPage (fuel - 1#64, 0#64, memBase + 65536#64 + 65536#64, ()) m'
+  dsimp only [Blocks.get_here]
+  wasm_wp_let; rw [wp_jnz_]
+  refine ⟨fun _ => ?_, fun hnz => by exfalso; revert hnz; decide⟩
+  have hm'8 : (cell64 (vmCtx + 8#64) 65536#64 ⋆ (cell64 vmCtx memBase ⋆
+      cell64 (vmCtx + 16#64) 131072#64 ⋆ region memBase 65536 ⋆
+      array64 (memBase + 65536#64) (List.replicate 8192 0#64) ⋆ R)) m' := sep_cast hm' (by ac_rfl)
+  rw [wp_store_]
+  obtain ⟨hsok, hm''⟩ := store_cell64 (131072#64) hm'8
+  refine ⟨by simpa [arg_var_val,
+      show ((1#32 : BitVec 32).setWidth 64 <<< 16) = 65536#64 by decide,
+      show (65536#64 + 65536#64 : BitVec 64) = 131072#64 by decide] using hsok, ?_⟩
+  rw [wp_jump_]
+  exact hjDone (fuel - 1#64) ((65536#64 >>> 16 : BitVec 64).setWidth 32) _
+    ⟨rfl, by decide, sep_cast hm'' (by ac_rfl)⟩
 
 /-- Concrete `Func.wp` behavioral proof for over-cap `memory.grow (delta := 2#32)`: returns
 `0xFFFFFFFF#32` (`-1`) with `status = 0#32`, `mem' = mem` (zero writes), and `R mem'`. -/
@@ -1116,95 +943,81 @@ theorem bm_grow_fail (Γ : Env) (vmCtx memBase fuel : BitVec 64)
       (fun ys m' => ys = (0#32, fuel, 0xFFFFFFFF#32, ()) ∧ m' = mem ∧
         WasmMemInv true vmCtx memBase 65536#64 131072#64 R m') X := by
   rcases hm with ⟨hcap, hsep⟩
-  simp only [Func.wp, lowerFn, lowerFuncBody, bulkMod, fnGrow,
+  exact fnGrow_wp_step
+    (P := fun f' r' m' => f' = fuel ∧ r' = 0xFFFFFFFF#32 ∧ m' = mem ∧
+      WasmMemInv true vmCtx memBase 65536#64 131072#64 R m')
+    (R' := region memBase 131072 ⋆ R) (by decide)
+    (fun _ _ _ ⟨hf', hr', hmEq, hm'⟩ => by subst hf'; subst hr'; exact ⟨rfl, hmEq, hm'⟩)
+    (sep_cast hsep (by ac_rfl))
+    (fun _ => ⟨rfl, rfl, rfl, ⟨hcap, hsep⟩⟩)
+    (fun hok _ _ => by exfalso; revert hok; decide)
+
+private theorem fnFill_wp_step {Γ : Env} {X : XPost}
+    {vmCtx memBase memLen memCap fuel : BitVec 64} {dst val n : BitVec 32}
+    {R' : Mem 64 → Prop} {mem : Mem 64}
+    {LoopPost : BitVec 64 → Mem 64 → Prop} {PostQ : Post (wasmRetSig [])}
+    (hnNz : n ≠ 0#32)
+    (hm : (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) memLen ⋆
+      cell64 (vmCtx + 16#64) memCap ⋆ R') mem)
+    (hDone : ∀ fA m', LoopPost fA m' → PostQ (0#32, fA, ()) m')
+    (hTrap : (dst.setWidth 64 + n.setWidth 64).ule memLen = false →
+      PostQ (1#32, fuel, ()) mem)
+    (hIn : (dst.setWidth 64 + n.setWidth 64).ule memLen = true →
+      ∀ jAfter : Cont [i64], (∀ fA m', LoopPost fA m' → jAfter (fA, ()) m') →
+        wp Γ PostQ X (emitMemFillLoop [] jAfter (.var (val.setWidth 8)) (.var fuel)
+          (.var (n.setWidth 64)) (.var (memBase + dst.setWidth 64))) mem) :
+    Func.wp Γ (lowerFn bulkMod fnFill).body (vmCtx, fuel, dst, val, n, ()) mem PostQ X := by
+  simp only [Func.wp, lowerFn, lowerFuncBody, bulkMod, fnFill,
     GetElem?.getElem?, get?Int_succ, get?Int_zero, Option.getD, Option.map, Option.isSome,
     List.map, List.append, List.cons_append, List.nil_append,
     WMemSpec.maxBytes, WMemSpec.effectiveMaxPages, WValTy.toTy, labelSig]
-  refine wp_join_group
-    (fun xs m' => xs.1 = fuel ∧ xs.2.2.1 = 0xFFFFFFFF#32 ∧ m' = mem ∧
-      WasmMemInv true vmCtx memBase 65536#64 131072#64 R m')
-    (fun _ xs m' h => ?_) (fun _ _ => ?_)
-  · rcases xs with ⟨fRet, dLoc, rRet, ⟨⟩⟩
-    rcases h with ⟨hfEq, hrEq, rfl, hm'⟩
-    dsimp only at hfEq hrEq
-    dsimp only [Blocks.get_here, tupSplit, varsTup]
-    rw [wp_ret_]
-    rw [hfEq, hrEq]
-    exact ⟨rfl, rfl, hm'⟩
-  · simp only [lowerSeq, lowerSimpleInstr, pop32, popArgsAux, popExpectS, Bind.bind,
-      Option.bind, varsTup, ↓reduceIte]
-    simp only [emitMemGrow]
-    refine wp_join_group
-      (fun xs m' => xs = (fuel, 0xFFFFFFFF#32, ()) ∧ m' = mem ∧
-        WasmMemInv true vmCtx memBase 65536#64 131072#64 R m')
-      (fun _ xs m' ⟨hxs, hmeq, hm'⟩ => by
-        rcases xs with ⟨fD, rD, ⟨⟩⟩
-        dsimp only [Blocks.get_here]
-        rw [wp_ret_]
-        rcases hxs with ⟨rfl, rfl⟩
-        exact ⟨rfl, hmeq, hm'⟩)
-      (fun jDone hjDone => ?_)
-    have h0 : (cell64 vmCtx memBase ⋆ (cell64 (vmCtx + 8#64) 65536#64 ⋆
-        cell64 (vmCtx + 16#64) 131072#64 ⋆ region memBase 131072 ⋆ R)) mem :=
-      sep_cast hsep (by ac_rfl)
-    rw [wp_load_]
-    refine ⟨memBase, loadVal_cell64 h0, ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_load_]
-    have h8 : (cell64 (vmCtx + 8#64) 65536#64 ⋆ (cell64 vmCtx memBase ⋆
-        cell64 (vmCtx + 16#64) 131072#64 ⋆ region memBase 131072 ⋆ R)) mem :=
-      sep_cast hsep (by ac_rfl)
-    refine ⟨65536#64, loadVal_cell64 h8, ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_load_]
-    have h16 : (cell64 (vmCtx + 16#64) 131072#64 ⋆ (cell64 vmCtx memBase ⋆
-        cell64 (vmCtx + 8#64) 65536#64 ⋆ region memBase 131072 ⋆ R)) mem :=
-      sep_cast hsep (by ac_rfl)
-    refine ⟨131072#64, loadVal_cell64 h16, ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val]
-    refine ⟨by decide, ?_⟩
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-    rw [wp_jnz_]
-    refine ⟨fun hz => by exfalso; dsimp only [Arg.val] at hz; revert hz; decide, fun _ => ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals]
-    refine ⟨by decide, ?_⟩
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-      Bool.false_eq_true, ↓reduceIte]
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-      liftCmp, CmpOp.evalBits]
-    rw [wp_let_]
-    dsimp only [Op.wp, vals, Arg.val]
-    simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-      liftCmp, CmpOp.evalBits]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, Ty.hasFloat, Bool.false_eq_true,
-      ↓reduceIte, liftCmp, CmpOp.evalBits]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2]
-    rw [wp_let_]
-    simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2]
-    rw [wp_jnz_]
-    refine ⟨fun hok => by exfalso; revert hok; decide, fun _ => ?_⟩
-    rw [wp_jump_]
-    exact hjDone (fuel, 0xFFFFFFFF#32, ()) mem ⟨rfl, rfl, ⟨hcap, hsep⟩⟩
+  refine wp_join_group (fun xs m' => LoopPost xs.1 m')
+    (fun _ xs m' h => by
+      rcases xs with ⟨fRet, b0, b1, b2, ⟨⟩⟩
+      dsimp only [Blocks.get_here, tupSplit, varsTup]
+      rw [wp_ret_]; exact hDone fRet m' h)
+    (fun _ _ => ?_)
+  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, List.map]
+  refine wp_join_group (fun xs m' => LoopPost xs.1 m')
+    (fun _ xs m' h => by
+      rcases xs with ⟨fBlk, b0, b1, b2, ⟨⟩⟩
+      dsimp only [Blocks.get_here, tupSplit, varsTup]
+      rw [wp_ret_]; exact hDone fBlk m' h)
+    (fun jBlk hjBlk => ?_)
+  simp only [lowerSimpleInstr]
+  dsimp only [appendZeroLocals, zeroArgs, pushArgsAux, getLocal,
+    GetElem?.getElem?, List.get?Internal]
+  simp only [popArgsAux, pop32, ↓reduceIte]
+  wasm_wp_let; wasm_wp_let; wasm_wp_let; rw [wp_jnz_]
+  refine ⟨fun hz => (by
+    have hF : decide (BitVec.ofNat 32 (decide (n = 0#32)).toNat ≠ 0#32) = true → False := by
+      intro h; rw [decide_eq_false hnNz] at h; revert h; decide
+    exact False.elim (hF hz)), fun _ => ?_⟩
+  simp only [emitMemFill, emitLoadVmCtx]
+  have h0 : (cell64 vmCtx memBase ⋆ (cell64 (vmCtx + 8#64) memLen ⋆
+      cell64 (vmCtx + 16#64) memCap ⋆ R')) mem := sep_cast hm (by ac_rfl)
+  rw [wp_load_]; refine ⟨memBase, loadVal_cell64 h0, ?_⟩; wasm_wp_let
+  have h8 : (cell64 (vmCtx + 8#64) memLen ⋆ (cell64 vmCtx memBase ⋆
+      cell64 (vmCtx + 16#64) memCap ⋆ R')) mem := sep_cast hm (by ac_rfl)
+  rw [wp_load_]; refine ⟨memLen, loadVal_cell64 h8, ?_⟩
+  wasm_wp_let; wasm_wp_let; wasm_wp_let; wasm_wp_let; rw [wp_jnz_]
+  refine ⟨fun hok => ?_, fun hnot => ?_⟩
+  · have hokB : (dst.setWidth 64 + n.setWidth 64).ule memLen = true := by
+      cases hc : (dst.setWidth 64 + n.setWidth 64).ule memLen
+      · simp [hc] at hok
+      · rfl
+    wasm_wp_let; wasm_wp_let
+    refine wp_join_group (fun xs m' => LoopPost xs.1 m')
+      (fun _ xs m' h => by
+        rcases xs with ⟨fA, ⟨⟩⟩
+        dsimp only [Blocks.get_here, lowerSeq, popArgsAux, varsTup]
+        rw [wp_jump_]; exact hjBlk (fA, dst, val, n, ()) m' h)
+      (fun jAfter hjAfter => hIn hokB jAfter fun fA m' h => hjAfter (fA, ()) m' h)
+  · have hnotB : (dst.setWidth 64 + n.setWidth 64).ule memLen = false := by
+      cases hc : (dst.setWidth 64 + n.setWidth 64).ule memLen
+      · rfl
+      · simp [hc] at hnot
+    rw [wp_ret_]; exact hTrap hnotB
 
 /-- Concrete `Func.wp` behavioral proof for `memory.fill`: fills `[dst .. dst+n)` with
 `val.setWidth 8`, preserves `R`, and deducts `n` fuel units. -/
@@ -1223,109 +1036,135 @@ theorem bm_fill_ok (Γ : Env) (vmCtx memBase memLen memCap fuel : BitVec 64)
           array (t := i8) memBase (listFillAux (val.setWidth 8) dst.toNat n.toNat bs) ⋆ R) m')
       X := by
   let fEnd := BitVec.ofNat 64 (fuel.toNat - n.toNat)
-  let bs' := listFillAux (val.setWidth 8) dst.toNat n.toNat bs
   let InvPost := fun (m' : Mem 64) =>
-    (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) memLen ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ array (t := i8) memBase bs' ⋆ R) m'
-  simp only [Func.wp, lowerFn, lowerFuncBody, bulkMod, fnFill,
+    (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) memLen ⋆ cell64 (vmCtx + 16#64) memCap ⋆
+      array (t := i8) memBase (listFillAux (val.setWidth 8) dst.toNat n.toNat bs) ⋆ R) m'
+  refine fnFill_wp_step (LoopPost := fun fA m' => fA = fEnd ∧ InvPost m')
+    (R' := array (t := i8) memBase bs ⋆ R) hnNz (sep_cast hm (by ac_rfl))
+    (fun _ _ ⟨hfEq, hm'⟩ => ⟨by rw [hfEq], hm'⟩)
+    (fun hnot => by
+      exfalso
+      have hule : (dst.setWidth 64 + n.setWidth 64).ule memLen = true := by
+        rw [BitVec.ule_eq_decide, decide_eq_true_eq, BitVec.toNat_add,
+          bv32_toNat_setWidth64, bv32_toNat_setWidth64,
+          Nat.mod_eq_of_lt (by have := dst.isLt; have := n.isLt; omega)]
+        exact hleLen
+      rw [hule] at hnot; cases hnot)
+    (fun _ jAfter hjAfter => ?_)
+  have hmArr : (array (t := i8) memBase bs ⋆ (cell64 vmCtx memBase ⋆
+      cell64 (vmCtx + 8#64) memLen ⋆ cell64 (vmCtx + 16#64) memCap ⋆ R)) mem :=
+    sep_cast hm (by ac_rfl)
+  refine emitMemFillLoop_bytes jAfter
+    (n64 := n.setWidth 64) (dstOff := dst.toNat) (byteVal := val.setWidth 8)
+    (by rwa [bv32_toNat_setWidth64]) (by rwa [bv32_toNat_setWidth64])
+    (by rw [bv32_setWidth64_eq_ofNat]) hmArr fun m' hm' => ?_
+  rw [bv32_toNat_setWidth64] at hm'
+  refine hjAfter _ _ ⟨by rw [bv32_toNat_setWidth64], ?_⟩
+  dsimp only [InvPost]
+  exact sep_cast hm' (by ac_rfl)
+
+private theorem fnCopy_wp_step {Γ : Env} {X : XPost}
+    {vmCtx memBase memLen memCap fuel : BitVec 64} {dst src n : BitVec 32}
+    {R' : Mem 64 → Prop} {mem : Mem 64}
+    {LoopPost : BitVec 64 → Mem 64 → Prop} {PostQ : Post (wasmRetSig [])}
+    (hnNz : n ≠ 0#32)
+    (hm : (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) memLen ⋆
+      cell64 (vmCtx + 16#64) memCap ⋆ R') mem)
+    (hDone : ∀ fA m', LoopPost fA m' → PostQ (0#32, fA, ()) m')
+    (hTrap : ((dst.setWidth 64 + n.setWidth 64).ule memLen &&
+        (src.setWidth 64 + n.setWidth 64).ule memLen) = false →
+      PostQ (1#32, fuel, ()) mem)
+    (hFwd : ((dst.setWidth 64 + n.setWidth 64).ule memLen &&
+        (src.setWidth 64 + n.setWidth 64).ule memLen) = true →
+      (dst.setWidth 64).ule (src.setWidth 64) = true →
+      ∀ jAfter : Cont [i64], (∀ fA m', LoopPost fA m' → jAfter (fA, ()) m') →
+        wp Γ PostQ X (emitMemCopyLoop true [] jAfter (.var fuel) (.var (n.setWidth 64))
+          (.var (memBase + dst.setWidth 64)) (.var (memBase + src.setWidth 64))) mem)
+    (hBwd : ((dst.setWidth 64 + n.setWidth 64).ule memLen &&
+        (src.setWidth 64 + n.setWidth 64).ule memLen) = true →
+      (dst.setWidth 64).ule (src.setWidth 64) = false →
+      ∀ jAfter : Cont [i64], (∀ fA m', LoopPost fA m' → jAfter (fA, ()) m') →
+        wp Γ PostQ X (emitMemCopyLoop false [] jAfter (.var fuel) (.var (n.setWidth 64))
+          (.var (memBase + (dst.setWidth 64 + n.setWidth 64)))
+          (.var (memBase + (src.setWidth 64 + n.setWidth 64)))) mem) :
+    Func.wp Γ (lowerFn bulkMod fnCopy).body (vmCtx, fuel, dst, src, n, ()) mem PostQ X := by
+  simp only [Func.wp, lowerFn, lowerFuncBody, bulkMod, fnCopy,
     GetElem?.getElem?, get?Int_succ, get?Int_zero, Option.getD, Option.map, Option.isSome,
     List.map, List.append, List.cons_append, List.nil_append,
     WMemSpec.maxBytes, WMemSpec.effectiveMaxPages, WValTy.toTy, labelSig]
-  refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
-    (fun _ xs m' ⟨hfEq, hm'⟩ => by
+  refine wp_join_group (fun xs m' => LoopPost xs.1 m')
+    (fun _ xs m' h => by
       rcases xs with ⟨fRet, b0, b1, b2, ⟨⟩⟩
-      dsimp only at hfEq
       dsimp only [Blocks.get_here, tupSplit, varsTup]
-      rw [wp_ret_]
-      rw [hfEq]
-      exact ⟨rfl, hm'⟩)
+      rw [wp_ret_]; exact hDone fRet m' h)
     (fun _ _ => ?_)
-  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, labelSig,
-    List.map, List.cons_append, List.nil_append]
-  refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
-    (fun _ xs m' ⟨hfEq, hm'⟩ => by
+  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, List.map]
+  refine wp_join_group (fun xs m' => LoopPost xs.1 m')
+    (fun _ xs m' h => by
       rcases xs with ⟨fBlk, b0, b1, b2, ⟨⟩⟩
-      dsimp only at hfEq
       dsimp only [Blocks.get_here, tupSplit, varsTup]
-      rw [wp_ret_]
-      rw [hfEq]
-      exact ⟨rfl, hm'⟩)
+      rw [wp_ret_]; exact hDone fBlk m' h)
     (fun jBlk hjBlk => ?_)
   simp only [lowerSimpleInstr]
   dsimp only [appendZeroLocals, zeroArgs, pushArgsAux, getLocal,
     GetElem?.getElem?, List.get?Internal]
   simp only [popArgsAux, pop32, ↓reduceIte]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-  rw [wp_jnz_]
-  refine ⟨fun hz => by
-    have hFalse : decide (n = 0#32) = false := decide_eq_false hnNz
-    simp [Arg.val, hFalse] at hz, fun _ => ?_⟩
-  simp only [emitMemFill, emitLoadVmCtx]
+  wasm_wp_let; wasm_wp_let; wasm_wp_let; rw [wp_jnz_]
+  refine ⟨fun hz => (by
+    have hF : decide (BitVec.ofNat 32 (decide (n = 0#32)).toNat ≠ 0#32) = true → False := by
+      intro h; rw [decide_eq_false hnNz] at h; revert h; decide
+    exact False.elim (hF hz)), fun _ => ?_⟩
+  simp only [emitMemCopy, emitLoadVmCtx]
   have h0 : (cell64 vmCtx memBase ⋆ (cell64 (vmCtx + 8#64) memLen ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ array (t := i8) memBase bs ⋆ R)) mem :=
-    sep_cast hm (by ac_rfl)
-  rw [wp_load_]
-  refine ⟨memBase, loadVal_cell64 h0, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_load_]
+      cell64 (vmCtx + 16#64) memCap ⋆ R')) mem := sep_cast hm (by ac_rfl)
+  rw [wp_load_]; refine ⟨memBase, loadVal_cell64 h0, ?_⟩; wasm_wp_let
   have h8 : (cell64 (vmCtx + 8#64) memLen ⋆ (cell64 vmCtx memBase ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ array (t := i8) memBase bs ⋆ R)) mem :=
-    sep_cast hm (by ac_rfl)
-  refine ⟨memLen, loadVal_cell64 h8, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-    liftCmp, CmpOp.evalBits]
-  rw [wp_jnz_]
-  refine ⟨fun _ => ?_, fun hnot => by
-    exfalso
-    have hule : (dst.setWidth 64 + n.setWidth 64).ule memLen = true := by
-      rw [BitVec.ule_eq_decide, decide_eq_true_eq, BitVec.toNat_add,
-        bv32_toNat_eq_setWidth64, bv32_toNat_eq_setWidth64,
-        Nat.mod_eq_of_lt (by have := dst.isLt; have := n.isLt; omega)]
-      exact hleLen
-    rw [hule] at hnot
-    cases hnot⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
-    (fun jAfter xs m' ⟨hfEq, hm'⟩ => by
-      rcases xs with ⟨fA, ⟨⟩⟩
-      dsimp only [Blocks.get_here, lowerSeq, popArgsAux, varsTup]
-      rw [wp_jump_]
-      exact hjBlk (fA, dst, val, n, ()) m' ⟨hfEq, hm'⟩)
-    (fun jAfter hjAfter => ?_)
-  have hmArr : (array (t := i8) memBase bs ⋆ (cell64 vmCtx memBase ⋆
-      cell64 (vmCtx + 8#64) memLen ⋆ cell64 (vmCtx + 16#64) memCap ⋆ R)) mem :=
-    sep_cast hm (by ac_rfl)
-  have htrunc : val.setWidth 8 = (val.setWidth 8) := rfl
-  refine emitMemFillLoop_bytes jAfter
-    (n64 := n.setWidth 64) (dstOff := dst.toNat) (byteVal := val.setWidth 8)
-    (by rwa [bv32_toNat_eq_setWidth64]) (by rwa [bv32_toNat_eq_setWidth64])
-    (by rw [bv32_setWidth64_eq_ofNat]) hmArr fun m' hm' => ?_
-  apply hjAfter
-  refine ⟨by rw [bv32_toNat_eq_setWidth64], ?_⟩
-  rw [bv32_toNat_eq_setWidth64] at hm'
-  dsimp only [InvPost, bs']
-  exact sep_cast hm' (by ac_rfl)
+      cell64 (vmCtx + 16#64) memCap ⋆ R')) mem := sep_cast hm (by ac_rfl)
+  rw [wp_load_]; refine ⟨memLen, loadVal_cell64 h8, ?_⟩
+  wasm_wp_let; wasm_wp_let; wasm_wp_let; wasm_wp_let
+  wasm_wp_let; wasm_wp_let; wasm_wp_let; wasm_wp_let; rw [wp_jnz_]
+  refine ⟨fun hok => ?_, fun hnot => ?_⟩
+  · have hokB : ((dst.setWidth 64 + n.setWidth 64).ule memLen &&
+        (src.setWidth 64 + n.setWidth 64).ule memLen) = true := by
+      cases hc : ((dst.setWidth 64 + n.setWidth 64).ule memLen &&
+          (src.setWidth 64 + n.setWidth 64).ule memLen)
+      · simp [hc] at hok
+      · rfl
+    refine wp_join_group (fun xs m' => LoopPost xs.1 m')
+      (fun _ xs m' h => by
+        rcases xs with ⟨fA, ⟨⟩⟩
+        dsimp only [Blocks.get_here, lowerSeq, popArgsAux, varsTup]
+        rw [wp_jump_]; exact hjBlk (fA, dst, src, n, ()) m' h)
+      (fun jAfter hjAfter => ?_)
+    wasm_wp_let; rw [wp_jnz_]
+    refine ⟨fun hdir => ?_, fun hdir => ?_⟩
+    · have hdirB : (dst.setWidth 64).ule (src.setWidth 64) = true := by
+        cases hc : (dst.setWidth 64).ule (src.setWidth 64)
+        · simp [hc] at hdir
+        · rfl
+      wasm_wp_let; wasm_wp_let
+      exact hFwd hokB hdirB jAfter fun fA m' h => hjAfter (fA, ()) m' h
+    · have hdirB : (dst.setWidth 64).ule (src.setWidth 64) = false := by
+        cases hc : (dst.setWidth 64).ule (src.setWidth 64)
+        · rfl
+        · simp [hc] at hdir
+      wasm_wp_let; wasm_wp_let
+      exact hBwd hokB hdirB jAfter fun fA m' h => hjAfter (fA, ()) m' h
+  · have hnotB : ((dst.setWidth 64 + n.setWidth 64).ule memLen &&
+        (src.setWidth 64 + n.setWidth 64).ule memLen) = false := by
+      cases hc : ((dst.setWidth 64 + n.setWidth 64).ule memLen &&
+          (src.setWidth 64 + n.setWidth 64).ule memLen)
+      · rfl
+      · simp [hc] at hnot
+    rw [wp_ret_]; exact hTrap hnotB
+
+private theorem u32Add_ule_true {a b : BitVec 32} {memLen : BitVec 64}
+    (h : a.toNat + b.toNat ≤ memLen.toNat) :
+    (a.setWidth 64 + b.setWidth 64).ule memLen = true := by
+  rw [BitVec.ule_eq_decide, decide_eq_true_eq, BitVec.toNat_add,
+    bv32_toNat_setWidth64, bv32_toNat_setWidth64,
+    Nat.mod_eq_of_lt (by have := a.isLt; have := b.isLt; omega)]
+  exact h
 
 /-- Concrete `Func.wp` behavioral proof for overlapping forward `memory.copy` (`dst ≤ src`):
 matches `listCopyFwdAux` (exact `memmove`), preserves host frame `R`, and deducts `n` fuel. -/
@@ -1343,138 +1182,31 @@ theorem bm_copy_fwd (Γ : Env) (vmCtx memBase memLen memCap fuel : BitVec 64)
           cell64 (vmCtx + 16#64) memCap ⋆
           array (t := i8) memBase (listCopyFwdAux dst.toNat src.toNat n.toNat bs) ⋆ R) m') X := by
   let fEnd := BitVec.ofNat 64 (fuel.toNat - n.toNat)
-  let bs' := listCopyFwdAux dst.toNat src.toNat n.toNat bs
   let InvPost := fun (m' : Mem 64) =>
-    (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) memLen ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ array (t := i8) memBase bs' ⋆ R) m'
-  simp only [Func.wp, lowerFn, lowerFuncBody, bulkMod, fnCopy,
-    GetElem?.getElem?, get?Int_succ, get?Int_zero, Option.getD, Option.map, Option.isSome,
-    List.map, List.append, List.cons_append, List.nil_append,
-    WMemSpec.maxBytes, WMemSpec.effectiveMaxPages, WValTy.toTy, labelSig]
-  refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
-    (fun _ xs m' ⟨hfEq, hm'⟩ => by
-      rcases xs with ⟨fRet, b0, b1, b2, ⟨⟩⟩
-      dsimp only at hfEq
-      dsimp only [Blocks.get_here, tupSplit, varsTup]
-      rw [wp_ret_]
-      rw [hfEq]
-      exact ⟨rfl, hm'⟩)
-    (fun _ _ => ?_)
-  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, labelSig,
-    List.map, List.cons_append, List.nil_append]
-  refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
-    (fun _ xs m' ⟨hfEq, hm'⟩ => by
-      rcases xs with ⟨fBlk, b0, b1, b2, ⟨⟩⟩
-      dsimp only at hfEq
-      dsimp only [Blocks.get_here, tupSplit, varsTup]
-      rw [wp_ret_]
-      rw [hfEq]
-      exact ⟨rfl, hm'⟩)
-    (fun jBlk hjBlk => ?_)
-  simp only [lowerSimpleInstr]
-  dsimp only [appendZeroLocals, zeroArgs, pushArgsAux, getLocal,
-    GetElem?.getElem?, List.get?Internal]
-  simp only [popArgsAux, pop32, ↓reduceIte]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-  rw [wp_jnz_]
-  refine ⟨fun hz => by
-    have hFalse : decide (n = 0#32) = false := decide_eq_false hnNz
-    simp [Arg.val, hFalse] at hz, fun _ => ?_⟩
-  simp only [emitMemCopy, emitLoadVmCtx]
-  have h0 : (cell64 vmCtx memBase ⋆ (cell64 (vmCtx + 8#64) memLen ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ array (t := i8) memBase bs ⋆ R)) mem :=
-    sep_cast hm (by ac_rfl)
-  rw [wp_load_]
-  refine ⟨memBase, loadVal_cell64 h0, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_load_]
-  have h8 : (cell64 (vmCtx + 8#64) memLen ⋆ (cell64 vmCtx memBase ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ array (t := i8) memBase bs ⋆ R)) mem :=
-    sep_cast hm (by ac_rfl)
-  refine ⟨memLen, loadVal_cell64 h8, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-    liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-    liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2]
-  rw [wp_jnz_]
-  refine ⟨fun _ => ?_, fun hnot => by
-    exfalso
-    have hu1 : (dst.setWidth 64 + n.setWidth 64).ule memLen = true := by
-      rw [BitVec.ule_eq_decide, decide_eq_true_eq, BitVec.toNat_add,
-        bv32_toNat_eq_setWidth64, bv32_toNat_eq_setWidth64,
-        Nat.mod_eq_of_lt (by have := dst.isLt; have := n.isLt; omega)]
-      exact hdLen
-    have hu2 : (src.setWidth 64 + n.setWidth 64).ule memLen = true := by
-      rw [BitVec.ule_eq_decide, decide_eq_true_eq, BitVec.toNat_add,
-        bv32_toNat_eq_setWidth64, bv32_toNat_eq_setWidth64,
-        Nat.mod_eq_of_lt (by have := src.isLt; have := n.isLt; omega)]
-      exact hsLen
-    rw [Arg.val, hu1, hu2] at hnot
-    cases hnot⟩
-  refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
-    (fun jAfter xs m' ⟨hfEq, hm'⟩ => by
-      rcases xs with ⟨fA, ⟨⟩⟩
-      dsimp only [Blocks.get_here, lowerSeq, popArgsAux, varsTup]
-      rw [wp_jump_]
-      exact hjBlk (fA, dst, src, n, ()) m' ⟨hfEq, hm'⟩)
-    (fun jAfter hjAfter => ?_)
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-    liftCmp, CmpOp.evalBits]
-  rw [wp_jnz_]
-  refine ⟨fun _ => ?_, fun hnot => by
-    exfalso
-    have hule : (dst.setWidth 64).ule (src.setWidth 64) = true := by
-      rw [BitVec.ule_eq_decide, decide_eq_true_eq,
-        bv32_toNat_eq_setWidth64, bv32_toNat_eq_setWidth64]
-      exact hfwd
-    rw [hule] at hnot
-    cases hnot⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
+    (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) memLen ⋆ cell64 (vmCtx + 16#64) memCap ⋆
+      array (t := i8) memBase (listCopyFwdAux dst.toNat src.toNat n.toNat bs) ⋆ R) m'
+  refine fnCopy_wp_step (LoopPost := fun fA m' => fA = fEnd ∧ InvPost m')
+    (R' := array (t := i8) memBase bs ⋆ R) hnNz (sep_cast hm (by ac_rfl))
+    (fun _ _ ⟨hfEq, hm'⟩ => ⟨by rw [hfEq], hm'⟩)
+    (fun hnot => by exfalso; rw [u32Add_ule_true hdLen, u32Add_ule_true hsLen] at hnot; cases hnot)
+    (fun _ _ jAfter hjAfter => ?_)
+    (fun _ hdir _ _ => by
+      exfalso
+      have hule : (dst.setWidth 64).ule (src.setWidth 64) = true := by
+        rw [BitVec.ule_eq_decide, decide_eq_true_eq, bv32_toNat_setWidth64, bv32_toNat_setWidth64]
+        exact hfwd
+      rw [hule] at hdir; cases hdir)
   have hmArr : (array (t := i8) memBase bs ⋆ (cell64 vmCtx memBase ⋆
       cell64 (vmCtx + 8#64) memLen ⋆ cell64 (vmCtx + 16#64) memCap ⋆ R)) mem :=
     sep_cast hm (by ac_rfl)
   refine emitMemCopyLoop_fwd_bytes jAfter
     (n64 := n.setWidth 64) (dstOff := dst.toNat) (srcOff := src.toNat)
-    (by rwa [bv32_toNat_eq_setWidth64]) (by rwa [bv32_toNat_eq_setWidth64])
-    (by rwa [bv32_toNat_eq_setWidth64])
+    (by rwa [bv32_toNat_setWidth64]) (by rwa [bv32_toNat_setWidth64])
+    (by rwa [bv32_toNat_setWidth64])
     (by rw [bv32_setWidth64_eq_ofNat]) (by rw [bv32_setWidth64_eq_ofNat]) hmArr fun m' hm' => ?_
-  apply hjAfter
-  refine ⟨by rw [bv32_toNat_eq_setWidth64], ?_⟩
-  rw [bv32_toNat_eq_setWidth64] at hm'
-  dsimp only [InvPost, bs']
+  rw [bv32_toNat_setWidth64] at hm'
+  refine hjAfter _ _ ⟨by rw [bv32_toNat_setWidth64], ?_⟩
+  dsimp only [InvPost]
   exact sep_cast hm' (by ac_rfl)
 
 /-- Concrete `Func.wp` behavioral proof for overlapping backward `memory.copy` (`src < dst`):
@@ -1494,143 +1226,36 @@ theorem bm_copy_bwd (Γ : Env) (vmCtx memBase memLen memCap fuel : BitVec 64)
           array (t := i8) memBase
             (listCopyBwdAux dst.toNat src.toNat n.toNat n.toNat bs) ⋆ R) m') X := by
   let fEnd := BitVec.ofNat 64 (fuel.toNat - n.toNat)
-  let bs' := listCopyBwdAux dst.toNat src.toNat n.toNat n.toNat bs
   let InvPost := fun (m' : Mem 64) =>
-    (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) memLen ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ array (t := i8) memBase bs' ⋆ R) m'
-  simp only [Func.wp, lowerFn, lowerFuncBody, bulkMod, fnCopy,
-    GetElem?.getElem?, get?Int_succ, get?Int_zero, Option.getD, Option.map, Option.isSome,
-    List.map, List.append, List.cons_append, List.nil_append,
-    WMemSpec.maxBytes, WMemSpec.effectiveMaxPages, WValTy.toTy, labelSig]
-  refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
-    (fun _ xs m' ⟨hfEq, hm'⟩ => by
-      rcases xs with ⟨fRet, b0, b1, b2, ⟨⟩⟩
-      dsimp only at hfEq
-      dsimp only [Blocks.get_here, tupSplit, varsTup]
-      rw [wp_ret_]
-      rw [hfEq]
-      exact ⟨rfl, hm'⟩)
-    (fun _ _ => ?_)
-  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, labelSig,
-    List.map, List.cons_append, List.nil_append]
-  refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
-    (fun _ xs m' ⟨hfEq, hm'⟩ => by
-      rcases xs with ⟨fBlk, b0, b1, b2, ⟨⟩⟩
-      dsimp only at hfEq
-      dsimp only [Blocks.get_here, tupSplit, varsTup]
-      rw [wp_ret_]
-      rw [hfEq]
-      exact ⟨rfl, hm'⟩)
-    (fun jBlk hjBlk => ?_)
-  simp only [lowerSimpleInstr]
-  dsimp only [appendZeroLocals, zeroArgs, pushArgsAux, getLocal,
-    GetElem?.getElem?, List.get?Internal]
-  simp only [popArgsAux, pop32, ↓reduceIte]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-  rw [wp_jnz_]
-  refine ⟨fun hz => by
-    have hFalse : decide (n = 0#32) = false := decide_eq_false hnNz
-    simp [Arg.val, hFalse] at hz, fun _ => ?_⟩
-  simp only [emitMemCopy, emitLoadVmCtx]
-  have h0 : (cell64 vmCtx memBase ⋆ (cell64 (vmCtx + 8#64) memLen ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ array (t := i8) memBase bs ⋆ R)) mem :=
-    sep_cast hm (by ac_rfl)
-  rw [wp_load_]
-  refine ⟨memBase, loadVal_cell64 h0, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_load_]
-  have h8 : (cell64 (vmCtx + 8#64) memLen ⋆ (cell64 vmCtx memBase ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ array (t := i8) memBase bs ⋆ R)) mem :=
-    sep_cast hm (by ac_rfl)
-  refine ⟨memLen, loadVal_cell64 h8, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-    liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-    liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2]
-  rw [wp_jnz_]
-  refine ⟨fun _ => ?_, fun hnot => by
-    exfalso
-    have hu1 : (dst.setWidth 64 + n.setWidth 64).ule memLen = true := by
-      rw [BitVec.ule_eq_decide, decide_eq_true_eq, BitVec.toNat_add,
-        bv32_toNat_eq_setWidth64, bv32_toNat_eq_setWidth64,
-        Nat.mod_eq_of_lt (by have := dst.isLt; have := n.isLt; omega)]
-      exact hdLen
-    have hu2 : (src.setWidth 64 + n.setWidth 64).ule memLen = true := by
-      rw [BitVec.ule_eq_decide, decide_eq_true_eq, BitVec.toNat_add,
-        bv32_toNat_eq_setWidth64, bv32_toNat_eq_setWidth64,
-        Nat.mod_eq_of_lt (by have := src.isLt; have := n.isLt; omega)]
-      exact hsLen
-    rw [Arg.val, hu1, hu2] at hnot
-    cases hnot⟩
-  refine wp_join_group (fun xs m' => xs.1 = fEnd ∧ InvPost m')
-    (fun jAfter xs m' ⟨hfEq, hm'⟩ => by
-      rcases xs with ⟨fA, ⟨⟩⟩
-      dsimp only [Blocks.get_here, lowerSeq, popArgsAux, varsTup]
-      rw [wp_jump_]
-      exact hjBlk (fA, dst, src, n, ()) m' ⟨hfEq, hm'⟩)
-    (fun jAfter hjAfter => ?_)
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-    liftCmp, CmpOp.evalBits]
-  rw [wp_jnz_]
-  refine ⟨fun hnot => by
-    have hule : (dst.setWidth 64).ule (src.setWidth 64) = false := by
-      rw [BitVec.ule_eq_decide, decide_eq_false_iff_not,
-        bv32_toNat_eq_setWidth64, bv32_toNat_eq_setWidth64]
-      omega
-    dsimp only [Arg.val] at hnot
-    rw [hule] at hnot
-    exact absurd hnot Bool.false_ne_true, fun _ => ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
+    (cell64 vmCtx memBase ⋆ cell64 (vmCtx + 8#64) memLen ⋆ cell64 (vmCtx + 16#64) memCap ⋆
+      array (t := i8) memBase (listCopyBwdAux dst.toNat src.toNat n.toNat n.toNat bs) ⋆ R) m'
+  refine fnCopy_wp_step (LoopPost := fun fA m' => fA = fEnd ∧ InvPost m')
+    (R' := array (t := i8) memBase bs ⋆ R) hnNz (sep_cast hm (by ac_rfl))
+    (fun _ _ ⟨hfEq, hm'⟩ => ⟨by rw [hfEq], hm'⟩)
+    (fun hnot => by exfalso; rw [u32Add_ule_true hdLen, u32Add_ule_true hsLen] at hnot; cases hnot)
+    (fun _ hdir _ _ => by
+      exfalso
+      have hule : (dst.setWidth 64).ule (src.setWidth 64) = false := by
+        rw [BitVec.ule_eq_decide, decide_eq_false_iff_not,
+          bv32_toNat_setWidth64, bv32_toNat_setWidth64]
+        omega
+      rw [hule] at hdir; cases hdir)
+    (fun _ _ jAfter hjAfter => ?_)
   have hmArr : (array (t := i8) memBase bs ⋆ (cell64 vmCtx memBase ⋆
       cell64 (vmCtx + 8#64) memLen ⋆ cell64 (vmCtx + 16#64) memCap ⋆ R)) mem :=
     sep_cast hm (by ac_rfl)
-  have hdEnd : memBase + (dst.setWidth 64 + n.setWidth 64) =
-      memBase + BitVec.ofNat 64 (dst.toNat + n.toNat) := by congr 1
-  have hsEnd : memBase + (src.setWidth 64 + n.setWidth 64) =
-      memBase + BitVec.ofNat 64 (src.toNat + n.toNat) := by congr 1
   refine emitMemCopyLoop_bwd_bytes jAfter
     (n64 := n.setWidth 64) (dstOff := dst.toNat) (srcOff := src.toNat)
-    (by rwa [bv32_toNat_eq_setWidth64]) (by rwa [bv32_toNat_eq_setWidth64])
-    (by rwa [bv32_toNat_eq_setWidth64])
-    (by rwa [bv32_toNat_eq_setWidth64]) (by rwa [bv32_toNat_eq_setWidth64])
+    (by rwa [bv32_toNat_setWidth64]) (by rwa [bv32_toNat_setWidth64])
+    (by rwa [bv32_toNat_setWidth64])
+    (by rw [bv32_toNat_setWidth64, bv32_setWidth64_eq_ofNat, bv32_setWidth64_eq_ofNat,
+      bv64_ofNat_add_eq])
+    (by rw [bv32_toNat_setWidth64, bv32_setWidth64_eq_ofNat, bv32_setWidth64_eq_ofNat,
+      bv64_ofNat_add_eq])
     hmArr fun m' hm' => ?_
-  apply hjAfter
-  refine ⟨by rw [bv32_toNat_eq_setWidth64], ?_⟩
-  rw [bv32_toNat_eq_setWidth64] at hm'
-  dsimp only [InvPost, bs']
+  rw [bv32_toNat_setWidth64] at hm'
+  refine hjAfter _ _ ⟨by rw [bv32_toNat_setWidth64], ?_⟩
+  dsimp only [InvPost]
   exact sep_cast hm' (by ac_rfl)
 
 -- Concrete 8-byte checks for fill, forward overlap copy, and backward overlap `memmove`
@@ -1655,63 +1280,11 @@ theorem bm_fill_oob (Γ : Env) (vmCtx memBase memCap fuel : BitVec 64)
       (fun ys m' => ys = (1#32, fuel, ()) ∧ m' = mem ∧
         WasmMemInv true vmCtx memBase 65536#64 memCap R m') X := by
   rcases hm with ⟨hcap, hsep⟩
-  simp only [Func.wp, lowerFn, lowerFuncBody, bulkMod, fnFill,
-    GetElem?.getElem?, get?Int_succ, get?Int_zero, Option.getD, Option.map, Option.isSome,
-    List.map, List.append, List.cons_append, List.nil_append,
-    WMemSpec.maxBytes, WMemSpec.effectiveMaxPages, WValTy.toTy, labelSig]
-  refine wp_join_group (fun _ _ => False) (fun _ _ _ h => False.elim h) (fun _ _ => ?_)
-  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, labelSig,
-    List.map, List.cons_append, List.nil_append]
-  refine wp_join_group (fun _ _ => False) (fun _ _ _ h => False.elim h) (fun _ _ => ?_)
-  simp only [lowerSimpleInstr]
-  dsimp only [appendZeroLocals, zeroArgs, pushArgsAux, getLocal,
-    GetElem?.getElem?, List.get?Internal]
-  simp only [popArgsAux, pop32, ↓reduceIte]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-  rw [wp_jnz_]
-  refine ⟨fun hz => by exfalso; dsimp only [Arg.val] at hz; revert hz; decide, fun _ => ?_⟩
-  simp only [emitMemFill, emitLoadVmCtx]
-  have h0 : (cell64 vmCtx memBase ⋆ (cell64 (vmCtx + 8#64) 65536#64 ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ region memBase memCap.toNat ⋆ R)) mem :=
-    sep_cast hsep (by ac_rfl)
-  rw [wp_load_]
-  refine ⟨memBase, loadVal_cell64 h0, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_load_]
-  have h8 : (cell64 (vmCtx + 8#64) 65536#64 ⋆ (cell64 vmCtx memBase ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ region memBase memCap.toNat ⋆ R)) mem :=
-    sep_cast hsep (by ac_rfl)
-  refine ⟨65536#64, loadVal_cell64 h8, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-    liftCmp, CmpOp.evalBits]
-  rw [wp_jnz_]
-  refine ⟨fun hin => by
-    exfalso
-    have hsum : ((0xFFFFFFF0#32 : BitVec 32).setWidth 64 +
-        (32#32 : BitVec 32).setWidth 64) = 0x100000010#64 := rfl
-    dsimp only [Arg.val] at hin
-    rw [hsum] at hin
-    revert hin; decide, fun _ => ?_⟩
-  rw [wp_ret_]
-  exact ⟨by simp [vals], rfl, ⟨hcap, hsep⟩⟩
+  exact fnFill_wp_step (LoopPost := fun _ _ => False) (R' := region memBase memCap.toNat ⋆ R)
+    (by decide) (sep_cast hsep (by ac_rfl))
+    (fun _ _ h => False.elim h)
+    (fun _ => ⟨rfl, rfl, ⟨hcap, hsep⟩⟩)
+    (fun hok _ _ => by exfalso; revert hok; decide)
 
 /-- Adversarial `u32` wraparound OOB `memory.copy (dst = 0xFFFFFFF0, src = 0, n = 32)` on 64 KiB
 memory: traps cleanly (`status = 1#32`) with zero memory writes (`mem' = mem`) and `R mem'`. -/
@@ -1722,73 +1295,12 @@ theorem bm_copy_wrap (Γ : Env) (vmCtx memBase memCap fuel : BitVec 64)
       (fun ys m' => ys = (1#32, fuel, ()) ∧ m' = mem ∧
         WasmMemInv true vmCtx memBase 65536#64 memCap R m') X := by
   rcases hm with ⟨hcap, hsep⟩
-  simp only [Func.wp, lowerFn, lowerFuncBody, bulkMod, fnCopy,
-    GetElem?.getElem?, get?Int_succ, get?Int_zero, Option.getD, Option.map, Option.isSome,
-    List.map, List.append, List.cons_append, List.nil_append,
-    WMemSpec.maxBytes, WMemSpec.effectiveMaxPages, WValTy.toTy, labelSig]
-  refine wp_join_group (fun _ _ => False) (fun _ _ _ h => False.elim h) (fun _ _ => ?_)
-  simp only [lowerSeq, WBlockTy.resolve, varsTup, popArgsAux, labelSig,
-    List.map, List.cons_append, List.nil_append]
-  refine wp_join_group (fun _ _ => False) (fun _ _ _ h => False.elim h) (fun _ _ => ?_)
-  simp only [lowerSimpleInstr]
-  dsimp only [appendZeroLocals, zeroArgs, pushArgsAux, getLocal,
-    GetElem?.getElem?, List.get?Internal]
-  simp only [popArgsAux, pop32, ↓reduceIte]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte, liftCmp, CmpOp.evalBits]
-  rw [wp_jnz_]
-  refine ⟨fun hz => by exfalso; dsimp only [Arg.val] at hz; revert hz; decide, fun _ => ?_⟩
-  simp only [emitMemCopy, emitLoadVmCtx]
-  have h0 : (cell64 vmCtx memBase ⋆ (cell64 (vmCtx + 8#64) 65536#64 ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ region memBase memCap.toNat ⋆ R)) mem :=
-    sep_cast hsep (by ac_rfl)
-  rw [wp_load_]
-  refine ⟨memBase, loadVal_cell64 h0, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_load_]
-  have h8 : (cell64 (vmCtx + 8#64) 65536#64 ⋆ (cell64 vmCtx memBase ⋆
-      cell64 (vmCtx + 16#64) memCap ⋆ region memBase memCap.toNat ⋆ R)) mem :=
-    sep_cast hsep (by ac_rfl)
-  refine ⟨65536#64, loadVal_cell64 h8, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]; simp only [Op.wp, OpCode.wp, vals]; refine ⟨by decide, ?_⟩
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2, Ty.hasFloat,
-    Bool.false_eq_true, ↓reduceIte]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-    liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  dsimp only [Op.wp, vals, Arg.val]
-  simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte,
-    liftCmp, CmpOp.evalBits]
-  rw [wp_let_]
-  simp only [Op.wp, OpCode.wp, vals, Arg.val, lift2]
-  rw [wp_jnz_]
-  refine ⟨fun hin => by
-    exfalso
-    have hsum : ((0xFFFFFFF0#32 : BitVec 32).setWidth 64 +
-        (32#32 : BitVec 32).setWidth 64) = 0x100000010#64 := rfl
-    dsimp only [Arg.val] at hin
-    rw [hsum] at hin
-    revert hin; decide, fun _ => ?_⟩
-  rw [wp_ret_]
-  exact ⟨by simp [vals], rfl, ⟨hcap, hsep⟩⟩
+  exact fnCopy_wp_step (LoopPost := fun _ _ => False) (R' := region memBase memCap.toNat ⋆ R)
+    (by decide) (sep_cast hsep (by ac_rfl))
+    (fun _ _ h => False.elim h)
+    (fun _ => ⟨rfl, rfl, ⟨hcap, hsep⟩⟩)
+    (fun hok _ _ _ => by exfalso; revert hok; decide)
+    (fun hok _ _ _ => by exfalso; revert hok; decide)
 
 /-! ## 5. Axiom Audit (Standard Axioms) -/
 

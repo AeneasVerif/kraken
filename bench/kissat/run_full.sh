@@ -28,7 +28,9 @@ CPP_CASES="${CPP_CASES:-36}"
 usage() {
   cat <<'EOF'
 usage: bench/kissat/run_full.sh [options]
-  --module <CorePlus|Plain|Full|All>   Module(s) to test (repeatable or comma-separated)
+  --module <Plain|KissatFidelity|KissatM8Opt|FullM7Fidelity|CorePlus|Full|All>
+                                       Module(s) to test (repeatable or comma-separated;
+                                       aliases: fid, fidelity, m8opt, opt, m8, m7fid)
   --no-kissat                          Skip reference Kissat 4.0.4 build & comparison
   --no-cpp                             Skip PrintCpp C++20 ASan/UBSan check
   --with-ktest                         Also include stock kissat test/cnf/*.cnf if available
@@ -43,11 +45,24 @@ EOF
 norm_mod() {
   case "${1,,}" in
     coreplus) echo "CorePlus" ;;
-    plain) echo "Plain" ;;
+    plain|kissatplain) echo "Plain" ;;
     full) echo "Full" ;;
+    kissatfidelity|fullfidelity|fidelity|fid) echo "KissatFidelity" ;;
+    kissatm8opt|fullm8opt|m8opt|opt|fullm8|m8) echo "KissatM8Opt" ;;
+    fullm7fidelity|m7fidelity|m7fid) echo "FullM7Fidelity" ;;
     all) echo "All" ;;
-    *) echo "ERROR: unknown module '$1' (expected CorePlus | Plain | Full | All)" >&2; exit 2 ;;
+    *) echo "ERROR: unknown module '$1' (expected Plain|KissatFidelity|KissatM8Opt|FullM7Fidelity|CorePlus|Full|All)" >&2; exit 2 ;;
   esac
+}
+
+append_all_modules() {
+  [ -f "$ROOT/LeanQbe/T/Examples/Kissat/Plain.lean" ] && MODULES+=(Plain)
+  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+    MODULES+=(KissatFidelity)
+  elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
+    MODULES+=(FullM7Fidelity)
+  fi
+  [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptAssembly.lean" ] && MODULES+=(KissatM8Opt)
 }
 
 while [ $# -gt 0 ]; do
@@ -58,7 +73,7 @@ while [ $# -gt 0 ]; do
       for p in "${parts[@]}"; do
         nm="$(norm_mod "$p")"
         if [ "$nm" = "All" ]; then
-          MODULES+=(CorePlus Plain Full)
+          append_all_modules
         else
           MODULES+=("$nm")
         fi
@@ -70,7 +85,7 @@ while [ $# -gt 0 ]; do
       for p in "${parts[@]}"; do
         nm="$(norm_mod "$p")"
         if [ "$nm" = "All" ]; then
-          MODULES+=(CorePlus Plain Full)
+          append_all_modules
         else
           MODULES+=("$nm")
         fi
@@ -95,9 +110,15 @@ has_full_module() {
 }
 
 if [ ${#MODULES[@]} -eq 0 ]; then
-  MODULES=(CorePlus Plain)
-  if has_full_module; then
-    MODULES+=(Full)
+  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+    MODULES=(Plain KissatFidelity)
+  elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
+    MODULES=(Plain FullM7Fidelity)
+  else
+    MODULES=(CorePlus Plain)
+    if has_full_module; then
+      MODULES+=(Full)
+    fi
   fi
 fi
 
@@ -115,6 +136,15 @@ MODULES=("${UNIQ_MODULES[@]}")
 for m in "${MODULES[@]}"; do
   if [ "$m" = "Full" ] && ! has_full_module; then
     echo "ERROR: --module Full requested, but LeanQbe.T.Examples.Kissat.Full is not landed yet." >&2
+    exit 2
+  elif [ "$m" = "KissatFidelity" ] && [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+    echo "ERROR: --module KissatFidelity requested, but FullFidelityAssembly.lean is not landed yet." >&2
+    exit 2
+  elif [ "$m" = "KissatM8Opt" ] && [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptAssembly.lean" ]; then
+    echo "ERROR: --module KissatM8Opt requested, but FullM8OptAssembly.lean is not landed yet." >&2
+    exit 2
+  elif [ "$m" = "FullM7Fidelity" ] && [ ! -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
+    echo "ERROR: --module FullM7Fidelity requested, but FullM7FidelityAssembly.lean is not landed yet." >&2
     exit 2
   fi
 done
@@ -219,6 +249,94 @@ HDR
   fi
 fi
 
+mod_lean() {
+  case "$1" in
+    CorePlus|Plain|Full) echo "LeanQbe.T.Examples.Kissat.$1" ;;
+    KissatFidelity)
+      local deps=("LeanQbe.T.Examples.Kissat.FullFidelityAssembly")
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInl.lean" ]; then
+        deps+=("LeanQbe.T.Examples.Kissat.FullFidelityInl")
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
+        deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy")
+      fi
+      echo "${deps[*]}" ;;
+    KissatM8Opt)
+      local deps=("LeanQbe.T.Examples.Kissat.FullM8OptAssembly")
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptInl.lean" ]; then
+        deps+=("LeanQbe.T.Examples.Kissat.FullM8OptInl")
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
+        deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullM8InlPolicy")
+      fi
+      echo "${deps[*]}" ;;
+    FullM7Fidelity)
+      local deps=("LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly")
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityInl.lean" ]; then
+        deps+=("LeanQbe.T.Examples.Kissat.FullM7FidelityInl")
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
+        deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullM7InlPolicy")
+      fi
+      echo "${deps[*]}" ;;
+  esac
+}
+
+mod_expr() {
+  case "$1" in
+    CorePlus) echo "LeanQbe.T.Examples.Kissat.CorePlus.coreplusModule" ;;
+    Plain) echo "LeanQbe.T.Examples.Kissat.Plain.plainModule" ;;
+    Full) echo "LeanQbe.T.Examples.Kissat.Full.fullModule" ;;
+    KissatFidelity) echo "LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule" ;;
+    KissatM8Opt) echo "LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule" ;;
+    FullM7Fidelity) echo "LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule" ;;
+  esac
+}
+
+mod_fns_expr() {
+  case "$1" in
+    CorePlus) echo "(LeanQbe.T.Examples.Kissat.CorePlus.coreplusModule).fns" ;;
+    Plain) echo "(LeanQbe.T.Examples.Kissat.Plain.plainModule).fns" ;;
+    Full) echo "(LeanQbe.T.Examples.Kissat.Full.fullModule).fns" ;;
+    KissatFidelity)
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInl.lean" ]; then
+        echo "LeanQbe.T.Examples.Kissat.FullFidelityInl.fidInlFns"
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
+        echo "((LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule).optInlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns"
+      else
+        echo "(LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule).fns"
+      fi ;;
+    KissatM8Opt)
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptInl.lean" ]; then
+        echo "LeanQbe.T.Examples.Kissat.FullM8OptInl.m8OptInlFns"
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
+        echo "((LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule).optInlinePolicy LeanQbe.T.Examples.Kissat.FullM8InlPolicy.m8InlPolicy).fns"
+      else
+        echo "(LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule).fns"
+      fi ;;
+    FullM7Fidelity)
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityInl.lean" ]; then
+        echo "LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns"
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
+        echo "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
+      else
+        echo "(LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).fns"
+      fi ;;
+  esac
+}
+
+mod_tel_flag() {
+  case "$1" in
+    CorePlus|KissatFidelity|KissatM8Opt|FullM7Fidelity) echo "--telemetry" ;;
+    Plain) echo "--plain-telemetry" ;;
+    Full) echo "" ;;
+  esac
+}
+
+mod_edge_work() {
+  case "$1" in
+    Plain|CorePlus|Full) echo "4096" ;;
+    *) echo "6144" ;;
+  esac
+}
+
 echo "== 3. Build requested LeanQbe Kissat module(s) & codegen drivers =="
 LAKE_TARGETS=(
   LeanQbe.T.PrintCpp LeanQbe.T.Driver
@@ -226,25 +344,10 @@ LAKE_TARGETS=(
   LeanQbe.T.Amd64.PrintATTAlign Kraken.AArch64.Print
 )
 for m in "${MODULES[@]}"; do
-  LAKE_TARGETS+=("LeanQbe.T.Examples.Kissat.$m")
+  # shellcheck disable=SC2046
+  LAKE_TARGETS+=($(mod_lean "$m"))
 done
 timeout 600 lake build --wfail "${LAKE_TARGETS[@]}"
-
-mod_expr() {
-  case "$1" in
-    CorePlus) echo "LeanQbe.T.Examples.Kissat.CorePlus.coreplusModule" ;;
-    Plain) echo "LeanQbe.T.Examples.Kissat.Plain.plainModule" ;;
-    Full) echo "LeanQbe.T.Examples.Kissat.Full.fullModule" ;;
-  esac
-}
-
-mod_tel_flag() {
-  case "$1" in
-    CorePlus) echo "--telemetry" ;;
-    Plain) echo "--plain-telemetry" ;;
-    Full) echo "" ;;
-  esac
-}
 
 KTEST_INC="$ROOT/test/kissat"
 RT_INC="$ROOT/LeanQbe/T/Runtime"
@@ -253,10 +356,15 @@ COMMON_CXX="-std=c++20 -O2 -Wall -Wextra -Werror -fsanitize=undefined,address -f
 
 for m in "${MODULES[@]}"; do
   expr="$(mod_expr "$m")"
+  fns_expr="$(mod_fns_expr "$m")"
+  edge_work="$(mod_edge_work "$m")"
+  imports=""
+  for lm in $(mod_lean "$m"); do
+    imports+="import $lm"$'\n'
+  done
   echo "== 4[$m]. Emit PrintCpp header + native x64 + Arm64 assembly =="
   cat > "$OUT/emit_${m}_cpp_x64.lean" <<LEAN
-import LeanQbe.T.Examples.Kissat.${m}
-import LeanQbe.T.PrintCpp
+${imports}import LeanQbe.T.PrintCpp
 import LeanQbe.T.Driver
 import LeanQbe.T.Amd64.Targ
 import LeanQbe.T.Amd64.PrintATTAlign
@@ -270,7 +378,7 @@ public def main (args : List String) : IO Unit := do
     | .ok s => pure s
     | .error e => throw (IO.userError e)
   IO.FS.writeFile cppPath cpp
-  let fns := m.fns
+  let fns := ${fns_expr}
   let hints := fns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
   let dirs ← match LeanQbe.T.compile x64Target.toIsa x64LegalTarget fns hints with
     | .ok d => pure d
@@ -279,8 +387,7 @@ public def main (args : List String) : IO Unit := do
 LEAN
 
   cat > "$OUT/emit_${m}_arm64.lean" <<LEAN
-import LeanQbe.T.Examples.Kissat.${m}
-import LeanQbe.T.Driver
+${imports}import LeanQbe.T.Driver
 import LeanQbe.T.Arm64.Targ
 import Kraken.AArch64.Print
 
@@ -288,7 +395,7 @@ open LeanQbe.T LeanQbe.T.Arm64
 
 public def main (args : List String) : IO Unit := do
   let [armPath] := args | throw (IO.userError "usage: <arm64>")
-  let fns := (${expr}).fns
+  let fns := ${fns_expr}
   let hints := fns.map (Fn.computeHints armTarget.toIsa armLegalTarget)
   let dirs ← match LeanQbe.T.compile armTarget.toIsa armLegalTarget fns hints with
     | .ok d => pure d
@@ -298,9 +405,9 @@ public def main (args : List String) : IO Unit := do
   IO.FS.writeFile armPath (Driver.emitAsm (fun c => pp c ++ "\n") fns dirs)
 LEAN
 
-  timeout 180 lake env lean --run "$OUT/emit_${m}_cpp_x64.lean" \
+  timeout 900 lake env lean --run "$OUT/emit_${m}_cpp_x64.lean" \
     "$OUT/${m}_gen.hpp" "$OUT/${m}_x64.s"
-  timeout 180 lake env lean --run "$OUT/emit_${m}_arm64.lean" "$OUT/${m}_arm64.s"
+  timeout 900 lake env lean --run "$OUT/emit_${m}_arm64.lean" "$OUT/${m}_arm64.s"
 
   timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/${m}_x64.s" \
     -o "$OUT/bench_${m}_x64"
@@ -352,8 +459,29 @@ static uint64_t run_bytes(
   if (got == 10ULL) {
     uint64_t pad = (work_ptr & 7ULL) ? (8ULL - (work_ptr & 7ULL)) : 0ULL;
     uint64_t hdr = work_ptr + pad;
+    if (work_len >= pad + 8ULL &&
+        ::tqbe::load<::tqbe::bits<64>>(mem, ::tqbe::bits<64>(hdr)).word(0) ==
+          0x4D36484452455831ULL) {
+      /* M6 extended work header (FullM6Hdr, "M6HDREX1"): FullHdr starts at word 288, i.e.
+         288 * 8 = 2304 bytes in (same skip as bench_main.c and kissat_cli.c). */
+      if (work_len < pad + 2304ULL) {
+        std::fprintf(stderr, "FAIL [cpp %s] truncated M6 header\n", label);
+        std::exit(1);
+      }
+      pad += 2304ULL;
+      hdr += 2304ULL;
+    }
+    if (work_len < pad + 72ULL) {
+      std::fprintf(stderr, "FAIL [cpp %s] truncated SAT header\n", label);
+      std::exit(1);
+    }
     uint64_t mv = ::tqbe::load<::tqbe::bits<64>>(mem, ::tqbe::bits<64>(hdr)).word(0);
     uint64_t vp = ::tqbe::load<::tqbe::bits<64>>(mem, ::tqbe::bits<64>(hdr + 64)).word(0);
+    uint64_t ws_hi = work_ptr + work_len;
+    if (vp < hdr + 72ULL || vp > ws_hi || mv > (ws_hi - vp) / 2ULL) {
+      std::fprintf(stderr, "FAIL [cpp %s] invalid SAT model pointer\n", label);
+      std::exit(1);
+    }
     std::vector<int8_t> vals(mv * 2ULL, 0);
     for (uint64_t j = 0; j < mv * 2ULL; ++j) {
       vals[j] = (int8_t)::tqbe::load<::tqbe::bits<8>>(mem, ::tqbe::bits<64>(vp + j)).word(0);
@@ -370,21 +498,23 @@ static void check_edge(const char *name, const char *cnf, size_t work_len,
                        uint64_t fuel, uint64_t exp, uint64_t off) {
   uint64_t got = run_bytes((const uint8_t *)cnf, std::strlen(cnf), work_len, fuel, off, name);
   if (got != exp) {
-    std::fprintf(stderr, "FAIL [cpp edge %s off=%llu] got=%llu exp=%llu\n",
-      name, (unsigned long long)off, (unsigned long long)got, (unsigned long long)exp);
+    std::fprintf(stderr, "FAIL [cpp edge %s off=%llu work=%zu] got=%llu exp=%llu\n",
+      name, (unsigned long long)off, work_len, (unsigned long long)got,
+      (unsigned long long)exp);
     std::exit(1);
   }
 }
 
 int main(int argc, char **argv) {
-  check_edge("empty_0", "p cnf 0 0\n", 4096, 100, 10, 0);
-  check_edge("empty_0_unaligned", "p cnf 0 0\n", 4096, 100, 10, 3);
-  check_edge("empty_clause", "p cnf 1 1\n0\n", 4096, 100, 20, 3);
-  check_edge("fuel_0", "p cnf 1 2\n1 0\n-1 0\n", 4096, 0, 0, 0);
+  const size_t ew = ${edge_work}ULL;
+  check_edge("empty_0", "p cnf 0 0\n", ew, 100, 10, 0);
+  check_edge("empty_0_unaligned", "p cnf 0 0\n", ew, 100, 10, 3);
+  check_edge("empty_clause", "p cnf 1 1\n0\n", ew, 100, 20, 3);
+  check_edge("fuel_0", "p cnf 1 2\n1 0\n-1 0\n", ew, 0, 0, 0);
   check_edge("tiny_work_0", "p cnf 1 2\n1 0\n-1 0\n", 0, 100, 0, 0);
   check_edge("tiny_work_127", "p cnf 1 2\n1 0\n-1 0\n", 127, 100, 0, 0);
-  check_edge("bad_oob_var", "p cnf 1 1\n2 0\n", 4096, 100, 0, 0);
-  check_edge("bad_empty", "", 4096, 100, 0, 0);
+  check_edge("bad_oob_var", "p cnf 1 1\n2 0\n", ew, 100, 0, 0);
+  check_edge("bad_empty", "", ew, 100, 0, 0);
 
   if (argc < 4) return 0;
   size_t work_len = (size_t)std::strtoull(argv[1], nullptr, 10);
@@ -406,7 +536,7 @@ int main(int argc, char **argv) {
   return 0;
 }
 CPP
-    timeout 120 clang++ $COMMON_CXX "$OUT/cpp_${m}_driver.cpp" -o "$OUT/cpp_${m}_asan"
+    timeout 300 clang++ $COMMON_CXX "$OUT/cpp_${m}_driver.cpp" -o "$OUT/cpp_${m}_asan"
   fi
 done
 
@@ -610,12 +740,14 @@ for name, m, tbl in solvers:
         sw = sum(tbl[p][8] for p in paths)
         pct = (100.0 * mrem / (lrn + mrem)) if (lrn + mrem) > 0 else 0.0
         note = f"confl={confs} lrn={lrn} rem={mrem}({pct:.1f}%) rst={rst} red={red} sw={sw}"
-    elif m == "CorePlus":
+    elif m in ("CorePlus", "KissatFidelity", "KissatM8Opt", "FullM7Fidelity"):
         confs = sum(tbl[p][2] for p in paths)
         lrn = sum(tbl[p][3] for p in paths)
         mrem = sum(tbl[p][4] for p in paths)
         pct = (100.0 * mrem / (lrn + mrem)) if (lrn + mrem) > 0 else 0.0
         note = f"confl={confs} lrn={lrn} min_rem={mrem}({pct:.1f}%)"
+        if "x64" in name and m in mod_cpp:
+            note += f" cpp_asan={len(mod_cpp.get(m, {}))}"
     elif m == "Full" and "x64" in name:
         note = f"cpp_asan={len(mod_cpp.get(m, {}))} cases"
     print(

@@ -104,6 +104,16 @@ public import LeanQbe.T.Examples.Kissat.FullFastProof
 public import LeanQbe.T.Examples.Kissat.FullFastSched
 public import LeanQbe.T.Examples.Kissat.FullFastSchedLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastTmkLemmas
+public import LeanQbe.T.Examples.Kissat.FullFidelityBase
+public import LeanQbe.T.Examples.Kissat.FullFidelityBaseProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityBaseProof0
+public import LeanQbe.T.Examples.Kissat.FullFidelityBaseProofBveVar
+public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+public import LeanQbe.T.Examples.Kissat.FullFidelitySweep
+public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProof
+public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofCone0
+public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofCone1
+public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofVar
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas1
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas2

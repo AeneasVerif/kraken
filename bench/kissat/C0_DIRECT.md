@@ -9,10 +9,14 @@ elaboration, `LeanQbe.T.Module`, `PrintCpp`, and `clang++`.
 1. **Block & Splice Extraction (`bench/kissat/extract_c0_direct.py`)**
    - Scans `LeanQbe/T/Examples/Kissat/*.lean` (excluding `*Lemmas*`, `*Proof*`, `*Spec*`,
      `*Arena*`, `*SatNv*`, `*InlB5*`) for `kissat_c0!` blocks, `Fn` rename handles
-     (`def ... : Fn := ⟨"export_name", ..., orig_body⟩`), and `List Fn` splice definitions
-     (`++`, `.take`, `.drop`, `[...]`).
-   - Evaluates `FullM5.m5Fns` (`270` functions, `--target m5`) or `FullM6.m6Fns`
-     (`382` functions, `--target m6`) in exact topological splice order.
+     (`def ... : Fn := ⟨"export_name", ..., orig_body⟩` or
+     `{ name := "export_name", ..., body := orig_body }`), `List Fn` splice definitions
+     (`++`, `.take`, `.drop`, `[...]`, `spliceFns`, `patchFns`), and `patchFns` insertion
+     plans (`List (Sym × List Fn)`: `[("anchor", <List Fn>), ...]`, named plans, `++`).
+   - Evaluates `FullFidelityAssembly.fidFns` (`--target fidelity`, alias `fid`),
+     `FullM8OptAssembly.m8OptFns` (`--target m8opt`, aliases `opt`, `m8`),
+     `Plain.plainFns` (`59` functions, `--target plain`), or legacy/transitional targets
+     (`m7fidelity`, `m7plus`, `m7`, `m6`, `m5`) in exact topological splice order.
    - Supports `--check-fns <file|lean|csv>` to assert 1-to-1 ordered name parity.
 
 2. **Faithful C99 Emission**

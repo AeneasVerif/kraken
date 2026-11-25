@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Extract spliced Kissat C0 functions (m5|m6|m7|m7plus|m7fidelity|m7plus-memshrink|m7fidelity-memshrink) into a standalone C99 translation unit."""
+"""Extract spliced Kissat C0 functions (fidelity|m8opt|plain|m7fidelity|m7plus|m7|m6|m5) into a standalone C99 translation unit."""
 import argparse
+import os
 import pathlib
 import re
 import subprocess
@@ -103,6 +104,9 @@ def load_kissat(kdir):
         re.M | re.S)
     fn_re = re.compile(
         r'def\s+(\w+)\s*:\s*Fn\s*:=\s*⟨"([^"]+)"[^⟩]*?([A-Za-z0-9_.]+)⟩', re.S)
+    fn_rec_re = re.compile(
+        r'def\s+(\w+)\s*:\s*Fn\s*:=\s*\{\s*name\s*:=\s*"([^"]+)"[^{}]*?'
+        r'\bbody\s*:=\s*([A-Za-z0-9_.]+)\s*\}', re.S)
     list_re = re.compile(
         r"^def\s+(\w+)\s*:\s*List\s+Fn\s*:=\s*(.*?)"
         r"(?=\n(?:def|theorem|private|end|kissat_c0!|/-|\Z))", re.M | re.S)
@@ -132,7 +136,7 @@ def load_kissat(kdir):
                     code = re.sub(rf"\b{re.escape(old)}(?=\s*\()", new, code)
                 body_map[f"{ns}.{bname}"] = {**base, "text": code}
     for _, txt, opens in files:
-        for m in fn_re.finditer(txt):
+        for m in (*fn_re.finditer(txt), *fn_rec_re.finditer(txt)):
             ns, fvar, exp, bref = _ns_at(txt, m.start()), m.group(1), m.group(2), m.group(3)
             base = _resolve_body(bref, ns, opens)
             if base is not None:
@@ -146,8 +150,12 @@ def load_kissat(kdir):
     return fn_envs, list_envs, before_envs
 
 
-def eval_befores(qname, before_envs, fn_envs, cache):
-    """Evaluate a List (Sym × List Fn) expression built from ++ and [("anchor", [fn, ...])]."""
+def eval_befores(qname, before_envs, fn_envs, cache, list_eval=None):
+    """Evaluate a List (Sym × List Fn) expression built from ++ and [("anchor", hs)].
+
+    `hs` is a `++`-chain of `[fn, ...]` literals and List Fn names; names are
+    resolved via `list_eval(name, ns, opens)`.
+    """
     tok_pat = r'\+\+|"[^"]*"|[()\[\],]|[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*'
 
     def res(nm, ns, opens, env):
@@ -176,13 +184,22 @@ def eval_befores(qname, before_envs, fn_envs, cache):
                     assert nx() == "("
                     anchor = nx().strip('"')
                     assert nx() == ","
-                    assert nx() == "["
                     hs = []
-                    while pk() != "]":
-                        hs.append(res(nx(), ns, opens, fn_envs)[1])
-                        if pk() == ",":
+                    while True:
+                        if pk() == "[":
                             nx()
-                    nx()  # ']'
+                            while pk() != "]":
+                                hs.append(res(nx(), ns, opens, fn_envs)[1])
+                                if pk() == ",":
+                                    nx()
+                            nx()  # ']'
+                        else:
+                            if list_eval is None:
+                                raise KeyError(f"List-valued helpers need list_eval in {ns}")
+                            hs.extend(list_eval(nx(), ns, opens))
+                        if pk() != "++":
+                            break
+                        nx()
                     assert nx() == ")"
                     val.append((anchor, hs))
                     if pk() == ",":
@@ -249,7 +266,7 @@ def eval_list(qname, list_envs, fn_envs, cache, before_envs=None):
                 repls = parse_term()
                 bname = nx()
                 befores = eval_befores(f"{ns}.{bname}" if "." not in bname else bname,
-                                       before_envs or {}, fn_envs, bcache)
+                                       before_envs or {}, fn_envs, bcache, eval_nm)
                 base = parse_term()
                 rmap = {f["name"]: f for f in repls}
                 bmap = {}
@@ -332,8 +349,14 @@ def check_fns(fns, spec, root, imp_mod, open_ns, sym):
     if spec == "lean":
         code = (f"import {imp_mod}\nopen {open_ns} in #eval show IO Unit from do\n"
                 f"  for f in {sym} do IO.println f.name")
-        r = subprocess.run(["timeout", "60", "lake", "env", "lean", "--stdin"],
-                           cwd=root, input=code, text=True, capture_output=True)
+        stage_lp = os.environ.get("STAGE_LEAN_PATH")
+        if stage_lp:
+            cmd = ["timeout", "60", "lean", "--stdin"]
+            env = {**os.environ, "LEAN_PATH": stage_lp}
+        else:
+            cmd = ["timeout", "60", "lake", "env", "lean", "--stdin"]
+            env = None
+        r = subprocess.run(cmd, cwd=root, env=env, input=code, text=True, capture_output=True)
         if r.returncode != 0:
             sys.exit(f"ERROR: Lean check failed:\n{r.stderr or r.stdout}")
         exp = [l.strip() for l in r.stdout.splitlines() if l.strip()]
@@ -347,19 +370,19 @@ def check_fns(fns, spec, root, imp_mod, open_ns, sym):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Extract spliced Kissat C0 functions to C99.")
-    ap.add_argument(
-        "--target",
-        choices=["m5", "m6", "m7", "m7plus", "m7fidelity",
-                 "m7plus-memshrink", "m7fidelity-memshrink"],
-        default="m5",
-    )
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--check-fns", default=None)
-    args = ap.parse_args()
     root = pathlib.Path(__file__).resolve().parents[2]
     kdir = root / "LeanQbe/T/Examples/Kissat"
-    file_mod, ns_mod, sym = {
+    default_target = (
+        "fidelity" if (kdir / "FullFidelityAssembly.lean").is_file()
+        else ("m7fidelity" if (kdir / "FullM7FidelityAssembly.lean").is_file() else "m5")
+    )
+    target_specs = {
+        "plain": ("Plain", "Plain", "plainFns"),
+        "fidelity": ("FullFidelityAssembly", "FullFidelityAssembly", "fidFns"),
+        "fid": ("FullFidelityAssembly", "FullFidelityAssembly", "fidFns"),
+        "m8opt": ("FullM8OptAssembly", "FullM8OptAssembly", "m8OptFns"),
+        "opt": ("FullM8OptAssembly", "FullM8OptAssembly", "m8OptFns"),
+        "m8": ("FullM8OptAssembly", "FullM8OptAssembly", "m8OptFns"),
         "m5": ("FullM5", "FullM5", "m5Fns"),
         "m6": ("FullM6", "FullM6", "m6Fns"),
         "m7": ("FullM7", "FullM7", "m7Fns"),
@@ -371,7 +394,17 @@ def main():
         "m7fidelity-memshrink": (
             "FullM7MemShrinkAssembly", "FullM7MemShrinkV5", "m7FidelityMemShrinkFns"
         ),
-    }[args.target]
+    }
+    ap = argparse.ArgumentParser(description="Extract spliced Kissat C0 functions to C99.")
+    ap.add_argument(
+        "--target",
+        choices=list(target_specs),
+        default=default_target,
+    )
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--check-fns", default=None)
+    args = ap.parse_args()
+    file_mod, ns_mod, sym = target_specs[args.target]
     if not (kdir / f"{file_mod}.lean").exists():
         sys.exit(f"ERROR: {kdir / f'{file_mod}.lean'} not found (--target {args.target} not landed yet)")
     fn_envs, list_envs, before_envs = load_kissat(kdir)

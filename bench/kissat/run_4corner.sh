@@ -22,7 +22,14 @@ export PYTHONDONTWRITEBYTECODE=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-MODULES=(Full FullFast FullM3 FullM4)
+if [ -f "$ROOT/LeanQbe/T/Amd64/KissatFidelity.lean" ] && \
+   [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+  MODULES=(KissatFidelity)
+elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
+  MODULES=(FullM7Fidelity)
+else
+  MODULES=(Full FullFast FullM3 FullM4)
+fi
 WORK_BYTES="${WORK_BYTES:-67108864}"
 FUEL="${FUEL:-200000000}"
 PER_TIMEOUT="${PER_TIMEOUT:-5}"
@@ -31,7 +38,7 @@ KISSAT_BIN="${KISSAT_BIN:-}"
 NO_KISSAT=0
 C2_FLAGS=""
 C2_PRESET=""
-INLINE_MAX_SIZE="${INLINE_MAX_SIZE:-40}"
+INLINE_MAX_SIZE="${INLINE_MAX_SIZE:-}"
 UPDATE_BASELINE=0
 STRICT_GAPS=0
 FILTER=""
@@ -39,16 +46,16 @@ FILTER=""
 usage() {
   cat <<'EOF'
 usage: bench/kissat/run_4corner.sh [options]
-  --module <Full|FullFast|FullM3|FullM4|Both|All>
-                                            Module(s) to benchmark (default: All)
+  --module <KissatFidelity|KissatM8Opt|Plain|FullM7Fidelity|Full|FullFast|FullM3|FullM4|Both|All>
+                                            Module(s) to benchmark (default: auto KissatFidelity/FullM7Fidelity)
   --kissat <bin>                            Optional upstream Kissat 4.0.4 binary (C1)
   --no-kissat                               Disable C1 even if kissat is in PATH/KISSAT_BIN
   --c2-flags "<flags>"                      Flag-matched Kissat 4.0.4 corner (C2)
-  --c2-preset <plain|m4|m5>                 Preset flags for C2 corner
+  --c2-preset <plain|m4|m5|fidelity|m8opt>  Preset flags for C2 corner
   --work-bytes <N>                          Workspace bytes (default: 67108864)
   --fuel <N>                                Fuel budget (default: 200000000)
   --per-timeout <sec>                       Per-CNF timeout seconds (default: 5)
-  --inline-max <N>                          Module.optInline maxSize for C4 (default: 40; 0 off)
+  --inline-max <N>                          Module.optInline maxSize for C4 (default: 0 for Fidelity/Opt/Plain, 40 for legacy)
   --perf                                    Run perf stat hardware counter comparison (C3b vs C4)
   --update-baseline                         Update bench/kissat/canary_baseline.json
   --strict-gaps                             Fail on known pre-M3 gaps too
@@ -61,12 +68,25 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --module)
       case "${2,,}" in
+        kissatfidelity|fullfidelity|fidelity|fid) MODULES=(KissatFidelity) ;;
+        kissatm8opt|fullm8opt|m8opt|opt|fullm8|m8) MODULES=(KissatM8Opt) ;;
+        plain|kissatplain) MODULES=(Plain) ;;
+        fullm7fidelity|m7fidelity|m7fid) MODULES=(FullM7Fidelity) ;;
         full) MODULES=(Full) ;;
         fullfast) MODULES=(FullFast) ;;
         fullm3|m3) MODULES=(FullM3) ;;
         fullm4|m4) MODULES=(FullM4) ;;
         both) MODULES=(Full FullFast) ;;
-        all) MODULES=(Full FullFast FullM3 FullM4) ;;
+        all)
+          MODULES=()
+          [ -f "$ROOT/LeanQbe/T/Examples/Kissat/Plain.lean" ] && MODULES+=(Plain)
+          if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean" ]; then
+            MODULES+=(KissatFidelity)
+          elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean" ]; then
+            MODULES+=(FullM7Fidelity)
+          fi
+          [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptAssembly.lean" ] && MODULES+=(KissatM8Opt)
+          ;;
         *) echo "ERROR: unknown module '$2'" >&2; exit 2 ;;
       esac
       shift 2
@@ -110,10 +130,41 @@ timeout 60 python3 -B bench/kissat/gen_canary_cnfs.py "$OUT/cnfs" --summary
 
 run_lean_env() {
   if [ -n "${STAGE_LEAN_PATH:-}" ]; then
-    LEAN_PATH="$STAGE_LEAN_PATH" timeout 300 lean --run "$@"
+    LEAN_PATH="$STAGE_LEAN_PATH" timeout 900 lean --run "$@"
   else
-    timeout 300 lake env lean --run "$@"
+    timeout 900 lake env lean --run "$@"
   fi
+}
+
+mod_lean() {
+  case "$1" in
+    KissatFidelity)
+      local deps=("LeanQbe.T.Examples.Kissat.FullFidelityAssembly")
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInl.lean" ]; then
+        deps+=("LeanQbe.T.Examples.Kissat.FullFidelityInl")
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
+        deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy")
+      fi
+      echo "${deps[*]}" ;;
+    KissatM8Opt)
+      local deps=("LeanQbe.T.Examples.Kissat.FullM8OptAssembly")
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptInl.lean" ]; then
+        deps+=("LeanQbe.T.Examples.Kissat.FullM8OptInl")
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
+        deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullM8InlPolicy")
+      fi
+      echo "${deps[*]}" ;;
+    FullM7Fidelity)
+      local deps=("LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly")
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityInl.lean" ]; then
+        deps+=("LeanQbe.T.Examples.Kissat.FullM7FidelityInl")
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
+        deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullM7InlPolicy")
+      fi
+      echo "${deps[*]}" ;;
+    Plain|Full|FullFast|FullM3|FullM4)
+      echo "LeanQbe.T.Examples.Kissat.$1" ;;
+  esac
 }
 
 if [ -z "${STAGE_LEAN_PATH:-}" ]; then
@@ -122,7 +173,8 @@ if [ -z "${STAGE_LEAN_PATH:-}" ]; then
     LeanQbe.T.Amd64.Targ LeanQbe.T.Amd64.PrintATTAlign
   )
   for m in "${MODULES[@]}"; do
-    LAKE_TARGETS+=("LeanQbe.T.Examples.Kissat.$m")
+    # shellcheck disable=SC2046
+    LAKE_TARGETS+=($(mod_lean "$m"))
   done
   echo "== 2. lake build ${LAKE_TARGETS[*]} =="
   timeout 600 lake build --wfail "${LAKE_TARGETS[@]}"
@@ -132,10 +184,45 @@ fi
 
 mod_expr() {
   case "$1" in
+    KissatFidelity) echo "LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule" ;;
+    KissatM8Opt) echo "LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule" ;;
+    FullM7Fidelity) echo "LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule" ;;
+    Plain) echo "LeanQbe.T.Examples.Kissat.Plain.plainModule" ;;
     Full) echo "LeanQbe.T.Examples.Kissat.Full.fullModule" ;;
     FullFast) echo "LeanQbe.T.Examples.Kissat.FullFast.fastModule" ;;
     FullM3) echo "LeanQbe.T.Examples.Kissat.FullM3.m3Module" ;;
     FullM4) echo "LeanQbe.T.Examples.Kissat.FullM4.m4Module" ;;
+  esac
+}
+
+mod_inl_fns() {
+  case "$1" in
+    KissatFidelity)
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInl.lean" ]; then
+        echo "LeanQbe.T.Examples.Kissat.FullFidelityInl.fidInlFns"
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
+        echo "(m.optInlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns"
+      else
+        echo "m.fns"
+      fi ;;
+    KissatM8Opt)
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptInl.lean" ]; then
+        echo "LeanQbe.T.Examples.Kissat.FullM8OptInl.m8OptInlFns"
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
+        echo "(m.optInlinePolicy LeanQbe.T.Examples.Kissat.FullM8InlPolicy.m8InlPolicy).fns"
+      else
+        echo "m.fns"
+      fi ;;
+    FullM7Fidelity)
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityInl.lean" ]; then
+        echo "LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns"
+      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
+        echo "(m.optInlinePolicy LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
+      else
+        echo "m.fns"
+      fi ;;
+    Plain) echo "m.fns" ;;
+    *) echo "(m.optInline 40).fns" ;;
   esac
 }
 
@@ -166,10 +253,10 @@ if [ -n "$C2_PRESET" ] && [ -z "$C2_FLAGS" ]; then
       C2_FLAGS="--plain --seed=0 --phase=1 --tumble=0 --reorder=0 --stable=1 --rephase=1 --target=1" ;;
     m4)
       C2_FLAGS="--seed=0 --phase=1 --jumpreasons=0 --randec=0 --vivifysort=0 --eliminatebound=8 --eliminateocclim=64 --congruencexorarity=2 --sweepvars=128 --sweepmaxvars=128 --factorsize=5" ;;
-    m5)
+    m5|fidelity|m8opt|m8)
       C2_FLAGS="--seed=0 --phase=1 --jumpreasons=0 --randec=0" ;;
     *)
-      echo "ERROR: unknown --c2-preset '$C2_PRESET' (expected plain|m4|m5)" >&2
+      echo "ERROR: unknown --c2-preset '$C2_PRESET' (expected plain|m4|m5|fidelity|m8opt)" >&2
       exit 2 ;;
   esac
 fi
@@ -183,10 +270,23 @@ CHECK_ARGS=(--cnf-dir "$OUT/cnfs" --work-bytes "$WORK_BYTES" --fuel "$FUEL" --pe
 
 for m in "${MODULES[@]}"; do
   expr="$(mod_expr "$m")"
+  if [ -n "$INLINE_MAX_SIZE" ] && [ "$INLINE_MAX_SIZE" -gt 0 ]; then
+    fns_expr="(m.optInline ${INLINE_MAX_SIZE}).fns"
+  elif [ -n "$INLINE_MAX_SIZE" ] && [ "$INLINE_MAX_SIZE" -eq 0 ]; then
+    case "$m" in
+      Full|FullFast|FullM3|FullM4) fns_expr="m.fns" ;;
+      *) fns_expr="$(mod_inl_fns "$m")" ;;
+    esac
+  else
+    fns_expr="$(mod_inl_fns "$m")"
+  fi
+  imports=""
+  for lm in $(mod_lean "$m"); do
+    imports+="import $lm"$'\n'
+  done
   echo "== 3[$m]. Emit PrintCpp (.hpp) + native x64 (.s) =="
   cat > "$OUT/emit_${m}.lean" <<LEAN
-import LeanQbe.T.Examples.Kissat.${m}
-import LeanQbe.T.PrintCpp
+${imports}import LeanQbe.T.PrintCpp
 import LeanQbe.T.Opt
 import LeanQbe.T.Driver
 import LeanQbe.T.Amd64.Targ
@@ -201,7 +301,7 @@ public def main (args : List String) : IO Unit := do
     | .ok s => pure s
     | .error e => throw (IO.userError e)
   IO.FS.writeFile cppPath cpp
-  let fns := if ${INLINE_MAX_SIZE} > 0 then (m.optInline ${INLINE_MAX_SIZE}).fns else m.fns
+  let fns := ${fns_expr}
   let hints := fns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
   let dirs ← match LeanQbe.T.compile x64Target.toIsa x64LegalTarget fns hints with
     | .ok d => pure d
@@ -241,6 +341,10 @@ CPP
     -I"$RT_INC" -I"$OUT" "$OUT/c3b_${m}_bridge.cpp" "$OUT/bench_main.o" -o "$OUT/c3b_${m}"
 
   case "$m" in
+    Plain) CHECK_ARGS+=(--plain-c4 "$OUT/c4_Plain" --plain-c3b "$OUT/c3b_Plain") ;;
+    KissatFidelity) CHECK_ARGS+=(--fid-c4 "$OUT/c4_KissatFidelity" --fid-c3b "$OUT/c3b_KissatFidelity") ;;
+    FullM7Fidelity) CHECK_ARGS+=(--m7fid-c4 "$OUT/c4_FullM7Fidelity" --m7fid-c3b "$OUT/c3b_FullM7Fidelity") ;;
+    KissatM8Opt) CHECK_ARGS+=(--opt-c4 "$OUT/c4_KissatM8Opt" --opt-c3b "$OUT/c3b_KissatM8Opt") ;;
     Full) CHECK_ARGS+=(--full-c4 "$OUT/c4_Full" --full-c3b "$OUT/c3b_Full") ;;
     FullFast) CHECK_ARGS+=(--fast-c4 "$OUT/c4_FullFast" --fast-c3b "$OUT/c3b_FullFast") ;;
     FullM3) CHECK_ARGS+=(--m3-c4 "$OUT/c4_FullM3" --m3-c3b "$OUT/c3b_FullM3") ;;

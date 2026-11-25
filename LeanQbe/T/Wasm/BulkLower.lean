@@ -1231,16 +1231,84 @@ theorem mkTrapExpr_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List W
     (toTFlat (mkTrapExpr (L := KL) retTys code f) nv nl).supportsSource lt = true := by
   simpa [mkTrapExpr, toTFlat, TFlat.supportsSource] using wasmRetSig_supportsTy hv retTys
 
+theorem mkStatusTrapExpr_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
+    (st : Arg K T.i32) (f : Arg K T.i64) (nv nl : Nat) :
+    (toTFlat (mkStatusTrapExpr (L := KL) retTys st f) nv nl).supportsSource lt = true := by
+  simpa [mkStatusTrapExpr, toTFlat, TFlat.supportsSource] using wasmRetSig_supportsTy hv retTys
+
+theorem tflat_ret_ss (lt : LegalTarget) {rs : List Ty} (args : Tup (Arg K) rs)
+    {nv nl : Nat} (hrs : rs.all lt.supportsTy = true) :
+    (toTFlat (.ret args) nv nl).supportsSource lt = true := by
+  simpa [toTFlat, TFlat.supportsSource] using hrs
+
+theorem tflat_call_ss (lt : LegalTarget) {rs as bs : List Ty} (f : Sym)
+    (args : Tup (Arg K) as) {k : Tup K bs → Expr K KL rs} {nv nl : Nat}
+    (has : as.all lt.supportsTy = true) (hbs : bs.all lt.supportsTy = true)
+    (hk : (toTFlat (k (Tup.levels bs nv)) (nv + bs.length) nl).supportsSource lt = true) :
+    (toTFlat (.call f args k) nv nl).supportsSource lt = true := by
+  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
+  exact ⟨⟨has, hbs⟩, hk⟩
+
+theorem supportsTy_bool {lt : LegalTarget} : lt.supportsTy .bool = true := by
+  simp [LegalTarget.supportsTy]
+
+macro "tflat_op_ss" hv:ident : tactic =>
+  `(tactic| (
+    simp only [LegalTarget.supportsOpCode, Bool.and_eq_true]
+    repeat' constructor
+    all_goals (try assumption)
+    all_goals (try exact supportsTy_le64 $hv (by omega))
+    all_goals (try exact supportsTy_bool)
+    all_goals (try decide)))
+
+macro "tflat_step_ss" hv:ident : tactic =>
+  `(tactic| first
+    | assumption
+    | (apply_assumption; done)
+    | exact mkTrapExpr_ss $hv _ _ _ _ _
+    | exact mkStatusTrapExpr_ss $hv _ _ _ _ _
+    | refine tflat_let1_ss _ _ _ (by tflat_op_ss $hv) ?_
+    | refine tflat_let2_ss _ _ _ _ (by tflat_op_ss $hv) ?_
+    | refine tflat_let3_ss _ _ _ _ _ (by tflat_op_ss $hv) ?_
+    | refine tflat_load_ss _ _ _ (supportsTy_le64 $hv (by omega)) (by decide) ?_
+    | refine tflat_store_ss _ _ _ (supportsTy_le64 $hv (by omega)) (by decide) ?_
+    | refine tflat_jnz_ss _ _ ?_ ?_
+    | refine tflat_call_ss _ _ _ (wasmAbiParams_supportsTy $hv _) (wasmRetSig_supportsTy $hv _) ?_
+    | exact tflat_ret_ss _ _ (wasmRetSig_supportsTy $hv _)
+    | exact tflat_jump_ss _ _ _ (labelSig_supportsTy $hv _ _)
+    | exact labelSig_supportsTy_pair $hv _ _)
+
+macro "tflat_builder_ss!" hv:ident : tactic =>
+  `(tactic| repeat tflat_step_ss $hv)
+
+private theorem supportsTy_i8 {lt : LegalTarget} (hv : lt.valid = true) :
+    lt.supportsTy T.i8 = true := supportsTy_le64 hv (by omega)
+
+private theorem supportsTy_i32 {lt : LegalTarget} (hv : lt.valid = true) :
+    lt.supportsTy T.i32 = true := supportsTy_le64 hv (by omega)
+
+private theorem supportsTy_i64 {lt : LegalTarget} (hv : lt.valid = true) :
+    lt.supportsTy T.i64 = true := supportsTy_le64 hv (by omega)
+
+local macro "tflat_bulk_step_ss" hv:ident : tactic =>
+  `(tactic| first
+    | tflat_step_ss $hv
+    | (refine tflat_group1_ss _ _ _ _ ?_ ?_ ?_
+       · simp only [List.all_cons, List.all_nil, Bool.and_eq_true, Bool.and_true,
+           supportsTy_i8 $hv, supportsTy_i32 $hv, supportsTy_i64 $hv]
+       all_goals (try dsimp only))
+    | (refine tflat_jump_ss _ _ _ ?_
+       simp only [List.all_cons, List.all_nil, Bool.and_eq_true, Bool.and_true,
+         supportsTy_i8 $hv, supportsTy_i32 $hv, supportsTy_i64 $hv]))
+
+local macro "tflat_bulk_ss!" hv:ident : tactic =>
+  `(tactic| repeat (any_goals tflat_bulk_step_ss $hv))
+
 theorem emitLoadVmCtx_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     (vmCtx : Arg K T.i64) (k : Arg K T.i64 → Arg K T.i64 → Expr K KL rs)
     (hk : ∀ mb ml nv' nl', (toTFlat (k mb ml) nv' nl').supportsSource lt = true) :
     ∀ nv nl, (toTFlat (emitLoadVmCtx vmCtx k) nv nl).supportsSource lt = true := by
-  intro nv nl
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  refine tflat_load_ss lt T.i64 vmCtx h64 (by decide) ?_
-  refine tflat_let2_ss lt (.add T.i64) vmCtx (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_load_ss lt T.i64 _ h64 (by decide) ?_
-  apply hk
+  intro nv nl; tflat_bulk_ss! hv
 
 theorem emitMemBounds_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (vmCtx f : Arg K T.i64) (idx : Arg K T.i32) (arg : WMemArg) (bytes : Nat)
@@ -1249,46 +1317,20 @@ theorem emitMemBounds_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : Lis
     ∀ nv nl,
       (toTFlat (emitMemBounds retTys vmCtx f idx arg bytes k) nv nl).supportsSource lt = true := by
   intro nv nl
-  have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  refine emitLoadVmCtx_ss hv vmCtx _ (fun mb ml nv' nl' => ?_) nv nl
-  refine tflat_let1_ss lt (.zext 32 64) idx (by simp [LegalTarget.supportsOpCode, h32, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.cmp .ule T.i64) _ ml (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_jnz_ss lt _ ?_ (mkTrapExpr_ss hv retTys 1#32 f _ _)
-  refine tflat_let2_ss lt (.add T.i64) mb _ (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  apply hk
+  refine emitLoadVmCtx_ss hv vmCtx _ (fun _ _ _ _ => ?_) nv nl
+  tflat_bulk_ss! hv
 
 theorem emitMemSize_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     (vmCtx : Arg K T.i64) (k : Arg K T.i32 → Expr K KL rs)
     (hk : ∀ p nv' nl', (toTFlat (k p) nv' nl').supportsSource lt = true) :
     ∀ nv nl, (toTFlat (emitMemSize vmCtx k) nv nl).supportsSource lt = true := by
-  intro nv nl
-  have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  refine tflat_let2_ss lt (.add T.i64) vmCtx (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_load_ss lt T.i64 _ h64 (by decide) ?_
-  refine tflat_let2_ss lt (.lshr T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let1_ss lt (.trunc 64 32) _ (by simp [LegalTarget.supportsOpCode, h64, h32]) ?_
-  apply hk
+  intro nv nl; tflat_bulk_ss! hv
 
 theorem emitMemZeroPage_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     (pagePtr : Arg K T.i64) (kDone : Expr K KL rs)
     (hk : ∀ nv' nl', (toTFlat kDone nv' nl').supportsSource lt = true) :
     ∀ nv nl, (toTFlat (emitMemZeroPage pagePtr kDone) nv nl).supportsSource lt = true := by
-  intro nv nl
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  have hts0 : ([] : List Ty).all lt.supportsTy = true := rfl
-  have hts2 : ([T.i64, T.i64] : List Ty).all lt.supportsTy = true := by simp [h64]
-  refine tflat_group1_ss lt [] _ _ hts0 (hk _ _) ?_
-  refine tflat_group1_ss lt [T.i64, T.i64] _ _ hts2 ?_ (tflat_jump_ss lt _ _ hts2)
-  refine tflat_let2_ss lt (.cmp .eq T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_jnz_ss lt _ (tflat_jump_ss lt _ _ hts0) ?_
-  refine tflat_store_ss lt (.imm _) _ h64 (by decide) ?_
-  refine tflat_let2_ss lt (.sub T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  exact tflat_jump_ss lt _ _ hts2
+  intro nv nl; tflat_bulk_ss! hv
 
 theorem emitMemGrowLoop_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (jDone : KL [T.i64, T.i32]) (pLen newLen : Arg K T.i64) (oldPages32 : Arg K T.i32)
@@ -1296,21 +1338,18 @@ theorem emitMemGrowLoop_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : L
     ∀ nv nl, (toTFlat (emitMemGrowLoop retTys jDone pLen newLen oldPages32
       fuel delta64 startPtr) nv nl).supportsSource lt = true := by
   intro nv nl
-  have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  have hts2 : ([T.i64, T.i32] : List Ty).all lt.supportsTy = true := by simp [h64, h32]
-  have hts3 : ([T.i64, T.i64, T.i64] : List Ty).all lt.supportsTy = true := by simp [h64]
-  refine tflat_group1_ss lt [T.i64, T.i64, T.i64] _ _ hts3 ?_ (tflat_jump_ss lt _ _ hts3)
-  refine tflat_let2_ss lt (.cmp .eq T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_jnz_ss lt _ (tflat_store_ss lt newLen pLen h64 (by decide)
-    (tflat_jump_ss lt jDone _ hts2)) ?_
-  refine tflat_let2_ss lt (.cmp .eq T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_jnz_ss lt _ (mkTrapExpr_ss hv retTys 2#32 _ _ _) ?_
-  refine tflat_let2_ss lt (.sub T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
+  simp only [emitMemGrowLoop]
+  refine tflat_group1_ss _ [T.i64, T.i64, T.i64] _ _
+    (by simp only [List.all_cons, List.all_nil, Bool.and_eq_true, supportsTy_i64 hv, and_self])
+    ?_ (tflat_jump_ss _ _ _ (by simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
+      supportsTy_i64 hv, and_self]))
+  dsimp only
+  repeat (any_goals (first | tflat_step_ss hv | (refine tflat_jump_ss _ _ _ ?_; simp only [
+    List.all_cons, List.all_nil, Bool.and_eq_true, supportsTy_i32 hv, supportsTy_i64 hv,
+    and_self])))
   refine emitMemZeroPage_ss hv _ _ (fun _ _ => ?_) _ _
-  refine tflat_let2_ss lt (.sub T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  exact tflat_jump_ss lt _ _ hts3
+  repeat (first | tflat_step_ss hv | (refine tflat_jump_ss _ _ _ ?_; simp only [
+    List.all_cons, List.all_nil, Bool.and_eq_true, supportsTy_i64 hv, and_self]))
 
 theorem emitMemGrow_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (memMaxBytes : BitVec 64) (vmCtx f : Arg K T.i64) (delta32 : Arg K T.i32)
@@ -1320,55 +1359,22 @@ theorem emitMemGrow_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List 
       (toTFlat (emitMemGrow retTys memMaxBytes vmCtx f delta32 k) nv nl).supportsSource lt =
         true := by
   intro nv nl
-  have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  have hts2 : ([T.i64, T.i32] : List Ty).all lt.supportsTy = true := by simp [h64, h32]
-  refine tflat_group1_ss lt [T.i64, T.i32] _ _ hts2 (hk _ _ _ _) ?_
-  refine tflat_load_ss lt T.i64 vmCtx h64 (by decide) ?_
-  refine tflat_let2_ss lt (.add T.i64) vmCtx (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_load_ss lt T.i64 _ h64 (by decide) ?_
-  refine tflat_let2_ss lt (.add T.i64) vmCtx (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_load_ss lt T.i64 _ h64 (by decide) ?_
-  refine tflat_let2_ss lt (.lshr T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let1_ss lt (.trunc 64 32) _ (by simp [LegalTarget.supportsOpCode, h64, h32]) ?_
-  refine tflat_let2_ss lt (.cmp .eq T.i32) delta32 (.imm _)
-    (by simp [LegalTarget.supportsOpCode, h32]) ?_
-  refine tflat_jnz_ss lt _ (tflat_jump_ss lt _ _ hts2) ?_
-  refine tflat_let1_ss lt (.zext 32 64) delta32 (by simp [LegalTarget.supportsOpCode, h32, h64]) ?_
-  refine tflat_let2_ss lt (.shl T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ _ (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.cmp .ule T.i64) _ _ (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.cmp .ule T.i64) _ _ (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.cmp .ule T.i64) _ (.imm _)
-    (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.and .bool) _ _
-    (by simp [LegalTarget.supportsOpCode, LegalTarget.supportsTy]) ?_
-  refine tflat_let2_ss lt (.and .bool) _ _
-    (by simp [LegalTarget.supportsOpCode, LegalTarget.supportsTy]) ?_
-  refine tflat_jnz_ss lt _ ?_ (tflat_jump_ss lt _ _ hts2)
-  refine tflat_let2_ss lt (.add T.i64) _ _ (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  exact emitMemGrowLoop_ss hv retTys _ _ _ _ f _ _ _ _
+  have hts2 : ([T.i64, T.i32] : List Ty).all lt.supportsTy = true := by
+    simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
+      supportsTy_i64 hv, supportsTy_i32 hv, and_self]
+  simp only [emitMemGrow]
+  refine tflat_group1_ss _ [T.i64, T.i32] _ _ hts2 (hk _ _ _ _) ?_
+  dsimp only
+  repeat tflat_step_ss hv
+  · exact emitMemGrowLoop_ss hv retTys _ _ _ _ f _ _ _ _
+  · exact tflat_jump_ss _ _ _ hts2
 
 theorem emitMemFillLoop_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (jAfter : KL [T.i64]) (byteVal : Arg K T.i8) (f n64 dstPtr0 : Arg K T.i64) :
     ∀ nv nl,
       (toTFlat (emitMemFillLoop retTys jAfter byteVal f n64 dstPtr0) nv nl).supportsSource lt =
         true := by
-  intro nv nl
-  have h8 : lt.supportsTy (.bits 8) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  have hts1 : ([T.i64] : List Ty).all lt.supportsTy = true := by simp [h64]
-  have hts3 : ([T.i64, T.i64, T.i64] : List Ty).all lt.supportsTy = true := by simp [h64]
-  refine tflat_group1_ss lt [T.i64, T.i64, T.i64] _ _ hts3 ?_ (tflat_jump_ss lt _ _ hts3)
-  refine tflat_let2_ss lt (.cmp .eq T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_jnz_ss lt _ (tflat_jump_ss lt jAfter _ hts1) ?_
-  refine tflat_let2_ss lt (.cmp .eq T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_jnz_ss lt _ (mkTrapExpr_ss hv retTys 2#32 _ _ _) ?_
-  refine tflat_let2_ss lt (.sub T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_store_ss lt byteVal _ h8 (by decide) ?_
-  refine tflat_let2_ss lt (.sub T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  exact tflat_jump_ss lt _ _ hts3
+  intro nv nl; tflat_bulk_ss! hv
 
 theorem emitMemFill_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (vmCtx f : Arg K T.i64) (dst32 val32 n32 : Arg K T.i32)
@@ -1377,20 +1383,11 @@ theorem emitMemFill_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List 
     ∀ nv nl,
       (toTFlat (emitMemFill retTys vmCtx f dst32 val32 n32 k) nv nl).supportsSource lt = true := by
   intro nv nl
-  have h8 : lt.supportsTy (.bits 8) = true := supportsTy_le64 hv (by omega)
-  have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  have hts1 : ([T.i64] : List Ty).all lt.supportsTy = true := by simp [h64]
-  refine emitLoadVmCtx_ss hv vmCtx _ (fun mb ml nv' nl' => ?_) nv nl
-  refine tflat_let1_ss lt (.zext 32 64) dst32 (by simp [LegalTarget.supportsOpCode, h32, h64]) ?_
-  refine tflat_let1_ss lt (.zext 32 64) n32 (by simp [LegalTarget.supportsOpCode, h32, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ _ (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.cmp .ule T.i64) _ ml (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_jnz_ss lt _ ?_ (mkTrapExpr_ss hv retTys 1#32 f _ _)
-  refine tflat_let1_ss lt (.trunc 32 8) val32 (by simp [LegalTarget.supportsOpCode, h32, h8]) ?_
-  refine tflat_let2_ss lt (.add T.i64) mb _ (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_group1_ss lt [T.i64] _ _ hts1 (hk _ _ _) ?_
-  exact emitMemFillLoop_ss hv retTys _ _ f _ _ _ _
+  refine emitLoadVmCtx_ss hv vmCtx _ (fun _ _ _ _ => ?_) nv nl
+  repeat (any_goals (first
+    | tflat_step_ss hv
+    | exact emitMemFillLoop_ss hv _ _ _ _ _ _ _ _
+    | tflat_bulk_step_ss hv))
 
 theorem emitMemCopyLoop_ss {lt : LegalTarget} (hv : lt.valid = true) (fwd : Bool)
     (retTys : List WValTy) (jAfter : KL [T.i64]) (f n64 dp0 sp0 : Arg K T.i64) :
@@ -1398,28 +1395,29 @@ theorem emitMemCopyLoop_ss {lt : LegalTarget} (hv : lt.valid = true) (fwd : Bool
       (toTFlat (emitMemCopyLoop fwd retTys jAfter f n64 dp0 sp0) nv nl).supportsSource lt =
         true := by
   intro nv nl
-  have h8 : lt.supportsTy (.bits 8) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  have hts1 : ([T.i64] : List Ty).all lt.supportsTy = true := by simp [h64]
-  have hts4 : ([T.i64, T.i64, T.i64, T.i64] : List Ty).all lt.supportsTy = true := by simp [h64]
-  refine tflat_group1_ss lt [T.i64, T.i64, T.i64, T.i64] _ _ hts4 ?_ (tflat_jump_ss lt _ _ hts4)
-  refine tflat_let2_ss lt (.cmp .eq T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_jnz_ss lt _ (tflat_jump_ss lt jAfter _ hts1) ?_
-  refine tflat_let2_ss lt (.cmp .eq T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_jnz_ss lt _ (mkTrapExpr_ss hv retTys 2#32 _ _ _) ?_
-  refine tflat_let2_ss lt (.sub T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.sub T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
+  simp only [emitMemCopyLoop]
+  refine tflat_group1_ss _ [T.i64, T.i64, T.i64, T.i64] _ _
+    (by simp only [List.all_cons, List.all_nil, Bool.and_eq_true, supportsTy_i64 hv, and_self])
+    ?_ (tflat_jump_ss _ _ _ (by simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
+      supportsTy_i64 hv, and_self]))
+  dsimp only
+  repeat (any_goals (first
+    | tflat_step_ss hv
+    | (refine tflat_jump_ss _ _ _ ?_; simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
+        supportsTy_i64 hv, and_self])))
   cases fwd
-  · refine tflat_let2_ss lt (.sub T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-    refine tflat_let2_ss lt (.sub T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-    refine tflat_load_ss lt T.i8 _ h8 (by decide) ?_
-    refine tflat_store_ss lt _ _ h8 (by decide) ?_
-    exact tflat_jump_ss lt _ _ hts4
-  · refine tflat_load_ss lt T.i8 _ h8 (by decide) ?_
-    refine tflat_store_ss lt _ _ h8 (by decide) ?_
-    refine tflat_let2_ss lt (.add T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-    refine tflat_let2_ss lt (.add T.i64) _ (.imm _) (by simp [LegalTarget.supportsOpCode, h64]) ?_
-    exact tflat_jump_ss lt _ _ hts4
+  · simp only [Bool.false_eq_true, ↓reduceIte]
+    repeat (first
+      | tflat_step_ss hv
+      | (refine tflat_jump_ss _ _ _ ?_; simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
+          supportsTy_i64 hv, and_self]))
+  · simp only [↓reduceIte]
+    refine tflat_load_ss _ _ _ (supportsTy_i8 hv) (by decide) ?_
+    refine tflat_store_ss _ _ _ (supportsTy_i8 hv) (by decide) ?_
+    refine tflat_let2_ss _ (.add T.i64) _ _ (by tflat_op_ss hv) ?_
+    refine tflat_let2_ss _ (.add T.i64) _ _ (by tflat_op_ss hv) ?_
+    exact tflat_jump_ss _ _ _ (by simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
+      supportsTy_i64 hv, and_self])
 
 theorem emitMemCopy_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (vmCtx f : Arg K T.i64) (dst32 src32 n32 : Arg K T.i32)
@@ -1428,29 +1426,11 @@ theorem emitMemCopy_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List 
     ∀ nv nl,
       (toTFlat (emitMemCopy retTys vmCtx f dst32 src32 n32 k) nv nl).supportsSource lt = true := by
   intro nv nl
-  have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-  have hts1 : ([T.i64] : List Ty).all lt.supportsTy = true := by simp [h64]
-  refine emitLoadVmCtx_ss hv vmCtx _ (fun mb ml nv' nl' => ?_) nv nl
-  refine tflat_let1_ss lt (.zext 32 64) dst32 (by simp [LegalTarget.supportsOpCode, h32, h64]) ?_
-  refine tflat_let1_ss lt (.zext 32 64) src32 (by simp [LegalTarget.supportsOpCode, h32, h64]) ?_
-  refine tflat_let1_ss lt (.zext 32 64) n32 (by simp [LegalTarget.supportsOpCode, h32, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ _ (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.add T.i64) _ _ (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.cmp .ule T.i64) _ ml (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.cmp .ule T.i64) _ ml (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_let2_ss lt (.and .bool) _ _
-    (by simp [LegalTarget.supportsOpCode, LegalTarget.supportsTy]) ?_
-  refine tflat_jnz_ss lt _ ?_ (mkTrapExpr_ss hv retTys 1#32 f _ _)
-  refine tflat_group1_ss lt [T.i64] _ _ hts1 (hk _ _ _) ?_
-  refine tflat_let2_ss lt (.cmp .ule T.i64) _ _ (by simp [LegalTarget.supportsOpCode, h64]) ?_
-  refine tflat_jnz_ss lt _
-    (tflat_let2_ss lt (.add T.i64) mb _ (by simp [LegalTarget.supportsOpCode, h64])
-      (tflat_let2_ss lt (.add T.i64) mb _ (by simp [LegalTarget.supportsOpCode, h64])
-        (emitMemCopyLoop_ss hv true retTys _ f _ _ _ _ _)))
-    (tflat_let2_ss lt (.add T.i64) mb _ (by simp [LegalTarget.supportsOpCode, h64])
-      (tflat_let2_ss lt (.add T.i64) mb _ (by simp [LegalTarget.supportsOpCode, h64])
-        (emitMemCopyLoop_ss hv false retTys _ f _ _ _ _ _)))
+  refine emitLoadVmCtx_ss hv vmCtx _ (fun _ _ _ _ => ?_) nv nl
+  repeat (any_goals (first
+    | tflat_step_ss hv
+    | exact emitMemCopyLoop_ss hv _ _ _ _ _ _ _ _ _
+    | tflat_bulk_step_ss hv))
 
 end SupportsSourceHelpers
 

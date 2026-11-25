@@ -47,26 +47,42 @@ open LeanQbe.T.Frontend.C0
 
 /-! ## 2. Concrete Machine-Code Execution Theorems for Stage C Kernels -/
 
+private theorem stageC_exec_i64 (tf : Frontend.C0.TFlatFn) (nm : String)
+    (spec : BitVec 64 → BitVec 64) (x y : BitVec 64)
+    (htf : tf ∈ stageCTfs) (hnm : tf.name = nm) (has : tf.as = [i64]) (hrs : tf.rs = [i64])
+    (henv : stageCEnv nm [i64] [i64] = fun args m Q _ => Q (spec args.1, ()) m)
+    (hb : ((lookupBound0 stageCBounds (lookupSymId? stageCTbl nm).get!).getD 0) ≤ 2048)
+    (hspec : spec x = y) :
+    Eventually (x64ScalarMach.step stageCHost)
+      (fun st => st.pc = 0x1234 ∧ st.data.regs.get64 .rax = y)
+      (x64ScalarMach.mkState
+        (x64ScalarInit.initState (as := [i64])
+          ((lookupBound0 stageCBounds (lookupSymId? stageCTbl nm).get!).getD 0) [] (x, ()))
+        (x64ScalarMach.labelAddr stageCHost nm)) := by
+  have hspec0 := stageC_host_ok.2.2 tf htf
+  rw [hnm, has, hrs] at hspec0
+  have hsig : (nm, [i64], [i64]) ∈ stageCMod.sigs :=
+    List.mem_map.mpr ⟨tf.toFn, List.mem_map.mpr ⟨tf, htf, rfl⟩,
+      by simp [Frontend.C0.TFlatFn.toFn, Fn.sig, hnm, has, hrs]⟩
+  have hspec_eq : Env.ofModule stageCMod stageCEnv nm [i64] [i64] =
+      (fun (args : Tup Val [i64]) m Q _ => Q (spec args.1, ()) m) := by
+    rw [← henv]; funext args m Q X
+    exact propext ⟨fun h => h.2, fun h => ⟨hsig, h⟩⟩
+  rw [hspec_eq] at hspec0
+  exact TargetInit.run_ret1_i64_of_fnSpec x64ScalarInit stageCHost hspec0.2 [] (x, ())
+    y hb (by decide) (by decide)
+    (Q := fun r _ => r = (y, ())) (Prod.ext hspec rfl) (fun _ _ h => h)
+
 /-- Concrete machine execution theorem: `c0_sqr 7#64 = 49#64`. -/
 theorem stageC_sqr_exec7 :
     Eventually (x64ScalarMach.step stageCHost)
       (fun st => st.pc = 0x1234 ∧ st.data.regs.get64 .rax = 49#64)
       (x64ScalarMach.mkState
         (x64ScalarInit.initState (as := [i64])
-          ((lookupBound0 stageCBounds (lookupSymId? stageCTbl "c0_sqr").get!).getD 0)
-          [] (7#64, ()))
-        (x64ScalarMach.labelAddr stageCHost "c0_sqr")) := by
-  have hspec0 := stageC_host_ok.2.2 c0SqrTf (by simp [stageCTfs])
-  dsimp only [c0SqrTf] at hspec0
-  have hspec_eq : Env.ofModule stageCMod stageCEnv "c0_sqr" [i64] [i64] =
-      (fun (args : Tup Val [i64]) m Q _ => Q (args.1 * args.1, ()) m) := by
-    funext args m Q X
-    exact propext ⟨fun h => h.2, fun h => ⟨by simp [stageCMod, stageCTfs, Module.sigs,
-      Frontend.C0.TFlatFn.toFn, Fn.sig, c0SqrTf], h⟩⟩
-  rw [hspec_eq] at hspec0
-  exact TargetInit.run_ret1_i64_of_fnSpec x64ScalarInit stageCHost hspec0.2 [] (7#64, ())
-    49#64 (of_decide_eq_true (by t_kernel_rfl)) (by decide) (by decide)
-    (Q := fun r _ => r = (49#64, ())) rfl (fun _ _ h => h)
+          ((lookupBound0 stageCBounds (lookupSymId? stageCTbl "c0_sqr").get!).getD 0) [] (7#64, ()))
+        (x64ScalarMach.labelAddr stageCHost "c0_sqr")) :=
+  stageC_exec_i64 c0SqrTf "c0_sqr" (fun a => a * a) 7#64 49#64
+    (by simp [stageCTfs]) rfl rfl rfl rfl (of_decide_eq_true (by t_kernel_rfl)) rfl
 
 /-- Concrete machine execution theorem: multi-fn pipeline `c0_pipeline 100#64 = 160#64`. -/
 theorem stageC_pipe_exec100 :
@@ -76,18 +92,9 @@ theorem stageC_pipe_exec100 :
         (x64ScalarInit.initState (as := [i64])
           ((lookupBound0 stageCBounds (lookupSymId? stageCTbl "c0_pipeline").get!).getD 0)
           [] (100#64, ()))
-        (x64ScalarMach.labelAddr stageCHost "c0_pipeline")) := by
-  have hspec0 := stageC_host_ok.2.2 c0PipeTf (by simp [stageCTfs])
-  dsimp only [c0PipeTf] at hspec0
-  have hspec_eq : Env.ofModule stageCMod stageCEnv "c0_pipeline" [i64] [i64] =
-      (fun (args : Tup Val [i64]) m Q _ => Q (args.1 + 10#64 + 20#64 + 30#64, ()) m) := by
-    funext args m Q X
-    exact propext ⟨fun h => h.2, fun h => ⟨by simp [stageCMod, stageCTfs, Module.sigs,
-      Frontend.C0.TFlatFn.toFn, Fn.sig, c0PipeTf], h⟩⟩
-  rw [hspec_eq] at hspec0
-  exact TargetInit.run_ret1_i64_of_fnSpec x64ScalarInit stageCHost hspec0.2 [] (100#64, ())
-    160#64 (of_decide_eq_true (by t_kernel_rfl)) (by decide) (by decide)
-    (Q := fun r _ => r = (160#64, ())) rfl (fun _ _ h => h)
+        (x64ScalarMach.labelAddr stageCHost "c0_pipeline")) :=
+  stageC_exec_i64 c0PipeTf "c0_pipeline" (fun a => a + 10#64 + 20#64 + 30#64) 100#64 160#64
+    (by simp [stageCTfs]) rfl rfl rfl rfl (of_decide_eq_true (by t_kernel_rfl)) rfl
 
 /-- Concrete machine execution theorem: SAT/LRAT literal variable `sat_lit_var 42#64 = 21#64`. -/
 theorem stageC_sat_var_exec42 :
@@ -97,18 +104,9 @@ theorem stageC_sat_var_exec42 :
         (x64ScalarInit.initState (as := [i64])
           ((lookupBound0 stageCBounds (lookupSymId? stageCTbl "sat_lit_var").get!).getD 0)
           [] (42#64, ()))
-        (x64ScalarMach.labelAddr stageCHost "sat_lit_var")) := by
-  have hspec0 := stageC_host_ok.2.2 satLitVarTf (by simp [stageCTfs])
-  dsimp only [satLitVarTf] at hspec0
-  have hspec_eq : Env.ofModule stageCMod stageCEnv "sat_lit_var" [i64] [i64] =
-      (fun (args : Tup Val [i64]) m Q _ => Q (args.1 >>> 1#64, ()) m) := by
-    funext args m Q X
-    exact propext ⟨fun h => h.2, fun h => ⟨by simp [stageCMod, stageCTfs, Module.sigs,
-      Frontend.C0.TFlatFn.toFn, Fn.sig, satLitVarTf], h⟩⟩
-  rw [hspec_eq] at hspec0
-  exact TargetInit.run_ret1_i64_of_fnSpec x64ScalarInit stageCHost hspec0.2 [] (42#64, ())
-    21#64 (of_decide_eq_true (by t_kernel_rfl)) (by decide) (by decide)
-    (Q := fun r _ => r = (21#64, ())) rfl (fun _ _ h => h)
+        (x64ScalarMach.labelAddr stageCHost "sat_lit_var")) :=
+  stageC_exec_i64 satLitVarTf "sat_lit_var" (fun a => a >>> 1#64) 42#64 21#64
+    (by simp [stageCTfs]) rfl rfl rfl rfl (of_decide_eq_true (by t_kernel_rfl)) rfl
 
 /-- Concrete machine execution theorem: SAT/LRAT literal sign `sat_lit_sign 43#64 = 1#64`. -/
 theorem stageC_sat_sign_exec43 :
@@ -118,18 +116,9 @@ theorem stageC_sat_sign_exec43 :
         (x64ScalarInit.initState (as := [i64])
           ((lookupBound0 stageCBounds (lookupSymId? stageCTbl "sat_lit_sign").get!).getD 0)
           [] (43#64, ()))
-        (x64ScalarMach.labelAddr stageCHost "sat_lit_sign")) := by
-  have hspec0 := stageC_host_ok.2.2 satLitSignTf (by simp [stageCTfs])
-  dsimp only [satLitSignTf] at hspec0
-  have hspec_eq : Env.ofModule stageCMod stageCEnv "sat_lit_sign" [i64] [i64] =
-      (fun (args : Tup Val [i64]) m Q _ => Q (args.1 &&& 1#64, ()) m) := by
-    funext args m Q X
-    exact propext ⟨fun h => h.2, fun h => ⟨by simp [stageCMod, stageCTfs, Module.sigs,
-      Frontend.C0.TFlatFn.toFn, Fn.sig, satLitSignTf], h⟩⟩
-  rw [hspec_eq] at hspec0
-  exact TargetInit.run_ret1_i64_of_fnSpec x64ScalarInit stageCHost hspec0.2 [] (43#64, ())
-    1#64 (of_decide_eq_true (by t_kernel_rfl)) (by decide) (by decide)
-    (Q := fun r _ => r = (1#64, ())) rfl (fun _ _ h => h)
+        (x64ScalarMach.labelAddr stageCHost "sat_lit_sign")) :=
+  stageC_exec_i64 satLitSignTf "sat_lit_sign" (fun a => a &&& 1#64) 43#64 1#64
+    (by simp [stageCTfs]) rfl rfl rfl rfl (of_decide_eq_true (by t_kernel_rfl)) rfl
 
 /-- Concrete machine execution theorem: SAT/LRAT literal negation `sat_lit_neg 42#64 = 43#64`. -/
 theorem stageC_sat_neg_exec42 :
@@ -139,18 +128,9 @@ theorem stageC_sat_neg_exec42 :
         (x64ScalarInit.initState (as := [i64])
           ((lookupBound0 stageCBounds (lookupSymId? stageCTbl "sat_lit_neg").get!).getD 0)
           [] (42#64, ()))
-        (x64ScalarMach.labelAddr stageCHost "sat_lit_neg")) := by
-  have hspec0 := stageC_host_ok.2.2 satLitNegTf (by simp [stageCTfs])
-  dsimp only [satLitNegTf] at hspec0
-  have hspec_eq : Env.ofModule stageCMod stageCEnv "sat_lit_neg" [i64] [i64] =
-      (fun (args : Tup Val [i64]) m Q _ => Q (args.1 ^^^ 1#64, ()) m) := by
-    funext args m Q X
-    exact propext ⟨fun h => h.2, fun h => ⟨by simp [stageCMod, stageCTfs, Module.sigs,
-      Frontend.C0.TFlatFn.toFn, Fn.sig, satLitNegTf], h⟩⟩
-  rw [hspec_eq] at hspec0
-  exact TargetInit.run_ret1_i64_of_fnSpec x64ScalarInit stageCHost hspec0.2 [] (42#64, ())
-    43#64 (of_decide_eq_true (by t_kernel_rfl)) (by decide) (by decide)
-    (Q := fun r _ => r = (43#64, ())) rfl (fun _ _ h => h)
+        (x64ScalarMach.labelAddr stageCHost "sat_lit_neg")) :=
+  stageC_exec_i64 satLitNegTf "sat_lit_neg" (fun a => a ^^^ 1#64) 42#64 43#64
+    (by simp [stageCTfs]) rfl rfl rfl rfl (of_decide_eq_true (by t_kernel_rfl)) rfl
 
 /-! ## 3. Assembly Printer Agreement & Static Guards -/
 

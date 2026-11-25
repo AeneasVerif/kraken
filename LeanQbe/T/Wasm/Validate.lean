@@ -69,6 +69,23 @@ def popList (ts : List WValTy) (s : VStack) : Option VStack :=
 def pushList (ts : List WValTy) (s : VStack) : VStack :=
   { s with vals := ts.reverse ++ s.vals }
 
+/-- Pop `a` and push `res`. -/
+@[reducible] def popPush1 (a res : WValTy) (s : VStack) : Option VStack := do
+  let s1 ← popExpect a s
+  some (pushList [res] s1)
+
+/-- Pop `top` then `next` and push `res`. -/
+@[reducible] def pop2Push1 (top next res : WValTy) (s : VStack) : Option VStack := do
+  let s1 ← popExpect top s
+  let s2 ← popExpect next s1
+  some (pushList [res] s2)
+
+/-- Pop three `i32` operands from `s` (`memory.copy`/`memory.fill`). -/
+@[reducible] def pop3_i32 (s : VStack) : Option VStack := do
+  let s1 ← popExpect .i32 s
+  let s2 ← popExpect .i32 s1
+  popExpect .i32 s2
+
 /-- Check that `s` ends a block expecting exactly `expected`. -/
 def validateEnd (expected : List WValTy) (s : VStack) : Bool :=
   match popList expected s with
@@ -167,58 +184,27 @@ def validateInstr (ctx : WValCtx) (s : VStack) : WInstr → Option VStack
   | .global_get idx => do
     let g ← ctx.globals[idx]?
     some (pushList [g.ty] s)
-  | .load resTy width signed _ => do
-    if ctx.hasMem && validateLoad resTy width signed then
-      let s1 ← popExpect .i32 s
-      some (pushList [resTy] s1)
-    else
-      none
+  | .load resTy width signed _ =>
+    if ctx.hasMem && validateLoad resTy width signed then popPush1 .i32 resTy s else none
   | .store srcTy width _ => do
     if ctx.hasMem && validateStore srcTy width then
       let s1 ← popExpect srcTy s
       popExpect .i32 s1
-    else
-      none
+    else none
   | .memory_size =>
     if ctx.hasMem then some (pushList [.i32] s) else none
-  | .memory_grow => do
-    if ctx.hasMem then
-      let s1 ← popExpect .i32 s
-      some (pushList [.i32] s1)
-    else
-      none
-  | .memory_copy | .memory_fill => do
-    if ctx.hasMem then
-      let s1 ← popExpect .i32 s
-      let s2 ← popExpect .i32 s1
-      popExpect .i32 s2
-    else
-      none
+  | .memory_grow =>
+    if ctx.hasMem then popPush1 .i32 .i32 s else none
+  | .memory_copy | .memory_fill =>
+    if ctx.hasMem then pop3_i32 s else none
   | .i32_const _ => some (pushList [.i32] s)
   | .i64_const _ => some (pushList [.i64] s)
-  | .eqz w => do
-    let s1 ← popExpect w s
-    some (pushList [.i32] s1)
-  | .unop w op => do
-    if validateUnOp w op then
-      let s1 ← popExpect w s
-      some (pushList [w] s1)
-    else
-      none
-  | .binop w _ => do
-    let s1 ← popExpect w s
-    let s2 ← popExpect w s1
-    some (pushList [w] s2)
-  | .relop w _ => do
-    let s1 ← popExpect w s
-    let s2 ← popExpect w s1
-    some (pushList [.i32] s2)
-  | .wrap_i64 => do
-    let s1 ← popExpect .i64 s
-    some (pushList [.i32] s1)
-  | .extend_i32_s | .extend_i32_u => do
-    let s1 ← popExpect .i32 s
-    some (pushList [.i64] s1)
+  | .eqz w => popPush1 w .i32 s
+  | .unop w op => if validateUnOp w op then popPush1 w w s else none
+  | .binop w _ => pop2Push1 w w w s
+  | .relop w _ => pop2Push1 w w .i32 s
+  | .wrap_i64 => popPush1 .i64 .i32 s
+  | .extend_i32_s | .extend_i32_u => popPush1 .i32 .i64 s
 
 /-- Validate a sequence of instructions left-to-right. -/
 def validateSeq (ctx : WValCtx) (s : VStack) : List WInstr → Option VStack

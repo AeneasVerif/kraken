@@ -6,6 +6,7 @@ public import LeanQbe.T.Amd64.PrintAsm0
 public import LeanQbe.T.Amd64.PrintAsm0Lemmas
 public import Kraken.X64.PrintATT
 import LeanQbe.T.Logic.ByteArrayDecimal
+import LeanQbe.T.Bootstrap0.Codec0Kit
 
 /-!
 # Bit-for-Bit Equivalence Proofs for `PrintDir0` (`PrintDir0Lemmas`)
@@ -91,22 +92,6 @@ private theorem emitStr_eq (ba : ByteArray) (s : String) :
     (fun _ _ _ h => by rw [PrintAsm0.emitStrLoop.eq_def]; simp only [h, ↓reduceDIte])
     ba s
 
-private theorem u32_ofNat_succ_sub_one {k : Nat} (hk : k < 20) :
-    UInt32.ofNat (k + 1) ≠ 0 ∧ UInt32.ofNat (k + 1) - 1 = UInt32.ofNat k := by
-  refine ⟨?_, ?_⟩
-  · intro h
-    have hn := congrArg UInt32.toNat h
-    rw [UInt32.toNat_ofNat', Nat.mod_eq_of_lt (by omega)] at hn
-    exact Nat.succ_ne_zero k hn
-  · apply UInt32.eq_of_toBitVec_eq; apply BitVec.eq_of_toNat_eq
-    change (UInt32.ofNat (k + 1) - 1).toNat = (UInt32.ofNat k).toNat
-    have h1 : (1 : UInt32) ≤ UInt32.ofNat (k + 1) := by
-      rw [UInt32.le_iff_toNat_le, UInt32.toNat_ofNat', Nat.mod_eq_of_lt (by omega)]
-      change 1 ≤ k + 1; omega
-    rw [UInt32.toNat_sub_of_le _ _ h1, UInt32.toNat_ofNat', UInt32.toNat_ofNat',
-      Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
-    change k + 1 - 1 = k; omega
-
 private theorem emitU64Dec_dir0_eq (ba : ByteArray) (n : UInt64) :
     PrintDir0.emitU64Dec ba n = ba ++ (Nat.repr n.toNat).toUTF8 := by
   dsimp only [PrintDir0.emitU64Dec]
@@ -114,14 +99,14 @@ private theorem emitU64Dec_dir0_eq (ba : ByteArray) (n : UInt64) :
   exact emitU64Dec_eq_of_steps
     (fun k => PrintDir0.pow10Up (UInt32.ofNat k))
     (fun k => PrintDir0.emitPowDown (UInt32.ofNat k))
-    (fun f q p hf => by
-      obtain ⟨hne, hsub⟩ := u32_ofNat_succ_sub_one hf
+    (fun f _ _ hf => by
+      obtain ⟨hne, hsub⟩ := Codec0Kit.u32_ofNat_succ_sub_one (k := f) (by omega)
       rw [PrintDir0.pow10Up.eq_def]; simp only [hne, ↓reduceDIte, hsub])
-    (fun ba' n' p' => by
+    (fun _ _ _ => by
       have hz : UInt32.ofNat 0 = 0 := rfl
       rw [PrintDir0.emitPowDown.eq_def]; simp only [hz, ↓reduceDIte])
-    (fun f ba' n' p' hf => by
-      obtain ⟨hne, hsub⟩ := u32_ofNat_succ_sub_one hf
+    (fun f _ _ _ hf => by
+      obtain ⟨hne, hsub⟩ := Codec0Kit.u32_ofNat_succ_sub_one (k := f) (by omega)
       rw [PrintDir0.emitPowDown.eq_def]; simp only [hne, ↓reduceDIte, hsub])
     ba n
 
@@ -235,47 +220,30 @@ private theorem emitSym_eq (symBytes : ByteArray) (symOffs : Array Nat) (symName
     (hm : SymSliceMatch symBytes symOffs symName sym) :
     PrintDir0.emitSym symBytes symOffs sym out = out ++ (symName sym).toUTF8 := by
   rcases hm with ⟨hIdx, hBound, hExt⟩
-  have hSymLt : sym.toNat < 2 ^ 32 := sym.toNat_lt
-  have hIdxVal : (sym.toUInt64 * 2).toNat = 2 * sym.toNat := by
-    rw [UInt64.toNat_mul, UInt32.toNat_toUInt64, show (2 : UInt64).toNat = 2 from rfl,
-      Nat.mod_eq_of_lt (by omega)]
-    omega
-  have hIdx1Val : (sym.toUInt64 * 2 + 1).toNat = 2 * sym.toNat + 1 := by
-    rw [UInt64.toNat_add, hIdxVal, show (1 : UInt64).toNat = 1 from rfl,
-      Nat.mod_eq_of_lt (by omega)]
-  have hArrSz : (PrintDir0.arrSizeU64 symOffs).toNat = symOffs.size := by
-    dsimp only [PrintDir0.arrSizeU64]
-    rw [UInt64.toNat_ofNat', Nat.mod_eq_of_lt hOffs]
-  have hBaSz : (PrintDir0.baSizeU64 symBytes).toNat = symBytes.size := by
-    dsimp only [PrintDir0.baSizeU64]
-    rw [UInt64.toNat_ofNat', Nat.mod_eq_of_lt hBa]
+  have hIdxVal : (sym.toUInt64 * 2).toNat = 2 * sym.toNat := by c0_bv32_omega
+  have hIdx1Val : (sym.toUInt64 * 2 + 1).toNat = 2 * sym.toNat + 1 := by c0_bv32_omega
   have hOffNat : symOffs[2 * sym.toNat]! < 2 ^ 64 := by omega
   have hLenNat : symOffs[2 * sym.toNat + 1]! < 2 ^ 64 := by omega
   have hOffVal : (PrintDir0.arrGetU64 symOffs (sym.toUInt64 * 2)).toNat =
       symOffs[2 * sym.toNat]! := by
-    dsimp only [PrintDir0.arrGetU64]
-    rw [hIdxVal, UInt64.toNat_ofNat', Nat.mod_eq_of_lt hOffNat]
+    dsimp only [PrintDir0.arrGetU64]; rw [hIdxVal]; c0_bv32_omega
   have hLenVal : (PrintDir0.arrGetU64 symOffs (sym.toUInt64 * 2 + 1)).toNat =
       symOffs[2 * sym.toNat + 1]! := by
-    dsimp only [PrintDir0.arrGetU64]
-    rw [hIdx1Val, UInt64.toNat_ofNat', Nat.mod_eq_of_lt hLenNat]
+    dsimp only [PrintDir0.arrGetU64]; rw [hIdx1Val]; c0_bv32_omega
   have hC1 : sym.toUInt64 * 2 < PrintDir0.arrSizeU64 symOffs := by
-    change (sym.toUInt64 * 2).toNat < (PrintDir0.arrSizeU64 symOffs).toNat
-    rw [hIdxVal, hArrSz]; omega
+    dsimp only [PrintDir0.arrSizeU64]; c0_bv32_omega
   have hC2 : 1 < PrintDir0.arrSizeU64 symOffs - sym.toUInt64 * 2 := by
-    change (1 : UInt64).toNat < (PrintDir0.arrSizeU64 symOffs - sym.toUInt64 * 2).toNat
-    have hle : sym.toUInt64 * 2 ≤ PrintDir0.arrSizeU64 symOffs :=
-      UInt64.le_iff_toNat_le.mpr (by rw [hIdxVal, hArrSz]; omega)
-    rw [UInt64.toNat_sub_of_le _ _ hle, hIdxVal, hArrSz, show (1 : UInt64).toNat = 1 from rfl]
-    omega
+    dsimp only [PrintDir0.arrSizeU64]
+    rw [UInt64.lt_iff_toNat_lt, Codec0Kit.u64_toNat_sub_of_le_toNat _ _ (by c0_bv32_omega)]
+    c0_bv32_omega
   have hC3 : PrintDir0.arrGetU64 symOffs (sym.toUInt64 * 2) ≤ PrintDir0.baSizeU64 symBytes := by
-    apply UInt64.le_iff_toNat_le.mpr
-    rw [hOffVal, hBaSz]; omega
+    dsimp only [PrintDir0.baSizeU64]; rw [UInt64.le_iff_toNat_le, hOffVal]; c0_bv32_omega
   have hC4 : PrintDir0.arrGetU64 symOffs (sym.toUInt64 * 2 + 1) ≤
       PrintDir0.baSizeU64 symBytes - PrintDir0.arrGetU64 symOffs (sym.toUInt64 * 2) := by
-    apply UInt64.le_iff_toNat_le.mpr
-    rw [UInt64.toNat_sub_of_le _ _ hC3, hOffVal, hLenVal, hBaSz]
-    omega
+    dsimp only [PrintDir0.baSizeU64]
+    rw [UInt64.le_iff_toNat_le, Codec0Kit.u64_toNat_sub_of_le_toNat _ _
+      (by rw [hOffVal]; c0_bv32_omega), hOffVal, hLenVal]
+    c0_bv32_omega
   have hSumVal : (PrintDir0.arrGetU64 symOffs (sym.toUInt64 * 2) +
       PrintDir0.arrGetU64 symOffs (sym.toUInt64 * 2 + 1)).toNat =
       symOffs[2 * sym.toNat]! + symOffs[2 * sym.toNat + 1]! := by
@@ -432,41 +400,30 @@ private theorem eDivCore_eq (symName : Sym0 → Sym) (w : Width) (isSigned : Boo
       ↓reduceIte, Bool.false_eq_true, h0, h31, h63]
     try rfl
 
-local macro "emit_dir_equiv!" : tactic =>
-  `(tactic| (
-    dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
-      PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
-      PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
-      PrintDir0.printDir0CmpTest, PrintDir0.printDir0Cond, PrintDir0.printDir0DivMulRet,
-      PrintDir0.eMovzx32, PrintDir0.eMovsx, PrintDir0.eLdMem, PrintDir0.eRegMemAt,
-      PrintDir0.eSlotMem, PrintDir0.eSlotIdxMem, PrintDir0.eMovReg, PrintDir0.eImmReg,
-      PrintDir0.eWidth, PrintDir0.eCommaSp, PrintDir0.e2, PrintDir0.e3, PrintDir0.e4,
-      PrintDir0.emitAluMn, PrintDir0.emitShiftMn,
-      dir0ToAmd64, alu0ToOp, shift0ToOp, moviD, moviI,
-      ins, ins8, ins32, insW, x64InsI, x64SubSpD, x64AddSpD,
-      x64JmpD, x64JmpI, x64CallD, x64CallI,
-      PrintAsm0.emitDirsNoTrailLoop, emitDir0,
-      PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
-      PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
-      PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
-      PrintAsm0.emitOpCtrl, PrintAsm0.emitMovExt,
-      PrintAsm0.eOp1W, PrintAsm0.eOp2W, PrintAsm0.eShW, PrintAsm0.eRmReg,
-      PrintAsm0.eWidth, PrintAsm0.eCommaSp, PrintAsm0.e2, PrintAsm0.e3, PrintAsm0.e4,
-      PrintAsm0.emitTarget, PrintAsm0.emitCount, PrintAsm0.emitOpd, PrintAsm0.emitConst,
-      PrintAsm0.emitRm, PrintAsm0.emitAddr, PrintAsm0.emitAddrDisp,
-      PrintAsm0.emitScaleByte, PrintAsm0.emitReg]
-    repeat
-      first
-      | rw [ite_eq_left.mpr (fun _ => rfl)]
-      | rw [ite_eq_right.mpr Bool.false_ne_true]
-      | rw [eRegRegW_eq]
-      | rw [emitReg64_eq_asm0]
-      | rw [eWidth_eq_asm0]
-      | rw [emitCc_eq_asm0]
-      | rw [emitU64Dec_eq_asm0]
-      | rw [emitI64Dec_eq_asm0]
-      | rw [int64_ofNat_toUInt64]
-    try rfl))
+register_emit_dir_equiv!
+  [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
+   PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
+   PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
+   PrintDir0.printDir0CmpTest, PrintDir0.printDir0Cond, PrintDir0.printDir0DivMulRet,
+   PrintDir0.eMovzx32, PrintDir0.eMovsx, PrintDir0.eLdMem, PrintDir0.eRegMemAt,
+   PrintDir0.eSlotMem, PrintDir0.eSlotIdxMem, PrintDir0.eMovReg, PrintDir0.eImmReg,
+   PrintDir0.eWidth, PrintDir0.eCommaSp, PrintDir0.e2, PrintDir0.e3, PrintDir0.e4,
+   PrintDir0.emitAluMn, PrintDir0.emitShiftMn,
+   dir0ToAmd64, alu0ToOp, shift0ToOp, moviD, moviI,
+   ins, ins8, ins32, insW, x64InsI, x64SubSpD, x64AddSpD,
+   x64JmpD, x64JmpI, x64CallD, x64CallI,
+   PrintAsm0.emitDirsNoTrailLoop, emitDir0,
+   PrintAsm0.emitOpData, PrintAsm0.emitOpAlu1, PrintAsm0.emitOpAlu2,
+   PrintAsm0.emitOpMulDiv, PrintAsm0.emitOpCarry, PrintAsm0.emitOpShift1,
+   PrintAsm0.emitOpShift2, PrintAsm0.emitOpBitcnt, PrintAsm0.emitOpBmi2,
+   PrintAsm0.emitOpCtrl, PrintAsm0.emitMovExt,
+   PrintAsm0.eOp1W, PrintAsm0.eOp2W, PrintAsm0.eShW, PrintAsm0.eRmReg,
+   PrintAsm0.eWidth, PrintAsm0.eCommaSp, PrintAsm0.e2, PrintAsm0.e3, PrintAsm0.e4,
+   PrintAsm0.emitTarget, PrintAsm0.emitCount, PrintAsm0.emitOpd, PrintAsm0.emitConst,
+   PrintAsm0.emitRm, PrintAsm0.emitAddr, PrintAsm0.emitAddrDisp,
+   PrintAsm0.emitScaleByte, PrintAsm0.emitReg]
+  [eRegRegW_eq, emitReg64_eq_asm0, eWidth_eq_asm0, emitCc_eq_asm0,
+   emitU64Dec_eq_asm0, emitI64Dec_eq_asm0, int64_ofNat_toUInt64]
 
 private theorem printDir0Bytes_eq_emitDirsNoTrailLoop (symBytes : ByteArray)
     (symOffs : Array Nat) (symName : Sym0 → Sym) (d : Dir0) (out : ByteArray)
@@ -479,17 +436,8 @@ private theorem printDir0Bytes_eq_emitDirsNoTrailLoop (symBytes : ByteArray)
     cases l <;>
     · dsimp only [printDir0Bytes, dir0ToAmd64, PrintAsm0.emitDirsNoTrailLoop, emitDir0]
       rw [emitLabel0_eq_emitStr symBytes symOffs symName _ out hBa hOffs hSym]
-  | jmp l =>
-    cases l <;>
-    · emit_dir_equiv!
-      rw [emitLabel0_eq_emitStr symBytes symOffs symName _ _ hBa hOffs hSym]
-  | jcc cc l =>
-    cases l <;>
-    · emit_dir_equiv!
-      rw [emitLabel0_eq_emitStr symBytes symOffs symName _ _ hBa hOffs hSym]
   | callSym sym =>
-    dsimp only at hSym
-    emit_dir_equiv!
+    dsimp only at hSym; emit_dir_equiv!
     rw [emitSym_eq symBytes symOffs symName sym _ hBa hOffs hSym, emitStr_eq]
   | movRI rd imm =>
     dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, dir0ToAmd64,
@@ -497,21 +445,21 @@ private theorem printDir0Bytes_eq_emitDirsNoTrailLoop (symBytes : ByteArray)
     rw [fitsUImm32_eq imm]
     cases (imm >>> 32) == 0 <;>
       dsimp only [x64InsI, PrintAsm0.emitOpData] <;> exact eImmReg_eq _ _ rd imm
-  | movzx32 wSrc _ _ => cases wSrc <;> emit_dir_equiv!
-  | movsx wDst _ wSrc _ => cases wDst <;> cases wSrc <;> emit_dir_equiv!
-  | ldMem w _ _ | stMem w _ _ | cmovcc w _ _ _ => cases w <;> emit_dir_equiv!
-  | movRR _ _ _ | ldSlot _ _ | stSlot _ _ | ldSlotIdx _ _ | stSlotIdx _ _
-  | shMaskCl _ | cmpRR _ _ _ | testbRR _ _ | setcc _ _ | mulq _ | ret => emit_dir_equiv!
-  | spAdd isSub _ | spAddReg isSub _ => cases isSub <;> emit_dir_equiv!
-  | aluRR _ k _ _ => cases k <;> emit_dir_equiv!
-  | unary w isNeg _ => cases isNeg <;> cases w <;> emit_dir_equiv!
-  | shiftCl w k _ => cases k <;> cases w <;> emit_dir_equiv!
   | divCore w isSigned rhs =>
     dsimp only [printDir0Bytes, PrintDir0.printDir0Mem, PrintDir0.printDir0Ext,
       PrintDir0.printDir0LdSt, PrintDir0.printDir0Slot, PrintDir0.printDir0SlotIdx,
       PrintDir0.printDir0Sp, PrintDir0.printDir0Alu, PrintDir0.printDir0Shift,
       PrintDir0.printDir0CmpTest, PrintDir0.printDir0Cond, PrintDir0.printDir0DivMulRet]
     exact eDivCore_eq symName w isSigned rhs out
+  | _ =>
+    all_goals try cases ‹Label0›
+    all_goals try cases ‹Width›
+    all_goals try cases ‹Width›
+    all_goals try cases ‹Bool›
+    all_goals try cases ‹AluKind0›
+    all_goals try cases ‹ShiftKind0›
+    all_goals emit_dir_equiv!
+    all_goals try rw [emitLabel0_eq_emitStr symBytes symOffs symName _ _ hBa hOffs hSym]
 
 /-! ## 7. Bridging `PrintAsm0.emitDirsNoTrailLoop` to `PrintAsm0Lemmas` -/
 

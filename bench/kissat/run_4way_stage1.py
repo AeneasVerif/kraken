@@ -73,6 +73,14 @@ def load_solvers_registry():
         return json.load(f)
 
 
+def default_module():
+    if (ROOT / "LeanQbe/T/Amd64/KissatFidelity.lean").is_file() and (
+        ROOT / "LeanQbe/T/Examples/Kissat/FullFidelityAssembly.lean"
+    ).is_file():
+        return "KissatFidelity"
+    return "FullM7Fidelity"
+
+
 def resolve_module_spec(raw_name):
     key = raw_name.strip().lower()
     registry = load_solvers_registry()
@@ -84,7 +92,7 @@ def resolve_module_spec(raw_name):
     if not matched:
         raise SystemExit(
             f"ERROR: unknown --module '{raw_name}' "
-            "(expected FullM5|FullM6|FullM7|FullM7Plus|FullM7Fidelity)"
+            "(expected KissatFidelity|KissatM8Opt|Plain|FullM7Fidelity|FullM7Plus|FullM7|FullM6|FullM5)"
         )
     mod = matched["module"]
     kdir = ROOT / "LeanQbe/T/Examples/Kissat"
@@ -97,7 +105,47 @@ def resolve_module_spec(raw_name):
     policy_desc = matched["policy_desc"]
     cert_x64 = (ROOT / matched["cert_x64_file"]).is_file() if "cert_x64_file" in matched else False
 
-    if mod == "FullM7":
+    if mod == "KissatFidelity":
+        if (kdir / "FullFidelityInl.lean").is_file():
+            extra_imports = ["LeanQbe.T.Examples.Kissat.FullFidelityInl"]
+            fns_expr = "LeanQbe.T.Examples.Kissat.FullFidelityInl.fidInlFns"
+            policy_desc = (
+                "fidInlPolicy / FullFidelityInl (certified kissatFidelity_compiled_x64)"
+                if cert_x64
+                else "fidInlPolicy / FullFidelityInl (WP-verified IR; x64 LinkedCert pending)"
+            )
+        elif (kdir / "FullFidelityInlPolicy.lean").is_file():
+            extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy"]
+            fns_expr = (
+                "((LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule).optInlinePolicy "
+                "LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns"
+            )
+            policy_desc = "fidInlPolicy"
+        else:
+            extra_imports = []
+            fns_expr = f"({matched['mod_expr']}).fns"
+            policy_desc = "uninlined fidModule.fns (FullFidelityInl / Policy not present)"
+    elif mod == "KissatM8Opt":
+        if (kdir / "FullM8OptInl.lean").is_file():
+            extra_imports = ["LeanQbe.T.Examples.Kissat.FullM8OptInl"]
+            fns_expr = "LeanQbe.T.Examples.Kissat.FullM8OptInl.m8OptInlFns"
+            policy_desc = (
+                "m8InlPolicy / FullM8OptInl (certified kissatM8Opt_compiled_x64)"
+                if cert_x64
+                else "m8InlPolicy / FullM8OptInl (WP-verified IR; x64 LinkedCert pending)"
+            )
+        elif (kdir / "FullM8InlPolicy.lean").is_file():
+            extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM8InlPolicy"]
+            fns_expr = (
+                "((LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule).optInlinePolicy "
+                "LeanQbe.T.Examples.Kissat.FullM8InlPolicy.m8InlPolicy).fns"
+            )
+            policy_desc = "m8InlPolicy"
+        else:
+            extra_imports = []
+            fns_expr = f"({matched['mod_expr']}).fns"
+            policy_desc = "uninlined m8OptModule.fns (FullM8OptInl / Policy not present)"
+    elif mod == "FullM7":
         if (kdir / "FullM7Inl.lean").is_file():
             extra_imports = ["LeanQbe.T.Examples.Kissat.FullM7Inl"]
             fns_expr = "LeanQbe.T.Examples.Kissat.FullM7Inl.m7InlFns"
@@ -152,6 +200,8 @@ def resolve_module_spec(raw_name):
         "fns_expr": fns_expr,
         "policy_desc": policy_desc,
         "certified_x64": cert_x64,
+        "is_fidelity": bool(matched.get("is_fidelity", False)),
+        "is_solver_extension": bool(matched.get("is_solver_extension", False)),
     }
 
 
@@ -357,10 +407,14 @@ def build_corners(spec, build_dir, c1_bin, cc, cxx, skip_lake_build, reuse_bins)
             timeout_s=60,
         )
         emit_timing["c0_extract_ms"] = round((time.perf_counter() - t0) * 1000.0, 1)
+        c0_flags = [
+            cc, "-std=c99", "-O3", "-fwrapv", "-fno-strict-aliasing",
+            "-Wall", "-Wextra", "-Werror",
+        ]
+        if spec["c0_target"] == "plain":
+            c0_flags.append("-Wno-parentheses")
         run_cmd(
-            [
-                cc, "-std=c99", "-O3", "-fwrapv", "-fno-strict-aliasing",
-                "-Wall", "-Wextra", "-Werror",
+            c0_flags + [
                 f"-I{ROOT / 'LeanQbe/T/Frontend/C0'}",
                 "-c", str(c_path), "-o", str(objs["c0direct"]),
             ],
@@ -810,11 +864,13 @@ def format_markdown(payload):
     sizes = payload["code_sizes"]
     mod = meta["module"]
     c4_label = f"C4 ({mod})"
+    banner = "[NON-FIDELITY SOLVER EXTENSION] " if meta.get("ext_warning") else ""
 
     lines = [
-        f"# Reproducible 4-Way Stage-1 Benchmark: `{mod}`",
+        f"# {banner}Reproducible 4-Way Stage-1 Benchmark: `{mod}`",
         "",
         f"- **Date (UTC):** {meta['timestamp_utc']}",
+        f"- **Benchmark Type:** `{meta.get('benchmark_type', 'compiler_evaluation')}` (`is_fidelity={meta.get('is_fidelity')}`, `is_solver_extension={meta.get('is_solver_extension')}`)",
         f"- **Git commit:** `{meta['git_rev']}`",
         f"- **Module / Policy:** `{mod}` (`{meta['fn_count']}` fns, `{meta['policy_desc']}`)",
         f"- **Compilers:** `{meta['cc_version']}` / `{meta['cxx_version']}`",
@@ -959,14 +1015,264 @@ def get_host_info(cc, cxx):
     }
 
 
+def format_extensions_markdown(payload):
+    meta = payload["meta"]
+    fid_ov = payload["fidelity_overall"]
+    fid_ps = payload["fidelity_per_suite"]
+    opt_ov = payload["opt_overall"]
+    opt_ps = payload["opt_per_suite"]
+    ext_ov = payload["overall"]
+    fid_mod = meta["fid_module"]
+    opt_mod = meta["opt_module"]
+    lines = [
+        f"# [NON-FIDELITY SOLVER EXTENSION] Stage-1 Extensions Benchmark: `{opt_mod}` vs `{fid_mod}` & `C1`",
+        "",
+        f"- **Date (UTC):** {meta['timestamp_utc']}",
+        f"- **Benchmark Type:** `{meta['benchmark_type']}` (`is_fidelity=False`, `is_solver_extension=True`)",
+        f"- **Git commit:** `{meta['git_rev']}`",
+        f"- **Fidelity Baseline:** `{fid_mod}` (`{meta['fid_fn_count']}` fns, `{meta['fid_policy_desc']}`)",
+        f"- **Extension Solver:** `{opt_mod}` (`{meta['opt_fn_count']}` fns, `{meta['opt_policy_desc']}`)",
+        f"- **Parameters:** `{fid_ov['n']}` CNFs, timeout `{meta['timeout_s']:.1f}s`, floor `{meta['floor_ms']:.1f}ms`, `--jobs {meta['jobs']}`, fuel `{meta['fuel']:,}`.",
+        f"- **Verification:** `{payload['soundness']['sound_errs']}` soundness errors, `{len(payload['soundness']['disagreements'])}` disagreements, Fidelity parity `{payload['parity']['fidelity']['ok']}/{payload['parity']['fidelity']['total']}`, Opt parity `{payload['parity']['opt']['ok']}/{payload['parity']['opt']['total']}`.",
+        "",
+    ]
+
+    def emit_solver_table(title, c4_name, ov, ps, c0k, c3k, c4k):
+        lines.extend([
+            f"## {title}",
+            "",
+            "| Suite (`N`, common) | Engine | Solved (`S/U`) | TO | Wall GM (ms) | Int GM (ms) | PAR-2 AM (s) | `vs C0-direct` (W-GM/AM, I-GM/AM) | `vs C3b` (W-GM/AM, I-GM/AM) | `vs C1` (W-GM/AM, I-GM/AM) |",
+            "|---|---|---|---:|---:|---:|---:|---|---|---|",
+        ])
+
+        def app(lbl, sub):
+            first = True
+            for skey, sdisp in (("c1", "`C1`"), (c0k, "**`C0-direct`**"), (c3k, "`C3b`"), (c4k, f"**`{c4_name}`**")):
+                st, cm, p2 = sub["solvers"][skey], sub["common"][skey], sub["par2_all"][skey]
+                pfx = f"**`{lbl}`** (`{sub['n']}`, `{sub['common_n']}`)" if first else ""
+                first = False
+                s_u = f"`{st['solved']}/{sub['n']}` (`{st['sat']}S/{st['unsat']}U`)"
+                if skey == "c1":
+                    r_c0 = r_c3 = r_c1 = "—"
+                elif skey == c0k:
+                    r_c0, r_c3 = "`1.0000x / 1.0000x`, `1.0000x / 1.0000x`", "—"
+                    r_c1 = fmt_ratio_cell(sub["ratios"], f"{c0k}_vs_c1")
+                elif skey == c3k:
+                    r_c0 = fmt_ratio_cell(sub["ratios"], f"{c3k}_vs_{c0k}")
+                    r_c3 = "`1.0000x / 1.0000x`, `1.0000x / 1.0000x`"
+                    r_c1 = fmt_ratio_cell(sub["ratios"], f"{c3k}_vs_c1")
+                else:
+                    r_c0 = fmt_ratio_cell(sub["ratios"], f"{c4k}_vs_{c0k}", bold=True)
+                    r_c3 = fmt_ratio_cell(sub["ratios"], f"{c4k}_vs_{c3k}", bold=True)
+                    r_c1 = fmt_ratio_cell(sub["ratios"], f"{c4k}_vs_c1", bold=True)
+                lines.append(
+                    f"| {pfx} | {sdisp} | {s_u} | {st['timeout']} "
+                    f"| {fmt_num(cm['wall_gm_ms'])} | {fmt_num(cm['int_gm_ms'])} "
+                    f"| {fmt_num(p2['par2_am_s'], 3)} | {r_c0} | {r_c3} | {r_c1} |"
+                )
+
+        for stag, sdisp in SUITE_ORDER:
+            if stag in ps and ps[stag]["n"] > 0:
+                app(sdisp, ps[stag])
+        app("OVERALL", ov)
+        lines.append("")
+
+    emit_solver_table(f"Part A: Compiler Benchmark Baseline (`{fid_mod}`)", f"C4 ({fid_mod})", fid_ov, fid_ps, "c0direct_fid", "c3b_fid", "c4_fid")
+    emit_solver_table(f"Part B: Beyond-Upstream Solver Extensions (`{opt_mod}`)", f"C4 ({opt_mod})", opt_ov, opt_ps, "c0direct_opt", "c3b_opt", "c4_opt")
+
+    er = ext_ov["ratios"]
+    lines.extend([
+        "## Separated Attribution (Compiler Overhead vs. Algorithmic Gain)",
+        "",
+        f"1. **Compiler overhead on `{fid_mod}` (`C4 / C0-direct`):** `{er['c4_fid_vs_c0direct_fid']['wall_gm']:.4f}x` Wall GM / `{er['c4_fid_vs_c0direct_fid']['int_gm']:.4f}x` Int GM (`C4 / C3b`: `{er['c4_fid_vs_c3b_fid']['wall_gm']:.4f}x`)",
+        f"2. **Compiler overhead on `{opt_mod}` (`C4 / C0-direct`):** `{er['c4_opt_vs_c0direct_opt']['wall_gm']:.4f}x` Wall GM / `{er['c4_opt_vs_c0direct_opt']['int_gm']:.4f}x` Int GM (`C4 / C3b`: `{er['c4_opt_vs_c3b_opt']['wall_gm']:.4f}x`)",
+        f"3. **Pure algorithmic gain (`C0-direct({opt_mod}) / C0-direct({fid_mod})`):** `{er['c0direct_opt_vs_c0direct_fid']['wall_gm']:.4f}x` Wall GM / `{er['c0direct_opt_vs_c0direct_fid']['int_gm']:.4f}x` Int GM",
+        f"4. **Pure algorithmic gain on verified code (`C4({opt_mod}) / C4({fid_mod})`):** `{er['c4_opt_vs_c4_fid']['wall_gm']:.4f}x` Wall GM / `{er['c4_opt_vs_c4_fid']['int_gm']:.4f}x` Int GM",
+        f"5. **End-to-end vs upstream Kissat 4.0.4 (`C4({opt_mod}) / C1`):** `{er['c4_opt_vs_c1']['wall_gm']:.4f}x` Wall GM / `{er['c4_opt_vs_c1']['int_gm']:.4f}x` Int GM",
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def run_extensions_mode(args, entries, manifest_path, c1_bin, out_json, out_md):
+    fid_spec = resolve_module_spec(args.fid_module)
+    opt_spec = resolve_module_spec(args.opt_module)
+    print(
+        f"[NON-FIDELITY SOLVER EXTENSION] Running separated extensions mode: "
+        f"{fid_spec['module']} vs {opt_spec['module']} & C1",
+        file=sys.stderr, flush=True,
+    )
+    temp_dir_obj = None
+    if args.build_dir:
+        bdir = pathlib.Path(args.build_dir)
+    else:
+        temp_dir_obj = tempfile.TemporaryDirectory(prefix="kissat-ext-stage1-")
+        bdir = pathlib.Path(temp_dir_obj.name)
+    try:
+        fid_bins, fid_sizes, fid_timing = build_corners(
+            fid_spec, bdir / "fid", c1_bin, args.cc, args.cxx, args.skip_lake_build, args.reuse_bins
+        )
+        opt_bins, opt_sizes, opt_timing = build_corners(
+            opt_spec, bdir / "opt", c1_bin, args.cc, args.cxx, args.skip_lake_build, args.reuse_bins
+        )
+        host_info = get_host_info(args.cc, args.cxx)
+        bins = {
+            "c1": str(c1_bin),
+            "c0direct_fid": fid_bins["c0direct"], "c3b_fid": fid_bins["c3b"], "c4_fid": fid_bins["c4"],
+            "c0direct_opt": opt_bins["c0direct"], "c3b_opt": opt_bins["c3b"], "c4_opt": opt_bins["c4"],
+        }
+        solvers = list(bins)
+        fid_c0 = ("c0direct_fid", "c3b_fid", "c4_fid")
+        opt_c0 = ("c0direct_opt", "c3b_opt", "c4_opt")
+
+        def eval_one(idx_e):
+            i, e = idx_e
+            shift = i % len(solvers)
+            order = solvers[shift:] + solvers[:shift]
+            row = {}
+            for s in order:
+                if s == "c1":
+                    row[s] = run_c1_trial(bins[s], e, e["cnf_path"], args.timeout)
+                else:
+                    row[s] = run_c0_trial(bins[s], e, e["cnf_path"], args.timeout, args.work_mb, args.fuel)
+            return i, row
+
+        rows = [None] * len(entries)
+        t0 = time.perf_counter()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as ex:
+            futs = {ex.submit(eval_one, ie): ie[0] for ie in enumerate(entries)}
+            done = 0
+            for fut in concurrent.futures.as_completed(futs):
+                i, row = fut.result()
+                rows[i] = row
+                done += 1
+                e = entries[i]
+                print(
+                    f"[{done:3d}/{len(entries)}] {e['id'][:30]:30s} | "
+                    f"c1={row['c1']['wall_ms']:7.1f} fid_c4={row['c4_fid']['internal_ms']:7.1f} "
+                    f"opt_c4={row['c4_opt']['internal_ms']:7.1f}",
+                    flush=True,
+                )
+        elapsed_s = time.perf_counter() - t0
+    finally:
+        if temp_dir_obj is not None:
+            temp_dir_obj.cleanup()
+
+    def check_c0_parity(group_solvers, ref_key):
+        diffs_list, tot = [], 0
+        for e, r in zip(entries, rows):
+            if all((not r[s].get("timed_out")) and r[s]["status"] in (10, 20) for s in group_solvers):
+                tot += 1
+                diffs = {
+                    k: {s: r[s].get(k) for s in group_solvers}
+                    for k in ALL_TELEM_KEYS
+                    if len({r[s].get(k) for s in group_solvers}) > 1
+                }
+                if diffs:
+                    diffs_list.append({"id": e["id"], "ref": ref_key, "diffs": diffs})
+        return tot, diffs_list
+
+    fid_par_n, fid_diffs = check_c0_parity(fid_c0, "c0direct_fid")
+    opt_par_n, opt_diffs = check_c0_parity(opt_c0, "c0direct_opt")
+    disagreements, sound_errs = [], 0
+    for e, r in zip(entries, rows):
+        for s in solvers:
+            if not r[s].get("model_ok", True) or not r[s].get("verdict_ok", True):
+                sound_errs += 1
+        sts = {s: r[s]["status"] for s in solvers if (not r[s].get("timed_out")) and r[s]["status"] in (10, 20)}
+        if len(set(sts.values())) > 1:
+            disagreements.append({"id": e["id"], "statuses": sts})
+
+    fid_pairs = [("c3b_fid", "c0direct_fid"), ("c4_fid", "c0direct_fid"), ("c0direct_fid", "c1"),
+                 ("c3b_fid", "c1"), ("c4_fid", "c1"), ("c4_fid", "c3b_fid")]
+    opt_pairs = [("c3b_opt", "c0direct_opt"), ("c4_opt", "c0direct_opt"), ("c0direct_opt", "c1"),
+                 ("c3b_opt", "c1"), ("c4_opt", "c1"), ("c4_opt", "c3b_opt")]
+    ext_pairs = fid_pairs + opt_pairs + [
+        ("c0direct_opt", "c0direct_fid"), ("c3b_opt", "c3b_fid"), ("c4_opt", "c4_fid"),
+    ]
+    fid_ps, opt_ps = {}, {}
+    for stag, _ in SUITE_ORDER:
+        sub = [rows[i] for i, e in enumerate(entries) if stag in e.get("suites", [e.get("suite")])]
+        if sub:
+            fid_ps[stag] = summarize_subset(sub, ["c1", *fid_c0], fid_pairs, args.timeout, args.floor_ms)
+            opt_ps[stag] = summarize_subset(sub, ["c1", *opt_c0], opt_pairs, args.timeout, args.floor_ms)
+    fid_ov = summarize_subset(rows, ["c1", *fid_c0], fid_pairs, args.timeout, args.floor_ms)
+    opt_ov = summarize_subset(rows, ["c1", *opt_c0], opt_pairs, args.timeout, args.floor_ms)
+    ext_ov = summarize_subset(rows, solvers, ext_pairs, args.timeout, args.floor_ms)
+
+    la_end = os.getloadavg()
+    payload = {
+        "benchmark_type": "solver_extensions",
+        "is_fidelity": False,
+        "is_solver_extension": True,
+        "meta": {
+            "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
+            "benchmark_type": "solver_extensions",
+            "is_fidelity": False,
+            "is_solver_extension": True,
+            "fid_module": fid_spec["module"],
+            "opt_module": opt_spec["module"],
+            "fid_fn_count": fid_timing.get("fn_count"),
+            "opt_fn_count": opt_timing.get("fn_count"),
+            "fid_policy_desc": fid_spec["policy_desc"],
+            "opt_policy_desc": opt_spec["policy_desc"],
+            "manifest": str(manifest_path),
+            "c1_bin": str(c1_bin),
+            "jobs": args.jobs,
+            "timeout_s": args.timeout,
+            "floor_ms": args.floor_ms,
+            "fuel": args.fuel,
+            "elapsed_s": round(elapsed_s, 2),
+            "end_loadavg": f"{la_end[0]:.2f}, {la_end[1]:.2f}, {la_end[2]:.2f}",
+            **host_info,
+        },
+        "code_sizes": {"fidelity": fid_sizes, "opt": opt_sizes},
+        "parity": {
+            "fidelity": {"total": fid_par_n, "ok": fid_par_n - len(fid_diffs), "diffs_count": len(fid_diffs), "diffs": fid_diffs},
+            "opt": {"total": opt_par_n, "ok": opt_par_n - len(opt_diffs), "diffs_count": len(opt_diffs), "diffs": opt_diffs},
+        },
+        "soundness": {"sound_errs": sound_errs, "disagreements": disagreements},
+        "overall": ext_ov,
+        "fidelity_overall": fid_ov,
+        "fidelity_per_suite": fid_ps,
+        "opt_overall": opt_ov,
+        "opt_per_suite": opt_ps,
+        "results": [
+            {"id": e["id"], "suite": e.get("suite"), "expected": e.get("expected_verdict"), "solvers": r}
+            for e, r in zip(entries, rows)
+        ],
+    }
+    md_text = format_extensions_markdown(payload)
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_md.parent.mkdir(parents=True, exist_ok=True)
+    out_json.write_text(json.dumps(payload, indent=2) + "\n")
+    out_md.write_text(md_text + "\n")
+    print(f"JSON: {out_json}\nMD  : {out_md}")
+    if sound_errs > 0 or disagreements or fid_diffs or opt_diffs:
+        raise SystemExit(
+            f"FAIL: soundness/parity audit failed "
+            f"(sound_errs={sound_errs}, disagreements={len(disagreements)}, "
+            f"fid_diffs={len(fid_diffs)}, opt_diffs={len(opt_diffs)})"
+        )
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Build and run reproducible 4-way Stage-1 (140-CNF) Kissat benchmark."
     )
     ap.add_argument(
-        "--module", default="FullM6",
-        help="Solver module: FullM5 | FullM6 | FullM7 | FullM7Plus | FullM7Fidelity (default: FullM6)",
+        "--module", default=None,
+        help="Solver module (default: KissatFidelity if present, else FullM7Fidelity; "
+             "supports KissatFidelity, KissatM8Opt, Plain, FullM7Fidelity, FullM7Plus, FullM7, FullM6, FullM5)",
     )
+    ap.add_argument(
+        "--mode", choices=["compiler", "extensions"], default="compiler",
+        help="Benchmark mode: 'compiler' (default, tags compiler_evaluation) or 'extensions' (Fidelity vs M8Opt dual report)",
+    )
+    ap.add_argument("--allow-solver-extensions", action="store_true",
+                    help="Acknowledge running --mode compiler on a non-fidelity solver extension")
+    ap.add_argument("--fid-module", default="KissatFidelity", help="Fidelity baseline module for --mode extensions")
+    ap.add_argument("--opt-module", default="KissatM8Opt", help="Extension solver module for --mode extensions")
     ap.add_argument("--jobs", type=int, default=8, help="Parallel worker count (default: 8)")
     ap.add_argument("--timeout", type=float, default=30.0, help="Per-CNF timeout in seconds (default: 30.0)")
     ap.add_argument("--floor-ms", type=float, default=20.0, help="Geometric mean timing floor in ms (default: 20.0)")
@@ -985,12 +1291,8 @@ def main():
     ap.add_argument("--cxx", default=os.environ.get("CXX", "clang++"), help="C++ compiler (default: clang++)")
     args = ap.parse_args()
 
-    spec = resolve_module_spec(args.module)
     manifest_path = resolve_manifest(args.manifest)
     c1_bin = resolve_c1_bin(args.c1_bin)
-    out_json = pathlib.Path(args.out_json or f"/tmp/kissat_4way_stage1_{spec['tag']}.json")
-    out_md = pathlib.Path(args.out_md or f"/tmp/kissat_4way_stage1_{spec['tag']}.md")
-
     man = json.loads(manifest_path.read_text())
     entries = list(man["benchmarks"])
     if args.suite:
@@ -1002,6 +1304,23 @@ def main():
     missing_cnfs = [e["cnf_path"] for e in entries if not os.path.isfile(e["cnf_path"])]
     if missing_cnfs:
         raise SystemExit(f"ERROR: {len(missing_cnfs)} missing CNF files, first: {missing_cnfs[0]}")
+
+    if args.mode == "extensions":
+        out_json = pathlib.Path(args.out_json or "/tmp/kissat_4way_stage1_extensions.json")
+        out_md = pathlib.Path(args.out_md or "/tmp/kissat_4way_stage1_extensions.md")
+        return run_extensions_mode(args, entries, manifest_path, c1_bin, out_json, out_md)
+
+    spec = resolve_module_spec(args.module or default_module())
+    ext_warning = spec["is_solver_extension"] and (not args.allow_solver_extensions)
+    if ext_warning:
+        print(
+            f"[NON-FIDELITY SOLVER EXTENSION]\n"
+            f"[WARNING] {spec['module']} includes beyond-upstream solver heuristics; ratios vs C1 conflate "
+            f"solver algorithm and compiler codegen! Use --module KissatFidelity for compiler benchmarks.",
+            file=sys.stderr, flush=True,
+        )
+    out_json = pathlib.Path(args.out_json or f"/tmp/kissat_4way_stage1_{spec['tag']}.json")
+    out_md = pathlib.Path(args.out_md or f"/tmp/kissat_4way_stage1_{spec['tag']}.md")
 
     temp_dir_obj = None
     if args.build_dir:
@@ -1112,8 +1431,15 @@ def main():
 
     la_end = os.getloadavg()
     payload = {
+        "benchmark_type": "compiler_evaluation",
+        "is_fidelity": spec["is_fidelity"],
+        "is_solver_extension": spec["is_solver_extension"],
         "meta": {
             "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ"),
+            "benchmark_type": "compiler_evaluation",
+            "is_fidelity": spec["is_fidelity"],
+            "is_solver_extension": spec["is_solver_extension"],
+            "ext_warning": ext_warning,
             "module": spec["module"],
             "fn_count": emit_timing.get("fn_count"),
             "dir_count": emit_timing.get("dir_count"),
