@@ -9,6 +9,7 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
 public import LeanQbe.T.Examples.Kissat.FullFidelityBaseProof
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofCone1
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofVar
+public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofVar2
 import all LeanQbe.T.Examples.Kissat.FullFidelityBase
 import all LeanQbe.T.Examples.Kissat.FullFidelityBaseProof
 import all LeanQbe.T.Examples.Kissat.FullM8SweepV2
@@ -279,7 +280,7 @@ private theorem fidStep1_front_impl :
     subst hfeq
     refine ⟨⟨rfl, rfl, rfl⟩, fun xs m Q X hs => ?_⟩
     exact wp_mono (fun _ _ h => h) (fun _ _ _ _ h => False.elim h) _ m
-      (fid_sweep_vars_wp fidStep1Env r302 r317 r336 r334 xs m Q _ hs)
+      (FullFidelitySweep.fid_sweep_vars_wp fidStep1Env r302 r317 r336 r334 xs m Q _ hs)
 
 /-- Closed `469/469` `ModuleOk` for `FullFidelityAssemblyStep1.fidStep1Module` under
 `fidStep1Env` (`0` externs, `0` exits, `std3` axioms only). -/
