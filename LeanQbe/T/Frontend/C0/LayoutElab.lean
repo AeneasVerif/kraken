@@ -164,7 +164,8 @@ private meta def checkFieldNamesUnique (S : String) (fs : List LayoutField) :
 
 /-- Generate layout structures, footprints, and `c0_load` / `c0_store` lemmas for `src`. -/
 meta def elabC0Layout (src : String) : CommandElabM Unit := do
-  let tu ← match parseC0 src with
+  let hdrMap := getC0Headers (← getEnv)
+  let tu ← match parseC0 src hdrMap with
     | .ok tu => pure tu
     | .error err => throwError err
   let env ← match buildLayoutEnv tu with
