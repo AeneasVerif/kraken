@@ -204,7 +204,7 @@ private theorem checkContEdgeLeaf_spOk {cm : CodeMap} {abi : RegionAbi} {nSlots 
   have hne : (nSlots == 0) = false := beq_false_of_ne (Nat.ne_of_gt hPos)
   cases hs : checkEdgeLeaf cm abi (callees.map fun c => ⟨c.name, c.entryPc, c.dualRet⟩)
       pcs ⟨leaf.path, leaf.st.toSymState, leaf.target, leaf.nextRegs⟩ kind
-  · simp [hs] at hEdge
+  · cases kind <;> simp [hs] at hEdge
   · simp only [hs, Bool.not_true, Bool.false_eq_true, ↓reduceIte, hne] at hEdge
     cases kind with
     | direct _ | select _ _ | strideTable _ _ _ | guarded _ | contCall _ _ _ _ _ =>
@@ -212,6 +212,7 @@ private theorem checkContEdgeLeaf_spOk {cm : CodeMap} {abi : RegionAbi} {nSlots 
         · exact hb
         · have hf := Bool.eq_false_iff.2 hb; simp [hf] at hEdge
     | contRet _ => subst hAbi; simp [checkEdgeLeaf] at hs
+    | memTableGuarded _ _ | memTableRo _ _ _ => simp at hEdge
     | bailout => exact absurd rfl hnb
 
 private theorem checkContEdgeLeaf_callMemFree {cm : CodeMap} {abi : RegionAbi} {nSlots : Nat}
@@ -277,24 +278,25 @@ theorem liftContEdgeMapped_wp {abi : RegionAbi} {nSlots : Nat} {Γ : Env} {X : X
   have hnxtT : denoteRegsExpr (bvsTflat ++ vsTail) (remapRegsExpr d em nxt) = some nxt' := by
     rw [denoteRegsExpr_remap hem hchkN, hnxtB]
   have hmt := evalContArg_symValMatch hst htgtB; have hEdgeOrig := hEdge
+  have hSpEdge : (kind ≠ .bailout) → (nSlots > 0 ∨ reqSp = true) → nxt'.eval.sp = sp₀ := by
+    intro hnb hOr; refine spZero_contNxtSp hst hnxtB ?_
+    rcases hOr with hPos | hReq
+    · exact checkContEdgeLeaf_spOk hEdgeOrig hPos (hAbiZero hPos) hnb
+    · rcases hReqSp hReq with hPos | hEq
+      · exact checkContEdgeLeaf_spOk hEdgeOrig hPos (hAbiZero hPos) hnb
+      · exact hEq
+  have hnSp : nSlots > 0 → kind ≠ .bailout → nxt'.eval.sp = sp₀ := fun hPos hnb =>
+    hSpEdge hnb (.inl hPos)
+  have hReqPred : reqSp = true → kind ≠ .bailout → nxt'.eval.sp = sp₀ := fun hR hnb =>
+    hSpEdge hnb (.inr hR)
   dsimp only [checkContEdgeLeaf] at hEdge
   cases hs0 : checkEdgeLeaf cm abi (callees.map fun c => ⟨c.name, c.entryPc, c.dualRet⟩)
       pcs ⟨path, st.toSymState, tgt, nxt⟩ kind with
-  | false => rw [hs0] at hEdge; cases hEdge
+  | false =>
+      cases kind <;> simp [hs0] at hEdge
   | true =>
-      rw [hs0] at hEdge; simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hEdge
-      have hSpEdge : (kind ≠ .bailout) → (nSlots > 0 ∨ reqSp = true) → nxt'.eval.sp = sp₀ := by
-        intro hnb hOr; refine spZero_contNxtSp hst hnxtB ?_
-        rcases hOr with hPos | hReq
-        · exact checkContEdgeLeaf_spOk hEdgeOrig hPos (hAbiZero hPos) hnb
-        · rcases hReqSp hReq with hPos | hEq
-          · exact checkContEdgeLeaf_spOk hEdgeOrig hPos (hAbiZero hPos) hnb
-          · exact hEq
-      have hnSp : nSlots > 0 → kind ≠ .bailout → nxt'.eval.sp = sp₀ := fun hPos hnb =>
-        hSpEdge hnb (.inl hPos)
-      have hReqPred : reqSp = true → kind ≠ .bailout → nxt'.eval.sp = sp₀ := fun hR hnb =>
-        hSpEdge hnb (.inr hR)
       dsimp only [checkEdgeLeaf, SymState.getSym] at hs0; cases kind with
+      | memTableGuarded _ _ | memTableRo _ _ _ => simp at hEdge
       | direct targetPc =>
           simp only [Bool.and_eq_true] at hs0
           have hrc := contSymState_asConst_val hst htgtB (beq_iff_eq.1 hs0.1.2)

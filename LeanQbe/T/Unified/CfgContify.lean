@@ -376,6 +376,9 @@ structure ContSymLeaf : Type where
 @[expose] def checkContEdgeLeaf (cm : CodeMap) (abi : RegionAbi) (pf : PrivFrameCfg)
     (callees : List ContCalleeMeta) (pcs : List (BitVec 64)) (leaf : ContSymLeaf)
     (kind : EdgeKind) : Bool :=
+  match kind with
+  | .memTableGuarded _ _ | .memTableRo _ _ _ => false
+  | _ =>
   let st := leaf.st
   let stage0Ok :=
     checkEdgeLeaf cm abi (callees.map fun c => ⟨c.name, c.entryPc, c.dualRet⟩)

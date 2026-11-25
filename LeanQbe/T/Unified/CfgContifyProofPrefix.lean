@@ -424,6 +424,7 @@ private theorem tfVarsLt_liftContEdgeMapped (abi : RegionAbi) (nSlots sp0Lvl : N
               dsimp only [tfVarsLt, op2, argsVarsLt, List.length_cons, List.length_nil]
               exact bAnd (bAnd (of_argLt (hIdx lvl)) (bAnd rfl rfl))
                 (bAnd (bAnd (of_argLt (by omega)) hStr) hFl)
+  | memTableGuarded _ _ | memTableRo _ _ _ => exact bAnd rfl rfl
   | contCall _ _ dualRet retPc altRetPc? =>
       cases abi with
       | contified _ => rfl
@@ -860,17 +861,29 @@ private theorem contify_isPureMemFree_edge (pcs : List (BitVec 64)) (dualRet : B
     isPureMemFreeF (liftContEdgeMapped (.contified dualRet) 0 6 [] pcs st d em tgt nxt kind) =
       true := by
   dsimp only [checkContEdgeLeaf] at hEdge
-  cases h0 : checkEdgeLeaf cm (.contified dualRet)
-      (callees.map fun c => ⟨c.name, c.entryPc, c.dualRet⟩) pcs
-      ⟨leaf.path, leaf.st.toSymState, leaf.target, leaf.nextRegs⟩ kind
-  · rw [h0] at hEdge; cases hEdge
-  · dsimp only [liftContEdgeMapped]; cases kind with
-    | direct tPc => exact isPureMemFreeF_lowerContJumpTo 0 pcs tPc _
-    | select tPc ePc =>
-        dsimp only; cases st.evalArg tgt <;> try rfl
+  cases kind with
+  | memTableGuarded _ _ | memTableRo _ _ _ => simp at hEdge
+  | direct tPc =>
+      cases h0 : checkEdgeLeaf cm (.contified dualRet)
+          (callees.map fun c => ⟨c.name, c.entryPc, c.dualRet⟩) pcs
+          ⟨leaf.path, leaf.st.toSymState, leaf.target, leaf.nextRegs⟩ (.direct tPc)
+      · rw [h0] at hEdge; cases hEdge
+      · exact isPureMemFreeF_lowerContJumpTo 0 pcs tPc _
+  | select tPc ePc =>
+      cases h0 : checkEdgeLeaf cm (.contified dualRet)
+          (callees.map fun c => ⟨c.name, c.entryPc, c.dualRet⟩) pcs
+          ⟨leaf.path, leaf.st.toSymState, leaf.target, leaf.nextRegs⟩ (.select tPc ePc)
+      · rw [h0] at hEdge; cases hEdge
+      · dsimp only [liftContEdgeMapped]; cases st.evalArg tgt <;> try rfl
         exact bAnd (isPureMemFreeF_lowerContJumpTo 0 pcs tPc _)
           (isPureMemFreeF_lowerContJumpTo 0 pcs ePc _)
-    | strideTable _ targets needGuard =>
+  | strideTable basePc targets needGuard =>
+      cases h0 : checkEdgeLeaf cm (.contified dualRet)
+          (callees.map fun c => ⟨c.name, c.entryPc, c.dualRet⟩) pcs
+          ⟨leaf.path, leaf.st.toSymState, leaf.target, leaf.nextRegs⟩
+          (.strideTable basePc targets needGuard)
+      · rw [h0] at hEdge; cases hEdge
+      · dsimp only [liftContEdgeMapped]
         cases needGuard with
         | false =>
             cases st.evalArg tgt <;> try rfl
@@ -880,9 +893,14 @@ private theorem contify_isPureMemFree_edge (pcs : List (BitVec 64)) (dualRet : B
               Bool.and_eq_true] at h0
             have hm := h0.2
             cases hev : leaf.st.toSymState.evalArg leaf.target <;> simp [hev] at hm
-    | contCall _ _ _ _ _ | guarded _ | bailout =>
-        dsimp only [checkEdgeLeaf] at h0; simp [RegionAbi.isContified] at h0
-    | contRet isAlt => cases dualRet <;> cases isAlt <;> rfl
+  | contCall _ _ _ _ _ | guarded _ | bailout =>
+      cases h0 : checkEdgeLeaf cm (.contified dualRet)
+          (callees.map fun c => ⟨c.name, c.entryPc, c.dualRet⟩) pcs
+          ⟨leaf.path, leaf.st.toSymState, leaf.target, leaf.nextRegs⟩ _
+      · rw [h0] at hEdge; cases hEdge
+      · dsimp only [checkEdgeLeaf] at h0; simp [RegionAbi.isContified] at h0
+  | contRet isAlt =>
+      cases dualRet <;> cases isAlt <;> rfl
 
 private theorem contify_isPureMemFree_block (cm : CodeMap) (rw : RegionWitness)
     (pcs : List (BitVec 64)) (pc : BitVec 64) (dualRet : Bool) (pf : PrivFrameCfg)
