@@ -168,6 +168,11 @@ structure ElideScan where
   cands : List ElideCand := []
   addrUses : Trie (List Ty) := .empty
   badVars : Trie Bool := .empty
+  defs : Trie DefFact := .empty
+
+def isElideCand (I : Isa) : DefFact → Bool
+  | .zextVar 32 64 _ => I.supportsAddrZextIdx i64 .s1 0#64
+  | df => df.isAddr
 
 def markBad (xs : List Nat) (st : ElideScan) : ElideScan :=
   { st with badVars := xs.foldl (fun b x => b.insert x true) st.badVars }
@@ -178,34 +183,37 @@ def addAddrUse (t : Ty) (a : Arg VNat i64) (st : ElideScan) : ElideScan :=
   | .imm _ => st
 
 mutual
-def scanElideTree (defs : Trie DefFact) (st : ElideScan) : Tree → ElideScan
+def scanElideTree (I : Isa) (defs : Trie DefFact) (st : ElideScan) : Tree → ElideScan
   | .let_ _ ip nv0 ts op k =>
     let df? := if ts == [i64] then
       match recordDef defs op.code op.args with
-      | some df => if df.isAddr then some df else none
+      | some df => if isElideCand I df then some df else none
       | none => none
     else none
     let st1 := match df? with
-      | some df => { st with cands := ⟨nv0, ip, opVarIds op, df⟩ :: st.cands }
+      | some df =>
+        { st with
+          cands := ⟨nv0, ip, opVarIds op, df⟩ :: st.cands
+          defs := st.defs.insert nv0 df }
       | none => markBad (opVarIds op) st
     let defs1 := match df? with
       | some df => defs.insert nv0 df
       | none => defs
-    scanElideTree defs1 st1 k
-  | .load _ _ _ t a k => scanElideTree defs (addAddrUse t a st) k
-  | .store _ _ t v a k => scanElideTree defs (addAddrUse t a (markBad (argVarIds v) st)) k
-  | .call _ _ _ _ _ _ args k => scanElideTree defs (markBad (tupVarIds args) st) k
-  | .jnz _ _ c _ t e => scanElideTree defs (scanElideTree defs (markBad [c] st) t) e
-  | .skip _ _ k => scanElideTree defs st k
+    scanElideTree I defs1 st1 k
+  | .load _ _ _ t a k => scanElideTree I defs (addAddrUse t a st) k
+  | .store _ _ t v a k => scanElideTree I defs (addAddrUse t a (markBad (argVarIds v) st)) k
+  | .call _ _ _ _ _ _ args k => scanElideTree I defs (markBad (tupVarIds args) st) k
+  | .jnz _ _ c _ t e => scanElideTree I defs (scanElideTree I defs (markBad [c] st) t) e
+  | .skip _ _ k => scanElideTree I defs st k
   | .jump _ _ _ _ args => markBad (tupVarIds args) st
   | .ret _ _ _ vs => markBad (tupVarIds vs) st
   | .exit _ _ _ _ args => markBad (tupVarIds args) st
   | .stop _ => st
-  | .group _ bs k => scanElideTree defs (scanElideBlocks defs st bs) k
+  | .group _ bs k => scanElideTree I defs (scanElideBlocks I defs st bs) k
 
-def scanElideBlocks (defs : Trie DefFact) (st : ElideScan) : TreeBlocks → ElideScan
+def scanElideBlocks (I : Isa) (defs : Trie DefFact) (st : ElideScan) : TreeBlocks → ElideScan
   | .nil => st
-  | .cons _ _ b bs => scanElideBlocks defs (scanElideTree defs st b) bs
+  | .cons _ _ b bs => scanElideBlocks I defs (scanElideTree I defs st b) bs
 end
 
 def defFactRoots : DefFact → List Nat
@@ -213,6 +221,7 @@ def defFactRoots : DefFact → List Nat
   | .addImm64 b _ => [b]
   | .scaleOff i _ _ => [i]
   | .addrSum b i _ _ => if Nat.beq b i then [b] else [b, i]
+  | .zextVar 32 64 idx => [idx]
   | _ => []
 
 def supportsDefFact (I : Isa) (df : DefFact) (ts : List Ty) : Bool :=
@@ -223,6 +232,48 @@ def supportsDefFact (I : Isa) (df : DefFact) (ts : List Ty) : Bool :=
     | some sc => ts.all (I.supportsAddrIdx · sc disp)
     | none => false
   | _ => false
+
+def resolveZextVarRoot (zextOk : Bool) (defs : Trie DefFact) (bad : Trie Bool) (v : Nat) :
+    List Nat :=
+  if zextOk && !bad.getD v false then
+    match defs.find? v with
+    | some (.zextVar 32 64 idx) => [idx]
+    | _ => [v]
+  else [v]
+
+def resolveAddrCand (I : Isa) (defs : Trie DefFact) (bad used : Trie Bool) (c : ElideCand)
+    (ts : List Ty) : Bool × List Nat :=
+  let zextOk := I.supportsAddrZextIdx i64 .s1 0#64
+  match c.df with
+  | .imm64 _ => (ts.isEmpty && used.getD c.x false, [])
+  | .addImm64 b disp =>
+    if ts.isEmpty then (used.getD c.x false, resolveZextVarRoot zextOk defs bad b)
+    else (ts.all (I.supportsAddrDisp · disp), [b])
+  | .scaleOff i _ _ =>
+    if ts.isEmpty then (used.getD c.x false, resolveZextVarRoot zextOk defs bad i)
+    else (false, [i])
+  | .zextVar 32 64 idx => (ts.isEmpty && used.getD c.x false, [idx])
+  | .addrSum b i sh disp =>
+    let pairRoots (x y : Nat) := if Nat.beq x y then [x] else [x, y]
+    match AddrScale.ofShift? sh with
+    | none => (false, pairRoots b i)
+    | some sc =>
+      let zextMatch := if !zextOk then none else
+        match zextAddrSumVar? defs b i sh with
+        | some (rb, ridx, zvar) =>
+          if !bad.getD zvar false && (ts.isEmpty || ts.all (I.supportsAddrZextIdx · sc disp)) then
+            some (rb, ridx)
+          else none
+        | none => none
+      match zextMatch with
+      | some (rb, ridx) =>
+        let ok := if ts.isEmpty then used.getD c.x false
+          else ts.all (I.supportsAddrZextIdx · sc disp)
+        (ok, pairRoots rb ridx)
+      | none =>
+        let ok := if ts.isEmpty then used.getD c.x false else ts.all (I.supportsAddrIdx · sc disp)
+        (ok, pairRoots b i)
+  | _ => (false, [])
 
 mutual
 def collectElideTree (eb : Trie (List Nat)) (eip : Trie Bool) :
@@ -273,13 +324,12 @@ end
 SIB `[base + idx*scale + disp]` load/store addresses per `I.supportsAddrDisp`/`I.supportsAddrIdx`,
 returning `(rewrittenTree, elideIps, addrDepsByMemIp)`. -/
 def elideAddrTreeDeps (I : Isa) (t : Tree) : Tree × Trie Bool × Trie (List Nat) :=
-  let st := scanElideTree .empty {} t
+  let st := scanElideTree I .empty {} t
   let (_, _, eb, eip) := st.cands.foldl
     (fun (bad, used, eb, eip) c =>
       let ts := st.addrUses.getD c.x []
-      let okUses := if ts.isEmpty then used.getD c.x false else supportsDefFact I c.df ts
+      let (okUses, roots) := resolveAddrCand I st.defs bad used c ts
       if !bad.getD c.x false && okUses then
-        let roots := defFactRoots c.df
         let bad' := roots.foldl (fun b r => b.insert r true) bad
         let used' := c.opVars.foldl (fun u v =>
           if natMem v roots then u else u.insert v true) used

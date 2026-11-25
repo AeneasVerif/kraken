@@ -1590,5 +1590,9 @@ def armLeaArithZext (base? : Option Reg) (idx : Reg) (shift : Nat) (disp : Int64
   testJcc := armTestJcc
   leaArith := armLeaArith
   zeroUpper32LeaArith := true
+  loadZextIdx := armLoadZextIdx
+  loadSextZextIdx := armLoadSextZextIdx
+  storeZextIdx := armStoreZextIdx
+  leaArithZext := armLeaArithZext
 
 end LeanQbe.T.Arm64

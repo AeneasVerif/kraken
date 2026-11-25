@@ -1874,6 +1874,12 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
   testJcc_spec := @armTestJcc_spec
   leaArith_spec := @armLeaArith_spec
   leaArith_zero32 := @armLeaArith_zero32
+  loadZextIdx_spec := @armLoadZextIdx_spec
+  loadZextIdx_zero32 _ := @armLoadZextIdx_zero32
+  loadZextIdx_zext _ := @armLoadZextIdx_zext
+  loadSextZextIdx_spec := @armLoadSextZextIdx_spec
+  storeZextIdx_spec := @armStoreZextIdx_spec
+  leaArithZext_spec := @armLeaArithZext_spec
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/
 
