@@ -30,7 +30,7 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Examples.Kissat.FullFidelityStep7
+namespace LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof0a
 
 open Std Std.Sat Std.ExtHashMap
 open LeanQbe.T
@@ -44,6 +44,7 @@ open LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open LeanQbe.T.Examples.Kissat.FullM7AnalyzeSort
 open scoped LeanQbe.T.Examples.Kissat.Full.FullMinTactics
 open Kraken.Bedrock2.Test
+open LeanQbe.T.Examples.Kissat.FullFidelityStep7
 
 local syntax "m7_lets_core" : tactic
 local macro_rules
@@ -1034,6 +1035,6 @@ theorem s7_sort_merge_wp {Γ : Env} {c : FullCfg} {s st0 : FullState} {ws0 : Lis
     have hij' : i = j := by omega
     rw [hij']; exact Nat.le_refl _
 
-end LeanQbe.T.Examples.Kissat.FullFidelityStep7
+end LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof0a
 
 end

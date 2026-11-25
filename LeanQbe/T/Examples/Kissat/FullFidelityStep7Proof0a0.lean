@@ -29,7 +29,7 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Examples.Kissat.FullFidelityStep7
+namespace LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof0a
 
 open Std Std.Sat Std.ExtHashMap
 open LeanQbe.T
@@ -43,6 +43,7 @@ open LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open LeanQbe.T.Examples.Kissat.FullM7AnalyzeSort
 open scoped LeanQbe.T.Examples.Kissat.Full.FullMinTactics
 open Kraken.Bedrock2.Test
+open LeanQbe.T.Examples.Kissat.FullFidelityStep7
 
 
 /-! ## 1. BitVec, Opaque Nat-Indexed Load/Store & Finishing Helpers -/
@@ -619,6 +620,6 @@ abbrev s7SortScatExpr {Val : Ty → Type} {Cont : List Ty → Type}
     (fun J92 => .jump J92.1 (Arg.imm 1, ()))
 
 
-end LeanQbe.T.Examples.Kissat.FullFidelityStep7
+end LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof0a
 
 end

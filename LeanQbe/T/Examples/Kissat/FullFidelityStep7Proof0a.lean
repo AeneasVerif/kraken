@@ -34,7 +34,7 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Examples.Kissat.FullFidelityStep7
+namespace LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof0a
 
 open Std Std.Sat Std.ExtHashMap
 open LeanQbe.T
@@ -48,6 +48,7 @@ open LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open LeanQbe.T.Examples.Kissat.FullM7AnalyzeSort
 open scoped LeanQbe.T.Examples.Kissat.Full.FullMinTactics
 open Kraken.Bedrock2.Test
+open LeanQbe.T.Examples.Kissat.FullFidelityStep7
 
 local syntax "m7_lets_core" : tactic
 local macro_rules
@@ -1182,8 +1183,8 @@ theorem full_sort_tmp_step7_wp (Γ : Env) :
   rcases args with ⟨p_hd, ⟨⟩⟩
   obtain ⟨c, s, R, heq, hlenOk, htl, hbd, hm, hQ⟩ := hspec
   subst heq
-  show Func.wp Γ full_sort_tmp_body (c.hdr, ()) m Q X
-  dsimp only [Func.wp, full_sort_tmp_body]
+  show Func.wp Γ FullFidelityStep7.full_sort_tmp_body (c.hdr, ()) m Q X
+  dsimp only [Func.wp, FullFidelityStep7.full_sort_tmp_body]
   have htmp_len : s.core.tmp.length = c.max_vars := hlenOk.core_ok.tmp_len_arr
   have hlvl_len : s.core.lvl.length = c.max_vars := hlenOk.core_ok.lvl_len
   have hws_len : s.scratch.wsort.length = 2 * c.max_vars := hlenOk.scratch_ok.wsort_len
@@ -1380,6 +1381,6 @@ theorem full_min_shrink_m6_step7_wp (Γ : Env)
       Func.wp Γ FullM8CoreParity.full_min_shrink_m6_body args m Q X :=
   FullM8CoreParity.full_min_shrink_m6_m8_wp_lvl Γ hSt hMm hDfs hSb
 
-end LeanQbe.T.Examples.Kissat.FullFidelityStep7
+end LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof0a
 
 end
