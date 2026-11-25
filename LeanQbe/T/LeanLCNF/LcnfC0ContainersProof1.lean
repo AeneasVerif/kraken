@@ -1144,4 +1144,3 @@ theorem lcnf_oob_wp :
     exact hk m' hm'
 
 end LeanQbe.T.LeanLCNF
-
