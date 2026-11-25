@@ -120,12 +120,14 @@ theorem controlflow_jump_correct [layout : WellFormedLayout controlflow_jump] (d
   kprologue controlflow_jump with d
   sym => kstep; tactic =>
   rename_i v v1
+  have hv : v = 1 := by grind
   have : v1 = 1 := by grind
-  simp only [this, show ((1 : BitVec 64) != 0) = true from rfl, eq_self, ↓reduceIte]
+  simp [hv, this]
   sym => kstep; tactic =>
-  rename_i v2
-  have : v2 = 0 := by grind
-  simp only [this, show ((0 : BitVec 64) != 0) = false from rfl, Bool.false_eq_true, ↓reduceIte]
+  rename_i v2 v3
+  have hv2 : v2 = 0 := by grind
+  have : v3 = 0 := by grind
+  simp [hv2, this]
   sym => kstep; tactic =>
   refine .done _ ⟨rfl, ?_⟩
   simp (config := { zetaDelta := true }) only [show BitVec.ofInt 64 (Int64.toInt 42) = 42#64 from rfl]

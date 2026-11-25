@@ -149,10 +149,12 @@ def kdsimpProj : DSimproc := fun e => do
   -- TODO: special support for instances?
   reduceProjCont? (← unfoldDefinition? e)
 
-def mkDSimpMethods (env : Environment) : Sym.DSimp.Methods :=
+def mkDSimpMethods (env : Environment) (withEvalGround : Bool := false) : Sym.DSimp.Methods :=
   let kdsimpDecls := kdeltaBetaOnly (kstepExtension.getState env).contains
-  { pre := kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta
-    post := evalGround }
+  if withEvalGround then
+    { pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta }
+  else
+    { pre := kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta }
 
 def resolveLabelSimproc (thm : Sym.Simp.Theorem) : Sym.Simp.Simproc := fun e => do
   unless e.isAppOfArity `Labels.label? 2 do return .rfl
@@ -212,11 +214,20 @@ public def stepAt? (maxInstrCount : Option (IO.Ref Nat)) (goal : Grind.Goal) :
     Grind.GrindTacticM (Option Grind.Goal) := do
   if (← maxInstrCount.mapM (·.get)) == some 0 then
     return none
+  unless (← goal.mvarId.getType).consumeMData.isAppOf `Eventually do
+    return none
   let stepAtRule ← getOrCreateBackwardRule `step_at
-  let .goals [reflPrecond, mvarId, d] ← Grind.liftGrindM (stepAtRule.apply goal.mvarId) | throwError m!"Help me!"
-  reflPrecond.refl
-  trace[Kraken.kstep] "stepAt: {Expr.mvar d}"
-  return some {goal with mvarId}
+  commitWhenSomeNoEx? do
+    let .goals [reflPrecond, mvarId, dMVar] ← Grind.liftGrindM (stepAtRule.apply goal.mvarId)
+      | return none
+    withDefault reflPrecond.refl
+    let d ← instantiateMVars (.mvar dMVar)
+    match_expr d with
+    | Kraken.Directive.label _ _ _ => pure ()
+    | _ => maxInstrCount.forM (·.modify (· - 1))
+    trace[Kraken.kstep] "stepAt: {d}"
+    let mvarId ← Grind.liftSymM (Sym.preprocessMVar mvarId)
+    return some { goal with mvarId }
 
 private def dsimpGoalCached (variant : Name) (methods : Sym.DSimp.Methods)
     (mvarId : MVarId) (args : Grind.DSimpArgs := {}) : Grind.GrindTacticM MVarId := do
@@ -233,10 +244,21 @@ private def dsimpGoalCached (variant : Name) (methods : Sym.DSimp.Methods)
 /-- Step 1 of `kstep`: apply the `@[kstep]` `Sym.dsimp` rewrites and introduce binders. -/
 def applyKStepDSimp (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
   withTraceNode `Kraken.kstep.dsimp (fun _ => return m!"applyKStepDSimp") do
-    let dsimpMethods := mkDSimpMethods (← getEnv)
+    let env ← getEnv
+    let dsimpMethods := mkDSimpMethods env
+    let dsimpGroundMethods := mkDSimpMethods env (withEvalGround := true)
     goal.withContext do
+      -- We run two separate `dsimp` passes (first without `evalGround`, then with `evalGround`)
+      -- instead of a single pass with `post := evalGround`. Under `module` mode, Lean's kernel
+      -- `isDefEq` is non-transitive for non-exposed `reduce_nat` ops (such as `Nat.xor`, `Nat.land`,
+      -- `Nat.lor`, `Nat.gcd`) when free variables appear syntactically in the unreduced operands:
+      -- `replaceTargetDefEq` in a single pass fails to prove `e0 =?= e2`, whereas splitting into
+      -- two `replaceTargetDefEq` steps (`e0 =?= e1` stripping free variables, then `e1 =?= e2`
+      -- evaluating ground ops) succeeds. See https://github.com/leanprover/lean4/issues/16741.
       let mvarId ← dsimpGoalCached `Kraken.kstep dsimpMethods goal.mvarId
       trace[Kraken.kstep.dsimp] "after dsimp:\n{← mvarId.getType}"
+      let mvarId ← dsimpGoalCached `Kraken.kstep.evalGround dsimpGroundMethods mvarId
+      trace[Kraken.kstep.dsimp] "after dsimp (evalGround):\n{← mvarId.getType}"
       introsIf ({ goal with mvarId })
 
 private def simpGoalCached (variant : Name) (methods : Sym.Simp.Methods)
@@ -457,10 +479,15 @@ partial def evalTacKStep : Tactic :=
   let (_, st) ← (evalSymKStepCore config maxSteps?).runAtGoal (← getMainGoal) (← Grind.mkDefaultParams {}) (sym := true)
   replaceMainGoal (st.goals.map (·.mvarId))
 
-syntax (name := symKStepKStep) "kstep_kstep" : grind
-syntax (name := symKStepKSimp) "kstep_ksimp" : grind
+syntax (name := tacKStepBlock) "kstep" optConfig (ppSpace num)? " => " tacticSeq : tactic
+macro_rules
+| `(tactic| kstep $cfg:optConfig $[$n?:num]? => $e:tacticSeq) =>
+  `(tactic| sym => kstep $cfg $[$n?:num]?; tactic => $e:tacticSeq)
+
+syntax (name := symKStepKStep)  "kstep_kstep"   : grind
+syntax (name := symKStepKSimp)  "kstep_ksimp"   : grind
 syntax (name := symKStepStepAt) "kstep_step_at" : grind
-syntax (name := symKStepKMem) "kstep_kmem" : grind
+syntax (name := symKStepKMem)   "kstep_kmem"    : grind
 
 @[grind_tactic symKStepKStep]
 def evalSymKStepKStep : Grind.GrindTactic := fun _ => do

@@ -357,6 +357,7 @@ theorem p7_correct [layout : WellFormedLayout p7] (s₀ : MachineData) (R : Data
   simp only [h_val, Int64.toBitVec_sub,
     Labels.label!_of_label? (label?_eq_some_addrOf (p := p7) (lbl := "end") rfl),
     Labels.label!_of_label? (label?_eq_some_addrOf (p := p7) (lbl := "start") rfl)]
+  grind
 
 -- The same run under `fakeLayout`, where the nops take 5 + 3 bytes. The eval plays the loader: it
 -- stores the word's value at `size`.
@@ -415,7 +416,7 @@ theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_he
   have h_mem2 := Mem.storeInt_sep (s₀.regs.rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ s₀.regs.rcx.toBitVec.toInt
   have h_mem2' : (Eq ((Int.toBytes 8 s₀.regs.rax.toBitVec.toInt).At s₀.regs.rdi) ⋆ (Eq ((Int.toBytes 8 s₀.regs.rcx.toBitVec.toInt).At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
   have h_mem2'' : (Eq ((Int.toBytes 8 s₀.regs.rcx.toBitVec.toInt).At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 s₀.regs.rax.toBitVec.toInt).At s₀.regs.rdi.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
-    sym =>
+  sym =>
   -- TODO: these would be prime examples for cancellation!
   -- TODO: the kstep tactic is supposed to apply `exact`, but `exact` only applies after `simp`, so
   -- clearly, stuff is missing from the simp-set in `kstep`
@@ -453,7 +454,7 @@ theorem sib_example_correct [layout : WellFormedLayout sib_example] (s₀ : Mach
       ⟨s₀, layout.start⟩ := by
   kprologue sib_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
-    have h_mem' := Mem.storeInt_sep (s₀.regs.rdi.toBitVec + BitVec.ofInt 64 (s₀.regs.r15.toBitVec.toInt * 8)) 8 v.toBytes R s₀.dmem ⟨h_mem, h_bs⟩ 42
+  have h_mem' := Mem.storeInt_sep (s₀.regs.rdi.toBitVec + BitVec.ofInt 64 (s₀.regs.r15.toBitVec.toInt * 8)) 8 v.toBytes R s₀.dmem ⟨h_mem, h_bs⟩ 42
   sym =>
   kstep
   case h_mem => tactic => simp; exact h_mem
