@@ -50,22 +50,18 @@ theorem x64VecSlotWidth_pair {t : Ty} {w : SlotWidth} (hw : x64VecSlotWidth t = 
     ∃ a b, t = .pair a b := by
   cases t with
   | pair a b => exact ⟨a, b, rfl⟩
-  | bool =>
-    dsimp only [x64VecSlotWidth, x64IsVecBits, x64IsI32Vec, x64IsF32Vec] at hw
-    cases hw
+  | bool => dsimp only [x64VecSlotWidth, x64IsVecBits, x64IsI32Vec, x64IsF32Vec] at hw; cases hw
   | bits n =>
     by_cases hn : n = 32
     · subst hn
       dsimp only [x64VecSlotWidth, x64IsVecBits, x64IsI32Vec, x64IsF32Vec, Ty.size] at hw
       cases hw
     · dsimp only [x64VecSlotWidth, x64IsVecBits, x64IsF32Vec] at hw
-      simp only [x64IsI32Vec_bits] at hw
-      simp [hn] at hw
+      simp only [x64IsI32Vec_bits] at hw; simp [hn] at hw
   | float f =>
     cases f <;>
       dsimp only [x64VecSlotWidth, x64IsVecBits, x64IsI32Vec, x64IsF32Vec, Ty.size,
-        Fmt.width] at hw <;>
-      cases hw
+        Fmt.width] at hw <;> cases hw
 
 theorem x64VecSlotWidth_bits_eq {t : Ty} {w : SlotWidth} (hw : x64VecSlotWidth t = some w) :
     w.bits = t.size := by
@@ -81,39 +77,45 @@ theorem x64VecSlotWidth_le_awBits {t : Ty} {w : SlotWidth} (hw : x64VecSlotWidth
   cases w <;> decide
 
 theorem x64VecSlotWidth_le_512 {t : Ty} {w : SlotWidth} (hw : x64VecSlotWidth t = some w) :
-    t.size ≤ 512 := by
-  rw [← x64VecSlotWidth_bits_eq hw]
-  exact w.bits_le_512
+    t.size ≤ 512 :=
+  x64VecSlotWidth_bits_eq hw ▸ w.bits_le_512
 
-theorem x64IsI32Vec_size_bytes {t : Ty} (h : x64IsI32Vec t = true) : 8 * t.bytes = t.size := by
-  induction t with
-  | bool | float _ => dsimp only [x64IsI32Vec] at h; cases h
-  | bits n =>
-    by_cases hn : n = 32
-    · subst hn; rfl
-    · rw [x64IsI32Vec_bits] at h; simp [hn] at h
-  | pair a b iha _ =>
-    dsimp only [x64IsI32Vec] at h
-    simp only [Bool.and_eq_true, beq_iff_eq] at h
-    obtain ⟨rfl, ha⟩ := h
-    have := iha ha
-    simp only [Ty.size, Ty.bytes] at this ⊢
-    omega
+private theorem vecPred_size_bytes (P : Ty → Bool)
+    (hleaf : ∀ t, P t = true → (∀ a b, t ≠ .pair a b) → 8 * t.bytes = t.size)
+    (hpair : ∀ a b, P (.pair a b) = true → a = b ∧ P a = true) :
+    ∀ t, P t = true → 8 * t.bytes = t.size
+  | .pair a b, h => by
+    obtain ⟨rfl, ha⟩ := hpair a b h
+    have := vecPred_size_bytes P hleaf hpair a ha
+    simp only [Ty.size, Ty.bytes] at this ⊢; omega
+  | .bool, h | .bits _, h | .float _, h => hleaf _ h (by simp)
 
-theorem x64IsF32Vec_size_bytes {t : Ty} (h : x64IsF32Vec t = true) : 8 * t.bytes = t.size := by
-  induction t with
-  | bool | bits _ => dsimp only [x64IsF32Vec] at h; cases h
-  | float f =>
-    cases f with
-    | s => rfl
-    | h | d | q => dsimp only [x64IsF32Vec] at h; cases h
-  | pair a b iha _ =>
-    dsimp only [x64IsF32Vec] at h
-    simp only [Bool.and_eq_true, beq_iff_eq] at h
-    obtain ⟨rfl, ha⟩ := h
-    have := iha ha
-    simp only [Ty.size, Ty.bytes] at this ⊢
-    omega
+theorem x64IsI32Vec_size_bytes {t : Ty} (h : x64IsI32Vec t = true) : 8 * t.bytes = t.size :=
+  vecPred_size_bytes x64IsI32Vec (fun u hu hnp => by
+    cases u with
+    | bool | float _ => dsimp only [x64IsI32Vec] at hu; cases hu
+    | pair a b => exact absurd rfl (hnp a b)
+    | bits n =>
+      by_cases hn : n = 32
+      · subst hn; rfl
+      · rw [x64IsI32Vec_bits] at hu; simp [hn] at hu)
+    (fun a b hab => by
+      dsimp only [x64IsI32Vec] at hab
+      simp only [Bool.and_eq_true, beq_iff_eq] at hab
+      exact hab)
+    t h
+
+theorem x64IsF32Vec_size_bytes {t : Ty} (h : x64IsF32Vec t = true) : 8 * t.bytes = t.size :=
+  vecPred_size_bytes x64IsF32Vec (fun u hu hnp => by
+    cases u with
+    | bool | bits _ => dsimp only [x64IsF32Vec] at hu; cases hu
+    | pair a b => exact absurd rfl (hnp a b)
+    | float f => cases f <;> first | rfl | (dsimp only [x64IsF32Vec] at hu; cases hu))
+    (fun a b hab => by
+      dsimp only [x64IsF32Vec] at hab
+      simp only [Bool.and_eq_true, beq_iff_eq] at hab
+      exact hab)
+    t h
 
 theorem x64IsVecBits_of_slot {t : Ty} {w : SlotWidth} (hw : x64VecSlotWidth t = some w) :
     x64IsVecBits t = true := by
@@ -148,20 +150,26 @@ theorem x64W_bits_le_awBits (w : SlotWidth) : w.bits ≤ (x64AwOf w).bits := by
 /-! ## 2. BitVec, `ofLanes`, `RegZmms`, and `Effects.All` helpers -/
 
 theorem take_eq_setWidth {m n : Nat} (v : BitVec m) : BitVec.take v n = v.setWidth n := by
-  apply BitVec.eq_of_getLsbD_eq
-  intro i hi
-  simp [BitVec.take, hi]
+  apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [BitVec.take, hi]
 
 theorem zeroExtend_eq_setWidth {m n : Nat} (v : BitVec m) :
     v.zeroExtend n = v.setWidth n := rfl
 
+theorem imm8_take (imm : BitVec 8) : (BitVec.ofNat 64 imm.toNat).take 8 = imm := by
+  rw [take_eq_setWidth]; apply BitVec.eq_of_toNat_eq; simp
+
+theorem setWidth_512_cast {w : SlotWidth} {t : Ty} (ht : t.size = w.bits) (x : BitVec t.size) :
+    ((x.setWidth 512).setWidth w.bits) = x.cast ht := by
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  have hi' : i < t.size := ht ▸ hi
+  have hi'' : i < 64 * w.slots := SlotWidth.bits_eq_64_mul_slots w ▸ hi
+  simp [hi', hi'', show i < 512 from Nat.lt_of_lt_of_le hi w.bits_le_512]
+
 theorem setWidth_replaceLow {w n : Nat} (hn : n ≤ w) (old : BitVec w) (new : BitVec n) :
     (old.replaceLow new).setWidth n = new := by
-  apply BitVec.eq_of_getLsbD_eq
-  intro i hi
-  simp only [BitVec.replaceLow, BitVec.getLsbD_setWidth, hi, decide_true, Bool.true_and]
-  have hlt : (i : Nat) < w := Nat.lt_of_lt_of_le hi hn
-  simp only [hlt, decide_true, Bool.true_and]
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  have hlt : i < w := Nat.lt_of_lt_of_le hi hn
+  simp only [BitVec.replaceLow, BitVec.getLsbD_setWidth, hi, hlt, decide_true, Bool.true_and]
   rw [show (old.drop n).append new = (old.drop n) ++ new from rfl, BitVec.getLsbD_append]
   simp [hi]
 
@@ -176,37 +184,33 @@ theorem getLsbD_ofLanes_fold {w c : Nat} (f : Nat → BitVec c) (hpos : 0 < c) :
     simp only [BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_setWidth,
       ih, hi, decide_true, Bool.true_and]
     have hcn : c * n = n * c := Nat.mul_comm c n
-    have hcn1 : c * (n + 1) = (n + 1) * c := Nat.mul_comm c (n + 1)
-    by_cases hlt : i < c * n
+    rcases Nat.lt_or_ge i (c * n) with hlt | hge
     · have hd1 : i / c < n := (Nat.div_lt_iff_lt_mul hpos).mpr (hcn ▸ hlt)
-      have hd2 : i / c < n + 1 := Nat.lt_succ_of_lt hd1
-      simp [hlt, hd1, hd2]
-    · by_cases hlt2 : i < c * (n + 1)
-      · have hge1 : ¬(i / c < n) := fun h => hlt (hcn ▸ (Nat.div_lt_iff_lt_mul hpos).mp h)
-        have hd2 : i / c < n + 1 := (Nat.div_lt_iff_lt_mul hpos).mpr (hcn1 ▸ hlt2)
-        have hdiv : i / c = n := by omega
+      simp [hlt, hd1, Nat.lt_succ_of_lt hd1]
+    · have hge1 : ¬(i / c < n) := fun h => by have := (Nat.div_lt_iff_lt_mul hpos).mp h; omega
+      rcases Nat.lt_or_ge i (c * (n + 1)) with hlt2 | hge2
+      · have hdiv : i / c = n := by
+          have := (Nat.div_lt_iff_lt_mul hpos).mpr (Nat.mul_comm c (n + 1) ▸ hlt2)
+          have := Nat.div_le_div_right (c := c) hge
+          rw [Nat.mul_comm c n, Nat.mul_div_cancel _ hpos] at this
+          omega
         have hdm := Nat.div_add_mod i c
         rw [hdiv] at hdm
-        have hmod : i - c * n = i % c := by omega
-        have hltw : i % c < w := Nat.lt_of_le_of_lt (Nat.mod_le i c) hi
-        simp [hlt, hdiv, hmod, Bool.false_or, hltw]
-      · have hge1 : ¬(i / c < n) := fun h => hlt (hcn ▸ (Nat.div_lt_iff_lt_mul hpos).mp h)
-        have hge2 : ¬(i / c < n + 1) := fun h => hlt2 (hcn1 ▸ (Nat.div_lt_iff_lt_mul hpos).mp h)
-        have hgec : c ≤ i - c * n := by
-          have : c * (n + 1) = c * n + c := Nat.mul_succ c n
-          omega
-        have hfalse : (f n).getLsbD (i - c * n) = false := BitVec.getLsbD_of_ge (f n) _ hgec
-        simp [hlt, hge1, hge2, hfalse]
+        simp [hge, hdiv, show i - c * n = i % c by omega,
+          Nat.lt_of_le_of_lt (Nat.mod_le i c) hi]
+      · have hge2' : ¬(i / c < n + 1) := fun h => by
+          have := (Nat.div_lt_iff_lt_mul hpos).mp h; rw [Nat.mul_comm] at hge2; omega
+        have hgec : c ≤ i - c * n := by rw [Nat.mul_succ] at hge2; omega
+        simp [hge1, hge2', BitVec.getLsbD_of_ge (f n) _ hgec]
 
 theorem getLsbD_ofLanes {w c : Nat} (f : Nat → BitVec c) (hpos : 0 < c) (hdvd : c ∣ w)
     (i : Nat) (hi : i < w) :
     (BitVec.ofLanes w c f).getLsbD i = (f (i / c)).getLsbD (i % c) := by
   rw [BitVec.ofLanes, getLsbD_ofLanes_fold f hpos (w / c) i hi]
+  obtain ⟨k, hk⟩ := hdvd
   have hlt : i / c < w / c := by
-    obtain ⟨k, hk⟩ := hdvd
     rw [hk, Nat.mul_comm c k, Nat.mul_div_cancel k hpos, Nat.div_lt_iff_lt_mul hpos]
-    rw [hk, Nat.mul_comm c k] at hi
-    exact hi
+    rw [hk, Nat.mul_comm c k] at hi; exact hi
   simp [hlt]
 
 theorem RegZmms.get512_set512_same (s : RegZmms) (r : RegMm) (v : BitVec 512) :
@@ -355,6 +359,21 @@ theorem x64LeaBaseR10_fallsTo (rb : Reg64) (s : MachineData) :
   simp only [t_step_simp, x64AtBaseR10_interp]
   exact hk _ rfl
 
+private theorem x64MoviLeaBaseR10_wp [Host] (rb : Reg64) (disp : BitVec 64) (s : MachineData)
+    (hrb : rb ≠ .r10) :
+    @Program.wp _ [x64MoviD .r10 disp, ins (.lea (q .r10) (x64AtBaseR10 rb))]
+      (fun s' => s'.dmem = s.dmem ∧ s'.status = s.status ∧ s'.zmms = s.zmms ∧
+        (∀ r, r ≠ .r10 → s'.regs.get64 r = s.regs.get64 r) ∧
+        s'.regs.get64 .r10 = s.regs.get64 rb + disp)
+      (fun _ _ => False) s := by
+  refine Program.wp.cons (Directive.FallsTo.wp (x64MoviD_fallsTo .r10 disp s)) ?_
+  rintro s₁ rfl
+  refine Program.wp.mono (Directive.FallsTo.wp (x64LeaBaseR10_fallsTo rb _)) ?_
+  rintro s' rfl
+  refine ⟨rfl, rfl, rfl, fun r hr => ?_, ?_⟩
+  · simp [Reg64s.get64_set64, hr.symm]
+  · simp [Reg64s.get64_set64_same, Reg64s.get64_set64_of_ne _ _ _ _ hrb.symm]
+
 theorem x64AddrPrep_fallsTo [Host] {a : AddrArg Reg64} {s : MachineData}
     (ha : ∀ r ∈ a.regs, r ∉ x64Scratch) :
     @Program.wp _ (x64AddrPrep a).1
@@ -371,16 +390,9 @@ theorem x64AddrPrep_fallsTo [Host] {a : AddrArg Reg64} {s : MachineData}
     split
     · exact Program.wp_nil ⟨rfl, rfl, rfl, fun _ _ => rfl, fun {_} p => by
         rw [AddrExpr.interp_base_disp, zeroExtend_eq_setWidth, BitVec.setWidth_eq]; rfl⟩
-    · refine Program.wp.cons (Directive.FallsTo.wp (x64MoviD_fallsTo .r10 disp.toBitVec s)) ?_
-      rintro s₁ rfl
-      refine Program.wp.mono
-        (Directive.FallsTo.wp
-          (x64LeaBaseR10_fallsTo rb { s with regs := s.regs.set64 .r10 disp.toBitVec })) ?_
-      rintro s' rfl
-      refine ⟨rfl, rfl, rfl, fun r hr => ?_, fun {_} p => ?_⟩
-      · simp [Reg64s.get64_set64, hr.symm]
-      · simp only [atReg_interp, Reg64s.get64_set64_same,
-          Reg64s.get64_set64_of_ne _ _ _ _ hrb.symm]; rfl
+    · refine Program.wp.mono (x64MoviLeaBaseR10_wp rb disp.toBitVec s hrb) ?_
+      rintro s' ⟨hd, hs, hz, hregs, hr10⟩
+      exact ⟨hd, hs, hz, hregs, fun {_} p => by rw [atReg_interp, hr10]; rfl⟩
   | baseIdxDisp rb ri sc disp =>
     have hrb := (ne_of_not_mem_x64Scratch (ha rb (by simp [AddrArg.regs]))).1
     have hri := (ne_of_not_mem_x64Scratch (ha ri (by simp [AddrArg.regs]))).1
@@ -388,21 +400,12 @@ theorem x64AddrPrep_fallsTo [Host] {a : AddrArg Reg64} {s : MachineData}
     split
     · exact Program.wp_nil ⟨rfl, rfl, rfl, fun _ _ => rfl, fun {_} p => by
         rw [atSIB_interp]; rfl⟩
-    · refine Program.wp.cons (Directive.FallsTo.wp (x64MoviD_fallsTo .r10 disp.toBitVec s)) ?_
-      rintro s₁ rfl
-      refine Program.wp.mono
-        (Directive.FallsTo.wp
-          (x64LeaBaseR10_fallsTo rb { s with regs := s.regs.set64 .r10 disp.toBitVec })) ?_
-      rintro s' rfl
-      refine ⟨rfl, rfl, rfl, fun r hr => ?_, fun {_} p => ?_⟩
-      · simp [Reg64s.get64_set64, hr.symm]
-      · rw [atSIB_interp, Reg64s.get64_set64_same,
-          Reg64s.get64_set64_of_ne _ _ _ _ hrb.symm,
-          Reg64s.get64_set64_of_ne _ _ _ _ hri.symm,
-          Reg64s.get64_set64_of_ne _ _ _ _ hri.symm,
-          Reg64s.get64_set64_same]
-        simp only [AddrArg.eval, Int64.toBitVec_zero, BitVec.add_zero]
-        ac_rfl
+    · refine Program.wp.mono (x64MoviLeaBaseR10_wp rb disp.toBitVec s hrb) ?_
+      rintro s' ⟨hd, hs, hz, hregs, hr10⟩
+      refine ⟨hd, hs, hz, hregs, fun {_} p => ?_⟩
+      rw [atSIB_interp, hr10, hregs ri hri]
+      simp only [AddrArg.eval, Int64.toBitVec_zero, BitVec.add_zero]
+      ac_rfl
   | imm c =>
     dsimp only [x64AddrPrep, x64AddrPrepIns]
     refine Program.wp.mono (Directive.FallsTo.wp (x64MoviD_fallsTo .r10 c s)) ?_
@@ -463,13 +466,9 @@ theorem x64Pshufd_fallsTo (vd vs : RegMm) (imm : BitVec 8) (s : MachineData) :
       (fun s' => s' = { s with zmms := (s.zmms.setLegacy (.xmm vd)
         (((s.zmms.get512 vs).setWidth 128).shuffleDwords imm)) }) := by
   intro _ p next jmp P hk
-  have himm : (BitVec.ofNat 64 imm.toNat).take 8 = imm := by
-    rw [take_eq_setWidth]
-    apply BitVec.eq_of_toNat_eq
-    simp
   simp only [t_step_simp, AvxOperation.interp, AvxRegOrMem.interp, MachineData.setAvxLegacy,
     MachineData.setAvxLegacyReg, RegZmms.get_eq_setWidth, AvxReg.base, ConstExpr.interp,
-    Int64_toBitVec_ofNat, himm]
+    Int64_toBitVec_ofNat, imm8_take imm]
   exact hk _ rfl
 
 theorem x64Vpternlogd_fallsTo (w : SlotWidth) (vd s2 s3 : RegMm) (imm : BitVec 8)
@@ -481,138 +480,90 @@ theorem x64Vpternlogd_fallsTo (w : SlotWidth) (vd s2 s3 : RegMm) (imm : BitVec 8
           ((s.zmms.get512 s2).setWidth (x64AwOf w).bits)
           ((s.zmms.get512 s3).setWidth (x64AwOf w).bits) imm)) }) := by
   intro _ p next jmp P hk
-  have himm : (BitVec.ofNat 64 imm.toNat).take 8 = imm := by
-    rw [take_eq_setWidth]
-    apply BitVec.eq_of_toNat_eq
-    simp
   simp only [t_step_simp, x64TernlogD, AvxOperation.interp, AvxRegOrMem.interp,
     MachineData.setAvx, MachineData.setAvxReg, RegZmms.get_eq_setWidth, x64AvxRegOf_base,
-    ConstExpr.interp, Int64_toBitVec_ofNat, himm]
+    ConstExpr.interp, Int64_toBitVec_ofNat, imm8_take imm]
   exact hk _ rfl
 
 /-! ## 4. `x64VmoviWith` proofs (`ternaryLogic`, `0x00`, `0xFF`, `movi64`, `movi128`) -/
 
-private theorem ternaryLogic_key :
-    ∀ (k : Fin 8) (x y z : Bool),
-      ((if k.1 / 4 % 2 == 1 then x else !x) &&
-       (if k.1 / 2 % 2 == 1 then y else !y) &&
-       (if k.1 % 2 == 1 then z else !z)) =
-      (k.1 == 4 * x.toNat + 2 * y.toNat + z.toNat) := by decide
-
 private theorem ternaryLogic_fold_getLsbD {w : Nat} (a b c : BitVec w) (imm : BitVec 8)
-    (i : Nat) (hi : i < w) :
-    ∀ (l : List Nat) (acc : BitVec w), (∀ k ∈ l, k < 8) →
-      (l.foldl (fun acc k =>
-        if imm.getLsbD k then
-          acc ||| ((if k / 4 % 2 == 1 then a else ~~~a) &&&
-            (if k / 2 % 2 == 1 then b else ~~~b) &&&
-            (if k % 2 == 1 then c else ~~~c))
-        else acc) acc).getLsbD i =
-      (acc.getLsbD i ||
-        (decide ((4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat) ∈ l) &&
-         imm.getLsbD (4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat)))
-  | [], acc, _ => by simp
-  | k :: l, acc, hl => by
-    have hk : k < 8 := hl k List.mem_cons_self
-    have ih := ternaryLogic_fold_getLsbD a b c imm i hi l
-    simp only [List.foldl_cons, List.mem_cons]
-    let idx := 4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat
-    have hkey : ((if k / 4 % 2 == 1 then a.getLsbD i else !a.getLsbD i) &&
-        (if k / 2 % 2 == 1 then b.getLsbD i else !b.getLsbD i) &&
-        (if k % 2 == 1 then c.getLsbD i else !c.getLsbD i)) = (k == idx) :=
-      ternaryLogic_key ⟨k, hk⟩ (a.getLsbD i) (b.getLsbD i) (c.getLsbD i)
-    have hterm : ((if k / 4 % 2 == 1 then a else ~~~a) &&&
-        (if k / 2 % 2 == 1 then b else ~~~b) &&&
-        (if k % 2 == 1 then c else ~~~c)).getLsbD i = (k == idx) := by
-      rw [BitVec.getLsbD_and, BitVec.getLsbD_and]
-      have h1 : (if k / 4 % 2 == 1 then a else ~~~a).getLsbD i =
-          (if k / 4 % 2 == 1 then a.getLsbD i else !a.getLsbD i) := by
+    (i : Nat) (hi : i < w) (l : List Nat) (acc : BitVec w) :
+    (l.foldl (fun acc j =>
+      if imm.getLsbD j then
+        acc ||| ((if j / 4 % 2 == 1 then a else ~~~a) &&&
+          (if j / 2 % 2 == 1 then b else ~~~b) &&&
+          (if j % 2 == 1 then c else ~~~c))
+      else acc) acc).getLsbD i =
+    (acc.getLsbD i || l.any (fun j => imm.getLsbD j &&
+      ((if j / 4 % 2 == 1 then a.getLsbD i else !a.getLsbD i) &&
+       (if j / 2 % 2 == 1 then b.getLsbD i else !b.getLsbD i) &&
+       (if j % 2 == 1 then c.getLsbD i else !c.getLsbD i)))) := by
+  induction l generalizing acc with
+  | nil => simp
+  | cons j js ih =>
+    rw [List.foldl_cons, ih, List.any_cons]
+    cases imm.getLsbD j
+    · simp
+    · simp only [↓reduceIte, BitVec.getLsbD_or, BitVec.getLsbD_and, Bool.true_and, Bool.or_assoc]
+      have h1 : (if (j / 4 % 2 == 1) = true then a else ~~~a).getLsbD i =
+          (if (j / 4 % 2 == 1) = true then a.getLsbD i else !a.getLsbD i) := by
         split <;> simp [hi]
-      have h2 : (if k / 2 % 2 == 1 then b else ~~~b).getLsbD i =
-          (if k / 2 % 2 == 1 then b.getLsbD i else !b.getLsbD i) := by
+      have h2 : (if (j / 2 % 2 == 1) = true then b else ~~~b).getLsbD i =
+          (if (j / 2 % 2 == 1) = true then b.getLsbD i else !b.getLsbD i) := by
         split <;> simp [hi]
-      have h3 : (if k % 2 == 1 then c else ~~~c).getLsbD i =
-          (if k % 2 == 1 then c.getLsbD i else !c.getLsbD i) := by
+      have h3 : (if (j % 2 == 1) = true then c else ~~~c).getLsbD i =
+          (if (j % 2 == 1) = true then c.getLsbD i else !c.getLsbD i) := by
         split <;> simp [hi]
-      rw [h1, h2, h3, hkey]
-    by_cases himmk : imm.getLsbD k = true
-    · simp only [himmk, ↓reduceIte]
-      rw [ih _ (fun m hm => hl m (List.mem_cons_of_mem _ hm)), BitVec.getLsbD_or, hterm]
-      dsimp only [idx] at hkey ⊢
-      by_cases heq : k = 4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat
-      · subst heq; simp [himmk]
-      · have hbeq : (k == 4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat) =
-            false := beq_false_of_ne heq
-        have hne : 4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat ≠ k :=
-          fun h => heq h.symm
-        simp [hbeq, hne]
-    · have himmk' : imm.getLsbD k = false := Bool.eq_false_iff.mpr himmk
-      simp only [himmk', Bool.false_eq_true, ↓reduceIte]
-      rw [ih _ (fun m hm => hl m (List.mem_cons_of_mem _ hm))]
-      by_cases heq : k = 4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat
-      · subst heq; simp [himmk']
-      · have hne : 4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat ≠ k :=
-          fun h => heq h.symm
-        simp [hne]
+      rw [h1, h2, h3]
 
 theorem getLsbD_ternaryLogic {w : Nat} (a b c : BitVec w) (imm : BitVec 8) (i : Nat)
     (hi : i < w) :
     (BitVec.ternaryLogic a b c imm).getLsbD i =
       imm.getLsbD (4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat) := by
   dsimp only [BitVec.ternaryLogic]
-  rw [ternaryLogic_fold_getLsbD a b c imm i hi (List.range 8) (0#w)
-    (fun k hk => List.mem_range.mp hk)]
-  have hlt : 4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat < 8 := by
-    cases a.getLsbD i <;> cases b.getLsbD i <;> cases c.getLsbD i <;> decide
-  have hmem : 4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (c.getLsbD i).toNat ∈
-      List.range 8 := List.mem_range.mpr hlt
-  simp [hmem]
+  rw [ternaryLogic_fold_getLsbD a b c imm i hi (List.range 8) (0#w),
+    show List.range 8 = [0, 1, 2, 3, 4, 5, 6, 7] by decide]
+  cases a.getLsbD i <;> cases b.getLsbD i <;> cases c.getLsbD i <;> simp
 
 private theorem ternaryLogic_all0 {w : Nat} (a : BitVec w) :
     BitVec.ternaryLogic a a a 0x00#8 = 0#w := by
-  apply BitVec.eq_of_getLsbD_eq
-  intro i hi
-  rw [getLsbD_ternaryLogic a a a 0x00#8 i hi]
-  simp
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  rw [getLsbD_ternaryLogic a a a 0x00#8 i hi]; simp
 
 private theorem ternaryLogic_all1 {w : Nat} (a : BitVec w) :
     BitVec.ternaryLogic a a a 0xFF#8 = BitVec.allOnes w := by
-  apply BitVec.eq_of_getLsbD_eq
-  intro i hi
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
   rw [getLsbD_ternaryLogic a a a 0xFF#8 i hi]
   cases a.getLsbD i <;> simp [hi]
 
 theorem ternaryLogic_or (a b : BitVec 128) :
     BitVec.ternaryLogic a b b 0xFE#8 = a ||| b := by
-  apply BitVec.eq_of_getLsbD_eq
-  intro i hi
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
   rw [getLsbD_ternaryLogic a b b 0xFE#8 i hi, BitVec.getLsbD_or]
   cases a.getLsbD i <;> cases b.getLsbD i <;> rfl
 
 theorem shufd_0x4e_combine128 (hi64 lo64 : BitVec 64) :
     ((hi64.setWidth 128).shuffleDwords 0x4e#8) ||| (lo64.setWidth 128) =
       (hi64 ++ lo64).cast (by decide) := by
-  apply BitVec.eq_of_getLsbD_eq
-  intro i hi
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
   rw [BitVec.getLsbD_or, BitVec.shuffleDwords, getLsbD_ofLanes _ (by decide) (by decide) i hi,
     BitVec.getLsbD_setWidth, BitVec.getLsbD_cast, BitVec.getLsbD_append]
   have hi' : (i : Nat) < 128 := hi
   simp only [BitVec.lane, BitVec.getLsbD_extractLsb', BitVec.getLsbD_setWidth,
     show i % 32 < 32 from Nat.mod_lt _ (by decide), decide_true, Bool.true_and]
   rcases Nat.lt_or_ge i 64 with h64 | h64
-  · have hq : i / 32 = 0 ∨ i / 32 = 1 := by omega
-    have hidx : 4 * ((i / 32) / 4) + ((0x4e#8 : BitVec 8).toNat >>> (2 * ((i / 32) % 4))) % 4 =
+  · have hidx : 4 * ((i / 32) / 4) + ((0x4e#8 : BitVec 8).toNat >>> (2 * ((i / 32) % 4))) % 4 =
         i / 32 + 2 := by
-      rcases hq with h | h <;> simp [h]
+      rcases (by omega : i / 32 = 0 ∨ i / 32 = 1) with h | h <;> simp [h]
     rw [hidx]
     have hhi0 : hi64.getLsbD (32 * (i / 32 + 2) + i % 32) = false :=
       BitVec.getLsbD_of_ge hi64 _ (by omega)
     have hlt128 : 32 * (i / 32 + 2) + i % 32 < 128 := by omega
     simp [hhi0, h64, hi', hlt128]
-  · have hq : i / 32 = 2 ∨ i / 32 = 3 := by omega
-    have hidx : 4 * ((i / 32) / 4) + ((0x4e#8 : BitVec 8).toNat >>> (2 * ((i / 32) % 4))) % 4 =
+  · have hidx : 4 * ((i / 32) / 4) + ((0x4e#8 : BitVec 8).toNat >>> (2 * ((i / 32) % 4))) % 4 =
         i / 32 - 2 := by
-      rcases hq with h | h <;> simp [h]
+      rcases (by omega : i / 32 = 2 ∨ i / 32 = 3) with h | h <;> simp [h]
     rw [hidx]
     have hsum : 32 * (i / 32 - 2) + i % 32 = i - 64 := by omega
     have hlo0 : lo64.getLsbD i = false := BitVec.getLsbD_of_ge lo64 i (by omega)
@@ -623,8 +574,7 @@ theorem shufd_0x4e_combine128 (hi64 lo64 : BitVec 64) :
 theorem movi128_join512 (c : BitVec 512) :
     ((c.extractLsb' 64 64 ++ c.extractLsb' 0 64).cast (by decide) : BitVec 128) =
       c.setWidth 128 := by
-  apply BitVec.eq_of_getLsbD_eq
-  intro i hi
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
   simp only [BitVec.getLsbD_cast, BitVec.getLsbD_append, BitVec.getLsbD_extractLsb',
     BitVec.getLsbD_setWidth, show (i : Nat) < 128 from hi, decide_true, Bool.true_and]
   split <;> rename_i hlt
@@ -673,28 +623,36 @@ theorem x64Movi128_wp [Host] (vd tmp : RegMm) (hne : tmp ≠ vd) (c : BitVec 512
       ((z3.get512 tmp).setWidth 128) ((z3.get512 tmp).setWidth 128) 0xFE#8 =
       c.setWidth 128 := by
     dsimp only [z3, z2, z1]
-    rw [RegZmms.get512_set_xmm_of_ne _ hne,
-      RegZmms.get512_setLegacy_xmm,
-      setWidth_replaceLow (by decide),
-      RegZmms.get512_set_xmm_same,
-      BitVec.setWidth_setWidth_of_le _ (by decide),
-      BitVec.setWidth_eq,
-      RegZmms.get512_set_xmm_same,
-      BitVec.setWidth_setWidth_of_le _ (by decide),
-      BitVec.setWidth_eq,
-      ternaryLogic_or,
-      shufd_0x4e_combine128,
-      movi128_join512]
+    rw [RegZmms.get512_set_xmm_of_ne _ hne, RegZmms.get512_setLegacy_xmm,
+      setWidth_replaceLow (by decide), RegZmms.get512_set_xmm_same,
+      BitVec.setWidth_setWidth_of_le _ (by decide), BitVec.setWidth_eq,
+      RegZmms.get512_set_xmm_same, BitVec.setWidth_setWidth_of_le _ (by decide),
+      BitVec.setWidth_eq, ternaryLogic_or, shufd_0x4e_combine128, movi128_join512]
   refine ⟨rfl, rfl, fun r hr => ?_, fun vr hvd htmp => ?_, ?_⟩
   · simp [Reg64s.get64_set64_of_ne _ _ _ _ hr.symm]
   · dsimp only
-    rw [RegZmms.get512_set_avx_of_ne _ .w128 hvd.symm,
-      RegZmms.get512_set_xmm_of_ne _ htmp.symm,
-      RegZmms.get512_setLegacy_xmm_of_ne _ hvd.symm,
-      RegZmms.get512_set_xmm_of_ne _ hvd.symm]
+    rw [RegZmms.get512_set_avx_of_ne _ .w128 hvd.symm, RegZmms.get512_set_xmm_of_ne _ htmp.symm,
+      RegZmms.get512_setLegacy_xmm_of_ne _ hvd.symm, RegZmms.get512_set_xmm_of_ne _ hvd.symm]
   · dsimp only
     rw [RegZmms.get512_set_avx_same, Reg64s.get64_set64_same]
     exact congrArg (BitVec.setWidth 512) hd_set
+
+private theorem x64Vmovi_ternConst_wp [Host] (w : SlotWidth) (vd tmp : RegMm) (imm : BitVec 8)
+    (c : BitVec 512) (s : MachineData)
+    (htern : ∀ a : BitVec (x64AwOf w).bits,
+      (BitVec.ternaryLogic a a a imm).setWidth w.bits = c.setWidth w.bits) :
+    @Program.wp _ [x64TernlogD w vd vd vd imm]
+      (fun s' => s'.dmem = s.dmem ∧ s'.status = s.status ∧
+        (∀ r, r ≠ .r10 → s'.regs.get64 r = s.regs.get64 r) ∧
+        (∀ vr, vr ≠ vd → vr ≠ tmp → s'.zmms.get512 vr = s.zmms.get512 vr) ∧
+        (s'.zmms.get512 vd).setWidth w.bits = c.setWidth w.bits)
+      (fun _ _ => False) s := by
+  refine Program.wp.mono (Directive.FallsTo.wp (x64Vpternlogd_fallsTo w vd vd vd imm s)) ?_
+  rintro s' rfl
+  refine ⟨rfl, rfl, fun _ _ => rfl,
+    fun vr h1 _ => RegZmms.get512_set_avx_of_ne _ _ h1.symm _, ?_⟩
+  dsimp only
+  rw [RegZmms.get512_set_avx_same, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, htern]
 
 theorem x64VmoviWith_wp [Host] {tmp : RegMm} {w : SlotWidth} {vd : RegMm} {c : BitVec 512}
     {code : List Directive} (hcode : x64VmoviWith tmp w vd c = some code) (hne : tmp ≠ vd)
@@ -709,20 +667,15 @@ theorem x64VmoviWith_wp [Host] {tmp : RegMm} {w : SlotWidth} {vd : RegMm} {c : B
   obtain ⟨ci, hci, rfl⟩ := emitCleanOpt_eq_some.mp hcode
   cases w with
   | w64 =>
-    dsimp only [x64VmoviWithIns] at hci
-    simp only [Option.some.injEq] at hci
-    subst hci
+    dsimp only [x64VmoviWithIns] at hci; simp only [Option.some.injEq] at hci; subst hci
     refine Program.wp.mono (x64Movi64_wp vd (c.extractLsb' 0 64) s) ?_
     rintro s' ⟨hd, hs, hg, hv, hvd⟩
     refine ⟨hd, hs, hg, fun vr h1 _ => hv vr h1, ?_⟩
     rw [hvd, BitVec.setWidth_setWidth_of_le _ (by decide),
       BitVec.setWidth_setWidth_of_le _ (by decide)]
-    apply BitVec.eq_of_getLsbD_eq; intro i hi
-    simp [show (i : Nat) < 64 from hi]
+    apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [show (i : Nat) < 64 from hi]
   | w128 =>
-    dsimp only [x64VmoviWithIns] at hci
-    simp only [Option.some.injEq] at hci
-    subst hci
+    dsimp only [x64VmoviWithIns] at hci; simp only [Option.some.injEq] at hci; subst hci
     refine Program.wp.mono (x64Movi128_wp vd tmp hne c s) ?_
     rintro s' ⟨hd, hs, hg, hv, hvd⟩
     refine ⟨hd, hs, hg, hv, ?_⟩
@@ -731,28 +684,16 @@ theorem x64VmoviWith_wp [Host] {tmp : RegMm} {w : SlotWidth} {vd : RegMm} {c : B
     dsimp only [x64VmoviWithIns] at hci
     split at hci
     · rename_i hz
-      simp only [Option.some.injEq] at hci
-      subst hci
-      refine Program.wp.mono (Directive.FallsTo.wp (x64Vpternlogd_fallsTo _ vd vd vd 0x00#8 s)) ?_
-      rintro s' rfl
-      refine ⟨rfl, rfl, fun _ _ => rfl,
-        fun vr h1 _ => RegZmms.get512_set_avx_of_ne _ _ h1.symm _, ?_⟩
-      dsimp only
-      rw [RegZmms.get512_set_avx_same, ternaryLogic_all0,
-        BitVec.setWidth_setWidth_of_le _ (by decide), BitVec.setWidth_eq]
-      exact (beq_iff_eq.mp hz).symm
+      simp only [Option.some.injEq] at hci; subst hci
+      refine x64Vmovi_ternConst_wp _ vd tmp 0x00#8 c s fun a => ?_
+      rw [ternaryLogic_all0, ← beq_iff_eq.mp hz]
+      apply BitVec.eq_of_getLsbD_eq; intro i hi; simp
     · split at hci
       · rename_i hones
-        simp only [Option.some.injEq] at hci
-        subst hci
-        refine Program.wp.mono (Directive.FallsTo.wp (x64Vpternlogd_fallsTo _ vd vd vd 0xFF#8 s)) ?_
-        rintro s' rfl
-        refine ⟨rfl, rfl, fun _ _ => rfl,
-          fun vr h1 _ => RegZmms.get512_set_avx_of_ne _ _ h1.symm _, ?_⟩
-        dsimp only
-        rw [RegZmms.get512_set_avx_same, ternaryLogic_all1,
-          BitVec.setWidth_setWidth_of_le _ (by decide), BitVec.setWidth_eq]
-        exact (beq_iff_eq.mp hones).symm
+        simp only [Option.some.injEq] at hci; subst hci
+        refine x64Vmovi_ternConst_wp _ vd tmp 0xFF#8 c s fun a => ?_
+        rw [ternaryLogic_all1, ← beq_iff_eq.mp hones]
+        apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [hi]
       · simp at hci
 
 /-! ## 5. Slot `bytes64` / `Int.toBytes` bridge lemmas -/
@@ -764,8 +705,7 @@ theorem array64_eq_bytes64 (a : BitVec 64) (xs : List (BitVec 64)) (h : 8 * xs.l
   | cons x xs ih =>
     have hl : (Int.toBytes 8 x.toInt).length + (bytes64 xs).length ≤ 2 ^ 64 := by
       simp only [Int.toBytes_length, bytes64_length] at *; simp at h; omega
-    have h' : 8 * xs.length ≤ 2 ^ 64 := by simp at h; omega
-    rw [array64_cons, ih (a + 8) h',
+    rw [array64_cons, ih (a + 8) (by simp at h; omega),
       show bytes64 (x :: xs) = Int.toBytes 8 x.toInt ++ bytes64 xs from rfl]
     show (Eq ((Int.toBytes 8 x.toInt).At a) ⋆ Eq ((bytes64 xs).At (a + BitVec.ofNat 64 8))) = _
     rw [Mem.At_append_sep _ _ a hl, Int.toBytes_length]
@@ -778,8 +718,8 @@ private theorem toBytes_append_nat (a b n : Nat) :
   | succ a ih =>
     rw [Nat.succ_add, Int.toBytes, Int.toBytes, List.cons_append]
     congr 1
-    have hdiv : (n : Int) / 256 = ((n / 256 : Nat) : Int) := by omega
-    rw [hdiv, ih (n / 256), Nat.pow_succ, Nat.mul_comm (256 ^ a) 256, ← Nat.div_div_eq_div_mul]
+    rw [show (n : Int) / 256 = ((n / 256 : Nat) : Int) by omega, ih (n / 256), Nat.pow_succ,
+      Nat.mul_comm (256 ^ a) 256, ← Nat.div_div_eq_div_mul]
 
 private theorem toBytes_bitvec_eq_toNat {m n : Nat} (h : m = 8 * n) (x : BitVec m) :
     Int.toBytes n x.toInt = Int.toBytes n (x.toNat : Int) := by
@@ -798,7 +738,6 @@ private theorem toBytes_extract_step {m : Nat} (k : Nat) (hk : 64 + 8 * k = m) (
       Int.toBytes 8 (v.extractLsb' 0 64).toInt ++
         Int.toBytes k ((v.extractLsb' 64 (8 * k)).toNat : Int) := by
   rw [toBytes_append_nat 8 k v.toNat, toBytes_bitvec_eq_toNat (n := 8) rfl]
-  have h256 : (256 : Nat) ^ 8 = 2 ^ 64 := by decide
   have hlo : Int.toBytes 8 ((v.extractLsb' 0 64).toNat : Int) = Int.toBytes 8 (v.toNat : Int) := by
     rw [← Int.toBytes_emod, ← Int.toBytes_emod (x := (v.toNat : Int)), Int.take, Int.take]
     congr 1
@@ -806,12 +745,11 @@ private theorem toBytes_extract_step {m : Nat} (k : Nat) (hk : 64 + 8 * k = m) (
       show (8 * 8 : Nat) = 64 from rfl]
     exact_mod_cast Nat.mod_eq_of_lt (Nat.mod_lt v.toNat (by decide : 0 < 2 ^ 64))
   have hhi : v.toNat / 256 ^ 8 = (v.extractLsb' 64 (8 * k)).toNat := by
-    rw [h256, BitVec.extractLsb', BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow]
-    symm
-    apply Nat.mod_eq_of_lt
+    rw [show (256 : Nat) ^ 8 = 2 ^ 64 by decide, BitVec.extractLsb', BitVec.toNat_ofNat,
+      Nat.shiftRight_eq_div_pow]
+    symm; apply Nat.mod_eq_of_lt
     have hv : v.toNat < 2 ^ m := v.isLt
-    rw [Nat.div_lt_iff_lt_mul (Nat.pow_pos (by decide))]
-    rw [← Nat.pow_add, Nat.add_comm (8 * k) 64, hk]
+    rw [Nat.div_lt_iff_lt_mul (Nat.pow_pos (by decide)), ← Nat.pow_add, Nat.add_comm (8 * k) 64, hk]
     exact hv
   rw [hlo, hhi]
 
@@ -822,11 +760,6 @@ private theorem toBytes_bitvec64_split {m k : Nat} (h : 64 + 8 * k = m) (v : Bit
   rw [toBytes_bitvec_eq_toNat (m := m) (n := 8 + k) (by omega) v,
     toBytes_extract_step k h v, toBytes_bitvec_eq_toNat (m := 8 * k) (n := k) rfl]
 
-private theorem bytes64_cons (x : BitVec 64) (xs : List (BitVec 64)) :
-    bytes64 (x :: xs) = Int.toBytes 8 x.toInt ++ bytes64 xs := rfl
-
-private theorem bytes64_nil : bytes64 [] = [] := rfl
-
 private def extract64List (bv : BitVec 512) (off : Nat) : Nat → List (BitVec 64)
   | 0 => []
   | k + 1 => bv.extractLsb' off 64 :: extract64List bv (off + 64) k
@@ -836,41 +769,35 @@ private theorem extract64_zero {w : Nat} (bv : BitVec w) (off len : Nat) (hlen :
   apply BitVec.eq_of_getLsbD_eq; intro i hi
   simp [show (i : Nat) < 64 from hi, show (i : Nat) < len by omega]
 
-private theorem extract64_step {w : Nat} (bv : BitVec w) (off lo m : Nat) :
-    (bv.extractLsb' off (lo + m)).extractLsb' lo m = bv.extractLsb' (off + lo) m := by
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  simp [show (i : Nat) < m from hi, Nat.add_assoc]
-
 private theorem extract64_step_toInt {w : Nat} (bv : BitVec w) (off lo m1 m2 m3 : Nat)
     (hm1 : m1 = m2) (hm3 : m3 = lo + m2) :
     ((bv.extractLsb' off m3).extractLsb' lo m1).toInt =
       (bv.extractLsb' (off + lo) m2).toInt := by
-  subst hm1; subst hm3; rw [extract64_step]
+  subst m1; subst m3
+  congr 1; apply BitVec.eq_of_getLsbD_eq; intro i hi
+  simp [show (i : Nat) < m2 from hi, Nat.add_assoc]
 
 private theorem bytes64_extract64List (bv : BitVec 512) :
     ∀ (k off : Nat), off + 64 * k ≤ 512 →
       bytes64 (extract64List bv off k) = Int.toBytes (8 * k) (bv.extractLsb' off (64 * k)).toInt
   | 0, _, _ => rfl
   | k + 1, off, _ => by
-    rw [extract64List, bytes64_cons, bytes64_extract64List bv k (off + 64) (by omega)]
-    have hsplit := toBytes_bitvec64_split (m := 64 * (k + 1)) (k := 8 * k) (by omega)
-      (bv.extractLsb' off (64 * (k + 1)))
-    rw [show 8 * (k + 1) = 8 + 8 * k from by omega, hsplit]
-    have h1 : (bv.extractLsb' off (64 * (k + 1))).extractLsb' 0 64 = bv.extractLsb' off 64 :=
-      extract64_zero bv off (64 * (k + 1)) (by omega)
-    rw [h1]
-    have hrest := extract64_step_toInt bv off 64 (8 * (8 * k)) (64 * k) (64 * (k + 1))
-      (by omega) (by omega)
-    rw [hrest]
+    rw [extract64List, show bytes64 (bv.extractLsb' off 64 :: extract64List bv (off + 64) k) =
+        Int.toBytes 8 (bv.extractLsb' off 64).toInt ++ bytes64 (extract64List bv (off + 64) k)
+        from rfl,
+      bytes64_extract64List bv k (off + 64) (by omega),
+      show 8 * (k + 1) = 8 + 8 * k from by omega,
+      toBytes_bitvec64_split (m := 64 * (k + 1)) (k := 8 * k) (by omega)
+        (bv.extractLsb' off (64 * (k + 1))),
+      extract64_zero bv off (64 * (k + 1)) (by omega),
+      extract64_step_toInt bv off 64 (8 * (8 * k)) (64 * k) (64 * (k + 1)) (by omega) (by omega)]
 
 theorem bytes64_unpackSlotWords (w : SlotWidth) (bv : BitVec 512) :
     bytes64 (unpackSlotWords w bv) =
       Int.toBytes (8 * w.slots) (bv.setWidth (64 * w.slots)).toInt := by
-  have hlist : unpackSlotWords w bv = extract64List bv 0 w.slots := by
-    cases w <;> rfl
+  have hlist : unpackSlotWords w bv = extract64List bv 0 w.slots := by cases w <;> rfl
   have hex : bv.extractLsb' 0 (64 * w.slots) = bv.setWidth (64 * w.slots) := by
-    apply BitVec.eq_of_getLsbD_eq; intro i hi
-    simp [show (i : Nat) < 64 * w.slots from hi]
+    apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [show (i : Nat) < 64 * w.slots from hi]
   rw [hlist, bytes64_extract64List bv w.slots 0 (by have := w.slots_le_eight; omega), hex]
 
 /-! ## 6. `VecTarget` non-op specifications & `NoLab` theorems -/
@@ -967,6 +894,94 @@ private theorem vmovdqu32_load_fallsTo (w : SlotWidth) (hne : w ≠ .w64) (addr 
   rw [loadAvx_All_of_loadInt _ _ (x64AwOf w) _ _ i (hbytes ▸ hload)]
   exact hk _ rfl
 
+private theorem setWidth_ofInt_of_eq {m n : Nat} (h : n = m) (i : Int) :
+    (BitVec.ofInt m i).setWidth n = BitVec.ofInt n i := by
+  subst h; exact BitVec.setWidth_eq _
+
+private theorem x64Vmem_store_fallsTo {h : Host} {k : Nat} (w : SlotWidth) (pre : List Directive)
+    (addr : AddrExpr) (a : BitVec 64) (vs : RegMm) (s : MachineData) {post : MachineState → Prop}
+    (hpre : @Program.wp h pre
+      (fun s1 => s1.dmem = s.dmem ∧ s1.status = s.status ∧ s1.zmms = s.zmms ∧
+        (∀ r, r ≠ .r10 → s1.regs.get64 r = s.regs.get64 r) ∧
+        ∀ [Labels] (p : Std.Rco Int64),
+          (@AddrExpr.interp _ ⟨.W64⟩ addr s1.regs p).zeroExtend 64 = a)
+      (fun _ _ => False) s)
+    (hload : ∃ i, Mem.loadInt s.dmem a (8 * w.slots) = some i) :
+    x64Mach.FallsTo x64CondReads h k (pre ++ [x64VmemDir false w vs addr])
+      x64Scratch x64VecScratch FlagMask.none s
+      (fun s' => s'.dmem = Mem.storeInt s.dmem a (8 * w.slots)
+        ((s.zmms.get512 vs).setWidth (64 * w.slots)).toInt) post := by
+  apply vecFallsTo_of_wp
+  refine Program.wp.append hpre ?_
+  rintro s1 ⟨hdmem1, hst1, hzmms1, hgpr1, haddr1⟩
+  have hload1 : ∃ i, Mem.loadInt s1.dmem a (8 * w.slots) = some i := hdmem1 ▸ hload
+  have hst : @Program.wp h [x64VmemDir false w vs addr]
+      (fun s' => s'.regs = s1.regs ∧ s'.zmms = s1.zmms ∧ s'.status = s1.status ∧
+        s'.dmem = Mem.storeInt s1.dmem a (8 * w.slots)
+          ((s1.zmms.get512 vs).setWidth (64 * w.slots)).toInt)
+      (fun _ _ => False) s1 := by
+    by_cases hw64 : w = .w64
+    · subst hw64
+      exact Directive.FallsTo.wp (vmovOut64_mem_fallsTo addr a vs s1 (fun {_} p => haddr1 p) hload1)
+    · dsimp only [x64VmemDir, x64VmemI]; split
+      · exact absurd rfl hw64
+      · exact Directive.FallsTo.wp
+          (vmovdqu32_store_fallsTo w hw64 addr a vs s1 (fun {_} p => haddr1 p) hload1)
+  refine Program.wp.mono hst ?_
+  rintro s' ⟨hg', hv', hst', hdmem'⟩
+  refine ⟨by rw [hdmem', hdmem1, hzmms1], vecFrame_upd
+    (fun r hr => hg' ▸ hgpr1 r (ne_of_not_mem_x64Scratch hr).1)
+    (fun v _ => by rw [hv', hzmms1]) (Or.inr (hst'.trans hst1))⟩
+
+private theorem x64Vmem_load_fallsTo {h : Host} {k : Nat} (w : SlotWidth) (pre : List Directive)
+    (addr : AddrExpr) (a : BitVec 64) (vd : RegMm) (i : Int) (s : MachineData)
+    {post : MachineState → Prop}
+    (hpre : @Program.wp h pre
+      (fun s1 => s1.dmem = s.dmem ∧ s1.status = s.status ∧ s1.zmms = s.zmms ∧
+        (∀ r, r ≠ .r10 → s1.regs.get64 r = s.regs.get64 r) ∧
+        ∀ [Labels] (p : Std.Rco Int64),
+          (@AddrExpr.interp _ ⟨.W64⟩ addr s1.regs p).zeroExtend 64 = a)
+      (fun _ _ => False) s)
+    (hload : Mem.loadInt s.dmem a (8 * w.slots) = some i) :
+    x64Mach.FallsTo x64CondReads h k (pre ++ [x64VmemDir true w vd addr])
+      x64Scratch (vd :: x64VecScratch) FlagMask.none s
+      (fun s' => (x64Mach.getVec s' vd).setWidth w.bits = BitVec.ofInt w.bits i ∧
+        x64Mach.mem s' = x64Mach.mem s) post := by
+  apply vecFallsTo_of_wp
+  refine Program.wp.append hpre ?_
+  rintro s1 ⟨hdmem1, hst1, hzmms1, hgpr1, haddr1⟩
+  have hload1 : Mem.loadInt s1.dmem a (8 * w.slots) = some i := hdmem1 ▸ hload
+  have hld : @Program.wp h [x64VmemDir true w vd addr]
+      (fun s' => s'.dmem = s1.dmem ∧ s'.status = s1.status ∧ s'.regs = s1.regs ∧
+        (∀ vr, vr ≠ vd → s'.zmms.get512 vr = s1.zmms.get512 vr) ∧
+        (s'.zmms.get512 vd).setWidth w.bits = BitVec.ofInt w.bits i)
+      (fun _ _ => False) s1 := by
+    by_cases hw64 : w = .w64
+    · subst hw64
+      refine Program.wp.mono (Directive.FallsTo.wp
+        (vmovIn64_mem_fallsTo addr a vd i s1 (fun {_} p => haddr1 p) hload1)) ?_
+      rintro s' rfl
+      refine ⟨rfl, rfl, rfl, fun vr hvr => RegZmms.get512_set_xmm_of_ne _ hvr.symm _, ?_⟩
+      rw [RegZmms.get512_set_xmm_same]
+      apply BitVec.eq_of_getLsbD_eq; intro j hj
+      simp [show j < 64 from hj]
+    · dsimp only [x64VmemDir, x64VmemI]; split
+      · exact absurd rfl hw64
+      · refine Program.wp.mono (Directive.FallsTo.wp
+          (vmovdqu32_load_fallsTo w hw64 addr a vd i s1 (fun {_} p => haddr1 p) hload1)) ?_
+        rintro s' rfl
+        refine ⟨rfl, rfl, rfl, fun vr hvr => RegZmms.get512_set_avx_of_ne _ w hvr.symm _, ?_⟩
+        rw [RegZmms.get512_set_avx_same, BitVec.setWidth_setWidth_of_le _ w.bits_le_512,
+          setWidth_ofInt_of_eq (x64AwOf_bits_of_ne_w64 hw64).symm]
+  refine Program.wp.mono hld ?_
+  rintro s' ⟨hd', hst', hg', hz', hval⟩
+  refine ⟨⟨hval, hd'.trans hdmem1⟩, vecFrame_upd
+    (fun r hr => hg' ▸ hgpr1 r (ne_of_not_mem_x64Scratch hr).1)
+    (fun v hv => by
+      rw [List.mem_cons, not_or] at hv
+      rw [hz' v hv.1, hzmms1])
+    (Or.inr (hst'.trans hst1))⟩
+
 theorem x64VslotSt_spec {h : Host} {k : Nat} {w : SlotWidth} {i : Nat} {vr : RegMm}
     {s : MachineData} {G : Mem 64 → Prop} {post : MachineState → Prop}
     (_hvr : vr ∉ x64VecScratch) (_hsp : True)
@@ -985,45 +1000,12 @@ theorem x64VslotSt_spec {h : Host} {k : Nat} {w : SlotWidth} {i : Nat} {vr : Reg
         ((x64Mach.getVec s vr).setWidth (64 * w.slots)).toInt).At a) := by
     rw [array64_eq_bytes64 a _ (by rw [unpackSlotWords_length]; exact hslots_le),
       bytes64_unpackSlotWords]
-  apply vecFallsTo_of_wp
   dsimp only [x64VslotSt, x64VslotStIns]
   simp only [emitClean_append, emitClean_cons, emitClean_nil]
-  refine Program.wp.append (x64SlotAddr_fallsTo i s) ?_
-  rintro s1 ⟨hdmem1, hst1, hzmms1, hgpr1, haddr1⟩
-  have hload1 : Mem.loadInt s1.dmem a (8 * w.slots) = some (Int.ofBytes bs) := hdmem1 ▸ hload
-  have hst_mem : (Eq ((Int.toBytes (8 * w.slots)
-      ((x64Mach.getVec s vr).setWidth (64 * w.slots)).toInt).At a) ⋆ G)
-      (Mem.storeInt s1.dmem a (8 * w.slots)
-        ((x64Mach.getVec s vr).setWidth (64 * w.slots)).toInt) :=
-    Mem.storeInt_sep a (8 * w.slots) bs G s1.dmem ⟨hdmem1 ▸ hbs_mem, hbs_len⟩ _
-  by_cases hw64 : w = .w64
-  · subst hw64
-    refine Program.wp.mono (Directive.FallsTo.wp
-      (vmovOut64_mem_fallsTo (x64SlotAddr i).2 a vr s1 (fun {_} p => haddr1 p) ⟨_, hload1⟩)) ?_
-    rintro s' ⟨hg', hv', hst', hdmem'⟩
-    refine ⟨?_, vecFrame_upd (fun r hr => ?_) (fun v _ => by rw [hv', hzmms1])
-      (Or.inr (hst'.trans hst1))⟩
-    · dsimp only [x64Mach] at harr hst_mem ⊢
-      rw [harr, hdmem', hzmms1]
-      exact hst_mem
-    · rw [hg']; exact hgpr1 r (ne_of_not_mem_x64Scratch hr).1
-  · dsimp only [x64VmemI]; split
-    · exact absurd rfl hw64
-    · refine Program.wp.mono (Directive.FallsTo.wp
-        (vmovdqu32_store_fallsTo w hw64 (x64SlotAddr i).2 a vr
-          s1 (fun {_} p => haddr1 p) ⟨_, hload1⟩)) ?_
-      rintro s' ⟨hg', hv', hst', hdmem'⟩
-      refine ⟨?_, vecFrame_upd (fun r hr => ?_) (fun v _ => by rw [hv', hzmms1])
-        (Or.inr (hst'.trans hst1))⟩
-      · dsimp only [x64Mach] at harr hst_mem ⊢
-        rw [harr, hdmem', hzmms1]
-        exact hst_mem
-      · rw [hg']; exact hgpr1 r (ne_of_not_mem_x64Scratch hr).1
-
-private theorem ofInt_ofBytes_toBytes_cast {m k n : Nat} (hm : m = k) (hn : k = 8 * n)
-    (x : BitVec k) :
-    BitVec.ofInt m (Int.ofBytes (Int.toBytes n x.toInt)) = x.cast hm.symm := by
-  subst hm; subst hn; exact BitVec.ofInt_ofBytes_toBytes _ n rfl x
+  refine (x64Vmem_store_fallsTo w (x64SlotAddr i).1 (x64SlotAddr i).2 a vr s
+    (x64SlotAddr_fallsTo i s) ⟨_, hload⟩).conseq fun s' hd' _ => ?_
+  rw [harr, hd']
+  exact Mem.storeInt_sep a (8 * w.slots) bs G s.dmem ⟨hbs_mem, hbs_len⟩ _
 
 theorem x64VslotLd_spec {h : Host} {k : Nat} {w : SlotWidth} {i : Nat} {vd : RegMm}
     {bv : BitVec 512} {s : MachineData} {G : Mem 64 → Prop} {post : MachineState → Prop}
@@ -1045,56 +1027,32 @@ theorem x64VslotLd_spec {h : Host} {k : Nat} {w : SlotWidth} {i : Nat} {vd : Reg
   have hload : Mem.loadInt s.dmem a (8 * w.slots) =
       some (Int.ofBytes (Int.toBytes (8 * w.slots) (bv.setWidth (64 * w.slots)).toInt)) :=
     Mem.loadInt_sep _ a (8 * w.slots) G s.dmem hmem_bs (Int.toBytes_length _ _) hslots_le
-  apply vecFallsTo_of_wp
   dsimp only [x64VslotLd, x64VslotLdIns]
   simp only [emitClean_append, emitClean_cons, emitClean_nil]
-  refine Program.wp.append (x64SlotAddr_fallsTo i s) ?_
-  rintro s1 ⟨hdmem1, hst1, hzmms1, hgpr1, haddr1⟩
-  have hload1 : Mem.loadInt s1.dmem a (8 * w.slots) = _ := hdmem1 ▸ hload
-  by_cases hw64 : w = .w64
-  · subst hw64
-    refine Program.wp.mono (Directive.FallsTo.wp
-      (vmovIn64_mem_fallsTo (x64SlotAddr i).2 a vd _ s1 (fun {_} p => haddr1 p) hload1)) ?_
-    rintro s' rfl
-    have hbv :
-        BitVec.ofInt 64 (Int.ofBytes (Int.toBytes 8 (bv.setWidth 64).toInt)) = bv.setWidth 64 :=
-      BitVec.ofInt_ofBytes_toBytes 64 8 rfl _
-    refine ⟨⟨?_, hdmem1⟩, vecFrame_upd (fun r hr => hgpr1 r (ne_of_not_mem_x64Scratch hr).1)
-      (fun v hv => ?_) (Or.inr hst1)⟩
-    · dsimp only [x64Mach]
-      rw [RegZmms.get512_set_xmm_same, show SlotWidth.w64.bits = 64 from rfl,
-        BitVec.setWidth_setWidth_of_le _ (by decide : 64 ≤ 512),
-        BitVec.setWidth_setWidth_of_le _ (by decide : 64 ≤ 128),
-        show SlotWidth.w64.slots = 1 from rfl, Nat.mul_one, hbv, BitVec.setWidth_eq]
-    · rw [RegZmms.get512_set_xmm_of_ne _ (fun e => hv (by simp [e])), hzmms1]
-  · dsimp only [x64VmemI]; split
-    · exact absurd rfl hw64
-    · refine Program.wp.mono (Directive.FallsTo.wp
-        (vmovdqu32_load_fallsTo w hw64 (x64SlotAddr i).2 a vd _ s1
-          (fun {_} p => haddr1 p) hload1)) ?_
-      rintro s' rfl
-      refine ⟨⟨?_, hdmem1⟩, vecFrame_upd (fun r hr => hgpr1 r (ne_of_not_mem_x64Scratch hr).1)
-        (fun v hv => ?_) (Or.inr hst1)⟩
-      · dsimp only [x64Mach]
-        rw [RegZmms.get512_set_avx_same]
-        have hbits_eq : (x64AwOf w).bits = 64 * w.slots := by
-          rw [x64AwOf_bits_of_ne_w64 hw64, SlotWidth.bits_eq_64_mul_slots]
-        have hset : BitVec.ofInt (x64AwOf w).bits
-            (Int.ofBytes (Int.toBytes (8 * w.slots) (bv.setWidth (64 * w.slots)).toInt)) =
-            (bv.setWidth (64 * w.slots)).cast hbits_eq.symm :=
-          ofInt_ofBytes_toBytes_cast hbits_eq (by omega) (bv.setWidth (64 * w.slots))
-        rw [hset, BitVec.setWidth_setWidth_of_le _ w.bits_le_512]
-        apply BitVec.eq_of_getLsbD_eq; intro j hj
-        have hj1 : j < (x64AwOf w).bits := by
-          rw [hbits_eq, ← SlotWidth.bits_eq_64_mul_slots]; exact hj
-        have hj2 : j < 64 * w.slots := by
-          rw [← SlotWidth.bits_eq_64_mul_slots]; exact hj
-        simp [hj1, hj2]
-      · rw [RegZmms.get512_set_avx_of_ne _ w (fun e => hv (by simp [e])), hzmms1]
+  refine (x64Vmem_load_fallsTo w (x64SlotAddr i).1 (x64SlotAddr i).2 a vd _ s
+    (x64SlotAddr_fallsTo i s) hload).conseq fun s' ⟨hv, hm⟩ _ => ⟨?_, hm⟩
+  rw [hv, show w.bits = 64 * w.slots from SlotWidth.bits_eq_64_mul_slots w,
+    BitVec.ofInt_ofBytes_toBytes (64 * w.slots) (8 * w.slots) (by omega)]
 
-private theorem setWidth_ofInt_of_eq {m n : Nat} (h : n = m) (i : Int) :
-    (BitVec.ofInt m i).setWidth n = BitVec.ofInt n i := by
-  subst h; exact BitVec.setWidth_eq _
+private theorem x64VmemOp_unpack {t : Ty} {a : AddrArg Reg64} {ins : Option (List Instr × FlagMask)}
+    {c : List Directive} {clob : FlagMask} {r : RegMm} {isLoad : Bool}
+    (hv : emitCleanPair ins = some (c, clob))
+    (hdef : ins = (if !x64AddrValid a then none else (x64VecSlotWidth t).map fun w =>
+      let (pre, addr) := x64AddrPrepIns a; (pre ++ [x64VmemI isLoad w r addr], maskNone))) :
+    ∃ w, x64VecSlotWidth t = some w ∧ clob = maskNone ∧
+      c = (x64AddrPrep a).1 ++ [x64VmemDir isLoad w r (x64AddrPrep a).2] := by
+  subst hdef
+  obtain ⟨ci, hci, rfl⟩ := emitCleanPair_eq_some.mp hv
+  have hva : x64AddrValid a = true := by cases h : x64AddrValid a <;> simp_all
+  rw [show (!x64AddrValid a) = false by simp [hva]] at hci
+  simp only [Bool.false_eq_true, ↓reduceIte] at hci
+  cases hw : x64VecSlotWidth t with
+  | none => simp [hw] at hci
+  | some w =>
+    rw [hw] at hci
+    simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hci
+    rcases hci with ⟨rfl, rfl⟩
+    exact ⟨w, rfl, rfl, by simp [emitClean_append, emitClean_cons, emitClean_nil, x64AddrPrep]⟩
 
 theorem x64Vload_spec {h : Host} {k : Nat} {t : Ty} {vd : RegMm} {a : AddrArg Reg64}
     {c : List Directive} {clob : FlagMask} {val : Val t} {s : MachineData}
@@ -1104,62 +1062,21 @@ theorem x64Vload_spec {h : Host} {k : Nat} {t : Ty} {vd : RegMm} {a : AddrArg Re
     (hload : loadVal (x64Mach.mem s) t (a.eval (x64Mach.getGpr s)) = some val) :
     x64Mach.FallsTo x64CondReads h k c x64Scratch (vd :: x64VecScratch) clob s
       (fun s' => VecHolds (x64Mach.getVec s' vd) t val ∧ x64Mach.mem s' = x64Mach.mem s) post := by
-  dsimp only [x64Vload] at hv
-  obtain ⟨ci, hci, rfl⟩ := emitCleanPair_eq_some.mp hv
-  have hva : x64AddrValid a = true := by cases h : x64AddrValid a <;> simp_all [x64VloadIns]
-  dsimp only [x64VloadIns] at hci
-  rw [show (!x64AddrValid a) = false by simp [hva]] at hci
-  simp only [Bool.false_eq_true, ↓reduceIte] at hci
-  cases hw : x64VecSlotWidth t with
-  | none => simp [hw] at hci
-  | some w =>
-    rw [hw] at hci
-    simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hci
-    rcases hci with ⟨rfl, rfl⟩
-    simp only [emitClean_append, emitClean_cons, emitClean_nil]
-    obtain ⟨x, y, rfl⟩ := x64VecSlotWidth_pair hw
-    have hbytes : (Ty.pair x y).bytes = 8 * w.slots := x64VecSlotWidth_bytes hw
-    have hbits : w.bits = (Ty.pair x y).size := x64VecSlotWidth_bits_eq hw
-    have hle512 : (Ty.pair x y).size ≤ 512 := x64VecSlotWidth_le_512 hw
-    simp only [loadVal, Option.bind_eq_some_iff, Option.some.injEq] at hload
-    obtain ⟨i_mem, hi_mem, rfl⟩ := hload
-    have hsz : x.size + y.size = (Ty.pair x y).size := rfl
-    apply vecFallsTo_of_wp
-    refine Program.wp.append (x64AddrPrep_fallsTo ha) ?_
-    rintro s1 ⟨hdmem1, hst1, hzmms1, hgpr1, haddr1⟩
-    have hi1 : Mem.loadInt s1.dmem (a.eval s.regs.get64) (8 * w.slots) = some i_mem := by
-      rw [hdmem1, ← hbytes]; exact hi_mem
-    by_cases hw64 : w = .w64
-    · subst hw64
-      have hsz64 : x.size + y.size = 64 := hsz.trans (hbits.symm.trans rfl)
-      refine Program.wp.mono (Directive.FallsTo.wp (vmovIn64_mem_fallsTo (x64AddrPrep a).2
-          (a.eval s.regs.get64) vd i_mem s1 (fun {_} p => haddr1 p) hi1)) ?_
-      rintro s' rfl
-      refine ⟨⟨⟨hle512, ?_⟩, hdmem1⟩, vecFrame_upd
-        (fun r hr => hgpr1 r (ne_of_not_mem_x64Scratch hr).1)
-        (fun v hv => ?_) (Or.inr hst1)⟩
-      · dsimp only [x64Mach]
-        rw [RegZmms.get512_set_xmm_same, toBits_ofBits,
-          BitVec.setWidth_setWidth_of_le _ (by omega : (Ty.pair x y).size ≤ 512),
-          BitVec.setWidth_setWidth_of_le _ (by omega : (Ty.pair x y).size ≤ 128),
-          setWidth_ofInt_of_eq (by omega) i_mem]
-      · rw [RegZmms.get512_set_xmm_of_ne _ (fun e => hv (by simp [e])), hzmms1]
-    · have htsize : (Ty.pair x y).size = (x64AwOf w).bits := by
-        rw [← hbits, x64AwOf_bits_of_ne_w64 hw64]
-      dsimp only [x64VmemI]; split
-      · exact absurd rfl hw64
-      · refine Program.wp.mono (Directive.FallsTo.wp
-          (vmovdqu32_load_fallsTo w hw64 (x64AddrPrep a).2
-            (a.eval s.regs.get64) vd i_mem s1 (fun {_} p => haddr1 p) hi1)) ?_
-        rintro s' rfl
-        refine ⟨⟨⟨hle512, ?_⟩, hdmem1⟩, vecFrame_upd
-          (fun r hr => hgpr1 r (ne_of_not_mem_x64Scratch hr).1)
-          (fun v hv => ?_) (Or.inr hst1)⟩
-        · dsimp only [x64Mach]
-          rw [RegZmms.get512_set_avx_same, toBits_ofBits,
-            BitVec.setWidth_setWidth_of_le _ hle512,
-            setWidth_ofInt_of_eq htsize i_mem]
-        · rw [RegZmms.get512_set_avx_of_ne _ w (fun e => hv (by simp [e])), hzmms1]
+  obtain ⟨w, hw, rfl, rfl⟩ := x64VmemOp_unpack hv rfl
+  obtain ⟨x, y, rfl⟩ := x64VecSlotWidth_pair hw
+  have hbytes := x64VecSlotWidth_bytes hw
+  have hbits := x64VecSlotWidth_bits_eq hw
+  have hle512 := x64VecSlotWidth_le_512 hw
+  simp only [loadVal, Option.bind_eq_some_iff, Option.some.injEq] at hload
+  obtain ⟨i_mem, hi_mem, rfl⟩ := hload
+  have hmem_load : Mem.loadInt s.dmem (a.eval s.regs.get64) (8 * w.slots) = some i_mem := by
+    rw [← hbytes]; exact hi_mem
+  refine (x64Vmem_load_fallsTo w (x64AddrPrep a).1 (x64AddrPrep a).2
+    (a.eval s.regs.get64) vd i_mem s (x64AddrPrep_fallsTo ha) hmem_load).conseq
+    fun s' ⟨hvd', hm⟩ _ => ⟨⟨hle512, ?_⟩, hm⟩
+  have hset := congrArg (BitVec.setWidth (Ty.pair x y).size) hvd'
+  rw [BitVec.setWidth_setWidth_of_le _ (hbits ▸ le_refl _), setWidth_ofInt_of_eq hbits.symm] at hset
+  simpa only [toBits_ofBits] using hset
 
 private theorem toInt_eq_of_cast {m n : Nat} (h : m = n) (u : BitVec m) (v : BitVec n)
     (heq : u.cast h = v) : u.toInt = v.toInt := by
@@ -1174,72 +1091,31 @@ theorem x64Vstore_spec {h : Host} {k : Nat} {t : Ty} {vs : RegMm} {a : AddrArg R
     x64Mach.FallsTo x64CondReads h k c x64Scratch x64VecScratch clob s
       (fun s' => x64Mach.mem s' = storeMem (x64Mach.mem s) t (a.eval (x64Mach.getGpr s)) val)
       post := by
-  dsimp only [x64Vstore] at hv
-  obtain ⟨ci, hci, rfl⟩ := emitCleanPair_eq_some.mp hv
-  have hva : x64AddrValid a = true := by cases h : x64AddrValid a <;> simp_all [x64VstoreIns]
-  dsimp only [x64VstoreIns] at hci
-  rw [show (!x64AddrValid a) = false by simp [hva]] at hci
-  simp only [Bool.false_eq_true, ↓reduceIte] at hci
-  cases hw : x64VecSlotWidth t with
-  | none => simp [hw] at hci
-  | some w =>
-    rw [hw] at hci
-    simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq] at hci
-    rcases hci with ⟨rfl, rfl⟩
-    simp only [emitClean_append, emitClean_cons, emitClean_nil]
-    have hbytes : t.bytes = 8 * w.slots := x64VecSlotWidth_bytes hw
-    have hbits : w.bits = t.size := x64VecSlotWidth_bits_eq hw
-    have hb8 : 8 * t.bytes = t.size := by
-      rcases Bool.or_eq_true_iff.mp (x64IsVecBits_of_slot hw) with h' | h'
-      · exact x64IsI32Vec_size_bytes h'
-      · exact x64IsF32Vec_size_bytes h'
-    obtain ⟨i_mem, hi_mem⟩ := hsok
-    apply vecFallsTo_of_wp
-    refine Program.wp.append (x64AddrPrep_fallsTo ha) ?_
-    rintro s1 ⟨hdmem1, hst1, hzmms1, hgpr1, haddr1⟩
-    have hi1 : Mem.loadInt s1.dmem (a.eval s.regs.get64) (8 * w.slots) = some i_mem := by
-      rw [hdmem1, ← hbytes]; exact hi_mem
-    by_cases hw64 : w = .w64
-    · subst hw64
-      have hts64 : t.size = 64 := hbits.symm
-      refine Program.wp.mono (Directive.FallsTo.wp (vmovOut64_mem_fallsTo (x64AddrPrep a).2
-          (a.eval s.regs.get64) vs s1 (fun {_} p => haddr1 p) ⟨_, hi1⟩)) ?_
-      rintro s' ⟨hg', hv', hst', hdmem'⟩
-      refine ⟨?_, vecFrame_upd (fun r hr => hg' ▸ hgpr1 r (ne_of_not_mem_x64Scratch hr).1)
-        (fun v _ => by rw [hv', hzmms1]) (Or.inr (hst'.trans hst1))⟩
-      change s'.dmem = storeMem s.dmem t (a.eval (x64Mach.getGpr s)) val
-      rw [hdmem', hdmem1, hzmms1]
-      simp only [storeMem]
-      congr 1
-      · exact hbytes.symm
-      · refine toInt_eq_of_cast (by omega) ((s.zmms.get512 vs).setWidth 64)
-          ((toBits t val).setWidth (8 * t.bytes)) ?_
-        apply BitVec.eq_of_getLsbD_eq; intro j hj
-        have h2 := congrArg (fun bv => bv.getLsbD j) hhold.2
-        have hj64 : j < 64 := by omega
-        simp [hj64, hb8, hts64] at h2 ⊢
-        exact h2
-    · have htsize : t.size = 64 * w.slots := by
-        rw [← hbits, SlotWidth.bits_eq_64_mul_slots]
-      dsimp only [x64VmemI]; split
-      · exact absurd rfl hw64
-      · refine Program.wp.mono (Directive.FallsTo.wp
-          (vmovdqu32_store_fallsTo w hw64 (x64AddrPrep a).2
-            (a.eval s.regs.get64) vs s1 (fun {_} p => haddr1 p) ⟨_, hi1⟩)) ?_
-        rintro s' ⟨hg', hv', hst', hdmem'⟩
-        refine ⟨?_, vecFrame_upd (fun r hr => hg' ▸ hgpr1 r (ne_of_not_mem_x64Scratch hr).1)
-          (fun v _ => by rw [hv', hzmms1]) (Or.inr (hst'.trans hst1))⟩
-        rw [hdmem', hdmem1, hzmms1]
-        simp only [storeMem]
-        congr 1
-        · exact hbytes.symm
-        · refine toInt_eq_of_cast (by omega) ((s.zmms.get512 vs).setWidth (64 * w.slots))
-            ((toBits t val).setWidth (8 * t.bytes)) ?_
-          apply BitVec.eq_of_getLsbD_eq; intro j hj
-          have h2 := congrArg (fun bv => bv.getLsbD j) hhold.2
-          have hj64s : j < 64 * w.slots := by omega
-          simp [hj64s, hb8, htsize] at h2 ⊢
-          exact h2
+  obtain ⟨w, hw, rfl, rfl⟩ := x64VmemOp_unpack hv rfl
+  have hbytes := x64VecSlotWidth_bytes hw
+  have hbits := x64VecSlotWidth_bits_eq hw
+  have hb8 : 8 * t.bytes = t.size := by
+    rcases Bool.or_eq_true_iff.mp (x64IsVecBits_of_slot hw) with h' | h'
+    · exact x64IsI32Vec_size_bytes h'
+    · exact x64IsF32Vec_size_bytes h'
+  obtain ⟨i_mem, hi_mem⟩ := hsok
+  have hmem_load : Mem.loadInt s.dmem (a.eval s.regs.get64) (8 * w.slots) = some i_mem := by
+    rw [← hbytes]; exact hi_mem
+  refine (x64Vmem_store_fallsTo w (x64AddrPrep a).1 (x64AddrPrep a).2
+    (a.eval s.regs.get64) vs s (x64AddrPrep_fallsTo ha) ⟨_, hmem_load⟩).conseq
+    fun s' hd' _ => ?_
+  change s'.dmem = storeMem s.dmem t (a.eval (x64Mach.getGpr s)) val
+  rw [hd']; simp only [storeMem]; congr 1
+  · exact hbytes.symm
+  · have hsz : 64 * w.slots = 8 * t.bytes := by rw [← SlotWidth.bits_eq_64_mul_slots, hbits, hb8]
+    have hts : t.size = 64 * w.slots := by rw [← hbits, SlotWidth.bits_eq_64_mul_slots]
+    refine toInt_eq_of_cast hsz ((s.zmms.get512 vs).setWidth (64 * w.slots))
+      ((toBits t val).setWidth (8 * t.bytes)) ?_
+    apply BitVec.eq_of_getLsbD_eq; intro j hj
+    have h2 := congrArg (fun bv => bv.getLsbD j) hhold.2
+    have hj64s : j < 64 * w.slots := by omega
+    simp [hj64s, hb8, hts] at h2 ⊢
+    exact h2
 
 /-! ## 7. `NoLab` theorems (part 1) -/
 
