@@ -1180,3 +1180,39 @@ example : ⸨prog|
    .instr (.regular .W64 .W64 (.cmovcc .np .rbx (.reg .rax))),
    .instr (.regular .W64 .W32 (.cmovcc .p .ebx (.reg .eax))),
    .instr (.regular .W64 .W16 (.cmovcc .np .bx (.reg .ax)))] := rfl
+
+section starred_indirect_targets
+
+example : ⸨prog|
+  call *%rax
+  callq *(%rsp)
+  jmp *%r11
+  jmpq *8(%rax)
+  jmp *4096
+  jmp *sym ⸩ =
+  [.instr (.regular .W64 .W64 (.call (.reg .rax))),
+   .instr (.regular .W64 .W64 (.call (.mem ⟨some (.reg .rsp), none, .int64 0⟩))),
+   .instr (.regular .W64 .W64 (.jmp (.reg .r11))),
+   .instr (.regular .W64 .W64 (.jmp (.mem ⟨some (.reg .rax), none, .int64 8⟩))),
+   .instr (.regular .W64 .W64 (.jmp (.mem ⟨none, none, .int64 4096⟩))),
+   .instr (.regular .W64 .W64 (.jmp (.mem ⟨none, none, .label "sym"⟩)))] := rfl
+
+/--
+info: ⸨prog|
+  call *%rax
+  call *(%rsp)
+  jmp *%r11
+  jmp *8(%rax)
+  jmp *4096
+  jmp *sym⸩ : List Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog|
+  call %rax
+  callq (%rsp)
+  jmp %r11
+  jmpq 8(%rax)
+  jmp *4096
+  jmp *sym ⸩
+
+end starred_indirect_targets

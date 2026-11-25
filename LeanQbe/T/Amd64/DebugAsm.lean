@@ -131,6 +131,10 @@ private def isTailDir (fn : Sym) (nonLocal : HashSet Sym) : Directive → Option
   | .instr (.regular .W64 .W64
       (.jmp (.rel (.sub (.label sym) .after_current_instruction)))) =>
     if isLocalFnLabel fn nonLocal sym then none else some s!"jmp {sym}"
+  | .instr (.regular .W64 .W64 (.jmp (.reg (.low r .W64)))) =>
+    some s!"jmp *{cfiReg r}"
+  | .instr (.regular .W64 .W64 (.jmp (.mem a))) =>
+    some s!"jmp *{ATT.addr .W64 (scrubAddr fn nonLocal a)}"
   | _ => none
 
 private def matchPrologueSz (body : List Directive) : Option (Nat × List Directive) :=
@@ -186,6 +190,7 @@ private def avxRmUsesRsp {w : AvxWidth} : AvxRegOrMem w → Bool
 private def isNonLeafOrFrameDir : Directive → Bool
   | .instr (.regular _ _ (.call _)) | .instr (.regular _ _ (.push _))
   | .instr (.regular _ _ (.pop _)) | .instr (.regular _ _ (.lea (.low .rsp _) _)) => true
+  | .instr (.regular _ _ (.jmp (.mem a))) => addrUsesRsp a
   | .instr (.regular _ _ (.sub d _)) | .instr (.regular _ _ (.add d _)) => rmUsesRsp d
   | .instr (.regular _ _ (.mov d op)) =>
     rmUsesRsp d || match op with | .regOrMem rm => rmUsesRsp rm | .imm _ => false

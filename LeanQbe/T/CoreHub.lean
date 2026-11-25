@@ -56,6 +56,7 @@ public import LeanQbe.T.LegalOpWpLemmas1
 public import LeanQbe.T.LegalOpWpLemmas1a
 public import LeanQbe.T.LegalOpWpLemmas2
 public import LeanQbe.T.LegalOpWpLemmas2a
+public import LeanQbe.T.LegalPassKit
 public import LeanQbe.T.LegalTrees
 public import LeanQbe.T.LegalWfBaseLemmas
 public import LeanQbe.T.LegalWfBaseLemmas1
@@ -84,6 +85,7 @@ public import LeanQbe.T.Logic.ByteArrayDecimal
 public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.C0Agrees
 public import LeanQbe.T.Logic.C0HeadStep
+public import LeanQbe.T.Logic.C0HeadStepGuard
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.C0StepAttr
 public import LeanQbe.T.Logic.Cells
@@ -92,6 +94,7 @@ public import LeanQbe.T.Logic.Mem
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbe.T.Logic.Ops
 public import LeanQbe.T.Logic.ProofKit
+public import LeanQbe.T.Logic.ProofKitMasks
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Logic.SepTree
 public import LeanQbe.T.Logic.SlabChain
@@ -133,6 +136,7 @@ public import LeanQbe.T.OptPolicy
 public import LeanQbe.T.OptUtil
 public import LeanQbe.T.OptUtilLemmas
 public import LeanQbe.T.PassEnvKit
+public import LeanQbe.T.PassFlatKit
 public import LeanQbe.T.Peel
 public import LeanQbe.T.PeelLemmas
 public import LeanQbe.T.PrintCpp

@@ -116,3 +116,41 @@ private theorem tbz_tbnz (s : MachineData)
   exact .done _ rfl
 
 end WPTests.Tbz
+
+open Kraken.AArch64.Parser in
+example : ⸨prog|
+  adrp x0, sym
+  add x0, x0, :lo12:sym ⸩ =
+    [Directive.adrp .X0 "sym", Directive.addLo12 .X0 .X0 "sym"] := rfl
+
+namespace WPTests.SymAddr
+
+private def prog : Program :=
+  [.adrp .X8 "f", .addLo12 .X8 .X8 "f", .br (.reg .X8), .label "f", .ret]
+
+@[instance_reducible] private def layout : Layout :=
+  { start := 0x1001234, instrSize := fun _ => 4, instrSize_pos := fun _ => by decide }
+
+private abbrev host : Host := .ofLayout prog layout (by decide)
+
+attribute [local instance] host
+
+private theorem labelsUnique : Host.LabelsUnique := Host.labelsUnique_of_nodup (by decide)
+
+/-- `adrp x8, f; add x8, x8, :lo12:f; br x8` jumps to `f` cleanly across unaligned pages. -/
+private theorem adrp_add_br (s : MachineData) (ra : Int64) (hra : s.regs.X30 = ra.toUInt64) :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = ra ∧ st.data.regs.X8 = (Host.addrOf 3).toUInt64)
+      ⟨s, Host.addrOf 0⟩ := by
+  have hf : Host.prog[3]? = some (.label "f") := rfl
+  apply Host.eventually_adrp_add_label (i := 0) (d := .X8) (L := "f") rfl rfl
+  rw [Host.label_eq_addrOf hf (labelsUnique.first hf)]
+  apply Host.eventually_br (i := 2) (r := .reg .X8) (tgt := Host.addrOf 3) rfl
+    (by
+      simp only [Reg64s.getRegOrZr, Reg64s.getRegOrZr64, RegOrZr.base, Reg64s.setXReg,
+        Reg64s.getXReg, BitVec.take, BitVec.extractLsb'_eq_self])
+  apply Host.eventually_label hf
+  exact Host.eventually_ret (i := 4) (ra := ra) rfl (by simp [Reg64s.setXReg, hra])
+    (.done _ ⟨rfl, rfl⟩)
+
+end WPTests.SymAddr

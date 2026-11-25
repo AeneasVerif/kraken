@@ -760,6 +760,75 @@ private theorem armRet_spec {h : Host} {k : Nat} {s : MachineData} {ra : Int64}
     simp [BitVec.signed, Int64.toInt_toBitVec, Int64.ofInt_toInt]]
   exact hk s (fun _ _ => rfl) (fun v => v.elim) (by simp) rfl
 
+theorem armSymAddrReg_spec {h : Host} {k : Nat} {sym : Sym} {rd : Reg} {s : MachineData}
+    {post : MachineState → Prop} (hrd : rd ≠ armFrame.sp ∧ rd ∉ armFrame.scratch) :
+    armMach.FallsTo armCondReads h k (armSymAddrReg sym rd) (rd :: armScratch) [] maskNone s
+      (fun s' => armMach.getGpr s' rd = (armMach.labelAddr h sym).toBitVec ∧ s'.dmem = s.dmem)
+      post := by
+  cases rd with
+  | SP => exact absurd rfl hrd.1
+  | reg x =>
+    exact Machine.FallsTo.weaken (armSymAddr_spec (h := h) (k := k) (d := x) (sym := sym))
+      (fun r hr => by
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
+        subst hr; exact List.mem_cons_self)
+      (fun _ hv => False.elim (List.not_mem_nil hv)) rfl
+
+theorem armCallReg_spec {h : Host} {k : Nat} {r : Reg} {s : MachineData}
+    {G : Mem 64 → Prop} {post : MachineState → Prop}
+    (hr : r ∈ armFrame.allocatable)
+    (hc : (armCallReg r).IsInfixAt Host.prog k)
+    (hmem : s.dmem =⋆ region (get s .SP - 0#64) 0 ⋆ G)
+    (hk : ∀ s' : MachineData,
+      get s' .SP = get s .SP - 0#64 →
+      armMach.Frame armCondReads s s' (.SP :: [.reg .X30] ++ armScratch) [] maskAll →
+      get s' (.reg .X30) = (Host.addrOf (k + (armCallReg r).length)).toBitVec →
+      (s'.dmem =⋆ region (get s' .SP) 0 ⋆ G) →
+      Eventually (step1 Host.exe) post ⟨s', Int64.ofBitVec (get s r)⟩) :
+    armMach.Run h k s post := by
+  cases r with
+  | SP => simp at hr
+  | reg x =>
+    letI := h
+    refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
+    simp only [t_step_simp, Reg64s.setRegOrZr_reg64, getRegOrZr_zr, RegWidth.bits,
+      MemWidth.bits, BitVec.setWidth_eq]
+    have hra : BitVec.ofInt 64 (Host.addrOf (k + 1)).toInt =
+        (Host.addrOf (k + 1)).toBitVec := by
+      rw [← Int64.toInt_toBitVec, BitVec.ofInt_toInt]
+    have hpc : Int64.ofInt (s.regs.getXReg x).toBitVec.signed =
+        Int64.ofBitVec (s.regs.getXReg x).toBitVec := by
+      rw [← Int64.toBitVec_ofBitVec (s.regs.getXReg x).toBitVec]
+      simp [BitVec.signed]
+    rw [hra, hpc]
+    refine hk (wr s .X30 (Host.addrOf (k + 1)).toBitVec) (by simp [get_sp]) ?_
+      (get_wr_same _ _ _) (by simpa [get_sp] using hmem)
+    refine armFrame_upd_regs (armKeep_regs _ (fun _ => rfl) (fun y hy => ?_)) (Or.inl rfl)
+    have hy30 : y ≠ .X30 := fun e => hy (by simp [e])
+    exact Reg64s.getXReg_setXReg_of_ne _ _ _ _ hy30.symm
+
+theorem armJmpReg_spec {h : Host} {k : Nat} {r : Reg} {s : MachineData}
+    {post : MachineState → Prop}
+    (hr : r ∈ armFrame.allocatable)
+    (hc : (armJmpReg r).IsInfixAt Host.prog k)
+    (hk : ∀ s' : MachineData,
+      armMach.Frame armCondReads s s' armScratch [] maskNone → s'.dmem = s.dmem →
+      Eventually (step1 Host.exe) post ⟨s', Int64.ofBitVec (get s r)⟩) :
+    armMach.Run h k s post := by
+  cases r with
+  | SP => simp at hr
+  | reg x =>
+    letI := h
+    refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
+    simp only [t_step_simp, getRegOrZr_zr, RegWidth.bits, MemWidth.bits,
+      BitVec.setWidth_eq]
+    have hpc : Int64.ofInt (s.regs.getXReg x).toBitVec.signed =
+        Int64.ofBitVec (s.regs.getXReg x).toBitVec := by
+      rw [← Int64.toBitVec_ofBitVec (s.regs.getXReg x).toBitVec]
+      simp [BitVec.signed]
+    rw [hpc]
+    exact hk s (Machine.Frame.refl (M := armMach) armCondReads s armScratch [] maskNone) rfl
+
 /-! ## 5. `armFrameSpec : FrameTarget armMach armFrame armCondReads` -/
 
 theorem armFrameSpec_spec : FrameSpec armMach armFrame armCondReads armFramePreds := {
@@ -815,6 +884,15 @@ theorem armCall_noLab (sym l : Sym) : Directive.label l ∉ armFrame.call sym :=
 theorem armExitJmp_noLab (sym l : Sym) : Directive.label l ∉ armFrame.exitJmp sym :=
   emitClean_noLab _ l
 theorem armRet_noLab (l : Sym) : Directive.label l ∉ armFrame.ret := emitClean_noLab _ l
+theorem armSymAddrReg_noLab (sym : Sym) (rd : Reg) (l : Sym) :
+    Directive.label l ∉ armSymAddrReg sym rd := by
+  cases rd with
+  | reg x => exact armSymAddr_noLab x sym l
+  | SP => simp [armSymAddrReg]
+theorem armCallReg_noLab (r : Reg) (l : Sym) : Directive.label l ∉ armCallReg r :=
+  emitClean_noLab _ l
+theorem armJmpReg_noLab (r : Reg) (l : Sym) : Directive.label l ∉ armJmpReg r :=
+  emitClean_noLab _ l
 end NoLab
 
 /-! ## 7. `ParserChecks` (`Kraken.AArch64.Parser`) -/
@@ -871,6 +949,12 @@ example : ⸨prog| mov x16, sp
 example : ⸨prog| bl f ⸩ = armFrame.call "f" := rfl
 example : ⸨prog| b f ⸩ = armFrame.exitJmp "f" := rfl
 example : ⸨prog| ret ⸩ = armFrame.ret := rfl
+example : ⸨prog|
+  adrp x0, f
+  add x0, x0, :lo12:f
+⸩ = armSymAddrReg "f" (.reg .X0) := rfl
+example : ⸨prog| blr x8 ⸩ = armCallReg (.reg .X8) := rfl
+example : ⸨prog| br x8 ⸩ = armJmpReg (.reg .X8) := rfl
 
 end ParserChecks
 

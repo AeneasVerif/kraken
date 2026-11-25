@@ -26,6 +26,10 @@ public import LeanQbe.T.LeanLCNF.LcnfC0Full
 public import LeanQbe.T.LeanLCNF.LcnfC0FullProof
 public import LeanQbe.T.LeanLCNF.LcnfC0Rt
 public import LeanQbe.T.LeanLCNF.LcnfC0RtProof
+public import LeanQbe.T.LeanLCNF.LcnfC0RtProofCommon
+public import LeanQbe.T.LeanLCNF.LcnfC0RtProofM0a
+public import LeanQbe.T.LeanLCNF.LcnfC0RtProofM0b
+public import LeanQbe.T.LeanLCNF.LcnfC0RtProofNv
 public import LeanQbe.T.LeanLCNF.LcnfC0RtSpec
 public import LeanQbe.T.LeanLCNF.LcnfC0Strings
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof

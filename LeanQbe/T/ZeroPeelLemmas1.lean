@@ -8,6 +8,7 @@ import all LeanQbe.T.ZeroPeel
 import LeanQbe.T.WPLemmas
 import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.OpsLemmas
+import LeanQbe.T.PassFlatKit
 import all Kraken.Mem
 
 /-!
