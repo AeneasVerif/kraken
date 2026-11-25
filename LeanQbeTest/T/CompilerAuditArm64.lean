@@ -75,7 +75,8 @@ theorem audit_arm_to_isa :
         gpr := armGpr, vec := VecIsa.empty Reg ArmCond Directive, frame := armFrame,
         supportsAddrDisp := armSupportsAddrDisp,
         supportsAddrIdx := armSupportsAddrIdx,
-        supportsTestFuse := true } :=
+        supportsTestFuse := true,
+        supportsAddrZextIdx := armSupportsAddrIdx } :=
   armTarget_toIsa
 
 theorem audit_leaf_zero_frame : armFrame.leafZeroFrame = true := rfl

@@ -1,6 +1,8 @@
 module
 
 public import LeanQbe.T.AbiLemmas
+public import LeanQbe.T.AddrRangeOpt
+public import LeanQbe.T.AddrRangeOptLemmas
 public import LeanQbe.T.AssumeBits
 public import LeanQbe.T.AssumeBitsLemmas
 public import LeanQbe.T.Bedrock2.Flat
@@ -13,6 +15,8 @@ public import LeanQbe.T.BedrockWord.Exec
 public import LeanQbe.T.BedrockWord.Ops
 public import LeanQbe.T.Canon
 public import LeanQbe.T.CanonLemmas
+public import LeanQbe.T.CondThreadOpt
+public import LeanQbe.T.CondThreadOptLemmas
 public import LeanQbe.T.Copy
 public import LeanQbe.T.CopyLemmas
 public import LeanQbe.T.Dce
@@ -143,11 +147,13 @@ public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.PrintUtil
 public import LeanQbe.T.Rega
+public import LeanQbe.T.RegaDefs
 public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.RegaLemmas1
 public import LeanQbe.T.RegaLemmas2
 public import LeanQbe.T.RegaLemmas3
 public import LeanQbe.T.RegaLemmas4
+public import LeanQbe.T.RegaZext
 public import LeanQbe.T.Scc
 public import LeanQbe.T.SccLemmas
 public import LeanQbe.T.SimplifyGroupPlan
@@ -157,6 +163,8 @@ public import LeanQbe.T.Spill
 public import LeanQbe.T.SpillFlags
 public import LeanQbe.T.SpillSnippet
 public import LeanQbe.T.StepSimp
+public import LeanQbe.T.TailDup
+public import LeanQbe.T.TailDupLemmas
 public import LeanQbe.T.Target
 public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.Trie

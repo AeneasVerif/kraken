@@ -20,7 +20,9 @@ import LeanQbe.T.PeelLemmas
 import LeanQbe.T.IfOptLemmas
 import LeanQbe.T.SimplifyGroupPlanLemmas
 import LeanQbe.T.LicmLemmas
+import LeanQbe.T.AddrRangeOptLemmas
 import LeanQbe.T.LoopRotateLemmas
+import LeanQbe.T.CondThreadOptLemmas
 import LeanQbe.T.ZeroPeelLemmas
 import LeanQbe.T.AssumeBitsLemmas
 
@@ -349,8 +351,8 @@ theorem Func.lateCore_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : 
 theorem Func.lateCfgPre_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.lateCfgPre f).Wf := by
   rw [Func.lateCfgPre_eq]
-  exact Func.gvn_wf (Func.fold_wf (Func.assumeElim_wf
-    (Func.deadLoadElim_wf (Func.simplifyGroupFast_wf (Func.ifOptBits f)))))
+  exact Func.gvn_wf (Func.addrRangeOpt_wf (Func.fold_wf (Func.assumeElim_wf
+    (Func.deadLoadElim_wf (Func.simplifyGroupFast_wf (Func.ifOptBits f))))))
 
 /-- `Func.lateCfgPre` refines function contracts. -/
 theorem Func.lateCfgPre_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
@@ -367,7 +369,9 @@ theorem Func.lateCfgPre_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ 
   have hs4 := Func.assumeElim_spec hf3 hs3
   have hf5 := Func.fold_wf hf4
   have hs5 := Func.fold_spec hf4 hs4
-  exact Func.gvn_spec hf5 hs5
+  have hf6 := Func.addrRangeOpt_wf hf5
+  have hs6 := Func.addrRangeOpt_spec hf5 hs5
+  exact Func.gvn_spec hf6 hs6
 
 /-- `Func.lateCfgPost` preserves well-formedness. -/
 theorem Func.lateCfgPost_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
@@ -386,7 +390,7 @@ theorem Func.lateCfgPost_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ
 theorem Func.lateLoopRotate_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
     (Func.lateLoopRotate f).Wf := by
   rw [Func.lateLoopRotate_eq]
-  exact Func.mergeRets_wf (Func.loopRotate_wf (Func.lateCfgPost_wf hf))
+  exact Func.loopRotate_wf (Func.lateCfgPost_wf hf)
 
 /-- `Func.lateLoopRotate` refines function contracts. -/
 theorem Func.lateLoopRotate_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
@@ -395,30 +399,45 @@ theorem Func.lateLoopRotate_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) 
   rw [Func.lateLoopRotate_eq]
   have hcfg := Func.lateCfgPost_wf hf
   have hscfg := Func.lateCfgPost_spec hf h
-  have hrot_wf := Func.loopRotate_wf hcfg
-  have hrot_sp := Func.loopRotate_spec hcfg LoopRotate.defaultRotConfig hscfg
-  exact Func.mergeRets_spec hrot_wf hrot_sp
+  exact Func.loopRotate_spec hcfg LoopRotate.defaultRotConfig hscfg
 
 /-- `Func.lateCfg` preserves well-formedness. -/
 theorem Func.lateCfg_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
     (Func.lateCfg f).Wf := by
-  rw [Func.lateCfg_eq]
-  exact Func.dceP_wf (Func.licm_wf (Func.renorm_wf _))
+  rw [Func.lateCfg_def]
+  exact Func.lateCfgPost_wf (Func.renorm_wf _)
 
 /-- `Func.lateCfg` refines function contracts. -/
 theorem Func.lateCfg_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCfg f) xs m Q X := by
+  rw [Func.lateCfg_def]
   have h1r := Func.renorm_wf f
   have hs1r := Func.renorm_spec hf h
   have h2 := Func.lateCfgPre_wf h1r
   have hs2 := Func.lateCfgPre_spec h1r hs1r
   have h2r := Func.renorm_wf (Func.lateCfgPre (Func.renorm f))
   have hs2r := Func.renorm_spec h2 hs2
-  have h3 := Func.lateCfgPost_spec h2r hs2r
-  rw [Func.lateCfgPre_eq, Func.lateCfgPost_eq] at h3
-  rw [Func.lateCfg_eq]
-  exact h3
+  exact Func.lateCfgPost_spec h2r hs2r
+
+/-- `Func.lateCondThread` preserves well-formedness. -/
+theorem Func.lateCondThread_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
+    (Func.lateCondThread f).Wf := by
+  rw [Func.lateCondThread_eq]
+  exact Func.mergeRets_wf (Func.dceP_wf (Func.fold_wf (Func.condThreadLateOpt_wf f)))
+
+/-- `Func.lateCondThread` refines function contracts. -/
+theorem Func.lateCondThread_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCondThread f) xs m Q X := by
+  rw [Func.lateCondThread_eq]
+  have hct_wf := Func.condThreadLateOpt_wf f
+  have hct_sp := Func.condThreadLateOpt_spec hf h
+  have hfd_wf := Func.fold_wf hct_wf
+  have hfd_sp := Func.fold_spec hct_wf hct_sp
+  have hdp_wf := Func.dceP_wf hfd_wf
+  have hdp_sp := Func.dceP_spec hfd_wf hfd_sp
+  exact Func.mergeRets_spec hdp_wf hdp_sp
 
 /-- Post-`Legal` mid-end (`Func.lateOpt`) preserves well-formedness. -/
 theorem Func.lateOpt_wf {as rs : List Ty} {f : Func as rs} (_hf : f.Wf) :
@@ -431,13 +450,23 @@ theorem Func.lateOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : E
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateOpt f) xs m Q X := by
   rw [Func.lateOpt_eq]
-  have hcore := Func.lateCore_wf hf
-  have hscore := Func.lateCore_spec hf h
-  have hcfg := Func.lateCfg_wf hcore
-  have hscfg := Func.lateCfg_spec hcore hscore
-  have hrot := Func.lateLoopRotate_wf hcfg
-  have hsrot := Func.lateLoopRotate_spec hcfg hscfg
-  exact Func.renorm_spec hrot hsrot
+  apply Func.renorm_spec (Func.mergeRets_wf (Func.renorm_wf _))
+  apply Func.mergeRets_spec (Func.renorm_wf _)
+  apply Func.renorm_spec (Func.dceP_wf (Func.fold_wf (Func.renorm_wf _)))
+  apply Func.dceP_spec (Func.fold_wf (Func.renorm_wf _))
+  apply Func.fold_spec (Func.renorm_wf _)
+  apply Func.renorm_spec (Func.condThreadLateOpt_wf _)
+  apply Func.condThreadLateOpt_spec (Func.renorm_wf _)
+  apply Func.renorm_spec (Func.lateLoopRotate_wf (Func.renorm_wf _))
+  apply Func.lateLoopRotate_spec (Func.renorm_wf _)
+  apply Func.renorm_spec (Func.lateCfgPost_wf (Func.renorm_wf _))
+  apply Func.lateCfgPost_spec (Func.renorm_wf _)
+  apply Func.renorm_spec (Func.lateCfgPre_wf (Func.renorm_wf _))
+  apply Func.lateCfgPre_spec (Func.renorm_wf _)
+  apply Func.renorm_spec (Func.lateCorePost_wf (Func.renorm_wf _))
+  apply Func.lateCorePost_spec (Func.renorm_wf _)
+  apply Func.renorm_spec (Func.lateCorePre_wf hf)
+  exact Func.lateCorePre_spec hf h
 
 /-- `Fn.renorm` unconditionally produces a well-formed function body. -/
 theorem Fn.renorm_wf (fn : Fn) : (Fn.renorm fn).Wf :=

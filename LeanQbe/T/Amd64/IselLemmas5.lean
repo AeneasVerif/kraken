@@ -245,7 +245,8 @@ theorem x64SupportsScalarOp_complete {sig rs : List Ty} {code : OpCode sig rs}
       cases pd <;> simp [tupDstGprs] at hd
       cases pa <;> first
         | exact absurd rfl (ha _)
-        | (dsimp only [x64OpIns]; simp [opBoolNotIns, boolArgTo8I] <;> rfl)
+        | (dsimp only [x64OpIns]; simp [opBoolNotIns] <;>
+            try split <;> rfl)
     · rename_i n; change x64BitWidths.contains n = true at hsup; have ha := arg1_nv hp
       rcases pas with ⟨pa, ⟨⟩⟩; rcases dsts with ⟨pd, ⟨⟩⟩; cases pd <;> simp [tupDstGprs] at hd
       rcases mem_x64BitWidths hsup with rfl | rfl | rfl | rfl <;> cases pa <;> first
@@ -262,7 +263,10 @@ theorem x64SupportsScalarOp_complete {sig rs : List Ty} {code : OpCode sig rs}
       rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨pd, ⟨⟩⟩; cases pd <;> simp [tupDstGprs] at hd
       cases pa <;> cases pb <;> first
         | exact absurd rfl (ha _) | exact absurd rfl (hb _)
-        | (dsimp only [x64OpIns]; simp [opBoolBinIns, boolArgTo8I] <;> rfl)
+        | (dsimp only [x64OpIns]
+           simp only [opBoolBinIns, boolBinSelfIns, boolBinDstIns, boolArgTo8I]
+           repeat' split
+           all_goals rfl)
     · rename_i n; change x64BitWidths.contains n = true at hsup
       have ha := arg1_nv hp; have hb := arg2_nv hp
       rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨pd, ⟨⟩⟩; cases pd <;> simp [tupDstGprs] at hd
@@ -465,17 +469,22 @@ theorem x64Gpr_op_spec {h : x64Mach.Host} {k : Nat} {sig rs : List Ty} {code : O
     cases t <;> try exact none_ne_some (rfl : x64OpIns _ _ _ _ = none) hc
     · dsimp only [x64OpIns] at hc; dsimp only [OpCode.wp, Ty.hasFloat, lift2] at hwp
       refine opPostDst1_fallsTo hwp fun {_} _ =>
-        opBoolBin_spec _ _ (fun s0 _ p0 n0 j0 P0 hk => ?_) hc ha hb (arg2_not_sc hargs)
+        opBoolBin_spec _ _ (by first | exact Bool.and_comm | exact Bool.or_comm | exact Bool.xor_comm)
+          (fun dst src s0 _ p0 n0 j0 P0 hk => ?_) hc
+          (fun r hr => hdst r (by simpa [tupDstGprs] using hr)) (arg2_not_sc hargs) ha hb
       first
-      | exact fallsTo_and8 s0 .r11 .r10 p0 n0 j0 P0 fun _ ⟨st, hs⟩ =>
-          hk _ ⟨_, st, fun a b h1 h2 => by
-            cases a <;> cases b <;> simp_all [replaceLow_setWidth_le], hs⟩
-      | exact fallsTo_or8 s0 .r11 .r10 p0 n0 j0 P0 fun _ ⟨st, hs⟩ =>
-          hk _ ⟨_, st, fun a b h1 h2 => by
-            cases a <;> cases b <;> simp_all [replaceLow_setWidth_le], hs⟩
-      | exact fallsTo_xor8 s0 .r11 .r10 p0 n0 j0 P0 fun _ ⟨st, hs⟩ =>
-          hk _ ⟨_, st, fun a b h1 h2 => by
-            cases a <;> cases b <;> simp_all [replaceLow_setWidth_le], hs⟩
+      | exact fallsTo_and8 s0 dst src p0 n0 j0 P0 fun _ ⟨st, hzf, hs⟩ =>
+          hk _ ⟨_, st, fun a b h1 h2 =>
+            ⟨by cases a <;> cases b <;> simp_all [replaceLow_setWidth_le],
+             by cases a <;> cases b <;> simp_all⟩, hs⟩
+      | exact fallsTo_or8 s0 dst src p0 n0 j0 P0 fun _ ⟨st, hzf, hs⟩ =>
+          hk _ ⟨_, st, fun a b h1 h2 =>
+            ⟨by cases a <;> cases b <;> simp_all [replaceLow_setWidth_le],
+             by cases a <;> cases b <;> simp_all⟩, hs⟩
+      | exact fallsTo_xor8 s0 dst src p0 n0 j0 P0 fun _ ⟨st, hzf, hs⟩ =>
+          hk _ ⟨_, st, fun a b h1 h2 =>
+            ⟨by cases a <;> cases b <;> simp_all [replaceLow_setWidth_le],
+             by cases a <;> cases b <;> simp_all⟩, hs⟩
     · (cases pd <;> try exact none_ne_some (rfl : x64OpIns _ _ _ _ = none) hc)
       dsimp only [x64OpIns] at hc
       rename_i rd; exact withWidth_elim hc fun w hn hw => by
@@ -1482,6 +1491,170 @@ theorem x64Gpr_leaArith_zero32 (_ : x64Gpr.zeroUpper32LeaArith = true)
     x64LeaArith_z (w := 32) true (fun _ => rfl) hc0 hvb hvi hinf
       fun s' ⟨_, hz, hm⟩ hfr => kont s' ⟨hz rfl, hm⟩ hfr
 
+theorem x64Gpr_op_boolFlag_spec {h : x64Mach.Host} {k : Nat} {sig : List Ty}
+    {code : OpCode sig [.bool]} {pas : Tup (PArg Reg64 RegMm CondCode) sig}
+    {pd : PDst Reg64 RegMm CondCode .bool} {cc : CondCode} {vh : VariantHint}
+    {c : List Directive} {clob : FlagMask} {vs : Tup Val sig} {P : Tup Val [.bool] → Prop}
+    {s : MachineData} {post : MachineState → Prop}
+    (hfl : x64Gpr.boolFlagOut? code pas pd = some cc)
+    (hc0 : x64Gpr.op code pas (pd, ()) vh = some (c, clob))
+    (hargs : ∀ r ∈ tupArgGprs pas, r ∉ x64Scratch)
+    (hdst : ∀ r ∈ pd.gprs, r ∉ x64Scratch)
+    (hvs : TRel (x64Mach.PArgHolds s) pas vs) (hwp : code.wp vs P) :
+    x64Mach.FallsTo x64Gpr.condReads h k c (pd.gprs ++ x64Scratch) [] clob s
+      (fun s' => (∃ b : Bool, P (b, ()) ∧ x64Mach.PDstHolds s' .bool pd b ∧
+          x64Mach.evalCond s' cc = b) ∧
+        x64Mach.mem s' = x64Mach.mem s) post := by
+  dsimp only [x64Gpr, x64Op] at hc0 hfl
+  obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc0
+  have finishBool (want : Bool) (hp : P (want, ()))
+      (hwp' : ∀ [Host] (E : Int64 → MachineData → Prop),
+        _root_.Program.wp (emitClean ci)
+          (fun s' => OpPostDst1 .bool pd want clob s s' ∧ cc.interp s'.status = want) E s) :
+      x64Mach.FallsTo x64Gpr.condReads h k (emitClean ci) (pd.gprs ++ x64Scratch) [] clob s
+        (fun s' => (∃ b : Bool, P (b, ()) ∧ x64Mach.PDstHolds s' .bool pd b ∧
+            x64Mach.evalCond s' cc = b) ∧
+          x64Mach.mem s' = x64Mach.mem s) post := by
+    refine x64_fallsTo_of_wp fun {_} _ => Program.wp.mono (hwp' _) ?_
+    rintro s' ⟨⟨hhold, hmem, hfr⟩, hcc⟩
+    refine ⟨⟨⟨want, hp, hhold, hcc⟩, hmem⟩, ?_⟩
+    simpa [tupDstGprs] using hfr
+  cases pd with
+  | vec _ | flag _ => simp [x64BoolFlagOut] at hfl
+  | gpr rd =>
+    cases code with
+    | copy =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      exact finishBool va hwp fun {_} _ => opCopyBool_boolFlag_spec hfl hc (trel1 hvs)
+    | not =>
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+      exact finishBool (!va) hwp fun {_} _ => opBoolNot_boolFlag_spec hfl hc (trel1 hvs)
+    | and | or | xor =>
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      obtain ⟨ha, hb⟩ := trel2 hvs
+      dsimp only [OpCode.wp, Ty.hasFloat, lift2] at hwp
+      dsimp only [x64OpIns] at hc
+      have hcc_nz : cc = .nz ∧ clob ≠ maskNone := by
+        cases pa <;> cases pb <;>
+          simp [x64BoolFlagOut, opBoolBinIns, boolBinDstIns, boolBinSelfIns] at hfl hc
+        all_goals
+          first
+          | exact ⟨hfl.symm, fun h => by
+              cases hc.2.symm.trans h⟩
+          | (subst hfl; refine ⟨rfl, fun h => ?_⟩
+             subst h
+             repeat' split at hc
+             all_goals
+               simp only [Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq,
+                 maskAll, maskNone] at hc
+             all_goals
+               first
+               | exact absurd hc.2 (by decide)
+               | (obtain ⟨_, _, _, h2⟩ := hc; exact absurd h2 (by decide))
+               | (obtain ⟨_, _, _, _, _, h2⟩ := hc; exact absurd h2 (by decide)))
+      rcases hcc_nz with ⟨rfl, hcl⟩
+      refine finishBool _ hwp fun {_} _ =>
+        Program.wp.mono (opBoolBin_flag_spec _ _
+          (by first | exact Bool.and_comm | exact Bool.or_comm | exact Bool.xor_comm)
+          (fun dst src s0 _ p0 n0 j0 P0 hk => ?_) hc hdst (arg2_not_sc hargs) ha hb)
+          fun _ ⟨h1, h2⟩ => ⟨h1, h2 hcl⟩
+      first
+      | exact fallsTo_and8 s0 dst src p0 n0 j0 P0 fun _ ⟨st, hzf, hs⟩ =>
+          hk _ ⟨_, st, fun a b h1 h2 =>
+            ⟨by cases a <;> cases b <;> simp_all [replaceLow_setWidth_le],
+             by cases a <;> cases b <;> simp_all⟩, hs⟩
+      | exact fallsTo_or8 s0 dst src p0 n0 j0 P0 fun _ ⟨st, hzf, hs⟩ =>
+          hk _ ⟨_, st, fun a b h1 h2 =>
+            ⟨by cases a <;> cases b <;> simp_all [replaceLow_setWidth_le],
+             by cases a <;> cases b <;> simp_all⟩, hs⟩
+      | exact fallsTo_xor8 s0 dst src p0 n0 j0 P0 fun _ ⟨st, hzf, hs⟩ =>
+          hk _ ⟨_, st, fun a b h1 h2 =>
+            ⟨by cases a <;> cases b <;> simp_all [replaceLow_setWidth_le],
+             by cases a <;> cases b <;> simp_all⟩, hs⟩
+    | _ => simp [x64BoolFlagOut] at hfl
+
+theorem x64Gpr_op_cmpFlags_spec {h : x64Mach.Host} {k : Nat} {co : CmpOp} {n : Nat}
+    {pa pb : PArg Reg64 RegMm CondCode (.bits n)} {pd : PDst Reg64 RegMm CondCode .bool}
+    {lhsFirst : Bool} {vh : VariantHint} {c : List Directive} {clob : FlagMask}
+    {va vb : BitVec n} {s : MachineData} {post : MachineState → Prop}
+    (hfl : x64Gpr.cmpFlagsOut? co n pa pb pd = some lhsFirst)
+    (hc0 : x64Gpr.op (.cmp co (.bits n) .bool rfl) (pa, pb, ()) (pd, ()) vh = some (c, clob))
+    (hargs : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch)
+    (_hdst : ∀ r ∈ pd.gprs, r ∉ x64Scratch)
+    (hpa : x64Mach.PArgHolds s (.bits n) pa va) (hpb : x64Mach.PArgHolds s (.bits n) pb vb) :
+    x64Mach.FallsTo x64Gpr.condReads h k c (pd.gprs ++ x64Scratch) [] clob s
+      (fun s' => x64Mach.PDstHolds s' .bool pd (co.evalBits va vb) ∧
+        FlagCmpOk x64Mach x64Gpr s' (if lhsFirst then va else vb)
+          (if lhsFirst then vb else va) false ∧
+        x64Mach.mem s' = x64Mach.mem s) post := by
+  dsimp only [x64Gpr, x64Op] at hc0 hfl
+  obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc0
+  dsimp only [x64OpIns] at hc
+  refine withWidth_elim hc fun w hn hw => ?_
+  subst hn
+  have hargs' : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ x64Scratch := hargs
+  refine x64_fallsTo_of_wp fun {_} _ =>
+    Program.wp.mono (opCmp_flags_spec w co hfl hw hargs' hpa hpb) ?_
+  rintro s' ⟨⟨hhold, hmem, hfr⟩, hcmp⟩
+  refine ⟨⟨hhold, hcmp, hmem⟩, ?_⟩
+  simpa [tupDstGprs] using hfr
+
+theorem x64Gpr_op_aluZero_spec {h : x64Mach.Host} {k : Nat} {sig : List Ty} {n : Nat}
+    {code : OpCode sig [.bits n]} {pas : Tup (PArg Reg64 RegMm CondCode) sig}
+    {pd : PDst Reg64 RegMm CondCode (.bits n)} {eqNe : Bool} {vh : VariantHint}
+    {c : List Directive} {clob : FlagMask} {vs : Tup Val sig} {P : Tup Val [.bits n] → Prop}
+    {s : MachineData} {post : MachineState → Prop}
+    (hfl : x64Gpr.aluZeroOut? n code pd = some eqNe)
+    (hcl : clob ≠ FlagMask.none)
+    (hc0 : x64Gpr.op code pas (pd, ()) vh = some (c, clob))
+    (hargs : ∀ r ∈ tupArgGprs pas, r ∉ x64Scratch)
+    (hdst : ∀ r ∈ pd.gprs, r ∉ x64Scratch)
+    (hvs : TRel (x64Mach.PArgHolds s) pas vs) (hwp : code.wp vs P) :
+    x64Mach.FallsTo x64Gpr.condReads h k c (pd.gprs ++ x64Scratch) [] clob s
+      (fun s' => (∃ rv : BitVec n, P (rv, ()) ∧ x64Mach.PDstHolds s' (.bits n) pd rv ∧
+          (∀ rd, n = 32 → pd = .gpr rd →
+            x64Gpr.zeroUpper32Op code pas (.gpr rd, ()) = true →
+            x64Mach.getGpr s' rd = rv.setWidth 64) ∧
+          FlagCmpOk x64Mach x64Gpr s' rv 0#n eqNe) ∧
+        x64Mach.mem s' = x64Mach.mem s) post := by
+  dsimp only [x64Gpr, x64Op] at hc0 hfl
+  obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc0
+  cases pd with
+  | vec _ => simp [x64AluZeroOut] at hfl
+  | gpr rd =>
+    cases code with
+    | neg =>
+      simp only [x64AluZeroOut, Option.some.injEq] at hfl
+      rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩; have ha := trel1 hvs
+      dsimp only [x64OpIns] at hc
+      refine withWidth_elim hc fun w hn hw => ?_
+      subst hn; subst hfl
+      dsimp only [OpCode.wp, Ty.hasFloat, lift1] at hwp
+      refine x64_fallsTo_of_wp fun {_} _ =>
+        Program.wp.mono (opNeg_aluZero_spec w hcl hw ha) ?_
+      rintro s' ⟨⟨hhold, hmem, hfr⟩, hz32, hfc⟩
+      refine ⟨⟨⟨-va, hwp, hhold, fun rd' hn heq _ => ?_, hfc⟩, hmem⟩, ?_⟩
+      · cases heq; cases w <;> simp [Width.bits] at hn; exact hz32 rfl
+      · simpa [tupDstGprs] using hfr
+    | add | sub | and | or | xor =>
+      simp only [x64AluZeroOut, Option.some.injEq] at hfl
+      rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+      obtain ⟨ha, hb⟩ := trel2 hvs
+      dsimp only [x64OpIns] at hc
+      dsimp only [OpCode.wp, Ty.hasFloat, lift2] at hwp
+      refine withWidth_elim hc fun w hn hw => ?_
+      subst hn
+      refine x64_fallsTo_of_wp fun {_} _ =>
+        Program.wp.mono (opBin_aluZero_spec w _ ?_ eqNe ?_ hcl hw
+          (hdst rd (by simp [PDst.gprs])) (arg2_not_sc hargs) ha hb) ?_
+      · decide
+      · rw [← hfl]; decide
+      rintro s' ⟨⟨hhold, hmem, hfr⟩, hz32, hfc⟩
+      refine ⟨⟨⟨_, hwp, hhold, fun rd' hn heq _ => ?_, hfc⟩, hmem⟩, ?_⟩
+      · cases heq; cases w <;> simp [Width.bits] at hn; exact hz32 rfl
+      · simpa [tupDstGprs] using hfr
+    | _ => simp [x64AluZeroOut] at hfl
+
 /-- Assembled `GprTarget` proof package for `x64Gpr` over `x64Mach` and `x64Scratch`. -/
 theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
   negCond_reads := x64Gpr_negCond_reads; negCond_eval := x64Gpr_negCond_eval
@@ -1505,6 +1678,13 @@ theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
   rmwMem_spec := x64Gpr_rmwMem_spec
   leaArith_spec := x64Gpr_leaArith_spec
   leaArith_zero32 := x64Gpr_leaArith_zero32
+  jnzGprInv_spec := fun hfn => x64Gpr_jnzGprInv_spec hfn
+  op_boolFlag_spec := x64Gpr_op_boolFlag_spec
+  op_cmpFlags_spec := x64Gpr_op_cmpFlags_spec
+  op_aluZero_spec := x64Gpr_op_aluZero_spec
+  testOp_boolFlag_spec := x64Gpr_testOp_boolFlag_spec
+  testMem_boolFlag_spec := x64Gpr_testMem_boolFlag_spec
+  cmpMem_flags_spec := x64Gpr_cmpMem_flags_spec
 
 end
 

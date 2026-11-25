@@ -45,6 +45,7 @@ def armSupportsAddrIdx (t : Ty) (sc : AddrScale) (d : BitVec 64) : Bool :=
   supportsAddrDisp := armSupportsAddrDisp
   supportsAddrIdx := armSupportsAddrIdx
   supportsTestFuse := true
+  supportsAddrZextIdx := armSupportsAddrIdx
 
 /-- AArch64 scalar legalization capability record (`LegalTarget.aarch64`, no vectors/floats). -/
 def armLegalTarget : LegalTarget := LegalTarget.aarch64

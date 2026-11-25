@@ -564,6 +564,15 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
         solve_spec_intro="m7FidSolveBytesSpec_intro",
         solve_spec_has_sat=False,
         solve_mem_thm="m7Fidelity_solveBytes_mem",
+        reuse_prefix="KissatM7Plus",
+        reuse_inl_mod="LeanQbe.T.Examples.Kissat.FullM7PlusInl",
+        reuse_inl_fns="m7PlusInlFns",
+        reuse_inl_mod_sym="m7PlusInlMod",
+        reuse_inl_policy="m7InlPolicy",
+        reuse_proof_mod="LeanQbe.T.Examples.Kissat.FullM7PlusAssembly",
+        reuse_proof_ns="LeanQbe.T.Examples.Kissat.FullM7Plus",
+        reuse_acyclic="m7Plus_acyclic",
+        reuse_wf="m7PlusFns_wf",
     ),
     "FullM7Plus": ModulePreset(
         name="FullM7Plus",
@@ -1750,6 +1759,7 @@ def plan_slices_with_reuse(
     singleton_work: int | None,
     max_slice_size: int | None,
     heavy_thresh: float | None,
+    fresh_sizes: list[int] | None = None,
 ) -> tuple[SliceRange, ...]:
     """Partition `[0, len(metrics))` keeping reused slices and slicing uncovered gaps."""
     total_fns = len(metrics)
@@ -1775,10 +1785,28 @@ def plan_slices_with_reuse(
 
     combined: list[SliceRange] = []
     fresh_idx = 0
+    fresh_iter = iter(fresh_sizes) if fresh_sizes is not None else None
 
     def slice_gap(g_start: int, g_end: int) -> None:
         nonlocal fresh_idx
         if g_start >= g_end:
+            return
+        if fresh_iter is not None:
+            cur = g_start
+            while cur < g_end:
+                try:
+                    cnt = next(fresh_iter)
+                except StopIteration as exc:
+                    raise ValueError(
+                        f"fresh_sizes exhausted cleanly before gap [{g_start}, {g_end})"
+                    ) from exc
+                if cnt <= 0 or cnt > slice_size or cur + cnt > g_end:
+                    raise ValueError(
+                        f"invalid fresh slice size {cnt} for gap [{cur}, {g_end})"
+                    )
+                fresh_idx += 1
+                combined.append(SliceRange(index=fresh_idx, start=cur, count=cnt))
+                cur += cnt
             return
         sub = metrics[g_start:g_end]
         if max_slice_size is not None or singleton_size is not None:
@@ -1818,6 +1846,10 @@ def plan_slices_with_reuse(
         )
         pos = st + cnt
     slice_gap(pos, total_fns)
+    if fresh_iter is not None:
+        leftover = list(fresh_iter)
+        if leftover:
+            raise ValueError(f"unused trailing fresh_sizes: {leftover}")
 
     assert combined and combined[0].start == 0 and combined[-1].end == total_fns
     for a, b in zip(combined, combined[1:]):
@@ -5000,12 +5032,18 @@ def render_unsat_section(
     return lines, audit_names
 
 
-def build_plan(cfg: CertConfig, arches: list[str]) -> list[tuple[str, str]]:
+def build_plan(
+    cfg: CertConfig, arches: list[str], cert_only: bool = False
+) -> list[tuple[str, str]]:
     """Build deterministic `(relative_path, lean_source)` pairs and validate invariants."""
     files: list[tuple[str, str]] = []
     for arch_key in arches:
         arch = ARCH_SPECS[arch_key]
         base = f"LeanQbe/T/{arch.dir_name}"
+        if cert_only:
+            planned = [(f"{base}/{cfg.prefix}Cert.lean", render_cert_ladder(cfg, arch))]
+            files.extend(planned)
+            continue
         planned: list[tuple[str, str]] = [
             (f"{base}/{cfg.prefix}Bounds.lean", render_bounds(cfg, arch)),
         ]
@@ -5125,7 +5163,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
 
     total_fns = args.total_fns
     if total_fns is None:
-        if explicit_sizes is not None:
+        if explicit_sizes is not None and not args.reuse_spec:
             total_fns = sum(explicit_sizes)
         else:
             detected_total = detect_total_fns(root, source_mod, fns)
@@ -5237,6 +5275,9 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         reuse_inl_policy = args.reuse_inl_policy or rspec.get("reuse_inl_policy") or (
             preset.reuse_inl_policy if preset else None
         )
+        fresh_sizes = explicit_sizes
+        if fresh_sizes is None and "fresh_sizes" in rspec:
+            fresh_sizes = [int(x) for x in rspec["fresh_sizes"]]
         slices = plan_slices_with_reuse(
             fn_metrics,
             rspec["reused_slices"],
@@ -5247,6 +5288,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
             singleton_work=args.singleton_work,
             max_slice_size=args.max_slice_size,
             heavy_thresh=args.heavy_thresh,
+            fresh_sizes=fresh_sizes,
         )
     elif args.reuse_mode and args.reuse_mode != "verbatim":
         raise ValueError(f"--reuse-mode {args.reuse_mode} requires --reuse-spec")
@@ -5653,6 +5695,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Override `<env><suffix>` bridge for M6Hdr solve spec (default: preset or _solve_bytes_iff.mpr).",
     )
     ap.add_argument(
+        "--cert-only",
+        action="store_true",
+        help="Emit only `<Prefix>Cert.lean` without regenerating Bounds/Cert1..N/CertLink/Top.",
+    )
+    ap.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate and print plan without writing files.",
@@ -5666,7 +5713,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         cfg = build_config(args)
         arches = ["amd64", "arm64"] if args.arch == "both" else [args.arch]
-        files = build_plan(cfg, arches)
+        files = build_plan(cfg, arches, cert_only=args.cert_only)
     except ValueError as err:
         print(f"error: {err}", file=sys.stderr)
         return 1

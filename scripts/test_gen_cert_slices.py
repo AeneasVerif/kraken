@@ -705,6 +705,43 @@ class GenCertSlicesTest(unittest.TestCase):
             self.assertIn("FullM7PlusAssemblyProof0", pr_cert)
             self.assertIn("m7Plus_acyclic m7PlusFns_wf", pr_cert)
 
+            # Explicit `--slice-sizes` + `--cert-only` with `--reuse-spec` uses preset defaults.
+            co_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullM7Fidelity",
+                    "--total-fns",
+                    "40",
+                    "--profile",
+                    str(p_path),
+                    "--reuse-spec",
+                    str(b_path),
+                    "--reuse-mode",
+                    "pruned_relink",
+                    "--slice-sizes",
+                    "6,6,8,8",
+                    "--cert-only",
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            co_cfg = gcs.build_config(co_args)
+            co_files = dict(gcs.build_plan(co_cfg, ["amd64", "arm64"], cert_only=co_args.cert_only))
+            self._assert_hygiene(list(co_files.items()))
+            self.assertEqual(
+                sorted(co_files.keys()),
+                [
+                    "LeanQbe/T/Amd64/KissatM7FidelityCert.lean",
+                    "LeanQbe/T/Arm64/KissatM7FidelityCert.lean",
+                ],
+            )
+            self.assertEqual([s.count for s in co_cfg.slices], [6, 6, 12, 8, 8])
+            self.assertIn(
+                "m7Plus_acyclic m7PlusFns_wf",
+                co_files["LeanQbe/T/Amd64/KissatM7FidelityCert.lean"],
+            )
+
             bad_args = gcs.parse_args(
                 [
                     "--module",

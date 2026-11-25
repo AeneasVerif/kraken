@@ -1,0 +1,2467 @@
+module
+
+public import LeanQbe.T.AddrRangeOpt
+public import LeanQbe.T.OptUtilLemmas
+import LeanQbe.T.OpsLemmas
+
+/-!
+# Correctness of `Func.addrRangeOpt`
+
+Proves:
+* Pure `BitVec` modular identities for shifted/unshifted address reassociation (`bv_shl_add`,
+  `bv_shl_sub`, `bv_add_shl_add_disp`, `bv_add_shl_sub_disp`) and signed/unsigned range-check
+  collapse (`toRangeBound_eval`, `bv_range_and_u`, `bv_range_and_s`, `bv_range_or_u`,
+  `bv_range_or_s`).
+* Weakest-precondition preservation (`addrRangeSweep_wp`) for arbitrary untrusted `LoopTree`s.
+* Relational well-formedness preservation (`addrRangeSweep_wf`) for arbitrary untrusted `LoopTree`s.
+* Closed-function theorems `Func.addrRangeOpt_wf` and `Func.addrRangeOpt_spec`.
+-/
+
+set_option autoImplicit false
+
+public section
+
+namespace LeanQbe.T
+
+/-! ## Pure `BitVec` address reassociation identities -/
+
+theorem bv_shl_add {n : Nat} (a b : BitVec n) (k : Nat) :
+    (a + b) <<< k = (a <<< k) + (b <<< k) := by
+  apply BitVec.eq_of_toNat_eq
+  simp only [BitVec.toNat_shiftLeft, BitVec.toNat_add, Nat.shiftLeft_eq]
+  rw [Nat.mod_mul_mod, Nat.add_mul, Nat.add_mod]
+
+theorem bv_shl_sub {n : Nat} (a b : BitVec n) (k : Nat) :
+    (a - b) <<< k = (a <<< k) - (b <<< k) := by
+  have h := bv_shl_add (a - b) b k
+  rw [BitVec.sub_add_cancel] at h
+  have h2 := congrArg (· - (b <<< k)) h
+  simpa [BitVec.add_sub_cancel] using h2.symm
+
+theorem bv_shl_shl_add {n : Nat} (a : BitVec n) (k₁ k₂ : Nat) :
+    (a <<< k₁) <<< k₂ = a <<< (k₁ + k₂) := by
+  apply BitVec.eq_of_toNat_eq
+  simp only [BitVec.toNat_shiftLeft, Nat.shiftLeft_eq]
+  rw [Nat.mod_mul_mod, Nat.mul_assoc, ← Nat.pow_add]
+
+theorem bv_add_shl_add_disp {n : Nat} (base inv iv disp : BitVec n) (sh : Nat) :
+    ((base + (inv <<< sh)) + (iv <<< sh)) + disp = base + (((inv + iv) <<< sh) + disp) := by
+  rw [bv_shl_add, BitVec.add_assoc base (inv <<< sh) (iv <<< sh), BitVec.add_assoc]
+
+theorem bv_add_shl_sub_disp {n : Nat} (base inv iv disp : BitVec n) (sh : Nat) :
+    ((base - (inv <<< sh)) + (iv <<< sh)) + disp = base + (((iv - inv) <<< sh) + disp) := by
+  rw [bv_shl_sub, BitVec.sub_eq_add_neg, BitVec.sub_eq_add_neg,
+    BitVec.add_assoc base (-(inv <<< sh)) (iv <<< sh),
+    BitVec.add_comm (-(inv <<< sh)) (iv <<< sh),
+    BitVec.add_assoc]
+
+theorem bv_add_add_disp {n : Nat} (base inv iv disp : BitVec n) :
+    ((base + inv) + iv) + disp = base + ((inv + iv) + disp) := by
+  rw [BitVec.add_assoc base inv iv, BitVec.add_assoc]
+
+theorem bv_add_sub_disp {n : Nat} (base inv iv disp : BitVec n) :
+    ((base - inv) + iv) + disp = base + ((iv - inv) + disp) := by
+  rw [BitVec.sub_eq_add_neg, BitVec.sub_eq_add_neg,
+    BitVec.add_assoc base (-inv) iv, BitVec.add_comm (-inv) iv, BitVec.add_assoc]
+
+/-! ## Pure `BitVec` range-check identities -/
+
+/-- Semantic evaluation of a normalized `RangeBound w` on `x`. -/
+def RangeBound.eval {w : Nat} (x : BitVec w) : RangeBound w → Bool
+  | .ge false lo => lo.ule x
+  | .lt false hi => x.ult hi
+  | .ge true lo => lo.sle x
+  | .lt true hi => x.slt hi
+
+private theorem toNat_add_one_of_ne_allOnes {w : Nat} {c : BitVec w} (h : c ≠ BitVec.allOnes w) :
+    (c + 1#w).toNat = c.toNat + 1 := by
+  have hlt : c.toNat < 2 ^ w := c.isLt
+  have hne : c.toNat ≠ 2 ^ w - 1 := by
+    intro heq
+    apply h
+    apply BitVec.eq_of_toNat_eq
+    simpa [BitVec.toNat_allOnes] using heq
+  have hw : 1 ≤ 2 ^ w := Nat.one_le_two_pow
+  have h1 : (1#w).toNat = 1 := by
+    rw [BitVec.toNat_ofNat]
+    have hgt : 1 < 2 ^ w := by omega
+    exact Nat.mod_eq_of_lt hgt
+  rw [BitVec.toNat_add, h1]
+  exact Nat.mod_eq_of_lt (by omega)
+
+private theorem toNat_arIntMax {w : Nat} (hw : 0 < w) :
+    (arIntMax w).toNat = 2 ^ (w - 1) - 1 := by
+  have hpow : 0 < 2 ^ (w - 1) := Nat.two_pow_pos (w - 1)
+  have h2 : 2 ^ w = 2 * 2 ^ (w - 1) := by
+    cases w with
+    | zero => omega
+    | succ k => simp [Nat.pow_succ]; omega
+  simp only [arIntMax, BitVec.toNat_not, BitVec.toNat_intMin, Nat.two_pow_pred_mod_two_pow hw]
+  omega
+
+private theorem toInt_add_one_of_ne_arIntMax {w : Nat} {c : BitVec w} (h : c ≠ arIntMax w) :
+    (c + 1#w).toInt = c.toInt + 1 := by
+  cases w with
+  | zero => exact absurd (Subsingleton.elim c (arIntMax 0)) h
+  | succ m =>
+    cases m with
+    | zero =>
+      have h2 : c.toNat < 2 := c.isLt
+      have hc0 : c.toNat ≠ 0 := by
+        intro h0; apply h; apply BitVec.eq_of_toNat_eq; simpa [arIntMax] using h0
+      have hc : c = 1#1 := by apply BitVec.eq_of_toNat_eq; simp only [BitVec.toNat_ofNat]; omega
+      subst hc; decide
+    | succ k =>
+      have hw : 0 < k + 2 := Nat.succ_pos _
+      have hmax := toNat_arIntMax hw
+      have hne : c.toNat ≠ 2 ^ (k + 1) - 1 := by
+        intro heq
+        apply h
+        apply BitVec.eq_of_toNat_eq
+        simpa [hmax] using heq
+      have hc := c.isLt
+      have hpow : 1 ≤ 2 ^ k := Nat.one_le_two_pow
+      have hpow1 : 2 ^ (k + 1) = 2 * 2 ^ k := by rw [Nat.pow_succ]; omega
+      have hpow2 : 2 ^ (k + 2) = 2 * 2 ^ (k + 1) := by rw [Nat.pow_succ]; omega
+      have h1 : (1#(k + 2)).toNat = 1 := by
+        rw [BitVec.toNat_ofNat]; exact Nat.mod_eq_of_lt (by omega)
+      rw [BitVec.toInt_eq_toNat_cond, BitVec.toInt_eq_toNat_cond, BitVec.toNat_add, h1]
+      by_cases htop : c.toNat = 2 ^ (k + 2) - 1
+      · have hzero : (c.toNat + 1) % 2 ^ (k + 2) = 0 := by
+          rw [show c.toNat + 1 = 2 ^ (k + 2) by omega, Nat.mod_self]
+        rw [hzero]
+        split <;> split <;> omega
+      · have hmod : (c.toNat + 1) % 2 ^ (k + 2) = c.toNat + 1 :=
+          Nat.mod_eq_of_lt (by omega)
+        rw [hmod]
+        split <;> split <;> omega
+
+theorem toRangeBound_eval {w : Nat} (o : CmpOp) (c x : BitVec w) {b : RangeBound w}
+    (h : toRangeBound o c = some b) : b.eval x = o.evalBits x c := by
+  cases o <;> simp only [toRangeBound] at h
+  all_goals try cases h
+  · rfl
+  · split at h
+    · injection h with h; subst h; rename_i hne
+      have hadd := toNat_add_one_of_ne_allOnes (by simpa using hne)
+      simp only [RangeBound.eval, CmpOp.evalBits, BitVec.ult, BitVec.ule, hadd]
+      apply Bool.eq_iff_iff.mpr; simp only [decide_eq_true_eq]; omega
+    · cases h
+  · split at h
+    · injection h with h; subst h; rename_i hne
+      have hadd := toNat_add_one_of_ne_allOnes (by simpa using hne)
+      simp only [RangeBound.eval, CmpOp.evalBits, BitVec.ult, BitVec.ule, hadd]
+      apply Bool.eq_iff_iff.mpr; simp only [decide_eq_true_eq]; omega
+    · cases h
+  · rfl
+  · rfl
+  · split at h
+    · injection h with h; subst h; rename_i hne
+      have hadd := toInt_add_one_of_ne_arIntMax (by simpa using hne)
+      simp only [RangeBound.eval, CmpOp.evalBits, BitVec.slt, BitVec.sle, hadd]
+      apply Bool.eq_iff_iff.mpr; simp only [decide_eq_true_eq]; omega
+    · cases h
+  · split at h
+    · injection h with h; subst h; rename_i hne
+      have hadd := toInt_add_one_of_ne_arIntMax (by simpa using hne)
+      simp only [RangeBound.eval, CmpOp.evalBits, BitVec.slt, BitVec.sle, hadd]
+      apply Bool.eq_iff_iff.mpr; simp only [decide_eq_true_eq]; omega
+    · cases h
+  · rfl
+
+theorem bv_range_and_u {w : Nat} (x lo hi : BitVec w) :
+    (lo.ule x && x.ult hi) = if lo.ult hi then (x - lo).ult (hi - lo) else false := by
+  apply Bool.eq_iff_iff.mpr
+  have hx := x.isLt; have hlo := lo.isLt; have hhi := hi.isLt
+  by_cases hlt : lo.toNat < hi.toNat
+  · simp only [BitVec.ule, BitVec.ult, BitVec.toNat_sub, hlt, decide_true, ↓reduceIte,
+      Bool.and_eq_true, decide_eq_true_eq]
+    have hhi_sub : (2 ^ w - lo.toNat + hi.toNat) % 2 ^ w = hi.toNat - lo.toNat := by
+      have : 2 ^ w - lo.toNat + hi.toNat = (hi.toNat - lo.toNat) + 2 ^ w := by omega
+      rw [this, Nat.add_mod_right, Nat.mod_eq_of_lt (by omega)]
+    rw [hhi_sub]
+    by_cases h1 : lo.toNat ≤ x.toNat
+    · have hx_sub : (2 ^ w - lo.toNat + x.toNat) % 2 ^ w = x.toNat - lo.toNat := by
+        have : 2 ^ w - lo.toNat + x.toNat = (x.toNat - lo.toNat) + 2 ^ w := by omega
+        rw [this, Nat.add_mod_right, Nat.mod_eq_of_lt (by omega)]
+      rw [hx_sub]; omega
+    · have hx_sub : (2 ^ w - lo.toNat + x.toNat) % 2 ^ w = 2 ^ w - lo.toNat + x.toNat :=
+        Nat.mod_eq_of_lt (by omega)
+      rw [hx_sub]; omega
+  · simp only [BitVec.ule, BitVec.ult, hlt, decide_false, Bool.false_eq_true, ↓reduceIte,
+      Bool.and_eq_true, decide_eq_true_eq, iff_false, not_and]
+    omega
+
+private theorem bv_slt_iff_add_intMin_ult {w : Nat} (a b : BitVec w) :
+    a.slt b = (a + BitVec.intMin w).ult (b + BitVec.intMin w) := by
+  cases w with
+  | zero =>
+    have ha : a = 0#0 := Subsingleton.elim a 0#0
+    have hb : b = 0#0 := Subsingleton.elim b 0#0
+    subst ha; subst hb; rfl
+  | succ m =>
+    have hpow : 0 < 2 ^ m := Nat.two_pow_pos m
+    have h2 : 2 ^ (m + 1) = 2 * 2 ^ m := by rw [Nat.pow_succ]; omega
+    have hM : (BitVec.intMin (m + 1)).toNat = 2 ^ m := by
+      rw [BitVec.toNat_intMin]
+      simp only [Nat.add_sub_cancel]
+      exact Nat.mod_eq_of_lt (by omega)
+    have hadd : ∀ z : BitVec (m + 1),
+        (z + BitVec.intMin (m + 1)).toNat =
+          if z.toNat < 2 ^ m then z.toNat + 2 ^ m else z.toNat - 2 ^ m := by
+      intro z
+      have hz := z.isLt
+      rw [BitVec.toNat_add, hM]
+      split
+      · exact Nat.mod_eq_of_lt (by omega)
+      · have : z.toNat + 2 ^ m = (z.toNat - 2 ^ m) + 2 ^ (m + 1) := by omega
+        rw [this, Nat.add_mod_right]
+        exact Nat.mod_eq_of_lt (by omega)
+    have hshift : ∀ z : BitVec (m + 1),
+        ((z + BitVec.intMin (m + 1)).toNat : Int) = z.toInt + ((2 ^ m : Nat) : Int) := by
+      intro z
+      have hz := z.isLt
+      rw [hadd z, BitVec.toInt_eq_toNat_cond]
+      split <;> split <;> omega
+    apply Bool.eq_iff_iff.mpr
+    simp only [BitVec.slt, BitVec.ult, decide_eq_true_eq]
+    have ha := hshift a
+    have hb := hshift b
+    omega
+
+private theorem bv_sle_iff_add_intMin_ule {w : Nat} (a b : BitVec w) :
+    a.sle b = (a + BitVec.intMin w).ule (b + BitVec.intMin w) := by
+  have h1 := bv_slt_iff_add_intMin_ult b a
+  have h2 : a.sle b = !(b.slt a) := by
+    apply Bool.eq_iff_iff.mpr
+    simp only [BitVec.sle, BitVec.slt, Bool.not_eq_true', decide_eq_true_eq,
+      decide_eq_false_iff_not]
+    omega
+  have h3 : (a + BitVec.intMin w).ule (b + BitVec.intMin w) =
+      !((b + BitVec.intMin w).ult (a + BitVec.intMin w)) := by
+    apply Bool.eq_iff_iff.mpr
+    simp only [BitVec.ule, BitVec.ult, Bool.not_eq_true', decide_eq_true_eq,
+      decide_eq_false_iff_not]
+    omega
+  rw [h2, h3, h1]
+
+theorem bv_range_and_s {w : Nat} (x lo hi : BitVec w) :
+    (lo.sle x && x.slt hi) = if lo.slt hi then (x - lo).ult (hi - lo) else false := by
+  rw [bv_sle_iff_add_intMin_ule lo x, bv_slt_iff_add_intMin_ult x hi,
+      bv_slt_iff_add_intMin_ult lo hi, bv_range_and_u]
+  have h1 : (x + BitVec.intMin w) - (lo + BitVec.intMin w) = x - lo := by
+    rw [BitVec.sub_eq_add_neg, BitVec.neg_add, BitVec.add_assoc x,
+        BitVec.add_comm (BitVec.intMin w), BitVec.sub_add_cancel, ← BitVec.sub_eq_add_neg]
+  have h2 : (hi + BitVec.intMin w) - (lo + BitVec.intMin w) = hi - lo := by
+    rw [BitVec.sub_eq_add_neg, BitVec.neg_add, BitVec.add_assoc hi,
+        BitVec.add_comm (BitVec.intMin w), BitVec.sub_add_cancel, ← BitVec.sub_eq_add_neg]
+  rw [h1, h2]
+
+theorem bv_range_or_u {w : Nat} (x lo hi : BitVec w) :
+    (x.ult lo || hi.ule x) = if lo.ult hi then (hi - lo).ule (x - lo) else true := by
+  have h := congrArg (! ·) (bv_range_and_u x lo hi)
+  have hnot1 : (!(lo.ule x && x.ult hi)) = (x.ult lo || hi.ule x) := by
+    rw [Bool.not_and]
+    have ha : (!(lo.ule x)) = x.ult lo := by
+      apply Bool.eq_iff_iff.mpr
+      simp only [BitVec.ule, BitVec.ult, Bool.not_eq_true', decide_eq_true_eq,
+        decide_eq_false_iff_not]
+      omega
+    have hb : (!(x.ult hi)) = hi.ule x := by
+      apply Bool.eq_iff_iff.mpr
+      simp only [BitVec.ule, BitVec.ult, Bool.not_eq_true', decide_eq_true_eq,
+        decide_eq_false_iff_not]
+      omega
+    rw [ha, hb]
+  have hnot2 : (!((x - lo).ult (hi - lo))) = (hi - lo).ule (x - lo) := by
+    apply Bool.eq_iff_iff.mpr
+    simp only [BitVec.ule, BitVec.ult, Bool.not_eq_true', decide_eq_true_eq,
+      decide_eq_false_iff_not]
+    omega
+  rw [hnot1] at h
+  rw [h]
+  cases lo.ult hi <;> simp [hnot2]
+
+theorem bv_range_or_s {w : Nat} (x lo hi : BitVec w) :
+    (x.slt lo || hi.sle x) = if lo.slt hi then (hi - lo).ule (x - lo) else true := by
+  have h := congrArg (! ·) (bv_range_and_s x lo hi)
+  have hnot1 : (!(lo.sle x && x.slt hi)) = (x.slt lo || hi.sle x) := by
+    rw [Bool.not_and]
+    have ha : (!(lo.sle x)) = x.slt lo := by
+      apply Bool.eq_iff_iff.mpr
+      simp only [BitVec.sle, BitVec.slt, Bool.not_eq_true', decide_eq_true_eq,
+        decide_eq_false_iff_not]
+      omega
+    have hb : (!(x.slt hi)) = hi.sle x := by
+      apply Bool.eq_iff_iff.mpr
+      simp only [BitVec.sle, BitVec.slt, Bool.not_eq_true', decide_eq_true_eq,
+        decide_eq_false_iff_not]
+      omega
+    rw [ha, hb]
+  have hnot2 : (!((x - lo).ult (hi - lo))) = (hi - lo).ule (x - lo) := by
+    apply Bool.eq_iff_iff.mpr
+    simp only [BitVec.ule, BitVec.ult, Bool.not_eq_true', decide_eq_true_eq,
+      decide_eq_false_iff_not]
+    omega
+  rw [hnot1] at h
+  rw [h]
+  cases lo.slt hi <;> simp [hnot2]
+
+/-! ## Semantic invariant `ARGood` and WP soundness (`addrRangeSweep_wp`) -/
+
+/-- Semantic validity of `CmpImmDef Val` for boolean value `v`. -/
+def CmpImmGood (ρ : FEnv) (b : Nat) (cm : CmpImmDef Val) (v : Bool) : Prop :=
+  FKey.fev ρ cm.lhsKey = cm.lhs.val ∧ FKey.FLt b cm.lhsKey ∧ v = cm.op.evalBits cm.lhs.val cm.imm
+
+theorem CmpImmGood.upd {ρ : FEnv} {b : Nat} {cm : CmpImmDef Val} {v : Bool}
+    (h : CmpImmGood ρ b cm v) {u : Ty} (x : Val u) :
+    CmpImmGood (fupd ρ b x) (b + 1) cm v :=
+  ⟨(FKey.fev_fupd x h.2.1).trans h.1, h.2.1.mono, h.2.2⟩
+
+theorem CmpImmGood.updTup {ρ : FEnv} {b : Nat} {cm : CmpImmDef Val} {v : Bool}
+    (h : CmpImmGood ρ b cm v) {ts : List Ty} (xs : Tup Val ts) :
+    CmpImmGood (fupdTup ρ b xs) (b + ts.length) cm v :=
+  ⟨(FKey.fev_fupdTup xs h.2.1).trans h.1, h.2.1.add, h.2.2⟩
+
+/-- Semantic validity of `ZextDef Val n` for `v : BitVec n`. -/
+def ZextDefGood (ρ : FEnv) (b : Nat) {n : Nat} (zd : ZextDef Val n) (v : BitVec n) : Prop :=
+  FKey.fev ρ zd.srcKey = zd.src.val ∧ FKey.FLt b zd.srcKey ∧ v = zd.src.val.setWidth n
+
+theorem ZextDefGood.upd {ρ : FEnv} {b n : Nat} {zd : ZextDef Val n} {v : BitVec n}
+    (h : ZextDefGood ρ b zd v) {u : Ty} (x : Val u) :
+    ZextDefGood (fupd ρ b x) (b + 1) zd v :=
+  ⟨(FKey.fev_fupd x h.2.1).trans h.1, h.2.1.mono, h.2.2⟩
+
+theorem ZextDefGood.updTup {ρ : FEnv} {b n : Nat} {zd : ZextDef Val n} {v : BitVec n}
+    (h : ZextDefGood ρ b zd v) {ts : List Ty} (xs : Tup Val ts) :
+    ZextDefGood (fupdTup ρ b xs) (b + ts.length) zd v :=
+  ⟨(FKey.fev_fupdTup xs h.2.1).trans h.1, h.2.1.add, h.2.2⟩
+
+/-- Semantic validity of `AddrDef Val n` for `v : BitVec n`. -/
+def AddrDefGood {n : Nat} : AddrDef Val n → BitVec n → Prop
+  | .addVC x _ d, v => v = x.val + d
+  | .shlVC x _ sh _ d, v => v = (x.val <<< sh) + d
+  | .addVV x _ y _ d, v => v = (x.val + y.val) + d
+  | .subVV x _ y _ d, v => v = (x.val - y.val) + d
+  | .shlAddVV x _ y _ sh _ d, v => v = ((x.val + y.val) <<< sh) + d
+  | .shlSubVV x _ y _ sh _ d, v => v = ((x.val - y.val) <<< sh) + d
+
+theorem AddrDefGood.shiftDisp {n : Nat} {ad : AddrDef Val n} {v : BitVec n}
+    (h : AddrDefGood ad v) (c : BitVec n) : AddrDefGood (ad.shiftDisp c) (v + c) := by
+  cases ad <;> simp only [AddrDef.shiftDisp, AddrDefGood] at h ⊢ <;>
+    rw [h, BitVec.add_assoc]
+
+/-- Semantic validity of `BitsProv Val n` for `v : BitVec n`. -/
+def BitsProvGood (ρ : FEnv) (b : Nat) {n : Nat} (bp : BitsProv Val n) (v : BitVec n) : Prop :=
+  (∀ ad, bp.addr? = some ad → AddrDefGood ad v) ∧
+    (∀ zd, bp.zext? = some zd → ZextDefGood ρ b zd v)
+
+/-- Type-indexed provenance validity for `ARProv Val t`. -/
+def ARProvGood (ρ : FEnv) (b : Nat) : {t : Ty} → ARProv Val t → Val t → Prop
+  | .bool, none, _ => True
+  | .bool, some cm, v => CmpImmGood ρ b cm v
+  | .bits _, bp, v => BitsProvGood ρ b bp v
+  | .float _, (), _ => True
+  | .pair _ _, (), _ => True
+
+theorem ARProvGood.none {ρ : FEnv} {b : Nat} {t : Ty} {v : Val t} :
+    ARProvGood ρ b (ARProv.none (V := Val) (t := t)) v := by
+  cases t with
+  | bits _ => exact ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
+  | bool | float _ | pair _ _ => trivial
+
+theorem ARProvGood.upd {ρ : FEnv} {b : Nat} {t : Ty} {p : ARProv Val t} {v : Val t}
+    (h : ARProvGood ρ b p v) {u : Ty} (x : Val u) :
+    ARProvGood (fupd ρ b x) (b + 1) p v := by
+  cases t with
+  | bool => cases p with | none => trivial | some _ => exact CmpImmGood.upd h x
+  | bits _ => exact ⟨h.1, fun zd hzd => (h.2 zd hzd).upd x⟩
+  | float _ | pair _ _ => trivial
+
+theorem ARProvGood.updTup {ρ : FEnv} {b : Nat} {t : Ty} {p : ARProv Val t} {v : Val t}
+    (h : ARProvGood ρ b p v) {ts : List Ty} (xs : Tup Val ts) :
+    ARProvGood (fupdTup ρ b xs) (b + ts.length) p v := by
+  cases t with
+  | bool => cases p with | none => trivial | some _ => exact CmpImmGood.updTup h xs
+  | bits _ => exact ⟨h.1, fun zd hzd => (h.2 zd hzd).updTup xs⟩
+  | float _ | pair _ _ => trivial
+
+/-- Value invariant for one `ARVal Val t` entry in `ARGood`. -/
+def ARValGood (ρ : FEnv) (b : Nat) {t : Ty} (r : ARVal Val t) (v : Val t) : Prop :=
+  r.out.val = v ∧ FKey.fev ρ r.key = v ∧ FKey.FLt b r.key ∧ ARProvGood ρ b r.prov v
+
+/-- Every entry in `G : Ctx (ARVal Val) Val` satisfies `ARValGood`. -/
+def ARGood (ρ : FEnv) (b : Nat) (G : Ctx (ARVal Val) Val) : Prop :=
+  ∀ p ∈ G, ARValGood ρ b p.2.1 p.2.2
+
+theorem ARValGood.upd {ρ : FEnv} {b : Nat} {t : Ty} {r : ARVal Val t} {v : Val t}
+    (h : ARValGood ρ b r v) {u : Ty} (x : Val u) :
+    ARValGood (fupd ρ b x) (b + 1) r v :=
+  ⟨h.1, (FKey.fev_fupd x h.2.2.1).trans h.2.1, h.2.2.1.mono, h.2.2.2.upd x⟩
+
+theorem ARValGood.updTup {ρ : FEnv} {b : Nat} {t : Ty} {r : ARVal Val t} {v : Val t}
+    (h : ARValGood ρ b r v) {ts : List Ty} (xs : Tup Val ts) :
+    ARValGood (fupdTup ρ b xs) (b + ts.length) r v :=
+  ⟨h.1, (FKey.fev_fupdTup xs h.2.2.1).trans h.2.1, h.2.2.1.add, h.2.2.2.updTup xs⟩
+
+theorem ARGood.cons {ρ : FEnv} {b : Nat} {G : Ctx (ARVal Val) Val} (hG : ARGood ρ b G)
+    {t : Ty} {r : ARVal Val t} {v : Val t} (hr : ARValGood ρ b r v) :
+    ARGood ρ b (⟨t, r, v⟩ :: G)
+  | _, .head _ => hr
+  | _, .tail _ hp => hG _ hp
+
+theorem ARGood.append {ρ : FEnv} {b : Nat} {G₁ G₂ : Ctx (ARVal Val) Val}
+    (h1 : ARGood ρ b G₁) (h2 : ARGood ρ b G₂) : ARGood ρ b (G₁ ++ G₂) := by
+  intro p hp; rcases List.mem_append.1 hp with hp | hp
+  · exact h1 p hp
+  · exact h2 p hp
+
+theorem ARGood.upd {ρ : FEnv} {b : Nat} {G : Ctx (ARVal Val) Val} (hG : ARGood ρ b G)
+    {u : Ty} (x : Val u) : ARGood (fupd ρ b x) (b + 1) G :=
+  fun p hp => (hG p hp).upd x
+
+theorem ARGood.updTup {ρ : FEnv} {b : Nat} {G : Ctx (ARVal Val) Val} (hG : ARGood ρ b G)
+    {ts : List Ty} (xs : Tup Val ts) : ARGood (fupdTup ρ b xs) (b + ts.length) G :=
+  fun p hp => (hG p hp).updTup xs
+
+private theorem ARGood.freshARVals_only (ρ : FEnv) (d : Nat) :
+    {ts : List Ty} → (xs : Tup Val ts) → (b : Nat) →
+    ARGood (fupdTup ρ b xs) (b + ts.length) (Tup.zip (freshARVals d ts xs b) xs)
+  | [], (), _ => fun _ hp => nomatch hp
+  | _ :: ts, (x, xs), b => by
+    intro p hp
+    simp only [freshARVals, tupFreshWith, Tup.zip, fupdTup, List.length_cons] at hp ⊢
+    cases hp with
+    | head =>
+      refine ⟨rfl, ?_, by simp [ARVal.fresh, FKey.FLt], ARProvGood.none⟩
+      simp only [ARVal.fresh, FKey.fev]
+      rw [fupdTup_lt (fupd ρ b x) xs (Nat.lt_succ_self b), fupd_eq]
+    | tail _ hp =>
+      have ih := ARGood.freshARVals_only (fupd ρ b x) d xs (b + 1) p hp
+      simpa [show b + 1 + ts.length = b + (ts.length + 1) by omega] using ih
+
+theorem ARGood.freshARVals {ρ : FEnv} {b : Nat} {G : Ctx (ARVal Val) Val} (hG : ARGood ρ b G)
+    (d : Nat) {ts : List Ty} (xs : Tup Val ts) :
+    ARGood (fupdTup ρ b xs) (b + ts.length) (Tup.zip (freshARVals d ts xs b) xs ++ G) :=
+  (ARGood.freshARVals_only ρ d xs b).append (hG.updTup xs)
+
+theorem ARGood.freshOne {ρ : FEnv} {b : Nat} {G : Ctx (ARVal Val) Val} (hG : ARGood ρ b G)
+    (d : Nat) {t : Ty} (v : Val t) :
+    ARGood (fupd ρ b v) (b + 1) (⟨t, ARVal.fresh v b d, v⟩ :: G) :=
+  (hG.upd v).cons ⟨rfl, fupd_eq ρ b v, Nat.lt_succ_self b, ARProvGood.none⟩
+
+theorem ARValGood.ofImm {ρ : FEnv} {b : Nat} {t : Ty} (c : Val t) :
+    ARValGood ρ b (ARVal.ofImm c) c :=
+  ⟨rfl, rfl, trivial, ARProvGood.none⟩
+
+theorem ArgRel.arOut_val {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat} (hG : ARGood ρ b G)
+    {t : Ty} {a₁ : Arg (ARVal Val) t} {a₂ : Arg Val t} :
+    ArgRel G t a₁ a₂ → a₁.arOut.val = a₂.val
+  | .var h => (hG _ h).1
+  | .imm _ => rfl
+
+theorem ArgRel.arKey_ev {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat} (hG : ARGood ρ b G)
+    {t : Ty} {a₁ : Arg (ARVal Val) t} {a₂ : Arg Val t} :
+    ArgRel G t a₁ a₂ → FKey.fev ρ a₁.arKey = a₂.val
+  | .var h => (hG _ h).2.1
+  | .imm _ => rfl
+
+theorem ArgRel.arKey_FLt {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat} (hG : ARGood ρ b G)
+    {t : Ty} {a₁ : Arg (ARVal Val) t} {a₂ : Arg Val t} :
+    ArgRel G t a₁ a₂ → FKey.FLt b a₁.arKey
+  | .var h => (hG _ h).2.2.1
+  | .imm _ => trivial
+
+theorem ArgRel.arProv_good {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat} (hG : ARGood ρ b G)
+    {t : Ty} {a₁ : Arg (ARVal Val) t} {a₂ : Arg Val t} :
+    ArgRel G t a₁ a₂ → ARProvGood ρ b a₁.arProv a₂.val
+  | .var h => (hG _ h).2.2.2
+  | .imm _ => ARProvGood.none
+
+theorem ArgRel.toARVal_good {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat} (hG : ARGood ρ b G)
+    {t : Ty} {a₁ : Arg (ARVal Val) t} {a₂ : Arg Val t} :
+    ArgRel G t a₁ a₂ → ARValGood ρ b a₁.toARVal a₂.val
+  | .var h => hG _ h
+  | .imm c => ARValGood.ofImm c
+
+theorem TRel.arOut_vals {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat} (hG : ARGood ρ b G)
+    {ts : List Ty} {as₁ : Tup (Arg (ARVal Val)) ts} {as₂ : Tup (Arg Val) ts}
+    (h : TRel (ArgRel G) as₁ as₂) : vals (tupArOut as₁) = vals as₂ :=
+  TRel.tupMapArg_vals (fun _ => Arg.arOut) (fun ha => ha.arOut_val hG) h
+
+private theorem imm?_eq_some_val {V : Ty → Type} : ∀ {t : Ty} {a : Arg V t} {c : Val t},
+    a.imm? = some c → a = .imm c
+  | _, .var _, _, h => by cases h
+  | _, .imm _, _, h => by injection h with h; subst h; rfl
+
+private theorem arOut_imm?_eq_val {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat} (hG : ARGood ρ b G)
+    {t : Ty} {a₁ : Arg (ARVal Val) t} {a₂ : Arg Val t} {c : Val t}
+    (ha : ArgRel G t a₁ a₂) (himm : a₁.arOut.imm? = some c) : a₂.val = c := by
+  have h1 := ha.arOut_val hG
+  rw [imm?_eq_some_val himm] at h1
+  exact h1.symm
+
+private theorem addrOptGood_of {ρ : FEnv} {b n : Nat}
+    {opt : Option (AddrDef Val n)} {v : BitVec n}
+    (h : ∀ ad, opt = some ad → AddrDefGood ad v) :
+    ARProvGood ρ b (t := .bits n) { addr? := opt } v :=
+  ⟨h, (fun _ hz => nomatch hz)⟩
+
+private theorem recordAddProv_good {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat}
+    (hG : ARGood ρ b G) {n : Nat} {a₁ b₁ : Arg (ARVal Val) (.bits n)}
+    {a₂ b₂ : Arg Val (.bits n)} (ha : ArgRel G (.bits n) a₁ a₂) (hb : ArgRel G (.bits n) b₁ b₂) :
+    ∀ ad, recordAddProv a₁ b₁ = some ad → AddrDefGood ad (a₂.val + b₂.val) := by
+  dsimp only [recordAddProv]
+  split
+  · intro _ h; cases h
+  · cases himma : a₁.arOut.imm? <;> cases himmb : b₁.arOut.imm?
+    · have hap := (ha.arProv_good hG).1
+      have hbp := (hb.arProv_good hG).1
+      have hav := ha.arOut_val hG; have hbv := hb.arOut_val hG
+      intro ad h
+      rcases hpa : a₁.arProv.addr? with _ | ad1 <;>
+        rcases hpb : b₁.arProv.addr? with _ | ad2 <;> rw [hpa, hpb] at h
+      · dsimp only at h; injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+      · cases ad2 with
+        | addVC y dy d2 =>
+          have hy := hbp _ hpb; simp only [AddrDefGood] at hy
+          dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+          rw [← hav, hy, BitVec.add_assoc]
+        | _ => dsimp only at h; injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+      · cases ad1 with
+        | addVC x dx d1 =>
+          have hx := hap _ hpa; simp only [AddrDefGood] at hx
+          dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+          rw [hx, ← hbv, BitVec.add_assoc, BitVec.add_comm _ b₁.arOut.val, BitVec.add_assoc]
+        | _ => dsimp only at h; injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+      · cases ad1 with
+        | addVC x dx d1 =>
+          have hx := hap _ hpa; simp only [AddrDefGood] at hx
+          cases ad2 with
+          | addVC y dy d2 =>
+            have hy := hbp _ hpb; simp only [AddrDefGood] at hy
+            dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+            rw [hx, hy, BitVec.add_assoc, BitVec.add_comm d1, BitVec.add_assoc,
+              BitVec.add_assoc, BitVec.add_comm d2 d1]
+          | _ =>
+            dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+            rw [hx, ← hbv, BitVec.add_assoc, BitVec.add_comm _ b₁.arOut.val, BitVec.add_assoc]
+        | shlVC x dx sh1 hsh1 d1 =>
+          cases ad2 with
+          | addVC y dy d2 =>
+            have hy := hbp _ hpb; simp only [AddrDefGood] at hy
+            dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+            rw [← hav, hy, BitVec.add_assoc]
+          | shlVC y dy sh2 hsh2 d2 =>
+            dsimp only at h; split at h
+            · rename_i hsheq; have hsh : _ = _ := eq_of_beq hsheq; subst hsh
+              have hx := hap _ hpa; have hy := hbp _ hpb; simp only [AddrDefGood] at hx hy
+              injection h with h; subst h; simp only [AddrDefGood]
+              rw [hx, hy, bv_shl_add, BitVec.add_assoc _ d1, BitVec.add_comm d1,
+                BitVec.add_assoc (y.val <<< _), BitVec.add_comm d1 d2, ← BitVec.add_assoc,
+                ← BitVec.add_assoc]
+            · injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+          | _ => dsimp only at h; injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+        | _ =>
+          cases ad2 with
+          | addVC y dy d2 =>
+            have hy := hbp _ hpb; simp only [AddrDefGood] at hy
+            dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+            rw [← hav, hy, BitVec.add_assoc]
+          | _ => dsimp only at h; injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+    · rename_i c
+      have hbc := arOut_imm?_eq_val hG hb himmb
+      have hap := (ha.arProv_good hG).1
+      cases hp : a₁.arProv.addr? with
+      | none =>
+        intro _ h; injection h with h; subst h; simp [AddrDefGood, ha.arOut_val hG, hbc]
+      | some ad0 =>
+        intro _ h; injection h with h; subst h
+        rw [hbc]; exact (hap _ hp).shiftDisp c
+    · rename_i c
+      have hac := arOut_imm?_eq_val hG ha himma
+      have hbp := (hb.arProv_good hG).1
+      cases hp : b₁.arProv.addr? with
+      | none =>
+        intro _ h; injection h with h; subst h
+        simp [AddrDefGood, hb.arOut_val hG, hac, BitVec.add_comm]
+      | some ad0 =>
+        intro _ h; injection h with h; subst h
+        rw [hac, BitVec.add_comm c]; exact (hbp _ hp).shiftDisp c
+    · intro _ h; cases h
+
+private theorem bv_sub_r {n : Nat} (a b d : BitVec n) : a - (b + d) = (a - b) + (-d) := by
+  rw [BitVec.sub_eq_add_neg, BitVec.neg_add, BitVec.sub_eq_add_neg (-b) d,
+    ← BitVec.add_assoc, ← BitVec.sub_eq_add_neg a b]
+
+private theorem bv_sub_pair {n : Nat} (a d1 b d2 : BitVec n) :
+    (a + d1) - (b + d2) = (a - b) + (d1 - d2) := by
+  rw [BitVec.sub_eq_add_neg (a + d1) (b + d2), BitVec.neg_add, BitVec.sub_eq_add_neg (-b) d2,
+    BitVec.add_assoc a d1 (-b + -d2), BitVec.add_comm d1 (-b + -d2),
+    BitVec.add_assoc (-b) (-d2) d1, BitVec.add_comm (-d2) d1,
+    ← BitVec.add_assoc a (-b) (d1 + -d2), ← BitVec.sub_eq_add_neg a b,
+    ← BitVec.sub_eq_add_neg d1 d2]
+
+private theorem recordSubProv_good {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat}
+    (hG : ARGood ρ b G) {n : Nat} {a₁ b₁ : Arg (ARVal Val) (.bits n)}
+    {a₂ b₂ : Arg Val (.bits n)} (ha : ArgRel G (.bits n) a₁ a₂) (hb : ArgRel G (.bits n) b₁ b₂) :
+    ∀ ad, recordSubProv a₁ b₁ = some ad → AddrDefGood ad (a₂.val - b₂.val) := by
+  dsimp only [recordSubProv]
+  split
+  · intro _ h; cases h
+  · cases himma : a₁.arOut.imm? <;> cases himmb : b₁.arOut.imm?
+    · have hap := (ha.arProv_good hG).1
+      have hbp := (hb.arProv_good hG).1
+      have hav := ha.arOut_val hG; have hbv := hb.arOut_val hG
+      intro ad h
+      rcases hpa : a₁.arProv.addr? with _ | ad1 <;>
+        rcases hpb : b₁.arProv.addr? with _ | ad2 <;> rw [hpa, hpb] at h
+      · dsimp only at h; injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+      · cases ad2 with
+        | addVC y dy d2 =>
+          have hy := hbp _ hpb; simp only [AddrDefGood] at hy
+          dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+          rw [← hav, hy, bv_sub_r]
+        | _ => dsimp only at h; injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+      · cases ad1 with
+        | addVC x dx d1 =>
+          have hx := hap _ hpa; simp only [AddrDefGood] at hx
+          dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+          rw [hx, ← hbv, BitVec.sub_eq_add_neg, BitVec.sub_eq_add_neg x.val,
+            BitVec.add_assoc, BitVec.add_comm _ (-b₁.arOut.val), ← BitVec.add_assoc]
+        | _ => dsimp only at h; injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+      · cases ad1 with
+        | addVC x dx d1 =>
+          have hx := hap _ hpa; simp only [AddrDefGood] at hx
+          cases ad2 with
+          | addVC y dy d2 =>
+            have hy := hbp _ hpb; simp only [AddrDefGood] at hy
+            dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+            rw [hx, hy, bv_sub_pair]
+          | _ =>
+            dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+            rw [hx, ← hbv, BitVec.sub_eq_add_neg, BitVec.sub_eq_add_neg x.val,
+              BitVec.add_assoc, BitVec.add_comm _ (-b₁.arOut.val), ← BitVec.add_assoc]
+        | shlVC x dx sh1 hsh1 d1 =>
+          cases ad2 with
+          | addVC y dy d2 =>
+            have hy := hbp _ hpb; simp only [AddrDefGood] at hy
+            dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+            rw [← hav, hy, bv_sub_r]
+          | shlVC y dy sh2 hsh2 d2 =>
+            dsimp only at h; split at h
+            · rename_i hsheq; have hsh : _ = _ := eq_of_beq hsheq; subst hsh
+              have hx := hap _ hpa; have hy := hbp _ hpb; simp only [AddrDefGood] at hx hy
+              injection h with h; subst h; simp only [AddrDefGood]
+              rw [hx, hy, bv_sub_pair, ← bv_shl_sub]
+            · injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+          | _ => dsimp only at h; injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+        | _ =>
+          cases ad2 with
+          | addVC y dy d2 =>
+            have hy := hbp _ hpb; simp only [AddrDefGood] at hy
+            dsimp only at h; injection h with h; subst h; simp only [AddrDefGood]
+            rw [← hav, hy, bv_sub_r]
+          | _ => dsimp only at h; injection h with h; subst h; simp [AddrDefGood, hav, hbv]
+    · rename_i c
+      have hbc := arOut_imm?_eq_val hG hb himmb
+      have hap := (ha.arProv_good hG).1
+      cases hp : a₁.arProv.addr? with
+      | none =>
+        intro _ h; injection h with h; subst h
+        simp [AddrDefGood, ha.arOut_val hG, hbc, BitVec.sub_eq_add_neg]
+      | some ad0 =>
+        intro _ h; injection h with h; subst h
+        rw [hbc, BitVec.sub_eq_add_neg]; exact (hap _ hp).shiftDisp (-c)
+    · intro _ h; cases h
+    · intro _ h; cases h
+
+private theorem recordShlProv_good {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat}
+    (hG : ARGood ρ b G) {n : Nat} {a₁ b₁ : Arg (ARVal Val) (.bits n)}
+    {a₂ b₂ : Arg Val (.bits n)} (ha : ArgRel G (.bits n) a₁ a₂) (hb : ArgRel G (.bits n) b₁ b₂) :
+    ∀ ad, recordShlProv a₁ b₁ = some ad → AddrDefGood ad (a₂.val <<< (b₂.val.toNat % n)) := by
+  dsimp only [recordShlProv]
+  split
+  · intro _ h; cases h
+  · cases himmb : b₁.arOut.imm? with
+    | none => intro _ h; cases h
+    | some k =>
+      have hbk := arOut_imm?_eq_val hG hb himmb
+      dsimp only; split
+      · rename_i hkn
+        have hmod : b₂.val.toNat % n = k.toNat := by rw [hbk, Nat.mod_eq_of_lt hkn.2]
+        have hap := (ha.arProv_good hG).1
+        cases hp : a₁.arProv.addr? with
+        | none =>
+          intro _ h; injection h with h; subst h; simp [AddrDefGood, ha.arOut_val hG, hmod]
+        | some ad0 =>
+          have had0 := hap _ hp
+          cases ad0 <;> dsimp only
+          · intro _ h; injection h with h; subst h
+            simp only [AddrDefGood] at had0 ⊢; rw [had0, hmod, bv_shl_add]
+          · split
+            · intro _ h; injection h with h; subst h
+              simp only [AddrDefGood] at had0 ⊢; rw [had0, hmod, bv_shl_add, bv_shl_shl_add]
+            · intro _ h; cases h
+          · intro _ h; injection h with h; subst h
+            simp only [AddrDefGood] at had0 ⊢; rw [had0, hmod, bv_shl_add]
+          · intro _ h; injection h with h; subst h
+            simp only [AddrDefGood] at had0 ⊢; rw [had0, hmod, bv_shl_add]
+          · split
+            · intro _ h; injection h with h; subst h
+              simp only [AddrDefGood] at had0 ⊢; rw [had0, hmod, bv_shl_add, bv_shl_shl_add]
+            · intro _ h; cases h
+          · split
+            · intro _ h; injection h with h; subst h
+              simp only [AddrDefGood] at had0 ⊢; rw [had0, hmod, bv_shl_add, bv_shl_shl_add]
+            · intro _ h; cases h
+      · intro _ h; cases h
+
+private theorem setWidth_setWidth_of_le {m n k : Nat} (hmn : m ≤ n) (x : BitVec m) :
+    (x.setWidth n).setWidth k = x.setWidth k := by
+  apply BitVec.eq_of_toNat_eq
+  have hpow : 2 ^ m ≤ 2 ^ n := Nat.pow_le_pow_right (by decide) hmn
+  have hx := x.isLt
+  simp [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (by omega : x.toNat < 2 ^ n)]
+
+private theorem cmpOp_evalBits_setWidth_ar {m n : Nat} (hlt : m < n) (o : CmpOp)
+    (x y : BitVec m) :
+    o.evalBits (x.setWidth n) (y.setWidth n) =
+      (if arCmpIsSigned o then arCmpToUnsigned o else o).evalBits x y := by
+  have hpow : 2 * 2 ^ m ≤ 2 ^ n := by
+    rw [← Nat.pow_succ']; exact Nat.pow_le_pow_right (by decide) hlt
+  have hx := x.isLt; have hy := y.isLt
+  have hxn : (x.setWidth n).toNat = x.toNat := by
+    simp [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (by omega : x.toNat < 2 ^ n)]
+  have hyn : (y.setWidth n).toNat = y.toNat := by
+    simp [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (by omega : y.toNat < 2 ^ n)]
+  have hxi : (x.setWidth n).toInt = x.toNat := by
+    unfold BitVec.toInt; rw [hxn]; simp [show 2 * x.toNat < 2 ^ n by omega]
+  have hyi : (y.setWidth n).toInt = y.toNat := by
+    unfold BitVec.toInt; rw [hyn]; simp [show 2 * y.toNat < 2 ^ n by omega]
+  have hinj : (x.setWidth n = y.setWidth n) ↔ (x = y) :=
+    ⟨fun h => BitVec.eq_of_toNat_eq (by rw [← hxn, ← hyn, h]), congrArg _⟩
+  cases o <;>
+    simp [arCmpIsSigned, arCmpToUnsigned, CmpOp.evalBits, BitVec.ult, BitVec.ule,
+      BitVec.slt, BitVec.sle, hxn, hyn, hxi, hyi, hinj]
+
+private theorem recordZextProv_good {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat}
+    (hG : ARGood ρ b G) (m n : Nat) {a₁ : Arg (ARVal Val) (.bits m)} {a₂ : Arg Val (.bits m)}
+    (ha : ArgRel G (.bits m) a₁ a₂) :
+    ARProvGood ρ b (t := .bits n) (recordZextProv m n a₁) (a₂.val.setWidth n) := by
+  dsimp only [recordZextProv]
+  split
+  · rename_i hmn
+    have hzp := (ha.arProv_good hG).2
+    cases hz : a₁.arProv.zext? with
+    | none =>
+      refine ⟨(fun _ h => nomatch h), fun zd h => ?_⟩
+      injection h with h; subst h
+      exact ⟨(ha.arKey_ev hG).trans (ha.arOut_val hG).symm, ha.arKey_FLt hG,
+        by rw [ha.arOut_val hG]⟩
+    | some zd0 =>
+      have hzd0 := hzp zd0 hz
+      refine ⟨(fun _ h => nomatch h), fun zd h => ?_⟩
+      injection h with h; subst h
+      exact ⟨hzd0.1, hzd0.2.1,
+        by rw [hzd0.2.2, setWidth_setWidth_of_le (Nat.le_of_lt zd0.hmn)]⟩
+  · exact ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
+
+private theorem mkCmpImmFromArg_good {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat}
+    (hG : ARGood ρ b G) {n : Nat} (o : CmpOp) {a₁ : Arg (ARVal Val) (.bits n)}
+    {a₂ : Arg Val (.bits n)} (ha : ArgRel G (.bits n) a₁ a₂) (c : BitVec n) :
+    CmpImmGood ρ b (mkCmpImmFromArg o a₁ c) (o.evalBits a₂.val c) := by
+  dsimp only [mkCmpImmFromArg]
+  have hzp := (ha.arProv_good hG).2
+  cases hz : a₁.arProv.zext? with
+  | none =>
+    exact ⟨(ha.arKey_ev hG).trans (ha.arOut_val hG).symm, ha.arKey_FLt hG,
+      by rw [ha.arOut_val hG]⟩
+  | some zd =>
+    have hzd := hzp zd hz
+    dsimp only
+    split
+    · rename_i hfit
+      have hfit' : (c.setWidth zd.m).setWidth n = c := eq_of_beq hfit
+      have hev : o.evalBits a₂.val c =
+          (if arCmpIsSigned o then arCmpToUnsigned o else o).evalBits zd.src.val
+            (c.setWidth zd.m) := by
+        have h1 := cmpOp_evalBits_setWidth_ar zd.hmn o zd.src.val (c.setWidth zd.m)
+        rwa [← hzd.2.2, hfit'] at h1
+      exact ⟨hzd.1, hzd.2.1, hev⟩
+    · exact ⟨(ha.arKey_ev hG).trans (ha.arOut_val hG).symm, ha.arKey_FLt hG,
+        by rw [ha.arOut_val hG]⟩
+
+private theorem recordCmpImmProv_good {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat}
+    (hG : ARGood ρ b G) {w : Nat} (o : CmpOp) {a₁ b₁ : Arg (ARVal Val) (.bits w)}
+    {a₂ b₂ : Arg Val (.bits w)} (ha : ArgRel G (.bits w) a₁ a₂) (hb : ArgRel G (.bits w) b₁ b₂) :
+    ARProvGood ρ b (t := .bool) (recordCmpImmProv o a₁ b₁) (o.evalBits a₂.val b₂.val) := by
+  dsimp only [recordCmpImmProv]
+  cases himma : a₁.arOut.imm? <;> cases himmb : b₁.arOut.imm?
+  · trivial
+  · rename_i c; rw [arOut_imm?_eq_val hG hb himmb]; exact mkCmpImmFromArg_good hG o ha c
+  · rename_i c; rw [arOut_imm?_eq_val hG ha himma, ← CmpOp.swap_evalBits]
+    exact mkCmpImmFromArg_good hG o.swap hb c
+  · rename_i c₁ c₂; rw [arOut_imm?_eq_val hG hb himmb]; exact mkCmpImmFromArg_good hG o ha c₂
+
+private theorem wrapKept_good {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b outD : Nat}
+    (hG : ARGood ρ b G) {sig ts : List Ty} {code : OpCode sig ts}
+    {args₁ : Tup (Arg (ARVal Val)) sig} {args₂ : Tup (Arg Val) sig}
+    (hargs : TRel (ArgRel G) args₁ args₂) {P : Tup Val ts → Prop}
+    (hw : code.wp (vals args₂) P) :
+    code.wp (vals args₂) fun xs =>
+      P xs ∧ ARGood (fupdTup ρ b xs) (b + ts.length)
+        (Tup.zip (wrapKept outD b code args₁ xs) xs ++ G) := by
+  cases code with
+  | add t =>
+    cases t with
+    | bits n =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte, vals, lift2] at hw ⊢
+      refine ⟨hw, (hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+        (addrOptGood_of (recordAddProv_good hG ha hb)).upd _⟩⟩
+    | bool | float _ | pair _ _ =>
+      exact OpCode.wp_mono _ _ (fun xs hxs => ⟨hxs, hG.freshARVals outD xs⟩) hw
+  | sub t =>
+    cases t with
+    | bits n =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte, vals, lift2] at hw ⊢
+      refine ⟨hw, (hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+        (addrOptGood_of (recordSubProv_good hG ha hb)).upd _⟩⟩
+    | bool | float _ | pair _ _ =>
+      exact OpCode.wp_mono _ _ (fun xs hxs => ⟨hxs, hG.freshARVals outD xs⟩) hw
+  | shl t =>
+    cases t with
+    | bits n =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte, vals, lift2] at hw ⊢
+      refine ⟨hw, (hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+        (addrOptGood_of (recordShlProv_good hG ha hb)).upd _⟩⟩
+    | bool | float _ | pair _ _ =>
+      exact OpCode.wp_mono _ _ (fun xs hxs => ⟨hxs, hG.freshARVals outD xs⟩) hw
+  | zext m n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    simp only [OpCode.wp, vals] at hw ⊢
+    refine ⟨hw.1, hw.2, (hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+      (recordZextProv_good hG m n ha).upd _⟩⟩
+  | copy t =>
+    cases t with
+    | bits _ =>
+      rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _⟩
+      simp only [OpCode.wp, vals] at hw ⊢
+      refine ⟨hw, (hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+        (ha.arProv_good hG).upd _⟩⟩
+    | bool =>
+      rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _⟩
+      simp only [OpCode.wp, vals] at hw ⊢
+      refine ⟨hw, (hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+        (ha.arProv_good hG).upd _⟩⟩
+    | float _ | pair _ _ =>
+      exact OpCode.wp_mono _ _ (fun xs hxs => ⟨hxs, hG.freshARVals outD xs⟩) hw
+  | cmp o t m hm =>
+    cases t with
+    | bits w =>
+      subst hm
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      simp only [OpCode.wp_cmp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte, vals, cast_eq,
+        liftCmp] at hw ⊢
+      refine ⟨hw, (hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+        (recordCmpImmProv_good hG o ha hb).upd _⟩⟩
+    | bool | float _ | pair _ _ =>
+      exact OpCode.wp_mono _ _ (fun xs hxs => ⟨hxs, hG.freshARVals outD xs⟩) hw
+  | not t =>
+    cases t with
+    | bool =>
+      rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _⟩
+      simp only [OpCode.wp, vals, lift1] at hw ⊢
+      refine ⟨hw, ?_⟩
+      dsimp only [wrapKept, fupdTup, Tup.zip, List.length_singleton, List.cons_append,
+        List.nil_append]
+      have hap := ha.arProv_good hG
+      have hneg : ARProvGood ρ b (t := .bool)
+          (a₁.arProv.map fun cm => ⟨cm.w, cm.op.neg, cm.lhs, cm.lhsKey, cm.imm⟩) (!a₂.val) := by
+        cases hp : a₁.arProv with
+        | none => trivial
+        | some cm =>
+          rw [hp] at hap
+          exact ⟨hap.1, hap.2.1, by rw [hap.2.2, CmpOp.neg_evalBits]⟩
+      exact (hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b, hneg.upd _⟩
+    | bits _ | float _ | pair _ _ =>
+      exact OpCode.wp_mono _ _ (fun xs hxs => ⟨hxs, hG.freshARVals outD xs⟩) hw
+  | _ =>
+    all_goals exact OpCode.wp_mono _ _ (fun xs hxs => ⟨hxs, hG.freshARVals outD xs⟩) hw
+
+private theorem tryAddrReassocOne_sound {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b : Nat}
+    (hG : ARGood ρ b G) {n : Nat} {base₁ off₁ : Arg (ARVal Val) (.bits n)}
+    {base₂ off₂ : Arg Val (.bits n)} (hb : ArgRel G (.bits n) base₁ base₂)
+    (ho : ArgRel G (.bits n) off₁ off₂) {st : ARStep Val [.bits n]}
+    (hst : tryAddrReassocOne base₁ off₁ = some st) :
+    match st with
+    | .addrShl _ isSub base inv iv _ sh _ disp =>
+      base.val = base₂.val ∧
+        (if isSub then ((base.val - (inv.val <<< sh)) + (iv.val <<< sh)) + disp
+         else ((base.val + (inv.val <<< sh)) + (iv.val <<< sh)) + disp) =
+        base₂.val + off₂.val
+    | .addrPlain _ isSub base inv iv _ _ disp =>
+      base.val = base₂.val ∧
+        (if isSub then ((base.val - inv.val) + iv.val) + disp
+         else ((base.val + inv.val) + iv.val) + disp) =
+        base₂.val + off₂.val
+    | _ => False := by
+  dsimp only [tryAddrReassocOne] at hst
+  split at hst
+  · cases hst
+  · have hop := (ho.arProv_good hG).1
+    have hbv := hb.arOut_val hG
+    cases hp : off₁.arProv.addr? with
+    | none => rw [hp] at hst; cases hst
+    | some ad =>
+      have had := hop ad hp
+      rw [hp] at hst
+      cases ad with
+      | addVC _ _ _ | shlVC _ _ _ _ _ => cases hst
+      | shlAddVV x dx y dy sh hsh disp =>
+        dsimp only at hst
+        simp only [AddrDefGood] at had
+        split at hst
+        · cases hst; refine ⟨hbv, ?_⟩
+          simp only [Bool.false_eq_true, ↓reduceIte, hbv, had, bv_add_shl_add_disp]
+        · split at hst
+          · cases hst; refine ⟨hbv, ?_⟩
+            simp only [Bool.false_eq_true, ↓reduceIte, hbv, had, BitVec.add_comm x.val y.val,
+              bv_add_shl_add_disp]
+          · cases hst
+      | shlSubVV x dx y dy sh hsh disp =>
+        dsimp only at hst
+        simp only [AddrDefGood] at had
+        split at hst
+        · cases hst; refine ⟨hbv, ?_⟩
+          simp only [↓reduceIte, hbv, had, bv_add_shl_sub_disp]
+        · cases hst
+      | addVV x dx y dy disp =>
+        dsimp only at hst
+        simp only [AddrDefGood] at had
+        split at hst
+        · cases hst; refine ⟨hbv, ?_⟩
+          simp only [Bool.false_eq_true, ↓reduceIte, hbv, had, bv_add_add_disp]
+        · split at hst
+          · cases hst; refine ⟨hbv, ?_⟩
+            simp only [Bool.false_eq_true, ↓reduceIte, hbv, had, BitVec.add_comm x.val y.val,
+              bv_add_add_disp]
+          · cases hst
+      | subVV x dx y dy disp =>
+        dsimp only at hst
+        simp only [AddrDefGood] at had
+        split at hst
+        · cases hst; refine ⟨hbv, ?_⟩
+          simp only [↓reduceIte, hbv, had, bv_add_sub_disp]
+        · cases hst
+
+private theorem tryRangeStep_sound {G : Ctx (ARVal Val) Val} {ρ : FEnv} {b outD : Nat}
+    (hG : ARGood ρ b G) (isOr : Bool) {a₁ b₁ : Arg (ARVal Val) .bool} {a₂ b₂ : Arg Val .bool}
+    (ha : ArgRel G .bool a₁ a₂) (hb : ArgRel G .bool b₁ b₂)
+    {st : ARStep Val [.bool]} (hst : tryRangeStep isOr outD b a₁ b₁ = some st)
+    {P : Tup Val [.bool] → Prop}
+    (hw : P ((if isOr then a₂.val || b₂.val else a₂.val && b₂.val), ())) :
+    match st with
+    | .elim res =>
+      ∃ xs, P xs ∧ ARGood ρ b (Tup.zip res xs ++ G)
+    | .emit1 op' wrap =>
+      op'.wp fun xs => P xs ∧ ARGood (fupdTup ρ b xs) (b + 1) (Tup.zip (wrap xs) xs ++ G)
+    | .rangeSubCmp _ o x lo width _ =>
+      P (o.evalBits (x.val - lo) width, ())
+    | _ => False := by
+  dsimp only [tryRangeStep] at hst
+  have hap := ha.arProv_good hG
+  have hbp := hb.arProv_good hG
+  cases hp1 : a₁.arProv with
+  | none => rw [hp1] at hst; cases hst
+  | some c1 =>
+    cases hp2 : b₁.arProv with
+    | none => rw [hp1, hp2] at hst; cases hst
+    | some c2 =>
+      rw [hp1, hp2] at hst
+      rw [hp1] at hap; rw [hp2] at hbp
+      rcases c1 with ⟨w1, o1, lhs1, key1, imm1⟩
+      rcases c2 with ⟨w2, o2, lhs2, key2, imm2⟩
+      dsimp only at hst
+      split at hst
+      · rename_i hweq
+        subst hweq
+        dsimp only at hst
+        split at hst
+        · rename_i hkey
+          have hkeq : key1 = key2 := fKeyBeq_iff_eq.mp hkey
+          have hlhs : lhs1.val = lhs2.val := by
+            have h1 := hap.1; have h2 := hbp.1; rw [hkeq] at h1; exact h1.symm.trans h2
+          cases hb1 : toRangeBound o1 imm1 with
+          | none => rw [hb1] at hst; cases hst
+          | some rb1 =>
+            cases hb2 : toRangeBound o2 imm2 with
+            | none => rw [hb1, hb2] at hst; cases hst
+            | some rb2 =>
+              rw [hb1, hb2] at hst
+              dsimp only at hst
+              have hev1 : rb1.eval lhs1.val = a₂.val :=
+                (toRangeBound_eval o1 imm1 lhs1.val hb1).trans hap.2.2.symm
+              have hev2 : rb2.eval lhs1.val = b₂.val :=
+                (toRangeBound_eval o2 imm2 lhs1.val hb2).trans (hlhs ▸ hbp.2.2.symm)
+              cases isOr with
+              | false =>
+                simp only [Bool.false_eq_true, ↓reduceIte] at hst hw
+                cases hm : matchAndBounds rb1 rb2 with
+                | none => rw [hm] at hst; cases hst
+                | some triple =>
+                  rcases triple with ⟨signed, lo, hi⟩
+                  rw [hm] at hst; dsimp only at hst
+                  have hcomb : (a₂.val && b₂.val) =
+                      if (if signed then lo.slt hi else lo.ult hi) then
+                        (lhs1.val - lo).ult (hi - lo)
+                      else false := by
+                    rw [← hev1, ← hev2]
+                    cases rb1 <;> cases rb2 <;> simp only [matchAndBounds] at hm <;> try cases hm
+                    · split at hm
+                      · injection hm with hm; rcases hm with ⟨rfl, rfl, rfl⟩
+                        rename_i hse; have hse' : _ = _ := eq_of_beq hse; subst hse'
+                        cases signed
+                        · exact bv_range_and_u lhs1.val lo hi
+                        · exact bv_range_and_s lhs1.val lo hi
+                      · cases hm
+                    · split at hm
+                      · injection hm with hm; rcases hm with ⟨rfl, rfl, rfl⟩
+                        rename_i hse; have hse' : _ = _ := eq_of_beq hse; subst hse'
+                        rw [Bool.and_comm]
+                        cases signed
+                        · exact bv_range_and_u lhs1.val lo hi
+                        · exact bv_range_and_s lhs1.val lo hi
+                      · cases hm
+                  cases hlt : (if signed then lo.slt hi else lo.ult hi) with
+                  | false =>
+                    rw [hlt] at hst hcomb
+                    simp only [Bool.not_false, ↓reduceIte, Bool.false_eq_true] at hst hcomb
+                    cases hst
+                    exact ⟨(false, ()), hcomb ▸ hw,
+                      by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                         exact hG.cons (ARValGood.ofImm (t := .bool) false)⟩
+                  | true =>
+                    rw [hlt] at hst hcomb
+                    simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hst hcomb
+                    cases hlo0 : (lo == 0#w1) with
+                    | true =>
+                      rw [hlo0] at hst; simp only [↓reduceIte] at hst
+                      have hlo0' : lo = 0#w1 := eq_of_beq hlo0
+                      subst hlo0'
+                      simp only [BitVec.sub_zero] at hcomb
+                      cases hst
+                      simp only [Op.wp, op2, vals, OpCode.wp_cmp, Ty.hasFloat, Bool.false_eq_true,
+                        ↓reduceIte, cast_eq, liftCmp, CmpOp.evalBits, Arg.val_imm]
+                      exact ⟨hcomb ▸ hw, hG.freshOne outD _⟩
+                    | false =>
+                      rw [hlo0] at hst; simp only [Bool.false_eq_true, ↓reduceIte] at hst
+                      cases hst
+                      simpa [CmpOp.evalBits] using hcomb ▸ hw
+              | true =>
+                simp only [↓reduceIte] at hst hw
+                cases hm : matchOrBounds rb1 rb2 with
+                | none => rw [hm] at hst; cases hst
+                | some triple =>
+                  rcases triple with ⟨signed, lo, hi⟩
+                  rw [hm] at hst; dsimp only at hst
+                  have hcomb : (a₂.val || b₂.val) =
+                      if (if signed then lo.slt hi else lo.ult hi) then
+                        (hi - lo).ule (lhs1.val - lo)
+                      else true := by
+                    rw [← hev1, ← hev2]
+                    cases rb1 <;> cases rb2 <;> simp only [matchOrBounds] at hm <;> try cases hm
+                    · split at hm
+                      · injection hm with hm; rcases hm with ⟨rfl, rfl, rfl⟩
+                        rename_i hse; have hse' : _ = _ := eq_of_beq hse; subst hse'
+                        rw [Bool.or_comm]
+                        cases signed
+                        · exact bv_range_or_u lhs1.val lo hi
+                        · exact bv_range_or_s lhs1.val lo hi
+                      · cases hm
+                    · split at hm
+                      · injection hm with hm; rcases hm with ⟨rfl, rfl, rfl⟩
+                        rename_i hse; have hse' : _ = _ := eq_of_beq hse; subst hse'
+                        cases signed
+                        · exact bv_range_or_u lhs1.val lo hi
+                        · exact bv_range_or_s lhs1.val lo hi
+                      · cases hm
+                  cases hlt : (if signed then lo.slt hi else lo.ult hi) with
+                  | false =>
+                    rw [hlt] at hst hcomb
+                    simp only [Bool.not_false, ↓reduceIte, Bool.false_eq_true] at hst hcomb
+                    cases hst
+                    exact ⟨(true, ()), hcomb ▸ hw,
+                      by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                         exact hG.cons (ARValGood.ofImm (t := .bool) true)⟩
+                  | true =>
+                    rw [hlt] at hst hcomb
+                    simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hst hcomb
+                    cases hlo0 : (lo == 0#w1) with
+                    | true =>
+                      rw [hlo0] at hst; simp only [↓reduceIte] at hst
+                      have hlo0' : lo = 0#w1 := eq_of_beq hlo0
+                      subst hlo0'
+                      simp only [BitVec.sub_zero] at hcomb
+                      cases hst
+                      simp only [Op.wp, op2, vals, OpCode.wp_cmp, Ty.hasFloat, Bool.false_eq_true,
+                        ↓reduceIte, cast_eq, liftCmp, CmpOp.evalBits, Arg.val_imm]
+                      exact ⟨hcomb ▸ hw, hG.freshOne outD _⟩
+                    | false =>
+                      rw [hlo0] at hst; simp only [Bool.false_eq_true, ↓reduceIte] at hst
+                      cases hst
+                      simpa [CmpOp.evalBits] using hcomb ▸ hw
+        · cases hst
+      · cases hst
+
+/-- Positional projection of `LoopBlocks` at block index `i`. -/
+def LoopBlocks.get {sig : List (List Ty)} {ts : List Ty} :
+    LoopBlocks → Member ts sig → Bool × LoopTree
+  | .nil, _ => (false, .leaf)
+  | .cons isL ph _, .here => (isL, ph)
+  | .cons _ _ pt, .there i => pt.get i
+
+theorem addrRangeSweepB_get_eq {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (curD b : Nat) :
+    {sig : List (List Ty)} → (bsPlan : LoopBlocks) → (bs : Blocks (ARVal V) L rs sig) →
+    ∀ {ts : List Ty} (i : Member ts sig) (xs : Tup V ts),
+      (addrRangeSweepB curD b bsPlan bs).get i xs =
+        let p := bsPlan.get i
+        let bd := if p.1 then curD + 1 else curD
+        addrRangeSweep bd (b + ts.length) p.2 (bs.get i (freshARVals bd ts xs b))
+  | _ :: _, .nil, .cons _ _, _, .here, _ => rfl
+  | _ :: _, .cons _ _ _, .cons _ _, _, .here, _ => rfl
+  | _ :: _, .nil, .cons _ bs, _, .there i, xs => addrRangeSweepB_get_eq curD b .nil bs i xs
+  | _ :: _, .cons _ _ pt, .cons _ bs, _, .there i, xs => addrRangeSweepB_get_eq curD b pt bs i xs
+
+private theorem addrRangeSweep_let {V : Ty → Type} {L : List Ty → Type} {ts rs : List Ty}
+    (curD next : Nat) (plan : LoopTree) (op : Op (ARVal V) ts)
+    (k : Tup (ARVal V) ts → Expr (ARVal V) L rs) :
+    addrRangeSweep curD next plan (.let_ op k) =
+      let kPlan := plan.step1
+      match op.arStep curD next with
+      | .elim res => addrRangeSweep curD next kPlan (k res)
+      | .emit1 op' wrap =>
+        .let_ op' fun xs => addrRangeSweep curD (next + ts.length) kPlan (k (wrap xs))
+      | .rangeSubCmp w o x lo width outD =>
+        .let_ (op2 (.sub (.bits w)) x (.imm lo)) fun (t, ()) =>
+        .let_ (op2 (.cmp o (.bits w)) (.var t) (.imm width)) fun (r, ()) =>
+        addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh r next outD, ()))
+      | .addrShl n isSub base inv iv ivD sh _ disp =>
+        .let_ (op2 (.shl (.bits n)) inv (.imm (BitVec.ofNat n sh))) fun (t1, ()) =>
+        .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1))
+          fun (t2, ()) =>
+        .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+        .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
+        if disp == 0#n then
+          addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
+        else
+          .let_ (op2 (.add (.bits n)) (.var t4) (.imm disp)) fun (t5, ()) =>
+          addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t5 next ivD, ()))
+      | .addrPlain n isSub base inv iv invD ivD disp =>
+        .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base inv) fun (t1, ()) =>
+        .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
+        if disp == 0#n then
+          addrRangeSweep curD (next + 1) kPlan
+            (k (⟨.var t2, .var next, ivD, { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩,
+              ()))
+        else
+          .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
+          addrRangeSweep curD (next + 1) kPlan
+            (k (⟨.var t3, .var next, ivD, { addr? := some (.addVV (.var t1) invD iv ivD disp) }⟩,
+              ())) := by
+  delta addrRangeSweep; dsimp only [Expr.brecOn, Expr.rec, addrRangeSweep._f]
+  cases op.arStep curD next <;> rfl
+
+/-- Helper for `addrRangeSweep_wp` covering one `.let_` step. -/
+private theorem arStep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    {G : Ctx (ARVal Val) Val} {ρ : FEnv} {curD b : Nat} (hG : ARGood ρ b G)
+    {sig ts : List Ty} {code : OpCode sig ts}
+    {args₁ : Tup (Arg (ARVal Val)) sig} {args₂ : Tup (Arg Val) sig}
+    (hargs : TRel (ArgRel G) args₁ args₂)
+    {k₁ : Tup (ARVal Val) ts → Expr (ARVal Val) Cont rs}
+    {k₂ : Tup Val ts → Expr Val Cont rs}
+    (plan : LoopTree)
+    (ih : ∀ xs₁ xs₂ b' ρ', ARGood ρ' b' (Tup.zip xs₁ xs₂ ++ G) →
+      wp Γ Q X (k₂ xs₂) m → wp Γ Q X (addrRangeSweep curD b' plan.step1 (k₁ xs₁)) m)
+    (hw : code.wp (vals args₂) fun xs => wp Γ Q X (k₂ xs) m) :
+    wp Γ Q X (addrRangeSweep curD b plan (.let_ ⟨code, args₁⟩ k₁)) m := by
+  rw [addrRangeSweep_let]
+  dsimp only [Op.arStep]
+  have hkeep : ∀ (outD : Nat),
+      wp Γ Q X (.let_ ⟨code, tupArOut args₁⟩ fun xs =>
+        addrRangeSweep curD (b + ts.length) plan.step1 (k₁ (wrapKept outD b code args₁ xs))) m := by
+    intro outD
+    dsimp only [wp, Op.wp]
+    rw [hargs.arOut_vals hG]
+    exact OpCode.wp_mono code (vals args₂) (fun xs ⟨hk2, hG'⟩ =>
+      ih _ xs (b + ts.length) (fupdTup ρ b xs) hG' hk2)
+      (wrapKept_good hG hargs hw)
+  have haddrShl : ∀ {n : Nat} (isSub : Bool) (base inv iv : Arg Val (.bits n))
+      (ivD sh : Nat) (hsh : sh < n) (disp : BitVec n)
+      {k₁' : Tup (ARVal Val) [.bits n] → Expr (ARVal Val) Cont rs}
+      {k₂' : Tup Val [.bits n] → Expr Val Cont rs}
+      (ih' : ∀ xs₁ xs₂ b' ρ', ARGood ρ' b' (Tup.zip xs₁ xs₂ ++ G) →
+        wp Γ Q X (k₂' xs₂) m → wp Γ Q X (addrRangeSweep curD b' plan.step1 (k₁' xs₁)) m)
+      (hw' : wp Γ Q X (k₂' ((if isSub then ((base.val - (inv.val <<< sh)) + (iv.val <<< sh)) + disp
+          else ((base.val + (inv.val <<< sh)) + (iv.val <<< sh)) + disp), ())) m),
+      wp Γ Q X
+        (.let_ (op2 (.shl (.bits n)) inv (.imm (BitVec.ofNat n sh))) fun (t1, ()) =>
+         .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1))
+           fun (t2, ()) =>
+         .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+         .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
+         if disp == 0#n then
+           addrRangeSweep curD (b + 1) plan.step1 (k₁' (ARVal.fresh t4 b ivD, ()))
+         else
+           .let_ (op2 (.add (.bits n)) (.var t4) (.imm disp)) fun (t5, ()) =>
+           addrRangeSweep curD (b + 1) plan.step1 (k₁' (ARVal.fresh t5 b ivD, ()))) m := by
+    intro n isSub base inv iv ivD sh hsh disp k₁' k₂' ih' hw'
+    have hsh_mod : (BitVec.ofNat n sh).toNat % n = sh := by
+      have h1 : (BitVec.ofNat n sh).toNat = sh := by
+        rw [BitVec.toNat_ofNat]
+        exact Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le hsh (Nat.le_of_lt Nat.lt_two_pow_self))
+      rw [h1, Nat.mod_eq_of_lt hsh]
+    cases isSub <;> simp only [Bool.false_eq_true, ↓reduceIte] at hw' ⊢
+    all_goals
+      dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
+      simp only [Bool.false_eq_true, ↓reduceIte, hsh_mod]
+      cases hd0 : (disp == 0#n) with
+      | true =>
+        simp only [↓reduceIte]; have hd0' : disp = 0#n := eq_of_beq hd0
+        subst hd0'; simp only [BitVec.add_zero] at hw'
+        exact ih' _ _ (b + 1) (fupd ρ b _) (hG.freshOne ivD _) hw'
+      | false =>
+        simp only [Bool.false_eq_true, ↓reduceIte]
+        dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
+        simp only [Bool.false_eq_true, ↓reduceIte]
+        exact ih' _ _ (b + 1) (fupd ρ b _) (hG.freshOne ivD _) hw'
+  have haddrPlain : ∀ {n : Nat} (isSub : Bool) (base inv iv : Arg Val (.bits n))
+      (invD ivD : Nat) (disp : BitVec n)
+      {k₁' : Tup (ARVal Val) [.bits n] → Expr (ARVal Val) Cont rs}
+      {k₂' : Tup Val [.bits n] → Expr Val Cont rs}
+      (ih' : ∀ xs₁ xs₂ b' ρ', ARGood ρ' b' (Tup.zip xs₁ xs₂ ++ G) →
+        wp Γ Q X (k₂' xs₂) m → wp Γ Q X (addrRangeSweep curD b' plan.step1 (k₁' xs₁)) m)
+      (hw' : wp Γ Q X (k₂' ((if isSub then ((base.val - inv.val) + iv.val) + disp
+          else ((base.val + inv.val) + iv.val) + disp), ())) m),
+      wp Γ Q X
+        (.let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base inv) fun (t1, ()) =>
+         .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
+         if disp == 0#n then
+           addrRangeSweep curD (b + 1) plan.step1
+             (k₁' (⟨.var t2, .var b, ivD,
+               { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩, ()))
+         else
+           .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
+           addrRangeSweep curD (b + 1) plan.step1
+             (k₁' (⟨.var t3, .var b, ivD,
+               { addr? := some (.addVV (.var t1) invD iv ivD disp) }⟩, ()))) m := by
+    intro n isSub base inv iv invD ivD disp k₁' k₂' ih' hw'
+    cases isSub <;> simp only [Bool.false_eq_true, ↓reduceIte] at hw' ⊢
+    all_goals
+      dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
+      simp only [Bool.false_eq_true, ↓reduceIte]
+      cases hd0 : (disp == 0#n) with
+      | true =>
+        simp only [↓reduceIte]; have hd0' : disp = 0#n := eq_of_beq hd0
+        subst hd0'; simp only [BitVec.add_zero] at hw'
+        exact ih' _ _ (b + 1) _ ((hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+          addrOptGood_of (fun _ h => by injection h with h; subst h; simp [AddrDefGood, Arg.val])⟩)
+          hw'
+      | false =>
+        simp only [Bool.false_eq_true, ↓reduceIte]
+        dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, Ty.hasFloat]
+        simp only [Bool.false_eq_true, ↓reduceIte]
+        exact ih' _ _ (b + 1) _ ((hG.upd _).cons ⟨rfl, fupd_eq ρ b _, Nat.lt_succ_self b,
+          addrOptGood_of (fun _ h => by injection h with h; subst h; rfl)⟩) hw'
+  cases code with
+  | add t =>
+    cases t with
+    | bits n =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      dsimp only
+      cases hcond : (n == 64 && decide (0 < curD)) with
+      | false =>
+        simp only [Bool.false_eq_true, ↓reduceIte]
+        exact hkeep _
+      | true =>
+        simp only [↓reduceIte]
+        cases h1 : tryAddrReassocOne a₁ b₁ with
+        | some st =>
+          simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte, vals, lift2] at hw
+          have hs := tryAddrReassocOne_sound hG ha hb h1
+          cases st with
+          | addrShl _ isSub base inv iv ivD sh hsh disp =>
+            exact haddrShl isSub base inv iv ivD sh hsh disp ih (hs.2.symm ▸ hw)
+          | addrPlain _ isSub base inv iv invD ivD disp =>
+            exact haddrPlain isSub base inv iv invD ivD disp ih (hs.2.symm ▸ hw)
+          | elim _ | emit1 _ _ => exact False.elim hs
+        | none =>
+          cases h2 : tryAddrReassocOne b₁ a₁ with
+          | some st =>
+            simp only [OpCode.wp, Ty.hasFloat, Bool.false_eq_true, ↓reduceIte, vals, lift2] at hw
+            have hs := tryAddrReassocOne_sound hG hb ha h2
+            rw [BitVec.add_comm b₂.val a₂.val] at hs
+            cases st with
+            | addrShl _ isSub base inv iv ivD sh hsh disp =>
+              exact haddrShl isSub base inv iv ivD sh hsh disp ih (hs.2.symm ▸ hw)
+            | addrPlain _ isSub base inv iv invD ivD disp =>
+              exact haddrPlain isSub base inv iv invD ivD disp ih (hs.2.symm ▸ hw)
+            | elim _ | emit1 _ _ => exact False.elim hs
+          | none =>
+            exact hkeep _
+    | bool | float _ | pair _ _ => exact hkeep _
+  | and t =>
+    cases t with
+    | bool =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      simp only [OpCode.wp, vals, lift2] at hw
+      dsimp only
+      cases hfalse : (a₁.arOut.imm? == some false || b₁.arOut.imm? == some false) with
+      | true =>
+        simp only [↓reduceIte]
+        have hval : (a₂.val && b₂.val) = false := by
+          simp only [Bool.or_eq_true, beq_iff_eq] at hfalse
+          rcases hfalse with h1 | h2
+          · rw [arOut_imm?_eq_val hG ha h1]; rfl
+          · rw [arOut_imm?_eq_val hG hb h2]; simp
+        exact ih _ (false, ()) b ρ
+          (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+              exact hG.cons (ARValGood.ofImm (t := .bool) false))
+          (hval ▸ hw)
+      | false =>
+        simp only [Bool.false_eq_true, ↓reduceIte]
+        cases ha1 : (a₁.arOut.imm? == some true) with
+        | true =>
+          simp only [↓reduceIte]
+          have ha1' : a₂.val = true := arOut_imm?_eq_val hG ha (eq_of_beq ha1)
+          rw [ha1', Bool.true_and] at hw
+          exact ih _ (b₂.val, ()) b ρ
+            (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                exact hG.cons (hb.toARVal_good hG)) hw
+        | false =>
+          simp only [Bool.false_eq_true, ↓reduceIte]
+          cases hb1 : (b₁.arOut.imm? == some true) with
+          | true =>
+            simp only [↓reduceIte]
+            have hb1' : b₂.val = true := arOut_imm?_eq_val hG hb (eq_of_beq hb1)
+            rw [hb1', Bool.and_true] at hw
+            exact ih _ (a₂.val, ()) b ρ
+              (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                  exact hG.cons (ha.toARVal_good hG)) hw
+          | false =>
+            simp only [Bool.false_eq_true, ↓reduceIte]
+            cases hr : tryRangeStep false _ b a₁ b₁ with
+            | none =>
+              dsimp only [wp, Op.wp, OpCode.wp, op2, vals, lift2]
+              rw [ha.arOut_val hG, hb.arOut_val hG]
+              exact ih _ (a₂.val && b₂.val, ()) (b + 1) (fupd ρ b _) (hG.freshOne _ _) hw
+            | some st =>
+              have hs := tryRangeStep_sound hG false ha hb hr (P := fun xs => wp Γ Q X (k₂ xs) m) hw
+              cases st with
+              | elim res =>
+                obtain ⟨xs, hk2, hG'⟩ := hs
+                exact ih res xs b ρ hG' hk2
+              | emit1 op' wrap =>
+                dsimp only [wp]
+                exact Op.wp_mono (fun xs ⟨hk2, hG'⟩ =>
+                  ih (wrap xs) xs (b + 1) (fupdTup ρ b xs) hG' hk2) hs
+              | rangeSubCmp w o x lo width outD =>
+                dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, liftCmp, Ty.hasFloat]
+                simp only [Bool.false_eq_true, ↓reduceIte]
+                exact ih _ _ (b + 1) (fupd ρ b _) (hG.freshOne outD _) hs
+    | bits _ | float _ | pair _ _ => exact hkeep _
+  | or t =>
+    cases t with
+    | bool =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      simp only [OpCode.wp, vals, lift2] at hw
+      dsimp only
+      cases htrue : (a₁.arOut.imm? == some true || b₁.arOut.imm? == some true) with
+      | true =>
+        simp only [↓reduceIte]
+        have hval : (a₂.val || b₂.val) = true := by
+          simp only [Bool.or_eq_true, beq_iff_eq] at htrue
+          rcases htrue with h1 | h2
+          · rw [arOut_imm?_eq_val hG ha h1]; rfl
+          · rw [arOut_imm?_eq_val hG hb h2]; simp
+        exact ih _ (true, ()) b ρ
+          (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+              exact hG.cons (ARValGood.ofImm (t := .bool) true))
+          (hval ▸ hw)
+      | false =>
+        simp only [Bool.false_eq_true, ↓reduceIte]
+        cases ha1 : (a₁.arOut.imm? == some false) with
+        | true =>
+          simp only [↓reduceIte]
+          have ha1' : a₂.val = false := arOut_imm?_eq_val hG ha (eq_of_beq ha1)
+          rw [ha1', Bool.false_or] at hw
+          exact ih _ (b₂.val, ()) b ρ
+            (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                exact hG.cons (hb.toARVal_good hG)) hw
+        | false =>
+          simp only [Bool.false_eq_true, ↓reduceIte]
+          cases hb1 : (b₁.arOut.imm? == some false) with
+          | true =>
+            simp only [↓reduceIte]
+            have hb1' : b₂.val = false := arOut_imm?_eq_val hG hb (eq_of_beq hb1)
+            rw [hb1', Bool.or_false] at hw
+            exact ih _ (a₂.val, ()) b ρ
+              (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                  exact hG.cons (ha.toARVal_good hG)) hw
+          | false =>
+            simp only [Bool.false_eq_true, ↓reduceIte]
+            cases hr : tryRangeStep true _ b a₁ b₁ with
+            | none =>
+              dsimp only [wp, Op.wp, OpCode.wp, op2, vals, lift2]
+              rw [ha.arOut_val hG, hb.arOut_val hG]
+              exact ih _ (a₂.val || b₂.val, ()) (b + 1) (fupd ρ b _) (hG.freshOne _ _) hw
+            | some st =>
+              have hs := tryRangeStep_sound hG true ha hb hr (P := fun xs => wp Γ Q X (k₂ xs) m) hw
+              cases st with
+              | elim res =>
+                obtain ⟨xs, hk2, hG'⟩ := hs
+                exact ih res xs b ρ hG' hk2
+              | emit1 op' wrap =>
+                dsimp only [wp]
+                exact Op.wp_mono (fun xs ⟨hk2, hG'⟩ =>
+                  ih (wrap xs) xs (b + 1) (fupdTup ρ b xs) hG' hk2) hs
+              | rangeSubCmp w o x lo width outD =>
+                dsimp only [wp, Op.wp, OpCode.wp, op2, vals, Arg.val, lift2, liftCmp, Ty.hasFloat]
+                simp only [Bool.false_eq_true, ↓reduceIte]
+                exact ih _ _ (b + 1) (fupd ρ b _) (hG.freshOne outD _) hs
+    | bits _ | float _ | pair _ _ => exact hkeep _
+  | _ =>
+    all_goals exact hkeep _
+
+/-- Weakest-precondition preservation for `addrRangeSweep` under any untrusted `LoopTree`. -/
+theorem addrRangeSweep_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {G : Ctx (ARVal Val) Val} {D : Ctx Cont Cont}
+    {e₁ : Expr (ARVal Val) Cont rs} {e₂ : Expr Val Cont rs}
+    (hwf : Wf G D e₁ e₂) :
+    (∀ p ∈ D, p.2.1 = p.2.2) →
+    ∀ curD b ρ plan, ARGood ρ b G → ∀ m, wp Γ Q X e₂ m →
+      wp Γ Q X (addrRangeSweep curD b plan e₁) m := by
+  induction hwf using Wf.induct with
+  | @let_ G D ts op₁ op₂ k₁ k₂ hop _ ih =>
+    intro hD curD b ρ plan hG m hw
+    dsimp only [wp] at hw
+    cases hop with
+    | @mk sig _ code args₁ args₂ hargs =>
+      exact arStep_wp hG hargs plan
+        (fun xs₁ xs₂ b' ρ' hG' hk2 => ih xs₁ xs₂ hD curD b' ρ' _ hG' m hk2) hw
+  | load t ha _ ih =>
+    intro hD curD b ρ plan hG m hw
+    dsimp only [wp, addrRangeSweep] at hw ⊢
+    rcases hw with ⟨v, hv, hk⟩
+    exact ⟨v, ha.arOut_val hG ▸ hv,
+      ih (ARVal.fresh v b curD) v hD curD (b + 1) (fupd ρ b v) _ (hG.freshOne curD v) m hk⟩
+  | store hv ha _ ih =>
+    intro hD curD b ρ plan hG m hw
+    dsimp only [wp, addrRangeSweep] at hw ⊢
+    rw [ha.arOut_val hG, hv.arOut_val hG]
+    exact ⟨hw.1, ih hD curD b ρ _ hG _ hw.2⟩
+  | call f hargs _ ih =>
+    intro hD curD b ρ plan hG m hw
+    dsimp only [wp, addrRangeSweep] at hw ⊢
+    rcases hw with ⟨P, E, hΓ, hP, hE⟩
+    rw [hargs.arOut_vals hG]
+    exact ⟨P, E, hΓ, fun r m' hp =>
+      ih (freshARVals curD _ r b) r hD curD (b + _) (fupdTup ρ b r) _
+        (hG.freshARVals curD r) m' (hP r m' hp), hE⟩
+  | @jnz G D c₁ c₂ t₁ t₂ e₁ e₂ hc _ _ iht ihe =>
+    intro hD curD b ρ plan hG m hw
+    dsimp only [wp] at hw
+    have hcv := hc.arOut_val hG
+    dsimp only [addrRangeSweep]
+    cases hcf : c₁.arOut with
+    | imm bv =>
+      rw [hcf] at hcv
+      cases bv
+      · exact ihe hD curD b ρ _ hG m (hw.2 hcv.symm)
+      · exact iht hD curD b ρ _ hG m (hw.1 hcv.symm)
+    | var _ =>
+      rw [hcf] at hcv; dsimp only [wp]
+      exact ⟨fun h => iht hD curD b ρ _ hG m (hw.1 (hcv ▸ h)),
+             fun h => ihe hD curD b ρ _ hG m (hw.2 (hcv ▸ h))⟩
+  | jump hj hargs =>
+    intro hD _ _ _ _ hG _ hw
+    have hj' := hD _ hj; dsimp only at hj'
+    dsimp only [wp, addrRangeSweep] at hw ⊢
+    rw [hj', hargs.arOut_vals hG]; exact hw
+  | ret hvs | exit _ hvs =>
+    intro _ _ _ _ _ hG _ hw
+    dsimp only [wp, addrRangeSweep] at hw ⊢
+    rw [hvs.arOut_vals hG]; exact hw
+  | hlt =>
+    intro _ _ _ _ _ _ _ hw; exact hw
+  | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
+    intro hD curD b ρ plan hG m hw
+    dsimp only [wp, addrRangeSweep] at hw ⊢
+    intro Js hclosed
+    refine ihk Js Js (tup_zip_self_eq hD Js) curD b ρ _ hG m (hw Js ?_)
+    rw [closed_iff] at hclosed ⊢
+    intro ts i xs m' hb
+    let p := plan.stepGroup.1.get i
+    let bd := if p.1 then curD + 1 else curD
+    have hsw := ihb Js Js i (freshARVals bd ts xs b) xs (tup_zip_self_eq hD Js)
+      bd (b + ts.length) (fupdTup ρ b xs) p.2 (hG.freshARVals bd xs) m' hb
+    rw [← addrRangeSweepB_get_eq curD b plan.stepGroup.1 (b₁ Js) i xs] at hsw
+    exact hclosed i xs m' hsw
+
+/-! ## Relational well-formedness (`ARRelG` and `addrRangeSweep_wf`) -/
+
+section
+variable {V₁ V₂ : Ty → Type}
+
+inductive CmpImmRel (G' : Ctx V₁ V₂) : CmpImmDef V₁ → CmpImmDef V₂ → Prop
+  | mk {w : Nat} (o : CmpOp) {lhs₁ : Arg V₁ (.bits w)} {lhs₂ : Arg V₂ (.bits w)}
+      (hlhs : ArgRel G' (.bits w) lhs₁ lhs₂) (lhsKey : FKey (.bits w)) (imm : BitVec w) :
+      CmpImmRel G' ⟨w, o, lhs₁, lhsKey, imm⟩ ⟨w, o, lhs₂, lhsKey, imm⟩
+
+theorem CmpImmRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂)
+    {c₁ : CmpImmDef V₁} {c₂ : CmpImmDef V₂} :
+    CmpImmRel G₁ c₁ c₂ → CmpImmRel G₂ c₁ c₂
+  | .mk o hlhs k imm => .mk o (hlhs.weaken hsub) k imm
+
+inductive ZextDefRel (G' : Ctx V₁ V₂) {n : Nat} : ZextDef V₁ n → ZextDef V₂ n → Prop
+  | mk {m : Nat} (hm0 : 0 < m) (hmn : m < n)
+      {src₁ : Arg V₁ (.bits m)} {src₂ : Arg V₂ (.bits m)}
+      (hsrc : ArgRel G' (.bits m) src₁ src₂) (srcKey : FKey (.bits m)) :
+      ZextDefRel G' ⟨m, hm0, hmn, src₁, srcKey⟩ ⟨m, hm0, hmn, src₂, srcKey⟩
+
+theorem ZextDefRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂) {n : Nat}
+    {z₁ : ZextDef V₁ n} {z₂ : ZextDef V₂ n} :
+    ZextDefRel G₁ z₁ z₂ → ZextDefRel G₂ z₁ z₂
+  | .mk hm0 hmn hs k => .mk hm0 hmn (hs.weaken hsub) k
+
+inductive AddrDefRel (G' : Ctx V₁ V₂) {n : Nat} : AddrDef V₁ n → AddrDef V₂ n → Prop
+  | addVC {x₁ : Arg V₁ (.bits n)} {x₂ : Arg V₂ (.bits n)}
+      (hx : ArgRel G' (.bits n) x₁ x₂) (dx : Nat) (disp : BitVec n) :
+      AddrDefRel G' (.addVC x₁ dx disp) (.addVC x₂ dx disp)
+  | shlVC {x₁ : Arg V₁ (.bits n)} {x₂ : Arg V₂ (.bits n)}
+      (hx : ArgRel G' (.bits n) x₁ x₂) (dx sh : Nat) (hsh : sh < n) (disp : BitVec n) :
+      AddrDefRel G' (.shlVC x₁ dx sh hsh disp) (.shlVC x₂ dx sh hsh disp)
+  | addVV {x₁ : Arg V₁ (.bits n)} {x₂ : Arg V₂ (.bits n)}
+      {y₁ : Arg V₁ (.bits n)} {y₂ : Arg V₂ (.bits n)}
+      (hx : ArgRel G' (.bits n) x₁ x₂) (dx : Nat)
+      (hy : ArgRel G' (.bits n) y₁ y₂) (dy : Nat) (disp : BitVec n) :
+      AddrDefRel G' (.addVV x₁ dx y₁ dy disp) (.addVV x₂ dx y₂ dy disp)
+  | subVV {x₁ : Arg V₁ (.bits n)} {x₂ : Arg V₂ (.bits n)}
+      {y₁ : Arg V₁ (.bits n)} {y₂ : Arg V₂ (.bits n)}
+      (hx : ArgRel G' (.bits n) x₁ x₂) (dx : Nat)
+      (hy : ArgRel G' (.bits n) y₁ y₂) (dy : Nat) (disp : BitVec n) :
+      AddrDefRel G' (.subVV x₁ dx y₁ dy disp) (.subVV x₂ dx y₂ dy disp)
+  | shlAddVV {x₁ : Arg V₁ (.bits n)} {x₂ : Arg V₂ (.bits n)}
+      {y₁ : Arg V₁ (.bits n)} {y₂ : Arg V₂ (.bits n)}
+      (hx : ArgRel G' (.bits n) x₁ x₂) (dx : Nat)
+      (hy : ArgRel G' (.bits n) y₁ y₂) (dy : Nat)
+      (sh : Nat) (hsh : sh < n) (disp : BitVec n) :
+      AddrDefRel G' (.shlAddVV x₁ dx y₁ dy sh hsh disp) (.shlAddVV x₂ dx y₂ dy sh hsh disp)
+  | shlSubVV {x₁ : Arg V₁ (.bits n)} {x₂ : Arg V₂ (.bits n)}
+      {y₁ : Arg V₁ (.bits n)} {y₂ : Arg V₂ (.bits n)}
+      (hx : ArgRel G' (.bits n) x₁ x₂) (dx : Nat)
+      (hy : ArgRel G' (.bits n) y₁ y₂) (dy : Nat)
+      (sh : Nat) (hsh : sh < n) (disp : BitVec n) :
+      AddrDefRel G' (.shlSubVV x₁ dx y₁ dy sh hsh disp) (.shlSubVV x₂ dx y₂ dy sh hsh disp)
+
+theorem AddrDefRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂) {n : Nat}
+    {a₁ : AddrDef V₁ n} {a₂ : AddrDef V₂ n} :
+    AddrDefRel G₁ a₁ a₂ → AddrDefRel G₂ a₁ a₂
+  | .addVC hx dx d => .addVC (hx.weaken hsub) dx d
+  | .shlVC hx dx sh hsh d => .shlVC (hx.weaken hsub) dx sh hsh d
+  | .addVV hx dx hy dy d => .addVV (hx.weaken hsub) dx (hy.weaken hsub) dy d
+  | .subVV hx dx hy dy d => .subVV (hx.weaken hsub) dx (hy.weaken hsub) dy d
+  | .shlAddVV hx dx hy dy sh hsh d => .shlAddVV (hx.weaken hsub) dx (hy.weaken hsub) dy sh hsh d
+  | .shlSubVV hx dx hy dy sh hsh d => .shlSubVV (hx.weaken hsub) dx (hy.weaken hsub) dy sh hsh d
+
+theorem AddrDefRel.shiftDisp {G' : Ctx V₁ V₂} {n : Nat} (c : BitVec n)
+    {a₁ : AddrDef V₁ n} {a₂ : AddrDef V₂ n} :
+    AddrDefRel G' a₁ a₂ → AddrDefRel G' (a₁.shiftDisp c) (a₂.shiftDisp c)
+  | .addVC hx dx d => .addVC hx dx (d + c)
+  | .shlVC hx dx sh hsh d => .shlVC hx dx sh hsh (d + c)
+  | .addVV hx dx hy dy d => .addVV hx dx hy dy (d + c)
+  | .subVV hx dx hy dy d => .subVV hx dx hy dy (d + c)
+  | .shlAddVV hx dx hy dy sh hsh d => .shlAddVV hx dx hy dy sh hsh (d + c)
+  | .shlSubVV hx dx hy dy sh hsh d => .shlSubVV hx dx hy dy sh hsh (d + c)
+
+def OptRel {α : Type} {β : Type} (R : α → β → Prop) : Option α → Option β → Prop
+  | none, none => True
+  | some a, some b => R a b
+  | _, _ => False
+
+theorem OptRel.weaken {α β : Type} {R S : α → β → Prop} (h : ∀ a b, R a b → S a b) :
+    ∀ {x : Option α} {y : Option β}, OptRel R x y → OptRel S x y
+  | none, none, _ => trivial
+  | some a, some b, hab => h a b hab
+  | none, some _, h0 => False.elim h0
+  | some _, none, h0 => False.elim h0
+
+def BitsProvRel (G' : Ctx V₁ V₂) {n : Nat} (p₁ : BitsProv V₁ n) (p₂ : BitsProv V₂ n) : Prop :=
+  OptRel (AddrDefRel G') p₁.addr? p₂.addr? ∧ OptRel (ZextDefRel G') p₁.zext? p₂.zext?
+
+theorem BitsProvRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂) {n : Nat}
+    {p₁ : BitsProv V₁ n} {p₂ : BitsProv V₂ n} (h : BitsProvRel G₁ p₁ p₂) :
+    BitsProvRel G₂ p₁ p₂ :=
+  ⟨h.1.weaken (fun _ _ hr => hr.weaken hsub), h.2.weaken (fun _ _ hr => hr.weaken hsub)⟩
+
+def ARProvRel (G' : Ctx V₁ V₂) : {t : Ty} → ARProv V₁ t → ARProv V₂ t → Prop
+  | .bool, none, none => True
+  | .bool, some c₁, some c₂ => CmpImmRel G' c₁ c₂
+  | .bool, _, _ => False
+  | .bits _, bp₁, bp₂ => BitsProvRel G' bp₁ bp₂
+  | .float _, (), () => True
+  | .pair _ _, (), () => True
+
+theorem ARProvRel.none {G' : Ctx V₁ V₂} {t : Ty} :
+    ARProvRel G' (ARProv.none (V := V₁) (t := t)) (ARProv.none (V := V₂) (t := t)) := by
+  cases t with
+  | bits _ => exact ⟨trivial, trivial⟩
+  | bool | float _ | pair _ _ => trivial
+
+theorem ARProvRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂)
+    {t : Ty} {p₁ : ARProv V₁ t} {p₂ : ARProv V₂ t} (h : ARProvRel G₁ p₁ p₂) :
+    ARProvRel G₂ p₁ p₂ := by
+  cases t with
+  | bool =>
+    cases p₁ <;> cases p₂ <;> first | trivial | exact False.elim h | exact CmpImmRel.weaken hsub h
+  | bits _ => exact BitsProvRel.weaken hsub h
+  | float _ | pair _ _ => trivial
+
+def ARValRel (G' : Ctx V₁ V₂) {t : Ty} (a₁ : ARVal V₁ t) (a₂ : ARVal V₂ t) : Prop :=
+  ArgRel G' t a₁.out a₂.out ∧ a₁.key = a₂.key ∧ a₁.depth = a₂.depth ∧ ARProvRel G' a₁.prov a₂.prov
+
+theorem ARValRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂)
+    {t : Ty} {a₁ : ARVal V₁ t} {a₂ : ARVal V₂ t} (h : ARValRel G₁ a₁ a₂) :
+    ARValRel G₂ a₁ a₂ :=
+  ⟨h.1.weaken hsub, h.2.1, h.2.2.1, h.2.2.2.weaken hsub⟩
+
+theorem ARValRel.fresh {G' : Ctx V₁ V₂} {t : Ty} {v₁ : V₁ t} {v₂ : V₂ t} (b d : Nat)
+    (hm : ⟨t, v₁, v₂⟩ ∈ G') :
+    ARValRel G' (ARVal.fresh v₁ b d) (ARVal.fresh v₂ b d) :=
+  ⟨.var hm, rfl, rfl, ARProvRel.none⟩
+
+theorem ARValRel.ofImm {G' : Ctx V₁ V₂} {t : Ty} (c : Val t) :
+    ARValRel G' (ARVal.ofImm (V := V₁) c) (ARVal.ofImm (V := V₂) c) :=
+  ⟨.imm c, rfl, rfl, ARProvRel.none⟩
+
+def ARRelG (G' : Ctx V₁ V₂) (G : Ctx (ARVal V₁) (ARVal V₂)) : Prop :=
+  ∀ p ∈ G, ARValRel G' p.2.1 p.2.2
+
+theorem ARRelG.cons {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G)
+    {t : Ty} {a₁ : ARVal V₁ t} {a₂ : ARVal V₂ t} (ha : ARValRel G' a₁ a₂) :
+    ARRelG G' (⟨t, a₁, a₂⟩ :: G)
+  | _, .head _ => ha
+  | _, .tail _ hp => hG _ hp
+
+theorem ARRelG.append {G' : Ctx V₁ V₂} {G H : Ctx (ARVal V₁) (ARVal V₂)}
+    (h1 : ARRelG G' G) (h2 : ARRelG G' H) : ARRelG G' (H ++ G) := by
+  intro p hp; rcases List.mem_append.1 hp with hp | hp
+  · exact h2 p hp
+  · exact h1 p hp
+
+theorem ARRelG.weaken {G' G'' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) (hsub : ∀ p ∈ G', p ∈ G'') : ARRelG G'' G :=
+  fun p hp => (hG p hp).weaken hsub
+
+theorem ARRelG.append_tup {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G) :
+    {ts : List Ty} → {r₁ : Tup (ARVal V₁) ts} → {r₂ : Tup (ARVal V₂) ts} →
+    TRel (fun _ => ARValRel G') r₁ r₂ → ARRelG G' (Tup.zip r₁ r₂ ++ G)
+  | [], (), (), .nil => hG
+  | _ :: _, (_, _), (_, _), .cons hr hs => (ARRelG.append_tup hG hs).cons hr
+
+private theorem ARRelG.freshARVals_only (d : Nat) {ts : List Ty}
+    (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
+    ARRelG (Tup.zip xs₁ xs₂) (Tup.zip (freshARVals d ts xs₁ b) (freshARVals d ts xs₂ b)) :=
+  mem_tup_zip_tupFreshWith (fun x n => ARVal.fresh x n d) (fun x n => ARVal.fresh x n d)
+    (P := fun G' _ c₁ c₂ => ARValRel G' c₁ c₂)
+    (fun hsub _ _ _ h => h.weaken hsub)
+    (fun _ _ idx => ARValRel.fresh idx d List.mem_cons_self)
+    xs₁ xs₂ b
+
+theorem ARRelG.freshARVals {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G)
+    (d : Nat) {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
+    ARRelG (Tup.zip xs₁ xs₂ ++ G')
+      (Tup.zip (freshARVals d ts xs₁ b) (freshARVals d ts xs₂ b) ++ G) :=
+  (hG.weaken fun _ hq => List.mem_append_right _ hq).append
+    ((ARRelG.freshARVals_only d xs₁ xs₂ b).weaken fun _ hq => List.mem_append_left G' hq)
+
+theorem ARRelG.freshOne {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G)
+    (d : Nat) {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) (b : Nat) :
+    ARRelG (⟨t, v₁, v₂⟩ :: G') (⟨t, ARVal.fresh v₁ b d, ARVal.fresh v₂ b d⟩ :: G) :=
+  (hG.weaken fun _ hq => List.mem_cons_of_mem _ hq).cons
+    (ARValRel.fresh b d List.mem_cons_self)
+
+theorem TRel.freshARVals_rel {G' : Ctx V₁ V₂} (d : Nat) {ts : List Ty}
+    (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
+    TRel (fun _ => ARValRel (Tup.zip xs₁ xs₂ ++ G'))
+      (freshARVals d ts xs₁ b) (freshARVals d ts xs₂ b) :=
+  TRel_tupFreshWith (fun x n => ARVal.fresh x n d) (fun x n => ARVal.fresh x n d)
+    (P := fun G' _ c₁ c₂ => ARValRel G' c₁ c₂)
+    (fun hsub _ _ _ h => h.weaken hsub)
+    (fun _ _ idx => ARValRel.fresh idx d List.mem_cons_self)
+    xs₁ xs₂ b
+
+theorem ArgRel.arOut {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G)
+    {t : Ty} {a₁ : Arg (ARVal V₁) t} {a₂ : Arg (ARVal V₂) t} :
+    ArgRel G t a₁ a₂ → ArgRel G' t a₁.arOut a₂.arOut
+  | .var h => (hG _ h).1
+  | .imm c => .imm c
+
+theorem ArgRel.arKey_eq {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G)
+    {t : Ty} {a₁ : Arg (ARVal V₁) t} {a₂ : Arg (ARVal V₂) t} :
+    ArgRel G t a₁ a₂ → a₁.arKey = a₂.arKey
+  | .var h => (hG _ h).2.1
+  | .imm _ => rfl
+
+theorem ArgRel.arDepth_eq {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G)
+    {t : Ty} {a₁ : Arg (ARVal V₁) t} {a₂ : Arg (ARVal V₂) t} :
+    ArgRel G t a₁ a₂ → a₁.arDepth = a₂.arDepth
+  | .var h => (hG _ h).2.2.1
+  | .imm _ => rfl
+
+theorem ArgRel.arProv_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G)
+    {t : Ty} {a₁ : Arg (ARVal V₁) t} {a₂ : Arg (ARVal V₂) t} :
+    ArgRel G t a₁ a₂ → ARProvRel G' a₁.arProv a₂.arProv
+  | .var h => (hG _ h).2.2.2
+  | .imm _ => ARProvRel.none
+
+theorem ArgRel.toARVal_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G)
+    {t : Ty} {a₁ : Arg (ARVal V₁) t} {a₂ : Arg (ARVal V₂) t} :
+    ArgRel G t a₁ a₂ → ARValRel G' a₁.toARVal a₂.toARVal
+  | .var h => hG _ h
+  | .imm c => ARValRel.ofImm c
+
+theorem TRel.arOut {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G)
+    {ts : List Ty} {as₁ : Tup (Arg (ARVal V₁)) ts} {as₂ : Tup (Arg (ARVal V₂)) ts}
+    (h : TRel (ArgRel G) as₁ as₂) : TRel (ArgRel G') (tupArOut as₁) (tupArOut as₂) :=
+  TRel.tupMapArg_rel (fun _ => Arg.arOut) (fun _ => Arg.arOut) (fun ha => ha.arOut hG) h
+
+theorem TRel.tupMaxDepth_eq {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)} (hG : ARRelG G' G) :
+    {ts : List Ty} → {as₁ : Tup (Arg (ARVal V₁)) ts} → {as₂ : Tup (Arg (ARVal V₂)) ts} →
+    TRel (ArgRel G) as₁ as₂ → tupMaxDepth as₁ = tupMaxDepth as₂
+  | [], (), (), .nil => rfl
+  | _ :: _, (_, _), (_, _), .cons ha has => by
+    dsimp only [tupMaxDepth]; rw [ha.arDepth_eq hG, TRel.tupMaxDepth_eq hG has]
+
+private theorem argRel_imm?_eq {G' : Ctx V₁ V₂} {t : Ty} {a₁ : Arg V₁ t} {a₂ : Arg V₂ t} :
+    ArgRel G' t a₁ a₂ → a₁.imm? = a₂.imm?
+  | .var _ | .imm _ => rfl
+
+private theorem recordAddProv_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) {n : Nat} {a₁ b₁ : Arg (ARVal V₁) (.bits n)}
+    {a₂ b₂ : Arg (ARVal V₂) (.bits n)} (ha : ArgRel G (.bits n) a₁ a₂)
+    (hb : ArgRel G (.bits n) b₁ b₂) :
+    OptRel (AddrDefRel G') (recordAddProv a₁ b₁) (recordAddProv a₂ b₂) := by
+  dsimp only [recordAddProv]
+  split
+  · trivial
+  · rw [argRel_imm?_eq (ha.arOut hG), argRel_imm?_eq (hb.arOut hG)]
+    cases a₂.arOut.imm? <;> cases b₂.arOut.imm?
+    · have hp1 := (ha.arProv_rel hG).1
+      have hp2 := (hb.arProv_rel hG).1
+      rw [ha.arDepth_eq hG, hb.arDepth_eq hG]
+      cases h1 : a₁.arProv.addr? <;> cases h2 : a₂.arProv.addr? <;> rw [h1, h2] at hp1
+      · cases h3 : b₁.arProv.addr? <;> cases h4 : b₂.arProv.addr? <;> rw [h3, h4] at hp2
+        · exact .addVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+        · exact False.elim hp2
+        · exact False.elim hp2
+        · cases hp2 with
+          | addVC hy dy d2 => exact .addVV (ha.arOut hG) _ hy dy d2
+          | _ => exact .addVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+      · exact False.elim hp1
+      · exact False.elim hp1
+      · cases hp1 with
+        | addVC hx dx d1 =>
+          cases h3 : b₁.arProv.addr? <;> cases h4 : b₂.arProv.addr? <;> rw [h3, h4] at hp2
+          · exact .addVV hx dx (hb.arOut hG) _ d1
+          · exact False.elim hp2
+          · exact False.elim hp2
+          · cases hp2 with
+            | addVC hy dy d2 => exact .addVV hx dx hy dy (d1 + d2)
+            | _ => exact .addVV hx dx (hb.arOut hG) _ d1
+        | shlVC hx dx sh1 hsh1 d1 =>
+          cases h3 : b₁.arProv.addr? <;> cases h4 : b₂.arProv.addr? <;> rw [h3, h4] at hp2
+          · exact .addVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+          · exact False.elim hp2
+          · exact False.elim hp2
+          · cases hp2 with
+            | addVC hy dy d2 => exact .addVV (ha.arOut hG) _ hy dy d2
+            | shlVC hy dy sh2 hsh2 d2 =>
+              dsimp only; split
+              · exact .shlAddVV hx dx hy dy sh1 hsh1 (d1 + d2)
+              · exact .addVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+            | _ => exact .addVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+        | _ =>
+          cases h3 : b₁.arProv.addr? <;> cases h4 : b₂.arProv.addr? <;> rw [h3, h4] at hp2
+          · exact .addVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+          · exact False.elim hp2
+          · exact False.elim hp2
+          · cases hp2 with
+            | addVC hy dy d2 => exact .addVV (ha.arOut hG) _ hy dy d2
+            | _ => exact .addVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+    · rename_i c
+      have hp := (ha.arProv_rel hG).1
+      cases h1 : a₁.arProv.addr? <;> cases h2 : a₂.arProv.addr? <;> rw [h1, h2] at hp
+      · rw [ha.arDepth_eq hG]; exact .addVC (ha.arOut hG) _ c
+      · exact False.elim hp
+      · exact False.elim hp
+      · exact hp.shiftDisp c
+    · rename_i c
+      have hp := (hb.arProv_rel hG).1
+      cases h1 : b₁.arProv.addr? <;> cases h2 : b₂.arProv.addr? <;> rw [h1, h2] at hp
+      · rw [hb.arDepth_eq hG]; exact .addVC (hb.arOut hG) _ c
+      · exact False.elim hp
+      · exact False.elim hp
+      · exact hp.shiftDisp c
+    · trivial
+
+private theorem recordSubProv_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) {n : Nat} {a₁ b₁ : Arg (ARVal V₁) (.bits n)}
+    {a₂ b₂ : Arg (ARVal V₂) (.bits n)} (ha : ArgRel G (.bits n) a₁ a₂)
+    (hb : ArgRel G (.bits n) b₁ b₂) :
+    OptRel (AddrDefRel G') (recordSubProv a₁ b₁) (recordSubProv a₂ b₂) := by
+  dsimp only [recordSubProv]
+  split
+  · trivial
+  · rw [argRel_imm?_eq (ha.arOut hG), argRel_imm?_eq (hb.arOut hG)]
+    cases a₂.arOut.imm? <;> cases b₂.arOut.imm?
+    · have hp1 := (ha.arProv_rel hG).1
+      have hp2 := (hb.arProv_rel hG).1
+      rw [ha.arDepth_eq hG, hb.arDepth_eq hG]
+      cases h1 : a₁.arProv.addr? <;> cases h2 : a₂.arProv.addr? <;> rw [h1, h2] at hp1
+      · cases h3 : b₁.arProv.addr? <;> cases h4 : b₂.arProv.addr? <;> rw [h3, h4] at hp2
+        · exact .subVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+        · exact False.elim hp2
+        · exact False.elim hp2
+        · cases hp2 with
+          | addVC hy dy d2 => exact .subVV (ha.arOut hG) _ hy dy (-d2)
+          | _ => exact .subVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+      · exact False.elim hp1
+      · exact False.elim hp1
+      · cases hp1 with
+        | addVC hx dx d1 =>
+          cases h3 : b₁.arProv.addr? <;> cases h4 : b₂.arProv.addr? <;> rw [h3, h4] at hp2
+          · exact .subVV hx dx (hb.arOut hG) _ d1
+          · exact False.elim hp2
+          · exact False.elim hp2
+          · cases hp2 with
+            | addVC hy dy d2 => exact .subVV hx dx hy dy (d1 - d2)
+            | _ => exact .subVV hx dx (hb.arOut hG) _ d1
+        | shlVC hx dx sh1 hsh1 d1 =>
+          cases h3 : b₁.arProv.addr? <;> cases h4 : b₂.arProv.addr? <;> rw [h3, h4] at hp2
+          · exact .subVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+          · exact False.elim hp2
+          · exact False.elim hp2
+          · cases hp2 with
+            | addVC hy dy d2 => exact .subVV (ha.arOut hG) _ hy dy (-d2)
+            | shlVC hy dy sh2 hsh2 d2 =>
+              dsimp only; split
+              · exact .shlSubVV hx dx hy dy sh1 hsh1 (d1 - d2)
+              · exact .subVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+            | _ => exact .subVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+        | _ =>
+          cases h3 : b₁.arProv.addr? <;> cases h4 : b₂.arProv.addr? <;> rw [h3, h4] at hp2
+          · exact .subVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+          · exact False.elim hp2
+          · exact False.elim hp2
+          · cases hp2 with
+            | addVC hy dy d2 => exact .subVV (ha.arOut hG) _ hy dy (-d2)
+            | _ => exact .subVV (ha.arOut hG) _ (hb.arOut hG) _ 0#n
+    · rename_i c
+      have hp := (ha.arProv_rel hG).1
+      cases h1 : a₁.arProv.addr? <;> cases h2 : a₂.arProv.addr? <;> rw [h1, h2] at hp
+      · rw [ha.arDepth_eq hG]; exact .addVC (ha.arOut hG) _ (-c)
+      · exact False.elim hp
+      · exact False.elim hp
+      · exact hp.shiftDisp (-c)
+    · trivial
+    · trivial
+
+private theorem recordShlProv_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) {n : Nat} {a₁ b₁ : Arg (ARVal V₁) (.bits n)}
+    {a₂ b₂ : Arg (ARVal V₂) (.bits n)} (ha : ArgRel G (.bits n) a₁ a₂)
+    (hb : ArgRel G (.bits n) b₁ b₂) :
+    OptRel (AddrDefRel G') (recordShlProv a₁ b₁) (recordShlProv a₂ b₂) := by
+  dsimp only [recordShlProv]
+  split
+  · trivial
+  · rw [argRel_imm?_eq (hb.arOut hG)]
+    cases b₂.arOut.imm? with
+    | none => trivial
+    | some k =>
+      dsimp only; split
+      · rename_i hkn
+        have hp := (ha.arProv_rel hG).1
+        cases h1 : a₁.arProv.addr? <;> cases h2 : a₂.arProv.addr? <;> rw [h1, h2] at hp
+        · rw [ha.arDepth_eq hG]; exact .shlVC (ha.arOut hG) _ k.toNat hkn.2 0#n
+        · exact False.elim hp
+        · exact False.elim hp
+        · cases hp with
+          | addVC hx dx d => exact .shlVC hx dx k.toNat _ (d <<< k.toNat)
+          | shlVC hx dx sh _ d =>
+            dsimp only; split
+            · exact .shlVC hx dx (sh + k.toNat) _ (d <<< k.toNat)
+            · trivial
+          | addVV hx dx hy dy d => exact .shlAddVV hx dx hy dy k.toNat _ (d <<< k.toNat)
+          | subVV hx dx hy dy d => exact .shlSubVV hx dx hy dy k.toNat _ (d <<< k.toNat)
+          | shlAddVV hx dx hy dy sh _ d =>
+            dsimp only; split
+            · exact .shlAddVV hx dx hy dy (sh + k.toNat) _ (d <<< k.toNat)
+            · trivial
+          | shlSubVV hx dx hy dy sh _ d =>
+            dsimp only; split
+            · exact .shlSubVV hx dx hy dy (sh + k.toNat) _ (d <<< k.toNat)
+            · trivial
+      · trivial
+
+private theorem recordZextProv_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) (m n : Nat) {a₁ : Arg (ARVal V₁) (.bits m)}
+    {a₂ : Arg (ARVal V₂) (.bits m)} (ha : ArgRel G (.bits m) a₁ a₂) :
+    BitsProvRel G' (recordZextProv m n a₁) (recordZextProv m n a₂) := by
+  dsimp only [recordZextProv]
+  split
+  · rename_i hmn
+    have hp := (ha.arProv_rel hG).2
+    cases h1 : a₁.arProv.zext? <;> cases h2 : a₂.arProv.zext? <;> rw [h1, h2] at hp
+    · refine ⟨trivial, ?_⟩
+      rw [ha.arKey_eq hG]; exact .mk hmn.1 hmn.2 (ha.arOut hG) _
+    · exact False.elim hp
+    · exact False.elim hp
+    · cases hp with
+      | mk hm0 hmn0 hs k => exact ⟨trivial, .mk hm0 (Nat.lt_trans hmn0 hmn.2) hs k⟩
+  · exact ⟨trivial, trivial⟩
+
+private theorem mkCmpImmFromArg_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) {n : Nat} (o : CmpOp) {a₁ : Arg (ARVal V₁) (.bits n)}
+    {a₂ : Arg (ARVal V₂) (.bits n)} (ha : ArgRel G (.bits n) a₁ a₂) (c : BitVec n) :
+    CmpImmRel G' (mkCmpImmFromArg o a₁ c) (mkCmpImmFromArg o a₂ c) := by
+  dsimp only [mkCmpImmFromArg]
+  have hp := (ha.arProv_rel hG).2
+  cases h1 : a₁.arProv.zext? <;> cases h2 : a₂.arProv.zext? <;> rw [h1, h2] at hp
+  · rw [ha.arKey_eq hG]; exact .mk o (ha.arOut hG) _ c
+  · exact False.elim hp
+  · exact False.elim hp
+  · cases hp with
+    | mk hm0 hmn hs k =>
+      dsimp only; split
+      · exact .mk _ hs k _
+      · rw [ha.arKey_eq hG]; exact .mk o (ha.arOut hG) _ c
+
+private theorem recordCmpImmProv_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) {w : Nat} (o : CmpOp) {a₁ b₁ : Arg (ARVal V₁) (.bits w)}
+    {a₂ b₂ : Arg (ARVal V₂) (.bits w)} (ha : ArgRel G (.bits w) a₁ a₂)
+    (hb : ArgRel G (.bits w) b₁ b₂) :
+    ARProvRel G' (t := .bool) (recordCmpImmProv o a₁ b₁) (recordCmpImmProv o a₂ b₂) := by
+  dsimp only [recordCmpImmProv]
+  rw [argRel_imm?_eq (ha.arOut hG), argRel_imm?_eq (hb.arOut hG)]
+  cases a₂.arOut.imm? <;> cases b₂.arOut.imm?
+  · trivial
+  · exact mkCmpImmFromArg_rel hG o ha _
+  · exact mkCmpImmFromArg_rel hG o.swap hb _
+  · exact mkCmpImmFromArg_rel hG o ha _
+
+private theorem wrapKept_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) (outD b : Nat) {sig ts : List Ty} {code : OpCode sig ts}
+    {args₁ : Tup (Arg (ARVal V₁)) sig} {args₂ : Tup (Arg (ARVal V₂)) sig}
+    (hargs : TRel (ArgRel G) args₁ args₂) (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) :
+    TRel (fun _ => ARValRel (Tup.zip xs₁ xs₂ ++ G'))
+      (wrapKept outD b code args₁ xs₁) (wrapKept outD b code args₂ xs₂) := by
+  have hsub : ∀ p ∈ G', p ∈ Tup.zip xs₁ xs₂ ++ G' := fun _ hq => List.mem_append_right _ hq
+  cases code with
+  | add t =>
+    cases t with
+    | bits n =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      exact .cons ⟨.var List.mem_cons_self, rfl, rfl,
+        ⟨(recordAddProv_rel hG ha hb).weaken (fun _ _ h => h.weaken hsub), trivial⟩⟩ .nil
+    | bool | float _ | pair _ _ => exact TRel.freshARVals_rel outD xs₁ xs₂ b
+  | sub t =>
+    cases t with
+    | bits n =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      exact .cons ⟨.var List.mem_cons_self, rfl, rfl,
+        ⟨(recordSubProv_rel hG ha hb).weaken (fun _ _ h => h.weaken hsub), trivial⟩⟩ .nil
+    | bool | float _ | pair _ _ => exact TRel.freshARVals_rel outD xs₁ xs₂ b
+  | shl t =>
+    cases t with
+    | bits n =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      exact .cons ⟨.var List.mem_cons_self, rfl, rfl,
+        ⟨(recordShlProv_rel hG ha hb).weaken (fun _ _ h => h.weaken hsub), trivial⟩⟩ .nil
+    | bool | float _ | pair _ _ => exact TRel.freshARVals_rel outD xs₁ xs₂ b
+  | zext m n =>
+    rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+    rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+    rcases hargs with _ | ⟨ha, _⟩
+    exact .cons ⟨.var List.mem_cons_self, rfl, rfl,
+      (recordZextProv_rel hG m n ha).weaken hsub⟩ .nil
+  | copy t =>
+    cases t with
+    | bits n =>
+      rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+      rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _⟩
+      exact .cons ⟨.var List.mem_cons_self, rfl, rfl,
+        (ha.arProv_rel hG).weaken hsub⟩ .nil
+    | bool =>
+      rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+      rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _⟩
+      exact .cons ⟨.var List.mem_cons_self, rfl, rfl,
+        (ha.arProv_rel hG).weaken hsub⟩ .nil
+    | float _ | pair _ _ => exact TRel.freshARVals_rel outD xs₁ xs₂ b
+  | cmp o t m hm =>
+    cases t with
+    | bits w =>
+      subst hm
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      exact .cons ⟨.var List.mem_cons_self, rfl, rfl,
+        (recordCmpImmProv_rel hG o ha hb).weaken hsub⟩ .nil
+    | bool | float _ | pair _ _ => exact TRel.freshARVals_rel outD xs₁ xs₂ b
+  | not t =>
+    cases t with
+    | bool =>
+      rcases args₁ with ⟨a₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
+      rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _⟩
+      have hp := ha.arProv_rel hG
+      have hneg : ARProvRel G' (t := .bool)
+          (a₁.arProv.map fun cm => ⟨cm.w, cm.op.neg, cm.lhs, cm.lhsKey, cm.imm⟩)
+          (a₂.arProv.map fun cm => ⟨cm.w, cm.op.neg, cm.lhs, cm.lhsKey, cm.imm⟩) := by
+        cases h1 : a₁.arProv <;> cases h2 : a₂.arProv <;> rw [h1, h2] at hp
+        · trivial
+        · exact False.elim hp
+        · exact False.elim hp
+        · cases hp with
+          | mk o hlhs k imm => exact .mk o.neg hlhs k imm
+      exact .cons ⟨.var List.mem_cons_self, rfl, rfl, hneg.weaken hsub⟩ .nil
+    | bits _ | float _ | pair _ _ => exact TRel.freshARVals_rel outD xs₁ xs₂ b
+  | _ =>
+    all_goals exact TRel.freshARVals_rel outD xs₁ xs₂ b
+
+inductive ARStepRel (G' : Ctx V₁ V₂) : {ts : List Ty} → ARStep V₁ ts → ARStep V₂ ts → Prop
+  | elim {ts : List Ty} {r₁ : Tup (ARVal V₁) ts} {r₂ : Tup (ARVal V₂) ts}
+      (hr : TRel (fun _ => ARValRel G') r₁ r₂) : ARStepRel G' (.elim r₁) (.elim r₂)
+  | emit1 {ts : List Ty} {op₁ : Op V₁ ts} {op₂ : Op V₂ ts}
+      {w₁ : Tup V₁ ts → Tup (ARVal V₁) ts} {w₂ : Tup V₂ ts → Tup (ARVal V₂) ts}
+      (hop : OpRel G' op₁ op₂)
+      (hw : ∀ xs₁ xs₂, TRel (fun _ => ARValRel (Tup.zip xs₁ xs₂ ++ G')) (w₁ xs₁) (w₂ xs₂)) :
+      ARStepRel G' (.emit1 op₁ w₁) (.emit1 op₂ w₂)
+  | rangeSubCmp {w : Nat} (o : CmpOp) {x₁ : Arg V₁ (.bits w)} {x₂ : Arg V₂ (.bits w)}
+      (hx : ArgRel G' (.bits w) x₁ x₂) (lo width : BitVec w) (outD : Nat) :
+      ARStepRel G' (.rangeSubCmp w o x₁ lo width outD) (.rangeSubCmp w o x₂ lo width outD)
+  | addrShl {n : Nat} (isSub : Bool)
+      {base₁ : Arg V₁ (.bits n)} {base₂ : Arg V₂ (.bits n)}
+      {inv₁ : Arg V₁ (.bits n)} {inv₂ : Arg V₂ (.bits n)}
+      {iv₁ : Arg V₁ (.bits n)} {iv₂ : Arg V₂ (.bits n)}
+      (hb : ArgRel G' (.bits n) base₁ base₂)
+      (hinv : ArgRel G' (.bits n) inv₁ inv₂)
+      (hiv : ArgRel G' (.bits n) iv₁ iv₂)
+      (ivD sh : Nat) (hsh : sh < n) (disp : BitVec n) :
+      ARStepRel G' (.addrShl n isSub base₁ inv₁ iv₁ ivD sh hsh disp)
+        (.addrShl n isSub base₂ inv₂ iv₂ ivD sh hsh disp)
+  | addrPlain {n : Nat} (isSub : Bool)
+      {base₁ : Arg V₁ (.bits n)} {base₂ : Arg V₂ (.bits n)}
+      {inv₁ : Arg V₁ (.bits n)} {inv₂ : Arg V₂ (.bits n)}
+      {iv₁ : Arg V₁ (.bits n)} {iv₂ : Arg V₂ (.bits n)}
+      (hb : ArgRel G' (.bits n) base₁ base₂)
+      (hinv : ArgRel G' (.bits n) inv₁ inv₂)
+      (hiv : ArgRel G' (.bits n) iv₁ iv₂)
+      (invD ivD : Nat) (disp : BitVec n) :
+      ARStepRel G' (.addrPlain n isSub base₁ inv₁ iv₁ invD ivD disp)
+        (.addrPlain n isSub base₂ inv₂ iv₂ invD ivD disp)
+
+private def OptARStepRel (G' : Ctx V₁ V₂) {ts : List Ty} :
+    Option (ARStep V₁ ts) → Option (ARStep V₂ ts) → Prop
+  | none, none => True
+  | some s₁, some s₂ => ARStepRel G' s₁ s₂
+  | _, _ => False
+
+private theorem tryAddrReassocOne_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) {n : Nat} {base₁ off₁ : Arg (ARVal V₁) (.bits n)}
+    {base₂ off₂ : Arg (ARVal V₂) (.bits n)}
+    (hb : ArgRel G (.bits n) base₁ base₂) (ho : ArgRel G (.bits n) off₁ off₂) :
+    OptARStepRel G' (tryAddrReassocOne base₁ off₁) (tryAddrReassocOne base₂ off₂) := by
+  dsimp only [tryAddrReassocOne]
+  rw [argRel_imm?_eq (hb.arOut hG), hb.arDepth_eq hG]
+  split
+  · trivial
+  · have hp := (ho.arProv_rel hG).1
+    cases h1 : off₁.arProv.addr? <;> cases h2 : off₂.arProv.addr? <;> rw [h1, h2] at hp
+    · trivial
+    · exact False.elim hp
+    · exact False.elim hp
+    · cases hp with
+      | addVC _ _ _ | shlVC _ _ _ _ _ => trivial
+      | shlAddVV hx dx hy dy sh hsh disp =>
+        dsimp only
+        split
+        · exact .addrShl false (hb.arOut hG) hx hy dy sh hsh disp
+        · split
+          · exact .addrShl false (hb.arOut hG) hy hx dx sh hsh disp
+          · trivial
+      | shlSubVV hx dx hy dy sh hsh disp =>
+        dsimp only
+        split
+        · exact .addrShl true (hb.arOut hG) hy hx dx sh hsh disp
+        · trivial
+      | addVV hx dx hy dy disp =>
+        dsimp only
+        split
+        · exact .addrPlain false (hb.arOut hG) hx hy _ dy disp
+        · split
+          · exact .addrPlain false (hb.arOut hG) hy hx _ dx disp
+          · trivial
+      | subVV hx dx hy dy disp =>
+        dsimp only
+        split
+        · exact .addrPlain true (hb.arOut hG) hy hx _ dx disp
+        · trivial
+
+private theorem tryRangeStep_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) (isOr : Bool) (outD b : Nat)
+    {a₁ b₁ : Arg (ARVal V₁) .bool} {a₂ b₂ : Arg (ARVal V₂) .bool}
+    (ha : ArgRel G .bool a₁ a₂) (hb : ArgRel G .bool b₁ b₂) :
+    OptARStepRel G' (tryRangeStep isOr outD b a₁ b₁) (tryRangeStep isOr outD b a₂ b₂) := by
+  dsimp only [tryRangeStep]
+  have hp1 := ha.arProv_rel hG
+  have hp2 := hb.arProv_rel hG
+  cases h1 : a₁.arProv <;> cases h2 : a₂.arProv <;> rw [h1, h2] at hp1
+  · trivial
+  · exact False.elim hp1
+  · exact False.elim hp1
+  · cases h3 : b₁.arProv <;> cases h4 : b₂.arProv <;> rw [h3, h4] at hp2
+    · trivial
+    · exact False.elim hp2
+    · exact False.elim hp2
+    · cases hp1 with
+      | mk o1 hlhs1 key1 imm1 =>
+        cases hp2 with
+        | mk o2 hlhs2 key2 imm2 =>
+          dsimp only
+          split
+          · rename_i hw; subst hw
+            dsimp only
+            split
+            · cases toRangeBound o1 imm1 with
+              | none => trivial
+              | some rb1 =>
+                cases toRangeBound o2 imm2 with
+                | none => trivial
+                | some rb2 =>
+                  dsimp only
+                  cases hm : (if isOr then matchOrBounds rb1 rb2 else matchAndBounds rb1 rb2) with
+                  | none => trivial
+                  | some triple =>
+                    rcases triple with ⟨signed, lo, hi⟩
+                    dsimp only
+                    cases hlt : (if signed then lo.slt hi else lo.ult hi) with
+                    | false =>
+                      simp only [Bool.not_false, ↓reduceIte]
+                      exact .elim (.cons (ARValRel.ofImm (t := .bool) isOr) .nil)
+                    | true =>
+                      simp only [Bool.not_true, Bool.false_eq_true, ↓reduceIte]
+                      cases hlo0 : (lo == 0#_) with
+                      | true =>
+                        simp only [↓reduceIte]
+                        exact .emit1 (.mk _ (.cons hlhs1 (.cons (.imm (t := .bits _) hi) .nil)))
+                          (fun (r₁, ()) (r₂, ()) =>
+                            .cons (ARValRel.fresh b outD List.mem_cons_self) .nil)
+                      | false =>
+                        simp only [Bool.false_eq_true, ↓reduceIte]
+                        exact .rangeSubCmp _ hlhs1 lo (hi - lo) outD
+            · trivial
+          · trivial
+
+private theorem OpRel.arStep_rel {G' : Ctx V₁ V₂} {G : Ctx (ARVal V₁) (ARVal V₂)}
+    (hG : ARRelG G' G) (curD b : Nat) {sig ts : List Ty} {code : OpCode sig ts}
+    {args₁ : Tup (Arg (ARVal V₁)) sig} {args₂ : Tup (Arg (ARVal V₂)) sig}
+    (hargs : TRel (ArgRel G) args₁ args₂) :
+    ARStepRel G'
+      (({ code := code, args := args₁ } : Op (ARVal V₁) ts).arStep curD b)
+      (({ code := code, args := args₂ } : Op (ARVal V₂) ts).arStep curD b) := by
+  dsimp only [Op.arStep]
+  rw [TRel.tupMaxDepth_eq hG hargs]
+  have hkeep : ∀ outD, ARStepRel G'
+      (.emit1 ⟨code, tupArOut args₁⟩ (wrapKept outD b code args₁))
+      (.emit1 ⟨code, tupArOut args₂⟩ (wrapKept outD b code args₂)) := fun outD =>
+    .emit1 (.mk code (TRel.arOut hG hargs)) (wrapKept_rel hG outD b hargs)
+  cases code with
+  | add t =>
+    cases t with
+    | bits n =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      dsimp only
+      split
+      · have hr1 := tryAddrReassocOne_rel hG ha hb
+        cases h1 : tryAddrReassocOne a₁ b₁ <;> cases h2 : tryAddrReassocOne a₂ b₂ <;>
+          rw [h1, h2] at hr1
+        · have hr2 := tryAddrReassocOne_rel hG hb ha
+          cases h3 : tryAddrReassocOne b₁ a₁ <;> cases h4 : tryAddrReassocOne b₂ a₂ <;>
+            rw [h3, h4] at hr2
+          · exact hkeep _
+          · exact False.elim hr2
+          · exact False.elim hr2
+          · exact hr2
+        · exact False.elim hr1
+        · exact False.elim hr1
+        · exact hr1
+      · exact hkeep _
+    | bool | float _ | pair _ _ => exact hkeep _
+  | and t =>
+    cases t with
+    | bool =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      dsimp only
+      rw [argRel_imm?_eq (ha.arOut hG), argRel_imm?_eq (hb.arOut hG)]
+      split
+      · exact .elim (.cons (ARValRel.ofImm (t := .bool) false) .nil)
+      · split
+        · exact .elim (.cons (hb.toARVal_rel hG) .nil)
+        · split
+          · exact .elim (.cons (ha.toARVal_rel hG) .nil)
+          · let outD := if (OpCode.and .bool).isLicmPure then
+              tupMaxDepth (ts := [.bool, .bool]) (a₂, b₂, ()) else curD
+            have hr := tryRangeStep_rel hG false outD b ha hb
+            cases h1 : tryRangeStep false outD b a₁ b₁ <;>
+              cases h2 : tryRangeStep false outD b a₂ b₂ <;> rw [h1, h2] at hr
+            · exact .emit1 (.mk _ (.cons (ha.arOut hG) (.cons (hb.arOut hG) .nil)))
+                (fun xs₁ xs₂ => TRel.freshARVals_rel outD xs₁ xs₂ b)
+            · exact False.elim hr
+            · exact False.elim hr
+            · exact hr
+    | bits _ | float _ | pair _ _ => exact hkeep _
+  | or t =>
+    cases t with
+    | bool =>
+      rcases args₁ with ⟨a₁, b₁, ⟨⟩⟩; rcases args₂ with ⟨a₂, b₂, ⟨⟩⟩
+      rcases hargs with _ | ⟨ha, _ | ⟨hb, _⟩⟩
+      dsimp only
+      rw [argRel_imm?_eq (ha.arOut hG), argRel_imm?_eq (hb.arOut hG)]
+      split
+      · exact .elim (.cons (ARValRel.ofImm (t := .bool) true) .nil)
+      · split
+        · exact .elim (.cons (hb.toARVal_rel hG) .nil)
+        · split
+          · exact .elim (.cons (ha.toARVal_rel hG) .nil)
+          · let outD := if (OpCode.or .bool).isLicmPure then
+              tupMaxDepth (ts := [.bool, .bool]) (a₂, b₂, ()) else curD
+            have hr := tryRangeStep_rel hG true outD b ha hb
+            cases h1 : tryRangeStep true outD b a₁ b₁ <;>
+              cases h2 : tryRangeStep true outD b a₂ b₂ <;> rw [h1, h2] at hr
+            · exact .emit1 (.mk _ (.cons (ha.arOut hG) (.cons (hb.arOut hG) .nil)))
+                (fun xs₁ xs₂ => TRel.freshARVals_rel outD xs₁ xs₂ b)
+            · exact False.elim hr
+            · exact False.elim hr
+            · exact hr
+    | bits _ | float _ | pair _ _ => exact hkeep _
+  | _ =>
+    all_goals exact hkeep _
+
+end
+
+/-- Relational well-formedness preservation for `addrRangeSweep` under any untrusted `LoopTree`. -/
+theorem addrRangeSweep_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
+    {G : Ctx (ARVal V₁) (ARVal V₂)} {D : Ctx L₁ L₂}
+    {e₁ : Expr (ARVal V₁) L₁ rs} {e₂ : Expr (ARVal V₂) L₂ rs}
+    (hwf : Wf G D e₁ e₂) :
+    ∀ {G' : Ctx V₁ V₂}, ARRelG G' G → ∀ curD b plan,
+      Wf G' D (addrRangeSweep curD b plan e₁) (addrRangeSweep curD b plan e₂) := by
+  induction hwf using Wf.induct with
+  | @let_ G D ts op₁ op₂ k₁ k₂ hop _ ih =>
+    intro G' hG curD b plan
+    cases hop with
+    | @mk sig _ code args₁ args₂ hargs =>
+      rw [addrRangeSweep_let, addrRangeSweep_let]
+      have hst := OpRel.arStep_rel hG curD b hargs (code := code)
+      generalize hs1 :
+        ({ code := code, args := args₁ } : Op (ARVal V₁) ts).arStep curD b = st₁ at hst
+      generalize hs2 :
+        ({ code := code, args := args₂ } : Op (ARVal V₂) ts).arStep curD b = st₂ at hst
+      cases hst with
+      | elim hr => exact ih _ _ (hG.append_tup hr) curD b _
+      | emit1 hop' hw =>
+        refine .let_ hop' fun xs₁ xs₂ => ?_
+        have hG' : ARRelG (Tup.zip xs₁ xs₂ ++ G') G :=
+          hG.weaken fun _ hq => List.mem_append_right _ hq
+        exact ih _ _ (hG'.append_tup (hw xs₁ xs₂)) curD (b + ts.length) _
+      | rangeSubCmp o hx lo width outD =>
+        refine .let_ (.mk _ (.cons hx (.cons (.imm (t := .bits _) lo) .nil)))
+          fun (t₁, ()) (t₂, ()) => ?_
+        refine .let_ (.mk _ (.cons (.var List.mem_cons_self)
+          (.cons (.imm (t := .bits _) width) .nil)))
+          fun (r₁, ()) (r₂, ()) => ?_
+        have hsub : ∀ p ∈ G', p ∈ (⟨.bool, r₁, r₂⟩ :: ⟨.bits _, t₁, t₂⟩ :: G') :=
+          fun _ hq => List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hq)
+        exact ih (ARVal.fresh r₁ b outD, ()) (ARVal.fresh r₂ b outD, ())
+          (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+              exact (hG.weaken hsub).cons (ARValRel.fresh b outD List.mem_cons_self))
+          curD (b + 1) _
+      | addrShl isSub hb hinv hiv ivD sh hsh disp =>
+        refine .let_ (.mk _ (.cons hinv (.cons (.imm (t := .bits _) _) .nil)))
+          fun (t1₁, ()) (t1₂, ()) => ?_
+        have hsub1 : ∀ p ∈ G', p ∈ (⟨.bits _, t1₁, t1₂⟩ :: G') :=
+          fun _ hq => List.mem_cons_of_mem _ hq
+        refine .let_ (.mk _ (.cons (hb.weaken hsub1) (.cons (.var List.mem_cons_self) .nil)))
+          fun (t2₁, ()) (t2₂, ()) => ?_
+        have hsub2 : ∀ p ∈ G', p ∈ (⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+          fun _ hq => List.mem_cons_of_mem _ (hsub1 _ hq)
+        refine .let_ (.mk _ (.cons (hiv.weaken hsub2) (.cons (.imm (t := .bits _) _) .nil)))
+          fun (t3₁, ()) (t3₂, ()) => ?_
+        refine .let_ (.mk _ (.cons (.var (List.mem_cons_of_mem _ List.mem_cons_self))
+          (.cons (.var List.mem_cons_self) .nil))) fun (t4₁, ()) (t4₂, ()) => ?_
+        have hsub4 : ∀ p ∈ G',
+            p ∈ (⟨.bits _, t4₁, t4₂⟩ :: ⟨.bits _, t3₁, t3₂⟩ ::
+                 ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+          fun _ hq => List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (hsub2 _ hq))
+        cases hdisp : (disp == 0#_) with
+        | true =>
+          simp only [↓reduceIte]
+          exact ih (ARVal.fresh t4₁ b ivD, ()) (ARVal.fresh t4₂ b ivD, ())
+            (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                exact (hG.weaken hsub4).cons (ARValRel.fresh b ivD List.mem_cons_self))
+            curD (b + 1) _
+        | false =>
+          simp only [Bool.false_eq_true, ↓reduceIte]
+          refine .let_ (.mk _ (.cons (.var List.mem_cons_self)
+            (.cons (.imm (t := .bits _) disp) .nil)))
+            fun (t5₁, ()) (t5₂, ()) => ?_
+          have hsub5 : ∀ p ∈ G',
+              p ∈ (⟨.bits _, t5₁, t5₂⟩ :: ⟨.bits _, t4₁, t4₂⟩ :: ⟨.bits _, t3₁, t3₂⟩ ::
+                   ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+            fun _ hq => List.mem_cons_of_mem _ (hsub4 _ hq)
+          exact ih (ARVal.fresh t5₁ b ivD, ()) (ARVal.fresh t5₂ b ivD, ())
+            (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                exact (hG.weaken hsub5).cons (ARValRel.fresh b ivD List.mem_cons_self))
+            curD (b + 1) _
+      | addrPlain isSub hb hinv hiv invD ivD disp =>
+        refine .let_ (.mk _ (.cons hb (.cons hinv .nil))) fun (t1₁, ()) (t1₂, ()) => ?_
+        have hsub1 : ∀ p ∈ G', p ∈ (⟨.bits _, t1₁, t1₂⟩ :: G') :=
+          fun _ hq => List.mem_cons_of_mem _ hq
+        refine .let_ (.mk _ (.cons (.var List.mem_cons_self) (.cons (hiv.weaken hsub1) .nil)))
+          fun (t2₁, ()) (t2₂, ()) => ?_
+        have hsub2 : ∀ p ∈ G', p ∈ (⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+          fun _ hq => List.mem_cons_of_mem _ (hsub1 _ hq)
+        cases hdisp : (disp == 0#_) with
+        | true =>
+          simp only [↓reduceIte]
+          exact ih
+            (⟨.var t2₁, .var b, ivD, { addr? := some (.addVV (.var t1₁) invD _ ivD 0#_) }⟩, ())
+            (⟨.var t2₂, .var b, ivD, { addr? := some (.addVV (.var t1₂) invD _ ivD 0#_) }⟩, ())
+            (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                exact (hG.weaken hsub2).cons
+                  ⟨.var List.mem_cons_self, rfl, rfl,
+                    ⟨AddrDefRel.addVV (.var (List.mem_cons_of_mem _ List.mem_cons_self)) invD
+                      (hiv.weaken hsub2) ivD 0#_, trivial⟩⟩)
+            curD (b + 1) _
+        | false =>
+          simp only [Bool.false_eq_true, ↓reduceIte]
+          refine .let_ (.mk _ (.cons (.var List.mem_cons_self)
+            (.cons (.imm (t := .bits _) disp) .nil)))
+            fun (t3₁, ()) (t3₂, ()) => ?_
+          have hsub3 : ∀ p ∈ G',
+              p ∈ (⟨.bits _, t3₁, t3₂⟩ :: ⟨.bits _, t2₁, t2₂⟩ :: ⟨.bits _, t1₁, t1₂⟩ :: G') :=
+            fun _ hq => List.mem_cons_of_mem _ (hsub2 _ hq)
+          exact ih
+            (⟨.var t3₁, .var b, ivD, { addr? := some (.addVV (.var t1₁) invD _ ivD disp) }⟩, ())
+            (⟨.var t3₂, .var b, ivD, { addr? := some (.addVV (.var t1₂) invD _ ivD disp) }⟩, ())
+            (by dsimp only [Tup.zip, List.cons_append, List.nil_append]
+                exact (hG.weaken hsub3).cons
+                  ⟨.var List.mem_cons_self, rfl, rfl,
+                    ⟨AddrDefRel.addVV (.var (List.mem_cons_of_mem _
+                      (List.mem_cons_of_mem _ List.mem_cons_self)))
+                      invD (hiv.weaken hsub3) ivD disp, trivial⟩⟩)
+            curD (b + 1) _
+  | load t ha _ ih =>
+    intro _ hG curD b _
+    exact .load t (ha.arOut hG) fun v₁ v₂ => ih _ _ (hG.freshOne curD v₁ v₂ b) curD (b + 1) _
+  | store hv ha _ ih =>
+    intro _ hG curD b _
+    exact .store (hv.arOut hG) (ha.arOut hG) (ih hG curD b _)
+  | call f hargs _ ih =>
+    intro _ hG curD b _
+    exact .call f (TRel.arOut hG hargs) fun xs₁ xs₂ =>
+      ih _ _ (hG.freshARVals curD xs₁ xs₂ b) curD (b + _) _
+  | @jnz G D c₁ c₂ t₁ t₂ e₁ e₂ hc _ _ iht ihe =>
+    intro _ hG curD b plan
+    dsimp only [addrRangeSweep]
+    cases hc with
+    | @var v₁ v₂ h =>
+      rcases v₁ with ⟨a₁, κ₁, d₁, p₁⟩; rcases v₂ with ⟨a₂, κ₂, d₂, p₂⟩
+      obtain ⟨h', _, _, _⟩ := hG _ h; dsimp only at h' ⊢
+      cases h' with
+      | var hm => exact .jnz (.var hm) (iht hG curD b _) (ihe hG curD b _)
+      | imm bv => cases bv <;> first | exact iht hG curD b _ | exact ihe hG curD b _
+    | imm bv => cases bv <;> first | exact iht hG curD b _ | exact ihe hG curD b _
+  | jump hj hargs =>
+    intro _ hG _ _ _; exact .jump hj (TRel.arOut hG hargs)
+  | ret hvs =>
+    intro _ hG _ _ _; exact .ret (TRel.arOut hG hvs)
+  | exit f hargs =>
+    intro _ hG _ _ _; exact .exit f (TRel.arOut hG hargs)
+  | hlt =>
+    intro _ _ _ _ _; exact .hlt
+  | @group G D sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
+    intro _ hG curD b plan
+    dsimp only [addrRangeSweep]
+    refine .group (fun Js₁ Js₂ => WfB.of_get fun i xs₁ xs₂ => ?_)
+      (fun Js₁ Js₂ => ihk Js₁ Js₂ hG curD b _)
+    simpa [addrRangeSweepB_get_eq] using
+      ihb Js₁ Js₂ i _ _ (hG.freshARVals _ xs₁ xs₂ b)
+        (if (plan.stepGroup.1.get i).1 then curD + 1 else curD) (b + _) (plan.stepGroup.1.get i).2
+
+/-! ## Closed-function theorems (`Func.addrRangeOpt_wf`, `Func.addrRangeOpt_spec`) -/
+
+/-- `Func.addrRangeOpt` preserves relational well-formedness. -/
+theorem Func.addrRangeOpt_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
+    (Func.addrRangeOpt f).Wf := by
+  dsimp only [Func.addrRangeOpt]
+  split
+  · intro V₁ V₂ L₁ L₂ xs₁ xs₂
+    have hwf := hf (ARVal V₁) (ARVal V₂) L₁ L₂ (freshARVals 0 as xs₁ 0) (freshARVals 0 as xs₂ 0)
+    have hrel : ARRelG (Tup.zip xs₁ xs₂)
+        (Tup.zip (freshARVals 0 as xs₁ 0) (freshARVals 0 as xs₂ 0)) := by
+      simpa using ARRelG.freshARVals (G := []) (G' := []) (fun _ hp => nomatch hp) 0 xs₁ xs₂ 0
+    exact addrRangeSweep_wf hwf hrel 0 as.length _
+  · exact hf
+
+/-- `Func.addrRangeOpt` refines function contracts. -/
+theorem Func.addrRangeOpt_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
+    {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
+    (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.addrRangeOpt f) xs m Q X := by
+  dsimp only [Func.addrRangeOpt]
+  split
+  · have hwf := hf (ARVal Val) Val Cont Cont (freshARVals 0 as xs 0) xs
+    have hgood : ARGood (fupdTup (fun _ _ => default) 0 xs) as.length
+        (Tup.zip (freshARVals 0 as xs 0) xs) := by
+      simpa using ARGood.freshARVals (ρ := fun _ _ => default) (b := 0) (G := [])
+        (fun _ hp => nomatch hp) 0 xs
+    exact addrRangeSweep_wp hwf (fun _ hp => nomatch hp) 0 as.length _ _ hgood m h
+  · exact h
+
+end LeanQbe.T
