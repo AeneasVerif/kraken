@@ -24,6 +24,10 @@ public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof3
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersSpec
 public import LeanQbe.T.LeanLCNF.LcnfC0Rt
 public import LeanQbe.T.LeanLCNF.LcnfC0RtProof
+public import LeanQbe.T.LeanLCNF.LcnfC0RtProofCommon
+public import LeanQbe.T.LeanLCNF.LcnfC0RtProofM0a
+public import LeanQbe.T.LeanLCNF.LcnfC0RtProofM0b
+public import LeanQbe.T.LeanLCNF.LcnfC0RtProofNv
 public import LeanQbe.T.LeanLCNF.LcnfC0RtSpec
 public import LeanQbe.T.LeanLCNF.Lower
 public import LeanQbe.T.LeanLCNF.Lower1
