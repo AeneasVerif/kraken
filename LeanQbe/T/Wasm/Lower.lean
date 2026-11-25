@@ -583,239 +583,175 @@ termination_by instrs _ => sizeOf instrs
 
 section WfProofs
 
+local macro "wf_mem_if" b:term : tactic => `(tactic| (
+  by_cases hm : $b; rotate_left
+  · simp [hm] <;> assumption
+  simp only [hm, ↓reduceIte]))
+
+local macro "wf_pop" h:Lean.Parser.Tactic.elimTarget ","
+    x:Lean.binderIdent r:Lean.binderIdent : tactic => `(tactic| (
+  cases $h; · rename_i _hn; simp [_hn.1, _hn.2] <;> assumption
+  rename_i _p; cases _p; rename_i _ _p; cases _p; rename_i _ _p
+  cases _p; rename_i _ _p; cases _p; rename_i _ _p; cases _p; rename_i _hp1 _p
+  cases _p; rename_i _hp2 _p; cases _p; rename_i $x $r; simp only [_hp1, _hp2]; (try dsimp only)))
+
+local macro "wf_hk0" hk:ident hf:ident hlocs:ident s:term : tactic =>
+  `(tactic| exact $hk (fun _ h => h) (fun _ h => h) $hf $hlocs $s)
+
+local macro "wf_hk1" hk:ident h1:term "," hf:ident hlocs:ident s:term : tactic =>
+  `(tactic| exact $hk $h1 (fun _ h => h) (ArgRel.mono $h1 $hf) (TRel_ArgRel_mono $h1 $hlocs) $s)
+
+local macro "wasm_ret" hk:ident : tactic => `(tactic| (
+  (try dsimp only [WValTy.toTy, WMemWidth.memTy, SValRel]); apply $hk
+  · wasm_sub
+  · wasm_arg))
+
 theorem emitPopcntCore_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (n : Nat) (m1 m2 m4 mul sh : BitVec n)
     {x₁ : Arg V₁ (.bits n)} {x₂ : Arg V₂ (.bits n)} (hx : ArgRel G (.bits n) x₁ x₂)
     {k₁ : Arg V₁ (.bits n) → Expr V₁ L₁ rs} {k₂ : Arg V₂ (.bits n) → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits n) y₁ y₂ →
-      Wf G' D (k₁ y₁) (k₂ y₂)) :
-    Wf G D (emitPopcntCore n m1 m2 m4 mul sh x₁ k₁)
-           (emitPopcntCore n m1 m2 m4 mul sh x₂ k₂) :=
-  wf_let2 (.lshr (.bits n)) hx (.imm _) fun h1 _ _ hs1 =>
-  wf_let2 (.and (.bits n)) hs1 (.imm _) fun h2 _ _ hs1m =>
-  wf_let2 (.sub (.bits n)) (ArgRel.mono (fun p hp => h2 p (h1 p hp)) hx) hs1m fun h3 _ _ ht1 =>
-  wf_let2 (.and (.bits n)) ht1 (.imm _) fun h4 _ _ ht1a =>
-  wf_let2 (.lshr (.bits n)) (ArgRel.mono h4 ht1) (.imm _) fun h5 _ _ ht1s =>
-  wf_let2 (.and (.bits n)) ht1s (.imm _) fun h6 _ _ ht1b =>
-  wf_let2 (.add (.bits n)) (ArgRel.mono (fun p hp => h6 p (h5 p hp)) ht1a) ht1b fun h7 _ _ ht2 =>
-  wf_let2 (.lshr (.bits n)) ht2 (.imm _) fun h8 _ _ ht2s =>
-  wf_let2 (.add (.bits n)) (ArgRel.mono h8 ht2) ht2s fun h9 _ _ ht2a =>
-  wf_let2 (.and (.bits n)) ht2a (.imm _) fun h10 _ _ ht3 =>
-  wf_let2 (.mul (.bits n)) ht3 (.imm _) fun h11 _ _ hpr =>
-  wf_let2 (.lshr (.bits n)) hpr (.imm _) fun h12 _ _ hres =>
-    hk (fun p hp => h12 p (h11 p (h10 p (h9 p (h8 p (h7 p (h6 p
-      (h5 p (h4 p (h3 p (h2 p (h1 p hp)))))))))))) _ _ hres
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂,
+      ArgRel G' (.bits n) y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
+    Wf G D (emitPopcntCore n m1 m2 m4 mul sh x₁ k₁) (emitPopcntCore n m1 m2 m4 mul sh x₂ k₂) := by
+  dsimp only [emitPopcntCore]; wasm_wf!; wasm_ret hk
 
 theorem emitPopcnt_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (w : WValTy)
-    {x₁ : Arg V₁ w.toTy} {x₂ : Arg V₂ w.toTy} (hx : ArgRel G w.toTy x₁ x₂)
+    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (w : WValTy) {x₁ : Arg V₁ w.toTy} {x₂ : Arg V₂ w.toTy}
+    (hx : ArgRel G w.toTy x₁ x₂)
     {k₁ : Arg V₁ w.toTy → Expr V₁ L₁ rs} {k₂ : Arg V₂ w.toTy → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' w.toTy y₁ y₂ →
-      Wf G' D (k₁ y₁) (k₂ y₂)) :
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' w.toTy y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
     Wf G D (emitPopcnt w x₁ k₁) (emitPopcnt w x₂ k₂) := by
   cases w <;> exact emitPopcntCore_wf _ _ _ _ _ _ hx hk
 
-theorem emitUnOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy)
-    {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64} (hf : ArgRel G T.i64 f₁ f₂)
-    (w : WValTy) (op : WUnOp) {x₁ : Arg V₁ w.toTy} {x₂ : Arg V₂ w.toTy}
-    (hx : ArgRel G w.toTy x₁ x₂)
+theorem emitUnOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
+    (retTys : List WValTy) {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64} (hf : ArgRel G T.i64 f₁ f₂)
+    (w : WValTy) (op : WUnOp) {x₁ : Arg V₁ w.toTy} {x₂ : Arg V₂ w.toTy} (hx : ArgRel G w.toTy x₁ x₂)
     {k₁ : Arg V₁ w.toTy → Expr V₁ L₁ (wasmRetSig retTys)}
     {k₂ : Arg V₂ w.toTy → Expr V₂ L₂ (wasmRetSig retTys)}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' w.toTy y₁ y₂ →
-      Wf G' D (k₁ y₁) (k₂ y₂)) :
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' w.toTy y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
     Wf G D (emitUnOp retTys f₁ w op x₁ k₁) (emitUnOp retTys f₂ w op x₂ k₂) := by
-  cases w <;> cases op <;>
-  first
-  | exact mkTrapExpr_wf retTys 1#32 hf
-  | exact wf_let1 _ hx fun h1 _ _ hr => hk h1 _ _ hr
-  | exact emitPopcnt_wf _ hx hk
-  | exact wf_let1 _ hx fun h1 _ _ hb =>
-      wf_let1 _ hb fun h2 _ _ hr => hk (fun p hp => h2 p (h1 p hp)) _ _ hr
+  cases w <;> cases op <;> simp only [emitUnOp] <;>
+    first | exact emitPopcnt_wf _ hx hk | (wasm_wf!; try wasm_ret hk)
 
-theorem emitDivRemCore_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy)
-    {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64} (hf : ArgRel G T.i64 f₁ f₂)
-    (n : Nat) (minC neg1C : BitVec n) (signed trapOvf : Bool)
-    (code : OpCode [.bits n, .bits n] [.bits n])
-    {a₁ b₁ : Arg V₁ (.bits n)} {a₂ b₂ : Arg V₂ (.bits n)}
-    (ha : ArgRel G (.bits n) a₁ a₂) (hb : ArgRel G (.bits n) b₁ b₂)
+theorem emitDivRemCore_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} (retTys : List WValTy) {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64}
+    (hf : ArgRel G T.i64 f₁ f₂) (n : Nat) (minC neg1C : BitVec n) (signed trapOvf : Bool)
+    (code : OpCode [.bits n, .bits n] [.bits n]) {a₁ b₁ : Arg V₁ (.bits n)}
+    {a₂ b₂ : Arg V₂ (.bits n)} (ha : ArgRel G (.bits n) a₁ a₂) (hb : ArgRel G (.bits n) b₁ b₂)
     {k₁ : Arg V₁ (.bits n) → Expr V₁ L₁ (wasmRetSig retTys)}
     {k₂ : Arg V₂ (.bits n) → Expr V₂ L₂ (wasmRetSig retTys)}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' (.bits n) y₁ y₂ →
-      Wf G' D (k₁ y₁) (k₂ y₂)) :
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂,
+      ArgRel G' (.bits n) y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
     Wf G D (emitDivRemCore retTys f₁ n minC neg1C signed trapOvf code a₁ b₁ k₁)
            (emitDivRemCore retTys f₂ n minC neg1C signed trapOvf code a₂ b₂ k₂) := by
-  refine wf_let2 (.cmp .eq (.bits n)) hb (.imm _) fun h1 _ _ hz =>
-    .jnz hz (mkTrapExpr_wf retTys 1#32 (ArgRel.mono h1 hf)) ?_
-  cases signed
-  · exact wf_let2 code (ArgRel.mono h1 ha) (ArgRel.mono h1 hb) fun h2 _ _ hr =>
-      hk (fun p hp => h2 p (h1 p hp)) _ _ hr
-  · refine wf_let2 (.cmp .eq (.bits n)) (ArgRel.mono h1 ha) (.imm _) fun h2 _ _ hm =>
-      wf_let2 (.cmp .eq (.bits n)) (ArgRel.mono (fun p hp => h2 p (h1 p hp)) hb) (.imm _)
-        fun h3 _ _ hn =>
-        wf_let2 (.and .bool) (ArgRel.mono h3 hm) hn fun h4 _ _ ho =>
-          .jnz ho ?_
-            (wf_let2 code
-              (ArgRel.mono (fun p hp => h4 p (h3 p (h2 p (h1 p hp)))) ha)
-              (ArgRel.mono (fun p hp => h4 p (h3 p (h2 p (h1 p hp)))) hb)
-              fun h5 _ _ hr => hk (fun p hp => h5 p (h4 p (h3 p (h2 p (h1 p hp))))) _ _ hr)
-    cases trapOvf
-    · exact hk (fun p hp => h4 p (h3 p (h2 p (h1 p hp)))) _ _ (.imm _)
-    · exact mkTrapExpr_wf retTys 1#32 (ArgRel.mono (fun p hp => h4 p (h3 p (h2 p (h1 p hp)))) hf)
+  cases signed <;> cases trapOvf <;>
+    simp only [emitDivRemCore, ↓reduceIte, Bool.false_eq_true] <;> wasm_wf! <;> try wasm_ret hk
 
-theorem emitBinOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy)
-    {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64} (hf : ArgRel G T.i64 f₁ f₂)
+theorem emitBinOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
+    (retTys : List WValTy) {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64} (hf : ArgRel G T.i64 f₁ f₂)
     (w : WValTy) (op : WBinOp) {a₁ b₁ : Arg V₁ w.toTy} {a₂ b₂ : Arg V₂ w.toTy}
     (ha : ArgRel G w.toTy a₁ a₂) (hb : ArgRel G w.toTy b₁ b₂)
     {k₁ : Arg V₁ w.toTy → Expr V₁ L₁ (wasmRetSig retTys)}
     {k₂ : Arg V₂ w.toTy → Expr V₂ L₂ (wasmRetSig retTys)}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' w.toTy y₁ y₂ →
-      Wf G' D (k₁ y₁) (k₂ y₂)) :
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' w.toTy y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
     Wf G D (emitBinOp retTys f₁ w op a₁ b₁ k₁) (emitBinOp retTys f₂ w op a₂ b₂ k₂) := by
-  cases op <;> cases w <;>
-  first
-  | exact wf_let2 _ ha hb fun h1 _ _ hr => hk h1 _ _ hr
-  | exact emitDivRemCore_wf retTys hf _ _ _ _ _ _ ha hb hk
+  cases op <;> cases w <;> simp only [emitBinOp] <;>
+    first | exact emitDivRemCore_wf retTys hf _ _ _ _ _ _ ha hb hk | (wasm_wf!; wasm_ret hk)
 
-theorem emitLoadCast_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {t₁ : Expr V₁ L₁ rs} {t₂ : Expr V₂ L₂ rs} (ht : Wf G D t₁ t₂)
-    (resTy : WValTy) (width : WMemWidth) (signed : Bool)
-    (r₁ : V₁ width.memTy) (r₂ : V₂ width.memTy) (hr : ⟨width.memTy, r₁, r₂⟩ ∈ G)
-    {k₁ : Arg V₁ resTy.toTy → Expr V₁ L₁ rs} {k₂ : Arg V₂ resTy.toTy → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' resTy.toTy y₁ y₂ →
-      Wf G' D (k₁ y₁) (k₂ y₂)) :
+theorem emitLoadCast_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} {t₁ : Expr V₁ L₁ rs} {t₂ : Expr V₂ L₂ rs} (ht : Wf G D t₁ t₂) (resTy : WValTy)
+    (width : WMemWidth) (signed : Bool) (r₁ : V₁ width.memTy) (r₂ : V₂ width.memTy)
+    (hr : ⟨width.memTy, r₁, r₂⟩ ∈ G) {k₁ : Arg V₁ resTy.toTy → Expr V₁ L₁ rs}
+    {k₂ : Arg V₂ resTy.toTy → Expr V₂ L₂ rs}
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂,
+      ArgRel G' resTy.toTy y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
     Wf G D (emitLoadCast t₁ resTy width signed r₁ k₁)
            (emitLoadCast t₂ resTy width signed r₂ k₂) := by
-  cases resTy <;> cases width <;> cases signed <;>
-  first
-  | exact ht
-  | exact hk (fun _ hp => hp) _ _ (.var hr)
-  | exact wf_let1 _ (.var hr) fun h1 _ _ hy => hk h1 _ _ hy
+  cases resTy <;> cases width <;> cases signed <;> simp only [emitLoadCast] <;>
+    first | exact ht | (wasm_wf!; wasm_ret hk)
 
-theorem emitStoreCast_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {t₁ : Expr V₁ L₁ rs} {t₂ : Expr V₂ L₂ rs} (ht : Wf G D t₁ t₂)
-    (srcTy : WValTy) (width : WMemWidth)
-    {v₁ : Arg V₁ srcTy.toTy} {v₂ : Arg V₂ srcTy.toTy} (hv : ArgRel G srcTy.toTy v₁ v₂)
-    {k₁ : Arg V₁ width.memTy → Expr V₁ L₁ rs} {k₂ : Arg V₂ width.memTy → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' width.memTy y₁ y₂ →
-      Wf G' D (k₁ y₁) (k₂ y₂)) :
-    Wf G D (emitStoreCast t₁ srcTy width v₁ k₁)
-           (emitStoreCast t₂ srcTy width v₂ k₂) := by
-  cases srcTy <;> cases width <;>
-  first
-  | exact ht
-  | exact hk (fun _ hp => hp) _ _ hv
-  | exact wf_let1 _ hv fun h1 _ _ hy => hk h1 _ _ hy
+theorem emitStoreCast_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} {t₁ : Expr V₁ L₁ rs} {t₂ : Expr V₂ L₂ rs} (ht : Wf G D t₁ t₂)
+    (srcTy : WValTy) (width : WMemWidth) {v₁ : Arg V₁ srcTy.toTy} {v₂ : Arg V₂ srcTy.toTy}
+    (hv : ArgRel G srcTy.toTy v₁ v₂) {k₁ : Arg V₁ width.memTy → Expr V₁ L₁ rs}
+    {k₂ : Arg V₂ width.memTy → Expr V₂ L₂ rs} (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') →
+      ∀ y₁ y₂, ArgRel G' width.memTy y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
+    Wf G D (emitStoreCast t₁ srcTy width v₁ k₁) (emitStoreCast t₂ srcTy width v₂ k₂) := by
+  cases srcTy <;> cases width <;> simp only [emitStoreCast] <;>
+    first | exact ht | (wasm_wf!; wasm_ret hk)
 
-theorem emitBrTable_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {D : Ctx L₁ L₂} (locTys retTys : List WValTy)
-    {labs₁ : List (WLabel V₁ L₁ locTys)} {labs₂ : List (WLabel V₂ L₂ locTys)}
-    (hlabs : LabsRel D locTys labs₁ labs₂)
-    {def₁ : WLabel V₁ L₁ locTys} {def₂ : WLabel V₂ L₂ locTys}
-    (hdef : LabRel D locTys def₁ def₂) (har : def₁.argTys = def₂.argTys) :
-    ∀ {G : Ctx V₁ V₂}
-      {locs₁ : Tup (Arg V₁) (locTys.map WValTy.toTy)}
-      {locs₂ : Tup (Arg V₂) (locTys.map WValTy.toTy)}
-      {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64}
+theorem emitBrTable_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {D : Ctx L₁ L₂}
+    (locTys retTys : List WValTy) {labs₁ : List (WLabel V₁ L₁ locTys)}
+    {labs₂ : List (WLabel V₂ L₂ locTys)} (hlabs : LabsRel D locTys labs₁ labs₂)
+    {def₁ : WLabel V₁ L₁ locTys} {def₂ : WLabel V₂ L₂ locTys} (hdef : LabRel D locTys def₁ def₂)
+    (har : def₁.argTys = def₂.argTys) :
+    ∀ {G : Ctx V₁ V₂} {locs₁ : Tup (Arg V₁) (locTys.map WValTy.toTy)}
+      {locs₂ : Tup (Arg V₂) (locTys.map WValTy.toTy)} {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64}
       {idx₁ : Arg V₁ T.i32} {idx₂ : Arg V₂ T.i32}
       {ba₁ : Tup (Arg V₁) (def₁.argTys.map WValTy.toTy)}
       {ba₂ : Tup (Arg V₂) (def₂.argTys.map WValTy.toTy)},
       TRel (ArgRel G) locs₁ locs₂ → ArgRel G T.i64 f₁ f₂ → ArgRel G T.i32 idx₁ idx₂ →
-      TRel (ArgRel G) ba₁ (har ▸ ba₂) →
-      ∀ (i : Nat) (ts : List Nat),
+      TRel (ArgRel G) ba₁ (har ▸ ba₂) → ∀ (i : Nat) (ts : List Nat),
         Wf G D (emitBrTable locTys retTys labs₁ locs₁ f₁ idx₁ def₁ ba₁ i ts)
                (emitBrTable locTys retTys labs₂ locs₂ f₂ idx₂ def₂ ba₂ i ts) := by
-  obtain ⟨hdeq, hdm⟩ := hdef
-  cases def₁ with
-  | mk dt dl₁ =>
-    cases def₂ with
-    | mk dt2 dl₂ =>
-      dsimp only at hdeq har hdm
-      subst har
-      intro G locs₁ locs₂ f₁ f₂ idx₁ idx₂ ba₁ ba₂ hlocs hf hidx hba i ts
-      induction ts generalizing G i with
-      | nil =>
-        exact .jump hdm (.cons hf (tupAppend_rel hlocs hba))
-      | cons t rest ih =>
-        simp only [emitBrTable]
-        rcases LabsRel_getElem?_rel hlabs t with ⟨hn1, hn2⟩ | ⟨l₁, l₂, hs1, hs2, hl⟩
-        · simp only [hn1, hn2]
-          exact mkTrapExpr_wf retTys 1#32 hf
-        · simp only [hs1, hs2]
-          rcases hl with ⟨hl_eq, hl_m⟩
-          cases l₁ with
-          | mk lt₁ ll₁ =>
-            cases l₂ with
-            | mk lt₂ ll₂ =>
-              dsimp only at hl_eq hl_m
-              subst hl_eq
-              by_cases hlt : lt₁ = dt
-              · simp only [hlt, ↓reduceDIte]
-                subst hlt
-                refine wf_let2 (.cmp .eq T.i32) hidx (.imm _) fun h1 _ _ heq =>
-                  .jnz heq (.jump hl_m (.cons (ArgRel.mono h1 hf)
-                    (tupAppend_rel (TRel_ArgRel_mono h1 hlocs) (TRel_ArgRel_mono h1 hba))))
-                    (ih (TRel_ArgRel_mono h1 hlocs) (ArgRel.mono h1 hf) (ArgRel.mono h1 hidx)
-                      (TRel_ArgRel_mono h1 hba) (i + 1))
-              · simp only [hlt, ↓reduceDIte]
-                exact mkTrapExpr_wf retTys 1#32 hf
+  obtain ⟨hdeq, hdm⟩ := hdef; rcases def₁ with ⟨dt, dl₁⟩; rcases def₂ with ⟨dt2, dl₂⟩
+  dsimp only at hdeq har hdm; subst har
+  intro G locs₁ locs₂ f₁ f₂ idx₁ idx₂ ba₁ ba₂ hlocs hf hidx hba i ts
+  induction ts generalizing G i with
+  | nil => exact .jump hdm (.cons hf (tupAppend_rel hlocs hba))
+  | cons t rest ih =>
+    simp only [emitBrTable]
+    rcases LabsRel_getElem?_rel hlabs t with ⟨hn1, hn2⟩ | ⟨⟨lt₁, ll₁⟩, ⟨lt₂, ll₂⟩, hs1, hs2, hl⟩
+    · simp [hn1, hn2, mkTrapExpr_wf _ _ hf]
+    · simp only [hs1, hs2]; rcases hl with ⟨hl_eq, hl_m⟩; dsimp only at hl_eq hl_m; subst hl_eq
+      by_cases hlt : lt₁ = dt
+      · simp only [hlt, ↓reduceDIte]; subst hlt
+        refine wf_let2 (.cmp .eq T.i32) hidx (.imm _) fun h1 _ _ heq =>
+          .jnz heq (.jump hl_m (.cons (ArgRel.mono h1 hf)
+            (tupAppend_rel (TRel_ArgRel_mono h1 hlocs) (TRel_ArgRel_mono h1 hba))))
+            (ih (TRel_ArgRel_mono h1 hlocs) (ArgRel.mono h1 hf) (ArgRel.mono h1 hidx)
+              (TRel_ArgRel_mono h1 hba) (i + 1))
+      · simp only [hlt, ↓reduceDIte]; exact mkTrapExpr_wf _ _ hf
 
-theorem emitSelect_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {t₁ : Expr V₁ L₁ rs} {t₂ : Expr V₂ L₂ rs} (ht : Wf G D t₁ t₂)
+theorem emitSelect_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} {t₁ : Expr V₁ L₁ rs} {t₂ : Expr V₂ L₂ rs} (ht : Wf G D t₁ t₂)
     {c₁ : Arg V₁ T.i32} {c₂ : Arg V₂ T.i32} (hc : ArgRel G T.i32 c₁ c₂)
-    {v₁₁ v₂₁ : SVal V₁} {v₁₂ v₂₂ : SVal V₂}
-    (hv₁ : SValRel G v₁₁ v₁₂) (hv₂ : SValRel G v₂₁ v₂₂)
+    {v₁₁ v₂₁ : SVal V₁} {v₁₂ v₂₂ : SVal V₂} (hv₁ : SValRel G v₁₁ v₁₂) (hv₂ : SValRel G v₂₁ v₂₂)
     {k₁ : SVal V₁ → Expr V₁ L₁ rs} {k₂ : SVal V₂ → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, SValRel G' y₁ y₂ →
-      Wf G' D (k₁ y₁) (k₂ y₂)) :
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, SValRel G' y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
     Wf G D (emitSelect t₁ c₁ v₁₁ v₂₁ k₁) (emitSelect t₂ c₂ v₁₂ v₂₂ k₂) := by
   cases v₁₁ <;> cases v₁₂ <;> cases v₂₁ <;> cases v₂₂ <;>
-  simp only [SValRel] at hv₁ hv₂ <;>
-  first
-  | exact ht
-  | exact wf_let2 (.cmp .ne T.i32) hc (.imm _) fun h1 _ _ hsb =>
-      wf_let3 (.select _) hsb (ArgRel.mono h1 hv₁) (ArgRel.mono h1 hv₂) fun h2 _ _ hres =>
-        hk (fun p hp => h2 p (h1 p hp)) _ _ hres
+    simp only [SValRel, emitSelect] at hv₁ hv₂ ⊢ <;>
+    first | contradiction | exact ht | (wasm_wf!; wasm_ret hk)
 
-theorem emitEqz_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (w : WValTy)
-    {x₁ : Arg V₁ w.toTy} {x₂ : Arg V₂ w.toTy} (hx : ArgRel G w.toTy x₁ x₂)
-    {k₁ : Arg V₁ T.i32 → Expr V₁ L₁ rs} {k₂ : Arg V₂ T.i32 → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' T.i32 y₁ y₂ →
-      Wf G' D (k₁ y₁) (k₂ y₂)) :
+theorem emitEqz_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} (w : WValTy) {x₁ : Arg V₁ w.toTy} {x₂ : Arg V₂ w.toTy}
+    (hx : ArgRel G w.toTy x₁ x₂) {k₁ : Arg V₁ T.i32 → Expr V₁ L₁ rs}
+    {k₂ : Arg V₂ T.i32 → Expr V₂ L₂ rs}
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' T.i32 y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
     Wf G D (emitEqz w x₁ k₁) (emitEqz w x₂ k₂) := by
-  cases w <;>
-  exact wf_let2 (.cmp .eq _) hx (.imm _) fun h1 _ _ hb =>
-    wf_let1 (.ofBool 32) hb fun h2 _ _ hr =>
-      hk (fun p hp => h2 p (h1 p hp)) _ _ hr
+  cases w <;> dsimp only [emitEqz] <;> wasm_wf! <;> wasm_ret hk
 
-theorem emitRelOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (w : WValTy) (op : WRelOp)
-    {a₁ b₁ : Arg V₁ w.toTy} {a₂ b₂ : Arg V₂ w.toTy}
+theorem emitRelOp_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} (w : WValTy) (op : WRelOp) {a₁ b₁ : Arg V₁ w.toTy} {a₂ b₂ : Arg V₂ w.toTy}
     (ha : ArgRel G w.toTy a₁ a₂) (hb : ArgRel G w.toTy b₁ b₂)
     {k₁ : Arg V₁ T.i32 → Expr V₁ L₁ rs} {k₂ : Arg V₂ T.i32 → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' T.i32 y₁ y₂ →
-      Wf G' D (k₁ y₁) (k₂ y₂)) :
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ y₁ y₂, ArgRel G' T.i32 y₁ y₂ → Wf G' D (k₁ y₁) (k₂ y₂)) :
     Wf G D (emitRelOp w op a₁ b₁ k₁) (emitRelOp w op a₂ b₂ k₂) := by
-  cases w <;>
-  exact wf_let2 (.cmp (lowerRelOp op) _) ha hb fun h1 _ _ hcb =>
-    wf_let1 (.ofBool 32) hcb fun h2 _ _ hres =>
-      hk (fun p hp => h2 p (h1 p hp)) _ _ hres
+  cases w <;> dsimp only [emitRelOp] <;> wasm_wf! <;> wasm_ret hk
+
+local macro "wf_ofArg" hk:ident h:ident "," w:term "," y:ident "," r:ident "," hf:ident
+    hlocs:ident : tactic =>
+  `(tactic| wf_hk1 $hk $h, $hf $hlocs (.cons (SValRel.ofArg $w $y) (StkRel.mono $h $r)))
 
 theorem lowerSimpleInstr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} (ctx : WLowerCtx)
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
+    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
     {locs₁ : Tup (Arg V₁) (ctx.locTys.map WValTy.toTy)}
     {locs₂ : Tup (Arg V₂) (ctx.locTys.map WValTy.toTy)}
     {stk₁ : List (SVal V₁)} {stk₂ : List (SVal V₂)}
     {labs₁ : List (WLabel V₁ L₁ ctx.locTys)} {labs₂ : List (WLabel V₂ L₂ ctx.locTys)}
-    (instr : WInstr)
-    {k₁ : WCont V₁ L₁ ctx.locTys ctx.retTys} {k₂ : WCont V₂ L₂ ctx.locTys ctx.retTys}
+    (instr : WInstr) {k₁ : WCont V₁ L₁ ctx.locTys ctx.retTys}
+    {k₂ : WCont V₂ L₂ ctx.locTys ctx.retTys}
     (hvc : ArgRel G T.i64 vc₁ vc₂) (hf : ArgRel G T.i64 f₁ f₂)
     (hlocs : TRel (ArgRel G) locs₁ locs₂) (hstk : StkRel G stk₁ stk₂)
     (hlabs : LabsRel D ctx.locTys labs₁ labs₂) (hk : ContWf ctx.locTys ctx.retTys G D k₁ k₂) :
@@ -823,331 +759,145 @@ theorem lowerSimpleInstr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → T
            (lowerSimpleInstr ctx vc₂ f₂ locs₂ stk₂ labs₂ instr k₂) := by
   have htrap : Wf G D (mkTrapExpr (L := L₁) ctx.retTys 1#32 f₁)
       (mkTrapExpr (L := L₂) ctx.retTys 1#32 f₂) := mkTrapExpr_wf ctx.retTys 1#32 hf
-  cases instr with
-  | nop => exact hk (fun _ h => h) (fun _ h => h) hf hlocs hstk
-  | br_if depth =>
-    simp only [lowerSimpleInstr]
+  cases instr <;> simp only [lowerSimpleInstr] <;> try exact htrap
+  case nop => wf_hk0 hk hf hlocs hstk
+  case br_if depth =>
     rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨c₁, c₂, r₁, r₂, hp1, hp2, hc, hr⟩
     · simp [hn1, hn2, htrap]
-    · simp only [hp1, hp2]
-      rcases LabsRel_getElem?_rel hlabs depth with ⟨hn1, hn2⟩ | ⟨l₁, l₂, hs1, hs2, hl⟩
+    · simp only [hp1, hp2]; rcases LabsRel_getElem?_rel hlabs depth with
+        ⟨hn1, hn2⟩ | ⟨⟨lt₁, ll₁⟩, ⟨lt₂, ll₂⟩, hs1, hs2, hl⟩
       · simp [hn1, hn2, htrap]
-      · simp only [hs1, hs2]
-        rcases hl with ⟨har, hm⟩
-        cases l₁ with
-        | mk lt₁ ll₁ =>
-          cases l₂ with
-          | mk lt₂ ll₂ =>
-            dsimp only at har hm
-            subst har
-            rcases popArgsAux_rel lt₁ hr with ⟨ha1, ha2⟩ | ⟨b₁, b₂, s₁, s₂, hp1', hp2', hb, _⟩
-            · simp [ha1, ha2, htrap]
-            · simp only [hp1', hp2']
-              exact wf_let2 (.cmp .ne T.i32) hc (.imm _) fun h1 _ _ htk =>
-                .jnz htk (.jump hm (.cons (ArgRel.mono h1 hf)
-                  (tupAppend_rel (TRel_ArgRel_mono h1 hlocs) (TRel_ArgRel_mono h1 hb))))
-                  (hk h1 (fun _ h => h) (ArgRel.mono h1 hf)
-                    (TRel_ArgRel_mono h1 hlocs) (StkRel.mono h1 hr))
-  | call fnIdx =>
-    simp only [lowerSimpleInstr]
-    cases hcal : ctx.funcs[fnIdx]? with
-    | none => exact htrap
-    | some callee =>
-      dsimp only
-      cases hft : ctx.types[callee.typeIdx]? with
-      | none => exact htrap
-      | some ft =>
-        dsimp only
-        rcases popArgsAux_rel ft.params hstk with
-          ⟨hn1, hn2⟩ | ⟨a₁, a₂, s₁, s₂, hp1, hp2, ha, hs⟩
-        · simp [hn1, hn2, htrap]
-        · simp only [hp1, hp2]
-          refine wf_let2 (.cmp .eq T.i64) hf (.imm _) fun h1 _ _ ho =>
-            .jnz ho (mkTrapExpr_wf ctx.retTys 2#32 (ArgRel.mono h1 hf))
-              (wf_let2 (.sub T.i64) (ArgRel.mono h1 hf) (.imm _) fun {G₂} h2 _ _ hfn => ?_)
-          have h12 : ∀ p ∈ G, p ∈ G₂ := fun p hp => h2 p (h1 p hp)
-          refine .call callee.name (.cons (ArgRel.mono h12 hvc)
-            (.cons hfn (TRel_ArgRel_mono h12 ha))) fun res₁ res₂ => ?_
-          rcases res₁ with ⟨st₁, rf₁, rets₁⟩
-          rcases res₂ with ⟨st₂, rf₂, rets₂⟩
-          let Gc := Tup.zip (as := wasmRetSig ft.results) (st₁, rf₁, rets₁) (st₂, rf₂, rets₂) ++
-            G₂
-          have hG2c : ∀ p ∈ G₂, p ∈ Gc := fun _ hp => List.mem_append_right _ hp
-          have hGc : ∀ p ∈ G, p ∈ Gc := fun p hp => hG2c p (h12 p hp)
-          have hst : ArgRel Gc T.i32 (.var st₁) (.var st₂) :=
-            .var (List.mem_append_left _ List.mem_cons_self)
-          have hrf : ArgRel Gc T.i64 (.var rf₁) (.var rf₂) :=
-            .var (List.mem_append_left _ (List.mem_cons_of_mem _ List.mem_cons_self))
-          have hrets : TRel (ArgRel Gc) (varsTup rets₁) (varsTup rets₂) :=
-            TRel_ArgRel_mono (fun _ hp => by
-              simp only [Gc, Tup.zip] at hp ⊢
-              exact List.mem_append_left _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hp)))
-              varsTup_rel_nil
-          refine wf_let2 (.cmp .eq T.i32) hst (.imm _) fun h3 _ _ hok =>
-            .jnz hok ?_ ?_
-          · exact hk (fun p hp => h3 p (hGc p hp)) (fun _ h => h) (ArgRel.mono h3 hrf)
-              (TRel_ArgRel_mono (fun p hp => h3 p (hGc p hp)) hlocs)
-              (pushArgsAux_rel ft.results (TRel_ArgRel_mono h3 hrets)
-                (StkRel.mono (fun p hp => h3 p (hGc p hp)) hs))
-          · exact .ret (.cons (ArgRel.mono h3 hst)
-              (.cons (ArgRel.mono h3 hrf) (zeroArgs_rel _ ctx.retTys)))
-  | drop =>
-    simp only [lowerSimpleInstr]
-    cases hstk with
-    | nil => exact htrap
-    | cons _ hrest => exact hk (fun _ h => h) (fun _ h => h) hf hlocs hrest
-  | select =>
-    simp only [lowerSimpleInstr]
+      · simp only [hs1, hs2]; rcases hl with ⟨har, hm⟩; dsimp only at har hm; subst har
+        wf_pop (popArgsAux_rel lt₁ hr), hb s_
+        exact wf_let2 (.cmp .ne T.i32) hc (.imm _) fun h1 _ _ htk =>
+          .jnz htk (.jump hm (.cons (ArgRel.mono h1 hf)
+            (tupAppend_rel (TRel_ArgRel_mono h1 hlocs) (TRel_ArgRel_mono h1 hb))))
+            (by wf_hk1 hk h1, hf hlocs (StkRel.mono h1 hr))
+  case call fnIdx =>
+    cases hcal : ctx.funcs[fnIdx]? with | none => exact htrap | some callee =>
+    dsimp only; cases hft : ctx.types[callee.typeIdx]? with | none => exact htrap | some ft =>
+    dsimp only; wf_pop (popArgsAux_rel ft.params hstk), ha hs; wasm_wf!
+    refine .call callee.name (.cons (by wasm_arg) (.cons (by wasm_arg)
+      (TRel_ArgRel_mono (by wasm_sub) ha))) fun ⟨st₁, rf₁, rets₁⟩ ⟨st₂, rf₂, rets₂⟩ => ?_
+    wasm_wf!
+    · exact hk (by wasm_sub) (fun _ h => h) (by wasm_arg) (TRel_ArgRel_mono (by wasm_sub) hlocs)
+        (pushArgsAux_rel ft.results (TRel_ArgRel_mono (fun _ hp => by
+          try dsimp only [wasmAbiResults, Tup.zip] at hp ⊢
+          wasm_mem) varsTup_rel_nil) (StkRel.mono (by wasm_sub) hs))
+    · exact .ret (.cons (by wasm_arg) (.cons (by wasm_arg) (zeroArgs_rel _ ctx.retTys)))
+  case drop => cases hstk with | nil => exact htrap | cons _ hr => wf_hk0 hk hf hlocs hr
+  case select =>
     rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨c₁, c₂, r₁, r₂, hp1, hp2, hc, hr⟩
     · simp [hn1, hn2, htrap]
     · simp only [hp1, hp2]
-      rcases popAny_rel hr with ⟨rfl, rfl⟩ | ⟨v₂₁, v₂₂, u₁, u₂, rfl, rfl, hv₂, hr₂⟩
+      rcases popAny_rel hr with ⟨rfl, rfl⟩ | ⟨v₂₁, v₂₂, _, _, rfl, rfl, hv₂, hr₂⟩
       · exact htrap
-      · rcases popAny_rel hr₂ with ⟨rfl, rfl⟩ | ⟨v₁₁, v₁₂, r₃₁, r₃₂, rfl, rfl, hv₁, hr₃⟩
+      · rcases popAny_rel hr₂ with ⟨rfl, rfl⟩ | ⟨v₁₁, v₁₂, _, _, rfl, rfl, hv₁, hr₃⟩
         · cases v₂₁ <;> cases v₂₂ <;> exact htrap
-        · exact emitSelect_wf htrap hc hv₁ hv₂ fun h12 y₁ y₂ hres =>
-            hk h12 (fun _ h => h) (ArgRel.mono h12 hf) (TRel_ArgRel_mono h12 hlocs)
-              (.cons hres (StkRel.mono h12 hr₃))
-  | local_get idx =>
-    simp only [lowerSimpleInstr]
-    rcases getLocal_rel ctx.locTys idx hlocs with ⟨hn1, hn2⟩ | ⟨v₁, v₂, hs1, hs2, hv⟩
+        · exact emitSelect_wf htrap hc hv₁ hv₂ fun h _ _ y => by
+            wf_hk1 hk h, hf hlocs (.cons y (StkRel.mono h hr₃))
+  case local_get idx =>
+    rcases getLocal_rel ctx.locTys idx hlocs with ⟨hn1, hn2⟩ | ⟨_, _, hs1, hs2, hv⟩
     · simp [hn1, hn2, htrap]
-    · simp only [hs1, hs2]
-      exact hk (fun _ h => h) (fun _ h => h) hf hlocs (.cons hv hstk)
-  | local_set idx =>
-    simp only [lowerSimpleInstr]
-    cases hstk with
-    | nil => exact htrap
-    | cons hv hrest =>
-      rcases setLocal_rel ctx.locTys idx hlocs hv with ⟨hn1, hn2⟩ | ⟨l₁', l₂', hs1, hs2, hl'⟩
-      · simp [hn1, hn2, htrap]
-      · simp only [hs1, hs2]
-        exact hk (fun _ h => h) (fun _ h => h) hf hl' hrest
-  | local_tee idx =>
-    simp only [lowerSimpleInstr]
-    cases hstk with
-    | nil => exact htrap
-    | cons hv hrest =>
-      rcases setLocal_rel ctx.locTys idx hlocs hv with ⟨hn1, hn2⟩ | ⟨l₁', l₂', hs1, hs2, hl'⟩
-      · simp [hn1, hn2, htrap]
-      · simp only [hs1, hs2]
-        exact hk (fun _ h => h) (fun _ h => h) hf hl' (.cons hv hrest)
-  | global_get idx =>
-    simp only [lowerSimpleInstr]
-    cases hgl : ctx.globals[idx]? with
-    | none => exact htrap
-    | some g =>
-      refine hk (fun _ h => h) (fun _ h => h) hf hlocs (.cons ?_ hstk)
-      cases g.ty <;> exact .imm _
-  | load resTy width signed arg =>
-    simp only [lowerSimpleInstr]
-    by_cases hok : (ctx.hasMem && validateLoad resTy width signed) = true
-    · simp only [hok, ↓reduceIte]
-      rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨i₁, i₂, r₁, r₂, hp1, hp2, hi, hr⟩
-      · simp [hn1, hn2, htrap]
-      · simp only [hp1, hp2]
-        refine emitMemBounds_wf ctx.retTys hvc hf hi arg width.bytes fun h1 p₁ p₂ hp => ?_
-        refine .load width.memTy hp fun raw₁ raw₂ => ?_
-        have h1' : ∀ q ∈ G, q ∈ (⟨width.memTy, raw₁, raw₂⟩ :: _) :=
-          fun q hq => List.mem_cons_of_mem _ (h1 q hq)
-        exact emitLoadCast_wf (mkTrapExpr_wf ctx.retTys 1#32 (ArgRel.mono h1' hf))
-          resTy width signed raw₁ raw₂ List.mem_cons_self fun h2 y₁ y₂ hy =>
-            have h12 : ∀ q ∈ G, q ∈ _ := fun q hq => h2 q (h1' q hq)
-            hk h12 (fun _ h => h) (ArgRel.mono h12 hf) (TRel_ArgRel_mono h12 hlocs)
-              (.cons (SValRel.ofArg resTy hy) (StkRel.mono h12 hr))
-    · simp [hok, htrap]
-  | store srcTy width arg =>
-    simp only [lowerSimpleInstr]
-    by_cases hok : (ctx.hasMem && validateStore srcTy width) = true
-    · simp only [hok, ↓reduceIte]
-      rcases popExpectS_rel srcTy hstk with ⟨hn1, hn2⟩ | ⟨v₁, v₂, s₁, s₂, hp1, hp2, hv, hs⟩
-      · simp [hn1, hn2, htrap]
-      · simp only [hp1, hp2]
-        rcases pop32_rel hs with ⟨hn1', hn2'⟩ | ⟨i₁, i₂, r₁, r₂, hp1', hp2', hi, hr⟩
-        · simp [hn1', hn2', htrap]
-        · simp only [hp1', hp2']
-          refine emitMemBounds_wf ctx.retTys hvc hf hi arg width.bytes fun h1 p₁ p₂ hp => ?_
-          refine emitStoreCast_wf (mkTrapExpr_wf ctx.retTys 1#32 (ArgRel.mono h1 hf))
-            srcTy width (ArgRel.mono h1 hv) fun h2 mv₁ mv₂ hmv => ?_
-          have h12 : ∀ q ∈ G, q ∈ _ := fun q hq => h2 q (h1 q hq)
-          exact .store hmv (ArgRel.mono h2 hp)
-            (hk h12 (fun _ h => h) (ArgRel.mono h12 hf) (TRel_ArgRel_mono h12 hlocs)
-              (StkRel.mono h12 hr))
-    · simp [hok, htrap]
-  | memory_size =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      exact emitMemSize_wf hvc fun h1 p₁ p₂ hp =>
-        hk h1 (fun _ h => h) (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
-          (.cons hp (StkRel.mono h1 hstk))
-    · simp [hm, htrap]
-  | memory_grow =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨d₁, d₂, r₁, r₂, hp1, hp2, hd, hr⟩
-      · simp [hn1, hn2, htrap]
-      · simp only [hp1, hp2]
-        exact emitMemGrow_wf ctx.retTys ctx.memMaxBytes hvc hf hd fun h1 hD1 f₁' f₂' rs₁ rs₂ hf'
-          hrs =>
-          hk h1 hD1 hf' (TRel_ArgRel_mono h1 hlocs) (.cons hrs (StkRel.mono h1 hr))
-    · simp [hm, htrap]
-  | memory_fill =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨n₁, n₂, s₁, s₂, hp1, hp2, hn, hs1⟩
-      · simp [hn1, hn2, htrap]
-      · simp only [hp1, hp2]
-        rcases pop32_rel hs1 with ⟨hn1', hn2'⟩ | ⟨v₁, v₂, s₁', s₂', hp1', hp2', hv, hs2⟩
-        · simp [hn1', hn2', htrap]
-        · simp only [hp1', hp2']
-          rcases pop32_rel hs2 with ⟨hn1'', hn2''⟩ | ⟨d₁, d₂, r₁, r₂, hp1'', hp2'', hd, hr⟩
-          · simp [hn1'', hn2'', htrap]
-          · simp only [hp1'', hp2'']
-            exact emitMemFill_wf ctx.retTys hvc hf hd hv hn fun h1 hD1 f₁' f₂' hf' =>
-              hk h1 hD1 hf' (TRel_ArgRel_mono h1 hlocs) (StkRel.mono h1 hr)
-    · simp [hm, htrap]
-  | memory_copy =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨n₁, n₂, s₁, s₂, hp1, hp2, hn, hs1⟩
-      · simp [hn1, hn2, htrap]
-      · simp only [hp1, hp2]
-        rcases pop32_rel hs1 with ⟨hn1', hn2'⟩ | ⟨s₁', s₂', s₁'', s₂'', hp1', hp2', hs, hs2⟩
-        · simp [hn1', hn2', htrap]
-        · simp only [hp1', hp2']
-          rcases pop32_rel hs2 with ⟨hn1'', hn2''⟩ | ⟨d₁, d₂, r₁, r₂, hp1'', hp2'', hd, hr⟩
-          · simp [hn1'', hn2'', htrap]
-          · simp only [hp1'', hp2'']
-            exact emitMemCopy_wf ctx.retTys hvc hf hd hs hn fun h1 hD1 f₁' f₂' hf' =>
-              hk h1 hD1 hf' (TRel_ArgRel_mono h1 hlocs) (StkRel.mono h1 hr)
-    · simp [hm, htrap]
-  | i32_const _ => exact hk (fun _ h => h) (fun _ h => h) hf hlocs (.cons (.imm _) hstk)
-  | i64_const _ => exact hk (fun _ h => h) (fun _ h => h) hf hlocs (.cons (.imm _) hstk)
-  | eqz w =>
-    simp only [lowerSimpleInstr]
-    rcases popAny_rel hstk with ⟨rfl, rfl⟩ | ⟨x₁, x₂, t₁, t₂, rfl, rfl, hv, hrest⟩
+    · simp only [hs1, hs2]; wf_hk0 hk hf hlocs (.cons hv hstk)
+  case local_set idx =>
+    cases hstk with | nil => exact htrap | cons hv hrest =>
+    rcases setLocal_rel ctx.locTys idx hlocs hv with ⟨hn1, hn2⟩ | ⟨_, _, hs1, hs2, hl'⟩
+    · simp [hn1, hn2, htrap]
+    · simp only [hs1, hs2]; wf_hk0 hk hf hl' hrest
+  case local_tee idx =>
+    cases hstk with | nil => exact htrap | cons hv hrest =>
+    rcases setLocal_rel ctx.locTys idx hlocs hv with ⟨hn1, hn2⟩ | ⟨_, _, hs1, hs2, hl'⟩
+    · simp [hn1, hn2, htrap]
+    · simp only [hs1, hs2]; wf_hk0 hk hf hl' (.cons hv hrest)
+  case global_get idx =>
+    cases ctx.globals[idx]? with | none => exact htrap | some g =>
+      wf_hk0 hk hf hlocs (.cons (by cases g.ty <;> exact .imm _) hstk)
+  case load resTy width signed arg =>
+    wf_mem_if (ctx.hasMem && validateLoad resTy width signed) = true; wf_pop (pop32_rel hstk), hi hr
+    refine emitMemBounds_wf ctx.retTys hvc hf hi arg width.bytes fun h1 _ _ hp =>
+      .load width.memTy hp fun raw₁ raw₂ =>
+        emitLoadCast_wf (mkTrapExpr_wf _ 1#32 (ArgRel.mono (fun _ h => .tail _ (h1 _ h)) hf))
+          resTy width signed raw₁ raw₂ List.mem_cons_self fun h2 _ _ hy => by
+          have h12 := fun q hq => h2 q (.tail _ (h1 q hq)); wf_ofArg hk h12, resTy, hy, hr, hf hlocs
+  case store srcTy width arg =>
+    wf_mem_if (ctx.hasMem && validateStore srcTy width) = true
+    wf_pop (popExpectS_rel srcTy hstk), hv hs; wf_pop (pop32_rel hs), hi hr
+    refine emitMemBounds_wf ctx.retTys hvc hf hi arg width.bytes fun h1 _ _ hp =>
+      emitStoreCast_wf (mkTrapExpr_wf _ 1#32 (ArgRel.mono h1 hf)) srcTy width (ArgRel.mono h1 hv)
+        fun h2 _ _ hmv =>
+          have h12 := fun q hq => h2 q (h1 q hq)
+          .store hmv (ArgRel.mono h2 hp) (by wf_hk1 hk h12, hf hlocs (StkRel.mono h12 hr))
+  case memory_size =>
+    wf_mem_if ctx.hasMem = true
+    exact emitMemSize_wf hvc fun h _ _ y => by wf_ofArg hk h, .i32, y, hstk, hf hlocs
+  case memory_grow =>
+    wf_mem_if ctx.hasMem = true; wf_pop (pop32_rel hstk), hd hr
+    exact emitMemGrow_wf ctx.retTys ctx.memMaxBytes hvc hf hd fun h1 hD1 _ _ _ _ hf' hrs =>
+      hk h1 hD1 hf' (TRel_ArgRel_mono h1 hlocs) (.cons (SValRel.ofArg .i32 hrs) (StkRel.mono h1 hr))
+  case memory_fill =>
+    wf_mem_if ctx.hasMem = true
+    wf_pop (pop32_rel hstk), hn hs1; wf_pop (pop32_rel hs1), hv hs2; wf_pop (pop32_rel hs2), hd hr
+    exact emitMemFill_wf ctx.retTys hvc hf hd hv hn fun h1 hD1 _ _ hf' =>
+      hk h1 hD1 hf' (TRel_ArgRel_mono h1 hlocs) (StkRel.mono h1 hr)
+  case memory_copy =>
+    wf_mem_if ctx.hasMem = true
+    wf_pop (pop32_rel hstk), hn hs1; wf_pop (pop32_rel hs1), hs hs2; wf_pop (pop32_rel hs2), hd hr
+    exact emitMemCopy_wf ctx.retTys hvc hf hd hs hn fun h1 hD1 _ _ hf' =>
+      hk h1 hD1 hf' (TRel_ArgRel_mono h1 hlocs) (StkRel.mono h1 hr)
+  case i32_const _ | i64_const _ => wf_hk0 hk hf hlocs (.cons (.imm _) hstk)
+  case eqz w =>
+    rcases popAny_rel hstk with ⟨rfl, rfl⟩ | ⟨x₁, x₂, _, _, rfl, rfl, hv, hrest⟩
     · cases w <;> exact htrap
-    · cases w <;> cases x₁ <;> cases x₂ <;> simp only [SValRel] at hv <;>
-      first
+    · cases w <;> cases x₁ <;> cases x₂ <;> simp only [SValRel] at hv <;> first
       | exact htrap
-      | exact emitEqz_wf _ hv fun h12 y₁ y₂ hr =>
-          hk h12 (fun _ h => h) (ArgRel.mono h12 hf) (TRel_ArgRel_mono h12 hlocs)
-            (.cons hr (StkRel.mono h12 hrest))
-  | unop w op =>
-    simp only [lowerSimpleInstr]
-    rcases popExpectS_rel w hstk with ⟨hn1, hn2⟩ | ⟨x₁, x₂, r₁, r₂, hp1, hp2, hx, hr⟩
-    · simp [hn1, hn2, htrap]
-    · simp only [hp1, hp2]
-      exact emitUnOp_wf ctx.retTys hf w op hx fun h1 y₁ y₂ hy =>
-        hk h1 (fun _ h => h) (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
-          (.cons (SValRel.ofArg w hy) (StkRel.mono h1 hr))
-  | binop w op =>
-    simp only [lowerSimpleInstr]
-    rcases popExpectS_rel w hstk with ⟨hn1, hn2⟩ | ⟨b₁, b₂, s₁, s₂, hp1, hp2, hb, hs⟩
-    · simp [hn1, hn2, htrap]
-    · simp only [hp1, hp2]
-      rcases popExpectS_rel w hs with ⟨hn1', hn2'⟩ | ⟨a₁, a₂, r₁, r₂, hp1', hp2', ha, hr⟩
-      · simp [hn1', hn2', htrap]
-      · simp only [hp1', hp2']
-        exact emitBinOp_wf ctx.retTys hf w op ha hb fun h1 y₁ y₂ hy =>
-          hk h1 (fun _ h => h) (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
-            (.cons (SValRel.ofArg w hy) (StkRel.mono h1 hr))
-  | relop w op =>
-    simp only [lowerSimpleInstr]
-    rcases popExpectS_rel w hstk with ⟨hn1, hn2⟩ | ⟨b₁, b₂, s₁, s₂, hp1, hp2, hb, hs⟩
-    · simp [hn1, hn2, htrap]
-    · simp only [hp1, hp2]
-      rcases popExpectS_rel w hs with ⟨hn1', hn2'⟩ | ⟨a₁, a₂, r₁, r₂, hp1', hp2', ha, hr⟩
-      · simp [hn1', hn2', htrap]
-      · simp only [hp1', hp2']
-        exact emitRelOp_wf w op ha hb fun h12 y₁ y₂ hres =>
-          hk h12 (fun _ h => h) (ArgRel.mono h12 hf) (TRel_ArgRel_mono h12 hlocs)
-            (.cons hres (StkRel.mono h12 hr))
-  | wrap_i64 =>
-    simp only [lowerSimpleInstr]
-    rcases pop64_rel hstk with ⟨hn1, hn2⟩ | ⟨x₁, x₂, r₁, r₂, hp1, hp2, hx, hr⟩
-    · simp [hn1, hn2, htrap]
-    · simp only [hp1, hp2]
-      exact wf_let1 (.trunc 64 32) hx fun h1 _ _ hres =>
-        hk h1 (fun _ h => h) (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
-          (.cons hres (StkRel.mono h1 hr))
-  | extend_i32_s =>
-    simp only [lowerSimpleInstr]
-    rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨x₁, x₂, r₁, r₂, hp1, hp2, hx, hr⟩
-    · simp [hn1, hn2, htrap]
-    · simp only [hp1, hp2]
-      exact wf_let1 (.sext 32 64) hx fun h1 _ _ hres =>
-        hk h1 (fun _ h => h) (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
-          (.cons hres (StkRel.mono h1 hr))
-  | extend_i32_u =>
-    simp only [lowerSimpleInstr]
-    rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨x₁, x₂, r₁, r₂, hp1, hp2, hx, hr⟩
-    · simp [hn1, hn2, htrap]
-    · simp only [hp1, hp2]
-      exact wf_let1 (.zext 32 64) hx fun h1 _ _ hres =>
-        hk h1 (fun _ h => h) (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
-          (.cons hres (StkRel.mono h1 hr))
-  | unreachable => exact htrap
-  | block _ _ => exact htrap
-  | loop _ _ => exact htrap
-  | if_ _ _ _ => exact htrap
-  | br _ => exact htrap
-  | br_table _ _ => exact htrap
-  | return_ => exact htrap
+      | exact emitEqz_wf _ hv fun h _ _ y => by wf_ofArg hk h, .i32, y, hrest, hf hlocs
+  case unop w op =>
+    wf_pop (popExpectS_rel w hstk), hx hr
+    exact emitUnOp_wf ctx.retTys hf w op hx fun h _ _ y => by wf_ofArg hk h, w, y, hr, hf hlocs
+  case binop w op =>
+    wf_pop (popExpectS_rel w hstk), hb hs; wf_pop (popExpectS_rel w hs), ha hr
+    exact emitBinOp_wf ctx.retTys hf w op ha hb fun h _ _ y => by wf_ofArg hk h, w, y, hr, hf hlocs
+  case relop w op =>
+    wf_pop (popExpectS_rel w hstk), hb hs; wf_pop (popExpectS_rel w hs), ha hr
+    exact emitRelOp_wf w op ha hb fun h _ _ y => by wf_ofArg hk h, .i32, y, hr, hf hlocs
+  case wrap_i64 =>
+    wf_pop (pop64_rel hstk), hx hr
+    exact wf_let1 (.trunc 64 32) hx fun h _ _ y => by wf_ofArg hk h, .i32, y, hr, hf hlocs
+  case extend_i32_s | extend_i32_u =>
+    wf_pop (pop32_rel hstk), hx hr
+    exact wf_let1 _ hx fun h _ _ y => by wf_ofArg hk h, .i64, y, hr, hf hlocs
 
 theorem lowerGroupJoin_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} (ctx : WLowerCtx)
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (ft : WFuncTy)
-    {sa₁ : List (SVal V₁)} {sa₂ : List (SVal V₂)} (hsa : StkRel G sa₁ sa₂)
+    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (ft : WFuncTy) {sa₁ : List (SVal V₁)} {sa₂ : List (SVal V₂)}
+    (hsa : StkRel G sa₁ sa₂)
     {body₁ : WLabel V₁ L₁ ctx.locTys → WCont V₁ L₁ ctx.locTys ctx.retTys →
       Expr V₁ L₁ (wasmRetSig ctx.retTys)}
     {body₂ : WLabel V₂ L₂ ctx.locTys → WCont V₂ L₂ ctx.locTys ctx.retTys →
       Expr V₂ L₂ (wasmRetSig ctx.retTys)}
     {after₁ : WCont V₁ L₁ ctx.locTys ctx.retTys} {after₂ : WCont V₂ L₂ ctx.locTys ctx.retTys}
     (hafter : ContWf ctx.locTys ctx.retTys G D after₁ after₂)
-    (hbody : ∀ (j₁ : L₁ (labelSig ctx.locTys ft.results))
-      (j₂ : L₂ (labelSig ctx.locTys ft.results))
+    (hbody : ∀ (j₁ : L₁ (labelSig ctx.locTys ft.results)) (j₂ : L₂ (labelSig ctx.locTys ft.results))
       (fall₁ : WCont V₁ L₁ ctx.locTys ctx.retTys) (fall₂ : WCont V₂ L₂ ctx.locTys ctx.retTys),
       let D' := Tup.zip (as := [labelSig ctx.locTys ft.results]) (j₁, ()) (j₂, ()) ++ D
-      (∀ p ∈ D, p ∈ D') →
-      (⟨labelSig ctx.locTys ft.results, j₁, j₂⟩ ∈ D') →
+      (∀ p ∈ D, p ∈ D') → (⟨labelSig ctx.locTys ft.results, j₁, j₂⟩ ∈ D') →
       ContWf ctx.locTys ctx.retTys G D' fall₁ fall₂ →
       Wf G D' (body₁ ⟨ft.results, j₁⟩ fall₁) (body₂ ⟨ft.results, j₂⟩ fall₂)) :
-    Wf G D (lowerGroupJoin ctx ft sa₁ body₁ after₁)
-           (lowerGroupJoin ctx ft sa₂ body₂ after₂) := by
-  refine .group (sig := [labelSig ctx.locTys ft.results]) ?_ ?_
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    refine .cons (fun xs₁ xs₂ => ?_) .nil
-    rcases xs₁ with ⟨fx₁, xlocs₁⟩
-    rcases xs₂ with ⟨fx₂, xlocs₂⟩
-    let Gb := Tup.zip (as := labelSig ctx.locTys ft.results) (fx₁, xlocs₁) (fx₂, xlocs₂) ++ G
-    let Db := Tup.zip (as := [labelSig ctx.locTys ft.results]) (j₁, ()) (j₂, ()) ++ D
-    have hGGb : ∀ p ∈ G, p ∈ Gb := fun _ hp => List.mem_append_right _ hp
-    have hDDb : ∀ p ∈ D, p ∈ Db := fun _ hp => List.mem_append_right _ hp
-    have hfx : ArgRel Gb T.i64 (.var fx₁) (.var fx₂) :=
-      .var (List.mem_append_left _ List.mem_cons_self)
-    have hvxs : TRel (ArgRel Gb) (varsTup xlocs₁) (varsTup xlocs₂) :=
-      TRel_ArgRel_mono (fun _ hp => List.mem_append_left _ (List.mem_cons_of_mem _ hp))
-        varsTup_rel_nil
-    have hsp := tupSplit_rel hvxs
-    exact hafter hGGb hDDb hfx hsp.1 (pushArgsAux_rel ft.results hsp.2 (StkRel.mono hGGb hsa))
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    refine hbody j₁ j₂ _ _ (fun _ hp => List.mem_append_right _ hp)
-      (List.mem_append_left _ List.mem_cons_self) ?_
-    intro G' D'' _ hDD'' fe₁ fe₂ le₁ le₂ se₁ se₂ hfe hle hse
-    rcases popArgsAux_rel ft.results hse with
-      ⟨hb1, hb2⟩ | ⟨ra₁, ra₂, _, _, hbp1, hbp2, hra, _⟩
-    · simp [hb1, hb2, mkTrapExpr_wf ctx.retTys 1#32 hfe]
-    · simp only [hbp1, hbp2]
-      exact .jump (hDD'' _ (List.mem_append_left _ List.mem_cons_self))
-        (.cons hfe (tupAppend_rel hle hra))
+    Wf G D (lowerGroupJoin ctx ft sa₁ body₁ after₁) (lowerGroupJoin ctx ft sa₂ body₂ after₂) :=
+  .group (sig := [labelSig ctx.locTys ft.results])
+    (fun ⟨j₁, ()⟩ ⟨j₂, ()⟩ => .cons (fun ⟨fx₁, xlocs₁⟩ ⟨fx₂, xlocs₂⟩ => by
+      let Gb := Tup.zip (as := labelSig ctx.locTys ft.results) (fx₁, xlocs₁) (fx₂, xlocs₂) ++ G
+      have hsp := tupSplit_rel (G := Gb) (TRel_ArgRel_mono (by wasm_sub) varsTup_rel_nil)
+      exact hafter (by wasm_sub) (by wasm_sub) (.var (by wasm_mem)) hsp.1
+        (pushArgsAux_rel ft.results hsp.2 (StkRel.mono (by wasm_sub) hsa))) .nil)
+    fun ⟨j₁, ()⟩ ⟨j₂, ()⟩ => hbody j₁ j₂ _ _ (by wasm_sub) (by wasm_mem)
+      fun {_ D''} _ hDD'' {_ _ _ _ _ _} hfe hle hse => by
+        have htrap := mkTrapExpr_wf (L₁ := L₁) (L₂ := L₂) (D := D'') ctx.retTys 1#32 hfe
+        wf_pop (popArgsAux_rel ft.results hse), hra s_
+        exact .jump (hDD'' _ (by wasm_mem)) (.cons hfe (tupAppend_rel hle hra))
 
 theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
-    ∀ (sz : Nat) {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-      {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
+    ∀ (sz : Nat) {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
       {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
       {locs₁ : Tup (Arg V₁) (ctx.locTys.map WValTy.toTy)}
       {locs₂ : Tup (Arg V₂) (ctx.locTys.map WValTy.toTy)}
@@ -1155,243 +905,111 @@ theorem lowerSeq_wf_aux (ctx : WLowerCtx) :
       {labs₁ : List (WLabel V₁ L₁ ctx.locTys)} {labs₂ : List (WLabel V₂ L₂ ctx.locTys)}
       (instrs : List WInstr) (_hsz : sizeOf instrs ≤ sz)
       {k₁ : WCont V₁ L₁ ctx.locTys ctx.retTys} {k₂ : WCont V₂ L₂ ctx.locTys ctx.retTys},
-      ArgRel G T.i64 vc₁ vc₂ → ArgRel G T.i64 f₁ f₂ →
-      TRel (ArgRel G) locs₁ locs₂ → StkRel G stk₁ stk₂ → LabsRel D ctx.locTys labs₁ labs₂ →
+      ArgRel G T.i64 vc₁ vc₂ → ArgRel G T.i64 f₁ f₂ → TRel (ArgRel G) locs₁ locs₂ →
+      StkRel G stk₁ stk₂ → LabsRel D ctx.locTys labs₁ labs₂ →
       ContWf ctx.locTys ctx.retTys G D k₁ k₂ →
       Wf G D (lowerSeq ctx vc₁ f₁ locs₁ stk₁ labs₁ instrs k₁)
              (lowerSeq ctx vc₂ f₂ locs₂ stk₂ labs₂ instrs k₂) := by
-  intro sz
-  induction sz using Nat.strongRecOn with
-  | _ sz ih =>
-    intro V₁ V₂ L₁ L₂ G D vc₁ f₁ vc₂ f₂ locs₁ locs₂ stk₁ stk₂ labs₁ labs₂
-      instrs hsz k₁ k₂ hvc hf hlocs hstk hlabs hk
-    cases instrs with
-    | nil =>
-      simp only [lowerSeq]
-      exact hk (fun _ h => h) (fun _ h => h) hf hlocs hstk
-    | cons i rest =>
-      have hszRest : sizeOf rest < sizeOf (i :: rest) := by simp +arith
-      cases i with
-      | unreachable =>
-        simp only [lowerSeq]
-        exact mkTrapExpr_wf ctx.retTys 1#32 hf
-      | br depth =>
-        simp only [lowerSeq]
-        rcases LabsRel_getElem?_rel hlabs depth with ⟨hn1, hn2⟩ | ⟨l₁, l₂, hs1, hs2, hl⟩
-        · simp [hn1, hn2, mkTrapExpr_wf ctx.retTys 1#32 hf]
-        · simp only [hs1, hs2]
-          rcases hl with ⟨har, hm⟩
-          cases l₁ with
-          | mk lt₁ ll₁ =>
-            cases l₂ with
-            | mk lt₂ ll₂ =>
-              dsimp only at har hm
-              subst har
-              rcases popArgsAux_rel lt₁ hstk with ⟨ha1, ha2⟩ | ⟨b₁, b₂, _, _, hp1, hp2, hb, _⟩
-              · simp [ha1, ha2, mkTrapExpr_wf ctx.retTys 1#32 hf]
-              · simp only [hp1, hp2]
-                exact .jump hm (.cons hf (tupAppend_rel hlocs hb))
-      | br_table targets defTarget =>
-        simp only [lowerSeq]
-        rcases pop32_rel hstk with ⟨hn1, hn2⟩ | ⟨i₁, i₂, r₁, r₂, hp1, hp2, hi, hr⟩
-        · simp [hn1, hn2, mkTrapExpr_wf ctx.retTys 1#32 hf]
-        · simp only [hp1, hp2]
-          rcases LabsRel_getElem?_rel hlabs defTarget with
-            ⟨hn1, hn2⟩ | ⟨d₁, d₂, hs1, hs2, hdef⟩
-          · simp [hn1, hn2, mkTrapExpr_wf ctx.retTys 1#32 hf]
-          · simp only [hs1, hs2]
-            have hdeq : d₁.argTys = d₂.argTys := hdef.1
-            rcases popArgsAux_rel d₁.argTys hr with
-              ⟨ha1, ha2⟩ | ⟨b₁, b₂, _, _, hp1', hp2', hb, _⟩
-            · have ha2' : popArgsAux d₂.argTys r₂ = none := by rw [← hdeq]; exact ha2
-              simp [ha1, ha2', mkTrapExpr_wf ctx.retTys 1#32 hf]
-            · simp only [hp1']
-              cases d₁ with
-              | mk dt₁ dl₁ =>
-                cases d₂ with
-                | mk dt₂ dl₂ =>
-                  dsimp only at hdeq
-                  subst hdeq
-                  simp only [hp2']
-                  exact emitBrTable_wf ctx.locTys ctx.retTys hlabs hdef rfl hlocs hf hi hb 0
-                    targets
-      | return_ =>
-        simp only [lowerSeq]
-        rcases popArgsAux_rel ctx.retTys hstk with
-          ⟨ha1, ha2⟩ | ⟨r₁, r₂, _, _, hp1, hp2, hr, _⟩
-        · simp [ha1, ha2, mkTrapExpr_wf ctx.retTys 1#32 hf]
-        · simp only [hp1, hp2]
-          exact .ret (.cons (.imm _) (.cons hf hr))
-      | block bt body =>
-        simp only [lowerSeq]
-        cases bt.resolve ctx.types with
-        | none => exact mkTrapExpr_wf ctx.retTys 1#32 hf
-        | some ft =>
-          dsimp only
-          rcases popArgsAux_rel ft.params hstk with
-            ⟨ha1, ha2⟩ | ⟨ia₁, ia₂, sa₁, sa₂, hp1, hp2, hia, hsa⟩
-          · simp [ha1, ha2, mkTrapExpr_wf ctx.retTys 1#32 hf]
-          · simp only [hp1, hp2]
-            have hszBody : sizeOf body < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
-            have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-            refine lowerGroupJoin_wf ctx ft hsa
-              (fun {_ _} hGG' hDD' {_ _ _ _ _ _} hf' hl' hs' =>
-                ih _ hszRest' rest (Nat.le_refl _) (ArgRel.mono hGG' hvc) hf' hl' hs'
-                  (LabsRel.mono hDD' hlabs) (hk.mono hGG' hDD'))
-              (fun j₁ j₂ fall₁ fall₂ hDD' hj hfall => ?_)
-            have hlabs' : LabsRel _ ctx.locTys (⟨ft.results, j₁⟩ :: labs₁)
-                (⟨ft.results, j₂⟩ :: labs₂) := .cons ⟨rfl, hj⟩ (LabsRel.mono hDD' hlabs)
-            exact ih _ hszBody body (Nat.le_refl _) hvc hf hlocs
-              (pushArgsAux_rel ft.params hia .nil) hlabs' hfall
-      | loop bt body =>
-        simp only [lowerSeq]
-        cases bt.resolve ctx.types with
-        | none => exact mkTrapExpr_wf ctx.retTys 1#32 hf
-        | some ft =>
-          dsimp only
-          rcases popArgsAux_rel ft.params hstk with
-            ⟨ha1, ha2⟩ | ⟨ia₁, ia₂, sa₁, sa₂, hp1, hp2, hia, hsa⟩
-          · simp [ha1, ha2, mkTrapExpr_wf ctx.retTys 1#32 hf]
-          · simp only [hp1, hp2]
-            have hszBody : sizeOf body < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
-            have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-            refine lowerGroupJoin_wf ctx ft hsa
-              (fun {_ _} hGG' hDD' {_ _ _ _ _ _} hf' hl' hs' =>
-                ih _ hszRest' rest (Nat.le_refl _) (ArgRel.mono hGG' hvc) hf' hl' hs'
-                  (LabsRel.mono hDD' hlabs) (hk.mono hGG' hDD'))
-              (fun j₁ j₂ fall₁ fall₂ hDD₁ _ hfall => ?_)
-            refine .group (sig := [labelSig ctx.locTys ft.params]) ?_ ?_
-            · intro ⟨lh₁, ()⟩ ⟨lh₂, ()⟩
-              refine .cons (fun xs₁ xs₂ => ?_) .nil
-              rcases xs₁ with ⟨fh₁, xlocs₁⟩
-              rcases xs₂ with ⟨fh₂, xlocs₂⟩
-              let G₁ := Tup.zip (as := labelSig ctx.locTys ft.params)
-                (fh₁, xlocs₁) (fh₂, xlocs₂) ++ G
-              let D₁ := Tup.zip (as := [labelSig ctx.locTys ft.results]) (j₁, ()) (j₂, ()) ++ D
-              let D₂ := Tup.zip (as := [labelSig ctx.locTys ft.params])
-                (lh₁, ()) (lh₂, ()) ++ D₁
-              have hGG₁ : ∀ p ∈ G, p ∈ G₁ := fun _ hp => List.mem_append_right _ hp
-              have hD₁D₂ : ∀ p ∈ D₁, p ∈ D₂ := fun _ hp => List.mem_append_right _ hp
-              have hlh : ⟨labelSig ctx.locTys ft.params, lh₁, lh₂⟩ ∈ D₂ :=
-                List.mem_append_left _ List.mem_cons_self
-              have hfh : ArgRel G₁ T.i64 (.var fh₁) (.var fh₂) :=
-                .var (List.mem_append_left _ List.mem_cons_self)
-              have hvxs : TRel (ArgRel G₁) (varsTup xlocs₁) (varsTup xlocs₂) :=
-                TRel_ArgRel_mono (fun _ hp =>
-                  List.mem_append_left _ (List.mem_cons_of_mem _ hp)) varsTup_rel_nil
-              have hsp := tupSplit_rel hvxs
-              refine wf_let2 (.cmp .eq T.i64) hfh (.imm _) fun h1 _ _ hiz =>
-                .jnz hiz (mkTrapExpr_wf ctx.retTys 2#32 (ArgRel.mono h1 hfh))
-                  (wf_let2 (.sub T.i64) (ArgRel.mono h1 hfh) (.imm _) fun h2 _ _ hfn => ?_)
-              have hG₁₂ : ∀ p ∈ G₁, p ∈ _ := fun p hp => h2 p (h1 p hp)
-              have hG₂ : ∀ p ∈ G, p ∈ _ := fun p hp => hG₁₂ p (hGG₁ p hp)
-              have hlabs₂ : LabsRel D₂ ctx.locTys
-                  (⟨ft.params, lh₁⟩ :: labs₁) (⟨ft.params, lh₂⟩ :: labs₂) :=
-                .cons ⟨rfl, hlh⟩ (LabsRel.mono (fun p hp => hD₁D₂ p (hDD₁ p hp)) hlabs)
-              exact ih _ hszBody body (Nat.le_refl _) (ArgRel.mono hG₂ hvc) hfn
-                (TRel_ArgRel_mono hG₁₂ hsp.1)
-                (pushArgsAux_rel ft.params (TRel_ArgRel_mono hG₁₂ hsp.2) .nil) hlabs₂
-                (hfall.mono hG₂ hD₁D₂)
-            · intro ⟨lh₁, ()⟩ ⟨lh₂, ()⟩
-              exact .jump (List.mem_append_left _ List.mem_cons_self)
-                (.cons hf (tupAppend_rel hlocs hia))
-      | if_ bt thenBody elseBody =>
-        simp only [lowerSeq]
-        cases bt.resolve ctx.types with
-        | none => exact mkTrapExpr_wf ctx.retTys 1#32 hf
-        | some ft =>
-          dsimp only
-          rcases pop32_rel hstk with ⟨hc1, hc2⟩ | ⟨c₁, c₂, r₁, r₂, hcp1, hcp2, hc, hr⟩
-          · simp [hc1, hc2, mkTrapExpr_wf ctx.retTys 1#32 hf]
-          · simp only [hcp1, hcp2]
-            rcases popArgsAux_rel ft.params hr with
-              ⟨ha1, ha2⟩ | ⟨ia₁, ia₂, sa₁, sa₂, hp1, hp2, hia, hsa⟩
-            · simp [ha1, ha2, mkTrapExpr_wf ctx.retTys 1#32 hf]
-            · simp only [hp1, hp2]
-              have hszT : sizeOf thenBody < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
-              have hszE : sizeOf elseBody < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
-              have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-              refine lowerGroupJoin_wf ctx ft hsa
-                (fun {_ _} hGG' hDD' {_ _ _ _ _ _} hf' hl' hs' =>
-                  ih _ hszRest' rest (Nat.le_refl _) (ArgRel.mono hGG' hvc) hf' hl' hs'
-                    (LabsRel.mono hDD' hlabs) (hk.mono hGG' hDD'))
-                (fun j₁ j₂ fall₁ fall₂ hDD' hj hfall => ?_)
-              have hlabs' : LabsRel _ ctx.locTys (⟨ft.results, j₁⟩ :: labs₁)
-                  (⟨ft.results, j₂⟩ :: labs₂) := .cons ⟨rfl, hj⟩ (LabsRel.mono hDD' hlabs)
-              refine wf_let2 (.cmp .ne T.i32) hc (.imm _) fun h1 _ _ hbt => .jnz hbt ?_ ?_
-              · exact ih _ hszT thenBody (Nat.le_refl _) (ArgRel.mono h1 hvc)
-                  (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
-                  (pushArgsAux_rel ft.params (TRel_ArgRel_mono h1 hia) .nil) hlabs'
-                  (hfall.mono h1 fun _ hp => hp)
-              · exact ih _ hszE elseBody (Nat.le_refl _) (ArgRel.mono h1 hvc)
-                  (ArgRel.mono h1 hf) (TRel_ArgRel_mono h1 hlocs)
-                  (pushArgsAux_rel ft.params (TRel_ArgRel_mono h1 hia) .nil) hlabs'
-                  (hfall.mono h1 fun _ hp => hp)
-      | _ =>
-        -- All remaining constructors go through `lowerSimpleInstr`
-        simp only [lowerSeq]
-        have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-        refine lowerSimpleInstr_wf ctx _ hvc hf hlocs hstk hlabs ?_
-        intro G' D' hGG' hDD' f₁' f₂' l₁' l₂' s₁' s₂' hf' hl' hs'
-        exact ih _ hszRest' rest (Nat.le_refl _) (ArgRel.mono hGG' hvc)
+  intro sz; induction sz using Nat.strongRecOn with | _ sz ih =>
+  intro V₁ V₂ L₁ L₂ G D vc₁ f₁ vc₂ f₂ locs₁ locs₂ stk₁ stk₂ labs₁ labs₂
+    instrs hsz k₁ k₂ hvc hf hlocs hstk hlabs hk
+  cases instrs with
+  | nil => simp only [lowerSeq]; wf_hk0 hk hf hlocs hstk
+  | cons i rest =>
+    have hlt {b : List WInstr} (h : sizeOf b < sizeOf (i :: rest)) : sizeOf b < sz :=
+      Nat.lt_of_lt_of_le h hsz
+    have htrap := mkTrapExpr_wf (L₁ := L₁) (L₂ := L₂) (D := D) ctx.retTys 1#32 hf
+    let hafter : ContWf ctx.locTys ctx.retTys G D
+        (fun f' l' s' => lowerSeq ctx vc₁ f' l' s' labs₁ rest k₁)
+        (fun f' l' s' => lowerSeq ctx vc₂ f' l' s' labs₂ rest k₂) :=
+      fun {_ _} hGG' hDD' {_ _ _ _ _ _} hf' hl' hs' =>
+        ih _ (hlt (by simp +arith)) rest (Nat.le_refl _) (ArgRel.mono hGG' hvc)
           hf' hl' hs' (LabsRel.mono hDD' hlabs) (hk.mono hGG' hDD')
+    cases i with
+    | unreachable => simp only [lowerSeq]; exact htrap
+    | br depth =>
+      simp only [lowerSeq]
+      rcases LabsRel_getElem?_rel hlabs depth with
+        ⟨hn1, hn2⟩ | ⟨⟨lt₁, ll₁⟩, ⟨lt₂, ll₂⟩, hs1, hs2, hl⟩
+      · simp [hn1, hn2, htrap]
+      · simp only [hs1, hs2]; rcases hl with ⟨har, hm⟩; dsimp only at har hm; subst har
+        wf_pop (popArgsAux_rel lt₁ hstk), hb s_; exact .jump hm (.cons hf (tupAppend_rel hlocs hb))
+    | br_table targets defTarget =>
+      simp only [lowerSeq]; wf_pop (pop32_rel hstk), hi hr
+      rcases LabsRel_getElem?_rel hlabs defTarget with
+        ⟨hn1, hn2⟩ | ⟨⟨dt₁, dl₁⟩, ⟨dt₂, dl₂⟩, hs1, hs2, hdef⟩
+      · simp [hn1, hn2, htrap]
+      · simp only [hs1, hs2]; have hdeq : dt₁ = dt₂ := hdef.1; subst hdeq
+        wf_pop (popArgsAux_rel dt₁ hr), hb s_
+        exact emitBrTable_wf ctx.locTys ctx.retTys hlabs hdef rfl hlocs hf hi hb 0 targets
+    | return_ =>
+      simp only [lowerSeq]; wf_pop (popArgsAux_rel ctx.retTys hstk), hr s_
+      exact .ret (.cons (.imm _) (.cons hf hr))
+    | block bt body =>
+      simp only [lowerSeq]; cases bt.resolve ctx.types with | none => exact htrap | some ft =>
+      dsimp only; wf_pop (popArgsAux_rel ft.params hstk), hia hsa
+      exact lowerGroupJoin_wf ctx ft hsa hafter fun j₁ j₂ _ _ hDD' hj hfall =>
+        ih _ (hlt (by simp +arith)) body (Nat.le_refl _) hvc hf hlocs
+          (pushArgsAux_rel ft.params hia .nil) (.cons ⟨rfl, hj⟩ (LabsRel.mono hDD' hlabs)) hfall
+    | loop bt body =>
+      simp only [lowerSeq]; cases bt.resolve ctx.types with | none => exact htrap | some ft =>
+      dsimp only; wf_pop (popArgsAux_rel ft.params hstk), hia hsa
+      refine lowerGroupJoin_wf ctx ft hsa hafter fun j₁ j₂ _ _ hDD₁ _ hfall =>
+        .group (sig := [labelSig ctx.locTys ft.params])
+          (fun ⟨lh₁, ()⟩ ⟨lh₂, ()⟩ => .cons (fun ⟨fh₁, xlocs₁⟩ ⟨fh₂, xlocs₂⟩ => by
+            let G₁ :=
+              Tup.zip (as := labelSig ctx.locTys ft.params) (fh₁, xlocs₁) (fh₂, xlocs₂) ++ G
+            have hsp := tupSplit_rel (G := G₁) (TRel_ArgRel_mono (by wasm_sub) varsTup_rel_nil)
+            wasm_wf!
+            exact ih _ (hlt (by simp +arith)) body (Nat.le_refl _) (by wasm_arg) (by wasm_arg)
+              (TRel_ArgRel_mono (by wasm_sub) hsp.1)
+              (pushArgsAux_rel ft.params (TRel_ArgRel_mono (by wasm_sub) hsp.2) .nil)
+              (.cons ⟨rfl, List.mem_append_left _ List.mem_cons_self⟩
+                (LabsRel.mono (fun _ hp => List.mem_append_right _ (hDD₁ _ hp)) hlabs))
+              (hfall.mono (by wasm_sub) (by wasm_sub))) .nil)
+          fun _ _ => .jump (by wasm_mem) (.cons hf (tupAppend_rel hlocs hia))
+    | if_ bt thenBody elseBody =>
+      simp only [lowerSeq]; cases bt.resolve ctx.types with | none => exact htrap | some ft =>
+      dsimp only; wf_pop (pop32_rel hstk), hc hr; wf_pop (popArgsAux_rel ft.params hr), hia hsa
+      refine lowerGroupJoin_wf ctx ft hsa hafter fun j₁ j₂ _ _ hDD' hj hfall => by
+        have hlabs' : LabsRel _ ctx.locTys (⟨ft.results, j₁⟩ :: labs₁)
+            (⟨ft.results, j₂⟩ :: labs₂) := .cons ⟨rfl, hj⟩ (LabsRel.mono hDD' hlabs)
+        wasm_wf! <;> exact ih _ (hlt (by simp +arith)) _ (Nat.le_refl _) (by wasm_arg)
+          (by wasm_arg) (TRel_ArgRel_mono (by wasm_sub) hlocs)
+          (pushArgsAux_rel ft.params (TRel_ArgRel_mono (by wasm_sub) hia) .nil) hlabs'
+          (hfall.mono (by wasm_sub) fun _ hp => hp)
+    | _ => simp only [lowerSeq]; exact lowerSimpleInstr_wf ctx _ hvc hf hlocs hstk hlabs hafter
 
 theorem lowerFuncBody_wf (m : WModule) (f : WFunc) (ft : WFuncTy) :
-    (lowerFuncBody m f ft).Wf := by
-  intro V₁ V₂ L₁ L₂ xs₁ xs₂
-  rcases xs₁ with ⟨vc₁, f₁, ps₁⟩
-  rcases xs₂ with ⟨vc₂, f₂, ps₂⟩
+    (lowerFuncBody m f ft).Wf := fun _ _ _ _ ⟨vc₁, f₁, ps₁⟩ ⟨vc₂, f₂, ps₂⟩ => by
   simp only [lowerFuncBody]
   let ctx : WLowerCtx :=
     { types := m.types, funcs := m.funcs, hasMem := m.memory.isSome,
       memMaxBytes := (m.memory.map WMemSpec.maxBytes).getD 0#64,
       globals := m.globals, locTys := ft.params ++ f.locals, retTys := ft.results }
-  refine .group (sig := [labelSig ctx.locTys ft.results]) ?_ ?_
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    refine .cons (fun rxs₁ rxs₂ => ?_) .nil
-    rcases rxs₁ with ⟨rf₁, rlocs₁⟩
-    rcases rxs₂ with ⟨rf₂, rlocs₂⟩
-    let G₀ := Tup.zip (as := wasmAbiParams ft) (vc₁, f₁, ps₁) (vc₂, f₂, ps₂)
-    let Gr := Tup.zip (as := labelSig ctx.locTys ft.results) (rf₁, rlocs₁) (rf₂, rlocs₂) ++ G₀
-    have hsp := tupSplit_rel (G := Gr) (as := ctx.locTys.map WValTy.toTy)
-      (bs := ft.results.map WValTy.toTy)
-      (TRel_ArgRel_mono (fun _ hp => List.mem_append_left _ (List.mem_cons_of_mem _ hp))
-        varsTup_rel_nil)
-    exact .ret (.cons (.imm _) (.cons (.var (List.mem_append_left _ List.mem_cons_self)) hsp.2))
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    let G₀ := Tup.zip (as := wasmAbiParams ft) (vc₁, f₁, ps₁) (vc₂, f₂, ps₂)
-    let D₀ := Tup.zip (as := [labelSig ctx.locTys ft.results]) (j₁, ()) (j₂, ())
-    have hvc : ArgRel G₀ T.i64 (.var vc₁) (.var vc₂) := .var List.mem_cons_self
-    have hf : ArgRel G₀ T.i64 (.var f₁) (.var f₂) :=
-      .var (List.mem_cons_of_mem _ List.mem_cons_self)
-    have hps : TRel (ArgRel G₀) (varsTup ps₁) (varsTup ps₂) :=
-      TRel_ArgRel_mono (fun _ hp => by
-        simp only [G₀, Tup.zip] at hp ⊢
-        exact List.mem_cons_of_mem _ (List.mem_cons_of_mem _ hp))
-        varsTup_rel_nil
-    have hlocs := appendZeroLocals_rel ft.params f.locals hps
-    have hj : ⟨labelSig ctx.locTys ft.results, j₁, j₂⟩ ∈ D₀ := List.mem_cons_self
-    refine lowerSeq_wf_aux ctx (sizeOf f.body) f.body (Nat.le_refl _) hvc hf hlocs .nil
-      (.cons ⟨rfl, hj⟩ .nil) ?_
-    intro G' D' _ _ fe₁ fe₂ _ _ se₁ se₂ hfe _ hse
-    rcases popArgsAux_rel ft.results hse with
-      ⟨hn1, hn2⟩ | ⟨ra₁, ra₂, _, _, hp1, hp2, hra, _⟩
-    · simp [hn1, hn2, mkTrapExpr_wf ft.results 1#32 hfe]
-    · simp only [hp1, hp2]
-      exact .ret (.cons (.imm _) (.cons hfe hra))
+  let G₀ := Tup.zip (as := wasmAbiParams ft) (vc₁, f₁, ps₁) (vc₂, f₂, ps₂)
+  refine .group (sig := [labelSig ctx.locTys ft.results])
+    (fun ⟨j₁, ()⟩ ⟨j₂, ()⟩ => .cons (fun ⟨rf₁, rlocs₁⟩ ⟨rf₂, rlocs₂⟩ => by
+      let Gr := Tup.zip (as := labelSig ctx.locTys ft.results) (rf₁, rlocs₁) (rf₂, rlocs₂) ++ G₀
+      have hsp := tupSplit_rel (G := Gr) (as := ctx.locTys.map WValTy.toTy)
+        (bs := ft.results.map WValTy.toTy) (TRel_ArgRel_mono (by wasm_sub) varsTup_rel_nil)
+      exact .ret (.cons (.imm _) (.cons (.var (by wasm_mem)) hsp.2))) .nil)
+    fun ⟨j₁, ()⟩ ⟨j₂, ()⟩ => lowerSeq_wf_aux ctx (sizeOf f.body) f.body (Nat.le_refl _)
+      (.var (by wasm_mem)) (.var (by wasm_mem))
+      (appendZeroLocals_rel ft.params f.locals (TRel_ArgRel_mono (by wasm_sub) varsTup_rel_nil))
+      .nil (.cons ⟨rfl, List.mem_cons_self⟩ .nil) fun {_ D'} _ _ {_ _ _ _ _ _} hfe _ hse => by
+        have htrap := mkTrapExpr_wf (L₁ := _) (L₂ := _) (D := D') ft.results 1#32 hfe
+        wf_pop (popArgsAux_rel ft.results hse), hra s_; exact .ret (.cons (.imm _) (.cons hfe hra))
 
 /-- Universal well-formedness: every lowered function in `lowerModule m` satisfies `Fn.Wf`. -/
-theorem lowerModule_wf (m : WModule) : ∀ fn ∈ (lowerModule m).fns, fn.Wf := by
-  intro fn hmem
-  simp only [lowerModule, List.mem_map] at hmem
-  rcases hmem with ⟨f, _, rfl⟩
-  exact lowerFuncBody_wf m f _
+theorem lowerModule_wf (m : WModule) : ∀ fn ∈ (lowerModule m).fns, fn.Wf := fun _ hmem => by
+  rcases List.mem_map.mp hmem with ⟨f, _, rfl⟩; exact lowerFuncBody_wf m f _
 
 /-- Lowered function names are pairwise distinct whenever `validateModule m = true`. -/
 theorem lowerModule_namesNodup {m : WModule} (hv : validateModule m = true) :
     (lowerModule m).namesNodup := by
-  have hnd := (validateModule_elim hv).1
-  simpa [Module.namesNodup, Module.names, lowerModule, Function.comp_def, lowerFn] using hnd
+  simpa [Module.namesNodup, Module.names, lowerModule, Function.comp_def, lowerFn] using
+    (validateModule_elim hv).1
 
 end WfProofs
 
@@ -1399,19 +1017,28 @@ end WfProofs
 
 section SupportsSourceProofs
 
-theorem emitPopcntCore_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
-    (n : Nat) (hn : n ≤ 64) (m1 m2 m4 mul sh : BitVec n) (x : Arg K (.bits n))
-    (k : Arg K (.bits n) → Expr K KL rs)
-    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat (emitPopcntCore n m1 m2 m4 mul sh x k) nv nl).supportsSource lt = true := by
-  intro nv nl
-  have hT : lt.supportsTy (.bits n) = true := supportsTy_le64 hv hn
-  simp only [emitPopcntCore]
-  repeat first | exact hk _ _ _ | refine tflat_let2_ss lt _ _ _ (by tflat_op_ss hv) ?_
+local macro "ss_mem_if" b:term : tactic => `(tactic| (
+  by_cases hm : $b
+  rotate_left
+  · simp only [hm, Bool.false_eq_true, ↓reduceIte]
+    exact mkTrapExpr_ss (by assumption) _ _ _ _ _
+  simp only [hm, ↓reduceIte]))
 
-theorem emitPopcnt_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
-    (w : WValTy) (x : Arg K w.toTy) (k : Arg K w.toTy → Expr K KL rs)
+local macro "ss_pop" e:Lean.Parser.Tactic.elimTarget ","
+    x:Lean.binderIdent r:Lean.binderIdent : tactic => `(tactic| (
+  cases $e
+  · exact mkTrapExpr_ss (by assumption) _ _ _ _ _
+  rename_i _p; cases _p; rename_i $x $r; try dsimp only))
+
+theorem emitPopcntCore_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty} (n : Nat)
+    (hn : n ≤ 64) (m1 m2 m4 mul sh : BitVec n) (x : Arg K (.bits n))
+    (k : Arg K (.bits n) → Expr K KL rs)
+    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) (nv nl : Nat) :
+    (toTFlat (emitPopcntCore n m1 m2 m4 mul sh x k) nv nl).supportsSource lt = true := by
+  simp only [emitPopcntCore]; tflat_builder_ss! hv
+
+theorem emitPopcnt_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty} (w : WValTy)
+    (x : Arg K w.toTy) (k : Arg K w.toTy → Expr K KL rs)
     (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
     ∀ nv nl, (toTFlat (emitPopcnt w x k) nv nl).supportsSource lt = true := by
   cases w <;> exact emitPopcntCore_ss hv _ (by omega) _ _ _ _ _ x k hk
@@ -1419,584 +1046,243 @@ theorem emitPopcnt_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
 theorem emitUnOp_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (f : Arg K T.i64) (w : WValTy) (op : WUnOp) (x : Arg K w.toTy)
     (k : Arg K w.toTy → Expr K KL (wasmRetSig retTys))
-    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
-    ∀ nv nl, (toTFlat (emitUnOp retTys f w op x k) nv nl).supportsSource lt = true := by
-  intro nv nl
+    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) (nv nl : Nat) :
+    (toTFlat (emitUnOp retTys f w op x k) nv nl).supportsSource lt = true := by
   cases w <;> cases op <;> simp only [emitUnOp] <;>
-  first
-  | exact emitPopcnt_ss hv _ x k hk nv nl
-  | tflat_builder_ss! hv
+    first | exact emitPopcnt_ss hv _ x k hk nv nl | tflat_builder_ss! hv
 
 theorem emitDivRemCore_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (f : Arg K T.i64) (n : Nat) (hn : n ≤ 64) (minC neg1C : BitVec n) (signed trapOvf : Bool)
-    (code : OpCode [.bits n, .bits n] [.bits n])
-    (hop : lt.supportsOpCode code = true) (a b : Arg K (.bits n))
-    (k : Arg K (.bits n) → Expr K KL (wasmRetSig retTys))
-    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat
-        (emitDivRemCore retTys f n minC neg1C signed trapOvf code a b k)
-        nv nl).supportsSource lt = true := by
-  intro nv nl
-  have hT : lt.supportsTy (.bits n) = true := supportsTy_le64 hv hn
+    (code : OpCode [.bits n, .bits n] [.bits n]) (hop : lt.supportsOpCode code = true)
+    (a b : Arg K (.bits n)) (k : Arg K (.bits n) → Expr K KL (wasmRetSig retTys))
+    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) (nv nl : Nat) :
+    (toTFlat (emitDivRemCore retTys f n minC neg1C signed trapOvf code a b k)
+      nv nl).supportsSource lt = true := by
   cases signed <;> cases trapOvf <;> simp only [emitDivRemCore, ↓reduceIte, Bool.false_eq_true] <;>
-    repeat first
-    | exact hk _ _ _
-    | exact mkTrapExpr_ss hv retTys 1#32 f _ _
-    | refine tflat_let2_ss lt _ _ _ (by tflat_op_ss hv) ?_
-    | refine tflat_jnz_ss lt _ ?_ ?_
+    repeat (first
+      | exact hk _ _ _ | exact mkTrapExpr_ss hv retTys 1#32 f _ _
+      | refine tflat_let2_ss lt _ _ _ (by first | exact hop | tflat_op_ss hv) ?_
+      | refine tflat_jnz_ss lt _ ?_ ?_)
 
 theorem emitBinOp_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (f : Arg K T.i64) (w : WValTy) (op : WBinOp) (a b : Arg K w.toTy)
     (k : Arg K w.toTy → Expr K KL (wasmRetSig retTys))
-    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat (emitBinOp retTys f w op a b k) nv nl).supportsSource lt = true := by
-  intro nv nl
-  cases op <;> cases w <;> simp only [emitBinOp] <;>
-  first
-  | (refine emitDivRemCore_ss hv retTys f _ (by omega) _ _ _ _ _ ?_ a b k hk nv nl
-     tflat_op_ss hv)
-  | (refine tflat_let2_ss lt _ a b ?_ (hk _ _ _); tflat_op_ss hv)
+    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) (nv nl : Nat) :
+    (toTFlat (emitBinOp retTys f w op a b k) nv nl).supportsSource lt = true := by
+  cases op <;> cases w <;> simp only [emitBinOp] <;> first
+  | (refine emitDivRemCore_ss hv retTys f _ (by omega) _ _ _ _ _ ?_ a b k hk nv nl; tflat_op_ss hv)
+  | tflat_builder_ss! hv
 
 theorem emitLoadCast_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     {trap : Expr K KL rs} (htrap : ∀ nv nl, (toTFlat trap nv nl).supportsSource lt = true)
     (resTy : WValTy) (width : WMemWidth) (signed : Bool) (raw : K width.memTy)
     (k : Arg K resTy.toTy → Expr K KL rs)
-    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat (emitLoadCast trap resTy width signed raw k) nv nl).supportsSource lt =
-        true := by
-  intro nv nl
-  have h8 : lt.supportsTy (.bits 8) = true := supportsTy_le64 hv (by omega)
-  have h16 : lt.supportsTy (.bits 16) = true := supportsTy_le64 hv (by omega)
-  have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
+    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) (nv nl : Nat) :
+    (toTFlat (emitLoadCast trap resTy width signed raw k) nv nl).supportsSource lt = true := by
   cases resTy <;> cases width <;> cases signed <;>
-  first
-  | exact htrap nv nl
-  | exact hk _ nv nl
-  | exact tflat_let1_ss lt _ _
-      (by simp [LegalTarget.supportsOpCode];
-          repeat first | exact h8 | exact h16 | exact h32 | exact h64 | constructor)
-      (hk _ _ _)
+    first | exact htrap nv nl | exact hk _ nv nl | tflat_builder_ss! hv
 
 theorem emitStoreCast_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     {trap : Expr K KL rs} (htrap : ∀ nv nl, (toTFlat trap nv nl).supportsSource lt = true)
     (srcTy : WValTy) (width : WMemWidth) (v : Arg K srcTy.toTy)
     (k : Arg K width.memTy → Expr K KL rs)
-    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat (emitStoreCast trap srcTy width v k) nv nl).supportsSource lt = true := by
-  intro nv nl
-  have h8 : lt.supportsTy (.bits 8) = true := supportsTy_le64 hv (by omega)
-  have h16 : lt.supportsTy (.bits 16) = true := supportsTy_le64 hv (by omega)
-  have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
+    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) (nv nl : Nat) :
+    (toTFlat (emitStoreCast trap srcTy width v k) nv nl).supportsSource lt = true := by
   cases srcTy <;> cases width <;>
-  first
-  | exact htrap nv nl
-  | exact hk _ nv nl
-  | exact tflat_let1_ss lt _ _
-      (by simp [LegalTarget.supportsOpCode];
-          repeat first | exact h8 | exact h16 | exact h32 | exact h64 | constructor)
-      (hk _ _ _)
+    first | exact htrap nv nl | exact hk _ nv nl | tflat_builder_ss! hv
 
 theorem emitBrTable_ss {lt : LegalTarget} (hv : lt.valid = true) (locTys retTys : List WValTy)
     (labs : List (WLabel K KL locTys)) (locs : Tup (Arg K) (locTys.map WValTy.toTy))
     (f : Arg K T.i64) (idx : Arg K T.i32) (defLbl : WLabel K KL locTys)
-    (ba : Tup (Arg K) (defLbl.argTys.map WValTy.toTy)) :
-    ∀ (i : Nat) (ts : List Nat) (nv nl : Nat),
-      (toTFlat (emitBrTable locTys retTys labs locs f idx defLbl ba i ts) nv nl).supportsSource lt =
-        true := by
-  intro i ts
-  induction ts generalizing i with
+    (ba : Tup (Arg K) (defLbl.argTys.map WValTy.toTy)) (i : Nat) (ts : List Nat) (nv nl : Nat) :
+    (toTFlat (emitBrTable locTys retTys labs locs f idx defLbl ba i ts) nv nl).supportsSource lt =
+      true := by
+  induction ts generalizing i nv nl with
   | nil =>
-    intro nv nl
     simpa [emitBrTable, toTFlat, TFlat.supportsSource] using
       labelSig_supportsTy hv locTys defLbl.argTys
-  | cons t rest ih =>
-    intro nv nl
+  | cons t _ ih =>
     simp only [emitBrTable]
-    cases labs[t]? with
-    | none => exact mkTrapExpr_ss hv retTys 1#32 f nv nl
-    | some l =>
-      by_cases hlt : l.argTys = defLbl.argTys
-      · simp only [hlt, ↓reduceDIte]
-        have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-        refine tflat_let2_ss lt (.cmp .eq T.i32) idx (.imm _)
-          (by simp [LegalTarget.supportsOpCode, h32]) ?_
-        simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
-        refine ⟨?_, ih (i + 1) _ _⟩
-        simpa [TFlat.supportsSource, hlt] using labelSig_supportsTy hv locTys defLbl.argTys
-      · simp only [hlt, ↓reduceDIte]
-        exact mkTrapExpr_ss hv retTys 1#32 f nv nl
+    cases labs[t]? with | none => exact mkTrapExpr_ss hv retTys 1#32 f nv nl | some l =>
+    by_cases hlt : l.argTys = defLbl.argTys
+    · simp only [hlt, ↓reduceDIte]
+      tflat_builder_ss! hv <;>
+        first | simpa [hlt] using labelSig_supportsTy hv locTys defLbl.argTys | exact ih (i + 1) _ _
+    · simp only [hlt, ↓reduceDIte]; exact mkTrapExpr_ss hv retTys 1#32 f nv nl
 
 theorem emitSelect_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     {trap : Expr K KL rs} (htrap : ∀ nv nl, (toTFlat trap nv nl).supportsSource lt = true)
     (c : Arg K T.i32) (v1 v2 : SVal K) (k : SVal K → Expr K KL rs)
-    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
-    ∀ nv nl, (toTFlat (emitSelect trap c v1 v2 k) nv nl).supportsSource lt = true := by
-  intro nv nl
+    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) (nv nl : Nat) :
+    (toTFlat (emitSelect trap c v1 v2 k) nv nl).supportsSource lt = true := by
   cases v1 <;> cases v2 <;> simp only [emitSelect] <;>
-  first | exact htrap nv nl | tflat_builder_ss! hv
+    first | exact htrap nv nl | tflat_builder_ss! hv
 
-theorem emitEqz_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
-    (w : WValTy) (x : Arg K w.toTy) (k : Arg K T.i32 → Expr K KL rs)
-    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
-    ∀ nv nl, (toTFlat (emitEqz w x k) nv nl).supportsSource lt = true := by
-  intro nv nl; cases w <;> simp only [emitEqz] <;> tflat_builder_ss! hv
+theorem emitEqz_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty} (w : WValTy)
+    (x : Arg K w.toTy) (k : Arg K T.i32 → Expr K KL rs)
+    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) (nv nl : Nat) :
+    (toTFlat (emitEqz w x k) nv nl).supportsSource lt = true := by
+  cases w <;> simp only [emitEqz] <;> tflat_builder_ss! hv
 
-theorem emitRelOp_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
-    (w : WValTy) (op : WRelOp) (a b : Arg K w.toTy) (k : Arg K T.i32 → Expr K KL rs)
-    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) :
-    ∀ nv nl, (toTFlat (emitRelOp w op a b k) nv nl).supportsSource lt = true := by
-  intro nv nl; cases w <;> simp only [emitRelOp] <;> tflat_builder_ss! hv
+theorem emitRelOp_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty} (w : WValTy)
+    (op : WRelOp) (a b : Arg K w.toTy) (k : Arg K T.i32 → Expr K KL rs)
+    (hk : ∀ y nv' nl', (toTFlat (k y) nv' nl').supportsSource lt = true) (nv nl : Nat) :
+    (toTFlat (emitRelOp w op a b k) nv nl).supportsSource lt = true := by
+  cases w <;> simp only [emitRelOp] <;> tflat_builder_ss! hv
 
 theorem lowerSimpleInstr_ss {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLowerCtx)
-    (vc f : Arg K T.i64) (locs : Tup (Arg K) (ctx.locTys.map WValTy.toTy))
-    (stk : List (SVal K)) (labs : List (WLabel K KL ctx.locTys)) (instr : WInstr)
+    (vc f : Arg K T.i64) (locs : Tup (Arg K) (ctx.locTys.map WValTy.toTy)) (stk : List (SVal K))
+    (labs : List (WLabel K KL ctx.locTys)) (instr : WInstr)
     (k : WCont K KL ctx.locTys ctx.retTys)
-    (hk : ∀ f' l' s' nv' nl', (toTFlat (k f' l' s') nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat (lowerSimpleInstr ctx vc f locs stk labs instr k) nv nl).supportsSource lt =
-        true := by
-  intro nv nl
-  have h8 : lt.supportsTy (.bits 8) = true := supportsTy_le64 hv (by omega)
-  have h16 : lt.supportsTy (.bits 16) = true := supportsTy_le64 hv (by omega)
-  have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-  have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
+    (hk : ∀ f' l' s' nv' nl', (toTFlat (k f' l' s') nv' nl').supportsSource lt = true)
+    (nv nl : Nat) :
+    (toTFlat (lowerSimpleInstr ctx vc f locs stk labs instr k) nv nl).supportsSource lt = true := by
   have htrap : ∀ nv' nl',
       (toTFlat (mkTrapExpr (L := KL) ctx.retTys 1#32 f) nv' nl').supportsSource lt = true :=
     fun nv' nl' => mkTrapExpr_ss hv ctx.retTys 1#32 f nv' nl'
-  cases instr with
-  | nop => exact hk f locs stk nv nl
-  | br_if depth =>
-    simp only [lowerSimpleInstr]
-    cases pop32 stk with
-    | none => exact htrap nv nl
-    | some p =>
-      rcases p with ⟨c, r⟩
-      cases labs[depth]? with
-      | none => exact htrap nv nl
-      | some l =>
-        dsimp only
-        cases popArgsAux l.argTys r with
-        | none => exact htrap nv nl
-        | some p' =>
-          rcases p' with ⟨ba, _⟩
-          dsimp only
-          refine tflat_let2_ss lt (.cmp .ne T.i32) c (.imm _)
-            (by simp [LegalTarget.supportsOpCode, h32]) ?_
-          simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
-          refine ⟨?_, hk f locs r _ _⟩
-          simpa [TFlat.supportsSource] using labelSig_supportsTy hv ctx.locTys l.argTys
-  | call fnIdx =>
-    simp only [lowerSimpleInstr]
-    cases hcal : ctx.funcs[fnIdx]? with
-    | none => exact htrap nv nl
-    | some callee =>
-      dsimp only
-      cases hft : ctx.types[callee.typeIdx]? with
-      | none => exact htrap nv nl
-      | some ft =>
-        dsimp only
-        cases popArgsAux ft.params stk with
-        | none => exact htrap nv nl
-        | some p =>
-          rcases p with ⟨ca, s1⟩
-          dsimp only
-          refine tflat_let2_ss lt (.cmp .eq T.i64) f (.imm _)
-            (by simp [LegalTarget.supportsOpCode, h64]) ?_
-          simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
-          refine ⟨wasmRetSig_supportsTy hv ctx.retTys,
-            by simp [LegalTarget.supportsOpCode, h64],
-            ⟨wasmAbiParams_supportsTy hv ft, wasmRetSig_supportsTy hv ft.results⟩,
-            by simp [LegalTarget.supportsOpCode, h32],
-            by apply hk,
-            wasmRetSig_supportsTy hv ctx.retTys⟩
-  | drop =>
-    simp only [lowerSimpleInstr]
-    cases stk with
-    | nil => exact htrap nv nl
-    | cons _ r => exact hk f locs r nv nl
-  | select =>
-    simp only [lowerSimpleInstr]
-    cases pop32 stk with
-    | none => exact htrap nv nl
-    | some p =>
-      rcases p with ⟨c, r⟩
-      cases r with
-      | nil => exact htrap nv nl
-      | cons v₂ r2 =>
-        cases r2 with
-        | nil => exact htrap nv nl
-        | cons v₁ r3 =>
-          exact emitSelect_ss hv htrap c v₁ v₂ _ (fun _ nv' nl' => hk f locs _ nv' nl') nv nl
-  | local_get idx =>
-    simp only [lowerSimpleInstr]
+  cases instr <;> simp only [lowerSimpleInstr] <;> try exact htrap nv nl
+  case nop => exact hk f locs stk nv nl
+  case br_if depth =>
+    ss_pop (pop32 stk), c s1; cases labs[depth]? with | none => exact htrap nv nl | some l =>
+    dsimp only; ss_pop (popArgsAux l.argTys s1), ba s2
+    tflat_builder_ss! hv <;> exact hk f locs s1 _ _
+  case call fnIdx =>
+    cases ctx.funcs[fnIdx]? with | none => exact htrap nv nl | some callee =>
+    dsimp only; cases ctx.types[callee.typeIdx]? with | none => exact htrap nv nl | some ft =>
+    dsimp only; ss_pop (popArgsAux ft.params stk), ca s1; tflat_builder_ss! hv <;> first
+      | apply hk | simpa [mkStatusTrapExpr, toTFlat, TFlat.supportsSource] using
+        wasmRetSig_supportsTy hv ctx.retTys
+  case drop => cases stk with | nil => exact htrap nv nl | cons _ r => exact hk f locs r nv nl
+  case select =>
+    ss_pop (pop32 stk), cond s1
+    cases s1 with | nil => exact htrap nv nl | cons v₂ r2 =>
+    cases r2 with | nil => exact htrap nv nl | cons v₁ r3 =>
+    exact emitSelect_ss hv htrap cond v₁ v₂ _ (fun _ => hk f locs _) nv nl
+  case local_get idx =>
     cases getLocal ctx.locTys locs idx with
-    | none => exact htrap nv nl
-    | some v => exact hk f locs (v :: stk) nv nl
-  | local_set idx =>
-    simp only [lowerSimpleInstr]
-    cases stk with
-    | nil => exact htrap nv nl
-    | cons v r =>
-      dsimp only
-      cases setLocal ctx.locTys locs idx v with
-      | none => exact htrap nv nl
-      | some locs' => exact hk f locs' r nv nl
-  | local_tee idx =>
-    simp only [lowerSimpleInstr]
-    cases stk with
-    | nil => exact htrap nv nl
-    | cons v r =>
-      dsimp only
-      cases setLocal ctx.locTys locs idx v with
-      | none => exact htrap nv nl
-      | some locs' => exact hk f locs' (v :: r) nv nl
-  | global_get idx =>
-    simp only [lowerSimpleInstr]
-    cases ctx.globals[idx]? with
-    | none => exact htrap nv nl
-    | some g => exact hk f locs _ nv nl
-  | load resTy width signed arg =>
-    simp only [lowerSimpleInstr]
-    by_cases hok : (ctx.hasMem && validateLoad resTy width signed) = true
-    · simp only [hok, ↓reduceIte]
-      cases pop32 stk with
-      | none => exact htrap nv nl
-      | some p =>
-        rcases p with ⟨i, r⟩
-        dsimp only
-        refine emitMemBounds_ss hv ctx.retTys vc f i arg width.bytes _
-          (fun ptr nv' nl' => ?_) nv nl
-        simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
-        have hwm : lt.supportsTy width.memTy = true := by
-          cases width <;> simp [WMemWidth.memTy, h8, h16, h32, h64]
-        have hwb : decide (width.memTy.bytes ≤ 2 ^ 64) = true := by cases width <;> rfl
-        refine ⟨⟨hwm, hwb⟩, ?_⟩
-        exact emitLoadCast_ss hv htrap resTy width signed _ _
-          (fun v nv'' nl'' => hk f locs _ nv'' nl'') _ _
-    · simp only [hok, Bool.false_eq_true, ↓reduceIte]; exact htrap nv nl
-  | store srcTy width arg =>
-    simp only [lowerSimpleInstr]
-    by_cases hok : (ctx.hasMem && validateStore srcTy width) = true
-    · simp only [hok, ↓reduceIte]
-      cases popExpectS srcTy stk with
-      | none => exact htrap nv nl
-      | some p =>
-        rcases p with ⟨v, r⟩
-        dsimp only
-        cases pop32 r with
-        | none => exact htrap nv nl
-        | some p' =>
-          rcases p' with ⟨i, r2⟩
-          dsimp only
-          refine emitMemBounds_ss hv ctx.retTys vc f i arg width.bytes _
-            (fun ptr nv' nl' => ?_) nv nl
-          refine emitStoreCast_ss hv htrap srcTy width v _ (fun mv nv'' nl'' => ?_) nv' nl'
-          simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
-          have hwm : lt.supportsTy width.memTy = true := by
-            cases width <;> simp [WMemWidth.memTy, h8, h16, h32, h64]
-          have hwb : decide (width.memTy.bytes ≤ 2 ^ 64) = true := by cases width <;> rfl
-          exact ⟨⟨hwm, hwb⟩, hk f locs r2 nv'' nl''⟩
-    · simp only [hok, Bool.false_eq_true, ↓reduceIte]; exact htrap nv nl
-  | memory_size =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      exact emitMemSize_ss hv vc _ (fun _ nv' nl' => hk f locs _ nv' nl') nv nl
-    · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact htrap nv nl
-  | memory_grow =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      cases pop32 stk with
-      | none => exact htrap nv nl
-      | some p =>
-        rcases p with ⟨d, r⟩
-        dsimp only
-        exact emitMemGrow_ss hv ctx.retTys ctx.memMaxBytes vc f d _
-          (fun f' _ nv' nl' => hk f' locs _ nv' nl') nv nl
-    · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact htrap nv nl
-  | memory_fill =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      cases pop32 stk with
-      | none => exact htrap nv nl
-      | some p1 =>
-        rcases p1 with ⟨n, r1⟩
-        dsimp only
-        cases pop32 r1 with
-        | none => exact htrap nv nl
-        | some p2 =>
-          rcases p2 with ⟨v, r2⟩
-          dsimp only
-          cases pop32 r2 with
-          | none => exact htrap nv nl
-          | some p3 =>
-            rcases p3 with ⟨d, r3⟩
-            dsimp only
-            exact emitMemFill_ss hv ctx.retTys vc f d v n _
-              (fun f' nv' nl' => hk f' locs r3 nv' nl') nv nl
-    · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact htrap nv nl
-  | memory_copy =>
-    simp only [lowerSimpleInstr]
-    by_cases hm : ctx.hasMem = true
-    · simp only [hm, ↓reduceIte]
-      cases pop32 stk with
-      | none => exact htrap nv nl
-      | some p1 =>
-        rcases p1 with ⟨n, r1⟩
-        dsimp only
-        cases pop32 r1 with
-        | none => exact htrap nv nl
-        | some p2 =>
-          rcases p2 with ⟨s, r2⟩
-          dsimp only
-          cases pop32 r2 with
-          | none => exact htrap nv nl
-          | some p3 =>
-            rcases p3 with ⟨d, r3⟩
-            dsimp only
-            exact emitMemCopy_ss hv ctx.retTys vc f d s n _
-              (fun f' nv' nl' => hk f' locs r3 nv' nl') nv nl
-    · simp only [hm, Bool.false_eq_true, ↓reduceIte]; exact htrap nv nl
-  | i32_const _ => exact hk f locs _ nv nl
-  | i64_const _ => exact hk f locs _ nv nl
-  | eqz w =>
-    simp only [lowerSimpleInstr]
-    cases w <;> cases stk with
-    | nil => exact htrap nv nl
-    | cons x _ =>
-      cases x <;> first
-        | exact htrap nv nl
-        | exact emitEqz_ss hv _ _ _ (fun _ nv' nl' => hk f locs _ nv' nl') nv nl
-  | unop w op =>
-    simp only [lowerSimpleInstr]
-    cases popExpectS w stk with
-    | none => exact htrap nv nl
-    | some p =>
-      rcases p with ⟨x, r⟩
-      dsimp only
-      exact emitUnOp_ss hv ctx.retTys f w op x _ (fun _ nv' nl' => hk f locs _ nv' nl') nv nl
-  | binop w op =>
-    simp only [lowerSimpleInstr]
-    cases popExpectS w stk with
-    | none => exact htrap nv nl
-    | some p =>
-      rcases p with ⟨b, r1⟩
-      dsimp only
-      cases popExpectS w r1 with
-      | none => exact htrap nv nl
-      | some p' =>
-        rcases p' with ⟨a, r2⟩
-        dsimp only
-        exact emitBinOp_ss hv ctx.retTys f w op a b _
-          (fun _ nv' nl' => hk f locs _ nv' nl') nv nl
-  | relop w op =>
-    simp only [lowerSimpleInstr]
-    cases popExpectS w stk with
-    | none => exact htrap nv nl
-    | some p =>
-      rcases p with ⟨b, r1⟩
-      dsimp only
-      cases popExpectS w r1 with
-      | none => exact htrap nv nl
-      | some p' =>
-        rcases p' with ⟨a, _⟩
-        dsimp only
-        exact emitRelOp_ss hv w op a b _ (fun _ nv' nl' => hk f locs _ nv' nl') nv nl
-  | wrap_i64 =>
-    simp only [lowerSimpleInstr]
-    cases pop64 stk with
-    | none => exact htrap nv nl
-    | some p =>
-      rcases p with ⟨x, r⟩
-      dsimp only
-      exact tflat_let1_ss lt (.trunc 64 32) x
-        (by simp [LegalTarget.supportsOpCode, h64, h32]) (hk f locs _ _ _)
-  | extend_i32_s =>
-    simp only [lowerSimpleInstr]
-    cases pop32 stk with
-    | none => exact htrap nv nl
-    | some p =>
-      rcases p with ⟨x, r⟩
-      dsimp only
-      exact tflat_let1_ss lt (.sext 32 64) x
-        (by simp [LegalTarget.supportsOpCode, h32, h64]) (hk f locs _ _ _)
-  | extend_i32_u =>
-    simp only [lowerSimpleInstr]
-    cases pop32 stk with
-    | none => exact htrap nv nl
-    | some p =>
-      rcases p with ⟨x, r⟩
-      dsimp only
-      exact tflat_let1_ss lt (.zext 32 64) x
-        (by simp [LegalTarget.supportsOpCode, h32, h64]) (hk f locs _ _ _)
-  | unreachable => exact htrap nv nl
-  | block _ _ => exact htrap nv nl
-  | loop _ _ => exact htrap nv nl
-  | if_ _ _ _ => exact htrap nv nl
-  | br _ => exact htrap nv nl
-  | br_table _ _ => exact htrap nv nl
-  | return_ => exact htrap nv nl
+    | none => exact htrap nv nl | some v => exact hk f locs _ nv nl
+  case local_set idx | local_tee idx =>
+    cases stk with | nil => exact htrap nv nl | cons v r =>
+    dsimp only; cases setLocal ctx.locTys locs idx v with
+    | none => exact htrap nv nl | some locs' => exact hk f locs' _ nv nl
+  case global_get idx =>
+    cases ctx.globals[idx]? with | none => exact htrap nv nl | some _ => exact hk f locs _ nv nl
+  case load resTy width signed arg =>
+    ss_mem_if (ctx.hasMem && validateLoad resTy width signed); ss_pop (pop32 stk), i r
+    refine emitMemBounds_ss hv ctx.retTys vc f i arg width.bytes _ (fun _ _ _ =>
+      tflat_load_ss lt width.memTy _ (by cases width <;> exact supportsTy_le64 hv (by omega))
+        (by cases width <;> decide)
+        (emitLoadCast_ss hv htrap resTy width signed _ _ (fun _ => hk f locs _) _ _)) nv nl
+  case store srcTy width arg =>
+    ss_mem_if (ctx.hasMem && validateStore srcTy width)
+    ss_pop (popExpectS srcTy stk), v r; ss_pop (pop32 r), i r2
+    refine emitMemBounds_ss hv ctx.retTys vc f i arg width.bytes _ (fun _ nv' nl' =>
+      emitStoreCast_ss hv htrap srcTy width v _ (fun _ _ _ =>
+        tflat_store_ss lt (t := width.memTy) _ _
+          (by cases width <;> exact supportsTy_le64 hv (by omega))
+          (by cases width <;> decide) (hk f locs r2 _ _)) nv' nl') nv nl
+  case memory_size =>
+    ss_mem_if ctx.hasMem; exact emitMemSize_ss hv vc _ (fun _ => hk f locs _) nv nl
+  case memory_grow =>
+    ss_mem_if ctx.hasMem; ss_pop (pop32 stk), d r
+    exact emitMemGrow_ss hv ctx.retTys ctx.memMaxBytes vc f d _ (fun f' _ => hk f' locs _) nv nl
+  case memory_fill =>
+    ss_mem_if ctx.hasMem; ss_pop (pop32 stk), n r1; ss_pop (pop32 r1), v r2; ss_pop (pop32 r2), d r3
+    exact emitMemFill_ss hv ctx.retTys vc f d v n _ (fun f' => hk f' locs r3) nv nl
+  case memory_copy =>
+    ss_mem_if ctx.hasMem; ss_pop (pop32 stk), n r1; ss_pop (pop32 r1), s r2; ss_pop (pop32 r2), d r3
+    exact emitMemCopy_ss hv ctx.retTys vc f d s n _ (fun f' => hk f' locs r3) nv nl
+  case i32_const _ | i64_const _ => exact hk f locs _ nv nl
+  case eqz w =>
+    cases w <;> cases stk with | nil => exact htrap nv nl | cons x _ =>
+    cases x <;> first | exact htrap nv nl | exact emitEqz_ss hv _ _ _ (fun _ => hk f locs _) nv nl
+  case unop w op =>
+    ss_pop (popExpectS w stk), x r
+    exact emitUnOp_ss hv ctx.retTys f w op x _ (fun _ => hk f locs _) nv nl
+  case binop w op =>
+    ss_pop (popExpectS w stk), b r1; ss_pop (popExpectS w r1), a r2
+    exact emitBinOp_ss hv ctx.retTys f w op a b _ (fun _ => hk f locs _) nv nl
+  case relop w op =>
+    ss_pop (popExpectS w stk), b r1; ss_pop (popExpectS w r1), a r2
+    exact emitRelOp_ss hv w op a b _ (fun _ => hk f locs _) nv nl
+  case wrap_i64 => ss_pop (pop64 stk), x r; tflat_builder_ss! hv <;> exact hk f locs _ _ _
+  case extend_i32_s | extend_i32_u =>
+    ss_pop (pop32 stk), x r; tflat_builder_ss! hv <;> exact hk f locs _ _ _
 
 theorem lowerGroupJoin_ss {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLowerCtx)
-    (ft : WFuncTy) (sa : List (SVal K))
-    (body : WLabel K KL ctx.locTys → WCont K KL ctx.locTys ctx.retTys →
-      Expr K KL (wasmRetSig ctx.retTys))
-    (after : WCont K KL ctx.locTys ctx.retTys)
-    (hbody : ∀ lbl fall,
+    (ft : WFuncTy) (sa : List (SVal K)) (body : WLabel K KL ctx.locTys →
+      WCont K KL ctx.locTys ctx.retTys → Expr K KL (wasmRetSig ctx.retTys))
+    (after : WCont K KL ctx.locTys ctx.retTys) (hbody : ∀ lbl fall,
       (∀ f' l' s' nv' nl', (toTFlat (fall f' l' s') nv' nl').supportsSource lt = true) →
       ∀ nv' nl', (toTFlat (body lbl fall) nv' nl').supportsSource lt = true)
     (hafter : ∀ f' l' s' nv' nl', (toTFlat (after f' l' s') nv' nl').supportsSource lt = true)
     (nv nl : Nat) :
     (toTFlat (lowerGroupJoin ctx ft sa body after) nv nl).supportsSource lt = true := by
   refine tflat_group1_ss lt (labelSig ctx.locTys ft.results) _ _
-    (labelSig_supportsTy hv ctx.locTys ft.results) ?_ ?_
-  · dsimp only
-    exact hafter _ _ _ _ _
-  · exact hbody _ _ (fun f' l' s' nv' nl' => by
-      cases popArgsAux ft.results s' with
-      | none => exact mkTrapExpr_ss hv ctx.retTys 1#32 f' nv' nl'
-      | some p' =>
-        rcases p' with ⟨_, _⟩
-        exact tflat_jump_ss lt _ _ (labelSig_supportsTy hv ctx.locTys ft.results)) _ _
+    (labelSig_supportsTy hv ctx.locTys ft.results) (by dsimp only; exact hafter _ _ _ _ _) ?_
+  refine hbody _ _ (fun _ _ s' _ _ => ?_) _ _
+  ss_pop (popArgsAux ft.results s'), ra s1
+  exact tflat_jump_ss lt _ _ (labelSig_supportsTy hv ctx.locTys ft.results)
 
 theorem lowerSeq_ss_aux {lt : LegalTarget} (hv : lt.valid = true) (ctx : WLowerCtx) :
     ∀ (sz : Nat) (vc f : Arg K T.i64) (locs : Tup (Arg K) (ctx.locTys.map WValTy.toTy))
-      (stk : List (SVal K)) (labs : List (WLabel K KL ctx.locTys))
-      (instrs : List WInstr) (_hsz : sizeOf instrs ≤ sz)
-      (k : WCont K KL ctx.locTys ctx.retTys),
+      (stk : List (SVal K)) (labs : List (WLabel K KL ctx.locTys)) (instrs : List WInstr)
+      (_hsz : sizeOf instrs ≤ sz) (k : WCont K KL ctx.locTys ctx.retTys),
       (∀ f' l' s' nv' nl', (toTFlat (k f' l' s') nv' nl').supportsSource lt = true) →
       ∀ nv nl,
         (toTFlat (lowerSeq ctx vc f locs stk labs instrs k) nv nl).supportsSource lt = true := by
-  intro sz
-  induction sz using Nat.strongRecOn with
-  | _ sz ih =>
-    intro vc f locs stk labs instrs hsz k hk nv nl
-    have htrap : ∀ nv' nl',
-        (toTFlat (mkTrapExpr (L := KL) ctx.retTys 1#32 f) nv' nl').supportsSource lt = true :=
-      fun nv' nl' => mkTrapExpr_ss hv ctx.retTys 1#32 f nv' nl'
-    have h64 : lt.supportsTy (.bits 64) = true := supportsTy_le64 hv (by omega)
-    have h32 : lt.supportsTy (.bits 32) = true := supportsTy_le64 hv (by omega)
-    cases instrs with
-    | nil => simp only [lowerSeq]; exact hk f locs stk nv nl
-    | cons i rest =>
-      have hszRest : sizeOf rest < sizeOf (i :: rest) := by simp +arith
-      cases i with
-      | unreachable => simp only [lowerSeq]; exact htrap nv nl
-      | br depth =>
-        simp only [lowerSeq]
-        cases labs[depth]? with
-        | none => exact htrap nv nl
-        | some lbl =>
-          dsimp only
-          cases popArgsAux lbl.argTys stk with
-          | none => exact htrap nv nl
-          | some p =>
-            rcases p with ⟨ba, _⟩
-            dsimp only
-            simp only [toTFlat, TFlat.supportsSource, labelSig, List.all_cons, Bool.and_eq_true]
-            exact labelSig_supportsTy_pair hv ctx.locTys lbl.argTys
-      | br_table targets defTarget =>
-        simp only [lowerSeq]
-        cases pop32 stk with
-        | none => exact htrap nv nl
-        | some p =>
-          rcases p with ⟨idx32, stk1⟩
-          cases labs[defTarget]? with
-          | none => exact htrap nv nl
-          | some defLbl =>
-            dsimp only
-            cases popArgsAux defLbl.argTys stk1 with
-            | none => exact htrap nv nl
-            | some p' =>
-              rcases p' with ⟨ba, _⟩
-              dsimp only
-              exact emitBrTable_ss hv ctx.locTys ctx.retTys labs locs f idx32 defLbl ba
-                0 targets nv nl
-      | return_ =>
-        simp only [lowerSeq]
-        cases popArgsAux ctx.retTys stk with
-        | none => exact htrap nv nl
-        | some p =>
-          rcases p with ⟨ra, _⟩
-          dsimp only
-          simpa [toTFlat, TFlat.supportsSource] using wasmRetSig_supportsTy hv ctx.retTys
-      | block bt body =>
-        simp only [lowerSeq]
-        cases bt.resolve ctx.types with
-        | none => exact htrap nv nl
-        | some ft =>
-          dsimp only
-          cases popArgsAux ft.params stk with
-          | none => exact htrap nv nl
-          | some p =>
-            rcases p with ⟨ia, sa⟩; dsimp only
-            have hszBody : sizeOf body < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
-            have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-            exact lowerGroupJoin_ss hv ctx ft sa _ _
-              (fun _ _ hfall nv' nl' =>
-                ih _ hszBody vc f locs _ _ body (Nat.le_refl _) _ hfall nv' nl')
-              (fun _ _ _ nv' nl' => ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk nv' nl')
-              nv nl
-      | loop bt body =>
-        simp only [lowerSeq]
-        cases bt.resolve ctx.types with
-        | none => exact htrap nv nl
-        | some ft =>
-          dsimp only
-          cases popArgsAux ft.params stk with
-          | none => exact htrap nv nl
-          | some p =>
-            rcases p with ⟨ia, sa⟩; dsimp only
-            have hszBody : sizeOf body < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
-            have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-            refine lowerGroupJoin_ss hv ctx ft sa _ _
-              (fun _ _ hfall nv' nl' => ?_)
-              (fun _ _ _ nv' nl' => ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk nv' nl')
-              nv nl
-            refine tflat_group1_ss lt (labelSig ctx.locTys ft.params) _ _
-              (labelSig_supportsTy hv ctx.locTys ft.params) ?_
-              (tflat_jump_ss lt _ _ (labelSig_supportsTy hv ctx.locTys ft.params))
-            tflat_builder_ss! hv
-            exact ih _ hszBody vc _ _ _ _ body (Nat.le_refl _) _ hfall _ _
-      | if_ bt thenBody elseBody =>
-        simp only [lowerSeq]
-        cases bt.resolve ctx.types with
-        | none => exact htrap nv nl
-        | some ft =>
-          dsimp only
-          cases pop32 stk with
-          | none => exact htrap nv nl
-          | some p =>
-            rcases p with ⟨cond, stk1⟩; dsimp only
-            cases popArgsAux ft.params stk1 with
-            | none => exact htrap nv nl
-            | some p' =>
-              rcases p' with ⟨ia, sa⟩; dsimp only
-              have hszT : sizeOf thenBody < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
-              have hszE : sizeOf elseBody < sz := Nat.lt_of_lt_of_le (by simp +arith) hsz
-              have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-              refine lowerGroupJoin_ss hv ctx ft sa _ _
-                (fun _ _ hfall nv' nl' => ?_)
-                (fun _ _ _ nv' nl' =>
-                  ih _ hszRest' vc _ _ _ labs rest (Nat.le_refl _) k hk nv' nl') nv nl
-              refine tflat_let2_ss lt (.cmp .ne T.i32) cond (.imm _) (by tflat_op_ss hv)
-                (tflat_jnz_ss lt _
-                  (ih _ hszT vc f locs _ _ thenBody (Nat.le_refl _) _ hfall _ _)
-                  (ih _ hszE vc f locs _ _ elseBody (Nat.le_refl _) _ hfall _ _))
-      | _ =>
-        simp only [lowerSeq]
-        have hszRest' : sizeOf rest < sz := Nat.lt_of_lt_of_le hszRest hsz
-        exact lowerSimpleInstr_ss hv ctx vc f locs stk labs _ _
-          (fun f' l' s' nv' nl' => ih _ hszRest' vc f' l' s' labs rest (Nat.le_refl _)
-            k hk nv' nl') nv nl
+  intro sz; induction sz using Nat.strongRecOn with | _ sz ih =>
+  intro vc f locs stk labs instrs hsz k hk nv nl
+  have htrap : ∀ nv' nl',
+      (toTFlat (mkTrapExpr (L := KL) ctx.retTys 1#32 f) nv' nl').supportsSource lt = true :=
+    fun nv' nl' => mkTrapExpr_ss hv ctx.retTys 1#32 f nv' nl'
+  cases instrs with
+  | nil => simp only [lowerSeq]; exact hk f locs stk nv nl
+  | cons i rest =>
+    have hlt {b : List WInstr} (h : sizeOf b < sizeOf (i :: rest)) : sizeOf b < sz :=
+      Nat.lt_of_lt_of_le h hsz
+    let hafter := fun (f' : Arg K T.i64) l' s' nv' nl' =>
+      ih _ (hlt (by simp +arith)) vc f' l' s' labs rest (Nat.le_refl _) k hk nv' nl'
+    cases i with
+    | unreachable => simp only [lowerSeq]; exact htrap nv nl
+    | br depth =>
+      simp only [lowerSeq]; cases labs[depth]? with | none => exact htrap nv nl | some lbl =>
+      dsimp only; ss_pop (popArgsAux lbl.argTys stk), ba s1
+      simpa [toTFlat, TFlat.supportsSource, labelSig, List.all_cons] using
+        labelSig_supportsTy_pair hv ctx.locTys lbl.argTys
+    | br_table targets defTarget =>
+      simp only [lowerSeq]; ss_pop (pop32 stk), idx32 stk1
+      cases labs[defTarget]? with | none => exact htrap nv nl | some defLbl =>
+      dsimp only; ss_pop (popArgsAux defLbl.argTys stk1), ba s2
+      exact emitBrTable_ss hv ctx.locTys ctx.retTys labs locs f idx32 defLbl ba 0 targets nv nl
+    | return_ =>
+      simp only [lowerSeq]; ss_pop (popArgsAux ctx.retTys stk), ra s1
+      simpa [toTFlat, TFlat.supportsSource] using wasmRetSig_supportsTy hv ctx.retTys
+    | block bt body =>
+      simp only [lowerSeq]; cases bt.resolve ctx.types with | none => exact htrap nv nl | some ft =>
+      dsimp only; ss_pop (popArgsAux ft.params stk), ia sa
+      exact lowerGroupJoin_ss hv ctx ft sa _ _ (fun _ _ hfall =>
+        ih _ (hlt (by simp +arith)) vc f locs _ _ body (Nat.le_refl _) _ hfall) hafter nv nl
+    | loop bt body =>
+      simp only [lowerSeq]; cases bt.resolve ctx.types with | none => exact htrap nv nl | some ft =>
+      dsimp only; ss_pop (popArgsAux ft.params stk), ia sa
+      refine lowerGroupJoin_ss hv ctx ft sa _ _ (fun _ _ hfall _ _ => ?_) hafter nv nl
+      refine tflat_group1_ss lt (labelSig ctx.locTys ft.params) _ _
+        (labelSig_supportsTy hv ctx.locTys ft.params) ?_
+        (tflat_jump_ss lt _ _ (labelSig_supportsTy hv ctx.locTys ft.params))
+      tflat_builder_ss! hv
+      exact ih _ (hlt (by simp +arith)) vc _ _ _ _ body (Nat.le_refl _) _ hfall _ _
+    | if_ bt thenBody elseBody =>
+      simp only [lowerSeq]; cases bt.resolve ctx.types with | none => exact htrap nv nl | some ft =>
+      dsimp only; ss_pop (pop32 stk), cond stk1; ss_pop (popArgsAux ft.params stk1), ia sa
+      refine lowerGroupJoin_ss hv ctx ft sa _ _ (fun _ _ hfall _ _ => by
+        tflat_builder_ss! hv <;>
+          exact ih _ (hlt (by simp +arith)) vc f locs _ _ _ (Nat.le_refl _) _ hfall _ _)
+        hafter nv nl
+    | _ =>
+      simp only [lowerSeq]
+      exact lowerSimpleInstr_ss hv ctx vc f locs stk labs _ _
+        (fun _ l' s' nv' nl' => hafter _ l' s' nv' nl') nv nl
 
 theorem lowerFuncBody_supportsSource (m : WModule) (f : WFunc) (ft : WFuncTy)
     {lt : LegalTarget} (hv : lt.valid = true) :
@@ -2013,23 +1299,15 @@ theorem lowerFuncBody_supportsSource (m : WModule) (f : WFunc) (ft : WFuncTy)
     labelSig, List.all_cons, List.all_nil, Bool.and_true, Bool.and_eq_true]
   refine ⟨⟨hsig, hsig, by simpa [toTFlat, TFlat.supportsSource] using hret⟩, ?_⟩
   refine lowerSeq_ss_aux hv ctx (sizeOf f.body) _ _ _ [] _ f.body (Nat.le_refl _) _
-    (fun f' _ s' nv' nl' => ?_) _ _
-  cases popArgsAux ft.results s' with
-  | none => exact mkTrapExpr_ss hv ft.results 1#32 f' nv' nl'
-  | some p =>
-    rcases p with ⟨ra, _⟩
-    dsimp only
-    simpa [toTFlat, TFlat.supportsSource] using hret
+    (fun _ _ s' _ _ => ?_) _ _
+  ss_pop (popArgsAux ft.results s'), ra s1; simpa [toTFlat, TFlat.supportsSource] using hret
 
 /-- Universal supportability: every lowered function in `lowerModule m` satisfies
 `fn.body.supportsSource lt` for every valid `LegalTarget` (including both `x64LegalTarget`
 and `armLegalTarget`). -/
 theorem lowerModule_supportsSource (m : WModule) {lt : LegalTarget} (hv : lt.valid = true) :
-    ∀ fn ∈ (lowerModule m).fns, fn.body.supportsSource lt = true := by
-  intro fn hmem
-  simp only [lowerModule, List.mem_map] at hmem
-  rcases hmem with ⟨f, _, rfl⟩
-  exact lowerFuncBody_supportsSource m f _ hv
+    ∀ fn ∈ (lowerModule m).fns, fn.body.supportsSource lt = true := fun _ hmem => by
+  rcases List.mem_map.mp hmem with ⟨f, _, rfl⟩; exact lowerFuncBody_supportsSource m f _ hv
 
 theorem legalSig_map_toTy {lt : LegalTarget}
     (h32 : lt.legalTys T.i32 = [T.i32]) (h64 : lt.legalTys T.i64 = [T.i64]) :
@@ -2047,14 +1325,13 @@ theorem legalSig_map_toTy {lt : LegalTarget}
 `armLegalTarget`). -/
 theorem lowerModule_legalSig (m : WModule) {lt : LegalTarget}
     (h32 : lt.legalTys T.i32 = [T.i32]) (h64 : lt.legalTys T.i64 = [T.i64]) :
-    ∀ fn ∈ (lowerModule m).fns, lt.legalSig fn.as = fn.as ∧ lt.legalSig fn.rs = fn.rs := by
-  intro fn hmem
-  simp only [lowerModule, List.mem_map] at hmem
-  rcases hmem with ⟨f, _, rfl⟩
-  simp only [lowerFn, wasmAbiResults, wasmRetSig,
-    LegalTarget.legalSig, h32, h64, List.cons_append, List.nil_append]
-  exact ⟨congrArg (T.i64 :: T.i64 :: ·) (legalSig_map_toTy h32 h64 _),
-    congrArg (T.i32 :: T.i64 :: ·) (legalSig_map_toTy h32 h64 _)⟩
+    ∀ fn ∈ (lowerModule m).fns, lt.legalSig fn.as = fn.as ∧ lt.legalSig fn.rs = fn.rs :=
+  fun _ hmem => by
+    rcases List.mem_map.mp hmem with ⟨f, _, rfl⟩
+    simp only [lowerFn, wasmAbiResults, wasmRetSig, LegalTarget.legalSig, h32, h64,
+      List.cons_append, List.nil_append]
+    exact ⟨congrArg (T.i64 :: T.i64 :: ·) (legalSig_map_toTy h32 h64 _),
+      congrArg (T.i32 :: T.i64 :: ·) (legalSig_map_toTy h32 h64 _)⟩
 
 end SupportsSourceProofs
 

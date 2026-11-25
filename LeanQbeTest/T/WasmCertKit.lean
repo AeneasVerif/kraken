@@ -1,7 +1,11 @@
 module
 
 public import LeanQbe.T.Wasm.Safety
+public import LeanQbe.T.Main
+public import LeanQbe.T.MainLinkScc
 public import LeanQbe.T.MainCertProof
+meta import LeanQbe.T.Main
+meta import LeanQbe.T.MainLinkScc
 
 /-!
 # Target-Abstract WebAssembly Certification Helpers (`WasmCertKit`)
@@ -230,5 +234,45 @@ theorem wasm_of_returns_void {T : Target} {State : Type}
   exact ⟨hpc, hcal, hsp, hdmem, st0, rf, hst, hrf,
     by simpa [BitVec.truncate] using congrArg (BitVec.setWidth 32) hr0.2,
     by simpa using hr1.2⟩
+
+/-! ## 3. Shared Target-Neutral Test ISA & Compile Drivers -/
+
+/-- Pure target-neutral GPR ISA configuration supporting all 64-bit scalar operations. -/
+@[expose] def wasmTestGpr : GprIsa Nat Empty Nat Unit :=
+  { condReads := fun _ => 0#8, negCond := fun c => c, zeroFlags := [], clearFlags := [],
+    mov := fun _ _ => [()], movi := fun _ _ => [()], setcc := fun _ _ => [()],
+    jmp := fun _ => [()], jcc := fun _ _ => [()], jnzGpr := fun _ _ => ([()], 0#8),
+    op := fun _ _ _ _ => some ([()], 0#8), load := fun _ _ _ => some ([()], 0#8),
+    store := fun _ _ _ => some ([()], 0#8),
+    supportsScalarOp := defaultSupportsScalarOp [8, 16, 32, 64] true true true }
+
+/-- Pure target-neutral Frame ISA configuration with 8 arg/return registers. -/
+@[expose] def wasmTestFrame : FrameIsa Nat Unit :=
+  { label := fun _ => (), sp := 100, scratch := [10, 11],
+    allocatable := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], calleeSaved := [8, 9], raRegs := [],
+    argRegs := [0, 1, 2, 3, 4, 5, 6, 7], retRegs := [0, 1, 2, 3, 4, 5, 6, 7], raBytes := 8,
+    frameSize := fun n => n * 8, prologue := fun _ => ([()], 0#8),
+    epilogue := fun _ => ([()], 0#8), slotSt := fun _ _ => [()], slotLd := fun _ _ => [()],
+    canonAbi := fun _ _ => ([()], 0#8), call := fun _ => [()],
+    exitJmp := fun _ => [()], ret := [()] }
+
+/-- Target-neutral `Isa` for verified end-to-end compilation tests across legal targets. -/
+@[expose] def wasmTestIsa : Isa :=
+  { Reg := Nat, VReg := Empty, Cond := Nat, Directive := Unit,
+    gpr := wasmTestGpr, vec := VecIsa.empty Nat Nat Unit, frame := wasmTestFrame }
+
+/-- Check acyclic compilation of `qm` against `lt` on `wasmTestIsa`. -/
+@[expose] def wasmCheckCompile (lt : LegalTarget) (qm : Module) : Bool :=
+  let hints : List wasmTestIsa.Hints := qm.fns.map (Fn.computeHints wasmTestIsa lt)
+  (compileModule wasmTestIsa lt wasmTestIsa.frame.raBytes [] [] 0 qm.fns hints).isOk
+
+open LeanQbe.T.LinkScc in
+/-- Check that `qm` compiles under `compileModuleBudgetRec` for cyclic/recursive code. -/
+@[expose] def wasmCheckBudgetRecCompile
+    (lt : LegalTarget) (qm : Module) (maxBound : Nat := 4096) : Bool :=
+  let bfs : List BudgetFn := qm.fns.map fun f => ⟨f, 1024, 2048⟩
+  let hints : List wasmTestIsa.Hints := qm.fns.map (Fn.computeHints wasmTestIsa lt)
+  (compileModuleBudgetRec wasmTestIsa lt wasmTestIsa.frame.raBytes [] [] 0
+    maxBound bfs hints).isOk
 
 end LeanQbeTest.T.WasmCertKit
