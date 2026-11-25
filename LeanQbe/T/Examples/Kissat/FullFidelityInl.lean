@@ -8,25 +8,27 @@ public import LeanQbe.T.MainInline
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+public import LeanQbe.T.Examples.Kissat.FullFidelityInlBase
+meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3
+meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+meta import LeanQbe.T.Examples.Kissat.FullFidelityInlBase
+meta import LeanQbe.T.PrintCpp
+meta import LeanQbe.T.PrintQbe
 
 /-!
 # Symbolic PGO-Inlined Module for `KissatFidelity` (`FullFidelityInl`, Step 3: `474` fns)
 
-Constructs `fidInlMod := fidStep3Module.optInlinePolicy fidInlPolicy` symbolically and transports
-`fidInlFns_length` (`474`), `0` externs, `0` exits, `fidInlMod_wf`, `fidInlMod_acyclic`,
-`fidInlMod_ok`, and `fidInl_solveBytes_mem` directly via `Module.optInlinePolicy_*` (`std3`
-axioms only, zero kernel reduction over AST call sites).
+Constructs `fidInlMod := fidStep3Module.optInlinePolicy fidInlPolicy` and its zero-scan
+chunk-materializable counterpart `fidInlChunkMod := fidStep3Module.optInlinePolicy
+fidInlChunkPolicy` (`474` fns, `0` externs, `0` exits, `std3` axioms only).
 
-## Planned Materialized Chunk Schedule (`474 -> 503` fns)
+## Zero-Scan `inline_chunk_base!` Equivalence (`< 1s`)
 
-When target (`Amd64`/`Arm64`) linked-certificate materialization is wired atop the final
-Gate-1 assembly (`Base -> Sweep -> BcpHotPush -> Bve -> Cong -> Tiers -> VivK6 -> Bva`):
-- Planned `inline_chunk_base!` + `inline_chunk!` split: `3 x 64` + `14 x 22` + tail chunks
-  covering all functions cleanly, matching `FullM7FidelityInl` prefix chunking.
-- Note: `MainCertInlineChunk.inline_chunk_base!` emits a kernel `Eq.refl` check on
-  `InlineChunk.inlSiteCounts` (`fnsCallSites` via `incCallSite`) whenever `maxTotalDup > 0`
-  (`fidInlPolicy.maxTotalDup := 1500`); keeping `FullFidelityInl` symbolic at Step 3 keeps
-  `M5Hub` fast and clean.
+On `fidStep3Module`, `#eval` over `fidInlPolicy` confirms `0` callees are blocked by
+`maxTotalDup := 1500` (`singleSiteMax = 0`, `requireLoopSite = false`). Setting
+`singleSiteMax := 0`, `maxTotalDup := 0`, and `requireLoopSite := false` in `fidInlChunkPolicy`
+reduces `inlSiteCounts`/`inlLoopCounts` to `[]` in `O(1)` inside `FullFidelityInlBase`
+(`fidInlBase.rest0_eq`), while preserving bit-identical QBE and C0 printed IR (`#guard`s below).
 -/
 
 set_option autoImplicit false
@@ -39,6 +41,23 @@ open LeanQbe.T
 open LeanQbe.T.Examples.Kissat.FullM6Orch
 open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3
 open LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+
+private theorem solveBytes_exists_of_sigs (M : Module)
+    (hSigs : M.fns.map Fn.sig = fidStep3Module.fns.map Fn.sig) :
+    ∃ body : Func [i64, i64, i64, i64, i64] [i64],
+      (⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], body⟩ : Fn) ∈ M.fns := by
+  have hsig : m6oSolveBytesFn.sig ∈ M.fns.map Fn.sig := by
+    rw [hSigs]
+    exact List.mem_map.mpr ⟨m6oSolveBytesFn, fidStep3_solveBytes_mem, rfl⟩
+  obtain ⟨f, hf, hfsig⟩ := List.mem_map.mp hsig
+  rcases f with ⟨nm, as, rs, body⟩
+  dsimp only [Fn.sig, m6oSolveBytesFn, FullM6Orch.m6oSolveBytesFn] at hfsig
+  have hnm : nm = "kissat_solve_bytes" := congrArg Prod.fst hfsig
+  have hsig2 : (as, rs) = ([i64, i64, i64, i64, i64], [i64]) := congrArg Prod.snd hfsig
+  have has : as = [i64, i64, i64, i64, i64] := congrArg Prod.fst hsig2
+  have hrs : rs = [i64] := congrArg Prod.snd hsig2
+  subst hnm; subst has; subst hrs
+  exact ⟨body, hf⟩
 
 /-- PGO-inlined and renormalized Gate-1 Step-3 module (`474` functions). -/
 abbrev fidInlMod : Module :=
@@ -85,20 +104,8 @@ theorem fidInlMod_ok : ModuleOk fidStep3Env fidInlMod :=
 /-- Existence of the `"kissat_solve_bytes"` entry point inside `fidInlMod.fns`. -/
 theorem fidInl_solveBytes_exists :
     ∃ body : Func [i64, i64, i64, i64, i64] [i64],
-      (⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], body⟩ : Fn) ∈ fidInlMod.fns := by
-  have hsig :
-      m6oSolveBytesFn.sig ∈ fidInlMod.fns.map Fn.sig := by
-    rw [fidInlFns_sigs]
-    exact List.mem_map.mpr ⟨m6oSolveBytesFn, fidStep3_solveBytes_mem, rfl⟩
-  obtain ⟨f, hf, hfsig⟩ := List.mem_map.mp hsig
-  rcases f with ⟨nm, as, rs, body⟩
-  dsimp only [Fn.sig, m6oSolveBytesFn, FullM6Orch.m6oSolveBytesFn] at hfsig
-  have hnm : nm = "kissat_solve_bytes" := congrArg Prod.fst hfsig
-  have hsig2 : (as, rs) = ([i64, i64, i64, i64, i64], [i64]) := congrArg Prod.snd hfsig
-  have has : as = [i64, i64, i64, i64, i64] := congrArg Prod.fst hsig2
-  have hrs : rs = [i64] := congrArg Prod.snd hsig2
-  subst hnm; subst has; subst hrs
-  exact ⟨body, hf⟩
+      (⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], body⟩ : Fn) ∈ fidInlMod.fns :=
+  solveBytes_exists_of_sigs fidInlMod fidInlFns_sigs
 
 /-- The PGO-inlined + renormalized body of `"kissat_solve_bytes"` in `fidInlMod`. -/
 noncomputable def fidInlSolveBytesBody : Func [i64, i64, i64, i64, i64] [i64] :=
@@ -109,6 +116,74 @@ theorem fidInl_solveBytes_mem :
     (⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], fidInlSolveBytesBody⟩ : Fn) ∈
       fidInlMod.fns :=
   Classical.choose_spec fidInl_solveBytes_exists
+
+/-- Zero-scan chunk-materializable Step-3 PGO-inlined module (`fidInlChunkPolicy`). -/
+abbrev fidInlChunkMod : Module :=
+  fidStep3Module.optInlinePolicy fidInlChunkPolicy
+
+/-- Definitional unfolding of `fidInlChunkMod`. -/
+theorem fidInlChunkMod_eq : fidInlChunkMod = fidStep3Module.optInlinePolicy fidInlChunkPolicy :=
+  rfl
+
+/-- `fidInlChunkMod` preserves `externs = []`. -/
+theorem fidInlChunkMod_externs : fidInlChunkMod.externs = [] := by
+  simp only [fidInlChunkMod_eq, Module.optInlinePolicy_externs]
+  exact fidStep3_externs_empty
+
+/-- `fidInlChunkMod` preserves `exits = []`. -/
+theorem fidInlChunkMod_exits : fidInlChunkMod.exits = [] :=
+  fidStep3_noExit
+
+/-- `fidInlChunkMod.fns` preserves the exact function-signature list of `fidStep3Module.fns`. -/
+theorem fidInlChunkFns_sigs :
+    fidInlChunkMod.fns.map Fn.sig = fidStep3Module.fns.map Fn.sig := by
+  have h := Module.optInlinePolicy_sigs fidStep3Module fidInlChunkPolicy
+  simp only [Module.sigs, Module.optInlinePolicy_externs] at h
+  exact List.append_cancel_right h
+
+/-- `fidInlChunkMod` preserves the exact function count (`474`). -/
+theorem fidInlChunkFns_length : fidInlChunkMod.fns.length = 474 := by
+  have hlen := congrArg List.length fidInlChunkFns_sigs
+  simp only [List.length_map] at hlen
+  exact hlen.trans fidStep3Fns_length
+
+/-- Every function in `fidInlChunkMod` satisfies `Fn.Wf`. -/
+theorem fidInlChunkMod_wf : ∀ f ∈ fidInlChunkMod.fns, f.Wf :=
+  fidInlChunkPolicy_wf fidStep3Module_acyclic fidStep3Module_wf
+
+/-- `fidInlChunkMod` preserves `checkAcyclic = true`. -/
+theorem fidInlChunkMod_acyclic : fidInlChunkMod.checkAcyclic = true :=
+  fidInlChunkPolicy_checkAcyclic fidStep3Module_acyclic fidStep3Module_wf
+
+/-- Closed `0`-hook `ModuleOk` lifted across `fidInlChunkPolicy` to `fidInlChunkMod`. -/
+theorem fidInlChunkMod_ok : ModuleOk fidStep3Env fidInlChunkMod :=
+  fidInlChunkPolicy_ok fidStep3_moduleOk
+
+/-- Existence of the `"kissat_solve_bytes"` entry point inside `fidInlChunkMod.fns`. -/
+theorem fidInlChunk_solveBytes_exists :
+    ∃ body : Func [i64, i64, i64, i64, i64] [i64],
+      (⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], body⟩ : Fn) ∈
+        fidInlChunkMod.fns :=
+  solveBytes_exists_of_sigs fidInlChunkMod fidInlChunkFns_sigs
+
+/-- The `"kissat_solve_bytes"` body inside `fidInlChunkMod`. -/
+noncomputable def fidInlChunkSolveBytesBody : Func [i64, i64, i64, i64, i64] [i64] :=
+  Classical.choose fidInlChunk_solveBytes_exists
+
+/-- `fidInlChunkSolveBytesBody` belongs to `fidInlChunkMod.fns`. -/
+theorem fidInlChunk_solveBytes_mem :
+    (⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], fidInlChunkSolveBytesBody⟩ : Fn) ∈
+      fidInlChunkMod.fns :=
+  Classical.choose_spec fidInlChunk_solveBytes_exists
+
+private def fidInlExceptEq (a b : Except String String) : Bool :=
+  match a, b with
+  | .ok x, .ok y => x == y
+  | _, _ => false
+
+#guard fidInlBase.siteCounts.isEmpty && fidInlBase.loopCounts.isEmpty
+#guard fidInlExceptEq (PrintQbe.module fidInlMod) (PrintQbe.module fidInlChunkMod)
+#guard fidInlExceptEq (PrintCpp.ppTModule fidInlMod) (PrintCpp.ppTModule fidInlChunkMod)
 
 end LeanQbe.T.Examples.Kissat.FullFidelityInl
 
