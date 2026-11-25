@@ -3,6 +3,9 @@ module
 public import LeanQbe.T.AbiLemmas
 public import LeanQbe.T.AssumeBits
 public import LeanQbe.T.AssumeBitsLemmas
+public import LeanQbe.T.BedrockWord.Core
+public import LeanQbe.T.BedrockWord.Exec
+public import LeanQbe.T.BedrockWord.Ops
 public import LeanQbe.T.Canon
 public import LeanQbe.T.CanonLemmas
 public import LeanQbe.T.Copy
@@ -149,6 +152,9 @@ public import LeanQbe.T.Trie
 public import LeanQbe.T.Ty
 public import LeanQbe.T.TyLemmas
 public import LeanQbe.T.Unified.Caps
+public import LeanQbe.T.Unified.CfgRecovery
+public import LeanQbe.T.Unified.CfgRecoveryLemmas
+public import LeanQbe.T.Unified.CfgRecoveryProof
 public import LeanQbe.T.Unified.Core
 public import LeanQbe.T.Unified.Driver
 public import LeanQbe.T.Unified.DriverLemmas
