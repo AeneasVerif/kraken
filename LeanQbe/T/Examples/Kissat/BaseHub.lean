@@ -112,6 +112,7 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof2a
 public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof2b
 public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof2c
 public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof2d
+public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof3
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas1
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas2
