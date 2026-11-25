@@ -12,7 +12,7 @@ public import Kraken.X64.Semantics
 
 open Kraken (Layout WellFormedLayout)
 
-@[kstep] def Effects.All [Labels] (post : MachineState → Prop) : Effects → Prop
+@[kreduce] def Effects.All [Labels] (post : MachineState → Prop) : Effects → Prop
   | .done a => post a
   | .unimplemented _ => False
   | .resolve_label lbl k =>

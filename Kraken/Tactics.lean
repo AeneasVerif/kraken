@@ -150,7 +150,7 @@ def kdsimpProj : DSimproc := fun e => do
   reduceProjCont? (← unfoldDefinition? e)
 
 def mkDSimpMethods (env : Environment) (withEvalGround : Bool := false) : Sym.DSimp.Methods :=
-  let kdsimpDecls := kdeltaBetaOnly (kstepExtension.getState env).contains
+  let kdsimpDecls := kdeltaBetaOnly (kreduceExtension.getState env).contains
   if withEvalGround then
     { pre := evalGround >> kdsimpDecls >> kdsimpMatch >> kdsimpProj >> beta }
   else
@@ -241,7 +241,7 @@ private def dsimpGoalCached (variant : Name) (methods : Sym.DSimp.Methods)
   | .rfl _ => return mvarId
   | .step e' _ => mvarId.replaceTargetDefEq e'
 
-/-- Step 1 of `kstep`: apply the `@[kstep]` `Sym.dsimp` rewrites and introduce binders. -/
+/-- Step 1 of `kstep`: apply the `@[kreduce]` `Sym.dsimp` rewrites and introduce binders. -/
 def applyKStepDSimp (goal : Grind.Goal) : Grind.GrindTacticM Grind.Goal :=
   withTraceNode `Kraken.kstep.dsimp (fun _ => return m!"applyKStepDSimp") do
     let env ← getEnv

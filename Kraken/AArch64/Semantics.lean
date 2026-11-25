@@ -15,24 +15,24 @@ attribute [-instance] BitVec.instNatCast
 attribute [-instance] BitVec.instIntCast
 instance : Coe Bool Nat where coe := Bool.toNat
 
-@[kstep] def BitVec.unsigned {w} (x : BitVec w) : Int := x.toNat
-@[kstep] def BitVec.signed {w} (x : BitVec w) : Int := x.toInt
-@[kstep] def BitVec.take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
-@[kstep] def BitVec.drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
+@[kreduce] def BitVec.unsigned {w} (x : BitVec w) : Int := x.toNat
+@[kreduce] def BitVec.signed {w} (x : BitVec w) : Int := x.toInt
+@[kreduce] def BitVec.take {w} (x : BitVec w) (n : Nat) : BitVec n := x.extractLsb' 0 n
+@[kreduce] def BitVec.drop {w} (x : BitVec w) (n : Nat) : BitVec (w - n) := x.extractLsb' n (w-n)
 
-attribute [kstep]
+attribute [kreduce]
   BitVec.ofInt_add
   BitVec.ofInt_toInt
   BitVec.signed
   BitVec.truncate
 
 namespace RegOrSp
-@[kstep] def base {w} (r : RegOrSp w) : XRegOrSp := match r with
+@[kreduce] def base {w} (r : RegOrSp w) : XRegOrSp := match r with
   | .low r _ => r
 end RegOrSp
 
 namespace RegOrZr
-@[kstep] def base {w} (r : RegOrZr w) : XRegOrXzr := match r with
+@[kreduce] def base {w} (r : RegOrZr w) : XRegOrXzr := match r with
   | .low r _ => r
 end RegOrZr
 
@@ -71,7 +71,7 @@ structure Reg64s where
   SP : UInt64 := 0
   deriving Repr, BEq, DecidableEq, Hashable, Lean.ToExpr
 
-@[kstep] def Reg64s.getXReg (s : Reg64s) (r : XReg) := match r with
+@[kreduce] def Reg64s.getXReg (s : Reg64s) (r : XReg) := match r with
   |  .X0 =>  s.X0 |  .X1 =>  s.X1 |  .X2 =>  s.X2 |  .X3 =>  s.X3
   |  .X4 =>  s.X4 |  .X5 =>  s.X5 |  .X6 =>  s.X6 |  .X7 =>  s.X7
   |  .X8 =>  s.X8 |  .X9 =>  s.X9 | .X10 => s.X10 | .X11 => s.X11
@@ -81,15 +81,15 @@ structure Reg64s where
   | .X24 => s.X24 | .X25 => s.X25 | .X26 => s.X26 | .X27 => s.X27
   | .X28 => s.X28 | .X29 => s.X29 | .X30 => s.X30
 
-@[kstep] def Reg64s.getRegOrSp64 (s : Reg64s) (r : XRegOrSp) : RegWidth.W64.type := UInt64.toBitVec (match r with
+@[kreduce] def Reg64s.getRegOrSp64 (s : Reg64s) (r : XRegOrSp) : RegWidth.W64.type := UInt64.toBitVec (match r with
   | .reg r => s.getXReg r
   | .SP => s.SP )
 
-@[kstep] def Reg64s.getRegOrZr64 (s : Reg64s) (r : XRegOrXzr) : RegWidth.W64.type := UInt64.toBitVec (match r with
+@[kreduce] def Reg64s.getRegOrZr64 (s : Reg64s) (r : XRegOrXzr) : RegWidth.W64.type := UInt64.toBitVec (match r with
   | .reg r => s.getXReg r
   | .XZR => 0 ) -- Reads from XZR return constant 0.
 
-@[kstep] def Reg64s.setXReg (regs : Reg64s) (r : XReg) (v : RegWidth.W64.type) : Reg64s :=
+@[kreduce] def Reg64s.setXReg (regs : Reg64s) (r : XReg) (v : RegWidth.W64.type) : Reg64s :=
   let v := UInt64.ofBitVec v
   match r with
   |  .X0 => { regs with  X0 := v } |  .X1 => { regs with  X1 := v }
@@ -109,27 +109,27 @@ structure Reg64s where
   | .X28 => { regs with X28 := v } | .X29 => { regs with X29 := v }
   | .X30 => { regs with X30 := v }
 
-@[kstep] def Reg64s.setRegOrSp64 (regs : Reg64s) (r : XRegOrSp) (v : RegWidth.W64.type) : Reg64s :=
+@[kreduce] def Reg64s.setRegOrSp64 (regs : Reg64s) (r : XRegOrSp) (v : RegWidth.W64.type) : Reg64s :=
   match r with
   | .reg r => regs.setXReg r v
   | .SP => { regs with SP := UInt64.ofBitVec v }
 
-@[kstep] def Reg64s.setRegOrZr64 (regs : Reg64s) (r : XRegOrXzr) (v : RegWidth.W64.type) : Reg64s :=
+@[kreduce] def Reg64s.setRegOrZr64 (regs : Reg64s) (r : XRegOrXzr) (v : RegWidth.W64.type) : Reg64s :=
   match r with
   | .reg r => regs.setXReg r v
   | .XZR => regs -- Writes to XZR are dropped.
 
-@[kstep] def Reg64s.getRegOrSp (s : Reg64s) {w} (r : RegOrSp w) : w.type :=
+@[kreduce] def Reg64s.getRegOrSp (s : Reg64s) {w} (r : RegOrSp w) : w.type :=
   (s.getRegOrSp64 r.base).take w.bits
 
-@[kstep] def Reg64s.getRegOrZr (s : Reg64s) {w} (r : RegOrZr w) : w.type :=
+@[kreduce] def Reg64s.getRegOrZr (s : Reg64s) {w} (r : RegOrZr w) : w.type :=
   (s.getRegOrZr64 r.base).take w.bits
 
-@[kstep] def Reg64s.setRegOrSp (s : Reg64s) {w} (r : RegOrSp w) (v : w.type) : Reg64s := match r with
+@[kreduce] def Reg64s.setRegOrSp (s : Reg64s) {w} (r : RegOrSp w) (v : w.type) : Reg64s := match r with
   | .low r .W64 => s.setRegOrSp64 r v
   | .low r .W32 => s.setRegOrSp64 r (v.zeroExtend _)
 
-@[kstep] def Reg64s.setRegOrZr (s : Reg64s) {w} (r : RegOrZr w) (v : w.type) : Reg64s := match r with
+@[kreduce] def Reg64s.setRegOrZr (s : Reg64s) {w} (r : RegOrZr w) (v : w.type) : Reg64s := match r with
   | .low r .W64 => s.setRegOrZr64 r v
   | .low r .W32 => s.setRegOrZr64 r (v.zeroExtend _)
 
@@ -241,7 +241,7 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
     label! l = a := by
   simp [label!, h]
 
-@[kstep] def ConstExpr.interp (e : ConstExpr) (p : Std.Rco Int64)
+@[kreduce] def ConstExpr.interp (e : ConstExpr) (p : Std.Rco Int64)
     (ret : Int64 → Effects) : Effects :=
   match e with
   | .label l => .resolve_label l ret
@@ -259,13 +259,13 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
     let lo := val &&& 0xFFF#64
     ret (Int64.ofNat lo.toNat))
 
-@[kstep] def ConstExpr.evalBranchTarget (target : ConstExpr) (p : Std.Rco Int64)
+@[kreduce] def ConstExpr.evalBranchTarget (target : ConstExpr) (p : Std.Rco Int64)
     (ret : Int64 → Effects) : Effects :=
   match target with
   | .int64 imm => ret (p.lower + imm)
   | _ => target.interp p ret
 
-@[kstep] def BitVec.apply_extend (v : BitVec 64) (ext : Extend) :=
+@[kreduce] def BitVec.apply_extend (v : BitVec 64) (ext : Extend) :=
   let extended := match ext.type with
                | .UXTB => (v.take MemWidth.W8.bits).unsigned
                | .SXTB => (v.take MemWidth.W8.bits).signed
@@ -283,7 +283,7 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
                  | .E4 => extended <<< 4
   shifted
 
-@[kstep] def BitVec.apply_mem_extend (v : BitVec 64) (ext : MemExtend) :=
+@[kreduce] def BitVec.apply_mem_extend (v : BitVec 64) (ext : MemExtend) :=
   let extended := match ext.type with
                | .UXTW => (v.take MemWidth.W32.bits).unsigned
                | .SXTW => (v.take MemWidth.W32.bits).signed
@@ -296,13 +296,13 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
                  | .E3 => extended <<< 3
   shifted
 
-@[kstep] def ExtRegExpr.interp (er : ExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
+@[kreduce] def ExtRegExpr.interp (er : ExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
   (s.getRegOrZr64 er.reg.reg.base).apply_extend er.ext
 
-@[kstep] def MemExtRegExpr.interp (er : MemExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
+@[kreduce] def MemExtRegExpr.interp (er : MemExtRegExpr) (s : Reg64s) (_ : Std.Rco Int64) :=
   (s.getRegOrZr64 er.reg.reg.base).apply_mem_extend er.ext
 
-@[kstep] def ExtOrImmReg.interp {w : RegWidth} (expr : ExtOrImmReg) (s : Reg64s) (p : Std.Rco Int64)
+@[kreduce] def ExtOrImmReg.interp {w : RegWidth} (expr : ExtOrImmReg) (s : Reg64s) (p : Std.Rco Int64)
     (ret : w.type → Effects) : Effects :=
   match expr with
   | .ext e =>
@@ -314,7 +314,7 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
       | .S0 => ret (BitVec.ofInt w.bits imm)
       | .S12 => ret (BitVec.ofInt w.bits (imm <<< 12)))
 
-@[kstep] def ShiftRegExpr.interp {w} (expr : ShiftRegExpr w) (s : Reg64s) (_ : Std.Rco Int64) : w.type :=
+@[kreduce] def ShiftRegExpr.interp {w} (expr : ShiftRegExpr w) (s : Reg64s) (_ : Std.Rco Int64) : w.type :=
   let base := s.getRegOrZr expr.reg
   let amount := (Int64.toInt expr.amount).toNat
   match expr.shift with
@@ -323,7 +323,7 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
   | .ASR => base.sshiftRight amount
   | .ROR => base.rotateRight amount
 
-@[kstep] def AddrExpr.eval (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64)
+@[kreduce] def AddrExpr.eval (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64)
     (ret : BitVec 64 → MachineData → Effects) : Effects :=
   match mem.off with
   | .reg r =>
@@ -339,7 +339,7 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
           | none => s))
 
 -- AArch64 mandates 16-byte alignment when accessing memory through SP.
-@[kstep] def AddrExpr.checkSPAlignment (mem : AddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
+@[kreduce] def AddrExpr.checkSPAlignment (mem : AddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
   match mem.base with
   | .SP =>
     if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
@@ -348,24 +348,24 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
       ok ()
   | _ => ok ()
 
-@[kstep] def AddrExpr.interpLoad {w : MemWidth} (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+@[kreduce] def AddrExpr.interpLoad {w : MemWidth} (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
   mem.checkSPAlignment s (fun _unit =>
     mem.eval s p (fun addr s' =>
       s'.load addr w ret))
 
-@[kstep] def AddrExpr.interpStore {w : MemWidth} (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64)
+@[kreduce] def AddrExpr.interpStore {w : MemWidth} (mem : AddrExpr) (s : MachineData) (p : Std.Rco Int64)
     (val : w.type) (next : MachineData → Effects) : Effects :=
   mem.checkSPAlignment s (fun _unit =>
     mem.eval s p (fun addr s' =>
       s'.store addr (w := w) val next))
 
-@[kstep] def UnscaledAddrExpr.eval (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64)
+@[kreduce] def UnscaledAddrExpr.eval (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64)
     (ret : BitVec 64 → Effects) : Effects :=
   mem.imm.interp p (fun off =>
     ret (BitVec.ofInt 64 ((s.regs.getRegOrSp mem.base).signed + Int64.toInt off)))
 
 -- AArch64 mandates 16-byte alignment when accessing memory through SP.
-@[kstep] def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
+@[kreduce] def UnscaledAddrExpr.checkSPAlignment (mem : UnscaledAddrExpr) (s : MachineData) (ok : Unit → Effects) : Effects :=
   match mem.base with
   | .SP =>
     if s.regs.getRegOrSp .SP % 16#64 != 0#64 then
@@ -374,18 +374,18 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
       ok ()
   | _ => ok ()
 
-@[kstep] def UnscaledAddrExpr.interpLoad {w : MemWidth} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+@[kreduce] def UnscaledAddrExpr.interpLoad {w : MemWidth} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
   mem.checkSPAlignment s (fun _unit =>
     mem.eval s p (fun addr =>
       s.load addr w ret))
 
-@[kstep] def UnscaledAddrExpr.interpStore {w : MemWidth} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64)
+@[kreduce] def UnscaledAddrExpr.interpStore {w : MemWidth} (mem : UnscaledAddrExpr) (s : MachineData) (p : Std.Rco Int64)
     (val : w.type) (next : MachineData → Effects) : Effects :=
   mem.checkSPAlignment s (fun _unit =>
     mem.eval s p (fun addr =>
       s.store addr (w := w) val next))
 
-@[kstep] def Literal.interpLoad {w : MemWidth} (expr : Literal) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) : Effects :=
+@[kreduce] def Literal.interpLoad {w : MemWidth} (expr : Literal) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) : Effects :=
   match expr with
   | .addr addr_expr => -- Load from address.
     .resolve_label addr_expr.label (fun addr_val =>
@@ -396,18 +396,18 @@ theorem Labels.label!_of_label? {_ : Labels} {l : Label} {a : Int64} (h : label?
       let val_bv : w.type := BitVec.ofInt w.bits (Int64.toInt val)
       ret val_bv s)
 
-@[kstep] def AddrOrLit.interpLoad {w : MemWidth} (expr : AddrOrLit) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
+@[kreduce] def AddrOrLit.interpLoad {w : MemWidth} (expr : AddrOrLit) (s : MachineData) (p : Std.Rco Int64) (ret : w.type → MachineData → Effects) :=
   match expr with
   | .addr addr_expr => addr_expr.interpLoad s p ret
   | .lit lit_expr => lit_expr.interpLoad s p ret
 
-@[kstep] def MachineData.setRegOrSp (s : MachineData) {w} (r : RegOrSp w) (v : w.type) (ret : MachineData → Effects) : Effects :=
+@[kreduce] def MachineData.setRegOrSp (s : MachineData) {w} (r : RegOrSp w) (v : w.type) (ret : MachineData → Effects) : Effects :=
   ret { s with regs := s.regs.setRegOrSp r v }
 
-@[kstep] def MachineData.setRegOrZr (s : MachineData) {w} (r : RegOrZr w) (v : w.type) (ret : MachineData → Effects) : Effects :=
+@[kreduce] def MachineData.setRegOrZr (s : MachineData) {w} (r : RegOrZr w) (v : w.type) (ret : MachineData → Effects) : Effects :=
   ret { s with regs := s.regs.setRegOrZr r v }
 
-@[kstep, simp] def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
+@[kreduce, simp] def CondCode.interp (cc : CondCode) (s : StatusFlags) : Bool := match cc with
   | .EQ => s.z
   | .NE => !s.z
   | .CS => s.c
@@ -430,18 +430,18 @@ structure StatusFlags.from_result.Remaining where
   v : Bool
   deriving Repr, BEq, DecidableEq
 
-@[kstep, simp] def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
+@[kreduce, simp] def StatusFlags.from_result {w} (result : BitVec w) (f : from_result.Remaining) : StatusFlags :=
   { n := result.msb
     z := result == BitVec.zero _
     c := f.c
     v := f.v }
 
-@[kstep, simp] def StatusFlags.adds {w} (res val1 val2 : BitVec w) : StatusFlags :=
+@[kreduce, simp] def StatusFlags.adds {w} (res val1 val2 : BitVec w) : StatusFlags :=
   StatusFlags.from_result res {
     c := res.unsigned != val1.unsigned + val2.unsigned
     v := res.signed != val1.signed + val2.signed }
 
-@[kstep, simp] def StatusFlags.subs {w} (res val1 val2 : BitVec w) : StatusFlags :=
+@[kreduce, simp] def StatusFlags.subs {w} (res val1 val2 : BitVec w) : StatusFlags :=
   StatusFlags.from_result res {
     c := res.unsigned == val1.unsigned - val2.unsigned
     v := res.signed != val1.signed - val2.signed }
@@ -452,13 +452,13 @@ def StatusFlags.ofNat (nzcv : Nat) : StatusFlags :=
     c := (nzcv &&& 2) != 0
     v := (nzcv &&& 1) != 0 }
 
-@[kstep, simp] def maskOfLen {w : RegWidth} (len : Nat) : w.type :=
+@[kreduce, simp] def maskOfLen {w : RegWidth} (len : Nat) : w.type :=
   if len >= w.bits then
     ~~~(0 : w.type)
   else
     ((1 : w.type) <<< len) - 1
 
-@[kstep, simp] def evalUBFM {w : RegWidth} (src : w.type) (immr imms : Nat) : w.type :=
+@[kreduce, simp] def evalUBFM {w : RegWidth} (src : w.type) (immr imms : Nat) : w.type :=
   let immr := immr % w.bits
   let imms := imms % w.bits
   if imms >= immr then
@@ -471,7 +471,7 @@ def StatusFlags.ofNat (nzcv : Nat) : StatusFlags :=
     let field := src.take len
     (field.zeroExtend w.bits) <<< pos
 
-@[kstep, simp] def evalSBFM {w : RegWidth} (src : w.type) (immr imms : Nat) : w.type :=
+@[kreduce, simp] def evalSBFM {w : RegWidth} (src : w.type) (immr imms : Nat) : w.type :=
   let immr := immr % w.bits
   let imms := imms % w.bits
   if imms >= immr then
@@ -484,7 +484,7 @@ def StatusFlags.ofNat (nzcv : Nat) : StatusFlags :=
     let field := src.take len
     (field.signExtend (w.bits - pos)).zeroExtend w.bits <<< pos
 
-@[kstep, simp] def evalBFM {w : RegWidth} (dst src : w.type) (immr imms : Nat) : w.type :=
+@[kreduce, simp] def evalBFM {w : RegWidth} (dst src : w.type) (immr imms : Nat) : w.type :=
   let immr := immr % w.bits
   let imms := imms % w.bits
   if imms >= immr then
@@ -500,7 +500,7 @@ def StatusFlags.ofNat (nzcv : Nat) : StatusFlags :=
     (dst &&& ~~~mask) ||| field
 
 set_option maxHeartbeats 1000000
-@[kstep] def Operation.interp
+@[kreduce] def Operation.interp
   {w} (i : Operation w) (p : Std.Rco Int64) (s : MachineData)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   match (generalizing := false) (motive := Operation w → Effects) i with
@@ -961,13 +961,13 @@ set_option maxHeartbeats 1000000
       next s
   | .NOP => next s
 
-@[kstep] def Instr.interp
+@[kreduce] def Instr.interp
   (i : Instr) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   require_exec_access p (fun _unit =>
     Operation.interp (w := i.operation_size) i.operation p s next jmp)
 
-@[kstep] def Directive.interp
+@[kreduce] def Directive.interp
   (d : Directive) (s : MachineData) (p : Std.Rco Int64)
   (next : MachineData → Effects) (jmp : Int64 → MachineData → Effects) : Effects :=
   match d with

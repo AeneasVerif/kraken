@@ -6,17 +6,17 @@ public meta section
 
 open Lean Meta
 
-initialize kstepExtension : SimpleScopedEnvExtension Name NameSet ←
+initialize kreduceExtension : SimpleScopedEnvExtension Name NameSet ←
   registerSimpleScopedEnvExtension {
     addEntry := fun s n => s.insert n
     initial := {}
   }
 
 initialize registerBuiltinAttribute {
-  name := `kstep
+  name := `kreduce
   descr := "declarations to be reduced in the goal as part of the kstep tactic"
   add := fun declName _stx _kind => do
-    modifyEnv fun env => kstepExtension.addEntry env declName
+    modifyEnv fun env => kreduceExtension.addEntry env declName
 }
 
 initialize kmemExtension : SimpleScopedEnvExtension (Sym.Pattern × Name) (DiscrTree Name) ←
