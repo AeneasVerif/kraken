@@ -342,8 +342,8 @@ CPP
 
   case "$m" in
     Plain) CHECK_ARGS+=(--plain-c4 "$OUT/c4_Plain" --plain-c3b "$OUT/c3b_Plain") ;;
-    KissatFidelity|FullM7Fidelity)
-      CHECK_ARGS+=(--fid-c4 "$OUT/c4_${m}" --fid-c3b "$OUT/c3b_${m}") ;;
+    KissatFidelity) CHECK_ARGS+=(--fid-c4 "$OUT/c4_KissatFidelity" --fid-c3b "$OUT/c3b_KissatFidelity") ;;
+    FullM7Fidelity) CHECK_ARGS+=(--m7fid-c4 "$OUT/c4_FullM7Fidelity" --m7fid-c3b "$OUT/c3b_FullM7Fidelity") ;;
     KissatM8Opt) CHECK_ARGS+=(--opt-c4 "$OUT/c4_KissatM8Opt" --opt-c3b "$OUT/c3b_KissatM8Opt") ;;
     Full) CHECK_ARGS+=(--full-c4 "$OUT/c4_Full" --full-c3b "$OUT/c3b_Full") ;;
     FullFast) CHECK_ARGS+=(--fast-c4 "$OUT/c4_FullFast" --fast-c3b "$OUT/c3b_FullFast") ;;

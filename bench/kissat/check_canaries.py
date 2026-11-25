@@ -446,7 +446,7 @@ def lookup_baseline_run(base_runs, name):
     rec = base_runs.get(name)
     if rec is not None:
         return rec
-    if name.startswith(("KissatFidelity_", "KissatM8Opt_", "Plain_")):
+    if name.startswith(("KissatFidelity_", "KissatM8Opt_", "Plain_", "FullM7Fidelity_", "FullM7Plus_")):
         return None
     for prefix, fallbacks in BASELINE_FALLBACKS.items():
         if name.startswith(prefix):
@@ -538,6 +538,10 @@ def main():
     ap.add_argument("--plain-c3b", help="Path to C3b PrintCpp-native-mem Plain bench_main binary")
     ap.add_argument("--fid-c4", help="Path to C4 native x64 KissatFidelity bench_main binary")
     ap.add_argument("--fid-c3b", help="Path to C3b PrintCpp-native-mem KissatFidelity bench_main binary")
+    ap.add_argument("--m7fid-c4", help="Path to C4 native x64 FullM7Fidelity bench_main binary")
+    ap.add_argument("--m7fid-c3b", help="Path to C3b PrintCpp-native-mem FullM7Fidelity bench_main binary")
+    ap.add_argument("--m7plus-c4", help="Path to C4 native x64 FullM7Plus bench_main binary")
+    ap.add_argument("--m7plus-c3b", help="Path to C3b PrintCpp-native-mem FullM7Plus bench_main binary")
     ap.add_argument("--opt-c4", "--m8-c4", dest="opt_c4", help="Path to C4 native x64 KissatM8Opt bench_main binary")
     ap.add_argument("--opt-c3b", "--m8-c3b", dest="opt_c3b", help="Path to C3b PrintCpp-native-mem KissatM8Opt bench_main binary")
     ap.add_argument("--full-c4", help="Path to C4 native x64 Full bench_main binary")
@@ -576,6 +580,7 @@ def main():
 
     if not any([
         args.plain_c4, args.plain_c3b, args.fid_c4, args.fid_c3b,
+        args.m7fid_c4, args.m7fid_c3b, args.m7plus_c4, args.m7plus_c3b,
         args.opt_c4, args.opt_c3b,
         args.full_c4, args.full_c3b, args.fast_c4, args.fast_c3b,
         args.m3_c4, args.m3_c3b, args.m4_c4, args.m4_c3b,
@@ -583,7 +588,7 @@ def main():
     ]):
         ap.error(
             "specify at least one solver binary or --c3b-gen-hpp "
-            "(--plain-*/--fid-*/--opt-*/--m8-*/--full-*/--fast-*/--m3-*/--m4-*/--m5-*/--m6-*)"
+            "(--plain-*/--fid-*/--m7fid-*/--m7plus-*/--opt-*/--m8-*/--full-*/--fast-*/--m3-*/--m4-*/--m5-*/--m6-*)"
         )
 
     kissat_bin = None
@@ -631,6 +636,14 @@ def main():
         configs.append(("KissatFidelity_C4", args.fid_c4, True))
     if args.fid_c3b:
         configs.append(("KissatFidelity_C3b", args.fid_c3b, True))
+    if args.m7fid_c4:
+        configs.append(("FullM7Fidelity_C4", args.m7fid_c4, True))
+    if args.m7fid_c3b:
+        configs.append(("FullM7Fidelity_C3b", args.m7fid_c3b, True))
+    if args.m7plus_c4:
+        configs.append(("FullM7Plus_C4", args.m7plus_c4, True))
+    if args.m7plus_c3b:
+        configs.append(("FullM7Plus_C3b", args.m7plus_c3b, True))
     if args.opt_c4:
         configs.append(("KissatM8Opt_C4", args.opt_c4, True))
     if args.opt_c3b:

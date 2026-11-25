@@ -904,6 +904,105 @@ class GenCertSlicesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             gcs.build_config(bad_abi_args)
 
+    def test_c0_header_scan_ignores_type_suffixed_call_sites(self) -> None:
+        # `..._bool_m6(..)) {` / `..._u64_m7(..)) {` are calls, not `_m6` / `_m7` definitions:
+        # a phantom entry would shift every later function's cost onto its neighbour.
+        code = (
+            "bool full_shrink_blk_bool_m6(u64 h) { return h > 0; }\n"
+            "u64 full_min_shrink_m6(u64 h) {\n"
+            "  if (!full_shrink_blk_bool_m6(h)) { return 0; }\n"
+            "  return 1;\n"
+            "}\n"
+            "u64 full_cong_find_m7(u64 cb, u64 k) {\n"
+            "  if (full_cong_bsearch_u64_m7(cb, k)) { return 1; }\n"
+            "  return 0;\n"
+            "}\n"
+        )
+        self.assertEqual(
+            list(gcs.extract_c0_metrics(code)),
+            ["full_shrink_blk_bool_m6", "full_min_shrink_m6", "full_cong_find_m7"],
+        )
+
+    def test_full_fidelity_m8opt_presets_and_pin_cuts(self) -> None:
+        for alias in ("FullFidelity", "KissatFidelity", "fidelity", "fid"):
+            self.assertEqual(gcs.resolve_preset(alias).prefix, "KissatFidelity")
+        for alias in ("FullM8Opt", "KissatM8Opt", "FullM8", "m8opt", "opt", "m8"):
+            self.assertEqual(gcs.resolve_preset(alias).prefix, "KissatM8Opt")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cuts = (26, 27, 60, 61)
+            cuts_path = Path(tmp) / "pin_cuts.json"
+            cuts_path.write_text(json.dumps(list(cuts)), encoding="utf-8")
+
+            fid_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullFidelity",
+                    "--pin-cuts",
+                    str(cuts_path),
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            fid_cfg = gcs.build_config(fid_args)
+            self.assertEqual(fid_cfg.prefix, "KissatFidelity")
+            self.assertEqual(fid_cfg.stem, "fid")
+            self.assertEqual(fid_cfg.total_fns, 469)
+            self.assertEqual(fid_cfg.cert_style, "slices")
+            self.assertTrue(fid_cfg.abi_common)
+            self.assertEqual(fid_cfg.fns_length_thm, "fidInlFns_length")
+            for sl in fid_cfg.slices:
+                for cut in cuts:
+                    self.assertFalse(sl.start < cut < sl.end, (sl, cut))
+            fid_files = dict(gcs.build_plan(fid_cfg, ["amd64", "arm64"]))
+            self._assert_hygiene(list(fid_files.items()))
+            fid_cert = fid_files["LeanQbe/T/Amd64/KissatFidelityCert.lean"]
+            self.assertIn("fidInlFns_length", fid_cert)
+            self.assertIn("LinkedCert.ofChunkSlices", fid_cert)
+
+            reuse_path = Path(tmp) / "m8opt_reuse.json"
+            reuse_path.write_text(
+                json.dumps(
+                    {
+                        "reused_slices": [
+                            {"src_index": 0, "start": 0, "src_start": 0, "count": 12},
+                            {"src_index": 1, "start": 12, "src_start": 12, "count": 12},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            opt_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullM8Opt",
+                    "--reuse-spec",
+                    str(reuse_path),
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            opt_cfg = gcs.build_config(opt_args)
+            self.assertEqual(opt_cfg.prefix, "KissatM8Opt")
+            self.assertEqual(opt_cfg.stem, "m8Opt")
+            self.assertEqual(opt_cfg.total_fns, 494)
+            self.assertEqual(opt_cfg.reuse_prefix, "KissatFidelity")
+            self.assertEqual(opt_cfg.reuse_mode, "pruned_relink")
+            self.assertEqual(
+                opt_cfg.reuse_bridge_mod,
+                "LeanQbe.T.Examples.Kissat.FullFidelityM8OptBridge",
+            )
+            self.assertEqual(opt_cfg.fns_length_thm, "m8OptInlFns_length")
+            opt_files = dict(gcs.build_plan(opt_cfg, ["amd64", "arm64"]))
+            self._assert_hygiene(list(opt_files.items()))
+            for arch_dir in ("Amd64", "Arm64"):
+                opt_cert = opt_files[f"LeanQbe/T/{arch_dir}/KissatM8OptCert.lean"]
+                self.assertIn("public import LeanQbe.T.MainLinkReuseCover", opt_cert)
+                self.assertIn("eval_raw_callees! rCallees", opt_cert)
+                self.assertIn("FullFidelityM8OptBridge", opt_cert)
+
 
 if __name__ == "__main__":
     unittest.main()

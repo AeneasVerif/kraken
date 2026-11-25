@@ -32,7 +32,7 @@ Usage: bench/kissat/run_c11_guardrails.sh [OPTIONS]
   --c4-bin PATH        Optional C4 native bench_main binary for C4==C3b parity checks
   --c3b-bin PATH       Optional prebuilt C3b bench_main binary (fallback if no --gen-hpp)
   --kissat PATH        Upstream Kissat 4.0.4 (C1) binary (auto-detected on PATH if omitted)
-  --label NAME         Model prefix for canary checks (default: FullM4; e.g. FullM5, FullM6)
+  --label NAME         Model prefix for canary checks (default: auto KissatFidelity/FullM7Fidelity; e.g. KissatFidelity, KissatM8Opt, Plain, FullM7Fidelity, FullM6)
   --timeout SEC        Per-solver timeout in seconds (default: 15)
   --quick              Use --fast fuzzing grid
   --with-base          Also run check_canaries.py --include-c11 across all 40 canaries
@@ -232,7 +232,9 @@ fi
 if [[ -n "$C4_BIN" ]]; then
   case "$LABEL" in
     Plain) CANARY_ARGS+=(--plain-c4 "$C4_BIN") ;;
-    KissatFidelity|FullM7Fidelity) CANARY_ARGS+=(--fid-c4 "$C4_BIN") ;;
+    KissatFidelity) CANARY_ARGS+=(--fid-c4 "$C4_BIN") ;;
+    FullM7Fidelity) CANARY_ARGS+=(--m7fid-c4 "$C4_BIN") ;;
+    FullM7Plus) CANARY_ARGS+=(--m7plus-c4 "$C4_BIN") ;;
     KissatM8Opt|FullM8) CANARY_ARGS+=(--opt-c4 "$C4_BIN") ;;
     FullM3) CANARY_ARGS+=(--m3-c4 "$C4_BIN") ;;
     FullM4) CANARY_ARGS+=(--m4-c4 "$C4_BIN") ;;
@@ -245,7 +247,9 @@ fi
 if [[ -n "$C3B_BIN" ]]; then
   case "$LABEL" in
     Plain) CANARY_ARGS+=(--plain-c3b "$C3B_BIN") ;;
-    KissatFidelity|FullM7Fidelity) CANARY_ARGS+=(--fid-c3b "$C3B_BIN") ;;
+    KissatFidelity) CANARY_ARGS+=(--fid-c3b "$C3B_BIN") ;;
+    FullM7Fidelity) CANARY_ARGS+=(--m7fid-c3b "$C3B_BIN") ;;
+    FullM7Plus) CANARY_ARGS+=(--m7plus-c3b "$C3B_BIN") ;;
     KissatM8Opt|FullM8) CANARY_ARGS+=(--opt-c3b "$C3B_BIN") ;;
     FullM3) CANARY_ARGS+=(--m3-c3b "$C3B_BIN") ;;
     FullM4) CANARY_ARGS+=(--m4-c3b "$C3B_BIN") ;;
