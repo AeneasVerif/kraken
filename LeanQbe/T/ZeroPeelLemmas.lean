@@ -9,6 +9,7 @@ import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.OpsLemmas
 import LeanQbe.T.GroupLfpLemmas
 import LeanQbe.T.WPLemmas
+import LeanQbe.T.PassFlatKit
 import all Kraken.Mem
 
 /-!
@@ -57,16 +58,13 @@ private theorem matchOffLoop_wf {GOuter : List Ty} {s : Sym64} {off? : Option (A
   cases s with
   | loopI => dsimp only [matchOffLoop] at hm; cases hm; rfl
   | add a b =>
-    dsimp only [SymOuterOk] at hs
-    dsimp only [matchOffLoop] at hm
+    dsimp only [SymOuterOk] at hs; dsimp only [matchOffLoop] at hm
     cases a <;> cases b <;> dsimp only at hm <;>
       first
       | (cases hm; done)
       | (rcases Option.map_eq_some_iff.mp hm with ⟨arg, harg, rfl⟩
          rw [Option.all_some]
-         first
-         | exact symToOuterArg64_wf hs.1 harg
-         | exact symToOuterArg64_wf hs.2 harg)
+         first | exact symToOuterArg64_wf hs.1 harg | exact symToOuterArg64_wf hs.2 harg)
   | _ => dsimp only [matchOffLoop] at hm; cases hm
 
 private theorem matchAddr_wf {GOuter : List Ty} {s : Sym64} {sh : Nat}
@@ -94,10 +92,9 @@ private theorem matchAddr_wf {GOuter : List Ty} {s : Sym64} {sh : Nat}
       intro p idx hp hidx hc
       dsimp only [chk] at hc
       cases hso : symToOuterArg64 p with
-      | none => rw [hso] at hc; cases hc
+      | none => simp [hso] at hc
       | some base =>
-        rw [hso] at hc; dsimp only at hc
-        have hb := symToOuterArg64_wf hp hso
+        rw [hso] at hc; dsimp only at hc; have hb := symToOuterArg64_wf hp hso
         by_cases hsh : (sh == 0) = true
         · rw [ite_eq_left hsh] at hc
           rcases Option.map_eq_some_iff.mp hc with ⟨off?, hoff, rfl⟩
@@ -105,8 +102,7 @@ private theorem matchAddr_wf {GOuter : List Ty} {s : Sym64} {sh : Nat}
         · rw [ite_eq_right hsh] at hc
           cases idx with
           | shlConst inner s =>
-            dsimp only at hc
-            by_cases hsEq : (s == sh) = true
+            dsimp only at hc; by_cases hsEq : (s == sh) = true
             · rw [ite_eq_left hsEq] at hc
               rcases Option.map_eq_some_iff.mp hc with ⟨off?, hoff, rfl⟩
               exact ⟨hb, matchOffLoop_wf (s := inner) hidx hoff⟩
@@ -124,74 +120,50 @@ private theorem argToSym64_var (env : Array Sym64) {t : Ty} (idx : K t) :
       else if t == i64 then
         if idx == env.size then .loopI else .outer (idx - (env.size + 1))
       else .other := by
-  dsimp only [argToSym64]
-  split
-  · next heq => cases heq
-  · next heq => cases heq; rfl
-  · next heq => cases heq
+  dsimp only [argToSym64]; split <;> try (next h => cases h)
+  next h => cases h; rfl
 
 private theorem argToSym64_wf {GOuter GLocal : List Ty} {env : Array Sym64}
     (hwf : SymEnvWf GOuter GLocal env) {t : Ty} {a : Arg K t}
     (ha : checkArg (GLocal ++ i64 :: GOuter) t a = true) :
     SymOuterOk GOuter (argToSym64 env a) := by
   cases a with
-  | imm c =>
-    dsimp only [argToSym64]
-    split
-    · exact trivial
-    · next h => cases h
-    · exact trivial
+  | imm _ => dsimp only [argToSym64]; split <;> trivial
   | var idx =>
-    rw [argToSym64_var]
-    split
+    rw [argToSym64_var]; split
     · next hlt =>
       dsimp only [K] at hlt idx
       have hidx : env.size - 1 - idx < env.size := by omega
-      have hmem : env[env.size - 1 - idx] ∈ env.toList := Array.getElem_mem_toList hidx
       rw [getElem!_pos env (env.size - 1 - idx) hidx]
-      exact hwf.2 _ hmem
+      exact hwf.2 _ (Array.getElem_mem_toList hidx)
     · next hge =>
-      dsimp only [K] at hge idx
-      split
+      dsimp only [K] at hge idx; split
       · next ht =>
-        rw [beq_iff_eq] at ht
-        subst ht
-        split
+        rw [beq_iff_eq] at ht; subst ht; split
         · exact trivial
         · next hne =>
-          have hlen := hwf.1
-          dsimp only [K] at *
-          simp only [beq_iff_eq] at hne
+          have hlen := hwf.1; dsimp only [K] at *; simp only [beq_iff_eq] at hne
           have hge' : GLocal.length ≤ idx := by omega
           simp only [checkArg, listGet?_append_drop GLocal (i64 :: GOuter) idx hge'] at ha
-          have hsub : idx - GLocal.length = (idx - (GLocal.length + 1)) + 1 := by omega
-          rw [hsub] at ha
-          have hidx_eq : idx - (env.size + 1) = idx - (GLocal.length + 1) := by rw [hlen]
-          rw [hidx_eq]
-          exact ha
+          rw [show idx - GLocal.length = (idx - (GLocal.length + 1)) + 1 by omega] at ha
+          rw [show idx - (env.size + 1) = idx - (GLocal.length + 1) by omega]; exact ha
       · exact trivial
 
 private theorem symEnvWf_push {GOuter GLocal : List Ty} {env : Array Sym64}
     (hwf : SymEnvWf GOuter GLocal env) (ts : List Ty) (sy : List Sym64)
     (hlen : sy.length = ts.length) (hok : ∀ s ∈ sy, SymOuterOk GOuter s) :
     SymEnvWf GOuter (pushTypes ts GLocal) (env ++ sy.toArray) := by
-  refine ⟨?_, ?_⟩
-  · calc (env ++ sy.toArray).size
-        = env.size + sy.toArray.size := by rw [Array.size_append]
-      _ = GLocal.length + ts.length := by rw [hwf.1, List.size_toArray, hlen]
-      _ = (pushTypes ts GLocal).length := by rw [pushTypes_length, Nat.add_comm]
-  · intro s hs
-    rw [Array.toList_append, List.toList_toArray, List.mem_append] at hs
-    rcases hs with hs | hs
-    · exact hwf.2 s hs
-    · exact hok s hs
+  refine ⟨by rw [Array.size_append, hwf.1, List.size_toArray, hlen, pushTypes_length,
+    Nat.add_comm], fun s hs => ?_⟩
+  rw [Array.toList_append, List.toList_toArray, List.mem_append] at hs
+  exact hs.elim (hwf.2 s) (hok s)
 
 private theorem symOuterOk_cmpU {GOuter : List Ty} (isLt : Bool) {s : Sym64}
     (hs : SymOuterOk GOuter s) :
     SymOuterOk GOuter ((Option.map (Sym64.cmpU isLt) (symToOuterArg64 s)).getD .other) := by
   cases hso : symToOuterArg64 s with
   | none => exact trivial
-  | some b => exact symToOuterArg64_wf hs hso
+  | some _ => exact symToOuterArg64_wf hs hso
 
 private theorem evalSymOp_wf {GOuter GLocal : List Ty} {env : Array Sym64}
     (hwf : SymEnvWf GOuter GLocal env) {ts : List Ty} (op : Op K ts)
@@ -743,6 +715,20 @@ private theorem evalSymCmp_correct {vsOuter : List ((t : Ty) × Val t)} {iVal : 
     | (have hvb : vb = iVal := sigma_val_eq hb; subst hvb; exact evalSymCmp_left false ha)
   | eq | ne | slt | sle | sgt | sge => exact trivial
 
+private theorem denoteArgs_singleton_some {V : Ty → Type}
+    {vs : List ((t : Ty) × V t)} {t : Ty} {a : Arg K t} {va : Arg V t}
+    (h : denoteArgs vs (ts := [t]) (a, ()) = some (va, ())) : denoteArg vs a = some va := by
+  rw [denoteArgs_singleton_eq] at h
+  cases hd : denoteArg vs a <;> simp_all
+
+private theorem denoteArgs_pair_some {V : Ty → Type}
+    {vs : List ((t : Ty) × V t)} {t₁ t₂ : Ty} {a : Arg K t₁} {b : Arg K t₂}
+    {va : Arg V t₁} {vb : Arg V t₂}
+    (h : denoteArgs vs (ts := [t₁, t₂]) (a, b, ()) = some (va, vb, ())) :
+    denoteArg vs a = some va ∧ denoteArg vs b = some vb := by
+  rw [denoteArgs_pair_eq] at h
+  cases hda : denoteArg vs a <;> cases hdb : denoteArg vs b <;> simp_all
+
 private theorem evalSymOp_wp {vsOuter : List ((t : Ty) × Val t)} {iVal : Val i64}
     {vsLocal : List ((t : Ty) × Val t)} {env : Array Sym64}
     (hm : SymEnvMatch vsOuter iVal vsLocal env)
@@ -751,120 +737,62 @@ private theorem evalSymOp_wp {vsOuter : List ((t : Ty) × Val t)} {iVal : Val i6
     {P : Tup Val ts → Prop} (hwp : op.code.wp (vals valArgs) P) :
     ∃ res : Tup Val ts, P res ∧
       SymEnvMatch vsOuter iVal (pushTup res vsLocal) (env ++ (evalSymOp env op).toArray) := by
-  have hNone : ∀ {ts' : List Ty} {op' : Op K ts'} {va' : Tup (Arg Val) op'.sig}
-      {P' : Tup Val ts' → Prop},
-      op'.code.wp (vals va') P' → evalSymOp1 env op' = none →
+  have hNone {ts' : List Ty} {op' : Op K ts'} {va' : Tup (Arg Val) op'.sig}
+      {P' : Tup Val ts' → Prop} (hw' : op'.code.wp (vals va') P')
+      (h1 : evalSymOp1 env op' = none) :
       ∃ res : Tup Val ts', P' res ∧
-        SymEnvMatch vsOuter iVal (pushTup res vsLocal) (env ++ (evalSymOp env op').toArray) := by
-    intro ts' op' va' P' hw' h1
-    refine evalSymOp_push_other hm op' hw' ?_
-    dsimp only [evalSymOp]; rw [h1]
-    cases ts' with | nil => rfl | cons _ tl => cases tl <;> rfl
-  rcases op with ⟨code, args⟩
-  dsimp only at valArgs hargs hwp
+        SymEnvMatch vsOuter iVal (pushTup res vsLocal) (env ++ (evalSymOp env op').toArray) :=
+    evalSymOp_push_other hm op' hw' (by
+      dsimp only [evalSymOp]; rw [h1]; cases ts' with | nil => rfl | cons _ tl => cases tl <;> rfl)
+  rcases op with ⟨code, args⟩; dsimp only at valArgs hargs hwp
   cases code with
   | copy t =>
     rcases args with ⟨a, ⟨⟩⟩; rcases valArgs with ⟨va, ⟨⟩⟩
-    rw [denoteArgs_singleton_eq] at hargs
-    cases hda : denoteArg (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) a with
-    | none => rw [hda] at hargs; cases hargs
-    | some va' =>
-      rw [hda] at hargs; cases hargs
-      by_cases ht : t = i64
-      · subst ht
-        rw [OpCode.wp_copy] at hwp; dsimp only [vals, Arg.val] at hwp
-        refine ⟨(va.val, ()), hwp, ?_⟩
-        dsimp only [evalSymOp, evalSymOp1]; rw [dite_eq_left rfl, pushTup_singleton]
-        exact symEnvMatch_push1 hm (argToSym64_correct hm a hda)
-      · exact hNone hwp (by dsimp only [evalSymOp1]; rw [dite_eq_right ht])
+    have hda := denoteArgs_singleton_some hargs
+    by_cases ht : t = i64
+    · subst ht; rw [OpCode.wp_copy] at hwp; dsimp only [vals, Arg.val] at hwp
+      refine ⟨(va.val, ()), hwp, ?_⟩
+      dsimp only [evalSymOp, evalSymOp1]; rw [dite_eq_left rfl, pushTup_singleton]
+      exact symEnvMatch_push1 hm (argToSym64_correct hm a hda)
+    · exact hNone hwp (by dsimp only [evalSymOp1]; rw [dite_eq_right ht])
   | add t =>
     rcases args with ⟨a, b, ⟨⟩⟩; rcases valArgs with ⟨va, vb, ⟨⟩⟩
-    rw [denoteArgs_pair_eq] at hargs
-    cases hda : denoteArg (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) a with
-    | none => rw [hda] at hargs; cases hargs
-    | some va' =>
-      cases hdb : denoteArg (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) b with
-      | none => rw [hda, hdb] at hargs; cases hargs
-      | some vb' =>
-        rw [hda, hdb] at hargs; cases hargs
-        by_cases ht : t = i64
-        · subst ht
-          rw [OpCode.wp_add] at hwp
-          dsimp only [lift2, vals, Arg.val, i64, Ty.hasFloat] at hwp
-          refine ⟨(va.val + vb.val, ()), hwp, ?_⟩
-          dsimp only [evalSymOp, evalSymOp1]
-          rw [dite_eq_left rfl, pushTup_singleton]
-          exact symEnvMatch_push1 hm
-            ⟨va.val, vb.val, argToSym64_correct hm a hda, argToSym64_correct hm b hdb, rfl⟩
-        · exact hNone hwp (by dsimp only [evalSymOp1]; rw [dite_eq_right ht])
+    obtain ⟨hda, hdb⟩ := denoteArgs_pair_some hargs
+    by_cases ht : t = i64
+    · subst ht; rw [OpCode.wp_add] at hwp
+      dsimp only [lift2, vals, Arg.val, i64, Ty.hasFloat] at hwp
+      refine ⟨(va.val + vb.val, ()), hwp, ?_⟩
+      dsimp only [evalSymOp, evalSymOp1]; rw [dite_eq_left rfl, pushTup_singleton]
+      exact symEnvMatch_push1 hm
+        ⟨va.val, vb.val, argToSym64_correct hm a hda, argToSym64_correct hm b hdb, rfl⟩
+    · exact hNone hwp (by dsimp only [evalSymOp1]; rw [dite_eq_right ht])
   | shl t =>
     rcases args with ⟨a, b, ⟨⟩⟩; rcases valArgs with ⟨va, vb, ⟨⟩⟩
-    rw [denoteArgs_pair_eq] at hargs
-    cases hda : denoteArg (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) a with
-    | none => rw [hda] at hargs; cases hargs
-    | some va' =>
-      cases hdb : denoteArg (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) b with
-      | none => rw [hda, hdb] at hargs; cases hargs
-      | some vb' =>
-        rw [hda, hdb] at hargs; cases hargs
-        by_cases ht : t = i64
-        · subst ht
-          cases hsb : argToSym64 env b with
-          | const c =>
-            rw [OpCode.wp_shl] at hwp
-            dsimp only [lift2, vals, Arg.val, i64, Ty.hasFloat] at hwp
-            have hrelB := argToSym64_correct hm b hdb
-            rw [hsb] at hrelB
-            have hc : vb.val = c := sigma_val_eq hrelB
-            have hSym : SymRel vsOuter iVal
-                ((argToSym64 env a).shlConst (c.toNat % 64))
-                ⟨i64, va.val <<< (vb.val.toNat % 64)⟩ :=
-              ⟨va.val, argToSym64_correct hm a hda, by rw [hc]⟩
-            refine ⟨(va.val <<< (vb.val.toNat % 64), ()), hwp, ?_⟩
-            dsimp only [evalSymOp, evalSymOp1]
-            rw [dite_eq_left rfl, hsb, pushTup_singleton (t := i64)]
-            exact symEnvMatch_push1 hm hSym
-          | loopI | outer _ | add _ _ | shlConst _ _ | cmpU _ _ | other =>
-            refine evalSymOp_push_other hm _ hwp ?_
-            dsimp only [evalSymOp, evalSymOp1]; rw [dite_eq_left rfl, hsb]; rfl
-        · exact hNone hwp (by dsimp only [evalSymOp1]; rw [dite_eq_right ht])
+    obtain ⟨hda, hdb⟩ := denoteArgs_pair_some hargs
+    by_cases ht : t = i64
+    · subst ht
+      cases hsb : argToSym64 env b with
+      | const c =>
+        rw [OpCode.wp_shl] at hwp; dsimp only [lift2, vals, Arg.val, i64, Ty.hasFloat] at hwp
+        have hrelB := argToSym64_correct hm b hdb; rw [hsb] at hrelB
+        refine ⟨(va.val <<< (vb.val.toNat % 64), ()), hwp, ?_⟩
+        dsimp only [evalSymOp, evalSymOp1]; rw [dite_eq_left rfl, hsb, pushTup_singleton (t := i64)]
+        exact symEnvMatch_push1 hm ⟨va.val, argToSym64_correct hm a hda, by rw [sigma_val_eq hrelB]⟩
+      | loopI | outer _ | add _ _ | shlConst _ _ | cmpU _ _ | other =>
+        exact evalSymOp_push_other hm _ hwp
+          (by dsimp only [evalSymOp, evalSymOp1]; rw [dite_eq_left rfl, hsb]; rfl)
+    · exact hNone hwp (by dsimp only [evalSymOp1]; rw [dite_eq_right ht])
   | cmp o t m h =>
-    subst h
-    rcases args with ⟨a, b, ⟨⟩⟩; rcases valArgs with ⟨va, vb, ⟨⟩⟩
-    rw [denoteArgs_pair_eq] at hargs
-    cases hda : denoteArg (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) a with
-    | none => rw [hda] at hargs; cases hargs
-    | some va' =>
-      cases hdb : denoteArg (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) b with
-      | none => rw [hda, hdb] at hargs; cases hargs
-      | some vb' =>
-        rw [hda, hdb] at hargs; cases hargs
-        by_cases ht : t = i64
-        · subst ht
-          rw [OpCode.wp_cmp _ _ rfl] at hwp
-          dsimp only [liftCmp, vals, Arg.val, i64, Ty.hasFloat] at hwp
-          have hRes := evalSymCmp_correct o
-            (argToSym64_correct hm a hda) (argToSym64_correct hm b hdb)
-          refine ⟨(o.evalBits va.val vb.val, ()), hwp, ?_⟩
-          let s1 := argToSym64 env a
-          let s2 := argToSym64 env b
-          let sCmp := (match o, s1, s2 with
-            | .ult, .loopI, _ => Option.map (Sym64.cmpU true) (symToOuterArg64 s2)
-            | .ule, .loopI, _ => Option.map (Sym64.cmpU false) (symToOuterArg64 s2)
-            | .ugt, _, .loopI => Option.map (Sym64.cmpU true) (symToOuterArg64 s1)
-            | .uge, _, .loopI => Option.map (Sym64.cmpU false) (symToOuterArg64 s1)
-            | _, _, _ => none).getD .other
-          have hArr :
-              (evalSymOp env ⟨OpCode.cmp o i64 i64.mask rfl, (a, b, ())⟩).toArray = #[sCmp] := by
-            dsimp only [evalSymOp, evalSymOp1, sCmp, s1, s2]
-            rw [dite_eq_left rfl]; rfl
-          rw [pushTup_singleton (t := i64.mask)]
-          change SymEnvMatch vsOuter iVal
-            (⟨Ty.bool, o.evalBits va.val vb.val⟩ :: vsLocal)
-            (env ++ (evalSymOp env ⟨OpCode.cmp o i64 i64.mask rfl, (a, b, ())⟩).toArray)
-          rw [hArr]
-          exact symEnvMatch_push1 hm hRes
-        · exact hNone hwp (by dsimp only [evalSymOp1]; rw [dite_eq_right ht])
+    subst h; rcases args with ⟨a, b, ⟨⟩⟩; rcases valArgs with ⟨va, vb, ⟨⟩⟩
+    obtain ⟨hda, hdb⟩ := denoteArgs_pair_some hargs
+    by_cases ht : t = i64
+    · subst ht; rw [OpCode.wp_cmp _ _ rfl] at hwp
+      dsimp only [liftCmp, vals, Arg.val, i64, Ty.hasFloat] at hwp
+      refine ⟨(o.evalBits va.val vb.val, ()), hwp, ?_⟩
+      dsimp only [evalSymOp, evalSymOp1]; rw [dite_eq_left rfl, pushTup_singleton (t := i64.mask)]
+      exact symEnvMatch_push1 hm
+        (evalSymCmp_correct o (argToSym64_correct hm a hda) (argToSym64_correct hm b hdb))
+    · exact hNone hwp (by dsimp only [evalSymOp1]; rw [dite_eq_right ht])
   | _ => exact hNone hwp rfl
 
 private theorem checkJump0Inc1_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
@@ -924,18 +852,15 @@ private theorem matchBodyTail_bound_eq {rs : List Ty} {isLt : Bool} {bound : Arg
     cases valArg with
     | var _ => cases hm
     | imm v =>
-      dsimp only at hm
       cases hSp : splatVal64 v with
-      | none => rw [hSp] at hm; cases hm
+      | none => simp [hSp] at hm
       | some sf =>
-        rw [hSp] at hm; dsimp only at hm
         cases hA : matchAddr sf.1 (argToSym64 env addrArg) with
-        | none => rw [hA] at hm; cases hm
+        | none => simp [hSp, hA] at hm
         | some bo =>
-          rw [hA] at hm; dsimp only at hm
-          by_cases hC : checkJump0Inc1 env cont = true
-          · rw [ite_eq_left hC] at hm; cases hm; exact ⟨rfl, rfl⟩
-          · rw [ite_eq_right hC] at hm; cases hm
+          simp only [hSp, hA] at hm; split at hm
+          · cases hm; exact ⟨rfl, rfl⟩
+          · cases hm
   | .load _ _ _, _, _, hm | .call _ _ _ _, _, _, hm | .jnz _ _ _, _, _, hm |
     .jump _ _, _, _, hm | .ret _, _, _, hm | .exit _ _, _, _, hm | .hlt, _, _, hm |
     .group _ _, _, _, hm => by dsimp only [matchBodyTail] at hm; cases hm
@@ -980,15 +905,13 @@ private theorem matchBodyTail_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
     | imm fillAtom =>
       dsimp only at hm
       cases hSp : splatVal64 fillAtom with
-      | none => rw [hSp] at hm; cases hm
+      | none => simp [hSp] at hm
       | some sf =>
         rcases sf with ⟨sh, f64⟩
-        rw [hSp] at hm; dsimp only at hm
         cases hAddr : matchAddr sh (argToSym64 env addrArg) with
-        | none => rw [hAddr] at hm; cases hm
+        | none => simp [hSp, hAddr] at hm
         | some bo =>
-          rcases bo with ⟨base, off?⟩
-          rw [hAddr] at hm; dsimp only at hm
+          rcases bo with ⟨base, off?⟩; simp only [hSp, hAddr] at hm
           by_cases hChk : checkJump0Inc1 env cont = true
           · rw [ite_eq_left hChk] at hm; cases hm
             refine ⟨t_atom, fillAtom, hSp, fun vsLocal iVal m hEnv hwp baseA oVal hdB hdO => ?_⟩
@@ -996,18 +919,14 @@ private theorem matchBodyTail_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
             have hdv : denoteArg (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) (.imm fillAtom) =
                 some (.imm fillAtom) := rfl
             cases hda : denoteArg (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) addrArg with
-            | none => rw [hdv, hda] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
+            | none => exact absurd (by rw [hdv, hda] at hwp; exact hwp) wp_hlt_false
             | some addrA =>
               rw [hdv, hda] at hwp; dsimp only at hwp; rw [wp_store] at hwp
-              obtain ⟨hOk, hCont⟩ := hwp
               obtain ⟨baseA', oVal', hdB', hdO', hEqAddr⟩ :=
                 matchAddr_correct (argToSym64_correct hEnv addrArg hda) hAddr
-              have hAddrVal : addrA.val = baseA'.val + ((iVal + oVal') <<< sh) :=
-                sigma_val_eq hEqAddr
-              rw [hdB] at hdB'; rw [hdO] at hdO'
-              cases hdB'; cases hdO'
-              rw [hAddrVal] at hOk hCont
-              exact ⟨hOk, checkJump0Inc1_wp cont hChk hEnv hCont⟩
+              rw [hdB] at hdB'; rw [hdO] at hdO'; cases hdB'; cases hdO'
+              have hAddrVal := sigma_val_eq hEqAddr
+              exact ⟨hAddrVal ▸ hwp.1, checkJump0Inc1_wp cont hChk hEnv (hAddrVal ▸ hwp.2)⟩
           · rw [ite_eq_right hChk] at hm; cases hm
   | .load _ _ _, _, _, hm | .call _ _ _ _, _, _, hm | .jnz _ _ _, _, _, hm |
     .jump _ _, _, _, hm | .ret _, _, _, hm | .exit _ _, _, _, hm | .hlt, _, _, hm |
@@ -1022,12 +941,10 @@ private theorem matchFillBody_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
         splatVal64 fillAtom = some (spec.shift, spec.fill64) ∧
         ∀ (vsLocal : List ((t : Ty) × Val t)) (iVal : BitVec 64) (m : Mem 64),
           SymEnvMatch vsOuter iVal vsLocal env →
-          wp Γ Q X
-            (denote Val Cont body (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) (⟨[i64], JLoop⟩ :: ls))
-            m →
+          wp Γ Q X (denote Val Cont body (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter)
+            (⟨[i64], JLoop⟩ :: ls)) m →
           ∀ (bndA baseA : Arg Val i64) (oVal : BitVec 64),
-            denoteArg vsOuter spec.bound = some bndA →
-            denoteArg vsOuter spec.base = some baseA →
+            denoteArg vsOuter spec.bound = some bndA → denoteArg vsOuter spec.base = some baseA →
             offVal vsOuter spec.off? = some oVal →
             (if spec.isLt then decide (iVal < bndA.val) else decide (iVal ≤ bndA.val)) = true →
             storeOk m t_atom (baseA.val + ((iVal + oVal) <<< spec.shift)) ∧
@@ -1042,7 +959,7 @@ private theorem matchFillBody_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
         fun vsLocal iVal m hEnv hwp bndA baseA oVal hBnd hBs hO hC => ?_⟩
       rw [denote_let_eq] at hwp
       cases hda : denoteArgs (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) op.args with
-      | none => rw [hda] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
+      | none => exact absurd (by rw [hda] at hwp; exact hwp) wp_hlt_false
       | some valArgs =>
         rw [hda] at hwp; dsimp only [Op.wp] at hwp; rw [wp_let] at hwp
         obtain ⟨res, hP, hm'⟩ := evalSymOp_wp hEnv op hda hwp
@@ -1055,29 +972,54 @@ private theorem matchFillBody_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
     | cmpU isLt bnd =>
       rw [hc] at hm; dsimp only at hm
       obtain ⟨hLtEq, hBndEq⟩ := matchBodyTail_bound_eq t hm
-      obtain ⟨t_atom, fillAtom, hSplat, ht⟩ :=
-        matchBodyTail_spec (Γ := Γ) (Q := Q) (X := X) t hm
+      obtain ⟨t_atom, fillAtom, hSplat, ht⟩ := matchBodyTail_spec (Γ := Γ) (Q := Q) (X := X) t hm
       refine ⟨t_atom, fillAtom, hSplat,
         fun vsLocal iVal m hEnv hwp bndA baseA oVal hBnd hBs hO hC => ?_⟩
       rw [denote_jnz_eq] at hwp
       cases hdc : denoteArg (vsLocal ++ ⟨i64, iVal⟩ :: vsOuter) c with
-      | none => rw [hdc] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
+      | none => exact absurd (by rw [hdc] at hwp; exact hwp) wp_hlt_false
       | some cA =>
         rw [hdc] at hwp; dsimp only at hwp; rw [wp_jnz] at hwp
-        have hRel := argToSym64_correct hEnv c hdc
-        rw [hc] at hRel
+        have hRel := argToSym64_correct hEnv c hdc; rw [hc] at hRel
         rcases hRel with ⟨bndA', hBnd', hCEq⟩
-        rw [hBndEq] at hBnd; rw [hBnd] at hBnd'
-        cases hBnd'
-        have hcVal : cA.val = true := by
-          have hV := sigma_val_eq hCEq
-          rw [hV, ← hLtEq]; exact hC
-        exact ht vsLocal iVal m hEnv (hwp.1 hcVal) baseA oVal hBs hO
-    | loopI | outer _ | const _ | add _ _ | shlConst _ _ | other =>
-      rw [hc] at hm; cases hm
+        rw [hBndEq] at hBnd; rw [hBnd] at hBnd'; cases hBnd'
+        exact ht vsLocal iVal m hEnv
+          (hwp.1 (by rw [sigma_val_eq hCEq, ← hLtEq]; exact hC)) baseA oVal hBs hO
+    | loopI | outer _ | const _ | add _ _ | shlConst _ _ | other => rw [hc] at hm; cases hm
   | .load _ _ _, _, _, hm | .store _ _ _, _, _, hm | .call _ _ _ _, _, _, hm |
     .jump _ _, _, _, hm | .ret _, _, _, hm | .exit _ _, _, _, hm | .hlt, _, _, hm |
     .group _ _, _, _, hm => by dsimp only [matchFillBody] at hm; cases hm
+
+private theorem liftOp_cmp_wp {o : CmpOp} {a b : Arg Val i64} {K : Tup Val [.bool] → Prop}
+    (hK : K (o.evalBits a.val b.val, ())) :
+    OpCode.wp (OpCode.cmp o i64 .bool rfl) (vals (a, b, ())) K := by
+  rw [OpCode.wp_cmp _ _ rfl]
+  dsimp only [liftCmp, vals, Arg.val, Ty.hasFloat]
+  cases a <;> cases b <;> exact hK
+
+private theorem liftOp_sub_wp {a : Arg Val i64} {y : BitVec 64} {K : Tup Val [i64] → Prop}
+    (hK : K (a.val - y, ())) :
+    OpCode.wp (OpCode.sub i64) (vals (a, (.var y : Arg Val i64), ())) K := by
+  rw [OpCode.wp_sub]; dsimp only [lift2, vals, Arg.val, i64, Ty.hasFloat]; cases a <;> exact hK
+private theorem liftOp_add_wp {x : BitVec 64} {b : Arg Val i64} {K : Tup Val [i64] → Prop}
+    (hK : K (x + b.val, ())) :
+    OpCode.wp (OpCode.add i64) (vals ((.var x : Arg Val i64), b, ())) K := by
+  rw [OpCode.wp_add]; dsimp only [lift2, vals, Arg.val, i64, Ty.hasFloat]; cases b <;> exact hK
+private theorem liftOp_shl_wp {a : Arg Val i64} {s : BitVec 64} {K : Tup Val [i64] → Prop}
+    (hK : K (a.val <<< (s.toNat % 64), ())) :
+    OpCode.wp (OpCode.shl i64) (vals (a, (.imm s : Arg Val i64), ())) K := by
+  rw [OpCode.wp_shl]; dsimp only [lift2, vals, Arg.val, i64, Ty.hasFloat]; cases a <;> exact hK
+private theorem denoteArg_var0 {V : Ty → Type} {t : Ty} (v : V t) (vs : List ((t' : Ty) × V t')) :
+    denoteArg (⟨t, v⟩ :: vs) (.var 0 : Arg K t) = some (.var v) := by
+  dsimp only [denoteArg, lookupV]; rw [listGet?_cons_zero_eq]; dsimp only
+  rw [PassFlatKit.castTy_self]
+private theorem lookupL_0 {L : List Ty → Type} {ts : List Ty} (l : L ts)
+    (ls : List ((ts' : List Ty) × L ts')) : lookupL (⟨ts, l⟩ :: ls) ts 0 = some l := by
+  dsimp only [lookupL]; rw [listGet?_cons_zero_eq]; dsimp only; exact castListTy_self ts l
+private theorem lookupL_1 {L : List Ty → Type} {ts ts0 : List Ty} (l0 : L ts0) (l : L ts)
+    (ls : List ((ts' : List Ty) × L ts')) :
+    lookupL (⟨ts0, l0⟩ :: ⟨ts, l⟩ :: ls) ts 1 = some l := by
+  dsimp only [lookupL, listGet?]; exact castListTy_self ts l
 
 private theorem widenFillSingle_wp {Γ : Env} {rs ts0 : List Ty} {Q : Post rs} {X : XPost}
     {GOuter : List Ty} {DOuter : List (List Ty)}
@@ -1090,410 +1032,248 @@ private theorem widenFillSingle_wp {Γ : Env} {rs ts0 : List Ty} {Q : Post rs} {
     wp Γ Q X (denote Val Cont res vs ls) m := by
   obtain ⟨hunroll1, hunroll64, rfl, initArg, spec, rfl, hmFill, rfl⟩ :=
     widenFillSingle_eq_some hw
-  have hBodyWf : TFlat.wfCheck (pushTypes [i64] GOuter) ([i64] :: DOuter) body = true := by
-    rw [wfCheck_group_eq, wfCheckB_cons_eq, wfCheckB_nil_eq,
-      Bool.and_true, Bool.and_eq_true] at hwf
-    exact hwf.1
-  have hEmpty : SymEnvWf GOuter [] #[] := ⟨rfl, fun _ hs => by cases hs⟩
-  have hSpec := matchFillBody_wf body hEmpty hBodyWf hmFill
-  have hInitWf : checkArg GOuter i64 initArg = true := by
-    rw [wfCheck_group_eq, wfCheckB_cons_eq, wfCheckB_nil_eq,
-      Bool.and_true, Bool.and_eq_true] at hwf
-    have hJumpWf := hwf.2
-    rw [wfCheck_jump_eq, Bool.and_eq_true] at hJumpWf
-    have hj := hJumpWf.2
-    dsimp only [pushTypes, checkArgs] at hj
-    rw [Bool.and_true] at hj; exact hj
-  obtain ⟨initA, hdInit⟩ := Option.isSome_iff_exists.mp
-    (denoteArg_isSome_of_checkArg hCtxV hInitWf)
-  obtain ⟨bndA, hdBnd⟩ := Option.isSome_iff_exists.mp
-    (denoteArg_isSome_of_checkArg hCtxV hSpec.1)
-  obtain ⟨baseA, hdBase⟩ := Option.isSome_iff_exists.mp
-    (denoteArg_isSome_of_checkArg hCtxV hSpec.2.1)
+  rw [wfCheck_group_eq, wfCheckB_cons_eq, wfCheckB_nil_eq, Bool.and_true, Bool.and_eq_true,
+    wfCheck_jump_eq, Bool.and_eq_true] at hwf
+  have hBodyWf : TFlat.wfCheck ([] ++ i64 :: GOuter) ([i64] :: DOuter) body = true := hwf.1
+  have hSpec := matchFillBody_wf body ⟨rfl, fun _ hs => by cases hs⟩ hBodyWf hmFill
+  obtain ⟨initA, hdInit⟩ := Option.isSome_iff_exists.mp (denoteArg_isSome_of_checkArg hCtxV
+    (by simpa [pushTypes, checkArgs] using hwf.2.2 : checkArg GOuter i64 initArg = true))
+  obtain ⟨bndA, hdBnd⟩ := Option.isSome_iff_exists.mp (denoteArg_isSome_of_checkArg hCtxV hSpec.1)
+  obtain ⟨baseA, hdBase⟩ :=
+    Option.isSome_iff_exists.mp (denoteArg_isSome_of_checkArg hCtxV hSpec.2.1)
   obtain ⟨oVal, hdOff⟩ : ∃ oVal : BitVec 64, offVal vs spec.off? = some oVal := by
     cases hOff : spec.off? with
     | none => exact ⟨0#64, rfl⟩
     | some off =>
-      have hOffWf : checkArg GOuter i64 off = true := by
-        have hAll := hSpec.2.2.1
-        rw [hOff, Option.all_some] at hAll
-        exact hAll
-      obtain ⟨offA, hdOffA⟩ := Option.isSome_iff_exists.mp
-        (denoteArg_isSome_of_checkArg hCtxV hOffWf)
+      have hOffWf := hSpec.2.2.1; rw [hOff, Option.all_some] at hOffWf
+      obtain ⟨offA, hdOffA⟩ :=
+        Option.isSome_iff_exists.mp (denoteArg_isSome_of_checkArg hCtxV hOffWf)
       exact ⟨offA.val, by simp [offVal, hdOffA]⟩
-  have hG := ctx_diagV_of_vs (vs := vs)
-  have hD := ctx_monoD_of_ls (ls := ls)
-  have hRelV := ctxRel_refl_vs (vs := vs)
-  have hRelL := ctxRel_refl_ls (ls := ls)
+  have hG := ctx_diagV_of_vs (vs := vs); have hD := ctx_monoD_of_ls (ls := ls)
+  have hRelV := ctxRel_refl_vs (vs := vs); have hRelL := ctxRel_refl_ls (ls := ls)
   let bodies : Tup Cont [[i64]] → Blocks Val Cont rs [[i64]] := fun Js =>
     denoteB Val Cont (.cons (ts := [i64]) body .nil) vs (pushTup Js ls)
-  let kSrc : Tup Cont [[i64]] → Expr Val Cont rs := fun Js =>
-    denote Val Cont (.jump (ts := [i64]) 0 (initArg, ())) vs (pushTup Js ls)
-  let kWrap : Tup Cont [[i64]] → Expr Val Cont rs := fun Js =>
-    denote Val Cont (mkWideWrapper spec unrollN initArg) vs (pushTup Js ls)
-  have hWfB : ∀ Js₁ Js₂ : Tup Cont [[i64]],
+  have hWfB (Js₁ Js₂ : Tup Cont [[i64]]) :
       WfB (List.map (fun ⟨t, v⟩ => ⟨t, (v, v)⟩) vs)
-        (Js₁.zip Js₂ ++ List.map (fun ⟨ts, l⟩ => ⟨ts, (l, l)⟩) ls)
-        (bodies Js₁) (bodies Js₂) := fun Js₁ Js₂ =>
+        (Js₁.zip Js₂ ++ List.map (fun ⟨ts, l⟩ => ⟨ts, (l, l)⟩) ls) (bodies Js₁) (bodies Js₂) :=
     denoteB_wf (.cons (ts := [i64]) body .nil) hRelV (ctxRel_pushTup Js₁ Js₂ hRelL)
-  have hWfK : ∀ Js₁ Js₂ : Tup Cont [[i64]],
-      Wf (List.map (fun ⟨t, v⟩ => ⟨t, (v, v)⟩) vs)
-        (Js₁.zip Js₂ ++ List.map (fun ⟨ts, l⟩ => ⟨ts, (l, l)⟩) ls)
-        (kSrc Js₁) (kSrc Js₂) := fun Js₁ Js₂ =>
-    denote_wf (.jump (ts := [i64]) 0 (initArg, ())) hRelV (ctxRel_pushTup Js₁ Js₂ hRelL)
-  have hWfWrap : ∀ Js₁ Js₂ : Tup Cont [[i64]],
-      Wf (List.map (fun ⟨t, v⟩ => ⟨t, (v, v)⟩) vs)
-        (Js₁.zip Js₂ ++ List.map (fun ⟨ts, l⟩ => ⟨ts, (l, l)⟩) ls)
-        (kWrap Js₁) (kWrap Js₂) := fun Js₁ Js₂ =>
-    denote_wf (mkWideWrapper spec unrollN initArg) hRelV (ctxRel_pushTup Js₁ Js₂ hRelL)
   rw [denote_group_eq] at hwp ⊢
-  change wp Γ Q X (.group bodies kSrc) m at hwp
-  change wp Γ Q X (.group bodies kWrap) m
-  rw [wp_group_iff hG hD hWfB hWfK] at hwp
-  rw [wp_group_iff hG hD hWfB hWfWrap]
+  rw [wp_group_iff hG hD hWfB (fun Js₁ Js₂ =>
+    denote_wf (.jump (ts := [i64]) 0 (initArg, ())) hRelV (ctxRel_pushTup Js₁ Js₂ hRelL))] at hwp
+  rw [wp_group_iff hG hD hWfB (fun Js₁ Js₂ =>
+    denote_wf (mkWideWrapper spec unrollN initArg) hRelV (ctxRel_pushTup Js₁ Js₂ hRelL))]
   let JLoop : Cont [i64] := (lfp Γ Q X bodies).fst
   have hPushJs : pushTup (lfp Γ Q X bodies) ls = ⟨[i64], JLoop⟩ :: ls := by
     cases hEq : lfp Γ Q X bodies with
     | mk jl u => cases u; dsimp only [JLoop]; rw [hEq]; rfl
   have hJInit : JLoop (initA.val, ()) m := by
-    dsimp only [kSrc] at hwp
-    rw [hPushJs, denote_jump_eq, denoteArgs_singleton_eq] at hwp
-    have hL0 : lookupL (⟨[i64], JLoop⟩ :: ls) [i64] 0 = some JLoop := by
-      dsimp only [lookupL]; rw [listGet?_cons_zero_eq]; dsimp only; rw [castListTy_self]
-    rw [hL0, hdInit] at hwp; dsimp only at hwp; rw [wp_jump] at hwp
-    dsimp only [vals, Arg.val] at hwp
-    exact hwp
-  have hBodyStep : ∀ (i' : BitVec 64) (m' : Mem 64), JLoop (i', ()) m' →
+    rw [hPushJs, denote_jump_eq, denoteArgs_singleton_eq, lookupL_0, hdInit] at hwp
+    simpa [wp_jump, vals, Arg.val] using hwp
+  have hBodyStep (i' : BitVec 64) (m' : Mem 64) (hJi : JLoop (i', ()) m') :
       wp Γ Q X (denote Val Cont body (⟨i64, i'⟩ :: vs) (⟨[i64], JLoop⟩ :: ls)) m' := by
-    intro i' m' hJi
     have hUnr := lfp_unroll_single hG hD hWfB (i', ()) m' hJi
     change wp Γ Q X ((denoteB Val Cont (.cons (ts := [i64]) body .nil) vs
       (pushTup (lfp Γ Q X bodies) ls)).get Member.here (i', ())) m' at hUnr
-    rw [hPushJs] at hUnr
-    rw [denoteB_cons_eq] at hUnr
-    exact hUnr
-  obtain ⟨t_atom, fillAtom, hSplat, hBodyMatched⟩ :=
-    matchFillBody_spec (Γ := Γ) (Q := Q) (X := X) (vsOuter := vs) (ls := ls)
-      (JLoop := JLoop) body hmFill
+    rwa [hPushJs, denoteB_cons_eq] at hUnr
+  obtain ⟨t_atom, fillAtom, hSplat, hBodyMatched⟩ := matchFillBody_spec (Γ := Γ) (Q := Q) (X := X)
+    (vsOuter := vs) (ls := ls) (JLoop := JLoop) body hmFill
   obtain ⟨hShLe, hBytesEq, hK64Mul, hWideBytesEq⟩ := splatVal64_spec fillAtom hSplat
   have hBytesPos : 0 < t_atom.bytes := by rw [hBytesEq]; exact Nat.pow_pos (by omega)
-  have hScalarStep : ∀ (i' : BitVec 64) (m' : Mem 64),
-      i'.toNat < bndA.val.toNat → JLoop (i', ()) m' →
+  have hScalarStep (i' : BitVec 64) (m' : Mem 64) (hiLt : i'.toNat < bndA.val.toNat)
+      (hJi : JLoop (i', ()) m') :
       storeOk m' t_atom (baseA.val + ((i' + oVal) <<< spec.shift)) ∧
       JLoop (i' + 1#64, ())
         (storeMem m' t_atom (baseA.val + ((i' + oVal) <<< spec.shift)) fillAtom) := by
-    intro i' m' hiLt hJi
-    have hCmpT :
-        (if spec.isLt then decide (i' < bndA.val) else decide (i' ≤ bndA.val)) = true := by
-      have hLe : i'.toNat ≤ bndA.val.toNat := Nat.le_of_lt hiLt
+    have hLe : i'.toNat ≤ bndA.val.toNat := Nat.le_of_lt hiLt
+    have hCmpT : (if spec.isLt then decide (i' < bndA.val) else decide (i' ≤ bndA.val)) = true := by
       cases spec.isLt <;> simp [BitVec.lt_def, BitVec.le_def, hiLt, hLe]
-    exact hBodyMatched [] i' m' symEnvMatch_empty (hBodyStep i' m' hJi)
-      bndA baseA oVal hdBnd hdBase hdOff hCmpT
-  let jl : Cont [i64] := JLoop
-  dsimp only [kWrap]
-  rw [hPushJs]
-  dsimp only [mkWideWrapper]
-  rw [denote_group_eq]
+    exact hBodyMatched [] i' m' symEnvMatch_empty (hBodyStep i' m' hJi) bndA baseA oVal
+      hdBnd hdBase hdOff hCmpT
+  rw [hPushJs]; dsimp only [mkWideWrapper]; rw [denote_group_eq]
   let wb := mkWideBody (rs := rs) spec unrollN
-  let k64 := 8 >>> spec.shift
-  let stepK := unrollN * k64
+  let k64 := 8 >>> spec.shift; let stepK := unrollN * k64
   let cmpOp := if spec.isLt = true then CmpOp.ult else CmpOp.ule
-  let kCheck : TFlat rs := TFlat.let_
-    (op2 (OpCode.cmp cmpOp (Ty.bits 64) Ty.bool rfl) initArg spec.bound)
-    (TFlat.jnz (Arg.var 0)
-      (TFlat.jump (ts := [i64]) 0 (tArgShift 1 initArg, ()))
-      (TFlat.jump (ts := [i64]) 1 (tArgShift 1 initArg, ())))
+  let kCheck : TFlat rs := TFlat.let_ (op2 (OpCode.cmp cmpOp (Ty.bits 64) Ty.bool rfl) initArg
+    spec.bound) (TFlat.jnz (.var 0) (.jump (ts := [i64]) 0 (tArgShift 1 initArg, ()))
+      (.jump (ts := [i64]) 1 (tArgShift 1 initArg, ())))
   have hEqGroup :
-      Expr.group (sig := [[i64]])
-        (fun Js => denoteB Val Cont (.cons (ts := [i64]) wb .nil) vs
-          (pushTup Js (⟨[i64], jl⟩ :: ls)))
-        (fun Js => denote Val Cont kCheck vs (pushTup Js (⟨[i64], jl⟩ :: ls))) =
+      Expr.group (sig := [[i64]]) (fun Js => denoteB Val Cont (.cons (ts := [i64]) wb .nil) vs
+          (pushTup Js (⟨[i64], JLoop⟩ :: ls)))
+        (fun Js => denote Val Cont kCheck vs (pushTup Js (⟨[i64], JLoop⟩ :: ls))) =
       Expr.group (sig := [[i64]])
         (fun Js : Tup Cont [[i64]] => Blocks.cons
-          (fun xs => denote Val Cont wb (pushTup xs vs) (⟨[i64], Js.fst⟩ :: ⟨[i64], jl⟩ :: ls))
+          (fun xs => denote Val Cont wb (pushTup xs vs) (⟨[i64], Js.fst⟩ :: ⟨[i64], JLoop⟩ :: ls))
           Blocks.nil)
-        (fun Js => denote Val Cont kCheck vs (⟨[i64], Js.fst⟩ :: ⟨[i64], jl⟩ :: ls)) := by
+        (fun Js => denote Val Cont kCheck vs (⟨[i64], Js.fst⟩ :: ⟨[i64], JLoop⟩ :: ls)) := by
     congr 1 <;> funext Js <;> rcases Js with ⟨jw, ⟨⟩⟩ <;>
-      · dsimp only [pushTup]; try rw [denoteB_cons_eq, denoteB_nil_eq]
-        rfl
+      · dsimp only [pushTup]; try rw [denoteB_cons_eq, denoteB_nil_eq]; rfl
   rw [hEqGroup]
-  have hLiftCmpEq : ∀ (o : CmpOp) (a b : Arg Val i64) (K : Tup Val [Ty.bool] → Prop),
-      K (o.evalBits a.val b.val, ()) →
-      OpCode.wp (OpCode.cmp o i64 Ty.bool rfl) (vals (a, b, ())) K := by
-    intro o a b K hK
-    rw [OpCode.wp_cmp _ _ rfl]; dsimp only [liftCmp, vals, Arg.val, Ty.hasFloat]
-    cases a <;> cases b <;> exact hK
   let Inv : Nat → Tup Val [i64] → Mem 64 → Prop := fun n xs m' =>
-    xs.fst.toNat ≤ bndA.val.toNat ∧ n = bndA.val.toNat - xs.fst.toNat ∧ jl xs m'
+    xs.fst.toNat ≤ bndA.val.toNat ∧ n = bndA.val.toNat - xs.fst.toNat ∧ JLoop xs m'
   refine wp_loop
-    (fun JWide xs => denote Val Cont wb (pushTup xs vs) (⟨[i64], JWide⟩ :: ⟨[i64], jl⟩ :: ls))
-    (fun JWide => denote Val Cont kCheck vs (⟨[i64], JWide⟩ :: ⟨[i64], jl⟩ :: ls))
+    (fun JWide xs =>
+      denote Val Cont wb (pushTup xs vs) (⟨[i64], JWide⟩ :: ⟨[i64], JLoop⟩ :: ls))
+    (fun JWide => denote Val Cont kCheck vs (⟨[i64], JWide⟩ :: ⟨[i64], JLoop⟩ :: ls))
     Inv ?_ ?_
   · intro JWide n xs m' ih ⟨hLe, hn, hJL⟩
     rcases xs with ⟨i', ⟨⟩⟩
     dsimp only at hLe hn hJL
     subst hn
-    have hJL' : JLoop (i', ()) m' := hJL
     dsimp only [wb, mkWideBody, op2]
-    rw [denote_let_eq, denoteArgs_pair_eq]
-    rw [pushTup_singleton]
+    rw [denote_let_eq, denoteArgs_pair_eq, pushTup_singleton]
     have hBnd1 : denoteArg (⟨i64, i'⟩ :: vs) (tArgShift 1 spec.bound) = some bndA := by
       have hSh := denoteArg_shiftArgAbove (vsPre := []) [⟨i64, i'⟩] vs spec.bound
       simpa [tArgShift] using hSh.trans hdBnd
-    have hI0 : denoteArg (⟨i64, i'⟩ :: vs) (.var 0 : Arg K i64) = some (.var i') := by
-      dsimp only [denoteArg, lookupV]; rw [listGet?_cons_zero_eq]; dsimp only [castTy]; rfl
-    rw [hBnd1, hI0]; dsimp only
-    have hLiftSubEq : ∀ (a : Arg Val i64) (y : BitVec 64) (K : Tup Val [i64] → Prop),
-        K (a.val - y, ()) →
-        OpCode.wp (OpCode.sub i64) (vals (a, (.var y : Arg Val i64), ())) K := by
-      intro a y K hK
-      rw [OpCode.wp_sub]; dsimp only [lift2, vals, Arg.val, i64, Ty.hasFloat]
-      cases a <;> exact hK
+    rw [hBnd1, denoteArg_var0]
+    dsimp only
     rw [wp_let]; dsimp only [Op.wp]
-    refine hLiftSubEq bndA i' _ ?_
+    refine liftOp_sub_wp (a := bndA) (y := i') ?_
     let rem := bndA.val - i'
-    rw [denote_let_eq, denoteArgs_pair_eq]
-    rw [pushTup_singleton (t := i64)]
-    have hRem0 : denoteArg (⟨i64, rem⟩ :: ⟨i64, i'⟩ :: vs) (.var 0 : Arg K i64) =
-        some (.var rem) := by
-      dsimp only [denoteArg, lookupV]; rw [listGet?_cons_zero_eq]; dsimp only [castTy]; rfl
-    have hImmStep : denoteArg (⟨i64, rem⟩ :: ⟨i64, i'⟩ :: vs)
-        (.imm (BitVec.ofNat 64 stepK) : Arg K i64) =
-        some (.imm (BitVec.ofNat 64 stepK)) := rfl
-    rw [hRem0, hImmStep]; dsimp only
+    rw [denote_let_eq, denoteArgs_pair_eq, pushTup_singleton (t := i64), denoteArg_var0]
+    change wp Γ Q X (Expr.let_ (op2 (OpCode.cmp .uge (Ty.bits 64) .bool rfl)
+      (.var rem) (.imm (BitVec.ofNat 64 stepK))) _) m'
     rw [wp_let]; dsimp only [Op.wp]
-    change OpCode.wp (OpCode.cmp .uge i64 Ty.bool rfl) _ _
-    refine hLiftCmpEq .uge (.var rem) (.imm (BitVec.ofNat 64 stepK)) _ ?_
+    refine liftOp_cmp_wp (o := .uge) (a := (Arg.var rem : Arg Val i64))
+      (b := (Arg.imm (BitVec.ofNat 64 stepK) : Arg Val i64)) ?_
     rw [pushTup_singleton (t := Ty.bool)]
     let cStep := CmpOp.uge.evalBits rem (BitVec.ofNat 64 stepK)
     rw [show CmpOp.uge.evalBits (Arg.var rem : Arg Val i64).val
         (Arg.imm (BitVec.ofNat 64 stepK) : Arg Val i64).val = cStep from rfl,
-      show bndA.val - i' = rem from rfl]
-    rw [denote_jnz_eq]
-    have hC0 : denoteArg (⟨Ty.bool, cStep⟩ :: ⟨i64, rem⟩ :: ⟨i64, i'⟩ :: vs)
-        (.var 0 : Arg K Ty.bool) = some (.var cStep) := by
-      dsimp only [denoteArg, lookupV]; rw [listGet?_cons_zero_eq]; dsimp only [castTy]
-    rw [hC0]; dsimp only; rw [wp_jnz, show (Arg.var cStep : Arg Val Ty.bool).val = cStep from rfl]
+      show bndA.val - i' = rem from rfl, denote_jnz_eq, denoteArg_var0]
+    dsimp only; rw [wp_jnz, show (Arg.var cStep : Arg Val Ty.bool).val = cStep from rfl]
     constructor
     · intro hcTrue
-      have hRemNat : rem.toNat = bndA.val.toNat - i'.toNat :=
-        BitVec.toNat_sub_of_le (BitVec.le_def.mpr hLe)
-      have hK64Bounds : 1 ≤ k64 ∧ k64 ≤ 8 := by
+      have hK64Bnd : 1 ≤ k64 ∧ k64 ≤ 8 := by
         dsimp only [k64]
         have : spec.shift = 0 ∨ spec.shift = 1 ∨ spec.shift = 2 ∨ spec.shift = 3 := by omega
         rcases this with h | h | h | h <;> simp [h]
-      have hStepPos : 1 ≤ stepK := by
-        dsimp only [stepK]
-        exact Nat.le_trans hunroll1 (Nat.le_mul_of_pos_right unrollN hK64Bounds.1)
-      have hStep512 : stepK ≤ 512 := by
-        dsimp only [stepK]; exact Nat.mul_le_mul hunroll64 hK64Bounds.2
+      have hStepPos : 1 ≤ stepK :=
+        Nat.le_trans hunroll1 (Nat.le_mul_of_pos_right unrollN hK64Bnd.1)
+      have hStep512 : stepK ≤ 512 := Nat.mul_le_mul hunroll64 hK64Bnd.2
       have hStep64 : stepK < 2 ^ 64 := by omega
       have hRemGe : stepK ≤ bndA.val.toNat - i'.toNat := by
         have hc' : (BitVec.ofNat 64 stepK).toNat ≤ rem.toNat := by
           dsimp only [cStep, CmpOp.evalBits] at hcTrue
           exact of_decide_eq_true (by unfold BitVec.ule at hcTrue; exact hcTrue)
-        rwa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hStep64, hRemNat] at hc'
+        rwa [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hStep64,
+          BitVec.toNat_sub_of_le (BitVec.le_def.mpr hLe)] at hc'
       have hMulLe64 : stepK * t_atom.bytes ≤ 2 ^ 64 := by
-        have : stepK * t_atom.bytes = unrollN * (k64 * t_atom.bytes) := by
-          dsimp only [stepK]; rw [Nat.mul_assoc]
+        have : stepK * t_atom.bytes = unrollN * (k64 * t_atom.bytes) := Nat.mul_assoc _ _ _
         rw [this, hK64Mul]; omega
       obtain ⟨hOkSc, hJPostSc⟩ := runScalarMem_step hShLe hBytesEq hBytesPos hScalarStep
-        i' hLe m' hJL' stepK hRemGe hMulLe64
+        i' hLe m' hJL stepK hRemGe hMulLe64
       let ptr0 := baseA.val + ((i' + oVal) <<< spec.shift)
-      have hOkWide : ∀ (r : Nat), r < unrollN →
-          storeOk m' i64 (ptr0 + BitVec.ofNat 64 (8 * r)) :=
-        storeOk_split_8 m' t_atom ptr0 unrollN k64 hK64Mul hBytesPos hOkSc
+      have hOkWide := storeOk_split_8 m' t_atom ptr0 unrollN k64 hK64Mul hBytesPos hOkSc
       have hWidePost : JWide (i' + BitVec.ofNat 64 stepK, ())
           (m'.storeBytes ptr0
             (List.replicate unrollN (Int.toBytes 8 spec.fill64.toInt)).flatten) := by
-        have hRepEq :
-            (List.replicate unrollN (Int.toBytes 8 spec.fill64.toInt)).flatten =
-            (List.replicate stepK (Int.toBytes t_atom.bytes
-              (BitVec.setWidth (8 * t_atom.bytes)
-                (toBits t_atom fillAtom)).toInt)).flatten := by
-          rw [hWideBytesEq, flatten_replicate_flatten]
-        rw [hRepEq]
-        have hNextLe : (i' + BitVec.ofNat 64 stepK).toNat ≤ bndA.val.toNat := by
-          have hSumLe : i'.toNat + stepK ≤ bndA.val.toNat := by omega
-          have hSumLt64 : i'.toNat + stepK < 2 ^ 64 := Nat.lt_of_le_of_lt hSumLe bndA.val.isLt
+        rw [show (List.replicate unrollN (Int.toBytes 8 spec.fill64.toInt)).flatten =
+          (List.replicate stepK (Int.toBytes t_atom.bytes
+            (BitVec.setWidth (8 * t_atom.bytes) (toBits t_atom fillAtom)).toInt)).flatten by
+          rw [hWideBytesEq, flatten_replicate_flatten]]
+        have hSumLe : i'.toNat + stepK ≤ bndA.val.toNat := by omega
+        have hAddNat : (i' + BitVec.ofNat 64 stepK).toNat = i'.toNat + stepK := by
           rw [BitVec.toNat_add, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hStep64,
-            Nat.mod_eq_of_lt hSumLt64]
-          exact hSumLe
-        have hNextLt : bndA.val.toNat - (i' + BitVec.ofNat 64 stepK).toNat <
-            bndA.val.toNat - i'.toNat := by
-          have hSumLe : i'.toNat + stepK ≤ bndA.val.toNat := by omega
-          have hSumLt64 : i'.toNat + stepK < 2 ^ 64 := Nat.lt_of_le_of_lt hSumLe bndA.val.isLt
-          rw [BitVec.toNat_add, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hStep64,
-            Nat.mod_eq_of_lt hSumLt64]
-          omega
-        exact ih (bndA.val.toNat - (i' + BitVec.ofNat 64 stepK).toNat)
-          (i' + BitVec.ofNat 64 stepK, ()) _ hNextLt ⟨hNextLe, rfl, hJPostSc⟩
-      let vs2 := ⟨Ty.bool, cStep⟩ :: ⟨i64, rem⟩ :: ⟨i64, i'⟩ :: vs
-      -- Helper lemma for `withShift` then `withBase`:
-      have runWithShift : ∀ (vsL : List ((t : Ty) × Val t)) (idxVar : Arg K i64)
-          (idxA : Arg Val i64),
-          vsL.length ≥ 1 →
-          denoteArg (vsL ++ vs) idxVar = some idxA →
-          idxA.val = i' + oVal →
-          lookupV (vsL ++ vs) i64 (vsL.length - 1) = some i' →
+            Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hSumLe bndA.val.isLt)]
+        exact ih (bndA.val.toNat - (i'.toNat + stepK))
+          (i' + BitVec.ofNat 64 stepK, ()) _ (by omega)
+          ⟨by dsimp only; rw [hAddNat]; exact hSumLe, by dsimp only; rw [hAddNat], hJPostSc⟩
+      have runWithShift (vsL : List ((t : Ty) × Val t)) (idxVar : Arg K i64) (idxA : Arg Val i64)
+          (hL1 : vsL.length ≥ 1) (hDIdx : denoteArg (vsL ++ vs) idxVar = some idxA)
+          (hDIdxVal : idxA.val = i' + oVal)
+          (hIL : lookupV (vsL ++ vs) i64 (vsL.length - 1) = some i') :
           wp Γ Q X (denote Val Cont
             (if (spec.shift == 0) = true then
               TFlat.let_ (op2 (OpCode.add i64) (tArgShift vsL.length spec.base) idxVar)
                 (mkStoreChain spec.fill64 stepK unrollN vsL.length)
              else
-              TFlat.let_
-                (op2 (OpCode.shl i64) idxVar (Arg.imm (BitVec.ofNat 64 spec.shift)))
-                (TFlat.let_
-                  (op2 (OpCode.add i64) (tArgShift (vsL.length + 1) spec.base) (.var 0))
+              TFlat.let_ (op2 (OpCode.shl i64) idxVar (.imm (BitVec.ofNat 64 spec.shift)))
+                (TFlat.let_ (op2 (OpCode.add i64) (tArgShift (vsL.length + 1) spec.base) (.var 0))
                   (mkStoreChain spec.fill64 stepK unrollN (vsL.length + 1))))
-            (vsL ++ vs) (⟨[i64], JWide⟩ :: ⟨[i64], jl⟩ :: ls)) m' := by
-        intro vsL idxVar idxA hL1 hDIdx hDIdxVal hIL
+            (vsL ++ vs) (⟨[i64], JWide⟩ :: ⟨[i64], JLoop⟩ :: ls)) m' := by
         by_cases hS0 : spec.shift = 0
-        · have hB : (spec.shift == 0) = true := by rw [hS0]; rfl
-          rw [ite_eq_left hB]
-          have hValSh : idxA.val = (i' + oVal) <<< spec.shift := by
-            rw [hS0, BitVec.shiftLeft_zero, hDIdxVal]
-          exact wideBody_withBase_wp (spec := spec) (unrollN := unrollN)
-            (JWide := JWide) (vsOuter := vs) (vsLocal := vsL)
-            (ls := ⟨[i64], jl⟩ :: ls) (baseA := baseA) (idxA := idxA)
-            (iVal := i') (oVal := oVal) (mem := m')
-            hunroll1 hunroll64 hL1 hdBase hDIdx hValSh hIL hOkWide hWidePost
+        · rw [ite_eq_left (by simp [hS0])]
+          exact wideBody_withBase_wp (ls := ⟨[i64], JLoop⟩ :: ls) hunroll1 hunroll64 hL1 hdBase
+            hDIdx (by rw [hS0, BitVec.shiftLeft_zero, hDIdxVal]) hIL hOkWide hWidePost
         · rw [ite_eq_right (beq_false_of_ne hS0 ▸ Bool.false_ne_true)]
-          dsimp only [op2]
-          rw [denote_let_eq, denoteArgs_pair_eq]
-          have hImmSh : denoteArg (vsL ++ vs)
-              (.imm (BitVec.ofNat 64 spec.shift) : Arg K i64) =
-              some (.imm (BitVec.ofNat 64 spec.shift)) := rfl
-          rw [hDIdx, hImmSh]; dsimp only
-          have hLiftShl : ∀ (a : Arg Val i64) (s : BitVec 64)
-              (K : Tup Val [i64] → Prop),
-              K (a.val <<< (s.toNat % 64), ()) →
-              OpCode.wp (OpCode.shl i64) (vals (a, (.imm s : Arg Val i64), ())) K := by
-            intro a s K hK
-            rw [OpCode.wp_shl]; dsimp only [lift2, vals, Arg.val, i64, Ty.hasFloat]
-            cases a <;> exact hK
+          dsimp only [op2]; rw [denote_let_eq, denoteArgs_pair_eq, hDIdx]
+          change wp Γ Q X (Expr.let_ (op2 (OpCode.shl i64) idxA
+            (.imm (BitVec.ofNat 64 spec.shift))) _) m'
           rw [wp_let]; dsimp only [Op.wp]
-          refine hLiftShl idxA (BitVec.ofNat 64 spec.shift) _ ?_
+          refine liftOp_shl_wp (a := idxA) (s := BitVec.ofNat 64 spec.shift) ?_
           rw [pushTup_singleton (t := i64)]
           have hMod : (BitVec.ofNat 64 spec.shift).toNat % 64 = spec.shift := by
             rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
           let vsL' := ⟨i64, idxA.val <<< ((BitVec.ofNat 64 spec.shift).toNat % 64)⟩ :: vsL
           have hD0 : denoteArg (vsL' ++ vs) (.var 0 : Arg K i64) =
               some (.var (idxA.val <<< ((BitVec.ofNat 64 spec.shift).toNat % 64))) := by
-            dsimp only [vsL', denoteArg, lookupV]
-            rw [List.cons_append, listGet?_cons_zero_eq]; dsimp only [castTy]; rfl
-          have hShVal : (idxA.val <<< ((BitVec.ofNat 64 spec.shift).toNat % 64)) =
-              (i' + oVal) <<< spec.shift := by
-            rw [hDIdxVal, hMod]
+            dsimp only [vsL']; rw [List.cons_append]; exact denoteArg_var0 _ _
           have hI' : lookupV (vsL' ++ vs) i64 (vsL'.length - 1) = some i' := by
             have hSub : vsL.length = (vsL.length - 1) + 1 := by omega
             change lookupV (⟨i64, _⟩ :: (vsL ++ vs)) i64 vsL.length = some i'
-            rw [hSub]
-            exact hIL
-          have hRes := wideBody_withBase_wp (Γ := Γ) (Q := Q) (X := X) (rs := rs)
-            (spec := spec) (unrollN := unrollN)
-            (JWide := JWide) (vsOuter := vs) (vsLocal := vsL')
-            (ls := ⟨[i64], jl⟩ :: ls) (baseA := baseA)
+            rw [hSub]; exact hIL
+          exact wideBody_withBase_wp (ls := ⟨[i64], JLoop⟩ :: ls) (vsLocal := vsL')
             (idxA := .var (idxA.val <<< ((BitVec.ofNat 64 spec.shift).toNat % 64)))
-            (iVal := i') (oVal := oVal) (mem := m')
-            hunroll1 hunroll64 (Nat.succ_pos _) hdBase hD0 hShVal hI' hOkWide hWidePost
-          exact hRes
+            hunroll1 hunroll64 (Nat.succ_pos _) hdBase hD0
+            (by dsimp only [Arg.val] at hDIdxVal ⊢; rw [hDIdxVal, hMod]) hI' hOkWide hWidePost
+      let vsL0 : List ((t : Ty) × Val t) := [⟨Ty.bool, cStep⟩, ⟨i64, rem⟩, ⟨i64, i'⟩]
       cases hOff : spec.off? with
       | none =>
-        dsimp only
         have hOVar : oVal = 0#64 := by
           dsimp only [offVal] at hdOff; rw [hOff] at hdOff; cases hdOff; rfl
-        let vsL : List ((t : Ty) × Val t) := [⟨Ty.bool, cStep⟩, ⟨i64, rem⟩, ⟨i64, i'⟩]
-        have hD2 : denoteArg (vsL ++ vs) (.var 2 : Arg K i64) = some (.var i') := by
-          dsimp only [vsL, denoteArg, lookupV]; rfl
-        have hI2 : lookupV (vsL ++ vs) i64 (vsL.length - 1) = some i' := by
-          dsimp only [vsL, lookupV]; rfl
-        exact runWithShift vsL (.var 2) (.var i') (Nat.succ_pos _) hD2
-          (by dsimp only [Arg.val]; rw [hOVar, BitVec.add_zero]) hI2
+        exact runWithShift vsL0 (.var 2) (.var i') (Nat.succ_pos _) rfl
+          (by dsimp only [Arg.val]; rw [hOVar, BitVec.add_zero]) rfl
       | some off =>
-        dsimp only
         have hOffArg : ∃ aOff, denoteArg vs off = some aOff ∧ aOff.val = oVal := by
-          dsimp only [offVal] at hdOff; rw [hOff] at hdOff
-          exact Option.map_eq_some_iff.mp hdOff
+          dsimp only [offVal] at hdOff; rw [hOff] at hdOff; exact Option.map_eq_some_iff.mp hdOff
         obtain ⟨aOff, hdOffA, haOffVal⟩ := hOffArg
-        let vsL0 : List ((t : Ty) × Val t) := [⟨Ty.bool, cStep⟩, ⟨i64, rem⟩, ⟨i64, i'⟩]
         rw [denote_let_eq, denoteArgs_pair_eq]
-        have hV2 : denoteArg (vsL0 ++ vs) (.var 2 : Arg K i64) = some (.var i') := by
-          dsimp only [vsL0, denoteArg, lookupV]; rfl
         have hOffSh : denoteArg (vsL0 ++ vs) (tArgShift 3 off) = some aOff := by
-          have hSh := denoteArg_shiftArgAbove (vsPre := []) vsL0 vs off
-          simpa [vsL0, tArgShift] using hSh.trans hdOffA
-        dsimp only [vsL0, List.cons_append, List.nil_append] at hV2 hOffSh
-        rw [hV2, hOffSh]; dsimp only
-        have hLiftAdd : ∀ (x : BitVec 64) (b : Arg Val i64) (K : Tup Val [i64] → Prop),
-            K (x + b.val, ()) →
-            OpCode.wp (OpCode.add i64) (vals ((.var x : Arg Val i64), b, ())) K := by
-          intro x b K hK
-          rw [OpCode.wp_add]; dsimp only [lift2, vals, Arg.val, i64, Ty.hasFloat]
-          cases b <;> exact hK
+          simpa [vsL0, tArgShift] using
+            (denoteArg_shiftArgAbove (vsPre := []) vsL0 vs off).trans hdOffA
+        have hV2 : denoteArg (vsL0 ++ vs) (.var 2 : Arg K i64) = some (.var i') := rfl
+        rw [show (⟨Ty.bool, cStep⟩ :: ⟨i64, rem⟩ :: ⟨i64, i'⟩ :: vs) = vsL0 ++ vs from rfl,
+          hV2, hOffSh]; dsimp only
         rw [wp_let]; dsimp only [Op.wp]
-        refine hLiftAdd i' aOff _ ?_
+        refine liftOp_add_wp (x := i') (b := aOff) ?_
         rw [pushTup_singleton (t := i64), haOffVal]
-        let vsL := ⟨i64, i' + oVal⟩ :: vsL0
-        have hD0 : denoteArg (vsL ++ vs) (.var 0 : Arg K i64) = some (.var (i' + oVal)) := by
-          dsimp only [vsL, vsL0, denoteArg, lookupV]; rfl
-        have hI3 : lookupV (vsL ++ vs) i64 (vsL.length - 1) = some i' := by
-          dsimp only [vsL, vsL0, lookupV]; rfl
-        exact runWithShift vsL (.var 0) (.var (i' + oVal)) (Nat.succ_pos _) hD0 rfl hI3
+        exact runWithShift (⟨i64, i' + oVal⟩ :: vsL0) (.var 0) (.var (i' + oVal))
+          (Nat.succ_pos _) rfl rfl rfl
     · intro _
-      rw [denote_jump_eq, denoteArgs_singleton_eq]
-      have hL1 : lookupL (⟨[i64], JWide⟩ :: ⟨[i64], jl⟩ :: ls) [i64] 1 = some jl := by
-        dsimp only [lookupL, listGet?]; rw [castListTy_self]
       have hV2 : denoteArg (⟨Ty.bool, cStep⟩ :: ⟨i64, rem⟩ :: ⟨i64, i'⟩ :: vs)
-          (.var 2 : Arg K i64) = some (.var i') := by
-        dsimp only [denoteArg, lookupV]; rfl
-      rw [hL1, hV2]; dsimp only; rw [wp_jump]
-      dsimp only [vals, Arg.val]
-      exact hJL
+          (.var 2 : Arg K i64) = some (.var i') := rfl
+      rw [denote_jump_eq, denoteArgs_singleton_eq, lookupL_1, hV2]
+      dsimp only; rw [wp_jump]; exact hJL
   · intro JWide hInv
-    dsimp only [kCheck, op2]
-    rw [denote_let_eq, denoteArgs_pair_eq]
-    rw [hdInit, hdBnd]; dsimp only
-    rw [wp_let]; dsimp only [Op.wp]
-    refine hLiftCmpEq cmpOp initA bndA _ ?_
+    dsimp only [kCheck, op2]; rw [denote_let_eq, denoteArgs_pair_eq, hdInit, hdBnd]
+    dsimp only; rw [wp_let]; dsimp only [Op.wp]
+    refine liftOp_cmp_wp (o := cmpOp) (a := initA) (b := bndA) ?_
     rw [pushTup_singleton (t := Ty.bool)]
     let cInit := cmpOp.evalBits initA.val bndA.val
-    rw [denote_jnz_eq]
-    have hC0 : denoteArg (⟨Ty.bool, cInit⟩ :: vs) (.var 0 : Arg K Ty.bool) =
-        some (.var cInit) := by
-      dsimp only [denoteArg, lookupV]; rw [listGet?_cons_zero_eq]; dsimp only [castTy]
-    rw [hC0]; dsimp only; rw [wp_jnz, show (Arg.var cInit : Arg Val Ty.bool).val = cInit from rfl]
+    rw [denote_jnz_eq, denoteArg_var0]; dsimp only
+    rw [wp_jnz, show (Arg.var cInit : Arg Val Ty.bool).val = cInit from rfl]
     have hInitSh : denoteArg (⟨Ty.bool, cInit⟩ :: vs) (tArgShift 1 initArg) = some initA := by
-      have hSh := denoteArg_shiftArgAbove (vsPre := []) [⟨Ty.bool, cInit⟩] vs initArg
-      simpa [tArgShift] using hSh.trans hdInit
+      simpa [tArgShift] using
+        (denoteArg_shiftArgAbove (vsPre := []) [⟨Ty.bool, cInit⟩] vs initArg).trans hdInit
     have hVals1 : @vals [i64] (initA, ()) = (initA.val, ()) := by cases initA <;> rfl
     constructor
     · intro hcTrue
-      rw [denote_jump_eq, denoteArgs_singleton_eq]
-      have hL0 : lookupL (⟨[i64], JWide⟩ :: ⟨[i64], jl⟩ :: ls) [i64] 0 = some JWide := by
-        dsimp only [lookupL, listGet?]; rw [castListTy_self]
-      rw [hL0, hInitSh]; dsimp only; rw [wp_jump, hVals1]
+      rw [denote_jump_eq, denoteArgs_singleton_eq, lookupL_0, hInitSh]; dsimp only
+      rw [wp_jump, hVals1]
       have hLe : initA.val.toNat ≤ bndA.val.toNat := by
         dsimp only [cInit, cmpOp] at hcTrue
-        cases hIs : spec.isLt with
-        | false =>
-          rw [hIs] at hcTrue; dsimp only [CmpOp.evalBits] at hcTrue
-          exact of_decide_eq_true (by unfold BitVec.ule at hcTrue; exact hcTrue)
-        | true =>
-          rw [hIs] at hcTrue; dsimp only [CmpOp.evalBits] at hcTrue
-          exact Nat.le_of_lt (of_decide_eq_true (by unfold BitVec.ult at hcTrue; exact hcTrue))
+        cases hIs : spec.isLt <;> rw [hIs] at hcTrue <;> dsimp only [CmpOp.evalBits] at hcTrue
+        · exact of_decide_eq_true (by unfold BitVec.ule at hcTrue; exact hcTrue)
+        · exact Nat.le_of_lt (of_decide_eq_true (by unfold BitVec.ult at hcTrue; exact hcTrue))
       exact hInv (bndA.val.toNat - initA.val.toNat) (initA.val, ()) m ⟨hLe, rfl, hJInit⟩
     · intro _
-      rw [denote_jump_eq, denoteArgs_singleton_eq]
-      have hL1 : lookupL (⟨[i64], JWide⟩ :: ⟨[i64], jl⟩ :: ls) [i64] 1 = some jl := by
-        dsimp only [lookupL, listGet?]; rw [castListTy_self]
-      rw [hL1, hInitSh]; dsimp only; rw [wp_jump, hVals1]
-      exact hJInit
+      rw [denote_jump_eq, denoteArgs_singleton_eq, lookupL_1, hInitSh]; dsimp only
+      rw [wp_jump, hVals1]; exact hJInit
 
 /-! ## Section 5: Full-Function WF, WP, CallsOk & Module Correctness -/
 
-private theorem zpeelTF_let (cfg : ZeroPeelConfig) {rs ts : List Ty} (op : Op K ts)
-    (k : TFlat rs) : zpeelTF cfg (.let_ op k) = .let_ op (zpeelTF cfg k) := rfl
+private theorem zpeelTF_let (cfg : ZeroPeelConfig) {rs ts : List Ty} (op : Op K ts) (k : TFlat rs) :
+    zpeelTF cfg (.let_ op k) = .let_ op (zpeelTF cfg k) := rfl
 private theorem zpeelTF_load (cfg : ZeroPeelConfig) {rs : List Ty} (t : Ty) (a : Arg K i64)
     (k : TFlat rs) : zpeelTF cfg (.load t a k) = .load t a (zpeelTF cfg k) := rfl
 private theorem zpeelTF_store (cfg : ZeroPeelConfig) {rs : List Ty} {t : Ty} (v : Arg K t)
@@ -1504,19 +1284,17 @@ private theorem zpeelTF_call (cfg : ZeroPeelConfig) {rs : List Ty} (f : Sym) {as
 private theorem zpeelTF_jnz (cfg : ZeroPeelConfig) {rs : List Ty} (c : Arg K Ty.bool)
     (t e : TFlat rs) : zpeelTF cfg (.jnz c t e) = .jnz c (zpeelTF cfg t) (zpeelTF cfg e) := rfl
 private theorem zpeelTF_jump (cfg : ZeroPeelConfig) {rs ts : List Ty} (j : Nat)
-    (args : Tup (Arg K) ts) :
-    zpeelTF cfg (TFlat.jump j args : TFlat rs) = TFlat.jump j args := rfl
+    (args : Tup (Arg K) ts) : zpeelTF cfg (.jump j args : TFlat rs) = .jump j args := rfl
 private theorem zpeelTF_ret (cfg : ZeroPeelConfig) {rs : List Ty} (vs : Tup (Arg K) rs) :
     zpeelTF cfg (.ret vs) = .ret vs := rfl
 private theorem zpeelTF_exit (cfg : ZeroPeelConfig) {rs : List Ty} (f : Sym) {as : List Ty}
-    (args : Tup (Arg K) as) :
-    zpeelTF cfg (TFlat.exit f args : TFlat rs) = TFlat.exit f args := rfl
+    (args : Tup (Arg K) as) : zpeelTF cfg (.exit f args : TFlat rs) = .exit f args := rfl
 private theorem zpeelTF_hlt (cfg : ZeroPeelConfig) {rs : List Ty} :
     zpeelTF cfg (.hlt : TFlat rs) = .hlt := rfl
 private theorem zpeelBs_nil (cfg : ZeroPeelConfig) {rs : List Ty} :
     zpeelBs cfg (.nil : TBlocks rs []) = .nil := rfl
-private theorem zpeelBs_cons (cfg : ZeroPeelConfig) {rs : List Ty} {ts : List Ty}
-    {sig : List (List Ty)} (b : TFlat rs) (bs : TBlocks rs sig) :
+private theorem zpeelBs_cons (cfg : ZeroPeelConfig) {rs ts : List Ty} {sig : List (List Ty)}
+    (b : TFlat rs) (bs : TBlocks rs sig) :
     zpeelBs cfg (.cons (ts := ts) b bs) = .cons (zpeelTF cfg b) (zpeelBs cfg bs) := rfl
 
 private def zpeelGroupWrap (cfg : ZeroPeelConfig) {rs : List Ty}
@@ -1530,32 +1308,23 @@ private def zpeelGroupWrap (cfg : ZeroPeelConfig) {rs : List Ty}
       | some g => g
       | none => .group (sig := [ts0]) (.cons body .nil) k'
   | _, _ => .group bs' k'
-
 private theorem zpeelGroupWrap_nil (cfg : ZeroPeelConfig) {rs : List Ty} (k' : TFlat rs) :
     zpeelGroupWrap cfg .nil k' = .group .nil k' := rfl
-
 private theorem zpeelGroupWrap_cons2 (cfg : ZeroPeelConfig) {rs : List Ty} {ts0 ts1 : List Ty}
     {sig : List (List Ty)} (b0 b1 : TFlat rs) (bs : TBlocks rs sig) (k' : TFlat rs) :
     zpeelGroupWrap cfg (.cons (ts := ts0) b0 (.cons (ts := ts1) b1 bs)) k' =
-      .group (sig := ts0 :: ts1 :: sig) (.cons (ts := ts0) b0 (.cons (ts := ts1) b1 bs)) k' := rfl
-
+      .group (sig := ts0 :: ts1 :: sig) (.cons b0 (.cons b1 bs)) k' := rfl
 private theorem zpeelGroupWrap_cons_nil (cfg : ZeroPeelConfig) {rs : List Ty}
     (ts0 : List Ty) (body k' : TFlat rs) :
     zpeelGroupWrap cfg (.cons (ts := ts0) body .nil) k' =
-      match widenFillSingle cfg.unrollN ts0 body k' with
-      | some g => g
-      | none =>
-        match peelSingle cfg ts0 body k' with
-        | some g => g
-        | none => .group (sig := [ts0]) (.cons body .nil) k' := rfl
+      (match widenFillSingle cfg.unrollN ts0 body k' with
+      | some g => g | none => match peelSingle cfg ts0 body k' with
+        | some g => g | none => .group (sig := [ts0]) (.cons body .nil) k') := rfl
 
 private theorem zpeelTF_group (cfg : ZeroPeelConfig) {rs : List Ty}
     {sig : List (List Ty)} (bs : TBlocks rs sig) (k : TFlat rs) :
-    zpeelTF cfg (.group bs k) =
-      zpeelGroupWrap cfg (zpeelBs cfg bs) (zpeelTF cfg k) := by
-  cases bs with
-  | nil => rfl
-  | cons _ bs1 => cases bs1 <;> rfl
+    zpeelTF cfg (.group bs k) = zpeelGroupWrap cfg (zpeelBs cfg bs) (zpeelTF cfg k) := by
+  cases bs with | nil => rfl | cons _ bs1 => cases bs1 <;> rfl
 
 private theorem zpeelGroupWrap_wf {rs : List Ty} (cfg : ZeroPeelConfig)
     {G : List Ty} {D : List (List Ty)} {sig : List (List Ty)}
@@ -1569,26 +1338,23 @@ private theorem zpeelGroupWrap_wf {rs : List Ty} (cfg : ZeroPeelConfig)
     | nil =>
       rw [zpeelGroupWrap_cons_nil]
       cases hw : widenFillSingle cfg.unrollN ts0 body k' with
-      | some g => dsimp only; exact wfCheck_widenFillSingle hwf hw
+      | some g => exact wfCheck_widenFillSingle hwf hw
       | none =>
-        dsimp only
         cases hp : peelSingle cfg ts0 body k' with
         | some g =>
-          dsimp only
-          rw [wfCheck_group_eq, wfCheckB_cons_eq, wfCheckB_nil_eq,
-            Bool.and_true, Bool.and_eq_true] at hwf
+          rw [wfCheck_group_eq, wfCheckB_cons_eq, wfCheckB_nil_eq, Bool.and_true,
+            Bool.and_eq_true] at hwf
           exact wfCheck_peelSingle hwf.1 hwf.2 hp
-        | none => dsimp only; exact hwf
-    | cons _ _ => rw [zpeelGroupWrap_cons2]; exact hwf
+        | none => exact hwf
+    | cons _ _ => exact hwf
 
 mutual
 private theorem wfCheck_zpeelTF (cfg : ZeroPeelConfig) {rs : List Ty} :
     (tf : TFlat rs) → (G : List Ty) → (D : List (List Ty)) →
     tf.wfCheck G D = true → (zpeelTF cfg tf).wfCheck G D = true
   | .let_ _ k, G, D, h => by
-    rw [wfCheck_let_eq, Bool.and_eq_true] at h
-    rw [zpeelTF_let, wfCheck_let_eq, Bool.and_eq_true]
-    exact ⟨h.1, wfCheck_zpeelTF cfg k (pushTypes _ G) D h.2⟩
+    rw [wfCheck_let_eq, Bool.and_eq_true] at h; rw [zpeelTF_let, wfCheck_let_eq, Bool.and_eq_true]
+    exact ⟨h.1, wfCheck_zpeelTF cfg k _ D h.2⟩
   | .load t _ k, G, D, h => by
     rw [wfCheck_load_eq, Bool.and_eq_true] at h
     rw [zpeelTF_load, wfCheck_load_eq, Bool.and_eq_true]
@@ -1610,21 +1376,17 @@ private theorem wfCheck_zpeelTF (cfg : ZeroPeelConfig) {rs : List Ty} :
   | .exit _ _, _, _, h => by rw [zpeelTF_exit]; exact h
   | .hlt, _, _, h => by rw [zpeelTF_hlt]; exact h
   | .group (sig := sig) bs k, G, D, h => by
-    rw [wfCheck_group_eq, Bool.and_eq_true] at h
-    have hbs' := wfCheck_zpeelBs cfg bs G (pushTypes sig D) h.1
-    have hk' := wfCheck_zpeelTF cfg k G (pushTypes sig D) h.2
-    have hGrp' : TFlat.wfCheck G D (.group (zpeelBs cfg bs) (zpeelTF cfg k)) = true := by
-      rw [wfCheck_group_eq, Bool.and_eq_true]; exact ⟨hbs', hk'⟩
-    rw [zpeelTF_group]
-    exact zpeelGroupWrap_wf cfg (zpeelBs cfg bs) (zpeelTF cfg k) hGrp'
-
+    rw [wfCheck_group_eq, Bool.and_eq_true] at h; rw [zpeelTF_group]
+    refine zpeelGroupWrap_wf cfg _ _ ?_
+    rw [wfCheck_group_eq, Bool.and_eq_true]
+    exact ⟨wfCheck_zpeelBs cfg bs G _ h.1, wfCheck_zpeelTF cfg k G _ h.2⟩
 private theorem wfCheck_zpeelBs (cfg : ZeroPeelConfig) {rs : List Ty} :
     {sig : List (List Ty)} → (bs : TBlocks rs sig) → (G : List Ty) → (D : List (List Ty)) →
     bs.wfCheck G D = true → (zpeelBs cfg bs).wfCheck G D = true
   | _, .nil, _, _, h => by rw [zpeelBs_nil]; exact h
   | ts :: _, .cons b bs, G, D, h => by
-    rw [zpeelBs_cons, wfCheckB_cons_eq, Bool.and_eq_true]
     rw [wfCheckB_cons_eq, Bool.and_eq_true] at h
+    rw [zpeelBs_cons, wfCheckB_cons_eq, Bool.and_eq_true]
     exact ⟨wfCheck_zpeelTF cfg b (pushTypes ts G) D h.1, wfCheck_zpeelBs cfg bs G D h.2⟩
 end
 
@@ -1690,8 +1452,9 @@ private theorem labelLe_lookupL :
       exact ⟨l₂', rfl, hImp⟩
   | ⟨_, _⟩ :: xs₁, ⟨_, _⟩ :: xs₂, ts, idx + 1, l₁, hRel, hLk => by
     obtain ⟨_, _, hTail⟩ := hRel
-    rw [lookupL_cons_succ] at hLk; rw [lookupL_cons_succ]
-    exact labelLe_lookupL hTail hLk
+    have hLk' : lookupL xs₁ ts idx = some l₁ := by simpa [lookupL, listGet?_eq_getElem?] using hLk
+    obtain ⟨l₂, hLk₂, hImp⟩ := labelLe_lookupL hTail hLk'
+    exact ⟨l₂, by simpa [lookupL, listGet?_eq_getElem?] using hLk₂, hImp⟩
 
 private theorem zpeelGroupWrap_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {G : List Ty} {D : List (List Ty)}
@@ -1708,174 +1471,129 @@ private theorem zpeelGroupWrap_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
     | nil =>
       rw [zpeelGroupWrap_cons_nil]
       cases hw : widenFillSingle cfg.unrollN ts0 body k' with
-      | some g => dsimp only; exact widenFillSingle_wp hG hD hwf hw hwp
+      | some g => exact widenFillSingle_wp hG hD hwf hw hwp
       | none =>
-        dsimp only
         cases hp : peelSingle cfg ts0 body k' with
         | some g =>
-          dsimp only; rw [wfCheck_group_eq, Bool.and_eq_true] at hwf
+          rw [wfCheck_group_eq, Bool.and_eq_true] at hwf
           exact peelSingle_wp hG hD hwf.2 hp hwp
-        | none => dsimp only; exact hwp
+        | none => exact hwp
     | cons _ _ => rw [zpeelGroupWrap_cons2]; exact hwp
 
 mutual
 private theorem zpeelTF_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    (cfg : ZeroPeelConfig) :
-    (tf : TFlat rs) → (G : List Ty) → (D : List (List Ty)) →
+    (cfg : ZeroPeelConfig) : (tf : TFlat rs) → (G : List Ty) → (D : List (List Ty)) →
     tf.wfCheck G D = true →
     ∀ (vs : List ((t : Ty) × Val t)) (ls₁ ls₂ : List ((ts : List Ty) × Cont ts)),
-      CtxTypes G vs → CtxTypes D ls₁ → CtxTypes D ls₂ → LabelLe ls₁ ls₂ →
-      ∀ {m : Mem 64},
+      CtxTypes G vs → CtxTypes D ls₁ → CtxTypes D ls₂ → LabelLe ls₁ ls₂ → ∀ {m : Mem 64},
         wp Γ Q X (denote Val Cont tf vs ls₁) m →
         wp Γ Q X (denote Val Cont (zpeelTF cfg tf) vs ls₂) m
   | .let_ op k, G, D, hwf, vs, ls₁, ls₂, hG, hD₁, hD₂, hLs, m, hwp => by
     rw [wfCheck_let_eq, Bool.and_eq_true] at hwf
-    rw [zpeelTF_let, denote_let_eq]
-    rw [denote_let_eq] at hwp
+    rw [zpeelTF_let, denote_let_eq]; rw [denote_let_eq] at hwp
     cases hda : denoteArgs vs op.args with
-    | none => rw [hda] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
-    | some args' =>
+    | none => exact absurd (by rw [hda] at hwp; exact hwp) wp_hlt_false
+    | some _ =>
       rw [hda] at hwp; dsimp only at hwp ⊢; rw [wp_let] at hwp ⊢
-      exact Op.wp_mono (fun r hr =>
-        zpeelTF_wp cfg k (pushTypes _ G) D hwf.2 (pushTup r vs) ls₁ ls₂
-          (CtxTypes_pushTup r hG) hD₁ hD₂ hLs hr) hwp
+      exact Op.wp_mono (fun r hr => zpeelTF_wp cfg k _ D hwf.2 (pushTup r vs)
+        ls₁ ls₂ (CtxTypes_pushTup r hG) hD₁ hD₂ hLs hr) hwp
   | .load t a k, G, D, hwf, vs, ls₁, ls₂, hG, hD₁, hD₂, hLs, m, hwp => by
-    rw [wfCheck_load_eq, Bool.and_eq_true] at hwf; rw [zpeelTF_load, denote_load_eq]
-    rw [denote_load_eq] at hwp
+    rw [wfCheck_load_eq, Bool.and_eq_true] at hwf
+    rw [zpeelTF_load, denote_load_eq]; rw [denote_load_eq] at hwp
     cases hda : denoteArg vs a with
-    | none => rw [hda] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
-    | some a' =>
+    | none => exact absurd (by rw [hda] at hwp; exact hwp) wp_hlt_false
+    | some _ =>
       rw [hda] at hwp; dsimp only at hwp ⊢; rw [wp_load] at hwp ⊢
       obtain ⟨v, hv, hk⟩ := hwp
-      exact ⟨v, hv, zpeelTF_wp cfg k (t :: G) D hwf.2 (⟨t, v⟩ :: vs) ls₁ ls₂
-        (.cons hG) hD₁ hD₂ hLs hk⟩
+      exact ⟨v, hv, zpeelTF_wp cfg k (t :: G) D hwf.2 (⟨t, v⟩ :: vs)
+        ls₁ ls₂ (.cons hG) hD₁ hD₂ hLs hk⟩
   | .store v a k, G, D, hwf, vs, ls₁, ls₂, hG, hD₁, hD₂, hLs, m, hwp => by
-    rw [wfCheck_store_eq, Bool.and_eq_true] at hwf; rw [zpeelTF_store, denote_store_eq]
-    rw [denote_store_eq] at hwp
+    rw [wfCheck_store_eq, Bool.and_eq_true] at hwf
+    rw [zpeelTF_store, denote_store_eq]; rw [denote_store_eq] at hwp
     cases hdv : denoteArg vs v with
-    | none => rw [hdv] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
-    | some v' =>
+    | none => exact absurd (by rw [hdv] at hwp; exact hwp) wp_hlt_false
+    | some _ =>
       cases hda : denoteArg vs a with
-      | none => rw [hdv, hda] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
-      | some a' =>
+      | none => exact absurd (by rw [hdv, hda] at hwp; exact hwp) wp_hlt_false
+      | some _ =>
         rw [hdv, hda] at hwp; dsimp only at hwp ⊢; rw [wp_store] at hwp ⊢
         exact ⟨hwp.1, zpeelTF_wp cfg k G D hwf.2 vs ls₁ ls₂ hG hD₁ hD₂ hLs hwp.2⟩
   | .call f bs args k, G, D, hwf, vs, ls₁, ls₂, hG, hD₁, hD₂, hLs, m, hwp => by
-    rw [wfCheck_call_eq, Bool.and_eq_true] at hwf; rw [zpeelTF_call, denote_call_eq]
-    rw [denote_call_eq] at hwp
+    rw [wfCheck_call_eq, Bool.and_eq_true] at hwf
+    rw [zpeelTF_call, denote_call_eq]; rw [denote_call_eq] at hwp
     cases hda : denoteArgs vs args with
-    | none => rw [hda] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
-    | some args' =>
+    | none => exact absurd (by rw [hda] at hwp; exact hwp) wp_hlt_false
+    | some _ =>
       rw [hda] at hwp; dsimp only at hwp ⊢; rw [wp_call_eq] at hwp ⊢
       obtain ⟨P, E, hPre, hPost, hEx⟩ := hwp
-      refine ⟨P, E, hPre, fun r m' hp => ?_, hEx⟩
-      exact zpeelTF_wp cfg k (pushTypes bs G) D hwf.2 (pushTup r vs) ls₁ ls₂
-        (CtxTypes_pushTup r hG) hD₁ hD₂ hLs (hPost r m' hp)
+      exact ⟨P, E, hPre, fun r m' hp => zpeelTF_wp cfg k (pushTypes bs G) D hwf.2
+        (pushTup r vs) ls₁ ls₂ (CtxTypes_pushTup r hG) hD₁ hD₂ hLs (hPost r m' hp), hEx⟩
   | .jnz c t e, G, D, hwf, vs, ls₁, ls₂, hG, hD₁, hD₂, hLs, m, hwp => by
     rw [wfCheck_jnz_eq, Bool.and_eq_true, Bool.and_eq_true] at hwf
-    rw [zpeelTF_jnz, denote_jnz_eq]
-    rw [denote_jnz_eq] at hwp
+    rw [zpeelTF_jnz, denote_jnz_eq]; rw [denote_jnz_eq] at hwp
     cases hdc : denoteArg vs c with
-    | none => rw [hdc] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
-    | some c' =>
+    | none => exact absurd (by rw [hdc] at hwp; exact hwp) wp_hlt_false
+    | some _ =>
       rw [hdc] at hwp; dsimp only at hwp ⊢; rw [wp_jnz] at hwp ⊢
       exact ⟨fun ht => zpeelTF_wp cfg t G D hwf.1.2 vs ls₁ ls₂ hG hD₁ hD₂ hLs (hwp.1 ht),
         fun hf => zpeelTF_wp cfg e G D hwf.2 vs ls₁ ls₂ hG hD₁ hD₂ hLs (hwp.2 hf)⟩
   | .jump (ts := ts) j args, _, _, _, vs, ls₁, ls₂, _, _, _, hLs, m, hwp => by
-    rw [zpeelTF_jump]
-    rw [denote_jump_eq] at hwp ⊢
+    rw [zpeelTF_jump]; rw [denote_jump_eq] at hwp ⊢
     cases hLk : lookupL ls₁ ts j with
-    | none => rw [hLk] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
+    | none => exact absurd (by rw [hLk] at hwp; exact hwp) wp_hlt_false
     | some l₁ =>
       cases hda : denoteArgs vs args with
-      | none => rw [hLk, hda] at hwp; dsimp only at hwp; exact False.elim (wp_hlt_false hwp)
-      | some args' =>
+      | none => exact absurd (by rw [hLk, hda] at hwp; exact hwp) wp_hlt_false
+      | some _ =>
         obtain ⟨l₂, hLk₂, hImp⟩ := labelLe_lookupL hLs hLk
         rw [hLk, hda] at hwp; dsimp only at hwp; rw [wp_jump] at hwp
-        rw [hLk₂]; dsimp only; rw [wp_jump]
-        exact hImp _ m hwp
+        rw [hLk₂]; dsimp only; rw [wp_jump]; exact hImp _ m hwp
   | .ret _, _, _, _, _, _, _, _, _, _, _, _, hwp => by rw [zpeelTF_ret]; exact hwp
   | .exit _ _, _, _, _, _, _, _, _, _, _, _, _, hwp => by rw [zpeelTF_exit]; exact hwp
   | .hlt, _, _, _, _, _, _, _, _, _, _, _, hwp => by rw [zpeelTF_hlt]; exact hwp
   | .group (sig := sig) bs k, G, D, hwf, vs, ls₁, ls₂, hG, hD₁, hD₂, hLs, m, hwp => by
     rw [wfCheck_group_eq, Bool.and_eq_true] at hwf
-    let bs' := zpeelBs cfg bs
-    let k' := zpeelTF cfg k
-    have hbs' : bs'.wfCheck G (pushTypes sig D) = true :=
-      wfCheck_zpeelBs cfg bs G (pushTypes sig D) hwf.1
-    have hk' : k'.wfCheck G (pushTypes sig D) = true :=
-      wfCheck_zpeelTF cfg k G (pushTypes sig D) hwf.2
+    let bs' := zpeelBs cfg bs; let k' := zpeelTF cfg k
     have hwf' : TFlat.wfCheck G D (.group bs' k') = true := by
-      rw [wfCheck_group_eq, Bool.and_eq_true]; exact ⟨hbs', hk'⟩
+      rw [wfCheck_group_eq, Bool.and_eq_true]
+      exact ⟨wfCheck_zpeelBs cfg bs G _ hwf.1, wfCheck_zpeelTF cfg k G _ hwf.2⟩
     let bodies₁ : Tup Cont sig → Blocks Val Cont rs sig :=
       fun Js => denoteB Val Cont bs vs (pushTup Js ls₁)
-    let k₁ : Tup Cont sig → Expr Val Cont rs :=
-      fun Js => denote Val Cont k vs (pushTup Js ls₁)
+    let k₁ : Tup Cont sig → Expr Val Cont rs := fun Js => denote Val Cont k vs (pushTup Js ls₁)
     let bodies₂ : Tup Cont sig → Blocks Val Cont rs sig :=
       fun Js => denoteB Val Cont bs' vs (pushTup Js ls₂)
-    let k₂ : Tup Cont sig → Expr Val Cont rs :=
-      fun Js => denote Val Cont k' vs (pushTup Js ls₂)
+    let k₂ : Tup Cont sig → Expr Val Cont rs := fun Js => denote Val Cont k' vs (pushTup Js ls₂)
     have hDiag := ctx_diagV_of_vs (vs := vs)
-    have hMono1 := ctx_monoD_of_ls (ls := ls₁)
-    have hMono2 := ctx_monoD_of_ls (ls := ls₂)
+    have hMono1 := ctx_monoD_of_ls (ls := ls₁); have hMono2 := ctx_monoD_of_ls (ls := ls₂)
     have hRelV := ctxRel_refl_vs (vs := vs)
-    have hRelL1 := ctxRel_refl_ls (ls := ls₁)
-    have hRelL2 := ctxRel_refl_ls (ls := ls₂)
-    have hwfB1 : ∀ Js₁ Js₂ : Tup Cont sig,
-        WfB (List.map (fun ⟨t, v⟩ => ⟨t, (v, v)⟩) vs)
-          (Js₁.zip Js₂ ++ List.map (fun ⟨ts, l⟩ => ⟨ts, (l, l)⟩) ls₁)
-          (bodies₁ Js₁) (bodies₁ Js₂) :=
-      fun Js₁ Js₂ => denoteB_wf bs hRelV (ctxRel_pushTup Js₁ Js₂ hRelL1)
-    have hwfK1 : ∀ Js₁ Js₂ : Tup Cont sig,
-        Wf (List.map (fun ⟨t, v⟩ => ⟨t, (v, v)⟩) vs)
-          (Js₁.zip Js₂ ++ List.map (fun ⟨ts, l⟩ => ⟨ts, (l, l)⟩) ls₁)
-          (k₁ Js₁) (k₁ Js₂) :=
-      fun Js₁ Js₂ => denote_wf k hRelV (ctxRel_pushTup Js₁ Js₂ hRelL1)
-    have hwfB2 : ∀ Js₁ Js₂ : Tup Cont sig,
-        WfB (List.map (fun ⟨t, v⟩ => ⟨t, (v, v)⟩) vs)
-          (Js₁.zip Js₂ ++ List.map (fun ⟨ts, l⟩ => ⟨ts, (l, l)⟩) ls₂)
-          (bodies₂ Js₁) (bodies₂ Js₂) :=
+    have hRelL1 := ctxRel_refl_ls (ls := ls₁); have hRelL2 := ctxRel_refl_ls (ls := ls₂)
+    have hwfB2 : ∀ Js₁ Js₂ : Tup Cont sig, WfB _
+        (Js₁.zip Js₂ ++ List.map (fun ⟨ts, l⟩ => ⟨ts, (l, l)⟩) ls₂) (bodies₂ Js₁) (bodies₂ Js₂) :=
       fun Js₁ Js₂ => denoteB_wf bs' hRelV (ctxRel_pushTup Js₁ Js₂ hRelL2)
-    have hwfK2 : ∀ Js₁ Js₂ : Tup Cont sig,
-        Wf (List.map (fun ⟨t, v⟩ => ⟨t, (v, v)⟩) vs)
-          (Js₁.zip Js₂ ++ List.map (fun ⟨ts, l⟩ => ⟨ts, (l, l)⟩) ls₂)
-          (k₂ Js₁) (k₂ Js₂) :=
-      fun Js₁ Js₂ => denote_wf k' hRelV (ctxRel_pushTup Js₁ Js₂ hRelL2)
     rw [denote_group_eq] at hwp
     change wp Γ Q X (.group bodies₁ k₁) m at hwp
-    rw [wp_group_iff hDiag hMono1 hwfB1 hwfK1] at hwp
-    let Js₁ := lfp Γ Q X bodies₁
-    let Js₂ := lfp Γ Q X bodies₂
-    have hCl₂ : Closed Γ Q X (bodies₂ Js₂) Js₂ :=
-      lfp_closed hDiag hMono2 hwfB2
+    rw [wp_group_iff hDiag hMono1
+      (fun Js₁ Js₂ => denoteB_wf bs hRelV (ctxRel_pushTup Js₁ Js₂ hRelL1))
+      (fun Js₁ Js₂ => denote_wf k hRelV (ctxRel_pushTup Js₁ Js₂ hRelL1))] at hwp
+    let Js₁ := lfp Γ Q X bodies₁; let Js₂ := lfp Γ Q X bodies₂
     have hCl₁ : Closed Γ Q X (bodies₁ Js₂) Js₂ := by
-      rw [closed_iff]
-      intro ts i xs m' hbi
-      have hbi' := zpeelBs_wp cfg bs G (pushTypes sig D) hwf.1
-        vs (pushTup Js₂ ls₁) (pushTup Js₂ ls₂) hG
-        (CtxTypes_pushTup Js₂ hD₁) (CtxTypes_pushTup Js₂ hD₂)
-        (labelLe_pushTup Js₂ hLs) i xs m' hbi
-      exact (closed_iff Γ Q X (bodies₂ Js₂) Js₂).mp hCl₂ i xs m' hbi'
-    have hJsLe : ∀ {ts : List Ty} (i : Member ts sig) xs m',
-        Js₁.get i xs m' → Js₂.get i xs m' :=
-      fun i xs m' h => lfp_le hCl₁ i xs m' h
-    have hwpK2 : wp Γ Q X (k₂ Js₂) m :=
-      zpeelTF_wp cfg k G (pushTypes sig D) hwf.2 vs (pushTup Js₁ ls₁) (pushTup Js₂ ls₂)
-        hG (CtxTypes_pushTup Js₁ hD₁) (CtxTypes_pushTup Js₂ hD₂)
-        (labelLe_pushTup2 hJsLe hLs) hwp
-    have hGrp2Wp : wp Γ Q X (denote Val Cont (.group bs' k') vs ls₂) m := by
-      rw [denote_group_eq]
-      change wp Γ Q X (.group bodies₂ k₂) m
-      rw [wp_group_iff hDiag hMono2 hwfB2 hwfK2]
-      exact hwpK2
+      rw [closed_iff]; intro ts i xs m' hbi
+      exact (closed_iff Γ Q X (bodies₂ Js₂) Js₂).mp (lfp_closed hDiag hMono2 hwfB2) i xs m'
+        (zpeelBs_wp cfg bs G (pushTypes sig D) hwf.1 vs (pushTup Js₂ ls₁) (pushTup Js₂ ls₂)
+          hG (CtxTypes_pushTup Js₂ hD₁) (CtxTypes_pushTup Js₂ hD₂) (labelLe_pushTup Js₂ hLs)
+          i xs m' hbi)
+    have hwpK2 : wp Γ Q X (k₂ Js₂) m := zpeelTF_wp cfg k G (pushTypes sig D) hwf.2 vs
+      (pushTup Js₁ ls₁) (pushTup Js₂ ls₂) hG (CtxTypes_pushTup Js₁ hD₁) (CtxTypes_pushTup Js₂ hD₂)
+      (labelLe_pushTup2 (fun i xs m' h => lfp_le hCl₁ i xs m' h) hLs) hwp
     rw [zpeelTF_group]
-    exact zpeelGroupWrap_wp hG hD₂ cfg bs' k' hwf' hGrp2Wp
+    exact zpeelGroupWrap_wp hG hD₂ cfg bs' k' hwf' (by
+      rw [denote_group_eq]; change wp Γ Q X (.group bodies₂ k₂) m
+      rw [wp_group_iff hDiag hMono2 hwfB2
+        (fun Js₁ Js₂ => denote_wf k' hRelV (ctxRel_pushTup Js₁ Js₂ hRelL2))]; exact hwpK2)
 
 private theorem zpeelBs_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    (cfg : ZeroPeelConfig) :
-    {sig : List (List Ty)} → (bs : TBlocks rs sig) →
-    (G : List Ty) → (D : List (List Ty)) →
-    bs.wfCheck G D = true →
+    (cfg : ZeroPeelConfig) : {sig : List (List Ty)} → (bs : TBlocks rs sig) →
+    (G : List Ty) → (D : List (List Ty)) → bs.wfCheck G D = true →
     ∀ (vs : List ((t : Ty) × Val t)) (ls₁ ls₂ : List ((ts : List Ty) × Cont ts)),
       CtxTypes G vs → CtxTypes D ls₁ → CtxTypes D ls₂ → LabelLe ls₁ ls₂ →
       ∀ {ts : List Ty} (i : Member ts sig) (xs : Tup Val ts) (m : Mem 64),
@@ -1884,267 +1602,19 @@ private theorem zpeelBs_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
   | _, .nil, _, _, _, _, _, _, _, _, _, _, _, i, _, _, _ => nomatch i
   | ts :: _, .cons b bs, G, D, hwf, vs, ls₁, ls₂, hG, hD₁, hD₂, hLs, _, .here, xs, m, hwp => by
     rw [wfCheckB_cons_eq, Bool.and_eq_true] at hwf
-    rw [zpeelBs_cons, denoteB_cons_eq]
-    rw [denoteB_cons_eq] at hwp
+    rw [zpeelBs_cons, denoteB_cons_eq]; rw [denoteB_cons_eq] at hwp
     exact zpeelTF_wp cfg b (pushTypes ts G) D hwf.1 (pushTup xs vs) ls₁ ls₂
       (CtxTypes_pushTup xs hG) hD₁ hD₂ hLs hwp
   | _ :: _, .cons b bs, G, D, hwf, vs, ls₁, ls₂, hG, hD₁, hD₂, hLs, _, .there i, xs, m, hwp => by
     rw [wfCheckB_cons_eq, Bool.and_eq_true] at hwf
-    rw [zpeelBs_cons, denoteB_cons_eq]
-    rw [denoteB_cons_eq] at hwp
+    rw [zpeelBs_cons, denoteB_cons_eq]; rw [denoteB_cons_eq] at hwp
     exact zpeelBs_wp cfg bs G D hwf.2 vs ls₁ ls₂ hG hD₁ hD₂ hLs i xs m hwp
 end
 
 /-! ## Section 5B: Syntactic `CallsOk` Preservation & Module Safety -/
 
-mutual
-private def callsOkTF (allowed : List SigEntry) (exits : List Sym) {rs : List Ty} :
-    TFlat rs → Prop
-  | .let_ _ k | .load _ _ k | .store _ _ k => callsOkTF allowed exits k
-  | .call f (as := as) (bs := bs) _ k => (f, as, bs) ∈ allowed ∧ callsOkTF allowed exits k
-  | .jnz _ t e => callsOkTF allowed exits t ∧ callsOkTF allowed exits e
-  | .jump _ _ | .ret _ | .hlt => True
-  | .exit f _ => f ∈ exits
-  | .group bs k => callsOkBs allowed exits bs ∧ callsOkTF allowed exits k
-
-private def callsOkBs (allowed : List SigEntry) (exits : List Sym) {rs : List Ty} :
-    {sig : List (List Ty)} → TBlocks rs sig → Prop
-  | _, .nil => True
-  | _, .cons b bs => callsOkTF allowed exits b ∧ callsOkBs allowed exits bs
-end
-
-private theorem callsOkTF_let (a : List SigEntry) (e : List Sym) {rs ts : List Ty}
-    (op : Op K ts) (k : TFlat rs) : callsOkTF a e (.let_ op k) = callsOkTF a e k := rfl
-private theorem callsOkTF_load (a : List SigEntry) (e : List Sym) {rs : List Ty} (t : Ty)
-    (ptr : Arg K i64) (k : TFlat rs) : callsOkTF a e (.load t ptr k) = callsOkTF a e k := rfl
-private theorem callsOkTF_store (a : List SigEntry) (e : List Sym) {rs : List Ty} {t : Ty}
-    (v : Arg K t) (ptr : Arg K i64) (k : TFlat rs) :
-    callsOkTF a e (.store v ptr k) = callsOkTF a e k := rfl
-private theorem callsOkTF_call (a : List SigEntry) (e : List Sym) {rs : List Ty} (f : Sym)
-    {as : List Ty} (bs : List Ty) (args : Tup (Arg K) as) (k : TFlat rs) :
-    callsOkTF a e (.call f bs args k) = ((f, as, bs) ∈ a ∧ callsOkTF a e k) := rfl
-private theorem callsOkTF_jnz (a : List SigEntry) (e : List Sym) {rs : List Ty}
-    (c : Arg K Ty.bool) (t k : TFlat rs) :
-    callsOkTF a e (.jnz c t k) = (callsOkTF a e t ∧ callsOkTF a e k) := rfl
-private theorem callsOkTF_jump (a : List SigEntry) (e : List Sym) {rs ts : List Ty} (j : Nat)
-    (args : Tup (Arg K) ts) : callsOkTF a e (TFlat.jump j args : TFlat rs) = True := rfl
-private theorem callsOkTF_ret (a : List SigEntry) (e : List Sym) {rs : List Ty}
-    (vs : Tup (Arg K) rs) : callsOkTF a e (.ret vs) = True := rfl
-private theorem callsOkTF_exit (a : List SigEntry) (e : List Sym) {rs : List Ty} (f : Sym)
-    {as : List Ty} (args : Tup (Arg K) as) :
-    callsOkTF a e (TFlat.exit f args : TFlat rs) = (f ∈ e) := rfl
-private theorem callsOkTF_hlt (a : List SigEntry) (e : List Sym) {rs : List Ty} :
-    callsOkTF a e (.hlt : TFlat rs) = True := rfl
-private theorem callsOkTF_group (a : List SigEntry) (e : List Sym) {rs : List Ty}
-    {sig : List (List Ty)} (bs : TBlocks rs sig) (k : TFlat rs) :
-    callsOkTF a e (.group bs k) = (callsOkBs a e bs ∧ callsOkTF a e k) := rfl
-private theorem callsOkBs_nil (a : List SigEntry) (e : List Sym) {rs : List Ty} :
-    callsOkBs a e (.nil : TBlocks rs []) = True := rfl
-private theorem callsOkBs_cons (a : List SigEntry) (e : List Sym) {rs : List Ty}
-    {ts : List Ty} {sig : List (List Ty)} (b : TFlat rs) (bs : TBlocks rs sig) :
-    callsOkBs a e (.cons (ts := ts) b bs) = (callsOkTF a e b ∧ callsOkBs a e bs) := rfl
-
-private theorem castTy_self {V : Ty → Type} :
-    (t : Ty) → (v : V t) → castTy t t v = some v
-  | .bool, _ => rfl
-  | .bits _, _ => by dsimp only [castTy]; rw [dite_eq_left rfl]
-  | .float _, _ => by dsimp only [castTy]; rw [dite_eq_left rfl]
-  | .pair a b, v => by
-    dsimp only [castTy]
-    cases tyDecEq a a with
-    | isFalse h => exact absurd rfl h
-    | isTrue _ =>
-      cases tyDecEq b b with
-      | isFalse h => exact absurd rfl h
-      | isTrue _ => rfl
-
-private theorem listGet?_succ {α : Type _} (x : α) (xs : List α) (n : Nat) :
-    listGet? (x :: xs) (n + 1) = listGet? xs n := rfl
-
-private theorem lookupV_cons_succ {V : Ty → Type} (e : (t : Ty) × V t)
-    (xs : List ((t : Ty) × V t)) (t : Ty) (idx : Nat) :
-    lookupV (e :: xs) t (idx + 1) = lookupV xs t idx := rfl
-
-private theorem lookupV_isSome_of_ctxTypes {V : Ty → Type} :
-    ∀ {G : List Ty} {vs : List ((t : Ty) × V t)} {t : Ty} {idx : Nat},
-      CtxTypes G vs → listGet? G idx = some t → ∃ v, lookupV vs t idx = some v
-  | [], _, _, _, .nil, h => by rw [listGet?_nil_eq] at h; cases h
-  | t' :: _, ⟨_, v⟩ :: _, t, 0, .cons _, h => by
-    rw [listGet?_cons_zero_eq] at h; cases h
-    refine ⟨v, ?_⟩
-    dsimp only [lookupV]
-    rw [listGet?_cons_zero_eq]; dsimp only; rw [castTy_self]
-  | _ :: _, _ :: _, _, _ + 1, .cons hCtx, h => by
-    rw [listGet?_succ] at h; rw [lookupV_cons_succ]
-    exact lookupV_isSome_of_ctxTypes hCtx h
-
-private theorem denoteArg_isSome_of_checkArg {V : Ty → Type}
-    {G : List Ty} {vs : List ((t : Ty) × V t)} {t : Ty} (a : Arg K t)
-    (hCtx : CtxTypes G vs) (hChk : checkArg G t a = true) :
-    ∃ a', denoteArg vs a = some a' := by
-  cases a with
-  | imm v => exact ⟨.imm v, rfl⟩
-  | var i =>
-    simp only [checkArg] at hChk
-    cases hGet : listGet? G i with
-    | none => simp [hGet] at hChk
-    | some t' =>
-      simp only [hGet] at hChk
-      cases hDec : tyDecEq t' t with
-      | isFalse => simp [hDec] at hChk
-      | isTrue heq =>
-        obtain ⟨v, hv⟩ := lookupV_isSome_of_ctxTypes (t := t') hCtx hGet
-        subst heq; exact ⟨.var v, by simp [denoteArg, hv]⟩
-
-private theorem denoteArgs_isSome_of_checkArgs {V : Ty → Type} :
-    ∀ {ts : List Ty} {G : List Ty} {vs : List ((t : Ty) × V t)} (args : Tup (Arg K) ts),
-      CtxTypes G vs → checkArgs G args = true → ∃ args', denoteArgs vs args = some args'
-  | [], _, _, _, _, _ => ⟨(), rfl⟩
-  | _ :: _, _, _, (a, args), hCtx, hChk => by
-    simp only [checkArgs, Bool.and_eq_true] at hChk
-    obtain ⟨a', ha'⟩ := denoteArg_isSome_of_checkArg a hCtx hChk.1
-    obtain ⟨args', hargs'⟩ := denoteArgs_isSome_of_checkArgs args hCtx hChk.2
-    exact ⟨(a', args'), by simp [denoteArgs_cons_eq, ha', hargs']⟩
-
-mutual
-private theorem callsOkTF_of_denote (allowed : List SigEntry) (exits : List Sym)
-    {rs : List Ty} :
-    (tf : TFlat rs) → (G : List Ty) → (D : List (List Ty)) →
-    (vs : List ((_ : Ty) × Unit)) → (ls : List ((_ : List Ty) × Unit)) →
-    tf.wfCheck G D = true → CtxTypes G vs → CtxTypes D ls →
-    (denote (fun _ => Unit) (fun _ => Unit) tf vs ls).callsOk allowed exits →
-    callsOkTF allowed exits tf
-  | .let_ op k, G, D, vs, ls, hwf, hG, hD, hOk => by
-    rw [wfCheck_let_eq, Bool.and_eq_true] at hwf
-    obtain ⟨args', hda⟩ := denoteArgs_isSome_of_checkArgs op.args hG hwf.1
-    rw [denote_let_eq, hda] at hOk; dsimp only [Expr.callsOk] at hOk; rw [callsOkTF_let]
-    exact callsOkTF_of_denote allowed exits k (pushTypes _ G) D
-      (pushTup (Tup.units _) vs) ls hwf.2 (CtxTypes_pushTup _ hG) hD hOk
-  | .load t a k, G, D, vs, ls, hwf, hG, hD, hOk => by
-    rw [wfCheck_load_eq, Bool.and_eq_true] at hwf
-    obtain ⟨a', hda⟩ := denoteArg_isSome_of_checkArg a hG hwf.1
-    rw [denote_load_eq, hda] at hOk; dsimp only [Expr.callsOk] at hOk; rw [callsOkTF_load]
-    exact callsOkTF_of_denote allowed exits k (t :: G) D
-      (⟨t, ()⟩ :: vs) ls hwf.2 (.cons hG) hD hOk
-  | .store v a k, G, D, vs, ls, hwf, hG, hD, hOk => by
-    rw [wfCheck_store_eq, Bool.and_eq_true, Bool.and_eq_true] at hwf
-    obtain ⟨v', hdv⟩ := denoteArg_isSome_of_checkArg v hG hwf.1.1
-    obtain ⟨a', hda⟩ := denoteArg_isSome_of_checkArg a hG hwf.1.2
-    rw [denote_store_eq, hdv, hda] at hOk; dsimp only [Expr.callsOk] at hOk; rw [callsOkTF_store]
-    exact callsOkTF_of_denote allowed exits k G D vs ls hwf.2 hG hD hOk
-  | .call _ bs args k, G, D, vs, ls, hwf, hG, hD, hOk => by
-    rw [wfCheck_call_eq, Bool.and_eq_true] at hwf
-    obtain ⟨args', hda⟩ := denoteArgs_isSome_of_checkArgs args hG hwf.1
-    rw [denote_call_eq, hda] at hOk; dsimp only [Expr.callsOk] at hOk; rw [callsOkTF_call]
-    exact ⟨hOk.1, callsOkTF_of_denote allowed exits k (pushTypes bs G) D
-      (pushTup (Tup.units bs) vs) ls hwf.2 (CtxTypes_pushTup _ hG) hD hOk.2⟩
-  | .jnz c t e, G, D, vs, ls, hwf, hG, hD, hOk => by
-    rw [wfCheck_jnz_eq, Bool.and_eq_true, Bool.and_eq_true] at hwf
-    obtain ⟨c', hdc⟩ := denoteArg_isSome_of_checkArg c hG hwf.1.1
-    rw [denote_jnz_eq, hdc] at hOk; dsimp only [Expr.callsOk] at hOk; rw [callsOkTF_jnz]
-    exact ⟨callsOkTF_of_denote allowed exits t G D vs ls hwf.1.2 hG hD hOk.1,
-      callsOkTF_of_denote allowed exits e G D vs ls hwf.2 hG hD hOk.2⟩
-  | .jump _ _, _, _, _, _, _, _, _, _ => by rw [callsOkTF_jump]; trivial
-  | .ret _, _, _, _, _, _, _, _, _ => by rw [callsOkTF_ret]; trivial
-  | .hlt, _, _, _, _, _, _, _, _ => by rw [callsOkTF_hlt]; trivial
-  | .exit _ args, G, _, vs, _, hwf, hG, _, hOk => by
-    rw [wfCheck_exit_eq] at hwf
-    obtain ⟨args', hda⟩ := denoteArgs_isSome_of_checkArgs args hG hwf
-    rw [denote_exit_eq, hda] at hOk; dsimp only [Expr.callsOk] at hOk
-    rw [callsOkTF_exit]; exact hOk
-  | .group (sig := sig) bs k, G, D, vs, ls, hwf, hG, hD, hOk => by
-    rw [wfCheck_group_eq, Bool.and_eq_true] at hwf
-    rw [denote_group_eq] at hOk; dsimp only [Expr.callsOk] at hOk; rw [callsOkTF_group]
-    exact ⟨callsOkBs_of_denote allowed exits bs G (pushTypes sig D) vs
-        (pushTup (Tup.units sig) ls) hwf.1 hG (CtxTypes_pushTup _ hD) hOk.1,
-      callsOkTF_of_denote allowed exits k G (pushTypes sig D) vs
-        (pushTup (Tup.units sig) ls) hwf.2 hG (CtxTypes_pushTup _ hD) hOk.2⟩
-
-private theorem callsOkBs_of_denote (allowed : List SigEntry) (exits : List Sym)
-    {rs : List Ty} :
-    {sig : List (List Ty)} → (bs : TBlocks rs sig) → (G : List Ty) → (D : List (List Ty)) →
-    (vs : List ((_ : Ty) × Unit)) → (ls : List ((_ : List Ty) × Unit)) →
-    bs.wfCheck G D = true → CtxTypes G vs → CtxTypes D ls →
-    (denoteB (fun _ => Unit) (fun _ => Unit) bs vs ls).callsOk allowed exits →
-    callsOkBs allowed exits bs
-  | _, .nil, _, _, _, _, _, _, _, _ => by rw [callsOkBs_nil]; trivial
-  | ts :: _, .cons b bs, G, D, vs, ls, hwf, hG, hD, hOk => by
-    rw [wfCheckB_cons_eq, Bool.and_eq_true] at hwf
-    rw [denoteB_cons_eq] at hOk; dsimp only [Blocks.callsOk] at hOk; rw [callsOkBs_cons]
-    exact ⟨callsOkTF_of_denote allowed exits b (pushTypes ts G) D
-        (pushTup (Tup.units ts) vs) ls hwf.1 (CtxTypes_pushTup _ hG) hD hOk.1,
-      callsOkBs_of_denote allowed exits bs G D vs ls hwf.2 hG hD hOk.2⟩
-end
-
-mutual
-private theorem callsOkTF_denote {allowed : List SigEntry} {exits : List Sym}
-    {rs : List Ty} :
-    (tf : TFlat rs) → (vs : List ((_ : Ty) × Unit)) → (ls : List ((_ : List Ty) × Unit)) →
-    callsOkTF allowed exits tf →
-    (denote (fun _ => Unit) (fun _ => Unit) tf vs ls).callsOk allowed exits
-  | .let_ op k, vs, ls, h => by
-    rw [callsOkTF_let] at h; rw [denote_let_eq]
-    cases denoteArgs vs op.args with
-    | none => dsimp only [Expr.callsOk]
-    | some _ => dsimp only [Expr.callsOk]; exact callsOkTF_denote k _ ls h
-  | .load _ a k, vs, ls, h => by
-    rw [callsOkTF_load] at h; rw [denote_load_eq]
-    cases denoteArg vs a with
-    | none => dsimp only [Expr.callsOk]
-    | some _ => dsimp only [Expr.callsOk]; exact callsOkTF_denote k _ ls h
-  | .store v a k, vs, ls, h => by
-    rw [callsOkTF_store] at h; rw [denote_store_eq]
-    cases denoteArg vs v with
-    | none => dsimp only [Expr.callsOk]
-    | some _ =>
-      cases denoteArg vs a with
-      | none => dsimp only [Expr.callsOk]
-      | some _ => dsimp only [Expr.callsOk]; exact callsOkTF_denote k vs ls h
-  | .call _ _ args k, vs, ls, h => by
-    rw [callsOkTF_call] at h; rw [denote_call_eq]
-    cases denoteArgs vs args with
-    | none => dsimp only [Expr.callsOk]
-    | some _ => dsimp only [Expr.callsOk]; exact ⟨h.1, callsOkTF_denote k _ ls h.2⟩
-  | .jnz c t e, vs, ls, h => by
-    rw [callsOkTF_jnz] at h; rw [denote_jnz_eq]
-    cases denoteArg vs c with
-    | none => dsimp only [Expr.callsOk]
-    | some _ =>
-      dsimp only [Expr.callsOk]; exact ⟨callsOkTF_denote t vs ls h.1, callsOkTF_denote e vs ls h.2⟩
-  | .jump _ args, vs, ls, _ => by
-    rw [denote_jump_eq]
-    cases lookupL ls _ _ with
-    | none => dsimp only [Expr.callsOk]
-    | some _ =>
-      cases denoteArgs vs args with
-      | none => dsimp only [Expr.callsOk]
-      | some _ => dsimp only [Expr.callsOk]
-  | .ret args, vs, _, _ => by
-    rw [denote_ret_eq]
-    cases denoteArgs vs args with
-    | none => dsimp only [Expr.callsOk]
-    | some _ => dsimp only [Expr.callsOk]
-  | .exit _ args, vs, _, h => by
-    rw [callsOkTF_exit] at h; rw [denote_exit_eq]
-    cases denoteArgs vs args with
-    | none => dsimp only [Expr.callsOk]
-    | some _ => dsimp only [Expr.callsOk]; exact h
-  | .hlt, _, _, _ => by rw [denote_hlt_eq]; dsimp only [Expr.callsOk]
-  | .group bs k, vs, ls, h => by
-    rw [callsOkTF_group] at h; rw [denote_group_eq]; dsimp only [Expr.callsOk]
-    exact ⟨callsOkBs_denote bs vs _ h.1, callsOkTF_denote k vs _ h.2⟩
-
-private theorem callsOkBs_denote {allowed : List SigEntry} {exits : List Sym}
-    {rs : List Ty} :
-    {sig : List (List Ty)} → (bs : TBlocks rs sig) →
-    (vs : List ((_ : Ty) × Unit)) → (ls : List ((_ : List Ty) × Unit)) →
-    callsOkBs allowed exits bs →
-    (denoteB (fun _ => Unit) (fun _ => Unit) bs vs ls).callsOk allowed exits
-  | _, .nil, _, _, _ => by rw [denoteB_nil_eq]; dsimp only [Blocks.callsOk]
-  | _, .cons b bs, vs, ls, h => by
-    rw [callsOkBs_cons] at h; rw [denoteB_cons_eq]; dsimp only [Blocks.callsOk]
-    exact ⟨callsOkTF_denote b _ ls h.1, callsOkBs_denote bs vs ls h.2⟩
-end
+section
+open PassFlatKit (callsOkTF callsOkBs)
 
 mutual
 private theorem shiftTFlat_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -2152,35 +1622,33 @@ private theorem shiftTFlat_callsOk {allowed : List SigEntry} {exits : List Sym}
     (tf : TFlat rs) → (d n : Nat) →
     callsOkTF allowed exits tf → callsOkTF allowed exits (shiftTFlat d n tf)
   | .let_ _ k, _, n, h => by
-    rw [callsOkTF_let] at h; unfold shiftTFlat; rw [callsOkTF_let]; exact shiftTFlat_callsOk k _ n h
-  | .load _ _ k, _, n, h => by
-    rw [callsOkTF_load] at h; unfold shiftTFlat; rw [callsOkTF_load]
+    unfold shiftTFlat; simp only [PassFlatKit.callsOkTF_let] at h ⊢
     exact shiftTFlat_callsOk k _ n h
-  | .store _ _ k, d, n, h => by
-    rw [callsOkTF_store] at h; unfold shiftTFlat; rw [callsOkTF_store]
-    exact shiftTFlat_callsOk k d n h
+  | .load _ _ k, _, n, h => by
+    unfold shiftTFlat; simp only [PassFlatKit.callsOkTF_load] at h ⊢
+    exact shiftTFlat_callsOk k _ n h
+  | .store _ _ k, _, n, h => by
+    unfold shiftTFlat; simp only [PassFlatKit.callsOkTF_store] at h ⊢
+    exact shiftTFlat_callsOk k _ n h
   | .call _ _ _ k, _, n, h => by
-    rw [callsOkTF_call] at h; unfold shiftTFlat; rw [callsOkTF_call]
+    unfold shiftTFlat; simp only [PassFlatKit.callsOkTF_call] at h ⊢
     exact ⟨h.1, shiftTFlat_callsOk k _ n h.2⟩
   | .jnz _ t e, d, n, h => by
-    rw [callsOkTF_jnz] at h; unfold shiftTFlat; rw [callsOkTF_jnz]
+    unfold shiftTFlat; simp only [PassFlatKit.callsOkTF_jnz] at h ⊢
     exact ⟨shiftTFlat_callsOk t d n h.1, shiftTFlat_callsOk e d n h.2⟩
-  | .jump _ _, _, _, _ => by unfold shiftTFlat; rw [callsOkTF_jump]; trivial
-  | .ret _, _, _, _ => by unfold shiftTFlat; rw [callsOkTF_ret]; trivial
-  | .exit _ _, _, _, h => by
-    rw [callsOkTF_exit] at h; unfold shiftTFlat; rw [callsOkTF_exit]; exact h
-  | .hlt, _, _, _ => by unfold shiftTFlat; rw [callsOkTF_hlt]; trivial
+  | .jump _ _, _, _, _ | .ret _, _, _, _ | .hlt, _, _, _ => by unfold shiftTFlat; simp
+  | .exit _ _, _, _, h => by unfold shiftTFlat; simpa using h
   | .group bs k, d, n, h => by
-    rw [callsOkTF_group] at h; unfold shiftTFlat; rw [callsOkTF_group]
+    unfold shiftTFlat; simp only [PassFlatKit.callsOkTF_group] at h ⊢
     exact ⟨shiftTBlocks_callsOk bs d n h.1, shiftTFlat_callsOk k d n h.2⟩
 
 private theorem shiftTBlocks_callsOk {allowed : List SigEntry} {exits : List Sym}
     {rs : List Ty} :
     {sig : List (List Ty)} → (bs : TBlocks rs sig) → (d n : Nat) →
     callsOkBs allowed exits bs → callsOkBs allowed exits (shiftTBlocks d n bs)
-  | _, .nil, _, _, _ => by unfold shiftTBlocks; rw [callsOkBs_nil]; trivial
+  | _, .nil, _, _, _ => by unfold shiftTBlocks; simp
   | ts :: _, .cons b bs, d, n, h => by
-    rw [callsOkBs_cons] at h; unfold shiftTBlocks; rw [callsOkBs_cons]
+    unfold shiftTBlocks; simp only [PassFlatKit.callsOkBs_cons] at h ⊢
     exact ⟨shiftTFlat_callsOk b (d + ts.length) n h.1, shiftTBlocks_callsOk bs d n h.2⟩
 end
 
@@ -2190,74 +1658,50 @@ private theorem letBindTup_callsOk {allowed : List SigEntry} {exits : List Sym}
     callsOkTF allowed exits body → callsOkTF allowed exits (letBindTup args d body)
   | [], _, _, _, h => h
   | _ :: _, (_, as), d, _, h => by
-    dsimp only [letBindTup]; rw [callsOkTF_let]; exact letBindTup_callsOk as (d + 1) h
+    simp only [letBindTup, PassFlatKit.callsOkTF_let]
+    exact letBindTup_callsOk as (d + 1) h
 
 private theorem inlineJump0_callsOk {allowed : List SigEntry} {exits : List Sym}
     {rs : List Ty} (body : TFlat rs) (ts0 : List Ty) (hb : callsOkTF allowed exits body) :
     ∀ (d : Nat) (k : TFlat rs),
       callsOkTF allowed exits k → callsOkTF allowed exits (inlineJump0 body ts0 d k)
-  | _, .let_ _ k, hk => by
-    rw [callsOkTF_let] at hk; dsimp only [inlineJump0]; rw [callsOkTF_let]
+  | _, .let_ _ k, hk | _, .load _ _ k, hk | _, .store _ _ k, hk => by
+    simp [inlineJump0] at hk ⊢
     exact inlineJump0_callsOk body ts0 hb _ k hk
-  | _, .load _ _ k, hk => by
-    rw [callsOkTF_load] at hk; dsimp only [inlineJump0]; rw [callsOkTF_load]
-    exact inlineJump0_callsOk body ts0 hb _ k hk
-  | d, .store _ _ k, hk => by
-    rw [callsOkTF_store] at hk; dsimp only [inlineJump0]; rw [callsOkTF_store]
-    exact inlineJump0_callsOk body ts0 hb d k hk
   | _, .call _ _ _ k, hk => by
-    rw [callsOkTF_call] at hk; dsimp only [inlineJump0]; rw [callsOkTF_call]
+    simp [inlineJump0] at hk ⊢
     exact ⟨hk.1, inlineJump0_callsOk body ts0 hb _ k hk.2⟩
   | d, .jnz _ t e, hk => by
-    rw [callsOkTF_jnz] at hk; dsimp only [inlineJump0]; rw [callsOkTF_jnz]
+    simp [inlineJump0] at hk ⊢
     exact ⟨inlineJump0_callsOk body ts0 hb d t hk.1, inlineJump0_callsOk body ts0 hb d e hk.2⟩
   | d, .jump _ _, _ => by
-    dsimp only [inlineJump0]
-    split
-    · split
-      · exact letBindTup_callsOk _ 0 (shiftTFlat_callsOk body ts0.length d hb)
-      · rw [callsOkTF_jump]; trivial
-    · rw [callsOkTF_jump]; trivial
-  | _, .ret _, _ => by dsimp only [inlineJump0]; rw [callsOkTF_ret]; trivial
-  | _, .exit _ _, hk => hk
-  | _, .hlt, _ => by dsimp only [inlineJump0]; rw [callsOkTF_hlt]; trivial
-  | _, .group _ _, hk => hk
+    dsimp only [inlineJump0]; split
+    · split; exact letBindTup_callsOk _ 0 (shiftTFlat_callsOk body ts0.length d hb)
+      simp
+    · simp
+  | _, .ret _, _ | _, .hlt, _ => by simp [inlineJump0]
+  | _, .exit _ _, hk | _, .group _ _, hk => hk
 
 private theorem mkStoreChainGoRest_callsOk {allowed : List SigEntry}
     {exits : List Sym} {rs : List Ty} (fill64 : BitVec 64) (stepK : Nat) :
     ∀ (m remStores curIDepth : Nat),
-      callsOkTF allowed exits
-        (mkStoreChainGoRest (rs := rs) fill64 stepK m remStores curIDepth)
-  | _, 0, _ => by
-    dsimp only [mkStoreChainGoRest]; rw [callsOkTF_let, callsOkTF_jump]; trivial
+      callsOkTF allowed exits (mkStoreChainGoRest (rs := rs) fill64 stepK m remStores curIDepth)
+  | _, 0, _ => by simp [mkStoreChainGoRest]
   | m, r + 1, curIDepth => by
-    dsimp only [mkStoreChainGoRest]; rw [callsOkTF_let, callsOkTF_store]
-    exact mkStoreChainGoRest_callsOk fill64 stepK (m + 1) r (curIDepth + 1)
+    simpa [mkStoreChainGoRest] using
+      mkStoreChainGoRest_callsOk fill64 stepK (m + 1) r (curIDepth + 1)
 
 private theorem mkStoreChain_callsOk {allowed : List SigEntry} {exits : List Sym}
     {rs : List Ty} (fill64 : BitVec 64) (stepK : Nat) :
     ∀ (unrollN iDepth : Nat),
       callsOkTF allowed exits (mkStoreChain (rs := rs) fill64 stepK unrollN iDepth)
-  | 0, _ => by dsimp only [mkStoreChain]; rw [callsOkTF_hlt]; trivial
-  | 1, _ => by
-    dsimp only [mkStoreChain]; rw [callsOkTF_store, callsOkTF_let, callsOkTF_jump]; trivial
+  | 0, _ | 1, _ => by simp [mkStoreChain]
   | n + 2, iDepth => by
-    dsimp only [mkStoreChain]; rw [callsOkTF_store]
-    exact mkStoreChainGoRest_callsOk fill64 stepK 1 (n + 1) iDepth
+    simpa [mkStoreChain] using mkStoreChainGoRest_callsOk fill64 stepK 1 (n + 1) iDepth
 
 private theorem mkWideWrapper_callsOk {allowed : List SigEntry} {exits : List Sym}
     {rs : List Ty} (spec : FillSpec) (unrollN : Nat) (initArg : Arg K i64) :
     callsOkTF allowed exits (mkWideWrapper (rs := rs) spec unrollN initArg) := by
-  dsimp only [mkWideWrapper, mkWideBody]
-  rw [callsOkTF_group, callsOkBs_cons, callsOkBs_nil,
-    callsOkTF_let, callsOkTF_let, callsOkTF_jnz, callsOkTF_jump,
-    callsOkTF_let, callsOkTF_jnz, callsOkTF_jump, callsOkTF_jump]
-  refine ⟨⟨⟨?_, trivial⟩, trivial⟩, ⟨trivial, trivial⟩⟩
-  have hWithBase : ∀ d idx, callsOkTF allowed exits
-      (TFlat.let_ (op2 (OpCode.add i64) (tArgShift d spec.base) idx)
-        (mkStoreChain (rs := rs) spec.fill64
-          (unrollN * (8 >>> spec.shift)) unrollN d)) := by
-    intro d idx; rw [callsOkTF_let]; exact mkStoreChain_callsOk _ _ _ _
   have hWithShift : ∀ d idx, callsOkTF allowed exits
       (if spec.shift == 0 then
         TFlat.let_ (op2 (OpCode.add i64) (tArgShift d spec.base) idx)
@@ -2267,12 +1711,13 @@ private theorem mkWideWrapper_callsOk {allowed : List SigEntry} {exits : List Sy
           (TFlat.let_ (op2 (OpCode.add i64) (tArgShift (d + 1) spec.base) (.var 0))
             (mkStoreChain (rs := rs) spec.fill64
               (unrollN * (8 >>> spec.shift)) unrollN (d + 1)))) := by
-    intro d idx; split
-    · exact hWithBase d idx
-    · rw [callsOkTF_let]; exact hWithBase (d + 1) (.var 0)
+    intro d _; split <;> simp [mkStoreChain_callsOk]
+  dsimp only [mkWideWrapper, mkWideBody]
+  simp only [PassFlatKit.callsOkTF_group, PassFlatKit.callsOkBs_cons, PassFlatKit.callsOkBs_nil,
+    PassFlatKit.callsOkTF_let, PassFlatKit.callsOkTF_jnz, PassFlatKit.callsOkTF_jump, and_true]
   cases spec.off? with
   | none => exact hWithShift 3 (.var 2)
-  | some _ => rw [callsOkTF_let]; exact hWithShift 4 (.var 0)
+  | some _ => simp only [PassFlatKit.callsOkTF_let]; exact hWithShift 4 (.var 0)
 
 private theorem zpeelGroupWrap_callsOk {allowed : List SigEntry} {exits : List Sym}
     {rs : List Ty} (cfg : ZeroPeelConfig) {sig : List (List Ty)}
@@ -2280,54 +1725,52 @@ private theorem zpeelGroupWrap_callsOk {allowed : List SigEntry} {exits : List S
     (hbs : callsOkBs allowed exits bs') (hk : callsOkTF allowed exits k') :
     callsOkTF allowed exits (zpeelGroupWrap cfg bs' k') := by
   cases bs' with
-  | nil => rw [zpeelGroupWrap_nil, callsOkTF_group]; exact ⟨hbs, hk⟩
+  | nil => rw [zpeelGroupWrap_nil]; simp [hbs, hk]
   | @cons ts0 _ body bsNil =>
     cases bsNil with
     | nil =>
       rw [zpeelGroupWrap_cons_nil]
-      have hb : callsOkTF allowed exits body :=
-        ((callsOkBs_cons allowed exits body .nil).mp hbs).1
       cases hw : widenFillSingle cfg.unrollN ts0 body k' with
       | some g =>
-        dsimp only
         obtain ⟨_, _, rfl, initArg, spec, _, _, rfl⟩ := widenFillSingle_eq_some hw
-        rw [callsOkTF_group, callsOkBs_cons, callsOkBs_nil]
-        exact ⟨⟨hb, trivial⟩, mkWideWrapper_callsOk spec cfg.unrollN initArg⟩
+        simp only [PassFlatKit.callsOkBs_cons, PassFlatKit.callsOkBs_nil] at hbs
+        simp [hbs.1, mkWideWrapper_callsOk spec cfg.unrollN initArg]
       | none =>
-        dsimp only
         cases hp : peelSingle cfg ts0 body k' with
         | some g =>
-          dsimp only; dsimp only [peelSingle] at hp
-          split at hp
+          dsimp only [peelSingle] at hp; split at hp
           · simp only [Option.some.injEq] at hp; subst hp
-            rw [callsOkTF_group]; exact ⟨hbs, inlineJump0_callsOk body ts0 hb 0 k' hk⟩
+            simp only [PassFlatKit.callsOkBs_cons] at hbs
+            simp [hbs, inlineJump0_callsOk body ts0 hbs.1 0 k' hk]
           · cases hp
-        | none => dsimp only; rw [callsOkTF_group]; exact ⟨hbs, hk⟩
-    | cons _ _ => rw [zpeelGroupWrap_cons2, callsOkTF_group]; exact ⟨hbs, hk⟩
+        | none => simp [hbs, hk]
+    | cons _ _ => rw [zpeelGroupWrap_cons2]; simp [hbs, hk]
 
 mutual
 private theorem zpeelTF_callsOk {allowed : List SigEntry} {exits : List Sym}
     (cfg : ZeroPeelConfig) {rs : List Ty} :
-    (tf : TFlat rs) →
-    callsOkTF allowed exits tf → callsOkTF allowed exits (zpeelTF cfg tf)
+    (tf : TFlat rs) → callsOkTF allowed exits tf → callsOkTF allowed exits (zpeelTF cfg tf)
   | .let_ _ k, h => by
-    rw [callsOkTF_let] at h; rw [zpeelTF_let, callsOkTF_let]; exact zpeelTF_callsOk cfg k h
+    rw [zpeelTF_let]; simp only [PassFlatKit.callsOkTF_let] at h ⊢
+    exact zpeelTF_callsOk cfg k h
   | .load _ _ k, h => by
-    rw [callsOkTF_load] at h; rw [zpeelTF_load, callsOkTF_load]; exact zpeelTF_callsOk cfg k h
+    rw [zpeelTF_load]; simp only [PassFlatKit.callsOkTF_load] at h ⊢
+    exact zpeelTF_callsOk cfg k h
   | .store _ _ k, h => by
-    rw [callsOkTF_store] at h; rw [zpeelTF_store, callsOkTF_store]; exact zpeelTF_callsOk cfg k h
+    rw [zpeelTF_store]; simp only [PassFlatKit.callsOkTF_store] at h ⊢
+    exact zpeelTF_callsOk cfg k h
   | .call _ _ _ k, h => by
-    rw [callsOkTF_call] at h; rw [zpeelTF_call, callsOkTF_call]
+    rw [zpeelTF_call]; simp only [PassFlatKit.callsOkTF_call] at h ⊢
     exact ⟨h.1, zpeelTF_callsOk cfg k h.2⟩
   | .jnz _ t e, h => by
-    rw [callsOkTF_jnz] at h; rw [zpeelTF_jnz, callsOkTF_jnz]
+    rw [zpeelTF_jnz]; simp only [PassFlatKit.callsOkTF_jnz] at h ⊢
     exact ⟨zpeelTF_callsOk cfg t h.1, zpeelTF_callsOk cfg e h.2⟩
-  | .jump _ _, _ => by rw [zpeelTF_jump, callsOkTF_jump]; trivial
-  | .ret _, _ => by rw [zpeelTF_ret, callsOkTF_ret]; trivial
-  | .exit _ _, h => by rw [callsOkTF_exit] at h; rw [zpeelTF_exit, callsOkTF_exit]; exact h
-  | .hlt, _ => by rw [zpeelTF_hlt, callsOkTF_hlt]; trivial
+  | .jump _ _, _ => by rw [zpeelTF_jump]; simp
+  | .ret _, _ => by rw [zpeelTF_ret]; simp
+  | .hlt, _ => by rw [zpeelTF_hlt]; simp
+  | .exit _ _, h => by rw [zpeelTF_exit]; exact h
   | .group bs k, h => by
-    rw [callsOkTF_group] at h; rw [zpeelTF_group]
+    rw [zpeelTF_group]; simp only [PassFlatKit.callsOkTF_group] at h
     exact zpeelGroupWrap_callsOk cfg (zpeelBs cfg bs) (zpeelTF cfg k)
       (zpeelBs_callsOk cfg bs h.1) (zpeelTF_callsOk cfg k h.2)
 
@@ -2335,106 +1778,13 @@ private theorem zpeelBs_callsOk {allowed : List SigEntry} {exits : List Sym}
     (cfg : ZeroPeelConfig) {rs : List Ty} :
     {sig : List (List Ty)} → (bs : TBlocks rs sig) →
     callsOkBs allowed exits bs → callsOkBs allowed exits (zpeelBs cfg bs)
-  | _, .nil, _ => by rw [zpeelBs_nil, callsOkBs_nil]; trivial
+  | _, .nil, _ => by rw [zpeelBs_nil]; simp
   | _ :: _, .cons b bs, h => by
-    rw [callsOkBs_cons] at h; rw [zpeelBs_cons, callsOkBs_cons]
+    rw [zpeelBs_cons]; simp only [PassFlatKit.callsOkBs_cons] at h ⊢
     exact ⟨zpeelTF_callsOk cfg b h.1, zpeelBs_callsOk cfg bs h.2⟩
 end
 
-private theorem map_eq_append_split {α : Type _} {β : Type _} (f : α → β) :
-    ∀ {xs : List α} {pre : List β} {y : β} {post : List β},
-      xs.map f = pre ++ y :: post →
-      ∃ pre₀ x₀ post₀,
-        xs = pre₀ ++ x₀ :: post₀ ∧
-        pre = pre₀.map f ∧ y = f x₀ ∧ post = post₀.map f
-  | [], pre, _, _, h => by cases pre <;> simp at h
-  | _ :: xs, [], _, _, h => by
-    simp only [List.map_cons, List.nil_append, List.cons.injEq] at h
-    exact ⟨[], _, xs, rfl, rfl, h.1.symm, h.2.symm⟩
-  | x :: xs, b :: pre, y, post, h => by
-    simp only [List.map_cons, List.cons_append, List.cons.injEq] at h
-    obtain ⟨pre₀, x₀, post₀, hxs, hpre, hy, hpost⟩ := map_eq_append_split f h.2
-    exact ⟨x :: pre₀, x₀, post₀, by rw [hxs]; rfl, by rw [hpre, ← h.1]; rfl, hy, hpost⟩
-
-private theorem denoteB_toTBlocks_callsOk {allowed : List SigEntry} {exits : List Sym}
-    {rs : List Ty} (nv nl : Nat) (vs : List ((_t : Ty) × Unit))
-    (ls : List ((_ts : List Ty) × Unit)) :
-    {sig : List (List Ty)} → {bs : Blocks K KL rs sig} →
-    (∀ {ts} (i : Member ts sig),
-      (denote (fun _ => Unit) (fun _ => Unit)
-        (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl)
-        (pushTup (Tup.units ts) vs) ls).callsOk allowed exits) →
-    (denoteB (fun _ => Unit) (fun _ => Unit) (toTBlocks bs nv nl) vs ls).callsOk allowed exits
-  | _, .nil, _ => trivial
-  | _, .cons _ _, h =>
-      ⟨h .here, denoteB_toTBlocks_callsOk nv nl vs ls fun i => h (.there i)⟩
-
-private theorem denote_toTFlat_callsOk {allowed : List SigEntry} {exits : List Sym}
-    {rs : List Ty} {G : Ctx K (fun _ => Unit)} {D : Ctx KL (fun _ => Unit)}
-    {e₁ : Expr K KL rs} {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hwf : Wf G D e₁ e₂) :
-    ∀ (nv nl : Nat) (vs : List ((_t : Ty) × Unit)) (ls : List ((_ts : List Ty) × Unit)),
-      e₂.callsOk allowed exits →
-      (denote (fun _ => Unit) (fun _ => Unit) (toTFlat e₁ nv nl) vs ls).callsOk allowed exits := by
-  induction hwf using Wf.induct with
-  | @let_ G D ts op₁ op₂ k₁ k₂ _ _ ih =>
-    intro nv nl vs ls hc
-    dsimp only [toTFlat, denote]
-    cases denoteArgs vs (idxArgs nv op₁.args) with
-    | none => trivial
-    | some _ => exact ih (Tup.levels ts nv) (Tup.units ts) (nv + ts.length) nl _ ls hc
-  | load _ _ _ ih =>
-    intro nv nl vs ls hc
-    dsimp only [toTFlat, denote]
-    cases denoteArg vs (idxArg nv _) with
-    | none => trivial
-    | some _ => exact ih nv () (nv + 1) nl _ ls hc
-  | store _ _ _ ih =>
-    intro nv nl vs ls hc
-    dsimp only [toTFlat, denote]
-    cases denoteArg vs _ <;> cases denoteArg vs _ <;> first | trivial | exact ih nv nl vs ls hc
-  | call _ _ _ ih =>
-    intro nv nl vs ls ⟨hf, hc⟩
-    dsimp only [toTFlat, denote]
-    cases denoteArgs vs _ with
-    | none => trivial
-    | some _ =>
-      exact ⟨hf, ih (Tup.levels _ nv) (Tup.units _) (nv + _) nl _ ls hc⟩
-  | jnz _ _ _ iht ihe =>
-    intro nv nl vs ls ⟨ht, he⟩
-    dsimp only [toTFlat, denote]
-    cases denoteArg vs _ with
-    | none => trivial
-    | some _ => exact ⟨iht nv nl vs ls ht, ihe nv nl vs ls he⟩
-  | jump _ _ =>
-    intro nv nl vs ls _
-    dsimp only [toTFlat, denote]
-    cases lookupL ls _ _ <;> cases denoteArgs vs _ <;> trivial
-  | ret _ =>
-    intro nv nl vs ls _
-    dsimp only [toTFlat, denote]
-    cases denoteArgs vs _ <;> trivial
-  | exit _ _ =>
-    intro nv nl vs ls hf
-    dsimp only [toTFlat, denote]
-    cases denoteArgs vs _ <;> trivial
-  | hlt => intro _ _ _ _ _; trivial
-  | @group _ _ sig b₁ b₂ k₁ k₂ _ _ ihb ihk =>
-    intro nv nl vs ls ⟨hb, hk⟩
-    dsimp only [toTFlat, denote, Expr.callsOk]
-    refine ⟨denoteB_toTBlocks_callsOk nv (nl + sig.length) vs _ fun i => ?_,
-            ihk (Tup.levels sig nl) (Tup.units sig) nv (nl + sig.length) vs _ hk⟩
-    exact ihb (Tup.levels sig nl) (Tup.units sig) i (Tup.levels _ nv) (Tup.units _)
-      (nv + _) (nl + sig.length) _ _ (Blocks.callsOk_get hb i)
-
-private theorem renorm_callsOk {allowed : List SigEntry} {exits : List Sym}
-    {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
-    (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
-    ((Func.renorm f) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits := by
-  simpa [Func.renorm, denoteFunc, reifyFunc] using
-    denote_toTFlat_callsOk
-      (hf K (fun _ => Unit) KL (fun _ => Unit) (Tup.levels as 0) (Tup.units as))
-      as.length 0 (pushTup (Tup.units as) []) [] hc
+end
 
 end ZeroPeel
 
@@ -2480,14 +1830,9 @@ theorem Func.zeroPeelWith_callsOk (cfg : ZeroPeelConfig := {})
       (Tup.units as)).callsOk allowed exits := by
   dsimp only [Func.zeroPeelWith]
   split
-  · rename_i hcond
-    rw [Bool.and_eq_true] at hcond
-    have hRen := ZeroPeel.renorm_callsOk hf hc
-    have hSyn := ZeroPeel.callsOkTF_of_denote allowed exits (reifyFunc f)
-      (pushTypes as []) [] (pushTup (Tup.units as) []) [] hcond.1
-      (ZeroPeel.CtxTypes_pushTup (Tup.units as) .nil) .nil hRen
-    exact ZeroPeel.callsOkTF_denote (ZeroPeel.zpeelTF cfg (reifyFunc f))
-      (pushTup (Tup.units as) []) [] (ZeroPeel.zpeelTF_callsOk cfg (reifyFunc f) hSyn)
+  · have hSyn := (PassFlatKit.callsOkTF_reify_iff (allowed := allowed) (exits := exits) hf).2 hc
+    exact PassFlatKit.callsOkTF_denote (ZeroPeel.zpeelTF cfg (reifyFunc f))
+      (ZeroPeel.zpeelTF_callsOk cfg (reifyFunc f) hSyn) _ _
   · exact hc
 
 /-- Closed-function relational well-formedness preservation for `Func.zeroPeel`. -/
@@ -2513,22 +1858,18 @@ theorem Func.zeroPeel_callsOk {allowed : List SigEntry} {exits : List Sym}
 
 /-- Named-function well-formedness preservation for `Fn.zeroPeel`. -/
 theorem Fn.zeroPeel_wf {fn : Fn} (hfn : fn.Wf) (cfg : ZeroPeelConfig := {}) :
-    (fn.zeroPeel cfg).Wf :=
-  Func.zeroPeel_wf hfn cfg
+    (fn.zeroPeel cfg).Wf := Func.zeroPeel_wf hfn cfg
 
 /-- Named-function WP semantic refinement for `Fn.zeroPeel`. -/
 theorem Fn.zeroPeel_spec (fn : Fn) (hfn : fn.Wf) (cfg : ZeroPeelConfig := {})
     {Γ : Env} {xs : Tup Val fn.as} {m : Mem 64} {Q : Post fn.rs} {X : XPost}
     (h : Func.spec Γ fn.body xs m Q X) :
-    Func.spec Γ (fn.zeroPeel cfg).body xs m Q X :=
-  Func.zeroPeel_spec hfn cfg h
+    Func.spec Γ (fn.zeroPeel cfg).body xs m Q X := Func.zeroPeel_spec hfn cfg h
 
 /-- Named-function call-closure preservation for `Fn.zeroPeel`. -/
 theorem Fn.zeroPeel_callsOk {allowed : List SigEntry} {exits : List Sym}
-    {fn : Fn} (hfn : fn.Wf) (hc : fn.callsOk allowed exits)
-    (cfg : ZeroPeelConfig := {}) :
-    (fn.zeroPeel cfg).callsOk allowed exits :=
-  Func.zeroPeel_callsOk hfn hc cfg
+    {fn : Fn} (hfn : fn.Wf) (hc : fn.callsOk allowed exits) (cfg : ZeroPeelConfig := {}) :
+    (fn.zeroPeel cfg).callsOk allowed exits := Func.zeroPeel_callsOk hfn hc cfg
 
 /-- Whole-module soundness preservation under `Fn.zeroPeel`. -/
 theorem Module.zeroPeel_ok {Γ : Env} {M : Module} (hM : ModuleOk Γ M)
@@ -2538,19 +1879,17 @@ theorem Module.zeroPeel_ok {Γ : Env} {M : Module} (hM : ModuleOk Γ M)
   · have hNames : (M.fns.map (Fn.zeroPeel · cfg)).map Fn.name = M.fns.map Fn.name := by
       rw [List.map_map]; exact List.map_congr_left fun _ _ => rfl
     dsimp only [Module.namesNodup, Module.names] at *; rw [hNames]; exact hM.nodup
-  · intro pre fn' post hsplit
-    dsimp only at hsplit
-    obtain ⟨pre₀, fn, post₀, hMsplit, rfl, rfl, rfl⟩ :=
-      ZeroPeel.map_eq_append_split (Fn.zeroPeel · cfg) hsplit
-    obtain ⟨hWf, hCalls, hSpec⟩ := hM.fnsOk pre₀ fn post₀ hMsplit
-    refine ⟨Fn.zeroPeel_wf hWf cfg, ?_, ?_⟩
-    · have hSigPre : (pre₀.map (Fn.zeroPeel · cfg)).map Fn.sig = pre₀.map Fn.sig := by
+  · intro pre fn' post hsplit; dsimp only at hsplit
+    obtain ⟨pre₀, l₂, hMsplit, rfl, hl₂⟩ :=
+      PassFlatKit.map_eq_append_split (Fn.zeroPeel · cfg) hsplit
+    cases l₂ with
+    | nil => cases hl₂
+    | cons fn post₀ =>
+      simp only [List.map_cons, List.cons.injEq] at hl₂; obtain ⟨rfl, rfl⟩ := hl₂
+      obtain ⟨hWf, hCalls, hSpec⟩ := hM.fnsOk pre₀ fn post₀ hMsplit
+      have hSigPre : (pre₀.map (Fn.zeroPeel · cfg)).map Fn.sig = pre₀.map Fn.sig := by
         rw [List.map_map]; exact List.map_congr_left fun _ _ => rfl
-      rw [hSigPre]
-      exact Fn.zeroPeel_callsOk hWf hCalls cfg
-    · intro xs m Q X hPre
-      exact Fn.zeroPeel_spec fn hWf cfg (hSpec xs m Q X hPre)
-
+      exact ⟨Fn.zeroPeel_wf hWf cfg, hSigPre ▸ Fn.zeroPeel_callsOk hWf hCalls cfg,
+        fun xs m Q X hPre => Fn.zeroPeel_spec fn hWf cfg (hSpec xs m Q X hPre)⟩
 end
-
 end LeanQbe.T

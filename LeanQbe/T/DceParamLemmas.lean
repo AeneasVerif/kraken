@@ -103,7 +103,7 @@ def LblRel : (ts : List Ty) → NLabel Cont ts → Cont ts → Prop
   | ts, .mk m l, j => j = widenCont ts m l
 
 /-- Context-wide label invariant for `dceP_wp`. -/
-def LblOk (D : Ctx (NLabel Cont) Cont) : Prop := ∀ p ∈ D, LblRel p.1 p.2.1 p.2.2
+def LblOk (D : Ctx (NLabel Cont) Cont) : Prop := CtxPred LblRel D
 
 /-- Lift a tuple of narrowed target continuations back to the unnarrowed `sig`. -/
 def widenConts : (sig : List (List Ty)) → (ms : Tup Mask sig) → Tup Cont (narrowSig sig ms) →
@@ -124,7 +124,7 @@ def MaskRel {L : List Ty → Type} : (ts : List Ty) → KLM ts → NLabel L ts �
 
 /-- Context-wide mask agreement between `KLM` and `NLabel L`. -/
 def MaskOk {L : List Ty → Type} (Dk : Ctx KLM (NLabel L)) : Prop :=
-  ∀ p ∈ Dk, MaskRel p.1 p.2.1 p.2.2
+  CtxPred (MaskRel (L := L)) Dk
 
 /-- Block-tuple companion of `maskLe`. -/
 def masksLe : {sig : List (List Ty)} → Tup Mask sig → Tup Mask sig → Bool
@@ -387,7 +387,7 @@ inductive LblRel2 (D' : Ctx L₁ L₂) : (ts : List Ty) → NLabel L₁ ts → N
 
 /-- Context-wide pairwise sweep-label invariant for `dceP_wf`. -/
 def LblOk2 (D : Ctx (NLabel L₁) (NLabel L₂)) (D' : Ctx L₁ L₂) : Prop :=
-  ∀ p ∈ D, LblRel2 D' p.1 p.2.1 p.2.2
+  CtxPred (LblRel2 D') D
 
 theorem LblRel2.weaken {D₁ D₂ : Ctx L₁ L₂} (h : ∀ p ∈ D₁, p ∈ D₂) {ts : List Ty}
     {j₁ : NLabel L₁ ts} {j₂ : NLabel L₂ ts} : LblRel2 D₁ ts j₁ j₂ → LblRel2 D₂ ts j₁ j₂

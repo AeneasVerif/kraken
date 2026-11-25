@@ -101,7 +101,7 @@ def ABGoodArg (ρ : ABEnv) (b : Nat) {t : Ty} (a : Arg (ABVal Val) t) (v : Val t
 
 /-- Context invariant: every entry of `G` agrees with its value. -/
 def ABGoodCtx (ρ : ABEnv) (b : Nat) (G : Ctx (ABVal Val) Val) : Prop :=
-  ∀ p ∈ G, ABGood ρ b p.2.1 p.2.2
+  CtxPred (fun _ => ABGood ρ b) G
 
 /-! ## Monotonicity under environment extension -/
 
@@ -377,9 +377,8 @@ theorem abElim?_sound {ρ : ABEnv} {b : Nat} {F : List BitFact} (hF : FactsOk ρ
         rw [hci] at hact
         have hk := hc.imm_eq hci
         subst hk
-        rcases andElim?_cases hact (kzIn_ok hF ha.2) with ⟨rfl, he⟩ | ⟨rfl, he⟩
-        · exact he ▸ hw'
-        · exact he ▸ hw'
+        rcases andElim?_cases hact (kzIn_ok hF ha.2) with ⟨rfl, he⟩ | ⟨rfl, he⟩ <;>
+          exact he ▸ hw'
       | none =>
         rw [hci] at hact
         cases hai : a.abOut.imm? with
@@ -387,9 +386,8 @@ theorem abElim?_sound {ρ : ABEnv} {b : Nat} {F : List BitFact} (hF : FactsOk ρ
           rw [hai] at hact
           have hk := ha.imm_eq hai
           subst hk
-          rcases andElim?_cases hact (kzIn_ok hF hc.2) with ⟨rfl, he⟩ | ⟨rfl, he⟩
-          · rw [BitVec.and_comm] at he; exact he ▸ hw'
-          · rw [BitVec.and_comm] at he; exact he ▸ hw'
+          rcases andElim?_cases hact (kzIn_ok hF hc.2) with ⟨rfl, he⟩ | ⟨rfl, he⟩ <;>
+            (rw [BitVec.and_comm] at he; exact he ▸ hw')
         | none => rw [hai] at hact; cases hact
     | bool => cases hact
     | float _ => cases hact
@@ -519,60 +517,42 @@ private theorem cmpRes_ok {o : CmpOp} {n : Nat} {a c : Arg (ABVal Val) (.bits n)
       dsimp only
       split
       · next h0 =>
-        rw [beq_iff_eq] at h0
-        subst h0
-        refine ⟨trivial, fun hz => ha.2.2.2.1 ?_, fun hn => ha.2.2.2.2 ?_⟩
-        · have hz' : decide (va ≠ 0#n) = false := hz
-          show va = 0#n
-          simpa using hz'
-        · have hn' : decide (va ≠ 0#n) = true := hn
-          show va ≠ 0#n
-          simpa using hn'
+        rw [beq_iff_eq] at h0; subst h0
+        exact ⟨trivial, fun hz => ha.2.2.2.1 (by simpa [ZeroV, CmpOp.evalBits] using hz),
+          fun hn => ha.2.2.2.2 (by simpa [NzV, CmpOp.evalBits] using hn)⟩
       · exact ResOk.empty _
     | eq =>
       dsimp only
       split
       · next h0 =>
-        rw [beq_iff_eq] at h0
-        subst h0
-        refine ⟨trivial, fun hz => ha.2.2.2.2 ?_, fun hn => ha.2.2.2.1 ?_⟩
-        · have hz' : decide (va = 0#n) = false := hz
-          show va ≠ 0#n
-          simpa using hz'
-        · have hn' : decide (va = 0#n) = true := hn
-          show va = 0#n
-          simpa using hn'
+        rw [beq_iff_eq] at h0; subst h0
+        exact ⟨trivial, fun hz => ha.2.2.2.2 (by simpa [ZeroV, NzV, CmpOp.evalBits] using hz),
+          fun hn => ha.2.2.2.1 (by simpa [ZeroV, NzV, CmpOp.evalBits] using hn)⟩
       · exact ResOk.empty _
     | slt =>
       dsimp only
       split
       · next h0 =>
-        rw [beq_iff_eq] at h0
-        subst h0
+        rw [beq_iff_eq] at h0; subst h0
         refine ⟨trivial, fun hz => ABShape.fact_ok _ ha.2 (signBit_kz ?_), fun _ => FactsOk.nil⟩
-        have hz' : va.slt 0#n = false := hz
-        rwa [BitVec.slt_zero_eq_msb] at hz'
+        simpa [ZeroV, CmpOp.evalBits, BitVec.slt_zero_eq_msb] using hz
       · exact ResOk.empty _
     | sge =>
       dsimp only
       split
       · next h0 =>
-        rw [beq_iff_eq] at h0
-        subst h0
+        rw [beq_iff_eq] at h0; subst h0
         refine ⟨trivial, fun _ => FactsOk.nil, fun hn => ABShape.fact_ok _ ha.2 (signBit_kz ?_)⟩
         have hn' : (0#n).sle va = true := hn
-        rw [BitVec.sle_eq_not_slt, BitVec.slt_zero_eq_msb, Bool.not_eq_true'] at hn'
-        exact hn'
+        rwa [BitVec.sle_eq_not_slt, BitVec.slt_zero_eq_msb, Bool.not_eq_true'] at hn'
       · exact ResOk.empty _
     | ult =>
-      refine ⟨trivial, fun _ => FactsOk.nil, fun hn => ABShape.fact_ok _ ha.2 (ltBits_kz ?_)⟩
-      have hn' : va.ult vc = true := hn
-      simpa [BitVec.ult] using hn'
+      exact ⟨trivial, fun _ => FactsOk.nil,
+        fun hn => ABShape.fact_ok _ ha.2
+          (ltBits_kz (by simpa [NzV, CmpOp.evalBits, BitVec.ult] using hn))⟩
     | uge =>
       refine ⟨trivial, fun hz => ABShape.fact_ok _ ha.2 (ltBits_kz ?_), fun _ => FactsOk.nil⟩
-      have hz' : vc.ule va = false := hz
-      simp only [BitVec.ule, decide_eq_false_iff_not, Nat.not_le] at hz'
-      exact hz'
+      simpa [ZeroV, CmpOp.evalBits, BitVec.ule, decide_eq_false_iff_not, Nat.not_le] using hz
     | ule | ugt | sle | sgt => exact ResOk.empty _
 
 end ResLemmas
@@ -801,20 +781,20 @@ theorem assumeBits_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
 section
 variable {V₁ V₂ : Ty → Type}
 
-/-- Two `ABVal`s are related when their operands are related and their metadata agree. -/
-def ABRelVal (G' : Ctx V₁ V₂) {t : Ty} (a₁ : ABVal V₁ t) (a₂ : ABVal V₂ t) : Prop :=
-  ArgRel G' t a₁.out a₂.out ∧ a₁.info = a₂.info
-
-/-- Every entry of `G` is related under `G'`. -/
-def ABRelG (G' : Ctx V₁ V₂) (G : Ctx (ABVal V₁) (ABVal V₂)) : Prop :=
-  ∀ p ∈ G, ABRelVal G' p.2.1 p.2.2
-
 private def abMetaKit : OutMetaKit ABVal (fun _ => ABInfo) where
   out a := a.out
   tag a := a.info
   fresh v k := ABVal.fresh v k
   out_fresh _ _ := rfl
   tag_fresh _ _ _ := rfl
+
+/-- Two `ABVal`s are related when their operands are related and their metadata agree. -/
+def ABRelVal (G' : Ctx V₁ V₂) {t : Ty} (a₁ : ABVal V₁ t) (a₂ : ABVal V₂ t) : Prop :=
+  abMetaKit.rel G' t a₁ a₂
+
+/-- Every entry of `G` is related under `G'`. -/
+def ABRelG (G' : Ctx V₁ V₂) (G : Ctx (ABVal V₁) (ABVal V₂)) : Prop :=
+  abMetaKit.toRelKit.RelG G' G
 
 theorem ABRelVal.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂) {t : Ty}
     {a₁ : ABVal V₁ t} {a₂ : ABVal V₂ t} (h : ABRelVal G₁ a₁ a₂) : ABRelVal G₂ a₁ a₂ :=
