@@ -75,6 +75,7 @@ public import LeanQbe.T.Logic.ByteArrayDecimal
 public import LeanQbe.T.Logic.Bytes
 public import LeanQbe.T.Logic.C0Agrees
 public import LeanQbe.T.Logic.C0HeadStep
+public import LeanQbe.T.Logic.C0HeadStepGuard
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.C0StepAttr
 public import LeanQbe.T.Logic.Cells
@@ -83,6 +84,7 @@ public import LeanQbe.T.Logic.Mem
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbe.T.Logic.Ops
 public import LeanQbe.T.Logic.ProofKit
+public import LeanQbe.T.Logic.ProofKitMasks
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Logic.SepTree
 public import LeanQbe.T.Logic.SlabChain
