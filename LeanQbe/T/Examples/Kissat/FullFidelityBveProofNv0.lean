@@ -27,7 +27,7 @@ import Kraken.Separation
 # Kissat Fidelity BVE Parity Parametric `Mem 64` Non-Vacuity (`FullFidelityBveProofNv0`)
 
 Genuine non-bailout concrete `Mem 64` UNSAT non-vacuity proofs (`XPost := False`, strictly `std3`,
-`0` `@[expose]`, `0` `*Lemmas*` in `public import`) parameterized over `(Γ : Env)`:
+`0` expose attributes, `0` `*Lemmas*` in `public import`) parameterized over `(Γ : Env)`:
 1. `nvFidF0 = {(x1), (x0 ∨ ~x1), (~x0)}` (`nvFidF0_unsat`) and symbolic-`scratch_buf` (`16,384`
    `u32` words) concrete `Mem 64` builders (`nvFidCfg`, `nvFidCertState`, `nvFidSparseState`).
 2. `nv_fid_bve_k6_mv_{zero,min,mid,cap}_at`: exact `GAP-BVE-01` dynamic `fidK6MaxV` scaling
