@@ -3,6 +3,11 @@ module
 public import LeanQbe.T.AbiLemmas
 public import LeanQbe.T.AssumeBits
 public import LeanQbe.T.AssumeBitsLemmas
+public import LeanQbe.T.Bedrock2.Flat
+public import LeanQbe.T.Bedrock2.FromKraken
+public import LeanQbe.T.Bedrock2.FromKrakenCore
+public import LeanQbe.T.Bedrock2.Phoas
+public import LeanQbe.T.Bedrock2.ToT
 public import LeanQbe.T.Canon
 public import LeanQbe.T.CanonLemmas
 public import LeanQbe.T.Copy
