@@ -24,7 +24,7 @@ algebra.
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.LeanLCNF
 
@@ -102,7 +102,7 @@ theorem limbsVal_zero_iff : ∀ {xs : List (BitVec 64)},
       rfl
 
 /-- Pure mirror of `bn_trim(buf, n)` scanning downward from `n`. -/
-def trimLenLoop (xs : List (BitVec 64)) : Nat → Nat
+@[expose] def trimLenLoop (xs : List (BitVec 64)) : Nat → Nat
   | 0 => 0
   | k + 1 => if xs[k]! == 0#64 then trimLenLoop xs k else k + 1
 
@@ -224,7 +224,7 @@ theorem limbsVal_ge_pow_of_nonzero_last {xs : List (BitVec 64)} (hne : xs ≠ []
 /-! ## 2. Lexicographic Limb Comparison -/
 
 /-- Pure mirror of `bn_cmp_fixed(a, b, n)`. -/
-def cmpLimbsFixed (a b : List (BitVec 64)) : Nat → Int
+@[expose] def cmpLimbsFixed (a b : List (BitVec 64)) : Nat → Int
   | 0 => 0
   | k + 1 =>
     if a[k]! < b[k]! then -1
@@ -284,7 +284,7 @@ theorem cmpLimbsFixed_spec (a b : List (BitVec 64)) : ∀ n,
         · exact h3.mpr (by omega)
 
 /-- Pure mirror of `bn_cmp(a, na, b, nb)`. -/
-def cmpLimbs (a : List (BitVec 64)) (na : Nat) (b : List (BitVec 64)) (nb : Nat) : Int :=
+@[expose] def cmpLimbs (a : List (BitVec 64)) (na : Nat) (b : List (BitVec 64)) (nb : Nat) : Int :=
   let ta := trimLenLoop a na
   let tb := trimLenLoop b nb
   if ta < tb then -1
