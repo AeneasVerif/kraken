@@ -152,6 +152,10 @@ public import LeanQbe.T.Trie
 public import LeanQbe.T.Ty
 public import LeanQbe.T.TyLemmas
 public import LeanQbe.T.Unified.Caps
+public import LeanQbe.T.Unified.CfgContify
+public import LeanQbe.T.Unified.CfgContifyLemmas
+public import LeanQbe.T.Unified.CfgContifyProof
+public import LeanQbe.T.Unified.CfgContifyProofPrefix
 public import LeanQbe.T.Unified.CfgRecovery
 public import LeanQbe.T.Unified.CfgRecoveryLemmas
 public import LeanQbe.T.Unified.CfgRecoveryProof
