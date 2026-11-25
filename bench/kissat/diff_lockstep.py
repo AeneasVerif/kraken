@@ -12,12 +12,15 @@ Supports:
 import argparse
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
 
 sys.dont_write_bytecode = True
+
+ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_KISSAT_REF = os.environ.get(
     "KISSAT_REF_BIN",
