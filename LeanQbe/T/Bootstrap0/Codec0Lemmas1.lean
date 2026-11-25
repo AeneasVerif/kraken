@@ -476,36 +476,45 @@ public theorem decodeArg0_ok_bytes (ba : ByteArray) (pos : Nat) (a : Arg0) (pos'
     obtain ⟨_, h3s, hp3, hs3⟩ := decodeU64_ok_bytes ba (pos + 1 + 1) val p3 hv; subst hp3; cases h
     exact ⟨by omega, h3s, by ba_slice_join [hs1, hs2, hs3]⟩
 
+private theorem decodeOpTagTy_of_bytes {ba : ByteArray} {pos : Nat} {tag k sub : UInt8}
+    {t : Ty0} {rest : List UInt8} {op : OpCode0} {f : UInt8 → Ty0 → Nat → Codec0.DecOpRes}
+    (htag : tag ≤ 2) (h : ba.data.toList.drop pos = [tag, sub, Codec0.ty0Tag t] ++ rest)
+    (hbranch : Codec0.decodeOpCodeLow0 ba (pos + 1) tag =
+      match Codec0.decodeU8 ba (pos + 1) with
+      | .none => .none
+      | .ok b p1 => if k < b then .none else
+        match Codec0.decodeTy0 ba p1 with
+        | .none => .none
+        | .ok t' p2 => f b t' p2)
+    (hsub : ¬ (k < sub)) (hf : f sub t (pos + 3) = .ok op (pos + 3)) :
+    Codec0.decodeOpCode0 ba pos = .ok op (pos + 3) := by
+  have hd1 := Codec0Kit.drop_cons_step h
+  have hd2 := Codec0Kit.drop_cons_step hd1
+  dsimp only [Codec0.decodeOpCode0]
+  rw [decodeU8_of_bytes ba pos tag _ (by simpa [List.append_assoc] using h)]; dsimp only
+  rw [ite_true_eq htag, hbranch, decodeU8_of_bytes ba (pos + 1) sub _ hd1]; dsimp only
+  rw [ite_false_eq hsub, show pos + 1 + 1 = pos + 2 by omega,
+    decodeTy0_of_bytes ba (pos + 2) t rest hd2]
+  exact hf
+
 public theorem decodeOpCode0_of_bytes (ba : ByteArray) (pos : Nat) (op : OpCode0)
     (rest : List UInt8) (h : ba.data.toList.drop pos = opBytes op ++ rest) :
     Codec0.decodeOpCode0 ba pos = .ok op (pos + (opBytes op).length) := by
   cases op with
   | un o t =>
-    have hd1 := Codec0Kit.drop_cons_step h; have hd2 := Codec0Kit.drop_cons_step hd1
-    dsimp only [opBytes, Codec0.decodeOpCode0, Codec0.decodeOpCodeLow0, Codec0.decodeOpUn0] at h ⊢
-    rw [decodeU8_of_bytes ba pos 0 _ h]; dsimp only; c0_decide_ite
-    rw [decodeU8_of_bytes ba (pos + 1) (Codec0.unOp0Tag o) _ hd1]; dsimp only
-    rw [ite_false_eq (by cases o <;> decide : ¬ (2 < Codec0.unOp0Tag o)),
-      show pos + 1 + 1 = pos + 2 by omega, decodeTy0_of_bytes ba (pos + 2) t rest hd2]
-    cases o <;> rfl
+    exact decodeOpTagTy_of_bytes (by decide) h
+      (by dsimp only [Codec0.decodeOpCodeLow0, Codec0.decodeOpUn0]; c0_decide_ite; rfl)
+      (by cases o <;> decide) (by cases o <;> rfl)
   | bin o t =>
-    have hd1 := Codec0Kit.drop_cons_step h; have hd2 := Codec0Kit.drop_cons_step hd1
-    dsimp only [opBytes, Codec0.decodeOpCode0, Codec0.decodeOpCodeLow0, Codec0.decodeOpBin0,
-      Codec0.decodeOpBinLow0, Codec0.decodeOpBinHi0] at h ⊢
-    rw [decodeU8_of_bytes ba pos 1 _ h]; dsimp only; c0_decide_ite
-    rw [decodeU8_of_bytes ba (pos + 1) (Codec0.binOp0Tag o) _ hd1]; dsimp only
-    rw [ite_false_eq (by cases o <;> decide : ¬ (10 < Codec0.binOp0Tag o)),
-      show pos + 1 + 1 = pos + 2 by omega, decodeTy0_of_bytes ba (pos + 2) t rest hd2]
-    cases o <;> rfl
+    exact decodeOpTagTy_of_bytes (by decide) h
+      (by dsimp only [Codec0.decodeOpCodeLow0, Codec0.decodeOpBin0]; c0_decide_ite; rfl)
+      (by cases o <;> decide)
+      (by dsimp only [Codec0.decodeOpBinLow0, Codec0.decodeOpBinHi0]; cases o <;> rfl)
   | cmp co t =>
-    have hd1 := Codec0Kit.drop_cons_step h; have hd2 := Codec0Kit.drop_cons_step hd1
-    dsimp only [opBytes, Codec0.decodeOpCode0, Codec0.decodeOpCodeLow0, Codec0.decodeOpCmp0,
-      Codec0.decodeOpCmpLow0, Codec0.decodeOpCmpHi0] at h ⊢
-    rw [decodeU8_of_bytes ba pos 2 _ h]; dsimp only; c0_decide_ite
-    rw [decodeU8_of_bytes ba (pos + 1) (Codec0.cmpOpTag co) _ hd1]; dsimp only
-    rw [ite_false_eq (by cases co <;> decide : ¬ (9 < Codec0.cmpOpTag co)),
-      show pos + 1 + 1 = pos + 2 by omega, decodeTy0_of_bytes ba (pos + 2) t rest hd2]
-    cases co <;> rfl
+    exact decodeOpTagTy_of_bytes (by decide) h
+      (by dsimp only [Codec0.decodeOpCodeLow0, Codec0.decodeOpCmp0]; c0_decide_ite; rfl)
+      (by cases co <;> decide)
+      (by dsimp only [Codec0.decodeOpCmpLow0, Codec0.decodeOpCmpHi0]; cases co <;> rfl)
   | select t =>
     have hd1 := Codec0Kit.drop_cons_step h
     dsimp only [opBytes, Codec0.decodeOpCode0, Codec0.decodeOpCodeHi0] at h ⊢
@@ -520,9 +529,8 @@ public theorem decodeOpCode0_of_bytes (ba : ByteArray) (pos : Nat) (op : OpCode0
     rw [decodeU8_of_bytes ba (pos + 1) (Codec0.convOp0Tag c) _ hd1]; dsimp only
     rw [ite_false_eq (by cases c <;> decide : ¬ (3 < Codec0.convOp0Tag c)),
       show pos + 1 + 1 = pos + 2 by omega, decodeWidth0_of_bytes ba (pos + 2) ws _ hd2]
-    dsimp only
-    rw [show pos + 2 + 1 = pos + 3 by omega, decodeWidth0_of_bytes ba (pos + 3) wd rest hd3]
-    cases c <;> rfl
+    dsimp only; rw [show pos + 2 + 1 = pos + 3 by omega,
+      decodeWidth0_of_bytes ba (pos + 3) wd rest hd3]; cases c <;> rfl
   | div d w =>
     have hd1 := Codec0Kit.drop_cons_step h; have hd2 := Codec0Kit.drop_cons_step hd1
     dsimp only [opBytes, Codec0.decodeOpCode0, Codec0.decodeOpCodeHi0, Codec0.decodeOpDiv0,
@@ -536,107 +544,110 @@ public theorem decodeOpCode0_of_bytes (ba : ByteArray) (pos : Nat) (op : OpCode0
     dsimp only [opBytes, Codec0.decodeOpCode0, Codec0.decodeOpCodeHi0] at h ⊢
     rw [decodeU8_of_bytes ba pos 6 rest h]; rfl
 
-private theorem decodeOpTy0_step {ba : ByteArray} {pos pos' : Nat} {k : UInt8}
-    {op : OpCode0} {f : UInt8 → Ty0 → Nat → Codec0.DecOpRes}
+private theorem decodeOpU8_lt_step {ba : ByteArray} {pos : Nat} {k : UInt8}
+    {f : UInt8 → Nat → Codec0.DecOpRes} {op : OpCode0} {pos' : Nat}
     (h : (match Codec0.decodeU8 ba pos with
       | .none => Codec0.DecOpRes.none
-      | .ok b p1 =>
-        if k < b then Codec0.DecOpRes.none else
-          match Codec0.decodeTy0 ba p1 with
-          | .none => Codec0.DecOpRes.none
-          | .ok t p2 => f b t p2) = .ok op pos') :
-    ∃ b t, b.toNat ≤ k.toNat ∧ pos ≤ pos + 2 ∧ pos + 2 ≤ ba.size ∧
-      baSlice ba pos (pos + 2) = [b, Codec0.ty0Tag t] ∧ f b t (pos + 2) = .ok op pos' := by
+      | .ok b p1 => if k < b then Codec0.DecOpRes.none else f b p1) = .ok op pos') :
+    ∃ b, b.toNat ≤ k.toNat ∧ pos + 1 ≤ ba.size ∧
+      baSlice ba pos (pos + 1) = [b] ∧ f b (pos + 1) = .ok op pos' := by
   codec_match b, p1, hu ← Codec0.decodeU8 ba pos at h
   by_cases hgt : k < b
   · rw [ite_true_eq hgt] at h; cases h
   · rw [ite_false_eq hgt] at h
-    codec_match t, p2, ht ← Codec0.decodeTy0 ba p1 at h
-    obtain ⟨_, _, hp1, hs1⟩ := decodeU8_ok_bytes ba pos b p1 hu
-    obtain ⟨_, h2s, hp2, hs2⟩ := decodeTy0_ok_bytes ba p1 t p2 ht
-    subst hp1; subst hp2
-    exact ⟨b, t, by c0_bv32_omega, by omega, h2s, by ba_slice_join [hs1, hs2], h⟩
+    obtain ⟨_, h1s, hp1, hs1⟩ := decodeU8_ok_bytes ba pos b p1 hu; subst hp1
+    exact ⟨b, by c0_bv32_omega, h1s, hs1, h⟩
+
+private theorem decodeOpTy0_ok_of_split {ba : ByteArray} {pos pos' : Nat} {k tag : UInt8}
+    {op : OpCode0} {f : UInt8 → Ty0 → Nat → Codec0.DecOpRes}
+    (h : (match Codec0.decodeU8 ba pos with
+      | .none => Codec0.DecOpRes.none
+      | .ok b p1 => if k < b then Codec0.DecOpRes.none else
+        match Codec0.decodeTy0 ba p1 with
+        | .none => Codec0.DecOpRes.none
+        | .ok t p2 => f b t p2) = .ok op pos')
+    (hsplit : ∀ b t, b.toNat ≤ k.toNat → f b t (pos + 2) = .ok op pos' →
+      pos' = pos + 2 ∧ tag :: [b, Codec0.ty0Tag t] = opBytes op) :
+    pos ≤ pos' ∧ pos' ≤ ba.size ∧ tag :: baSlice ba pos pos' = opBytes op := by
+  obtain ⟨b, hbn, _, hs1, hf⟩ := decodeOpU8_lt_step h
+  codec_match t, p2, ht ← Codec0.decodeTy0 ba (pos + 1) at hf
+  obtain ⟨_, h2s, hp2, hs2⟩ := decodeTy0_ok_bytes ba (pos + 1) t p2 ht; subst hp2
+  obtain ⟨rfl, hop⟩ := hsplit b t hbn (by simpa using hf)
+  exact ⟨by omega, h2s, by rw [← hop]; congr 1; ba_slice_join [hs1, hs2]⟩
+
+private theorem decodeOpU8_width1_ok {ba : ByteArray} {pos pos' : Nat} {k : UInt8}
+    {f : UInt8 → Width → Nat → Codec0.DecOpRes} {op : OpCode0}
+    (h : (match Codec0.decodeU8 ba pos with
+      | .none => Codec0.DecOpRes.none
+      | .ok b p1 => if k < b then Codec0.DecOpRes.none else
+        match Codec0.decodeWidth0 ba p1 with
+        | .none => Codec0.DecOpRes.none
+        | .ok w p2 => f b w p2) = .ok op pos') :
+    ∃ b w, b.toNat ≤ k.toNat ∧ pos + 2 ≤ ba.size ∧
+      baSlice ba pos (pos + 2) = [b, Codec0.widthTag w] ∧ f b w (pos + 2) = .ok op pos' := by
+  obtain ⟨b, hbn, _, hs1, hf⟩ := decodeOpU8_lt_step h
+  codec_match w, p2, hw ← Codec0.decodeWidth0 ba (pos + 1) at hf
+  obtain ⟨_, h2s, hp2, hs2⟩ := decodeWidth0_ok_bytes ba (pos + 1) w p2 hw; subst hp2
+  exact ⟨b, w, hbn, h2s, by ba_slice_join [hs1, hs2], by simpa using hf⟩
 
 private theorem decodeOpUn0_ok_bytes (ba : ByteArray) (pos : Nat) (op : OpCode0) (pos' : Nat)
     (h : Codec0.decodeOpUn0 ba pos = .ok op pos') :
-    pos ≤ pos' ∧ pos' ≤ ba.size ∧ (match op with
-      | .un u t => baSlice ba pos pos' = [Codec0.unOp0Tag u, Codec0.ty0Tag t] | _ => False) := by
-  dsimp only [Codec0.decodeOpUn0] at h
-  obtain ⟨b, t, hbn, _, h2s, hs, hf⟩ := decodeOpTy0_step h
-  have decB : ∃ u, op = .un u t ∧ b = Codec0.unOp0Tag u ∧ pos' = pos + 2 := by
-    revert hf
-    u8_split_le hbn with (intro hf; c0_decide_ite_at hf; cases hf; exact ⟨_, rfl, rfl, rfl⟩)
-  rcases decB with ⟨u, rfl, rfl, rfl⟩; exact ⟨by omega, h2s, hs⟩
+    pos ≤ pos' ∧ pos' ≤ ba.size ∧ 0 :: baSlice ba pos pos' = opBytes op :=
+  decodeOpTy0_ok_of_split (tag := 0) (f := fun b t p =>
+    if b == 0 then .ok (.un .copy t) p else if b == 1 then .ok (.un .neg t) p
+    else .ok (.un .not t) p) h fun _ _ hbn hf => by
+    revert hf; u8_split_le hbn with (intro hf; c0_decide_ite_at hf; cases hf; exact ⟨rfl, rfl⟩)
 
 private theorem decodeOpBin0_ok_bytes (ba : ByteArray) (pos : Nat) (op : OpCode0) (pos' : Nat)
     (h : Codec0.decodeOpBin0 ba pos = .ok op pos') :
-    pos ≤ pos' ∧ pos' ≤ ba.size ∧ (match op with
-      | .bin o t => baSlice ba pos pos' = [Codec0.binOp0Tag o, Codec0.ty0Tag t] | _ => False) := by
-  dsimp only [Codec0.decodeOpBin0] at h
-  obtain ⟨b, t, hbn, _, h2s, hs, hf⟩ := decodeOpTy0_step h
-  have decB : ∃ o, op = .bin o t ∧ b = Codec0.binOp0Tag o ∧ pos' = pos + 2 := by
+    pos ≤ pos' ∧ pos' ≤ ba.size ∧ 1 :: baSlice ba pos pos' = opBytes op :=
+  decodeOpTy0_ok_of_split (tag := 1)
+    (f := fun b t p => if b <= 5 then Codec0.decodeOpBinLow0 b t p else Codec0.decodeOpBinHi0 b t p)
+    h fun _ _ hbn hf => by
     dsimp only [Codec0.decodeOpBinLow0, Codec0.decodeOpBinHi0] at hf
-    revert hf
-    u8_split_le hbn with (intro hf; c0_decide_ite_at hf; cases hf; exact ⟨_, rfl, rfl, rfl⟩)
-  rcases decB with ⟨o, rfl, rfl, rfl⟩; exact ⟨by omega, h2s, hs⟩
+    revert hf; u8_split_le hbn with (intro hf; c0_decide_ite_at hf; cases hf; exact ⟨rfl, rfl⟩)
 
 private theorem decodeOpCmp0_ok_bytes (ba : ByteArray) (pos : Nat) (op : OpCode0) (pos' : Nat)
     (h : Codec0.decodeOpCmp0 ba pos = .ok op pos') :
-    pos ≤ pos' ∧ pos' ≤ ba.size ∧ (match op with
-      | .cmp co t =>
-        baSlice ba pos pos' = [Codec0.cmpOpTag co, Codec0.ty0Tag t] | _ => False) := by
-  dsimp only [Codec0.decodeOpCmp0] at h
-  obtain ⟨b, t, hbn, _, h2s, hs, hf⟩ := decodeOpTy0_step h
-  have decB : ∃ co, op = .cmp co t ∧ b = Codec0.cmpOpTag co ∧ pos' = pos + 2 := by
+    pos ≤ pos' ∧ pos' ≤ ba.size ∧ 2 :: baSlice ba pos pos' = opBytes op :=
+  decodeOpTy0_ok_of_split (tag := 2)
+    (f := fun b t p => if b <= 4 then Codec0.decodeOpCmpLow0 b t p else Codec0.decodeOpCmpHi0 b t p)
+    h fun _ _ hbn hf => by
     dsimp only [Codec0.decodeOpCmpLow0, Codec0.decodeOpCmpHi0] at hf
-    revert hf
-    u8_split_le hbn with (intro hf; c0_decide_ite_at hf; cases hf; exact ⟨_, rfl, rfl, rfl⟩)
-  rcases decB with ⟨co, rfl, rfl, rfl⟩; exact ⟨by omega, h2s, hs⟩
+    revert hf; u8_split_le hbn with (intro hf; c0_decide_ite_at hf; cases hf; exact ⟨rfl, rfl⟩)
 
 private theorem decodeOpConv0_ok_bytes (ba : ByteArray) (pos : Nat) (op : OpCode0) (pos' : Nat)
     (h : Codec0.decodeOpConv0 ba pos = .ok op pos') :
-    pos ≤ pos' ∧ pos' ≤ ba.size ∧ (match op with
-      | .conv c ws wd =>
-        baSlice ba pos pos' = [Codec0.convOp0Tag c, Codec0.widthTag ws, Codec0.widthTag wd]
-      | _ => False) := by
+    pos ≤ pos' ∧ pos' ≤ ba.size ∧ 4 :: baSlice ba pos pos' = opBytes op := by
   dsimp only [Codec0.decodeOpConv0] at h
-  codec_match b, p1, hu ← Codec0.decodeU8 ba pos at h
-  by_cases hgt : 3 < b
-  · rw [ite_true_eq hgt] at h; cases h
-  · rw [ite_false_eq hgt] at h
-    codec_match ws, p2, hws ← Codec0.decodeWidth0 ba p1 at h
-    codec_match wd, p3, hwd ← Codec0.decodeWidth0 ba p2 at h
-    dsimp only [Codec0.mkConvOp0] at h
-    obtain ⟨_, _, hp1, hs1⟩ := decodeU8_ok_bytes ba pos b p1 hu
-    obtain ⟨_, _, hp2, hs2⟩ := decodeWidth0_ok_bytes ba p1 ws p2 hws
-    obtain ⟨_, h3s, hp3, hs3⟩ := decodeWidth0_ok_bytes ba p2 wd p3 hwd
-    have hbn : b.toNat ≤ 3 := by c0_bv32_omega
-    have decB : ∃ c, op = .conv c ws wd ∧ b = Codec0.convOp0Tag c ∧ pos' = p3 := by
-      revert h
-      u8_split_le hbn with (intro h; c0_decide_ite_at h; cases h; exact ⟨_, rfl, rfl, rfl⟩)
-    rcases decB with ⟨c, rfl, rfl, rfl⟩; subst hp1; subst hp2; subst hp3
-    exact ⟨by omega, h3s, by dsimp only; ba_slice_join [hs1, hs2, hs3]⟩
+  obtain ⟨b, ws, hbn, _, hs12, hf⟩ := decodeOpU8_width1_ok h
+  codec_match wd, p3, hwd ← Codec0.decodeWidth0 ba (pos + 2) at hf
+  dsimp only [Codec0.mkConvOp0] at hf
+  obtain ⟨_, h3s, hp3, hs3⟩ := decodeWidth0_ok_bytes ba (pos + 2) wd p3 hwd; subst hp3
+  have decB : ∃ c, op = .conv c ws wd ∧ b = Codec0.convOp0Tag c ∧ pos' = pos + 3 := by
+    revert hf; u8_split_le hbn with
+      (intro hf; c0_decide_ite_at hf; cases hf; exact ⟨_, rfl, rfl, rfl⟩)
+  rcases decB with ⟨c, rfl, rfl, rfl⟩
+  exact ⟨by omega, h3s, by dsimp only [opBytes]; congr 1; ba_slice_join [hs12, hs3]⟩
 
 private theorem decodeOpDiv0_ok_bytes (ba : ByteArray) (pos : Nat) (op : OpCode0) (pos' : Nat)
     (h : Codec0.decodeOpDiv0 ba pos = .ok op pos') :
-    pos ≤ pos' ∧ pos' ≤ ba.size ∧ (match op with
-      | .div d w =>
-        baSlice ba pos pos' = [Codec0.divOp0Tag d, Codec0.widthTag w] | _ => False) := by
+    pos ≤ pos' ∧ pos' ≤ ba.size ∧ 5 :: baSlice ba pos pos' = opBytes op := by
   dsimp only [Codec0.decodeOpDiv0] at h
-  codec_match b, p1, hu ← Codec0.decodeU8 ba pos at h
-  by_cases hgt : 3 < b
-  · rw [ite_true_eq hgt] at h; cases h
-  · rw [ite_false_eq hgt] at h
-    codec_match w, p2, hw ← Codec0.decodeWidth0 ba p1 at h
-    dsimp only [Codec0.mkDivOp0] at h
-    obtain ⟨_, _, hp1, hs1⟩ := decodeU8_ok_bytes ba pos b p1 hu
-    obtain ⟨_, h2s, hp2, hs2⟩ := decodeWidth0_ok_bytes ba p1 w p2 hw
-    have hbn : b.toNat ≤ 3 := by c0_bv32_omega
-    have decB : ∃ d, op = .div d w ∧ b = Codec0.divOp0Tag d ∧ pos' = p2 := by
-      revert h
-      u8_split_le hbn with (intro h; c0_decide_ite_at h; cases h; exact ⟨_, rfl, rfl, rfl⟩)
-    rcases decB with ⟨d, rfl, rfl, rfl⟩; subst hp1; subst hp2
-    exact ⟨by omega, h2s, by dsimp only; ba_slice_join [hs1, hs2]⟩
+  obtain ⟨b, w, hbn, h2s, hs12, hf⟩ := decodeOpU8_width1_ok h
+  dsimp only [Codec0.mkDivOp0] at hf
+  have decB : ∃ d, op = .div d w ∧ b = Codec0.divOp0Tag d ∧ pos' = pos + 2 := by
+    revert hf; u8_split_le hbn with
+      (intro hf; c0_decide_ite_at hf; cases hf; exact ⟨_, rfl, rfl, rfl⟩)
+  rcases decB with ⟨d, rfl, rfl, rfl⟩
+  exact ⟨by omega, h2s, by rw [hs12]; rfl⟩
+
+private theorem opCode_join_tag {ba : ByteArray} {pos pos' : Nat} {tag : UInt8} {op : OpCode0}
+    (hs1 : baSlice ba pos (pos + 1) = [tag])
+    (hsub : pos + 1 ≤ pos' ∧ pos' ≤ ba.size ∧ tag :: baSlice ba (pos + 1) pos' = opBytes op) :
+    pos ≤ pos' ∧ pos' ≤ ba.size ∧ baSlice ba pos pos' = opBytes op :=
+  ⟨Nat.le_trans (Nat.le_succ pos) hsub.1, hsub.2.1, by
+    rw [baSlice_trans (Nat.le_succ pos) hsub.1, hs1, List.singleton_append, hsub.2.2]⟩
 
 public theorem decodeOpCode0_ok_bytes (ba : ByteArray) (pos : Nat) (op : OpCode0) (pos' : Nat)
     (h : Codec0.decodeOpCode0 ba pos = .ok op pos') :
@@ -648,50 +659,29 @@ public theorem decodeOpCode0_ok_bytes (ba : ByteArray) (pos : Nat) (op : OpCode0
   · rw [ite_true_eq hle2] at h; dsimp only [Codec0.decodeOpCodeLow0] at h
     decode_ite_chain h with skip else
       (have ht2 : tag = 2 := by c0_bv32_omega
-       subst ht2
-       obtain ⟨_, h2s, hs2⟩ := decodeOpCmp0_ok_bytes ba (pos + 1) op pos' h
-       cases op with
-       | cmp _ _ => dsimp only at hs2; exact ⟨by omega, h2s, by ba_slice_join [hs1, hs2]⟩
-       | _ => exact False.elim hs2)
-    · obtain ⟨_, h2s, hs2⟩ := decodeOpUn0_ok_bytes ba (pos + 1) op pos' h
-      cases op with
-      | un _ _ => dsimp only at hs2; exact ⟨by omega, h2s, by ba_slice_join [hs1, hs2]⟩
-      | _ => exact False.elim hs2
-    · obtain ⟨_, h2s, hs2⟩ := decodeOpBin0_ok_bytes ba (pos + 1) op pos' h
-      cases op with
-      | bin _ _ => dsimp only at hs2; exact ⟨by omega, h2s, by ba_slice_join [hs1, hs2]⟩
-      | _ => exact False.elim hs2
+       subst ht2; exact opCode_join_tag hs1 (decodeOpCmp0_ok_bytes ba (pos + 1) op pos' h))
+    · exact opCode_join_tag hs1 (decodeOpUn0_ok_bytes ba (pos + 1) op pos' h)
+    · exact opCode_join_tag hs1 (decodeOpBin0_ok_bytes ba (pos + 1) op pos' h)
   · rw [ite_false_eq hle2] at h; dsimp only [Codec0.decodeOpCodeHi0] at h
     decode_ite_chain h with (try (cases h; exact ⟨by omega, h1s, hs1⟩)) else (cases h)
     · codec_match t, p2, ht ← Codec0.decodeTy0 ba (pos + 1) at h
       obtain ⟨_, h2s, hp2, hs2⟩ := decodeTy0_ok_bytes ba (pos + 1) t p2 ht
       subst hp2; cases h; exact ⟨by omega, h2s, by ba_slice_join [hs1, hs2]⟩
-    · obtain ⟨_, h2s, hs2⟩ := decodeOpConv0_ok_bytes ba (pos + 1) op pos' h
-      cases op with
-      | conv _ _ _ => dsimp only at hs2; exact ⟨by omega, h2s, by ba_slice_join [hs1, hs2]⟩
-      | _ => exact False.elim hs2
-    · obtain ⟨_, h2s, hs2⟩ := decodeOpDiv0_ok_bytes ba (pos + 1) op pos' h
-      cases op with
-      | div _ _ => dsimp only at hs2; exact ⟨by omega, h2s, by ba_slice_join [hs1, hs2]⟩
-      | _ => exact False.elim hs2
+    · exact opCode_join_tag hs1 (decodeOpConv0_ok_bytes ba (pos + 1) op pos' h)
+    · exact opCode_join_tag hs1 (decodeOpDiv0_ok_bytes ba (pos + 1) op pos' h)
 
 /-! ### List Codecs (`Ty0`, `Arg0`, `Sym0`) -/
 
 @[expose] public def tySeqBytes : List Ty0 → List UInt8
   | [] => [] | t :: rest => Codec0.ty0Tag t :: tySeqBytes rest
-
 @[expose] public def tyListBytes (xs : List Ty0) : List UInt8 :=
   u32Bytes (UInt32.ofNat xs.length) ++ tySeqBytes xs
-
 @[expose] public def argSeqBytes : List Arg0 → List UInt8
   | [] => [] | a :: rest => argBytes a ++ argSeqBytes rest
-
 @[expose] public def argListBytes (xs : List Arg0) : List UInt8 :=
   u32Bytes (UInt32.ofNat xs.length) ++ argSeqBytes xs
-
 @[expose] public def symSeqBytes : List Sym0 → List UInt8
   | [] => [] | s :: rest => u32Bytes s ++ symSeqBytes rest
-
 @[expose] public def symListBytes (xs : List Sym0) : List UInt8 :=
   u32Bytes (UInt32.ofNat xs.length) ++ symSeqBytes xs
 
@@ -704,176 +694,126 @@ public theorem u32_sub1_toNat {rem : UInt32} {n : Nat} (h : rem.toNat = n + 1) :
 public theorem u32_ofNat_eq {n : Nat} {c : UInt32} (h : n = c.toNat) : UInt32.ofNat n = c :=
   Codec0Kit.u32_ofNat_eq h
 
+private theorem ok_drop_triv {P1 P2 P3 P5 : Prop} {α : Type} {xs : List α}
+    (h : P1 ∧ P2 ∧ P3 ∧ (∀ x ∈ xs, True) ∧ P5) : P1 ∧ P2 ∧ P3 ∧ P5 :=
+  ⟨h.1, h.2.1, h.2.2.1, h.2.2.2.2⟩
+
+public section
+macro "c0_encode_list!" encList:term:arg encLoop:term:arg encElem:term:arg lenFn:term:arg
+    elemB:term:arg seqB:term:arg listB:term:arg hElem:term:arg : tactic =>
+  `(tactic| exact Codec0Kit.encodeList_bytes_of_steps $encList $encLoop Codec0.encodeU32 $lenFn
+    u32Bytes $seqB $listB (fun _ _ => rfl)
+    (Codec0Kit.encodeListLoop_bytes_of_steps $encLoop $encElem $elemB $seqB
+      (fun _ => rfl) (fun _ _ _ => rfl) $hElem rfl (fun _ _ => rfl))
+    encodeU32_bytes (Codec0Kit.lenU32_eq_of_steps $lenFn (fun _ => rfl) (fun _ _ _ => rfl))
+    (fun _ => rfl) _ _)
+
+macro "c0_decode_list_of!" mkOk:term:arg decList:ident decLoop:ident decElem:term:arg
+    revFn:term:arg elemB:term:arg seqB:term:arg listB:term:arg elemOk:term:arg
+    hDec:term:arg hBx:term:arg : tactic =>
+  `(tactic| exact Codec0Kit.decodeList_of_bytes_of_steps $mkOk $decList $decLoop
+    (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes $seqB $listB $elemOk
+    (fun _ _ _ hv => by unfold $decList; rw [hv]) decodeU32_of_bytes
+    (Codec0Kit.decodeListLoop_of_bytes_of_steps $mkOk $decLoop
+      (fun b p v p' => $decElem b p = .ok v p') $revFn $elemB $seqB $elemOk
+      (fun _ _ _ => by unfold $decLoop; rw [Codec0Kit.dite_true_eq rfl])
+      (fun _ _ _ _ _ _ hne hx => by
+        conv => lhs; unfold $decLoop; rw [Codec0Kit.dite_false_eq hne, hx])
+      (Codec0Kit.revList_eq_of_steps $revFn (fun _ => rfl) (fun _ _ _ => rfl))
+      rfl (fun _ _ => rfl) $hDec)
+    u32Bytes_length (fun _ => rfl) _ _ _ _ ‹_› $hBx ‹_›)
+
+macro "c0_decode_list_ok!" mkOk:term:arg decList:ident decLoop:ident decElem:term:arg
+    revFn:term:arg elemB:term:arg seqB:term:arg listB:term:arg elemOk:term:arg
+    hElemOk:term:arg : tactic =>
+  `(tactic| exact Codec0Kit.decodeList_ok_bytes_of_steps $mkOk $decList $decLoop
+    (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes $seqB $listB $elemOk
+    (fun b p _ _ hdec => by
+      unfold $decList at hdec
+      codec_match cnt, p1, hu ← Codec0.decodeU32 b p at hdec
+      exact ⟨cnt, p1, rfl, hdec⟩)
+    decodeU32_ok_bytes
+    (Codec0Kit.decodeListLoop_ok_bytes_of_steps $mkOk $decLoop $revFn $elemB $seqB $elemOk
+      (fun _ _ _ _ _ h0 => by
+        unfold $decLoop at h0; rw [Codec0Kit.dite_true_eq rfl] at h0; cases h0; exact ⟨rfl, rfl⟩)
+      (fun b p _ _ _ _ hne h1 => by
+        unfold $decLoop at h1; rw [Codec0Kit.dite_false_eq hne] at h1
+        codec_match x, p1, hx ← $decElem b p at h1
+        have hElem : ∀ (b : ByteArray) (p : Nat) x (p1 : Nat), $decElem b p = .ok x p1 →
+            p ≤ p1 ∧ p1 ≤ b.size ∧ ($elemOk) x ∧ baSlice b p p1 = ($elemB) x := $hElemOk
+        have hok := hElem b p x p1 hx
+        exact ⟨x, p1, hok.1, fun _ => hok.2.1, hok.2.2.1, hok.2.2.2, h1⟩)
+      (Codec0Kit.revList_eq_of_steps $revFn (fun _ => rfl) (fun _ _ _ => rfl))
+      rfl (fun _ _ => rfl))
+    (fun _ => rfl) _ _ _ _ ‹_›)
+end
+
+private theorem drop_triv_head {P1 P2 P3 P5 : Prop} {α : Type} {xs : List α} :
+    (P1 ∧ P2 ∧ P3 ∧ (∀ x ∈ xs, True) ∧ P5) → P1 ∧ P2 ∧ P3 ∧ P5 := ok_drop_triv
+
 public theorem encodeTyList0_bytes (ba : ByteArray) (xs : List Ty0) :
-    (Codec0.encodeTyList0 ba xs).data.toList = ba.data.toList ++ tyListBytes xs :=
-  Codec0Kit.encodeList_bytes_of_steps Codec0.encodeTyList0 Codec0.encodeTyListLoop0 Codec0.encodeU32
-    Codec0.lenTysU32 u32Bytes tySeqBytes tyListBytes (fun _ _ => rfl)
-    (Codec0Kit.encodeListLoop_bytes_of_steps Codec0.encodeTyListLoop0 Codec0.encodeTy0
-      (fun t => [Codec0.ty0Tag t]) tySeqBytes (fun _ => rfl) (fun _ _ _ => rfl)
-      encodeTy0_bytes rfl (fun _ _ => rfl))
-    encodeU32_bytes
-    (Codec0Kit.lenU32_eq_of_steps Codec0.lenTysU32 (fun _ => rfl) (fun _ _ _ => rfl))
-    (fun _ => rfl) ba xs
+    (Codec0.encodeTyList0 ba xs).data.toList = ba.data.toList ++ tyListBytes xs := by
+  c0_encode_list! Codec0.encodeTyList0 Codec0.encodeTyListLoop0 Codec0.encodeTy0
+    Codec0.lenTysU32 (fun t => [Codec0.ty0Tag t]) tySeqBytes tyListBytes encodeTy0_bytes
 
 public theorem encodeArgList0_bytes (ba : ByteArray) (xs : List Arg0) :
-    (Codec0.encodeArgList0 ba xs).data.toList = ba.data.toList ++ argListBytes xs :=
-  Codec0Kit.encodeList_bytes_of_steps Codec0.encodeArgList0 Codec0.encodeArgListLoop0
-    Codec0.encodeU32 Codec0.lenArgsU32 u32Bytes argSeqBytes argListBytes (fun _ _ => rfl)
-    (Codec0Kit.encodeListLoop_bytes_of_steps Codec0.encodeArgListLoop0 Codec0.encodeArg0
-      argBytes argSeqBytes (fun _ => rfl) (fun _ _ _ => rfl)
-      encodeArg0_bytes rfl (fun _ _ => rfl))
-    encodeU32_bytes
-    (Codec0Kit.lenU32_eq_of_steps Codec0.lenArgsU32 (fun _ => rfl) (fun _ _ _ => rfl))
-    (fun _ => rfl) ba xs
+    (Codec0.encodeArgList0 ba xs).data.toList = ba.data.toList ++ argListBytes xs := by
+  c0_encode_list! Codec0.encodeArgList0 Codec0.encodeArgListLoop0 Codec0.encodeArg0
+    Codec0.lenArgsU32 argBytes argSeqBytes argListBytes encodeArg0_bytes
 
 public theorem encodeSymList0_bytes (ba : ByteArray) (xs : List Sym0) :
-    (Codec0.encodeSymList0 ba xs).data.toList = ba.data.toList ++ symListBytes xs :=
-  Codec0Kit.encodeList_bytes_of_steps Codec0.encodeSymList0 Codec0.encodeSymListLoop0
-    Codec0.encodeU32 Codec0.lenSymsU32 u32Bytes symSeqBytes symListBytes (fun _ _ => rfl)
-    (Codec0Kit.encodeListLoop_bytes_of_steps Codec0.encodeSymListLoop0 Codec0.encodeU32
-      u32Bytes symSeqBytes (fun _ => rfl) (fun _ _ _ => rfl)
-      encodeU32_bytes rfl (fun _ _ => rfl))
-    encodeU32_bytes
-    (Codec0Kit.lenU32_eq_of_steps Codec0.lenSymsU32 (fun _ => rfl) (fun _ _ _ => rfl))
-    (fun _ => rfl) ba xs
+    (Codec0.encodeSymList0 ba xs).data.toList = ba.data.toList ++ symListBytes xs := by
+  c0_encode_list! Codec0.encodeSymList0 Codec0.encodeSymListLoop0 Codec0.encodeU32
+    Codec0.lenSymsU32 u32Bytes symSeqBytes symListBytes encodeU32_bytes
 
 public theorem decodeTyList0_of_bytes (ba : ByteArray) (pos : Nat) (xs : List Ty0)
     (rest : List UInt8) (hb : xs.length < 2 ^ 32)
     (h : ba.data.toList.drop pos = tyListBytes xs ++ rest) :
-    Codec0.decodeTyList0 ba pos = .ok xs (pos + (tyListBytes xs).length) :=
-  Codec0Kit.decodeList_of_bytes_of_steps Codec0.DecTysRes.ok Codec0.decodeTyList0
-    Codec0.decodeTyListLoop0 (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes
-    tySeqBytes tyListBytes (fun _ => True)
-    (fun b p v hv => by dsimp only [Codec0.decodeTyList0]; rw [hv])
-    (fun b p v r hr => decodeU32_of_bytes b p v r hr)
-    (Codec0Kit.decodeListLoop_of_bytes_of_steps Codec0.DecTysRes.ok Codec0.decodeTyListLoop0
-      (fun b p v p' => Codec0.decodeTy0 b p = .ok v p') Codec0.revTys0
-      (fun t => [Codec0.ty0Tag t]) tySeqBytes (fun _ => True)
-      (fun b p acc => by unfold Codec0.decodeTyListLoop0; rw [dite_true_eq rfl])
-      (fun b p rem acc t p1 hne ht => by
-        conv => lhs; unfold Codec0.decodeTyListLoop0
-        rw [dite_false_eq hne, ht])
-      (Codec0Kit.revList_eq_of_steps Codec0.revTys0 (fun _ => rfl) (fun _ _ _ => rfl))
-      rfl (fun _ _ => rfl) (fun b p t r _ hr => decodeTy0_of_bytes b p t r hr))
-    u32Bytes_length (fun _ => rfl) ba pos xs rest hb (fun _ _ => trivial) h
+    Codec0.decodeTyList0 ba pos = .ok xs (pos + (tyListBytes xs).length) := by
+  c0_decode_list_of! Codec0.DecTysRes.ok Codec0.decodeTyList0 Codec0.decodeTyListLoop0
+    Codec0.decodeTy0 Codec0.revTys0 (fun t => [Codec0.ty0Tag t]) tySeqBytes tyListBytes
+    (fun _ => True) (fun b p t r _ hr => decodeTy0_of_bytes b p t r hr) (fun _ _ => trivial)
 
 public theorem decodeTyList0_ok_bytes (ba : ByteArray) (pos : Nat) (xs : List Ty0) (pos' : Nat)
     (h : Codec0.decodeTyList0 ba pos = .ok xs pos') :
     pos ≤ pos' ∧ pos' ≤ ba.size ∧ xs.length < 2 ^ 32 ∧ baSlice ba pos pos' = tyListBytes xs := by
-  have hres := Codec0Kit.decodeList_ok_bytes_of_steps Codec0.DecTysRes.ok Codec0.decodeTyList0
-    Codec0.decodeTyListLoop0 (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes
-    tySeqBytes tyListBytes (fun _ => True)
-    (fun b p res q hdec => by
-      dsimp only [Codec0.decodeTyList0] at hdec
-      codec_match cnt, p1, hu ← Codec0.decodeU32 b p at hdec
-      exact ⟨cnt, p1, rfl, hdec⟩)
-    decodeU32_ok_bytes
-    (Codec0Kit.decodeListLoop_ok_bytes_of_steps Codec0.DecTysRes.ok Codec0.decodeTyListLoop0
-      Codec0.revTys0 (fun t => [Codec0.ty0Tag t]) tySeqBytes (fun _ => True)
-      (fun b p acc res q h0 => by
-        unfold Codec0.decodeTyListLoop0 at h0; rw [dite_true_eq rfl] at h0
-        cases h0; exact ⟨rfl, rfl⟩)
-      (fun b p rem acc res q hne h1 => by
-        unfold Codec0.decodeTyListLoop0 at h1; rw [dite_false_eq hne] at h1
-        codec_match t, p1, ht ← Codec0.decodeTy0 b p at h1
-        obtain ⟨h01, h1s, hp1, hs1⟩ := decodeTy0_ok_bytes b p t p1 ht
-        exact ⟨t, p1, h01, fun _ => h1s, trivial, hs1, h1⟩)
-      (Codec0Kit.revList_eq_of_steps Codec0.revTys0 (fun _ => rfl) (fun _ _ _ => rfl))
-      rfl (fun _ _ => rfl))
-    (fun _ => rfl) ba pos xs pos' h
-  exact ⟨hres.1, hres.2.1, hres.2.2.1, hres.2.2.2.2⟩
+  apply drop_triv_head
+  c0_decode_list_ok! Codec0.DecTysRes.ok Codec0.decodeTyList0 Codec0.decodeTyListLoop0
+    Codec0.decodeTy0 Codec0.revTys0 (fun t => [Codec0.ty0Tag t]) tySeqBytes tyListBytes
+    (fun _ => True)
+    (fun b p t p1 ht => let k := decodeTy0_ok_bytes b p t p1 ht; ⟨k.1, k.2.1, trivial, k.2.2.2⟩)
 
 public theorem decodeArgList0_of_bytes (ba : ByteArray) (pos : Nat) (xs : List Arg0)
     (rest : List UInt8) (hb : xs.length < 2 ^ 32)
     (h : ba.data.toList.drop pos = argListBytes xs ++ rest) :
-    Codec0.decodeArgList0 ba pos = .ok xs (pos + (argListBytes xs).length) :=
-  Codec0Kit.decodeList_of_bytes_of_steps Codec0.DecArgsRes.ok Codec0.decodeArgList0
-    Codec0.decodeArgListLoop0 (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes
-    argSeqBytes argListBytes (fun _ => True)
-    (fun b p v hv => by dsimp only [Codec0.decodeArgList0]; rw [hv])
-    (fun b p v r hr => decodeU32_of_bytes b p v r hr)
-    (Codec0Kit.decodeListLoop_of_bytes_of_steps Codec0.DecArgsRes.ok Codec0.decodeArgListLoop0
-      (fun b p v p' => Codec0.decodeArg0 b p = .ok v p') Codec0.revArgs0
-      argBytes argSeqBytes (fun _ => True)
-      (fun b p acc => by unfold Codec0.decodeArgListLoop0; rw [dite_true_eq rfl])
-      (fun b p rem acc a p1 hne ha => by
-        conv => lhs; unfold Codec0.decodeArgListLoop0
-        rw [dite_false_eq hne, ha])
-      (Codec0Kit.revList_eq_of_steps Codec0.revArgs0 (fun _ => rfl) (fun _ _ _ => rfl))
-      rfl (fun _ _ => rfl) (fun b p a r _ hr => decodeArg0_of_bytes b p a r hr))
-    u32Bytes_length (fun _ => rfl) ba pos xs rest hb (fun _ _ => trivial) h
+    Codec0.decodeArgList0 ba pos = .ok xs (pos + (argListBytes xs).length) := by
+  c0_decode_list_of! Codec0.DecArgsRes.ok Codec0.decodeArgList0 Codec0.decodeArgListLoop0
+    Codec0.decodeArg0 Codec0.revArgs0 argBytes argSeqBytes argListBytes (fun _ => True)
+    (fun b p a r _ hr => decodeArg0_of_bytes b p a r hr) (fun _ _ => trivial)
 
 public theorem decodeArgList0_ok_bytes (ba : ByteArray) (pos : Nat) (xs : List Arg0) (pos' : Nat)
     (h : Codec0.decodeArgList0 ba pos = .ok xs pos') :
     pos ≤ pos' ∧ pos' ≤ ba.size ∧ xs.length < 2 ^ 32 ∧ baSlice ba pos pos' = argListBytes xs := by
-  have hres := Codec0Kit.decodeList_ok_bytes_of_steps Codec0.DecArgsRes.ok Codec0.decodeArgList0
-    Codec0.decodeArgListLoop0 (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes
-    argSeqBytes argListBytes (fun _ => True)
-    (fun b p res q hdec => by
-      dsimp only [Codec0.decodeArgList0] at hdec
-      codec_match cnt, p1, hu ← Codec0.decodeU32 b p at hdec
-      exact ⟨cnt, p1, rfl, hdec⟩)
-    decodeU32_ok_bytes
-    (Codec0Kit.decodeListLoop_ok_bytes_of_steps Codec0.DecArgsRes.ok Codec0.decodeArgListLoop0
-      Codec0.revArgs0 argBytes argSeqBytes (fun _ => True)
-      (fun b p acc res q h0 => by
-        unfold Codec0.decodeArgListLoop0 at h0; rw [dite_true_eq rfl] at h0
-        cases h0; exact ⟨rfl, rfl⟩)
-      (fun b p rem acc res q hne h1 => by
-        unfold Codec0.decodeArgListLoop0 at h1; rw [dite_false_eq hne] at h1
-        codec_match a, p1, ha ← Codec0.decodeArg0 b p at h1
-        obtain ⟨h01, h1s, hs1⟩ := decodeArg0_ok_bytes b p a p1 ha
-        exact ⟨a, p1, h01, fun _ => h1s, trivial, hs1, h1⟩)
-      (Codec0Kit.revList_eq_of_steps Codec0.revArgs0 (fun _ => rfl) (fun _ _ _ => rfl))
-      rfl (fun _ _ => rfl))
-    (fun _ => rfl) ba pos xs pos' h
-  exact ⟨hres.1, hres.2.1, hres.2.2.1, hres.2.2.2.2⟩
+  apply drop_triv_head
+  c0_decode_list_ok! Codec0.DecArgsRes.ok Codec0.decodeArgList0 Codec0.decodeArgListLoop0
+    Codec0.decodeArg0 Codec0.revArgs0 argBytes argSeqBytes argListBytes (fun _ => True)
+    (fun b p a p1 ha => let k := decodeArg0_ok_bytes b p a p1 ha; ⟨k.1, k.2.1, trivial, k.2.2⟩)
 
 public theorem decodeSymList0_of_bytes (ba : ByteArray) (pos : Nat) (xs : List Sym0)
     (rest : List UInt8) (hb : xs.length < 2 ^ 32)
     (h : ba.data.toList.drop pos = symListBytes xs ++ rest) :
-    Codec0.decodeSymList0 ba pos = .ok xs (pos + (symListBytes xs).length) :=
-  Codec0Kit.decodeList_of_bytes_of_steps Codec0.DecSymsRes.ok Codec0.decodeSymList0
-    Codec0.decodeSymListLoop0 (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes
-    symSeqBytes symListBytes (fun _ => True)
-    (fun b p v hv => by dsimp only [Codec0.decodeSymList0]; rw [hv])
-    (fun b p v r hr => decodeU32_of_bytes b p v r hr)
-    (Codec0Kit.decodeListLoop_of_bytes_of_steps Codec0.DecSymsRes.ok Codec0.decodeSymListLoop0
-      (fun b p v p' => Codec0.decodeU32 b p = .ok v p') Codec0.revSyms0
-      u32Bytes symSeqBytes (fun _ => True)
-      (fun b p acc => by unfold Codec0.decodeSymListLoop0; rw [dite_true_eq rfl])
-      (fun b p rem acc s p1 hne hs => by
-        conv => lhs; unfold Codec0.decodeSymListLoop0
-        rw [dite_false_eq hne, hs])
-      (Codec0Kit.revList_eq_of_steps Codec0.revSyms0 (fun _ => rfl) (fun _ _ _ => rfl))
-      rfl (fun _ _ => rfl) (fun b p s r _ hr => decodeU32_of_bytes b p s r hr))
-    u32Bytes_length (fun _ => rfl) ba pos xs rest hb (fun _ _ => trivial) h
+    Codec0.decodeSymList0 ba pos = .ok xs (pos + (symListBytes xs).length) := by
+  c0_decode_list_of! Codec0.DecSymsRes.ok Codec0.decodeSymList0 Codec0.decodeSymListLoop0
+    Codec0.decodeU32 Codec0.revSyms0 u32Bytes symSeqBytes symListBytes (fun _ => True)
+    (fun b p s r _ hr => decodeU32_of_bytes b p s r hr) (fun _ _ => trivial)
 
 public theorem decodeSymList0_ok_bytes (ba : ByteArray) (pos : Nat) (xs : List Sym0) (pos' : Nat)
     (h : Codec0.decodeSymList0 ba pos = .ok xs pos') :
     pos ≤ pos' ∧ pos' ≤ ba.size ∧ xs.length < 2 ^ 32 ∧ baSlice ba pos pos' = symListBytes xs := by
-  have hres := Codec0Kit.decodeList_ok_bytes_of_steps Codec0.DecSymsRes.ok Codec0.decodeSymList0
-    Codec0.decodeSymListLoop0 (fun b p v p' => Codec0.decodeU32 b p = .ok v p') u32Bytes
-    symSeqBytes symListBytes (fun _ => True)
-    (fun b p res q hdec => by
-      dsimp only [Codec0.decodeSymList0] at hdec
-      codec_match cnt, p1, hu ← Codec0.decodeU32 b p at hdec
-      exact ⟨cnt, p1, rfl, hdec⟩)
-    decodeU32_ok_bytes
-    (Codec0Kit.decodeListLoop_ok_bytes_of_steps Codec0.DecSymsRes.ok Codec0.decodeSymListLoop0
-      Codec0.revSyms0 u32Bytes symSeqBytes (fun _ => True)
-      (fun b p acc res q h0 => by
-        unfold Codec0.decodeSymListLoop0 at h0; rw [dite_true_eq rfl] at h0
-        cases h0; exact ⟨rfl, rfl⟩)
-      (fun b p rem acc res q hne h1 => by
-        unfold Codec0.decodeSymListLoop0 at h1; rw [dite_false_eq hne] at h1
-        codec_match s, p1, hs ← Codec0.decodeU32 b p at h1
-        obtain ⟨h01, h1s, hp1, hs1⟩ := decodeU32_ok_bytes b p s p1 hs
-        exact ⟨s, p1, h01, fun _ => h1s, trivial, hs1, h1⟩)
-      (Codec0Kit.revList_eq_of_steps Codec0.revSyms0 (fun _ => rfl) (fun _ _ _ => rfl))
-      rfl (fun _ _ => rfl))
-    (fun _ => rfl) ba pos xs pos' h
-  exact ⟨hres.1, hres.2.1, hres.2.2.1, hres.2.2.2.2⟩
+  apply drop_triv_head
+  c0_decode_list_ok! Codec0.DecSymsRes.ok Codec0.decodeSymList0 Codec0.decodeSymListLoop0
+    Codec0.decodeU32 Codec0.revSyms0 u32Bytes symSeqBytes symListBytes (fun _ => True)
+    (fun b p s p1 hs => let k := decodeU32_ok_bytes b p s p1 hs; ⟨k.1, k.2.1, trivial, k.2.2.2⟩)
 
 end Codec0Spec
 

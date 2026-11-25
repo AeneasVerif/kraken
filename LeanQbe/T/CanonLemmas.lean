@@ -6,6 +6,7 @@ public import LeanQbe.T.WP
 import LeanQbe.T.WPLemmas
 import LeanQbe.T.WfLemmas
 import LeanQbe.T.OpsLemmas
+import LeanQbe.T.PassEnvKit
 
 /-!
 # Correctness of `canon`
@@ -106,31 +107,18 @@ def CanonGood (G : Ctx (CanonVal Val) Val) : Prop :=
 
 theorem CanonGood.cons {G : Ctx (CanonVal Val) Val} (hG : CanonGood G)
     {t : Ty} {cv : CanonVal Val t} {v : Val t} (hcv : CanonValGood cv v) :
-    CanonGood (⟨t, cv, v⟩ :: G)
-  | _, .head _ => hcv
-  | _, .tail _ hp => hG _ hp
+    CanonGood (⟨t, cv, v⟩ :: G) :=
+  CtxPred.cons hcv hG
 
 theorem CanonGood.append {G₁ G₂ : Ctx (CanonVal Val) Val}
-    (h1 : CanonGood G₁) (h2 : CanonGood G₂) : CanonGood (G₁ ++ G₂) := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact h1 p hp
-  · exact h2 p hp
-
-private theorem CanonGood.freshCanonVals_only :
-    {ts : List Ty} → (xs : Tup Val ts) → (b : Nat) →
-    CanonGood (Tup.zip (freshCanonVals ts xs b) xs)
-  | [], (), _ => fun _ hp => nomatch hp
-  | _ :: _, (x, xs), b => by
-    intro p hp
-    cases hp with
-    | head => exact ⟨rfl, trivial⟩
-    | tail _ hp => exact CanonGood.freshCanonVals_only xs (b + 1) p hp
+    (h1 : CanonGood G₁) (h2 : CanonGood G₂) : CanonGood (G₁ ++ G₂) :=
+  CtxPred.append h1 h2
 
 theorem CanonGood.freshCanonVals {G : Ctx (CanonVal Val) Val} (hG : CanonGood G)
     {ts : List Ty} (xs : Tup Val ts) (b : Nat) :
     CanonGood (Tup.zip (freshCanonVals ts xs b) xs ++ G) :=
-  (CanonGood.freshCanonVals_only xs b).append hG
+  (CtxPred.zip_tupFreshWith_left_const (mk := CanonVal.fresh)
+    (P := fun _ => CanonValGood) (fun _ _ => ⟨rfl, trivial⟩) xs b).append hG
 
 theorem CanonGood.freshOne {G : Ctx (CanonVal Val) Val} (hG : CanonGood G)
     {t : Ty} (v : Val t) (b : Nat) :
@@ -154,11 +142,6 @@ theorem ArgRel.cndef_good {G : Ctx (CanonVal Val) Val} (hG : CanonGood G)
   | .var h => (hG _ h).2
   | .imm _ => trivial
 
-private theorem imm?_eq_some_val {V : Ty → Type} : ∀ {t : Ty} {a : Arg V t} {c : Val t},
-    a.imm? = some c → a = .imm c
-  | _, .var _, _, h => by cases h
-  | _, .imm _, _, h => by injection h with h; subst h; rfl
-
 private theorem canonAssocCore_wp {G : Ctx (CanonVal Val) Val} (hG : CanonGood G) (b : Nat)
     (aop : AssocOp) (t : Ty) (ht : aop.needsNoFloat = true → t.hasFloat = false)
     {a' b' : Arg (CanonVal Val) t} {a₂' b₂' : Arg Val t}
@@ -173,21 +156,20 @@ private theorem canonAssocCore_wp {G : Ctx (CanonVal Val) Val} (hG : CanonGood G
       ha'.cnout_val hG, hb'.cnout_val hG]
     exact ⟨hw, hG.cons ⟨rfl, trivial⟩⟩
   | some c₂ =>
-    have hb2c : b₂'.val = c₂ := by
-      have h1 := hb'.cnout_val hG
-      rw [imm?_eq_some_val himm] at h1
-      exact h1.symm
-    cases hd : a'.cndef? with
-    | none =>
-      simp only [Op.wp, op2, vals, AssocOp.toOpCode_wp aop t ht,
+    have hb2c : b₂'.val = c₂ := (hb'.cnout_val hG).symm.trans (imm?_eq_some_val himm)
+    have hplain : ({ code := aop.toOpCode t, args := (a'.cnout, .imm c₂, ()) } : Op Val [t]).wp
+        fun ys => P ys ∧ CanonGood (⟨t, ⟨.var ys.1, .var b,
+          some { op := aop, base := a'.cnout, imm := c₂ }⟩, ys.1⟩ :: G) := by
+      simp only [Op.wp, vals, AssocOp.toOpCode_wp aop t ht,
         ha'.cnout_val hG, Arg.val_imm, ← hb2c]
       exact ⟨hw, hG.cons ⟨rfl, ht, ha'.cnout_val hG ▸ rfl⟩⟩
+    cases hd : a'.cndef? with
+    | none => exact hplain
     | some d =>
       dsimp only
       cases heq : (d.op == aop)
-      · simp only [Bool.false_eq_true, ↓reduceIte, Op.wp, op2, vals,
-          AssocOp.toOpCode_wp aop t ht, ha'.cnout_val hG, Arg.val_imm, ← hb2c]
-        exact ⟨hw, hG.cons ⟨rfl, ht, ha'.cnout_val hG ▸ rfl⟩⟩
+      · simp only [Bool.false_eq_true, ↓reduceIte]
+        exact hplain
       · have hdeq : d.op = aop := eq_of_beq heq
         have hdg := ha'.cndef_good hG
         rw [hd] at hdg
@@ -239,30 +221,31 @@ private theorem canonSubCore_wp {G : Ctx (CanonVal Val) Val} (hG : CanonGood G) 
   dsimp only [canonSubCore]
   have hsub_add : ∀ x y, lift2 (· - ·) (· ^^ ·) t x y = AssocOp.eval .add t x (negVal t y) :=
     subVal_eq_add_negVal t
+  have hplain : ({ code := .sub t, args := (a'.cnout, b'.cnout, ()) } : Op Val [t]).wp fun ys =>
+      P ys ∧ CanonGood (⟨t, CanonVal.fresh ys.1 b, ys.1⟩ :: G) := by
+    dsimp only [Op.wp, op2, vals]
+    rw [ha'.cnout_val hG, hb'.cnout_val hG]
+    simp only [OpCode.wp_sub, hnf, Bool.false_eq_true, ↓reduceIte]
+    exact ⟨hw, hG.cons ⟨rfl, trivial⟩⟩
   cases himm : b'.cnout.imm? with
   | some c₂ =>
-    have hb2c : b₂'.val = c₂ := by
-      have h1 := hb'.cnout_val hG
-      rw [imm?_eq_some_val himm] at h1
-      exact h1.symm
-    cases hd : a'.cndef? with
-    | none =>
-      simp only [Op.wp, op2, vals, OpCode.wp_sub, hnf, Bool.false_eq_true, ↓reduceIte,
+    have hb2c : b₂'.val = c₂ := (hb'.cnout_val hG).symm.trans (imm?_eq_some_val himm)
+    have himm_fb : ({ code := .sub t, args := (a'.cnout, .imm c₂, ()) } : Op Val [t]).wp fun ys =>
+        P ys ∧ CanonGood (⟨t, ⟨.var ys.1, .var b,
+          some { op := .add, base := a'.cnout, imm := negVal t c₂, isSub := true }⟩,
+          ys.1⟩ :: G) := by
+      simp only [Op.wp, vals, OpCode.wp_sub, hnf, Bool.false_eq_true, ↓reduceIte,
         ha'.cnout_val hG, Arg.val_imm, ← hb2c]
       refine ⟨hw, hG.cons ⟨rfl, fun _ => hnf, ?_⟩⟩
       change lift2 (· - ·) (· ^^ ·) t a₂'.val b₂'.val =
         AssocOp.eval .add t a'.cnout.val (negVal t b₂'.val)
       rw [ha'.cnout_val hG, hsub_add]
+    cases hd : a'.cndef? with
+    | none => exact himm_fb
     | some d =>
       dsimp only
       cases heq : (d.op == .add)
-      · simp only [Bool.false_eq_true, ↓reduceIte]
-        simp only [Op.wp, op2, vals, OpCode.wp_sub, hnf, Bool.false_eq_true, ↓reduceIte,
-          ha'.cnout_val hG, Arg.val_imm, ← hb2c]
-        refine ⟨hw, hG.cons ⟨rfl, fun _ => hnf, ?_⟩⟩
-        change lift2 (· - ·) (· ^^ ·) t a₂'.val b₂'.val =
-          AssocOp.eval .add t a'.cnout.val (negVal t b₂'.val)
-        rw [ha'.cnout_val hG, hsub_add]
+      · simp only [Bool.false_eq_true, ↓reduceIte]; exact himm_fb
       · have hdeq : d.op = .add := eq_of_beq heq
         have hdg := ha'.cndef_good hG
         rw [hd] at hdg
@@ -284,30 +267,15 @@ private theorem canonSubCore_wp {G : Ctx (CanonVal Val) Val} (hG : CanonGood G) 
           exact ⟨hval ▸ hw, hG.cons ⟨rfl, fun _ => hnf, rfl⟩⟩
   | none =>
     cases ha_imm : a'.cnout.imm? with
-    | none =>
-      dsimp only [Op.wp, op2, vals]
-      rw [ha'.cnout_val hG, hb'.cnout_val hG]
-      simp only [OpCode.wp_sub, hnf, Bool.false_eq_true, ↓reduceIte]
-      exact ⟨hw, hG.cons ⟨rfl, trivial⟩⟩
+    | none => exact hplain
     | some c₁ =>
-      have ha1c : a₂'.val = c₁ := by
-        have h1 := ha'.cnout_val hG
-        rw [imm?_eq_some_val ha_imm] at h1
-        exact h1.symm
+      have ha1c : a₂'.val = c₁ := (ha'.cnout_val hG).symm.trans (imm?_eq_some_val ha_imm)
       cases hd : b'.cndef? with
-      | none =>
-        dsimp only [Op.wp, op2, vals]
-        rw [ha'.cnout_val hG, hb'.cnout_val hG]
-        simp only [OpCode.wp_sub, hnf, Bool.false_eq_true, ↓reduceIte]
-        exact ⟨hw, hG.cons ⟨rfl, trivial⟩⟩
+      | none => exact hplain
       | some d =>
         dsimp only
         cases heq : (d.op == .add)
-        · simp only [Bool.false_eq_true, ↓reduceIte]
-          dsimp only [Op.wp, op2, vals]
-          rw [ha'.cnout_val hG, hb'.cnout_val hG]
-          simp only [OpCode.wp_sub, hnf, Bool.false_eq_true, ↓reduceIte]
-          exact ⟨hw, hG.cons ⟨rfl, trivial⟩⟩
+        · simp only [Bool.false_eq_true, ↓reduceIte]; exact hplain
         · have hdeq : d.op = .add := eq_of_beq heq
           have hdg := hb'.cndef_good hG
           rw [hd] at hdg
@@ -484,63 +452,50 @@ theorem CanonValRel.fresh {G' : Ctx V₁ V₂} {t : Ty} {v₁ : V₁ t} {v₂ : 
 def CanonRelG (G' : Ctx V₁ V₂) (G : Ctx (CanonVal V₁) (CanonVal V₂)) : Prop :=
   ∀ p ∈ G, CanonValRel G' p.2.1 p.2.2
 
+private def canonRelKit : RelKit CanonVal where
+  out c := c.out
+  fresh v k := CanonVal.fresh v k
+  rel G' _ c₁ c₂ := CanonValRel G' c₁ c₂
+  rel_weaken hsub _ _ _ h := h.weaken hsub
+  rel_out h := h.1
+  rel_fresh b hm := CanonValRel.fresh b hm
+
 theorem CanonRelG.cons {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
     (hG : CanonRelG G' G) {t : Ty} {c₁ : CanonVal V₁ t} {c₂ : CanonVal V₂ t}
     (hc : CanonValRel G' c₁ c₂) :
-    CanonRelG G' (⟨t, c₁, c₂⟩ :: G)
-  | _, .head _ => hc
-  | _, .tail _ hp => hG _ hp
+    CanonRelG G' (⟨t, c₁, c₂⟩ :: G) :=
+  canonRelKit.relG_cons hc hG
 
 theorem CanonRelG.append {G' : Ctx V₁ V₂} {G H : Ctx (CanonVal V₁) (CanonVal V₂)}
-    (h1 : CanonRelG G' G) (h2 : CanonRelG G' H) : CanonRelG G' (H ++ G) := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact h2 p hp
-  · exact h1 p hp
+    (h1 : CanonRelG G' G) (h2 : CanonRelG G' H) : CanonRelG G' (H ++ G) :=
+  canonRelKit.relG_append h2 h1
 
 theorem CanonRelG.weaken {G' G'' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
     (hG : CanonRelG G' G) (hsub : ∀ p ∈ G', p ∈ G'') : CanonRelG G'' G :=
-  fun p hp => (hG p hp).weaken hsub
+  canonRelKit.relG_weaken hsub hG
 
 theorem CanonRelG.append_tup {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
     (hG : CanonRelG G' G) :
     {ts : List Ty} → {r₁ : Tup (CanonVal V₁) ts} → {r₂ : Tup (CanonVal V₂) ts} →
-    TRel (fun _ => CanonValRel G') r₁ r₂ → CanonRelG G' (Tup.zip r₁ r₂ ++ G)
-  | [], (), (), .nil => hG
-  | _ :: _, (_, _), (_, _), .cons hr hs => (CanonRelG.append_tup hG hs).cons hr
-
-private theorem CanonRelG.freshCanonVals_only {ts : List Ty}
-    (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
-    CanonRelG (Tup.zip xs₁ xs₂)
-      (Tup.zip (freshCanonVals ts xs₁ b) (freshCanonVals ts xs₂ b)) :=
-  mem_tup_zip_tupFreshWith (fun x n => CanonVal.fresh x n) (fun x n => CanonVal.fresh x n)
-    (P := fun G' _ c₁ c₂ => CanonValRel G' c₁ c₂)
-    (fun hsub _ _ _ h => h.weaken hsub)
-    (fun _ _ idx => CanonValRel.fresh idx List.mem_cons_self)
-    xs₁ xs₂ b
+    TRel (fun _ => CanonValRel G') r₁ r₂ → CanonRelG G' (Tup.zip r₁ r₂ ++ G) :=
+  fun hT => canonRelKit.relG_append_tup hT hG
 
 theorem CanonRelG.freshCanonVals {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
     (hG : CanonRelG G' G) {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
     CanonRelG (Tup.zip xs₁ xs₂ ++ G')
       (Tup.zip (freshCanonVals ts xs₁ b) (freshCanonVals ts xs₂ b) ++ G) :=
-  (hG.weaken fun _ hq => List.mem_append_right _ hq).append
-    ((CanonRelG.freshCanonVals_only xs₁ xs₂ b).weaken fun _ hq => List.mem_append_left G' hq)
+  canonRelKit.relG_freshTup ts xs₁ xs₂ b hG
 
 theorem CanonRelG.freshOne {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
     (hG : CanonRelG G' G) {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) (b : Nat) :
     CanonRelG (⟨t, v₁, v₂⟩ :: G') (⟨t, CanonVal.fresh v₁ b, CanonVal.fresh v₂ b⟩ :: G) :=
-  (hG.weaken fun _ hq => List.mem_cons_of_mem _ hq).cons
-    (CanonValRel.fresh b List.mem_cons_self)
+  canonRelKit.relG_freshOne v₁ v₂ b hG
 
 theorem TRel.freshCanonVals_rel {G' : Ctx V₁ V₂} {ts : List Ty}
     (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
     TRel (fun _ => CanonValRel (Tup.zip xs₁ xs₂ ++ G'))
       (freshCanonVals ts xs₁ b) (freshCanonVals ts xs₂ b) :=
-  TRel_tupFreshWith (fun x n => CanonVal.fresh x n) (fun x n => CanonVal.fresh x n)
-    (P := fun G' _ c₁ c₂ => CanonValRel G' c₁ c₂)
-    (fun hsub _ _ _ h => h.weaken hsub)
-    (fun _ _ idx => CanonValRel.fresh idx List.mem_cons_self)
-    xs₁ xs₂ b
+  canonRelKit.trel_freshTup ts xs₁ xs₂ b
 
 theorem ArgRel.cnout {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)} (hG : CanonRelG G' G)
     {t : Ty} {a₁ : Arg (CanonVal V₁) t} {a₂ : Arg (CanonVal V₂) t} :
@@ -565,10 +520,6 @@ theorem TRel.cnout {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)
     (h : TRel (ArgRel G) as₁ as₂) : TRel (ArgRel G') (tupCnOut as₁) (tupCnOut as₂) :=
   TRel.tupMapArg_rel (fun _ => Arg.cnout) (fun _ => Arg.cnout) (fun ha => ha.cnout hG) h
 
-private theorem argRel_imm?_eq {G' : Ctx V₁ V₂} {t : Ty} {a₁ : Arg V₁ t} {a₂ : Arg V₂ t} :
-    ArgRel G' t a₁ a₂ → a₁.imm? = a₂.imm?
-  | .var _ | .imm _ => rfl
-
 theorem shouldSwap_eq {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
     (hG : CanonRelG G' G) {t : Ty} {a₁ b₁ : Arg (CanonVal V₁) t} {a₂ b₂ : Arg (CanonVal V₂) t}
     (ha : ArgRel G t a₁ a₂) (hb : ArgRel G t b₁ b₂) :
@@ -582,47 +533,58 @@ structure CanonStepRel (G' : Ctx V₁ V₂) {ts : List Ty}
   op : OpRel G' s₁.op s₂.op
   wrap : ∀ xs₁ xs₂, TRel (fun _ => CanonValRel (Tup.zip xs₁ xs₂ ++ G')) (s₁.wrap xs₁) (s₂.wrap xs₂)
 
+private theorem canonStepRel_fresh {G' : Ctx V₁ V₂} {t : Ty} (b : Nat)
+    (code : OpCode [t, t] [t]) {x₁ y₁ : Arg V₁ t} {x₂ y₂ : Arg V₂ t}
+    (hx : ArgRel G' t x₁ x₂) (hy : ArgRel G' t y₁ y₂) :
+    CanonStepRel G'
+      ({ op := op2 code x₁ y₁, wrap := fun (r, ()) => (CanonVal.fresh r b, ()) } :
+        CanonLetStep V₁ [t])
+      ({ op := op2 code x₂ y₂, wrap := fun (r, ()) => (CanonVal.fresh r b, ()) } :
+        CanonLetStep V₂ [t]) :=
+  ⟨.mk _ (.cons hx (.cons hy .nil)), fun _ _ =>
+    .cons (CanonValRel.fresh b List.mem_cons_self) .nil⟩
+
+private theorem canonStepRel_def {G' : Ctx V₁ V₂} {t : Ty} (b : Nat)
+    (code : OpCode [t, t] [t]) (aop : AssocOp) (isSub : Bool) (c : Val t)
+    {base₁ : Arg V₁ t} {base₂ : Arg V₂ t} {x₁ y₁ : Arg V₁ t} {x₂ y₂ : Arg V₂ t}
+    (hbase : ArgRel G' t base₁ base₂) (hx : ArgRel G' t x₁ x₂) (hy : ArgRel G' t y₁ y₂) :
+    CanonStepRel G'
+      ({ op := op2 code x₁ y₁
+         wrap := fun (r, ()) =>
+           (⟨.var r, .var b, some { op := aop, base := base₁, imm := c, isSub := isSub }⟩, ()) } :
+        CanonLetStep V₁ [t])
+      ({ op := op2 code x₂ y₂
+         wrap := fun (r, ()) =>
+           (⟨.var r, .var b, some { op := aop, base := base₂, imm := c, isSub := isSub }⟩, ()) } :
+        CanonLetStep V₂ [t]) := by
+  refine ⟨.mk _ (.cons hx (.cons hy .nil)), fun (r₁, ()) (r₂, ()) => ?_⟩
+  have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [t]) (r₁, ()) (r₂, ()) ++ G') :=
+    fun _ hq => List.mem_cons_of_mem _ hq
+  exact .cons ⟨.var List.mem_cons_self, rfl,
+    ⟨rfl, hbase.weaken hsub, rfl, rfl⟩⟩ .nil
+
 private theorem canonAssocCore_rel {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
     (hG : CanonRelG G' G) (b : Nat) (aop : AssocOp) (t : Ty)
     {a₁' b₁' : Arg (CanonVal V₁) t} {a₂' b₂' : Arg (CanonVal V₂) t}
     (ha' : ArgRel G t a₁' a₂') (hb' : ArgRel G t b₁' b₂') :
     CanonStepRel G' (canonAssocCore b aop t a₁' b₁') (canonAssocCore b aop t a₂' b₂') := by
   dsimp only [canonAssocCore]
-  have hb_imm : b₁'.cnout.imm? = b₂'.cnout.imm? := argRel_imm?_eq (hb'.cnout hG)
-  rw [hb_imm]
+  rw [argRel_imm?_eq (hb'.cnout hG)]
   cases himm : b₂'.cnout.imm? with
-  | none =>
-    refine ⟨.mk _ (.cons (ha'.cnout hG) (.cons (hb'.cnout hG) .nil)), fun xs₁ xs₂ => ?_⟩
-    rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-    exact .cons (CanonValRel.fresh b List.mem_cons_self) .nil
+  | none => exact canonStepRel_fresh b _ (ha'.cnout hG) (hb'.cnout hG)
   | some c₂ =>
     have hdef := ha'.cndef_rel hG
     cases hd₁ : a₁'.cndef? <;> cases hd₂ : a₂'.cndef? <;> rw [hd₁, hd₂] at hdef
-    · exact ⟨.mk _ (.cons (ha'.cnout hG) (.cons (.imm c₂) .nil)), fun xs₁ xs₂ => by
-        rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-        have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [t]) (r₁, ()) (r₂, ()) ++ G') :=
-          fun _ hq => List.mem_cons_of_mem _ hq
-        exact .cons ⟨.var List.mem_cons_self, rfl,
-          ⟨rfl, (ha'.cnout hG).weaken hsub, rfl, rfl⟩⟩ .nil⟩
+    · exact canonStepRel_def b _ aop false c₂ (ha'.cnout hG) (ha'.cnout hG) (.imm c₂)
     · exact False.elim hdef
     · exact False.elim hdef
     · rcases hdef with ⟨hop, hbase, himm, _⟩
-      dsimp only
-      rw [hop, himm]
+      dsimp only; rw [hop, himm]
       cases heq : (_ == aop)
       · simp only [Bool.false_eq_true, ↓reduceIte]
-        exact ⟨.mk _ (.cons (ha'.cnout hG) (.cons (.imm c₂) .nil)), fun xs₁ xs₂ => by
-          rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-          have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [t]) (r₁, ()) (r₂, ()) ++ G') :=
-            fun _ hq => List.mem_cons_of_mem _ hq
-          exact .cons ⟨.var List.mem_cons_self, rfl,
-            ⟨rfl, (ha'.cnout hG).weaken hsub, rfl, rfl⟩⟩ .nil⟩
+        exact canonStepRel_def b _ aop false c₂ (ha'.cnout hG) (ha'.cnout hG) (.imm c₂)
       · simp only [↓reduceIte]
-        exact ⟨.mk _ (.cons hbase (.cons (.imm _) .nil)), fun xs₁ xs₂ => by
-          rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-          have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [t]) (r₁, ()) (r₂, ()) ++ G') :=
-            fun _ hq => List.mem_cons_of_mem _ hq
-          exact .cons ⟨.var List.mem_cons_self, rfl, ⟨rfl, hbase.weaken hsub, rfl, rfl⟩⟩ .nil⟩
+        exact canonStepRel_def b _ aop false _ hbase hbase (.imm _)
 
 private theorem canonAssocStep_rel {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
     (hG : CanonRelG G' G) (b : Nat) (aop : AssocOp) (t : Ty)
@@ -659,67 +621,36 @@ private theorem canonSubCore_rel {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (
     dsimp only
     have hdef := ha'.cndef_rel hG
     cases hd₁ : a₁'.cndef? <;> cases hd₂ : a₂'.cndef? <;> rw [hd₁, hd₂] at hdef
-    · exact ⟨.mk _ (.cons (ha'.cnout hG) (.cons (.imm c₂) .nil)), fun xs₁ xs₂ => by
-        rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-        have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [t]) (r₁, ()) (r₂, ()) ++ G') :=
-          fun _ hq => List.mem_cons_of_mem _ hq
-        exact .cons ⟨.var List.mem_cons_self, rfl,
-          ⟨rfl, (ha'.cnout hG).weaken hsub, rfl, rfl⟩⟩ .nil⟩
+    · exact canonStepRel_def b _ .add true (negVal t c₂)
+        (ha'.cnout hG) (ha'.cnout hG) (.imm c₂)
     · exact False.elim hdef
     · exact False.elim hdef
     · rcases hdef with ⟨hop, hbase, himm, hsubf⟩
-      dsimp only
-      rw [hop, himm, hsubf]
+      dsimp only; rw [hop, himm, hsubf]
       cases heq : (_ == AssocOp.add)
       · simp only [Bool.false_eq_true, ↓reduceIte]
-        exact ⟨.mk _ (.cons (ha'.cnout hG) (.cons (.imm c₂) .nil)), fun xs₁ xs₂ => by
-          rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-          have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [t]) (r₁, ()) (r₂, ()) ++ G') :=
-            fun _ hq => List.mem_cons_of_mem _ hq
-          exact .cons ⟨.var List.mem_cons_self, rfl,
-            ⟨rfl, (ha'.cnout hG).weaken hsub, rfl, rfl⟩⟩ .nil⟩
+        exact canonStepRel_def b _ .add true (negVal t c₂)
+          (ha'.cnout hG) (ha'.cnout hG) (.imm c₂)
       · simp only [↓reduceIte]
-        split
-        · exact ⟨.mk _ (.cons hbase (.cons (.imm _) .nil)), fun xs₁ xs₂ => by
-            rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-            have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [t]) (r₁, ()) (r₂, ()) ++ G') :=
-              fun _ hq => List.mem_cons_of_mem _ hq
-            exact .cons ⟨.var List.mem_cons_self, rfl,
-              ⟨rfl, hbase.weaken hsub, rfl, rfl⟩⟩ .nil⟩
-        · exact ⟨.mk _ (.cons hbase (.cons (.imm _) .nil)), fun xs₁ xs₂ => by
-            rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-            have hsub : ∀ p ∈ G', p ∈ (Tup.zip (as := [t]) (r₁, ()) (r₂, ()) ++ G') :=
-              fun _ hq => List.mem_cons_of_mem _ hq
-            exact .cons ⟨.var List.mem_cons_self, rfl,
-              ⟨rfl, hbase.weaken hsub, rfl, rfl⟩⟩ .nil⟩
+        split <;> exact canonStepRel_def b _ .add _ _ hbase hbase (.imm _)
   | none =>
     dsimp only
     rw [argRel_imm?_eq (ha'.cnout hG)]
     cases himma : a₂'.cnout.imm? with
-    | none =>
-      refine ⟨.mk _ (.cons (ha'.cnout hG) (.cons (hb'.cnout hG) .nil)), fun xs₁ xs₂ => ?_⟩
-      rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-      exact .cons (CanonValRel.fresh b List.mem_cons_self) .nil
+    | none => exact canonStepRel_fresh b _ (ha'.cnout hG) (hb'.cnout hG)
     | some c₁ =>
       have hdef := hb'.cndef_rel hG
       cases hd₁ : b₁'.cndef? <;> cases hd₂ : b₂'.cndef? <;> rw [hd₁, hd₂] at hdef
-      · refine ⟨.mk _ (.cons (ha'.cnout hG) (.cons (hb'.cnout hG) .nil)), fun xs₁ xs₂ => ?_⟩
-        rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-        exact .cons (CanonValRel.fresh b List.mem_cons_self) .nil
+      · exact canonStepRel_fresh b _ (ha'.cnout hG) (hb'.cnout hG)
       · exact False.elim hdef
       · exact False.elim hdef
       · rcases hdef with ⟨hop, hbase, himm, _⟩
-        dsimp only
-        rw [hop, himm]
+        dsimp only; rw [hop, himm]
         cases heq : (_ == AssocOp.add)
         · simp only [Bool.false_eq_true, ↓reduceIte]
-          refine ⟨.mk _ (.cons (ha'.cnout hG) (.cons (hb'.cnout hG) .nil)), fun xs₁ xs₂ => ?_⟩
-          rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-          exact .cons (CanonValRel.fresh b List.mem_cons_self) .nil
+          exact canonStepRel_fresh b _ (ha'.cnout hG) (hb'.cnout hG)
         · simp only [↓reduceIte]
-          refine ⟨.mk _ (.cons (.imm _) (.cons hbase .nil)), fun xs₁ xs₂ => ?_⟩
-          rcases xs₁ with ⟨r₁, ⟨⟩⟩; rcases xs₂ with ⟨r₂, ⟨⟩⟩
-          exact .cons (CanonValRel.fresh b List.mem_cons_self) .nil
+          exact canonStepRel_fresh b _ (.imm _) hbase
 
 private theorem canonSubStepIf_rel {G' : Ctx V₁ V₂} {G : Ctx (CanonVal V₁) (CanonVal V₂)}
     (hG : CanonRelG G' G) (b : Nat) (t : Ty)

@@ -4,6 +4,7 @@ public import LeanQbe.T.MainCertScc
 public import LeanQbe.T.Notation
 public import LeanQbe.T.Logic.Rules
 public import LeanQbeTest.T.MainTest
+public import LeanQbeTest.T.MainCertSccFixtures
 public meta import Lean
 public meta import LeanQbe.T.MainCertScc
 public meta import LeanQbeTest.T.RegaLitmusTarget
@@ -11,17 +12,9 @@ public meta import LeanQbeTest.T.RegaLitmusTarget
 /-!
 # Smoke, Linking, & Axiom Audit Tests (`LinkDepthLfp` + `MainLinkScc` + `MainCertScc`)
 
-1. Pure `LinkDepthLfp` tests: `DepthEnv.lfp_le`, `DepthEnv.lfp_closed`, `DepthEnv.lfp_fix`,
-   `DepthEnv.lfp_mono`, `DepthEnv.lfp_depth_mono`, `DepthEnv.lfp_wf_mkSccOp` on both a
-   `d = 0` tail-only `DepthEnv.lfp_tailOnly_zero_eq` example and a `d > 0` mixed non-tail +
-   tail example, plus `DepthEnv.semScc_le_envSemScc` and `DepthEnv.semScc_le_unfoldRecAt`.
-2. `MainLinkScc` + `MainCertScc` tests (`litmusTarget`, zero arch crate imports):
-   * Mixed module `[fnInc1 (.acyc), fnSum (self-rec), fnEven, fnOdd (mutual-rec), fnTop (.acyc)]`
-     compiled via `compile_linked_scc!` at `chunkSize := 1` (multi-subchunk `RecSubChunk` +
-     `linkRecSubchunks`) and `chunkSize := 4`, plus custom `(fuels := ...)`, `ofLinkedCert`,
-     `append`, direct `compileCheckedRecLit`, and negative validation `#guard`s.
-   * Closed semantic linking against `cert.sem` + `DepthEnv.lfp_wf_mkSccOp`, and concrete
-     `litmusInit` `Eventually` execution (`fnSum(5) = 15`, `fnEven(4) = 1`, `fnTop(5) = 16`).
+1. Pure `LinkDepthLfp` tests (`d = 0` tail-only and `d > 0` mixed non-tail + tail).
+2. `MainLinkScc` + `MainCertScc` tests (`litmusTarget`, zero arch crate imports) using shared
+   helpers from `MainCertSccFixtures`.
 3. Single-line `#print axioms` audit strictly `⊆ [propext, Classical.choice, Quot.sound]`.
 -/
 
@@ -33,10 +26,8 @@ namespace LeanQbeTest.T.MainCertSccTest
 
 open LeanQbe.T LeanQbe.T.LinkRec LeanQbe.T.LinkScc
 open LeanQbe.T.Notation LeanQbe.T.RegaLitmus LeanQbeTest.T.MainTest
+open LeanQbeTest.T.MainCertSccFixtures
 open Std Std.ExtHashMap Kraken.Bedrock2.Test
-
-def botEnv : Env :=
-  fun _ _ _ _ _ _ _ => False
 
 /-! ## 1. Pure `LinkDepthLfp` (`d = 0` Tail-Only, `d > 0` Mixed, and Bridges) -/
 
@@ -51,23 +42,10 @@ def tailOnlyOp₂ (_Γcall Γtail : Env) : Env :=
 
 theorem tailOnlyOp₂_biMono : Env.BiMono tailOnlyOp₂ := by
   rintro C₁ C₂ T₁ T₂ _ hT f as bs xs m Q X ⟨rfl, ha, hb, h⟩
-  refine ⟨rfl, ha, hb, ?_⟩
-  dsimp only at h ⊢
+  refine ⟨rfl, ha, hb, ?_⟩; dsimp only at h ⊢
   split at h <;> rename_i hc
   · simp [hc, h]
   · simp only [hc, ↓reduceIte]; exact hT _ _ _ _ _ _ _ h
-
-private theorem bv64_sub1_lt {n : BitVec 64} (hne : n ≠ 0#64) :
-    (n - 1#64).toNat < n.toNat := by
-  have hnz : n.toNat ≠ 0 := fun h => hne (BitVec.eq_of_toNat_eq h)
-  have hlt : n.toNat < 2 ^ 64 := n.isLt
-  rw [BitVec.toNat_sub]; simp only [BitVec.toNat_ofNat]; omega
-
-private theorem bv64_sub1_toNat {n : BitVec 64} (hne : n ≠ 0#64) :
-    (n - 1#64).toNat = n.toNat - 1 := by
-  have hnz : n.toNat ≠ 0 := fun h => hne (BitVec.eq_of_toNat_eq h)
-  have hlt : n.toNat < 2 ^ 64 := n.isLt
-  rw [BitVec.toNat_sub]; simp only [BitVec.toNat_ofNat]; omega
 
 def cntMod : Module :=
   ⟨[⟨"cnt", [i64], [i64], fun _ _ (n, ()) => .ret (.var n, ())⟩], [], []⟩
@@ -78,24 +56,19 @@ def tailOnlySpec (k : Nat) : Env :=
       (ha ▸ xs).1.toNat ≤ k ∧ Q (hb ▸ (0#64, ())) m
 
 /-- **Test 1a (`d = 0` tail-only `DepthEnv.lfp_wf`):** proves all iterations live at `d = 0`
-using `lt j i ∧ depth j ≤ depth i` with `depth _ := 0`, and equates to flat `Env.lfp` via
-`DepthEnv.lfp_tailOnly_zero_eq`. -/
+using `lt j i ∧ depth j ≤ depth i` with `depth _ := 0`, and equates to flat `Env.lfp`. -/
 theorem tailOnly_zero_lfp_wf (k : Nat) :
     Env.le (Env.restrict (tailOnlySpec k) (cntMod.fns.map Fn.sig))
       (DepthEnv.lfp (DepthEnv.mkSccOp cntMod botEnv tailOnlyOp₂) 0) :=
   DepthEnv.lfp_wf_mkSccOp Nat.lt_wfRel.wf (fun _ => 0) cntMod botEnv tailOnlyOp₂_biMono
     tailOnlySpec (fun i _ Γtail _ _ htail _ f as bs xs m Q X ⟨hsig, heq, ha, hb, hk, hQ⟩ => by
-      subst heq; subst ha; subst hb
-      dsimp only at hk hQ
-      refine ⟨rfl, rfl, rfl, ?_⟩
+      subst heq; subst ha; subst hb; dsimp only at hk hQ; refine ⟨rfl, rfl, rfl, ?_⟩
       by_cases h0 : xs.1 = 0#64
       · simp [h0, hQ]
       · simp only [h0, ↓reduceIte]
-        have hlt : (xs.1 - 1#64).toNat < i := by
-          have := bv64_sub1_lt h0; omega
+        have hlt : (xs.1 - 1#64).toNat < i := by have := bv64_sub1_lt h0; omega
         exact htail (xs.1 - 1#64).toNat hlt (Nat.le_refl 0) "cnt" [i64] [i64]
-          (xs.1 - 1#64, ()) m (fun r m' => Q r m') X
-          ⟨hsig, rfl, rfl, rfl, Nat.le_refl _, hQ⟩) k
+          (xs.1 - 1#64, ()) m (fun r m' => Q r m') X ⟨hsig, rfl, rfl, rfl, Nat.le_refl _, hQ⟩) k
 
 theorem tailOnly_zero_eq_flat :
     DepthEnv.lfp (DepthEnv.mkSccOp cntMod botEnv tailOnlyOp₂) 0 =
@@ -104,9 +77,7 @@ theorem tailOnly_zero_eq_flat :
 
 /-- **Test 1b (`d > 0` mixed non-tail + tail `DepthEnv.lfp_wf_mkSccOp`):**
 * `"wrap"` makes a depth-preserving tail call (`n ≤ n`) to `"rec"`.
-* `"rec"` makes a depth-decreasing non-tail call (`n - 1 < n`) to `"wrap"`.
-Exercises BOTH `lt j i ∧ depth j < depth i` (`Γcall`) and `lt j i ∧ depth j ≤ depth i`
-(`Γtail`) simultaneously. -/
+* `"rec"` makes a depth-decreasing non-tail call (`n - 1 < n`) to `"wrap"`. -/
 def mixedOp₂ (Γcall Γtail : Env) : Env :=
   fun f as bs xs m Q X =>
     ∃ (ha : as = [i64]) (hb : bs = [i64]),
@@ -118,8 +89,7 @@ def mixedOp₂ (Γcall Γtail : Env) : Env :=
 theorem mixedOp₂_biMono : Env.BiMono mixedOp₂ := by
   rintro C₁ C₂ T₁ T₂ hC hT f as bs xs m Q X ⟨ha, hb, hw | hr⟩
   · exact ⟨ha, hb, Or.inl ⟨hw.1, hT _ _ _ _ _ _ _ hw.2⟩⟩
-  · rcases hr with ⟨rfl, hrest⟩
-    refine ⟨ha, hb, Or.inr ⟨rfl, ?_⟩⟩
+  · rcases hr with ⟨rfl, hrest⟩; refine ⟨ha, hb, Or.inr ⟨rfl, ?_⟩⟩
     split at hrest <;> rename_i hc
     · simp [hc, hrest]
     · simp only [hc, ↓reduceIte]; exact hC _ _ _ _ _ _ _ hrest
@@ -146,28 +116,23 @@ theorem mixed_depth_lfp_wf (p : Nat × Nat) :
   rcases i with ⟨n, k⟩
   cases k with
   | zero =>
-      rcases hsp with ⟨rfl, ha, hb, hn, hQ⟩
-      subst ha; subst hb
-      dsimp only at hn hQ
+      rcases hsp with ⟨rfl, ha, hb, hn, hQ⟩; subst ha; subst hb; dsimp only at hn hQ
       refine ⟨rfl, rfl, Or.inr ⟨rfl, ?_⟩⟩
       by_cases h0 : xs.1 = 0#64
       · simp [h0, hQ]
       · simp only [h0, ↓reduceIte]
         have hsub : (xs.1 - 1#64).toNat = n - 1 := by rw [bv64_sub1_toNat h0, hn]
-        have hlt_n : (n - 1, 1).1 < (n, 0).1 := by
-          have := bv64_sub1_lt h0; dsimp only; omega
+        have hlt_n : (n - 1, 1).1 < (n, 0).1 := by have := bv64_sub1_lt h0; dsimp only; omega
         have hlt_sc : 2 * (n - 1) + 1 < 2 * n + 0 := by omega
-        exact hrec (n - 1, 1) hlt_sc hlt_n "wrap" [i64] [i64] (xs.1 - 1#64, ()) m
-          (fun r m' => Q r m') X
+        exact hrec (n - 1, 1) hlt_sc hlt_n "wrap" [i64] [i64]
+          (xs.1 - 1#64, ()) m (fun r m' => Q r m') X
           ⟨by simp [mixedTwoMod, Fn.sig], rfl, rfl, rfl, hsub, hQ⟩
   | succ k' =>
-      rcases hsp with ⟨rfl, ha, hb, hn, hQ⟩
-      subst ha; subst hb
-      dsimp only at hn hQ
+      rcases hsp with ⟨rfl, ha, hb, hn, hQ⟩; subst ha; subst hb; dsimp only at hn hQ
       refine ⟨rfl, rfl, Or.inl ⟨rfl, ?_⟩⟩
       have hlt_sc : 2 * n + 0 < 2 * n + (k' + 1) := by omega
-      exact htail (n, 0) hlt_sc (Nat.le_refl n) "rec" [i64] [i64] xs m (fun r m' => Q r m') X
-        ⟨by simp [mixedTwoMod, Fn.sig], rfl, rfl, rfl, hn, hQ⟩
+      exact htail (n, 0) hlt_sc (Nat.le_refl n) "rec" [i64] [i64]
+        xs m (fun r m' => Q r m') X ⟨by simp [mixedTwoMod, Fn.sig], rfl, rfl, rfl, hn, hQ⟩
 
 theorem depth_semScc_fix :
     DepthEnv.semScc cntMod botEnv =
@@ -239,21 +204,14 @@ def fnTop : Fn := tqbe $top(%n:l) -> l {
 def mixedMod : Module :=
   { fns := [fnInc1, fnSum, fnEven, fnOdd, fnTop] }
 
-theorem fnInc1_wf : fnInc1.Wf := by t_wf_reify
-theorem fnSum_wf : fnSum.Wf := by t_wf_reify
-theorem fnEven_wf : fnEven.Wf := by t_wf_reify
-theorem fnOdd_wf : fnOdd.Wf := by t_wf_reify
-theorem fnTop_wf : fnTop.Wf := by t_wf_reify
+theorem mixedMod_wf : ∀ f ∈ mixedMod.fns, f.Wf :=
+  wf_of_map_renorm (by t_kernel_rfl)
 
-theorem mixedMod_wf : ∀ f ∈ mixedMod.fns, f.Wf := by
-  intro f hf
-  simp only [mixedMod, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl
-  · exact fnInc1_wf
-  · exact fnSum_wf
-  · exact fnEven_wf
-  · exact fnOdd_wf
-  · exact fnTop_wf
+theorem fnInc1_wf : fnInc1.Wf := mixedMod_wf _ (by simp [mixedMod])
+theorem fnSum_wf  : fnSum.Wf  := mixedMod_wf _ (by simp [mixedMod])
+theorem fnEven_wf : fnEven.Wf := mixedMod_wf _ (by simp [mixedMod])
+theorem fnOdd_wf  : fnOdd.Wf  := mixedMod_wf _ (by simp [mixedMod])
+theorem fnTop_wf  : fnTop.Wf  := mixedMod_wf _ (by simp [mixedMod])
 
 -- Emit `mixedCert1` (`chunkSize := 1`, splitting `[fnEven, fnOdd]` into 2 `RecSubChunk`s).
 compile_linked_scc! mixedCert1 litmusTarget litmusLayout LegalTarget.aarch64 litmusLabelClean
@@ -280,8 +238,7 @@ compile_linked_scc! partCertB litmusTarget litmusLayout LegalTarget.aarch64 litm
   partModB 2 (ext := partCertA.exportedExt) (extSigs := partModBExterns)
 
 private theorem partCertA_calls :
-    checkChunksCalls [] [] (partCertA.chunks.map Chunk.acyc) = true := by
-  rfl
+    checkChunksCalls [] [] (partCertA.chunks.map Chunk.acyc) = true := by rfl
 
 noncomputable def partCertA_scc :
     LinkedCertScc litmusTarget litmusLayout LegalTarget.aarch64 litmusLabelClean partModA :=
@@ -289,9 +246,7 @@ noncomputable def partCertA_scc :
 
 noncomputable def appendedMixedCert :
     LinkedCertScc litmusTarget litmusLayout LegalTarget.aarch64 litmusLabelClean mixedMod :=
-  partCertA_scc.append partCertB rfl
-    (by t_kernel_rfl)
-    (by t_kernel_rfl)
+  partCertA_scc.append partCertB rfl (by t_kernel_rfl) (by t_kernel_rfl)
 
 theorem mixedCert1_numChunks : mixedCert1.numChunks = 4 := by rfl
 theorem mixedCert4_numChunks : mixedCert4.numChunks = 4 := by rfl
@@ -301,28 +256,22 @@ theorem appendedMixedCert_numChunks : appendedMixedCert.numChunks = 4 := by rfl
 -- Direct `MainLinkScc.compileCheckedRecLit` + negative validation checks.
 splice_module_hints evenOddHintsOnly litmusTarget.toIsa LegalTarget.aarch64 [fnEven, fnOdd]
 
-def eoCodeLit : List Instr :=
+private def eoRecRes : List Instr × Nat × Nat :=
   (compileModuleRec litmusTarget.toIsa LegalTarget.aarch64 litmusTarget.frame.raBytes
-    [] [] 0 8 2048 [fnEven, fnOdd] evenOddHintsOnly).toOption.get!.1
+    [] [] 0 8 2048 [fnEven, fnOdd] evenOddHintsOnly).toOption.get!
 
-def eoBaseLit : Nat :=
-  (compileModuleRec litmusTarget.toIsa LegalTarget.aarch64 litmusTarget.frame.raBytes
-    [] [] 0 8 2048 [fnEven, fnOdd] evenOddHintsOnly).toOption.get!.2.1
-
-def eoStepLit : Nat :=
-  (compileModuleRec litmusTarget.toIsa LegalTarget.aarch64 litmusTarget.frame.raBytes
-    [] [] 0 8 2048 [fnEven, fnOdd] evenOddHintsOnly).toOption.get!.2.2
+def eoCodeLit : List Instr := eoRecRes.1
+def eoBaseLit : Nat := eoRecRes.2.1
+def eoStepLit : Nat := eoRecRes.2.2
 
 theorem eoDirect_cm :
     compileModuleRec litmusTarget.toIsa LegalTarget.aarch64 litmusTarget.frame.raBytes
       [] [] 0 8 2048 [fnEven, fnOdd] evenOddHintsOnly =
-      .ok (eoCodeLit, eoBaseLit, eoStepLit) := by
-  t_kernel_rfl
+      .ok (eoCodeLit, eoBaseLit, eoStepLit) := by t_kernel_rfl
 
 theorem eoDirect_chk :
     checkCompileRecLit litmusTarget.frame.label litmusLayout.progSmall
-      eoCodeLit eoBaseLit eoStepLit ["even", "odd"] [] = true := by
-  t_kernel_rfl
+      eoCodeLit eoBaseLit eoStepLit ["even", "odd"] [] = true := by t_kernel_rfl
 
 def eoDirectCompiled :
     CompiledRec litmusTarget LegalTarget.aarch64 [] [] 0 8
@@ -369,14 +318,10 @@ private def triNat : Nat → Nat
   | 0 => 0
   | n + 1 => (n + 1) + triNat n
 
-private def parityEvenVal (n : Nat) : BitVec 64 :=
-  if n % 2 = 0 then 1#64 else 0#64
+private def parityEvenVal (n : Nat) : BitVec 64 := if n % 2 = 0 then 1#64 else 0#64
+private def parityOddVal  (n : Nat) : BitVec 64 := if n % 2 = 1 then 1#64 else 0#64
 
-private def parityOddVal (n : Nat) : BitVec 64 :=
-  if n % 2 = 1 then 1#64 else 0#64
-
-def inc1Spec : Spec [i64] [i64] := fun (x, ()) m Q _ =>
-  Q (x + 1#64, ()) m
+def inc1Spec : Spec [i64] [i64] := fun (x, ()) m Q _ => Q (x + 1#64, ()) m
 
 def sumSpec : Spec [i64] [i64] := fun (n, ()) m Q _ =>
   n.toNat ≤ 16 ∧ Q (BitVec.ofNat 64 (triNat n.toNat), ()) m
@@ -388,8 +333,7 @@ def oddSpec : Spec [i64] [i64] := fun (n, ()) m Q _ =>
   n.toNat ≤ 16 ∧ Q (parityOddVal n.toNat, ()) m
 
 def topSpec : Spec [i64] [i64] := fun (n, ()) m Q _ =>
-  n.toNat ≤ 16 ∧
-    Q (BitVec.ofNat 64 (triNat n.toNat) + parityEvenVal n.toNat + 1#64, ()) m
+  n.toNat ≤ 16 ∧ Q (BitVec.ofNat 64 (triNat n.toNat) + parityEvenVal n.toNat + 1#64, ()) m
 
 private def sumDepthSpec (k : Nat) : Env :=
   fun f as bs xs m Q _ =>
@@ -407,89 +351,60 @@ private def evenOddDepthSpec (k : Nat) : Env :=
 
 private noncomputable abbrev mc0 : Chunk litmusTarget LegalTarget.aarch64 [] 0 :=
   mixedCert1.chunks[0]'(by decide)
-
 private noncomputable abbrev mc1 : Chunk litmusTarget LegalTarget.aarch64 [] 0 :=
   mixedCert1.chunks[1]'(by decide)
-
 private noncomputable abbrev mc2 : Chunk litmusTarget LegalTarget.aarch64 [] 0 :=
   mixedCert1.chunks[2]'(by decide)
-
 private noncomputable abbrev mc3 : Chunk litmusTarget LegalTarget.aarch64 [] 0 :=
   mixedCert1.chunks[3]'(by decide)
 
-private theorem mixedCert1_chunks_split :
-    mixedCert1.chunks = [mc0, mc1, mc2, mc3] := by
-  rfl
+private theorem mixedCert1_chunks_split : mixedCert1.chunks = [mc0, mc1, mc2, mc3] := rfl
 
 private theorem triNat_step {n : BitVec 64} (hne : n ≠ 0#64) :
     n + BitVec.ofNat 64 (triNat (n - 1#64).toNat) = BitVec.ofNat 64 (triNat n.toNat) := by
   have hsub := bv64_sub1_toNat hne
   have hnz : n.toNat ≠ 0 := fun h => hne (BitVec.eq_of_toNat_eq h)
   obtain ⟨k, hk⟩ := Nat.exists_eq_succ_of_ne_zero hnz
-  rw [hsub, hk, Nat.succ_sub_one, triNat]
-  apply BitVec.eq_of_toNat_eq
+  rw [hsub, hk, Nat.succ_sub_one, triNat]; apply BitVec.eq_of_toNat_eq
   simp only [BitVec.toNat_add, BitVec.toNat_ofNat]
-  have hnlt : n.toNat < 2 ^ 64 := n.isLt
-  rw [hk, Nat.add_mod_mod]
+  have hnlt : n.toNat < 2 ^ 64 := n.isLt; rw [hk, Nat.add_mod_mod]
 
 private theorem parity_even_step {n : BitVec 64} (hne : n ≠ 0#64) :
     parityOddVal (n - 1#64).toNat = parityEvenVal n.toNat := by
   have hnz : n.toNat ≠ 0 := fun h => hne (BitVec.eq_of_toNat_eq h)
-  rw [bv64_sub1_toNat hne]
-  simp only [parityOddVal, parityEvenVal]
-  have : (n.toNat - 1) % 2 = 1 ↔ n.toNat % 2 = 0 := by omega
-  simp [this]
+  rw [bv64_sub1_toNat hne]; simp only [parityOddVal, parityEvenVal]
+  simp [show (n.toNat - 1) % 2 = 1 ↔ n.toNat % 2 = 0 from by omega]
 
 private theorem parity_odd_step {n : BitVec 64} (hne : n ≠ 0#64) :
     parityEvenVal (n - 1#64).toNat = parityOddVal n.toNat := by
   have hnz : n.toNat ≠ 0 := fun h => hne (BitVec.eq_of_toNat_eq h)
-  rw [bv64_sub1_toNat hne]
-  simp only [parityEvenVal, parityOddVal]
-  have : (n.toNat - 1) % 2 = 0 ↔ n.toNat % 2 = 1 := by omega
-  simp [this]
+  rw [bv64_sub1_toNat hne]; simp only [parityEvenVal, parityOddVal]
+  simp [show (n.toNat - 1) % 2 = 0 ↔ n.toNat % 2 = 1 from by omega]
 
 private theorem c0_sem_inc1 :
     ∀ (xs : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
-      inc1Spec xs m Q X →
-      mc0.sem [] botEnv "inc1" [i64] [i64] xs m Q X := by
+      inc1Spec xs m Q X → mc0.sem [] botEnv "inc1" [i64] [i64] xs m Q X := by
   rintro ⟨x, ⟨⟩⟩ m Q X hQ
-  have hcm : ∃ cc, mc0 = Chunk.acyc cc ∧ cc.fs = [fnInc1] := ⟨_, rfl, rfl⟩
-  rcases hcm with ⟨cc, hceq, hfs⟩
-  rw [hceq]
-  refine LinkedCertScc.acycChunk_sem_of_semScc cc (by rw [hfs]; exact List.mem_cons_self) ?_
-  dsimp only [Env.semScc]
-  rw [Env.lfp_fix (sccOp_mono _ _), hfs]
-  refine ⟨by simp [fnInc1, Fn.sig], fnInc1, List.mem_cons_self, rfl, rfl, rfl, ?_⟩
-  dsimp only [Func.wp, fnInc1]; wp_unfold
-  exact hQ
+  refine acyc_single_sem (f := fnInc1) ⟨_, rfl, rfl⟩ rfl rfl rfl (x, ()) m Q X ?_
+  dsimp only [Func.wp, fnInc1]; wp_unfold; exact hQ
 
 private theorem c1_sem_sum :
     ∀ (xs : Tup Val [i64]) (m : Mem 64) (Q : Post [i64]) (X : XPost),
-      sumSpec xs m Q X →
-      mc1.sem [fnInc1.sig] (mc0.sem [] botEnv) "sum" [i64] [i64] xs m Q X := by
+      sumSpec xs m Q X → mc1.sem [fnInc1.sig] (mc0.sem [] botEnv) "sum" [i64] [i64] xs m Q X := by
   rintro ⟨n, ⟨⟩⟩ m Q X ⟨hn, hQ⟩
   let Γ₀ := mc0.sem [] botEnv
   have hcr : ∃ ext fs hints maxB cr,
-      mc1 = Chunk.recSCC ext 16 fs hints maxB cr ∧ fs = [fnSum] :=
-    ⟨_, _, _, _, _, rfl, rfl⟩
-  rcases hcr with ⟨ext, fs, hints, maxB, cr, hceq, hfs⟩
-  rw [hceq]
+      mc1 = Chunk.recSCC ext 16 fs hints maxB cr ∧ fs = [fnSum] := ⟨_, _, _, _, _, rfl, rfl⟩
+  rcases hcr with ⟨ext, fs, hints, maxB, cr, hceq, hfs⟩; rw [hceq]
   refine LinkedCertScc.recChunk_sem_of_depth cr (by rw [hfs]; exact List.mem_cons_self) hn ?_
   rw [hfs]
   let M : Module := ⟨[fnSum], externsOfSigs [fnInc1.sig], []⟩
-  refine DepthEnv.lfp_wf_mkSccOp Nat.lt_wfRel.wf id M Γ₀
-    (fun C₁ C₂ _ _ hC _ f as bs xs m' Q' X' ⟨hsig, fn, hfn, hnm, ha, hr, hwp⟩ =>
-      ⟨hsig, fn, hfn, hnm, ha, hr, wp_env_mono hC _ m' hwp⟩)
-    sumDepthSpec
+  refine DepthEnv.lfp_wf_mkSccOp Nat.lt_wfRel.wf id M Γ₀ (rec_wp_mono M) sumDepthSpec
     (fun i Γcall _ hrec _ _ _ f as bs xs m' Q' X' ⟨hsig, heq, ha, hb, hnk, hk16, hQ'⟩ => by
-      subst heq; subst ha; subst hb
-      dsimp only at hnk hQ'
+      subst heq; subst ha; subst hb; dsimp only at hnk hQ'
       refine ⟨hsig, fnSum, List.mem_cons_self, rfl, rfl, rfl, ?_⟩
-      dsimp only [Func.wp, fnSum]; wp_unfold
-      constructor
-      · intro h0
-        have hz : xs.1.toNat = 0 := by rw [h0]; rfl
-        rw [hz] at hQ'; exact hQ'
+      dsimp only [Func.wp, fnSum]; wp_unfold; constructor
+      · intro h0; rw [show xs.1.toNat = 0 from by rw [h0]; rfl] at hQ'; exact hQ'
       · intro hne
         have hlt : (xs.1 - 1#64).toNat < i := by have := bv64_sub1_lt hne; omega
         refine wp_call_of_spec _ _ (hrec (xs.1 - 1#64).toNat hlt hlt
@@ -509,40 +424,29 @@ private theorem c2_sem_even :
   have hcr : ∃ ext fs hints maxB cr,
       mc2 = Chunk.recSCC ext 16 fs hints maxB cr ∧ fs = [fnEven, fnOdd] :=
     ⟨_, _, _, _, _, rfl, rfl⟩
-  rcases hcr with ⟨ext, fs, hints, maxB, cr, hceq, hfs⟩
-  rw [hceq]
+  rcases hcr with ⟨ext, fs, hints, maxB, cr, hceq, hfs⟩; rw [hceq]
   refine LinkedCertScc.recChunk_sem_of_depth cr (by rw [hfs]; exact List.mem_cons_self) hn ?_
   rw [hfs]
   let M : Module := ⟨[fnEven, fnOdd], externsOfSigs [fnSum.sig, fnInc1.sig], []⟩
-  refine DepthEnv.lfp_wf_mkSccOp Nat.lt_wfRel.wf id M Γ₁
-    (fun C₁ C₂ _ _ hC _ f as bs xs m' Q' X' ⟨hsig, fn, hfn, hnm, ha, hr, hwp⟩ =>
-      ⟨hsig, fn, hfn, hnm, ha, hr, wp_env_mono hC _ m' hwp⟩)
-    evenOddDepthSpec
+  refine DepthEnv.lfp_wf_mkSccOp Nat.lt_wfRel.wf id M Γ₁ (rec_wp_mono M) evenOddDepthSpec
     (fun i Γcall _ hrec _ _ _ f as bs xs m' Q' X' ⟨hsig, ha, hb, hnk, hk16, hbr⟩ => by
-      subst ha; subst hb
-      dsimp only at hnk hbr
+      subst ha; subst hb; dsimp only at hnk hbr
       rcases hbr with ⟨rfl, hQe⟩ | ⟨rfl, hQo⟩
       · refine ⟨hsig, fnEven, List.mem_cons_self, rfl, rfl, rfl, ?_⟩
-        dsimp only [Func.wp, fnEven]; wp_unfold
-        constructor
-        · intro h0
-          have hz : xs.1.toNat = 0 := by rw [h0]; rfl
-          rw [hz] at hQe; exact hQe
+        dsimp only [Func.wp, fnEven]; wp_unfold; constructor
+        · intro h0; rw [show xs.1.toNat = 0 from by rw [h0]; rfl] at hQe; exact hQe
         · intro hne
           have hlt : (xs.1 - 1#64).toNat < i := by have := bv64_sub1_lt hne; omega
-          refine wp_call_of_spec _ _ (hrec (xs.1 - 1#64).toNat hlt hlt
+          exact wp_call_of_spec _ _ (hrec (xs.1 - 1#64).toNat hlt hlt
             "odd" [i64] [i64] (xs.1 - 1#64, ()) m' Q' X'
             ⟨by simp [M, fnOdd, Fn.sig], rfl, rfl, Nat.le_refl _, by omega,
               Or.inr ⟨rfl, by rw [parity_even_step hne]; exact hQe⟩⟩)
       · refine ⟨hsig, fnOdd, List.mem_cons_of_mem _ List.mem_cons_self, rfl, rfl, rfl, ?_⟩
-        dsimp only [Func.wp, fnOdd]; wp_unfold
-        constructor
-        · intro h0
-          have hz : xs.1.toNat = 0 := by rw [h0]; rfl
-          rw [hz] at hQo; exact hQo
+        dsimp only [Func.wp, fnOdd]; wp_unfold; constructor
+        · intro h0; rw [show xs.1.toNat = 0 from by rw [h0]; rfl] at hQo; exact hQo
         · intro hne
           have hlt : (xs.1 - 1#64).toNat < i := by have := bv64_sub1_lt hne; omega
-          refine wp_call_of_spec _ _ (hrec (xs.1 - 1#64).toNat hlt hlt
+          exact wp_call_of_spec _ _ (hrec (xs.1 - 1#64).toNat hlt hlt
             "even" [i64] [i64] (xs.1 - 1#64, ()) m' Q' X'
             ⟨by simp [M, fnEven, Fn.sig], rfl, rfl, Nat.le_refl _, by omega,
               Or.inl ⟨rfl, by rw [parity_odd_step hne]; exact hQo⟩⟩))
@@ -552,17 +456,15 @@ private theorem c2_sem_even :
 private theorem mixed_sum_sem :
     ∀ xs m Q X, sumSpec xs m Q X → mixedCert1.sem botEnv "sum" [i64] [i64] xs m Q X := by
   intro xs m Q X h
-  change semChunks [fnInc1.sig] (mc0.sem [] botEnv) [mc1, mc2, mc3]
-    "sum" [i64] [i64] xs m Q X
+  change semChunks [fnInc1.sig] (mc0.sem [] botEnv) [mc1, mc2, mc3] "sum" [i64] [i64] xs m Q X
   exact LinkedCertScc.semChunks_of_head (f := fnSum) (by decide) xs m Q X
     (c1_sem_sum xs m Q X h)
 
 private theorem mixed_even_sem :
     ∀ xs m Q X, evenSpec xs m Q X → mixedCert1.sem botEnv "even" [i64] [i64] xs m Q X := by
   intro xs m Q X h
-  change semChunks [fnSum.sig, fnInc1.sig]
-    (mc1.sem [fnInc1.sig] (mc0.sem [] botEnv)) [mc2, mc3]
-    "even" [i64] [i64] xs m Q X
+  change semChunks [fnSum.sig, fnInc1.sig] (mc1.sem [fnInc1.sig] (mc0.sem [] botEnv))
+    [mc2, mc3] "even" [i64] [i64] xs m Q X
   exact LinkedCertScc.semChunks_of_head (f := fnEven) (by decide) xs m Q X
     (c2_sem_even xs m Q X h)
 
@@ -573,58 +475,41 @@ private theorem mixed_top_sem :
     (mc2.sem [fnSum.sig, fnInc1.sig] (mc1.sem [fnInc1.sig] (mc0.sem [] botEnv)))
     [mc3] "top" [i64] [i64] (n, ()) m Q X
   refine LinkedCertScc.semChunks_of_head (f := fnTop) (by decide) (n, ()) m Q X ?_
-  have hcm : ∃ cc, mc3 = Chunk.acyc cc ∧ cc.fs = [fnTop] := ⟨_, rfl, rfl⟩
-  rcases hcm with ⟨cc, hceq, hfs⟩
-  rw [hceq]
-  refine LinkedCertScc.acycChunk_sem_of_semScc cc (by rw [hfs]; exact List.mem_cons_self) ?_
-  dsimp only [Env.semScc]
-  rw [Env.lfp_fix (sccOp_mono _ _), hfs]
-  refine ⟨by simp [fnTop, Fn.sig], fnTop, List.mem_cons_self, rfl, rfl, rfl, ?_⟩
+  refine acyc_single_sem (f := fnTop) ⟨_, rfl, rfl⟩ rfl rfl rfl (n, ()) m Q X ?_
   dsimp only [Func.wp, fnTop]
   let sV : BitVec 64 := BitVec.ofNat 64 (triNat n.toNat)
   let eV : BitVec 64 := parityEvenVal n.toNat
   let Γprev := mc2.sem [fnSum.sig, fnInc1.sig] (mc1.sem [fnInc1.sig] (mc0.sem [] botEnv))
-  have hSumP : Γprev "sum" [i64] [i64] (n, ()) m (fun r m' => r = (sV, ()) ∧ m' = m) X := by
-    dsimp only [Γprev, Chunk.sem, Env.sccStep]
-    refine Or.inr ⟨by decide, ?_⟩
-    exact c1_sem_sum (n, ()) m (fun r m' => r = (sV, ()) ∧ m' = m) X ⟨hn, ⟨rfl, rfl⟩⟩
+  have hSumP : Γprev "sum" [i64] [i64] (n, ()) m (fun r m' => r = (sV, ()) ∧ m' = m) X :=
+    Or.inr ⟨by decide, c1_sem_sum (n, ()) m _ X ⟨hn, ⟨rfl, rfl⟩⟩⟩
   have hEvenP : Γprev "even" [i64] [i64] (n, ()) m (fun r m' => r = (eV, ()) ∧ m' = m) X :=
-    c2_sem_even (n, ()) m (fun r m' => r = (eV, ()) ∧ m' = m) X ⟨hn, ⟨rfl, rfl⟩⟩
-  have hIncP : Γprev "inc1" [i64] [i64] (sV + eV, ()) m Q X := by
-    have h0 := c0_sem_inc1 (sV + eV, ()) m Q X hQ
-    dsimp only [Γprev, Chunk.sem, Env.sccStep]
-    refine Or.inr ⟨by decide, Or.inr ⟨by decide, h0⟩⟩
-  refine ⟨fun r m' => r = (sV, ()) ∧ m' = m, X, Or.inr ⟨by decide, hSumP⟩, ?_,
+    c2_sem_even (n, ()) m _ X ⟨hn, ⟨rfl, rfl⟩⟩
+  have hIncP : Γprev "inc1" [i64] [i64] (sV + eV, ()) m Q X :=
+    Or.inr ⟨by decide, Or.inr ⟨by decide, c0_sem_inc1 (sV + eV, ()) m Q X hQ⟩⟩
+  refine ⟨fun r m' => r = (sV, ()) ∧ m' = m, X, ⟨by decide, hSumP⟩, ?_, fun _ _ _ _ h => h⟩
+  rintro ⟨s, ⟨⟩⟩ m' ⟨hr, hm'⟩; obtain rfl : s = sV := (Prod.ext_iff.mp hr).1; subst hm'
+  refine ⟨fun r m'' => r = (eV, ()) ∧ m'' = m', X, ⟨by decide, hEvenP⟩, ?_,
     fun _ _ _ _ h => h⟩
-  rintro ⟨s, ⟨⟩⟩ m' ⟨hr, hm'⟩
-  obtain rfl : s = sV := (Prod.ext_iff.mp hr).1
-  subst hm'
-  refine ⟨fun r m'' => r = (eV, ()) ∧ m'' = m', X, Or.inr ⟨by decide, hEvenP⟩, ?_,
-    fun _ _ _ _ h => h⟩
-  rintro ⟨e, ⟨⟩⟩ m'' ⟨hr2, hm''⟩
-  obtain rfl : e = eV := (Prod.ext_iff.mp hr2).1
-  subst hm''; wp_unfold
-  exact wp_call_of_spec _ _ (Or.inr ⟨by decide, hIncP⟩)
+  rintro ⟨e, ⟨⟩⟩ m'' ⟨hr2, hm''⟩; obtain rfl : e = eV := (Prod.ext_iff.mp hr2).1; subst hm''
+  wp_unfold; exact wp_call_of_spec _ _ ⟨by decide, hIncP⟩
 
 theorem fnSum_litmus_fnSpec :
     litmusTarget.Defined mixedCert1.host "sum" ∧
       litmusTarget.FnSpec mixedCert1.host "sum" sumSpec (mixedCert1.bound "sum") 0 :=
-  mixedCert1.fnSpec_host_src_of_le mixedMod_wf
-    (f := fnSum) (by simp [mixedMod]) sumSpec rfl rfl (fun _ _ _ _ _ h => h)
-    mixed_sum_sem
+  litmus_fnSpec mixedCert1 mixedMod_wf (f := fnSum) (by simp [mixedMod]) rfl rfl
+    sumSpec mixed_sum_sem
 
 theorem fnEven_litmus_fnSpec :
     litmusTarget.Defined mixedCert1.host "even" ∧
       litmusTarget.FnSpec mixedCert1.host "even" evenSpec (mixedCert1.bound "even") 0 :=
-  mixedCert1.fnSpec_host_src_of_le mixedMod_wf
-    (f := fnEven) (by simp [mixedMod]) evenSpec rfl rfl
-    (fun _ _ _ _ _ h => h) mixed_even_sem
+  litmus_fnSpec mixedCert1 mixedMod_wf (f := fnEven) (by simp [mixedMod]) rfl rfl
+    evenSpec mixed_even_sem
 
 theorem fnTop_litmus_fnSpec :
     litmusTarget.Defined mixedCert1.host "top" ∧
       litmusTarget.FnSpec mixedCert1.host "top" topSpec (mixedCert1.bound "top") 0 :=
-  mixedCert1.fnSpec_host_src_of_le mixedMod_wf
-    (f := fnTop) (by simp [mixedMod]) topSpec rfl rfl (fun _ _ _ _ _ h => h) mixed_top_sem
+  litmus_fnSpec mixedCert1 mixedMod_wf (f := fnTop) (by simp [mixedMod]) rfl rfl
+    topSpec mixed_top_sem
 
 theorem fnSum_5_exec :
     Eventually (litmusTarget.mach.step mixedCert1.host)
@@ -634,11 +519,8 @@ theorem fnSum_5_exec :
         (litmusInit.initState (as := [i64]) (mixedCert1.bound "sum") []
           ((5#64, ()) : Tup Val [i64]))
         (litmusTarget.mach.labelAddr mixedCert1.host "sum")) :=
-  mixedCert1.eventually_ret1_i64_of_le litmusInit mixedMod_wf
-    (f := fnSum) (by simp [mixedMod]) rfl rfl rfl sumSpec
-    (fun _ _ _ _ _ h => h) mixed_sum_sem [] ((5#64, ()) : Tup Val [i64]) 15#64
-    (by decide) rfl (Q := fun r _ => r = (15#64, ()))
-    ⟨by decide, by decide⟩ (fun _ _ h => h)
+  litmus_ret1_exec mixedCert1 mixedMod_wf (f := fnSum) (by simp [mixedMod]) rfl rfl rfl
+    sumSpec mixed_sum_sem ((5#64, ()) : Tup Val [i64]) 15#64 (by decide) ⟨by decide, by decide⟩
 
 theorem fnEven_4_exec :
     Eventually (litmusTarget.mach.step mixedCert1.host)
@@ -648,11 +530,8 @@ theorem fnEven_4_exec :
         (litmusInit.initState (as := [i64]) (mixedCert1.bound "even") []
           ((4#64, ()) : Tup Val [i64]))
         (litmusTarget.mach.labelAddr mixedCert1.host "even")) :=
-  mixedCert1.eventually_ret1_i64_of_le litmusInit mixedMod_wf
-    (f := fnEven) (by simp [mixedMod]) rfl rfl rfl
-    evenSpec (fun _ _ _ _ _ h => h) mixed_even_sem [] ((4#64, ()) : Tup Val [i64]) 1#64
-    (by decide) rfl (Q := fun r _ => r = (1#64, ()))
-    ⟨by decide, by decide⟩ (fun _ _ h => h)
+  litmus_ret1_exec mixedCert1 mixedMod_wf (f := fnEven) (by simp [mixedMod]) rfl rfl rfl
+    evenSpec mixed_even_sem ((4#64, ()) : Tup Val [i64]) 1#64 (by decide) ⟨by decide, by decide⟩
 
 theorem fnTop_5_exec :
     Eventually (litmusTarget.mach.step mixedCert1.host)
@@ -662,11 +541,8 @@ theorem fnTop_5_exec :
         (litmusInit.initState (as := [i64]) (mixedCert1.bound "top") []
           ((5#64, ()) : Tup Val [i64]))
         (litmusTarget.mach.labelAddr mixedCert1.host "top")) :=
-  mixedCert1.eventually_ret1_i64_of_le litmusInit mixedMod_wf
-    (f := fnTop) (by simp [mixedMod]) rfl rfl rfl topSpec
-    (fun _ _ _ _ _ h => h) mixed_top_sem [] ((5#64, ()) : Tup Val [i64]) 16#64
-    (by decide) rfl (Q := fun r _ => r = (16#64, ()))
-    ⟨by decide, by decide⟩ (fun _ _ h => h)
+  litmus_ret1_exec mixedCert1 mixedMod_wf (f := fnTop) (by simp [mixedMod]) rfl rfl rfl
+    topSpec mixed_top_sem ((5#64, ()) : Tup Val [i64]) 16#64 (by decide) ⟨by decide, by decide⟩
 
 /-! ## 4. Single-Line Axiom Audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 

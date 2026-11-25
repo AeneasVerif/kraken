@@ -5,12 +5,13 @@ public import LeanQbe.T.Module
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.Examples.BignumProg
+import LeanQbe.T.FlatLemmas
 
 /-!
 # Curve25519 4×4-limb Bignum Multiply and Modular Add/Sub mod `2^255 - 19`
 
-100%-PHOAS typed IR programs and `wp` proofs against `Nat` (no `TFlat` dependencies, straight-line
-fixed-width limbs, constant-time `select` with zero secret-dependent branches):
+100%-PHOAS typed IR programs and `wp` proofs against `Nat` (straight-line fixed-width limbs,
+constant-time `select` with zero secret-dependent branches):
 
 * `mul4x4`: 4×4-limb schoolbook multiply (`umulw` + interleaved dual `addc` chains matching x64
   `mulx` + `adcx`/`adox`).
@@ -70,11 +71,9 @@ def subMod25519Spec : Spec [i64, i64, i64] [] := fun (out, pa, pb, ()) m Q _ =>
 
 /-! ## Algebraic lemmas (no `omega` on `≥ 2^128` or kernel `2^320` reduction) -/
 
-theorem limbsVal4_lt_pow256 (x0 x1 x2 x3 : BitVec 64) : limbsVal [x0, x1, x2, x3] < 2 ^ 256 := by
-  have h := limbsVal_lt_pow [x0, x1, x2, x3]
-  have he : (2 : Nat) ^ (64 * ([x0, x1, x2, x3] : List (BitVec 64)).length) = 2 ^ 256 :=
-    congrArg (2 ^ ·) rfl
-  rwa [he] at h
+theorem limbsVal4_lt_pow256 (x0 x1 x2 x3 : BitVec 64) : limbsVal [x0, x1, x2, x3] < 2 ^ 256 :=
+  (congrArg (2 ^ ·) (rfl : 64 * ([x0, x1, x2, x3] : List (BitVec 64)).length = 256)) ▸
+    limbsVal_lt_pow [x0, x1, x2, x3]
 
 theorem limbsVal4_eq (x0 x1 x2 x3 : BitVec 64) :
     limbsVal [x0, x1, x2, x3] =
@@ -87,83 +86,57 @@ theorem limbsVal5_eq (x0 x1 x2 x3 x4 : BitVec 64) :
         2 ^ 64 * (x3.toNat + 2 ^ 64 * x4.toNat))) := by
   simp [limbsVal]
 
-private theorem subk_telescope {k x y : Nat} (hx : k ≤ x) (hy : 1 ≤ y) :
-    (x - k) + x * (y - 1) = x * y - k := by
-  rw [Nat.mul_sub_left_distrib, Nat.mul_one]
-  have hle : x ≤ x * y := Nat.le_mul_of_pos_right x hy
-  omega
+private theorem pow64_tel {k m : Nat} (hk : k ≤ 2 ^ 64) (hm : 1 ≤ 2 ^ m) :
+    (2 ^ 64 - k) + 2 ^ 64 * (2 ^ m - 1) = 2 ^ (64 + m) - k := by
+  rw [Nat.mul_sub_left_distrib, Nat.mul_one, ← Nat.pow_add]
+  have hle : 2 ^ 64 ≤ 2 ^ 64 * 2 ^ m := Nat.le_mul_of_pos_right _ hm
+  rw [← Nat.pow_add] at hle; omega
 
 theorem limbsVal_p25519 : limbsVal [p0, p1, p2, p3] = p25519 := by
-  have hp0 : p0.toNat = 2 ^ 64 - 19 := by decide
-  have hp1 : p1.toNat = 2 ^ 64 - 1 := by decide
-  have hp2 : p2.toNat = 2 ^ 64 - 1 := by decide
-  have hp3 : p3.toNat = 2 ^ 63 - 1 := by decide
-  have s1 : (2 ^ 64 - 1) + 2 ^ 64 * (2 ^ 63 - 1) = 2 ^ 127 - 1 := by
-    rw [subk_telescope (Nat.one_le_pow _ _ (by decide))
-      (Nat.one_le_pow _ _ (by decide)), ← Nat.pow_add]
-  have s2 : (2 ^ 64 - 1) + 2 ^ 64 * (2 ^ 127 - 1) = 2 ^ 191 - 1 := by
-    rw [subk_telescope (Nat.one_le_pow _ _ (by decide))
-      (Nat.one_le_pow _ _ (by decide)), ← Nat.pow_add]
-  have s3 : (2 ^ 64 - 19) + 2 ^ 64 * (2 ^ 191 - 1) = 2 ^ 255 - 19 := by
-    rw [subk_telescope (by decide : 19 ≤ 2 ^ 64) (Nat.one_le_pow _ _ (by decide)), ← Nat.pow_add]
-  rw [limbsVal4_eq, hp0, hp1, hp2, hp3, s1, s2, s3]; rfl
+  have hp : p0.toNat = 2 ^ 64 - 19 ∧ p1.toNat = 2 ^ 64 - 1 ∧
+      p2.toNat = 2 ^ 64 - 1 ∧ p3.toNat = 2 ^ 63 - 1 := by decide
+  have s1 := pow64_tel (Nat.one_le_pow _ _ (by decide)) (Nat.one_le_pow 63 2 (by decide))
+  have s2 := pow64_tel (Nat.one_le_pow _ _ (by decide)) (Nat.one_le_pow 127 2 (by decide))
+  have s3 := pow64_tel (by decide : 19 ≤ 2 ^ 64) (Nat.one_le_pow 191 2 (by decide))
+  rw [limbsVal4_eq, hp.1, hp.2.1, hp.2.2.1, hp.2.2.2, s1, s2, s3]; rfl
 
 theorem two_p25519_lt : 2 * p25519 < 2 ^ 256 := by
-  have h256 : (2 : Nat) ^ 256 = 2 * 2 ^ 255 := by
-    rw [show (256 : Nat) = 1 + 255 from rfl, Nat.pow_add, Nat.pow_one]
-  unfold p25519
-  have h19 : 19 ≤ (2 : Nat) ^ 255 := Nat.le_trans (by decide : 19 ≤ 2 ^ 64)
-    (Nat.pow_le_pow_right (by decide) (by decide))
-  rw [h256]
-  generalize (2 : Nat) ^ 255 = K at h19 ⊢
-  omega
+  have h19 : 19 ≤ (2 : Nat) ^ 255 :=
+    Nat.le_trans (by decide : 19 ≤ 2 ^ 64) (Nat.pow_le_pow_right (by decide) (by decide))
+  rw [show (2 : Nat) ^ 256 = 2 * 2 ^ 255 by
+    rw [show (256 : Nat) = 1 + 255 from rfl, Nat.pow_add, Nat.pow_one], p25519]
+  generalize (2 : Nat) ^ 255 = K at h19 ⊢; omega
 
 private theorem B4_eq_pow256 : (2 : Nat) ^ 64 * (2 ^ 64 * (2 ^ 64 * 2 ^ 64)) = 2 ^ 256 := by
   rw [← Nat.pow_add, ← Nat.pow_add, ← Nat.pow_add]
 
-private theorem mulRow0_alg {B a0 a1 a2 a3 b0 r0 h0 l1 h1 r1 l2 h2 r2 l3 h3 r3 r4 : Nat}
-    {c0 c1 c2 c3 : Bool}
-    (hm0 : h0 * B + r0 = a0 * b0) (hm1 : h1 * B + l1 = a1 * b0)
-    (hm2 : h2 * B + l2 = a2 * b0) (hm3 : h3 * B + l3 = a3 * b0)
-    (ha0 : c0.toNat * B + r1 = h0 + l1)
-    (ha1 : c1.toNat * B + r2 = h1 + l2 + c0.toNat)
-    (ha2 : c2.toNat * B + r3 = h2 + l3 + c1.toNat)
-    (ha3 : c3.toNat * B + r4 = h3 + c2.toNat) :
-    c3.toNat * (B * (B * (B * (B * B)))) +
-      (r0 + B * (r1 + B * (r2 + B * (r3 + B * r4)))) =
-      (a0 + B * (a1 + B * (a2 + B * a3))) * b0 := by
-  calc c3.toNat * (B * (B * (B * (B * B)))) + (r0 + B * (r1 + B * (r2 + B * (r3 + B * r4))))
-      = r0 + B * (r1 + B * (r2 + B * (r3 + B * (c3.toNat * B + r4)))) := by
-          simp only [Nat.mul_add, ← Nat.mul_assoc]; ac_rfl
-    _ = r0 + B * (r1 + B * (r2 + B * ((c2.toNat * B + r3) + B * h3))) := by
-          rw [ha3]; simp only [Nat.mul_add]; ac_rfl
-    _ = r0 + B * (r1 + B * ((c1.toNat * B + r2) + B * (h2 + (l3 + B * h3)))) := by
-          rw [ha2]; simp only [Nat.mul_add]; ac_rfl
-    _ = r0 + B * ((c0.toNat * B + r1) + B * (h1 + l2 + B * (h2 + (l3 + B * h3)))) := by
-          rw [ha1]; simp only [Nat.mul_add]; ac_rfl
-    _ = (r0 + B * h0) + B * ((l1 + B * h1) + B * ((l2 + B * h2) + B * (l3 + B * h3))) := by
-          rw [ha0]; simp only [Nat.mul_add]; ac_rfl
-    _ = a0 * b0 + B * (a1 * b0 + B * (a2 * b0 + B * (a3 * b0))) := by
-          rw [Nat.add_comm r0, Nat.mul_comm B h0, hm0,
-              Nat.add_comm l1, Nat.mul_comm B h1, hm1,
-              Nat.add_comm l2, Nat.mul_comm B h2, hm2,
-              Nat.add_comm l3, Nat.mul_comm B h3, hm3]
-    _ = (a0 + B * (a1 + B * (a2 + B * a3))) * b0 := by
-          simp only [Nat.add_mul, Nat.mul_assoc]
+local macro "step_limbs" : tactic => `(tactic| (
+  repeat (first
+    | refine wp_umulw_mk _ _ _ fun _ _ _ => ?_
+    | refine wp_addc_mk _ _ _ _ fun _ _ _ => ?_
+    | refine wp_subb_mk _ _ _ _ fun _ _ _ => ?_)
+  simp only [Arg.val, Bool.toNat_false, Nat.add_zero] at *))
+
+/-! ## `LimbSchoolbookKit`: shared 4-limb algebraic, memory, and WP combinators -/
+
+section LimbSchoolbookKit
+
+private theorem list4_eq {α : Type} {xs : List α} (h : xs.length = 4) :
+    ∃ x0 x1 x2 x3, xs = [x0, x1, x2, x3] := by
+  rcases xs with _ | ⟨x0, _ | ⟨x1, _ | ⟨x2, _ | ⟨x3, _ | _⟩⟩⟩⟩ <;> simp at h
+  exact ⟨x0, x1, x2, x3, rfl⟩
 
 private theorem mulRowAcc_alg
     {B a0 a1 a2 a3 bj acc0 acc1 acc2 acc3 l0 h0 l1 h1 l2 h2 l3 h3 u1 u2 u3 u4 o0 o1 o2 o3 o4 : Nat}
     {cx0 cx1 cx2 cx3 cx4 ox0 ox1 ox2 ox3 : Bool}
     (hm0 : h0 * B + l0 = a0 * bj) (hm1 : h1 * B + l1 = a1 * bj)
     (hm2 : h2 * B + l2 = a2 * bj) (hm3 : h3 * B + l3 = a3 * bj)
-    (hcx0 : cx0.toNat * B + o0 = acc0 + l0)
-    (hox0 : ox0.toNat * B + u1 = acc1 + h0)
+    (hcx0 : cx0.toNat * B + o0 = acc0 + l0) (hox0 : ox0.toNat * B + u1 = acc1 + h0)
     (hcx1 : cx1.toNat * B + o1 = u1 + l1 + cx0.toNat)
     (hox1 : ox1.toNat * B + u2 = acc2 + h1 + ox0.toNat)
     (hcx2 : cx2.toNat * B + o2 = u2 + l2 + cx1.toNat)
     (hox2 : ox2.toNat * B + u3 = acc3 + h2 + ox1.toNat)
-    (hcx3 : cx3.toNat * B + o3 = u3 + l3 + cx2.toNat)
-    (hox3 : ox3.toNat * B + u4 = h3 + ox2.toNat)
+    (hcx3 : cx3.toNat * B + o3 = u3 + l3 + cx2.toNat) (hox3 : ox3.toNat * B + u4 = h3 + ox2.toNat)
     (hcx4 : cx4.toNat * B + o4 = u4 + cx3.toNat) :
     (ox3.toNat + cx4.toNat) * (B * (B * (B * (B * B)))) +
       (o0 + B * (o1 + B * (o2 + B * (o3 + B * o4)))) =
@@ -195,15 +168,30 @@ private theorem mulRowAcc_alg
     _ = ((l0 + B * h0) + B * ((l1 + B * h1) + B * ((l2 + B * h2) + B * (l3 + B * h3)))) +
         (acc0 + B * (acc1 + B * (acc2 + B * acc3))) := by
           rw [hcx0]; simp only [Nat.mul_add]; ac_rfl
-    _ = (a0 * bj + B * (a1 * bj + B * (a2 * bj + B * (a3 * bj)))) +
-        (acc0 + B * (acc1 + B * (acc2 + B * acc3))) := by
-          rw [Nat.add_comm l0, Nat.mul_comm B h0, hm0,
-              Nat.add_comm l1, Nat.mul_comm B h1, hm1,
-              Nat.add_comm l2, Nat.mul_comm B h2, hm2,
-              Nat.add_comm l3, Nat.mul_comm B h3, hm3]
     _ = (a0 + B * (a1 + B * (a2 + B * a3))) * bj +
         (acc0 + B * (acc1 + B * (acc2 + B * acc3))) := by
+          rw [Nat.add_comm l0, Nat.mul_comm B h0, hm0, Nat.add_comm l1, Nat.mul_comm B h1, hm1,
+              Nat.add_comm l2, Nat.mul_comm B h2, hm2, Nat.add_comm l3, Nat.mul_comm B h3, hm3]
           simp only [Nat.add_mul, Nat.mul_assoc]
+
+private theorem mulRow0_alg {B a0 a1 a2 a3 b0 r0 h0 l1 h1 r1 l2 h2 r2 l3 h3 r3 r4 : Nat}
+    {c0 c1 c2 c3 : Bool}
+    (hm0 : h0 * B + r0 = a0 * b0) (hm1 : h1 * B + l1 = a1 * b0)
+    (hm2 : h2 * B + l2 = a2 * b0) (hm3 : h3 * B + l3 = a3 * b0)
+    (ha0 : c0.toNat * B + r1 = h0 + l1) (ha1 : c1.toNat * B + r2 = h1 + l2 + c0.toNat)
+    (ha2 : c2.toNat * B + r3 = h2 + l3 + c1.toNat) (ha3 : c3.toNat * B + r4 = h3 + c2.toNat) :
+    c3.toNat * (B * (B * (B * (B * B)))) +
+      (r0 + B * (r1 + B * (r2 + B * (r3 + B * r4)))) =
+      (a0 + B * (a1 + B * (a2 + B * a3))) * b0 := by
+  have h := mulRowAcc_alg (B := B) (a0 := a0) (a1 := a1) (a2 := a2) (a3 := a3) (bj := b0)
+    (acc0 := 0) (acc1 := 0) (acc2 := 0) (acc3 := 0) (l0 := r0) (h0 := h0) (l1 := l1) (h1 := h1)
+    (l2 := l2) (h2 := h2) (l3 := l3) (h3 := h3) (u1 := h0) (u2 := h1) (u3 := h2) (u4 := h3)
+    (o0 := r0) (o1 := r1) (o2 := r2) (o3 := r3) (o4 := r4)
+    (cx0 := false) (cx1 := c0) (cx2 := c1) (cx3 := c2) (cx4 := c3)
+    (ox0 := false) (ox1 := false) (ox2 := false) (ox3 := false)
+    hm0 hm1 hm2 hm3 (by simp) (by simp) (by simpa using ha0) (by simp)
+    (by simpa using ha1) (by simp) (by simpa using ha2) (by simp) (by simpa using ha3)
+  simpa using h
 
 private theorem mulRowAcc_bound {B A acc b : Nat}
     (hA : A < B * (B * (B * B))) (hacc : acc < B * (B * (B * B))) (hb : b < B) :
@@ -226,10 +214,10 @@ theorem load4K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem
     (hk : wp Γ Q X (k x0 x1 x2 x3) m) :
     wp Γ Q X (load4K p k) m := by
   unfold load4K; wp_unfold
-  refine ⟨x0, by simpa using loadVal_array64 (i := 0) (by simp) hm, ?_⟩
-  refine ⟨x1, by simpa using loadVal_array64 (i := 1) (by simp) hm, ?_⟩
-  refine ⟨x2, by simpa using loadVal_array64 (i := 2) (by simp) hm, ?_⟩
-  refine ⟨x3, by simpa using loadVal_array64 (i := 3) (by simp) hm, hk⟩
+  exact ⟨x0, by simpa using loadVal_array64 (i := 0) (by simp) hm,
+         x1, by simpa using loadVal_array64 (i := 1) (by simp) hm,
+         x2, by simpa using loadVal_array64 (i := 2) (by simp) hm,
+         x3, by simpa using loadVal_array64 (i := 3) (by simp) hm, hk⟩
 
 theorem store4K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
     {p : BitVec 64} {old : List (BitVec 64)} {x0 x1 x2 x3 : BitVec 64} {R : Mem 64 → Prop}
@@ -237,16 +225,14 @@ theorem store4K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Me
     (hlen : old.length = 4) (hm : (array64 p old ⋆ R) m)
     (hk : ∀ m', (array64 p [x0, x1, x2, x3] ⋆ R) m' → wp Γ Q X k m') :
     wp Γ Q X (store4K p x0 x1 x2 x3 k) m := by
-  rcases old with _ | ⟨o0, _ | ⟨o1, _ | ⟨o2, _ | ⟨o3, _ | _⟩⟩⟩⟩ <;> simp at hlen
+  obtain ⟨o0, o1, o2, o3, rfl⟩ := list4_eq hlen
   unfold store4K; wp_unfold
   obtain ⟨ok0, hm0⟩ := store_array64 (i := 0) x0 (by simp) hm
-  refine ⟨by simpa using ok0, ?_⟩
   obtain ⟨ok1, hm1⟩ := store_array64 (i := 1) x1 (by simp) hm0
-  refine ⟨by simpa using ok1, ?_⟩
   obtain ⟨ok2, hm2⟩ := store_array64 (i := 2) x2 (by simp) hm1
-  refine ⟨by simpa using ok2, ?_⟩
   obtain ⟨ok3, hm3⟩ := store_array64 (i := 3) x3 (by simp) hm2
-  exact ⟨by simpa using ok3, hk _ (by simpa using hm3)⟩
+  exact ⟨by simpa using ok0, by simpa using ok1, by simpa using ok2,
+    by simpa using ok3, hk _ (by simpa using hm3)⟩
 
 theorem store8K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
     {p : BitVec 64} {old : List (BitVec 64)} {r0 r1 r2 r3 r4 r5 r6 r7 : BitVec 64}
@@ -279,24 +265,14 @@ theorem mulRow0K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : M
       limbsVal [r0, r1, r2, r3, r4] = limbsVal [a0, a1, a2, a3] * b0.toNat →
       wp Γ Q X (k r0 r1 r2 r3 r4) m) :
     wp Γ Q X (mulRow0K a0 a1 a2 a3 b0 k) m := by
-  unfold mulRow0K
-  refine wp_umulw_mk _ _ _ fun r0 h0 hm0 => ?_
-  refine wp_umulw_mk _ _ _ fun l1 h1 hm1 => ?_
-  refine wp_addc_mk _ _ _ _ fun r1 c0 ha0 => ?_
-  refine wp_umulw_mk _ _ _ fun l2 h2 hm2 => ?_
-  refine wp_addc_mk _ _ _ _ fun r2 c1 ha1 => ?_
-  refine wp_umulw_mk _ _ _ fun l3 h3 hm3 => ?_
-  refine wp_addc_mk _ _ _ _ fun r3 c2 ha2 => ?_
-  refine wp_addc_mk _ _ _ _ fun r4 c3 ha3 => ?_
-  simp only [Arg.val, Bool.toNat_false, Nat.add_zero] at ha0 ha1 ha2 ha3 hm0 hm1 hm2 hm3
+  unfold mulRow0K; step_limbs
+  rename_i r0 h0 hm0 l1 h1 hm1 r1 c0 ha0 l2 h2 hm2 r2 c1 ha1 l3 h3 hm3 r3 c2 ha2 r4 c3 ha3
   refine hk r0 r1 r2 r3 r4 ?_
   have halg := mulRow0_alg hm0 hm1 hm2 hm3 ha0 ha1 ha2 ha3
   have hA : limbsVal [a0, a1, a2, a3] < 2 ^ 64 * (2 ^ 64 * (2 ^ 64 * 2 ^ 64)) := by
-    rw [B4_eq_pow256]; exact limbsVal_lt_pow [a0, a1, a2, a3]
-  have hlt : limbsVal [a0, a1, a2, a3] * b0.toNat <
-      2 ^ 64 * (2 ^ 64 * (2 ^ 64 * (2 ^ 64 * 2 ^ 64))) := by
-    simpa using mulRowAcc_bound hA (Nat.mul_pos (Nat.two_pow_pos _) (Nat.mul_pos (Nat.two_pow_pos _)
-      (Nat.mul_pos (Nat.two_pow_pos _) (Nat.two_pow_pos _)))) b0.isLt
+    rw [B4_eq_pow256]; exact limbsVal_lt_pow _
+  have hlt := mulRowAcc_bound hA (Nat.mul_pos (Nat.two_pow_pos _) (Nat.mul_pos (Nat.two_pow_pos _)
+    (Nat.mul_pos (Nat.two_pow_pos _) (Nat.two_pow_pos _)))) b0.isLt
   rw [limbsVal5_eq, limbsVal4_eq]
   exact drop_high_carry halg (by simpa [limbsVal4_eq] using hlt)
 
@@ -308,31 +284,17 @@ theorem mulRowAccK_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m :
         limbsVal [a0, a1, a2, a3] * bj.toNat + limbsVal [acc0, acc1, acc2, acc3] →
       wp Γ Q X (k o0 o1 o2 o3 o4) m) :
     wp Γ Q X (mulRowAccK a0 a1 a2 a3 bj acc0 acc1 acc2 acc3 k) m := by
-  unfold mulRowAccK
-  refine wp_umulw_mk _ _ _ fun l0 h0 hm0 => ?_
-  refine wp_addc_mk _ _ _ _ fun o0 cx0 hcx0 => ?_
-  refine wp_umulw_mk _ _ _ fun l1 h1 hm1 => ?_
-  refine wp_addc_mk _ _ _ _ fun u1 ox0 hox0 => ?_
-  refine wp_addc_mk _ _ _ _ fun o1 cx1 hcx1 => ?_
-  refine wp_umulw_mk _ _ _ fun l2 h2 hm2 => ?_
-  refine wp_addc_mk _ _ _ _ fun u2 ox1 hox1 => ?_
-  refine wp_addc_mk _ _ _ _ fun o2 cx2 hcx2 => ?_
-  refine wp_umulw_mk _ _ _ fun l3 h3 hm3 => ?_
-  refine wp_addc_mk _ _ _ _ fun u3 ox2 hox2 => ?_
-  refine wp_addc_mk _ _ _ _ fun o3 cx3 hcx3 => ?_
-  refine wp_addc_mk _ _ _ _ fun u4 ox3 hox3 => ?_
-  refine wp_addc_mk _ _ _ _ fun o4 cx4 hcx4 => ?_
-  simp only [Arg.val, Bool.toNat_false, Nat.add_zero]
-    at hm0 hm1 hm2 hm3 hcx0 hox0 hcx1 hox1 hcx2 hox2 hcx3 hox3 hcx4
+  unfold mulRowAccK; step_limbs
+  rename_i l0 h0 hm0 o0 cx0 hcx0 l1 h1 hm1 u1 ox0 hox0 o1 cx1 hcx1 l2 h2 hm2 u2 ox1 hox1
+    o2 cx2 hcx2 l3 h3 hm3 u3 ox2 hox2 o3 cx3 hcx3 u4 ox3 hox3 o4 cx4 hcx4
   refine hk o0 o1 o2 o3 o4 ?_
   have halg := mulRowAcc_alg hm0 hm1 hm2 hm3 hcx0 hox0 hcx1 hox1 hcx2 hox2 hcx3 hox3 hcx4
   have hA : limbsVal [a0, a1, a2, a3] < 2 ^ 64 * (2 ^ 64 * (2 ^ 64 * 2 ^ 64)) := by
-    rw [B4_eq_pow256]; exact limbsVal_lt_pow [a0, a1, a2, a3]
+    rw [B4_eq_pow256]; exact limbsVal_lt_pow _
   have hacc : limbsVal [acc0, acc1, acc2, acc3] < 2 ^ 64 * (2 ^ 64 * (2 ^ 64 * 2 ^ 64)) := by
-    rw [B4_eq_pow256]; exact limbsVal_lt_pow [acc0, acc1, acc2, acc3]
-  have hlt := mulRowAcc_bound hA hacc bj.isLt
+    rw [B4_eq_pow256]; exact limbsVal_lt_pow _
   rw [limbsVal5_eq, limbsVal4_eq, limbsVal4_eq]
-  exact drop_high_carry halg (by simpa [limbsVal4_eq] using hlt)
+  exact drop_high_carry halg (by simpa [limbsVal4_eq] using mulRowAcc_bound hA hacc bj.isLt)
 
 theorem add4K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
     (a0 a1 a2 a3 b0 b1 b2 b3 : BitVec 64)
@@ -342,16 +304,9 @@ theorem add4K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 
         limbsVal [a0, a1, a2, a3] + limbsVal [b0, b1, b2, b3] →
       wp Γ Q X (k s0 s1 s2 s3 c3) m) :
     wp Γ Q X (add4K a0 a1 a2 a3 b0 b1 b2 b3 k) m := by
-  unfold add4K
-  refine wp_addc_mk _ _ _ _ fun s0 c0 h0 => ?_
-  refine wp_addc_mk _ _ _ _ fun s1 c1 h1 => ?_
-  refine wp_addc_mk _ _ _ _ fun s2 c2 h2 => ?_
-  refine wp_addc_mk _ _ _ _ fun s3 c3 h3 => ?_
-  simp only [Arg.val, Bool.toNat_false, Nat.add_zero] at h0 h1 h2 h3
+  unfold add4K; step_limbs; rename_i s0 c0 h0 s1 c1 h1 s2 c2 h2 s3 c3 h3
   refine hk s0 s1 s2 s3 c3 ?_
-  have halg := add4_base h0 h1 h2 h3
-  rw [B4_eq_pow256] at halg
-  simpa [limbsVal4_eq] using halg
+  have halg := add4_base h0 h1 h2 h3; rw [B4_eq_pow256] at halg; simpa [limbsVal4_eq] using halg
 
 theorem sub4K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
     (a0 a1 a2 a3 b0 b1 b2 b3 : BitVec 64)
@@ -361,32 +316,60 @@ theorem sub4K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 
         limbsVal [a0, a1, a2, a3] + w3.toNat * 2 ^ 256 →
       wp Γ Q X (k d0 d1 d2 d3 w3) m) :
     wp Γ Q X (sub4K a0 a1 a2 a3 b0 b1 b2 b3 k) m := by
-  unfold sub4K
-  refine wp_subb_mk _ _ _ _ fun d0 w0 h0 => ?_
-  refine wp_subb_mk _ _ _ _ fun d1 w1 h1 => ?_
-  refine wp_subb_mk _ _ _ _ fun d2 w2 h2 => ?_
-  refine wp_subb_mk _ _ _ _ fun d3 w3 h3 => ?_
-  simp only [Arg.val, Bool.toNat_false, Nat.add_zero] at h0 h1 h2 h3
+  unfold sub4K; step_limbs; rename_i d0 w0 h0 d1 w1 h1 d2 w2 h2 d3 w3 h3
   refine hk d0 d1 d2 d3 w3 ?_
-  have halg := sub4_base h0 h1 h2 h3
-  rw [B4_eq_pow256] at halg
-  simpa [limbsVal4_eq] using halg
+  have halg := sub4_base h0 h1 h2 h3; rw [B4_eq_pow256] at halg; simpa [limbsVal4_eq] using halg
+
+theorem addImm4K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    (d0 d1 d2 d3 q0 q1 q2 q3 : BitVec 64)
+    (k : BitVec 64 → BitVec 64 → BitVec 64 → BitVec 64 → Bool → Expr Val Cont rs)
+    (hk : ∀ (s0 s1 s2 s3 : BitVec 64) (c3 : Bool),
+      c3.toNat * 2 ^ 256 + limbsVal [s0, s1, s2, s3] =
+        limbsVal [d0, d1, d2, d3] + limbsVal [q0, q1, q2, q3] →
+      wp Γ Q X (k s0 s1 s2 s3 c3) m) :
+    wp Γ Q X (addImm4K d0 d1 d2 d3 q0 q1 q2 q3 k) m := by
+  unfold addImm4K; step_limbs; rename_i s0 c0 hc0 s1 c1 hc1 s2 c2 hc2 s3 c3 hc3
+  refine hk s0 s1 s2 s3 c3 ?_
+  have halg := add4_base hc0 hc1 hc2 hc3; rw [B4_eq_pow256] at halg; simpa [limbsVal4_eq] using halg
 
 theorem select4K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
     (c : Bool) (x0 x1 x2 x3 y0 y1 y2 y3 : BitVec 64)
     (k : BitVec 64 → BitVec 64 → BitVec 64 → BitVec 64 → Expr Val Cont rs)
     (hk : wp Γ Q X (if c then k x0 x1 x2 x3 else k y0 y1 y2 y3) m) :
     wp Γ Q X (select4K c x0 x1 x2 x3 y0 y1 y2 y3 k) m := by
-  unfold select4K; wp_unfold
-  cases c <;> exact hk
+  unfold select4K; wp_unfold; cases c <;> exact hk
 
-/-! ## Top-level `wp` correctness proofs -/
+private theorem load2x4_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    {out pa pb : BitVec 64} {as bs out0 : List (BitVec 64)} {R : Mem 64 → Prop}
+    {k : BitVec 64 → BitVec 64 → BitVec 64 → BitVec 64 →
+         BitVec 64 → BitVec 64 → BitVec 64 → BitVec 64 → Expr Val Cont rs}
+    (has : as.length = 4) (hbs : bs.length = 4)
+    (hm : (array64 out out0 ⋆ array64 pa as ⋆ array64 pb bs ⋆ R) m)
+    (hk : ∀ a0 a1 a2 a3 b0 b1 b2 b3, as = [a0, a1, a2, a3] → bs = [b0, b1, b2, b3] →
+      wp Γ Q X (k a0 a1 a2 a3 b0 b1 b2 b3) m) :
+    wp Γ Q X (load4K pa fun a0 a1 a2 a3 => load4K pb fun b0 b1 b2 b3 =>
+      k a0 a1 a2 a3 b0 b1 b2 b3) m := by
+  obtain ⟨a0, a1, a2, a3, rfl⟩ := list4_eq has
+  obtain ⟨b0, b1, b2, b3, rfl⟩ := list4_eq hbs
+  refine load4K_spec a0 a1 a2 a3 (R := array64 out out0 ⋆ array64 pb _ ⋆ R) (sep_ac hm) ?_
+  refine load4K_spec b0 b1 b2 b3 (R := array64 out out0 ⋆ array64 pa _ ⋆ R) (sep_ac hm) ?_
+  exact hk a0 a1 a2 a3 b0 b1 b2 b3 rfl rfl
+
+private theorem select4_store4_spec {Γ : Env} {Q : Post []} {X : XPost} {m : Mem 64}
+    {out pa pb : BitVec 64} {as bs out0 : List (BitVec 64)} {R : Mem 64 → Prop}
+    (hout : out0.length = 4) (hm : (array64 out out0 ⋆ array64 pa as ⋆ array64 pb bs ⋆ R) m)
+    (c : Bool) (x0 x1 x2 x3 y0 y1 y2 y3 : BitVec 64)
+    (hk : ∀ m', (array64 out (if c then [x0, x1, x2, x3] else [y0, y1, y2, y3]) ⋆
+      array64 pa as ⋆ array64 pb bs ⋆ R) m' → Q () m') :
+    wp Γ Q X (select4K c x0 x1 x2 x3 y0 y1 y2 y3 fun r0 r1 r2 r3 =>
+      store4K out r0 r1 r2 r3 (.ret ())) m := by
+  refine select4K_spec c x0 x1 x2 x3 y0 y1 y2 y3 _ ?_
+  cases c <;> refine store4K_spec hout (R := array64 pa as ⋆ array64 pb bs ⋆ R)
+    (sep_ac hm) fun m' hm' => by wp_unfold; exact hk m' (sep_ac hm')
 
 private theorem mul4x4_combine {B A b0 b1 b2 b3 r0 r1 r2 t u v w : Nat}
-    (e0 : r0 + B * t = A * b0)
-    (e1 : r1 + B * u = A * b1 + t)
-    (e2 : r2 + B * v = A * b2 + u)
-    (e3 : w = A * b3 + v) :
+    (e0 : r0 + B * t = A * b0) (e1 : r1 + B * u = A * b1 + t)
+    (e2 : r2 + B * v = A * b2 + u) (e3 : w = A * b3 + v) :
     r0 + B * (r1 + B * (r2 + B * w)) = A * (b0 + B * (b1 + B * (b2 + B * b3))) := by
   calc r0 + B * (r1 + B * (r2 + B * w))
       = r0 + B * (r1 + B * ((r2 + B * v) + B * (A * b3))) := by
@@ -399,83 +382,78 @@ private theorem mul4x4_combine {B A b0 b1 b2 b3 r0 r1 r2 t u v w : Nat}
     _ = A * (b0 + B * (b1 + B * (b2 + B * b3))) := by
           simp only [Nat.mul_add, ← Nat.mul_assoc, Nat.mul_comm B A]
 
-theorem mul4x4_correct (Γ : Env) :
-    ∀ args m Q X, mul4x4Spec args m Q X → Func.spec Γ mul4x4 args m Q X := by
-  rintro ⟨out, pa, pb, ⟨⟩⟩ m Q X ⟨as, bs, out0, R, has, hbs, hout, hm, hQ⟩
-  rcases as with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | _⟩⟩⟩⟩ <;> simp at has
-  rcases bs with _ | ⟨b0, _ | ⟨b1, _ | ⟨b2, _ | ⟨b3, _ | _⟩⟩⟩⟩ <;> simp at hbs
-  dsimp only [Func.spec, Func.wp, mul4x4]
-  refine load4K_spec a0 a1 a2 a3 (R := array64 out out0 ⋆ array64 pb [b0, b1, b2, b3] ⋆ R)
-    (sep_ac hm) ?_
-  refine load4K_spec b0 b1 b2 b3 (R := array64 out out0 ⋆ array64 pa [a0, a1, a2, a3] ⋆ R)
-    (sep_ac hm) ?_
+private theorem mul4x4_rows_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    (a0 a1 a2 a3 b0 b1 b2 b3 : BitVec 64)
+    (k : BitVec 64 → BitVec 64 → BitVec 64 → BitVec 64 →
+         BitVec 64 → BitVec 64 → BitVec 64 → BitVec 64 → Expr Val Cont rs)
+    (hk : ∀ r0 r1 r2 r3 r4 r5 r6 r7 : BitVec 64,
+      limbsVal [r0, r1, r2, r3, r4, r5, r6, r7] =
+        limbsVal [a0, a1, a2, a3] * limbsVal [b0, b1, b2, b3] →
+      wp Γ Q X (k r0 r1 r2 r3 r4 r5 r6 r7) m) :
+    wp Γ Q X
+      (mulRow0K a0 a1 a2 a3 b0 fun r0 t1 t2 t3 t4 =>
+       mulRowAccK a0 a1 a2 a3 b1 t1 t2 t3 t4 fun r1 u2 u3 u4 u5 =>
+       mulRowAccK a0 a1 a2 a3 b2 u2 u3 u4 u5 fun r2 v3 v4 v5 v6 =>
+       mulRowAccK a0 a1 a2 a3 b3 v3 v4 v5 v6 fun r3 r4 r5 r6 r7 =>
+       k r0 r1 r2 r3 r4 r5 r6 r7) m := by
   refine mulRow0K_spec a0 a1 a2 a3 b0 _ fun r0 t1 t2 t3 t4 hr0 => ?_
   refine mulRowAccK_spec a0 a1 a2 a3 b1 t1 t2 t3 t4 _ fun r1 u2 u3 u4 u5 hr1 => ?_
   refine mulRowAccK_spec a0 a1 a2 a3 b2 u2 u3 u4 u5 _ fun r2 v3 v4 v5 v6 hr2 => ?_
   refine mulRowAccK_spec a0 a1 a2 a3 b3 v3 v4 v5 v6 _ fun r3 r4 r5 r6 r7 hr3 => ?_
-  refine store8K_spec hout (R := array64 pa [a0, a1, a2, a3] ⋆ array64 pb [b0, b1, b2, b3] ⋆ R)
-    (sep_ac hm) fun m' hm' => ?_
-  wp_unfold
-  refine hQ [r0, r1, r2, r3, r4, r5, r6, r7] m' rfl ?_ (sep_ac hm')
+  refine hk r0 r1 r2 r3 r4 r5 r6 r7 ?_
   have hcomb := mul4x4_combine (B := 2 ^ 64) (A := limbsVal [a0, a1, a2, a3])
     (by simpa [limbsVal] using hr0) (by simpa [limbsVal] using hr1)
     (by simpa [limbsVal] using hr2) hr3
   simpa [limbsVal4_eq, limbsVal] using hcomb
 
+end LimbSchoolbookKit
+
+/-! ## Top-level `wp` correctness proofs -/
+
+theorem mul4x4_correct (Γ : Env) :
+    ∀ args m Q X, mul4x4Spec args m Q X → Func.spec Γ mul4x4 args m Q X := by
+  rintro ⟨out, pa, pb, ⟨⟩⟩ m Q X ⟨as, bs, out0, R, has, hbs, hout, hm, hQ⟩
+  dsimp only [Func.spec, Func.wp, mul4x4]
+  refine load2x4_spec has hbs hm fun a0 a1 a2 a3 b0 b1 b2 b3 has_eq hbs_eq => ?_
+  subst has_eq; subst hbs_eq
+  refine mul4x4_rows_spec a0 a1 a2 a3 b0 b1 b2 b3 _ fun r0 r1 r2 r3 r4 r5 r6 r7 hval => ?_
+  refine store8K_spec hout (R := array64 pa [a0, a1, a2, a3] ⋆ array64 pb [b0, b1, b2, b3] ⋆ R)
+    (sep_ac hm) fun m' hm' => by wp_unfold; exact hQ _ m' rfl hval (sep_ac hm')
+
 theorem addMod25519_correct (Γ : Env) :
     ∀ args m Q X, addMod25519Spec args m Q X → Func.spec Γ addMod25519 args m Q X := by
   rintro ⟨out, pa, pb, ⟨⟩⟩ m Q X ⟨as, bs, out0, R, has, hbs, hout, hAlt, hBlt, hm, hQ⟩
-  rcases as with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | _⟩⟩⟩⟩ <;> simp at has
-  rcases bs with _ | ⟨b0, _ | ⟨b1, _ | ⟨b2, _ | ⟨b3, _ | _⟩⟩⟩⟩ <;> simp at hbs
   dsimp only [Func.spec, Func.wp, addMod25519]
-  refine load4K_spec a0 a1 a2 a3 (R := array64 out out0 ⋆ array64 pb [b0, b1, b2, b3] ⋆ R)
-    (sep_ac hm) ?_
-  refine load4K_spec b0 b1 b2 b3 (R := array64 out out0 ⋆ array64 pa [a0, a1, a2, a3] ⋆ R)
-    (sep_ac hm) ?_
+  refine load2x4_spec has hbs hm fun a0 a1 a2 a3 b0 b1 b2 b3 has_eq hbs_eq => ?_
+  subst has_eq; subst hbs_eq
   refine add4K_spec a0 a1 a2 a3 b0 b1 b2 b3 _ fun s0 s1 s2 s3 c3 hsum => ?_
   have hSlt : limbsVal [a0, a1, a2, a3] + limbsVal [b0, b1, b2, b3] < 2 ^ 256 := by
     have h2 := two_p25519_lt
-    generalize (2 : Nat) ^ 256 = M at h2 ⊢
-    generalize p25519 = P at hAlt hBlt h2
-    omega
-  have hS : limbsVal [s0, s1, s2, s3] = limbsVal [a0, a1, a2, a3] + limbsVal [b0, b1, b2, b3] :=
-    drop_high_carry hsum hSlt
-  refine wp_subb_mk _ _ _ _ fun d0 w0 hw0 => ?_
-  refine wp_subb_mk _ _ _ _ fun d1 w1 hw1 => ?_
-  refine wp_subb_mk _ _ _ _ fun d2 w2 hw2 => ?_
-  refine wp_subb_mk _ _ _ _ fun d3 w3 hw3 => ?_
-  simp only [Arg.val, Bool.toNat_false, Nat.add_zero] at hw0 hw1 hw2 hw3
+    generalize (2 : Nat) ^ 256 = M at h2 ⊢; generalize p25519 = P at hAlt hBlt h2; omega
+  have hS := drop_high_carry hsum hSlt
+  step_limbs; rename_i d0 w0 hw0 d1 w1 hw1 d2 w2 hw2 d3 w3 hw3
   have hsub : limbsVal [d0, d1, d2, d3] + p25519 =
       limbsVal [s0, s1, s2, s3] + w3.toNat * 2 ^ 256 := by
-    have h := sub4_base hw0 hw1 hw2 hw3
-    rw [B4_eq_pow256] at h
-    rw [← limbsVal_p25519, limbsVal4_eq, limbsVal4_eq, limbsVal4_eq]
-    exact h
+    have h := sub4_base hw0 hw1 hw2 hw3; rw [B4_eq_pow256] at h
+    rw [← limbsVal_p25519, limbsVal4_eq, limbsVal4_eq, limbsVal4_eq]; exact h
   clear hw0 hw1 hw2 hw3 hsum hSlt
-  have hDlt : limbsVal [d0, d1, d2, d3] < 2 ^ 256 := limbsVal4_lt_pow256 d0 d1 d2 d3
-  refine select4K_spec w3 s0 s1 s2 s3 d0 d1 d2 d3 _ ?_
-  generalize (2 : Nat) ^ 256 = M at hsub hDlt
-  generalize p25519 = P at hAlt hBlt hsub hQ
+  have hDlt := limbsVal4_lt_pow256 d0 d1 d2 d3
+  refine select4_store4_spec hout hm w3 s0 s1 s2 s3 d0 d1 d2 d3 fun m' hm' => ?_
+  generalize (2 : Nat) ^ 256 = M at hsub hDlt; generalize p25519 = P at hAlt hBlt hsub hQ
   cases w3
-  · simp only [Bool.false_eq_true, ↓reduceIte, Bool.toNat_false,
-      Nat.zero_mul, Nat.add_zero] at hsub ⊢
-    refine store4K_spec hout (R := array64 pa [a0, a1, a2, a3] ⋆ array64 pb [b0, b1, b2, b3] ⋆ R)
-      (sep_ac hm) fun m' hm' => ?_
-    wp_unfold
+  · simp only [Bool.false_eq_true, ↓reduceIte, Bool.toNat_false, Nat.zero_mul, Nat.add_zero]
+      at hsub hm' ⊢
     have hDltP : limbsVal [d0, d1, d2, d3] < P := by omega
     have hmod : limbsVal [d0, d1, d2, d3] =
         (limbsVal [a0, a1, a2, a3] + limbsVal [b0, b1, b2, b3]) % P := by
       rw [← hS, ← hsub, Nat.add_mod_right, Nat.mod_eq_of_lt hDltP]
-    exact hQ [d0, d1, d2, d3] m' rfl hmod hDltP (sep_ac hm')
-  · simp only [↓reduceIte, Bool.toNat_true, Nat.one_mul] at hsub ⊢
-    refine store4K_spec hout (R := array64 pa [a0, a1, a2, a3] ⋆ array64 pb [b0, b1, b2, b3] ⋆ R)
-      (sep_ac hm) fun m' hm' => ?_
-    wp_unfold
+    exact hQ _ m' rfl hmod hDltP hm'
+  · simp only [↓reduceIte, Bool.toNat_true, Nat.one_mul] at hsub hm' ⊢
     have hSltP : limbsVal [s0, s1, s2, s3] < P := by omega
     have hmod : limbsVal [s0, s1, s2, s3] =
         (limbsVal [a0, a1, a2, a3] + limbsVal [b0, b1, b2, b3]) % P := by
       rw [← hS, Nat.mod_eq_of_lt hSltP]
-    exact hQ [s0, s1, s2, s3] m' rfl hmod hSltP (sep_ac hm')
+    exact hQ _ m' rfl hmod hSltP hm'
 
 private theorem subMod_arith {A B D S P M : Nat} {w c : Bool}
     (hA : A < P) (hB : B < P) (hD : D < M) (hS : S < M)
@@ -483,198 +461,38 @@ private theorem subMod_arith {A B D S P M : Nat} {w c : Bool}
     (w = false → D = (if B ≤ A then A - B else A + P - B) ∧ D < P) ∧
     (w = true → S = (if B ≤ A then A - B else A + P - B) ∧ S < P) := by
   constructor
-  · intro hw; subst hw
-    simp only [Bool.toNat_false, Nat.zero_mul, Nat.add_zero] at hsub
+  · intro hw; subst hw; simp only [Bool.toNat_false, Nat.zero_mul, Nat.add_zero] at hsub
     have hle : B ≤ A := by omega
     simp only [hle, ↓reduceIte]; omega
-  · intro hw; subst hw
-    simp only [Bool.toNat_true, Nat.one_mul] at hsub
+  · intro hw; subst hw; simp only [Bool.toNat_true, Nat.one_mul] at hsub
     have hgt : ¬ B ≤ A := by omega
     cases c
     · simp only [Bool.toNat_false, Nat.zero_mul, Nat.zero_add] at hadd; omega
-    · simp only [Bool.toNat_true, Nat.one_mul] at hadd
-      simp only [hgt, ↓reduceIte]; omega
-
-theorem addImm4K_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
-    (d0 d1 d2 d3 q0 q1 q2 q3 : BitVec 64)
-    (k : BitVec 64 → BitVec 64 → BitVec 64 → BitVec 64 → Bool → Expr Val Cont rs)
-    (hk : ∀ (s0 s1 s2 s3 : BitVec 64) (c3 : Bool),
-      c3.toNat * 2 ^ 256 + limbsVal [s0, s1, s2, s3] =
-        limbsVal [d0, d1, d2, d3] + limbsVal [q0, q1, q2, q3] →
-      wp Γ Q X (k s0 s1 s2 s3 c3) m) :
-    wp Γ Q X (addImm4K d0 d1 d2 d3 q0 q1 q2 q3 k) m := by
-  unfold addImm4K
-  refine wp_addc_mk _ _ _ _ fun s0 c0 hc0 => ?_
-  refine wp_addc_mk _ _ _ _ fun s1 c1 hc1 => ?_
-  refine wp_addc_mk _ _ _ _ fun s2 c2 hc2 => ?_
-  refine wp_addc_mk _ _ _ _ fun s3 c3 hc3 => ?_
-  simp only [Arg.val, Bool.toNat_false, Nat.add_zero] at hc0 hc1 hc2 hc3
-  refine hk s0 s1 s2 s3 c3 ?_
-  have halg := add4_base hc0 hc1 hc2 hc3
-  rw [B4_eq_pow256] at halg
-  simpa [limbsVal4_eq] using halg
+    · simp only [Bool.toNat_true, Nat.one_mul] at hadd; simp only [hgt, ↓reduceIte]; omega
 
 theorem subMod25519_correct (Γ : Env) :
     ∀ args m Q X, subMod25519Spec args m Q X → Func.spec Γ subMod25519 args m Q X := by
   rintro ⟨out, pa, pb, ⟨⟩⟩ m Q X ⟨as, bs, out0, R, has, hbs, hout, hAlt, hBlt, hm, hQ⟩
-  rcases as with _ | ⟨a0, _ | ⟨a1, _ | ⟨a2, _ | ⟨a3, _ | _⟩⟩⟩⟩ <;> simp at has
-  rcases bs with _ | ⟨b0, _ | ⟨b1, _ | ⟨b2, _ | ⟨b3, _ | _⟩⟩⟩⟩ <;> simp at hbs
   dsimp only [Func.spec, Func.wp, subMod25519]
-  refine load4K_spec a0 a1 a2 a3 (R := array64 out out0 ⋆ array64 pb [b0, b1, b2, b3] ⋆ R)
-    (sep_ac hm) ?_
-  refine load4K_spec b0 b1 b2 b3 (R := array64 out out0 ⋆ array64 pa [a0, a1, a2, a3] ⋆ R)
-    (sep_ac hm) ?_
+  refine load2x4_spec has hbs hm fun a0 a1 a2 a3 b0 b1 b2 b3 has_eq hbs_eq => ?_
+  subst has_eq; subst hbs_eq
   refine sub4K_spec a0 a1 a2 a3 b0 b1 b2 b3 _ fun d0 d1 d2 d3 w3 hsub => ?_
   refine addImm4K_spec d0 d1 d2 d3 p0 p1 p2 p3 _ fun s0 s1 s2 s3 c3 hadd => ?_
   rw [limbsVal_p25519] at hadd
   have ⟨hf, ht⟩ := subMod_arith hAlt hBlt (limbsVal4_lt_pow256 d0 d1 d2 d3)
     (limbsVal4_lt_pow256 s0 s1 s2 s3) hsub hadd
-  refine select4K_spec w3 s0 s1 s2 s3 d0 d1 d2 d3 _ ?_
+  refine select4_store4_spec hout hm w3 s0 s1 s2 s3 d0 d1 d2 d3 fun m' hm' => ?_
   cases w3
-  · simp only [Bool.false_eq_true, ↓reduceIte]
-    refine store4K_spec hout (R := array64 pa [a0, a1, a2, a3] ⋆ array64 pb [b0, b1, b2, b3] ⋆ R)
-      (sep_ac hm) fun m' hm' => ?_
-    wp_unfold
-    exact hQ [d0, d1, d2, d3] m' rfl (hf rfl).1 (hf rfl).2 (sep_ac hm')
-  · simp only [↓reduceIte]
-    refine store4K_spec hout (R := array64 pa [a0, a1, a2, a3] ⋆ array64 pb [b0, b1, b2, b3] ⋆ R)
-      (sep_ac hm) fun m' hm' => ?_
-    wp_unfold
-    exact hQ [s0, s1, s2, s3] m' rfl (ht rfl).1 (ht rfl).2 (sep_ac hm')
+  · simp only [Bool.false_eq_true, ↓reduceIte] at hm'
+    exact hQ _ m' rfl (hf rfl).1 (hf rfl).2 hm'
+  · simp only [↓reduceIte] at hm'
+    exact hQ _ m' rfl (ht rfl).1 (ht rfl).2 hm'
 
-/-! ## 100%-PHOAS `Func.Wf` proofs (no `TFlat`) -/
+/-! ## `Func.Wf` proofs (`t_wf_reify`) -/
 
-private theorem load4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {p₁ : V₁ i64} {p₂ : V₂ i64}
-    {k₁ : V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → Expr V₁ L₁ rs}
-    {k₂ : V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → Expr V₂ L₂ rs}
-    (hp : ⟨i64, p₁, p₂⟩ ∈ G)
-    (hk : ∀ x0₁ x0₂ x1₁ x1₂ x2₁ x2₂ x3₁ x3₂,
-      Wf (⟨i64, x3₁, x3₂⟩ :: ⟨i64, x2₁, x2₂⟩ :: ⟨i64, x1₁, x1₂⟩ :: ⟨i64, x0₁, x0₂⟩ :: G) D
-        (k₁ x0₁ x1₁ x2₁ x3₁) (k₂ x0₂ x1₂ x2₂ x3₂)) :
-    Wf G D (load4K p₁ k₁) (load4K p₂ k₂) := by
-  unfold load4K; t_wf_tac
-  refine (hk _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
-
-private theorem store4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {p₁ x0₁ x1₁ x2₁ x3₁ : V₁ i64} {p₂ x0₂ x1₂ x2₂ x3₂ : V₂ i64}
-    {k₁ : Expr V₁ L₁ rs} {k₂ : Expr V₂ L₂ rs}
-    (hp : ⟨i64, p₁, p₂⟩ ∈ G) (hx0 : ⟨i64, x0₁, x0₂⟩ ∈ G) (hx1 : ⟨i64, x1₁, x1₂⟩ ∈ G)
-    (hx2 : ⟨i64, x2₁, x2₂⟩ ∈ G) (hx3 : ⟨i64, x3₁, x3₂⟩ ∈ G)
-    (hk : Wf G D k₁ k₂) :
-    Wf G D (store4K p₁ x0₁ x1₁ x2₁ x3₁ k₁) (store4K p₂ x0₂ x1₂ x2₂ x3₂ k₂) := by
-  unfold store4K; t_wf_tac
-  exact hk.weaken_G fun q hq => by simp [Tup.zip, hq]
-
-private theorem store8K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {p₁ r0₁ r1₁ r2₁ r3₁ r4₁ r5₁ r6₁ r7₁ : V₁ i64} {p₂ r0₂ r1₂ r2₂ r3₂ r4₂ r5₂ r6₂ r7₂ : V₂ i64}
-    {k₁ : Expr V₁ L₁ rs} {k₂ : Expr V₂ L₂ rs}
-    (hp : ⟨i64, p₁, p₂⟩ ∈ G)
-    (hr0 : ⟨i64, r0₁, r0₂⟩ ∈ G) (hr1 : ⟨i64, r1₁, r1₂⟩ ∈ G)
-    (hr2 : ⟨i64, r2₁, r2₂⟩ ∈ G) (hr3 : ⟨i64, r3₁, r3₂⟩ ∈ G)
-    (hr4 : ⟨i64, r4₁, r4₂⟩ ∈ G) (hr5 : ⟨i64, r5₁, r5₂⟩ ∈ G)
-    (hr6 : ⟨i64, r6₁, r6₂⟩ ∈ G) (hr7 : ⟨i64, r7₁, r7₂⟩ ∈ G)
-    (hk : Wf G D k₁ k₂) :
-    Wf G D (store8K p₁ r0₁ r1₁ r2₁ r3₁ r4₁ r5₁ r6₁ r7₁ k₁)
-           (store8K p₂ r0₂ r1₂ r2₂ r3₂ r4₂ r5₂ r6₂ r7₂ k₂) := by
-  unfold store8K
-  refine store4K_wf hp hr0 hr1 hr2 hr3 ?_
-  refine .let_ (.mk _ (.cons (.var hp) (.cons (.imm _) .nil))) fun _ _ => ?_
-  refine store4K_wf (by simp [Tup.zip]) (by simp [Tup.zip, hr4]) (by simp [Tup.zip, hr5])
-    (by simp [Tup.zip, hr6]) (by simp [Tup.zip, hr7])
-    (hk.weaken_G fun _ hq => by simp [Tup.zip, hq])
-
-private theorem mulRow0K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {a0₁ a1₁ a2₁ a3₁ b0₁ : V₁ i64} {a0₂ a1₂ a2₂ a3₂ b0₂ : V₂ i64}
-    {k₁ : V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → Expr V₁ L₁ rs}
-    {k₂ : V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → Expr V₂ L₂ rs}
-    (ha0 : ⟨i64, a0₁, a0₂⟩ ∈ G) (ha1 : ⟨i64, a1₁, a1₂⟩ ∈ G)
-    (ha2 : ⟨i64, a2₁, a2₂⟩ ∈ G) (ha3 : ⟨i64, a3₁, a3₂⟩ ∈ G) (hb0 : ⟨i64, b0₁, b0₂⟩ ∈ G)
-    (hk : ∀ r0₁ r0₂ r1₁ r1₂ r2₁ r2₂ r3₁ r3₂ r4₁ r4₂,
-      Wf (⟨i64, r4₁, r4₂⟩ :: ⟨i64, r3₁, r3₂⟩ :: ⟨i64, r2₁, r2₂⟩ ::
-        ⟨i64, r1₁, r1₂⟩ :: ⟨i64, r0₁, r0₂⟩ :: G) D
-        (k₁ r0₁ r1₁ r2₁ r3₁ r4₁) (k₂ r0₂ r1₂ r2₂ r3₂ r4₂)) :
-    Wf G D (mulRow0K a0₁ a1₁ a2₁ a3₁ b0₁ k₁) (mulRow0K a0₂ a1₂ a2₂ a3₂ b0₂ k₂) := by
-  unfold mulRow0K; t_wf_tac
-  refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
-
-private theorem mulRowAccK_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {a0₁ a1₁ a2₁ a3₁ bj₁ acc0₁ acc1₁ acc2₁ acc3₁ : V₁ i64}
-    {a0₂ a1₂ a2₂ a3₂ bj₂ acc0₂ acc1₂ acc2₂ acc3₂ : V₂ i64}
-    {k₁ : V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → Expr V₁ L₁ rs}
-    {k₂ : V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → Expr V₂ L₂ rs}
-    (ha0 : ⟨i64, a0₁, a0₂⟩ ∈ G) (ha1 : ⟨i64, a1₁, a1₂⟩ ∈ G)
-    (ha2 : ⟨i64, a2₁, a2₂⟩ ∈ G) (ha3 : ⟨i64, a3₁, a3₂⟩ ∈ G) (hbj : ⟨i64, bj₁, bj₂⟩ ∈ G)
-    (hc0 : ⟨i64, acc0₁, acc0₂⟩ ∈ G) (hc1 : ⟨i64, acc1₁, acc1₂⟩ ∈ G)
-    (hc2 : ⟨i64, acc2₁, acc2₂⟩ ∈ G) (hc3 : ⟨i64, acc3₁, acc3₂⟩ ∈ G)
-    (hk : ∀ o0₁ o0₂ o1₁ o1₂ o2₁ o2₂ o3₁ o3₂ o4₁ o4₂,
-      Wf (⟨i64, o4₁, o4₂⟩ :: ⟨i64, o3₁, o3₂⟩ :: ⟨i64, o2₁, o2₂⟩ ::
-        ⟨i64, o1₁, o1₂⟩ :: ⟨i64, o0₁, o0₂⟩ :: G) D
-        (k₁ o0₁ o1₁ o2₁ o3₁ o4₁) (k₂ o0₂ o1₂ o2₂ o3₂ o4₂)) :
-    Wf G D (mulRowAccK a0₁ a1₁ a2₁ a3₁ bj₁ acc0₁ acc1₁ acc2₁ acc3₁ k₁)
-           (mulRowAccK a0₂ a1₂ a2₂ a3₂ bj₂ acc0₂ acc1₂ acc2₂ acc3₂ k₂) := by
-  unfold mulRowAccK; t_wf_tac
-  refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind
-
-private theorem bin4K_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂}
-    {a0₁ a1₁ a2₁ a3₁ b0₁ b1₁ b2₁ b3₁ : V₁ i64} {a0₂ a1₂ a2₂ a3₂ b0₂ b1₂ b2₂ b3₂ : V₂ i64}
-    {k₁ : V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ .bool → Expr V₁ L₁ rs}
-    {k₂ : V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ .bool → Expr V₂ L₂ rs}
-    (f₁ : V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 →
-      (V₁ i64 → V₁ i64 → V₁ i64 → V₁ i64 → V₁ .bool → Expr V₁ L₁ rs) → Expr V₁ L₁ rs)
-    (f₂ : V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 →
-      (V₂ i64 → V₂ i64 → V₂ i64 → V₂ i64 → V₂ .bool → Expr V₂ L₂ rs) → Expr V₂ L₂ rs)
-    (hf : (f₁ = add4K ∧ f₂ = add4K) ∨ (f₁ = sub4K ∧ f₂ = sub4K))
-    (ha0 : ⟨i64, a0₁, a0₂⟩ ∈ G) (ha1 : ⟨i64, a1₁, a1₂⟩ ∈ G)
-    (ha2 : ⟨i64, a2₁, a2₂⟩ ∈ G) (ha3 : ⟨i64, a3₁, a3₂⟩ ∈ G)
-    (hb0 : ⟨i64, b0₁, b0₂⟩ ∈ G) (hb1 : ⟨i64, b1₁, b1₂⟩ ∈ G)
-    (hb2 : ⟨i64, b2₁, b2₂⟩ ∈ G) (hb3 : ⟨i64, b3₁, b3₂⟩ ∈ G)
-    (hk : ∀ s0₁ s0₂ s1₁ s1₂ s2₁ s2₂ s3₁ s3₂ c3₁ c3₂,
-      Wf (⟨.bool, c3₁, c3₂⟩ :: ⟨i64, s3₁, s3₂⟩ :: ⟨i64, s2₁, s2₂⟩ ::
-        ⟨i64, s1₁, s1₂⟩ :: ⟨i64, s0₁, s0₂⟩ :: G) D
-        (k₁ s0₁ s1₁ s2₁ s3₁ c3₁) (k₂ s0₂ s1₂ s2₂ s3₂ c3₂)) :
-    Wf G D (f₁ a0₁ a1₁ a2₁ a3₁ b0₁ b1₁ b2₁ b3₁ k₁)
-      (f₂ a0₂ a1₂ a2₂ a3₂ b0₂ b1₂ b2₂ b3₂ k₂) := by
-  rcases hf with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;> (
-    dsimp only [add4K, sub4K]
-    t_wf_tac
-    refine (hk _ _ _ _ _ _ _ _ _ _).weaken_G fun q hq => by simp [Tup.zip] at hq ⊢; grind)
-
-theorem mul4x4_wf : Func.Wf mul4x4 := by
-  intro V₁ V₂ L₁ L₂ xs₁ xs₂
-  dsimp only [mul4x4]
-  refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
-  refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
-  refine mulRow0K_wf (by simp) (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
-  refine mulRowAccK_wf (by simp) (by simp) (by simp) (by simp) (by simp)
-    (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
-  refine mulRowAccK_wf (by simp) (by simp) (by simp) (by simp) (by simp)
-    (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
-  refine mulRowAccK_wf (by simp) (by simp) (by simp) (by simp) (by simp)
-    (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
-  refine store8K_wf (by simp [Tup.zip]) (by simp) (by simp) (by simp) (by simp)
-    (by simp) (by simp) (by simp) (by simp) (.ret .nil)
-
-theorem addMod25519_wf : Func.Wf addMod25519 := by
-  intro V₁ V₂ L₁ L₂ xs₁ xs₂
-  dsimp only [addMod25519]
-  refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
-  refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
-  refine bin4K_wf add4K add4K (Or.inl ⟨rfl, rfl⟩) (by simp) (by simp) (by simp) (by simp)
-    (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
-  t_wf_tac
-
-theorem subMod25519_wf : Func.Wf subMod25519 := by
-  intro V₁ V₂ L₁ L₂ xs₁ xs₂
-  dsimp only [subMod25519]
-  refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
-  refine load4K_wf (by simp [Tup.zip]) fun _ _ _ _ _ _ _ _ => ?_
-  refine bin4K_wf sub4K sub4K (Or.inr ⟨rfl, rfl⟩) (by simp) (by simp) (by simp) (by simp)
-    (by simp) (by simp) (by simp) (by simp) fun _ _ _ _ _ _ _ _ _ _ => ?_
-  t_wf_tac
+theorem mul4x4_wf : Func.Wf mul4x4 := by t_wf_reify
+theorem addMod25519_wf : Func.Wf addMod25519 := by t_wf_reify
+theorem subMod25519_wf : Func.Wf subMod25519 := by t_wf_reify
 
 /-! ## `Module`, `Env`, and `ModuleOk` bundles -/
 
@@ -692,31 +510,23 @@ theorem mul4x4Module_checkAcyclic : mul4x4Module.checkAcyclic = true := by rfl
 theorem addMod25519Module_checkAcyclic : addMod25519Module.checkAcyclic = true := by rfl
 theorem subMod25519Module_checkAcyclic : subMod25519Module.checkAcyclic = true := by rfl
 
+private theorem single_moduleOk {fn : Fn}
+    (hacyc : ({ fns := [fn], externs := [], exits := [] } : Module).checkAcyclic = true)
+    (hwf : fn.Wf)
+    (hcorr : ∀ xs m Q X,
+      bignumEnv fn.name fn.as fn.rs xs m Q X → Func.wp bignumEnv fn.body xs m Q X) :
+    ModuleOk bignumEnv ⟨[fn], [], []⟩ :=
+  Module.moduleOk_of_checkAcyclic hacyc
+    (fun f h => by simp at h; subst h; exact hwf)
+    (fun f h => by simp at h; subst h; exact hcorr)
+
 theorem mul4x4_moduleOk : ModuleOk bignumEnv mul4x4Module :=
-  Module.moduleOk_of_checkAcyclic mul4x4Module_checkAcyclic
-    (fun fn hmem => by
-      simp only [mul4x4Module, List.mem_singleton] at hmem
-      subst hmem; exact mul4x4_wf)
-    (fun fn hmem => by
-      simp only [mul4x4Module, List.mem_singleton] at hmem
-      subst hmem; exact mul4x4_correct bignumEnv)
+  single_moduleOk mul4x4Module_checkAcyclic mul4x4_wf (mul4x4_correct bignumEnv)
 
 theorem addMod25519_moduleOk : ModuleOk bignumEnv addMod25519Module :=
-  Module.moduleOk_of_checkAcyclic addMod25519Module_checkAcyclic
-    (fun fn hmem => by
-      simp only [addMod25519Module, List.mem_singleton] at hmem
-      subst hmem; exact addMod25519_wf)
-    (fun fn hmem => by
-      simp only [addMod25519Module, List.mem_singleton] at hmem
-      subst hmem; exact addMod25519_correct bignumEnv)
+  single_moduleOk addMod25519Module_checkAcyclic addMod25519_wf (addMod25519_correct bignumEnv)
 
 theorem subMod25519_moduleOk : ModuleOk bignumEnv subMod25519Module :=
-  Module.moduleOk_of_checkAcyclic subMod25519Module_checkAcyclic
-    (fun fn hmem => by
-      simp only [subMod25519Module, List.mem_singleton] at hmem
-      subst hmem; exact subMod25519_wf)
-    (fun fn hmem => by
-      simp only [subMod25519Module, List.mem_singleton] at hmem
-      subst hmem; exact subMod25519_correct bignumEnv)
+  single_moduleOk subMod25519Module_checkAcyclic subMod25519_wf (subMod25519_correct bignumEnv)
 
 end LeanQbe.T.Examples.Bignum

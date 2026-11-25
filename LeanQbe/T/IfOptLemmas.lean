@@ -4,6 +4,7 @@ public import LeanQbe.T.IfOpt
 public import LeanQbe.T.OptUtilLemmas
 public import LeanQbe.T.Module
 import LeanQbe.T.OpsLemmas
+import LeanQbe.T.PassEnvKit
 
 /-!
 # Correctness of `ifOpt`
@@ -92,45 +93,32 @@ theorem OpCode.wp_of_isSafeOp {sig rs : List Ty} (code : OpCode sig rs)
 def IGood (ρ : FEnv) (b : Nat) (G : Ctx (IVal Val) Val) : Prop :=
   ∀ p ∈ G, p.2.1.1.val = p.2.2 ∧ p.2.1.2.fev ρ = p.2.2 ∧ p.2.1.2.FLt b
 
+private theorem igood_to_fctx {ρ : FEnv} {b : Nat} {G : Ctx (IVal Val) Val} (h : IGood ρ b G) :
+    FCtxGood Prod.fst Prod.snd b ρ G :=
+  fun p hp => let ⟨h1, h2, h3⟩ := h p hp; ⟨h1, h3, h2⟩
+
+private theorem fctx_to_igood {ρ : FEnv} {b : Nat} {G : Ctx (IVal Val) Val}
+    (h : FCtxGood Prod.fst Prod.snd b ρ G) : IGood ρ b G :=
+  fun p hp => let ⟨h1, h2, h3⟩ := h p hp; ⟨h1, h3, h2⟩
+
 theorem IGood.mono {ρ ρ' : FEnv} {b b' : Nat} {G : Ctx (IVal Val) Val}
     (hb : b ≤ b') (hρ : ∀ {u} (k : FKey u), k.FLt b → k.fev ρ' = k.fev ρ)
-    (hG : IGood ρ b G) : IGood ρ' b' G := by
-  intro p hp
-  obtain ⟨h1, h2, h3⟩ := hG p hp
-  exact ⟨h1, (hρ p.2.1.2 h3).trans h2, h3.le hb⟩
+    (hG : IGood ρ b G) : IGood ρ' b' G :=
+  fun p hp => let ⟨h1, h2, h3⟩ := hG p hp; ⟨h1, (hρ _ h3).trans h2, h3.le hb⟩
 
 theorem IGood.upd_all {ρ : FEnv} {b : Nat} {G : Ctx (IVal Val) Val} (hG : IGood ρ b G)
     {ts : List Ty} (xs : Tup Val ts) : IGood (fupdTup ρ b xs) (b + ts.length) G :=
-  hG.mono (Nat.le_add_right _ _) (fun _ hk => FKey.fev_fupdTup xs hk)
+  fctx_to_igood (FCtxGood.fupdTup xs (Nat.le_add_right _ _) (Nat.le_refl _) (igood_to_fctx hG))
 
 theorem IGood.append {ρ : FEnv} {b : Nat} {G₁ G₂ : Ctx (IVal Val) Val}
-    (h1 : IGood ρ b G₁) (h2 : IGood ρ b G₂) : IGood ρ b (G₁ ++ G₂) := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact h1 p hp
-  · exact h2 p hp
-
-private theorem IGood.freshIVals_only (ρ : FEnv) :
-    {ts : List Ty} → (xs : Tup Val ts) → (b : Nat) →
-    IGood (fupdTup ρ b xs) (b + ts.length) (Tup.zip (freshIVals ts xs b) xs)
-  | [], (), _ => fun _ hp => nomatch hp
-  | _ :: ts, (x, xs), b => by
-    simp only [freshIVals, tupFreshWith, Tup.zip, fupdTup, List.length_cons]
-    intro p hp
-    cases hp with
-    | head =>
-      refine ⟨rfl, ?_, by simp [FKey.FLt]⟩
-      simp only [FKey.fev]
-      rw [fupdTup_lt (fupd ρ b x) xs (by omega), fupd_eq]
-    | tail _ hp =>
-      have ih := IGood.freshIVals_only (fupd ρ b x) xs (b + 1) p hp
-      rw [show b + 1 + ts.length = b + (ts.length + 1) by omega] at ih
-      exact ih
+    (h1 : IGood ρ b G₁) (h2 : IGood ρ b G₂) : IGood ρ b (G₁ ++ G₂) :=
+  fctx_to_igood (FCtxGood.append (igood_to_fctx h1) (igood_to_fctx h2))
 
 theorem IGood.freshIVals {ρ : FEnv} {b : Nat} {G : Ctx (IVal Val) Val} (hG : IGood ρ b G)
     {ts : List Ty} (xs : Tup Val ts) :
     IGood (fupdTup ρ b xs) (b + ts.length) (Tup.zip (freshIVals ts xs b) xs ++ G) :=
-  (IGood.freshIVals_only ρ xs b).append (hG.upd_all xs)
+  fctx_to_igood (FCtxGood.freshTup (out := Prod.fst) (key := Prod.snd)
+    (fun _ _ => rfl) (fun _ _ => rfl) xs b (igood_to_fctx hG))
 
 theorem IGood.freshOne {ρ : FEnv} {b : Nat} {G : Ctx (IVal Val) Val} (hG : IGood ρ b G)
     {t : Ty} (v : Val t) :
@@ -138,15 +126,16 @@ theorem IGood.freshOne {ρ : FEnv} {b : Nat} {G : Ctx (IVal Val) Val} (hG : IGoo
   hG.freshIVals (ts := [t]) (v, ())
 
 theorem argRel_iout_val {G : Ctx (IVal Val) Val} {ρ : FEnv} {b : Nat} (hG : IGood ρ b G)
-    {t : Ty} {a₁ : Arg (IVal Val) t} {a₂ : Arg Val t} :
-    ArgRel G t a₁ a₂ → (iout a₁).val = a₂.val
-  | .var h => (hG _ h).1
-  | .imm _ => rfl
+    {t : Ty} {a₁ : Arg (IVal Val) t} {a₂ : Arg Val t}
+    (h : ArgRel G t a₁ a₂) : (iout a₁).val = a₂.val := by
+  have hr := FCtxGood.argRel_val (out := Prod.fst) (key := Prod.snd) (igood_to_fctx hG) h
+  cases a₁ <;> exact hr
 
 theorem TRel.iout_vals {G : Ctx (IVal Val) Val} {ρ : FEnv} {b : Nat} (hG : IGood ρ b G)
     {ts : List Ty} {as₁ : Tup (Arg (IVal Val)) ts} {as₂ : Tup (Arg Val) ts}
     (h : TRel (ArgRel G) as₁ as₂) : vals (tupIOut as₁) = vals as₂ :=
-  TRel.tupMapArg_vals (fun _ => iout) (fun ha => argRel_iout_val hG ha) h
+  FCtxGood.trel_vals (out := Prod.fst) (key := Prod.snd)
+    (fun _ => iout) (fun a => by cases a <;> rfl) (igood_to_fctx hG) h
 
 /-! ## `IArgGood` and `emitSelectTy` / `emitSelectTup` WP soundness -/
 
@@ -200,38 +189,21 @@ private theorem mkPairIValArg_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XP
       (∀ {u} (k : FKey u), k.FLt next → k.fev ρ' = k.fev ρ) →
       IArgGood ρ' next' p (vx, vy) → wp Γ Q X (cont next' p) m) :
     wp Γ Q X (mkPairIValArg next x y cont) m := by
+  have hemit : ∀ {ox : Arg Val a} {oy : Arg Val b},
+      ox.val = vx → oy.val = vy →
+      wp Γ Q X (.let_ (op2 (.mkpair a b) ox oy) fun (p, ()) =>
+        cont (next + 1) (.var (.var p, .var next))) m := by
+    intro ox oy hx1 hy1
+    simp only [wp_let_op2, OpCode.wp_mkpair, hx1, hy1]
+    refine h (fupd (t := .pair a b) ρ next (vx, vy)) (next + 1)
+      (.var (.var (vx, vy), .var next)) (by omega) (fun _ hk => FKey.fev_fupd _ hk)
+      ⟨rfl, by simp [ikey, FKey.fev, fupd_eq],
+        by dsimp only [ikey, FKey.FLt]; exact Nat.lt_succ_self _⟩
   dsimp only [mkPairIValArg]
   cases hio1 : iout x <;> cases hio2 : iout y
-  · next vx' vy' =>
-    have h1 : vx' = vx := by rw [← hx.1, hio1]; rfl
-    have h2 : vy' = vy := by rw [← hy.1, hio2]; rfl
-    subst h1 h2
-    simp only [wp_let_op2, OpCode.wp_mkpair]
-    refine h (fupd (t := .pair a b) ρ next (vx', vy')) (next + 1)
-      (.var (.var (vx', vy'), .var next))
-      (by omega) (fun _ hk => FKey.fev_fupd _ hk)
-      ⟨rfl, ?_, by dsimp only [ikey, FKey.FLt]; exact Nat.lt_succ_self _⟩
-    simp [ikey, FKey.fev, fupd_eq]
-  · next vx' cy =>
-    have h1 : vx' = vx := by rw [← hx.1, hio1]; rfl
-    have h2 : cy = vy := by rw [← hy.1, hio2]; rfl
-    subst h1 h2
-    simp only [wp_let_op2, OpCode.wp_mkpair]
-    refine h (fupd (t := .pair a b) ρ next (vx', cy)) (next + 1)
-      (.var (.var (vx', cy), .var next))
-      (by omega) (fun _ hk => FKey.fev_fupd _ hk)
-      ⟨rfl, ?_, by dsimp only [ikey, FKey.FLt]; exact Nat.lt_succ_self _⟩
-    simp [ikey, FKey.fev, fupd_eq]
-  · next cx vy' =>
-    have h1 : cx = vx := by rw [← hx.1, hio1]; rfl
-    have h2 : vy' = vy := by rw [← hy.1, hio2]; rfl
-    subst h1 h2
-    simp only [wp_let_op2, OpCode.wp_mkpair]
-    refine h (fupd (t := .pair a b) ρ next (cx, vy')) (next + 1)
-      (.var (.var (cx, vy'), .var next))
-      (by omega) (fun _ hk => FKey.fev_fupd _ hk)
-      ⟨rfl, ?_, by dsimp only [ikey, FKey.FLt]; exact Nat.lt_succ_self _⟩
-    simp [ikey, FKey.fev, fupd_eq]
+  · exact hemit (hx.1 ▸ congrArg Arg.val hio1.symm) (hy.1 ▸ congrArg Arg.val hio2.symm)
+  · exact hemit (hx.1 ▸ congrArg Arg.val hio1.symm) (hy.1 ▸ congrArg Arg.val hio2.symm)
+  · exact hemit (hx.1 ▸ congrArg Arg.val hio1.symm) (hy.1 ▸ congrArg Arg.val hio2.symm)
   · next cx cy =>
     have h1 : cx = vx := by rw [← hx.1, hio1]; rfl
     have h2 : cy = vy := by rw [← hy.1, hio2]; rfl
@@ -271,6 +243,24 @@ private theorem splitPairIVal_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XP
       simp only [ikey, FKey.fev, ρ']
       rw [fupd_eq]
 
+private theorem emitSelect_sameKey_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
+    {m : Mem 64} (c : Arg Val .bool) {t : Ty} (ρ : FEnv) (next : Nat)
+    {aT aE : Arg (IVal Val) t} {vT vE : Val t}
+    (hT : IArgGood ρ next aT vT) (hE : IArgGood ρ next aE vE)
+    (hbeq : fKeyBeq (ikey aT) (ikey aE) = true)
+    {cont : Nat → Arg (IVal Val) t → Expr Val Cont rs}
+    (hcont : ∀ ρ' next' (r : Arg (IVal Val) t), next ≤ next' →
+      (∀ {u} (k : FKey u), k.FLt next → k.fev ρ' = k.fev ρ) →
+      IArgGood ρ' next' r (if c.val then vT else vE) → wp Γ Q X (cont next' r) m) :
+    wp Γ Q X (cont next aT) m := by
+  have heq : ikey aT = ikey aE := fKeyBeq_iff_eq.1 hbeq
+  have hveq : vT = vE := by rw [← hT.2.1, heq, hE.2.1]
+  have hgood : IArgGood ρ next aT (if c.val then vT else vE) := by
+    cases c.val <;> simp only [↓reduceIte, Bool.false_eq_true]
+    · exact hveq ▸ hT
+    · exact hT
+  exact hcont ρ next aT (Nat.le_refl _) (fun _ _ => rfl) hgood
+
 private theorem emitSelectTyIVal_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} (c : Arg Val .bool) :
     (t : Ty) → isSelectTy t = true → (ρ : FEnv) → (next : Nat) →
@@ -295,14 +285,8 @@ private theorem emitSelectTyIVal_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X :
         (fun _ hk => FKey.fev_fupd _ hk)
         ⟨hr, ?_, by dsimp only [ikey, FKey.FLt]; exact Nat.lt_succ_self _⟩
       dsimp only [ikey, FKey.fev]; rw [fupd_eq]
-    · have heq : ikey aT = ikey aE := fKeyBeq_iff_eq.1 hbeq
-      have hveq : vT = vE := by rw [← hT.2.1, heq, hE.2.1]
-      simp only [↓reduceIte]
-      have hgood : IArgGood ρ next aT (if c.val then vT else vE) := by
-        cases c.val <;> simp only [↓reduceIte, Bool.false_eq_true]
-        · exact hveq ▸ hT
-        · exact hT
-      exact hcont ρ next aT (Nat.le_refl _) (fun _ _ => rfl) hgood
+    · simp only [↓reduceIte]
+      exact emitSelect_sameKey_wp c ρ next hT hE hbeq hcont
   | .float _, ht, _, _, _, _, _, _, _, _, _, _ => by simp [isSelectTy, Ty.hasFloat] at ht
   | .pair a b, ht, ρ, next, aT, aE, vT, vE, hT, hE, cont, hcont => by
     simp only [isSelectTy, Ty.hasFloat, Bool.or_eq_false_iff, Bool.not_eq_true'] at ht
@@ -333,14 +317,8 @@ private theorem emitSelectTyIVal_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X :
       have hr' : IArgGood ρ₅ next₅ r (if c.val then vT else vE) := by
         cases hcv : c.val <;> simpa [hcv] using hr
       exact hcont ρ₅ next₅ r hle_all hev_all hr'
-    · have heq : ikey aT = ikey aE := fKeyBeq_iff_eq.1 hbeq
-      have hveq : vT = vE := by rw [← hT.2.1, heq, hE.2.1]
-      simp only [↓reduceIte]
-      have hgood : IArgGood ρ next aT (if c.val then vT else vE) := by
-        cases c.val <;> simp only [↓reduceIte, Bool.false_eq_true]
-        · exact hveq ▸ hT
-        · exact hT
-      exact hcont ρ next aT (Nat.le_refl _) (fun _ _ => rfl) hgood
+    · simp only [↓reduceIte]
+      exact emitSelect_sameKey_wp c ρ next hT hE hbeq hcont
 
 private theorem emitSelectTupIVal_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {m : Mem 64} (c : Arg Val .bool) :
@@ -412,51 +390,43 @@ variable {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
 def IValRel (G' : Ctx V₁ V₂) {t : Ty} (a₁ : IVal V₁ t) (a₂ : IVal V₂ t) : Prop :=
   ArgRel G' t a₁.1 a₂.1 ∧ a₁.2 = a₂.2
 
+private def iMetaKit : OutMetaKit IVal FKey where
+  out p := p.1
+  tag p := p.2
+  fresh v k := (.var v, .var k)
+  out_fresh _ _ := rfl
+  tag_fresh _ _ _ := rfl
+
 theorem IValRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂)
     {t : Ty} {a₁ : IVal V₁ t} {a₂ : IVal V₂ t} (h : IValRel G₁ a₁ a₂) : IValRel G₂ a₁ a₂ :=
-  ⟨h.1.weaken hsub, h.2⟩
+  iMetaKit.rel_weaken hsub h
 
 def IRelG (G' : Ctx V₁ V₂) (G : Ctx (IVal V₁) (IVal V₂)) : Prop :=
   ∀ p ∈ G, IValRel G' p.2.1 p.2.2
 
 theorem IRelG.weaken {G₁ G₂ : Ctx V₁ V₂} {G : Ctx (IVal V₁) (IVal V₂)}
     (hG : IRelG G₁ G) (hsub : ∀ p ∈ G₁, p ∈ G₂) : IRelG G₂ G :=
-  fun p hp => (hG p hp).weaken hsub
+  iMetaKit.toRelKit.relG_weaken hsub hG
 
 theorem IRelG.cons {G' : Ctx V₁ V₂} {G : Ctx (IVal V₁) (IVal V₂)} (hG : IRelG G' G)
     {t : Ty} {a₁ : IVal V₁ t} {a₂ : IVal V₂ t} (ha : IValRel G' a₁ a₂) :
-    IRelG G' (⟨t, a₁, a₂⟩ :: G)
-  | _, .head _ => ha
-  | _, .tail _ hp => hG _ hp
+    IRelG G' (⟨t, a₁, a₂⟩ :: G) :=
+  iMetaKit.toRelKit.relG_cons ha hG
 
 theorem IRelG.append {G' : Ctx V₁ V₂} {G H : Ctx (IVal V₁) (IVal V₂)}
-    (h1 : IRelG G' G) (h2 : IRelG G' H) : IRelG G' (H ++ G) := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact h2 p hp
-  · exact h1 p hp
-
-theorem IRelG.freshIVals_only {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
-    IRelG (Tup.zip xs₁ xs₂) (Tup.zip (freshIVals ts xs₁ b) (freshIVals ts xs₂ b)) :=
-  mem_tup_zip_tupFreshWith
-    (fun {t} (x : V₁ t) n => ((.var x, .var n) : IVal V₁ t))
-    (fun {t} (x : V₂ t) n => ((.var x, .var n) : IVal V₂ t))
-    (P := fun G' _ a₁ a₂ => IValRel G' a₁ a₂)
-    (fun hsub _ _ _ h => h.weaken hsub)
-    (fun _ _ _ => ⟨.var List.mem_cons_self, rfl⟩)
-    xs₁ xs₂ b
+    (h1 : IRelG G' G) (h2 : IRelG G' H) : IRelG G' (H ++ G) :=
+  iMetaKit.toRelKit.relG_append h2 h1
 
 theorem IRelG.freshIVals {G' : Ctx V₁ V₂} {G : Ctx (IVal V₁) (IVal V₂)}
     (hG : IRelG G' G) {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
     IRelG (Tup.zip xs₁ xs₂ ++ G')
       (Tup.zip (freshIVals ts xs₁ b) (freshIVals ts xs₂ b) ++ G) :=
-  (hG.weaken fun _ hq => List.mem_append_right _ hq).append
-    ((IRelG.freshIVals_only xs₁ xs₂ b).weaken fun _ hq => List.mem_append_left G' hq)
+  iMetaKit.toRelKit.relG_freshTup ts xs₁ xs₂ b hG
 
 theorem IRelG.freshOne {G' : Ctx V₁ V₂} {G : Ctx (IVal V₁) (IVal V₂)}
     (hG : IRelG G' G) {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) (b : Nat) :
     IRelG (⟨t, v₁, v₂⟩ :: G') (⟨t, (.var v₁, .var b), (.var v₂, .var b)⟩ :: G) :=
-  (hG.weaken fun _ hq => List.mem_cons_of_mem _ hq).cons ⟨.var List.mem_cons_self, rfl⟩
+  iMetaKit.toRelKit.relG_freshOne v₁ v₂ b hG
 
 theorem argRel_iout {G' : Ctx V₁ V₂} {G : Ctx (IVal V₁) (IVal V₂)} (hG : IRelG G' G)
     {t : Ty} {a₁ : Arg (IVal V₁) t} {a₂ : Arg (IVal V₂) t} :
@@ -741,14 +711,26 @@ private theorem checkDiamond_eq_of_wf {G : Ctx (IVal V₁) (IVal V₂)}
   | _, _, _, .jump _ _ | _, _, _, .ret _ | _, _, _, .exit _ _
   | _, _, _, .hlt | _, _, _, .group _ _ => rfl
 
-private theorem hasArmShape_of_checkArm {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {rs : List Ty} (tgt : ArmTarget)
-    {G : Ctx (IVal V₁) V₂} {D : Ctx (JLabel L₁) L₂}
-    {e₁ : Expr (IVal V₁) (JLabel L₁) rs} {e₂ : Expr V₂ L₂ rs}
-    (hwf : Wf G D e₁ e₂) :
+private theorem checkArm_peel {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
+    (tgt : ArmTarget) {D : Ctx (JLabel L₁) L₂}
+    (P : ArmPlan → Expr V₂ L₂ rs → Prop)
+    (hlet : ∀ {rest ts} {op : Op V₂ ts} {k : Tup V₂ ts → Expr V₂ L₂ rs},
+      isSafeOp op.code = true → (∀ xs, P rest (k xs)) → P (.let_ rest) (.let_ op k))
+    (hjnz : ∀ {pT pE c} {t e : Expr V₂ L₂ rs},
+      P pT t → P pE e → P (.jnz pT pE) (.jnz c t e))
+    (hjump : ∀ {ts} {j₁ : JLabel L₁ ts} {j₂ : L₂ ts} {args : Tup (Arg V₂) ts},
+      ⟨ts, j₁, j₂⟩ ∈ D →
+      (match tgt, j₁ with
+        | .loc jId jTs, .loc id => id = jId ∧ ts = jTs
+        | .tag jId jTs, .tag id _ => id = jId ∧ ts = jTs
+        | _, _ => False) →
+      P .jump (.jump j₂ args))
+    (hret : ∀ {vs : Tup (Arg V₂) rs}, tgt = .ret → P .ret (.ret vs)) :
+    ∀ {G : Ctx (IVal V₁) V₂} {e₁ : Expr (IVal V₁) (JLabel L₁) rs} {e₂ : Expr V₂ L₂ rs},
+    Wf G D e₁ e₂ →
     ∀ {jnzFuel letFuel next rem : Nat} {p : ArmPlan},
-      checkArm tgt jnzFuel letFuel next e₁ = some (p, rem) →
-      HasArmShape (tgt.sig rs) p e₂ := by
+      checkArm tgt jnzFuel letFuel next e₁ = some (p, rem) → P p e₂ := by
+  intro G e₁ e₂ hwf
   induction hwf using Wf.induct with
   | let_ hop _ ih =>
     intro jnzFuel letFuel next rem p hc
@@ -762,8 +744,8 @@ private theorem hasArmShape_of_checkArm {V₁ V₂ : Ty → Type} {L₁ L₂ : L
         simp only [↓reduceIte, Option.map_eq_some_iff] at hc
         rcases hc with ⟨⟨q, rem'⟩, hq, heq⟩
         cases heq
-        exact fun xs₂ => ih (dummyIVals _ next) xs₂ hq
-  | @jump _ _ ts j₁ _ _ _ _ _ =>
+        exact hlet hs fun xs₂ => ih (dummyIVals _ next) xs₂ hjump hq
+  | @jump _ _ ts j₁ j₂ args₁ args₂ hj _ =>
     intro _ _ _ _ _ hc
     cases j₁ with
     | outer _ => cases tgt <;> simp [checkArm] at hc
@@ -776,8 +758,8 @@ private theorem hasArmShape_of_checkArm {V₁ V₂ : Ty → Type} {L₁ L₂ : L
         · cases hc
         · simp only [↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hc
           rcases hc with ⟨rfl, _⟩
-          simp only [Bool.and_eq_true, Ty.listBeq_iff_eq] at hcond
-          exact hcond.2
+          simp only [Bool.and_eq_true, beq_iff_eq, Ty.listBeq_iff_eq] at hcond
+          exact hjump hj hcond
     | tag id _ =>
       cases tgt with
       | loc _ _ | ret => simp [checkArm] at hc
@@ -787,8 +769,8 @@ private theorem hasArmShape_of_checkArm {V₁ V₂ : Ty → Type} {L₁ L₂ : L
         · cases hc
         · simp only [↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hc
           rcases hc with ⟨rfl, _⟩
-          simp only [Bool.and_eq_true, Ty.listBeq_iff_eq] at hcond
-          exact hcond.2
+          simp only [Bool.and_eq_true, beq_iff_eq, Ty.listBeq_iff_eq] at hcond
+          exact hjump hj hcond
   | ret _ =>
     intro _ _ _ _ _ hc
     cases tgt with
@@ -796,7 +778,7 @@ private theorem hasArmShape_of_checkArm {V₁ V₂ : Ty → Type} {L₁ L₂ : L
     | ret =>
       simp only [checkArm, Option.some.injEq, Prod.mk.injEq] at hc
       rcases hc with ⟨rfl, _⟩
-      exact rfl
+      exact hret rfl
   | jnz _ _ _ iht ihe =>
     intro jnzFuel letFuel next rem p hc
     cases jnzFuel with
@@ -804,12 +786,26 @@ private theorem hasArmShape_of_checkArm {V₁ V₂ : Ty → Type} {L₁ L₂ : L
     | succ jnzFuel' =>
       dsimp only [checkArm, bind, Option.bind] at hc
       rcases Option.bind_eq_some_iff.1 hc with ⟨⟨pT, rem1⟩, h1, hc2⟩
-      rcases Option.bind_eq_some_iff.1 hc2 with ⟨⟨pE, rem2⟩, h2, hret⟩
-      simp only [pure, Option.some.injEq, Prod.mk.injEq] at hret
-      rcases hret with ⟨rfl, _⟩
-      exact ⟨iht h1, ihe h2⟩
+      rcases Option.bind_eq_some_iff.1 hc2 with ⟨⟨pE, rem2⟩, h2, hret'⟩
+      simp only [pure, Option.some.injEq, Prod.mk.injEq] at hret'
+      rcases hret' with ⟨rfl, _⟩
+      exact hjnz (iht hjump h1) (ihe hjump h2)
   | load _ _ _ | store _ _ _ | call _ _ _ | exit _ _ | hlt | group _ _ =>
     intro _ _ _ _ _ hc; unfold checkArm at hc; cases hc
+
+private theorem hasArmShape_of_checkArm {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
+    {rs : List Ty} (tgt : ArmTarget)
+    {G : Ctx (IVal V₁) V₂} {D : Ctx (JLabel L₁) L₂}
+    {e₁ : Expr (IVal V₁) (JLabel L₁) rs} {e₂ : Expr V₂ L₂ rs}
+    (hwf : Wf G D e₁ e₂) :
+    ∀ {jnzFuel letFuel next rem : Nat} {p : ArmPlan},
+      checkArm tgt jnzFuel letFuel next e₁ = some (p, rem) →
+      HasArmShape (tgt.sig rs) p e₂ :=
+  checkArm_peel tgt (HasArmShape (tgt.sig rs))
+    (fun _ h => h) (fun ht he => ⟨ht, he⟩)
+    (fun {_ j₁ _ _} _ hcond => by cases tgt <;> cases j₁ <;> simp_all [ArmTarget.sig, HasArmShape])
+    (fun h => by subst h; rfl)
+    hwf
 
 private theorem checkDiamond_peel_of_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
     {rs : List Ty} (bitsOnly : Bool) (jId : Nat) (jTs : List Ty)
@@ -888,72 +884,45 @@ private theorem hasArmShape_of_rhs {rs : List Ty} (jTs : List Ty) :
       {e₁ : Expr (IVal V₁) (JLabel L₁) rs} {e₂ : Expr (IVal V₂) (JLabel L₂) rs},
     Wf G D e₁ e₂ → HasArmShape jTs p e₂ → HasArmShape jTs p e₁
   | .jump, _, _, _, e₂, hwf, h => by
-    cases e₂ with
-    | jump _ _ => rcases hwf.rhs_jump with ⟨_, _, rfl, _, _⟩; exact h
-    | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | ret _ | exit _ _
-    | hlt | group _ _ => exact False.elim h
+    cases e₂ <;> first | exact False.elim h | (rcases hwf.rhs_jump with ⟨_, _, rfl, _, _⟩; exact h)
   | .ret, _, _, _, e₂, hwf, h => by
-    cases e₂ with
-    | ret _ => rcases hwf.rhs_ret with ⟨_, rfl, _⟩; exact h
-    | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | exit _ _
-    | hlt | group _ _ => exact False.elim h
+    cases e₂ <;> first | exact False.elim h | (rcases hwf.rhs_ret with ⟨_, rfl, _⟩; exact h)
   | .let_ rest, _, _, _, e₂, hwf, h => by
-    cases e₂ with
-    | let_ _ _ =>
-      rcases hwf.rhs_let with ⟨_, _, rfl, _, hk⟩
-      exact fun xs₁ => hasArmShape_of_rhs jTs rest (hk xs₁ (dummyIVals _ 0)) (h (dummyIVals _ 0))
-    | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _ | exit _ _
-    | hlt | group _ _ => exact False.elim h
+    cases e₂ <;> first | exact False.elim h |
+      (rcases hwf.rhs_let with ⟨_, _, rfl, _, hk⟩;
+       exact fun xs₁ => hasArmShape_of_rhs jTs rest (hk xs₁ (dummyIVals _ 0)) (h (dummyIVals _ 0)))
   | .jnz pT pE, _, _, _, e₂, hwf, h => by
-    cases e₂ with
-    | jnz _ _ _ =>
-      rcases hwf.rhs_jnz with ⟨_, _, _, rfl, _, ht, he⟩
-      exact ⟨hasArmShape_of_rhs jTs pT ht h.1, hasArmShape_of_rhs jTs pE he h.2⟩
-    | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jump _ _ | ret _ | exit _ _
-    | hlt | group _ _ => exact False.elim h
+    cases e₂ <;> first | exact False.elim h |
+      (rcases hwf.rhs_jnz with ⟨_, _, _, rfl, _, ht, he⟩;
+       exact ⟨hasArmShape_of_rhs jTs pT ht h.1, hasArmShape_of_rhs jTs pE he h.2⟩)
 
 private theorem hasDiamondShape_of_rhs {rs : List Ty} (jTs : List Ty) :
     ∀ (plan : DiamondPlan) {G : Ctx (IVal V₁) (IVal V₂)} {D : Ctx (JLabel L₁) (JLabel L₂)}
       {e₁ : Expr (IVal V₁) (JLabel L₁) rs} {e₂ : Expr (IVal V₂) (JLabel L₂) rs},
     Wf G D e₁ e₂ → HasDiamondShape jTs plan e₂ → HasDiamondShape jTs plan e₁
   | .jnz pT pE, _, _, _, e₂, hwf, h => by
-    cases e₂ with
-    | jnz _ _ _ =>
-      rcases hwf.rhs_jnz with ⟨_, _, _, rfl, _, ht, he⟩
-      exact ⟨hasArmShape_of_rhs jTs pT ht h.1, hasArmShape_of_rhs jTs pE he h.2⟩
-    | let_ _ _ | load _ _ _ | store _ _ _ | call _ _ _ | jump _ _ | ret _ | exit _ _
-    | hlt | group _ _ => exact False.elim h
+    cases e₂ <;> first | exact False.elim h |
+      (rcases hwf.rhs_jnz with ⟨_, _, _, rfl, _, ht, he⟩;
+       exact ⟨hasArmShape_of_rhs jTs pT ht h.1, hasArmShape_of_rhs jTs pE he h.2⟩)
   | .let_ rest, _, _, _, e₂, hwf, h => by
-    cases e₂ with
-    | let_ _ _ =>
-      rcases hwf.rhs_let with ⟨_, _, rfl, _, hk⟩
-      exact fun xs₁ =>
-        hasDiamondShape_of_rhs jTs rest (hk xs₁ (dummyIVals _ 0)) (h (dummyIVals _ 0))
-    | load _ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _ | exit _ _
-    | hlt | group _ _ => exact False.elim h
+    cases e₂ <;> first | exact False.elim h |
+      (rcases hwf.rhs_let with ⟨_, _, rfl, _, hk⟩;
+       exact fun xs₁ =>
+         hasDiamondShape_of_rhs jTs rest (hk xs₁ (dummyIVals _ 0)) (h (dummyIVals _ 0)))
   | .load rest, _, _, _, e₂, hwf, h => by
-    cases e₂ with
-    | load _ _ _ =>
-      rcases hwf.rhs_load with ⟨_, _, rfl, _, hk⟩
-      exact fun v₁ => hasDiamondShape_of_rhs jTs rest (hk v₁ (.imm default, .var 0))
-        (h (.imm default, .var 0))
-    | let_ _ _ | store _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _ | exit _ _
-    | hlt | group _ _ => exact False.elim h
+    cases e₂ <;> first | exact False.elim h |
+      (rcases hwf.rhs_load with ⟨_, _, rfl, _, hk⟩;
+       exact fun v₁ =>
+         hasDiamondShape_of_rhs jTs rest (hk v₁ (.imm default, .var 0)) (h (.imm default, .var 0)))
   | .store rest, _, _, _, e₂, hwf, h => by
-    cases e₂ with
-    | store _ _ _ =>
-      rcases hwf.rhs_store with ⟨_, _, _, rfl, _, _, hk⟩
-      exact hasDiamondShape_of_rhs jTs rest hk h
-    | let_ _ _ | load _ _ _ | call _ _ _ | jnz _ _ _ | jump _ _ | ret _ | exit _ _
-    | hlt | group _ _ => exact False.elim h
+    cases e₂ <;> first | exact False.elim h |
+      (rcases hwf.rhs_store with ⟨_, _, _, rfl, _, _, hk⟩;
+       exact hasDiamondShape_of_rhs jTs rest hk h)
   | .call rest, _, _, _, e₂, hwf, h => by
-    cases e₂ with
-    | call _ _ _ =>
-      rcases hwf.rhs_call with ⟨_, _, rfl, _, hk⟩
-      exact fun xs₁ =>
-        hasDiamondShape_of_rhs jTs rest (hk xs₁ (dummyIVals _ 0)) (h (dummyIVals _ 0))
-    | let_ _ _ | load _ _ _ | store _ _ _ | jnz _ _ _ | jump _ _ | ret _ | exit _ _
-    | hlt | group _ _ => exact False.elim h
+    cases e₂ <;> first | exact False.elim h |
+      (rcases hwf.rhs_call with ⟨_, _, rfl, _, hk⟩;
+       exact fun xs₁ =>
+         hasDiamondShape_of_rhs jTs rest (hk xs₁ (dummyIVals _ 0)) (h (dummyIVals _ 0)))
 
 private theorem hoistArm_jump_eq {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (ts : List Ty) (next : Nat) (j : JLabel L ts) (args : Tup (Arg (IVal V)) ts)
@@ -1355,23 +1324,12 @@ private theorem TagContD.append_tag {depth : Nat} {D : Ctx (JLabel Cont) Cont}
   refine ⟨fun p hp => ?_, fun h1 h2 => ?_⟩
   · rcases List.mem_append.1 hp with hp | hp
     · rcases mem_zip_tagLabels_eq_tag Js p hp with ⟨id, l, h1, h2, h3⟩
-      rw [h1]
-      exact ⟨h2, h3⟩
-    · have h := hD.1 p hp
-      cases j : p.2.1 with
-      | outer _ => simpa [j] using h
-      | loc _ => simp [j] at h
-      | tag _ _ =>
-        simp only [j] at h ⊢
-        exact ⟨Nat.lt_of_lt_of_le h.1 (Nat.le_add_right _ _), h.2⟩
+      rw [h1]; exact ⟨h2, h3⟩
+    · exact (hD.mono (Nat.le_add_right _ _)).1 p hp
   · rcases List.mem_append.1 h1 with h1 | h1 <;> rcases List.mem_append.1 h2 with h2 | h2
     · exact mem_zip_tagLabels_inj Js h1 h2
-    · have hle := (mem_zip_tagLabels Js h1).1
-      have hlt := (hD.1 _ h2).1
-      omega
-    · have hlt := (hD.1 _ h1).1
-      have hle := (mem_zip_tagLabels Js h2).1
-      omega
+    · have := (mem_zip_tagLabels Js h1).1; have := (hD.1 _ h2).1; omega
+    · have := (hD.1 _ h1).1; have := (mem_zip_tagLabels Js h2).1; omega
     · exact hD.2 h1 h2
 
 private def dummyVals : (ts : List Ty) → Tup Val ts
@@ -1405,60 +1363,6 @@ private theorem findFirstJump_mem_of_wf {G : Ctx (IVal Val) Val}
   | _ + 1, _, _, .exit _ _, _, _, _, h | _ + 1, _, _, .hlt, _, _, _, h
   | _ + 1, _, _, .group _ _, _, _, _, h => by cases h
 
-private theorem armSpec_of_checkArm_loc_aux {rs : List Ty} (jId : Nat) {jTs : List Ty}
-    (j : Cont jTs) (depth : Nat) {G : Ctx (IVal Val) Val} {D D0 : Ctx (JLabel Cont) Cont}
-    {e₁ : Expr (IVal Val) (JLabel Cont) rs} {e₂ : Expr Val Cont rs}
-    (hwf : Wf G D0 e₁ e₂) :
-    D0 = ⟨jTs, .loc jId, j⟩ :: D → TagContD depth D →
-    ∀ {jnzFuel letFuel next rem : Nat} {p : ArmPlan},
-      checkArm (.loc jId jTs) jnzFuel letFuel next e₁ = some (p, rem) →
-      ArmSpec (.jump j) p e₂ := by
-  induction hwf using Wf.induct with
-  | let_ hop _ ih =>
-    intro hD0 hD jnzFuel letFuel next rem p hc
-    cases hop with | mk code _ =>
-    unfold checkArm at hc
-    cases hs : isSafeOp code <;> rw [hs] at hc
-    · simp at hc
-    · cases letFuel with
-      | zero => simp at hc
-      | succ letFuel' =>
-        simp only [↓reduceIte, Option.map_eq_some_iff] at hc
-        rcases hc with ⟨⟨q, rem'⟩, hq, heq⟩
-        cases heq
-        exact ⟨hs, fun xs₂ => ih (dummyIVals _ next) xs₂ hD0 hD hq⟩
-  | @jump _ _ _ j₁ _ _ _ hj _ =>
-    intro hD0 hD _ _ _ _ _ hc
-    subst hD0
-    cases hj with
-    | head =>
-      simp only [checkArm, beq_self_eq_true, Bool.true_and] at hc
-      cases hbeq : Ty.listBeq jTs jTs with
-      | false => simp [hbeq] at hc
-      | true =>
-        simp only [hbeq, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hc
-        rcases hc with ⟨rfl, _⟩
-        exact ⟨rfl, rfl⟩
-    | tail _ hmem =>
-      have hbad := hD.1 _ hmem
-      dsimp only at hbad
-      cases j₁ with
-      | outer _ | tag _ _ => unfold checkArm at hc; cases hc
-      | loc _ => exact False.elim hbad
-  | jnz _ _ _ iht ihe =>
-    intro hD0 hD jnzFuel letFuel next rem p hc
-    cases jnzFuel with
-    | zero => unfold checkArm at hc; cases hc
-    | succ jnzFuel' =>
-      dsimp only [checkArm, bind, Option.bind] at hc
-      rcases Option.bind_eq_some_iff.1 hc with ⟨⟨pT, rem1⟩, h1, hc2⟩
-      rcases Option.bind_eq_some_iff.1 hc2 with ⟨⟨pE, rem2⟩, h2, hret⟩
-      simp only [pure, Option.some.injEq, Prod.mk.injEq] at hret
-      rcases hret with ⟨rfl, _⟩
-      exact ⟨iht hD0 hD h1, ihe hD0 hD h2⟩
-  | load _ _ _ | store _ _ _ | call _ _ _ | ret _ | exit _ _ | hlt | group _ _ =>
-    intro _ _ _ _ _ _ _ hc; unfold checkArm at hc; cases hc
-
 private theorem armSpec_of_checkArm_loc {rs : List Ty} (jId : Nat) {jTs : List Ty} (j : Cont jTs)
     (depth : Nat) {G : Ctx (IVal Val) Val} {D : Ctx (JLabel Cont) Cont}
     {e₁ : Expr (IVal Val) (JLabel Cont) rs} {e₂ : Expr Val Cont rs}
@@ -1466,57 +1370,35 @@ private theorem armSpec_of_checkArm_loc {rs : List Ty} (jId : Nat) {jTs : List T
     ∀ {jnzFuel letFuel next rem : Nat} {p : ArmPlan},
       checkArm (.loc jId jTs) jnzFuel letFuel next e₁ = some (p, rem) →
       ArmSpec (.jump j) p e₂ :=
-  armSpec_of_checkArm_loc_aux jId j depth hwf rfl hD
+  checkArm_peel (.loc jId jTs) (ArmSpec (.jump j))
+    (fun hs h => ⟨hs, h⟩) (fun ht he => ⟨ht, he⟩)
+    (fun {_ j₁ _ _} hj hcond => by
+      cases hj with
+      | head => exact ⟨rfl, rfl⟩
+      | tail _ hm =>
+        have hbad := hD.1 _ hm
+        cases j₁ <;> simp_all)
+    (fun h => by cases h)
+    hwf
 
 private theorem armSpec_of_checkArm_tag {rs : List Ty} (jId : Nat) {jTs : List Ty} (l₀ j : Cont jTs)
     (depth : Nat) {G : Ctx (IVal Val) Val} {D : Ctx (JLabel Cont) Cont}
     {e₁ : Expr (IVal Val) (JLabel Cont) rs} {e₂ : Expr Val Cont rs}
-    (hwf : Wf G D e₁ e₂) :
-    TagContD depth D → ⟨jTs, .tag jId l₀, j⟩ ∈ D →
+    (hwf : Wf G D e₁ e₂) (hD : TagContD depth D) (hj₀ : ⟨jTs, .tag jId l₀, j⟩ ∈ D) :
     ∀ {jnzFuel letFuel next rem : Nat} {p : ArmPlan},
       checkArm (.tag jId jTs) jnzFuel letFuel next e₁ = some (p, rem) →
-      ArmSpec (.jump j) p e₂ := by
-  induction hwf using Wf.induct with
-  | let_ hop _ ih =>
-    intro hD hj₀ jnzFuel letFuel next rem p hc
-    cases hop with | mk code _ =>
-    unfold checkArm at hc
-    cases hs : isSafeOp code <;> rw [hs] at hc
-    · simp at hc
-    · cases letFuel with
-      | zero => simp at hc
-      | succ letFuel' =>
-        simp only [↓reduceIte, Option.map_eq_some_iff] at hc
-        rcases hc with ⟨⟨q, rem'⟩, hq, heq⟩
-        cases heq
-        exact ⟨hs, fun xs₂ => ih (dummyIVals _ next) xs₂ hD hj₀ hq⟩
-  | @jump _ _ ts j₁ j₂ _ _ hj _ =>
-    intro hD hj₀ _ _ _ _ _ hc
-    cases j₁ with
-    | outer _ | loc _ => simp [checkArm] at hc
-    | tag id l =>
-      dsimp only [checkArm] at hc
-      cases hcond : (id == jId && Ty.listBeq ts jTs) <;> rw [hcond] at hc
-      · cases hc
-      · simp only [↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hc
-        rcases hc with ⟨rfl, _⟩
-        simp only [Bool.and_eq_true, beq_iff_eq, Ty.listBeq_iff_eq] at hcond
+      ArmSpec (.jump j) p e₂ :=
+  checkArm_peel (.tag jId jTs) (ArmSpec (.jump j))
+    (fun hs h => ⟨hs, h⟩) (fun ht he => ⟨ht, he⟩)
+    (fun {_ j₁ _ _} hj hcond => by
+      cases j₁ with
+      | outer _ | loc _ => exact False.elim hcond
+      | tag id l =>
         rcases hcond with ⟨rfl, rfl⟩
         rcases hD.2 hj hj₀ with ⟨h, heq⟩
-        exact ⟨rfl, by simpa using heq⟩
-  | jnz _ _ _ iht ihe =>
-    intro hD hj₀ jnzFuel letFuel next rem p hc
-    cases jnzFuel with
-    | zero => unfold checkArm at hc; cases hc
-    | succ jnzFuel' =>
-      dsimp only [checkArm, bind, Option.bind] at hc
-      rcases Option.bind_eq_some_iff.1 hc with ⟨⟨pT, rem1⟩, h1, hc2⟩
-      rcases Option.bind_eq_some_iff.1 hc2 with ⟨⟨pE, rem2⟩, h2, hret⟩
-      simp only [pure, Option.some.injEq, Prod.mk.injEq] at hret
-      rcases hret with ⟨rfl, _⟩
-      exact ⟨iht hD hj₀ h1, ihe hD hj₀ h2⟩
-  | load _ _ _ | store _ _ _ | call _ _ _ | ret _ | exit _ _ | hlt | group _ _ =>
-    intro _ _ _ _ _ _ _ hc; unfold checkArm at hc; cases hc
+        exact ⟨rfl, by simpa using heq⟩)
+    (fun h => by cases h)
+    hwf
 
 private theorem armSpec_of_checkArm_ret {rs : List Ty}
     {G : Ctx (IVal Val) Val} {D : Ctx (JLabel Cont) Cont}
@@ -1524,39 +1406,12 @@ private theorem armSpec_of_checkArm_ret {rs : List Ty}
     (hwf : Wf G D e₁ e₂) :
     ∀ {jnzFuel letFuel next rem : Nat} {p : ArmPlan},
       checkArm .ret jnzFuel letFuel next e₁ = some (p, rem) →
-      ArmSpec (rs := rs) .ret p e₂ := by
-  induction hwf using Wf.induct with
-  | let_ hop _ ih =>
-    intro jnzFuel letFuel next rem p hc
-    cases hop with | mk code _ =>
-    unfold checkArm at hc
-    cases hs : isSafeOp code <;> rw [hs] at hc
-    · simp at hc
-    · cases letFuel with
-      | zero => simp at hc
-      | succ letFuel' =>
-        simp only [↓reduceIte, Option.map_eq_some_iff] at hc
-        rcases hc with ⟨⟨q, rem'⟩, hq, heq⟩
-        cases heq
-        exact ⟨hs, fun xs₂ => ih (dummyIVals _ next) xs₂ hq⟩
-  | ret _ =>
-    intro _ _ _ _ _ hc
-    simp only [checkArm, Option.some.injEq, Prod.mk.injEq] at hc
-    rcases hc with ⟨rfl, _⟩
-    trivial
-  | jnz _ _ _ iht ihe =>
-    intro jnzFuel letFuel next rem p hc
-    cases jnzFuel with
-    | zero => unfold checkArm at hc; cases hc
-    | succ jnzFuel' =>
-      dsimp only [checkArm, bind, Option.bind] at hc
-      rcases Option.bind_eq_some_iff.1 hc with ⟨⟨pT, rem1⟩, h1, hc2⟩
-      rcases Option.bind_eq_some_iff.1 hc2 with ⟨⟨pE, rem2⟩, h2, hret⟩
-      simp only [pure, Option.some.injEq, Prod.mk.injEq] at hret
-      rcases hret with ⟨rfl, _⟩
-      exact ⟨iht h1, ihe h2⟩
-  | jump _ _ | load _ _ _ | store _ _ _ | call _ _ _ | exit _ _ | hlt | group _ _ =>
-    intro _ _ _ _ _ hc; unfold checkArm at hc; cases hc
+      ArmSpec (rs := rs) .ret p e₂ :=
+  checkArm_peel .ret (ArmSpec (rs := rs) .ret)
+    (fun hs h => ⟨hs, h⟩) (fun ht he => ⟨ht, he⟩)
+    (fun {_ j₁ _ _} _ hcond => by cases j₁ <;> exact False.elim hcond)
+    (fun _ => trivial)
+    hwf
 
 private theorem diamondSpec_of_checkDiamond {rs : List Ty} (bitsOnly : Bool)
     (jId : Nat) {jTs : List Ty} (j : Cont jTs) (depth : Nat)
@@ -2061,48 +1916,41 @@ private theorem ifOptWith_wf_aux {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty 
     cases bitsOnly
     · exact .jnz (argRel_iout hG hc) (iht hG hD depth next) (ihe hG hD depth next)
     · dsimp only [tryJnzDiamond]
+      have hfb : Wf G' D' (.jnz (iout c₁) (ifOptWith true depth next t₁)
+          (ifOptWith true depth next e₁'))
+          (.jnz (iout c₂) (ifOptWith true depth next t₂) (ifOptWith true depth next e₂')) :=
+        .jnz (argRel_iout hG hc) (iht hG hD depth next) (ihe hG hD depth next)
       rcases findFirstJump_eq_of_wf hD 8 ht with ⟨hf1, hf2⟩ | ⟨jTs, jId, l₁, l₂, hf1, hf2, hl⟩
-      · rw [hf1, hf2]
-        dsimp only
+      · rw [hf1, hf2]; dsimp only
         cases hsel : isSelectSigWith true rs
-        · simp only [Bool.false_eq_true, ↓reduceIte, Option.getD_none]
-          exact .jnz (argRel_iout hG hc) (iht hG hD depth next) (ihe hG hD depth next)
+        · simp only [Bool.false_eq_true, ↓reduceIte, Option.getD_none]; exact hfb
         · simp only [↓reduceIte]
           rw [checkArm_eq_of_wf .ret ht (TagD.checkArm_compat hD) 2 4 next,
               checkArm_eq_of_wf .ret he (TagD.checkArm_compat hD) 2 4 next]
           cases h1 : checkArm .ret 2 4 next t₂ with
-          | none =>
-            exact .jnz (argRel_iout hG hc) (iht hG hD depth next) (ihe hG hD depth next)
+          | none => exact hfb
           | some resT =>
             cases h2 : checkArm .ret 2 4 next e₂' with
-            | none =>
-              exact .jnz (argRel_iout hG hc) (iht hG hD depth next) (ihe hG hD depth next)
+            | none => exact hfb
             | some resE =>
-              have hshT₁ : HasArmShape rs resT.1 t₁ := hasArmShape_of_checkArm .ret ht.symm h1
-              have hshE₁ : HasArmShape rs resE.1 e₁' := hasArmShape_of_checkArm .ret he.symm h2
-              exact hoistJnzArms_wf rs resT.1 resE.1 next hc ht he hshT₁ hshE₁ hG
-                fun _ _ _ _ hsel' => .ret hsel'
-      · rw [hf1, hf2]
-        dsimp only
+              exact hoistJnzArms_wf rs resT.1 resE.1 next hc ht he
+                (hasArmShape_of_checkArm .ret ht.symm h1)
+                (hasArmShape_of_checkArm .ret he.symm h2) hG fun _ _ _ _ hsel' => .ret hsel'
+      · rw [hf1, hf2]; dsimp only
         cases hsel : isSelectSigWith true jTs
-        · simp only [Bool.false_eq_true, ↓reduceIte, Option.getD_none]
-          exact .jnz (argRel_iout hG hc) (iht hG hD depth next) (ihe hG hD depth next)
+        · simp only [Bool.false_eq_true, ↓reduceIte, Option.getD_none]; exact hfb
         · simp only [↓reduceIte]
           rw [checkArm_eq_of_wf (.tag jId jTs) ht (TagD.checkArm_compat hD) 2 4 next,
               checkArm_eq_of_wf (.tag jId jTs) he (TagD.checkArm_compat hD) 2 4 next]
           cases h1 : checkArm (.tag jId jTs) 2 4 next t₂ with
-          | none =>
-            exact .jnz (argRel_iout hG hc) (iht hG hD depth next) (ihe hG hD depth next)
+          | none => exact hfb
           | some resT =>
             cases h2 : checkArm (.tag jId jTs) 2 4 next e₂' with
-            | none =>
-              exact .jnz (argRel_iout hG hc) (iht hG hD depth next) (ihe hG hD depth next)
+            | none => exact hfb
             | some resE =>
-              have hshT₁ : HasArmShape jTs resT.1 t₁ :=
-                hasArmShape_of_checkArm (.tag jId jTs) ht.symm h1
-              have hshE₁ : HasArmShape jTs resE.1 e₁' :=
-                hasArmShape_of_checkArm (.tag jId jTs) he.symm h2
-              exact hoistJnzArms_wf jTs resT.1 resE.1 next hc ht he hshT₁ hshE₁ hG
+              exact hoistJnzArms_wf jTs resT.1 resE.1 next hc ht he
+                (hasArmShape_of_checkArm (.tag jId jTs) ht.symm h1)
+                (hasArmShape_of_checkArm (.tag jId jTs) he.symm h2) hG
                 fun _ _ _ _ hsel' => .jump hl hsel'
   | jump hj hargs =>
     intro G' D' hG hD depth next

@@ -7,8 +7,9 @@ public import LeanQbe.T.FlatLemmas
 /-!
 # Well-Formedness, Source Contracts, and `ModuleOk` for `LeanQbe.T.Examples.Litmus`
 
-Proves `*_wf` (`t_wf_reify`), exact `Spec` source contracts (`*_spec`), `*_moduleOk`
-(`Module.moduleOk_of_checkAcyclic`), and concrete memory non-vacuity (`tracer_nonvacuous`).
+Proves `*_wf` (batched `Func.renorm` + `t_kernel_rfl`), exact `Spec` source contracts (`*_spec`),
+`*_moduleOk` (`Module.moduleOk_of_checkAcyclic`), and concrete memory non-vacuity
+(`tracer_nonvacuous`).
 -/
 
 set_option autoImplicit false
@@ -56,22 +57,22 @@ def tri : Nat → BitVec 64
   | 0 => 0
   | k + 1 => tri k + BitVec.ofNat 64 (k + 1)
 
-private theorem tri_zero : tri 0 = 0 := rfl
-private theorem tri_succ (k : Nat) : tri (k + 1) = tri k + BitVec.ofNat 64 (k + 1) := rfl
-
 private theorem truthy_ofNat_succ {k : Nat} (hk : k + 1 < 2 ^ 32) :
     Truthy (BitVec.ofNat 64 (k + 1)) := by
   simp only [Truthy, ne_eq]
-  intro h
-  have := congrArg BitVec.toNat h
+  intro h; have := congrArg BitVec.toNat h
   simp only [BitVec.toNat_setWidth, BitVec.toNat_ofNat] at this
-  rw [Nat.mod_eq_of_lt (by omega : k + 1 < 2 ^ 64), Nat.mod_eq_of_lt hk] at this
-  omega
+  rw [Nat.mod_eq_of_lt (by omega : k + 1 < 2 ^ 64), Nat.mod_eq_of_lt hk] at this; omega
 
-private theorem truthy_zero : ¬ Truthy 0#64 := by simp [Truthy]
+private theorem jnz_ofNat_zero {P Q : Prop} (hq : Q) :
+    (¬ (BitVec.ofNat 64 0).setWidth 32 = 0 → P) ∧
+    ((BitVec.ofNat 64 0).setWidth 32 = 0 → Q) :=
+  ⟨fun h => absurd (by decide) h, fun _ => hq⟩
 
-private theorem bv64_ofNat_succ_sub_one (k : Nat) :
-    BitVec.ofNat 64 (k + 1) - 1 = BitVec.ofNat 64 k := by grind
+private theorem jnz_ofNat_succ {k : Nat} (hk : k + 1 < 2 ^ 32) {P Q : Prop} (hp : P) :
+    (¬ (BitVec.ofNat 64 (k + 1)).setWidth 32 = 0 → P) ∧
+    ((BitVec.ofNat 64 (k + 1)).setWidth 32 = 0 → Q) :=
+  ⟨fun _ => hp, fun h => absurd h (truthy_ofNat_succ hk)⟩
 
 def tracerContract : Spec [i64, i64, i64] [i64] := fun (a, b, p, ()) m Q _ =>
   ∃ v0 R, (cell64 p v0 ⋆ R) m ∧ ∀ m', (cell64 p (a + b) ⋆ R) m' → Q (a + b, ()) m'
@@ -133,23 +134,19 @@ theorem sumto_spec (Γ : Env) :
   rintro ⟨n, ⟨⟩⟩ m Q X ⟨hn, hQ⟩
   dsimp only [Func.spec, Func.wp, sumto]
   refine wp_loop_group
-    (fun k xs m' => k ≤ n.toNat ∧ xs.1 = BitVec.ofNat 64 k ∧ xs.2.1 + tri k = tri n.toNat ∧ m' = m)
-    (fun J k ⟨i, s, ⟨⟩⟩ m' hlt ⟨hk, hi, hs, hm⟩ => ?_) (fun J hJ => ?_)
-  · dsimp only at hi hs hm; subst hi; rw [hm]
-    dsimp only [Blocks.get_here]; wp_unfold
-    cases k with
-    | zero =>
-      refine ⟨fun h => absurd h truthy_zero, fun _ => ?_⟩
-      rw [tri_zero] at hs; have hs' : s = tri n.toNat := by grind
-      rw [hs']; exact hQ
-    | succ k' =>
-      have ht := truthy_ofNat_succ (k := k') (by omega)
-      refine ⟨fun _ => ?_, fun h => absurd ht (by simp [Truthy, h])⟩
-      rw [bv64_ofNat_succ_sub_one]
-      refine hlt k' _ m (by omega) ⟨by omega, rfl, ?_, rfl⟩
-      dsimp only; rw [← hs, tri_succ]; ac_rfl
-  · wp_unfold
-    exact hJ n.toNat (n, 0, ()) m ⟨Nat.le_refl _, by simp, by dsimp only; grind, rfl⟩
+    (fun k xs m' => k ≤ n.toNat ∧ xs.1 = BitVec.ofNat 64 k ∧
+      xs.2.1 + tri k = tri n.toNat ∧ m' = m)
+    (fun J k ⟨i, s, ⟨⟩⟩ m' hlt ⟨hk, hi, hs, hm⟩ => ?_)
+    (fun J hJ => by
+      wp_unfold; exact hJ n.toNat (n, 0, ()) m ⟨Nat.le_refl _, by simp, by grind, rfl⟩)
+  dsimp only at hi hs hm; subst hi; rw [hm]; dsimp only [Blocks.get_here]; wp_unfold
+  cases k with
+  | zero => refine jnz_ofNat_zero ?_; have : s = tri n.toNat := by grind [tri]
+            rw [this]; exact hQ
+  | succ k' =>
+    refine jnz_ofNat_succ (k := k') (by omega) ?_
+    refine hlt k' _ m (by omega) ⟨by omega, by grind, ?_, rfl⟩
+    dsimp only; rw [← hs, tri]; ac_rfl
 
 theorem evenodd_spec (Γ : Env) :
     ∀ args m Q X, evenoddContract args m Q X → Func.spec Γ evenodd.body args m Q X := by
@@ -159,25 +156,20 @@ theorem evenodd_spec (Γ : Env) :
   simp only [Closed, and_true] at hc; obtain ⟨hEven, hOdd⟩ := hc
   suffices h : ∀ k : Nat, k ≤ n.toNat →
       (n.toNat % 2 = k % 2 → J_even (BitVec.ofNat 64 k, ()) m) ∧
-      (n.toNat % 2 ≠ k % 2 → J_odd (BitVec.ofNat 64 k, ()) m) by
-    have hof : BitVec.ofNat 64 n.toNat = n := by simp
-    exact hof ▸ (h n.toNat (Nat.le_refl _)).1 rfl
+      (n.toNat % 2 ≠ k % 2 → J_odd (BitVec.ofNat 64 k, ()) m) from
+    (by simp : BitVec.ofNat 64 n.toNat = n) ▸ (h n.toNat (Nat.le_refl _)).1 rfl
   intro k hk
   induction k with
   | zero =>
-    refine ⟨fun heq => hEven _ _ ?_, fun hne => hOdd _ _ ?_⟩ <;> wp_unfold
-    · refine ⟨fun h => absurd h truthy_zero, fun _ => ?_⟩
-      have hpar : n.toNat % 2 = 0 := by omega
-      simpa [hpar] using hQ
-    · refine ⟨fun h => absurd h truthy_zero, fun _ => ?_⟩
-      have hpar : n.toNat % 2 ≠ 0 := by omega
-      simpa [hpar] using hQ
+    refine ⟨fun heq => hEven _ _ ?_, fun hne => hOdd _ _ ?_⟩ <;>
+      (wp_unfold; refine jnz_ofNat_zero ?_)
+    · simpa [show n.toNat % 2 = 0 from by omega] using hQ
+    · simpa [show n.toNat % 2 ≠ 0 from by omega] using hQ
   | succ k' ih =>
     obtain ⟨ihE, ihO⟩ := ih (by omega)
-    have ht := truthy_ofNat_succ (k := k') (by omega)
-    refine ⟨fun heq => hEven _ _ ?_, fun hne => hOdd _ _ ?_⟩ <;> wp_unfold <;>
-      refine ⟨fun _ => ?_, fun h => absurd ht (by simp [Truthy, h])⟩ <;>
-      rw [bv64_ofNat_succ_sub_one]
+    refine ⟨fun heq => hEven _ _ ?_, fun hne => hOdd _ _ ?_⟩ <;>
+      (wp_unfold; refine jnz_ofNat_succ (k := k') (by omega) ?_
+       rw [show BitVec.ofNat 64 (k' + 1) - 1 = BitVec.ofNat 64 k' by grind])
     · exact ihO (by omega)
     · exact ihE (by omega)
 
@@ -188,44 +180,33 @@ theorem nested_spec (Γ : Env) :
   refine wp_loop_group
     (fun oi xs mem' => oi ≤ n.toNat ∧ xs.1 = BitVec.ofNat 64 oi ∧
       xs.2.1 + m * (xs.1 * k + tri oi) = m * (n * k + tri n.toNat) ∧ mem' = mem)
-    (fun Jo oi ⟨i, t, ⟨⟩⟩ mem' hltO ⟨hoi, hi, ht, hmem⟩ => ?_) (fun Jo hJo => ?_)
-  · dsimp only at hi ht hmem; subst hi; rw [hmem]
-    dsimp only [Blocks.get_here]; wp_unfold
-    cases oi with
+    (fun Jo oi ⟨i, t, ⟨⟩⟩ mem' hltO ⟨hoi, hi, ht, hmem⟩ => ?_)
+    (fun Jo hJo => by
+      wp_unfold; exact hJo n.toNat (n, 0, ()) mem ⟨Nat.le_refl _, by simp, by grind, rfl⟩)
+  dsimp only at hi ht hmem; subst hi; rw [hmem]; dsimp only [Blocks.get_here]; wp_unfold
+  cases oi with
+  | zero => refine jnz_ofNat_zero ?_; have : t = m * (n * k + tri n.toNat) := by grind [tri]
+            rw [this]; exact hQ
+  | succ oi' =>
+    refine jnz_ofNat_succ (k := oi') (by omega) ?_
+    refine wp_loop_group
+      (fun oj xs mem' => oj ≤ m.toNat ∧ xs.1 = BitVec.ofNat 64 oj ∧
+        xs.2.1 + xs.1 * (k + BitVec.ofNat 64 (oi' + 1)) =
+          t + m * (k + BitVec.ofNat 64 (oi' + 1)) ∧ mem' = mem)
+      (fun Ji oj ⟨j, u, ⟨⟩⟩ mem' hltI ⟨hoj, hj, hu, hmem⟩ => ?_)
+      (fun Ji hJi => by
+        wp_unfold; exact hJi m.toNat (m, t, ()) mem ⟨Nat.le_refl _, by simp, rfl, rfl⟩)
+    dsimp only at hj hu hmem; subst hj; rw [hmem]; dsimp only [Blocks.get_here]; wp_unfold
+    cases oj with
     | zero =>
-      refine ⟨fun h => absurd h truthy_zero, fun _ => ?_⟩
-      rw [tri_zero] at ht; have ht' : t = m * (n * k + tri n.toNat) := by grind
-      rw [ht']; exact hQ
-    | succ oi' =>
-      have hti := truthy_ofNat_succ (k := oi') (by omega)
-      refine ⟨fun _ => ?_, fun h => absurd hti (by simp [Truthy, h])⟩
-      refine wp_loop_group
-        (fun oj xs mem' => oj ≤ m.toNat ∧ xs.1 = BitVec.ofNat 64 oj ∧
-          xs.2.1 + xs.1 * (k + BitVec.ofNat 64 (oi' + 1)) =
-            t + m * (k + BitVec.ofNat 64 (oi' + 1)) ∧ mem' = mem)
-        (fun Ji oj ⟨j, u, ⟨⟩⟩ mem' hltI ⟨hoj, hj, hu, hmem⟩ => ?_) (fun Ji hJi => ?_)
-      · dsimp only at hj hu hmem; subst hj; rw [hmem]
-        dsimp only [Blocks.get_here]; wp_unfold
-        cases oj with
-        | zero =>
-          refine ⟨fun h => absurd h truthy_zero, fun _ => ?_⟩
-          rw [bv64_ofNat_succ_sub_one]
-          refine hltO oi' _ mem (by omega) ⟨by omega, rfl, ?_, rfl⟩
-          dsimp only
-          have h0 : u = t + m * (k + BitVec.ofNat 64 (oi' + 1)) := by grind
-          have h1 : BitVec.ofNat 64 (oi' + 1) = BitVec.ofNat 64 oi' + 1 := by grind
-          rw [h0, ← ht, h1, tri_succ]; grind
-        | succ oj' =>
-          have htj := truthy_ofNat_succ (k := oj') (by omega)
-          refine ⟨fun _ => ?_, fun h => absurd htj (by simp [Truthy, h])⟩
-          rw [bv64_ofNat_succ_sub_one]
-          refine hltI oj' _ mem (by omega) ⟨by omega, rfl, ?_, rfl⟩
-          dsimp only
-          have h1 : BitVec.ofNat 64 (oj' + 1) = BitVec.ofNat 64 oj' + 1 := by grind
-          rw [← hu, h1]; grind
-      · wp_unfold; exact hJi m.toNat (m, t, ()) mem ⟨Nat.le_refl _, by simp, rfl, rfl⟩
-  · wp_unfold
-    exact hJo n.toNat (n, 0, ()) mem ⟨Nat.le_refl _, by simp, by dsimp only; grind, rfl⟩
+      refine jnz_ofNat_zero (hltO oi' _ mem (by omega) ⟨by omega, by grind, ?_, rfl⟩)
+      dsimp only; rw [show u = t + m * (k + BitVec.ofNat 64 (oi' + 1)) by grind, ← ht,
+        show BitVec.ofNat 64 (oi' + 1) = BitVec.ofNat 64 oi' + 1 by grind, tri]; grind
+    | succ oj' =>
+      refine jnz_ofNat_succ (k := oj') (by omega)
+        (hltI oj' _ mem (by omega) ⟨by omega, by grind, ?_, rfl⟩)
+      dsimp only; rw [← hu, show BitVec.ofNat 64 (oj' + 1) = BitVec.ofNat 64 oj' + 1 by grind]
+      grind
 
 theorem swap_spec (Γ : Env) :
     ∀ args m Q X, swapContract args m Q X → Func.spec Γ swap.body args m Q X := by
@@ -235,59 +216,50 @@ theorem swap_spec (Γ : Env) :
     (fun k xs m' => k ≤ n.toNat ∧ xs.1 = BitVec.ofNat 64 k ∧
       (n.toNat % 2 = k % 2 → xs.2.1 = a ∧ xs.2.2.1 = b) ∧
       (n.toNat % 2 ≠ k % 2 → xs.2.1 = b ∧ xs.2.2.1 = a) ∧ m' = m)
-    (fun J k ⟨i, x, y, ⟨⟩⟩ m' hlt ⟨hk, hi, heq, hne, hm⟩ => ?_) (fun J hJ => ?_)
-  · dsimp only at hi heq hne hm; subst hi; rw [hm]
-    dsimp only [Blocks.get_here]; wp_unfold
-    cases k with
-    | zero =>
-      refine ⟨fun h => absurd h truthy_zero, fun _ => ?_⟩
-      by_cases hpar : n.toNat % 2 = 0
-      · have hxy := heq (by omega); simpa [hpar, hxy.1] using hQ
-      · have hxy := hne (by omega); simpa [hpar, hxy.1] using hQ
-    | succ k' =>
-      have ht := truthy_ofNat_succ (k := k') (by omega)
-      refine ⟨fun _ => ?_, fun h => absurd ht (by simp [Truthy, h])⟩
-      rw [bv64_ofNat_succ_sub_one]
-      exact hlt k' _ m (by omega)
-        ⟨by omega, rfl, fun h => (hne (by omega)).symm, fun h => (heq (by omega)).symm, rfl⟩
-  · wp_unfold
-    exact hJ n.toNat (n, a, b, ()) m
-      ⟨Nat.le_refl _, by simp, fun _ => ⟨rfl, rfl⟩, fun h => absurd rfl h, rfl⟩
+    (fun J k ⟨i, x, y, ⟨⟩⟩ m' hlt ⟨hk, hi, heq, hne, hm⟩ => ?_)
+    (fun J hJ => by
+      wp_unfold
+      exact hJ n.toNat (n, a, b, ()) m
+        ⟨Nat.le_refl _, by simp, fun _ => ⟨rfl, rfl⟩, fun h => absurd rfl h, rfl⟩)
+  dsimp only at hi heq hne hm; subst hi; rw [hm]; dsimp only [Blocks.get_here]; wp_unfold
+  cases k with
+  | zero =>
+    refine jnz_ofNat_zero ?_
+    by_cases hpar : n.toNat % 2 = 0
+    · simpa [hpar, (heq (by omega)).1] using hQ
+    · simpa [hpar, (hne (by omega)).1] using hQ
+  | succ k' =>
+    refine jnz_ofNat_succ (k := k') (by omega) (hlt k' _ m (by omega)
+      ⟨by omega, by grind, fun _ => (hne (by omega)).symm, fun _ => (heq (by omega)).symm, rfl⟩)
 
 theorem inc_spec (Γ : Env) :
     ∀ args m Q X, incContract args m Q X → Func.spec Γ inc.body args m Q X := by
-  rintro ⟨a, ⟨⟩⟩ m Q X hQ
-  dsimp only [Func.spec, Func.wp, inc]; wp_unfold; exact hQ
+  rintro ⟨a, ⟨⟩⟩ m Q X hQ; dsimp only [Func.spec, Func.wp, inc]; wp_unfold; exact hQ
 
 theorem callinc_spec (Γ : Env)
     (hinc : ∀ args m Q X, incContract args m Q X → Γ "inc" [i64] [i64] args m Q X) :
     ∀ args m Q X, callincContract args m Q X → Func.spec Γ callinc.body args m Q X := by
-  rintro ⟨a, b, ⟨⟩⟩ m Q X hQ
-  dsimp only [Func.spec, Func.wp, callinc]
+  rintro ⟨a, b, ⟨⟩⟩ m Q X hQ; dsimp only [Func.spec, Func.wp, callinc]
   refine wp_call_of_spec _ _ (hinc _ m _ _ ?_)
   dsimp only [incContract, vals, Arg.val_var]; wp_unfold; exact hQ
 
 theorem check_spec (Γ : Env) :
     ∀ args m Q X, checkContract args m Q X → Func.spec Γ check.body args m Q X := by
-  rintro ⟨a, ⟨⟩⟩ m Q X ⟨hQ, hX⟩
-  dsimp only [Func.spec, Func.wp, check]; wp_unfold
+  rintro ⟨a, ⟨⟩⟩ m Q X ⟨hQ, hX⟩; dsimp only [Func.spec, Func.wp, check]; wp_unfold
   exact ⟨hQ, fun h => hX (by simp [Truthy, h])⟩
 
 theorem twice_spec (Γ : Env)
     (hcheck : ∀ args m Q X, checkContract args m Q X → Γ "check" [i64] [i64] args m Q X) :
     ∀ args m Q X, twiceContract args m Q X → Func.spec Γ twice.body args m Q X := by
-  rintro ⟨a, b, ⟨⟩⟩ m Q X ⟨hQ, hXa, hXb⟩
-  dsimp only [Func.spec, Func.wp, twice]
+  rintro ⟨a, b, ⟨⟩⟩ m Q X ⟨hQ, hXa, hXb⟩; dsimp only [Func.spec, Func.wp, twice]
   refine wp_call_of_spec _ _ (hcheck _ m _ _ ⟨fun ha => ?_, hXa⟩)
   refine wp_call_of_spec _ _ (hcheck _ m _ _ ⟨fun hb => ?_, hXb ha⟩)
   wp_unfold; exact hQ ha hb
 
 theorem spill10_spec (Γ : Env) :
     ∀ args m Q X, spill10Contract args m Q X → Func.spec Γ spill10.body args m Q X := by
-  rintro ⟨a, b, ⟨⟩⟩ m Q X hQ
-  dsimp only [Func.spec, Func.wp, spill10]; wp_unfold
-  dsimp only [spill10Contract] at hQ
-  simpa [spill10Val] using hQ
+  rintro ⟨a, b, ⟨⟩⟩ m Q X hQ; dsimp only [Func.spec, Func.wp, spill10]; wp_unfold
+  simpa [spill10Contract, spill10Val] using hQ
 
 theorem sumcall_spec (Γ : Env)
     (hinc : ∀ args m Q X, incContract args m Q X → Γ "inc" [i64] [i64] args m Q X) :
@@ -297,26 +269,21 @@ theorem sumcall_spec (Γ : Env)
   refine wp_loop_group
     (fun k xs m' => k ≤ n.toNat ∧ xs.1 = BitVec.ofNat 64 k ∧
       xs.2.1 + tri k + xs.1 = tri n.toNat + n ∧ m' = m)
-    (fun J k ⟨i, s, ⟨⟩⟩ m' hlt ⟨hk, hi, hs, hm⟩ => ?_) (fun J hJ => ?_)
-  · dsimp only at hi hs hm; subst hi; rw [hm]
-    dsimp only [Blocks.get_here]; wp_unfold
-    cases k with
-    | zero =>
-      refine ⟨fun h => absurd h truthy_zero, fun _ => ?_⟩
-      rw [tri_zero] at hs; have hs' : s = tri n.toNat + n := by grind
-      rw [hs']; exact hQ
-    | succ k' =>
-      have ht := truthy_ofNat_succ (k := k') (by omega)
-      refine ⟨fun _ => ?_, fun h => absurd ht (by simp [Truthy, h])⟩
-      refine wp_call_of_spec _ _ (hinc (BitVec.ofNat 64 (k' + 1), ()) m _ _ ?_)
-      dsimp only [incContract, vals, Arg.val_var]; wp_unfold
-      rw [bv64_ofNat_succ_sub_one]
-      refine hlt k' _ m (by omega) ⟨by omega, rfl, ?_, rfl⟩
-      dsimp only
-      have h1 : BitVec.ofNat 64 (k' + 1) = BitVec.ofNat 64 k' + 1 := by grind
-      rw [← hs, tri_succ, h1]; ac_rfl
-  · wp_unfold
-    exact hJ n.toNat (n, 0, ()) m ⟨Nat.le_refl _, by simp, by dsimp only; grind, rfl⟩
+    (fun J k ⟨i, s, ⟨⟩⟩ m' hlt ⟨hk, hi, hs, hm⟩ => ?_)
+    (fun J hJ => by
+      wp_unfold; exact hJ n.toNat (n, 0, ()) m ⟨Nat.le_refl _, by simp, by grind, rfl⟩)
+  dsimp only at hi hs hm; subst hi; rw [hm]; dsimp only [Blocks.get_here]; wp_unfold
+  cases k with
+  | zero => refine jnz_ofNat_zero ?_; have : s = tri n.toNat + n := by grind [tri]
+            rw [this]; exact hQ
+  | succ k' =>
+    refine jnz_ofNat_succ (k := k') (by omega) ?_
+    refine wp_call_of_spec _ _ (hinc (BitVec.ofNat 64 (k' + 1), ()) m _ _ ?_)
+    dsimp only [incContract, vals, Arg.val_var]; wp_unfold
+    rw [show BitVec.ofNat 64 (k' + 1) - 1 = BitVec.ofNat 64 k' by grind]
+    refine hlt k' _ m (by omega) ⟨by omega, rfl, ?_, rfl⟩
+    dsimp only
+    rw [← hs, tri, show BitVec.ofNat 64 (k' + 1) = BitVec.ofNat 64 k' + 1 by grind]; ac_rfl
 
 /-! ## 4. Closed Module Environment and `ModuleOk` -/
 
@@ -341,72 +308,44 @@ theorem litmusEnv_sound : ∀ fn ∈ allFns, ∀ xs m Q X,
   intro fn hfn
   simp only [allFns, List.mem_cons, List.not_mem_nil, or_false] at hfn
   rcases hfn with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact tracer_spec litmusEnv
-  · exact ifelse_spec litmusEnv
-  · exact sumto_spec litmusEnv
-  · exact evenodd_spec litmusEnv
-  · exact nested_spec litmusEnv
-  · exact swap_spec litmusEnv
-  · exact inc_spec litmusEnv
-  · exact callinc_spec litmusEnv (fun _ _ _ _ h => h)
-  · exact check_spec litmusEnv
-  · exact twice_spec litmusEnv (fun _ _ _ _ h => h)
-  · exact spill10_spec litmusEnv
-  · exact sumcall_spec litmusEnv (fun _ _ _ _ h => h)
+  all_goals first
+    | exact tracer_spec _ | exact ifelse_spec _ | exact sumto_spec _ | exact evenodd_spec _
+    | exact nested_spec _ | exact swap_spec _   | exact inc_spec _   | exact check_spec _
+    | exact spill10_spec _
+    | exact callinc_spec _ (fun _ _ _ _ h => h)
+    | exact twice_spec _ (fun _ _ _ _ h => h)
+    | exact sumcall_spec _ (fun _ _ _ _ h => h)
 
-private theorem allFns_wf : ∀ fn ∈ allFns, fn.Wf := by
-  intro fn hfn
-  simp only [allFns, List.mem_cons, List.not_mem_nil, or_false] at hfn
-  rcases hfn with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact tracer_wf
-  · exact ifelse_wf
-  · exact sumto_wf
-  · exact evenodd_wf
-  · exact nested_wf
-  · exact swap_wf
-  · exact inc_wf
-  · exact callinc_wf
-  · exact check_wf
-  · exact twice_wf
-  · exact spill10_wf
-  · exact sumcall_wf
-
-private theorem moduleOk_of_subset {M : Module} (hacyc : M.checkAcyclic = true)
-    (hsub : ∀ fn ∈ M.fns, fn ∈ allFns) : ModuleOk litmusEnv M :=
-  Module.moduleOk_of_checkAcyclic hacyc
-    (fun fn hmem => allFns_wf fn (hsub fn hmem))
-    (fun fn hmem => litmusEnv_sound fn (hsub fn hmem))
-
-private theorem single_moduleOk {f : Fn} (hf : f ∈ allFns)
-    (hacyc : ({ fns := [f], externs := [], exits := [] } : Module).checkAcyclic = true) :
+private theorem ok1 {f : Fn} (hwf : f.Wf) (hf : f ∈ allFns := by simp [allFns])
+    (hacyc : ({ fns := [f], externs := [], exits := [] } : Module).checkAcyclic = true :=
+      by t_kernel_rfl) :
     ModuleOk litmusEnv ⟨[f], [], []⟩ :=
-  moduleOk_of_subset hacyc (by intro g hg; simp at hg; subst hg; exact hf)
+  Module.moduleOk_of_checkAcyclic hacyc
+    (fun _ hg => by simp at hg; subst hg; exact hwf)
+    (fun _ hg => by simp at hg; subst hg; exact litmusEnv_sound _ hf)
 
-private theorem pair_moduleOk {f g : Fn} {ex : List String} (hf : f ∈ allFns) (hg : g ∈ allFns)
-    (hacyc : ({ fns := [f, g], externs := [], exits := ex } : Module).checkAcyclic = true) :
+private theorem ok2 {f g : Fn} {ex : List String} (hwf : f.Wf) (hwg : g.Wf)
+    (hf : f ∈ allFns := by simp [allFns]) (hg : g ∈ allFns := by simp [allFns])
+    (hacyc : ({ fns := [f, g], externs := [], exits := ex } : Module).checkAcyclic = true :=
+      by t_kernel_rfl) :
     ModuleOk litmusEnv ⟨[f, g], [], ex⟩ :=
-  moduleOk_of_subset hacyc (by intro x hx; simp at hx; rcases hx with rfl | rfl <;> assumption)
+  Module.moduleOk_of_checkAcyclic hacyc
+    (fun _ hx => by simp at hx; rcases hx with rfl | rfl <;> assumption)
+    (fun _ hx => by
+      simp at hx; rcases hx with rfl | rfl
+      · exact litmusEnv_sound _ hf
+      · exact litmusEnv_sound _ hg)
 
-theorem tracer_moduleOk : ModuleOk litmusEnv tracerModule :=
-  single_moduleOk (by simp [allFns]) tracerModule_acyclic
-theorem ifelse_moduleOk : ModuleOk litmusEnv ifelseModule :=
-  single_moduleOk (by simp [allFns]) ifelseModule_acyclic
-theorem sumto_moduleOk : ModuleOk litmusEnv sumtoModule :=
-  single_moduleOk (by simp [allFns]) sumtoModule_acyclic
-theorem evenodd_moduleOk : ModuleOk litmusEnv evenoddModule :=
-  single_moduleOk (by simp [allFns]) evenoddModule_acyclic
-theorem nested_moduleOk : ModuleOk litmusEnv nestedModule :=
-  single_moduleOk (by simp [allFns]) nestedModule_acyclic
-theorem swap_moduleOk : ModuleOk litmusEnv swapModule :=
-  single_moduleOk (by simp [allFns]) swapModule_acyclic
-theorem spill10_moduleOk : ModuleOk litmusEnv spill10Module :=
-  single_moduleOk (by simp [allFns]) spill10Module_acyclic
-theorem callinc_moduleOk : ModuleOk litmusEnv callincModule :=
-  pair_moduleOk (by simp [allFns]) (by simp [allFns]) callincModule_acyclic
-theorem twice_moduleOk : ModuleOk litmusEnv twiceModule :=
-  pair_moduleOk (by simp [allFns]) (by simp [allFns]) twiceModule_acyclic
-theorem sumcall_moduleOk : ModuleOk litmusEnv sumcallModule :=
-  pair_moduleOk (by simp [allFns]) (by simp [allFns]) sumcallModule_acyclic
+theorem tracer_moduleOk  : ModuleOk litmusEnv tracerModule  := ok1 tracer_wf
+theorem ifelse_moduleOk  : ModuleOk litmusEnv ifelseModule  := ok1 ifelse_wf
+theorem sumto_moduleOk   : ModuleOk litmusEnv sumtoModule   := ok1 sumto_wf
+theorem evenodd_moduleOk : ModuleOk litmusEnv evenoddModule := ok1 evenodd_wf
+theorem nested_moduleOk  : ModuleOk litmusEnv nestedModule  := ok1 nested_wf
+theorem swap_moduleOk    : ModuleOk litmusEnv swapModule    := ok1 swap_wf
+theorem spill10_moduleOk : ModuleOk litmusEnv spill10Module := ok1 spill10_wf
+theorem callinc_moduleOk : ModuleOk litmusEnv callincModule := ok2 inc_wf callinc_wf
+theorem twice_moduleOk   : ModuleOk litmusEnv twiceModule   := ok2 check_wf twice_wf
+theorem sumcall_moduleOk : ModuleOk litmusEnv sumcallModule := ok2 inc_wf sumcall_wf
 
 /-! ## 5. Concrete Memory Non-Vacuity (`tracer_nonvacuous`) -/
 

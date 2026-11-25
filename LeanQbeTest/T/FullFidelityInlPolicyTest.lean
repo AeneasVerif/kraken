@@ -440,12 +440,41 @@ theorem m8SwCpInl_ok :
       (m8SweepV2CoreParityModule.optInlinePolicy fidInlPolicy) :=
   fidInlPolicy_ok m8SweepV2CoreParity_moduleOk
 
-#print axioms fidInlPolicy_wf
-#print axioms fidInlPolicy_checkAcyclic
-#print axioms fidInlPolicy_ok
-#print axioms fidInlPolicy_callsOk
-#print axioms fidInlPolicy_spec
-#print axioms fidInlPolicy_supportsSource
+theorem ax_fid_wf {M : Module} (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
+    ∀ f ∈ (M.optInlinePolicy fidInlPolicy).fns, f.Wf :=
+  fidInlPolicy_wf hchk hwf
+
+theorem ax_fid_acyc {M : Module} (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
+    (M.optInlinePolicy fidInlPolicy).checkAcyclic = true :=
+  fidInlPolicy_checkAcyclic hchk hwf
+
+theorem ax_fid_ok {Γ : Env} {M : Module} (hok : ModuleOk Γ M) :
+    ModuleOk Γ (M.optInlinePolicy fidInlPolicy) :=
+  fidInlPolicy_ok hok
+
+theorem ax_fid_calls {M : Module} (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
+    ∀ pre fn post, (M.optInlinePolicy fidInlPolicy).fns = pre ++ fn :: post →
+      Fn.callsOk (pre.map Fn.sig ++ M.externs.map Extern.sig) M.exits fn :=
+  fidInlPolicy_callsOk hchk hwf
+
+theorem ax_fid_spec {Γ : Env} {M : Module}
+    (hok : ModuleOk Γ M) {f : Fn} (hf : f ∈ (M.optInlinePolicy fidInlPolicy).fns)
+    {xs : Tup Val f.as} {m : Mem 64} {Q : Post f.rs} {X : XPost}
+    (hpre : Γ f.name f.as f.rs xs m Q X) : Func.wp Γ f.body xs m Q X :=
+  fidInlPolicy_spec hok hf hpre
+
+theorem ax_fid_src (lt : LegalTarget) {M : Module}
+    (hwf : ∀ f ∈ M.fns, f.Wf)
+    (hsup : ∀ f ∈ M.fns, Func.supportsSource lt f.body = true) :
+    ∀ f ∈ (M.optInlinePolicy fidInlPolicy).fns, Func.supportsSource lt f.body = true :=
+  fidInlPolicy_supportsSource lt hwf hsup
+
+#print axioms ax_fid_wf
+#print axioms ax_fid_acyc
+#print axioms ax_fid_ok
+#print axioms ax_fid_calls
+#print axioms ax_fid_spec
+#print axioms ax_fid_src
 #print axioms pureFidFns_wf
 #print axioms fidInlMod_wf
 #print axioms m8SwCpInl_wf

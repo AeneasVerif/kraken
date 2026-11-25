@@ -116,6 +116,10 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep4
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep4Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep5
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep5Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7Proof0
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7Proof1
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
 public import LeanQbe.T.Examples.Kissat.FullFidelityBase
 public import LeanQbe.T.Examples.Kissat.FullFidelityBaseProof

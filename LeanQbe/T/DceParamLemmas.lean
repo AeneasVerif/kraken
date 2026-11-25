@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.DceParam
 public import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.DceLemmas
+import LeanQbe.T.PassEnvKit
 
 /-!
 # Soundness and Relational Well-Formedness of `Func.dceP`
@@ -55,29 +56,41 @@ theorem vals_tupNarrow : (ts : List Ty) → (m : Mask ts) → (args : Tup (Arg V
   | _ :: ts, (true, m), (_, as) => Prod.ext rfl (vals_tupNarrow ts m as)
   | _ :: ts, (false, m), (_, as) => vals_tupNarrow ts m as
 
-/-- Kept jump operands preserve their semantic value through `argsSweep`. -/
-theorem narrow_argsSweep_vals {s : Trie Unit} {Gk : Ctx K (OptV Val)} {G : Ctx (OptV Val) Val}
-    (hnd : NoneDead s Gk) (hG : SomeEq G) :
+private theorem narrow_argsSweep_gen {V₁ V₂ W₂ : Ty → Type}
+    {f₂ : (t : Ty) → Arg V₂ t → Arg W₂ t}
+    {R : (t : Ty) → Arg V₁ t → Arg W₂ t → Prop}
+    {s : Trie Unit} {Gk : Ctx K (OptV V₁)} {G : Ctx (OptV V₁) V₂}
+    (hstep : ∀ {t : Ty} {ak : Arg K t} {a₁ : Arg (OptV V₁) t} {a₂ : Arg V₂ t},
+      ArgRel Gk t ak a₁ → ArgRel G t a₁ a₂ → ak.InSet s → R t (argSweep a₁) (f₂ t a₂)) :
     {ts : List Ty} → (m mk : Mask ts) → maskLe m mk = true →
-    {aks : Tup (Arg K) ts} → {as₁ : Tup (Arg (OptV Val)) ts} → {as₂ : Tup (Arg Val) ts} →
+    {aks : Tup (Arg K) ts} → {as₁ : Tup (Arg (OptV V₁)) ts} → {as₂ : Tup (Arg V₂) ts} →
     TRel (ArgRel Gk) aks as₁ → TRel (ArgRel G) as₁ as₂ → ArgsInSetM s mk aks →
-    tupNarrow ts m (vals (argsSweep as₁)) = tupNarrow ts m (vals as₂)
-  | [], _, _, _, _, _, _, _, _, _ => rfl
+    TRel R (tupNarrow ts m (argsSweep as₁)) (tupNarrow ts m (tupMapArg f₂ as₂))
+  | [], _, _, _, _, _, _, _, _, _ => .nil
   | _ :: _, (true, m), (true, mk), hle, (_, _), (_, _), (_, _), .cons hka hkas, .cons h12a h12as,
       ⟨ha, has⟩ =>
-    Prod.ext (argSweep_val_of_inSet hnd hG hka h12a ha)
-      (narrow_argsSweep_vals hnd hG m mk (by
-        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has)
-  | _ :: _, (true, _), (false, _), hle, _, _, _, _, _, _ => by
-      dsimp only [maskLe] at hle; simp at hle
+    .cons (hstep hka h12a ha)
+      (narrow_argsSweep_gen hstep m mk (by simpa [maskLe] using hle) hkas h12as has)
+  | _ :: _, (true, _), (false, _), hle, _, _, _, _, _, _ => by simp [maskLe] at hle
   | _ :: _, (false, m), (true, mk), hle, (_, _), (_, _), (_, _), .cons _ hkas, .cons _ h12as,
       ⟨_, has⟩ =>
-    narrow_argsSweep_vals hnd hG m mk (by
-        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has
+    narrow_argsSweep_gen hstep m mk (by simpa [maskLe] using hle) hkas h12as has
   | _ :: _, (false, m), (false, mk), hle, (_, _), (_, _), (_, _), .cons _ hkas, .cons _ h12as,
       has =>
-    narrow_argsSweep_vals hnd hG m mk (by
-        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has
+    narrow_argsSweep_gen hstep m mk (by simpa [maskLe] using hle) hkas h12as has
+
+/-- Kept jump operands preserve their semantic value through `argsSweep`. -/
+theorem narrow_argsSweep_vals {s : Trie Unit} {Gk : Ctx K (OptV Val)} {G : Ctx (OptV Val) Val}
+    (hnd : NoneDead s Gk) (hG : SomeEq G)
+    {ts : List Ty} (m mk : Mask ts) (hle : maskLe m mk = true)
+    {aks : Tup (Arg K) ts} {as₁ : Tup (Arg (OptV Val)) ts} {as₂ : Tup (Arg Val) ts}
+    (hks : TRel (ArgRel Gk) aks as₁) (h12 : TRel (ArgRel G) as₁ as₂) (hs : ArgsInSetM s mk aks) :
+    tupNarrow ts m (vals (argsSweep as₁)) = tupNarrow ts m (vals as₂) := by
+  rw [← vals_tupNarrow, ← vals_tupNarrow]
+  have ht := narrow_argsSweep_gen (f₂ := fun _ a => a) (R := fun _ a₁ a₂ => a₁.val = a₂.val)
+    (fun hka h12a ha => argSweep_val_of_inSet hnd hG hka h12a ha) m mk hle hks h12 hs
+  rw [tupMapArg_id] at ht
+  exact trel_argVal_eq ht
 
 /-! ## Label invariants -/
 
@@ -102,12 +115,8 @@ theorem LblOk.append_wrap {D : Ctx (NLabel Cont) Cont} (hD : LblOk D) :
     (sig : List (List Ty)) → (ms : Tup Mask sig) → (Js' : Tup Cont (narrowSig sig ms)) →
     LblOk (Tup.zip (wrapLabels sig ms Js') (widenConts sig ms Js') ++ D)
   | [], _, _ => hD
-  | _ :: sig, (_, ms), (_, Js) => by
-    intro p hp
-    dsimp only [wrapLabels, widenConts, Tup.zip, List.cons_append] at hp
-    cases hp with
-    | head => rfl
-    | tail _ hp => exact LblOk.append_wrap hD sig ms Js p hp
+  | _ :: sig, (_, ms), (_, Js) =>
+    CtxPred.cons (P := LblRel) rfl (LblOk.append_wrap hD sig ms Js)
 
 /-- Pre-scan/sweep label mask agreement: every sweep-kept parameter was assumed live. -/
 def MaskRel {L : List Ty → Type} : (ts : List Ty) → KLM ts → NLabel L ts → Prop
@@ -128,12 +137,8 @@ theorem MaskOk.append_wrap {L : List Ty → Type} {Dk : Ctx KLM (NLabel L)} (hD 
     MaskOk (Tup.zip (f := KLM) gms (wrapLabels sig ms Js') ++ Dk)
   | [], _, _, _, _ => hD
   | _ :: sig, (_, gms), (_, ms), hle, (_, Js) => by
-    dsimp only [masksLe] at hle; simp only [Bool.and_eq_true] at hle
-    intro p hp
-    dsimp only [wrapLabels, Tup.zip, List.cons_append] at hp
-    cases hp with
-    | head => exact hle.1
-    | tail _ hp => exact MaskOk.append_wrap hD sig gms ms hle.2 Js p hp
+    simp only [masksLe, Bool.and_eq_true] at hle
+    exact CtxPred.cons (P := MaskRel) hle.1 (MaskOk.append_wrap hD sig gms ms hle.2 Js)
 
 /-! ## Binder invariants under `tupWiden` -/
 
@@ -394,38 +399,20 @@ theorem LblOk2.append_wrap {D : Ctx (NLabel L₁) (NLabel L₂)} {D' : Ctx L₁ 
     (Js₂ : Tup L₂ (narrowSig sig ms)) →
     LblOk2 (Tup.zip (wrapLabels sig ms Js₁) (wrapLabels sig ms Js₂) ++ D) (Tup.zip Js₁ Js₂ ++ D')
   | [], _, _, _ => hD
-  | _ :: sig, (m, ms), (_, Js₁), (_, Js₂) => by
-    intro p hp
-    dsimp only [wrapLabels, Tup.zip, List.cons_append] at hp ⊢
-    cases hp with
-    | head => exact .mk m List.mem_cons_self
-    | tail _ hp =>
-      exact (LblOk2.append_wrap hD sig ms Js₁ Js₂ p hp).weaken
-        (fun _ h => List.mem_cons_of_mem _ h)
+  | _ :: sig, (m, ms), (_, Js₁), (_, Js₂) =>
+    CtxPred.cons (.mk m List.mem_cons_self)
+      (CtxPred.mono (fun h => h.weaken fun _ hq => List.mem_cons_of_mem _ hq)
+        (LblOk2.append_wrap hD sig ms Js₁ Js₂))
 
 theorem TRel.narrow_argsSweep {s : Trie Unit}
     {Gk : Ctx K (OptV V₁)} {G : Ctx (OptV V₁) (OptV V₂)} {G' : Ctx V₁ V₂}
-    (hnd : NoneDead s Gk) (hrel : DceRel G G') :
-    {ts : List Ty} → (m mk : Mask ts) → maskLe m mk = true →
-    {aks : Tup (Arg K) ts} → {as₁ : Tup (Arg (OptV V₁)) ts} → {as₂ : Tup (Arg (OptV V₂)) ts} →
-    TRel (ArgRel Gk) aks as₁ → TRel (ArgRel G) as₁ as₂ → ArgsInSetM s mk aks →
-    TRel (ArgRel G') (tupNarrow ts m (argsSweep as₁)) (tupNarrow ts m (argsSweep as₂))
-  | [], _, _, _, _, _, _, _, _, _ => .nil
-  | _ :: _, (true, m), (true, mk), hle, (_, _), (_, _), (_, _), .cons hka hkas, .cons h12a h12as,
-      ⟨ha, has⟩ =>
-    .cons (argSweep_rel_of_inSet hnd hrel hka h12a ha)
-      (TRel.narrow_argsSweep hnd hrel m mk (by
-        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has)
-  | _ :: _, (true, _), (false, _), hle, _, _, _, _, _, _ => by
-      dsimp only [maskLe] at hle; simp at hle
-  | _ :: _, (false, m), (true, mk), hle, (_, _), (_, _), (_, _), .cons _ hkas, .cons _ h12as,
-      ⟨_, has⟩ =>
-    TRel.narrow_argsSweep hnd hrel m mk (by
-        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has
-  | _ :: _, (false, m), (false, mk), hle, (_, _), (_, _), (_, _), .cons _ hkas, .cons _ h12as,
-      has =>
-    TRel.narrow_argsSweep hnd hrel m mk (by
-        dsimp only [maskLe] at hle; simpa using hle) hkas h12as has
+    (hnd : NoneDead s Gk) (hrel : DceRel G G')
+    {ts : List Ty} (m mk : Mask ts) (hle : maskLe m mk = true)
+    {aks : Tup (Arg K) ts} {as₁ : Tup (Arg (OptV V₁)) ts} {as₂ : Tup (Arg (OptV V₂)) ts}
+    (hks : TRel (ArgRel Gk) aks as₁) (h12 : TRel (ArgRel G) as₁ as₂) (hs : ArgsInSetM s mk aks) :
+    TRel (ArgRel G') (tupNarrow ts m (argsSweep as₁)) (tupNarrow ts m (argsSweep as₂)) :=
+  narrow_argsSweep_gen (f₂ := fun _ => argSweep) (R := ArgRel G')
+    (fun hka h12a ha => argSweep_rel_of_inSet hnd hrel hka h12a ha) m mk hle hks h12 hs
 
 theorem DceRel.append_widen {G : Ctx (OptV V₁) (OptV V₂)} {G' : Ctx V₁ V₂} (hrel : DceRel G G') :
     (ts : List Ty) → (m : Mask ts) → (ys₁ : Tup V₁ (narrow ts m)) → (ys₂ : Tup V₂ (narrow ts m)) →
@@ -606,16 +593,14 @@ theorem liveVarsP_leaf_ok (dl dld : Bool) {rs : List Ty} :
     have ih := liveVarsP_leaf_ok dl dld (b + ts.length) (k (Tup.levels ts b))
     dsimp only [liveVarsP, PTree.sub1]
     by_cases hc : (!dl || anyLive b ts.length
-        (liveVarsP dl dld PTree.leaf (b + ts.length) (k (Tup.levels ts b))).1) = true
-    · simp only [hc, ↓reduceIte]; exact ih
-    · simp only [hc]; exact ih
+        (liveVarsP dl dld PTree.leaf (b + ts.length) (k (Tup.levels ts b))).1) = true <;>
+      simp only [hc, Bool.false_eq_true, ↓reduceIte] <;> exact ih
   | b, .load _ _ k => by
     have ih := liveVarsP_leaf_ok dl dld (b + 1) (k b)
     dsimp only [liveVarsP, PTree.sub1]
     by_cases hc :
-        (!dld || ((liveVarsP dl dld PTree.leaf (b + 1) (k b)).1.find? b).isSome) = true
-    · simp only [hc, ↓reduceIte]; exact ih
-    · simp only [hc]; exact ih
+        (!dld || ((liveVarsP dl dld PTree.leaf (b + 1) (k b)).1.find? b).isSome) = true <;>
+      simp only [hc, Bool.false_eq_true, ↓reduceIte] <;> exact ih
   | b, .store _ _ k => by
     dsimp only [liveVarsP, PTree.sub1]
     exact liveVarsP_leaf_ok dl dld b k

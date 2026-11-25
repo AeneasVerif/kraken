@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.MemLoad
 public import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.OpsLemmas
+import LeanQbe.T.PassEnvKit
 
 /-!
 # Correctness of `MemLoad` and `AssumeElim`
@@ -110,19 +111,21 @@ theorem IdxKey.FLt.mono {b : Nat} {ik : IdxKey} (h : ik.FLt b) : ik.FLt (b + 1) 
 theorem IdxKey.FLt.add {b k : Nat} {ik : IdxKey} (h : ik.FLt b) : ik.FLt (b + k) :=
   h.le (Nat.le_add_right b k)
 
-theorem IdxKey.eval_fupd {ρ : FEnv} {b : Nat} {u : Ty} (v : Val u) :
-    {ik : IdxKey} → ik.FLt b → ik.eval (fupd ρ b v) = ik.eval ρ
+private theorem IdxKey.eval_congr {ρ₁ ρ₂ : FEnv} {b : Nat}
+    (h : ∀ {u} {k : FKey u}, k.FLt b → k.fev ρ₁ = k.fev ρ₂) :
+    {ik : IdxKey} → ik.FLt b → ik.eval ρ₁ = ik.eval ρ₂
   | .none, _ => rfl
-  | .k64 _, h => FKey.fev_fupd v h
-  | .zext32 _, h => congrArg (BitVec.setWidth 64) (FKey.fev_fupd v h)
-  | .sext32 _, h => congrArg (BitVec.signExtend 64) (FKey.fev_fupd v h)
+  | .k64 _, hk => h hk
+  | .zext32 _, hk => congrArg (BitVec.setWidth 64) (h hk)
+  | .sext32 _, hk => congrArg (BitVec.signExtend 64) (h hk)
+
+theorem IdxKey.eval_fupd {ρ : FEnv} {b : Nat} {u : Ty} (v : Val u) :
+    {ik : IdxKey} → ik.FLt b → ik.eval (fupd ρ b v) = ik.eval ρ :=
+  fun h => IdxKey.eval_congr (fun hk => FKey.fev_fupd v hk) h
 
 theorem IdxKey.eval_fupdTup {ρ : FEnv} {b : Nat} {ts : List Ty} (xs : Tup Val ts) :
-    {ik : IdxKey} → ik.FLt b → ik.eval (fupdTup ρ b xs) = ik.eval ρ
-  | .none, _ => rfl
-  | .k64 _, h => FKey.fev_fupdTup xs h
-  | .zext32 _, h => congrArg (BitVec.setWidth 64) (FKey.fev_fupdTup xs h)
-  | .sext32 _, h => congrArg (BitVec.signExtend 64) (FKey.fev_fupdTup xs h)
+    {ik : IdxKey} → ik.FLt b → ik.eval (fupdTup ρ b xs) = ik.eval ρ :=
+  fun h => IdxKey.eval_congr (fun hk => FKey.fev_fupdTup xs hk) h
 
 /-- Base part `base + idx * scale` of an `MemAddrKey` under valuation `ρ`. -/
 public def MemAddrKey.baseEval (ρ : FEnv) (ak : MemAddrKey) : BitVec 64 :=
@@ -175,17 +178,22 @@ theorem BaseOffGood.empty (ρ : FEnv) (next : Nat) :
   exact ⟨⟨hi, trivial⟩, by simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.var, IdxKey.eval,
     FKey.fev], hi, rfl⟩
 
+private theorem BaseOffGood.entry_fupd {ρ : FEnv} {next i : Nat} {m : BaseOffMap}
+    (hm : BaseOffGood ρ next m) {u : Ty} (v : Val u) (hlt : i < next) :
+    let e := m.getD i ⟨.var i, .k64 (.var i)⟩
+    e.ak.FLt (next + 1) ∧ e.ak.eval (fupd ρ next v) = fupd ρ next v i64 i ∧
+    e.idxSelf.FLt (next + 1) ∧ e.idxSelf.eval (fupd ρ next v) = fupd ρ next v i64 i := by
+  obtain ⟨hflt, hev, hiflt, hiev⟩ := hm.1 i hlt
+  refine ⟨hflt.mono, ?_, hiflt.mono, ?_⟩
+  · rw [MemAddrKey.eval_fupd v hflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]; exact hev
+  · rw [IdxKey.eval_fupd v hiflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]; exact hiev
+
 theorem BaseOffGood.upd_fupd {ρ : FEnv} {next : Nat} {m : BaseOffMap}
     (hm : BaseOffGood ρ next m) {u : Ty} (v : Val u) :
     BaseOffGood (fupd ρ next v) (next + 1) m := by
   refine ⟨fun i hi => ?_, fun i hi => hm.2 i (by omega)⟩
   rcases Nat.lt_or_eq_of_le (Nat.lt_succ_iff.1 hi) with hlt | rfl
-  · obtain ⟨hflt, hev, hiflt, hiev⟩ := hm.1 i hlt
-    refine ⟨hflt.mono, ?_, hiflt.mono, ?_⟩
-    · rw [MemAddrKey.eval_fupd v hflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]
-      exact hev
-    · rw [IdxKey.eval_fupd v hiflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]
-      exact hiev
+  · exact hm.entry_fupd v hlt
   · have hnone := hm.2 i (Nat.le_refl i)
     simp only [Trie.getD, hnone, Option.getD_none]
     exact ⟨⟨hi, trivial⟩, by simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.var,
@@ -208,12 +216,7 @@ theorem BaseOffGood.insert_next {ρ : FEnv} {next : Nat} {m : BaseOffMap}
   refine ⟨fun i hi => ?_, fun i hi => ?_⟩
   · rcases Nat.lt_or_eq_of_le (Nat.lt_succ_iff.1 hi) with hlt | rfl
     · rw [Trie.getD_insert_ne m e ⟨.var i, .k64 (.var i)⟩ (Nat.ne_of_lt hlt)]
-      obtain ⟨hflt, hev, hiflt, hiev⟩ := hm.1 i hlt
-      refine ⟨hflt.mono, ?_, hiflt.mono, ?_⟩
-      · rw [MemAddrKey.eval_fupd v hflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]
-        exact hev
-      · rw [IdxKey.eval_fupd v hiflt, fupd_ne ρ v (Nat.ne_of_lt hlt)]
-        exact hiev
+      exact hm.entry_fupd v hlt
     · simp only [Trie.getD_insert_self]
       refine ⟨hakFlt, ?_, hiFlt, ?_⟩
       · rw [fupd_eq]; exact hakEv
@@ -258,6 +261,33 @@ private theorem bv_add4 (a b c d : BitVec 64) : (a + c) + (b + d) = (a + b) + (c
   rw [BitVec.add_assoc a c, BitVec.add_comm c (b + d), BitVec.add_assoc b d c,
     ← BitVec.add_assoc a b (d + c), BitVec.add_comm d c]
 
+private theorem addAddr_off_l {ρ : FEnv} {next : Nat} {ka kb : MemAddrKey} {vx vy : Val i64}
+    (hkB : kb.FLt next) (evA : ka.eval ρ = vx) (evB : kb.eval ρ = vy)
+    (hc : (fkey64Beq ka.base (.imm 0#64) && ka.scale == 0#64) = true) :
+    ({ kb with off := kb.off + ka.off } : MemAddrKey).FLt next ∧
+      ({ kb with off := kb.off + ka.off } : MemAddrKey).eval ρ = vx + vy := by
+  simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at hc
+  have ha : ka.off = vx := by
+    simpa [MemAddrKey.eval, MemAddrKey.baseEval, hc.1, hc.2, FKey.fev] using evA
+  refine ⟨hkB, ?_⟩
+  simp only [MemAddrKey.eval, MemAddrKey.baseEval] at evB ⊢
+  rw [← BitVec.add_assoc, evB, ha, BitVec.add_comm]
+
+private theorem addAddr_bs_l {ρ : FEnv} {next : Nat} {ka kb : MemAddrKey} {vx vy : Val i64}
+    (hkA : ka.FLt next) (hkB : kb.FLt next) (evA : ka.eval ρ = vx) (evB : kb.eval ρ = vy)
+    (hc : (ka.scale == 0#64 && fkey64Beq kb.base (.imm 0#64)) = true) :
+    ({ base := ka.base, idx := kb.idx, scale := kb.scale, off := ka.off + kb.off } :
+      MemAddrKey).FLt next ∧
+      ({ base := ka.base, idx := kb.idx, scale := kb.scale, off := ka.off + kb.off } :
+        MemAddrKey).eval ρ = vx + vy := by
+  simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at hc
+  have ha1 : ka.base.fev ρ + ka.off = vx := by
+    simpa [MemAddrKey.eval, MemAddrKey.baseEval, hc.1] using evA
+  have ha2 : kb.idx.eval ρ * kb.scale + kb.off = vy := by
+    simpa [MemAddrKey.eval, MemAddrKey.baseEval, hc.2, FKey.fev] using evB
+  refine ⟨⟨hkA.1, hkB.2⟩, ?_⟩
+  simp only [MemAddrKey.eval, MemAddrKey.baseEval]; rw [bv_add4, ha1, ha2]
+
 theorem addAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood ρ next m)
     {x y : FKey i64} (hx : x.FLt next) (hy : y.FLt next) {ak : MemAddrKey}
     (h : addAddr m x y = some ak) :
@@ -268,48 +298,24 @@ theorem addAddr_good {ρ : FEnv} {next : Nat} {m : BaseOffMap} (hm : BaseOffGood
   by_cases c1 : (fkey64Beq (resolveKey m x).base (.imm 0#64) &&
       (resolveKey m x).scale == 0#64) = true
   · simp only [c1, ↓reduceIte, Option.some.injEq] at h; subst h
-    simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at c1
-    have ha1 : (resolveKey m x).off = x.fev ρ := by
-      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c1.1, c1.2, FKey.fev] using h1Ev
-    refine ⟨h2Flt, ?_⟩
-    simp only [MemAddrKey.eval, MemAddrKey.baseEval] at h2Ev ⊢
-    rw [← BitVec.add_assoc, h2Ev, ha1, BitVec.add_comm]
+    exact addAddr_off_l h2Flt h1Ev h2Ev c1
   simp only [c1, Bool.false_eq_true, ↓reduceIte] at h
   by_cases c2 : (fkey64Beq (resolveKey m y).base (.imm 0#64) &&
       (resolveKey m y).scale == 0#64) = true
   · simp only [c2, ↓reduceIte, Option.some.injEq] at h; subst h
-    simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at c2
-    have ha2 : (resolveKey m y).off = y.fev ρ := by
-      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c2.1, c2.2, FKey.fev] using h2Ev
-    refine ⟨h1Flt, ?_⟩
-    simp only [MemAddrKey.eval, MemAddrKey.baseEval] at h1Ev ⊢
-    rw [← BitVec.add_assoc, h1Ev, ha2]
+    simpa [BitVec.add_comm] using addAddr_off_l h1Flt h2Ev h1Ev c2
   simp only [c2, Bool.false_eq_true, ↓reduceIte] at h
   by_cases c3 : ((resolveKey m x).scale == 0#64 &&
       fkey64Beq (resolveKey m y).base (.imm 0#64)) = true
   · simp only [c3, ↓reduceIte, Option.some.injEq] at h; subst h
-    simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at c3
-    have ha1 : (resolveKey m x).base.fev ρ + (resolveKey m x).off = x.fev ρ := by
-      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c3.1] using h1Ev
-    have ha2 : (resolveKey m y).idx.eval ρ * (resolveKey m y).scale +
-        (resolveKey m y).off = y.fev ρ := by
-      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c3.2, FKey.fev] using h2Ev
-    refine ⟨⟨h1Flt.1, h2Flt.2⟩, ?_⟩
-    simp only [MemAddrKey.eval, MemAddrKey.baseEval]
-    rw [bv_add4, ha1, ha2]
+    exact addAddr_bs_l h1Flt h2Flt h1Ev h2Ev c3
   simp only [c3, Bool.false_eq_true, ↓reduceIte] at h
   by_cases c4 : ((resolveKey m y).scale == 0#64 &&
       fkey64Beq (resolveKey m x).base (.imm 0#64)) = true
   · simp only [c4, ↓reduceIte, Option.some.injEq] at h; subst h
-    simp only [Bool.and_eq_true, fkey64Beq_iff_eq, beq_iff_eq] at c4
-    have ha2 : (resolveKey m y).base.fev ρ + (resolveKey m y).off = y.fev ρ := by
-      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c4.1] using h2Ev
-    have ha1 : (resolveKey m x).idx.eval ρ * (resolveKey m x).scale +
-        (resolveKey m x).off = x.fev ρ := by
-      simpa [MemAddrKey.eval, MemAddrKey.baseEval, c4.2, FKey.fev] using h1Ev
-    refine ⟨⟨h2Flt.1, h1Flt.2⟩, ?_⟩
-    simp only [MemAddrKey.eval, MemAddrKey.baseEval]
-    rw [BitVec.add_comm (resolveKey m x).off, bv_add4, ha2, ha1, BitVec.add_comm]
+    have r := addAddr_bs_l h2Flt h1Flt h2Ev h1Ev c4
+    refine ⟨r.1, by
+      simpa [BitVec.add_comm (resolveKey m x).off, BitVec.add_comm (y.fev ρ)] using r.2⟩
   simp only [c4, Bool.false_eq_true, ↓reduceIte] at h
   by_cases c5 : ((resolveKey m x).scale == 0#64 && (resolveKey m y).scale == 0#64) = true
   · simp only [c5, ↓reduceIte] at h
@@ -597,24 +603,23 @@ theorem stepBaseOff_good (ρ : FEnv) (next : Nat) (m : BaseOffMap)
         rcases kargs with ⟨x, ⟨⟩⟩; rcases args₂ with ⟨a₂, ⟨⟩⟩
         rcases hklt with ⟨hx, _⟩
         dsimp only [tupFev, vals] at hvals; simp only [Prod.mk.injEq] at hvals
+        have insIdx (v : Val i64) (ik : IdxKey) (hif : ik.FLt (next + 1))
+            (hie : ik.eval (fupd ρ next v) = v) :=
+          hm.insert_next v (e := ⟨.var next, ik⟩) ⟨Nat.lt_succ_self next, trivial⟩
+            (by simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.var,
+              IdxKey.eval, FKey.fev, fupd_eq]) hif hie
         by_cases hz : code = .zext 32 64
         · subst hz
           dsimp only [vals] at hw ⊢; simp only [OpCode.wp_zext] at hw ⊢
-          refine ⟨hw.1, hw.2, ?_⟩
           rw [stepBaseOff_zext32_64]
-          refine hm.insert_next _ ⟨Nat.lt_succ_self next, trivial⟩ ?_ hx.mono ?_
-          · simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.var, IdxKey.eval, FKey.fev,
-              fupd_eq]
-          · simp [IdxKey.eval, FKey.fev_fupd _ hx, hvals.1]
+          exact ⟨hw.1, hw.2,
+            insIdx _ _ hx.mono (by simp [IdxKey.eval, FKey.fev_fupd _ hx, hvals.1])⟩
         · by_cases hsx : code = .sext 32 64
           · subst hsx
             dsimp only [vals] at hw ⊢; simp only [OpCode.wp_sext] at hw ⊢
-            refine ⟨hw.1, hw.2, ?_⟩
             rw [stepBaseOff_sext32_64]
-            refine hm.insert_next _ ⟨Nat.lt_succ_self next, trivial⟩ ?_ hx.mono ?_
-            · simp [MemAddrKey.eval, MemAddrKey.baseEval, MemAddrKey.var, IdxKey.eval, FKey.fev,
-                fupd_eq]
-            · simp [IdxKey.eval, FKey.fev_fupd _ hx, hvals.1]
+            exact ⟨hw.1, hw.2,
+              insIdx _ _ hx.mono (by simp [IdxKey.eval, FKey.fev_fupd _ hx, hvals.1])⟩
           · exact hm.stepBaseOff_same code _ (by simp [stepBaseOff, hz, hsx]) (a₂, ()) P hw
       · have heq : stepBaseOff next m code kargs = m := by
           dsimp only [stepBaseOff]
@@ -649,23 +654,6 @@ theorem KGood.cons {ρ : FEnv} {next : Nat} {Gk : Ctx K Val}
     obtain ⟨hlt, heq⟩ := hG p hp
     exact ⟨Nat.lt_succ_of_lt hlt, (fupd_ne ρ v (Nat.ne_of_lt hlt)).trans heq⟩
 
-private theorem KGood.tup_levels_only (ρ : FEnv) :
-    {ts : List Ty} → (xs : Tup Val ts) → (b : Nat) →
-    KGood (fupdTup ρ b xs) (b + ts.length) (Tup.zip (Tup.levels ts b) xs)
-  | [], (), _ => fun _ hp => nomatch hp
-  | _ :: ts, (x, xs), b => by
-    simp only [Tup.levels, Tup.zip, fupdTup, List.length_cons]
-    intro p hp
-    cases hp with
-    | head =>
-      dsimp only
-      refine ⟨Nat.lt_add_of_pos_right (Nat.succ_pos _), ?_⟩
-      rw [fupdTup_lt (fupd ρ b x) xs (Nat.lt_succ_self b), fupd_eq]
-    | tail _ hp =>
-      have ih := KGood.tup_levels_only (fupd ρ b x) xs (b + 1) p hp
-      rw [show b + 1 + ts.length = b + (ts.length + 1) by omega] at ih
-      exact ih
-
 theorem KGood.upd_all {ρ : FEnv} {next : Nat} {Gk : Ctx K Val}
     (hG : KGood ρ next Gk) {ts : List Ty} (xs : Tup Val ts) :
     KGood (fupdTup ρ next xs) (next + ts.length) Gk := by
@@ -676,10 +664,19 @@ theorem KGood.upd_all {ρ : FEnv} {next : Nat} {Gk : Ctx K Val}
 theorem KGood.freshTup {ρ : FEnv} {next : Nat} {Gk : Ctx K Val}
     (hG : KGood ρ next Gk) {ts : List Ty} (xs : Tup Val ts) :
     KGood (fupdTup ρ next xs) (next + ts.length) (Tup.zip (Tup.levels ts next) xs ++ Gk) := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact KGood.tup_levels_only ρ xs next p hp
-  · exact hG.upd_all xs p hp
+  let rec go (ρ₀ : FEnv) : ∀ (us : List Ty) (ys : Tup Val us) (b : Nat),
+      KGood (fupdTup ρ₀ b ys) (b + us.length) (Tup.zip (Tup.levels us b) ys)
+    | [], (), _ => fun _ hp => nomatch hp
+    | _ :: us, (y, ys), b => by
+        simp only [Tup.levels, Tup.zip, fupdTup]
+        intro p hp; cases hp with
+        | head => exact ⟨Nat.lt_add_of_pos_right (Nat.succ_pos _), by
+            dsimp only
+            rw [fupdTup_lt (fupd ρ₀ b y) ys (Nat.lt_succ_self b), fupd_eq]⟩
+        | tail _ hp =>
+          have ih := go (fupd ρ₀ b y) us ys (b + 1) p hp
+          rwa [show b + 1 + us.length = b + (us.length + 1) by omega] at ih
+  exact fun p hp => (List.mem_append.1 hp).elim (go ρ ts xs next p) (hG.upd_all xs p)
 
 theorem ArgRel.k_lt {ρ : FEnv} {next : Nat} {Gk : Ctx K Val}
     (hG : KGood ρ next Gk) {t : Ty} {ak : Arg K t} {a₂ : Arg Val t}
@@ -715,75 +712,51 @@ public def MGood (ρ : FEnv) (next : Nat) (G : Ctx (MVal Val) Val) : Prop :=
 
 theorem MGood.upd_all {ρ : FEnv} {next : Nat} {G : Ctx (MVal Val) Val}
     (hG : MGood ρ next G) {ts : List Ty} (xs : Tup Val ts) :
-    MGood (fupdTup ρ next xs) (next + ts.length) G := by
-  intro p hp
-  obtain ⟨h1, h2, h3⟩ := hG p hp
-  exact ⟨h1, h2.add, (FKey.fev_fupdTup xs h2).trans h3⟩
+    MGood (fupdTup ρ next xs) (next + ts.length) G :=
+  FCtxGood.fupdTup xs (Nat.le_add_right _ _) (Nat.le_refl _) hG
 
 theorem MGood.cons_fupd {ρ : FEnv} {next : Nat} {G : Ctx (MVal Val) Val}
     (hG : MGood ρ next G) {t : Ty} {mv : MVal Val t} {v : Val t}
     (h1 : mv.out.val = v) (h2 : mv.key.FLt (next + 1)) (h3 : mv.key.fev (fupd ρ next v) = v) :
-    MGood (fupd ρ next v) (next + 1) (⟨t, mv, v⟩ :: G) := by
-  intro p hp
-  cases hp with
-  | head => exact ⟨h1, h2, h3⟩
-  | tail _ hp =>
-    obtain ⟨ha, hb, hc⟩ := hG p hp
-    exact ⟨ha, hb.mono, (FKey.fev_fupd v hb).trans hc⟩
+    MGood (fupd ρ next v) (next + 1) (⟨t, mv, v⟩ :: G) :=
+  FCtxGood.cons ⟨h1, h2, h3⟩ (FCtxGood.fupd v (Nat.le_succ _) (Nat.le_refl _) hG)
 
 theorem MGood.cons_fresh {ρ : FEnv} {next : Nat} {G : Ctx (MVal Val) Val}
     (hG : MGood ρ next G) {t : Ty} (v : Val t) :
     MGood (fupd ρ next v) (next + 1) (⟨t, MVal.fresh v next, v⟩ :: G) :=
-  hG.cons_fupd rfl (Nat.lt_succ_self next) (fupd_eq ρ next v)
-
-private theorem MGood.freshMVals_only (ρ : FEnv) :
-    {ts : List Ty} → (xs : Tup Val ts) → (b : Nat) →
-    MGood (fupdTup ρ b xs) (b + ts.length) (Tup.zip (freshMVals ts xs b) xs)
-  | [], (), _ => fun _ hp => nomatch hp
-  | _ :: ts, (x, xs), b => by
-    simp only [freshMVals, tupFreshWith, Tup.zip, fupdTup, List.length_cons]
-    intro p hp
-    cases hp with
-    | head =>
-      dsimp only [MVal.fresh, FKey.FLt, FKey.fev]
-      refine ⟨rfl, Nat.lt_add_of_pos_right (Nat.succ_pos _), ?_⟩
-      rw [fupdTup_lt (fupd ρ b x) xs (Nat.lt_succ_self b), fupd_eq]
-    | tail _ hp =>
-      have ih := MGood.freshMVals_only (fupd ρ b x) xs (b + 1) p hp
-      rw [show b + 1 + ts.length = b + (ts.length + 1) by omega] at ih
-      exact ih
+  FCtxGood.freshOne (out := MVal.out) (key := MVal.key)
+    (fun _ _ => rfl) (fun _ _ => rfl) v hG
 
 theorem MGood.freshMVals {ρ : FEnv} {next : Nat} {G : Ctx (MVal Val) Val}
     (hG : MGood ρ next G) {ts : List Ty} (xs : Tup Val ts) :
     MGood (fupdTup ρ next xs) (next + ts.length)
-      (Tup.zip (freshMVals ts xs next) xs ++ G) := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact MGood.freshMVals_only ρ xs next p hp
-  · exact hG.upd_all xs p hp
+      (Tup.zip (freshMVals ts xs next) xs ++ G) :=
+  FCtxGood.freshTup (out := MVal.out) (key := MVal.key)
+    (fun _ _ => rfl) (fun _ _ => rfl) xs next hG
 
 theorem ArgRel.mout_val {ρ : FEnv} {next : Nat} {G : Ctx (MVal Val) Val}
-    (hG : MGood ρ next G) {t : Ty} {a₁ : Arg (MVal Val) t} {a₂ : Arg Val t} :
-    ArgRel G t a₁ a₂ → a₁.mout.val = a₂.val
-  | .var h => (hG _ h).1
-  | .imm _ => rfl
+    (hG : MGood ρ next G) {t : Ty} {a₁ : Arg (MVal Val) t} {a₂ : Arg Val t}
+    (h : ArgRel G t a₁ a₂) : a₁.mout.val = a₂.val := by
+  have hr := FCtxGood.argRel_val (out := MVal.out) (key := MVal.key) hG h
+  cases a₁ <;> exact hr
 
 theorem ArgRel.mkey_lt {ρ : FEnv} {next : Nat} {G : Ctx (MVal Val) Val}
-    (hG : MGood ρ next G) {t : Ty} {a₁ : Arg (MVal Val) t} {a₂ : Arg Val t} :
-    ArgRel G t a₁ a₂ → a₁.mkey.FLt next
-  | .var h => (hG _ h).2.1
-  | .imm _ => trivial
+    (hG : MGood ρ next G) {t : Ty} {a₁ : Arg (MVal Val) t} {a₂ : Arg Val t}
+    (h : ArgRel G t a₁ a₂) : a₁.mkey.FLt next := by
+  have hr := FCtxGood.argRel_lt (out := MVal.out) (key := MVal.key) hG h
+  cases a₁ <;> exact hr
 
 theorem ArgRel.mkey_ev {ρ : FEnv} {next : Nat} {G : Ctx (MVal Val) Val}
-    (hG : MGood ρ next G) {t : Ty} {a₁ : Arg (MVal Val) t} {a₂ : Arg Val t} :
-    ArgRel G t a₁ a₂ → a₁.mkey.fev ρ = a₂.val
-  | .var h => (hG _ h).2.2
-  | .imm _ => rfl
+    (hG : MGood ρ next G) {t : Ty} {a₁ : Arg (MVal Val) t} {a₂ : Arg Val t}
+    (h : ArgRel G t a₁ a₂) : a₁.mkey.fev ρ = a₂.val := by
+  have hr := FCtxGood.argRel_ev (out := MVal.out) (key := MVal.key) hG h
+  cases a₁ <;> exact hr
 
 theorem TRel.mout_vals {ρ : FEnv} {next : Nat} {G : Ctx (MVal Val) Val}
     (hG : MGood ρ next G) {ts : List Ty} {as₁ : Tup (Arg (MVal Val)) ts} {as₂ : Tup (Arg Val) ts}
     (h : TRel (ArgRel G) as₁ as₂) : vals (tupMOut as₁) = vals as₂ :=
-  TRel.tupMapArg_vals (fun _ => Arg.mout) (fun ha => ha.mout_val hG) h
+  FCtxGood.trel_vals (out := MVal.out) (key := MVal.key)
+    (fun _ => Arg.mout) (fun a => by cases a <;> rfl) hG h
 
 theorem TRel.mkey_lt {ρ : FEnv} {next : Nat} {G : Ctx (MVal Val) Val}
     (hG : MGood ρ next G) :
@@ -900,6 +873,22 @@ theorem InvKeysGood.upd_fupdTup {ρ : FEnv} {next : Nat} {inv : List InvEntry}
   obtain ⟨hak, heq⟩ := hi e he
   exact ⟨hak.add, (MemAddrKey.eval_fupdTup xs hak).trans heq⟩
 
+private theorem loadVal_storeMem_disjoint_key {ρ : FEnv} (m : Mem 64) {akW akE : MemAddrKey}
+    {tW tE : Ty} {ptr addr : BitVec 64} {vW : Val tW} {vE : Val tE}
+    (hptr : akW.eval ρ = ptr) (haddr : akE.eval ρ = addr)
+    (hsb : akE.sameBase akW = true) (hsp : spanDisjoint akW.off tW.bytes akE.off tE.bytes = true)
+    (hld : loadVal m tE addr = some vE) :
+    loadVal (storeMem m tW ptr vW) tE addr = some vE := by
+  have hbase : akE.baseEval ρ = akW.baseEval ρ := MemAddrKey.baseEval_eq_of_sameBase ρ hsb
+  have hdisj := spanDisjoint_sound hsp (akW.baseEval ρ)
+  have heW : akW.baseEval ρ + akW.off = ptr := hptr
+  have heE : akW.baseEval ρ + akE.off = addr := by
+    rw [← haddr]; simp only [MemAddrKey.eval, hbase]
+  rw [← heW, ← heE,
+    loadVal_storeMem_disjoint m tW tE (akW.baseEval ρ + akW.off) (akW.baseEval ρ + akE.off)
+      vW hdisj, heE]
+  exact hld
+
 theorem MemCacheGood.store_filter {ρ : FEnv} {next : Nat}
     {cache : List (CacheEntry Val)} {m : Mem 64}
     (hc : MemCacheGood ρ next cache m) (akW : MemAddrKey)
@@ -909,17 +898,7 @@ theorem MemCacheGood.store_filter {ρ : FEnv} {next : Nat}
   simp only [filterCacheWrite, List.mem_filter, entryDisjointWrite, Bool.and_eq_true] at he
   obtain ⟨hem, hsb, hsp⟩ := he
   obtain ⟨hakflt, hvflt, hev, hld⟩ := hc e hem
-  refine ⟨hakflt, hvflt, hev, ?_⟩
-  have hbase : e.ak.baseEval ρ = akW.baseEval ρ := MemAddrKey.baseEval_eq_of_sameBase ρ hsb
-  have hdisj := spanDisjoint_sound hsp (akW.baseEval ρ)
-  have heW : akW.baseEval ρ + akW.off = ptr := hptr
-  have heE : akW.baseEval ρ + e.ak.off = e.ak.eval ρ := by
-    simp only [MemAddrKey.eval, hbase]
-  rw [← heW, ← heE,
-    loadVal_storeMem_disjoint m t e.ty (akW.baseEval ρ + akW.off) (akW.baseEval ρ + e.ak.off)
-      v hdisj]
-  rw [heE]
-  exact hld
+  exact ⟨hakflt, hvflt, hev, loadVal_storeMem_disjoint_key m hptr rfl hsb hsp hld⟩
 
 theorem MemCacheGood.store_push {ρ : FEnv} {next : Nat}
     {cache : List (CacheEntry Val)} {m : Mem 64}
@@ -1025,25 +1004,24 @@ theorem InvKeysGood.append {ρ : FEnv} {next : Nat} {inv₁ inv₂ : List InvEnt
 theorem SummaryPreserves.join {s₁ s₂ : MemSummary} {inv : List InvEntry} :
     SummaryPreserves (s₁.join s₂) inv ↔ SummaryPreserves s₁ inv ∧ SummaryPreserves s₂ inv := by
   cases s₁ with
-  | unknown =>
-    cases s₂ <;> dsimp only [SummaryPreserves, MemSummary.join]
-    · exact ⟨fun h => ⟨h, fun e he _ _ => False.elim (h e he)⟩, fun ⟨h, _⟩ => h⟩
-    · exact ⟨fun h => ⟨h, h⟩, fun ⟨h, _⟩ => h⟩
   | exact ws₁ =>
     cases s₂ with
-    | unknown =>
-      dsimp only [SummaryPreserves, MemSummary.join]
-      exact ⟨fun h => ⟨fun e he _ _ => False.elim (h e he), h⟩, fun ⟨_, h⟩ => h⟩
     | exact ws₂ =>
       dsimp only [SummaryPreserves, MemSummary.join]
-      constructor
-      · intro h
-        exact ⟨fun e he w hw => h e he w (List.mem_append.2 (Or.inl hw)),
-               fun e he w hw => h e he w (List.mem_append.2 (Or.inr hw))⟩
-      · rintro ⟨h1, h2⟩ e he w hw
-        rcases List.mem_append.1 hw with hw | hw
-        · exact h1 e he w hw
-        · exact h2 e he w hw
+      exact ⟨fun h => ⟨fun e he w hw => h e he w (List.mem_append_left _ hw),
+          fun e he w hw => h e he w (List.mem_append_right _ hw)⟩,
+        fun ⟨h1, h2⟩ e he w hw => (List.mem_append.1 hw).elim (h1 e he w) (h2 e he w)⟩
+    | unknown =>
+      dsimp only [SummaryPreserves, MemSummary.join]
+      exact ⟨fun h => ⟨fun e he _ _ => (h e he).elim, h⟩, fun ⟨_, h⟩ => h⟩
+  | unknown =>
+    cases s₂ with
+    | exact _ =>
+      dsimp only [SummaryPreserves, MemSummary.join]
+      exact ⟨fun h => ⟨h, fun e he _ _ => (h e he).elim⟩, fun ⟨h, _⟩ => h⟩
+    | unknown =>
+      dsimp only [SummaryPreserves, MemSummary.join]
+      exact ⟨fun h => ⟨h, h⟩, fun ⟨h, _⟩ => h⟩
 
 theorem SummaryPreserves.addWrite {w : WriteSpan} {s : MemSummary} {inv : List InvEntry} :
     SummaryPreserves (s.addWrite w) inv ↔
@@ -1056,14 +1034,10 @@ theorem SummaryPreserves.addWrite {w : WriteSpan} {s : MemSummary} {inv : List I
     exact ⟨fun h => ⟨fun e he => False.elim (h e he), h⟩, fun ⟨_, h⟩ => h⟩
   | exact ws =>
     simp only [SummaryPreserves, MemSummary.addWrite]
-    constructor
-    · intro h
-      exact ⟨fun e he => h e he w List.mem_cons_self,
-             fun e he w' hw' => h e he w' (List.mem_cons_of_mem _ hw')⟩
-    · rintro ⟨hw, hws⟩ e he w' hw'
-      cases hw' with
-      | head => exact hw e he
-      | tail _ hw' => exact hws e he w' hw'
+    exact ⟨fun h => ⟨fun e he => h e he w List.mem_cons_self,
+        fun e he w' hw' => h e he w' (List.mem_cons_of_mem _ hw')⟩,
+      fun ⟨hw, hws⟩ e he w' hw' => by
+        cases hw' with | head => exact hw e he | tail _ hw' => exact hws e he w' hw'⟩
 
 theorem SummaryPreserves.filterSummary (ρ : FEnv)
     (s : MemSummary) (cache : List (CacheEntry Val)) :
@@ -1095,16 +1069,7 @@ theorem InvMemGood.store_disjoint {ρ : FEnv} {next : Nat}
   intro e he
   obtain ⟨_, heq⟩ := hk e he
   obtain ⟨hsb, hsp⟩ := hdisj e he
-  have hbase : e.ak.baseEval ρ = akW.baseEval ρ := MemAddrKey.baseEval_eq_of_sameBase ρ hsb
-  have hsd := spanDisjoint_sound hsp (akW.baseEval ρ)
-  have heW : akW.baseEval ρ + akW.off = ptr := hptr
-  have heE : akW.baseEval ρ + e.ak.off = e.addr := by
-    rw [← heq]; simp only [MemAddrKey.eval, hbase]
-  rw [← heW, ← heE,
-    loadVal_storeMem_disjoint m t e.ty (akW.baseEval ρ + akW.off) (akW.baseEval ρ + e.ak.off)
-      v hsd]
-  rw [heE]
-  exact hm e he
+  exact loadVal_storeMem_disjoint_key m hptr heq hsb hsp (hm e he)
 
 /-- Wrap each continuation in `Js` with precondition `P m`. -/
 def strengthenJs (P : Mem 64 → Prop) : {sig : List (List Ty)} → Tup Cont sig → Tup Cont sig
@@ -1135,15 +1100,11 @@ theorem KLGood.append_levels {nl : Nat} {Dk : Ctx KL LCont} (hKL : KLGood nl Dk)
 theorem EqG.freshTup {G₂ : Ctx Val Val} (hG : EqG G₂) :
     {ts : List Ty} → (xs : Tup Val ts) → EqG (Tup.zip xs xs ++ G₂)
   | [], () => hG
-  | _ :: _, (x, xs) => fun p hp => by
-    cases hp with
-    | head => rfl
-    | tail _ hp => exact EqG.freshTup hG xs p hp
+  | _ :: _, (_, xs) => CtxPred.cons (P := fun _ v₁ v₂ => v₁ = v₂) rfl (EqG.freshTup hG xs)
 
 theorem EqG.cons {G₂ : Ctx Val Val} (hG : EqG G₂) {t : Ty} (v : Val t) :
-    EqG (⟨t, v, v⟩ :: G₂)
-  | _, .head _ => rfl
-  | _, .tail _ hp => hG _ hp
+    EqG (⟨t, v, v⟩ :: G₂) :=
+  CtxPred.cons (P := fun _ v₁ v₂ => v₁ = v₂) rfl hG
 
 theorem EqG.vals_eq {G₂ : Ctx Val Val} (hG : EqG G₂) {t : Ty}
     {a₁ a₂ : Arg Val t} : ArgRel G₂ t a₁ a₂ → a₁.val = a₂.val
@@ -1339,15 +1300,13 @@ public theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     refine ⟨hw.1, ?_⟩
     have hinv' : InvMemGood inv (storeMem m t aL.val vL.val) :=
       hml.2.1.store_disjoint hml.2.2 vL.val haddrK hdisj
+    refine ih (Gk := Gk) (Dk := Dk) (G₂ := G₂) (D₂ := D₂) next nl ρ baseOff baseOffK _ inv
+      kk k₂ hkk hkk2 hGk hG hG2 hD2 hKL hbo hboK hD hsp' (storeMem m t aL.val vL.val) ?_ hw.2
     split
     · next hbytes =>
-      refine ih (Gk := Gk) (Dk := Dk) (G₂ := G₂) (D₂ := D₂) next nl ρ baseOff baseOffK _ inv
-        kk k₂ hkk hkk2 hGk hG hG2 hD2 hKL hbo hboK hD hsp' (storeMem m t aL.val vL.val) ?_ hw.2
       exact ⟨hml.1.store_push hakflt (hv.mkey_lt hG) ((hv.mkey_ev hG).trans (hv.mout_val hG).symm)
         (hv.mout_val hG) haddr hbytes, hinv', hml.2.2⟩
-    · refine ih (Gk := Gk) (Dk := Dk) (G₂ := G₂) (D₂ := D₂) next nl ρ baseOff baseOffK _ inv
-        kk k₂ hkk hkk2 hGk hG hG2 hD2 hKL hbo hboK hD hsp' (storeMem m t aL.val vL.val) ?_ hw.2
-      exact ⟨hml.1.store_filter _ t aL.val vL.val haddr, hinv', hml.2.2⟩
+    · exact ⟨hml.1.store_filter _ t aL.val vL.val haddr, hinv', hml.2.2⟩
   | @call G D f as bs args₁ argsL k₁ kL hargs _ ih =>
     intro Gk Dk G₂ D₂ next nl ρ baseOff baseOffK _ inv ek e₂ hwk hw2
       hGk hG hG2 hD2 hKL hbo hboK hD hsp m hml hw
@@ -1464,43 +1423,37 @@ public theorem memLoad_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
           hinv_m' e (List.mem_append.2 (Or.inl he))).upd_fupdTup xs
       have hb1L := (hb2 Js' JsL).get i xs xs
       have hbkL := (hbk ls JsL).get i (Tup.levels ts next) xs
+      let stepB := fun (invB : List InvEntry) (hDB : MemDGood invB
+          (analyzeMem (next + ts.length) nl' baseOffK
+            ((bk ls).get i (Tup.levels ts next))).2.1 (Tup.zip Js JsL ++ D))
+          (hspB : SummaryPreserves (analyzeMem (next + ts.length) nl' baseOffK
+            ((bk ls).get i (Tup.levels ts next))).1 invB)
+          (hmlB : MemLoadGood (fupdTup ρ next xs) (next + ts.length) cacheB invB m') =>
+        ihb Js JsL i (freshMVals ts xs next) xs (next + ts.length) nl' (fupdTup ρ next xs)
+          baseOff baseOffK cacheB invB ((bk ls).get i (Tup.levels ts next)) ((b₂ Js').get i xs)
+          hbkL hb1L (hGk.freshTup xs) (hG.freshMVals xs) (hG2.freshTup xs) hD2' hKL'
+          (hbo.upd_fupdTup xs) (hboK.upd_fupdTup xs) hDB hspB m' hmlB hb₂
       cases hlive : anyLive nl sig.length lb
-      · have hspB0 : SummaryPreserves (analyzeMem (next + ts.length) nl' baseOffK
-            ((bk ls).get i (Tup.levels ts next))).1 inv :=
-          analyzeMemB_get_summary next nl' baseOffK (bk ls) i (SummaryPreserves.join.1 hsp).1
-        have hDB0 : MemDGood inv (analyzeMem (next + ts.length) nl' baseOffK
-            ((bk ls).get i (Tup.levels ts next))).2.1 (Tup.zip Js JsL ++ D) := by
-          refine MemDGood.sub (analyzeMemB_get_live_sub next nl' baseOffK (bk ls) i) ?_
-          intro p hp hl xs' m'' hinv'' hJ
-          rcases List.mem_append.1 hp with hp | hp
-          · have hbnd := mem_zip_tagConts_bounds nl Js Js' p hp
-            have hf := anyLive_eq_false sig.length nl lb hlive p.2.2.1 hbnd.1 hbnd.2
-            rw [hf] at hl; cases hl
-          · exact hD p hp (trieMem_union_left hl) xs' m'' hinv'' hJ
-        have hinv_outer : InvMemGood inv m' :=
-          fun e he => hinv_m' e (List.mem_append.2 (Or.inr he))
-        exact ihb Js JsL i (freshMVals ts xs next) xs (next + ts.length) nl' (fupdTup ρ next xs)
-          baseOff baseOffK cacheB inv ((bk ls).get i (Tup.levels ts next)) ((b₂ Js').get i xs)
-          hbkL hb1L (hGk.freshTup xs) (hG.freshMVals xs) (hG2.freshTup xs) hD2' hKL'
-          (hbo.upd_fupdTup xs) (hboK.upd_fupdTup xs) hDB0 hspB0 m'
-          ⟨hcb_m', hinv_outer, hml.2.2.upd_fupdTup xs⟩ hb₂
+      · refine stepB inv ?_
+          (analyzeMemB_get_summary next nl' baseOffK (bk ls) i (SummaryPreserves.join.1 hsp).1)
+          ⟨hcb_m', fun e he => hinv_m' e (List.mem_append.2 (Or.inr he)), hml.2.2.upd_fupdTup xs⟩
+        refine MemDGood.sub (analyzeMemB_get_live_sub next nl' baseOffK (bk ls) i) ?_
+        intro p hp hl xs' m'' hinv'' hJ
+        rcases List.mem_append.1 hp with hp | hp
+        · have hbnd := mem_zip_tagConts_bounds nl Js Js' p hp
+          have hf := anyLive_eq_false sig.length nl lb hlive p.2.2.1 hbnd.1 hbnd.2
+          rw [hf] at hl; cases hl
+        · exact hD p hp (trieMem_union_left hl) xs' m'' hinv'' hJ
       · have hspSum : SummaryPreserves sum inv' := by simpa [sumB, hlive] using hspSumB
-        have hspB' : SummaryPreserves (analyzeMem (next + ts.length) nl' baseOffK
-            ((bk ls).get i (Tup.levels ts next))).1 inv' :=
-          analyzeMemB_get_summary next nl' baseOffK (bk ls) i (SummaryPreserves.join.1 hspSum).1
-        have hDB' : MemDGood inv' (analyzeMem (next + ts.length) nl' baseOffK
-            ((bk ls).get i (Tup.levels ts next))).2.1 (Tup.zip Js JsL ++ D) := by
-          refine MemDGood.sub (analyzeMemB_get_live_sub next nl' baseOffK (bk ls) i) ?_
-          intro p hp hl xs' m'' hinv'' hJ
-          rcases List.mem_append.1 hp with hp | hp
-          · exact mem_zip_tagConts_inv (InvMemGood inv') nl Js p hp xs' m'' hinv'' hJ
-          · exact hD p hp (trieMem_union_left hl) xs' m''
-              (fun e he => hinv'' e (List.mem_append.2 (Or.inr he))) hJ
-        exact ihb Js JsL i (freshMVals ts xs next) xs (next + ts.length) nl' (fupdTup ρ next xs)
-          baseOff baseOffK cacheB inv' ((bk ls).get i (Tup.levels ts next)) ((b₂ Js').get i xs)
-          hbkL hb1L (hGk.freshTup xs) (hG.freshMVals xs) (hG2.freshTup xs) hD2' hKL'
-          (hbo.upd_fupdTup xs) (hboK.upd_fupdTup xs) hDB' hspB' m'
-          ⟨hcb_m', hinv_m', hinvKeys'.upd_fupdTup xs⟩ hb₂
+        refine stepB inv' ?_
+          (analyzeMemB_get_summary next nl' baseOffK (bk ls) i (SummaryPreserves.join.1 hspSum).1)
+          ⟨hcb_m', hinv_m', hinvKeys'.upd_fupdTup xs⟩
+        refine MemDGood.sub (analyzeMemB_get_live_sub next nl' baseOffK (bk ls) i) ?_
+        intro p hp hl xs' m'' hinv'' hJ
+        rcases List.mem_append.1 hp with hp | hp
+        · exact mem_zip_tagConts_inv (InvMemGood inv') nl Js p hp xs' m'' hinv'' hJ
+        · exact hD p hp (trieMem_union_left hl) xs' m''
+            (fun e he => hinv'' e (List.mem_append.2 (Or.inr he))) hJ
     have hml' : MemLoadGood ρ next cache inv' m :=
       ⟨hml.1, (InvMemGood.of_cache (hml.1.filterSummary sumB)).append hml.2.1, hinvKeys'⟩
     exact ihk Js JsL next nl' ρ baseOff baseOffK cache inv' (kk ls) (k₂ Js')
@@ -1515,9 +1468,16 @@ variable {V₁ V₂ : Ty → Type}
 public def MValRel (G' : Ctx V₁ V₂) {t : Ty} (m₁ : MVal V₁ t) (m₂ : MVal V₂ t) : Prop :=
   ArgRel G' t m₁.out m₂.out ∧ m₁.key = m₂.key
 
+private def mMetaKit : OutMetaKit MVal FKey where
+  out m := m.out
+  tag m := m.key
+  fresh v k := MVal.fresh v k
+  out_fresh _ _ := rfl
+  tag_fresh _ _ _ := rfl
+
 theorem MValRel.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂)
     {t : Ty} {m₁ : MVal V₁ t} {m₂ : MVal V₂ t} (h : MValRel G₁ m₁ m₂) : MValRel G₂ m₁ m₂ :=
-  ⟨h.1.weaken hsub, h.2⟩
+  mMetaKit.rel_weaken hsub h
 
 /-- Context relation for `memLoad_wf`. -/
 public def MRelG (G' : Ctx V₁ V₂) (G : Ctx (MVal V₁) (MVal V₂)) : Prop :=
@@ -1525,36 +1485,23 @@ public def MRelG (G' : Ctx V₁ V₂) (G : Ctx (MVal V₁) (MVal V₂)) : Prop :
 
 theorem MRelG.cons {G' : Ctx V₁ V₂} {G : Ctx (MVal V₁) (MVal V₂)} (hG : MRelG G' G)
     {t : Ty} {m₁ : MVal V₁ t} {m₂ : MVal V₂ t} (hm : MValRel G' m₁ m₂) :
-    MRelG G' (⟨t, m₁, m₂⟩ :: G)
-  | _, .head _ => hm
-  | _, .tail _ hp => hG _ hp
+    MRelG G' (⟨t, m₁, m₂⟩ :: G) :=
+  mMetaKit.toRelKit.relG_cons hm hG
 
 theorem MRelG.weaken {G' G'' : Ctx V₁ V₂} {G : Ctx (MVal V₁) (MVal V₂)}
     (hG : MRelG G' G) (hsub : ∀ p ∈ G', p ∈ G'') : MRelG G'' G :=
-  fun p hp => (hG p hp).weaken hsub
-
-private theorem MRelG.freshMVals_only {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts)
-    (b : Nat) :
-    MRelG (Tup.zip xs₁ xs₂) (Tup.zip (freshMVals ts xs₁ b) (freshMVals ts xs₂ b)) :=
-  mem_tup_zip_tupFreshWith (fun x n => MVal.fresh x n) (fun x n => MVal.fresh x n)
-    (P := fun G' _ m₁ m₂ => MValRel G' m₁ m₂)
-    (fun hsub _ _ _ h => h.weaken hsub)
-    (fun _ _ _ => ⟨.var List.mem_cons_self, rfl⟩)
-    xs₁ xs₂ b
+  mMetaKit.toRelKit.relG_weaken hsub hG
 
 theorem MRelG.freshMVals {G' : Ctx V₁ V₂} {G : Ctx (MVal V₁) (MVal V₂)} (hG : MRelG G' G)
     {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
     MRelG (Tup.zip xs₁ xs₂ ++ G')
-      (Tup.zip (freshMVals ts xs₁ b) (freshMVals ts xs₂ b) ++ G) := by
-  intro p hp
-  rcases List.mem_append.1 hp with hp | hp
-  · exact (MRelG.freshMVals_only xs₁ xs₂ b p hp).weaken fun _ hq => List.mem_append_left G' hq
-  · exact (hG p hp).weaken fun _ hq => List.mem_append_right _ hq
+      (Tup.zip (freshMVals ts xs₁ b) (freshMVals ts xs₂ b) ++ G) :=
+  mMetaKit.toRelKit.relG_freshTup ts xs₁ xs₂ b hG
 
 theorem MRelG.freshOne {G' : Ctx V₁ V₂} {G : Ctx (MVal V₁) (MVal V₂)} (hG : MRelG G' G)
     {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) (b : Nat) :
     MRelG (⟨t, v₁, v₂⟩ :: G') (⟨t, MVal.fresh v₁ b, MVal.fresh v₂ b⟩ :: G) :=
-  (hG.weaken fun _ hq => List.mem_cons_of_mem _ hq).cons ⟨.var List.mem_cons_self, rfl⟩
+  mMetaKit.toRelKit.relG_freshOne v₁ v₂ b hG
 
 theorem ArgRel.mout {G' : Ctx V₁ V₂} {G : Ctx (MVal V₁) (MVal V₂)} (hG : MRelG G' G)
     {t : Ty} {a₁ : Arg (MVal V₁) t} {a₂ : Arg (MVal V₂) t} :
@@ -1751,33 +1698,30 @@ public theorem memLoad_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Typ
 public theorem Func.memLoad_wf {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) : (Func.memLoad f).Wf := by
   intro V₁ V₂ L₁ L₂ xs₁ xs₂
-  have hwf := hf (MVal V₁) (MVal V₂) L₁ L₂ (freshMVals as xs₁ 0) (freshMVals as xs₂ 0)
   have hrel : MRelG (Tup.zip xs₁ xs₂) (Tup.zip (freshMVals as xs₁ 0) (freshMVals as xs₂ 0)) := by
-    rw [← List.append_nil (Tup.zip xs₁ xs₂),
-        ← List.append_nil (Tup.zip (freshMVals as xs₁ 0) (freshMVals as xs₂ 0))]
-    exact MRelG.freshMVals (G := []) (G' := []) (fun _ hp => nomatch hp) xs₁ xs₂ 0
-  exact LeanQbe.T.memLoad_wf hwf as.length .empty [] [] _ hrel .nil
+    simpa using MRelG.freshMVals (G := []) (G' := []) (fun _ hp => nomatch hp) xs₁ xs₂ 0
+  exact LeanQbe.T.memLoad_wf (hf _ _ L₁ L₂ (freshMVals as xs₁ 0) (freshMVals as xs₂ 0))
+    as.length .empty [] [] _ hrel .nil
 
 public theorem Func.memLoad_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf) {Γ : Env}
     {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.memLoad f) xs m Q X := by
-  have hwf := hf (MVal Val) Val Cont LCont (freshMVals as xs 0) xs
-  have hwk := hf K Val KL LCont (Tup.levels as 0) xs
-  have hw2 := hf Val Val Cont LCont xs xs
   let ρ := fupdTup (fun _ _ => default) 0 xs
-  have hGk : KGood ρ as.length (Tup.zip (Tup.levels as 0) xs) := by
-    rw [← List.append_nil (Tup.zip (Tup.levels as 0) xs)]
-    exact Nat.zero_add as.length ▸ KGood.freshTup (ρ := fun _ _ => default) (next := 0) (Gk := [])
-      (fun _ hp => nomatch hp) xs
-  have hG : MGood ρ as.length (Tup.zip (freshMVals as xs 0) xs) := by
-    rw [← List.append_nil (Tup.zip (freshMVals as xs 0) xs)]
-    exact Nat.zero_add as.length ▸ MGood.freshMVals (ρ := fun _ _ => default) (next := 0) (G := [])
-      (fun _ hp => nomatch hp) xs
-  have hG2 : EqG (Tup.zip xs xs) := by
-    rw [← List.append_nil (Tup.zip xs xs)]
-    exact EqG.freshTup (G₂ := []) (fun _ hp => nomatch hp) xs
-  exact memLoad_wp hwf as.length 0 ρ .empty .empty [] [] (f K KL (Tup.levels as 0))
-    (f Val Cont xs) hwk hw2 hGk hG hG2 (fun _ hp => nomatch hp) (fun _ hp => nomatch hp)
+  exact memLoad_wp (hf (MVal Val) Val Cont LCont (freshMVals as xs 0) xs)
+    as.length 0 ρ .empty .empty [] [] (f K KL (Tup.levels as 0)) (f Val Cont xs)
+    (hf K Val KL LCont (Tup.levels as 0) xs) (hf Val Val Cont LCont xs xs)
+    (by
+      simpa [ρ] using
+        KGood.freshTup (ρ := fun _ _ => default) (next := 0) (Gk := [])
+          (fun _ hp => nomatch hp) xs)
+    (by
+      simpa [ρ] using
+        MGood.freshMVals (ρ := fun _ _ => default) (next := 0) (G := [])
+          (fun _ hp => nomatch hp) xs)
+    (by
+      simpa using
+        EqG.freshTup (G₂ := []) (fun _ hp => nomatch hp) xs)
+    (fun _ hp => nomatch hp) (fun _ hp => nomatch hp)
     (BaseOffGood.empty ρ as.length) (BaseOffGood.empty ρ as.length)
     (fun _ hp => nomatch hp) (fun _ hp => nomatch hp) m (MemLoadGood.empty ρ as.length m) h
 
