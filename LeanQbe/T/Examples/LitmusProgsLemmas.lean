@@ -106,7 +106,7 @@ private theorem jnz_ofNat {k : Nat} (hk : k < 2 ^ 32) {P Q : Prop}
   | succ k' =>
     exact ⟨fun _ => hp k' rfl, fun h => by
       have h' : ((BitVec.ofNat 64 (k' + 1)).setWidth 32).toNat = 0 := congrArg BitVec.toNat h
-      simp [Nat.mod_eq_of_lt hk] at h'⟩
+      simp at h'⟩
 private theorem bv64_succ (k : Nat) : BitVec.ofNat 64 (k + 1) = BitVec.ofNat 64 k + 1 := by grind
 private theorem bv64_sub (k : Nat) : BitVec.ofNat 64 (k + 1) - 1 = BitVec.ofNat 64 k := by grind
 private theorem countdown_loop {Γ : Env} {rs tsRest : List Ty} {Q : Post rs} {X : XPost}
