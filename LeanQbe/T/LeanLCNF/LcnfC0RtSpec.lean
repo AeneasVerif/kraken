@@ -771,6 +771,20 @@ def freeObjLayout (o : BitVec 64) (bytes : Nat) (hdr : BitVec 64) : Mem 64 → P
     fun m => ((hdr >>> 32) &&& 0xffff#64).toNat = bytes ∧
       (cell64 o hdr ⋆ region (o + 8#64) (bytes - 8)) m
 
+/-- Reachability from `root` in `objs` through initially non-persistent (`m_rc ≠ 0`) objects. -/
+inductive NonPersistReach (objs : List LcnfObj) (root : BitVec 64) : BitVec 64 → Prop where
+  | refl : (∃ o ∈ objs, o.addr = root ∧ o.rc ≠ 0#32) → NonPersistReach objs root root
+  | step {u v : BitVec 64} :
+      NonPersistReach objs root u →
+      (∃ o ∈ objs, o.addr = u ∧ v ∈ o.childFields) →
+      (v &&& 1#64) = 0#64 →
+      (∃ o' ∈ objs, o'.addr = v ∧ o'.rc ≠ 0#32) →
+      NonPersistReach objs root v
+
+/-- Objects from `objs` freed (absent by address from `objs'`). -/
+def freedObjs (objs objs' : List LcnfObj) : List LcnfObj :=
+  objs.filter (fun o => !(objs'.map LcnfObj.addr).contains o.addr)
+
 /-- Relational post-state for `lcnf_dec_ref_cold(rt, o)`. -/
 def DecColdRel (root : BitVec 64) (objs objs' : List LcnfObj) : Prop :=
   (∃ obj ∈ objs, obj.addr = root ∧ obj.rc = 1#32) ∧
@@ -781,7 +795,15 @@ def DecColdRel (root : BitVec 64) (objs objs' : List LcnfObj) : Prop :=
       o'.cap = o.cap ∧ o'.arrSize = o.arrSize ∧ o'.strLen = o.strLen ∧
       o'.fields = o.fields ∧ o'.scalarData = o.scalarData ∧ o'.limbs = o.limbs ∧
       ((o.rc = 0#32 ∧ o'.rc = 0#32) ∨
-       (0 < o.rc.toInt ∧ 0 < o'.rc.toInt ∧ o'.rc.toInt ≤ o.rc.toInt)))
+       (0 < o.rc.toInt ∧ 0 < o'.rc.toInt ∧ o'.rc.toInt ≤ o.rc.toInt))) ∧
+  (∀ p ∈ objs', p.rc = 0#32 → ∀ f ∈ p.childFields, (f &&& 1#64) = 0#64 →
+    ∃ q ∈ objs', q.addr = f ∧ q.rc = 0#32) ∧
+  (∀ y ∈ objs', 0 < y.rc.toInt → nonPersistRefs objs' y.addr ≤ y.rc.toNat) ∧
+  (∀ o ∈ objs, o.rc = 0#32 → ∃ o' ∈ objs', o'.addr = o.addr ∧ o'.rc = 0#32) ∧
+  (∀ o ∈ objs, 0 < o.rc.toInt →
+    let dropped := (if o.addr = root then 1 else 0) + nonPersistRefs (freedObjs objs objs') o.addr
+    (∀ o' ∈ objs', o'.addr = o.addr → o'.rc.toNat + dropped = o.rc.toNat) ∧
+    (o ∈ freedObjs objs objs' → o.rc.toNat = dropped ∧ NonPersistReach objs root o.addr))
 
 /-- Relational post-state for `lcnf_mark_persistent(rt, o)`. -/
 def MarkPersistRel (root : BitVec 64) (objs objs' : List LcnfObj) : Prop :=
@@ -793,7 +815,8 @@ def MarkPersistRel (root : BitVec 64) (objs objs' : List LcnfObj) : Prop :=
     p.2.cap = p.1.cap ∧ p.2.arrSize = p.1.arrSize ∧ p.2.strLen = p.1.strLen ∧
     p.2.fields = p.1.fields ∧ p.2.scalarData = p.1.scalarData ∧ p.2.limbs = p.1.limbs ∧
     (p.1.addr = root → p.2.rc = 0#32) ∧
-    (p.2.rc = p.1.rc ∨ p.2.rc = 0#32))
+    (p.2.rc = p.1.rc ∨ p.2.rc = 0#32) ∧
+    (p.1.rc ≠ 0#32 → (p.2.rc = 0#32 ↔ NonPersistReach objs root p.1.addr)))
 
 /-- Post-relation for `objs'` in `lcnf_clo_under` when `fc.rc ≠ 1#32`. -/
 def CloUnderIncRel (fcFields : List (BitVec 64)) (objs objs' : List LcnfObj) : Prop :=
@@ -888,6 +911,21 @@ theorem LcnfObj.header_esz (o : LcnfObj) (hcs : o.csSz < 65536) (hoth : o.other 
   · have hmf : (o.other % 128).testBit i = false :=
       testBit_lt_of_lt (k := 7) (Nat.mod_lt _ (by decide)) (by omega)
     by_cases hi64 : i < 64 <;> simp [hi7, hi64, hmf]
+
+theorem LcnfObj.header_other (o : LcnfObj) (hcs : o.csSz < 65536) (hoth : o.other < 256)
+    (htag : o.tag < 256) : ((o.header >>> 48) &&& 255#64) = BitVec.ofNat 64 o.other := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i
+  simp only [BitVec.getLsbD_and, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_ofNat,
+    header_getLsbD o hcs hoth htag]
+  have h255 : (255 : Nat) = 2 ^ 8 - 1 := rfl
+  rw [h255, testBit_pow_sub_one]
+  by_cases hi8 : i < 8
+  · simp [show i < 64 by omega, hi8, show ¬(48 + i < 32) by omega,
+      show ¬(48 + i < 48) by omega, show 48 + i < 56 by omega]
+  · have hof : o.other.testBit i = false :=
+      testBit_lt_of_lt (k := 8) (show o.other < 2 ^ 8 from hoth) (by omega)
+    by_cases hi64 : i < 64 <;> simp [hi8, hi64, hof]
 
 theorem LcnfObj.header_csSz (o : LcnfObj) (hcs : o.csSz < 65536) (hoth : o.other < 256)
     (htag : o.tag < 256) : ((o.header >>> 32) &&& 0xffff#64) = BitVec.ofNat 64 o.csSz := by
@@ -1176,7 +1214,7 @@ def lcnfFreeObjSpec : Spec [i64, i64] [] := fun (rt, o, ()) m Q _ =>
       o ≠ 0#64 ∧ o.toNat % 8 = 0 ∧
       rtMinObjBytes ≤ bytes ∧ bytes < rtMaxObjBytes ∧ bytes % 8 = 0 ∧
       (rtC0Inv rt st ⋆ freeObjLayout o bytes hdr ⋆ R) m ∧
-      ∀ st' m', st'.PreservesMeta st → st'.rem = st.rem →
+      ∀ st' m', st'.PreservesMeta st → st'.rem = st.rem → st'.workBuf = st.workBuf →
         (rtC0Inv rt st' ⋆ R) m' → Q () m'
 
 /-- `lcnf_dec_ref_cold(rt, o) -> ()`: iteratively frees exclusive `o` and cascades across
@@ -1255,8 +1293,8 @@ theorem lcnfFreeObjSpec_mono : lcnfFreeObjSpec.Mono := by
   · split
     · contradiction
     · rcases h with ⟨st, hdr, bytes, R, h0, h1, h2, h3, h4, hm, hk⟩
-      exact ⟨st, hdr, bytes, R, h0, h1, h2, h3, h4, hm, fun st' m' hpr hrem hm' =>
-        hQ _ m' (hk st' m' hpr hrem hm')⟩
+      exact ⟨st, hdr, bytes, R, h0, h1, h2, h3, h4, hm, fun st' m' hpr hrem hwb hm' =>
+        hQ _ m' (hk st' m' hpr hrem hwb hm')⟩
 
 theorem lcnfDecRefColdSpec_mono : lcnfDecRefColdSpec.Mono := by
   rintro ⟨rt, o, ⟨⟩⟩ m Q Q' X X' hQ _ ⟨h0, st, objs, R, hcap, hm, hroot, hwf, hcl, hrc, hk⟩

@@ -6,12 +6,16 @@ public import LeanQbe.T.Arm64.LratBytes
 public import LeanQbe.T.Examples.LratBytes
 public import LeanQbe.T.Examples.Kissat.FullM4Bcp
 public import LeanQbe.T.Spill
+public import LeanQbeTest.T.RegaTestKit
+public import LeanQbeTest.T.Arm64DirPreds
 meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.TargLemmas
 meta import LeanQbe.T.Arm64.LratBytes
 meta import LeanQbe.T.Examples.LratBytes
 meta import LeanQbe.T.Examples.Kissat.FullM4Bcp
 meta import LeanQbe.T.Spill
+meta import LeanQbeTest.T.RegaTestKit
+meta import LeanQbeTest.T.Arm64DirPreds
 
 /-!
 # AArch64 `armTestOp` (`supportsTestFuse`) + `baseIdxDisp` Regression Tests
@@ -36,68 +40,19 @@ set_option autoImplicit false
 namespace LeanQbeTest.T.Arm64IselA23Test
 
 open LeanQbe.T LeanQbe.T.Arm64
+open LeanQbeTest.T.RegaTestKit
+open LeanQbeTest.T.Arm64DirPreds
 
 /-! ## Helpers -/
 
 meta def hintsOf (fs : List Fn) : List armTarget.toIsa.Hints :=
-  fs.map (Fn.computeHints armTarget.toIsa armLegalTarget)
+  RegaTestKit.hintsOf armTarget armLegalTarget fs
 
 meta def chk (fs : List Fn) (exs : List (SigEntry × Nat) := []) : Bool :=
-  checkCompile armTarget armLayout armLegalTarget exs [] 0 fs (hintsOf fs) 2048
+  RegaTestKit.chk armTarget armLayout armLegalTarget fs exs
 
 meta def codeOf (fs : List Fn) (exs : List (SigEntry × Nat) := []) : List Directive :=
-  extractCode (compileModule armTarget.toIsa armLegalTarget armTarget.frame.raBytes exs [] 0 fs
-    (hintsOf fs))
-
-meta def countDirs (p : Directive → Bool) (ds : List Directive) : Nat :=
-  (ds.filter p).length
-
-meta def isAndsImmDir : Directive → Bool
-  | .instr { operation := .ANDS_i .., .. } => true
-  | _ => false
-
-meta def isAndsRegDir : Directive → Bool
-  | .instr { operation := .ANDS_s .., .. } => true
-  | _ => false
-
-meta def isAndsDir (d : Directive) : Bool :=
-  isAndsImmDir d || isAndsRegDir d
-
-meta def isAndDir : Directive → Bool
-  | .instr { operation := .AND_i .., .. }
-  | .instr { operation := .AND_s .., .. } => true
-  | _ => false
-
-meta def isSubsDir : Directive → Bool
-  | .instr { operation := .SUBS_e .., .. }
-  | .instr { operation := .SUBS_s .., .. } => true
-  | _ => false
-
-meta def isTbzOrTbnzDir : Directive → Bool
-  | .instr { operation := .TBZ .., .. }
-  | .instr { operation := .TBNZ .., .. } => true
-  | _ => false
-
-meta def isAddScaledDir : Directive → Bool
-  | .instr { operation := .ADD_s (.low (.reg .X16) .W64) _ _, .. } => true
-  | _ => false
-
-meta def isSubImmX16Dir : Directive → Bool
-  | .instr { operation := .SUB_e (.low (.reg .X16) .W64) _ _, .. } => true
-  | _ => false
-
-meta def isLslDir : Directive → Bool
-  | .instr { operation := .UBFM _ _ 62 61, .. }
-  | .instr { operation := .UBFM _ _ 61 60, .. }
-  | .instr { operation := .LSLV .., .. } => true
-  | _ => false
-
-meta def isExtDir : Directive → Bool
-  | .instr { operation := .UBFM _ _ 0 7, .. }
-  | .instr { operation := .SBFM _ _ 0 7, .. }
-  | .instr { operation := .UBFM _ _ 0 15, .. }
-  | .instr { operation := .SBFM _ _ 0 15, .. } => true
-  | _ => false
+  RegaTestKit.codeOf armTarget armLegalTarget fs exs
 
 /-! ## 1. Test-fusion & `baseIdxDisp` Isa & Isel unit checks -/
 

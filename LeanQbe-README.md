@@ -72,10 +72,10 @@ Architecture-specific audits live in separate files so no module imports both `K
 |---|---|---|
 | Kissat SAT solver ([details](#verified-kissat-sat-solver)) | `FullM7Fidelity` (413 fns): x86-64 & AArch64 `LinkedCert` UNSAT soundness and concrete UNSAT non-vacuity (runtime `kissat_check_model` on SAT); `KissatPlain` (59 fns, optional `LeanQbeLegacy*` library): x86-64 & AArch64 SAT and UNSAT soundness + concrete SAT/UNSAT non-vacuity | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [M7FidSpec](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean), [M7FidX64](LeanQbeTest/T/KissatM7FidelityAuditX64.lean), [M7FidArm64](LeanQbeTest/T/KissatM7FidelityAuditArm64.lean), [PlainX64](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean), [PlainArm64](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean) |
 | Compiler and linker ([details](#compiler-optimization-and-lowering-pipeline)) | Optimization passes, inlining, `LinkedCert`, and linking of recursive and mutually recursive functions (`LinkRec`, `LinkScc`) | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
-| Lean 4 `LCNF` / `LeanLRC` lowering | Well-formedness (`Fn.Wf`) of code lowered from the Lean compiler's `LCNF` intermediate representation ([`LeanLCNF`](LeanQbe/T/LeanLCNF/), [`LeanLRC`](LeanQbe/T/LeanLRC/)) into `LeanQbe.T` | [Audit](LeanQbeTest/T/LcnfAudit.lean) |
+| Lean 4 `LCNF` / `LeanLRC` lowering | Well-formedness (`Fn.Wf`) of code lowered from the Lean compiler's `LCNF` intermediate representation ([`LeanLCNF`](LeanQbe/T/LeanLCNF/), [`LeanLRC`](LeanQbe/T/LeanLRC/)) into `LeanQbe.T`, plus source-level `Func.wp` / `ModuleOk` proofs and concrete `Mem 64` non-vacuity for the C0 slab allocator/reference-counting ([`LcnfC0Rt`](LeanQbe/T/LeanLCNF/LcnfC0Rt.lean)) and arbitrary-precision `Nat`/`Int` ([`LcnfC0BigNum`](LeanQbe/T/LeanLCNF/LcnfC0BigNum.lean)) runtime primitives | [Audit](LeanQbeTest/T/LcnfAudit.lean), [C0Rt](LeanQbeTest/T/LcnfC0RtTest.lean), [C0BigNum](LeanQbeTest/T/LcnfC0BigNumTest.lean) |
 | LRAT proof checker | `lrat_check_bytes` returns `1` only for a well-formed DIMACS input whose CNF is unsatisfiable | [Spec](LeanQbeTest/T/LratAuditSpec.lean), [X64](LeanQbeTest/T/LratAuditX64.lean), [Arm64](LeanQbeTest/T/LratAuditArm64.lean) |
 | Cryptography, bignum, and pointer code | ChaCha20 (SIMD), Curve25519 field arithmetic (`Bignum`), and union-find: source and machine-code proofs | [Spec](LeanQbeTest/T/WorkloadsAuditSpec.lean), [X64](LeanQbeTest/T/WorkloadsAuditX64.lean), [Arm64](LeanQbeTest/T/WorkloadsAuditArm64.lean) |
-| C0 front end and proof tooling | `Func.wp` rules, the C0 elaborator and its well-formedness results, C0 step lemmas (`C0HeadStep`, `C0Agrees`), and separation-style memory reasoning (`SepTree`, `SlabChain`, `C0Lens`) | [Audit](LeanQbeTest/T/C0LogicAudit.lean) |
+| C0 front end and proof tooling | `Func.wp` rules, the C0 elaborator and its well-formedness results, C0 step lemmas ([`C0Step`](LeanQbe/T/Logic/C0Step.lean), [`C0HeadStep`](LeanQbe/T/Logic/C0HeadStep.lean), [`C0Agrees`](LeanQbe/T/Logic/C0Agrees.lean)), and separation-style memory reasoning ([`MemLemmas`](LeanQbe/T/Logic/MemLemmas.lean), [`SepTree`](LeanQbe/T/Logic/SepTree.lean), [`SlabChain`](LeanQbe/T/Logic/SlabChain.lean), [`SlabLayoutElab`](LeanQbe/T/Logic/SlabLayoutElab.lean), [`ProofKit`](LeanQbe/T/Logic/ProofKit.lean)) | [Audit](LeanQbeTest/T/C0LogicAudit.lean), [ProofKit](LeanQbeTest/T/ProofKitTest.lean) |
 | WebAssembly memory sandbox | Module validation (`validateModule`), software-fault-isolation bounds on linear memory (`WasmMemInv`), and preservation of the host's caller frame on x86-64 and AArch64 | [Spec](LeanQbeTest/T/WasmAuditSpec.lean), [X64](LeanQbeTest/T/WasmAuditX64.lean), [Arm64](LeanQbeTest/T/WasmAuditArm64.lean) |
 | Bootstrapping compiler ([details](#bootstrapping-compiler)) | A small compiler written in Lean, lowered to `LeanQbe.T` and certified for x86-64, with soundness, serialization, and printer proofs | [Bootstrap0](LeanQbeBootstrap0Test/Bootstrap0Audit.lean), [Codec0](LeanQbeBootstrap0Test/Codec0Test.lean), [PrintDir0](LeanQbeBootstrap0Test/PrintDir0Test.lean), [PrintAsm0](LeanQbeTest/T/PrintAsm0Test.lean), [Sound0](LeanQbeBootstrap0Test/Sound0Test.lean), [StageC](LeanQbeBootstrap0Test/StageCTest.lean) |
 
@@ -86,15 +86,16 @@ lake build --wfail LeanQbeTest.T.KissatAuditSpec \
   LeanQbeTest.T.KissatM7FidelityAuditSpec \
   LeanQbeTest.T.KissatM7FidelityAuditX64 LeanQbeTest.T.KissatM7FidelityAuditArm64 \
   LeanQbeTest.T.CompilerAuditSpec LeanQbeTest.T.CompilerAuditX64 \
-  LeanQbeTest.T.CompilerAuditArm64 LeanQbeTest.T.LcnfAudit LeanQbeTest.T.LratAuditSpec \
-  LeanQbeTest.T.LratAuditX64 LeanQbeTest.T.LratAuditArm64 \
+  LeanQbeTest.T.CompilerAuditArm64 LeanQbeTest.T.LcnfAudit \
+  LeanQbeTest.T.LcnfC0RtTest LeanQbeTest.T.LcnfC0BigNumTest \
+  LeanQbeTest.T.LratAuditSpec LeanQbeTest.T.LratAuditX64 LeanQbeTest.T.LratAuditArm64 \
   LeanQbeTest.T.WorkloadsAuditSpec LeanQbeTest.T.WorkloadsAuditX64 \
   LeanQbeTest.T.WorkloadsAuditArm64 LeanQbeTest.T.C0LogicAudit \
-  LeanQbeTest.T.WasmAuditSpec LeanQbeTest.T.WasmAuditX64 \
-  LeanQbeTest.T.WasmAuditArm64 LeanQbeTest.T.PrintAsm0Test \
-  LeanQbeBootstrap0Test.Bootstrap0Audit LeanQbeBootstrap0Test.Codec0Test \
-  LeanQbeBootstrap0Test.PrintDir0Test LeanQbeBootstrap0Test.Sound0Test \
-  LeanQbeBootstrap0Test.StageCTest
+  LeanQbeTest.T.ProofKitTest LeanQbeTest.T.WasmAuditSpec \
+  LeanQbeTest.T.WasmAuditX64 LeanQbeTest.T.WasmAuditArm64 \
+  LeanQbeTest.T.PrintAsm0Test LeanQbeBootstrap0Test.Bootstrap0Audit \
+  LeanQbeBootstrap0Test.Codec0Test LeanQbeBootstrap0Test.PrintDir0Test \
+  LeanQbeBootstrap0Test.Sound0Test LeanQbeBootstrap0Test.StageCTest
 ```
 
 To build the optional `KissatPlain` dual SAT+UNSAT audit files as well:
@@ -142,7 +143,7 @@ per-function optimization runs.
   [`Module.optInline_ok`](LeanQbe/T/OptLemmas.lean#L552).
 - For large modules, the inlined module is computed once at elaboration time and recorded
   together with a kernel-checked equation relating it to `Module.optInlinePolicy`
-  ([`inline_mod!`](LeanQbe/T/MainCertInline.lean#L566)). A chunked variant
+  ([`inline_mod!`](LeanQbe/T/MainCertInline.lean#L571)). A chunked variant
   ([`InlineChunk.lean`](LeanQbe/T/InlineChunk.lean),
   [`inline_chunk_base!`](LeanQbe/T/MainCertInlineChunk.lean#L586), `inline_mod_chunk!`,
   `inline_mod_join!`) processes the module in pieces to bound memory use. Tests:
@@ -250,7 +251,7 @@ The back end consists of an unverified hint analysis followed by verified loweri
 - **Instruction selection.** Selection of `[base + disp]` addressing, x86-64 scaled-index
   addressing `[base + idx*scale + disp]` ([`recordAddVarImm`](LeanQbe/T/Rega.lean#L572),
   [`recordDef_elide_ok`](LeanQbe/T/RegaLemmas1.lean#L2301), example
-  [`addrSibScaledDispFn`](LeanQbeTest/T/FlagRaOptTest.lean#L328)), bit operations, conditional
+  [`addrSibScaledDispFn`](LeanQbeTest/T/FlagRaOptTest.lean#L267)), bit operations, conditional
   selects, stack frames, and SIMD instructions
   ([`Amd64/Isel.lean`](LeanQbe/T/Amd64/Isel.lean),
   [`Amd64/IselLemmas5.lean#L1486`](LeanQbe/T/Amd64/IselLemmas5.lean#L1486),
