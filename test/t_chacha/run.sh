@@ -20,9 +20,8 @@ else
   echo "SKIP_BUILD=1: skipping lake build LeanQbe.T.Amd64.ChaCha LeanQbe.T.Arm64.ChaCha"
 fi
 
-echo "== 2. emit native assembly =="
-timeout 120 lake env lean --run test/common/emit.lean --arch x64 --suite chacha "$OUT"
-timeout 120 lake env lean --run test/common/emit.lean --arch arm64 --suite chacha "$OUT"
+echo "== 2. emit native assembly (x64 + Arm64 in parallel) =="
+timeout 120 python3 -B test/common/emit.py --both-arches --suite chacha "$OUT"
 
 echo "== 3. assemble, link, and run native x64 =="
 CC_X64="${CC:-cc}"

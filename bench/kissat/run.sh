@@ -73,13 +73,13 @@ timeout 60 clang++ $COMMON_CXX -fsanitize=undefined,address -DTQBE_CATCH_UB \
 timeout 60 "$OUT/${TAG}_asan"
 
 echo "== 3. $MOD_NAME native x64 + Arm64 guarded corpus + D-Min x64 build =="
-timeout 120 lake env lean --run test/common/emit.lean --arch x64 --suite "$SUITE" "$OUT/${TAG}_x64.s"
+timeout 120 python3 -B test/common/emit.py --both-arches --suite "$SUITE" \
+  --x64-arg "$OUT/${TAG}_x64.s" --arm64-arg "$OUT/${TAG}_arm64.s"
 timeout 60 gcc $COMMON_C -I"$OUT/${TAG}_hdr" -no-pie test/kissat/kissat_main.c \
   "$OUT/${TAG}_x64.s" -o "$OUT/${TAG}_corpus_x64"
 timeout 60 "$OUT/${TAG}_corpus_x64" > "$OUT/corpus_x64.out"
 tail -n 1 "$OUT/corpus_x64.out"
 
-timeout 120 lake env lean --run test/common/emit.lean --arch arm64 --suite "$SUITE" "$OUT/${TAG}_arm64.s"
 timeout 60 aarch64-linux-gnu-gcc $COMMON_C -I"$OUT/${TAG}_hdr" test/kissat/kissat_main.c \
   "$OUT/${TAG}_arm64.s" -o "$OUT/${TAG}_corpus_arm64" 2>"$OUT/arm64_cc.log" || {
     cat "$OUT/arm64_cc.log" >&2; exit 1;
@@ -90,7 +90,7 @@ timeout 60 qemu-aarch64 -L /usr/aarch64-linux-gnu "$OUT/${TAG}_corpus_arm64" \
 diff -u "$OUT/corpus_x64.out" "$OUT/corpus_arm64.out"
 echo "PASS: $MOD_NAME x64 == Arm64 guarded corpus differential"
 
-timeout 120 lake env lean --run test/common/emit.lean --arch x64 --suite kissat "$OUT/dmin_x64.s"
+timeout 120 python3 -B test/common/emit.py --arch x64 --suite kissat "$OUT/dmin_x64.s"
 timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/dmin_x64.s" \
   -o "$OUT/bench_dmin_x64"
 timeout 60 gcc $COMMON_C -no-pie bench/kissat/bench_main.c "$OUT/${TAG}_x64.s" \

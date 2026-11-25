@@ -17,23 +17,65 @@ if [ -z "${NOQBE:-}" ] && [ -z "${QBE:-}" ]; then
     exit 1
   fi
 fi
-fail=0
-run() { # $1 = label, $2 = binary
-  if timeout 60 "$2" >"$2.out" 2>&1; then echo "PASS $1"; else echo "FAIL $1: run"; cat "$2.out"; fail=1; fi
-}
-for h in test/*_main.c; do
+
+run_harness() {
+  local h="$1" name log rc=0
   name="$(basename "$h" _main.c)"
+  log="$OUT/$name.log"
+  : > "$log"
   if timeout 60 .lake/build/bin/leanqbe "$name" >"$OUT/$name.s" &&
      timeout 60 cc -O1 -o "$OUT/$name" "$h" "$OUT/$name.s"; then
-    run "$name (leanqbe)" "$OUT/$name"
-  else echo "FAIL $name (leanqbe): emit or link"; fail=1; fi
+    if timeout 60 "$OUT/$name" >"$OUT/$name.out" 2>&1; then
+      echo "PASS $name (leanqbe)" >>"$log"
+    else
+      echo "FAIL $name (leanqbe): run" >>"$log"
+      cat "$OUT/$name.out" >>"$log"
+      rc=1
+    fi
+  else
+    echo "FAIL $name (leanqbe): emit or link" >>"$log"
+    rc=1
+  fi
   if [ -z "${NOQBE:-}" ]; then
     if timeout 60 .lake/build/bin/leanqbe --il "$name" >"$OUT/$name.ssa" &&
        timeout 60 "$QBE" -o "$OUT/$name.qbe.s" "$OUT/$name.ssa" &&
        timeout 60 cc -O1 -o "$OUT/$name.qbe" "$h" "$OUT/$name.qbe.s"; then
-      run "$name (stock qbe)" "$OUT/$name.qbe"
-    else echo "FAIL $name (stock qbe): print, qbe or link"; fail=1; fi
+      if timeout 60 "$OUT/$name.qbe" >"$OUT/$name.qbe.out" 2>&1; then
+        echo "PASS $name (stock qbe)" >>"$log"
+      else
+        echo "FAIL $name (stock qbe): run" >>"$log"
+        cat "$OUT/$name.qbe.out" >>"$log"
+        rc=1
+      fi
+    else
+      echo "FAIL $name (stock qbe): print, qbe or link" >>"$log"
+      rc=1
+    fi
   fi
+  return "$rc"
+}
+
+MAX_JOBS="${TEST_JOBS:-8}"
+fail=0
+running=0
+logs=()
+for h in test/*_main.c; do
+  [ -f "$h" ] || continue
+  while [ "$running" -ge "$MAX_JOBS" ]; do
+    wait -n || fail=1
+    running=$((running - 1))
+  done
+  name="$(basename "$h" _main.c)"
+  logs+=("$OUT/$name.log")
+  run_harness "$h" &
+  running=$((running + 1))
+done
+while [ "$running" -gt 0 ]; do
+  wait -n || fail=1
+  running=$((running - 1))
+done
+for log in "${logs[@]}"; do
+  cat "$log"
 done
 echo "outputs in $OUT"
 exit $fail
