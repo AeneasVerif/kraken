@@ -855,6 +855,30 @@ def fidPropFlushDelSpec : Spec [i64, i64] [.bool] :=
 theorem fidPropFlushDelSpec_monoX {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [.bool]}
     {X X' : XPost} (h : fidPropFlushDelSpec xs m Q X) : fidPropFlushDelSpec xs m Q X' := h
 
+/-- Constructor lemma for `fidPropFlushDelSpec` (preserves `0` `@[expose]` in `Proof0`). -/
+theorem fidPropFlushDelSpec_of {c : FullCfg} {F_cur : List (List Nat)} {st : FullState}
+    {R : Mem 64 → Prop} {dlen skip_lit : Nat} {di : BitVec 64} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (hlen : st.LengthsOk c) (hlay : WatchStackLayout st.core)
+    (hdi : di.toNat = 3 * dlen) (hdlen : dlen ≤ c.delayed_cap)
+    (hdel : DelayedWatchesOk st.core st.scratch.delayed dlen skip_lit)
+    (hm : (FullMem c st ⋆ R) m)
+    (hQ : ∀ (ok : Bool) wvec' wstk' wlen' wu' wsort' m',
+      let st' : FullState :=
+        { st with
+          core := { st.core with wvec := wvec', wstk := wstk', wlen := wlen', wusable := wu' }
+          scratch := { st.scratch with wsort := wsort' } }
+      st'.LengthsOk c → WatchStackLayout st'.core →
+      (WatchesInv F_cur st.core → WatchesInv F_cur st'.core) →
+      (skip_lit < 2 * st.core.cur_vars →
+        ∀ off q p end_v, SplitWatchesInv F_cur st.core skip_lit off q p end_v →
+          let off' := fullWatchOffCore st'.core skip_lit
+          SplitWatchesInv F_cur st'.core skip_lit off'
+            (off' + (q - off)) (off' + (p - off)) (off' + (end_v - off))) →
+      (FullMem c st' ⋆ R) m' → Q (ok, ()) m') :
+    fidPropFlushDelSpec (c.hdr, di, ()) m Q X :=
+  ⟨c, F_cur, st, R, dlen, skip_lit, rfl, hlen, hlay, hdi, hdlen, hdel, hm, hQ⟩
+
 private def fidFlushDisk (wl_d : Nat) (wu_d : BitVec 64) (st : FullState) : FullState :=
   { st with core := { st.core with wlen := wl_d, wusable := wu_d } }
 
