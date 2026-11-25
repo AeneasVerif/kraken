@@ -70,7 +70,8 @@ def corpus : List String := [
   "cld", "std",
   -- control flow
   "foo:\n  jmp foo", "je foo", "jne .L1", "jb foo", "jae foo", "ja foo", "jbe foo",
-  "jl foo", "jle foo", "call foo", "call %rax", "jmp %rax",
+  "jl foo", "jle foo", "call foo", "call %rax", "call *%rax", "call *(%rsp)",
+  "jmp %rax", "jmp *%rax", "jmp *8(%rax)", "jmp *4096", "jmp *sym",
   "jmp 8(%rax)", "call (%rsp)", "ret", "nop", "nop 5", ".align 16", ".align 16, 0x90",
   "a:\nb: ret\n\nc:",
   -- AVX

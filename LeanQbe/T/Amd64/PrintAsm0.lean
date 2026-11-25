@@ -208,8 +208,8 @@ termination_by s.utf8ByteSize - i
 @[expose, noinline] def emitTarget (ba : ByteArray) : RelRegOrMem → ByteArray
   | .rel (.sub e .after_current_instruction) => emitConst ba e
   | .rel e => emitConst ba e
-  | .reg r => emitReg ba .W64 r
-  | .mem a => emitAddr ba a
+  | .reg r => emitReg (ba.push 0x2a) .W64 r
+  | .mem a => emitAddr (ba.push 0x2a) a
 
 /-! ## 3. Factored instruction emitters (`< 250` directives per lowered function) -/
 

@@ -74,8 +74,9 @@ EXPECTED_REJ = {
     "x_goto_inner_label", "x_regloop", "y_arrparam", "z_floatsuf",
 }
 NOT_REJ = {
-    "rej_decl_multi_noinit", "rej_define_expr", "rej_empty_ret",
-    "rej_ifelse_all_ret_loop", "rej_sizeof_var",
+    "rej_chain_assign", "rej_decl_multi_noinit", "rej_define_expr", "rej_dowhile0_macro",
+    "rej_empty_ret", "rej_for_comma", "rej_ifelse_all_ret_loop", "rej_sizeof_var",
+    "rej_void_cast",
 }
 # N8/N10 probes: lowered matches C99/IEEE-754 clang (differs only on gcc 40-bit bf extension
 # or gcc -O2 NaN bug)

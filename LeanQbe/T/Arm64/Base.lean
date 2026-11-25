@@ -66,6 +66,11 @@ abbrev armMovToX (d : XReg) (s : Reg) : Directive :=
 abbrev armMovToSp (s : XReg) : Directive :=
   ins (w := .W64) (.ADD_e (.low .SP .W64) (.low (.reg s) .W64) imm0)
 
+/-- Materialize 64-bit symbol address `sym` into `x_d`
+(`adrp x_d, sym; add x_d, x_d, :lo12:sym`). -/
+def armSymAddr (d : XReg) (sym : Sym) : List Directive :=
+  [.adrp d sym, .addLo12 d d sym]
+
 /-! ## 2. 64-bit register accessors and update rules -/
 
 /-- Read 64-bit GP or stack register `r`. -/
@@ -317,5 +322,26 @@ theorem armMovToSp_wp [Host] (xs : XReg) (s : MachineData) :
       Reg64s.getRegOrSp_reg64]
     rw [show BitVec.ofInt RegWidth.W64.bits 0 = 0#64 from rfl, BitVec.add_zero]
     exact hk _ rfl)
+
+theorem armSymAddr_noLab (d : XReg) (sym l : Sym) :
+    Kraken.Directive.label l ∉ armSymAddr d sym := by
+  simp [armSymAddr]
+
+theorem armSymAddr_wp [Host] (d : XReg) (sym : Sym) (s : MachineData) :
+    _root_.Program.wp (armSymAddr d sym)
+      (fun s' => s' = wr s d (Labels.label sym).toBitVec) (fun _ _ => False) s :=
+  _root_.Program.wp_adrp_add_label d sym s
+
+theorem armSymAddr_spec {h : Host} {k : Nat} {d : XReg} {sym : Sym} {s : MachineData}
+    {post : MachineState → Prop} :
+    armMach.FallsTo armCondReads h k (armSymAddr d sym) [.reg d] [] maskNone s
+      (fun s' => get s' (.reg d) = (armMach.labelAddr h sym).toBitVec ∧ s'.dmem = s.dmem)
+      post := by
+  letI := h
+  refine armFallsTo_of_wp (armWp_mono (armSymAddr_wp d sym s) ?_)
+  rintro s' rfl
+  refine ⟨⟨get_reg _ _ ▸ get_wr_same _ _ _, rfl⟩,
+    ⟨fun r hr => get_wr_of_ne s d _ r (fun e => hr (e ▸ List.mem_cons_self)),
+      fun v => v.elim, fun _ _ => rfl⟩⟩
 
 end LeanQbe.T.Arm64

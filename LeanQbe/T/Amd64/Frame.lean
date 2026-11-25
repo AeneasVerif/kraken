@@ -154,6 +154,27 @@ abbrev x64RetI : Instr := insI .ret
 /-- `ret`. -/
 def x64RetD : Directive := .instr x64RetI
 
+/-- `leaq sym(%rip), %rd`. -/
+abbrev x64SymAddrI (sym : Sym) (rd : Reg64) : Instr :=
+  insI (.lea (q rd) { base := some .rip, idx := none,
+                      disp := .sub (.label sym) .after_current_instruction })
+
+/-- Materialize address of `sym` into `rd` via `leaq sym(%rip), %rd`. -/
+def x64SymAddr (sym : Sym) (rd : Reg64) : List Directive :=
+  emitClean [x64SymAddrI sym rd]
+
+/-- `call *%r`. -/
+abbrev x64CallRegI (r : Reg64) : Instr := insI (.call (.reg (q r)))
+
+/-- Indirect call `call *%r`. -/
+def x64CallReg (r : Reg64) : List Directive := emitClean [x64CallRegI r]
+
+/-- `jmp *%r`. -/
+abbrev x64JmpRegI (r : Reg64) : Instr := insI (.jmp (.reg (q r)))
+
+/-- Indirect tail jump `jmp *%r`. -/
+def x64JmpReg (r : Reg64) : List Directive := emitClean [x64JmpRegI r]
+
 /-- SysV x64 `FrameIsa` instance. -/
 @[reducible] def x64Frame : FrameIsa Reg64 Directive where
   label := .label

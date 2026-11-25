@@ -63,8 +63,8 @@ def count : ShiftCountExpr → String
 def target (aw : Width) : RelRegOrMem → String
   | .rel (.sub e .after_current_instruction) => const e
   | .rel e => const e
-  | .reg r => reg r
-  | .mem a => addr aw a
+  | .reg r => "*" ++ reg r
+  | .mem a => "*" ++ addr aw a
 
 def operation {w} (aw : Width) (op : Operation w) : String :=
   let s := suffix w
