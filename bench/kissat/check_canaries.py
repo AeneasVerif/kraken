@@ -74,9 +74,14 @@ def parse_full_telemetry_line(line):
     return rec
 
 
-def run_one(bin_path, cnf_path, work_bytes, fuel, per_timeout, m2_alias=False, kissat_bin=None):
+def run_one(
+    bin_path, cnf_path, work_bytes, fuel, per_timeout, m2_alias=False, kissat_bin=None,
+    poison_work=False,
+):
     cmd = ["timeout", str(per_timeout), bin_path,
            "--full-telemetry-m2" if m2_alias else "--full-telemetry"]
+    if poison_work:
+        cmd.append("--poison-work")
     if kissat_bin:
         cmd.extend(["--kissat", kissat_bin])
     cmd.extend([str(work_bytes), str(fuel), cnf_path])
@@ -441,11 +446,69 @@ BASELINE_FALLBACKS = {
 }
 
 
+FN_FAMILY_RULES = (
+    (("bva", "factor", "fheap"), ("01_php_bva", "11_c11_regressions")),
+    (("cong",), ("02_deep_miter", "11_c11_regressions")),
+    (("sweep", "refine", "sim_"), ("03_sweep_algebraic", "02_deep_miter", "11_c11_regressions")),
+    (("viv",), ("05_bve_vivify", "05_tail_vivify", "11_c11_regressions")),
+    (
+        ("chrono", "backtrack", "analyze", "shrink", "min_"),
+        ("06_deep_chrono", "04_pure3cnf_tseitin", "11_c11_regressions"),
+    ),
+    (
+        ("bve", "elim", "k6_", "forward", "fwd_", "subsume"),
+        ("07_high_fanout_bve", "05_bve_vivify", "05_tail_vivify", "11_c11_regressions"),
+    ),
+    (
+        ("walk", "rephase", "restart", "reduce", "promote", "reorder", "randec"),
+        ("08_long_horizon", "04_pure3cnf_tseitin", "01_php_bva"),
+    ),
+    (("backbone", "trans", "probe"), ("09_big_backbone", "02_deep_miter", "03_sweep_algebraic")),
+    (("compact",), ("10_dead_var_compact", "11_c11_regressions")),
+    (
+        ("prop", "bcp", "watch", "wstack", "arena", "flush"),
+        ("11_c11_regressions", "06_deep_chrono", "01_php_bva"),
+    ),
+)
+
+
+def canary_families_for_fns(changed_fns):
+    """Return priority-ordered canary family names matching `changed_fns`."""
+    fams = []
+    for fn in changed_fns:
+        low = fn.lower()
+        for needles, hits in FN_FAMILY_RULES:
+            if any(n in low for n in needles):
+                for fam in hits:
+                    if fam not in fams:
+                        fams.append(fam)
+    return fams
+
+
+def prioritize_manifest(manifest, changed_fns):
+    """Sort `manifest` so families exercised by `changed_fns` execute first."""
+    fams = canary_families_for_fns(changed_fns)
+    if not fams:
+        return list(manifest), []
+    rank = {fam: i for i, fam in enumerate(fams)}
+    indexed = sorted(
+        enumerate(manifest),
+        key=lambda pair: (rank.get(pair[1]["family"], len(fams)), pair[0]),
+    )
+    return [entry for _, entry in indexed], fams
+
+
 def lookup_baseline_run(base_runs, name):
     """Look up baseline run record for `name` (Fidelity and M8Opt profiles never cross-fallback)."""
     rec = base_runs.get(name)
     if rec is not None:
         return rec
+    if name.endswith("_C0d"):
+        stem = name[:-4]
+        for suf in ("_C4", "_C3b"):
+            cand = base_runs.get(stem + suf)
+            if cand is not None:
+                return cand
     if name.startswith(("KissatFidelity_", "KissatM8Opt_", "Plain_", "FullM7Fidelity_", "FullM7Plus_")):
         return None
     for prefix, fallbacks in BASELINE_FALLBACKS.items():
@@ -464,6 +527,20 @@ def collect_parity_models(configs):
     mods = []
     for name, _, _ in configs:
         for suf in ("_C4", "_C3b"):
+            if name.endswith(suf):
+                mod = name[: -len(suf)]
+                if mod not in seen:
+                    seen.add(mod)
+                    mods.append(mod)
+    return mods
+
+
+def collect_c1_comparison_models(configs):
+    """Return ordered model prefixes configured with any C4, C3b, or C0d binary."""
+    seen = set()
+    mods = []
+    for name, _, _ in configs:
+        for suf in ("_C4", "_C3b", "_C0d"):
             if name.endswith(suf):
                 mod = name[: -len(suf)]
                 if mod not in seen:
@@ -538,12 +615,17 @@ def main():
     ap.add_argument("--plain-c3b", help="Path to C3b PrintCpp-native-mem Plain bench_main binary")
     ap.add_argument("--fid-c4", help="Path to C4 native x64 KissatFidelity bench_main binary")
     ap.add_argument("--fid-c3b", help="Path to C3b PrintCpp-native-mem KissatFidelity bench_main binary")
+    ap.add_argument("--fid-c0d", help="Path to C0-direct KissatFidelity bench_main binary")
     ap.add_argument("--m7fid-c4", help="Path to C4 native x64 FullM7Fidelity bench_main binary")
     ap.add_argument("--m7fid-c3b", help="Path to C3b PrintCpp-native-mem FullM7Fidelity bench_main binary")
     ap.add_argument("--m7plus-c4", help="Path to C4 native x64 FullM7Plus bench_main binary")
     ap.add_argument("--m7plus-c3b", help="Path to C3b PrintCpp-native-mem FullM7Plus bench_main binary")
     ap.add_argument("--opt-c4", "--m8-c4", dest="opt_c4", help="Path to C4 native x64 KissatM8Opt bench_main binary")
     ap.add_argument("--opt-c3b", "--m8-c3b", dest="opt_c3b", help="Path to C3b PrintCpp-native-mem KissatM8Opt bench_main binary")
+    ap.add_argument(
+        "--opt-c0d", "--m8-c0d", dest="opt_c0d",
+        help="Path to C0-direct KissatM8Opt bench_main binary",
+    )
     ap.add_argument("--full-c4", help="Path to C4 native x64 Full bench_main binary")
     ap.add_argument("--full-c3b", help="Path to C3b PrintCpp-native-mem Full bench_main binary")
     ap.add_argument("--fast-c4", help="Path to C4 native x64 FullFast bench_main binary")
@@ -576,12 +658,34 @@ def main():
         "--c3b-gen-hpp", action="append", default=[], metavar="LABEL=HPP",
         help="Compile witness-checking C3b harness from emitted *_gen.hpp",
     )
+    ap.add_argument(
+        "--poison-work", action="store_true",
+        help="Fill work buffer with 0xA5 before each solve (bench_main --poison-work)",
+    )
+    ap.add_argument(
+        "--fn-diff-json",
+        help="JSON output from extract_c0_direct.py --diff-base for changed-fn canary ordering",
+    )
+    ap.add_argument(
+        "--skip-unchanged", action="store_true",
+        help="Exit 0 cleanly when --fn-diff-json reports unchanged=true",
+    )
     args = ap.parse_args()
 
+    fn_diff_doc = None
+    if args.fn_diff_json:
+        with open(args.fn_diff_json, encoding="utf-8") as f:
+            fn_diff_doc = json.load(f)
+        if args.skip_unchanged and fn_diff_doc.get("unchanged"):
+            sha = fn_diff_doc.get("cur_c0_sha256", "")[:12]
+            rev = fn_diff_doc.get("base_rev", "?")
+            print(f"SKIP (UNCHANGED): 0 C0 functions changed vs {rev} (c0_sha256={sha})")
+            return
+
     if not any([
-        args.plain_c4, args.plain_c3b, args.fid_c4, args.fid_c3b,
+        args.plain_c4, args.plain_c3b, args.fid_c4, args.fid_c3b, args.fid_c0d,
         args.m7fid_c4, args.m7fid_c3b, args.m7plus_c4, args.m7plus_c3b,
-        args.opt_c4, args.opt_c3b,
+        args.opt_c4, args.opt_c3b, args.opt_c0d,
         args.full_c4, args.full_c3b, args.fast_c4, args.fast_c3b,
         args.m3_c4, args.m3_c3b, args.m4_c4, args.m4_c3b,
         args.m5_c4, args.m5_c3b, args.m6_c4, args.m6_c3b, args.c3b_gen_hpp,
@@ -619,6 +723,16 @@ def main():
         manifest = [e for e in manifest if not e["file"].startswith("c11_")]
     if args.filter:
         manifest = [e for e in manifest if args.filter in e["file"]]
+    if fn_diff_doc:
+        changed_fns = fn_diff_doc.get("changed_fns", [])
+        manifest, prio_fams = prioritize_manifest(manifest, changed_fns)
+        if prio_fams:
+            print(
+                f"[fn-diff] {len(changed_fns)} changed C0 fn(s) -> prioritizing families: "
+                + ", ".join(prio_fams)
+            )
+        else:
+            print(f"[fn-diff] {len(changed_fns)} changed C0 fn(s) -> default canary order")
 
     existing_baseline = None
     if os.path.exists(args.baseline):
@@ -636,6 +750,8 @@ def main():
         configs.append(("KissatFidelity_C4", args.fid_c4, True))
     if args.fid_c3b:
         configs.append(("KissatFidelity_C3b", args.fid_c3b, True))
+    if args.fid_c0d:
+        configs.append(("KissatFidelity_C0d", args.fid_c0d, True))
     if args.m7fid_c4:
         configs.append(("FullM7Fidelity_C4", args.m7fid_c4, True))
     if args.m7fid_c3b:
@@ -648,6 +764,8 @@ def main():
         configs.append(("KissatM8Opt_C4", args.opt_c4, True))
     if args.opt_c3b:
         configs.append(("KissatM8Opt_C3b", args.opt_c3b, True))
+    if args.opt_c0d:
+        configs.append(("KissatM8Opt_C0d", args.opt_c0d, True))
     if args.full_c4:
         configs.append(("Full_C4", args.full_c4, False))
     if args.full_c3b:
@@ -720,7 +838,10 @@ def main():
                 )
 
         for name, bpath, is_m2 in configs:
-            rec = run_one(bpath, cpath, args.work_bytes, args.fuel, args.per_timeout, is_m2)
+            rec = run_one(
+                bpath, cpath, args.work_bytes, args.fuel, args.per_timeout, is_m2,
+                poison_work=args.poison_work,
+            )
             row["runs"][name] = compact_metrics(rec)
             st_s = format_canary_status(rec)
             line = (
@@ -815,13 +936,14 @@ def main():
             f"  C1 (Kissat)   : {c1_solved:2d}/{tot} UNSAT solved"
             f"  (total {c1_tot_ms:.1f} ms, solved-only {c1_solved_ms:.1f} ms)"
         )
-        for base_mod in collect_parity_models(configs):
-            c3b_k, c4_k = f"{base_mod}_C3b", f"{base_mod}_C4"
+        for base_mod in collect_c1_comparison_models(configs):
+            c3b_k, c4_k, c0d_k = f"{base_mod}_C3b", f"{base_mod}_C4", f"{base_mod}_C0d"
             has_c3b = any(c3b_k in r["runs"] for r in results.values())
             has_c4 = any(c4_k in r["runs"] for r in results.values())
-            if not (has_c3b or has_c4):
+            has_c0d = any(c0d_k in r["runs"] for r in results.values())
+            if not (has_c3b or has_c4 or has_c0d):
                 continue
-            ref_k = c3b_k if has_c3b else c4_k
+            ref_k = c3b_k if has_c3b else (c4_k if has_c4 else c0d_k)
             matched, _, _, confl_k100, confl_both100 = collect_c1_ratios(results, ref_k)
             mod_solved = sum(1 for r in results.values() if r["runs"][ref_k].get("status") == 20)
             print(
@@ -838,6 +960,12 @@ def main():
                 _, t_max10, t_both5, _, _ = collect_c1_ratios(results, c4_k)
                 print(
                     f"    C4 /C1 time   (max>=10ms): median={fmt_median_ratio(t_max10)}"
+                    f"  | (both>=5ms): median={fmt_median_ratio(t_both5)}"
+                )
+            if has_c0d:
+                _, t_max10, t_both5, _, _ = collect_c1_ratios(results, c0d_k)
+                print(
+                    f"    C0d/C1 time   (max>=10ms): median={fmt_median_ratio(t_max10)}"
                     f"  | (both>=5ms): median={fmt_median_ratio(t_both5)}"
                 )
             print(
