@@ -51,6 +51,7 @@ MAX_LOC = 2500
 MAX_COL = 100
 CANARY_RDEPS_THRESHOLD = 50
 RDEPS_BUILD_CAP = 250
+AXIOM_AUDIT_CHUNK_SIZE = 12
 C0_ASAN_CACHE_PATH = Path("/tmp/leanqbe_verified_c0_asan.json")
 
 CANARY_FRONTIER: tuple[str, ...] = (
@@ -457,7 +458,12 @@ def target_worktree_ctx(
         )
     else:
         subprocess.run(
-            ["git", "-C", str(pool), "checkout", "--detach", target_sha],
+            ["git", "-C", str(pool), "merge", "--abort"],
+            capture_output=True,
+            check=False,
+        )
+        subprocess.run(
+            ["git", "-C", str(pool), "reset", "--hard"],
             capture_output=True,
             text=True,
             check=True,
@@ -466,6 +472,12 @@ def target_worktree_ctx(
             ["git", "-C", str(pool), "clean", "-fd", "-e", ".lake"],
             capture_output=True,
             check=False,
+        )
+        subprocess.run(
+            ["git", "-C", str(pool), "checkout", "--detach", target_sha],
+            capture_output=True,
+            text=True,
+            check=True,
         )
     yield pool
 
@@ -808,11 +820,19 @@ def build_axiom_lean_script(
     return "\n".join(lines) + "\n"
 
 
+def _chunk_modules(mods: list[str], chunk_size: int) -> list[list[str]]:
+    """Split module list into chunks of at most `chunk_size` elements."""
+    if chunk_size <= 0:
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}")
+    return [mods[i : i + chunk_size] for i in range(0, len(mods), chunk_size)]
+
+
 def run_axiom_audit(
     wt: Path,
     built_targets: list[str],
     *,
     dry_run: bool,
+    chunk_size: int = AXIOM_AUDIT_CHUNK_SIZE,
 ) -> dict[str, object]:
     """Run kernel `collectAxioms` + `!isUnsafe` across audited modules."""
     rev_exe = {v: k for k, v in EXE_ROOT_TO_TARGET.items()}
@@ -836,40 +856,67 @@ def run_axiom_audit(
     groups: list[tuple[str, list[str], list[str]]] = []
     for arch in ("generic", "x64", "arm64"):
         ms = grouped.get(arch, [])
-        if ms:
-            cs = [c for m in ms for c in headlines.get(m, [])]
-            groups.append((arch, ms, cs))
+        if not ms:
+            continue
+        chunks = _chunk_modules(ms, chunk_size)
+        for idx, chunk_ms in enumerate(chunks, 1):
+            grp_name = arch if len(chunks) == 1 else f"{arch}_{idx}"
+            cs = [c for m in chunk_ms for c in headlines.get(m, [])]
+            groups.append((grp_name, chunk_ms, cs))
     for idx, m in enumerate(grouped.get("conflict", []), 1):
         groups.append((f"solo_{idx}", [m], headlines.get(m, [])))
 
+    group_meta = [
+        {"group": g, "modules": ms, "headline_consts": len(cs)}
+        for g, ms, cs in groups
+    ]
     if dry_run:
-        return {
-            "status": "planned",
-            "groups": [
-                {"group": g, "modules": ms, "headline_consts": len(cs)}
-                for g, ms, cs in groups
-            ],
-        }
+        return {"status": "planned", "groups": group_meta}
 
-    # Check in small chunks of <= 12 modules per `importModules` call for fast memory caps.
-    script = build_axiom_lean_script(groups)
-    cmd = wrap_build_cmd(["lake", "env", "lean", "--stdin"], timeout_sec=180)
-    res = subprocess.run(
-        cmd,
-        cwd=str(wt),
-        input=script,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    # Execute each <=12-module chunk in its own process so RSS stays bounded.
+    use_systemd = systemd_scope_available()
+    all_ok = True
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    chunk_runs: list[dict[str, object]] = []
+    for grp, ms, cs in groups:
+        script = build_axiom_lean_script([(grp, ms, cs)])
+        cmd = wrap_build_cmd(
+            ["lake", "env", "lean", "--stdin"],
+            timeout_sec=180,
+            use_systemd=use_systemd,
+        )
+        res = subprocess.run(
+            cmd,
+            cwd=str(wt),
+            input=script,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        out_s = res.stdout.strip()
+        err_s = res.stderr.strip()
+        if out_s:
+            stdout_parts.append(out_s)
+        if err_s:
+            stderr_parts.append(err_s)
+        ok_chunk = res.returncode == 0
+        if not ok_chunk:
+            all_ok = False
+        chunk_runs.append(
+            {
+                "group": grp,
+                "module_count": len(ms),
+                "status": "pass" if ok_chunk else "fail",
+                "returncode": res.returncode,
+            }
+        )
     return {
-        "status": "pass" if res.returncode == 0 else "fail",
-        "groups": [
-            {"group": g, "modules": ms, "headline_consts": len(cs)}
-            for g, ms, cs in groups
-        ],
-        "stdout": res.stdout.strip()[:600],
-        "stderr": res.stderr.strip()[:600],
+        "status": "pass" if all_ok else "fail",
+        "groups": group_meta,
+        "chunk_runs": chunk_runs,
+        "stdout": "\n".join(stdout_parts)[:1200],
+        "stderr": "\n".join(stderr_parts)[:1200],
     }
 
 

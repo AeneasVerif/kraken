@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS_DIR.parent
@@ -71,16 +72,20 @@ class TestPruneWorktrees(unittest.TestCase):
 
             # Secondary worktrees off bare repo.
             wt_anc_clean = root / "swarm-old-1111"
+            wt_bee1 = root / "builds" / "bee-1" / "wt"
             wt_bee4 = root / "builds" / "bee-4" / "wt"
+            wt_manual = root / "manual-clean-8888"
             wt_dirty = root / "swarm-dirty-2222"
             wt_pid = root / "swarm-livepid-3333"
             wt_swarm = root / "swarm-active-4444"
             wt_anch_other = root / "swarm-anchored-5555"
-            wt_anch_own = root / "own-feat-6666"
+            wt_anch_own = root / "swarm-own-feat-6666"
             wt_unanch = root / "swarm-wip-7777"
 
             _git_bare(bare, "worktree", "add", "--detach", str(wt_anc_clean), c0)
+            _git_bare(bare, "worktree", "add", "--detach", str(wt_bee1), c0)
             _git_bare(bare, "worktree", "add", "--detach", str(wt_bee4), c0)
+            _git_bare(bare, "worktree", "add", "--detach", str(wt_manual), c0)
             _git_bare(bare, "worktree", "add", "--detach", str(wt_dirty), c0)
             (wt_dirty / "untracked.txt").write_text("wip\n", encoding="utf-8")
             _git_bare(bare, "worktree", "add", "--detach", str(wt_pid), c0)
@@ -105,8 +110,12 @@ class TestPruneWorktrees(unittest.TestCase):
             )
             by_path = {d.path: d for d in decs}
             self.assertEqual(by_path[str(wt_anc_clean)].action, "prune")
+            self.assertEqual(by_path[str(wt_bee1)].action, "keep")
+            self.assertEqual(by_path[str(wt_bee1)].reason, "protected_bee_wt")
             self.assertEqual(by_path[str(wt_bee4)].action, "keep")
-            self.assertEqual(by_path[str(wt_bee4)].reason, "protected_bee4_wt")
+            self.assertEqual(by_path[str(wt_bee4)].reason, "protected_bee_wt")
+            self.assertEqual(by_path[str(wt_manual)].action, "keep")
+            self.assertEqual(by_path[str(wt_manual)].reason, "non_swarm_excluded")
             self.assertEqual(by_path[str(wt_dirty)].action, "keep")
             self.assertEqual(by_path[str(wt_dirty)].reason, "dirty_worktree")
             self.assertEqual(by_path[str(wt_pid)].action, "keep")
@@ -119,6 +128,24 @@ class TestPruneWorktrees(unittest.TestCase):
             )
             self.assertEqual(by_path[str(wt_anch_own)].action, "keep")
             self.assertEqual(by_path[str(wt_unanch)].action, "keep")
+
+            # Explicit --include-non-swarm prunes manual WT while keeping all bee-*/wt protected.
+            decs_nonswarm = pw.classify_worktrees(
+                bare,
+                base_ref="refs/heads/leanqbe/main",
+                all_anchored=False,
+                include_vartmp=False,
+                include_non_swarm=True,
+                procs=fake_procs,
+                active_workers=active_workers,
+                cwd=seed,
+            )
+            by_ns = {d.path: d for d in decs_nonswarm}
+            self.assertEqual(by_ns[str(wt_manual)].action, "prune")
+            self.assertEqual(by_ns[str(wt_bee1)].action, "keep")
+            self.assertEqual(by_ns[str(wt_bee1)].reason, "protected_bee_wt")
+            self.assertEqual(by_ns[str(wt_bee4)].action, "keep")
+            self.assertEqual(by_ns[str(wt_bee4)].reason, "protected_bee_wt")
 
             # 2. With all_anchored=True: wt_anch_other becomes prunable, own-branch stays kept.
             decs_anch = pw.classify_worktrees(
@@ -140,7 +167,9 @@ class TestPruneWorktrees(unittest.TestCase):
             self.assertEqual(set(removed), {str(wt_anc_clean), str(wt_anch_other)})
             self.assertFalse(wt_anc_clean.exists())
             self.assertFalse(wt_anch_other.exists())
+            self.assertTrue(wt_bee1.exists())
             self.assertTrue(wt_bee4.exists())
+            self.assertTrue(wt_manual.exists())
             self.assertTrue(wt_dirty.exists())
             self.assertTrue(wt_pid.exists())
             self.assertTrue(wt_swarm.exists())
@@ -211,8 +240,9 @@ class TestPruneWorktrees(unittest.TestCase):
         self.assertGreaterEqual(data["reclaimable_gib"], 0.0)
         self.assertEqual(data["removed_worktrees"], [])
         for d in data["prunable_worktrees"]:
-            self.assertFalse(d["path"].endswith("/bee-4/wt"))
+            self.assertFalse(pw.is_bee_wt(Path(d["path"])))
             self.assertFalse(d["path"].startswith("/var/tmp/"))
+            self.assertTrue(Path(d["path"]).name.startswith("swarm-"))
 
 
 class TestL2Audit(unittest.TestCase):
@@ -308,7 +338,71 @@ class TestL2Audit(unittest.TestCase):
             blocked["steps"]["diff_stats"]["disallowed_files"],
         )
 
+    def test_pooled_worktree_reset_before_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo = root / "repo"
+            repo.mkdir()
+            _git(repo, "init", "-b", "leanqbe/main")
+            _git(repo, "config", "user.name", "Test")
+            _git(repo, "config", "user.email", "test@example.com")
+            c1 = _commit_file(repo, "f.txt", "v1\n", "v1")
+            c2 = _commit_file(repo, "f.txt", "v2\n", "v2")
+
+            pool = root / "pool"
+            with l2.target_worktree_ctx(
+                repo, c1, worktree_pool=pool, dry_run=False
+            ) as wt:
+                self.assertEqual(_git(wt, "rev-parse", "HEAD"), c1)
+                (wt / "f.txt").write_text("dirty\n", encoding="utf-8")
+                (wt / "untracked.txt").write_text("trash\n", encoding="utf-8")
+                (wt / ".lake").mkdir()
+                (wt / ".lake" / "keep.txt").write_text("ok\n", encoding="utf-8")
+
+            with l2.target_worktree_ctx(
+                repo, c2, worktree_pool=pool, dry_run=False
+            ) as wt:
+                self.assertEqual(_git(wt, "rev-parse", "HEAD"), c2)
+                self.assertEqual(
+                    (wt / "f.txt").read_text(encoding="utf-8"), "v2\n"
+                )
+                self.assertFalse((wt / "untracked.txt").exists())
+                self.assertTrue((wt / ".lake" / "keep.txt").exists())
+            _git(repo, "worktree", "remove", "--force", str(pool))
+
+    def test_axiom_audit_chunks_le_12(self) -> None:
+        mods = [
+            f"LeanQbe.T.{p.stem}"
+            for p in sorted((REPO_ROOT / "LeanQbe" / "T").glob("*.lean"))
+        ][:26]
+        self.assertGreater(len(mods), 12)
+        plan = l2.run_axiom_audit(REPO_ROOT, mods, dry_run=True)
+        self.assertEqual(plan["status"], "planned")
+        groups = plan["groups"]
+        self.assertGreater(len(groups), 1)
+        seen: list[str] = []
+        for g in groups:
+            self.assertLessEqual(len(g["modules"]), 12)
+            seen.extend(g["modules"])
+        self.assertEqual(sorted(seen), sorted(mods))
+
+        fake_proc = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="AXIOM_GROUP ok\n", stderr=""
+        )
+        with (
+            mock.patch.object(l2, "systemd_scope_available", return_value=False),
+            mock.patch.object(l2.subprocess, "run", return_value=fake_proc) as m_run,
+        ):
+            live = l2.run_axiom_audit(REPO_ROOT, mods, dry_run=False)
+        self.assertEqual(live["status"], "pass")
+        self.assertEqual(m_run.call_count, len(groups))
+        self.assertEqual(len(live["chunk_runs"]), len(groups))
+
     def test_live_kernel_axiom_audit_cached_module(self) -> None:
+        build_res = l2.execute_lake_build(
+            REPO_ROOT, ["LeanQbeTest.T.Amd64FrameTest"]
+        )
+        self.assertEqual(build_res["status"], "pass", build_res)
         res = l2.run_axiom_audit(
             REPO_ROOT, ["LeanQbeTest.T.Amd64FrameTest"], dry_run=False
         )

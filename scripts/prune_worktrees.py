@@ -5,8 +5,10 @@ Default mode is strictly `--dry-run` (`0` filesystem or git mutations).
 With `--apply`, removes ONLY secondary/detached worktrees that pass all
 safety guards:
   - NEVER the primary/bare repository or the current working tree
-  - NEVER `bee-4/wt`
+  - NEVER `/monorepo-work/builds/bee-*/wt` (or `bee-*/wt`) unless `--include-bee`
   - NEVER `/var/tmp/...` worktrees unless `--include-vartmp`
+  - ONLY `swarm-*` worktrees (or `/var/tmp/...` with `--include-vartmp`)
+    unless `--include-non-swarm` is explicitly passed
   - NEVER non-empty dirty worktrees (`git status --porcelain` non-empty)
   - NEVER worktrees matching an open PID in `ps` or active worker in
     `swarm_status`
@@ -361,15 +363,31 @@ def dir_disk_usage(root_dir: Path) -> tuple[int, int]:
     return total, exclusive
 
 
-def is_bee4_wt(wt_path: Path) -> bool:
-    """Return True iff `wt_path` is the protected `bee-4/wt` checkout."""
-    parts = wt_path.parts
-    if len(parts) >= 2 and parts[-2:] == ("bee-4", "wt"):
-        return True
+BEE_DIR_RE = re.compile(r"bee-[^/]+")
+
+
+def is_bee_wt(wt_path: Path) -> bool:
+    """Return True iff `wt_path` is a protected `bee-*/wt` build worktree."""
+    candidates = [wt_path.parts]
     if wt_path.exists():
-        rparts = wt_path.resolve().parts
-        if len(rparts) >= 2 and rparts[-2:] == ("bee-4", "wt"):
+        candidates.append(wt_path.resolve().parts)
+    for parts in candidates:
+        if len(parts) >= 2 and parts[-1] == "wt" and BEE_DIR_RE.fullmatch(parts[-2]):
             return True
+    return False
+
+
+def is_bee4_wt(wt_path: Path) -> bool:
+    """Backward-compatible alias for `is_bee_wt`."""
+    return is_bee_wt(wt_path)
+
+
+def is_swarm_worktree(wt_path: Path) -> bool:
+    """Return True iff `wt_path` is a `swarm-*` worker worktree."""
+    if wt_path.name.startswith("swarm-"):
+        return True
+    if wt_path.exists() and wt_path.resolve().name.startswith("swarm-"):
+        return True
     return False
 
 
@@ -469,6 +487,8 @@ def classify_worktrees(
     base_ref: str = "refs/heads/leanqbe/main",
     all_anchored: bool = False,
     include_vartmp: bool = False,
+    include_non_swarm: bool = False,
+    include_bee: bool = False,
     protect_patterns: list[str] | None = None,
     procs: list[tuple[int, str, str]] | None = None,
     active_workers: list[tuple[str, str]] | None = None,
@@ -536,18 +556,28 @@ def classify_worktrees(
         dirty = is_dirty_worktree(wt.path)
         tot_b, excl_b = dir_disk_usage(wt.path)
 
+        in_vartmp = is_vartmp_path(wt.path)
+        allow_non_swarm = include_non_swarm or (
+            include_bee and is_bee_wt(wt.path)
+        )
         reason = ""
         action = "keep"
         if is_current_worktree(wt.path, cur_cwd, repo):
             reason = "current_worktree"
-        elif is_bee4_wt(wt.path):
-            reason = "protected_bee4_wt"
+        elif is_bee_wt(wt.path) and not include_bee:
+            reason = "protected_bee_wt"
         elif any(pat in str(wt.path) for pat in prot_pats):
             reason = "protected_pattern"
         elif wt.locked:
             reason = "locked_worktree"
-        elif is_vartmp_path(wt.path) and not include_vartmp:
+        elif in_vartmp and not include_vartmp:
             reason = "vartmp_excluded"
+        elif (
+            (not in_vartmp)
+            and (not is_swarm_worktree(wt.path))
+            and (not allow_non_swarm)
+        ):
+            reason = "non_swarm_excluded"
         elif pids:
             reason = "active_pid"
         elif w_hits:
@@ -633,6 +663,8 @@ def build_summary(
     apply: bool,
     all_anchored: bool,
     include_vartmp: bool,
+    include_non_swarm: bool = False,
+    include_bee: bool = False,
     prune_dead_cache: bool,
     decisions: list[WorktreeDecision],
     active_cache: str | None,
@@ -666,6 +698,8 @@ def build_summary(
         "base": base_ref,
         "all_anchored": all_anchored,
         "include_vartmp": include_vartmp,
+        "include_non_swarm": include_non_swarm,
+        "include_bee": include_bee,
         "prune_dead_cache": prune_dead_cache,
         "total_worktrees": len(decisions),
         "prunable_count": len(prunable),
@@ -697,7 +731,8 @@ def format_human(summary: dict[str, object]) -> str:
     lines = [
         f"prune_worktrees ({summary['mode']}, base={summary['base']}, "
         f"all_anchored={summary['all_anchored']}, "
-        f"include_vartmp={summary['include_vartmp']}):",
+        f"include_vartmp={summary['include_vartmp']}, "
+        f"include_non_swarm={summary.get('include_non_swarm', False)}):",
         f"  worktrees: total={summary['total_worktrees']}, "
         f"prunable={summary['prunable_count']}, "
         f"kept={summary['kept_count']}, "
@@ -756,6 +791,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Allow pruning secondary worktrees under /var/tmp.",
     )
     ap.add_argument(
+        "--include-non-swarm",
+        action="store_true",
+        help="Allow pruning non-`swarm-*` worktrees outside /var/tmp (excluding bee-*/wt).",
+    )
+    ap.add_argument(
+        "--include-bee",
+        action="store_true",
+        help="Allow pruning `/monorepo-work/builds/bee-*/wt` worktrees.",
+    )
+    ap.add_argument(
         "--prune-dead-cache",
         action="store_true",
         help="With --apply, also remove dead non-active Lake cache directories.",
@@ -785,6 +830,8 @@ def main(argv: list[str] | None = None) -> int:
         base_ref=args.base,
         all_anchored=args.all_anchored,
         include_vartmp=args.include_vartmp,
+        include_non_swarm=args.include_non_swarm,
+        include_bee=args.include_bee,
         protect_patterns=args.protect,
         active_workers=active_workers,
     )
@@ -804,6 +851,8 @@ def main(argv: list[str] | None = None) -> int:
         apply=bool(args.apply),
         all_anchored=bool(args.all_anchored),
         include_vartmp=bool(args.include_vartmp),
+        include_non_swarm=bool(args.include_non_swarm),
+        include_bee=bool(args.include_bee),
         prune_dead_cache=bool(args.prune_dead_cache),
         decisions=decisions,
         active_cache=active_cache,
