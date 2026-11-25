@@ -113,14 +113,12 @@ example [layout : WellFormedLayout p2_jump] (s : MachineData) :
 
 -- Example 3, more sophisticated
 
--- TODO: restore p3
-
 def p3: Program := ⸨prog|
 init:
   mov $2, %rdx             -- rdx: current result = 2
 start:
   sub $0, %rbx             -- TEST: zf = (rbx == 0)
-  jz _end                 -- end loop if rbx == 0 (a.k.a. « while rbx >= 0 »)
+  jz _end                 -- end loop if rbx == 0
   mulx %rdx, %rdx, %rax    -- BODY: rdx := rdx * rdx
   sub $1, %rbx              -- rbx -= 1
   jmp start               -- go back to test & loop body
@@ -129,103 +127,74 @@ _end:
 
 def p3_spec (s: MachineData): Nat := 2^(2^s.regs.rbx.toNat)
 
-set_option maxHeartbeats 4000000 in
 theorem p3_correct [layout : WellFormedLayout p3] (s : MachineData) :
     p3_spec s < 2 ^ 64 →
     Eventually (step1 p3.toExecutable)
-      (fun s => s.pc = p3.toExecutable.addrOf p3.length ∧
-        s.1.regs.rdx.toNat = p3_spec s.1 ∧ s.1.regs.rax = 0)
+      (fun s' => s'.pc = p3.toExecutable.addrOf p3.length ∧
+        s'.1.regs.rdx.toNat = p3_spec s ∧
+        (0 < s.regs.rbx.toNat → s'.1.regs.rax = 0))
       ⟨s, layout.start⟩ := by
-  intros h_bounds
-  kprologue p3 with s
-
-  sym =>
-  -- kstep 3
-  -- tactic =>
-  -- apply reg_dec_loop
-  -- intros
-
-  sorry
-
-/-     intros h_bounds h_rip
-    simp [p3]
-    -- First step sets rdx = 2
-    apply step_cps
-    step_one
-    rw [h_rip]
-    clear h_rip
-    simp
-    -- Loop invariant introduction
-    apply reg_dec_loop p3 _ _ (fun i s => s.rip = 1 ∧ s.regs.rbx.toNat = i ∧ i ≤ initial.regs.rbx.toNat ∧ s.regs.rdx.toNat = 2^(2^(initial.regs.rbx.toNat - i))) initial.regs.rbx.toNat
-    constructor
-    . simp
-    . constructor
-      -- Invariant at index 0 ==> post
-      . intros state inv
-        rcases inv with ⟨ h_rip, h_rbx_zero, h_rbx_le, h_inv ⟩
-        -- Step through a few program steps
-        simp [p3]
-        apply step_cps
-        step_one
-        rw [h_rip]
-        simp
-        apply step_cps
-        step_one
-        have : state.regs.rbx.toNat = 0 := by grind
-        simp [this]
-        apply step_cps
-        step_one
-        apply eventually.done
-        simp
-        -- Now functional correctness for initial invariant
-        simp [p3_spec]
-        grind
-      -- Invariant preserved
-      . intro state k h_k_nonzero inv
-        rcases inv with ⟨ h_rip, h_rbx_is_k, h_rbx_le, h_inv ⟩
-        simp [p3]
-        apply step_cps
-        step_one
-        rw [h_rip]
-        simp
-        apply step_cps
-        step_one
-        have h_k_ne : k ≠ 0 := by grind
-        -- state.regs.rbx.toNat = k and toNat < 2^64 for UInt64
-        have h_k_lt : k < 2^64 := h_rbx_is_k ▸ (state.regs.rbx.toNat_lt)
-        -- Simplify all the Int64.toUInt64 terms
-        simp_all only [ne_eq, not_false_eq_true]
-        -- Prove the if-condition is false: UInt64.ofInt ↑k ≠ 0 when k ≠ 0
-        have h_cond : UInt64.ofInt (k : Int) ≠ 0 := UInt64_ofInt_natCast_ne_zero k h_k_lt h_k_ne
-        rw [if_neg h_cond]
-        apply step_cps
-        step_one
-        apply step_cps
-        step_one
-        apply step_cps
-        step_one
-        apply eventually.done
-        -- Goals for invariant preservation
-        constructor
-        . simp -- back to correct address
-        . match h_state:state.regs.rbx, h_init:initial.regs.rbx with
-          | ⟨v_s⟩, ⟨v_i⟩ =>
-            have h_k_lt : k < 2^64 := h_rbx_is_k ▸ (by rw [h_state]; exact v_s.isLt)
-            have h_init_lt : v_i.toNat < 2^64 := v_i.isLt
-            simp [h_state, h_init, p3_spec, Reg.width, UInt64.ofInt, UInt64.ofNat, UInt64.toNat_ofNat] at *
-            constructor
-            . omega
-            . constructor
-              . omega
-              . rw [h_inv]
-                have h_vi_k : v_i.toNat - (k - 1) = (v_i.toNat - k) + 1 := by omega
-                rw [h_vi_k, Nat.mod_eq_of_lt]
-                . rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
-                . apply Nat.lt_of_le_of_lt _ h_bounds
-                  rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
-                  apply Nat.pow_le_pow_right (by decide)
-                  apply Nat.pow_le_pow_right (by decide)
-                  omega -/
+  intro h_bounds
+  unfold p3_spec at h_bounds ⊢
+  change Eventually (step1 p3.toExecutable) _ ⟨s, p3.toExecutable.startAddr⟩
+  rw [← Kraken.Executable.addrOf_zero]
+  sym => kstep 1; tactic =>
+  refine tailrec_loop _ _ _
+    (fun i (_ : Unit) st =>
+      st.pc = p3.toExecutable.addrOf 2 ∧
+      st.1.regs.rbx.toNat = i ∧
+      i ≤ s.regs.rbx.toNat ∧
+      st.1.regs.rdx.toNat = 2 ^ (2 ^ (s.regs.rbx.toNat - i)) ∧
+      (i < s.regs.rbx.toNat → st.1.regs.rax = 0))
+    (fun _ _ st =>
+      st.pc = p3.toExecutable.addrOf p3.length ∧
+      st.1.regs.rdx.toNat = 2 ^ 2 ^ s.regs.rbx.toNat ∧
+      (0 < s.regs.rbx.toNat → st.1.regs.rax = 0))
+    (· < ·) Nat.lt_wfRel.wf s.regs.rbx.toNat () ?_ ?_ (fun _ h => h)
+  · exact ⟨rfl, rfl, Nat.le_refl _, by rw [Nat.sub_self]; rfl, fun h => absurd h (Nat.lt_irrefl _)⟩
+  · rintro k _ ⟨d, pc⟩ ⟨hpc, h_rbx_k, h_k_le, h_rdx, h_rax⟩
+    dsimp only at hpc h_rbx_k h_rdx h_rax
+    subst hpc
+    by_cases hk : k = 0
+    · subst hk
+      sym => kstep 2; tactic =>
+      rename_i v status
+      have hv : v = 0 := by grind
+      simp [hv]
+      sym => kstep; tactic =>
+      exact .done _ ⟨rfl, by simpa using h_rdx, h_rax⟩
+    · sym => kstep 2; tactic =>
+      rename_i v status
+      have hzf : (v == BitVec.zero 64) = false := by grind
+      simp only [hzf, Bool.false_eq_true, ↓reduceIte]
+      sym => kstep 3; tactic =>
+      rename_i b_mul v_mul _ _ v_sub status'
+      have h_pow_eq : d.regs.rdx.toNat * d.regs.rdx.toNat = 2 ^ 2 ^ (s.regs.rbx.toNat - (k - 1)) := by
+        rw [h_rdx, show s.regs.rbx.toNat - (k - 1) = (s.regs.rbx.toNat - k) + 1 by omega]
+        rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_succ]
+      have h_prod_lt : d.regs.rdx.toNat * d.regs.rdx.toNat < 2 ^ 64 := by
+        rw [h_pow_eq]
+        refine Nat.lt_of_le_of_lt ?_ h_bounds
+        apply Nat.pow_le_pow_right (by decide)
+        apply Nat.pow_le_pow_right (by decide)
+        omega
+      have hv_mul : v_mul = ↑(d.regs.rdx.toNat * d.regs.rdx.toNat) := by
+        dsimp [v_mul, b_mul, BitVec.unsigned] <;> grind
+      refine .done _ (.inr ⟨k - 1, (), ⟨rfl, ?_, by omega, ?_, ?_⟩, by omega, fun _ h => h⟩)
+      · grind
+      · dsimp only
+        rw [hv_mul, ← h_pow_eq]
+        change (BitVec.ofNat 64 (d.regs.rdx.toNat * d.regs.rdx.toNat)).toNat =
+          d.regs.rdx.toNat * d.regs.rdx.toNat
+        rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt h_prod_lt]
+      · intro _
+        dsimp only
+        rw [hv_mul]
+        change ({ toBitVec := BitVec.ofNat 64 ((d.regs.rdx.toNat * d.regs.rdx.toNat) >>> 64) } : UInt64) = 0
+        have h_shr : (d.regs.rdx.toNat * d.regs.rdx.toNat) >>> 64 = 0 :=
+          Nat.shiftRight_eq_div_pow _ _ ▸ Nat.div_eq_of_lt h_prod_lt
+        rw [h_shr]
+        rfl
 
 def p4 := eval% ⸨prog|start: mov $2, %rax
 dec %rax⸩
