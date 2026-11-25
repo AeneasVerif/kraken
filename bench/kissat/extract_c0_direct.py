@@ -292,8 +292,23 @@ def eval_list(qname, list_envs, fn_envs, cache, before_envs=None):
             ):
                 nx()
                 repls = parse_term()
-                bq, _ = res(nx(), ns, opens, before_envs or {})
-                befores = eval_befores(bq, before_envs or {}, fn_envs, bcache, eval_nm)
+                if pk() == "[":
+                    depth, btoks = 0, []
+                    while pk() is not None:
+                        t = nx()
+                        btoks.append(t)
+                        depth += (t == "[") - (t == "]")
+                        if depth == 0:
+                            break
+                    assert depth == 0, f"unclosed '[' in befores for {ns}"
+                    if btoks == ["[", "]"]:
+                        befores = []
+                    else:
+                        benv = {**(before_envs or {}), "__inline__": (ns, opens, " ".join(btoks))}
+                        befores = eval_befores("__inline__", benv, fn_envs, dict(bcache), eval_nm)
+                else:
+                    bq, _ = res(nx(), ns, opens, before_envs or {})
+                    befores = eval_befores(bq, before_envs or {}, fn_envs, bcache, eval_nm)
                 base = parse_term()
                 rmap = {f["name"]: f for f in repls}
                 bmap = {}
