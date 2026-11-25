@@ -442,7 +442,7 @@ class ModulePreset:
     reuse_wf: str | None = None
     reuse_inl_mod_sym: str | None = None
     reuse_inl_policy: str | None = None
-    default_reuse_mode: str = "verbatim"
+    default_reuse_mode: str = "pruned_relink"
     default_cert_style: str = "ladder"
     default_abi_common: bool = False
     fns_length_thm: str | None = None
@@ -5215,7 +5215,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         )
         reuse_mode = args.reuse_mode or str(
             rspec.get("reuse_mode")
-            or (preset.default_reuse_mode if preset else "verbatim")
+            or (preset.default_reuse_mode if preset else "pruned_relink")
         )
         if reuse_mode not in ("verbatim", "pruned_relink"):
             raise ValueError(f"unsupported reuse_mode '{reuse_mode}'")

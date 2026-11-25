@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zero-rebuild fast landing script from a staging worktree into `main`.
+# Zero-rebuild fast landing script from a staging worktree into `leanqbe/main` (or `main`).
 # Usage:
 #   scripts/fast_land.sh [--fast|--skip-tests] [--dry-run] <staging_worktree> <branch_or_commit>
 set -uo pipefail
@@ -9,6 +9,10 @@ usage() {
 Usage: scripts/fast_land.sh [--fast|--skip-tests] [--dry-run] <staging_worktree> <branch_or_commit>
   --fast, --skip-tests  Run scripts/check.sh only; skip parallel runtime test suites.
   --dry-run             Verify git state and print actions without mutating repo or running checks.
+Env:
+  LAND_BRANCH           Target branch name for validation / detached CAS update (default: leanqbe/main)
+  CHECK_SCOPE           Passed to scripts/check.sh (default: auto)
+  FAST_LAND_RSYNC=1     Opt in to legacy 6-pass rsync of .lake/build (default: Lake artifact cache)
 EOF
 }
 
@@ -50,19 +54,31 @@ trap cleanup EXIT
 [ -d "$STAGING" ] || { echo "fast_land: staging worktree not found: $STAGING" >&2; exit 2; }
 STAGING="$(cd "$STAGING" && pwd)"
 
+LAND_BRANCH="${LAND_BRANCH:-leanqbe/main}"
 cur_branch="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
-[ "$cur_branch" = "main" ] || {
-  echo "fast_land: must run on 'main' (currently '$cur_branch')" >&2
+DETACHED_MODE=0
+if [ -z "$cur_branch" ]; then
+  DETACHED_MODE=1
+  echo "== fast_land: running on detached HEAD (will CAS-update refs/heads/$LAND_BRANCH)"
+elif [ "$cur_branch" != "$LAND_BRANCH" ] && [ "$cur_branch" != "main" ]; then
+  echo "fast_land: must run on '$LAND_BRANCH', 'main', or detached HEAD (currently '$cur_branch')" >&2
   exit 1
-}
+fi
 
 if [ -n "$(git status --porcelain)" ]; then
-  echo "fast_land: 'main' working tree is dirty; commit or stash first" >&2
+  echo "fast_land: working tree is dirty; commit or stash first" >&2
   git status --short >&2
   exit 1
 fi
 
 MAIN_SHA="$(git rev-parse HEAD)"
+if [ "$DETACHED_MODE" -eq 1 ]; then
+  REF_SHA="$(git rev-parse --verify "refs/heads/$LAND_BRANCH^{commit}" 2>/dev/null || true)"
+  if [ -n "$REF_SHA" ] && [ "$REF_SHA" != "$MAIN_SHA" ]; then
+    echo "fast_land: detached HEAD ($MAIN_SHA) != refs/heads/$LAND_BRANCH ($REF_SHA)" >&2
+    exit 1
+  fi
+fi
 TARGET_SHA="$(git rev-parse --verify "${TARGET}^{commit}" 2>/dev/null)" || {
   echo "fast_land: cannot resolve target commit: $TARGET" >&2
   exit 1
@@ -120,16 +136,25 @@ sync_warm_build() {
 }
 
 if [ "$MAIN_SHA" != "$TARGET_SHA" ]; then
-  run_cmd git merge --ff-only "$TARGET_SHA" || exit 1
+  if [ "$DETACHED_MODE" -eq 1 ]; then
+    run_cmd git checkout --detach "$TARGET_SHA" || exit 1
+    run_cmd git update-ref "refs/heads/$LAND_BRANCH" "$TARGET_SHA" "$MAIN_SHA" || exit 1
+  else
+    run_cmd git merge --ff-only "$TARGET_SHA" || exit 1
+  fi
 else
-  echo "== fast_land: main already at $TARGET_SHA"
+  echo "== fast_land: $LAND_BRANCH already at $TARGET_SHA"
 fi
 
 STAGING_TREE="$(git -C "$STAGING" rev-parse 'HEAD^{tree}' 2>/dev/null || true)"
 TARGET_TREE="$(git rev-parse "${TARGET_SHA}^{tree}")"
 STAGING_DIRTY="$(git -C "$STAGING" status --porcelain 2>/dev/null || echo dirty)"
 
-if [ -d "$STAGING/.lake/build" ]; then
+# Prefer Lake 5.0 cross-worktree artifact cache (zero rsync of 30k .olean/.trace files).
+# Only hardlink-seed executables unless FAST_LAND_RSYNC=1 is explicitly requested.
+export LAKE_ARTIFACT_CACHE="${LAKE_ARTIFACT_CACHE:-true}"
+export LAKE_RESTORE_ARTIFACTS="${LAKE_RESTORE_ARTIFACTS:-true}"
+if [ "${FAST_LAND_RSYNC:-0}" = "1" ] && [ -d "$STAGING/.lake/build" ]; then
   if [ -z "$STAGING_DIRTY" ] && [ "$STAGING_TREE" = "$TARGET_TREE" ]; then
     echo "== fast_land: syncing warm .lake/build (exact tree match) from $STAGING"
   else
@@ -140,15 +165,24 @@ if [ -d "$STAGING/.lake/build" ]; then
   else
     sync_warm_build "$STAGING/.lake/build" "$ROOT/.lake/build" || exit 1
   fi
+elif [ -d "$STAGING/.lake/build/bin" ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "[dry-run] hardlink-seed .lake/build/bin from $STAGING (LAKE_ARTIFACT_CACHE=$LAKE_ARTIFACT_CACHE)"
+  else
+    mkdir -p "$ROOT/.lake/build/bin"
+    rsync -a --link-dest="$STAGING/.lake/build/bin" \
+      "$STAGING/.lake/build/bin/" "$ROOT/.lake/build/bin/" || true
+  fi
 else
-  echo "== fast_land: skipping .lake/build rsync (missing $STAGING/.lake/build)"
+  echo "== fast_land: relying on Lake artifact cache (LAKE_ARTIFACT_CACHE=$LAKE_ARTIFACT_CACHE)"
 fi
 
-echo "== fast_land: running scripts/check.sh (CHECK_SCOPE=full)"
+LAND_CHECK_SCOPE="${CHECK_SCOPE:-auto}"
+echo "== fast_land: running scripts/check.sh (CHECK_SCOPE=$LAND_CHECK_SCOPE, CHECK_BASE=$MAIN_SHA)"
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "[dry-run] CHECK_SCOPE=full timeout $CHECK_TIMEOUT ./scripts/check.sh"
+  echo "[dry-run] CHECK_BASE=$MAIN_SHA CHECK_SCOPE=$LAND_CHECK_SCOPE timeout $CHECK_TIMEOUT ./scripts/check.sh"
 else
-  CHECK_SCOPE=full timeout "$CHECK_TIMEOUT" ./scripts/check.sh || {
+  CHECK_BASE="$MAIN_SHA" CHECK_SCOPE="$LAND_CHECK_SCOPE" timeout "$CHECK_TIMEOUT" ./scripts/check.sh || {
     echo "fast_land: scripts/check.sh failed (rc=$?)" >&2
     exit 1
   }
@@ -159,27 +193,45 @@ if [ "$SKIP_TESTS" -eq 1 ]; then
   exit 0
 fi
 
+# Path-gated suite selection (skips all runtime suites on proof-only/doc-only diffs!)
+mapfile -t cmds < <(timeout 30 python3 -B "$ROOT/scripts/select_tests.py" --root "$ROOT" "$MAIN_SHA" "$TARGET_SHA")
+if [ "${#cmds[@]}" -eq 0 ]; then
+  echo "== fast_land: proof-only/doc-only diff (0 runtime suites needed) — ALL PASSED"
+  exit 0
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "[dry-run] prebuild extra kissat test targets & resolve QBE via scripts/ensure_qbe.sh"
-  echo "[dry-run] SKIP_BUILD=1 unset OUT && parallel timeout $TEST_TIMEOUT:" \
-    "./test/run.sh, ./test/arm64/run.sh, ./test/kissat/run.sh"
+  echo "[dry-run] selected runtime suites (${#cmds[@]}): ${cmds[*]}"
   exit 0
 fi
 
 unset OUT
 LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fast-land-tests.XXXXXX")"
 
-echo "== fast_land: warming extra test imports & resolving shared stock qbe"
-timeout "$CHECK_TIMEOUT" lake build --wfail \
-  LeanQbe.T.Examples.Kissat.Solver LeanQbe.T.Examples.Kissat.FullM3 \
-  LeanQbe.T.PrintCpp LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
-  LeanQbeTest.T.KissatC0Test Kraken.X64.PrintATT Kraken.AArch64.Print \
-  >"$LOG_DIR/prebuild.log" 2>&1 || {
-  cat "$LOG_DIR/prebuild.log" >&2
-  exit 1
-}
+needs_qbe=0
+needs_kissat_warm=0
+for c in "${cmds[@]}"; do
+  case "$c" in
+    "./test/run.sh"|"./test/arm64/run.sh"|"./test/t_qbe/run.sh"|"./test/lrc/run.sh"|"./test/lcnf/run.sh")
+      needs_qbe=1 ;;
+    "./test/kissat/run.sh")
+      needs_kissat_warm=1 ;;
+  esac
+done
 
-if [ -z "${NOQBE:-}" ] && [ -z "${QBE:-}" ] && [ -x "$ROOT/scripts/ensure_qbe.sh" ]; then
+if [ "$needs_kissat_warm" -eq 1 ]; then
+  echo "== fast_land: warming extra kissat test imports"
+  timeout "$CHECK_TIMEOUT" lake build --wfail \
+    LeanQbe.T.Examples.Kissat.Solver LeanQbe.T.Examples.Kissat.FullM3 \
+    LeanQbe.T.PrintCpp LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
+    LeanQbeTest.T.KissatC0Test Kraken.X64.PrintATT Kraken.AArch64.Print \
+    >"$LOG_DIR/prebuild.log" 2>&1 || {
+    cat "$LOG_DIR/prebuild.log" >&2
+    exit 1
+  }
+fi
+
+if [ "$needs_qbe" -eq 1 ] && [ -z "${NOQBE:-}" ] && [ -z "${QBE:-}" ] && [ -x "$ROOT/scripts/ensure_qbe.sh" ]; then
   qbe_rc=0
   QBE_BIN="$("$ROOT/scripts/ensure_qbe.sh")" || qbe_rc=$?
   if [ "$qbe_rc" -eq 0 ] && [ -n "$QBE_BIN" ]; then
@@ -190,22 +242,22 @@ if [ -z "${NOQBE:-}" ] && [ -z "${QBE:-}" ] && [ -x "$ROOT/scripts/ensure_qbe.sh
   fi
 fi
 
-echo "== fast_land: running test suites in parallel (logs in $LOG_DIR)"
+echo "== fast_land: running ${#cmds[@]} selected runtime suite(s) in parallel (logs in $LOG_DIR): ${cmds[*]}"
 
-suites=(run arm64 kissat)
-cmds=("./test/run.sh" "./test/arm64/run.sh" "./test/kissat/run.sh")
 pids=()
-
-for i in "${!suites[@]}"; do
-  s="${suites[$i]}"
+for i in "${!cmds[@]}"; do
   c="${cmds[$i]}"
-  SKIP_BUILD=1 timeout "$TEST_TIMEOUT" "$c" >"$LOG_DIR/$s.log" 2>&1 &
+  read -ra argv <<<"$c"
+  if [ "$LAND_CHECK_SCOPE" = "full" ]; then
+    SKIP_BUILD=1 timeout "$TEST_TIMEOUT" "${argv[@]}" >"$LOG_DIR/suite_${i}.log" 2>&1 &
+  else
+    timeout "$TEST_TIMEOUT" "${argv[@]}" >"$LOG_DIR/suite_${i}.log" 2>&1 &
+  fi
   pids+=("$!")
 done
 
 fail=0
-for i in "${!suites[@]}"; do
-  s="${suites[$i]}"
+for i in "${!cmds[@]}"; do
   c="${cmds[$i]}"
   pid="${pids[$i]}"
   if wait "$pid"; then
@@ -213,7 +265,7 @@ for i in "${!suites[@]}"; do
   else
     rc=$?
     echo "FAIL  $c (rc=$rc)" >&2
-    tail -n 60 "$LOG_DIR/$s.log" >&2 || true
+    tail -n 60 "$LOG_DIR/suite_${i}.log" >&2 || true
     fail=1
   fi
 done

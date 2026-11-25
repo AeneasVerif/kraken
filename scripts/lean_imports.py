@@ -14,6 +14,18 @@ IMPORT_LINE_RE = re.compile(
 
 IMPORT_RE = IMPORT_LINE_RE
 
+# Stage A: M5, M6, and non-reused M7Plus certs move to LeanQbeLegacy* (Tier 3).
+# Keep KissatM7PlusBounds + the 38 KissatM7PlusCert* slices imported by
+# KissatM7FidelityCert active until Stage B (standalone KissatFidelity certs).
+LEGACY_CERT_DEFAULT = (
+    r"^LeanQbe\.T\.(Amd64|Arm64)\."
+    r"(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*"
+    r"|KissatPlain.*|KissatM3.*|KissatM4.*|KissatM5.*|KissatM6.*"
+    r"|KissatM7Plus(?:Cert|CertLink|Cert(?:1|14|15|18|21|22|4[5-9]|5[0-6]))?)$"
+)
+
+LEGACY_CERT_RE = re.compile(LEGACY_CERT_DEFAULT)
+
 
 @dataclass(frozen=True)
 class ImportEntry:

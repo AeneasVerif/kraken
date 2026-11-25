@@ -515,6 +515,8 @@ class GenCertSlicesTest(unittest.TestCase):
                     str(p_path),
                     "--reuse-spec",
                     str(r_path),
+                    "--reuse-mode",
+                    "verbatim",
                     "--singleton-size",
                     "400",
                     "--max-slice-size",
@@ -527,6 +529,7 @@ class GenCertSlicesTest(unittest.TestCase):
                 ]
             )
             r_cfg = gcs.build_config(r_args)
+            self.assertEqual(r_cfg.reuse_mode, "verbatim")
             r_files = dict(gcs.build_plan(r_cfg, ["amd64", "arm64"]))
             self._assert_hygiene(list(r_files.items()))
             cert = r_files["LeanQbe/T/Amd64/KissatM7FidelityCert.lean"]
@@ -535,7 +538,32 @@ class GenCertSlicesTest(unittest.TestCase):
             self.assertIn("private theorem reuse_eq", cert)
             self.assertNotIn("open LeanQbe.T.Amd64.KissatM7FidelityCert1", cert)
 
-            # Bridged reuse mode emits bridge import and theorem calls, no inline reuse_eq.
+            # Default reuse mode without --reuse-mode is now pruned_relink.
+            d_args = gcs.parse_args(
+                [
+                    "--module",
+                    "FullM7Fidelity",
+                    "--total-fns",
+                    "40",
+                    "--profile",
+                    str(p_path),
+                    "--reuse-spec",
+                    str(r_path),
+                    "--singleton-size",
+                    "400",
+                    "--max-slice-size",
+                    "650",
+                    "--max-slice-count",
+                    "10",
+                    "--root",
+                    str(REPO_ROOT),
+                    "--dry-run",
+                ]
+            )
+            d_cfg = gcs.build_config(d_args)
+            self.assertEqual(d_cfg.reuse_mode, "pruned_relink")
+
+            # Bridged verbatim reuse mode emits bridge import and theorem calls, no inline reuse_eq.
             b_path = Path(tmp) / "reuse_bridge.json"
             b_path.write_text(
                 json.dumps(
@@ -562,6 +590,8 @@ class GenCertSlicesTest(unittest.TestCase):
                     str(p_path),
                     "--reuse-spec",
                     str(b_path),
+                    "--reuse-mode",
+                    "verbatim",
                     "--singleton-size",
                     "400",
                     "--max-slice-size",

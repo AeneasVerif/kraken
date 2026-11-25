@@ -26,17 +26,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lean_imports import (
     IMPORT_LINE_RE,
+    LEGACY_CERT_DEFAULT,
+    LEGACY_CERT_RE,
     ImportStmt,
     mod_to_rel_path,
     parse_imports,
     rel_path_to_mod,
     strip_comments_line,
-)
-
-LEGACY_CERT_DEFAULT = (
-    r"^LeanQbe\.T\.(Amd64|Arm64)\."
-    r"(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*"
-    r"|KissatPlain.*|KissatM3.*|KissatM4.*)$"
 )
 
 SUBSYSTEM_HUBS: tuple[str, ...] = (
@@ -184,22 +180,9 @@ def parse_barrel_file(path: Path) -> tuple[list[ImportStmt], list[str]]:
 
 
 def load_legacy_regex(root: Path) -> re.Pattern[str]:
-    """Read `legacy_cert_re` from `scripts/check.sh` or use canonical default."""
-    check_sh = root / "scripts" / "check.sh"
-    if check_sh.is_file():
-        lines = check_sh.read_text(encoding="utf-8").splitlines()
-        parts: list[str] = []
-        for line in lines:
-            s = line.strip()
-            if s.startswith("legacy_cert_re='") and s.endswith("'"):
-                parts = [s[len("legacy_cert_re='") : -1]]
-            elif parts and s.startswith("legacy_cert_re+='") and s.endswith("'"):
-                parts.append(s[len("legacy_cert_re+='") : -1])
-            elif parts:
-                break
-        if parts:
-            return re.compile("".join(parts))
-    return re.compile(LEGACY_CERT_DEFAULT)
+    """Return canonical `LEGACY_CERT_RE` shared with `scripts/check.sh`."""
+    _ = root
+    return LEGACY_CERT_RE
 
 
 def verify_lakefile(root: Path) -> list[str]:

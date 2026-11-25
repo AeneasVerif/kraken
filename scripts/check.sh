@@ -2,17 +2,24 @@
 # lean-qbe quality gate. Run from anywhere: scripts/check.sh
 #
 # Environment knobs:
-#   CHECK_SCOPE=full|auto|x64|arm64
+#   CHECK_SCOPE=full|auto|rdeps|x64|arm64
 #       Defaults to `full` when `CHECK_BASE` is unset (100% backward compatible), or `auto`
 #       when `CHECK_BASE` is set. In `auto` mode (with `CHECK_BASE` defaulting to `HEAD~1`),
 #       a fail-closed classifier selects:
 #         - `class0`: ONLY when >=1 files changed, 0 `.lean`/gate/toolchain files changed, and
 #           100% of changed files match the non-Lean allowlist (0 `lake` calls, <15s).
-#         - `x64`:    ONLY when >=1 `.lean` files changed, 100% of changed `.lean` files are under
+#         - `rdeps`:  Graph-driven reverse-dependency scope via `scripts/rdeps_scope.py` when
+#           changed files are non-core `.lean` + safe non-`.lean` files with `0` deletions and
+#           `|rdeps| <= CHECK_RDEPS_MAX` (default `250`). Uses a 2-slot fast-lane lock
+#           (`/tmp/leanqbe_check_fast_{0,1}.lock`) and `MemoryMax=16G`.
+#         - `x64`:    ONLY when `rdeps` fails closed and 100% of changed `.lean` files are under
 #           `LeanQbe/T/Amd64/` or `LeanQbeTest/T/*{X64,Amd64}*.lean`, and any non-`.lean` files
 #           are docs / `scripts/headlines.d/amd64.txt`. Skips `LeanQbeArm64` & `leanqbe-arm64`.
 #         - `arm64`:  Symmetric for `LeanQbe/T/Arm64/` / `LeanQbeTest/T/*Arm64*.lean`.
 #         - `full`:   Fail-closed default for any other file or empty/unresolvable diff.
+#   CHECK_RDEPS_MAX=<N>
+#       Maximum reverse-dependency closure size allowed for `rdeps` before failing closed
+#       (default: `250`).
 #   INCLUDE_LEGACY=0|1
 #       Controls whether `scripts/headlines.d/*legacy*.txt` files are audited in Step 4.
 #       Defaults to `0` if `LeanQbeLegacy*` targets exist in `lakefile.toml`, else `1`.
@@ -22,11 +29,14 @@
 #       Lake 5.0 controls build concurrency via `LEAN_NUM_THREADS`, as `lake build -j`
 #       does not exist).
 #   CHECK_LOCK_FILE=<path>
-#       Advisory `flock` lockfile serializing Step 1 `lake build` across worktrees
-#       (default: `/tmp/leanqbe_check_build.lock`). Set `CHECK_NO_LOCK=1` to bypass.
+#       Advisory `flock` lockfile serializing heavy Step 1 `lake build` (`full|x64|arm64`)
+#       (default: `/tmp/leanqbe_check_build.lock`). Fast-lane `rdeps` builds use a 2-slot
+#       lock (`${CHECK_FAST_LOCK_PREFIX:-/tmp/leanqbe_check_fast}_{0,1}.lock`). Set
+#       `CHECK_NO_LOCK=1` to bypass.
 #   CHECK_MEM_MAX=<size>
 #       `MemoryMax` passed to `systemd-run --user --scope` for Step 1 `lake build`
-#       (default: `48G`, `OOMPolicy=kill`). Set `CHECK_NO_SCOPE=1` to bypass.
+#       (default: `48G` for heavy scopes, `16G` via `CHECK_FAST_MEM_MAX` for `rdeps`,
+#       `OOMPolicy=kill`). Set `CHECK_NO_SCOPE=1` to bypass.
 #   CHECK_TIMES=0|1
 #       Set to `1` to enable standalone Step 5 re-elaboration CPU timing.
 #
@@ -74,8 +84,8 @@ class0_re = re.compile(
     r"^(?:(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md"
     r"|docs/.*|bench/.*"
     r"|test/.*\.(?:c|h|py|sh|cnf|lrat)"
-    r"|scripts/(?:fast_land|tier3_check|all)\.sh"
-    r"|scripts/(?:gen_cert_slices|test_gen_cert_slices|merge_lean_imports)\.py)$"
+    r"|scripts/(?:fast_land|tier3_check|all|preflight)\.sh"
+    r"|scripts/(?:gen_cert_slices|test_gen_cert_slices|test_infra_speedup|merge_lean_imports|select_tests)\.py)$"
 )
 x64_lean_re = re.compile(
     r"^(?:LeanQbe/T/Amd64/.*|LeanQbeTest/T/[^/]*(?:X64|Amd64)[^/]*)\.lean$"
@@ -147,8 +157,13 @@ fi
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-3600}"
 LEAN_TIMEOUT="${LEAN_TIMEOUT:-600}"
 LAKE_JOBS="${LAKE_JOBS:-${LEAN_NUM_THREADS:-6}}"
+USER_CHECK_LOCK_FILE="${CHECK_LOCK_FILE+set}"
+USER_CHECK_MEM_MAX="${CHECK_MEM_MAX+set}"
 CHECK_LOCK_FILE="${CHECK_LOCK_FILE:-/tmp/leanqbe_check_build.lock}"
+CHECK_FAST_LOCK_PREFIX="${CHECK_FAST_LOCK_PREFIX:-/tmp/leanqbe_check_fast}"
 CHECK_MEM_MAX="${CHECK_MEM_MAX:-48G}"
+CHECK_FAST_MEM_MAX="${CHECK_FAST_MEM_MAX:-16G}"
+CHECK_RDEPS_MAX="${CHECK_RDEPS_MAX:-250}"
 CHECK_NO_LOCK="${CHECK_NO_LOCK:-0}"
 CHECK_NO_SCOPE="${CHECK_NO_SCOPE:-0}"
 ALLOWED="propext Classical.choice Quot.sound"
@@ -162,8 +177,8 @@ if [ -z "${CHECK_SCOPE:-}" ]; then
 fi
 
 case "$CHECK_SCOPE" in
-  auto|x64|arm64|full) ;;
-  *) echo "FAIL: invalid CHECK_SCOPE='$CHECK_SCOPE' (expected auto|x64|arm64|full)" >&2; exit 2 ;;
+  auto|rdeps|x64|arm64|full) ;;
+  *) echo "FAIL: invalid CHECK_SCOPE='$CHECK_SCOPE' (expected auto|rdeps|x64|arm64|full)" >&2; exit 2 ;;
 esac
 
 if [ -z "${INCLUDE_LEGACY:-}" ]; then
@@ -178,9 +193,12 @@ case "$INCLUDE_LEGACY" in
   *) echo "FAIL: invalid INCLUDE_LEGACY='$INCLUDE_LEGACY' (expected 0|1)" >&2; exit 2 ;;
 esac
 
+RDEPS_LEG_ARGS=()
+[ "$INCLUDE_LEGACY" = "1" ] && RDEPS_LEG_ARGS=(--include-legacy)
+
 CHANGED_FILES=""
 RESOLVED_SCOPE="$CHECK_SCOPE"
-if [ "$CHECK_SCOPE" = "auto" ]; then
+if [ "$CHECK_SCOPE" = "auto" ] || [ "$CHECK_SCOPE" = "rdeps" ]; then
   CHECK_BASE="${CHECK_BASE:-HEAD~1}"
   if git rev-parse --verify "${CHECK_BASE}^{commit}" >/dev/null 2>&1; then
     if CHANGED_FILES="$({
@@ -188,7 +206,38 @@ if [ "$CHECK_SCOPE" = "auto" ]; then
       git diff --name-only --no-renames HEAD &&
       git ls-files --others --exclude-standard
     } | sort -u)"; then
-      RESOLVED_SCOPE="$(printf '%s\n' "$CHANGED_FILES" | classify_stdin)"
+      if [ "$CHECK_SCOPE" = "auto" ]; then
+        has_deleted=0
+        while IFS= read -r cf; do
+          [ -n "$cf" ] || continue
+          if [ ! -f "$ROOT/$cf" ]; then
+            has_deleted=1
+            break
+          fi
+        done <<<"$CHANGED_FILES"
+        STATIC_SCOPE="$(printf '%s\n' "$CHANGED_FILES" | classify_stdin)"
+        if [ "$has_deleted" -eq 1 ]; then
+          RESOLVED_SCOPE="full"
+        elif [ "$STATIC_SCOPE" = "class0" ]; then
+          RESOLVED_SCOPE="class0"
+        elif [ -n "$CHANGED_FILES" ] && [ -f "$ROOT/scripts/rdeps_scope.py" ] \
+            && printf '%s\n' "$CHANGED_FILES" | timeout 60 python3 -B "$ROOT/scripts/rdeps_scope.py" \
+              --root "$ROOT" --changed - --base "$CHECK_BASE" \
+              --max-rdeps "$CHECK_RDEPS_MAX" "${RDEPS_LEG_ARGS[@]}" --check-only >/dev/null 2>&1; then
+          RESOLVED_SCOPE="rdeps"
+        else
+          RESOLVED_SCOPE="$STATIC_SCOPE"
+        fi
+      else
+        if [ -n "$CHANGED_FILES" ] && [ -f "$ROOT/scripts/rdeps_scope.py" ] \
+            && printf '%s\n' "$CHANGED_FILES" | timeout 60 python3 -B "$ROOT/scripts/rdeps_scope.py" \
+              --root "$ROOT" --changed - --base "$CHECK_BASE" \
+              --max-rdeps "$CHECK_RDEPS_MAX" "${RDEPS_LEG_ARGS[@]}" --check-only >/dev/null 2>&1; then
+          RESOLVED_SCOPE="rdeps"
+        else
+          RESOLVED_SCOPE="full"
+        fi
+      fi
     else
       RESOLVED_SCOPE="full"
     fi
@@ -205,12 +254,17 @@ fi
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/leanqbe-check.XXXXXX")"
 SCOPE_UNIT=""
 build_pid=""
+LOCK_FD=""
 cleanup() {
   if [ -n "$SCOPE_UNIT" ]; then
     systemctl --user stop "$SCOPE_UNIT" >/dev/null 2>&1 || true
   fi
   if [ -n "$build_pid" ]; then
     kill "$build_pid" 2>/dev/null || true
+  fi
+  if [ "$LOCK_FD" = "9" ]; then
+    exec 9>&- 2>/dev/null || true
+    LOCK_FD=""
   fi
   rm -rf "$TMP"
 }
@@ -465,7 +519,7 @@ def make_classifier(c_gen=frozenset(), x64_only=frozenset(), arm_only=frozenset(
                 arches.add("x64")
             elif imp == "LeanQbeArm64" or imp in arm_only or imp.startswith(ARM_PFX):
                 arches.add("arm64")
-            elif imp not in c_gen and imp.startswith(("LeanQbe.", "LeanQbeTest.", "LeanQbeBootstrap0Test.")):
+            elif imp not in c_gen and imp.startswith(("LeanQbe.", "LeanQbeTest.", "LeanQbeLegacyTest.", "LeanQbeBootstrap0Test.")):
                 sub = classify(imp, nxt)
                 if sub in ("x64", "arm64", "conflict"):
                     arches.add(sub)
@@ -514,7 +568,7 @@ def run_scoped_tests(scope, hpath, changed_path):
         print(m)
 
 
-def run_audit_batches(tmp, scope):
+def run_audit_batches(tmp, scope, rdeps_filter_path=None):
     def read_set(name):
         p = tmp / f"closure_{name}.txt"
         return set(p.read_text().splitlines()) if p.exists() else set()
@@ -523,6 +577,12 @@ def run_audit_batches(tmp, scope):
     c_x64 = read_set("LeanQbeAmd64")
     c_arm = read_set("LeanQbeArm64")
     classify = make_classifier(c_gen, c_x64 - c_gen, c_arm - c_gen)
+
+    rdeps_allowed = None
+    if scope == "rdeps" and rdeps_filter_path is not None and rdeps_filter_path.is_file():
+        rdeps_allowed = {
+            ln.strip() for ln in rdeps_filter_path.read_text().splitlines() if ln.strip()
+        }
 
     ns_re = re.compile(r"^\s*namespace\s+\S+")
     sec_re = re.compile(
@@ -551,7 +611,7 @@ def run_audit_batches(tmp, scope):
             if m:
                 imp = m.group(1)
                 if (
-                    imp.startswith(("LeanQbe.", "LeanQbeTest.", "LeanQbeBootstrap0Test."))
+                    imp.startswith(("LeanQbe.", "LeanQbeTest.", "LeanQbeLegacyTest.", "LeanQbeBootstrap0Test."))
                     and has_root_main(imp, nxt)
                 ):
                     found = True
@@ -583,6 +643,8 @@ def run_audit_batches(tmp, scope):
         if len(parts) < 2:
             continue
         mod, const = parts[0], parts[1]
+        if rdeps_allowed is not None and mod not in rdeps_allowed:
+            continue
         b = classify(mod, set())
         if scope == "x64" and b == "arm64":
             continue
@@ -624,7 +686,8 @@ mode = sys.argv[1]
 if mode == "scoped-tests":
     run_scoped_tests(sys.argv[2], pathlib.Path(sys.argv[3]), pathlib.Path(sys.argv[4]))
 elif mode == "audit-batches":
-    run_audit_batches(pathlib.Path(sys.argv[2]), sys.argv[3])
+    rf = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else None
+    run_audit_batches(pathlib.Path(sys.argv[2]), sys.argv[3], rf)
 else:
     raise SystemExit(f"unknown arch_scope mode: {mode}")
 PY
@@ -632,6 +695,21 @@ PY
 # Determine scoped Step 1 build targets
 if [ "$RESOLVED_SCOPE" = "full" ]; then
   TARGETS=(LeanQbe LeanQbeAmd64 LeanQbeArm64 LeanQbeTest LeanQbeBootstrap0 LeanQbeBootstrap0Test leanqbe leanqbe-arm64)
+elif [ "$RESOLVED_SCOPE" = "rdeps" ]; then
+  printf '%s\n' "$CHANGED_FILES" >"$TMP/changed_files.txt"
+  if mapfile -t TARGETS < <(
+    timeout 60 python3 -B "$ROOT/scripts/rdeps_scope.py" \
+      --root "$ROOT" --changed "$TMP/changed_files.txt" \
+      --base "${CHECK_BASE:-HEAD~1}" \
+      --max-rdeps "$CHECK_RDEPS_MAX" "${RDEPS_LEG_ARGS[@]}" \
+      --out-headlines "$TMP/rdeps_headlines_filter.txt"
+  ) && [ "${#TARGETS[@]}" -gt 0 ]; then
+    :
+  else
+    echo "   rdeps exceeded cap or hit core/deleted file; failing closed to full"
+    RESOLVED_SCOPE="full"
+    TARGETS=(LeanQbe LeanQbeAmd64 LeanQbeArm64 LeanQbeTest LeanQbeBootstrap0 LeanQbeBootstrap0Test leanqbe leanqbe-arm64)
+  fi
 else
   TARGETS=(LeanQbe)
   if [ "$RESOLVED_SCOPE" = "x64" ]; then
@@ -647,23 +725,56 @@ else
   TARGETS+=("${SCOPED_TESTS[@]}")
 fi
 
-echo "== 1. build (warnings as errors, LAKE_JOBS=$LAKE_JOBS): ${TARGETS[*]}"
+ACTIVE_MEM_MAX="$CHECK_MEM_MAX"
+if [ "$RESOLVED_SCOPE" = "rdeps" ] && [ -z "$USER_CHECK_MEM_MAX" ]; then
+  ACTIVE_MEM_MAX="$CHECK_FAST_MEM_MAX"
+fi
+
+echo "== 1. build (warnings as errors, LAKE_JOBS=$LAKE_JOBS, MemoryMax=$ACTIVE_MEM_MAX): ${TARGETS[*]}"
 build_cmd=(timeout --foreground "$BUILD_TIMEOUT" env "LEAN_NUM_THREADS=$LAKE_JOBS" lake build --wfail "${TARGETS[@]}")
 if [ "$CHECK_NO_SCOPE" != "1" ] \
     && command -v systemd-run >/dev/null 2>&1 \
     && systemd-run --user --scope true >/dev/null 2>&1; then
   SCOPE_UNIT="leanqbe-check-${$}-$(date +%s).scope"
   build_cmd=(systemd-run --user --scope --quiet --unit="$SCOPE_UNIT" \
-    -p "MemoryMax=$CHECK_MEM_MAX" -p OOMPolicy=kill "${build_cmd[@]}")
+    -p "MemoryMax=$ACTIVE_MEM_MAX" -p OOMPolicy=kill "${build_cmd[@]}")
 fi
 if [ "$CHECK_NO_LOCK" != "1" ] && command -v flock >/dev/null 2>&1; then
-  if ! flock -n "$CHECK_LOCK_FILE" true 2>/dev/null; then
-    echo "   waiting for build lock: $CHECK_LOCK_FILE"
+  if [ "$RESOLVED_SCOPE" = "rdeps" ] && [ -z "$USER_CHECK_LOCK_FILE" ]; then
+    ACTIVE_LOCK_FILE=""
+    for slot in 0 1; do
+      cand="${CHECK_FAST_LOCK_PREFIX}_${slot}.lock"
+      exec 9>>"$cand"
+      if flock -n 9; then
+        ACTIVE_LOCK_FILE="$cand"
+        LOCK_FD=9
+        break
+      fi
+      exec 9>&-
+    done
+    if [ -z "$ACTIVE_LOCK_FILE" ]; then
+      slot=$(( $$ % 2 ))
+      ACTIVE_LOCK_FILE="${CHECK_FAST_LOCK_PREFIX}_${slot}.lock"
+      echo "   waiting for fast build lock: $ACTIVE_LOCK_FILE"
+      exec 9>>"$ACTIVE_LOCK_FILE"
+      flock 9
+      LOCK_FD=9
+    fi
+    "${build_cmd[@]}" >"$TMP/build.log" 2>&1 &
+    build_pid=$!
+    wait "$build_pid"
+    rc=$?
+    exec 9>&- 2>/dev/null || true
+    LOCK_FD=""
+  else
+    if ! flock -n "$CHECK_LOCK_FILE" true 2>/dev/null; then
+      echo "   waiting for build lock: $CHECK_LOCK_FILE"
+    fi
+    flock -F "$CHECK_LOCK_FILE" "${build_cmd[@]}" >"$TMP/build.log" 2>&1 &
+    build_pid=$!
+    wait "$build_pid"
+    rc=$?
   fi
-  flock -F "$CHECK_LOCK_FILE" "${build_cmd[@]}" >"$TMP/build.log" 2>&1 &
-  build_pid=$!
-  wait "$build_pid"
-  rc=$?
 else
   "${build_cmd[@]}" >"$TMP/build.log" 2>&1 &
   build_pid=$!
@@ -689,11 +800,14 @@ scan_lean_forbidden_tokens \
   || err "forbidden token (sorry/admit/axiom/@[implemented_by]/@[extern]/trustCompiler/native tactic) in a .lean file"
 
 echo "== 3. import closures"
-python3 - "$TMP" "$RESOLVED_SCOPE" <<'PY' || err "import closure or reachability check failed"
+python3 -B - "$TMP" "$RESOLVED_SCOPE" "$ROOT" <<'PY' || err "import closure or reachability check failed"
 import json, pathlib, re, subprocess, sys
 
 tmp = pathlib.Path(sys.argv[1])
-scope = sys.argv[2]
+scope = "full" if sys.argv[2] == "rdeps" else sys.argv[2]
+root_dir = pathlib.Path(sys.argv[3])
+sys.path.insert(0, str(root_dir / "scripts"))
+from lean_imports import LEGACY_CERT_RE as legacy_cert_re
 
 imp_re = re.compile(
     r"^\s*(?:(?:public|private|meta)\s+)*import\s+(?:all\s+)?([A-Za-z0-9_.']+)"
@@ -802,9 +916,6 @@ for r in case_roots:
     if r not in closures[r]:
         errors.append(f"could not compute the closure of {r}")
 
-legacy_cert_re = re.compile(
-    r"^LeanQbe\.T\.(Amd64|Arm64)\.(Kissat|KissatCorePlus|KissatFull.*|KissatFastSched.*|KissatFast.*|KissatPlain.*|KissatM3.*|KissatM4.*)$"
-)
 if scope != "arm64" and "LeanQbeAmd64" in closures:
     legacy_in_x64 = [m for m in closures["LeanQbeAmd64"] if legacy_cert_re.match(m)]
     if legacy_in_x64:
@@ -923,7 +1034,10 @@ grep -E "depends on axioms|does not depend on any axioms" "$TMP/build.log" >"$TM
 # parallel batches (generic, x64, arm64, plus isolated root-`main` modules so separate
 # executables never collide on `main`). Falls back to 16-way per-module audit if needed.
 if [ "$headline_total" -gt 0 ]; then
-  timeout 60 python3 -B "$TMP/arch_scope.py" audit-batches "$TMP" "$RESOLVED_SCOPE" \
+  rdeps_filter_arg=""
+  [ "$RESOLVED_SCOPE" = "rdeps" ] && [ -f "$TMP/rdeps_headlines_filter.txt" ] \
+    && rdeps_filter_arg="$TMP/rdeps_headlines_filter.txt"
+  timeout 60 python3 -B "$TMP/arch_scope.py" audit-batches "$TMP" "$RESOLVED_SCOPE" "$rdeps_filter_arg" \
     || err "headline audit batching failed"
 
   want="$(wc -l <"$TMP/selected_headlines.txt" | tr -d ' ')"
@@ -986,6 +1100,8 @@ if [ "$headline_total" -gt 0 ]; then
       sed 's/^/headline: /' "$outf"
       cat "$outf" >>"$TMP/axioms.txt"
     done
+  elif [ "$RESOLVED_SCOPE" = "rdeps" ]; then
+    echo "   0 headline theorems match rdeps scope; passing cleanly"
   else
     err "no headline theorems selected for scope=$RESOLVED_SCOPE (INCLUDE_LEGACY=$INCLUDE_LEGACY)"
   fi
@@ -995,8 +1111,11 @@ else
 fi
 # Every headline theorem must have one complete report: the loop below fails on the lines that are
 # not a complete report, and this count fails if a report is missing.
-got="$(cat "$TMP"/audit_*.out 2>/dev/null | grep -cE 'depends on axioms: \[.*\]$|does not depend on any axioms$')"
-echo "$(grep -c . "$TMP/axioms.txt") lines of axiom reports; $got complete reports for $want headline theorems"
+got="$(cat "$TMP"/audit_*.out 2>/dev/null | grep -cE 'depends on axioms: \[.*\]$|does not depend on any axioms$' || true)"
+got="${got:-0}"
+ax_lines="$(grep -c . "$TMP/axioms.txt" || true)"
+ax_lines="${ax_lines:-0}"
+echo "$ax_lines lines of axiom reports; $got complete reports for $want headline theorems"
 [ "$got" -eq "$want" ] || err "$got complete one-line axiom reports for $want headline theorems"
 while IFS= read -r line; do
   case "$line" in
@@ -1023,16 +1142,17 @@ if [ "${CHECK_TIMES:-0}" = "1" ]; then
   [ "$RESOLVED_SCOPE" != "arm64" ] && cand_arches+=(Amd64)
   [ "$RESOLVED_SCOPE" != "x64" ] && cand_arches+=(Arm64)
   for arch in "${cand_arches[@]}"; do
-    for mod in LratBytes KissatM5Cert1 KissatM5Cert KissatM5CertLink KissatM5 KissatM5Sound \
-        KissatM6Cert1 KissatM6Cert KissatM6CertLink KissatM6 \
-        KissatM7PlusCert1 KissatM7PlusCert KissatM7PlusCertLink KissatM7Plus \
+    for mod in LratBytes \
         KissatM7FidelityCert1 KissatM7FidelityCert KissatM7FidelityCertLink KissatM7Fidelity; do
       [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
     done
     if [ "$INCLUDE_LEGACY" = "1" ]; then
       for mod in Kissat KissatCorePlus KissatPlainCert1 KissatPlainCert KissatPlain \
           KissatM3Cert1a KissatM3Cert KissatM3 \
-          KissatM4Cert1 KissatM4Cert KissatM4CertLink KissatM4 KissatM4Sound; do
+          KissatM4Cert1 KissatM4Cert KissatM4CertLink KissatM4 KissatM4Sound \
+          KissatM5Cert1 KissatM5Cert KissatM5CertLink KissatM5 KissatM5Sound \
+          KissatM6Cert1 KissatM6Cert KissatM6CertLink KissatM6 \
+          KissatM7PlusCert1 KissatM7PlusCert KissatM7PlusCertLink KissatM7Plus; do
         [ -f "LeanQbe/T/$arch/$mod.lean" ] && echo "LeanQbe/T/$arch/$mod.lean" >>"$TMP/timed.txt"
       done
     fi
