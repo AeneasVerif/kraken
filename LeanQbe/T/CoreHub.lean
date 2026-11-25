@@ -175,6 +175,9 @@ public import LeanQbe.T.Unified.Frontend.Bedrock2
 public import LeanQbe.T.Unified.Frontend.C0
 public import LeanQbe.T.Unified.Frontend.Lcnf
 public import LeanQbe.T.Unified.Ssa
+public import LeanQbe.T.Vll.Arch
+public import LeanQbe.T.Vll.Sem
+public import LeanQbe.T.Vll.Syntax
 public import LeanQbe.T.WP
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.Wasm.Ast
