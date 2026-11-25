@@ -13,11 +13,21 @@ elaboration, `LeanQbe.T.Module`, `PrintCpp`, and `clang++`.
      `{ name := "export_name", ..., body := orig_body }`), `List Fn` splice definitions
      (`++`, `.take`, `.drop`, `[...]`, `spliceFns`, `patchFns`), and `patchFns` insertion
      plans (`List (Sym × List Fn)`: `[("anchor", <List Fn>), ...]`, named plans, `++`).
-   - Evaluates `FullFidelityAssembly.fidFns` (`--target fidelity`, alias `fid`),
+   - Evaluates `FullFidelityAssemblyStep7.fidStep7Fns` (`501` functions, default
+     `--target fidelity`, alias `fid`; falls back to Step-6 `FullFidelityAssembly.fidFns`
+     when Step-7 is not present, with explicit `fidelity-step7` / `fidelity-step6`),
      `FullM8OptAssembly.m8OptFns` (`--target m8opt`, aliases `opt`, `m8`),
      `Plain.plainFns` (`59` functions, `--target plain`), or legacy/transitional targets
      (`m7fidelity`, `m7plus`, `m7`, `m6`, `m5`) in exact topological splice order.
    - Supports `--check-fns <file|lean|csv>` to assert 1-to-1 ordered name parity.
+   - Supports `--split-dir <dir>` to emit a shared `kissat_common.h`, one `src_<Stem>.c`
+     per Kissat C0 source file (keeping per-block `#define` scoping inside each TU so
+     single-file edits leave `kissat_common.h` untouched), and deterministic
+     `c0_fn_hashes.json` (`c0_sha256`, per-TU hash, per-fn `sha256`). Only files whose
+     bytes change are rewritten, and stale `src_*.c` files are removed automatically.
+   - Supports `--diff-base <rev>` (plus `--diff-json <path>`) to compare the current C0
+     functions against any git revision and report `UNCHANGED` (`0` changed functions) or
+     the changed function list for fast incremental testing and L2 skips.
 
 2. **Faithful C99 Emission**
    - Prepends `#include "c0.h"` (`LeanQbe/T/Frontend/C0/c0.h` for `u8..u64`, `i8..i64`,
@@ -33,25 +43,37 @@ elaboration, `LeanQbe.T.Module`, `PrintCpp`, and `clang++`.
      export names (e.g., `full_prop_lit_m4` -> `full_prop_lit_raw`) and inserts
      `(void)param;` for unused parameters (e.g., `budget` in `full_reorder_m5`).
 
-3. **Separate-TU Linkage (`bench/kissat/bench_main.c`)**
-   - Compiles `<target>_direct.c` into `<target>_direct.o` and `bench/kissat/bench_main.c`
-     into `bench_main.o` in separate translation units, matching the other benchmark paths
-     (`C3b`: `PrintCpp` C++20 compiled with `clang++ -O3`; `C4-b5`: `LeanQbe.T` native x86-64
-     assembly with `InlinePolicy.b5`).
-   - Separate linkage avoids prototype type-mismatch between `bench_main.c`
-     (`const uint8_t *`, `uint8_t *`) and C0 (`u64`, `u64`), which share identical SysV
-     LP64 register passing (`%rdi`, `%rdx`), and preserves the exact `bench_main.c`
-     cross-TU call boundary used by `C3b` and `C4-b5`.
+3. **Incremental Split-TU Compilation & Linkage (`bench/kissat/build_c0_direct.sh`)**
+   - Default mode splits extraction into `$OUT_DIR/split_<target>` (`--split-dir` to
+     override, `--single` for monolithic single-TU `<target>_direct.c`), checks per-TU
+     `sha256` stamps (over `compiler+flags+c0.h+kissat_common.h+src_*.c`) and compiles only
+     changed TUs in parallel via `xargs -P 8` (`--jobs`, plus `ccache` when installed).
+   - Default `--asan` optimization uses strict `-O1 -g -fno-omit-frame-pointer` with
+     `-fsanitize=undefined,address -fno-sanitize-recover=all` (strict alignment preserved);
+     release builds use `-O3` (`--opt-level` overrides).
+   - Separate linkage against `bench/kissat/bench_main.c` preserves the cross-TU ABI
+     boundary used by `C3b` and `C4-b5` (`const uint8_t *` / `uint8_t *` vs `u64`).
+   - `bench/kissat/check_canaries.py --fn-diff-json <path>` prioritizes canary families
+     matching modified C0 functions first (`--skip-unchanged` exits `0` cleanly when
+     `unchanged=true`).
 
 ## Usage
 
 ```bash
-# Build release C0-direct binary (<1s)
-bash bench/kissat/build_c0_direct.sh --target m5 --out-dir /tmp/c0direct
+# Build incremental split-TU release C0-direct binary (default: Step-7 fidelity, 501 fns)
+bash bench/kissat/build_c0_direct.sh --target fidelity --out-dir /tmp/c0direct
 
-# Build ASan + UBSan binary
-bash bench/kissat/build_c0_direct.sh --target m5 --out-dir /tmp/c0direct --asan
+# Build strict -O1 ASan + UBSan binary and run 40-canary verification
+bash bench/kissat/build_c0_direct.sh --target fidelity --out-dir /tmp/c0direct --asan
+python3 -B bench/kissat/check_canaries.py --include-c11 --poison-work \
+  --fid-c0d /tmp/c0direct/bench_c0direct_fidelity_asan
 
-# Extract C99 source only and verify 270-fn parity against Lean
-python3 bench/kissat/extract_c0_direct.py --target m5 --out /tmp/m5_direct.c --check-fns lean
+# Compute per-function diff vs base commit and prioritize affected canary families
+python3 -B bench/kissat/extract_c0_direct.py --target fidelity \
+  --diff-base HEAD~1 --diff-json /tmp/c0diff.json
+python3 -B bench/kissat/check_canaries.py --include-c11 --fn-diff-json /tmp/c0diff.json \
+  --fid-c0d /tmp/c0direct/bench_c0direct_fidelity_asan
+
+# Legacy monolithic C99 extraction + parity verification against Lean
+python3 -B bench/kissat/extract_c0_direct.py --target m5 --out /tmp/m5_direct.c --check-fns lean
 ```
