@@ -85,11 +85,13 @@ public import LeanQbe.T.LicmRoLemmas
 public import LeanQbe.T.LinkBudgetLfp
 public import LeanQbe.T.LinkDepthLfp
 public import LeanQbe.T.LinkLfp
+public import LeanQbe.T.LinkParamEnv
 public import LeanQbe.T.LinkRec
 public import LeanQbe.T.LinkRecLemmas
 public import LeanQbe.T.LinkScc
 public import LeanQbe.T.LinkSccLemmas1
 public import LeanQbe.T.LinkSccLemmas2
+public import LeanQbe.T.LinkUtil
 public import LeanQbe.T.Live
 public import LeanQbe.T.Logic.Arith
 public import LeanQbe.T.Logic.BitVec
