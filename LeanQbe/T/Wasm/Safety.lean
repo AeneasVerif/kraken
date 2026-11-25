@@ -75,9 +75,6 @@ private theorem sdivDefined_of_guards {n : Nat} {a b minConst neg1Const : BitVec
   rw [hiMin, hiAll]
   exact hov
 
-private theorem arg_imm_val {t : Ty} (c : Val t) : (Arg.imm c).val = c := rfl
-private theorem arg_var_val {t : Ty} (v : Val t) : (Arg.var v).val = v := rfl
-
 private theorem emitDivRemCore_wp {Γ : Env} {X : XPost} {hasMem : Bool}
     {vmCtx memBase memLen0 curLen memCap fuel0 : BitVec 64} {retTys : List WValTy}
     {fuel : Arg Val T.i64} (hf : fuel.val.toNat ≤ fuel0.toNat)
