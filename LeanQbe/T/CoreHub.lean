@@ -165,6 +165,7 @@ public import LeanQbe.T.Wasm.Safety
 public import LeanQbe.T.Wasm.Validate
 public import LeanQbe.T.Wf
 public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.Xcap.Bridge
 public import LeanQbe.T.Xcap.Core
 public import LeanQbe.T.Xcap.Lfp
 public import LeanQbe.T.Xcap.Link
