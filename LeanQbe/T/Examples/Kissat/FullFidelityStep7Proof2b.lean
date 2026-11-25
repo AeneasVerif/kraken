@@ -78,6 +78,16 @@ and sift/pop/push `tl` in the factor heap. Only `repr` (`deg`), `tarjan_mark` (`
         (∀ i < hsz'.toNat, (hp[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) →
         (FullMem c s' ⋆ R) m' → Q (hsz', ()) m'
 
+theorem step7BvaUpdLitSpec_monoX {xs : Tup Val [i64, i64, i64, i64, i32, i64, i32]}
+    {m : Mem 64} {Q : Post [i32]} {X X' : XPost} (h : step7BvaUpdLitSpec xs m Q X) :
+    step7BvaUpdLitSpec xs m Q X' := by
+  rcases xs with ⟨_, _, _, _, _, _, _, ⟨⟩⟩; exact h
+
+theorem step7BvaUpdLitSpec_noExit :
+    ∀ xs m Q X, step7BvaUpdLitSpec xs m Q X →
+      step7BvaUpdLitSpec xs m Q (fun _ _ _ _ => False) :=
+  fun _ _ _ _ h => step7BvaUpdLitSpec_monoX h
+
 /-! ## 2. Heap-Focusing, Frame & Arithmetic Helpers -/
 
 section HeapHelpers
