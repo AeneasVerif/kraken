@@ -47,6 +47,7 @@ public import LeanQbe.T.LegalOpWpLemmas1
 public import LeanQbe.T.LegalOpWpLemmas1a
 public import LeanQbe.T.LegalOpWpLemmas2
 public import LeanQbe.T.LegalOpWpLemmas2a
+public import LeanQbe.T.LegalPassKit
 public import LeanQbe.T.LegalTrees
 public import LeanQbe.T.LegalWfBaseLemmas
 public import LeanQbe.T.LegalWfBaseLemmas1
@@ -124,6 +125,7 @@ public import LeanQbe.T.OptPolicy
 public import LeanQbe.T.OptUtil
 public import LeanQbe.T.OptUtilLemmas
 public import LeanQbe.T.PassEnvKit
+public import LeanQbe.T.PassFlatKit
 public import LeanQbe.T.Peel
 public import LeanQbe.T.PeelLemmas
 public import LeanQbe.T.PrintCpp

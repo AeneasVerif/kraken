@@ -5,6 +5,8 @@ public import LeanQbe.T.GvnLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Legal
 public import LeanQbe.T.LicmRoLemmas
+import LeanQbe.T.PassFlatKit
+import LeanQbe.T.LegalPassKit
 
 /-!
 # Correctness of Loop-Invariant Code Motion (`Func.licm`)

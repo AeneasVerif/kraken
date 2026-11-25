@@ -4,6 +4,8 @@ public import LeanQbe.T.Licm
 public import LeanQbe.T.GvnLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Legal
+import LeanQbe.T.PassFlatKit
+import LeanQbe.T.LegalPassKit
 
 /-!
 # Soundness of Read-Only Load Hoisting & Forwarding (`roSweepFunc_*`)
@@ -22,35 +24,8 @@ namespace LeanQbe.T
 
 theorem castTy_some_eq {V : Ty → Type} :
     {t' t : Ty} → {v : V t'} → {v' : V t} →
-    castTy t' t v = some v' → ∃ h : t' = t, h ▸ v = v'
-  | .bool, .bool, _, _, h => by cases h; exact ⟨rfl, rfl⟩
-  | .bits m, .bits n, _, _, h => by
-    simp only [castTy] at h
-    split at h
-    · next heq => subst heq; cases h; exact ⟨rfl, rfl⟩
-    · cases h
-  | .float f, .float g, _, _, h => by
-    simp only [castTy] at h
-    split at h
-    · next heq => subst heq; cases h; exact ⟨rfl, rfl⟩
-    · cases h
-  | .pair a1 b1, .pair a2 b2, _, _, h => by
-    simp only [castTy] at h
-    cases h1 : tyDecEq a1 a2 with
-    | isFalse _ => simp [h1] at h
-    | isTrue heq1 =>
-      subst heq1
-      cases h2 : tyDecEq b1 b2 with
-      | isFalse _ => simp [h1, h2] at h
-      | isTrue heq2 =>
-        subst heq2
-        simp only [h1, h2, Option.some.injEq] at h
-        exact ⟨rfl, h⟩
-  | .bool, .bits _, _, _, h | .bool, .float _, _, _, h | .bool, .pair _ _, _, _, h
-  | .bits _, .bool, _, _, h | .bits _, .float _, _, _, h | .bits _, .pair _ _, _, _, h
-  | .float _, .bool, _, _, h | .float _, .bits _, _, _, h | .float _, .pair _ _, _, _, h
-  | .pair _ _, .bool, _, _, h | .pair _ _, .bits _, _, _, h | .pair _ _, .float _, _, _, h =>
-    nomatch h
+    castTy t' t v = some v' → ∃ h : t' = t, h ▸ v = v' :=
+  PassFlatKit.castTy_some_eq
 
 section
 variable {V₁ V₂ : Ty → Type}
@@ -129,31 +104,20 @@ theorem resolveArgs_rel {G' : Ctx V₁ V₂} {env₁ : VEnv V₁} {env₂ : VEnv
 
 end
 
-theorem toTBlocks_supportsSource_get (target : LegalTarget) {rs : List Ty} (nv nl : Nat) :
-    {sig : List (List Ty)} → (bs : Blocks K KL rs sig) →
-    (toTBlocks bs nv nl).supportsSource target = true →
-    ∀ {ts : List Ty} (i : Member ts sig),
-      (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl).supportsSource target = true
-  | _ :: _, .cons _ _, h, _, .here => by
-    dsimp only [toTBlocks, TBlocks.supportsSource] at h
-    simp only [Bool.and_eq_true] at h; exact h.1.2
-  | _ :: _, .cons _ bs, h, _, .there i => by
-    dsimp only [toTBlocks, TBlocks.supportsSource] at h; simp only [Bool.and_eq_true] at h
-    exact toTBlocks_supportsSource_get target nv nl bs h.2 i
+theorem toTBlocks_supportsSource_get (target : LegalTarget) {rs : List Ty} (nv nl : Nat)
+    {sig : List (List Ty)} (bs : Blocks K KL rs sig)
+    (hs : (toTBlocks bs nv nl).supportsSource target = true)
+    {ts : List Ty} (i : Member ts sig) :
+    (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl).supportsSource target = true :=
+  LegalPassKit.toTBlocks_supportsSource_get target nv nl bs hs i
 
-theorem toTBlocks_supportsSource_of_get (target : LegalTarget) {rs : List Ty}
-    (nv nl : Nat) :
-    {sig : List (List Ty)} → (bs : Blocks K KL rs sig) →
-    sig.all (·.all target.supportsTy) = true →
-    (∀ {ts : List Ty} (i : Member ts sig),
-      (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl).supportsSource target = true) →
-    (toTBlocks bs nv nl).supportsSource target = true
-  | [], .nil, _, _ => rfl
-  | _ :: _, .cons _ bs, hsig, hget => by
-    simp only [List.all_cons, Bool.and_eq_true] at hsig
-    dsimp only [toTBlocks, TBlocks.supportsSource]; simp only [Bool.and_eq_true]
-    exact ⟨⟨hsig.1, hget .here⟩,
-      toTBlocks_supportsSource_of_get target nv nl bs hsig.2 fun i => hget (.there i)⟩
+theorem toTBlocks_supportsSource_of_get (target : LegalTarget) {rs : List Ty} (nv nl : Nat)
+    {sig : List (List Ty)} (bs : Blocks K KL rs sig)
+    (hsig : sig.all (·.all target.supportsTy) = true)
+    (hget : ∀ {ts : List Ty} (i : Member ts sig),
+      (toTFlat (bs.get i (Tup.levels ts nv)) (nv + ts.length) nl).supportsSource target = true) :
+    (toTBlocks bs nv nl).supportsSource target = true :=
+  LegalPassKit.toTBlocks_supportsSource_of_get target nv nl bs hsig hget
 
 /-! ## `roSweep` relational well-formedness (`roSweep_wf`) -/
 
@@ -706,25 +670,12 @@ private theorem listGet?_map {α β : Type} (f : α → β) :
   | _ :: _, 0 => rfl
   | _ :: xs, idx + 1 => listGet?_map f xs idx
 
-private theorem castTy_self {V : Ty → Type} : (t : Ty) → (v : V t) → castTy t t v = some v
-  | .bool, _ => rfl
-  | .bits n, _ => by dsimp only [castTy]; simp
-  | .float f, _ => by dsimp only [castTy]; simp
-  | .pair a b, v => by
-    dsimp only [castTy]
-    cases h1 : tyDecEq a a with
-    | isFalse hn => exact False.elim (hn rfl)
-    | isTrue ha =>
-      cases h2 : tyDecEq b b with
-      | isFalse hn => exact False.elim (hn rfl)
-      | isTrue hb => rfl
+private theorem castTy_self {V : Ty → Type} : (t : Ty) → (v : V t) → castTy t t v = some v :=
+  PassFlatKit.castTy_self
 
 private theorem castListTy_self {L : List Ty → Type} (ts : List Ty) (l : L ts) :
-    castListTy ts ts l = some l := by
-  dsimp only [castListTy]
-  cases h : listTyDecEq ts ts with
-  | isFalse hn => exact False.elim (hn rfl)
-  | isTrue _ => rfl
+    castListTy ts ts l = some l :=
+  PassFlatKit.castListTy_self ts l
 
 private def ScanRel (next : Nat) (vs : List ((t : Ty) × Val t))
     (senv : List (Option Nat)) (envV : VEnv Val) : Prop :=
@@ -1877,254 +1828,6 @@ private theorem roSweepB_denote_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
         cleanGroup m₀ hm heb hldOpt (fun m' hm_c => (hSafeB m' hm_c).2) Js_out hclosed.2
 end
 
-/-! ## Bridging `denote` back to PHOAS (`denote_wf_src`, `wp_iff_of_wf_eq`) -/
-
-private def RelCtxMatch {α : Type} {f₁ f₂ : α → Type} (G_out : Ctx f₁ f₂)
-    (look : List ((a : α) × f₁ a) → (a : α) → Nat → Option (f₁ a))
-    (G : Ctx (fun _ => Nat) f₂) (vs : List ((a : α) × f₁ a)) : Prop :=
-  ∀ p ∈ G, p.2.1 < vs.length ∧
-    ∃ x₁, look vs p.1 (vs.length - 1 - p.2.1) = some x₁ ∧ ⟨p.1, x₁, p.2.2⟩ ∈ G_out
-
-private theorem RelCtxMatch.mono {α : Type} {f₁ f₂ : α → Type}
-    {look : List ((a : α) × f₁ a) → (a : α) → Nat → Option (f₁ a)}
-    {G_out G_out' : Ctx f₁ f₂} {G G' : Ctx (fun _ => Nat) f₂} {vs : List ((a : α) × f₁ a)}
-    (hsubOut : ∀ p ∈ G_out, p ∈ G_out') (hsubG : ∀ p ∈ G', p ∈ G)
-    (h : RelCtxMatch G_out look G vs) : RelCtxMatch G_out' look G' vs := by
-  intro p hp
-  obtain ⟨hlt, x₁, hlk, hmem⟩ := h p (hsubG p hp)
-  exact ⟨hlt, x₁, hlk, hsubOut _ hmem⟩
-
-private theorem RelCtxMatch.cons {α : Type} {f₁ f₂ : α → Type}
-    {look : List ((a : α) × f₁ a) → (a : α) → Nat → Option (f₁ a)}
-    (hlook_head : ∀ a (x : f₁ a) vs, look (⟨a, x⟩ :: vs) a 0 = some x)
-    (hlook_tail : ∀ a (x : f₁ a) vs b idx, look (⟨a, x⟩ :: vs) b (idx + 1) = look vs b idx)
-    {G_out : Ctx f₁ f₂} {G : Ctx (fun _ => Nat) f₂} {vs : List ((a : α) × f₁ a)}
-    (hvs : RelCtxMatch G_out look G vs) {a : α} {x₁ : f₁ a} {x₂ : f₂ a}
-    (hmem : ⟨a, x₁, x₂⟩ ∈ G_out) :
-    RelCtxMatch G_out look (⟨a, vs.length, x₂⟩ :: G) (⟨a, x₁⟩ :: vs) := by
-  intro p hp
-  rcases List.mem_cons.1 hp with rfl | hp
-  · refine ⟨Nat.lt_succ_self _, x₁, ?_, hmem⟩
-    simp only [List.length_cons, Nat.add_sub_cancel, Nat.sub_self]
-    exact hlook_head a x₁ vs
-  · obtain ⟨hlt, x', hl, hm⟩ := hvs p hp
-    dsimp only at hlt
-    refine ⟨Nat.lt_succ_of_lt hlt, x', ?_, hm⟩
-    have hidx : (⟨a, x₁⟩ :: vs).length - 1 - p.2.1 = (vs.length - 1 - p.2.1) + 1 := by
-      rw [List.length_cons]; omega
-    rw [hidx, hlook_tail]
-    exact hl
-
-private theorem relCtxMatch_pushTup {α : Type} {f₁ f₂ : α → Type}
-    {look : List ((a : α) × f₁ a) → (a : α) → Nat → Option (f₁ a)}
-    (hlook_head : ∀ a (x : f₁ a) vs, look (⟨a, x⟩ :: vs) a 0 = some x)
-    (hlook_tail : ∀ a (x : f₁ a) vs b idx, look (⟨a, x⟩ :: vs) b (idx + 1) = look vs b idx) :
-    {as : List α} → (xs₁ : Tup f₁ as) → (xs₂ : Tup f₂ as) →
-    {G_out : Ctx f₁ f₂} → {G : Ctx (fun _ => Nat) f₂} → {vs : List ((a : α) × f₁ a)} →
-    RelCtxMatch G_out look G vs →
-    RelCtxMatch (Tup.zip xs₁ xs₂ ++ G_out) look
-      (Tup.zip (Tup.levels as vs.length) xs₂ ++ G) (pushTup xs₁ vs)
-  | [], (), (), _, _, _, hvs => by dsimp only [Tup.zip]; simp only [List.nil_append]; exact hvs
-  | a :: as, (x₁, xs₁), (x₂, xs₂), G_out, G, vs, hvs => by
-    have h1 := RelCtxMatch.cons hlook_head hlook_tail
-      (hvs.mono (fun _ hp => List.mem_cons_of_mem _ hp) (fun _ hp => hp))
-      (a := a) (x₁ := x₁) (x₂ := x₂) List.mem_cons_self
-    have h2 := relCtxMatch_pushTup hlook_head hlook_tail xs₁ xs₂ h1
-    simp only [List.length_cons] at h2
-    refine h2.mono ?_ ?_
-    · intro p hp
-      dsimp only [Tup.zip]
-      simp only [List.mem_append, List.mem_cons, List.cons_append] at hp ⊢
-      rcases hp with h | rfl | h
-      · exact Or.inr (Or.inl h)
-      · exact Or.inl rfl
-      · exact Or.inr (Or.inr h)
-    · intro p hp
-      dsimp only [Tup.levels, Tup.zip] at hp ⊢
-      simp only [List.cons_append, List.mem_append, List.mem_cons] at hp ⊢
-      rcases hp with rfl | h | h
-      · exact Or.inr (Or.inl rfl)
-      · exact Or.inl h
-      · exact Or.inr (Or.inr h)
-
-private theorem relCtxMatch_pushTupV {V₁ V₂ : Ty → Type} {G_out : Ctx V₁ V₂}
-    {G : Ctx K V₂} {vs : List ((t : Ty) × V₁ t)} (hvs : RelCtxMatch G_out lookupV G vs)
-    {as : List Ty} (xs₁ : Tup V₁ as) (xs₂ : Tup V₂ as) :
-    RelCtxMatch (Tup.zip xs₁ xs₂ ++ G_out) lookupV
-      (Tup.zip (Tup.levels as vs.length) xs₂ ++ G) (pushTup xs₁ vs) :=
-  relCtxMatch_pushTup
-    (fun t x vs => by dsimp only [lookupV, listGet?]; exact castTy_self t x)
-    (fun _ _ _ _ _ => rfl) xs₁ xs₂ hvs
-
-private theorem relCtxMatch_pushTupL {L₁ L₂ : List Ty → Type} {D_out : Ctx L₁ L₂}
-    {D : Ctx KL L₂} {ls : List ((ts : List Ty) × L₁ ts)} (hls : RelCtxMatch D_out lookupL D ls)
-    {sig : List (List Ty)} (Js₁ : Tup L₁ sig) (Js₂ : Tup L₂ sig) :
-    RelCtxMatch (Tup.zip Js₁ Js₂ ++ D_out) lookupL
-      (Tup.zip (Tup.levels sig ls.length) Js₂ ++ D) (pushTup Js₁ ls) :=
-  relCtxMatch_pushTup
-    (fun ts l ls => by dsimp only [lookupL, listGet?]; exact castListTy_self ts l)
-    (fun _ _ _ _ _ => rfl) Js₁ Js₂ hls
-
-private theorem denoteArg_idxArg_rel {V₁ V₂ : Ty → Type} {G_out : Ctx V₁ V₂} {G : Ctx K V₂}
-    {vs : List ((t : Ty) × V₁ t)} (hvs : RelCtxMatch G_out lookupV G vs)
-    {t : Ty} {a₁ : Arg K t} {a₂ : Arg V₂ t} (ha : ArgRel G t a₁ a₂) :
-    ∃ a₁', denoteArg vs (idxArg vs.length a₁) = some a₁' ∧ ArgRel G_out t a₁' a₂ := by
-  cases ha with
-  | @var lvl v₂ hm =>
-    obtain ⟨hlt, v₁, hlk, hmem⟩ := hvs _ hm
-    refine ⟨.var v₁, ?_, .var hmem⟩
-    dsimp only [idxArg]; simp only [hlt, ↓reduceIte]; dsimp only [denoteArg]; rw [hlk]
-  | imm c => exact ⟨.imm c, rfl, .imm c⟩
-
-private theorem denoteArgs_idxArgs_rel {V₁ V₂ : Ty → Type} {G_out : Ctx V₁ V₂} {G : Ctx K V₂}
-    {vs : List ((t : Ty) × V₁ t)} (hvs : RelCtxMatch G_out lookupV G vs) :
-    {ts : List Ty} → {as₁ : Tup (Arg K) ts} → {as₂ : Tup (Arg V₂) ts} →
-    TRel (ArgRel G) as₁ as₂ →
-    ∃ as₁', denoteArgs vs (idxArgs vs.length as₁) = some as₁' ∧ TRel (ArgRel G_out) as₁' as₂
-  | [], (), (), .nil => ⟨(), rfl, .nil⟩
-  | _ :: _, (_, _), (_, _), .cons h hs => by
-    obtain ⟨a₁', ha1, ha2⟩ := denoteArg_idxArg_rel hvs h
-    obtain ⟨as₁', has1, has2⟩ := denoteArgs_idxArgs_rel hvs hs
-    refine ⟨(a₁', as₁'), ?_, .cons ha2 has2⟩
-    dsimp only [idxArgs, denoteArgs]; rw [ha1, has1]
-
-private theorem denote_wf_src {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx K V₂} {D : Ctx KL L₂} {e₁ : Expr K KL rs} {e₂ : Expr V₂ L₂ rs}
-    (hwf : Wf G D e₁ e₂) :
-    ∀ {G_out : Ctx V₁ V₂} {D_out : Ctx L₁ L₂}
-      {vs : List ((t : Ty) × V₁ t)} {ls : List ((ts : List Ty) × L₁ ts)},
-    RelCtxMatch G_out lookupV G vs → RelCtxMatch D_out lookupL D ls →
-    Wf G_out D_out (denote V₁ L₁ (toTFlat e₁ vs.length ls.length) vs ls) e₂ := by
-  induction hwf using Wf.induct with
-  | @let_ G D ts op₁ op₂ k₁ k₂ hop _ ih =>
-    intro G_out D_out vs ls hvs hls
-    cases hop with
-    | @mk _ _ code args₁ args₂ hargs =>
-      obtain ⟨args₁', hda, hrel⟩ := denoteArgs_idxArgs_rel hvs hargs
-      dsimp only [toTFlat, denote]; rw [hda]
-      refine .let_ (.mk code hrel) fun xs₁ xs₂ => ?_
-      have hsub := ih (Tup.levels ts vs.length) xs₂ (relCtxMatch_pushTupV hvs xs₁ xs₂) hls
-      rwa [pushTup_length xs₁ vs] at hsub
-  | load t ha _ ih =>
-    intro G_out D_out vs ls hvs hls
-    obtain ⟨a₁', hda, hrel⟩ := denoteArg_idxArg_rel hvs ha
-    dsimp only [toTFlat, denote]; rw [hda]
-    refine .load t hrel fun v₁ v₂ => ?_
-    exact ih vs.length v₂
-      (RelCtxMatch.cons (fun t x vs => by dsimp only [lookupV, listGet?]; exact castTy_self t x)
-        (fun _ _ _ _ _ => rfl)
-        (hvs.mono (fun _ hp => List.mem_cons_of_mem _ hp) (fun _ hp => hp))
-        List.mem_cons_self) hls
-  | store hv ha _ ih =>
-    intro G_out D_out vs ls hvs hls
-    obtain ⟨v₁', hdv, hrv⟩ := denoteArg_idxArg_rel hvs hv
-    obtain ⟨a₁', hda, hra⟩ := denoteArg_idxArg_rel hvs ha
-    dsimp only [toTFlat, denote]; rw [hdv, hda]
-    exact .store hrv hra (ih hvs hls)
-  | call f hargs _ ih =>
-    intro G_out D_out vs ls hvs hls
-    obtain ⟨args₁', hda, hrel⟩ := denoteArgs_idxArgs_rel hvs hargs
-    dsimp only [toTFlat, denote]; rw [hda]
-    refine .call f hrel fun xs₁ xs₂ => ?_
-    have hsub := ih (Tup.levels _ vs.length) xs₂ (relCtxMatch_pushTupV hvs xs₁ xs₂) hls
-    rwa [pushTup_length xs₁ vs] at hsub
-  | jnz hc _ _ iht ihe =>
-    intro G_out D_out vs ls hvs hls
-    obtain ⟨c₁', hdc, hrc⟩ := denoteArg_idxArg_rel hvs hc
-    dsimp only [toTFlat, denote]; rw [hdc]
-    exact .jnz hrc (iht hvs hls) (ihe hvs hls)
-  | @jump G D ts j₁ j₂ args₁ args₂ hj hargs =>
-    intro G_out D_out vs ls hvs hls
-    obtain ⟨hlt, j₁', hlk, hmem⟩ := hls _ hj
-    obtain ⟨args₁', hda, hrel⟩ := denoteArgs_idxArgs_rel hvs hargs
-    dsimp only [toTFlat]; simp only [hlt, ↓reduceIte]; dsimp only [denote]
-    rw [hlk, hda]; exact .jump hmem hrel
-  | ret hvs' =>
-    intro G_out D_out vs ls hvs _
-    obtain ⟨vs₁', hda, hrel⟩ := denoteArgs_idxArgs_rel hvs hvs'
-    dsimp only [toTFlat, denote]; rw [hda]; exact .ret hrel
-  | exit f hargs =>
-    intro G_out D_out vs ls hvs _
-    obtain ⟨args₁', hda, hrel⟩ := denoteArgs_idxArgs_rel hvs hargs
-    dsimp only [toTFlat, denote]; rw [hda]; exact .exit f hrel
-  | hlt =>
-    intro _ _ _ _ _ _; exact .hlt
-  | @group G D sig b₁ _ k₁ _ _ _ ihb ihk =>
-    intro G_out D_out vs ls hvs hls
-    dsimp only [toTFlat, denote]
-    refine .group (fun Js₁ Js₂ => WfB.of_get fun {ts} i xs₁ xs₂ => ?_) fun Js₁ Js₂ => ?_
-    · rw [denoteB_toTBlocks_get]
-      have hsub := ihb (Tup.levels sig ls.length) Js₂ i (Tup.levels ts vs.length) xs₂
-        (relCtxMatch_pushTupV hvs xs₁ xs₂) (relCtxMatch_pushTupL hls Js₁ Js₂)
-      rwa [pushTup_length xs₁ vs, pushTup_length Js₁ ls] at hsub
-    · have hsub := ihk (Tup.levels sig ls.length) Js₂ hvs (relCtxMatch_pushTupL hls Js₁ Js₂)
-      rwa [pushTup_length Js₁ ls] at hsub
-
-private theorem argVal_eq_of_rel {G : Ctx Val Val} (hG : ∀ p ∈ G, p.2.1 = p.2.2)
-    {t : Ty} {a₁ a₂ : Arg Val t} : ArgRel G t a₁ a₂ → a₁.val = a₂.val
-  | .var hm => hG _ hm
-  | .imm _ => rfl
-
-private theorem vals_eq_of_trel {G : Ctx Val Val} (hG : ∀ p ∈ G, p.2.1 = p.2.2) :
-    {ts : List Ty} → {as₁ as₂ : Tup (Arg Val) ts} → TRel (ArgRel G) as₁ as₂ → vals as₁ = vals as₂
-  | [], (), (), .nil => rfl
-  | _ :: _, (_, _), (_, _), .cons h hs => Prod.ext (argVal_eq_of_rel hG h) (vals_eq_of_trel hG hs)
-
-private theorem wp_iff_of_wf_eq {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    {G : Ctx Val Val} {D : Ctx Cont Cont} {e₁ e₂ : Expr Val Cont rs}
-    (hwf : Wf G D e₁ e₂) :
-    (∀ p ∈ G, p.2.1 = p.2.2) → (∀ p ∈ D, p.2.1 = p.2.2) →
-    ∀ m, wp Γ Q X e₁ m ↔ wp Γ Q X e₂ m := by
-  induction hwf using Wf.induct with
-  | @let_ G D ts op₁ op₂ k₁ k₂ hop _ ih =>
-    intro hG hD m
-    cases hop with
-    | @mk _ _ code args₁ args₂ hargs =>
-      dsimp only [wp, Op.wp]; rw [vals_eq_of_trel hG hargs]
-      have hG' : ∀ (xs : Tup Val ts) p, p ∈ Tup.zip xs xs ++ G → p.2.1 = p.2.2 :=
-        fun xs p hp => tup_zip_self_eq hG xs p hp
-      exact ⟨fun h => OpCode.wp_mono code _ (fun xs hx => (ih xs xs (hG' xs) hD m).1 hx) h,
-             fun h => OpCode.wp_mono code _ (fun xs hx => (ih xs xs (hG' xs) hD m).2 hx) h⟩
-  | load t ha _ ih =>
-    intro hG hD m
-    dsimp only [wp]
-    rw [argVal_eq_of_rel hG ha]
-    refine exists_congr fun v => and_congr_right fun _ => ih v v (fun p hp => by
-      rcases List.mem_cons.1 hp with rfl | hp
-      · rfl
-      · exact hG _ hp) hD m
-  | store hv ha _ ih =>
-    intro hG hD m
-    dsimp only [wp]; rw [argVal_eq_of_rel hG hv, argVal_eq_of_rel hG ha]
-    exact and_congr_right fun _ => ih hG hD _
-  | call f hargs _ ih =>
-    intro hG hD m
-    dsimp only [wp]; rw [vals_eq_of_trel hG hargs]
-    refine exists_congr fun P => exists_congr fun E => and_congr_right fun _ =>
-      and_congr_left fun _ => forall_congr' fun r => forall_congr' fun m' =>
-        imp_congr_right fun _ => ih r r (fun p hp => tup_zip_self_eq hG r p hp) hD m'
-  | jnz hc _ _ iht ihe =>
-    intro hG hD m
-    dsimp only [wp]; rw [argVal_eq_of_rel hG hc]
-    exact and_congr (imp_congr_right fun _ => iht hG hD m) (imp_congr_right fun _ => ihe hG hD m)
-  | jump hj hargs =>
-    intro hG hD m
-    have heqj := hD _ hj; dsimp only at heqj
-    dsimp only [wp]; rw [heqj, vals_eq_of_trel hG hargs]
-  | ret hvs =>
-    intro hG _ m; dsimp only [wp]; rw [vals_eq_of_trel hG hvs]
-  | exit f hargs =>
-    intro hG _ m; dsimp only [wp]; rw [vals_eq_of_trel hG hargs]
-  | hlt => intro _ _ _; rfl
-  | group _ _ ihb ihk =>
-    intro hG hD m
-    dsimp only [wp]
-    refine forall_congr' fun Js =>
-      imp_congr ?_ (ihk Js Js hG (tup_zip_self_eq hD Js) m)
-    rw [closed_iff, closed_iff]
-    exact forall₂_congr fun ts i => forall₂_congr fun xs m' =>
-      imp_congr_left (ihb Js Js i xs xs (tup_zip_self_eq hG xs) (tup_zip_self_eq hD Js) m')
-
 /-! ## Closed-function theorems (`roSweep`, `Func.licm_*`, `Fn.licm_*`) -/
 
 theorem roSweepFunc_wf {as rs : List Ty} {f : Func as rs} (hf : f.Wf) :
@@ -2156,24 +1859,24 @@ theorem roSweepFunc_spec {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
   have hrw := roSweep_denote_wp hPure (toTFlat (f K KL (Tup.levels as 0)) as.length 0)
     as.length (pushTup xs []) (Licm.pushLevels as.length 0 []) (envInsertTup .empty 0 xs)
     [] none [] [] m hm0 heb0 hld0 hsafe0 hren
-  have hwf := hf K Val KL Cont (Tup.levels as 0) xs
-  have hvs : RelCtxMatch (Tup.zip xs xs) lookupV
-      (Tup.zip (Tup.levels as 0) xs) (pushTup xs []) := by
-    simpa using relCtxMatch_pushTupV (G_out := []) (G := []) (vs := [])
-      (fun _ hp => nomatch hp) xs xs
-  have hdwf := denote_wf_src (D_out := ([] : Ctx Cont Cont))
-    (ls := ([] : List ((ts : List Ty) × Cont ts))) hwf hvs (fun _ hp => nomatch hp)
-  rw [pushTup_length xs []] at hdwf
-  simp only [List.length_nil, Nat.zero_add] at hdwf
+  have hwf := hf Val K Cont KL xs (Tup.levels as 0)
+  have h0 : PassFlatKit.RelCtxMatch 0 ([] : Ctx Val K) ([] : Ctx Val Val)
+      ([] : List ((t : Ty) × Val t)) := fun hm => nomatch hm
+  have hvs : PassFlatKit.RelCtxMatch (0 + as.length) (Tup.zip xs (Tup.levels as 0) ++ [])
+      (Tup.zip xs xs ++ []) (pushTup xs []) := PassFlatKit.RelCtxMatch.pushTup xs xs h0
+  simp only [Nat.zero_add, List.append_nil] at hvs
+  have hD0 : PassFlatKit.RelCtxMatch 0 ([] : Ctx Cont KL) ([] : Ctx Cont Cont)
+      ([] : List ((ts : List Ty) × Cont ts)) := fun hm => nomatch hm
+  have hdwf := PassFlatKit.denote_wf_src hwf hvs hD0
   have hE : EnvRel (Tup.zip xs xs) (envInsertTup .empty 0 xs) (envInsertTup .empty 0 xs) := by
     simpa using EnvRel.insertTup (G' := []) EnvRel.empty xs xs 0
   have hswf := roSweep_wf hdwf (fun _ hp => hp) as.length _ _
     (Licm.buildRoPlan as.length (reifyFunc f)) hE
-  have hweq := wp_iff_of_wf_eq (Γ := Γ) (Q := Q) (X := X) hswf
+  have hweq := PassFlatKit.wp_iff_of_diag_eq (Γ := Γ) (Q := Q) (X := X) hswf
     (fun p hp => (tup_zip_self_eq (D := ([] : Ctx Val Val)) (fun _ hq => nomatch hq) xs)
       p (List.mem_append_left [] hp))
-    (fun _ hp => nomatch hp) m
-  exact hweq.1 hrw
+    (fun _ hp => nomatch hp) (m := m)
+  exact hweq.2 hrw
 
 theorem roSweepFunc_supportsSource (target : LegalTarget) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) (hsupp : f.supportsSource target = true) :
