@@ -874,24 +874,30 @@ def extCmpMemRes (I : Isa) (co : CmpOp) (pd : PDst I.Reg I.VReg I.Cond .bool)
 
 def tryExtCmp (I : Isa) (st : SymState I) (vh : VariantHint) (co : CmpOp) (n t : Nat)
     (c : BitVec n) (pd : PDst I.Reg I.VReg I.Cond .bool) :
-    Option (List I.Directive × FlagMask × Option I.Cond) :=
+    Option (List I.Directive × FlagMask × Option FlagFact × Option I.Cond) :=
   let run {m : Nat} (x : Nat) (cm : BitVec m) :=
     let memTry := match st.memDefs.find? x with
       | some (.bits m', addr) =>
         if Nat.beq m' m then
           tryAddr I st .default addr fun aa =>
-            (I.gpr.cmpMem co m aa (.imm cm) pd).map fun (d, cl) => extCmpMemRes I co pd d cl
+            (I.gpr.cmpMem co m aa (.imm cm) pd).map fun (d, cl) =>
+              cmpMemRes I st co m (.var x) (.immBits m (cm.setWidth 64)) pd d cl
         else none
       | _ => none
     memTry <|>
       if I.supportsTestFuse then
         tryGpr I st.regs (.var x) fun rx =>
           (I.gpr.op (.cmp co (.bits m)) (.gpr rx, .imm cm, ()) (pd, ()) vh).map fun (d, cl) =>
+            let lf? := I.gpr.cmpFlagsOut? co m (.gpr rx) (.imm cm) pd
+            let immS : SymArg := .immBits m (cm.setWidth 64)
+            let fl := match lf? with
+              | some lf =>
+                some (.cmp m (if lf then .var x else immS) (if lf then immS else .var x) false)
+              | none => killFlags I cl st.flags
             let ex := match pd with
-              | .gpr _ => (I.gpr.cmpFlagsOut? co m (.gpr rx) (.imm cm) pd).bind fun lf =>
-                I.gpr.condOfCmp? (if lf then co else co.swap)
+              | .gpr _ => lf?.bind fun lf => I.gpr.condOfCmp? (if lf then co else co.swap)
               | _ => none
-            (d, cl, ex)
+            (d, cl, fl, ex)
       else none
   match st.defs.find? t with
   | some (.sextVar m n' x) =>
@@ -1072,11 +1078,10 @@ def tryFuseCmp (I : Isa) (st : SymState I) (vh : VariantHint) {sig ts : List Ty}
             | _, _ => none
           res?.map fun (c, cl) => (c, cl, killFlags I cl st.flags, testBoolExtra? I neg cl pd)
         else none
-      let eFuse :=
-        (match a, b with
-         | .var t, .imm c => tryExtCmp I st vh co n t c pd
-         | .imm c, .var t => tryExtCmp I st vh co.swap n t c pd
-         | _, _ => none).map fun (c, cl, ex) => (c, cl, killFlags I cl st.flags, ex)
+      let eFuse := match a, b with
+        | .var t, .imm c => tryExtCmp I st vh co n t c pd
+        | .imm c, .var t => tryExtCmp I st vh co.swap n t c pd
+        | _, _ => none
       let mFuse :=
         (match a with
          | .var x => (tryCmpMemVar I st co n x b pd).map fun (c, cl) =>
@@ -1377,19 +1382,40 @@ def cmpOpFlags? (I : Isa) (st : SymState I) {sig ts : List Ty}
     (fl, none)
   | _, _, _, _, _ => (killFlags I cl st.flags, none)
 
+def reuseCmpPair? (I : Isa) (defs : Trie DefFact) (w n : Nat) (co : CmpOp)
+    (a b : Arg VNat (.bits n)) : Option (CmpOp × SymArg × SymArg) :=
+  if Nat.beq w n then
+    (toSymArg I (.bits n) a).bind fun sa =>
+      (toSymArg I (.bits n) b).map fun sb => (co, sa, sb)
+  else if Nat.blt 0 w && Nat.blt w n then
+    let ext? (co' : CmpOp) (t : Nat) (c : BitVec n) :=
+      let ok := match defs.find? t with
+        | some (.sextVar m n' x) =>
+          if Nat.beq m w && Nat.beq n' n && cmpIsSignedOrEq co' &&
+             (c.truncate w).signExtend n == c then some x else none
+        | some (.zextVar m n' x) =>
+          if Nat.beq m w && Nat.beq n' n && cmpIsUnsignedOrEq co' &&
+             (c.truncate w).zeroExtend n == c then some x else none
+        | _ => none
+      ok.map fun x => (co', .var x, .immBits w ((c.truncate w).setWidth 64))
+    match a, b with
+    | .var t, .imm c => ext? co t c
+    | .imm c, .var t => ext? co.swap t c
+    | _, _ => none
+  else none
+
 def tryReuseFlagCmp (I : Isa) (st : SymState I) {sig ts : List Ty}
     (code : OpCode sig ts) (args : Tup (Arg VNat) sig)
     (dsts : Tup (PDst I.Reg I.VReg I.Cond) ts) :
     Option (List I.Directive × FlagMask × Option FlagFact × Option I.Cond) :=
   match st.flags, sig, ts, code, args, dsts with
   | some (.cmp w lhs rhs eqNe), _, _, .cmp co (.bits n) .bool _, (a, b, ()), (pd, ()) =>
-    if !(Nat.beq w n && (!eqNe || co == .eq || co == .ne)) then none
+    if !(!eqNe || co == .eq || co == .ne) then none
     else
-      match toSymArg I (.bits n) a, toSymArg I (.bits n) b with
-      | some sa, some sb =>
+      (reuseCmpPair? I st.defs w n co a b).bind fun (coBase, sa, sb) =>
         let coUsed? :=
-          if symArgEq sa lhs && symArgEq sb rhs then some co
-          else if symArgEq sa rhs && symArgEq sb lhs then some co.swap
+          if symArgEq sa lhs && symArgEq sb rhs then some coBase
+          else if symArgEq sa rhs && symArgEq sb lhs then some coBase.swap
           else none
         coUsed?.bind fun coUsed =>
           (I.gpr.condOfCmp? coUsed).bind fun cc =>
@@ -1403,7 +1429,6 @@ def tryReuseFlagCmp (I : Isa) (st : SymState I) {sig ts : List Ty}
                 (c, cl, killFlags I cl (some (.cmp w lhs rhs eqNe)),
                   if FlagMask.disjoint (I.gpr.condReads cc) cl then some cc else none)
             | .vec _ => none
-      | _, _ => none
   | _, _, _, _, _, _ => none
 
 def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List Ty}
@@ -1558,6 +1583,8 @@ inductive JnzCond (I : Isa) where
   | gpr (r : I.Reg)
   | slot (idx : Nat)
   | cmpZero (co : CmpOp) (w : Nat) (r : I.Reg)
+  | cmpZeroMem (co : CmpOp) (w x : Nat) (a : AddrArg I.Reg) (cc : I.Cond)
+  | cmpZeroFlag (co : CmpOp) (w x : Nat) (r : I.Reg) (cc : I.Cond)
   | testImm (neg : Bool) (w : Nat) (r : I.Reg) (mask : BitVec w)
 
 def cmpZeroFlagCond? (I : Isa) (fl : Option FlagFact) (co : CmpOp) (w y : Nat) : Option I.Cond :=
@@ -1580,7 +1607,21 @@ def findJnzCond (I : Isa) (nslots : Nat) (st : SymState I) (x : Nat) : Option (J
     (findGprFor I true st.regs (.var x)).map .gpr <|>
     (match st.defs.find? x with
      | some (.cmpZeroVar co w y) =>
-       (findGprFor I true st.regs (.var y)).map fun r => .cmpZero co w r
+       (match st.memDefs.find? y with
+        | some (.bits m, addr) =>
+          if Nat.beq m w && isStdBitWidth w then
+            (I.gpr.condOfCmp? co).bind fun cc =>
+              tryAddr I st .default addr fun aa =>
+                (I.gpr.cmpMem co w aa (.imm 0#w) (.flag cc)).map fun _ => .cmpZeroMem co w y aa cc
+          else none
+        | _ => none) <|>
+       (findGprFor I true st.regs (.var y)).bind fun r =>
+         if (I.gpr.cmpZeroJcc co w r (lname "" 0)).isSome then some (.cmpZero co w r)
+         else if isStdBitWidth w then
+           (I.gpr.condOfCmp? co).bind fun cc =>
+             (I.gpr.op (.cmp co (.bits w)) (.gpr r, .imm 0#w, ()) (.flag cc, ()) .default).map
+               fun _ => .cmpZeroFlag co w y r cc
+         else none
      | some (.testBitVar neg w y c) =>
        (findGprFor I true st.regs (.var y)).map fun r => .testImm neg w r (c.setWidth w)
      | _ => none) <|>
@@ -1666,6 +1707,22 @@ def fuseJnzChoice {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE 
     | none, some (je, brI, stI) => (true, some je, brI, stI)
     | none, none => (invChoice, none, brNl, stNl)
 
+def finishCmpJnz {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat)
+    (st1 : SymState I) (t e : Expr VNat LNat rs) (ft : Option Nat) (fwd : Trie Nat)
+    (cc : I.Cond) (cmpCode : List I.Directive) (cl : FlagMask) (fl : Option FlagFact) :
+    Bool × Option Nat × List I.Directive × SymState I :=
+  let stCmp := { st1 with
+    regs := killRegs I I.frame.scratch [] cl st1.regs
+    zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
+    flags := fl }
+  let stB := { stCmp with
+    regs := killRegs I I.frame.scratch [] FlagMask.none stCmp.regs
+    zeroExt32 := killZeroExt I.frame.scratch stCmp.zeroExt32
+    flags := killFlags I FlagMask.none stCmp.flags }
+  let p := jnzMode I h ipT ipE stB true t e ft fwd
+  let sym := lname fn (match p.2 with | some j => tgtLab fwd j | none => nl)
+  (p.1, p.2, cmpCode ++ I.gpr.jcc (if p.1 then I.gpr.negCond cc else cc) sym, stB)
+
 /-- Branch selection for `jnz`: `(inverted?, threaded target, branch code, state after branch)`. -/
 def jnzSetup {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat)
     (st1 : SymState I) (t e : Expr VNat LNat rs) (ft : Option Nat) (cond : JnzCond I)
@@ -1703,6 +1760,20 @@ def jnzSetup {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat
   | .cmpZero co w r =>
     fuseJnzChoice I h fn nl ipT ipE st1 t e ft (fun inv l =>
       I.gpr.cmpZeroJcc (if inv then co.neg else co) w r l) fwd
+  | .cmpZeroMem co w x aa cc =>
+    (I.gpr.cmpMem co w aa (.imm 0#w) (.flag cc)).map fun (cmpCode, cl) =>
+      let fl := (cmpMemRes I st1 co w (.var x) (.immBits w 0#64) (.flag cc) cmpCode cl).2.2.1
+      finishCmpJnz I h fn nl ipT ipE st1 t e ft fwd cc cmpCode cl fl
+  | .cmpZeroFlag co w x r cc =>
+    (I.gpr.op (.cmp co (.bits w)) (.gpr r, .imm 0#w, ()) (.flag cc, ()) .default).map
+      fun (cmpCode, cl) =>
+        let fl := if Nat.ble w 64 then
+          match I.gpr.cmpFlagsOut? co w (.gpr r) (.imm 0#w) (.flag cc) with
+          | some lf => some (.cmp w (if lf then .var x else .immBits w 0#64)
+                                     (if lf then .immBits w 0#64 else .var x) false)
+          | none => killFlags I cl st1.flags
+        else killFlags I cl st1.flags
+        finishCmpJnz I h fn nl ipT ipE st1 t e ft fwd cc cmpCode cl fl
   | .testImm neg w r mask =>
     fuseJnzChoice I h fn nl ipT ipE st1 t e ft (fun inv l =>
       I.gpr.testJcc (if inv then !neg else neg) w r mask l) fwd
@@ -1997,6 +2068,8 @@ def deferJnzNext {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nv nl ip : N
           match findJnzCond I h.nslots stAfter nv with
           | some (.flag _) => true
           | some (.cmpZero co w r) => (I.gpr.cmpZeroJcc co w r (lname fn nl)).isSome
+          | some (.cmpZeroMem _ _ _ _ cc)
+          | some (.cmpZeroFlag _ _ _ _ cc) => h.dest.find? nv != some (.flag cc)
           | some (.testImm neg w r mask) => (I.gpr.testJcc neg w r mask (lname fn nl)).isSome
           | _ => false
         | none => false

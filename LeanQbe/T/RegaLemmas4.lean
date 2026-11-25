@@ -204,8 +204,10 @@ private theorem findGprFor_var_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} 
   | _ => simp at he
 
 /-- `jnz` condition lookup. -/
-theorem findJnzCond_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
-    {σ : List (BitVec 64)} (hA : Agree T G nv st s σ) {cv : Bool} {cx : Nat}
+theorem findJnzCond_ok {zl : Bool} {G : VCtx} {nv : Nat} {st : SymState T.toIsa}
+    {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
+    (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ zl)
+    (hM : MemDefsOk G m nv st.memDefs) {cv : Bool} {cx : Nat}
     (hmem : (⟨.bool, cv, cx⟩ : (t : Ty) × Val t × VNat t) ∈ G) :
     ∀ {r}, findJnzCond T.toIsa hints.nslots st cx = some r →
     match r with
@@ -216,6 +218,17 @@ theorem findJnzCond_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach
     | .cmpZero co w g =>
       g ∉ T.frame.scratch ∧ ∃ va : BitVec w, GprHolds (T.mach.getGpr s g) (.bits w) va ∧
         cv = co.evalBits va 0#w
+    | .cmpZeroMem co w x aa cc =>
+      w ≤ 64 ∧ x < nv ∧ (∀ r ∈ aa.regs, r ∉ T.frame.scratch) ∧
+      ∃ va : BitVec w, loadVal (T.mach.mem s) (.bits w) (aa.eval (T.mach.getGpr s)) = some va ∧
+        cv = co.evalBits va 0#w ∧ SymBits G w va (.var x) ∧ T.gpr.condOfCmp? co = some cc ∧
+        (∃ c cl, T.gpr.cmpMem co w aa (.imm 0#w) (.flag cc) = some (c, cl))
+    | .cmpZeroFlag co w x g cc =>
+      w ≤ 64 ∧ x < nv ∧ g ∉ T.frame.scratch ∧
+      ∃ va : BitVec w, GprHolds (T.mach.getGpr s g) (.bits w) va ∧
+        cv = co.evalBits va 0#w ∧ SymBits G w va (.var x) ∧ T.gpr.condOfCmp? co = some cc ∧
+        (∃ c cl, T.gpr.op (.cmp co (.bits w)) (.gpr g, .imm 0#w, ()) (.flag cc, ()) .default =
+          some (c, cl))
     | .testImm neg w g mask =>
       g ∉ T.frame.scratch ∧ ∃ va : BitVec w, GprHolds (T.mach.getGpr s g) (.bits w) va ∧
         cv = (if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& mask) 0#w := by
@@ -300,11 +313,52 @@ theorem findJnzCond_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach
       cases df with
       | cmpZeroVar co w y =>
         simp only [hdx] at hd
-        obtain ⟨g, hgy, heq⟩ := Option.map_eq_some_iff.mp hd
-        subst heq
-        have ⟨hns, hsym⟩ := findGprFor_var_ok hA hgy
         obtain ⟨va, hmy, hcv⟩ := hdef.2 cv hmem
-        exact ⟨hns, va, hsym _ _ hmy, hcv⟩
+        rcases orElse_eq_some hd with hm | hg
+        · cases hmd : st.memDefs.find? y with
+          | none => simp [hmd] at hm
+          | some p =>
+            rcases p with ⟨tm, addr⟩
+            cases tm with
+            | bits w' =>
+              simp only [hmd] at hm
+              split at hm
+              · rename_i hgd
+                simp only [Bool.and_eq_true, Nat.beq_eq] at hgd
+                obtain ⟨rfl, hstd⟩ := hgd
+                have hw64 : w' ≤ 64 := by
+                  simp only [isStdBitWidth, Bool.or_eq_true, Nat.beq_eq] at hstd
+                  rcases hstd with ((rfl | rfl) | rfl) | rfl <;> omega
+                obtain ⟨cc, hcc, hm⟩ := Option.bind_eq_some_iff.mp hm
+                obtain ⟨-, hlv0⟩ := hM y (.bits w') addr hmd
+                obtain ⟨a₁, ha₁, hlv⟩ := hlv0 va hmy
+                obtain ⟨aa, hk, hreg, haev⟩ := tryAddr_ok hA ha₁ hm
+                obtain ⟨⟨c0, cl0⟩, hcm, heq⟩ := Option.map_eq_some_iff.mp hk
+                cases heq
+                have hlm : loadVal (T.mach.mem s) (.bits w')
+                    (aa.eval (T.mach.getGpr s)) = some va := by
+                  rw [haev]; exact loadVal_frame hI.2.2.2.1 hlv
+                have hsymY : SymBits G w' va (.var y) := memDefs_tryAddr_symBits hA hM hmd hmy hm
+                exact ⟨hw64, hA.ctx_lt _ hmy, hreg, va, hlm, hcv, hsymY, hcc, c0, cl0, hcm⟩
+              · simp at hm
+            | _ => simp [hmd] at hm
+        · obtain ⟨g, hgy, hd'⟩ := Option.bind_eq_some_iff.mp hg
+          have ⟨hns, hsym⟩ := findGprFor_var_ok hA hgy
+          split at hd'
+          · simp only [Option.some.injEq] at hd'; subst hd'
+            exact ⟨hns, va, hsym _ _ hmy, hcv⟩
+          · split at hd'
+            · rename_i hstd
+              have hw64 : w ≤ 64 := by
+                simp only [isStdBitWidth, Bool.or_eq_true, Nat.beq_eq] at hstd
+                rcases hstd with ((rfl | rfl) | rfl) | rfl <;> omega
+              obtain ⟨cc, hcc, hd'⟩ := Option.bind_eq_some_iff.mp hd'
+              obtain ⟨⟨c0, cl0⟩, hop, heq⟩ := Option.map_eq_some_iff.mp hd'
+              cases heq
+              have hsymY : SymBits G w va (.var y) := fun v hv => by
+                rw [← (hsym (.bits w) v hv).2, (hsym (.bits w) _ hmy).2]
+              exact ⟨hw64, hA.ctx_lt _ hmy, hns, va, hsym _ _ hmy, hcv, hsymY, hcc, c0, cl0, hop⟩
+            · simp at hd'
       | testBitVar neg w y c =>
         simp only [hdx] at hd
         obtain ⟨g, hgy, heq⟩ := Option.map_eq_some_iff.mp hd
@@ -816,6 +870,18 @@ theorem jnzSetup_thread {I : Isa} {h : I.Hints} {nl ipT ipE : Nat} {st1 : SymSta
   | cmpZero co w r =>
     simp only [jnzSetup] at hs
     exact (fuseJnzChoice_spec hs).2.2 j rfl
+  | cmpZeroMem co w x aa cc =>
+    simp only [jnzSetup] at hs
+    obtain ⟨⟨_, _⟩, _, he⟩ := Option.map_eq_some_iff.mp hs
+    simp only [finishCmpJnz, Prod.mk.injEq] at he
+    obtain ⟨h1, h2, -, rfl⟩ := he
+    exact jnzMode_spec (Prod.ext h1 h2)
+  | cmpZeroFlag co w x r cc =>
+    simp only [jnzSetup] at hs
+    obtain ⟨⟨_, _⟩, _, he⟩ := Option.map_eq_some_iff.mp hs
+    simp only [finishCmpJnz, Prod.mk.injEq] at he
+    obtain ⟨h1, h2, -, rfl⟩ := he
+    exact jnzMode_spec (Prod.ext h1 h2)
   | testImm neg w r mask =>
     simp only [jnzSetup] at hs
     exact (fuseJnzChoice_spec hs).2.2 j rfl
@@ -841,6 +907,11 @@ theorem jnzSetup_memDefs {I : Isa} {h : I.Hints} {nl ipT ipE : Nat} {st1 : SymSt
       rw [← hc.2.2.2]
     · simp at hc
   | cmpZero _ _ _ | testImm _ _ _ _ => simp only [jnzSetup] at hs; exact (fuseJnzChoice_spec hs).1
+  | cmpZeroMem _ _ _ _ _ | cmpZeroFlag _ _ _ _ _ =>
+    simp only [jnzSetup] at hs
+    obtain ⟨⟨_, _⟩, _, he⟩ := Option.map_eq_some_iff.mp hs
+    simp only [finishCmpJnz, Prod.mk.injEq] at he
+    rw [← he.2.2.2]
 
 /-- Branch on the `jnz` condition (`jcc`, `jnzGpr`, `jnzMem`, `cmpZeroJcc`, or `testJcc`). -/
 theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx}
@@ -848,6 +919,7 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
     {σ1 : List (BitVec 64)} {m : Mem 64} {cv : Bool} {cx : Nat}
     (hmem : (⟨.bool, cv, cx⟩ : (t : Ty) × Val t × VNat t) ∈ G)
     (hA1 : Agree T G nv st1 s1 σ1) (hI1 : Inv T hints s₀ ra n Rf m s1 σ1 zl)
+    (hM1 : MemDefsOk G m nv st1.memDefs)
     {cond : JnzCond T.toIsa} (hfc : findJnzCond T.toIsa hints.nslots st1 cx = some cond)
     {t e : Expr VNat LNat rs} {ft : Option Nat} {fwd : Trie Nat} {inv : Bool} {tgt : Option Nat}
     {br : List T.Directive}
@@ -859,7 +931,7 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
       ((if inv then !cv else cv) = true → T.mach.Run host kT s' post) ∧
       ((if inv then !cv else cv) = false → T.mach.Run host (kb + br.length) s' post)) :
     T.mach.Run host kb s1 post := by
-  have hc := findJnzCond_ok hA1 hmem hfc
+  have hc := findJnzCond_ok hA1 hI1 hM1 hmem hfc
   have hla := labelAddr_of_unique hy.unique hlab
   cases cond with
   | flag cc =>
@@ -929,6 +1001,150 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
     cases inv <;> simp only [Bool.false_eq_true, ↓reduceIte] at this ⊢
     · rw [← hcv]; exact this
     · rw [CmpOp.neg_evalBits, ← hcv]; exact this
+  | cmpZeroMem co w x aa cc =>
+    obtain ⟨hw64, hxlt, hreg, va, hlm, hcv, hvar, hcc, -, -, -⟩ := hc
+    simp only [jnzSetup] at hs
+    obtain ⟨⟨cmpCode, cl⟩, hcm, he⟩ := Option.map_eq_some_iff.mp hs
+    simp only [finishCmpJnz, Prod.mk.injEq] at he
+    obtain ⟨hinv, htgt, rfl, rfl⟩ := he
+    obtain ⟨hbr1, hbr2⟩ := List.IsInfixAt.append hbr
+    rw [hinv, htgt] at hbr2
+    have hzero : SymBits G w 0#w (.immBits w 0#64) :=
+      ⟨rfl, BitVec.eq_of_getLsbD_eq fun j hj => by simp [hj]⟩
+    have hvarLt : symArgScopeOk nv (.var x) = true := by
+      simp [symArgScopeOk, Nat.ble_eq]; exact hxlt
+    have hzeroLt : symArgScopeOk nv (.immBits w 0#64) = true := by simp [symArgScopeOk]
+    cases hcmo : T.gpr.cmpMemFlagsOut? co (.flag cc) with
+    | none =>
+      refine T.gprSpec.cmpMem_spec (s := s1) hcm (by simpa [PArg.gprs] using hreg)
+        (by simp) hlm (rfl : T.mach.PArgHolds s1 (.bits w) (.imm 0#w) 0#w) hbr1
+        fun sCmp ⟨hd, hm1⟩ hfr1 => ?_
+      have hA_cmp : Agree T G nv { st1 with
+          regs := killRegs T.toIsa T.frame.scratch [] cl st1.regs
+          zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32
+          flags := (cmpMemRes T.toIsa st1 co w (.var x) (.immBits w 0#64)
+            (.flag cc) cmpCode cl).2.2.1 } sCmp σ1 := by
+        simpa [cmpMemRes, hcmo] using hA1.kill hfr1
+      have hI_cmp := hI1.keep hm1 (keep_of_frame_scratch hfr1)
+      have hev1 : T.mach.evalCond sCmp cc = cv := by
+        dsimp only [Machine.PDstHolds] at hd; rw [hd, ← hcv]
+      refine T.gprSpec.jcc_spec hbr2 hla fun s' hfr2 hm2 => ?_
+      have hk := kont s' (hA_cmp.kill hfr2) (hI_cmp.keep hm2 (keep_of_frame_scratch hfr2))
+      simp only [hinv, htgt, List.length_append, Nat.add_assoc] at hk ⊢
+      cases inv <;> simp_all [T.gprSpec.negCond_eval]
+    | some lf =>
+      refine T.gprSpec.cmpMem_flags_spec (s := s1) hcmo hcm (by simpa [PArg.gprs] using hreg)
+        (by simp) hlm (rfl : T.mach.PArgHolds s1 (.bits w) (.imm 0#w) 0#w) hbr1
+        fun sCmp ⟨hd, hfl, hm1⟩ hfr1 => ?_
+      have hflOk : FlagFactOk T G sCmp (cmpMemRes T.toIsa st1 co w (.var x) (.immBits w 0#64)
+          (.flag cc) cmpCode cl).2.2.1 := by
+        simp only [cmpMemRes, hcmo]
+        refine ⟨hw64, if lf then va else 0#w, if lf then 0#w else va, ?_, ?_, hfl⟩
+        · cases lf <;> simp only [↓reduceIte, Bool.false_eq_true]
+          · exact hzero
+          · exact hvar
+        · cases lf <;> simp only [↓reduceIte, Bool.false_eq_true]
+          · exact hvar
+          · exact hzero
+      have hflLt : FlagFactScope nv (cmpMemRes T.toIsa st1 co w (.var x) (.immBits w 0#64)
+          (.flag cc) cmpCode cl).2.2.1 := by
+        simp only [cmpMemRes, hcmo]
+        exact ⟨by cases lf <;> simp [hvarLt, hzeroLt], by cases lf <;> simp [hvarLt, hzeroLt]⟩
+      have hA_cmp : Agree T G nv { st1 with
+          regs := killRegs T.toIsa T.frame.scratch [] cl st1.regs
+          zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32
+          flags := (cmpMemRes T.toIsa st1 co w (.var x) (.immBits w 0#64)
+            (.flag cc) cmpCode cl).2.2.1 } sCmp σ1 :=
+        { hA1.kill hfr1 with flags_ok := hflOk, flags_lt := hflLt }
+      have hI_cmp := hI1.keep hm1 (keep_of_frame_scratch hfr1)
+      have hev1 : T.mach.evalCond sCmp cc = cv := by
+        dsimp only [Machine.PDstHolds] at hd; rw [hd, ← hcv]
+      refine T.gprSpec.jcc_spec hbr2 hla fun s' hfr2 hm2 => ?_
+      have hk := kont s' (hA_cmp.kill hfr2) (hI_cmp.keep hm2 (keep_of_frame_scratch hfr2))
+      simp only [hinv, htgt, List.length_append, Nat.add_assoc] at hk ⊢
+      cases inv <;> simp_all [T.gprSpec.negCond_eval]
+  | cmpZeroFlag co w x r cc =>
+    obtain ⟨hw64, hxlt, hns, va, hgp, hcv, hvar, hcc, -, -, -⟩ := hc
+    simp only [jnzSetup] at hs
+    obtain ⟨⟨cmpCode, cl⟩, hop, he⟩ := Option.map_eq_some_iff.mp hs
+    simp only [finishCmpJnz, Prod.mk.injEq] at he
+    obtain ⟨hinv, htgt, rfl, rfl⟩ := he
+    obtain ⟨hbr1, hbr2⟩ := List.IsInfixAt.append hbr
+    rw [hinv, htgt] at hbr2
+    have hzero : SymBits G w 0#w (.immBits w 0#64) :=
+      ⟨rfl, BitVec.eq_of_getLsbD_eq fun j hj => by simp [hj]⟩
+    have hvarLt : symArgScopeOk nv (.var x) = true := by
+      simp [symArgScopeOk, Nat.ble_eq]; exact hxlt
+    have hzeroLt : symArgScopeOk nv (.immBits w 0#64) = true := by simp [symArgScopeOk]
+    cases hcmo : T.gpr.cmpFlagsOut? co w (.gpr r) (.imm 0#w) (.flag cc) with
+    | none =>
+      refine T.gprSpec.op_spec (s := s1) (P := fun res => res = (co.evalBits va 0#w, ())) hop
+        (by simpa [tupArgGprs, PArg.gprs] using hns) (by simp [tupDstGprs])
+        (.cons hgp (.cons rfl .nil)) (by simp [OpCode.wp_cmp, liftCmp]) hbr1
+        fun sCmp ⟨⟨⟨b, ⟨⟩⟩, hb, hpd⟩, hm1⟩ hfr1 => ?_
+      cases hb; cases hpd with | cons hd _ =>
+      have hwBle : Nat.ble w 64 = true := Nat.ble_eq.mpr hw64
+      have hA_cmp : Agree T G nv { st1 with
+          regs := killRegs T.toIsa T.frame.scratch [] cl st1.regs
+          zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32
+          flags := if Nat.ble w 64 then
+            match T.gpr.cmpFlagsOut? co w (.gpr r) (.imm 0#w) (.flag cc) with
+            | some lf => some (.cmp w (if lf then .var x else .immBits w 0#64)
+                                       (if lf then .immBits w 0#64 else .var x) false)
+            | none => killFlags T.toIsa cl st1.flags
+          else killFlags T.toIsa cl st1.flags } sCmp σ1 := by
+        simpa [hwBle, hcmo] using hA1.kill (by simpa [tupDstGprs] using hfr1)
+      have hI_cmp := hI1.keep hm1 (keep_of_frame_scratch hfr1)
+      have hev1 : T.mach.evalCond sCmp cc = cv := by
+        dsimp only [Machine.PDstHolds] at hd; rw [hd, ← hcv]
+      refine T.gprSpec.jcc_spec hbr2 hla fun s' hfr2 hm2 => ?_
+      have hk := kont s' (hA_cmp.kill hfr2) (hI_cmp.keep hm2 (keep_of_frame_scratch hfr2))
+      simp only [hinv, htgt, List.length_append, Nat.add_assoc] at hk ⊢
+      cases inv <;> simp_all [T.gprSpec.negCond_eval]
+    | some lf =>
+      refine T.gprSpec.op_cmpFlags_spec (s := s1) hcmo hop (by simpa [PArg.gprs] using hns)
+        (by simp) hgp (rfl : T.mach.PArgHolds s1 (.bits w) (.imm 0#w) 0#w) hbr1
+        fun sCmp ⟨hd, hfl, hm1⟩ hfr1 => ?_
+      have hwBle : Nat.ble w 64 = true := Nat.ble_eq.mpr hw64
+      have hflOk : FlagFactOk T G sCmp (if Nat.ble w 64 then
+          match T.gpr.cmpFlagsOut? co w (.gpr r) (.imm 0#w) (.flag cc) with
+          | some lf => some (.cmp w (if lf then .var x else .immBits w 0#64)
+                                     (if lf then .immBits w 0#64 else .var x) false)
+          | none => killFlags T.toIsa cl st1.flags
+        else killFlags T.toIsa cl st1.flags) := by
+        simp only [hwBle, ↓reduceIte, hcmo]
+        refine ⟨hw64, if lf then va else 0#w, if lf then 0#w else va, ?_, ?_, hfl⟩
+        · cases lf <;> simp only [↓reduceIte, Bool.false_eq_true]
+          · exact hzero
+          · exact hvar
+        · cases lf <;> simp only [↓reduceIte, Bool.false_eq_true]
+          · exact hvar
+          · exact hzero
+      have hflLt : FlagFactScope nv (if Nat.ble w 64 then
+          match T.gpr.cmpFlagsOut? co w (.gpr r) (.imm 0#w) (.flag cc) with
+          | some lf => some (.cmp w (if lf then .var x else .immBits w 0#64)
+                                     (if lf then .immBits w 0#64 else .var x) false)
+          | none => killFlags T.toIsa cl st1.flags
+        else killFlags T.toIsa cl st1.flags) := by
+        simp only [hwBle, ↓reduceIte, hcmo]
+        exact ⟨by cases lf <;> simp [hvarLt, hzeroLt], by cases lf <;> simp [hvarLt, hzeroLt]⟩
+      have hA_cmp : Agree T G nv { st1 with
+          regs := killRegs T.toIsa T.frame.scratch [] cl st1.regs
+          zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32
+          flags := if Nat.ble w 64 then
+            match T.gpr.cmpFlagsOut? co w (.gpr r) (.imm 0#w) (.flag cc) with
+            | some lf => some (.cmp w (if lf then .var x else .immBits w 0#64)
+                                       (if lf then .immBits w 0#64 else .var x) false)
+            | none => killFlags T.toIsa cl st1.flags
+          else killFlags T.toIsa cl st1.flags } sCmp σ1 :=
+        { hA1.kill hfr1 with flags_ok := hflOk, flags_lt := hflLt }
+      have hI_cmp := hI1.keep hm1 (keep_of_frame_scratch hfr1)
+      have hev1 : T.mach.evalCond sCmp cc = cv := by
+        dsimp only [Machine.PDstHolds] at hd; rw [hd, ← hcv]
+      refine T.gprSpec.jcc_spec hbr2 hla fun s' hfr2 hm2 => ?_
+      have hk := kont s' (hA_cmp.kill hfr2) (hI_cmp.keep hm2 (keep_of_frame_scratch hfr2))
+      simp only [hinv, htgt, List.length_append, Nat.add_assoc] at hk ⊢
+      cases inv <;> simp_all [T.gprSpec.negCond_eval]
   | testImm neg w r mask =>
     obtain ⟨hns, va, hgp, hcv⟩ := hc
     simp only [jnzSetup] at hs
@@ -1407,6 +1623,7 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
               ((jnzSetup_memDefs hs).trans (stepPre_memDefs hp)) ▸ hM
             have hMBr1 : MemDefsOk G m nv1 stBr.memDefs :=
               hMBr.grow hnv1 (fun _ h => Or.inl h) (fun _ h => h)
+            have hM1 : MemDefsOk G m nv st1.memDefs := stepPre_memDefs hp ▸ hM
             refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
             cases tgt with
             | none =>
@@ -1419,7 +1636,7 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
                 obtain ⟨hbr, h2⟩ := List.IsInfixAt.append hcf'
                 obtain ⟨hce, h3⟩ := List.IsInfixAt.append h2
                 obtain ⟨hlab, hct⟩ := List.IsInfixAt.cons h3
-                refine branch_ok hy hmem hA1 hI1 hfc hbr hlab hs
+                refine branch_ok hy hmem hA1 hI1 hM1 hfc hbr hlab hs
                   fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
                 · refine T.frameSpec.label_spec hlab ?_
                   exact iht nv1 nl1 ip1 stBr ft fwd fwdTgts ct _ _ _ _ s' σ1 m hlt hct
@@ -1434,7 +1651,7 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
                 obtain ⟨hbr, h2⟩ := List.IsInfixAt.append hcf'
                 obtain ⟨hct, h3⟩ := List.IsInfixAt.append h2
                 obtain ⟨hlab, hce⟩ := List.IsInfixAt.cons h3
-                refine branch_ok hy hmem hA1 hI1 hfc hbr hlab hs
+                refine branch_ok hy hmem hA1 hI1 hM1 hfc hbr hlab hs
                   fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
                 · refine T.frameSpec.label_spec hlab ?_
                   exact ihe nv (nl + 1) (ip + 1) stBr ft fwd fwdTgts ce nv1 nl1 ip1 _ s' σ1 m
@@ -1451,7 +1668,7 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
                 obtain ⟨rfl, rfl, rfl, rfl⟩ := finishJnzBranch_some hfin
                 obtain ⟨hbr, hce⟩ := List.IsInfixAt.append hcf
                 obtain ⟨kj, hlab, hrun⟩ := thread_ok hy ht hD (hth.1 rfl)
-                refine branch_ok hy hmem hA1 hI1 hfc hbr hlab hs
+                refine branch_ok hy hmem hA1 hI1 hM1 hfc hbr hlab hs
                   fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
                 · exact hrun (hwp.1 (by simpa using htk)) nv s' σ1 hA' hI'
                 · exact ihe nv (nl + 1) (ip + 1) stBr ft fwd fwdTgts ce nv1 nl1 ip1 _ s' σ1 m
@@ -1462,7 +1679,7 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
                 obtain ⟨rfl, rfl, rfl, rfl⟩ := finishJnzBranch_some hfin
                 obtain ⟨hbr, hct⟩ := List.IsInfixAt.append hcf
                 obtain ⟨kj, hlab, hrun⟩ := thread_ok hy he hD (hth.2 rfl)
-                refine branch_ok hy hmem hA1 hI1 hfc hbr hlab hs
+                refine branch_ok hy hmem hA1 hI1 hM1 hfc hbr hlab hs
                   fun s' hA' hI' => ⟨fun htk => ?_, fun hnt => ?_⟩
                 · exact hrun (hwp.2 (by simpa using htk)) nv s' σ1 hA' hI'
                 · exact iht nv1 nl1 ip1 stBr ft fwd fwdTgts ct _ _ _ _ s' σ1 m hlt hct
