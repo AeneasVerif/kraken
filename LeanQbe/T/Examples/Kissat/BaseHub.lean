@@ -118,6 +118,17 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof2b
 public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof2c
 public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof2d
 public import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof3
+public import LeanQbe.T.Examples.Kissat.FullFidelityBva
+public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof0
+public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof1a
+public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof1b
+public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof2
+public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof2a
+public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof2a0
+public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof2b0
+public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof3a
+public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof3b
 public import LeanQbe.T.Examples.Kissat.FullFidelityCong
 public import LeanQbe.T.Examples.Kissat.FullFidelityCongProof0
 public import LeanQbe.T.Examples.Kissat.FullFidelityCongProof1a
