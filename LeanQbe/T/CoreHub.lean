@@ -149,6 +149,12 @@ public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Ty
 public import LeanQbe.T.TyLemmas
+public import LeanQbe.T.Unified.Caps
+public import LeanQbe.T.Unified.Core
+public import LeanQbe.T.Unified.Driver
+public import LeanQbe.T.Unified.DriverLemmas
+public import LeanQbe.T.Unified.Frontend.Lcnf
+public import LeanQbe.T.Unified.Ssa
 public import LeanQbe.T.WP
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.Wasm.Ast
@@ -160,6 +166,9 @@ public import LeanQbe.T.Wasm.Safety
 public import LeanQbe.T.Wasm.Validate
 public import LeanQbe.T.Wf
 public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.Xcap.Core
+public import LeanQbe.T.Xcap.Lfp
+public import LeanQbe.T.Xcap.Link
 public import LeanQbe.T.ZeroPeel
 public import LeanQbe.T.ZeroPeelLemmas
 public import LeanQbe.T.ZeroPeelLemmas1
