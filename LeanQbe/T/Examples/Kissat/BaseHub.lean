@@ -175,7 +175,9 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityCongProofSplice
 public import LeanQbe.T.Examples.Kissat.FullFidelityCongProofSplice0
 public import LeanQbe.T.Examples.Kissat.FullFidelityInl
 public import LeanQbe.T.Examples.Kissat.FullFidelityInlBase
+public import LeanQbe.T.Examples.Kissat.FullFidelityInlData
 public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+public import LeanQbe.T.Examples.Kissat.FullFidelityInlProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep2S15
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7BvaSpec

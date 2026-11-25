@@ -15,9 +15,6 @@ meta import LeanQbe.T.Examples.Kissat.FullM8SweepV2
 meta import LeanQbe.T.Examples.Kissat.FullM8CoreParity
 meta import LeanQbe.T.Examples.Kissat.FullM7HotTernary
 meta import LeanQbe.T.Frontend.C0
-meta import LeanQbe.T.Legal
-meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.PrintQbe
 
 /-!
 # Kissat 4.0.4 Congruence Closure Parity (`FullFidelityCong`)
@@ -1528,26 +1525,14 @@ theorem fidCongBefores_wf : ∀ f ∈ fidCongBefores.flatMap Prod.snd, f.Wf := b
   · exact full_cong_sift_pairs_fid_wf
   · exact full_cong_sort_pairs_fid_wf
 
-/-! ## 3. Compile-Time `#guard` Verification (`PrintCpp`, `PrintQbe`, 4-ISA Legal) -/
+/-! ## 3. Compile-Time `#guard` Verification (Shape & Acyclicity) -/
 
 section Guards
-
-open LeanQbe.T.PrintCpp
 
 #guard fidCongFns.length == 474
 #guard (fidCongFns.map Fn.name).eraseDups.length == 474
 #guard fidCongModule.checkAcyclic
 #guard fidCongModule.exits.isEmpty && fidCongModule.externs.isEmpty
-#guard (ppTModule fidCongModule).isOk
-#guard (PrintQbe.module fidCongModule).isOk
-#guard (ppModule (fidCongFns.map (Fn.legal .aarch64))).isOk
-#guard (ppModule (fidCongFns.map (Fn.legal .scalar64))).isOk
-#guard (ppModule (fidCongFns.map (Fn.legal .x64AVX512))).isOk
-#guard (ppModule (fidCongFns.map (Fn.legal .x64AVX2))).isOk
-#guard fidCongFns.all fun fn => (Fn.legal .aarch64 fn).body.isLegal .aarch64
-#guard fidCongFns.all fun fn => (Fn.legal .scalar64 fn).body.isLegal .scalar64
-#guard fidCongFns.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
-#guard fidCongFns.all fun fn => (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2
 
 end Guards
 

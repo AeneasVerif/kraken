@@ -446,6 +446,9 @@ class ModulePreset:
     default_cert_style: str = "ladder"
     default_abi_common: bool = False
     fns_length_thm: str | None = None
+    default_prune_ext: bool = False
+    default_no_bounds_import: bool = False
+    default_tree_groups: int = 0
 
 
 MODULE_PRESETS: dict[str, ModulePreset] = {
@@ -468,7 +471,7 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
         entry_const="FullM6Orch.m6oSolveBytesFn",
         entry_spec="m7FidSolveBytesSpec",
         default_total_fns=469,
-        inl_mod="LeanQbe.T.Examples.Kissat.FullFidelityInl",
+        inl_mod="LeanQbe.T.Examples.Kissat.FullFidelityInlData",
         inl_policy_mod="LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy",
         inl_fns="fidInlFns",
         inl_mod_sym="fidInlMod",
@@ -486,6 +489,49 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
         default_cert_style="slices",
         default_abi_common=True,
         fns_length_thm="fidInlFns_length",
+        default_prune_ext=True,
+        default_no_bounds_import=True,
+    ),
+    "FullFidelityStep7": ModulePreset(
+        name="FullFidelityStep7",
+        prefix="KissatFidelityStep7",
+        stem="fidStep7",
+        source_mod="LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7Proof",
+        fns="fidStep7Fns",
+        mod="fidStep7Module",
+        cert_name="fidStep7Cert",
+        acyclic="fidStep7Module_acyclic",
+        wf="fidStep7Module_wf",
+        env="fidStep7Env",
+        spec_table="fidStep7SpecTable",
+        spec_sigs="fidStep7SpecTable_sigs",
+        module_ok="fidStep7_moduleOk",
+        no_exit="fidStep7Env_noExit",
+        entry_const="FullM6Orch.m6oSolveBytesFn",
+        entry_spec="m7FidSolveBytesSpec",
+        default_total_fns=501,
+        inl_mod="LeanQbe.T.Examples.Kissat.FullFidelityInlData",
+        inl_policy_mod="LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy",
+        inl_fns="fidStep7InlFns",
+        inl_mod_sym="fidStep7InlMod",
+        inl_policy="fidInlPolicy",
+        sat_sound_mod="",
+        sat_nv_mod="LeanQbe.T.Examples.Kissat.FullM6SatNv",
+        hdr_model="m6",
+        default_max_dirs=M6_MAX_DIRS,
+        emit_sound=False,
+        source_ns="LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7",
+        proof_ns="LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7",
+        solve_spec_intro="FullM7Fidelity.m7FidSolveBytesSpec_intro",
+        solve_spec_has_sat=False,
+        solve_mem_thm="fidStep7_solveBytes_mem",
+        default_cert_style="slices",
+        default_abi_common=True,
+        fns_length_thm="fidStep7InlFns_length",
+        default_prune_ext=True,
+        default_no_bounds_import=True,
+        default_tree_groups=8,
     ),
     "FullM8Opt": ModulePreset(
         name="FullM8Opt",
@@ -706,6 +752,10 @@ PRESET_ALIASES: dict[str, str] = {
     "kissatfidelity": "FullFidelity",
     "fidelity": "FullFidelity",
     "fid": "FullFidelity",
+    "kissatfidelitystep7": "FullFidelityStep7",
+    "fidelitystep7": "FullFidelityStep7",
+    "fidstep7": "FullFidelityStep7",
+    "step7": "FullFidelityStep7",
     "kissatm8opt": "FullM8Opt",
     "m8opt": "FullM8Opt",
     "opt": "FullM8Opt",
@@ -871,6 +921,13 @@ class CertConfig:
     cert_style: str = "ladder"
     abi_common: bool = False
     fns_length_thm: str | None = None
+    prune_ext: bool = False
+    no_bounds_import: bool = False
+    bounds_literals: (
+        dict[str, dict[int, tuple[tuple[str, tuple[str, ...], tuple[str, ...], int], ...]]] | None
+    ) = None
+    tree_groups: int = 0
+    max_slice_weight: float | None = None
 
     @property
     def is_inlined(self) -> bool:
@@ -1693,24 +1750,38 @@ def singleton_isolated_slices(
     singleton_work: int = 2100,
     max_slice_size: int = 500,
     max_slice_count: int = 10,
+    max_slice_weight: float | None = None,
+    singleton_weight: float | None = None,
 ) -> tuple[SliceRange, ...]:
-    """Isolate heavy functions (`size >= singleton_size` or `work >= singleton_work`)
-    as singletons and pack remaining functions under `max_slice_size` and `max_slice_count`."""
+    """Isolate heavy functions (`size >= singleton_size`, `work >= singleton_work`, or
+    `cost >= singleton_weight`) as singletons and pack remaining functions under
+    `max_slice_size`, `max_slice_weight`, and `max_slice_count`."""
     if not metrics:
         raise ValueError("cannot slice 0 functions")
     if not 1 <= max_slice_count <= MAX_SLICE_SIZE:
         raise ValueError(
             f"max_slice_count must be in [1, {MAX_SLICE_SIZE}], got {max_slice_count}"
         )
-    if max_slice_size <= 0:
+    if max_slice_size < 0 or (max_slice_size == 0 and max_slice_weight is None):
         raise ValueError(f"max_slice_size must be positive, got {max_slice_size}")
+    if max_slice_weight is not None and max_slice_weight <= 0:
+        raise ValueError(f"max_slice_weight must be positive, got {max_slice_weight}")
+    eff_sing_wt = (
+        singleton_weight
+        if singleton_weight is not None
+        else (0.65 * max_slice_weight if max_slice_weight is not None else None)
+    )
     ranges: list[tuple[int, int]] = []
     cur_start: int | None = None
     cur_cnt = 0
     cur_sz = 0
+    cur_wt = 0.0
     for idx, m in enumerate(metrics):
-        is_heavy = (singleton_size > 0 and m.size >= singleton_size) or (
-            singleton_work > 0 and m.work >= singleton_work
+        is_heavy = (
+            (singleton_size > 0 and m.size >= singleton_size)
+            or (singleton_work > 0 and m.work >= singleton_work)
+            or (eff_sing_wt is not None and eff_sing_wt > 0 and m.cost >= eff_sing_wt)
+            or (max_slice_weight is not None and bool(SINGLETON_STRAGGLER_RE.match(m.name)))
         )
         if is_heavy:
             if cur_start is not None:
@@ -1718,20 +1789,25 @@ def singleton_isolated_slices(
                 cur_start = None
                 cur_cnt = 0
                 cur_sz = 0
+                cur_wt = 0.0
             ranges.append((idx, idx + 1))
         else:
+            exceeds_size = max_slice_size > 0 and (cur_sz + m.size > max_slice_size)
+            exceeds_wt = max_slice_weight is not None and (cur_wt + m.cost > max_slice_weight)
             if cur_start is not None and (
-                cur_cnt >= max_slice_count or cur_sz + m.size > max_slice_size
+                cur_cnt >= max_slice_count or exceeds_size or exceeds_wt
             ):
                 ranges.append((cur_start, idx))
                 cur_start = idx
                 cur_cnt = 1
                 cur_sz = m.size
+                cur_wt = m.cost
             else:
                 if cur_start is None:
                     cur_start = idx
                 cur_cnt += 1
                 cur_sz += m.size
+                cur_wt += m.cost
     if cur_start is not None:
         ranges.append((cur_start, len(metrics)))
     return tuple(
@@ -1750,6 +1826,8 @@ def plan_slices_with_reuse(
     singleton_work: int | None,
     max_slice_size: int | None,
     heavy_thresh: float | None,
+    max_slice_weight: float | None = None,
+    singleton_weight: float | None = None,
 ) -> tuple[SliceRange, ...]:
     """Partition `[0, len(metrics))` keeping reused slices and slicing uncovered gaps."""
     total_fns = len(metrics)
@@ -1781,16 +1859,27 @@ def plan_slices_with_reuse(
         if g_start >= g_end:
             return
         sub = metrics[g_start:g_end]
-        if max_slice_size is not None or singleton_size is not None:
-            s_sz = singleton_size if singleton_size is not None else 350
-            s_wk = singleton_work if singleton_work is not None else s_sz * 6
-            m_sz = max_slice_size if max_slice_size is not None else 500
+        if (
+            max_slice_size is not None
+            or singleton_size is not None
+            or max_slice_weight is not None
+        ):
+            if max_slice_weight is not None and max_slice_size is None and singleton_size is None:
+                s_sz = 0
+                s_wk = singleton_work if singleton_work is not None else 0
+                m_sz = 0
+            else:
+                s_sz = singleton_size if singleton_size is not None else 350
+                s_wk = singleton_work if singleton_work is not None else s_sz * 6
+                m_sz = max_slice_size if max_slice_size is not None else 500
             gap_slices = singleton_isolated_slices(
                 sub,
                 singleton_size=s_sz,
                 singleton_work=s_wk,
                 max_slice_size=m_sz,
                 max_slice_count=slice_size,
+                max_slice_weight=max_slice_weight,
+                singleton_weight=singleton_weight,
             )
         elif balance:
             gap_slices = autobalance_slices(
@@ -2063,12 +2152,137 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
     return "\n".join(lines)
 
 
+def _format_lean_ty(ty: str) -> str:
+    """Format a Lean `Ty` literal concisely (`i64`, `i32`, `.bool`, etc.)."""
+    s = ty.strip()
+    aliases = {
+        "i64": "i64",
+        "u64": "i64",
+        "i32": "i32",
+        "u32": "i32",
+        "i16": "i16",
+        "u16": "i16",
+        "i8": "i8",
+        "u8": "i8",
+        "bool": ".bool",
+        "f32": ".f32",
+        "f64": ".f64",
+    }
+    return aliases.get(s, s)
+
+
+def _parse_bound_entry(raw: dict[str, object]) -> tuple[str, tuple[str, ...], tuple[str, ...], int]:
+    """Parse one `{name, as, rs, bound}` JSON record into a normalized tuple."""
+    name = str(raw["name"])
+    as_tys = tuple(_format_lean_ty(str(t)) for t in raw.get("as", []))  # type: ignore[union-attr]
+    rs_tys = tuple(_format_lean_ty(str(t)) for t in raw.get("rs", []))  # type: ignore[union-attr]
+    bound = int(raw["bound"])  # type: ignore[arg-type]
+    return (name, as_tys, rs_tys, bound)
+
+
+def load_bounds_json(
+    path: Path,
+    slices: tuple[SliceRange, ...],
+    total_fns: int,
+) -> dict[str, dict[int, tuple[tuple[str, tuple[str, ...], tuple[str, ...], int], ...]]]:
+    """Load per-slice literal callee bounds (`N2`) from JSON for `amd64`/`arm64`.
+
+    Accepts:
+      1. `{"amd64": {"2": [entry, ...], ...}, "arm64": {...}}` (per-arch per-slice map)
+      2. `{"slices": {"2": [entry, ...], ...}}` (arch-agnostic per-slice map)
+      3. `{"amd64": [fn_row, ...], "arm64": [...]}` or `[fn_row, ...]` (per-fn module-order
+         list; if `fn_row` carries `"callees"`, prunes each slice to its direct prefix callees).
+    """
+    raw = json.loads(path.read_text(encoding="utf-8"))
+
+    def resolve_for_payload(
+        payload: object,
+    ) -> dict[int, tuple[tuple[str, tuple[str, ...], tuple[str, ...], int], ...]]:
+        if isinstance(payload, dict):
+            table = payload.get("slices", payload)
+            if not isinstance(table, dict):
+                raise ValueError(f"invalid bounds JSON slice map in {path}")
+            out: dict[int, tuple[tuple[str, tuple[str, ...], tuple[str, ...], int], ...]] = {}
+            for k, entries in table.items():
+                if not isinstance(entries, list):
+                    raise ValueError(f"bounds JSON slice {k!r} must be a list")
+                out[int(k)] = tuple(_parse_bound_entry(e) for e in entries)
+            return out
+        if isinstance(payload, list):
+            if len(payload) != total_fns:
+                raise ValueError(
+                    f"bounds JSON has {len(payload)} function rows != total_fns {total_fns}"
+                )
+            parsed = [_parse_bound_entry(e) for e in payload]
+            callees_list = [
+                list(e["callees"]) if isinstance(e, dict) and "callees" in e else None
+                for e in payload
+            ]
+            has_callees = any(c is not None for c in callees_list)
+            out = {}
+            for sl in slices:
+                if sl.start == 0:
+                    out[sl.index] = ()
+                    continue
+                prefix = parsed[: sl.start]
+                if has_callees:
+                    by_name = {entry[0]: entry for entry in prefix}
+                    seen: set[str] = set()
+                    pruned: list[tuple[str, tuple[str, ...], tuple[str, ...], int]] = []
+                    for idx in range(sl.start, sl.end):
+                        for callee in callees_list[idx] or ():
+                            nm = str(callee)
+                            if nm in by_name and nm not in seen:
+                                seen.add(nm)
+                                pruned.append(by_name[nm])
+                    out[sl.index] = tuple(pruned)
+                else:
+                    out[sl.index] = tuple(reversed(prefix))
+            return out
+        raise ValueError(f"unsupported bounds JSON structure in {path}")
+
+    if isinstance(raw, dict) and ("amd64" in raw or "arm64" in raw):
+        return {
+            arch_k: resolve_for_payload(raw[arch_k])
+            for arch_k in ("amd64", "arm64")
+            if arch_k in raw
+        }
+    shared = resolve_for_payload(raw)
+    return {"amd64": shared, "arm64": shared}
+
+
+def render_ext_literal_def(
+    def_name: str,
+    entries: tuple[tuple[str, tuple[str, ...], tuple[str, ...], int], ...],
+) -> list[str]:
+    """Render a pure literal `private def <def_name> : List (SigEntry × Nat)` within 100c."""
+    if not entries:
+        return [f"private def {def_name} : List (SigEntry × Nat) := []"]
+    lines = [f"private def {def_name} : List (SigEntry × Nat) := ["]
+    for idx, (nm, as_tys, rs_tys, bound) in enumerate(entries):
+        comma = "," if idx + 1 < len(entries) else ""
+        as_s = "[" + ", ".join(as_tys) + "]"
+        rs_s = "[" + ", ".join(rs_tys) + "]"
+        one = f'  (("{nm}", {as_s}, {rs_s}), {bound}){comma}'
+        if len(one) <= MAX_LINE_LEN:
+            lines.append(one)
+        else:
+            lines.append(f'  (("{nm}",')
+            lines.extend(_wrap_list_elems("     ", list(as_tys), indent="      "))
+            lines[-1] = lines[-1] + ","
+            lines.extend(_wrap_list_elems("     ", list(rs_tys), indent="      "))
+            lines[-1] = lines[-1] + f"), {bound}){comma}"
+    lines.append("]")
+    return lines
+
+
 def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
     """Render `<Prefix>Cert<i>.lean` for one slice `<= 12` functions."""
     fresh_slices = sum(1 for s in cfg.slices if s.reuse_src_index is None)
     ns = f"{arch.ns_prefix}.{cfg.prefix}Cert{sl.index}"
     bounds_mod = f"{arch.ns_prefix}.{cfg.prefix}Bounds"
     uses_ext = sl.start > 0
+    uses_bounds_mod = uses_ext and not cfg.no_bounds_import
     cert_fns = cfg.cert_fns
     cert_src = cfg.cert_source_mod
 
@@ -2076,7 +2290,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
         "public import LeanQbe.T.MainCertCore",
         f"public import {arch.lemmas_mod}",
     ]
-    if uses_ext:
+    if uses_bounds_mod:
         pub_imports.append(f"public import {bounds_mod}")
     pub_imports.append(f"public import {cert_src}")
 
@@ -2085,12 +2299,12 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
         "meta import LeanQbe.T.MainCertElab",
         f"meta import {arch.targ_mod}",
     ]
-    if uses_ext:
+    if uses_bounds_mod:
         meta_imports.append(f"meta import {bounds_mod}")
     meta_imports.append(f"meta import {cert_src}")
 
     open_parts = ["LeanQbe.T", arch.ns_prefix]
-    if uses_ext:
+    if uses_bounds_mod:
         open_parts.append(bounds_mod)
     open_parts.append(cfg.cert_source_ns)
 
@@ -2110,22 +2324,56 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
             f"  {{ fns := {mod_rhs} }}"
         )
 
-    ext_opt = f" (ext := {cfg.stem}ExtPrefix {sl.start})" if uses_ext else ""
     mb_opt = fmt_max_bound_opt(cfg.max_bound)
+    ext_def_lines: list[str] = []
+    if not uses_ext:
+        ext_opt = ""
+    elif not cfg.no_bounds_import:
+        ext_opt = f" (ext := {cfg.stem}ExtPrefix {sl.start})"
+    else:
+        ext_name = f"slice{sl.index}Ext"
+        ext_opt = f" (ext := {ext_name})"
+        arch_lits = cfg.bounds_literals.get(arch.key) if cfg.bounds_literals else None
+        if arch_lits is not None and sl.index in arch_lits:
+            ext_def_lines = [
+                f"/-- Pruned direct-callee stack bounds for slice {sl.index} (`N2`). -/",
+                *render_ext_literal_def(ext_name, arch_lits[sl.index]),
+                "",
+            ]
+        else:
+            eval_args = [
+                arch.targ,
+                arch.lt,
+                f"({cert_fns}.take {sl.start})",
+                *([mb_opt.strip()] if mb_opt else []),
+                f"(pruneFor := slice{sl.index}Mod.fns)",
+            ]
+            ext_def_lines = [
+                (
+                    f"-- Pruned direct-callee bounds for slice {sl.index} "
+                    "(zero `*Bounds.lean` import)."
+                ),
+                *_wrap_lean_app(f"eval_prefix_ext! {ext_name}", eval_args, indent="  "),
+                "",
+            ]
+
+    prune_opt = " (pruneExt := true)" if cfg.prune_ext else ""
     cmd_head = (
         f"compile_linked_chunks! cert{sl.index} {arch.targ} {arch.layout} "
         f"{arch.lt} {arch.cl}"
     )
-    cmd_tail = (
-        f"  slice{sl.index}Mod {cfg.chunk_size}{ext_opt} "
-        f"(maxDirs := {cfg.max_dirs}){mb_opt}"
-    )
-    if len(cmd_tail) > MAX_LINE_LEN:
-        parts = [f"  slice{sl.index}Mod {cfg.chunk_size}"]
-        if ext_opt:
-            parts.append(f" {ext_opt.strip()}")
-        parts.append(f" (maxDirs := {cfg.max_dirs}){mb_opt}")
-        cmd_tail = "\n  ".join([parts[0], *[p.strip() for p in parts[1:]]])
+    tail_opts = [
+        f"slice{sl.index}Mod {cfg.chunk_size}",
+        *([ext_opt.strip()] if ext_opt else []),
+        f"(maxDirs := {cfg.max_dirs})",
+        *([mb_opt.strip()] if mb_opt else []),
+        *([prune_opt.strip()] if prune_opt else []),
+    ]
+    one_tail = "  " + " ".join(tail_opts)
+    if len(one_tail) <= MAX_LINE_LEN:
+        cmd_tail = one_tail
+    else:
+        cmd_tail = "\n".join(_wrap_lean_app(f"  {tail_opts[0]}", tail_opts[1:], indent="  "))
 
     lines = [
         "module",
@@ -2156,6 +2404,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
         f"`{sl.count}` functions). -/",
         mod_def,
         "",
+        *ext_def_lines,
         cmd_head,
         cmd_tail,
         "",
@@ -2518,47 +2767,144 @@ def render_cert_slices(cfg: CertConfig, arch: ArchSpec) -> str:
             )
 
     slices_list_name = f"{cfg.stem}Slices"
-    slice_defs.extend(
-        [
-            "",
-            f"private noncomputable def {slices_list_name} :",
-            f"    List ({slice_ty}) :=",
-            *_wrap_list_elems(" ", slice_names, indent="    "),
-            "",
-            "private theorem allSlices_link :",
-            f"    checkLinkList {arch.layout} [] (ChunkSlice.allChunks {slices_list_name}) = true := by",
-            "  t_kernel_rfl",
-            "",
-        ]
-    )
-    if len(slice_defs[-3]) > MAX_LINE_LEN:
-        slice_defs[-3] = (
-            f"    checkLinkList {arch.layout} []\n"
-            f"      (ChunkSlice.allChunks {slices_list_name}) = true := by"
-        )
-
     sig_lines = _format_cert_sig(arch, base_mod_name, cfg.max_bound)
-    of_slices_lines = _wrap_lean_app(
-        "  LinkedCert.ofChunkSlices",
-        [
-            slices_list_name,
-            f"(by dsimp only [{base_mod_name}]; exact {len_thm})",
-            "(by decide)",
-            "allSlices_link",
-        ],
-    )
-    slice_defs.extend(
-        [
-            *wrap_comment_lines(
-                f"/-- Standalone kernel-checked slice-list cert covering all "
-                f"`{cfg.total_fns}` functions in `{base_mod_name}` on {arch.isa_title}. -/"
-            ),
-            f"{base_vis} {base_cert_name} :",
-            *sig_lines,
-            *of_slices_lines,
-            "",
-        ]
-    )
+    use_tree = cfg.tree_groups >= 2 and len(indexed) >= 2
+
+    if use_tree:
+        n_groups = min(cfg.tree_groups, len(indexed))
+        group_entries: list[str] = []
+        group_slices_by_idx: list[tuple[int, list[tuple[int, SliceRange]]]] = []
+        q_sz, rem_sz = divmod(len(indexed), n_groups)
+        cur_p = 0
+        for g_idx in range(n_groups):
+            take_n = q_sz + (1 if g_idx < rem_sz else 0)
+            group_slices_by_idx.append((g_idx, indexed[cur_p : cur_p + take_n]))
+            cur_p += take_n
+
+        slice_defs.append("")
+        for g_idx, g_items in group_slices_by_idx:
+            g_start = g_items[0][1].start
+            g_end = g_items[-1][1].end
+            g_count = g_end - g_start
+            g_sl_names = [f"slice{p}" for p, _ in g_items]
+            g_list_name = f"grp{g_idx}Slices"
+            g_slice_name = f"grp{g_idx}Slice"
+            g_ext_name = f"grp{g_idx}ExtIn"
+            g_thm_name = f"grp{g_idx}_ext"
+            ext_rhs = (
+                "[]"
+                if g_idx == 0
+                else f"chunksNextExt grp{g_idx - 1}ExtIn grp{g_idx - 1}Slice.chunks"
+            )
+            slice_defs.extend(
+                [
+                    f"private noncomputable def {g_list_name} :",
+                    f"    List ({slice_ty}) :=",
+                    *_wrap_list_elems(" ", g_sl_names, indent="    "),
+                    f"private noncomputable def {g_slice_name} :",
+                    f"    {slice_ty} :=",
+                    f"  ChunkSlice.ofSlices {g_start} {g_count} {g_list_name} (by decide)",
+                    f"private noncomputable def {g_ext_name} : List (SigEntry × Nat) :=",
+                    f"  {ext_rhs}",
+                    f"private theorem {g_thm_name} :",
+                    f"    checkChunksExt {g_ext_name} {g_slice_name}.chunks = true := by",
+                    "  t_kernel_rfl",
+                ]
+            )
+            group_entries.append(f"⟨{g_slice_name}, {g_ext_name}, {g_thm_name}⟩")
+
+        groups_list_name = f"{cfg.stem}Groups"
+        group_ty = (
+            f"CheckedSliceGroup {arch.targ} {arch.lt} [] 0 {cfg.max_bound} {base_mod_name}.fns"
+        )
+        chain_proof = "⟨" + ", ".join(["rfl"] * n_groups + ["trivial"]) + "⟩"
+        if len(chain_proof) > MAX_LINE_LEN - 6:
+            chain_proof = "by repeat' constructor"
+        meta_line = (
+            f"    checkLinkMeta {arch.layout} "
+            f"(ChunkSlice.allChunks ({groups_list_name}.map (·.slice))) = true := by"
+        )
+        if len(meta_line) > MAX_LINE_LEN:
+            meta_line = (
+                f"    checkLinkMeta {arch.layout}\n"
+                f"      (ChunkSlice.allChunks ({groups_list_name}.map (·.slice))) = true := by"
+            )
+        of_groups_lines = _wrap_lean_app(
+            "  LinkedCert.ofCheckedGroups",
+            [
+                groups_list_name,
+                f"(by dsimp only [{base_mod_name}]; exact {len_thm})",
+                "(by decide)",
+                f"({chain_proof})" if " " in chain_proof else chain_proof,
+                "allGroups_meta",
+            ],
+        )
+        slice_defs.extend(
+            [
+                "",
+                f"private noncomputable def {groups_list_name} :",
+                f"    List ({group_ty}) :=",
+                *_wrap_list_elems(" ", group_entries, indent="    "),
+                "",
+                "private theorem allGroups_meta :",
+                meta_line,
+                "  t_kernel_rfl",
+                "",
+                *wrap_comment_lines(
+                    f"/-- Standalone 2-level balanced slice-tree cert ({n_groups} super-groups) "
+                    f"covering all `{cfg.total_fns}` functions in `{base_mod_name}` on "
+                    f"{arch.isa_title}. -/"
+                ),
+                f"{base_vis} {base_cert_name} :",
+                *sig_lines,
+                *of_groups_lines,
+                "",
+            ]
+        )
+    else:
+        slice_defs.extend(
+            [
+                "",
+                f"private noncomputable def {slices_list_name} :",
+                f"    List ({slice_ty}) :=",
+                *_wrap_list_elems(" ", slice_names, indent="    "),
+                "",
+                "private theorem allSlices_link :",
+                (
+                    f"    checkLinkList {arch.layout} [] "
+                    f"(ChunkSlice.allChunks {slices_list_name}) = true := by"
+                ),
+                "  t_kernel_rfl",
+                "",
+            ]
+        )
+        if len(slice_defs[-3]) > MAX_LINE_LEN:
+            slice_defs[-3] = (
+                f"    checkLinkList {arch.layout} []\n"
+                f"      (ChunkSlice.allChunks {slices_list_name}) = true := by"
+            )
+
+        of_slices_lines = _wrap_lean_app(
+            "  LinkedCert.ofChunkSlices",
+            [
+                slices_list_name,
+                f"(by dsimp only [{base_mod_name}]; exact {len_thm})",
+                "(by decide)",
+                "allSlices_link",
+            ],
+        )
+        slice_defs.extend(
+            [
+                *wrap_comment_lines(
+                    f"/-- Standalone kernel-checked slice-list cert covering all "
+                    f"`{cfg.total_fns}` functions in `{base_mod_name}` on {arch.isa_title}. -/"
+                ),
+                f"{base_vis} {base_cert_name} :",
+                *sig_lines,
+                *of_slices_lines,
+                "",
+            ]
+        )
 
     if is_inl:
         target_expr = f"({cfg.target_mod_expr})"
@@ -5003,12 +5349,15 @@ def render_unsat_section(
 def build_plan(cfg: CertConfig, arches: list[str]) -> list[tuple[str, str]]:
     """Build deterministic `(relative_path, lean_source)` pairs and validate invariants."""
     files: list[tuple[str, str]] = []
+    needs_bounds_file = (not cfg.no_bounds_import) or (
+        bool(cfg.reuse_prefix) and cfg.reuse_mode == "pruned_relink"
+    )
     for arch_key in arches:
         arch = ARCH_SPECS[arch_key]
         base = f"LeanQbe/T/{arch.dir_name}"
-        planned: list[tuple[str, str]] = [
-            (f"{base}/{cfg.prefix}Bounds.lean", render_bounds(cfg, arch)),
-        ]
+        planned: list[tuple[str, str]] = []
+        if needs_bounds_file:
+            planned.append((f"{base}/{cfg.prefix}Bounds.lean", render_bounds(cfg, arch)))
         for sl in cfg.slices:
             if sl.reuse_src_index is None:
                 planned.append(
@@ -5247,21 +5596,38 @@ def build_config(args: argparse.Namespace) -> CertConfig:
             singleton_work=args.singleton_work,
             max_slice_size=args.max_slice_size,
             heavy_thresh=args.heavy_thresh,
+            max_slice_weight=args.max_slice_weight,
+            singleton_weight=args.singleton_weight,
         )
     elif args.reuse_mode and args.reuse_mode != "verbatim":
         raise ValueError(f"--reuse-mode {args.reuse_mode} requires --reuse-spec")
     elif explicit_sizes is not None:
         slices = compute_slices(total_fns, args.slice_size, explicit_sizes)
-    elif args.max_slice_size is not None or args.singleton_size is not None:
-        sing_sz = args.singleton_size if args.singleton_size is not None else 350
-        sing_wk = args.singleton_work if args.singleton_work is not None else sing_sz * 6
-        max_sz = args.max_slice_size if args.max_slice_size is not None else 500
+    elif (
+        args.max_slice_size is not None
+        or args.singleton_size is not None
+        or args.max_slice_weight is not None
+    ):
+        if (
+            args.max_slice_weight is not None
+            and args.max_slice_size is None
+            and args.singleton_size is None
+        ):
+            sing_sz = 0
+            sing_wk = args.singleton_work if args.singleton_work is not None else 0
+            max_sz = 0
+        else:
+            sing_sz = args.singleton_size if args.singleton_size is not None else 350
+            sing_wk = args.singleton_work if args.singleton_work is not None else sing_sz * 6
+            max_sz = args.max_slice_size if args.max_slice_size is not None else 500
         raw_slices = singleton_isolated_slices(
             fn_metrics,
             singleton_size=sing_sz,
             singleton_work=sing_wk,
             max_slice_size=max_sz,
             max_slice_count=args.slice_size,
+            max_slice_weight=args.max_slice_weight,
+            singleton_weight=args.singleton_weight,
         )
         if pin_cuts:
             cut_ranges = apply_pin_cuts([(s.start, s.end) for s in raw_slices], pin_cuts)
@@ -5317,6 +5683,31 @@ def build_config(args: argparse.Namespace) -> CertConfig:
     sound_no_exit = args.sound_no_exit or (
         no_exit if sound_env == env else f"{sound_env}_noExit"
     )
+
+    prune_ext: bool = (
+        args.prune_ext
+        if args.prune_ext is not None
+        else (preset.default_prune_ext if preset else False)
+    )
+    no_bounds_import: bool = (
+        args.no_bounds_import
+        if args.no_bounds_import is not None
+        else (preset.default_no_bounds_import if preset else False)
+    )
+    if args.bounds_json:
+        no_bounds_import = True
+    bounds_literals = (
+        load_bounds_json(Path(args.bounds_json), slices, total_fns) if args.bounds_json else None
+    )
+    tree_groups: int = (
+        args.tree_groups
+        if args.tree_groups is not None
+        else (preset.default_tree_groups if preset else 0)
+    )
+    if tree_groups < 0:
+        raise ValueError(f"--tree-groups must be >= 0, got {tree_groups}")
+    if tree_groups >= 2 and cert_style != "slices":
+        raise ValueError("--tree-groups >= 2 requires --cert-style slices")
 
     return CertConfig(
         prefix=prefix,
@@ -5385,6 +5776,11 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         cert_style=cert_style,
         abi_common=abi_common,
         fns_length_thm=fns_length_thm,
+        prune_ext=prune_ext,
+        no_bounds_import=no_bounds_import,
+        bounds_literals=bounds_literals,
+        tree_groups=tree_groups,
+        max_slice_weight=args.max_slice_weight,
     )
 
 
@@ -5508,6 +5904,69 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="Optional max cumulative IR size per multi-fn slice (enables singleton isolation).",
+    )
+    ap.add_argument(
+        "--max-slice-weight",
+        type=float,
+        default=None,
+        help="Optional max cumulative weighted cost per multi-fn micro-slice (N6).",
+    )
+    ap.add_argument(
+        "--singleton-weight",
+        type=float,
+        default=None,
+        help=(
+            "Optional function cost floor isolating heavy singletons "
+            "(default: 0.65 * max_slice_weight)."
+        ),
+    )
+    ap.add_argument(
+        "--prune-ext",
+        dest="prune_ext",
+        action="store_true",
+        default=None,
+        help=(
+            "Emit `(pruneExt := true)` on `compile_linked_chunks!` "
+            "(N4; default: on for FullFidelity)."
+        ),
+    )
+    ap.add_argument(
+        "--no-prune-ext",
+        dest="prune_ext",
+        action="store_false",
+        help="Disable `(pruneExt := true)` on `compile_linked_chunks!`.",
+    )
+    ap.add_argument(
+        "--no-bounds-import",
+        dest="no_bounds_import",
+        action="store_true",
+        default=None,
+        help=(
+            "Drop monolithic `<Prefix>Bounds.lean` import from `Cert2..N` and emit "
+            "per-slice pruned bounds (N2; default: on for FullFidelity)."
+        ),
+    )
+    ap.add_argument(
+        "--bounds-import",
+        dest="no_bounds_import",
+        action="store_false",
+        help="Force monolithic `<Prefix>Bounds.lean` import across `Cert2..N`.",
+    )
+    ap.add_argument(
+        "--bounds-json",
+        help=(
+            "Optional JSON file providing per-slice/per-fn bounds for pure literal "
+            "`slice{k}Ext` (N2)."
+        ),
+    )
+    ap.add_argument(
+        "--tree-groups",
+        type=int,
+        default=None,
+        help=(
+            "Partition slices into N super-groups for a 2-level balanced `checkLinkList` "
+            "tree via `LinkedCert.ofCheckedGroups` (N6; requires `--cert-style slices`)."
+        ),
     )
     ap.add_argument(
         "--singleton-size",

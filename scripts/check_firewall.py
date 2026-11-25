@@ -35,6 +35,28 @@ from lean_imports import (
 )
 
 TARG_MOD_RE = re.compile(r"^LeanQbe\.T\.(?:Amd64|Arm64)\.Targ(?:Lemmas)?$")
+SPURIOUS_META_MODS: frozenset[str] = frozenset(
+    {
+        "LeanQbe.T.PrintCpp",
+        "LeanQbe.T.PrintQbe",
+        "LeanQbe.T.Legal",
+    }
+)
+DATA_PROOF_ALLOWED_LEMMAS: frozenset[str] = frozenset({"LeanQbe.T.MainLemmas"})
+PROOF_TOKEN_RE = re.compile(r"(?:Proof|Lemmas|Audit|Spec)")
+DATA_PROOF_SCOPED_PREFIXES: tuple[str, ...] = (
+    "LeanQbe.T.Examples.Kissat.FullFidelity",
+    "LeanQbe.T.Examples.Kissat.FullM8",
+)
+DATA_PROOF_EXCLUDED_TOKENS: tuple[str, ...] = (
+    "Proof",
+    "Lemmas",
+    "Audit",
+    "Spec",
+    "Tactics",
+    "Util",
+    "Step2S15",
+)
 
 
 @dataclass
@@ -204,8 +226,147 @@ def check_boundary_files(
     return missing, violations
 
 
-def run_audit(root: Path, require_isa: bool = False) -> list[LeakGroupReport]:
-    """Run all firewall checks (L1-L4) against `root`."""
+def discover_data_proof_files(root: Path) -> list[str]:
+    """Collect `FullFidelity*` and `FullM8*` AST/Data modules subject to `--data-proof`.
+
+    Excludes proof/spec/tactic/util modules and the backwards-compatible
+    `FullFidelityInl.lean` barrel (which intentionally re-exports `FullFidelityInlProof`).
+    Active legacy `FullM7*` modules are intentionally left outside this scope.
+    """
+    kissat_dir = root / "LeanQbe" / "T" / "Examples" / "Kissat"
+    if not kissat_dir.is_dir():
+        return []
+    out: list[str] = []
+    for p in sorted(kissat_dir.glob("*.lean")):
+        stem = p.stem
+        if not (stem.startswith("FullFidelity") or stem.startswith("FullM8")):
+            continue
+        if stem == "FullFidelityInl":
+            continue
+        if any(tok in stem for tok in DATA_PROOF_EXCLUDED_TOKENS):
+            continue
+        out.append(p.relative_to(root).as_posix())
+    return out
+
+
+def _is_proof_module(mod: str) -> bool:
+    """Return True if `mod` is a proof/lemmas/audit/spec module outside the allowlist."""
+    if mod in DATA_PROOF_ALLOWED_LEMMAS:
+        return False
+    leaf = mod.rsplit(".", 1)[-1]
+    return bool(PROOF_TOKEN_RE.search(leaf))
+
+
+def check_data_proof_files(
+    root: Path,
+    rel_files: list[str],
+    cache: dict[Path, list[ImportStmt]],
+) -> tuple[list[Violation], list[Violation]]:
+    """Check `FullFidelity*`/`FullM8*` AST/Data modules for proof & meta leaks.
+
+    Returns `(proof_violations, meta_violations)`:
+      - `D1` (`proof_violations`): direct `public`/`meta` imports of `*Proof*`/`*Lemmas*`/
+        `*Audit*`/`*Spec*` modules, plus transitive `public import` paths inside
+        `FullFidelity*`/`FullM8*` reaching any proof module.
+      - `D2` (`meta_violations`): spurious `meta import` of `PrintCpp`, `PrintQbe`,
+        or `Legal` on AST/Data modules.
+    """
+    proof_viols: list[Violation] = []
+    meta_viols: list[Violation] = []
+
+    for rel in rel_files:
+        path = root / rel
+        if not path.is_file():
+            continue
+        if path not in cache:
+            _, imps = parse_imports(path)
+            cache[path] = imps
+        imps = cache[path]
+
+        direct_flagged: set[str] = set()
+        for imp in imps:
+            if imp.is_meta and imp.module in SPURIOUS_META_MODS:
+                meta_viols.append(
+                    Violation(
+                        leak_id="D2",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="spurious-meta-import",
+                        detail=(
+                            f"spurious `meta import {imp.module}` in AST/Data module "
+                            "(move `#guard` checks to `LeanQbeTest/T/`)"
+                        ),
+                    )
+                )
+            if (imp.is_public or imp.is_meta) and _is_proof_module(imp.module):
+                direct_flagged.add(imp.module)
+                vis = "public import" if imp.is_public else "meta import"
+                proof_viols.append(
+                    Violation(
+                        leak_id="D1",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="data-to-proof",
+                        detail=f"{vis} of `{imp.module}` leaks proof module into AST/Data",
+                    )
+                )
+
+        # Transitive public-import check scoped to `FullFidelity*`/`FullM8*` so active
+        # legacy `FullM7*` modules (e.g. `FullM7Splice`) do not break the gate.
+        queue: list[tuple[str, list[str]]] = [
+            (imp.module, [imp.module])
+            for imp in imps
+            if imp.is_public and imp.module.startswith(DATA_PROOF_SCOPED_PREFIXES)
+        ]
+        visited: set[str] = set()
+        while queue:
+            mod, chain = queue.pop(0)
+            if mod in visited:
+                continue
+            visited.add(mod)
+            if _is_proof_module(mod):
+                if chain[0] not in direct_flagged:
+                    imp_line = next(
+                        (i.line for i in imps if i.is_public and i.module == chain[0]),
+                        1,
+                    )
+                    proof_viols.append(
+                        Violation(
+                            leak_id="D1",
+                            file=rel,
+                            line=imp_line,
+                            module=mod,
+                            kind="transitive-data-to-proof",
+                            detail="transitive public import path: " + " -> ".join(chain),
+                        )
+                    )
+                continue
+            if not mod.startswith(DATA_PROOF_SCOPED_PREFIXES):
+                continue
+            mpath = module_to_path(root, mod)
+            if mpath is None:
+                continue
+            if mpath not in cache:
+                _, nimps = parse_imports(mpath)
+                cache[mpath] = nimps
+            for nxt in cache[mpath]:
+                if nxt.is_public and nxt.module not in visited:
+                    if nxt.module.startswith(DATA_PROOF_SCOPED_PREFIXES) or _is_proof_module(
+                        nxt.module
+                    ):
+                        queue.append((nxt.module, [*chain, nxt.module]))
+
+    return proof_viols, meta_viols
+
+
+def run_audit(
+    root: Path,
+    require_isa: bool = False,
+    data_proof: bool = False,
+) -> list[LeakGroupReport]:
+    """Run all firewall checks (L1-L4, plus optional D1-D2 `--data-proof`) against `root`."""
     cache: dict[Path, list[ImportStmt]] = {}
 
     l1_files = ["LeanQbe/T/MainLemmas.lean"]
@@ -248,7 +409,7 @@ def run_audit(root: Path, require_isa: bool = False) -> list[LeakGroupReport]:
                 )
             )
 
-    return [
+    reports = [
         LeakGroupReport(
             leak_id="L1",
             label="MainLemmas (`LeanQbe/T/MainLemmas.lean`)",
@@ -278,6 +439,29 @@ def run_audit(root: Path, require_isa: bool = False) -> list[LeakGroupReport]:
             violations=l4_viols,
         ),
     ]
+    if data_proof:
+        dp_files = discover_data_proof_files(root)
+        d1_viols, d2_viols = check_data_proof_files(root, dp_files, cache)
+        reports.extend(
+            [
+                LeakGroupReport(
+                    leak_id="D1",
+                    label="AST/Data -> Proof firewall (`FullFidelity*`/`FullM8*`)",
+                    files=dp_files,
+                    violations=d1_viols,
+                ),
+                LeakGroupReport(
+                    leak_id="D2",
+                    label=(
+                        "Spurious printer/legal `meta import` firewall "
+                        "(`FullFidelity*`/`FullM8*`)"
+                    ),
+                    files=dp_files,
+                    violations=d2_viols,
+                ),
+            ]
+        )
+    return reports
 
 
 def format_human_report(
@@ -324,6 +508,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Fail if LeanQbe/T/{Amd64,Arm64}/Isa.lean are absent.",
     )
     ap.add_argument(
+        "--data-proof",
+        action="store_true",
+        help=(
+            "Enforce AST/Data -> Proof and spurious printer/legal `meta import` "
+            "firewalls on `FullFidelity*`/`FullM8*` AST/Data modules."
+        ),
+    )
+    ap.add_argument(
         "--json",
         action="store_true",
         help="Emit machine-readable JSON output.",
@@ -332,7 +524,7 @@ def main(argv: list[str] | None = None) -> int:
 
     t0 = time.perf_counter()
     root = Path(args.root).resolve()
-    groups = run_audit(root, require_isa=args.require_isa)
+    groups = run_audit(root, require_isa=args.require_isa, data_proof=args.data_proof)
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
     leak_groups = sum(1 for g in groups if g.violations)

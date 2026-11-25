@@ -14,9 +14,6 @@ meta import LeanQbe.T.Examples.Kissat.FullM8CoreParity
 meta import LeanQbe.T.Examples.Kissat.FullM7HotTernary
 meta import LeanQbe.T.Examples.Kissat.PatchModule
 meta import LeanQbe.T.Frontend.C0
-meta import LeanQbe.T.Legal
-meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.PrintQbe
 
 /-!
 # Kissat Fidelity BVE Upstream Parity (`FullFidelityBve`, `GAP-BVE-01..03`)
