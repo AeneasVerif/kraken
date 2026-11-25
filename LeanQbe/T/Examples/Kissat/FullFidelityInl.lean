@@ -5,30 +5,29 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.MainInline
-public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3
-public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep4
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep4Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
 public import LeanQbe.T.Examples.Kissat.FullFidelityInlBase
-meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3
+meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep4
 meta import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
 meta import LeanQbe.T.Examples.Kissat.FullFidelityInlBase
 meta import LeanQbe.T.PrintCpp
 meta import LeanQbe.T.PrintQbe
 
 /-!
-# Symbolic PGO-Inlined Module for `KissatFidelity` (`FullFidelityInl`, Step 3: `474` fns)
+# Symbolic PGO-Inlined Module for `KissatFidelity` (`FullFidelityInl`, Step 4: `478` fns)
 
-Constructs `fidInlMod := fidStep3Module.optInlinePolicy fidInlPolicy` and its zero-scan
-chunk-materializable counterpart `fidInlChunkMod := fidStep3Module.optInlinePolicy
-fidInlChunkPolicy` (`474` fns, `0` externs, `0` exits, `std3` axioms only).
+Constructs `fidInlMod := fidStep4Module.optInlinePolicy fidInlPolicy` and its zero-scan
+chunk-materializable counterpart `fidInlChunkMod := fidStep4Module.optInlinePolicy
+fidInlChunkPolicy` (`478` fns, `0` externs, `0` exits, `std3` axioms only).
 
 ## Zero-Scan `inline_chunk_base!` Equivalence (`< 1s`)
 
-On `fidStep3Module`, `#eval` over `fidInlPolicy` confirms `0` callees are blocked by
-`maxTotalDup := 1500` (`singleSiteMax = 0`, `requireLoopSite = false`). Setting
-`singleSiteMax := 0`, `maxTotalDup := 0`, and `requireLoopSite := false` in `fidInlChunkPolicy`
-reduces `inlSiteCounts`/`inlLoopCounts` to `[]` in `O(1)` inside `FullFidelityInlBase`
-(`fidInlBase.rest0_eq`), while preserving bit-identical QBE and C0 printed IR (`#guard`s below).
+Setting `singleSiteMax := 0`, `maxTotalDup := 0`, and `requireLoopSite := false` in
+`fidInlChunkPolicy` reduces `inlSiteCounts`/`inlLoopCounts` to `[]` in `O(1)` inside
+`FullFidelityInlBase` (`fidInlBase.rest0_eq`), while preserving bit-identical QBE and C0
+printed IR (`#guard`s below).
 -/
 
 set_option autoImplicit false
@@ -39,16 +38,16 @@ namespace LeanQbe.T.Examples.Kissat.FullFidelityInl
 
 open LeanQbe.T
 open LeanQbe.T.Examples.Kissat.FullM6Orch
-open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3
+open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep4
 open LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
 
 private theorem solveBytes_exists_of_sigs (M : Module)
-    (hSigs : M.fns.map Fn.sig = fidStep3Module.fns.map Fn.sig) :
+    (hSigs : M.fns.map Fn.sig = fidStep4Module.fns.map Fn.sig) :
     ∃ body : Func [i64, i64, i64, i64, i64] [i64],
       (⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], body⟩ : Fn) ∈ M.fns := by
   have hsig : m6oSolveBytesFn.sig ∈ M.fns.map Fn.sig := by
     rw [hSigs]
-    exact List.mem_map.mpr ⟨m6oSolveBytesFn, fidStep3_solveBytes_mem, rfl⟩
+    exact List.mem_map.mpr ⟨m6oSolveBytesFn, fidStep4_solveBytes_mem, rfl⟩
   obtain ⟨f, hf, hfsig⟩ := List.mem_map.mp hsig
   rcases f with ⟨nm, as, rs, body⟩
   dsimp only [Fn.sig, m6oSolveBytesFn, FullM6Orch.m6oSolveBytesFn] at hfsig
@@ -59,47 +58,47 @@ private theorem solveBytes_exists_of_sigs (M : Module)
   subst hnm; subst has; subst hrs
   exact ⟨body, hf⟩
 
-/-- PGO-inlined and renormalized Gate-1 Step-3 module (`474` functions). -/
+/-- PGO-inlined and renormalized Gate-1 Step-4 module (`478` functions). -/
 abbrev fidInlMod : Module :=
-  fidStep3Module.optInlinePolicy fidInlPolicy
+  fidStep4Module.optInlinePolicy fidInlPolicy
 
 /-- Definitional unfolding of `fidInlMod`. -/
-theorem fidInlMod_eq : fidInlMod = fidStep3Module.optInlinePolicy fidInlPolicy :=
+theorem fidInlMod_eq : fidInlMod = fidStep4Module.optInlinePolicy fidInlPolicy :=
   rfl
 
 /-- `fidInlMod` preserves `externs = []`. -/
 theorem fidInlMod_externs : fidInlMod.externs = [] := by
   simp only [fidInlMod_eq, Module.optInlinePolicy_externs]
-  exact fidStep3_externs_empty
+  exact fidStep4_externs_empty
 
 /-- `fidInlMod` preserves `exits = []`. -/
 theorem fidInlMod_exits : fidInlMod.exits = [] :=
-  fidStep3_noExit
+  fidStep4_noExit
 
-/-- `fidInlMod.fns` preserves the exact function-signature list of `fidStep3Module.fns`. -/
+/-- `fidInlMod.fns` preserves the exact function-signature list of `fidStep4Module.fns`. -/
 theorem fidInlFns_sigs :
-    fidInlMod.fns.map Fn.sig = fidStep3Module.fns.map Fn.sig := by
-  have h := Module.optInlinePolicy_sigs fidStep3Module fidInlPolicy
+    fidInlMod.fns.map Fn.sig = fidStep4Module.fns.map Fn.sig := by
+  have h := Module.optInlinePolicy_sigs fidStep4Module fidInlPolicy
   simp only [Module.sigs, Module.optInlinePolicy_externs] at h
   exact List.append_cancel_right h
 
-/-- `fidInlMod` preserves the exact function count (`474`). -/
-theorem fidInlFns_length : fidInlMod.fns.length = 474 := by
+/-- `fidInlMod` preserves the exact function count (`478`). -/
+theorem fidInlFns_length : fidInlMod.fns.length = 478 := by
   have hlen := congrArg List.length fidInlFns_sigs
   simp only [List.length_map] at hlen
-  exact hlen.trans fidStep3Fns_length
+  exact hlen.trans fidStep4Fns_length
 
 /-- Every function in `fidInlMod` satisfies `Fn.Wf`. -/
 theorem fidInlMod_wf : ∀ f ∈ fidInlMod.fns, f.Wf :=
-  fidInlPolicy_wf fidStep3Module_acyclic fidStep3Module_wf
+  fidInlPolicy_wf fidStep4Module_acyclic fidStep4Module_wf
 
 /-- `fidInlMod` preserves `checkAcyclic = true`. -/
 theorem fidInlMod_acyclic : fidInlMod.checkAcyclic = true :=
-  fidInlPolicy_checkAcyclic fidStep3Module_acyclic fidStep3Module_wf
+  fidInlPolicy_checkAcyclic fidStep4Module_acyclic fidStep4Module_wf
 
 /-- Closed `0`-hook `ModuleOk` lifted across `fidInlPolicy` + `Fn.renorm` to `fidInlMod`. -/
-theorem fidInlMod_ok : ModuleOk fidStep3Env fidInlMod :=
-  fidInlPolicy_ok fidStep3_moduleOk
+theorem fidInlMod_ok : ModuleOk fidStep4Env fidInlMod :=
+  fidInlPolicy_ok fidStep4_moduleOk
 
 /-- Existence of the `"kissat_solve_bytes"` entry point inside `fidInlMod.fns`. -/
 theorem fidInl_solveBytes_exists :
@@ -117,47 +116,47 @@ theorem fidInl_solveBytes_mem :
       fidInlMod.fns :=
   Classical.choose_spec fidInl_solveBytes_exists
 
-/-- Zero-scan chunk-materializable Step-3 PGO-inlined module (`fidInlChunkPolicy`). -/
+/-- Zero-scan chunk-materializable Step-4 PGO-inlined module (`fidInlChunkPolicy`). -/
 abbrev fidInlChunkMod : Module :=
-  fidStep3Module.optInlinePolicy fidInlChunkPolicy
+  fidStep4Module.optInlinePolicy fidInlChunkPolicy
 
 /-- Definitional unfolding of `fidInlChunkMod`. -/
-theorem fidInlChunkMod_eq : fidInlChunkMod = fidStep3Module.optInlinePolicy fidInlChunkPolicy :=
+theorem fidInlChunkMod_eq : fidInlChunkMod = fidStep4Module.optInlinePolicy fidInlChunkPolicy :=
   rfl
 
 /-- `fidInlChunkMod` preserves `externs = []`. -/
 theorem fidInlChunkMod_externs : fidInlChunkMod.externs = [] := by
   simp only [fidInlChunkMod_eq, Module.optInlinePolicy_externs]
-  exact fidStep3_externs_empty
+  exact fidStep4_externs_empty
 
 /-- `fidInlChunkMod` preserves `exits = []`. -/
 theorem fidInlChunkMod_exits : fidInlChunkMod.exits = [] :=
-  fidStep3_noExit
+  fidStep4_noExit
 
-/-- `fidInlChunkMod.fns` preserves the exact function-signature list of `fidStep3Module.fns`. -/
+/-- `fidInlChunkMod.fns` preserves the exact function-signature list of `fidStep4Module.fns`. -/
 theorem fidInlChunkFns_sigs :
-    fidInlChunkMod.fns.map Fn.sig = fidStep3Module.fns.map Fn.sig := by
-  have h := Module.optInlinePolicy_sigs fidStep3Module fidInlChunkPolicy
+    fidInlChunkMod.fns.map Fn.sig = fidStep4Module.fns.map Fn.sig := by
+  have h := Module.optInlinePolicy_sigs fidStep4Module fidInlChunkPolicy
   simp only [Module.sigs, Module.optInlinePolicy_externs] at h
   exact List.append_cancel_right h
 
-/-- `fidInlChunkMod` preserves the exact function count (`474`). -/
-theorem fidInlChunkFns_length : fidInlChunkMod.fns.length = 474 := by
+/-- `fidInlChunkMod` preserves the exact function count (`478`). -/
+theorem fidInlChunkFns_length : fidInlChunkMod.fns.length = 478 := by
   have hlen := congrArg List.length fidInlChunkFns_sigs
   simp only [List.length_map] at hlen
-  exact hlen.trans fidStep3Fns_length
+  exact hlen.trans fidStep4Fns_length
 
 /-- Every function in `fidInlChunkMod` satisfies `Fn.Wf`. -/
 theorem fidInlChunkMod_wf : ∀ f ∈ fidInlChunkMod.fns, f.Wf :=
-  fidInlChunkPolicy_wf fidStep3Module_acyclic fidStep3Module_wf
+  fidInlChunkPolicy_wf fidStep4Module_acyclic fidStep4Module_wf
 
 /-- `fidInlChunkMod` preserves `checkAcyclic = true`. -/
 theorem fidInlChunkMod_acyclic : fidInlChunkMod.checkAcyclic = true :=
-  fidInlChunkPolicy_checkAcyclic fidStep3Module_acyclic fidStep3Module_wf
+  fidInlChunkPolicy_checkAcyclic fidStep4Module_acyclic fidStep4Module_wf
 
 /-- Closed `0`-hook `ModuleOk` lifted across `fidInlChunkPolicy` to `fidInlChunkMod`. -/
-theorem fidInlChunkMod_ok : ModuleOk fidStep3Env fidInlChunkMod :=
-  fidInlChunkPolicy_ok fidStep3_moduleOk
+theorem fidInlChunkMod_ok : ModuleOk fidStep4Env fidInlChunkMod :=
+  fidInlChunkPolicy_ok fidStep4_moduleOk
 
 /-- Existence of the `"kissat_solve_bytes"` entry point inside `fidInlChunkMod.fns`. -/
 theorem fidInlChunk_solveBytes_exists :
