@@ -93,6 +93,10 @@ private def isTailDir (fn : Sym) (nonLocal : HashSet Sym) : Directive → Option
   | .instr ⟨.W64, .RET (.low (.reg .X30) .W64)⟩ => some "ret"
   | .instr ⟨.W64, .B (.label sym)⟩ =>
     if isLocalFnLabel fn nonLocal sym then none else some s!"b {sym}"
+  | .instr ⟨.W64, .BR (.low r .W64)⟩ =>
+    match r with
+    | .reg x => some s!"br {cfiReg (.reg x)}"
+    | .XZR => some "br xzr"
   | _ => none
 
 private def csReg? (x : XReg) : Option Reg :=
@@ -183,7 +187,7 @@ private def opIsNonLeafOrFrame {w : RegWidth} : Operation w → Bool
   | .EXTR dst _ _ _ | .MOVZ dst _ _ | .MOVK dst _ _ | .MOVN dst _ _ | .LSLV dst _ _
   | .LSRV dst _ _ | .ASRV dst _ _ | .RORV dst _ _ | .CSEL dst _ _ _ | .CSINC dst _ _ _
   | .CSINV dst _ _ _ | .CSNEG dst _ _ _ | .ADR dst _ | .ADRP dst _ => isX30 dst
-  | .BL _ | .BLR _ | .BR _ => true
+  | .BL _ | .BLR _ => true
   | _ => false
 
 private def isNonLeafOrFrameDir : Directive → Bool
