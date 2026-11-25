@@ -171,22 +171,7 @@ mutual
       pure { isUnion := false, size := totalSize, align := maxAlign, fields := outFields }
 end
 
-/-- Build a `LayoutEnv` from all `typedef` and `struct`/`union` declarations
-in a `TranslationUnit`. -/
-def buildLayoutEnv (tu : TranslationUnit) : Except String LayoutEnv := do
-  let mut env : LayoutEnv := {}
-  for d in tu.decls do
-    match d with
-    | .typedef nm ty =>
-      env := { env with typedefs := env.typedefs.insert nm ty }
-    | .structDef sd =>
-      let lay ← layoutAggregate env sd.isUnion sd.fields
-      if sd.isUnion then
-        env := { env with unions := env.unions.insert sd.name lay }
-      else
-        env := { env with structs := env.structs.insert sd.name lay }
-    | _ => pure ()
-  pure env
+/-! ## LayoutEnv Construction -/
 
 /-- Look up the `AggregateLayout` of a struct/union type. -/
 def getAggregateLayout (env : LayoutEnv) (aggTy : C0Type) : Except String AggregateLayout := do
@@ -208,7 +193,7 @@ def lookupField (env : LayoutEnv) (aggTy : C0Type) (fld : String) : Except Strin
   let lay ← getAggregateLayout env aggTy
   match lay.fields.find? (fun (nm, _) => nm == fld) with
   | some (_, loc) => pure loc
-  | none => throw s!"field '{fld}' not found in aggregate {repr aggTy}"
+  | none => throw s!"field '{fld}' not found in aggregate"
 
 /-- Return the byte offset of a regular field (or `unitByteOff` of a bitfield)
 for layout testing. -/
@@ -216,6 +201,29 @@ def offsetOfField (env : LayoutEnv) (aggTy : C0Type) (fld : String) : Except Str
   match ← lookupField env aggTy fld with
   | .regular off _ _ => pure off
   | .bitfield unitOff _ _ _ _ => pure unitOff
+
+/-- Look up the byte offset of a named field (or subfield `a.b.c`) inside a struct/union type.
+For bitfields, returns the byte offset of the bitfield's enclosing storage unit. -/
+def fieldByteOffset (env : LayoutEnv) (aggTy : C0Type) (fld : String) : Except String Nat := do
+  let baseTy ← match ← resolveType env aggTy with
+    | .ptr inner => resolveType env inner
+    | t => pure t
+  let parts := fld.splitOn "."
+  match parts with
+  | [] => throw "empty field name"
+  | [f] => offsetOfField env baseTy f
+  | _ =>
+    let rec go (curTy : C0Type) : List String → Except String Nat
+      | [] => pure 0
+      | [lastFld] => offsetOfField env curTy lastFld
+      | f :: rest => do
+        match ← lookupField env curTy f with
+        | .regular off subTy _ =>
+          let restOff ← go subTy rest
+          pure (off + restOff)
+        | .bitfield _ _ _ _ _ =>
+          throw s!"cannot access subfield '{f}' of bitfield in '{fld}'"
+    go baseTy parts
 
 /-! ## C0 Type Promotion, Expression Typing, and Static AST Analysis -/
 
@@ -302,7 +310,7 @@ partial def inferExprType (env : LayoutEnv) (lookupVar : String → Except Strin
   | .null => pure (.ptr .void)
   | .var nm => lookupVar nm
   | .cast ty _ => resolveType env ty
-  | .sizeofTy _ | .sizeofExpr _ => pure .u64
+  | .sizeofTy _ | .sizeofExpr _ | .offsetof _ _ => pure .u64
   | .unary .pos sub | .unary .neg sub | .unary .bitnot sub =>
     let t ← inferExprType env lookupVar lookupFnRet sub true forSizeof
     pure (if t == .f64 then .f64 else intPromote t)
@@ -356,6 +364,51 @@ partial def inferExprType (env : LayoutEnv) (lookupVar : String → Except Strin
     | "c0_f64_to_bits" | "c0_f64_to_u64_sat" => pure .u64
     | "c0_bits_to_f64" => pure .f64
     | _ => resolveType env (← lookupFnRet fn)
+
+/-- Statically evaluate an integer constant expression in the given `LayoutEnv` and
+enum/const map. -/
+partial def evalConstIntExpr (env : LayoutEnv) (consts : Std.HashMap String Int := {}) :
+    Expr → Except String Int :=
+  evalConstIntWith consts.get? fun
+    | .sizeofTy ty => do
+      let (sz, _) ← typeSizeAlign env ty
+      pure (Int.ofNat sz)
+    | .sizeofExpr e => do
+      let ty ← inferExprType env (fun nm => match consts.get? nm with
+        | some v => pure (intLitType v .none true)
+        | none => throw s!"unknown constant/var '{nm}' in sizeof")
+        (fun fn => throw s!"unknown function '{fn}' in sizeof") e false true
+      let (sz, _) ← typeSizeAlign env ty
+      pure (Int.ofNat sz)
+    | .offsetof ty fld => do
+      let off ← fieldByteOffset env ty fld
+      pure (Int.ofNat off)
+    | e => throw s!"unsupported expression in constant integer expression: {repr e}"
+
+/-- Build a `LayoutEnv` from all `typedef`, `struct`/`union`, and `enum` declarations
+in a `TranslationUnit`, checking all top-level `_Static_assert` declarations. -/
+def buildLayoutEnv (tu : TranslationUnit) : Except String LayoutEnv := do
+  let mut env : LayoutEnv := {}
+  let mut constMap : Std.HashMap String Int := {}
+  for d in tu.decls do
+    match d with
+    | .typedef nm ty =>
+      env := { env with typedefs := env.typedefs.insert nm ty }
+    | .structDef sd =>
+      let lay ← layoutAggregate env sd.isUnion sd.fields
+      if sd.isUnion then
+        env := { env with unions := env.unions.insert sd.name lay }
+      else
+        env := { env with structs := env.structs.insert sd.name lay }
+    | .enumConsts items =>
+      for (nm, v) in items do
+        constMap := constMap.insert nm v
+    | .staticAssert cond msg =>
+      let res ← evalConstIntExpr env constMap cond
+      if res == 0 then
+        throw s!"static assertion failed: \"{msg}\""
+    | _ => pure ()
+  pure env
 
 def setUnion (a b : Std.HashSet String) : Std.HashSet String :=
   b.fold (fun acc x => acc.insert x) a
@@ -443,7 +496,8 @@ partial def stmtMutatedLocals (onlyBackEdge inNestedBreakScope : Bool) (s : Stmt
   if onlyBackEdge && !stmtHasContinue s && stmtAlwaysExitsLoop inNestedBreakScope s then {} else
   match s with
   | .empty | .breakStmt | .continueStmt | .gotoStmt _ | .decl _ _ _
-  | .retStmt _ | .assumeStmt _ | .checkStmt _ _ | .assertStmt _ _ => {}
+  | .retStmt _ | .assumeStmt _ | .checkStmt _ _ | .assertStmt _ _
+  | .staticAssertStmt _ _ => {}
   | .assign lv _ _ | .incDec lv _ =>
     match lvalMutatedLocal lv with | some x => ({} : Std.HashSet String).insert x | none => {}
   | .callStmt lhs _ _ => lhs.foldl (fun acc x => acc.insert x) {}

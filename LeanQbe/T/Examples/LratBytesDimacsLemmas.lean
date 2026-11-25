@@ -3,6 +3,11 @@ module
 public import LeanQbe.T.Examples.LratBytesSpec
 import Kraken.SeparationTactics
 import all Kraken.Separation
+import LeanQbe.T.Logic.C0HeadStep
+meta import LeanQbe.T.Logic.C0HeadStep
+import LeanQbe.T.Logic.ControlComb
+import LeanQbe.T.Logic.ProofKit
+meta import LeanQbe.T.Logic.ProofKit
 
 /-!
 # DIMACS header/body verification and encoder round-trip in `LeanQbe.T`
@@ -26,12 +31,52 @@ open Kraken.Bedrock2.Test
 open LeanQbe.T
 open LeanQbe.T.ProofUtil
 
+@[local bv_c0] private theorem bv_c0_list_length_nil {α : Type _} :
+    ([] : List α).length = 0 := rfl
+
+@[local bv_c0] private theorem bv_c0_list_length_cons {α : Type _} (x : α) (xs : List α) :
+    (x :: xs).length = xs.length + 1 := rfl
+
+@[local bv_c0] private theorem bv_c0_list_length_set {α : Type _}
+    (xs : List α) (i : Nat) (v : α) : (xs.set i v).length = xs.length := List.length_set
+
+@[local bv_c0] private theorem bv_c0_hdrWords_length (c : WorkCfg) (pcur cur : BitVec 64) :
+    (c.hdrWords pcur cur).length = 10 := rfl
+
+@[local c0_load] private theorem c0_load_word8Array_zero {a : BitVec 64}
+    {xs : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
+    (h : (word8Array a xs ⋆ R) m) (hi : 0 < xs.length) :
+    loadVal m i64 a = some (xs[0]'hi) := by
+  simpa using load_word8Array (i := 0) hi h
+
+@[local c0_load] private theorem c0_load_word8Array_off {a off : BitVec 64}
+    {xs : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
+    (h : (word8Array a xs ⋆ R) m)
+    (hdiv : off.toNat % 8 = 0) (hi : off.toNat / 8 < xs.length) :
+    loadVal m i64 (a + off) = some (xs[off.toNat / 8]'hi) := by
+  have heq : BitVec.ofNat 64 (8 * (off.toNat / 8)) = off := by bv_omega
+  simpa [heq] using load_word8Array (i := off.toNat / 8) hi h
+
+@[local c0_store] private theorem c0_store_word8Array_zero {a : BitVec 64}
+    {xs : List (BitVec 64)} (v : BitVec 64) {R : Mem 64 → Prop} {m : Mem 64}
+    (h : (word8Array a xs ⋆ R) m) (hi : 0 < xs.length) :
+    storeOk m i64 a ∧ (word8Array a (xs.set 0 v) ⋆ R) (storeMem m i64 a v) := by
+  simpa using store_word8Array (i := 0) v hi h
+
+@[local c0_store] private theorem c0_store_word8Array_off {a off : BitVec 64}
+    {xs : List (BitVec 64)} (v : BitVec 64) {R : Mem 64 → Prop} {m : Mem 64}
+    (h : (word8Array a xs ⋆ R) m)
+    (hdiv : off.toNat % 8 = 0) (hi : off.toNat / 8 < xs.length) :
+    storeOk m i64 (a + off) ∧
+      (word8Array a (xs.set (off.toNat / 8) v) ⋆ R) (storeMem m i64 (a + off) v) := by
+  have heq : BitVec.ofNat 64 (8 * (off.toNat / 8)) = off := by bv_omega
+  simpa [heq] using store_word8Array (i := off.toNat / 8) v hi h
+
+
 /-! ## 1. Pure byte-scanner and `parseNat` helper lemmas -/
 
 private theorem isWsByte_val (b : UInt8) :
-    ((BitVec.ofNat 64 b.toNat == 32) ||
-      (BitVec.ofNat 64 b.toNat - 9).ult 5) =
-    isDimacsWs b := by
+    ((BitVec.ofNat 64 b.toNat == 32) || (BitVec.ofNat 64 b.toNat - 9).ult 5) = isDimacsWs b := by
   unfold isDimacsWs
   rw [show (9 : BitVec 64) = BitVec.ofNat 64 9 from rfl,
       show (5 : BitVec 64) = BitVec.ofNat 64 5 from rfl,
@@ -61,39 +106,6 @@ private theorem skipWsCommentsAux_false_cons (b : UInt8) (bs : List UInt8) :
       else if b == 99 then skipWsCommentsAux true bs
       else b :: bs := rfl
 
-private theorem skipWsCommentsAux_nil (inC : Bool) :
-    skipWsCommentsAux inC [] = [] := by cases inC <;> rfl
-
-private theorem skipWsComments_def (bs : List UInt8) :
-    skipWsComments bs = skipWsCommentsAux false bs := rfl
-
-private theorem skipWs_nil : skipWs [] = [] := rfl
-
-private theorem skipWs_cons (b : UInt8) (bs : List UInt8) :
-    skipWs (b :: bs) = if isDimacsWs b then skipWs bs else b :: bs := rfl
-
-private theorem skipWs1_nil : skipWs1 [] = none := rfl
-
-private theorem skipWs1_cons (b : UInt8) (bs : List UInt8) :
-    skipWs1 (b :: bs) = if isDimacsWs b then some (skipWs bs) else none := rfl
-
-private theorem parseDigitsAux_nil (acc : Nat) :
-    parseDigitsAux acc [] = some (acc, []) := rfl
-
-private theorem parseDigitsAux_cons (acc : Nat) (b : UInt8) (bs : List UInt8) :
-    parseDigitsAux acc (b :: bs) =
-      if isDimacsDigit b then
-        if acc * 10 + (b.toNat - 48) < dimacsBound then
-          parseDigitsAux (acc * 10 + (b.toNat - 48)) bs
-        else none
-      else if isDimacsWs b then some (acc, b :: bs) else none := rfl
-
-private theorem parseNat_nil : parseNat [] = none := rfl
-
-private theorem parseNat_cons (b : UInt8) (bs : List UInt8) :
-    parseNat (b :: bs) =
-      if isDimacsDigit b then parseDigitsAux (b.toNat - 48) bs else none := rfl
-
 private theorem parseClausePure_succ_eq (fuel mv poolRem : Nat)
     (acc : List (BitVec 64)) (bs : List UInt8) :
     parseClausePure (fuel + 1) mv poolRem acc bs =
@@ -105,8 +117,7 @@ private theorem parseClausePure_succ_eq (fuel mv poolRem : Nat)
         | none => none
         | some (v, rest') =>
           if v == 0 || mv < v then none
-          else parseClausePure fuel mv (poolRem - 1)
-            (-BitVec.ofNat 64 v :: acc) rest'
+          else parseClausePure fuel mv (poolRem - 1) (-BitVec.ofNat 64 v :: acc) rest'
       | b :: rest =>
         if poolRem == 0 then none
         else match parseNat (b :: rest) with
@@ -114,28 +125,7 @@ private theorem parseClausePure_succ_eq (fuel mv poolRem : Nat)
         | some (v, rest') =>
           if v == 0 then some (acc.reverse, poolRem - 1, rest')
           else if mv < v then none
-          else parseClausePure fuel mv (poolRem - 1)
-            (BitVec.ofNat 64 v :: acc) rest' := rfl
-
-private theorem parseBodyPure_zero (mv poolRem : Nat)
-    (revClauses : List (List (BitVec 64))) (bs : List UInt8) :
-    parseBodyPure mv 0 poolRem revClauses bs =
-      if (skipWsComments bs).isEmpty then some (revClauses.reverse, poolRem) else none := rfl
-
-private theorem parseBodyPure_succ_none {mv k poolRem : Nat}
-    {revClauses : List (List (BitVec 64))} {bs : List UInt8}
-    (h : parseClausePure (bs.length + 1) mv poolRem [] bs = none) :
-    parseBodyPure mv (k + 1) poolRem revClauses bs = none := by
-  change (parseClausePure (bs.length + 1) mv poolRem [] bs).bind _ = none
-  rw [h]; rfl
-
-private theorem parseBodyPure_succ_some {mv k poolRem poolRem' : Nat}
-    {revClauses : List (List (BitVec 64))} {bs bs' : List UInt8} {clits : List (BitVec 64)}
-    (h : parseClausePure (bs.length + 1) mv poolRem [] bs = some (clits, poolRem', bs')) :
-    parseBodyPure mv (k + 1) poolRem revClauses bs =
-      parseBodyPure mv k poolRem' (clits :: revClauses) bs' := by
-  change (parseClausePure (bs.length + 1) mv poolRem [] bs).bind _ = _
-  rw [h]; rfl
+          else parseClausePure fuel mv (poolRem - 1) (BitVec.ofNat 64 v :: acc) rest' := rfl
 
 private theorem parseClauseAux_succ_eq (fuel mv : Nat) (acc : List (Literal Nat))
     (bs : List UInt8) :
@@ -145,32 +135,14 @@ private theorem parseClauseAux_succ_eq (fuel mv : Nat) (acc : List (Literal Nat)
       | 45 :: rest =>
         match parseNat rest with
         | some (v, rest') =>
-          if 1 ≤ v && v ≤ mv then
-            parseClauseAux fuel mv ((v, false) :: acc) rest'
-          else none
+          if 1 ≤ v && v ≤ mv then parseClauseAux fuel mv ((v, false) :: acc) rest' else none
         | none => none
       | b :: rest =>
         match parseNat (b :: rest) with
         | some (0, rest') => some (CNF.Clause.ofLiterals acc.reverse, rest')
         | some (v, rest') =>
-          if 1 ≤ v && v ≤ mv then
-            parseClauseAux fuel mv ((v, true) :: acc) rest'
-          else none
+          if 1 ≤ v && v ≤ mv then parseClauseAux fuel mv ((v, true) :: acc) rest' else none
         | none => none := rfl
-
-private theorem parseClauses_zero (mv : Nat) (acc : CNF Nat) (bs : List UInt8) :
-    parseClauses mv 0 acc bs =
-      if (skipWsComments bs).isEmpty then some acc else none := rfl
-
-private theorem parseClauses_succ_some {mv k : Nat} {acc : CNF Nat}
-    {bs bs' : List UInt8} {cl : CNF.Clause Nat}
-    (h : parseClause mv bs = some (cl, bs')) :
-    parseClauses mv (k + 1) acc bs = parseClauses mv k (acc.add cl) bs' := by
-  change (parseClause mv bs).bind _ = _
-  rw [h]; rfl
-
-private theorem natToBytesAux_zero (n : Nat) (acc : List UInt8) :
-    natToBytesAux 0 n acc = acc := rfl
 
 private theorem natToBytesAux_succ (fuel n : Nat) (acc : List UInt8) :
     natToBytesAux (fuel + 1) n acc =
@@ -183,7 +155,7 @@ theorem isWsByte_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {b : U
     {k : Bool → Expr Val Cont rs} {m : Mem 64}
     (hk : wp Γ Q X (k (isDimacsWs b)) m) :
     wp Γ Q X (isWsByte (BitVec.ofNat 64 b.toNat) k) m := by
-  unfold isWsByte; wp_unfold; rwa [isWsByte_val]
+  unfold isWsByte; c0_hsteps; rwa [isWsByte_val]
 
 theorem skipWsCommentsQbe_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
     {base : BitVec 64} {bs : List UInt8} {i0 : Nat} {R : Mem 64 → Prop} {m : Mem 64}
@@ -196,61 +168,60 @@ theorem skipWsCommentsQbe_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPos
     wp Γ Q X (skipWsCommentsQbe (base + BitVec.ofNat 64 i0)
       (base + BitVec.ofNat 64 bs.length) done) m := by
   unfold skipWsCommentsQbe
-  refine wp_join_group (fun (res_v, ()) m' => ∃ j, i0 ≤ j ∧ j ≤ bs.length ∧
-    bs.drop j = skipWsComments (bs.drop i0) ∧ res_v = base + BitVec.ofNat 64 j ∧ m' = m) ?_ ?_
-  · rintro _ ⟨res_v, ⟨⟩⟩ _ ⟨j, hj1, hj2, hdrop, rfl, rfl⟩
-    dsimp only [Blocks.get_here]; exact hdone j hj1 hj2 hdrop
-  intro Jdone hJdone
-  refine wp_loop_group (fun r (p_v, ()) m' => ∃ i, i0 ≤ i ∧ i ≤ bs.length ∧ r = bs.length - i ∧
-    skipWsCommentsAux false (bs.drop i) = skipWsComments (bs.drop i0) ∧
-    p_v = base + BitVec.ofNat 64 i ∧ m' = m) ?_ ?_
-  · rintro Jswc r ⟨p_v, ⟨⟩⟩ m' ih ⟨i, hi1, hi2, rfl, hinv, rfl, hm_eq⟩
-    subst m'; dsimp only [Blocks.get_here]; wp_unfold
-    refine cursor_loadu8_branch hbase hi2 hm
-      (fun heq hnil => by
-        subst heq
-        exact hJdone _ _ ⟨bs.length, hi1, Nat.le_refl _,
-          by rw [hnil, skipWsCommentsAux_nil] at hinv; rwa [hnil], rfl, rfl⟩)
-      (fun hlt hdrop_i => ?_)
-    rw [setWidth64_ofNat8, ptr_step_1]
-    refine isWsByte_spec ?_
+  refine wp_join_state_pure (fun j => (base + BitVec.ofNat 64 j, ()))
+    (fun j => i0 ≤ j ∧ j ≤ bs.length ∧ bs.drop j = skipWsComments (bs.drop i0))
+    (fun _ j h => hdone j h.1 h.2.1 h.2.2) (fun Jdone hJdone => ?_)
+  refine wp_while_state_pure (fun i => (base + BitVec.ofNat 64 i, ())) (fun i => bs.length - i)
+    (fun i => i0 ≤ i ∧ i ≤ bs.length ∧
+      skipWsCommentsAux false (bs.drop i) = skipWsComments (bs.drop i0))
+    (fun Jswc hJswc => by wp_unfold; exact hJswc i0 ⟨Nat.le_refl _, hi0, rfl⟩)
+    (fun Jswc i ⟨hi1, hi2, hinv⟩ ih => ?_)
+  wp_unfold
+  refine cursor_loadu8_branch hbase hi2 hm
+    (fun heq hnil => by
+      subst heq
+      exact hJdone bs.length ⟨hi1, Nat.le_refl _, by simpa [hnil, skipWsCommentsAux] using hinv⟩)
+    (fun hlt hdrop_i => ?_)
+  rw [setWidth64_ofNat8, ptr_step_1]
+  refine isWsByte_spec ?_
+  refine wp_jnz_decide (isDimacsWs bs[i] = true) rfl
+    (fun hws => by
+      wp_unfold
+      exact ih (i + 1) (by omega) ⟨by omega, hlt,
+        by rw [hdrop_i, skipWsCommentsAux_false_cons] at hinv; simpa [hws] using hinv⟩)
+    (fun hnws => ?_)
+  wp_unfold
+  refine ⟨fun hisc => ?_, fun hnisc => ?_⟩
+  · have hb99 : bs[i] = 99 := bv64_u8_eq.mp hisc
+    have hinv_c : skipWsCommentsAux true (bs.drop (i + 1)) = skipWsComments (bs.drop i0) := by
+      rw [hdrop_i, skipWsCommentsAux_false_cons, hb99] at hinv
+      simpa [show isDimacsWs 99 = false by decide] using hinv
+    refine wp_while_state_pure (fun k => (base + BitVec.ofNat 64 k, ())) (fun k => bs.length - k)
+      (fun k => i + 1 ≤ k ∧ k ≤ bs.length ∧
+        skipWsCommentsAux true (bs.drop k) = skipWsComments (bs.drop i0))
+      (fun Jskl hJskl => by wp_unfold; exact hJskl (i + 1) ⟨Nat.le_refl _, hlt, hinv_c⟩)
+      (fun Jskl k ⟨hk1, hk2, hinv2⟩ ih_skl => ?_)
     wp_unfold
-    refine ⟨fun hws => ih _ _ _ (by omega) ⟨i + 1, by omega, by omega, rfl,
-        by rw [hdrop_i, skipWsCommentsAux_false_cons] at hinv; simpa [hws] using hinv, rfl, rfl⟩,
-      fun hnws => ⟨fun hisc => ?_, fun hnisc => ?_⟩⟩
-    · have hb99 : bs[i] = 99 := (bv64_u8_eq (k := 99)).mp hisc
-      have hinv_c : skipWsCommentsAux true (bs.drop (i + 1)) = skipWsComments (bs.drop i0) := by
-        rw [hdrop_i, skipWsCommentsAux_false_cons, hb99] at hinv
-        simpa [show isDimacsWs 99 = false by decide] using hinv
-      refine wp_loop_group (fun r2 (q_v, ()) m2 => ∃ k, i + 1 ≤ k ∧ k ≤ bs.length ∧
-        r2 = bs.length - k ∧
-        skipWsCommentsAux true (bs.drop k) = skipWsComments (bs.drop i0) ∧
-        q_v = base + BitVec.ofNat 64 k ∧ m2 = m) ?_ ?_
-      · rintro Jskl r2 ⟨q_v, ⟨⟩⟩ m2 ih_skl ⟨k, hk1, hk2, rfl, hinv2, rfl, hm2_eq⟩
-        subst m2; dsimp only [Blocks.get_here]; wp_unfold
-        refine cursor_loadu8_branch hbase hk2 hm
-          (fun hkeq hnil => by
-            subst hkeq
-            exact hJdone _ _ ⟨bs.length, by omega, Nat.le_refl _,
-              by rw [hnil, skipWsCommentsAux_nil] at hinv2; rwa [hnil], rfl, rfl⟩)
-          (fun hklt hdrop_k => ?_)
-        rw [setWidth64_ofNat8, ptr_step_1]
-        refine ⟨fun hisnl => ?_, fun hnisnl => ?_⟩
-        · have hc10 : bs[k] = 10 := (bv64_u8_eq (k := 10)).mp hisnl
-          exact ih _ _ _ (by omega) ⟨k + 1, by omega, by omega, rfl,
-            by rw [hdrop_k, skipWsCommentsAux_true_cons] at hinv2; simpa [hc10] using hinv2,
-            rfl, rfl⟩
-        · have hc10 : bs[k] ≠ 10 := fun h => hnisnl ((bv64_u8_eq (k := 10)).mpr h)
-          exact ih_skl _ _ _ (by omega) ⟨k + 1, by omega, by omega, rfl,
-            by rw [hdrop_k, skipWsCommentsAux_true_cons] at hinv2; simpa [hc10] using hinv2,
-            rfl, rfl⟩
-      · intro Jskl hJskl; wp_unfold
-        exact hJskl _ _ _ ⟨i + 1, Nat.le_refl _, by omega, rfl, hinv_c, rfl, rfl⟩
-    · have hb99 : (bs[i] == 99) = false :=
-        beq_eq_false_iff_ne.mpr (fun h => hnisc ((bv64_u8_eq (k := 99)).mpr h))
-      refine hJdone _ _ ⟨i, hi1, hi2, ?_, rfl, rfl⟩
-      rw [hdrop_i, skipWsCommentsAux_false_cons, hnws, hb99] at hinv; simpa [← hdrop_i] using hinv
-  · intro Jswc hJswc; wp_unfold; exact hJswc _ _ _ ⟨i0, Nat.le_refl _, hi0, rfl, rfl, rfl, rfl⟩
+    refine cursor_loadu8_branch hbase hk2 hm
+      (fun hkeq hnil => by
+        subst hkeq; exact hJdone bs.length
+          ⟨by omega, Nat.le_refl _, by simpa [hnil, skipWsCommentsAux] using hinv2⟩)
+      (fun hklt hdrop_k => ?_)
+    rw [setWidth64_ofNat8, ptr_step_1]
+    refine ⟨fun hisnl => by
+        have hc10 : bs[k] = 10 := bv64_u8_eq.mp hisnl
+        exact ih (k + 1) (by omega) ⟨by omega, hklt,
+          by rw [hdrop_k, skipWsCommentsAux_true_cons] at hinv2; simpa [hc10] using hinv2⟩,
+      fun hnisnl => by
+        have hc10 : bs[k] ≠ 10 := fun h => hnisnl (bv64_u8_eq.mpr h)
+        exact ih_skl (k + 1) (by omega) ⟨by omega, hklt,
+          by rw [hdrop_k, skipWsCommentsAux_true_cons] at hinv2; simpa [hc10] using hinv2⟩⟩
+  · have hb99' : (bs[i] == 99) = false :=
+      beq_eq_false_iff_ne.mpr (fun h => hnisc (bv64_u8_eq.mpr h))
+    have hnws' : isDimacsWs bs[i] = false := Bool.eq_false_iff.mpr hnws
+    exact hJdone i ⟨hi1, hi2, by
+      rw [hdrop_i, skipWsCommentsAux_false_cons, hnws', hb99'] at hinv
+      simpa [← hdrop_i] using hinv⟩
 
 theorem skipWs1Qbe_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {fail : Cont []}
     {base : BitVec 64} {bs : List UInt8} {i0 : Nat} {R : Mem 64 → Prop} {m : Mem 64}
@@ -265,46 +236,33 @@ theorem skipWs1Qbe_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {fai
     wp Γ Q X (skipWs1Qbe fail (base + BitVec.ofNat 64 i0)
       (base + BitVec.ofNat 64 bs.length) done) m := by
   unfold skipWs1Qbe; wp_unfold
-  refine cursor_loadu8_branch hbase hi0 hm
-    (fun _ hnil => hfail (by rw [hnil, skipWs1_nil]))
+  refine cursor_loadu8_branch hbase hi0 hm (fun _ hnil => hfail (by simp [hnil, skipWs1]))
     (fun hlt0 hdrop0 => ?_)
-  rw [setWidth64_ofNat8]
-  refine isWsByte_spec ?_
-  wp_unfold
-  refine ⟨fun hws0 => ?_, fun hnws0 => hfail (by
-    rw [hdrop0, skipWs1_cons, hnws0]; simp only [Bool.false_eq_true, ↓reduceIte])⟩
+  rw [setWidth64_ofNat8]; refine isWsByte_spec ?_
+  refine wp_jnz_decide (isDimacsWs bs[i0] = true) rfl (fun hws0 => ?_)
+    (fun hnws0 => by wp_unfold; exact hfail (by rw [hdrop0]; simp [skipWs1, hnws0]))
   have hsw1 : skipWs1 (bs.drop i0) = some (skipWs (bs.drop (i0 + 1))) := by
-    rw [hdrop0, skipWs1_cons, hws0]; simp only [↓reduceIte]
-  refine wp_join_group (fun (res_v, ()) m' => ∃ j, i0 < j ∧ j ≤ bs.length ∧
-    bs.drop j = skipWs (bs.drop (i0 + 1)) ∧ res_v = base + BitVec.ofNat 64 j ∧ m' = m) ?_ ?_
-  · rintro _ ⟨res_v, ⟨⟩⟩ _ ⟨j, hj1, hj2, hdrop, rfl, rfl⟩
-    dsimp only [Blocks.get_here]; exact hdone j _ hsw1 hj1 hj2 hdrop
-  intro Jdone hJdone
-  refine wp_loop_group (fun r (p_v, ()) m' => ∃ i, i0 < i ∧ i ≤ bs.length ∧ r = bs.length - i ∧
-    skipWs (bs.drop i) = skipWs (bs.drop (i0 + 1)) ∧
-    p_v = base + BitVec.ofNat 64 i ∧ m' = m) ?_ ?_
-  · rintro Jsw r ⟨p_v, ⟨⟩⟩ m' ih ⟨i, hi1, hi2, rfl, hinv, rfl, hm_eq⟩
-    subst m'; dsimp only [Blocks.get_here]; wp_unfold
-    refine cursor_loadu8_branch hbase hi2 hm
-      (fun heq hnil => by
-        subst heq
-        exact hJdone _ _ ⟨bs.length, hi1, Nat.le_refl _,
-          by rw [hnil, skipWs_nil] at hinv; rwa [hnil], rfl, rfl⟩)
-      (fun hlt hdrop_i => ?_)
-    rw [setWidth64_ofNat8]
-    refine isWsByte_spec ?_
-    wp_unfold
-    refine ⟨fun hws => by
-        rw [ptr_step_1]
-        exact ih _ _ _ (by omega) ⟨i + 1, by omega, by omega, rfl,
-          by rw [hdrop_i, skipWs_cons, hws] at hinv
-             simp only [↓reduceIte] at hinv; exact hinv, rfl, rfl⟩,
-      fun hnws => hJdone _ _ ⟨i, hi1, hi2,
-        by rw [hdrop_i, skipWs_cons, hnws] at hinv
-           simp only [Bool.false_eq_true, ↓reduceIte] at hinv
-           rwa [← hdrop_i] at hinv, rfl, rfl⟩⟩
-  · intro Jsw hJsw; wp_unfold; rw [ptr_step_1]
-    exact hJsw _ _ _ ⟨i0 + 1, by omega, by omega, rfl, rfl, rfl, rfl⟩
+    rw [hdrop0]; simp [skipWs1, hws0]
+  refine wp_join_state_pure (fun j => (base + BitVec.ofNat 64 j, ()))
+    (fun j => i0 < j ∧ j ≤ bs.length ∧ bs.drop j = skipWs (bs.drop (i0 + 1)))
+    (fun _ j h => hdone j _ hsw1 h.1 h.2.1 h.2.2) (fun Jdone hJdone => ?_)
+  refine wp_while_state_pure (fun i => (base + BitVec.ofNat 64 i, ())) (fun i => bs.length - i)
+    (fun i => i0 < i ∧ i ≤ bs.length ∧ skipWs (bs.drop i) = skipWs (bs.drop (i0 + 1)))
+    (fun Jsw hJsw => by wp_unfold; rw [ptr_step_1]; exact hJsw (i0 + 1) ⟨by omega, hlt0, rfl⟩)
+    (fun Jsw i ⟨hi1, hi2, hinv⟩ ih => ?_)
+  wp_unfold
+  refine cursor_loadu8_branch hbase hi2 hm
+    (fun heq hnil => by
+      subst heq; exact hJdone bs.length ⟨hi1, Nat.le_refl _, by simpa [hnil, skipWs] using hinv⟩)
+    (fun hlt hdrop_i => ?_)
+  rw [setWidth64_ofNat8]; refine isWsByte_spec ?_
+  refine wp_jnz_decide (isDimacsWs bs[i] = true) rfl
+    (fun hws => by
+      wp_unfold; rw [ptr_step_1]
+      exact ih (i + 1) (by omega) ⟨by omega, hlt,
+        by rw [hdrop_i, skipWs] at hinv; simpa [hws] using hinv⟩)
+    (fun hnws => hJdone i ⟨hi1, hi2,
+      by rw [hdrop_i, skipWs] at hinv; simpa [hnws, ← hdrop_i] using hinv⟩)
 
 theorem readDimacsNat_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {fail : Cont []}
     {base : BitVec 64} {bs : List UInt8} {i0 : Nat} {R : Mem 64 → Prop} {m : Mem 64}
@@ -319,74 +277,59 @@ theorem readDimacsNat_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {
     wp Γ Q X (readDimacsNat fail (base + BitVec.ofNat 64 i0)
       (base + BitVec.ofNat 64 bs.length) done) m := by
   unfold readDimacsNat; wp_unfold
-  refine cursor_loadu8_branch hbase hi0 hm
-    (fun _ hnil => hfail (by rw [hnil, parseNat_nil]))
+  refine cursor_loadu8_branch hbase hi0 hm (fun _ hnil => hfail (by simp [hnil, parseNat]))
     (fun hlt0 hdrop0 => ?_)
   rw [setWidth64_ofNat8, u8_sub48_ult10]
-  refine ⟨fun hd0 => ?_, fun hnd0 => hfail (by
-    rw [hdrop0, parseNat_cons, hnd0]; simp only [Bool.false_eq_true, ↓reduceIte])⟩
+  refine ⟨fun hd0 => ?_, fun hnd0 => hfail (by rw [hdrop0]; simp [parseNat, hnd0])⟩
   obtain ⟨_, _, hd0_bv⟩ := digit_bounds hd0
   have hp0 : parseNat (bs.drop i0) = parseDigitsAux (bs[i0].toNat - 48) (bs.drop (i0 + 1)) := by
-    rw [hdrop0, parseNat_cons, hd0]; simp only [↓reduceIte]
-  refine wp_join_group (fun (val_v, res_v, ()) m' => ∃ v j rest,
-    parseNat (bs.drop i0) = some (v, rest) ∧ v < dimacsBound ∧
-    i0 < j ∧ j ≤ bs.length ∧ bs.drop j = rest ∧
-    val_v = BitVec.ofNat 64 v ∧ res_v = base + BitVec.ofNat 64 j ∧ m' = m) ?_ ?_
-  · rintro _ ⟨val_v, res_v, ⟨⟩⟩ _ ⟨v, j, rest, hp, hv, hj1, hj2, hdrop, rfl, rfl, rfl⟩
-    dsimp only [Blocks.get_here]; exact hdone v j rest hp hv hj1 hj2 hdrop
-  intro Jdone hJdone
-  refine wp_loop_group (fun r (p_v, acc_v, ()) m' => ∃ i acc,
-    i0 < i ∧ i ≤ bs.length ∧ r = bs.length - i ∧ acc < dimacsBound ∧
-    parseDigitsAux acc (bs.drop i) = parseNat (bs.drop i0) ∧
-    p_v = base + BitVec.ofNat 64 i ∧ acc_v = BitVec.ofNat 64 acc ∧ m' = m) ?_ ?_
-  · rintro Jpdig r ⟨p_v, acc_v, ⟨⟩⟩ m' ih ⟨i, acc, hi1, hi2, rfl, hacc, hinv, rfl, rfl, hm_eq⟩
-    subst m'; dsimp only [Blocks.get_here]; wp_unfold
-    refine cursor_loadu8_branch hbase hi2 hm
-      (fun heq hnil => by
-        subst heq
-        exact hJdone _ _ ⟨acc, bs.length, [],
-          by rw [hnil, parseDigitsAux_nil] at hinv; exact hinv.symm,
-          hacc, hi1, Nat.le_refl _, by simp, rfl, rfl, rfl⟩)
-      (fun hlt hdrop_i => ?_)
-    rw [setWidth64_ofNat8, u8_sub48_ult10]
-    refine ⟨fun hd => ?_, fun hnd => isWsByte_spec (by
-      wp_unfold
-      refine ⟨fun hws => hJdone _ _ ⟨acc, i, bs.drop i,
-          by rw [← hinv, hdrop_i, parseDigitsAux_cons, hnd, hws]
-             simp only [Bool.false_eq_true, ↓reduceIte],
-          hacc, hi1, hi2, rfl, rfl, rfl, rfl⟩,
-        fun hnws => hfail (by
-          rw [← hinv, hdrop_i, parseDigitsAux_cons, hnd, hnws]
-          simp only [Bool.false_eq_true, ↓reduceIte])⟩)⟩
-    obtain ⟨_, _, hd_bv⟩ := digit_bounds hd
-    rw [hd_bv]
-    let acc2 := acc * 10 + (bs[i].toNat - 48)
-    have hmul_add : BitVec.ofNat 64 acc * 10 + BitVec.ofNat 64 (bs[i].toNat - 48) =
-        BitVec.ofNat 64 acc2 := by
-      unfold dimacsBound at hacc; apply BitVec.eq_of_toNat_eq
-      simp [acc2, BitVec.toNat_add, BitVec.toNat_mul]
-    rw [hmul_add, show (268435456 : BitVec 64) = BitVec.ofNat 64 268435456 from rfl]
-    unfold dimacsBound at hacc
-    refine ult_branch (a := acc2) (b := 268435456) (by omega) (by decide)
-      (fun hokb => by
-        rw [ptr_step_1]
-        have hokb' : acc2 < dimacsBound := hokb
-        exact ih _ _ _ (by omega) ⟨i + 1, acc2, by omega, by omega, rfl, hokb',
-          by rw [hdrop_i, parseDigitsAux_cons, hd] at hinv
-             simp only [↓reduceIte] at hinv
-             change (if acc2 < dimacsBound then
-               parseDigitsAux acc2 (bs.drop (i + 1)) else none) = _ at hinv
-             simp only [hokb', ↓reduceIte] at hinv; exact hinv,
-          rfl, rfl, rfl⟩)
-      (fun hnokb => hfail (by
-        have hnokb' : ¬ acc2 < dimacsBound := hnokb
-        rw [← hinv, hdrop_i, parseDigitsAux_cons, hd]; simp only [↓reduceIte]
-        change (if acc2 < dimacsBound then
-          parseDigitsAux acc2 (bs.drop (i + 1)) else none) = none
-        simp only [hnokb', ↓reduceIte]))
-  · intro Jpdig hJpdig; wp_unfold; rw [ptr_step_1, hd0_bv]
-    exact hJpdig _ _ _ ⟨i0 + 1, bs[i0].toNat - 48, by omega, by omega, rfl,
-      by unfold dimacsBound; omega, hp0.symm, rfl, rfl, rfl⟩
+    rw [hdrop0]; simp [parseNat, hd0]
+  refine wp_join_state_pure (α := Nat × Nat × List UInt8)
+    (fun st => (BitVec.ofNat 64 st.1, base + BitVec.ofNat 64 st.2.1, ()))
+    (fun st => parseNat (bs.drop i0) = some (st.1, st.2.2) ∧ st.1 < dimacsBound ∧
+      i0 < st.2.1 ∧ st.2.1 ≤ bs.length ∧ bs.drop st.2.1 = st.2.2)
+    (fun _ st h => hdone st.1 st.2.1 st.2.2 h.1 h.2.1 h.2.2.1 h.2.2.2.1 h.2.2.2.2)
+    (fun Jdone hJdone => ?_)
+  refine wp_while_state_pure (α := Nat × Nat)
+    (fun st => (base + BitVec.ofNat 64 st.1, BitVec.ofNat 64 st.2, ()))
+    (fun st => bs.length - st.1)
+    (fun st => i0 < st.1 ∧ st.1 ≤ bs.length ∧ st.2 < dimacsBound ∧
+      parseDigitsAux st.2 (bs.drop st.1) = parseNat (bs.drop i0))
+    (fun Jpdig hJpdig => by
+      wp_unfold; rw [ptr_step_1, hd0_bv]
+      exact hJpdig (i0 + 1, bs[i0].toNat - 48)
+        ⟨by omega, hlt0, by unfold dimacsBound; omega, hp0.symm⟩)
+    (fun Jpdig ⟨i, acc⟩ ⟨hi1, hi2, hacc, hinv⟩ ih => ?_)
+  wp_unfold
+  refine cursor_loadu8_branch hbase hi2 hm
+    (fun heq hnil => by
+      subst heq; exact hJdone (acc, bs.length, [])
+        ⟨by simpa [hnil, parseDigitsAux] using hinv.symm, hacc, hi1, Nat.le_refl _, by simp⟩)
+    (fun hlt hdrop_i => ?_)
+  rw [setWidth64_ofNat8, u8_sub48_ult10]
+  refine ⟨fun hd => ?_, fun hnd => isWsByte_spec (by
+    wp_unfold
+    refine ⟨fun hws => hJdone (acc, i, bs.drop i)
+        ⟨by rw [← hinv, hdrop_i]; simp [parseDigitsAux, hnd, hws], hacc, hi1, hi2, rfl⟩,
+      fun hnws => hfail (by rw [← hinv, hdrop_i]; simp [parseDigitsAux, hnd, hnws])⟩)⟩
+  obtain ⟨_, _, hd_bv⟩ := digit_bounds hd
+  rw [hd_bv]
+  let acc2 := acc * 10 + (bs[i].toNat - 48)
+  have hmul : BitVec.ofNat 64 acc * 10 + BitVec.ofNat 64 (bs[i].toNat - 48) =
+      BitVec.ofNat 64 acc2 := by
+    unfold dimacsBound at hacc; apply BitVec.eq_of_toNat_eq
+    simp [acc2, BitVec.toNat_add, BitVec.toNat_mul]
+  rw [hmul, show (268435456 : BitVec 64) = BitVec.ofNat 64 268435456 from rfl]
+  unfold dimacsBound at hacc
+  refine ult_branch (a := acc2) (b := 268435456) (by omega) (by decide)
+    (fun hokb => by
+      rw [ptr_step_1]
+      have hokb' : acc * 10 + (bs[i].toNat - 48) < dimacsBound := hokb
+      exact ih (i + 1, acc2) (by omega) ⟨by omega, hlt, hokb', by
+        rw [hdrop_i, parseDigitsAux] at hinv; simpa [hd, hokb'] using hinv⟩)
+    (fun hnokb => hfail (by
+      have hnokb' : ¬ acc * 10 + (bs[i].toNat - 48) < dimacsBound := hnokb
+      rw [← hinv, hdrop_i, parseDigitsAux]; simp [hd, hnokb']))
 
 /-! ## 3. Correctness of `lbParseDimacsHeader` -/
 
@@ -410,11 +353,8 @@ private theorem bind_cnf_none {α : Type} {bs : List UInt8} {f : List UInt8 → 
       (∃ b t, bs = 99 :: b :: t ∧ b ≠ 110) ∨
       (∃ b t, bs = 99 :: 110 :: b :: t ∧ b ≠ 102)) :
     (some bs).bind (fun | 99 :: 110 :: 102 :: bs3 => f bs3 | _ => none) = none := by
-  rcases h with rfl | ⟨b, t, rfl, hne⟩ | ⟨b, t, rfl, hne⟩ | ⟨b, t, rfl, hne⟩
-  · rfl
-  · dsimp only [Option.bind]; split <;> simp_all
-  · dsimp only [Option.bind]; split <;> simp_all
-  · dsimp only [Option.bind]; split <;> simp_all
+  rcases h with rfl | ⟨b, t, rfl, hne⟩ | ⟨b, t, rfl, hne⟩ | ⟨b, t, rfl, hne⟩ <;>
+    simp_all [Option.bind]
 
 theorem lbParseDimacsHeader_correct (Γ : Env) :
     ∀ args m Q X, lbParseDimacsHeaderSpec args m Q X →
@@ -422,12 +362,10 @@ theorem lbParseDimacsHeader_correct (Γ : Env) :
   rintro _ m Q X ⟨cnf_ptr, hdr, cnfBytes, R, rfl, hcnf, _, hm, hpost⟩
   unfold lbParseDimacsHeader Func.spec Func.wp
   have hm_cnf : (Eq (cnfBytes.At cnf_ptr) ⋆ (region hdr 80 ⋆ R)) m := sep_ac hm
-  refine wp_join_group (fun () m' => m' = m ∧ parseHeader cnfBytes = none) ?_ ?_
-  · rintro _ ⟨⟩ _ ⟨rfl, hnone⟩
-    dsimp only [Blocks.get_here]; wp_unfold; apply hpost; rw [hnone]; exact ⟨rfl, hm⟩
+  refine wp_join0 (fun m' => m' = m ∧ parseHeader cnfBytes = none)
+    (fun _ m' ⟨hm', hnone⟩ => by subst m'; wp_unfold; apply hpost; rw [hnone]; exact ⟨rfl, hm⟩) ?_
   intro Jfail hJfail
-  have hfail_of : parseHeader cnfBytes = none → Jfail () m := fun h => hJfail () m ⟨rfl, h⟩
-  dsimp only
+  have hfail_of : parseHeader cnfBytes = none → Jfail () m := fun h => hJfail m ⟨rfl, h⟩
   conv => arg 4; arg 1; rw [show cnf_ptr = cnf_ptr + BitVec.ofNat 64 0 by simp]
   refine skipWsCommentsQbe_spec (i0 := 0) hcnf (Nat.zero_le _) hm_cnf fun i1 _ hi1 hsw1 => ?_
   simp only [List.drop_zero] at hsw1
@@ -440,34 +378,31 @@ theorem lbParseDimacsHeader_correct (Γ : Env) :
       · exact absurd (List.cons.inj ‹_›).1 hne
       · rfl))
     (fun hi1' hd1 => ?_)
-  have hph1 : parseHeader cnfBytes =
-      (skipWs1 (cnfBytes.drop (i1 + 1))).bind (fun
-        | 99 :: 110 :: 102 :: bs3 => parseHeaderAfterCnf bs3
-        | _ => none) := by
+  have hph1 : parseHeader cnfBytes = (skipWs1 (cnfBytes.drop (i1 + 1))).bind
+      (fun | 99 :: 110 :: 102 :: bs3 => parseHeaderAfterCnf bs3 | _ => none) := by
     unfold parseHeader; rw [← hsw1, hd1]; rfl
   rw [ptr_step_1]
-  refine skipWs1Qbe_spec hcnf hi1' hm_cnf
-    (fun hnone => hfail_of (by rw [hph1, hnone]; rfl))
+  refine skipWs1Qbe_spec hcnf hi1' hm_cnf (fun hnone => hfail_of (by rw [hph1, hnone]; rfl))
     fun i2 bs2 hbs2 _ hi2 hd2 => ?_
   wp_unfold
   refine expectByte_step 99 hcnf hi2 hm_cnf
     (fun hnil => hfail_of (by rw [hph1, hbs2, ← hd2, hnil]; rfl))
-    (fun b t hd hne => hfail_of (by
-      rw [hph1, hbs2, ← hd2, hd]; exact bind_cnf_none (Or.inr (Or.inl ⟨b, t, rfl, hne⟩))))
+    (fun _ _ hd hne => hfail_of (by
+      rw [hph1, hbs2, ← hd2, hd]; exact bind_cnf_none (Or.inr (Or.inl ⟨_, _, rfl, hne⟩))))
     (fun hi2_1 hd2_0 => ?_)
   rw [ptr_step_1]
   refine expectByte_step 110 hcnf hi2_1 hm_cnf
     (fun hnil => hfail_of (by rw [hph1, hbs2, ← hd2, hd2_0, hnil]; rfl))
-    (fun b t hd hne => hfail_of (by
+    (fun _ _ hd hne => hfail_of (by
       rw [hph1, hbs2, ← hd2, hd2_0, hd]
-      exact bind_cnf_none (Or.inr (Or.inr (Or.inl ⟨b, t, rfl, hne⟩)))))
+      exact bind_cnf_none (Or.inr (Or.inr (Or.inl ⟨_, _, rfl, hne⟩)))))
     (fun hi2_2 hd2_1 => ?_)
   rw [show (2 : BitVec 64) = BitVec.ofNat 64 2 from rfl, ptr_add_ofNat]
   refine expectByte_step 102 hcnf hi2_2 hm_cnf
     (fun hnil => hfail_of (by rw [hph1, hbs2, ← hd2, hd2_0, hd2_1, hnil]; rfl))
-    (fun b t hd hne => hfail_of (by
+    (fun _ _ hd hne => hfail_of (by
       rw [hph1, hbs2, ← hd2, hd2_0, hd2_1, hd]
-      exact bind_cnf_none (Or.inr (Or.inr (Or.inr ⟨b, t, rfl, hne⟩)))))
+      exact bind_cnf_none (Or.inr (Or.inr (Or.inr ⟨_, _, rfl, hne⟩)))))
     (fun hi2_3 hd2_2 => ?_)
   have hph2 : parseHeader cnfBytes = parseHeaderAfterCnf (cnfBytes.drop (i2 + 3)) := by
     rw [hph1, hbs2, ← hd2, hd2_0, hd2_1, hd2_2]; rfl
@@ -487,31 +422,26 @@ theorem lbParseDimacsHeader_correct (Γ : Env) :
   refine readDimacsNat_spec hcnf hi5 hm_cnf
     (fun hnone => hfail_of (by rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hbs5, hbs6, hnone]))
     fun nc i6 bs7 hbs7 hnc _ _ hd6 => ?_
-  wp_unfold
   have hph_ok : parseHeader cnfBytes = some (mv, nc, bs7) := by
     rw [hph2]; simp [parseHeaderAfterCnf, hbs4, hbs5, hbs6, hbs7]
-  have hm_re : (region hdr 80 ⋆ (Eq (cnfBytes.At cnf_ptr) ⋆ R)) m := sep_ac hm
-  obtain ⟨f1, f2, hu, hd_m, hf1, hf2⟩ := hm_re
+  obtain ⟨f1, f2, hu, hd_m, hf1, hf2⟩ :=
+    (sep_ac hm : (region hdr 80 ⋆ (Eq (cnfBytes.At cnf_ptr) ⋆ R)) m)
   obtain ⟨w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, hwa⟩ := region80_to_words10 hf1
   have hm0 : (word8Array hdr [w0, w1, w2, w3, w4, w5, w6, w7, w8, w9] ⋆
       (Eq (cnfBytes.At cnf_ptr) ⋆ R)) m := ⟨f1, f2, hu, hd_m, hwa, hf2⟩
-  have ⟨ok0, hm1⟩ := store_word8Array (i := 0) (BitVec.ofNat 64 mv) (by simp) hm0
-  simp only [Nat.mul_zero, BitVec.add_zero, List.set_cons_zero] at ok0 hm1
-  have ⟨ok1, hm2⟩ := store_word8Array (i := 1) (BitVec.ofNat 64 nc) (by simp) hm1
-  have ⟨ok9, hm3⟩ := store_word8Array (i := 9) (cnf_ptr + BitVec.ofNat 64 i6) (by simp) hm2
-  refine ⟨ok0, ok1, ok9, ?_⟩
+  c0_hsteps
+  simp only [List.set_cons_zero] at hm
   apply hpost; rw [hph_ok]
   have hi6_eq : cnfBytes.length - bs7.length = i6 := by rw [← hd6, List.length_drop]; omega
-  refine ⟨rfl, hmv, hnc, by rw [hi6_eq, hd6], by rw [← hd6, List.length_drop]; omega,
-    w2, w3, w4, w5, w6, w7, w8, ?_⟩
-  rw [hi6_eq]; exact sep_ac hm3
+  exact ⟨rfl, hmv, hnc, by rw [hi6_eq, hd6], by rw [← hd6, List.length_drop]; omega,
+    w2, w3, w4, w5, w6, w7, w8, by rw [hi6_eq]; exact sep_ac hm⟩
 
 /-! ## 4. Pure clause/body helpers and `lbParseDimacsBody_correct` -/
 
 private theorem skipWsCommentsAux_length_le (inC : Bool) (bs : List UInt8) :
     (skipWsCommentsAux inC bs).length ≤ bs.length := by
   induction bs generalizing inC with
-  | nil => cases inC <;> rw [skipWsCommentsAux_nil] <;> exact Nat.le_refl _
+  | nil => cases inC <;> simp [skipWsCommentsAux]
   | cons b bs ih =>
     cases inC
     · rw [skipWsCommentsAux_false_cons]; grind
@@ -525,33 +455,31 @@ private theorem parseDigitsAux_length_le {acc : Nat} {bs : List UInt8} {v : Nat}
     {rest : List UInt8} (h : parseDigitsAux acc bs = some (v, rest)) :
     rest.length ≤ bs.length := by
   induction bs generalizing acc with
-  | nil => rw [parseDigitsAux_nil] at h; cases h; exact Nat.le_refl _
+  | nil =>
+    simp [parseDigitsAux] at h
+    obtain ⟨_, rfl⟩ := h
+    exact Nat.le_refl _
   | cons b bs ih =>
-    rw [parseDigitsAux_cons] at h
+    rw [parseDigitsAux] at h
     by_cases hd : isDimacsDigit b
     · simp only [hd, ↓reduceIte] at h
-      by_cases hlt : acc * 10 + (b.toNat - 48) < dimacsBound
-      · simp only [hlt, ↓reduceIte] at h; exact Nat.le_trans (ih h) (Nat.le_succ _)
-      · simp only [hlt, ↓reduceIte] at h; cases h
-    · by_cases hws : isDimacsWs b
-      · simp only [hd, hws, Bool.false_eq_true, ↓reduceIte] at h
-        cases h; exact Nat.le_refl _
-      · simp only [hd, hws, Bool.false_eq_true, ↓reduceIte] at h; cases h
+      split at h
+      · exact Nat.le_trans (ih h) (Nat.le_succ _)
+      · cases h
+    · by_cases hws : isDimacsWs b <;>
+        simp only [hd, hws, Bool.false_eq_true, ↓reduceIte] at h
+      · cases h; exact Nat.le_refl _
+      · cases h
 
 theorem parseNat_length_lt {bs : List UInt8} {v : Nat} {rest : List UInt8}
     (h : parseNat bs = some (v, rest)) : rest.length < bs.length := by
   cases bs with
   | nil => nomatch h
   | cons b bs =>
-    rw [parseNat_cons] at h
+    rw [parseNat] at h
     by_cases hd : isDimacsDigit b
     · simp only [hd, ↓reduceIte] at h; exact Nat.lt_succ_of_le (parseDigitsAux_length_le h)
     · simp only [hd, Bool.false_eq_true, ↓reduceIte] at h; cases h
-
-private theorem parseClausePure_succ_nil {fuel mv poolRem : Nat} {acc : List (BitVec 64)}
-    {bs : List UInt8} (h : skipWsComments bs = []) :
-    parseClausePure (fuel + 1) mv poolRem acc bs = none := by
-  rw [parseClausePure_succ_eq, h]
 
 private theorem parseClausePure_succ_45 {fuel mv poolRem : Nat} {acc : List (BitVec 64)}
     {bs rest : List UInt8} (h : skipWsComments bs = 45 :: rest) :
@@ -562,10 +490,7 @@ private theorem parseClausePure_succ_45 {fuel mv poolRem : Nat} {acc : List (Bit
       | some (v, rest') =>
         if v == 0 || mv < v then none
         else parseClausePure fuel mv (poolRem - 1) (-BitVec.ofNat 64 v :: acc) rest' := by
-  rw [parseClausePure_succ_eq, h]; split
-  · cases ‹_ = []›
-  · cases ‹45 :: rest = 45 :: _›; rcases parseNat rest with _ | ⟨v, rest'⟩ <;> rfl
-  · cases ‹45 :: rest = _ :: _›; contradiction
+  rw [parseClausePure_succ_eq, h]; rfl
 
 private theorem parseClausePure_succ_pos {fuel mv poolRem : Nat} {acc : List (BitVec 64)}
     {b : UInt8} {bs rest : List UInt8} (h : skipWsComments bs = b :: rest) (hb : b ≠ 45) :
@@ -580,7 +505,7 @@ private theorem parseClausePure_succ_pos {fuel mv poolRem : Nat} {acc : List (Bi
   rw [parseClausePure_succ_eq, h]; split
   · cases ‹_ = []›
   · exact absurd (List.cons.inj ‹_›).1 hb
-  · cases ‹b :: rest = _ :: _›; rcases parseNat (b :: rest) with _ | ⟨v, rest'⟩ <;> rfl
+  · cases ‹b :: rest = _ :: _›; rfl
 
 theorem parseClausePure_fuel_irrel {f1 f2 mv poolRem : Nat} {acc : List (BitVec 64)}
     {bs : List UInt8} (h1 : bs.length < f1) (h2 : bs.length < f2) :
@@ -593,7 +518,7 @@ theorem parseClausePure_fuel_irrel {f1 f2 mv poolRem : Nat} {acc : List (BitVec 
     | succ fuel2 =>
       have hsw_len := skipWsComments_length_le bs
       cases hsw : skipWsComments bs with
-      | nil => rw [parseClausePure_succ_nil hsw, parseClausePure_succ_nil hsw]
+      | nil => simp [parseClausePure_succ_eq, hsw]
       | cons b rest =>
         have hcr_len : (b :: rest).length ≤ bs.length := by rwa [← hsw]
         by_cases hb : b = 45
@@ -709,7 +634,7 @@ private theorem body_clause_finish {c : WorkCfg} {cnf_ptr cur0 : BitVec 64} {cnf
 theorem lbParseDimacsBody_correct (Γ : Env) :
     ∀ args m Q X, lbParseDimacsBodySpec args m Q X → Func.spec Γ lbParseDimacsBody args m Q X := by
   rintro _ m Q X ⟨c, cnf_ptr, cnfBytes, idx0, R, rfl, hcnf, hidx0, hm, hpost⟩
-  unfold lbParseDimacsBody Func.spec Func.wp; wp_unfold
+  unfold lbParseDimacsBody Func.spec Func.wp
   obtain ⟨_, htr0, _, hm_u⟩ := workState_sep.mp (sep_ac hm :
     (WorkState c 0 c.poolInts (cnf_ptr + BitVec.ofNat 64 idx0)
       (List.replicate c.cap 0) (List.replicate c.cap none) emp ⋆
@@ -721,18 +646,13 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
         (wsFixed c (List.replicate c.cap 0) emp ⋆ region c.pbase (4 * c.poolInts) ⋆
           Eq (cnfBytes.At cnf_ptr) ⋆ R)) m := by
     unfold wsFixed; exact sep_cast hm_u (by dsimp only [cur0]; ac_rfl)
-  refine ⟨_, loadl_hdr 0 (by decide) hm_hdr (by simp),
-    _, loadl_hdr 1 (by decide) hm_hdr rfl,
-    _, loadl_hdr 6 (by decide) hm_hdr rfl,
-    _, loadl_hdr 7 (by decide) hm_hdr rfl,
-    _, loadl_hdr 8 (by decide) hm_hdr rfl,
-    _, loadl_hdr 9 (by decide) hm_hdr rfl, ?_⟩
-  simp only [WorkCfg.hdrWords, List.getElem_cons_succ, List.getElem_cons_zero]
-  refine wp_join_group (fun () m' =>
+  c0_hsteps_nogrp
+  simp only [WorkCfg.hdrWords, List.getElem_cons_succ, List.getElem_cons_zero,
+    BitVec.reduceToNat, Nat.reduceDiv]
+  refine wp_join0 (fun m' =>
     parseBodyPure c.mv c.nc c.poolInts [] (cnfBytes.drop idx0) = none ∧
-    (Eq (cnfBytes.At cnf_ptr) ⋆ region c.hdr c.activeBytes ⋆ R) m') ?_ ?_
-  · rintro _ ⟨⟩ m' ⟨hnone, hm'⟩
-    dsimp only [Blocks.get_here]; wp_unfold; apply hpost; rw [hnone]; exact ⟨rfl, hm'⟩
+    (Eq (cnfBytes.At cnf_ptr) ⋆ region c.hdr c.activeBytes ⋆ R) m')
+    (fun _ m' ⟨hnone, hm'⟩ => by wp_unfold; apply hpost; rw [hnone]; exact ⟨rfl, hm'⟩) ?_
   intro Jfail hJfail
   have hmv_lt := c.hmv; have hnc_lt := c.hnc; have hnc_cap := c.hnc_cap
   have hfit_active := c.fit_active; unfold WorkCfg.activeBytes at hfit_active
@@ -754,8 +674,7 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
   · rintro Jcl r_cl ⟨cid_v, cur_v, pcur_v, ⟨⟩⟩ m_cl ih_cl
       ⟨cidNat, idx, poolUsed, poolRem, revClauses, ptrs, PoolUsed,
        hcid1, hcid2, rfl, hrev_len, hidx, hpsum, rfl, rfl, rfl, hbody_inv, htr, hpu, hm_cl⟩
-    dsimp only [Blocks.get_here]; wp_unfold
-    unfold dimacsBound at hnc_lt
+    dsimp only [Blocks.get_here]; wp_unfold; unfold dimacsBound at hnc_lt
     refine ult_branch (by omega) (by omega) (fun hdone => ?_) (fun hndone => ?_)
     · obtain rfl : cidNat = c.nc + 1 := by omega
       simp only [Nat.sub_self] at hbody_inv
@@ -765,10 +684,9 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
       · subst hj_eq
         have hbody_ok : parseBodyPure c.mv c.nc c.poolInts [] (cnfBytes.drop idx0) =
             some (revClauses.reverse, poolRem) := by
-          rw [← hbody_inv, parseBodyPure_zero]
-          have hmt : (skipWsComments (cnfBytes.drop idx)).isEmpty = true := by
-            rw [← hsw]; simp
-          simp only [hmt, ↓reduceIte]
+          rw [← hbody_inv, parseBodyPure]
+          have hmt : (skipWsComments (cnfBytes.drop idx)).isEmpty = true := by rw [← hsw]; simp
+          simp [hmt]
         let pcur := c.pbase + BitVec.ofNat 64 (4 * poolUsed)
         have hm_hdr_cl : (word8Array c.hdr (c.hdrWords c.pbase cur0) ⋆
             (wsFixed c ptrs PoolUsed ⋆ region pcur (4 * poolRem) ⋆
@@ -788,16 +706,15 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
         exact ⟨rfl, by simp [hrev_len], by omega, ptrs, PoolUsed,
           by rw [show c.poolInts - poolRem = poolUsed by omega]; exact sep_ac hws_done⟩
       · have hbody_none : parseBodyPure c.mv c.nc c.poolInts [] (cnfBytes.drop idx0) = none := by
-          rw [← hbody_inv, parseBodyPure_zero]
+          rw [← hbody_inv, parseBodyPure]
           have hmt : (skipWsComments (cnfBytes.drop idx)).isEmpty = false := by
             rw [← hsw, List.drop_eq_getElem_cons hj_lt]; rfl
-          simp only [hmt, Bool.false_eq_true, ↓reduceIte]
-        refine hJfail () m_cl ⟨hbody_none, ?_⟩
+          simp [hmt]
+        refine hJfail m_cl ⟨hbody_none, ?_⟩
         refine wsFixed_fail_collapse c (pcur0 := c.pbase) (cur0 := cur0) (acc := [])
           htr.1 (by simp; omega) hpu ?_
-        simp only [List.reverse_nil, int4Array_nil, sep_emp, List.length_nil,
-          Nat.mul_zero, BitVec.add_zero]
-        exact hm_cl
+        simpa only [List.reverse_nil, int4Array_nil, emp_sep, sep_emp, List.length_nil,
+          Nat.mul_zero, BitVec.add_zero] using hm_cl
     · rw [show c.nc + 1 - cidNat = (c.nc - cidNat) + 1 by omega] at hbody_inv
       let pcur := c.pbase + BitVec.ofNat 64 (4 * poolUsed)
       refine wp_loop_group (fun r_lit (lcur_v, wcur_v, ()) m_lit =>
@@ -817,21 +734,24 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
           ⟨lidx, rem, acc, _, hlidx2, rfl, hlsum, hlrem, hacc_val, rfl, rfl, hcl_inv, hm_lit⟩
         dsimp only [Blocks.get_here]
         have hfail_lit : ∀ m',
-            parseClausePure ((cnfBytes.drop lidx).length + 1) c.mv rem acc (cnfBytes.drop lidx) =
-              none →
+            parseClausePure ((cnfBytes.drop lidx).length + 1) c.mv rem acc
+              (cnfBytes.drop lidx) = none →
             (Eq (cnfBytes.At cnf_ptr) ⋆
               (word8Array c.hdr (c.hdrWords c.pbase cur0) ⋆ wsFixed c ptrs PoolUsed ⋆
                 int4Array pcur acc.reverse ⋆
                 region (pcur + BitVec.ofNat 64 (4 * acc.length)) (4 * rem)) ⋆ R) m' →
             Jfail () m' := fun m' hcl_none hm' =>
-          hJfail () m' ⟨by rw [← hbody_inv, parseBodyPure_succ_none (by rwa [← hcl_inv])],
+          hJfail m' ⟨by
+            rw [← hbody_inv, parseBodyPure, show parseClausePure ((cnfBytes.drop idx).length + 1)
+              c.mv poolRem [] (cnfBytes.drop idx) = none by rwa [← hcl_inv]]; rfl,
             wsFixed_fail_collapse c htr.1 hlsum hpu hm'⟩
         refine skipWsCommentsQbe_spec hcnf hlidx2 (by ecancel) fun idx1 _ hidx1 hsw1 => ?_
         wp_unfold
         refine cursor_eof_branch hidx1 (by omega)
           (fun hi1_eq => by
             subst hi1_eq
-            exact hfail_lit m_lit (parseClausePure_succ_nil (by rw [← hsw1]; simp)) hm_lit)
+            have hnil : skipWsComments (cnfBytes.drop lidx) = [] := by rw [← hsw1]; simp
+            exact hfail_lit m_lit (by simp [parseClausePure_succ_eq, hnil]) hm_lit)
           (fun hlt1 => ?_)
         have hd1 := List.drop_eq_getElem_cons hlt1
         have hsw1' : skipWsComments (cnfBytes.drop lidx) =
@@ -848,8 +768,7 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
           · rw [parseClausePure_succ_pos hsw1' hb45]; simp [hrem0]
         · have hrem_pos : 0 < rem := Nat.pos_of_ne_zero (fun h0 => hnfull (hfull_iff.mpr h0))
           have hstep_lit : ∀ (lit : BitVec 64) {idx2 : Nat} (hidx2 : idx2 ≤ cnfBytes.length)
-              (_hlidx : lidx < idx2),
-              IsValidLit c.mv lit →
+              (_hlidx : lidx < idx2), IsValidLit c.mv lit →
               parseClausePure ((cnfBytes.drop idx2).length + 1) c.mv (rem - 1) (lit :: acc)
                 (cnfBytes.drop idx2) =
                 parseClausePure ((cnfBytes.drop idx).length + 1) c.mv poolRem []
@@ -861,17 +780,16 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
                     (lit.setWidth 32)) :=
             fun lit idx2 hidx2 _ hlit_val hinv' => by
               obtain ⟨ok_sw, hm_sw⟩ := wsFixed_push_lit lit hrem_pos (by omega) hm_lit
-              exact ⟨ok_sw, ih_lit _ _ _ (by omega) ⟨idx2, rem - 1, lit :: acc,
-                by omega, hidx2, rfl, by simp; omega, by simp; omega,
-                fun x hx => by
-                  rcases List.mem_cons.mp hx with rfl | hx
-                  · exact hlit_val
-                  · exact hacc_val x hx,
-                rfl, by simp only [List.length_cons, ptr4], hinv', hm_sw⟩⟩
+              refine ⟨ok_sw, ih_lit _ _ _ (by omega) ⟨idx2, rem - 1, lit :: acc, by omega, hidx2,
+                rfl, by simp; omega, by simp; omega, fun x hx => ?_, rfl,
+                by simp only [List.length_cons, ptr4], hinv', hm_sw⟩⟩
+              rcases List.mem_cons.mp hx with rfl | hx
+              · exact hlit_val
+              · exact hacc_val x hx
           refine ⟨_, loadu8_At hlt1 (by omega) (by ecancel), ?_⟩
           rw [setWidth64_ofNat8]
           refine ⟨fun his_neg => ?_, fun hnis_neg => ?_⟩
-          · have hb45 : cnfBytes[idx1] = 45 := (bv64_u8_eq (k := 45)).mp his_neg
+          · have hb45 : cnfBytes[idx1] = 45 := bv64_u8_eq.mp his_neg
             have hsw45 : skipWsComments (cnfBytes.drop lidx) =
                 45 :: cnfBytes.drop (idx1 + 1) := by rwa [hb45] at hsw1'
             rw [ptr_step_1]
@@ -881,27 +799,27 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
               fun v idx2 rest' hp_v hv_lt _ hidx2 hd2 => ?_
             wp_unfold; unfold dimacsBound at hv_lt hmv_lt
             refine bv_eq_zero_branch (v := v) (by omega)
-              (fun hv0 => hfail_lit m_lit
-                (by rw [parseClausePure_succ_45 hsw45]; simp [Nat.ne_of_gt hrem_pos, hp_v, hv0])
+              (fun hv0 => hfail_lit m_lit (by
+                rw [parseClausePure_succ_45 hsw45]; simp [Nat.ne_of_gt hrem_pos, hp_v, hv0])
                 hm_lit)
-              (fun hnvz => ?_)
-            refine ult_branch (a := c.mv) (b := v) (by omega) (by omega)
-              (fun hmv_v => hfail_lit m_lit
-                (by rw [parseClausePure_succ_45 hsw45]; simp [Nat.ne_of_gt hrem_pos, hp_v, hmv_v])
-                hm_lit)
-              (fun hnvbig => ?_)
-            rw [show (0 : BitVec 64) - BitVec.ofNat 64 v = -BitVec.ofNat 64 v from by simp]
-            have hnlit_val : IsValidLit c.mv (-BitVec.ofNat 64 v) :=
-              isValidLit_neg (isValidLit_ofNat (mv := c.mv) (v := v) (by omega) (by omega)
-                (by unfold dimacsBound; omega))
-            refine hstep_lit (-BitVec.ofNat 64 v) hidx2 (by omega) hnlit_val ?_
-            rw [← hcl_inv, parseClausePure_succ_45 hsw45]
-            simp only [beq_eq_false_iff_ne.mpr (by omega : rem ≠ 0),
-              beq_eq_false_iff_ne.mpr hnvz, Bool.false_eq_true, Bool.false_or,
-              decide_eq_false_iff_not.mpr hnvbig, ↓reduceIte, hp_v, ← hd2]
-            exact parseClausePure_fuel_irrel
-              (by simp only [List.length_drop]; omega) (by simp only [List.length_drop]; omega)
-          · have hb_ne45 : cnfBytes[idx1] ≠ 45 := fun h => hnis_neg ((bv64_u8_eq (k := 45)).mpr h)
+              (fun hnvz => ult_branch (a := c.mv) (b := v) (by omega) (by omega)
+                (fun hmv_v => hfail_lit m_lit (by
+                  rw [parseClausePure_succ_45 hsw45]
+                  simp [Nat.ne_of_gt hrem_pos, hp_v, hmv_v]) hm_lit)
+                (fun hnvbig => by
+                  rw [show (0 : BitVec 64) - BitVec.ofNat 64 v = -BitVec.ofNat 64 v from by simp]
+                  have hnlit_val : IsValidLit c.mv (-BitVec.ofNat 64 v) :=
+                    isValidLit_neg (isValidLit_ofNat (mv := c.mv) (v := v) (by omega) (by omega)
+                      (by unfold dimacsBound; omega))
+                  refine hstep_lit (-BitVec.ofNat 64 v) hidx2 (by omega) hnlit_val ?_
+                  rw [← hcl_inv, parseClausePure_succ_45 hsw45]
+                  simp only [beq_eq_false_iff_ne.mpr (by omega : rem ≠ 0),
+                    beq_eq_false_iff_ne.mpr hnvz, Bool.false_eq_true, Bool.false_or,
+                    decide_eq_false_iff_not.mpr hnvbig, ↓reduceIte, hp_v, ← hd2]
+                  exact parseClausePure_fuel_irrel (by simp only [List.length_drop]; omega)
+                    (by simp only [List.length_drop]; omega)))
+          · have hb_ne45 : cnfBytes[idx1] ≠ 45 :=
+              fun h => hnis_neg (bv64_u8_eq.mpr h)
             refine readDimacsNat_spec hcnf hidx1 (by ecancel)
               (fun hnone => hfail_lit m_lit (by
                 rw [parseClausePure_succ_pos hsw1' hb_ne45]
@@ -910,46 +828,46 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
             wp_unfold; unfold dimacsBound at hv_lt hmv_lt
             have hp_v' : parseNat (cnfBytes[idx1] :: cnfBytes.drop (idx1 + 1)) =
                 some (v, rest') := by rwa [← hd1]
-            refine bv_eq_zero_branch (v := v) (by omega) (fun hv0 => ?_) (fun hnvz => ?_)
-            · have hcl_ok : parseClausePure ((cnfBytes.drop idx).length + 1) c.mv poolRem []
-                  (cnfBytes.drop idx) = some (acc.reverse, rem - 1, cnfBytes.drop idx2) := by
-                rw [← hcl_inv, parseClausePure_succ_pos hsw1' hb_ne45]; grind
-              rw [show (BitVec.ofNat 64 cidNat).toNat = cidNat from Nat.mod_eq_of_lt (by omega)]
-              obtain ⟨ok_z, ok_slot, htr', hpu', hm_slot⟩ := body_clause_finish (cidNat := cidNat)
-                (by omega) hrev_len hcid1 hrem_pos (by omega) htr hpu hacc_val hm_lit
-              have hwcur_step : pcur + BitVec.ofNat 64 (4 * acc.length) + 4 =
-                  c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (acc.length + 1))) := by
-                dsimp [pcur]; grind
-              refine ⟨ok_z, ok_slot, ih_cl _ _ _ (by omega)
-                ⟨cidNat + 1, idx2, poolUsed + (acc.length + 1), rem - 1, acc.reverse :: revClauses,
-                 ptrs.set cidNat pcur, PoolUsed ⋆ ZeroTermInts pcur acc.reverse,
-                 by omega, by omega, rfl, by simp [hrev_len]; omega, hidx2, by omega,
-                 bv_add_ofNat cidNat 1, rfl, hwcur_step,
-                 ?_, htr', hpu', hm_slot⟩⟩
-              rw [show c.nc + 1 - (cidNat + 1) = c.nc - cidNat by omega,
-                ← hbody_inv, parseBodyPure_succ_some hcl_ok]
-            · refine ult_branch (a := c.mv) (b := v) (by omega) (by omega)
+            refine bv_eq_zero_branch (v := v) (by omega) (fun hv0 => by
+                have hcl_ok : parseClausePure ((cnfBytes.drop idx).length + 1) c.mv poolRem []
+                    (cnfBytes.drop idx) = some (acc.reverse, rem - 1, cnfBytes.drop idx2) := by
+                  rw [← hcl_inv, parseClausePure_succ_pos hsw1' hb_ne45]; grind
+                rw [show (BitVec.ofNat 64 cidNat).toNat = cidNat from Nat.mod_eq_of_lt (by omega)]
+                obtain ⟨ok_z, ok_slot, htr', hpu', hm_slot⟩ := body_clause_finish (cidNat := cidNat)
+                  (by omega) hrev_len hcid1 hrem_pos (by omega) htr hpu hacc_val hm_lit
+                have hwcur_step : pcur + BitVec.ofNat 64 (4 * acc.length) + 4 =
+                    c.pbase + BitVec.ofNat 64 (4 * (poolUsed + (acc.length + 1))) := by
+                  dsimp [pcur]; grind
+                refine ⟨ok_z, ok_slot, ih_cl _ _ _ (by omega)
+                  ⟨cidNat + 1, idx2, poolUsed + (acc.length + 1), rem - 1,
+                   acc.reverse :: revClauses, ptrs.set cidNat pcur,
+                   PoolUsed ⋆ ZeroTermInts pcur acc.reverse,
+                   by omega, by omega, rfl, by simp [hrev_len]; omega, hidx2, by omega,
+                   bv_add_ofNat cidNat 1, rfl, hwcur_step, ?_, htr', hpu', hm_slot⟩⟩
+                rw [show c.nc + 1 - (cidNat + 1) = c.nc - cidNat by omega,
+                  ← hbody_inv, parseBodyPure, hcl_ok]; rfl)
+              (fun hnvz => ult_branch (a := c.mv) (b := v) (by omega) (by omega)
                 (fun hmv_v => hfail_lit m_lit (by
                   rw [parseClausePure_succ_pos hsw1' hb_ne45]
                   simp only [beq_eq_false_iff_ne.mpr (by omega : rem ≠ 0),
                     beq_eq_false_iff_ne.mpr hnvz, Bool.false_eq_true, ↓reduceIte, hp_v', hmv_v])
                   hm_lit)
-                (fun hnvbig => ?_)
-              have hplit_val : IsValidLit c.mv (BitVec.ofNat 64 v) :=
-                isValidLit_ofNat (mv := c.mv) (v := v) (by omega) (by omega)
-                  (by unfold dimacsBound; omega)
-              refine hstep_lit (BitVec.ofNat 64 v) hidx2 (by omega) hplit_val ?_
-              rw [← hcl_inv, parseClausePure_succ_pos hsw1' hb_ne45]
-              simp only [beq_eq_false_iff_ne.mpr (by omega : rem ≠ 0),
-                beq_eq_false_iff_ne.mpr hnvz, Bool.false_eq_true, hnvbig, ↓reduceIte, hp_v', ← hd2]
-              exact parseClausePure_fuel_irrel
-                (by simp only [List.length_drop]; omega) (by simp only [List.length_drop]; omega)
+                (fun hnvbig => by
+                  have hplit_val : IsValidLit c.mv (BitVec.ofNat 64 v) :=
+                    isValidLit_ofNat (mv := c.mv) (v := v) (by omega) (by omega)
+                      (by unfold dimacsBound; omega)
+                  refine hstep_lit (BitVec.ofNat 64 v) hidx2 (by omega) hplit_val ?_
+                  rw [← hcl_inv, parseClausePure_succ_pos hsw1' hb_ne45]
+                  simp only [beq_eq_false_iff_ne.mpr (by omega : rem ≠ 0),
+                    beq_eq_false_iff_ne.mpr hnvz, Bool.false_eq_true, hnvbig, ↓reduceIte,
+                    hp_v', ← hd2]
+                  exact parseClausePure_fuel_irrel (by simp only [List.length_drop]; omega)
+                    (by simp only [List.length_drop]; omega)))
       · intro Jlit hJlit; wp_unfold
         refine hJlit _ _ _ ⟨idx, poolRem, [], Nat.le_refl _, hidx, rfl,
           by simpa using hpsum, by simp, by simp, rfl, by simp [pcur], rfl, ?_⟩
-        simp only [List.reverse_nil, int4Array_nil, sep_emp, List.length_nil,
-          Nat.mul_zero, BitVec.add_zero]
-        exact hm_cl
+        simpa only [List.reverse_nil, int4Array_nil, sep_emp, List.length_nil,
+          Nat.mul_zero, BitVec.add_zero] using hm_cl
   · intro Jcl hJcl; wp_unfold
     have hm_init : (Eq (cnfBytes.At cnf_ptr) ⋆
         (word8Array c.hdr (c.hdrWords c.pbase cur0) ⋆ wsFixed c (List.replicate c.cap 0) emp ⋆
@@ -963,11 +881,6 @@ theorem lbParseDimacsBody_correct (Γ : Env) :
 
 /-! ## 5. Pure soundness of `parseBodyPure` -/
 
-private theorem parseClauseAux_succ_nil {fuel mv : Nat} {acc : List (Literal Nat)}
-    {bs : List UInt8} (h : skipWsComments bs = []) :
-    parseClauseAux (fuel + 1) mv acc bs = none := by
-  rw [parseClauseAux_succ_eq, h]
-
 private theorem parseClauseAux_succ_45 {fuel mv : Nat} {acc : List (Literal Nat)}
     {bs rest : List UInt8} (h : skipWsComments bs = 45 :: rest) :
     parseClauseAux (fuel + 1) mv acc bs =
@@ -975,44 +888,20 @@ private theorem parseClauseAux_succ_45 {fuel mv : Nat} {acc : List (Literal Nat)
       | some (v, rest') =>
         if 1 ≤ v && v ≤ mv then parseClauseAux fuel mv ((v, false) :: acc) rest' else none
       | none => none := by
-  rw [parseClauseAux_succ_eq, h]; split
-  · cases ‹_ = []›
-  · cases ‹45 :: rest = 45 :: _›; rcases parseNat rest with _ | ⟨v, rest'⟩ <;> rfl
-  · cases ‹45 :: rest = _ :: _›; contradiction
+  rw [parseClauseAux_succ_eq, h]; rfl
 
-private theorem parseClauseAux_succ_pos_none {fuel mv : Nat}
-    {acc : List (Literal Nat)} {b : UInt8} {bs rest : List UInt8}
-    (h : skipWsComments bs = b :: rest) (hb : b ≠ 45)
-    (hp : parseNat (b :: rest) = none) :
-    parseClauseAux (fuel + 1) mv acc bs = none := by
-  rw [parseClauseAux_succ_eq, h]; split
-  · cases ‹_ = []›
-  · exact absurd (List.cons.inj ‹_›).1 hb
-  · cases ‹b :: rest = _ :: _›; rw [hp]
-
-private theorem parseClauseAux_succ_pos_zero {fuel mv : Nat} {acc : List (Literal Nat)}
-    {b : UInt8} {bs rest rest' : List UInt8}
-    (h : skipWsComments bs = b :: rest) (hb : b ≠ 45)
-    (hp : parseNat (b :: rest) = some (0, rest')) :
-    parseClauseAux (fuel + 1) mv acc bs = some (CNF.Clause.ofLiterals acc.reverse, rest') := by
-  rw [parseClauseAux_succ_eq, h]; split
-  · cases ‹_ = []›
-  · exact absurd (List.cons.inj ‹_›).1 hb
-  · cases ‹b :: rest = _ :: _›; rw [hp]; rfl
-
-private theorem parseClauseAux_succ_pos_ne0 {fuel mv v : Nat} {acc : List (Literal Nat)}
-    {b : UInt8} {bs rest rest' : List UInt8}
-    (h : skipWsComments bs = b :: rest) (hb : b ≠ 45) (hv : v ≠ 0)
-    (hp : parseNat (b :: rest) = some (v, rest')) :
+private theorem parseClauseAux_succ_pos {fuel mv : Nat} {acc : List (Literal Nat)}
+    {b : UInt8} {bs rest : List UInt8} (h : skipWsComments bs = b :: rest) (hb : b ≠ 45) :
     parseClauseAux (fuel + 1) mv acc bs =
-      if 1 ≤ v && v ≤ mv then parseClauseAux fuel mv ((v, true) :: acc) rest' else none := by
+      match parseNat (b :: rest) with
+      | some (0, rest') => some (CNF.Clause.ofLiterals acc.reverse, rest')
+      | some (v, rest') =>
+        if 1 ≤ v && v ≤ mv then parseClauseAux fuel mv ((v, true) :: acc) rest' else none
+      | none => none := by
   rw [parseClauseAux_succ_eq, h]; split
   · cases ‹_ = []›
   · exact absurd (List.cons.inj ‹_›).1 hb
-  · cases ‹b :: rest = _ :: _›; rw [hp]
-    cases v with
-    | zero => exact absurd rfl hv
-    | succ _ => rfl
+  · cases ‹b :: rest = _ :: _›; rfl
 
 private theorem parseClausePure_sound_aux {fuel mv poolRem : Nat} {acc : List (BitVec 64)}
     {bs : List UInt8} {clits : List (BitVec 64)} {poolRem' : Nat} {rest' : List UInt8}
@@ -1024,7 +913,7 @@ private theorem parseClausePure_sound_aux {fuel mv poolRem : Nat} {acc : List (B
   | zero => nomatch hp
   | succ fuel ih =>
     cases hsw : skipWsComments bs with
-    | nil => rw [parseClausePure_succ_nil hsw] at hp; nomatch hp
+    | nil => rw [parseClausePure_succ_eq, hsw] at hp; nomatch hp
     | cons b rest =>
       by_cases hb45 : b = 45
       · subst hb45; rw [parseClausePure_succ_45 hsw] at hp
@@ -1055,7 +944,7 @@ private theorem parseClausePure_sound_aux {fuel mv poolRem : Nat} {acc : List (B
             by_cases hv0 : v = 0
             · subst hv0; simp at hp; obtain ⟨rfl, _, rfl⟩ := hp
               refine ⟨?_, fun x hx => hacc x (List.mem_reverse.mp hx)⟩
-              rw [parseClauseAux_succ_pos_zero hsw hb45 hpn, ← List.map_reverse]; rfl
+              rw [parseClauseAux_succ_pos hsw hb45, hpn, ← List.map_reverse]; rfl
             · simp only [beq_eq_false_iff_ne.mpr hv0, Bool.false_eq_true, ↓reduceIte] at hp
               split at hp
               · nomatch hp
@@ -1064,10 +953,13 @@ private theorem parseClausePure_sound_aux {fuel mv poolRem : Nat} {acc : List (B
                 have hval : IsValidLit mv (BitVec.ofNat 64 v) := isValidLit_ofNat hv1 hvm hmv
                 obtain ⟨haux, hclits⟩ := ih (fun x hx => by
                   rcases List.mem_cons.mp hx with rfl | hx; exact hval; exact hacc x hx) hp
-                rw [parseClauseAux_succ_pos_ne0 hsw hb45 hv0 hpn]
-                simp only [show (1 ≤ v && v ≤ mv) = true by simp [hv1, hvm], ↓reduceIte]
-                rw [List.map_cons, toLiteral_ofNat hv1 (by omega)] at haux
-                exact ⟨haux, hclits⟩
+                rw [parseClauseAux_succ_pos hsw hb45, hpn]
+                cases v with
+                | zero => exact absurd rfl hv0
+                | succ k =>
+                  simp only [show (1 ≤ k + 1 && k + 1 ≤ mv) = true by simp [hv1, hvm], ↓reduceIte]
+                  rw [List.map_cons, toLiteral_ofNat hv1 (by omega)] at haux
+                  exact ⟨haux, hclits⟩
 
 private theorem parseBodyPure_sound_aux {mv k poolRem poolRem' : Nat}
     {revClauses clauses : List (List (BitVec 64))} {bs : List UInt8}
@@ -1080,24 +972,24 @@ private theorem parseBodyPure_sound_aux {mv k poolRem poolRem' : Nat}
     (∀ cl ∈ clauses, ∀ x ∈ cl, IsValidLit mv x) := by
   induction k generalizing poolRem revClauses bs with
   | zero =>
-    rw [parseBodyPure_zero] at hbody
+    rw [parseBodyPure] at hbody
     cases hsw : (skipWsComments bs).isEmpty <;> rw [hsw] at hbody
     · simp only [Bool.false_eq_true, ↓reduceIte] at hbody; cases hbody
     · simp only [↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hbody
       obtain ⟨rfl, _⟩ := hbody
-      exact ⟨fun cnf0 => by rw [parseClauses_zero]; simp only [hsw, ↓reduceIte],
+      exact ⟨fun cnf0 => by rw [parseClauses]; simp only [hsw, ↓reduceIte],
         by simp, fun cl hcl => hrev cl (List.mem_reverse.mp hcl)⟩
   | succ k ih =>
     rcases hcl : parseClausePure (bs.length + 1) mv poolRem [] bs with
       _ | ⟨clits, poolRem1, bs'⟩
-    · rw [parseBodyPure_succ_none hcl] at hbody; cases hbody
-    · rw [parseBodyPure_succ_some hcl] at hbody
+    · rw [parseBodyPure, hcl] at hbody; cases hbody
+    · rw [parseBodyPure, hcl] at hbody; dsimp at hbody
       obtain ⟨hcl_aux, hcl_val⟩ := parseClausePure_sound_aux hmv (by simp) hcl
       have hparse_cl : parseClause mv bs = some (toClause clits, bs') := hcl_aux
       obtain ⟨hcnf_eq, hlen, hval_all⟩ := ih (fun cl hmem => by
         rcases List.mem_cons.mp hmem with rfl | hmem; exact hcl_val; exact hrev cl hmem) hbody
       refine ⟨fun cnf0 => ?_, by simp [hlen]; omega, hval_all⟩
-      rw [parseClauses_succ_some hparse_cl]; grind
+      rw [parseClauses, hparse_cl]; grind
 
 theorem parseBodyPure_sound {cnfBytes bodyRest : List UInt8} {mv nc poolInts poolRem' : Nat}
     {clauses : List (List (BitVec 64))}
@@ -1121,7 +1013,7 @@ theorem parseBodyPure_sound {cnfBytes bodyRest : List UInt8} {mv nc poolInts poo
 private theorem natToBytesAux_acc (fuel n : Nat) (acc : List UInt8) :
     natToBytesAux fuel n acc = natToBytesAux fuel n [] ++ acc := by
   induction fuel generalizing n acc with
-  | zero => rw [natToBytesAux_zero, natToBytesAux_zero, List.nil_append]
+  | zero => simp [natToBytesAux]
   | succ fuel ih =>
     rw [natToBytesAux_succ, natToBytesAux_succ]
     by_cases h : n < 10 <;> simp only [h, ↓reduceIte] <;> grind
@@ -1192,8 +1084,7 @@ private theorem skipWs_natToBytes_append (n : Nat) (tail : List UInt8) :
   obtain ⟨hne, hdig⟩ := natToBytes_digits n
   rcases h : natToBytes n with _ | ⟨b, bs⟩
   · exact absurd h hne
-  · rw [List.cons_append, skipWs_cons, isDimacsWs_of_digit (hdig b (by simp [h]))]
-    simp only [Bool.false_eq_true, ↓reduceIte]
+  · rw [List.cons_append, skipWs, isDimacsWs_of_digit (hdig b (by simp [h]))]; rfl
 
 private theorem skipWsComments_natToBytes_append (n : Nat) (tail : List UInt8) :
     skipWsComments (natToBytes n ++ tail) = natToBytes n ++ tail := by
@@ -1201,7 +1092,7 @@ private theorem skipWsComments_natToBytes_append (n : Nat) (tail : List UInt8) :
   rcases h : natToBytes n with _ | ⟨b, bs⟩
   · exact absurd h hne
   · have hb := hdig b (by simp [h])
-    rw [List.cons_append, skipWsComments_def, skipWsCommentsAux_false_cons,
+    rw [List.cons_append, skipWsComments, skipWsCommentsAux_false_cons,
       isDimacsWs_of_digit hb, ne_99_of_digit hb]
     simp only [Bool.false_eq_true, ↓reduceIte]
 
@@ -1210,18 +1101,18 @@ private theorem parseNat_natToBytes_append {n : Nat} (hn : n < dimacsBound) (tai
   induction n using Nat.strongRecOn generalizing tail with
   | ind n ih =>
     by_cases h : n < 10
-    · rw [natToBytes_lt_10 h, List.singleton_append, parseNat_cons]
+    · rw [natToBytes_lt_10 h, List.singleton_append, parseNat]
       simp only [isDimacsDigit_digit h, ↓reduceIte, digit_toNat h]; grind
     · rw [natToBytes_ge_10 (by omega), List.append_assoc, List.singleton_append,
         ih (n / 10) (by omega) (by omega)]
       have hd : n % 10 < 10 := by omega
-      rw [parseDigitsAux_cons]
+      rw [parseDigitsAux]
       simp only [isDimacsDigit_digit hd, ↓reduceIte, digit_toNat hd]; grind
 
 private theorem parseNat_natToBytes_ws {n : Nat} {w : UInt8} {rest : List UInt8}
     (hn : n < dimacsBound) (hw : isDimacsWs w = true) :
     parseNat (natToBytes n ++ w :: rest) = some (n, w :: rest) := by
-  rw [parseNat_natToBytes_append hn, parseDigitsAux_cons]
+  rw [parseNat_natToBytes_append hn, parseDigitsAux]
   simp [isDimacsDigit_of_ws hw, hw]
 
 private theorem parseHeader_encodeDimacs {cnf : CNF Nat}
@@ -1243,12 +1134,12 @@ private theorem parseHeader_encodeDimacs {cnf : CNF Nat}
   have hws2 : skipWs1 (32 :: (natToBytes (cnfMaxVar cnf) ++ 32 ::
       (natToBytes cnf.clauses.size ++ 10 :: body))) =
       some (natToBytes (cnfMaxVar cnf) ++ 32 :: (natToBytes cnf.clauses.size ++ 10 :: body)) := by
-    rw [skipWs1_cons]; simp [show isDimacsWs 32 = true by decide, skipWs_natToBytes_append]
+    simp [skipWs1, show isDimacsWs 32 = true by decide, skipWs_natToBytes_append]
   have hp1 := parseNat_natToBytes_ws (rest := natToBytes cnf.clauses.size ++ 10 :: body)
     hmv (by decide : isDimacsWs 32 = true)
   have hws3 : skipWs1 (32 :: (natToBytes cnf.clauses.size ++ 10 :: body)) =
       some (natToBytes cnf.clauses.size ++ 10 :: body) := by
-    rw [skipWs1_cons]; simp [show isDimacsWs 32 = true by decide, skipWs_natToBytes_append]
+    simp [skipWs1, show isDimacsWs 32 = true by decide, skipWs_natToBytes_append]
   have hp2 := parseNat_natToBytes_ws (rest := body) hnc (by decide : isDimacsWs 10 = true)
   simp [hsw0, hws1, hws2, hp1, hws3, hp2, body]
 
@@ -1296,7 +1187,7 @@ theorem parseClauseAux_fuel_irrel {f1 f2 mv : Nat} {acc : List (Literal Nat)}
     | succ fuel2 =>
       have hsw_len := skipWsComments_length_le bs
       cases hsw : skipWsComments bs with
-      | nil => rw [parseClauseAux_succ_nil hsw, parseClauseAux_succ_nil hsw]
+      | nil => simp [parseClauseAux_succ_eq, hsw]
       | cons b rest =>
         have hcr_len : (b :: rest).length ≤ bs.length := by rwa [← hsw]
         by_cases hb : b = 45
@@ -1304,15 +1195,12 @@ theorem parseClauseAux_fuel_irrel {f1 f2 mv : Nat} {acc : List (Literal Nat)}
           rcases hpn : parseNat rest with _ | ⟨v, rest'⟩
           · rfl
           · have := parseNat_length_lt hpn; grind
-        · rcases hpn : parseNat (b :: rest) with _ | ⟨v, rest'⟩
-          · rw [parseClauseAux_succ_pos_none hsw hb hpn, parseClauseAux_succ_pos_none hsw hb hpn]
-          · by_cases hv0 : v = 0
-            · subst hv0
-              rw [parseClauseAux_succ_pos_zero hsw hb hpn, parseClauseAux_succ_pos_zero hsw hb hpn]
-            · have := parseNat_length_lt hpn
-              rw [parseClauseAux_succ_pos_ne0 hsw hb hv0 hpn,
-                  parseClauseAux_succ_pos_ne0 hsw hb hv0 hpn]
-              grind
+        · rw [parseClauseAux_succ_pos hsw hb, parseClauseAux_succ_pos hsw hb]
+          rcases hpn : parseNat (b :: rest) with _ | ⟨v, rest'⟩
+          · rfl
+          · cases v with
+            | zero => rfl
+            | succ _ => have := parseNat_length_lt hpn; grind
 
 private theorem parseClauseAux_ws_cons {fuel mv : Nat} {acc : List (Literal Nat)}
     {w : UInt8} {bs : List UInt8} (hw : isDimacsWs w = true) :
@@ -1321,7 +1209,7 @@ private theorem parseClauseAux_ws_cons {fuel mv : Nat} {acc : List (Literal Nat)
   | zero => rfl
   | succ fuel =>
     have hsw : skipWsComments (w :: bs) = skipWsComments bs := by
-      rw [skipWsComments_def, skipWsCommentsAux_false_cons, hw]
+      rw [skipWsComments, skipWsCommentsAux_false_cons, hw]
       simp only [↓reduceIte]; rfl
     rw [parseClauseAux_succ_eq, hsw, ← parseClauseAux_succ_eq]
 
@@ -1351,7 +1239,7 @@ private theorem parseClauseAux_encodeLits {ls : List (Literal Nat)} {fuel mv : N
     | zero => omega
     | succ fuel =>
       simp only [List.flatMap_nil, List.nil_append, List.cons_append, List.append_nil]
-      exact parseClauseAux_succ_pos_zero (h := rfl) (by decide) rfl
+      rw [parseClauseAux_succ_pos (h := rfl) (by decide)]; rfl
   | cons l ls ih =>
     cases fuel with
     | zero => omega
@@ -1384,10 +1272,13 @@ private theorem parseClauseAux_encodeLits {ls : List (Literal Nat)} {fuel mv : N
         · exact absurd hnb hne
         · have hb_ne45 : b ≠ 45 := ne_45_of_digit (hdig b (by simp [hnb]))
           rw [hnb, List.cons_append] at hsw hpn
-          rw [List.cons_append, parseClauseAux_succ_pos_ne0 hsw hb_ne45 (by omega) hpn]
-          simp only [hcond, ↓reduceIte]
-          rw [parseClauseAux_ws_cons (by decide : isDimacsWs 32 = true), ih hls' hfuel']
-          simp [List.reverse_cons]
+          rw [List.cons_append, parseClauseAux_succ_pos hsw hb_ne45, hpn]
+          cases v with
+          | zero => omega
+          | succ k =>
+            simp only [hcond, ↓reduceIte]
+            rw [parseClauseAux_ws_cons (by decide : isDimacsWs 32 = true), ih hls' hfuel']
+            simp [List.reverse_cons]
 
 private theorem parseClause_encodeDimacsClause {mv : Nat} {cl : CNF.Clause Nat} {rest : List UInt8}
     (hmv : mv < dimacsBound) (hcl : ∀ l ∈ cl.literals, 1 ≤ l.1 ∧ l.1 ≤ mv) :
@@ -1403,13 +1294,14 @@ private theorem parseClauses_encodeDimacsClauses {mv : Nat} {cls : List (CNF.Cla
   induction cls generalizing accCnf with
   | nil =>
     simp only [List.length_nil, List.flatMap_nil, List.foldl_nil]
-    rw [parseClauses_zero]; simp [show skipWsComments [10] = [] from rfl]
+    rw [parseClauses]; simp [show skipWsComments [10] = [] from rfl]
   | cons cl cls ih =>
     simp only [List.length_cons, List.flatMap_cons]
-    rw [parseClauses_succ_some (by
+    have hpc : parseClause mv (10 :: (encodeDimacsClause cl ++ cls.flatMap encodeDimacsClause)) =
+        some (cl, 10 :: cls.flatMap encodeDimacsClause) := by
       rw [parseClause_ws_cons (by decide : isDimacsWs 10 = true)]
-      exact parseClause_encodeDimacsClause hmv (fun l hl => hcls cl (by simp) l hl))]
-    grind
+      exact parseClause_encodeDimacsClause hmv (fun l hl => hcls cl (by simp) l hl)
+    rw [parseClauses, hpc]; grind
 
 private theorem foldl_add_clauses_toList (cls : List (CNF.Clause Nat)) (init : CNF Nat) :
     (cls.foldl CNF.add init).clauses.toList = init.clauses.toList ++ cls := by

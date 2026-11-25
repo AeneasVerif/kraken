@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.Frontend.C0.Syntax
 public import LeanQbe.T.Frontend.C0.Lexer
-import Std.Data.HashMap
+public import Std.Data.HashMap
 import Std.Data.HashSet
 
 /-!
@@ -31,6 +31,10 @@ private structure ParseState where
   structs : Std.HashSet String
   unions : Std.HashSet String
   consts : Std.HashMap String Int
+  pendingPragmas : List C0Pragma := []
+  pendingLoopBound : Option String := none
+  curLoopIdx : Nat := 0
+  loopBounds : List (Nat × String) := []
 
 private abbrev ParserM := StateT ParseState (Except String)
 
@@ -58,6 +62,7 @@ private def tokDesc : TokKind → String
   | .strLit s => s!"string literal \"{s}\""
   | .kw s => s!"keyword '{s}'"
   | .sym s => s!"symbol '{s}'"
+  | .pragma p => s!"#pragma ({repr p})"
   | .eof => "end of file"
 
 private def failAt {α : Type} (msg : String) : ParserM α := do
@@ -145,25 +150,23 @@ private def isTypeStart : ParserM Bool := do
     pure ((builtinTypeMap s).isSome || st.typedefs.contains s)
   | _ => pure false
 
-private partial def evalConstIntExpr (consts : Std.HashMap String Int) : Expr → Except String Int
-  | .intLit v _ _ => pure v
-  | .boolLit b => pure (if b then 1 else 0)
-  | .var nm => match consts.get? nm with
-    | some v => pure v
-    | none => throw s!"unknown constant '{nm}' in integer constant expression"
-  | .unary .neg e => do pure (-(← evalConstIntExpr consts e))
-  | .unary .pos e => evalConstIntExpr consts e
-  | .unary .bitnot e => do pure (~~~(← evalConstIntExpr consts e))
-  | .binary .add a b => do pure ((← evalConstIntExpr consts a) + (← evalConstIntExpr consts b))
-  | .binary .sub a b => do pure ((← evalConstIntExpr consts a) - (← evalConstIntExpr consts b))
-  | .binary .mul a b => do pure ((← evalConstIntExpr consts a) * (← evalConstIntExpr consts b))
-  | .binary .shl a b => do
-    let va ← evalConstIntExpr consts a
-    let vb ← evalConstIntExpr consts b
-    pure (va * Int.ofNat (2 ^ vb.toNat))
-  | _ => throw "expected integer constant expression"
+private partial def evalConstIntExpr (consts : Std.HashMap String Int) : Expr → Except String Int :=
+  evalConstIntWith consts.get? fun _ => throw "expected integer constant expression"
 
 mutual
+  private partial def parseStaticAssertArgs : ParserM (Expr × String) := do
+    expectSym "("
+    let cond ← parseExpr
+    let mut msg := "static assertion failed"
+    if ← matchSym "," then
+      let msgTok ← nextTok
+      match msgTok.kind with
+      | .strLit s => msg := s
+      | _ => failAt s!"expected string literal in _Static_assert, got {tokDesc msgTok.kind}"
+    expectSym ")"
+    expectSym ";"
+    pure (cond, msg)
+
   private partial def parseBaseType : ParserM C0Type := do
     skipQualifiers
     let tok ← peekTok
@@ -267,6 +270,11 @@ mutual
     expectSym "{"
     let mut fields : List FieldDecl := []
     while !(← matchSym "}") do
+      let tok ← peekTok
+      if tok.kind == .kw "_Static_assert" || tok.kind == .kw "static_assert" then
+        let _ ← nextTok
+        let _ ← parseStaticAssertArgs
+        continue
       let base ← parseBaseType
       -- Support comma-separated fields like `u32 a, b;`
       let mut more := true
@@ -375,6 +383,17 @@ mutual
           pure (.sizeofExpr e)
       else
         pure (.sizeofExpr (← parseUnary))
+    | .kw "offsetof" | .kw "__builtin_offsetof" =>
+      let _ ← nextTok
+      expectSym "("
+      let ty ← parseType
+      expectSym ","
+      let mut fld ← expectIdent
+      while ← matchSym "." do
+        let sub ← expectIdent
+        fld := fld ++ "." ++ sub
+      expectSym ")"
+      pure (.offsetof ty fld)
     | _ => parsePostfix
 
   private partial def parseCast : ParserM Expr := do
@@ -497,6 +516,52 @@ private def exprToLVal : Expr → Except String LVal
   | .field base f => do pure (.dot (← exprToLVal base) f)
   | e => throw s!"expression is not an assignable lvalue: {repr e}"
 
+private partial def exprHasCall : Expr → Bool
+  | .call _ _ => true
+  | .cast _ e | .sizeofExpr e | .unary _ e | .field e _ | .arrow e _ => exprHasCall e
+  | .binary _ l r | .index l r => exprHasCall l || exprHasCall r
+  | .ternary c t e => exprHasCall c || exprHasCall t || exprHasCall e
+  | _ => false
+
+private def lvalHasCall : LVal → Bool
+  | .var _ => false
+  | .deref p | .arrow p _ => exprHasCall p
+  | .index a i => exprHasCall a || exprHasCall i
+  | .dot b _ => lvalHasCall b
+
+private def lvalToExpr : LVal → Expr
+  | .var x => .var x
+  | .deref p => .unary .deref p
+  | .arrow p f => .arrow p f
+  | .index a i => .index a i
+  | .dot base f => .field (lvalToExpr base) f
+
+private def desugarChainedAssign (lvs : List LVal) (rhs : Expr) : Except String Stmt := do
+  match lvs with
+  | [] => pure .empty
+  | [lv] => pure (.assign lv none rhs)
+  | _ =>
+    let rev := lvs.reverse
+    for lv in rev.dropLast do
+      if lvalHasCall lv then
+        throw "function call inside chained assignment target is not supported"
+    let s0 := Stmt.assign rev.head! none rhs
+    let mut acc := [s0]
+    let mut prev := rev.head!
+    for lv in rev.tail! do
+      acc := acc ++ [.assign lv none (lvalToExpr prev)]
+      prev := lv
+    pure (.block acc)
+
+private partial def desugarVoidExpr : Expr → ParserM Stmt
+  | .call fn args => pure (.callStmt [] fn args)
+  | .cast .void sub => desugarVoidExpr sub
+  | e =>
+    if exprHasCall e then
+      failAt "function calls inside compound '(void)' expression are not supported"
+    else
+      pure .empty
+
 private def parseAssignOp? : ParserM (Option (Option BinOp)) := do
   let tok ← peekTok
   let op? : Option (Option BinOp) := match tok.kind with
@@ -531,6 +596,17 @@ private def parseInitVal : ParserM InitVal := do
     pure (.expr (← parseExpr))
 
 private def parseSimpleAction : ParserM Stmt := do
+  if (← peekTok).kind == .sym "(" then
+    let voidOpt ← tryBacktrack do
+      expectSym "("
+      skipQualifiers
+      unless ← matchKw "void" do failAt "not void"
+      skipQualifiers
+      expectSym ")"
+      let e ← parseExpr
+      desugarVoidExpr e
+    if let some s := voidOpt then
+      return s
   if ← isTypeStart then
     let ty ← parseType
     let name ← expectIdent
@@ -548,13 +624,54 @@ private def parseSimpleAction : ParserM Stmt := do
       pure (.incDec (← liftExceptAt (exprToLVal e)) false)
     else if let some binOp? ← parseAssignOp? then
       let lv ← liftExceptAt (exprToLVal e)
-      pure (.assign lv binOp? (← parseExpr))
+      match binOp? with
+      | some op =>
+        pure (.assign lv (some op) (← parseExpr))
+      | none =>
+        let mut lvs := [lv]
+        while true do
+          let nextLvOpt ← tryBacktrack do
+            let e' ← parseUnary
+            let lv' ← liftExceptAt (exprToLVal e')
+            expectSym "="
+            pure lv'
+          match nextLvOpt with
+          | some nextLv => lvs := lvs ++ [nextLv]
+          | none => break
+        let rhs ← parseExpr
+        liftExceptAt (desugarChainedAssign lvs rhs)
     else
       match e with
+      | .cast .void sub => desugarVoidExpr sub
       | .call fn args => pure (.callStmt [] fn args)
       | _ =>
         let tok ← peekTok
         failAt s!"expected assignment, call, or increment/decrement, got {tokDesc tok.kind}"
+
+private def parseActionList : ParserM Stmt := do
+  let s0 ← parseSimpleAction
+  if s0 matches .decl _ _ _ then
+    if (← peekTok).kind == .sym "," then
+      failAt "comma-separated declarations in 'for' initializer are not supported"
+    return s0
+  let mut stmts := [s0]
+  while ← matchSym "," do
+    if ← isTypeStart then
+      failAt "type declaration is not allowed after ',' in statement action list"
+    stmts := stmts ++ [← parseSimpleAction]
+  match stmts with
+  | [s] => pure s
+  | ss => pure (.block ss)
+
+private def consumePendingLoopBound : ParserM Unit := do
+  modify fun st =>
+    let lIdx := st.curLoopIdx
+    { st with
+      curLoopIdx := lIdx + 1
+      pendingLoopBound := none
+      loopBounds := match st.pendingLoopBound with
+        | some r => (lIdx, r) :: st.loopBounds
+        | none => st.loopBounds }
 
 private def parseLocalDecls : ParserM (List Stmt) := do
   let base ← parseBaseType
@@ -587,6 +704,13 @@ mutual
   private partial def parseStmt : ParserM Stmt := do
     let tok ← peekTok
     match tok.kind with
+    | .pragma p =>
+      let _ ← nextTok
+      match p with
+      | .bounded reason =>
+        modify fun st => { st with pendingLoopBound := some reason }
+        pure .empty
+      | _ => pure .empty
     | .sym ";" => let _ ← nextTok; pure .empty
     | .sym "{" => pure (.block (← parseBlockStmts))
     | .kw "if" =>
@@ -599,6 +723,7 @@ mutual
       pure (.ifStmt cond thn els)
     | .kw "while" =>
       let _ ← nextTok
+      consumePendingLoopBound
       expectSym "("
       let cond ← parseExpr
       expectSym ")"
@@ -606,6 +731,7 @@ mutual
       pure (.whileStmt cond body)
     | .kw "do" =>
       let _ ← nextTok
+      consumePendingLoopBound
       let body ← parseStmt
       if !(← matchKw "while") then
         failAt s!"expected 'while' after do body, got {tokDesc (← peekTok).kind}"
@@ -616,11 +742,12 @@ mutual
       pure (.doWhileStmt body cond)
     | .kw "for" =>
       let _ ← nextTok
+      consumePendingLoopBound
       expectSym "("
       let init? ←
         if ← matchSym ";" then pure none
         else
-          let s ← parseSimpleAction
+          let s ← parseActionList
           expectSym ";"
           pure (some s)
       let cond? ←
@@ -632,7 +759,7 @@ mutual
       let step? ←
         if ← matchSym ")" then pure none
         else
-          let s ← parseSimpleAction
+          let s ← parseActionList
           expectSym ")"
           pure (some s)
       let body ← parseStmt
@@ -746,6 +873,10 @@ mutual
       expectSym ")"
       expectSym ";"
       pure (.assertStmt c line)
+    | .kw "_Static_assert" | .kw "static_assert" =>
+      let _ ← nextTok
+      let (cond, msg) ← parseStaticAssertArgs
+      pure (.staticAssertStmt cond msg)
     | .ident "C0_TIE2" =>
       let _ ← nextTok
       expectSym "("
@@ -776,7 +907,7 @@ mutual
         let s ← parseStmt
         pure (.labelStmt lbl s)
       else
-        let s ← parseSimpleAction
+        let s ← parseActionList
         expectSym ";"
         pure s
     | .sym "(" =>
@@ -795,11 +926,11 @@ mutual
       match tieOpt with
       | some s => pure s
       | none =>
-        let s ← parseSimpleAction
+        let s ← parseActionList
         expectSym ";"
         pure s
     | _ =>
-      let s ← parseSimpleAction
+      let s ← parseActionList
       expectSym ";"
       pure s
 end
@@ -830,6 +961,14 @@ private def parseParams : ParserM (List (C0Type × Option String)) := do
 private def parseTopDecl : ParserM (List Decl) := do
   let tok ← peekTok
   match tok.kind with
+  | .pragma p =>
+    let _ ← nextTok
+    modify fun st => { st with pendingPragmas := st.pendingPragmas ++ [p] }
+    pure [.pragma p]
+  | .kw "_Static_assert" | .kw "static_assert" =>
+    let _ ← nextTok
+    let (cond, msg) ← parseStaticAssertArgs
+    pure [.staticAssert cond msg]
   | .kw "typedef" =>
     let _ ← nextTok
     let cur ← peekTok
@@ -937,16 +1076,45 @@ where
     if ← matchSym ";" then
       pure [.fnDecl { retTy, name, params }]
     else
+      let pragmas := (← get).pendingPragmas
+      modify fun st => {
+        st with
+        pendingPragmas := []
+        curLoopIdx := 0
+        loopBounds := []
+        pendingLoopBound := none
+      }
       let namedParams ← params.mapM fun (t, nm?) => do
         match nm? with
         | some nm => pure (t, nm)
         | none => failAt s!"function '{name}' definition requires named parameters"
       let body ← parseBlockStmts
-      pure [.fnDef { isStatic, isInline, retTy, name, params := namedParams, body }]
+      let stAfter ← get
+      let mut upstreamLoc : Option String := none
+      let mut upstreamFn : Option String := none
+      let mut isFidelity := false
+      let mut isExtension := false
+      let mut boundedReasons : List String := []
+      for p in pragmas do
+        match p with
+        | .upstream loc fn? =>
+          upstreamLoc := some loc
+          upstreamFn := fn?.orElse (fun () => some name)
+        | .fidelity => isFidelity := true
+        | .extension => isExtension := true
+        | .bounded r => boundedReasons := boundedReasons ++ [r]
+      if let some pendingR := stAfter.pendingLoopBound then
+        boundedReasons := boundedReasons ++ [pendingR]
+      pure [.fnDef {
+        isStatic, isInline, retTy, name, params := namedParams, body
+        upstreamLoc, upstreamFn, isFidelity, isExtension, boundedReasons
+        boundedLoops := stAfter.loopBounds
+      }]
 
 /-- Parse a C0 `.c`/`.h` source string into a `TranslationUnit`. -/
-def parseC0 (src : String) : Except String TranslationUnit := do
-  let toks ← tokenize src
+def parseC0 (src : String) (headers : Std.HashMap String String := {}) :
+    Except String TranslationUnit := do
+  let toks ← tokenize src headers
   let initState : ParseState := {
     toks := toks
     pos := 0
@@ -954,6 +1122,10 @@ def parseC0 (src : String) : Except String TranslationUnit := do
     structs := {}
     unions := {}
     consts := {}
+    pendingPragmas := []
+    pendingLoopBound := none
+    curLoopIdx := 0
+    loopBounds := []
   }
   let rec go : ParserM (List Decl) := do
     let mut decls : List Decl := []

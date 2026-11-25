@@ -126,6 +126,7 @@ public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.OptPolicy
 public import LeanQbe.T.OptUtil
 public import LeanQbe.T.OptUtilLemmas
+public import LeanQbe.T.PassEnvKit
 public import LeanQbe.T.Peel
 public import LeanQbe.T.PeelLemmas
 public import LeanQbe.T.PrintCpp
@@ -174,6 +175,7 @@ public import LeanQbe.T.Wasm.Safety
 public import LeanQbe.T.Wasm.Validate
 public import LeanQbe.T.Wf
 public import LeanQbe.T.WfLemmas
+public import LeanQbe.T.Xcap.Bridge
 public import LeanQbe.T.Xcap.Core
 public import LeanQbe.T.Xcap.Lfp
 public import LeanQbe.T.Xcap.Link

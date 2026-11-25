@@ -7,6 +7,7 @@ public import LeanQbe.T.Module
 import LeanQbe.T.OpsLemmas
 import LeanQbe.T.WPLemmas
 import LeanQbe.T.WfLemmas
+import LeanQbe.T.PassEnvKit
 
 /-!
 # Correctness of `assumeBits`
@@ -117,8 +118,8 @@ theorem InfoOk.mono (hb : b ≤ b') (hρ : ∀ k, k < b → ρ' k = ρ k) {t : T
     fun hz => (h.2.2.1 hz).mono hb hρ, fun hn => (h.2.2.2 hn).mono hb hρ⟩
 
 theorem ABGoodCtx.mono (hb : b ≤ b') (hρ : ∀ k, k < b → ρ' k = ρ k) {G : Ctx (ABVal Val) Val}
-    (h : ABGoodCtx ρ b G) : ABGoodCtx ρ' b' G := fun p hp =>
-  ⟨(h p hp).1, (h p hp).2.mono hb hρ⟩
+    (h : ABGoodCtx ρ b G) : ABGoodCtx ρ' b' G :=
+  CtxPred.mono (fun h => ⟨h.1, h.2.mono hb hρ⟩) h
 
 end Mono
 
@@ -140,16 +141,14 @@ theorem FactsOk.nil {ρ : ABEnv} {b : Nat} : FactsOk ρ b [] := fun _ hf => noma
 
 theorem ABGoodCtx.cons {ρ : ABEnv} {b : Nat} {G : Ctx (ABVal Val) Val} (hG : ABGoodCtx ρ b G)
     {t : Ty} {a : ABVal Val t} {v : Val t} (ha : ABGood ρ b a v) :
-    ABGoodCtx ρ b (⟨t, a, v⟩ :: G)
-  | _, .head _ => ha
-  | _, .tail _ hp => hG _ hp
+    ABGoodCtx ρ b (⟨t, a, v⟩ :: G) :=
+  CtxPred.cons ha hG
 
 theorem ABGoodCtx.append_tup {ρ : ABEnv} {b : Nat} {G : Ctx (ABVal Val) Val}
     (hG : ABGoodCtx ρ b G) :
     {ts : List Ty} → {cs : Tup (ABVal Val) ts} → {xs : Tup Val ts} →
-    TRel (fun _ a v => ABGood ρ b a v) cs xs → ABGoodCtx ρ b (Tup.zip cs xs ++ G)
-  | [], (), (), .nil => hG
-  | _ :: _, (_, _), (_, _), .cons hc hs => (ABGoodCtx.append_tup hG hs).cons hc
+    TRel (fun _ a v => ABGood ρ b a v) cs xs → ABGoodCtx ρ b (Tup.zip cs xs ++ G) :=
+  fun hT => CtxPred.append_zip hT hG
 
 theorem KZOk.zero : (t : Ty) → (v : Val t) → KZOk t v 0
   | .bits _, _ => fun i hi => by simp at hi
@@ -162,27 +161,20 @@ private theorem InfoOk.fresh {ρ : ABEnv} {b k : Nat} {t : Ty} {v : Val t} (hk :
   ⟨fun _ h => by cases h; exact ⟨hk, hρ⟩, KZOk.zero t v, fun _ => FactsOk.nil,
     fun _ => FactsOk.nil⟩
 
-private theorem ABGoodCtx.freshABVals_only (ρ : ABEnv) :
-    {ts : List Ty} → (xs : Tup Val ts) → (b : Nat) →
-    ABGoodCtx (ABEnv.updTup ρ b xs) (b + ts.length) (Tup.zip (freshABVals ts xs b) xs)
-  | [], (), _ => fun _ hp => nomatch hp
-  | t :: ts, (x, xs), b => by
-    dsimp only [freshABVals, tupFreshWith, Tup.zip, ABEnv.updTup]
-    intro p hp
-    cases hp with
-    | head =>
-      refine ⟨rfl, InfoOk.fresh (by simp) ?_⟩
-      rw [ABEnv.updTup_lt (ABEnv.upd ρ b x) xs (by omega), ABEnv.upd_eq]
-    | tail _ hp =>
-      have ih := ABGoodCtx.freshABVals_only (ABEnv.upd ρ b x) xs (b + 1) p hp
-      rw [show b + 1 + ts.length = b + (ts.length + 1) by omega] at ih
-      exact ih
-
 theorem ABGoodCtx.freshABVals {ρ : ABEnv} {b : Nat} {G : Ctx (ABVal Val) Val}
     (hG : ABGoodCtx ρ b G) {ts : List Ty} (xs : Tup Val ts) :
-    ABGoodCtx (ABEnv.updTup ρ b xs) (b + ts.length) (Tup.zip (freshABVals ts xs b) xs ++ G) :=
-  fun p hp => (List.mem_append.1 hp).elim (ABGoodCtx.freshABVals_only ρ xs b p)
-    ((hG.updTup xs) p)
+    ABGoodCtx (ABEnv.updTup ρ b xs) (b + ts.length) (Tup.zip (freshABVals ts xs b) xs ++ G) := by
+  let rec go (ρ₀ : ABEnv) : ∀ (us : List Ty) (ys : Tup Val us) (k : Nat),
+      ABGoodCtx (ABEnv.updTup ρ₀ k ys) (k + us.length)
+        (Tup.zip (LeanQbe.T.freshABVals us ys k) ys)
+    | [], (), _ => CtxPred.nil _
+    | _ :: us, (y, ys), k => by
+        dsimp only [LeanQbe.T.freshABVals, tupFreshWith, Tup.zip, ABEnv.updTup]
+        refine CtxPred.cons ⟨rfl, InfoOk.fresh (by simp [List.length_cons]) ?_⟩ ?_
+        · rw [ABEnv.updTup_lt (ABEnv.upd ρ₀ k y) ys (by omega), ABEnv.upd_eq]
+        · rw [List.length_cons, Nat.add_comm us.length 1, ← Nat.add_assoc]
+          exact go (ABEnv.upd ρ₀ k y) us ys (k + 1)
+  exact CtxPred.append (go ρ ts xs b) (hG.updTup xs)
 
 theorem ABGoodCtx.freshOne {ρ : ABEnv} {b : Nat} {G : Ctx (ABVal Val) Val}
     (hG : ABGoodCtx ρ b G) {t : Ty} (v : Val t) :
@@ -317,11 +309,8 @@ theorem ABGoodArg.toAB {ρ : ABEnv} {b : Nat} {t : Ty} {a : Arg (ABVal Val) t} {
   cases a <;> exact h
 
 theorem ABGoodArg.imm_eq {ρ : ABEnv} {b : Nat} {t : Ty} {a : Arg (ABVal Val) t} {v c : Val t}
-    (ha : ABGoodArg ρ b a v) (hc : a.abOut.imm? = some c) : v = c := by
-  have h1 : a.abOut.val = v := ha.1
-  cases ho : a.abOut with
-  | var _ => rw [ho] at hc; cases hc
-  | imm c' => rw [ho] at hc h1; cases hc; exact h1.symm
+    (ha : ABGoodArg ρ b a v) (hc : a.abOut.imm? = some c) : v = c :=
+  ha.1.symm.trans (imm?_eq_some_val hc)
 
 theorem TRel.abOut_vals {ρ : ABEnv} {b : Nat} {G : Ctx (ABVal Val) Val} (hG : ABGoodCtx ρ b G)
     {ts : List Ty} {as₁ : Tup (Arg (ABVal Val)) ts} {as₂ : Tup (Arg Val) ts}
@@ -593,98 +582,73 @@ theorem abRes_ok {ρ : ABEnv} {b : Nat} {F : List BitFact} (hF : FactsOk ρ b F)
     {vs : Tup Val sig} (hargs : TRel (fun _ a v => ABGoodArg ρ b a v) args vs)
     {P : Tup Val ts → Prop} (hw : code.wp vs P) :
     code.wp vs (fun ys => P ys ∧ ResOk ρ b (abRes code (tupABShape args) F) ys) := by
+  have hemp : ∀ {s' t'} {c : OpCode s' t'} {vs' : Tup Val s'} {P' : Tup Val t' → Prop},
+      c.wp vs' P' → c.wp vs' (fun ys => P' ys ∧ ResOk ρ b {} ys) :=
+    fun hw' => OpCode.wp_mono _ _ (fun ys hy => ⟨hy, ResOk.empty ys⟩) hw'
   cases code with
   | and t =>
-    obtain ⟨a, c, ⟨⟩⟩ := args
-    obtain ⟨va, vc, ⟨⟩⟩ := vs
+    obtain ⟨a, c, ⟨⟩⟩ := args; obtain ⟨va, vc, ⟨⟩⟩ := vs
     rcases hargs with _ | ⟨ha, _ | ⟨hc, _⟩⟩
-    cases t with
-    | bits n => exact ⟨hw, andRes_ok hF ha hc⟩
-    | _ => exact OpCode.wp_mono _ _ (fun ys hy => ⟨hy, ResOk.empty ys⟩) hw
+    cases t with | bits n => exact ⟨hw, andRes_ok hF ha hc⟩ | _ => exact hemp hw
   | or t =>
-    obtain ⟨a, c, ⟨⟩⟩ := args
-    obtain ⟨va, vc, ⟨⟩⟩ := vs
+    obtain ⟨a, c, ⟨⟩⟩ := args; obtain ⟨va, vc, ⟨⟩⟩ := vs
     rcases hargs with _ | ⟨ha, _ | ⟨hc, _⟩⟩
     cases t with
     | bits n =>
       refine ⟨hw, orRes_kz hF ha hc fun i h1 h2 => ?_⟩
       show BitVec.getLsbD (va ||| vc) i = false
       rw [BitVec.getLsbD_or, h1, h2, Bool.or_false]
-    | _ => exact OpCode.wp_mono _ _ (fun ys hy => ⟨hy, ResOk.empty ys⟩) hw
+    | _ => exact hemp hw
   | xor t =>
-    obtain ⟨a, c, ⟨⟩⟩ := args
-    obtain ⟨va, vc, ⟨⟩⟩ := vs
+    obtain ⟨a, c, ⟨⟩⟩ := args; obtain ⟨va, vc, ⟨⟩⟩ := vs
     rcases hargs with _ | ⟨ha, _ | ⟨hc, _⟩⟩
     cases t with
     | bits n =>
       refine ⟨hw, orRes_kz hF ha hc fun i h1 h2 => ?_⟩
       show BitVec.getLsbD (va ^^^ vc) i = false
       rw [BitVec.getLsbD_xor, h1, h2, Bool.xor_false]
-    | _ => exact OpCode.wp_mono _ _ (fun ys hy => ⟨hy, ResOk.empty ys⟩) hw
+    | _ => exact hemp hw
   | not t =>
-    obtain ⟨a, ⟨⟩⟩ := args
-    obtain ⟨va, ⟨⟩⟩ := vs
+    obtain ⟨a, ⟨⟩⟩ := args; obtain ⟨va, ⟨⟩⟩ := vs
     rcases hargs with _ | ⟨ha, _⟩
-    cases t with
-    | bool => exact ⟨hw, notRes_ok ha⟩
-    | _ => exact OpCode.wp_mono _ _ (fun ys hy => ⟨hy, ResOk.empty ys⟩) hw
+    cases t with | bool => exact ⟨hw, notRes_ok ha⟩ | _ => exact hemp hw
   | lshr t =>
-    obtain ⟨a, c, ⟨⟩⟩ := args
-    obtain ⟨va, vc, ⟨⟩⟩ := vs
+    obtain ⟨a, c, ⟨⟩⟩ := args; obtain ⟨va, vc, ⟨⟩⟩ := vs
     rcases hargs with _ | ⟨ha, _ | ⟨hc, _⟩⟩
-    cases t with
-    | bits n => exact ⟨hw, lshrRes_ok hF ha hc⟩
-    | _ => exact OpCode.wp_mono _ _ (fun ys hy => ⟨hy, ResOk.empty ys⟩) hw
+    cases t with | bits n => exact ⟨hw, lshrRes_ok hF ha hc⟩ | _ => exact hemp hw
   | shl t =>
-    obtain ⟨a, c, ⟨⟩⟩ := args
-    obtain ⟨va, vc, ⟨⟩⟩ := vs
+    obtain ⟨a, c, ⟨⟩⟩ := args; obtain ⟨va, vc, ⟨⟩⟩ := vs
     rcases hargs with _ | ⟨ha, _ | ⟨hc, _⟩⟩
-    cases t with
-    | bits n => exact ⟨hw, shlRes_ok hF ha hc⟩
-    | _ => exact OpCode.wp_mono _ _ (fun ys hy => ⟨hy, ResOk.empty ys⟩) hw
+    cases t with | bits n => exact ⟨hw, shlRes_ok hF ha hc⟩ | _ => exact hemp hw
   | select t =>
-    obtain ⟨cc, a, c, ⟨⟩⟩ := args
-    obtain ⟨vcc, va, vc, ⟨⟩⟩ := vs
+    obtain ⟨cc, a, c, ⟨⟩⟩ := args; obtain ⟨vcc, va, vc, ⟨⟩⟩ := vs
     rcases hargs with _ | ⟨_, _ | ⟨ha, _ | ⟨hc, _⟩⟩⟩
     cases t with
-    | bits n =>
-      refine ⟨hw, orRes_kz hF ha hc fun i h1 h2 => ?_⟩
-      cases vcc <;> assumption
-    | _ => exact OpCode.wp_mono _ _ (fun ys hy => ⟨hy, ResOk.empty ys⟩) hw
+    | bits n => refine ⟨hw, orRes_kz hF ha hc fun i h1 h2 => ?_⟩; cases vcc <;> assumption
+    | _ => exact hemp hw
   | zext m n =>
-    obtain ⟨a, ⟨⟩⟩ := args
-    obtain ⟨va, ⟨⟩⟩ := vs
-    rcases hargs with _ | ⟨ha, _⟩
+    obtain ⟨a, ⟨⟩⟩ := args; obtain ⟨va, ⟨⟩⟩ := vs; rcases hargs with _ | ⟨ha, _⟩
     refine ⟨hw.1, hw.2, KZOk.or (fun i hi => ?_) (fun i hi => ?_), fun _ => FactsOk.nil,
       fun _ => FactsOk.nil⟩
     · rw [BitVec.getLsbD_setWidth, kzIn_ok hF ha.2 i hi, Bool.and_false]
     · rw [BitVec.getLsbD_setWidth, BitVec.getLsbD_of_ge va i (highFrom_testBit hi).1,
         Bool.and_false]
   | trunc m n =>
-    obtain ⟨a, ⟨⟩⟩ := args
-    obtain ⟨va, ⟨⟩⟩ := vs
-    rcases hargs with _ | ⟨ha, _⟩
+    obtain ⟨a, ⟨⟩⟩ := args; obtain ⟨va, ⟨⟩⟩ := vs; rcases hargs with _ | ⟨ha, _⟩
     refine ⟨hw.1, hw.2, fun i hi => ?_, fun _ => FactsOk.nil, fun _ => FactsOk.nil⟩
     rw [BitVec.getLsbD_setWidth, kzIn_ok hF ha.2 i hi, Bool.and_false]
   | ofBool n =>
-    obtain ⟨a, ⟨⟩⟩ := args
-    obtain ⟨va, ⟨⟩⟩ := vs
+    obtain ⟨a, ⟨⟩⟩ := args; obtain ⟨va, ⟨⟩⟩ := vs
     refine ⟨hw, fun i hi => ?_, fun _ => FactsOk.nil, fun _ => FactsOk.nil⟩
-    have h1 := (highFrom_testBit hi).1
-    have hlt : va.toNat < 2 ^ i :=
-      Nat.lt_of_lt_of_le (Bool.toNat_lt va) (by
-        calc 2 = 2 ^ 1 := rfl
-          _ ≤ 2 ^ i := Nat.pow_le_pow_right (by decide) h1)
+    have hlt : va.toNat < 2 ^ i := Nat.lt_of_lt_of_le (Bool.toNat_lt va) (by
+      calc 2 = 2 ^ 1 := rfl
+        _ ≤ 2 ^ i := Nat.pow_le_pow_right (by decide) (highFrom_testBit hi).1)
     rw [BitVec.getLsbD_ofNat, Nat.testBit_lt_two_pow hlt, Bool.and_false]
   | cmp o t m h =>
-    obtain ⟨a, c, ⟨⟩⟩ := args
-    obtain ⟨va, vc, ⟨⟩⟩ := vs
-    rcases hargs with _ | ⟨ha, _ | ⟨hc, _⟩⟩
-    subst h
-    cases t with
-    | bits n => exact ⟨hw, cmpRes_ok ha hc⟩
-    | _ => exact OpCode.wp_mono _ _ (fun ys hy => ⟨hy, ResOk.empty ys⟩) hw
-  | _ => exact OpCode.wp_mono _ _ (fun ys hy => ⟨hy, ResOk.empty ys⟩) hw
+    obtain ⟨a, c, ⟨⟩⟩ := args; obtain ⟨va, vc, ⟨⟩⟩ := vs
+    rcases hargs with _ | ⟨ha, _ | ⟨hc, _⟩⟩; subst h
+    cases t with | bits n => exact ⟨hw, cmpRes_ok ha hc⟩ | _ => exact hemp hw
+  | _ => exact hemp hw
 
 /-! ## Emission and `Op.abLet` soundness -/
 
@@ -845,62 +809,51 @@ def ABRelVal (G' : Ctx V₁ V₂) {t : Ty} (a₁ : ABVal V₁ t) (a₂ : ABVal V
 def ABRelG (G' : Ctx V₁ V₂) (G : Ctx (ABVal V₁) (ABVal V₂)) : Prop :=
   ∀ p ∈ G, ABRelVal G' p.2.1 p.2.2
 
+private def abMetaKit : OutMetaKit ABVal (fun _ => ABInfo) where
+  out a := a.out
+  tag a := a.info
+  fresh v k := ABVal.fresh v k
+  out_fresh _ _ := rfl
+  tag_fresh _ _ _ := rfl
+
 theorem ABRelVal.weaken {G₁ G₂ : Ctx V₁ V₂} (hsub : ∀ p ∈ G₁, p ∈ G₂) {t : Ty}
     {a₁ : ABVal V₁ t} {a₂ : ABVal V₂ t} (h : ABRelVal G₁ a₁ a₂) : ABRelVal G₂ a₁ a₂ :=
-  ⟨h.1.weaken hsub, h.2⟩
+  abMetaKit.rel_weaken hsub h
 
 theorem ABRelG.cons {G' : Ctx V₁ V₂} {G : Ctx (ABVal V₁) (ABVal V₂)} (hG : ABRelG G' G)
     {t : Ty} {a₁ : ABVal V₁ t} {a₂ : ABVal V₂ t} (ha : ABRelVal G' a₁ a₂) :
-    ABRelG G' (⟨t, a₁, a₂⟩ :: G)
-  | _, .head _ => ha
-  | _, .tail _ hp => hG _ hp
+    ABRelG G' (⟨t, a₁, a₂⟩ :: G) :=
+  abMetaKit.toRelKit.relG_cons ha hG
 
 theorem ABRelG.weaken {G' G'' : Ctx V₁ V₂} {G : Ctx (ABVal V₁) (ABVal V₂)} (hG : ABRelG G' G)
     (hsub : ∀ p ∈ G', p ∈ G'') : ABRelG G'' G :=
-  fun p hp => (hG p hp).weaken hsub
+  abMetaKit.toRelKit.relG_weaken hsub hG
 
 theorem ABRelG.append_tup {G' : Ctx V₁ V₂} {G : Ctx (ABVal V₁) (ABVal V₂)} (hG : ABRelG G' G) :
     {ts : List Ty} → {r₁ : Tup (ABVal V₁) ts} → {r₂ : Tup (ABVal V₂) ts} →
-    TRel (fun _ => ABRelVal G') r₁ r₂ → ABRelG G' (Tup.zip r₁ r₂ ++ G)
-  | [], (), (), .nil => hG
-  | _ :: _, (_, _), (_, _), .cons hr hs => (ABRelG.append_tup hG hs).cons hr
+    TRel (fun _ => ABRelVal G') r₁ r₂ → ABRelG G' (Tup.zip r₁ r₂ ++ G) :=
+  fun hT => abMetaKit.toRelKit.relG_append_tup hT hG
 
 theorem ABRelVal.fresh {G' : Ctx V₁ V₂} {t : Ty} {v₁ : V₁ t} {v₂ : V₂ t} (b : Nat)
     (hm : ⟨t, v₁, v₂⟩ ∈ G') : ABRelVal G' (ABVal.fresh v₁ b) (ABVal.fresh v₂ b) :=
-  ⟨.var hm, rfl⟩
-
-private theorem ABRelG.freshABVals_only {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts)
-    (b : Nat) :
-    ABRelG (Tup.zip xs₁ xs₂) (Tup.zip (freshABVals ts xs₁ b) (freshABVals ts xs₂ b)) :=
-  mem_tup_zip_tupFreshWith (fun x n => ABVal.fresh x n) (fun x n => ABVal.fresh x n)
-    (P := fun G' _ c₁ c₂ => ABRelVal G' c₁ c₂)
-    (fun hsub _ _ _ h => h.weaken hsub)
-    (fun _ _ idx => ABRelVal.fresh idx List.mem_cons_self)
-    xs₁ xs₂ b
+  abMetaKit.toRelKit.rel_fresh b hm
 
 theorem ABRelG.freshABVals {G' : Ctx V₁ V₂} {G : Ctx (ABVal V₁) (ABVal V₂)} (hG : ABRelG G' G)
     {ts : List Ty} (xs₁ : Tup V₁ ts) (xs₂ : Tup V₂ ts) (b : Nat) :
     ABRelG (Tup.zip xs₁ xs₂ ++ G')
-      (Tup.zip (freshABVals ts xs₁ b) (freshABVals ts xs₂ b) ++ G) := fun p hp =>
-  (List.mem_append.1 hp).elim
-    (fun hp => (ABRelG.freshABVals_only xs₁ xs₂ b p hp).weaken
-      fun _ hq => List.mem_append_left G' hq)
-    (fun hp => (hG p hp).weaken fun _ hq => List.mem_append_right _ hq)
+      (Tup.zip (freshABVals ts xs₁ b) (freshABVals ts xs₂ b) ++ G) :=
+  abMetaKit.toRelKit.relG_freshTup ts xs₁ xs₂ b hG
 
 theorem ABRelG.freshOne {G' : Ctx V₁ V₂} {G : Ctx (ABVal V₁) (ABVal V₂)} (hG : ABRelG G' G)
     {t : Ty} (v₁ : V₁ t) (v₂ : V₂ t) (b : Nat) :
     ABRelG (⟨t, v₁, v₂⟩ :: G') (⟨t, ABVal.fresh v₁ b, ABVal.fresh v₂ b⟩ :: G) :=
-  (hG.weaken fun _ hq => List.mem_cons_of_mem _ hq).cons (ABRelVal.fresh b List.mem_cons_self)
+  abMetaKit.toRelKit.relG_freshOne v₁ v₂ b hG
 
 theorem TRel.freshABVals_rel {G' : Ctx V₁ V₂} {ts : List Ty} (xs₁ : Tup V₁ ts)
     (xs₂ : Tup V₂ ts) (b : Nat) :
     TRel (fun _ => ABRelVal (Tup.zip xs₁ xs₂ ++ G')) (freshABVals ts xs₁ b)
       (freshABVals ts xs₂ b) :=
-  TRel_tupFreshWith (fun x n => ABVal.fresh x n) (fun x n => ABVal.fresh x n)
-    (P := fun G' _ c₁ c₂ => ABRelVal G' c₁ c₂)
-    (fun hsub _ _ _ h => h.weaken hsub)
-    (fun _ _ idx => ABRelVal.fresh idx List.mem_cons_self)
-    xs₁ xs₂ b
+  abMetaKit.toRelKit.trel_freshTup ts xs₁ xs₂ b
 
 theorem ArgRel.abRel {G' : Ctx V₁ V₂} {G : Ctx (ABVal V₁) (ABVal V₂)} (hG : ABRelG G' G)
     {t : Ty} : {a₁ : Arg (ABVal V₁) t} → {a₂ : Arg (ABVal V₂) t} → ArgRel G t a₁ a₂ →

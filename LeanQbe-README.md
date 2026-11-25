@@ -10,13 +10,14 @@ models (see [`README.md`](README.md)). All audited theorems use only Lean's thre
 `native_decide`, or `bv_decide`.
 
 The main case study is a C0 port of the [Kissat 4.0.4](https://github.com/arminbiere/kissat)
-CDCL SAT solver, `FullM7Fidelity` (413 functions), covering Kissat's search and inprocessing. It
-is certified down to x86-64 and AArch64 machine code for UNSAT soundness, memory/register framing,
-and concrete UNSAT non-vacuity, while checking candidate SAT models at runtime against the
-original DIMACS input via `kissat_check_model`. Alongside it, `KissatPlain` (59 functions) is a
-smaller pure-CDCL reference solver without inprocessing whose machine-code proofs cover **both SAT
-and UNSAT soundness** on x86-64 and AArch64. On a 140-CNF benchmark suite (30 s limit), certified
-`FullM7Fidelity` solves 135/140 instances (matching upstream Kissat 4.0.4's 135/140) at 1.12x
+CDCL SAT solver, currently certified at its `FullM7Fidelity` baseline (413 functions; bounded
+workspace and step fuel) covering Kissat's search and inprocessing. It is certified down to x86-64
+and AArch64 machine code for UNSAT soundness, memory/register framing, and concrete UNSAT
+non-vacuity, while checking candidate SAT models at runtime against the original DIMACS input via
+`kissat_check_model`. Alongside it, `KissatPlain` (59 functions) is a smaller pure-CDCL reference
+solver without inprocessing whose machine-code proofs cover **both SAT and UNSAT soundness** on
+x86-64 and AArch64. On a 140-CNF benchmark suite (30 s limit), the certified `FullM7Fidelity`
+baseline solves 135/140 instances (matching upstream Kissat 4.0.4's 135/140) at 1.12x
 geometric-mean wall time vs `clang -O3` on the same C0 source, 1.02x vs `clang++ -O3` on the same
 `LeanQbe.T` IR, and 1.20x (1.15x PAR-2) vs upstream Kissat 4.0.4.
 
@@ -32,7 +33,7 @@ geometric-mean wall time vs `clang -O3` on the same C0 source, 1.02x vs `clang++
 - **Build and run the solver:** [`bench/kissat/build_solver.sh`](bench/kissat/build_solver.sh)
   emits certified x86-64 or AArch64 assembly and links a standalone DIMACS CLI binary.
 - **Reproduce the benchmarks:** [`bench/kissat/compare_4way_min.py`](bench/kissat/compare_4way_min.py)
-  is a self-contained 159-line Python script that prints every compile and link command, calls
+  is a self-contained 245-line Python script that prints every compile and link command, calls
   `Driver.compileFns` directly, runs all four comparison builds sequentially in rotated order,
   checks every SAT model, and reports timings and code sizes.
 
@@ -40,19 +41,22 @@ geometric-mean wall time vs `clang -O3` on the same C0 source, 1.02x vs `clang++
 
 - **`LeanQbe.T`** ([`LeanQbe/T/`](LeanQbe/T/)): a typed SSA intermediate representation. Functions
   (`Func`) consist of basic blocks with typed values, explicit memory operations, and calls.
-- **`Func.wp`** ([`WP.lean`](LeanQbe/T/WP.lean#L70)): a weakest-precondition semantics for
+- **`Func.wp`** ([`WP.lean`](LeanQbe/T/WP.lean)): a weakest-precondition semantics for
   `LeanQbe.T` functions. A function's specification is stated as a `Func.wp` precondition, and
-  [`ModuleOk`](LeanQbe/T/Module.lean#L196) records that every function of a module meets its
+  [`ModuleOk`](LeanQbe/T/Module.lean) records that every function of a module meets its
   specification under the specifications of the functions it calls.
-- **C0** ([`LeanQbe/T/Frontend/C0.lean`](LeanQbe/T/Frontend/C0.lean)): a subset of C (integer
-  types, pointers, structs and unions, structured control flow, function calls, and a small
-  preprocessor) parsed and elaborated into `LeanQbe.T` by a Lean macro. Most verified programs in
-  this repository are written in C0 and proved against `Func.wp` specifications.
+- **C0** ([`LeanQbe/T/Frontend/C0.lean`](LeanQbe/T/Frontend/C0.lean), tested in
+  [`C0ExtensionsTest.lean`](LeanQbeTest/T/C0ExtensionsTest.lean) and
+  [`test/c0/run.sh`](test/c0/run.sh)): a subset of C (integer types, pointers, structs and
+  unions, structured control flow, function calls, `#include` headers, parameterized/variadic
+  macros, `offsetof`, `_Static_assert`, and audit pragmas) parsed and elaborated into `LeanQbe.T` by
+  a Lean macro. Most verified programs in this repository are written in C0 and proved against
+  `Func.wp` specifications.
 - **The compiler** ([`Main.lean`](LeanQbe/T/Main.lean)): performs whole-module inlining, pre- and
   post-legalization SSA/loop optimizations, target legalization, hint-validated register
   allocation, instruction selection, and compositional linking. Every pass is proved to preserve
   `Func.wp` specifications.
-- **`LinkedCert`** ([`MainCertCore.lean`](LeanQbe/T/MainCertCore.lean#L207)): a kernel-checked
+- **`LinkedCert`** ([`MainCertCore.lean`](LeanQbe/T/MainCertCore.lean)): a kernel-checked
   certificate stating that the assembly directives produced for a whole module implement each
   source function's `Func.wp` specification under the Kraken x86-64 or AArch64 semantics.
   Combining a source-level `ModuleOk` proof with a `LinkedCert` yields an end-to-end theorem about
@@ -72,7 +76,7 @@ Architecture-specific audits live in separate files so no module imports both `K
 |---|---|---|
 | Kissat SAT solver ([details](#verified-kissat-sat-solver)) | `FullM7Fidelity` (413 fns): x86-64 & AArch64 `LinkedCert` UNSAT soundness and concrete UNSAT non-vacuity (runtime `kissat_check_model` on SAT); `KissatPlain` (59 fns, optional `LeanQbeLegacy*` library): x86-64 & AArch64 SAT and UNSAT soundness + concrete SAT/UNSAT non-vacuity | [Spec](LeanQbeTest/T/KissatAuditSpec.lean), [M7FidSpec](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean), [M7FidX64](LeanQbeTest/T/KissatM7FidelityAuditX64.lean), [M7FidArm64](LeanQbeTest/T/KissatM7FidelityAuditArm64.lean), [PlainX64](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean), [PlainArm64](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean) |
 | Compiler and linker ([details](#compiler-optimization-and-lowering-pipeline)) | Optimization passes, inlining, `LinkedCert`, and linking of recursive and mutually recursive functions (`LinkRec`, `LinkScc`) | [Spec](LeanQbeTest/T/CompilerAuditSpec.lean), [X64](LeanQbeTest/T/CompilerAuditX64.lean), [Arm64](LeanQbeTest/T/CompilerAuditArm64.lean) |
-| Lean 4 `LCNF` / `LeanLRC` lowering | Well-formedness (`Fn.Wf`) of code lowered from the Lean compiler's `LCNF` intermediate representation ([`LeanLCNF`](LeanQbe/T/LeanLCNF/), [`LeanLRC`](LeanQbe/T/LeanLRC/)) into `LeanQbe.T`, plus source-level `Func.wp` / `ModuleOk` proofs and concrete `Mem 64` non-vacuity for the C0 slab allocator/reference-counting ([`LcnfC0Rt`](LeanQbe/T/LeanLCNF/LcnfC0Rt.lean)) and arbitrary-precision `Nat`/`Int` ([`LcnfC0BigNum`](LeanQbe/T/LeanLCNF/LcnfC0BigNum.lean)) runtime primitives | [Audit](LeanQbeTest/T/LcnfAudit.lean), [C0Rt](LeanQbeTest/T/LcnfC0RtTest.lean), [C0BigNum](LeanQbeTest/T/LcnfC0BigNumTest.lean) |
+| Lean 4 `LCNF` / `LeanLRC` lowering | Well-formedness (`Fn.Wf`) of code lowered from the Lean compiler's `LCNF` intermediate representation ([`LeanLCNF`](LeanQbe/T/LeanLCNF/), [`LeanLRC`](LeanQbe/T/LeanLRC/)) into `LeanQbe.T`, plus source-level `Func.wp` / `ModuleOk` proofs and concrete `Mem 64` non-vacuity for the C0 slab allocator/reference-counting ([`LcnfC0Rt`](LeanQbe/T/LeanLCNF/LcnfC0Rt.lean)), arbitrary-precision `Nat`/`Int` ([`LcnfC0BigNum`](LeanQbe/T/LeanLCNF/LcnfC0BigNum.lean)), and copy-on-write `ByteArray`/`Array` ([`LcnfC0Containers`](LeanQbe/T/LeanLCNF/LcnfC0Containers.lean)) runtime primitives | [Audit](LeanQbeTest/T/LcnfAudit.lean), [C0Rt](LeanQbeTest/T/LcnfC0RtTest.lean), [C0BigNum](LeanQbeTest/T/LcnfC0BigNumTest.lean), [C0Containers](LeanQbeTest/T/LcnfC0ContainersTest.lean) |
 | LRAT proof checker | `lrat_check_bytes` returns `1` only for a well-formed DIMACS input whose CNF is unsatisfiable | [Spec](LeanQbeTest/T/LratAuditSpec.lean), [X64](LeanQbeTest/T/LratAuditX64.lean), [Arm64](LeanQbeTest/T/LratAuditArm64.lean) |
 | Cryptography, bignum, and pointer code | ChaCha20 (SIMD), Curve25519 field arithmetic (`Bignum`), and union-find: source and machine-code proofs | [Spec](LeanQbeTest/T/WorkloadsAuditSpec.lean), [X64](LeanQbeTest/T/WorkloadsAuditX64.lean), [Arm64](LeanQbeTest/T/WorkloadsAuditArm64.lean) |
 | C0 front end and proof tooling | `Func.wp` rules, the C0 elaborator and its well-formedness results, C0 step lemmas ([`C0Step`](LeanQbe/T/Logic/C0Step.lean), [`C0HeadStep`](LeanQbe/T/Logic/C0HeadStep.lean), [`C0Agrees`](LeanQbe/T/Logic/C0Agrees.lean)), and separation-style memory reasoning ([`MemLemmas`](LeanQbe/T/Logic/MemLemmas.lean), [`SepTree`](LeanQbe/T/Logic/SepTree.lean), [`SlabChain`](LeanQbe/T/Logic/SlabChain.lean), [`SlabLayoutElab`](LeanQbe/T/Logic/SlabLayoutElab.lean), [`ProofKit`](LeanQbe/T/Logic/ProofKit.lean)) | [Audit](LeanQbeTest/T/C0LogicAudit.lean), [ProofKit](LeanQbeTest/T/ProofKitTest.lean) |
@@ -81,6 +85,8 @@ Architecture-specific audits live in separate files so no module imports both `K
 
 To build the active audit files (also checked by [`scripts/check.sh`](scripts/check.sh)):
 
+- In `LeanQbeTest/T/` for `Lcnf` containers and C0 extensions: [`LcnfC0ContainersTest`](LeanQbeTest/T/LcnfC0ContainersTest.lean) and [`C0ExtensionsTest`](LeanQbeTest/T/C0ExtensionsTest.lean).
+
 ```bash
 lake build --wfail LeanQbeTest.T.KissatAuditSpec \
   LeanQbeTest.T.KissatM7FidelityAuditSpec \
@@ -88,6 +94,7 @@ lake build --wfail LeanQbeTest.T.KissatAuditSpec \
   LeanQbeTest.T.CompilerAuditSpec LeanQbeTest.T.CompilerAuditX64 \
   LeanQbeTest.T.CompilerAuditArm64 LeanQbeTest.T.LcnfAudit \
   LeanQbeTest.T.LcnfC0RtTest LeanQbeTest.T.LcnfC0BigNumTest \
+  LeanQbeTest.T.LcnfC0ContainersTest LeanQbeTest.T.C0ExtensionsTest \
   LeanQbeTest.T.LratAuditSpec LeanQbeTest.T.LratAuditX64 LeanQbeTest.T.LratAuditArm64 \
   LeanQbeTest.T.WorkloadsAuditSpec LeanQbeTest.T.WorkloadsAuditX64 \
   LeanQbeTest.T.WorkloadsAuditArm64 LeanQbeTest.T.C0LogicAudit \
@@ -127,7 +134,7 @@ with a theorem stating that it preserves `Func.wp` specifications (typically nam
 
 ### 1. Module-level inlining
 
-[`Module.optInlinePolicy`](LeanQbe/T/MainInline.lean#L21) (and its fixed-budget variant
+[`Module.optInlinePolicy`](LeanQbe/T/MainInline.lean) (and its fixed-budget variant
 `Module.optInline`) inlines calls to non-recursive callees across a whole module before any
 per-function optimization runs.
 
@@ -135,57 +142,57 @@ per-function optimization runs.
   more generous limits for leaf functions and for callees with a single call site, a cap on the
   size of the resulting caller, limits on how much loop code may be duplicated, and an option to
   keep callees out of line when their call sites sit behind cold, single-sided guards (slow
-  paths). A general-purpose policy is [`InlinePolicy.b5`](LeanQbe/T/Inline.lean#L377), and the
-  Kissat build uses [`m7InlPolicy`](LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean#L113), applied
-  by [`Module.inlinePolicy`](LeanQbe/T/Inline.lean#L572).
-- Correctness: [`Module.inline_ok`](LeanQbe/T/InlineLemmas.lean#L683),
-  [`Module.optInlinePolicy_ok`](LeanQbe/T/MainInline.lean#L110), and
-  [`Module.optInline_ok`](LeanQbe/T/OptLemmas.lean#L552).
+  paths). A general-purpose policy is [`InlinePolicy.b5`](LeanQbe/T/Inline.lean), and the
+  certified solver uses [`m7InlPolicy`](LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean), applied
+  by [`Module.inlinePolicy`](LeanQbe/T/Inline.lean).
+- Correctness: [`Module.inline_ok`](LeanQbe/T/InlineLemmas.lean),
+  [`Module.optInlinePolicy_ok`](LeanQbe/T/MainInline.lean), and
+  [`Module.optInline_ok`](LeanQbe/T/OptLemmas.lean).
 - For large modules, the inlined module is computed once at elaboration time and recorded
   together with a kernel-checked equation relating it to `Module.optInlinePolicy`
-  ([`inline_mod!`](LeanQbe/T/MainCertInline.lean#L571)). A chunked variant
+  ([`inline_mod!`](LeanQbe/T/MainCertInline.lean)). A chunked variant
   ([`InlineChunk.lean`](LeanQbe/T/InlineChunk.lean),
-  [`inline_chunk_base!`](LeanQbe/T/MainCertInlineChunk.lean#L586), `inline_mod_chunk!`,
+  [`inline_chunk_base!`](LeanQbe/T/MainCertInlineChunk.lean), `inline_mod_chunk!`,
   `inline_mod_join!`) processes the module in pieces to bound memory use. Tests:
   [`InlineB5Test.lean`](LeanQbeTest/T/InlineB5Test.lean) and
   [`InlinePolicyB5Test.lean`](LeanQbeTest/T/InlinePolicyB5Test.lean).
 
 ### 2. SSA optimizations before legalization
 
-[`Func.earlyOpt`](LeanQbe/T/Opt.lean#L198) (correctness:
-[`Func.earlyOpt_spec`](LeanQbe/T/OptLemmas.lean#L281)) runs the following passes in order:
+[`Func.earlyOpt`](LeanQbe/T/Opt.lean) (correctness:
+[`Func.earlyOpt_spec`](LeanQbe/T/OptLemmas.lean)) runs the following passes in order:
 
-1. [`Func.fold`](LeanQbe/T/Fold.lean#L868) — constant folding and algebraic simplification
-   ([`FoldLemmas.lean#L2964`](LeanQbe/T/FoldLemmas.lean#L2964)).
-2. [`Func.canon`](LeanQbe/T/Canon.lean#L254) — ordering of commutative operands and reassociation
-   of constant chains ([`CanonLemmas.lean#L829`](LeanQbe/T/CanonLemmas.lean#L829)).
-3. [`Func.copy`](LeanQbe/T/Copy.lean#L187) — copy propagation
-   ([`CopyLemmas.lean#L849`](LeanQbe/T/CopyLemmas.lean#L849)).
-4. [`Func.gvn`](LeanQbe/T/Gvn.lean#L259) — global value numbering
-   ([`GvnLemmas.lean#L812`](LeanQbe/T/GvnLemmas.lean#L812)).
+1. [`Func.fold`](LeanQbe/T/Fold.lean) — constant folding and algebraic simplification
+   ([`FoldLemmas.lean`](LeanQbe/T/FoldLemmas.lean)).
+2. [`Func.canon`](LeanQbe/T/Canon.lean) — ordering of commutative operands and reassociation
+   of constant chains ([`CanonLemmas.lean`](LeanQbe/T/CanonLemmas.lean)).
+3. [`Func.copy`](LeanQbe/T/Copy.lean) — copy propagation
+   ([`CopyLemmas.lean`](LeanQbe/T/CopyLemmas.lean)).
+4. [`Func.gvn`](LeanQbe/T/Gvn.lean) — global value numbering
+   ([`GvnLemmas.lean`](LeanQbe/T/GvnLemmas.lean)).
 5. `Func.copy`, then `Func.fold` again.
-6. [`Func.ifOpt`](LeanQbe/T/IfOpt.lean#L436) — if-conversion of branch diamonds into `select`
-   instructions ([`Func.ifOptWith`](LeanQbe/T/IfOpt.lean#L431);
-   [`IfOptLemmas.lean#L2395`](LeanQbe/T/IfOptLemmas.lean#L2395)).
-7. [`Func.simplifyGroupFast`](LeanQbe/T/Opt.lean#L123) /
-   [`Func.simplifyGroupPlan`](LeanQbe/T/SimplifyGroupPlan.lean#L449) — control-flow
+6. [`Func.ifOpt`](LeanQbe/T/IfOpt.lean) — if-conversion of branch diamonds into `select`
+   instructions ([`Func.ifOptWith`](LeanQbe/T/IfOpt.lean);
+   [`IfOptLemmas.lean`](LeanQbe/T/IfOptLemmas.lean)).
+7. [`Func.simplifyGroupFast`](LeanQbe/T/Opt.lean) /
+   [`Func.simplifyGroupPlan`](LeanQbe/T/SimplifyGroupPlan.lean) — control-flow
    simplification
-   ([`SimplifyGroupPlanLemmas.lean#L677`](LeanQbe/T/SimplifyGroupPlanLemmas.lean#L677)).
-8. [`Func.peelFast`](LeanQbe/T/Opt.lean#L132) / [`Func.peel`](LeanQbe/T/Peel.lean#L202) — loop
-   peeling ([`PeelLemmas.lean#L904`](LeanQbe/T/PeelLemmas.lean#L904)).
-9. [`Func.zeroPeelWith`](LeanQbe/T/ZeroPeel.lean#L512) — widening of constant-fill loops and
+   ([`SimplifyGroupPlanLemmas.lean`](LeanQbe/T/SimplifyGroupPlanLemmas.lean)).
+8. [`Func.peelFast`](LeanQbe/T/Opt.lean) / [`Func.peel`](LeanQbe/T/Peel.lean) — loop
+   peeling ([`PeelLemmas.lean`](LeanQbe/T/PeelLemmas.lean)).
+9. [`Func.zeroPeelWith`](LeanQbe/T/ZeroPeel.lean) — widening of constant-fill loops and
    peeling of single-iteration loops
-   ([`ZeroPeelLemmas.lean#L2461`](LeanQbe/T/ZeroPeelLemmas.lean#L2461),
+   ([`ZeroPeelLemmas.lean`](LeanQbe/T/ZeroPeelLemmas.lean),
    [`ZeroPeelLemmas1.lean`](LeanQbe/T/ZeroPeelLemmas1.lean)).
 10. `Func.copy`, then `Func.fold` again.
-11. [`Func.dceP`](LeanQbe/T/DceParam.lean#L279) — dead-code elimination, including unused block
-    parameters ([`DceParamLemmas.lean#L688`](LeanQbe/T/DceParamLemmas.lean#L688)).
+11. [`Func.dceP`](LeanQbe/T/DceParam.lean) — dead-code elimination, including unused block
+    parameters ([`DceParamLemmas.lean`](LeanQbe/T/DceParamLemmas.lean)).
 12. `Func.renorm` — renumbering into a normalized form ([`Flat.lean`](LeanQbe/T/Flat.lean),
-    [`FlatLemmas.lean#L756`](LeanQbe/T/FlatLemmas.lean#L756)).
+    [`FlatLemmas.lean`](LeanQbe/T/FlatLemmas.lean)).
 
 ### 3. Target legalization
 
-[`Func.legal`](LeanQbe/T/Legal.lean#L115) rewrites types and operations that the target does not
+[`Func.legal`](LeanQbe/T/Legal.lean) rewrites types and operations that the target does not
 support directly into supported ones, while keeping multi-word arithmetic chains (add with carry
 `addc`, subtract with borrow `subb`, widening multiply `umulw`) intact. It is checked by
 [`LegalCheck3.lean`](LeanQbe/T/LegalCheck3.lean) and proved in
@@ -193,81 +200,81 @@ support directly into supported ones, while keeping multi-word arithmetic chains
 
 ### 4. SSA and loop optimizations after legalization
 
-[`Func.lateOpt`](LeanQbe/T/Opt.lean#L238), invoked from [`Fn.midStage`](LeanQbe/T/Main.lean#L56)
-(correctness: [`Func.lateOpt_spec`](LeanQbe/T/OptLemmas.lean#L430)), runs four groups of passes in
+[`Func.lateOpt`](LeanQbe/T/Opt.lean), invoked from [`Fn.midStage`](LeanQbe/T/Main.lean)
+(correctness: [`Func.lateOpt_spec`](LeanQbe/T/OptLemmas.lean)), runs four groups of passes in
 order, renormalizing (`Func.renorm`) between groups:
 
-1. [`Func.lateCorePre`](LeanQbe/T/Opt.lean#L203): `Func.fold`, `Func.canon`,
-   [`Func.divConst`](LeanQbe/T/DivConst.lean#L278) (division by constants via multiplication and
-   shifts; [`DivConstLemmas.lean#L1385`](LeanQbe/T/DivConstLemmas.lean#L1385)), `Func.copy`.
-2. [`Func.lateCorePost`](LeanQbe/T/Opt.lean#L207):
-   [`Func.memLoad`](LeanQbe/T/MemLoad.lean#L425) (load common-subexpression elimination and
-   store-to-load forwarding; [`MemLoadLemmas.lean#L1761`](LeanQbe/T/MemLoadLemmas.lean#L1761)),
-   `Func.gvn`, [`Func.assumeBits`](LeanQbe/T/AssumeBits.lean#L301) (simplification using
-   known-bits facts; [`AssumeBitsLemmas.lean#L1114`](LeanQbe/T/AssumeBitsLemmas.lean#L1114)),
+1. [`Func.lateCorePre`](LeanQbe/T/Opt.lean): `Func.fold`, `Func.canon`,
+   [`Func.divConst`](LeanQbe/T/DivConst.lean) (division by constants via multiplication and
+   shifts; [`DivConstLemmas.lean`](LeanQbe/T/DivConstLemmas.lean)), `Func.copy`.
+2. [`Func.lateCorePost`](LeanQbe/T/Opt.lean):
+   [`Func.memLoad`](LeanQbe/T/MemLoad.lean) (load common-subexpression elimination and
+   store-to-load forwarding; [`MemLoadLemmas.lean`](LeanQbe/T/MemLoadLemmas.lean)),
+   `Func.gvn`, [`Func.assumeBits`](LeanQbe/T/AssumeBits.lean) (simplification using
+   known-bits facts; [`AssumeBitsLemmas.lean`](LeanQbe/T/AssumeBitsLemmas.lean)),
    `Func.fold`.
-3. [`Func.lateCfgPre`](LeanQbe/T/Opt.lean#L217):
-   [`Func.ifOptBits`](LeanQbe/T/IfOpt.lean#L440) (if-conversion restricted to machine integer
-   types; [`IfOptLemmas.lean#L2401`](LeanQbe/T/IfOptLemmas.lean#L2401)),
-   `Func.simplifyGroupFast`, [`Func.deadLoadElim`](LeanQbe/T/Dce.lean#L153) (removal of unused
-   loads; [`DceLemmas.lean#L451`](LeanQbe/T/DceLemmas.lean#L451)),
-   [`Func.assumeElim`](LeanQbe/T/MemLoad.lean#L465) (removal of branches whose other arm halts;
-   [`MemLoadLemmas.lean#L1865`](LeanQbe/T/MemLoadLemmas.lean#L1865)), `Func.fold`, `Func.gvn`.
-4. [`Func.lateCfgPost`](LeanQbe/T/Opt.lean#L222) and
-   [`Func.lateLoopRotate`](LeanQbe/T/Opt.lean#L226):
-   [`Func.licm`](LeanQbe/T/Licm.lean#L885) (loop-invariant code motion;
-   [`LicmLemmas.lean#L813`](LeanQbe/T/LicmLemmas.lean#L813)), `Func.dceP`,
-   [`Func.loopRotate`](LeanQbe/T/LoopRotate.lean#L931) (loop rotation;
-   [`LoopRotateLemmas.lean#L2863`](LeanQbe/T/LoopRotateLemmas.lean#L2863)),
-   [`Func.mergeRets`](LeanQbe/T/Opt.lean#L182) (merging of return blocks;
-   [`OptLemmas.lean#L211`](LeanQbe/T/OptLemmas.lean#L211)).
+3. [`Func.lateCfgPre`](LeanQbe/T/Opt.lean):
+   [`Func.ifOptBits`](LeanQbe/T/IfOpt.lean) (if-conversion restricted to machine integer
+   types; [`IfOptLemmas.lean`](LeanQbe/T/IfOptLemmas.lean)),
+   `Func.simplifyGroupFast`, [`Func.deadLoadElim`](LeanQbe/T/Dce.lean) (removal of unused
+   loads; [`DceLemmas.lean`](LeanQbe/T/DceLemmas.lean)),
+   [`Func.assumeElim`](LeanQbe/T/MemLoad.lean) (removal of branches whose other arm halts;
+   [`MemLoadLemmas.lean`](LeanQbe/T/MemLoadLemmas.lean)), `Func.fold`, `Func.gvn`.
+4. [`Func.lateCfgPost`](LeanQbe/T/Opt.lean) and
+   [`Func.lateLoopRotate`](LeanQbe/T/Opt.lean):
+   [`Func.licm`](LeanQbe/T/Licm.lean) (loop-invariant code motion;
+   [`LicmLemmas.lean`](LeanQbe/T/LicmLemmas.lean)), `Func.dceP`,
+   [`Func.loopRotate`](LeanQbe/T/LoopRotate.lean) (loop rotation;
+   [`LoopRotateLemmas.lean`](LeanQbe/T/LoopRotateLemmas.lean)),
+   [`Func.mergeRets`](LeanQbe/T/Opt.lean) (merging of return blocks;
+   [`OptLemmas.lean`](LeanQbe/T/OptLemmas.lean)).
 
 ### 5. Register allocation, instruction selection, and linking
 
 The back end consists of an unverified hint analysis followed by verified lowering:
 
-- **Hint analysis (untrusted).** [`Spill.hints`](LeanQbe/T/Spill.lean#L1988) and
+- **Hint analysis (untrusted).** [`Spill.hints`](LeanQbe/T/Spill.lean) and
   [`SpillFlags.lean`](LeanQbe/T/SpillFlags.lean) compute register-allocation and code-layout
-  hints: spill placement and related options ([`Spill.Cfg`](LeanQbe/T/Spill.lean#L276)),
+  hints: spill placement and related options ([`Spill.Cfg`](LeanQbe/T/Spill.lean)),
   splitting of live ranges into hot and cold parts
-  ([`tryEvictSplit`](LeanQbe/T/Spill.lean#L653),
+  ([`tryEvictSplit`](LeanQbe/T/Spill.lean),
   [`SpillB5Test.lean`](LeanQbeTest/T/SpillB5Test.lean)), allocation of condition flags,
   addressing-mode folding (`[base + disp]` and scaled-index forms), and inversion of branches
   toward the hot path using execution weights. These hints are not part of the trusted base:
   every hint is re-checked during lowering, so an incorrect hint can cause compilation to fail
   or produce slower code, but cannot produce incorrect code.
-- **Register allocation and lowering.** [`Rega.lowerFn`](LeanQbe/T/Rega.lean#L1968) (proved in
-  [`RegaLemmas4.lean#L1061`](LeanQbe/T/RegaLemmas4.lean#L1061) and `RegaLemmas1.lean` to
+- **Register allocation and lowering.** [`Rega.lowerFn`](LeanQbe/T/Rega.lean) (proved in
+  [`RegaLemmas4.lean`](LeanQbe/T/RegaLemmas4.lean) and `RegaLemmas1.lean` to
   `RegaLemmas3.lean`) validates the hints and performs register allocation. It also removes
   redundant 32-to-64-bit zero extensions on x86-64
-  ([`elideZext32?`](LeanQbe/T/Rega.lean#L737), [`zeroUpper32Op`](LeanQbe/T/Target.lean#L281);
+  ([`elideZext32?`](LeanQbe/T/Rega.lean), [`zeroUpper32Op`](LeanQbe/T/Target.lean);
   [`X64Zext32ElideTest.lean`](LeanQbeTest/T/X64Zext32ElideTest.lean)), fuses comparisons with
   conditional branches and lays out the hot successor as the fall-through
-  ([`fuseJnzChoice`](LeanQbe/T/Rega.lean#L1419), [`jnzSetup`](LeanQbe/T/Rega.lean#L1438);
+  ([`fuseJnzChoice`](LeanQbe/T/Rega.lean), [`jnzSetup`](LeanQbe/T/Rega.lean);
   [`InvertJnzTest.lean`](LeanQbeTest/T/InvertJnzTest.lean),
   [`InvertJnzArm64Test.lean`](LeanQbeTest/T/InvertJnzArm64Test.lean)), and sequentializes
   parallel moves (tested in [`FlagRaOptTest.lean`](LeanQbeTest/T/FlagRaOptTest.lean) and
   [`FlagRaOptArm64Test.lean`](LeanQbeTest/T/FlagRaOptArm64Test.lean)).
 - **Instruction selection.** Selection of `[base + disp]` addressing, x86-64 scaled-index
-  addressing `[base + idx*scale + disp]` ([`recordAddVarImm`](LeanQbe/T/Rega.lean#L572),
-  [`recordDef_elide_ok`](LeanQbe/T/RegaLemmas1.lean#L2301), example
-  [`addrSibScaledDispFn`](LeanQbeTest/T/FlagRaOptTest.lean#L267)), bit operations, conditional
+  addressing `[base + idx*scale + disp]` ([`recordAddVarImm`](LeanQbe/T/Rega.lean),
+  [`recordDef_elide_ok`](LeanQbe/T/RegaLemmas1.lean), example
+  [`addrSibScaledDispFn`](LeanQbeTest/T/FlagRaOptTest.lean)), bit operations, conditional
   selects, stack frames, and SIMD instructions
   ([`Amd64/Isel.lean`](LeanQbe/T/Amd64/Isel.lean),
-  [`Amd64/IselLemmas5.lean#L1486`](LeanQbe/T/Amd64/IselLemmas5.lean#L1486),
+  [`Amd64/IselLemmas5.lean`](LeanQbe/T/Amd64/IselLemmas5.lean),
   [`Arm64/Isel.lean`](LeanQbe/T/Arm64/Isel.lean),
-  [`Arm64/IselLemmas4.lean#L1595`](LeanQbe/T/Arm64/IselLemmas4.lean#L1595)).
-- **Linking and certificates.** [`compileFn`](LeanQbe/T/Main.lean#L138) and
-  [`compileModule`](LeanQbe/T/Main.lean#L197) drive the full pipeline
-  ([`compileFn_correct`](LeanQbe/T/MainLemmas.lean#L728)). Separately compiled pieces of a
+  [`Arm64/IselLemmas4.lean`](LeanQbe/T/Arm64/IselLemmas4.lean)).
+- **Linking and certificates.** [`compileFn`](LeanQbe/T/Main.lean) and
+  [`compileModule`](LeanQbe/T/Main.lean) drive the full pipeline
+  ([`compileFn_correct`](LeanQbe/T/MainLemmas.lean)). Separately compiled pieces of a
   module can be linked compositionally
-  ([`compileModule_append`](LeanQbe/T/MainLink.lean#L231)); `LinkedCert` itself is built in
+  ([`compileModule_append`](LeanQbe/T/MainLink.lean)); `LinkedCert` itself is built in
   [`MainCertCore.lean`](LeanQbe/T/MainCertCore.lean) and
   [`MainCertProof.lean`](LeanQbe/T/MainCertProof.lean). Recursive functions
-  ([`link_rec_compiled`](LeanQbe/T/LinkRecLemmas.lean#L1123)) and groups of mutually recursive
+  ([`link_rec_compiled`](LeanQbe/T/LinkRecLemmas.lean)) and groups of mutually recursive
   functions, i.e. strongly connected components of the call graph
-  ([`link_scc_compiled`](LeanQbe/T/LinkSccLemmas2.lean#L67),
-  [`link_scc_static`](LeanQbe/T/LinkLfp.lean#L240)), are supported.
+  ([`link_scc_compiled`](LeanQbe/T/LinkSccLemmas2.lean),
+  [`link_scc_static`](LeanQbe/T/LinkLfp.lean)), are supported.
 
 ## Verified Kissat SAT solver
 
@@ -277,25 +284,26 @@ the main trade-off between full inprocessing and end-to-end SAT/UNSAT proofs:
 
 | Solver | Functions | Scope | Machine-code guarantees (x86-64 & AArch64) |
 |---|---:|---|---|
-| **`FullM7Fidelity`** ([`FullM7FidelityAssembly.lean`](LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean#L336)) | 413 | Full Kissat 4.0.4 search and inprocessing; inlined via [`m7InlPolicy`](LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean#L113) ([`FullM7FidelityInl.lean`](LeanQbe/T/Examples/Kissat/FullM7FidelityInl.lean#L62)) | Closed `ModuleOk` (0 externs, 0 exits), UNSAT soundness, memory/register framing, and concrete UNSAT non-vacuity; runtime `kissat_check_model` on SAT |
-| **`KissatPlain`** ([`Plain.lean`](LeanQbe/T/Examples/Kissat/Plain.lean#L1293)) | 59 | Pure CDCL reference solver (no inprocessing) | Closed `ModuleOk` (0 externs, 0 exits), **both SAT and UNSAT soundness**, memory/register framing, and concrete SAT & UNSAT non-vacuity |
+| **`FullM7Fidelity`** ([`FullM7FidelityAssembly.lean`](LeanQbe/T/Examples/Kissat/FullM7FidelityAssembly.lean)) | 413 | Certified Kissat 4.0.4 search and inprocessing baseline (fixed workspace and fuel); inlined via [`m7InlPolicy`](LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean) ([`FullM7FidelityInl.lean`](LeanQbe/T/Examples/Kissat/FullM7FidelityInl.lean)) | Closed `ModuleOk` (0 externs, 0 exits), UNSAT soundness, memory/register framing, and concrete UNSAT non-vacuity; runtime `kissat_check_model` on SAT |
+| **`KissatPlain`** ([`Plain.lean`](LeanQbe/T/Examples/Kissat/Plain.lean)) | 59 | Pure CDCL reference solver (no inprocessing) | Closed `ModuleOk` (0 externs, 0 exits), **both SAT and UNSAT soundness**, memory/register framing, and concrete SAT & UNSAT non-vacuity |
 
-- **`FullM7Fidelity`** (413 functions): mirrors upstream Kissat 4.0.4's search orchestration,
+- **`FullM7Fidelity`** (413 functions; current certified baseline while ongoing parity and compiler work advances): mirrors upstream Kissat 4.0.4's search orchestration,
   inprocessing schedule, preprocessing, and heuristics — CDCL with chronological backtracking,
   1-UIP analysis with recursive minimization and shrinking, focused/stable EMA search with
   target/best phase saving, 3-tier learned-clause management, chronological vivification,
   backbone, 2-literal hash congruence and gate extraction, BVE with forward subsumption, BVA
   factoring, watch-list GC/compaction, and random-walk local search. Its inlining policy
   `m7InlPolicy` is an untrusted performance heuristic checked by Lean's kernel via
-  `Module.optInlinePolicy_ok`, so inlining adds no assumptions. Certified by
-  [`kissatM7Fidelity_compiled_x64`](LeanQbe/T/Amd64/KissatM7Fidelity.lean#L34) and
-  [`kissatM7Fidelity_compiled_arm64`](LeanQbe/T/Arm64/KissatM7Fidelity.lean#L34).
+  `Module.optInlinePolicy_ok`, so inlining adds no soundness assumptions beyond Lean's three
+  standard axioms. Certified by
+  [`kissatM7Fidelity_compiled_x64`](LeanQbe/T/Amd64/KissatM7Fidelity.lean) and
+  [`kissatM7Fidelity_compiled_arm64`](LeanQbe/T/Arm64/KissatM7Fidelity.lean).
 - **`KissatPlain`** (`Plain`, 59 functions): a compact pure-CDCL reference solver with blocking-literal
   watches, VSIDS/VMTF dual-mode search, phase saving, Luby/EMA restarts, clause reduction, and
   minimization/shrinking. Because it performs no equisatisfiable inprocessing, its machine-code
   proofs cover both SAT and UNSAT soundness directly on x86-64 and AArch64
-  ([`Amd64/KissatPlain.lean`](LeanQbe/T/Amd64/KissatPlain.lean#L66),
-  [`Arm64/KissatPlain.lean`](LeanQbe/T/Arm64/KissatPlain.lean#L66)). Its compiled certificates and
+  ([`Amd64/KissatPlain.lean`](LeanQbe/T/Amd64/KissatPlain.lean),
+  [`Arm64/KissatPlain.lean`](LeanQbe/T/Arm64/KissatPlain.lean)). Its compiled certificates and
   audit files live in the optional `LeanQbeLegacyAmd64`, `LeanQbeLegacyArm64`, and
   `LeanQbeLegacyTest` libraries so routine builds stay focused on the main solver.
 
@@ -375,33 +383,33 @@ The audit files restate the main theorems with full types:
   [`Arm64/KissatM7Fidelity.lean`](LeanQbe/T/Arm64/KissatM7Fidelity.lean)
   ([`scripts/headlines.d/kissat_m7_fidelity.txt`](scripts/headlines.d/kissat_m7_fidelity.txt)).
   [`KissatM7FidelityAuditSpec.lean`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean) audits the
-  closed `ModuleOk` ([`m7f_mod_ok`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L113)),
-  inlined-module equivalence ([`m7f_inl_ok`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L139)),
+  closed `ModuleOk` ([`m7f_mod_ok`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean)),
+  inlined-module equivalence ([`m7f_inl_ok`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean)),
   source and inlined `Func.wp` UNSAT soundness
-  ([`m7f_unsat`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L146),
-  [`m7f_inl_wp`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L196)), and concrete 8,192 B UNSAT
-  non-vacuity ([`m7f_nv`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L222),
-  [`m7f_inl_nv`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean#L237);
+  ([`m7f_unsat`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean),
+  [`m7f_inl_wp`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean)), and concrete 8,192 B UNSAT
+  non-vacuity ([`m7f_nv`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean),
+  [`m7f_inl_nv`](LeanQbeTest/T/KissatM7FidelityAuditSpec.lean);
   [`scripts/headlines.d/kissat_m7_fidelity_spec.txt`](scripts/headlines.d/kissat_m7_fidelity_spec.txt)).
 - **`KissatPlain` (59 functions):**
-  [`KissatM3PlainLegacyAuditX64.lean`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean#L40) and
-  [`KissatM3PlainLegacyAuditArm64.lean`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean#L40)
+  [`KissatM3PlainLegacyAuditX64.lean`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean) and
+  [`KissatM3PlainLegacyAuditArm64.lean`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean)
   audit the compiled x86-64 and AArch64 machine-code SAT and UNSAT soundness and non-vacuity
   theorems from [`Amd64/KissatPlain.lean`](LeanQbe/T/Amd64/KissatPlain.lean) and
   [`Arm64/KissatPlain.lean`](LeanQbe/T/Arm64/KissatPlain.lean)
   ([`scripts/headlines.d/kissat_plain_legacy.txt`](scripts/headlines.d/kissat_plain_legacy.txt)),
-  backed by the source-level proof [`plainEnv_moduleOk`](LeanQbe/T/Examples/Kissat/PlainLemmas.lean#L1323).
+  backed by the source-level proof [`plainEnv_moduleOk`](LeanQbe/T/Examples/Kissat/PlainLemmas.lean).
 - **Specification:** [`KissatAuditSpec.lean`](LeanQbeTest/T/KissatAuditSpec.lean) audits the
   DIMACS parser `parseDimacs` and the predicates `CNF.Unsat` and `CNF.Sat`.
 
 #### Machine-code soundness
 
 For **`FullM7Fidelity`** (`413` functions),
-[`m7Fidelity_solve_bytes_unsat_x64`](LeanQbe/T/Amd64/KissatM7Fidelity.lean#L118) and
-[`m7Fidelity_solve_bytes_unsat_arm64`](LeanQbe/T/Arm64/KissatM7Fidelity.lean#L117) (with
+[`m7Fidelity_solve_bytes_unsat_x64`](LeanQbe/T/Amd64/KissatM7Fidelity.lean) and
+[`m7Fidelity_solve_bytes_unsat_arm64`](LeanQbe/T/Arm64/KissatM7Fidelity.lean) (with
 answer-only corollaries
-[`kissat_m7Fidelity_x64_unsat_correct`](LeanQbe/T/Amd64/KissatM7Fidelity.lean#L174) and
-[`kissat_m7Fidelity_arm64_unsat_correct`](LeanQbe/T/Arm64/KissatM7Fidelity.lean#L172)) state the
+[`kissat_m7Fidelity_x64_unsat_correct`](LeanQbe/T/Amd64/KissatM7Fidelity.lean) and
+[`kissat_m7Fidelity_arm64_unsat_correct`](LeanQbe/T/Arm64/KissatM7Fidelity.lean)) state the
 following over the compiled module (`kissatM7Fidelity_compiled_x64` /
 `kissatM7Fidelity_compiled_arm64`). Take any executable containing the compiled code and any call
 to `kissat_solve_bytes` that follows the platform ABI, passes DIMACS bytes and a workspace, has
@@ -416,8 +424,8 @@ with:
   regions, and the caller frame `R` untouched.
 
 For **`KissatPlain`** (`59` functions),
-[`solve_x64_correct`](LeanQbe/T/Amd64/KissatPlain.lean#L66) and
-[`solve_arm64_correct`](LeanQbe/T/Arm64/KissatPlain.lean#L66) state the same ABI, framing, and
+[`solve_x64_correct`](LeanQbe/T/Amd64/KissatPlain.lean) and
+[`solve_arm64_correct`](LeanQbe/T/Arm64/KissatPlain.lean) state the same ABI, framing, and
 UNSAT guarantees over `plainCert`, and additionally prove that:
 
 - if the result is `10`: `∃ cnf, parseDimacs cnfBytes = some cnf ∧ ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α`.
@@ -427,7 +435,7 @@ UNSAT guarantees over `plainCert`, and additionally prove that:
 Kissat's inprocessing transformations (such as variable elimination) require reconstructing a model
 of the original formula at the end of the search. Rather than formally verifying model
 reconstruction, `FullM7Fidelity` checks its answer at runtime. In
-[`FullM6Orch.lean`](LeanQbe/T/Examples/Kissat/FullM6Orch.lean#L773-L777), after model
+[`FullM6Orch.lean`](LeanQbe/T/Examples/Kissat/FullM6Orch.lean), after model
 reconstruction (`full_extend`) for a candidate SAT result, the entry point restores the original
 variable count and calls `kissat_check_model`, which evaluates every clause of the original,
 read-only DIMACS input and returns `10` only if every clause is satisfied (`0` otherwise). On
@@ -442,18 +450,18 @@ A soundness theorem whose hypotheses can never be met would be vacuous. Each sol
 also proves concrete non-vacuous executions:
 
 - **`FullM7Fidelity` (x86-64 & AArch64 UNSAT):**
-  [`audit_m7f_x64_nv_closed`](LeanQbeTest/T/KissatM7FidelityAuditX64.lean#L141) and
-  [`audit_m7f_arm_nv_closed`](LeanQbeTest/T/KissatM7FidelityAuditArm64.lean#L139) (with
-  concrete-host witnesses [`m7Fidelity_x64_run_unsat`](LeanQbe/T/Amd64/KissatM7Fidelity.lean#L300)
-  and [`m7Fidelity_arm64_run_unsat`](LeanQbe/T/Arm64/KissatM7Fidelity.lean#L298)) instantiate the
+  [`audit_m7f_x64_nv_closed`](LeanQbeTest/T/KissatM7FidelityAuditX64.lean) and
+  [`audit_m7f_arm_nv_closed`](LeanQbeTest/T/KissatM7FidelityAuditArm64.lean) (with
+  concrete-host witnesses [`m7Fidelity_x64_run_unsat`](LeanQbe/T/Amd64/KissatM7Fidelity.lean)
+  and [`m7Fidelity_arm64_run_unsat`](LeanQbe/T/Arm64/KissatM7Fidelity.lean)) instantiate the
   machine-code theorems on `kissatM7Fidelity_compiled_{x64,arm64}.host` and exhibit executions
   returning `20`.
 - **`KissatPlain` (x86-64 & AArch64 SAT & UNSAT):**
-  [`audit_plain_x64_unsat_nonvacuous`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean#L84),
-  [`audit_plain_x64_sat_nonvacuous`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean#L103),
-  [`audit_plain_arm64_unsat_nonvacuous`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean#L84),
+  [`audit_plain_x64_unsat_nonvacuous`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean),
+  [`audit_plain_x64_sat_nonvacuous`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditX64.lean),
+  [`audit_plain_arm64_unsat_nonvacuous`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean),
   and
-  [`audit_plain_arm64_sat_nonvacuous`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean#L103)
+  [`audit_plain_arm64_sat_nonvacuous`](LeanQbeLegacyTest/KissatM3PlainLegacyAuditArm64.lean)
   instantiate the machine-code theorems on `plainCert.host` with a 2048-byte workspace and
   `fuel = 16`, exhibiting concrete executions returning `20` on `"p cnf 1 2\n1 0\n-1 0\n"` and
   `10` on `"p cnf 1 1\n1 0\n"`.
@@ -472,7 +480,7 @@ To conclude that a certified `kissat-leanqbe` binary (built with default setting
 satisfiable inputs — one must trust:
 
 1. **The specification:** `Std.Sat.CNF.Unsat` and `Std.Sat.CNF.Sat` from the Lean standard library,
-   and [`parseDimacs`](LeanQbe/T/Examples/LratBytes.lean#L150), a pure ASCII DIMACS parser
+   and [`parseDimacs`](LeanQbe/T/Examples/LratBytes.lean), a pure ASCII DIMACS parser
    (checked on examples in [`KissatAuditSpec.lean`](LeanQbeTest/T/KissatAuditSpec.lean)).
    `parseDimacs` rejects headers and variable indices `>= 2^28`, the literal `-0`, missing headers,
    out-of-range variables, truncated clauses, and trailing tokens. Its dialect differs from some
@@ -521,7 +529,7 @@ verified-compiler overhead against `clang -O3` on the same C0 source.
 Two benchmark scripts run this 4-way comparison:
 
 - [`bench/kissat/compare_4way_min.py`](bench/kissat/compare_4way_min.py) (*recommended for
-  independent reproduction*): a 159-line standard-library Python script that prints every compile
+  independent reproduction*): a 245-line standard-library Python script that prints every compile
   and link command, invokes `Driver.compileFns` directly, runs CNFs sequentially in rotated order,
   verifies every SAT model, and prints timings, `.text` size, PAR-2, and pairwise ratios.
 - [`bench/kissat/run_4way_stage1.py`](bench/kissat/run_4way_stage1.py): parallel runner over a
@@ -529,7 +537,7 @@ Two benchmark scripts run this 4-way comparison:
   `C0-direct`, `C3b`, and `C4`, and writing JSON/Markdown summaries.
 
 ```bash
-# Minimal 159-line auditable 4-way comparison on any .cnf files, directory, or JSON manifest.
+# Minimal 245-line auditable 4-way comparison on any .cnf files, directory, or JSON manifest.
 python3 bench/kissat/compare_4way_min.py --module FullM7Fidelity --c1 /path/to/kissat --timeout 30 a.cnf b.cnf
 python3 bench/kissat/compare_4way_min.py --module FullM7Fidelity --c1 /path/to/kissat \
   --manifest /path/to/manifest.json --limit 6
@@ -599,12 +607,12 @@ verified compiler. The results are organized in three stages:
   [`leanqbe0Mod0`](LeanQbe/T/Bootstrap0/Mod0.lean) is the 124-function `LeanQbe.T` module obtained
   by lowering `leanqbe0Compile` through `LeanLCNF`. It is proved well-formed
   (`leanqbe0Mod0_wf`), free of recursion (`leanqbe0Mod0_acyclic`), and legal for x86-64
-  (`leanqbe0Mod0_legalSig`). [`leanqbe0Cert`](LeanQbe/T/Bootstrap0/Cert.lean#L39) is a
+  (`leanqbe0Mod0_legalSig`). [`leanqbe0Cert`](LeanQbe/T/Bootstrap0/Cert.lean) is a
   `LinkedCert` for all 124 functions on x86-64 (System V), with stack usage of at most 2048 bytes,
   assuming a stack bound of 64 bytes (`rtExtBounds0`) for each C runtime function it calls
   (`rtExterns`) and a single exit symbol `lcnf_panic`.
 - **Stage B: compiler soundness, serialization, and printers.**
-  - [`Sound0.lean`](LeanQbe/T/Bootstrap0/Sound0.lean#L1360) (audited in
+  - [`Sound0.lean`](LeanQbe/T/Bootstrap0/Sound0.lean) (audited in
     [`Sound0Test.lean`](LeanQbeBootstrap0Test/Sound0Test.lean)) proves that `leanqbe0Compile`
     produces code meeting its source semantics (`leanqbe0Compile_fnSpec`,
     `leanqbe0Compile_sound_layout`, `bridge_leanqbe0Compile_fnSpec`,
