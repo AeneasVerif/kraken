@@ -340,6 +340,20 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
   hasTestFlags : Bool := false
   /-- Returns `some lhsFirst` when `cmpMem` leaves `FlagCmpOk` in `(lhs, rhs)` order. -/
   cmpMemFlagsOut? : CmpOp → PDst Reg VReg Cond .bool → Option Bool := fun _ _ => none
+  /-- Fused `zext 32 64` scaled-index load
+  `rd := load t (base + ((zext 32 64 idx) <<< sc) + disp)`. -/
+  loadZextIdx : Ty → Reg → Reg → Reg → AddrScale → Int64 →
+    Option (List Directive × FlagMask) := fun _ _ _ _ _ _ => none
+  /-- Fused `sext m n (load (.bits m) (base + ((zext 32 64 idx) <<< sc) + disp))`. -/
+  loadSextZextIdx : (m n : Nat) → Reg → Reg → Reg → AddrScale → Int64 →
+    Option (List Directive × FlagMask) := fun _ _ _ _ _ _ _ => none
+  /-- Fused `zext 32 64` scaled-index store
+  `store t pa (base + ((zext 32 64 idx) <<< sc) + disp)`. -/
+  storeZextIdx : (t : Ty) → PArg Reg VReg Cond t → Reg → Reg → AddrScale → Int64 →
+    Option (List Directive × FlagMask) := fun _ _ _ _ _ _ => none
+  /-- Fused 64-bit `rd := (base? + ((zext 32 64 idx) <<< shift) + disp)`. -/
+  leaArithZext : Option Reg → Reg → Nat → Int64 → Reg →
+    Option (List Directive × FlagMask) := fun _ _ _ _ _ => none
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -415,6 +429,8 @@ structure Isa where
   supportsCmpMem : Ty → Bool := fun _ => false
   /-- Untrusted predicate for fusing a single-use `load t` into `testMem`. -/
   supportsTestMem : Ty → Bool := fun _ => false
+  /-- Untrusted `zext 32 64` scaled-index legality predicate for address-op elision. -/
+  supportsAddrZextIdx : Ty → AddrScale → BitVec 64 → Bool := fun _ _ _ => false
 
 attribute [instance] Isa.decEqReg Isa.decEqVReg Isa.decEqCond
 abbrev Isa.Loc (I : Isa) : Type := _root_.LeanQbe.T.Loc I.Reg I.VReg I.Cond
@@ -863,6 +879,66 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
       (fun s' => M.PDstHolds s' .bool pd (co.evalBits va vb) ∧
         FlagCmpOk M g s' (if lhsFirst then va else vb) (if lhsFirst then vb else va) false ∧
         M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  loadZextIdx_spec : ∀ {h k t rd base idx sc disp c clob v vb vi s post},
+    g.loadZextIdx t rd base idx sc disp = some (c, clob) →
+    rd ∉ scratch → base ∉ scratch → idx ∉ scratch →
+    GprHolds (M.getGpr s base) (.bits 64) vb →
+    GprHolds (M.getGpr s idx) (.bits 32) vi →
+    loadVal (M.mem s) t (vb + (vi.setWidth 64 <<< sc.shift) + disp.toBitVec) = some v →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => GprHolds (M.getGpr s' rd) t v ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  loadZextIdx_zero32 : g.zeroUpper32Load = true →
+    ∀ {h k rd base idx sc disp c clob} {v : BitVec 32} {vb : BitVec 64} {vi : BitVec 32}
+      {s post},
+    g.loadZextIdx (.bits 32) rd base idx sc disp = some (c, clob) →
+    rd ∉ scratch → base ∉ scratch → idx ∉ scratch →
+    GprHolds (M.getGpr s base) (.bits 64) vb →
+    GprHolds (M.getGpr s idx) (.bits 32) vi →
+    loadVal (M.mem s) (.bits 32) (vb + (vi.setWidth 64 <<< sc.shift) + disp.toBitVec) = some v →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => M.getGpr s' rd = v.setWidth 64 ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  loadZextIdx_zext : g.zeroExtLoad = true →
+    ∀ {h k t rd base idx sc disp c clob v vb vi s post},
+    g.loadZextIdx t rd base idx sc disp = some (c, clob) →
+    rd ∉ scratch → base ∉ scratch → idx ∉ scratch →
+    GprHolds (M.getGpr s base) (.bits 64) vb →
+    GprHolds (M.getGpr s idx) (.bits 32) vi →
+    loadVal (M.mem s) t (vb + (vi.setWidth 64 <<< sc.shift) + disp.toBitVec) = some v →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => AbiGprHolds (M.getGpr s' rd) t v ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  loadSextZextIdx_spec : ∀ {h k m n rd base idx sc disp c clob v vb vi s post},
+    g.loadSextZextIdx m n rd base idx sc disp = some (c, clob) →
+    rd ∉ scratch → base ∉ scratch → idx ∉ scratch →
+    GprHolds (M.getGpr s base) (.bits 64) vb →
+    GprHolds (M.getGpr s idx) (.bits 32) vi →
+    loadVal (M.mem s) (.bits m) (vb + (vi.setWidth 64 <<< sc.shift) + disp.toBitVec) = some v →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => M.getGpr s' rd = v.signExtend 64 ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  storeZextIdx_spec : ∀ {h k t pa base idx sc disp c clob v vb vi s post},
+    g.storeZextIdx t pa base idx sc disp = some (c, clob) →
+    (∀ r ∈ pa.gprs, r ∉ scratch) → base ∉ scratch → idx ∉ scratch →
+    M.PArgHolds s t pa v →
+    GprHolds (M.getGpr s base) (.bits 64) vb →
+    GprHolds (M.getGpr s idx) (.bits 32) vi →
+    storeOk (M.mem s) t (vb + (vi.setWidth 64 <<< sc.shift) + disp.toBitVec) →
+    M.FallsTo g.condReads h k c scratch [] clob s
+      (fun s' => M.mem s' =
+        storeMem (M.mem s) t (vb + (vi.setWidth 64 <<< sc.shift) + disp.toBitVec) v) post :=
+    by intros; contradiction
+  leaArithZext_spec : ∀ {h k base? idx shift disp rd c clob vb vi s post},
+    g.leaArithZext base? idx shift disp rd = some (c, clob) →
+    (∀ r, base? = some r → r ∉ scratch) → idx ∉ scratch → rd ∉ scratch →
+    (∀ r, base? = some r → GprHolds (M.getGpr s r) (.bits 64) vb) →
+    GprHolds (M.getGpr s idx) (.bits 32) vi →
+    let res : BitVec 64 :=
+      (if base?.isSome then vb else 0#64) + (vi.setWidth 64 <<< shift) + disp.toBitVec
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => GprHolds (M.getGpr s' rd) (.bits 64) res ∧ M.mem s' = M.mem s) post :=
     by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where

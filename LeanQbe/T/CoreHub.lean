@@ -133,11 +133,13 @@ public import LeanQbe.T.PrintCpp
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.PrintUtil
 public import LeanQbe.T.Rega
+public import LeanQbe.T.RegaDefs
 public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.RegaLemmas1
 public import LeanQbe.T.RegaLemmas2
 public import LeanQbe.T.RegaLemmas3
 public import LeanQbe.T.RegaLemmas4
+public import LeanQbe.T.RegaZext
 public import LeanQbe.T.Scc
 public import LeanQbe.T.SccLemmas
 public import LeanQbe.T.SimplifyGroupPlan

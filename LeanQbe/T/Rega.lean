@@ -1,6 +1,7 @@
 module
 
-public import LeanQbe.T.Target
+public import LeanQbe.T.RegaDefs
+public import LeanQbe.T.RegaZext
 
 /-!
 # PHOAS-First Checked Register-Allocation Lowering (`Rega`)
@@ -10,8 +11,8 @@ consuming untrusted literal `LeanQbe.T.Trie` `Hints`: bounded `regs`, `O(log N)`
 `slots : Trie SlotEntry` with 15-granule overlap clearing, lexical `defs : Trie DefFact` and
 `vecWidths : Trie SlotWidth`, sequential `nv` (`h.dest` keyed by `x : Nat`), `entryScopeOk nv`,
 read-only flag cache, `PreStep.clearFlags`, `canonAbi` (skipped by `abiSkips`
-for canonical `.gprZ`/exact-immediate registers), `loadSext` fusion, pure `Bool` comparisons, and
-monotone `nl` label counter.
+for canonical `.gprZ`/exact-immediate registers), `loadSext` fusion, `UXTW` `zext 32 64` fusion,
+pure `Bool` comparisons, and monotone `nl` label counter.
 -/
 
 set_option autoImplicit false
@@ -20,167 +21,6 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 namespace Rega
-
-abbrev VNat : Ty → Type := fun _ => Nat
-abbrev LNat : List Ty → Type := fun _ => Nat
-
-inductive RegLoc (Reg VReg Cond : Type) where
-  | gpr (r : Reg) | gprZ (r : Reg) | vec (v : VReg) | flag (c : Cond)
-  deriving DecidableEq, Repr
-
-inductive SlotEntry where
-  | gpr (sas : List SymArg)
-  | gprZ (sas : List (SymArg × Bool))
-  | vec (w : SlotWidth) (sas : List SymArg)
-  deriving DecidableEq, Repr
-
-def SlotEntry.slots : SlotEntry → Nat
-  | .gpr _ | .gprZ _ => 1 | .vec w _ => w.slots
-
-inductive RmwOp where
-  | add | sub | and | or | xor
-  deriving DecidableEq, Repr
-
-def RmwOp.toOpCode (w : Nat) : RmwOp → OpCode [.bits w, .bits w] [.bits w]
-  | .add => .add (.bits w)
-  | .sub => .sub (.bits w)
-  | .and => .and (.bits w)
-  | .or  => .or  (.bits w)
-  | .xor => .xor (.bits w)
-
-def RmwOp.isComm : RmwOp → Bool
-  | .add | .and | .or | .xor => true
-  | .sub => false
-
-inductive DefFact where
-  | addImm64 (base : Nat) (disp : BitVec 64)
-  | scaleOff (idx : Nat) (sh : Nat) (disp : BitVec 64)
-  | addrSum (base idx : Nat) (sh : Nat) (disp : BitVec 64)
-  | imm64 (c : BitVec 64)
-  | andVarVar (w x y : Nat)
-  | andVarImm (w x : Nat) (c : BitVec 64)
-  | binVarVar (w : Nat) (op : RmwOp) (x y : Nat)
-  | binVarImm (w : Nat) (op : RmwOp) (x : Nat) (c : BitVec 64)
-  | sextVar (m n x : Nat)
-  | zextVar (m n x : Nat)
-  | cmpZeroVar (co : CmpOp) (w x : Nat)
-  | testBitVar (neg : Bool) (w x : Nat) (c : BitVec 64)
-  | shlVarImm (w x sh : Nat)
-  deriving DecidableEq, Repr
-
-def DefFact.isAddr : DefFact → Bool
-  | .imm64 _ | .addImm64 _ _ | .scaleOff _ _ _ | .addrSum _ _ _ _ => true
-  | _ => false
-
-inductive FlagFact where
-  | cmp (w : Nat) (lhs rhs : SymArg) (eqNeOnly : Bool)
-  deriving DecidableEq, Repr
-
-structure SymState (I : Isa) where
-  regs : List (SymArg × RegLoc I.Reg I.VReg I.Cond)
-  slots : Trie SlotEntry
-  defs : Trie DefFact
-  vecWidths : Trie SlotWidth
-  memDefs : Trie (Ty × Arg VNat i64) := .empty
-  zeroExt32 : List I.Reg := []
-  flags : Option FlagFact := none
-
-structure Ext where
-  callees : List (Sym × List Ty × List Ty) := []
-  exits : List Sym := []
-  deriving DecidableEq, Repr, Inhabited
-
-abbrev Res (I : Isa) := Except String (List I.Directive × Nat × Nat × Nat)
-
-/-! ## Pure `Bool` Equalities, Labels, and Bank Predicates -/
-
-def slotWidthEq : SlotWidth → SlotWidth → Bool
-  | .w64, .w64 | .w128, .w128 | .w256, .w256 | .w512, .w512 => true
-  | _, _ => false
-
-def symArgEq : SymArg → SymArg → Bool
-  | .var x, .var y => Nat.beq x y
-  | .immBool a, .immBool b => Bool.beq a b
-  | .immBits w1 c1, .immBits w2 c2 => Nat.beq w1 w2 && c1 == c2
-  | .immVec w1 c1, .immVec w2 c2 => slotWidthEq w1 w2 && c1 == c2
-  | _, _ => false
-
-def regLocEq {I : Isa} : RegLoc I.Reg I.VReg I.Cond → RegLoc I.Reg I.VReg I.Cond → Bool
-  | .gpr a, .gpr b | .gprZ a, .gprZ b => a == b
-  | .vec a, .vec b => a == b
-  | .flag a, .flag b => a == b
-  | _, _ => false
-
-def regLocMatchesGpr {I : Isa} (rl : RegLoc I.Reg I.VReg I.Cond) (r : I.Reg) : Bool :=
-  match rl with
-  | .gpr r' | .gprZ r' => r' == r
-  | _ => false
-
-def locEq {I : Isa} : I.Loc → I.Loc → Bool
-  | .gpr a, .gpr b => a == b | .vec a, .vec b => a == b | .flag a, .flag b => a == b
-  | .slot i w1, .slot j w2 => Nat.beq i j && slotWidthEq w1 w2
-  | _, _ => false
-
-def tyEq : Ty → Ty → Bool
-  | .bool, .bool => true | .bits m, .bits n => Nat.beq m n | .float f, .float g => f == g
-  | .pair a1 b1, .pair a2 b2 => tyEq a1 a2 && tyEq b1 b2 | _, _ => false
-
-def listTyEq : List Ty → List Ty → Bool
-  | [], [] => true | x :: xs, y :: ys => tyEq x y && listTyEq xs ys | _, _ => false
-
-def natDigits : Nat → Nat → List Char → List Char
-  | 0, _, acc => acc
-  | fuel + 1, n, acc =>
-    let acc := Char.ofNat (48 + n % 10) :: acc
-    if Nat.ble 10 n then natDigits fuel (n / 10) acc else acc
-
-def lname (fn : Sym) (n : Nat) : Sym := fn ++ ".L" ++ String.ofList (natDigits (n + 1) n [])
-
-def isGprTy (I : Isa) : Ty → Bool
-  | .bool => true | .bits n => I.frame.bitWidths.contains n && Nat.ble n 64 | _ => false
-
-def vecWidth? (I : Isa) : Ty → Option SlotWidth
-  | .pair a b =>
-    match I.vec.vecSlotWidth (.pair a b) with
-    | some w => if Nat.ble (Ty.pair a b).size w.bits then some w else none
-    | none => none
-  | _ => none
-
-def isAllocGpr (I : Isa) (saved : List I.Reg) (r : I.Reg) : Bool :=
-  I.frame.allocatable.contains r || saved.contains r ||
-    I.frame.argRegs.contains r || I.frame.retRegs.contains r
-
-def isMoveGpr (I : Isa) (saved : List I.Reg) (r : I.Reg) : Bool :=
-  isAllocGpr I saved r || I.frame.scratch.contains r
-
-def isAllocVec (I : Isa) (v : I.VReg) : Bool :=
-  I.vec.vecAllocatable.contains v || I.vec.vecArgRegs.contains v || I.vec.vecRetRegs.contains v
-
-def isMoveVec (I : Isa) (v : I.VReg) : Bool := isAllocVec I v || I.vec.vecScratch.contains v
-
-def toSymArg (I : Isa) : (t : Ty) → Arg VNat t → Option SymArg
-  | _, .var x => some (.var x)
-  | .bool, .imm b => some (.immBool b)
-  | .bits n, .imm c => if Nat.ble n 64 then some (.immBits n (c.setWidth 64)) else none
-  | .pair a b, .imm c =>
-    (vecWidth? I (.pair a b)).map fun w => .immVec w ((toBits (.pair a b) c).setWidth 512)
-  | .float _, .imm _ => none
-
-def symArgWidth (vw : Trie SlotWidth) : SymArg → Option SlotWidth
-  | .var x => vw.find? x | .immVec w _ => some w | _ => none
-
-def symArgMatchesGpr (stored target : SymArg) : Bool :=
-  if symArgEq stored target then true
-  else match stored, target with
-    | .immBits w' c, .immBits w k => Nat.beq w' 64 && Nat.ble w 64 && c == k
-    | .immBits w' c, .immBool b => Nat.beq w' 64 && c == (if b then 1#64 else 0#64)
-    | _, _ => false
-
-def symArgScopeOk (nv : Nat) : SymArg → Bool
-  | .var x => Nat.ble (x + 1) nv | _ => true
-
-def entryScopeOk {I : Isa} (nv : Nat) (en : Entry I.Reg I.VReg I.Cond) : Bool :=
-  en.live.all fun (sa, _) => symArgScopeOk nv sa
 
 /-! ## Generic Kill Rule and Multi-Granule Slot Updates -/
 
@@ -386,13 +226,6 @@ def holdsLoc (I : Isa) (st : SymState I) (sa : SymArg) : I.Loc → Bool
       | some (.gpr sas) => sas.any (symArgMatchesGpr · sa)
       | some (.gprZ sas) => sas.any fun (sa', _) => symArgMatchesGpr sa' sa
       | _ => false
-
-def findGprFor (I : Isa) (noScr : Bool) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) (sa : SymArg) : Option I.Reg :=
-  R.findSome? fun (sa', rl) =>
-    match rl with
-    | .gpr r | .gprZ r =>
-      if (!noScr || !(I.frame.scratch.contains r)) && symArgMatchesGpr sa' sa then some r else none
-    | _ => none
 
 def findVecFor (I : Isa) (noScr : Bool) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) (sa : SymArg) : Option I.VReg :=
   R.findSome? fun (sa', rl) =>
@@ -874,24 +707,30 @@ def extCmpMemRes (I : Isa) (co : CmpOp) (pd : PDst I.Reg I.VReg I.Cond .bool)
 
 def tryExtCmp (I : Isa) (st : SymState I) (vh : VariantHint) (co : CmpOp) (n t : Nat)
     (c : BitVec n) (pd : PDst I.Reg I.VReg I.Cond .bool) :
-    Option (List I.Directive × FlagMask × Option I.Cond) :=
+    Option (List I.Directive × FlagMask × Option FlagFact × Option I.Cond) :=
   let run {m : Nat} (x : Nat) (cm : BitVec m) :=
     let memTry := match st.memDefs.find? x with
       | some (.bits m', addr) =>
         if Nat.beq m' m then
           tryAddr I st .default addr fun aa =>
-            (I.gpr.cmpMem co m aa (.imm cm) pd).map fun (d, cl) => extCmpMemRes I co pd d cl
+            (I.gpr.cmpMem co m aa (.imm cm) pd).map fun (d, cl) =>
+              cmpMemRes I st co m (.var x) (.immBits m (cm.setWidth 64)) pd d cl
         else none
       | _ => none
     memTry <|>
       if I.supportsTestFuse then
         tryGpr I st.regs (.var x) fun rx =>
           (I.gpr.op (.cmp co (.bits m)) (.gpr rx, .imm cm, ()) (pd, ()) vh).map fun (d, cl) =>
+            let lf? := I.gpr.cmpFlagsOut? co m (.gpr rx) (.imm cm) pd
+            let immS : SymArg := .immBits m (cm.setWidth 64)
+            let fl := match lf? with
+              | some lf =>
+                some (.cmp m (if lf then .var x else immS) (if lf then immS else .var x) false)
+              | none => killFlags I cl st.flags
             let ex := match pd with
-              | .gpr _ => (I.gpr.cmpFlagsOut? co m (.gpr rx) (.imm cm) pd).bind fun lf =>
-                I.gpr.condOfCmp? (if lf then co else co.swap)
+              | .gpr _ => lf?.bind fun lf => I.gpr.condOfCmp? (if lf then co else co.swap)
               | _ => none
-            (d, cl, ex)
+            (d, cl, fl, ex)
       else none
   match st.defs.find? t with
   | some (.sextVar m n' x) =>
@@ -1072,11 +911,10 @@ def tryFuseCmp (I : Isa) (st : SymState I) (vh : VariantHint) {sig ts : List Ty}
             | _, _ => none
           res?.map fun (c, cl) => (c, cl, killFlags I cl st.flags, testBoolExtra? I neg cl pd)
         else none
-      let eFuse :=
-        (match a, b with
-         | .var t, .imm c => tryExtCmp I st vh co n t c pd
-         | .imm c, .var t => tryExtCmp I st vh co.swap n t c pd
-         | _, _ => none).map fun (c, cl, ex) => (c, cl, killFlags I cl st.flags, ex)
+      let eFuse := match a, b with
+        | .var t, .imm c => tryExtCmp I st vh co n t c pd
+        | .imm c, .var t => tryExtCmp I st vh co.swap n t c pd
+        | _, _ => none
       let mFuse :=
         (match a with
          | .var x => (tryCmpMemVar I st co n x b pd).map fun (c, cl) =>
@@ -1101,7 +939,10 @@ def tryLoadSext (I : Isa) (st : SymState I) (vh : VariantHint) {sig ts : List Ty
   | _, _, .sext m n, (.var x, ()), (.gpr rd, ()) =>
     match st.memDefs.find? x with
     | some (.bits m', addr) =>
-      if Nat.beq m' m && Nat.ble n 64 then tryAddr I st vh addr (I.gpr.loadSext m n rd) else none
+      if Nat.beq m' m && Nat.ble n 64 then
+        tryAddr I st vh addr (I.gpr.loadSext m n rd) <|>
+          tryAddrZext I st addr (I.gpr.loadSextZextIdx m n rd)
+      else none
     | _ => none
   | _, _, _, _, _ => none
 
@@ -1321,14 +1162,15 @@ def tryLeaArith (I : Isa) (st : SymState I) {sig ts : List Ty}
       if Nat.beq w 64 then extractLea64 st.defs code args
       else if Nat.beq w 32 then extractLea32 st.defs code args
       else none
-    ext?.bind fun (base?, idx, sc, disp) =>
+    ext?.bind (fun (base?, idx, sc, disp) =>
       let rbOpt? : Option (Option I.Reg) := match base? with
         | some b => (findGprFor I true st.regs (.var b)).map some
         | none => some none
       rbOpt?.bind fun rb? =>
         (findGprFor I true st.regs (.var idx)).bind fun ri =>
           (I.gpr.leaArith w rb? ri sc disp rd).map fun (c, cl) =>
-            (c, cl, Nat.beq w 32 && I.gpr.zeroUpper32LeaArith)
+            (c, cl, Nat.beq w 32 && I.gpr.zeroUpper32LeaArith)) <|>
+    tryLeaArithZext I st code args (ts := [.bits w]) (.gpr rd, ())
   | _, _ => none
 
 def normCmpOp {I : Isa} : {ts : List Ty} → Op VNat ts →
@@ -1377,19 +1219,40 @@ def cmpOpFlags? (I : Isa) (st : SymState I) {sig ts : List Ty}
     (fl, none)
   | _, _, _, _, _ => (killFlags I cl st.flags, none)
 
+def reuseCmpPair? (I : Isa) (defs : Trie DefFact) (w n : Nat) (co : CmpOp)
+    (a b : Arg VNat (.bits n)) : Option (CmpOp × SymArg × SymArg) :=
+  if Nat.beq w n then
+    (toSymArg I (.bits n) a).bind fun sa =>
+      (toSymArg I (.bits n) b).map fun sb => (co, sa, sb)
+  else if Nat.blt 0 w && Nat.blt w n then
+    let ext? (co' : CmpOp) (t : Nat) (c : BitVec n) :=
+      let ok := match defs.find? t with
+        | some (.sextVar m n' x) =>
+          if Nat.beq m w && Nat.beq n' n && cmpIsSignedOrEq co' &&
+             (c.truncate w).signExtend n == c then some x else none
+        | some (.zextVar m n' x) =>
+          if Nat.beq m w && Nat.beq n' n && cmpIsUnsignedOrEq co' &&
+             (c.truncate w).zeroExtend n == c then some x else none
+        | _ => none
+      ok.map fun x => (co', .var x, .immBits w ((c.truncate w).setWidth 64))
+    match a, b with
+    | .var t, .imm c => ext? co t c
+    | .imm c, .var t => ext? co.swap t c
+    | _, _ => none
+  else none
+
 def tryReuseFlagCmp (I : Isa) (st : SymState I) {sig ts : List Ty}
     (code : OpCode sig ts) (args : Tup (Arg VNat) sig)
     (dsts : Tup (PDst I.Reg I.VReg I.Cond) ts) :
     Option (List I.Directive × FlagMask × Option FlagFact × Option I.Cond) :=
   match st.flags, sig, ts, code, args, dsts with
   | some (.cmp w lhs rhs eqNe), _, _, .cmp co (.bits n) .bool _, (a, b, ()), (pd, ()) =>
-    if !(Nat.beq w n && (!eqNe || co == .eq || co == .ne)) then none
+    if !(!eqNe || co == .eq || co == .ne) then none
     else
-      match toSymArg I (.bits n) a, toSymArg I (.bits n) b with
-      | some sa, some sb =>
+      (reuseCmpPair? I st.defs w n co a b).bind fun (coBase, sa, sb) =>
         let coUsed? :=
-          if symArgEq sa lhs && symArgEq sb rhs then some co
-          else if symArgEq sa rhs && symArgEq sb lhs then some co.swap
+          if symArgEq sa lhs && symArgEq sb rhs then some coBase
+          else if symArgEq sa rhs && symArgEq sb lhs then some coBase.swap
           else none
         coUsed?.bind fun coUsed =>
           (I.gpr.condOfCmp? coUsed).bind fun cc =>
@@ -1403,7 +1266,6 @@ def tryReuseFlagCmp (I : Isa) (st : SymState I) {sig ts : List Ty}
                 (c, cl, killFlags I cl (some (.cmp w lhs rhs eqNe)),
                   if FlagMask.disjoint (I.gpr.condReads cc) cl then some cc else none)
             | .vec _ => none
-      | _, _ => none
   | _, _, _, _, _, _ => none
 
 def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List Ty}
@@ -1558,6 +1420,8 @@ inductive JnzCond (I : Isa) where
   | gpr (r : I.Reg)
   | slot (idx : Nat)
   | cmpZero (co : CmpOp) (w : Nat) (r : I.Reg)
+  | cmpZeroMem (co : CmpOp) (w x : Nat) (a : AddrArg I.Reg) (cc : I.Cond)
+  | cmpZeroFlag (co : CmpOp) (w x : Nat) (r : I.Reg) (cc : I.Cond)
   | testImm (neg : Bool) (w : Nat) (r : I.Reg) (mask : BitVec w)
 
 def cmpZeroFlagCond? (I : Isa) (fl : Option FlagFact) (co : CmpOp) (w y : Nat) : Option I.Cond :=
@@ -1580,7 +1444,21 @@ def findJnzCond (I : Isa) (nslots : Nat) (st : SymState I) (x : Nat) : Option (J
     (findGprFor I true st.regs (.var x)).map .gpr <|>
     (match st.defs.find? x with
      | some (.cmpZeroVar co w y) =>
-       (findGprFor I true st.regs (.var y)).map fun r => .cmpZero co w r
+       (match st.memDefs.find? y with
+        | some (.bits m, addr) =>
+          if Nat.beq m w && isStdBitWidth w then
+            (I.gpr.condOfCmp? co).bind fun cc =>
+              tryAddr I st .default addr fun aa =>
+                (I.gpr.cmpMem co w aa (.imm 0#w) (.flag cc)).map fun _ => .cmpZeroMem co w y aa cc
+          else none
+        | _ => none) <|>
+       (findGprFor I true st.regs (.var y)).bind fun r =>
+         if (I.gpr.cmpZeroJcc co w r (lname "" 0)).isSome then some (.cmpZero co w r)
+         else if isStdBitWidth w then
+           (I.gpr.condOfCmp? co).bind fun cc =>
+             (I.gpr.op (.cmp co (.bits w)) (.gpr r, .imm 0#w, ()) (.flag cc, ()) .default).map
+               fun _ => .cmpZeroFlag co w y r cc
+         else none
      | some (.testBitVar neg w y c) =>
        (findGprFor I true st.regs (.var y)).map fun r => .testImm neg w r (c.setWidth w)
      | _ => none) <|>
@@ -1666,6 +1544,22 @@ def fuseJnzChoice {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE 
     | none, some (je, brI, stI) => (true, some je, brI, stI)
     | none, none => (invChoice, none, brNl, stNl)
 
+def finishCmpJnz {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat)
+    (st1 : SymState I) (t e : Expr VNat LNat rs) (ft : Option Nat) (fwd : Trie Nat)
+    (cc : I.Cond) (cmpCode : List I.Directive) (cl : FlagMask) (fl : Option FlagFact) :
+    Bool × Option Nat × List I.Directive × SymState I :=
+  let stCmp := { st1 with
+    regs := killRegs I I.frame.scratch [] cl st1.regs
+    zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
+    flags := fl }
+  let stB := { stCmp with
+    regs := killRegs I I.frame.scratch [] FlagMask.none stCmp.regs
+    zeroExt32 := killZeroExt I.frame.scratch stCmp.zeroExt32
+    flags := killFlags I FlagMask.none stCmp.flags }
+  let p := jnzMode I h ipT ipE stB true t e ft fwd
+  let sym := lname fn (match p.2 with | some j => tgtLab fwd j | none => nl)
+  (p.1, p.2, cmpCode ++ I.gpr.jcc (if p.1 then I.gpr.negCond cc else cc) sym, stB)
+
 /-- Branch selection for `jnz`: `(inverted?, threaded target, branch code, state after branch)`. -/
 def jnzSetup {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat)
     (st1 : SymState I) (t e : Expr VNat LNat rs) (ft : Option Nat) (cond : JnzCond I)
@@ -1703,6 +1597,20 @@ def jnzSetup {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE : Nat
   | .cmpZero co w r =>
     fuseJnzChoice I h fn nl ipT ipE st1 t e ft (fun inv l =>
       I.gpr.cmpZeroJcc (if inv then co.neg else co) w r l) fwd
+  | .cmpZeroMem co w x aa cc =>
+    (I.gpr.cmpMem co w aa (.imm 0#w) (.flag cc)).map fun (cmpCode, cl) =>
+      let fl := (cmpMemRes I st1 co w (.var x) (.immBits w 0#64) (.flag cc) cmpCode cl).2.2.1
+      finishCmpJnz I h fn nl ipT ipE st1 t e ft fwd cc cmpCode cl fl
+  | .cmpZeroFlag co w x r cc =>
+    (I.gpr.op (.cmp co (.bits w)) (.gpr r, .imm 0#w, ()) (.flag cc, ()) .default).map
+      fun (cmpCode, cl) =>
+        let fl := if Nat.ble w 64 then
+          match I.gpr.cmpFlagsOut? co w (.gpr r) (.imm 0#w) (.flag cc) with
+          | some lf => some (.cmp w (if lf then .var x else .immBits w 0#64)
+                                     (if lf then .immBits w 0#64 else .var x) false)
+          | none => killFlags I cl st1.flags
+        else killFlags I cl st1.flags
+        finishCmpJnz I h fn nl ipT ipE st1 t e ft fwd cc cmpCode cl fl
   | .testImm neg w r mask =>
     fuseJnzChoice I h fn nl ipT ipE st1 t e ft (fun inv l =>
       I.gpr.testJcc (if inv then !neg else neg) w r mask l) fwd
@@ -1770,7 +1678,9 @@ def lowerStore (I : Isa) (st1 : SymState I) (vh : VariantHint) :
   | t, v, addr =>
     if !isGprTy I t then none
     else
-      ((tryArg I st1 [] t v fun pa => tryAddr I st1 vh addr (I.gpr.store t pa)) <|>
+      ((tryArg I st1 [] t v fun pa =>
+         tryAddr I st1 vh addr (I.gpr.store t pa) <|>
+         tryAddrZext I st1 addr (I.gpr.storeZextIdx t pa)) <|>
        tryRmwStore I st1 vh t v addr).map fun (c, clob) =>
         (c, { st1 with
               regs := killRegs I I.frame.scratch [] clob st1.regs
@@ -1857,7 +1767,9 @@ def lowerLoad (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) (t : Ty) 
     match h.dest.find? nv with
     | some (.gpr d) =>
       if !(isAllocGpr I h.saved d && isGprTy I t) then none
-      else (tryAddr I st1 vh a (I.gpr.load t d)).map fun (c, clob) =>
+      else
+        (tryAddr I st1 vh a (I.gpr.load t d) <|>
+          tryAddrZext I st1 a (I.gpr.loadZextIdx t d)).map fun (c, clob) =>
         let isZ32 := I.gpr.zeroUpper32Load && tyEq t (.bits 32)
         let rl := if I.gpr.zeroExtLoad || isZ32 then RegLoc.gprZ d else .gpr d
         let zExt := killZeroExt (d :: I.frame.scratch) st1.zeroExt32
@@ -1997,6 +1909,8 @@ def deferJnzNext {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nv nl ip : N
           match findJnzCond I h.nslots stAfter nv with
           | some (.flag _) => true
           | some (.cmpZero co w r) => (I.gpr.cmpZeroJcc co w r (lname fn nl)).isSome
+          | some (.cmpZeroMem _ _ _ _ cc)
+          | some (.cmpZeroFlag _ _ _ _ cc) => h.dest.find? nv != some (.flag cc)
           | some (.testImm neg w r mask) => (I.gpr.testJcc neg w r mask (lname fn nl)).isSome
           | _ => false
         | none => false
@@ -2007,6 +1921,7 @@ def isLeaDeferCand {sig ts : List Ty} (code : OpCode sig ts) : Bool :=
   match ts, code with
   | [.bits w], .shl (.bits _) | [.bits w], .add (.bits _) | [.bits w], .sub (.bits _) =>
     Nat.beq w 32 || Nat.beq w 64
+  | [.bits 64], .zext 32 64 => true
   | _, _ => false
 
 /-- Lookahead deferring shift/add/sub arithmetic feeding a single-use `tryLeaArith` consumer.
@@ -2351,6 +2266,18 @@ structure LabelClean (I : Isa) : Prop where
   leaArith : ∀ w base? idx sc disp rd c cl,
     I.gpr.leaArith w base? idx sc disp rd = some (c, cl) → NoLab I c :=
     by intro _ _ _ _ _ _ _ _ h; cases h
+  loadZextIdx : ∀ t rd base idx sc disp c cl,
+    I.gpr.loadZextIdx t rd base idx sc disp = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ _ _ _ h; cases h
+  loadSextZextIdx : ∀ m n rd base idx sc disp c cl,
+    I.gpr.loadSextZextIdx m n rd base idx sc disp = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ _ _ _ _ h; cases h
+  storeZextIdx : ∀ t pa base idx sc disp c cl,
+    I.gpr.storeZextIdx t pa base idx sc disp = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ _ _ _ h; cases h
+  leaArithZext : ∀ base? idx sh disp rd c cl,
+    I.gpr.leaArithZext base? idx sh disp rd = some (c, cl) → NoLab I c :=
+    by intro _ _ _ _ _ _ _ h; cases h
   (load : ∀ t r a c cl, I.gpr.load t r a = some (c, cl) → NoLab I c)
   (store : ∀ t pa a c cl, I.gpr.store t pa a = some (c, cl) → NoLab I c)
   (clearFlags : NoLab I I.gpr.clearFlags) (vmov : ∀ w d s, NoLab I (I.vec.vmov w d s))

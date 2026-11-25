@@ -54,6 +54,12 @@ meta def isAddShift2Dir : Directive → Bool
   | .instr { operation := .ADD_s _ _ sr, .. } => sr.shift == .LSL && sr.amount == 2
   | _ => false
 
+meta def isAddUxtw2Dir : Directive → Bool
+  | .instr {
+      operation := .ADD_e _ _ (.ext { ext := { type := .UXTW, amount := .E2 }, .. }), .. } =>
+    true
+  | _ => false
+
 meta def isSubsDir : Directive → Bool
   | .instr { operation := .SUBS_e .., .. }
   | .instr { operation := .SUBS_s .., .. } => true
@@ -143,7 +149,7 @@ meta def arm64LoopZextDispIdxFn : Fn :=
 #guard countDirs isAddShift2Dir (codeOf [arm64LoopIdxFn]) == 1
 #guard countDirs isIdxScale2Ldr (codeOf [arm64LoopZextIdxFn]) == 1
 #guard countDirs isUbfmDir (codeOf [arm64LoopZextIdxFn]) == 0
-#guard countDirs isAddShift2Dir (codeOf [arm64LoopZextIdxFn]) == 1
+#guard countDirs isAddUxtw2Dir (codeOf [arm64LoopZextIdxFn]) == 1
 #guard countDirs isUbfmDir (codeOf [arm64LoopZextDispIdxFn]) == 0
 #guard countDirs isAddShift2Dir (codeOf [arm64LoopZextDispIdxFn]) >= 1
 

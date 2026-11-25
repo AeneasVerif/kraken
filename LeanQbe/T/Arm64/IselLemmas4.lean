@@ -1691,6 +1691,164 @@ theorem armLeaArith_noLab {w : Nat} {base? : Option Reg} {idx : Reg} {sc : AddrS
     Kraken.Directive.label l ∉ c :=
   emitCleanPair_noLab hc l
 
+private theorem armExtendAmount?_some {sh : Nat} {amt : ExtendAmount}
+    (h : armExtendAmount? sh = some amt) : armExtendAmountToNat amt = sh := by
+  rcases sh with _ | _ | _ | _ | _ | _ <;> simp [armExtendAmount?] at h <;>
+    subst h <;> rfl
+
+private theorem evalUBFM_ubfiz32 (x : BitVec 64) {sh : Nat} (h1 : 1 ≤ sh) (h32 : sh ≤ 32) :
+    evalUBFM (w := .W64) x (64 - sh) 31 = (x.setWidth 32).setWidth 64 <<< sh := by
+  simp only [evalUBFM, RegWidth.bits, MemWidth.bits, BitVec.take, BitVec.zeroExtend]
+  rw [Nat.mod_eq_of_lt (by omega : 64 - sh < 64), Nat.mod_eq_of_lt (by decide : 31 < 64)]
+  simp only [show ¬(64 - sh ≤ 31) by omega, ↓reduceIte, show 64 - (64 - sh) = sh by omega]
+  congr 1
+
+private theorem armUbfmZextShiftDir_wp [Host] (d ri : XReg) (shift : Nat) (h32 : shift ≤ 32)
+    (s : MachineData) :
+    _root_.Program.wp
+      [Kraken.Directive.instr
+        (if shift == 0 then armIselInsI (.ORR_s (zr d .W32) (xzr .W32) (sh ri))
+         else armIselInsI (.UBFM (zr d .W64) (zr ri .W64) (64 - shift) 31))]
+      (fun s' => s' = wr s d (((s.regs.getXReg ri).toBitVec.setWidth 32).setWidth 64 <<< shift))
+      (fun _ _ => False) s := by
+  by_cases h0 : shift = 0
+  · subst h0
+    simp only [beq_self_eq_true, ↓reduceIte, BitVec.shiftLeft_zero]
+    exact armDirFallsTo_wp fun {_} p next jmp Q hk => by
+      simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero, BitVec.shiftLeft_zero,
+        BitVec.zero_or, RegWidth.bits, MemWidth.bits]
+      exact hk _ rfl
+  · have hne : (shift == 0) = false := beq_false_of_ne h0
+    simp only [hne, Bool.false_eq_true, ↓reduceIte]
+    exact armDirFallsTo_wp fun {_} p next jmp Q hk => by
+      simp only [t_step_simp]
+      rw [evalUBFM_ubfiz32 _ (Nat.pos_of_ne_zero h0) h32]
+      exact hk _ rfl
+
+private theorem armLeaArithZext_disp_wp [Host] (d : XReg) (disp : Int64) {addDisp : Instr}
+    (hadd : armAddSubImmI? false .W64 d .X16 disp.toBitVec = some addDisp)
+    {s s₁ : MachineData} {baseVal : BitVec 64}
+    (hs1 : s₁ = wr s .X16 baseVal) :
+    _root_.Program.wp (emitClean [addDisp]) (fun s' =>
+      GprHolds (armMach.getGpr s' (.reg d)) (.bits 64) (baseVal + disp.toBitVec) ∧
+      armMach.mem s' = armMach.mem s ∧
+      armMach.Frame armCondReads s s' (.reg d :: armScratch) [] maskNone)
+      (fun _ _ => False) s₁ := by
+  have hwp := armAddSubImmI_wp (n := 64) (by decide) (by decide) (fun h => by cases h)
+    false d .X16 disp.toBitVec hadd s₁
+  simp only [emitClean_cons, emitClean_nil]
+  refine armWp_mono hwp ?_
+  rintro s' ⟨val64, rfl, hval, _⟩
+  rw [BitVec.setWidth_eq] at hval
+  simp only [Bool.false_eq_true, ↓reduceIte, hs1, Reg64s.getXReg_setXReg_same,
+    UInt64.toBitVec_ofBitVec] at hval
+  subst hval
+  refine ⟨⟨by decide, by simp [get_wr_same]⟩, by simp [hs1], ?_⟩
+  have hfr1 : armMach.Frame armCondReads s (wr s .X16 baseVal) armScratch [] maskNone :=
+    frame_wr .X16 baseVal x16_mem_scratch maskNone
+  exact hs1 ▸ armFrame_scratch_wr hfr1 (frame_wr d _ List.mem_cons_self maskNone)
+
+theorem armLeaArithZext_wp [Host] (base? : Option Reg) (idx : Reg) (shift : Nat)
+    (disp : Int64) (rd : Reg) {vb : BitVec 64} {vi : BitVec 32} {c : List Instr}
+    {clob : FlagMask} {s : MachineData}
+    (hc : armLeaArithZextIns base? idx shift disp rd = some (c, clob))
+    (hbase : ∀ r, base? = some r → r ∉ armScratch) (hidx : idx ∉ armScratch)
+    (hrd : rd ∉ armScratch)
+    (hvb : ∀ r, base? = some r → GprHolds (armMach.getGpr s r) (.bits 64) vb)
+    (hvi : GprHolds (armMach.getGpr s idx) (.bits 32) vi) :
+    let res : BitVec 64 :=
+      (if base?.isSome then vb else 0#64) + (vi.setWidth 64 <<< shift) + disp.toBitVec
+    _root_.Program.wp (emitClean c) (fun s' =>
+      GprHolds (armMach.getGpr s' rd) (.bits 64) res ∧ armMach.mem s' = armMach.mem s ∧
+      armMach.Frame armCondReads s s' (rd :: armScratch) [] clob) (fun _ _ => False) s := by
+  dsimp only [armLeaArithZextIns] at hc
+  cases rd with
+  | SP => simp at hc
+  | reg d =>
+    cases idx with
+    | SP => simp at hc
+    | reg ri =>
+      have hri : (s.regs.getXReg ri).toBitVec.setWidth 32 = vi := by
+        simpa [GprHolds, armMach, get_reg] using hvi.2
+      simp only [bind, Option.bind_some] at hc
+      cases base? with
+      | none =>
+        dsimp only at hc
+        split at hc
+        · simp at hc
+        · rename_i hle
+          have h32 : shift ≤ 32 := Nat.ble_eq.mp (not_not_eq_true hle)
+          by_cases hdisp : disp == 0
+          · have hd0 : disp.toBitVec = 0#64 := by
+              have := beq_iff_eq.mp hdisp; subst this; rfl
+            simp only [hdisp, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hc
+            rcases hc with ⟨rfl, rfl⟩
+            simp only [emitClean_cons, emitClean_nil]
+            refine armWp_mono (armUbfmZextShiftDir_wp d ri shift h32 s) ?_
+            rintro s' rfl
+            refine ⟨⟨by decide, ?_⟩, rfl, frame_wr d _ List.mem_cons_self maskNone⟩
+            simp [get_wr_same, hri, hd0]
+          · simp only [hdisp, Bool.false_eq_true, ↓reduceIte,
+              Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
+            rcases hc with ⟨addDisp, hadd, rfl, rfl⟩
+            simp only [emitClean_cons, emitClean_nil]
+            refine armWp_cons (armUbfmZextShiftDir_wp .X16 ri shift h32 s) ?_
+            rintro s₁ rfl
+            simpa [hri, BitVec.zero_add, emitClean_cons, emitClean_nil] using
+              armLeaArithZext_disp_wp d disp hadd rfl
+      | some rbase =>
+        cases rbase with
+        | SP => simp at hc
+        | reg rb =>
+          have hrb : (s.regs.getXReg rb).toBitVec = vb := by
+            simpa [GprHolds, armMach, get_reg] using (hvb (.reg rb) rfl).2
+          simp only [Option.bind_eq_some_iff] at hc
+          rcases hc with ⟨amt, hamt, hc⟩
+          have hamtNat := armExtendAmount?_some hamt
+          by_cases hdisp : disp == 0
+          · have hd0 : disp.toBitVec = 0#64 := by
+              have := beq_iff_eq.mp hdisp; subst this; rfl
+            simp only [hdisp, ↓reduceIte, Option.some.injEq, Prod.mk.injEq] at hc
+            rcases hc with ⟨rfl, rfl⟩
+            simp only [emitClean_cons, emitClean_nil]
+            refine armWp_mono (armAddUxtwDir_wp d rb ri amt s) ?_
+            rintro s' rfl
+            refine ⟨⟨by decide, ?_⟩, rfl, frame_wr d _ List.mem_cons_self maskNone⟩
+            simp [get_wr_same, hrb, hri, hamtNat, hd0]
+          · simp only [hdisp, Bool.false_eq_true, ↓reduceIte,
+              Option.bind_eq_some_iff, Option.some.injEq, Prod.mk.injEq] at hc
+            rcases hc with ⟨addDisp, hadd, rfl, rfl⟩
+            simp only [emitClean_cons, emitClean_nil]
+            refine armWp_cons (armAddUxtwDir_wp .X16 rb ri amt s) ?_
+            rintro s₁ rfl
+            simpa [hrb, hri, hamtNat, emitClean_cons, emitClean_nil] using
+              armLeaArithZext_disp_wp d disp hadd rfl
+
+theorem armLeaArithZext_spec {h : Host} {k : Nat} {base? : Option Reg} {idx : Reg}
+    {shift : Nat} {disp : Int64} {rd : Reg} {c : List Directive} {clob : FlagMask}
+    {vb : BitVec 64} {vi : BitVec 32} {s : MachineData} {post : MachineState → Prop}
+    (hc_in : armLeaArithZext base? idx shift disp rd = some (c, clob))
+    (hbase : ∀ r, base? = some r → r ∉ armScratch) (hidx : idx ∉ armScratch)
+    (hrd : rd ∉ armScratch)
+    (hvb : ∀ r, base? = some r → GprHolds (armMach.getGpr s r) (.bits 64) vb)
+    (hvi : GprHolds (armMach.getGpr s idx) (.bits 32) vi) :
+    let res : BitVec 64 :=
+      (if base?.isSome then vb else 0#64) + (vi.setWidth 64 <<< shift) + disp.toBitVec
+    armMach.FallsTo armCondReads h k c (rd :: armScratch) [] clob s
+      (fun s' => GprHolds (armMach.getGpr s' rd) (.bits 64) res ∧
+        armMach.mem s' = armMach.mem s) post := by
+  letI := h
+  obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
+  exact armFallsTo_of_wp
+    (armWp_mono (armLeaArithZext_wp base? idx shift disp rd hc hbase hidx hrd hvb hvi)
+      fun _ ⟨h1, h2, h3⟩ => ⟨⟨h1, h2⟩, h3⟩)
+
+theorem armLeaArithZext_noLab {base? : Option Reg} {idx : Reg} {shift : Nat}
+    {disp : Int64} {rd : Reg} {c : List Directive} {clob : FlagMask}
+    (hc : armLeaArithZext base? idx shift disp rd = some (c, clob)) (l : Sym) :
+    Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab hc l
+
 /-- Verified AArch64 scalar `GprTarget` specification. -/
 theorem armGprSpec : GprTarget armMach armGpr armScratch where
   negCond_reads := armNegCond_reads
@@ -1716,6 +1874,12 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
   testJcc_spec := @armTestJcc_spec
   leaArith_spec := @armLeaArith_spec
   leaArith_zero32 := @armLeaArith_zero32
+  loadZextIdx_spec := @armLoadZextIdx_spec
+  loadZextIdx_zero32 _ := @armLoadZextIdx_zero32
+  loadZextIdx_zext _ := @armLoadZextIdx_zext
+  loadSextZextIdx_spec := @armLoadSextZextIdx_spec
+  storeZextIdx_spec := @armStoreZextIdx_spec
+  leaArithZext_spec := @armLeaArithZext_spec
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/
 
@@ -1897,6 +2061,41 @@ theorem parser_opt_w3_rfl :
       (armGpr.op (.cmp .eq i8) (.gpr (.reg .X1), .imm 0#8, ()) (.flag .eq, ()) .default).elim [] Prod.fst ++
       (armGpr.op (.sub i32) (.imm (-1#32), .gpr (.reg .X1), ())
         (.gpr (.reg .X0), ()) .default).elim [] Prod.fst := rfl
+
+theorem parser_opt_uxtw_rfl :
+    ⸨prog|
+      ldr w0, [x1, w2, uxtw #2]
+      ldr x0, [x1, w2, uxtw #3]
+      ldrh w0, [x1, w2, uxtw #1]
+      ldrb w0, [x1, w2, uxtw #0]
+      ldrsb x0, [x1, w2, uxtw #0]
+      ldrsh x0, [x1, w2, uxtw #1]
+      str w0, [x1, w2, uxtw #2]
+      str x0, [x1, w2, uxtw #3]
+      add x16, x1, w2, uxtw #2
+      ldr w0, [x16, #4]
+      sub x16, x1, #4
+      ldr w0, [x16, w2, uxtw #2]
+      add x0, x1, w2, uxtw #3
+      add x0, x1, w2, uxtw #4
+      add x16, x1, w2, uxtw #2
+      add x0, x16, #8
+      ubfiz x0, x1, #3, #32
+    ⸩ =
+      (armLoadZextIdx i32 (.reg .X0) (.reg .X1) (.reg .X2) .s4 0).elim [] Prod.fst ++
+      (armLoadZextIdx i64 (.reg .X0) (.reg .X1) (.reg .X2) .s8 0).elim [] Prod.fst ++
+      (armLoadZextIdx i16 (.reg .X0) (.reg .X1) (.reg .X2) .s2 0).elim [] Prod.fst ++
+      (armLoadZextIdx i8 (.reg .X0) (.reg .X1) (.reg .X2) .s1 0).elim [] Prod.fst ++
+      (armLoadSextZextIdx 8 64 (.reg .X0) (.reg .X1) (.reg .X2) .s1 0).elim [] Prod.fst ++
+      (armLoadSextZextIdx 16 64 (.reg .X0) (.reg .X1) (.reg .X2) .s2 0).elim [] Prod.fst ++
+      (armStoreZextIdx i32 (.gpr (.reg .X0)) (.reg .X1) (.reg .X2) .s4 0).elim [] Prod.fst ++
+      (armStoreZextIdx i64 (.gpr (.reg .X0)) (.reg .X1) (.reg .X2) .s8 0).elim [] Prod.fst ++
+      (armLoadZextIdx i32 (.reg .X0) (.reg .X1) (.reg .X2) .s4 4).elim [] Prod.fst ++
+      (armLoadZextIdx i32 (.reg .X0) (.reg .X1) (.reg .X2) .s4 (-4)).elim [] Prod.fst ++
+      (armLeaArithZext (some (.reg .X1)) (.reg .X2) 3 0 (.reg .X0)).elim [] Prod.fst ++
+      (armLeaArithZext (some (.reg .X1)) (.reg .X2) 4 0 (.reg .X0)).elim [] Prod.fst ++
+      (armLeaArithZext (some (.reg .X1)) (.reg .X2) 2 8 (.reg .X0)).elim [] Prod.fst ++
+      (armLeaArithZext none (.reg .X1) 3 0 (.reg .X0)).elim [] Prod.fst := rfl
 
 end ParserChecks
 

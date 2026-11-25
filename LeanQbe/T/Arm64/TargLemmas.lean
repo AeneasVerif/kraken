@@ -51,6 +51,10 @@ theorem armLabelClean : Rega.LabelClean armTarget.toIsa where
   loadSext _ _ _ _ _ _ h l := armLoadSext_noLab h l
   store _ _ _ _ _ h l := armStore_noLab h l
   leaArith _ _ _ _ _ _ _ _ h l := armLeaArith_noLab h l
+  loadZextIdx _ _ _ _ _ _ _ _ h l := armLoadZextIdx_noLab h l
+  loadSextZextIdx _ _ _ _ _ _ _ _ _ h l := armLoadSextZextIdx_noLab h l
+  storeZextIdx _ _ _ _ _ _ _ _ h l := armStoreZextIdx_noLab h l
+  leaArithZext _ _ _ _ _ _ _ h l := armLeaArithZext_noLab h l
   clearFlags := armClearFlags_noLab
   vmov _ d := d.elim
   vmovi _ d := d.elim
