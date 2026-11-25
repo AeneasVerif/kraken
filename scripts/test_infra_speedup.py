@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -206,6 +207,47 @@ class TestSelectTests(unittest.TestCase):
         )
 
 
+def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=check,
+    )
+
+
+def _current_branch(repo: Path) -> str | None:
+    res = _git(repo, "symbolic-ref", "--short", "HEAD", check=False)
+    if res.returncode != 0:
+        return None
+    return res.stdout.strip() or None
+
+
+def _run_fast_land_dry_run(
+    script: Path,
+    staging: Path,
+    target: str,
+    *,
+    cwd: Path,
+    land_branch: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    if land_branch is None:
+        env.pop("LAND_BRANCH", None)
+    else:
+        env["LAND_BRANCH"] = land_branch
+    return subprocess.run(
+        ["bash", str(script), "--dry-run", str(staging), target],
+        cwd=str(cwd),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+
 class TestCheckAndFastLandSmoke(unittest.TestCase):
     def test_check_classify_stdin(self) -> None:
         def classify(lines: list[str]) -> str:
@@ -226,35 +268,116 @@ class TestCheckAndFastLandSmoke(unittest.TestCase):
 
     def test_fast_land_dry_run_branch_override(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            env = os.environ.copy()
-            cur = subprocess.check_output(
-                ["git", "-C", str(REPO_ROOT), "symbolic-ref", "--short", "HEAD"],
-                text=True,
-            ).strip()
-            env["LAND_BRANCH"] = cur
-            res = subprocess.run(
-                [
-                    "bash",
-                    str(SCRIPTS_DIR / "fast_land.sh"),
-                    "--dry-run",
-                    tmp,
-                    "HEAD",
-                ],
-                cwd=str(REPO_ROOT),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
+            cur = _current_branch(REPO_ROOT)
+            dirty = bool(_git(REPO_ROOT, "status", "--porcelain").stdout.strip())
+            head_sha = _git(REPO_ROOT, "rev-parse", "HEAD").stdout.strip()
+            main_res = _git(
+                REPO_ROOT, "rev-parse", "--verify", "refs/heads/leanqbe/main^{commit}", check=False
+            )
+            main_sha = main_res.stdout.strip() if main_res.returncode == 0 else None
+
+            if cur is not None:
+                land_branch = cur
+            elif main_sha == head_sha:
+                land_branch = "leanqbe/main"
+            else:
+                land_branch = f"__test_detached_cas_{os.getpid()}__"
+                while (
+                    _git(
+                        REPO_ROOT,
+                        "show-ref",
+                        "--verify",
+                        "--quiet",
+                        f"refs/heads/{land_branch}",
+                        check=False,
+                    ).returncode
+                    == 0
+                ):
+                    land_branch += "_x"
+
+            res = _run_fast_land_dry_run(
+                SCRIPTS_DIR / "fast_land.sh",
+                Path(tmp),
+                "HEAD",
+                cwd=REPO_ROOT,
+                land_branch=land_branch,
             )
             # Dirty tree during uncommitted dev is rejected cleanly; clean tree passes dry-run.
-            if subprocess.check_output(
-                ["git", "-C", str(REPO_ROOT), "status", "--porcelain"], text=True
-            ).strip():
+            if dirty:
                 self.assertIn("working tree is dirty", res.stderr)
             else:
                 self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
                 self.assertIn("CHECK_SCOPE=auto", res.stdout)
+                if cur is None:
+                    self.assertIn("running on detached HEAD", res.stdout)
+                    if main_sha is not None and main_sha != head_sha:
+                        bad = _run_fast_land_dry_run(
+                            SCRIPTS_DIR / "fast_land.sh",
+                            Path(tmp),
+                            "HEAD",
+                            cwd=REPO_ROOT,
+                            land_branch="leanqbe/main",
+                        )
+                        self.assertEqual(bad.returncode, 1, bad.stdout + bad.stderr)
+                        self.assertIn("!= refs/heads/leanqbe/main", bad.stderr)
+
+    def test_fast_land_dry_run_symbolic_and_detached_cas(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            staging = Path(tmp) / "staging"
+            staging.mkdir()
+            (root / "scripts").mkdir(parents=True)
+            for name in ("fast_land.sh", "select_tests.py", "sync_hubs.py", "lean_imports.py"):
+                shutil.copy2(SCRIPTS_DIR / name, root / "scripts" / name)
+
+            _git(root, "init")
+            _git(root, "symbolic-ref", "HEAD", "refs/heads/leanqbe/main")
+            _git(root, "config", "user.name", "Test")
+            _git(root, "config", "user.email", "test@example.com")
+            _git(root, "config", "commit.gpgsign", "false")
+            _git(root, "add", "scripts")
+            _git(root, "commit", "-m", "base")
+
+            _git(root, "checkout", "-b", "feature")
+            (root / "NOTES.md").write_text("doc note\n", encoding="utf-8")
+            _git(root, "add", "NOTES.md")
+            _git(root, "commit", "-m", "doc")
+
+            fast_land = root / "scripts" / "fast_land.sh"
+
+            # Symbolic branch mode
+            _git(root, "checkout", "leanqbe/main")
+            sym_ok = _run_fast_land_dry_run(fast_land, staging, "feature", cwd=root)
+            self.assertEqual(sym_ok.returncode, 0, sym_ok.stdout + sym_ok.stderr)
+            self.assertIn("fast-forwards main", sym_ok.stdout)
+            self.assertIn("CHECK_SCOPE=auto", sym_ok.stdout)
+
+            sym_bad = _run_fast_land_dry_run(
+                fast_land, staging, "feature", cwd=root, land_branch="other"
+            )
+            self.assertEqual(sym_bad.returncode, 1, sym_bad.stdout + sym_bad.stderr)
+            self.assertIn("must run on 'other'", sym_bad.stderr)
+
+            # Detached HEAD matching leanqbe/main CAS
+            _git(root, "checkout", "--detach", "leanqbe/main")
+            det_ok = _run_fast_land_dry_run(fast_land, staging, "feature", cwd=root)
+            self.assertEqual(det_ok.returncode, 0, det_ok.stdout + det_ok.stderr)
+            self.assertIn("running on detached HEAD", det_ok.stdout)
+            self.assertIn("git update-ref refs/heads/leanqbe/main", det_ok.stdout)
+            self.assertIn("CHECK_SCOPE=auto", det_ok.stdout)
+
+            # Detached HEAD CAS mismatch rejected, matching LAND_BRANCH accepted
+            _git(root, "checkout", "--detach", "feature")
+            det_bad = _run_fast_land_dry_run(fast_land, staging, "HEAD", cwd=root)
+            self.assertEqual(det_bad.returncode, 1, det_bad.stdout + det_bad.stderr)
+            self.assertIn("!= refs/heads/leanqbe/main", det_bad.stderr)
+
+            det_override = _run_fast_land_dry_run(
+                fast_land, staging, "HEAD", cwd=root, land_branch="feature"
+            )
+            self.assertEqual(det_override.returncode, 0, det_override.stdout + det_override.stderr)
+            self.assertIn("will CAS-update refs/heads/feature", det_override.stdout)
+            self.assertIn("CHECK_SCOPE=auto", det_override.stdout)
 
 
 if __name__ == "__main__":
