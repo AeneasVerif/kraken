@@ -371,6 +371,14 @@ info: ⸨prog|
 #guard_msgs (whitespace := lax) in
 #check ⸨prog| movq 16(,%rcx,4), %rax ⸩
 
+-- Test: with no base, an index that is not a literal `none` must not be dropped
+/--
+info: regular Width.W64 Width.W64 (Operation.lea (⸨reg| %rdx ⸩) { base := none, idx := i, disp := ⸨const| 5 ⸩ }) : Instr
+-/
+#guard_msgs in
+variable (i : Option AddrIndex) in
+#check (Instr.regular .W64 .W64 (.lea (.low .rdx .W64) ⟨none, i, .int64 5⟩) : Instr)
+
 /--
 info: ⸨prog|
   lea 16(%ebp, %ecx, 4), %rax⸩ : List _root_.Directive

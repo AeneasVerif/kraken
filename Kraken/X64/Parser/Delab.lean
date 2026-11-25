@@ -376,20 +376,19 @@ def delabMem (aw : Width) : X64DelabM (TSyntax `x64_mem) := do
     | Option.none _ =>
       match_expr idxOpt with
       | Option.some _ idxExpr =>
-        match_expr idxExpr with
-        | AddrIndex.mk _ scaleExpr =>
-          let some scale := evalWidth? scaleExpr | failure
-          let idxReg ← withNaryArg 1 (withAppArg (withNaryArg 0 (delabLowReg aw)))
-          let sc? := delabScale? scale
-          let disp? : Option (TSyntax `x64_const) ←
-            if isZeroDisp dispExpr then pure none else some <$> withNaryArg 2 delabConstExpr
-          annotateStx (← `(x64_mem| $[$disp?:x64_const]?(, $idxReg:x64_reg $[, $sc?:num]?)))
-        | _ => failure
-      | _ =>
+        let_expr AddrIndex.mk _ scaleExpr := idxExpr | failure
+        let some scale := evalWidth? scaleExpr | failure
+        let idxReg ← withNaryArg 1 (withAppArg (withNaryArg 0 (delabLowReg aw)))
+        let sc? := delabScale? scale
+        let disp? : Option (TSyntax `x64_const) ←
+          if isZeroDisp dispExpr then pure none else some <$> withNaryArg 2 delabConstExpr
+        annotateStx (← `(x64_mem| $[$disp?:x64_const]?(, $idxReg:x64_reg $[, $sc?:num]?)))
+      | Option.none _ =>
         unless aw == .W64 do failure
         let disp ← withNaryArg 2 delabConstExpr
         if isBareConstAntiquot disp then failure
         annotateStx (← `(x64_mem| $disp:x64_const))
+      | _ => failure
     | _ => failure
   | _ => failure
 
