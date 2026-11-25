@@ -488,11 +488,12 @@ def condToCmpOp : CondCode → Option CmpOp
   | _ => none
 
 structure LiftBlockSt where
-  nextVar   : Nat := 0
-  regVars   : List (Reg64 × Nat) := []
-  varTys    : List (Nat × Ty) := []
-  lastCmp?  : Option (Nat × Option Nat × Option (BitVec 64) × Nat) := none
-  lastCarry? : Option Nat := none
+  nextVar      : Nat := 0
+  regVars      : List (Reg64 × Nat) := []
+  varTys       : List (Nat × Ty) := []
+  lastCmp?     : Option (Nat × Option Nat × Option (BitVec 64) × Nat) := none
+  lastCmpEqNe  : Bool := false
+  lastCarry?   : Option Nat := none
   cliques   : List (List Nat) := []
   flags     : List (Nat × CondCode) := []
   softRegs  : List (Nat × Reg64) := []
@@ -686,11 +687,13 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
           let vb ← match getRegVar? rs cur with
             | some v => pure v | none => throw s!"add_rhs_uninit {repr rs}"
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := true }
           out := out ++ [.def1 vd (.bits w) (.bin w "add" va (some vb) none)]
         | .imm (.int64 c) =>
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := true }
           out := out ++ [.def1 vd (.bits w) (.bin w "add" va none (some c.toBitVec))]
         | .regOrMem (.mem a) =>
           if isRspAddr a then throw "spill_in_body: add slot"
@@ -698,7 +701,8 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
           let evs := asts.filterMap fun | .def1 vid _ _ => some vid | _ => none
           let (vld, st2) := freshVarTy (addElides evs st1) (some rd) (.bits w)
           let (vd, st3) := freshVarTy st2 (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st3)
+          cur := { setRegVar rd vd (addClique [va, vd] st3) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := true }
           out := out ++ asts ++ [.def1 vld (.bits w) (.load w vaddr),
                                  .def1 vd (.bits w) (.bin w "add" va (some vld) none)]
         | _ => throw "add_high_byte"
@@ -710,11 +714,13 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
           let vb ← match getRegVar? rs cur with
             | some v => pure v | none => throw s!"sub_rhs_uninit {repr rs}"
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := true }
           out := out ++ [.def1 vd (.bits w) (.bin w "sub" va (some vb) none)]
         | .imm (.int64 c) =>
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := true }
           out := out ++ [.def1 vd (.bits w) (.bin w "sub" va none (some c.toBitVec))]
         | .regOrMem (.mem a) =>
           if isRspAddr a then throw "spill_in_body: sub slot"
@@ -722,7 +728,8 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
           let evs := asts.filterMap fun | .def1 vid _ _ => some vid | _ => none
           let (vld, st2) := freshVarTy (addElides evs st1) (some rd) (.bits w)
           let (vd, st3) := freshVarTy st2 (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st3)
+          cur := { setRegVar rd vd (addClique [va, vd] st3) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := true }
           out := out ++ asts ++ [.def1 vld (.bits w) (.load w vaddr),
                                  .def1 vd (.bits w) (.bin w "sub" va (some vld) none)]
         | _ => throw "sub_high_byte"
@@ -734,11 +741,13 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
           let vb ← match getRegVar? rs cur with
             | some v => pure v | none => throw s!"and_rhs_uninit"
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := false }
           out := out ++ [.def1 vd (.bits w) (.bin w "and" va (some vb) none)]
         | .imm (.int64 c) =>
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := false }
           out := out ++ [.def1 vd (.bits w) (.bin w "and" va none (some c.toBitVec))]
         | _ => throw "unsupported_and_mem"
       | .or (.reg (.low rd _)) rhs =>
@@ -749,11 +758,13 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
           let vb ← match getRegVar? rs cur with
             | some v => pure v | none => throw s!"or_rhs_uninit"
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := false }
           out := out ++ [.def1 vd (.bits w) (.bin w "or" va (some vb) none)]
         | .imm (.int64 c) =>
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := false }
           out := out ++ [.def1 vd (.bits w) (.bin w "or" va none (some c.toBitVec))]
         | _ => throw "unsupported_or_mem"
       | .xor (.reg (.low rd _)) rhs =>
@@ -761,7 +772,8 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         | .regOrMem (.reg (.low rs _)) =>
           if rd == rs then
             let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-            cur := setRegVar rd vd st1
+            cur := { setRegVar rd vd st1 with
+                     lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := false }
             out := out ++ [.def1 vd (.bits w) (.movi w 0#64)]
           else
             let va ← match getRegVar? rd cur with
@@ -769,13 +781,15 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
             let vb ← match getRegVar? rs cur with
               | some v => pure v | none => throw s!"xor_rhs_uninit"
             let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-            cur := setRegVar rd vd (addClique [va, vd] st1)
+            cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                     lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := false }
             out := out ++ [.def1 vd (.bits w) (.bin w "xor" va (some vb) none)]
         | .imm (.int64 c) =>
           let va ← match getRegVar? rd cur with
             | some v => pure v | none => throw s!"xor_uninit {repr rd}"
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := false }
           out := out ++ [.def1 vd (.bits w) (.bin w "xor" va none (some c.toBitVec))]
         | _ => throw "unsupported_xor_mem"
       | .imul none (.reg (.low rd _)) rhs =>
@@ -786,11 +800,13 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
           let vb ← match getRegVar? rs cur with
             | some v => pure v | none => throw s!"imul_rhs_uninit"
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := none, lastCmpEqNe := false }
           out := out ++ [.def1 vd (.bits w) (.bin w "mul" va (some vb) none)]
         | .imm (.int64 c) =>
           let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-          cur := setRegVar rd vd (addClique [va, vd] st1)
+          cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                   lastCmp? := none, lastCmpEqNe := false }
           out := out ++ [.def1 vd (.bits w) (.bin w "mul" va none (some c.toBitVec))]
         | _ => throw "unsupported_imul_mem"
       | .mul (.reg (.low rs _)) =>
@@ -802,26 +818,29 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         let (vhi, st2) := freshVarTy st1 (some .rdx) (.bits w)
         let st3 := setRegVar .rdx vhi (setRegVar .rax vlo st2)
         out := out ++ [.def2 vlo vhi (.bits w) (.bits w) (.umulw w va vb)]
-        cur := st3
+        cur := { st3 with lastCmp? := none, lastCmpEqNe := false }
       | .inc (.reg (.low rd _)) =>
         let va ← match getRegVar? rd cur with
           | some v => pure v | none => throw "inc_uninit"
         let (vd, st1) := freshVarTy cur (some rd) (.bits w)
         let st2 := setRegVar rd vd (addClique [va, vd] st1)
-        cur := { st2 with varHints := (vd, .decInc) :: st2.varHints }
+        cur := { st2 with varHints := (vd, .decInc) :: st2.varHints,
+                          lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := true }
         out := out ++ [.def1 vd (.bits w) (.bin w "add" va none (some 1#64))]
       | .dec (.reg (.low rd _)) =>
         let va ← match getRegVar? rd cur with
           | some v => pure v | none => throw "dec_uninit"
         let (vd, st1) := freshVarTy cur (some rd) (.bits w)
         let st2 := setRegVar rd vd (addClique [va, vd] st1)
-        cur := { st2 with varHints := (vd, .decInc) :: st2.varHints }
+        cur := { st2 with varHints := (vd, .decInc) :: st2.varHints,
+                          lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := true }
         out := out ++ [.def1 vd (.bits w) (.bin w "sub" va none (some 1#64))]
       | .neg (.reg (.low rd _)) =>
         let va ← match getRegVar? rd cur with
           | some v => pure v | none => throw "neg_uninit"
         let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-        cur := setRegVar rd vd (addClique [va, vd] st1)
+        cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                 lastCmp? := some (vd, none, some 0#64, w), lastCmpEqNe := true }
         out := out ++ [.def1 vd (.bits w) (.un w "neg" va)]
       | .not (.reg (.low rd _)) =>
         let va ← match getRegVar? rd cur with
@@ -833,19 +852,22 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         let va ← match getRegVar? rd cur with
           | some v => pure v | none => throw "shl_uninit"
         let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-        cur := setRegVar rd vd (addClique [va, vd] st1)
+        cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                 lastCmp? := none, lastCmpEqNe := false }
         out := out ++ [.def1 vd (.bits w) (.bin w "shl" va none (some c.toBitVec))]
       | .shr (.reg (.low rd _)) (.imm8 (.int64 c)) =>
         let va ← match getRegVar? rd cur with
           | some v => pure v | none => throw "shr_uninit"
         let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-        cur := setRegVar rd vd (addClique [va, vd] st1)
+        cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                 lastCmp? := none, lastCmpEqNe := false }
         out := out ++ [.def1 vd (.bits w) (.bin w "lshr" va none (some c.toBitVec))]
       | .sar (.reg (.low rd _)) (.imm8 (.int64 c)) =>
         let va ← match getRegVar? rd cur with
           | some v => pure v | none => throw "sar_uninit"
         let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-        cur := setRegVar rd vd (addClique [va, vd] st1)
+        cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                 lastCmp? := none, lastCmpEqNe := false }
         out := out ++ [.def1 vd (.bits w) (.bin w "ashr" va none (some c.toBitVec))]
       | .shl (.reg (.low rd _)) .cl =>
         let va ← match getRegVar? rd cur with
@@ -853,7 +875,8 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         let vc ← match getRegVar? .rcx cur with
           | some v => pure v | none => throw "shl_cl_uninit"
         let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-        cur := setRegVar rd vd (addClique [va, vd] st1)
+        cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                 lastCmp? := none, lastCmpEqNe := false }
         out := out ++ [.def1 vd (.bits w) (.bin w "shl" va (some vc) none)]
       | .shr (.reg (.low rd _)) .cl =>
         let va ← match getRegVar? rd cur with
@@ -861,7 +884,8 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         let vc ← match getRegVar? .rcx cur with
           | some v => pure v | none => throw "shr_cl_uninit"
         let (vd, st1) := freshVarTy cur (some rd) (.bits w)
-        cur := setRegVar rd vd (addClique [va, vd] st1)
+        cur := { setRegVar rd vd (addClique [va, vd] st1) with
+                 lastCmp? := none, lastCmpEqNe := false }
         out := out ++ [.def1 vd (.bits w) (.bin w "lshr" va (some vc) none)]
       | .cmp (.reg (.low ra _)) rhs =>
         let va ← match getRegVar? ra cur with
@@ -870,9 +894,9 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         | .regOrMem (.reg (.low rb _)) =>
           let vb ← match getRegVar? rb cur with
             | some v => pure v | none => throw "cmp_rhs_uninit"
-          cur := { cur with lastCmp? := some (va, some vb, none, w) }
+          cur := { cur with lastCmp? := some (va, some vb, none, w), lastCmpEqNe := false }
         | .imm (.int64 c) =>
-          cur := { cur with lastCmp? := some (va, none, some c.toBitVec, w) }
+          cur := { cur with lastCmp? := some (va, none, some c.toBitVec, w), lastCmpEqNe := false }
         | _ => throw "unsupported_cmp_mem"
       | .cmp (.mem a) rhs =>
         if isRspAddr a then throw "spill_in_body: cmp slot"
@@ -884,27 +908,27 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         | .regOrMem (.reg (.low rb _)) =>
           let vb ← match getRegVar? rb st2 with
             | some v => pure v | none => throw "cmp_rhs_uninit"
-          cur := { st2 with lastCmp? := some (vld, some vb, none, w) }
+          cur := { st2 with lastCmp? := some (vld, some vb, none, w), lastCmpEqNe := false }
         | .imm (.int64 c) =>
-          cur := { st2 with lastCmp? := some (vld, none, some c.toBitVec, w) }
+          cur := { st2 with lastCmp? := some (vld, none, some c.toBitVec, w), lastCmpEqNe := false }
         | _ => throw "unsupported_cmp_mem_mem"
       | .test (.reg (.low ra _)) (.regOrMem (.reg (.low rb _))) =>
         let va ← match getRegVar? ra cur with
           | some v => pure v | none => throw s!"test_uninit {repr ra}"
         if ra == rb then
-          cur := { cur with lastCmp? := some (va, none, some 0#64, w) }
+          cur := { cur with lastCmp? := some (va, none, some 0#64, w), lastCmpEqNe := false }
         else
           let vb ← match getRegVar? rb cur with
             | some v => pure v | none => throw "test_rhs_uninit"
           let (vt, st1) := freshVarTy cur none (.bits w)
           out := out ++ [.def1 vt (.bits w) (.bin w "and" va (some vb) none)]
-          cur := { st1 with lastCmp? := some (vt, none, some 0#64, w) }
+          cur := { st1 with lastCmp? := some (vt, none, some 0#64, w), lastCmpEqNe := false }
       | .test (.reg (.low ra _)) (.imm (.int64 c)) =>
         let va ← match getRegVar? ra cur with
           | some v => pure v | none => throw "test_imm_uninit"
         let (vt, st1) := freshVarTy cur none (.bits w)
         out := out ++ [.def1 vt (.bits w) (.bin w "and" va none (some c.toBitVec))]
-        cur := { st1 with lastCmp? := some (vt, none, some 0#64, w) }
+        cur := { st1 with lastCmp? := some (vt, none, some 0#64, w), lastCmpEqNe := false }
       | .test (.mem a) (.imm (.int64 c)) =>
         if isRspAddr a then throw "spill_in_body: test slot"
         let (vaddr, asts, st1) ← emitAddrCalc a cur
@@ -913,10 +937,12 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         let (vt, st3) := freshVarTy st2 none (.bits w)
         out := out ++ asts ++ [.def1 vld (.bits w) (.load w vaddr),
                                .def1 vt (.bits w) (.bin w "and" vld none (some c.toBitVec))]
-        cur := { st3 with lastCmp? := some (vt, none, some 0#64, w) }
+        cur := { st3 with lastCmp? := some (vt, none, some 0#64, w), lastCmpEqNe := false }
       | .setcc cc (.reg (.low rd _)) =>
         let (la, lb?, lci?, lw) ← match cur.lastCmp? with
           | some p => pure p | none => throw "setcc_without_cmp"
+        if cur.lastCmpEqNe && !(cc == .z || cc == .nz) then
+          throw s!"setcc_flag_eq_ne_only {repr cc}"
         let co ← match condToCmpOp cc with
           | some p => pure p | none => throw s!"unsupported_cond {repr cc}"
         let (vc, st1) := freshVarTy cur none .bool
@@ -927,6 +953,8 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
       | .cmovcc cc (.low rd _) (.reg (.low rs _)) =>
         let (la, lb?, lci?, lw) ← match cur.lastCmp? with
           | some p => pure p | none => throw "cmovcc_without_cmp"
+        if cur.lastCmpEqNe && !(cc == .z || cc == .nz) then
+          throw s!"cmovcc_flag_eq_ne_only {repr cc}"
         let co ← match condToCmpOp cc with
           | some p => pure p | none => throw s!"unsupported_cond {repr cc}"
         let vb ← match getRegVar? rd cur with
@@ -944,7 +972,8 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         let (vd, st1) := freshVarTy cur (some rd) (.bits w)
         let (vc, st2) := freshVarTy st1 none .bool
         let st3 := setRegVar rd vd (addClique [va, vd]
-          { st2 with flags := (vc, .c) :: st2.flags, lastCarry? := some vc })
+          { st2 with flags := (vc, .c) :: st2.flags, lastCarry? := some vc,
+                     lastCmp? := none, lastCmpEqNe := false })
         match rhs with
         | .regOrMem (.reg (.low rs _)) =>
           let vb ← match getRegVar? rs cur with
@@ -963,7 +992,7 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         let (vc, st2) := freshVar st1 none
         let st3 := setRegVar rd vd (addClique [va, vd]
           { st2 with flags := (vc, .c) :: st2.flags, varHints := (vd, .adcx) :: st2.varHints,
-                     lastCarry? := some vc })
+                     lastCarry? := some vc, lastCmp? := none, lastCmpEqNe := false })
         out := out ++ [.def2 vd vc (.bits w) .bool (.addc w va (some vb) none cur.lastCarry? false)]
         cur := st3
       | .adox (.low rd _) (.reg (.low rs _)) =>
@@ -975,7 +1004,7 @@ def liftInstrs (insns : List Instr) (st : LiftBlockSt) :
         let (vc, st2) := freshVar st1 none
         let st3 := setRegVar rd vd (addClique [va, vd]
           { st2 with flags := (vc, .o) :: st2.flags, varHints := (vd, .adox) :: st2.varHints,
-                     lastCarry? := some vc })
+                     lastCarry? := some vc, lastCmp? := none, lastCmpEqNe := false })
         out := out ++ [.def2 vd vc (.bits w) .bool (.addc w va (some vb) none cur.lastCarry? false)]
         cur := st3
       | _ => throw s!"unsupported_instr: {ATT.instr ins}"
@@ -1137,6 +1166,8 @@ def liftSnippetU (name : Sym) (as rs : List Ty) (dirs : List XDir) :
           | .jcc cc taken fall =>
             let (la, lb?, lci?, lw) ← match stAfter.lastCmp? with
               | some p => pure p | none => throw "jcc_without_cmp"
+            if stAfter.lastCmpEqNe && !(cc == .z || cc == .nz) then
+              throw s!"jcc_flag_eq_ne_only {repr cc}"
             let co ← match condToCmpOp cc with
               | some p => pure p | none => throw s!"unsupported_jcc_cond {repr cc}"
             let (vc, s1) := freshVar stAfter none

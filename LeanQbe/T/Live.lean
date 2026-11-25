@@ -332,68 +332,81 @@ def countRawUsesB (addrDeps : Trie (List Nat)) : TreeBlocks → Trie Nat → Tri
   | .cons _ _ b bs, cnt => countRawUsesB addrDeps bs (countRawUses addrDeps b cnt)
 end
 
-def matchCmpFuse (I : Isa) (availLoad : Trie (Nat × Nat × List Nat))
-    (availOp : Trie CmpElideOp) {ts : List Ty} (op : Op VNat ts) :
-    Option (List Nat × List Nat) :=
+structure CmpFold where
+  ipCmp : Nat
+  opUsed? : Option (Nat × Nat × List Nat)
+  loadUsed? : Option (Nat × Nat × List Nat)
+  otherVars : List Nat
+
+def matchCmpFuse (I : Isa) (useCnt : Trie Nat) (availLoad : Trie (Nat × Nat × List Nat))
+    (availOp : Trie CmpElideOp) (ipCmp : Nat) {ts : List Ty} (op : Op VNat ts) :
+    Option CmpFold :=
   let { sig := _, code, args } := op
   match code, args with
   | .cmp co (.bits n) .bool _, (a, b, ()) =>
     if !(Nat.ble n 64 && I.frame.bitWidths.contains n) then none
     else
-      let tryTest (t : Nat) : Option (List Nat × List Nat) :=
+      let tryTest (t : Nat) : Option CmpFold :=
         if !I.supportsTestFuse then none
         else match availOp.find? t with
           | some (.andVarImm ipA w x) =>
             if !Nat.beq w n then none
-            else match availLoad.find? x with
-              | some (ipL, lw, ldeps) =>
-                if Nat.beq lw n && I.supportsTestMem (.bits n) then
-                  some ([ipA, ipL], dedup ldeps)
-                else some ([ipA], [x])
-              | none => some ([ipA], [x])
+            else
+              let l? := match availLoad.find? x with
+                | some (ipL, lw, ldeps) =>
+                  if Nat.beq lw n && I.supportsTestMem (.bits n) then
+                    some (ipL, x, ldeps)
+                  else none
+                | none => none
+              some { ipCmp, opUsed? := some (ipA, t, [x]), loadUsed? := l?, otherVars := [] }
           | some (.andVarVar ipA w x y) =>
             if !Nat.beq w n then none
             else
-              let xMem := match availLoad.find? x with
+              let chk (u v : Nat) : Option (Option (Nat × Nat × List Nat) × List Nat) :=
+                match availLoad.find? u with
                 | some (ipL, lw, ldeps) =>
                   if Nat.beq lw n && I.supportsTestMem (.bits n) then
-                    some ([ipA, ipL], dedup (ldeps ++ [y]))
+                    some (some (ipL, u, ldeps), [v])
                   else none
                 | none => none
-              let yMem := match availLoad.find? y with
-                | some (ipL, lw, ldeps) =>
-                  if Nat.beq lw n && I.supportsTestMem (.bits n) then
-                    some ([ipA, ipL], dedup (ldeps ++ [x]))
-                  else none
-                | none => none
-              xMem <|> yMem <|> some ([ipA], dedup [x, y])
+              let preferX := Nat.beq (useCnt.getD x 0) 1 || !(Nat.beq (useCnt.getD y 0) 1)
+              let (l?, otherVars) := match
+                  (if preferX then chk x y <|> chk y x else chk y x <|> chk x y) with
+                | some res => res
+                | none => (none, [])
+              some { ipCmp, opUsed? := some (ipA, t, dedup [x, y]),
+                     loadUsed? := l?, otherVars }
           | _ => none
-      let tryExt (co' : CmpOp) (t : Nat) (c : BitVec n) : Option (List Nat × List Nat) :=
+      let tryExt (co' : CmpOp) (t : Nat) (c : BitVec n) : Option CmpFold :=
+        let extRes (ipE m n' x : Nat) (coOk : Bool) (cOk : Bool) :=
+          if !(Nat.beq n' n && Nat.blt 0 m && Nat.blt m n && I.frame.bitWidths.contains m &&
+               coOk && cOk) then none
+          else match availLoad.find? x with
+            | some (ipL, lw, ldeps) =>
+              if Nat.beq lw m && I.supportsCmpMem (.bits m) then
+                some { ipCmp, opUsed? := some (ipE, t, [x]),
+                       loadUsed? := some (ipL, x, ldeps), otherVars := [] }
+              else if I.supportsTestFuse then
+                some { ipCmp, opUsed? := some (ipE, t, [x]), loadUsed? := none, otherVars := [] }
+              else none
+            | none =>
+              if I.supportsTestFuse then
+                some { ipCmp, opUsed? := some (ipE, t, [x]), loadUsed? := none, otherVars := [] }
+              else none
         match availOp.find? t with
         | some (.sext ipE m n' x) =>
-          if !(Nat.beq n' n && Nat.blt 0 m && Nat.blt m n && I.frame.bitWidths.contains m &&
-               cmpIsSignedOrEq co' && (c.truncate m).signExtend n == c) then none
-          else match availLoad.find? x with
-            | some (ipL, lw, ldeps) =>
-              if Nat.beq lw m && I.supportsCmpMem (.bits m) then
-                some ([ipE, ipL], dedup ldeps)
-              else if I.supportsTestFuse then some ([ipE], [x]) else none
-            | none => if I.supportsTestFuse then some ([ipE], [x]) else none
+          extRes ipE m n' x (cmpIsSignedOrEq co') ((c.truncate m).signExtend n == c)
         | some (.zext ipE m n' x) =>
-          if !(Nat.beq n' n && Nat.blt 0 m && Nat.blt m n && I.frame.bitWidths.contains m &&
-               cmpIsUnsignedOrEq co' && (c.truncate m).zeroExtend n == c) then none
-          else match availLoad.find? x with
-            | some (ipL, lw, ldeps) =>
-              if Nat.beq lw m && I.supportsCmpMem (.bits m) then
-                some ([ipE, ipL], dedup ldeps)
-              else if I.supportsTestFuse then some ([ipE], [x]) else none
-            | none => if I.supportsTestFuse then some ([ipE], [x]) else none
+          extRes ipE m n' x (cmpIsUnsignedOrEq co') ((c.truncate m).zeroExtend n == c)
         | _ => none
-      let tryMem (x : Nat) (other : Arg VNat (.bits n)) : Option (List Nat × List Nat) :=
+      let tryMem (x : Nat) (other : Arg VNat (.bits n)) : Option CmpFold :=
         if !I.supportsCmpMem (.bits n) then none
         else match availLoad.find? x with
           | some (ipL, lw, ldeps) =>
-            if Nat.beq lw n then some ([ipL], dedup (ldeps ++ argVarIds other)) else none
+            if Nat.beq lw n then
+              some { ipCmp, opUsed? := none, loadUsed? := some (ipL, x, ldeps),
+                     otherVars := argVarIds other }
+            else none
           | none => none
       let tFuse :=
         if co == .eq || co == .ne then
@@ -406,9 +419,14 @@ def matchCmpFuse (I : Isa) (availLoad : Trie (Nat × Nat × List Nat))
         | .var t, .imm c => tryExt co t c
         | .imm c, .var t => tryExt co.swap t c
         | _, _ => none
-      let mFuse :=
-        (match a with | .var x => tryMem x b | _ => none) <|>
-        (match b with | .var y => tryMem y a | _ => none)
+      let mFuse := match a, b with
+        | .var x, .var y =>
+          if Nat.beq (useCnt.getD x 0) 1 || !(Nat.beq (useCnt.getD y 0) 1) then
+            tryMem x b <|> tryMem y a
+          else tryMem y a <|> tryMem x b
+        | .var x, _ => tryMem x b
+        | _, .var y => tryMem y a
+        | _, _ => none
       tFuse <|> eFuse <|> mFuse
   | _, _ => none
 
@@ -437,24 +455,21 @@ def recordCmpCand (I : Isa) (ip : Nat) {ts : List Ty} (op : Op VNat ts) :
 mutual
 def scanCmpElide (I : Isa) (useCnt : Trie Nat) (addrDeps : Trie (List Nat))
     (availLoad : Trie (Nat × Nat × List Nat)) (availOp : Trie CmpElideOp) :
-    Tree → Trie Bool × Trie (List Nat) → Trie Bool × Trie (List Nat)
-  | .let_ _ ip nv0 _ op k, (eip, deps) =>
-    match matchCmpFuse I availLoad availOp op with
-    | some (ips, newDeps) =>
-      let eip' := ips.foldl (fun e i => e.insert i true) eip
-      let deps' := deps.insert ip newDeps
-      scanCmpElide I useCnt addrDeps availLoad availOp k (eip', deps')
+    Tree → List CmpFold → List CmpFold
+  | .let_ _ ip nv0 _ op k, acc =>
+    match matchCmpFuse I useCnt availLoad availOp ip op with
+    | some fold => scanCmpElide I useCnt addrDeps availLoad availOp k (fold :: acc)
     | none =>
       let availOp' :=
-        if Nat.beq (useCnt.getD nv0 0) 1 then
+        if useCnt.getD nv0 0 > 0 then
           match recordCmpCand I ip op with
           | some cand => availOp.insert nv0 cand
           | none => availOp
         else availOp
-      scanCmpElide I useCnt addrDeps availLoad availOp' k (eip, deps)
+      scanCmpElide I useCnt addrDeps availLoad availOp' k acc
   | .load _ ip x t a k, acc =>
     let availLoad' :=
-      if Nat.beq (useCnt.getD x 0) 1 then
+      if useCnt.getD x 0 > 0 then
         match t with
         | .bits w =>
           if I.supportsCmpMem (.bits w) || I.supportsTestMem (.bits w) then
@@ -478,12 +493,69 @@ def scanCmpElide (I : Isa) (useCnt : Trie Nat) (addrDeps : Trie (List Nat))
   | _, acc => acc
 
 def scanCmpElideB (I : Isa) (useCnt : Trie Nat) (addrDeps : Trie (List Nat)) :
-    TreeBlocks → Trie Bool × Trie (List Nat) → Trie Bool × Trie (List Nat)
+    TreeBlocks → List CmpFold → List CmpFold
   | .nil, acc => acc
   | .cons _ _ b bs, acc =>
     let acc1 := scanCmpElide I useCnt addrDeps .empty .empty b acc
     scanCmpElideB I useCnt addrDeps bs acc1
 end
+
+def commitCmpFolds (useCnt : Trie Nat) (folds : List CmpFold)
+    (init : Trie Bool × Trie (List Nat)) : Trie Bool × Trie (List Nat) :=
+  let opCnt := folds.foldl (fun (acc : Trie Nat) f =>
+    match f.opUsed? with
+    | some (_, t, _) => acc.insert t (acc.getD t 0 + 1)
+    | none => acc) .empty
+  let elidedOp (t : Nat) : Bool :=
+    let uc := useCnt.getD t 0
+    uc > 0 && Nat.beq (opCnt.getD t 0) uc
+  -- An elided op `t` contributes 1 folded use to load `x` iff every fold of `t` saw `x` live.
+  let opLoadState := folds.foldl (fun (acc : Trie (Option Nat)) f =>
+    match f.opUsed? with
+    | some (_, t, _) =>
+      if !elidedOp t then acc
+      else
+        let lx? := f.loadUsed?.map (·.2.1)
+        match acc.find? t with
+        | none => acc.insert t lx?
+        | some prev? => if prev? == lx? then acc else acc.insert t none
+    | none => acc) .empty
+  let loadCnt0 := folds.foldl (fun (acc : Trie Nat) f =>
+    match f.opUsed?, f.loadUsed? with
+    | none, some (_, x, _) => acc.insert x (acc.getD x 0 + 1)
+    | _, _ => acc) .empty
+  let (loadCnt, _) := folds.foldl (fun ((cnt, seen) : Trie Nat × Trie Bool) f =>
+    match f.opUsed? with
+    | some (_, t, _) =>
+      if seen.getD t false || !elidedOp t then (cnt, seen)
+      else
+        let seen' := seen.insert t true
+        match opLoadState.getD t none with
+        | some x => (cnt.insert x (cnt.getD x 0 + 1), seen')
+        | none => (cnt, seen')
+    | none => (cnt, seen)) (loadCnt0, .empty)
+  let elidedLoad (x : Nat) : Bool :=
+    let uc := useCnt.getD x 0
+    uc > 0 && Nat.beq (loadCnt.getD x 0) uc
+  folds.foldl (fun ((eip, deps) : Trie Bool × Trie (List Nat)) f =>
+    match f.opUsed? with
+    | some (ipOp, t, fallbackDeps) =>
+      if !elidedOp t then (eip, deps)
+      else
+        let eip1 := eip.insert ipOp true
+        match f.loadUsed? with
+        | some (ipL, x, ldeps) =>
+          if elidedLoad x then
+            (eip1.insert ipL true, deps.insert f.ipCmp (dedup (ldeps ++ f.otherVars)))
+          else (eip1, deps.insert f.ipCmp fallbackDeps)
+        | none => (eip1, deps.insert f.ipCmp fallbackDeps)
+    | none =>
+      match f.loadUsed? with
+      | some (ipL, x, ldeps) =>
+        if elidedLoad x then
+          (eip.insert ipL true, deps.insert f.ipCmp (dedup (ldeps ++ f.otherVars)))
+        else (eip, deps)
+      | none => (eip, deps)) init
 
 mutual
 def rewriteCmpElide (eip : Trie Bool) : Tree → Tree
@@ -505,8 +577,9 @@ def rewriteCmpElideB (eip : Trie Bool) : TreeBlocks → TreeBlocks
   | .cons l ps b bs => .cons l ps (rewriteCmpElide eip b) (rewriteCmpElideB eip bs)
 end
 
-/-- Elide single-use `and` (into `test`), `sext`/`zext` (into narrow `cmp`), and straight-line
-single-use `load` (into memory-operand `cmp`/`test`) when supported by `I`. -/
+/-- Elide `and` (into `test`), `sext`/`zext` (into narrow `cmp`), and straight-line `load`
+(into memory-operand `cmp`/`test`) when every raw use of the candidate folds before any
+intervening `store`/`call`/block boundary and `I` supports it. -/
 def elideCmpTreeDeps (I : Isa) (t : Tree) (elideIps : Trie Bool)
     (addrDeps : Trie (List Nat)) : Tree × Trie Bool × Trie (List Nat) :=
   let enabled := I.supportsTestFuse ||
@@ -514,7 +587,8 @@ def elideCmpTreeDeps (I : Isa) (t : Tree) (elideIps : Trie Bool)
   if !enabled then (t, elideIps, addrDeps)
   else
     let useCnt := countRawUses addrDeps t .empty
-    let (newEip, newDeps) := scanCmpElide I useCnt addrDeps .empty .empty t (elideIps, addrDeps)
+    let folds := scanCmpElide I useCnt addrDeps .empty .empty t []
+    let (newEip, newDeps) := commitCmpFolds useCnt folds (elideIps, addrDeps)
     (rewriteCmpElide newEip t, newEip, newDeps)
 
 /-! ## Memory Read-Modify-Write Elision (`load; alu; store -> rmwMem`, untrusted) -/
