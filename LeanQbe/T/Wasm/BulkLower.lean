@@ -404,14 +404,10 @@ theorem TRel_ArgRel_mono {V₁ V₂ : Ty → Type} {G G' : Ctx V₁ V₂} (hG : 
 
 theorem SValRel.mono {V₁ V₂ : Ty → Type} {G G' : Ctx V₁ V₂} (hG : ∀ p ∈ G, p ∈ G')
     {v₁ : SVal V₁} {v₂ : SVal V₂} : SValRel G v₁ v₂ → SValRel G' v₁ v₂ := by
-  cases v₁ <;> cases v₂ <;> simp only [SValRel]
-  · exact ArgRel.mono hG
-  · exact id
-  · exact id
-  · exact ArgRel.mono hG
+  cases v₁ <;> cases v₂ <;> simp only [SValRel] <;> first | exact ArgRel.mono hG | exact id
 
-theorem SValRel.ofArg {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} (t : WValTy)
-    {a₁ : Arg V₁ t.toTy} {a₂ : Arg V₂ t.toTy} (h : ArgRel G t.toTy a₁ a₂) :
+theorem SValRel.ofArg {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} (t : WValTy) {a₁ : Arg V₁ t.toTy}
+    {a₂ : Arg V₂ t.toTy} (h : ArgRel G t.toTy a₁ a₂) :
     SValRel G (SVal.ofArg t a₁) (SVal.ofArg t a₂) := by
   cases t <;> exact h
 
@@ -419,7 +415,7 @@ theorem SValRel.ofArg {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} (t : WValTy)
 inductive ListRel {α β : Type} (R : α → β → Prop) : List α → List β → Prop
   | nil : ListRel R [] []
   | cons {a : α} {b : β} {as : List α} {bs : List β} :
-    R a b → ListRel R as bs → ListRel R (a :: as) (b :: bs)
+      R a b → ListRel R as bs → ListRel R (a :: as) (b :: bs)
 
 theorem ListRel.imp {α β : Type} {R S : α → β → Prop} (h : ∀ a b, R a b → S a b) :
     {xs : List α} → {ys : List β} → ListRel R xs ys → ListRel S xs ys
@@ -427,13 +423,12 @@ theorem ListRel.imp {α β : Type} {R S : α → β → Prop} (h : ∀ a b, R a 
   | _ :: _, _ :: _, .cons hab hrest => .cons (h _ _ hab) (hrest.imp h)
 
 /-- Relational correspondence across WebAssembly operand stacks. -/
-@[expose, reducible] def StkRel {V₁ V₂ : Ty → Type} (G : Ctx V₁ V₂)
-    (s₁ : List (SVal V₁)) (s₂ : List (SVal V₂)) : Prop :=
-  ListRel (SValRel G) s₁ s₂
+@[expose, reducible] def StkRel {V₁ V₂ : Ty → Type} (G : Ctx V₁ V₂) (s₁ : List (SVal V₁))
+    (s₂ : List (SVal V₂)) : Prop := ListRel (SValRel G) s₁ s₂
 
 theorem StkRel.mono {V₁ V₂ : Ty → Type} {G G' : Ctx V₁ V₂} (hG : ∀ p ∈ G, p ∈ G')
     {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)} (hs : StkRel G s₁ s₂) : StkRel G' s₁ s₂ :=
-  hs.imp fun _ _ h => SValRel.mono hG h
+  hs.imp fun _ _ => SValRel.mono hG
 
 /-- Relational correspondence across structured control labels. -/
 @[expose] def LabRel {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} (D : Ctx L₁ L₂)
@@ -441,29 +436,25 @@ theorem StkRel.mono {V₁ V₂ : Ty → Type} {G G' : Ctx V₁ V₂} (hG : ∀ p
   ∃ h : l₁.argTys = l₂.argTys, ⟨labelSig locTys l₁.argTys, l₁.lbl, h ▸ l₂.lbl⟩ ∈ D
 
 theorem LabRel.mono {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {D D' : Ctx L₁ L₂}
-    (hD : ∀ p ∈ D, p ∈ D') {locTys : List WValTy}
-    {l₁ : WLabel V₁ L₁ locTys} {l₂ : WLabel V₂ L₂ locTys} :
-    LabRel D locTys l₁ l₂ → LabRel D' locTys l₁ l₂
+    (hD : ∀ p ∈ D, p ∈ D') {locTys : List WValTy} {l₁ : WLabel V₁ L₁ locTys}
+    {l₂ : WLabel V₂ L₂ locTys} : LabRel D locTys l₁ l₂ → LabRel D' locTys l₁ l₂
   | ⟨h, hm⟩ => ⟨h, hD _ hm⟩
 
 /-- Relational correspondence across label stacks. -/
 @[expose, reducible] def LabsRel {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} (D : Ctx L₁ L₂)
-    (locTys : List WValTy)
-    (ls₁ : List (WLabel V₁ L₁ locTys)) (ls₂ : List (WLabel V₂ L₂ locTys)) : Prop :=
-  ListRel (LabRel D locTys) ls₁ ls₂
+    (locTys : List WValTy) (ls₁ : List (WLabel V₁ L₁ locTys)) (ls₂ : List (WLabel V₂ L₂ locTys)) :
+    Prop := ListRel (LabRel D locTys) ls₁ ls₂
 
 theorem LabsRel.mono {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {D D' : Ctx L₁ L₂}
-    (hD : ∀ p ∈ D, p ∈ D') {locTys : List WValTy}
-    {ls₁ : List (WLabel V₁ L₁ locTys)} {ls₂ : List (WLabel V₂ L₂ locTys)}
-    (hls : LabsRel D locTys ls₁ ls₂) : LabsRel D' locTys ls₁ ls₂ :=
-  hls.imp fun _ _ h => LabRel.mono hD h
+    (hD : ∀ p ∈ D, p ∈ D') {locTys : List WValTy} {ls₁ : List (WLabel V₁ L₁ locTys)}
+    {ls₂ : List (WLabel V₂ L₂ locTys)} (hls : LabsRel D locTys ls₁ ls₂) :
+    LabsRel D' locTys ls₁ ls₂ := hls.imp fun _ _ => LabRel.mono hD
 
 /-- Monotonicity-aware well-formedness invariant on lowering continuations. -/
 @[expose] def ContWf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} (locTys retTys : List WValTy)
-    (G : Ctx V₁ V₂) (D : Ctx L₁ L₂)
-    (k₁ : WCont V₁ L₁ locTys retTys) (k₂ : WCont V₂ L₂ locTys retTys) : Prop :=
-  ∀ {G' : Ctx V₁ V₂} {D' : Ctx L₁ L₂},
-    (∀ p ∈ G, p ∈ G') → (∀ p ∈ D, p ∈ D') →
+    (G : Ctx V₁ V₂) (D : Ctx L₁ L₂) (k₁ : WCont V₁ L₁ locTys retTys)
+    (k₂ : WCont V₂ L₂ locTys retTys) : Prop :=
+  ∀ {G' : Ctx V₁ V₂} {D' : Ctx L₁ L₂}, (∀ p ∈ G, p ∈ G') → (∀ p ∈ D, p ∈ D') →
     ∀ {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64}
       {locs₁ : Tup (Arg V₁) (locTys.map WValTy.toTy)}
       {locs₂ : Tup (Arg V₂) (locTys.map WValTy.toTy)}
@@ -472,21 +463,18 @@ theorem LabsRel.mono {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {D
       Wf G' D' (k₁ f₁ locs₁ stk₁) (k₂ f₂ locs₂ stk₂)
 
 theorem ContWf.mono {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {locTys retTys : List WValTy}
-    {G G' : Ctx V₁ V₂} {D D' : Ctx L₁ L₂}
-    (hG : ∀ p ∈ G, p ∈ G') (hD : ∀ p ∈ D, p ∈ D')
+    {G G' : Ctx V₁ V₂} {D D' : Ctx L₁ L₂} (hG : ∀ p ∈ G, p ∈ G') (hD : ∀ p ∈ D, p ∈ D')
     {k₁ : WCont V₁ L₁ locTys retTys} {k₂ : WCont V₂ L₂ locTys retTys}
     (hk : ContWf locTys retTys G D k₁ k₂) : ContWf locTys retTys G' D' k₁ k₂ :=
   fun hG' hD' => hk (fun p hp => hG' p (hG p hp)) (fun p hp => hD' p (hD p hp))
 
 theorem zeroArgs_rel {V₁ V₂ : Ty → Type} (G : Ctx V₁ V₂) :
     ∀ ts, TRel (ArgRel G) (zeroArgs (V := V₁) ts) (zeroArgs (V := V₂) ts)
-  | [] => .nil
-  | t :: ts => .cons (by cases t <;> exact .imm _) (zeroArgs_rel G ts)
+  | [] => .nil | t :: ts => .cons (by cases t <;> exact .imm _) (zeroArgs_rel G ts)
 
 theorem appendZeroLocals_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
     ∀ (ps ls : List WValTy) {a₁ : Tup (Arg V₁) (ps.map WValTy.toTy)}
-      {a₂ : Tup (Arg V₂) (ps.map WValTy.toTy)},
-      TRel (ArgRel G) a₁ a₂ →
+      {a₂ : Tup (Arg V₂) (ps.map WValTy.toTy)}, TRel (ArgRel G) a₁ a₂ →
       TRel (ArgRel G) (appendZeroLocals ps ls a₁) (appendZeroLocals ps ls a₂)
   | [], ls, (), (), _ => zeroArgs_rel G ls
   | _ :: ps, ls, (_, _), (_, _), .cons ha has => .cons ha (appendZeroLocals_rel ps ls has)
@@ -508,9 +496,8 @@ theorem varsTup_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
       (TRel_ArgRel_mono (fun _ hp => List.mem_cons_of_mem _ hp) varsTup_rel)
 
 theorem tupAppend_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    ∀ {as bs : List Ty} {a₁ : Tup (Arg V₁) as} {a₂ : Tup (Arg V₂) as}
-      {b₁ : Tup (Arg V₁) bs} {b₂ : Tup (Arg V₂) bs},
-      TRel (ArgRel G) a₁ a₂ → TRel (ArgRel G) b₁ b₂ →
+    ∀ {as bs : List Ty} {a₁ : Tup (Arg V₁) as} {a₂ : Tup (Arg V₂) as} {b₁ : Tup (Arg V₁) bs}
+      {b₂ : Tup (Arg V₂) bs}, TRel (ArgRel G) a₁ a₂ → TRel (ArgRel G) b₁ b₂ →
       TRel (ArgRel G) (tupAppend a₁ b₁) (tupAppend a₂ b₂)
   | [], _, (), (), _, _, _, hb => hb
   | _ :: _, _, (_, _), (_, _), _, _, .cons ha has, hb => .cons ha (tupAppend_rel has hb)
@@ -524,72 +511,60 @@ theorem tupSplit_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
                       (tupSplit (as := as) (bs := bs) zs₂).2
   | [], _, _, _, hz => ⟨.nil, hz⟩
   | _ :: _, _, (_, _), (_, _), .cons ha hzs =>
-    let ⟨h1, h2⟩ := tupSplit_rel hzs
-    ⟨.cons ha h1, h2⟩
+    let ⟨h1, h2⟩ := tupSplit_rel hzs; ⟨.cons ha h1, h2⟩
 
-theorem popAny_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂}
-    {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)} (hs : StkRel G s₁ s₂) :
+theorem popAny_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} {s₁ : List (SVal V₁)}
+    {s₂ : List (SVal V₂)} (hs : StkRel G s₁ s₂) :
     (s₁ = [] ∧ s₂ = []) ∨
     (∃ v₁ v₂ t₁ t₂, s₁ = v₁ :: t₁ ∧ s₂ = v₂ :: t₂ ∧ SValRel G v₁ v₂ ∧ StkRel G t₁ t₂) := by
   cases hs with
-  | nil => exact Or.inl ⟨rfl, rfl⟩
-  | cons hv hr => exact Or.inr ⟨_, _, _, _, rfl, rfl, hv, hr⟩
+  | nil => exact Or.inl ⟨rfl, rfl⟩ | cons hv hr => exact Or.inr ⟨_, _, _, _, rfl, rfl, hv, hr⟩
 
-theorem pop32_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)}
-    (hs : StkRel G s₁ s₂) :
-    (pop32 s₁ = none ∧ pop32 s₂ = none) ∨
-    (∃ a₁ a₂ r₁ r₂, pop32 s₁ = some (a₁, r₁) ∧ pop32 s₂ = some (a₂, r₂) ∧
-      ArgRel G T.i32 a₁ a₂ ∧ StkRel G r₁ r₂) := by
-  rcases popAny_rel hs with ⟨rfl, rfl⟩ | ⟨v₁, v₂, t₁, t₂, rfl, rfl, hv, hr⟩
-  · left; exact ⟨rfl, rfl⟩
-  · cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv
-    · right; exact ⟨_, _, _, _, rfl, rfl, hv, hr⟩
-    · left; exact ⟨rfl, rfl⟩
+private theorem pop32_eq {V : Ty → Type} (s : List (SVal V)) :
+    pop32 s = popExpectS .i32 s := by cases s with | nil => rfl | cons v _ => cases v <;> rfl
 
-theorem pop64_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)}
-    (hs : StkRel G s₁ s₂) :
-    (pop64 s₁ = none ∧ pop64 s₂ = none) ∨
-    (∃ a₁ a₂ r₁ r₂, pop64 s₁ = some (a₁, r₁) ∧ pop64 s₂ = some (a₂, r₂) ∧
-      ArgRel G T.i64 a₁ a₂ ∧ StkRel G r₁ r₂) := by
-  rcases popAny_rel hs with ⟨rfl, rfl⟩ | ⟨v₁, v₂, t₁, t₂, rfl, rfl, hv, hr⟩
-  · left; exact ⟨rfl, rfl⟩
-  · cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv
-    · left; exact ⟨rfl, rfl⟩
-    · right; exact ⟨_, _, _, _, rfl, rfl, hv, hr⟩
+private theorem pop64_eq {V : Ty → Type} (s : List (SVal V)) :
+    pop64 s = popExpectS .i64 s := by cases s with | nil => rfl | cons v _ => cases v <;> rfl
 
-theorem popExpectS_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} (t : WValTy)
-    {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)} (hs : StkRel G s₁ s₂) :
+theorem popExpectS_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} (t : WValTy) {s₁ : List (SVal V₁)}
+    {s₂ : List (SVal V₂)} (hs : StkRel G s₁ s₂) :
     (popExpectS t s₁ = none ∧ popExpectS t s₂ = none) ∨
     (∃ a₁ a₂ r₁ r₂, popExpectS t s₁ = some (a₁, r₁) ∧ popExpectS t s₂ = some (a₂, r₂) ∧
       ArgRel G t.toTy a₁ a₂ ∧ StkRel G r₁ r₂) := by
-  rcases popAny_rel hs with ⟨rfl, rfl⟩ | ⟨v₁, v₂, t₁, t₂, rfl, rfl, hv, hr⟩
-  · cases t <;> left <;> exact ⟨rfl, rfl⟩
-  · cases t <;> cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv
-    · right; exact ⟨_, _, _, _, rfl, rfl, hv, hr⟩
-    · left; exact ⟨rfl, rfl⟩
-    · left; exact ⟨rfl, rfl⟩
-    · right; exact ⟨_, _, _, _, rfl, rfl, hv, hr⟩
+  rcases popAny_rel hs with ⟨rfl, rfl⟩ | ⟨v₁, v₂, _, _, rfl, rfl, hv, hr⟩
+  · cases t <;> exact Or.inl ⟨rfl, rfl⟩
+  · cases t <;> cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv <;> first
+    | exact Or.inr ⟨_, _, _, _, rfl, rfl, hv, hr⟩ | exact Or.inl ⟨rfl, rfl⟩
+
+theorem pop32_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)}
+    (hs : StkRel G s₁ s₂) :
+    (pop32 s₁ = none ∧ pop32 s₂ = none) ∨ (∃ a₁ a₂ r₁ r₂, pop32 s₁ = some (a₁, r₁) ∧
+      pop32 s₂ = some (a₂, r₂) ∧ ArgRel G T.i32 a₁ a₂ ∧ StkRel G r₁ r₂) := by
+  simpa only [pop32_eq] using popExpectS_rel .i32 hs
+
+theorem pop64_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)}
+    (hs : StkRel G s₁ s₂) :
+    (pop64 s₁ = none ∧ pop64 s₂ = none) ∨ (∃ a₁ a₂ r₁ r₂, pop64 s₁ = some (a₁, r₁) ∧
+      pop64 s₂ = some (a₂, r₂) ∧ ArgRel G T.i64 a₁ a₂ ∧ StkRel G r₁ r₂) := by
+  simpa only [pop64_eq] using popExpectS_rel .i64 hs
 
 theorem popArgsAux_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
-    ∀ (ts : List WValTy) {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)},
-      StkRel G s₁ s₂ →
+    ∀ (ts : List WValTy) {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)}, StkRel G s₁ s₂ →
       (popArgsAux ts s₁ = none ∧ popArgsAux ts s₂ = none) ∨
       (∃ a₁ a₂ r₁ r₂, popArgsAux ts s₁ = some (a₁, r₁) ∧ popArgsAux ts s₂ = some (a₂, r₂) ∧
         TRel (ArgRel G) a₁ a₂ ∧ StkRel G r₁ r₂)
-  | [], s₁, s₂, hs => Or.inr ⟨(), (), s₁, s₂, rfl, rfl, .nil, hs⟩
-  | t :: ts, s₁, s₂, hs => by
+  | [], _, _, hs => Or.inr ⟨(), (), _, _, rfl, rfl, .nil, hs⟩
+  | t :: ts, _, _, hs => by
     rcases popArgsAux_rel ts hs with ⟨hn1, hn2⟩ | ⟨t₁, t₂, u₁, u₂, hp1, hp2, ht, hu⟩
-    · left; simp [popArgsAux, hn1, hn2]
+    · exact Or.inl ⟨by simp [popArgsAux, hn1], by simp [popArgsAux, hn2]⟩
     · rcases popExpectS_rel t hu with ⟨hn1, hn2⟩ | ⟨hd₁, hd₂, r₁, r₂, he1, he2, hhd, hr⟩
-      · left; simp [popArgsAux, hp1, hp2, hn1, hn2]
-      · right; exact ⟨(hd₁, t₁), (hd₂, t₂), r₁, r₂,
-          by simp [popArgsAux, hp1, he1], by simp [popArgsAux, hp2, he2],
-          .cons hhd ht, hr⟩
+      · exact Or.inl ⟨by simp [popArgsAux, hp1, hn1], by simp [popArgsAux, hp2, hn2]⟩
+      · exact Or.inr ⟨(hd₁, t₁), (hd₂, t₂), r₁, r₂,
+          by simp [popArgsAux, hp1, he1], by simp [popArgsAux, hp2, he2], .cons hhd ht, hr⟩
 
 theorem pushArgsAux_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
     ∀ (ts : List WValTy) {a₁ : Tup (Arg V₁) (ts.map WValTy.toTy)}
-      {a₂ : Tup (Arg V₂) (ts.map WValTy.toTy)}
-      {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)},
+      {a₂ : Tup (Arg V₂) (ts.map WValTy.toTy)} {s₁ : List (SVal V₁)} {s₂ : List (SVal V₂)},
       TRel (ArgRel G) a₁ a₂ → StkRel G s₁ s₂ →
       StkRel G (pushArgsAux ts a₁ s₁) (pushArgsAux ts a₂ s₂)
   | [], (), (), _, _, .nil, hs => hs
@@ -598,15 +573,12 @@ theorem pushArgsAux_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
 
 theorem getLocal_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
     ∀ (ts : List WValTy) {l₁ : Tup (Arg V₁) (ts.map WValTy.toTy)}
-      {l₂ : Tup (Arg V₂) (ts.map WValTy.toTy)} (idx : Nat),
-      TRel (ArgRel G) l₁ l₂ →
+      {l₂ : Tup (Arg V₂) (ts.map WValTy.toTy)} (idx : Nat), TRel (ArgRel G) l₁ l₂ →
       (getLocal ts l₁ idx = none ∧ getLocal ts l₂ idx = none) ∨
       (∃ v₁ v₂, getLocal ts l₁ idx = some v₁ ∧ getLocal ts l₂ idx = some v₂ ∧ SValRel G v₁ v₂)
   | [], (), (), _, _ => Or.inl ⟨rfl, rfl⟩
-  | t :: _, (_, _), (_, _), 0, .cons ha _ =>
-    Or.inr ⟨_, _, rfl, rfl, SValRel.ofArg t ha⟩
-  | _ :: ts, (_, _), (_, _), idx + 1, .cons _ hls =>
-    getLocal_rel ts idx hls
+  | t :: _, (_, _), (_, _), 0, .cons ha _ => Or.inr ⟨_, _, rfl, rfl, SValRel.ofArg t ha⟩
+  | _ :: ts, (_, _), (_, _), idx + 1, .cons _ hls => getLocal_rel ts idx hls
 
 theorem setLocal_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
     ∀ (ts : List WValTy) {l₁ : Tup (Arg V₁) (ts.map WValTy.toTy)}
@@ -616,32 +588,23 @@ theorem setLocal_rel {V₁ V₂ : Ty → Type} {G : Ctx V₁ V₂} :
       (∃ l₁' l₂', setLocal ts l₁ idx v₁ = some l₁' ∧ setLocal ts l₂ idx v₂ = some l₂' ∧
         TRel (ArgRel G) l₁' l₂')
   | [], (), (), _, _, _, _, _ => Or.inl ⟨rfl, rfl⟩
-  | .i32 :: _, (_, _), (_, _), 0, v₁, v₂, .cons _ hls, hv => by
-    cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv
-    · exact Or.inr ⟨_, _, rfl, rfl, .cons hv hls⟩
-    · exact Or.inl ⟨rfl, rfl⟩
-  | .i64 :: _, (_, _), (_, _), 0, v₁, v₂, .cons _ hls, hv => by
-    cases v₁ <;> cases v₂ <;> simp only [SValRel] at hv
-    · exact Or.inl ⟨rfl, rfl⟩
-    · exact Or.inr ⟨_, _, rfl, rfl, .cons hv hls⟩
+  | t :: _, (_, _), (_, _), 0, v₁, v₂, .cons _ hls, hv => by
+    cases t <;> cases v₁ <;> cases v₂ <;> simp only [setLocal, SValRel] at hv ⊢ <;> first
+    | exact Or.inr ⟨_, _, rfl, rfl, .cons hv hls⟩ | exact Or.inl ⟨trivial, trivial⟩
   | _ :: ts, (_, _), (_, _), idx + 1, v₁, v₂, .cons ha hls, hv => by
     rcases setLocal_rel ts idx hls hv with ⟨hn1, hn2⟩ | ⟨l₁', l₂', hs1, hs2, hr⟩
     · exact Or.inl ⟨by simp [setLocal, hn1], by simp [setLocal, hn2]⟩
     · exact Or.inr ⟨_, _, by simp [setLocal, hs1], by simp [setLocal, hs2], .cons ha hr⟩
 
 theorem LabsRel_getElem?_rel {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {D : Ctx L₁ L₂}
-    {locTys : List WValTy} {labs₁ : List (WLabel V₁ L₁ locTys)}
-    {labs₂ : List (WLabel V₂ L₂ locTys)} (hlabs : LabsRel D locTys labs₁ labs₂) :
-    ∀ (depth : Nat),
+    {locTys : List WValTy} {labs₁ : List (WLabel V₁ L₁ locTys)} {labs₂ : List (WLabel V₂ L₂ locTys)}
+    (hlabs : LabsRel D locTys labs₁ labs₂) : ∀ (depth : Nat),
       (labs₁[depth]? = none ∧ labs₂[depth]? = none) ∨
       (∃ l₁ l₂, labs₁[depth]? = some l₁ ∧ labs₂[depth]? = some l₂ ∧ LabRel D locTys l₁ l₂) := by
   induction hlabs with
-  | nil => intro depth; left; simp
+  | nil => intro _; left; simp
   | cons hd _ ih =>
-    intro depth
-    cases depth with
-    | zero => right; exact ⟨_, _, rfl, rfl, hd⟩
-    | succ d => simpa using ih d
+    intro d; cases d with | zero => exact Or.inr ⟨_, _, rfl, rfl, hd⟩ | succ d => simpa using ih d
 
 theorem wf_let1 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {a u : Ty} (code : OpCode [a] [u])
@@ -651,7 +614,7 @@ theorem wf_let1 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : L
       Wf G' D (k₁ (y₁, ())) (k₂ (y₂, ()))) :
     Wf G D (.let_ (.mk code (x₁, ())) k₁) (.let_ (.mk code (x₂, ())) k₂) :=
   .let_ (.mk code (.cons hx .nil)) fun ⟨r₁, ()⟩ ⟨r₂, ()⟩ =>
-    hk (fun _ hp => List.mem_cons_of_mem _ hp) r₁ r₂ (.var List.mem_cons_self)
+    hk (fun _ hp => .tail _ hp) r₁ r₂ (.var List.mem_cons_self)
 
 theorem wf_let2 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {a b u : Ty} (code : OpCode [a, b] [u])
@@ -662,444 +625,207 @@ theorem wf_let2 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : L
       Wf G' D (k₁ (r₁, ())) (k₂ (r₂, ()))) :
     Wf G D (.let_ (.mk code (x₁, y₁, ())) k₁) (.let_ (.mk code (x₂, y₂, ())) k₂) :=
   .let_ (.mk code (.cons hx (.cons hy .nil))) fun ⟨r₁, ()⟩ ⟨r₂, ()⟩ =>
-    hk (fun _ hp => List.mem_cons_of_mem _ hp) r₁ r₂ (.var List.mem_cons_self)
+    hk (fun _ hp => .tail _ hp) r₁ r₂ (.var List.mem_cons_self)
 
 theorem wf_let3 {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {a b c u : Ty} (code : OpCode [a, b, c] [u])
     {x₁ : Arg V₁ a} {x₂ : Arg V₂ a} {y₁ : Arg V₁ b} {y₂ : Arg V₂ b}
-    {z₁ : Arg V₁ c} {z₂ : Arg V₂ c}
-    (hx : ArgRel G a x₁ x₂) (hy : ArgRel G b y₁ y₂) (hz : ArgRel G c z₁ z₂)
-    {k₁ : Tup V₁ [u] → Expr V₁ L₁ rs} {k₂ : Tup V₂ [u] → Expr V₂ L₂ rs}
+    {z₁ : Arg V₁ c} {z₂ : Arg V₂ c} (hx : ArgRel G a x₁ x₂) (hy : ArgRel G b y₁ y₂)
+    (hz : ArgRel G c z₁ z₂) {k₁ : Tup V₁ [u] → Expr V₁ L₁ rs} {k₂ : Tup V₂ [u] → Expr V₂ L₂ rs}
     (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ r₁ r₂, ArgRel G' u (.var r₁) (.var r₂) →
       Wf G' D (k₁ (r₁, ())) (k₂ (r₂, ()))) :
     Wf G D (.let_ (.mk code (x₁, y₁, z₁, ())) k₁) (.let_ (.mk code (x₂, y₂, z₂, ())) k₂) :=
   .let_ (.mk code (.cons hx (.cons hy (.cons hz .nil)))) fun ⟨r₁, ()⟩ ⟨r₂, ()⟩ =>
-    hk (fun _ hp => List.mem_cons_of_mem _ hp) r₁ r₂ (.var List.mem_cons_self)
+    hk (fun _ hp => .tail _ hp) r₁ r₂ (.var List.mem_cons_self)
 
 theorem wf_load {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (t : Ty)
-    {a₁ : Arg V₁ T.i64} {a₂ : Arg V₂ T.i64} (ha : ArgRel G T.i64 a₁ a₂)
-    {k₁ : V₁ t → Expr V₁ L₁ rs} {k₂ : V₂ t → Expr V₂ L₂ rs}
+    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (t : Ty) {a₁ : Arg V₁ T.i64} {a₂ : Arg V₂ T.i64}
+    (ha : ArgRel G T.i64 a₁ a₂) {k₁ : V₁ t → Expr V₁ L₁ rs} {k₂ : V₂ t → Expr V₂ L₂ rs}
     (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ v₁ v₂, ArgRel G' t (.var v₁) (.var v₂) →
-      Wf G' D (k₁ v₁) (k₂ v₂)) :
-    Wf G D (.load t a₁ k₁) (.load t a₂ k₂) :=
-  .load t ha fun v₁ v₂ =>
-    hk (fun _ hp => List.mem_cons_of_mem _ hp) v₁ v₂ (.var List.mem_cons_self)
+      Wf G' D (k₁ v₁) (k₂ v₂)) : Wf G D (.load t a₁ k₁) (.load t a₂ k₂) :=
+  .load t ha fun v₁ v₂ => hk (fun _ hp => .tail _ hp) v₁ v₂ (.var List.mem_cons_self)
 
-theorem mkTrapExpr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy) (code : BitVec 32)
-    {f₁ : Arg V₁ T.i64} {f₂ : Arg V₂ T.i64} (hf : ArgRel G T.i64 f₁ f₂) :
+theorem mkTrapExpr_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} (retTys : List WValTy) (code : BitVec 32) {f₁ : Arg V₁ T.i64}
+    {f₂ : Arg V₂ T.i64} (hf : ArgRel G T.i64 f₁ f₂) :
     Wf G D (mkTrapExpr (L := L₁) retTys code f₁) (mkTrapExpr (L := L₂) retTys code f₂) :=
   .ret (.cons (.imm _) (.cons hf (zeroArgs_rel G retTys)))
 
+macro "wasm_mem" : tactic => `(tactic| (
+  (try dsimp only [Tup.zip, List.cons_append, List.nil_append] at *)
+  solve_by_elim (maxDepth := 48)
+    [List.mem_cons_self, List.mem_cons_of_mem, List.mem_append_left, List.mem_append_right]))
+
+macro "wasm_sub" : tactic => `(tactic| (intro _ _hq; wasm_mem))
+
+macro "wasm_arg" : tactic => `(tactic| (
+  (try dsimp only); first
+  | exact ArgRel.imm _
+  | (refine ArgRel.var ?_
+     · wasm_mem)
+  | (refine ArgRel.mono ?_ (by assumption)
+     · wasm_sub)))
+
+theorem TRel.step {α : Type} {f g : α → Type} {R : (a : α) → f a → g a → Prop}
+    {a : α} {as : List α} {xs : Tup f (a :: as)} {ys : Tup g (a :: as)}
+    (hx : R a xs.1 ys.1) (hxs : TRel R xs.2 ys.2) : TRel R xs ys := .cons hx hxs
+
+macro "wasm_tr" : tactic => `(tactic| (
+  (try dsimp only); repeat (first
+  | exact .nil
+  | (refine TRel.step ?_ ?_
+     · wasm_arg)
+  | (refine TRel.argRel_weaken ?_ (by assumption)
+     · wasm_sub))))
+
+macro "wasm_wf_step" : tactic => `(tactic| (
+  (try dsimp only); first
+  | exact .hlt
+  | (refine mkTrapExpr_wf _ _ ?_
+     · wasm_arg)
+  | (refine .ret ?_
+     · wasm_tr)
+  | (refine .jump ?_ ?_
+     · wasm_mem
+     · wasm_tr)
+  | (refine .jnz ?_ ?_ ?_
+     · wasm_arg)
+  | (refine .store ?_ ?_ ?_
+     · wasm_arg
+     · wasm_arg)
+  | (refine wf_load _ ?_ fun _ _ _ _ => ?_
+     · wasm_arg)
+  | (refine wf_let1 _ ?_ fun _ _ _ _ => ?_
+     · wasm_arg)
+  | (refine wf_let2 _ ?_ ?_ fun _ _ _ _ => ?_
+     · wasm_arg
+     · wasm_arg)
+  | (refine wf_let3 _ ?_ ?_ ?_ fun _ _ _ _ => ?_
+     · wasm_arg
+     · wasm_arg
+     · wasm_arg)))
+
+macro "wasm_wf!" : tactic => `(tactic| repeat (any_goals wasm_wf_step))
+
 theorem emitLoadVmCtx_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {vc₁ : Arg V₁ T.i64} {vc₂ : Arg V₂ T.i64}
-    (hvc : ArgRel G T.i64 vc₁ vc₂)
-    {k₁ : Arg V₁ T.i64 → Arg V₁ T.i64 → Expr V₁ L₁ rs}
+    (hvc : ArgRel G T.i64 vc₁ vc₂) {k₁ : Arg V₁ T.i64 → Arg V₁ T.i64 → Expr V₁ L₁ rs}
     {k₂ : Arg V₂ T.i64 → Arg V₂ T.i64 → Expr V₂ L₂ rs}
     (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ mb₁ mb₂ ml₁ ml₂,
       ArgRel G' T.i64 mb₁ mb₂ → ArgRel G' T.i64 ml₁ ml₂ → Wf G' D (k₁ mb₁ ml₁) (k₂ mb₂ ml₂)) :
     Wf G D (emitLoadVmCtx vc₁ k₁) (emitLoadVmCtx vc₂ k₂) := by
-  refine wf_load T.i64 hvc fun h1 mb₁ mb₂ hmb =>
-    wf_let2 (.add T.i64) (ArgRel.mono h1 hvc) (.imm _) fun h2 _ _ hpl =>
-    wf_load T.i64 hpl fun h3 ml₁ ml₂ hml =>
-    let h123 : ∀ p ∈ G, p ∈ _ := fun p hp => h3 p (h2 p (h1 p hp))
-    hk h123 _ _ _ _ (ArgRel.mono (fun p hp => h3 p (h2 p hp)) hmb) hml
+  dsimp only [emitLoadVmCtx]; wasm_wf!; apply hk <;> first | wasm_sub | wasm_arg
 
-theorem emitMemBounds_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy)
-    {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
+theorem emitMemBounds_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} (retTys : List WValTy) {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
     (hvc : ArgRel G T.i64 vc₁ vc₂) (hf : ArgRel G T.i64 f₁ f₂)
     {i₁ : Arg V₁ T.i32} {i₂ : Arg V₂ T.i32} (hi : ArgRel G T.i32 i₁ i₂)
     (arg : WMemArg) (bytes : Nat)
     {k₁ : Arg V₁ T.i64 → Expr V₁ L₁ (wasmRetSig retTys)}
     {k₂ : Arg V₂ T.i64 → Expr V₂ L₂ (wasmRetSig retTys)}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ p₁ p₂, ArgRel G' T.i64 p₁ p₂ →
-      Wf G' D (k₁ p₁) (k₂ p₂)) :
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ p₁ p₂, ArgRel G' T.i64 p₁ p₂ → Wf G' D (k₁ p₁) (k₂ p₂)) :
     Wf G D (emitMemBounds retTys vc₁ f₁ i₁ arg bytes k₁)
-           (emitMemBounds retTys vc₂ f₂ i₂ arg bytes k₂) := by
-  refine emitLoadVmCtx_wf hvc fun hvm mb₁ mb₂ ml₁ ml₂ hmb hml => ?_
-  refine wf_let1 (.zext 32 64) (ArgRel.mono hvm hi) fun h1 _ _ hi64 =>
-    wf_let2 (.add T.i64) hi64 (.imm _) fun h2 _ _ hea =>
-    wf_let2 (.add T.i64) hea (.imm _) fun h3 _ _ hend => ?_
-  have h13 : ∀ q ∈ _, q ∈ _ := fun q hq => h3 q (h2 q (h1 q hq))
-  refine wf_let2 (.cmp .ule T.i64) hend (ArgRel.mono h13 hml) fun h4 _ _ hib => ?_
-  have h14 : ∀ q ∈ _, q ∈ _ := fun q hq => h4 q (h13 q hq)
-  exact .jnz hib
-    (wf_let2 (.add T.i64) (ArgRel.mono h14 hmb)
-      (ArgRel.mono (fun q hq => h4 q (h3 q hq)) hea)
-      fun h5 _ _ hptr => hk (fun q hq => h5 q (h14 q (hvm q hq))) _ _ hptr)
-    (mkTrapExpr_wf retTys 1#32 (ArgRel.mono (fun q hq => h14 q (hvm q hq)) hf))
+           (emitMemBounds retTys vc₂ f₂ i₂ arg bytes k₂) :=
+  emitLoadVmCtx_wf hvc fun _ _ _ _ _ _ _ => by wasm_wf!; apply hk <;> first | wasm_sub | wasm_arg
 
 theorem emitMemSize_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {vc₁ : Arg V₁ T.i64} {vc₂ : Arg V₂ T.i64}
     (hvc : ArgRel G T.i64 vc₁ vc₂)
     {k₁ : Arg V₁ T.i32 → Expr V₁ L₁ rs} {k₂ : Arg V₂ T.i32 → Expr V₂ L₂ rs}
-    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ p₁ p₂, ArgRel G' T.i32 p₁ p₂ →
-      Wf G' D (k₁ p₁) (k₂ p₂)) :
+    (hk : ∀ {G'}, (∀ p ∈ G, p ∈ G') → ∀ p₁ p₂, ArgRel G' T.i32 p₁ p₂ → Wf G' D (k₁ p₁) (k₂ p₂)) :
     Wf G D (emitMemSize vc₁ k₁) (emitMemSize vc₂ k₂) := by
-  refine wf_let2 (.add T.i64) hvc (.imm _) fun h1 _ _ hpl =>
-    wf_load T.i64 hpl fun h2 _ _ hml =>
-    wf_let2 (.lshr T.i64) hml (.imm _) fun h3 _ _ hp64 =>
-    wf_let1 (.trunc 64 32) hp64 fun h4 _ _ hp32 =>
-      hk (fun q hq => h4 q (h3 q (h2 q (h1 q hq)))) _ _ hp32
+  dsimp only [emitMemSize]; wasm_wf!; apply hk <;> first | wasm_sub | wasm_arg
 
 theorem emitMemZeroPage_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {rs : List Ty}
     {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} {p₁ : Arg V₁ T.i64} {p₂ : Arg V₂ T.i64}
-    (hp : ArgRel G T.i64 p₁ p₂) {k₁ : Expr V₁ L₁ rs} {k₂ : Expr V₂ L₂ rs}
-    (hk : Wf G D k₁ k₂) :
+    (hp : ArgRel G T.i64 p₁ p₂) {k₁ : Expr V₁ L₁ rs} {k₂ : Expr V₂ L₂ rs} (hk : Wf G D k₁ k₂) :
     Wf G D (emitMemZeroPage p₁ k₁) (emitMemZeroPage p₂ k₂) := by
-  refine .group (sig := [[]]) ?_ ?_
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    exact .cons (fun _ _ => hk.weaken_D fun _ h => List.mem_append_right _ h) .nil
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    have hjD : ⟨[], j₁, j₂⟩ ∈ Tup.zip (as := [[]]) (j₁, ()) (j₂, ()) ++ D := List.mem_cons_self
-    refine .group (sig := [[T.i64, T.i64]]) ?_ ?_
-    · intro ⟨l₁, ()⟩ ⟨l₂, ()⟩
-      refine .cons (fun z₁ z₂ => ?_) .nil
-      rcases z₁ with ⟨zr₁, zp₁, ⟨⟩⟩
-      rcases z₂ with ⟨zr₂, zp₂, ⟨⟩⟩
-      let Gz := Tup.zip (as := [T.i64, T.i64]) (zr₁, zp₁, ()) (zr₂, zp₂, ()) ++ G
-      let Dz := Tup.zip (as := [[T.i64, T.i64]]) (l₁, ()) (l₂, ()) ++
-        (Tup.zip (as := [[]]) (j₁, ()) (j₂, ()) ++ D)
-      have hlD : ⟨[T.i64, T.i64], l₁, l₂⟩ ∈ Dz := List.mem_cons_self
-      have hjDz : ⟨[], j₁, j₂⟩ ∈ Dz := List.mem_cons_of_mem _ hjD
-      have hzr : ArgRel Gz T.i64 (.var zr₁) (.var zr₂) := .var List.mem_cons_self
-      have hzp : ArgRel Gz T.i64 (.var zp₁) (.var zp₂) :=
-        .var (List.mem_cons_of_mem _ List.mem_cons_self)
-      refine wf_let2 (.cmp .eq T.i64) hzr (.imm _) fun h1 _ _ hzd =>
-        .jnz hzd (.jump hjDz .nil)
-          (.store (ArgRel.imm (t := T.i64) 0#64) (ArgRel.mono h1 hzp)
-            (wf_let2 (.sub T.i64) (ArgRel.mono h1 hzr) (.imm _) fun h2 _ _ hzrn =>
-             wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h2 q (h1 q h)) hzp) (.imm _)
-               fun h3 _ _ hzpn =>
-               .jump hlD (.cons (ArgRel.mono h3 hzrn) (.cons hzpn .nil))))
-    · intro ⟨l₁, ()⟩ ⟨l₂, ()⟩
-      exact .jump List.mem_cons_self (.cons (.imm _) (.cons hp .nil))
+  refine .group (sig := [[]]) (fun _ _ => .cons (fun _ _ => hk.weaken_D fun _ h => by wasm_mem)
+    .nil) fun _ _ => .group (sig := [[T.i64, T.i64]])
+      (fun _ _ => .cons (fun ⟨_, _, ⟨⟩⟩ ⟨_, _, ⟨⟩⟩ => by wasm_wf!) .nil) fun _ _ => by wasm_wf!
 
-theorem emitMemGrowLoop_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy)
-    {j₁ : L₁ [T.i64, T.i32]} {j₂ : L₂ [T.i64, T.i32]} (hj : ⟨[T.i64, T.i32], j₁, j₂⟩ ∈ D)
-    {pl₁ nl₁ f₁ d₁ sp₁ : Arg V₁ T.i64} {pl₂ nl₂ f₂ d₂ sp₂ : Arg V₂ T.i64}
-    {op₁ : Arg V₁ T.i32} {op₂ : Arg V₂ T.i32}
+theorem emitMemGrowLoop_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} (retTys : List WValTy) {j₁ : L₁ [T.i64, T.i32]} {j₂ : L₂ [T.i64, T.i32]}
+    (hj : ⟨[T.i64, T.i32], j₁, j₂⟩ ∈ D) {pl₁ nl₁ f₁ d₁ sp₁ : Arg V₁ T.i64}
+    {pl₂ nl₂ f₂ d₂ sp₂ : Arg V₂ T.i64} {op₁ : Arg V₁ T.i32} {op₂ : Arg V₂ T.i32}
     (hpl : ArgRel G T.i64 pl₁ pl₂) (hnl : ArgRel G T.i64 nl₁ nl₂) (hop : ArgRel G T.i32 op₁ op₂)
     (hf : ArgRel G T.i64 f₁ f₂) (hd : ArgRel G T.i64 d₁ d₂) (hsp : ArgRel G T.i64 sp₁ sp₂) :
     Wf G D (emitMemGrowLoop retTys j₁ pl₁ nl₁ op₁ f₁ d₁ sp₁)
-           (emitMemGrowLoop retTys j₂ pl₂ nl₂ op₂ f₂ d₂ sp₂) := by
-  refine .group (sig := [[T.i64, T.i64, T.i64]]) ?_ ?_
-  · intro ⟨l₁, ()⟩ ⟨l₂, ()⟩
-    refine .cons (fun p₁ p₂ => ?_) .nil
-    rcases p₁ with ⟨pf₁, pr₁, pp₁, ⟨⟩⟩
-    rcases p₂ with ⟨pf₂, pr₂, pp₂, ⟨⟩⟩
-    let Gp := Tup.zip (as := [T.i64, T.i64, T.i64]) (pf₁, pr₁, pp₁, ()) (pf₂, pr₂, pp₂, ()) ++ G
-    let Dp := Tup.zip (as := [[T.i64, T.i64, T.i64]]) (l₁, ()) (l₂, ()) ++ D
-    have hGGp : ∀ q ∈ G, q ∈ Gp := fun _ h =>
-      List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ h))
-    have hlD : ⟨[T.i64, T.i64, T.i64], l₁, l₂⟩ ∈ Dp := List.mem_cons_self
-    have hjDp : ⟨[T.i64, T.i32], j₁, j₂⟩ ∈ Dp := List.mem_cons_of_mem _ hj
-    have hpf : ArgRel Gp T.i64 (.var pf₁) (.var pf₂) := .var List.mem_cons_self
-    have hpr : ArgRel Gp T.i64 (.var pr₁) (.var pr₂) :=
-      .var (List.mem_cons_of_mem _ List.mem_cons_self)
-    have hpp : ArgRel Gp T.i64 (.var pp₁) (.var pp₂) :=
-      .var (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ List.mem_cons_self))
-    refine wf_let2 (.cmp .eq T.i64) hpr (.imm _) fun h1 _ _ hpd =>
-      .jnz hpd
-        (.store (ArgRel.mono (fun q h => h1 q (hGGp q h)) hnl)
-          (ArgRel.mono (fun q h => h1 q (hGGp q h)) hpl)
-          (.jump hjDp (.cons (ArgRel.mono h1 hpf)
-            (.cons (ArgRel.mono (fun q h => h1 q (hGGp q h)) hop) .nil))))
-        (wf_let2 (.cmp .eq T.i64) (ArgRel.mono h1 hpf) (.imm _) fun h2 _ _ hof =>
-          .jnz hof (mkTrapExpr_wf retTys 2#32 (ArgRel.mono (fun q h => h2 q (h1 q h)) hpf))
-            (wf_let2 (.sub T.i64) (ArgRel.mono (fun q h => h2 q (h1 q h)) hpf) (.imm _)
-              fun h3 _ _ hfn =>
-              have h13 : ∀ q ∈ Gp, q ∈ _ := fun q h => h3 q (h2 q (h1 q h))
-              emitMemZeroPage_wf (ArgRel.mono h13 hpp)
-                (wf_let2 (.sub T.i64) (ArgRel.mono h13 hpr) (.imm _) fun h4 _ _ hprn =>
-                 wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h4 q (h13 q h)) hpp) (.imm _)
-                   fun h5 _ _ hppn =>
-                   .jump hlD (.cons (ArgRel.mono (fun q h => h5 q (h4 q h)) hfn)
-                     (.cons (ArgRel.mono h5 hprn) (.cons hppn .nil))))))
-  · intro ⟨l₁, ()⟩ ⟨l₂, ()⟩
-    exact .jump List.mem_cons_self (.cons hf (.cons hd (.cons hsp .nil)))
+           (emitMemGrowLoop retTys j₂ pl₂ nl₂ op₂ f₂ d₂ sp₂) :=
+  .group (sig := [[T.i64, T.i64, T.i64]])
+    (fun _ _ => .cons (fun ⟨_, _, _, ⟨⟩⟩ ⟨_, _, _, ⟨⟩⟩ => by
+      wasm_wf!; exact emitMemZeroPage_wf (by wasm_arg) (by wasm_wf!)) .nil)
+    fun _ _ => by wasm_wf!
 
-theorem emitMemGrow_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy) (memMaxBytes : BitVec 64)
-    {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
-    (hvc : ArgRel G T.i64 vc₁ vc₂) (hf : ArgRel G T.i64 f₁ f₂)
+theorem emitMemGrow_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} (retTys : List WValTy) (memMaxBytes : BitVec 64) {vc₁ f₁ : Arg V₁ T.i64}
+    {vc₂ f₂ : Arg V₂ T.i64} (hvc : ArgRel G T.i64 vc₁ vc₂) (hf : ArgRel G T.i64 f₁ f₂)
     {d₁ : Arg V₁ T.i32} {d₂ : Arg V₂ T.i32} (hd : ArgRel G T.i32 d₁ d₂)
     {k₁ : Arg V₁ T.i64 → Arg V₁ T.i32 → Expr V₁ L₁ (wasmRetSig retTys)}
     {k₂ : Arg V₂ T.i64 → Arg V₂ T.i32 → Expr V₂ L₂ (wasmRetSig retTys)}
-    (hk : ∀ {G' D'}, (∀ p ∈ G, p ∈ G') → (∀ p ∈ D, p ∈ D') →
-      ∀ {f₁' f₂' r₁ r₂}, ArgRel G' T.i64 f₁' f₂' → ArgRel G' T.i32 r₁ r₂ →
-      Wf G' D' (k₁ f₁' r₁) (k₂ f₂' r₂)) :
+    (hk : ∀ {G' D'}, (∀ p ∈ G, p ∈ G') → (∀ p ∈ D, p ∈ D') → ∀ {f₁' f₂' r₁ r₂},
+      ArgRel G' T.i64 f₁' f₂' → ArgRel G' T.i32 r₁ r₂ → Wf G' D' (k₁ f₁' r₁) (k₂ f₂' r₂)) :
     Wf G D (emitMemGrow retTys memMaxBytes vc₁ f₁ d₁ k₁)
-           (emitMemGrow retTys memMaxBytes vc₂ f₂ d₂ k₂) := by
-  refine .group (sig := [[T.i64, T.i32]]) ?_ ?_
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    refine .cons (fun xs₁ xs₂ => ?_) .nil
-    rcases xs₁ with ⟨fx₁, rx₁, ⟨⟩⟩
-    rcases xs₂ with ⟨fx₂, rx₂, ⟨⟩⟩
-    exact hk (fun _ h => List.mem_append_right _ h) (fun _ h => List.mem_append_right _ h)
-      (.var List.mem_cons_self) (.var (List.mem_cons_of_mem _ List.mem_cons_self))
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    have hjD : ⟨[T.i64, T.i32], j₁, j₂⟩ ∈
-        Tup.zip (as := [[T.i64, T.i32]]) (j₁, ()) (j₂, ()) ++ D := List.mem_cons_self
-    refine wf_load T.i64 hvc fun h1 _ _ hmb =>
-      wf_let2 (.add T.i64) (ArgRel.mono h1 hvc) (.imm _) fun h2 _ _ hpl =>
-      wf_load T.i64 hpl fun h3 _ _ hml =>
-      wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h3 q (h2 q (h1 q h))) hvc) (.imm _)
-        fun h4 _ _ hpc =>
-      wf_load T.i64 hpc fun h5 _ _ hmc =>
-      wf_let2 (.lshr T.i64) (ArgRel.mono (fun q h => h5 q (h4 q h)) hml) (.imm _)
-        fun h6 _ _ hop64 =>
-      wf_let1 (.trunc 64 32) hop64 fun h7 _ _ hop32 => ?_
-    have h17 : ∀ q ∈ G, q ∈ _ :=
-      fun q h => h7 q (h6 q (h5 q (h4 q (h3 q (h2 q (h1 q h))))))
-    refine wf_let2 (.cmp .eq T.i32) (ArgRel.mono h17 hd) (.imm _) fun h8 _ _ hiz =>
-      .jnz hiz (.jump hjD (.cons (ArgRel.mono (fun q h => h8 q (h17 q h)) hf)
-        (.cons (ArgRel.mono h8 hop32) .nil))) ?_
-    refine wf_let1 (.zext 32 64) (ArgRel.mono (fun q h => h8 q (h17 q h)) hd) fun h9 _ _ hd64 =>
-      wf_let2 (.shl T.i64) hd64 (.imm _) fun h10 _ _ hgb => ?_
-    have hml9 : ArgRel _ T.i64 _ _ :=
-      ArgRel.mono (fun q h => h10 q (h9 q (h8 q (h7 q (h6 q (h5 q (h4 q h))))))) hml
-    refine wf_let2 (.add T.i64) hml9 hgb fun h11 _ _ hnl =>
-      wf_let2 (.cmp .ule T.i64) (ArgRel.mono h11 hml9) hnl fun h12 _ _ hnw =>
-      wf_let2 (.cmp .ule T.i64) (ArgRel.mono h12 hnl)
-        (ArgRel.mono (fun q h => h12 q (h11 q (h10 q (h9 q (h8 q (h7 q (h6 q h))))))) hmc)
-        fun h13 _ _ hlc =>
-      wf_let2 (.cmp .ule T.i64) (ArgRel.mono (fun q h => h13 q (h12 q h)) hnl) (.imm _)
-        fun h14 _ _ hlm =>
-      wf_let2 (.and .bool) (ArgRel.mono (fun q h => h14 q (h13 q h)) hnw)
-        (ArgRel.mono h14 hlc) fun h15 _ _ ho1 =>
-      wf_let2 (.and .bool) ho1 (ArgRel.mono h15 hlm) fun h16 _ _ hoa => ?_
-    have hG16 : ∀ q ∈ G, q ∈ _ := fun q h =>
-      h16 q (h15 q (h14 q (h13 q (h12 q (h11 q (h10 q (h9 q (h8 q (h17 q h)))))))))
-    have hmb16 : ArgRel _ T.i64 _ _ := ArgRel.mono
-      (fun q h => h16 q (h15 q (h14 q (h13 q (h12 q (h11 q (h10 q (h9 q (h8 q
-        (h7 q (h6 q (h5 q (h4 q (h3 q (h2 q h))))))))))))))) hmb
-    have hml16 : ArgRel _ T.i64 _ _ := ArgRel.mono
-      (fun q h => h16 q (h15 q (h14 q (h13 q (h12 q (h11 q h)))))) hml9
-    have hpl16 : ArgRel _ T.i64 _ _ := ArgRel.mono
-      (fun q h => h16 q (h15 q (h14 q (h13 q (h12 q (h11 q (h10 q (h9 q (h8 q
-        (h7 q (h6 q (h5 q (h4 q (h3 q h)))))))))))))) hpl
-    have hnl16 : ArgRel _ T.i64 _ _ := ArgRel.mono
-      (fun q h => h16 q (h15 q (h14 q (h13 q (h12 q h))))) hnl
-    have hop16 : ArgRel _ T.i32 _ _ := ArgRel.mono
-      (fun q h => h16 q (h15 q (h14 q (h13 q (h12 q (h11 q (h10 q (h9 q (h8 q h))))))))) hop32
-    have hd16 : ArgRel _ T.i64 _ _ := ArgRel.mono
-      (fun q h => h16 q (h15 q (h14 q (h13 q (h12 q (h11 q (h10 q h))))))) hd64
-    refine .jnz hoa
-      (wf_let2 (.add T.i64) hmb16 hml16 fun h17' _ _ hsp =>
-        emitMemGrowLoop_wf retTys hjD (ArgRel.mono h17' hpl16) (ArgRel.mono h17' hnl16)
-          (ArgRel.mono h17' hop16) (ArgRel.mono (fun q h => h17' q (hG16 q h)) hf)
-          (ArgRel.mono h17' hd16) hsp)
-      (.jump hjD (.cons (ArgRel.mono hG16 hf) (.cons (.imm _) .nil)))
+           (emitMemGrow retTys memMaxBytes vc₂ f₂ d₂ k₂) :=
+  .group (sig := [[T.i64, T.i32]])
+    (fun _ _ => .cons (fun ⟨_, _, ⟨⟩⟩ ⟨_, _, ⟨⟩⟩ => by apply hk <;> first | wasm_sub | wasm_arg)
+      .nil)
+    fun _ _ => by
+      dsimp only [emitMemGrow]; wasm_wf!
+      refine emitMemGrowLoop_wf retTys ?_ ?_ ?_ ?_ ?_ ?_ ?_ <;> first | wasm_mem | wasm_arg
 
-theorem emitMemFillLoop_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy)
-    {j₁ : L₁ [T.i64]} {j₂ : L₂ [T.i64]} (hj : ⟨[T.i64], j₁, j₂⟩ ∈ D)
-    {bv₁ : Arg V₁ T.i8} {bv₂ : Arg V₂ T.i8}
-    {f₁ n₁ dp₁ : Arg V₁ T.i64} {f₂ n₂ dp₂ : Arg V₂ T.i64}
-    (hbv : ArgRel G T.i8 bv₁ bv₂) (hf : ArgRel G T.i64 f₁ f₂)
-    (hn : ArgRel G T.i64 n₁ n₂) (hdp : ArgRel G T.i64 dp₁ dp₂) :
-    Wf G D (emitMemFillLoop retTys j₁ bv₁ f₁ n₁ dp₁)
-           (emitMemFillLoop retTys j₂ bv₂ f₂ n₂ dp₂) := by
-  refine .group (sig := [[T.i64, T.i64, T.i64]]) ?_ ?_
-  · intro ⟨l₁, ()⟩ ⟨l₂, ()⟩
-    refine .cons (fun lxs₁ lxs₂ => ?_) .nil
-    rcases lxs₁ with ⟨lf₁, lr₁, lp₁, ⟨⟩⟩
-    rcases lxs₂ with ⟨lf₂, lr₂, lp₂, ⟨⟩⟩
-    let Gl := Tup.zip (as := [T.i64, T.i64, T.i64]) (lf₁, lr₁, lp₁, ()) (lf₂, lr₂, lp₂, ()) ++ G
-    let Dl := Tup.zip (as := [[T.i64, T.i64, T.i64]]) (l₁, ()) (l₂, ()) ++ D
-    have hGGl : ∀ q ∈ G, q ∈ Gl := fun _ h =>
-      List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ h))
-    have hlD : ⟨[T.i64, T.i64, T.i64], l₁, l₂⟩ ∈ Dl := List.mem_cons_self
-    have hjDl : ⟨[T.i64], j₁, j₂⟩ ∈ Dl := List.mem_cons_of_mem _ hj
-    have hlf : ArgRel Gl T.i64 (.var lf₁) (.var lf₂) := .var List.mem_cons_self
-    have hlr : ArgRel Gl T.i64 (.var lr₁) (.var lr₂) :=
-      .var (List.mem_cons_of_mem _ List.mem_cons_self)
-    have hlp : ArgRel Gl T.i64 (.var lp₁) (.var lp₂) :=
-      .var (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ List.mem_cons_self))
-    refine wf_let2 (.cmp .eq T.i64) hlr (.imm _) fun h1 _ _ hid =>
-      .jnz hid (.jump hjDl (.cons (ArgRel.mono h1 hlf) .nil))
-        (wf_let2 (.cmp .eq T.i64) (ArgRel.mono h1 hlf) (.imm _) fun h2 _ _ hof =>
-          .jnz hof (mkTrapExpr_wf retTys 2#32 (ArgRel.mono (fun q h => h2 q (h1 q h)) hlf))
-            (wf_let2 (.sub T.i64) (ArgRel.mono (fun q h => h2 q (h1 q h)) hlf) (.imm _)
-              fun h3 _ _ hfn =>
-              have h13 : ∀ q ∈ Gl, q ∈ _ := fun q h => h3 q (h2 q (h1 q h))
-              .store (ArgRel.mono (fun q h => h13 q (hGGl q h)) hbv) (ArgRel.mono h13 hlp)
-                (wf_let2 (.sub T.i64) (ArgRel.mono h13 hlr) (.imm _) fun h4 _ _ hrn =>
-                 wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h4 q (h13 q h)) hlp) (.imm _)
-                   fun h5 _ _ hpn =>
-                   .jump hlD (.cons (ArgRel.mono (fun q h => h5 q (h4 q h)) hfn)
-                     (.cons (ArgRel.mono h5 hrn) (.cons hpn .nil))))))
-  · intro ⟨l₁, ()⟩ ⟨l₂, ()⟩
-    exact .jump List.mem_cons_self (.cons hf (.cons hn (.cons hdp .nil)))
+theorem emitMemFillLoop_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} (retTys : List WValTy) {j₁ : L₁ [T.i64]} {j₂ : L₂ [T.i64]}
+    (hj : ⟨[T.i64], j₁, j₂⟩ ∈ D) {bv₁ : Arg V₁ T.i8} {bv₂ : Arg V₂ T.i8}
+    {f₁ n₁ dp₁ : Arg V₁ T.i64} {f₂ n₂ dp₂ : Arg V₂ T.i64} (hbv : ArgRel G T.i8 bv₁ bv₂)
+    (hf : ArgRel G T.i64 f₁ f₂) (hn : ArgRel G T.i64 n₁ n₂) (hdp : ArgRel G T.i64 dp₁ dp₂) :
+    Wf G D (emitMemFillLoop retTys j₁ bv₁ f₁ n₁ dp₁) (emitMemFillLoop retTys j₂ bv₂ f₂ n₂ dp₂) :=
+  .group (sig := [[T.i64, T.i64, T.i64]])
+    (fun _ _ => .cons (fun ⟨_, _, _, ⟨⟩⟩ ⟨_, _, _, ⟨⟩⟩ => by wasm_wf!) .nil) fun _ _ => by wasm_wf!
 
-theorem emitMemFill_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy)
-    {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
-    (hvc : ArgRel G T.i64 vc₁ vc₂) (hf : ArgRel G T.i64 f₁ f₂)
-    {d₁ v₁ n₁ : Arg V₁ T.i32} {d₂ v₂ n₂ : Arg V₂ T.i32}
-    (hd : ArgRel G T.i32 d₁ d₂) (hv : ArgRel G T.i32 v₁ v₂) (hn : ArgRel G T.i32 n₁ n₂)
-    {k₁ : Arg V₁ T.i64 → Expr V₁ L₁ (wasmRetSig retTys)}
+theorem emitMemFill_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} (retTys : List WValTy) {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
+    (hvc : ArgRel G T.i64 vc₁ vc₂) (hf : ArgRel G T.i64 f₁ f₂) {d₁ v₁ n₁ : Arg V₁ T.i32}
+    {d₂ v₂ n₂ : Arg V₂ T.i32} (hd : ArgRel G T.i32 d₁ d₂) (hv : ArgRel G T.i32 v₁ v₂)
+    (hn : ArgRel G T.i32 n₁ n₂) {k₁ : Arg V₁ T.i64 → Expr V₁ L₁ (wasmRetSig retTys)}
     {k₂ : Arg V₂ T.i64 → Expr V₂ L₂ (wasmRetSig retTys)}
-    (hk : ∀ {G' D'}, (∀ p ∈ G, p ∈ G') → (∀ p ∈ D, p ∈ D') →
-      ∀ {f₁' f₂'}, ArgRel G' T.i64 f₁' f₂' → Wf G' D' (k₁ f₁') (k₂ f₂')) :
-    Wf G D (emitMemFill retTys vc₁ f₁ d₁ v₁ n₁ k₁)
-           (emitMemFill retTys vc₂ f₂ d₂ v₂ n₂ k₂) := by
-  refine emitLoadVmCtx_wf hvc fun hvm mb₁ mb₂ ml₁ ml₂ hmb hml => ?_
-  have hG4 : ∀ q ∈ G, q ∈ _ := hvm
-  refine wf_let1 (.zext 32 64) (ArgRel.mono hG4 hd) fun h1 _ _ hd64 =>
-    wf_let1 (.zext 32 64) (ArgRel.mono (fun q h => h1 q (hG4 q h)) hn) fun h2 _ _ hn64 =>
-    wf_let2 (.add T.i64) (ArgRel.mono h2 hd64) hn64 fun h3 _ _ hend => ?_
-  have h13 : ∀ q ∈ _, q ∈ _ := fun q h => h3 q (h2 q (h1 q h))
-  refine wf_let2 (.cmp .ule T.i64) hend (ArgRel.mono h13 hml) fun h4 _ _ hib => ?_
-  have h14 : ∀ q ∈ _, q ∈ _ := fun q h => h4 q (h13 q h)
-  have hG14 : ∀ q ∈ G, q ∈ _ := fun q h => h14 q (hG4 q h)
-  refine .jnz hib ?_ (mkTrapExpr_wf retTys 1#32 (ArgRel.mono hG14 hf))
-  refine wf_let1 (.trunc 32 8) (ArgRel.mono hG14 hv) fun h5 _ _ hbv =>
-    wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h5 q (h14 q h)) hmb)
-      (ArgRel.mono (fun q h => h5 q (h4 q (h3 q (h2 q h)))) hd64) fun h6 _ _ hdp => ?_
-  refine .group (sig := [[T.i64]]) ?_ ?_
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    refine .cons (fun xs₁ xs₂ => ?_) .nil
-    rcases xs₁ with ⟨fx₁, ⟨⟩⟩
-    rcases xs₂ with ⟨fx₂, ⟨⟩⟩
-    exact hk (fun _ h => List.mem_append_right _ (h6 _ (h5 _ (hG14 _ h))))
-      (fun _ h => List.mem_append_right _ h) (.var List.mem_cons_self)
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    exact emitMemFillLoop_wf retTys List.mem_cons_self
-      (ArgRel.mono h6 hbv)
-      (ArgRel.mono (fun q h => h6 q (h5 q (hG14 q h))) hf)
-      (ArgRel.mono (fun q h => h6 q (h5 q (h4 q (h3 q h)))) hn64)
-      hdp
+    (hk : ∀ {G' D'}, (∀ p ∈ G, p ∈ G') → (∀ p ∈ D, p ∈ D') → ∀ {f₁' f₂'},
+      ArgRel G' T.i64 f₁' f₂' → Wf G' D' (k₁ f₁') (k₂ f₂')) :
+    Wf G D (emitMemFill retTys vc₁ f₁ d₁ v₁ n₁ k₁) (emitMemFill retTys vc₂ f₂ d₂ v₂ n₂ k₂) :=
+  emitLoadVmCtx_wf hvc fun _ _ _ _ _ _ _ => by
+    wasm_wf!
+    refine .group (sig := [[T.i64]]) (fun _ _ => .cons (fun ⟨_, ⟨⟩⟩ ⟨_, ⟨⟩⟩ => by
+      apply hk <;> first | wasm_sub | wasm_arg) .nil)
+      fun _ _ => by refine emitMemFillLoop_wf retTys ?_ ?_ ?_ ?_ ?_ <;> first | wasm_mem | wasm_arg
 
 theorem emitMemCopyLoop_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} (fwd : Bool)
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy)
-    {j₁ : L₁ [T.i64]} {j₂ : L₂ [T.i64]} (hj : ⟨[T.i64], j₁, j₂⟩ ∈ D)
-    {f₁ n₁ dp₁ sp₁ : Arg V₁ T.i64} {f₂ n₂ dp₂ sp₂ : Arg V₂ T.i64}
-    (hf : ArgRel G T.i64 f₁ f₂) (hn : ArgRel G T.i64 n₁ n₂)
-    (hdp : ArgRel G T.i64 dp₁ dp₂) (hsp : ArgRel G T.i64 sp₁ sp₂) :
+    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy) {j₁ : L₁ [T.i64]} {j₂ : L₂ [T.i64]}
+    (hj : ⟨[T.i64], j₁, j₂⟩ ∈ D) {f₁ n₁ dp₁ sp₁ : Arg V₁ T.i64} {f₂ n₂ dp₂ sp₂ : Arg V₂ T.i64}
+    (hf : ArgRel G T.i64 f₁ f₂) (hn : ArgRel G T.i64 n₁ n₂) (hdp : ArgRel G T.i64 dp₁ dp₂)
+    (hsp : ArgRel G T.i64 sp₁ sp₂) :
     Wf G D (emitMemCopyLoop fwd retTys j₁ f₁ n₁ dp₁ sp₁)
-           (emitMemCopyLoop fwd retTys j₂ f₂ n₂ dp₂ sp₂) := by
-  refine .group (sig := [[T.i64, T.i64, T.i64, T.i64]]) ?_ ?_
-  · intro ⟨l₁, ()⟩ ⟨l₂, ()⟩
-    refine .cons (fun lxs₁ lxs₂ => ?_) .nil
-    rcases lxs₁ with ⟨lf₁, lr₁, ld₁, ls₁, ⟨⟩⟩
-    rcases lxs₂ with ⟨lf₂, lr₂, ld₂, ls₂, ⟨⟩⟩
-    let Gl := Tup.zip (as := [T.i64, T.i64, T.i64, T.i64])
-      (lf₁, lr₁, ld₁, ls₁, ()) (lf₂, lr₂, ld₂, ls₂, ()) ++ G
-    let Dl := Tup.zip (as := [[T.i64, T.i64, T.i64, T.i64]]) (l₁, ()) (l₂, ()) ++ D
-    have hlD : ⟨[T.i64, T.i64, T.i64, T.i64], l₁, l₂⟩ ∈ Dl := List.mem_cons_self
-    have hjDl : ⟨[T.i64], j₁, j₂⟩ ∈ Dl := List.mem_cons_of_mem _ hj
-    have hlf : ArgRel Gl T.i64 (.var lf₁) (.var lf₂) := .var List.mem_cons_self
-    have hlr : ArgRel Gl T.i64 (.var lr₁) (.var lr₂) :=
-      .var (List.mem_cons_of_mem _ List.mem_cons_self)
-    have hld : ArgRel Gl T.i64 (.var ld₁) (.var ld₂) :=
-      .var (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ List.mem_cons_self))
-    have hls : ArgRel Gl T.i64 (.var ls₁) (.var ls₂) :=
-      .var (List.mem_cons_of_mem _ (List.mem_cons_of_mem _ (List.mem_cons_of_mem _
-        List.mem_cons_self)))
-    refine wf_let2 (.cmp .eq T.i64) hlr (.imm _) fun h1 _ _ hid =>
-      .jnz hid (.jump hjDl (.cons (ArgRel.mono h1 hlf) .nil))
-        (wf_let2 (.cmp .eq T.i64) (ArgRel.mono h1 hlf) (.imm _) fun h2 _ _ hof =>
-          .jnz hof (mkTrapExpr_wf retTys 2#32 (ArgRel.mono (fun q h => h2 q (h1 q h)) hlf))
-            (wf_let2 (.sub T.i64) (ArgRel.mono (fun q h => h2 q (h1 q h)) hlf) (.imm _)
-              fun h3 _ _ hfn =>
-              wf_let2 (.sub T.i64)
-                (ArgRel.mono (fun q h => h3 q (h2 q (h1 q h))) hlr) (.imm _) fun h4 _ _ hrn => ?_))
-    have h14 : ∀ q ∈ Gl, q ∈ _ := fun q h => h4 q (h3 q (h2 q (h1 q h)))
-    cases fwd
-    · refine wf_let2 (.sub T.i64) (ArgRel.mono h14 hld) (.imm _) fun h5 _ _ hdpP =>
-        wf_let2 (.sub T.i64) (ArgRel.mono (fun q h => h5 q (h14 q h)) hls) (.imm _)
-          fun h6 _ _ hspP =>
-        wf_load T.i8 hspP fun h7 _ _ hb =>
-        .store hb (ArgRel.mono (fun q h => h7 q (h6 q h)) hdpP)
-          (.jump hlD (.cons (ArgRel.mono
-            (fun q h => h7 q (h6 q (h5 q (h4 q h)))) hfn)
-            (.cons (ArgRel.mono (fun q h => h7 q (h6 q (h5 q h))) hrn)
-              (.cons (ArgRel.mono (fun q h => h7 q (h6 q h)) hdpP)
-                (.cons (ArgRel.mono h7 hspP) .nil)))))
-    · refine wf_load T.i8 (ArgRel.mono h14 hls) fun h5 _ _ hb =>
-        .store hb (ArgRel.mono (fun q h => h5 q (h14 q h)) hld)
-          (wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h5 q (h14 q h)) hld) (.imm _)
-            fun h6 _ _ hdpN =>
-           wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h6 q (h5 q (h14 q h))) hls) (.imm _)
-            fun h7 _ _ hspN =>
-            .jump hlD (.cons (ArgRel.mono
-              (fun q h => h7 q (h6 q (h5 q (h4 q h)))) hfn)
-              (.cons (ArgRel.mono (fun q h => h7 q (h6 q (h5 q h))) hrn)
-                (.cons (ArgRel.mono h7 hdpN) (.cons hspN .nil)))))
-  · intro ⟨l₁, ()⟩ ⟨l₂, ()⟩
-    exact .jump List.mem_cons_self (.cons hf (.cons hn (.cons hdp (.cons hsp .nil))))
+           (emitMemCopyLoop fwd retTys j₂ f₂ n₂ dp₂ sp₂) :=
+  .group (sig := [[T.i64, T.i64, T.i64, T.i64]])
+    (fun _ _ => .cons (fun ⟨_, _, _, _, ⟨⟩⟩ ⟨_, _, _, _, ⟨⟩⟩ => by
+      dsimp only; cases fwd <;> simp only [Bool.false_eq_true, ↓reduceIte] <;> wasm_wf!) .nil)
+    fun _ _ => by wasm_wf!
 
-theorem emitMemCopy_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type}
-    {G : Ctx V₁ V₂} {D : Ctx L₁ L₂} (retTys : List WValTy)
-    {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
-    (hvc : ArgRel G T.i64 vc₁ vc₂) (hf : ArgRel G T.i64 f₁ f₂)
-    {d₁ s₁ n₁ : Arg V₁ T.i32} {d₂ s₂ n₂ : Arg V₂ T.i32}
-    (hd : ArgRel G T.i32 d₁ d₂) (hs : ArgRel G T.i32 s₁ s₂) (hn : ArgRel G T.i32 n₁ n₂)
-    {k₁ : Arg V₁ T.i64 → Expr V₁ L₁ (wasmRetSig retTys)}
+theorem emitMemCopy_wf {V₁ V₂ : Ty → Type} {L₁ L₂ : List Ty → Type} {G : Ctx V₁ V₂}
+    {D : Ctx L₁ L₂} (retTys : List WValTy) {vc₁ f₁ : Arg V₁ T.i64} {vc₂ f₂ : Arg V₂ T.i64}
+    (hvc : ArgRel G T.i64 vc₁ vc₂) (hf : ArgRel G T.i64 f₁ f₂) {d₁ s₁ n₁ : Arg V₁ T.i32}
+    {d₂ s₂ n₂ : Arg V₂ T.i32} (hd : ArgRel G T.i32 d₁ d₂) (hs : ArgRel G T.i32 s₁ s₂)
+    (hn : ArgRel G T.i32 n₁ n₂) {k₁ : Arg V₁ T.i64 → Expr V₁ L₁ (wasmRetSig retTys)}
     {k₂ : Arg V₂ T.i64 → Expr V₂ L₂ (wasmRetSig retTys)}
-    (hk : ∀ {G' D'}, (∀ p ∈ G, p ∈ G') → (∀ p ∈ D, p ∈ D') →
-      ∀ {f₁' f₂'}, ArgRel G' T.i64 f₁' f₂' → Wf G' D' (k₁ f₁') (k₂ f₂')) :
-    Wf G D (emitMemCopy retTys vc₁ f₁ d₁ s₁ n₁ k₁)
-           (emitMemCopy retTys vc₂ f₂ d₂ s₂ n₂ k₂) := by
-  refine emitLoadVmCtx_wf hvc fun hvm mb₁ mb₂ ml₁ ml₂ hmb hml => ?_
-  refine wf_let1 (.zext 32 64) (ArgRel.mono hvm hd) fun h1 _ _ hd64 =>
-    wf_let1 (.zext 32 64) (ArgRel.mono (fun q h => h1 q (hvm q h)) hs) fun h2 _ _ hs64 =>
-    wf_let1 (.zext 32 64) (ArgRel.mono (fun q h => h2 q (h1 q (hvm q h))) hn) fun h3 _ _ hn64 =>
-    wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h3 q (h2 q h)) hd64) hn64 fun h4 _ _ hde =>
-    wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h4 q (h3 q h)) hs64)
-      (ArgRel.mono h4 hn64) fun h5 _ _ hse => ?_
-  have h15 : ∀ q ∈ _, q ∈ _ := fun q h => h5 q (h4 q (h3 q (h2 q (h1 q h))))
-  refine wf_let2 (.cmp .ule T.i64) (ArgRel.mono h5 hde) (ArgRel.mono h15 hml)
-    fun h6 _ _ hod =>
-    wf_let2 (.cmp .ule T.i64) (ArgRel.mono h6 hse) (ArgRel.mono (fun q h => h6 q (h15 q h)) hml)
-      fun h7 _ _ hos =>
-    wf_let2 (.and .bool) (ArgRel.mono h7 hod) hos fun h8 _ _ hib => ?_
-  have hvm8 : ∀ q ∈ G, q ∈ _ :=
-    fun q h => h8 q (h7 q (h6 q (h15 q (hvm q h))))
-  refine .jnz hib ?_ (mkTrapExpr_wf retTys 1#32 (ArgRel.mono hvm8 hf))
-  refine .group (sig := [[T.i64]]) ?_ ?_
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    refine .cons (fun xs₁ xs₂ => ?_) .nil
-    rcases xs₁ with ⟨fx₁, ⟨⟩⟩
-    rcases xs₂ with ⟨fx₂, ⟨⟩⟩
-    exact hk (fun _ h => List.mem_append_right _ (hvm8 _ h))
-      (fun _ h => List.mem_append_right _ h) (.var List.mem_cons_self)
-  · intro ⟨j₁, ()⟩ ⟨j₂, ()⟩
-    have hjD : ⟨[T.i64], j₁, j₂⟩ ∈
-        Tup.zip (as := [[T.i64]]) (j₁, ()) (j₂, ()) ++ D := List.mem_cons_self
-    have hd8 : ArgRel _ T.i64 _ _ :=
-      ArgRel.mono (fun q h => h8 q (h7 q (h6 q (h5 q (h4 q (h3 q (h2 q h))))))) hd64
-    have hs8 : ArgRel _ T.i64 _ _ :=
-      ArgRel.mono (fun q h => h8 q (h7 q (h6 q (h5 q (h4 q (h3 q h)))))) hs64
-    have hn8 : ArgRel _ T.i64 _ _ :=
-      ArgRel.mono (fun q h => h8 q (h7 q (h6 q (h5 q (h4 q h))))) hn64
-    have hde8 : ArgRel _ T.i64 _ _ :=
-      ArgRel.mono (fun q h => h8 q (h7 q (h6 q (h5 q h)))) hde
-    have hse8 : ArgRel _ T.i64 _ _ :=
-      ArgRel.mono (fun q h => h8 q (h7 q (h6 q h))) hse
-    have hmb8 : ArgRel _ T.i64 _ _ :=
-      ArgRel.mono (fun q h => h8 q (h7 q (h6 q (h15 q h)))) hmb
-    refine wf_let2 (.cmp .ule T.i64) hd8 hs8 fun h9 _ _ hif =>
-      .jnz hif
-        (wf_let2 (.add T.i64) (ArgRel.mono h9 hmb8) (ArgRel.mono h9 hd8) fun h10 _ _ hdf =>
-         wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h10 q (h9 q h)) hmb8)
-           (ArgRel.mono (fun q h => h10 q (h9 q h)) hs8) fun h11 _ _ hsf =>
-           emitMemCopyLoop_wf true retTys hjD
-             (ArgRel.mono (fun q h => h11 q (h10 q (h9 q (hvm8 q h)))) hf)
-             (ArgRel.mono (fun q h => h11 q (h10 q (h9 q h))) hn8)
-             (ArgRel.mono h11 hdf) hsf)
-        (wf_let2 (.add T.i64) (ArgRel.mono h9 hmb8) (ArgRel.mono h9 hde8) fun h10 _ _ hdb =>
-         wf_let2 (.add T.i64) (ArgRel.mono (fun q h => h10 q (h9 q h)) hmb8)
-           (ArgRel.mono (fun q h => h10 q (h9 q h)) hse8) fun h11 _ _ hsb =>
-           emitMemCopyLoop_wf false retTys hjD
-             (ArgRel.mono (fun q h => h11 q (h10 q (h9 q (hvm8 q h)))) hf)
-             (ArgRel.mono (fun q h => h11 q (h10 q (h9 q h))) hn8)
-             (ArgRel.mono h11 hdb) hsb)
+    (hk : ∀ {G' D'}, (∀ p ∈ G, p ∈ G') → (∀ p ∈ D, p ∈ D') → ∀ {f₁' f₂'},
+      ArgRel G' T.i64 f₁' f₂' → Wf G' D' (k₁ f₁') (k₂ f₂')) :
+    Wf G D (emitMemCopy retTys vc₁ f₁ d₁ s₁ n₁ k₁) (emitMemCopy retTys vc₂ f₂ d₂ s₂ n₂ k₂) :=
+  emitLoadVmCtx_wf hvc fun _ _ _ _ _ _ _ => by
+    wasm_wf!
+    refine .group (sig := [[T.i64]]) (fun _ _ => .cons (fun ⟨_, ⟨⟩⟩ ⟨_, ⟨⟩⟩ => by
+      apply hk <;> first | wasm_sub | wasm_arg) .nil)
+      fun _ _ => by
+        wasm_wf! <;> refine emitMemCopyLoop_wf _ retTys ?_ ?_ ?_ ?_ ?_ <;>
+          first | wasm_mem | wasm_arg
 
 end WfHelpers
 
@@ -1107,17 +833,15 @@ end WfHelpers
 
 section SupportsSourceHelpers
 
-theorem supportsTy_le64 {lt : LegalTarget} (hv : lt.valid = true)
-    {n : Nat} (hn : n ≤ 64) : lt.supportsTy (.bits n) = true := by
+theorem supportsTy_le64 {lt : LegalTarget} (hv : lt.valid = true) {n : Nat} (hn : n ≤ 64) :
+    lt.supportsTy (.bits n) = true := by
   have h64 : 64 ∈ lt.bitWidths := by
-    simp only [LegalTarget.valid, Bool.and_eq_true, decide_eq_true_eq] at hv
-    exact hv.1.1.2
+    simp only [LegalTarget.valid, Bool.and_eq_true, decide_eq_true_eq] at hv; exact hv.1.1.2
   simp only [LegalTarget.supportsTy, Bool.and_eq_true, List.any_eq_true, decide_eq_true_eq]
   exact ⟨⟨64, h64, hn⟩, hn⟩
 
 theorem WValTy.toTy_supportsTy {lt : LegalTarget} (hv : lt.valid = true) (w : WValTy) :
-    lt.supportsTy w.toTy = true := by
-  cases w <;> exact supportsTy_le64 hv (by omega)
+    lt.supportsTy w.toTy = true := by cases w <;> exact supportsTy_le64 hv (by omega)
 
 theorem list_map_toTy_supportsTy {lt : LegalTarget} (hv : lt.valid = true) :
     ∀ ts : List WValTy, (ts.map WValTy.toTy).all lt.supportsTy = true
@@ -1139,8 +863,7 @@ theorem wasmAbiParams_supportsTy {lt : LegalTarget} (hv : lt.valid = true) (ft :
     list_map_toTy_supportsTy hv ft.params⟩
 
 theorem labelSig_supportsTy {lt : LegalTarget} (hv : lt.valid = true)
-    (locTys argTys : List WValTy) :
-    (labelSig locTys argTys).all lt.supportsTy = true := by
+    (locTys argTys : List WValTy) : (labelSig locTys argTys).all lt.supportsTy = true := by
   simp only [labelSig, List.all_cons, List.all_append, Bool.and_eq_true]
   exact ⟨supportsTy_le64 hv (by omega),
     list_map_toTy_supportsTy hv locTys, list_map_toTy_supportsTy hv argTys⟩
@@ -1150,81 +873,70 @@ theorem labelSig_supportsTy_pair {lt : LegalTarget} (hv : lt.valid = true)
     lt.supportsTy T.i64 = true ∧
       (locTys.map WValTy.toTy ++ argTys.map WValTy.toTy).all lt.supportsTy = true := by
   have h := labelSig_supportsTy hv locTys argTys
-  simp only [labelSig, List.all_cons, Bool.and_eq_true] at h
-  exact h
+  simp only [labelSig, List.all_cons, Bool.and_eq_true] at h; exact h
+
+local macro "tflat_let_ss_proof" : tactic => `(tactic| (
+  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true, List.length_cons, List.length_nil,
+    Nat.zero_add]; exact ⟨by assumption, by assumption⟩))
 
 theorem tflat_let1_ss (lt : LegalTarget) {rs : List Ty} {a u : Ty} (code : OpCode [a] [u])
     (x : Arg K a) {k : Tup K [u] → Expr K KL rs} {nv nl : Nat}
     (hop : lt.supportsOpCode code = true)
     (hk : (toTFlat (k (Tup.levels [u] nv)) (nv + 1) nl).supportsSource lt = true) :
-    (toTFlat (.let_ (.mk code (x, ())) k) nv nl).supportsSource lt = true := by
-  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true, List.length_cons, List.length_nil,
-    Nat.zero_add] at *
-  exact ⟨hop, hk⟩
+    (toTFlat (.let_ (.mk code (x, ())) k) nv nl).supportsSource lt = true := by tflat_let_ss_proof
 
 theorem tflat_let2_ss (lt : LegalTarget) {rs : List Ty} {a b u : Ty} (code : OpCode [a, b] [u])
     (x : Arg K a) (y : Arg K b) {k : Tup K [u] → Expr K KL rs} {nv nl : Nat}
     (hop : lt.supportsOpCode code = true)
     (hk : (toTFlat (k (Tup.levels [u] nv)) (nv + 1) nl).supportsSource lt = true) :
     (toTFlat (.let_ (.mk code (x, y, ())) k) nv nl).supportsSource lt = true := by
-  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true, List.length_cons, List.length_nil,
-    Nat.zero_add] at *
-  exact ⟨hop, hk⟩
+  tflat_let_ss_proof
 
 theorem tflat_let3_ss (lt : LegalTarget) {rs : List Ty} {a b c u : Ty}
-    (code : OpCode [a, b, c] [u])
-    (x : Arg K a) (y : Arg K b) (z : Arg K c) {k : Tup K [u] → Expr K KL rs} {nv nl : Nat}
-    (hop : lt.supportsOpCode code = true)
+    (code : OpCode [a, b, c] [u]) (x : Arg K a) (y : Arg K b) (z : Arg K c)
+    {k : Tup K [u] → Expr K KL rs} {nv nl : Nat} (hop : lt.supportsOpCode code = true)
     (hk : (toTFlat (k (Tup.levels [u] nv)) (nv + 1) nl).supportsSource lt = true) :
     (toTFlat (.let_ (.mk code (x, y, z, ())) k) nv nl).supportsSource lt = true := by
-  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true, List.length_cons, List.length_nil,
-    Nat.zero_add] at *
-  exact ⟨hop, hk⟩
+  tflat_let_ss_proof
 
 theorem tflat_load_ss (lt : LegalTarget) {rs : List Ty} (t : Ty) (a : Arg K T.i64)
-    {k : K t → Expr K KL rs} {nv nl : Nat}
-    (ht : lt.supportsTy t = true) (hb : t.bytes ≤ 2 ^ 64)
+    {k : K t → Expr K KL rs} {nv nl : Nat} (ht : lt.supportsTy t = true) (hb : t.bytes ≤ 2 ^ 64)
     (hk : (toTFlat (k nv) (nv + 1) nl).supportsSource lt = true) :
     (toTFlat (.load t a k) nv nl).supportsSource lt = true := by
   simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true, decide_eq_true_eq]
   exact ⟨⟨ht, hb⟩, hk⟩
 
 theorem tflat_store_ss (lt : LegalTarget) {rs : List Ty} {t : Ty} (v : Arg K t) (a : Arg K T.i64)
-    {k : Expr K KL rs} {nv nl : Nat}
-    (ht : lt.supportsTy t = true) (hb : t.bytes ≤ 2 ^ 64)
+    {k : Expr K KL rs} {nv nl : Nat} (ht : lt.supportsTy t = true) (hb : t.bytes ≤ 2 ^ 64)
     (hk : (toTFlat k nv nl).supportsSource lt = true) :
     (toTFlat (.store (t := t) v a k) nv nl).supportsSource lt = true := by
   simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true, decide_eq_true_eq]
   exact ⟨⟨ht, hb⟩, hk⟩
 
 theorem tflat_jnz_ss (lt : LegalTarget) {rs : List Ty} (c : Arg K .bool)
-    {t e : Expr K KL rs} {nv nl : Nat}
-    (ht : (toTFlat t nv nl).supportsSource lt = true)
+    {t e : Expr K KL rs} {nv nl : Nat} (ht : (toTFlat t nv nl).supportsSource lt = true)
     (he : (toTFlat e nv nl).supportsSource lt = true) :
     (toTFlat (.jnz c t e) nv nl).supportsSource lt = true := by
-  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
-  exact ⟨ht, he⟩
+  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]; exact ⟨ht, he⟩
 
 theorem tflat_jump_ss (lt : LegalTarget) {rs ts : List Ty} (j : KL ts) (args : Tup (Arg K) ts)
     {nv nl : Nat} (hts : ts.all lt.supportsTy = true) :
     (toTFlat (rs := rs) (.jump j args) nv nl).supportsSource lt = true := by
-  simpa [toTFlat, TFlat.supportsSource] using hts
+  simp only [toTFlat, TFlat.supportsSource]; exact hts
 
 theorem tflat_group1_ss (lt : LegalTarget) {rs : List Ty} (ts : List Ty)
-    (bodies : Tup KL [ts] → Blocks K KL rs [ts]) (k : Tup KL [ts] → Expr K KL rs)
-    {nv nl : Nat} (hts : ts.all lt.supportsTy = true)
+    (bodies : Tup KL [ts] → Blocks K KL rs [ts]) (k : Tup KL [ts] → Expr K KL rs) {nv nl : Nat}
+    (hts : ts.all lt.supportsTy = true)
     (hb : (match bodies (nl, ()) with
       | .cons b .nil =>
         (toTFlat (b (Tup.levels ts nv)) (nv + ts.length) (nl + 1)).supportsSource lt) = true)
     (hk : (toTFlat (k (nl, ())) nv (nl + 1)).supportsSource lt = true) :
     (toTFlat (.group (sig := [ts]) bodies k) nv nl).supportsSource lt = true := by
-  cases hEq : bodies (nl, ()) with
-  | cons b bs =>
-    cases bs
-    simp only [toTFlat, hEq, toTBlocks, TFlat.supportsSource, TBlocks.supportsSource,
-      List.length_cons, List.length_nil, Nat.zero_add, Bool.and_eq_true, Tup.levels]
-    refine ⟨⟨by simpa [List.all_cons, List.all_nil] using hts, ⟨hts, ?_⟩, trivial⟩, hk⟩
-    simpa [hEq] using hb
+  cases hEq : bodies (nl, ()) with | cons b bs =>
+  cases bs; simp only [toTFlat, hEq, toTBlocks, TFlat.supportsSource, TBlocks.supportsSource,
+    List.length_cons, List.length_nil, Nat.zero_add, Bool.and_eq_true, Tup.levels]
+  exact ⟨⟨by simpa [List.all_cons, List.all_nil] using hts,
+    ⟨hts, by simpa [hEq] using hb⟩, trivial⟩, hk⟩
 
 theorem mkTrapExpr_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (code : BitVec 32) (f : Arg K T.i64) (nv nl : Nat) :
@@ -1239,198 +951,131 @@ theorem mkStatusTrapExpr_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : 
 theorem tflat_ret_ss (lt : LegalTarget) {rs : List Ty} (args : Tup (Arg K) rs)
     {nv nl : Nat} (hrs : rs.all lt.supportsTy = true) :
     (toTFlat (.ret args) nv nl).supportsSource lt = true := by
-  simpa [toTFlat, TFlat.supportsSource] using hrs
+  simp only [toTFlat, TFlat.supportsSource]; exact hrs
 
 theorem tflat_call_ss (lt : LegalTarget) {rs as bs : List Ty} (f : Sym)
     (args : Tup (Arg K) as) {k : Tup K bs → Expr K KL rs} {nv nl : Nat}
     (has : as.all lt.supportsTy = true) (hbs : bs.all lt.supportsTy = true)
     (hk : (toTFlat (k (Tup.levels bs nv)) (nv + bs.length) nl).supportsSource lt = true) :
     (toTFlat (.call f args k) nv nl).supportsSource lt = true := by
-  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]
-  exact ⟨⟨has, hbs⟩, hk⟩
+  simp only [toTFlat, TFlat.supportsSource, Bool.and_eq_true]; exact ⟨⟨has, hbs⟩, hk⟩
 
 theorem supportsTy_bool {lt : LegalTarget} : lt.supportsTy .bool = true := by
   simp [LegalTarget.supportsTy]
 
-macro "tflat_op_ss" hv:ident : tactic =>
-  `(tactic| (
-    simp only [LegalTarget.supportsOpCode, Bool.and_eq_true]
-    repeat' constructor
-    all_goals (try assumption)
-    all_goals (try exact supportsTy_le64 $hv (by omega))
-    all_goals (try exact supportsTy_bool)
-    all_goals (try decide)))
+macro "tflat_op_ss" hv:ident : tactic => `(tactic| (
+  simp only [LegalTarget.supportsOpCode, Bool.and_eq_true]; repeat' constructor
+  all_goals first
+    | assumption | exact supportsTy_le64 $hv (by omega) | exact supportsTy_bool | decide))
 
-macro "tflat_step_ss" hv:ident : tactic =>
-  `(tactic| first
-    | assumption
-    | (apply_assumption; done)
-    | exact mkTrapExpr_ss $hv _ _ _ _ _
-    | exact mkStatusTrapExpr_ss $hv _ _ _ _ _
-    | refine tflat_let1_ss _ _ _ (by tflat_op_ss $hv) ?_
-    | refine tflat_let2_ss _ _ _ _ (by tflat_op_ss $hv) ?_
-    | refine tflat_let3_ss _ _ _ _ _ (by tflat_op_ss $hv) ?_
-    | refine tflat_load_ss _ _ _ (supportsTy_le64 $hv (by omega)) (by decide) ?_
-    | refine tflat_store_ss _ _ _ (supportsTy_le64 $hv (by omega)) (by decide) ?_
-    | refine tflat_jnz_ss _ _ ?_ ?_
-    | refine tflat_call_ss _ _ _ (wasmAbiParams_supportsTy $hv _) (wasmRetSig_supportsTy $hv _) ?_
-    | exact tflat_ret_ss _ _ (wasmRetSig_supportsTy $hv _)
-    | exact tflat_jump_ss _ _ _ (labelSig_supportsTy $hv _ _)
-    | exact labelSig_supportsTy_pair $hv _ _)
+macro "tflat_step_ss" hv:ident : tactic => `(tactic| first
+  | assumption | (apply_assumption; done)
+  | exact mkTrapExpr_ss $hv _ _ _ _ _ | exact mkStatusTrapExpr_ss $hv _ _ _ _ _
+  | (refine tflat_let1_ss _ _ _ ?_ ?_; focus (tflat_op_ss $hv))
+  | (refine tflat_let2_ss _ _ _ _ ?_ ?_; focus (tflat_op_ss $hv))
+  | (refine tflat_let3_ss _ _ _ _ _ ?_ ?_; focus (tflat_op_ss $hv))
+  | refine tflat_load_ss _ _ _ (supportsTy_le64 $hv (by omega)) (by decide) ?_
+  | refine tflat_store_ss _ _ _ (supportsTy_le64 $hv (by omega)) (by decide) ?_
+  | refine tflat_jnz_ss _ _ ?_ ?_
+  | refine tflat_call_ss _ _ _ (wasmAbiParams_supportsTy $hv _) (wasmRetSig_supportsTy $hv _) ?_
+  | exact tflat_ret_ss _ _ (wasmRetSig_supportsTy $hv _)
+  | exact tflat_jump_ss _ _ _ (labelSig_supportsTy $hv _ _)
+  | exact labelSig_supportsTy_pair $hv _ _)
 
-macro "tflat_builder_ss!" hv:ident : tactic =>
-  `(tactic| repeat tflat_step_ss $hv)
+macro "tflat_builder_ss!" hv:ident : tactic => `(tactic| repeat tflat_step_ss $hv)
 
 private theorem supportsTy_i8 {lt : LegalTarget} (hv : lt.valid = true) :
     lt.supportsTy T.i8 = true := supportsTy_le64 hv (by omega)
-
 private theorem supportsTy_i32 {lt : LegalTarget} (hv : lt.valid = true) :
     lt.supportsTy T.i32 = true := supportsTy_le64 hv (by omega)
-
 private theorem supportsTy_i64 {lt : LegalTarget} (hv : lt.valid = true) :
     lt.supportsTy T.i64 = true := supportsTy_le64 hv (by omega)
 
+local macro "tflat_tys_ss" hv:ident : tactic =>
+  `(tactic| simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
+    supportsTy_i8 $hv, supportsTy_i32 $hv, supportsTy_i64 $hv, and_self])
+
 local macro "tflat_bulk_step_ss" hv:ident : tactic =>
-  `(tactic| first
-    | tflat_step_ss $hv
-    | (refine tflat_group1_ss _ _ _ _ ?_ ?_ ?_
-       · simp only [List.all_cons, List.all_nil, Bool.and_eq_true, Bool.and_true,
-           supportsTy_i8 $hv, supportsTy_i32 $hv, supportsTy_i64 $hv]
-       all_goals (try dsimp only))
-    | (refine tflat_jump_ss _ _ _ ?_
-       simp only [List.all_cons, List.all_nil, Bool.and_eq_true, Bool.and_true,
-         supportsTy_i8 $hv, supportsTy_i32 $hv, supportsTy_i64 $hv]))
+  `(tactic| first | tflat_step_ss $hv | (refine tflat_jump_ss _ _ _ ?_; tflat_tys_ss $hv))
 
 local macro "tflat_bulk_ss!" hv:ident : tactic =>
   `(tactic| repeat (any_goals tflat_bulk_step_ss $hv))
 
+local macro "tflat_group_bulk_ss!" hv:ident : tactic =>
+  `(tactic| (refine tflat_group1_ss _ _ _ _ ?_ ?_ ?_; · tflat_tys_ss $hv
+             all_goals (try dsimp only)
+             tflat_bulk_ss! $hv))
+
 theorem emitLoadVmCtx_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     (vmCtx : Arg K T.i64) (k : Arg K T.i64 → Arg K T.i64 → Expr K KL rs)
     (hk : ∀ mb ml nv' nl', (toTFlat (k mb ml) nv' nl').supportsSource lt = true) :
-    ∀ nv nl, (toTFlat (emitLoadVmCtx vmCtx k) nv nl).supportsSource lt = true := by
-  intro nv nl; tflat_bulk_ss! hv
+    ∀ nv nl, (toTFlat (emitLoadVmCtx vmCtx k) nv nl).supportsSource lt = true := fun _ _ => by
+  tflat_bulk_ss! hv
 
 theorem emitMemBounds_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (vmCtx f : Arg K T.i64) (idx : Arg K T.i32) (arg : WMemArg) (bytes : Nat)
     (k : Arg K T.i64 → Expr K KL (wasmRetSig retTys))
-    (hk : ∀ p nv' nl', (toTFlat (k p) nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat (emitMemBounds retTys vmCtx f idx arg bytes k) nv nl).supportsSource lt = true := by
-  intro nv nl
-  refine emitLoadVmCtx_ss hv vmCtx _ (fun _ _ _ _ => ?_) nv nl
-  tflat_bulk_ss! hv
+    (hk : ∀ p nv' nl', (toTFlat (k p) nv' nl').supportsSource lt = true) : ∀ nv nl,
+    (toTFlat (emitMemBounds retTys vmCtx f idx arg bytes k) nv nl).supportsSource lt = true :=
+  emitLoadVmCtx_ss hv vmCtx _ fun _ _ _ _ => by tflat_bulk_ss! hv
 
 theorem emitMemSize_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     (vmCtx : Arg K T.i64) (k : Arg K T.i32 → Expr K KL rs)
     (hk : ∀ p nv' nl', (toTFlat (k p) nv' nl').supportsSource lt = true) :
-    ∀ nv nl, (toTFlat (emitMemSize vmCtx k) nv nl).supportsSource lt = true := by
-  intro nv nl; tflat_bulk_ss! hv
+    ∀ nv nl, (toTFlat (emitMemSize vmCtx k) nv nl).supportsSource lt = true := fun _ _ => by
+  tflat_bulk_ss! hv
 
 theorem emitMemZeroPage_ss {lt : LegalTarget} (hv : lt.valid = true) {rs : List Ty}
     (pagePtr : Arg K T.i64) (kDone : Expr K KL rs)
     (hk : ∀ nv' nl', (toTFlat kDone nv' nl').supportsSource lt = true) :
-    ∀ nv nl, (toTFlat (emitMemZeroPage pagePtr kDone) nv nl).supportsSource lt = true := by
-  intro nv nl; tflat_bulk_ss! hv
+    ∀ nv nl, (toTFlat (emitMemZeroPage pagePtr kDone) nv nl).supportsSource lt = true :=
+  fun _ _ => by simp only [emitMemZeroPage]; tflat_group_bulk_ss! hv; tflat_group_bulk_ss! hv
 
 theorem emitMemGrowLoop_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (jDone : KL [T.i64, T.i32]) (pLen newLen : Arg K T.i64) (oldPages32 : Arg K T.i32)
-    (fuel delta64 startPtr : Arg K T.i64) :
-    ∀ nv nl, (toTFlat (emitMemGrowLoop retTys jDone pLen newLen oldPages32
-      fuel delta64 startPtr) nv nl).supportsSource lt = true := by
-  intro nv nl
-  simp only [emitMemGrowLoop]
-  refine tflat_group1_ss _ [T.i64, T.i64, T.i64] _ _
-    (by simp only [List.all_cons, List.all_nil, Bool.and_eq_true, supportsTy_i64 hv, and_self])
-    ?_ (tflat_jump_ss _ _ _ (by simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
-      supportsTy_i64 hv, and_self]))
-  dsimp only
-  repeat (any_goals (first | tflat_step_ss hv | (refine tflat_jump_ss _ _ _ ?_; simp only [
-    List.all_cons, List.all_nil, Bool.and_eq_true, supportsTy_i32 hv, supportsTy_i64 hv,
-    and_self])))
-  refine emitMemZeroPage_ss hv _ _ (fun _ _ => ?_) _ _
-  repeat (first | tflat_step_ss hv | (refine tflat_jump_ss _ _ _ ?_; simp only [
-    List.all_cons, List.all_nil, Bool.and_eq_true, supportsTy_i64 hv, and_self]))
+    (fuel delta64 startPtr : Arg K T.i64) : ∀ nv nl,
+    (toTFlat (emitMemGrowLoop retTys jDone pLen newLen oldPages32 fuel delta64 startPtr) nv
+      nl).supportsSource lt = true := fun _ _ => by
+  simp only [emitMemGrowLoop]; tflat_group_bulk_ss! hv
+  exact emitMemZeroPage_ss hv _ _ (fun _ _ => by tflat_bulk_ss! hv) _ _
 
 theorem emitMemGrow_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (memMaxBytes : BitVec 64) (vmCtx f : Arg K T.i64) (delta32 : Arg K T.i32)
     (k : Arg K T.i64 → Arg K T.i32 → Expr K KL (wasmRetSig retTys))
-    (hk : ∀ f' r nv' nl', (toTFlat (k f' r) nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat (emitMemGrow retTys memMaxBytes vmCtx f delta32 k) nv nl).supportsSource lt =
-        true := by
-  intro nv nl
-  have hts2 : ([T.i64, T.i32] : List Ty).all lt.supportsTy = true := by
-    simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
-      supportsTy_i64 hv, supportsTy_i32 hv, and_self]
-  simp only [emitMemGrow]
-  refine tflat_group1_ss _ [T.i64, T.i32] _ _ hts2 (hk _ _ _ _) ?_
-  dsimp only
-  repeat tflat_step_ss hv
-  · exact emitMemGrowLoop_ss hv retTys _ _ _ _ f _ _ _ _
-  · exact tflat_jump_ss _ _ _ hts2
+    (hk : ∀ f' r nv' nl', (toTFlat (k f' r) nv' nl').supportsSource lt = true) : ∀ nv nl,
+    (toTFlat (emitMemGrow retTys memMaxBytes vmCtx f delta32 k) nv nl).supportsSource lt = true :=
+  fun _ _ => by
+    simp only [emitMemGrow]; tflat_group_bulk_ss! hv
+    exact emitMemGrowLoop_ss hv retTys _ _ _ _ f _ _ _ _
 
 theorem emitMemFillLoop_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
-    (jAfter : KL [T.i64]) (byteVal : Arg K T.i8) (f n64 dstPtr0 : Arg K T.i64) :
-    ∀ nv nl,
-      (toTFlat (emitMemFillLoop retTys jAfter byteVal f n64 dstPtr0) nv nl).supportsSource lt =
-        true := by
-  intro nv nl; tflat_bulk_ss! hv
+    (jAfter : KL [T.i64]) (byteVal : Arg K T.i8) (f n64 dstPtr0 : Arg K T.i64) : ∀ nv nl,
+    (toTFlat (emitMemFillLoop retTys jAfter byteVal f n64 dstPtr0) nv nl).supportsSource lt =
+      true := fun _ _ => by simp only [emitMemFillLoop]; tflat_group_bulk_ss! hv
 
 theorem emitMemFill_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (vmCtx f : Arg K T.i64) (dst32 val32 n32 : Arg K T.i32)
     (k : Arg K T.i64 → Expr K KL (wasmRetSig retTys))
-    (hk : ∀ f' nv' nl', (toTFlat (k f') nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat (emitMemFill retTys vmCtx f dst32 val32 n32 k) nv nl).supportsSource lt = true := by
-  intro nv nl
-  refine emitLoadVmCtx_ss hv vmCtx _ (fun _ _ _ _ => ?_) nv nl
-  repeat (any_goals (first
-    | tflat_step_ss hv
-    | exact emitMemFillLoop_ss hv _ _ _ _ _ _ _ _
-    | tflat_bulk_step_ss hv))
+    (hk : ∀ f' nv' nl', (toTFlat (k f') nv' nl').supportsSource lt = true) : ∀ nv nl,
+    (toTFlat (emitMemFill retTys vmCtx f dst32 val32 n32 k) nv nl).supportsSource lt = true :=
+  emitLoadVmCtx_ss hv vmCtx _ fun _ _ _ _ => by
+    tflat_bulk_ss! hv; tflat_group_bulk_ss! hv; exact emitMemFillLoop_ss hv _ _ _ _ _ _ _ _
 
 theorem emitMemCopyLoop_ss {lt : LegalTarget} (hv : lt.valid = true) (fwd : Bool)
-    (retTys : List WValTy) (jAfter : KL [T.i64]) (f n64 dp0 sp0 : Arg K T.i64) :
-    ∀ nv nl,
-      (toTFlat (emitMemCopyLoop fwd retTys jAfter f n64 dp0 sp0) nv nl).supportsSource lt =
-        true := by
-  intro nv nl
-  simp only [emitMemCopyLoop]
-  refine tflat_group1_ss _ [T.i64, T.i64, T.i64, T.i64] _ _
-    (by simp only [List.all_cons, List.all_nil, Bool.and_eq_true, supportsTy_i64 hv, and_self])
-    ?_ (tflat_jump_ss _ _ _ (by simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
-      supportsTy_i64 hv, and_self]))
-  dsimp only
-  repeat (any_goals (first
-    | tflat_step_ss hv
-    | (refine tflat_jump_ss _ _ _ ?_; simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
-        supportsTy_i64 hv, and_self])))
-  cases fwd
-  · simp only [Bool.false_eq_true, ↓reduceIte]
-    repeat (first
-      | tflat_step_ss hv
-      | (refine tflat_jump_ss _ _ _ ?_; simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
-          supportsTy_i64 hv, and_self]))
-  · simp only [↓reduceIte]
-    refine tflat_load_ss _ _ _ (supportsTy_i8 hv) (by decide) ?_
-    refine tflat_store_ss _ _ _ (supportsTy_i8 hv) (by decide) ?_
-    refine tflat_let2_ss _ (.add T.i64) _ _ (by tflat_op_ss hv) ?_
-    refine tflat_let2_ss _ (.add T.i64) _ _ (by tflat_op_ss hv) ?_
-    exact tflat_jump_ss _ _ _ (by simp only [List.all_cons, List.all_nil, Bool.and_eq_true,
-      supportsTy_i64 hv, and_self])
+    (retTys : List WValTy) (jAfter : KL [T.i64]) (f n64 dp0 sp0 : Arg K T.i64) : ∀ nv nl,
+    (toTFlat (emitMemCopyLoop fwd retTys jAfter f n64 dp0 sp0) nv nl).supportsSource lt = true :=
+  fun _ _ => by
+    simp only [emitMemCopyLoop]; tflat_group_bulk_ss! hv
+    cases fwd <;> simp only [Bool.false_eq_true, ↓reduceIte] <;> tflat_bulk_ss! hv
 
 theorem emitMemCopy_ss {lt : LegalTarget} (hv : lt.valid = true) (retTys : List WValTy)
     (vmCtx f : Arg K T.i64) (dst32 src32 n32 : Arg K T.i32)
     (k : Arg K T.i64 → Expr K KL (wasmRetSig retTys))
-    (hk : ∀ f' nv' nl', (toTFlat (k f') nv' nl').supportsSource lt = true) :
-    ∀ nv nl,
-      (toTFlat (emitMemCopy retTys vmCtx f dst32 src32 n32 k) nv nl).supportsSource lt = true := by
-  intro nv nl
-  refine emitLoadVmCtx_ss hv vmCtx _ (fun _ _ _ _ => ?_) nv nl
-  repeat (any_goals (first
-    | tflat_step_ss hv
-    | exact emitMemCopyLoop_ss hv _ _ _ _ _ _ _ _ _
-    | tflat_bulk_step_ss hv))
+    (hk : ∀ f' nv' nl', (toTFlat (k f') nv' nl').supportsSource lt = true) : ∀ nv nl,
+    (toTFlat (emitMemCopy retTys vmCtx f dst32 src32 n32 k) nv nl).supportsSource lt = true :=
+  emitLoadVmCtx_ss hv vmCtx _ fun _ _ _ _ => by
+    tflat_bulk_ss! hv; tflat_group_bulk_ss! hv <;> tflat_bulk_ss! hv <;>
+      exact emitMemCopyLoop_ss hv _ _ _ _ _ _ _ _ _
 
 end SupportsSourceHelpers
 

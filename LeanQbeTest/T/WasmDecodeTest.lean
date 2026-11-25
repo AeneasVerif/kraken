@@ -4,10 +4,12 @@ public import LeanQbe.T.Wasm.Decode
 public import LeanQbe.T.Wasm.Safety
 public import LeanQbe.T.Main
 public import LeanQbe.T.MainLinkScc
+public import LeanQbeTest.T.WasmCertKit
 meta import LeanQbe.T.Wasm.Decode
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.MainLinkScc
 meta import LeanQbe.T.Module
+meta import LeanQbeTest.T.WasmCertKit
 
 /-!
 # WebAssembly Binary Decoder & End-to-End Sandbox Compilation Test Suite
@@ -51,65 +53,20 @@ open LeanQbe.T LeanQbe.T.Wasm LeanQbe.T.LinkScc
 /-! ## 1. Shared Target-Independent Compilation Test Harness -/
 
 /-- Pure target-neutral GPR ISA configuration supporting all 64-bit scalar operations. -/
-def wasmTestGpr : GprIsa Nat Empty Nat Unit where
-  condReads _ := 0#8
-  negCond c := c
-  zeroFlags := []
-  clearFlags := []
-  mov _ _ := [()]
-  movi _ _ := [()]
-  setcc _ _ := [()]
-  jmp _ := [()]
-  jcc _ _ := [()]
-  jnzGpr _ _ := ([()], 0#8)
-  op _ _ _ _ := some ([()], 0#8)
-  load _ _ _ := some ([()], 0#8)
-  store _ _ _ := some ([()], 0#8)
-  supportsScalarOp := defaultSupportsScalarOp [8, 16, 32, 64] true true true
+def wasmTestGpr := WasmCertKit.wasmTestGpr
 
 /-- Pure target-neutral Frame ISA configuration with 8 arg/return registers. -/
-def wasmTestFrame : FrameIsa Nat Unit where
-  label _ := ()
-  sp := 100
-  scratch := [10, 11]
-  allocatable := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-  calleeSaved := [8, 9]
-  raRegs := []
-  argRegs := [0, 1, 2, 3, 4, 5, 6, 7]
-  retRegs := [0, 1, 2, 3, 4, 5, 6, 7]
-  raBytes := 8
-  frameSize n := n * 8
-  prologue _ := ([()], 0#8)
-  epilogue _ := ([()], 0#8)
-  slotSt _ _ := [()]
-  slotLd _ _ := [()]
-  canonAbi _ _ := ([()], 0#8)
-  call _ := [()]
-  exitJmp _ := [()]
-  ret := [()]
+def wasmTestFrame := WasmCertKit.wasmTestFrame
 
 /-- Neutral `Isa` instance for verified end-to-end PHOAS driver testing. -/
-@[expose] def wasmTestIsa : Isa where
-  Reg := Nat
-  VReg := Empty
-  Cond := Nat
-  Directive := Unit
-  gpr := wasmTestGpr
-  vec := VecIsa.empty Nat Nat Unit
-  frame := wasmTestFrame
+@[expose] def wasmTestIsa := WasmCertKit.wasmTestIsa
 
 /-- Check that an acyclic lowered module compiles under a given legal target. -/
-def checkAcyclicCompile (lt : LegalTarget) (qm : Module) : Bool :=
-  let hints : List wasmTestIsa.Hints := qm.fns.map (Fn.computeHints wasmTestIsa lt)
-  (compileModule wasmTestIsa lt wasmTestIsa.frame.raBytes [] [] 0 qm.fns hints).isOk
+def checkAcyclicCompile := WasmCertKit.wasmCheckCompile
 
 /-- Check that a module compiles under `compileModuleBudgetRec` for cyclic/recursive code. -/
-def checkBudgetRecCompile
-    (lt : LegalTarget) (qm : Module) (maxBound : Nat := 4096) : Bool :=
-  let bfs : List BudgetFn := qm.fns.map fun f => ⟨f, 1024, 2048⟩
-  let hints : List wasmTestIsa.Hints := qm.fns.map (Fn.computeHints wasmTestIsa lt)
-  (compileModuleBudgetRec wasmTestIsa lt wasmTestIsa.frame.raBytes [] [] 0
-    maxBound bfs hints).isOk
+def checkBudgetRecCompile (lt : LegalTarget) (qm : Module) (maxBound : Nat := 4096) : Bool :=
+  WasmCertKit.wasmCheckBudgetRecCompile lt qm maxBound
 
 private def checkModOk (bs : ByteArray) (names : List String)
     (hasMem : Bool := false) (numGlobals : Nat := 0) (checkAcyc : Bool := true) : Bool :=
@@ -136,100 +93,42 @@ private def checkOneInstrOk (opByte : UInt8) (okPred : WInstr → Bool) : Bool :
 
 /-! ## 2. Negative / Robustness Unit Tests -/
 
--- 2.1 Corrupted magic header (`\0asp` instead of `\0asm`)
-#guard !(decodeWasmBytes ⟨#[0x00, 0x61, 0x73, 0x70, 0x01, 0x00, 0x00, 0x00]⟩).isOk
+private def wasmHdr : Array UInt8 := #[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
+private def badWasm (body : Array UInt8) : Bool := !(decodeWasmBytes ⟨wasmHdr ++ body⟩).isOk
 
--- 2.2 Unsupported binary version (version 2 instead of 1)
-#guard !(decodeWasmBytes ⟨#[0x00, 0x61, 0x73, 0x6d, 0x02, 0x00, 0x00, 0x00]⟩).isOk
+-- 2.1 Corrupted magic, unsupported version, truncated header, truncated/overlong LEB128,
+-- out-of-order/duplicate/unsupported sections, unmatched else, bad opcode, global/mem/UTF-8/DoS
+#guard ([#[0x00, 0x61, 0x73, 0x70, 0x01, 0x00, 0x00, 0x00],
+         #[0x00, 0x61, 0x73, 0x6d, 0x02, 0x00, 0x00, 0x00],
+         #[0x00, 0x61, 0x73]] : List (Array UInt8)).all fun bs =>
+  !(decodeWasmBytes ⟨bs⟩).isOk
 
--- 2.3 Truncated binary header (< 8 bytes)
-#guard !(decodeWasmBytes ⟨#[0x00, 0x61, 0x73]⟩).isOk
+#guard ([#[0x80], #[0x01, 0x80, 0x80, 0x80, 0x80, 0x70],
+  #[0x03, 0x02, 0x01, 0x00, 0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f],
+  #[0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f,
+    0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f],
+  #[0x02, 0x01, 0x00],
+  #[0x01, 0x05, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02, 0x01, 0x00,
+    0x0a, 0x04, 0x01, 0x02, 0x00, 0x05],
+  #[0x01, 0x05, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02, 0x01, 0x00,
+    0x0a, 0x05, 0x01, 0x03, 0x00, 0xff, 0x0b],
+  #[0x06, 0x06, 0x01, 0x7e, 0x00, 0x41, 0x00, 0x0b],
+  #[0x05, 0x02, 0x00, 0xaa],
+  #[0x07, 0x05, 0x01, 0x01, 0xff, 0x00, 0x00],
+  #[0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02, 0x01, 0x00,
+    0x0a, 0x0a, 0x01, 0x08, 0x01, 0xff, 0xff, 0xff, 0xff, 0x0f, 0x7f, 0x0b]] :
+  List (Array UInt8)).all badWasm
 
--- 2.4 Truncated LEB128 integer with high bit set at stream EOF
-#guard !(decodeWasmBytes ⟨#[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x80]⟩).isOk
+-- 2.2 5-byte negative s33 LEB128 decoding, standard conversion opcodes, unsupported rejections
+#guard checkS33Ok #[0xff, 0xff, 0xff, 0xff, 0x7f] (-1) &&
+  checkS33Ok #[0x80, 0x80, 0x80, 0x80, 0x70] (-4294967296) &&
+  checkOneInstrOk 0xa7 (fun | .wrap_i64 => true | _ => false) &&
+  checkOneInstrOk 0xac (fun | .extend_i32_s => true | _ => false) &&
+  checkOneInstrOk 0xad (fun | .extend_i32_u => true | _ => false)
 
--- 2.5 Overlong 5-byte LEB128 integer with invalid non-zero padding bits
-#guard !(decodeWasmBytes ⟨#[
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x80, 0x80, 0x80, 0x80, 0x70
-]⟩).isOk
-
--- 2.6 Out-of-order standard sections (Section 3 Function before Section 1 Type)
-#guard !(decodeWasmBytes ⟨#[
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-  0x03, 0x02, 0x01, 0x00,
-  0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f
-]⟩).isOk
-
--- 2.7 Duplicate non-custom section (two Section 1 Type sections)
-#guard !(decodeWasmBytes ⟨#[
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-  0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f,
-  0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01, 0x7f
-]⟩).isOk
-
--- 2.8 Unsupported section id (Section 2 Import rejected gracefully)
-#guard !(decodeWasmBytes ⟨#[
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-  0x02, 0x01, 0x00
-]⟩).isOk
-
--- 2.9 Unmatched structured control flow: unexpected `else` opcode outside `if`
-#guard !(decodeWasmBytes ⟨#[
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-  0x01, 0x05, 0x01, 0x60, 0x00, 0x00,
-  0x03, 0x02, 0x01, 0x00,
-  0x0a, 0x04, 0x01, 0x02, 0x00, 0x05
-]⟩).isOk
-
--- 2.10 Unsupported opcode (0xFF rejected with clear parse error)
-#guard !(decodeWasmBytes ⟨#[
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-  0x01, 0x05, 0x01, 0x60, 0x00, 0x00,
-  0x03, 0x02, 0x01, 0x00,
-  0x0a, 0x05, 0x01, 0x03, 0x00, 0xff, 0x0b
-]⟩).isOk
-
--- 2.11 5-byte negative s33 LEB128 decoding (-1 and -2^32)
-#guard checkS33Ok #[0xff, 0xff, 0xff, 0xff, 0x7f] (-1)
-#guard checkS33Ok #[0x80, 0x80, 0x80, 0x80, 0x70] (-4294967296)
-
--- 2.12 Standard conversion opcodes: 0xA7 (wrap_i64), 0xAC (extend_i32_s), 0xAD (extend_i32_u)
-#guard checkOneInstrOk 0xa7 fun | .wrap_i64 => true | _ => false
-#guard checkOneInstrOk 0xac fun | .extend_i32_s => true | _ => false
-#guard checkOneInstrOk 0xad fun | .extend_i32_u => true | _ => false
-
--- 2.13 Rejection of unsupported float / saturating opcodes (0xA6, 0xA8, 0xFC 0..2)
-#guard !(decodeOneInstr 10 0xa6 ⟨⟨#[]⟩, 0⟩).isOk
-#guard !(decodeOneInstr 10 0xa8 ⟨⟨#[]⟩, 0⟩).isOk
-#guard !(decodeOneInstr 10 0xfc ⟨⟨#[0x00]⟩, 0⟩).isOk
-#guard !(decodeOneInstr 10 0xfc ⟨⟨#[0x01]⟩, 0⟩).isOk
-#guard !(decodeOneInstr 10 0xfc ⟨⟨#[0x02]⟩, 0⟩).isOk
-
--- 2.14 Mismatched global type (i64 declared with i32.const init)
-#guard !(decodeWasmBytes ⟨#[
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-  0x06, 0x06, 0x01, 0x7e, 0x00, 0x41, 0x00, 0x0b
-]⟩).isOk
-
--- 2.15 Memory section count 0 with trailing garbage bytes
-#guard !(decodeWasmBytes ⟨#[
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-  0x05, 0x02, 0x00, 0xaa
-]⟩).isOk
-
--- 2.16 Export section with invalid UTF-8 export symbol name
-#guard !(decodeWasmBytes ⟨#[
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-  0x07, 0x05, 0x01, 0x01, 0xff, 0x00, 0x00
-]⟩).isOk
-
--- 2.17 Code section with malicious locCnt = 0xFFFFFFFF (DoS prevention)
-#guard !(decodeWasmBytes ⟨#[
-  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-  0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
-  0x03, 0x02, 0x01, 0x00,
-  0x0a, 0x0a, 0x01, 0x08, 0x01, 0xff, 0xff, 0xff, 0xff, 0x0f, 0x7f, 0x0b
-]⟩).isOk
+#guard ([(0xa6, #[]), (0xa8, #[]), (0xfc, #[0x00]), (0xfc, #[0x01]), (0xfc, #[0x02])] :
+  List (UInt8 × Array UInt8)).all fun (op, bs) =>
+    !(decodeOneInstr 10 op ⟨⟨bs⟩, 0⟩).isOk
 
 /-! ## 3. Hand-Assembled Binary Modules (All Opcode Families) -/
 
