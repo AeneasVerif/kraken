@@ -64,6 +64,15 @@ modules and zero `FullHdr` word-layout growth:
    - `full_m6_sweep_vars` passes `rem_ticks` directly to `full_m6_sweep_var` and charges
      `spent = (u64)k[K6H_TICKS]` (removing the `per_v = 16384` cap and `((ticks << 2) + 512)`
      multiplier).
+5. **Defect #3 Parity Fixes (Fixes 3a / 3b / 3c):**
+   - **Fix 3a:** Separate `FL_SWEEP_INC` (`0x40000000u`) for per-round incomplete tracking and
+     `FL_SWEEP_INR` (`0x20000000u`) for `schedule_inner(repr)` priority from `FL_SWEEP` neighbor
+     re-arms so `SWP_GU_COMPLETED` unblocks cleanly (`need_mark` / `rem_inc` / `left_inc`).
+   - **Fix 3b:** Inside `full_m6_sweep_vars`, run up to `8` bounded re-collection passes and push
+     newly merged representatives (`h->subst_cnt > sub0`, `k[K6H_NEQ]`) onto an immediate LIFO
+     stack in the free upper half of `tarjan_reach[cv .. 2*cv-1]`, prioritized in `collect_cands`.
+   - **Fix 3c:** Inside `full_m6_sweep_sim`, use `sim_lim = tick_lim >> 2` with up to `16` cheap
+     `full_m6_sweep_flip_round` signature-refinement rounds after the initial solve.
 -/
 
 set_option autoImplicit false
@@ -131,8 +140,10 @@ typedef struct {
 #define PW_BIN_FLAG 0x80000000u
 #define PW_LIT_MASK 0x7FFFFFFFu
 
-#define FL_ACTIVE 1u
-#define FL_SWEEP  1024u
+#define FL_ACTIVE    1u
+#define FL_SWEEP     1024u
+#define FL_SWEEP_INR 0x20000000u
+#define FL_SWEEP_INC 0x40000000u
 
 #define K6H_NV       0u
 #define K6H_TRL_END  4u
@@ -143,6 +154,7 @@ typedef struct {
 #define K6H_QSTAMP   10u
 #define K6H_TICKS    11u
 #define K6H_NASSUMP  15u
+#define K6H_NEQ      24u
 
 #define SWP_GU_COMPLETED   28u
 #define SWP_GU_INCOMPLETE  29u
@@ -306,21 +318,15 @@ u32 full_m6_sweep_sim(FullHdr *h, u32 nv, u64 tick_lim) {
   if (st0 == 20ULL) { return 0xFFFFFFFFu; }
   if (st0 != 10ULL) { return 0u; }
   u32 rbit = 0u; full_m6_sweep_refine_sig(h, nv, rbit); rbit = 1u;
-  u64 sim_lim = tick_lim;
+  u64 sim_lim = tick_lim >> 2;
   u32 round = 0u;
-  while (round < 2u && rbit < 64u && (u64)k[K6H_TICKS] < sim_lim && h->fuel > 0ULL) {
+  while (round < 16u && rbit < 64u && (u64)k[K6H_TICKS] < sim_lim && h->fuel > 0ULL) {
     if (full_m6_sweep_flip_round(h, nv) > 0u) {
       full_m6_sweep_refine_sig(h, nv, rbit); rbit = rbit + 1u;
+    } else {
+      break;
     }
     round = round + 1u;
-    u64 cur_t = (u64)k[K6H_TICKS];
-    if (round < 2u && rbit < 64u && cur_t < sim_lim && h->fuel > 0ULL) {
-      k[K6H_NASSUMP] = 0u;
-      u64 st = full_m6_sweep_solve(h, nv, sim_lim - cur_t);
-      if (st == 20ULL) { return 0xFFFFFFFFu; }
-      if (st != 10ULL) { break; }
-      full_m6_sweep_refine_sig(h, nv, rbit); rbit = rbit + 1u;
-    }
   }
   return rbit;
 }
@@ -345,7 +351,12 @@ u32 full_m6_collect_cands(FullHdr *h) {
       u64 dn = (u64)wvec[(((v << 1) | 1ULL) << 1) + 1ULL];
       if (dp > 0ULL && dn > 0ULL && dp <= max_occ && dn <= max_occ) {
         u64 d = dp + dn;
-        deg[v] = (d > 0xFFFFFFFFULL) ? 0xFFFFFFFFu : (u32)d;
+        u32 d32 = (d > 0x3FFFFFFFULL) ? 0x3FFFFFFFu : (u32)d;
+        u32 flv = fl[v];
+        if ((flv & FL_SWEEP_INR) == 0u) {
+          d32 = d32 | (((flv & FL_SWEEP_INC) != 0u) ? 0x40000000u : 0x80000000u);
+        }
+        deg[v] = d32;
         cands[nc] = (u32)v; nc = nc + 1u;
       }
     }
@@ -378,17 +389,18 @@ u64 full_m6_sweep_vars(FullHdr *h, u64 budget, u64 tick_lim) {
   if (!need_mark) {
     u64 rem_inc = 0ULL; u64 v = 0ULL;
     while (v < cv) {
-      if ((fl[v] & (FL_ACTIVE | FL_SWEEP)) == (FL_ACTIVE | FL_SWEEP)) {
+      if ((fl[v] & (FL_ACTIVE | FL_SWEEP | FL_SWEEP_INC)) ==
+          (FL_ACTIVE | FL_SWEEP | FL_SWEEP_INC)) {
         if (vals[v << 1] == (i8)0) {
           u64 dp = (u64)wvec[((v << 1) << 1) + 1ULL];
           u64 dn = (u64)wvec[(((v << 1) | 1ULL) << 1) + 1ULL];
           if (dp > 0ULL && dn > 0ULL && dp <= max_occ && dn <= max_occ) {
             rem_inc = rem_inc + 1ULL;
           } else {
-            fl[v] = fl[v] & (~FL_SWEEP);
+            fl[v] = fl[v] & (~(FL_SWEEP | FL_SWEEP_INC | FL_SWEEP_INR));
           }
         } else {
-          fl[v] = fl[v] & (~FL_SWEEP);
+          fl[v] = fl[v] & (~(FL_SWEEP | FL_SWEEP_INC | FL_SWEEP_INR));
         }
       }
       v = v + 1ULL;
@@ -410,54 +422,82 @@ u64 full_m6_sweep_vars(FullHdr *h, u64 budget, u64 tick_lim) {
         u64 dp = (u64)wvec[((v << 1) << 1) + 1ULL];
         u64 dn = (u64)wvec[(((v << 1) | 1ULL) << 1) + 1ULL];
         if (dp > 0ULL && dn > 0ULL && dp <= max_occ && dn <= max_occ) {
-          fl[v] = fl[v] | FL_SWEEP;
+          fl[v] = (fl[v] & (~FL_SWEEP_INR)) | FL_SWEEP | FL_SWEEP_INC;
         } else {
-          fl[v] = fl[v] & (~FL_SWEEP);
+          fl[v] = fl[v] & (~(FL_SWEEP | FL_SWEEP_INC | FL_SWEEP_INR));
         }
       } else {
-        fl[v] = fl[v] & (~FL_SWEEP);
+        fl[v] = fl[v] & (~(FL_SWEEP | FL_SWEEP_INC | FL_SWEEP_INR));
       }
       v = v + 1ULL;
     }
     gu[SWP_GU_INCOMPLETE] = 1u;
     gu[SWP_GU_CURSOR] = 0u;
   }
-  u32 nc = full_m6_collect_cands(h);
-  if (nc == 0u) {
-    gu[SWP_GU_INCOMPLETE] = 0u;
-    gu[SWP_GU_CURSOR] = 0u;
-    if (gu[SWP_GU_COMPLETED] < 0xFFFFFFFFu) {
-      gu[SWP_GU_COMPLETED] = gu[SWP_GU_COMPLETED] + 1u;
-    }
-    return 1ULL;
-  }
   u32 *cands = (u32 *)h->tarjan_reach;
   u32 *k = ((u32 *)h->scratch_buf) + (1280u + (mv << 1));
+  u32 *eqb = (u32 *)h->work_stk2; u32 *rp_arr = (u32 *)h->repr;
   u64 rem_ticks = (tick_lim > 0xFFFFFFFFULL) ? 0xFFFFFFFFULL : tick_lim;
-  u32 ci = 0u; u64 rem_b = budget;
-  while (ci < nc && rem_b > 0ULL && rem_ticks > 0ULL &&
+  u64 rem_b = budget; u32 pass = 0u;
+  while (pass < 8u && rem_b > 0ULL && rem_ticks > 0ULL &&
          h->oom == 0ULL && h->fuel > 0ULL && h->inconsistent == 0ULL) {
-    u32 v = cands[ci]; ci = ci + 1u;
-    if ((fl[v] & (FL_ACTIVE | FL_SWEEP)) == (FL_ACTIVE | FL_SWEEP) && vals[v << 1] == (i8)0) {
-      fl[v] = fl[v] & (~FL_SWEEP); rem_b = rem_b - 1ULL;
-      gu[SWP_GU_CURSOR] = ((u64)v + 1ULL < cv) ? (v + 1u) : 0u;
-      if (full_m6_sweep_var(h, v, rem_ticks) == 20ULL) { return 20ULL; }
-      if (h->propagated < h->trail_end && !full_m6_dense_prop(h)) { return 20ULL; }
-      u64 spent = (u64)k[K6H_TICKS];
-      rem_ticks = (spent >= rem_ticks) ? 0ULL : (rem_ticks - spent);
+    u32 nc = full_m6_collect_cands(h);
+    if (nc == 0u) { break; }
+    u32 ci = 0u; u32 isz = 0u;
+    while (rem_b > 0ULL && rem_ticks > 0ULL &&
+           h->oom == 0ULL && h->fuel > 0ULL && h->inconsistent == 0ULL) {
+      u32 v = 0u;
+      if (isz > 0u) {
+        isz = isz - 1u;
+        v = cands[cv + (u64)isz];
+      } else if (ci < nc) {
+        v = cands[ci]; ci = ci + 1u;
+        gu[SWP_GU_CURSOR] = ((u64)v + 1ULL < cv) ? (v + 1u) : 0u;
+      } else {
+        break;
+      }
+      if ((fl[v] & (FL_ACTIVE | FL_SWEEP)) == (FL_ACTIVE | FL_SWEEP) && vals[v << 1] == (i8)0) {
+        fl[v] = fl[v] & (~(FL_SWEEP | FL_SWEEP_INC | FL_SWEEP_INR));
+        rem_b = rem_b - 1ULL;
+        u64 sub0 = h->subst_cnt;
+        if (full_m6_sweep_var(h, v, rem_ticks) == 20ULL) { return 20ULL; }
+        if (h->propagated < h->trail_end && !full_m6_dense_prop(h)) { return 20ULL; }
+        u64 spent = (u64)k[K6H_TICKS];
+        rem_ticks = (spent >= rem_ticks) ? 0ULL : (rem_ticks - spent);
+        if (h->subst_cnt > sub0) {
+          u32 neq = k[K6H_NEQ]; u32 ei = 0u; u64 nlits = cv << 1;
+          while (ei < neq && (u64)ei < cv) {
+            u32 lit = eqb[ei << 1];
+            if ((u64)lit < nlits) {
+              u32 rv = rp_arr[lit] >> 1;
+              if ((u64)rv < cv && (fl[rv] & FL_ACTIVE) != 0u && vals[rv << 1] == (i8)0) {
+                if ((fl[rv] & FL_SWEEP_INR) == 0u && (u64)isz < cv) {
+                  cands[cv + (u64)isz] = rv; isz = isz + 1u;
+                }
+                fl[rv] = fl[rv] | FL_SWEEP | FL_SWEEP_INR;
+              }
+            }
+            ei = ei + 1u;
+          }
+        }
+      }
     }
+    pass = pass + 1u;
   }
   if (h->inconsistent != 0ULL) { return 20ULL; }
   u64 left_inc = 0ULL; u64 v = 0ULL;
   while (v < cv) {
-    if ((fl[v] & (FL_ACTIVE | FL_SWEEP)) == (FL_ACTIVE | FL_SWEEP) && vals[v << 1] == (i8)0) {
-      u64 dp = (u64)wvec[((v << 1) << 1) + 1ULL];
-      u64 dn = (u64)wvec[(((v << 1) | 1ULL) << 1) + 1ULL];
-      if (dp > 0ULL && dn > 0ULL && dp <= max_occ && dn <= max_occ) {
-        left_inc = 1ULL;
-        break;
+    if ((fl[v] & (FL_ACTIVE | FL_SWEEP | FL_SWEEP_INC)) ==
+        (FL_ACTIVE | FL_SWEEP | FL_SWEEP_INC)) {
+      if (vals[v << 1] == (i8)0) {
+        u64 dp = (u64)wvec[((v << 1) << 1) + 1ULL];
+        u64 dn = (u64)wvec[(((v << 1) | 1ULL) << 1) + 1ULL];
+        if (dp > 0ULL && dn > 0ULL && dp <= max_occ && dn <= max_occ) {
+          left_inc = 1ULL;
+          break;
+        }
       }
-      fl[v] = fl[v] & (~FL_SWEEP);
+      fl[v] = fl[v] & (~(FL_SWEEP | FL_SWEEP_INC | FL_SWEEP_INR));
     }
     v = v + 1ULL;
   }
