@@ -75,10 +75,46 @@ def armMemExtendAmount (scale : Nat) : AddrScale → Option MemExtendAmount
   | .s4 => if scale == 4 then some .E2 else none
   | .s8 => if scale == 8 then some .E3 else none
 
+/-- Arithmetic extension shift amount (`E0..E4`) for shift `sh ≤ 4`. -/
+def armExtendAmount? : Nat → Option ExtendAmount
+  | 0 => some .E0
+  | 1 => some .E1
+  | 2 => some .E2
+  | 3 => some .E3
+  | 4 => some .E4
+  | _ => none
+
+/-- Arithmetic extension shift amount (`E0..E3`) for `AddrScale`. -/
+def armExtendAmount : AddrScale → ExtendAmount
+  | .s1 => .E0 | .s2 => .E1 | .s4 => .E2 | .s8 => .E3
+
+/-- Memory operand `[rb, ri, lsl #amt]` (`zextIdx = false`) or
+`[rb, w_ri, uxtw #amt]` (`zextIdx = true`). -/
+abbrev armAtIdxExtScale (zextIdx : Bool) (rb ri : XReg) (amt : MemExtendAmount) : AddrExpr :=
+  { base := .low (.reg rb) .W64,
+    off := .reg
+      { reg := if zextIdx then ⟨.W32, zr ri .W32⟩ else ⟨.W64, zr ri .W64⟩,
+        ext := { type := if zextIdx then .UXTW else .UXTX, amount := amt } } }
+
 /-- Memory operand `[rb, ri, lsl #amt]`. -/
 abbrev armAtIdxScale (rb ri : XReg) (amt : MemExtendAmount) : AddrExpr :=
-  { base := .low (.reg rb) .W64,
-    off := .reg { reg := ⟨.W64, zr ri .W64⟩, ext := { type := .UXTX, amount := amt } } }
+  armAtIdxExtScale false rb ri amt
+
+/-- Memory operand `[rb, w_ri, uxtw #amt]`. -/
+abbrev armAtIdxZextScale (rb ri : XReg) (amt : MemExtendAmount) : AddrExpr :=
+  armAtIdxExtScale true rb ri amt
+
+/-- 64-bit extended-register add `ADD rd, rb, w_ri, uxtw #amt` (`Instr`). -/
+abbrev armAddUxtwI (d rb : Reg) (ri : XReg) (amt : ExtendAmount) : Instr :=
+  armIselInsI (w := .W64)
+    (.ADD_e (.low d .W64) (.low rb .W64)
+      (.ext { reg := ⟨.W32, zr ri .W32⟩, ext := { type := .UXTW, amount := amt } }))
+
+/-- Compute `xd := xb + ((zext 32 64 or full) ri <<< sc.shift)` (`Instr`). -/
+def armAddIdxShiftI (zextIdx : Bool) (d rb ri : XReg) (sc : AddrScale) : Instr :=
+  if zextIdx then armAddUxtwI (.reg d) (.reg rb) ri (armExtendAmount sc)
+  else armIselInsI (.ADD_s (zr d .W64) (zr rb .W64)
+    { reg := zr ri .W64, amount := Int64.ofNat sc.shift, shift := .LSL })
 
 /-- `MOVZ x_d, #k, lsl #sh` (`Instr`). -/
 abbrev armMovzI (d : XReg) (k : Nat) (sh : MovShift .W64) : Instr :=
@@ -283,6 +319,29 @@ def armAddrIdxValid (scale : Nat) (sc : AddrScale) (disp : Int64) : Bool :=
   ((armMemExtendAmount scale sc).isSome &&
     (disp == 0 || (armImm12? disp.toBitVec).isSome || (armImm12? (-disp.toBitVec)).isSome))
 
+/-- Shared `[rb, ri, lsl/uxtw #sh, #disp]` lowering using at most `.X16` (`Instr` builder). -/
+def armSetupIdxDispIns (zextIdx : Bool) (scale : Nat) (rb ri : XReg)
+    (sc : AddrScale) (disp : Int64) : List Instr × AddrExpr :=
+  match (if disp == 0 then armMemExtendAmount scale sc else none) with
+  | some amt => ([], armAtIdxExtScale zextIdx rb ri amt)
+  | none =>
+    if armFitsScaledOff scale disp then
+      ([armAddIdxShiftI zextIdx .X16 rb ri sc], armAtDisp .X16 disp)
+    else
+      match armMemExtendAmount scale sc, armAddSubImmI? false .W64 .X16 rb disp.toBitVec with
+      | some amt, some addIns => ([addIns], armAtIdxExtScale zextIdx .X16 ri amt)
+      | _, _ => ([], atReg .X16)
+
+/-- Compute effective `AddrExpr` for `base + ((zext 32 64 idx) <<< sc.shift) + disp`
+using scratch `.X16` only (`Instr` builder). -/
+def armSetupAddrZextIns (scale : Nat) (base idx : Reg) (sc : AddrScale) (disp : Int64) :
+    Option (List Instr × AddrExpr) :=
+  match base, idx with
+  | .reg rb, .reg ri =>
+    if armAddrIdxValid scale sc disp then some (armSetupIdxDispIns true scale rb ri sc disp)
+    else none
+  | _, _ => none
+
 /-- Compute effective `AddrExpr` using scratch `.X16` only (`Instr` builder). -/
 def armSetupAddrIns (scale : Nat) : AddrArg Reg → List Instr × AddrExpr
   | .imm addr => (armMovImmI .X16 addr, atReg .X16)
@@ -300,18 +359,7 @@ def armSetupAddrIns (scale : Nat) : AddrArg Reg → List Instr × AddrExpr
         [armIselInsI (w := .W64) (.ADD_e (.low (.reg .X16) .W64) (.low .SP .W64)
           (.ext { reg := ⟨.W64, zr .X16 .W64⟩, ext := { type := .UXTX, amount := .E0 } }))],
         atReg .X16)
-  | .baseIdxDisp (.reg rb) (.reg ri) sc disp =>
-    match (if disp == 0 then armMemExtendAmount scale sc else none) with
-    | some amt => ([], armAtIdxScale rb ri amt)
-    | none =>
-      if armFitsScaledOff scale disp then
-        ([armIselInsI (.ADD_s (zr .X16 .W64) (zr rb .W64)
-          { reg := zr ri .W64, amount := Int64.ofNat sc.shift, shift := .LSL })],
-         armAtDisp .X16 disp)
-      else
-        match armMemExtendAmount scale sc, armAddSubImmI? false .W64 .X16 rb disp.toBitVec with
-        | some amt, some addIns => ([addIns], armAtIdxScale .X16 ri amt)
-        | _, _ => ([], atReg .X16)
+  | .baseIdxDisp (.reg rb) (.reg ri) sc disp => armSetupIdxDispIns false scale rb ri sc disp
   | .baseIdxDisp .. => ([], atReg .X16)
 
 /-- Byte scale of a scalar memory access type, or `none` if unsupported. -/
@@ -353,6 +401,17 @@ def armLoadSextDirI (m : Nat) (d : XReg) (addr : AddrExpr) : Option Instr :=
   | 16 => some (armIselInsI (w := .W64) (.LDRSH (zr d .W64) addr))
   | _ => none
 
+/-- Shared tail builder for `armLoadSextIns` and `armLoadSextZextIdxIns`. -/
+def armLoadSextTailIns (m : Nat) (rd : Reg) (setup : List Instr) (addr : AddrExpr) :
+    Option (List Instr × FlagMask) := do
+  match rd with
+  | .reg d =>
+    let dir ← armLoadSextDirI m d addr
+    some (setup ++ [dir], maskNone)
+  | .SP =>
+    let dir ← armLoadSextDirI m .X16 addr
+    some (setup ++ [dir, armIselMovToSpI .X16], maskNone)
+
 /-- Fused sign-extending load of `m ∈ {8, 16}` bits (`m < n ≤ 64`) from `a` into `rd`
 (`Instr` builder). -/
 def armLoadSextIns (m n : Nat) (rd : Reg) (a : AddrArg Reg) : Option (List Instr × FlagMask) := do
@@ -362,17 +421,36 @@ def armLoadSextIns (m n : Nat) (rd : Reg) (a : AddrArg Reg) : Option (List Instr
     if !armAddrValid scale a then none
     else
       let (setup, addr) := armSetupAddrIns scale a
-      match rd with
-      | .reg d =>
-        let dir ← armLoadSextDirI m d addr
-        some (setup ++ [dir], maskNone)
-      | .SP =>
-        let dir ← armLoadSextDirI m .X16 addr
-        some (setup ++ [dir, armIselMovToSpI .X16], maskNone)
+      armLoadSextTailIns m rd setup addr
+
+/-- Fused sign-extending load (`ldrsb`/`ldrsh`) with `zext 32 64` scaled index (`Instr`). -/
+def armLoadSextZextIdxIns (m n : Nat) (rd base idx : Reg) (sc : AddrScale) (disp : Int64) :
+    Option (List Instr × FlagMask) := do
+  if !(m == 8 || m == 16) || !Nat.blt m n || !Nat.ble n 64 then none
+  else
+    let scale ← armMemScale (.bits m)
+    let (setup, addr) ← armSetupAddrZextIns scale base idx sc disp
+    armLoadSextTailIns m rd setup addr
 
 /-- Fused sign-extending load (`ldrsb`/`ldrsh`/`ldrsw`) into `rd`, preserving all flags. -/
 def armLoadSext (m n : Nat) (rd : Reg) (a : AddrArg Reg) : Option (List Directive × FlagMask) :=
   emitCleanPair (armLoadSextIns m n rd a)
+
+/-- Fused sign-extending load (`ldrsb`/`ldrsh`) with `zext 32 64` scaled index, preserving flags. -/
+def armLoadSextZextIdx (m n : Nat) (rd base idx : Reg) (sc : AddrScale) (disp : Int64) :
+    Option (List Directive × FlagMask) :=
+  emitCleanPair (armLoadSextZextIdxIns m n rd base idx sc disp)
+
+/-- Shared tail builder for `armLoadIns` and `armLoadZextIdxIns`. -/
+def armLoadTailIns (t : Ty) (rd : Reg) (setup : List Instr) (addr : AddrExpr) :
+    Option (List Instr × FlagMask) := do
+  match rd with
+  | .reg d =>
+    let dir ← armLoadDirI t d addr
+    some (setup ++ [dir], maskNone)
+  | .SP =>
+    let dir ← armLoadDirI t .X16 addr
+    some (setup ++ [dir, armIselMovToSpI .X16], maskNone)
 
 /-- Load scalar `t` from `a` into `rd` (`Instr` builder). -/
 def armLoadIns (t : Ty) (rd : Reg) (a : AddrArg Reg) : Option (List Instr × FlagMask) := do
@@ -380,17 +458,23 @@ def armLoadIns (t : Ty) (rd : Reg) (a : AddrArg Reg) : Option (List Instr × Fla
   if !armAddrValid scale a then none
   else
     let (setup, addr) := armSetupAddrIns scale a
-    match rd with
-    | .reg d =>
-      let dir ← armLoadDirI t d addr
-      some (setup ++ [dir], maskNone)
-    | .SP =>
-      let dir ← armLoadDirI t .X16 addr
-      some (setup ++ [dir, armIselMovToSpI .X16], maskNone)
+    armLoadTailIns t rd setup addr
+
+/-- Load scalar `t` from `base + ((zext 32 64 idx) <<< sc.shift) + disp` (`Instr` builder). -/
+def armLoadZextIdxIns (t : Ty) (rd base idx : Reg) (sc : AddrScale) (disp : Int64) :
+    Option (List Instr × FlagMask) := do
+  let scale ← armMemScale t
+  let (setup, addr) ← armSetupAddrZextIns scale base idx sc disp
+  armLoadTailIns t rd setup addr
 
 /-- Load scalar `t` from `a` into `rd` (handling `.SP` base/destination), preserving all flags. -/
 def armLoad (t : Ty) (rd : Reg) (a : AddrArg Reg) : Option (List Directive × FlagMask) :=
   emitCleanPair (armLoadIns t rd a)
+
+/-- Load scalar `t` from `base + ((zext 32 64 idx) <<< sc.shift) + disp`, preserving flags. -/
+def armLoadZextIdx (t : Ty) (rd base idx : Reg) (sc : AddrScale) (disp : Int64) :
+    Option (List Directive × FlagMask) :=
+  emitCleanPair (armLoadZextIdxIns t rd base idx sc disp)
 
 /-- Materialize stored operand `pa` into `.X17` (or return its `XReg`/`.XZR`) (`Instr` builder). -/
 def armStoreValInIns : (t : Ty) → PArg Reg Empty ArmCond t → Option (List Instr × XRegOrXzr)
@@ -417,10 +501,24 @@ def armStoreIns (t : Ty) (pa : PArg Reg Empty ArmCond t) (a : AddrArg Reg) :
     let dir ← armStoreDirI t rx addr
     some (valSetup ++ addrSetup ++ [dir], maskNone)
 
+/-- Store scalar `pa` to `base + ((zext 32 64 idx) <<< sc.shift) + disp` (`Instr` builder). -/
+def armStoreZextIdxIns (t : Ty) (pa : PArg Reg Empty ArmCond t) (base idx : Reg)
+    (sc : AddrScale) (disp : Int64) : Option (List Instr × FlagMask) := do
+  let scale ← armMemScale t
+  let (addrSetup, addr) ← armSetupAddrZextIns scale base idx sc disp
+  let (valSetup, rx) ← armStoreValInIns t pa
+  let dir ← armStoreDirI t rx addr
+  some (valSetup ++ addrSetup ++ [dir], maskNone)
+
 /-- Store scalar `pa` of type `t` to `a`, preserving all flags. -/
 def armStore (t : Ty) (pa : PArg Reg Empty ArmCond t) (a : AddrArg Reg) :
     Option (List Directive × FlagMask) :=
   emitCleanPair (armStoreIns t pa a)
+
+/-- Store scalar `pa` to `base + ((zext 32 64 idx) <<< sc.shift) + disp`, preserving flags. -/
+def armStoreZextIdx (t : Ty) (pa : PArg Reg Empty ArmCond t) (base idx : Reg)
+    (sc : AddrScale) (disp : Int64) : Option (List Directive × FlagMask) :=
+  emitCleanPair (armStoreZextIdxIns t pa base idx sc disp)
 
 /-! ## 3. Scalar `armOp` helpers (`[8, 16, 32, 64]`, `bswap`, `[32, 64]` bit/carry/mulw/fsh) -/
 
@@ -1434,6 +1532,36 @@ def armLeaArithIns (w : Nat) (base? : Option Reg) (idx : Reg) (sc : AddrScale)
 def armLeaArith (w : Nat) (base? : Option Reg) (idx : Reg) (sc : AddrScale)
     (disp : Int64) (rd : Reg) : Option (List Directive × FlagMask) :=
   emitCleanPair (armLeaArithIns w base? idx sc disp rd)
+
+/-- Lower 64-bit `rd := (base? + ((zext 32 64 idx) <<< shift) + disp)` (`0 ≤ shift ≤ 4` with base,
+or `0 ≤ shift ≤ 32` without base) using `ADD_e ... UXTW` or `UBFM` (`Instr` builder). -/
+def armLeaArithZextIns (base? : Option Reg) (idx : Reg) (shift : Nat) (disp : Int64)
+    (rd : Reg) : Option (List Instr × FlagMask) := do
+  let d ← match rd with | .reg d => some d | .SP => none
+  let ri ← match idx with | .reg ri => some ri | .SP => none
+  match base? with
+  | some (.reg rb) =>
+    let amt ← armExtendAmount? shift
+    if disp == 0 then some ([armAddUxtwI (.reg d) (.reg rb) ri amt], maskNone)
+    else
+      let addDisp ← armAddSubImmI? false .W64 d .X16 disp.toBitVec
+      some ([armAddUxtwI (.reg .X16) (.reg rb) ri amt, addDisp], maskNone)
+  | some .SP => none
+  | none =>
+    if !Nat.ble shift 32 then none
+    else
+      let mkSh (dst : XReg) : Instr :=
+        if shift == 0 then armIselInsI (.ORR_s (zr dst .W32) (xzr .W32) (sh ri))
+        else armIselInsI (.UBFM (zr dst .W64) (zr ri .W64) (64 - shift) 31)
+      if disp == 0 then some ([mkSh d], maskNone)
+      else
+        let addDisp ← armAddSubImmI? false .W64 d .X16 disp.toBitVec
+        some ([mkSh .X16, addDisp], maskNone)
+
+/-- Lower 64-bit `rd := (base? + ((zext 32 64 idx) <<< shift) + disp)` into AArch64 directives. -/
+def armLeaArithZext (base? : Option Reg) (idx : Reg) (shift : Nat) (disp : Int64)
+    (rd : Reg) : Option (List Directive × FlagMask) :=
+  emitCleanPair (armLeaArithZextIns base? idx shift disp rd)
 
 /-- AArch64 `GprIsa` instance over `LeanQbe.T.Arm64.Base`. -/
 @[reducible] def armGpr : GprIsa Reg Empty ArmCond Directive where
