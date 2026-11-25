@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import subprocess
@@ -536,6 +537,511 @@ class TestMergeTrain(unittest.TestCase):
             called_args = marker.read_text(encoding="utf-8").strip()
             self.assertIn("--fast", called_args)
             self.assertIn(str(rep["merged_sha"]), called_args)
+            _git(repo, "worktree", "remove", "--force", str(wt))
+
+    def _init_lane_test_repo(self, root: Path) -> tuple[Path, str]:
+        repo = root / "repo"
+        repo.mkdir()
+        _git(repo, "init", "-b", "leanqbe/main")
+        _git(repo, "config", "user.name", "Test")
+        _git(repo, "config", "user.email", "test@example.com")
+
+        scripts = repo / "scripts"
+        scripts.mkdir()
+        (scripts / "sync_hubs.py").write_text(
+            "import pathlib, sys\n"
+            "r = pathlib.Path(sys.argv[sys.argv.index('--root') + 1])\n"
+            "if '--write' in sys.argv:\n"
+            "  pass\n",
+            encoding="utf-8",
+        )
+        (scripts / "check_firewall.py").write_text(
+            "print('{\"leak_groups\": 0}')\n",
+            encoding="utf-8",
+        )
+        (repo / "LeanQbe.lean").write_text("module\n", encoding="utf-8")
+        (repo / "README.md").write_text("leanqbe\n", encoding="utf-8")
+        (repo / "lakefile.toml").write_text("name = \"leanqbe\"\n", encoding="utf-8")
+        (repo / "LeanQbe" / "T").mkdir(parents=True)
+        (repo / "LeanQbe" / "T" / "IL.lean").write_text("module\n", encoding="utf-8")
+        (repo / "LeanQbe" / "T" / "Examples" / "Kissat").mkdir(parents=True)
+        (repo / "LeanQbe" / "T" / "Examples" / "Kissat" / "FullFidelityStep7.lean").write_text(
+            "module\nimport LeanQbe.T.IL\n", encoding="utf-8"
+        )
+        (repo / "LeanQbe" / "T" / "Amd64").mkdir(parents=True)
+        (repo / "LeanQbe" / "T" / "Amd64" / "KissatM7FidelityCert1.lean").write_text(
+            "module\nimport LeanQbe.T.Examples.Kissat.FullFidelityStep7\n",
+            encoding="utf-8",
+        )
+        (repo / "LeanQbe" / "T" / "Leaf.lean").write_text(
+            "module\nimport LeanQbe.T.IL\n", encoding="utf-8"
+        )
+        (repo / "LeanQbeTest" / "T").mkdir(parents=True)
+        (repo / "LeanQbeTest" / "T" / "LeafTest.lean").write_text(
+            "module\nimport LeanQbe.T.Leaf\n", encoding="utf-8"
+        )
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "base")
+        base_sha = _git(repo, "rev-parse", "leanqbe/main")
+        return repo, base_sha
+
+    def test_classify_branch_lanes(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo, base_sha = self._init_lane_test_repo(Path(td))
+
+            _git(repo, "checkout", "-b", "speedup_p0_infra", base_sha)
+            _commit_file(repo, "scripts/fast.py", "x = 1\n", "infra")
+
+            _git(repo, "checkout", "-b", "c0d_bench", base_sha)
+            _commit_file(repo, "bench/kissat/c0d.py", "y = 1\n", "bench")
+
+            _git(repo, "checkout", "-b", "doc_only", base_sha)
+            _commit_file(repo, "README.md", "updated\n", "docs")
+
+            _git(repo, "checkout", "-b", "lakefile_only", base_sha)
+            _commit_file(repo, "lakefile.toml", "name = \"leanqbe\"\n# ok\n", "lakefile")
+
+            _git(repo, "checkout", "-b", "hub_only", base_sha)
+            _commit_file(repo, "LeanQbe.lean", "module\n-- hub\n", "hub")
+
+            _git(repo, "checkout", "-b", "test_dir_only", base_sha)
+            _commit_file(repo, "test/run.sh", "#!/usr/bin/env bash\n", "test script")
+
+            _git(repo, "checkout", "-b", "disjoint_leaf", base_sha)
+            _commit_file(
+                repo,
+                "LeanQbeTest/T/NewSmallTest.lean",
+                "module\nimport LeanQbe.T.Leaf\n",
+                "new small leaf test",
+            )
+
+            _git(repo, "checkout", "-b", "disjoint_lean_leaf", base_sha)
+            _commit_file(repo, "LeanQbe/T/Leaf.lean", "module\n-- ok\n", "leaf edit")
+
+            _git(repo, "checkout", "-b", "step7_heavy", base_sha)
+            _commit_file(
+                repo,
+                "LeanQbe/T/Examples/Kissat/FullFidelityStep7.lean",
+                "module\n-- step7\n",
+                "step7 kissat c0",
+            )
+
+            _git(repo, "checkout", "-b", "cert_slice_heavy", base_sha)
+            _commit_file(
+                repo,
+                "LeanQbe/T/Amd64/KissatM7FidelityCert1.lean",
+                "module\n-- slice\n",
+                "cert slice",
+            )
+
+            _git(repo, "checkout", "-b", "core_il_heavy", base_sha)
+            _commit_file(repo, "LeanQbe/T/IL.lean", "module\n-- il\n", "core il")
+
+            _git(repo, "checkout", "-b", "mixed_infra_and_core", base_sha)
+            _commit_file(repo, "scripts/helper.py", "z = 1\n", "script")
+            _commit_file(repo, "LeanQbe/T/IL.lean", "module\n-- il2\n", "plus core")
+
+            _git(repo, "checkout", "leanqbe/main")
+
+            for br in (
+                "speedup_p0_infra",
+                "c0d_bench",
+                "doc_only",
+                "lakefile_only",
+                "hub_only",
+                "test_dir_only",
+            ):
+                cls = mt.classify_branch(repo, base_sha, br)
+                self.assertEqual(cls["lane"], "infra_fast", (br, cls))
+                self.assertEqual(cls["priority"], 0, br)
+                self.assertEqual(cls["build_lane"], 1, br)
+
+            for br in ("disjoint_leaf", "disjoint_lean_leaf"):
+                cls = mt.classify_branch(repo, base_sha, br)
+                self.assertEqual(cls["lane"], "disjoint_fast", (br, cls))
+                self.assertEqual(cls["priority"], 1, br)
+                self.assertEqual(cls["build_lane"], 1, br)
+                self.assertLessEqual(cls["rdeps_count"], 25)
+                self.assertEqual(cls["cert_slices"], [])
+
+            for br in (
+                "step7_heavy",
+                "cert_slice_heavy",
+                "core_il_heavy",
+                "mixed_infra_and_core",
+            ):
+                cls = mt.classify_branch(repo, base_sha, br)
+                self.assertEqual(cls["lane"], "core_heavy", (br, cls))
+                self.assertEqual(cls["priority"], 2, br)
+                self.assertEqual(cls["build_lane"], 2, br)
+
+            # Explicit rdeps threshold (> 25) & cert-slice rdeps promote to core_heavy.
+            over_cap = mt.classify_branch(
+                repo,
+                base_sha,
+                "disjoint_lean_leaf",
+                changed_files=["LeanQbe/T/Leaf.lean"],
+                rdeps_mods=[f"LeanQbe.T.Mod{i}" for i in range(26)],
+            )
+            self.assertEqual(over_cap["lane"], "core_heavy")
+            cert_dep = mt.classify_branch(
+                repo,
+                base_sha,
+                "disjoint_lean_leaf",
+                changed_files=["LeanQbe/T/Leaf.lean"],
+                rdeps_mods=["LeanQbe.T.Leaf", "LeanQbe.T.Amd64.KissatM7FidelityCert2"],
+            )
+            self.assertEqual(cert_dep["lane"], "core_heavy")
+
+    def test_classify_real_repo_speedup_and_step7_commits(self) -> None:
+        needed = ("4fa7421b", "f14f305a", "55281008", "9fdf1370", "176dbe49")
+        for rev in needed:
+            ok = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "cat-file", "-e", f"{rev}^{{commit}}"],
+                capture_output=True,
+                check=False,
+            )
+            if ok.returncode != 0:
+                self.skipTest(f"commit {rev} not present in repo")
+
+        for rev in ("f14f305a", "55281008", "9fdf1370"):
+            cls = mt.classify_branch(REPO_ROOT, "4fa7421b", rev)
+            self.assertEqual(cls["lane"], "infra_fast", (rev, cls))
+            self.assertEqual(cls["priority"], 0)
+        heavy_cls = mt.classify_branch(REPO_ROOT, "176dbe49", "4fa7421b")
+        self.assertEqual(heavy_cls["lane"], "core_heavy", heavy_cls)
+        self.assertEqual(heavy_cls["priority"], 2)
+
+    def test_infra_fast_first_ordering_and_hol_bypass_partition(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, base_sha = self._init_lane_test_repo(root)
+
+            _git(repo, "checkout", "-b", "step7_heavy", base_sha)
+            _commit_file(
+                repo,
+                "LeanQbe/T/Examples/Kissat/FullFidelityStep7.lean",
+                "module\n-- step7 edit\n",
+                "step7 heavy",
+            )
+            _commit_file(repo, "shared_doc.md", "from step7\n", "touch shared doc")
+
+            _git(repo, "checkout", "-b", "speedup_p0_infra", base_sha)
+            _commit_file(repo, "scripts/p0.py", "ok = True\n", "p0 infra")
+
+            _git(repo, "checkout", "-b", "c0d_bench", base_sha)
+            _commit_file(repo, "bench/kissat/c0d.py", "fast = 1\n", "c0d bench")
+
+            _git(repo, "checkout", "-b", "doc_only", base_sha)
+            _commit_file(repo, "README.md", "updated docs\n", "doc only")
+
+            _git(repo, "checkout", "-b", "disjoint_fast_pr", base_sha)
+            _commit_file(repo, "LeanQbe/T/Leaf.lean", "module\n-- leaf\n", "leaf")
+
+            # Conflicting fast PR touching same file as step7_heavy (cannot bypass HoL).
+            _git(repo, "checkout", "-b", "doc_conflicts_heavy", base_sha)
+            _commit_file(repo, "shared_doc.md", "from doc conflict\n", "conflict")
+
+            _git(repo, "checkout", "leanqbe/main")
+
+            queue = ["step7_heavy", "speedup_p0_infra", "c0d_bench", "doc_only"]
+            part = mt.partition_lanes(repo, "leanqbe/main", queue)
+            self.assertEqual(
+                [c.branch for c in part["ordered"]],
+                ["speedup_p0_infra", "c0d_bench", "doc_only", "step7_heavy"],
+            )
+            self.assertEqual(
+                [c.branch for c in part["fast_batch"]],
+                ["speedup_p0_infra", "c0d_bench", "doc_only"],
+            )
+            self.assertEqual([c.branch for c in part["heavy_batch"]], ["step7_heavy"])
+            self.assertEqual(part["deferred_to_heavy"], [])
+
+            # Mixed queue with disjoint_fast + conflicting infra PR:
+            mixed = [
+                "step7_heavy",
+                "disjoint_fast_pr",
+                "speedup_p0_infra",
+                "doc_conflicts_heavy",
+                "c0d_bench",
+            ]
+            part_mix = mt.partition_lanes(repo, "leanqbe/main", mixed)
+            self.assertEqual(
+                [c.branch for c in part_mix["ordered"]],
+                [
+                    "speedup_p0_infra",
+                    "doc_conflicts_heavy",
+                    "c0d_bench",
+                    "disjoint_fast_pr",
+                    "step7_heavy",
+                ],
+            )
+            self.assertEqual(
+                [c.branch for c in part_mix["fast_batch"]],
+                ["speedup_p0_infra", "c0d_bench", "disjoint_fast_pr"],
+            )
+            self.assertEqual(
+                {c.branch for c in part_mix["heavy_batch"]},
+                {"step7_heavy", "doc_conflicts_heavy"},
+            )
+            self.assertEqual(
+                [d["branch"] for d in part_mix["deferred_to_heavy"]],
+                ["doc_conflicts_heavy"],
+            )
+            self.assertEqual(
+                part_mix["deferred_to_heavy"][0]["reason"],
+                "conflicts_with_core_heavy",
+            )
+
+            # Dry-run CLI --lane auto executes fast before heavy with 0 ref mutations.
+            cli_res = subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(SCRIPTS_DIR / "merge_train.py"),
+                    "--root",
+                    str(repo),
+                    "--base",
+                    "leanqbe/main",
+                    "--lane",
+                    "auto",
+                    "--dry-run",
+                    "--json",
+                    *queue,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=True,
+            )
+            rep = json.loads(cli_res.stdout)
+            self.assertTrue(rep["ok"], rep)
+            self.assertEqual(rep["lane_mode"], "auto")
+            self.assertEqual(
+                [c["branch"] for c in rep["accepted"]],
+                ["speedup_p0_infra", "c0d_bench", "doc_only", "step7_heavy"],
+            )
+            self.assertEqual(rep["lanes"]["fast"]["build_lane"], 1)
+            self.assertEqual(rep["lanes"]["heavy"]["build_lane"], 2)
+            self.assertEqual(_git(repo, "rev-parse", "leanqbe/main"), base_sha)
+
+            # `--lane fast` processes ONLY fast_batch and defers step7_heavy.
+            rep_fast = mt.run_merge_train(
+                repo, queue, base_ref="leanqbe/main", dry_run=True, lane="fast"
+            )
+            self.assertEqual(
+                [c["branch"] for c in rep_fast["accepted"]],
+                ["speedup_p0_infra", "c0d_bench", "doc_only"],
+            )
+            self.assertEqual(rep_fast["deferred_heavy"], ["step7_heavy"])
+
+            # `--lane heavy` processes ONLY heavy_batch and defers fast_batch.
+            rep_heavy = mt.run_merge_train(
+                repo, queue, base_ref="leanqbe/main", dry_run=True, lane="heavy"
+            )
+            self.assertEqual(
+                [c["branch"] for c in rep_heavy["accepted"]],
+                ["step7_heavy"],
+            )
+            self.assertEqual(
+                rep_heavy["deferred_fast"],
+                ["speedup_p0_infra", "c0d_bench", "doc_only"],
+            )
+
+    def test_hol_bypass_lands_fast_even_if_heavy_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, base_sha = self._init_lane_test_repo(root)
+
+            land_log = root / "fast_land_calls.log"
+            (repo / "scripts" / "fast_land.sh").write_text(
+                "#!/usr/bin/env bash\n"
+                f"echo \"lane=${{CHECK_BUILD_LANE:-unset}} args=$*\" >> '{land_log}'\n",
+                encoding="utf-8",
+            )
+            os.chmod(repo / "scripts" / "fast_land.sh", 0o755)
+            _git(repo, "add", "scripts/fast_land.sh")
+            _git(repo, "commit", "-m", "add fast_land stub")
+            base_sha = _git(repo, "rev-parse", "leanqbe/main")
+
+            # step7_heavy passes merge-tree, but breaks check_firewall in staging.
+            _git(repo, "checkout", "-b", "step7_heavy", base_sha)
+            _commit_file(
+                repo,
+                "LeanQbe/T/Examples/Kissat/FullFidelityStep7.lean",
+                "module\n-- broken heavy\n",
+                "step7 heavy",
+            )
+            _commit_file(
+                repo,
+                "scripts/check_firewall.py",
+                "import sys; sys.exit(1)\n",
+                "break firewall on heavy branch",
+            )
+
+            _git(repo, "checkout", "-b", "speedup_p0_infra", base_sha)
+            _commit_file(repo, "scripts/p0.py", "ok = 1\n", "p0")
+
+            _git(repo, "checkout", "-b", "c0d_bench", base_sha)
+            _commit_file(repo, "bench/kissat/c0d.py", "ok = 2\n", "c0d")
+
+            _git(repo, "checkout", "-b", "doc_only", base_sha)
+            _commit_file(repo, "README.md", "docs v2\n", "doc")
+
+            _git(repo, "checkout", "leanqbe/main")
+            wt = root / "staging-wt"
+            with mock.patch.object(
+                mt,
+                "execute_lake_build",
+                return_value={"status": "pass", "targets": []},
+            ):
+                rep = mt.run_merge_train(
+                    repo,
+                    ["step7_heavy", "speedup_p0_infra", "c0d_bench", "doc_only"],
+                    base_ref="leanqbe/main",
+                    worktree=wt,
+                    dry_run=False,
+                    execute=True,
+                    fast_land_skip_tests=True,
+                    lane="auto",
+                )
+            self.assertTrue(rep["ok"], rep)
+            self.assertEqual(
+                [c["branch"] for c in rep["accepted"]],
+                ["speedup_p0_infra", "c0d_bench", "doc_only"],
+            )
+            self.assertEqual([e["branch"] for e in rep["ejected"]], ["step7_heavy"])
+            self.assertEqual(rep["lanes"]["fast"]["status"], "pass")
+            self.assertEqual(rep["lanes"]["heavy"]["status"], "fail")
+            # Fast batch already landed on leanqbe/main despite heavy failure!
+            self.assertNotEqual(_git(repo, "rev-parse", "leanqbe/main"), base_sha)
+            self.assertEqual(
+                _git(repo, "rev-parse", "leanqbe/main"),
+                rep["lanes"]["fast"]["merged_sha"],
+            )
+            calls = land_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(calls), 1)
+            self.assertTrue(calls[0].startswith("lane=1 "))
+            _git(repo, "worktree", "remove", "--force", str(wt))
+
+    def test_two_lane_flock_nonblocking_fast_when_heavy_locked(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            heavy_lock = root / "heavy.lock"
+            fast_prefix = root / "fast"
+            hfd = os.open(heavy_lock, os.O_CREAT | os.O_RDWR, 0o666)
+            try:
+                fcntl.flock(hfd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                # Fast lane (lane=1) must acquire fast_0.lock immediately while heavy is held.
+                with mt.lane_build_lock(
+                    1,
+                    lock_file=str(heavy_lock),
+                    fast_lock_prefix=str(fast_prefix),
+                ) as info:
+                    self.assertTrue(info["locked"])
+                    self.assertEqual(info["lane"], 1)
+                    self.assertEqual(info["lock_path"], f"{fast_prefix}_0.lock")
+                    self.assertEqual(os.environ.get("CHECK_BUILD_LANE"), "1")
+                self.assertIsNone(os.environ.get("CHECK_BUILD_LANE"))
+            finally:
+                fcntl.flock(hfd, fcntl.LOCK_UN)
+                os.close(hfd)
+
+            with mt.lane_build_lock(
+                2,
+                lock_file=str(heavy_lock),
+                fast_lock_prefix=str(fast_prefix),
+            ) as info2:
+                self.assertTrue(info2["locked"])
+                self.assertEqual(info2["lane"], 2)
+                self.assertEqual(info2["lock_path"], str(heavy_lock))
+                self.assertEqual(os.environ.get("CHECK_BUILD_LANE"), "2")
+            self.assertIsNone(os.environ.get("CHECK_BUILD_LANE"))
+
+    def test_cas_guard_and_no_premature_main_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo, base_sha = self._init_lane_test_repo(root)
+
+            marker = root / "fast_land_called.txt"
+            (repo / "scripts" / "fast_land.sh").write_text(
+                "#!/usr/bin/env bash\n"
+                f"echo \"$*\" >> '{marker}'\n",
+                encoding="utf-8",
+            )
+            os.chmod(repo / "scripts" / "fast_land.sh", 0o755)
+            _git(repo, "add", "scripts/fast_land.sh")
+            _git(repo, "commit", "-m", "add fast_land")
+            base_sha = _git(repo, "rev-parse", "leanqbe/main")
+
+            _git(repo, "checkout", "-b", "pr-good", base_sha)
+            good_sha = _commit_file(repo, "README.md", "good\n", "good doc")
+
+            _git(repo, "checkout", "-b", "pr-bad-fw", base_sha)
+            _commit_file(
+                repo,
+                "scripts/check_firewall.py",
+                "import sys; sys.exit(1)\n",
+                "fail firewall",
+            )
+
+            _git(repo, "checkout", "--detach", base_sha)
+            wt = root / "staging-wt"
+
+            # 1. Stage mode (execute=False) never mutates refs/heads/leanqbe/main.
+            rep_stage = mt.run_merge_train(
+                repo,
+                ["pr-good"],
+                base_ref="leanqbe/main",
+                worktree=wt,
+                dry_run=False,
+                execute=False,
+            )
+            self.assertTrue(rep_stage["ok"], rep_stage)
+            self.assertEqual(_git(repo, "rev-parse", "refs/heads/leanqbe/main"), base_sha)
+            self.assertFalse(marker.exists())
+
+            # 2. Failed staging validation never mutates main or calls fast_land.sh.
+            rep_fail = mt.run_merge_train(
+                repo,
+                ["pr-bad-fw"],
+                base_ref="leanqbe/main",
+                worktree=wt,
+                dry_run=False,
+                execute=True,
+            )
+            self.assertFalse(rep_fail["ok"])
+            self.assertEqual(_git(repo, "rev-parse", "refs/heads/leanqbe/main"), base_sha)
+            self.assertFalse(marker.exists())
+
+            # 3. Direct CAS guard rejects stale expected_old_sha and accepts exact match.
+            cas_bad = mt.cas_update_ref(repo, "leanqbe/main", good_sha, "0" * 40)
+            self.assertEqual(cas_bad["status"], "fail")
+            self.assertEqual(cas_bad["reason"], "cas_mismatch")
+            self.assertEqual(_git(repo, "rev-parse", "refs/heads/leanqbe/main"), base_sha)
+
+            # 4. Concurrent advance before landing aborts execute=True with cas_mismatch.
+            orig_stage = mt.stage_and_verify_subset
+
+            def race_during_stage(*args, **kwargs):
+                res = orig_stage(*args, **kwargs)
+                # Simulate another lander advancing leanqbe/main during staging.
+                _git(repo, "update-ref", "refs/heads/leanqbe/main", good_sha, base_sha)
+                return res
+
+            with mock.patch.object(mt, "stage_and_verify_subset", side_effect=race_during_stage):
+                rep_race = mt.run_merge_train(
+                    repo,
+                    ["pr-good"],
+                    base_ref="leanqbe/main",
+                    worktree=wt,
+                    dry_run=False,
+                    execute=True,
+                )
+            self.assertFalse(rep_race["ok"])
+            self.assertEqual(rep_race["fast_land"]["reason"], "cas_mismatch")
+            self.assertFalse(marker.exists())
+            self.assertEqual(_git(repo, "rev-parse", "refs/heads/leanqbe/main"), good_sha)
             _git(repo, "worktree", "remove", "--force", str(wt))
 
 
