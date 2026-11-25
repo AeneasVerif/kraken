@@ -1466,7 +1466,8 @@ private theorem addrRangeSweep_let {V : Ty → Type} {L : List Ty → Type} {ts 
         addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh r next outD, ()))
       | .addrShl n isSub base inv iv ivD sh _ disp =>
         .let_ (op2 (.shl (.bits n)) inv (.imm (BitVec.ofNat n sh))) fun (t1, ()) =>
-        .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1)) fun (t2, ()) =>
+        .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1))
+          fun (t2, ()) =>
         .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
         .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
         if disp == 0#n then
@@ -1479,11 +1480,13 @@ private theorem addrRangeSweep_let {V : Ty → Type} {L : List Ty → Type} {ts 
         .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
         if disp == 0#n then
           addrRangeSweep curD (next + 1) kPlan
-            (k (⟨.var t2, .var next, ivD, some (.addVV (.var t1) invD iv ivD 0#n)⟩, ()))
+            (k (⟨.var t2, .var next, ivD,
+              { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩, ()))
         else
           .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
           addrRangeSweep curD (next + 1) kPlan
-            (k (⟨.var t3, .var next, ivD, some (.addVV (.var t1) invD iv ivD disp)⟩, ())) := by
+            (k (⟨.var t3, .var next, ivD,
+              { addr? := some (.addVV (.var t1) invD iv ivD disp) }⟩, ())) := by
   delta addrRangeSweep; dsimp only [Expr.brecOn, Expr.rec, addrRangeSweep._f]
   cases op.arStep curD next <;> rfl
 
@@ -1587,8 +1590,7 @@ theorem Func.lateLoopRotate_callsOk {allowed : List SigEntry} {exits : List Sym}
       (Tup.units as)).callsOk allowed exits := by
     rw [Func.lateCfgPost_eq]
     exact Func.dceP_callsOk (Func.licm_wf hf) 0 (Func.licm_callsOk hf hc)
-  exact Func.mergeRets_callsOk
-    (Func.loopRotate_callsOk hcfg LoopRotate.defaultRotConfig hpost)
+  exact Func.loopRotate_callsOk hcfg LoopRotate.defaultRotConfig hpost
 
 /-- `Func.lateCondThread` preserves `Expr.callsOk`. -/
 theorem Func.lateCondThread_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -1599,9 +1601,10 @@ theorem Func.lateCondThread_callsOk {allowed : List SigEntry} {exits : List Sym}
   rw [Func.lateCondThread_eq]
   have hf1 := Func.condThreadLateOpt_wf f
   have hf2 := Func.fold_wf hf1
-  exact Func.dceP_callsOk hf2 0
-    (Func.fold_callsOk hf1
-      (Func.condThreadLateOpt_callsOk hf hc))
+  exact Func.mergeRets_callsOk
+    (Func.dceP_callsOk hf2 0
+      (Func.fold_callsOk hf1
+        (Func.condThreadLateOpt_callsOk hf hc)))
 
 /-- Full mid-end (`Fn.mid lt f`) satisfies `callsOk` with `(f.rawCalls.map (sigEntryLegal lt))`
 and `f.rawExits`, without evaluating `Fn.mid` in the kernel. -/

@@ -42,8 +42,9 @@ predictable codegen policies:
 * `noHoistOut`: disable `licm` hoisting out of register-tight snippets.
 
 All composed pipelines (`Func.earlyOptPolicy`, `Func.lateCorePrePolicy`, `Func.lateCorePostPolicy`,
-`Func.lateCfgPrePolicy`, `Func.lateCfgPostPolicy`, `Func.lateLoopRotatePolicy`, `Func.lateOptPolicy`,
-`Fn.midPolicy`) prove `*_wf` and `*_spec` cleanly using the underlying verified pass theorems.
+`Func.lateCfgPrePolicy`, `Func.lateCfgPostPolicy`, `Func.lateLoopRotatePolicy`,
+`Func.lateOptPolicy`, `Fn.midPolicy`) prove `*_wf` and `*_spec` cleanly using the underlying
+verified pass theorems.
 -/
 
 set_option autoImplicit false
@@ -714,20 +715,17 @@ theorem Func.lateCfgPostPolicy_spec (pol : SnippetOptPolicy) {as rs : List Ty} {
   Func.dceP_spec (applyPassIf_wf (!pol.noHoistOut) Func.licm Func.licm_wf hf)
     (applyPassIf_spec (!pol.noHoistOut) Func.licm Func.licm_spec hf h)
 
-/-- Policy-parameterized loop-rotation + epilogue-merge tail (`noHoistOut`, `noRotate`,
-`noMergeRets`). -/
+/-- Policy-parameterized loop-rotation tail (`noHoistOut`, `noRotate`). -/
 def Func.lateLoopRotatePolicy (pol : SnippetOptPolicy) {as rs : List Ty} (f : Func as rs) :
     Func as rs :=
   let f1 := Func.lateCfgPostPolicy pol f
-  let f2 := applyPassIf (!pol.noRotate) Func.loopRotate f1
-  applyPassIf (!pol.noMergeRets) Func.mergeRets f2
+  applyPassIf (!pol.noRotate) Func.loopRotate f1
 
 theorem Func.lateLoopRotatePolicy_wf (pol : SnippetOptPolicy) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) : (Func.lateLoopRotatePolicy pol f).Wf := by
   dsimp only [Func.lateLoopRotatePolicy]
   have hf1 := Func.lateCfgPostPolicy_wf pol hf
-  have hf2 := applyPassIf_wf (!pol.noRotate) Func.loopRotate Func.loopRotate_wf hf1
-  exact applyPassIf_wf (!pol.noMergeRets) Func.mergeRets Func.mergeRets_wf hf2
+  exact applyPassIf_wf (!pol.noRotate) Func.loopRotate Func.loopRotate_wf hf1
 
 theorem Func.lateLoopRotatePolicy_spec (pol : SnippetOptPolicy) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
@@ -735,35 +733,47 @@ theorem Func.lateLoopRotatePolicy_spec (pol : SnippetOptPolicy) {as rs : List Ty
   dsimp only [Func.lateLoopRotatePolicy]
   have hf1 := Func.lateCfgPostPolicy_wf pol hf
   have hs1 := Func.lateCfgPostPolicy_spec pol hf h
-  have hf2 := applyPassIf_wf (!pol.noRotate) Func.loopRotate Func.loopRotate_wf hf1
-  have hs2 := applyPassIf_spec (!pol.noRotate) Func.loopRotate
+  exact applyPassIf_spec (!pol.noRotate) Func.loopRotate
     (fun hg => Func.loopRotate_spec hg LoopRotate.defaultRotConfig) hf1 hs1
-  exact applyPassIf_spec (!pol.noMergeRets) Func.mergeRets Func.mergeRets_spec hf2 hs2
 
-/-- Policy-parameterized branch-threading and cleanup tail (`noCondThread` disables pass). -/
+/-- Policy-parameterized branch-threading, cleanup, and epilogue-merge tail
+(`noCondThread`, `noMergeRets`). -/
 def Func.lateCondThreadPolicy (pol : SnippetOptPolicy) {as rs : List Ty} (f : Func as rs) :
     Func as rs :=
-  if pol.noCondThread then f
-  else Func.dceP (Func.foldPolicy pol (Func.condThreadLateOpt f))
+  let f1 :=
+    if pol.noCondThread then f
+    else Func.dceP (Func.foldPolicy pol (Func.condThreadLateOpt f))
+  applyPassIf (!pol.noMergeRets) Func.mergeRets f1
 
 theorem Func.lateCondThreadPolicy_wf (pol : SnippetOptPolicy) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) : (Func.lateCondThreadPolicy pol f).Wf := by
   dsimp only [Func.lateCondThreadPolicy]
-  split
-  · exact hf
-  · exact Func.dceP_wf (Func.foldPolicy_wf pol (Func.condThreadLateOpt_wf f))
+  have hf1 : (if pol.noCondThread then f
+      else Func.dceP (Func.foldPolicy pol (Func.condThreadLateOpt f))).Wf := by
+    split
+    · exact hf
+    · exact Func.dceP_wf (Func.foldPolicy_wf pol (Func.condThreadLateOpt_wf f))
+  exact applyPassIf_wf (!pol.noMergeRets) Func.mergeRets Func.mergeRets_wf hf1
 
 theorem Func.lateCondThreadPolicy_spec (pol : SnippetOptPolicy) {as rs : List Ty} {f : Func as rs}
     (hf : f.Wf) {Γ : Env} {xs : Tup Val as} {m : Mem 64} {Q : Post rs} {X : XPost}
     (h : Func.spec Γ f xs m Q X) : Func.spec Γ (Func.lateCondThreadPolicy pol f) xs m Q X := by
   dsimp only [Func.lateCondThreadPolicy]
-  split
-  · exact h
-  · have h1 := Func.condThreadLateOpt_wf f
-    have hs1 := Func.condThreadLateOpt_spec hf h
-    have h2 := Func.foldPolicy_wf pol h1
-    have hs2 := Func.foldPolicy_spec pol h1 hs1
-    exact Func.dceP_spec h2 hs2
+  have hf1 : (if pol.noCondThread then f
+      else Func.dceP (Func.foldPolicy pol (Func.condThreadLateOpt f))).Wf := by
+    split
+    · exact hf
+    · exact Func.dceP_wf (Func.foldPolicy_wf pol (Func.condThreadLateOpt_wf f))
+  have hs1 : Func.spec Γ (if pol.noCondThread then f
+      else Func.dceP (Func.foldPolicy pol (Func.condThreadLateOpt f))) xs m Q X := by
+    split
+    · exact h
+    · have h1 := Func.condThreadLateOpt_wf f
+      have hs1 := Func.condThreadLateOpt_spec hf h
+      have h2 := Func.foldPolicy_wf pol h1
+      have hs2 := Func.foldPolicy_spec pol h1 hs1
+      exact Func.dceP_spec h2 hs2
+  exact applyPassIf_spec (!pol.noMergeRets) Func.mergeRets Func.mergeRets_spec hf1 hs1
 
 /-- Boxed `MidBody` stage pipeline matching `Func.lateOptPolicy` without LCNF eta-expansion. -/
 @[noinline] def Func.lateOptPolicyStage (pol : SnippetOptPolicy) {as rs : List Ty}
@@ -865,8 +875,8 @@ private theorem Func.lateLoopRotatePolicy_default_eq {as rs : List Ty} (f : Func
 
 private theorem Func.lateCondThreadPolicy_default_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateCondThreadPolicy .default f = Func.lateCondThread f := by
-  simp only [Func.lateCondThreadPolicy, Func.foldPolicy, SnippetOptPolicy.default,
-    Bool.false_eq_true, ite_false]
+  simp only [Func.lateCondThreadPolicy, Func.foldPolicy, applyPassIf,
+    SnippetOptPolicy.default, Bool.false_eq_true, Bool.not_false, ite_false, ite_true]
   rw [Func.lateCondThread_eq]
 
 theorem Fn.midPolicy_default_eq (lt : LegalTarget) (fn : Fn) :

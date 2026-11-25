@@ -861,7 +861,9 @@ structure BlockOracleInfo (rs : List Ty) where
 def decideBlockAct {rs : List Ty} (selfIdx : Nat) (ts : List Ty) (b : TFlat rs) (st : BlkStat) :
     BlockAct :=
   let selfRec := tflatJumpsTo selfIdx b
-  if !selfRec && ((tflatSmallNoGroup? 1 b).isSome || (st.total ≤ 1 && (tflatSmallNoGroup? 3 b).isSome)) then
+  let isPureRet := match b with | .ret _ => true | _ => false
+  if !selfRec && (((!isPureRet || st.total ≤ 1) && (tflatSmallNoGroup? 1 b).isSome) ||
+      (st.total ≤ 1 && (tflatSmallNoGroup? 3 b).isSome)) then
     .keep false true
   else
     match b with
@@ -884,7 +886,7 @@ def decideBlockAct {rs : List Ty} (selfIdx : Nat) (ts : List Ty) (b : TFlat rs) 
       else .keep true false
     | _ =>
       let hasGroupHead := match b with | .group _ _ => true | _ => false
-      .keep true (st.total > 0 && !hasGroupHead)
+      .keep true (st.total > 0 && !hasGroupHead && !(isPureRet && st.total ≥ 2))
 
 /-- Build `List BlockAct × List (Option (BlockOracleInfo rs))` for all blocks in a `.group`. -/
 def decideGroupActs {rs : List Ty} (len : Nat) :
@@ -942,7 +944,7 @@ def buildCTPlanB {rs : List Ty} (env : List (Option (BlockOracleInfo rs))) :
   | _, _, _ => .nil
 end
 
-/-! ### Phase 2: Verified PHOAS validator (`validateCTPlan`) and single-pass rewriter (`rewriteCTAux`) -/
+/-! ### Phase 2: Verified PHOAS validator (`validateCTPlan`) and rewriter (`rewriteCTAux`) -/
 
 /-- Right-associated transformed signature for one `.splitBool` block. -/
 @[reducible] def splitSig (keepDisp keepT keepF : Bool) (ts ts' : List Ty) : List (List Ty) :=
@@ -1005,7 +1007,7 @@ inductive CTTarget (V : Ty → Type) (L : List Ty → Type) : List Ty → Type
       (lF? : Option (L (eraseMem m)))
       (lD? : Option (L ts)) : CTTarget V L ts
 
-/-- Full label representation for `rewriteCTAux`: target + optional bounded head-threading function. -/
+/-- Full label representation for `rewriteCTAux`: target + optional bounded head-threading. -/
 structure CTLabel (V : Ty → Type) (L : List Ty → Type) (rs : List Ty) (ts : List Ty) where
   target : CTTarget V L ts
   inline? : Tup (Arg (CTOptV V)) ts → Option (Expr V L rs)
@@ -1206,7 +1208,7 @@ def splitLabelTup {L : List Ty → Type} : (as bs : List (List Ty)) → Tup L (a
     let (hs, ts) := splitLabelTup _ _ js
     ((j, hs), ts)
 
-/-- Extract an optional label from a conditional singleton head of `Tup L ((if b then [ts] else []) ++ rest)`. -/
+/-- Extract an optional label from a conditional singleton head of `Tup L`. -/
 def splitOptLabel {L : List Ty → Type} {ts : List Ty} :
     (b : Bool) → {rest : List (List Ty)} → Tup L ((if b then [ts] else []) ++ rest) →
     Option (L ts) × Tup L rest
@@ -1214,7 +1216,8 @@ def splitOptLabel {L : List Ty → Type} {ts : List Ty} :
   | false, _, rest => (none, rest)
 
 /-- Helper for `mkActTarget` indexed directly on `splitMember? p ts`, avoiding dependent casts. -/
-def mkSplitTarget {V : Ty → Type} {L : List Ty → Type} (ts : List Ty) (keepT keepF keepDisp : Bool) :
+def mkSplitTarget {V : Ty → Type} {L : List Ty → Type} (ts : List Ty)
+    (keepT keepF keepDisp : Bool) :
     (sp : Option (Member .bool ts)) → Tup L (splitMemberSig ts keepT keepF keepDisp sp) →
     CTTarget V L ts
   | none, (l, ()) => .keep l
@@ -1277,7 +1280,7 @@ def mkSplitBlocks {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {ts : 
     (condConsBlock keepT (fun () => rwT)
       (condConsBlock keepF (fun () => rwF) .nil))
 
-/-- Helper for `rewriteCTBlocks` indexed directly on `splitMember? p ts`, avoiding dependent casts. -/
+/-- Helper for `rewriteCTBlocks` indexed on `splitMember? p ts`, avoiding dependent casts. -/
 def mkSplitCurBlocks {V : Ty → Type} {L : List Ty → Type} {rs ts : List Ty}
     (keepT keepF keepDisp : Bool) (l : CTLabel V L rs ts)
     (rwId : Tup V ts → Expr V L rs)
@@ -1308,7 +1311,7 @@ def rewriteCTBlocks {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
           (splitMember? p ts)
     blocksAppend cur (rewriteCTBlocks acts pbs bs ls)
 
-/-- Core verified single-pass PHOAS rewriter (`rewriteCTAux`), structurally recursive on `CTPlan`. -/
+/-- Core verified single-pass PHOAS rewriter (`rewriteCTAux`), structurally recursive. -/
 def rewriteCTAux {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
     CTPlan → Expr (Arg (CTOptV V)) (CTLabel V L rs) rs → Expr V L rs
   | .node1 pk, .let_ ⟨code, args⟩ k =>
@@ -1434,8 +1437,9 @@ def validateCTBlocks {rs : List Ty} :
         match splitMember? p ts with
         | none => validateCTPlan pb (b (toOptArgTup (Tup.units ts)))
         | some m =>
-          (!keepT || validateCTPlan pb (b (insertTupMem m (.imm true) (toOptArgTup (Tup.units (eraseMem m)))))) &&
-          (!keepF || validateCTPlan pb (b (insertTupMem m (.imm false) (toOptArgTup (Tup.units (eraseMem m))))))
+          let argsBase := toOptArgTup (Tup.units (eraseMem m))
+          (!keepT || validateCTPlan pb (b (insertTupMem m (.imm true) argsBase))) &&
+          (!keepF || validateCTPlan pb (b (insertTupMem m (.imm false) argsBase)))
     validateAct ts a && bodyOk && validateCTBlocks acts pbs bs
   | _, _, _, _ => false
 end

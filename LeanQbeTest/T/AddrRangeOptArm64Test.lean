@@ -12,7 +12,8 @@ meta import LeanQbe.T.Spill
 # Wave C3 IR Speedups (`AddrRangeOpt`) End-to-End AArch64 Codegen Tests
 
 Verifies end-to-end compilation through `armTarget` (`Rega.lowerFn` + `checkCompile`) for:
-1. Loop-aware address reassociation (`base + ((inv + iv) << 2)` and `base + ((zext(iv) + zext(inv)) << 2)`):
+1. Loop-aware address reassociation (`base + ((inv + iv) << 2)` and
+   `base + ((zext(iv) + zext(inv)) << 2)`):
    hoists invariant `base + (inv << 2)` out of the loop (pre-loop `ADD_s ... LSL #2`) and emits a
    single scaled-index `LDR w, [xB, xI, lsl #2]` (`UXTX #2`) inside the loop.
 2. Signed/unsigned range-check collapse (`0x30 <=s x && x <s 0x3a`, `(0 <=s x && x <s 64)`):
@@ -41,7 +42,8 @@ meta def codeOf (fs : List Fn) : List Directive :=
     (hintsOf fs))
 
 meta def isIdxScale2Ldr : Directive → Bool
-  | .instr { operation := .LDR _ (.addr { off := .reg { ext := { amount := .E2, .. }, .. }, .. }), .. } => true
+  | .instr { operation := .LDR _ (.addr { off := .reg { ext := e, .. }, .. }), .. } =>
+    e.amount == .E2
   | _ => false
 
 meta def isUbfmDir : Directive → Bool
@@ -114,14 +116,36 @@ meta def arm64LoopZextIdxFn : Fn :=
            .jump lp (.var iv', .var acc', ())))
       (fun lp => .jump lp (.imm 0, .imm 0, ()))⟩
 
+meta def arm64LoopZextDispIdxFn : Fn :=
+  ⟨"arm64LoopZextDispIdx", [i64, i32, i32], [i64], fun _ _ (base, inv, n, ()) =>
+    loop1 (ts := [i32, i64])
+      (fun lp (iv, acc, ()) =>
+        .let_ (op2 (.cmp .eq i32) (.var iv) (.var n)) fun (done, ()) =>
+        .jnz (.var done) (.ret (.var acc, ()))
+          (.let_ (op1 (.zext 32 64) (.var iv)) fun (iv64, ()) =>
+           .let_ (op2 (.add i64) (.var iv64) (.imm 3)) fun (ivDisp, ()) =>
+           .let_ (op1 (.zext 32 64) (.var inv)) fun (inv64, ()) =>
+           .let_ (op2 (.add i64) (.var ivDisp) (.var inv64)) fun (idx, ()) =>
+           .let_ (op2 (.shl i64) (.var idx) (.imm 2)) fun (off, ()) =>
+           .let_ (op2 (.add i64) (.var base) (.var off)) fun (ptr, ()) =>
+           .load i32 (.var ptr) fun w =>
+           .let_ (op1 (.zext 32 64) (.var w)) fun (w64, ()) =>
+           .let_ (op2 (.add i64) (.var acc) (.var w64)) fun (acc', ()) =>
+           .let_ (op2 (.add i32) (.var iv) (.imm 1)) fun (iv', ()) =>
+           .jump lp (.var iv', .var acc', ())))
+      (fun lp => .jump lp (.imm 0, .imm 0, ()))⟩
+
 #guard chk [arm64LoopIdxFn]
 #guard chk [arm64LoopZextIdxFn]
+#guard chk [arm64LoopZextDispIdxFn]
 #guard countDirs isIdxScale2Ldr (codeOf [arm64LoopIdxFn]) == 1
 #guard countDirs isUbfmDir (codeOf [arm64LoopIdxFn]) == 0
 #guard countDirs isAddShift2Dir (codeOf [arm64LoopIdxFn]) == 1
 #guard countDirs isIdxScale2Ldr (codeOf [arm64LoopZextIdxFn]) == 1
 #guard countDirs isUbfmDir (codeOf [arm64LoopZextIdxFn]) == 0
 #guard countDirs isAddShift2Dir (codeOf [arm64LoopZextIdxFn]) == 1
+#guard countDirs isUbfmDir (codeOf [arm64LoopZextDispIdxFn]) == 0
+#guard countDirs isAddShift2Dir (codeOf [arm64LoopZextDispIdxFn]) >= 1
 
 /-! ## 2. Collapsed Range Checks (Zero `AND`/`CSET`, Single Compare) -/
 
@@ -146,9 +170,19 @@ meta def arm64ZeroLoBranchFn : Fn :=
     .let_ (op2 (.and .bool) (.var c1) (.var c2)) fun (ok, ()) =>
     .jnz (.var ok) (.ret (.var a, ())) (.ret (.var b, ()))⟩
 
+meta def arm64ZextSignedRangeBranchFn : Fn :=
+  ⟨"arm64ZextSignedRangeBranch", [i32, i64, i64], [i64], fun _ _ (x, a, b, ()) =>
+    .let_ (op1 (.zext 32 64) (.var x)) fun (z1, ()) =>
+    .let_ (op2 (.cmp .sge i64) (.var z1) (.imm 0#64)) fun (c1, ()) =>
+    .let_ (op1 (.zext 32 64) (.var x)) fun (z2, ()) =>
+    .let_ (op2 (.cmp .slt i64) (.var z2) (.imm 64#64)) fun (c2, ()) =>
+    .let_ (op2 (.and .bool) (.var c1) (.var c2)) fun (ok, ()) =>
+    .jnz (.var ok) (.ret (.var a, ())) (.ret (.var b, ()))⟩
+
 #guard chk [arm64DigitBranchFn]
 #guard chk [arm64DigitStoreBranchFn]
 #guard chk [arm64ZeroLoBranchFn]
+#guard chk [arm64ZextSignedRangeBranchFn]
 #guard countDirs isAndDir (codeOf [arm64DigitBranchFn]) == 0
 #guard countDirs isCsincCsetDir (codeOf [arm64DigitBranchFn]) == 0
 #guard countDirs isSubsDir (codeOf [arm64DigitBranchFn]) == 1
@@ -159,6 +193,9 @@ meta def arm64ZeroLoBranchFn : Fn :=
 #guard countDirs isAndDir (codeOf [arm64ZeroLoBranchFn]) == 0
 #guard countDirs isCsincCsetDir (codeOf [arm64ZeroLoBranchFn]) == 0
 #guard countDirs isSubsDir (codeOf [arm64ZeroLoBranchFn]) == 1
+#guard countDirs isAndDir (codeOf [arm64ZextSignedRangeBranchFn]) == 0
+#guard countDirs isCsincCsetDir (codeOf [arm64ZextSignedRangeBranchFn]) == 0
+#guard countDirs isSubsDir (codeOf [arm64ZextSignedRangeBranchFn]) == 1
 
 /-! ## 3. Axiom Audit -/
 

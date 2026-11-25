@@ -51,7 +51,7 @@ structure MidBody (as rs : List Ty) where
   body : Func as rs
 
 /-- Materialize the post-`earlyOpt` mid-end pipeline (`Legal lt → lateCorePre → renorm →
-lateCorePost → renorm → lateCfgPre → renorm → lateCfgPost → loopRotate → mergeRets → renorm →
+lateCorePost → renorm → lateCfgPre → renorm → lateCfgPost → loopRotate → renorm →
 lateCondThread → renorm`), using `Fn.renorm` at every stage boundary so PHOAS closures stay flat. -/
 def Fn.midStage (lt : LegalTarget) (ef : Fn) :
     MidBody (lt.legalSig ef.as) (lt.legalSig ef.rs) :=
@@ -135,7 +135,7 @@ def Fn.ext (f : Fn) : Rega.Ext :=
 
 /-! ## Certified backend compilation and module linking -/
 
-/-- Compile a single function with mid-end (`Opt → Legal lt → Opt`) and externally provided `hints`. -/
+/-- Compile a single function with mid-end (`Opt → Legal lt → Opt`) and external `hints`. -/
 def compileFn (I : Isa) (lt : LegalTarget) (hints : I.Hints) (f : Fn) :
     Except String (List I.Directive) :=
   let mf := f.mid lt

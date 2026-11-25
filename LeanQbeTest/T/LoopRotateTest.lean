@@ -438,9 +438,9 @@ theorem sumWhileFn_rot_callsOk : (Fn.loopRotate sumWhileFn).callsOk [] [] :=
 /-! ## 5. Pipeline integration (`Func.lateOpt`) -/
 
 theorem sumWhile_lateOpt_out : Func.lateOpt sumWhileLoop = fun _ _ (n, ()) =>
-    .group (sig := [])
-      (fun _ => .nil)
-      (fun _ =>
+    .group (sig := [[i64]])
+      (fun (_, ()) => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+      (fun (exit_lbl, ()) =>
         .group (sig := [[i64, i64]])
           (fun (loopRot, ()) => .cons (fun (i, acc, ()) =>
             .let_ (op2 (.add i64) (.var i) (.var acc)) fun (acc', ()) =>
@@ -448,11 +448,11 @@ theorem sumWhile_lateOpt_out : Func.lateOpt sumWhileLoop = fun _ _ (n, ()) =>
             .let_ (op2 (.ne i64) (.var i') (.imm 0)) fun (c1, ()) =>
             .jnz (.var c1)
               (.jump loopRot (.var i', .var acc', ()))
-              (.ret (.var acc', ()))) .nil)
+              (.jump exit_lbl (.var acc', ()))) .nil)
           (fun (loopRot, ()) =>
             .let_ (op2 (.ne i64) (.var n) (.imm 0)) fun (c0, ()) =>
             .jnz (.var c0) (.jump loopRot (.var n, .imm 0, ()))
-              (.ret (.imm 0, ())))) := by
+              (.jump exit_lbl (.imm 0, ())))) := by
   t_kernel_rfl
 
 theorem sumWhile_lateOpt_wf : (Func.lateOpt sumWhileLoop).Wf :=
@@ -465,19 +465,19 @@ theorem sumWhile_lateOpt_spec (Γ : Env) (n : BitVec 64) (m : Mem 64) (X : XPost
   Func.lateOpt_spec sumWhileLoop_wf (sumWhileLoop_spec Γ n m X)
 
 theorem exitTrue_lateOpt_out : Func.lateOpt exitTrueLoop = fun _ _ (n, ()) =>
-    .group (sig := [])
-      (fun _ => .nil)
-      (fun _ =>
+    .group (sig := [[i64]])
+      (fun (_, ()) => .cons (fun (r, ()) => .ret (.var r, ())) .nil)
+      (fun (exit_lbl, ()) =>
         .group (sig := [[i64, i64]])
           (fun (loopRot, ()) => .cons (fun (i, acc, ()) =>
             .let_ (op2 (.add i64) (.var i) (.var acc)) fun (acc', ()) =>
             .let_ (op2 (.sub i64) (.var i) (.imm 1)) fun (i', ()) =>
             .let_ (op2 (.eq i64) (.var i') (.imm 0)) fun (z1, ()) =>
-            .jnz (.var z1) (.ret (.var acc', ()))
+            .jnz (.var z1) (.jump exit_lbl (.var acc', ()))
               (.jump loopRot (.var i', .var acc', ()))) .nil)
           (fun (loopRot, ()) =>
             .let_ (op2 (.eq i64) (.var n) (.imm 0)) fun (z0, ()) =>
-            .jnz (.var z0) (.ret (.imm 0, ()))
+            .jnz (.var z0) (.jump exit_lbl (.imm 0, ()))
               (.jump loopRot (.var n, .imm 0, ())))) := by
   t_kernel_rfl
 
