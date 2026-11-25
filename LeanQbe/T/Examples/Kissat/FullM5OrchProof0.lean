@@ -57,6 +57,17 @@ theorem fullCalcExtCapM5Spec_noExit : ∀ a m Q X,
     fullCalcExtCapM5Spec a m Q X → fullCalcExtCapM5Spec a m Q (fun _ _ _ _ => False) :=
   fun _ _ _ _ h => h
 
+/-- Relational specification matching `Full.fullCalcScrCapSpec` with parameterized `cap`. -/
+def fullCalcScrCapOfSpec (cap : Nat) : Spec [i64] [i64] := fun (rem, ()) m Q _ =>
+  ∀ r : BitVec 64,
+    r.toNat ≤ cap → (rem.toNat < 8192 → r = 0#64) → 4 * r.toNat ≤ rem.toNat / 4 →
+    Q (r, ()) m
+
+theorem fullCalcScrCapOfSpec_noExit (cap : Nat) : ∀ a m Q X,
+    fullCalcScrCapOfSpec cap a m Q X →
+    fullCalcScrCapOfSpec cap a m Q (fun _ _ _ _ => False) :=
+  fun _ _ _ _ h => h
+
 /-- Relational specification matching `Full.fullCalcScrCapSpec` with `1048576` (`1M`) cap. -/
 def fullCalcScrCapM5Spec : Spec [i64] [i64] := fun (rem, ()) m Q _ =>
   ∀ r : BitVec 64,
@@ -199,6 +210,22 @@ theorem full_calc_scr_cap_m5_wp (Γ : Env) :
       · m5_fp_jnz_t hge2; rw [m5_fp_shr4 rem]; exact hJ0 (_, ()) m ⟨by simp [hge2], rfl⟩
       · m5_fp_jnz_f hlt2; rw [m5_fp_shr5 rem]; exact hJ0 (_, ()) m ⟨by simp [hlt2], rfl⟩
 
+private theorem m5_init_caps_bridge_of_cap {cap : Nat} (hcap : cap < dimacsBound)
+    {rem nc : Nat} {ecap_v scap_v : BitVec 64}
+    (hrem_fit : nc * 40 + 136 ≤ rem)
+    (hecap_le : ecap_v.toNat ≤ 4194304) (_hecap_4 : 4 * ecap_v.toNat ≤ rem / 8)
+    (hscap_le : scap_v.toNat ≤ cap) (_hscap_4 : 4 * scap_v.toNat ≤ rem / 4) :
+    let del_cap := fullInitDelCap rem
+    del_cap < dimacsBound ∧ ecap_v.toNat < dimacsBound ∧ scap_v.toNat < dimacsBound ∧
+    (rem < 12 * del_cap + 4 * ecap_v.toNat + 4 * scap_v.toNat + nc * 40 + 136 →
+      12 * del_cap + 40 ≤ rem) ∧
+    (¬ rem < 12 * del_cap + 4 * ecap_v.toNat + 4 * scap_v.toNat + nc * 40 + 136 →
+      12 * del_cap + 4 * ecap_v.toNat + 4 * scap_v.toNat + 40 ≤ rem) := by
+  refine ⟨fullInitDelCap_lt, by unfold dimacsBound; omega, by omega,
+    fun hlt => ?_, fun hge => ?_⟩
+  · by_cases hbig : 524288 ≤ rem <;> simp [fullInitDelCap, hbig] <;> omega
+  · omega
+
 private theorem m5_init_caps_bridge {rem nc : Nat} {ecap_v scap_v : BitVec 64}
     (hrem_fit : nc * 40 + 136 ≤ rem)
     (hecap_le : ecap_v.toNat ≤ 4194304) (_hecap_4 : 4 * ecap_v.toNat ≤ rem / 8)
@@ -208,11 +235,9 @@ private theorem m5_init_caps_bridge {rem nc : Nat} {ecap_v scap_v : BitVec 64}
     (rem < 12 * del_cap + 4 * ecap_v.toNat + 4 * scap_v.toNat + nc * 40 + 136 →
       12 * del_cap + 40 ≤ rem) ∧
     (¬ rem < 12 * del_cap + 4 * ecap_v.toNat + 4 * scap_v.toNat + nc * 40 + 136 →
-      12 * del_cap + 4 * ecap_v.toNat + 4 * scap_v.toNat + 40 ≤ rem) := by
-  refine ⟨fullInitDelCap_lt, by unfold dimacsBound; omega, by unfold dimacsBound; omega,
-    fun hlt => ?_, fun hge => ?_⟩
-  · by_cases hbig : 524288 ≤ rem <;> simp [fullInitDelCap, hbig] <;> omega
-  · omega
+      12 * del_cap + 4 * ecap_v.toNat + 4 * scap_v.toNat + 40 ≤ rem) :=
+  m5_init_caps_bridge_of_cap (by unfold dimacsBound; omega) hrem_fit hecap_le _hecap_4
+    hscap_le _hscap_4
 
 private structure M5InitArrs (c : FullCfg) where
   (vals lit_mark mrk walk_vals phases phases_target phases_best walk_best : List (BitVec 8))
@@ -748,7 +773,7 @@ private theorem m5_init_state_split_tail {hdr_addr : BitVec 64} {avail : Nat}
 /-- Parametric `Func.wp` theorem for `full_init_state_m5` against canonical
 `Full.fullInitStateSpec`, wiring BOTH `[38] full_calc_ext_cap_m5` (`4M`) and
 `[39] full_calc_scr_cap_m5` (`1M`). -/
-theorem full_init_state_m5_wp (Γ : Env)
+theorem full_init_state_m5_wp_of_cap (cap : Nat) (hcap : cap < dimacsBound) (Γ : Env)
     (hHdr : ∀ a m Q X, Kissat.kissatParseHeaderSpec a m Q X →
       Γ "kissat_parse_header" [i64, i64, i64] [.bool] a m Q X)
     (hFixed : ∀ a m Q X, Full.fullFixedBytesSpec a m Q X →
@@ -757,7 +782,7 @@ theorem full_init_state_m5_wp (Γ : Env)
       Γ "full_calc_max_v" [i64, i64, i64, i64] [i64] a m Q X)
     (hExt : ∀ a m Q X, fullCalcExtCapM5Spec a m Q X →
       Γ "full_calc_ext_cap_m5" [i64] [i64] a m Q X)
-    (hScr : ∀ a m Q X, fullCalcScrCapM5Spec a m Q X →
+    (hScr : ∀ a m Q X, fullCalcScrCapOfSpec cap a m Q X →
       Γ "full_calc_scr_cap_m5" [i64] [i64] a m Q X)
     (hArenas : ∀ a m Q X, Full.fullInitArenasSpec a m Q X →
       Γ "full_init_arenas" [i64, i64, i64, i64] [] a m Q X)
@@ -857,11 +882,11 @@ theorem full_init_state_m5_wp (Γ : Env)
           change fullCalcExtCapM5Spec (BitVec.ofNat 64 rem, ()) md _ _
           intro ecap_v hecap_le hecap_z hecap_4; dsimp only; fp_head_steps
           apply wp_call_of_spec; apply hScr
-          change fullCalcScrCapM5Spec (BitVec.ofNat 64 rem, ()) md _ _
+          change fullCalcScrCapOfSpec cap (BitVec.ofNat 64 rem, ()) md _ _
           intro scap_v hscap_le hscap_z hscap_4; dsimp only; fp_head_steps
           rw [hrem_to] at hecap_4 hscap_4
           obtain ⟨_, hecap_lt, hscap_lt, hbr_lt, hbr_ge⟩ :=
-            m5_init_caps_bridge hrem136 hecap_le hecap_4 hscap_le hscap_4
+            m5_init_caps_bridge_of_cap hcap hrem136 hecap_le hecap_4 hscap_le hscap_4
           have hecap_bv : BitVec.ofNat 64 ecap_v.toNat = ecap_v := bv_ofNat_toNat_eq ecap_v
           have hscap_bv : BitVec.ofNat 64 scap_v.toNat = scap_v := bv_ofNat_toNat_eq scap_v
           have hdel_mul : BitVec.ofNat 64 del_cap * (12 : BitVec 64) =
@@ -1074,6 +1099,30 @@ theorem full_init_state_m5_wp (Γ : Env)
             simp [del_cap, fullInitDelCap, rem, hbig]
           · m5_fp_jnz_f' hsmall; refine hJd (8#64, ()) m0 ⟨?_, rfl⟩
             simp [del_cap, fullInitDelCap, rem, hsmall]
+
+theorem full_init_state_m5_wp (Γ : Env)
+    (hHdr : ∀ a m Q X, Kissat.kissatParseHeaderSpec a m Q X →
+      Γ "kissat_parse_header" [i64, i64, i64] [.bool] a m Q X)
+    (hFixed : ∀ a m Q X, Full.fullFixedBytesSpec a m Q X →
+      Γ "full_fixed_bytes" [i64] [i64] a m Q X)
+    (hMaxV : ∀ a m Q X, Full.fullCalcMaxVSpec a m Q X →
+      Γ "full_calc_max_v" [i64, i64, i64, i64] [i64] a m Q X)
+    (hExt : ∀ a m Q X, fullCalcExtCapM5Spec a m Q X →
+      Γ "full_calc_ext_cap_m5" [i64] [i64] a m Q X)
+    (hScr : ∀ a m Q X, fullCalcScrCapM5Spec a m Q X →
+      Γ "full_calc_scr_cap_m5" [i64] [i64] a m Q X)
+    (hArenas : ∀ a m Q X, Full.fullInitArenasSpec a m Q X →
+      Γ "full_init_arenas" [i64, i64, i64, i64] [] a m Q X)
+    (hInitHdr : ∀ a m Q X, Full.fullInitHdrSpec a m Q X →
+      Γ "full_init_hdr" [i64, i64, i64, i64] [] a m Q X)
+    (hZt1 : ∀ a m Q X, Full.fullZeroTables1Spec a m Q X →
+      Γ "full_zero_tables1" [i64] [] a m Q X)
+    (hZt2 : ∀ a m Q X, Full.fullZeroTables2Spec a m Q X →
+      Γ "full_zero_tables2" [i64] [] a m Q X) :
+    ∀ a m Q X, Full.fullInitStateSpec a m Q X →
+      Func.wp Γ full_init_state_m5_body a m Q X :=
+  full_init_state_m5_wp_of_cap 1048576 (by unfold dimacsBound; omega) Γ hHdr hFixed hMaxV hExt
+    hScr hArenas hInitHdr hZt1 hZt2
 
 end CapsAndInitProofs
 

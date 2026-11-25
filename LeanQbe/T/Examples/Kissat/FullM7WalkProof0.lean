@@ -273,6 +273,21 @@ def m7CbInvSpec : Spec [i64, i64, i64] [i64] :=
       s' = s ∧ 1 ≤ r.toNat ∧ r.toNat ≤ 32768 ∧
       (((s.scratch.walk_cnt_stat &&& 1#64) = 0#64 ∨ ncl = 0#64) → r = 32768#64))
 
+/-- Generalized callback-inversion specification without the parity/32768 clause. -/
+def step7CbInvSpec : Spec [i64, i64, i64] [i64] :=
+  SafetySlice.spec fullSafetySlice
+    (fun c (h, _ncl, _tot, ()) _ => h = c.hdr)
+    (fun _ _ (r, ()) s s' => s' = s ∧ 1 ≤ r.toNat ∧ r.toNat ≤ 32768)
+
+theorem step7CbInvSpec_noExit : ∀ a m Q X,
+    step7CbInvSpec a m Q X → step7CbInvSpec a m Q (fun _ _ _ _ => False) :=
+  fun _ _ _ _ ⟨c, s, R, hp, hs, hm, hQ⟩ => ⟨c, s, R, hp, hs, hm, hQ⟩
+
+theorem step7CbInvSpec_to_m7 {a m Q X} (h : step7CbInvSpec a m Q X) : m7CbInvSpec a m Q X := by
+  rcases h with ⟨c, s, R, hpre, hsafe, hm, hQ⟩
+  exact ⟨c, s, R, hpre, hsafe, hm, fun ret s' m' hcore hs' ⟨hs, h1, h2, _⟩ hm' =>
+    hQ ret s' m' hcore hs' ⟨hs, h1, h2⟩ hm'⟩
+
 def m7InitTableSpec : Spec [i64, i64] [] :=
   SafetySlice.spec fullSafetySlice
     (fun c (h, _iq, ()) _ => h = c.hdr)
@@ -341,6 +356,19 @@ theorem m7CbInv_call {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Me
     wp Γ Q X (.call "full_walk_cb_inv_m7" args k) m := by
   refine wp_call_of_spec args k (hFn _ m _ X ⟨c, s, R, hHdr, hSafe, hm, ?_⟩)
   intro ⟨r, ⟨⟩⟩ s' m' _ _ ⟨rfl, h1, h2, _⟩ hm'
+  exact hk r m' h1 h2 hm'
+
+theorem step7CbInv_call {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}
+    {args : Tup (Arg Val) [i64, i64, i64]} {k : Tup Val [i64] → Expr Val Cont rs}
+    (hFn : ∀ a m Q X, step7CbInvSpec a m Q X →
+      Γ "full_walk_cb_inv_m7" [i64, i64, i64] [i64] a m Q X)
+    {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
+    (hHdr : args.1.val = c.hdr) (hSafe : s.LengthsOk c) (hm : (FullMem c s ⋆ R) m)
+    (hk : ∀ r m', 1 ≤ r.toNat → r.toNat ≤ 32768 →
+      (FullMem c s ⋆ R) m' → wp Γ Q X (k (r, ())) m') :
+    wp Γ Q X (.call "full_walk_cb_inv_m7" args k) m := by
+  refine wp_call_of_spec args k (hFn _ m _ X ⟨c, s, R, hHdr, hSafe, hm, ?_⟩)
+  intro ⟨r, ⟨⟩⟩ s' m' _ _ ⟨rfl, h1, h2⟩ hm'
   exact hk r m' h1 h2 hm'
 
 theorem m7InitTable_call {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} {m : Mem 64}

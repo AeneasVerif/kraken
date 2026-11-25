@@ -141,8 +141,9 @@ private abbrev flPostLoopHdrBlock (c : FullCfg) (cv : BitVec 64) (nf : BitVec 32
     Blocks.nil
 
 private theorem fl_post_loop_hdr_wp {Γ Q X}
+    (Pext : List (BitVec 64) → List (BitVec 64) → Prop) (hRefl : ∀ ext, Pext ext ext)
     (hClear : ∀ a m Q X, fullClearAnaSpec a m Q X → Γ "full_clear_ana" [i64] [] a m Q X)
-    (hBumpAna : ∀ a m Q X, m6aBumpAnalyzedSpec a m Q X →
+    (hBumpAna : ∀ a m Q X, m6aBumpAnalyzedSpecP Pext a m Q X →
       Γ "full_bump_analyzed_m6_hdr" [i64] [] a m Q X)
     (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
@@ -155,7 +156,7 @@ private theorem fl_post_loop_hdr_wp {Γ Q X}
     (hnf_lt : not_failed.toNat < 2 * s.core.cur_vars)
     (hnf_ent : (cnfOfClauses F_cur).EntailsClause (cnfClause [not_failed.toNat]))
     (hQ : ∀ r ext' s' m',
-      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ ext' = ext) →
+      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ Pext ext ext') →
       s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
       s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
       s'.scratch.work_stk2 = s.scratch.work_stk2 →
@@ -186,7 +187,7 @@ private theorem fl_post_loop_hdr_wp {Γ Q X}
     c0_hsteps
     let s_c : FullState := { s_f with core := { s_f.core with mrk := mrk', min_clr_len := 0 } }
     have hok_c := p2_clear_ok hok_f hml' (hcov_c hok_f.cov)
-    exact hQ 0#64 ext s_c m_c hext (fun hi => ⟨hi, rfl⟩) hok_c.len (Or.inl rfl)
+    exact hQ 0#64 ext s_c m_c hext (fun hi => ⟨hi, hRefl ext⟩) hok_c.len (Or.inl rfl)
       (by rw [hok_c.core]) (by rw [hok_c.core]) (by rw [hok_c.scr])
       (fun h => by cases h) (fun _ => fl_otfsInvW_of_ok hcut hok_c (hcov_c hok_f.cov))
       (fun h => by cases h) ((fullM6HdrMem_iff ..).mpr hm_c)
@@ -196,7 +197,7 @@ private theorem fl_post_loop_hdr_wp {Γ Q X}
       c0_hsteps
       let s_c : FullState := { s_f with core := { s_f.core with mrk := mrk', min_clr_len := 0 } }
       have hok_c := p2_clear_ok hok_f hml' (hcov_c hok_f.cov)
-      exact hQ 0#64 ext s_c m_c hext (fun hi => ⟨hi, rfl⟩) hok_c.len (Or.inl rfl)
+      exact hQ 0#64 ext s_c m_c hext (fun hi => ⟨hi, hRefl ext⟩) hok_c.len (Or.inl rfl)
         (by rw [hok_c.core]) (by rw [hok_c.core]) (by rw [hok_c.scr])
         (fun h => by cases h) (fun _ => fl_otfsInvW_of_ok hcut hok_c (hcov_c hok_f.cov))
         (fun h => by cases h) ((fullM6HdrMem_iff ..).mpr hm_c)
@@ -243,7 +244,7 @@ private theorem fl_post_loop_hdr_wp {Γ Q X}
           exact ⟨hnf_lt, hnf_ent⟩
       try clear hm_f
       m6h_call hBumpAna
-      refine m6aBumpAnalyzedSpec_of hcfg hext hok_t.len hok_t.cov ((fullM6HdrMem_iff ..).mpr hm_t)
+      refine m6aBumpAnalyzedSpecP_ofP hcfg hext hok_t.len hok_t.cov ((fullM6HdrMem_iff ..).mpr hm_t)
         fun mrk_b mcl_b sc_b ext' m_b hlen_b hcov_b hpres_b hws2_b hext' hinit' hm_b => ?_
       rw [fullM6HdrMem_iff] at hm_b
       let s_b : FullState :=
@@ -395,19 +396,21 @@ private theorem fl_post_loop_hdr_wp {Γ Q X}
             ((fullM6HdrMem_iff ..).mpr
               (by simpa only [R', s_fin, show (1 : BitVec 64) = 1#64 from rfl] using hm))
 
-theorem full_ana_failed_lit_m6_hdr_wp (Γ : Env)
+theorem full_ana_failed_lit_m6_hdr_wp_gen
+    (Pext : List (BitVec 64) → List (BitVec 64) → Prop) (hRefl : ∀ ext, Pext ext ext)
+    (Γ : Env)
     (hClear : ∀ a m Q X, fullClearAnaSpec a m Q X → Γ "full_clear_ana" [i64] [] a m Q X)
-    (hBumpAna : ∀ a m Q X, m6aBumpAnalyzedSpec a m Q X →
+    (hBumpAna : ∀ a m Q X, m6aBumpAnalyzedSpecP Pext a m Q X →
       Γ "full_bump_analyzed_m6_hdr" [i64] [] a m Q X)
     (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
     (hAssignLvl : ∀ a m Q X, fullAssignLvlSpec a m Q X →
       Γ "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X) :
-    ∀ a m Q X, m6aAnaFailedLitSpec a m Q X →
+    ∀ a m Q X, m6aAnaFailedLitSpecP Pext a m Q X →
       Func.wp Γ full_ana_failed_lit_m6_hdr_body a m Q X := by
   rintro ⟨h, ⟨⟩⟩ m0 Q X hspec
   obtain ⟨c, F0, F_cur, cut, ext, s, R, rfl, hcfg, hext, hcut, _, hconfl, hm0, hQ⟩ :=
-    m6aAnaFailedLitSpec_elim hspec
+    m6aAnaFailedLitSpecP_elimP hspec
   have hmaxv := c.hmaxv; unfold dimacsBound at hmaxv
   have ⟨hlen0, hw0, hlm0, hnd0, hext0, hdm0⟩ := hcut
   have hcl := hlen0.core_ok; have hcv_le := hcl.cur_vars_le
@@ -415,7 +418,7 @@ theorem full_ana_failed_lit_m6_hdr_wp (Γ : Env)
   let R_hdr : Mem 64 → Prop := array64 (c.hdr - 2304) ext ⋆ R
   rw [fullM6HdrMem_iff] at hm0
   have hEarly : ∀ (m : Mem 64), (FullMem c s ⋆ R_hdr) m → Q (0#64, ()) m := fun m hm =>
-    hQ 0#64 ext s m hext (fun hi => ⟨hi, rfl⟩) hlen0 (Or.inl rfl) rfl rfl rfl
+    hQ 0#64 ext s m hext (fun hi => ⟨hi, hRefl ext⟩) hlen0 (Or.inl rfl) rfl rfl rfl
       (fun h => by cases h) (fun _ => hcut.toOtfs) (fun h => by cases h)
       ((fullM6HdrMem_iff ..).mpr hm)
   unfold Func.wp full_ana_failed_lit_m6_hdr_body; dsimp only
@@ -513,8 +516,8 @@ theorem full_ana_failed_lit_m6_hdr_wp (Γ : Env)
                 · intro Jexit ⟨unres_f, ucnt_f, done_f, t_f, unit_f, err_f, s_f⟩ m_f
                     ⟨hok_f, ht_f_le, hucnt_le, htmp_f, hact_f, hm_f⟩
                   dsimp only
-                  exact fl_post_loop_hdr_wp hClear hBumpAna hBacktrack hAssignLvl hcfg hext hcut
-                    hcl1 hnf_lt hnf_ent hQ hok_f ht_f_le hucnt_le htmp_f hact_f hm_f
+                  exact fl_post_loop_hdr_wp Pext hRefl hClear hBumpAna hBacktrack hAssignLvl hcfg
+                    hext hcut hcl1 hnf_lt hnf_ent hQ hok_f ht_f_le hucnt_le htmp_f hact_f hm_f
                 · intro Jexit hJexit; c0_hsteps_nogrp
                   refine wp_while_state (ts := [i64, i64, .bool, i64, i32, .bool]) (α := LpIn)
                     (proj := fun st =>
@@ -2043,5 +2046,20 @@ theorem full_ana_failed_lit_m6_hdr_wp (Γ : Env)
                               c0_hsteps
                               exact hJ1 (ui, false, i, si) m1
                                 ⟨hui_bd, hoki, fun _ => ⟨hui_eq, hent_sd⟩, hm1⟩
+
+theorem full_ana_failed_lit_m6_hdr_wp (Γ : Env)
+    (hClear : ∀ a m Q X, fullClearAnaSpec a m Q X → Γ "full_clear_ana" [i64] [] a m Q X)
+    (hBumpAna : ∀ a m Q X, m6aBumpAnalyzedSpec a m Q X →
+      Γ "full_bump_analyzed_m6_hdr" [i64] [] a m Q X)
+    (hBacktrack : ∀ a m Q X, fullBacktrackSpec a m Q X →
+      Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hAssignLvl : ∀ a m Q X, fullAssignLvlSpec a m Q X →
+      Γ "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X) :
+    ∀ a m Q X, m6aAnaFailedLitSpec a m Q X →
+      Func.wp Γ full_ana_failed_lit_m6_hdr_body a m Q X :=
+  fun _ _ _ _ hs =>
+    full_ana_failed_lit_m6_hdr_wp_gen Eq (fun _ => rfl) Γ hClear
+      (fun _ _ _ _ h => hBumpAna _ _ _ _ (m6aBumpAnalyzedSpec_of_eq h)) hBacktrack hAssignLvl
+      _ _ _ _ (m6aAnaFailedLitSpecP_of_eq hs)
 
 end LeanQbe.T.Examples.Kissat.FullM6OrchAdapters

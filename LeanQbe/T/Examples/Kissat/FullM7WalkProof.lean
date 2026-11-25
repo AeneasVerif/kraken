@@ -600,13 +600,13 @@ attribute [local c0_store] FullArenaTactics.c0_store_full_phases
 /-! ### `full_walk_m7_wp` — ProbSAT local search WP -/
 
 /-- `full_walk_m7` preserves `FullCoreInv` core fields (except `fuel`), `LengthsOk`, and
-`FullExtScratchPres`, matching `Full.fullWalkSpec`. -/
-theorem full_walk_m7_wp (Γ : Env)
+`FullExtScratchPres`, matching `Full.fullWalkSpec` under generalized `step7CbInvSpec`. -/
+theorem full_walk_m7_wp_gen (Γ : Env)
     (hInitVals : ∀ a m Q X, m7InitValsSpec a m Q X →
       Γ "full_walk_init_vals_m7" [i64] [] a m Q X)
     (hCollect : ∀ a m Q X, m7CollectSpec a m Q X →
       Γ "full_walk_collect_m7" [i64] [i64] a m Q X)
-    (hCbInv : ∀ a m Q X, m7CbInvSpec a m Q X →
+    (hCbInv : ∀ a m Q X, step7CbInvSpec a m Q X →
       Γ "full_walk_cb_inv_m7" [i64, i64, i64] [i64] a m Q X)
     (hInitTable : ∀ a m Q X, m7InitTableSpec a m Q X →
       Γ "full_walk_init_table_m7" [i64, i64] [] a m Q X)
@@ -697,7 +697,7 @@ theorem full_walk_m7_wp (Γ : Env)
         omega
       have hncl_le : ncl.toNat ≤ c.scratch_cap := by omega
       c0_hsteps_nogrp
-      refine m7CbInv_call hCbInv rfl hlen2 hm2 fun cb_inv m3 hcb1 hcb2 hm3 => ?_
+      refine step7CbInv_call hCbInv rfl hlen2 hm2 fun cb_inv m3 hcb1 hcb2 hm3 => ?_
       c0_hsteps_nogrp
       refine m7InitTable_call hInitTable rfl hlen2 hm3 fun s3 m4 hcore3 hlen3 hpres3 hm4 => ?_
       have hcore30 : s3.core = s.core := hcore3.trans hcore20
@@ -1236,6 +1236,34 @@ theorem full_walk_m7_wp (Γ : Env)
           c0_hsplit
           · c0_hsteps; exact hJ35 _ _ hm5
           · c0_hsteps; exact hJ35 _ _ hm5))
+
+/-- `full_walk_m7` preserves `FullCoreInv` core fields (except `fuel`), `LengthsOk`, and
+`FullExtScratchPres`, matching `Full.fullWalkSpec`. -/
+theorem full_walk_m7_wp (Γ : Env)
+    (hInitVals : ∀ a m Q X, m7InitValsSpec a m Q X →
+      Γ "full_walk_init_vals_m7" [i64] [] a m Q X)
+    (hCollect : ∀ a m Q X, m7CollectSpec a m Q X →
+      Γ "full_walk_collect_m7" [i64] [i64] a m Q X)
+    (hCbInv : ∀ a m Q X, m7CbInvSpec a m Q X →
+      Γ "full_walk_cb_inv_m7" [i64, i64, i64] [i64] a m Q X)
+    (hInitTable : ∀ a m Q X, m7InitTableSpec a m Q X →
+      Γ "full_walk_init_table_m7" [i64, i64] [] a m Q X)
+    (hBuildOcc : ∀ a m Q X, m7BuildOccSpec a m Q X →
+      Γ "full_walk_build_occ_m7" [i64, i64] [i64] a m Q X)
+    (hEffort : ∀ a m Q X, m7EffortSpec a m Q X →
+      Γ "full_walk_effort_m7" [i64, i64] [i64] a m Q X)
+    (hPick : ∀ a m Q X, m7PickSpec a m Q X →
+      Γ "full_walk_pick_m7" [i64, i32, i64] [i64] a m Q X)
+    (hFlip : ∀ a m Q X, m7FlipSpec a m Q X →
+      Γ "full_walk_flip_m7" [i64, i32, i64, i64] [i64] a m Q X)
+    (hSaveMin : ∀ a m Q X, m7SaveMinSpec a m Q X →
+      Γ "full_walk_save_min_m7" [i64, i64, Ty.bool] [] a m Q X)
+    (a : Tup Val [i64]) (m : Mem 64) (Q : Post []) (X : XPost)
+    (hS : fullWalkSpec a m Q X) :
+    Func.wp Γ full_walk_m7_body a m Q X :=
+  full_walk_m7_wp_gen Γ hInitVals hCollect
+    (fun a m Q X h => hCbInv a m Q X (step7CbInvSpec_to_m7 h))
+    hInitTable hBuildOcc hEffort hPick hFlip hSaveMin a m Q X hS
 
 /-! ### `full_warmup_m7_wp` & `full_walk_warmup_m7_wp` — full warmup WP -/
 

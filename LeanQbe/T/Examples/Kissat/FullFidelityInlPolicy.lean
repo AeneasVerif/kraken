@@ -108,6 +108,20 @@ def fidPgoBudget : Sym → Nat
   | "full_cong_eb_match" => 200
   | "full_sweep_copy" => 315
   | "full_analyze_rsn_m6_hdr" => 450
+  -- Gate-1 Step 5 (`Bve`) & Step 6 (`Bva`) purified `_fid` leaf helpers
+  | "full_bve_k6_mv_fid" => 25
+  | "full_fid_k6_add_ticks" => 30
+  | "full_k6_watch_fid" => 90
+  | "full_k6_assign_fid" => 115
+  | "full_k6_mtf_fid" => 135
+  | "full_k6_backtrack_fid" => 120
+  | "full_bve_def_k6_fid" => 90
+  | "full_bva_steps_cap_fid" => 20
+  | "full_bva_clines_fid" => 15
+  | "full_fheap_up_fid" => 55
+  | "full_fheap_down_fid" => 80
+  | "full_bva_count_lit_deg_fid" => 55
+  | "full_bva_match_large_bva_fid" => 70
   | s => m7PgoBudget s
 
 /-- Profile-guided `InlinePolicy` for `KissatFidelity` (`maxCallerSize := 4000`, `leafMax := 165`,
@@ -121,6 +135,15 @@ def fidInlPolicy : InlinePolicy :=
     maxTotalDup := 1500
     maxCallerCalls := 24
     keepOutOfLine := ["m6_hdr_init"] }
+
+/-- Zero-scan chunkable `InlinePolicy` matching `fidInlPolicy` on `KissatFidelity`: sets
+`singleSiteMax := 0`, `maxTotalDup := 0`, and `requireLoopSite := false` so `inlSiteCounts` and
+`inlLoopCounts` reduce to `[]` in `O(1)` inside `inline_chunk_base!`. -/
+def fidInlChunkPolicy : InlinePolicy :=
+  { fidInlPolicy with
+    singleSiteMax := 0
+    maxTotalDup := 0
+    requireLoopSite := false }
 
 /-- Every function in `M.optInlinePolicy fidInlPolicy` remains well-formed. -/
 theorem fidInlPolicy_wf {M : Module}
@@ -159,6 +182,45 @@ theorem fidInlPolicy_supportsSource (lt : LegalTarget) {M : Module}
     (hsup : ∀ f ∈ M.fns, Func.supportsSource lt f.body = true) :
     ∀ f ∈ (M.optInlinePolicy fidInlPolicy).fns, Func.supportsSource lt f.body = true :=
   Module.optInlinePolicy_supportsSource lt fidInlPolicy hwf hsup
+
+/-- Every function in `M.optInlinePolicy fidInlChunkPolicy` remains well-formed. -/
+theorem fidInlChunkPolicy_wf {M : Module}
+    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
+    ∀ f ∈ (M.optInlinePolicy fidInlChunkPolicy).fns, f.Wf :=
+  Module.optInlinePolicy_wf fidInlChunkPolicy hchk hwf
+
+/-- Acyclicity transports from `M` to `M.optInlinePolicy fidInlChunkPolicy`. -/
+theorem fidInlChunkPolicy_checkAcyclic {M : Module}
+    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
+    (M.optInlinePolicy fidInlChunkPolicy).checkAcyclic = true :=
+  Module.optInlinePolicy_checkAcyclic fidInlChunkPolicy hchk hwf
+
+/-- `ModuleOk` transports from `M` to `M.optInlinePolicy fidInlChunkPolicy`. -/
+theorem fidInlChunkPolicy_ok {Γ : Env} {M : Module} :
+    ModuleOk Γ M → ModuleOk Γ (M.optInlinePolicy fidInlChunkPolicy) :=
+  Module.optInlinePolicy_ok fidInlChunkPolicy
+
+/-- Ordered `Fn.callsOk` transports from `M` to `M.optInlinePolicy fidInlChunkPolicy`. -/
+theorem fidInlChunkPolicy_callsOk {M : Module}
+    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
+    ∀ pre fn post, (M.optInlinePolicy fidInlChunkPolicy).fns = pre ++ fn :: post →
+      Fn.callsOk (pre.map Fn.sig ++ M.externs.map Extern.sig) M.exits fn :=
+  Module.optInlinePolicy_callsOk fidInlChunkPolicy hchk hwf
+
+/-- Per-function WP specification transports from `M` to `M.optInlinePolicy fidInlChunkPolicy`.
+-/
+theorem fidInlChunkPolicy_spec {Γ : Env} {M : Module}
+    (hok : ModuleOk Γ M) {f : Fn} (hf : f ∈ (M.optInlinePolicy fidInlChunkPolicy).fns)
+    {xs : Tup Val f.as} {m : Mem 64} {Q : Post f.rs} {X : XPost}
+    (hpre : Γ f.name f.as f.rs xs m Q X) : Func.wp Γ f.body xs m Q X :=
+  Module.optInlinePolicy_spec fidInlChunkPolicy hok f hf xs m Q X hpre
+
+/-- `Func.supportsSource` transports from `M` to `M.optInlinePolicy fidInlChunkPolicy`. -/
+theorem fidInlChunkPolicy_supportsSource (lt : LegalTarget) {M : Module}
+    (hwf : ∀ f ∈ M.fns, f.Wf)
+    (hsup : ∀ f ∈ M.fns, Func.supportsSource lt f.body = true) :
+    ∀ f ∈ (M.optInlinePolicy fidInlChunkPolicy).fns, Func.supportsSource lt f.body = true :=
+  Module.optInlinePolicy_supportsSource lt fidInlChunkPolicy hwf hsup
 
 end LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
 
