@@ -78,6 +78,7 @@ inductive Expr : Type
   | cast (ty : C0Type) (e : Expr)
   | sizeofTy (ty : C0Type)
   | sizeofExpr (e : Expr)
+  | offsetof (ty : C0Type) (fld : String)
   | unary (op : UnaryOp) (e : Expr)
   | binary (op : BinOp) (lhs rhs : Expr)
   | ternary (cond thn els : Expr)
@@ -131,6 +132,7 @@ mutual
     | assumeStmt (cond : Expr)
     | checkStmt (cond : Expr) (line : Nat)
     | assertStmt (cond : Expr) (line : Nat)
+    | staticAssertStmt (cond : Expr) (msg : String)
     deriving Repr, BEq, Inhabited
 end
 
@@ -148,6 +150,15 @@ structure FnSig : Type where
   params : List (C0Type × Option String)
   deriving Repr, BEq, Inhabited
 
+/-- Pragmas supported by C0: upstream provenance, fidelity tag, extension tag,
+or bounded loop justification. -/
+inductive C0Pragma : Type
+  | upstream (loc : String) (fnName : Option String := none)
+  | fidelity
+  | extension
+  | bounded (reason : String)
+  deriving Repr, BEq, Inhabited
+
 /-- Function definition. -/
 structure FnDef : Type where
   isStatic : Bool := false
@@ -156,6 +167,12 @@ structure FnDef : Type where
   name : String
   params : List (C0Type × String)
   body : List Stmt
+  upstreamLoc : Option String := none
+  upstreamFn : Option String := none
+  isFidelity : Bool := false
+  isExtension : Bool := false
+  boundedReasons : List String := []
+  boundedLoops : List (Nat × String) := []
   deriving Repr, BEq, Inhabited
 
 /-- Top-level C0 declaration. -/
@@ -165,11 +182,83 @@ inductive Decl : Type
   | fnDecl (sig : FnSig)
   | fnDef (fn : FnDef)
   | enumConsts (items : List (String × Int))
+  | staticAssert (cond : Expr) (msg : String)
+  | pragma (p : C0Pragma)
   deriving Repr, BEq, Inhabited
 
 /-- Parsed C0 translation unit. -/
 structure TranslationUnit : Type where
   decls : List Decl
   deriving Repr, BEq, Inhabited
+
+def evalConstBitOp (op : BinOp) (va vb : Int) : Int :=
+  if va >= 0 && vb >= 0 then
+    match op with
+    | .bitand => Int.ofNat (Nat.land va.toNat vb.toNat)
+    | .bitor => Int.ofNat (Nat.lor va.toNat vb.toNat)
+    | _ => Int.ofNat (Nat.xor va.toNat vb.toNat)
+  else
+    let ba := BitVec.ofInt 64 va
+    let bb := BitVec.ofInt 64 vb
+    match op with
+    | .bitand => (ba &&& bb).toInt
+    | .bitor => (ba ||| bb).toInt
+    | _ => (ba ^^^ bb).toInt
+
+/-- Evaluate a binary operator on compile-time integer constant values. -/
+def evalConstBinOp (op : BinOp) (va vb : Int) : Except String Int :=
+  match op with
+  | .add => pure (va + vb)
+  | .sub => pure (va - vb)
+  | .mul => pure (va * vb)
+  | .div =>
+    if vb == 0 then throw "division by zero in constant expression"
+    else pure (va / vb)
+  | .mod =>
+    if vb == 0 then throw "modulo by zero in constant expression"
+    else pure (va % vb)
+  | .shl =>
+    if vb < 0 then throw "negative shift in constant expression"
+    else pure (va * Int.ofNat (2 ^ vb.toNat))
+  | .shr =>
+    if vb < 0 then throw "negative shift in constant expression"
+    else pure (va / Int.ofNat (2 ^ vb.toNat))
+  | .bitand | .bitor | .bitxor => pure (evalConstBitOp op va vb)
+  | .eq => pure (if va == vb then 1 else 0)
+  | .ne => pure (if va != vb then 1 else 0)
+  | .lt => pure (if va < vb then 1 else 0)
+  | .le => pure (if va <= vb then 1 else 0)
+  | .gt => pure (if va > vb then 1 else 0)
+  | .ge => pure (if va >= vb then 1 else 0)
+  | .logand => pure (if va != 0 && vb != 0 then 1 else 0)
+  | .logor => pure (if va != 0 || vb != 0 then 1 else 0)
+
+/-- Shared integer constant-expression evaluator parameterized by constant lookup and
+layout-dependent leaf evaluation (`sizeof`, `offsetof`). -/
+partial def evalConstIntWith (lookupConst : String → Option Int)
+    (onSpecial : Expr → Except String Int) : Expr → Except String Int
+  | .intLit v _ _ => pure v
+  | .boolLit b => pure (if b then 1 else 0)
+  | .var nm => match lookupConst nm with
+    | some v => pure v
+    | none => throw s!"unknown constant '{nm}' in integer constant expression"
+  | .cast _ e => evalConstIntWith lookupConst onSpecial e
+  | .unary .neg e => do pure (-(← evalConstIntWith lookupConst onSpecial e))
+  | .unary .pos e => evalConstIntWith lookupConst onSpecial e
+  | .unary .bitnot e => do
+    let v ← evalConstIntWith lookupConst onSpecial e
+    pure (-(v + 1))
+  | .unary .lognot e => do
+    let v ← evalConstIntWith lookupConst onSpecial e
+    pure (if v == 0 then 1 else 0)
+  | .binary op a b => do
+    let va ← evalConstIntWith lookupConst onSpecial a
+    let vb ← evalConstIntWith lookupConst onSpecial b
+    evalConstBinOp op va vb
+  | .ternary c t e => do
+    let vc ← evalConstIntWith lookupConst onSpecial c
+    if vc != 0 then evalConstIntWith lookupConst onSpecial t
+    else evalConstIntWith lookupConst onSpecial e
+  | e => onSpecial e
 
 end LeanQbe.T.Frontend.C0
