@@ -64,7 +64,7 @@ open scoped LeanQbe.T.Examples.Kissat.FullM6CongSubst.M6bHeadTactics
 /-- Level-0 contract for `full_cong_copy_condbin_m7` (`GAP-CONG-04`): strengthens
 `m7CopyCondbinSpec` with `s.core.cur_level = 0` so skipping falsified literals (`vals[l] < 0`)
 in `sz ≥ 3` clauses is sound via `unassigned_clause_entails`. -/
-def fidCongCopyCondbinLv0Spec : Spec [i64, i32, i64, i64] [i64] :=
+@[expose] def fidCongCopyCondbinLv0Spec : Spec [i64, i32, i64, i64] [i64] :=
   fun (h, lit, out, cap, ()) m Q _ =>
     ∃ (c : FullCfg) (F0 : Std.Sat.CNF Nat) (F_cur : List (List Nat)) (s : FullState)
       (out0 : List (BitVec 64)) (R : Mem 64 → Prop),
