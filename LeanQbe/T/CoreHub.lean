@@ -149,10 +149,12 @@ public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.Trie
 public import LeanQbe.T.Ty
 public import LeanQbe.T.TyLemmas
+public import LeanQbe.T.Unified.Backend.Rega
 public import LeanQbe.T.Unified.Caps
 public import LeanQbe.T.Unified.Core
 public import LeanQbe.T.Unified.Driver
 public import LeanQbe.T.Unified.DriverLemmas
+public import LeanQbe.T.Unified.Frontend.C0
 public import LeanQbe.T.Unified.Frontend.Lcnf
 public import LeanQbe.T.Unified.Ssa
 public import LeanQbe.T.WP
