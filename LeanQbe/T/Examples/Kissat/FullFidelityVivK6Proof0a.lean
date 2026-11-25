@@ -22,7 +22,8 @@ import Kraken.Separation
 UNSAT-only `Func.wp` proof (`public section`, `0 @[expose]`, `0 import all`, `std3`) for:
 1. `u32`-pair <-> `u64` memory bridge (`packU32Pair`, `loadVal_array32_as_i64`,
    `store_array32_as_i64`) reused by `full_unwatch_large_fid` and `full_bva_commit_fid`.
-2. `full_unwatch_large_fid_wp` (`Full.fullUnwatchLargeSpec`, `2x-u64` + `u64` shift loop).
+2. `full_unwatch_large_fid_wp` (`Full.fullUnwatchLargeSpec`, `2x-u64` + `u64` + `u32` shift loop,
+   two `u32` sentinel stores).
 -/
 
 set_option autoImplicit false
@@ -478,8 +479,8 @@ private theorem shift_step4 {ws orig : List (BitVec 32)} {cap p0 pc : Nat}
   simpa only [ws2, show pc + 2 - 2 = pc by omega, show pc + 2 - 1 = pc + 1 by omega,
     show pc + 2 + 2 = pc + 4 by omega, hg2, hg3] using hs2b
 
-/-- `full_unwatch_large_fid` (`2x-u64` + `u64` + `u32` watch-shift loop and `u64` sentinel store)
-satisfies exact `Full.fullUnwatchLargeSpec` parametrically in `Γ`. -/
+/-- `full_unwatch_large_fid` (`2x-u64` + `u64` + `u32` watch-shift loop and two `u32` sentinel
+stores) satisfies exact `Full.fullUnwatchLargeSpec` parametrically in `Γ`. -/
 theorem full_unwatch_large_fid_wp (Γ : Env) :
     ∀ a m Q X, Full.fullUnwatchLargeSpec a m Q X →
       Func.wp Γ full_unwatch_large_fid_body a m Q X := by
@@ -614,12 +615,49 @@ theorem full_unwatch_large_fid_wp (Γ : Env) :
                 wstk1[(p.toNat - 2) + j]? = s.core.wstk[p.toNat + j]?) ∧
               (FullMem c { s with core := { s.core with wstk := wstk1 } } ⋆ R) m2
           c0_hsteps_nogrp
+          refine wp_join_group (ts := [i64, i64]) ShiftInv ?_ (fun Jp hJp => by
+            c0_hsplit
+            · c0_hsplit
+              · have hp_lt : p.toNat < end0 := by
+                  have hc' : p.toNat < (BitVec.setWidth 64
+                      (s.core.wvec[(lit.setWidth 64 <<< (1 : Nat)).toNat]'hbd0_w) +
+                    BitVec.setWidth 64
+                      (s.core.wvec[((lit.setWidth 64 <<< (1 : Nat)) +
+                        (1 : BitVec 64)).toNat]'hbd1_w)).toNat := by c0_bound
+                  rwa [hend64] at hc'
+                have hp1_n : (p + 1#64).toNat = p.toNat + 1 := by
+                  rw [BitVec.toNat_add, show (1#64).toNat = 1 from rfl,
+                    Nat.mod_eq_of_lt (by omega)]
+                have hq1_n : ((p - 2#64) + 1#64).toNat = p.toNat - 2 + 1 := by
+                  rw [BitVec.toNat_add, hp2_toNat, show (1#64).toNat = 1 from rfl,
+                    Nat.mod_eq_of_lt (by omega)]
+                have hpc_w : p.toNat < s.core.wstk.length := by omega
+                have hqc_w : (p - 2#64).toNat < s.core.wstk.length := by
+                  rw [hp2_toNat]; omega
+                c0_hsteps_nogrp
+                have hs1 := shift_step1 (p0 := p.toNat) (pc := p.toNat) hws_len
+                  (by omega) (Nat.le_refl _) (by omega)
+                  (fun _ _ => rfl) (fun _ hj => by omega)
+                rw [show (2 : BitVec 64) = 2#64 from rfl, hp2_toNat] at hm
+                exact hJp (p + 1#64, (p - 2#64) + 1#64, ()) m
+                  ⟨by rw [hp1_n]; omega, by rw [hp1_n]; omega,
+                   by rw [hp1_n, hq1_n]; omega, _, hs1.1,
+                   by simpa only [hp1_n] using hs1.2.1,
+                   by simpa only [hp1_n] using hs1.2.2, hm⟩
+              · c0_hsteps
+                exact hJp (p, p - 2#64, ()) m1
+                  ⟨Nat.le_refl _, hpe, hp2_toNat, s.core.wstk, hws_len,
+                   fun _ _ => rfl, fun _ hj => by omega, hm⟩
+            · c0_hsteps
+              exact hJp (p, p - 2#64, ()) m1
+                ⟨Nat.le_refl _, hpe, hp2_toNat, s.core.wstk, hws_len,
+                 fun _ _ => rfl, fun _ hj => by omega, hm⟩)
+          rintro _ ⟨p0, q0, ⟨⟩⟩ m0 ⟨hp0_lo, hp0_hi, hq0_eq, wstk0, hlen0, hout0, hsh0, hm0⟩
           refine wp_loop_inv (ts := [i64, i64]) ShiftInv (fun (pc, _, ()) _ => end0 - pc.toNat)
             (fun J4 hLoop4 => by
               c0_hsteps
-              exact hLoop4 (p, p - 2#64, ()) m1
-                ⟨Nat.le_refl _, hpe, hp2_toNat, s.core.wstk, hws_len,
-                 fun _ _ => rfl, fun _ hj => by omega, hm⟩)
+              exact hLoop4 (p0, q0, ()) m0
+                ⟨hp0_lo, hp0_hi, hq0_eq, wstk0, hlen0, hout0, hsh0, hm0⟩)
             ?_
           rintro J4 ⟨pc, qc, ⟨⟩⟩ m2 ⟨hpc_lo, hpc_hi, hqc_eq, wstk1, hlen1, hout1, hsh1, hm2⟩
             hLoop4
@@ -646,7 +684,8 @@ theorem full_unwatch_large_fid_wp (Γ : Env) :
                 (wstk1.set qc.toNat (v0.setWidth 32)).set (qc.toNat + 1) ((v0 >>> 32).setWidth 32) =
                 (wstk1.set (pc.toNat - 2) (wstk1[pc.toNat]'(by omega))).set (pc.toNat - 1)
                   (wstk1[pc.toNat + 1]'(by omega)) := by
-              rw [packU32Pair_lo, packU32Pair_hi, hqc_eq, show pc.toNat - 2 + 1 = pc.toNat - 1 by omega]
+              rw [packU32Pair_lo, packU32Pair_hi, hqc_eq,
+                show pc.toNat - 2 + 1 = pc.toNat - 1 by omega]
             let sL1 : FullState := { s with core := { s.core with
               wstk := (wstk1.set qc.toNat (v0.setWidth 32)).set (qc.toNat + 1)
                 ((v0 >>> 32).setWidth 32) } }
@@ -688,7 +727,8 @@ theorem full_unwatch_large_fid_wp (Γ : Env) :
                by simpa only [hpc4_nat] using hs4.2.2, hm2b⟩
           · -- After 4-lit loop: `end0 < pc + 4`
             have hpc4_gt : end0 < pc.toNat + 4 := by
-              have h4 : (pc + 4#64).toNat = pc.toNat + 4 := by bv_omega
+              have h4 : (pc + 4#64).toNat = pc.toNat + 4 := by
+                rw [BitVec.toNat_add, show (4#64).toNat = 4 from rfl, Nat.mod_eq_of_lt (by omega)]
               have hc' : ¬ (pc + 4#64).toNat ≤ (BitVec.setWidth 64
                   (s.core.wvec[(lit.setWidth 64 <<< (1 : Nat)).toNat]'hbd0_w) +
                 BitVec.setWidth 64
@@ -708,15 +748,26 @@ theorem full_unwatch_large_fid_wp (Γ : Env) :
                   (FullMem c { s with core := { s.core with wstk := wstk3 } } ⋆ R) m4
               refine wp_join_group (ts := []) FinInv ?_ ?_
               · rintro _ ⟨⟩ m4 ⟨wstk3, hlen3, hout3, hsh3, hm4⟩
-                let sF : FullState := { s with core := { s.core with wstk := wstk3 } }
-                have he2_toNat : ((BitVec.setWidth 64
-                      (s.core.wvec[(lit.setWidth 64 <<< (1 : Nat)).toNat]'hbd0_w) +
-                    BitVec.setWidth 64
-                      (s.core.wvec[((lit.setWidth 64 <<< (1 : Nat)) +
-                        (1 : BitVec 64)).toNat]'hbd1_w)) - 2#64).toNat = end0 - 2 := by
+                clear hm hm0 hm2 hm3
+                c0_hsteps_nogrp
+                have hend_w : (BitVec.setWidth 64
+                      s.core.wvec[(BitVec.setWidth 64 lit <<< (1 : Nat)).toNat] +
+                    BitVec.setWidth 64 s.core.wvec[2 * lit.toNat + 1]).toNat = end0 := by
+                  simpa only [h2l1_eq] using hend64
+                have he2_toNat : (BitVec.setWidth 64
+                      s.core.wvec[(BitVec.setWidth 64 lit <<< (1 : Nat)).toNat] +
+                    BitVec.setWidth 64 s.core.wvec[2 * lit.toNat + 1] - 2#64).toNat =
+                    end0 - 2 := by
                   rw [BitVec.toNat_sub_of_le (by
-                    rw [BitVec.le_def, hend64, show (2#64).toNat = 2 from rfl]; omega),
-                    hend64, show (2#64).toNat = 2 from rfl]
+                    rw [BitVec.le_def, hend_w, show (2#64).toNat = 2 from rfl]; omega),
+                    hend_w, show (2#64).toNat = 2 from rfl]
+                have he1_toNat : (BitVec.setWidth 64
+                      s.core.wvec[(BitVec.setWidth 64 lit <<< (1 : Nat)).toNat] +
+                    BitVec.setWidth 64 s.core.wvec[2 * lit.toNat + 1] - 1#64).toNat =
+                    end0 - 1 := by
+                  rw [BitVec.toNat_sub_of_le (by
+                    rw [BitVec.le_def, hend_w, show (1#64).toNat = 1 from rfl]; omega),
+                    hend_w, show (1#64).toNat = 1 from rfl]
                 have hsz_sub2 : (BitVec.setWidth 64
                       (s.core.wvec[((lit.setWidth 64 <<< (1 : Nat)) +
                         (1 : BitVec 64)).toNat]'hbd1_w) - 2#64).setWidth 32 =
@@ -726,49 +777,9 @@ theorem full_unwatch_large_fid_wp (Γ : Env) :
                     rw [BitVec.le_def, hsz64, show (2#64).toNat = 2 from rfl]; omega),
                     hsz64, show (2#64).toNat = 2 from rfl, BitVec.toNat_ofNat,
                     Nat.mod_eq_of_lt (by omega)]
-                obtain ⟨hok_t, hst_t⟩ := store_fullMem_wstk_i64 (s := sF)
-                  (idx := (BitVec.setWidth 64
-                      (s.core.wvec[(lit.setWidth 64 <<< (1 : Nat)).toNat]'hbd0_w) +
-                    BitVec.setWidth 64
-                      (s.core.wvec[((lit.setWidth 64 <<< (1 : Nat)) +
-                        (1 : BitVec 64)).toNat]'hbd1_w)) - 2#64)
-                  0xFFFFFFFFFFFFFFFF#64 (by
-                    change ((BitVec.setWidth 64
-                        (s.core.wvec[(lit.setWidth 64 <<< (1 : Nat)).toNat]'hbd0_w) +
-                      BitVec.setWidth 64
-                        (s.core.wvec[((lit.setWidth 64 <<< (1 : Nat)) +
-                          (1 : BitVec 64)).toNat]'hbd1_w)) - 2#64).toNat + 1 < wstk3.length
-                    rw [he2_toNat, hlen3]; omega) hm4
-                have hlo_f : (0xFFFFFFFFFFFFFFFF#64 : BitVec 64).setWidth 32 = 0xFFFFFFFF#32 := rfl
-                have hhi_f : ((0xFFFFFFFFFFFFFFFF#64 : BitVec 64) >>> 32).setWidth 32 =
-                    0xFFFFFFFF#32 := rfl
-                let wstk_fin := (wstk3.set (end0 - 2) 0xFFFFFFFF#32).set (end0 - 1) 0xFFFFFFFF#32
-                have hws_t_eq :
-                    (wstk3.set ((BitVec.setWidth 64
-                        (s.core.wvec[(lit.setWidth 64 <<< (1 : Nat)).toNat]'hbd0_w) +
-                      BitVec.setWidth 64
-                        (s.core.wvec[((lit.setWidth 64 <<< (1 : Nat)) +
-                          (1 : BitVec 64)).toNat]'hbd1_w)) - 2#64).toNat
-                      ((0xFFFFFFFFFFFFFFFF#64 : BitVec 64).setWidth 32)).set
-                    (((BitVec.setWidth 64
-                        (s.core.wvec[(lit.setWidth 64 <<< (1 : Nat)).toNat]'hbd0_w) +
-                      BitVec.setWidth 64
-                        (s.core.wvec[((lit.setWidth 64 <<< (1 : Nat)) +
-                          (1 : BitVec 64)).toNat]'hbd1_w)) - 2#64).toNat + 1)
-                      (((0xFFFFFFFFFFFFFFFF#64 : BitVec 64) >>> 32).setWidth 32) = wstk_fin := by
-                  dsimp only [wstk_fin]; rw [he2_toNat, hlo_f, hhi_f,
-                    show end0 - 2 + 1 = end0 - 1 by omega]
-                rw [hws_t_eq] at hst_t
-                have h0_add : ∀ x : BitVec 64,
-                    x + BitVec.ofNat (OfNat.ofNat 64) (OfNat.ofNat 0) * 8 = x := fun x => by
-                  rw [show BitVec.ofNat (OfNat.ofNat 64) (OfNat.ofNat 0) * 8 = 0#64 from rfl,
-                    BitVec.add_zero]
-                c0_hsteps_nogrp
-                refine wp_store_sep (by dsimp only [Arg.val]; rw [h0_add]; exact ⟨hok_t, hst_t⟩)
-                  fun m4t hm4t => ?_
-                clear hm4
-                c0_hsteps
                 let wvec' := s.core.wvec.set (2 * lit.toNat + 1) (BitVec.ofNat 32 (sz0 - 2))
+                let wstk_fin :=
+                  (wstk3.set (end0 - 2) 0xFFFFFFFF#32).set (end0 - 1) 0xFFFFFFFF#32
                 let wu' := s.core.wusable + 2#64
                 obtain ⟨hlay', hmw_pres⟩ := fid_unwatch_fin_inv rfl hlen.core_ok hlay hlit_lt hsz2
                   hp_ge2 hpe hout3 hsh3 hinv_found
@@ -776,12 +787,20 @@ theorem full_unwatch_large_fid_wp (Γ : Env) :
                     (BitVec.setWidth 64 (s.core.wvec[2 * lit.toNat + 1]'(by omega)) -
                       2#64).setWidth 32 = BitVec.ofNat 32 (sz0 - 2) := by
                   simpa only [h2l1_eq] using hsz_sub2
+                have hm' : (FullMem c { s with core := { s.core with
+                    wusable := wu', wvec := wvec', wstk := wstk_fin } } ⋆ R) m := by
+                  have h1 : (1#64 : BitVec 64) = 1 := rfl
+                  have h2 : (2#64 : BitVec 64) = 2 := rfl
+                  have hff : (4294967295 : BitVec 32) = 0xFFFFFFFF#32 := rfl
+                  have hsz_r := hsz_sub2'; rw [h2] at hsz_r
+                  have he2_r := he2_toNat; rw [h2] at he2_r
+                  have he1_r := he1_toNat; rw [h1] at he1_r
+                  simpa only [wvec', wstk_fin, wu', h1, h2, hff, h2l1_eq,
+                    hsz_r, he2_r, he1_r] using hm
                 exact hQ wvec' wstk_fin wu' _
                   ⟨{ hlen.core_ok with wvec_len := by simp [wvec', hwv_len],
                                        wstk_len_arr := by simp [wstk_fin, hlen3] },
-                   hlen.scratch_ok⟩ hlay' hmw_pres
-                  (by simpa only [sF, wvec', wstk_fin, wu', hsz_sub2', h2l1_eq,
-                    show (2 : BitVec 64) = 2#64 from rfl] using hm)
+                   hlen.scratch_ok⟩ hlay' hmw_pres hm'
               · -- Optional 1-literal `u32` tail: `if (p < end)`
                 intro J1t hJ1t
                 c0_hsplit
@@ -816,8 +835,10 @@ theorem full_unwatch_large_fid_wp (Γ : Env) :
             · -- Optional 2-literal `u64` step: `if (p + 2 <= end)`
               intro J2t hJ2t
               c0_hsplit
-              · have hpc2_nat : (pc + 2#64).toNat = pc.toNat + 2 := by bv_omega
-                have hqc2_nat : (qc + 2#64).toNat = qc.toNat + 2 := by bv_omega
+              · have hpc2_nat : (pc + 2#64).toNat = pc.toNat + 2 := by
+                  rw [BitVec.toNat_add, show (2#64).toNat = 2 from rfl, Nat.mod_eq_of_lt (by omega)]
+                have hqc2_nat : (qc + 2#64).toNat = qc.toNat + 2 := by
+                  rw [BitVec.toNat_add, show (2#64).toNat = 2 from rfl, Nat.mod_eq_of_lt (by omega)]
                 have hpc2_le : pc.toNat + 2 ≤ end0 := by
                   have hc' : (pc + 2#64).toNat ≤ (BitVec.setWidth 64
                       (s.core.wvec[(lit.setWidth 64 <<< (1 : Nat)).toNat]'hbd0_w) +
@@ -856,7 +877,9 @@ theorem full_unwatch_large_fid_wp (Γ : Env) :
                     by simpa only [hpc2_nat] using hs2.2.2, hm2c⟩,
                    by rw [hpc2_nat]; omega⟩
               · have hpc2_gt : end0 < pc.toNat + 2 := by
-                  have h2 : (pc + 2#64).toNat = pc.toNat + 2 := by bv_omega
+                  have h2 : (pc + 2#64).toNat = pc.toNat + 2 := by
+                    rw [BitVec.toNat_add, show (2#64).toNat = 2 from rfl,
+                      Nat.mod_eq_of_lt (by omega)]
                   have hc' : ¬ (pc + 2#64).toNat ≤ (BitVec.setWidth 64
                       (s.core.wvec[(lit.setWidth 64 <<< (1 : Nat)).toNat]'hbd0_w) +
                     BitVec.setWidth 64

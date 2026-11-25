@@ -184,6 +184,11 @@ void full_unwatch_large_fid(FullHdr *h, u32 lit, u32 cref) {
     u32 w = wstk[p - 1ULL];
     if (w == cref) {
       u64 q = p - 2ULL;
+      if ((p & 1ULL) != 0ULL && p < end) {
+        wstk[q] = wstk[p];
+        q = q + 1ULL;
+        p = p + 1ULL;
+      }
       while (p + 4ULL <= end) {
         u64 *sp4 = (u64 *)(wstk + p);
         u64 *dp4 = (u64 *)(wstk + q);
@@ -204,8 +209,8 @@ void full_unwatch_large_fid(FullHdr *h, u32 lit, u32 cref) {
       if (p < end) {
         wstk[q] = wstk[p];
       }
-      u64 *tail = (u64 *)(wstk + (end - 2ULL));
-      tail[0] = 0xFFFFFFFFFFFFFFFFULL;
+      wstk[end - 2ULL] = 0xFFFFFFFFu;
+      wstk[end - 1ULL] = 0xFFFFFFFFu;
       wvec[((u64)lit << 1) + 1ULL] = (u32)(sz - 2ULL);
       h->wusable = h->wusable + 2ULL;
       return;
@@ -752,14 +757,22 @@ bool full_bva_commit_fid(FullHdr *h, u32 best_k) {
       u64 ncr = full_alloc_cl(h, tk, 0u, false);
       if (ncr == 0xFFFFFFFFULL) { ok = false; break; }
       u32 *dst_cl = ar + (ncr + 3ULL);
-      j = 0u;
-      while (j + 2u <= tk) {
-        u64 *dp = (u64 *)(dst_cl + (u64)j);
-        u64 *sp = (u64 *)(tmp + (u64)j);
-        dp[0] = sp[0];
-        j = j + 2u;
+      if ((ncr & 1ULL) != 0ULL) {
+        j = 0u;
+        while (j + 2u <= tk) {
+          u64 *dp = (u64 *)(dst_cl + (u64)j);
+          u64 *sp = (u64 *)(tmp + (u64)j);
+          dp[0] = sp[0];
+          j = j + 2u;
+        }
+        if (j < tk) { dst_cl[j] = tmp[j]; }
+      } else {
+        j = 0u;
+        while (j < tk) {
+          dst_cl[j] = tmp[j];
+          j = j + 1u;
+        }
       }
-      if (j < tk) { dst_cl[j] = tmp[j]; }
       j = 0u;
       while (j < tk) {
         if (!full_watch_push(h, tmp[j], tk & PW_LIT_MASK, (u32)ncr, 2u)) {

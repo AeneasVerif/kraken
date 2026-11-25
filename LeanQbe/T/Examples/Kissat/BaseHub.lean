@@ -114,6 +114,13 @@ public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProof
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofCone0
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofCone1
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofVar
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof0a
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof0b
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof1a
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof1b
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof2
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas1
 public import LeanQbe.T.Examples.Kissat.FullHeurWalkLemmas2

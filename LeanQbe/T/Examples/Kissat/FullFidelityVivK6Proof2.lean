@@ -22,7 +22,7 @@ import LeanQbe.T.Logic.ControlComb
 /-!
 # Kissat Fidelity `full_bva_commit_fid_wp` (`FullFidelityVivK6Proof2`)
 
-UNSAT-only `Func.wp` proof (`public section`, `0 @[expose]`, `0 import all`, `std3`) for
+UNSAT-only `Func.wp` proof (`public section`, zero expose, zero import-all, `std3`) for
 `G1-P2.1b`: `full_bva_commit_fid` (safe 2-literal `u64` copy loop + `u32` tail and `u64` `cnt`
 zeroing loops) against exact `FullM4Bva.m4BvaCommitSpec`.
 -/
@@ -773,28 +773,44 @@ private def m7BvaLargeTopExpr (h pAr pScr pFl pTmp : Val i64) (best_k mi c_top f
          Expr.jnz (Arg.var ceq.fst) (Expr.jump J4 (Arg.var mi, Arg.imm false, ()))
            (bOp64 (.add i64) (Arg.var pncr.fst) (Arg.imm 3) fun n3 =>
             bPtr32 pAr n3 fun dst_cl =>
-            Expr.group (fun Jcp => Blocks.cons (fun (pjc : Tup Val [i32]) =>
-              bOp32 (.add i32) (Arg.var pjc.fst) (Arg.imm 2) fun jc2 =>
-              bCmp32 .ule (Arg.var jc2) (Arg.var pf.fst) fun cjc => Expr.jnz (Arg.var cjc)
-                (bZext (Arg.var pjc.fst) fun jc64 => bPtr32 dst_cl jc64 fun dp =>
-                 bZext (Arg.var pjc.fst) fun jc64b => bPtr32 pTmp jc64b fun sp =>
-                 bIdx0_64 fun i0a => bOp64 (.mul i64) (Arg.var i0a) (Arg.imm 8) fun i0a8 =>
-                 bOp64 (.add i64) (Arg.var dp) (Arg.var i0a8) fun dp0 =>
-                 bIdx0_64 fun i0b => bOp64 (.mul i64) (Arg.var i0b) (Arg.imm 8) fun i0b8 =>
-                 bOp64 (.add i64) (Arg.var sp) (Arg.var i0b8) fun sp0 =>
-                 Expr.load i64 (Arg.var sp0) fun v64 =>
-                 Expr.store (t := i64) (Arg.var v64) (Arg.var dp0)
-                   (bOp32 (.add i32) (Arg.var pjc.fst) (Arg.imm 2) fun jc2n =>
-                    Expr.jump Jcp.fst (Arg.var jc2n, ())))
-                (Expr.group (fun _ => Blocks.cons (fun (_ : Tup Val []) =>
-                   m7BvaLargeWatchExpr h pAr pFl pTmp pf.fst pncr.fst J6) Blocks.nil)
-                 fun Jtl =>
-                 bCmp32 .ult (Arg.var pjc.fst) (Arg.var pf.fst) fun ct => Expr.jnz (Arg.var ct)
-                   (bZext (Arg.var pjc.fst) fun jt64a => bPtr32 dst_cl jt64a fun dpt =>
-                    bZext (Arg.var pjc.fst) fun jt64b => bLd32 pTmp jt64b fun tv =>
-                    Expr.store (t := i32) (Arg.var tv) (Arg.var dpt) (Expr.jump Jtl.fst ()))
-                   (Expr.jump Jtl.fst ()))) Blocks.nil)
-             fun Jcp => Expr.jump Jcp.fst (Arg.imm 0, ())))) Blocks.nil)
+            Expr.group (fun _ => Blocks.cons (fun (_ : Tup Val [i32]) =>
+               m7BvaLargeWatchExpr h pAr pFl pTmp pf.fst pncr.fst J6) Blocks.nil)
+             fun Jcp_done =>
+             bOp64 (.and i64) (Arg.var pncr.fst) (Arg.imm 1) fun b =>
+             Expr.let_ { sig := [i64, i64], code := OpCode.cmp .ne i64,
+                         args := (Arg.var b, Arg.imm 0, ()) } fun cb =>
+             Expr.jnz (Arg.var cb.fst)
+               (Expr.group (fun Jcp => Blocks.cons (fun (pjc : Tup Val [i32]) =>
+                  bOp32 (.add i32) (Arg.var pjc.fst) (Arg.imm 2) fun jc2 =>
+                  bCmp32 .ule (Arg.var jc2) (Arg.var pf.fst) fun cjc => Expr.jnz (Arg.var cjc)
+                    (bZext (Arg.var pjc.fst) fun jc64 => bPtr32 dst_cl jc64 fun dp =>
+                     bZext (Arg.var pjc.fst) fun jc64b => bPtr32 pTmp jc64b fun sp =>
+                     bIdx0_64 fun i0a => bOp64 (.mul i64) (Arg.var i0a) (Arg.imm 8) fun i0a8 =>
+                     bOp64 (.add i64) (Arg.var dp) (Arg.var i0a8) fun dp0 =>
+                     bIdx0_64 fun i0b => bOp64 (.mul i64) (Arg.var i0b) (Arg.imm 8) fun i0b8 =>
+                     bOp64 (.add i64) (Arg.var sp) (Arg.var i0b8) fun sp0 =>
+                     Expr.load i64 (Arg.var sp0) fun v64 =>
+                     Expr.store (t := i64) (Arg.var v64) (Arg.var dp0)
+                       (bOp32 (.add i32) (Arg.var pjc.fst) (Arg.imm 2) fun jc2n =>
+                        Expr.jump Jcp.fst (Arg.var jc2n, ())))
+                    (Expr.group (fun _ => Blocks.cons (fun (_ : Tup Val []) =>
+                       Expr.jump Jcp_done.fst (Arg.var pjc.fst, ())) Blocks.nil)
+                     fun Jtl =>
+                     bCmp32 .ult (Arg.var pjc.fst) (Arg.var pf.fst) fun ct => Expr.jnz (Arg.var ct)
+                       (bZext (Arg.var pjc.fst) fun jt64a => bPtr32 dst_cl jt64a fun dpt =>
+                        bZext (Arg.var pjc.fst) fun jt64b => bLd32 pTmp jt64b fun tv =>
+                        Expr.store (t := i32) (Arg.var tv) (Arg.var dpt) (Expr.jump Jtl.fst ()))
+                       (Expr.jump Jtl.fst ()))) Blocks.nil)
+                fun Jcp => Expr.jump Jcp.fst (Arg.imm 0, ()))
+               (Expr.group (fun Jcp => Blocks.cons (fun (pjc : Tup Val [i32]) =>
+                  bCmp32 .ult (Arg.var pjc.fst) (Arg.var pf.fst) fun cjc => Expr.jnz (Arg.var cjc)
+                    (bZext (Arg.var pjc.fst) fun jc64a => bPtr32 dst_cl jc64a fun dpc =>
+                     bZext (Arg.var pjc.fst) fun jc64b => bLd32 pTmp jc64b fun tv =>
+                     Expr.store (t := i32) (Arg.var tv) (Arg.var dpc)
+                       (bOp32 (.add i32) (Arg.var pjc.fst) (Arg.imm 1) fun j1 =>
+                        Expr.jump Jcp.fst (Arg.var j1, ())))
+                    (Expr.jump Jcp_done.fst (Arg.var pjc.fst, ()))) Blocks.nil)
+                fun Jcp => Expr.jump Jcp.fst (Arg.imm 0, ()))))) Blocks.nil)
      fun Jf => Expr.jump Jf.fst (Arg.imm 1, Arg.imm 0, ()))
 
 private abbrev M7DefragHyp (Γ : Env) :=
@@ -1428,166 +1444,230 @@ private theorem m7_bva_large_top_wp {Γ : Env} {Q : Post [.bool]} {X : XPost}
       · let ncr0 := stm.core.arena_len
         have hncr_cap : ncr0 + 3 + tk.toNat ≤ c.arena_cap := hlen_a1.core_ok.arena_len_le
         have htk_b : tk.toNat + 2 < 2 ^ 32 := by omega
-        refine wp_loop_inv
-          (fun (jc, ()) mjc => ∃ arj : List (BitVec 32), jc.toNat ≤ tk.toNat ∧
-            arj.length = c.arena_cap ∧ (∀ i < ncr0, arj[i]? = stm.core.arena[i]?) ∧
-            arj[ncr0]? = ar1[ncr0]? ∧ arj[ncr0 + 2]? = ar1[ncr0 + 2]? ∧
-            (∀ t < jc.toNat, arj[ncr0 + 3 + t]? = tmpj[t]?) ∧
+        let CopyDone (mf : Mem 64) : Prop :=
+          ∃ arf : List (BitVec 32), arf.length = c.arena_cap ∧
+            (∀ i < ncr0, arf[i]? = stm.core.arena[i]?) ∧ arf[ncr0]? = ar1[ncr0]? ∧
+            arf[ncr0 + 2]? = ar1[ncr0 + 2]? ∧ (∀ t < tk.toNat, arf[ncr0 + 3 + t]? = tmpj[t]?) ∧
             (FullMem c { st_tmp with core := { st_tmp.core with
-              arena := arj, arena_len := ncr0 + 3 + tk.toNat } } ⋆ R) mjc)
-          (fun (jc, _) _ => tk.toNat - jc.toNat) (fun Jcp hJcp => by
-            m7_hsteps_to_jump
-            exact hJcp (0#32, ()) ma1 ⟨ar1, Nat.zero_le _, hlen_a1.core_ok.arena_len_arr,
-              hhold_a1, rfl, rfl, fun _ h => by simp only [bv_c0] at h; omega, hma1⟩)
-          (fun Jcp (jc, ()) mjc ⟨arj, hjc_le, harj_l, hhold_j, harj0, harj2, hcp_j, hmjc⟩ ihcp =>
-            ?_)
-        c0_hsteps_nogrp
-        · have hjc2 : jc.toNat + 2 ≤ tk.toNat := fid_bv32_ule_add2 hjc_le htk_b (by c0_bound)
-          have hjc2_n : (jc + 2#32).toNat = jc.toNat + 2 := fid_bv32_add2_toNat hjc_le htk_b
-          have hjc_tmp_len : jc.toNat + 1 < st_tmp.core.tmp.length := by dsimp only [st_tmp]; omega
-          have hjc_ar_len : (ncr0 + 3 + jc.toNat) + 1 < arj.length := by omega
-          have hncr3 : ncr0 + 3 < 2 ^ 64 := by omega
-          have hjc_u64 : ncr0 + 3 + jc.toNat < 2 ^ 64 := by omega
-          let v64_p : BitVec 64 :=
-            packU32Pair (tmpj[jc.toNat]'(by omega)) (tmpj[jc.toNat + 1]'(by omega))
-          let arj' := (arj.set (ncr0 + 3 + jc.toNat) (tmpj[jc.toNat]'(by omega))).set
-            (ncr0 + 3 + jc.toNat + 1) (tmpj[jc.toNat + 1]'(by omega))
-          refine wp_load_of (v := v64_p) ?_ ?_
-          · exact loadVal_fullMem_tmp_i64_off
-              (s := { st_tmp with core := { st_tmp.core with
-                arena := arj, arena_len := ncr0 + 3 + tk.toNat } })
-              (fid_tmp_copy_addr c.pTmp jc) (by dsimp only [st_tmp]; exact hjc_tmp_len) hmjc
-          · refine wp_store_sep
-              (P := FullMem c { st_tmp with core := { st_tmp.core with
-                arena := arj', arena_len := ncr0 + 3 + tk.toNat } }) (R := R) ?_ ?_
-            · have hdp_st := store_fullMem_arena_i64_off
-                (s := { st_tmp with core := { st_tmp.core with
-                  arena := arj, arena_len := ncr0 + 3 + tk.toNat } })
-                v64_p (fid_arena_copy_addr c.pArena hncr3 jc hjc_u64)
-                (by dsimp only; exact hjc_ar_len) hmjc
-              dsimp only [v64_p] at hdp_st
-              rw [packU32Pair_lo, packU32Pair_hi] at hdp_st
-              exact hdp_st
-            · intro m1 hm1
-              m7_hsteps_to_jump
-              refine ihcp (jc + 2#32, ()) m1 (by dsimp only; rw [hjc2_n]; omega)
-                ⟨arj', by rw [hjc2_n]; exact hjc2, by simp [arj', harj_l],
-                 fun i hi => by
-                   dsimp only [arj']
-                   rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
-                   exact hhold_j i hi,
-                 by dsimp only [arj']
-                    rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
-                    exact harj0,
-                 by dsimp only [arj']
-                    rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
-                    exact harj2,
-                 fun t ht => by
-                   rw [hjc2_n] at ht; dsimp only [arj']
-                   by_cases ht1 : t = jc.toNat + 1
-                   · subst ht1
-                     rw [← Nat.add_assoc, List.getElem?_set_self (by simp [harj_l]; omega),
-                       List.getElem?_eq_getElem (by omega)]
-                     try rfl
-                   · rw [List.getElem?_set_ne (by omega)]
-                     by_cases ht0 : t = jc.toNat
-                     · subst ht0
-                       rw [List.getElem?_set_self (by omega), List.getElem?_eq_getElem (by omega)]
-                       try rfl
-                     · rw [List.getElem?_set_ne (by omega)]; exact hcp_j t (by omega),
-                 hm1⟩
-        · have htk_tail : tk.toNat ≤ jc.toNat + 1 := by
-            have h1 : ¬ (jc.toNat + (2#32 : BitVec 32).toNat) % 2 ^ 32 ≤ tk.toNat := by assumption
-            rw [show (2#32 : BitVec 32).toNat = 2 from rfl, Nat.mod_eq_of_lt (by omega)] at h1
-            omega
-          refine wp_join_group (ts := [])
-            (fun _ mf => ∃ arf : List (BitVec 32),
-              arf.length = c.arena_cap ∧ (∀ i < ncr0, arf[i]? = stm.core.arena[i]?) ∧
-              arf[ncr0]? = ar1[ncr0]? ∧ arf[ncr0 + 2]? = ar1[ncr0 + 2]? ∧
-              (∀ t < tk.toNat, arf[ncr0 + 3 + t]? = tmpj[t]?) ∧
-              (FullMem c { st_tmp with core := { st_tmp.core with
-                arena := arf, arena_len := ncr0 + 3 + tk.toNat } } ⋆ R) mf)
-            (fun _ _ mf ⟨arf, harj_l, hhold_j, harj0, harj2, hcp_j, hmjc⟩ => by
-              let st_cp : FullState :=
-                { st_tmp with core := { st_tmp.core with arena := arf, arena_len := ncr0 + 3 +
-                  tk.toNat } }
-              have hlen_cp : st_cp.LengthsOk c :=
-                ⟨{ hlen_a1.core_ok with arena_len_arr := harj_l }, hlen_a1.scratch_ok⟩
-              have hns_cp : (arf[ncr0]?.getD 0#32 &&& 0x00800000#32) = 0#32 := by
-                rw [harj0]; exact hns_a1
-              have hsz_cp : (arf[ncr0 + 2]?.getD 0#32).toNat = tk.toNat := by
-                rw [harj2]; exact hsz_a1
-              have hrefs_cp : fullArenaClauseRefsCore st_cp.core =
-                  fullArenaClauseRefsCore stm.core ++ [ncr0] :=
-                fullArenaClauseRefsCore_append hinvm.2.1.arena (by omega) rfl hhold_j hns_cp
-                  hsz_cp
-              have hwat_cp : ModeWatchesInv F_next st_cp.core :=
-                hinvm.2.1.watches.with_wstk rfl rfl rfl rfl rfl
-                  (fun r hr => by rw [hrefs_cp]; exact List.mem_append_left _ hr)
-              have hnew_lits_eq : fullArenaClauseLitsCore { stm.core with arena := arf } ncr0 =
-                  (2 * old_cv + 1) :: C_lits.filter (· != flit.toNat) := by
+              arena := arf, arena_len := ncr0 + 3 + tk.toNat } } ⋆ R) mf
+        refine wp_join_group (ts := [i32]) (fun (_, ()) mf => CopyDone mf)
+          (fun _ (_, ()) mf ⟨arf, harj_l, hhold_j, harj0, harj2, hcp_j, hmjc⟩ => by
+            let st_cp : FullState :=
+              { st_tmp with core := { st_tmp.core with arena := arf, arena_len := ncr0 + 3 +
+                tk.toNat } }
+            have hlen_cp : st_cp.LengthsOk c :=
+              ⟨{ hlen_a1.core_ok with arena_len_arr := harj_l }, hlen_a1.scratch_ok⟩
+            have hns_cp : (arf[ncr0]?.getD 0#32 &&& 0x00800000#32) = 0#32 := by
+              rw [harj0]; exact hns_a1
+            have hsz_cp : (arf[ncr0 + 2]?.getD 0#32).toNat = tk.toNat := by
+              rw [harj2]; exact hsz_a1
+            have hrefs_cp : fullArenaClauseRefsCore st_cp.core =
+                fullArenaClauseRefsCore stm.core ++ [ncr0] :=
+              fullArenaClauseRefsCore_append hinvm.2.1.arena (by omega) rfl hhold_j hns_cp hsz_cp
+            have hwat_cp : ModeWatchesInv F_next st_cp.core :=
+              hinvm.2.1.watches.with_wstk rfl rfl rfl rfl rfl
+                (fun r hr => by rw [hrefs_cp]; exact List.mem_append_left _ hr)
+            have hnew_lits_eq : fullArenaClauseLitsCore { stm.core with arena := arf } ncr0 =
+                (2 * old_cv + 1) :: C_lits.filter (· != flit.toNat) := by
+              rw [fullArenaLitsCore_eq_map (sz := tk.toNat)
+                (by unfold fullArenaClauseSizeCore; exact hsz_cp) (by dsimp only; omega)]
+              apply List.ext_getElem?; intro t; cases t with
+              | zero =>
+                rw [List.getElem?_map, List.getElem?_range (by omega), Option.map_some,
+                  Nat.add_zero, hcp_j 0 (by omega), htmp0, Option.getD_some, hfresh1]; rfl
+              | succ t' =>
+                by_cases ht : t' + 1 < tk.toNat
+                · rw [List.getElem?_map, List.getElem?_range ht, Option.map_some,
+                    hcp_j (t' + 1) ht, htmp_rest (t' + 1) (by omega) ht, Nat.add_sub_cancel,
+                    List.getElem?_cons_succ,
+                    List.getElem?_eq_getElem (by omega : t' < (C_lits.filter (· !=
+                      flit.toNat)).length),
+                    Option.getD_some]
+                · rw [List.getElem?_eq_none (by simp; omega),
+                    List.getElem?_eq_none (by simp; omega)]
+            have hnew_perm : (fullArenaClauseLitsCore { stm.core with arena := arf }
+                ncr0).Perm ((2 * old_cv + 1) :: resm) := by
+              rw [hnew_lits_eq]; have hf' : resm.Perm (C_lits.filter (· != flit.toNat)) := by
+                simpa only [flit, List.getElem?_eq_getElem (by omega : best_k.toNat <
+                  s.scratch.scratch_buf.length), Option.getD_some] using hres_perm_f
+              exact List.Perm.cons _ hf'.symm
+            have hnew_lt :
+                ∀ l ∈ fullArenaClauseLitsCore { stm.core with arena := arf } ncr0,
+                l < 2 * stm.core.cur_vars := by
+              intro l hl; rw [hcvm]
+              rcases List.mem_cons.mp (hnew_perm.subset hl) with rfl | hr
+              · omega
+              · have := hresm_lt l hr; omega
+            have hnew_nd : ((fullArenaClauseLitsCore { stm.core with arena := arf }
+                ncr0).map (· / 2)).Nodup := by
+              have hp := hnew_perm.map (· / 2)
+              refine (List.nodup_cons.mpr ⟨?_, hresm_nd⟩).perm hp.symm
+              intro hmem; obtain ⟨x, hx, hdiv⟩ := List.mem_map.mp hmem
+              have := hresm_lt x hx; dsimp only [old_cv] at *; omega
+            have hnew_ent : (cnfOfClauses F_next).EntailsClause
+                (cnfClause (fullArenaClauseLitsCore { stm.core with arena := arf } ncr0)) :=
+              clause_entails_of_perm hnew_perm.symm hresm_ent
+            have htmp_lt :
+                ∀ t (ht : t < tk.toNat), (tmpj[t]'(by omega)).toNat < 2 * (old_cv + 1) := by
+              intro t ht; have hmem : (tmpj[t]'(by omega)).toNat ∈
+                  fullArenaClauseLitsCore { stm.core with arena := arf } ncr0 := by
                 rw [fullArenaLitsCore_eq_map (sz := tk.toNat)
                   (by unfold fullArenaClauseSizeCore; exact hsz_cp) (by dsimp only; omega)]
-                apply List.ext_getElem?; intro t; cases t with
-                | zero =>
-                  rw [List.getElem?_map, List.getElem?_range (by omega), Option.map_some,
-                    Nat.add_zero, hcp_j 0 (by omega), htmp0, Option.getD_some, hfresh1]; rfl
-                | succ t' =>
-                  by_cases ht : t' + 1 < tk.toNat
-                  · rw [List.getElem?_map, List.getElem?_range ht, Option.map_some,
-                      hcp_j (t' + 1) ht, htmp_rest (t' + 1) (by omega) ht, Nat.add_sub_cancel,
-                      List.getElem?_cons_succ,
-                      List.getElem?_eq_getElem (by omega : t' < (C_lits.filter (· !=
-                        flit.toNat)).length),
-                      Option.getD_some]
-                  · rw [List.getElem?_eq_none (by simp; omega),
-                      List.getElem?_eq_none (by simp; omega)]
-              have hnew_perm : (fullArenaClauseLitsCore { stm.core with arena := arf }
-                  ncr0).Perm ((2 * old_cv + 1) :: resm) := by
-                rw [hnew_lits_eq]; have hf' : resm.Perm (C_lits.filter (· != flit.toNat)) := by
-                  simpa only [flit, List.getElem?_eq_getElem (by omega : best_k.toNat <
-                    s.scratch.scratch_buf.length), Option.getD_some] using hres_perm_f
-                exact List.Perm.cons _ hf'.symm
-              have hnew_lt :
-                  ∀ l ∈ fullArenaClauseLitsCore { stm.core with arena := arf } ncr0,
-                  l < 2 * stm.core.cur_vars := by
-                intro l hl; rw [hcvm]
-                rcases List.mem_cons.mp (hnew_perm.subset hl) with rfl | hr
-                · omega
-                · have := hresm_lt l hr; omega
-              have hnew_nd : ((fullArenaClauseLitsCore { stm.core with arena := arf }
-                  ncr0).map (· / 2)).Nodup := by
-                have hp := hnew_perm.map (· / 2)
-                refine (List.nodup_cons.mpr ⟨?_, hresm_nd⟩).perm hp.symm
-                intro hmem; obtain ⟨x, hx, hdiv⟩ := List.mem_map.mp hmem
-                have := hresm_lt x hx; dsimp only [old_cv] at *; omega
-              have hnew_ent : (cnfOfClauses F_next).EntailsClause
-                  (cnfClause (fullArenaClauseLitsCore { stm.core with arena := arf } ncr0)) :=
-                clause_entails_of_perm hnew_perm.symm hresm_ent
-              have htmp_lt :
-                  ∀ t (ht : t < tk.toNat), (tmpj[t]'(by omega)).toNat < 2 * (old_cv + 1) := by
-                intro t ht; have hmem : (tmpj[t]'(by omega)).toNat ∈
-                    fullArenaClauseLitsCore { stm.core with arena := arf } ncr0 := by
-                  rw [fullArenaLitsCore_eq_map (sz := tk.toNat)
-                    (by unfold fullArenaClauseSizeCore; exact hsz_cp) (by dsimp only; omega)]
-                  refine List.mem_map.mpr ⟨t, List.mem_range.mpr ht, ?_⟩
-                  rw [hcp_j t ht, List.getElem?_eq_getElem (by omega), Option.getD_some]
-                simpa only [hcvm] using hnew_lt _ hmem
-              exact m7_bva_large_watch_wp (stm := stm) hWPush hUnwatch
-                ⟨hinvm, hcvm, hfuelm, hsbm, htmm, htrm, hmono⟩ htmpj_l (by omega) (by omega)
-                (by omega) hncr_cap hhold_j hns_cp hsz_cp hnew_lt hnew_nd hnew_ent
-                (fun t ht => htmp_lt t ht) hlen_cp hrefs_cp hwat_cp hmjc hDone)
-            (fun Jtl hJtl => by
+                refine List.mem_map.mpr ⟨t, List.mem_range.mpr ht, ?_⟩
+                rw [hcp_j t ht, List.getElem?_eq_getElem (by omega), Option.getD_some]
+              simpa only [hcvm] using hnew_lt _ hmem
+            exact m7_bva_large_watch_wp (stm := stm) hWPush hUnwatch
+              ⟨hinvm, hcvm, hfuelm, hsbm, htmm, htrm, hmono⟩ htmpj_l (by omega) (by omega)
+              (by omega) hncr_cap hhold_j hns_cp hsz_cp hnew_lt hnew_nd hnew_ent
+              (fun t ht => htmp_lt t ht) hlen_cp hrefs_cp hwat_cp hmjc hDone)
+          (fun Jcp_done hJcp_done => by
+            let CopyInv : Tup Val [i32] → Mem 64 → Prop := fun (jc, ()) mjc =>
+              ∃ arj : List (BitVec 32), jc.toNat ≤ tk.toNat ∧
+                arj.length = c.arena_cap ∧ (∀ i < ncr0, arj[i]? = stm.core.arena[i]?) ∧
+                arj[ncr0]? = ar1[ncr0]? ∧ arj[ncr0 + 2]? = ar1[ncr0 + 2]? ∧
+                (∀ t < jc.toNat, arj[ncr0 + 3 + t]? = tmpj[t]?) ∧
+                (FullMem c { st_tmp with core := { st_tmp.core with
+                  arena := arj, arena_len := ncr0 + 3 + tk.toNat } } ⋆ R) mjc
+            c0_hsplit
+            · -- `(ncr & 1) != 0`: `dst_cl` is 8-byte aligned; run `u64` copy loop + tail
+              refine wp_loop_inv CopyInv (fun (jc, _) _ => tk.toNat - jc.toNat)
+                (fun Jcp hJcp => by
+                  m7_hsteps_to_jump
+                  exact hJcp (0#32, ()) ma1 ⟨ar1, Nat.zero_le _, hlen_a1.core_ok.arena_len_arr,
+                    hhold_a1, rfl, rfl, fun _ h => by simp only [bv_c0] at h; omega, hma1⟩)
+                (fun Jcp (jc, ()) mjc ⟨arj, hjc_le, harj_l, hhold_j, harj0, harj2, hcp_j, hmjc⟩
+                    ihcp => ?_)
+              c0_hsteps_nogrp
+              · have hjc2 : jc.toNat + 2 ≤ tk.toNat := fid_bv32_ule_add2 hjc_le htk_b (by c0_bound)
+                have hjc2_n : (jc + 2#32).toNat = jc.toNat + 2 := fid_bv32_add2_toNat hjc_le htk_b
+                have hjc_tmp_len : jc.toNat + 1 < st_tmp.core.tmp.length := by
+                  dsimp only [st_tmp]; omega
+                have hjc_ar_len : (ncr0 + 3 + jc.toNat) + 1 < arj.length := by omega
+                have hncr3 : ncr0 + 3 < 2 ^ 64 := by omega
+                have hjc_u64 : ncr0 + 3 + jc.toNat < 2 ^ 64 := by omega
+                let v64_p : BitVec 64 :=
+                  packU32Pair (tmpj[jc.toNat]'(by omega)) (tmpj[jc.toNat + 1]'(by omega))
+                let arj' := (arj.set (ncr0 + 3 + jc.toNat) (tmpj[jc.toNat]'(by omega))).set
+                  (ncr0 + 3 + jc.toNat + 1) (tmpj[jc.toNat + 1]'(by omega))
+                refine wp_load_of (v := v64_p) ?_ ?_
+                · exact loadVal_fullMem_tmp_i64_off
+                    (s := { st_tmp with core := { st_tmp.core with
+                      arena := arj, arena_len := ncr0 + 3 + tk.toNat } })
+                    (fid_tmp_copy_addr c.pTmp jc) (by dsimp only [st_tmp]; exact hjc_tmp_len) hmjc
+                · refine wp_store_sep
+                    (P := FullMem c { st_tmp with core := { st_tmp.core with
+                      arena := arj', arena_len := ncr0 + 3 + tk.toNat } }) (R := R) ?_ ?_
+                  · have hdp_st := store_fullMem_arena_i64_off
+                      (s := { st_tmp with core := { st_tmp.core with
+                        arena := arj, arena_len := ncr0 + 3 + tk.toNat } })
+                      v64_p (fid_arena_copy_addr c.pArena hncr3 jc hjc_u64)
+                      (by dsimp only; exact hjc_ar_len) hmjc
+                    dsimp only [v64_p] at hdp_st
+                    rw [packU32Pair_lo, packU32Pair_hi] at hdp_st
+                    exact hdp_st
+                  · intro m1 hm1
+                    m7_hsteps_to_jump
+                    refine ihcp (jc + 2#32, ()) m1 (by dsimp only; rw [hjc2_n]; omega)
+                      ⟨arj', by rw [hjc2_n]; exact hjc2, by simp [arj', harj_l],
+                       fun i hi => by
+                         dsimp only [arj']
+                         rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
+                         exact hhold_j i hi,
+                       by dsimp only [arj']
+                          rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
+                          exact harj0,
+                       by dsimp only [arj']
+                          rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega)]
+                          exact harj2,
+                       fun t ht => by
+                         rw [hjc2_n] at ht; dsimp only [arj']
+                         by_cases ht1 : t = jc.toNat + 1
+                         · subst ht1
+                           rw [← Nat.add_assoc, List.getElem?_set_self (by simp [harj_l]; omega),
+                             List.getElem?_eq_getElem (by omega)]
+                           try rfl
+                         · rw [List.getElem?_set_ne (by omega)]
+                           by_cases ht0 : t = jc.toNat
+                           · subst ht0
+                             rw [List.getElem?_set_self (by omega),
+                               List.getElem?_eq_getElem (by omega)]
+                             try rfl
+                           · rw [List.getElem?_set_ne (by omega)]; exact hcp_j t (by omega),
+                       hm1⟩
+              · have htk_tail : tk.toNat ≤ jc.toNat + 1 := by
+                  have h1 : ¬ (jc.toNat + (2#32 : BitVec 32).toNat) % 2 ^ 32 ≤ tk.toNat := by
+                    assumption
+                  rw [show (2#32 : BitVec 32).toNat = 2 from rfl, Nat.mod_eq_of_lt (by omega)] at h1
+                  omega
+                refine wp_join_group (ts := []) (fun () mf => CopyDone mf)
+                  (fun _ _ mf hc => by m7_hsteps_to_jump; exact hJcp_done (jc, ()) mf hc)
+                  (fun Jtl hJtl => by
+                    c0_hsteps_nogrp
+                    · have hjc_lt : jc.toNat < tk.toNat := by c0_bound
+                      have hjc_tmp : jc.toNat < tmpj.length := by omega
+                      have hjc_tmp_st : jc.toNat < st_tmp.core.tmp.length := by
+                        dsimp only [st_tmp]; exact hjc_tmp
+                      have hncr3 : ncr0 + 3 < 2 ^ 64 := by omega
+                      have hjc_u64 : ncr0 + 3 + jc.toNat < 2 ^ 64 := by omega
+                      have har_tl : ncr0 + 3 + jc.toNat < arj.length := by omega
+                      let tv_j : BitVec 32 := tmpj[jc.toNat]'hjc_tmp
+                      let ar_tl := arj.set (ncr0 + 3 + jc.toNat) tv_j
+                      refine wp_load_of (v := tv_j) ?_ ?_
+                      · exact loadVal_fullMem_tmp_i32_off
+                          (s := { st_tmp with core := { st_tmp.core with
+                            arena := arj, arena_len := ncr0 + 3 + tk.toNat } })
+                          (fid_tmp_tail_addr c.pTmp jc) (by dsimp only [st_tmp]; exact hjc_tmp_st)
+                          hmjc
+                      · refine wp_store_sep
+                          (P := FullMem c { st_tmp with core := { st_tmp.core with
+                            arena := ar_tl, arena_len := ncr0 + 3 + tk.toNat } }) (R := R) ?_ ?_
+                        · exact store_fullMem_arena_i32_off
+                            (s := { st_tmp with core := { st_tmp.core with
+                              arena := arj, arena_len := ncr0 + 3 + tk.toNat } })
+                            tv_j (fid_arena_tail_addr c.pArena hncr3 jc hjc_u64)
+                            (by dsimp only; exact har_tl) hmjc
+                        · intro mf hmf
+                          m7_hsteps_to_jump
+                          refine hJtl () mf ⟨ar_tl, by simp [ar_tl, harj_l],
+                            fun i hi => by
+                              dsimp only [ar_tl]
+                              rw [List.getElem?_set_ne (by omega)]; exact hhold_j i hi,
+                            by
+                              dsimp only [ar_tl]; rw [List.getElem?_set_ne (by omega)]; exact harj0,
+                            by
+                              dsimp only [ar_tl]; rw [List.getElem?_set_ne (by omega)]; exact harj2,
+                            fun t ht => by
+                              dsimp only [ar_tl]
+                              by_cases hte : t = jc.toNat
+                              · subst hte
+                                rw [List.getElem?_set_self (by omega),
+                                  List.getElem?_eq_getElem hjc_tmp]
+                              · rw [List.getElem?_set_ne (by omega)]; exact hcp_j t (by omega),
+                            hmf⟩
+                    · have hjc_eq : jc.toNat = tk.toNat := by c0_bound
+                      rw [hjc_eq] at hcp_j
+                      m7_hsteps_to_jump
+                      exact hJtl () mjc ⟨arj, harj_l, hhold_j, harj0, harj2, hcp_j, hmjc⟩)
+            · -- `(ncr & 1) == 0`: aligned-safe scalar `u32` copy loop
+              refine wp_loop_inv CopyInv (fun (jc, _) _ => tk.toNat - jc.toNat)
+                (fun Jcp hJcp => by
+                  m7_hsteps_to_jump
+                  exact hJcp (0#32, ()) ma1 ⟨ar1, Nat.zero_le _, hlen_a1.core_ok.arena_len_arr,
+                    hhold_a1, rfl, rfl, fun _ h => by simp only [bv_c0] at h; omega, hma1⟩)
+                (fun Jcp (jc, ()) mjc ⟨arj, hjc_le, harj_l, hhold_j, harj0, harj2, hcp_j, hmjc⟩
+                    ihcp => ?_)
               c0_hsteps_nogrp
               · have hjc_lt : jc.toNat < tk.toNat := by c0_bound
+                have hjc1_n : (jc + 1#32).toNat = jc.toNat + 1 := by
+                  rw [BitVec.toNat_add, show (1#32).toNat = 1 from rfl, Nat.mod_eq_of_lt (by omega)]
                 have hjc_tmp : jc.toNat < tmpj.length := by omega
                 have hjc_tmp_st : jc.toNat < st_tmp.core.tmp.length := by
                   dsimp only [st_tmp]; exact hjc_tmp
                 have hncr3 : ncr0 + 3 < 2 ^ 64 := by omega
                 have hjc_u64 : ncr0 + 3 + jc.toNat < 2 ^ 64 := by omega
-                have har_tl : ncr0 + 3 + jc.toNat < arj.length := by omega
+                have har_cp : ncr0 + 3 + jc.toNat < arj.length := by omega
                 let tv_j : BitVec 32 := tmpj[jc.toNat]'hjc_tmp
-                let ar_tl := arj.set (ncr0 + 3 + jc.toNat) tv_j
+                let ar_cp := arj.set (ncr0 + 3 + jc.toNat) tv_j
                 refine wp_load_of (v := tv_j) ?_ ?_
                 · exact loadVal_fullMem_tmp_i32_off
                     (s := { st_tmp with core := { st_tmp.core with
@@ -1595,31 +1675,33 @@ private theorem m7_bva_large_top_wp {Γ : Env} {Q : Post [.bool]} {X : XPost}
                     (fid_tmp_tail_addr c.pTmp jc) (by dsimp only [st_tmp]; exact hjc_tmp_st) hmjc
                 · refine wp_store_sep
                     (P := FullMem c { st_tmp with core := { st_tmp.core with
-                      arena := ar_tl, arena_len := ncr0 + 3 + tk.toNat } }) (R := R) ?_ ?_
+                      arena := ar_cp, arena_len := ncr0 + 3 + tk.toNat } }) (R := R) ?_ ?_
                   · exact store_fullMem_arena_i32_off
                       (s := { st_tmp with core := { st_tmp.core with
                         arena := arj, arena_len := ncr0 + 3 + tk.toNat } })
                       tv_j (fid_arena_tail_addr c.pArena hncr3 jc hjc_u64)
-                      (by dsimp only; exact har_tl) hmjc
-                  · intro mf hmf
+                      (by dsimp only; exact har_cp) hmjc
+                  · intro m1 hm1
                     m7_hsteps_to_jump
-                    refine hJtl () mf ⟨ar_tl, by simp [ar_tl, harj_l],
-                      fun i hi => by
-                        dsimp only [ar_tl]
-                        rw [List.getElem?_set_ne (by omega)]; exact hhold_j i hi,
-                      by dsimp only [ar_tl]; rw [List.getElem?_set_ne (by omega)]; exact harj0,
-                      by dsimp only [ar_tl]; rw [List.getElem?_set_ne (by omega)]; exact harj2,
-                      fun t ht => by
-                        dsimp only [ar_tl]
-                        by_cases hte : t = jc.toNat
-                        · subst hte
-                          rw [List.getElem?_set_self (by omega), List.getElem?_eq_getElem hjc_tmp]
-                        · rw [List.getElem?_set_ne (by omega)]; exact hcp_j t (by omega),
-                      hmf⟩
+                    refine ihcp (jc + 1#32, ()) m1 (by dsimp only; rw [hjc1_n]; omega)
+                      ⟨ar_cp, by rw [hjc1_n]; omega, by simp [ar_cp, harj_l],
+                       fun i hi => by
+                         dsimp only [ar_cp]
+                         rw [List.getElem?_set_ne (by omega)]; exact hhold_j i hi,
+                       by dsimp only [ar_cp]; rw [List.getElem?_set_ne (by omega)]; exact harj0,
+                       by dsimp only [ar_cp]; rw [List.getElem?_set_ne (by omega)]; exact harj2,
+                       fun t ht => by
+                         rw [hjc1_n] at ht; dsimp only [ar_cp]
+                         by_cases hte : t = jc.toNat
+                         · subst hte
+                           rw [List.getElem?_set_self (by omega), List.getElem?_eq_getElem hjc_tmp]
+                         · rw [List.getElem?_set_ne (by omega)]; exact hcp_j t (by omega),
+                       hm1⟩
               · have hjc_eq : jc.toNat = tk.toNat := by c0_bound
                 rw [hjc_eq] at hcp_j
                 m7_hsteps_to_jump
-                exact hJtl () mjc ⟨arj, harj_l, hhold_j, harj0, harj2, hcp_j, hmjc⟩)
+                exact hJcp_done (jc, ()) mjc
+                  ⟨arj, harj_l, hhold_j, harj0, harj2, hcp_j, hmjc⟩)
 
 private theorem m7_bva_phase1b_wp {Γ : Env} {Q : Post [.bool]} {X : XPost}
     (hAddBin : M7AddBinHyp Γ) (hAllocCl : M7AllocClHyp Γ) (hWPush : M7WPushHyp Γ)
@@ -1751,7 +1833,8 @@ private theorem m7_bva_phase1b_wp {Γ : Env} {Q : Post [.bool]} {X : XPost}
           ⟨hinvm, hcvm, hfuelm, hsbm, htmm, htrm, hmono⟩
           (fun st1 m1 hm1 hst1 => hJ1b (mi, false, ()) m1 ⟨st1, hst1, hm1⟩)
           (fun ok' st1 m1 hm1 hst1 => hJtop (ok', ()) m1 ⟨st1, hm1, hst1⟩)
-        unfold m7BvaLargeTopExpr m7BvaLargeWatchExpr bZext bOp64 bOp32 bCmp32 bPtr32 bLd32 at hlt
+        dsimp only [m7BvaLargeTopExpr, m7BvaLargeWatchExpr, bIdx0_64, bLd32, bPtr32, bCmp32,
+          bOp32, bOp64, bZext] at hlt
         exact hlt
     · exact hJ1b (mi, okm, ()) mm ⟨stm, ⟨hinvm, hcvm, hfuelm, hsbm, htmm, htrm, hmono⟩, hmm⟩
     · exact hJ1b (mi, okm, ()) mm ⟨stm, ⟨hinvm, hcvm, hfuelm, hsbm, htmm, htrm, hmono⟩, hmm⟩

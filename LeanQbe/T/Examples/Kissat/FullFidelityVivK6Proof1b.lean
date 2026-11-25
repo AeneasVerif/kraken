@@ -330,9 +330,11 @@ theorem full_k6_core_m8_fid_wp (Γ : Env) :
                                   clear hc
                                   have hbd_aux : 13696 + c_i.toNat < scc.length := by omega
                                   let na_c := scc[13696 + c_i.toNat]'hbd_aux
-                                  have hna_le : off_c.toNat + sz_c.toNat + na_c.toNat ≤ acap.toNat :=
+                                  have hna_le :
+                                      off_c.toNat + sz_c.toNat + na_c.toNat ≤ acap.toNat :=
                                     hoff_na hlrn_c
-                                  have hsum_bv : (off_c + sz_c).toNat = off_c.toNat + sz_c.toNat := by
+                                  have hsum_bv :
+                                      (off_c + sz_c).toNat = off_c.toNat + sz_c.toNat := by
                                     rw [BitVec.toNat_add, Nat.mod_eq_of_lt hno_ov1]
                                   c0_hsteps_nogrp
                                   refine wp_join_group (ts := [.bool])
@@ -424,7 +426,8 @@ theorem full_k6_core_m8_fid_wp (Γ : Env) :
                                               c0_bound
                                             have har_bd :
                                                 15744 + off_c.toNat + jj.toNat < scj2.length := by
-                                              have : off_c.toNat + sz_c.toNat ≤ acap.toNat := hoff_sz
+                                              have : off_c.toNat + sz_c.toNat ≤ acap.toNat :=
+                                                hoff_sz
                                               omega
                                             c0_hsteps_nogrp
                                             refine wp_join_group (ts := [.bool])
@@ -446,9 +449,11 @@ theorem full_k6_core_m8_fid_wp (Γ : Env) :
                                                   let lv := (scj2[15744 + off_c.toNat +
                                                     jj.toNat]'har_bd) >>> (1 : Nat)
                                                   have hlv_lt' : lv.toNat < nv.toNat := hlv_lt
-                                                  have hlv_4224 : 4224 + lv.toNat < scj2.length := by
+                                                  have hlv_4224 :
+                                                      4224 + lv.toNat < scj2.length := by
                                                     omega
-                                                  have hlv_4480 : 4480 + lv.toNat < scj2.length := by
+                                                  have hlv_4480 :
+                                                      4480 + lv.toNat < scj2.length := by
                                                     omega
                                                   c0_hsplit
                                                   · clear hc; c0_hsteps_nogrp
@@ -468,7 +473,8 @@ theorem full_k6_core_m8_fid_wp (Γ : Env) :
                                                           let r0 := scj2[4480 + lv.toNat]'hlv_4480
                                                           have hbd_r0 :
                                                               12672 + r0.toNat < scj2.length := by
-                                                            have : r0.toNat < nc.toNat := hr0_lt; omega
+                                                            have : r0.toNat < nc.toNat := hr0_lt
+                                                            omega
                                                           have hpr0 := m8_km_core_or_pres
                                                             (scj2[12672 + r0.toNat]'hbd_r0)
                                                           c0_hsplit
@@ -489,7 +495,8 @@ theorem full_k6_core_m8_fid_wp (Γ : Env) :
                                                       ⟨scj2, hkj2, hmj2⟩
                                                 · c0_hsteps!; exact hJlv (chj, ()) mj2
                                                     ⟨scj2, hkj2, hmj2⟩)
-                                          · c0_hsteps!; exact hJelse (chj, ()) mj2 ⟨scj2, hkj2, hmj2⟩
+                                          · c0_hsteps!
+                                            exact hJelse (chj, ()) mj2 ⟨scj2, hkj2, hmj2⟩
                                         · intro Lj hLj; c0_hsteps!
                                           exact hLj sz_c.toNat (ch_c, 0#32, ()) mc
                                             ⟨scc, hkc, Nat.zero_le _, by simp, hmc⟩
@@ -787,7 +794,8 @@ theorem full_k6_core_m8_fid_wp (Γ : Env) :
                                   (by rw [zext_toNat _ (by decide)]; omega) _, by omega, rfl, hm⟩
                             · c0_hsteps!; exact hJinc (ic2, ()) mc2 ⟨scc2, hkc2, hmc2⟩
                           · intro Lc2 hLc2; c0_hsteps!
-                            exact hLc2 nv.toNat (0#32, ()) mt ⟨sct, hkt, Nat.zero_le _, by simp, hmt⟩
+                            exact hLc2 nv.toNat (0#32, ()) mt
+                              ⟨sct, hkt, Nat.zero_le _, by simp, hmt⟩
                       · intro Lt hLt; c0_hsteps!
                         exact hLt ti.toNat (ti, ()) mj ⟨scj, hkj, hti, rfl, hmj⟩
                     · intro Jti hJti; c0_hsplit

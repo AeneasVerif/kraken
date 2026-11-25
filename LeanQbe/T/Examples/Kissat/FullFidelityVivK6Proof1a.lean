@@ -207,7 +207,8 @@ private theorem fid_bv32_add1 {x : BitVec 32} (hx : x.toNat < 2 ^ 30) :
     (x + 1#32).toNat = x.toNat + 1 := by
   rw [BitVec.toNat_add, show (1#32 : BitVec 32).toNat = 1 from rfl, Nat.mod_eq_of_lt (by omega)]
 
-private structure K6PropFrame (L : K6Layout) (c : (Nat → Bool) → Prop) (ks0 ks : K6State) : Prop where
+private structure K6PropFrame (L : K6Layout) (c : (Nat → Bool) → Prop)
+    (ks0 ks : K6State) : Prop where
   hinv : K6Inv L c ks
   hsync : K6TrailSynced ks
   hpres : K6PropPreserved ks0 ks
@@ -257,7 +258,8 @@ private theorem fid_k6BumpProp_frame {L : K6Layout} {c : (Nat → Bool) → Prop
   have hass' : K6BaseAssignOk c (ks.putHdr .prop (ks.prop + 1#32)) :=
     { hf.hinv.assign with prop_le := by change (ks.prop + 1#32).toNat ≤ ks.trl_end.toNat; omega }
   have hinv' : K6Inv L c (ks.putHdr .prop (ks.prop + 1#32)) :=
-    ⟨hf.hinv.shapes.putHdr .prop _, hcl', fid_k6WatchesOk_putHdr hf.hinv.watches .prop (Or.inl rfl) _,
+    ⟨hf.hinv.shapes.putHdr .prop _, hcl',
+      fid_k6WatchesOk_putHdr hf.hinv.watches .prop (Or.inl rfl) _,
       hass', fid_k6ReasonOk_putHdr hf.hinv.reasons .prop (Or.inl rfl) _⟩
   exact ⟨hinv', fid_k6TrailSynced_putHdr hf.hsync .prop (Or.inl rfl) _,
     { hf.hpres with }, hf.htrl_ge, hf.hold, hf.hnew⟩
@@ -335,8 +337,10 @@ private theorem fid_k6AssignStep_propFrame {L : K6Layout} {c : (Nat → Bool) �
   have htrl_lt : ks.trl_end.toNat < ks.trl.length := by
     rw [hf.hinv.shapes.trl_len]; omega
   refine ⟨hinv', hsync', ?_,
-    by rw [show (k6AssignStep ks lit cid32).trl_end.toNat = (ks.trl_end + 1#32).toNat from rfl, hte1]
-       have := hf.htrl_ge; omega,
+    by
+      rw [show (k6AssignStep ks lit cid32).trl_end.toNat =
+        (ks.trl_end + 1#32).toNat from rfl, hte1]
+      have := hf.htrl_ge; omega,
     ?_, ?_⟩
   · exact ⟨hf.hpres.nv, hf.hpres.nc, hf.hpres.lvl, hf.hpres.incons, hf.hpres.alen, hf.hpres.acap,
       hf.hpres.nassump, hf.hpres.status, hf.hpres.openCnt, hf.hpres.max_v, hf.hpres.max_orig,
@@ -554,7 +558,9 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
             have hall_fal : ∀ l ∈ k6ClauseLits stw (w0 / 2), stw.vals[l]? = some 2#32 := by
               intro l hl
               rw [k6_mem_clauseLits_iff
-                  (by rw [hshW.arena_len]; exact Nat.le_trans (hclW.cl_wf _ hcid_nc).2.1 hclW.alen_le),
+                  (by
+                    rw [hshW.arena_len]
+                    exact Nat.le_trans (hclW.cl_wf _ hcid_nc).2.1 hclW.alen_le),
                 hsz2_eq] at hl
               obtain ⟨idx, hidx, rfl⟩ := hl
               have hx2 : idx = w0 % 2 ∨ idx = w0 % 2 ^^^ 1 := by
@@ -621,7 +627,9 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
                 stw.vals[x]? = some 2#32 := by
               intro x hx hne
               rw [k6_mem_clauseLits_iff
-                  (by rw [hshW.arena_len]; exact Nat.le_trans (hclW.cl_wf _ hcid_nc).2.1 hclW.alen_le),
+                  (by
+                    rw [hshW.arena_len]
+                    exact Nat.le_trans (hclW.cl_wf _ hcid_nc).2.1 hclW.alen_le),
                 hsz2_eq] at hx
               obtain ⟨idx, hidx, rfl⟩ := hx
               have hx2 : idx = w0 % 2 ∨ idx = w0 % 2 ^^^ 1 := by
@@ -645,11 +653,13 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
                     rw [← hbv_neg.1]; exact h2')
                 rw [hbv_z'] at h1; simp at h1
               exact hne2 (by rw [← h, hnl_fal]; rfl)
-            have hnl_fal' : (k6AssignStep stw bv (w >>> (1 : Nat))).vals[nl.toNat]? = some 2#32 := by
+            have hnl_fal' :
+                (k6AssignStep stw bv (w >>> (1 : Nat))).vals[nl.toNat]? = some 2#32 := by
               dsimp only [k6AssignStep]
               rw [List.getElem?_set_ne hnl_ne2.symm, List.getElem?_set_ne hnl_ne1.symm]
               exact hnl_fal
-            have hcur'' := fid_k6WChainCursor_assignStep (hw_eq ▸ htodo_eq ▸ hcurW) bv (w >>> (1 : Nat))
+            have hcur'' :=
+              fid_k6WChainCursor_assignStep (hw_eq ▸ htodo_eq ▸ hcurW) bv (w >>> (1 : Nat))
             have hcur''' := k6WatchSkip_cursor hfw'.hinv.shapes hcur'' hw0_wn
             refine LeanQbe.T.wp_unroll_group fun Jdone hJdone => ?_
             c0_hsplit
@@ -720,7 +730,8 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
             have hwf_c := hclW.cl_wf (w0 / 2) hcid_nc
             have har_ok : ∀ idx < k6ClauseSize stw (w0 / 2),
                 k6ClauseOff stw (w0 / 2) + idx < L.acap ∧
-                (stw.arena[k6ClauseOff stw (w0 / 2) + idx]?.getD 0#32).toNat < 2 * stw.nv.toNat := by
+                (stw.arena[k6ClauseOff stw (w0 / 2) + idx]?.getD 0#32).toNat <
+                  2 * stw.nv.toNat := by
               intro idx hidx
               exact ⟨by have := hclW.alen_le; omega,
                 hwf_c.2.2.1 _ (by
@@ -746,7 +757,8 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
             have hslot_other_bv :
                 (w &&& (1 : BitVec 32) ^^^ (1 : BitVec 32)) = BitVec.ofNat 32 (w0 % 2 ^^^ 1) := by
               apply BitVec.eq_of_toNat_eq
-              rw [BitVec.toNat_xor, show (w &&& (1 : BitVec 32)).toNat = (w &&& 1#32).toNat from rfl,
+              rw [BitVec.toNat_xor,
+                show (w &&& (1 : BitVec 32)).toNat = (w &&& 1#32).toNat from rfl,
                 hslot_eq, show (1 : BitVec 32).toNat = 1 from rfl, BitVec.toNat_ofNat,
                 Nat.mod_eq_of_lt hm2_xor_lt]
             have hcl_off_add :
@@ -761,7 +773,8 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
             have hother_mv2 : other.toNat < sz2V L := by unfold sz2V; have := hclW.nv_le; omega
             have hother_mv2' :
                 (stw.arena[(stw.clOff[(w >>> (1 : Nat)).toNat]?.getD 0#32).toNat +
-                  (w &&& (1 : BitVec 32) ^^^ (1 : BitVec 32)).toNat]?.getD 0#32).toNat < sz2V L := by
+                  (w &&& (1 : BitVec 32) ^^^ (1 : BitVec 32)).toNat]?.getD 0#32).toNat <
+                  sz2V L := by
               rw [hw_sh1, hcl_off_add]; exact hother_mv2
             have hw_div_ar : (w >>> (1 : Nat)).toNat < szCl L := by rw [hw_sh1]; exact hcid_cl
             have hwc : K6WChainCursor stw nl.toNat chains done (w0 :: todo') prev
@@ -833,10 +846,12 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
                         (w &&& (1 : BitVec 32)).toNat < szAr L := by
                     unfold szAr; rw [hw_sh1, hslot_off_eq]; exact hslot_cap
                   have hri_ar :
-                      (stw.clOff[(w >>> (1 : Nat)).toNat]?.getD 0#32).toNat + ri.toNat < szAr L := by
+                      (stw.clOff[(w >>> (1 : Nat)).toNat]?.getD 0#32).toNat + ri.toNat <
+                        szAr L := by
                     unfold szAr; rw [hw_sh1]; exact hri_cap
                   have hrepl_mv2 : repl.toNat < sz2V L := by
-                    change repl = stw.arena[k6ClauseOff stw (w0 / 2) + ri.toNat]?.getD 0#32 at hrepl_eq
+                    change repl =
+                      stw.arena[k6ClauseOff stw (w0 / 2) + ri.toNat]?.getD 0#32 at hrepl_eq
                     rw [hrepl_eq]; unfold sz2V; have := hclW.nv_le; omega
                   have hnl_bn : BitVec.ofNat 32 nl.toNat = nl := by simp
                   have hprv_lt : prev ≠ 0xFFFFFFFF#32 → prev.toNat < sz2Cl L := fun hp => by
@@ -904,7 +919,7 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
                       (try rw [hw_eq])
                       (try dsimp only [k6ClauseOff])
                       (try rfl) })
-                · -- No replacement (`ri = 0xFFFFFFFFu`): keep watch with `other` & conflict/unit check
+                · -- No replacement (`0xFFFFFFFFu`): keep watch with `other`, check conflict/unit
                   have hrieq : ri = 0xFFFFFFFF#32 := by exact hc
                   rcases hbrk with ⟨_, hall_r2⟩ | ⟨hri_ge, hri_lt, _⟩
                   · obtain ⟨hkp_inv, hkp_wc⟩ :=
@@ -941,7 +956,8 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
                         dsimp only [hw', K6State.putArr, other]
                         rw [List.getElem?_eq_getElem hmem_other, Option.getD_some] at h2
                         rw [List.getElem?_eq_getElem hmem_other, h2]
-                      have hall_fal' : ∀ l ∈ k6ClauseLits hw' (w0 / 2), hw'.vals[l]? = some 2#32 := by
+                      have hall_fal' :
+                          ∀ l ∈ k6ClauseLits hw' (w0 / 2), hw'.vals[l]? = some 2#32 := by
                         intro l hl
                         by_cases he : l = other.toNat
                         · subst he; exact hov2
@@ -1031,7 +1047,8 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
                           at h1
                         simp at h1
                       have hnl_fal'' :
-                          (k6AssignStep hw' other (w >>> (1 : Nat))).vals[nl.toNat]? = some 2#32 := by
+                          (k6AssignStep hw' other (w >>> (1 : Nat))).vals[nl.toNat]? =
+                            some 2#32 := by
                         dsimp only [k6AssignStep]
                         rw [List.getElem?_set_ne hnl_ne2.symm, List.getElem?_set_ne hnl_ne1.symm]
                         exact hnl_fal
@@ -1044,7 +1061,8 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
                           K6PropFrame L c ks (k6AssignStep hw'' other (w >>> (1 : Nat))) := by
                         rw [hw''_eq]; exact hfw''
                       have hnl_fal''_op :
-                          (k6AssignStep hw'' other (w >>> (1 : Nat))).vals[nl.toNat]? = some 2#32 := by
+                          (k6AssignStep hw'' other (w >>> (1 : Nat))).vals[nl.toNat]? =
+                            some 2#32 := by
                         rw [hw''_eq]; exact hnl_fal''
                       have hcur'''_op :
                           K6WChainCursor (k6AssignStep hw'' other (w >>> (1 : Nat))) nl.toNat chains
@@ -1162,7 +1180,9 @@ theorem full_k6_propagate_fid_wp (Γ : Env) :
                     refine ih1 (r + 1#32) _
                       (by rw [hr1_wrap]; exact Nat.sub_lt_sub_left hr_lt (Nat.lt_succ_self _))
                       ⟨rfl, by rw [hr1_wrap]; exact hr_lt,
-                       by rw [hr1_wrap]; exact Nat.le_trans hr2 (Nat.le_succ _), fun j hj1 hj2 => ?_⟩
+                       by
+                         rw [hr1_wrap]
+                         exact Nat.le_trans hr2 (Nat.le_succ _), fun j hj1 hj2 => ?_⟩
                     rw [hr1_wrap] at hj2
                     by_cases hjr : j = r.toNat
                     · subst hjr; exact hc_f
