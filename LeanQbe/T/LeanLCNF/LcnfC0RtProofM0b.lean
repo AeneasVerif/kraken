@@ -60,11 +60,11 @@ private theorem hm_heap_unleft {A B C : Mem 64 → Prop} {m : Mem 64} (h : (B �
 
 private theorem bv64_ugt_zero_iff (n : Nat) (hn : n < 2 ^ 64) :
     BitVec.ult 0#64 (BitVec.ofNat 64 n) = true ↔ 0 < n := by
-  simp [BitVec.ult, Nat.mod_eq_of_lt hn]
+  simp [BitVec.ult]
 
 private theorem bv64_ult_iff (a b : Nat) (ha : a < 2 ^ 64) (hb : b < 2 ^ 64) :
     BitVec.ult (BitVec.ofNat 64 a) (BitVec.ofNat 64 b) = true ↔ a < b := by
-  simp [BitVec.ult, Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb]
+  simp [BitVec.ult]
 
 private theorem bv64_sub1_mul8 {n : Nat} (hn : 0 < n) (hlt : n < 2 ^ 64) :
     (BitVec.ofNat 64 n - 1#64) * 8#64 = BitVec.ofNat 64 (8 * (n - 1)) := by
@@ -121,7 +121,7 @@ private theorem rc32_bv64_iff (rc : BitVec 32) (k : Nat) (hk : k < 2 ^ 32) :
     rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt,
       Nat.mod_eq_of_lt (by omega : k < 2 ^ 64)] at h1
     rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hk]; exact h1
-  · intro h; subst h; simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hk]
+  · intro h; subst h; simp [BitVec.toNat_ofNat]
 
 private theorem bv64_ofNat_eq_zero_iff {rc : BitVec 32} :
     BitVec.ofNat 64 rc.toNat = 0#64 ↔ rc = 0#32 := rc32_bv64_iff rc 0 (by decide)
@@ -1436,9 +1436,9 @@ theorem lcnf_dec_ref_cold_wp (Γ : Env) (hFree : ∀ xs m Q X, lcnfFreeObjSpec x
                           Nat.lt_trans dis.curObjs[idxC].rc.isLt (by decide)
                         by_cases hCGt1 : 1 < dis.curObjs[idxC].rc.toNat
                         · refine wp_jnz_true
-                            (by simp [BitVec.ult, Nat.mod_eq_of_lt hlt64, hCGt1]) ?_
+                            (by simp [BitVec.ult, hCGt1]) ?_
                           c0_hstep; have hlt := objWf_rc_lt hwfC
-                          refine wp_jnz_true (by simp [BitVec.ult, Nat.mod_eq_of_lt hlt64, hlt]) ?_
+                          refine wp_jnz_true (by simp [BitVec.ult, hlt]) ?_
                           c0_hstep
                           refine head_wp_store (lcnfObjHeader_sub1_wf dis.curObjs[idxC] hwfC hCGt1)
                             rfl (hqCAddr ▸ lcnfHeap_store_rc hidxC (dis.curObjs[idxC].rc - 1#32)
@@ -1451,7 +1451,7 @@ theorem lcnf_dec_ref_cold_wp (Γ : Env) (hFree : ∀ xs m Q X, lcnfFreeObjSpec x
                           exact hJoin3 ⟨dis.st, curObjs', dis.wl, dis.i + 1⟩ mI1
                             ⟨rfl, rfl, dec_sub1_inv hAll hxI hiLt hidxC hqCAddr rfl hCGt1 hmI1'⟩
                         · refine wp_jnz_false
-                            (by simp [BitVec.ult, Nat.mod_eq_of_lt hlt64, hCGt1]) ?_
+                            (by simp [BitVec.ult, hCGt1]) ?_
                           have hCRc0 : dis.curObjs[idxC].rc = 0#32 := (rc32_toNat_eq_zero_iff _).mp
                             (by have : dis.curObjs[idxC].rc.toNat ≠ 1 :=
                               fun h => hCRc1 ((rc32_toNat_eq_one_iff _).mp h); omega)

@@ -506,7 +506,7 @@ theorem bv64_align8_eq {n : Nat} (hn : n + 7 < 2 ^ 64) :
     bv64_and_mask8]
   unfold align8; congr 1; have := BitVec.toNat_add (BitVec.ofNat 64 n) 7; c0_bv_omega
 
-theorem bv64_tag_eq (hdr : BitVec 64) {t : Nat} (ht : t < 256) (h : (hdr >>> 56).toNat = t) :
+theorem bv64_tag_eq (hdr : BitVec 64) {t : Nat} (_ht : t < 256) (h : (hdr >>> 56).toNat = t) :
     (hdr >>> BitVec.signExtend 64 56#32 == BitVec.ofNat 64 t) = true := by
   rw [show BitVec.signExtend 64 56#32 = 56#64 from by decide, beq_iff_eq]
   apply BitVec.eq_of_toNat_eq
@@ -521,7 +521,7 @@ theorem bv64_tag_ne (hdr : BitVec 64) {t : Nat} (ht : t < 256) (h : (hdr >>> 56)
 
 theorem bv64_shr3_toNat (bytes : Nat) (hb : bytes < 2 ^ 64) :
     (BitVec.ofNat 64 bytes >>> 3#64).toNat = bytes / 8 := by
-  simp [BitVec.toNat_ushiftRight, Nat.mod_eq_of_lt hb, Nat.shiftRight_eq_div_pow]
+  simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
 
 theorem bv64_natTag_eq (hdr : BitVec 64) {t : Nat} (ht : t < 256) (h : (hdr >>> 56).toNat = t) :
     decide (hdr >>> 56 = BitVec.ofNat 64 t) = true := by
@@ -681,7 +681,7 @@ theorem lcnfObjHeader_add1 (o : LcnfObj)
       BitVec.ofNat 64 (o.rc + 1#32).toNat + (o.withRc 0#32).header := by
     simpa [LcnfObj.withRc] using obj_header_eq_add (o.withRc (o.rc + 1#32)) hcs hoth ht
   have hrc1 : BitVec.ofNat 64 (o.rc + 1#32).toNat = BitVec.ofNat 64 o.rc.toNat + 1#64 := by
-    apply BitVec.eq_of_toNat_eq; simp; omega
+    apply BitVec.eq_of_toNat_eq; simp
   rw [obj_header_eq_add o hcs hoth ht, hw1, hrc1]; ac_rfl
 
 theorem lcnfObjHeader_sub1 (o : LcnfObj)
@@ -692,7 +692,8 @@ theorem lcnfObjHeader_sub1 (o : LcnfObj)
     rw [BitVec.toInt_eq_toNat_cond] at h0; split at h0 <;> omega
   have hw1 : (o.withRc (o.rc - 1#32)).header =
       BitVec.ofNat 64 (o.rc - 1#32).toNat + (o.withRc 0#32).header := by
-    simpa [LcnfObj.withRc] using obj_header_eq_add (o.withRc (o.rc - 1#32)) hcs hoth ht
+    dsimp only [LcnfObj.withRc]
+    exact obj_header_eq_add (o.withRc (o.rc - 1#32)) hcs hoth ht
   have hrc1 : BitVec.ofNat 64 (o.rc - 1#32).toNat = BitVec.ofNat 64 o.rc.toNat - 1#64 := by
     c0_bv_omega
   rw [obj_header_eq_add o hcs hoth ht, hw1, hrc1]; bv_omega

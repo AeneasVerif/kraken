@@ -412,6 +412,7 @@ theorem lcnf_alloc_wp (Γ : Env) :
     have : align8 sz.toNat < 2 ^ 64 := by unfold align8; omega
     c0_bv_omega
   have hbyMax : bytes < rtMaxObjBytes := hmax; dsimp [Func.wp, lcnf_alloc_body]; c0_hsteps_nogrp
+  · exfalso; unfold rtMinObjBytes align8 at hmin; omega
   have hbyBv' : sz + 7#64 &&& 18446744073709551608#64 = bytesBV := hbyBv
   have hclsBV : bytesBV >>> OfNat.ofNat 3 = BitVec.ofNat 64 (bytes / 8) := by
     rw [← hbyBv']; exact hclsEq
@@ -853,7 +854,7 @@ private theorem free_sarray_szEq {hdr w16 : BitVec 64} {bytes : Nat}
     rw [show BitVec.signExtend 64 48#32 = 48#64 from by decide, BitVec.toNat_and,
       BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by decide : 127 < 2 ^ 64),
       show (127 : Nat) = 2 ^ 7 - 1 from rfl, Nat.and_two_pow_sub_one_eq_mod]
-    simp [BitVec.toNat_ushiftRight, Nat.mod_eq_of_lt (by omega : hdr.toNat >>> 48 % 128 < 2 ^ 64)]
+    simp [BitVec.toNat_ushiftRight]
   have hle : ((hdr >>> 48).toNat % 128) * w16.toNat ≤ 127 * 268435455 :=
     Nat.mul_le_mul (by omega) hw
   rw [hmask, show 24#64 + BitVec.ofNat 64 ((hdr >>> 48).toNat % 128) * w16 =
@@ -892,8 +893,7 @@ theorem lcnf_free_obj_wp (Γ : Env) :
             (fun _ hf => freeObjLayout_to_cell_body hf)) hm1) (by ac_rfl)
         c0_hsteps_nogrp
         · exfalso; unfold rtMaxObjBytes at hmax
-          exact hc (bv_and7_eq_zero_of_mod8
-            (by simp [Nat.mod_eq_of_lt (by omega : bytes < 2 ^ 64), hmod]))
+          exact hc (bv_and7_eq_zero_of_mod8 (by simp [hmod]))
         · exfalso; unfold rtMinObjBytes rtMaxObjBytes at *
           simp only [Nat.mod_eq_of_lt (by omega : bytes < 2 ^ 64)] at hc; omega
         · exfalso; unfold rtMaxObjBytes at *
@@ -924,7 +924,7 @@ theorem lcnf_free_obj_wp (Γ : Env) :
                 sep_cast hmSm0 (by ac_rfl)
               unfold rtC0Inv at hmSm
               have hclsLt : (BitVec.ofNat 64 bytes >>> 3).ult 64#64 = true := by
-                simp [BitVec.ult, Nat.mod_eq_of_lt hb, Nat.shiftRight_eq_div_pow]; exact hsmall
+                simp [BitVec.ult, Nat.shiftRight_eq_div_pow]; exact hsmall
               have hcls2 : 2 ≤ bytes / 8 := by unfold rtMinObjBytes at hmin; omega
               have hflLen : st.freeList.length = rtNumClasses := st.freeListLen
               have hclsLtN : bytes / 8 < rtNumClasses := by unfold rtNumClasses; omega
@@ -934,13 +934,11 @@ theorem lcnf_free_obj_wp (Γ : Env) :
               have hclsBv : BitVec.ofNat 64 bytes >>> (OfNat.ofNat 3 : BitVec 64) =
                   BitVec.ofNat 64 (bytes / 8) := by
                 apply BitVec.eq_of_toNat_eq
-                simp [BitVec.toNat_ushiftRight, Nat.mod_eq_of_lt hb, Nat.shiftRight_eq_div_pow,
-                  Nat.mod_eq_of_lt (by omega : bytes / 8 < 2 ^ 64)]
+                simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
               have hclsBvNat : BitVec.ofNat 64 bytes >>> (3 : Nat) =
                   BitVec.ofNat 64 (bytes / 8) := by
                 apply BitVec.eq_of_toNat_eq
-                simp [Nat.shiftRight_eq_div_pow, Nat.mod_eq_of_lt hb,
-                  Nat.mod_eq_of_lt (by omega : bytes / 8 < 2 ^ 64)]
+                simp [Nat.shiftRight_eq_div_pow]
               have hflLt : (BitVec.ofNat 64 (bytes / 8)).toNat < st.freeList.length := by
                 rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; exact hlen
               have hgetOld : st.freeList.getD (bytes / 8) 0#64 = st.freeList[bytes / 8]'hlen := by
@@ -1005,7 +1003,7 @@ theorem lcnf_free_obj_wp (Γ : Env) :
                       region st.hdr.s_cur st.rem ⋆ R)) (mB.union mRest))
                 exact largeSeg_hd_eq_next hLF
               have hnotSmall : (BitVec.ofNat 64 bytes >>> 3).ult 64#64 = false := by
-                simp [BitVec.ult, Nat.mod_eq_of_lt hb, Nat.shiftRight_eq_div_pow]; omega
+                simp [BitVec.ult, Nat.shiftRight_eq_div_pow]; omega
               (try dsimp only [rtCore] at *); c0_hsteps
               · exfalso
                 rw [Nat.mod_eq_of_lt hb, show (64 : Nat) % 2 ^ 64 = 64 from rfl,
@@ -1042,9 +1040,7 @@ theorem lcnf_free_obj_wp (Γ : Env) :
           c0_hsteps_nogrp
           · have hby24 : 24#64 + 8#64 * w16 = BitVec.ofNat 64 bytes := by
               apply BitVec.eq_of_toNat_eq
-              have h8m : (8 : Nat) % 2 ^ 64 = 8 := rfl
-              have h24m : (24 : Nat) % 2 ^ 64 = 24 := rfl
-              simp [BitVec.toNat_add, BitVec.toNat_mul, h8m, h24m, hby]
+              simp [BitVec.toNat_add, BitVec.toNat_mul, hby]
             rw [hby24]; exact hJsw () _ hmKeep
           · exfalso; exact absurd (tag_bv_eq ht246 (by decide)) hc
         · c0_hsteps_nogrp

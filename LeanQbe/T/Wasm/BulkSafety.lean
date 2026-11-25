@@ -730,8 +730,8 @@ theorem emitMemCopyLoop_wp {Γ : Env} {X : XPost} (fwd : Bool) (retTys : List WV
             fun m'' hm'' => by
               rw [wp_jump_]
               exact hRec (fHdr - 1#64) (rem - 1#64) _ m'' (bv64_sub_one_lt hneR)
-                ⟨by omega, by omega, by simp [hRemSub]; congr 2; omega,
-                  by simp [hRemSub]; congr 2; omega, hm''⟩
+                ⟨by omega, by omega, by simp; congr 2; omega,
+                  by simp; congr 2; omega, hm''⟩
       · simp only [↓reduceIte] at hdP hsP ⊢; rw [hsP, hdP]
         refine wp_wasm_load_w hm' .w8 (ea := sOff + (n64.val.toNat - rem.toNat))
           (by dsimp [WMemWidth.bytes]; omega) fun b => wp_wasm_store_w hm' .w8
