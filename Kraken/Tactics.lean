@@ -479,10 +479,10 @@ partial def evalTacKStep : Tactic :=
   let (_, st) ← (evalSymKStepCore config maxSteps?).runAtGoal (← getMainGoal) (← Grind.mkDefaultParams {}) (sym := true)
   replaceMainGoal (st.goals.map (·.mvarId))
 
-syntax (name := tacKStepBlock) "kstep" optConfig (ppSpace num)? " => " tacticSeq : tactic
+syntax (name := tacKStepBlock) "kstep" optConfig (ppSpace num)? " => " Parser.Tactic.Grind.grindSeq : tactic
 macro_rules
-| `(tactic| kstep $cfg:optConfig $[$n?:num]? => $e:tacticSeq) =>
-  `(tactic| sym => kstep $cfg $[$n?:num]?; tactic => $e:tacticSeq)
+| `(tactic| kstep $cfg:optConfig $[$n?:num]? => $e:grindSeq) =>
+  `(tactic| sym => kstep $cfg $[$n?:num]?; ($e))
 
 syntax (name := symKStepKStep)  "kstep_kstep"   : grind
 syntax (name := symKStepKSimp)  "kstep_ksimp"   : grind

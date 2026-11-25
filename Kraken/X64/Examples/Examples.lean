@@ -34,7 +34,7 @@ example [layout : WellFormedLayout p1] s :
     Eventually (step1 p1.toExecutable)
       (fun s => s.pc = p1.toExecutable.addrOf p1.length ∧ s.1.regs.rax = 1) ⟨s, layout.start⟩ := by
   kprologue p1 with s
-  sym => kstep; tactic =>
+  kstep
   exact .done _ ⟨rfl, rfl⟩
   /- simp [Instr.interp,Operation.interp,Operand.interp,MachineData.set] -/
   /- simp [MachineData.setReg,Reg64s.set,Reg64s.set64,ConstExpr.interp] -/
@@ -54,7 +54,7 @@ theorem swap_correct [layout : WellFormedLayout swap] (d : MachineData) :
         s'.1.regs.get Reg.rbx = d.regs.get Reg.rax)
       ⟨d, layout.start⟩ := by
   kprologue swap with d
-  sym => kstep; tactic =>
+  kstep
   refine .done _ ⟨rfl, ?_⟩
   grind
 
@@ -71,16 +71,12 @@ example [layout : WellFormedLayout p2] (s : MachineData) :
     Eventually (step1 p2.toExecutable)
       (fun s => s.pc = p2.toExecutable.addrOf p2.length ∧ s.1.regs.rax = 2) ⟨s, layout.start⟩ := by
   kprologue p2 with s
-  sym =>
   kstep
-  tactic =>
   -- TODO: would be nice to have these simp steps be part of kstep
   rename_i v status
   have: v = 0 := by grind
   simp [this]
-  sym =>
   kstep
-  tactic =>
   refine .done _ ⟨rfl, ?_⟩
   dsimp only
   bv_decide
@@ -98,15 +94,15 @@ example [layout : WellFormedLayout p2_jump] (s : MachineData) :
       (fun s => s.pc = p2_jump.toExecutable.addrOf p2_jump.length ∧ s.1.regs.rax = 42)
       ⟨s, layout.start⟩ := by
   kprologue p2_jump with s
-  sym => kstep; tactic =>
+  kstep
   rename_i v status
   have : v = 1 := by grind
   simp [this]
-  sym => kstep; tactic =>
+  kstep
   rename_i v' status'
   have : v' = 0 := by grind
   simp [this]
-  sym => kstep; tactic =>
+  kstep
   refine .done _ ⟨rfl, ?_⟩
   dsimp only
   bv_decide
@@ -235,10 +231,7 @@ example [layout : WellFormedLayout p4] s :
     Eventually (step1 p4.toExecutable)
       (fun s => s.pc = p4.toExecutable.addrOf p4.length ∧ s.1.regs.rax = 1) ⟨s, layout.start⟩ := by
   kprologue p4 with s
-  sym =>
   kstep
-  -- intros
-  tactic =>
   exact .done _ ⟨rfl, rfl⟩
 
 /- Examples -/
@@ -256,7 +249,7 @@ example [layout : WellFormedLayout p5] s :
     Eventually (step1 p5.toExecutable)
       (fun s => s.pc = p5.toExecutable.addrOf p5.length ∧ s.1.regs.rax = 0) ⟨s, layout.start⟩ := by
   kprologue p5 with s
-  sym => kstep; tactic =>
+  kstep
   refine .done _ ⟨rfl, ?_⟩
   dsimp only
   bv_decide
@@ -300,9 +293,7 @@ theorem p6_correct [layout : WellFormedLayout p6] (s₀ : MachineData)
   kprologue p6 with s₀
   have h_bs : stack.length = 8 := h_len
   have h_mem1 := Mem.storeInt_sep (s₀.regs.rsp.toBitVec - 8#64) 8 stack R s₀.dmem ⟨h_mem, h_bs⟩ s₀.regs.rax.toBitVec.toInt
-  sym =>
   kstep
-  tactic =>
   refine .done _ ⟨rfl, ?_⟩
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   simp (config := { zetaDelta := true }) only [show (OfNat.ofNat 8 : UInt64) = 8 from rfl]
@@ -347,8 +338,7 @@ theorem p7_correct [layout : WellFormedLayout p7] (s₀ : MachineData) (R : Data
   have h_size : @Labels.label? (Executable.labels p7.toExecutable) "size" = some (p7.toExecutable.addrOf 6) :=
     label?_eq_some_addrOf (p := p7) rfl
   kprologue p7 with s₀
-  sym =>
-  kstep
+  kstep =>
   case h_mem => tactic => dsimp only; rw [h_addr, ← Labels.label!_of_label? h_size]; exact h_mem
   case h_len => exact Int.toBytes_length 4 _
   kstep
@@ -416,11 +406,10 @@ theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_he
   have h_mem2 := Mem.storeInt_sep (s₀.regs.rdi.toBitVec + 8#64) 8 v2.toBytes _ _ ⟨h_mem1', h_bs2⟩ s₀.regs.rcx.toBitVec.toInt
   have h_mem2' : (Eq ((Int.toBytes 8 s₀.regs.rax.toBitVec.toInt).At s₀.regs.rdi) ⋆ (Eq ((Int.toBytes 8 s₀.regs.rcx.toBitVec.toInt).At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2
   have h_mem2'' : (Eq ((Int.toBytes 8 s₀.regs.rcx.toBitVec.toInt).At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ (Eq ((Int.toBytes 8 s₀.regs.rax.toBitVec.toInt).At s₀.regs.rdi.toBitVec) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem2'
-  sym =>
   -- TODO: these would be prime examples for cancellation!
   -- TODO: the kstep tactic is supposed to apply `exact`, but `exact` only applies after `simp`, so
   -- clearly, stuff is missing from the simp-set in `kstep`
-  kstep
+  kstep =>
   case h_mem => tactic => simp; ecancel
   case h_len => exact h_bs1
   kstep
@@ -433,7 +422,6 @@ theorem move_2_regs_to_heap_correct [layout : WellFormedLayout move_2_regs_to_he
   case h_mem => tactic => simp; exact h_mem2''
   case h_len => tactic => rfl
   kstep
-  tactic =>
   apply Eventually.done
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   exact ⟨rfl, rfl, rfl, rfl⟩
@@ -455,15 +443,13 @@ theorem sib_example_correct [layout : WellFormedLayout sib_example] (s₀ : Mach
   kprologue sib_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   have h_mem' := Mem.storeInt_sep (s₀.regs.rdi.toBitVec + BitVec.ofInt 64 (s₀.regs.r15.toBitVec.toInt * 8)) 8 v.toBytes R s₀.dmem ⟨h_mem, h_bs⟩ 42
-  sym =>
-  kstep
+  kstep =>
   case h_mem => tactic => simp; exact h_mem
   case h_len => exact h_bs
   kstep
   case h_mem => tactic => simp; exact h_mem'
   case h_len => exact by decide
   kstep
-  tactic =>
   exact .done _ ⟨rfl, rfl⟩
 
 def alu_mem_example := ⸨prog|
@@ -482,8 +468,7 @@ theorem alu_mem_example_correct [layout : WellFormedLayout alu_mem_example] (s�
   kprologue alu_mem_example with s₀
   have h_bs : v.toBytes.length = 8 := UInt64.toBytes_length v
   have h_mem1 := Mem.storeInt_sep (s₀.regs.rdx.toBitVec + 136#64) 8 v.toBytes R s₀.dmem ⟨h_mem, h_bs⟩ 42
-  sym =>
-  kstep
+  kstep =>
   case h_mem => tactic => simp; exact h_mem
   case h_len => exact h_bs
   kstep
@@ -542,8 +527,7 @@ theorem dynamic_stack_example_correct [layout : WellFormedLayout dynamic_stack_e
   replace h_mem : (Eq ((stack.drop 1016).At (s₀.regs.rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8))) ⋆ (Eq ((stack.take 1016).At (s₀.regs.rsp.toBitVec - 1024#64)) ⋆ R)) _ := cast (congrFun (by ac_rfl) _) h_mem
   have h_mem1 := Mem.storeInt_sep (s₀.regs.rsp.toBitVec + BitVec.ofNat 64 (2^64 - 8)) 8 (stack.drop 1016) (Eq ((stack.take 1016).At (s₀.regs.rsp.toBitVec - 1024#64)) ⋆ R) s₀.dmem ⟨h_mem, h_len_drop⟩ 99
 
-  sym =>
-  kstep
+  kstep =>
   case h_mem => tactic => simp; exact h_mem
   case h_len => exact h_len_drop
   sorry
