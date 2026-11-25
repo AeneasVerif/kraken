@@ -104,6 +104,8 @@ public import LeanQbe.T.Examples.Kissat.FullFastProof
 public import LeanQbe.T.Examples.Kissat.FullFastSched
 public import LeanQbe.T.Examples.Kissat.FullFastSchedLemmas
 public import LeanQbe.T.Examples.Kissat.FullFastTmkLemmas
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssembly
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep1
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep1Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2
@@ -112,6 +114,8 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep4
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep4Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep5
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep5Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
 public import LeanQbe.T.Examples.Kissat.FullFidelityBase
 public import LeanQbe.T.Examples.Kissat.FullFidelityBaseProof

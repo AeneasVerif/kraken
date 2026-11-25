@@ -1534,10 +1534,56 @@ private theorem m8_min_shrink_blk_loop_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat
                 exact ⟨m8Witness_minTmp hwc, hec⟩)
               (by dsimp only [m8MinShrinkRes, m8MinShrinkState]; exact hm_f))
 
-/-- `Func.wp` soundness theorem for `full_min_shrink_m6` (`m8MinShrinkSpec`). -/
-theorem full_min_shrink_m6_m8_wp (Γ : Env)
-    (hSt : ∀ args m Q X, m7SortTmpSpec args m Q X →
-      Γ "full_sort_tmp" [i64] [] args m Q X)
+/-- Level-only `sort_tmp` specification for Step 7 (`≤ 32` threshold, no tie-break needed). -/
+def step7SortTmpSpec : Spec [i64] [] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ s.LengthsOk c ∧ s.core.tmp_len ≤ c.max_vars ∧
+    (∀ k, 1 ≤ k → k < s.core.tmp_len → (s.core.tmp[k]?.getD 0#32).toNat < 2 * c.max_vars) ∧
+    (FullMem c s ⋆ R) m ∧
+    ∀ tmp' wsort' m',
+      let s' : FullState :=
+        { core := { s.core with tmp := tmp' }
+          scratch := { s.scratch with wsort := wsort' } }
+      s'.LengthsOk c → tmp'.length = c.max_vars →
+      (s.core.tmp_len ≤ 32 → wsort' = s.scratch.wsort) →
+      (tmp'.take s.core.tmp_len).Perm (s.core.tmp.take s.core.tmp_len) →
+      (0 < s.core.tmp_len → tmp'[0]? = s.core.tmp[0]?) →
+      (∀ j, 1 ≤ j → j < s.core.tmp_len →
+        ∃ i, 1 ≤ i ∧ i < s.core.tmp_len ∧ tmp'[j]? = s.core.tmp[i]?) →
+      (∀ i, 1 ≤ i → i < s.core.tmp_len →
+        ∃ j, 1 ≤ j ∧ j < s.core.tmp_len ∧ s.core.tmp[i]? = tmp'[j]?) →
+      (∀ i j, 1 ≤ i → i ≤ j → j < s.core.tmp_len →
+        (s.core.lvl[(tmp'[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤
+        (s.core.lvl[(tmp'[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat) →
+      Full.FullExtScratchPres s s' →
+      (FullMem c s' ⋆ R) m' → Q () m'
+
+theorem step7SortTmpSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []}
+    {X X' : XPost} (h : step7SortTmpSpec xs m Q X) : step7SortTmpSpec xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
+private theorem full_min_shrink_m6_m8_wp_core (Γ : Env)
+    (hStCore : ∀ {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
+      {Q : Post []} {X : XPost},
+      s.LengthsOk c → s.core.tmp_len ≤ c.max_vars →
+      (∀ k, 1 ≤ k → k < s.core.tmp_len → (s.core.tmp[k]?.getD 0#32).toNat < 2 * c.max_vars) →
+      (FullMem c s ⋆ R) m →
+      (∀ tmp' wsort' m',
+        let s' : FullState :=
+          { core := { s.core with tmp := tmp' }
+            scratch := { s.scratch with wsort := wsort' } }
+        s'.LengthsOk c → tmp'.length = c.max_vars →
+        (tmp'.take s.core.tmp_len).Perm (s.core.tmp.take s.core.tmp_len) →
+        (0 < s.core.tmp_len → tmp'[0]? = s.core.tmp[0]?) →
+        (∀ j, 1 ≤ j → j < s.core.tmp_len →
+          ∃ i, 1 ≤ i ∧ i < s.core.tmp_len ∧ tmp'[j]? = s.core.tmp[i]?) →
+        (∀ i, 1 ≤ i → i < s.core.tmp_len →
+          ∃ j, 1 ≤ j ∧ j < s.core.tmp_len ∧ s.core.tmp[i]? = tmp'[j]?) →
+        (∀ i j, 1 ≤ i → i ≤ j → j < s.core.tmp_len →
+          (s.core.lvl[(tmp'[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤
+          (s.core.lvl[(tmp'[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat) →
+        (FullMem c s' ⋆ R) m' → Q () m') →
+      Γ "full_sort_tmp" [i64] [] (c.hdr, ()) m Q X)
     (hMm : ∀ args m Q X, Full.fullMinMarkSpec args m Q X →
       Γ "full_min_mark" [i64, i32, i8] [] args m Q X)
     (hDfs : ∀ args m Q X, m8MinLitDfsSpec args m Q X →
@@ -1592,11 +1638,11 @@ theorem full_min_shrink_m6_m8_wp (Γ : Env)
     ml_lets; exact hJ_early () m0 ⟨htl_eq1, rfl⟩
   · c0_cond hgt1; have h2lt : 2 ≤ s.core.tmp_len := by bv_omega
     ml_lets; ml_jnz; refine ⟨fun hoob => by exfalso; c0_cond hoob; bv_omega, fun _ => ?_⟩
-    ml_lets; apply wp_call_of_spec; apply hSt; dsimp only [vals, Arg.val]
-    refine m7SortTmpSpec_of hs0_core.1 (by dsimp only [s0]; omega)
+    ml_lets; apply wp_call_of_spec; dsimp only [vals, Arg.val]
+    refine hStCore hs0_core.1 (by dsimp only [s0]; omega)
       (fun k _ hk2 => by dsimp only [s0] at hk2 ⊢; have := (htmp_vals k (by omega)).1; omega)
       hm0
-      (fun tmp1 wsort1 m1 hlen1 ht1_len hw1_16 ht1_perm ht1_0 ht1_r ht1_l _ ht1_sort _ hm1 => ?_)
+      (fun tmp1 wsort1 m1 hlen1 ht1_len ht1_perm ht1_0 ht1_r ht1_l ht1_sort hm1 => ?_)
     obtain ⟨hkeep_eq, hEnt1, htmp1_vals, htmp1_lvls⟩ := m8MinShrinkPostSort
       htl1 htl_cv hcv hlen0.core_ok.tmp_len_arr htmp_vals htmp_lvls ht1_len ht1_0 ht1_r ht1_l
     let s1 : FullState :=
@@ -1759,3 +1805,41 @@ theorem full_min_shrink_m6_m8_wp (Γ : Env)
       exact hQ tmp' tl' mrk' mclr' sstk' wsort' mcl' mcf' (s.scratch.conflicts + 1) llits' mrem'
         ticks' mf hlen' hw' (m8_mrk_above_zero hlm0 rfl hmc' hab' rfl)
         htl'_1 htl'_le ht'_0 hnd_out hlv'_fn hEnt' hm'
+
+/-- `Func.wp` soundness theorem for `full_min_shrink_m6` (`m8MinShrinkSpec`). -/
+theorem full_min_shrink_m6_m8_wp (Γ : Env)
+    (hSt : ∀ args m Q X, m7SortTmpSpec args m Q X →
+      Γ "full_sort_tmp" [i64] [] args m Q X)
+    (hMm : ∀ args m Q X, Full.fullMinMarkSpec args m Q X →
+      Γ "full_min_mark" [i64, i32, i8] [] args m Q X)
+    (hDfs : ∀ args m Q X, m8MinLitDfsSpec args m Q X →
+      Γ "full_min_lit_dfs_m8" [i64, i32, .bool, .bool] [.bool] args m Q X)
+    (hSb : ∀ args m Q X, m8ShrinkBlkBoolSpec args m Q X →
+      Γ "full_shrink_blk_bool_m8" [i64, i64, i64, i32, i64] [.bool] args m Q X) :
+    ∀ args m Q X, m8MinShrinkSpec args m Q X →
+      Func.wp Γ full_min_shrink_m6_body args m Q X :=
+  full_min_shrink_m6_m8_wp_core Γ
+    (fun {_c _s _R _m _Q _X} hlen htl hbd hm hcont =>
+      hSt _ _ _ _ (m7SortTmpSpec_of hlen htl hbd hm
+        fun tmp' wsort' m' hlen' ht' _ hperm h0 hr hl _ hlvl _ hm' =>
+          hcont tmp' wsort' m' hlen' ht' hperm h0 hr hl hlvl hm'))
+    hMm hDfs hSb
+
+/-- Level-only `step7SortTmpSpec` soundness theorem for `full_min_shrink_m6`. -/
+theorem full_min_shrink_m6_m8_wp_lvl (Γ : Env)
+    (hSt : ∀ args m Q X, step7SortTmpSpec args m Q X →
+      Γ "full_sort_tmp" [i64] [] args m Q X)
+    (hMm : ∀ args m Q X, Full.fullMinMarkSpec args m Q X →
+      Γ "full_min_mark" [i64, i32, i8] [] args m Q X)
+    (hDfs : ∀ args m Q X, m8MinLitDfsSpec args m Q X →
+      Γ "full_min_lit_dfs_m8" [i64, i32, .bool, .bool] [.bool] args m Q X)
+    (hSb : ∀ args m Q X, m8ShrinkBlkBoolSpec args m Q X →
+      Γ "full_shrink_blk_bool_m8" [i64, i64, i64, i32, i64] [.bool] args m Q X) :
+    ∀ args m Q X, m8MinShrinkSpec args m Q X →
+      Func.wp Γ full_min_shrink_m6_body args m Q X :=
+  full_min_shrink_m6_m8_wp_core Γ
+    (fun {_c _s _R _m _Q _X} hlen htl hbd hm hcont =>
+      hSt _ _ _ _ ⟨_, _, _, rfl, hlen, htl, hbd, hm,
+        fun tmp' wsort' m' hlen' ht' _ hperm h0 hr hl hlvl _ hm' =>
+          hcont tmp' wsort' m' hlen' ht' hperm h0 hr hl hlvl hm'⟩)
+    hMm hDfs hSb

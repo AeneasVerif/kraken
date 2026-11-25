@@ -282,6 +282,206 @@ theorem m6aAnaFailedLitSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i
     {X X' : XPost} (h : m6aAnaFailedLitSpec xs m Q X) : m6aAnaFailedLitSpec xs m Q X' := by
   rcases xs with ⟨_, ⟨⟩⟩; exact h
 
+/-- `Pext`-parameterized `m6aBumpAnalyzedSpec` allowing monotone `ext` growth. -/
+def m6aBumpAnalyzedSpecP (Pext : List (BitVec 64) → List (BitVec 64) → Prop) :
+    Spec [i64] [] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
+    FullAnaMarksCov c s ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
+    ∀ mrk' mcl' sc' ext' m',
+      let s' : FullState :=
+        { s with core := { s.core with mrk := mrk', min_clr_len := mcl' }, scratch := sc' }
+      s'.LengthsOk c → FullAnaMarksCov c s' → FullExtScratchPres s s' →
+      sc'.work_stk2 = s.scratch.work_stk2 →
+      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ Pext ext ext') →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m'
+
+theorem m6aBumpAnalyzedSpecP_ofP {Pext : List (BitVec 64) → List (BitVec 64) → Prop}
+    {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
+    {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost}
+    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
+    (hcov : FullAnaMarksCov c s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ mrk' mcl' sc' ext' m',
+      let s' : FullState :=
+        { s with core := { s.core with mrk := mrk', min_clr_len := mcl' }, scratch := sc' }
+      s'.LengthsOk c → FullAnaMarksCov c s' → FullExtScratchPres s s' →
+      sc'.work_stk2 = s.scratch.work_stk2 →
+      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ Pext ext ext') →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m') :
+    m6aBumpAnalyzedSpecP Pext (c.hdr, ()) m Q X :=
+  ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hcov, hm, hQ⟩
+
+theorem m6aBumpAnalyzedSpecP_elimP {Pext : List (BitVec 64) → List (BitVec 64) → Prop}
+    {h : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
+    (hs : m6aBumpAnalyzedSpecP Pext (h, ()) m Q X) :
+    ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧
+      s.LengthsOk c ∧ FullAnaMarksCov c s ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ mrk' mcl' sc' ext' m',
+        let s' : FullState :=
+          { s with core := { s.core with mrk := mrk', min_clr_len := mcl' }, scratch := sc' }
+        s'.LengthsOk c → FullAnaMarksCov c s' → FullExtScratchPres s s' →
+        sc'.work_stk2 = s.scratch.work_stk2 →
+        M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ Pext ext ext') →
+        (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m' := hs
+
+theorem m6aBumpAnalyzedSpecP_monoXP {Pext : List (BitVec 64) → List (BitVec 64) → Prop}
+    {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X X' : XPost}
+    (h : m6aBumpAnalyzedSpecP Pext xs m Q X) : m6aBumpAnalyzedSpecP Pext xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
+/-- `Pext`-parameterized `m6aRestoreBumpAnaSpec` allowing monotone `ext` growth. -/
+def m6aRestoreBumpAnaSpecP (Pext : List (BitVec 64) → List (BitVec 64) → Prop) :
+    Spec [i64] [] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
+    (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8) ∧
+    (FullM6HdrMem c ext s ⋆ R) m ∧
+    ∀ mrk' mcl' sc' ext' m',
+      let s' : FullState :=
+        { core := { s.core with mrk := mrk', min_clr_len := mcl' }, scratch := sc' }
+      s'.LengthsOk c → (∀ v < c.max_vars, mrk'[v]?.getD 0#8 = 0#8) →
+      (s.core.probing = 0#64 → mcl' = 0) →
+      (s.core.probing ≠ 0#64 → mcl' = s.core.min_clr_len) →
+      FullExtScratchPres s s' → sc'.work_stk2 = s.scratch.work_stk2 →
+      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ Pext ext ext') →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m'
+
+theorem m6aRestoreBumpAnaSpecP_ofP {Pext : List (BitVec 64) → List (BitVec 64) → Prop}
+    {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
+    {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost}
+    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
+    (hmrk0 : ∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8)
+    (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ mrk' mcl' sc' ext' m',
+      let s' : FullState :=
+        { core := { s.core with mrk := mrk', min_clr_len := mcl' }, scratch := sc' }
+      s'.LengthsOk c → (∀ v < c.max_vars, mrk'[v]?.getD 0#8 = 0#8) →
+      (s.core.probing = 0#64 → mcl' = 0) →
+      (s.core.probing ≠ 0#64 → mcl' = s.core.min_clr_len) →
+      FullExtScratchPres s s' → sc'.work_stk2 = s.scratch.work_stk2 →
+      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ Pext ext ext') →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m') :
+    m6aRestoreBumpAnaSpecP Pext (c.hdr, ()) m Q X :=
+  ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hmrk0, hm, hQ⟩
+
+theorem m6aRestoreBumpAnaSpecP_elimP {Pext : List (BitVec 64) → List (BitVec 64) → Prop}
+    {h : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
+    (hs : m6aRestoreBumpAnaSpecP Pext (h, ()) m Q X) :
+    ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧
+      s.LengthsOk c ∧ (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8) ∧
+      (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ mrk' mcl' sc' ext' m',
+        let s' : FullState :=
+          { core := { s.core with mrk := mrk', min_clr_len := mcl' }, scratch := sc' }
+        s'.LengthsOk c → (∀ v < c.max_vars, mrk'[v]?.getD 0#8 = 0#8) →
+        (s.core.probing = 0#64 → mcl' = 0) →
+        (s.core.probing ≠ 0#64 → mcl' = s.core.min_clr_len) →
+        FullExtScratchPres s s' → sc'.work_stk2 = s.scratch.work_stk2 →
+        M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ Pext ext ext') →
+        (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m' := hs
+
+theorem m6aRestoreBumpAnaSpecP_monoXP {Pext : List (BitVec 64) → List (BitVec 64) → Prop}
+    {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X X' : XPost}
+    (h : m6aRestoreBumpAnaSpecP Pext xs m Q X) :
+    m6aRestoreBumpAnaSpecP Pext xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
+/-- `Pext`-parameterized `m6aAnaFailedLitSpec` allowing monotone `ext` growth. -/
+def m6aAnaFailedLitSpecP (Pext : List (BitVec 64) → List (BitVec 64) → Prop) :
+    Spec [i64] [i64] := fun (h, ()) m Q _ =>
+  ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (cut : Nat)
+    (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+    h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧
+    Full.FullCutInvW c F0 F_cur cut s ∧ 0 < s.core.cur_level ∧
+    Full.FullConflictOkCut F_cur cut s ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
+    ∀ r ext' s' m',
+      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ Pext ext ext') →
+      s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
+      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat ∧ Full.FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
+      (r = 0#64 → Full.FullOtfsInvW c F0 F_cur s') →
+      (r = 1#64 → Full.FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m'
+
+theorem m6aAnaFailedLitSpecP_ofP {Pext : List (BitVec 64) → List (BitVec 64) → Prop}
+    {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {cut : Nat} {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop}
+    {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext)
+    (hcut : Full.FullCutInvW c F0 F_cur cut s) (hcl : 0 < s.core.cur_level)
+    (hc : Full.FullConflictOkCut F_cur cut s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ r ext' s' m',
+      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ Pext ext ext') →
+      s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
+      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat ∧ Full.FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
+      (r = 0#64 → Full.FullOtfsInvW c F0 F_cur s') →
+      (r = 1#64 → Full.FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m') :
+    m6aAnaFailedLitSpecP Pext (c.hdr, ()) m Q X :=
+  ⟨c, F0, F_cur, cut, ext, s, R, rfl, hcfg, hext, hcut, hcl, hc, hm, hQ⟩
+
+theorem m6aAnaFailedLitSpecP_elimP {Pext : List (BitVec 64) → List (BitVec 64) → Prop}
+    {h : BitVec 64} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hs : m6aAnaFailedLitSpecP Pext (h, ()) m Q X) :
+    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (cut : Nat)
+      (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧
+      Full.FullCutInvW c F0 F_cur cut s ∧ 0 < s.core.cur_level ∧
+      Full.FullConflictOkCut F_cur cut s ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ r ext' s' m',
+        M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6HdrExtInitOk ext' ∧ Pext ext ext') →
+        s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+        s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
+        s'.scratch.work_stk2 = s.scratch.work_stk2 →
+        (r = 20#64 → F0.Unsat ∧ Full.FullOtfsInvW c F0 F_cur s' ∧
+          s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
+        (r = 0#64 → Full.FullOtfsInvW c F0 F_cur s') →
+        (r = 1#64 → Full.FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
+        (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' := hs
+
+theorem m6aAnaFailedLitSpecP_monoXP {Pext : List (BitVec 64) → List (BitVec 64) → Prop}
+    {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X X' : XPost}
+    (h : m6aAnaFailedLitSpecP Pext xs m Q X) :
+    m6aAnaFailedLitSpecP Pext xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
+theorem m6aBumpAnalyzedSpec_of_eq {a : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X : XPost}
+    (h : m6aBumpAnalyzedSpecP Eq a m Q X) : m6aBumpAnalyzedSpec a m Q X := by
+  rcases a with ⟨_, ⟨⟩⟩; dsimp only [m6aBumpAnalyzedSpecP, m6aBumpAnalyzedSpec] at h ⊢
+  simpa only [eq_comm] using h
+
+theorem m6aBumpAnalyzedSpecP_of_eq {a : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X : XPost}
+    (h : m6aBumpAnalyzedSpec a m Q X) : m6aBumpAnalyzedSpecP Eq a m Q X := by
+  rcases a with ⟨_, ⟨⟩⟩; dsimp only [m6aBumpAnalyzedSpecP, m6aBumpAnalyzedSpec] at h ⊢
+  simpa only [eq_comm] using h
+
+theorem m6aRestoreBumpAnaSpec_of_eq {a : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X : XPost}
+    (h : m6aRestoreBumpAnaSpecP Eq a m Q X) : m6aRestoreBumpAnaSpec a m Q X := by
+  rcases a with ⟨_, ⟨⟩⟩; dsimp only [m6aRestoreBumpAnaSpecP, m6aRestoreBumpAnaSpec] at h ⊢
+  simpa only [eq_comm] using h
+
+theorem m6aRestoreBumpAnaSpecP_of_eq {a : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X : XPost}
+    (h : m6aRestoreBumpAnaSpec a m Q X) : m6aRestoreBumpAnaSpecP Eq a m Q X := by
+  rcases a with ⟨_, ⟨⟩⟩; dsimp only [m6aRestoreBumpAnaSpecP, m6aRestoreBumpAnaSpec] at h ⊢
+  simpa only [eq_comm] using h
+
+theorem m6aAnaFailedLitSpec_of_eq {a : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : m6aAnaFailedLitSpecP Eq a m Q X) : m6aAnaFailedLitSpec a m Q X := by
+  rcases a with ⟨_, ⟨⟩⟩; dsimp only [m6aAnaFailedLitSpecP, m6aAnaFailedLitSpec] at h ⊢
+  simpa only [eq_comm] using h
+
+theorem m6aAnaFailedLitSpecP_of_eq {a : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : m6aAnaFailedLitSpec a m Q X) : m6aAnaFailedLitSpecP Eq a m Q X := by
+  rcases a with ⟨_, ⟨⟩⟩; dsimp only [m6aAnaFailedLitSpecP, m6aAnaFailedLitSpec] at h ⊢
+  simpa only [eq_comm] using h
+
 /-- `full_rephase_m6_hdr(h)`: lifted `FullM5Sched.m5RephaseSpec` over `FullM6HdrMem` in sparse mode
 (`dense_mode = 0#64`), allowing `full_walk` (`fullWarmupSpec`) updates with `FullArenaPermEq`
 and `M6_WM_REPHASE_TICKS` watermark update. -/
