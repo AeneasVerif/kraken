@@ -313,6 +313,38 @@ meta def checkNegativePrologues : Except String Unit := do
   | .error _ => pure ()
   | .ok _ => throw "expected auto error on x30 clobber without prologue"
 
+meta def checkIndirectTailCFI : Except String Unit := do
+  let hZero := Fn.computeHints armTarget.toIsa armLegalTarget simpleFn
+  let leafIndTail : List Directive :=
+    [.label "big_fn", .instr ⟨.W64, .BR (.low (.reg .X16) .W64)⟩]
+  let leafSome ← emitArm64DebugAsmChecked [simpleFn] leafIndTail (some [hZero]) [] true
+  let leafNone ← emitArm64DebugAsmChecked [simpleFn] leafIndTail none [] true
+  if leafSome != leafNone then
+    throw "arm64 indirect tail leaf hints/auto mismatch"
+  if !containsSub leafSome "// fn big_fn: frame=0B cfa=sp+0 saved=[]" then
+    throw "missing zero-frame header for arm64 indirect tail leaf"
+  if !containsSub leafSome "\nbr x16\n" then
+    throw "missing br x16 in arm64 indirect tail leaf"
+  let badIndCall : List Directive :=
+    [.label "big_fn", .instr ⟨.W64, .BLR (.low (.reg .X8) .W64)⟩, armRetD]
+  match emitArm64DebugAsmChecked [simpleFn] badIndCall (some [hZero]) [] with
+  | .error _ => pure ()
+  | .ok _ => throw "expected hints error on 0-slot indirect blr x8 without prologue"
+  match emitArm64DebugAsmChecked [simpleFn] badIndCall none [] with
+  | .error _ => pure ()
+  | .ok _ => throw "expected auto error on 0-slot indirect blr x8 without prologue"
+  let frameIndTail : List Directive :=
+    [.label "big_fn"] ++ (armFrame.prologue 0).1 ++
+    (armFrame.epilogue 0).1 ++
+    [.instr ⟨.W64, .BR (.low (.reg .X16) .W64)⟩, .label "big_fn.L0"] ++
+    (armFrame.epilogue 0).1 ++ [armRetD]
+  let multiSome ← emitArm64DebugAsmChecked [simpleFn] frameIndTail (some [hZero]) [] true
+  let multiNone ← emitArm64DebugAsmChecked [simpleFn] frameIndTail none [] true
+  if multiSome != multiNone then
+    throw "arm64 multi-exit indirect tail hints/auto mismatch"
+  if !containsSub multiSome "\t// epilogue (br x16)\n\t.cfi_remember_state\n" then
+    throw "missing epilogue/remember_state for arm64 br x16 tail"
+
 meta def runAllChecks : Except String Unit := do
   for m in allModules do
     checkModule m
@@ -320,6 +352,7 @@ meta def runAllChecks : Except String Unit := do
   checkNonLeafZeroSlot
   checkMultiExitAndBigFrame
   checkNegativePrologues
+  checkIndirectTailCFI
 
 #guard match runAllChecks with | .ok () => true | .error _ => false
 

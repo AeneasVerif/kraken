@@ -220,6 +220,53 @@ private def checkNegativePrologues : Except String Unit := do
   | .error _ => pure ()
   | .ok _ => throw "expected auto error on subq $4, %rsp"
 
+def checkIndirectTailCFI : Except String Unit := do
+  let hZero := Fn.computeHints x64Target.toIsa x64LegalTarget simpleFn
+  let leafIndTail : List Directive :=
+    [.label "big_fn", .instr (.regular .W64 .W64 (.jmp (.reg (q .rax))))]
+  let leafSome ← emitX64DebugAsmChecked [simpleFn] leafIndTail (some [hZero]) [] true
+  let leafNone ← emitX64DebugAsmChecked [simpleFn] leafIndTail none [] true
+  if leafSome != leafNone then
+    throw "x64 indirect tail leaf hints/auto mismatch"
+  if !containsSub leafSome "# fn big_fn: frame=0B cfa=rsp+8 saved=[]" then
+    throw "missing zero-frame header for x64 indirect tail leaf"
+  if !containsSub leafSome "\njmp *%rax\n" then
+    throw "missing jmp *%rax in x64 indirect tail leaf"
+  let badIndCall : List Directive :=
+    [.label "big_fn", .instr (.regular .W64 .W64 (.call (.reg (q .rax)))), x64RetD]
+  match emitX64DebugAsmChecked [simpleFn] badIndCall (some [hZero]) [] with
+  | .error _ => pure ()
+  | .ok _ => throw "expected hints error on 0-slot indirect call *%rax without prologue"
+  match emitX64DebugAsmChecked [simpleFn] badIndCall none [] with
+  | .error _ => pure ()
+  | .ok _ => throw "expected auto error on 0-slot indirect call *%rax without prologue"
+  let frameIndTail : List Directive :=
+    [.label "big_fn"] ++ (x64Frame.prologue 0).1 ++ (x64Frame.epilogue 0).1 ++
+    [.instr (.regular .W64 .W64 (.jmp (.reg (q .r11)))), .label "big_fn.L0"] ++
+    (x64Frame.epilogue 0).1 ++ [x64RetD]
+  let multiSome ← emitX64DebugAsmChecked [simpleFn] frameIndTail (some [hZero]) [] true
+  let multiNone ← emitX64DebugAsmChecked [simpleFn] frameIndTail none [] true
+  if multiSome != multiNone then
+    throw "x64 multi-exit indirect tail hints/auto mismatch"
+  if !containsSub multiSome "\t# epilogue (jmp *%r11)\n\t.cfi_remember_state\n" then
+    throw "missing epilogue/remember_state for x64 indirect tail jump"
+  let badRspTail : List Directive :=
+    [.label "big_fn", .instr (.regular .W64 .W64 (.jmp (.mem ⟨some (.reg .rsp), none, .int64 0⟩)))]
+  match emitX64DebugAsmChecked [simpleFn] badRspTail (some [hZero]) [] with
+  | .error _ => pure ()
+  | .ok _ => throw "expected hints error on 0-slot jmp *(%rsp) without prologue"
+  let memIndTail : List Directive :=
+    [.label "big_fn"] ++ (x64Frame.prologue 0).1 ++ (x64Frame.epilogue 0).1 ++
+    [.instr (.regular .W64 .W64 (.jmp (.mem ⟨some (.reg .rax), none, .int64 8⟩))),
+      .label "big_fn.L0"] ++
+    (x64Frame.epilogue 0).1 ++ [x64RetD]
+  let memSome ← emitX64DebugAsmChecked [simpleFn] memIndTail (some [hZero]) [] true
+  let memNone ← emitX64DebugAsmChecked [simpleFn] memIndTail none [] true
+  if memSome != memNone then
+    throw "x64 multi-exit mem indirect tail hints/auto mismatch"
+  if !containsSub memSome "\t# epilogue (jmp *8(%rax))\n\t.cfi_remember_state\n" then
+    throw "missing epilogue/remember_state for x64 indirect mem tail jump"
+
 /-- Run all pure x64 DebugAsm verification checks. -/
 def runAllChecks : Except String Unit := do
   for m in allModules do
@@ -231,6 +278,7 @@ def runAllChecks : Except String Unit := do
   checkNonLeafZeroSlot
   checkZeroFrameLeaves
   checkNegativePrologues
+  checkIndirectTailCFI
 
 /-- Executable entrypoint running `runAllChecks`. -/
 public def main : IO Unit := do

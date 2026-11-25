@@ -457,6 +457,87 @@ private theorem x64Ret_spec {h : Host} {k : Nat} {s : MachineData} {ra : Int64}
   have hne : .rsp ≠ r := fun e => hr (e ▸ List.mem_cons_self)
   exact Reg64s.get64_set64_of_ne _ _ _ _ hne
 
+theorem x64SymAddr_spec {h : Host} {k : Nat} {sym : Sym} {rd : Reg64} {s : MachineData}
+    {post : MachineState → Prop} :
+    x64Mach.FallsTo x64CondReads h k (x64SymAddr sym rd) (rd :: x64Scratch) [] maskNone s
+      (fun s' => s'.regs.get64 rd = (hostLabel h sym).toBitVec ∧ s'.dmem = s.dmem) post := by
+  letI := h
+  refine fallsTo_of_wp (_root_.Program.wp_singleton fun k _ => ?_)
+  dsimp only [x64SymAddr, emitClean, x64SymAddrI]
+  simp only [t_step_simp]
+  have ha :
+      (@AddrExpr.interp _ ⟨.W64⟩
+        { base := some .rip, idx := none,
+          disp := .sub (.label sym) .after_current_instruction } s.regs
+        ⟨Host.addrOf k, Host.addrOf (k + 1)⟩).zeroExtend 64 =
+        (Labels.label sym).toBitVec := by
+    simp only [AddrExpr.interp, ConstExpr.interp,
+      BitVec.zeroExtend_eq_setWidth, BitVec.setWidth_eq, Int.add_zero]
+    rw [BitVec.ofInt_add]
+    have h1 : BitVec.ofInt 64 (Host.addrOf (k + 1)).toInt =
+        (Host.addrOf (k + 1)).toBitVec := by
+      rw [← Int64.toInt_toBitVec, BitVec.ofInt_toInt]
+    have h2 : BitVec.ofInt 64 (Labels.label sym - Host.addrOf (k + 1)).toInt =
+        (Labels.label sym - Host.addrOf (k + 1)).toBitVec := by
+      rw [← Int64.toInt_toBitVec, BitVec.ofInt_toInt]
+    rw [h1, h2, ← Int64.toBitVec_add, Int64.add_comm, Int64.sub_add_cancel]
+  rw [ha]
+  refine Or.inl ⟨trivial, ⟨⟨by dsimp only [hostLabel]; rw [Reg64s.get64_set64_same], trivial⟩, ?_⟩⟩
+  refine frame_upd_regs (fun r hr => ?_) rfl (Or.inr rfl)
+  have hne : rd ≠ r := fun e => hr (e ▸ List.mem_cons_self)
+  exact Reg64s.get64_set64_of_ne _ _ _ _ hne
+
+theorem x64CallReg_spec {h : Host} {k : Nat} {r : Reg64} {s : MachineData}
+    {G : Mem 64 → Prop} {post : MachineState → Prop}
+    (hc : (x64CallReg r).IsInfixAt Host.prog k)
+    (hmem : s.dmem =⋆ region (s.regs.get64 .rsp - 8#64) 8 ⋆ G)
+    (hk : ∀ s' : MachineData,
+      s'.regs.get64 .rsp = s.regs.get64 .rsp - 8#64 →
+      x64Mach.Frame x64CondReads s s' (.rsp :: [] ++ x64Scratch) [] maskAll →
+      True →
+      (s'.dmem =⋆ cell64 (s'.regs.get64 .rsp)
+        (Host.addrOf (k + (x64CallReg r).length)).toBitVec ⋆ G) →
+      Eventually (step1 Host.exe) post ⟨s', Int64.ofBitVec (s.regs.get64 r)⟩) :
+    x64Mach.Run h k s post := by
+  letI := h
+  obtain ⟨bs, hl, hbs⟩ := region_sep_elim hmem
+  refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
+  dsimp only [x64CallReg, emitClean, x64CallRegI]
+  simp only [t_step_simp, Width.bytesv, Width.bytes, Width.bits]
+  rw [store_All_of_sep { s with regs := s.regs.set64 .rsp (s.regs.get64 .rsp - 8#64) } _
+    .W64 _ _ _ bs G hbs hl]
+  have hrsp : ({ s with regs := s.regs.set64 .rsp (s.regs.get64 .rsp - 8#64) }).regs.get64 .rsp =
+      s.regs.get64 .rsp - 8#64 := Reg64s.get64_set64_same s.regs .rsp _
+  have hfr : x64Mach.Frame x64CondReads s
+      { s with regs := s.regs.set64 .rsp (s.regs.get64 .rsp - 8#64),
+               dmem := Mem.storeInt s.dmem (s.regs.get64 .rsp - 8#64) 8
+                 (Host.addrOf (k + 1)).toBitVec.toInt }
+      (.rsp :: [] ++ x64Scratch) [] maskAll := by
+    refine frame_upd_regs (fun x hx => ?_) rfl (Or.inl rfl)
+    have hne : .rsp ≠ x := fun e => hx (e ▸ List.mem_cons_self)
+    exact Reg64s.get64_set64_of_ne _ _ _ _ hne
+  have hm' : ((Mem.storeInt s.dmem (s.regs.get64 .rsp - 8#64) 8
+      (Host.addrOf (k + 1)).toBitVec.toInt) =⋆
+      cell64 (s.regs.get64 .rsp - 8#64) (Host.addrOf (k + 1)).toBitVec ⋆ G) :=
+    Mem.storeInt_sep _ 8 bs G s.dmem ⟨hbs, hl⟩ _
+  dsimp only [Effects.All, Width.bytes]
+  refine hk _ hrsp hfr trivial ?_
+  rw [hrsp]
+  exact hm'
+
+theorem x64JmpReg_spec {h : Host} {k : Nat} {r : Reg64} {s : MachineData}
+    {post : MachineState → Prop}
+    (hc : (x64JmpReg r).IsInfixAt Host.prog k)
+    (hk : ∀ s' : MachineData,
+      x64Mach.Frame x64CondReads s s' x64Scratch [] maskNone → s'.dmem = s.dmem →
+      Eventually (step1 Host.exe) post ⟨s', Int64.ofBitVec (s.regs.get64 r)⟩) :
+    x64Mach.Run h k s post := by
+  letI := h
+  refine Host.eventually_of_interp_cps (List.isInfixAt_singleton.mp hc) ?_
+  dsimp only [x64JmpReg, emitClean, x64JmpRegI]
+  simp only [t_step_simp]
+  exact hk s (Machine.Frame.refl (M := x64Mach) x64CondReads s x64Scratch [] maskNone) rfl
+
 /-! ## 4. `x64FrameSpec : FrameTarget x64Mach x64Frame x64CondReads` -/
 
 theorem x64FrameSpec_spec :
@@ -531,6 +612,18 @@ theorem x64Ret_noLab (l : Sym) :
     Kraken.Directive.label l ∉ x64Frame.ret :=
   emitClean_noLab _ l
 
+theorem x64SymAddr_noLab (sym : Sym) (rd : Reg64) (l : Sym) :
+    Kraken.Directive.label l ∉ x64SymAddr sym rd :=
+  emitClean_noLab _ l
+
+theorem x64CallReg_noLab (r : Reg64) (l : Sym) :
+    Kraken.Directive.label l ∉ x64CallReg r :=
+  emitClean_noLab _ l
+
+theorem x64JmpReg_noLab (r : Reg64) (l : Sym) :
+    Kraken.Directive.label l ∉ x64JmpReg r :=
+  emitClean_noLab _ l
+
 end NoLab
 
 /-! ## 6. `ParserChecks` (`Kraken.X64.Parser`) -/
@@ -557,6 +650,9 @@ example : ⸨prog| movl %edi, %edi ⸩ = (x64Frame.canonAbi i32 .rdi).1 := rfl
 example : ⸨prog| call f ⸩ = x64Frame.call "f" := rfl
 example : ⸨prog| jmp f ⸩ = x64Frame.exitJmp "f" := rfl
 example : ⸨prog| ret ⸩ = x64Frame.ret := rfl
+example : ⸨prog| leaq f(%rip), %rax ⸩ = x64SymAddr "f" .rax := rfl
+example : ⸨prog| call *%rax ⸩ = x64CallReg .rax := rfl
+example : ⸨prog| jmp *%rax ⸩ = x64JmpReg .rax := rfl
 
 end ParserChecks
 
