@@ -172,7 +172,7 @@ theorem lcnfObjMem_sarray_elim {o : LcnfObj} (hc : BaCanon o) {R : Mem 64 → Pr
 
 private theorem ba_load_header_mid {o : LcnfObj} {A R : Mem 64 → Prop} {m : Mem 64}
     (hm : (A ⋆ lcnfObjMem o ⋆ R) m) : loadVal m i64 o.addr = some o.header :=
-  lcnfObjMem_load_header (R := A ⋆ R) (sep_cast hm (by ac_rfl))
+  r2_lcnfObjMem_load_header (R := A ⋆ R) (sep_cast hm (by ac_rfl))
 
 private theorem ba_load_sz {o : LcnfObj} (hc : BaCanon o) {R : Mem 64 → Prop} {m : Mem 64}
     (hm : (lcnfObjMem o ⋆ R) m) :

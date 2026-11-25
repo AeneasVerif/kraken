@@ -751,7 +751,7 @@ theorem r2_ensure_excl_array_wp :
   change LeanQbe.T.wp _ _ _ _ _
   have hmHdr : (lcnfObjMem arrObj ⋆ (rtC0Inv rt st ⋆ lcnfHeap childObjs ⋆ R)) m :=
     sep_cast hm (by ac_rfl)
-  apply wp_load_of (lcnfObjMem_load_header hmHdr)
+  apply wp_load_of (r2_lcnfObjMem_load_header hmHdr)
   r2_steps
   apply wp_load_of (arr_load_sz_mid hcanon hmHdr)
   r2_steps

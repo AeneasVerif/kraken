@@ -46,12 +46,12 @@ theorem bv64_and1_zero_of_mod8 {p : BitVec 64} (h : p.toNat % 8 = 0) :
   rw [Nat.and_two_pow_sub_one_eq_mod, Nat.pow_one]
   omega
 
-theorem bv64_mul8_eq_ofNat (i : BitVec 64) : i * 8#64 = BitVec.ofNat 64 (8 * i.toNat) := by
+theorem r2_bv64_mul8_eq_ofNat (i : BitVec 64) : i * 8#64 = BitVec.ofNat 64 (8 * i.toNat) := by
   apply BitVec.eq_of_toNat_eq
   simp [BitVec.toNat_mul, Nat.mul_comm]
 
 theorem bv64_8mul_eq_ofNat (i : BitVec 64) : 8#64 * i = BitVec.ofNat 64 (8 * i.toNat) := by
-  rw [BitVec.mul_comm, bv64_mul8_eq_ofNat]
+  rw [BitVec.mul_comm, r2_bv64_mul8_eq_ofNat]
 
 theorem bv64_setWidth8_ofNat (n : Nat) :
     ((BitVec.ofNat 64 n).setWidth 8).toNat = n % 256 := by
@@ -352,7 +352,7 @@ theorem lcnfObjMem_header_body (o : LcnfObj) :
   ⟨lcnfObjMemTail o, lcnfObjMem_eq_header_tail o,
     fun rc' => by rw [lcnfObjMem_eq_header_tail]; rfl⟩
 
-theorem lcnfObjMem_load_header {o : LcnfObj} {R : Mem 64 → Prop} {m : Mem 64}
+theorem r2_lcnfObjMem_load_header {o : LcnfObj} {R : Mem 64 → Prop} {m : Mem 64}
     (hm : (lcnfObjMem o ⋆ R) m) : loadVal m i64 o.addr = some o.header := by
   obtain ⟨body, h, _⟩ := lcnfObjMem_header_body o
   rw [h, sep_assoc] at hm
@@ -651,7 +651,7 @@ theorem r2_inc_obj_wp :
     rcases hPre with ⟨obj, R, rfl, hwf, hm, hk⟩
     r2_steps
     apply wp_load_of
-    · exact lcnfObjMem_load_header hm
+    · exact r2_lcnfObjMem_load_header hm
     · have hrcEq := LcnfObj.header_rc obj hwf.2.2.2.1 hwf.2.2.2.2.1 hwf.2.2.2.2.2.1
       r2_steps
       · -- rc ≠ 0#64 ∧ rc < 2147483647#64
@@ -727,7 +727,7 @@ theorem r2_dec_obj_wp :
       exact sep_cast hm (by ac_rfl)
     r2_steps
     apply wp_load_of
-    · exact ha ▸ lcnfObjMem_load_header hmHdr
+    · exact ha ▸ r2_lcnfObjMem_load_header hmHdr
     · have hrcEq := LcnfObj.header_rc objs[idx] hobjWf.2.2.2.1 hobjWf.2.2.2.2.1 hobjWf.2.2.2.2.2.1
       r2_steps
       · -- rc = 1#64 -> call lcnf_dec_ref_cold(rt, o)

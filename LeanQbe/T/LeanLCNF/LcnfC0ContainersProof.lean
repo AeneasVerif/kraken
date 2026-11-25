@@ -271,28 +271,28 @@ def nvRtSt : RtC0State :=
     curNz := by decide }
 
 /-- Serialized 17 header words (`136` bytes) of `nvHdr`. -/
-def nvHdrWords : List (BitVec 64) :=
+def nvR2HdrWords : List (BitVec 64) :=
   [nvHdr.s_large_free, nvHdr.s_ba_empty, nvHdr.s_cur, nvHdr.s_end, nvHdr.s_work,
    nvHdr.s_work_cap, nvHdr.s_chunks, nvHdr.s_nchunks, nvHdr.s_chunks_cap,
    nvHdr.s_st_allocs, nvHdr.s_st_frees, nvHdr.s_st_live, nvHdr.s_st_peak_live,
    nvHdr.s_st_persistent, nvHdr.s_st_reused, nvHdr.s_st_cold_decs, nvHdr.s_st_bytes]
 
 /-- Concrete byte image (`34216` bytes) of `nvRtSt` starting at `nvRtAddr`. -/
-def nvRtBytes : List UInt8 :=
+def nvR2RtBytes : List UInt8 :=
   List.replicate 256 0 ++ List.replicate 32768 0 ++ List.replicate 512 0 ++
-    u64ListBytes nvHdrWords ++ List.replicate nvArenaCap 0 ++ List.replicate 32 0
+    u64ListBytes nvR2HdrWords ++ List.replicate nvArenaCap 0 ++ List.replicate 32 0
 
-private theorem nvHdrWords_len : (u64ListBytes nvHdrWords).length = 136 := by
+private theorem nvR2HdrWords_len : (u64ListBytes nvR2HdrWords).length = 136 := by
   rw [u64ListBytes_length]; decide
 
-private theorem nvRtBytes_length : nvRtBytes.length = 34216 := by
-  dsimp only [nvRtBytes]
-  simp only [List.length_append, List.length_replicate, nvHdrWords_len, nvArenaCap]
+private theorem nvR2RtBytes_length : nvR2RtBytes.length = 34216 := by
+  dsimp only [nvR2RtBytes]
+  simp only [List.length_append, List.length_replicate, nvR2HdrWords_len, nvArenaCap]
 
 private theorem nvHdr_eq_bytes :
-    bytes (nvRtAddr + 33536#64) (u64ListBytes nvHdrWords) = LcnfC0Rt.At nvRtAddr nvHdr := by
-  rw [← array64_eq_bytes (nvRtAddr + 33536#64) nvHdrWords (by decide)]
-  simp only [nvHdrWords, LcnfC0Rt.At, array64_cons, array64_nil, Std.ExtHashMap.sep_emp]
+    bytes (nvRtAddr + 33536#64) (u64ListBytes nvR2HdrWords) = LcnfC0Rt.At nvRtAddr nvHdr := by
+  rw [← array64_eq_bytes (nvRtAddr + 33536#64) nvR2HdrWords (by decide)]
+  simp only [nvR2HdrWords, LcnfC0Rt.At, array64_cons, array64_nil, Std.ExtHashMap.sep_emp]
   have h0 : nvRtAddr + 33536#64 = nvRtAddr + 33536 := rfl
   simp only [h0,
     show (nvRtAddr + 33536) + 8 = nvRtAddr + 33544 by decide,
@@ -316,52 +316,53 @@ private theorem nvHdr_eq_bytes :
   simp only [hc]
   ac_rfl
 
-/-- Splitting `nvRtBytes` establishes `rtC0Inv nvRtAddr nvRtSt` symbolically. -/
+/-- Splitting `nvR2RtBytes` establishes `rtC0Inv nvRtAddr nvRtSt` symbolically. -/
 theorem nvRtSt_inv {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (bytes nvRtAddr nvRtBytes ⋆ R) m) :
+    (hm : (bytes nvRtAddr nvR2RtBytes ⋆ R) m) :
     (rtC0Inv nvRtAddr nvRtSt ⋆ R) m := by
   have hm0 : (bytes nvRtAddr (List.replicate 256 0 ++
       (List.replicate 32768 0 ++ (List.replicate 512 0 ++
-      (u64ListBytes nvHdrWords ++ (List.replicate nvArenaCap 0 ++
+      (u64ListBytes nvR2HdrWords ++ (List.replicate nvArenaCap 0 ++
         List.replicate 32 0))))) ⋆ R) m := by
-    simpa only [nvRtBytes, List.append_assoc] using hm
+    simpa only [nvR2RtBytes, List.append_assoc] using hm
   have h1 := sep_bytes_split (by
-    simp only [List.length_append, List.length_replicate, nvHdrWords_len, nvArenaCap]; omega) hm0
+    simp only [List.length_append, List.length_replicate, nvR2HdrWords_len, nvArenaCap]; omega) hm0
   simp only [List.length_replicate] at h1
   rw [show nvRtAddr + 256#64 = nvRtAddr + BitVec.ofNat 64 rtGlobalsOff from rfl] at h1
   have h1' : (bytes (nvRtAddr + BitVec.ofNat 64 rtGlobalsOff)
         (List.replicate 32768 0 ++ (List.replicate 512 0 ++
-          (u64ListBytes nvHdrWords ++ (List.replicate nvArenaCap 0 ++ List.replicate 32 0)))) ⋆
+          (u64ListBytes nvR2HdrWords ++ (List.replicate nvArenaCap 0 ++ List.replicate 32 0)))) ⋆
       (bytes nvRtAddr (List.replicate 256 0) ⋆ R)) m := sep_cast h1 (by ac_rfl)
   have h2 := sep_bytes_split (by
-    simp only [List.length_append, List.length_replicate, nvHdrWords_len, nvArenaCap]; omega) h1'
+    simp only [List.length_append, List.length_replicate, nvR2HdrWords_len, nvArenaCap]; omega) h1'
   simp only [List.length_replicate,
     show (nvRtAddr + BitVec.ofNat 64 rtGlobalsOff) + 32768#64 = nvRtAddr + 33024#64 by decide]
     at h2
   have h2' : (bytes (nvRtAddr + 33024#64)
-        (List.replicate 512 0 ++ (u64ListBytes nvHdrWords ++
+        (List.replicate 512 0 ++ (u64ListBytes nvR2HdrWords ++
           (List.replicate nvArenaCap 0 ++ List.replicate 32 0))) ⋆
       (bytes nvRtAddr (List.replicate 256 0) ⋆
         bytes (nvRtAddr + BitVec.ofNat 64 rtGlobalsOff) (List.replicate 32768 0) ⋆ R)) m :=
     sep_cast h2 (by ac_rfl)
   have h3 := sep_bytes_split (by
-    simp only [List.length_append, List.length_replicate, nvHdrWords_len, nvArenaCap]; omega) h2'
+    simp only [List.length_append, List.length_replicate, nvR2HdrWords_len, nvArenaCap]; omega) h2'
   simp only [List.length_replicate,
     show (nvRtAddr + 33024#64) + 512#64 = nvRtAddr + 33536#64 by decide] at h3
   have h3' : (bytes (nvRtAddr + 33536#64)
-        (u64ListBytes nvHdrWords ++ (List.replicate nvArenaCap 0 ++ List.replicate 32 0)) ⋆
+        (u64ListBytes nvR2HdrWords ++ (List.replicate nvArenaCap 0 ++ List.replicate 32 0)) ⋆
       (bytes nvRtAddr (List.replicate 256 0) ⋆
         bytes (nvRtAddr + BitVec.ofNat 64 rtGlobalsOff) (List.replicate 32768 0) ⋆
         bytes (nvRtAddr + 33024#64) (List.replicate 512 0) ⋆ R)) m :=
     sep_cast h3 (by ac_rfl)
   have h4 := sep_bytes_split (by
-    simp only [List.length_append, List.length_replicate, nvHdrWords_len, nvArenaCap]; omega) h3'
-  rw [nvHdrWords_len, show (nvRtAddr + 33536#64) + 136#64 = nvRtAddr + 33672#64 by decide] at h4
+    simp only [List.length_append, List.length_replicate, nvR2HdrWords_len, nvArenaCap]; omega) h3'
+  rw [nvR2HdrWords_len,
+    show (nvRtAddr + 33536#64) + 136#64 = nvRtAddr + 33672#64 by decide] at h4
   have h4' : (bytes (nvRtAddr + 33672#64) (List.replicate nvArenaCap 0 ++ List.replicate 32 0) ⋆
       (bytes nvRtAddr (List.replicate 256 0) ⋆
         bytes (nvRtAddr + BitVec.ofNat 64 rtGlobalsOff) (List.replicate 32768 0) ⋆
         bytes (nvRtAddr + 33024#64) (List.replicate 512 0) ⋆
-        bytes (nvRtAddr + 33536#64) (u64ListBytes nvHdrWords) ⋆ R)) m :=
+        bytes (nvRtAddr + 33536#64) (u64ListBytes nvR2HdrWords) ⋆ R)) m :=
     sep_cast h4 (by ac_rfl)
   have h5 := sep_bytes_split (by
     simp only [List.length_replicate, nvArenaCap]; omega) h4'
@@ -372,7 +373,7 @@ theorem nvRtSt_inv {R : Mem 64 → Prop} {m : Mem 64}
       (bytes nvRtAddr (List.replicate 256 0) ⋆
         bytes (nvRtAddr + BitVec.ofNat 64 rtGlobalsOff) (List.replicate 32768 0) ⋆
         bytes (nvRtAddr + 33024#64) (List.replicate 512 0) ⋆
-        bytes (nvRtAddr + 33536#64) (u64ListBytes nvHdrWords) ⋆
+        bytes (nvRtAddr + 33536#64) (u64ListBytes nvR2HdrWords) ⋆
         bytes nvHdr.s_work (List.replicate 32 0) ⋆ R)) m := sep_cast h5 (by ac_rfl)
   have hmReg := sep_bytes_to_region h5'
   have hremEq : nvRtSt.rem = 512 := by decide
@@ -380,7 +381,7 @@ theorem nvRtSt_inv {R : Mem 64 → Prop} {m : Mem 64}
   have hmReassoc : (bytes nvRtAddr (List.replicate 256 0) ⋆
       bytes (nvRtAddr + BitVec.ofNat 64 rtGlobalsOff) (List.replicate 32768 0) ⋆
       bytes (nvRtAddr + 33024#64) (List.replicate 512 0) ⋆
-      bytes (nvRtAddr + 33536#64) (u64ListBytes nvHdrWords) ⋆
+      bytes (nvRtAddr + 33536#64) (u64ListBytes nvR2HdrWords) ⋆
       bytes nvHdr.s_work (List.replicate 32 0) ⋆
       region nvHdr.s_cur nvRtSt.rem ⋆ R) m :=
     sep_cast hmReg (by ac_rfl)
@@ -518,15 +519,15 @@ private theorem arrObjMem_of_bytes {o : LcnfObj} {R : Mem 64 → Prop} {m : Mem 
 
 /-! ## 4. Non-Vacuity (`XPost := False`) Concrete `Mem 64` Theorems -/
 
-/-- Non-vacuity (`XPost := False`) for `lcnf_ba_empty` on the concrete `nvRtBytes` memory. -/
+/-- Non-vacuity (`XPost := False`) for `lcnf_ba_empty` on the concrete `nvR2RtBytes` memory. -/
 theorem nv_lcnf_ba_empty :
-    Func.wp rtR2Env lcnf_ba_empty_body (nvRtAddr, ()) (nvRtBytes.At nvRtAddr)
+    Func.wp rtR2Env lcnf_ba_empty_body (nvRtAddr, ()) (nvR2RtBytes.At nvRtAddr)
       (fun (p, _) m' => p ≠ 0#64 ∧ p.toNat % 8 = 0 ∧
         ∃ st' : RtC0State, st'.hdr.s_ba_empty = p ∧
           (rtC0Inv nvRtAddr st' ⋆ lcnfObjMem (mkBaObj p 0#32 0 [])) m')
       (fun _ _ _ _ => False) := by
   apply lcnf_ba_empty_sound
-  have hmRt : (rtC0Inv nvRtAddr nvRtSt ⋆ Std.ExtHashMap.emp) (nvRtBytes.At nvRtAddr) :=
+  have hmRt : (rtC0Inv nvRtAddr nvRtSt ⋆ Std.ExtHashMap.emp) (nvR2RtBytes.At nvRtAddr) :=
     nvRtSt_inv (by rw [Std.ExtHashMap.sep_emp]; rfl)
   rw [Std.ExtHashMap.sep_emp] at hmRt
   refine ⟨nvRtSt, Std.ExtHashMap.emp, ?_, ?_⟩
@@ -558,7 +559,7 @@ def nvBa2Bytes : List UInt8 :=
 
 /-- Combined concrete `Mem 64` slab with `nvRtSt`, exclusive `nvBa1`, and shared `nvBa2`. -/
 def nvBaSlabMem : Mem 64 :=
-  (nvRtBytes ++ nvBa1Bytes ++ nvBa2Bytes).At nvRtAddr
+  (nvR2RtBytes ++ nvBa1Bytes ++ nvBa2Bytes).At nvRtAddr
 
 private theorem nvBa1Bytes_len : nvBa1Bytes.length = 32 := by
   dsimp only [nvBa1Bytes, nvBa1, mkBaObj, LcnfObj.totalBytes, sarrayTag, baAllocBytes, align8]
@@ -578,15 +579,15 @@ private theorem nvBa2_canon : BaCanon nvBa2 := by
 
 private theorem nvBaSlabMem_split :
     (rtC0Inv nvRtAddr nvRtSt ⋆ lcnfObjMem nvBa1 ⋆ lcnfObjMem nvBa2) nvBaSlabMem := by
-  have hm0 : bytes nvRtAddr (nvRtBytes ++ (nvBa1Bytes ++ nvBa2Bytes)) nvBaSlabMem := by
+  have hm0 : bytes nvRtAddr (nvR2RtBytes ++ (nvBa1Bytes ++ nvBa2Bytes)) nvBaSlabMem := by
     simp [nvBaSlabMem, bytes, List.append_assoc]
-  have h0 : (bytes nvRtAddr (nvRtBytes ++ (nvBa1Bytes ++ nvBa2Bytes)) ⋆ Std.ExtHashMap.emp)
+  have h0 : (bytes nvRtAddr (nvR2RtBytes ++ (nvBa1Bytes ++ nvBa2Bytes)) ⋆ Std.ExtHashMap.emp)
       nvBaSlabMem := by
     rwa [Std.ExtHashMap.sep_emp]
   have h1 := sep_bytes_split (by
-    rw [nvRtBytes_length, List.length_append, nvBa1Bytes_len, nvBa2Bytes_len]; omega) h0
-  rw [nvRtBytes_length] at h1
-  change (bytes nvRtAddr nvRtBytes ⋆ (bytes nvBa1Addr (nvBa1Bytes ++ nvBa2Bytes) ⋆
+    rw [nvR2RtBytes_length, List.length_append, nvBa1Bytes_len, nvBa2Bytes_len]; omega) h0
+  rw [nvR2RtBytes_length] at h1
+  change (bytes nvRtAddr nvR2RtBytes ⋆ (bytes nvBa1Addr (nvBa1Bytes ++ nvBa2Bytes) ⋆
     Std.ExtHashMap.emp)) nvBaSlabMem at h1
   have hRt := nvRtSt_inv h1
   have hRt' : (bytes nvBa1Addr (nvBa1Bytes ++ nvBa2Bytes) ⋆ rtC0Inv nvRtAddr nvRtSt)
@@ -683,7 +684,7 @@ def nvArr2Bytes : List UInt8 :=
 
 /-- Combined concrete `Mem 64` slab with `nvRtSt`, exclusive `nvArr1`, and shared `nvArr2`. -/
 def nvArrSlabMem : Mem 64 :=
-  (nvRtBytes ++ nvArr1Bytes ++ nvArr2Bytes).At nvRtAddr
+  (nvR2RtBytes ++ nvArr1Bytes ++ nvArr2Bytes).At nvRtAddr
 
 private theorem nvArr1Bytes_len : nvArr1Bytes.length = 56 := by
   dsimp only [nvArr1Bytes, nvArr1, mkArrObj]
@@ -703,15 +704,15 @@ private theorem nvArr2_canon : ArrCanon nvArr2 := by
 
 private theorem nvArrSlabMem_split :
     (rtC0Inv nvRtAddr nvRtSt ⋆ lcnfObjMem nvArr1 ⋆ lcnfObjMem nvArr2) nvArrSlabMem := by
-  have hm0 : bytes nvRtAddr (nvRtBytes ++ (nvArr1Bytes ++ nvArr2Bytes)) nvArrSlabMem := by
+  have hm0 : bytes nvRtAddr (nvR2RtBytes ++ (nvArr1Bytes ++ nvArr2Bytes)) nvArrSlabMem := by
     simp [nvArrSlabMem, bytes, List.append_assoc]
-  have h0 : (bytes nvRtAddr (nvRtBytes ++ (nvArr1Bytes ++ nvArr2Bytes)) ⋆ Std.ExtHashMap.emp)
+  have h0 : (bytes nvRtAddr (nvR2RtBytes ++ (nvArr1Bytes ++ nvArr2Bytes)) ⋆ Std.ExtHashMap.emp)
       nvArrSlabMem := by
     rwa [Std.ExtHashMap.sep_emp]
   have h1 := sep_bytes_split (by
-    rw [nvRtBytes_length, List.length_append, nvArr1Bytes_len, nvArr2Bytes_len]; omega) h0
-  rw [nvRtBytes_length] at h1
-  change (bytes nvRtAddr nvRtBytes ⋆ (bytes nvArr1Addr (nvArr1Bytes ++ nvArr2Bytes) ⋆
+    rw [nvR2RtBytes_length, List.length_append, nvArr1Bytes_len, nvArr2Bytes_len]; omega) h0
+  rw [nvR2RtBytes_length] at h1
+  change (bytes nvRtAddr nvR2RtBytes ⋆ (bytes nvArr1Addr (nvArr1Bytes ++ nvArr2Bytes) ⋆
     Std.ExtHashMap.emp)) nvArrSlabMem at h1
   have hRt := nvRtSt_inv h1
   have hRt' : (bytes nvArr1Addr (nvArr1Bytes ++ nvArr2Bytes) ⋆ rtC0Inv nvRtAddr nvRtSt)
