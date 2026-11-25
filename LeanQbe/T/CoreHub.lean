@@ -11,6 +11,7 @@ public import LeanQbe.T.Dce
 public import LeanQbe.T.DceLemmas
 public import LeanQbe.T.DceParam
 public import LeanQbe.T.DceParamLemmas
+public import LeanQbe.T.DebugAsmCommon
 public import LeanQbe.T.DivConst
 public import LeanQbe.T.DivConstLemmas
 public import LeanQbe.T.Driver
