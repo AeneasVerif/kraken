@@ -16,11 +16,13 @@ set_option autoImplicit false
 
 Umbrella module re-exporting the untrusted, shape-stable, PHOAS-first C0 frontend:
 * `Syntax`: C0 AST
-* `Lexer`: C0 tokenizer, preprocessor (`#define`/`#undef`/`#if`/`#ifdef`/`#ifndef`), literal lexer
-* `Parser`: `parseC0 : String → Except String C0.TranslationUnit`
-* `Layout`: SysV LP64 struct, union, and LSB-first bitfield layout
+* `Lexer`: C0 tokenizer, preprocessor (`#define` incl. parameterized/variadic, `#undef`,
+  `#if`/`#ifdef`/`#ifndef`, `#include`, `#pragma c0_*`)
+* `Parser`: `parseC0 : String → Std.HashMap String String → Except String C0.TranslationUnit`
+* `Layout`: SysV LP64 struct, union, LSB-first bitfield layout, `offsetof`, `_Static_assert`
 * `Lower`: shape-stable SSA/join-point lowering, `#c0_shape` metadata, and `promoteExitCalls`
-* `Elab`: direct PHOAS `Lean.Expr` elaborator, `c0_decl!`, `c0_file!`, and `#c0_shape`
+* `Elab`: direct PHOAS `Lean.Expr` elaborator, `c0_header!`, `c0_decl!`, `c0_file!`,
+  `#c0_shape`, `#c0_audit`
 * `ToFlat`: `LExpr → TFlat` bridge (`LFlatCtx`, `TFlatFn`, `compileC0Source`)
 * `LayoutElab`: `c0_layout_lemmas!` struct footprints and `c0_load`/`c0_store` field lemmas
 -/

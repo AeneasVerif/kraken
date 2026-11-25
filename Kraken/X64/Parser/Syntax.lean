@@ -160,6 +160,12 @@ syntax x64_operand "+" num : x64_operand
 syntax x64_operand "-" num : x64_operand
 syntax x64_operand "-" x64_ident : x64_operand
 
+/-- X64 branch/call target (`sym`, `*%r`, `*mem`, or antiquotation). -/
+declare_syntax_cat x64_target
+syntax x64_reg_or_mem : x64_target
+syntax "*" x64_reg_or_mem : x64_target
+syntax "❰" term "❱" : x64_target
+
 /-- X64 AVX instruction operand (AVX register or memory). -/
 declare_syntax_cat x64_avx_operand
 syntax x64_avx_reg : x64_avx_operand
@@ -487,10 +493,10 @@ syntax &"ret"  : x64_instr
 syntax &"retq" : x64_instr
 syntax &"cld"  : x64_instr
 syntax &"std"  : x64_instr
-syntax withPosition(&"call"  ppSpace lineEq x64_operand) : x64_instr
-syntax withPosition(&"callq" ppSpace lineEq x64_operand) : x64_instr
-syntax withPosition(&"jmp"   ppSpace lineEq x64_operand) : x64_instr
-syntax withPosition(&"jmpq"  ppSpace lineEq x64_operand) : x64_instr
+syntax withPosition(&"call"  ppSpace lineEq x64_target) : x64_instr
+syntax withPosition(&"callq" ppSpace lineEq x64_target) : x64_instr
+syntax withPosition(&"jmp"   ppSpace lineEq x64_target) : x64_instr
+syntax withPosition(&"jmpq"  ppSpace lineEq x64_target) : x64_instr
 syntax &"nop" : x64_instr
 syntax withPosition(&"nop" ppSpace lineEq num) : x64_instr
 syntax withPosition(x64_jcc_op ppSpace lineEq x64_ident) : x64_instr
