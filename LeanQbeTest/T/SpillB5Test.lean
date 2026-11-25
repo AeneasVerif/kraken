@@ -482,4 +482,91 @@ meta def armEvFast : List Nat :=
 #guard movesAt (hintsOf noArmEvict armEvFn) isSlotMove armEvFast ≥ 1
 #guard movesAt (hintsOf .legacy armEvFn) isSlotMove armEvFast ≥ 1
 
+/-! ## 11. Wave P1 Oracle Upgrades (`csCost`, `cheapSplit`, `fitBlockGprs`) -/
+
+/-- Multi-return function (`8` `.ret` sites, like `CondThreadOpt` output) with a call-crossing
+incoming arg `y` kept in a callee-saved register instead of spilling in the prologue. -/
+meta def multiRetCsFn : Fn :=
+  ⟨"multiRetCsB5", [i64, i64], [i64], fun V L (a, y, ()) =>
+    let rec br : Nat → V i64 → Expr V L [i64]
+      | 0, acc => .ret (.var acc, ())
+      | n + 1, acc =>
+        .let_ (op2 (.cmp .eq i64) (.var acc) (.imm (BitVec.ofNat 64 n))) fun (c, ()) =>
+        .jnz (.var c)
+          (.let_ (op2 (.add i64) (.var acc) (.var y)) fun (r, ()) => .ret (.var r, ()))
+          (br n acc)
+    .call (as := [i64]) (bs := [i64]) "extFn" (.var a, ()) fun (r0, ()) =>
+    .call (as := [i64]) (bs := [i64]) "extFn" (.var r0, ()) fun (r1, ()) =>
+    .let_ (op2 (.add i64) (.var r1) (.var y)) fun (s0, ()) =>
+    .let_ (op2 (.xor i64) (.var s0) (.var y)) fun (s1, ()) =>
+    br 7 s1⟩
+
+#guard allCfgs.all (lowers · multiRetCsFn)
+#guard !(hintsOf {} multiRetCsFn).saved.isEmpty
+#guard (hintsOf {} multiRetCsFn).nslots == 0
+
+/-- Loop-crossing variable with cheap def/call splitting around a cold loop call lowers cleanly
+even when callee-saved registers are saturated by heavier loop-carried variables. -/
+meta def loopCallSplitFn : Fn :=
+  ⟨"loopCallSplitB5", [i64, i64, i64], [i64], fun _ _ (a, m, q, ()) =>
+    .let_ (op2 (.add i64) (.var a) (.imm 5)) fun (inv, ()) =>
+    adds m 6 fun cs =>
+    loop1 (ts := [i64, i64])
+      (fun L (i, acc, ()) =>
+        .let_ (op2 (.cmp .ult i64) (.var i) (.var m)) fun (c0, ()) =>
+        .jnz (.var c0)
+          (.let_ (op2 (.cmp .eq i64) (.var i) (.var q)) fun (c1, ()) =>
+           .jnz (.var c1)
+             (.call (as := [i64]) (bs := [i64]) "extFn" (.var q, ()) fun (r, ()) =>
+              .let_ (op2 (.add i64) (.var r) (.var inv)) fun (acc', ()) =>
+              .let_ (op2 (.add i64) (.var i) (.imm 1)) fun (i', ()) =>
+              .jump L (.var i', .var acc', ()))
+             (heavyMix cs acc 4 fun z =>
+              .let_ (op2 (.add i64) (.var z) (.var inv)) fun (z', ()) =>
+              .let_ (op2 (.add i64) (.var i) (.imm 1)) fun (i', ()) =>
+              .jump L (.var i', .var z', ())))
+          (.ret (.var acc, ())))
+      (fun L => .jump L (.imm 0, .imm 0, ()))⟩
+
+#guard allCfgs.all (lowers · loopCallSplitFn)
+#guard (compile x64Target.toIsa x64LegalTarget [loopCallSplitFn]
+  [Fn.computeHints x64Target.toIsa x64LegalTarget loopCallSplitFn]).isOk = true
+
+/-- Block with `9` parameters (`3` spilled with swapped slots) plus heavy live-across pressure:
+`fitBlockGprs` caps active entry GPRs so `pickPlocs` never runs out of GPRs. -/
+meta def highPressureBlockFn : Fn :=
+  ⟨"highPressureBlockB5", [i64, i64], [i64], fun _ _ (a, b, ()) =>
+    adds a 5 fun ls =>
+    .group (sig := [[i64, i64, i64, i64, i64, i64, i64, i64, i64]])
+      (fun (_, ()) => .cons (fun (p0, p1, p2, p3, p4, p5, p6, p7, p8, ()) =>
+        adds b 8 fun hs =>
+        heavyMix hs p0 2 fun z0 =>
+        .let_ (op2 (.add i64) (.var z0) (.var p1)) fun (s1, ()) =>
+        .let_ (op2 (.add i64) (.var s1) (.var p2)) fun (s2, ()) =>
+        .let_ (op2 (.add i64) (.var s2) (.var p3)) fun (s3, ()) =>
+        .let_ (op2 (.add i64) (.var s3) (.var p4)) fun (s4, ()) =>
+        .let_ (op2 (.add i64) (.var s4) (.var p5)) fun (s5, ()) =>
+        .let_ (op2 (.add i64) (.var s5) (.var p6)) fun (s6, ()) =>
+        .let_ (op2 (.add i64) (.var s6) (.var p7)) fun (s7, ()) =>
+        .let_ (op2 (.add i64) (.var s7) (.var p8)) fun (s8, ()) =>
+        heavyMix ls s8 3 fun z1 =>
+        .ret (.var z1, ())) .nil)
+      (fun (j, ()) =>
+        .let_ (op2 (.cmp .eq i64) (.var a) (.imm 0)) fun (c, ()) =>
+        .jnz (.var c)
+          (adds a 9 fun xs => match xs with
+            | [x0, x1, x2, x3, x4, x5, x6, x7, x8] =>
+              .jump j (.var x0, .var x1, .var x2, .var x3, .var x4,
+                .var x5, .var x6, .var x7, .var x8, ())
+            | _ => .ret (.var b, ()))
+          (adds b 9 fun ys => match ys with
+            | [y0, y1, y2, y3, y4, y5, y6, y7, y8] =>
+              .jump j (.var y8, .var y7, .var y6, .var y5, .var y4,
+                .var y3, .var y2, .var y1, .var y0, ())
+            | _ => .ret (.var a, ())))⟩
+
+#guard allCfgs.all (lowers · highPressureBlockFn)
+#guard (compile x64Target.toIsa x64LegalTarget [highPressureBlockFn]
+  [Fn.computeHints x64Target.toIsa x64LegalTarget highPressureBlockFn]).isOk = true
+
 end LeanQbeTest.T.SpillB5Test
