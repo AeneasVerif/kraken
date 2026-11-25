@@ -462,8 +462,12 @@ private theorem emitTarget_eq (ba : ByteArray) (t : RelRegOrMem) (h : isTarget0 
     | int64 i => exact emitI64Dec_eq ba i
     | before_current_instruction | after_current_instruction | add _ _ =>
       cases h
-  | reg r => exact emitReg_eq ba r
-  | mem a => exact emitAddr_eq ba a h
+  | reg r =>
+    dsimp only [PrintAsm0.emitTarget, ATT.target]
+    rw [ba_push_eq_append ba 0x2a "*" rfl, emitReg_eq _ r, toUTF8_append, ByteArray.append_assoc]
+  | mem a =>
+    dsimp only [PrintAsm0.emitTarget, ATT.target]
+    rw [ba_push_eq_append ba 0x2a "*" rfl, emitAddr_eq _ a h, toUTF8_append, ByteArray.append_assoc]
 
 /-! ## 6. Shared Operation-Format Lemmas & Complete `Operation` Equivalence -/
 

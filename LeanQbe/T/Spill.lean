@@ -14,11 +14,18 @@ calls inside or outside loops, eager-backed for loop-crossing invariants), strai
 spill-store elision and spilled-operand register caching, slot-direct block parameters,
 `VariantHint.disp` (`lea`) probing, and GPR/Vec parallel-move cycle breaking.
 
-`Spill.Cfg` adds four spill-placement refinements: slot-home stores are deferred past
+`Spill.Cfg` adds five spill-placement refinements: slot-home stores are deferred past
 straight-line code and sunk into `jnz` arms (`sink`), hot join parameters stay out of
 slot-direct `Entry.ploc` (`joinGuard`), a spilled variable keeps a soft cache register that
-later-colored interfering variables avoid (`cacheHint`), and a block may take a spilled live-in
-in the register its predecessors hold it in (`regEntry`).
+later-colored interfering variables avoid (`cacheHint`), a block may take a spilled live-in
+in the register its predecessors hold it in (`regEntry`), and a variable that would be spilled
+may instead keep a register outside some `jnz` arms or loops where it is unused, being evicted
+to a backup slot on entry and reloaded at their exits (`armEvict`, with `armLoops` for loop
+regions and, off by default, `armX` for call-crossing variables).
+
+A spilled operand of a compare / ALU op is read from its slot directly (`Rega.trySlotOp`)
+unless it is reused later in the same straight-line region; values that are merely live into a
+jump target do not count as reused.
 
 Untrusted: `Rega.lowerFn` checks every hint, so any heuristic bug can only fail lowering.
 -/
@@ -272,13 +279,28 @@ def opProducesZ32Static (I : Isa) (r0? : Option I.Reg) {ts : List Ty} (op : Op V
 slot-home spill stores past straight-line code and into `jnz` arms; `joinGuard` keeps hot join
 parameters out of slot-direct `Entry.ploc`; `cacheHint` gives a spilled variable a soft register
 that later-colored interfering variables avoid; `regEntry` lets a block take a spilled live-in
-in the register its predecessors hold it in. -/
+in the register its predecessors hold it in; `armEvict` lets a variable that would be spilled keep
+a register outside `jnz` arms (and, with `armLoops`, loops) where it is unused, evicting it on
+entry (`armX`, off by default, extends this to call-crossing variables, which are then also split
+around their calls). -/
 structure Cfg where
   (sink joinGuard cacheHint regEntry : Bool := true)
+  (armEvict armLoops : Bool := true)
+  (armX : Bool := false)
 
 /-- Baseline configuration (all `Spill.Cfg` switches off), for ablation and regression tests. -/
 def Cfg.legacy : Cfg :=
-  { sink := false, joinGuard := false, cacheHint := false, regEntry := false }
+  { sink := false, joinGuard := false, cacheHint := false, regEntry := false, armEvict := false }
+
+/-- A non-trivial `jnz` arm (`key = 2 * ip + 1` for the then-arm, `2 * ip` for the else-arm):
+its ip interval `[lo, hi)` (arms are contiguous in `Tree.ofFn` numbering), entry weight `w`,
+live-in variables, labels declared inside it, and the jumps leaving it as
+`(ip, target, weight, args)`. -/
+structure ArmInfo where
+  (key lo hi w : Nat)
+  (liveIn blocks : List Nat)
+  (exits : List (Nat × Nat × Nat × List Nat))
+  deriving Inhabited
 
 /-- Allocation context. Besides the target and liveness tables: `brW` maps a `jnz` to its
 `(mult, multThen, multElse)` weights, `jmpW` a jump to its weight and `inW` a label to the summed
@@ -307,6 +329,14 @@ structure Ctx (I : Isa) where
   (zextElide : Trie Nat := .empty)
   (blkUses varBlks forceEv : Trie (List Nat) := .empty)
   (blkEdges : List (Nat × Nat × Nat × List Nat) := [])
+  (armList : List ArmInfo := [])
+  (armT : Trie ArmInfo := .empty)
+  (varExt : Trie (Nat × Nat) := .empty)
+  (useIps armEvAt : Trie (List Nat) := .empty)
+  (ipW : Trie Nat := .empty)
+  (foldIps : Trie Unit := .empty)
+  (latchIps : Trie Bool := .empty)
+  (latchPrefs : Trie (List (Nat × Nat)) := .empty)
 
 /-- Gathered weights; `gprPts` records `(budget, liveThrough, creditVars)` where coloring any
 `u ∈ creditVars` with a callee-saved register credits `+1` back to that point's caller-saved
@@ -317,6 +347,7 @@ structure GatherAcc where
   (weights defInterf callW : List (Nat × List Nat) := [])
   (gprPts : List (Nat × List Nat × List Nat) := [])
   (gprPtBlks : List (Option Nat) := [])
+  (gprPtIps : List Nat := [])
   (vecPts : List (Nat × List Nat) := [])
   (abiGpr abiVec affEdges antiEdges : List (Nat × Nat × Nat) := [])
   (loopCall : Trie Bool := .empty)
@@ -327,6 +358,7 @@ structure GatherAcc where
   (zextElide : Trie Nat := .empty)
   (zextEdges : List (Nat × Nat) := [])
   (invertJnz : Trie Bool := .empty)
+  (ipW : Trie Nat := .empty)
 
 def addWeight (mult : Nat) (uses : List Nat) (ws : List (Nat × List Nat)) :
     List (Nat × List Nat) :=
@@ -335,14 +367,14 @@ def addWeight (mult : Nat) (uses : List Nat) (ws : List (Nat × List Nat)) :
 /-- GPR pressure point: at most `nGpr - |creditVars|` of `vars` (`live \ creditVars`) may sit in
 caller-saved registers initially; each var in `creditVars` assigned a CS register credits `+1` back
 to this budget, guaranteeing `|non-CS creditVars|` free caller-saved registers for reload/def. -/
-def addGprPtBlk (blk? : Option Nat) (allocLen : Nat) (creditVars vars : List Nat)
-    (pts : List (Nat × List Nat × List Nat)) (blks : List (Option Nat)) :
-    List (Nat × List Nat × List Nat) × List (Option Nat) :=
+def addGprPtBlk (blk? : Option Nat) (ip : Nat) (allocLen : Nat) (creditVars vars : List Nat)
+    (pts : List (Nat × List Nat × List Nat)) (blks : List (Option Nat)) (ips : List Nat) :
+    List (Nat × List Nat × List Nat) × List (Option Nat) × List Nat :=
   let need := creditVars.length
   let b := allocLen - need
   if Nat.ble 1 need && Nat.ble (b + 1) vars.length then
-    ((b, vars, creditVars) :: pts, blk? :: blks)
-  else (pts, blks)
+    ((b, vars, creditVars) :: pts, blk? :: blks, ip :: ips)
+  else (pts, blks, ips)
 
 def addVecPt (allocLen need : Nat) (vars : List Nat) (pts : List (Nat × List Nat)) :
     List (Nat × List Nat) :=
@@ -451,9 +483,10 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
     let (gLa, vLa) := splitBank c.banks c.flagHome la
     let (gUse, vUse) := splitBank c.banks c.flagHome uses
     let (gDef, vDef) := splitBank c.banks c.flagHome defs
-    let (gPts1, gBlks1) := addGprPtBlk blk? c.nGpr gUse (eraseMany gUse gLv)
-      acc.gprPts acc.gprPtBlks
-    let (gPts, gBlks) := addGprPtBlk blk? c.nGpr gDef (eraseMany gDef gLa) gPts1 gBlks1
+    let (gPts1, gBlks1, gIps1) := addGprPtBlk blk? ip c.nGpr gUse (eraseMany gUse gLv)
+      acc.gprPts acc.gprPtBlks acc.gprPtIps
+    let (gPts, gBlks, gIps) :=
+      addGprPtBlk blk? ip c.nGpr gDef (eraseMany gDef gLa) gPts1 gBlks1 gIps1
     let vPts := addVecPt c.nVec vDef.length (eraseMany vDef vLa)
       (addVecPt c.nVec vUse.length (eraseMany vUse vLv) acc.vecPts)
     let dw := defs.foldl (fun t x => t.insert x mult) acc.defWT
@@ -463,8 +496,10 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
     let isZ32' :=
       if opProducesZ32Static I c.r0? op then isZ32.insert nv0 true else isZ32
     gatherAt c blk? lps lr mult isZ32' k { acc with
+      ipW := acc.ipW.insert ip mult,
       weights := (mult, defs ++ uses) :: acc.weights, defInterf := di, affEdges := aff,
-      gprPts := gPts, gprPtBlks := gBlks, vecPts := vPts, defWT := dw, zextElide := ze,
+      gprPts := gPts, gprPtBlks := gBlks, gprPtIps := gIps, vecPts := vPts, defWT := dw,
+      zextElide := ze,
       zextEdges := zed }
   | lps, lr, mult, isZ32, .load lv ip x t a k, acc =>
     let la := k.lv
@@ -474,27 +509,32 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
     let (gLa, vLa) := splitBank c.banks c.flagHome la
     let (gUse, _) := splitBank c.banks c.flagHome uses
     let (gDef, vDef) := splitBank c.banks c.flagHome [x]
-    let (gPts1, gBlks1) := addGprPtBlk blk? c.nGpr gUse (eraseMany gUse gLv)
-      acc.gprPts acc.gprPtBlks
-    let (gPts, gBlks) := addGprPtBlk blk? c.nGpr gDef (eraseMany gDef gLa) gPts1 gBlks1
+    let (gPts1, gBlks1, gIps1) := addGprPtBlk blk? ip c.nGpr gUse (eraseMany gUse gLv)
+      acc.gprPts acc.gprPtBlks acc.gprPtIps
+    let (gPts, gBlks, gIps) :=
+      addGprPtBlk blk? ip c.nGpr gDef (eraseMany gDef gLa) gPts1 gBlks1 gIps1
     let vPts := addVecPt c.nVec vDef.length (eraseMany vDef vLa) acc.vecPts
     let isZ32' :=
       if (I.gpr.zeroExtLoad && isGprTy I t) || (I.gpr.zeroUpper32Load && tyEq t (.bits 32)) then
         isZ32.insert x true
       else isZ32
     gatherAt c blk? lps lr mult isZ32' k { acc with
+      ipW := acc.ipW.insert ip mult,
       weights := (mult, x :: uses) :: acc.weights, defInterf := di,
-      gprPts := gPts, gprPtBlks := gBlks, vecPts := vPts, defWT := acc.defWT.insert x mult }
+      gprPts := gPts, gprPtBlks := gBlks, gprPtIps := gIps, vecPts := vPts,
+      defWT := acc.defWT.insert x mult }
   | lps, lr, mult, isZ32, .store lv ip _ v a k, acc =>
     let uses := storeVarIds c.addrDeps c.rmwDeps ip v a
     let (gLv, vLv) := splitBank c.banks c.flagHome lv
     let (gUse, vUse) := splitBank c.banks c.flagHome uses
-    let (gPts, gBlks) := addGprPtBlk blk? c.nGpr gUse (eraseMany gUse gLv)
-      acc.gprPts acc.gprPtBlks
+    let (gPts, gBlks, gIps) := addGprPtBlk blk? ip c.nGpr gUse (eraseMany gUse gLv)
+      acc.gprPts acc.gprPtBlks acc.gprPtIps
     gatherAt c blk? lps lr mult isZ32 k { acc with
+      ipW := acc.ipW.insert ip mult,
       weights := addWeight mult uses acc.weights, gprPts := gPts, gprPtBlks := gBlks,
+      gprPtIps := gIps,
       vecPts := addVecPt c.nVec vUse.length (eraseMany vUse vLv) acc.vecPts }
-  | lps, lr, mult, isZ32, .call _ _ nv0 _ as bs args k, acc =>
+  | lps, lr, mult, isZ32, .call _ ip nv0 _ as bs args k, acc =>
     let defs := (List.range bs.length).map (nv0 + ·)
     let la := k.lv
     let across := eraseMany defs la
@@ -515,6 +555,7 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
     let isZ32' := (defs.zip bs).foldl (fun z (d, t) =>
       if isGprTy I t then z.insert d true else z) isZ32
     gatherAt c blk? lps lr mult isZ32' k { acc with
+      ipW := acc.ipW.insert ip mult,
       weights := addWeight mult (defs ++ tupVarIds args) acc.weights, defInterf := di,
       abiGpr := ag2, abiVec := av2, callW := addWeight mult across acc.callW,
       loopCall := lc, defWT := dw }
@@ -553,10 +594,11 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
         else if tt && !te then (guardM, contM)
         else if te && !tt then (contM, guardM)
         else (halfM, remHalf)
-    let (gPts, gBlks) := addGprPtBlk blk? c.nGpr gUse (eraseMany gUse gLv)
-      acc.gprPts acc.gprPtBlks
+    let (gPts, gBlks, gIps) := addGprPtBlk blk? ip c.nGpr gUse (eraseMany gUse gLv)
+      acc.gprPts acc.gprPtBlks acc.gprPtIps
     let acc1 := gatherAt c blk? lps lr mE isZ32 e { acc with
       weights := (mult, [cx]) :: acc.weights, gprPts := gPts, gprPtBlks := gBlks,
+      gprPtIps := gIps,
       brW := acc.brW.insert ip (mult, mT, mE),
       invertJnz := if Nat.blt mE mT then acc.invertJnz.insert ip true else acc.invertJnz }
     gatherAt c blk? lps lr mT isZ32 t acc1
@@ -574,20 +616,22 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
     { acc with weights := addWeight mult nonSelf acc.weights,
                affEdges := addAffZip as ps (8 * mult) acc.affEdges,
                antiEdges := addAntiZip as ps (2 * mult) acc.antiEdges }
-  | _, _, mult, _, .ret _ _ rs vs, acc =>
+  | _, _, mult, _, .ret _ ip rs vs, acc =>
     let (ag, av) := match I.assignRets rs with
       | some locs =>
         addAbiArgs (tupArgsToList vs) (abiIdList c.allGpr c.allVec locs) (4 * mult)
           acc.abiGpr acc.abiVec
       | none => (acc.abiGpr, acc.abiVec)
-    { acc with weights := addWeight mult (tupVarIds vs) acc.weights, abiGpr := ag, abiVec := av }
-  | _, _, mult, _, .exit _ _ _ as args, acc =>
+    { acc with weights := addWeight mult (tupVarIds vs) acc.weights, abiGpr := ag, abiVec := av,
+               ipW := acc.ipW.insert ip mult }
+  | _, _, mult, _, .exit _ ip _ as args, acc =>
     let (ag, av) := match I.assignArgs as with
       | some locs =>
         addAbiArgs (tupArgsToList args) (abiIdList c.allGpr c.allVec locs) (4 * mult)
           acc.abiGpr acc.abiVec
       | none => (acc.abiGpr, acc.abiVec)
-    { acc with weights := addWeight mult (tupVarIds args) acc.weights, abiGpr := ag, abiVec := av }
+    { acc with weights := addWeight mult (tupVarIds args) acc.weights, abiGpr := ag, abiVec := av,
+               ipW := acc.ipW.insert ip mult }
   | _, _, _, _, .stop _, acc => acc
   | lps, lr, mult, isZ32, .group _ bs k, acc =>
     gatherAtB c lps lr mult bs (gatherAt c blk? lps lr mult isZ32 k acc)
@@ -644,9 +688,242 @@ structure ColorSt (C : Type) where
   bk : Trie (Nat × SlotWidth × Bool) := .empty
   hint : Trie (Nat × Nat) := .empty
   forceEv : Trie (List Nat) := .empty
+  armEv : Trie (List Nat) := .empty
 
 def isEagerBk (bk : Trie (Nat × SlotWidth × Bool)) (x : Nat) : Bool :=
   match bk.find? x with | some (_, _, e) => e | none => false
+
+/-! ## Arm-Scoped Eviction (`Cfg.armEvict`)
+
+A variable `x` that would otherwise be spilled may take a register that is only held, inside
+some `jnz` arms where `x` is live but unused, by variables whose whole live range lies inside
+those arms. On entry to such an arm `x` is evicted to a backup slot (stored at its definition
+when that is cheaper, `eager`, else at the arm entry) and it is reloaded at the arm's exits. -/
+
+def firstIp : Tree → Nat
+  | .let_ _ ip _ _ _ _ | .load _ ip _ _ _ _ | .store _ ip _ _ _ _ | .call _ ip _ _ _ _ _ _
+  | .jnz _ ip _ _ _ _ | .skip _ ip _ | .jump _ ip _ _ _ | .ret _ ip _ _ | .exit _ ip _ _ _
+  | .stop ip => ip
+  | .group _ _ k => firstIp k
+
+mutual
+/-- `(max ip, labels declared, jumps (ip, target, args))` of a subtree. -/
+def subInfo : Tree → Nat × List Nat × List (Nat × Nat × List Nat)
+  | .let_ _ ip _ _ _ k | .load _ ip _ _ _ k | .store _ ip _ _ _ k
+  | .call _ ip _ _ _ _ _ k | .skip _ ip k =>
+    let (m, ls, js) := subInfo k
+    (max ip m, ls, js)
+  | .jnz _ ip _ _ t e =>
+    let (m1, l1, j1) := subInfo t
+    let (m2, l2, j2) := subInfo e
+    (max ip (max m1 m2), l1 ++ l2, j1 ++ j2)
+  | .group _ bs k =>
+    let (m1, l1, j1) := subInfo k
+    let (m2, l2, j2) := subInfoB bs
+    (max m1 m2, l1 ++ l2, j1 ++ j2)
+  | .jump _ ip j _ args => (ip, [], [(ip, j, tupVarIds args)])
+  | .ret _ ip _ _ | .exit _ ip _ _ _ | .stop ip => (ip, [], [])
+
+def subInfoB : TreeBlocks → Nat × List Nat × List (Nat × Nat × List Nat)
+  | .nil => (0, [], [])
+  | .cons l _ b bs =>
+    let (m1, l1, j1) := subInfo b
+    let (m2, l2, j2) := subInfoB bs
+    (max m1 m2, l :: (l1 ++ l2), j1 ++ j2)
+end
+
+/-- Region key of block `l` (disjoint from the `jnz` arm keys `2 * ip + {0, 1}`). -/
+def blockArmKey (l : Nat) : Nat := 2 ^ 40 + l
+
+mutual
+/-- All non-trivial `jnz` arms and blocks of a tree (see `ArmInfo`). -/
+def collectArms {I : Isa} (c : Ctx I) : Tree → List ArmInfo → List ArmInfo
+  | .let_ _ _ _ _ _ k, acc | .load _ _ _ _ _ k, acc | .store _ _ _ _ _ k, acc
+  | .call _ _ _ _ _ _ _ k, acc | .skip _ _ k, acc => collectArms c k acc
+  | .jnz _ ip _ _ t e, acc =>
+    let (_, mT, mE) := c.brW.getD ip (0, 0, 0)
+    let mk (key w : Nat) (a : Tree) : List ArmInfo :=
+      if isTrivialTerm a then []
+      else
+        let (m, ls, js) := subInfo a
+        let exits := js.filterMap fun (jip, j, args) =>
+          if natMem j ls then none else some (jip, j, c.jmpW.getD jip 0, args)
+        [{ key, lo := firstIp a, hi := m + 1, w, liveIn := a.lv, exits, blocks := ls }]
+    collectArms c t (collectArms c e (mk (2 * ip + 1) mT t ++ mk (2 * ip) mE e ++ acc))
+  | .group _ bs k, acc => collectArmsB c bs (collectArms c k acc)
+  | .jump .., acc | .ret .., acc | .exit .., acc | .stop _, acc => acc
+
+def collectArmsB {I : Isa} (c : Ctx I) : TreeBlocks → List ArmInfo → List ArmInfo
+  | .nil, acc => acc
+  | .cons l _ b bs, acc =>
+    -- A loop (header block with the blocks nested in it) is a region too: entered by the
+    -- jumps to `l` from outside, left by the jumps to labels declared outside it.
+    let blk : List ArmInfo :=
+      if !c.cfg.armLoops || isTrivialTerm b || !c.loops.getD l false then []
+      else
+        let (m, ls, js) := subInfo b
+        let inside := l :: ls
+        let exits := js.filterMap fun (jip, j, args) =>
+          if natMem j inside then none else some (jip, j, c.jmpW.getD jip 0, args)
+        let backW := js.foldl (fun n (jip, j, _) =>
+          if Nat.beq j l then n + c.jmpW.getD jip 0 else n) 0
+        [{ key := blockArmKey l, lo := firstIp b, hi := m + 1, w := c.inW.getD l 0 - backW,
+           liveIn := c.lTrie.getD l [], exits, blocks := inside }]
+    collectArmsB c bs (collectArms c b (blk ++ acc))
+end
+
+def extendExt (e : Trie (Nat × Nat)) (x ip : Nat) : Trie (Nat × Nat) :=
+  match e.find? x with
+  | some (lo, hi) => e.insert x (min lo ip, max hi ip)
+  | none => e.insert x (ip, ip)
+
+def scanNode (ip : Nat) (lv defs uses : List Nat) (acc : Trie (Nat × Nat) × Trie (List Nat)) :
+    Trie (Nat × Nat) × Trie (List Nat) :=
+  ((lv ++ defs ++ uses).foldl (fun e x => extendExt e x ip) acc.1,
+   uses.foldl (fun u x => u.insert x (ip :: u.getD x [])) acc.2)
+
+mutual
+/-- Per variable: ip extent `(lo, hi)` of its definition and live range, and the ips that use it. -/
+def varScan {I : Isa} (c : Ctx I) :
+    Tree → Trie (Nat × Nat) × Trie (List Nat) → Trie (Nat × Nat) × Trie (List Nat)
+  | .let_ lv ip nv0 ts op k, acc =>
+    varScan c k (scanNode ip lv ((List.range ts.length).map (nv0 + ·))
+      (c.addrDeps.getD ip (opVarIds op)) acc)
+  | .load lv ip x _ a k, acc =>
+    varScan c k (scanNode ip lv [x] (c.addrDeps.getD ip (argVarIds a)) acc)
+  | .store lv ip _ v a k, acc =>
+    varScan c k (scanNode ip lv [] (storeVarIds c.addrDeps c.rmwDeps ip v a) acc)
+  | .call lv ip nv0 _ _ bs args k, acc =>
+    varScan c k (scanNode ip lv ((List.range bs.length).map (nv0 + ·)) (tupVarIds args) acc)
+  | .jnz lv ip cx _ t e, acc => varScan c t (varScan c e (scanNode ip lv [] [cx] acc))
+  | .skip lv ip k, acc => varScan c k (scanNode ip lv [] [] acc)
+  | .jump lv ip _ _ args, acc => scanNode ip lv [] (tupVarIds args) acc
+  | .ret lv ip _ vs, acc => scanNode ip lv [] (tupVarIds vs) acc
+  | .exit lv ip _ _ args, acc => scanNode ip lv [] (tupVarIds args) acc
+  | .stop _, acc => acc
+  | .group _ bs k, acc => varScanB c bs (varScan c k acc)
+
+def varScanB {I : Isa} (c : Ctx I) :
+    TreeBlocks → Trie (Nat × Nat) × Trie (List Nat) → Trie (Nat × Nat) × Trie (List Nat)
+  | .nil, acc => acc
+  | .cons _ ps b bs, acc =>
+    let fi := firstIp b
+    varScanB c bs (varScan c b (ps.foldl (fun a (p, _) => (extendExt a.1 p fi, a.2)) acc))
+end
+
+def isCmpBitsCode {sig ts : List Ty} : OpCode sig ts → Bool
+  | .cmp _ (.bits _) .bool _ => true
+  | _ => false
+
+mutual
+/-- Ips of compares and branches, whose spilled operands `Rega` reads from the slot directly. -/
+def foldIpsT : Tree → Trie Unit → Trie Unit
+  | .let_ _ ip _ _ op k, acc => foldIpsT k (if isCmpBitsCode op.code then acc.insert ip () else acc)
+  | .load _ _ _ _ _ k, acc | .store _ _ _ _ _ k, acc | .call _ _ _ _ _ _ _ k, acc
+  | .skip _ _ k, acc => foldIpsT k acc
+  | .jnz _ ip _ _ t e, acc => foldIpsT t (foldIpsT e (acc.insert ip ()))
+  | .group _ bs k, acc => foldIpsTB bs (foldIpsT k acc)
+  | .jump .., acc | .ret .., acc | .exit .., acc | .stop _, acc => acc
+
+def foldIpsTB : TreeBlocks → Trie Unit → Trie Unit
+  | .nil, acc => acc
+  | .cons _ _ b bs, acc => foldIpsTB bs (foldIpsT b acc)
+end
+
+/-- `y` lives entirely inside arm `a` and is not an argument of a jump leaving it. -/
+def armInterior (a : ArmInfo) (ext : Trie (Nat × Nat)) (y : Nat) : Bool :=
+  match ext.find? y with
+  | some (lo, hi) =>
+    Nat.ble a.lo lo && Nat.blt hi a.hi && !(a.exits.any fun (_, _, _, as) => natMem y as)
+  | none => false
+
+/-- `owner` is arm-evicted in an arm that `y` lives entirely inside. -/
+def armShare {I : Isa} (c : Ctx I) (armEv : Trie (List Nat)) (owner y : Nat) : Bool :=
+  match armEv.find? owner with
+  | none => false
+  | some ks => ks.any fun k => match c.armT.find? k with
+    | some a => armInterior a c.varExt y
+    | none => false
+
+/-- Try to give a non-call-crossing GPR `x` a register by evicting it in the smallest set of
+maximal arms that contain every conflicting holder of that register (and every exhausted
+caller-saved pressure point). Accepted when the eviction cost (backup store plus weighted exit
+reloads) beats spilling. -/
+def tryArmEvict {I : Isa} (c : Ctx I) (x : Nat) (xI pids cpids : List Nat) (ptIps : Array Nat)
+    (forbBkSlots : List (Nat × Nat)) (isBp isX : Bool) (dw cw csThresh wx : Nat)
+    (s : ColorSt I.Cond) : Option (ColorSt I.Cond) :=
+  if !c.cfg.armEvict || !Nat.ble (2 * baseMult) wx then none
+  else
+    let uses := c.useIps.getD x []
+    let inA (a : ArmInfo) (ip : Nat) : Bool := Nat.ble a.lo ip && Nat.blt ip a.hi
+    let cand := c.armList.filter fun a =>
+      natMem x a.liveIn && uses.all fun u =>
+        !inA a u || a.exits.any fun (jip, _, _, _) => Nat.beq jip u
+    if cand.isEmpty then none
+    else
+      let pick (p : ArmInfo → Bool) : Option ArmInfo :=
+        cand.foldl (fun best a =>
+          if p a then
+            match best with
+            | some b => if Nat.blt (b.hi - b.lo) (a.hi - a.lo) then some a else best
+            | none => some a
+          else best) none
+      let addArm (as : List ArmInfo) (a : ArmInfo) : List ArmInfo :=
+        if as.any (fun b => Nat.beq b.key a.key) then as else a :: as
+      let newCs := if Nat.ble csThresh wx then c.csIds.filter (!natMem · s.usedCs) else []
+      let evalReg (r : Nat) : Option (Nat × List ArmInfo × Bool) :=
+        let isCaller := Nat.blt r c.nGpr
+        let confl := xI.filter fun y => match s.hT.getD y .none with
+          | .gpr ry => Nat.beq ry r && !armShare c s.armEv y x
+          | _ => false
+        let zeroPts := if isCaller then pids.filter fun p => !Nat.ble 1 (s.gPb.getD p 0) else []
+        if confl.isEmpty && zeroPts.isEmpty then none
+        else
+          let need1 := confl.foldl (fun acc y => acc.bind fun as =>
+            (pick fun a => armInterior a c.varExt y).map (addArm as ·)) (some [])
+          let need := zeroPts.foldl (fun acc p => acc.bind fun as =>
+            (pick fun a => inA a (ptIps[p]?.getD 0)).map (addArm as ·)) need1
+          need.bind fun as0 =>
+            let as := as0.filter fun a => !as0.any fun b =>
+              !Nat.beq b.key a.key && Nat.ble b.lo a.lo && Nat.ble a.hi b.hi
+            if as.isEmpty then none
+            else
+              let entryW := as.foldl (fun n a => n + a.w) 0
+              let exitW := as.foldl (fun n a => a.exits.foldl (fun n2 (_, j, w, args) =>
+                if natMem x (c.lTrie.getD j []) || natMem x args then n2 + w else n2) n) 0
+              -- A call-crossing `x` in a caller-saved register is also split around its calls.
+              let callW := if isX && isCaller then cw else 0
+              let eager := !isBp && Nat.ble dw (entryW + callW)
+              -- Each arm execution leaves it at most once: cap the (statically inflated) exits.
+              let loopX := if as.any (fun a => Nat.ble (blockArmKey 0) a.key) then 2 else 1
+              some (loopX * min exitW entryW + (if eager then callW else entryW + 2 * callW), as,
+                eager)
+      let best := (c.gAlloc ++ s.usedCs ++ newCs).foldl
+        (fun (b : Option (Nat × Nat × List ArmInfo × Bool)) r =>
+          match evalReg r, b with
+          | none, _ => b
+          | some (cost, as, eg), some (_, bc, _, _) =>
+            if Nat.blt cost bc then some (r, cost, as, eg) else b
+          | some (cost, as, eg), none => some (r, cost, as, eg)) none
+      match best with
+      | none => none
+      | some (r, cost, as, eager) =>
+        -- Reloads saved: the weight of the uses of `x` outside the evicted arms.
+        let usesOut := uses.foldl (fun n u =>
+          if as.any (inA · u) || trieMem c.foldIps u then n
+          else n + (c.ipW.find? u <|> (c.brW.find? u).map (·.1) <|> c.jmpW.find? u).getD 0) 0
+        if !Nat.ble (2 * cost + baseMult) usesOut then none
+        else
+          let isCaller := Nat.blt r c.nGpr
+          let outside := pids.filter fun p => !as.any fun a => inA a (ptIps[p]?.getD 0)
+          let bSlot := firstFreeSlotRange 1 forbBkSlots
+          some { s with
+            hT := s.hT.insert x (.gpr r),
+            usedCs := if !isCaller && !natMem r s.usedCs then s.usedCs ++ [r] else s.usedCs,
+            gPb := if isCaller then decPts outside s.gPb else incPts cpids s.gPb,
+            bk := s.bk.insert x (bSlot, .w64, eager),
+            nslots := max s.nslots (bSlot + 1),
+            armEv := s.armEv.insert x (as.map (·.key)) }
 
 /-- Split a spilled GPR variable into a register outside `evBlks` (a high-pressure sub-region where
 `x` is unused) by forcing `evIn` eviction on entry and reloading on exit when profitable. -/
@@ -740,8 +1017,9 @@ tries a fresh CS register, then falls back to splitting (`splitOk`, using eager 
 when `defW < cw` so loop-invariant vars pay zero stores inside loops) before spilling to a slot. -/
 def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Trie (List Nat))
     (abiGT abiVT affT antiT : Trie (List (Nat × Nat))) (cwT defWT : Trie Nat)
-    (loopCall isBP : Trie Bool) (zextPeers : Trie (List Nat)) (fnParams : List Nat)
-    (ptBlks : Array (Option Nat)) (s : ColorSt I.Cond) (wx x : Nat) : ColorSt I.Cond :=
+    (_loopCall isBP : Trie Bool) (zextPeers : Trie (List Nat)) (fnParams : List Nat)
+    (ptBlks : Array (Option Nat)) (ptIps : Array Nat) (s : ColorSt I.Cond) (wx x : Nat) :
+    ColorSt I.Cond :=
   let xI := interf.getD x []
   let peers := zextPeers.getD x []
   let forbSlots0 := xI.foldl (fun ss y =>
@@ -758,8 +1036,7 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
   let splitCost := if canEager then dw + cw else 2 * cw
   let slotCost := wx + if natMem x fnParams then baseMult else 0
   let splitOk := Nat.ble (splitCost + 1) slotCost
-  let cheapSplit :=
-    isX && !loopCall.getD x false && splitOk && Nat.ble splitCost c.csCost
+  let cheapSplit := isX && splitOk && Nat.ble splitCost c.csCost
   let toSlot (w : SlotWidth) : ColorSt I.Cond :=
     let prefB := (affT.getD x []).foldl (fun best (y, wy) =>
       match s.hT.getD y .none with
@@ -805,7 +1082,7 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
     | some s0 => { s with hT := s.hT.insert x (.slot s0 .w64), nslots := max s.nslots (s0 + 1) }
     | none =>
       let forb := xI.foldl (fun rs y => match s.hT.getD y .none with
-        | .gpr r => if natMem r rs then rs else r :: rs | _ => rs) []
+        | .gpr r => if natMem r rs || armShare c s.armEv y x then rs else r :: rs | _ => rs) []
       -- Never let a zero-copy `zext` peer share a caller-saved split register (`bk` collision).
       let forbCaller := peers.foldl (fun rs z => match s.hT.getD z .none with
         | .gpr r =>
@@ -879,7 +1156,13 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
         match tryEvictSplit c x xI peers pids ptBlks forbBkSlots prefs avoid
             (isBP.getD x false) dw cw wx slotCost s with
         | some sEv => sEv
-        | none => toSlotG
+        | none =>
+          let armEv? := if !peers.isEmpty || (isX && !c.cfg.armX) then none
+            else tryArmEvict c x xI pids cpids ptIps forbBkSlots (isBP.getD x false) isX dw cw
+              csThresh wx s
+          match armEv? with
+          | some sA => sA
+          | none => toSlotG
       let orSplitOrSlot : ColorSt I.Cond :=
         match (if isX && splitOk then bestRegPref prefs avoid caller else none) with
         | some r => inReg r
@@ -959,12 +1242,13 @@ def colorVars {I : Isa} (c : Ctx I) (nv : Nat) (flagHome : Trie I.Cond) (acc : G
   let initHome : Trie (Home I.Cond) := (List.range nv).foldl (fun h x =>
     match flagHome.find? x with | some cc => h.insert x (.flag cc) | none => h) .empty
   let ptBlks := acc.gprPtBlks.toArray
+  let ptIps := acc.gprPtIps.toArray
   order.foldl (fun s (wx, x) =>
     match s.hT.find? x with
     | some (.flag _) => s
     | _ =>
       colorOne c interf gVp gCp vVp abiGT abiVT affT antiT cwT acc.defWT acc.loopCall acc.isBP
-        zextPeers fnParams ptBlks s wx x)
+        zextPeers fnParams ptBlks ptIps s wx x)
     { hT := initHome, gPb := gPb0, vPb := vPb0 }
 
 end Spill
@@ -1111,7 +1395,9 @@ def firstUseW {I : Isa} (c : Ctx I) (p : Nat) : Nat → Tree → Nat
 /-- Number of distinct GPRs statically homed at entry to block `l` (`liveL` plus `ps`). -/
 private def blockUsedGpr {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     (l : Nat) (ps : List (Nat × Ty)) : Nat :=
-  (dedup (gprHomes home (c.lTrie.getD l [] ++ ps.map Prod.fst))).length
+  let evL := c.forceEv.getD l []
+  let lv := (c.lTrie.getD l []).filter (!natMem · evL)
+  (dedup (gprHomes home (lv ++ ps.map Prod.fst))).length
 
 /-- Number of block parameters `ps` needing a fresh GPR in `pickPlocs`, given `useSlot p` (whether
 `.slot _ .w64` keeps its slot directly). -/
@@ -1122,6 +1408,48 @@ def countPlocGprs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     | .flag _ | .gpr _ | .vec _ => n
     | .slot _ .w64 => if useSlot p then n else n + 1
     | _ => if (c.banks.getD p .gpr).isVec then n else n + 1) 0
+
+/-- Enforce `usedG + needPloc <= nGpr + csIds.length` at every block entry by forcing
+lowest-weight `bk` live-ins into `forceEv` or demoting lowest-weight non-param GPR live-ins
+to fresh slots when spilled parameters cannot use slot-direct `ploc`. -/
+def fitBlockGprs {I : Isa} (c : Ctx I) (wTrie : Trie Nat) (bk : Trie (Nat × SlotWidth × Bool))
+    (usedCs : List Nat) (nslots0 : Nat) (home0 : Trie (Home I.Cond)) (fe0 : Trie (List Nat))
+    (t : Tree) : Trie (Home I.Cond) × Trie (List Nat) × Nat :=
+  let cap := c.nGpr + c.csIds.length
+  let bad := scanSlotPlocBad c home0 bk usedCs .empty t
+  let pickMin (xs : List Nat) : Option Nat := xs.foldl (fun b x => match b with
+    | some y => if Nat.blt (wTrie.getD x 0) (wTrie.getD y 0) then some x else b
+    | none => some x) none
+  let rec fix (h : Trie (Home I.Cond)) (fe : Trie (List Nat)) (ns : Nat) :
+      List (Nat × List (Nat × Ty) × Tree) → Trie (Home I.Cond) × Trie (List Nat) × Nat
+    | [] => (h, fe, ns)
+    | (l, ps, _) :: rest =>
+      let lv := c.lTrie.getD l []
+      let pvars := ps.map Prod.fst
+      let needPloc := countPlocGprs c h (fun p => !bad.getD p false) ps
+      let rec dropVars (h : Trie (Home I.Cond)) (fe : Trie (List Nat)) (ns : Nat) :
+          Nat → Trie (Home I.Cond) × Trie (List Nat) × Nat
+        | 0 => (h, fe, ns)
+        | fuel + 1 =>
+          let evL := fe.getD l []
+          let lvAct := if evL.isEmpty then lv else lv.filter (!natMem · evL)
+          let gprs := dedup (gprHomes h (lvAct ++ pvars))
+          if Nat.ble (gprs.length + needPloc) cap then (h, fe, ns)
+          else
+            let cands := lvAct.filter fun x =>
+              !natMem x pvars && match h.getD x .none with | .gpr _ => true | _ => false
+            let reduces (x : Nat) :=
+              let g' := dedup (gprHomes h (lvAct.filter (!Nat.beq · x) ++ pvars))
+              Nat.blt g'.length gprs.length
+            match pickMin (cands.filter fun x => (bk.find? x).isSome && reduces x) with
+            | some x => dropVars h (triePush fe l x) ns fuel
+            | none =>
+              match pickMin (cands.filter fun x => (bk.find? x).isNone && reduces x) with
+              | some x => dropVars (h.insert x (.slot ns .w64)) fe (ns + 1) fuel
+              | none => (h, fe, ns)
+      let (h', fe', ns') := dropVars h fe ns (lv.length + 1)
+      fix h' fe' ns' rest
+  fix home0 fe0 nslots0 t.blocks
 
 /-- Determine which slot-homed GPR block parameters can safely use `.slot s .w64` directly as their
 `Entry.ploc` (avoiding jump-edge reload + block-entry store round-trips): safe when no other
@@ -1164,6 +1492,7 @@ structure EmitSt (I : Isa) where
   (variant : Trie VariantHint := .empty) (usedCs : List Nat := [])
   (cin : List (Nat × Nat × Nat × Bool × Nat) := [])
   (evArr : List (Nat × Nat × Bool × Bool × Nat) := [])
+  (latchArr : List (Nat × Nat × Nat) := [])
 
 /-- Moves pending from the previous node: stores of slot-homed or eager-split arrivals
 `(x, slot, reg)` and register-to-register arrival moves `(x, home, arrival)`, per bank; `gDf`
@@ -1207,12 +1536,10 @@ def sinkCost {I : Isa} (c : Ctx I) (x : Nat) : Nat → Bool → Tree → Nat
     let (_, mT, mE) := c.brW.getD ip (w, w, w)
     let cT := if natMem x t.lv then sinkCost c x mT true t else 0
     let cE := if natMem x e.lv then sinkCost c x mE true e else 0
-    -- An else-arm edge block is laid out inline: the then-arm then pays a taken branch.
-    cT + cE + (match e with | .jump .. => if Nat.ble 1 cE then mT else 0 | _ => 0)
-  | w, arm, .jump _ _ j _ _ =>
+    cT + cE
+  | w, _, .jump _ _ j _ _ =>
     if natMem x (c.lTrie.getD j []) &&
-        !((c.regIn.getD j []).any fun (y, _, inS) => Nat.beq y x && !inS) then
-      (if arm then 2 * w else w)
+        !((c.regIn.getD j []).any fun (y, _, inS) => Nat.beq y x && !inS) then 2 * w
     else 0
   | w, arm, .group _ _ k => sinkCost c x w arm k
   | _, _, .ret .. | _, _, .exit .. | _, _, .stop _ => 0
@@ -1224,7 +1551,8 @@ private def sinkOk {I : Isa} (c : Ctx I) (ip : Nat) (t e : Tree) (x : Nat) : Boo
   | some (m, mT, mE) =>
     let cT := if natMem x t.lv then sinkCost c x mT true t else 0
     let cE := if natMem x e.lv then sinkCost c x mE true e else 0
-    Nat.blt (cT + cE + (match e with | .jump .. => if Nat.ble 1 cE then mT else 0 | _ => 0)) m
+    let pen := match e with | .jump .. => if Nat.ble 1 cE then mT else 0 | _ => 0
+    Nat.blt (cT + cE + pen) m
   | none => false
 
 /-- Emit (prepend) the deferred stores selected by `p`; return the moves and the rest. All
@@ -1412,8 +1740,11 @@ def pickPlocs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (slotOk : Trie B
     | .slot s .w64 =>
       let hr := (c.hintT.find? p).bind fun (rh, _) =>
         if (Nat.ble (rh + 1) c.nGpr || natMem rh cs) && !natMem rh gb then some rh else none
+      let lp := c.latchPrefs.getD p []
+      let lr := if lp.isEmpty then none
+        else bestRegPref lp [] ((c.gAlloc ++ cs).filter (!natMem · gb))
       if slotOk.getD p false then (.slot s .w64 :: ls, none :: ids, gb, vb, cs)
-      else match hr <|> freshReg (c.gAlloc ++ cs) gb with
+      else match lr <|> hr <|> freshReg (c.gAlloc ++ cs) gb with
         | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs)
         | none => match c.csIds.find? (fun r => !natMem r gb && !natMem r cs) with
           | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs ++ [r])
@@ -1591,8 +1922,8 @@ private def buildRegionReused {I : Isa} (c : Ctx I) :
     let (vsT, acc1) := buildRegionReused c t acc
     let (vsE, acc2) := buildRegionReused c e acc1
     (rvsAdd (rvsUnion vsT vsE) [cx], acc2)
-  | .jump _ _ j _ args, acc =>
-    (rvsAdd (rvsAdd ([], .empty) (tupVarIds args)) (c.lTrie.getD j []), acc)
+  | .jump _ _ _ _ args, acc =>
+    (rvsAdd ([], .empty) (tupVarIds args), acc)
   | .call _ _ _ _ _ _ args k, acc =>
     let (_, acc1) := buildRegionReused c k acc
     (rvsAdd ([], .empty) (tupVarIds args), acc1)
@@ -1738,12 +2069,24 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     let (mvs0, gC1, vC1, df1) := buildPre c home st.usedCs lv laAfter [cx] pd
       (splitMoves c home bk false rl) rlWG rlWV gC vC noLoad ev'
     let (mvs, df2) := flushDf c (fun d => !sinkOk c ip t e d.1) mvs0 df1
+    -- Arm-scoped eviction: `x` leaves its register on arm entry (stored unless already saved).
+    let armEvict (key : Nat) (a : Tree) : List Nat × List (Nat × Nat × Nat) :=
+      let xs := (c.armEvAt.getD key []).filter fun x => natMem x a.lv && !natMem x ev'
+      (xs, xs.filterMap fun x =>
+        if natMem x sv then none
+        else match home.getD x .none, bk.find? x with
+          | .gpr r, some (b, _, _) => some (x, b, r)
+          | _, _ => none)
+    let (xsE, stE) := armEvict (2 * ip) e
+    let (xsT, stT) := armEvict (2 * ip + 1) t
     let st1 := emitAlloc c home bk slotOk clrAt r0 r1 e
-      { gDf := df2.filter fun (y, _, _) => natMem y e.lv } ev' sv
+      { gDf := df2.filter fun (y, _, _) => natMem y e.lv, gSt := stE } (union ev' xsE)
+      (union sv xsE)
       (gC1.filter fun (y, _) => natMem y e.lv) (vC1.filter fun (y, _) => natMem y e.lv)
       { st with pre := recordPre ip (clrAt.getD ip false) mvs st.pre }
     emitAlloc c home bk slotOk clrAt r0 r1 t
-      { gDf := df2.filter fun (y, _, _) => natMem y t.lv } ev' sv
+      { gDf := df2.filter fun (y, _, _) => natMem y t.lv, gSt := stT } (union ev' xsT)
+      (union sv xsT)
       (gC1.filter fun (y, _) => natMem y t.lv) (vC1.filter fun (y, _) => natMem y t.lv) st1
   | .skip lv ip k, pd, ev, sv, gC, vC, st =>
     let (mvs, gC1, vC1, df1) := buildPre c home st.usedCs lv k.lv [] pd [] [] [] gC vC
@@ -1796,9 +2139,21 @@ def emitAlloc {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
         if (bk.find? x).isSome && natMem x lvJ then
           (j, x, natMem x ev, !natMem x ev && !natMem x sv, jw) :: a
         else a) st.evArr else st.evArr
+    let latchArr := if !c.opt then st.latchArr else
+      let lw := (if c.latchIps.getD ip false then 8 else 1) * jw
+      (as.zip ps).foldl (fun a (ao, p) => match ao with
+        | some x =>
+          if Nat.beq x p then a
+          else
+            let r? := match home.getD x .none with
+              | .gpr r => some r
+              | .slot _ _ => (gC1.find? fun (y, _) => Nat.beq y x).map Prod.snd
+              | _ => none
+            match r? with | some r => (p, r, lw) :: a | none => a
+        | none => a) st.latchArr
     { st with
       pre := recordPre ip (clrAt.getD ip false) (mvs0 ++ smvs) st.pre,
-      cin := cin, evArr := evArr }
+      cin := cin, evArr := evArr, latchArr := latchArr }
   | .ret lv ip _ _, pd, _, _, gC, vC, st | .exit lv ip _ _ _, pd, _, _, gC, vC, st =>
     let (mvs, _, _, _) := buildPre c home st.usedCs lv [] [] pd [] [] [] gC vC
     { st with pre := recordPre ip (clrAt.getD ip false) mvs st.pre }
@@ -1984,7 +2339,7 @@ def usedSlotCount {I : Isa} (nip nl : Nat) (st : EmitSt I) : Nat :=
     | some en => maxSlotInLocs (en.live.map Prod.snd) (maxSlotInLocs en.ploc m)
     | none => m) m1
 
-/-- Compute untrusted `Hints` for `Rega.lowerFn` via per-bank priority graph coloring. -/
+/-- Compute untrusted `Hints` for `Rega.lowerFn` via per-bank priority graph coloring.  -/
 def hints (I : Isa) (f : Fn)
     (condCands : List I.Cond :=
       I.gpr.zeroFlags ++ I.gpr.zeroFlags.map I.gpr.negCond ++ I.gpr.cmpFlags)
@@ -2014,8 +2369,7 @@ def hints (I : Isa) (f : Fn)
       gatherFlags I r0 r1 v0 v1 condCands nv (fnPs.map Prod.fst) crossTrie bparamsTrie tys lTrie t
     | none => {}
   let (loops, loopReach) := loopBlocksScoped (blocksWithMin t1)
-  let numRets := max 1 (countRets t1)
-  let csCost := (1 + numRets) * baseMult
+  let csCost := 2 * baseMult
   let c : Ctx I := {
     allGpr := allGpr, allVec := allVec,
     gReg := (allGpr.foldl (fun (t, i) r => (t.insert i r, i + 1)) (.empty, 0)).1,
@@ -2064,32 +2418,62 @@ def hints (I : Isa) (f : Fn)
     let vs := union (lTrie.getD l []) (union (ps.map Prod.fst) (blkUses.getD l []))
     vs.foldl (fun m v => triePush m v l) m) varBlks0
   let c := { c with
-    brW := acc.brW, zextElide := acc.zextElide, regionReused := regionReused,
+    brW := acc.brW, zextElide := acc.zextElide, regionReused := regionReused, ipW := acc.ipW,
     jmpW := acc.jmpW, inW := acc.inW, blkUses := blkUses, varBlks := varBlks }
   let blkEdges := t.blocks.foldl (fun es (l, _, body) =>
     es ++ jmpEdges l (c.inW.getD l 0) body) (jmpEdges rootId baseMult t)
-  let c := { c with blkEdges := blkEdges }
+  let rec jmpLatch (dsts : List Nat) : Tree → Trie Bool → Trie Bool
+    | .let_ _ _ _ _ _ k, m | .load _ _ _ _ _ k, m | .store _ _ _ _ _ k, m
+    | .call _ _ _ _ _ _ _ k, m | .skip _ _ k, m | .group _ _ k, m => jmpLatch dsts k m
+    | .jnz _ _ _ _ t e, m => jmpLatch dsts t (jmpLatch dsts e m)
+    | .jump _ ip j _ _, m =>
+      if loops.getD j false && natMem j dsts then m.insert ip true else m
+    | _, m => m
+  let latchIps := t.blocks.foldl (fun m (l, _, body) =>
+    let hdrs := t.blocks.foldl (fun acc (lh, _, _) =>
+      if loops.getD lh false && natMem l (loopReach.getD lh []) then lh :: acc else acc) []
+    jmpLatch hdrs body m) .empty
+  let c := { c with blkEdges := blkEdges, latchIps := latchIps }
+  let c :=
+    if !cfg.armEvict then c
+    else
+      let arms := collectArms c t []
+      let ext0 := fnPs.foldl (fun e (p, _) => extendExt e p (firstIp t)) .empty
+      let (vext, uips) := varScan c t (ext0, .empty)
+      { c with armList := arms, armT := arms.foldl (fun m a => m.insert a.key a) .empty,
+               varExt := vext, useIps := uips, foldIps := foldIpsT t .empty }
   let fnAbi := match I.assignArgs f.as with
     | some locs => abiIdList allGpr allVec locs | none => []
   let cs := colorVars c nv fh.flagHome acc (fnPs.map Prod.fst) fnAbi
-  let c := { c with hintT := cs.hint, forceEv := cs.forceEv, evIn := cs.forceEv }
-  let slotOk := slotPlocMap c cs.hT cs.bk cs.usedCs acc.defWT t
+  let armVars := (List.range nv).filterMap fun x => (cs.armEv.find? x).map (x, ·)
+  let armEvAt : Trie (List Nat) := armVars.foldl (fun m (x, ks) =>
+    ks.foldl (fun m k => triePush m k x) m) .empty
+  let fe0 := armVars.foldl (fun t (x, ks) => ks.foldl (fun t k =>
+    match c.armT.find? k with
+    | some a =>
+      a.blocks.foldl (fun t b => if natMem x (lTrie.getD b []) then triePush t b x else t) t
+    | none => t) t) cs.forceEv
+  let (hT, fe, nslots1) :=
+    fitBlockGprs c (sumWeights acc.weights) cs.bk cs.usedCs cs.nslots cs.hT fe0 t
+  let c := { c with hintT := cs.hint, forceEv := fe, evIn := fe, armEvAt := armEvAt }
+  let slotOk := slotPlocMap c hT cs.bk cs.usedCs acc.defWT t
   let r0? := I.frame.allocatable.head?
   let r1? := I.frame.allocatable[1]?
   let initSv := (fnPs.map Prod.fst).filter (isEagerBk cs.bk)
-  let emit (c : Ctx I) : EmitSt I := emitAlloc c cs.hT cs.bk slotOk fh.clearAt r0? r1? t
-    (pendFromArrivals cs.hT cs.bk (fnPs.map Prod.fst) fnAbi) [] initSv [] []
+  let emit (c : Ctx I) : EmitSt I := emitAlloc c hT cs.bk slotOk fh.clearAt r0? r1? t
+    (pendFromArrivals hT cs.bk (fnPs.map Prod.fst) fnAbi) [] initSv [] []
     { variant := fh.variant, usedCs := cs.usedCs }
   let c := { c with jmpW := acc.jmpW, inW := acc.inW }
   let refine (c : Ctx I) : Ctx I :=
     let stO := emit { c with opt := true }
-    let rin := pickRegIn c cs.hT cs.usedCs slotOk stO.cin t.blocks
-    let evi := pickEvIn c cs.hT stO.evArr c.evIn t.blocks
-    { c with regIn := rin, evIn := evi }
+    let rin := pickRegIn c hT cs.usedCs slotOk stO.cin t.blocks
+    let evi := pickEvIn c hT stO.evArr c.evIn t.blocks
+    let lp := stO.latchArr.foldl (fun t (p, r, w) => triePush t p (r, w)) .empty
+    { c with regIn := rin, evIn := evi, latchPrefs := lp }
   let c := if cfg.regEntry && cfg.sink then refine (refine c) else c
   let st := emit c
   let finalSlots :=
-    if I.frame.scratch.isEmpty then cs.nslots else min cs.nslots (usedSlotCount nip nl st)
+    if I.frame.scratch.isEmpty then nslots1 else min nslots1 (usedSlotCount nip nl st)
   let h0 : I.Hints :=
     { dest := st.dest, entry := st.entry, pre := st.pre, variant := st.variant, elide := elideIps,
       invertJnz := acc.invertJnz,
@@ -2098,3 +2482,4 @@ def hints (I : Isa) (f : Fn)
 
 end Spill
 end LeanQbe.T
+

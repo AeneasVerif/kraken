@@ -55,12 +55,14 @@ example : ⸨prog| je L0 ⸩ = x64Gpr.jcc .z "L0" := rfl
 example : ⸨prog| jl L0 ⸩ = x64Gpr.jcc .l "L0" := rfl
 example : ⸨prog| jb L0 ⸩ = x64Gpr.jcc .c "L0" := rfl
 example : ⸨prog| testb %al, %al; jnz L0 ⸩ = (x64Gpr.jnzGpr .rax "L0").1 := rfl
-example : ⸨prog| sete %al; movzbl %al, %eax ⸩ = x64Gpr.setcc .rax .z := rfl
-example : ⸨prog| setne %al; movzbl %al, %eax ⸩ = x64Gpr.setcc .rax .nz := rfl
-example : ⸨prog| setb %al; movzbl %al, %eax ⸩ = x64Gpr.setcc .rax .c := rfl
-example : ⸨prog| seto %al; movzbl %al, %eax ⸩ = x64Gpr.setcc .rax .o := rfl
-example : ⸨prog| setle %al; movzbl %al, %eax ⸩ = x64Gpr.setcc .rax .le := rfl
-example : ⸨prog| setg %al; movzbl %al, %eax ⸩ = x64Gpr.setcc .rax .g := rfl
+example : ⸨prog| testb %al, %al; je L0 ⸩ = (x64JnzGpr .rax true "L0").1 := rfl
+example : ⸨prog| sete %al ⸩ = x64Gpr.setcc .rax .z := rfl
+example : ⸨prog| setne %al ⸩ = x64Gpr.setcc .rax .nz := rfl
+example : ⸨prog| setb %al ⸩ = x64Gpr.setcc .rax .c := rfl
+example : ⸨prog| seto %al ⸩ = x64Gpr.setcc .rax .o := rfl
+example : ⸨prog| setle %al ⸩ = x64Gpr.setcc .rax .le := rfl
+example : ⸨prog| setg %al ⸩ = x64Gpr.setcc .rax .g := rfl
+example : ⸨prog| sete %al; movzbl %al, %eax ⸩ = setccMove .rax .z := rfl
 
 -- Binary/unary ALU, LEA, inc/dec, and bswap
 example : ⸨prog| addb %sil, %al ⸩ = [aluBinIns .W8 .add .rax (.reg (b8 .rsi))] := rfl
@@ -217,6 +219,9 @@ theorem x64Gpr_jcc_noLab (cc : CondCode) (lbl : Sym) :
   emitClean_noLab _
 theorem x64Gpr_jnzGpr_noLab (r : Reg64) (lbl : Sym) :
     ∀ l, Kraken.Directive.label l ∉ (x64Gpr.jnzGpr r lbl).1 :=
+  emitClean_noLab _
+theorem x64Gpr_jnzGprInv_noLab (r : Reg64) (inv : Bool) (lbl : Sym) :
+    ∀ l, Kraken.Directive.label l ∉ (x64JnzGpr r inv lbl).1 :=
   emitClean_noLab _
 theorem x64Gpr_load_noLab {t : Ty} {rd : Reg64} {a : AddrArg Reg64} {c : List Directive}
     {clob : FlagMask} (h : x64Gpr.load t rd a = some (c, clob)) :
@@ -562,6 +567,33 @@ theorem cond_testFlags_z {n : Nat} (a b : BitVec n) (af : Bool) (neg : Bool) :
   cases neg <;> by_cases h : (a &&& b) = 0#n <;>
     simp [testFlags, StatusFlags.from_result, CondCode.interp, CmpOp.evalBits, BitVec.zero, h]
 
+theorem x64FlagCmpOk_of_subFlags {n : Nat} (hn : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64)
+    {s : MachineData} {x y : BitVec n}
+    (hst : ∀ cc : CondCode, cc.interp s.status = cc.interp (subFlags x y)) :
+    FlagCmpOk x64Mach x64Gpr s x y false := fun co cc _ hcc => by
+  simp only [x64Gpr, Function.comp_apply, Option.some.injEq] at hcc
+  subst hcc; exact (hst (condOf co)).trans (cond_subFlags hn co x y)
+
+theorem x64FlagCmpOk_of_testFlags {n : Nat} (hn : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64)
+    {s : MachineData} {x : BitVec n} {af : Bool} (hst : s.status = testFlags x x af) :
+    FlagCmpOk x64Mach x64Gpr s x 0#n false := fun co cc _ hcc => by
+  simp only [x64Gpr, Function.comp_apply, Option.some.injEq] at hcc
+  subst hcc
+  have hi : (condOf co).interp s.status = (condOf co).interp (subFlags x 0#n) := by
+    rw [hst]; exact cond_testFlags_self x af (condOf co)
+  exact hi.trans (cond_subFlags hn co x 0#n)
+
+theorem x64FlagCmpOk_of_zf {n : Nat} {s : MachineData} {x : BitVec n}
+    (hzf : s.status.zf = decide (x = 0#n)) :
+    FlagCmpOk x64Mach x64Gpr s x 0#n true := fun co cc hco hcc => by
+  simp only [x64Gpr, Function.comp_apply, Option.some.injEq] at hcc
+  subst hcc
+  have hco' : co = .eq ∨ co = .ne := by revert hco; cases co <;> decide
+  rcases hco' with rfl | rfl
+  · simp only [condOf, CondCode.interp, CmpOp.evalBits, hzf]
+  · simp only [condOf, CondCode.interp, CmpOp.evalBits, hzf, ne_eq]
+    by_cases hx : x = 0#n <;> simp [hx]
+
 theorem loadVal_bool_spec {m : Mem 64} {a : BitVec 64} {b : Bool}
     (h : loadVal m .bool a = some b) :
     ∃ i : Int, m.loadInt a 1 = some i ∧ (i = 0 ∨ i = 1) ∧ b = (i == 1) := by
@@ -730,6 +762,14 @@ theorem fallsTo_setcc (s : MachineData) (cc : CondCode) (rd : Reg64) :
   intro _ _ _ _ _ hk
   simp only [t_step_simp, Reg64s.set]
   exact hk _ rfl
+
+theorem wp_setccOnly [Host] {E : Int64 → MachineData → Prop} (s : MachineData)
+    (rd : Reg64) (cc : CondCode) :
+    _root_.Program.wp (setccOnly rd cc)
+      (fun s' => s' = { s with regs := s.regs.set64 rd ((s.regs.get64 rd).replaceLow (BitVec.ofNat 8 (cc.interp s.status).toNat)) })
+      E s := by
+  simp only [setccOnly, setccOnlyIns, emitClean_cons, emitClean_nil]
+  exact Directive.FallsTo.wp (fallsTo_setcc s cc rd)
 
 theorem wp_setccMove [Host] {E : Int64 → MachineData → Prop} (s : MachineData)
     (rd : Reg64) (cc : CondCode) :
@@ -952,11 +992,10 @@ theorem x64Gpr_setcc_spec {h : Host} {k : Nat} {rd : Reg64} {cc : CondCode} {s :
       (fun s' => GprHolds (s'.regs.get64 rd) .bool (x64Mach.evalCond s cc) ∧ s'.dmem = s.dmem)
       post := by
   refine x64_fallsTo_of_wp fun {_} _ => ?_
-  refine Program.wp.mono (wp_setccMove s rd cc) ?_
+  refine Program.wp.mono (wp_setccOnly s rd cc) ?_
   rintro s' rfl
   refine ⟨⟨?_, rfl⟩, x64_frame_of_eq ?_ rfl (updFlags_of_status_eq rfl _)⟩
-  · simp only [GprHolds, Reg64s.get64_set64_same]
-    cases cc.interp s.status <;> rfl
+  · simp only [GprHolds, Reg64s.get64_set64_same, replaceLow_setWidth_le (n := 8) (by decide)]
   · intro r hr
     simp only [List.mem_cons, not_or] at hr
     exact Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hr.1)
@@ -997,16 +1036,16 @@ theorem x64Gpr_jcc_spec {h : Host} {k j : Nat} {cc : CondCode} {l : Sym} {s : Ma
     simp only [Bool.false_eq_true, ↓reduceIte, Effects.All]
     exact hrun.2 hcc
 
-theorem x64Gpr_jnzGpr_spec {h : Host} {k j : Nat} {r : Reg64} {l : Sym} {b : Bool}
+private theorem x64JnzGpr_spec {h : Host} {k j : Nat} {r : Reg64} {inv : Bool} {l : Sym} {b : Bool}
     {s : MachineData} {post : MachineState → Prop}
-    (hc : (x64Gpr.jnzGpr r l).1.IsInfixAt (x64Mach.prog h) k)
+    (hc : (x64JnzGpr r inv l).1.IsInfixAt (x64Mach.prog h) k)
     (hj : x64Mach.labelAddr h l = x64Mach.addrOf h j)
     (_hr : r ∉ x64Scratch)
     (hb : GprHolds (x64Mach.getGpr s r) .bool b)
-    (hk : ∀ s', x64Mach.Frame x64Gpr.condReads s s' x64Scratch [] (x64Gpr.jnzGpr r l).2 →
+    (hk : ∀ s', x64Mach.Frame x64Gpr.condReads s s' x64Scratch [] (x64JnzGpr r inv l).2 →
       x64Mach.mem s' = x64Mach.mem s →
-      (b = true → x64Mach.Run h j s' post) ∧
-      (b = false → x64Mach.Run h (k + (x64Gpr.jnzGpr r l).1.length) s' post)) :
+      ((if inv then !b else b) = true → x64Mach.Run h j s' post) ∧
+      ((if inv then !b else b) = false → x64Mach.Run h (k + (x64JnzGpr r inv l).1.length) s' post)) :
     x64Mach.Run h k s post := by
   letI := h
   have hw0 : _root_.Program.wp [ins8 (.test (.reg (b8 r)) (.reg (b8 r)))]
@@ -1022,13 +1061,46 @@ theorem x64Gpr_jnzGpr_spec {h : Host} {k j : Nat} {r : Reg64} {l : Sym} {b : Boo
     x64_frame_of_eq (fun _ _ => rfl) rfl (updFlags_maskAll s _)
   have hrun := hk { s with status := st } hfr rfl
   have hlab : Labels.label l = Host.addrOf j := hj
-  cases b with
+  have hcond : (if inv then CondCode.z else CondCode.nz).interp st = if inv then !b else b := by
+    cases inv <;> simp [CondCode.interp] at hnz ⊢ <;> rw [hnz]
+  cases hb' : (if inv then !b else b) with
   | true =>
-    simp only [hnz, ↓reduceIte, Effects.All, hlab]
-    exact hrun.1 rfl
+    have hcc : (if inv then CondCode.z else CondCode.nz).interp st = true := hcond.trans hb'
+    simp only [hcc, ↓reduceIte, Effects.All, hlab]
+    exact hrun.1 hb'
   | false =>
-    simp only [hnz, Bool.false_eq_true, ↓reduceIte, Effects.All]
-    exact hrun.2 rfl
+    have hcc : (if inv then CondCode.z else CondCode.nz).interp st = false := hcond.trans hb'
+    simp only [hcc, Bool.false_eq_true, ↓reduceIte, Effects.All]
+    exact hrun.2 hb'
+
+theorem x64Gpr_jnzGpr_spec {h : Host} {k j : Nat} {r : Reg64} {l : Sym} {b : Bool}
+    {s : MachineData} {post : MachineState → Prop}
+    (hc : (x64Gpr.jnzGpr r l).1.IsInfixAt (x64Mach.prog h) k)
+    (hj : x64Mach.labelAddr h l = x64Mach.addrOf h j)
+    (hr : r ∉ x64Scratch)
+    (hb : GprHolds (x64Mach.getGpr s r) .bool b)
+    (hk : ∀ s', x64Mach.Frame x64Gpr.condReads s s' x64Scratch [] (x64Gpr.jnzGpr r l).2 →
+      x64Mach.mem s' = x64Mach.mem s →
+      (b = true → x64Mach.Run h j s' post) ∧
+      (b = false → x64Mach.Run h (k + (x64Gpr.jnzGpr r l).1.length) s' post)) :
+    x64Mach.Run h k s post :=
+  x64JnzGpr_spec hc hj hr hb hk
+
+theorem x64Gpr_jnzGprInv_spec {fn : Reg64 → Bool → Sym → List Directive × FlagMask}
+    {h : Host} {k j : Nat} {r : Reg64} {inv : Bool} {l : Sym} {b : Bool}
+    {s : MachineData} {post : MachineState → Prop}
+    (hfn : x64Gpr.jnzGprInv? = some fn)
+    (hc : (fn r inv l).1.IsInfixAt (x64Mach.prog h) k)
+    (hj : x64Mach.labelAddr h l = x64Mach.addrOf h j)
+    (hr : r ∉ x64Scratch)
+    (hb : GprHolds (x64Mach.getGpr s r) .bool b)
+    (hk : ∀ s', x64Mach.Frame x64Gpr.condReads s s' x64Scratch [] (fn r inv l).2 →
+      x64Mach.mem s' = x64Mach.mem s →
+      ((if inv then !b else b) = true → x64Mach.Run h j s' post) ∧
+      ((if inv then !b else b) = false → x64Mach.Run h (k + (fn r inv l).1.length) s' post)) :
+    x64Mach.Run h k s post := by
+  simp only [x64Gpr, Option.some.injEq] at hfn; subst hfn
+  exact x64JnzGpr_spec hc hj hr hb hk
 
 private def loadTailDir (t : Ty) (rd : Reg64) (addr : AddrExpr) (dir : Directive) : Prop :=
   match t with

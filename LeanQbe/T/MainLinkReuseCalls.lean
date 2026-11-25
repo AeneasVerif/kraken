@@ -20,7 +20,9 @@ import LeanQbe.T.LicmRoLemmas
 import LeanQbe.T.IfOptLemmas
 import LeanQbe.T.ZeroPeelLemmas
 import LeanQbe.T.AssumeBitsLemmas
+import LeanQbe.T.AddrRangeOptLemmas
 import LeanQbe.T.LoopRotateLemmas
+import LeanQbe.T.CondThreadOptLemmas
 
 /-!
 # Mid-End Call & Exit Preservation (`MainLinkReuseCalls`)
@@ -1449,6 +1451,112 @@ theorem Func.lateCorePost_callsOk {allowed : List SigEntry} {exits : List Sym}
       (Func.gvn_callsOk hf1
         (Func.memLoad_callsOk hf hc)))
 
+private theorem addrRangeSweep_let {V : Ty → Type} {L : List Ty → Type} {ts rs : List Ty}
+    (curD next : Nat) (plan : LoopTree) (op : Op (ARVal V) ts)
+    (k : Tup (ARVal V) ts → Expr (ARVal V) L rs) :
+    addrRangeSweep curD next plan (.let_ op k) =
+      let kPlan := plan.step1
+      match op.arStep curD next with
+      | .elim res => addrRangeSweep curD next kPlan (k res)
+      | .emit1 op' wrap =>
+        .let_ op' fun xs => addrRangeSweep curD (next + ts.length) kPlan (k (wrap xs))
+      | .rangeSubCmp w o x lo width outD =>
+        .let_ (op2 (.sub (.bits w)) x (.imm lo)) fun (t, ()) =>
+        .let_ (op2 (.cmp o (.bits w)) (.var t) (.imm width)) fun (r, ()) =>
+        addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh r next outD, ()))
+      | .addrShl n isSub base inv iv ivD sh _ disp =>
+        .let_ (op2 (.shl (.bits n)) inv (.imm (BitVec.ofNat n sh))) fun (t1, ()) =>
+        .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base (.var t1))
+          fun (t2, ()) =>
+        .let_ (op2 (.shl (.bits n)) iv (.imm (BitVec.ofNat n sh))) fun (t3, ()) =>
+        .let_ (op2 (.add (.bits n)) (.var t2) (.var t3)) fun (t4, ()) =>
+        if disp == 0#n then
+          addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t4 next ivD, ()))
+        else
+          .let_ (op2 (.add (.bits n)) (.var t4) (.imm disp)) fun (t5, ()) =>
+          addrRangeSweep curD (next + 1) kPlan (k (ARVal.fresh t5 next ivD, ()))
+      | .addrPlain n isSub base inv iv invD ivD disp =>
+        .let_ (op2 (if isSub then .sub (.bits n) else .add (.bits n)) base inv) fun (t1, ()) =>
+        .let_ (op2 (.add (.bits n)) (.var t1) iv) fun (t2, ()) =>
+        if disp == 0#n then
+          addrRangeSweep curD (next + 1) kPlan
+            (k (⟨.var t2, .var next, ivD,
+              { addr? := some (.addVV (.var t1) invD iv ivD 0#n) }⟩, ()))
+        else
+          .let_ (op2 (.add (.bits n)) (.var t2) (.imm disp)) fun (t3, ()) =>
+          addrRangeSweep curD (next + 1) kPlan
+            (k (⟨.var t3, .var next, ivD,
+              { addr? := some (.addVV (.var t1) invD iv ivD disp) }⟩, ())) := by
+  delta addrRangeSweep; dsimp only [Expr.brecOn, Expr.rec, addrRangeSweep._f]
+  cases op.arStep curD next <;> rfl
+
+private theorem addrRangeSweep_callsOk {allowed : List SigEntry} {exits : List Sym}
+    {rs : List Ty} {G : Ctx (ARVal (fun _ => Unit)) (fun _ => Unit)}
+    {D : Ctx (fun _ => Unit) (fun _ => Unit)}
+    {e₁ : Expr (ARVal (fun _ => Unit)) (fun _ => Unit) rs}
+    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
+    (hwf : Wf G D e₁ e₂) :
+    ∀ curD b plan, e₂.callsOk allowed exits →
+      (addrRangeSweep curD b plan e₁).callsOk allowed exits := by
+  induction hwf using Wf.induct with
+  | @let_ _ _ ts op₁ _ _ _ _ _ ih =>
+    intro curD b plan hc
+    rw [addrRangeSweep_let]
+    dsimp only
+    split
+    · exact ih _ (Tup.units _) curD b _ hc
+    · dsimp only [Expr.callsOk]
+      exact ih _ (Tup.units _) curD (b + _) _ hc
+    · dsimp only [Expr.callsOk]
+      exact ih _ (Tup.units _) curD (b + 1) _ hc
+    · dsimp only [Expr.callsOk]
+      split <;> ((try dsimp only [Expr.callsOk]); exact ih _ (Tup.units _) curD (b + 1) _ hc)
+    · dsimp only [Expr.callsOk]
+      split <;> ((try dsimp only [Expr.callsOk]); exact ih _ (Tup.units _) curD (b + 1) _ hc)
+  | load _ _ _ ih =>
+    intro curD b plan hc
+    dsimp only [addrRangeSweep]
+    exact ih _ () curD (b + 1) _ hc
+  | store _ _ _ ih =>
+    intro curD b plan hc
+    dsimp only [addrRangeSweep]
+    exact ih curD b _ hc
+  | call _ _ _ ih =>
+    intro curD b plan ⟨hm, hc⟩
+    dsimp only [addrRangeSweep, Expr.callsOk]
+    exact ⟨hm, ih _ (Tup.units _) curD (b + _) _ hc⟩
+  | @jnz _ _ c₁ _ _ _ _ _ _ _ _ iht ihe =>
+    intro curD b plan ⟨ht, he⟩
+    dsimp only [addrRangeSweep]
+    cases c₁.arOut with
+    | imm bv => cases bv <;> first | exact iht curD b _ ht | exact ihe curD b _ he
+    | var _ => exact ⟨iht curD b _ ht, ihe curD b _ he⟩
+  | jump _ _ | ret _ | hlt => intro _ _ _ _; trivial
+  | exit _ _ => intro _ _ _ hx; exact hx
+  | group _ _ ihb ihk =>
+    intro curD b plan ⟨hb, hk⟩
+    dsimp only [addrRangeSweep, Expr.callsOk]
+    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_,
+      ihk (Tup.units _) (Tup.units _) curD b _ hk⟩
+    rw [addrRangeSweepB_get_eq, tup_units_unit_eq xs]
+    exact ihb (Tup.units _) (Tup.units _) i _ (Tup.units _)
+      (if (plan.stepGroup.1.get i).1 then curD + 1 else curD) (b + _) _
+      (Blocks.callsOk_get hb i)
+
+/-- `Func.addrRangeOpt` preserves `Expr.callsOk`. -/
+theorem Func.addrRangeOpt_callsOk {allowed : List SigEntry} {exits : List Sym}
+    {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
+    ((Func.addrRangeOpt f) (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk
+      allowed exits := by
+  dsimp only [Func.addrRangeOpt]
+  split
+  · exact addrRangeSweep_callsOk
+      (hf (ARVal (fun _ => Unit)) (fun _ => Unit) (fun _ => Unit) (fun _ => Unit)
+        (freshARVals 0 as (Tup.units as) 0) (Tup.units as))
+      0 as.length _ hc
+  · exact hc
+
 /-- `Func.lateCfgPre` preserves `Expr.callsOk`. -/
 theorem Func.lateCfgPre_callsOk {allowed : List SigEntry} {exits : List Sym}
     {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
@@ -1461,12 +1569,14 @@ theorem Func.lateCfgPre_callsOk {allowed : List SigEntry} {exits : List Sym}
   have hf3 := Func.deadLoadElim_wf hf2
   have hf4 := Func.assumeElim_wf hf3
   have hf5 := Func.fold_wf hf4
-  exact Func.gvn_callsOk hf5
-    (Func.fold_callsOk hf4
-      (Func.assumeElim_callsOk
-        (Func.deadLoadElim_callsOk hf2
-          (Func.simplifyGroupFast_callsOk hf1
-            (Func.ifOptBits_callsOk hf hc)))))
+  have hf6 := Func.addrRangeOpt_wf hf5
+  exact Func.gvn_callsOk hf6
+    (Func.addrRangeOpt_callsOk hf5
+      (Func.fold_callsOk hf4
+        (Func.assumeElim_callsOk
+          (Func.deadLoadElim_callsOk hf2
+            (Func.simplifyGroupFast_callsOk hf1
+              (Func.ifOptBits_callsOk hf hc))))))
 
 /-- `Func.lateLoopRotate` preserves `Expr.callsOk`. -/
 theorem Func.lateLoopRotate_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -1480,8 +1590,21 @@ theorem Func.lateLoopRotate_callsOk {allowed : List SigEntry} {exits : List Sym}
       (Tup.units as)).callsOk allowed exits := by
     rw [Func.lateCfgPost_eq]
     exact Func.dceP_callsOk (Func.licm_wf hf) 0 (Func.licm_callsOk hf hc)
+  exact Func.loopRotate_callsOk hcfg LoopRotate.defaultRotConfig hpost
+
+/-- `Func.lateCondThread` preserves `Expr.callsOk`. -/
+theorem Func.lateCondThread_callsOk {allowed : List SigEntry} {exits : List Sym}
+    {as rs : List Ty} {f : Func as rs} (hf : f.Wf)
+    (hc : (f (fun _ => Unit) (fun _ => Unit) (Tup.units as)).callsOk allowed exits) :
+    ((Func.lateCondThread f) (fun _ => Unit) (fun _ => Unit)
+      (Tup.units as)).callsOk allowed exits := by
+  rw [Func.lateCondThread_eq]
+  have hf1 := Func.condThreadLateOpt_wf f
+  have hf2 := Func.fold_wf hf1
   exact Func.mergeRets_callsOk
-    (Func.loopRotate_callsOk hcfg LoopRotate.defaultRotConfig hpost)
+    (Func.dceP_callsOk hf2 0
+      (Func.fold_callsOk hf1
+        (Func.condThreadLateOpt_callsOk hf hc)))
 
 /-- Full mid-end (`Fn.mid lt f`) satisfies `callsOk` with `(f.rawCalls.map (sigEntryLegal lt))`
 and `f.rawExits`, without evaluating `Fn.mid` in the kernel. -/
@@ -1510,6 +1633,12 @@ theorem Fn.mid_callsOk (lt : LegalTarget) {f : Fn} (hf : f.Wf) :
   have hc8 := Func.renorm_callsOk hcfg hc7
   have hrot := Func.lateLoopRotate_wf hren3
   have hc9 := Func.lateLoopRotate_callsOk hren3 hc8
-  exact Func.renorm_callsOk hrot hc9
+  have hren4 := Func.renorm_wf (Func.lateLoopRotate (Func.renorm (Func.lateCfgPre
+    (Func.renorm (Func.lateCorePost (Func.renorm (Func.lateCorePre
+      (Func.legal lt f.earlyOpt.body))))))))
+  have hc10 := Func.renorm_callsOk hrot hc9
+  have hct := Func.lateCondThread_wf hren4
+  have hc11 := Func.lateCondThread_callsOk hren4 hc10
+  exact Func.renorm_callsOk hct hc11
 
 end LeanQbe.T

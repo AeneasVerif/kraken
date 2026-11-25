@@ -632,9 +632,9 @@ theorem compile_of_compileModule {I : Isa} {lt : LegalTarget} {raBytes : Nat}
 
 private theorem fn_mid_body_eq (lt : LegalTarget) (f : Fn) :
     (f.mid lt).body =
-      Func.renorm (Func.lateLoopRotate (Func.renorm (Func.lateCfgPre
-        (Func.renorm (Func.lateCorePost (Func.renorm (Func.lateCorePre
-          (Func.legal lt (Func.earlyOpt f.body))))))))) := by
+      Func.renorm (Func.lateCondThread (Func.renorm (Func.lateLoopRotate
+        (Func.renorm (Func.lateCfgPre (Func.renorm (Func.lateCorePost
+          (Func.renorm (Func.lateCorePre (Func.legal lt (Func.earlyOpt f.body))))))))))) := by
   dsimp only [Fn.mid, Fn.midFromEarly, Fn.earlyOpt]
   exact Fn.midStage_eq lt f.earlyOpt
 
@@ -646,7 +646,7 @@ theorem fn_mid_wf {lt : LegalTarget} {f : Fn} (hwf : f.Wf) : (f.mid lt).Wf := by
 
 /-- End-to-end WP refinement across the staged `Fn.mid` pipeline (`earlyOpt → Legal lt →
 lateCorePre → renorm → lateCorePost → renorm → lateCfgPre → renorm → lateCfgPost →
-loopRotate → renorm`). -/
+loopRotate → renorm → lateCondThread → renorm`). -/
 theorem fn_mid_spec {lt : LegalTarget} {f : Fn} (hwf : f.Wf)
     (hsupp : (f.earlyOpt).body.supportsSource lt = true) (Γ : Env)
     {xs : Tup Val f.as} {xs' : Tup Val (lt.legalSig f.as)} (hxs : encodeTup lt f.as xs = xs')
@@ -670,8 +670,10 @@ theorem fn_mid_spec {lt : LegalTarget} {f : Fn} (hwf : f.Wf)
     (Func.lateCfgPre_spec (Func.renorm_wf _) h2)
   have h4 := Func.renorm_spec (Func.lateLoopRotate_wf (Func.renorm_wf _))
     (Func.lateLoopRotate_spec (Func.renorm_wf _) h3)
+  have h5 := Func.renorm_spec (Func.lateCondThread_wf (Func.renorm_wf _))
+    (Func.lateCondThread_spec (Func.renorm_wf _) h4)
   exact (congrArg (fun b => Func.spec (legalEnv lt Γ) b (encodeTup lt f.as xs) m Q' X')
-    (fn_mid_body_eq lt f)).mpr h4
+    (fn_mid_body_eq lt f)).mpr h5
 
 private theorem legalEnv_elim_mid {lt : LegalTarget} {f : Fn} {Γ_src : Env}
     (hiso : ∀ as bs xs m P E, Γ_src f.name as bs xs m P E → as = f.as ∧ bs = f.rs)

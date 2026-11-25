@@ -235,6 +235,29 @@ abbrev armRetI : Instr := armInsI (.RET (.low (.reg .X30) .W64))
 /-- Function return `ret` (branch to `x30`). -/
 def armRetD : Directive := .instr armRetI
 
+/-- Materialize 64-bit address of `sym` into `rd` via `adrp` + `add :lo12:`. -/
+def armSymAddrReg (sym : Sym) : Reg → List Directive
+  | .reg x => armSymAddr x sym
+  | .SP => []
+
+/-- Indirect call `blr r` (no-op for unallocatable `.SP`). -/
+def armCallRegIns : Reg → List Instr
+  | .reg x => [armInsI (.BLR (.low (.reg x) .W64))]
+  | .SP => []
+
+/-- Indirect call `blr r`. -/
+def armCallReg (r : Reg) : List Directive :=
+  emitClean (armCallRegIns r)
+
+/-- Indirect tail jump `br r` (no-op for unallocatable `.SP`). -/
+def armJmpRegIns : Reg → List Instr
+  | .reg x => [armInsI (.BR (.low (.reg x) .W64))]
+  | .SP => []
+
+/-- Indirect tail jump `br r`. -/
+def armJmpReg (r : Reg) : List Directive :=
+  emitClean (armJmpRegIns r)
+
 /-- AAPCS64 Arm64 `FrameIsa` instance (`allocatable`: `x0..x15`, `calleeSaved`: `x19..x29`,
 `scratch`: `x16..x17`, `raRegs`: `[x30]`, `argRegs`/`retRegs`: `x0..x7`). -/
 @[reducible] def armFrame : FrameIsa Reg Directive where

@@ -171,6 +171,8 @@ boundary immediates. -/
   , ins (.jmp (.reg (q .rax)))
   , ins (.jmp (.mem addrDispPos))
   , x64CallD "dummy_add"
+  , ins (.call (.reg (q .rax)))
+  , ins (.call (.mem addrDispPos))
   , x64RetD ]
 
 /-- Kernel `rfl` check: every directive in `allFormsProg` lies in `DirSubset0`. -/
@@ -195,6 +197,15 @@ theorem printAmd64Asm0_slotIdx_rfl :
 theorem printAmd64Asm0_movsx_reg_rfl :
     printAmd64Asm0NoTrail [ins (.movsx (.reg (q .rax)) (.reg (d .rax)))] =
       "movsx %eax, %rax".toUTF8 := rfl
+
+/-- Kernel `rfl` check on `call *%rax` indirect register target. -/
+theorem printAmd64Asm0_callInd_rfl :
+    printAmd64Asm0NoTrail [ins (.call (.reg (q .rax)))] = "call *%rax".toUTF8 := rfl
+
+#guard printAsm0
+    [ins (.call (.reg (q .rax))), ins (.call (.mem addrDispPos)),
+     ins (.jmp (.reg (q .r11))), ins (.jmp (.mem addrBase0))] ==
+  "call *%rax\ncall *8(%rsp)\njmp *%r11\njmp *(%rax)"
 
 /-- Kernel `rfl` check on minimal `.text\nret\n` emission through `printDir0Asm0`. -/
 theorem printDir0Asm0_minimal_rfl :

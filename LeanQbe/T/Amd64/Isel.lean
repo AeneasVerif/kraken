@@ -123,6 +123,14 @@ def argToBitsI (w : Width) (rd : Reg64) :
   | .imm c  => some (moviI rd (c.setWidth 64))
   | .vec _  => none
 
+/-- `setcc cc %rd_b` instruction sequence (preserves all status flags; leaves bits `8..63` intact). -/
+def setccOnlyIns (rd : Reg64) (cc : CondCode) : List Instr :=
+  [x64InsI .W8 (.setcc cc (.reg (b8 rd)))]
+
+/-- `setcc cc %rd_b` (preserves all status flags). -/
+def setccOnly (rd : Reg64) (cc : CondCode) : List Directive :=
+  emitClean (setccOnlyIns rd cc)
+
 /-- `setcc cc %rd_b; movzbl %rd_b, %rd_d` instruction sequence (preserves all status flags). -/
 def setccMoveIns (rd : Reg64) (cc : CondCode) : List Instr :=
   [x64InsI .W8 (.setcc cc (.reg (b8 rd))), x64InsI .W32 (.movzx (.reg (d rd)) (.reg (b8 rd)))]
@@ -282,11 +290,30 @@ def opCopyBoolIns (pa : PArg Reg64 RegMm CondCode .bool)
       if rs == rd then some ([], maskNone)
       else some ([x64InsI .W32 (.movzx (.reg (d rd)) (.reg (b8 rs)))], maskNone)
     | .imm b   => some ([moviI rd (BitVec.ofNat 64 b.toNat)], maskNone)
-    | .flag cc => some (setccMoveIns rd cc, maskNone)
+    | .flag cc => some (setccOnlyIns rd cc, maskNone)
     | .vec _   => none
   | _ => none
 
-/-- Lower `.and`/`.or`/`.xor` on `.bool` into `pd`. -/
+/-- In-place 8-bit boolean binary step `rd := rd op other`. -/
+def boolBinSelfIns (insFn : Dst .W8 → Operand .W8 → Operation .W8) (rd : Reg64)
+    (other : PArg Reg64 RegMm CondCode .bool) : Option (List Instr × FlagMask) :=
+  match other with
+  | .gpr rs => some ([x64InsI .W8 (insFn (.reg (b8 rd)) (.reg (b8 rs)))], maskAll)
+  | _ => do
+    let d2 ← boolArgTo8I .r10 other
+    some ([d2, x64InsI .W8 (insFn (.reg (b8 rd)) (.reg (b8 .r10)))], maskAll)
+
+/-- Direct 8-bit boolean binary lowering `rd := first op second` (`rd ∉ args`). -/
+def boolBinDstIns (insFn : Dst .W8 → Operand .W8 → Operation .W8) (rd : Reg64)
+    (first second : PArg Reg64 RegMm CondCode .bool) : Option (List Instr × FlagMask) := do
+  let d1 ← boolArgTo8I rd first
+  match second with
+  | .gpr rs => some ([d1, x64InsI .W8 (insFn (.reg (b8 rd)) (.reg (b8 rs)))], maskAll)
+  | _ => do
+    let d2 ← boolArgTo8I .r10 second
+    some ([d1, d2, x64InsI .W8 (insFn (.reg (b8 rd)) (.reg (b8 .r10)))], maskAll)
+
+/-- Lower `.and`/`.or`/`.xor` on `.bool` into `pd` without redundant `.r11`/`movzx` roundtrips. -/
 def opBoolBinIns (op : Bool → Bool → Bool) (insFn : Dst .W8 → Operand .W8 → Operation .W8)
     (pa pb : PArg Reg64 RegMm CondCode .bool) (pd : PDst Reg64 RegMm CondCode .bool) :
     Option (List Instr × FlagMask) :=
@@ -294,14 +321,20 @@ def opBoolBinIns (op : Bool → Bool → Bool) (insFn : Dst .W8 → Operand .W8 
   | .gpr rd =>
     match pa, pb with
     | .imm a, .imm b => some ([moviI rd (BitVec.ofNat 64 (op a b).toNat)], maskNone)
-    | _, _ => do
-      let d1 ← boolArgTo8I .r11 pa
-      let d2 ← boolArgTo8I .r10 pb
-      some ([d1, d2, x64InsI .W8 (insFn (.reg (b8 .r11)) (.reg (b8 .r10))),
-             x64InsI .W32 (.movzx (.reg (d rd)) (.reg (b8 .r11)))], maskAll)
+    | .gpr ra, _ =>
+      if ra == rd then boolBinSelfIns insFn rd pb
+      else match pb with
+      | .gpr rb =>
+        if rb == rd then boolBinSelfIns insFn rd pa
+        else boolBinDstIns insFn rd pa pb
+      | _ => boolBinDstIns insFn rd pb pa
+    | _, .gpr rb =>
+      if rb == rd then boolBinSelfIns insFn rd pa
+      else boolBinDstIns insFn rd pa pb
+    | _, _ => boolBinDstIns insFn rd pa pb
   | _ => none
 
-/-- Lower `.not .bool` into `pd` (zero-instruction flag inversion for `.flag -> .flag`). -/
+/-- Lower `.not .bool` into `pd` (zero-insn flag invert or direct byte xor without `movzx`). -/
 def opBoolNotIns (pa : PArg Reg64 RegMm CondCode .bool)
     (pd : PDst Reg64 RegMm CondCode .bool) : Option (List Instr × FlagMask) :=
   match pd with
@@ -311,11 +344,13 @@ def opBoolNotIns (pa : PArg Reg64 RegMm CondCode .bool)
     | _ => none
   | .gpr rd =>
     match pa with
-    | .imm b => some ([moviI rd (BitVec.ofNat 64 (!b).toNat)], maskNone)
-    | _ => do
-      let d1 ← boolArgTo8I .r11 pa
-      some ([d1, x64InsI .W8 (.xor (.reg (b8 .r11)) (.imm (.int64 1))),
-             x64InsI .W32 (.movzx (.reg (d rd)) (.reg (b8 .r11)))], maskAll)
+    | .imm b   => some ([moviI rd (BitVec.ofNat 64 (!b).toNat)], maskNone)
+    | .flag cc => some (setccOnlyIns rd (x64NegCond cc), maskNone)
+    | .gpr rs  =>
+      let xor1 := x64InsI .W8 (.xor (.reg (b8 rd)) (.imm (.int64 1)))
+      if rs == rd then some ([xor1], maskAll)
+      else some ([x64InsI .W32 (.movzx (.reg (d rd)) (.reg (b8 rs))), xor1], maskAll)
+    | .vec _ => none
   | _ => none
 
 /-- Lower `.neg (.bits w.bits)` into `rd`. -/
@@ -642,14 +677,14 @@ def opCmpIns (w : Width) (co : CmpOp)
       some ([moviI rd (BitVec.ofNat 64 (co.evalBits cx cy).toNat)], maskNone)
     | .imm cx, .gpr ry =>
       if w != .W64 || fitsImm32 (cx.setWidth 64) then
-        some (cmpRegImmIns w ry cx ++ setccMoveIns rd (condOf co.swap), maskAll)
+        some (cmpRegImmIns w ry cx ++ setccOnlyIns rd (condOf co.swap), maskAll)
       else
         some ([moviI .r10 (cx.setWidth 64),
                x64InsI w (.cmp (.reg (regW w .r10)) (.reg (regW w ry)))] ++
-              setccMoveIns rd (condOf co), maskAll)
+              setccOnlyIns rd (condOf co), maskAll)
     | _, _ => do
       let c ← cmpDirectIns w pa pb
-      some (c ++ setccMoveIns rd (condOf co), maskAll)
+      some (c ++ setccOnlyIns rd (condOf co), maskAll)
   | .flag cc =>
     match pa, pb with
     | .imm cx, .gpr ry =>
@@ -1265,7 +1300,7 @@ def x64TestOpIns (n : Nat) (neg : Bool)
         some ([moviI rd (BitVec.ofNat 64 res.toNat)], maskNone)
       | _, _ => do
         let t ← testDirectIns w pa' pb'
-        some (t ++ setccMoveIns rd wantCc, maskAll)
+        some (t ++ setccOnlyIns rd wantCc, maskAll)
     | .flag cc =>
       if cc == wantCc then do
         let t ← testDirectIns w pa' pb'
@@ -1310,7 +1345,7 @@ def x64CmpMemIns (co : CmpOp) (n : Nat) (a : AddrArg Reg64)
     match pd with
     | .gpr rd => do
       let core ← cmpMemCoreIns w addr false pb'
-      some (pre ++ core ++ setccMoveIns rd (condOf co), maskAll)
+      some (pre ++ core ++ setccOnlyIns rd (condOf co), maskAll)
     | .flag cc =>
       if cc == condOf co then do
         let core ← cmpMemCoreIns w addr false pb'
@@ -1348,7 +1383,7 @@ def x64TestMemIns (n : Nat) (neg : Bool) (a : AddrArg Reg64)
     match pd with
     | .gpr rd => do
       let core ← core?
-      some (pre ++ core ++ setccMoveIns rd wantCc, maskAll)
+      some (pre ++ core ++ setccOnlyIns rd wantCc, maskAll)
     | .flag cc =>
       if cc == wantCc then do
         let core ← core?
@@ -1564,6 +1599,79 @@ def x64ZeroUpper32Op : {sig rs : List Ty} → OpCode sig rs →
     | _ => false
   | _, _, _, _, _ => false
 
+/-- Polarity-aware GPR `jnz`: `testb %r, %r; jnz/jz sym`. -/
+def x64JnzGpr (r : Reg64) (inv : Bool) (l : Sym) : List Directive × FlagMask :=
+  (emitClean [x64InsI .W8 (.test (.reg (b8 r)) (.reg (b8 r))),
+              x64InsI .W64 (.jcc (if inv then .z else .nz) l)], maskAll)
+
+/-- Condition code holding the `.bool` GPR result simultaneously in flags after `x64Op`. -/
+def x64BoolFlagOut {sig : List Ty} (code : OpCode sig [.bool])
+    (pas : Tup (PArg Reg64 RegMm CondCode) sig) (pd : PDst Reg64 RegMm CondCode .bool) :
+    Option CondCode :=
+  match pd with
+  | .gpr _ =>
+    match code with
+    | .copy .bool => match pas with | (.flag cc, ()) => some cc | _ => none
+    | .not  .bool => match pas with
+      | (.flag cc, ()) => some (x64NegCond cc) | (.gpr _, ()) => some .nz | _ => none
+    | .and .bool | .or .bool | .xor .bool =>
+      match pas with
+      | (pa, pb, ()) =>
+        match pa, pb with
+        | .imm _, .imm _ | .vec _, _ | _, .vec _ => none
+        | _, _ => some .nz
+    | _ => none
+  | _ => none
+
+/-- Operand order (`true` -> `lhs - rhs`, `false` -> `rhs - lhs`) whose compare flags survive
+`opCmpIns`. -/
+def x64CmpFlagsOut (co : CmpOp) (w : Nat)
+    (pa pb : PArg Reg64 RegMm CondCode (.bits w))
+    (pd : PDst Reg64 RegMm CondCode .bool) : Option Bool :=
+  if !x64BitWidths.contains w then none
+  else match pd with
+    | .gpr _ =>
+      match pa, pb with
+      | .imm _, .imm _ => none
+      | .imm cx, .gpr _ =>
+        some (!( !(w == 64) || fitsImm32 (cx.setWidth 64) ))
+      | .gpr _, .gpr _ | .gpr _, .imm _ => some true
+      | _, _ => none
+    | .flag cc =>
+      match pa, pb with
+      | .imm cx, .gpr _ =>
+        if cc == condOf co.swap && (!(w == 64) || fitsImm32 (cx.setWidth 64)) then some false
+        else if cc == condOf co then some true
+        else if cc == condOf co.swap then some false
+        else none
+      | .gpr _, .gpr _ | .gpr _, .imm _ | .imm _, .imm _ =>
+        if cc == condOf co then some true
+        else if cc == condOf co.swap then some false
+        else none
+      | _, _ => none
+    | .vec _ => none
+
+/-- ALU ops into `.gpr` that leave zero-comparison flags when `clob ≠ maskNone`
+(`some true` = `==`/`!=` only, `some false` = full signed/unsigned vs `0`). -/
+def x64AluZeroOut {sig : List Ty} (w : Nat) (code : OpCode sig [.bits w])
+    (pd : PDst Reg64 RegMm CondCode (.bits w)) : Option Bool :=
+  match pd with
+  | .gpr _ =>
+    match code with
+    | .add (.bits _) | .sub (.bits _) | .neg (.bits _) => some true
+    | .and (.bits _) | .or  (.bits _) | .xor (.bits _) => some false
+    | _ => none
+  | _ => none
+
+/-- Operand order (`true` -> `[a] - pb`, `false` -> `pb - [a]`) of `x64CmpMem`. -/
+def x64CmpMemFlagsOut (co : CmpOp) : PDst Reg64 RegMm CondCode .bool → Option Bool
+  | .gpr _ => some true
+  | .flag cc =>
+    if cc == condOf co then some true
+    else if cc == condOf co.swap then some false
+    else none
+  | .vec _ => none
+
 /-- Typed x64 scalar `GprIsa` instance. -/
 def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   condReads := x64CondReads
@@ -1572,11 +1680,10 @@ def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   clearFlags := emitClean [x64InsI .W32 (.xor (.reg (d .r10)) (.reg (d .r10)))]
   mov rd rs := emitClean [movI rd rs]
   movi rd c := emitClean [moviI rd c]
-  setcc := setccMove
+  setcc := setccOnly
   jmp l := emitClean [x64InsI .W64 (.jmp (.rel (.sub (.label l) .after_current_instruction)))]
   jcc cc l := emitClean [x64InsI .W64 (.jcc cc l)]
-  jnzGpr r l := (emitClean [x64InsI .W8 (.test (.reg (b8 r)) (.reg (b8 r))),
-                            x64InsI .W64 (.jcc .nz l)], maskAll)
+  jnzGpr r l := x64JnzGpr r false l
   op := x64Op
   load := x64Load
   store := x64Store
@@ -1596,5 +1703,12 @@ def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   rmwMem := x64RmwMem
   leaArith := x64LeaArith
   zeroUpper32LeaArith := true
+  jnzGprInv? := some x64JnzGpr
+  condOfCmp? := some ∘ condOf
+  boolFlagOut? := x64BoolFlagOut
+  cmpFlagsOut? := x64CmpFlagsOut
+  aluZeroOut? := x64AluZeroOut
+  hasTestFlags := true
+  cmpMemFlagsOut? := x64CmpMemFlagsOut
 
 end LeanQbe.T.Amd64
