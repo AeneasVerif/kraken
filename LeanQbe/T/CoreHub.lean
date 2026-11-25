@@ -154,6 +154,9 @@ public import LeanQbe.T.Unified.Core
 public import LeanQbe.T.Unified.Driver
 public import LeanQbe.T.Unified.DriverLemmas
 public import LeanQbe.T.Unified.Ssa
+public import LeanQbe.T.Vll.Arch
+public import LeanQbe.T.Vll.Sem
+public import LeanQbe.T.Vll.Syntax
 public import LeanQbe.T.WP
 public import LeanQbe.T.WPLemmas
 public import LeanQbe.T.Wasm.Ast
