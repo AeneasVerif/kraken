@@ -108,6 +108,20 @@ def fidPgoBudget : Sym → Nat
   | "full_cong_eb_match" => 200
   | "full_sweep_copy" => 315
   | "full_analyze_rsn_m6_hdr" => 450
+  -- Gate-1 Step 5 (`Bve`) & Step 6 (`Bva`) purified `_fid` leaf helpers
+  | "full_bve_k6_mv_fid" => 25
+  | "full_fid_k6_add_ticks" => 30
+  | "full_k6_watch_fid" => 90
+  | "full_k6_assign_fid" => 115
+  | "full_k6_mtf_fid" => 135
+  | "full_k6_backtrack_fid" => 120
+  | "full_bve_def_k6_fid" => 90
+  | "full_bva_steps_cap_fid" => 20
+  | "full_bva_clines_fid" => 15
+  | "full_fheap_up_fid" => 55
+  | "full_fheap_down_fid" => 80
+  | "full_bva_count_lit_deg_fid" => 55
+  | "full_bva_match_large_bva_fid" => 70
   | s => m7PgoBudget s
 
 /-- Profile-guided `InlinePolicy` for `KissatFidelity` (`maxCallerSize := 4000`, `leafMax := 165`,
