@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Live
 public import LeanQbe.T.SpillFlags
 public import LeanQbe.T.SpillEmit
+public import LeanQbe.T.SpillCoalesce
 
 /-!
 # Priority Graph-Coloring Register Allocator & Spilling Oracle (untrusted)
@@ -427,7 +428,7 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
       invertJnz := if Nat.blt mE mT then acc.invertJnz.insert ip true else acc.invertJnz }
     gatherAt c blk? lps lr mT isZ32 t acc1
   | lps, lr, mult, isZ32, .skip _ _ k, acc => gatherAt c blk? lps lr mult isZ32 k acc
-  | _, _, mult, _, .jump _ ip j _ args, acc =>
+  | lps, _, mult, _, .jump _ ip j _ args, acc =>
     let acc := { acc with
       jmpW := acc.jmpW.insert ip mult, inW := acc.inW.insert j (acc.inW.getD j 0 + mult) }
     let as := tupArgsToList args
@@ -437,9 +438,13 @@ def gatherAt {I : Isa} (c : Ctx I) (blk? : Option Nat) :
         match ao with
         | some x => if Nat.beq x p then a else x :: p :: a
         | none => p :: a) [])
+    let (aff', anti') :=
+      if c.cfg.backEdgeCoal then
+        addJumpAffAnti (natMem j lps) lps.length as ps mult acc.affEdges acc.antiEdges
+      else
+        (addAffZip as ps (8 * mult) acc.affEdges, addAntiZip as ps (2 * mult) acc.antiEdges)
     { acc with weights := addWeight mult nonSelf acc.weights,
-               affEdges := addAffZip as ps (8 * mult) acc.affEdges,
-               antiEdges := addAntiZip as ps (2 * mult) acc.antiEdges }
+               affEdges := aff', antiEdges := anti' }
   | _, _, mult, _, .ret _ ip rs vs, acc =>
     let (ag, av) := match I.assignRets rs with
       | some locs =>
@@ -469,13 +474,14 @@ def gatherAtB {I : Isa} (c : Ctx I) :
     let di := pvars.foldl (fun d p =>
       if natMem p le then (p, union pvars le) :: d else d) acc.defInterf
     let isLoop := c.loops.getD l false
+    let blkLps := if c.cfg.backEdgeCoal then c.blkLoops.getD l [] else []
+    let lps' := union blkLps (if isLoop then l :: lps else lps)
     let mB :=
       if isLoop then
         let scaled := if lps.isEmpty then max (10 * mult) (10 * baseMult) else 10 * max mult 1
         min scaled 160000
       else mult
-    let lps' := if isLoop then l :: lps else lps
-    let lr' := if isLoop then union (c.loopReach.getD l []) lr else lr
+    let lr' := lps'.foldl (fun a lh => union (c.loopReach.getD lh []) a) lr
     let dw := pvars.foldl (fun t p => t.insert p mB) acc.defWT
     let bp := pvars.foldl (fun t p => t.insert p true) acc.isBP
     let pW := if isLoop then max (baseMult / 4) (mB / 4) else baseMult / 4
@@ -801,9 +807,12 @@ def tryEvictSplit {I : Isa} (c : Ctx I) (x : Nat) (xI peers pids : List Nat)
               else (c.blkUses.getD b []).foldl (fun n y => if Nat.beq y x then n + 1 else n) a) 0
             let splitOps := (if canEagerEv then 1 else nEnter) + nExit
             let baseOps := (if isBp then 0 else 1) + usesOut
-            let outPbOk := pidsOut.all (fun p => Nat.ble 2 (s.gPb.getD p 0)) || Nat.ble 8 usesOut
+            let minUses := 8
+            let maxExits := 1
+            let outPbOk := pidsOut.all (fun p => Nat.ble 2 (s.gPb.getD p 0)) ||
+              Nat.ble minUses usesOut
             if !outPbOk || !Nat.ble 1 wEnter || !Nat.ble (evCost + baseMult) slotCost ||
-                !Nat.ble nExit 1 || !Nat.ble 8 usesOut ||
+                !Nat.ble nExit maxExits || !Nat.ble minUses usesOut ||
                 !Nat.blt (2 * splitOps) baseOps then
               none
             else
@@ -953,7 +962,10 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
           (affT.getD z []).foldl (fun acc (u, wu) =>
             if Nat.beq u x then acc else addNbr u wu 2 acc) a1
         | .slot _ _ => match s.hint.find? z with | some h => h :: ps | none => ps
-        | _ => ps) avoid0
+        | _ => ps) (if c.cfg.backEdgeCoal then [] else avoid0)
+      let pickReg (cands : List Nat) : Option Nat :=
+        if c.cfg.backEdgeCoal then bestRegNet prefs avoid0 avoid cands
+        else bestRegPref prefs avoid cands
       let toSlotG : ColorSt I.Cond :=
         let s1 := toSlot .w64
         let best := prefs.foldl (fun (b : Option (Nat × Nat)) (r, _) =>
@@ -985,11 +997,11 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
           | some sA => sA
           | none => toSlotG
       let orSplitOrSlot : ColorSt I.Cond :=
-        match (if isX && splitOk then bestRegPref prefs avoid caller else none) with
+        match (if isX && splitOk then pickReg caller else none) with
         | some r => inReg r
         | none => toSlotOrEv
       let orNewCs : ColorSt I.Cond :=
-        match bestRegPref prefs avoid newCs with
+        match pickReg newCs with
         | some r => inNewCs r
         | none => orSplitOrSlot
       if !isX then
@@ -997,14 +1009,14 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
         | some (r, extraPids) =>
           { s with hT := s.hT.insert x (.gpr r), gPb := decPts extraPids s.gPb }
         | none =>
-          match bestRegPref prefs avoid (caller ++ csFree) with
+          match pickReg (caller ++ csFree) with
           | some r => inReg r
           | none => orNewCs
       else
-        match bestRegPref prefs avoid csFree with
+        match pickReg csFree with
         | some r => inReg r
         | none =>
-          match (if cheapSplit then bestRegPref prefs avoid caller else none) with
+          match (if cheapSplit then pickReg caller else none) with
           | some r => inReg r
           | none => orNewCs
   | .vec w =>
@@ -1064,13 +1076,18 @@ def colorVars {I : Isa} (c : Ctx I) (nv : Nat) (flagHome : Trie I.Cond) (acc : G
     match flagHome.find? x with | some cc => h.insert x (.flag cc) | none => h) .empty
   let ptBlks := acc.gprPtBlks.toArray
   let ptIps := acc.gprPtIps.toArray
-  order.foldl (fun s (wx, x) =>
+  let cs0 := order.foldl (fun s (wx, x) =>
     match s.hT.find? x with
     | some (.flag _) => s
     | _ =>
       colorOne c interf gVp gCp vVp abiGT abiVT affT antiT cwT acc.defWT acc.loopCall acc.isBP
         zextPeers fnParams ptBlks ptIps s wx x)
     { hT := initHome, gPb := gPb0, vPb := vPb0 }
+  if c.cfg.backEdgeCoal then
+    let hT' := refineColors c order interf affT antiT abiGT zextPeers cs0.bk cs0.armEv cs0.forceEv
+      cs0.usedCs (armShare c) cs0.hT
+    { cs0 with hT := hT' }
+  else cs0
 
 end Spill
 end LeanQbe.T
@@ -1474,6 +1491,9 @@ def hints (I : Isa) (f : Fn)
       gatherFlags I r0 r1 v0 v1 condCands nv (fnPs.map Prod.fst) crossTrie bparamsTrie tys lTrie t
     | none => {}
   let (loops, loopReach) := loopBlocksScoped (blocksWithMin t1)
+  let loopHdrs := bs0.filterMap fun (l, _, _) => if loops.getD l false then some l else none
+  let blkLoops := loopHdrs.foldl (fun m lh =>
+    (lh :: loopReach.getD lh []).foldl (fun m b => triePush m b lh) m) (.empty : Trie (List Nat))
   let csCost := 2 * baseMult
   let c : Ctx I := {
     allGpr := allGpr, allVec := allVec,
@@ -1483,7 +1503,7 @@ def hints (I : Isa) (f : Fn)
     csIds := (List.range nCs).map (· + nGpr), vAlloc := List.range nVec,
     gScr := if I.frame.scratch.isEmpty then none else some (nGpr + nCs),
     vScr := if I.vec.vecScratch.isEmpty then none else some nVec,
-    cross := crossTrie, loops := loops, loopReach := loopReach,
+    cross := crossTrie, loops := loops, loopReach := loopReach, blkLoops := blkLoops,
     banks := (List.range nv).foldl (fun b x => b.insert x (bankOf I (tys.getD x i64))) .empty,
     flagHome := fh.flagHome, bparams := bparamsTrie, lTrie := lTrie, addrDeps := addrDeps,
     rmwDeps := rmwDeps, isLeaf := isLeaf, cfg := cfg, csCost := csCost,

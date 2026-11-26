@@ -150,10 +150,12 @@ structure Cfg where
   (sink joinGuard cacheHint regEntry : Bool := true)
   (armEvict armLoops : Bool := true)
   (armX : Bool := true)
+  (backEdgeCoal immMoviDedup : Bool := true)
 
 /-- Baseline configuration (all `Spill.Cfg` switches off), for ablation and regression tests. -/
 def Cfg.legacy : Cfg :=
-  { sink := false, joinGuard := false, cacheHint := false, regEntry := false, armEvict := false }
+  { sink := false, joinGuard := false, cacheHint := false, regEntry := false, armEvict := false,
+    backEdgeCoal := false, immMoviDedup := false }
 
 /-- A non-trivial `jnz` arm (`key = 2 * ip + 1` for the then-arm, `2 * ip` for the else-arm):
 its ip interval `[lo, hi)` (arms are contiguous in `Tree.ofFn` numbering), entry weight `w`,
@@ -200,6 +202,7 @@ structure Ctx (I : Isa) where
   (foldIps : Trie Unit := .empty)
   (latchIps : Trie Bool := .empty)
   (latchPrefs : Trie (List (Nat × Nat)) := .empty)
+  (blkLoops : Trie (List Nat) := .empty)
 
 def isEagerBk (bk : Trie (Nat × SlotWidth × Bool)) (x : Nat) : Bool :=
   match bk.find? x with | some (_, _, e) => e | none => false
@@ -565,38 +568,52 @@ def jumpSlotMoves {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (slotOk : Tr
   let sas := tupSymArgs I args
   let gOf (r : Nat) := c.gReg.getD r I.frame.sp
   let busy := gprHomes home lv ++ gCache.map Prod.snd
-  let tmp? :=
-    freshReg (c.gAlloc ++ usedCs) busy <|> freshReg (c.gAlloc ++ usedCs) (gprHomes home lv)
-  (sas.zip ps).foldl (fun mvs (sao, p) =>
-    if !slotOk.getD p false then mvs
+  let cands := c.gAlloc ++ usedCs
+  let tmp? := freshReg cands busy <|> freshReg cands (gprHomes home lv)
+  let emitImm (mvs : List I.Move) (immRegs : List (BitVec 64 × Nat))
+      (s : Nat) (k64 : BitVec 64) : List I.Move × List (BitVec 64 × Nat) :=
+    if c.cfg.immMoviDedup then
+      match immRegs.find? fun (k', _) => k' == k64 with
+      | some (_, r) => (mvs ++ [.st s (gOf r)], immRegs)
+      | none =>
+        let r? := freshReg cands (busy ++ immRegs.map Prod.snd) <|> tmp?
+        match r? with
+        | some tmp =>
+          let ir' := (k64, tmp) :: immRegs.filter fun (_, r) => !Nat.beq r tmp
+          (mvs ++ [.movi (gOf tmp) k64, .st s (gOf tmp)], ir')
+        | none => (mvs, immRegs)
+    else
+      match tmp? with
+      | some tmp => (mvs ++ [.movi (gOf tmp) k64, .st s (gOf tmp)], immRegs)
+      | none => (mvs, immRegs)
+  ((sas.zip ps).foldl (fun (mvs, immRegs) (sao, p) =>
+    if !slotOk.getD p false then (mvs, immRegs)
     else match home.getD p .none with
       | .slot s .w64 =>
         match sao with
         | some (.var x) =>
           match home.getD x .none with
           | .slot s' .w64 =>
-            if Nat.beq s s' then mvs
+            if Nat.beq s s' then (mvs, immRegs)
             else match gCache.find? (fun (y, _) => Nat.beq y x) with
-              | some (_, r) => mvs ++ [.st s (gOf r)]
+              | some (_, r) => (mvs ++ [.st s (gOf r)], immRegs)
               | none => match tmp? with
-                | some tmp => mvs ++ [.ld (gOf tmp) s', .st s (gOf tmp)]
-                | none => mvs
-          | .gpr r => mvs ++ [.st s (gOf r)]
+                | some tmp =>
+                  (mvs ++ [.ld (gOf tmp) s', .st s (gOf tmp)],
+                    immRegs.filter fun (_, r) => !Nat.beq r tmp)
+                | none => (mvs, immRegs)
+          | .gpr r => (mvs ++ [.st s (gOf r)], immRegs)
           | .flag cc =>
             match tmp? with
-            | some tmp => mvs ++ [.setcc (gOf tmp) cc, .st s (gOf tmp)]
-            | none => mvs
-          | _ => mvs
-        | some (.immBits _ k) =>
-          match tmp? with
-          | some tmp => mvs ++ [.movi (gOf tmp) k, .st s (gOf tmp)]
-          | none => mvs
-        | some (.immBool b) =>
-          match tmp? with
-          | some tmp => mvs ++ [.movi (gOf tmp) (if b then 1#64 else 0#64), .st s (gOf tmp)]
-          | none => mvs
-        | _ => mvs
-      | _ => mvs) []
+            | some tmp =>
+              (mvs ++ [.setcc (gOf tmp) cc, .st s (gOf tmp)],
+                immRegs.filter fun (_, r) => !Nat.beq r tmp)
+            | none => (mvs, immRegs)
+          | _ => (mvs, immRegs)
+        | some (.immBits _ k) => emitImm mvs immRegs s (k.setWidth 64)
+        | some (.immBool b) => emitImm mvs immRegs s (if b then 1#64 else 0#64)
+        | _ => (mvs, immRegs)
+      | _ => (mvs, immRegs)) ([], [])).1
 
 /-- Slot-homed uncached operands that `Rega.trySlotOp` can keep in `[%rsp+off]` directly. -/
 private def slotOpNoLoad {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (r0? : Option I.Reg)
