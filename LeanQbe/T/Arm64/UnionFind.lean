@@ -1,10 +1,9 @@
 module
 
 public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Examples.UnionFindLemmas
+public import LeanQbe.T.Examples.BenchmarkCertKit
 public import LeanQbe.T.MainSplice
 import LeanQbe.T.Logic.MemLemmas
-import LeanQbe.T.FlatLemmas
 import all Kraken.Mem
 import all Kraken.Separation
 meta import Lean
@@ -14,15 +13,6 @@ meta import LeanQbe.T.Examples.UnionFind
 
 /-!
 # Union-Find (`ufFns`) on AArch64
-
-Instantiates the typed-IR Union-Find module `ufModule` (`find`, `union`, `unionInline`) on
-`armTarget` (`armLegalTarget`, `armLayout`, `armLabelClean`) with:
-* `ufHints` via `splice_module_hints`;
-* `compiled_check : checkCompile ... = true` proved in a single kernel reduction (`t_kernel_rfl`);
-* `uf_module_fnspec` over arbitrary Kraken `Host` instances;
-* closed Kraken AArch64 correctness theorems `find_arm64_correct`, `union_arm64_correct`, and
-  `unionInline_arm64_correct`;
-* concrete non-vacuous execution witnesses on `compiled.host` via `armInit`.
 -/
 
 set_option autoImplicit false
@@ -32,7 +22,8 @@ set_option autoImplicit false
 namespace LeanQbe.T.Arm64.UnionFind
 
 open Std Std.ExtHashMap
-open LeanQbe.T LeanQbe.T.Examples.UnionFind LeanQbe.T.Arm64 Kraken
+open LeanQbe.T LeanQbe.T.Examples.UnionFind LeanQbe.T.BenchmarkCertKit
+open LeanQbe.T.Examples.BenchmarkCertKit LeanQbe.T.Arm64 Kraken
 
 splice_module_hints ufHints (armTarget.toIsa) armLegalTarget ufFns
 
@@ -61,16 +52,8 @@ theorem uf_module_fnspec (k₀ : Nat)
     (hc : compiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     {f : Fn} (hf : f ∈ ufModule.fns) :
     armTarget.Defined hh f.name ∧
-      armTarget.FnSpec hh f.name (ufEnv f.name f.as f.rs) (compiled.bound f.name) 0 := by
-  have hmem := hf
-  simp only [ufModule, ufFns, List.mem_cons, List.not_mem_nil, or_false] at hmem
-  have ⟨has, hrs, hnoex⟩ :
-      armLegalTarget.legalSig f.as = f.as ∧ armLegalTarget.legalSig f.rs = f.rs ∧
-        (∀ args m Q X X',
-          ufEnv f.name f.as f.rs args m Q X → ufEnv f.name f.as f.rs args m Q X') := by
-    rcases hmem with rfl | rfl | rfl <;> exact ⟨rfl, rfl, fun _ _ _ _ _ h => h⟩
-  exact compiled.fnSpec_noExit_id ufModule rfl hh ufEnv k₀ hc hu
-    ufModule_checkAcyclic ufFns_wf ufFns_supportsSource ufEnv_sound hf has hrs hnoex
+      armTarget.FnSpec hh f.name (ufEnv f.name f.as f.rs) (compiled.bound f.name) 0 :=
+  uf_module_fnspec_gen compiled hh rfl ufFns_supportsSource k₀ hc hu hf
 
 /-- End-to-end correctness of compiled `find` on Kraken AArch64. -/
 theorem find_arm64_correct (k₀ : Nat)
@@ -94,18 +77,12 @@ theorem find_arm64_correct (k₀ : Nat)
   have hargs : armTarget.ArgsIn (as := [i64, i64]) (p, x, ()) s :=
     ⟨_, rfl, .cons ⟨by decide, by simpa [get_reg] using hp⟩
       (.cons ⟨by decide, by simpa [get_reg] using hxx⟩ .nil)⟩
-  obtain ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, hm, hf⟩, hmR⟩ := hmem
-  have hmEq : s.dmem =⋆ Eq m ⋆
-      region (s.regs.SP.toBitVec - BitVec.ofNat 64 (compiled.bound "find"))
-        (compiled.bound "find") ⋆ R :=
-    ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, rfl, hf⟩, hmR⟩
+  obtain ⟨m, hm, hmEq⟩ := sep_extract_eq hmem
   have hfn : armTarget.FnSpec hh "find" findSpec (compiled.bound "find") 0 :=
     (uf_module_fnspec k₀ hc hu (by simp [ufModule, ufFns] :
       (⟨"find", [i64, i64], [i64], find⟩ : Fn) ∈ ufModule.fns)).2
-  have hspec : findSpec (p, x, ()) m (fun r m' => r = (rep x, ()) ∧ uf p n rep m')
-      (fun _ _ _ _ => False) :=
-    ⟨n, rep, emp, by rw [sep_emp]; exact hm, hx, fun m' hm' => ⟨rfl, by rwa [sep_emp] at hm'⟩⟩
-  refine eventually_weaken _ _ _ _ ?_ (arm64_of_returns hfn hspec s ra R hargs hra hsp hmEq)
+  refine eventually_weaken _ _ _ _ ?_
+    (arm64_of_returns hfn (find_spec_ok hx hm) s ra R hargs hra hsp hmEq)
   rintro st ⟨hpc, hcs, hsp', _, m', ⟨rfl, huf'⟩, hrets, hm'⟩
   have hx0 : (st.data.regs.getXReg .X0).toBitVec = rep x := by
     simpa [armInit, get_reg] using armInit.retsIn_singleton (rep x) st.data hrets
@@ -136,17 +113,11 @@ private theorem unionLike_arm64_correct (k₀ : Nat)
     ⟨_, rfl, .cons ⟨by decide, by simpa [get_reg] using hp⟩
       (.cons ⟨by decide, by simpa [get_reg] using hxx⟩
         (.cons ⟨by decide, by simpa [get_reg] using hyy⟩ .nil))⟩
-  obtain ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, hm, hf⟩, hmR⟩ := hmem
-  have hmEq : s.dmem =⋆ Eq m ⋆
-      region (s.regs.SP.toBitVec - BitVec.ofNat 64 (compiled.bound fn.name))
-        (compiled.bound fn.name) ⋆ R :=
-    ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, rfl, hf⟩, hmR⟩
+  obtain ⟨m, hm, hmEq⟩ := sep_extract_eq hmem
   have hfn0 := (uf_module_fnspec k₀ hc hu hfn_mem).2
   rw [has, hrs, hspec_eq] at hfn0
-  have hspec : unionSpec (p, x, y, ()) m (fun _ m' => uf p n (merge rep x y) m')
-      (fun _ _ _ _ => False) :=
-    ⟨n, rep, emp, by rw [sep_emp]; exact hm, hx, hy, fun m' hm' => by rwa [sep_emp] at hm'⟩
-  refine eventually_weaken _ _ _ _ ?_ (arm64_of_returns hfn0 hspec s ra R hargs hra hsp hmEq)
+  refine eventually_weaken _ _ _ _ ?_
+    (arm64_of_returns hfn0 (union_spec_ok hx hy hm) s ra R hargs hra hsp hmEq)
   rintro st ⟨hpc, hcs, hsp', _, m', huf', _, hm'⟩
   exact ⟨hpc, hcs, hsp', sep_mono (fun _ => sep_mono (fun _ e => e ▸ huf')) hm'⟩
 
@@ -198,15 +169,10 @@ theorem unionInline_arm64_correct (k₀ : Nat)
 
 end Generic
 
-/-! ## Concrete AArch64 Executions in `compiled.host` -/
-
 abbrev ufHost : Host := compiled.host
 attribute [local instance] ufHost
 
-def ufInitBytes : List UInt8 := bytes64 (init 4)
-
-private theorem ufInitBytes_length : ufInitBytes.length ≤ 8192 := by
-  simp [ufInitBytes, bytes64_length, init]
+abbrev ufInitBytes := LeanQbe.T.Examples.BenchmarkCertKit.ufInitBytes
 
 def findState0 : MachineData :=
   armInit.initState (as := [i64, i64]) (compiled.bound "find") ufInitBytes (0x1000#64, 3#64, ())
@@ -233,10 +199,9 @@ theorem find_arm64_nonvacuous :
       (uf 0x1000#64 4 id) ufInitBytes_length rfl find_nonvacuous
       fun _ _ ⟨hr, hm⟩ => ⟨hr, by rwa [sep_emp] at hm⟩)
   rintro st ⟨hpc, hx0, hm⟩
-  refine ⟨hpc, ?_, ?_⟩
-  · simpa [armInit, get_reg] using hx0
-  · simpa only [Target.Exit, armTarget, armFrameTarget, armFramePreds, armFrame, armInit,
-      Nat.add_zero] using hm
+  exact ⟨hpc, by simpa [armInit, get_reg] using hx0, by
+    simpa only [Target.Exit, armTarget, armFrameTarget, armFramePreds, armFrame, armInit,
+      Nat.add_zero] using hm⟩
 
 private theorem unionLike_arm64_nonvacuous
     {fn : Fn} (hfn_mem : fn ∈ ufModule.fns) (has : fn.as = [i64, i64, i64]) (hrs : fn.rs = [])
@@ -255,11 +220,10 @@ private theorem unionLike_arm64_nonvacuous
   refine armInit.run_fnSpec compiled hfn ufInitBytes (0x1000#64, 1#64, 2#64, ())
     ufInitBytes_length rfl union_nonvacuous ?_
   rintro st (⟨hpc, _, m', ⟨rfl, huf'⟩, _, hm'⟩ | ⟨_, _, _, _, hx, _⟩)
-  · refine ⟨hpc, ?_, merge_init_1_2⟩
-    rw [sep_emp] at huf'
-    simpa only [Target.Exit, armTarget, armFrameTarget, armFramePreds, armFrame, armInit,
-      Nat.add_zero] using
-      sep_mono (fun _ => sep_mono (fun _ e => e ▸ huf')) hm'
+  · rw [sep_emp] at huf'
+    exact ⟨hpc, by simpa only [Target.Exit, armTarget, armFrameTarget, armFramePreds, armFrame,
+      armInit, Nat.add_zero] using sep_mono (fun _ => sep_mono (fun _ e => e ▸ huf')) hm',
+      merge_init_1_2⟩
   · exact hx.elim
 
 /-- Concrete execution of `union` (calling `find` twice) on `init 4` at `0x1000`. -/

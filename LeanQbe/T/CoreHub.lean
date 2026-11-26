@@ -14,6 +14,7 @@ public import LeanQbe.T.Bedrock2.ToT
 public import LeanQbe.T.BedrockWord.Core
 public import LeanQbe.T.BedrockWord.Exec
 public import LeanQbe.T.BedrockWord.Ops
+public import LeanQbe.T.BenchmarkCertKit
 public import LeanQbe.T.Canon
 public import LeanQbe.T.CanonLemmas
 public import LeanQbe.T.CompileGuard
