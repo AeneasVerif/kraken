@@ -2,7 +2,6 @@ module
 
 public import LeanQbe.T.Unified.CfgRecovery
 public import LeanQbe.T.BedrockWord.Exec
-public import LeanQbe.T.Unified.DriverLemmas
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.WPLemmas
 import LeanQbe.T.OpsLemmas
