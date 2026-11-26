@@ -7,8 +7,8 @@ import LeanQbe.T.WPLemmas
 # Parameterized Fixed-Point Core (`LinkParamEnv`)
 
 Shared Knaster–Tarski fixed-point lattice, relation-monotonicity, well-founded introduction,
-and prefix-locality infrastructure over `ParamEnv (α : Type) := α → Env`, instantiated by both
-`LinkDepthLfp` (`DepthEnv := ParamEnv Nat`) and `LinkBudgetLfp` (`BudgetEnv := ParamEnv Nat`).
+and prefix-locality infrastructure over `ParamEnv (α : Type) := α → Env`, instantiated by
+`LinkBudgetLfp` (`BudgetEnv := ParamEnv Nat`).
 -/
 
 set_option autoImplicit false

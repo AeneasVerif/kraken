@@ -24,6 +24,11 @@ namespace LeanQbe.T
 @[expose] def sigEntryLegal (target : LegalTarget) (e : SigEntry) : SigEntry :=
   (e.1, target.legalSig e.2.1, target.legalSig e.2.2)
 
+section LegalCallsHelpers
+
+private abbrev UArg := Arg (fun _ => Unit)
+private abbrev UExpr := Expr (fun _ => Unit) (fun _ => Unit)
+
 local macro "solve_calls_cps" h:ident : tactic =>
   `(tactic| (
     try dsimp only [Expr.callsOk] at *;
@@ -42,35 +47,80 @@ section BaseCalls
 
 variable {allowed : List SigEntry} {exits : List Sym} {rs : List Ty}
 
-private theorem emitSextToW_callsOk {n w : Nat} {x : Arg (fun _ => Unit) (.bits w)}
-    {k : Arg (fun _ => Unit) (.bits w) → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
+private theorem emitSextToW_callsOk {n w : Nat} {x : UArg (.bits w)}
+    {k : UArg (.bits w) → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
     (emitSextToW n w x k).callsOk allowed exits := by
   unfold emitSextToW; solve_calls_cps hk
 
-private theorem emitMaskToN_callsOk {n w : Nat} {x : Arg (fun _ => Unit) (.bits w)}
-    {k : Arg (fun _ => Unit) (.bits w) → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
+private theorem emitMaskToN_callsOk {n w : Nat} {x : UArg (.bits w)}
+    {k : UArg (.bits w) → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
     (emitMaskToN n w x k).callsOk allowed exits := by
   unfold emitMaskToN; solve_calls_cps hk
 
-private theorem emitCountMod_callsOk {n w : Nat} {c : Arg (fun _ => Unit) (.bits w)}
-    {k : Arg (fun _ => Unit) (.bits w) → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
+private theorem emitCountMod_callsOk {n w : Nat} {c : UArg (.bits w)}
+    {k : UArg (.bits w) → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
     (emitCountMod n w c k).callsOk allowed exits := by
   unfold emitCountMod; solve_calls_cps hk
 
-private theorem emitBoolCmp_callsOk {o : CmpOp} {a b : Arg (fun _ => Unit) .bool}
-    {k : Arg (fun _ => Unit) .bool → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
+private theorem emitBoolCmp_callsOk {o : CmpOp} {a b : UArg .bool}
+    {k : UArg .bool → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
     (emitBoolCmp o a b k).callsOk allowed exits := by
   unfold emitBoolCmp; solve_calls_cps hk
 
-private theorem emitBoolSelect_callsOk {c a b : Arg (fun _ => Unit) .bool}
-    {k : Arg (fun _ => Unit) .bool → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
+private theorem emitBoolSelect_callsOk {c a b : UArg .bool}
+    {k : UArg .bool → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
     (emitBoolSelect c a b k).callsOk allowed exits := by
   unfold emitBoolSelect; solve_calls_cps hk
+
+private theorem pushLeafWord64_callsOk {w : Nat} {leaf : UArg i64}
+    {ws : List (UArg i64)} {acc : UArg i64} {accBits : Nat}
+    {k : List (UArg i64) → UArg i64 → Nat → UExpr rs}
+    (hk : ∀ ws' acc' bits', (k ws' acc' bits').callsOk allowed exits) :
+    (pushLeafWord64 w leaf ws acc accBits k).callsOk allowed exits := by
+  unfold pushLeafWord64; solve_calls_cps hk
+
+private theorem words2ToDwords4_callsOk {w0 w1 : UArg i64}
+    {k : UArg i32 → UArg i32 → UArg i32 → UArg i32 → UExpr rs}
+    (hk : ∀ d0 d1 d2 d3, (k d0 d1 d2 d3).callsOk allowed exits) :
+    (words2ToDwords4 w0 w1 k).callsOk allowed exits := by
+  unfold words2ToDwords4; solve_calls_cps hk
+
+private theorem dwords4ToWords2_callsOk {d0 d1 d2 d3 : UArg i32}
+    {k : UArg i64 → UArg i64 → UExpr rs}
+    (hk : ∀ w0 w1, (k w0 w1).callsOk allowed exits) :
+    (dwords4ToWords2 d0 d1 d2 d3 k).callsOk allowed exits := by
+  unfold dwords4ToWords2; solve_calls_cps hk
+
+private theorem dwordToBytes4_callsOk {d : UArg i32}
+    {k : UArg i8 → UArg i8 → UArg i8 → UArg i8 → UExpr rs}
+    (hk : ∀ b0 b1 b2 b3, (k b0 b1 b2 b3).callsOk allowed exits) :
+    (dwordToBytes4 d k).callsOk allowed exits := by
+  unfold dwordToBytes4; solve_calls_cps hk
+
+private theorem bytes4ToDword_callsOk {b0 b1 b2 b3 : UArg i8}
+    {k : UArg i32 → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
+    (bytes4ToDword b0 b1 b2 b3 k).callsOk allowed exits := by
+  unfold bytes4ToDword; solve_calls_cps hk
+
+private theorem scalarBlendwLane_callsOk {imm : BitVec 8} {idx : Nat} {ai bi : UArg i32}
+    {k : UArg i32 → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
+    (scalarBlendwLane imm idx ai bi k).callsOk allowed exits := by
+  unfold scalarBlendwLane; solve_calls_cps hk
+
+private theorem emitShaMix3_callsOk {thirdLshr : Bool} {n1 n2 n3 : Nat} {x : UArg i32}
+    {k : UArg i32 → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
+    (emitShaMix3 thirdLshr n1 n2 n3 x k).callsOk allowed exits := by
+  unfold emitShaMix3 emitRotr32 emitLshr32 emitXor32; solve_calls_cps hk
+
+private theorem emitShaCh_callsOk {x y z : UArg i32}
+    {k : UArg i32 → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
+    (emitShaCh x y z k).callsOk allowed exits := by
+  unfold emitShaCh emitAnd32 emitNot32 emitXor32; solve_calls_cps hk
+
+private theorem emitShaMaj_callsOk {x y z : UArg i32}
+    {k : UArg i32 → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
+    (emitShaMaj x y z k).callsOk allowed exits := by
+  unfold emitShaMaj emitAnd32 emitXor32; solve_calls_cps hk
 
 end BaseCalls
 
@@ -85,48 +135,52 @@ local macro "solve_legal_cps" h:ident : tactic =>
       | exact $h _ _ _
       | exact $h _ _ _ _
       | exact $h _ _ _ _ _ _ _ _
+      | dsimp only [Expr.callsOk]
       | (refine emitSextToW_callsOk fun _ => ?_)
       | (refine emitMaskToN_callsOk fun _ => ?_)
       | (refine emitCountMod_callsOk fun _ => ?_)
       | (refine emitBoolCmp_callsOk fun _ => ?_)
       | (refine emitBoolSelect_callsOk fun _ => ?_)
+      | (refine pushLeafWord64_callsOk fun _ _ _ => ?_)
+      | (refine dwordToBytes4_callsOk fun _ _ _ _ => ?_)
+      | (refine bytes4ToDword_callsOk fun _ => ?_)
+      | (refine scalarBlendwLane_callsOk fun _ => ?_)
+      | (refine emitShaMix3_callsOk fun _ => ?_)
+      | (refine emitShaCh_callsOk fun _ => ?_)
+      | (refine emitShaMaj_callsOk fun _ => ?_)
+      | split)))
+
+local macro "solve_op_cps" h:ident : tactic =>
+  `(tactic| (
+    try dsimp only [Expr.callsOk] at *;
+    repeat' (first
+      | exact trivial
+      | assumption
+      | exact $h _
       | dsimp only [Expr.callsOk]
+      | (refine emitSextToW_callsOk fun _ => ?_)
+      | (refine emitMaskToN_callsOk fun _ => ?_)
+      | (refine emitCountMod_callsOk fun _ => ?_)
+      | (refine emitBoolCmp_callsOk fun _ => ?_)
+      | (refine emitBoolSelect_callsOk fun _ => ?_)
       | split)))
 
 section BaseCallsMore
 
 variable {allowed : List SigEntry} {exits : List Sym} {rs : List Ty}
 
-private theorem pushLeafWord64_callsOk {w : Nat} {leaf : Arg (fun _ => Unit) i64}
-    {ws : List (Arg (fun _ => Unit) i64)} {acc : Arg (fun _ => Unit) i64} {accBits : Nat}
-    {k : List (Arg (fun _ => Unit) i64) → Arg (fun _ => Unit) i64 → Nat →
-      Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ ws' acc' bits', (k ws' acc' bits').callsOk allowed exits) :
-    (pushLeafWord64 w leaf ws acc accBits k).callsOk allowed exits := by
-  unfold pushLeafWord64; solve_calls_cps hk
-
 private theorem extractBitsFromWords64_callsOk
-    {words : List (Arg (fun _ => Unit) i64)} {off w : Nat}
-    {k : Arg (fun _ => Unit) i64 → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
+    {words : List (UArg i64)} {off w : Nat}
+    {k : UArg i64 → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
     (extractBitsFromWords64 words off w k).callsOk allowed exits := by
-  unfold extractBitsFromWords64
-  split
-  · exact hk _
-  · dsimp only
-    split <;> (
-      try dsimp only [Expr.callsOk]
-      split
-      · exact emitMaskToN_callsOk hk
-      · dsimp only [Expr.callsOk]; exact emitMaskToN_callsOk hk)
+  unfold extractBitsFromWords64; solve_legal_cps hk
 
 private theorem emitTernlog_go_callsOk (t : Ty) (zeroVal : Val t) (imm : BitVec 8)
-    (k : Arg (fun _ => Unit) t → Expr (fun _ => Unit) (fun _ => Unit) rs)
-    (hk : ∀ r, (k r).callsOk allowed exits)
-    (a b c na nb nc : Arg (fun _ => Unit) t) :
+    (k : UArg t → UExpr rs) (hk : ∀ r, (k r).callsOk allowed exits)
+    (a b c na nb nc : UArg t) :
     ∀ (d idx : Nat), 8 - idx ≤ d → ∀ acc,
       (emitTernlog.go t zeroVal imm k idx acc a b c na nb nc).callsOk allowed exits
-  | 0, idx, hd, acc => by
+  | 0, idx, hd, _ => by
     have hge : idx ≥ 8 := by omega
     rw [emitTernlog.go.eq_def]; simp only [hge, ↓reduceIte]; split <;> exact hk _
   | d + 1, idx, hd, acc => by
@@ -140,116 +194,80 @@ private theorem emitTernlog_go_callsOk (t : Ty) (zeroVal : Val t) (imm : BitVec 
           (by omega) _
       · exact emitTernlog_go_callsOk t zeroVal imm k hk a b c na nb nc d (idx + 1) (by omega) _
 
-private theorem emitTernlog_callsOk {t : Ty} {zeroVal onesVal : Val t}
-    {a b c : Arg (fun _ => Unit) t} {imm : BitVec 8}
-    {k : Arg (fun _ => Unit) t → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
+private theorem emitTernlog_callsOk {t : Ty} {zeroVal onesVal : Val t} {a b c : UArg t}
+    {imm : BitVec 8} {k : UArg t → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
     (emitTernlog t zeroVal onesVal a b c imm k).callsOk allowed exits := by
-  unfold emitTernlog
-  split
-  · exact hk _
-  · split
-    · exact hk _
+  unfold emitTernlog; split; · exact hk _
+  · split; · exact hk _
     · dsimp only [Expr.callsOk]
       exact emitTernlog_go_callsOk t zeroVal imm k hk a b c _ _ _ 8 0 (Nat.le_refl _) none
 
-private theorem emitTernlogBits_callsOk {w : Nat}
-    {a b c : Arg (fun _ => Unit) (.bits w)} {imm : BitVec 8}
-    {k : Arg (fun _ => Unit) (.bits w) → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
-    (emitTernlogBits w a b c imm k).callsOk allowed exits :=
-  emitTernlog_callsOk hk
+private theorem emitTernlogBits_callsOk {w : Nat} {a b c : UArg (.bits w)} {imm : BitVec 8}
+    {k : UArg (.bits w) → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
+    (emitTernlogBits w a b c imm k).callsOk allowed exits := emitTernlog_callsOk hk
 
-private theorem emitTernlogBool_callsOk
-    {a b c : Arg (fun _ => Unit) .bool} {imm : BitVec 8}
-    {k : Arg (fun _ => Unit) .bool → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
-    (emitTernlogBool a b c imm k).callsOk allowed exits :=
-  emitTernlog_callsOk hk
+private theorem emitTernlogBool_callsOk {a b c : UArg .bool} {imm : BitVec 8}
+    {k : UArg .bool → UExpr rs} (hk : ∀ r, (k r).callsOk allowed exits) :
+    (emitTernlogBool a b c imm k).callsOk allowed exits := emitTernlog_callsOk hk
 
 private theorem unpackToLeaves_callsOk (target : LegalTarget) :
-    ∀ (t : Ty) (x : Arg (fun _ => Unit) t)
-      (k : Tup (Arg (fun _ => Unit)) (target.leafTys t) →
-        Expr (fun _ => Unit) (fun _ => Unit) rs),
-      (∀ res, (k res).callsOk allowed exits) →
-      (unpackToLeaves target t x k).callsOk allowed exits
-  | .bool, _, k, hk => hk _
+    ∀ (t : Ty) (x : UArg t) (k : Tup UArg (target.leafTys t) → UExpr rs),
+      (∀ res, (k res).callsOk allowed exits) → (unpackToLeaves target t x k).callsOk allowed exits
+  | .bool, _, _, hk | .float _, _, _, hk => hk _
   | .bits _, _, k, hk => by dsimp only [unpackToLeaves]; solve_calls_cps hk
-  | .float _, _, k, hk => hk _
   | .pair a b, p, k, hk => by
     dsimp only [unpackToLeaves]
     cases p with
     | imm _ => exact hk _
     | var _ =>
       dsimp only [Expr.callsOk]
-      exact unpackToLeaves_callsOk target a _ _ fun la =>
-        unpackToLeaves_callsOk target b _ _ fun lb => hk _
+      exact unpackToLeaves_callsOk target a _ _ fun _ =>
+        unpackToLeaves_callsOk target b _ _ fun _ => hk _
 
 private theorem unpackToLegal_callsOk (target : LegalTarget) :
-    ∀ (t : Ty) (x : Arg (fun _ => Unit) t)
-      (k : Tup (Arg (fun _ => Unit)) (target.legalTys t) →
-        Expr (fun _ => Unit) (fun _ => Unit) rs),
-      (∀ res, (k res).callsOk allowed exits) →
-      (unpackToLegal target t x k).callsOk allowed exits
-  | .bool, _, k, hk => hk _
+    ∀ (t : Ty) (x : UArg t) (k : Tup UArg (target.legalTys t) → UExpr rs),
+      (∀ res, (k res).callsOk allowed exits) → (unpackToLegal target t x k).callsOk allowed exits
+  | .bool, _, _, hk | .float _, _, _, hk => hk _
   | .bits _, _, k, hk => by dsimp only [unpackToLegal]; solve_calls_cps hk
-  | .float _, _, k, hk => hk _
   | .pair a b, p, k, hk => by
-    dsimp only [unpackToLegal]
-    split
-    · exact hk _
+    dsimp only [unpackToLegal]; split; · exact hk _
     · cases p with
       | imm _ => exact hk _
       | var _ =>
         dsimp only [Expr.callsOk]
-        exact unpackToLegal_callsOk target a _ _ fun la =>
-          unpackToLegal_callsOk target b _ _ fun lb => hk _
+        exact unpackToLegal_callsOk target a _ _ fun _ =>
+          unpackToLegal_callsOk target b _ _ fun _ => hk _
 
 private theorem packFromLegal_callsOk (target : LegalTarget) :
-    ∀ (t : Ty) (xs : Tup (Arg (fun _ => Unit)) (target.legalTys t))
-      (k : Arg (fun _ => Unit) t → Expr (fun _ => Unit) (fun _ => Unit) rs),
-      (∀ res, (k res).callsOk allowed exits) →
-      (packFromLegal target t xs k).callsOk allowed exits := by
-  intro t
-  induction t with
-  | bool => intro (_, ()) k hk; exact hk _
-  | bits n => intro (_, ()) k hk; dsimp only [packFromLegal]; solve_calls_cps hk
-  | float f => intro (_, ()) k hk; exact hk _
-  | pair a b iha ihb =>
-    intro xs k hk
-    dsimp only [packFromLegal]
-    split
-    · exact hk _
-    · exact iha _ _ fun _ => ihb _ _ fun _ => hk _
+    ∀ (t : Ty) (xs : Tup UArg (target.legalTys t)) (k : UArg t → UExpr rs),
+      (∀ res, (k res).callsOk allowed exits) → (packFromLegal target t xs k).callsOk allowed exits
+  | .bool, (_, ()), _, hk | .float _, (_, ()), _, hk => hk _
+  | .bits _, (_, ()), _, hk => by dsimp only [packFromLegal]; solve_calls_cps hk
+  | .pair a b, _, _, hk => by
+    dsimp only [packFromLegal]; split; · exact hk _
+    · exact packFromLegal_callsOk target a _ _ fun _ =>
+        packFromLegal_callsOk target b _ _ fun _ => hk _
 
 private theorem splitLegalToLeaves_callsOk (target : LegalTarget) :
-    ∀ (t : Ty) (xs : Tup (Arg (fun _ => Unit)) (target.legalTys t))
-      (k : Tup (Arg (fun _ => Unit)) (target.leafTys t) →
-        Expr (fun _ => Unit) (fun _ => Unit) rs),
+    ∀ (t : Ty) (xs : Tup UArg (target.legalTys t))
+      (k : Tup UArg (target.leafTys t) → UExpr rs),
       (∀ res, (k res).callsOk allowed exits) →
       (splitLegalToLeaves target t xs k).callsOk allowed exits
-  | .bool, _, k, hk => hk _
-  | .bits _, _, k, hk => hk _
-  | .float _, _, k, hk => hk _
+  | .bool, _, _, hk | .bits _, _, _, hk | .float _, _, _, hk => hk _
   | .pair a b, xs, k, hk => by
-    dsimp only [splitLegalToLeaves]
-    split
+    dsimp only [splitLegalToLeaves]; split
     · exact unpackToLeaves_callsOk target (.pair a b) _ k hk
     · exact splitLegalToLeaves_callsOk target a _ _ fun _ =>
         splitLegalToLeaves_callsOk target b _ _ fun _ => hk _
 
 private theorem packLeavesToLegal_callsOk (target : LegalTarget) :
-    ∀ (t : Ty) (xs : Tup (Arg (fun _ => Unit)) (target.leafTys t))
-      (k : Tup (Arg (fun _ => Unit)) (target.legalTys t) →
-        Expr (fun _ => Unit) (fun _ => Unit) rs),
+    ∀ (t : Ty) (xs : Tup UArg (target.leafTys t))
+      (k : Tup UArg (target.legalTys t) → UExpr rs),
       (∀ res, (k res).callsOk allowed exits) →
       (packLeavesToLegal target t xs k).callsOk allowed exits
-  | .bool, _, k, hk => hk _
-  | .bits _, _, k, hk => hk _
-  | .float _, _, k, hk => hk _
-  | .pair a b, xs, k, hk => by
-    dsimp only [packLeavesToLegal]
-    split
+  | .bool, _, _, hk | .bits _, _, _, hk | .float _, _, _, hk => hk _
+  | .pair a b, _, k, hk => by
+    dsimp only [packLeavesToLegal]; split
     · exact packLeavesToLegal_callsOk target a _ _ fun _ =>
         packLeavesToLegal_callsOk target b _ _ fun _ =>
           packFromLegal_callsOk target a _ _ fun _ =>
@@ -258,92 +276,53 @@ private theorem packLeavesToLegal_callsOk (target : LegalTarget) :
         packLeavesToLegal_callsOk target b _ _ fun _ => hk _
 
 private theorem packLeavesToWords64_go_callsOk (target : LegalTarget) :
-    ∀ (u : Ty) (xs : Tup (Arg (fun _ => Unit)) (target.leafTys u))
-      (ws : List (Arg (fun _ => Unit) i64)) (acc : Arg (fun _ => Unit) i64) (accBits : Nat)
-      (k : List (Arg (fun _ => Unit) i64) → Arg (fun _ => Unit) i64 → Nat →
-        Expr (fun _ => Unit) (fun _ => Unit) rs),
+    ∀ (u : Ty) (xs : Tup UArg (target.leafTys u)) (ws : List (UArg i64)) (acc : UArg i64)
+      (accBits : Nat) (k : List (UArg i64) → UArg i64 → Nat → UExpr rs),
       (∀ ws' acc' bits', (k ws' acc' bits').callsOk allowed exits) →
-      (packLeavesToWords64.go target u xs ws acc accBits k).callsOk allowed exits := by
-  intro u
-  induction u with
-  | bool =>
-    intro (_, ()) ws acc accBits k hk
-    dsimp only [packLeavesToWords64.go, Expr.callsOk]
-    exact pushLeafWord64_callsOk hk
-  | bits n =>
-    intro (_, ()) ws acc accBits k hk
+      (packLeavesToWords64.go target u xs ws acc accBits k).callsOk allowed exits
+  | .bool, (_, ()), _, _, _, _, hk | .bits _, (_, ()), _, _, _, _, hk
+  | .float _, (_, ()), _, _, _, _, hk => by dsimp only [packLeavesToWords64.go]; solve_legal_cps hk
+  | .pair a b, _, ws, acc, accBits, k, hk => by
     dsimp only [packLeavesToWords64.go]
-    repeat' (first
-      | exact hk _ _ _
-      | exact pushLeafWord64_callsOk hk
-      | (dsimp only [Expr.callsOk]; exact pushLeafWord64_callsOk hk)
-      | split)
-  | float f =>
-    intro (_, ()) ws acc accBits k hk
-    dsimp only [packLeavesToWords64.go, Expr.callsOk]
-    split
-    · exact pushLeafWord64_callsOk hk
-    · split <;> (dsimp only [Expr.callsOk]; exact pushLeafWord64_callsOk hk)
-  | pair a b iha ihb =>
-    intro xs ws acc accBits k hk
-    dsimp only [packLeavesToWords64.go]
-    exact iha _ ws acc accBits _ fun _ _ _ => ihb _ _ _ _ k hk
+    exact packLeavesToWords64_go_callsOk target a _ ws acc accBits _ fun _ _ _ =>
+      packLeavesToWords64_go_callsOk target b _ _ _ _ k hk
 
 private theorem packLeavesToWords64_callsOk (target : LegalTarget) (t : Ty)
-    (leaves : Tup (Arg (fun _ => Unit)) (target.leafTys t))
-    (k : List (Arg (fun _ => Unit) i64) → Expr (fun _ => Unit) (fun _ => Unit) rs)
+    (leaves : Tup UArg (target.leafTys t)) (k : List (UArg i64) → UExpr rs)
     (hk : ∀ res, (k res).callsOk allowed exits) :
     (packLeavesToWords64 target t leaves k).callsOk allowed exits :=
   packLeavesToWords64_go_callsOk target t leaves [] (.imm 0#64) 0 _ fun _ _ _ => by
     split <;> exact hk _
 
-private theorem unpackWords64ToLeaves_callsOk (target : LegalTarget)
-    (words : List (Arg (fun _ => Unit) i64)) :
-    ∀ (off : Nat) (u : Ty)
-      (k : Tup (Arg (fun _ => Unit)) (target.leafTys u) →
-        Expr (fun _ => Unit) (fun _ => Unit) rs),
+private theorem unpackWords64ToLeaves_callsOk (target : LegalTarget) (words : List (UArg i64)) :
+    ∀ (off : Nat) (u : Ty) (k : Tup UArg (target.leafTys u) → UExpr rs),
       (∀ res, (k res).callsOk allowed exits) →
-      (unpackWords64ToLeaves target words off u k).callsOk allowed exits := by
-  intro off u
-  induction u generalizing off with
-  | bool => intro k hk; exact extractBitsFromWords64_callsOk fun _ => hk _
-  | bits n =>
-    intro k hk
-    dsimp only [unpackWords64ToLeaves]
-    split
-    · exact hk _
+      (unpackWords64ToLeaves target words off u k).callsOk allowed exits
+  | _, .bool, _, hk => extractBitsFromWords64_callsOk fun _ => hk _
+  | _, .bits _, k, hk => by
+    dsimp only [unpackWords64ToLeaves]; split; · exact hk _
     · exact extractBitsFromWords64_callsOk fun _ => by solve_calls_cps hk
-  | float f =>
-    intro k hk
-    exact extractBitsFromWords64_callsOk fun _ => by solve_calls_cps hk
-  | pair a b iha ihb =>
-    intro k hk
-    exact iha off _ fun _ => ihb (off + a.size) _ fun _ => hk _
+  | _, .float _, k, hk => extractBitsFromWords64_callsOk fun _ => by solve_calls_cps hk
+  | off, .pair a b, k, hk =>
+    unpackWords64ToLeaves_callsOk target words off a _ fun _ =>
+      unpackWords64ToLeaves_callsOk target words (off + a.size) b _ fun _ => hk _
 
-private theorem loadByteChunksToWords64_callsOk (ptr : Arg (fun _ => Unit) i64) :
-    ∀ (byteOff : Nat) (cs : List Nat) (ws : List (Arg (fun _ => Unit) i64))
-      (acc : Arg (fun _ => Unit) i64) (accBits : Nat)
-      (k : List (Arg (fun _ => Unit) i64) → Expr (fun _ => Unit) (fun _ => Unit) rs),
-      (∀ res, (k res).callsOk allowed exits) →
+private theorem loadByteChunksToWords64_callsOk (ptr : UArg i64) :
+    ∀ (byteOff : Nat) (cs : List Nat) (ws : List (UArg i64)) (acc : UArg i64) (accBits : Nat)
+      (k : List (UArg i64) → UExpr rs), (∀ res, (k res).callsOk allowed exits) →
       (loadByteChunksToWords64 ptr byteOff cs ws acc accBits k).callsOk allowed exits
-  | _, [], ws, acc, accBits, k, hk => by
-    dsimp only [loadByteChunksToWords64]; split <;> exact hk _
-  | byteOff, c :: cs, ws, acc, accBits, k, hk => by
+  | _, [], _, _, _, _, hk => by dsimp only [loadByteChunksToWords64]; split <;> exact hk _
+  | byteOff, c :: cs, _, _, _, k, hk => by
     dsimp only [loadByteChunksToWords64]
-    split <;> (
-      dsimp only [Expr.callsOk]
-      split
-      · exact pushLeafWord64_callsOk fun ws' acc' bits' =>
-          loadByteChunksToWords64_callsOk ptr (byteOff + c) cs ws' acc' bits' k hk
-      · split <;> (
-          try dsimp only [Expr.callsOk]
-          exact pushLeafWord64_callsOk fun ws' acc' bits' =>
-            loadByteChunksToWords64_callsOk ptr (byteOff + c) cs ws' acc' bits' k hk))
+    have hrec : ∀ ws' acc' bits',
+        (loadByteChunksToWords64 ptr (byteOff + c) cs ws' acc' bits' k).callsOk allowed exits :=
+      fun ws' acc' bits' =>
+        loadByteChunksToWords64_callsOk ptr (byteOff + c) cs ws' acc' bits' k hk
+    repeat' (first
+      | exact pushLeafWord64_callsOk hrec | dsimp only [Expr.callsOk] | split)
 
-private theorem storeByteChunksFromWords64_callsOk
-    (words : List (Arg (fun _ => Unit) i64)) (ptr : Arg (fun _ => Unit) i64) :
-    ∀ (byteOff : Nat) (cs : List Nat) (k : Expr (fun _ => Unit) (fun _ => Unit) rs),
-      k.callsOk allowed exits →
+private theorem storeByteChunksFromWords64_callsOk (words : List (UArg i64)) (ptr : UArg i64) :
+    ∀ (byteOff : Nat) (cs : List Nat) (k : UExpr rs), k.callsOk allowed exits →
       (storeByteChunksFromWords64 words ptr byteOff cs k).callsOk allowed exits
   | _, [], _, hk => hk
   | byteOff, c :: cs, k, hk => by
@@ -352,160 +331,86 @@ private theorem storeByteChunksFromWords64_callsOk
     have ih := storeByteChunksFromWords64_callsOk words ptr (byteOff + c) cs k hk
     repeat' (first | exact ih | (dsimp only [Expr.callsOk]; exact ih) | split)
 
-private theorem emitLoadBits_go_callsOk (n w : Nat)
-    (ptr : Arg (fun _ => Unit) i64)
-    (k : Arg (fun _ => Unit) (.bits w) → Expr (fun _ => Unit) (fun _ => Unit) rs)
+private theorem emitLoadBits_go_callsOk (n w : Nat) (ptr : UArg i64) (k : UArg (.bits w) → UExpr rs)
     (hk : ∀ r, (k r).callsOk allowed exits) :
-    ∀ (byteOff : Nat) (cs : List Nat) (acc : Option (Arg (fun _ => Unit) (.bits w))),
+    ∀ (byteOff : Nat) (cs : List Nat) (acc : Option (UArg (.bits w))),
       (emitLoadBits.go n w ptr k byteOff cs acc).callsOk allowed exits
   | _, [], none => hk _
   | _, [], some _ => emitMaskToN_callsOk hk
   | byteOff, c :: rest, acc => by
     unfold emitLoadBits.go
-    have hgo : ∀ acc',
-        (emitLoadBits.go n w ptr k (byteOff + c) rest acc').callsOk allowed exits :=
+    have hgo : ∀ acc', (emitLoadBits.go n w ptr k (byteOff + c) rest acc').callsOk allowed exits :=
       fun acc' => emitLoadBits_go_callsOk n w ptr k hk (byteOff + c) rest acc'
     cases acc <;>
       repeat' (first
-        | exact hgo _
-        | (dsimp only [Expr.callsOk]; exact hgo _)
-        | split
-        | dsimp only [Expr.callsOk])
+        | exact hgo _ | (dsimp only [Expr.callsOk]; exact hgo _)
+        | dsimp only [Expr.callsOk] | split)
 
-private theorem emitLoadBits_callsOk (bitWidths : List Nat) (n w : Nat)
-    (ptr : Arg (fun _ => Unit) i64)
-    (k : Arg (fun _ => Unit) (.bits w) → Expr (fun _ => Unit) (fun _ => Unit) rs)
-    (hk : ∀ r, (k r).callsOk allowed exits) :
+private theorem emitLoadBits_callsOk (bitWidths : List Nat) (n w : Nat) (ptr : UArg i64)
+    (k : UArg (.bits w) → UExpr rs) (hk : ∀ r, (k r).callsOk allowed exits) :
     (emitLoadBits bitWidths n w ptr k).callsOk allowed exits := by
-  dsimp only [emitLoadBits]
-  split
-  · exact hk _
+  dsimp only [emitLoadBits]; split; · exact hk _
   · exact emitLoadBits_go_callsOk n w ptr k hk 0 _ none
 
-private theorem emitStoreBits_go_callsOk (w : Nat)
-    (v : Arg (fun _ => Unit) (.bits w)) (ptr : Arg (fun _ => Unit) i64)
-    (k : Expr (fun _ => Unit) (fun _ => Unit) rs) (hk : k.callsOk allowed exits) :
-    ∀ (byteOff : Nat) (cs : List Nat),
-      (emitStoreBits.go w v ptr k byteOff cs).callsOk allowed exits
+private theorem emitStoreBits_go_callsOk (w : Nat) (v : UArg (.bits w)) (ptr : UArg i64)
+    (k : UExpr rs) (hk : k.callsOk allowed exits) :
+    ∀ (byteOff : Nat) (cs : List Nat), (emitStoreBits.go w v ptr k byteOff cs).callsOk allowed exits
   | _, [] => hk
   | byteOff, c :: rest => by
     unfold emitStoreBits.go
     have hgo := emitStoreBits_go_callsOk w v ptr k hk (byteOff + c) rest
     repeat' (first
-      | exact hgo
-      | (dsimp only [Expr.callsOk]; exact hgo)
-      | split
-      | dsimp only [Expr.callsOk])
+      | exact hgo | (dsimp only [Expr.callsOk]; exact hgo) | dsimp only [Expr.callsOk] | split)
 
-private theorem emitStoreBits_callsOk (bitWidths : List Nat) (n w : Nat)
-    (v : Arg (fun _ => Unit) (.bits w)) (ptr : Arg (fun _ => Unit) i64)
-    (k : Expr (fun _ => Unit) (fun _ => Unit) rs) (hk : k.callsOk allowed exits) :
+private theorem emitStoreBits_callsOk (bitWidths : List Nat) (n w : Nat) (v : UArg (.bits w))
+    (ptr : UArg i64) (k : UExpr rs) (hk : k.callsOk allowed exits) :
     (emitStoreBits bitWidths n w v ptr k).callsOk allowed exits := by
-  dsimp only [emitStoreBits]
-  split
-  · exact hk
+  dsimp only [emitStoreBits]; split; · exact hk
   · exact emitStoreBits_go_callsOk w v ptr k hk 0 _
 
-private theorem words2ToDwords4_callsOk {w0 w1 : Arg (fun _ => Unit) i64}
-    {k : Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ d0 d1 d2 d3, (k d0 d1 d2 d3).callsOk allowed exits) :
-    (words2ToDwords4 w0 w1 k).callsOk allowed exits := by
-  unfold words2ToDwords4; solve_calls_cps hk
-
-private theorem dwords4ToWords2_callsOk {d0 d1 d2 d3 : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i64 → Arg (fun _ => Unit) i64 →
-      Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ w0 w1, (k w0 w1).callsOk allowed exits) :
-    (dwords4ToWords2 d0 d1 d2 d3 k).callsOk allowed exits := by
-  unfold dwords4ToWords2; solve_calls_cps hk
-
-private theorem dwordToBytes4_callsOk {d : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i8 → Arg (fun _ => Unit) i8 → Arg (fun _ => Unit) i8 →
-      Arg (fun _ => Unit) i8 → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ b0 b1 b2 b3, (k b0 b1 b2 b3).callsOk allowed exits) :
-    (dwordToBytes4 d k).callsOk allowed exits := by
-  unfold dwordToBytes4; solve_calls_cps hk
-
-private theorem bytes4ToDword_callsOk {b0 b1 b2 b3 : Arg (fun _ => Unit) i8}
-    {k : Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
-    (bytes4ToDword b0 b1 b2 b3 k).callsOk allowed exits := by
-  unfold bytes4ToDword; solve_calls_cps hk
-
-private theorem dwords4ToBytes16_callsOk {d0 d1 d2 d3 : Arg (fun _ => Unit) i32}
-    {k : List (Arg (fun _ => Unit) i8) → Expr (fun _ => Unit) (fun _ => Unit) rs}
+private theorem dwords4ToBytes16_callsOk {d0 d1 d2 d3 : UArg i32} {k : List (UArg i8) → UExpr rs}
     (hk : ∀ bs, (k bs).callsOk allowed exits) :
     (dwords4ToBytes16 d0 d1 d2 d3 k).callsOk allowed exits := by
-  unfold dwords4ToBytes16
-  refine dwordToBytes4_callsOk fun _ _ _ _ => ?_
-  refine dwordToBytes4_callsOk fun _ _ _ _ => ?_
-  refine dwordToBytes4_callsOk fun _ _ _ _ => ?_
-  refine dwordToBytes4_callsOk fun _ _ _ _ => hk _
+  unfold dwords4ToBytes16; solve_legal_cps hk
 
-private theorem bytes16ToDwords4_callsOk {bs : List (Arg (fun _ => Unit) i8)}
-    {k : Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
+private theorem bytes16ToDwords4_callsOk {bs : List (UArg i8)}
+    {k : UArg i32 → UArg i32 → UArg i32 → UArg i32 → UExpr rs}
     (hk : ∀ d0 d1 d2 d3, (k d0 d1 d2 d3).callsOk allowed exits) :
     (bytes16ToDwords4 bs k).callsOk allowed exits := by
-  unfold bytes16ToDwords4
-  refine bytes4ToDword_callsOk fun _ => ?_
-  refine bytes4ToDword_callsOk fun _ => ?_
-  refine bytes4ToDword_callsOk fun _ => ?_
-  refine bytes4ToDword_callsOk fun _ => hk _ _ _ _
+  unfold bytes16ToDwords4; solve_legal_cps hk
 
-private theorem scalarBlendwLane_callsOk {imm : BitVec 8} {idx : Nat}
-    {ai bi : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
-    (scalarBlendwLane imm idx ai bi k).callsOk allowed exits := by
-  unfold scalarBlendwLane; solve_calls_cps hk
-
-private theorem scalarBlendw128_callsOk {imm : BitVec 8}
-    {a0 a1 a2 a3 b0 b1 b2 b3 : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
+private theorem scalarBlendw128_callsOk {imm : BitVec 8} {a0 a1 a2 a3 b0 b1 b2 b3 : UArg i32}
+    {k : UArg i32 → UArg i32 → UArg i32 → UArg i32 → UExpr rs}
     (hk : ∀ r0 r1 r2 r3, (k r0 r1 r2 r3).callsOk allowed exits) :
     (scalarBlendw128 imm a0 a1 a2 a3 b0 b1 b2 b3 k).callsOk allowed exits := by
-  unfold scalarBlendw128
-  refine scalarBlendwLane_callsOk fun _ => ?_
-  refine scalarBlendwLane_callsOk fun _ => ?_
-  refine scalarBlendwLane_callsOk fun _ => ?_
-  refine scalarBlendwLane_callsOk fun _ => hk _ _ _ _
+  unfold scalarBlendw128; solve_legal_cps hk
 
-private theorem scalarAlignr128_callsOk {imm : BitVec 8}
-    {h0 h1 h2 h3 l0 l1 l2 l3 : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
+private theorem scalarAlignr128_callsOk {imm : BitVec 8} {h0 h1 h2 h3 l0 l1 l2 l3 : UArg i32}
+    {k : UArg i32 → UArg i32 → UArg i32 → UArg i32 → UExpr rs}
     (hk : ∀ r0 r1 r2 r3, (k r0 r1 r2 r3).callsOk allowed exits) :
     (scalarAlignr128 imm h0 h1 h2 h3 l0 l1 l2 l3 k).callsOk allowed exits := by
   unfold scalarAlignr128
-  refine dwords4ToBytes16_callsOk fun _ => ?_
-  refine dwords4ToBytes16_callsOk fun _ => ?_
-  exact bytes16ToDwords4_callsOk hk
+  exact dwords4ToBytes16_callsOk fun _ =>
+    dwords4ToBytes16_callsOk fun _ => bytes16ToDwords4_callsOk hk
 
-private theorem scalarShufb128_mux_callsOk (idx : Arg (fun _ => Unit) i8) :
-    ∀ (bs : List (Arg (fun _ => Unit) i8)) (j : Nat)
-      (k : Arg (fun _ => Unit) i8 → Expr (fun _ => Unit) (fun _ => Unit) rs),
+private theorem scalarShufb128_mux_callsOk (idx : UArg i8) :
+    ∀ (bs : List (UArg i8)) (j : Nat) (k : UArg i8 → UExpr rs),
       (∀ r, (k r).callsOk allowed exits) →
       (scalarShufb128.muxBytes idx bs j k).callsOk allowed exits
-  | [], _, k, hk => hk _
-  | [_], _, k, hk => hk _
+  | [], _, _, hk | [_], _, _, hk => hk _
   | _ :: _ :: _, j, k, hk =>
     scalarShufb128_mux_callsOk idx _ (j + 1) _ fun _ => by dsimp only [Expr.callsOk]; exact hk _
 
 private theorem scalarShufb128_doBytes_callsOk
-    (k : Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs)
-    (hk : ∀ r0 r1 r2 r3, (k r0 r1 r2 r3).callsOk allowed exits)
-    (abs mbs : List (Arg (fun _ => Unit) i8)) :
+    (k : UArg i32 → UArg i32 → UArg i32 → UArg i32 → UExpr rs)
+    (hk : ∀ r0 r1 r2 r3, (k r0 r1 r2 r3).callsOk allowed exits) (abs mbs : List (UArg i8)) :
     ∀ (d i : Nat), 16 - i ≤ d → ∀ acc,
       (scalarShufb128.doBytes k abs mbs i acc).callsOk allowed exits
-  | 0, i, hd, acc => by
+  | 0, i, hd, _ => by
     have hge : i ≥ 16 := by omega
     rw [scalarShufb128.doBytes.eq_def]; simp only [hge, ↓reduceIte]
     exact bytes16ToDwords4_callsOk hk
-  | d + 1, i, hd, acc => by
+  | d + 1, i, hd, _ => by
     rw [scalarShufb128.doBytes.eq_def]
     by_cases hge : i ≥ 16
     · simp only [hge, ↓reduceIte]; exact bytes16ToDwords4_callsOk hk
@@ -514,92 +419,42 @@ private theorem scalarShufb128_doBytes_callsOk
         dsimp only [Expr.callsOk]
         exact scalarShufb128_doBytes_callsOk k hk abs mbs d (i + 1) (by omega) _
 
-private theorem scalarShufb128_callsOk
-    {a0 a1 a2 a3 m0 m1 m2 m3 : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
+private theorem scalarShufb128_callsOk {a0 a1 a2 a3 m0 m1 m2 m3 : UArg i32}
+    {k : UArg i32 → UArg i32 → UArg i32 → UArg i32 → UExpr rs}
     (hk : ∀ r0 r1 r2 r3, (k r0 r1 r2 r3).callsOk allowed exits) :
     (scalarShufb128 a0 a1 a2 a3 m0 m1 m2 m3 k).callsOk allowed exits := by
   unfold scalarShufb128
-  refine dwords4ToBytes16_callsOk fun abs => ?_
-  refine dwords4ToBytes16_callsOk fun mbs => ?_
-  exact scalarShufb128_doBytes_callsOk k hk abs mbs 16 0 (Nat.le_refl _) []
+  exact dwords4ToBytes16_callsOk fun abs => dwords4ToBytes16_callsOk fun mbs =>
+    scalarShufb128_doBytes_callsOk k hk abs mbs 16 0 (Nat.le_refl _) []
 
-private theorem emitShaMix3_callsOk {thirdLshr : Bool} {n1 n2 n3 : Nat}
-    {x : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
-    (emitShaMix3 thirdLshr n1 n2 n3 x k).callsOk allowed exits := by
-  unfold emitShaMix3 emitRotr32 emitLshr32 emitXor32; solve_calls_cps hk
-
-private theorem emitShaCh_callsOk {x y z : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
-    (emitShaCh x y z k).callsOk allowed exits := by
-  unfold emitShaCh emitAnd32 emitNot32 emitXor32; solve_calls_cps hk
-
-private theorem emitShaMaj_callsOk {x y z : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hk : ∀ r, (k r).callsOk allowed exits) :
-    (emitShaMaj x y z k).callsOk allowed exits := by
-  unfold emitShaMaj emitAnd32 emitXor32; solve_calls_cps hk
-
-private theorem emitShaRound_callsOk {a b c d e f g h wk : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
+private theorem emitShaRound_callsOk {a b c d e f g h wk : UArg i32}
+    {k : UArg i32 → UArg i32 → UArg i32 → UArg i32 → UArg i32 → UArg i32 → UArg i32 → UArg i32 →
+      UExpr rs}
     (hk : ∀ a' b' c' d' e' f' g' h', (k a' b' c' d' e' f' g' h').callsOk allowed exits) :
     (emitShaRound a b c d e f g h wk k).callsOk allowed exits := by
-  unfold emitShaRound emitShaSigma0 emitShaSigma1 emitAdd32
-  refine emitShaCh_callsOk fun _ => ?_
-  refine emitShaMix3_callsOk fun _ => ?_
-  dsimp only [Expr.callsOk]
-  refine emitShaMaj_callsOk fun _ => ?_
-  refine emitShaMix3_callsOk fun _ => ?_
-  dsimp only [Expr.callsOk]; exact hk _ _ _ _ _ _ _ _
+  unfold emitShaRound emitShaSigma0 emitShaSigma1 emitAdd32; solve_legal_cps hk
 
 private theorem scalarSha256rnds2_callsOk
-    {cd0 cd1 cd2 cd3 ab0 ab1 ab2 ab3 wk0 wk1 wk2 wk3 : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
+    {cd0 cd1 cd2 cd3 ab0 ab1 ab2 ab3 wk0 wk1 wk2 wk3 : UArg i32}
+    {k : UArg i32 → UArg i32 → UArg i32 → UArg i32 → UExpr rs}
     (hk : ∀ r0 r1 r2 r3, (k r0 r1 r2 r3).callsOk allowed exits) :
-    (scalarSha256rnds2 cd0 cd1 cd2 cd3 ab0 ab1 ab2 ab3 wk0 wk1 wk2 wk3 k).callsOk
-      allowed exits := by
+    (scalarSha256rnds2 cd0 cd1 cd2 cd3 ab0 ab1 ab2 ab3
+      wk0 wk1 wk2 wk3 k).callsOk allowed exits := by
   unfold scalarSha256rnds2
-  refine emitShaRound_callsOk fun _ _ _ _ _ _ _ _ => ?_
-  exact emitShaRound_callsOk fun _ _ _ _ _ _ _ _ => hk _ _ _ _
+  exact emitShaRound_callsOk fun _ _ _ _ _ _ _ _ =>
+    emitShaRound_callsOk fun _ _ _ _ _ _ _ _ => hk _ _ _ _
 
-private theorem scalarSha256msg1_callsOk
-    {a0 a1 a2 a3 b0 b1 b2 b3 : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
+private theorem scalarSha256msg1_callsOk {a0 a1 a2 a3 b0 b1 b2 b3 : UArg i32}
+    {k : UArg i32 → UArg i32 → UArg i32 → UArg i32 → UExpr rs}
     (hk : ∀ r0 r1 r2 r3, (k r0 r1 r2 r3).callsOk allowed exits) :
     (scalarSha256msg1 a0 a1 a2 a3 b0 b1 b2 b3 k).callsOk allowed exits := by
-  unfold scalarSha256msg1 emitShaSig0 emitAdd32
-  refine emitShaMix3_callsOk fun _ => ?_
-  dsimp only [Expr.callsOk]
-  refine emitShaMix3_callsOk fun _ => ?_
-  dsimp only [Expr.callsOk]
-  refine emitShaMix3_callsOk fun _ => ?_
-  dsimp only [Expr.callsOk]
-  refine emitShaMix3_callsOk fun _ => ?_
-  dsimp only [Expr.callsOk]; exact hk _ _ _ _
+  unfold scalarSha256msg1 emitShaSig0 emitAdd32; solve_legal_cps hk
 
-private theorem scalarSha256msg2_callsOk
-    {s0 s1 s2 s3 w0 w1 w2 w3 : Arg (fun _ => Unit) i32}
-    {k : Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 → Arg (fun _ => Unit) i32 →
-      Arg (fun _ => Unit) i32 → Expr (fun _ => Unit) (fun _ => Unit) rs}
+private theorem scalarSha256msg2_callsOk {s0 s1 s2 s3 w0 w1 w2 w3 : UArg i32}
+    {k : UArg i32 → UArg i32 → UArg i32 → UArg i32 → UExpr rs}
     (hk : ∀ r0 r1 r2 r3, (k r0 r1 r2 r3).callsOk allowed exits) :
     (scalarSha256msg2 s0 s1 s2 s3 w0 w1 w2 w3 k).callsOk allowed exits := by
-  unfold scalarSha256msg2 emitShaSig1 emitAdd32
-  refine emitShaMix3_callsOk fun _ => ?_
-  dsimp only [Expr.callsOk]
-  refine emitShaMix3_callsOk fun _ => ?_
-  dsimp only [Expr.callsOk]
-  refine emitShaMix3_callsOk fun _ => ?_
-  dsimp only [Expr.callsOk]
-  refine emitShaMix3_callsOk fun _ => ?_
-  dsimp only [Expr.callsOk]; exact hk _ _ _ _
+  unfold scalarSha256msg2 emitShaSig1 emitAdd32; solve_legal_cps hk
 
 end BaseCallsMore
 
@@ -847,28 +702,14 @@ private theorem legalBinTree_callsOk
           | none => exact hnone
           | some sb =>
             cases sb <;> cases rhs <;> try exact hnone
-            · dsimp only
+            all_goals
+              dsimp only
               cases uniformShiftLeaf? (.pair t1 t2) _ with
               | none => exact hnone
               | some val =>
                 rcases val with ⟨w, s⟩
                 split
-                · rename_i heq
-                  dsimp only at heq
-                  split at heq
-                  · cases heq; exact hk _
-                  · split at heq
-                    · cases heq; try dsimp only [Expr.callsOk]; exact hk _
-                    · cases heq
-                · exact hnone
-            · dsimp only
-              cases uniformShiftLeaf? (.pair t1 t2) _ with
-              | none => exact hnone
-              | some val =>
-                rcases val with ⟨w, s⟩
-                split
-                · rename_i heq
-                  dsimp only at heq
+                · rename_i heq; dsimp only at heq
                   split at heq
                   · cases heq; exact hk _
                   · split at heq
@@ -1110,94 +951,66 @@ private theorem legalShufd_callsOk (imm : BitVec 8) :
           · exact legalSimdScalar128_callsOk target _ (fun _ _ _ _ _ _ _ _ _ hc => hc _ _ _ _)
               (.pair a b) xs xs k hk
 
-private theorem legalBlendw_callsOk (imm : BitVec 8) :
-    ∀ (t : Ty) (xs ys : Tup (Arg (fun _ => Unit)) (target.legalTys t))
-      (k : Tup (Arg (fun _ => Unit)) (target.legalTys t) →
-        Expr (fun _ => Unit) (fun _ => Unit) rs),
-      (∀ res, (k res).callsOk allowed exits) →
-      (legalBlendw target imm t xs ys k).callsOk allowed exits
-  | t, xs, ys, k, hk => by
-    unfold legalBlendw
-    split
-    · trivial
+local macro "solve_simd128_bin" targ:ident fn:ident lem:ident rec:term : tactic =>
+  `(tactic| (
+    intro t xs ys k hk
+    unfold $fn; split; · trivial
     · cases t with
       | bool | bits _ | float _ =>
-        exact legalSimdScalar128_callsOk target _
-          (fun _ _ _ _ _ _ _ _ _ hc => scalarBlendw128_callsOk hc) _ xs ys k hk
+        exact legalSimdScalar128_callsOk $targ _ (fun _ _ _ _ _ _ _ _ _ hc => $lem hc)
+          _ xs ys k hk
       | pair a b =>
         dsimp only; split
+        · split; · exact hk _
+          · exact legalSimdScalar128_callsOk $targ _
+              (fun _ _ _ _ _ _ _ _ _ hc => $lem hc) (.pair a b) xs ys k hk
         · split
-          · exact hk _
-          · exact legalSimdScalar128_callsOk target _
-              (fun _ _ _ _ _ _ _ _ _ hc => scalarBlendw128_callsOk hc) (.pair a b) xs ys k hk
-        · split
-          · exact legalBlendw_callsOk imm a _ _ _ fun _ =>
-              legalBlendw_callsOk imm b _ _ _ fun _ => hk _
-          · exact legalSimdScalar128_callsOk target _
-              (fun _ _ _ _ _ _ _ _ _ hc => scalarBlendw128_callsOk hc) (.pair a b) xs ys k hk
+          · exact $rec a _ _ _ fun _ => $rec b _ _ _ fun _ => hk _
+          · exact legalSimdScalar128_callsOk $targ _
+              (fun _ _ _ _ _ _ _ _ _ hc => $lem hc) (.pair a b) xs ys k hk))
+
+private theorem legalBlendw_callsOk (imm : BitVec 8) :
+    ∀ (t : Ty) (xs ys : Tup UArg (target.legalTys t)) (k : Tup UArg (target.legalTys t) → UExpr rs),
+      (∀ res, (k res).callsOk allowed exits) →
+      (legalBlendw target imm t xs ys k).callsOk allowed exits := by
+  solve_simd128_bin target legalBlendw scalarBlendw128_callsOk (legalBlendw_callsOk imm)
 
 private theorem legalAlignr_callsOk (imm : BitVec 8) :
-    ∀ (t : Ty) (xs ys : Tup (Arg (fun _ => Unit)) (target.legalTys t))
-      (k : Tup (Arg (fun _ => Unit)) (target.legalTys t) →
-        Expr (fun _ => Unit) (fun _ => Unit) rs),
+    ∀ (t : Ty) (xs ys : Tup UArg (target.legalTys t)) (k : Tup UArg (target.legalTys t) → UExpr rs),
       (∀ res, (k res).callsOk allowed exits) →
-      (legalAlignr target imm t xs ys k).callsOk allowed exits
-  | t, xs, ys, k, hk => by
-    unfold legalAlignr
-    split
-    · trivial
-    · cases t with
-      | bool | bits _ | float _ =>
-        exact legalSimdScalar128_callsOk target _
-          (fun _ _ _ _ _ _ _ _ _ hc => scalarAlignr128_callsOk hc) _ xs ys k hk
-      | pair a b =>
-        dsimp only; split
-        · split
-          · exact hk _
-          · exact legalSimdScalar128_callsOk target _
-              (fun _ _ _ _ _ _ _ _ _ hc => scalarAlignr128_callsOk hc) (.pair a b) xs ys k hk
-        · split
-          · exact legalAlignr_callsOk imm a _ _ _ fun _ =>
-              legalAlignr_callsOk imm b _ _ _ fun _ => hk _
-          · exact legalSimdScalar128_callsOk target _
-              (fun _ _ _ _ _ _ _ _ _ hc => scalarAlignr128_callsOk hc) (.pair a b) xs ys k hk
+      (legalAlignr target imm t xs ys k).callsOk allowed exits := by
+  solve_simd128_bin target legalAlignr scalarAlignr128_callsOk (legalAlignr_callsOk imm)
 
 private theorem legalShufb_callsOk :
-    ∀ (t : Ty) (xs ys : Tup (Arg (fun _ => Unit)) (target.legalTys t))
-      (k : Tup (Arg (fun _ => Unit)) (target.legalTys t) →
-        Expr (fun _ => Unit) (fun _ => Unit) rs),
+    ∀ (t : Ty) (xs ys : Tup UArg (target.legalTys t)) (k : Tup UArg (target.legalTys t) → UExpr rs),
       (∀ res, (k res).callsOk allowed exits) →
-      (legalShufb target t xs ys k).callsOk allowed exits
-  | t, xs, ys, k, hk => by
-    unfold legalShufb
-    split
-    · trivial
-    · cases t with
-      | bool | bits _ | float _ =>
-        exact legalSimdScalar128_callsOk target _
-          (fun _ _ _ _ _ _ _ _ _ hc => scalarShufb128_callsOk hc) _ xs ys k hk
-      | pair a b =>
-        dsimp only; split
-        · split
-          · exact hk _
-          · exact legalSimdScalar128_callsOk target _
-              (fun _ _ _ _ _ _ _ _ _ hc => scalarShufb128_callsOk hc) (.pair a b) xs ys k hk
-        · split
-          · exact legalShufb_callsOk a _ _ _ fun _ =>
-              legalShufb_callsOk b _ _ _ fun _ => hk _
-          · exact legalSimdScalar128_callsOk target _
-              (fun _ _ _ _ _ _ _ _ _ hc => scalarShufb128_callsOk hc) (.pair a b) xs ys k hk
+      (legalShufb target t xs ys k).callsOk allowed exits := by
+  solve_simd128_bin target legalShufb scalarShufb128_callsOk legalShufb_callsOk
 
 private theorem legalFloatBit2_callsOk
     (mkOp : (w : Nat) → OpCode [.bits w, .bits w] [.bits w])
     (mkFOp : (f : Fmt) → OpCode [.float f, .float f] [.float f])
-    (f : Fmt) (x y : Arg (fun _ => Unit) (.float f))
-    (k : Arg (fun _ => Unit) (.float f) → Expr (fun _ => Unit) (fun _ => Unit) rs)
+    (f : Fmt) (x y : UArg (.float f)) (k : UArg (.float f) → UExpr rs)
     (hk : ∀ r, (k r).callsOk allowed exits) :
     (legalFloatBit2 target mkOp mkFOp f x y k).callsOk allowed exits := by
   unfold legalFloatBit2; solve_calls_cps hk
 
 end TreeCalls
+
+local macro "solve_sha_legal" targ:ident lem:ident hk:ident : tactic =>
+  `(tactic| (
+    dsimp only [legalOp]; split
+    · dsimp only [Expr.callsOk]; exact $hk _
+    · exact splitLegalToLeaves_callsOk $targ _ _ _ fun _ =>
+        splitLegalToLeaves_callsOk $targ _ _ _ fun _ =>
+          packLeavesToWords64_callsOk $targ _ _ _ fun _ =>
+            packLeavesToWords64_callsOk $targ _ _ _ fun _ =>
+              words2ToDwords4_callsOk fun _ _ _ _ =>
+                words2ToDwords4_callsOk fun _ _ _ _ =>
+                  $lem fun _ _ _ _ =>
+                    dwords4ToWords2_callsOk fun _ _ =>
+                      unpackWords64ToLeaves_callsOk $targ _ 0 _ _ fun _ =>
+                        packLeavesToLegal_callsOk $targ _ _ _ fun _ => $hk _))
 
 /-- `legalOp` introduces no `.call` or `.exit` instructions outside continuation `k`. -/
 theorem legalOp_callsOk (target : LegalTarget) {allowed : List SigEntry} {exits : List Sym}
@@ -1273,16 +1086,16 @@ theorem legalOp_callsOk (target : LegalTarget) {allowed : List SigEntry} {exits 
       · intro n _ _ _ h; exact legalBitsArith_callsOk target n _ _ _ _ h
       · intro _ _ _ _ _; trivial
   | fshl n | fshr n =>
-    dsimp only [legalOp]; solve_legal_cps hk
+    dsimp only [legalOp]; solve_op_cps hk
   | bswap t =>
     dsimp only [legalOp]
     exact legalBswapTree_callsOk target t _ _ fun _ => hk _
   | clz n | cls n | rbit n | ctz n | popcnt n =>
-    dsimp only [legalOp]; solve_legal_cps hk
+    dsimp only [legalOp]; solve_op_cps hk
   | udiv n | urem n | sdiv n | srem n | udiv0 n | sdiv0 n =>
-    dsimp only [legalOp]; solve_legal_cps hk
+    dsimp only [legalOp]; solve_op_cps hk
   | addc n | subb n | umulw n | smulw n =>
-    dsimp only [legalOp]; solve_legal_cps hk
+    dsimp only [legalOp]; solve_op_cps hk
   | fneg _ | fabs _ | fsqrt _ =>
     dsimp only [legalOp]; split
     · trivial
@@ -1319,9 +1132,9 @@ theorem legalOp_callsOk (target : LegalTarget) {allowed : List SigEntry} {exits 
     dsimp only [legalOp]
     exact legalBlendTree_callsOk target t _ _ _ _ fun _ => hk _
   | sext n m | zext n m | trunc n m | ofBool n =>
-    dsimp only [legalOp]; solve_legal_cps hk
+    dsimp only [legalOp]; solve_op_cps hk
   | fptoui _ _ | fptosi _ _ | uitofp _ _ | sitofp _ _ | fcvt _ _ =>
-    dsimp only [legalOp]; solve_legal_cps hk
+    dsimp only [legalOp]; solve_op_cps hk
   | bitcast s d _ =>
     dsimp only [legalOp]
     have hslow : ∀ la,
@@ -1380,32 +1193,10 @@ theorem legalOp_callsOk (target : LegalTarget) {allowed : List SigEntry} {exits 
                           dwords4ToWords2_callsOk fun _ _ =>
                             unpackWords64ToLeaves_callsOk target _ 0 _ _ fun _ =>
                               packLeavesToLegal_callsOk target _ _ _ fun _ => hk _
-  | sha256msg1 =>
-    dsimp only [legalOp]; split
-    · dsimp only [Expr.callsOk]; exact hk _
-    · exact splitLegalToLeaves_callsOk target _ _ _ fun _ =>
-        splitLegalToLeaves_callsOk target _ _ _ fun _ =>
-          packLeavesToWords64_callsOk target _ _ _ fun _ =>
-            packLeavesToWords64_callsOk target _ _ _ fun _ =>
-              words2ToDwords4_callsOk fun _ _ _ _ =>
-                words2ToDwords4_callsOk fun _ _ _ _ =>
-                  scalarSha256msg1_callsOk fun _ _ _ _ =>
-                    dwords4ToWords2_callsOk fun _ _ =>
-                      unpackWords64ToLeaves_callsOk target _ 0 _ _ fun _ =>
-                        packLeavesToLegal_callsOk target _ _ _ fun _ => hk _
-  | sha256msg2 =>
-    dsimp only [legalOp]; split
-    · dsimp only [Expr.callsOk]; exact hk _
-    · exact splitLegalToLeaves_callsOk target _ _ _ fun _ =>
-        splitLegalToLeaves_callsOk target _ _ _ fun _ =>
-          packLeavesToWords64_callsOk target _ _ _ fun _ =>
-            packLeavesToWords64_callsOk target _ _ _ fun _ =>
-              words2ToDwords4_callsOk fun _ _ _ _ =>
-                words2ToDwords4_callsOk fun _ _ _ _ =>
-                  scalarSha256msg2_callsOk fun _ _ _ _ =>
-                    dwords4ToWords2_callsOk fun _ _ =>
-                      unpackWords64ToLeaves_callsOk target _ 0 _ _ fun _ =>
-                        packLeavesToLegal_callsOk target _ _ _ fun _ => hk _
+  | sha256msg1 => solve_sha_legal target scalarSha256msg1_callsOk hk
+  | sha256msg2 => solve_sha_legal target scalarSha256msg2_callsOk hk
+
+end LegalCallsHelpers
 
 /-- `legalLoad` introduces no `.call` or `.exit` instructions outside continuation `k`. -/
 theorem legalLoad_callsOk (target : LegalTarget) {allowed : List SigEntry} {exits : List Sym}

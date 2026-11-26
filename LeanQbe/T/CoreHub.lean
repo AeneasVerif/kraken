@@ -83,7 +83,6 @@ public import LeanQbe.T.Licm
 public import LeanQbe.T.LicmLemmas
 public import LeanQbe.T.LicmRoLemmas
 public import LeanQbe.T.LinkBudgetLfp
-public import LeanQbe.T.LinkDepthLfp
 public import LeanQbe.T.LinkLfp
 public import LeanQbe.T.LinkParamEnv
 public import LeanQbe.T.LinkRec

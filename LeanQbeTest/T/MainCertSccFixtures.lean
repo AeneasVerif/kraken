@@ -12,11 +12,10 @@ public meta import LeanQbeTest.T.RegaLitmusTarget
 /-!
 # Shared Recursive SCC Test Fixtures & Proof Helpers (`MainCertSccFixtures`)
 
-Factoring shared target-neutral helpers between `MainCertSccTest` and `MainCertBudgetSccTest`:
+Factoring shared target-neutral helpers for `MainCertSccTest` and `MainCertBudgetSccTest`:
 * `botEnv`, `bv64_sub1_lt`, `bv64_sub1_toNat`, `compiledFrameBytes`, `renormFn`, `wf_of_map_renorm`
 * `acyc_single_sem`: single-function `Chunk.acyc` semantic linking helper
-* `rec_wp_mono` / `budget_wp_mono`: monotonicity witnesses for `DepthEnv.lfp_wf_mkSccOp` and
-  `BudgetEnv.lfp_wf_mkSccOp`
+* `budget_wp_mono`: monotonicity witness for `BudgetEnv.lfp_wf_mkSccOp`
 * `litmus_fnSpec` / `litmus_ret1_exec`: `FnSpec` and `Eventually` wrappers on `litmusTarget`
 -/
 
@@ -74,20 +73,13 @@ theorem acyc_single_sem {exits : List Sym} {bound : Nat}
     dsimp only [Env.semScc]
     rw [Env.lfp_fix (sccOp_mono _ _), hfs]
     exact ⟨by simp [Fn.sig], f, List.mem_cons_self, rfl, rfl, rfl,
-      wp_env_mono (DepthEnv.extStep_le_sccStep _ _ _) _ m hwp⟩
+      wp_env_mono (fun _ _ _ _ _ _ _ h => Or.inr h) _ m hwp⟩
   have h := LinkedCertScc.acycChunk_sem_of_semScc cc hf hsem
   have castSem : ∀ (as bs : List Ty) (ha : as = [i64]) (hb : bs = [i64]),
       (Chunk.acyc cc).sem exts Γ f.name as bs (ha ▸ xs) m (fun r m' => Q (hb ▸ r) m') X →
       (Chunk.acyc cc).sem exts Γ f.name [i64] [i64] xs m Q X := by
     rintro _ _ rfl rfl hs; exact hs
   exact castSem f.as f.rs has hrs h
-
-theorem rec_wp_mono (M : Module) :
-    Env.BiMono fun Γcall _ f as bs xs m Q X =>
-      (f, as, bs) ∈ M.fns.map Fn.sig ∧ ∃ fn ∈ M.fns, fn.name = f ∧
-        ∃ (ha : fn.as = as) (hr : fn.rs = bs), Func.wp Γcall fn.body (ha ▸ xs) m (hr ▸ Q) X :=
-  fun _ _ _ _ hC _ _ _ _ _ m' _ _ ⟨hsig, fn, hfn, hnm, ha, hr, hwp⟩ =>
-    ⟨hsig, fn, hfn, hnm, ha, hr, wp_env_mono hC _ m' hwp⟩
 
 theorem budget_wp_mono :
     ∀ (bfn : BudgetFn) (C₁ C₂ T₁ T₂ : Env), Env.le C₁ C₂ → Env.le T₁ T₂ →

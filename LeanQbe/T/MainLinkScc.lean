@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.MainLink
-public import LeanQbe.T.LinkDepthLfp
 public import LeanQbe.T.LinkBudgetLfp
 public import LeanQbe.T.LinkUtil
 import LeanQbe.T.OptLemmas
@@ -9,11 +8,11 @@ import LeanQbe.T.LegalLemmas
 import LeanQbe.T.RegaLemmas
 
 /-!
-# Target-Parameterized SCC Linking & `Chunk.recSCC` Sub-Chunking (`MainLinkScc`)
+# Target-Parameterized Budget-SCC Linking & `Chunk` Sub-Chunking (`MainLinkScc`)
 
-Target-independent compositional compilation and linking over `MainLink`, `LinkDepthLfp`, and
-`LinkBudgetLfp`, unifying `RecSubChunk` / `RecBudgetSubChunk` via `SubChunkEngine` and factoring
-`linkChunks_aux` via `chunk_step_wp` and `chunk_sig_decomp`.
+Target-independent compositional compilation and linking over `MainLink` and `LinkBudgetLfp`
+(`BudgetModule`, `CompiledBudgetRec`, `RecBudgetSubChunk`), factoring `linkChunks_aux` via
+`chunk_step_wp` and `chunk_sig_decomp`.
 -/
 
 set_option autoImplicit false
@@ -26,7 +25,7 @@ open Std Std.ExtHashMap
 open LeanQbe.T.LinkRec
 open LeanQbe.T.LinkScc
 
-/-! ## 1. `machEnv`, `pullEnv`, `machDepthEnv`, and Shared SCC Linking Helpers -/
+/-! ## 1. `machEnv`, `pullEnv`, and Shared SCC Linking Helpers -/
 
 @[expose] def machEnv (T : Target) (h : T.mach.Host) (n nX : Nat) : Env :=
   fun sym _as bs args m Q X =>
@@ -53,10 +52,6 @@ open LeanQbe.T.LinkScc
 @[expose] def pullEnv (lt : LegalTarget) (G : Env) : Env :=
   fun f as bs xs m P E =>
     G f (lt.legalSig as) (lt.legalSig bs) (encodeTup lt as xs) m (legalPost lt P) (legalXPost lt E)
-
-@[expose] def machDepthEnv (T : Target) (lt : LegalTarget) (h : T.mach.Host)
-    (base step nX : Nat) : DepthEnv :=
-  fun d => pullEnv lt (machEnv T h (base + d * step) nX)
 
 theorem fnSpec_iff_machEnv {T : Target} {h : T.mach.Host} {sym : Sym} {as bs : List Ty}
     {spec : Spec as bs} {n nX : Nat} :
@@ -139,45 +134,6 @@ private theorem defined_of_lowerFn' {T : Target} {host : T.mach.Host}
                 | ok _ => simp only [hle, Except.ok.injEq] at hl; subst hl
                           exact ⟨k₀, (List.IsInfixAt.cons hc).1⟩
 
-private theorem compileModuleRec_disjoint' {I : Isa} {lt : LegalTarget} {raBytes : Nat}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel maxBound : Nat}
-    {fs : List Fn} {hints : List I.Hints} {code : List I.Directive} {base step : Nat}
-    (h : compileModuleRec I lt raBytes extCallees exits nX fuel maxBound fs hints =
-      .ok (code, base, step)) :
-    (∀ p ∈ extCallees, p.1.1 ∉ fs.map Fn.name) ∧
-      compileModuleRecAux I lt raBytes
-        (fs.map fun f => (f.name, lt.legalSig f.as, lt.legalSig f.rs))
-        extCallees exits nX fs hints = .ok (code, base, step) := by
-  dsimp only [compileModuleRec] at h; split at h
-  · simp at h
-  · rename_i hno; split at h; · simp at h
-    · rename_i haux; split at h
-      · simp only [Except.ok.injEq, Prod.mk.injEq] at h; rcases h with ⟨rfl, rfl, rfl⟩
-        exact ⟨fun p hp hm => by
-          obtain ⟨f, hf, hnm⟩ := List.mem_map.mp hm
-          exact hno (List.any_eq_true.mpr
-            ⟨p, hp, List.any_eq_true.mpr ⟨f, hf, beq_iff_eq.mpr hnm⟩⟩), haux⟩
-      · simp at h
-
-private theorem legalEnv_sccStep_ext {mod : Module} {lt : LegalTarget} {Γrec Γext : Env}
-    {g : Sym} (hg : g ∉ mod.fns.map Fn.name)
-    {as bs : List Ty} {xs' : Tup Val as} {m0 : Mem 64} {Q' : Post bs} {X' : XPost}
-    (h : legalEnv lt (Env.sccStep mod Γrec Γext) g as bs xs' m0 Q' X') :
-    legalEnv lt (Env.restrict Γext (mod.externs.map Extern.sig)) g as bs xs' m0 Q' X' := by
-  rcases h with ⟨as₀, bs₀, has₀, hbs₀, xs₀, P₀, E₀, hxs₀, hQ₀, hX₀, hstep⟩
-  rcases hstep with ⟨hsig, _⟩ | ⟨hsig, hΓ⟩
-  · obtain ⟨fn, hfn, hfeq⟩ := List.mem_map.mp hsig
-    have hnm : fn.name = g := congrArg Prod.fst hfeq
-    exact absurd (hnm ▸ List.mem_map_of_mem hfn) hg
-  · exact ⟨as₀, bs₀, has₀, hbs₀, xs₀, P₀, E₀, hxs₀, hQ₀, hX₀, hsig, hΓ⟩
-
-private theorem legalEnv_callSlot_ext {mod : Module} {lt : LegalTarget} {Γext : Env}
-    {G : DepthEnv} {d : Nat} {g : Sym} (hg : g ∉ mod.fns.map Fn.name)
-    {as bs : List Ty} {xs' : Tup Val as} {m0 : Mem 64} {Q' : Post bs} {X' : XPost}
-    (h : legalEnv lt (DepthEnv.callSlot mod Γext G d) g as bs xs' m0 Q' X') :
-    legalEnv lt (Env.restrict Γext (mod.externs.map Extern.sig)) g as bs xs' m0 Q' X' := by
-  cases d with | zero => exact h | succ _ => exact legalEnv_sccStep_ext hg h
-
 private theorem extCallee_fnSpec {T : Target} {h : T.mach.Host} {lt : LegalTarget}
     {extCallees : List (SigEntry × Nat)} {extSigs : List SigEntry} {fnNames : List Sym}
     {Γcall Γext : Env} {nX : Nat}
@@ -247,171 +203,7 @@ private theorem link_scc_extCallee_step {T : Target} {h : T.mach.Host} {lt : Leg
   obtain ⟨hcon, hbd, hfn⟩ := extCallee_fnSpec hext hext_uniq hdisj hstep hlk
   simp only [hcon, Bool.false_eq_true, ↓reduceIte, hbd]; exact ⟨hfn, hle⟩
 
-/-- **One-shot `DepthEnv.lfp_le` SCC linking theorem (`link_scc_depth_lfp`).** -/
-theorem link_scc_depth_lfp {T : Target} {lt : LegalTarget}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel : Nat}
-    {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}
-    (M : CompiledRec T lt extCallees exits nX fuel fs hints maxBound)
-    (mod : Module) (hfs : mod.fns = fs) (h : T.mach.Host) (Γext : Env) (k₀ : Nat)
-    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
-    (hcyc : checkCyclic mod = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hext : ∀ p ∈ extCallees,
-      T.FnSpec h p.1.1 (legalEnv lt (Env.restrict Γext (mod.externs.map Extern.sig)) p.1.1
-        p.1.2.1 p.1.2.2) p.2 nX)
-    (hext_uniq : ∀ p ∈ extCallees, ∀ q ∈ extCallees, p.1.1 = q.1.1 → p.2 = q.2)
-    (hexits : ∀ g ∈ exits, T.Defined h g) :
-    ∀ d ≤ fuel, ∀ f ∈ mod.fns, T.Defined h f.name ∧ T.FnSpec h f.name
-      (legalEnv lt (Env.onlyFn f (DepthEnv.semScc mod Γext d)) f.name
-        (lt.legalSig f.as) (lt.legalSig f.rs)) (M.baseBound + d * M.stepBound) nX := by
-  have hnd := Module.namesNodup_of_checkNamesNodup ((Bool.and_eq_true _ _).mp hcyc).1
-  obtain ⟨hdisj, haux⟩ := compileModuleRec_disjoint'
-    (show compileModuleRec T.toIsa lt T.frame.raBytes extCallees exits nX fuel maxBound
-      mod.fns hints = .ok (M.code, M.baseBound, M.stepBound) from hfs ▸ M.compileModuleRec_eq)
-  let G : DepthEnv := fun d =>
-    if d ≤ fuel then pullEnv lt (machEnv T h (M.baseBound + d * M.stepBound) nX)
-    else fun _ _ _ _ _ _ _ => True
-  have hpre : DepthEnv.le (DepthEnv.sccOp mod Γext G) G := by
-    intro d f as bs xs m P E hΦ
-    by_cases hd : d ≤ fuel
-    · simp only [G, hd, ↓reduceIte]
-      rcases hΦ with ⟨_, fn, hfn, rfl, rfl, rfl, hwp⟩
-      obtain ⟨hint, c, k_f, bf, sf, hl, hinf, hklen, hchk, hbf, hsf⟩ :=
-        compileModuleRecAux_mem haux fn hfn
-      obtain ⟨hsf_eq, hfr_b, hcal_b, hex_b⟩ := checkAndBoundRecExt_spec hchk
-      have hle_f := Rega.effFrame_le T.toIsa hint (fn.mid lt).ext
-      let brec := match d with | 0 => 0 | d' + 1 => M.baseBound + d' * M.stepBound
-      let bound : Sym → Nat := fun g =>
-        if (mod.fns.map Fn.name).contains g then brec
-        else match extCallees.find? (fun q => q.1.1 == g) with | some q => q.2 | none => 0
-      have hcal : ∀ g as' bs', (g, as', bs') ∈ (fn.mid lt).ext.callees →
-          T.FnSpec h g (legalEnv lt (DepthEnv.callSlot mod Γext G d) g as' bs') (bound g) nX ∧
-          Rega.effFrame T.toIsa hint (fn.mid lt).ext + T.frame.raBytes + bound g ≤
-            M.baseBound + d * M.stepBound := by
-        intro g as' bs' hg
-        rcases hcal_b (g, as', bs') hg with ⟨hrec_sig, _⟩ | ⟨_, bg, hlk, _⟩
-        · obtain ⟨gfn, hgfn, hgeq⟩ := List.mem_map.mp hrec_sig
-          rcases Prod.mk.inj hgeq with ⟨rfl, hsig_ab⟩; rcases Prod.mk.inj hsig_ab with ⟨rfl, rfl⟩
-          have hcon : (mod.fns.map Fn.name).contains gfn.name = true := by
-            simpa using List.mem_map_of_mem hgfn
-          cases d with
-          | zero =>
-              dsimp only [bound, brec]; simp only [hcon, ↓reduceIte]
-              refine ⟨fun _ _ _ _ ⟨_, _, _, _, _, _, _, _, _, _, hmemE, _⟩ =>
-                absurd hmemE (fn_name_not_mem_externs_mod hnd hgfn), by omega⟩
-          | succ d' =>
-              have hd' : d' ≤ fuel := Nat.le_trans (Nat.le_succ d') hd
-              dsimp only [bound, brec]; simp only [hcon, ↓reduceIte]
-              exact ⟨recCallee_sccStep_fnSpec hnd hgfn fun _ _ _ _ _ _ _ hG => by
-                simpa [G, hd'] using hG, by rw [Nat.succ_mul]; omega⟩
-        · exact link_scc_extCallee_step hext hext_uniq hdisj
-            (fun g hnot _ _ _ _ _ _ => legalEnv_callSlot_ext hnot) hlk (by omega) brec
-      exact compileFn_body_correct T h lt hint (fn.mid lt).ext fn
-        (DepthEnv.callSlot mod Γext G d) (M.baseBound + d * M.stepBound) nX bound
-        (hwf fn hfn) (hsupp fn hfn) hl (list_isInfixAt_trans hklen hinf hc) hu (by omega)
-        (M.total_ra_le_at hd) hcal
-        (fun g hg => ⟨hexits g (hex_b g hg).1, by have := (hex_b g hg).2; omega⟩) xs m P E hwp
-    · simp only [G, hd, ↓reduceIte]
-  have hlfp := DepthEnv.lfp_le hpre
-  intro d hd f hf
-  obtain ⟨hint, c, k_f, _, _, hl, hinf, hklen, _⟩ := compileModuleRecAux_mem haux f hf
-  exact ⟨defined_of_lowerFn' (f := f.mid lt) hl (list_isInfixAt_trans hklen hinf hc),
-    link_scc_extract_fnSpec fun xs₀ m P₀ E₀ hsem => by
-      simpa [G, hd] using hlfp d f.name f.as f.rs xs₀ m P₀ E₀ hsem⟩
-
-theorem link_scc_depth_lfp_host {T : Target} {lt : LegalTarget}
-    {exits : List Sym} {nX fuel : Nat} {fs : List Fn} {hints : List T.toIsa.Hints}
-    {maxBound : Nat} (M : CompiledRec T lt [] exits nX fuel fs hints maxBound)
-    (mod : Module) (hfs : mod.fns = fs) (Γext : Env)
-    (hcyc : checkCyclic mod = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true) :
-    ∀ d ≤ fuel, ∀ f ∈ mod.fns, T.Defined M.host f.name ∧ T.FnSpec M.host f.name
-      (legalEnv lt (Env.onlyFn f (DepthEnv.semScc mod Γext d)) f.name
-        (lt.legalSig f.as) (lt.legalSig f.rs)) (M.baseBound + d * M.stepBound) nX :=
-  link_scc_depth_lfp M mod hfs M.host Γext 0 M.code_infix_host M.labelsUnique hcyc hwf hsupp
-    (fun _ h => nomatch h) (fun _ h => nomatch h) (fun _ hg => M.defined_exit_host hg)
-
-theorem link_scc_lfp_zero {T : Target} {lt : LegalTarget}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel : Nat}
-    {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}
-    (M : CompiledRec T lt extCallees exits nX fuel fs hints maxBound) (hstep0 : M.stepBound = 0)
-    (mod : Module) (hfs : mod.fns = fs) (h : T.mach.Host) (Γext : Env) (k₀ : Nat)
-    (hc : M.code.IsInfixAt (T.mach.prog h) k₀) (hu : T.LabelsUnique h)
-    (hcyc : checkCyclic mod = true) (hwf : ∀ f ∈ mod.fns, f.Wf)
-    (hsupp : ∀ f ∈ mod.fns, (f.earlyOpt).body.supportsSource lt = true)
-    (hext : ∀ p ∈ extCallees,
-      T.FnSpec h p.1.1 (legalEnv lt (Env.restrict Γext (mod.externs.map Extern.sig)) p.1.1
-        p.1.2.1 p.1.2.2) p.2 nX)
-    (hext_uniq : ∀ p ∈ extCallees, ∀ q ∈ extCallees, p.1.1 = q.1.1 → p.2 = q.2)
-    (hexits : ∀ g ∈ exits, T.Defined h g) :
-    ∀ f ∈ mod.fns, T.Defined h f.name ∧ T.FnSpec h f.name
-      (legalEnv lt (Env.onlyFn f (Env.semScc mod Γext)) f.name
-        (lt.legalSig f.as) (lt.legalSig f.rs)) M.baseBound nX := by
-  have hnd := Module.namesNodup_of_checkNamesNodup ((Bool.and_eq_true _ _).mp hcyc).1
-  obtain ⟨hdisj, haux⟩ := compileModuleRec_disjoint'
-    (show compileModuleRec T.toIsa lt T.frame.raBytes extCallees exits nX fuel maxBound
-      mod.fns hints = .ok (M.code, M.baseBound, M.stepBound) from hfs ▸ M.compileModuleRec_eq)
-  let G : Env := pullEnv lt (machEnv T h M.baseBound nX)
-  have hpre : Env.le (Env.sccOp mod Γext G) G := by
-    intro f as bs xs m P E hΦ
-    rcases hΦ with ⟨_, fn, hfn, rfl, rfl, rfl, hwp⟩
-    obtain ⟨hint, c, k_f, bf, sf, hl, hinf, hklen, hchk, hbf, hsf⟩ :=
-      compileModuleRecAux_mem haux fn hfn
-    obtain ⟨hsf_eq, hfr_b, hcal_b, hex_b⟩ := checkAndBoundRecExt_spec hchk
-    have hle_f := Rega.effFrame_le T.toIsa hint (fn.mid lt).ext
-    have hn0 : M.baseBound + T.frame.raBytes ≤ 2 ^ 64 := by
-      simpa [CompiledRec.boundAt] using M.total_ra_le_at (Nat.zero_le fuel)
-    let bound : Sym → Nat := fun g =>
-      if (mod.fns.map Fn.name).contains g then M.baseBound
-      else match extCallees.find? (fun q => q.1.1 == g) with | some q => q.2 | none => 0
-    have hcal : ∀ g as' bs', (g, as', bs') ∈ (fn.mid lt).ext.callees →
-        T.FnSpec h g (legalEnv lt (Env.sccStep mod G Γext) g as' bs') (bound g) nX ∧
-        Rega.effFrame T.toIsa hint (fn.mid lt).ext + T.frame.raBytes + bound g ≤ M.baseBound := by
-      intro g as' bs' hg
-      rcases hcal_b (g, as', bs') hg with ⟨hrec_sig, _⟩ | ⟨_, bg, hlk, _⟩
-      · obtain ⟨gfn, hgfn, hgeq⟩ := List.mem_map.mp hrec_sig
-        rcases Prod.mk.inj hgeq with ⟨rfl, hsig_ab⟩; rcases Prod.mk.inj hsig_ab with ⟨rfl, rfl⟩
-        have hcon : (mod.fns.map Fn.name).contains gfn.name = true := by
-          simpa using List.mem_map_of_mem hgfn
-        dsimp only [bound]; simp only [hcon, ↓reduceIte]
-        exact ⟨recCallee_sccStep_fnSpec hnd hgfn (Env.le_refl G), by omega⟩
-      · exact link_scc_extCallee_step hext hext_uniq hdisj
-          (fun g hnot _ _ _ _ _ _ => legalEnv_sccStep_ext hnot) hlk (by omega) M.baseBound
-    exact compileFn_body_correct T h lt hint (fn.mid lt).ext fn (Env.sccStep mod G Γext)
-      M.baseBound nX bound (hwf fn hfn) (hsupp fn hfn) hl (list_isInfixAt_trans hklen hinf hc)
-      hu (by omega) hn0 hcal
-      (fun g hg => ⟨hexits g (hex_b g hg).1, Nat.le_trans (hex_b g hg).2 hbf⟩) xs m P E hwp
-  have hlfp := Env.lfp_le hpre
-  intro f hf
-  obtain ⟨hint, c, k_f, _, _, hl, hinf, hklen, _⟩ := compileModuleRecAux_mem haux f hf
-  exact ⟨defined_of_lowerFn' (f := f.mid lt) hl (list_isInfixAt_trans hklen hinf hc),
-    link_scc_extract_fnSpec (hlfp f.name f.as f.rs)⟩
-
-/-! ## 2. Shared `SubChunkEngine`, Literal-Backed `CompiledRec`, and `RecSubChunk` -/
-
-@[expose] def LinkRec.CompiledRec.sigBounds {T : Target} {lt : LegalTarget}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel : Nat}
-    {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}
-    (M : CompiledRec T lt extCallees exits nX fuel fs hints maxBound) : List (SigEntry × Nat) :=
-  fs.map fun f => ((f.name, lt.legalSig f.as, lt.legalSig f.rs), M.boundAt fuel)
-
-@[expose] def sigBoundsRecOf (lt : LegalTarget) (fs : List Fn) (b : Nat) : List (SigEntry × Nat) :=
-  fs.map fun f => ((f.name, lt.legalSig f.as, lt.legalSig f.rs), b)
-
-theorem LinkRec.CompiledRec.sigBounds_eq {T : Target} {lt : LegalTarget}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel : Nat}
-    {fs : List Fn} {hints : List T.toIsa.Hints} {maxBound : Nat}
-    (M : CompiledRec T lt extCallees exits nX fuel fs hints maxBound) :
-    M.sigBounds = sigBoundsRecOf lt fs (M.boundAt fuel) := rfl
-
-@[expose] def checkCompileRecLit {D : Type} (label : Sym → D) (progSmall : List D → Bool)
-    (code : List D) (baseBound stepBound : Nat) (fnNames exits : List Sym) : Bool :=
-  checkCompileRecResult label progSmall (.ok (code, baseBound, stepBound)) fnNames exits
-@[expose] def checkCompileRecLitWithLabels {D : Type} (label : Sym → D)
-    (labelsNodup progSmall : List D → Bool) (code : List D) (baseBound stepBound : Nat)
-    (exits : List Sym) : Bool :=
-  checkCompileRecResultWithLabels label labelsNodup progSmall
-    (.ok (code, baseBound, stepBound)) exits
+/-! ## 2. Shared Sub-Chunk Helpers, `CompiledBudgetRec`, and `link_scc_budget_lfp` -/
 
 private theorem ext_disj_of_forall {α : Type _} (getName : α → Sym)
     {ext : List (SigEntry × Nat)} {xs : List α} (hdisj : ∀ p ∈ ext, p.1.1 ∉ xs.map getName) :
@@ -429,161 +221,6 @@ private theorem ext_disj_names_to_items {α : Type _} (getName : α → Sym)
     (extCallees.any (fun p => xs.any (fun x => getName x == p.1.1))) = false :=
   bool_not_eq_false (by simpa [List.any_map, Function.comp_def] using h)
 
-@[expose] def mkCompiledRecHost {T : Target} (L : TargetLayout T) {lt : LegalTarget}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX fuel maxBound : Nat}
-    {fs : List Fn} {hints : List T.toIsa.Hints} {code : List T.Directive}
-    {baseBound stepBound : Nat}
-    (hcm : compileModuleRec T.toIsa lt T.frame.raBytes extCallees exits nX fuel maxBound
-      fs hints = .ok (code, baseBound, stepBound))
-    (hsmall : L.progSmall (code ++ exits.map T.frame.label) = true)
-    (hlbl : T.LabelsUnique (L.layoutOf (code ++ exits.map T.frame.label) hsmall)) :
-    CompiledRec T lt extCallees exits nX fuel fs hints maxBound where
-  code := code; baseBound := baseBound; stepBound := stepBound
-  compileModuleRec_eq := hcm; compile_eq := compileRec_of_compileModuleRec hcm
-  bound_le := (compileModuleRec_bounds_le hcm).1
-  maxBound_le := (compileModuleRec_bounds_le hcm).2.1
-  total_ra_le := (compileModuleRec_bounds_le hcm).2.2
-  host := L.layoutOf (code ++ exits.map T.frame.label) hsmall
-  prog_host := L.prog_layoutOf _ _
-  labelsUnique := hlbl
-
-@[expose] def compileCheckedRecLit (T : Target) (L : TargetLayout T) (lt : LegalTarget)
-    (hcl : Rega.LabelClean T.toIsa) (extCallees : List (SigEntry × Nat)) (exits : List Sym)
-    (nX fuel : Nat) (fs : List Fn) (hints : List T.toIsa.Hints) (maxBound : Nat := 2048)
-    (code : List T.Directive) (baseBound stepBound : Nat)
-    (hcm : compileModuleRec T.toIsa lt T.frame.raBytes extCallees exits nX fuel maxBound
-      fs hints = .ok (code, baseBound, stepBound))
-    (hchk : checkCompileRecLit T.frame.label L.progSmall code baseBound stepBound
-      (fs.map Fn.name) exits = true) :
-    CompiledRec T lt extCallees exits nX fuel fs hints maxBound :=
-  have hp := checkCompileRecResult_parts hchk
-  have hsmall : L.progSmall (code ++ exits.map T.frame.label) = true := by
-    simpa [extractRecCode] using hp.2.2.2.2
-  mkCompiledRecHost L hcm hsmall fun i j l hi hj => by
-    rw [L.prog_layoutOf _ hsmall] at hi hj
-    exact compileModuleRec_labelsUnique hcl hcm hp.2.2.2.1
-      (by simp only [List.all_append, Bool.and_eq_true]; exact ⟨hp.2.1, hp.2.2.1⟩) i j l hi hj
-
-@[expose] def compileCheckedRecLitWithLabels (T : Target) (L : TargetLayout T) (lt : LegalTarget)
-    (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX fuel : Nat) (fs : List Fn)
-    (hints : List T.toIsa.Hints) (maxBound : Nat := 2048) (code : List T.Directive)
-    (baseBound stepBound : Nat)
-    (hcm : compileModuleRec T.toIsa lt T.frame.raBytes extCallees exits nX fuel maxBound
-      fs hints = .ok (code, baseBound, stepBound))
-    (hchk : checkCompileRecLitWithLabels T.frame.label L.labelsNodup L.progSmall code
-      baseBound stepBound exits = true) :
-    CompiledRec T lt extCallees exits nX fuel fs hints maxBound :=
-  have hp := checkCompileRecWithLabels_parts hchk
-  have hsmall : L.progSmall (code ++ exits.map T.frame.label) = true := by
-    simpa [extractRecCode] using hp.2.2
-  mkCompiledRecHost L hcm hsmall
-    (L.labelsUnique_layoutOf hsmall (by simpa [extractRecCode] using hp.2.1))
-
-/-- Shared `SubChunkEngine` loop-step & `lookupBound` monotonicity core across `CompiledRec`
-and `CompiledBudgetRec`. -/
-private theorem calleesBoundRec_mono_lookupBound {F raBytes : Nat} {recSigs : List SigEntry}
-    {ext₁ ext₂ : List (SigEntry × Nat)}
-    (hmono : ∀ g bg, lookupBound ext₁ g = some bg → lookupBound ext₂ g = some bg) :
-    ∀ {gs : List SigEntry} {n : Nat},
-      calleesBoundRec F raBytes recSigs ext₁ gs = some n →
-      calleesBoundRec F raBytes recSigs ext₂ gs = some n
-  | [], _, h => h
-  | g :: gs, n, h => by
-      dsimp only [calleesBoundRec] at h ⊢; split at h
-      · rename_i hrec; simp only [hrec, ↓reduceIte]
-        cases hcb : calleesBoundRec F raBytes recSigs ext₁ gs with
-        | none => simp [hcb] at h
-        | some _ => simp only [hcb, Option.map_some, Option.some.injEq] at h
-                    rw [calleesBoundRec_mono_lookupBound hmono hcb]; simp [h]
-      · rename_i hnot; simp only [hnot, Bool.false_eq_true, ↓reduceIte]
-        cases h1 : lookupBound ext₁ g with
-        | none => simp [h1] at h
-        | some bg =>
-            cases h2 : calleesBoundRec F raBytes recSigs ext₁ gs with
-            | none => simp [h1, h2] at h
-            | some _ => simp only [h1, h2, Option.some.injEq] at h
-                        rw [hmono g bg h1, calleesBoundRec_mono_lookupBound hmono h2]; dsimp; rw [h]
-
-private theorem checkAndBoundRecExt_mono_lookupBound {I : Isa} {raBytes : Nat}
-    {recSigs : List SigEntry} {exits : List Sym} {nX : Nat} {ext₁ ext₂ : List (SigEntry × Nat)}
-    (hmono : ∀ g bg, lookupBound ext₁ g = some bg → lookupBound ext₂ g = some bg)
-    {h : I.Hints} {ext : Rega.Ext} {res : Nat × Nat}
-    (hc : checkAndBoundRecExt I raBytes recSigs ext₁ exits nX h ext = some res) :
-    checkAndBoundRecExt I raBytes recSigs ext₂ exits nX h ext = some res := by
-  dsimp only [checkAndBoundRecExt] at hc ⊢
-  cases hcb : calleesBoundRec (I.frame.frameSize h.totalSlots) raBytes recSigs ext₁ ext.callees with
-  | none => simp [hcb] at hc
-  | some _ => rw [hcb] at hc; rw [calleesBoundRec_mono_lookupBound hmono hcb]; exact hc
-
-private def recLoopStep (I : Isa) (lt : LegalTarget) (raBytes : Nat) (recSigs : List SigEntry)
-    (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat)
-    (f : Fn) (h : I.Hints) : Except String (List I.Directive × Nat × Nat) :=
-  let mf := f.mid lt
-  match Rega.lowerFn I h mf.ext mf,
-        checkAndBoundRecExt I raBytes recSigs extCallees exits nX h mf.ext with
-  | .ok c, some p => .ok (c, p)
-  | .error e, _ => .error s!"{f.name}: {e}"
-  | _, none => .error s!"{f.name}: unknown callee or undeclared exit"
-
-private theorem compileModuleRecAux_eq_loop (I : Isa) (lt : LegalTarget) (raBytes : Nat)
-    (recSigs : List SigEntry) (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat) :
-    ∀ (fs : List Fn) (hints : List I.Hints),
-      compileModuleRecAux I lt raBytes recSigs extCallees exits nX fs hints =
-        compileSeqLoop (0, 0) (fun a b => (Nat.max a.1 b.1, Nat.max a.2 b.2))
-          (recLoopStep I lt raBytes recSigs extCallees exits nX)
-          "compileModuleRec: fn/hints length mismatch" fs hints
-  | [], [] => rfl
-  | [], _ :: _ | _ :: _, [] => by simp [compileModuleRecAux, compileSeqLoop]
-  | f :: fs, h :: hs => by
-      dsimp only [compileModuleRecAux, compileSeqLoop, recLoopStep]
-      cases Rega.lowerFn I h (f.mid lt).ext (f.mid lt) with
-      | error _ => simp
-      | ok _ =>
-          cases checkAndBoundRecExt I raBytes recSigs extCallees exits nX h (f.mid lt).ext with
-          | none => simp
-          | some _ =>
-              dsimp only
-              rw [compileModuleRecAux_eq_loop I lt raBytes recSigs extCallees exits nX fs hs]
-              cases compileSeqLoop (0, 0) (fun a b => (Nat.max a.1 b.1, Nat.max a.2 b.2))
-                  (recLoopStep I lt raBytes recSigs extCallees exits nX)
-                  "compileModuleRec: fn/hints length mismatch" fs hs with
-              | error _ | ok _ => rfl
-
-theorem compileModuleRecAux_mono_lookupBound {I : Isa} {lt : LegalTarget} {raBytes : Nat}
-    {recSigs : List SigEntry} {exits : List Sym} {nX : Nat}
-    {ext₁ ext₂ : List (SigEntry × Nat)} {fs : List Fn} {hints : List I.Hints}
-    {code : List I.Directive} {base step : Nat}
-    (hmono : ∀ g bg, lookupBound ext₁ g = some bg → lookupBound ext₂ g = some bg)
-    (h : compileModuleRecAux I lt raBytes recSigs ext₁ exits nX fs hints = .ok (code, base, step)) :
-    compileModuleRecAux I lt raBytes recSigs ext₂ exits nX fs hints = .ok (code, base, step) := by
-  rw [compileModuleRecAux_eq_loop] at h ⊢
-  refine compileSeqLoop_mono (fun f hint _ _ hst => ?_) h
-  dsimp only [recLoopStep] at hst ⊢
-  cases hl : Rega.lowerFn I hint (f.mid lt).ext (f.mid lt) with
-  | error _ => simp [hl] at hst
-  | ok _ =>
-      cases hc : checkAndBoundRecExt I raBytes recSigs ext₁ exits nX hint (f.mid lt).ext with
-      | none => simp [hl, hc] at hst
-      | some _ => simp only [hl, hc] at hst
-                  simpa [hl, checkAndBoundRecExt_mono_lookupBound hmono hc] using hst
-
-theorem compileModuleRec_mono_lookupBound {I : Isa} {lt : LegalTarget} {raBytes : Nat}
-    {ext₁ ext₂ : List (SigEntry × Nat)} {exits : List Sym} {nX fuel maxBound : Nat}
-    {fs : List Fn} {hints : List I.Hints} {code : List I.Directive} {base step : Nat}
-    (hmono : ∀ g bg, lookupBound ext₁ g = some bg → lookupBound ext₂ g = some bg)
-    (hdisj : ∀ p ∈ ext₂, p.1.1 ∉ fs.map Fn.name)
-    (h : compileModuleRec I lt raBytes ext₁ exits nX fuel maxBound fs hints =
-      .ok (code, base, step)) :
-    compileModuleRec I lt raBytes ext₂ exits nX fuel maxBound fs hints =
-      .ok (code, base, step) := by
-  dsimp only [compileModuleRec] at h ⊢; split at h
-  · simp at h
-  · simp only [ext_disj_of_forall Fn.name hdisj, Bool.false_eq_true, ↓reduceIte]; split at h
-    · simp at h
-    · rename_i haux; rw [compileModuleRecAux_mono_lookupBound hmono haux]; exact h
-
-@[expose] def recSigsOf (lt : LegalTarget) (fs : List Fn) : List SigEntry :=
-  fs.map fun f => (f.name, lt.legalSig f.as, lt.legalSig f.rs)
 @[expose] def sigListBeq : List SigEntry → List SigEntry → Bool
   | [], [] => true
   | a :: as, b :: bs => SigEntry.beq a b && sigListBeq as bs
@@ -594,176 +231,12 @@ theorem sigListBeq_eq : ∀ {xs ys : List SigEntry}, sigListBeq xs ys = true →
       dsimp only [sigListBeq] at h; simp only [Bool.and_eq_true, SigEntry.beq_iff_eq] at h
       rw [h.1, sigListBeq_eq h.2]
 
-structure RecSubChunk (T : Target) (lt : LegalTarget) (recSigs : List SigEntry)
-    (extCallees : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat) : Type 1 where
-  fs : List Fn
-  hints : List T.toIsa.Hints
-  code : List T.Directive
-  baseBound : Nat
-  stepBound : Nat
-  compileAux_eq :
-    compileModuleRecAux T.toIsa lt T.frame.raBytes recSigs extCallees exits nX fs hints =
-      .ok (code, baseBound, stepBound)
-
-@[expose] def recSubchunksFns {T : Target} {lt : LegalTarget} {recSigs : List SigEntry}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (scs : List (RecSubChunk T lt recSigs extCallees exits nX)) : List Fn :=
-  scs.foldr (fun sc acc => sc.fs ++ acc) []
-@[expose] def recSubchunksHints {T : Target} {lt : LegalTarget} {recSigs : List SigEntry}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (scs : List (RecSubChunk T lt recSigs extCallees exits nX)) : List T.toIsa.Hints :=
-  scs.foldr (fun sc acc => sc.hints ++ acc) []
-@[expose] def recSubchunksCode {T : Target} {lt : LegalTarget} {recSigs : List SigEntry}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (scs : List (RecSubChunk T lt recSigs extCallees exits nX)) : List T.Directive :=
-  scs.foldr (fun sc acc => sc.code ++ acc) []
-@[expose] def recSubchunksBase {T : Target} {lt : LegalTarget} {recSigs : List SigEntry}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (scs : List (RecSubChunk T lt recSigs extCallees exits nX)) : Nat :=
-  scs.foldr (fun sc acc => Nat.max sc.baseBound acc) 0
-@[expose] def recSubchunksStep {T : Target} {lt : LegalTarget} {recSigs : List SigEntry}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (scs : List (RecSubChunk T lt recSigs extCallees exits nX)) : Nat :=
-  scs.foldr (fun sc acc => Nat.max sc.stepBound acc) 0
-theorem compileModuleRecAux_append {I : Isa} {lt : LegalTarget} {raBytes : Nat}
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    {fs₁ fs₂ : List Fn} {hints₁ hints₂ : List I.Hints} {c₁ c₂ : List I.Directive}
-    {b₁ s₁ b₂ s₂ : Nat}
-    (h₁ : compileModuleRecAux I lt raBytes recSigs extCallees exits nX fs₁ hints₁ =
-      .ok (c₁, b₁, s₁))
-    (h₂ : compileModuleRecAux I lt raBytes recSigs extCallees exits nX fs₂ hints₂ =
-      .ok (c₂, b₂, s₂)) :
-    compileModuleRecAux I lt raBytes recSigs extCallees exits nX (fs₁ ++ fs₂) (hints₁ ++ hints₂) =
-      .ok (c₁ ++ c₂, Nat.max b₁ b₂, Nat.max s₁ s₂) := by
-  rw [compileModuleRecAux_eq_loop] at h₁ h₂ ⊢
-  exact compileSeqLoop_append (fun _ => by simp) (fun _ _ _ => by simp [Nat.max_assoc]) h₁ h₂
-theorem compileModuleRecAux_subchunks_eq {T : Target} {lt : LegalTarget}
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat} :
-    ∀ scs : List (RecSubChunk T lt recSigs extCallees exits nX),
-      compileModuleRecAux T.toIsa lt T.frame.raBytes recSigs extCallees exits nX
-        (recSubchunksFns scs) (recSubchunksHints scs) =
-        .ok (recSubchunksCode scs, recSubchunksBase scs, recSubchunksStep scs)
-  | [] => rfl
-  | sc :: scs => by
-      dsimp only [recSubchunksFns, recSubchunksHints, recSubchunksCode, recSubchunksBase,
-        recSubchunksStep, List.foldr_cons]
-      exact compileModuleRecAux_append sc.compileAux_eq (compileModuleRecAux_subchunks_eq scs)
-
-/-- Common subchunk & linked-host layout/name metadata checker shared across `SubChunkEngine`
-variants (`checkRecSubchunks`, `checkRecBudgetSubchunks`, `checkLinkSccList`). -/
+/-- Common subchunk & linked-host layout/name metadata checker shared across `RecBudgetSubChunk`
+and `checkLinkSccList`. -/
 @[expose] def checkHostNamesOk {T : Target} (L : TargetLayout T) (exits : List Sym)
     (fnNames : List Sym) (code : List T.Directive) : Bool :=
   fnNames.all fnNameOk && exits.all fnNameOk && stringsNodup (fnNames ++ exits) &&
   L.progSmall (code ++ exits.map T.frame.label)
-
-@[expose] def checkRecSubchunks {T : Target} (L : TargetLayout T) {lt : LegalTarget}
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (fuel maxBound : Nat) (scs : List (RecSubChunk T lt recSigs extCallees exits nX)) : Bool :=
-  let fs := recSubchunksFns scs; let fnNames := fs.map Fn.name
-  let totalBound := recSubchunksBase scs + fuel * recSubchunksStep scs
-  sigListBeq recSigs (recSigsOf lt fs) &&
-  !(extCallees.any (fun p => fnNames.any (fun nm => nm == p.1.1))) &&
-  Nat.ble totalBound maxBound && Nat.ble maxBound (2 ^ 64) &&
-  Nat.ble (totalBound + T.frame.raBytes) (2 ^ 64) &&
-  checkHostNamesOk L exits fnNames (recSubchunksCode scs)
-
-@[expose] def checkRecSubchunksWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (fuel maxBound : Nat) (scs : List (RecSubChunk T lt recSigs extCallees exits nX)) : Bool :=
-  let fs := recSubchunksFns scs; let fnNames := fs.map Fn.name
-  let prog := recSubchunksCode scs ++ exits.map T.frame.label
-  let totalBound := recSubchunksBase scs + fuel * recSubchunksStep scs
-  sigListBeq recSigs (recSigsOf lt fs) &&
-  !(extCallees.any (fun p => fnNames.any (fun nm => nm == p.1.1))) &&
-  Nat.ble totalBound maxBound && Nat.ble maxBound (2 ^ 64) &&
-  Nat.ble (totalBound + T.frame.raBytes) (2 ^ 64) &&
-  stringsNodup (fnNames ++ exits) && L.labelsNodup prog && L.progSmall prog
-
-private theorem compileModuleRec_of_subchunks {T : Target} {lt : LegalTarget}
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym}
-    {nX fuel maxBound : Nat} (scs : List (RecSubChunk T lt recSigs extCallees exits nX))
-    (hsig : sigListBeq recSigs (recSigsOf lt (recSubchunksFns scs)) = true)
-    (hdisj : !(extCallees.any (fun p => ((recSubchunksFns scs).map Fn.name).any
-      (fun nm => nm == p.1.1))) = true)
-    (hb1 : Nat.ble (recSubchunksBase scs + fuel * recSubchunksStep scs) maxBound = true)
-    (hb2 : Nat.ble maxBound (2 ^ 64) = true)
-    (hb3 : Nat.ble (recSubchunksBase scs + fuel * recSubchunksStep scs + T.frame.raBytes)
-      (2 ^ 64) = true) :
-    compileModuleRec T.toIsa lt T.frame.raBytes extCallees exits nX fuel maxBound
-      (recSubchunksFns scs) (recSubchunksHints scs) =
-      .ok (recSubchunksCode scs, recSubchunksBase scs, recSubchunksStep scs) := by
-  have haux := (congrArg (fun r => compileModuleRecAux T.toIsa lt T.frame.raBytes r
-    extCallees exits nX (recSubchunksFns scs) (recSubchunksHints scs))
-    (sigListBeq_eq hsig)).symm.trans (compileModuleRecAux_subchunks_eq scs)
-  dsimp only [recSigsOf] at haux; dsimp only [compileModuleRec]
-  simp only [ext_disj_names_to_items Fn.name hdisj, Bool.false_eq_true, ↓reduceIte,
-    haux, hb1, hb2, hb3, Bool.and_self]
-
-theorem linkRecSubchunks_cm {T : Target} (L : TargetLayout T) {lt : LegalTarget}
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (fuel maxBound : Nat) (scs : List (RecSubChunk T lt recSigs extCallees exits nX))
-    (h : checkRecSubchunks L fuel maxBound scs = true) :
-    compileModuleRec T.toIsa lt T.frame.raBytes extCallees exits nX fuel maxBound
-      (recSubchunksFns scs) (recSubchunksHints scs) =
-      .ok (recSubchunksCode scs, recSubchunksBase scs, recSubchunksStep scs) := by
-  dsimp only [checkRecSubchunks] at h; simp only [Bool.and_eq_true] at h
-  exact compileModuleRec_of_subchunks scs h.1.1.1.1.1 h.1.1.1.1.2 h.1.1.1.2 h.1.1.2 h.1.2
-
-theorem linkRecSubchunks_chk {T : Target} (L : TargetLayout T) {lt : LegalTarget}
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (fuel maxBound : Nat) (scs : List (RecSubChunk T lt recSigs extCallees exits nX))
-    (h : checkRecSubchunks L fuel maxBound scs = true) :
-    checkCompileRecLit T.frame.label L.progSmall (recSubchunksCode scs)
-      (recSubchunksBase scs) (recSubchunksStep scs) ((recSubchunksFns scs).map Fn.name)
-      exits = true := by
-  dsimp only [checkRecSubchunks, checkHostNamesOk] at h; simp only [Bool.and_eq_true] at h
-  dsimp only [checkCompileRecLit, checkCompileRecResult]; simp only [Bool.and_eq_true]; exact h.2
-
-@[expose] def linkRecSubchunks {T : Target} (L : TargetLayout T) {lt : LegalTarget}
-    (hcl : Rega.LabelClean T.toIsa) {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)}
-    {exits : List Sym} {nX : Nat} (fuel maxBound : Nat)
-    (scs : List (RecSubChunk T lt recSigs extCallees exits nX))
-    (h : checkRecSubchunks L fuel maxBound scs = true) :
-    CompiledRec T lt extCallees exits nX fuel (recSubchunksFns scs) (recSubchunksHints scs)
-      maxBound :=
-  compileCheckedRecLit T L lt hcl extCallees exits nX fuel (recSubchunksFns scs)
-    (recSubchunksHints scs) maxBound (recSubchunksCode scs) (recSubchunksBase scs)
-    (recSubchunksStep scs) (linkRecSubchunks_cm L fuel maxBound scs h)
-    (linkRecSubchunks_chk L fuel maxBound scs h)
-
-theorem linkRecSubchunksWithLabels_cm {T : Target} (L : TargetLayout T) {lt : LegalTarget}
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (fuel maxBound : Nat) (scs : List (RecSubChunk T lt recSigs extCallees exits nX))
-    (h : checkRecSubchunksWithLabels L fuel maxBound scs = true) :
-    compileModuleRec T.toIsa lt T.frame.raBytes extCallees exits nX fuel maxBound
-      (recSubchunksFns scs) (recSubchunksHints scs) =
-      .ok (recSubchunksCode scs, recSubchunksBase scs, recSubchunksStep scs) := by
-  dsimp only [checkRecSubchunksWithLabels] at h; simp only [Bool.and_eq_true] at h
-  exact compileModuleRec_of_subchunks scs
-    h.1.1.1.1.1.1.1 h.1.1.1.1.1.1.2 h.1.1.1.1.1.2 h.1.1.1.1.2 h.1.1.1.2
-
-theorem linkRecSubchunksWithLabels_chk {T : Target} (L : TargetLayout T) {lt : LegalTarget}
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (fuel maxBound : Nat) (scs : List (RecSubChunk T lt recSigs extCallees exits nX))
-    (h : checkRecSubchunksWithLabels L fuel maxBound scs = true) :
-    checkCompileRecLitWithLabels T.frame.label L.labelsNodup L.progSmall
-      (recSubchunksCode scs) (recSubchunksBase scs) (recSubchunksStep scs) exits = true := by
-  dsimp only [checkRecSubchunksWithLabels] at h; simp only [Bool.and_eq_true] at h
-  dsimp only [checkCompileRecLitWithLabels, checkCompileRecResultWithLabels]
-  simp only [Bool.and_eq_true]; exact ⟨h.1.2, h.2⟩
-
-@[expose] def linkRecSubchunksWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (fuel maxBound : Nat) (scs : List (RecSubChunk T lt recSigs extCallees exits nX))
-    (h : checkRecSubchunksWithLabels L fuel maxBound scs = true) :
-    CompiledRec T lt extCallees exits nX fuel (recSubchunksFns scs) (recSubchunksHints scs)
-      maxBound :=
-  compileCheckedRecLitWithLabels T L lt extCallees exits nX fuel (recSubchunksFns scs)
-    (recSubchunksHints scs) maxBound (recSubchunksCode scs) (recSubchunksBase scs)
-    (recSubchunksStep scs) (linkRecSubchunksWithLabels_cm L fuel maxBound scs h)
-    (linkRecSubchunksWithLabels_chk L fuel maxBound scs h)
-
-/-! ## 2b. `BudgetModule` Compilation, `CompiledBudgetRec`, and `link_scc_budget_lfp` -/
 
 @[expose] def checkBudgetCallees (F raBytes minEntry : Nat) (recSigs : List SigEntry)
     (extCallees : List (SigEntry × Nat)) (gs : List SigEntry) : Bool :=
@@ -1163,10 +636,6 @@ structure RecBudgetSubChunk (T : Target) (lt : LegalTarget) (recSigs : List SigE
     {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
     (scs : List (RecBudgetSubChunk T lt recSigs extCallees exits nX)) : List BudgetFn :=
   scs.foldr (fun sc acc => sc.bfs ++ acc) []
-@[expose] def recBudgetSubchunksFns {T : Target} {lt : LegalTarget} {recSigs : List SigEntry}
-    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
-    (scs : List (RecBudgetSubChunk T lt recSigs extCallees exits nX)) : List Fn :=
-  (recBudgetSubchunksBfs scs).map BudgetFn.toFn
 @[expose] def recBudgetSubchunksHints {T : Target} {lt : LegalTarget} {recSigs : List SigEntry}
     {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat}
     (scs : List (RecBudgetSubChunk T lt recSigs extCallees exits nX)) : List T.toIsa.Hints :=
@@ -1350,14 +819,10 @@ theorem link_scc_budget_lfp_host {T : Target} {lt : LegalTarget}
   link_scc_budget_lfp M BM hbfs M.host Γext 0 M.code_infix_host M.labelsUnique hcyc hwf hsupp
     (fun _ h => nomatch h) (fun _ h => nomatch h) (fun _ hg => M.defined_exit_host hg)
 
-/-! ## 3. Mixed Acyclic + Cyclic SCC `Chunk` / `Chunk.recSCC` Linking -/
+/-! ## 3. Mixed Acyclic + Cyclic Budget-SCC `Chunk` Linking -/
 
 inductive Chunk (T : Target) (lt : LegalTarget) (exits : List Sym) (nX : Nat) : Type 1 where
   | acyc (c : CompiledChunk T lt exits nX) : Chunk T lt exits nX
-  | recSCC (extCallees : List (SigEntry × Nat)) (fuel : Nat) (fs : List Fn)
-      (hints : List T.toIsa.Hints) (maxBound : Nat)
-      (compiled : CompiledRec T lt extCallees exits nX fuel fs hints maxBound) :
-      Chunk T lt exits nX
   | recBudgetSCC (extCallees : List (SigEntry × Nat)) (bfs : List BudgetFn)
       (hints : List T.toIsa.Hints) (maxBound : Nat) (exportBounds : List (Sym × Nat))
       (compiled : CompiledBudgetRec T lt extCallees exits nX bfs hints maxBound exportBounds) :
@@ -1366,13 +831,6 @@ inductive Chunk (T : Target) (lt : LegalTarget) (exits : List Sym) (nX : Nat) : 
 namespace Chunk
 
 variable {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat}
-
-@[expose] def ofRecSubchunks (L : TargetLayout T) (hcl : Rega.LabelClean T.toIsa)
-    {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} (fuel maxBound : Nat)
-    (scs : List (RecSubChunk T lt recSigs extCallees exits nX))
-    (h : checkRecSubchunks L fuel maxBound scs = true) : Chunk T lt exits nX :=
-  .recSCC extCallees fuel (recSubchunksFns scs) (recSubchunksHints scs) maxBound
-    (linkRecSubchunks L hcl fuel maxBound scs h)
 
 @[expose] def ofBudgetRecSubchunks (L : TargetLayout T) (hcl : Rega.LabelClean T.toIsa)
     {recSigs : List SigEntry} {extCallees : List (SigEntry × Nat)} (maxBound : Nat)
@@ -1383,25 +841,23 @@ variable {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat}
     maxBound exportBounds (linkBudgetRecSubchunks L hcl maxBound exportBounds scs h)
 
 @[expose] def fns (c : Chunk T lt exits nX) : List Fn :=
-  Chunk.casesOn c (·.fs) (fun _ _ fs _ _ _ => fs) (fun _ bfs _ _ _ _ => bfs.map BudgetFn.toFn)
+  Chunk.casesOn c (·.fs) (fun _ bfs _ _ _ _ => bfs.map BudgetFn.toFn)
 @[expose] def hints (c : Chunk T lt exits nX) : List T.toIsa.Hints :=
-  Chunk.casesOn c (·.hints) (fun _ _ _ h _ _ => h) (fun _ _ h _ _ _ => h)
+  Chunk.casesOn c (·.hints) (fun _ _ h _ _ _ => h)
 @[expose] def code (c : Chunk T lt exits nX) : List T.Directive :=
-  Chunk.casesOn c (·.compiled.code) (fun _ _ _ _ _ m => m.code) (fun _ _ _ _ _ m => m.code)
+  Chunk.casesOn c (·.compiled.code) (fun _ _ _ _ _ m => m.code)
 @[expose] def maxBound (c : Chunk T lt exits nX) : Nat :=
-  Chunk.casesOn c (·.maxBound) (fun _ _ _ _ mb _ => mb) (fun _ _ _ mb _ _ => mb)
+  Chunk.casesOn c (·.maxBound) (fun _ _ _ mb _ _ => mb)
 @[expose] def extCallees (c : Chunk T lt exits nX) : List (SigEntry × Nat) :=
-  Chunk.casesOn c (·.extCallees) (fun ext _ _ _ _ _ => ext) (fun ext _ _ _ _ _ => ext)
+  Chunk.casesOn c (·.extCallees) (fun ext _ _ _ _ _ => ext)
 @[expose] def sigBounds (c : Chunk T lt exits nX) : List (SigEntry × Nat) :=
   Chunk.casesOn c (·.compiled.sigBounds) (fun _ _ _ _ _ m => m.sigBounds)
-    (fun _ _ _ _ _ m => m.sigBounds)
 @[expose] def bound (c : Chunk T lt exits nX) (nm : Sym) : Nat :=
-  Chunk.casesOn c (fun m => m.compiled.bound nm) (fun _ fuel _ _ _ m => m.boundAt fuel)
-    (fun _ _ _ _ _ m => m.bound nm)
+  Chunk.casesOn c (fun m => m.compiled.bound nm) (fun _ _ _ _ _ m => m.bound nm)
 theorem compile_eq (c : Chunk T lt exits nX) : compile T.toIsa lt c.fns c.hints = .ok c.code := by
   cases c with
   | acyc cc => exact cc.compiled.compile_eq
-  | recSCC _ _ _ _ _ cr => exact cr.compile_eq | recBudgetSCC _ _ _ _ _ cbr => exact cbr.compile_eq
+  | recBudgetSCC _ _ _ _ _ cbr => exact cbr.compile_eq
 
 end Chunk
 
@@ -1460,14 +916,6 @@ theorem sccChunksMaxBound_append {T : Target} {lt : LegalTarget} {exits : List S
   checkSccChunksExt ext₀ chunks && !(ext₀.any (fun p => fnNames.any (fun nm => nm == p.1.1))) &&
   checkHostNamesOk L exits fnNames (sccChunksCode chunks)
 
-@[expose] def checkLinkSccListWithLabels {T : Target} (L : TargetLayout T) {lt : LegalTarget}
-    {exits : List Sym} {nX : Nat} (ext₀ : List (SigEntry × Nat))
-    (chunks : List (Chunk T lt exits nX)) : Bool :=
-  let fnNames := (sccChunksFns chunks).map Fn.name
-  let prog := sccChunksCode chunks ++ exits.map T.frame.label
-  checkSccChunksExt ext₀ chunks && !(ext₀.any (fun p => fnNames.any (fun nm => nm == p.1.1))) &&
-  stringsNodup (fnNames ++ exits) && L.labelsNodup prog && L.progSmall prog
-
 @[expose] def externsOfSigs (sigs : List SigEntry) : List Extern :=
   sigs.map fun s => ⟨s.1, s.2.1, s.2.2⟩
 theorem externsOfSigs_map_sig (sigs : List SigEntry) :
@@ -1479,7 +927,6 @@ theorem externsOfSigs_map_sig (sigs : List SigEntry) :
     (extSigs : List SigEntry) (c : Chunk T lt exits nX) : Bool :=
   Chunk.casesOn c
     (fun m => Module.checkAcyclic ⟨m.fs, externsOfSigs extSigs, exits⟩)
-    (fun _ _ fs _ _ _ => LinkRec.checkCyclic ⟨fs, externsOfSigs extSigs, exits⟩)
     (fun _ bfs _ _ _ _ => LinkRec.checkCyclic ⟨bfs.map BudgetFn.toFn, externsOfSigs extSigs, exits⟩)
 @[expose] def checkChunksCalls {T : Target} {lt : LegalTarget} {nX : Nat} (exits : List Sym) :
     List SigEntry → List (Chunk T lt exits nX) → Bool
@@ -1604,7 +1051,6 @@ theorem sccBound_le_max {T : Target} {lt : LegalTarget} {exits : List Sym} {nX :
       · refine Nat.le_trans ?_ (Nat.le_max_left _ _)
         cases c with
         | acyc m => exact m.compiled.bound_le_max nm
-        | recSCC _ fuel _ _ _ m => exact m.boundAt_le_max (Nat.le_refl fuel)
         | recBudgetSCC _ _ _ _ _ m => exact m.bound_le_max nm
       · exact Nat.le_trans (sccBound_le_max cs nm) (Nat.le_max_right _ _)
 
@@ -1643,9 +1089,6 @@ theorem sccBound_eq_chunk {T : Target} {lt : LegalTarget} {exits : List Sym} {nX
   | .acyc c, Γprev =>
       let M : Module := ⟨c.fs, externsOfSigs extSigs, exits⟩
       Env.sccStep M (Env.semScc M Γprev) Γprev
-  | .recSCC _ fuel fs _ _ _, Γprev =>
-      let M : Module := ⟨fs, externsOfSigs extSigs, exits⟩
-      Env.sccStep M (DepthEnv.semScc M Γprev fuel) Γprev
   | .recBudgetSCC _ bfs _ maxB exportBounds _, Γprev =>
       let BM : BudgetModule := ⟨bfs, externsOfSigs extSigs, exits⟩
       BudgetEnv.sccStep BM (fun f as bs xs m Q X =>
@@ -1670,7 +1113,7 @@ theorem Chunk.sem_elim {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : 
     (h : c.sem extSigs Γ₀ f as bs xs m Q X) :
     (f, as, bs) ∈ c.fns.map Fn.sig ∨ ((f, as, bs) ∈ extSigs ∧ Γ₀ f as bs xs m Q X) := by
   cases c with
-  | acyc _ | recSCC _ _ _ _ _ _ =>
+  | acyc _ =>
       dsimp only [Chunk.sem, Env.sccStep] at h; rw [externsOfSigs_map_sig] at h
       rcases h with ⟨h1, _⟩ | ⟨h2, hΓ⟩; exact Or.inl h1; exact Or.inr ⟨h2, hΓ⟩
   | recBudgetSCC _ _ _ _ _ _ =>
@@ -1694,9 +1137,8 @@ theorem Chunk.sem_iff_of_not_mem {T : Target} {lt : LegalTarget} {exits : List S
 theorem Chunk.mem_sigBounds {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat}
     (c : Chunk T lt exits nX) {p : SigEntry × Nat} (hp : p ∈ c.sigBounds) :
     ∃ g ∈ c.fns, p = ((g.name, lt.legalSig g.as, lt.legalSig g.rs), c.bound g.name) := by
-  cases c <;> simp only [Chunk.sigBounds, Compiled.sigBounds, CompiledRec.sigBounds,
+  cases c <;> simp only [Chunk.sigBounds, Compiled.sigBounds,
     CompiledBudgetRec.sigBounds, sigBoundsBudgetRecOf, List.mem_map] at hp
-  · obtain ⟨g, hg, rfl⟩ := hp; exact ⟨g, hg, rfl⟩
   · obtain ⟨g, hg, rfl⟩ := hp; exact ⟨g, hg, rfl⟩
   · obtain ⟨b, hb, rfl⟩ := hp; exact ⟨b.toFn, List.mem_map_of_mem hb, rfl⟩
 
@@ -1720,20 +1162,6 @@ theorem semChunks_agree_earlier {T : Target} {lt : LegalTarget}
       rw [semChunks_agree_earlier cs (c.fns.map Fn.sig ++ extSigs) (c.sem extSigs Γ₀)
         hnot.2 (List.mem_append_right _ hmem) xs m Q X]
       exact c.sem_iff_of_not_mem hnot.1 hmem xs m Q X
-
-private theorem fnSpec_of_sccStep_onlyFn {T : Target} {h : T.mach.Host} {lt : LegalTarget}
-    {M : Module} (hnd : M.namesNodup) {Γrec Γext : Env} {g : Fn} (hg : g ∈ M.fns) {b nX : Nat}
-    (hspec : T.FnSpec h g.name
-      (legalEnv lt (Env.onlyFn g Γrec) g.name (lt.legalSig g.as) (lt.legalSig g.rs)) b nX) :
-    T.FnSpec h g.name
-      (legalEnv lt (Env.onlyFn g (Env.sccStep M Γrec Γext)) g.name
-        (lt.legalSig g.as) (lt.legalSig g.rs)) b nX := by
-  refine Target.FnSpec.of_spec T hspec fun args m0 Q X hleg => ?_
-  rcases hleg with ⟨as₀, bs₀, has₀, hbs₀, xs₀, P₀, E₀, hxs₀, hQ₀, hX₀, _, ha, hb, hstep⟩
-  subst ha; subst hb
-  rcases hstep with ⟨_, hsem⟩ | ⟨hmemE, _⟩
-  · exact ⟨g.as, g.rs, has₀, hbs₀, xs₀, P₀, E₀, hxs₀, hQ₀, hX₀, rfl, rfl, rfl, hsem⟩
-  · exact absurd hmemE (fn_name_not_mem_externs_mod hnd hg)
 
 private theorem chunk_step_wp {T : Target} {lt : LegalTarget} {exits : List Sym} {nX : Nat}
     (h : T.mach.Host) (c : Chunk T lt exits nX) (k₀ : Nat) (acc : List (SigEntry × Nat))
@@ -1794,19 +1222,6 @@ private theorem chunk_step_wp {T : Target} {lt : LegalTarget} {exits : List Sym}
       subst ha; subst hb
       exact ⟨g.as, g.rs, has₀, hbs₀, _, _, _, hxs₀, hQ₀, hX₀,
         List.mem_append_left _ (List.mem_map_of_mem hg), hΓn⟩
-  | recSCC ext fuel fs hints maxB cr =>
-      let M : Module := ⟨fs, externsOfSigs extSigs, exits⟩
-      let M_acc : CompiledRec T lt acc exits nX fuel fs hints maxB :=
-        { cr with compileModuleRec_eq :=
-            compileModuleRec_mono_lookupBound hcompat hdisj_c_ext cr.compileModuleRec_eq }
-      have hext_M : ∀ p ∈ acc, T.FnSpec h p.1.1
-          (legalEnv lt (Env.restrict Γcur (M.externs.map Extern.sig)) p.1.1 p.1.2.1 p.1.2.2)
-          p.2 nX := fun p hp => by rw [externsOfSigs_map_sig]; exact hacc p hp
-      have hres := link_scc_depth_lfp M_acc M rfl h Γcur k₀ hinf_c hu hcalls_c hwf hsupp
-        hext_M hacc_uniq hexits fuel (Nat.le_refl fuel)
-      have hMnd := Module.namesNodup_of_checkNamesNodup ((Bool.and_eq_true _ _).mp hcalls_c).1
-      intro g hg; obtain ⟨hdef, hspec⟩ := hres g hg
-      exact ⟨hdef, fnSpec_of_sccStep_onlyFn hMnd hg hspec⟩
   | recBudgetSCC ext bfs hints maxB expB cbr =>
       let BM : BudgetModule := ⟨bfs, externsOfSigs extSigs, exits⟩
       have hdisj_b : ∀ p ∈ acc, p.1.1 ∉ bfs.map (fun b => b.toFn.name) := fun p hp hm =>
