@@ -3,6 +3,8 @@ module
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssembly
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep1
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep10
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep10Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep1Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2Proof
@@ -78,6 +80,11 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityInlBase
 public import LeanQbe.T.Examples.Kissat.FullFidelityInlData
 public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
 public import LeanQbe.T.Examples.Kissat.FullFidelityInlProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep10
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofAnalyze
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofCong
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofLearn
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofMisc
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep2S15
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7BvaSpec

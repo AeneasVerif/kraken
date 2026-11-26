@@ -106,6 +106,38 @@ theorem fullVivSortFidSpec_monoX {xs : Tup Val [i64, i64]} {m : Mem 64}
     {Q : Post []} {X X' : XPost} (h : fullVivSortFidSpec xs m Q X) :
     fullVivSortFidSpec xs m Q X' := by rcases xs with ⟨_, _, ⟨⟩⟩; exact h
 
+theorem fullVivCollectFidSpec_intro {c : FullCfg} {F0 : CNF Nat} {s : FullState}
+    {R : Mem 64 → Prop} {h tier_mode : BitVec 64} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hh : h = c.hdr) (hsp : FullSparseInv c F0 s) (hm : (FullMem c s ⋆ R) m)
+    (hQ : ∀ bn rr' m',
+      bn.toNat ≤ c.red_cap → rr'.length = c.red_cap →
+      (∀ k < bn.toNat, (rr'[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s) →
+      (FullMem c { s with scratch := { s.scratch with red_refs := rr' } } ⋆ R) m' → Q (bn, ()) m') :
+    fullVivCollectFidSpec (h, tier_mode, ()) m Q X :=
+  ⟨c, F0, s, R, hh, hsp, hm, hQ⟩
+
+theorem fullVivCountFidSpec_intro {c : FullCfg} {F0 : CNF Nat} {s : FullState}
+    {R : Mem 64 → Prop} {h bn : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
+    (hh : h = c.hdr) (hsp : FullSparseInv c F0 s) (hbn : bn.toNat ≤ c.red_cap)
+    (hrr : ∀ k < bn.toNat, (s.scratch.red_refs[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s)
+    (hm : (FullMem c s ⋆ R) m)
+    (hQ : ∀ tr' m', tr'.length = 2 * c.max_vars →
+      (FullMem c { s with scratch := { s.scratch with tarjan_reach := tr' } } ⋆ R) m' → Q () m') :
+    fullVivCountFidSpec (h, bn, ()) m Q X :=
+  ⟨c, F0, s, R, hh, hsp, hbn, hrr, hm, hQ⟩
+
+theorem fullVivSortFidSpec_intro {c : FullCfg} {F0 : CNF Nat} {s : FullState}
+    {R : Mem 64 → Prop} {h bn : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
+    (hh : h = c.hdr) (hsp : FullSparseInv c F0 s) (hbn : bn.toNat ≤ c.red_cap)
+    (hrr : ∀ k < bn.toNat, (s.scratch.red_refs[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s)
+    (hm : (FullMem c s ⋆ R) m)
+    (hQ : ∀ rr' scr' m', rr'.length = c.red_cap → scr'.length = c.scratch_cap →
+      (∀ k < bn.toNat, (rr'[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s) →
+      (FullMem c { s with scratch := { s.scratch with red_refs := rr', scratch_buf := scr' } } ⋆ R)
+        m' → Q () m') :
+    fullVivSortFidSpec (h, bn, ()) m Q X :=
+  ⟨c, F0, s, R, hh, hsp, hbn, hrr, hm, hQ⟩
+
 end VivFidSpecs
 
 section VivFidProofs

@@ -154,6 +154,36 @@ theorem m7Deduce1uipHdrSpec_monoX {xs : Tup Val [i64]} {m : Mem 64}
     {Q : Post [i64]} {X X' : XPost} (h : m7Deduce1uipHdrSpec xs m Q X) :
     m7Deduce1uipHdrSpec xs m Q X' := by rcases xs with ⟨h0, ⟨⟩⟩; exact h
 
+theorem m7Deduce1uipHdrSpec_of {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {cut : Nat} {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hcut : FullCutInvW c F0 F_cur cut s)
+    (hlvl : 0 < s.core.cur_level) (hcf : FullConflictOkCut F_cur cut s)
+    (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ (r : BitVec 64) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
+      M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
+      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
+      (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
+      (r = 1#64 → FullOtfsInvW c F0 F_cur s' ∧ s'.core.cur_level = s.core.cur_level ∧
+        1 ≤ s'.core.tmp_len ∧ s'.core.tmp_len ≤ s'.core.cur_vars ∧
+        (List.map (fun x => x.toNat / 2) (List.take s'.core.tmp_len s'.core.tmp)).Nodup ∧
+        (∀ k, k < s'.core.tmp_len → let l := (s'.core.tmp[k]?.getD 0#32).toNat
+          l < 2 * s'.core.cur_vars ∧ s'.core.vals[l]?.getD 0#8 = 255#8) ∧
+        (∀ k, 1 ≤ k → k < s'.core.tmp_len →
+          let lv := (s'.core.lvl[(s'.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat
+          0 < lv ∧ lv < s'.core.cur_level) ∧
+        (s'.core.lvl[(s'.core.tmp[0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = s'.core.cur_level ∧
+        (cnfOfClauses F_cur).EntailsClause
+          (cnfClause (List.map BitVec.toNat (List.take s'.core.tmp_len s'.core.tmp)))) →
+      (r = 2#64 → ∃ cut', cut' ≤ s'.core.trail_end ∧ FullCutInvW c F0 F_cur cut' s' ∧
+        s'.core.cur_level = s.core.cur_level ∧ FullConflictOkCut F_cur cut' s') →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m') :
+    m7Deduce1uipHdrSpec (c.hdr, ()) m Q X :=
+  ⟨c, F0, F_cur, cut, ext, s, R, rfl, hcfg, hext, hcut, hlvl, hcf, hm, hQ⟩
+
 private theorem m6o_bv64_ite_iff {P Q : Prop} [Decidable P] [Decidable Q] (h : P ↔ Q) :
     (if P then (1#64 : BitVec 64) else 0#64) = BitVec.ofNat 64 (if Q then 1 else 0) := by
   by_cases hp : P

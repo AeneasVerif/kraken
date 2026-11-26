@@ -1,0 +1,13 @@
+# One per line: <module to import> <fully qualified constant>.
+# Kissat Fidelity Step 10 (`fidStep10Module` 505/505 UNSAT-only audit-closure layer).
+# Constant FQNs kept `<= 56c` so `#print axioms` stays single-line (`< 120c`) without wrapping.
+LeanQbeTest.T.KissatFidelityStep10Test LeanQbeTest.T.KissatFidelityStep10Test.fidStep10_cnf_def
+LeanQbeTest.T.KissatFidelityStep10Test LeanQbeTest.T.KissatFidelityStep10Test.fidStep10_shape
+LeanQbeTest.T.KissatFidelityStep10Test LeanQbeTest.T.KissatFidelityStep10Test.fidStep10_wf
+LeanQbeTest.T.KissatFidelityStep10Test LeanQbeTest.T.KissatFidelityStep10Test.fidStep10_acyc
+LeanQbeTest.T.KissatFidelityStep10Test LeanQbeTest.T.KissatFidelityStep10Test.fidStep10_env_nx
+LeanQbeTest.T.KissatFidelityStep10Test LeanQbeTest.T.KissatFidelityStep10Test.fidStep10_mod_ok
+LeanQbeTest.T.KissatFidelityStep10Test LeanQbeTest.T.KissatFidelityStep10Test.fidStep10_pkg_ok
+LeanQbeTest.T.KissatFidelityStep10Test LeanQbeTest.T.KissatFidelityStep10Test.fidStep10_unsat
+LeanQbeTest.T.KissatFidelityStep10Test LeanQbeTest.T.KissatFidelityStep10Test.fidStep10_host_ok
+LeanQbeTest.T.KissatFidelityStep10Test LeanQbeTest.T.KissatFidelityStep10Test.fidStep10_nv

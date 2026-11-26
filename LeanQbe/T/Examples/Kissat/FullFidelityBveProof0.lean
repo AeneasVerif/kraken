@@ -359,6 +359,11 @@ theorem fidBveK6MvSpec_noExit :
     ∀ xs m Q X, fidBveK6MvSpec xs m Q X → fidBveK6MvSpec xs m Q (fun _ _ _ _ => False) :=
   fun _ _ _ _ h => h
 
+theorem fidBveK6MvSpec_intro {cap : BitVec 64} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (hQ : Q (BitVec.ofNat 64 (fidK6MaxV cap.toNat), ()) m) :
+    fidBveK6MvSpec (cap, ()) m Q X :=
+  hQ
+
 /-- Contract for `full_fid_k6_add_ticks` (saturating `u32` update at `scr[4204]`). -/
 def fidK6AddTicksSpec : Spec [i64, i64] [] := fun (h, _delta, ()) m Q _ =>
   ∃ (c : FullCfg) (s : FullState) (R : Mem 64 → Prop),

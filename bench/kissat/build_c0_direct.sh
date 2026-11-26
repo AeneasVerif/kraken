@@ -24,8 +24,8 @@ DIFF_BASE=""
 usage() {
   cat <<'EOF'
 usage: bash bench/kissat/build_c0_direct.sh [options]
-  --target <fidelity|fidelity-step9|fidelity-step8|fidelity-step7|fidelity-step6|m8opt|plain|m7fidelity|m7plus|m7|m6|m5>
-                         Kissat C0 splice target (aliases: fid, step9, step8, opt, m8; default: auto)
+  --target <fidelity|fidelity-step10|fidelity-step9|fidelity-step8|fidelity-step7|fidelity-step6|m8opt|plain|m7fidelity|m7plus|m7|m6|m5>
+                         Kissat C0 splice target (aliases: fid, step10, step9, step8, opt, m8; default: auto)
   --out-dir <dir>        Output directory for sources/objects/binary (default: /tmp/kissat-c0direct)
   -o, --out <bin>        Output binary path (default: <out-dir>/bench_c0direct_<target>[_asan])
   --split-dir <dir>      Split-TU source directory (default in split mode: <out-dir>/split_<target>)
@@ -57,7 +57,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$TARGET" in
-  plain|fidelity|fid|fidelity-step9|step9|fidelity-step9-memshrink|step9-memshrink|\
+  plain|fidelity|fid|fidelity-step10|step10|\
+  fidelity-step9|step9|fidelity-step9-memshrink|step9-memshrink|\
   fidelity-step8|step8|fidelity-step7|fidelity-step6|fidelity-c0|m8opt|opt|m8|m5|m6|m7|\
   m7plus|m7fidelity|m7plus-memshrink|m7fidelity-memshrink) ;;
   *) echo "ERROR: unsupported --target '$TARGET'" >&2; exit 2 ;;

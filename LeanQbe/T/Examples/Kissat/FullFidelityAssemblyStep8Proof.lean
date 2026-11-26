@@ -1028,6 +1028,133 @@ theorem fidStep8_noCallBvaUpdLit_ok :
       have hr_mem := List.mem_of_find?_eq_some hr
       simpa [hr] using List.all_eq_true.mp fidStep8Repls_noCallBvaUpdLit r hr_mem
 
+-- Additive Step-10 callee, elim & slot lifts (`0` `import all` needed down-stream)
+theorem fidStep8Env_tickRel :
+    ∀ a m Q X, Full.fullTickRelSpec a m Q X → fidStep8Env "full_tick_rel" [i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_tickRel a m Q X hs)
+
+theorem fidStep8Env_emaUpdate :
+    ∀ a m Q X, Full.fullEmaUpdateSpec a m Q X →
+      fidStep8Env "full_ema_update" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_emaUpdate a m Q X hs)
+
+theorem fidStep8Env_assignLvl :
+    ∀ a m Q X, Full.fullAssignLvlSpec a m Q X →
+      fidStep8Env "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_assignLvl a m Q X hs)
+
+theorem fidStep8Env_addClause :
+    ∀ a m Q X, Full.fullAddClauseSpec a m Q X →
+      fidStep8Env "full_add_clause" [i64, i32, i32, .bool] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_addClause a m Q X hs)
+
+theorem fidStep8Env_restoreBumpAnaM6Hdr :
+    ∀ a m Q X, FullM6OrchAdapters.m6aRestoreBumpAnaSpecP FullM6Hdr.M6ExtW2bPres a m Q X →
+      fidStep8Env "full_restore_bump_ana_m6_hdr" [i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_restoreBumpAnaM6Hdr a m Q X hs)
+
+theorem fidStep8Env_anaFailedLitM6Hdr :
+    ∀ a m Q X, FullM6OrchAdapters.m6aAnaFailedLitSpecP FullM6Hdr.M6ExtW2bPres a m Q X →
+      fidStep8Env "full_ana_failed_lit_m6_hdr" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_anaFailedLitM6Hdr a m Q X hs)
+
+theorem fidStep8Env_minShrinkM6 :
+    ∀ a m Q X, FullM8CoreParity.m8MinShrinkSpec a m Q X →
+      fidStep8Env "full_min_shrink_m6" [i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_minShrinkM6 a m Q X hs)
+
+theorem fidStep8Env_deduce1uipM6Hdr :
+    ∀ a m Q X, FullM7Proof.m7Deduce1uipHdrSpec a m Q X →
+      fidStep8Env "full_deduce_1uip_m6_hdr" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_deduce1uipM6Hdr a m Q X hs)
+
+theorem fidStep8Env_detNewLevel :
+    ∀ a m Q X, Full.fullDetNewLevelSpec a m Q X →
+      fidStep8Env "full_det_new_level" [i64, i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_detNewLevel a m Q X hs)
+
+theorem fidStep8Env_oneLitConfl :
+    ∀ a m Q X, Full.fullOneLitConflSpec a m Q X →
+      fidStep8Env "full_one_lit_confl" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_oneLitConfl a m Q X hs)
+
+theorem fidStep8Env_eagerSubsume :
+    ∀ a m Q X, Full.fullEagerSubsumeSpec a m Q X →
+      fidStep8Env "full_eager_subsume" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_eagerSubsume a m Q X hs)
+
+theorem fidStep8Env_vivClauseM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivClauseM6Spec a m Q X →
+      fidStep8Env "full_viv_clause_m6" [i64, i32] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_vivClauseM6 a m Q X hs)
+
+theorem fidStep8Env_vivClearTierM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivClearTierM6Spec a m Q X →
+      fidStep8Env "full_viv_clear_tier_m6" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_vivClearTierM6 a m Q X hs)
+
+theorem fidStep8Env_vivCollectFid :
+    ∀ a m Q X, FullFidelityVivK6.fullVivCollectFidSpec a m Q X →
+      fidStep8Env "full_viv_collect_fid" [i64, i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_vivCollectFid a m Q X hs)
+
+theorem fidStep8Env_vivCountFid :
+    ∀ a m Q X, FullFidelityVivK6.fullVivCountFidSpec a m Q X →
+      fidStep8Env "full_viv_count_fid" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_vivCountFid a m Q X hs)
+
+theorem fidStep8Env_vivSortFid :
+    ∀ a m Q X, FullFidelityVivK6.fullVivSortFidSpec a m Q X →
+      fidStep8Env "full_viv_sort_fid" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_vivSortFid a m Q X hs)
+
+theorem fidStep8Env_bveK6MvFid :
+    ∀ a m Q X, FullFidelityBve.fidBveK6MvSpec a m Q X →
+      fidStep8Env "full_bve_k6_mv_fid" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_bveK6MvFid a m Q X hs)
+
+theorem fidStep8Env_k6ExtractSolveFid :
+    ∀ a m Q X, FullFidelityBve.fidK6ExtractSolveSpec a m Q X →
+      fidStep8Env "full_k6_extract_and_solve_fid"
+        [i64, i32, i32, i32, .bool, i32] [.bool] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_k6ExtractSolveFid a m Q X hs)
+
+theorem fidStep8Env_bveCertifyUnitFid :
+    ∀ a m Q X, FullFidelityBve.fidBveCertifyUnitSpec a m Q X →
+      fidStep8Env "full_bve_certify_unit_fid" [i64, i32, i32, i32, i32, i32] [.bool] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_bveCertifyUnitFid a m Q X hs)
+
+theorem fidStep8Env_elim_analyzeCoreM6 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep8Env "full_analyze_core_m6" [i64] [i64] xs m Q X) :
+    FullM6Hdr.m6HdrAnalyzeSpec xs m Q X :=
+  fidStep7Env_elim_analyzeCoreM6 (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8Env_elim_vivifyTierM6Hdr {xs : Tup Val [i64, i64, i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep8Env "full_vivify_tier_m6_hdr" [i64, i64, i64, i64] [i64] xs m Q X) :
+    FullM6OrchAdapters.m6aVivifyTierSpec xs m Q X :=
+  fidStep7Env_elim_vivifyTierM6Hdr (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8Env_elim_congHasClauseK {xs : Tup Val [i64, i32]} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (h : fidStep8Env "full_cong_has_clause_k" [i64, i32] [.bool] xs m Q X) :
+    FullM6CongSubst.m6CongHasClauseKSpec xs m Q X :=
+  fidStep7Env_elim_congHasClauseK (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8Env_elim_bveDefK6Fid {xs : Tup Val [i64, i32, i32, i32]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidStep8Env "full_bve_def_k6_fid" [i64, i32, i32, i32] [] xs m Q X) :
+    FullM8CoreParity.m8BveGatesSpec xs m Q (fun _ _ _ _ => False) :=
+  fidStep7Env_elim_bveDefK6Fid (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8_step10_sig_at {p : Nat × SigEntry} (hp : p ∈ fidStep7_step10_sigPairs) :
+    fidStep8Module.fns[p.1]?.map Fn.sig = some p.2 := by
+  have h1 : (fidStep8Module.fns.map Fn.sig)[p.1]? = some p.2 := by
+    rw [fidStep8Fns_map_sig, List.getElem?_map]
+    exact fidStep7_step10_sig_at hp
+  simpa [List.getElem?_map] using h1
+
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8
 
 end

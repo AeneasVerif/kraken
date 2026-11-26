@@ -1393,6 +1393,326 @@ def fidStep9UnsatPkg : KissatUnsatPkg :=
     fidStep9Env fidStep9_moduleOk fidStep9Env_noExit
     (fun _ _ _ _ hs => fidStep9Env_solve_bytes_of hs)
 
+/-! ## 5. Additive Thin Spec Interface for `fidStep9Env` (`0` `import all` Needed Down-Stream) -/
+
+def fidStep9BaseSpecTable : List SpecEntry :=
+  fidStep9Bundle.frontTable ++ fidStep9Bundle.baseTable
+
+theorem fidStep9Base_eq_env : Env.ofTable fidStep9BaseSpecTable = fidStep9Env := by
+  unfold fidStep9BaseSpecTable fidStep9Env patchEnv
+  rfl
+
+theorem fidStep9Base_moduleOk :
+    ModuleOk (Env.ofTable fidStep9BaseSpecTable) fidStep9Module :=
+  fidStep9_moduleOk
+
+theorem fidStep9Base_noExit :
+    ∀ f as bs xs m Q X X',
+      Env.ofTable fidStep9BaseSpecTable f as bs xs m Q X →
+      Env.ofTable fidStep9BaseSpecTable f as bs xs m Q X' :=
+  fidStep9Env_noExit
+
+theorem fidStep9BaseSpecTable_noExit :
+    fidStep9BaseSpecTable.all SpecEntry.noExit = true := by
+  unfold fidStep9BaseSpecTable
+  rw [List.all_append, Bool.and_eq_true]
+  exact ⟨by decide, fidStep8BaseSpecTable_noExit⟩
+
+theorem fidStep9Base_solve_bytes_of {a : Tup Val [i64, i64, i64, i64, i64]}
+    {m : Mem 64} {Q : Post [i64]} {X : XPost} :
+    m7FidSolveBytesSpec a m Q X →
+      Env.ofTable fidStep9BaseSpecTable "kissat_solve_bytes"
+        [i64, i64, i64, i64, i64] [i64] a m Q X :=
+  fidStep9Env_solve_bytes_of
+
+@[expose] def fidStep9PatchStrNames (nm : Sym) : List Sym :=
+  if nm == "full_zero_tables1" then ["full_fill_u64_m7", nm]
+  else if nm == "full_prop_flush_del_fid" then ["full_prop_flush_slow_fid", nm]
+  else if nm == "full_rebuild_watches" then ["full_rebuild_watches_nosort_fid", nm]
+  else [nm]
+
+@[expose] def fidStep9FnNames : List Sym :=
+  fidStep7FnNames.flatMap fidStep9PatchStrNames
+
+theorem fidStep9Module_map_name :
+    fidStep9Module.fns.map Fn.name = fidStep9FnNames := by
+  rw [fidStep9Fns_eq]
+  exact fidStep9_map_name
+
+theorem fidStep9Env_wstackDefrag :
+    ∀ a m Q X, Full.fullWstackDefragSpec a m Q X →
+      fidStep9Env "full_wstack_defrag" [i64] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_wstackDefrag a m Q X hs)
+
+theorem fidStep9Env_tickRel :
+    ∀ a m Q X, Full.fullTickRelSpec a m Q X → fidStep9Env "full_tick_rel" [i64] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_tickRel a m Q X hs)
+
+theorem fidStep9Env_emaUpdate :
+    ∀ a m Q X, Full.fullEmaUpdateSpec a m Q X →
+      fidStep9Env "full_ema_update" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_emaUpdate a m Q X hs)
+
+theorem fidStep9Env_assignLvl :
+    ∀ a m Q X, Full.fullAssignLvlSpec a m Q X →
+      fidStep9Env "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_assignLvl a m Q X hs)
+
+theorem fidStep9Env_backtrack :
+    ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
+      fidStep9Env "full_backtrack" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_backtrack a m Q X hs)
+
+theorem fidStep9Env_addClause :
+    ∀ a m Q X, Full.fullAddClauseSpec a m Q X →
+      fidStep9Env "full_add_clause" [i64, i32, i32, .bool] [i64] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_addClause a m Q X hs)
+
+theorem fidStep9Env_propagate :
+    ∀ a m Q X, FullM6BcpS15.fullBcpS15Spec a m Q X →
+      fidStep9Env "full_propagate" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_propagate a m Q X hs)
+
+theorem fidStep9Env_arenaSweep :
+    ∀ a m Q X, Full.fullArenaSweepSpec a m Q X →
+      fidStep9Env "full_arena_sweep" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_arenaSweep a m Q X hs)
+
+theorem fidStep9Env_reduceM6 :
+    ∀ a m Q X, m6ReduceSpec a m Q X →
+      fidStep9Env "full_reduce_m6" [i64, .bool] [i64] a m Q X :=
+  fid9_frontRow 2 "full_reduce_m6" m6ReduceSpec rfl (fun _ _ _ _ h => m6ReduceSpec_monoX h)
+
+theorem fidStep9Env_restoreBumpAnaM6Hdr :
+    ∀ a m Q X, m6aRestoreBumpAnaSpecP M6ExtW2bPres a m Q X →
+      fidStep9Env "full_restore_bump_ana_m6_hdr" [i64] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_restoreBumpAnaM6Hdr a m Q X hs)
+
+theorem fidStep9Env_anaFailedLitM6Hdr :
+    ∀ a m Q X, m6aAnaFailedLitSpecP M6ExtW2bPres a m Q X →
+      fidStep9Env "full_ana_failed_lit_m6_hdr" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_anaFailedLitM6Hdr a m Q X hs)
+
+theorem fidStep9Env_minShrinkM6 :
+    ∀ a m Q X, FullM8CoreParity.m8MinShrinkSpec a m Q X →
+      fidStep9Env "full_min_shrink_m6" [i64] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_minShrinkM6 a m Q X hs)
+
+theorem fidStep9Env_deduce1uipM6Hdr :
+    ∀ a m Q X, FullM7Proof.m7Deduce1uipHdrSpec a m Q X →
+      fidStep9Env "full_deduce_1uip_m6_hdr" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_deduce1uipM6Hdr a m Q X hs)
+
+theorem fidStep9Env_detNewLevel :
+    ∀ a m Q X, Full.fullDetNewLevelSpec a m Q X →
+      fidStep9Env "full_det_new_level" [i64, i64] [i64] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_detNewLevel a m Q X hs)
+
+theorem fidStep9Env_oneLitConfl :
+    ∀ a m Q X, Full.fullOneLitConflSpec a m Q X →
+      fidStep9Env "full_one_lit_confl" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_oneLitConfl a m Q X hs)
+
+theorem fidStep9Env_eagerSubsume :
+    ∀ a m Q X, Full.fullEagerSubsumeSpec a m Q X →
+      fidStep9Env "full_eager_subsume" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_eagerSubsume a m Q X hs)
+
+theorem fidStep9Env_vivClauseM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivClauseM6Spec a m Q X →
+      fidStep9Env "full_viv_clause_m6" [i64, i32] [i64] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_vivClauseM6 a m Q X hs)
+
+theorem fidStep9Env_vivClearTierM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivClearTierM6Spec a m Q X →
+      fidStep9Env "full_viv_clear_tier_m6" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_vivClearTierM6 a m Q X hs)
+
+theorem fidStep9Env_vivCollectFid :
+    ∀ a m Q X, FullFidelityVivK6.fullVivCollectFidSpec a m Q X →
+      fidStep9Env "full_viv_collect_fid" [i64, i64] [i64] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_vivCollectFid a m Q X hs)
+
+theorem fidStep9Env_vivCountFid :
+    ∀ a m Q X, FullFidelityVivK6.fullVivCountFidSpec a m Q X →
+      fidStep9Env "full_viv_count_fid" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_vivCountFid a m Q X hs)
+
+theorem fidStep9Env_vivSortFid :
+    ∀ a m Q X, FullFidelityVivK6.fullVivSortFidSpec a m Q X →
+      fidStep9Env "full_viv_sort_fid" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_vivSortFid a m Q X hs)
+
+theorem fidStep9Env_bveK6MvFid :
+    ∀ a m Q X, FullFidelityBve.fidBveK6MvSpec a m Q X →
+      fidStep9Env "full_bve_k6_mv_fid" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_bveK6MvFid a m Q X hs)
+
+theorem fidStep9Env_k6ExtractSolveFid :
+    ∀ a m Q X, FullFidelityBve.fidK6ExtractSolveSpec a m Q X →
+      fidStep9Env "full_k6_extract_and_solve_fid"
+        [i64, i32, i32, i32, .bool, i32] [.bool] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_k6ExtractSolveFid a m Q X hs)
+
+theorem fidStep9Env_bveCertifyUnitFid :
+    ∀ a m Q X, FullFidelityBve.fidBveCertifyUnitSpec a m Q X →
+      fidStep9Env "full_bve_certify_unit_fid" [i64, i32, i32, i32, i32, i32] [.bool] a m Q X :=
+  fun a m Q X hs => fid9_of_step8 (by decide) (fidStep8Env_bveCertifyUnitFid a m Q X hs)
+
+private theorem fidStep9_peel_from_base {f : Sym} {as bs : List Ty}
+    (hf9 : !(fidStep9FrontNames.contains f) = true := by decide)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep9Env f as bs xs m Q X) :
+    fidStep8Env f as bs xs m Q X := by
+  change patchEnv fidStep9Bundle f as bs xs m Q X at h
+  rw [patchEnv_base_eq fidStep9Bundle (fidStep9_front_none_of_names hf9)] at h
+  dsimp only [fidStep9Bundle] at h
+  rwa [fidStep8Base_eq_env] at h
+
+theorem fidStep9Env_elim_analyzeCoreM6 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep9Env "full_analyze_core_m6" [i64] [i64] xs m Q X) :
+    m6HdrAnalyzeSpec xs m Q X :=
+  fidStep8Env_elim_analyzeCoreM6 (fidStep9_peel_from_base (by decide) h)
+
+theorem fidStep9Env_elim_vivifyTierM6Hdr {xs : Tup Val [i64, i64, i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep9Env "full_vivify_tier_m6_hdr" [i64, i64, i64, i64] [i64] xs m Q X) :
+    m6aVivifyTierSpec xs m Q X :=
+  fidStep8Env_elim_vivifyTierM6Hdr (fidStep9_peel_from_base (by decide) h)
+
+theorem fidStep9Env_elim_rebuildWatchesNosort {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep9Env "full_rebuild_watches_nosort_fid" [i64] [i64] xs m Q X) :
+    Full.fullRebuildWatchesSpec xs m Q X := by
+  have hfind : fidStep9Bundle.frontTable.find? (·.name == "full_rebuild_watches_nosort_fid") =
+      some fidStep9BeforeRows[2] := rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h
+
+theorem fidStep9Env_elim_congHasClauseK {xs : Tup Val [i64, i32]} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (h : fidStep9Env "full_cong_has_clause_k" [i64, i32] [.bool] xs m Q X) :
+    FullM6CongSubst.m6CongHasClauseKSpec xs m Q X :=
+  fidStep8Env_elim_congHasClauseK (fidStep9_peel_from_base (by decide) h)
+
+theorem fidStep9Env_elim_bveDefK6Fid {xs : Tup Val [i64, i32, i32, i32]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidStep9Env "full_bve_def_k6_fid" [i64, i32, i32, i32] [] xs m Q X) :
+    FullM8CoreParity.m8BveGatesSpec xs m Q (fun _ _ _ _ => False) :=
+  fidStep8Env_elim_bveDefK6Fid (fidStep9_peel_from_base (by decide) h)
+
+private theorem fidStep9_shift_check :
+    (List.range 502).all (fun i =>
+      ((fidStep7FnNames.take i).flatMap patchStrNames).length ==
+        i + (if i ≤ 42 then 0 else if i ≤ 84 then 1 else if i ≤ 247 then 2 else 3)) = true := by
+  t_kernel_rfl
+
+private theorem fidStep9_shift_len {i : Nat} (hi : i ≤ 501) :
+    ((fidStep7FnNames.take i).flatMap patchStrNames).length =
+      i + (if i ≤ 42 then 0 else if i ≤ 84 then 1 else if i ≤ 247 then 2 else 3) := by
+  have h := List.all_eq_true.mp fidStep9_shift_check i (List.mem_range.mpr (by omega))
+  exact beq_iff_eq.mp h
+
+private theorem fidStep9_patchFns_append (xs ys : List Fn) :
+    patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores (xs ++ ys) =
+      patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores xs ++
+      patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores ys := by
+  unfold patchFns; exact List.flatMap_append
+
+theorem fidStep9_slot_of_step8 {i j : Nat} {s : SigEntry}
+    (h8 : fidStep8Module.fns[i]?.map Fn.sig = some s)
+    (hne : s.1 ≠ "full_bva_upd_lit_fid")
+    (hni : s.1 ≠ "full_zero_tables1" ∧ s.1 ≠ "full_prop_flush_del_fid" ∧
+      s.1 ≠ "full_rebuild_watches")
+    (hj : j = i + (if i ≤ 42 then 0 else if i ≤ 84 then 1 else if i ≤ 247 then 2 else 3)) :
+    fidStep9Module.fns[j]?.map Fn.sig = some s := by
+  cases hg : fidStep8Module.fns[i]? with
+  | none => simp [hg] at h8
+  | some g =>
+    simp only [hg, Option.map_some, Option.some.injEq] at h8
+    have hi_lt : i < fidStep8Module.fns.length :=
+      Nat.lt_of_not_le fun hge => by rw [List.getElem?_eq_none hge] at hg; cases hg
+    have hlen8 : fidStep8Module.fns.length = 501 := by rw [fidStep8Fns_eq]; exact fidStep8Fns_length
+    have hsplit : fidStep8Module.fns =
+        fidStep8Module.fns.take i ++ g :: fidStep8Module.fns.drop (i + 1) := by
+      have hd := List.take_append_drop i fidStep8Module.fns
+      rw [drop_eq_cons_9 hg] at hd; exact hd.symm
+    have hgnm : g.name = s.1 := congrArg Prod.fst h8
+    have hins : patchInsAt FullFidelityStep9.fidStep9Befores g = [] := by
+      unfold patchInsAt FullFidelityStep9.fidStep9Befores
+      have h1 : ("full_zero_tables1" == g.name) = false :=
+        beq_false_of_ne (Ne.symm (hgnm ▸ hni.1))
+      have h2 : ("full_prop_flush_del_fid" == g.name) = false :=
+        beq_false_of_ne (Ne.symm (hgnm ▸ hni.2.1))
+      have h3 : ("full_rebuild_watches" == g.name) = false :=
+        beq_false_of_ne (Ne.symm (hgnm ▸ hni.2.2))
+      simp [List.find?, h1, h2, h3]
+    have hpf : fidStep9Module.fns =
+        patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+          (fidStep8Module.fns.take i) ++
+        ((FullFidelityStep9.fidStep9Repls.find? (·.name == g.name)).getD g) ::
+        patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+          (fidStep8Module.fns.drop (i + 1)) := by
+      have h1 : fidStep9Module.fns =
+          patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+            (fidStep8Module.fns.take i ++ g :: fidStep8Module.fns.drop (i + 1)) :=
+        congrArg (patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores) hsplit
+      rw [h1, fidStep9_patchFns_append]
+      simp [patchFns, hins]
+    have hpre_len : (patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+        (fidStep8Module.fns.take i)).length = j := by
+      rw [← List.length_map Fn.name, patchFns_map_name, List.map_take, fidStep8Module_map_name,
+        fidStep9_shift_len (by omega), hj]
+    have hget9 : fidStep9Module.fns[j]? =
+        some ((FullFidelityStep9.fidStep9Repls.find? (·.name == g.name)).getD g) := by
+      rw [hpf, ← hpre_len, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self,
+        List.getElem?_cons_zero]
+    rw [hget9, Option.map_some]
+    cases hr : FullFidelityStep9.fidStep9Repls.find? (·.name == g.name) with
+    | none => simp [h8]
+    | some r =>
+      have hrnm : r.name = g.name :=
+        beq_iff_eq.mp (List.find?_some (p := fun y : Fn => y.name == g.name) hr)
+      have hsig := fidStep9Module_replSigs_except_updLit r (List.mem_of_find?_eq_some hr)
+        (hrnm.trans hgnm ▸ hne) g (List.mem_of_getElem? hg) hrnm
+      simp [hsig, h8]
+
+theorem fidStep9_slot_rebuildWatchesNosort :
+    fidStep9Module.fns[249]?.map Fn.sig =
+      some ("full_rebuild_watches_nosort_fid", [i64], [i64]) := by
+  obtain ⟨g, _, hg, hsg⟩ := fidStep9_slot8
+    (i := 247) (s := ("full_rebuild_watches", [i64], [i64])) (by decide)
+  have hgnm : g.name = "full_rebuild_watches" := congrArg Prod.fst hsg
+  have hsplit : fidStep8Module.fns =
+      fidStep8Module.fns.take 247 ++ g :: fidStep8Module.fns.drop 248 := by
+    have hd := List.take_append_drop 247 fidStep8Module.fns
+    rw [drop_eq_cons_9 hg] at hd; exact hd.symm
+  have hins : patchInsAt FullFidelityStep9.fidStep9Befores g =
+      [fidStep9RebuildWatchesNosortFn] := by
+    unfold patchInsAt FullFidelityStep9.fidStep9Befores
+    simp [List.find?, hgnm]
+  have hpf : fidStep9Module.fns =
+      patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+        (fidStep8Module.fns.take 247) ++
+      fidStep9RebuildWatchesNosortFn ::
+      (((FullFidelityStep9.fidStep9Repls.find? (·.name == g.name)).getD g) ::
+        patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+          (fidStep8Module.fns.drop 248)) := by
+    have h1 : fidStep9Module.fns =
+        patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+          (fidStep8Module.fns.take 247 ++ g :: fidStep8Module.fns.drop 248) :=
+      congrArg (patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores) hsplit
+    rw [h1, fidStep9_patchFns_append]
+    simp [patchFns, hins]
+  have hpre_len : (patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+      (fidStep8Module.fns.take 247)).length = 249 := by
+    rw [← List.length_map Fn.name, patchFns_map_name, List.map_take, fidStep8Module_map_name,
+      fidStep9_shift_len (by decide)]
+    decide
+  rw [hpf, ← hpre_len, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self,
+    List.getElem?_cons_zero]
+  rfl
+
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
 
 end
