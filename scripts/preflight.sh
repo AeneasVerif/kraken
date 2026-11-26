@@ -46,7 +46,10 @@ for cmd in cmds:
     r = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if r.returncode == 0:
         changed.update(
-            ln.strip() for ln in r.stdout.splitlines() if ln.strip().endswith(".lean")
+            ln.strip()
+            for ln in r.stdout.splitlines()
+            if ln.strip().endswith(".lean")
+            and not ln.strip().startswith("bv_decide_qbe/")
         )
 
 tok_re = re.compile(

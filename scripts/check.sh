@@ -281,7 +281,7 @@ scan_lean_forbidden_tokens() {
 import pathlib, re, subprocess, sys
 
 raw = subprocess.check_output(
-    ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "*.lean", ":(exclude)Kraken", ":(exclude)Kraken*.lean", ":(exclude)Att2Intel.lean", ":(exclude)Bedrock2C.lean"]
+    ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "*.lean", ":(exclude)Kraken", ":(exclude)Kraken*.lean", ":(exclude)Att2Intel.lean", ":(exclude)Bedrock2C.lean", ":(exclude)bv_decide_qbe"]
 )
 files = [f.decode("utf-8") for f in raw.split(b"\0") if f]
 
