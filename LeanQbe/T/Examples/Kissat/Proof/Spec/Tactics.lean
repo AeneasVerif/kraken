@@ -14,6 +14,7 @@ public import LeanQbe.T.Module
 public import LeanQbe.T.Logic.C0Agrees
 public import Kraken.Mem
 public import Kraken.Separation
+meta import Lean.Elab.Command
 
 /-!
 # Kissat `M6` / `M7` Proof Simplification & Combinator Library (`Proof.Spec.Tactics`)
@@ -38,59 +39,6 @@ open LeanQbe.T.Examples.Kissat.Src
 open Kraken.Bedrock2.Test
 
 /-! ## 1. Opaque `FullState` / `FullScratch` / `M6Hdr` Record-Update Abstraction -/
-
-/-- Construct `FullScratch.LengthsOk c sc'` solely from list lengths matching `sc`,
-avoiding struct `whnf` on unmodified fields. -/
-theorem fullScratch_lengthsOk_of_arr_len {c : FullCfg} {sc sc' : FullScratch}
-    (h : sc.LengthsOk c)
-    (h0 : sc'.walk_vals.length = sc.walk_vals.length)
-    (h1 : sc'.phases.length = sc.phases.length)
-    (h2 : sc'.phases_target.length = sc.phases_target.length)
-    (h3 : sc'.phases_best.length = sc.phases_best.length)
-    (h4 : sc'.walk_best.length = sc.walk_best.length)
-    (h5 : sc'.heap.length = sc.heap.length)
-    (h6 : sc'.pos.length = sc.pos.length)
-    (h7 : sc'.shrink_stk.length = sc.shrink_stk.length)
-    (h8 : sc'.q_prev.length = sc.q_prev.length)
-    (h9 : sc'.q_next.length = sc.q_next.length)
-    (h10 : sc'.q_stamp.length = sc.q_stamp.length)
-    (h11 : sc'.wsort.length = sc.wsort.length)
-    (h12 : sc'.work_stk1.length = sc.work_stk1.length)
-    (h13 : sc'.work_stk2.length = sc.work_stk2.length)
-    (h14 : sc'.tarjan_mark.length = sc.tarjan_mark.length)
-    (h15 : sc'.tarjan_reach.length = sc.tarjan_reach.length)
-    (h16 : sc'.score.length = sc.score.length)
-    (h17 : sc'.sim_sig.length = sc.sim_sig.length)
-    (h18 : sc'.glue_used.length = sc.glue_used.length)
-    (h19 : sc'.last_learned.length = sc.last_learned.length)
-    (h20 : sc'.delayed.length = sc.delayed.length)
-    (h21 : sc'.red_refs.length = sc.red_refs.length)
-    (h22 : sc'.extend_stk.length = sc.extend_stk.length)
-    (h23 : sc'.scratch_buf.length = sc.scratch_buf.length) : sc'.LengthsOk c :=
-  { walk_vals_len := h0.trans h.walk_vals_len
-    phases_len := h1.trans h.phases_len
-    phases_target_len := h2.trans h.phases_target_len
-    phases_best_len := h3.trans h.phases_best_len
-    walk_best_len := h4.trans h.walk_best_len
-    heap_len_arr := h5.trans h.heap_len_arr
-    pos_len := h6.trans h.pos_len
-    shrink_stk_len := h7.trans h.shrink_stk_len
-    q_prev_len := h8.trans h.q_prev_len
-    q_next_len := h9.trans h.q_next_len
-    q_stamp_len := h10.trans h.q_stamp_len
-    wsort_len := h11.trans h.wsort_len
-    work_stk1_len := h12.trans h.work_stk1_len
-    work_stk2_len := h13.trans h.work_stk2_len
-    tarjan_mark_len := h14.trans h.tarjan_mark_len
-    tarjan_reach_len := h15.trans h.tarjan_reach_len
-    score_len := h16.trans h.score_len
-    sim_sig_len := h17.trans h.sim_sig_len
-    glue_used_len := h18.trans h.glue_used_len
-    last_learned_len := h19.trans h.last_learned_len
-    delayed_len_arr := h20.trans h.delayed_len_arr
-    red_refs_len := h21.trans h.red_refs_len
-    extend_stk_len := h22.trans h.extend_stk_len
-    scratch_buf_len := h23.trans h.scratch_buf_len }
 
 theorem fullExtScratchPres_refl (s : FullState) : FullExtScratchPres s s :=
   ⟨rfl, rfl⟩
@@ -213,285 +161,150 @@ theorem m6ExtW2bPres_set_delayCnt {ext : List (BitVec 64)} {k : Nat} (v : BitVec
     M6ExtW2bPres ext (ext.set (m6WDelayCnt + k) v) :=
   M6ExtW2bPres.set_ge8 v (by dsimp [m6WDelayCnt]; omega)
 
-/-- Shared private builder for `FullScratch` scalar updates that preserve all 24 list lengths,
-`FullProbeScratchPres`, and delayed fields. -/
-private theorem probeStep_of_lists_eq {c : FullCfg} {s : FullState} {sc' : FullScratch}
-    (hs : s.LengthsOk c)
-    (h0 : sc'.walk_vals = s.scratch.walk_vals)
-    (h1 : sc'.phases = s.scratch.phases)
-    (h2 : sc'.phases_target = s.scratch.phases_target)
-    (h3 : sc'.phases_best = s.scratch.phases_best)
-    (h4 : sc'.walk_best = s.scratch.walk_best)
-    (h5 : sc'.heap = s.scratch.heap)
-    (h6 : sc'.pos = s.scratch.pos)
-    (h7 : sc'.shrink_stk = s.scratch.shrink_stk)
-    (h8 : sc'.q_prev = s.scratch.q_prev)
-    (h9 : sc'.q_next = s.scratch.q_next)
-    (h10 : sc'.q_stamp = s.scratch.q_stamp)
-    (h11 : sc'.wsort = s.scratch.wsort)
-    (h12 : sc'.work_stk1 = s.scratch.work_stk1)
-    (h13 : sc'.work_stk2 = s.scratch.work_stk2)
-    (h14 : sc'.tarjan_mark = s.scratch.tarjan_mark)
-    (h15 : sc'.tarjan_reach = s.scratch.tarjan_reach)
-    (h16 : sc'.score = s.scratch.score)
-    (h17 : sc'.sim_sig = s.scratch.sim_sig)
-    (h18 : sc'.glue_used = s.scratch.glue_used)
-    (h19 : sc'.last_learned = s.scratch.last_learned)
-    (h20 : sc'.delayed = s.scratch.delayed)
-    (h21 : sc'.red_refs = s.scratch.red_refs)
-    (h22 : sc'.extend_stk = s.scratch.extend_stk)
-    (h23 : sc'.scratch_buf = s.scratch.scratch_buf)
-    (hel : sc'.extend_len = s.scratch.extend_len)
-    (hant : sc'.ant_sz = s.scratch.ant_sz)
-    (hres : sc'.res_sz = s.scratch.res_sz)
-    (hdl : sc'.delayed_len = s.scratch.delayed_len) :
-    let s' : FullState := { s with scratch := sc' }
+/-- Scratch header fields whose mutation preserves `FullCoreState`, `LengthsOk`,
+`FullProbeScratchPres`, and `delayed`/`delayed_len` (`59` fields). -/
+@[expose] def HdrWordField.isScrPres : HdrWordField → Bool
+  | .heap_len | .scinc | .rel_period | .rel_limit | .rel_wait | .rel_u | .rel_v | .rel_trigger
+  | .conflicts | .learned_lits | .min_removed | .stable | .switched | .mode_count
+  | .mode_confl_lim | .mode_tick_lim | .mode_saved_ticks | .search_ticks | .q_first | .q_last
+  | .q_search_idx | .q_search_stamp | .q_cur_stamp | .target_assigned | .best_assigned
+  | .rephase_limit | .rephased | .reduce_limit | .reductions | .tier1 | .tier2 | .restarts
+  | .restart_limit | .ema_fast_biased | .ema_fast_exp | .ema_slow_biased | .ema_slow_exp
+  | .rng_state | .chrono_levels | .otfs_cnt | .eager_sub_cnt | .probe_limit | .probings
+  | .elim_limit | .eliminations | .elim_bound | .iterating | .hbr_cnt | .trans_cnt | .viv_cnt
+  | .subst_cnt | .cong_cnt | .sweep_cnt | .bve_cnt | .bce_cnt | .bva_cnt | .walk_cnt_stat
+  | .fwd_sub_cnt | .fwd_str_cnt => true
+  | _ => false
+
+/-- Generic frame step for any probe-preserving scratch `HdrWordField` (`59` fields). -/
+theorem fullState_upd_scrHdr_step (f : HdrWordField) (hp : f.isScrPres = true)
+    {c : FullCfg} {s : FullState} (hs : s.LengthsOk c) (v : BitVec 64) :
+    let s' : FullState := f.set s v
     s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
       s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  let hlen : sc'.LengthsOk c := fullScratch_lengthsOk_of_arr_len hs.2
-    (congrArg List.length h0) (congrArg List.length h1) (congrArg List.length h2)
-    (congrArg List.length h3) (congrArg List.length h4) (congrArg List.length h5)
-    (congrArg List.length h6) (congrArg List.length h7) (congrArg List.length h8)
-    (congrArg List.length h9) (congrArg List.length h10) (congrArg List.length h11)
-    (congrArg List.length h12) (congrArg List.length h13) (congrArg List.length h14)
-    (congrArg List.length h15) (congrArg List.length h16) (congrArg List.length h17)
-    (congrArg List.length h18) (congrArg List.length h19) (congrArg List.length h20)
-    (congrArg List.length h21) (congrArg List.length h22) (congrArg List.length h23)
-  ⟨⟨hs.1, hlen⟩, rfl, ⟨⟨h19, hel⟩, h12, h13, h14, h23, hant, hres, h17⟩, hdl, h20⟩
+      s'.scratch.delayed = s.scratch.delayed := by
+  cases f <;> first
+    | (simp [HdrWordField.isScrPres] at hp; done)
+    | exact ⟨⟨hs.1, { hs.2 with walk_vals_len := hs.2.walk_vals_len }⟩, rfl,
+        ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, rfl⟩
 
-/- Single-field and grouped `FullScratch` update lemmas. -/
+/-- Generic `FullM6HdrInv` preservation for any probe-preserving scratch `HdrWordField`. -/
+theorem fullM6HdrInv_upd_scrHdr (f : HdrWordField) (hp : f.isScrPres = true)
+    {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)} {s : FullState}
+    (h : FullM6HdrInv c F0 ext s) (v : BitVec 64) :
+    FullM6HdrInv c F0 ext (f.set s v) :=
+  fullM6HdrInv_of_probeStep h (fullState_upd_scrHdr_step f hp h.sparse.lengths v)
 
-theorem fullState_upd_search_ticks_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (v : BitVec 64) :
-    let s' : FullState := { s with scratch := { s.scratch with search_ticks := v } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+/- Generated single-field, grouped-scalar, and array `FullScratch` frame lemmas (zero 24-`rfl`
+boilerplate). -/
+section GenUpdLemmas
+open Lean Elab Command
 
-theorem fullState_upd_tier1_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (v : BitVec 64) :
-    let s' : FullState := { s with scratch := { s.scratch with tier1 := v } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+private meta def elabUpdCmd (tag src : String) : CommandElabM Unit := do
+  match Parser.runParserCategory (← getEnv) `command src tag with
+  | .ok stx => elabCommand stx
+  | .error err => throwError "{tag}: failed to parse: {err}\n{src}"
 
-theorem fullState_upd_tier2_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (v : BitVec 64) :
-    let s' : FullState := { s with scratch := { s.scratch with tier2 := v } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+local elab "gen_full_state_upd_lemmas!" : command => do
+  -- 1. Grouped & single scalar `FullScratch` updates (`11` `*_step` + `5` `fullM6HdrInv_upd_*`)
+  let scalarSpecs : Array (String × List (String × String) × Bool) := #[
+    ("search_ticks", [("search_ticks", "v")], true),
+    ("tier1", [("tier1", "v")], true),
+    ("tier2", [("tier2", "v")], true),
+    ("tiers", [("tier1", "t1"), ("tier2", "t2")], false),
+    ("ema", [("ema_fast_biased", "fb"), ("ema_fast_exp", "fe"),
+             ("ema_slow_biased", "sb"), ("ema_slow_exp", "se")], true),
+    ("rng_state", [("rng_state", "v")], true),
+    ("restarts", [("restarts", "r"), ("restart_limit", "rl")], false),
+    ("mode", [("stable", "stb"), ("switched", "swt"), ("mode_count", "mc"),
+              ("mode_confl_lim", "mcl"), ("mode_tick_lim", "mtl"),
+              ("mode_saved_ticks", "mst")], false),
+    ("probe", [("probe_limit", "pl"), ("probings", "pr")], false),
+    ("elim", [("elim_limit", "el"), ("eliminations", "ec"), ("elim_bound", "eb")], false),
+    ("rel", [("rel_period", "rp"), ("rel_limit", "rl"), ("rel_wait", "rw"),
+             ("rel_u", "ru"), ("rel_v", "rv"), ("rel_trigger", "rt")], false)
+  ]
+  for (nm, flds, emitInv) in scalarSpecs do
+    let vars := String.intercalate " " (flds.map (·.2))
+    let assigns := String.intercalate ", " (flds.map fun (f, v) => s!"{f} := {v}")
+    let sUpd := s!"\{ s with scratch := \{ s.scratch with {assigns} } }"
+    elabUpdCmd nm <|
+      s!"theorem fullState_upd_{nm}_step \{c : FullCfg} \{s : FullState} " ++
+      s!"(hs : s.LengthsOk c) ({vars} : BitVec 64) :\n" ++
+      s!"    let s' : FullState := {sUpd}\n" ++
+      s!"    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧\n" ++
+      s!"      s'.scratch.delayed_len = s.scratch.delayed_len ∧\n" ++
+      s!"      s'.scratch.delayed = s.scratch.delayed :=\n" ++
+      s!"  ⟨⟨hs.1, \{ hs.2 with walk_vals_len := hs.2.walk_vals_len }⟩, rfl,\n" ++
+      s!"    ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, rfl⟩"
+    if emitInv then
+      elabUpdCmd (nm ++ "_inv") <|
+        s!"theorem fullM6HdrInv_upd_{nm} \{c : FullCfg} \{F0 : CNF Nat}\n" ++
+        s!"    \{ext : List (BitVec 64)} \{s : FullState} " ++
+        s!"(h : FullM6HdrInv c F0 ext s) ({vars} : BitVec 64) :\n" ++
+        s!"    FullM6HdrInv c F0 ext {sUpd} :=\n" ++
+        s!"  fullM6HdrInv_of_probeStep h (fullState_upd_{nm}_step h.sparse.lengths {vars})"
+  -- 2. Array `FullScratch` updates (`6` `*_step` + `8` `fullM6HdrInv_upd_*[_set]`)
+  let arrProbeSpecs : Array (String × String × String × String) := #[
+    ("glue_used", "gu'", "hg", "glue_used_len"),
+    ("wsort", "ws'", "hw", "wsort_len")
+  ]
+  for (nm, v, hv, lf) in arrProbeSpecs do
+    let sUpd := s!"\{ s with scratch := \{ s.scratch with {nm} := {v} } }"
+    elabUpdCmd nm <|
+      s!"theorem fullState_upd_{nm}_step \{c : FullCfg} \{s : FullState}\n" ++
+      s!"    (hs : s.LengthsOk c) \{{v} : List (BitVec 32)}\n" ++
+      s!"    ({hv} : {v}.length = s.scratch.{nm}.length) :\n" ++
+      s!"    let s' : FullState := {sUpd}\n" ++
+      s!"    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧\n" ++
+      s!"      s'.scratch.delayed_len = s.scratch.delayed_len ∧\n" ++
+      s!"      s'.scratch.delayed = s.scratch.delayed :=\n" ++
+      s!"  ⟨⟨hs.1, \{ hs.2 with {lf} := {hv}.trans hs.2.{lf} }⟩, rfl,\n" ++
+      s!"    ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, rfl⟩"
+  let arrExtSpecs : Array (String × String × String × String × String × String) := #[
+    ("scratch_buf", "buf'", "hb", "scratch_buf_len", "work_stk1", "work_stk2"),
+    ("work_stk1", "ws1'", "hw1", "work_stk1_len", "work_stk2", "scratch_buf"),
+    ("work_stk2", "ws2'", "hw2", "work_stk2_len", "work_stk1", "scratch_buf")
+  ]
+  for (nm, v, hv, lf, k1, k2) in arrExtSpecs do
+    let sUpd := s!"\{ s with scratch := \{ s.scratch with {nm} := {v} } }"
+    elabUpdCmd nm <|
+      s!"theorem fullState_upd_{nm}_step \{c : FullCfg} \{s : FullState}\n" ++
+      s!"    (hs : s.LengthsOk c) \{{v} : List (BitVec 32)}\n" ++
+      s!"    ({hv} : {v}.length = s.scratch.{nm}.length) :\n" ++
+      s!"    let s' : FullState := {sUpd}\n" ++
+      s!"    s'.LengthsOk c ∧ s'.core = s.core ∧ FullExtScratchPres s s' ∧\n" ++
+      s!"      s'.scratch.delayed = s.scratch.delayed ∧\n" ++
+      s!"      s'.scratch.delayed_len = s.scratch.delayed_len ∧\n" ++
+      s!"      s'.scratch.{k1} = s.scratch.{k1} ∧ s'.scratch.{k2} = s.scratch.{k2} :=\n" ++
+      s!"  ⟨⟨hs.1, \{ hs.2 with {lf} := {hv}.trans hs.2.{lf} }⟩, rfl,\n" ++
+      s!"    ⟨rfl, rfl⟩, rfl, rfl, rfl, rfl⟩"
+    elabUpdCmd (nm ++ "_inv") <|
+      s!"theorem fullM6HdrInv_upd_{nm} \{c : FullCfg} \{F0 : CNF Nat}\n" ++
+      s!"    \{ext : List (BitVec 64)} \{s : FullState} (h : FullM6HdrInv c F0 ext s)\n" ++
+      s!"    \{{v} : List (BitVec 32)} ({hv} : {v}.length = s.scratch.{nm}.length) :\n" ++
+      s!"    FullM6HdrInv c F0 ext {sUpd} :=\n" ++
+      s!"  let st := fullState_upd_{nm}_step h.sparse.lengths {hv}\n" ++
+      s!"  fullM6HdrInv_of_core_eq h st.1 st.2.1 st.2.2.1"
+    elabUpdCmd (nm ++ "_inv_set") <|
+      s!"theorem fullM6HdrInv_upd_{nm}_set \{c : FullCfg} \{F0 : CNF Nat}\n" ++
+      s!"    \{ext : List (BitVec 64)} \{s : FullState} (h : FullM6HdrInv c F0 ext s)\n" ++
+      s!"    (idx : Nat) (v : BitVec 32) :\n" ++
+      s!"    FullM6HdrInv c F0 ext " ++
+      s!"\{ s with scratch := \{ s.scratch with {nm} := s.scratch.{nm}.set idx v } } :=\n" ++
+      s!"  fullM6HdrInv_upd_{nm} h (List.length_set ..)"
 
-theorem fullState_upd_tiers_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (t1 t2 : BitVec 64) :
-    let s' : FullState := { s with scratch := { s.scratch with tier1 := t1, tier2 := t2 } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+gen_full_state_upd_lemmas!
 
-theorem fullState_upd_ema_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (fb fe sb se : BitVec 64) :
-    let s' : FullState :=
-      { s with
-        scratch :=
-          { s.scratch with
-            ema_fast_biased := fb, ema_fast_exp := fe
-            ema_slow_biased := sb, ema_slow_exp := se } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-
-theorem fullState_upd_rng_state_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (v : BitVec 64) :
-    let s' : FullState := { s with scratch := { s.scratch with rng_state := v } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-
-theorem fullState_upd_restarts_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (r rl : BitVec 64) :
-    let s' : FullState :=
-      { s with scratch := { s.scratch with restarts := r, restart_limit := rl } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-
-theorem fullState_upd_mode_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (stb swt mc mcl mtl mst : BitVec 64) :
-    let s' : FullState :=
-      { s with
-        scratch :=
-          { s.scratch with
-            stable := stb, switched := swt, mode_count := mc
-            mode_confl_lim := mcl, mode_tick_lim := mtl, mode_saved_ticks := mst } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-
-theorem fullState_upd_probe_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (pl pr : BitVec 64) :
-    let s' : FullState :=
-      { s with scratch := { s.scratch with probe_limit := pl, probings := pr } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-
-theorem fullState_upd_elim_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (el ec eb : BitVec 64) :
-    let s' : FullState :=
-      { s with
-        scratch := { s.scratch with elim_limit := el, eliminations := ec, elim_bound := eb } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-
-theorem fullState_upd_rel_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) (rp rl rw ru rv rt : BitVec 64) :
-    let s' : FullState :=
-      { s with
-        scratch :=
-          { s.scratch with
-            rel_period := rp, rel_limit := rl, rel_wait := rw
-            rel_u := ru, rel_v := rv, rel_trigger := rt } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  probeStep_of_lists_eq hs rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+end GenUpdLemmas
 
 theorem fullState_upd_delayed_step {c : FullCfg} {s : FullState}
     (hs : s.LengthsOk c) {d' : List (BitVec 32)}
     (hd : d'.length = s.scratch.delayed.length) (dl : Nat) :
     let s' : FullState := { s with scratch := { s.scratch with delayed_len := dl, delayed := d' } }
     s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' :=
-  let sc' : FullScratch := { s.scratch with delayed_len := dl, delayed := d' }
-  let hlen : sc'.LengthsOk c := fullScratch_lengthsOk_of_arr_len hs.2
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl hd rfl rfl rfl
-  ⟨⟨hs.1, hlen⟩, rfl, ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩
-
-theorem fullState_upd_scratch_buf_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) {buf' : List (BitVec 32)}
-    (hb : buf'.length = s.scratch.scratch_buf.length) :
-    let s' : FullState := { s with scratch := { s.scratch with scratch_buf := buf' } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullExtScratchPres s s' ∧
-      s'.scratch.delayed = s.scratch.delayed ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
-      s'.scratch.work_stk2 = s.scratch.work_stk2 :=
-  let sc' : FullScratch := { s.scratch with scratch_buf := buf' }
-  let hlen : sc'.LengthsOk c := fullScratch_lengthsOk_of_arr_len hs.2
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl hb
-  ⟨⟨hs.1, hlen⟩, rfl, ⟨rfl, rfl⟩, rfl, rfl, rfl, rfl⟩
-
-theorem fullState_upd_work_stk1_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) {ws1' : List (BitVec 32)}
-    (hw1 : ws1'.length = s.scratch.work_stk1.length) :
-    let s' : FullState := { s with scratch := { s.scratch with work_stk1 := ws1' } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullExtScratchPres s s' ∧
-      s'.scratch.delayed = s.scratch.delayed ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.work_stk2 = s.scratch.work_stk2 ∧
-      s'.scratch.scratch_buf = s.scratch.scratch_buf :=
-  let sc' : FullScratch := { s.scratch with work_stk1 := ws1' }
-  let hlen : sc'.LengthsOk c := fullScratch_lengthsOk_of_arr_len hs.2
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    hw1 rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-  ⟨⟨hs.1, hlen⟩, rfl, ⟨rfl, rfl⟩, rfl, rfl, rfl, rfl⟩
-
-theorem fullState_upd_work_stk2_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) {ws2' : List (BitVec 32)}
-    (hw2 : ws2'.length = s.scratch.work_stk2.length) :
-    let s' : FullState := { s with scratch := { s.scratch with work_stk2 := ws2' } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullExtScratchPres s s' ∧
-      s'.scratch.delayed = s.scratch.delayed ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.work_stk1 = s.scratch.work_stk1 ∧
-      s'.scratch.scratch_buf = s.scratch.scratch_buf :=
-  let sc' : FullScratch := { s.scratch with work_stk2 := ws2' }
-  let hlen : sc'.LengthsOk c := fullScratch_lengthsOk_of_arr_len hs.2
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl hw2 rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-  ⟨⟨hs.1, hlen⟩, rfl, ⟨rfl, rfl⟩, rfl, rfl, rfl, rfl⟩
-
-theorem fullState_upd_glue_used_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) {gu' : List (BitVec 32)}
-    (hg : gu'.length = s.scratch.glue_used.length) :
-    let s' : FullState := { s with scratch := { s.scratch with glue_used := gu' } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  let sc' : FullScratch := { s.scratch with glue_used := gu' }
-  let hlen : sc'.LengthsOk c := fullScratch_lengthsOk_of_arr_len hs.2
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-    rfl rfl rfl rfl rfl rfl hg rfl rfl rfl rfl rfl
-  ⟨⟨hs.1, hlen⟩, rfl, ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, rfl⟩
-
-theorem fullState_upd_wsort_step {c : FullCfg} {s : FullState}
-    (hs : s.LengthsOk c) {ws' : List (BitVec 32)}
-    (hw : ws'.length = s.scratch.wsort.length) :
-    let s' : FullState := { s with scratch := { s.scratch with wsort := ws' } }
-    s'.LengthsOk c ∧ s'.core = s.core ∧ FullProbeScratchPres s s' ∧
-      s'.scratch.delayed_len = s.scratch.delayed_len ∧
-      s'.scratch.delayed = s.scratch.delayed :=
-  let sc' : FullScratch := { s.scratch with wsort := ws' }
-  let hlen : sc'.LengthsOk c := fullScratch_lengthsOk_of_arr_len hs.2
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl hw
-    rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-  ⟨⟨hs.1, hlen⟩, rfl, ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl, rfl⟩
-
-theorem fullM6HdrInv_upd_search_ticks {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s) (v : BitVec 64) :
-    FullM6HdrInv c F0 ext { s with scratch := { s.scratch with search_ticks := v } } :=
-  fullM6HdrInv_of_probeStep h (fullState_upd_search_ticks_step h.sparse.lengths v)
-
-theorem fullM6HdrInv_upd_tier1 {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s) (v : BitVec 64) :
-    FullM6HdrInv c F0 ext { s with scratch := { s.scratch with tier1 := v } } :=
-  fullM6HdrInv_of_probeStep h (fullState_upd_tier1_step h.sparse.lengths v)
-
-theorem fullM6HdrInv_upd_tier2 {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s) (v : BitVec 64) :
-    FullM6HdrInv c F0 ext { s with scratch := { s.scratch with tier2 := v } } :=
-  fullM6HdrInv_of_probeStep h (fullState_upd_tier2_step h.sparse.lengths v)
-
-theorem fullM6HdrInv_upd_ema {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s)
-    (fb fe sb se : BitVec 64) :
-    FullM6HdrInv c F0 ext
-      { s with
-        scratch :=
-          { s.scratch with
-            ema_fast_biased := fb, ema_fast_exp := fe
-            ema_slow_biased := sb, ema_slow_exp := se } } :=
-  fullM6HdrInv_of_probeStep h (fullState_upd_ema_step h.sparse.lengths fb fe sb se)
-
-theorem fullM6HdrInv_upd_rng_state {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s) (v : BitVec 64) :
-    FullM6HdrInv c F0 ext { s with scratch := { s.scratch with rng_state := v } } :=
-  fullM6HdrInv_of_probeStep h (fullState_upd_rng_state_step h.sparse.lengths v)
+  ⟨⟨hs.1, { hs.2 with delayed_len_arr := hd.trans hs.2.delayed_len_arr }⟩, rfl,
+    ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩⟩
 
 theorem fullM6HdrInv_upd_delayed {c : FullCfg} {F0 : CNF Nat}
     {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s)
@@ -507,48 +320,6 @@ theorem fullM6HdrInv_upd_delayed_set {c : FullCfg} {F0 : CNF Nat}
     FullM6HdrInv c F0 ext
       { s with scratch := { s.scratch with delayed := s.scratch.delayed.set idx v } } :=
   fullM6HdrInv_upd_delayed h (List.length_set ..) s.scratch.delayed_len
-
-theorem fullM6HdrInv_upd_scratch_buf {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s)
-    {buf' : List (BitVec 32)} (hb : buf'.length = s.scratch.scratch_buf.length) :
-    FullM6HdrInv c F0 ext { s with scratch := { s.scratch with scratch_buf := buf' } } :=
-  let st := fullState_upd_scratch_buf_step h.sparse.lengths hb
-  fullM6HdrInv_of_core_eq h st.1 st.2.1 st.2.2.1
-
-theorem fullM6HdrInv_upd_scratch_buf_set {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s)
-    (idx : Nat) (v : BitVec 32) :
-    FullM6HdrInv c F0 ext
-      { s with scratch := { s.scratch with scratch_buf := s.scratch.scratch_buf.set idx v } } :=
-  fullM6HdrInv_upd_scratch_buf h (List.length_set ..)
-
-theorem fullM6HdrInv_upd_work_stk1 {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s)
-    {ws1' : List (BitVec 32)} (hw1 : ws1'.length = s.scratch.work_stk1.length) :
-    FullM6HdrInv c F0 ext { s with scratch := { s.scratch with work_stk1 := ws1' } } :=
-  let st := fullState_upd_work_stk1_step h.sparse.lengths hw1
-  fullM6HdrInv_of_core_eq h st.1 st.2.1 st.2.2.1
-
-theorem fullM6HdrInv_upd_work_stk1_set {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s)
-    (idx : Nat) (v : BitVec 32) :
-    FullM6HdrInv c F0 ext
-      { s with scratch := { s.scratch with work_stk1 := s.scratch.work_stk1.set idx v } } :=
-  fullM6HdrInv_upd_work_stk1 h (List.length_set ..)
-
-theorem fullM6HdrInv_upd_work_stk2 {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s)
-    {ws2' : List (BitVec 32)} (hw2 : ws2'.length = s.scratch.work_stk2.length) :
-    FullM6HdrInv c F0 ext { s with scratch := { s.scratch with work_stk2 := ws2' } } :=
-  let st := fullState_upd_work_stk2_step h.sparse.lengths hw2
-  fullM6HdrInv_of_core_eq h st.1 st.2.1 st.2.2.1
-
-theorem fullM6HdrInv_upd_work_stk2_set {c : FullCfg} {F0 : CNF Nat}
-    {ext : List (BitVec 64)} {s : FullState} (h : FullM6HdrInv c F0 ext s)
-    (idx : Nat) (v : BitVec 32) :
-    FullM6HdrInv c F0 ext
-      { s with scratch := { s.scratch with work_stk2 := s.scratch.work_stk2.set idx v } } :=
-  fullM6HdrInv_upd_work_stk2 h (List.length_set ..)
 
 /-! ## 2. `M6Hdr <-> FullHdr` Bridge Combinators -/
 
@@ -904,107 +675,77 @@ and `(FullMem c s ⋆ (array64 a ext ⋆ R)) m`. -/
 
 namespace M6ProofUtilTactics
 
-@[scoped c0_load] theorem load_fullM6Hdr_ext_mul8 {c : FullCfg} {ext : List (BitVec 64)}
-    {s : FullState} {i : BitVec 64} {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (FullM6HdrMem c ext s ⋆ R) m) (hi : i.toNat < ext.length) :
-    loadVal m i64 ((c.hdr - 2304#64) + i * 8#64) = some (ext[i.toNat]'hi) := by
-  have hm' := fullM6HdrMem_ext_focus hm
-  have hm2 : (FullMem c s ⋆ (array64 (c.hdr - 2304#64) ext ⋆ R)) m := by
-    have := sep_swap_l hm'
-    simpa [BitVec.ofNat_eq_ofNat] using this
-  simpa using M6HdrTactics.load_m6Ext_mul8 hm2 hi
+private theorem m6Ext_off_eq (a : BitVec 64) {k : Nat} (hk : k < 2 ^ 61) :
+    a + BitVec.ofNat 64 (8 * k) = a + BitVec.ofNat 64 k * 8#64 ∧
+      (BitVec.ofNat 64 k).toNat = k := by
+  have hklt : k < 2 ^ 64 := Nat.lt_trans hk (by decide)
+  have hmod : (BitVec.ofNat 64 k).toNat = k := by
+    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hklt]
+  refine ⟨?_, hmod⟩
+  rw [show (8#64 : BitVec 64) = (8 : BitVec 64) from rfl, m8, hmod]
 
-@[scoped c0_store] theorem store_fullM6Hdr_ext_mul8 {c : FullCfg} {ext : List (BitVec 64)}
-    {s : FullState} {i v : BitVec 64} {R : Mem 64 → Prop} {m : Mem 64}
+section ExtRules
+variable {c : FullCfg} {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
+
+@[scoped c0_load] theorem load_fullM6Hdr_ext_mul8 {i : BitVec 64}
+    (hm : (FullM6HdrMem c ext s ⋆ R) m) (hi : i.toNat < ext.length) :
+    loadVal m i64 ((c.hdr - 2304#64) + i * 8#64) = some (ext[i.toNat]'hi) :=
+  M6HdrTactics.load_m6Ext_mul8 ((fullM6HdrMem_iff c ext s R m).mp hm) hi
+
+@[scoped c0_store] theorem store_fullM6Hdr_ext_mul8 {i v : BitVec 64}
     (hm : (FullM6HdrMem c ext s ⋆ R) m) (hi : i.toNat < ext.length) :
     storeOk m i64 ((c.hdr - 2304#64) + i * 8#64) ∧
       (FullM6HdrMem c (ext.set i.toNat v) s ⋆ R)
         (storeMem m i64 ((c.hdr - 2304#64) + i * 8#64) v) := by
-  have hm' : (FullMem c s ⋆ (array64 (c.hdr - 2304#64) ext ⋆ R)) m :=
-    (fullM6HdrMem_iff c ext s R m).mp hm
-  obtain ⟨hok, hst⟩ := M6HdrTactics.store_m6Ext_mul8 v hm' hi
+  obtain ⟨hok, hst⟩ := M6HdrTactics.store_m6Ext_mul8 v ((fullM6HdrMem_iff c ext s R m).mp hm) hi
   exact ⟨hok, (fullM6HdrMem_iff c (ext.set i.toNat v) s R _).mpr hst⟩
 
-@[scoped c0_load] theorem load_fullM6Hdr_ext_shl3 {c : FullCfg} {ext : List (BitVec 64)}
-    {s : FullState} {i : BitVec 64} {R : Mem 64 → Prop} {m : Mem 64}
+@[scoped c0_load] theorem load_fullM6Hdr_ext_shl3 {i : BitVec 64}
     (hm : (FullM6HdrMem c ext s ⋆ R) m) (hi : i.toNat < ext.length) (hb : i.toNat < 2 ^ 61) :
-    loadVal m i64 ((c.hdr - 2304#64) + (i <<< 3#64)) = some (ext[i.toNat]'hi) := by
-  have hm' : (FullMem c s ⋆ (array64 (c.hdr - 2304#64) ext ⋆ R)) m :=
-    (fullM6HdrMem_iff c ext s R m).mp hm
-  exact M6HdrTactics.load_m6Ext_shl3 hm' hi hb
+    loadVal m i64 ((c.hdr - 2304#64) + (i <<< 3#64)) = some (ext[i.toNat]'hi) :=
+  M6HdrTactics.load_m6Ext_shl3 ((fullM6HdrMem_iff c ext s R m).mp hm) hi hb
 
-@[scoped c0_store] theorem store_fullM6Hdr_ext_shl3 {c : FullCfg} {ext : List (BitVec 64)}
-    {s : FullState} {i v : BitVec 64} {R : Mem 64 → Prop} {m : Mem 64}
+@[scoped c0_store] theorem store_fullM6Hdr_ext_shl3 {i v : BitVec 64}
     (hm : (FullM6HdrMem c ext s ⋆ R) m) (hi : i.toNat < ext.length) (hb : i.toNat < 2 ^ 61) :
     storeOk m i64 ((c.hdr - 2304#64) + (i <<< 3#64)) ∧
       (FullM6HdrMem c (ext.set i.toNat v) s ⋆ R)
         (storeMem m i64 ((c.hdr - 2304#64) + (i <<< 3#64)) v) := by
-  have hm' : (FullMem c s ⋆ (array64 (c.hdr - 2304#64) ext ⋆ R)) m :=
-    (fullM6HdrMem_iff c ext s R m).mp hm
-  obtain ⟨hok, hst⟩ := M6HdrTactics.store_m6Ext_shl3 v hm' hi hb
+  obtain ⟨hok, hst⟩ := M6HdrTactics.store_m6Ext_shl3 v ((fullM6HdrMem_iff c ext s R m).mp hm) hi hb
   exact ⟨hok, (fullM6HdrMem_iff c (ext.set i.toNat v) s R _).mpr hst⟩
 
-@[scoped c0_load] theorem load_fullM6Hdr_ext_zero {c : FullCfg} {ext : List (BitVec 64)}
-    {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
+@[scoped c0_load] theorem load_fullM6Hdr_ext_zero
     (hm : (FullM6HdrMem c ext s ⋆ R) m) (hi : 0 < ext.length) :
-    loadVal m i64 (c.hdr - 2304#64) = some (ext[0]'hi) := by
-  have hm' : (FullMem c s ⋆ (array64 (c.hdr - 2304#64) ext ⋆ R)) m :=
-    (fullM6HdrMem_iff c ext s R m).mp hm
-  exact M6HdrTactics.load_m6Ext_zero hm' hi
+    loadVal m i64 (c.hdr - 2304#64) = some (ext[0]'hi) :=
+  M6HdrTactics.load_m6Ext_zero ((fullM6HdrMem_iff c ext s R m).mp hm) hi
 
-@[scoped c0_store] theorem store_fullM6Hdr_ext_zero {c : FullCfg} {ext : List (BitVec 64)}
-    {s : FullState} {v : BitVec 64} {R : Mem 64 → Prop} {m : Mem 64}
+@[scoped c0_store] theorem store_fullM6Hdr_ext_zero {v : BitVec 64}
     (hm : (FullM6HdrMem c ext s ⋆ R) m) (hi : 0 < ext.length) :
     storeOk m i64 (c.hdr - 2304#64) ∧
       (FullM6HdrMem c (ext.set 0 v) s ⋆ R) (storeMem m i64 (c.hdr - 2304#64) v) := by
-  have hm' : (FullMem c s ⋆ (array64 (c.hdr - 2304#64) ext ⋆ R)) m :=
-    (fullM6HdrMem_iff c ext s R m).mp hm
-  obtain ⟨hok, hst⟩ := M6HdrTactics.store_m6Ext_zero v hm' hi
+  obtain ⟨hok, hst⟩ := M6HdrTactics.store_m6Ext_zero v ((fullM6HdrMem_iff c ext s R m).mp hm) hi
   exact ⟨hok, (fullM6HdrMem_iff c (ext.set 0 v) s R _).mpr hst⟩
 
-@[scoped c0_load] theorem load_fullM6Hdr_ext_off {c : FullCfg} {ext : List (BitVec 64)}
-    {s : FullState} {k : Nat} {R : Mem 64 → Prop} {m : Mem 64}
+@[scoped c0_load] theorem load_fullM6Hdr_ext_off {k : Nat}
     (hm : (FullM6HdrMem c ext s ⋆ R) m) (hi : k < ext.length) (hk : k < 2 ^ 61) :
     loadVal m i64 ((c.hdr - 2304#64) + BitVec.ofNat 64 (8 * k)) = some (ext[k]'hi) := by
-  have hm' : (FullMem c s ⋆ (array64 (c.hdr - 2304#64) ext ⋆ R)) m :=
-    (fullM6HdrMem_iff c ext s R m).mp hm
-  have hklt : k < 2 ^ 64 := Nat.lt_trans hk (by decide)
-  have h8k : k * 8 < 2 ^ 64 := by omega
-  have heq : (c.hdr - 2304#64) + BitVec.ofNat 64 (8 * k) =
-      (c.hdr - 2304#64) + BitVec.ofNat 64 k * 8#64 := by
-    apply BitVec.eq_of_toNat_eq
-    simp only [BitVec.toNat_add, BitVec.toNat_mul, BitVec.toNat_ofNat]
-    rw [Nat.mod_eq_of_lt hklt, show (8 : Nat) % 2 ^ 64 = 8 by decide,
-      Nat.mod_eq_of_lt h8k, Nat.mod_eq_of_lt (by omega : 8 * k < 2 ^ 64), Nat.mul_comm]
+  have ⟨heq, hmod⟩ := m6Ext_off_eq (c.hdr - 2304#64) hk
   rw [heq]
-  have hmod : (BitVec.ofNat 64 k).toNat = k := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hklt]
-  have hi' : (BitVec.ofNat 64 k).toNat < ext.length := by rwa [hmod]
-  have res := M6HdrTactics.load_m6Ext_mul8 hm' hi'
-  simpa [hmod] using res
+  have h := M6HdrTactics.load_m6Ext_mul8 (i := BitVec.ofNat 64 k)
+    ((fullM6HdrMem_iff c ext s R m).mp hm) (by rwa [hmod])
+  simp only [hmod] at h; exact h
 
-@[scoped c0_store] theorem store_fullM6Hdr_ext_off {c : FullCfg} {ext : List (BitVec 64)}
-    {s : FullState} {k : Nat} (v : BitVec 64) {R : Mem 64 → Prop} {m : Mem 64}
+@[scoped c0_store] theorem store_fullM6Hdr_ext_off {k : Nat} (v : BitVec 64)
     (hm : (FullM6HdrMem c ext s ⋆ R) m) (hi : k < ext.length) (hk : k < 2 ^ 61) :
     storeOk m i64 ((c.hdr - 2304#64) + BitVec.ofNat 64 (8 * k)) ∧
       (FullM6HdrMem c (ext.set k v) s ⋆ R)
         (storeMem m i64 ((c.hdr - 2304#64) + BitVec.ofNat 64 (8 * k)) v) := by
-  have hm' : (FullMem c s ⋆ (array64 (c.hdr - 2304#64) ext ⋆ R)) m :=
-    (fullM6HdrMem_iff c ext s R m).mp hm
-  have hklt : k < 2 ^ 64 := Nat.lt_trans hk (by decide)
-  have h8k : k * 8 < 2 ^ 64 := by omega
-  have heq : (c.hdr - 2304#64) + BitVec.ofNat 64 (8 * k) =
-      (c.hdr - 2304#64) + BitVec.ofNat 64 k * 8#64 := by
-    apply BitVec.eq_of_toNat_eq
-    simp only [BitVec.toNat_add, BitVec.toNat_mul, BitVec.toNat_ofNat]
-    rw [Nat.mod_eq_of_lt hklt, show (8 : Nat) % 2 ^ 64 = 8 by decide,
-      Nat.mod_eq_of_lt h8k, Nat.mod_eq_of_lt (by omega : 8 * k < 2 ^ 64), Nat.mul_comm]
+  have ⟨heq, hmod⟩ := m6Ext_off_eq (c.hdr - 2304#64) hk
   rw [heq]
-  have hmod : (BitVec.ofNat 64 k).toNat = k := by
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hklt]
-  obtain ⟨hok, hst⟩ := M6HdrTactics.store_m6Ext_mul8 v hm' (by rwa [hmod])
-  rw [hmod] at hst
-  exact ⟨hok, (fullM6HdrMem_iff c (ext.set k v) s R _).mpr hst⟩
+  obtain ⟨hok, hst⟩ :=
+    M6HdrTactics.store_m6Ext_mul8 v ((fullM6HdrMem_iff c ext s R m).mp hm) (by rwa [hmod])
+  rw [hmod] at hst; exact ⟨hok, (fullM6HdrMem_iff c (ext.set k v) s R _).mpr hst⟩
+
+end ExtRules
 
 end M6ProofUtilTactics
 

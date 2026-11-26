@@ -691,8 +691,9 @@ theorem FullExtScratchOk.of_compat {c c' : FullCfg} {s s' : FullState}
 private theorem hdrTailWords_set94 (c : FullCfg) (s : FullState) (mv' : Nat) (hle : mv' ≤ c.mv) :
     (hdrTailWords c s).set 94 (BitVec.ofNat 64 (c.max_vars - mv')) =
       hdrTailWords (fullCfgShrinkMv c mv' hle) s := by
-  simp only [hdrTailWords, hdrTailWords0, hdrTailWords1, hdrTailWords2,
-    hdrTailWords3, List.cons_append, List.nil_append, List.set_cons_succ, List.set_cons_zero]
+  simp only [hdrTailWords, HdrWordField.tailChunk0, HdrWordField.tailChunk1,
+    HdrWordField.tailChunk2, HdrWordField.tailChunk3, List.cons_append, List.nil_append,
+    List.set_cons_succ, List.set_cons_zero]
   rfl
 
 private theorem fullRest_shrinkMv (c : FullCfg) (s : FullState) (mv' : Nat) (hle : mv' ≤ c.mv) :

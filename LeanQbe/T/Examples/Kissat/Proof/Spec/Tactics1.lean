@@ -339,115 +339,96 @@ namespace FullBvaHeapTactics
 open FullArenaTactics
 open scoped FullArenaTactics
 
-private def reprRest (c : FullCfg) (s : FullState) (R : Mem 64 → Prop) : Mem 64 → Prop :=
-  (array (t := i32) c.pFrameTrail s.core.frame_trail ⋆
-    array (t := i32) c.pFrameDec s.core.frame_dec ⋆
-    array (t := i32) c.pWvec s.core.wvec ⋆ array (t := i32) c.pMinStk s.core.min_stk ⋆
-    (FullCoreByteArrs c s.core ⋆ FullCoreU32A c s.core ⋆ FullCoreDynArrs c s.core ⋆
-      fullCoreOuter c s)) ⋆ R
+private theorem bv64_div4_mul4 {d : Nat} (hd : d % 4 = 0) (hd64 : d < 2 ^ 64) :
+    BitVec.ofNat 64 d = BitVec.ofNat 64 (4 * (d / 4)) := by
+  apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hd64,
+    Nat.mod_eq_of_lt (by omega)]; omega
 
-@[scoped c0_load] theorem load_full_repr64 {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
-    {m : Mem 64} {i : Nat} (hi : 2 * i + 1 < s.core.repr.length) (hm : (FullMem c s ⋆ R) m) :
+section HeapAccess
+variable {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
+
+@[scoped c0_load] theorem load_full_repr64 {i : Nat} (hi : 2 * i + 1 < s.core.repr.length)
+    (hm : (FullMem c s ⋆ R) m) :
     loadVal m i64 (c.pRepr + BitVec.ofNat 64 (8 * i)) = some (repr64Get s.core.repr i) := by
-  rw [fullMem_eq_coreU32B] at hm; unfold FullCoreU32B at hm
-  have h1 : (array (t := i32) c.pRepr s.core.repr ⋆ reprRest c s R) m := by
-    unfold reprRest; ecancel
+  have h1 := ArrayField.focus .repr hm
+  dsimp only [ArrayField.elemTy, ArrayField.ptr, ArrayField.get] at h1
   rw [array32_focus_pair c.pRepr s.core.repr hi, sep_assoc] at h1
   exact loadVal_cell64 h1
 
-@[scoped c0_load] theorem c0_load_full_repr64 {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
-    {m : Mem 64} {i : BitVec 64} (hi : 2 * i.toNat + 1 < s.core.repr.length)
-    (hm : (FullMem c s ⋆ R) m) :
+@[scoped c0_load] theorem c0_load_full_repr64 {i : BitVec 64}
+    (hi : 2 * i.toNat + 1 < s.core.repr.length) (hm : (FullMem c s ⋆ R) m) :
     loadVal m i64 (c.pRepr + i * 8) = some (repr64Get s.core.repr i.toNat) := by
   rw [m8]; exact load_full_repr64 hi hm
 
-@[scoped c0_store] theorem store_full_repr64 {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
-    {m : Mem 64} {i : Nat} (v : BitVec 64) (hi : 2 * i + 1 < s.core.repr.length)
-    (hm : (FullMem c s ⋆ R) m) :
+@[scoped c0_store] theorem store_full_repr64 {i : Nat} (v : BitVec 64)
+    (hi : 2 * i + 1 < s.core.repr.length) (hm : (FullMem c s ⋆ R) m) :
     storeOk m i64 (c.pRepr + BitVec.ofNat 64 (8 * i)) ∧
       (FullMem c { s with core := { s.core with repr := repr64Set s.core.repr i v } } ⋆ R)
         (storeMem m i64 (c.pRepr + BitVec.ofNat 64 (8 * i)) v) := by
-  have h1 := hm; rw [fullMem_eq_coreU32B] at h1; unfold FullCoreU32B at h1
-  have h2 : (array (t := i32) c.pRepr s.core.repr ⋆ reprRest c s R) m := by
-    unfold reprRest; ecancel
-  rw [array32_focus_pair c.pRepr s.core.repr hi, sep_assoc] at h2
-  obtain ⟨hok, hst⟩ := store_cell64 v h2
+  have h1 := ArrayField.focus .repr hm
+  dsimp only [ArrayField.elemTy, ArrayField.ptr, ArrayField.get] at h1
+  rw [array32_focus_pair c.pRepr s.core.repr hi, sep_assoc] at h1
+  obtain ⟨hok, hst⟩ := store_cell64 v h1
   rw [← sep_assoc, ← array32_set_pair c.pRepr s.core.repr hi v] at hst
-  exact ⟨hok, ufM (fullMem_eq_coreU32B c s) (fullMem_eq_coreU32B c _) rfl
-    (by unfold FullCoreU32B; unfold reprRest at hst; dsimp only; ecancel)⟩
+  exact ⟨hok, ArrayField.unfocus .repr hst⟩
 
-@[scoped c0_store] theorem c0_store_full_repr64 {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
-    {m : Mem 64} {i : BitVec 64} (v : BitVec 64) (hi : 2 * i.toNat + 1 < s.core.repr.length)
-    (hm : (FullMem c s ⋆ R) m) :
+@[scoped c0_store] theorem c0_store_full_repr64 {i : BitVec 64} (v : BitVec 64)
+    (hi : 2 * i.toNat + 1 < s.core.repr.length) (hm : (FullMem c s ⋆ R) m) :
     storeOk m i64 (c.pRepr + i * 8) ∧
       (FullMem c { s with core := { s.core with repr := repr64Set s.core.repr i.toNat v } } ⋆ R)
         (storeMem m i64 (c.pRepr + i * 8) v) := by
   rw [m8]; exact store_full_repr64 v hi hm
 
-@[scoped c0_load] theorem load_full_scratch_buf0 {c : FullCfg} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hi : 0 < s.scratch.scratch_buf.length)
-    (hm : (FullMem c s ⋆ R) m) :
-    loadVal m i32 c.pScratchBuf = some s.scratch.scratch_buf[0] := by
-  simpa using load_full_scratch_buf (i := 0) hi hm
+@[scoped c0_load] theorem load_full_scratch_buf0 (hi : 0 < s.scratch.scratch_buf.length)
+    (hm : (FullMem c s ⋆ R) m) : loadVal m i32 c.pScratchBuf = some s.scratch.scratch_buf[0] :=
+  fullArr_load0 .scratch_buf hi hm
 
-@[scoped c0_store] theorem store_full_scratch_buf0 {c : FullCfg} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hi : 0 < s.scratch.scratch_buf.length)
-    (hm : (FullMem c s ⋆ R) m) :
+@[scoped c0_store] theorem store_full_scratch_buf0 (v : BitVec 32)
+    (hi : 0 < s.scratch.scratch_buf.length) (hm : (FullMem c s ⋆ R) m) :
     storeOk m i32 c.pScratchBuf ∧
       (FullMem c { s with scratch :=
         { s.scratch with scratch_buf := s.scratch.scratch_buf.set 0 v } } ⋆ R)
-        (storeMem m i32 c.pScratchBuf v) := by
-  simpa using store_full_scratch_buf (i := 0) v hi hm
+        (storeMem m i32 c.pScratchBuf v) :=
+  fullArr_store0 .scratch_buf v hi hm
 
-@[scoped c0_load] theorem load_full_scratch_buf_imm {c : FullCfg} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} {d : Nat} (hd : d % 4 = 0) (hd64 : d < 2 ^ 64)
+@[scoped c0_load] theorem load_full_scratch_buf_imm {d : Nat} (hd : d % 4 = 0) (hd64 : d < 2 ^ 64)
     (hi : d / 4 < s.scratch.scratch_buf.length) (hm : (FullMem c s ⋆ R) m) :
     loadVal m i32 (c.pScratchBuf + BitVec.ofNat 64 d) = some s.scratch.scratch_buf[d / 4] := by
-  have heq : BitVec.ofNat 64 d = BitVec.ofNat 64 (4 * (d / 4)) := by
-    apply BitVec.eq_of_toNat_eq
-    rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hd64,
-      Nat.mod_eq_of_lt (by omega)]; omega
-  rw [heq]; exact load_full_scratch_buf hi hm
+  rw [bv64_div4_mul4 hd hd64]; exact load_full_scratch_buf hi hm
 
-@[scoped c0_store] theorem store_full_scratch_buf_imm {c : FullCfg} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} {d : Nat} (v : BitVec 32) (hd : d % 4 = 0)
+@[scoped c0_store] theorem store_full_scratch_buf_imm {d : Nat} (v : BitVec 32) (hd : d % 4 = 0)
     (hd64 : d < 2 ^ 64) (hi : d / 4 < s.scratch.scratch_buf.length) (hm : (FullMem c s ⋆ R) m) :
     storeOk m i32 (c.pScratchBuf + BitVec.ofNat 64 d) ∧
       (FullMem c { s with scratch :=
         { s.scratch with scratch_buf := s.scratch.scratch_buf.set (d / 4) v } } ⋆ R)
         (storeMem m i32 (c.pScratchBuf + BitVec.ofNat 64 d) v) := by
-  have heq : BitVec.ofNat 64 d = BitVec.ofNat 64 (4 * (d / 4)) := by
-    apply BitVec.eq_of_toNat_eq
-    rw [BitVec.toNat_ofNat, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hd64,
-      Nat.mod_eq_of_lt (by omega)]; omega
-  rw [heq]; exact store_full_scratch_buf v hi hm
+  rw [bv64_div4_mul4 hd hd64]; exact store_full_scratch_buf v hi hm
 
-@[scoped c0_load] theorem load_full_tmp0 {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
-    {m : Mem 64} (hi : 0 < s.core.tmp.length) (hm : (FullMem c s ⋆ R) m) :
-    loadVal m i32 c.pTmp = some s.core.tmp[0] := by
-  simpa using load_full_tmp (i := 0) hi hm
+@[scoped c0_load] theorem load_full_tmp0 (hi : 0 < s.core.tmp.length)
+    (hm : (FullMem c s ⋆ R) m) : loadVal m i32 c.pTmp = some s.core.tmp[0] :=
+  fullArr_load0 .tmp hi hm
 
-@[scoped c0_store] theorem store_full_tmp0 {c : FullCfg} {s : FullState} {R : Mem 64 → Prop}
-    {m : Mem 64} (v : BitVec 32) (hi : 0 < s.core.tmp.length) (hm : (FullMem c s ⋆ R) m) :
+@[scoped c0_store] theorem store_full_tmp0 (v : BitVec 32) (hi : 0 < s.core.tmp.length)
+    (hm : (FullMem c s ⋆ R) m) :
     storeOk m i32 c.pTmp ∧
       (FullMem c { s with core := { s.core with tmp := s.core.tmp.set 0 v } } ⋆ R)
-        (storeMem m i32 c.pTmp v) := by
-  simpa using store_full_tmp (i := 0) v hi hm
+        (storeMem m i32 c.pTmp v) :=
+  fullArr_store0 .tmp v hi hm
 
-@[scoped c0_load] theorem load_full_tarjan_mark0 {c : FullCfg} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} (hi : 0 < s.scratch.tarjan_mark.length)
-    (hm : (FullMem c s ⋆ R) m) :
-    loadVal m i32 c.pTarjanMark = some s.scratch.tarjan_mark[0] := by
-  simpa using load_full_tarjan_mark (i := 0) hi hm
+@[scoped c0_load] theorem load_full_tarjan_mark0 (hi : 0 < s.scratch.tarjan_mark.length)
+    (hm : (FullMem c s ⋆ R) m) : loadVal m i32 c.pTarjanMark = some s.scratch.tarjan_mark[0] :=
+  fullArr_load0 .tarjan_mark hi hm
 
-@[scoped c0_store] theorem store_full_tarjan_mark0 {c : FullCfg} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 32) (hi : 0 < s.scratch.tarjan_mark.length)
-    (hm : (FullMem c s ⋆ R) m) :
+@[scoped c0_store] theorem store_full_tarjan_mark0 (v : BitVec 32)
+    (hi : 0 < s.scratch.tarjan_mark.length) (hm : (FullMem c s ⋆ R) m) :
     storeOk m i32 c.pTarjanMark ∧
       (FullMem c { s with scratch :=
         { s.scratch with tarjan_mark := s.scratch.tarjan_mark.set 0 v } } ⋆ R)
-        (storeMem m i32 c.pTarjanMark v) := by
-  simpa using store_full_tarjan_mark (i := 0) v hi hm
+        (storeMem m i32 c.pTarjanMark v) :=
+  fullArr_store0 .tarjan_mark v hi hm
+
+end HeapAccess
 
 attribute [scoped bv_c0] bv32_lshr_1 FidK6Tactics.fid_bv32_shr1_ofNat repr64Set_length
 

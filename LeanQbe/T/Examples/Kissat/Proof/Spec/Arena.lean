@@ -10,26 +10,24 @@ public import LeanQbe.T.Logic.C0Agrees
 public import Kraken.SeparationTactics
 public import Kraken.Mem
 public import Kraken.Separation
+import LeanQbe.T.Logic.SlabChain
+meta import Lean.Elab.Command
 
 /-!
-# Kissat `D-Full` Arena Layout, State, and Memory Bridges — Part 1 (`Stage 4`)
+# Kissat `D-Full` Arena Layout, State, Indexed Field Tables, and Memory Bridges (`Stage 4`)
 
 Defines:
-1. `fullMinDepthOf`, `u32FullBytes`, `fullFixedBytes`, and `FullCfg` matching frozen `FullHdr`
-   (`144` `u64` words = `1,152` bytes, offsets `0..1144`, `41` contiguous arrays) and
-   `regions_to_avail`.
-2. `FullScratch` (non-soundness heuristic / phase / WalkSAT / VMTF queue / Tarjan / sim /
-   extend / scratch arrays and stat scalars) separated from soundness-bearing `FullCoreState`
-   and `FullState`, with `LengthsOk` and the `140`-word `hdrTailWords` projection.
-3. `FullMem`, `FullArenaInv`, `FullCheckRest`, `fullMem_anyDimacs_to_region`, and `check_model` /
-   alignment framing bridges (`fullMem_to_checkModel`, `checkModel_post_to_region`,
-   `region_work_to_hdr`).
-4. `C0Agrees.SafetySlice` instantiations (`fullSafetySlice`, `fullExtendSlice`) and group-focus
-   header/array primitives (zero global tactic attributes).
+1. `fullMinDepthOf`, `u32FullBytes`, `fullFixedBytes`, `FullCfg` matching frozen `FullHdr`
+   (`144` `u64` words = `1,152` bytes, offsets `0..1144`, `41` contiguous arrays), and
+   `SlabChain`-backed `regions_to_avail`.
+2. Named `FullScratch`, `FullCoreState`, and `FullState` structures with `LengthsOk`.
+3. Single-source-of-truth indexed `HdrWordField` (`144` words) and `ArrayField` (`41` arrays)
+   tables with `hdrTailWords`, `ofOff?` lookup, and `O(1)` `ArrayField.focus` / `unfocus` bridges.
+4. `FullMem`, `FullArenaInv`, `FullCheckRest`, `fullMem_anyDimacs_to_region`, `check_model`
+   framing bridges, and `C0Agrees.SafetySlice` instantiations.
 -/
 
 set_option autoImplicit false
-
 
 public section
 
@@ -252,381 +250,41 @@ def pSlack (c : FullCfg) : BitVec 64 := c.pScratchBuf + BitVec.ofNat 64 (4 * c.s
 @[expose] def pad (c : FullCfg) : Mem 64 → Prop :=
   c.padBytes ⋆ c.padU32A ⋆ c.padU32B ⋆ c.padU32C ⋆ region c.pSlack c.slack
 
-private theorem fPair {a : BitVec 64} {n1 n2 n : Nat}
-    (hn : n1 + n2 = n) (hfit : n ≤ 2 ^ 64) {f : Mem 64}
-    (hf : (region a n1 ⋆ region (a + BitVec.ofNat 64 n1) n2) f) : region a n f :=
-  (congrFun (region_merge_eq hn hfit) f).mp hf
+private def hdrRegSeg : SlabSeg where
+  stride := 1152
+  pred a := region a 32 ⋆ region (a + BitVec.ofNat 64 32) 1120
+  toReg a m hfit h := (congrFun (region_merge_eq (by decide) hfit) m).mp h
 
-private theorem fStep {P : Mem 64 → Prop} {m0 : Mem 64} {n1 n2 : Nat} {a1 a2 : BitVec 64}
-    (h : (region a1 n1 ⋆ (region a2 n2 ⋆ P)) m0)
-    (hadd : a2 = a1 + BitVec.ofNat 64 n1) (hfit : n1 + n2 ≤ 2 ^ 64) :
-    (region a1 (n1 + n2) ⋆ P) m0 := by
-  rw [← sep_assoc, hadd] at h
-  rwa [region_merge_eq rfl hfit] at h
+private def padRegSeg (active stride : Nat) (hle : active ≤ stride) : SlabSeg where
+  stride := stride
+  pred a := region a active ⋆ region (a + BitVec.ofNat 64 active) (stride - active)
+  toReg a m hfit h := (congrFun (region_merge_eq (by omega) hfit) m).mp h
 
-private theorem fStep2 {m0 : Mem 64} {n1 n2 : Nat} {a1 a2 : BitVec 64}
-    (h : (region a1 n1 ⋆ region a2 n2) m0)
-    (hadd : a2 = a1 + BitVec.ofNat 64 n1) (hfit : n1 + n2 ≤ 2 ^ 64) :
-    region a1 (n1 + n2) m0 := by
-  rw [hadd] at h
-  rwa [region_merge_eq rfl hfit] at h
+private def segsBytes (c : FullCfg) : List SlabSeg :=
+  let v := padRegSeg (2 * c.max_vars) (valsBytes c.max_vars) (valsBytes_ge c.max_vars)
+  let mk := padRegSeg c.max_vars (markBytes c.max_vars) (markBytes_ge c.max_vars)
+  [hdrRegSeg, v, v, v, mk, mk, mk, mk, mk]
 
-private theorem rassoc5 {A B C D E : Mem 64 → Prop} {m : Mem 64}
-    (h : (A ⋆ B ⋆ C ⋆ D ⋆ E) m) : (A ⋆ (B ⋆ (C ⋆ (D ⋆ E)))) m := sep_ac h
+private def segsU32_5 (c : FullCfg) : List SlabSeg :=
+  let u := padRegSeg (4 * c.max_vars) (u32FullBytes c.max_vars) (u32FullBytes_ge4 c.max_vars)
+  [u, u, u, u, u]
 
-private theorem rassoc6 {A B C D E F : Mem 64 → Prop} {m : Mem 64}
-    (h : (A ⋆ B ⋆ C ⋆ D ⋆ E ⋆ F) m) : (A ⋆ (B ⋆ (C ⋆ (D ⋆ (E ⋆ F))))) m := sep_ac h
+private def segsU32C (c : FullCfg) : List SlabSeg :=
+  let u := padRegSeg (4 * c.max_vars) (u32FullBytes c.max_vars) (u32FullBytes_ge4 c.max_vars)
+  let uf := padRegSeg (4 * (c.max_vars + 1)) (u32FullBytes c.max_vars) (u32FullBytes_ge c.max_vars)
+  [u, u, u, uf, uf]
 
-private theorem collapse_u32_5 {a1 a2 a3 a4 a5 : BitVec 64} {n1 n2 n3 n4 n5 u : Nat}
-    {m0 : Mem 64}
-    (h2 : a2 = a1 + BitVec.ofNat 64 u) (h3 : a3 = a2 + BitVec.ofNat 64 u)
-    (h4 : a4 = a3 + BitVec.ofNat 64 u) (h5 : a5 = a4 + BitVec.ofNat 64 u)
-    (hle1 : n1 ≤ u) (hle2 : n2 ≤ u) (hle3 : n3 ≤ u) (hle4 : n4 ≤ u) (hle5 : n5 ≤ u)
-    (hfit : 5 * u ≤ 2 ^ 64)
-    (hf : ((region a1 n1 ⋆ region a2 n2 ⋆ region a3 n3 ⋆ region a4 n4 ⋆ region a5 n5) ⋆
-      (region (a1 + BitVec.ofNat 64 n1) (u - n1) ⋆ region (a2 + BitVec.ofNat 64 n2) (u - n2) ⋆
-       region (a3 + BitVec.ofNat 64 n3) (u - n3) ⋆ region (a4 + BitVec.ofNat 64 n4) (u - n4) ⋆
-       region (a5 + BitVec.ofNat 64 n5) (u - n5))) m0) :
-    region a1 (5 * u) m0 := by
-  have zip5 : ∀ {A B C D E A' B' C' D' E' : Mem 64 → Prop} {k : Mem 64},
-      ((A ⋆ B ⋆ C ⋆ D ⋆ E) ⋆ (A' ⋆ B' ⋆ C' ⋆ D' ⋆ E')) k →
-      ((A ⋆ A') ⋆ (B ⋆ B') ⋆ (C ⋆ C') ⋆ (D ⋆ D') ⋆ (E ⋆ E')) k := fun x => sep_ac x
-  have r1 : (region a1 u ⋆ region a2 u ⋆ region a3 u ⋆ region a4 u ⋆ region a5 u) m0 :=
-    sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
-      (fun _ => fPair (n := u) (by omega) (by omega))
-      (fun _ => fPair (n := u) (by omega) (by omega)))
-      (fun _ => fPair (n := u) (by omega) (by omega)))
-      (fun _ => fPair (n := u) (by omega) (by omega)))
-      (fun _ => fPair (n := u) (by omega) (by omega)) m0 (zip5 hf)
-  have r2 := rassoc5 r1
-  have s1 := fStep r2 h2 (by omega)
-  have h3' : a3 = a1 + BitVec.ofNat 64 (u + u) := by rw [h3, h2, ptr_add_ofNat]
-  have s2 := fStep s1 h3' (by omega)
-  have h4' : a4 = a1 + BitVec.ofNat 64 (u + u + u) := by rw [h4, h3', ptr_add_ofNat]
-  have s3 := fStep s2 h4' (by omega)
-  have h5' : a5 = a1 + BitVec.ofNat 64 (u + u + u + u) := by rw [h5, h4', ptr_add_ofNat]
-  have s4 := fStep2 s3 h5' (by omega)
-  rwa [show u + u + u + u + u = 5 * u by omega] at s4
-
-private theorem collapse_bytes (c : FullCfg) {m : Mem 64}
-    (hf : ((region c.hdr 32 ⋆ region (c.hdr + BitVec.ofNat 64 32) 1120) ⋆
-      ((region c.pVals (2 * c.max_vars) ⋆ region c.pWalkVals (2 * c.max_vars) ⋆
-        region c.pLitMark (2 * c.max_vars)) ⋆
-       (region c.pMark c.max_vars ⋆ region c.pPhases c.max_vars ⋆
-        region c.pPhasesTarget c.max_vars ⋆ region c.pPhasesBest c.max_vars ⋆
-        region c.pWalkBest c.max_vars)) ⋆ c.padBytes) m) :
-    region c.hdr (1152 + 3 * valsBytes c.max_vars + 5 * markBytes c.max_vars) m := by
-  have hmx := c.hmaxv; unfold dimacsBound at hmx
-  have hv := valsBytes_ge c.max_vars; have hmk := markBytes_ge c.max_vars
-  have hvlt : valsBytes c.max_vars ≤ 2 * c.max_vars + 7 := by unfold valsBytes; omega
-  have hmlt : markBytes c.max_vars ≤ c.max_vars + 7 := by unfold markBytes; omega
-  have hhdr : (region c.hdr 32 ⋆ region (c.hdr + BitVec.ofNat 64 32) 1120) =
-      region c.hdr 1152 := region_merge_eq (by decide) (by decide)
-  rw [hhdr] at hf; unfold padBytes at hf
-  have reorg : ∀ {H V1 V2 V3 M1 M2 M3 M4 M5 PV1 PV2 PV3 PM1 PM2 PM3 PM4 PM5 : Mem 64 → Prop}
-      {k : Mem 64},
-      (H ⋆ ((V1 ⋆ V2 ⋆ V3) ⋆ (M1 ⋆ M2 ⋆ M3 ⋆ M4 ⋆ M5)) ⋆
-        (PV1 ⋆ PV2 ⋆ PV3 ⋆ PM1 ⋆ PM2 ⋆ PM3 ⋆ PM4 ⋆ PM5)) k →
-      (H ⋆ (((V1 ⋆ PV1) ⋆ (V2 ⋆ PV2) ⋆ (V3 ⋆ PV3)) ⋆
-        ((M1 ⋆ PM1) ⋆ (M2 ⋆ PM2) ⋆ (M3 ⋆ PM3) ⋆ (M4 ⋆ PM4) ⋆ (M5 ⋆ PM5)))) k := fun x => sep_ac x
-  have hzip := reorg hf
-  have hvs : (region c.pVals (2 * c.max_vars) ⋆
-        region (c.pVals + BitVec.ofNat 64 (2 * c.max_vars))
-          (valsBytes c.max_vars - 2 * c.max_vars)) ⋆
-      (region c.pWalkVals (2 * c.max_vars) ⋆
-        region (c.pWalkVals + BitVec.ofNat 64 (2 * c.max_vars))
-          (valsBytes c.max_vars - 2 * c.max_vars)) ⋆
-      (region c.pLitMark (2 * c.max_vars) ⋆
-        region (c.pLitMark + BitVec.ofNat 64 (2 * c.max_vars))
-          (valsBytes c.max_vars - 2 * c.max_vars)) =
-      (region c.pVals (valsBytes c.max_vars) ⋆ region c.pWalkVals (valsBytes c.max_vars) ⋆
-        region c.pLitMark (valsBytes c.max_vars)) := by
-    rw [region_merge_eq (n := valsBytes c.max_vars) (by omega) (by omega),
-      region_merge_eq (n := valsBytes c.max_vars) (by omega) (by omega),
-      region_merge_eq (n := valsBytes c.max_vars) (by omega) (by omega)]
-  have hms : (region c.pMark c.max_vars ⋆
-        region (c.pMark + BitVec.ofNat 64 c.max_vars) (markBytes c.max_vars - c.max_vars)) ⋆
-      (region c.pPhases c.max_vars ⋆
-        region (c.pPhases + BitVec.ofNat 64 c.max_vars) (markBytes c.max_vars - c.max_vars)) ⋆
-      (region c.pPhasesTarget c.max_vars ⋆
-        region (c.pPhasesTarget + BitVec.ofNat 64 c.max_vars)
-          (markBytes c.max_vars - c.max_vars)) ⋆
-      (region c.pPhasesBest c.max_vars ⋆
-        region (c.pPhasesBest + BitVec.ofNat 64 c.max_vars) (markBytes c.max_vars - c.max_vars)) ⋆
-      (region c.pWalkBest c.max_vars ⋆
-        region (c.pWalkBest + BitVec.ofNat 64 c.max_vars) (markBytes c.max_vars - c.max_vars)) =
-      (region c.pMark (markBytes c.max_vars) ⋆ region c.pPhases (markBytes c.max_vars) ⋆
-        region c.pPhasesTarget (markBytes c.max_vars) ⋆
-        region c.pPhasesBest (markBytes c.max_vars) ⋆
-        region c.pWalkBest (markBytes c.max_vars)) := by
-    rw [region_merge_eq (n := markBytes c.max_vars) (by omega) (by omega),
-      region_merge_eq (n := markBytes c.max_vars) (by omega) (by omega),
-      region_merge_eq (n := markBytes c.max_vars) (by omega) (by omega),
-      region_merge_eq (n := markBytes c.max_vars) (by omega) (by omega),
-      region_merge_eq (n := markBytes c.max_vars) (by omega) (by omega)]
-  rw [hvs, hms] at hzip
-  have flat : ∀ {H V1 V2 V3 M1 M2 M3 M4 M5 : Mem 64 → Prop} {k : Mem 64},
-      (H ⋆ ((V1 ⋆ V2 ⋆ V3) ⋆ (M1 ⋆ M2 ⋆ M3 ⋆ M4 ⋆ M5))) k →
-      (H ⋆ (V1 ⋆ (V2 ⋆ (V3 ⋆ (M1 ⋆ (M2 ⋆ (M3 ⋆ (M4 ⋆ M5)))))))) k := fun x => sep_ac x
-  have h1 := flat hzip
-  have s1 := fStep h1 rfl (by omega)
-  have ha2' : c.pWalkVals = c.hdr + BitVec.ofNat 64 (1152 + valsBytes c.max_vars) := by
-    rw [FullCfg.pWalkVals, FullCfg.pVals, ptr_add_ofNat]
-  have s2 := fStep s1 ha2' (by omega)
-  have ha3' : c.pLitMark =
-      c.hdr + BitVec.ofNat 64 (1152 + valsBytes c.max_vars + valsBytes c.max_vars) := by
-    rw [FullCfg.pLitMark, ha2', ptr_add_ofNat]
-  have s3 := fStep s2 ha3' (by omega)
-  have ha4' : c.pMark = c.hdr + BitVec.ofNat 64
-      (1152 + valsBytes c.max_vars + valsBytes c.max_vars + valsBytes c.max_vars) := by
-    rw [FullCfg.pMark, ha3', ptr_add_ofNat]
-  have s4 := fStep s3 ha4' (by omega)
-  have ha5' : c.pPhases = c.hdr + BitVec.ofNat 64 (1152 + valsBytes c.max_vars +
-      valsBytes c.max_vars + valsBytes c.max_vars + markBytes c.max_vars) := by
-    rw [FullCfg.pPhases, ha4', ptr_add_ofNat]
-  have s5 := fStep s4 ha5' (by omega)
-  have ha6' : c.pPhasesTarget = c.hdr + BitVec.ofNat 64 (1152 + valsBytes c.max_vars +
-      valsBytes c.max_vars + valsBytes c.max_vars + markBytes c.max_vars +
-      markBytes c.max_vars) := by
-    rw [FullCfg.pPhasesTarget, ha5', ptr_add_ofNat]
-  have s6 := fStep s5 ha6' (by omega)
-  have ha7' : c.pPhasesBest = c.hdr + BitVec.ofNat 64 (1152 + valsBytes c.max_vars +
-      valsBytes c.max_vars + valsBytes c.max_vars + markBytes c.max_vars + markBytes c.max_vars +
-      markBytes c.max_vars) := by
-    rw [FullCfg.pPhasesBest, ha6', ptr_add_ofNat]
-  have s7 := fStep s6 ha7' (by omega)
-  have ha8' : c.pWalkBest = c.hdr + BitVec.ofNat 64 (1152 + valsBytes c.max_vars +
-      valsBytes c.max_vars + valsBytes c.max_vars + markBytes c.max_vars + markBytes c.max_vars +
-      markBytes c.max_vars + markBytes c.max_vars) := by
-    rw [FullCfg.pWalkBest, ha7', ptr_add_ofNat]
-  have s8 := fStep2 s7 ha8' (by omega)
-  rwa [show 1152 + valsBytes c.max_vars + valsBytes c.max_vars + valsBytes c.max_vars +
-      markBytes c.max_vars + markBytes c.max_vars + markBytes c.max_vars + markBytes c.max_vars +
-      markBytes c.max_vars =
-      1152 + 3 * valsBytes c.max_vars + 5 * markBytes c.max_vars by omega] at s8
-
-private theorem collapse_tail (c : FullCfg) {m : Mem 64}
-    (hf : ((region c.pWvec (16 * c.max_vars) ⋆ region c.pRepr (8 * c.max_vars) ⋆
-        region c.pWsort (8 * c.max_vars) ⋆ region c.pWorkStk1 (8 * c.max_vars) ⋆
-        region c.pWorkStk2 (8 * c.max_vars) ⋆ region c.pTarjanMark (8 * c.max_vars) ⋆
-        region c.pTarjanReach (8 * c.max_vars) ⋆ region c.pScore (8 * c.max_vars) ⋆
-        region c.pSimSig (8 * c.max_vars)) ⋆
-      (region c.pMinStk (8 * c.minDepth) ⋆ region c.pGlueUsed 256 ⋆
-        region c.pLastLearned 64 ⋆ region c.pArena (4 * c.arena_cap) ⋆
-        region c.pWstk (4 * c.wcap) ⋆ region c.pDelayed (12 * c.delayed_cap) ⋆
-        region c.pRedRefs (4 * c.red_cap) ⋆ region c.pExtendStk (4 * c.extend_cap) ⋆
-        region c.pScratchBuf (4 * c.scratch_cap)) ⋆
-      region c.pSlack c.slack) m) :
-    region c.pWvec (c.avail - (1152 + 3 * valsBytes c.max_vars + 5 * markBytes c.max_vars +
-      15 * u32FullBytes c.max_vars)) m := by
-  have hfit := c.havail_fit; have hsz := c.hsize; have hmx := c.hmaxv
-  have ha := c.harena; have hw := c.hwcap; have hd := c.hdel
-  have hr := c.hred; have he := c.hext; have hs := c.hscr
-  have hmd := fullMinDepthOf_le c.max_vars
-  have hmd_pos := fullMinDepthOf_pos c.max_vars
-  unfold dimacsBound at hmx ha hw hd hr he hs
-  have hslack_eq : c.slack = c.avail - (fullFixedBytes c.max_vars + 4 * c.arena_cap +
-      4 * c.wcap + 12 * c.delayed_cap + 4 * c.red_cap + 4 * c.extend_cap +
-      4 * c.scratch_cap) := rfl
-  have hfb_eq : fullFixedBytes c.max_vars = 1472 + 3 * valsBytes c.max_vars +
-      5 * markBytes c.max_vars + 15 * u32FullBytes c.max_vars + 80 * c.max_vars +
-      8 * c.minDepth := rfl
-  have hsz' : fullFixedBytes c.max_vars + 4 * c.arena_cap + 4 * c.wcap + 12 * c.delayed_cap +
-      4 * c.red_cap + 4 * c.extend_cap + 4 * c.scratch_cap ≤ c.avail := hsz
-  have spl1 : ∀ {k : Mem 64}, (region c.pWvec (16 * c.max_vars) ⋆ region c.pRepr (8 * c.max_vars) ⋆
-      region c.pWsort (8 * c.max_vars) ⋆ region c.pWorkStk1 (8 * c.max_vars) ⋆
-      region c.pWorkStk2 (8 * c.max_vars) ⋆ region c.pTarjanMark (8 * c.max_vars) ⋆
-      region c.pTarjanReach (8 * c.max_vars) ⋆ region c.pScore (8 * c.max_vars) ⋆
-      region c.pSimSig (8 * c.max_vars)) k → region c.pWvec (80 * c.max_vars) k := by
-    intro k hk
-    have r9 : (region c.pWvec (16 * c.max_vars) ⋆ (region c.pRepr (8 * c.max_vars) ⋆
-        (region c.pWsort (8 * c.max_vars) ⋆ (region c.pWorkStk1 (8 * c.max_vars) ⋆
-        (region c.pWorkStk2 (8 * c.max_vars) ⋆ (region c.pTarjanMark (8 * c.max_vars) ⋆
-        (region c.pTarjanReach (8 * c.max_vars) ⋆ (region c.pScore (8 * c.max_vars) ⋆
-        region c.pSimSig (8 * c.max_vars))))))))) k := sep_ac hk
-    have a1 : c.pRepr = c.pWvec + BitVec.ofNat 64 (16 * c.max_vars) := rfl
-    have a2 : c.pWsort = c.pWvec + BitVec.ofNat 64 (16 * c.max_vars + 8 * c.max_vars) := by
-      unfold pWsort; rw [a1, ptr_add_ofNat]
-    have a3 : c.pWorkStk1 =
-        c.pWvec + BitVec.ofNat 64 (16 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars) := by
-      unfold pWorkStk1; rw [a2, ptr_add_ofNat]
-    have a4 : c.pWorkStk2 = c.pWvec + BitVec.ofNat 64
-        (16 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars) := by
-      unfold pWorkStk2; rw [a3, ptr_add_ofNat]
-    have a5 : c.pTarjanMark = c.pWvec + BitVec.ofNat 64 (16 * c.max_vars + 8 * c.max_vars +
-        8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars) := by
-      unfold pTarjanMark; rw [a4, ptr_add_ofNat]
-    have a6 : c.pTarjanReach = c.pWvec + BitVec.ofNat 64 (16 * c.max_vars + 8 * c.max_vars +
-        8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars) := by
-      unfold pTarjanReach; rw [a5, ptr_add_ofNat]
-    have a7 : c.pScore = c.pWvec + BitVec.ofNat 64 (16 * c.max_vars + 8 * c.max_vars +
-        8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars) := by
-      unfold pScore; rw [a6, ptr_add_ofNat]
-    have a8 : c.pSimSig = c.pWvec + BitVec.ofNat 64 (16 * c.max_vars + 8 * c.max_vars +
-        8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars +
-        8 * c.max_vars) := by
-      unfold pSimSig; rw [a7, ptr_add_ofNat]
-    have s := fStep2 (fStep (fStep (fStep (fStep (fStep (fStep (fStep r9 a1 (by omega))
-      a2 (by omega)) a3 (by omega)) a4 (by omega)) a5 (by omega)) a6 (by omega)) a7 (by omega))
-      a8 (by omega)
-    rwa [show 16 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars +
-        8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars + 8 * c.max_vars =
-        80 * c.max_vars by omega] at s
-  have hrem_bound : 8 * c.minDepth + 320 + 4 * c.arena_cap + 4 * c.wcap + 12 * c.delayed_cap +
-      4 * c.red_cap + 4 * c.extend_cap + 4 * c.scratch_cap + c.slack ≤ c.avail ∧
-      8 * c.minDepth + 256 + 64 + 4 * c.arena_cap + 4 * c.wcap + 12 * c.delayed_cap +
-      4 * c.red_cap + 4 * c.extend_cap + 4 * c.scratch_cap + c.slack =
-      c.avail - (1152 + 3 * valsBytes c.max_vars + 5 * markBytes c.max_vars +
-        15 * u32FullBytes c.max_vars + 80 * c.max_vars) := by
-    rw [hslack_eq, hfb_eq] at *; change _ ≤ _ ∧ _ at *; constructor <;> omega
-  have spl2 : ∀ {k : Mem 64}, (region c.pMinStk (8 * c.minDepth) ⋆ region c.pGlueUsed 256 ⋆
-      region c.pLastLearned 64 ⋆ region c.pArena (4 * c.arena_cap) ⋆
-      region c.pWstk (4 * c.wcap) ⋆ region c.pDelayed (12 * c.delayed_cap) ⋆
-      region c.pRedRefs (4 * c.red_cap) ⋆ region c.pExtendStk (4 * c.extend_cap) ⋆
-      region c.pScratchBuf (4 * c.scratch_cap) ⋆ region c.pSlack c.slack) k →
-      region c.pMinStk (c.avail - (1152 + 3 * valsBytes c.max_vars + 5 * markBytes c.max_vars +
-        15 * u32FullBytes c.max_vars + 80 * c.max_vars)) k := by
-    intro k hk
-    have hm_le : c.minDepth ≤ 1000 := hmd
-    have r10 : (region c.pMinStk (8 * c.minDepth) ⋆ (region c.pGlueUsed 256 ⋆
-        (region c.pLastLearned 64 ⋆ (region c.pArena (4 * c.arena_cap) ⋆
-        (region c.pWstk (4 * c.wcap) ⋆ (region c.pDelayed (12 * c.delayed_cap) ⋆
-        (region c.pRedRefs (4 * c.red_cap) ⋆ (region c.pExtendStk (4 * c.extend_cap) ⋆
-        (region c.pScratchBuf (4 * c.scratch_cap) ⋆ region c.pSlack c.slack))))))))) k :=
-      sep_ac hk
-    have a1 : c.pGlueUsed = c.pMinStk + BitVec.ofNat 64 (8 * c.minDepth) := rfl
-    have a2 : c.pLastLearned = c.pMinStk + BitVec.ofNat 64 (8 * c.minDepth + 256) := by
-      unfold pLastLearned; rw [a1, ptr_add_ofNat]
-    have a3 : c.pArena = c.pMinStk + BitVec.ofNat 64 (8 * c.minDepth + 256 + 64) := by
-      unfold pArena; rw [a2, ptr_add_ofNat]
-    have a4 : c.pWstk =
-        c.pMinStk + BitVec.ofNat 64 (8 * c.minDepth + 256 + 64 + 4 * c.arena_cap) := by
-      unfold pWstk; rw [a3, ptr_add_ofNat]
-    have a5 : c.pDelayed = c.pMinStk +
-        BitVec.ofNat 64 (8 * c.minDepth + 256 + 64 + 4 * c.arena_cap + 4 * c.wcap) := by
-      unfold pDelayed; rw [a4, ptr_add_ofNat]
-    have a6 : c.pRedRefs = c.pMinStk + BitVec.ofNat 64
-        (8 * c.minDepth + 256 + 64 + 4 * c.arena_cap + 4 * c.wcap + 12 * c.delayed_cap) := by
-      unfold pRedRefs; rw [a5, ptr_add_ofNat]
-    have a7 : c.pExtendStk = c.pMinStk + BitVec.ofNat 64 (8 * c.minDepth + 256 + 64 +
-        4 * c.arena_cap + 4 * c.wcap + 12 * c.delayed_cap + 4 * c.red_cap) := by
-      unfold pExtendStk; rw [a6, ptr_add_ofNat]
-    have a8 : c.pScratchBuf = c.pMinStk + BitVec.ofNat 64 (8 * c.minDepth + 256 + 64 +
-        4 * c.arena_cap + 4 * c.wcap + 12 * c.delayed_cap + 4 * c.red_cap + 4 * c.extend_cap) := by
-      unfold pScratchBuf; rw [a7, ptr_add_ofNat]
-    have a9 : c.pSlack = c.pMinStk + BitVec.ofNat 64 (8 * c.minDepth + 256 + 64 +
-        4 * c.arena_cap + 4 * c.wcap + 12 * c.delayed_cap + 4 * c.red_cap + 4 * c.extend_cap +
-        4 * c.scratch_cap) := by
-      unfold pSlack; rw [a8, ptr_add_ofNat]
-    have s := fStep2 (fStep (fStep (fStep (fStep (fStep (fStep (fStep (fStep r10 a1
-      (by omega)) a2 (by omega)) a3 (by omega)) a4 (by omega)) a5 (by omega)) a6 (by omega))
-      a7 (by omega)) a8 (by omega)) a9 (by omega)
-    rwa [hrem_bound.2] at s
-  have htop : ((region c.pWvec (16 * c.max_vars) ⋆ region c.pRepr (8 * c.max_vars) ⋆
-        region c.pWsort (8 * c.max_vars) ⋆ region c.pWorkStk1 (8 * c.max_vars) ⋆
-        region c.pWorkStk2 (8 * c.max_vars) ⋆ region c.pTarjanMark (8 * c.max_vars) ⋆
-        region c.pTarjanReach (8 * c.max_vars) ⋆ region c.pScore (8 * c.max_vars) ⋆
-        region c.pSimSig (8 * c.max_vars)) ⋆
-      (region c.pMinStk (8 * c.minDepth) ⋆ region c.pGlueUsed 256 ⋆
-        region c.pLastLearned 64 ⋆ region c.pArena (4 * c.arena_cap) ⋆
-        region c.pWstk (4 * c.wcap) ⋆ region c.pDelayed (12 * c.delayed_cap) ⋆
-        region c.pRedRefs (4 * c.red_cap) ⋆ region c.pExtendStk (4 * c.extend_cap) ⋆
-        region c.pScratchBuf (4 * c.scratch_cap) ⋆ region c.pSlack c.slack)) m := sep_ac hf
-  have hmerged := sep_mono2 (fun _ => spl1) (fun _ => spl2) m htop
-  have hpM : c.pMinStk = c.pWvec + BitVec.ofNat 64 (80 * c.max_vars) := by
-    unfold pMinStk pSimSig pScore pTarjanReach pTarjanMark pWorkStk2 pWorkStk1 pWsort pRepr
-    repeat rw [ptr_add_ofNat]
-    exact congrArg (fun n => c.pWvec + BitVec.ofNat 64 n) (by omega)
-  have hfinal := fStep2 hmerged hpM (by omega)
-  rwa [show 80 * c.max_vars + (c.avail - (1152 + 3 * valsBytes c.max_vars +
-      5 * markBytes c.max_vars + 15 * u32FullBytes c.max_vars + 80 * c.max_vars)) =
-      c.avail - (1152 + 3 * valsBytes c.max_vars + 5 * markBytes c.max_vars +
-        15 * u32FullBytes c.max_vars) by omega] at hfinal
-
-private theorem grouped_to_avail (c : FullCfg) {m : Mem 64}
-    (hsplit : (((region c.hdr 32 ⋆ region (c.hdr + BitVec.ofNat 64 32) 1120) ⋆
-        ((region c.pVals (2 * c.max_vars) ⋆ region c.pWalkVals (2 * c.max_vars) ⋆
-          region c.pLitMark (2 * c.max_vars)) ⋆
-         (region c.pMark c.max_vars ⋆ region c.pPhases c.max_vars ⋆
-          region c.pPhasesTarget c.max_vars ⋆ region c.pPhasesBest c.max_vars ⋆
-          region c.pWalkBest c.max_vars)) ⋆ c.padBytes) ⋆
-      ((region c.pFlags (4 * c.max_vars) ⋆ region c.pLevel (4 * c.max_vars) ⋆
-        region c.pReason (4 * c.max_vars) ⋆ region c.pTrail (4 * c.max_vars) ⋆
-        region c.pTrailPos (4 * c.max_vars)) ⋆ c.padU32A) ⋆
-      ((region c.pTmp (4 * c.max_vars) ⋆ region c.pHeap (4 * c.max_vars) ⋆
-        region c.pPos (4 * c.max_vars) ⋆ region c.pMinClr (4 * c.max_vars) ⋆
-        region c.pShrinkStk (4 * c.max_vars)) ⋆ c.padU32B) ⋆
-      ((region c.pQPrev (4 * c.max_vars) ⋆ region c.pQNext (4 * c.max_vars) ⋆
-        region c.pQStamp (4 * c.max_vars) ⋆ region c.pFrameTrail (4 * (c.max_vars + 1)) ⋆
-        region c.pFrameDec (4 * (c.max_vars + 1))) ⋆ c.padU32C) ⋆
-      ((region c.pWvec (16 * c.max_vars) ⋆ region c.pRepr (8 * c.max_vars) ⋆
-        region c.pWsort (8 * c.max_vars) ⋆ region c.pWorkStk1 (8 * c.max_vars) ⋆
-        region c.pWorkStk2 (8 * c.max_vars) ⋆ region c.pTarjanMark (8 * c.max_vars) ⋆
-        region c.pTarjanReach (8 * c.max_vars) ⋆ region c.pScore (8 * c.max_vars) ⋆
-        region c.pSimSig (8 * c.max_vars)) ⋆
-       (region c.pMinStk (8 * c.minDepth) ⋆ region c.pGlueUsed 256 ⋆
-        region c.pLastLearned 64 ⋆ region c.pArena (4 * c.arena_cap) ⋆
-        region c.pWstk (4 * c.wcap) ⋆ region c.pDelayed (12 * c.delayed_cap) ⋆
-        region c.pRedRefs (4 * c.red_cap) ⋆ region c.pExtendStk (4 * c.extend_cap) ⋆
-        region c.pScratchBuf (4 * c.scratch_cap)) ⋆
-       region c.pSlack c.slack)) m) :
-    region c.hdr c.avail m := by
-  have hfit := c.havail_fit; have hsz := c.hsize; have hmx := c.hmaxv
-  have hu := u32FullBytes_ge c.max_vars; have hu4 := u32FullBytes_ge4 c.max_vars
-  have hult := u32FullBytes_le c.max_vars
-  have hle : fullFixedBytes c.max_vars ≤ c.avail := by unfold fullFixedBytes at *; omega
-  unfold fullFixedBytes at hsz hle; unfold dimacsBound at hmx
-  have hc : (region c.hdr (1152 + 3 * valsBytes c.max_vars + 5 * markBytes c.max_vars) ⋆
-      region c.pFlags (5 * u32FullBytes c.max_vars) ⋆
-      region c.pTmp (5 * u32FullBytes c.max_vars) ⋆
-      region c.pQPrev (5 * u32FullBytes c.max_vars) ⋆
-      region c.pWvec (c.avail - (1152 + 3 * valsBytes c.max_vars + 5 * markBytes c.max_vars +
-        15 * u32FullBytes c.max_vars))) m :=
-    sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (fun _ => collapse_bytes c)
-      (fun _ g => by
-        unfold padU32A at g
-        exact collapse_u32_5 rfl rfl rfl rfl (by omega) (by omega) (by omega) (by omega)
-          (by omega) (by omega) g))
-      (fun _ g => by
-        unfold padU32B at g
-        exact collapse_u32_5 rfl rfl rfl rfl (by omega) (by omega) (by omega) (by omega)
-          (by omega) (by omega) g))
-      (fun _ g => by
-        unfold padU32C at g
-        exact collapse_u32_5 rfl rfl rfl rfl (by omega) (by omega) (by omega) (by omega)
-          (by omega) (by omega) g))
-      (fun _ => collapse_tail c) m hsplit
-  have hc5 := rassoc5 hc
-  have hp1 : c.pFlags = c.hdr + BitVec.ofNat 64
-      (1152 + 3 * valsBytes c.max_vars + 5 * markBytes c.max_vars) := by
-    unfold pFlags pWalkBest pPhasesBest pPhasesTarget pPhases pMark pLitMark pWalkVals pVals
-    repeat rw [ptr_add_ofNat]
-    exact congrArg (fun n => c.hdr + BitVec.ofNat 64 n) (by omega)
-  have hp2 : c.pTmp = c.hdr + BitVec.ofNat 64 (1152 + 3 * valsBytes c.max_vars +
-      5 * markBytes c.max_vars + 5 * u32FullBytes c.max_vars) := by
-    unfold pTmp pTrailPos pTrail pReason pLevel
-    rw [hp1]; repeat rw [ptr_add_ofNat]
-    exact congrArg (fun n => c.hdr + BitVec.ofNat 64 n) (by omega)
-  have hp3 : c.pQPrev = c.hdr + BitVec.ofNat 64 (1152 + 3 * valsBytes c.max_vars +
-      5 * markBytes c.max_vars + 5 * u32FullBytes c.max_vars + 5 * u32FullBytes c.max_vars) := by
-    unfold pQPrev pShrinkStk pMinClr pPos pHeap
-    rw [hp2]; repeat rw [ptr_add_ofNat]
-    exact congrArg (fun n => c.hdr + BitVec.ofNat 64 n) (by omega)
-  have hp4 : c.pWvec = c.hdr + BitVec.ofNat 64 (1152 + 3 * valsBytes c.max_vars +
-      5 * markBytes c.max_vars + 5 * u32FullBytes c.max_vars + 5 * u32FullBytes c.max_vars +
-      5 * u32FullBytes c.max_vars) := by
-    unfold pWvec pFrameDec pFrameTrail pQStamp pQNext
-    rw [hp3]; repeat rw [ptr_add_ofNat]
-    exact congrArg (fun n => c.hdr + BitVec.ofNat 64 n) (by omega)
-  have hm := fStep2 (fStep (fStep (fStep hc5 hp1 (by omega)) hp2 (by omega)) hp3 (by omega))
-    hp4 (by omega)
-  rwa [show 1152 + 3 * valsBytes c.max_vars + 5 * markBytes c.max_vars +
-      5 * u32FullBytes c.max_vars + 5 * u32FullBytes c.max_vars +
-      5 * u32FullBytes c.max_vars + (c.avail - (1152 + 3 * valsBytes c.max_vars +
-        5 * markBytes c.max_vars + 15 * u32FullBytes c.max_vars)) = c.avail by omega] at hm
+private def segsTail (c : FullCfg) : List SlabSeg :=
+  let r8 := SlabSeg.ofRegion (8 * c.max_vars)
+  [SlabSeg.ofRegion (16 * c.max_vars), r8, r8, r8, r8, r8, r8, r8, r8,
+   SlabSeg.ofRegion (8 * c.minDepth), SlabSeg.ofRegion 256, SlabSeg.ofRegion 64,
+   SlabSeg.ofRegion (4 * c.arena_cap), SlabSeg.ofRegion (4 * c.wcap),
+   SlabSeg.ofRegion (12 * c.delayed_cap), SlabSeg.ofRegion (4 * c.red_cap),
+   SlabSeg.ofRegion (4 * c.extend_cap), SlabSeg.ofRegion (4 * c.scratch_cap),
+   SlabSeg.ofRegion c.slack]
 
 /-- Collapse all `41` active array regions, header prefix/tail, and padding back into
-`region c.hdr c.avail`. -/
+`region c.hdr c.avail` via `SlabChain.to_region_eq`. -/
 theorem regions_to_avail (c : FullCfg) {m : Mem 64}
     (hm : ((region c.hdr 32 ⋆ region (c.hdr + BitVec.ofNat 64 32) 1120) ⋆
       ((region c.pVals (2 * c.max_vars) ⋆ region c.pWalkVals (2 * c.max_vars) ⋆
@@ -654,15 +312,47 @@ theorem regions_to_avail (c : FullCfg) {m : Mem 64}
        region c.pRedRefs (4 * c.red_cap) ⋆ region c.pExtendStk (4 * c.extend_cap) ⋆
        region c.pScratchBuf (4 * c.scratch_cap)) ⋆
       c.pad) m) : region c.hdr c.avail m := by
+  have hfit : c.avail ≤ 2 ^ 64 := by have := c.havail_fit; omega
+  have htot : SlabChain.totalBytes
+      (c.segsBytes ++ c.segsU32_5 ++ c.segsU32_5 ++ c.segsU32C ++ c.segsTail) = c.avail := by
+    simp only [SlabChain.totalBytes_append, segsBytes, segsU32_5, segsU32C, segsTail,
+      SlabChain.totalBytes, hdrRegSeg, padRegSeg, SlabSeg.ofRegion]
+    have hsz := c.hsize; unfold slack fullFixedBytes minDepth at *; omega
+  refine SlabChain.to_region_eq htot hfit ?_
+  simp only [SlabChain.eval_append]
   unfold pad at hm
-  have p : ∀ {H B U1 U2 U3 T1 T2 PB PA PC PD PS : Mem 64 → Prop} {k : Mem 64},
+  have hgrp : ∀ {H B U1 U2 U3 T1 T2 PB PA PC PD PS : Mem 64 → Prop} {k : Mem 64},
       (H ⋆ B ⋆ U1 ⋆ U2 ⋆ U3 ⋆ T1 ⋆ T2 ⋆ (PB ⋆ PA ⋆ PC ⋆ PD ⋆ PS)) k →
-      ((H ⋆ B ⋆ PB) ⋆ (U1 ⋆ PA) ⋆ (U2 ⋆ PC) ⋆ (U3 ⋆ PD) ⋆ (T1 ⋆ T2 ⋆ PS)) k := fun x => sep_ac x
-  exact c.grouped_to_avail (p hm)
+      ((((H ⋆ B ⋆ PB) ⋆ (U1 ⋆ PA)) ⋆ (U2 ⋆ PC)) ⋆ (U3 ⋆ PD) ⋆ (T1 ⋆ T2 ⋆ PS)) k := fun x => sep_ac x
+  have hm' := hgrp hm
+  refine sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
+    (fun _ h => by
+      simp only [segsBytes, SlabChain.eval, hdrRegSeg, padRegSeg, sep_emp]
+      unfold padBytes pWalkBest pPhasesBest pPhasesTarget pPhases pMark pLitMark pWalkVals pVals
+        at h
+      exact sep_ac h)
+    (fun _ h => by
+      change SlabChain.eval c.pFlags c.segsU32_5 _
+      simp only [segsU32_5, SlabChain.eval, padRegSeg, sep_emp]
+      unfold padU32A pTrailPos pTrail pReason pLevel at h; exact sep_ac h))
+    (fun _ h => by
+      change SlabChain.eval c.pTmp c.segsU32_5 _
+      simp only [segsU32_5, SlabChain.eval, padRegSeg, sep_emp]
+      unfold padU32B pShrinkStk pMinClr pPos pHeap at h; exact sep_ac h))
+    (fun _ h => by
+      change SlabChain.eval c.pQPrev c.segsU32C _
+      simp only [segsU32C, SlabChain.eval, padRegSeg, sep_emp]
+      unfold padU32C pFrameDec pFrameTrail pQStamp pQNext at h; exact sep_ac h))
+    (fun _ h => by
+      change SlabChain.eval c.pWvec c.segsTail _
+      simp only [segsTail, SlabChain.eval, SlabSeg.ofRegion, sep_emp]
+      unfold pSlack pScratchBuf pExtendStk pRedRefs pDelayed pWstk pArena pLastLearned pGlueUsed
+        pMinStk pSimSig pScore pTarjanReach pTarjanMark pWorkStk2 pWorkStk1 pWsort pRepr at h
+      exact sep_ac h) m hm'
 
 end FullCfg
 
-/-! ## 3. `FullScratch`, `FullCoreState`, `FullState`, `LengthsOk`, and `hdrTailWords` -/
+/-! ## 3. Named `FullScratch`, `FullCoreState`, `FullState`, and `LengthsOk` -/
 
 /-- Non-soundness heuristic, WalkSAT, VMTF queue, phase, reduction, Tarjan/simulation, and
 scratch arrays/scalars separated cleanly from `FullCoreState`. -/
@@ -871,59 +561,256 @@ theorem FullState.LengthsOk.with_scratch {c : FullCfg} {s : FullState}
     ({ s with scratch := sc' } : FullState).LengthsOk c :=
   ⟨hlen.core_ok, hok⟩
 
-@[expose] def hdrTailWords0 (c : FullCfg) (s : FullState) : List (BitVec 64) :=
-  let k := s.core; let sc := s.scratch
-  [ BitVec.ofNat 64 c.arena_cap, BitVec.ofNat 64 c.wcap, BitVec.ofNat 64 k.arena_len,
-    BitVec.ofNat 64 k.wlen, c.pVals, c.pMark, c.pLevel, c.pReason, c.pTrail, c.pWvec,
-    c.pArena, c.pWstk, c.pDelayed, c.pTmp, BitVec.ofNat 64 k.trail_end,
-    BitVec.ofNat 64 k.propagated, BitVec.ofNat 64 k.cur_level, k.fuel, k.confl_ref,
-    BitVec.ofNat 64 k.tmp_cnt, BitVec.ofNat 64 k.tmp_len, c.pHeap, c.pPos, c.pScore,
-    c.pPhases, c.pMinStk, c.pMinClr, BitVec.ofNat 64 sc.heap_len, sc.scinc,
-    BitVec.ofNat 64 c.minDepth, BitVec.ofNat 64 k.min_clr_len, k.min_clr_full,
-    sc.rel_period, sc.rel_limit, sc.rel_wait ]
+/-! ## 4. Single-Source-of-Truth Indexed `HdrWordField` Table (`144` Words) -/
 
-@[expose] def hdrTailWords1 (c : FullCfg) (s : FullState) : List (BitVec 64) :=
-  let k := s.core; let sc := s.scratch
-  [ sc.rel_u, sc.rel_v, sc.rel_trigger, sc.conflicts, sc.learned_lits, sc.min_removed,
-    c.pTrailPos, c.pQPrev, c.pQNext, c.pQStamp, c.pPhasesTarget, c.pPhasesBest, c.pWsort,
-    c.pShrinkStk, c.pRedRefs, c.pGlueUsed, BitVec.ofNat 64 c.red_cap,
-    BitVec.ofNat 64 c.delayed_cap, BitVec.ofNat 64 sc.delayed_len, k.wusable,
-    k.arena_garbage, k.first_reducible, k.num_irred, k.num_redundant, k.num_binary,
-    k.unflushed, k.probing, k.confl_type, k.confl_lit0, k.confl_lit1, sc.stable,
-    sc.switched, sc.mode_count, sc.mode_confl_lim, sc.mode_tick_lim ]
+/-- Storage class of one `u64` word in `FullHdr` (`0..143`). -/
+meta inductive HdrWordKind where
+  | cfgNat (fld : String)
+  | cfgPtr (fld : String)
+  | coreNat (fld : String)
+  | coreBv (fld : String)
+  | scrNat (fld : String)
+  | scrBv (fld : String)
+  deriving Repr, BEq, Inhabited
 
-@[expose] def hdrTailWords2 (c : FullCfg) (s : FullState) : List (BitVec 64) :=
-  let k := s.core; let sc := s.scratch
-  [ sc.mode_saved_ticks, sc.search_ticks, sc.q_first, sc.q_last, sc.q_search_idx,
-    sc.q_search_stamp, sc.q_cur_stamp, sc.target_assigned, sc.best_assigned,
-    sc.rephase_limit, sc.rephased, sc.reduce_limit, sc.reductions, sc.tier1, sc.tier2,
-    sc.restarts, sc.restart_limit, sc.ema_fast_biased, sc.ema_fast_exp,
-    sc.ema_slow_biased, sc.ema_slow_exp, k.oom, BitVec.ofNat 64 c.max_vars,
-    BitVec.ofNat 64 k.cur_vars, BitVec.ofNat 64 c.bva_cap, k.unassigned, c.pFlags,
-    c.pLitMark, c.pRepr, c.pSimSig, c.pFrameTrail, c.pFrameDec, c.pWorkStk1, c.pWorkStk2,
-    c.pTarjanMark ]
+/-- Descriptor for one `FullHdr` `u64` word; its array index is its word index (`byteOff = 8*i`). -/
+meta structure HdrWordSpec where
+  ctor : String
+  kind : HdrWordKind
+  deriving Repr, Inhabited
 
-@[expose] def hdrTailWords3 (c : FullCfg) (s : FullState) : List (BitVec 64) :=
-  let k := s.core; let sc := s.scratch
-  [ c.pTarjanReach, c.pWalkVals, c.pWalkBest, c.pExtendStk, BitVec.ofNat 64 c.extend_cap,
-    BitVec.ofNat 64 sc.extend_len, c.pScratchBuf, BitVec.ofNat 64 c.scratch_cap,
-    c.pLastLearned, sc.rng_state, sc.chrono_levels, sc.otfs_cnt, sc.eager_sub_cnt,
-    sc.probe_limit, sc.probings, sc.elim_limit, sc.eliminations, sc.elim_bound,
-    k.dense_mode, k.inconsistent, sc.iterating, sc.hbr_cnt, sc.trans_cnt, sc.viv_cnt,
-    sc.subst_cnt, sc.cong_cnt, sc.sweep_cnt, sc.bve_cnt, sc.bce_cnt, sc.bva_cnt,
-    sc.walk_cnt_stat, sc.fwd_sub_cnt, sc.fwd_str_cnt, sc.ant_sz, sc.res_sz ]
+private meta def hCfgN (s : String) (f : String := s) : HdrWordSpec := ⟨s, .cfgNat f⟩
+private meta def hCfgP (s : String) (f : String) : HdrWordSpec := ⟨s, .cfgPtr f⟩
+private meta def hCorN (s : String) : HdrWordSpec := ⟨s, .coreNat s⟩
+private meta def hCorB (s : String) (f : String := s) : HdrWordSpec := ⟨s, .coreBv f⟩
+private meta def hScrN (s : String) : HdrWordSpec := ⟨s, .scrNat s⟩
+private meta def hScrB (s : String) : HdrWordSpec := ⟨s, .scrBv s⟩
+
+/-- Canonical `144`-word `FullHdr` layout table (word indices `0..143`, byte offsets `0..1144`). -/
+meta def hdrWordSpecs : Array HdrWordSpec := #[
+  -- Prefix words `0..3` (`KissatDimacs`, offsets `0..24`)
+  hCfgN "mv", hCfgN "nc", hCorB "cur" "d_cur", hCorB "val" "d_val",
+  -- Tail `0..34` (words `4..38`, offsets `32..304`)
+  hCfgN "arena_cap", hCfgN "wcap", hCorN "arena_len", hCorN "wlen",
+  hCfgP "values_ptr" "pVals", hCfgP "mark_ptr" "pMark", hCfgP "level_ptr" "pLevel",
+  hCfgP "reason_ptr" "pReason", hCfgP "trail_ptr" "pTrail", hCfgP "watch_vec_ptr" "pWvec",
+  hCfgP "arena_ptr" "pArena", hCfgP "watch_stk_ptr" "pWstk", hCfgP "delayed_ptr" "pDelayed",
+  hCfgP "tmp_lits_ptr" "pTmp", hCorN "trail_end", hCorN "propagated", hCorN "cur_level",
+  hCorB "fuel", hCorB "confl_ref", hCorN "tmp_cnt", hCorN "tmp_len",
+  hCfgP "heap_ptr" "pHeap", hCfgP "pos_ptr" "pPos", hCfgP "score_ptr" "pScore",
+  hCfgP "phases_ptr" "pPhases", hCfgP "min_stk_ptr" "pMinStk", hCfgP "min_clr_ptr" "pMinClr",
+  hScrN "heap_len", hScrB "scinc", hCfgN "min_depth" "minDepth", hCorN "min_clr_len",
+  hCorB "min_clr_full", hScrB "rel_period", hScrB "rel_limit", hScrB "rel_wait",
+  -- Tail `35..69` (words `39..73`, offsets `312..584`)
+  hScrB "rel_u", hScrB "rel_v", hScrB "rel_trigger", hScrB "conflicts", hScrB "learned_lits",
+  hScrB "min_removed", hCfgP "trail_pos_ptr" "pTrailPos", hCfgP "q_prev_ptr" "pQPrev",
+  hCfgP "q_next_ptr" "pQNext", hCfgP "q_stamp_ptr" "pQStamp",
+  hCfgP "phases_target_ptr" "pPhasesTarget", hCfgP "phases_best_ptr" "pPhasesBest",
+  hCfgP "wsort_ptr" "pWsort", hCfgP "shrink_stk_ptr" "pShrinkStk",
+  hCfgP "red_refs_ptr" "pRedRefs", hCfgP "glue_used_ptr" "pGlueUsed",
+  hCfgN "red_cap", hCfgN "delayed_cap", hScrN "delayed_len",
+  hCorB "wusable", hCorB "arena_garbage", hCorB "first_reducible", hCorB "num_irred",
+  hCorB "num_redundant", hCorB "num_binary", hCorB "unflushed", hCorB "probing",
+  hCorB "confl_type", hCorB "confl_lit0", hCorB "confl_lit1",
+  hScrB "stable", hScrB "switched", hScrB "mode_count", hScrB "mode_confl_lim",
+  hScrB "mode_tick_lim",
+  -- Tail `70..104` (words `74..108`, offsets `592..864`)
+  hScrB "mode_saved_ticks", hScrB "search_ticks", hScrB "q_first", hScrB "q_last",
+  hScrB "q_search_idx", hScrB "q_search_stamp", hScrB "q_cur_stamp", hScrB "target_assigned",
+  hScrB "best_assigned", hScrB "rephase_limit", hScrB "rephased", hScrB "reduce_limit",
+  hScrB "reductions", hScrB "tier1", hScrB "tier2", hScrB "restarts", hScrB "restart_limit",
+  hScrB "ema_fast_biased", hScrB "ema_fast_exp", hScrB "ema_slow_biased", hScrB "ema_slow_exp",
+  hCorB "oom", hCfgN "max_vars", hCorN "cur_vars", hCfgN "bva_cap", hCorB "unassigned",
+  hCfgP "flags_ptr" "pFlags", hCfgP "lit_mark_ptr" "pLitMark", hCfgP "repr_ptr" "pRepr",
+  hCfgP "sim_sig_ptr" "pSimSig", hCfgP "frame_trail_ptr" "pFrameTrail",
+  hCfgP "frame_dec_ptr" "pFrameDec", hCfgP "work_stk1_ptr" "pWorkStk1",
+  hCfgP "work_stk2_ptr" "pWorkStk2", hCfgP "tarjan_mark_ptr" "pTarjanMark",
+  -- Tail `105..139` (words `109..143`, offsets `872..1144`)
+  hCfgP "tarjan_reach_ptr" "pTarjanReach", hCfgP "walk_vals_ptr" "pWalkVals",
+  hCfgP "walk_best_ptr" "pWalkBest", hCfgP "extend_stk_ptr" "pExtendStk",
+  hCfgN "extend_cap", hScrN "extend_len", hCfgP "scratch_buf_ptr" "pScratchBuf",
+  hCfgN "scratch_cap", hCfgP "last_learned_ptr" "pLastLearned",
+  hScrB "rng_state", hScrB "chrono_levels", hScrB "otfs_cnt", hScrB "eager_sub_cnt",
+  hScrB "probe_limit", hScrB "probings", hScrB "elim_limit", hScrB "eliminations",
+  hScrB "elim_bound", hCorB "dense_mode", hCorB "inconsistent",
+  hScrB "iterating", hScrB "hbr_cnt", hScrB "trans_cnt", hScrB "viv_cnt",
+  hScrB "subst_cnt", hScrB "cong_cnt", hScrB "sweep_cnt", hScrB "bve_cnt",
+  hScrB "bce_cnt", hScrB "bva_cnt", hScrB "walk_cnt_stat", hScrB "fwd_sub_cnt",
+  hScrB "fwd_str_cnt", hScrB "ant_sz", hScrB "res_sz"
+]
+
+private meta def elabSrcCmd (tag src : String) : Lean.Elab.Command.CommandElabM Unit := do
+  match Lean.Parser.runParserCategory (← Lean.getEnv) `command src tag with
+  | .ok stx => Lean.Elab.Command.elabCommand stx
+  | .error err => throwError "{tag}: generated code failed to parse: {err}\n{src}"
+
+local elab "gen_full_hdr_table!" : command => do
+  if hdrWordSpecs.size != 144 then
+    throwError "hdrWordSpecs must have 144 entries, got {hdrWordSpecs.size}"
+  let mut ctors : Array String := #[]
+  let mut idxArms : Array String := #[]
+  let mut mutArms : Array String := #[]
+  let mut natArms : Array String := #[]
+  let mut getArms : Array String := #[]
+  let mut setArms : Array String := #[]
+  let mut setNatArms : Array String := #[]
+  let mut ofIdxArms : Array String := #[]
+  let mut tailElems : Array String := #[]
+  let mut tailExprs : Array String := #[]
+  for i in [:hdrWordSpecs.size] do
+    let sp := hdrWordSpecs[i]!
+    ctors := ctors.push s!"  | {sp.ctor}"
+    idxArms := idxArms.push s!"  | .{sp.ctor} => {i}"
+    ofIdxArms := ofIdxArms.push s!"  | {i} => some .{sp.ctor}"
+    let exprStr := match sp.kind with
+      | .cfgNat f => s!"BitVec.ofNat 64 c.{f}"
+      | .cfgPtr f => s!"c.{f}"
+      | .coreNat f => s!"BitVec.ofNat 64 s.core.{f}"
+      | .coreBv f => s!"s.core.{f}"
+      | .scrNat f => s!"BitVec.ofNat 64 s.scratch.{f}"
+      | .scrBv f => s!"s.scratch.{f}"
+    if i ≥ 4 then
+      tailElems := tailElems.push s!".{sp.ctor}"
+      tailExprs := tailExprs.push exprStr
+    getArms := getArms.push s!"  | .{sp.ctor} => {exprStr}"
+    match sp.kind with
+    | .cfgNat _ | .cfgPtr _ => pure ()
+    | .coreNat f =>
+      mutArms := mutArms.push s!"  | .{sp.ctor} => true"
+      natArms := natArms.push s!"  | .{sp.ctor} => true"
+      setArms := setArms.push
+        s!"  | .{sp.ctor} => \{ s with core := \{ s.core with {f} := v.toNat } }"
+      setNatArms := setNatArms.push
+        s!"  | .{sp.ctor} => \{ s with core := \{ s.core with {f} := v } }"
+    | .coreBv f =>
+      mutArms := mutArms.push s!"  | .{sp.ctor} => true"
+      setArms := setArms.push s!"  | .{sp.ctor} => \{ s with core := \{ s.core with {f} := v } }"
+    | .scrNat f =>
+      mutArms := mutArms.push s!"  | .{sp.ctor} => true"
+      natArms := natArms.push s!"  | .{sp.ctor} => true"
+      setArms := setArms.push
+        s!"  | .{sp.ctor} => \{ s with scratch := \{ s.scratch with {f} := v.toNat } }"
+      setNatArms := setNatArms.push
+        s!"  | .{sp.ctor} => \{ s with scratch := \{ s.scratch with {f} := v } }"
+    | .scrBv f =>
+      mutArms := mutArms.push s!"  | .{sp.ctor} => true"
+      setArms := setArms.push
+        s!"  | .{sp.ctor} => \{ s with scratch := \{ s.scratch with {f} := v } }"
+  elabSrcCmd "HdrWordField" <|
+    "inductive HdrWordField where\n" ++ String.intercalate "\n" ctors.toList ++
+    "\n  deriving DecidableEq, Repr"
+  elabSrcCmd "HdrWordField.wordIdx" <|
+    "@[expose] def HdrWordField.wordIdx : HdrWordField → Nat\n" ++
+    String.intercalate "\n" idxArms.toList
+  elabSrcCmd "HdrWordField.isMutable" <|
+    "@[expose] def HdrWordField.isMutable : HdrWordField → Bool\n" ++
+    String.intercalate "\n" mutArms.toList ++ "\n  | _ => false"
+  elabSrcCmd "HdrWordField.isNat" <|
+    "@[expose] def HdrWordField.isNat : HdrWordField → Bool\n" ++
+    String.intercalate "\n" natArms.toList ++ "\n  | _ => false"
+  elabSrcCmd "HdrWordField.get" <|
+    "@[expose] def HdrWordField.get (f : HdrWordField) (c : FullCfg) (s : FullState) :\n" ++
+    "    BitVec 64 :=\n  match f with\n" ++ String.intercalate "\n" getArms.toList
+  elabSrcCmd "HdrWordField.set" <|
+    "@[expose] def HdrWordField.set (f : HdrWordField) (s : FullState) (v : BitVec 64) :\n" ++
+    "    FullState :=\n  match f with\n" ++ String.intercalate "\n" setArms.toList ++ "\n  | _ => s"
+  elabSrcCmd "HdrWordField.setNat" <|
+    "@[expose] def HdrWordField.setNat (f : HdrWordField) (s : FullState) (v : Nat) :\n" ++
+    "    FullState :=\n  match f with\n" ++ String.intercalate "\n" setNatArms.toList ++
+    "\n  | _ => s"
+  elabSrcCmd "HdrWordField.ofWordIdx?" <|
+    "@[expose] def HdrWordField.ofWordIdx? : Nat → Option HdrWordField\n" ++
+    String.intercalate "\n" ofIdxArms.toList ++ "\n  | _ => none"
+  elabSrcCmd "HdrWordField.tailList" <|
+    "@[expose] def HdrWordField.tailList : List HdrWordField :=\n  [" ++
+    String.intercalate ", " tailElems.toList ++ "]"
+  for k in [:4] do
+    let chunk := (tailExprs.extract (35 * k) (35 * (k + 1))).toList
+    elabSrcCmd s!"HdrWordField.tailChunk{k}" <|
+      s!"@[expose] def HdrWordField.tailChunk{k} (c : FullCfg) (s : FullState) :\n" ++
+      "    List (BitVec 64) := [" ++ String.intercalate ", " chunk ++ "]"
+
+gen_full_hdr_table!
+
+namespace HdrWordField
+
+@[expose] def byteOff (f : HdrWordField) : Nat := 8 * f.wordIdx
+
+@[expose] def addr (f : HdrWordField) (c : FullCfg) : BitVec 64 :=
+  if f.wordIdx = 0 then c.hdr else c.hdr + BitVec.ofNat 64 f.byteOff
+
+@[expose] def isTailMut (f : HdrWordField) : Bool :=
+  f.isMutable && decide (4 ≤ f.wordIdx)
+
+@[expose] def ofOff? (off : Nat) : Option HdrWordField :=
+  if off % 8 = 0 then ofWordIdx? (off / 8) else none
+
+theorem wordIdx_lt (f : HdrWordField) : f.wordIdx < 144 := by
+  cases f <;> decide
+
+theorem ofWordIdx?_wordIdx (f : HdrWordField) : ofWordIdx? f.wordIdx = some f := by
+  cases f <;> rfl
+
+theorem ofWordIdx?_eq_some {n : Nat} {f : HdrWordField} (h : ofWordIdx? n = some f) :
+    f.wordIdx = n := by
+  unfold ofWordIdx? at h; split at h <;> cases h <;> rfl
+
+theorem ofOff?_byteOff (f : HdrWordField) : ofOff? f.byteOff = some f := by
+  cases f <;> rfl
+
+theorem ofOff?_eq_some {off : Nat} {f : HdrWordField} (h : ofOff? off = some f) :
+    f.byteOff = off := by
+  unfold ofOff? at h
+  split at h
+  · rename_i hmod
+    have hidx := ofWordIdx?_eq_some h
+    unfold byteOff; omega
+  · cases h
+
+theorem prefix_cases {f : HdrWordField} (h : f.wordIdx < 4) :
+    f = .mv ∨ f = .nc ∨ f = .cur ∨ f = .val := by
+  cases f <;> first
+    | (simp [wordIdx] at h; done)
+    | exact Or.inl rfl | exact Or.inr (Or.inl rfl)
+    | exact Or.inr (Or.inr (Or.inl rfl)) | exact Or.inr (Or.inr (Or.inr rfl))
+
+theorem isNat_ge4 {f : HdrWordField} (h : f.isNat = true) : 4 ≤ f.wordIdx := by
+  cases f <;> first | (simp [isNat] at h; done) | decide
+
+end HdrWordField
 
 /-- The `140` trailing `u64` words of `FullHdr` starting at offset `c.hdr + 32`
-(byte offsets `32..1144`). -/
+(byte offsets `32..1144`), generated directly from `hdrWordSpecs` in four `35`-word chunks. -/
 @[expose] def hdrTailWords (c : FullCfg) (s : FullState) : List (BitVec 64) :=
-  hdrTailWords0 c s ++ hdrTailWords1 c s ++ hdrTailWords2 c s ++ hdrTailWords3 c s
+  HdrWordField.tailChunk0 c s ++ HdrWordField.tailChunk1 c s ++
+  HdrWordField.tailChunk2 c s ++ HdrWordField.tailChunk3 c s
 
 @[simp] theorem hdrTailWords_length (c : FullCfg) (s : FullState) :
     (hdrTailWords c s).length = 140 := by
-  simp only [hdrTailWords, hdrTailWords0, hdrTailWords1, hdrTailWords2, hdrTailWords3,
-    List.length_append, List.length_cons, List.length_nil]
+  simp only [hdrTailWords, HdrWordField.tailChunk0, HdrWordField.tailChunk1,
+    HdrWordField.tailChunk2, HdrWordField.tailChunk3, List.length_append, List.length_cons,
+    List.length_nil]
 
-/-! ## 4. Partitioned array footprints, collapse, and framing bridges -/
+theorem HdrWordField.hdrTailWords_get (f : HdrWordField) (ht : 4 ≤ f.wordIdx)
+    (c : FullCfg) (s : FullState) :
+    (hdrTailWords c s)[f.wordIdx - 4]'(by rw [hdrTailWords_length]; have := f.wordIdx_lt; omega) =
+      f.get c s := by
+  cases f <;> first | (simp [wordIdx] at ht; done) | rfl
+
+theorem HdrWordField.hdrTailWords_set (f : HdrWordField) (hm : f.isTailMut = true)
+    (c : FullCfg) (s : FullState) (v : BitVec 64) :
+    hdrTailWords c (f.set s v) = (hdrTailWords c s).set (f.wordIdx - 4) v := by
+  cases f <;> first
+    | (simp [isTailMut, isMutable, wordIdx] at hm; done)
+    | rfl
+    | ((conv => rhs; rw [← @bv_ofNat_toNat_eq 64 v]); rfl)
+
+theorem HdrWordField.hdrTailWords_setNat (f : HdrWordField) (hn : f.isNat = true)
+    (c : FullCfg) (s : FullState) (v : Nat) :
+    hdrTailWords c (f.setNat s v) = (hdrTailWords c s).set (f.wordIdx - 4) (BitVec.ofNat 64 v) := by
+  cases f <;> first | (simp [isNat] at hn; done) | rfl
+
+/-! ## 5. Partitioned array footprints, collapse, and framing bridges -/
 
 @[expose] def FullCoreByteArrs (c : FullCfg) (k : FullCoreState) : Mem 64 → Prop :=
   array (t := i8) c.pVals k.vals ⋆ array (t := i8) c.pLitMark k.lit_mark ⋆
@@ -993,6 +880,22 @@ theorem fullMem_eq_dimacs_sep (c : FullCfg) (s : FullState) :
 
 theorem fullRest_d_irrel (c : FullCfg) (s : FullState) (cur' val' : BitVec 64) :
     FullRest c { s with core := { s.core with d_cur := cur', d_val := val' } } = FullRest c s := rfl
+
+theorem HdrWordField.set_frame (f : HdrWordField) (hm : f.isTailMut = true)
+    (c : FullCfg) (s : FullState) (v : BitVec 64) :
+    (f.set s v).core.d_cur = s.core.d_cur ∧ (f.set s v).core.d_val = s.core.d_val ∧
+      FullCoreArrays c (f.set s v).core = FullCoreArrays c s.core ∧
+      FullScratchArrays c (f.set s v).scratch = FullScratchArrays c s.scratch := by
+  cases f <;> first
+    | (simp [isTailMut, isMutable, wordIdx] at hm; done)
+    | exact ⟨rfl, rfl, rfl, rfl⟩
+
+theorem HdrWordField.setNat_frame (f : HdrWordField) (hn : f.isNat = true)
+    (c : FullCfg) (s : FullState) (v : Nat) :
+    (f.setNat s v).core.d_cur = s.core.d_cur ∧ (f.setNat s v).core.d_val = s.core.d_val ∧
+      FullCoreArrays c (f.setNat s v).core = FullCoreArrays c s.core ∧
+      FullScratchArrays c (f.setNat s v).scratch = FullScratchArrays c s.scratch := by
+  cases f <;> first | (simp [isNat] at hn; done) | exact ⟨rfl, rfl, rfl, rfl⟩
 
 private theorem fArr8 {a : BitVec 64} {xs : List (BitVec 8)} {n : Nat}
     (hn : xs.length = n) (hbd : n ≤ 2 ^ 64) {f : Mem 64} (hf : array (t := i8) a xs f) :
@@ -1147,25 +1050,38 @@ private theorem fullRegs_grouped_to_avail (c : FullCfg) {m : Mem 64}
         c.pad))) m) : region c.hdr c.avail m :=
   c.regions_to_avail (sep_ac hm)
 
-theorem fullMem_anyDimacs_to_region {c : FullCfg} {s : FullState}
+/-- Non-`vals` remainder of `FullMem` for `kissat_check_model` framing. -/
+@[expose] def FullCheckRest (c : FullCfg) (s : FullState) : Mem 64 → Prop :=
+  array64 (c.hdr + 32) (hdrTailWords c s) ⋆
+  array (t := i8) c.pLitMark s.core.lit_mark ⋆ array (t := i8) c.pMark s.core.mrk ⋆
+  FullCoreU32A c s.core ⋆ FullCoreU32B c s.core ⋆ FullCoreDynArrs c s.core ⋆
+  FullScratchArrays c s.scratch ⋆ c.pad
+
+theorem fullCheckRest_d_irrel (c : FullCfg) (s : FullState) (cur' val' : BitVec 64) :
+    FullCheckRest c { s with core := { s.core with d_cur := cur', d_val := val' } } =
+      FullCheckRest c s := rfl
+
+private theorem fullCheckRest_to_region {c : FullCfg} {s : FullState}
     {mv' nc' cur' val' : BitVec 64} {m : Mem 64} (hlen : s.LengthsOk c)
     (hm : (dimacsState c.hdr mv' nc' cur' val' ⋆
-      array64 (c.hdr + 32) (hdrTailWords c s) ⋆
-      FullCoreArrays c s.core ⋆ FullScratchArrays c s.scratch ⋆ c.pad) m) :
+      region c.pVals (2 * c.max_vars) ⋆ FullCheckRest c s) m) :
     region c.hdr c.avail m := by
+  have hmx := c.hmaxv; unfold dimacsBound FullCheckRest FullScratchArrays at *
   have hm1 : ((dimacsState c.hdr mv' nc' cur' val' ⋆ array64 (c.hdr + 32) (hdrTailWords c s)) ⋆
-      ((FullCoreByteArrs c s.core ⋆ FullCoreU32A c s.core ⋆ FullCoreU32B c s.core ⋆
-        FullCoreDynArrs c s.core) ⋆
+      (((region c.pVals (2 * c.max_vars) ⋆ array (t := i8) c.pLitMark s.core.lit_mark ⋆
+          array (t := i8) c.pMark s.core.mrk) ⋆
+        FullCoreU32A c s.core ⋆ FullCoreU32B c s.core ⋆ FullCoreDynArrs c s.core) ⋆
        ((FullScrByteArrs c s.scratch ⋆ FullScrU32A c s.scratch ⋆ FullScrWksArrs c s.scratch ⋆
-         FullScrMetaArrs c s.scratch ⋆ FullScrDynArrs c s.scratch) ⋆ c.pad))) m := by
-    unfold FullCoreArrays FullScratchArrays at hm; exact sep_ac hm
+         FullScrMetaArrs c s.scratch ⋆ FullScrDynArrs c s.scratch) ⋆ c.pad))) m := sep_ac hm
   refine fullRegs_grouped_to_avail c ?_
   exact sep_mono2
-    (sep_mono2 (fun _ h => dimacsState_to_region h)
-      (fun _ h => fArr64 (hdrTailWords_length c s) (m := 1120) (by decide) (by decide) h))
+    (sep_mono2 (fun _ hb => dimacsState_to_region hb)
+      (fun _ hb => fArr64 (hdrTailWords_length c s) (m := 1120) (by decide) (by decide) hb))
     (sep_mono2
       (sep_mono2 (sep_mono2 (sep_mono2
-        (fun _ => fullCoreByte_to_regs hlen.core_ok)
+        (sep_mono2 (sep_mono2 (fun _ hb => hb)
+          (fun _ => fArr8 hlen.core_ok.lit_mark_len (by omega)))
+          (fun _ => fArr8 hlen.core_ok.mrk_len (by omega)))
         (fun _ => fullCoreU32A_to_regs hlen.core_ok))
         (fun _ => fullCoreU32B_to_regs hlen.core_ok))
         (fun _ => fullCoreDyn_to_regs hlen.core_ok))
@@ -1175,8 +1091,24 @@ theorem fullMem_anyDimacs_to_region {c : FullCfg} {s : FullState}
         (fun _ => fullScrWks_to_regs hlen.scratch_ok))
         (fun _ => fullScrMeta_to_regs hlen.scratch_ok))
         (fun _ => fullScrDyn_to_regs hlen.scratch_ok))
-        (fun _ h => h)))
+        (fun _ hb => hb)))
     m hm1
+
+theorem fullMem_anyDimacs_to_region {c : FullCfg} {s : FullState}
+    {mv' nc' cur' val' : BitVec 64} {m : Mem 64} (hlen : s.LengthsOk c)
+    (hm : (dimacsState c.hdr mv' nc' cur' val' ⋆
+      array64 (c.hdr + 32) (hdrTailWords c s) ⋆
+      FullCoreArrays c s.core ⋆ FullScratchArrays c s.scratch ⋆ c.pad) m) :
+    region c.hdr c.avail m := by
+  have hmx := c.hmaxv; unfold dimacsBound at hmx
+  have hm1 : (array (t := i8) c.pVals s.core.vals ⋆
+      (dimacsState c.hdr mv' nc' cur' val' ⋆ FullCheckRest c s)) m := by
+    unfold FullCoreArrays FullCoreByteArrs at hm; unfold FullCheckRest; exact sep_ac hm
+  have hm2 : (region c.pVals (2 * c.max_vars) ⋆
+      (dimacsState c.hdr mv' nc' cur' val' ⋆ FullCheckRest c s)) m :=
+    sep_mono (fun _ => fArr8 hlen.core_ok.vals_len (by omega)) hm1
+  exact fullCheckRest_to_region (mv' := mv') (nc' := nc') (cur' := cur') (val' := val')
+    hlen (sep_ac hm2)
 
 theorem FullArenaInv.to_region {c : FullCfg} {s : FullState} {m : Mem 64}
     (h : FullArenaInv c s m) : region c.hdr c.avail m :=
@@ -1192,17 +1124,6 @@ theorem region_work_to_hdr {work_ptr : BitVec 64} {wlen : Nat} {m : Mem 64}
         (wlen - fullAlignPad work_ptr)) m := by
   have heq : fullAlignPad work_ptr + (wlen - fullAlignPad work_ptr) = wlen := by omega
   exact (congrFun (region_merge_eq heq hfit) m).mpr hm
-
-/-- Non-`vals` remainder of `FullMem` for `kissat_check_model` framing. -/
-@[expose] def FullCheckRest (c : FullCfg) (s : FullState) : Mem 64 → Prop :=
-  array64 (c.hdr + 32) (hdrTailWords c s) ⋆
-  array (t := i8) c.pLitMark s.core.lit_mark ⋆ array (t := i8) c.pMark s.core.mrk ⋆
-  FullCoreU32A c s.core ⋆ FullCoreU32B c s.core ⋆ FullCoreDynArrs c s.core ⋆
-  FullScratchArrays c s.scratch ⋆ c.pad
-
-theorem fullCheckRest_d_irrel (c : FullCfg) (s : FullState) (cur' val' : BitVec 64) :
-    FullCheckRest c { s with core := { s.core with d_cur := cur', d_val := val' } } =
-      FullCheckRest c s := rfl
 
 theorem fullMem_to_checkModel {c : FullCfg} {s : FullState}
     {cnf_ptr : BitVec 64} {cnfBytes : List UInt8} {R : Mem 64 → Prop} {m : Mem 64}
@@ -1236,41 +1157,20 @@ theorem checkModel_post_to_region {c : FullCfg} {s : FullState}
     (hm : (bytes cnf_ptr cnfBytes ⋆ dimacsState c.hdr mv' nc' cur' val' ⋆
       bytes c.pVals (s.core.vals.map UInt8.ofBitVec) ⋆ (FullCheckRest c s ⋆ R)) m) :
     (bytes cnf_ptr cnfBytes ⋆ region c.hdr c.avail ⋆ R) m := by
-  have hmx := c.hmaxv; unfold dimacsBound FullCheckRest FullScratchArrays at *
   have hm1 : ((bytes cnf_ptr cnfBytes ⋆ R) ⋆
-      ((dimacsState c.hdr mv' nc' cur' val' ⋆ array64 (c.hdr + 32) (hdrTailWords c s)) ⋆
-      (((bytes c.pVals (s.core.vals.map UInt8.ofBitVec) ⋆
-          array (t := i8) c.pLitMark s.core.lit_mark ⋆
-          array (t := i8) c.pMark s.core.mrk) ⋆
-        FullCoreU32A c s.core ⋆ FullCoreU32B c s.core ⋆ FullCoreDynArrs c s.core) ⋆
-       ((FullScrByteArrs c s.scratch ⋆ FullScrU32A c s.scratch ⋆ FullScrWksArrs c s.scratch ⋆
-         FullScrMetaArrs c s.scratch ⋆ FullScrDynArrs c s.scratch) ⋆ c.pad)))) m := sep_ac hm
+      (bytes c.pVals (s.core.vals.map UInt8.ofBitVec) ⋆
+        (dimacsState c.hdr mv' nc' cur' val' ⋆ FullCheckRest c s))) m := sep_ac hm
   have hm2 : ((bytes cnf_ptr cnfBytes ⋆ R) ⋆ region c.hdr c.avail) m := by
-    refine sep_mono_r (fun _ h => fullRegs_grouped_to_avail c ?_) hm1
-    exact sep_mono2
-      (sep_mono2 (fun _ hb => dimacsState_to_region hb)
-        (fun _ hb => fArr64 (hdrTailWords_length c s) (m := 1120) (by decide) (by decide) hb))
-      (sep_mono2
-        (sep_mono2 (sep_mono2 (sep_mono2
-          (sep_mono2 (sep_mono2
-            (fun _ (hb : bytes c.pVals (s.core.vals.map UInt8.ofBitVec) _) => by
-              have hb' := bytes_to_region hb; simpa [hlen.core_ok.vals_len] using hb')
-            (fun _ => fArr8 hlen.core_ok.lit_mark_len (by omega)))
-            (fun _ => fArr8 hlen.core_ok.mrk_len (by omega)))
-          (fun _ => fullCoreU32A_to_regs hlen.core_ok))
-          (fun _ => fullCoreU32B_to_regs hlen.core_ok))
-          (fun _ => fullCoreDyn_to_regs hlen.core_ok))
-        (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2 (sep_mono2
-          (fun _ => fullScrByte_to_regs hlen.scratch_ok)
-          (fun _ => fullScrU32A_to_regs hlen.scratch_ok))
-          (fun _ => fullScrWks_to_regs hlen.scratch_ok))
-          (fun _ => fullScrMeta_to_regs hlen.scratch_ok))
-          (fun _ => fullScrDyn_to_regs hlen.scratch_ok))
-          (fun _ hb => hb)))
-      _ h
+    refine sep_mono_r (fun _ h => ?_) hm1
+    have h' : (region c.pVals (2 * c.max_vars) ⋆
+        (dimacsState c.hdr mv' nc' cur' val' ⋆ FullCheckRest c s)) _ :=
+      sep_mono (fun _ hb => by
+        have hb' := bytes_to_region hb; simpa [hlen.core_ok.vals_len] using hb') h
+    exact fullCheckRest_to_region (mv' := mv') (nc' := nc') (cur' := cur') (val' := val')
+      hlen (sep_ac h')
   exact sep_ac hm2
 
-/-! ## 5. `SafetySlice` instantiations and header / group-focus primitives -/
+/-! ## 6. `SafetySlice` instantiations and header / group-focus primitives -/
 
 /-- Primary Stage-4 `SafetySlice`: `FullMem` + `FullState.core` projection + `FullState.LengthsOk`.
 Any WalkSAT, VMTF, EVSIDS, rephase, mode-switch, or scratch helper proving
@@ -1366,46 +1266,169 @@ theorem fullHdrTailPut {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {m : 
   dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc) s.core.d_cur s.core.d_val ⋆
   array64 (c.hdr + 32) (hdrTailWords c s) ⋆ FullCoreArrays c s.core ⋆ c.pad
 
-theorem fullMem_eq_coreByte (c : FullCfg) (s : FullState) :
-    FullMem c s = (FullCoreByteArrs c s.core ⋆ (FullCoreU32A c s.core ⋆
-      FullCoreU32B c s.core ⋆ FullCoreDynArrs c s.core ⋆ fullCoreOuter c s)) := by
-  unfold FullMem FullCoreArrays fullCoreOuter; ac_rfl
-theorem fullMem_eq_coreU32A (c : FullCfg) (s : FullState) :
-    FullMem c s = (FullCoreU32A c s.core ⋆ (FullCoreByteArrs c s.core ⋆
-      FullCoreU32B c s.core ⋆ FullCoreDynArrs c s.core ⋆ fullCoreOuter c s)) := by
-  unfold FullMem FullCoreArrays fullCoreOuter; ac_rfl
-theorem fullMem_eq_coreU32B (c : FullCfg) (s : FullState) :
-    FullMem c s = (FullCoreU32B c s.core ⋆ (FullCoreByteArrs c s.core ⋆
-      FullCoreU32A c s.core ⋆ FullCoreDynArrs c s.core ⋆ fullCoreOuter c s)) := by
-  unfold FullMem FullCoreArrays fullCoreOuter; ac_rfl
-theorem fullMem_eq_coreDyn (c : FullCfg) (s : FullState) :
-    FullMem c s = (FullCoreDynArrs c s.core ⋆ (FullCoreByteArrs c s.core ⋆
-      FullCoreU32A c s.core ⋆ FullCoreU32B c s.core ⋆ fullCoreOuter c s)) := by
-  unfold FullMem FullCoreArrays fullCoreOuter; ac_rfl
-theorem fullMem_eq_scrByte (c : FullCfg) (s : FullState) :
-    FullMem c s = (FullScrByteArrs c s.scratch ⋆ (FullScrU32A c s.scratch ⋆
-      FullScrWksArrs c s.scratch ⋆ FullScrMetaArrs c s.scratch ⋆
-      FullScrDynArrs c s.scratch ⋆ fullScrOuter c s)) := by
-  unfold FullMem FullScratchArrays fullScrOuter; ac_rfl
-theorem fullMem_eq_scrU32A (c : FullCfg) (s : FullState) :
-    FullMem c s = (FullScrU32A c s.scratch ⋆ (FullScrByteArrs c s.scratch ⋆
-      FullScrWksArrs c s.scratch ⋆ FullScrMetaArrs c s.scratch ⋆
-      FullScrDynArrs c s.scratch ⋆ fullScrOuter c s)) := by
-  unfold FullMem FullScratchArrays fullScrOuter; ac_rfl
-theorem fullMem_eq_scrWks (c : FullCfg) (s : FullState) :
-    FullMem c s = (FullScrWksArrs c s.scratch ⋆ (FullScrByteArrs c s.scratch ⋆
-      FullScrU32A c s.scratch ⋆ FullScrMetaArrs c s.scratch ⋆
-      FullScrDynArrs c s.scratch ⋆ fullScrOuter c s)) := by
-  unfold FullMem FullScratchArrays fullScrOuter; ac_rfl
-theorem fullMem_eq_scrMeta (c : FullCfg) (s : FullState) :
-    FullMem c s = (FullScrMetaArrs c s.scratch ⋆ (FullScrByteArrs c s.scratch ⋆
-      FullScrU32A c s.scratch ⋆ FullScrWksArrs c s.scratch ⋆
-      FullScrDynArrs c s.scratch ⋆ fullScrOuter c s)) := by
-  unfold FullMem FullScratchArrays fullScrOuter; ac_rfl
-theorem fullMem_eq_scrDyn (c : FullCfg) (s : FullState) :
-    FullMem c s = (FullScrDynArrs c s.scratch ⋆ (FullScrByteArrs c s.scratch ⋆
-      FullScrU32A c s.scratch ⋆ FullScrWksArrs c s.scratch ⋆
-      FullScrMetaArrs c s.scratch ⋆ fullScrOuter c s)) := by
-  unfold FullMem FullScratchArrays fullScrOuter; ac_rfl
+/-! ## 7. Single-Source-of-Truth Indexed `ArrayField` Table (`41` Arrays) -/
+
+/-- Descriptor for one of the `41` typed arrays owned by `FullMem`. -/
+meta structure ArrayFieldSpec where
+  ctor : String
+  isCore : Bool
+  grp : String
+  elemTy : String
+  ptrFld : String
+  idx0 : Bool := false
+  deriving Repr, Inhabited
+
+private meta def aCor (c g t p : String) (z : Bool := false) : ArrayFieldSpec :=
+  ⟨c, true, g, t, p, z⟩
+private meta def aScr (c g t p : String) (z : Bool := false) : ArrayFieldSpec :=
+  ⟨c, false, g, t, p, z⟩
+
+/-- Canonical `41`-array table matching `FullCoreArrays` (`17`) and `FullScratchArrays` (`24`). -/
+meta def arrayFieldSpecs : Array ArrayFieldSpec := #[
+  -- `FullCoreArrays` (`17` arrays)
+  aCor "vals" "coreByte" "i8" "pVals", aCor "lit_mark" "coreByte" "i8" "pLitMark",
+  aCor "mrk" "coreByte" "i8" "pMark",
+  aCor "flags" "coreU32A" "i32" "pFlags", aCor "lvl" "coreU32A" "i32" "pLevel",
+  aCor "rsns" "coreU32A" "i32" "pReason", aCor "trl" "coreU32A" "i32" "pTrail",
+  aCor "trail_pos" "coreU32A" "i32" "pTrailPos", aCor "tmp" "coreU32A" "i32" "pTmp",
+  aCor "min_clr" "coreU32A" "i32" "pMinClr",
+  aCor "frame_trail" "coreU32B" "i32" "pFrameTrail",
+  aCor "frame_dec" "coreU32B" "i32" "pFrameDec", aCor "wvec" "coreU32B" "i32" "pWvec",
+  aCor "repr" "coreU32B" "i32" "pRepr", aCor "min_stk" "coreU32B" "i32" "pMinStk" true,
+  aCor "arena" "coreDyn" "i32" "pArena", aCor "wstk" "coreDyn" "i32" "pWstk" true,
+  -- `FullScratchArrays` (`24` arrays)
+  aScr "walk_vals" "scrByte" "i8" "pWalkVals", aScr "phases" "scrByte" "i8" "pPhases",
+  aScr "phases_target" "scrByte" "i8" "pPhasesTarget",
+  aScr "phases_best" "scrByte" "i8" "pPhasesBest", aScr "walk_best" "scrByte" "i8" "pWalkBest",
+  aScr "heap" "scrU32A" "i32" "pHeap" true, aScr "pos" "scrU32A" "i32" "pPos",
+  aScr "shrink_stk" "scrU32A" "i32" "pShrinkStk", aScr "q_prev" "scrU32A" "i32" "pQPrev",
+  aScr "q_next" "scrU32A" "i32" "pQNext", aScr "q_stamp" "scrU32A" "i32" "pQStamp",
+  aScr "wsort" "scrWks" "i32" "pWsort" true, aScr "work_stk1" "scrWks" "i32" "pWorkStk1",
+  aScr "work_stk2" "scrWks" "i32" "pWorkStk2", aScr "tarjan_mark" "scrWks" "i32" "pTarjanMark",
+  aScr "tarjan_reach" "scrWks" "i32" "pTarjanReach",
+  aScr "score" "scrMeta" "i64" "pScore", aScr "sim_sig" "scrMeta" "i64" "pSimSig",
+  aScr "glue_used" "scrMeta" "i32" "pGlueUsed", aScr "last_learned" "scrMeta" "i32" "pLastLearned",
+  aScr "delayed" "scrDyn" "i32" "pDelayed", aScr "red_refs" "scrDyn" "i32" "pRedRefs",
+  aScr "extend_stk" "scrDyn" "i32" "pExtendStk", aScr "scratch_buf" "scrDyn" "i32" "pScratchBuf"
+]
+
+private meta def arrGrpDefName : String → String
+  | "coreByte" => "FullCoreByteArrs" | "coreU32A" => "FullCoreU32A"
+  | "coreU32B" => "FullCoreU32B" | "coreDyn" => "FullCoreDynArrs"
+  | "scrByte" => "FullScrByteArrs" | "scrU32A" => "FullScrU32A"
+  | "scrWks" => "FullScrWksArrs" | "scrMeta" => "FullScrMetaArrs"
+  | _ => "FullScrDynArrs"
+
+private meta def arrGrpOuterExpr (g : String) : String :=
+  let coreGrps := #["coreByte", "coreU32A", "coreU32B", "coreDyn"]
+  let scrGrps := #["scrByte", "scrU32A", "scrWks", "scrMeta", "scrDyn"]
+  let isCore := coreGrps.contains g
+  let (grps, sub, outer) :=
+    if isCore then (coreGrps, "s.core", "fullCoreOuter c s")
+    else (scrGrps, "s.scratch", "fullScrOuter c s")
+  let others := (grps.filter (· != g)).map fun o => s!"{arrGrpDefName o} c {sub}"
+  "(" ++ String.intercalate " ⋆ " (others.toList ++ [outer]) ++ ")"
+
+local elab "gen_full_array_table!" : command => do
+  if arrayFieldSpecs.size != 41 then
+    throwError "arrayFieldSpecs must have 41 entries, got {arrayFieldSpecs.size}"
+  for g in #["coreByte", "coreU32A", "coreU32B", "coreDyn",
+             "scrByte", "scrU32A", "scrWks", "scrMeta", "scrDyn"] do
+    let isCore := g.startsWith "core"
+    let (sub, arrs, outer) :=
+      if isCore then ("s.core", "FullCoreArrays", "fullCoreOuter")
+      else ("s.scratch", "FullScratchArrays", "fullScrOuter")
+    elabSrcCmd s!"fullMem_eq_{g}" <|
+      s!"theorem fullMem_eq_{g} (c : FullCfg) (s : FullState) :\n" ++
+      s!"    FullMem c s = ({arrGrpDefName g} c {sub} ⋆ {arrGrpOuterExpr g}) := by\n" ++
+      s!"  unfold FullMem {arrs} {outer}; ac_rfl"
+  let mut ctors : Array String := #[]
+  let mut tyArms : Array String := #[]
+  let mut ptrArms : Array String := #[]
+  let mut getArms : Array String := #[]
+  let mut setArms : Array String := #[]
+  let mut restArms : Array String := #[]
+  let mut focusArms : Array String := #[]
+  for sp in arrayFieldSpecs do
+    let sub := if sp.isCore then "core" else "scratch"
+    ctors := ctors.push s!"  | {sp.ctor}"
+    tyArms := tyArms.push s!"  | .{sp.ctor} => {sp.elemTy}"
+    ptrArms := ptrArms.push s!"  | .{sp.ctor} => c.{sp.ptrFld}"
+    getArms := getArms.push s!"  | .{sp.ctor} => s.{sub}.{sp.ctor}"
+    setArms := setArms.push
+      s!"  | .{sp.ctor} => fun xs => \{ s with {sub} := \{ s.{sub} with {sp.ctor} := xs } }"
+    let peers := (arrayFieldSpecs.filter fun o => o.grp == sp.grp && o.ctor != sp.ctor).map fun o =>
+      let osub := if o.isCore then "core" else "scratch"
+      if o.elemTy == "i64" then s!"array64 c.{o.ptrFld} s.{osub}.{o.ctor}"
+      else s!"array (t := {o.elemTy}) c.{o.ptrFld} s.{osub}.{o.ctor}"
+    let restExpr := String.intercalate " ⋆ " (peers.toList ++ [arrGrpOuterExpr sp.grp])
+    restArms := restArms.push s!"  | .{sp.ctor} => {restExpr}"
+    let arr64Rw := if sp.elemTy == "i64" then " simp only [array64_eq_array];" else ""
+    focusArms := focusArms.push <|
+      s!"  | {sp.ctor} => rw [fullMem_eq_{sp.grp}]; unfold {arrGrpDefName sp.grp};" ++
+      s!" dsimp only [ArrayField.elemTy, ArrayField.ptr, ArrayField.get, ArrayField.rest];" ++
+      s!"{arr64Rw} ac_rfl"
+  elabSrcCmd "ArrayField" <|
+    "inductive ArrayField where\n" ++ String.intercalate "\n" ctors.toList ++
+    "\n  deriving DecidableEq, Repr"
+  elabSrcCmd "ArrayField.elemTy" <|
+    "@[expose] def ArrayField.elemTy : ArrayField → Ty\n" ++ String.intercalate "\n" tyArms.toList
+  elabSrcCmd "ArrayField.ptr" <|
+    "@[expose] def ArrayField.ptr (a : ArrayField) (c : FullCfg) : BitVec 64 :=\n" ++
+    "  match a with\n" ++ String.intercalate "\n" ptrArms.toList
+  elabSrcCmd "ArrayField.get" <|
+    "@[expose] def ArrayField.get (a : ArrayField) (s : FullState) : List (Val a.elemTy) :=\n" ++
+    "  match a with\n" ++ String.intercalate "\n" getArms.toList
+  elabSrcCmd "ArrayField.set" <|
+    "@[expose] def ArrayField.set (a : ArrayField) (s : FullState) :\n" ++
+    "    List (Val a.elemTy) → FullState :=\n  match a with\n" ++
+    String.intercalate "\n" setArms.toList
+  elabSrcCmd "ArrayField.rest" <|
+    "@[expose] def ArrayField.rest (a : ArrayField) (c : FullCfg) (s : FullState) :\n" ++
+    "    Mem 64 → Prop :=\n  match a with\n" ++ String.intercalate "\n" restArms.toList
+  elabSrcCmd "ArrayField.focus_eq" <|
+    "theorem ArrayField.focus_eq (a : ArrayField) (c : FullCfg) (s : FullState) :\n" ++
+    "    FullMem c s = (array (t := a.elemTy) (a.ptr c) (a.get s) ⋆ a.rest c s) := by\n" ++
+    "  cases a with\n" ++ String.intercalate "\n" focusArms.toList
+
+gen_full_array_table!
+
+namespace ArrayField
+
+@[expose] def elemAddr (a : ArrayField) (c : FullCfg) (i : Nat) : BitVec 64 :=
+  match a.elemTy with
+  | .bits 8 => a.ptr c + BitVec.ofNat 64 i
+  | .bits 32 => a.ptr c + BitVec.ofNat 64 (4 * i)
+  | _ => a.ptr c + BitVec.ofNat 64 (8 * i)
+
+@[expose] def elemAddrBv (a : ArrayField) (c : FullCfg) (i : BitVec 64) : BitVec 64 :=
+  match a.elemTy with
+  | .bits 8 => a.ptr c + i
+  | .bits 32 => a.ptr c + i * 4
+  | _ => a.ptr c + i * 8
+
+theorem elemTy_cases (a : ArrayField) : a.elemTy = i8 ∨ a.elemTy = i32 ∨ a.elemTy = i64 := by
+  cases a <;> simp [elemTy]
+
+theorem get_set (a : ArrayField) (s : FullState) (xs : List (Val a.elemTy)) :
+    a.get (a.set s xs) = xs := by
+  cases a <;> rfl
+
+theorem rest_set (a : ArrayField) (c : FullCfg) (s : FullState) (xs : List (Val a.elemTy)) :
+    a.rest c (a.set s xs) = a.rest c s := by
+  cases a <;> rfl
+
+theorem focus (a : ArrayField) {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
+    (hm : (FullMem c s ⋆ R) m) :
+    (array (t := a.elemTy) (a.ptr c) (a.get s) ⋆ (a.rest c s ⋆ R)) m := by
+  rw [a.focus_eq, sep_assoc] at hm; exact hm
+
+theorem unfocus (a : ArrayField) {c : FullCfg} {s : FullState} {xs : List (Val a.elemTy)}
+    {R : Mem 64 → Prop} {m : Mem 64}
+    (hm : (array (t := a.elemTy) (a.ptr c) xs ⋆ (a.rest c s ⋆ R)) m) :
+    (FullMem c (a.set s xs) ⋆ R) m := by
+  rw [a.focus_eq, a.get_set, a.rest_set, sep_assoc]; exact hm
+
+end ArrayField
 
 end LeanQbe.T.Examples.Kissat.Proof.Spec

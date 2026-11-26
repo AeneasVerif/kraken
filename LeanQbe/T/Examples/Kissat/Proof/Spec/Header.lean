@@ -12,6 +12,7 @@ public import LeanQbe.T.Logic.C0HeadStep
 public import LeanQbe.T.Logic.ControlComb
 public import Kraken.Mem
 public import Kraken.Separation
+meta import Lean.Elab.Command
 
 /-!
 # Kissat M6 `FullM6Hdr` Extension Layout, Invariants, Framing & Contracts (`Proof.Spec.Header`)
@@ -391,7 +392,33 @@ theorem fullM6Hdr_frame_safety_void {c : FullCfg} {ext : List (BitVec 64)} {s : 
     fun () s' m' hco hln hpr hm' =>
       hQ s' m' hco hln hpr (fullM6HdrMem_unfocus_full hm')⟩
 
-/-! ## 3. Scoped `M6HdrTactics` (`O(1)` `FullMem ⋆ (array64 ⋆ R)` Accessors, Zero `ecancel`) -/
+/-! ## 3. Indexed `M6ExtField` Table & Scoped `M6HdrTactics` (`O(1)`, Zero `ecancel`) -/
+
+/-- Indexed descriptor for the `15` logical slots of the `288`-word `M6HdrExt` prefix. -/
+inductive M6ExtField where
+  | magic | dr_state | dr_prev | dr_sb | dr_se | tier1 | tier2 | glue_next
+  | glue_interval | total_used | delay_cnt | delay_cur | wm | used0 | used1
+  deriving DecidableEq, Repr
+
+namespace M6ExtField
+
+@[expose] def wordIdx : M6ExtField → Nat
+  | .magic => m6WMagic | .dr_state => m6WDrState | .dr_prev => m6WDrPrev | .dr_sb => m6WDrSb
+  | .dr_se => m6WDrSe | .tier1 => m6WTier1 | .tier2 => m6WTier2 | .glue_next => m6WGlueNext
+  | .glue_interval => m6WGlueInterval | .total_used => m6WTotalUsed | .delay_cnt => m6WDelayCnt
+  | .delay_cur => m6WDelayCur | .wm => m6WWmBase | .used0 => m6WUsed0 | .used1 => m6WUsed1
+
+@[expose] def count : M6ExtField → Nat
+  | .magic | .dr_state | .glue_next | .glue_interval => 1
+  | .dr_prev | .dr_sb | .dr_se | .tier1 | .tier2 | .total_used => 2
+  | .delay_cnt | .delay_cur => 4 | .wm => 8 | .used0 | .used1 => 128
+
+@[expose] def byteOff (f : M6ExtField) : Nat := 8 * f.wordIdx
+
+theorem wordIdx_add_count_le (f : M6ExtField) : f.wordIdx + f.count ≤ fullM6ExtWords := by
+  cases f <;> decide
+
+end M6ExtField
 
 namespace M6HdrTactics
 
@@ -405,89 +432,77 @@ private theorem shl3_eq {a i : BitVec 64} (hi : i.toNat < 2 ^ 61) :
     Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
   omega
 
-@[scoped c0_load] theorem load_m6Ext_mul8 {c : FullCfg} {s : FullState} {a i : BitVec 64}
-    {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
+private theorem const_off8_eq {a k : BitVec 64} (hmod : k.toNat % 8 = 0) :
+    a + k = a + BitVec.ofNat 64 (8 * (k.toNat / 8)) := by
+  congr 1; apply BitVec.eq_of_toNat_eq
+  rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; omega
+
+section ExtAccess
+variable {c : FullCfg} {s : FullState} {a : BitVec 64} {ext : List (BitVec 64)}
+  {R : Mem 64 → Prop} {m : Mem 64}
+
+@[scoped c0_load] theorem load_m6Ext_mul8 {i : BitVec 64}
     (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hi : i.toNat < ext.length) :
     loadVal m i64 (a + i * 8) = some (ext[i.toNat]'hi) := by
   rw [m8]; exact loadVal_array64 hi (sep_swap_l hm)
 
-@[scoped c0_store] theorem store_m6Ext_mul8 {c : FullCfg} {s : FullState} {a i : BitVec 64}
-    {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64)
+@[scoped c0_store] theorem store_m6Ext_mul8 {i : BitVec 64} (v : BitVec 64)
     (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hi : i.toNat < ext.length) :
     storeOk m i64 (a + i * 8) ∧
       (FullMem c s ⋆ (array64 a (ext.set i.toNat v) ⋆ R)) (storeMem m i64 (a + i * 8) v) := by
-  rw [m8]
-  obtain ⟨hok, hst⟩ := store_array64 v hi (sep_swap_l hm)
-  exact ⟨hok, sep_swap_l hst⟩
+  rw [m8]; obtain ⟨hok, hst⟩ := store_array64 v hi (sep_swap_l hm); exact ⟨hok, sep_swap_l hst⟩
 
-@[scoped c0_load] theorem load_m6Ext_zero {c : FullCfg} {s : FullState} {a : BitVec 64}
-    {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hi : 0 < ext.length) :
-    loadVal m i64 a = some (ext[0]'hi) := by
+@[scoped c0_load] theorem load_m6Ext_zero (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m)
+    (hi : 0 < ext.length) : loadVal m i64 a = some (ext[0]'hi) := by
   simpa using loadVal_array64 (i := 0) hi (sep_swap_l hm)
 
-@[scoped c0_store] theorem store_m6Ext_zero {c : FullCfg} {s : FullState} {a : BitVec 64}
-    {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64)
+@[scoped c0_store] theorem store_m6Ext_zero (v : BitVec 64)
     (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hi : 0 < ext.length) :
     storeOk m i64 a ∧
       (FullMem c s ⋆ (array64 a (ext.set 0 v) ⋆ R)) (storeMem m i64 a v) := by
   obtain ⟨hok, hst⟩ := store_array64 (i := 0) v hi (sep_swap_l hm)
   exact ⟨by simpa using hok, by simpa using sep_swap_l hst⟩
 
-@[scoped c0_load] theorem load_m6Ext_add0 {c : FullCfg} {s : FullState} {a : BitVec 64}
-    {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
-    (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hi : 0 < ext.length) :
-    loadVal m i64 (a + 0) = some (ext[0]'hi) := by
+@[scoped c0_load] theorem load_m6Ext_add0 (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m)
+    (hi : 0 < ext.length) : loadVal m i64 (a + 0) = some (ext[0]'hi) := by
   simpa using load_m6Ext_zero hm hi
 
-@[scoped c0_store] theorem store_m6Ext_add0 {c : FullCfg} {s : FullState} {a : BitVec 64}
-    {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64)
+@[scoped c0_store] theorem store_m6Ext_add0 (v : BitVec 64)
     (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hi : 0 < ext.length) :
     storeOk m i64 (a + 0) ∧
       (FullMem c s ⋆ (array64 a (ext.set 0 v) ⋆ R)) (storeMem m i64 (a + 0) v) := by
   simpa using store_m6Ext_zero v hm hi
 
-@[scoped c0_load] theorem load_m6Ext_shl3 {c : FullCfg} {s : FullState} {a i : BitVec 64}
-    {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
+@[scoped c0_load] theorem load_m6Ext_shl3 {i : BitVec 64}
     (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hi : i.toNat < ext.length)
     (hb : i.toNat < 2 ^ 61) :
     loadVal m i64 (a + (i <<< (((3 : BitVec 32).signExtend 64).toNat % 64))) =
       some (ext[i.toNat]'hi) := by
   rw [shl3_eq hb]; exact loadVal_array64 hi (sep_swap_l hm)
 
-@[scoped c0_store] theorem store_m6Ext_shl3 {c : FullCfg} {s : FullState} {a i : BitVec 64}
-    {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64)
+@[scoped c0_store] theorem store_m6Ext_shl3 {i : BitVec 64} (v : BitVec 64)
     (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hi : i.toNat < ext.length)
     (hb : i.toNat < 2 ^ 61) :
     storeOk m i64 (a + (i <<< (((3 : BitVec 32).signExtend 64).toNat % 64))) ∧
       (FullMem c s ⋆ (array64 a (ext.set i.toNat v) ⋆ R))
         (storeMem m i64 (a + (i <<< (((3 : BitVec 32).signExtend 64).toNat % 64))) v) := by
-  rw [shl3_eq hb]
-  obtain ⟨hok, hst⟩ := store_array64 v hi (sep_swap_l hm)
+  rw [shl3_eq hb]; obtain ⟨hok, hst⟩ := store_array64 v hi (sep_swap_l hm)
   exact ⟨hok, sep_swap_l hst⟩
 
-@[scoped c0_load] theorem load_m6Ext_const {c : FullCfg} {s : FullState} {a k : BitVec 64}
-    {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
+@[scoped c0_load] theorem load_m6Ext_const {k : BitVec 64}
     (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hmod : k.toNat % 8 = 0)
-    (hi : k.toNat / 8 < ext.length) :
-    loadVal m i64 (a + k) = some (ext[k.toNat / 8]'hi) := by
-  have hk : a + k = a + BitVec.ofNat 64 (8 * (k.toNat / 8)) := by
-    congr 1; apply BitVec.eq_of_toNat_eq
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; omega
-  rw [hk]; exact loadVal_array64 hi (sep_swap_l hm)
+    (hi : k.toNat / 8 < ext.length) : loadVal m i64 (a + k) = some (ext[k.toNat / 8]'hi) := by
+  rw [const_off8_eq hmod]; exact loadVal_array64 hi (sep_swap_l hm)
 
-@[scoped c0_store] theorem store_m6Ext_const {c : FullCfg} {s : FullState} {a k : BitVec 64}
-    {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64)
+@[scoped c0_store] theorem store_m6Ext_const {k : BitVec 64} (v : BitVec 64)
     (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hmod : k.toNat % 8 = 0)
     (hi : k.toNat / 8 < ext.length) :
     storeOk m i64 (a + k) ∧
       (FullMem c s ⋆ (array64 a (ext.set (k.toNat / 8) v) ⋆ R)) (storeMem m i64 (a + k) v) := by
-  have hk : a + k = a + BitVec.ofNat 64 (8 * (k.toNat / 8)) := by
-    congr 1; apply BitVec.eq_of_toNat_eq
-    rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]; omega
-  rw [hk]
-  obtain ⟨hok, hst⟩ := store_array64 v hi (sep_swap_l hm)
+  rw [const_off8_eq hmod]; obtain ⟨hok, hst⟩ := store_array64 v hi (sep_swap_l hm)
   exact ⟨hok, sep_swap_l hst⟩
+
+end ExtAccess
 
 scoped macro "m6h_call" h:term : tactic =>
   `(tactic| refine LeanQbe.T.wp_call_of_spec _ _ ($h _ _ _ _ ?_))
@@ -684,100 +699,7 @@ def m6HdrAnalyzeSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
       (r = 1#64 → FullM6HdrInvW c F0 F_cur ext' s' ∧ s'.core.cur_level < s.core.cur_level) →
       (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m'
 
-/-! ### Public Spec Constructors, Destructors & `monoX` Bridges -/
-
-theorem m6HdrSizeofSpec_monoX {xs : Tup Val []} {m : Mem 64} {Q : Post [i64]} {X X' : XPost}
-    (h : m6HdrSizeofSpec xs m Q X) : m6HdrSizeofSpec xs m Q X' := by
-  rcases xs with ⟨⟩; exact h
-
-theorem m6ExtSizeofSpec_monoX {xs : Tup Val []} {m : Mem 64} {Q : Post [i64]} {X X' : XPost}
-    (h : m6ExtSizeofSpec xs m Q X) : m6ExtSizeofSpec xs m Q X' := by
-  rcases xs with ⟨⟩; exact h
-
-theorem m6HdrInitSpec_of {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost}
-    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
-    (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hQ : ∀ ext' m', M6HdrExtInitOk ext' → (FullM6HdrMem c ext' s ⋆ R) m' → Q () m') :
-    m6HdrInitSpec (c.hdr, ()) m Q X :=
-  ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩
-
-theorem m6HdrInitSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X X' : XPost}
-    (h : m6HdrInitSpec xs m Q X) : m6HdrInitSpec xs m Q X' := by
-  rcases xs with ⟨_, ⟨⟩⟩; exact h
-
-theorem m6HdrResetSpec_of {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost}
-    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
-    (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hQ : ∀ ext' m', M6HdrExtInitOk ext' →
-      let s' : FullState := { s with scratch := { s.scratch with tier1 := 2#64, tier2 := 6#64 } }
-      (FullM6HdrMem c ext' s' ⋆ R) m' → Q () m') :
-    m6HdrResetSpec (c.hdr, ()) m Q X :=
-  ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩
-
-theorem m6HdrResetSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X X' : XPost}
-    (h : m6HdrResetSpec xs m Q X) : m6HdrResetSpec xs m Q X' := by
-  rcases xs with ⟨_, ⟨⟩⟩; exact h
-
-theorem m6ExtEnsureInitSpec_of {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost}
-    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
-    (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hQ : ∀ ext' m', M6HdrExtInitOk ext' → (M6HdrExtInitOk ext → ext' = ext) →
-      (FullM6HdrMem c ext' s ⋆ R) m' → Q () m') :
-    m6ExtEnsureInitSpec (c.hdr, ()) m Q X :=
-  ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩
-
-theorem m6ExtEnsureInitSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X X' : XPost}
-    (h : m6ExtEnsureInitSpec xs m Q X) : m6ExtEnsureInitSpec xs m Q X' := by
-  rcases xs with ⟨_, ⟨⟩⟩; exact h
-
-theorem m6HdrExtReadySpec_of {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [.bool]} {X : XPost}
-    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
-    (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hQ : ∀ ext' m', M6HdrExtInitOk ext' → (M6HdrExtInitOk ext → ext' = ext) →
-      (FullM6HdrMem c ext' s ⋆ R) m' → Q (true, ()) m') :
-    m6HdrExtReadySpec (c.hdr, ()) m Q X :=
-  ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩
-
-theorem m6HdrExtReadySpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [.bool]}
-    {X X' : XPost} (h : m6HdrExtReadySpec xs m Q X) : m6HdrExtReadySpec xs m Q X' := by
-  rcases xs with ⟨_, ⟨⟩⟩; exact h
-
-theorem fullM6MemInitSpec_of {cnf_ptr cend work_base avail fuel : BitVec 64}
-    {cnfBytes : List UInt8} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (hcend : cend = cnf_ptr + BitVec.ofNat 64 cnfBytes.length)
-    (hfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
-    (hwfit : work_base.toNat + avail.toNat < 2 ^ 64)
-    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_base avail.toNat ⋆ R) m)
-    (hFail : ∀ m', (bytes cnf_ptr cnfBytes ⋆ region work_base avail.toNat ⋆ R) m' →
-      (avail.toNat < fullM6HdrTotalBytes ∨
-        ∀ mv nc rest, parseHeader cnfBytes = some (mv, nc, rest) →
-          avail.toNat - fullM6ExtBytes < fullFixedBytes mv + nc * 40 + 136) →
-      Q (0#64, ()) m')
-    (hOk : ∀ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (j : Nat) (rest : List UInt8)
-        (m' : Mem 64),
-      c.hdr = work_base + BitVec.ofNat 64 fullM6ExtBytes →
-      c.avail = avail.toNat - fullM6ExtBytes →
-      FullM6HdrCfgOk c → M6HdrExtInitOk ext →
-      parseHeader cnfBytes = some (c.mv, c.nc, rest) →
-      j ≤ cnfBytes.length → cnfBytes.drop j = rest →
-      FullM6HdrInv c (shiftDownCnf CNF.empty) ext s →
-      s.core.cur_vars = c.mv → s.core.d_cur = cnf_ptr + BitVec.ofNat 64 j →
-      s.core.arena_len = 0 → s.core.wlen = 1 → s.core.trail_end = 0 →
-      s.core.propagated = 0 → s.core.cur_level = 0 → s.core.fuel = fuel →
-      s.core.oom = 0#64 → s.core.inconsistent = 0#64 →
-      (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c ext s ⋆ R) m' →
-      Q (c.hdr, ()) m') :
-    fullM6MemInitSpec (cnf_ptr, cend, work_base, avail, fuel, ()) m Q X :=
-  ⟨cnfBytes, R, hcend, hfit, hwfit, hm, hFail, hOk⟩
-
-theorem fullM6MemInitSpec_monoX {xs : Tup Val [i64, i64, i64, i64, i64]} {m : Mem 64}
-    {Q : Post [i64]} {X X' : XPost}
-    (h : fullM6MemInitSpec xs m Q X) : fullM6MemInitSpec xs m Q X' := by
-  rcases xs with ⟨_, _, _, _, _, ⟨⟩⟩; exact h
+/-! ### Public Spec Constructors, Destructors & `monoX` Bridges (Generated from `Spec` Defs) -/
 
 theorem m6HdrW2aSpec_of {extraArgs rs : List Ty} {args : Tup Val (i64 :: extraArgs)}
     {c : FullCfg} {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
@@ -805,188 +727,165 @@ theorem m6HdrW2aSpec_monoX {extraArgs rs : List Ty} {xs : Tup Val (i64 :: extraA
     {m : Mem 64} {Q : Post rs} {X X' : XPost}
     (h : m6HdrW2aSpec extraArgs rs xs m Q X) : m6HdrW2aSpec extraArgs rs xs m Q X' := h
 
-theorem m6HdrDrMutSpec_of {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} {Q : Post []} {X : XPost}
-    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
-    (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hQ : ∀ ext' m', M6HdrExtInitOk ext' → (M6HdrExtInitOk ext → M6ExtW2aPres ext ext') →
-      (FullM6HdrMem c ext' s ⋆ R) m' → Q () m') :
-    m6HdrDrMutSpec (c.hdr, ()) m Q X :=
-  ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩
+section SpecBridgeGen
+open Lean Meta Elab Command
 
-theorem m6HdrDrMutSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
-    (hs : m6HdrDrMutSpec (h, ()) m Q X) :
-    ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
-      h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
-      (FullM6HdrMem c ext s ⋆ R) m ∧
-      ∀ ext' m', M6HdrExtInitOk ext' → (M6HdrExtInitOk ext → M6ExtW2aPres ext ext') →
-        (FullM6HdrMem c ext' s ⋆ R) m' → Q () m' := hs
+private meta def mkArgTupExpr (args : Array Lean.Expr) : MetaM Lean.Expr := do
+  let mut acc : Lean.Expr := mkConst ``PUnit.unit [Level.succ Level.zero]
+  for a in args.reverse do
+    acc ← mkAppM ``Prod.mk #[a, acc]
+  return acc
 
-theorem m6HdrDrMutSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X X' : XPost}
-    (h : m6HdrDrMutSpec xs m Q X) : m6HdrDrMutSpec xs m Q X' := by
-  rcases xs with ⟨_, ⟨⟩⟩; exact h
+private meta partial def splitAndExpr (e : Lean.Expr) : List Lean.Expr :=
+  if e.isAppOfArity ``And 2 then e.getArg! 0 :: splitAndExpr (e.getArg! 1) else [e]
 
-theorem m6HdrDrAllowSpec_of {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
-    {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [.bool]} {X : XPost}
-    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
-    (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hQ : ∀ (r : Bool) ext' m', M6HdrExtInitOk ext' → (M6HdrExtInitOk ext → ext' = ext) →
-      (FullM6HdrMem c ext' s ⋆ R) m' → Q (r, ()) m') :
-    m6HdrDrAllowSpec (c.hdr, ()) m Q X :=
-  ⟨c, ext, s, R, rfl, hcfg, hext, hlen, hm, hQ⟩
+private meta def mkAndProof (ps : List Lean.Expr) : MetaM Lean.Expr := do
+  match ps with
+  | [] => throwError "gen_m6_spec_bridges!: empty conjunction"
+  | [p] => return p
+  | p :: rest => mkAppM ``And.intro #[p, ← mkAndProof rest]
 
-theorem m6HdrDrAllowSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post [.bool]} {X : XPost}
-    (hs : m6HdrDrAllowSpec (h, ()) m Q X) :
-    ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
-      h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
-      (FullM6HdrMem c ext s ⋆ R) m ∧
-      ∀ (r : Bool) ext' m', M6HdrExtInitOk ext' → (M6HdrExtInitOk ext → ext' = ext) →
-        (FullM6HdrMem c ext' s ⋆ R) m' → Q (r, ()) m' := hs
+private meta partial def peelExists {α : Type} (e : Lean.Expr) (acc : Array (Lean.Expr × Lean.Expr))
+    (k : Array (Lean.Expr × Lean.Expr) → Lean.Expr → MetaM α) : MetaM α := do
+  if e.isAppOfArity ``Exists 2 then
+    let lam := e.getArg! 1
+    match lam with
+    | .lam nm ty body _ =>
+      withLocalDecl nm .implicit ty fun fv =>
+        peelExists (body.instantiate1 fv) (acc.push (fv, lam)) k
+    | _ => k acc e
+  else k acc e
 
-theorem m6HdrDrAllowSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [.bool]}
-    {X X' : XPost} (h : m6HdrDrAllowSpec xs m Q X) : m6HdrDrAllowSpec xs m Q X' := by
-  rcases xs with ⟨_, ⟨⟩⟩; exact h
+private meta def emitOneSpecBridges (leaf : String) (argSpec : Array (Name × Lean.Expr))
+    (rsExpr : Lean.Expr) (doOf doElim : Bool) (substHdr : Bool := true) : CommandElabM Unit := do
+  let ns ← getCurrNamespace
+  let specNm := ns ++ Name.mkSimple leaf
+  liftTermElabM do
+    let info ← getConstInfo specNm
+    let some specVal := info.value? | throwError "no value for {specNm}"
+    let memTy ← mkAppM ``Mem #[mkNatLit 64]
+    let postTy ← mkAppM ``Post #[rsExpr]
+    let xpostTy := mkConst ``XPost
+    let argTys ← argSpec.mapM fun (_, t) => mkAppM ``Val #[t]
+    let asList ← argSpec.foldrM (init := mkApp (mkConst ``List.nil [Level.zero]) (mkConst ``Ty))
+      fun (_, t) acc => return mkApp3 (mkConst ``List.cons [Level.zero]) (mkConst ``Ty) t acc
+    -- 1. `*_monoX`
+    let tupTy ← mkAppM ``Tup #[mkConst ``Val, asList]
+    let monoDecl ←
+      withLocalDecl `xs .implicit tupTy fun xs =>
+      withLocalDecl `m .implicit memTy fun m =>
+      withLocalDecl `Q .implicit postTy fun Q =>
+      withLocalDecl `X .implicit xpostTy fun X =>
+      withLocalDecl `X' .implicit xpostTy fun X' => do
+        let hTy := mkApp4 (mkConst specNm) xs m Q X
+        let tgt := mkApp4 (mkConst specNm) xs m Q X'
+        let arrowTy ← mkArrow hTy tgt
+        let rec proveTup : Nat → Lean.Expr → MVarId → MetaM Unit
+          | 0, cur, mvar => do
+            let #[sv] ← mvar.cases cur.fvarId! | throwError "monoX: cases unit failed"
+            let (hf, mvar2) ← sv.mvarId.intro1
+            mvar2.assign (mkFVar hf)
+          | n + 1, cur, mvar => do
+            let #[sv] ← mvar.cases cur.fvarId! | throwError "monoX: cases prod failed"
+            proveTup n sv.fields[1]! sv.mvarId
+        let goal ← mkFreshExprMVar arrowTy
+        proveTup argSpec.size xs goal.mvarId!
+        let pf ← instantiateMVars goal
+        let ty ← mkForallFVars #[xs, m, Q, X, X'] arrowTy
+        let val ← mkLambdaFVars #[xs, m, Q, X, X'] pf
+        return (ty, val)
+    addDecl <| .thmDecl {
+      name := ns ++ Name.mkSimple (leaf ++ "_monoX")
+      levelParams := [], type := monoDecl.1, value := monoDecl.2
+    }
+    -- Helper to introduce `argSpec` fvars + `m Q X`
+    let withArgs
+        (k : Array Lean.Expr → Lean.Expr → Lean.Expr → Lean.Expr → Lean.Expr → MetaM Unit) :
+        MetaM Unit := do
+      let rec go (i : Nat) (fvs : Array Lean.Expr) : MetaM Unit := do
+        if hlt : i < argSpec.size then
+          withLocalDecl argSpec[i].1 .implicit argTys[i]! fun fv => go (i + 1) (fvs.push fv)
+        else
+          withLocalDecl `m .implicit memTy fun m =>
+          withLocalDecl `Q .implicit postTy fun Q =>
+          withLocalDecl `X .implicit xpostTy fun X => do
+            let tup ← mkArgTupExpr fvs
+            k fvs m Q X tup
+      go 0 #[]
+    -- 2. `*_elim`
+    if doElim then
+      withArgs fun fvs m Q X tup => do
+        let lhs := mkApp4 (mkConst specNm) tup m Q X
+        let rhs ← whnfCore (specVal.beta #[tup, m, Q, X])
+        withLocalDecl `hs .default lhs fun hs => do
+          let all := fvs ++ #[m, Q, X, hs]
+          addDecl <| .thmDecl {
+            name := ns ++ Name.mkSimple (leaf ++ "_elim"), levelParams := []
+            type := ← mkForallFVars all rhs, value := ← mkLambdaFVars all hs
+          }
+    -- 3. `*_of`
+    if doOf then
+      withArgs fun fvs m Q X tup => do
+        let rhs ← whnfCore (specVal.beta #[tup, m, Q, X])
+        peelExists rhs #[] fun exs body => do
+          let conjs := splitAndExpr body
+          let (keptArgs, subFn, headPf?, remConjs) ←
+            if substHdr && fvs.size == 1 then
+              match conjs with
+              | eqC :: rest =>
+                let some (_, _, cHdr) := eqC.eq?
+                  | throwError "gen_m6_spec_bridges!: expected `h = c.hdr` in {specNm}"
+                pure (#[], fun e : Lean.Expr => e.replaceFVar fvs[0]! cHdr,
+                  some (← mkEqRefl cHdr), rest)
+              | [] => throwError "empty body in {specNm}"
+            else pure (fvs, id, none, conjs)
+          let rec withConjs (cs : List Lean.Expr) (hs : Array Lean.Expr) : MetaM Unit := do
+            match cs with
+            | c :: rest =>
+              withLocalDecl (Name.mkSimple s!"h{hs.size}") .default (subFn c) fun hf =>
+                withConjs rest (hs.push hf)
+            | [] =>
+              let pfs := match headPf? with | some hp => hp :: hs.toList | none => hs.toList
+              let mut pf ← mkAndProof pfs
+              for (fv, lam) in exs.reverse do
+                let fvTy ← inferType fv
+                let u ← getLevel fvTy
+                pf := mkApp4 (mkConst ``Exists.intro [u]) fvTy (subFn lam) fv pf
+              let tgt := subFn (mkApp4 (mkConst specNm) tup m Q X)
+              let all := keptArgs ++ exs.map (·.1) ++ #[m, Q, X] ++ hs
+              addDecl <| .thmDecl {
+                name := ns ++ Name.mkSimple (leaf ++ "_of"), levelParams := []
+                type := ← mkForallFVars all tgt, value := ← mkLambdaFVars all pf
+              }
+          withConjs remConjs #[]
 
-theorem m6HdrDecideSpec_of {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVec 64)}
-    {s : FullState} {R : Mem 64 → Prop} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (hinv : FullM6HdrCoreInv c F0 ext s) (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hQ : ∀ r vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' cl' unass' unfl' sc' ext' m',
-      let s' : FullState :=
-        { core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
-                                trl := trl', trail_pos := tp', frame_trail := ftrl',
-                                frame_dec := fdec', trail_end := te', cur_level := cl',
-                                unassigned := unass', unflushed := unfl' }
-          scratch := sc' }
-      FullM6HdrCoreInv c F0 ext' s' → FullExtScratchPres s s' → (r = 0#64 ∨ r = 1#64) →
-      (r = 0#64 → cl' = s.core.cur_level ∧ te' = s.core.trail_end) →
-      (r = 1#64 → cl' = s.core.cur_level + 1 ∧ te' = s.core.trail_end + 1 ∧
-        M6HdrExtInitOk ext' ∧ (M6HdrExtInitOk ext → M6ExtW2aPres ext ext')) →
-      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m') :
-    m6HdrDecideSpec (c.hdr, ()) m Q X :=
-  ⟨c, F0, ext, s, R, rfl, hinv, hm, hQ⟩
+local elab "gen_m6_spec_bridges!" : command => do
+  let ti64 := mkConst ``i64
+  let ti32 := mkConst ``i32
+  let tbool := mkConst ``Ty.bool
+  let mkList (xs : List Lean.Expr) : Lean.Expr :=
+    xs.foldr (fun x a => mkApp3 (mkConst ``List.cons [Level.zero]) (mkConst ``Ty) x a)
+      (mkApp (mkConst ``List.nil [Level.zero]) (mkConst ``Ty))
+  let rNil := mkList []; let r64 := mkList [ti64]; let rBool := mkList [tbool]
+  let a1 := #[(`h, ti64)]
+  let a3 := #[(`h, ti64), (`rsn, ti32), (`skip_var, ti32)]
+  let a5 := #[(`cnf_ptr, ti64), (`cend, ti64), (`work_base, ti64), (`avail, ti64), (`fuel, ti64)]
+  emitOneSpecBridges "m6HdrSizeofSpec" #[] r64 false false
+  emitOneSpecBridges "m6ExtSizeofSpec" #[] r64 false false
+  emitOneSpecBridges "m6HdrInitSpec" a1 rNil true false
+  emitOneSpecBridges "m6HdrResetSpec" a1 rNil true false
+  emitOneSpecBridges "m6ExtEnsureInitSpec" a1 rNil true false
+  emitOneSpecBridges "m6HdrExtReadySpec" a1 rBool true false
+  emitOneSpecBridges "fullM6MemInitSpec" a5 r64 true false (substHdr := false)
+  emitOneSpecBridges "m6HdrDrMutSpec" a1 rNil true true
+  emitOneSpecBridges "m6HdrDrAllowSpec" a1 rBool true true
+  emitOneSpecBridges "m6HdrDecideSpec" a1 r64 true true
+  emitOneSpecBridges "m6HdrAnalyzeRsnSpec" a3 rBool false true
+  emitOneSpecBridges "m6HdrAnalyzeSpec" a1 r64 true true
 
-theorem m6HdrDecideSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (hs : m6HdrDecideSpec (h, ()) m Q X) :
-    ∃ (c : FullCfg) (F0 : CNF Nat) (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
-      h = c.hdr ∧ FullM6HdrCoreInv c F0 ext s ∧ (FullM6HdrMem c ext s ⋆ R) m ∧
-      ∀ r vals' flags' lvl' rsns' trl' tp' ftrl' fdec' te' cl' unass' unfl' sc' ext' m',
-        let s' : FullState :=
-          { core := { s.core with vals := vals', flags := flags', lvl := lvl', rsns := rsns',
-                                  trl := trl', trail_pos := tp', frame_trail := ftrl',
-                                  frame_dec := fdec', trail_end := te', cur_level := cl',
-                                  unassigned := unass', unflushed := unfl' }
-            scratch := sc' }
-        FullM6HdrCoreInv c F0 ext' s' → FullExtScratchPres s s' → (r = 0#64 ∨ r = 1#64) →
-        (r = 0#64 → cl' = s.core.cur_level ∧ te' = s.core.trail_end) →
-        (r = 1#64 → cl' = s.core.cur_level + 1 ∧ te' = s.core.trail_end + 1 ∧
-          M6HdrExtInitOk ext' ∧ (M6HdrExtInitOk ext → M6ExtW2aPres ext ext')) →
-        (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' := hs
+gen_m6_spec_bridges!
 
-theorem m6HdrDecideSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X X' : XPost}
-    (h : m6HdrDecideSpec xs m Q X) : m6HdrDecideSpec xs m Q X' := by
-  rcases xs with ⟨_, ⟨⟩⟩; exact h
-
-theorem m6HdrAnalyzeRsnSpec_elim {h : BitVec 64} {rsn skip_var : BitVec 32} {m : Mem 64}
-    {Q : Post [.bool]} {X : XPost} (hs : m6HdrAnalyzeRsnSpec (h, rsn, skip_var, ()) m Q X) :
-    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (cut : Nat)
-      (ext : List (BitVec 64)) (s : FullState) (R : Mem 64 → Prop),
-      h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧ s.LengthsOk c ∧
-      FullWitnessCutInv c F0 F_cur cut s.core ∧ FullAnaMarksCov c s ∧
-      s.core.tmp_len ≤ s.core.cur_vars ∧ s.core.tmp_cnt + s.core.cur_vars + 1 < 2 ^ 64 ∧
-      (rsn ≠ 0xFFFFFFFF#32 → (rsn &&& 0x80000000#32) = 0#32 → rsn.toNat ∈ fullArenaClauseRefs s) ∧
-      (FullM6HdrMem c ext s ⋆ R) m ∧
-      ∀ (ok : Bool) mrk' tmp' tc' tl' mcl' arena' sc' ext' m',
-        let s' : FullState :=
-          { s with
-            core := { s.core with mrk := mrk', tmp := tmp', tmp_cnt := tc', tmp_len := tl',
-                                  min_clr_len := mcl', arena := arena' }
-            scratch := sc' }
-        M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6ExtW2bPres ext ext') →
-        s'.LengthsOk c → FullWitnessCutInv c F0 F_cur cut s'.core → FullAnaMarksCov c s' →
-        FullExtScratchPres s s' → sc'.work_stk2 = s.scratch.work_stk2 →
-        s.core.tmp_len ≤ tl' → tl' ≤ s.core.cur_vars → s.core.tmp_cnt ≤ tc' →
-        fullArenaClauseRefs s' = fullArenaClauseRefs s →
-        (∀ r ∈ fullArenaClauseRefs s, fullArenaClauseSize s' r = fullArenaClauseSize s r ∧
-          fullArenaClauseGarb s' r = fullArenaClauseGarb s r ∧
-          fullArenaClauseLits s' r = fullArenaClauseLits s r) →
-        (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 ≠ 0#8 →
-          mrk'[v]?.getD 0#8 = s.core.mrk[v]?.getD 0#8) →
-        (∀ k < s.core.tmp_len, tmp'[k]? = s.core.tmp[k]?) →
-        (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8 → mrk'[v]?.getD 0#8 ≠ 0#8 →
-          ∃ l ∈ fullRsnLits s rsn, l / 2 = v ∧ v < s.core.cur_vars ∧ v ≠ skip_var.toNat ∧
-            0 < (s.core.lvl[v]?.getD 0#32).toNat ∧
-            (s.core.lvl[v]?.getD 0#32).toNat ≤ s.core.cur_level) →
-        (∀ j, s.core.tmp_len ≤ j → j < tl' →
-          let l := (tmp'[j]?.getD 0#32).toNat
-          l ∈ fullRsnLits s rsn ∧ l < 2 * s.core.cur_vars ∧ l / 2 ≠ skip_var.toNat ∧
-          s.core.mrk[l / 2]?.getD 0#8 = 0#8 ∧
-          0 < (s.core.lvl[l / 2]?.getD 0#32).toNat ∧
-          (s.core.lvl[l / 2]?.getD 0#32).toNat < s.core.cur_level ∧
-          mrk'[l / 2]?.getD 0#8 ≠ 0#8) →
-        (∀ j1 j2, s.core.tmp_len ≤ j1 → j1 < j2 → j2 < tl' →
-          (tmp'[j1]?.getD 0#32).toNat / 2 ≠ (tmp'[j2]?.getD 0#32).toNat / 2) →
-        (tc' - s.core.tmp_cnt = ((List.range s.core.cur_vars).filter fun w =>
-          decide (s.core.mrk[w]?.getD 0#8 = 0#8) && decide (mrk'[w]?.getD 0#8 ≠ 0#8) &&
-          decide ((s.core.lvl[w]?.getD 0#32).toNat = s.core.cur_level)).length) →
-        (sc'.res_sz = s.scratch.res_sz + BitVec.ofNat 64 ((List.range s.core.cur_vars).filter
-          fun w => decide (s.core.mrk[w]?.getD 0#8 = 0#8) &&
-            decide (mrk'[w]?.getD 0#8 ≠ 0#8)).length) →
-        (ok = true → rsn ≠ 0xFFFFFFFF#32 ∧
-          sc'.ant_sz = s.scratch.ant_sz + BitVec.ofNat 64 ((fullRsnLits s rsn).countP fun l =>
-            decide (l / 2 < s.core.cur_vars ∧ 0 < (s.core.lvl[l / 2]?.getD 0#32).toNat ∧
-              (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ s.core.cur_level)) ∧
-          ∀ l ∈ fullRsnLits s rsn, l / 2 < s.core.cur_vars ∧
-            (l / 2 ≠ skip_var.toNat →
-              (0 < (s.core.lvl[l / 2]?.getD 0#32).toNat → mrk'[l / 2]?.getD 0#8 ≠ 0#8) ∧
-              (s.core.mrk[l / 2]?.getD 0#8 = 0#8 →
-                (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ s.core.cur_level ∧
-                (0 < (s.core.lvl[l / 2]?.getD 0#32).toNat →
-                  (s.core.lvl[l / 2]?.getD 0#32).toNat < s.core.cur_level →
-                  ∃ j, s.core.tmp_len ≤ j ∧ j < tl' ∧
-                    (tmp'[j]?.getD 0#32).toNat / 2 = l / 2)))) →
-        (FullM6HdrMem c ext' s' ⋆ R) m' → Q (ok, ()) m' := hs
-
-theorem m6HdrAnalyzeRsnSpec_monoX {xs : Tup Val [i64, i32, i32]} {m : Mem 64}
-    {Q : Post [.bool]} {X X' : XPost}
-    (h : m6HdrAnalyzeRsnSpec xs m Q X) : m6HdrAnalyzeRsnSpec xs m Q X' := by
-  rcases xs with ⟨_, _, _, ⟨⟩⟩; exact h
-
-theorem m6HdrAnalyzeSpec_of {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
-    {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
-    {Q : Post [i64]} {X : XPost}
-    (hinv : FullM6HdrInvW c F0 F_cur ext s) (hcf : FullConflictOkW F_cur s)
-    (hm : (FullM6HdrMem c ext s ⋆ R) m)
-    (hQ : ∀ r ext' s' m',
-      M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
-      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
-      (s'.scratch.work_stk2 = s.scratch.work_stk2 ∧ (r = 20#64 → FullOtfsInvW c F0 F_cur s' ∧
-        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode)) →
-      (r = 20#64 → F0.Unsat) →
-      (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
-      (r = 1#64 → FullM6HdrInvW c F0 F_cur ext' s' ∧ s'.core.cur_level < s.core.cur_level) →
-      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m') :
-    m6HdrAnalyzeSpec (c.hdr, ()) m Q X :=
-  ⟨c, F0, F_cur, ext, s, R, rfl, hinv, hcf, hm, hQ⟩
-
-theorem m6HdrAnalyzeSpec_elim {h : BitVec 64} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (hs : m6HdrAnalyzeSpec (h, ()) m Q X) :
-    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (ext : List (BitVec 64))
-      (s : FullState) (R : Mem 64 → Prop),
-      h = c.hdr ∧ FullM6HdrInvW c F0 F_cur ext s ∧ FullConflictOkW F_cur s ∧
-      (FullM6HdrMem c ext s ⋆ R) m ∧
-      ∀ r ext' s' m',
-        M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
-        s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
-        (s'.scratch.work_stk2 = s.scratch.work_stk2 ∧ (r = 20#64 → FullOtfsInvW c F0 F_cur s' ∧
-          s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode)) →
-        (r = 20#64 → F0.Unsat) →
-        (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
-        (r = 1#64 → FullM6HdrInvW c F0 F_cur ext' s' ∧ s'.core.cur_level < s.core.cur_level) →
-        (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' := hs
-
-theorem m6HdrAnalyzeSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X X' : XPost}
-    (h : m6HdrAnalyzeSpec xs m Q X) : m6HdrAnalyzeSpec xs m Q X' := by
-  rcases xs with ⟨_, ⟨⟩⟩; exact h
+end SpecBridgeGen
 
 
 end LeanQbe.T.Examples.Kissat.Proof.Spec
