@@ -9,6 +9,7 @@ public import LeanQbe.T.OptFlatMem
 public import LeanQbe.T.OptFlatCfg
 public import LeanQbe.T.OptFlatAddrRange
 public import LeanQbe.T.OptFlatPathCond
+public import LeanQbe.T.OptFlatBranch
 
 /-!
 # Staged `TFlat`-Direct Compilation Driver (`MainFlat`)
@@ -148,23 +149,18 @@ def addrRangeOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
 def pathCondOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
   OptFlatPathCond.pathCondOptFlat as tf
 
-/-- `TFlat`-gated `condThreadPass` bypassing PHOAS whenever `buildCTPlan` finds no changes. -/
+/-- Native `TFlat` `condThreadPass` matching `reifyFunc (Func.condThreadPass (denoteFunc tf))`. -/
 def condThreadPassFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  let (st, _) := CondThreadOpt.collectStats 0 tf
-  let plan := CondThreadOpt.buildCTPlan [] tf st
-  if plan.hasChanges then reifyFunc (Func.condThreadWithPlan plan (denoteFunc (as := as) tf))
-  else tf
+  OptFlatBranch.condThreadPassFlat as tf
 
 /-- `condThreadLateOpt` (`OptFlatPathCond.pathCondOptFlat` + `TFlat`-gated `condThreadPassFlat`). -/
 def condThreadLateOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
   condThreadPassFlat as (pathCondOptFlat as tf)
 
-/-- `TFlat`-gated `tailDup` bypassing PHOAS whenever `TailDup.buildPlan` finds no changes. -/
+/-- Native `TFlat` `tailDup` matching `reifyFunc (Func.tailDup (denoteFunc tf) cfg)`. -/
 def tailDupFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs)
     (cfg : TailDup.TailDupConfig := {}) : TFlat rs :=
-  let (_, info) := TailDup.buildPlan cfg 0 tf
-  if info.changed then reifyFunc (Func.tailDup (denoteFunc (as := as) tf) cfg)
-  else tf
+  OptFlatBranch.tailDupFlat as tf cfg
 
 /-! ## 3. End-to-End `earlyOptFlat`, `midStageFlat`, `compileFlatFn`, `compileModuleFlat` -/
 

@@ -156,6 +156,9 @@ public import LeanQbe.T.OpsLemmas
 public import LeanQbe.T.Opt
 public import LeanQbe.T.OptFlatAddrRange
 public import LeanQbe.T.OptFlatAddrRangeLemmas
+public import LeanQbe.T.OptFlatBranch
+public import LeanQbe.T.OptFlatBranchLemmas
+public import LeanQbe.T.OptFlatBranchLemmas0
 public import LeanQbe.T.OptFlatCfg
 public import LeanQbe.T.OptFlatCfgLemmas
 public import LeanQbe.T.OptFlatMem
