@@ -737,9 +737,9 @@ private theorem checkArmFlat_eq {rs : List Ty} (tgt : ArmTarget) :
     obtain ⟨args', ha⟩ := Option.isSome_iff_exists.1 (denoteArgs_isSome_of_checkArgs hΓ hwf.1)
     dsimp only [denote]; rw [ha]; dsimp only
     cases letFuel with
-    | zero => rw [checkArmFlat.eq_1]; dsimp only [checkArm]
+    | zero => dsimp only [checkArm, checkArmFlat]
     | succ letFuel' =>
-      rw [checkArmFlat.eq_2]; dsimp only [checkArm]
+      dsimp only [checkArm, checkArmFlat]
       cases isSafeOp op.code with
       | false => simp only [Bool.false_eq_true, ↓reduceIte]
       | true =>
@@ -751,14 +751,14 @@ private theorem checkArmFlat_eq {rs : List Ty} (tgt : ArmTarget) :
     obtain ⟨jl, hlk, hres⟩ := lookupL_eq_some_resolveLabel hΔ hmL hwf.1
     obtain ⟨args', ha⟩ := Option.isSome_iff_exists.1 (denoteArgs_isSome_of_checkArgs hΓ hwf.2)
     dsimp only [denote]; rw [hlk, ha]; dsimp only
-    rw [checkArmFlat.eq_3, hres]; dsimp only [checkArm]
+    dsimp only [checkArm, checkArmFlat]; rw [hres]
     cases tgt <;> cases jl <;> rfl
   | .ret vs', _, _, _, Γ, _, vs, _, _, _, hΓ, _, _, hwf => by
     obtain ⟨vs'', hv⟩ := Option.isSome_iff_exists.1 (denoteArgs_isSome_of_checkArgs hΓ hwf)
     dsimp only [denote]; rw [hv]; dsimp only
     cases tgt with
-    | ret => rw [checkArmFlat.eq_4]; rfl
-    | loc _ _ | tag _ _ => rw [checkArmFlat.eq_5] <;> simp [checkArm]
+    | ret => rfl
+    | loc _ _ | tag _ _ => simp [checkArm, checkArmFlat]
   | .jnz c t e, jnzFuel, letFuel, next, Γ, Δ, vs, ls, inLD, inLE, hΓ, hΔ, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     obtain ⟨c', hc⟩ := Option.isSome_iff_exists.1 (denoteArg_isSome_of_checkArg hΓ hwf.1.1)
@@ -766,8 +766,7 @@ private theorem checkArmFlat_eq {rs : List Ty} (tgt : ArmTarget) :
     cases jnzFuel with
     | zero => simp [checkArm, checkArmFlat]
     | succ jnzFuel' =>
-      rw [checkArmFlat.eq_6]
-      dsimp only [checkArm, bind, Option.bind]
+      dsimp only [checkArm, checkArmFlat, bind, Option.bind]
       rw [checkArmFlat_eq tgt t jnzFuel' letFuel next hΓ hΔ hmL hwf.1.2]
       cases checkArmFlat tgt jnzFuel' letFuel inLD inLE t with
       | none => rfl

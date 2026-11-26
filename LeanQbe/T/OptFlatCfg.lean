@@ -362,18 +362,20 @@ def findFirstJumpFlat {rs : List Ty} :
   | fuel + 1, inLD, inLE, .jnz _ t _ => findFirstJumpFlat fuel inLD inLE t
   | _ + 1, _, _, _ => none
 
-/-- Direct `TFlat` mirror of `IfOptImpl.checkArm`. -/
-def checkArmFlat (tgt : ArmTarget) :
-    Nat → Nat → Nat → Trie ((ts : List Ty) × JLabel KL ts) → {rs : List Ty} →
-    TFlat rs → Option (ArmPlan × Nat)
-  | jnzFuel, letFuel, inLD, inLE, _, .let_ op k =>
+/-- Direct `TFlat` mirror of `IfOptImpl.checkArm` (structurally recursive on `tf` for kernel
+reduction without `WellFounded.fix`). -/
+def checkArmFlat (tgt : ArmTarget)
+    (jnzFuel letFuel inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts))
+    {rs : List Ty} (tf : TFlat rs) : Option (ArmPlan × Nat) :=
+  match tf with
+  | .let_ op k =>
     if isSafeOp op.code then
       match letFuel with
       | 0 => none
       | letFuel' + 1 =>
         (checkArmFlat tgt jnzFuel letFuel' inLD inLE k).map fun (p, rem) => (.let_ p, rem)
     else none
-  | _, letFuel, inLD, inLE, _, .jump (ts := ts) j _ =>
+  | .jump (ts := ts) j _ =>
     match resolveLabel inLD inLE ts j with
     | some jl =>
       match tgt, jl with
@@ -382,15 +384,19 @@ def checkArmFlat (tgt : ArmTarget) :
         if id == jId && Ty.listBeq ts jTs then some (.jump, letFuel) else none
       | _, _ => none
     | none => none
-  | _, letFuel, _, _, _, .ret _ =>
+  | .ret _ =>
     match tgt with
     | .ret => some (.ret, letFuel)
     | _ => none
-  | jnzFuel + 1, letFuel, inLD, inLE, _, .jnz _ t e => do
-    let (pT, rem1) ← checkArmFlat tgt jnzFuel letFuel inLD inLE t
-    let (pE, rem2) ← checkArmFlat tgt jnzFuel rem1 inLD inLE e
-    pure (.jnz pT pE, rem2)
-  | _, _, _, _, _, _ => none
+  | .jnz _ t e =>
+    match jnzFuel with
+    | 0 => none
+    | jnzFuel' + 1 => do
+      let (pT, rem1) ← checkArmFlat tgt jnzFuel' letFuel inLD inLE t
+      let (pE, rem2) ← checkArmFlat tgt jnzFuel' rem1 inLD inLE e
+      pure (.jnz pT pE, rem2)
+  | _ => none
+termination_by structural tf
 
 /-- Direct `TFlat` mirror of `IfOptImpl.checkDiamondWith`. -/
 def checkDiamondFlat (bitsOnly : Bool) (jId : Nat) (jTs : List Ty)
