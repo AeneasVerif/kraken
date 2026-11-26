@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.FullM7Search
 public import LeanQbe.T.Examples.Kissat.FullSpec3
 import LeanQbe.T.Examples.Kissat.FullArena
+import LeanQbe.T.Examples.Kissat.FullKissatMath
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -105,73 +106,27 @@ scoped macro "m7_call" h:term : tactic =>
   `(tactic| refine LeanQbe.T.wp_call_of_spec _ _ ($h _ _ _ _ ?_))
 
 theorem bv64_add_toNat {a b : BitVec 64} (h : a.toNat + b.toNat < 2 ^ 64) :
-    (a + b).toNat = a.toNat + b.toNat := by
-  rw [BitVec.toNat_add, Nat.mod_eq_of_lt h]
-
+    (a + b).toNat = a.toNat + b.toNat := FullKissatMath.bv64_add_toNat h
 theorem bv64_add1_toNat {g : BitVec 64} (h : g.toNat + 1 < 2 ^ 64) :
-    (g + 1#64).toNat = g.toNat + 1 := bv64_add_toNat h
-
+    (g + 1#64).toNat = g.toNat + 1 := FullKissatMath.bv64_add1_toNat h
 theorem bv64_shl1_toNat {v : BitVec 64} (h : 2 * v.toNat < 2 ^ 64) :
-    (v <<< 1#64).toNat = 2 * v.toNat := by
-  have hsh : v <<< 1#64 = v <<< (1#64).toNat := rfl
-  rw [hsh, BitVec.toNat_shiftLeft, show (1#64).toNat = 1 by decide, Nat.shiftLeft_eq,
-    Nat.mod_eq_of_lt (by omega)]
-  omega
-
-theorem bv64_sub1_toNat {f : BitVec 64} (hf : f ≠ 0#64) : (f - 1#64).toNat = f.toNat - 1 := by
-  have hpos : 0 < f.toNat := Nat.pos_of_ne_zero fun h0 =>
-    hf (BitVec.eq_of_toNat_eq (by simpa using h0))
-  bv_omega
-
-theorem bv64_ofNat_toNat {n : Nat} (hn : n < 2 ^ 64) : (BitVec.ofNat 64 n).toNat = n := by
-  simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn]
-
-theorem bv32_ofNat_toNat {n : Nat} (hn : n < 2 ^ 32) : (BitVec.ofNat 32 n).toNat = n := by
-  simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn]
-
-theorem bv32_xor1_div2 (x : BitVec 32) : (x ^^^ 1#32).toNat / 2 = x.toNat / 2 := by
-  have hsr : (x ^^^ 1#32) >>> 1 = x >>> 1 := by
-    ext i hi
-    simp [BitVec.getLsbD_xor, show (1#32).getLsbD (1 + i) = false by
-      simp [BitVec.getLsbD_one]]
-  have h1 : ((x ^^^ 1#32) >>> 1).toNat = (x ^^^ 1#32).toNat / 2 := by
-    simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
-  have h2 : (x >>> 1).toNat = x.toNat / 2 := by
-    simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
-  rw [← h1, ← h2, hsr]
-
+    (v <<< 1#64).toNat = 2 * v.toNat := FullKissatMath.bv64_shl1_toNat h
+theorem bv64_sub1_toNat {f : BitVec 64} (hf : f ≠ 0#64) :
+    (f - 1#64).toNat = f.toNat - 1 := FullKissatMath.bv64_sub1_toNat hf
+theorem bv64_ofNat_toNat {n : Nat} (hn : n < 2 ^ 64) :
+    (BitVec.ofNat 64 n).toNat = n := FullKissatMath.bv64_ofNat_toNat hn
+theorem bv32_ofNat_toNat {n : Nat} (hn : n < 2 ^ 32) :
+    (BitVec.ofNat 32 n).toNat = n := FullKissatMath.bv32_ofNat_toNat hn
+theorem bv32_xor1_div2 (x : BitVec 32) :
+    (x ^^^ 1#32).toNat / 2 = x.toNat / 2 := FullKissatMath.bv32_xor1_div2 x
 theorem zext_toNat {w1 w2 : Nat} (x : BitVec w1) (hle : w1 ≤ w2) :
-    (x.setWidth w2).toNat = x.toNat := by
-  rw [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le x.isLt (Nat.pow_le_pow_right
-    (by omega) hle))]
-
+    (x.setWidth w2).toNat = x.toNat := FullKissatMath.zext_toNat x hle
 theorem bv64_trunc32_ofNat {n : Nat} (hn : n < 2 ^ 32) :
-    (BitVec.ofNat 64 n).setWidth 32 = BitVec.ofNat 32 n := by
-  apply BitVec.eq_of_toNat_eq
-  rw [BitVec.toNat_setWidth, bv64_ofNat_toNat (by omega), bv32_ofNat_toNat hn,
-    Nat.mod_eq_of_lt hn]
-
-private theorem nat_two_mul_or_one (k : Nat) : (2 * k) ||| 1 = 2 * k + 1 := by
-  apply Nat.eq_of_testBit_eq
-  intro i
-  cases i with
-  | zero => simp [Nat.testBit_zero]
-  | succ j =>
-    rw [Nat.testBit_or]
-    simp only [Nat.testBit_succ]
-    have h10 : Nat.testBit (1 / 2) j = false := by simp
-    have hd1 : (2 * k) / 2 = k := by omega
-    have hd2 : (2 * k + 1) / 2 = k := by omega
-    rw [h10, hd1, hd2, Bool.or_false]
-
+    (BitVec.ofNat 64 n).setWidth 32 = BitVec.ofNat 32 n := FullKissatMath.bv64_trunc32_ofNat hn
 theorem bv32_lit_even {x : BitVec 64} (hx : x.toNat < 2 ^ 30) :
-    ((x <<< 1#64).setWidth 32).toNat = 2 * x.toNat := by
-  rw [BitVec.toNat_setWidth, bv64_shl1_toNat (by omega), Nat.mod_eq_of_lt (by omega)]
-
+    ((x <<< 1#64).setWidth 32).toNat = 2 * x.toNat := FullKissatMath.bv32_lit_even hx
 theorem bv32_lit_odd {x : BitVec 64} (hx : x.toNat < 2 ^ 30) :
-    (((x <<< 1#64).setWidth 32 ||| 1#32)).toNat = 2 * x.toNat + 1 := by
-  rw [BitVec.toNat_or, bv32_lit_even hx, show (1#32 : BitVec 32).toNat = 1 by decide]
-  exact nat_two_mul_or_one x.toNat
+    (((x <<< 1#64).setWidth 32 ||| 1#32)).toNat = 2 * x.toNat + 1 := FullKissatMath.bv32_lit_odd hx
 
 end M7SearchTactics
 
@@ -529,54 +484,31 @@ theorem m7EmaSwapSc_roundtrip {sc : FullScratch} (hlen : sc.glue_used.length = 6
       40 ≤ j → m7Get64Val (m7Set64List g m7GuEmaMaskIdx w) j = m7Get64Val g j :=
     fun g w j hj => m7Get64Val_set64_ne w (Or.inr (by unfold m7GuEmaMaskIdx; omega))
   have h_saved0 : m7ModeEmaGet sc1.glue_used 0 = (fb, fe, sb, se) := by
-    dsimp only [sc1, m7EmaSwapSc]
-    rw [hfn0, hfn1]
+    dsimp only [sc1, m7EmaSwapSc]; rw [hfn0, hfn1]
     have hl0 : (m7StateInitGu { sc0 with stable := BitVec.ofNat 64 0 }).length = 64 := by
       rw [m7StateInitGu_length, hlen]
     let gInit := m7StateInitGu { sc0 with stable := BitVec.ofNat 64 0 }
     let gE0 := m7ModeEmaSet gInit 0 (fb, fe, sb, se)
-    split
-    · unfold m7ModeEmaGet
-      simp only [↓reduceIte]
-      rw [hne_mask _ _ _ (by unfold m7GuEma0FbIdx; decide),
-        hne_mask _ _ _ (by unfold m7GuEma0FbIdx; decide),
-        hne_mask _ _ _ (by unfold m7GuEma0FbIdx; decide),
-        hne_mask _ _ _ (by unfold m7GuEma0FbIdx; decide)]
-      exact m7ModeEmaGet_set_self (gu := gInit) (mode := 0) (fb, fe, sb, se) hl0
-    · unfold m7ModeEmaGet
-      simp only [↓reduceIte]
-      rw [hne_mask _ _ _ (by unfold m7GuEma0FbIdx; decide),
-        hne_mask _ _ _ (by unfold m7GuEma0FbIdx; decide),
-        hne_mask _ _ _ (by unfold m7GuEma0FbIdx; decide),
-        hne_mask _ _ _ (by unfold m7GuEma0FbIdx; decide)]
-      change m7ModeEmaGet (m7ModeEmaSet gE0 1 (0#64, m7EmaInitExp, 0#64, m7EmaInitExp)) 0 = _
+    split <;> (
+      unfold m7ModeEmaGet; simp only [↓reduceIte]
+      repeat rw [hne_mask _ _ _ (by unfold m7GuEma0FbIdx; decide)])
+    · exact m7ModeEmaGet_set_self (gu := gInit) (mode := 0) (fb, fe, sb, se) hl0
+    · change m7ModeEmaGet (m7ModeEmaSet gE0 1 (0#64, m7EmaInitExp, 0#64, m7EmaInitExp)) 0 = _
       rw [m7ModeEmaGet_set_other (gu := gE0) (m1 := 1) (m2 := 0) _ (by decide),
         m7ModeEmaGet_set_self (gu := gInit) (mode := 0) (fb, fe, sb, se) hl0]
   have h_mask0 : (m7Get64Val sc1.glue_used m7GuEmaMaskIdx &&& 1#64) ≠ 0#64 := by
-    dsimp only [sc1, m7EmaSwapSc]
-    rw [hfn0, hfn1]
+    dsimp only [sc1, m7EmaSwapSc]; rw [hfn0, hfn1]
     have hl0 : (m7StateInitGu { sc0 with stable := BitVec.ofNat 64 0 }).length = 64 := by
       rw [m7StateInitGu_length, hlen]
-    split
-    · rw [m7Get64Val_set64_self _ (by simp [m7ModeEmaSet_length, hl0, m7GuEmaMaskIdx])]
+    split <;> (
+      rw [m7Get64Val_set64_self _ (by simp [m7ModeEmaSet_length, hl0, m7GuEmaMaskIdx])]
       intro hc
-      have hlsb : ((m7Get64Val (m7ModeEmaSet
-          (m7StateInitGu { sc0 with stable := BitVec.ofNat 64 0 }) 0 (fb, fe, sb, se))
-          m7GuEmaMaskIdx ||| 1#64 <<< 0) &&& 1#64).getLsbD 0 = true := by
-        rw [BitVec.getLsbD_and, BitVec.getLsbD_or,
-          show (1#64 <<< 0 : BitVec 64).getLsbD 0 = true by decide,
-          show (1#64 : BitVec 64).getLsbD 0 = true by decide, Bool.or_true, Bool.true_and]
-      rw [hc] at hlsb; exact absurd hlsb (by decide)
-    · rw [m7Get64Val_set64_self _ (by simp [m7ModeEmaSet_length, hl0, m7GuEmaMaskIdx])]
-      intro hc
-      have hlsb : (((m7Get64Val (m7ModeEmaSet
-          (m7StateInitGu { sc0 with stable := BitVec.ofNat 64 0 }) 0 (fb, fe, sb, se))
-          m7GuEmaMaskIdx ||| 1#64 <<< 0) ||| (1#64 <<< 1)) &&& 1#64).getLsbD 0 = true := by
-        rw [BitVec.getLsbD_and, BitVec.getLsbD_or, BitVec.getLsbD_or,
-          show (1#64 <<< 0 : BitVec 64).getLsbD 0 = true by decide,
-          show (1#64 : BitVec 64).getLsbD 0 = true by decide, Bool.or_true, Bool.true_or,
-          Bool.true_and]
-      rw [hc] at hlsb; exact absurd hlsb (by decide)
+      have hlsb := congrArg (fun x : BitVec 64 => x.getLsbD 0) hc
+      simp only [BitVec.getLsbD_and, BitVec.getLsbD_or,
+        show (1#64 <<< 0 : BitVec 64).getLsbD 0 = true by decide,
+        show (1#64 : BitVec 64).getLsbD 0 = true by decide, Bool.or_true, Bool.true_or,
+        Bool.true_and] at hlsb
+      exact absurd hlsb (by decide))
   have h_gu0 : m7StateInitGu { sc1 with stable := BitVec.ofNat 64 1 } = sc1.glue_used :=
     m7StateInitGu_of_magic (by simpa using h1_init)
   have h_cond : (m7Get64Val (m7ModeEmaSet sc1.glue_used 1
@@ -588,8 +520,7 @@ theorem m7EmaSwapSc_roundtrip {sc : FullScratch} (hlen : sc.glue_used.length = 6
       unfold m7ModeEmaSet m7GuEmaMaskIdx
       rw [show (if (1 : Nat) = 0 then m7GuEma0FbIdx else m7GuEma1FbIdx) = 48 by
         unfold m7GuEma1FbIdx; decide]
-      rw [m7Get64Val_set64_ne _ (Or.inl (by decide)), m7Get64Val_set64_ne _ (Or.inl (by decide)),
-        m7Get64Val_set64_ne _ (Or.inl (by decide)), m7Get64Val_set64_ne _ (Or.inl (by decide))]
+      repeat rw [m7Get64Val_set64_ne _ (Or.inl (by decide))]
     rw [hme]
     intro hc
     have hlsb := congrArg (fun x : BitVec 64 => x.getLsbD 0) hc
@@ -605,14 +536,13 @@ theorem m7EmaSwapSc_roundtrip {sc : FullScratch} (hlen : sc.glue_used.length = 6
         | zero =>
           change (m7Get64Val sc1.glue_used m7GuEmaMaskIdx &&& 1#64).getLsbD 0 =
             (0#64 : BitVec 64).getLsbD 0
-          rw [BitVec.getLsbD_and, hb0, Bool.false_and]; simp
+          rw [BitVec.getLsbD_and, hb0, Bool.false_and]; rfl
         | succ j =>
           change (m7Get64Val sc1.glue_used m7GuEmaMaskIdx &&& 1#64).getLsbD (j + 1) =
             (0#64 : BitVec 64).getLsbD (j + 1)
           rw [BitVec.getLsbD_and, show (1#64 : BitVec 64).getLsbD (j + 1) = false by
             simp [BitVec.getLsbD_one], Bool.and_false]; simp
-    simp only [BitVec.getLsbD_and, BitVec.getLsbD_or] at hlsb hl0
-    simp_all
+    simp only [BitVec.getLsbD_and, BitVec.getLsbD_or] at hlsb hl0; simp_all
   have h_rest0 : m7ModeEmaGet (m7ModeEmaSet sc1.glue_used 1
       (sc1.ema_fast_biased, sc1.ema_fast_exp, sc1.ema_slow_biased, sc1.ema_slow_exp)) 0 =
       (fb, fe, sb, se) := by
@@ -744,16 +674,13 @@ private theorem swapCl_preserves_sparseInvW {c : FullCfg} {F0 : CNF Nat}
   intro hbd l1 l2 arena' s'
   have hlen := hsp.1; have hw := hsp.2.1; have hwf := hw.arena.refs_wf cref hcref
   have har_len' : arena'.length = c.arena_cap := by simp [arena', hlen.core_ok.arena_len_arr]
-  have har0 : arena'[cref]? = s.core.arena[cref]? := by
-    simp only [arena']; rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega),
-      List.getElem?_set_ne (by omega)]
-  have har2 : arena'[cref + 2]? = s.core.arena[cref + 2]? := by
-    simp only [arena']; rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega),
-      List.getElem?_set_ne (by omega)]
   have har_out : ∀ i, (i < cref ∨ cref + 3 + fullArenaClauseSizeCore s.core cref ≤ i) →
-      arena'[i]? = s.core.arena[i]? := fun i hi => by
-    simp only [arena']; rw [List.getElem?_set_ne (by omega), List.getElem?_set_ne (by omega),
-      List.getElem?_set_ne (by omega)]
+      arena'[i]? = s.core.arena[i]? := fun i _ => by
+    simp only [arena']; repeat rw [List.getElem?_set_ne (by omega)]
+  have har0 : arena'[cref]? = s.core.arena[cref]? := by
+    simp only [arena']; repeat rw [List.getElem?_set_ne (by omega)]
+  have har2 : arena'[cref + 2]? = s.core.arena[cref + 2]? := by
+    simp only [arena']; repeat rw [List.getElem?_set_ne (by omega)]
   have hout : ∀ r ∈ fullArenaClauseRefsCore s.core, r ≠ cref →
       (r + 3 + fullArenaClauseSizeCore s.core r ≤ cref ∧
         fullArenaNextOff s.core.arena s.core.arena_len r ≤ cref) ∨
@@ -1824,153 +1751,38 @@ theorem full_m7_state_init_wp (Γ : Env)
           · simp [hst]
           · simp [hst]
       · intro _ hJ
-        rcases hcm with ⟨rfl, hst0⟩ | ⟨rfl, hst1⟩
-        · m7_split
-          · m7_steps; m7_step_set64 hlen1', hm1', hSet, h2, m2, hm2
-            m7_steps; m7_step_set64 h2, hm2, hSet, h3, m3, hm3
-            m7_steps; m7_step_set64 h3, hm3, hSet, h4, m4, hm4
-            m7_steps; m7_step_set64 h4, hm4, hSet, h5, m5, hm5
-            m7_steps; m7_step_set64 h5, hm5, hSet, h6, m6, hm6
-            m7_steps; m7_step_set64 h6, hm6, hSet, h7, m7, hm7
-            m7_steps; m7_step_set64 h7, hm7, hSet, h8, m8, hm8
-            m7_steps; m7_step_set64 h8, hm8, hSet, h9, m9, hm9
-            m7_steps
-            refine hJ () m9 ⟨m7_len_gu_congr ?_ h9, m7_mem_gu_congr ?_ hm9⟩ <;>
-            · rw [show BitVec.toNat (40 : BitVec 64) = m7GuEma0FbIdx by decide,
-                show BitVec.toNat (42 : BitVec 64) = m7GuEma0FeIdx by decide,
-                show BitVec.toNat (44 : BitVec 64) = m7GuEma0SbIdx by decide,
-                show BitVec.toNat (46 : BitVec 64) = m7GuEma0SeIdx by decide,
-                show BitVec.toNat (48 : BitVec 64) = m7GuEma1FbIdx by decide,
-                show BitVec.toNat (50 : BitVec 64) = m7GuEma1FeIdx by decide,
-                show BitVec.toNat (52 : BitVec 64) = m7GuEma1SbIdx by decide,
-                show BitVec.toNat (54 : BitVec 64) = m7GuEma1SeIdx by decide,
-                show ((1 : BitVec 64) <<< 32) = m7EmaInitExp by decide,
-                show (0 : BitVec 64) = 0#64 by rfl]
-              simp only [g_mid, hst0, ↓reduceIte]
-          · exfalso; exact absurd ‹_› (by decide)
-        · m7_split
-          · exfalso; exact absurd ‹_› (by decide)
-          · m7_steps; m7_step_set64 hlen1', hm1', hSet, h2, m2, hm2
-            m7_steps; m7_step_set64 h2, hm2, hSet, h3, m3, hm3
-            m7_steps; m7_step_set64 h3, hm3, hSet, h4, m4, hm4
-            m7_steps; m7_step_set64 h4, hm4, hSet, h5, m5, hm5
-            m7_steps; m7_step_set64 h5, hm5, hSet, h6, m6, hm6
-            m7_steps; m7_step_set64 h6, hm6, hSet, h7, m7, hm7
-            m7_steps; m7_step_set64 h7, hm7, hSet, h8, m8, hm8
-            m7_steps; m7_step_set64 h8, hm8, hSet, h9, m9, hm9
-            m7_steps
-            refine hJ () m9 ⟨m7_len_gu_congr ?_ h9, m7_mem_gu_congr ?_ hm9⟩ <;>
-            · rw [show BitVec.toNat (40 : BitVec 64) = m7GuEma0FbIdx by decide,
-                show BitVec.toNat (42 : BitVec 64) = m7GuEma0FeIdx by decide,
-                show BitVec.toNat (44 : BitVec 64) = m7GuEma0SbIdx by decide,
-                show BitVec.toNat (46 : BitVec 64) = m7GuEma0SeIdx by decide,
-                show BitVec.toNat (48 : BitVec 64) = m7GuEma1FbIdx by decide,
-                show BitVec.toNat (50 : BitVec 64) = m7GuEma1FeIdx by decide,
-                show BitVec.toNat (52 : BitVec 64) = m7GuEma1SbIdx by decide,
-                show BitVec.toNat (54 : BitVec 64) = m7GuEma1SeIdx by decide,
-                show ((1 : BitVec 64) <<< 32) = m7EmaInitExp by decide,
-                show (0 : BitVec 64) = 0#64 by rfl]
-              simp only [g_mid, hst1, ↓reduceIte]
+        rcases hcm with ⟨rfl, hst⟩ | ⟨rfl, hst⟩ <;> (
+          m7_split <;>
+          first
+          | (exfalso; exact absurd ‹_› (by decide))
+          | (m7_steps; m7_step_set64 hlen1', hm1', hSet, h2, m2, hm2
+             m7_steps; m7_step_set64 h2, hm2, hSet, h3, m3, hm3
+             m7_steps; m7_step_set64 h3, hm3, hSet, h4, m4, hm4
+             m7_steps; m7_step_set64 h4, hm4, hSet, h5, m5, hm5
+             m7_steps; m7_step_set64 h5, hm5, hSet, h6, m6, hm6
+             m7_steps; m7_step_set64 h6, hm6, hSet, h7, m7, hm7
+             m7_steps; m7_step_set64 h7, hm7, hSet, h8, m8, hm8
+             m7_steps; m7_step_set64 h8, hm8, hSet, h9, m9, hm9
+             m7_steps
+             refine hJ () m9 ⟨m7_len_gu_congr ?_ h9, m7_mem_gu_congr ?_ hm9⟩ <;>
+             · rw [show BitVec.toNat (40 : BitVec 64) = m7GuEma0FbIdx by decide,
+                 show BitVec.toNat (42 : BitVec 64) = m7GuEma0FeIdx by decide,
+                 show BitVec.toNat (44 : BitVec 64) = m7GuEma0SbIdx by decide,
+                 show BitVec.toNat (46 : BitVec 64) = m7GuEma0SeIdx by decide,
+                 show BitVec.toNat (48 : BitVec 64) = m7GuEma1FbIdx by decide,
+                 show BitVec.toNat (50 : BitVec 64) = m7GuEma1FeIdx by decide,
+                 show BitVec.toNat (52 : BitVec 64) = m7GuEma1SbIdx by decide,
+                 show BitVec.toNat (54 : BitVec 64) = m7GuEma1SeIdx by decide,
+                 show ((1 : BitVec 64) <<< 32) = m7EmaInitExp by decide,
+                 show (0 : BitVec 64) = 0#64 by rfl]
+               simp only [g_mid, hst, ↓reduceIte]))
     · intro _ hJcm; m7_steps
       · exact hJcm (1#64, ()) m0 ⟨rfl, Or.inr ⟨rfl, by assumption⟩⟩
       · exact hJcm (0#64, ()) m0 ⟨rfl, Or.inl ⟨rfl, by assumption⟩⟩
 
-private theorem pow10_lt_64 {d : Nat} (hd : d ≤ 19) : 10 ^ d < 2 ^ 64 :=
-  Nat.lt_of_le_of_lt (Nat.pow_le_pow_right (by omega) hd) (by decide)
-
 theorem full_log10_q16_m7_wp (Γ : Env) :
     ∀ a m Q X, m7Log10Q16Spec a m Q X → Func.wp Γ full_log10_q16_m7_body a m Q X := by
-  rintro ⟨x, ⟨⟩⟩ m Q X hQ
-  unfold Func.wp full_log10_q16_m7_body
-  m7_to_group
-  · have hx1 : x.toNat ≤ 1 := by c0_bound
-    exact hQ 0#64 (by decide) (fun hx10 => by omega)
-  · refine wp_loop_inv (ts := [i64, i64])
-      (fun (d, pow10, ()) m1 =>
-        m = m1 ∧ d.toNat ≤ 19 ∧ 1 ≤ pow10.toNat ∧ pow10.toNat ≤ 10 ^ d.toNat ∧
-        (d.toNat = 0 → pow10.toNat = 1))
-      (fun (d, _, ()) _ => 19 - d.toNat) ?_ ?_
-    · intro J hJ
-      m7_to_group; exact hJ (0#64, 1#64, ()) m ⟨rfl, by decide, by decide, by decide, fun _ => rfl⟩
-    · rintro J ⟨d, pow10, ⟨⟩⟩ _ ⟨rfl, hd19, hp1, hple, hd0p⟩ hJ
-      refine wp_join_group (ts := []) (fun _ m1 => m = m1 ∧ (10 ≤ x.toNat → 1 ≤ d.toNat))
-        ?_ ?_
-      · rintro _ ⟨⟩ _ ⟨rfl, hd10⟩
-        m7_to_group
-        refine wp_join_group (ts := [i64, i64]) (fun (_, pm', ()) m2 => m = m2 ∧ 1 ≤ pm'.toNat)
-          ?_ ?_
-        · rintro _ ⟨xm', pm', ⟨⟩⟩ m2 ⟨hm2, hpm⟩
-          subst m2
-          have hpm_ne : pm' ≠ 0#64 := fun h0 => by subst h0; simp at hpm
-          m7_to_group
-          all_goals try exact hpm_ne
-          refine wp_loop_inv (ts := [i64, i64, i64])
-            (fun (_mv, frac, i, ()) m3 => m = m3 ∧ i.toNat ≤ 16 ∧ frac.toNat < 2 ^ i.toNat)
-            (fun (_, _, i, ()) _ => 16 - i.toNat) ?_ ?_
-          · intro J2 hJ2; m7_to_group; exact hJ2 (_, 0#64, 0#64, ()) m ⟨rfl, by decide, by decide⟩
-          · rintro J2 ⟨mv, frac, i, ⟨⟩⟩ m3 ⟨hm3, hi16, hfl⟩ hJ2
-            subst m3; m7_steps
-            · have hi_lt : i.toNat < 16 := by c0_bound
-              have hf_lt : frac.toNat < 2 ^ 15 :=
-                Nat.lt_of_lt_of_le hfl (Nat.pow_le_pow_right (by omega) (by omega))
-              have hi1 : (i + 1#64).toNat = i.toNat + 1 := bv64_add1_toNat (by omega)
-              have hf2p1 : (frac <<< (1 : Nat) + 1#64).toNat = 2 * frac.toNat + 1 := by bv_omega
-              have hf2p1_lt : 2 * frac.toNat + 1 < 2 ^ (i.toNat + 1) := by
-                rw [Nat.pow_succ]; omega
-              exact hJ2 (_, (frac <<< (1 : Nat)) + 1#64, i + 1#64, ()) m
-                (by dsimp only; omega) ⟨rfl, by omega, by rw [hi1, hf2p1]; exact hf2p1_lt⟩
-            · have hi_lt : i.toNat < 16 := by c0_bound
-              have hf_lt : frac.toNat < 2 ^ 15 :=
-                Nat.lt_of_lt_of_le hfl (Nat.pow_le_pow_right (by omega) (by omega))
-              have hf_sh : (frac <<< (1 : Nat)).toNat = 2 * frac.toNat := by
-                rw [BitVec.toNat_shiftLeft]; simp [Nat.shiftLeft_eq]; omega
-              have hf2_lt : 2 * frac.toNat < 2 ^ (i.toNat + 1) := by rw [Nat.pow_succ]; omega
-              have hi1 : (i + 1#64).toNat = i.toNat + 1 := bv64_add1_toNat (by omega)
-              exact hJ2 (_, frac <<< (1 : Nat), i + 1#64, ()) m (by dsimp only; omega)
-                ⟨rfl, by omega, by rw [hi1, hf_sh]; exact hf2_lt⟩
-            · have hflt : frac.toNat < 65536 :=
-                Nat.lt_of_lt_of_le hfl (Nat.pow_le_pow_right (by omega) hi16)
-              have hd_sh : (d <<< (16 : Nat)).toNat = d.toNat * 65536 := by
-                rw [BitVec.toNat_shiftLeft]; simp [Nat.shiftLeft_eq]; omega
-              have hres_lt : ((d <<< (16 : Nat)) + frac).toNat < 20 * 65536 := by
-                have hsum : d.toNat * 65536 + frac.toNat < 20 * 65536 := by omega
-                rw [BitVec.toNat_add, hd_sh, Nat.mod_eq_of_lt (by omega)]; exact hsum
-              have hres_ge : 10 ≤ x.toNat → 65536 ≤ ((d <<< (16 : Nat)) + frac).toNat := by
-                intro hx10; have hd1 := hd10 hx10
-                have hsum : 65536 ≤ d.toNat * 65536 + frac.toNat := by omega
-                rw [BitVec.toNat_add, hd_sh, Nat.mod_eq_of_lt (by omega)]; exact hsum
-              exact hQ ((d <<< (16 : Nat)) + frac) hres_lt hres_ge
-        · intro _ hJm; m7_to_group
-          · have hpm_gt : 100000000 < pow10.toNat := by c0_bound
-            intro h0; have ht := congrArg BitVec.toNat h0
-            change pow10.toNat / 100000000 = 0 at ht
-            have hpos : 0 < pow10.toNat / 100000000 :=
-              Nat.div_pos (Nat.le_of_lt hpm_gt) (by decide)
-            omega
-          · exact hJm (x / (pow10 / 100000000#64), 100000000#64, ()) m ⟨rfl, by decide⟩
-          · exact hJm (x, pow10, ()) m ⟨rfl, hp1⟩
-      · intro _ hJexit; m7_to_group
-        · have hd_lt : d.toNat < 19 := by c0_bound
-          have hpow_10 : pow10.toNat * 10 ≤ 10 ^ (d.toNat + 1) := by
-            rw [Nat.pow_succ]; exact Nat.mul_le_mul_right 10 hple
-          have hpow_lt64 : pow10.toNat * 10 < 2 ^ 64 := Nat.lt_of_le_of_lt hpow_10
-            (pow10_lt_64 (by omega))
-          have hpow_mul : (pow10 * 10#64).toNat = pow10.toNat * 10 := by
-            rw [BitVec.toNat_mul, show (10#64).toNat = 10 by rfl, Nat.mod_eq_of_lt hpow_lt64]
-          have hd1 : (d + 1#64).toNat = d.toNat + 1 := bv64_add1_toNat (by omega)
-          exact hJ (d + 1#64, pow10 * 10#64, ()) m (by dsimp only; omega)
-            ⟨rfl, by omega, by omega, by rw [hd1, hpow_mul]; exact hpow_10,
-             fun h0 => by rw [hd1] at h0; omega⟩
-        · have hge : 19 ≤ d.toNat := by c0_bound
-          exact hJexit () m ⟨rfl, fun _ => by omega⟩
-        · have hlt : x.toNat / 10 < pow10.toNat := by
-            have hdiv : (x / 10#64).toNat < pow10.toNat := by c0_bound
-            have hmod : (x / 10#64).toNat = x.toNat / 10 := by bv_omega
-            omega
-          refine hJexit () m ⟨rfl, fun hx10 => ?_⟩
-          rcases Nat.eq_zero_or_pos d.toNat with hd0 | hdpos
-          · have hp1' := hd0p hd0; omega
-          · exact hdpos
+  rintro ⟨x, ⟨⟩⟩ m Q X hQ; exact FullKissatMath.full_log10_q16_core_wp Γ x m Q X hQ
 
 theorem m7RandecStepSpec_elim {h : Val i64} {m : Mem 64} {Q : Post []} {X : XPost}
     (hs : m7RandecStepSpec (h, ()) m Q X) :

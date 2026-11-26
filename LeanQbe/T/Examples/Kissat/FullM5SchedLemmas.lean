@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Examples.Kissat.FullM5Sched
 public import LeanQbe.T.Examples.Kissat.FullSpec
 import LeanQbe.T.Examples.Kissat.FullArena
+import LeanQbe.T.Examples.Kissat.FullKissatMath
 import LeanQbe.T.Logic.C0Step
 import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
@@ -47,6 +48,7 @@ open LeanQbe.T.Examples.Kissat.Full hiding
   full_rephase_body full_rephase_wf
   full_switch_mode_body full_switch_mode_wf
   full_restart_due_body full_restart_due_wf
+open _root_.LeanQbe.T.Examples.Kissat.FullKissatMath (wp_let_ult64_m bv64_add1_toNat)
 open scoped LeanQbe.T.Examples.Kissat.Full.FullArenaTactics
 open Kraken.Bedrock2.Test
 
@@ -96,42 +98,6 @@ theorem m5RephaseSpec_of_stable {h : BitVec 64} {m : Mem 64} {Q : Post []} {X : 
   subst hcl0
   exact hQ vals' lvl' rsns' trl' tp' te' prop' unass' fuel' sc' m' hinv' hfu' hpres' hm'
 
-private theorem pow10_lt_64 {d : Nat} (hd : d ≤ 19) : 10 ^ d < 2 ^ 64 :=
-  Nat.lt_of_le_of_lt (Nat.pow_le_pow_right (by omega) hd) (by decide)
-
-private theorem wp_let_add64_m {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    {m : Mem 64} {a b : Arg Val i64} {k : Tup Val [i64] → Expr Val Cont rs} :
-    wp Γ Q X (.let_ { sig := [i64, i64], code := .add i64, args := (a, b, ()) } k) m =
-      wp Γ Q X (k (a.val + b.val, ())) m := by
-  simpa only [Ty.hasFloat, Ty.isFloatTree, Bool.false_eq_true, ite_false, lift2] using
-    @wp_let_add_eq Γ rs Q X m i64 (a, b, ()) k
-
-private theorem wp_let_mul64_m {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    {m : Mem 64} {a b : Arg Val i64} {k : Tup Val [i64] → Expr Val Cont rs} :
-    wp Γ Q X (.let_ { sig := [i64, i64], code := .mul i64, args := (a, b, ()) } k) m =
-      wp Γ Q X (k (a.val * b.val, ())) m := by
-  simpa only [Ty.hasFloat, Ty.isFloatTree, Bool.false_eq_true, ite_false, lift2] using
-    @wp_let_mul_eq Γ rs Q X m i64 (a, b, ()) k
-
-private theorem wp_let_ugt64_m {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    {m : Mem 64} {hm : Ty.bool = Ty.mask i64} {a b : Arg Val i64}
-    {k : Tup Val [.bool] → Expr Val Cont rs} :
-    wp Γ Q X
-        (.let_ { sig := [i64, i64], code := .cmp .ugt i64 .bool hm, args := (a, b, ()) } k) m =
-      wp Γ Q X (k (BitVec.ult b.val a.val, ())) m := by
-  have hc := @wp_let_cmp_eq Γ rs Q X m .ugt i64 .bool hm (a, b, ()) k
-  simpa only [Ty.hasFloat, Ty.isFloatTree, Bool.false_eq_true, ite_false, liftCmp,
-    evalBits_ugt_eq, cast_eq] using hc
-
-private theorem wp_let_ult64_m {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost}
-    {m : Mem 64} {hm : Ty.bool = Ty.mask i64} {a b : Arg Val i64}
-    {k : Tup Val [.bool] → Expr Val Cont rs} :
-    wp Γ Q X (.let_ (Op.mk (.cmp .ult i64 .bool hm) (a, b, ())) k) m =
-      wp Γ Q X (k (BitVec.ult a.val b.val, ())) m := by
-  have hc := @wp_let_cmp_eq Γ rs Q X m .ult i64 .bool hm (a, b, ()) k
-  simpa only [Ty.hasFloat, Ty.isFloatTree, Bool.false_eq_true, ite_false, liftCmp,
-    evalBits_ult_eq, cast_eq] using hc
-
 private theorem probePres_refl (s : Full.FullState) : Full.FullProbeScratchPres s s :=
   ⟨⟨rfl, rfl⟩, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
@@ -144,14 +110,10 @@ private theorem probePres_trans {s₁ s₂ s₃ : Full.FullState}
    h23.2.2.2.2.2.2.1.trans h12.2.2.2.2.2.2.1,
    h23.2.2.2.2.2.2.2.trans h12.2.2.2.2.2.2.2⟩
 
-private theorem bv64_add1_toNat {k : BitVec 64} (hk : k.toNat + 1 < 2 ^ 64) :
-    (k + 1#64).toNat = k.toNat + 1 := by
-  bv_omega
-
 section M5SchedTactics
 
 open Lean Elab Tactic in
-/-- Step straight-line `C0Step` ops, stopping at `Expr.group` instead of inlining join points. -/
+/-- Step `C0Step` ops across all goals until `Expr.group`. -/
 local elab "m5_to_group" : tactic => do
   let rec go (fuel : Nat) : TacticM Unit := do
     if fuel = 0 then return
@@ -161,9 +123,7 @@ local elab "m5_to_group" : tactic => do
       setGoals [g]
       let rawTy ← Lean.instantiateMVars (← g.getType)
       let ty := rawTy.consumeMData
-      if rawTy.isMData then
-        let g' ← g.change ty (checkDefEq := false)
-        setGoals [g']
+      if rawTy.isMData then setGoals [← g.change ty (checkDefEq := false)]
       if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 &&
           ((ty.getArg! 4).headBeta).isAppOf ``LeanQbe.T.Expr.group then
         out := out ++ (← getUnsolvedGoals)
@@ -181,9 +141,7 @@ local elab "m5_split" : tactic => do
     let g ← getMainGoal
     let rawTy ← Lean.instantiateMVars (← g.getType)
     let ty := rawTy.consumeMData
-    if rawTy.isMData then
-      let g' ← g.change ty (checkDefEq := false)
-      replaceMainGoal [g']
+    if rawTy.isMData then replaceMainGoal [← g.change ty (checkDefEq := false)]
     if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 &&
         ((ty.getArg! 4).headBeta).isAppOf ``LeanQbe.T.Expr.jnz then
       let _ ← LeanQbe.T.C0Step.stepOnce; return
@@ -201,9 +159,7 @@ local elab "m5_to_jnz" : tactic => do
       setGoals [g]
       let rawTy ← Lean.instantiateMVars (← g.getType)
       let ty := rawTy.consumeMData
-      if rawTy.isMData then
-        let g' ← g.change ty (checkDefEq := false)
-        setGoals [g']
+      if rawTy.isMData then setGoals [← g.change ty (checkDefEq := false)]
       if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 &&
           ((ty.getArg! 4).headBeta).isAppOf ``LeanQbe.T.Expr.jnz then
         out := out ++ (← getUnsolvedGoals)
@@ -221,141 +177,24 @@ local elab "m5_to_udiv" : tactic => do
     let g ← getMainGoal
     let rawTy ← Lean.instantiateMVars (← g.getType)
     let ty := rawTy.consumeMData
-    if rawTy.isMData then
-      let g' ← g.change ty (checkDefEq := false)
-      replaceMainGoal [g']
+    if rawTy.isMData then replaceMainGoal [← g.change ty (checkDefEq := false)]
     if ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 then
       let e := (ty.getArg! 4).headBeta
       if e.isAppOf ``LeanQbe.T.Expr.group || e.isAppOf ``LeanQbe.T.Expr.jnz then return
       let st ← saveState
-      let isDiv ← try
-        evalTactic (← `(tactic| refine wp_udiv_of ?_ ?_))
-        pure true
-      catch _ => pure false
+      let isDiv ← try evalTactic (← `(tactic| refine wp_udiv_of ?_ ?_)); pure true
+        catch _ => pure false
       st.restore
       if isDiv then return
     if ← LeanQbe.T.C0Step.stepOnce then go (fuel - 1)
   go 100
-
-local macro "solve_log10_tail" x:ident d:ident p:ident hp:ident hd10:ident m:ident hQ:ident :
-    tactic => `(tactic| (
-  c0_hsteps_nogrp
-  refine wp_join_group (ts := [i64, i64])
-    (fun (_, pm', ()) m2 => $m = m2 ∧ 1 ≤ pm'.toNat) ?_ ?_
-  · rintro _ ⟨xm', pm', ⟨⟩⟩ m2 ⟨hm2, hpm⟩
-    subst m2
-    have hpm_ne : pm' ≠ 0#64 := by
-      intro h0; subst h0; simp at hpm
-    c0_hsteps_nogrp
-    all_goals try exact hpm_ne
-    refine wp_loop_inv (ts := [i64, i64, i64])
-      (fun (_mv, frac, i, ()) m3 =>
-        $m = m3 ∧ i.toNat ≤ 16 ∧ frac.toNat < 2 ^ i.toNat)
-      (fun (_, _, i, ()) _ => 16 - i.toNat) ?_ ?_
-    · intro J2 hJ2
-      c0_hsteps; exact hJ2 (_, 0#64, 0#64, ()) $m ⟨Eq.refl _, by decide, by decide⟩
-    · rintro J2 ⟨mv, frac, i, ⟨⟩⟩ m3 ⟨hm3, hi16, hfl⟩ hJ2
-      subst m3
-      c0_hsteps
-      · have hi_lt : i.toNat < 16 := by c0_bound
-        have hf_lt : frac.toNat < 2 ^ 15 :=
-          Nat.lt_of_lt_of_le hfl (Nat.pow_le_pow_right (by omega) (by omega))
-        have hf_sh : (frac <<< (1 : Nat)).toNat = 2 * frac.toNat := by
-          rw [BitVec.toNat_shiftLeft]; simp [Nat.shiftLeft_eq]; omega
-        have hf2_lt : 2 * frac.toNat < 2 ^ (i.toNat + 1) := by
-          rw [Nat.pow_succ]; omega
-        have hi1 : (i + 1#64).toNat = i.toNat + 1 := by bv_omega
-        have h16pow : 2 ^ (i.toNat + 1) ≤ 2 ^ 16 :=
-          Nat.pow_le_pow_right (by omega) (by omega)
-        have hf2p1 : (frac <<< (1 : Nat) + 1#64).toNat = 2 * frac.toNat + 1 := by bv_omega
-        have hf2p1_lt : 2 * frac.toNat + 1 < 2 ^ (i.toNat + 1) := by
-          rw [Nat.pow_succ]; omega
-        exact hJ2 (_, (frac <<< (1 : Nat)) + 1#64, i + 1#64, ()) $m
-          (by dsimp only; omega)
-          ⟨Eq.refl _, by omega, by rw [hi1, hf2p1]; exact hf2p1_lt⟩
-      · have hi_lt : i.toNat < 16 := by c0_bound
-        have hf_lt : frac.toNat < 2 ^ 15 :=
-          Nat.lt_of_lt_of_le hfl (Nat.pow_le_pow_right (by omega) (by omega))
-        have hf_sh : (frac <<< (1 : Nat)).toNat = 2 * frac.toNat := by
-          rw [BitVec.toNat_shiftLeft]; simp [Nat.shiftLeft_eq]; omega
-        have hf2_lt : 2 * frac.toNat < 2 ^ (i.toNat + 1) := by
-          rw [Nat.pow_succ]; omega
-        have hi1 : (i + 1#64).toNat = i.toNat + 1 := by bv_omega
-        exact hJ2 (_, frac <<< (1 : Nat), i + 1#64, ()) $m
-          (by dsimp only; omega)
-          ⟨Eq.refl _, by omega, by rw [hi1, hf_sh]; exact hf2_lt⟩
-      · have hflt : frac.toNat < 65536 :=
-          Nat.lt_of_lt_of_le hfl (Nat.pow_le_pow_right (by omega) hi16)
-        have hd_sh : (($d) <<< (16 : Nat)).toNat = ($d).toNat * 65536 := by
-          rw [BitVec.toNat_shiftLeft]; simp [Nat.shiftLeft_eq]; omega
-        have hres_lt : ((($d) <<< (16 : Nat)) + frac).toNat < 20 * 65536 := by
-          have hsum : ($d).toNat * 65536 + frac.toNat < 20 * 65536 := by omega
-          have h64 : ($d).toNat * 65536 + frac.toNat < 2 ^ 64 := by omega
-          rw [BitVec.toNat_add, hd_sh, Nat.mod_eq_of_lt h64]; exact hsum
-        have hres_ge : 10 ≤ ($x).toNat →
-            65536 ≤ ((($d) <<< (16 : Nat)) + frac).toNat := by
-          intro hx10
-          have hd1 := $hd10 hx10
-          have hsum : 65536 ≤ ($d).toNat * 65536 + frac.toNat := by omega
-          have h64 : ($d).toNat * 65536 + frac.toNat < 2 ^ 64 := by omega
-          rw [BitVec.toNat_add, hd_sh, Nat.mod_eq_of_lt h64]; exact hsum
-        exact $hQ ((($d) <<< (16 : Nat)) + frac) hres_lt hres_ge
-  · intro _ hJm
-    c0_hsteps_nogrp
-    · have hpm_gt : 100000000 < ($p).toNat := by c0_bound
-      intro h0
-      have ht := congrArg BitVec.toNat h0
-      change ($p).toNat / 100000000 = 0 at ht
-      have hpos : 0 < ($p).toNat / 100000000 :=
-        Nat.div_pos (Nat.le_of_lt hpm_gt) (by decide)
-      omega
-    · exact hJm ($x / ($p / 100000000#64), 100000000#64, ()) $m ⟨Eq.refl _, by decide⟩
-    · exact hJm ($x, $p, ()) $m ⟨Eq.refl _, $hp⟩))
 
 /-! ## 2. `full_log10_q16` & `full_scale_delta_m5` `Func.wp` Proofs -/
 
 theorem full_log10_q16_wp (Γ : Env) :
     ∀ a m Q X, m5Log10Q16Spec a m Q X → Func.wp Γ full_log10_q16_body a m Q X := by
   rintro ⟨x, ⟨⟩⟩ m Q X hQ
-  c0_hsteps_nogrp
-  · have hx1 : x.toNat ≤ 1 := by c0_bound
-    exact hQ 0#64 (by decide) (fun hx10 => by omega)
-  · refine wp_loop_inv (ts := [i64, i64])
-      (fun (d, pow10, ()) m1 =>
-        m = m1 ∧ d.toNat ≤ 19 ∧ 1 ≤ pow10.toNat ∧ pow10.toNat ≤ 10 ^ d.toNat ∧
-        (d.toNat = 0 → pow10.toNat = 1))
-      (fun (d, _, ()) _ => 19 - d.toNat) ?_ ?_
-    · intro J hJ
-      c0_hsteps; exact hJ (0#64, 1#64, ()) m ⟨rfl, by decide, by decide, by decide, fun _ => rfl⟩
-    · rintro J ⟨d, pow10, ⟨⟩⟩ _ ⟨rfl, hd19, hp1, hple, hd0p⟩ hJ
-      refine wp_join_group (ts := []) (fun _ m1 => m = m1 ∧ (10 ≤ x.toNat → 1 ≤ d.toNat))
-        ?_ ?_
-      · rintro _ ⟨⟩ _ ⟨rfl, hd10⟩
-        solve_log10_tail x d pow10 hp1 hd10 m hQ
-      · intro _ hJexit
-        c0_hsteps_nogrp
-        · have hd_lt : d.toNat < 19 := by c0_bound
-          have hpow_10 : pow10.toNat * 10 ≤ 10 ^ (d.toNat + 1) := by
-            rw [Nat.pow_succ]; exact Nat.mul_le_mul_right 10 hple
-          have hpow_lt64 : pow10.toNat * 10 < 2 ^ 64 :=
-            Nat.lt_of_le_of_lt hpow_10 (pow10_lt_64 (by omega))
-          have hd1 : (d + 1#64).toNat = d.toNat + 1 := by bv_omega
-          have hp10' : (pow10 * 10#64).toNat = pow10.toNat * 10 := by
-            rw [BitVec.toNat_mul, show (10#64).toNat = 10 from rfl,
-              Nat.mod_eq_of_lt hpow_lt64]
-          exact hJ (d + 1#64, pow10 * 10#64, ()) m (by dsimp only; omega)
-            ⟨rfl, by omega, by omega, by rw [hd1, hp10']; exact hpow_10,
-             fun h0 => by rw [hd1] at h0; omega⟩
-        · have hge : 19 ≤ d.toNat := by c0_bound
-          exact hJexit () m ⟨rfl, fun _ => by omega⟩
-        · have hlt : x.toNat / 10 < pow10.toNat := by
-            have hdiv : (x / 10#64).toNat < pow10.toNat := by c0_bound
-            have hmod : (x / 10#64).toNat = x.toNat / 10 := by bv_omega
-            omega
-          refine hJexit () m ⟨rfl, fun hx10 => ?_⟩
-          rcases Nat.eq_zero_or_pos d.toNat with hd0 | hdpos
-          · have hp1' := hd0p hd0; omega
-          · exact hdpos
+  exact FullKissatMath.full_log10_q16_core_wp Γ x m Q X hQ
 
 theorem full_scale_delta_m5_wp (Γ : Env)
     (hLog : ∀ a m Q X, m5Log10Q16Spec a m Q X → Γ "full_log10_q16" [i64] [i64] a m Q X) :
@@ -437,95 +276,58 @@ theorem full_restart_due_wp (Γ : Env)
   rintro ⟨h, ⟨⟩⟩ m Q X ⟨c, s, R, rfl, hlen, hm, hQ⟩
   dsimp only [Full.fullSafetySlice_mem, Full.fullSafetySlice_coreProj,
     Full.fullSafetySlice_safe] at hlen hm hQ
-  c0_step; m5_split
-  · c0_steps; exact hQ (0#64, ()) s m rfl hlen ⟨Or.inl rfl, rfl, rfl⟩ hm
+  c0_step
+  have hret0 : Q (0#64, ()) m := hQ (0#64, ()) s m rfl hlen ⟨Or.inl rfl, rfl, rfl⟩ hm
+  m5_split
+  · c0_steps; exact hret0
   · m5_split
-    · c0_steps; exact hQ (0#64, ()) s m rfl hlen ⟨Or.inl rfl, rfl, rfl⟩ hm
+    · c0_steps; exact hret0
     · m5_split
       · m5_split
         · c0_steps
-          let sc' : Full.FullScratch := { s.scratch with rel_trigger := 0#64 }
-          have hlen' : ({ s with scratch := sc' } : Full.FullState).LengthsOk c :=
-            hlen.with_scratch
-              { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len }
-          exact hQ (1#64, ()) { s with scratch := sc' } _ rfl hlen' ⟨Or.inr rfl, rfl, rfl⟩ hm
-        · c0_steps; exact hQ (0#64, ()) s m rfl hlen ⟨Or.inl rfl, rfl, rfl⟩ hm
-      · m5_to_jnz
-        refine wp_jnz_of (fun _ => ?_) (fun _ => ?_)
-        · c0_steps; exact hQ (0#64, ()) s m rfl hlen ⟨Or.inl rfl, rfl, rfl⟩ hm
-        · m5_to_jnz
-          refine wp_jnz_of (fun _ => ?_) (fun _ => ?_)
-          · c0_steps; exact hQ (0#64, ()) s m rfl hlen ⟨Or.inl rfl, rfl, rfl⟩ hm
-          · m5_to_jnz
-            refine wp_jnz_of (fun _ => ?_) (fun hfd_ne => ?_)
-            · c0_steps; exact hQ (0#64, ()) s m rfl hlen ⟨Or.inl rfl, rfl, rfl⟩ hm
-            · m5_to_jnz
-              refine wp_jnz_of (fun _ => ?_) (fun hsd_ne => ?_)
-              · c0_steps; exact hQ (0#64, ()) s m rfl hlen ⟨Or.inl rfl, rfl, rfl⟩ hm
-              · simp only [Arg.val_var] at hfd_ne hsd_ne
-                c0_cond hfd_ne
-                c0_cond hsd_ne
-                have hfd_nz : (1#64 <<< 32 - s.scratch.ema_fast_exp) ≠ 0#64 := hfd_ne
-                have hsd_nz : (1#64 <<< 32 - s.scratch.ema_slow_exp) ≠ 0#64 := hsd_ne
-                m5_to_group
-                refine wp_join_group (ts := [i64]) (fun _ m1 => m = m1)
-                  (fun _ (fbc, ()) _ hm1 => ?_) ?_
-                · rcases hm1 with rfl; m5_to_group
-                  refine wp_join_group (ts := [i64]) (fun _ m2 => m = m2)
-                    (fun _ (sbc, ()) _ hm2 => ?_) ?_
-                  · rcases hm2 with rfl
-                    m5_to_udiv
-                    refine wp_udiv_of
-                      (by simp only [Arg.val_var]; exact hfd_nz) ?_
-                    m5_to_udiv
-                    refine wp_udiv_of
-                      (by simp only [Arg.val_var]; exact hsd_nz) ?_
-                    m5_to_group
-                    refine wp_join_group (ts := [i64]) (fun _ m3 => m = m3)
-                      (fun _ (fval, ()) _ hm3 => ?_) ?_
-                    · rcases hm3 with rfl
-                      m5_to_group
-                      refine wp_join_group (ts := [i64]) (fun _ m4 => m = m4)
-                        (fun _ (sval, ()) _ hm4 => ?_) ?_
-                      · rcases hm4 with rfl
-                        m5_to_jnz
-                        refine wp_jnz_of (fun _ => ?_) (fun _ => ?_)
-                        · m5_to_group
-                          refine wp_join_group (ts := [i64]) (fun _ m5 => m = m5)
-                            (fun _ (rst, ()) _ hm5 => ?_) ?_
-                          · rcases hm5 with rfl
-                            m5_to_group
-                            c0_call hIlog
-                            intro d10 _ _
-                            m5_to_group
-                            refine wp_join_group (ts := [i64]) (fun _ m6 => m = m6)
-                              (fun _ (delta, ()) _ hm6 => ?_) ?_
-                            · rcases hm6 with rfl
-                              c0_steps
-                              let sc' : Full.FullScratch :=
-                                { s.scratch with restart_limit := s.scratch.conflicts + delta }
-                              exact hQ (1#64, ()) { s with scratch := sc' } _ rfl
-                                (fullState_lengths_with_restart_limit hlen _)
-                                ⟨Or.inr rfl, rfl, rfl⟩ hm
-                            · intro _ hJd; c0_steps
-                              · exact hJd (d10 - 1#64, ()) m rfl
-                              · exact hJd (1#64, ()) m rfl
-                          · intro _ hJrc; c0_steps
-                            · exact hJrc (s.scratch.restarts + 1#64, ()) m rfl
-                            · exact hJrc (1000000000000#64, ()) m rfl
-                        · c0_steps; exact hQ (0#64, ()) s m rfl hlen ⟨Or.inl rfl, rfl, rfl⟩ hm
-                      · intro _ hJs; c0_steps
-                        · exact hJs (1#64 <<< 32, ()) m rfl
-                        · exact hJs (_, ()) m rfl
-                    · intro _ hJf; c0_steps
-                      · exact hJf (1#64 <<< 32, ()) m rfl
-                      · exact hJf (_, ()) m rfl
-                  · intro _ hJsb; c0_steps
-                    · exact hJsb (16384#64 <<< 32, ()) m rfl
-                    · exact hJsb (s.scratch.ema_slow_biased, ()) m rfl
-                · intro _ hJfb; c0_steps
-                  · exact hJfb (16384#64 <<< 32, ()) m rfl
-                  · exact hJfb (s.scratch.ema_fast_biased, ()) m rfl
+          exact hQ (1#64, ()) { s with scratch := { s.scratch with rel_trigger := 0#64 } } _ rfl
+            (hlen.with_scratch
+              { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len })
+            ⟨Or.inr rfl, rfl, rfl⟩ hm
+        · c0_steps; exact hret0
+      · m5_to_jnz; refine wp_jnz_of (fun _ => by c0_steps; exact hret0) fun _ => ?_
+        m5_to_jnz; refine wp_jnz_of (fun _ => by c0_steps; exact hret0) fun _ => ?_
+        m5_to_jnz; refine wp_jnz_of (fun _ => by c0_steps; exact hret0) fun hfd_ne => ?_
+        m5_to_jnz; refine wp_jnz_of (fun _ => by c0_steps; exact hret0) fun hsd_ne => ?_
+        simp only [Arg.val_var] at hfd_ne hsd_ne
+        c0_cond hfd_ne; c0_cond hsd_ne
+        have hfd_nz : (1#64 <<< 32 - s.scratch.ema_fast_exp) ≠ 0#64 := hfd_ne
+        have hsd_nz : (1#64 <<< 32 - s.scratch.ema_slow_exp) ≠ 0#64 := hsd_ne
+        m5_to_group
+        refine wp_join_group (ts := [i64]) (fun _ m1 => m = m1)
+          (fun _ (fbc, ()) _ hm1 => ?_)
+          (fun _ hJfb => by c0_steps <;> exact hJfb (_, ()) m rfl)
+        rcases hm1 with rfl; m5_to_group
+        refine wp_join_group (ts := [i64]) (fun _ m2 => m = m2)
+          (fun _ (sbc, ()) _ hm2 => ?_)
+          (fun _ hJsb => by c0_steps <;> exact hJsb (_, ()) m rfl)
+        rcases hm2 with rfl
+        m5_to_udiv; refine wp_udiv_of (by simp only [Arg.val_var]; exact hfd_nz) ?_
+        m5_to_udiv; refine wp_udiv_of (by simp only [Arg.val_var]; exact hsd_nz) ?_
+        m5_to_group
+        refine wp_join_group (ts := [i64]) (fun _ m3 => m = m3) (fun _ (fval, ()) _ hm3 => ?_)
+          (fun _ hJf => by c0_steps <;> exact hJf (_, ()) m rfl)
+        rcases hm3 with rfl; m5_to_group
+        refine wp_join_group (ts := [i64]) (fun _ m4 => m = m4) (fun _ (sval, ()) _ hm4 => ?_)
+          (fun _ hJs => by c0_steps <;> exact hJs (_, ()) m rfl)
+        rcases hm4 with rfl; m5_to_jnz
+        refine wp_jnz_of (fun _ => ?_) (fun _ => by c0_steps; exact hret0)
+        m5_to_group
+        refine wp_join_group (ts := [i64]) (fun _ m5 => m = m5) (fun _ (rst, ()) _ hm5 => ?_)
+          (fun _ hJrc => by c0_steps <;> exact hJrc (_, ()) m rfl)
+        rcases hm5 with rfl; m5_to_group; c0_call hIlog; intro d10 _ _
+        m5_to_group
+        refine wp_join_group (ts := [i64]) (fun _ m6 => m = m6)
+          (fun _ (delta, ()) _ hm6 => ?_) (fun _ hJd => by c0_steps <;> exact hJd (_, ()) m rfl)
+        rcases hm6 with rfl; c0_steps
+        exact hQ (1#64, ())
+          { s with scratch := { s.scratch with restart_limit := s.scratch.conflicts + delta } } _
+          rfl (fullState_lengths_with_restart_limit hlen _) ⟨Or.inr rfl, rfl, rfl⟩ hm
 
 /-! ## 5. `full_switch_mode` `Func.wp` Proof -/
 
@@ -726,63 +528,42 @@ theorem full_switch_mode_wp (Γ : Env)
                   exact hJs s4 (sp - 1#64, ()) m4 hm4 hsm1 hcore4 hs4
                     ⟨by omega, probePres_trans hpres3 hpres34⟩
                 · exact hJ_out s3 () m3 hm3 (hcore1.trans (hcore2.trans hcore3)) hs3 hpres3
-        · c0_steps
-          · exact hJrp _ (s.scratch.rel_limit, ()) _ hm rfl
-              (hlen.with_scratch
-                { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len })
-              (probePres_refl s)
-          · exact hJrp _ (s.scratch.rel_period, ()) _ hm rfl
-              (hlen.with_scratch
-                { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len })
-              (probePres_refl s)
-          · exact hJrp _ (s.scratch.rel_period, ()) _ hm rfl
-              (hlen.with_scratch
-                { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len })
-              (probePres_refl s)
+        · c0_steps <;> exact hJrp _ _ _ hm rfl
+            (hlen.with_scratch
+              { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len })
+            (probePres_refl s)
     · m5_split
       · c0_steps; exact hQ () s m rfl hlen (probePres_refl s) hm
-      · clear hQ
-        obtain hqsl := hlen.scratch_ok.q_stamp_len
+      · clear hQ; obtain hqsl := hlen.scratch_ok.q_stamp_len
         let s0 : Full.FullState := { s with scratch := { s.scratch with stable := 0#64 } }
         m5_to_group
         refine wp_join_group (ts := [i64]) (fun _ m1 => (Full.FullMem c s0 ⋆ R) m1)
-          (fun _ (cc, ()) m1 hm1 => ?_) ?_
-        · clear hm
-          m5_to_group
-          c0_call hLog
-          intro q _ _
-          m5_to_group
-          refine wp_join_group (ts := [i64]) (fun _ m2 => (Full.FullMem c s0 ⋆ R) m2)
-            (fun _ (scaled, ()) m2 hm2 => ?_) ?_
-          · clear hm1
-            c0_steps
-            · refine wp_load_of (FullArenaTactics.c0_load_full_q_stamp ?_ hm) ?_
-              · dsimp only [s0] at hc ⊢; rw [hqsl]; bv_omega
-              c0_steps
-              refine hJ_out _ () m hm ?_ ?_ ?_
-              · exact rfl
-              · exact hlen.with_scratch
-                  { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len }
-              · exact probePres_refl s
-            · c0_steps
-              refine hJ_out _ () m hm ?_ ?_ ?_
-              · exact rfl
-              · exact hlen.with_scratch
-                  { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len }
-              · exact probePres_refl s
-          · intro _ hJsc
+          (fun _ (cc, ()) m1 hm1 => ?_)
+          (fun _ hJcc => by c0_steps <;> exact hJcc (_, ()) _ (by assumption))
+        clear hm; m5_to_group; c0_call hLog; intro q _ _; m5_to_group
+        refine wp_join_group (ts := [i64]) (fun _ m2 => (Full.FullMem c s0 ⋆ R) m2)
+          (fun _ (scaled, ()) m2 hm2 => ?_)
+          (fun _ hJsc => by
             m5_split
             · c0_steps; exact hJsc (_, ()) m1 hm1
             · m5_to_group
               refine wp_join_group (ts := [i64]) (fun _ m2 => m1 = m2)
-                (fun _ (clim, ()) _ hm2 => ?_) ?_
-              · rcases hm2 with rfl; c0_steps; exact hJsc (_, ()) m1 hm1
-              · intro _ hJcl; c0_steps
-                · exact hJcl (100000000#64, ()) m1 rfl
-                · exact hJcl (_, ()) m1 rfl
-        · intro _ hJcc; c0_steps
-          · exact hJcc (_, ()) _ (by assumption)
-          · exact hJcc (1000000000000#64, ()) _ (by assumption)
+                (fun _ (clim, ()) _ hm2 => by
+                  rcases hm2 with rfl; c0_steps; exact hJsc (_, ()) m1 hm1)
+                (fun _ hJcl => by c0_steps <;> exact hJcl (_, ()) m1 rfl))
+        clear hm1; c0_steps
+        · refine wp_load_of (FullArenaTactics.c0_load_full_q_stamp ?_ hm) ?_
+          · dsimp only [s0] at hc ⊢; rw [hqsl]; bv_omega
+          c0_steps
+          exact hJ_out _ () m hm rfl
+            (hlen.with_scratch
+              { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len })
+            (probePres_refl s)
+        · c0_steps
+          exact hJ_out _ () m hm rfl
+            (hlen.with_scratch
+              { hlen.scratch_ok with walk_vals_len := hlen.scratch_ok.walk_vals_len })
+            (probePres_refl s)
 
 /-! ## 6. `full_rephase` `Func.wp` Proof -/
 
@@ -902,14 +683,10 @@ theorem full_rephase_wp (Γ : Env)
             · c0_steps; exact hJsc (_, ()) m4 hm4
             · m5_to_group
               refine wp_join_group (ts := [i64]) (fun _ m5 => m4 = m5)
-                (fun _ (nlim, ()) _ hm5 => ?_) ?_
-              · rcases hm5 with rfl; c0_steps; exact hJsc (_, ()) m4 hm4
-              · intro _ hJn; c0_steps
-                · exact hJn (100000000#64, ()) m4 rfl
-                · exact hJn (_, ()) m4 rfl
-        · intro _ hJnc; c0_steps
-          · exact hJnc _ _ hm
-          · exact hJnc _ _ hm
+                (fun _ (nlim, ()) _ hm5 => by
+                  rcases hm5 with rfl; c0_steps; exact hJsc (_, ()) m4 hm4)
+                (fun _ hJn => by c0_steps <;> exact hJn (_, ()) m4 rfl)
+        · intro _ hJnc; c0_steps <;> exact hJnc _ _ hm
     · intro Jsel hJsel
       refine wp_join_group (fun () m0 => m = m0) ?_ ?_
       · rintro _ ⟨⟩ _ rfl
@@ -919,8 +696,7 @@ theorem full_rephase_wp (Γ : Env)
             (Full.FullMem c { st2 with scratch := { sc2 with phases := ph' } } ⋆ R) m3)
           (fun (k, ()) _ => s.core.cur_vars - k.toNat)
           (fun L hL => by
-            c0_hsteps; refine hL (0#64, ()) m
-              ⟨sc2.phases, Nat.zero_le _, hsc2_ok.phases_len, ?_⟩
+            c0_hsteps; refine hL (0#64, ()) m ⟨sc2.phases, Nat.zero_le _, hsc2_ok.phases_len, ?_⟩
             dsimp only [st2, sc2]; exact hm)
           (fun L (k, ()) m3 ⟨ph', hk_le, hph_l, hm3⟩ ih => ?_)
         have hpb_l := hsc2_ok.phases_best_len
@@ -928,8 +704,7 @@ theorem full_rephase_wp (Γ : Env)
         · have hk_lt : k.toNat < s.core.cur_vars := by c0_bound
           have hk1 : (k + 1#64).toNat = k.toNat + 1 := bv64_add1_toNat (by omega)
           exact ih (k + 1#64, ()) m (by dsimp only; omega)
-            ⟨ph'.set k.toNat (sc2.phases_best[k.toNat]'(by omega)),
-              by omega, by simp [hph_l], hm⟩
+            ⟨ph'.set k.toNat (sc2.phases_best[k.toNat]'(by omega)), by omega, by simp [hph_l], hm⟩
         · have hk_lt : k.toNat < s.core.cur_vars := by c0_bound
           have hk1 : (k + 1#64).toNat = k.toNat + 1 := bv64_add1_toNat (by omega)
           exact ih (k + 1#64, ()) m3 (by dsimp only; omega) ⟨ph', by omega, hph_l, hm3⟩
@@ -946,16 +721,15 @@ theorem full_rephase_wp (Γ : Env)
             c0_call hWalk
             refine ⟨c, F0, st2, R, rfl, hinv2, by dsimp only [st2, sc2]; exact hm,
               fun fuel' sc3 m3 hlen3 hfl3 hpres3 hm3 => ?_⟩
-            c0_hsteps
-            exact hJsel (_, ()) m3 ⟨fuel', sc3, hlen3.scratch_ok, hfl3,
+            c0_hsteps; exact hJsel (_, ()) m3 ⟨fuel', sc3, hlen3.scratch_ok, hfl3,
               hpres3.1.trans hll1, hpres3.2.trans hext1, hm3⟩
           · intro Jwalk hJwalk
             c0_hsteps_nogrp
             · exact hJwalk () m rfl
             · exact hJwalk () m rfl
             · apply wp_unroll_group; intro _ hJelse2
-              c0_hsteps_nogrp
-              · refine wp_loop_inv
+              c0_hsteps_nogrp <;> (
+                refine wp_loop_inv
                   (fun (k, ()) m3 => ∃ ph' : List (BitVec 8),
                     k.toNat ≤ s.core.cur_vars ∧ ph'.length = c.max_vars ∧
                     (Full.FullMem c { st2 with scratch := { sc2 with phases := ph' } } ⋆ R) m3)
@@ -964,35 +738,16 @@ theorem full_rephase_wp (Γ : Env)
                     c0_hsteps; refine hL (0#64, ()) m
                       ⟨sc2.phases, Nat.zero_le _, hsc2_ok.phases_len, ?_⟩
                     dsimp only [st2, sc2]; exact hm)
-                  (fun L (k, ()) m3 ⟨ph', hk_le, hph_l, hm3⟩ ih => ?_)
-                c0_hsteps
-                · have hk_lt : k.toNat < s.core.cur_vars := by c0_bound
-                  have hk1 : (k + 1#64).toNat = k.toNat + 1 := bv64_add1_toNat (by omega)
-                  exact ih (k + 1#64, ()) m (by dsimp only; omega)
-                    ⟨ph'.set k.toNat _, by omega, by simp [hph_l], hm⟩
-                · c0_hsteps
-                  refine hJsel (_, ()) m3 ⟨s.core.fuel, { sc2 with phases := ph' },
-                    { hsc2_ok with phases_len := hph_l }, Nat.le_refl _, hll1, hext1, ?_⟩
-                  dsimp only [st2, sc2]; exact hm3
-              · refine wp_loop_inv
-                  (fun (k, ()) m3 => ∃ ph' : List (BitVec 8),
-                    k.toNat ≤ s.core.cur_vars ∧ ph'.length = c.max_vars ∧
-                    (Full.FullMem c { st2 with scratch := { sc2 with phases := ph' } } ⋆ R) m3)
-                  (fun (k, ()) _ => s.core.cur_vars - k.toNat)
-                  (fun L hL => by
-                    c0_hsteps; refine hL (0#64, ()) m
-                      ⟨sc2.phases, Nat.zero_le _, hsc2_ok.phases_len, ?_⟩
-                    dsimp only [st2, sc2]; exact hm)
-                  (fun L (k, ()) m3 ⟨ph', hk_le, hph_l, hm3⟩ ih => ?_)
-                c0_hsteps
-                · have hk_lt : k.toNat < s.core.cur_vars := by c0_bound
-                  have hk1 : (k + 1#64).toNat = k.toNat + 1 := bv64_add1_toNat (by omega)
-                  exact ih (k + 1#64, ()) m (by dsimp only; omega)
-                    ⟨ph'.set k.toNat _, by omega, by simp [hph_l], hm⟩
-                · c0_hsteps
-                  refine hJsel (_, ()) m3 ⟨s.core.fuel, { sc2 with phases := ph' },
-                    { hsc2_ok with phases_len := hph_l }, Nat.le_refl _, hll1, hext1, ?_⟩
-                  dsimp only [st2, sc2]; exact hm3
+                  (fun L (k, ()) m3 ⟨ph', hk_le, hph_l, hm3⟩ ih => by
+                    c0_hsteps
+                    · have hk_lt : k.toNat < s.core.cur_vars := by c0_bound
+                      have hk1 : (k + 1#64).toNat = k.toNat + 1 := bv64_add1_toNat (by omega)
+                      exact ih (k + 1#64, ()) m (by dsimp only; omega)
+                        ⟨ph'.set k.toNat _, by omega, by simp [hph_l], hm⟩
+                    · c0_hsteps
+                      refine hJsel (_, ()) m3 ⟨s.core.fuel, { sc2 with phases := ph' },
+                        { hsc2_ok with phases_len := hph_l }, Nat.le_refl _, hll1, hext1, ?_⟩
+                      dsimp only [st2, sc2]; exact hm3))
 
 end M5SchedTactics
 
