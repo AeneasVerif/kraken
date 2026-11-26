@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.LeanLCNF.Basic
+public import LeanQbe.T.LeanLCNF.C0Extern
 public import LeanQbe.T.LeanLCNF.Coverage
 public import LeanQbe.T.LeanLCNF.Demo
 public import LeanQbe.T.LeanLCNF.FromIR
