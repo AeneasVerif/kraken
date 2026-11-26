@@ -4,8 +4,10 @@ public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
 public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemoProof
 public import LeanQbe.T.Amd64.LcnfC0FullCertX64
 public import LeanQbe.T.Amd64.TargLemmas
+public import LeanQbe.T.MainCertFlat
 meta import Lean
 meta import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.MainCertFlatElab
 public meta import LeanQbe.T.Amd64.Targ
 public meta import LeanQbe.T.Amd64.LcnfC0FullCertX64
 public meta import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
@@ -32,7 +34,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF Kraken
 
 compile_linked_chunks! factLoopX64ProgCert x64Target x64Layout x64LegalTarget x64LabelClean
   (lcnfProgMod factLoopTfs) 1 (ext := rtC0CoreAllExt) (exits := rtExitSyms) (nX := 64)
-  (maxBound := 2048) (maxDirs := 600)
+  (maxBound := 2048) (maxDirs := 600) (flat := true)
 
 /-- Closed 88-function SysV x86-64 linked certificate (`rtC0CoreMod ++ factLoopProgMod`). -/
 noncomputable def factLoopX64Cert :

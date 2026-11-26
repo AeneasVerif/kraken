@@ -46,38 +46,40 @@ private theorem drop_take_drop {l : List Fn} {a b : Nat} :
 @[expose] noncomputable def rtC0CoreCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       rtC0CoreMod [] rtExitSyms 64 2048 :=
-  let mod12 : Module := { fns := rtC0CoreMod.fns.take 30, exits := rtExitSyms }
-  let mod34 : Module := { fns := (rtC0CoreMod.fns.drop 30).take 9, exits := rtExitSyms }
-  let mod14 : Module := { fns := rtC0CoreMod.fns.take 39, exits := rtExitSyms }
-  let mod56 : Module := { fns := (rtC0CoreMod.fns.drop 39).take 39, exits := rtExitSyms }
-  let mod57 : Module := { fns := rtC0CoreMod.fns.drop 39, exits := rtExitSyms }
+  let mod12 : Module := { fns := rtC0CoreFlatMod.fns.take 30, exits := rtExitSyms }
+  let mod34 : Module := { fns := (rtC0CoreFlatMod.fns.drop 30).take 9, exits := rtExitSyms }
+  let mod14 : Module := { fns := rtC0CoreFlatMod.fns.take 39, exits := rtExitSyms }
+  let mod56 : Module := { fns := (rtC0CoreFlatMod.fns.drop 39).take 39, exits := rtExitSyms }
+  let mod57 : Module := { fns := rtC0CoreFlatMod.fns.drop 39, exits := rtExitSyms }
   let cert12 : LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       mod12 [] rtExitSyms 64 2048 :=
     rtC0CertS1.append rtC0CertS2
-      (by exact List.take_add (l := rtC0CoreMod.fns) (i := 15) (j := 15))
+      (by exact List.take_add (l := rtC0CoreFlatMod.fns) (i := 15) (j := 15))
       (by t_kernel_rfl)
   let cert34 : LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       mod34 (rtC0ExtBefore 30) rtExitSyms 64 2048 :=
     rtC0CertS3.append rtC0CertS4
-      (by exact drop_take_add (l := rtC0CoreMod.fns) (a := 30) (b := 5) (c := 4))
+      (by exact drop_take_add (l := rtC0CoreFlatMod.fns) (a := 30) (b := 5) (c := 4))
       (by t_kernel_rfl)
   let cert14 : LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       mod14 [] rtExitSyms 64 2048 :=
     cert12.append cert34
-      (by exact List.take_add (l := rtC0CoreMod.fns) (i := 30) (j := 9))
+      (by exact List.take_add (l := rtC0CoreFlatMod.fns) (i := 30) (j := 9))
       (by t_kernel_rfl)
   let cert56 : LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       mod56 (rtC0ExtBefore 39) rtExitSyms 64 2048 :=
     rtC0CertS5.append rtC0CertS6
-      (by exact drop_take_add (l := rtC0CoreMod.fns) (a := 39) (b := 22) (c := 17))
+      (by exact drop_take_add (l := rtC0CoreFlatMod.fns) (a := 39) (b := 22) (c := 17))
       (by t_kernel_rfl)
   let cert57 : LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       mod57 (rtC0ExtBefore 39) rtExitSyms 64 2048 :=
     cert56.append rtC0CertS7
-      (by exact drop_take_drop (l := rtC0CoreMod.fns) (a := 39) (b := 39))
+      (by exact drop_take_drop (l := rtC0CoreFlatMod.fns) (a := 39) (b := 39))
       (by t_kernel_rfl)
   cert14.append cert57
-    (by exact (List.take_append_drop 39 rtC0CoreMod.fns).symm)
+    (by
+      exact rtC0CoreFlatMod_fns_eq.symm.trans
+        (List.take_append_drop 39 rtC0CoreFlatMod.fns).symm)
     (by t_kernel_rfl)
 
 /-! ## 2. Legalization, Stack-Bound, and Metadata Checks -/

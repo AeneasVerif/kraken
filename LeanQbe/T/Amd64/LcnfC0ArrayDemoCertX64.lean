@@ -3,8 +3,10 @@ module
 public import LeanQbe.T.Amd64.LcnfC0FullCertX64
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemoProof
+public import LeanQbe.T.MainCertFlat
 meta import Lean
 meta import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.MainCertFlatElab
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
 meta import LeanQbe.T.LeanLCNF.LcnfC0Full
@@ -38,6 +40,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF Kraken
 
 compile_linked_chunks! arrayDemoX64ProgCert x64Target x64Layout x64LegalTarget x64LabelClean
   arrayDemoProgMod 3 (ext := rtC0CoreAllExt) (exits := rtExitSyms) (nX := 64) (maxDirs := 600)
+  (flat := true)
 
 /-- Full `89`-function SysV x86-64 `LinkedCert` combining `rtC0CoreCert` (`86` fns) and
 `arrayDemoX64ProgCert` (`3` R2 container client fns, `maxBound = 2048`, `0` externs). -/

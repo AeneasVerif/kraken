@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Examples.Programs
 public import LeanQbe.T.Main
+public import LeanQbe.T.MainFlat
 public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.Spill
 
@@ -41,25 +42,39 @@ def runProgram (tool name : String)
       IO.eprintln s!"{tool}: {e}"
       pure 1
 
-/-- Materialize `fn.body` once into a concrete `TFlat` so downstream PHOAS passes,
-`Spill.hints`, `Fn.ext`, and `Rega.lowerFn` never re-evaluate nested closures. -/
+/-- Materialize `fn.body` once into a concrete `TFlat`-backed `Fn` (kept for compatibility with
+external bench drivers). -/
 def matFn (fn : Fn) : Fn :=
   let tf := reifyFunc fn.body
   ⟨fn.name, fn.as, fn.rs, denoteFunc tf⟩
 
-/-- Lower each function through the mid-end (`earlyOpt → legal → lateOpt`) once,
-materializing stage boundaries and sharing the result across `Spill.hints`, `Fn.ext`,
-and `Rega.lowerFn`. -/
+/-- Reify a PHOAS `Fn` once into a first-order `TFlatFn`. -/
+def toFlatFn (fn : Fn) : TFlatFn :=
+  ⟨fn.name, fn.as, fn.rs, reifyFunc fn.body⟩
+
+/-- Lower a single function through the first-order `TFlat` pipeline (`reifyFunc → earlyOptFlat →
+`midStageFlat → Spill.hints → TFlat.ext → Rega.lowerFlatFn`), sharing `midStageFlat` across
+`Spill.hints`, `TFlat.ext`, and `Rega.lowerFlatFn` (matching `LeanQbe.T.compileFlatFn`). -/
+def compileFnFlat (I : Isa) (lt : LegalTarget) (f : Fn) :
+    Except String (List I.Directive) :=
+  let ff := toFlatFn f
+  if !ff.wfCheck then .error s!"{f.name}: flat wfCheck failed"
+  else
+    let mf := midStageFlat lt (earlyOptFlat ff)
+    let h := Spill.hints I mf.toFn
+    match Rega.lowerFlatFn I h (TFlat.ext mf.body) mf with
+    | .ok c => .ok c
+    | .error e => .error s!"{f.name}: {e}"
+
+/-- Lower each function through the first-order `TFlat` pipeline (`reifyFunc → earlyOptFlat →
+`midStageFlat → Spill.hints → Rega.lowerFlatFn`), eliminating PHOAS runtime overhead. -/
 def compileFns (I : Isa) (lt : LegalTarget) :
     List Fn → Except String (List I.Directive)
   | [] => .ok []
   | f :: fs =>
-    let ef := matFn f.earlyOpt
-    let mf := Fn.midFromEarly lt ef
-    let h := Spill.hints I mf
-    match Rega.lowerFn I h mf.ext mf, compileFns I lt fs with
+    match compileFnFlat I lt f, compileFns I lt fs with
     | .ok c, .ok cs => .ok (c ++ cs)
-    | .error e, _ => .error s!"{f.name}: {e}"
+    | .error e, _ => .error e
     | _, .error e => .error e
 
 /-- Run the target-generic CLI: `--list`, `--il <program>`, or `<program>`. -/

@@ -34,6 +34,7 @@ public import LeanQbe.T.LeanLCNF.LcnfC0FfiProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0FfiProof2
 public import LeanQbe.T.LeanLCNF.LcnfC0FfiSpec
 public import LeanQbe.T.LeanLCNF.LcnfC0Full
+public import LeanQbe.T.LeanLCNF.LcnfC0FullFlat
 public import LeanQbe.T.LeanLCNF.LcnfC0FullProof
 public import LeanQbe.T.LeanLCNF.LcnfC0LinkKit
 public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemo
