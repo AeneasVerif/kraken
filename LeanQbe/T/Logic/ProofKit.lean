@@ -28,11 +28,16 @@ and `C0Agrees` without touching core pipeline modules:
      forms), bottom-up chained-subtraction resolution, `BitVec.isLt`/`UInt*.toNat` bounds,
      and `omega` closure (`std3` axioms only).
 2. **`KissatHdrBitMaskKit`, `PWordKit`, & `pword_mask`** (re-exported via `ProofKitMasks`).
-3. **`state_frame` / `state_frame!` tactics**:
+3. **`clearexcept` context-pruning tactic**:
+   Prunes distracting `Prop` hypotheses and unreferenced `let` declarations from the local
+   context, preserving only specified hypotheses (or goal-relevant hypotheses in auto-filter
+   mode) along with the transitive dependency closure of the goal target and kept terms,
+   enabling clean composition with `grind`, `omega`, `simp`, and custom solvers.
+4. **`state_frame` / `state_frame!` tactics**:
    Recursively decomposes conjunctions and `Prop`-valued `structure`s (such as nested
    `LengthsOk`, `Preserves*`, `AgreesExcept`), and closes preserved fields
    (`{ s with f := v }.g = s.g`, `List.length_set`, projected invariants) cleanly.
-4. **Structured loop & cursor combinators**:
+5. **Structured loop & cursor combinators**:
    * `wp_while_state_mem`, `wp_while_state_agrees`, `c0_while_state`
    * `ArrayCursorInv`, `ArrayMutCursorInv`
    * `wp_while_cursor64`, `wp_while_cursor32`, `wp_while_mut_cursor64`
@@ -1222,6 +1227,85 @@ elab_rules : tactic
   | `(tactic| c0_bv32_omega) => runBvOmegaCore true false none
   | `(tactic| c0_bv32_omega [*]) => runBvOmegaCore true true none
   | `(tactic| c0_bv32_omega [ $hs,* ]) => runBvOmegaCore true false (some hs.getElems)
+
+/-! ### `clearexcept` -/
+
+private meta partial def computeDependencyClosure (lctx : LocalContext)
+    (seedFVars : Std.HashSet FVarId) : Std.HashSet FVarId := Id.run do
+  let mut closure := seedFVars
+  let mut stack : Array FVarId := seedFVars.toArray
+  while !stack.isEmpty do
+    let some fid := stack.back? | break
+    stack := stack.pop
+    if let some decl := lctx.find? fid then
+      let fvarsInType := collectExprFVars decl.type {}
+      for f in fvarsInType do
+        if !closure.contains f then
+          closure := closure.insert f
+          stack := stack.push f
+      if decl.isLet then
+        let fvarsInVal := collectExprFVars decl.value {}
+        for f in fvarsInVal do
+          if !closure.contains f then
+            closure := closure.insert f
+            stack := stack.push f
+  return closure
+
+private meta def runClearExceptCore (explicitHyps : Option (Array (TSyntax `term))) :
+    TacticM Unit := do
+  if (← getGoals).isEmpty then return
+  let (g, tail) := match ← getGoals with | g :: gs => (g, gs) | [] => unreachable!
+  let gPruned ← g.withContext do
+    let mut cur := g
+    let mut keep : Std.HashSet FVarId := {}
+    let mut idx : Nat := 0
+    match explicitHyps with
+    | some hs =>
+        for stx in hs do
+          let (e, isFVar) ← cur.withContext do
+            let t ← Term.elabTerm stx none
+            Term.synthesizeSyntheticMVarsNoPostponing
+            let t ← instantiateMVars t
+            pure (t.consumeMData, t.consumeMData.isFVar)
+          if isFVar then
+            keep := keep.insert e.fvarId!
+          else
+            let ty ← cur.withContext do instantiateMVars (← inferType e)
+            cur ← cur.assert (Lean.Name.mkSimple s!"_clear_keep_{idx}") ty e
+            let (fid, cur') ← cur.intro1P
+            cur := cur'
+            keep := keep.insert fid
+            idx := idx + 1
+    | none =>
+        let relevant ← collectRelevantHyps g {} #[] false
+        for fid in relevant do
+          keep := keep.insert fid
+    cur.withContext do
+      let tgt ← instantiateMVars (← cur.getType)
+      let initialSeeds := collectExprFVars tgt keep
+      let closure := computeDependencyClosure (← getLCtx) initialSeeds
+      let mut toClear : Array FVarId := #[]
+      for decl in ← getLCtx do
+        if !decl.isImplementationDetail && !closure.contains decl.fvarId then
+          if (← isProp decl.type) || decl.isLet then
+            toClear := toClear.push decl.fvarId
+      cur.tryClearMany toClear
+  setGoals (gPruned :: tail)
+
+/-- Prune distracting `Prop` hypotheses and unreferenced `let` declarations from the local context,
+preserving only specified hypotheses (or goal-relevant hypotheses in auto-filter mode) along with
+the transitive dependency closure of the goal target and kept terms.
+
+Supports:
+- `clearexcept [t1, t2, ...]`: explicit keep-list of local hypothesis identifiers (`h1`) and
+  compound proof terms (`h.1`, `foo x`), asserting compound terms before clearing.
+- `clearexcept`: automatic filter preserving hypotheses connected to the goal target. -/
+syntax "clearexcept" : tactic
+syntax "clearexcept" " [" term,* "]" : tactic
+
+elab_rules : tactic
+  | `(tactic| clearexcept) => runClearExceptCore none
+  | `(tactic| clearexcept [ $hs,* ]) => runClearExceptCore (some hs.getElems)
 
 /-! ### `state_frame` and `state_frame!` -/
 
