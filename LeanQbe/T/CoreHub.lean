@@ -106,6 +106,7 @@ public import LeanQbe.T.Logic.CanonicalEnv
 public import LeanQbe.T.Logic.Cells
 public import LeanQbe.T.Logic.ControlComb
 public import LeanQbe.T.Logic.Mem
+public import LeanQbe.T.Logic.MemAlgebra
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbe.T.Logic.Ops
 public import LeanQbe.T.Logic.ProofKit
@@ -114,6 +115,7 @@ public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Logic.SepTree
 public import LeanQbe.T.Logic.SlabChain
 public import LeanQbe.T.Logic.SlabLayoutElab
+public import LeanQbe.T.Logic.U32
 public import LeanQbe.T.Logic.Vec
 public import LeanQbe.T.Logic.ZeroTerm
 public import LeanQbe.T.LoopRotate
