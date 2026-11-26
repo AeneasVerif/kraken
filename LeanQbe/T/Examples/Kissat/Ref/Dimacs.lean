@@ -12,7 +12,8 @@ public import LeanQbe.T.Examples.Kissat.Ref.Trail
 Pure Lean specification (`Std.Sat.CNF Nat`, zero `Kraken.Mem` or C0 imports):
 
 1. Exact pure specification of standard ASCII DIMACS CNF (`parseHeader`, `parseClause`,
-   `parseDimacs`), definitionally identical to `LeanQbe.T.Examples.LratBytes.parseDimacs`.
+   `parseDimacs`), extensionally identical to `LeanQbe.T.Examples.LratBytes.parseDimacs` /
+   `parseHeader` (zero `Kraken.*` imports; bridged via extensional equality or re-export).
 2. 1-based to 0-based CNF shift (`shiftDownClause`, `shiftDownCnf`, `CnfVarsPos`,
    `shiftDownCnf_unsat`), propositional entailment/resolution bridges (`entails_of_mem_or_false`,
    `entails_resolve_to`), and `List.Nodup` pigeonhole bounds.
