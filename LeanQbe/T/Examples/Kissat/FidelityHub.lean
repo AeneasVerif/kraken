@@ -178,6 +178,7 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleRowsProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleSpec
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivFlag
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivFlagProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivFlagProof0
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof0a

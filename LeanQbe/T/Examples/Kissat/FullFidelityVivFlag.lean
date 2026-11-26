@@ -127,6 +127,7 @@ u64 fid11_viv_collect_fid(FullHdr *h, u64 tier_mode) {
 }
 
 void fid11_viv_sort2_fid(FullHdr *h, u64 bn, u64 mode) {
+  if (bn <= 1ULL) { return; }
   u32 *rr = (u32 *)h->red_refs;
   u32 *ar = (u32 *)h->arena;
   u32 *cnt = (u32 *)h->tarjan_reach;
@@ -153,7 +154,11 @@ void fid11_viv_sort2_fid(FullHdr *h, u64 bn, u64 mode) {
     keys[(bi << 1) + 1ULL] = k1;
     bi = bi + 1ULL;
   }
-  u64 gap = bn >> 1;
+  u64 bn3 = bn / 3ULL;
+  u64 gap = 1ULL;
+  while (gap < bn3) {
+    gap = gap * 3ULL + 1ULL;
+  }
   while (gap > 0ULL) {
     u64 si = gap;
     while (si < bn) {
@@ -191,7 +196,7 @@ void fid11_viv_sort2_fid(FullHdr *h, u64 bn, u64 mode) {
       keys[sj << 1] = k0; keys[(sj << 1) + 1ULL] = k1;
       si = si + 1ULL;
     }
-    gap = gap >> 1;
+    gap = gap / 3ULL;
   }
 }
 
@@ -201,12 +206,31 @@ void fid11_viv_sort_fid(FullHdr *h, u64 bn) {
   u64 scap = h->scratch_cap;
   if (bn <= rcap / 3ULL) { full_viv_sort2_fid(h, bn, 1ULL); return; }
   if (bn <= (scap >> 1)) { full_viv_sort2_fid(h, bn, 2ULL); return; }
-  if (bn > (rcap >> 1)) { return; }
   u32 *rr = (u32 *)h->red_refs;
   u32 *ar = (u32 *)h->arena;
+  if (bn > (rcap >> 1) && bn > scap) {
+    u64 lo = 0ULL;
+    u64 hi = bn - 1ULL;
+    while (lo < hi) {
+      u32 lcr = rr[lo];
+      if ((ar[lcr] & PH_VIV) != 0u) {
+        lo = lo + 1ULL;
+      } else {
+        u32 hcr = rr[hi];
+        if ((ar[hcr] & PH_VIV) == 0u) {
+          hi = hi - 1ULL;
+        } else {
+          rr[lo] = hcr; rr[hi] = lcr;
+          lo = lo + 1ULL;
+          hi = hi - 1ULL;
+        }
+      }
+    }
+    return;
+  }
   u32 *cnt = (u32 *)h->tarjan_reach;
   u64 nlits = h->cur_vars << 1;
-  u32 *keys1 = rr + bn;
+  u32 *keys1 = (bn <= (rcap >> 1)) ? (rr + bn) : ((u32 *)h->scratch_buf);
   u64 bi = 0ULL;
   while (bi < bn) {
     u32 cr = rr[bi];
@@ -222,7 +246,11 @@ void fid11_viv_sort_fid(FullHdr *h, u64 bn) {
     keys1[bi] = k0;
     bi = bi + 1ULL;
   }
-  u64 gap = bn >> 1;
+  u64 bn3 = bn / 3ULL;
+  u64 gap = 1ULL;
+  while (gap < bn3) {
+    gap = gap * 3ULL + 1ULL;
+  }
   while (gap > 0ULL) {
     u64 si = gap;
     while (si < bn) {
@@ -246,7 +274,7 @@ void fid11_viv_sort_fid(FullHdr *h, u64 bn) {
       rr[sj] = cr; keys1[sj] = k0;
       si = si + 1ULL;
     }
-    gap = gap >> 1;
+    gap = gap / 3ULL;
   }
 }
 
