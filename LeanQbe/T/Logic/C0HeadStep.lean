@@ -478,6 +478,21 @@ theorem head_wp_ret {args : Tup (Arg Val) rs} {vs : Tup Val rs}
 theorem head_wp_exit {as : List Ty} {f : Sym} {args : Tup (Arg Val) as} {vs : Tup Val as}
     (hvs : vals args = vs) (h : X f as vs m) : W (.exit f args) := by subst hvs; exact h
 
+theorem head_wp_call {as bs : List Ty} {f : Sym} {args : Tup (Arg Val) as} {vs : Tup Val as}
+    {k : Tup Val bs → Expr Val Cont rs}
+    (hvs : vals args = vs) (h : Γ f as bs vs m (fun r m' => wp Γ Q X (k r) m') X) :
+    W (.call f args k) := by
+  subst hvs; exact wp_call_of_spec args k h
+
+theorem head_wp_call_ret {as bs : List Ty} {f : Sym} {args : Tup (Arg Val) as}
+    {vs : Tup Val as} {retK : Tup Val bs → Tup (Arg Val) rs} {outPost : Post bs}
+    (hvs : vals args = vs) (hks : (fun r m' => Q (vals (retK r)) m') = outPost)
+    (h : Γ f as bs vs m outPost X) :
+    W (.call f args fun r => .ret (retK r)) := by
+  subst hvs; subst hks
+  refine wp_call_of_spec _ _ ?_
+  simp only [wp_ret]; exact h
+
 end HeadLemmas
 
 /-! ## 2. Shallow `O(1)` Head Normalization & Operand Reduction -/
@@ -560,7 +575,7 @@ meta partial def reduceSmall (e : Lean.Expr) : Lean.Expr :=
 /-- Peel `Blocks.get (Blocks.cons b bs) .here/.there xs` and head beta-redexes in `O(1)`
 without mutating the goal or walking continuations. -/
 meta partial def peelBlocksGet (e : Lean.Expr) : Lean.Expr :=
-  let e := e.consumeMData.headBeta
+  let e := e.consumeMData.headBeta.consumeMData
   if e.isAppOfArity ``LeanQbe.T.Blocks.get 8 then
     let bs := (e.getArg! 5).consumeMData.headBeta
     let idx := (e.getArg! 6).consumeMData.headBeta
@@ -611,6 +626,7 @@ meta partial def reduceHeadExpr (e : Lean.Expr) : Lean.Expr :=
   | some ``LeanQbe.T.Expr.jnz => if args.size == 6 then updArg 3 else e
   | some ``LeanQbe.T.Expr.jump | some ``LeanQbe.T.Expr.exit =>
     if args.size == 6 then updArg 5 else e
+  | some ``LeanQbe.T.Expr.call => if args.size == 8 then updArg 6 else e
   | some ``LeanQbe.T.Expr.ret => if args.size == 4 then updArg 3 else e
   | _ => e
 
@@ -636,7 +652,7 @@ ONCE right before returning control to the user (never called during straight-li
 private meta def normStoppedGoal (g : MVarId) : TacticM MVarId :=
   g.withContext do
     let ty0 ← instantiateMVars (← g.getType)
-    let ty := ty0.consumeMData.headBeta
+    let ty := ty0.consumeMData.headBeta.consumeMData
     if ty.isAppOfArity ``LeanQbe.T.wp 6 then
       let e := ty.getArg! 4
       let e' ← whnfHeadExpr e
@@ -1016,6 +1032,9 @@ private meta def stepLetHead (g : MVarId) (wpArgs : Array Lean.Expr) (op k : Lea
 
 /-! ## 4. Two-Level `(footprintHead, AddrKey)` Memory Solver (`O(1)` Dispatch) -/
 
+-- Note: parallels `C0Step.lean`'s memory solver helpers (`sepClauses`/`footprints`/`memSolveRes`);
+-- `C0Step.lean` stays untouched until Wave-3 `P1-10` (2,026 transitive dependents).
+
 private meta partial def sepClauses (e : Lean.Expr) : List Lean.Expr :=
   let e := e.consumeMData
   if e.isAppOf ``Std.ExtHashMap.sep && e.getAppNumArgs ≥ 2 then
@@ -1050,13 +1069,13 @@ private meta def closeFrameFast (g : MVarId) : TacticM Bool := do
   try withReducible g.assumption; return true
   catch _ => s.restore; withReducible (closeWith g (← `(tactic| c0_frame)))
 
-private meta def closeBoundFast (g : MVarId) : TacticM Bool := do
+private meta def closeBoundFast (g : MVarId) (useBound : Bool := true) : TacticM Bool := do
   if ← g.isAssigned then return true
   let s ← saveState
   try g.assumption; return true catch _ => s.restore
   let s2 ← saveState
   try g.refl; return true catch _ => s2.restore
-  closeWith g (← `(tactic| c0_bound))
+  if useBound then closeWith g (← `(tactic| c0_bound)) else return false
 
 private meta def ppGoalType (g : MVarId) : TacticM String :=
   g.withContext do return (← Meta.ppExpr (← instantiateMVars (← g.getType))).pretty
@@ -1065,20 +1084,25 @@ private meta inductive MemTryRes where
   | ok | applyFailed | frameFailed (msg : String) | sideFailed (msg : String)
   | unassigned (msg : String)
 
-private meta def tryHeadMemLemma (g : MVarId) (nm : Name) : TacticM MemTryRes := do
+private meta def tryHeadMemLemma (g : MVarId) (nm : Name) (useBound : Bool := true) :
+    TacticM MemTryRes := do
   let s ← saveState
   let gs ← try withReducible <| g.apply (← mkConstWithFreshMVarLevels nm)
     catch _ => s.restore; return .applyFailed
   for g' in gs do
-    let ty ← instantiateMVars (← g'.getType)
+    let rawTy ← instantiateMVars (← g'.getType)
+    let ty := rawTy.consumeMData
     if ty.isAppOf ``Std.ExtHashMap.sep then
-      unless ← closeFrameFast g' do
-        let msg ← ppGoalType g'; s.restore; return .frameFailed msg
+      let g'' ← if rawTy.isMData then g'.change ty (checkDefEq := false) else pure g'
+      unless ← closeFrameFast g'' do
+        let msg ← ppGoalType g''; s.restore; return .frameFailed msg
   for g' in gs do
     if ← g'.isAssigned then continue
-    if ← isProp (← g'.getType) then
-      unless ← closeBoundFast g' do
-        let msg ← ppGoalType g'; s.restore; return .sideFailed msg
+    let rawTy ← instantiateMVars (← g'.getType)
+    let g'' ← if rawTy.isMData then g'.change rawTy.consumeMData (checkDefEq := false) else pure g'
+    if ← isProp (← g''.getType) then
+      unless ← closeBoundFast g'' useBound do
+        let msg ← ppGoalType g''; s.restore; return .sideFailed msg
   for g' in gs do
     unless ← g'.isAssigned do
       let msg ← ppGoalType g'; s.restore; return .unassigned msg
@@ -1107,8 +1131,8 @@ private meta def formatHeadMemDiag (isLoad : Bool) (goalStr : String) (keys unta
 `storeOk m t addr ∧ (?P ⋆ ?R) (storeMem m t addr val)` goal using two-level
 `(footprintHead, AddrKey)` dispatch (`O(1)` on normal loads/stores), with a full-footprint
 fallback on miss for reducible/`let`-bound address aliases. -/
-meta def headMemSolveRes (isLoad : Bool) (g : MVarId) (addr : Lean.Expr) :
-    TacticM (Except String Unit) := do
+meta def headMemSolveRes (isLoad : Bool) (g : MVarId) (addr : Lean.Expr)
+    (useBound : Bool := true) : TacticM (Except String Unit) := do
   setGoals [g]
   let keys ← footprints
   let env ← getEnv
@@ -1121,7 +1145,7 @@ meta def headMemSolveRes (isLoad : Bool) (g : MVarId) (addr : Lean.Expr) :
     for nm in lems do
       if tr.contains nm then continue
       tr := tr.insert nm; c := c + 1
-      match ← tryHeadMemLemma g nm with
+      match ← tryHeadMemLemma g nm useBound with
       | .ok => return (true, tr, c, nmArr)
       | .applyFailed => pure ()
       | .frameFailed s => nmArr := nmArr.push s!"  - `{nm}`: frame failed: {s}"
@@ -1145,20 +1169,22 @@ meta def headMemSolveRes (isLoad : Bool) (g : MVarId) (addr : Lean.Expr) :
   return .error (formatHeadMemDiag isLoad (← ppGoalType g) keys untagged triedCount nearMisses)
 
 /-- Throwing variant of `headMemSolveRes`. -/
-meta def headMemSolve (isLoad : Bool) (g : MVarId) (addr : Lean.Expr) : TacticM Unit := do
-  match ← headMemSolveRes isLoad g addr with
+meta def headMemSolve (isLoad : Bool) (g : MVarId) (addr : Lean.Expr)
+    (useBound : Bool := true) : TacticM Unit := do
+  match ← headMemSolveRes isLoad g addr useBound with
   | .ok () => pure ()
   | .error msg => throwError msg
 
 /-! ## 5. Configurable `O(1)` Head-Only Stepper (`HeadStepConfig`) -/
 
-/-- Configuration controlling `Expr.group` unrolling, `Expr.jnz` splitting/pruning, and strict
-memory diagnostics. -/
+/-- Configuration controlling `Expr.group` unrolling, `Expr.jnz` splitting/pruning, strict
+memory diagnostics, and whether memory side-goal solving falls back to `c0_bound`. -/
 meta structure HeadStepConfig where
   unrollGroup : Bool := true
   splitJnz : Bool := true
   pruneJnz : Bool := true
   strictMem : Bool := false
+  useBound : Bool := true
 
 /-- Result of a single head-stepper attempt. -/
 meta inductive HeadStepRes where
@@ -1190,7 +1216,7 @@ private meta def findJoinHyp (jId : FVarId) : TacticM (Option Lean.Expr) := with
 meta def headStepOnceRes (cfg : HeadStepConfig := {}) : TacticM HeadStepRes := withMainContext do
   let g ← getMainGoal
   let ty0 ← instantiateMVars (← g.getType)
-  let ty := ty0.consumeMData.headBeta
+  let ty := ty0.consumeMData.headBeta.consumeMData
   -- 1. Strip `a ≤ b ∧ P` goals automatically
   if ty.isAppOfArity ``And 2 then
     let lhs := (ty.getArg! 0).consumeMData.headBeta
@@ -1231,7 +1257,7 @@ meta def headStepOnceRes (cfg : HeadStepConfig := {}) : TacticM HeadStepRes := w
       let vMVar ← mkFreshExprMVar (some (mkValTy t))
       let (hl, hk) ← assignHead2 g ``head_wp_load
         #[Γ, rs, Q, X, m, t, a, addr, k, vMVar, mkRefl0 (mkBvTy (mkNatLit 64)) addr]
-      match ← headMemSolveRes true hl addr with
+      match ← headMemSolveRes true hl addr cfg.useBound with
       | .ok () => setGoals [hk]; return .progressed
       | .error msg => s.restore; return .memFailed msg
     | some ``LeanQbe.T.Expr.store =>
@@ -1247,7 +1273,7 @@ meta def headStepOnceRes (cfg : HeadStepConfig := {}) : TacticM HeadStepRes := w
       let (hs, hk) ← assignHead2 g ``head_wp_store
         #[Γ, rs, Q, X, m, t, v, a, val, addr, k, pMVar, rMVar,
           mkRefl0 (mkValTy t) val, mkRefl0 (mkBvTy (mkNatLit 64)) addr]
-      match ← headMemSolveRes false hs addr with
+      match ← headMemSolveRes false hs addr cfg.useBound with
       | .ok () =>
         let (_, hk') ← hk.intro `m
         let (hMemId, hk'') ← hk'.intro `hm
@@ -1367,17 +1393,25 @@ meta def headSteps (cfg : HeadStepConfig := {}) (fuel : Nat := 10000) : TacticM 
   if !progressed then
     if let some msg := err? then throwError msg
 
-/-! ## 6. Public Tactics (`c0_hstep`, `c0_hsteps`, `c0_hsteps!`, `c0_hsteps_nogrp`, `c0_hsplit`,
-`c0_hfast`, `c0_split`, `c0_to_group`) -/
+/-! ## 6. Public Tactics (`c0_hstep`, `c0_hstep_np`, `c0_hsteps`, `c0_hsteps!`, `c0_hsteps_nogrp`,
+`c0_hsplit`, `c0_hfast`, `c0_hfast_nogrp`, `c0_*_nobound`, `c0_call`, `c0_step`, `c0_steps`,
+`c0_split`, `c0_to_group`) -/
 
-/-- Unwrap outer `MData` from `g`'s target with zero `isDefEq` overhead, returning the
-potentially refreshed goal and consumed type. -/
-private meta def unwrapGoalMData (g : MVarId) : TacticM (MVarId × Lean.Expr) := do
-  let rawTy ← instantiateMVars (← g.getType)
-  let ty := rawTy.consumeMData
-  if rawTy.isMData then
-    return (← g.change ty (checkDefEq := false), ty)
-  return (g, ty)
+/-- Unwrap outer `MData`/head-beta and any `MData`/head-beta on the `Expr` argument of
+`LeanQbe.T.wp` with zero `isDefEq` overhead, returning the refreshed goal and consumed type. -/
+private meta def unwrapGoalMData (g : MVarId) : TacticM (MVarId × Lean.Expr) :=
+  g.withContext do
+    let ty0 ← instantiateMVars (← g.getType)
+    let ty1 := ty0.consumeMData.headBeta.consumeMData
+    let ty2 :=
+      if ty1.isAppOfArity ``LeanQbe.T.wp 6 then
+        let e := ty1.getArg! 4
+        let e' := e.consumeMData.headBeta.consumeMData
+        if e' != e then Lean.mkAppN ty1.getAppFn (ty1.getAppArgs.set! 4 e') else ty1
+      else ty1
+    if ty2 != ty0 then
+      return (← g.change ty2 (checkDefEq := false), ty2)
+    return (g, ty2)
 
 /-- Check if `ty` (with outer `MData` stripped) is `LeanQbe.T.wp` on head expr `headName`. -/
 private meta def isWpHeadExpr (ty : Lean.Expr) (headName : Name) : Bool :=
@@ -1385,9 +1419,18 @@ private meta def isWpHeadExpr (ty : Lean.Expr) (headName : Name) : Bool :=
   ty.isAppOf ``LeanQbe.T.wp && ty.getAppNumArgs == 6 &&
     ((ty.getArg! 4).consumeMData.headBeta.consumeMData).isAppOf headName
 
+private meta def runHeadSplit (useBound : Bool := true) : TacticM Unit :=
+  focus do
+    let _ ← headStepsLoop { unrollGroup := false, splitJnz := false, useBound } 2000
+    let _ ← headStepOnce { unrollGroup := false, splitJnz := true, pruneJnz := false, useBound }
+
 /-- Single `O(1)` head-only C0 symbolic-execution step. -/
 elab "c0_hstep" : tactic => do
   unless ← headStepOnce {} do throwError "c0_hstep: no step applies"
+
+/-- Single `O(1)` head-only C0 symbolic-execution step without `bv_c0` branch pruning. -/
+elab "c0_hstep_np" : tactic => do
+  unless ← headStepOnce { pruneJnz := false } do throwError "c0_hstep_np: no step applies"
 
 /-- Full `O(1)` head-only C0 symbolic executor (straight-line, joins, `jnz` with pruning). -/
 elab "c0_hsteps" : tactic => headSteps {} 10000
@@ -1400,15 +1443,139 @@ elab "c0_hsteps!" : tactic => headSteps { strictMem := true } 10000
 pruning on `jnz` conditions). -/
 elab "c0_hfast" : tactic => headSteps { pruneJnz := false } 10000
 
+/-- Alias for `c0_hfast` (`{ pruneJnz := false }`). -/
+elab "c0_hsteps_np" : tactic => headSteps { pruneJnz := false } 10000
+
 /-- `O(1)` head-only C0 symbolic executor stopping before `Expr.group` (replaces `*_to_group`). -/
 elab "c0_hsteps_nogrp" : tactic => headSteps { unrollGroup := false } 10000
 
+/-- Fast `O(1)` head-only C0 symbolic executor stopping before `Expr.group`, skipping `bv_c0`
+branch pruning (`{ unrollGroup := false, pruneJnz := false }`). -/
+elab "c0_hfast_nogrp" : tactic => headSteps { unrollGroup := false, pruneJnz := false } 10000
+
 /-- `O(1)` head-only C0 symbolic executor stopping before `Expr.jnz`, then splitting ONE `jnz`
 without running `c0_bound` on live branches (replaces `fc_split` / `fc_split_fast` / `sw_split`). -/
-elab "c0_hsplit" : tactic => do
-  focus do
-    let _ ← headStepsLoop { unrollGroup := false, splitJnz := false } 2000
-    let _ ← headStepOnce { unrollGroup := false, splitJnz := true, pruneJnz := false }
+elab "c0_hsplit" : tactic => runHeadSplit true
+
+/-- Single `O(1)` head step with `useBound := false` and `pruneJnz := false`. -/
+elab "c0_hstep_nobound" : tactic => do
+  unless ← headStepOnce { pruneJnz := false, useBound := false } do
+    throwError "c0_hstep_nobound: no step applies"
+
+/-- Full `O(1)` head-only executor with `useBound := false` (skips `c0_bound` fallback on memory
+side goals). -/
+elab "c0_hsteps_nobound" : tactic => headSteps { useBound := false } 10000
+
+/-- `c0_hsteps_nogrp` with `useBound := false`. -/
+elab "c0_hsteps_nogrp_nobound" : tactic =>
+  headSteps { unrollGroup := false, useBound := false } 10000
+
+/-- `c0_hfast` with `useBound := false`. -/
+elab "c0_hfast_nobound" : tactic =>
+  headSteps { pruneJnz := false, useBound := false } 10000
+
+/-- `c0_hfast_nogrp` with `useBound := false`. -/
+elab "c0_hfast_nogrp_nobound" : tactic =>
+  headSteps { unrollGroup := false, pruneJnz := false, useBound := false } 10000
+
+/-- `c0_hsplit` with `useBound := false`. -/
+elab "c0_hsplit_nobound" : tactic => runHeadSplit false
+
+/-- Single `O(1)` head step for `Expr.call f args k`: emits `head_wp_call_ret` when `k` is a
+direct tail `Expr.ret` (simplifying `vals` cleanly for forwarding wrappers), else `head_wp_call`. -/
+private meta def stepCallHead : TacticM Bool := withMainContext do
+  let g ← normStoppedGoal (← getMainGoal)
+  replaceMainGoal [g]
+  let ty := (← instantiateMVars (← g.getType)).consumeMData.headBeta.consumeMData
+  unless ty.isAppOfArity ``LeanQbe.T.wp 6 do return false
+  let wpArgs := ty.getAppArgs
+  let Γ := wpArgs[0]!; let rs := wpArgs[1]!; let Q := wpArgs[2]!
+  let X := wpArgs[3]!; let m := wpArgs[5]!
+  let e ← whnfHeadExpr wpArgs[4]!
+  unless e.isAppOfArity ``LeanQbe.T.Expr.call 8 do return false
+  let f := e.getArg! 3; let as := e.getArg! 4; let bs := e.getArg! 5
+  let args := e.getArg! 6; let k := e.getArg! 7
+  let vs := reduceSmall (Lean.mkApp2 (Lean.mkConst ``LeanQbe.T.vals) as args)
+  let asTupTy := Lean.mkApp3 (Lean.mkConst ``LeanQbe.T.Tup)
+    (Lean.mkConst ``LeanQbe.T.Ty) (Lean.mkConst ``LeanQbe.T.Val) as
+  let hvs := mkRefl0 asTupTy vs
+  let k0 := k.consumeMData.headBeta.consumeMData
+  if let .lam rName _ kBody rBi := k0 then
+    let kBody' := kBody.consumeMData
+    if kBody'.isAppOfArity ``LeanQbe.T.Expr.ret 4 then
+      let retArgsRaw := kBody'.getArg! 3
+      let bsTupTy := Lean.mkApp3 (Lean.mkConst ``LeanQbe.T.Tup)
+        (Lean.mkConst ``LeanQbe.T.Ty) (Lean.mkConst ``LeanQbe.T.Val) bs
+      let retK := Lean.Expr.lam rName bsTupTy retArgsRaw rBi
+      let mTy ← inferType m
+      let postTy := Lean.mkApp (Lean.mkConst ``LeanQbe.T.Post) bs
+      let (outPost, lhsPost) ← withLocalDecl rName rBi bsTupTy fun rFVar =>
+        withLocalDeclD `m' mTy fun mFVar => do
+          let retVals := Lean.mkApp2 (Lean.mkConst ``LeanQbe.T.vals) rs
+            (retArgsRaw.instantiate1 rFVar)
+          let outP ← mkLambdaFVars #[rFVar, mFVar] (Lean.mkApp2 Q (reduceSmall retVals) mFVar)
+          let lhsP ← mkLambdaFVars #[rFVar, mFVar] (Lean.mkApp2 Q retVals mFVar)
+          return (outP, lhsP)
+      if ← isDefEq lhsPost outPost then
+        let hk ← assignHead1 g ``head_wp_call_ret
+          #[Γ, rs, Q, X, m, as, bs, f, args, vs, retK, outPost, hvs, mkRefl0 postTy outPost]
+        setGoals [hk]
+        return true
+  let hk ← assignHead1 g ``head_wp_call #[Γ, rs, Q, X, m, as, bs, f, args, vs, k, hvs]
+  setGoals [hk]
+  return true
+
+/-- Discharge an `Expr.call` site in `O(1)` using caller hypothesis `h` (`∀ a m Q X, spec → Γ …`,
+`Env.Has`, `Env.Sat.has`, etc.), without running `c0_let_simp` over arbitrary continuations. -/
+elab "c0_call" h:term : tactic => do
+  unless ← stepCallHead do
+    throwError "c0_call: goal is not a `wp … (.call …)` call site"
+  evalTactic (← `(tactic| apply $h))
+
+private meta def stepOnceClean : TacticM Bool := do
+  let g0 ← getMainGoal
+  let (g, _) ← unwrapGoalMData g0
+  if g != g0 then replaceMainGoal [g]
+  let ok ← LeanQbe.T.C0Step.stepOnce
+  if ok then
+    setGoals (← (← getUnsolvedGoals).mapM fun g' => Prod.fst <$> unwrapGoalMData g')
+  return ok
+
+private meta partial def c0StepsLoop (strictMem : Bool) (fuel : Nat) :
+    TacticM (Bool × Option String) := do
+  if fuel = 0 then return (false, none)
+  let gs ← getUnsolvedGoals
+  let mut out : Array MVarId := #[]
+  let mut anyProgressed := false
+  let mut firstMemErr : Option String := none
+  for g in gs do
+    if ← g.isAssigned then continue
+    let (g, _) ← unwrapGoalMData g
+    setGoals [g]
+    let sStep ← saveState
+    try
+      if ← LeanQbe.T.C0Step.stepOnce then
+        anyProgressed := true
+        setGoals (← (← getUnsolvedGoals).mapM fun g' => Prod.fst <$> unwrapGoalMData g')
+        let (_, subErr) ← c0StepsLoop strictMem (fuel - 1)
+        if firstMemErr.isNone then firstMemErr := subErr
+        out := out ++ (← getUnsolvedGoals)
+      else
+        out := out.push g
+    catch e =>
+      sStep.restore
+      let msg ← e.toMessageData.toString
+      trace[c0_step] "{msg}"
+      if strictMem then throw e
+      if firstMemErr.isNone then firstMemErr := some msg
+      out := out.push g
+  setGoals out.toList
+  return (anyProgressed, firstMemErr)
+
+private meta def c0StepsClean (fuel : Nat) (strictMem : Bool := false) : TacticM Unit := do
+  let (progressed, err?) ← c0StepsLoop strictMem fuel
+  if !progressed then
+    if let some msg := err? then throwError msg
 
 private meta partial def c0SplitLoop (fuel : Nat) : TacticM Unit := do
   if fuel = 0 then return
@@ -1416,12 +1583,14 @@ private meta partial def c0SplitLoop (fuel : Nat) : TacticM Unit := do
   let (g, ty) ← unwrapGoalMData g0
   if g != g0 then replaceMainGoal [g]
   if isWpHeadExpr ty ``LeanQbe.T.Expr.jnz then
-    let _ ← LeanQbe.T.C0Step.stepOnce
+    let _ ← stepOnceClean
     return
-  if ← LeanQbe.T.C0Step.stepOnce then c0SplitLoop (fuel - 1)
+  if ← stepOnceClean then c0SplitLoop (fuel - 1)
 
 private meta partial def c0ToGroupLoop (fuel : Nat) : TacticM Unit := do
-  if fuel = 0 then return
+  if fuel = 0 then
+    setGoals (← (← getUnsolvedGoals).mapM fun g' => Prod.fst <$> unwrapGoalMData g')
+    return
   let mut out : Array MVarId := #[]
   for g in ← getUnsolvedGoals do
     if ← g.isAssigned then continue
@@ -1429,11 +1598,21 @@ private meta partial def c0ToGroupLoop (fuel : Nat) : TacticM Unit := do
     setGoals [g]
     if isWpHeadExpr ty ``LeanQbe.T.Expr.group then
       out := out.push g
-    else if ← LeanQbe.T.C0Step.stepOnce then
+    else if ← stepOnceClean then
       c0ToGroupLoop (fuel - 1)
       out := out ++ (← getUnsolvedGoals)
     else out := out.push g
   setGoals out.toList
+
+/-- Single `C0Step.stepOnce` step with outer and inner `Expr`-argument `MData` stripping. -/
+elab "c0_step" : tactic => do
+  unless ← stepOnceClean do throwError "c0_step: no step applies"
+
+/-- Full `C0Step.steps` executor with `MData` stripping across goals and `Expr` heads. -/
+elab "c0_steps" : tactic => c0StepsClean 10000
+
+/-- Strict `C0Step.steps` executor with `MData` stripping. -/
+elab "c0_steps!" : tactic => c0StepsClean 10000 (strictMem := true)
 
 /-- Step straight-line ops on the main goal via `C0Step.stepOnce` (unwrapping `MData`) until the
 next `Expr.jnz`, then split it once. -/
