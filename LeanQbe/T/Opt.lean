@@ -16,6 +16,7 @@ public import LeanQbe.T.Licm
 public import LeanQbe.T.AddrRangeOpt
 public import LeanQbe.T.LoopRotate
 public import LeanQbe.T.CondThreadOpt
+public import LeanQbe.T.TailDup
 public import LeanQbe.T.ZeroPeel
 public import LeanQbe.T.AssumeBits
 public import LeanQbe.T.Inline
@@ -33,13 +34,11 @@ public import LeanQbe.T.Module
 * `Func.lateOpt`: post-`Legal` pipeline (`fold → canon → divConst → copy → renorm → memLoad →
   gvn → assumeBits → fold → renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
   assumeElim → fold → addrRangeOpt → gvn → renorm → licm → dceP → loopRotate → renorm →
-  condThreadLateOpt → fold → dceP → mergeRets → renorm`), running target-safe scalar division
-  reduction, memory load forwarding, known-bits simplification, machine-width if-conversion,
-  loop-aware address reassociation and range-check collapse, loop-invariant code motion, CFG loop
-  rotation, conditional branch threading, epilogue merging, and cleanup before `Rega`.
-  reduction, memory load forwarding, known-bits simplification, machine-width if-conversion,
-  loop-aware address reassociation and range-check collapse, loop-invariant code motion, CFG loop
-  rotation, conditional branch threading, and cleanup on legalized IR.
+  condThreadLateOpt → fold → dceP → tailDup → mergeRets → renorm`), running target-safe scalar
+  division reduction, memory load forwarding, known-bits simplification, machine-width
+  if-conversion, loop-aware address reassociation and range-check collapse, loop-invariant code
+  motion, CFG loop rotation, conditional branch threading, tail duplication, epilogue merging, and
+  cleanup before `Rega`.
 * `Fn.renorm` / `Module.optInline`: acyclic small-callee inlining followed by materialized
   AST renormalization.
 
@@ -233,10 +232,10 @@ def Func.lateCfgPost {as rs : List Ty} (f : Func as rs) : Func as rs :=
 def Func.lateLoopRotate {as rs : List Ty} (f : Func as rs) : Func as rs :=
   Func.loopRotate (Func.lateCfgPost f)
 
-/-- Post-`Legal` branch-threading, cleanup, and shared-epilogue merge tail
-(`condThreadLateOpt → fold → dceP → mergeRets`). -/
+/-- Post-`Legal` branch-threading, cleanup, tail-duplication, and shared-epilogue merge tail
+(`condThreadLateOpt → fold → dceP → tailDup → mergeRets`). -/
 def Func.lateCondThread {as rs : List Ty} (f : Func as rs) : Func as rs :=
-  Func.mergeRets (Func.dceP (Func.fold (Func.condThreadLateOpt f)))
+  Func.mergeRets (Func.tailDup (Func.dceP (Func.fold (Func.condThreadLateOpt f))))
 
 /-- Post-`Legal` CFG/cleanup core (`renorm → ifOptBits → simplifyGroupFast → deadLoadElim →
 assumeElim → fold → addrRangeOpt → gvn → renorm → licm → dceP`). -/
@@ -259,13 +258,15 @@ structure OptStageBody (as rs : List Ty) where
   let s4 := renormOptStage (Func.lateLoopRotate s3.body)
   let s5 := renormOptStage (Func.condThreadLateOpt s4.body)
   let s6 := renormOptStage (Func.dceP (Func.fold s5.body))
-  renormOptStage (Func.mergeRets s6.body)
+  let s7 := renormOptStage (Func.tailDup s6.body)
+  renormOptStage (Func.mergeRets s7.body)
 
 /-- Post-`Legal` mid-end (`lateOpt`): strength-reduce constant division, forward memory loads,
 run machine-width `.bits` if-conversion (`ifOptBits`), clean up dead loads/blocks, reassociate
 addresses and collapse range checks (`addrRangeOpt`), hoist loop-invariant pure operations
-(`licm`), rotate header-tested loops (`loopRotate`), merge duplicate epilogues (`mergeRets`),
-thread constant/known branches (`condThreadLateOpt`), and clean up before `Rega`. -/
+(`licm`), rotate header-tested loops (`loopRotate`), thread constant/known branches
+(`condThreadLateOpt`), duplicate small join/tail blocks (`tailDup`), merge duplicate epilogues
+(`mergeRets`), and clean up before `Rega`. -/
 def Func.lateOpt {as rs : List Ty} (f : Func as rs) : Func as rs :=
   (lateOptStage f).body
 
@@ -335,7 +336,8 @@ theorem Func.lateLoopRotate_eq {as rs : List Ty} (f : Func as rs) :
   rfl
 
 theorem Func.lateCondThread_eq {as rs : List Ty} (f : Func as rs) :
-    Func.lateCondThread f = Func.mergeRets (Func.dceP (Func.fold (Func.condThreadLateOpt f))) :=
+    Func.lateCondThread f =
+      Func.mergeRets (Func.tailDup (Func.dceP (Func.fold (Func.condThreadLateOpt f)))) :=
   rfl
 
 theorem Func.lateCfg_def {as rs : List Ty} (f : Func as rs) :
@@ -350,10 +352,10 @@ theorem Func.lateCfg_eq {as rs : List Ty} (f : Func as rs) :
 
 theorem Func.lateOpt_eq {as rs : List Ty} (f : Func as rs) :
     Func.lateOpt f =
-      Func.renorm (Func.mergeRets (Func.renorm (Func.dceP (Func.fold (Func.renorm
-        (Func.condThreadLateOpt (Func.renorm (Func.lateLoopRotate (Func.renorm
+      Func.renorm (Func.mergeRets (Func.renorm (Func.tailDup (Func.renorm (Func.dceP (Func.fold
+        (Func.renorm (Func.condThreadLateOpt (Func.renorm (Func.lateLoopRotate (Func.renorm
           (Func.lateCfgPost (Func.renorm (Func.lateCfgPre (Func.renorm
-            (Func.lateCorePost (Func.renorm (Func.lateCorePre f)))))))))))))))) := by
+            (Func.lateCorePost (Func.renorm (Func.lateCorePre f)))))))))))))))))) := by
   dsimp only [Func.lateOpt, lateOptStage, renormOptStage, Func.renorm]
 
 attribute [irreducible] Func.mergeRets Func.simplifyGroupFast Func.peelFast

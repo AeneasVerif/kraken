@@ -119,9 +119,9 @@ meta def noJoinGuard : Spill.Cfg := { joinGuard := false }
 meta def noCacheHint : Spill.Cfg := { cacheHint := false }
 meta def noRegEntry : Spill.Cfg := { regEntry := false }
 meta def noArmEvict : Spill.Cfg := { armEvict := false }
-meta def withArmX : Spill.Cfg := { armX := true }
+meta def noArmX : Spill.Cfg := { armX := false }
 meta def allCfgs : List Spill.Cfg :=
-  [{}, .legacy, noSink, noJoinGuard, noCacheHint, noRegEntry, noArmEvict, withArmX]
+  [{}, .legacy, noSink, noJoinGuard, noCacheHint, noRegEntry, noArmEvict, noArmX]
 
 /-! ## 1. `sink`: no spill store before an early return -/
 
@@ -386,9 +386,14 @@ meta def coldEvFn : Fn :=
 #guard spillMoves {} coldEvFn ≤ spillMoves noRegEntry coldEvFn
 #guard spillMoves {} coldEvFn < spillMoves .legacy coldEvFn
 
--- Heavy live `FullM4` loops keep lowering cleanly and stay <= legacy spill moves.
+-- Heavy live `FullM4` loops keep lowering cleanly and stay <= legacy spill moves (`noArmX`;
+-- `armX` moves hot call-crossing reloads onto mutually-exclusive cold arm exits in
+-- `full_bve_var` and `full_cong_work_step`).
 #guard ["full_bve_var", "full_probe_prop_lit", "full_learn_clause", "full_trans_lit_m5",
-  "full_kitten_add_clause", "full_cong_work_step"].all fun n => noWorse (midOf n)
+  "full_kitten_add_clause", "full_cong_work_step"].all fun n =>
+    allCfgs.all (lowers · (midOf n)) && spillMoves noArmX (midOf n) ≤ spillMoves .legacy (midOf n)
+#guard ["full_probe_prop_lit", "full_learn_clause", "full_trans_lit_m5",
+  "full_kitten_add_clause"].all fun n => noWorse (midOf n)
 
 /-! ## 8. Flag-to-slot jump argument lowering (`jumpSlotMoves` `.flag cc` -> `.slot s`) -/
 

@@ -281,12 +281,12 @@ parameters out of slot-direct `Entry.ploc`; `cacheHint` gives a spilled variable
 that later-colored interfering variables avoid; `regEntry` lets a block take a spilled live-in
 in the register its predecessors hold it in; `armEvict` lets a variable that would be spilled keep
 a register outside `jnz` arms (and, with `armLoops`, loops) where it is unused, evicting it on
-entry (`armX`, off by default, extends this to call-crossing variables, which are then also split
+entry (`armX`, on by default, extends this to call-crossing variables, which are then also split
 around their calls). -/
 structure Cfg where
   (sink joinGuard cacheHint regEntry : Bool := true)
   (armEvict armLoops : Bool := true)
-  (armX : Bool := false)
+  (armX : Bool := true)
 
 /-- Baseline configuration (all `Spill.Cfg` switches off), for ablation and regression tests. -/
 def Cfg.legacy : Cfg :=
@@ -1106,7 +1106,7 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
       let caller := if pids.all (fun p => Nat.ble 1 (s.gPb.getD p 0)) then
           c.gAlloc.filter (!natMem · forbCaller) else []
       let csFree := s.usedCs.filter (!natMem · forb)
-      let baseCsThresh := if Nat.ble c.nGpr 8 then 2 * baseMult + 1 else 3 * baseMult
+      let baseCsThresh := if Nat.ble c.nGpr 8 then 2 * baseMult else 3 * baseMult
       let csThresh := max baseCsThresh c.csCost
       let newCs := if Nat.ble csThresh wx then
           c.csIds.filter (fun r => !natMem r s.usedCs && !natMem r forb) else []
@@ -1731,6 +1731,17 @@ def pickPlocs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (slotOk : Trie B
     List I.Loc × List (Option (Sum Nat Nat)) × List Nat :=
   let gOf (r : Nat) := c.gReg.getD r I.frame.sp
   let (locsRev, idsRev, _, _, cs') := ps.foldl (fun (ls, ids, gb, vb, cs) p =>
+    let pickGpr (hr : Option Nat) :=
+      let lp := c.latchPrefs.getD p []
+      let lr := if lp.isEmpty then none
+        else bestRegPref lp [] ((c.gAlloc ++ cs).filter (!natMem · gb))
+      match lr <|> hr <|> freshReg (c.gAlloc ++ cs) gb with
+      | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs)
+      | none => match c.csIds.find? (fun r => !natMem r gb && !natMem r cs) with
+        | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs ++ [r])
+        | none => match c.gAlloc.head? with
+          | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs)
+          | none => (ls, none :: ids, gb, vb, cs)
     match home.getD p .none with
     | .flag cc => (.flag cc :: ls, none :: ids, gb, vb, cs)
     | .gpr r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs)
@@ -1738,32 +1749,18 @@ def pickPlocs {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond)) (slotOk : Trie B
       | some vr => (.vec vr :: ls, some (.inr v) :: ids, gb, v :: vb, cs)
       | none => (ls, none :: ids, gb, vb, cs)
     | .slot s .w64 =>
-      let hr := (c.hintT.find? p).bind fun (rh, _) =>
-        if (Nat.ble (rh + 1) c.nGpr || natMem rh cs) && !natMem rh gb then some rh else none
-      let lp := c.latchPrefs.getD p []
-      let lr := if lp.isEmpty then none
-        else bestRegPref lp [] ((c.gAlloc ++ cs).filter (!natMem · gb))
       if slotOk.getD p false then (.slot s .w64 :: ls, none :: ids, gb, vb, cs)
-      else match lr <|> hr <|> freshReg (c.gAlloc ++ cs) gb with
-        | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs)
-        | none => match c.csIds.find? (fun r => !natMem r gb && !natMem r cs) with
-          | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs ++ [r])
-          | none => match c.gAlloc.head? with
-            | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs)
-            | none => (ls, none :: ids, gb, vb, cs)
+      else
+        let hr := (c.hintT.find? p).bind fun (rh, _) =>
+          if (Nat.ble (rh + 1) c.nGpr || natMem rh cs) && !natMem rh gb then some rh else none
+        pickGpr hr
     | _ =>
       if (c.banks.getD p .gpr).isVec then
         match (freshReg c.vAlloc vb <|> c.vAlloc.head?).bind fun v =>
             (c.vReg.find? v).map (v, ·) with
         | some (v, vr) => (.vec vr :: ls, some (.inr v) :: ids, gb, v :: vb, cs)
         | none => (ls, none :: ids, gb, vb, cs)
-      else match freshReg (c.gAlloc ++ cs) gb with
-        | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs)
-        | none => match c.csIds.find? (fun r => !natMem r gb && !natMem r cs) with
-          | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs ++ [r])
-          | none => match c.gAlloc.head? with
-            | some r => (.gpr (gOf r) :: ls, some (.inl r) :: ids, r :: gb, vb, cs)
-            | none => (ls, none :: ids, gb, vb, cs))
+      else pickGpr none)
     ([], [], inRegs ++ gprHomes home liveL ++ gprHomes home ps,
       vecHomes home liveL ++ vecHomes home ps, usedCs)
   (locsRev.reverse, idsRev.reverse, cs')

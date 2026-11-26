@@ -23,6 +23,7 @@ import LeanQbe.T.AssumeBitsLemmas
 import LeanQbe.T.AddrRangeOptLemmas
 import LeanQbe.T.LoopRotateLemmas
 import LeanQbe.T.CondThreadOptLemmas
+import LeanQbe.T.TailDupLemmas
 
 /-!
 # Mid-End Call & Exit Preservation (`MainLinkReuseCalls`)
@@ -1601,10 +1602,12 @@ theorem Func.lateCondThread_callsOk {allowed : List SigEntry} {exits : List Sym}
   rw [Func.lateCondThread_eq]
   have hf1 := Func.condThreadLateOpt_wf f
   have hf2 := Func.fold_wf hf1
+  have hf3 := Func.dceP_wf hf2
   exact Func.mergeRets_callsOk
-    (Func.dceP_callsOk hf2 0
-      (Func.fold_callsOk hf1
-        (Func.condThreadLateOpt_callsOk hf hc)))
+    (Func.tailDup_callsOk hf3 {}
+      (Func.dceP_callsOk hf2 0
+        (Func.fold_callsOk hf1
+          (Func.condThreadLateOpt_callsOk hf hc))))
 
 /-- Full mid-end (`Fn.mid lt f`) satisfies `callsOk` with `(f.rawCalls.map (sigEntryLegal lt))`
 and `f.rawExits`, without evaluating `Fn.mid` in the kernel. -/
