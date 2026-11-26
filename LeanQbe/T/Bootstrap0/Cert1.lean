@@ -2,10 +2,12 @@ module
 
 public import LeanQbe.T.MainCertCore
 public import LeanQbe.T.Amd64.TargLemmas
+public import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
 public import LeanQbe.T.Bootstrap0.Mod0
 meta import Lean
 meta import LeanQbe.T.MainCertElab
 meta import LeanQbe.T.Amd64.Targ
+meta import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
 meta import LeanQbe.T.Bootstrap0.Mod0
 
 /-!
@@ -27,6 +29,6 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64
 @[expose] def slice1Mod : Module := { fns := leanqbe0Mod0.fns.take 13 }
 
 compile_linked_chunks! cert1 x64Target x64Layout x64LegalTarget x64LabelClean
-  slice1Mod 4 (ext := rtExtBounds0) (exits := rtExitSyms) (nX := 64) (maxDirs := 250)
+  slice1Mod 4 (ext := rtC0CoreAllExt) (exits := rtExitSyms) (nX := 64) (maxDirs := 250)
 
 end LeanQbe.T.Bootstrap0
