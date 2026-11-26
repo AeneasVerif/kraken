@@ -86,12 +86,12 @@ open Lean in
         (.node (some (.flag ArmCond.eq)) .empty .empty))
       (.node (some (.flag ArmCond.eq)) .empty (.node (some (.gpr (.reg .X1))) .empty .empty))
   entry :=
-    .node
-      (some { live := [(SymArg.var 0, .gpr (.reg .X2)), (SymArg.var 1, .gpr (.reg .X1))],
-              ploc := [.gpr (.reg .X0)] })
-      .empty
-      (.node (some { live := [(SymArg.var 4, .gpr (.reg .X0))], ploc := [.gpr (.reg .X1)] })
+    .node (some { live := [], ploc := [.gpr (.reg .X0), .gpr (.reg .X1)] })
+      (.node
+        (some { live := [(SymArg.var 0, .gpr (.reg .X2)), (SymArg.var 1, .gpr (.reg .X1))],
+                ploc := [.gpr (.reg .X0)] })
         .empty .empty)
+      .empty
   pre :=
     .node (some { moves := [Move.mov (.reg .X2) (.reg .X0)] }) .empty .empty
   deferJnz :=

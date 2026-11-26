@@ -86,12 +86,12 @@ open Lean in
         (.node (some (.flag CondCode.z)) .empty .empty))
       (.node (some (.flag CondCode.z)) .empty (.node (some (.gpr Reg64.rdx)) .empty .empty))
   entry :=
-    .node
-      (some { live := [(SymArg.var 0, .gpr Reg64.rdi), (SymArg.var 1, .gpr Reg64.rsi)],
-              ploc := [.gpr Reg64.rax] })
-      .empty
-      (.node (some { live := [(SymArg.var 4, .gpr Reg64.rax)], ploc := [.gpr Reg64.rdx] })
+    .node (some { live := [], ploc := [.gpr Reg64.rax, .gpr Reg64.rdx] })
+      (.node
+        (some { live := [(SymArg.var 0, .gpr Reg64.rdi), (SymArg.var 1, .gpr Reg64.rsi)],
+                ploc := [.gpr Reg64.rax] })
         .empty .empty)
+      .empty
   deferJnz :=
     .node (some true) (.node none .empty (.node (some true) .empty .empty)) .empty
 
