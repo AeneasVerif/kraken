@@ -1,0 +1,546 @@
+/-
+Copyright (c) 2026 LeanQbe Contributors. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+-/
+module
+
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep7
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep8
+public import LeanQbe.T.Examples.Kissat.FullSpec
+public import LeanQbe.T.Examples.Kissat.PatchModule
+import LeanQbe.T.Examples.Kissat.FullFidelityStep8ProofWalkDel
+import LeanQbe.T.Examples.Kissat.FullFidelityStep8ProofWatch1
+import LeanQbe.T.Examples.Kissat.FullFidelityStep8ProofBva
+import Kraken.Mem
+import Kraken.Separation
+
+/-!
+# Canonical Gate-1 `KissatFidelity` Assembly Proof — Step 8 (`FullFidelityAssemblyStep8Proof`)
+
+Certifies `FullFidelityAssemblyStep8.fidStep8Module` (`501` fns, `0` externs, `0` exits,
+`0` `import all`, `0` `@[expose]` on theorems/lemmas) via `PatchModule` +
+`FullFidelityAssemblyUtil`:
+1. `fidStep8Bundle : PatchBundle` layering `FullFidelityStep8.fidStep8Repls` (`5` fns) onto
+   `fidStep7Module` (`501` fns -> `501` fns).
+2. Closed `501/501` `fidStep8_moduleOk : ModuleOk fidStep8Env fidStep8Module`,
+   `fidStep8Env_noExit`, `fidStep8_solve_bytes_sound`, `fidStep8_solve_bytes_host_sound`,
+   `fidStep8_unsat_nv` (`XPost := False`, `std3`), and `fidStep8UnsatPkg : KissatUnsatPkg`.
+-/
+
+set_option autoImplicit false
+
+public section
+
+namespace LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8
+
+open Std Std.Sat Std.ExtHashMap
+open LeanQbe.T
+open LeanQbe.T.Examples.LratBytes
+open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.KissatCertCommon
+open LeanQbe.T.Examples.Kissat.FullM6
+open LeanQbe.T.Examples.Kissat.FullM6Orch
+open LeanQbe.T.Examples.Kissat.FullM7Fidelity
+open LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
+open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7
+open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
+open LeanQbe.T.Examples.Kissat.PatchModule
+open Kraken.Bedrock2.Test
+
+/-! ## 1. `PatchBundle`, `length`, `namesNodup`, & Algebraic Slot Plan (`501/501`) -/
+
+/-- The `5` unchanged `SpecEntry` rows for `FullFidelityStep8.fidStep8Repls`. -/
+def fidStep8ReplRows : List SpecEntry :=
+  [ ⟨"full_walk_effort_m7", [i64, i64], [i64], FullM7Walk.m7EffortSpec, true⟩
+  , ⟨"full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool], Full.fullWatchPushSpec, true⟩
+  , ⟨"full_watch_push_m6", [i64, i32, i32, i32, i32], [.bool], Full.fullWatchPushSpec, true⟩
+  , ⟨"full_delete_bin_side", [i64, i32, i32], [], Full.fullDeleteBinSideSpec, true⟩
+  , ⟨"full_bva_commit", [i64, i32], [.bool], FullFidelityStep7.step7BvaCommitSpec, true⟩ ]
+
+/-- Step-8 `PatchBundle` composing `fidStep7Module` + `FullFidelityStep8`. -/
+def fidStep8Bundle : PatchBundle where
+  baseMod := fidStep7Module
+  baseTable := fidStep7BaseSpecTable
+  baseOk := fidStep7Base_moduleOk
+  repls := FullFidelityStep8.fidStep8Repls
+  replRows := fidStep8ReplRows
+
+/-- Closed `Env` for `fidStep8Module` (`501` fns). -/
+def fidStep8Env : Env :=
+  patchEnv fidStep8Bundle
+
+theorem fidStep8_externs_empty : fidStep8Module.externs = [] :=
+  fidStep7_externs_empty
+
+theorem fidStep8Fns_length : fidStep8Fns.length = 501 := by
+  rw [fidStep8Fns, patchFns_nil, PatchModule.spliceFns, List.length_map]
+  exact fidStep7Fns_length
+
+private theorem patchFns_nil_befores_map_name (repls fs : List Fn) :
+    (patchFns repls [] fs).map Fn.name = fs.map Fn.name := by
+  rw [patchFns_nil, PatchModule.spliceFns, List.map_map]
+  refine List.map_congr_left fun f _ => ?_
+  dsimp only [Function.comp_def]
+  cases h : repls.find? (·.name == f.name) with
+  | none => rfl
+  | some r => exact beq_iff_eq.mp (List.find?_some (p := fun y : Fn => y.name == f.name) h)
+
+theorem fidStep8Module_names_nodup : fidStep8Module.namesNodup := by
+  change (fidStep8Module.fns.map Fn.name ++ fidStep8Module.externs.map Extern.name).Nodup
+  rw [fidStep8Fns_eq, fidStep8Fns, patchFns_nil_befores_map_name]
+  exact fidStep7Module_names_nodup
+
+private def fidStep8FrontNames : List Sym :=
+  [ "full_walk_effort_m7", "full_watch_push_slow_m6", "full_watch_push_m6"
+  , "full_delete_bin_side", "full_bva_commit" ]
+
+private theorem fidStep8_frontNames_eq :
+    fidStep8Bundle.frontTable.map SpecEntry.name = fidStep8FrontNames :=
+  rfl
+
+private theorem fidStep8_front_nodup :
+    (fidStep8Bundle.frontTable.map SpecEntry.name).Nodup := by
+  rw [fidStep8_frontNames_eq]
+  decide
+
+private theorem nodup_getElem?_inj' {α : Type _} {xs : List α} (hnd : xs.Nodup)
+    {i j : Nat} {a : α} (hi : xs[i]? = some a) (hj : xs[j]? = some a) : i = j := by
+  induction xs generalizing i j with
+  | nil => simp at hi
+  | cons x xs ih =>
+    have ⟨hnmem, hnd'⟩ := List.nodup_cons.mp hnd
+    cases i with
+    | zero =>
+      cases j with
+      | zero => rfl
+      | succ j =>
+        simp at hi hj
+        subst hi
+        exact False.elim (hnmem (List.mem_iff_getElem?.mpr ⟨j, hj⟩))
+    | succ i =>
+      cases j with
+      | zero =>
+        simp at hi hj
+        subst hj
+        exact False.elim (hnmem (List.mem_iff_getElem?.mpr ⟨i, hi⟩))
+      | succ j =>
+        simp at hi hj
+        exact congrArg Nat.succ (ih hnd' hi hj)
+
+private theorem slot_ok_sound {fs : List Fn} (hnd : (fs.map Fn.name).Nodup)
+    {i : Nat} {sig : SigEntry} {deps : List SigEntry}
+    (hok : ((fs[i]?.map Fn.sig == some sig) &&
+      deps.all fun d => ((fs.take i).map Fn.sig).contains d) = true) :
+    (∃ g ∈ fs, fs[i]? = some g ∧ g.sig = sig) ∧
+    (∀ bPre g bPost, fs = bPre ++ g :: bPost → g.name = sig.1 →
+      ∀ d ∈ deps, d ∈ bPre.map Fn.sig) := by
+  rw [Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at hok
+  obtain ⟨hsig, hdeps⟩ := hok
+  cases hg : fs[i]? with
+  | none => simp [hg] at hsig
+  | some g0 =>
+    simp only [hg, Option.map_some, Option.some.injEq] at hsig
+    refine ⟨⟨g0, List.mem_of_getElem? hg, rfl, hsig⟩, ?_⟩
+    intro bPre g bPost hsplit hgnm d hd
+    have hi1 : (fs.map Fn.name)[i]? = some sig.1 := by
+      simp [List.getElem?_map, hg, ← hsig, Fn.sig]
+    have hi2 : (fs.map Fn.name)[bPre.length]? = some sig.1 := by
+      rw [hsplit]
+      simp [hgnm]
+    have hlen := (nodup_getElem?_inj' hnd hi1 hi2).symm
+    have htake : bPre = fs.take i := by
+      rw [← hlen]
+      have ht := congrArg (List.take bPre.length) hsplit
+      simpa [List.take_left'] using ht.symm
+    rw [htake]
+    exact List.contains_iff_mem.mp (hdeps d hd)
+
+private theorem fidStep8_slots_unpacked :
+    ( ((fidStep7Module.fns[161]?.map Fn.sig == some ("full_walk_effort_m7", [i64, i64], [i64])) &&
+        ([] : List SigEntry).all fun d =>
+          ((fidStep7Module.fns.take 161).map Fn.sig).contains d) = true ) ∧
+    ( ((fidStep7Module.fns[16]?.map Fn.sig ==
+          some ("full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool])) &&
+        ([("full_wstack_defrag_m6", [i64], [])] : List SigEntry).all fun d =>
+          ((fidStep7Module.fns.take 16).map Fn.sig).contains d) = true ) ∧
+    ( ((fidStep7Module.fns[17]?.map Fn.sig ==
+          some ("full_watch_push_m6", [i64, i32, i32, i32, i32], [.bool])) &&
+        ([("full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool])] :
+          List SigEntry).all fun d =>
+            ((fidStep7Module.fns.take 17).map Fn.sig).contains d) = true ) ∧
+    ( ((fidStep7Module.fns[181]?.map Fn.sig ==
+          some ("full_delete_bin_side", [i64, i32, i32], [])) &&
+        ([] : List SigEntry).all fun d =>
+          ((fidStep7Module.fns.take 181).map Fn.sig).contains d) = true ) ∧
+    ( ((fidStep7Module.fns[436]?.map Fn.sig ==
+          some ("full_bva_commit", [i64, i32], [.bool])) &&
+        ([ ("full_bva_steps_cap_fid", [i64], [i32])
+         , ("full_wstack_defrag", [i64], [])
+         , ("full_init_fresh_var", [i64, i32], [])
+         , ("full_add_bin", [i64, i32, i32], [i64])
+         , ("full_alloc_cl", [i64, i32, i32, .bool], [i64])
+         , ("full_watch_push", [i64, i32, i32, i32, i32], [.bool])
+         , ("full_delete_binary", [i64, i32, i32], [])
+         , ("full_unwatch_large", [i64, i32, i32], []) ] : List SigEntry).all fun d =>
+           ((fidStep7Module.fns.take 436).map Fn.sig).contains d) = true ) := by
+  have h := fidStep7_step8_slots_ok
+  have ⟨h1234, h5⟩ := (Bool.and_eq_true _ _).mp h
+  have ⟨h123, h4⟩ := (Bool.and_eq_true _ _).mp h1234
+  have ⟨h12, h3⟩ := (Bool.and_eq_true _ _).mp h123
+  have ⟨h1, h2⟩ := (Bool.and_eq_true _ _).mp h12
+  exact ⟨h1, h2, h3, h4, h5⟩
+
+theorem fidStep8Module_replSigs_ok :
+    ∀ r ∈ FullFidelityStep8.fidStep8Repls, ∀ g ∈ fidStep7Module.fns,
+      r.name = g.name → r.sig = g.sig := by
+  have hnd := module_fns_namesNodup fidStep7Module_names_nodup
+  have hs := fidStep8_slots_unpacked
+  have s0 := (slot_ok_sound hnd hs.1).1
+  have s1 := (slot_ok_sound hnd hs.2.1).1
+  have s2 := (slot_ok_sound hnd hs.2.2.1).1
+  have s3 := (slot_ok_sound hnd hs.2.2.2.1).1
+  have s4 := (slot_ok_sound hnd hs.2.2.2.2).1
+  intro r hr g hg hnm
+  simp only [FullFidelityStep8.fidStep8Repls, List.mem_cons, List.not_mem_nil, or_false] at hr
+  rcases hr with rfl | rfl | rfl | rfl | rfl
+  · obtain ⟨g0, hg0, _, hsg⟩ := s0
+    rw [nodup_name_eq Fn.name hnd hg hg0 (hnm.symm.trans (congrArg Prod.fst hsg).symm)]
+    exact hsg.symm
+  · obtain ⟨g0, hg0, _, hsg⟩ := s1
+    rw [nodup_name_eq Fn.name hnd hg hg0 (hnm.symm.trans (congrArg Prod.fst hsg).symm)]
+    exact hsg.symm
+  · obtain ⟨g0, hg0, _, hsg⟩ := s2
+    rw [nodup_name_eq Fn.name hnd hg hg0 (hnm.symm.trans (congrArg Prod.fst hsg).symm)]
+    exact hsg.symm
+  · obtain ⟨g0, hg0, _, hsg⟩ := s3
+    rw [nodup_name_eq Fn.name hnd hg hg0 (hnm.symm.trans (congrArg Prod.fst hsg).symm)]
+    exact hsg.symm
+  · obtain ⟨g0, hg0, _, hsg⟩ := s4
+    rw [nodup_name_eq Fn.name hnd hg hg0 (hnm.symm.trans (congrArg Prod.fst hsg).symm)]
+    exact hsg.symm
+
+/-! ## 2. Single-Function Calls, `sameSpecs`, & `fidStep8_moduleOk` (`501/501`) -/
+
+private theorem walkEffort_callsOk :
+    FullFidelityStep8.fidStep8WalkEffortM7Fn.checkCallsOk [] [] = true := by
+  t_kernel_rfl
+
+private theorem watchPushSlow_callsOk :
+    FullFidelityStep8.fidStep8WatchPushSlowM6Fn.checkCallsOk
+      [("full_wstack_defrag_m6", [i64], [])] [] = true := by
+  t_kernel_rfl
+
+private theorem watchPush_callsOk :
+    FullFidelityStep8.fidStep8WatchPushM6Fn.checkCallsOk
+      [("full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool])] [] = true := by
+  t_kernel_rfl
+
+private theorem deleteBinSide_callsOk :
+    FullFidelityStep8.fidStep8DeleteBinSideFn.checkCallsOk [] [] = true := by
+  t_kernel_rfl
+
+private theorem bvaCommit_callsOk :
+    FullFidelityStep8.fidStep8BvaCommitFn.checkCallsOk
+      [ ("full_bva_steps_cap_fid", [i64], [i32])
+      , ("full_wstack_defrag", [i64], [])
+      , ("full_init_fresh_var", [i64, i32], [])
+      , ("full_add_bin", [i64, i32, i32], [i64])
+      , ("full_alloc_cl", [i64, i32, i32, .bool], [i64])
+      , ("full_watch_push", [i64, i32, i32, i32, i32], [.bool])
+      , ("full_delete_binary", [i64, i32, i32], [])
+      , ("full_unwatch_large", [i64, i32, i32], []) ] [] = true := by
+  t_kernel_rfl
+
+private theorem fid8_of_step7 {f : Sym} {as bs : List Ty}
+    (hf8 : !(fidStep8FrontNames.contains f) = true := by decide)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep7Env f as bs xs m Q X) :
+    fidStep8Env f as bs xs m Q X := by
+  change patchEnv fidStep8Bundle f as bs xs m Q X
+  have hfnone : fidStep8Bundle.frontTable.find? (·.name == f) = none := by
+    rw [List.find?_eq_none]
+    intro e he hbeq
+    have hm : f ∈ fidStep8FrontNames :=
+      fidStep8_frontNames_eq ▸ (beq_iff_eq.mp hbeq ▸ List.mem_map_of_mem he)
+    simp [hm] at hf8
+  rw [patchEnv_base_eq fidStep8Bundle hfnone]
+  dsimp only [fidStep8Bundle]
+  rw [fidStep7Base_eq_env]
+  exact h
+
+private theorem fidStep8_sameSpecs :
+    ∀ e ∈ fidStep8Bundle.frontTable, ∀ xs m P E,
+      Env.ofTable fidStep8Bundle.baseTable e.name e.as e.rs xs m P E → e.eff xs m P E := by
+  intro e he xs m P E hBase
+  dsimp only [fidStep8Bundle] at hBase
+  rw [fidStep7Base_eq_env] at hBase
+  simp only [fidStep8Bundle, PatchBundle.frontTable, fidStep8ReplRows,
+    List.nil_append, List.append_nil, List.mem_cons, List.not_mem_nil, or_false] at he
+  rcases he with rfl | rfl | rfl | rfl | rfl
+  · exact fidStep7_m7EffortSpec_monoX (fidStep7Env_elim_walkEffort hBase)
+  · exact fidStep7Env_elim_watchPushSlow hBase
+  · exact fidStep7Env_elim_watchPushM6 hBase
+  · exact fidStep7Env_elim_deleteBinSide hBase
+  · exact FullFidelityStep7.step7BvaCommitSpec_monoX (X := E) (X' := fun _ _ _ _ => False)
+      (fidStep7Env_elim_bvaCommit hBase)
+
+private theorem fidStep8_agree :
+    ∀ s ∈ fidStep7Module.sigs,
+      ∀ xs m P E, Env.ofTable fidStep7BaseSpecTable s.1 s.2.1 s.2.2 xs m P E →
+        fidStep8Env s.1 s.2.1 s.2.2 xs m P E :=
+  patchEnv_agree_of_sameSpecs fidStep8Bundle fidStep8_front_nodup fidStep8_sameSpecs
+
+private theorem spliceFns_split_mem {repls fs pre post : List Fn} {fn : Fn}
+    (hreplSigs : ∀ r ∈ repls, ∀ g ∈ fs, r.name = g.name → r.sig = g.sig)
+    (hsplit : spliceFns repls fs = pre ++ fn :: post) :
+    ∃ bPre f0 bPost,
+      fs = bPre ++ f0 :: bPost ∧
+      fn = (repls.find? (·.name == f0.name)).getD f0 ∧
+      pre.map Fn.sig = bPre.map Fn.sig := by
+  induction fs generalizing pre with
+  | nil => simp [spliceFns] at hsplit
+  | cons f fs ih =>
+    simp only [spliceFns, List.map_cons] at hsplit
+    cases pre with
+    | nil =>
+      simp only [List.nil_append, List.cons.injEq] at hsplit
+      obtain ⟨rfl, _⟩ := hsplit
+      exact ⟨[], f, fs, rfl, rfl, rfl⟩
+    | cons p pre' =>
+      simp only [List.cons_append, List.cons.injEq] at hsplit
+      obtain ⟨rfl, htail⟩ := hsplit
+      obtain ⟨bPre', f0, bPost, hfs', hfn', hsig⟩ :=
+        ih (fun r hr g hg => hreplSigs r hr g (by simp [hg])) htail
+      refine ⟨f :: bPre', f0, bPost, by rw [hfs', List.cons_append], hfn', ?_⟩
+      simp only [List.map_cons, List.cons.injEq]
+      refine ⟨?_, hsig⟩
+      cases hf : repls.find? (·.name == f.name) with
+      | none => rfl
+      | some rf =>
+        have hnm : rf.name = f.name :=
+          beq_iff_eq.mp (List.find?_some (p := fun y : Fn => y.name == f.name) hf)
+        exact hreplSigs rf (List.mem_of_find?_eq_some hf) f List.mem_cons_self hnm
+
+private theorem fidStep8_front_none_of_repl_none {nm : Sym}
+    (h : FullFidelityStep8.fidStep8Repls.find? (·.name == nm) = none) :
+    fidStep8Bundle.frontTable.find? (·.name == nm) = none := by
+  rw [List.find?_eq_none]
+  intro e he hbeq
+  have hnm : e.name = nm := beq_iff_eq.mp hbeq
+  have hmem : e.name ∈ FullFidelityStep8.fidStep8Repls.map Fn.name := by
+    have hm : e.name ∈ fidStep8FrontNames :=
+      fidStep8_frontNames_eq ▸ List.mem_map_of_mem he
+    exact hm
+  obtain ⟨r, hr, hrn⟩ := List.mem_map.mp hmem
+  have hnone := List.find?_eq_none.mp h r hr
+  simp [hnm, hrn] at hnone
+
+private theorem callsOk_sub_deps {fn : Fn} {deps bPrePre : List SigEntry}
+    (hchk : fn.checkCallsOk deps [] = true)
+    (hsub : ∀ d ∈ deps, d ∈ bPrePre) :
+    fn.callsOk (bPrePre ++ fidStep8Module.externs.map Extern.sig) fidStep8Module.exits := by
+  rw [fidStep8_noExit, fidStep8_externs_empty, List.map_nil, List.append_nil]
+  exact fn_callsOk_mono hsub (Fn.callsOk_of_checkCallsOk hchk)
+
+/-- Closed `501/501` `ModuleOk` for `FullFidelityAssemblyStep8.fidStep8Module` under
+`fidStep8Env` (`0` externs, `0` exits, `std3` axioms only). -/
+theorem fidStep8_moduleOk : ModuleOk fidStep8Env fidStep8Module := by
+  refine ⟨fidStep8Module_names_nodup, fun pre fn post hsplit => ?_⟩
+  have hsplit' : spliceFns FullFidelityStep8.fidStep8Repls fidStep7Module.fns =
+      pre ++ fn :: post := by
+    change patchFns FullFidelityStep8.fidStep8Repls [] fidStep7Module.fns = pre ++ fn :: post
+      at hsplit
+    rwa [patchFns_nil] at hsplit
+  obtain ⟨bPre, f0, bPost, hfs, hfn_eq, hpreSig⟩ :=
+    spliceFns_split_mem fidStep8Module_replSigs_ok hsplit'
+  have hf0_ok := fidStep7Base_moduleOk.fnsOk bPre f0 bPost hfs
+  have hnd7 := module_fns_namesNodup fidStep7Module_names_nodup
+  have hslots := fidStep8_slots_unpacked
+  cases hrepl : FullFidelityStep8.fidStep8Repls.find? (·.name == f0.name) with
+  | none =>
+    simp only [hrepl, Option.getD_none] at hfn_eq
+    subst hfn_eq
+    have hfrontNone := fidStep8_front_none_of_repl_none hrepl
+    have hcalls7 : fn.callsOk (List.map Fn.sig bPre) [] := by
+      simpa only [fidStep7_noExit, fidStep7_externs_empty, List.map_nil, List.append_nil] using
+        hf0_ok.2.1
+    refine ⟨hf0_ok.1, ?_, fun xs m Q X hlookup => ?_⟩
+    · simpa only [fidStep8_noExit, fidStep8_externs_empty, List.map_nil, List.append_nil,
+        hpreSig] using hcalls7
+    · change fidStep8Env fn.name fn.as fn.rs xs m Q X at hlookup
+      dsimp only [fidStep8Env] at hlookup
+      rw [patchEnv_base_eq fidStep8Bundle hfrontNone] at hlookup
+      dsimp only [fidStep8Bundle] at hlookup
+      have hwp_base := hf0_ok.2.2 xs m Q X hlookup
+      refine wp_env_agree_of_callsOk (hf0_ok.1 _ _ _ _ _ _) hf0_ok.2.1 (fun f as bs hs => ?_)
+        m hwp_base
+      apply fidStep8_agree (f, as, bs)
+      simp only [Module.sigs, List.mem_append, List.mem_map] at hs ⊢
+      rcases hs with ⟨g, hg, hgsig⟩ | ⟨ex, hex, hexsig⟩
+      · exact Or.inl ⟨g, hfs ▸ List.mem_append_left _ hg, hgsig⟩
+      · exact Or.inr ⟨ex, hex, hexsig⟩
+  | some r =>
+    have hr_mem : r ∈ FullFidelityStep8.fidStep8Repls := List.mem_of_find?_eq_some hrepl
+    have hf0_nm : r.name = f0.name :=
+      beq_iff_eq.mp (List.find?_some (p := fun y : Fn => y.name == f0.name) hrepl)
+    simp only [hrepl, Option.getD_some] at hfn_eq
+    subst hfn_eq
+    refine ⟨FullFidelityStep8.fidStep8Repls_wf fn hr_mem, ?_, ?_⟩
+    · simp only [FullFidelityStep8.fidStep8Repls, List.mem_cons, List.not_mem_nil,
+        or_false] at hr_mem
+      rw [hpreSig]
+      rcases hr_mem with rfl | rfl | rfl | rfl | rfl
+      · exact callsOk_sub_deps walkEffort_callsOk fun _ hd => nomatch hd
+      · exact callsOk_sub_deps watchPushSlow_callsOk
+          ((slot_ok_sound hnd7 hslots.2.1).2 bPre f0 bPost hfs hf0_nm.symm)
+      · exact callsOk_sub_deps watchPush_callsOk
+          ((slot_ok_sound hnd7 hslots.2.2.1).2 bPre f0 bPost hfs hf0_nm.symm)
+      · exact callsOk_sub_deps deleteBinSide_callsOk fun _ hd => nomatch hd
+      · exact callsOk_sub_deps bvaCommit_callsOk
+          ((slot_ok_sound hnd7 hslots.2.2.2.2).2 bPre f0 bPost hfs hf0_nm.symm)
+    · simp only [FullFidelityStep8.fidStep8Repls, List.mem_cons, List.not_mem_nil,
+        or_false] at hr_mem
+      rcases hr_mem with rfl | rfl | rfl | rfl | rfl
+      · intro xs m Q X hlk
+        have hfind : fidStep8Bundle.frontTable.find?
+            (·.name == FullFidelityStep8.fidStep8WalkEffortM7Fn.name) =
+            some fidStep8ReplRows[0] := rfl
+        have hcast := env_ofTable_find?_of_append hfind rfl rfl hlk
+        dsimp only [fidStep8ReplRows, List.getElem_cons_zero, List.getElem_cons_succ,
+          SpecEntry.cast, SpecEntry.eff, ite_true] at hcast
+        exact FullFidelityStep8.full_walk_effort_m7_step8_wp fidStep8Env xs m Q X
+          (fidStep7_m7EffortSpec_elim (fidStep7_m7EffortSpec_monoX hcast))
+      · intro xs m Q X hlk
+        have hfind : fidStep8Bundle.frontTable.find?
+            (·.name == FullFidelityStep8.fidStep8WatchPushSlowM6Fn.name) =
+            some fidStep8ReplRows[1] := rfl
+        have hcast := env_ofTable_find?_of_append hfind rfl rfl hlk
+        dsimp only [fidStep8ReplRows, List.getElem_cons_zero, List.getElem_cons_succ,
+          SpecEntry.cast, SpecEntry.eff, ite_true] at hcast
+        exact FullFidelityStep8.full_watch_push_slow_m6_step8_wp fidStep8Env
+          (fun _ _ _ _ hs => fid8_of_step7 (by decide) (fidStep7Env_wstackDefragM6 _ _ _ _ hs))
+          xs m Q X hcast
+      · intro xs m Q X hlk
+        have hfind : fidStep8Bundle.frontTable.find?
+            (·.name == FullFidelityStep8.fidStep8WatchPushM6Fn.name) =
+            some fidStep8ReplRows[2] := rfl
+        have hcast := env_ofTable_find?_of_append hfind rfl rfl hlk
+        dsimp only [fidStep8ReplRows, List.getElem_cons_zero, List.getElem_cons_succ,
+          SpecEntry.cast, SpecEntry.eff, ite_true] at hcast
+        have hSlow : ∀ a m Q X, Full.fullWatchPushSpec a m Q X →
+            fidStep8Env "full_watch_push_slow_m6" [i64, i32, i32, i32, i32] [.bool] a m Q X :=
+          fun _ _ _ _ hs =>
+            patchEnv_of_front_mem fidStep8Bundle fidStep8_front_nodup
+              (List.mem_of_getElem? (i := 1) rfl) hs
+        exact FullFidelityStep8.full_watch_push_m6_step8_wp fidStep8Env hSlow xs m Q X hcast
+      · intro xs m Q X hlk
+        have hfind : fidStep8Bundle.frontTable.find?
+            (·.name == FullFidelityStep8.fidStep8DeleteBinSideFn.name) =
+            some fidStep8ReplRows[3] := rfl
+        have hcast := env_ofTable_find?_of_append hfind rfl rfl hlk
+        dsimp only [fidStep8ReplRows, List.getElem_cons_zero, List.getElem_cons_succ,
+          SpecEntry.cast, SpecEntry.eff, ite_true] at hcast
+        exact FullFidelityStep8.full_delete_bin_side_step8_wp fidStep8Env xs m Q X hcast
+      · intro xs m Q X hlk
+        have hfind : fidStep8Bundle.frontTable.find?
+            (·.name == FullFidelityStep8.fidStep8BvaCommitFn.name) =
+            some fidStep8ReplRows[4] := rfl
+        have hcast := env_ofTable_find?_of_append hfind rfl rfl hlk
+        dsimp only [fidStep8ReplRows, List.getElem_cons_zero, List.getElem_cons_succ,
+          SpecEntry.cast, SpecEntry.eff, ite_true] at hcast
+        exact FullFidelityStep8.full_bva_commit_step8_wp fidStep8Env
+          (fun _ _ _ _ hs => fid8_of_step7 (by decide) (fidStep7Env_bvaStepsCap _ _ _ _ hs))
+          (fun _ _ _ _ hs => fid8_of_step7 (by decide) (fidStep7Env_wstackDefrag _ _ _ _ hs))
+          (fun _ _ _ _ hs => fid8_of_step7 (by decide) (fidStep7Env_initFreshVar _ _ _ _ hs))
+          (fun _ _ _ _ hs => fid8_of_step7 (by decide) (fidStep7Env_addBin _ _ _ _ hs))
+          (fun _ _ _ _ hs => fid8_of_step7 (by decide) (fidStep7Env_allocCl _ _ _ _ hs))
+          (fun _ _ _ _ hs => fid8_of_step7 (by decide) (fidStep7Env_watchPush _ _ _ _ hs))
+          (fun _ _ _ _ hs => fid8_of_step7 (by decide) (fidStep7Env_deleteBinary _ _ _ _ hs))
+          (fun _ _ _ _ hs => fid8_of_step7 (by decide) (fidStep7Env_unwatchLarge _ _ _ _ hs))
+          xs m Q X
+          (FullFidelityStep7.step7BvaCommitSpec_monoX (X := fun _ _ _ _ => False) hcast)
+
+/-! ## 3. Exit-Freedom, UNSAT Soundness, Host Lift, `Mem 64` NV & `KissatUnsatPkg` -/
+
+theorem fidStep8Env_noExit :
+    ∀ f as bs xs m Q X X',
+      fidStep8Env f as bs xs m Q X → fidStep8Env f as bs xs m Q X' :=
+  patchEnv_noExit_of fidStep8Bundle (by decide) fidStep7BaseSpecTable_noExit
+
+theorem fidStep8Env_solve_bytes_of {a : Tup Val [i64, i64, i64, i64, i64]}
+    {m : Mem 64} {Q : Post [i64]} {X : XPost} :
+    m7FidSolveBytesSpec a m Q X →
+      fidStep8Env "kissat_solve_bytes" [i64, i64, i64, i64, i64] [i64] a m Q X :=
+  fun hs => fid8_of_step7 (by decide) (fidStep7Env_solve_bytes_of hs)
+
+theorem fidStep8_solveBytes_mem : m6oSolveBytesFn ∈ fidStep8Module.fns :=
+  patchBundle_solveBytes_mem fidStep8Bundle fidStep7_solveBytes_mem fun r hr => by
+    change r ∈ FullFidelityStep8.fidStep8Repls at hr
+    simp only [FullFidelityStep8.fidStep8Repls, List.mem_cons, List.not_mem_nil, or_false] at hr
+    rcases hr with rfl | rfl | rfl | rfl | rfl <;> decide
+
+/-- Top-level byte-level UNSAT soundness of `fidStep8Module` (`501` fns, `XPost := False`). -/
+theorem fidStep8_solve_bytes_sound
+    {cnf_ptr work_ptr fuel : BitVec 64} {cnfBytes : List UInt8}
+    {wlen : Nat} {R : Mem 64 → Prop} {m : Mem 64}
+    (hcfit : cnf_ptr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : work_ptr.toNat + wlen < 2 ^ 64)
+    (hm : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m) :
+    Func.wp fidStep8Env FullM6Orch.kissat_solve_bytes_body
+      (cnf_ptr, BitVec.ofNat 64 cnfBytes.length, work_ptr, BitVec.ofNat 64 wlen, fuel, ()) m
+      (fun rs m' =>
+        match rs with
+        | (r, ()) =>
+          (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+          (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+          (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m')
+      (fun _ _ _ _ => False) :=
+  fid_solve_bytes_sound_of fidStep8_moduleOk fidStep8_solveBytes_mem
+    (fun _ _ _ _ hs => fidStep8Env_solve_bytes_of hs) hcfit hwfit hm
+
+/-- Host-framed machine-memory UNSAT lift for `fidStep8Module`. -/
+theorem fidStep8_solve_bytes_host_sound
+    {cnf_ptr work_ptr : BitVec 64} {cnfBytes : List UInt8} {wlen : Nat}
+    {R F_host : Mem 64 → Prop} {r : BitVec 64} {m' st_dmem : Mem 64}
+    (hpost :
+      (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+      (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+      (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m')
+    (hhost : (Eq m' ⋆ F_host) st_dmem) :
+    (r = 0#64 ∨ r = 10#64 ∨ r = 20#64) ∧
+    (r = 20#64 → ∃ cnf, parseDimacs cnfBytes = some cnf ∧ cnf.Unsat) ∧
+    (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R ⋆ F_host) st_dmem :=
+  FullFidelityAssemblyUtil.fid_solve_bytes_host_sound hpost hhost
+
+/-- Concrete deterministic `Mem 64` UNSAT non-vacuity (`r = 20#64`) for `fidStep8Module`. -/
+theorem fidStep8_unsat_nv :
+    Func.wp fidStep8Env FullM6Orch.kissat_solve_bytes_body
+      (nvM6CnfPtr, BitVec.ofNat 64 nvM6UnsatBytes.length,
+        nvM6UnsatWorkPtr, BitVec.ofNat 64 nvM6WorkLen, 16#64, ())
+      nvM6UnsatInitMem
+      (fun rs m' =>
+        match rs with
+        | (r, ()) =>
+          r = 20#64 ∧ nvM6UnsatCnf.Unsat ∧
+          (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ region nvM6UnsatWorkPtr nvM6WorkLen) m')
+      (fun _ _ _ _ => False) :=
+  fid_unsat_nv_of fidStep8_moduleOk fidStep8_solveBytes_mem
+    (fun _ _ _ _ hs => fidStep8Env_solve_bytes_of hs)
+
+/-- Acyclicity certificate (`checkAcyclic = true`) lifted in `O(1)` from `fidStep8_moduleOk`. -/
+theorem fidStep8Module_acyclic : fidStep8Module.checkAcyclic = true :=
+  moduleCheckAcyclic_of_moduleOk fidStep8_moduleOk
+
+/-- Canonical Gate-1 Step-8 `KissatUnsatPkg` (`fidStep8Module`, `fidInlPolicy`). -/
+def fidStep8UnsatPkg : KissatUnsatPkg :=
+  mkFidUnsatPkg fidStep8Module fidInlPolicy fidStep8_solveBytes_mem
+    fidStep8Env fidStep8_moduleOk fidStep8Env_noExit
+    (fun _ _ _ _ hs => fidStep8Env_solve_bytes_of hs)
+
+end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8
+
+end
