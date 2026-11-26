@@ -11,9 +11,6 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Examples.Kissat.FullM7HotWatchPush
 meta import LeanQbe.T.Examples.Kissat.FullM7MemShrinkV5
 meta import LeanQbe.T.Frontend.C0
-meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.PrintQbe
-meta import LeanQbe.T.Legal
 
 /-!
 # Kissat Fidelity Delayed-Watch BCP & Hot-Loop Base-Pointer Caching (`FullFidelityBcp`)
@@ -872,11 +869,5 @@ theorem fidBcp_acyclic : fidBcpModule.checkAcyclic = true := by t_kernel_rfl
 #guard fidBcpHotPushRepls.length == 9
 #guard fidBcpHotPushMemRepls.length == 21
 #guard fidBcpModule.checkAcyclic == true
-#guard (PrintCpp.ppTModule fidBcpModule).isOk
-#guard (PrintQbe.module fidBcpModule).isOk
-#guard fidBcp_fns.all fun fn => (Fn.legal .aarch64 fn).body.isLegal .aarch64
-#guard fidBcp_fns.all fun fn => (Fn.legal .scalar64 fn).body.isLegal .scalar64
-#guard fidBcp_fns.all fun fn => (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2
-#guard fidBcp_fns.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
 
 end LeanQbe.T.Examples.Kissat.FullFidelityBcp

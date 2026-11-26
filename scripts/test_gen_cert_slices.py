@@ -1070,6 +1070,153 @@ class GenCertSlicesTest(unittest.TestCase):
                 self.assertIn("eval_raw_callees! rCallees", opt_cert)
                 self.assertIn("FullFidelityM8OptBridge", opt_cert)
 
+    def test_n2_n4_n6_no_bounds_literal_micro_slices_and_tree(self) -> None:
+        # 1. FullFidelity preset defaults to FullFidelityInlData + pruneExt + no-bounds-import.
+        fid_args = gcs.parse_args(
+            ["--module", "FullFidelity", "--root", str(REPO_ROOT), "--dry-run"]
+        )
+        fid_cfg = gcs.build_config(fid_args)
+        self.assertEqual(fid_cfg.inl_mod, "LeanQbe.T.Examples.Kissat.FullFidelityInlData")
+        self.assertTrue(fid_cfg.prune_ext)
+        self.assertTrue(fid_cfg.no_bounds_import)
+        fid_files = dict(gcs.build_plan(fid_cfg, ["amd64", "arm64"]))
+        self._assert_hygiene(list(fid_files.items()))
+        self.assertNotIn("LeanQbe/T/Amd64/KissatFidelityBounds.lean", fid_files)
+        self.assertNotIn("LeanQbe/T/Arm64/KissatFidelityBounds.lean", fid_files)
+        fid_s2 = fid_files["LeanQbe/T/Amd64/KissatFidelityCert2.lean"]
+        self.assertNotIn("KissatFidelityBounds", fid_s2)
+        self.assertIn("eval_prefix_ext! slice2Ext", fid_s2)
+        self.assertIn("(pruneFor := slice2Mod.fns)", fid_s2)
+        self.assertIn("(pruneExt := true)", fid_s2)
+
+        # 2. --bounds-json emits pure literal slice{k}Ext and isolates late-fn edits.
+        with tempfile.TemporaryDirectory() as tmp:
+            fn_rows_a = [
+                {
+                    "name": f"fn_{i}",
+                    "as": ["i64"],
+                    "rs": ["i64"],
+                    "bound": 16 + i,
+                    "callees": [f"fn_{i - 1}"] if i > 0 else [],
+                }
+                for i in range(12)
+            ]
+            fn_rows_b = [dict(r) for r in fn_rows_a]
+            fn_rows_b[11]["bound"] = 999  # Editing the last function #11
+            bounds_a = Path(tmp) / "bounds_a.json"
+            bounds_b = Path(tmp) / "bounds_b.json"
+            bounds_a.write_text(json.dumps(fn_rows_a), encoding="utf-8")
+            bounds_b.write_text(json.dumps(fn_rows_b), encoding="utf-8")
+
+            base_cli = [
+                "--prefix",
+                "KissatMini",
+                "--stem",
+                "mini",
+                "--total-fns",
+                "12",
+                "--slice-sizes",
+                "3,3,3,3",
+                "--cert-style",
+                "slices",
+                "--prune-ext",
+                "--tree-groups",
+                "2",
+                "--root",
+                str(REPO_ROOT),
+                "--dry-run",
+            ]
+            files_a = dict(
+                gcs.build_plan(
+                    gcs.build_config(gcs.parse_args([*base_cli, "--bounds-json", str(bounds_a)])),
+                    ["amd64"],
+                )
+            )
+            files_b = dict(
+                gcs.build_plan(
+                    gcs.build_config(gcs.parse_args([*base_cli, "--bounds-json", str(bounds_b)])),
+                    ["amd64"],
+                )
+            )
+            self._assert_hygiene(list(files_a.items()))
+            self.assertNotIn("LeanQbe/T/Amd64/KissatMiniBounds.lean", files_a)
+            for k in (1, 2, 3, 4):
+                rel = f"LeanQbe/T/Amd64/KissatMiniCert{k}.lean"
+                self.assertEqual(files_a[rel], files_b[rel], f"late-fn edit mutated {rel}")
+            s2 = files_a["LeanQbe/T/Amd64/KissatMiniCert2.lean"]
+            self.assertIn("private def slice2Ext : List (SigEntry × Nat) := [", s2)
+            self.assertIn('(("fn_2", [i64], [i64]), 18)', s2)
+            self.assertNotIn('"fn_0"', s2)
+            self.assertNotIn("eval_prefix_ext!", s2)
+            self.assertIn("(pruneExt := true)", s2)
+
+            cert = files_a["LeanQbe/T/Amd64/KissatMiniCert.lean"]
+            self.assertIn("ChunkSlice.ofSlices", cert)
+            self.assertIn("CheckedSliceGroup", cert)
+            self.assertIn("LinkedCert.ofCheckedGroups", cert)
+            self.assertIn("private theorem grp0_ext", cert)
+            self.assertIn("private theorem grp1_ext", cert)
+            self.assertIn("private theorem allGroups_meta", cert)
+
+        # 3. Cost-capped micro-slicing (--max-slice-weight) + 2-level tree on 501-fn Step 7!
+        s7_args = gcs.parse_args(
+            [
+                "--module",
+                "FullFidelityStep7",
+                "--max-slice-weight",
+                "1200",
+                "--slice-size",
+                "4",
+                "--tree-groups",
+                "8",
+                "--root",
+                str(REPO_ROOT),
+                "--dry-run",
+            ]
+        )
+        s7_cfg = gcs.build_config(s7_args)
+        self.assertEqual(s7_cfg.total_fns, 501)
+        self.assertEqual(s7_cfg.source_mod, "LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7")
+        self.assertEqual(s7_cfg.mod, "fidStep7Module")
+        self.assertTrue(s7_cfg.prune_ext)
+        self.assertTrue(s7_cfg.no_bounds_import)
+        self.assertEqual(s7_cfg.tree_groups, 8)
+        self.assertEqual(sum(sl.count for sl in s7_cfg.slices), 501)
+        self.assertTrue(all(1 <= sl.count <= 4 for sl in s7_cfg.slices))
+        self.assertGreater(len(s7_cfg.slices), 100)
+        for sl in s7_cfg.slices:
+            if sl.count > 1:
+                wt = sum(s7_cfg.fn_metrics[i].cost for i in range(sl.start, sl.end))
+                self.assertLessEqual(wt, 1200.0 + 1e-6)
+        s7_files = dict(gcs.build_plan(s7_cfg, ["amd64", "arm64"]))
+        self._assert_hygiene(list(s7_files.items()))
+        for arch_dir in ("Amd64", "Arm64"):
+            self.assertNotIn(f"LeanQbe/T/{arch_dir}/KissatFidelityStep7Bounds.lean", s7_files)
+            s7_cert = s7_files[f"LeanQbe/T/{arch_dir}/KissatFidelityStep7Cert.lean"]
+            self.assertIn("LinkedCert.ofCheckedGroups", s7_cert)
+            self.assertIn("private theorem grp7_ext", s7_cert)
+            self.assertIn("allGroups_meta", s7_cert)
+            s7_s2 = s7_files[f"LeanQbe/T/{arch_dir}/KissatFidelityStep7Cert2.lean"]
+            self.assertNotIn("KissatFidelityStep7Bounds", s7_s2)
+            self.assertIn("(pruneExt := true)", s7_s2)
+
+        # Fail closed when --tree-groups >= 2 is requested with --cert-style ladder.
+        bad_tree_args = gcs.parse_args(
+            [
+                "--module",
+                "FullM5",
+                "--cert-style",
+                "ladder",
+                "--tree-groups",
+                "4",
+                "--root",
+                str(REPO_ROOT),
+                "--dry-run",
+            ]
+        )
+        with self.assertRaises(ValueError):
+            gcs.build_config(bad_tree_args)
+
 
 if __name__ == "__main__":
     unittest.main()

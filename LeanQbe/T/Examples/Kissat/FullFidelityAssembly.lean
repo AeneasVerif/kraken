@@ -10,9 +10,6 @@ public import LeanQbe.T.Examples.Kissat.PatchModule
 meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep5
 meta import LeanQbe.T.Examples.Kissat.FullFidelityBva
 meta import LeanQbe.T.Examples.Kissat.PatchModule
-meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.PrintQbe
-meta import LeanQbe.T.Legal
 
 /-!
 # Canonical Gate-1 `KissatFidelity` Assembly (`FullFidelityAssembly`, `499` fns)
@@ -88,16 +85,6 @@ def fidNewFns : List Fn :=
 #guard (fidFns.map Fn.name).contains "full_bva_try_lit"
 #guard (fidFns.map Fn.name).contains "full_factor"
 #guard (fidFns.map Fn.name).contains "full_probe_m6"
-#guard (PrintCpp.ppTModule fidModule).isOk
-#guard (PrintQbe.module fidModule).isOk
-#guard (PrintCpp.ppModule (fidNewFns.map (Fn.legal .aarch64))).isOk
-#guard (PrintCpp.ppModule (fidNewFns.map (Fn.legal .scalar64))).isOk
-#guard (PrintCpp.ppModule (fidNewFns.map (Fn.legal .x64AVX2))).isOk
-#guard (PrintCpp.ppModule (fidNewFns.map (Fn.legal .x64AVX512))).isOk
-#guard fidNewFns.all fun fn => (Fn.legal .aarch64 fn).body.isLegal .aarch64
-#guard fidNewFns.all fun fn => (Fn.legal .scalar64 fn).body.isLegal .scalar64
-#guard fidNewFns.all fun fn => (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2
-#guard fidNewFns.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssembly
 

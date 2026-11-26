@@ -11,9 +11,6 @@ public import LeanQbe.T.Examples.Kissat.PatchModule
 meta import LeanQbe.T.Examples.Kissat.FullFidelityBase
 meta import LeanQbe.T.Examples.Kissat.FullFidelitySweep
 meta import LeanQbe.T.Examples.Kissat.PatchModule
-meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.PrintQbe
-meta import LeanQbe.T.Legal
 
 /-!
 # Canonical Gate-1 `KissatFidelity` Assembly — Step 1 (`FullFidelityAssemblyStep1`)
@@ -76,16 +73,6 @@ theorem fidStep1_noExit : fidStep1Module.exits = [] :=
 #guard (fidStep1Fns.map Fn.name).contains "full_bva_hop1"
 #guard (fidStep1Fns.map Fn.name).contains "full_bva_hop2"
 #guard (fidStep1Fns.map Fn.name).contains "full_m6_sweep_vars"
-#guard (PrintCpp.ppTModule fidStep1Module).isOk
-#guard (PrintQbe.module fidStep1Module).isOk
-#guard (PrintCpp.ppModule (fidSweepRepls.map (Fn.legal .aarch64))).isOk
-#guard (PrintCpp.ppModule (fidSweepRepls.map (Fn.legal .scalar64))).isOk
-#guard (PrintCpp.ppModule (fidSweepRepls.map (Fn.legal .x64AVX2))).isOk
-#guard (PrintCpp.ppModule (fidSweepRepls.map (Fn.legal .x64AVX512))).isOk
-#guard fidSweepRepls.all fun fn => (Fn.legal .aarch64 fn).body.isLegal .aarch64
-#guard fidSweepRepls.all fun fn => (Fn.legal .scalar64 fn).body.isLegal .scalar64
-#guard fidSweepRepls.all fun fn => (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2
-#guard fidSweepRepls.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep1
 

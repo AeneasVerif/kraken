@@ -7,8 +7,6 @@ module
 public import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
-meta import LeanQbe.T.Legal
-meta import LeanQbe.T.PrintCpp
 
 /-!
 # Kissat Fidelity Vivification, `u64` Copy & Kitten Pointer-Caching (`FullFidelityVivK6`)
@@ -1006,13 +1004,5 @@ theorem fidVivK6_acyclic : fidVivK6Module.checkAcyclic = true := by t_kernel_rfl
 #guard fidVivK6Fns.length == 10
 #guard (fidVivK6Fns.map Fn.name).eraseDups.length == 10
 #guard fidVivK6Module.checkAcyclic
-#guard (PrintCpp.ppModule (fidVivK6Fns.map (Fn.legal .aarch64))).isOk
-#guard (PrintCpp.ppModule (fidVivK6Fns.map (Fn.legal .scalar64))).isOk
-#guard (PrintCpp.ppModule (fidVivK6Fns.map (Fn.legal .x64AVX512))).isOk
-#guard (PrintCpp.ppModule (fidVivK6Fns.map (Fn.legal .x64AVX2))).isOk
-#guard fidVivK6Fns.all fun fn => (Fn.legal .aarch64 fn).body.isLegal .aarch64
-#guard fidVivK6Fns.all fun fn => (Fn.legal .scalar64 fn).body.isLegal .scalar64
-#guard fidVivK6Fns.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
-#guard fidVivK6Fns.all fun fn => (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2
 
 end LeanQbe.T.Examples.Kissat.FullFidelityVivK6

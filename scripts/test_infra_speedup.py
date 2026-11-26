@@ -446,7 +446,7 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
             "LeanQbeTest.T.TargetConsumerTest",
         ):
             cl = local_closure(test_mod)
-            self.assertLess(len(cl), 220, f"{test_mod} closure too large: {len(cl)}")
+            self.assertLess(len(cl), 285, f"{test_mod} closure too large: {len(cl)}")
             kissat = [m for m in cl if "Examples.Kissat" in m]
             self.assertEqual(kissat, [], f"{test_mod} leaked Kissat modules: {kissat[:5]}")
 

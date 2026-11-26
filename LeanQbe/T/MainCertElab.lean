@@ -110,21 +110,32 @@ def evalOneFn (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     | .error e, _ => .error s!"{nm}: {e}"
     | _, .error e => .error e
 
+/-- Deduplicate `callees` (by `SigEntry.beq`) and retain only their entries from `acc`,
+yielding a minimal literal `extCallees` table for pruned-`ext` chunk compilation (`N4`). -/
+private def pruneExtCallees (callees : List SigEntry)
+    (acc : List (SigEntry × Nat)) : List (SigEntry × Nat) :=
+  let uniq := callees.foldl (fun seen g =>
+    if seen.any (SigEntry.beq · g) then seen else seen ++ [g]) []
+  uniq.filterMap fun g => (lookupBound acc g).map fun b => (g, b)
+
 /-- Compiled meta evaluator splitting `fs` into callee-first chunks of at most `chunkSize`
 functions (clamped to `≥ 1`) and, when `maxDirs > 0`, capping each multi-function chunk at
 `maxDirs` emitted directives so heavy functions automatically receive dedicated single-function
 chunks. Threads newest-first `sigBoundsOf` accumulators matching `checkChunksExt` (and
-`compileModule`/`evalPrefixExtWithLen`) and returns pure `Lean.Expr`
-literals for every chunk. -/
+`compileModule`/`evalPrefixExtWithLen`) and returns pure `Lean.Expr` literals for every chunk.
+When `pruneExt` is `true`, each chunk's `extLit` contains only the direct `ext.callees` bounds
+looked up in `acc` (`pruneExtCallees`), avoiding O(N^2) prefix duplication while preserving
+full `finalExtLit`. -/
 def evalLinkedChunks (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (ext0 : List (SigEntry × Nat)) (exits : List Sym) (nX : Nat)
     (fs : List Fn) (chunkSize maxBound maxDirs : Nat)
+    (pruneExt : Bool := false)
     [Lean.ToExpr (List I.Hints)] [Lean.ToExpr (List I.Directive)] :
     Except String EvalModuleData := do
   let k := Nat.max chunkSize 1
   if fs.isEmpty then
     let (code, bounds) ← compileModule I lt raBytes ext0 exits nX [] []
-    let extLit := Lean.toExpr ext0
+    let extLit := Lean.toExpr (if pruneExt then ([] : List (SigEntry × Nat)) else ext0)
     pure {
       chunks := [{
         startIdx := 0
@@ -135,11 +146,11 @@ def evalLinkedChunks (I : Isa) (lt : LegalTarget) (raBytes : Nat)
         codeLit := Lean.toExpr code
         boundsLit := Lean.toExpr bounds
       }]
-      finalExtLit := extLit
+      finalExtLit := Lean.toExpr ext0
     }
   else
     -- First pass: compile every function once in parallel across worker threads, then resolve
-    -- sequential callee bounds into `(name, hint, code, bound, sig)`.
+    -- sequential callee bounds into `(name, hint, code, bound, sig, ext)`.
     let tasks := fs.map fun f => Task.spawn fun () =>
       match evalOneFnStage1 I lt f with
       | .error e => .error e
@@ -149,20 +160,20 @@ def evalLinkedChunks (I : Isa) (lt : LegalTarget) (raBytes : Nat)
         | .error e => .error s!"{nm}: {e}"
     let rec compileAll (acc : List (SigEntry × Nat)) :
         List (Task (Except String (Sym × I.Hints × List I.Directive × Rega.Ext × SigEntry))) →
-        Except String (List (Sym × I.Hints × List I.Directive × Nat × SigEntry))
+        Except String (List (Sym × I.Hints × List I.Directive × Nat × SigEntry × Rega.Ext))
       | [] => .ok []
       | t :: rest => do
         let (nm, h, c, ext, sig) ← t.get
         let b ← evalOneFnBoundCheck I raBytes exits nX maxBound acc nm h ext
         let tail ← compileAll ((sig, b) :: acc) rest
-        pure ((nm, h, c, b, sig) :: tail)
+        pure ((nm, h, c, b, sig, ext) :: tail)
     let compiled ← compileAll ext0 tasks
     -- Second pass: group into callee-first chunks honoring `chunkSize` and optional `maxDirs`.
     let rec takeChunk (cnt dirSum : Nat)
-        (revChunk : List (Sym × I.Hints × List I.Directive × Nat × SigEntry)) :
-        List (Sym × I.Hints × List I.Directive × Nat × SigEntry) →
-        List (Sym × I.Hints × List I.Directive × Nat × SigEntry) ×
-          List (Sym × I.Hints × List I.Directive × Nat × SigEntry)
+        (revChunk : List (Sym × I.Hints × List I.Directive × Nat × SigEntry × Rega.Ext)) :
+        List (Sym × I.Hints × List I.Directive × Nat × SigEntry × Rega.Ext) →
+        List (Sym × I.Hints × List I.Directive × Nat × SigEntry × Rega.Ext) ×
+          List (Sym × I.Hints × List I.Directive × Nat × SigEntry × Rega.Ext)
       | [] => (revChunk.reverse, [])
       | x :: xs =>
         let nextDirs := dirSum + x.2.2.1.length
@@ -171,7 +182,7 @@ def evalLinkedChunks (I : Isa) (lt : LegalTarget) (raBytes : Nat)
         else
           (revChunk.reverse, x :: xs)
     let rec groupChunks : Nat → Nat → List (SigEntry × Nat) →
-        List (Sym × I.Hints × List I.Directive × Nat × SigEntry) →
+        List (Sym × I.Hints × List I.Directive × Nat × SigEntry × Rega.Ext) →
         List EvalChunkData → EvalModuleData
       | 0, _, acc, _, out => { chunks := out.reverse, finalExtLit := Lean.toExpr acc }
       | _, _, acc, [], out => { chunks := out.reverse, finalExtLit := Lean.toExpr acc }
@@ -181,12 +192,18 @@ def evalLinkedChunks (I : Isa) (lt : LegalTarget) (raBytes : Nat)
         let hints := grp.map (fun x => x.2.1)
         let code := grp.foldr (fun x cs => x.2.2.1 ++ cs) []
         let bounds := grp.map (fun x => (x.1, x.2.2.2.1))
-        let sigs := grp.map (fun x => (x.2.2.2.2, x.2.2.2.1))
+        let sigs := grp.map (fun x => (x.2.2.2.2.1, x.2.2.2.1))
+        let chunkExt :=
+          if pruneExt then
+            let chunkCallees := grp.foldr (fun x cs => x.2.2.2.2.2.callees ++ cs) []
+            pruneExtCallees chunkCallees acc
+          else
+            acc
         let entry : EvalChunkData := {
           startIdx := idx
           fnCount := grp.length
           isLast := isLast
-          extLit := Lean.toExpr acc
+          extLit := Lean.toExpr chunkExt
           hintsLit := Lean.toExpr hints
           codeLit := Lean.toExpr code
           boundsLit := Lean.toExpr bounds
@@ -224,6 +241,7 @@ structure CertOptions where
   maxDirsT? : Option Term := none
   compileT? : Option Term := none
   compileExtT? : Option Term := none
+  pruneExtT? : Option Term := none
   deriving Inhabited
 
 structure CertInputs where
@@ -262,10 +280,11 @@ def parseCertOptions (optKeys : TSyntaxArray `ident) (optVals : TSyntaxArray `te
     | `maxDirs => opts := { opts with maxDirsT? := some v }
     | `compile => opts := { opts with compileT? := some v }
     | `compileExt => opts := { opts with compileExtT? := some v }
+    | `pruneExt => opts := { opts with pruneExtT? := some v }
     | _ =>
       throwErrorAt optKeys[i]!
         ("compile_linked_chunks!: unknown option '{k}'; expected " ++
-          "maxBound, ext, exits, nX, maxDirs, compile, compileExt")
+          "maxBound, ext, exits, nX, maxDirs, compile, compileExt, pruneExt")
   return opts
 
 def evalBoolOpt (opt? : Option Term) (defaultVal : Bool) : TermElabM Bool := do
@@ -309,6 +328,7 @@ def elabAndEvalChunks (targT layoutT ltT clT modT : Term) (chunkSize : Nat)
     | none => pure (mkNatLit 0)
   let compileCert ← evalBoolOpt opts.compileT? false
   let compileExt ← evalBoolOpt opts.compileExtT? false
+  let pruneExt ← evalBoolOpt opts.pruneExtT? false
   Term.synthesizeSyntheticMVarsNoPostponing
   let targE ← instantiateMVars targE
   let layoutE ← instantiateMVars layoutE
@@ -337,8 +357,9 @@ def elabAndEvalChunks (targT layoutT ltT clT modT : Term) (chunkSize : Nat)
   let labelE ← mkAppM ``LeanQbe.T.FrameIsa.label #[frameE]
   let progSmallE ← mkAppM ``LeanQbe.T.TargetLayout.progSmall #[layoutE]
   let fnsE := mkApp (Lean.mkConst ``LeanQbe.T.Module.fns) modE
+  let pruneExtE := Lean.mkConst (if pruneExt then ``Bool.true else ``Bool.false)
   let callE ← instantiateMVars (mkAppN (Lean.mkConst ``LeanQbe.T.evalLinkedChunks)
-    #[isaE, ltE, raE, ext0E, exitsE, nXE, fnsE, mkNatLit chunkSize, maxBE, maxDirsE,
+    #[isaE, ltE, raE, ext0E, exitsE, nXE, fnsE, mkNatLit chunkSize, maxBE, maxDirsE, pruneExtE,
       toExprHintsInst, toExprDirInst])
   let outTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String)
     (Lean.mkConst ``LeanQbe.T.EvalModuleData)
@@ -521,10 +542,11 @@ scoped elab_rules : command
 
 /-- Evaluates `evalOneFnBound` in order over `fs` starting from `ext0`, returning `(totalLen,
 extLit)` where `extLit` is the literal `List (SigEntry × Nat)` expression `(sig, b) :: acc`
-matching `compileModule`'s reverse accumulator order. -/
+matching `compileModule`'s reverse accumulator order. When `pruneFor?` is `some targetFns`,
+prunes the emitted literal down to only the direct callees of `targetFns` (`pruneExtCallees`). -/
 def evalPrefixExtWithLen (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (ext0 : List (SigEntry × Nat)) (exits : List Sym) (nX maxBound : Nat)
-    (fs : List Fn) : Except String (Nat × Lean.Expr) := do
+    (fs : List Fn) (pruneFor? : Option (List Fn) := none) : Except String (Nat × Lean.Expr) := do
   let tasks := fs.map fun f => Task.spawn fun () => evalOneFnBoundStage1 I lt f
   let rec go (acc : List (SigEntry × Nat)) :
       List (Task (Except String (Sym × I.Hints × Rega.Ext × SigEntry))) →
@@ -535,7 +557,16 @@ def evalPrefixExtWithLen (I : Isa) (lt : LegalTarget) (raBytes : Nat)
       let b ← evalOneFnBoundCheck I raBytes exits nX maxBound acc nm h ext
       go ((sig, b) :: acc) rest
   let out ← go ext0 tasks
-  pure (out.length, Lean.toExpr out)
+  match pruneFor? with
+  | none => pure (out.length, Lean.toExpr out)
+  | some targetFns =>
+    let tTasks := targetFns.map fun f => Task.spawn fun () => evalOneFnBoundStage1 I lt f
+    let mut callees : List SigEntry := []
+    for t in tTasks do
+      let (_, _, ext, _) ← t.get
+      callees := callees ++ ext.callees
+    let pruned := pruneExtCallees callees out
+    pure (out.length, Lean.toExpr pruned)
 
 /-- Evaluates `evalOneFnBound` in order over `fs` starting from `ext0`, returning the literal
 `List (SigEntry × Nat)` expression `(sig, b) :: acc` matching `compileModule`'s accumulator. -/
@@ -545,12 +576,14 @@ def evalPrefixExt (I : Isa) (lt : LegalTarget) (raBytes : Nat)
   Prod.snd <$> evalPrefixExtWithLen I lt raBytes ext0 exits nX maxBound fs
 
 def parsePrefixExtOptions (optKeys : TSyntaxArray `ident) (optVals : TSyntaxArray `term) :
-    CommandElabM (Option Term × Option Term × Option Term × Option Term × Option Ident) := do
+    CommandElabM
+      (Option Term × Option Term × Option Term × Option Term × Option Ident × Option Term) := do
   let mut maxBT? : Option Term := none
   let mut extT? : Option Term := none
   let mut exitsT? : Option Term := none
   let mut nXT? : Option Term := none
   let mut prefixId? : Option Ident := none
+  let mut pruneForT? : Option Term := none
   for i in [:optKeys.size] do
     let k := optKeys[i]!.getId
     let v := optVals[i]!
@@ -564,13 +597,16 @@ def parsePrefixExtOptions (optKeys : TSyntaxArray `ident) (optVals : TSyntaxArra
         prefixId? := some id
       else
         throwErrorAt v "eval_prefix_ext!: prefixDef must be an identifier"
+    | `pruneFor => pruneForT? := some v
     | _ =>
       throwErrorAt optKeys[i]!
-        "eval_prefix_ext!: unknown option '{k}'; expected maxBound, ext, exits, nX, prefixDef"
-  return (maxBT?, extT?, exitsT?, nXT?, prefixId?)
+        ("eval_prefix_ext!: unknown option '{k}'; expected " ++
+          "maxBound, ext, exits, nX, prefixDef, pruneFor")
+  return (maxBT?, extT?, exitsT?, nXT?, prefixId?, pruneForT?)
 
 def elabAndEvalPrefixExt (targT ltT fnsT : Term)
-    (maxBT? extT? exitsT? nXT? : Option Term) : TermElabM (Lean.Expr × Nat × Lean.Expr) := do
+    (maxBT? extT? exitsT? nXT? pruneForT? : Option Term) :
+    TermElabM (Lean.Expr × Nat × Lean.Expr) := do
   let targE ← Term.elabTerm targT (some (Lean.mkConst ``LeanQbe.T.Target))
   let ltE ← Term.elabTerm ltT (some (Lean.mkConst ``LeanQbe.T.LegalTarget))
   let listFnTy := mkApp (Lean.mkConst ``List [1]) (Lean.mkConst ``LeanQbe.T.Fn)
@@ -592,6 +628,11 @@ def elabAndEvalPrefixExt (targT ltT fnsT : Term)
   let maxBE ← match maxBT? with
     | some t => Term.elabTerm t (some (Lean.mkConst ``Nat))
     | none => pure (mkNatLit 2048)
+  let pruneForE ← match pruneForT? with
+    | some t =>
+      let pfE ← Term.elabTerm t (some listFnTy)
+      pure (mkApp2 (Lean.mkConst ``Option.some [1]) listFnTy pfE)
+    | none => pure (mkApp (Lean.mkConst ``Option.none [1]) listFnTy)
   Term.synthesizeSyntheticMVarsNoPostponing
   let targE ← instantiateMVars targE
   let ltE ← instantiateMVars ltE
@@ -600,11 +641,12 @@ def elabAndEvalPrefixExt (targT ltT fnsT : Term)
   let exitsE ← instantiateMVars exitsE
   let nXE ← instantiateMVars nXE
   let maxBE ← instantiateMVars maxBE
+  let pruneForE ← instantiateMVars pruneForE
   let isaE := mkApp (Lean.mkConst ``LeanQbe.T.Target.toIsa) targE
   let frameE ← mkAppM ``LeanQbe.T.Isa.frame #[isaE]
   let raE ← mkAppM ``LeanQbe.T.FrameIsa.raBytes #[frameE]
   let callE ← instantiateMVars (mkAppN (Lean.mkConst ``LeanQbe.T.evalPrefixExtWithLen)
-    #[isaE, ltE, raE, ext0E, exitsE, nXE, maxBE, fnsE])
+    #[isaE, ltE, raE, ext0E, exitsE, nXE, maxBE, fnsE, pruneForE])
   let pairTy := mkApp2 (Lean.mkConst ``Prod [.zero, .zero])
     (Lean.mkConst ``Nat) (Lean.mkConst ``Lean.Expr)
   let outTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String) pairTy
@@ -614,11 +656,13 @@ def elabAndEvalPrefixExt (targT ltT fnsT : Term)
   | .ok (total, extLit) => return (listExtTy, total, extLit)
 
 /-- `eval_prefix_ext! extName target legalTarget fnsExpr [(ext := ...)] [(exits := ...)]
-[(nX := ...)] [(maxBound := ...)] [(prefixDef := ...)]` runs `evalOneFnBound` in compiled meta
-code over `fnsExpr` starting from `ext` (default `[]`) and emits `def extName : List (SigEntry ×
-Nat) := <literal>` matching `compileModule`'s `(sig, bound) :: acc` reverse order. When
-`(prefixDef := pfxName)` is supplied, also emits `def pfxName (k : Nat) : List (SigEntry × Nat) :=
-extName.drop (total - k)` for `O(1)` prefix slicing across parallel certs. -/
+[(nX := ...)] [(maxBound := ...)] [(prefixDef := ...)] [(pruneFor := ...)]` runs
+`evalOneFnBound` in compiled meta code over `fnsExpr` starting from `ext` (default `[]`) and
+emits `def extName : List (SigEntry × Nat) := <literal>` matching `compileModule`'s
+`(sig, bound) :: acc` reverse order. When `(pruneFor := sliceFns)` is supplied, emits only the
+pruned direct callees of `sliceFns` (`pruneExtCallees`). When `(prefixDef := pfxName)` is
+supplied, also emits `def pfxName (k : Nat) : List (SigEntry × Nat) := extName.drop (total - k)`
+for `O(1)` prefix slicing across parallel certs. -/
 scoped syntax "eval_prefix_ext! " ident
     term:arg term:arg term:arg
     ("(" ident " := " term ")")* : command
@@ -627,9 +671,10 @@ scoped elab_rules : command
   | `(eval_prefix_ext! $extId $targT $ltT $fnsT $[($optKeys := $optVals)]*) => do
     let ns ← getCurrNamespace
     let extNm := ns ++ extId.getId
-    let (maxBT?, extT?, exitsT?, nXT?, prefixId?) ← parsePrefixExtOptions optKeys optVals
+    let (maxBT?, extT?, exitsT?, nXT?, prefixId?, pruneForT?) ←
+      parsePrefixExtOptions optKeys optVals
     let (listExtTy, total, extLit) ← liftTermElabM <|
-      elabAndEvalPrefixExt targT ltT fnsT maxBT? extT? exitsT? nXT?
+      elabAndEvalPrefixExt targT ltT fnsT maxBT? extT? exitsT? nXT? pruneForT?
     liftCoreM do
       addCertDef extNm listExtTy extLit
       if let some pfxId := prefixId? then

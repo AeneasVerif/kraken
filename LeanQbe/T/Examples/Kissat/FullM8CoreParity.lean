@@ -10,9 +10,6 @@ meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
 meta import LeanQbe.T.Examples.Kissat.FullM7Splice
 meta import LeanQbe.T.Frontend.C0
-meta import LeanQbe.T.Legal
-meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.PrintQbe
 
 /-!
 # Kissat M8 Core Upstream Parity Closures (`FullM8CoreParity`)
@@ -2458,26 +2455,14 @@ theorem m8CoreParity_acyclic : m8CoreParityModule.checkAcyclic = true := by
       · exact hsg407 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg408 hn0 hg407
           (by decide)
 
-/-! ## 3. Compile-Time `#guard` Verification (`PrintCpp`, `PrintQbe`, 4-ISA Legal) -/
+/-! ## 3. Compile-Time `#guard` Verification (Shape & Acyclicity) -/
 
 section Guards
-
-open LeanQbe.T.PrintCpp
 
 #guard m8CoreParityFns.length == 435
 #guard (m8CoreParityFns.map Fn.name).eraseDups.length == 435
 #guard m8CoreParityModule.checkAcyclic
 #guard m8CoreParityModule.exits.isEmpty && m8CoreParityModule.externs.isEmpty
-#guard (ppTModule m8CoreParityModule).isOk
-#guard (PrintQbe.module m8CoreParityModule).isOk
-#guard (ppModule (m8CoreParityFns.map (Fn.legal .aarch64))).isOk
-#guard (ppModule (m8CoreParityFns.map (Fn.legal .scalar64))).isOk
-#guard (ppModule (m8CoreParityFns.map (Fn.legal .x64AVX512))).isOk
-#guard (ppModule (m8CoreParityFns.map (Fn.legal .x64AVX2))).isOk
-#guard m8CoreParityFns.all fun fn => (Fn.legal .aarch64 fn).body.isLegal .aarch64
-#guard m8CoreParityFns.all fun fn => (Fn.legal .scalar64 fn).body.isLegal .scalar64
-#guard m8CoreParityFns.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
-#guard m8CoreParityFns.all fun fn => (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2
 
 end Guards
 

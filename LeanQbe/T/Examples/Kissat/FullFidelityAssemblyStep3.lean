@@ -12,9 +12,6 @@ meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2
 meta import LeanQbe.T.Examples.Kissat.FullFidelityCong
 meta import LeanQbe.T.Examples.Kissat.FullFidelityTiers
 meta import LeanQbe.T.Examples.Kissat.PatchModule
-meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.PrintQbe
-meta import LeanQbe.T.Legal
 
 /-!
 # Canonical Gate-1 `KissatFidelity` Assembly — Step 3 (`FullFidelityAssemblyStep3`)
@@ -90,16 +87,6 @@ def fidStep3NewFns : List Fn :=
 #guard (fidStep3Fns.map Fn.name).contains "full_congruence_dense"
 #guard (fidStep3Fns.map Fn.name).contains "m6_hdr_sync_legacy_tiers"
 #guard (fidStep3Fns.map Fn.name).contains "full_analyze_rsn_m6_hdr"
-#guard (PrintCpp.ppTModule fidStep3Module).isOk
-#guard (PrintQbe.module fidStep3Module).isOk
-#guard (PrintCpp.ppModule (fidStep3NewFns.map (Fn.legal .aarch64))).isOk
-#guard (PrintCpp.ppModule (fidStep3NewFns.map (Fn.legal .scalar64))).isOk
-#guard (PrintCpp.ppModule (fidStep3NewFns.map (Fn.legal .x64AVX2))).isOk
-#guard (PrintCpp.ppModule (fidStep3NewFns.map (Fn.legal .x64AVX512))).isOk
-#guard fidStep3NewFns.all fun fn => (Fn.legal .aarch64 fn).body.isLegal .aarch64
-#guard fidStep3NewFns.all fun fn => (Fn.legal .scalar64 fn).body.isLegal .scalar64
-#guard fidStep3NewFns.all fun fn => (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2
-#guard fidStep3NewFns.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3
 

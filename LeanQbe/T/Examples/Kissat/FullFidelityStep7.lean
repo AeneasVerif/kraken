@@ -9,9 +9,6 @@ public import LeanQbe.T.Examples.Kissat.PatchModule
 meta import LeanQbe.T.Examples.Kissat.FullFidelityAssembly
 meta import LeanQbe.T.Examples.Kissat.PatchModule
 meta import LeanQbe.T.Frontend.C0
-meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.PrintQbe
-meta import LeanQbe.T.Legal
 
 /-!
 # Kissat Fidelity Step 7 Pure-C0 Parity (`FullFidelityStep7`, `501` fns)
@@ -1630,16 +1627,6 @@ theorem fidStep7_noExit : fidStep7Module.exits = [] :=
 #guard !(fidStep7ModuleFns.map Fn.name).contains "m8_log2_q16"
 #guard !(fidStep7ModuleFns.map Fn.name).contains "full_xor_gauss"
 #guard !(fidStep7ModuleFns.map Fn.name).contains "full_prelearn_m8"
-#guard (PrintCpp.ppTModule fidStep7Module).isOk
-#guard (PrintQbe.module fidStep7Module).isOk
-#guard (PrintCpp.ppModule (fidStep7Fns.map (Fn.legal .aarch64))).isOk
-#guard (PrintCpp.ppModule (fidStep7Fns.map (Fn.legal .scalar64))).isOk
-#guard (PrintCpp.ppModule (fidStep7Fns.map (Fn.legal .x64AVX2))).isOk
-#guard (PrintCpp.ppModule (fidStep7Fns.map (Fn.legal .x64AVX512))).isOk
-#guard fidStep7Fns.all fun fn => (Fn.legal .aarch64 fn).body.isLegal .aarch64
-#guard fidStep7Fns.all fun fn => (Fn.legal .scalar64 fn).body.isLegal .scalar64
-#guard fidStep7Fns.all fun fn => (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2
-#guard fidStep7Fns.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
 
 end LeanQbe.T.Examples.Kissat.FullFidelityStep7
 

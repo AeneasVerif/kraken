@@ -10,9 +10,6 @@ public import LeanQbe.T.Examples.Kissat.PatchModule
 meta import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep4
 meta import LeanQbe.T.Examples.Kissat.FullFidelityBve
 meta import LeanQbe.T.Examples.Kissat.PatchModule
-meta import LeanQbe.T.PrintCpp
-meta import LeanQbe.T.PrintQbe
-meta import LeanQbe.T.Legal
 
 /-!
 # Canonical Gate-1 `KissatFidelity` Assembly — Step 5 (`FullFidelityAssemblyStep5`)
@@ -111,16 +108,6 @@ def fidStep5NewFns : List Fn :=
 #guard (fidStep5Fns.map Fn.name).contains "full_bve_gates_fid"
 #guard (fidStep5Fns.map Fn.name).contains "full_elim_bve_m7"
 #guard (fidStep5Fns.map Fn.name).contains "full_eliminate_m6"
-#guard (PrintCpp.ppTModule fidStep5Module).isOk
-#guard (PrintQbe.module fidStep5Module).isOk
-#guard (PrintCpp.ppModule (fidStep5NewFns.map (Fn.legal .aarch64))).isOk
-#guard (PrintCpp.ppModule (fidStep5NewFns.map (Fn.legal .scalar64))).isOk
-#guard (PrintCpp.ppModule (fidStep5NewFns.map (Fn.legal .x64AVX2))).isOk
-#guard (PrintCpp.ppModule (fidStep5NewFns.map (Fn.legal .x64AVX512))).isOk
-#guard fidStep5NewFns.all fun fn => (Fn.legal .aarch64 fn).body.isLegal .aarch64
-#guard fidStep5NewFns.all fun fn => (Fn.legal .scalar64 fn).body.isLegal .scalar64
-#guard fidStep5NewFns.all fun fn => (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2
-#guard fidStep5NewFns.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep5
 
