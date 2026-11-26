@@ -33,6 +33,8 @@
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
+# shellcheck source=scripts/common.sh
+source "$ROOT/scripts/common.sh"
 [ -z "${NOQBE:-}" ] ||
   { echo "all.sh: NOQBE is set, which skips the stock-QBE half of the litmus tests; unset it" >&2; exit 2; }
 unset OUT
@@ -103,9 +105,7 @@ else
   echo "== all.sh: ${#TEST_SCRIPTS[@]} suites (ALL_JOBS=$ALL_JOBS, SKIP_BUILD=${SKIP_BUILD:-0})"
   for i in "${!TEST_SCRIPTS[@]}"; do
     s="${TEST_SCRIPTS[$i]}"
-    while [ "$(jobs -rp | wc -l)" -ge "$ALL_JOBS" ]; do
-      wait -n 2>/dev/null || true
-    done
+    leanqbe_throttle_jobs "$ALL_JOBS"
     (
       unset OUT
       rc=0

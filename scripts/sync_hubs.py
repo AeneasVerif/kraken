@@ -20,44 +20,20 @@ import re
 import subprocess
 import sys
 import tomllib
-from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lean_imports import (
+    ALL_HUBS,
     IMPORT_LINE_RE,
-    LEGACY_CERT_DEFAULT,
     LEGACY_CERT_RE,
+    ROOT_LIBS,
+    SUBSYSTEM_HUBS,
     ImportStmt,
+    compute_import_closure,
     mod_to_rel_path,
-    parse_imports,
     rel_path_to_mod,
     strip_comments_line,
-)
-
-SUBSYSTEM_HUBS: tuple[str, ...] = (
-    "LeanQbe.T.CoreHub",
-    "LeanQbe.T.Frontend.C0.Hub",
-    "LeanQbe.T.LeanLCNF.Hub",
-    "LeanQbe.T.LeanLRC.Hub",
-    "LeanQbe.T.Examples.Hub",
-    "LeanQbe.T.Examples.Kissat.BaseHub",
-    "LeanQbe.T.Examples.Kissat.M3Hub",
-    "LeanQbe.T.Examples.Kissat.M4Hub",
-    "LeanQbe.T.Examples.Kissat.M5Hub",
-    "LeanQbe.T.Examples.Kissat.M6Hub",
-    "LeanQbe.T.Examples.Kissat.M7Hub",
-    "LeanQbe.T.Examples.Kissat.M8Hub",
-    "LeanQbe.T.Examples.Kissat.FidelityHub",
-)
-
-ROOT_LIBS: tuple[str, ...] = (
-    "LeanQbe",
-    "LeanQbeAmd64",
-    "LeanQbeArm64",
-    "LeanQbeLegacyAmd64",
-    "LeanQbeLegacyArm64",
-    "LeanQbeBootstrap0",
 )
 
 HUB_DOCSTRINGS: dict[str, str] = {
@@ -137,8 +113,6 @@ HUB_DOCSTRINGS: dict[str, str] = {
         "specification and proof modules.\n-/"
     ),
 }
-
-ALL_HUBS: tuple[str, ...] = ROOT_LIBS + SUBSYSTEM_HUBS
 
 
 def parse_barrel_file(path: Path) -> tuple[list[ImportStmt], list[str]]:
@@ -297,23 +271,7 @@ def compute_closure(
     import_cache: dict[str, list[ImportStmt]],
 ) -> set[str]:
     """Compute transitive import closure of `root_mod` across local files."""
-    seen: set[str] = set()
-    stack: list[str] = [root_mod]
-    while stack:
-        mod = stack.pop()
-        if mod in seen:
-            continue
-        seen.add(mod)
-        if mod not in import_cache:
-            path = root / mod_to_rel_path(mod)
-            if not path.is_file():
-                continue
-            _, imps = parse_imports(path)
-            import_cache[mod] = imps
-        for imp in import_cache[mod]:
-            if imp.module not in seen:
-                stack.append(imp.module)
-    return seen
+    return compute_import_closure([root_mod], root, import_cache=import_cache)
 
 
 ARCH_FORBIDDEN: dict[str, tuple[str, tuple[str, ...], bool]] = {

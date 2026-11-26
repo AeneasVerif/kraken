@@ -9,17 +9,23 @@ file, empty non-barrel Lean seed set, or `|rdeps| > --max-rdeps` occurs.
 from __future__ import annotations
 
 import argparse
-import collections
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lean_imports import LEGACY_CERT_RE, mod_to_rel_path, parse_imports, rel_path_to_mod
-from sync_hubs import ALL_HUBS
+from lean_imports import (
+    BARRELS,
+    collect_lean_rdeps,
+    is_kraken_path,
+    mod_to_rel_path,
+    modules_to_lake_targets,
+    read_headline_entries,
+    rel_path_to_mod,
+)
 
-BARRELS: frozenset[str] = frozenset(ALL_HUBS)
+_is_kraken_path = is_kraken_path
 
 FAIL_CLOSED_FILES: frozenset[str] = frozenset(
     {
@@ -27,24 +33,14 @@ FAIL_CLOSED_FILES: frozenset[str] = frozenset(
         "lean-toolchain",
         "lake-manifest.json",
         "scripts/check.sh",
+        "scripts/common.sh",
+        "scripts/_common.py",
         "scripts/AuditAxioms.lean",
         "scripts/rdeps_scope.py",
         "scripts/lean_imports.py",
         "scripts/sync_hubs.py",
         "scripts/check_firewall.py",
         "scripts/headline.txt",
-    }
-)
-
-KRAKEN_ROOT_FILES: frozenset[str] = frozenset(
-    {
-        "Kraken.lean",
-        "KrakenAArch64.lean",
-        "KrakenBedrock2.lean",
-        "KrakenRunnerX64.lean",
-        "KrakenRunnerAArch64.lean",
-        "Att2Intel.lean",
-        "Bedrock2C.lean",
     }
 )
 
@@ -58,25 +54,11 @@ SAFE_NONLEAN_RE = re.compile(
 )
 
 HEADLINES_D_RE = re.compile(r"^scripts/headlines\.d/[^/]+\.txt$")
-
-EXE_ROOT_TO_TARGET: dict[str, str] = {
-    "Main": "leanqbe",
-    "MainArm64": "leanqbe-arm64",
-}
-
 MAX_SMALL_HEADLINE_MODS = 30
 
 
 def _read_headline_modules(lines: list[str]) -> set[str]:
-    mods: set[str] = set()
-    for raw in lines:
-        s = raw.strip()
-        if not s or s.startswith("#"):
-            continue
-        parts = s.split()
-        if len(parts) >= 2:
-            mods.add(parts[0])
-    return mods
+    return {mod for mod, _ in read_headline_entries(lines)}
 
 
 def _is_tracked(root: Path, rel_str: str) -> bool:
@@ -132,10 +114,6 @@ def _collect_headline_seeds(
     return seeds
 
 
-def _is_kraken_path(rel: Path) -> bool:
-    return (bool(rel.parts) and rel.parts[0] == "Kraken") or (rel.name in KRAKEN_ROOT_FILES)
-
-
 def compute_rdeps(
     root: Path,
     changed: list[str],
@@ -180,62 +158,13 @@ def compute_rdeps(
     if not seeds or len(seeds) > max_rdeps:
         return None
 
-    # Build reverse import graph over all tracked/untracked non-barrel Lean modules.
-    raw_ls = subprocess.check_output(
-        [
-            "git",
-            "-C",
-            str(root),
-            "ls-files",
-            "-z",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "*.lean",
-        ]
+    return collect_lean_rdeps(
+        root,
+        seeds,
+        barrels=BARRELS,
+        include_legacy=include_legacy,
+        max_rdeps=max_rdeps,
     )
-    seed_set = set(seeds)
-    rgraph: dict[str, list[str]] = collections.defaultdict(list)
-    for blob in raw_ls.split(b"\0"):
-        if not blob:
-            continue
-        rel = Path(blob.decode("utf-8"))
-        if _is_kraken_path(rel):
-            continue
-        mod = rel_path_to_mod(rel)
-        if mod in BARRELS:
-            continue
-        if not include_legacy and mod not in seed_set:
-            if rel.parts and rel.parts[0] == "LeanQbeLegacyTest":
-                continue
-            if LEGACY_CERT_RE.match(mod):
-                continue
-        full = root / rel
-        if not full.is_file():
-            continue
-        _, imps = parse_imports(full)
-        for imp in imps:
-            if imp.module not in BARRELS:
-                rgraph[imp.module].append(mod)
-
-    seen = set(seeds)
-    q: collections.deque[str] = collections.deque(seeds)
-    while q:
-        cur = q.popleft()
-        for nxt in rgraph.get(cur, ()):
-            if nxt not in seen:
-                seen.add(nxt)
-                if len(seen) > max_rdeps:
-                    return None
-                q.append(nxt)
-
-    return sorted(seen)
-
-
-def modules_to_lake_targets(mods: list[str]) -> list[str]:
-    """Map executable root modules (`Main`, `MainArm64`) to Lake exe targets."""
-    targets = [EXE_ROOT_TO_TARGET.get(m, m) for m in mods]
-    return sorted(set(targets))
 
 
 def main(argv: list[str] | None = None) -> int:

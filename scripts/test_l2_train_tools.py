@@ -17,6 +17,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS_DIR.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+import _common  # noqa: E402
 import l2_audit as l2  # noqa: E402
 import merge_train as mt  # noqa: E402
 import prune_worktrees as pw  # noqa: E402
@@ -326,6 +327,68 @@ class TestL2Audit(unittest.TestCase):
         self.assertIn("MemoryMax=12G", cmd)
         self.assertIn("OOMPolicy=kill", cmd)
 
+    def test_common_run_cgroup_and_build_cmd(self) -> None:
+        scoped = _common.build_cgroup_cmd(
+            ["lake", "build"],
+            memory_max="10G",
+            timeout_sec=60,
+            env_vars={"LAKE_ARTIFACT_CACHE": "true"},
+            unit_name="u-test",
+            use_systemd=True,
+        )
+        self.assertEqual(
+            scoped,
+            [
+                "systemd-run",
+                "--user",
+                "--scope",
+                "--quiet",
+                "--unit=u-test",
+                "--slice=leanqbe-builds.slice",
+                "-p",
+                "MemoryMax=10G",
+                "-p",
+                "MemorySwapMax=0",
+                "-p",
+                "OOMPolicy=kill",
+                "timeout",
+                "--foreground",
+                "60",
+                "env",
+                "LAKE_ARTIFACT_CACHE=true",
+                "lake",
+                "build",
+            ],
+        )
+        direct = _common.build_cgroup_cmd(
+            ["lake", "build"], timeout_sec=0, use_systemd=False
+        )
+        self.assertEqual(direct, ["lake", "build"])
+
+        seen: list[tuple[list[str], dict[str, object]]] = []
+
+        def fake_runner(
+            cmd: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            seen.append((cmd, kwargs))
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="ok\n", stderr=""
+            )
+
+        proc = _common.run_cgroup(
+            ["lake", "build"],
+            memory_max="8G",
+            timeout_sec=30,
+            use_systemd=False,
+            runner=fake_runner,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(
+            seen[0][0], ["timeout", "--foreground", "30", "lake", "build"]
+        )
+
     def test_audit_static_hygiene_grandfathered_loc(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             repo = Path(td)
@@ -459,18 +522,53 @@ class TestL2Audit(unittest.TestCase):
             self.assertLessEqual(len(g["modules"]), 12)
             seen.extend(g["modules"])
         self.assertEqual(sorted(seen), sorted(mods))
+        active_groups = [g for g in groups if g["headline_consts"] > 0]
+        self.assertGreaterEqual(len(active_groups), 1)
 
-        fake_proc = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="AXIOM_GROUP ok\n", stderr=""
-        )
+        # Compiled `audit_axioms` backend: single combined manifest invocation.
+        manifests: list[str] = []
+
+        def fake_bin_run(
+            cmd: list[str], **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            manifests.append(Path(cmd[-1]).read_text(encoding="utf-8"))
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0,
+                stdout="audit_axioms: TOTAL ok\n",
+                stderr="",
+            )
+
         with (
+            mock.patch.object(
+                l2, "resolve_audit_axioms_bin", return_value=Path("/tmp/fake_audit_axioms")
+            ),
             mock.patch.object(l2, "systemd_scope_available", return_value=False),
-            mock.patch.object(l2.subprocess, "run", return_value=fake_proc) as m_run,
+            mock.patch.object(l2.subprocess, "run", side_effect=fake_bin_run) as m_bin,
         ):
             live = l2.run_axiom_audit(REPO_ROOT, mods, dry_run=False)
         self.assertEqual(live["status"], "pass")
-        self.assertEqual(m_run.call_count, len(groups))
-        self.assertEqual(len(live["chunk_runs"]), len(groups))
+        self.assertEqual(live["backend"], "audit_axioms")
+        self.assertEqual(m_bin.call_count, 1)
+        self.assertEqual(len(live["chunk_runs"]), len(active_groups))
+        self.assertIn(f"GROUP {active_groups[0]['group']}", manifests[0])
+
+        # Safe fallback when `audit_axioms` binary is unavailable.
+        fake_fb = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="audit_axioms [generic_1]: ok\n", stderr=""
+        )
+        with (
+            mock.patch.object(l2, "resolve_audit_axioms_bin", return_value=None),
+            mock.patch.object(l2, "systemd_scope_available", return_value=False),
+            mock.patch.object(l2.subprocess, "run", return_value=fake_fb) as m_fb,
+        ):
+            fb = l2.run_axiom_audit(REPO_ROOT, mods, dry_run=False)
+        self.assertEqual(fb["status"], "pass")
+        self.assertEqual(fb["backend"], "lean_run_fallback")
+        self.assertEqual(m_fb.call_count, len(active_groups))
+        self.assertEqual(len(fb["chunk_runs"]), len(active_groups))
+        for call in m_fb.call_args_list:
+            self.assertIn("AuditAxioms.lean", " ".join(call.args[0]))
 
     def test_live_kernel_axiom_audit_cached_module(self) -> None:
         if os.environ.get("CHECK_NO_LAKE_TESTS") == "1":
@@ -483,7 +581,11 @@ class TestL2Audit(unittest.TestCase):
             REPO_ROOT, ["LeanQbeTest.T.Amd64FrameTest"], dry_run=False
         )
         self.assertEqual(res["status"], "pass", res)
-        self.assertIn("AXIOM_GROUP x64", str(res["stdout"]))
+        self.assertIn("x64", str(res["stdout"]))
+        self.assertTrue(
+            "audit_axioms" in str(res["stdout"]) or "AXIOM_GROUP" in str(res["stdout"]),
+            str(res["stdout"]),
+        )
 
 
 class TestMergeTrain(unittest.TestCase):

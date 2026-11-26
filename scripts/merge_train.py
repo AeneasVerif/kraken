@@ -18,7 +18,6 @@ Combines candidate branches onto `--base` (`leanqbe/main`):
 from __future__ import annotations
 
 import argparse
-import collections
 import contextlib
 import fcntl
 import json
@@ -33,24 +32,31 @@ from typing import Callable, Iterator, TypeVar
 SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+from _common import (  # noqa: E402
+    ensure_worktree,
+    git_dirty_paths,
+    resolve_commit,
+    resolve_script,
+    run_git,
+    try_resolve_commit,
+)
 from l2_audit import (  # noqa: E402
     CORE_TRIGGER_RE,
     execute_lake_build,
     plan_rdeps_and_canary,
-    resolve_commit,
     run_firewall_check,
     run_merge_tree,
     run_sync_hubs_check,
 )
 from lean_imports import (  # noqa: E402
-    IMPORT_LINE_RE,
-    LEGACY_CERT_RE,
+    BARRELS,
+    ROOT_LIBS,
+    collect_lean_rdeps,
+    is_kraken_path as _is_kraken_path,
     parse_imports,
+    parse_imports_text,
     rel_path_to_mod,
-    strip_comments_line,
 )
-from rdeps_scope import BARRELS, _is_kraken_path  # noqa: E402
-from sync_hubs import ROOT_LIBS  # noqa: E402
 
 T = TypeVar("T")
 
@@ -166,19 +172,9 @@ def _diff_name_status(
     repo: Path, base_sha: str, target_sha: str
 ) -> tuple[list[str], set[str], set[str]]:
     """Return `(changed_paths, deleted_paths, renamed_legacy_sources)`."""
-    res = subprocess.run(
-        ["git", "-C", str(repo), "diff", "--name-status", f"{base_sha}...{target_sha}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    res = run_git(repo, "diff", "--name-status", f"{base_sha}...{target_sha}")
     if res.returncode != 0:
-        res = subprocess.run(
-            ["git", "-C", str(repo), "diff", "--name-status", base_sha, target_sha],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        res = run_git(repo, "diff", "--name-status", base_sha, target_sha, check=True)
     changed: list[str] = []
     deleted: set[str] = set()
     renamed_legacy: set[str] = set()
@@ -201,39 +197,9 @@ def _diff_name_status(
     return sorted(set(changed)), deleted, renamed_legacy
 
 
-def _parse_imports_from_text(text: str) -> list[str]:
-    """Extract imported module names from a Lean file string."""
-    uses_module_system = False
-    seen_header = False
-    mods: list[str] = []
-    depth = 0
-    for raw_line in text.splitlines():
-        s, depth, _ = strip_comments_line(raw_line, depth)
-        if not s:
-            continue
-        if not seen_header and s in ("module", "prelude"):
-            if s == "module":
-                uses_module_system = True
-            seen_header = True
-            continue
-        m = IMPORT_LINE_RE.match(s)
-        if m:
-            seen_header = True
-            _ = uses_module_system
-            mods.append(m.group(4))
-            continue
-        if seen_header or depth == 0:
-            break
-    return mods
-
-
 def _ls_tree_lean_oids(repo: Path, rev: str) -> dict[str, str]:
     """Return `{repo_rel_path: blob_oid}` for all `.lean` files at `rev`."""
-    res = subprocess.run(
-        ["git", "-C", str(repo), "ls-tree", "-r", "-z", rev],
-        capture_output=True,
-        check=False,
-    )
+    res = run_git(repo, "ls-tree", "-r", "-z", rev, text=False)
     if res.returncode != 0:
         return {}
     out: dict[str, str] = {}
@@ -288,59 +254,36 @@ def compute_commit_lean_rdeps(
         return None if touched_barrels else []
 
     head_oids = _ls_tree_lean_oids(repo, "HEAD")
-    dirty_res = subprocess.run(
-        ["git", "-C", str(repo), "status", "--porcelain"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    dirty_paths = {
-        ln[3:].split(" -> ")[-1].strip()
-        for ln in dirty_res.stdout.splitlines()
-        if len(ln) > 3
-    }
-
+    dirty_paths = git_dirty_paths(repo)
     cache = import_cache if import_cache is not None else {}
-    rgraph: dict[str, list[str]] = collections.defaultdict(list)
-    for path, oid in tree_oids.items():
-        rel = Path(path)
-        if _is_kraken_path(rel):
-            continue
-        mod = rel_path_to_mod(rel)
-        if mod in BARRELS:
-            continue
-        if not include_legacy and mod not in seeds:
-            if rel.parts and rel.parts[0] == "LeanQbeLegacyTest":
-                continue
-            if LEGACY_CERT_RE.match(mod):
-                continue
+
+    def read_commit_imports(rel: Path) -> list[str]:
+        path = rel.as_posix()
+        oid = tree_oids[path]
         imps = cache.get(oid)
         if imps is None:
             disk_p = repo / rel
             if head_oids.get(path) == oid and path not in dirty_paths and disk_p.is_file():
                 imps = [stmt.module for stmt in parse_imports(disk_p)[1]]
             else:
-                blob = subprocess.run(
-                    ["git", "-C", str(repo), "cat-file", "blob", oid],
-                    capture_output=True,
-                    text=True,
-                    check=False,
+                blob = run_git(repo, "cat-file", "blob", oid)
+                imps = (
+                    [stmt.module for stmt in parse_imports_text(blob.stdout)[1]]
+                    if blob.returncode == 0
+                    else []
                 )
-                imps = _parse_imports_from_text(blob.stdout) if blob.returncode == 0 else []
             cache[oid] = imps
-        for imp_mod in imps:
-            if imp_mod not in BARRELS:
-                rgraph[imp_mod].append(mod)
+        return imps
 
-    seen = set(seeds)
-    q: collections.deque[str] = collections.deque(sorted(seeds))
-    while q:
-        cur = q.popleft()
-        for nxt in rgraph.get(cur, ()):
-            if nxt not in seen:
-                seen.add(nxt)
-                q.append(nxt)
-    return sorted(seen)
+    return collect_lean_rdeps(
+        repo,
+        seeds,
+        lean_rel_paths=[Path(p) for p in tree_oids],
+        read_imports_fn=read_commit_imports,
+        barrels=BARRELS,
+        include_legacy=include_legacy,
+        max_rdeps=None,
+    )
 
 
 def classify_branch(
@@ -463,21 +406,7 @@ def _check_pairwise_merge_tree(
     repo: Path, base_sha: str, a: Candidate, b: Candidate
 ) -> tuple[bool, list[str]]:
     """Run zero-disk 3-way `git merge-tree --write-tree` for two candidates."""
-    res = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo),
-            "merge-tree",
-            "--write-tree",
-            f"--merge-base={base_sha}",
-            a.sha,
-            b.sha,
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    res = run_git(repo, "merge-tree", "--write-tree", f"--merge-base={base_sha}", a.sha, b.sha)
     if res.returncode == 0:
         return True, []
     lines = [ln for ln in res.stdout.splitlines() if "CONFLICT" in ln]
@@ -600,20 +529,8 @@ def _try_resolve_branch_ref(repo: Path, base_ref: str) -> str | None:
         return None
     else:
         cand = f"refs/heads/{base_ref}"
-    res = subprocess.run(
-        ["git", "-C", str(repo), "show-ref", "--verify", "--quiet", cand],
-        capture_output=True,
-        check=False,
-    )
+    res = run_git(repo, "show-ref", "--verify", "--quiet", cand)
     return cand if res.returncode == 0 else None
-
-
-def _try_resolve_commit(repo: Path, ref: str) -> str | None:
-    """Resolve `ref` to commit SHA, returning None if unresolvable."""
-    try:
-        return resolve_commit(repo, ref)
-    except RuntimeError:
-        return None
 
 
 def cas_update_ref(
@@ -626,7 +543,7 @@ def cas_update_ref(
     full_ref = (
         branch_ref if branch_ref.startswith("refs/") else f"refs/heads/{branch_ref}"
     )
-    actual_sha = _try_resolve_commit(repo, full_ref)
+    actual_sha = try_resolve_commit(repo, full_ref)
     if actual_sha != expected_old_sha:
         return {
             "status": "fail",
@@ -643,12 +560,7 @@ def cas_update_ref(
             "new_sha": new_sha,
             "noop": True,
         }
-    anc = subprocess.run(
-        ["git", "-C", str(repo), "merge-base", "--is-ancestor", expected_old_sha, new_sha],
-        capture_output=True,
-        check=False,
-    )
-    if anc.returncode != 0:
+    if run_git(repo, "merge-base", "--is-ancestor", expected_old_sha, new_sha).returncode != 0:
         return {
             "status": "fail",
             "reason": "not_fast_forward",
@@ -657,21 +569,11 @@ def cas_update_ref(
             "new_sha": new_sha,
         }
 
-    sym = subprocess.run(
-        ["git", "-C", str(repo), "symbolic-ref", "-q", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    sym = run_git(repo, "symbolic-ref", "-q", "HEAD")
     checked_out = sym.stdout.strip() if sym.returncode == 0 else None
     if checked_out == full_ref:
-        head_sha = _try_resolve_commit(repo, "HEAD")
-        dirty = subprocess.run(
-            ["git", "-C", str(repo), "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        head_sha = try_resolve_commit(repo, "HEAD")
+        dirty = run_git(repo, "status", "--porcelain")
         if head_sha != expected_old_sha or dirty.stdout.strip():
             return {
                 "status": "fail",
@@ -680,12 +582,7 @@ def cas_update_ref(
                 "expected": expected_old_sha,
                 "head_sha": head_sha,
             }
-        ff = subprocess.run(
-            ["git", "-C", str(repo), "merge", "--ff-only", new_sha],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        ff = run_git(repo, "merge", "--ff-only", new_sha)
         if ff.returncode != 0:
             return {
                 "status": "fail",
@@ -694,12 +591,7 @@ def cas_update_ref(
                 "output": (ff.stderr or ff.stdout).strip()[:400],
             }
     else:
-        upd = subprocess.run(
-            ["git", "-C", str(repo), "update-ref", full_ref, new_sha, expected_old_sha],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        upd = run_git(repo, "update-ref", full_ref, new_sha, expected_old_sha)
         if upd.returncode != 0:
             return {
                 "status": "fail",
@@ -844,12 +736,7 @@ def check_n8_shard_policy(
     """Enforce N8: block partial `TRAIN_SHARD` PRs unless integrated train."""
     if allow_shard or branch.startswith(("leanqbe/train/", "refs/heads/leanqbe/train/")):
         return True, ""
-    res = subprocess.run(
-        ["git", "-C", str(repo), "log", "-1", "--format=%B", sha],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    res = run_git(repo, "log", "-1", "--format=%B", sha)
     msg = res.stdout if res.returncode == 0 else ""
     if TRAIN_SHARD_RE.search(msg) and not STANDALONE_GREEN_RE.search(msg):
         return False, "commit marked TRAIN_SHARD (merge into leanqbe/train/<id> first)"
@@ -916,16 +803,9 @@ def dry_run_test_subset(
     conflicts: list[dict[str, object]] = []
     changed_union: set[str] = set()
     for cand in subset:
-        diff_res = subprocess.run(
-            ["git", "-C", str(repo), "diff", "--name-only", f"{base_sha}...{cand.sha}"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        diff_res = run_git(repo, "diff", "--name-only", f"{base_sha}...{cand.sha}")
         if diff_res.returncode == 0:
-            changed_union.update(
-                ln.strip() for ln in diff_res.stdout.splitlines() if ln.strip()
-            )
+            changed_union.update(ln.strip() for ln in diff_res.stdout.splitlines() if ln.strip())
 
     # Check pairwise 3-way mergeability across all pairs in `subset`.
     for i in range(len(subset)):
@@ -950,39 +830,12 @@ def dry_run_test_subset(
 
 def ensure_staging_worktree(repo: Path, wt: Path, base_sha: str) -> None:
     """Create or reset staging worktree while preserving `.lake/build`."""
-    wt = wt.resolve()
-    if not (wt / ".git").exists():
-        wt.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "-C", str(repo), "worktree", "add", "--detach", str(wt), base_sha],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    else:
-        subprocess.run(
-            ["git", "-C", str(wt), "merge", "--abort"],
-            capture_output=True,
-            check=False,
-        )
-        subprocess.run(
-            ["git", "-C", str(wt), "reset", "--hard", base_sha],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(wt), "clean", "-fd", "-e", ".lake"],
-            capture_output=True,
-            check=False,
-        )
+    ensure_worktree(repo, wt, base_sha, checkout_detached=False)
 
 
 def _sync_hubs_write(wt: Path) -> tuple[bool, str]:
     """Run `sync_hubs.py --write` and commit updated hubs if modified."""
-    script = wt / "scripts" / "sync_hubs.py"
-    if not script.is_file():
-        script = SCRIPTS_DIR / "sync_hubs.py"
+    script = resolve_script(wt, "sync_hubs.py", SCRIPTS_DIR)
     res = subprocess.run(
         ["timeout", "60", sys.executable, "-B", str(script), "--root", str(wt), "--write"],
         capture_output=True,
@@ -991,30 +844,10 @@ def _sync_hubs_write(wt: Path) -> tuple[bool, str]:
     )
     if res.returncode != 0:
         return False, (res.stderr or res.stdout).strip()[:400]
-    st = subprocess.run(
-        ["git", "-C", str(wt), "status", "--porcelain"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    st = run_git(wt, "status", "--porcelain", check=True)
     if st.stdout.strip():
-        subprocess.run(
-            ["git", "-C", str(wt), "add", "-A"],
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(wt),
-                "commit",
-                "-m",
-                "chore(hubs): sync_hubs --write",
-            ],
-            check=True,
-            capture_output=True,
-        )
+        run_git(wt, "add", "-A", check=True)
+        run_git(wt, "commit", "-m", "chore(hubs): sync_hubs --write", check=True)
     return True, res.stdout.strip()[:400]
 
 
@@ -1029,26 +862,9 @@ def stage_and_verify_subset(
     """Combine `subset` in staging worktree `wt`, sync hubs, and build `--wfail`."""
     ensure_staging_worktree(repo, wt, base_sha)
     for cand in subset:
-        mres = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(wt),
-                "merge",
-                "--no-edit",
-                "--no-ff",
-                cand.sha,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        mres = run_git(wt, "merge", "--no-edit", "--no-ff", cand.sha)
         if mres.returncode != 0:
-            subprocess.run(
-                ["git", "-C", str(wt), "merge", "--abort"],
-                capture_output=True,
-                check=False,
-            )
+            run_git(wt, "merge", "--abort")
             return False, {
                 "reason": "staging_merge_conflict",
                 "branch": cand.branch,
@@ -1067,12 +883,7 @@ def stage_and_verify_subset(
     if fw_chk["status"] != "pass":
         return False, {"reason": "check_firewall_failed", "detail": fw_chk}
 
-    diff_res = subprocess.run(
-        ["git", "-C", str(wt), "diff", "--name-only", base_sha, "HEAD"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    diff_res = run_git(wt, "diff", "--name-only", base_sha, "HEAD", check=True)
     changed = [ln.strip() for ln in diff_res.stdout.splitlines() if ln.strip()]
     rdeps_info = plan_rdeps_and_canary(wt, changed, base_sha)
     targets: list[str] = rdeps_info["build_targets"]  # type: ignore[assignment]
@@ -1234,7 +1045,7 @@ def _execute_lane_batch(
     branch_ref = _try_resolve_branch_ref(repo, base_ref)
     if execute and merged_sha:
         if branch_ref is not None:
-            cur_ref_sha = _try_resolve_commit(repo, branch_ref)
+            cur_ref_sha = try_resolve_commit(repo, branch_ref)
             if cur_ref_sha != stage_base_sha:
                 cas_res = {
                     "status": "fail",
@@ -1258,7 +1069,7 @@ def _execute_lane_batch(
                 build_lane=build_lane,
             )
             if fast_land_res["status"] == "pass" and branch_ref is not None:
-                post_sha = _try_resolve_commit(repo, branch_ref)
+                post_sha = try_resolve_commit(repo, branch_ref)
                 if post_sha == stage_base_sha:
                     cas_res = cas_update_ref(
                         repo, branch_ref, merged_sha, stage_base_sha
