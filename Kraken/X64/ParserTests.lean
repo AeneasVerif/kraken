@@ -109,6 +109,21 @@ info: ⸨prog|
 #check ⸨prog| movq (%rsi, %r15, 8), %rax ⸩
 -- Expected: [.Instr { address_size := .W64, operation_size := .W64, operation := .mov (.Reg (.low .rax .W64)) (.mem .rsi (some .r15) 8 0) }]
 
+-- Test: a leading 0 marks an octal number, as in GNU as
+/--
+info: ⸨prog|
+  movq $27, %rax⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog| movq $033, %rax ⸩
+
+/--
+info: ⸨prog|
+  movq -8(%rsi, %r15, 8), %rax⸩ : List _root_.Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog| movq -010(%rsi, %r15, 010), %rax ⸩
+
 -- Test: movsx/movzx with a memory source, movslq and movsxd
 /--
 info: ⸨prog|

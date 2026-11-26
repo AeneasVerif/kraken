@@ -286,6 +286,21 @@ info: ⸨prog|
 #guard_msgs (whitespace := lax) in
 #check ⸨prog| add x0, x1, #0b1010 ⸩
 
+-- Test: a leading 0 marks an octal number, as in GNU as
+/--
+info: ⸨prog|
+  add x0, x1, #27⸩ : List Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog| add x0, x1, #033 ⸩
+
+/--
+info: ⸨prog|
+  ldur x0, [x1, #-8]⸩ : List Directive
+-/
+#guard_msgs (whitespace := lax) in
+#check ⸨prog| ldr x0, [x1, #-010] ⸩
+
 -- Test: ADD_s with shifted register operand
 /--
 info: ⸨prog|
