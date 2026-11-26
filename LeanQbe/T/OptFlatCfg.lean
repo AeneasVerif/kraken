@@ -362,6 +362,19 @@ def findFirstJumpFlat {rs : List Ty} :
   | fuel + 1, inLD, inLE, .jnz _ t _ => findFirstJumpFlat fuel inLD inLE t
   | _ + 1, _, _, _ => none
 
+/-- Direct `TFlat` mirror of `IfOptImpl.findFirstJumpStore`. -/
+def findFirstJumpStoreFlat {rs : List Ty} :
+    Nat → Nat → Trie ((ts : List Ty) × JLabel KL ts) → TFlat rs → Option (TaggedTarget KL)
+  | 0, _, _, _ => none
+  | _ + 1, inLD, inLE, .jump (ts := ts) j _ =>
+    match resolveLabel inLD inLE ts j with
+    | some (.tag id lbl) => some ⟨ts, id, lbl⟩
+    | _ => none
+  | fuel + 1, inLD, inLE, .let_ _ k => findFirstJumpStoreFlat fuel inLD inLE k
+  | fuel + 1, inLD, inLE, .load _ _ k => findFirstJumpStoreFlat fuel inLD inLE k
+  | fuel + 1, inLD, inLE, .store _ _ k => findFirstJumpStoreFlat fuel inLD inLE k
+  | _ + 1, _, _, _ => none
+
 /-- Direct `TFlat` mirror of `IfOptImpl.checkArm` (structurally recursive on `tf` for kernel
 reduction without `WellFounded.fix`). -/
 def checkArmFlat (tgt : ArmTarget)
@@ -398,20 +411,128 @@ def checkArmFlat (tgt : ArmTarget)
   | _ => none
 termination_by structural tf
 
+/-- Direct `TFlat` mirror of `IfOptImpl.checkStoreTail` (structurally recursive on `tf` for kernel
+reduction without `WellFounded.fix`). -/
+def checkStoreTailFlat (tgt : ArmTarget)
+    (letFuel inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts))
+    {rs : List Ty} (tf : TFlat rs) : Option StoreTail :=
+  match tf with
+  | .let_ op k =>
+    if isSafeOp op.code then
+      match letFuel with
+      | 0 => none
+      | letFuel' + 1 => (checkStoreTailFlat tgt letFuel' inLD inLE k).map .let_
+    else none
+  | .jump (ts := ts) j _ =>
+    match resolveLabel inLD inLE ts j with
+    | some jl =>
+      match tgt, jl with
+      | .loc jId jTs, .loc id
+      | .tag jId jTs, .tag id _ =>
+        if id == jId && Ty.listBeq ts jTs then some .jump else none
+      | _, _ => none
+    | none => none
+  | .ret _ =>
+    match tgt with
+    | .ret => some .ret
+    | _ => none
+  | _ => none
+termination_by structural tf
+
+/-- Direct `TFlat` mirror of `IfOptImpl.checkStoreArm` (structurally recursive on `tf` for kernel
+reduction without `WellFounded.fix`). -/
+def checkStoreArmFlat (tgt : ArmTarget) (allowNewLoads : Bool)
+    (letFuel loadFuel : Nat) (tbl : SymTbl) (hits : List Nat)
+    (inVD : Nat) (inVE : Trie ((t : Ty) × IVal K t))
+    (inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts))
+    {rs : List Ty} (tf : TFlat rs) : Option (StoreArmPlan × SymTbl) :=
+  match tf with
+  | .let_ (ts := ts) op k =>
+    if isSafeOp op.code then
+      match letFuel with
+      | 0 => none
+      | letFuel' + 1 =>
+        let args' := resolveEnvArgs inVD inVE op.args
+        let (resKeys, tbl') := tbl.internOp op.code (tupIKeys args')
+        let wrapped := dummyKeyIVals (V := K) ts resKeys
+        (checkStoreArmFlat tgt allowNewLoads letFuel' loadFuel tbl' hits
+          (inVD + ts.length) (insertTupEnv inVD inVE wrapped) inLD inLE k).map
+          fun (ap, tbl'') => ({ ap with step := .let_ ap.step }, tbl'')
+    else none
+  | .load t a k =>
+    let aKey := ikey (resolveEnvArg inVD inVE a)
+    match findSymLoad tbl.loads t aKey with
+    | some entry =>
+      let hits' := if hits.contains entry.slot then hits else entry.slot :: hits
+      let lv : IVal K t := (.imm default, .var entry.vn)
+      (checkStoreArmFlat tgt allowNewLoads letFuel loadFuel tbl hits'
+        (inVD + 1) (inVE.insert inVD ⟨t, lv⟩) inLD inLE k).map
+        fun (ap, tbl') => ({ ap with step := .loadReuse entry.slot ap.step }, tbl')
+    | none =>
+      if allowNewLoads then
+        match loadFuel with
+        | 0 => none
+        | loadFuel' + 1 =>
+          let slot := tbl.loads.length
+          let vn := tbl.vnNext
+          let entry : SymLoadEntry := ⟨slot, t, aKey, vn⟩
+          let tbl' : SymTbl := { tbl with vnNext := vn + 1, loads := tbl.loads ++ [entry] }
+          let hits' := slot :: hits
+          let lv : IVal K t := (.imm default, .var vn)
+          (checkStoreArmFlat tgt allowNewLoads letFuel loadFuel' tbl' hits'
+            (inVD + 1) (inVE.insert inVD ⟨t, lv⟩) inLD inLE k).map
+            fun (ap, tbl'') => ({ ap with step := .loadEmit ap.step }, tbl'')
+      else none
+  | .store (t := st) _ a tail =>
+    let aKey := ikey (resolveEnvArg inVD inVE a)
+    (checkStoreTailFlat tgt letFuel inLD inLE tail).map fun tailPlan =>
+      ({ step := .store tailPlan, storeTy := st, storeAddr := aKey, hitSlots := hits }, tbl)
+  | _ => none
+termination_by structural tf
+
+/-- Direct `TFlat` mirror of `IfOptImpl.checkStoreArms`. -/
+def checkStoreArmsFlat (bitsOnly : Bool) (tgt : ArmTarget)
+    (inVD : Nat) (inVE : Trie ((t : Ty) × IVal K t))
+    (inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts))
+    (outVD : Nat) {rs : List Ty} (t e : TFlat rs) : Option StoreDiamondPlan := do
+  let tbl0 : SymTbl := ⟨outVD, [], []⟩
+  let (apT, tbl1) ← checkStoreArmFlat tgt true 12 2 tbl0 [] inVD inVE inLD inLE t
+  guard (isSelectTyWith bitsOnly apT.storeTy)
+  let (apE, _) ← checkStoreArmFlat tgt false 12 0 tbl1 [] inVD inVE inLD inLE e
+  match tyDecEq apT.storeTy apE.storeTy with
+  | isFalse _ => none
+  | isTrue _ =>
+    guard (fKeyBeq apT.storeAddr apE.storeAddr)
+    let numLoads := tbl1.loads.length
+    guard ((List.range numLoads).all fun s => apE.hitSlots.contains s)
+    pure ⟨apT.step, apE.step, apT.storeTy, numLoads⟩
+
 /-- Direct `TFlat` mirror of `IfOptImpl.checkDiamondWith`. -/
 def checkDiamondFlat (bitsOnly : Bool) (jId : Nat) (jTs : List Ty)
-    (inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts)) {rs : List Ty} :
+    (inVD : Nat) (inVE : Trie ((t : Ty) × IVal K t))
+    (inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts))
+    (outVD : Nat) {rs : List Ty} :
     TFlat rs → Option DiamondPlan
-  | .let_ _ k => (checkDiamondFlat bitsOnly jId jTs inLD inLE k).map .let_
-  | .load _ _ k => (checkDiamondFlat bitsOnly jId jTs inLD inLE k).map .load
-  | .store _ _ k => (checkDiamondFlat bitsOnly jId jTs inLD inLE k).map .store
-  | .call _ _ _ k => (checkDiamondFlat bitsOnly jId jTs inLD inLE k).map .call
+  | .let_ (ts := ts) _ k =>
+    let wrapped := dummyIVals (V := K) ts outVD
+    (checkDiamondFlat bitsOnly jId jTs (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
+      inLD inLE (outVD + ts.length) k).map .let_
+  | .load t _ k =>
+    let inVE' := inVE.insert inVD ⟨t, (.imm default, .var outVD)⟩
+    (checkDiamondFlat bitsOnly jId jTs (inVD + 1) inVE' inLD inLE (outVD + 1) k).map .load
+  | .store _ _ k =>
+    (checkDiamondFlat bitsOnly jId jTs inVD inVE inLD inLE outVD k).map .store
+  | .call _ bs _ k =>
+    let wrapped := dummyIVals (V := K) bs outVD
+    (checkDiamondFlat bitsOnly jId jTs (inVD + bs.length) (insertTupEnv inVD inVE wrapped)
+      inLD inLE (outVD + bs.length) k).map .call
   | .jnz _ t e =>
     if isSelectSigWith bitsOnly jTs then
       match checkArmFlat (.loc jId jTs) 2 4 inLD inLE t,
             checkArmFlat (.loc jId jTs) 2 4 inLD inLE e with
       | some (pT, _), some (pE, _) => some (.jnz pT pE)
-      | _, _ => none
+      | _, _ =>
+        (checkStoreArmsFlat bitsOnly (.loc jId jTs) inVD inVE inLD inLE outVD t e).map .jnzStore
     else none
   | _ => none
 
@@ -467,6 +588,11 @@ def emitSelectTupIValFlat {rs : List Ty} (c : Arg K .bool) :
     emitSelectTupIValFlat c ts od' asT asE fun od'' rs' =>
     cont od'' (r, rs')
 
+/-- Direct `TFlat` mirror of `IfOptImpl.emitSelectTy`. -/
+def emitSelectTyFlat {rs : List Ty} (c : Arg K .bool) (t : Ty) (outVD : Nat)
+    (aT aE : Arg (IVal K) t) (cont : Nat → Arg K t → TFlat rs) : TFlat rs :=
+  emitSelectTyIValFlat c t outVD aT aE fun od' r => cont od' (iout r)
+
 /-- Direct `TFlat` mirror of `IfOptImpl.emitSelectTup`. -/
 def emitSelectTupFlat {rs : List Ty} (c : Arg K .bool) (ts : List Ty) (outVD : Nat)
     (asT asE : Tup (Arg (IVal K)) ts)
@@ -509,12 +635,87 @@ def hoistJnzArmsFlat {rs : List Ty} (jTs : List Ty)
   hoistArmFlat jTs pE e inVD inVE od₁ fun od₂ argsE =>
   emitSelectTupFlat c jTs od₂ argsT argsE fin
 
+/-- Direct `TFlat` mirror of `IfOptImpl.hoistStoreTail`. -/
+def hoistStoreTailFlat {rs : List Ty} (jTs : List Ty) :
+    StoreTail → TFlat rs → Nat → Trie ((t : Ty) × IVal K t) → Nat →
+    (Nat → Tup (Arg (IVal K)) jTs → TFlat rs) → TFlat rs
+  | .jump, .jump (ts := ts) _ args, inVD, inVE, outVD, cont =>
+    let args' := resolveEnvArgs inVD inVE args
+    match listTyDecEq ts jTs with
+    | isTrue h => cont outVD (h ▸ args')
+    | isFalse _ => .hlt
+  | .ret, .ret vs, inVD, inVE, outVD, cont =>
+    let vs' := resolveEnvArgs inVD inVE vs
+    match listTyDecEq rs jTs with
+    | isTrue h => cont outVD (h ▸ vs')
+    | isFalse _ => .hlt
+  | .let_ rest, .let_ (ts := ts) op k, inVD, inVE, outVD, cont =>
+    let args' := resolveEnvArgs inVD inVE op.args
+    let wrapped := freshIVals ts (Tup.levels ts outVD) outVD
+    .let_ ⟨op.code, idxArgs outVD (tupIOut args')⟩
+      (hoistStoreTailFlat jTs rest k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
+        (outVD + ts.length) cont)
+  | _, _, _, _, _, _ => .hlt
+
+/-- Direct `TFlat` mirror of `IfOptImpl.hoistStoreStep`. -/
+def hoistStoreStepFlat {rs : List Ty} (jTs : List Ty) (st : Ty) :
+    StoreStep → TFlat rs → Nat → Trie ((t : Ty) × IVal K t) → Nat →
+    List ((t : Ty) × IVal K t) →
+    (Nat → List ((t : Ty) × IVal K t) → Arg (IVal K) st → Arg (IVal K) i64 →
+      Tup (Arg (IVal K)) jTs → TFlat rs) →
+    TFlat rs
+  | .let_ rest, .let_ (ts := ts) op k, inVD, inVE, outVD, loads, cont =>
+    let args' := resolveEnvArgs inVD inVE op.args
+    let wrapped := freshIVals ts (Tup.levels ts outVD) outVD
+    .let_ ⟨op.code, idxArgs outVD (tupIOut args')⟩
+      (hoistStoreStepFlat jTs st rest k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
+        (outVD + ts.length) loads cont)
+  | .loadEmit rest, .load t a k, inVD, inVE, outVD, loads, cont =>
+    let a' := iout (resolveEnvArg inVD inVE a)
+    let iv : IVal K t := (.var outVD, .var outVD)
+    let inVE' := inVE.insert inVD ⟨t, iv⟩
+    .load t (idxArg outVD a')
+      (hoistStoreStepFlat jTs st rest k (inVD + 1) inVE' (outVD + 1) (loads ++ [⟨t, iv⟩]) cont)
+  | .loadReuse slot rest, .load t _ k, inVD, inVE, outVD, loads, cont =>
+    match loads[slot]? with
+    | some ⟨t', iv⟩ =>
+      match tyDecEq t' t with
+      | isTrue h =>
+        let inVE' := inVE.insert inVD ⟨t, h ▸ iv⟩
+        hoistStoreStepFlat jTs st rest k (inVD + 1) inVE' outVD loads cont
+      | isFalse _ => .hlt
+    | none => .hlt
+  | .store tail, .store (t := st') v a k, inVD, inVE, outVD, loads, cont =>
+    let v' := resolveEnvArg inVD inVE v
+    let a' := resolveEnvArg inVD inVE a
+    match tyDecEq st' st with
+    | isTrue h =>
+      hoistStoreTailFlat jTs tail k inVD inVE outVD fun od' exitArgs =>
+        cont od' loads (h ▸ v') a' exitArgs
+    | isFalse _ => .hlt
+  | _, _, _, _, _, _, _ => .hlt
+
+/-- Direct `TFlat` mirror of `IfOptImpl.hoistStoreArms`. -/
+def hoistStoreArmsFlat {rs : List Ty} (jTs : List Ty)
+    (sp : StoreDiamondPlan) (c : Arg K .bool) (t e : TFlat rs)
+    (inVD : Nat) (inVE : Trie ((t : Ty) × IVal K t)) (outVD : Nat)
+    (fin : Nat → Tup (Arg K) jTs → TFlat rs) : TFlat rs :=
+  hoistStoreStepFlat jTs sp.storeTy sp.armT t inVD inVE outVD [] fun od₁ loads₁ vT aT argsT =>
+  hoistStoreStepFlat jTs sp.storeTy sp.armE e inVD inVE od₁ loads₁ fun od₂ _ vE _ argsE =>
+  emitSelectTyFlat c sp.storeTy od₂ vT vE fun od₃ selVal =>
+  .store (idxArg od₃ selVal) (idxArg od₃ (iout aT))
+    (emitSelectTupFlat c jTs od₃ argsT argsE fin)
+
 /-- Direct `TFlat` mirror of `IfOptImpl.hoistDiamond`. -/
 def hoistDiamondFlat {rs : List Ty} {jTs : List Ty} (jLbl : KL jTs) :
     DiamondPlan → TFlat rs → Nat → Trie ((t : Ty) × IVal K t) → Nat → Nat → TFlat rs
   | .jnz pT pE, .jnz c t e, inVD, inVE, outVD, outLD =>
     let c' := iout (resolveEnvArg inVD inVE c)
     hoistJnzArmsFlat jTs pT pE c' t e inVD inVE outVD fun od' selArgs =>
+      .jump (idxLabel outLD jLbl) (idxArgs od' selArgs)
+  | .jnzStore sp, .jnz c t e, inVD, inVE, outVD, outLD =>
+    let c' := iout (resolveEnvArg inVD inVE c)
+    hoistStoreArmsFlat jTs sp c' t e inVD inVE outVD fun od' selArgs =>
       .jump (idxLabel outLD jLbl) (idxArgs od' selArgs)
   | .let_ rest, .let_ (ts := ts) op k, inVD, inVE, outVD, outLD =>
     let args' := resolveEnvArgs inVD inVE op.args
@@ -540,8 +741,8 @@ def hoistDiamondFlat {rs : List Ty} {jTs : List Ty} (jLbl : KL jTs) :
         (outVD + bs.length) outLD)
   | _, _, _, _, _, _ => .hlt
 
-/-- Direct `TFlat` mirror of `IfOptImpl.tryJnzDiamond`. -/
-def tryJnzDiamondFlat {rs : List Ty} (bitsOnly : Bool)
+/-- Direct `TFlat` mirror of `IfOptImpl.tryPureJnzDiamond`. -/
+def tryPureJnzDiamondFlat {rs : List Ty} (bitsOnly : Bool)
     (c : Arg K .bool) (t e : TFlat rs)
     (inVD : Nat) (inVE : Trie ((t : Ty) × IVal K t))
     (inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts))
@@ -565,6 +766,36 @@ def tryJnzDiamondFlat {rs : List Ty} (bitsOnly : Bool)
           .ret (idxArgs od' selArgs))
       | _, _ => none
     else none
+
+/-- Direct `TFlat` mirror of `IfOptImpl.tryStoreJnzDiamond`. -/
+def tryStoreJnzDiamondFlat {rs : List Ty} (bitsOnly : Bool)
+    (c : Arg K .bool) (t e : TFlat rs)
+    (inVD : Nat) (inVE : Trie ((t : Ty) × IVal K t))
+    (inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts))
+    (outVD outLD : Nat) : Option (TFlat rs) :=
+  match findFirstJumpStoreFlat 16 inLD inLE t with
+  | some ⟨jTs, jId, jLbl⟩ =>
+    if isSelectSigWith bitsOnly jTs then
+      (checkStoreArmsFlat bitsOnly (.tag jId jTs) inVD inVE inLD inLE outVD t e).map fun sp =>
+        hoistStoreArmsFlat jTs sp c t e inVD inVE outVD fun od' selArgs =>
+          .jump (idxLabel outLD jLbl) (idxArgs od' selArgs)
+    else none
+  | none =>
+    if isSelectSigWith bitsOnly rs then
+      (checkStoreArmsFlat bitsOnly .ret inVD inVE inLD inLE outVD t e).map fun sp =>
+        hoistStoreArmsFlat rs sp c t e inVD inVE outVD fun od' selArgs =>
+          .ret (idxArgs od' selArgs)
+    else none
+
+/-- Direct `TFlat` mirror of `IfOptImpl.tryJnzDiamond`. -/
+def tryJnzDiamondFlat {rs : List Ty} (bitsOnly : Bool)
+    (c : Arg K .bool) (t e : TFlat rs)
+    (inVD : Nat) (inVE : Trie ((t : Ty) × IVal K t))
+    (inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts))
+    (outVD outLD : Nat) : Option (TFlat rs) :=
+  match tryPureJnzDiamondFlat bitsOnly c t e inVD inVE inLD inLE outVD outLD with
+  | some r => some r
+  | none => tryStoreJnzDiamondFlat bitsOnly c t e inVD inVE inLD inLE outVD outLD
 
 mutual
 /-- Recursive `TFlat` mirror of `LeanQbe.T.ifOptWith`. -/
@@ -632,8 +863,8 @@ def ifOptWithFlat {rs : List Ty} (bitsOnly : Bool) (depth : Nat) :
           (ifOptBWithFlat false depth bodies inVD inVE inLD inLE outVD outLD)
           (ifOptWithFlat false depth k inVD inVE inLD inLE outVD outLD)
       | [ts], bodies =>
-        let plan? := checkDiamondFlat false depth ts (inLD + 1)
-          (inLE.insert inLD ⟨ts, .loc depth⟩) k
+        let plan? := checkDiamondFlat false depth ts inVD inVE (inLD + 1)
+          (inLE.insert inLD ⟨ts, .loc depth⟩) outVD k
         let inLE' := inLE.insert inLD ⟨ts, .outer outLD⟩
         .group (sig := [ts])
           (ifOptBWithFlat false (depth + 1) bodies inVD inVE inLD' inLE' outVD outLD')

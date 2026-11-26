@@ -137,9 +137,30 @@ inductive ArmPlan : Type
   | let_ (rest : ArmPlan)
   | jnz (pT pE : ArmPlan)
 
+/-- Post-store pure tail plan up to `.jump` or `.ret`. -/
+inductive StoreTail : Type
+  | jump
+  | ret
+  | let_ (rest : StoreTail)
+
+/-- Per-instruction action for hoisting a store-diamond arm prefix up to `.store`. -/
+inductive StoreStep : Type
+  | let_ (rest : StoreStep)
+  | loadEmit (rest : StoreStep)
+  | loadReuse (slot : Nat) (rest : StoreStep)
+  | store (tail : StoreTail)
+
+/-- Matched two-arm common-address store-sinking diamond plan at `.jnz c t e`. -/
+structure StoreDiamondPlan : Type where
+  armT : StoreStep
+  armE : StoreStep
+  storeTy : Ty
+  numLoads : Nat
+
 /-- Structural plan for a matched diamond inside a 1-block `.group` continuation. -/
 inductive DiamondPlan : Type
   | jnz (pT pE : ArmPlan)
+  | jnzStore (sp : StoreDiamondPlan)
   | let_ (rest : DiamondPlan)
   | load (rest : DiamondPlan)
   | store (rest : DiamondPlan)
@@ -189,9 +210,184 @@ def checkArm {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     pure (.jnz pT pE, rem2)
   | _, _, _, _ => none
 
+/-- Pointwise `fKeyBeq` on a tuple of `FKey`s. -/
+def fKeysBeq : {ts : List Ty} → Tup FKey ts → Tup FKey ts → Bool
+  | [], (), () => true
+  | _ :: _, (a, as), (b, bs) => fKeyBeq a b && fKeysBeq as bs
+
+/-- Fresh variable `FKey` tuple starting at `next`. -/
+def freshFKeys : (ts : List Ty) → Nat → Tup FKey ts
+  | [], _ => ()
+  | _ :: ts, next => (.var next, freshFKeys ts (next + 1))
+
+/-- Inhabited dummy `IVal V` tuple carrying explicit symbolic `FKey`s. -/
+def dummyKeyIVals {V : Ty → Type} : (ts : List Ty) → Tup FKey ts → Tup (IVal V) ts
+  | [], () => ()
+  | _ :: ts, (k, ks) => ((.imm default, k), dummyKeyIVals ts ks)
+
+/-- Map `ikey` across an operand tuple. -/
+abbrev tupIKeys {V : Ty → Type} : {ts : List Ty} → Tup (Arg (IVal V)) ts → Tup FKey ts :=
+  tupMapArg fun _ => ikey
+
+/-- Symbolic safe operation entry mapping `(sig, ts, code, args)` to canonical `FKey` outputs. -/
+structure SymOpEntry : Type where
+  sig : List Ty
+  ts : List Ty
+  code : OpCode sig ts
+  args : Tup FKey sig
+  res : Tup FKey ts
+
+/-- Symbolic pre-store load entry mapping `(lt, addr)` to canonical load slot & `FKey`. -/
+structure SymLoadEntry : Type where
+  slot : Nat
+  lt : Ty
+  addr : FKey i64
+  vn : Nat
+
+/-- Value-numbering table used during store-diamond checking across `T` and `E`. -/
+structure SymTbl : Type where
+  vnNext : Nat
+  ops : List SymOpEntry
+  loads : List SymLoadEntry
+
+/-- Look up a matching safe op `(sig, ts, code, args)` in `ops`. -/
+def findSymOp : List SymOpEntry → (sig ts : List Ty) → OpCode sig ts → Tup FKey sig →
+    Option (Tup FKey ts)
+  | [], _, _, _, _ => none
+  | e :: es, sig, ts, code, args =>
+    match listTyDecEq e.sig sig, listTyDecEq e.ts ts with
+    | isTrue hs, isTrue hr =>
+      let eArgs : Tup FKey sig := hs ▸ e.args
+      let eCode : OpCode sig ts := hs ▸ hr ▸ e.code
+      if fKeysBeq eArgs args then
+        match decEq eCode code with
+        | isTrue _ => some (hr ▸ e.res)
+        | isFalse _ => findSymOp es sig ts code args
+      else findSymOp es sig ts code args
+    | _, _ => findSymOp es sig ts code args
+
+/-- Intern a safe op into `tbl`, treating `.copy` transparently as an alias to its input key. -/
+def SymTbl.internOp (tbl : SymTbl) : {sig ts : List Ty} →
+    OpCode sig ts → Tup FKey sig → Tup FKey ts × SymTbl
+  | _, _, .copy _, (k, ()) => ((k, ()), tbl)
+  | sig, ts, code, args =>
+    match findSymOp tbl.ops sig ts code args with
+    | some res => (res, tbl)
+    | none =>
+      let res := freshFKeys ts tbl.vnNext
+      let entry : SymOpEntry := ⟨sig, ts, code, args, res⟩
+      (res, { tbl with vnNext := tbl.vnNext + ts.length, ops := entry :: tbl.ops })
+
+/-- Look up a matching pre-store load `(lt, addr)` in `loads`. -/
+def findSymLoad : List SymLoadEntry → (lt : Ty) → FKey i64 → Option SymLoadEntry
+  | [], _, _ => none
+  | e :: es, lt, addr =>
+    match tyDecEq e.lt lt with
+    | isTrue _ => if fKeyBeq e.addr addr then some e else findSymLoad es lt addr
+    | isFalse _ => findSymLoad es lt addr
+
+/-- Result of checking one arm of a store-sinking diamond. -/
+structure StoreArmPlan : Type where
+  step : StoreStep
+  storeTy : Ty
+  storeAddr : FKey i64
+  hitSlots : List Nat
+
+/-- Find the leftmost `.jump (.tag id lbl)` in a store-diamond arm along
+`.let_`, `.load`, `.store`. -/
+def findFirstJumpStore {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    Nat → Expr (IVal V) (JLabel L) rs → Option (TaggedTarget L)
+  | 0, _ => none
+  | _ + 1, .jump (ts := ts) (.tag id lbl) _ => some ⟨ts, id, lbl⟩
+  | fuel + 1, .let_ _ k => findFirstJumpStore fuel (k (dummyIVals _ 0))
+  | fuel + 1, .load _ _ k => findFirstJumpStore fuel (k (.imm default, .var 0))
+  | fuel + 1, .store _ _ k => findFirstJumpStore fuel k
+  | _ + 1, _ => none
+
+/-- Check that a post-`.store` tail consists of at most `letFuel` safe `.let_`s up to `tgt`. -/
+def checkStoreTail {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (tgt : ArmTarget) : Nat → Expr (IVal V) (JLabel L) rs → Option StoreTail
+  | letFuel, .let_ op k =>
+    if isSafeOp op.code then
+      match letFuel with
+      | 0 => none
+      | letFuel' + 1 =>
+        (checkStoreTail tgt letFuel' (k (dummyIVals _ 0))).map .let_
+    else none
+  | _, .jump (ts := ts) j _ =>
+    match tgt, j with
+    | .loc jId jTs, .loc id
+    | .tag jId jTs, .tag id _ =>
+      if id == jId && Ty.listBeq ts jTs then some .jump else none
+    | _, _ => none
+  | _, .ret _ =>
+    match tgt with
+    | .ret => some .ret
+    | _ => none
+  | _, _ => none
+
+/-- Check that an arm computes pure `isSafeOp` `.let_`s and matched pre-store `.load`s leading to a
+single terminal `.store` followed by `checkStoreTail`. -/
+def checkStoreArm {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (tgt : ArmTarget) (allowNewLoads : Bool) :
+    Nat → Nat → SymTbl → List Nat → Expr (IVal V) (JLabel L) rs →
+    Option (StoreArmPlan × SymTbl)
+  | letFuel, loadFuel, tbl, hits, .let_ (ts := ts) op k =>
+    if isSafeOp op.code then
+      match letFuel with
+      | 0 => none
+      | letFuel' + 1 =>
+        let (resKeys, tbl') := tbl.internOp op.code (tupIKeys op.args)
+        (checkStoreArm tgt allowNewLoads letFuel' loadFuel tbl' hits
+          (k (dummyKeyIVals ts resKeys))).map fun (ap, tbl'') =>
+          ({ ap with step := .let_ ap.step }, tbl'')
+    else none
+  | letFuel, loadFuel, tbl, hits, .load t a k =>
+    let aKey := ikey a
+    match findSymLoad tbl.loads t aKey with
+    | some entry =>
+      let hits' := if hits.contains entry.slot then hits else entry.slot :: hits
+      let lv : IVal V t := (.imm default, .var entry.vn)
+      (checkStoreArm tgt allowNewLoads letFuel loadFuel tbl hits' (k lv)).map
+        fun (ap, tbl') => ({ ap with step := .loadReuse entry.slot ap.step }, tbl')
+    | none =>
+      if allowNewLoads then
+        match loadFuel with
+        | 0 => none
+        | loadFuel' + 1 =>
+          let slot := tbl.loads.length
+          let vn := tbl.vnNext
+          let entry : SymLoadEntry := ⟨slot, t, aKey, vn⟩
+          let tbl' : SymTbl := { tbl with vnNext := vn + 1, loads := tbl.loads ++ [entry] }
+          let hits' := slot :: hits
+          let lv : IVal V t := (.imm default, .var vn)
+          (checkStoreArm tgt allowNewLoads letFuel loadFuel' tbl' hits' (k lv)).map
+            fun (ap, tbl'') => ({ ap with step := .loadEmit ap.step }, tbl'')
+      else none
+  | letFuel, _, tbl, hits, .store (t := st) _ a tail =>
+    (checkStoreTail tgt letFuel tail).map fun tailPlan =>
+      ({ step := .store tailPlan, storeTy := st, storeAddr := ikey a, hitSlots := hits }, tbl)
+  | _, _, _, _, _ => none
+
+/-- Match a common-address store-sinking diamond (RMW or pure store) across both arms of `.jnz`. -/
+def checkStoreArms {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (bitsOnly : Bool) (tgt : ArmTarget) (next : Nat)
+    (t e : Expr (IVal V) (JLabel L) rs) : Option StoreDiamondPlan := do
+  let tbl0 : SymTbl := ⟨next, [], []⟩
+  let (apT, tbl1) ← checkStoreArm tgt true 12 2 tbl0 [] t
+  guard (isSelectTyWith bitsOnly apT.storeTy)
+  let (apE, _) ← checkStoreArm tgt false 12 0 tbl1 [] e
+  match tyDecEq apT.storeTy apE.storeTy with
+  | isFalse _ => none
+  | isTrue _ =>
+    guard (fKeyBeq apT.storeAddr apE.storeAddr)
+    let numLoads := tbl1.loads.length
+    guard ((List.range numLoads).all fun s => apE.hitSlots.contains s)
+    pure ⟨apT.step, apE.step, apT.storeTy, numLoads⟩
+
 /-- Check whether `e` is a straight-line entry prefix ending in a diamond `.jnz` whose arms each
 have `≤ 4` total safe `.let_`s and `≤ 2` nested `.jnz` levels jumping to `(.loc jId)` with
-`select`-compatible signature `jTs`. -/
+`select`-compatible signature `jTs`, or a common-address store-sinking diamond. -/
 def checkDiamondWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (bitsOnly : Bool) (jId : Nat) (jTs : List Ty) (next : Nat) :
     Expr (IVal V) (JLabel L) rs → Option DiamondPlan
@@ -207,7 +403,7 @@ def checkDiamondWith {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     if isSelectSigWith bitsOnly jTs then
       match checkArm (.loc jId jTs) 2 4 next t, checkArm (.loc jId jTs) 2 4 next e with
       | some (pT, _), some (pE, _) => some (.jnz pT pE)
-      | _, _ => none
+      | _, _ => (checkStoreArms bitsOnly (.loc jId jTs) next t e).map .jnzStore
     else none
   | _ => none
 
@@ -312,11 +508,69 @@ def hoistJnzArms {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (jTs : 
   hoistArm jTs pE next₁ e fun next₂ argsE =>
   emitSelectTup (iout c) jTs next₂ argsT argsE fin
 
+/-- Hoist a planned post-store pure tail up to `.jump` or `.ret`. -/
+def hoistStoreTail {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (jTs : List Ty) :
+    StoreTail → Nat → Expr (IVal V) (JLabel L) rs →
+    (Nat → Tup (Arg (IVal V)) jTs → Expr V L rs) → Expr V L rs
+  | .jump, next, .jump (ts := ts) _ args, cont =>
+    match listTyDecEq ts jTs with
+    | isTrue h => cont next (h ▸ args)
+    | isFalse _ => .hlt
+  | .ret, next, .ret vs, cont =>
+    match listTyDecEq rs jTs with
+    | isTrue h => cont next (h ▸ vs)
+    | isFalse _ => .hlt
+  | .let_ rest, next, .let_ (ts := ts) op k, cont =>
+    .let_ ⟨op.code, tupIOut op.args⟩ fun xs =>
+      hoistStoreTail jTs rest (next + ts.length) (k (freshIVals ts xs next)) cont
+  | _, _, _, _ => .hlt
+
+/-- Hoist a planned store-diamond arm prefix, emitting/reusing matched pre-store `.load`s and
+extracting the final `.store` value/address plus exit arguments. -/
+def hoistStoreStep {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (jTs : List Ty) (st : Ty) :
+    StoreStep → Nat → List ((t : Ty) × IVal V t) → Expr (IVal V) (JLabel L) rs →
+    (Nat → List ((t : Ty) × IVal V t) → Arg (IVal V) st → Arg (IVal V) i64 →
+      Tup (Arg (IVal V)) jTs → Expr V L rs) → Expr V L rs
+  | .let_ rest, next, loads, .let_ (ts := ts) op k, cont =>
+    .let_ ⟨op.code, tupIOut op.args⟩ fun xs =>
+      hoistStoreStep jTs st rest (next + ts.length) loads (k (freshIVals ts xs next)) cont
+  | .loadEmit rest, next, loads, .load t a k, cont =>
+    .load t (iout a) fun v =>
+      let iv : IVal V t := (.var v, .var next)
+      hoistStoreStep jTs st rest (next + 1) (loads ++ [⟨t, iv⟩]) (k iv) cont
+  | .loadReuse slot rest, next, loads, .load t _ k, cont =>
+    match loads[slot]? with
+    | some ⟨t', iv⟩ =>
+      match tyDecEq t' t with
+      | isTrue h => hoistStoreStep jTs st rest next loads (k (h ▸ iv)) cont
+      | isFalse _ => .hlt
+    | none => .hlt
+  | .store tail, next, loads, .store (t := st') v a k, cont =>
+    match tyDecEq st' st with
+    | isTrue h =>
+      hoistStoreTail jTs tail next k fun next' exitArgs =>
+        cont next' loads (h ▸ v) a exitArgs
+    | isFalse _ => .hlt
+  | _, _, _, _, _ => .hlt
+
+/-- Hoist two planned store-diamond arms, select the stored value, emit a single sunk `.store`,
+and pass selected exit args to `fin`. -/
+def hoistStoreArms {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} (jTs : List Ty)
+    (sp : StoreDiamondPlan) (next : Nat) (c : Arg (IVal V) .bool)
+    (t e : Expr (IVal V) (JLabel L) rs) (fin : Tup (Arg V) jTs → Expr V L rs) : Expr V L rs :=
+  hoistStoreStep jTs sp.storeTy sp.armT next [] t fun next₁ loads₁ vT aT argsT =>
+  hoistStoreStep jTs sp.storeTy sp.armE next₁ loads₁ e fun next₂ _ vE _ argsE =>
+  emitSelectTy (iout c) sp.storeTy next₂ vT vE fun next₃ selVal =>
+  .store selVal (iout aT) (emitSelectTup (iout c) jTs next₃ argsT argsE fin)
+
 /-- Rewrite a planned diamond entry into hoisted `.let_`s + `.select`s + `.jump jLbl`. -/
 def hoistDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {jTs : List Ty}
     (jLbl : L jTs) : DiamondPlan → Nat → Expr (IVal V) (JLabel L) rs → Expr V L rs
   | .jnz pT pE, next, .jnz c t e =>
     hoistJnzArms jTs pT pE next c t e fun selArgs => .jump jLbl selArgs
+  | .jnzStore sp, next, .jnz c t e =>
+    hoistStoreArms jTs sp next c t e fun selArgs => .jump jLbl selArgs
   | .let_ rest, next, .let_ (ts := ts) op k =>
     .let_ ⟨op.code, tupIOut op.args⟩ fun xs =>
       hoistDiamond jLbl rest (next + ts.length) (k (freshIVals ts xs next))
@@ -330,9 +584,8 @@ def hoistDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} {jTs : 
       hoistDiamond jLbl rest (next + bs.length) (k (freshIVals bs xs next))
   | _, _, _ => .hlt
 
-/-- Attempt arbitrary-position `.jnz` diamond if-conversion at `.jnz c t e` targeting either a
-tagged `.group` label or `.ret`. -/
-def tryJnzDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+/-- Attempt pure arbitrary-position `.jnz` diamond if-conversion. -/
+def tryPureJnzDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
     (bitsOnly : Bool) (next : Nat) (c : Arg (IVal V) .bool)
     (t e : Expr (IVal V) (JLabel L) rs) : Option (Expr V L rs) :=
   match findFirstJump 8 t with
@@ -350,6 +603,31 @@ def tryJnzDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
         some (hoistJnzArms rs pT pE next c t e fun selArgs => .ret selArgs)
       | _, _ => none
     else none
+
+/-- Attempt common-address store-sinking `.jnz` diamond if-conversion. -/
+def tryStoreJnzDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (bitsOnly : Bool) (next : Nat) (c : Arg (IVal V) .bool)
+    (t e : Expr (IVal V) (JLabel L) rs) : Option (Expr V L rs) :=
+  match findFirstJumpStore 16 t with
+  | some ⟨jTs, jId, jLbl⟩ =>
+    if isSelectSigWith bitsOnly jTs then
+      (checkStoreArms bitsOnly (.tag jId jTs) next t e).map fun sp =>
+        hoistStoreArms jTs sp next c t e fun selArgs => .jump jLbl selArgs
+    else none
+  | none =>
+    if isSelectSigWith bitsOnly rs then
+      (checkStoreArms bitsOnly .ret next t e).map fun sp =>
+        hoistStoreArms rs sp next c t e fun selArgs => .ret selArgs
+    else none
+
+/-- Attempt arbitrary-position `.jnz` diamond if-conversion at `.jnz c t e` targeting either a
+tagged `.group` label or `.ret` (pure arms or common-address store-sinking diamond). -/
+def tryJnzDiamond {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (bitsOnly : Bool) (next : Nat) (c : Arg (IVal V) .bool)
+    (t e : Expr (IVal V) (JLabel L) rs) : Option (Expr V L rs) :=
+  match tryPureJnzDiamond bitsOnly next c t e with
+  | some r => some r
+  | none => tryStoreJnzDiamond bitsOnly next c t e
 
 end IfOptImpl
 
