@@ -7,10 +7,11 @@ module
 public import LeanQbe.T.Amd64.KissatFidelityParam
 
 /-!
-# KissatFidelity (`499` fns) Tier-1 Parameterized Audit: SysV x64 (`std3`)
+# KissatFidelity (`504` fns) Tier-1 Parameterized Audit: SysV x64 (`std3`)
 
 Audits every Tier-1 parameterized x64 theorem in `LeanQbe.T.Amd64.KissatFidelityParam`
-against `[propext, Classical.choice, Quot.sound]` (`0` `*Cert*`, `0` `*Inl*`, `0` Arm64).
+(`fidStep9Module`, `504` fns) against `[propext, Classical.choice, Quot.sound]`
+(`0` `*Cert*`, `0` `*Inl*`, `0` Arm64).
 -/
 
 set_option autoImplicit false

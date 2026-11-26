@@ -56,15 +56,15 @@ theorem fidInlFns_length : fidInlMod.fns.length = 499 := by
 
 /-- Every function in `fidInlMod` satisfies `Fn.Wf`. -/
 theorem fidInlMod_wf : ∀ f ∈ fidInlMod.fns, f.Wf :=
-  fidInlPolicy_wf fidModule_acyclic fidModule_wf
+  Module.optInlinePolicy_wf fidInlPolicy fidModule_acyclic fidModule_wf
 
 /-- `fidInlMod` preserves `checkAcyclic = true`. -/
 theorem fidInlMod_acyclic : fidInlMod.checkAcyclic = true :=
-  fidInlPolicy_checkAcyclic fidModule_acyclic fidModule_wf
+  Module.optInlinePolicy_checkAcyclic fidInlPolicy fidModule_acyclic fidModule_wf
 
 /-- Closed `0`-hook `ModuleOk` lifted across `fidInlPolicy` + `Fn.renorm` to `fidInlMod`. -/
 theorem fidInlMod_ok : ModuleOk fidEnv fidInlMod :=
-  fidInlPolicy_ok fid_moduleOk
+  Module.optInlinePolicy_ok fidInlPolicy fid_moduleOk
 
 /-- Existence of the `"kissat_solve_bytes"` entry point inside `fidInlMod.fns`. -/
 theorem fidInl_solveBytes_exists :
@@ -95,15 +95,15 @@ theorem fidInlChunkFns_length : fidInlChunkMod.fns.length = 499 := by
 
 /-- Every function in `fidInlChunkMod` satisfies `Fn.Wf`. -/
 theorem fidInlChunkMod_wf : ∀ f ∈ fidInlChunkMod.fns, f.Wf :=
-  fidInlChunkPolicy_wf fidModule_acyclic fidModule_wf
+  Module.optInlinePolicy_wf fidInlChunkPolicy fidModule_acyclic fidModule_wf
 
 /-- `fidInlChunkMod` preserves `checkAcyclic = true`. -/
 theorem fidInlChunkMod_acyclic : fidInlChunkMod.checkAcyclic = true :=
-  fidInlChunkPolicy_checkAcyclic fidModule_acyclic fidModule_wf
+  Module.optInlinePolicy_checkAcyclic fidInlChunkPolicy fidModule_acyclic fidModule_wf
 
 /-- Closed `0`-hook `ModuleOk` lifted across `fidInlChunkPolicy` to `fidInlChunkMod`. -/
 theorem fidInlChunkMod_ok : ModuleOk fidEnv fidInlChunkMod :=
-  fidInlChunkPolicy_ok fid_moduleOk
+  Module.optInlinePolicy_ok fidInlChunkPolicy fid_moduleOk
 
 /-- Existence of the `"kissat_solve_bytes"` entry point inside `fidInlChunkMod.fns`. -/
 theorem fidInlChunk_solveBytes_exists :

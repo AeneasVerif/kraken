@@ -5,7 +5,6 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Inline
-public import LeanQbe.T.MainInline
 public import LeanQbe.T.Examples.Kissat.FullM7InlPolicy
 
 /-!
@@ -150,83 +149,6 @@ def fidInlChunkPolicy : InlinePolicy :=
     singleSiteMax := 0
     maxTotalDup := 0
     requireLoopSite := false }
-
-/-- Every function in `M.optInlinePolicy fidInlPolicy` remains well-formed. -/
-theorem fidInlPolicy_wf {M : Module}
-    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
-    ∀ f ∈ (M.optInlinePolicy fidInlPolicy).fns, f.Wf :=
-  Module.optInlinePolicy_wf fidInlPolicy hchk hwf
-
-/-- Acyclicity transports from `M` to `M.optInlinePolicy fidInlPolicy`. -/
-theorem fidInlPolicy_checkAcyclic {M : Module}
-    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
-    (M.optInlinePolicy fidInlPolicy).checkAcyclic = true :=
-  Module.optInlinePolicy_checkAcyclic fidInlPolicy hchk hwf
-
-/-- `ModuleOk` transports from `M` to `M.optInlinePolicy fidInlPolicy`. -/
-theorem fidInlPolicy_ok {Γ : Env} {M : Module} :
-    ModuleOk Γ M → ModuleOk Γ (M.optInlinePolicy fidInlPolicy) :=
-  Module.optInlinePolicy_ok fidInlPolicy
-
-/-- Ordered `Fn.callsOk` transports from `M` to `M.optInlinePolicy fidInlPolicy`. -/
-theorem fidInlPolicy_callsOk {M : Module}
-    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
-    ∀ pre fn post, (M.optInlinePolicy fidInlPolicy).fns = pre ++ fn :: post →
-      Fn.callsOk (pre.map Fn.sig ++ M.externs.map Extern.sig) M.exits fn :=
-  Module.optInlinePolicy_callsOk fidInlPolicy hchk hwf
-
-/-- Per-function WP specification transports from `M` to `M.optInlinePolicy fidInlPolicy`. -/
-theorem fidInlPolicy_spec {Γ : Env} {M : Module}
-    (hok : ModuleOk Γ M) {f : Fn} (hf : f ∈ (M.optInlinePolicy fidInlPolicy).fns)
-    {xs : Tup Val f.as} {m : Mem 64} {Q : Post f.rs} {X : XPost}
-    (hpre : Γ f.name f.as f.rs xs m Q X) : Func.wp Γ f.body xs m Q X :=
-  Module.optInlinePolicy_spec fidInlPolicy hok f hf xs m Q X hpre
-
-/-- `Func.supportsSource` transports from `M` to `M.optInlinePolicy fidInlPolicy`. -/
-theorem fidInlPolicy_supportsSource (lt : LegalTarget) {M : Module}
-    (hwf : ∀ f ∈ M.fns, f.Wf)
-    (hsup : ∀ f ∈ M.fns, Func.supportsSource lt f.body = true) :
-    ∀ f ∈ (M.optInlinePolicy fidInlPolicy).fns, Func.supportsSource lt f.body = true :=
-  Module.optInlinePolicy_supportsSource lt fidInlPolicy hwf hsup
-
-/-- Every function in `M.optInlinePolicy fidInlChunkPolicy` remains well-formed. -/
-theorem fidInlChunkPolicy_wf {M : Module}
-    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
-    ∀ f ∈ (M.optInlinePolicy fidInlChunkPolicy).fns, f.Wf :=
-  Module.optInlinePolicy_wf fidInlChunkPolicy hchk hwf
-
-/-- Acyclicity transports from `M` to `M.optInlinePolicy fidInlChunkPolicy`. -/
-theorem fidInlChunkPolicy_checkAcyclic {M : Module}
-    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
-    (M.optInlinePolicy fidInlChunkPolicy).checkAcyclic = true :=
-  Module.optInlinePolicy_checkAcyclic fidInlChunkPolicy hchk hwf
-
-/-- `ModuleOk` transports from `M` to `M.optInlinePolicy fidInlChunkPolicy`. -/
-theorem fidInlChunkPolicy_ok {Γ : Env} {M : Module} :
-    ModuleOk Γ M → ModuleOk Γ (M.optInlinePolicy fidInlChunkPolicy) :=
-  Module.optInlinePolicy_ok fidInlChunkPolicy
-
-/-- Ordered `Fn.callsOk` transports from `M` to `M.optInlinePolicy fidInlChunkPolicy`. -/
-theorem fidInlChunkPolicy_callsOk {M : Module}
-    (hchk : M.checkAcyclic = true) (hwf : ∀ f ∈ M.fns, f.Wf) :
-    ∀ pre fn post, (M.optInlinePolicy fidInlChunkPolicy).fns = pre ++ fn :: post →
-      Fn.callsOk (pre.map Fn.sig ++ M.externs.map Extern.sig) M.exits fn :=
-  Module.optInlinePolicy_callsOk fidInlChunkPolicy hchk hwf
-
-/-- Per-function WP specification transports from `M` to `M.optInlinePolicy fidInlChunkPolicy`.
--/
-theorem fidInlChunkPolicy_spec {Γ : Env} {M : Module}
-    (hok : ModuleOk Γ M) {f : Fn} (hf : f ∈ (M.optInlinePolicy fidInlChunkPolicy).fns)
-    {xs : Tup Val f.as} {m : Mem 64} {Q : Post f.rs} {X : XPost}
-    (hpre : Γ f.name f.as f.rs xs m Q X) : Func.wp Γ f.body xs m Q X :=
-  Module.optInlinePolicy_spec fidInlChunkPolicy hok f hf xs m Q X hpre
-
-/-- `Func.supportsSource` transports from `M` to `M.optInlinePolicy fidInlChunkPolicy`. -/
-theorem fidInlChunkPolicy_supportsSource (lt : LegalTarget) {M : Module}
-    (hwf : ∀ f ∈ M.fns, f.Wf)
-    (hsup : ∀ f ∈ M.fns, Func.supportsSource lt f.body = true) :
-    ∀ f ∈ (M.optInlinePolicy fidInlChunkPolicy).fns, Func.supportsSource lt f.body = true :=
-  Module.optInlinePolicy_supportsSource lt fidInlChunkPolicy hwf hsup
 
 end LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
 

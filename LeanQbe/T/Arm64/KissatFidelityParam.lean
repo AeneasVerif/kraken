@@ -6,18 +6,19 @@ module
 
 public import LeanQbe.T.Arm64.KissatAbi
 public import LeanQbe.T.Examples.Kissat.KissatCertParamCommon
-public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
 import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# KissatFidelity (`501` fns) Tier-1 Parameterized AAPCS64 Arm64 Theorems
+# KissatFidelity (`504` fns) Tier-1 Parameterized AAPCS64 Arm64 Theorems
 
 Proves full-module `FnSpec`, concrete Kraken AArch64 `Eventually` UNSAT soundness, non-vacuity,
 and closed-host `run_unsat` parameterized over both raw
 `compileModuleOptInlinePolicy ... = .ok (code, bounds)` and `cert : FidCertArm64`
-(exposing both exact `cert.bound` and fixed `2048`-byte stack contracts).
+(exposing both exact `cert.bound` and fixed `2048`-byte stack contracts) over
+`FullFidelityAssemblyStep9.fidStep9Module` (`504` fns).
 Imports zero `*Cert*`, zero materialized `*Inl*`, and zero `MainCertElab` modules (`std3`).
 -/
 
@@ -34,54 +35,55 @@ open LeanQbe.T.Examples.Kissat.KissatCertParamCommon
 open LeanQbe.T.Examples.Kissat.FullM6 LeanQbe.T.Examples.Kissat.FullM6Orch
 open LeanQbe.T.Examples.Kissat.FullM7Fidelity
 open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
-open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7
+open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
 open LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy
 open LeanQbe.T.Arm64 Kraken
 
 /-- Concrete AAPCS64 Arm64 certificate witness type for
-`fidStep7Module.optInlinePolicy fidInlPolicy`. -/
+`fidStep9Module.optInlinePolicy fidInlPolicy`. -/
 abbrev FidCertArm64 : Type 1 :=
   LinkedCert armTarget armLayout armLegalTarget armLabelClean
-    (fidStep7Module.optInlinePolicy fidInlPolicy)
+    (fidStep9Module.optInlinePolicy fidInlPolicy)
 
 private def fidPkg : KissatUnsatPkg where
-  mod := fidStep7Module
+  mod := fidStep9Module
   inlPolicy := fidInlPolicy
   entryFn := "kissat_solve_bytes"
   entryFn_fn := m6oSolveBytesFn
   entryFn_sig := ⟨rfl, rfl, rfl⟩
-  entry_mem := fidStep7_solveBytes_mem
-  env := fidStep7Env
-  moduleOk := fidStep7_moduleOk
-  noExit := fun f _ args m Q X X' h => fidStep7Env_noExit f.name f.as f.rs args m Q X X' h
+  entry_mem := fidStep9_solveBytes_mem
+  env := fidStep9Env
+  moduleOk := fidStep9_moduleOk
+  noExit := fun f _ args m Q X X' h => fidStep9Env_noExit f.name f.as f.rs args m Q X X' h
   solve_intro := fun hcfit hwfit hm hreq =>
-    fidStep7Env_solve_bytes_of (m7FidSolveBytesSpec_intro hcfit hwfit hm hreq)
+    fidStep9Env_solve_bytes_of (m7FidSolveBytesSpec_intro hcfit hwfit hm hreq)
 
 /-! ## 1. Raw `compileModuleOptInlinePolicy`-Parameterized AAPCS64 Arm64 Theorems -/
 
 /-- Whole-module `Defined` + `FnSpec` over raw `compileModuleOptInlinePolicy` (exact bound `b`). -/
 theorem fid_module_fnspec_arm64_of_compile
-    (hleg : LegalSigAll armLegalTarget fidStep7Module.fns)
+    (hleg : LegalSigAll armLegalTarget fidStep9Module.fns)
     (hints : List armIsa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy armIsa armLegalTarget 0 [] [] 0
-      fidStep7Module hints fidInlPolicy = .ok (code, bounds))
+      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
     [hh : Host] (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    {f : Fn} (hf : f ∈ fidStep7Module.fns) {b : Nat} (hb : (f.name, b) ∈ bounds) :
+    {f : Fn} (hf : f ∈ fidStep9Module.fns) {b : Nat} (hb : (f.name, b) ∈ bounds) :
     armTarget.Defined hh f.name ∧
-      armTarget.FnSpec hh f.name (fidStep7Env f.name f.as f.rs) b 0 :=
-  module_fnspec_of_compile arm64KissatAbi fidPkg hleg hints code bounds hcm hh k₀ hc hu hf hb
+      armTarget.FnSpec hh f.name (fidStep9Env f.name f.as f.rs) b 0 :=
+  module_fnspec_of_compile arm64KissatAbi fidPkg hleg hints code bounds
+    hcm hh k₀ hc hu hf hb
 
 /-- Whole-module `Defined` + `FnSpec` over raw `compileModuleOptInlinePolicy` (fixed `2048B`). -/
 theorem fid_module_fnspec_arm64_maxB_of_compile
-    (hleg : LegalSigAll armLegalTarget fidStep7Module.fns)
+    (hleg : LegalSigAll armLegalTarget fidStep9Module.fns)
     (hints : List armIsa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy armIsa armLegalTarget 0 [] [] 0
-      fidStep7Module hints fidInlPolicy = .ok (code, bounds))
+      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
     (hble : ∀ p ∈ bounds, p.2 ≤ 2048)
     [hh : Host] (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    {f : Fn} (hf : f ∈ fidStep7Module.fns) :
+    {f : Fn} (hf : f ∈ fidStep9Module.fns) :
     armTarget.Defined hh f.name ∧
-      armTarget.FnSpec hh f.name (fidStep7Env f.name f.as f.rs) 2048 0 :=
+      armTarget.FnSpec hh f.name (fidStep9Env f.name f.as f.rs) 2048 0 :=
   module_fnspec_of_compile_maxB arm64KissatAbi fidPkg hleg hints code bounds hble
     (by decide) hcm hh k₀ hc hu hf
 
@@ -90,7 +92,7 @@ theorem fid_module_fnspec_arm64_maxB_of_compile
 theorem fid_solve_bytes_unsat_arm64_of_compile
     (hints : List armIsa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy armIsa armLegalTarget 0 [] [] 0
-      fidStep7Module hints fidInlPolicy = .ok (code, bounds))
+      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
     {b : Nat} (hb : ("kissat_solve_bytes", b) ∈ bounds) (hble : b ≤ 2048)
     [hh : Host] (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
@@ -130,7 +132,7 @@ theorem fid_solve_bytes_unsat_arm64_of_compile
 theorem kissat_fid_arm64_unsat_correct_of_compile
     (hints : List armIsa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy armIsa armLegalTarget 0 [] [] 0
-      fidStep7Module hints fidInlPolicy = .ok (code, bounds))
+      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
     {b : Nat} (hb : ("kissat_solve_bytes", b) ∈ bounds) (hble : b ≤ 2048)
     [hh : Host] (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
@@ -163,7 +165,7 @@ theorem kissat_fid_arm64_unsat_correct_of_compile
 theorem kissat_fid_arm64_unsat_nonvacuous_of_compile
     (hints : List armIsa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy armIsa armLegalTarget 0 [] [] 0
-      fidStep7Module hints fidInlPolicy = .ok (code, bounds))
+      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
     {b : Nat} (hb : ("kissat_solve_bytes", b) ∈ bounds) (hble : b ≤ 2048)
     [hh : Host] (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
     ∃ (cnf_ptr work_ptr fuel : BitVec 64) (cnfBytes : List UInt8) (wlen : Nat)
@@ -193,7 +195,7 @@ theorem kissat_fid_arm64_unsat_nonvacuous_of_compile
 theorem kissat_fid_arm64_run_unsat_of_compile
     (hints : List armIsa.Hints) (code : List Directive) (bounds : List (Sym × Nat))
     (hcm : compileModuleOptInlinePolicy armIsa armLegalTarget 0 [] [] 0
-      fidStep7Module hints fidInlPolicy = .ok (code, bounds))
+      fidStep9Module hints fidInlPolicy = .ok (code, bounds))
     {b : Nat} (hb : ("kissat_solve_bytes", b) ∈ bounds) (hble : b ≤ 2048)
     (hh : Host) (k₀ : Nat) (hc : code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique) :
     Eventually (armTarget.mach.step hh)
@@ -218,11 +220,11 @@ theorem kissat_fid_arm64_run_unsat_of_compile
 
 /-- Whole-module `Defined` + `FnSpec` over `cert : FidCertArm64` and `LegalSigAll`. -/
 theorem fid_module_fnspec_of_cert (cert : FidCertArm64)
-    (hleg : LegalSigAll armLegalTarget fidStep7Module.fns)
+    (hleg : LegalSigAll armLegalTarget fidStep9Module.fns)
     [hh : Host] (k₀ : Nat) (hc : cert.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    {f : Fn} (hf : f ∈ fidStep7Module.fns) :
+    {f : Fn} (hf : f ∈ fidStep9Module.fns) :
     armTarget.Defined hh f.name ∧
-      armTarget.FnSpec hh f.name (fidStep7Env f.name f.as f.rs) (cert.bound f.name) 0 :=
+      armTarget.FnSpec hh f.name (fidStep9Env f.name f.as f.rs) (cert.bound f.name) 0 :=
   module_fnspec_of_abi arm64KissatAbi fidPkg cert hleg hh k₀ hc hu hf
 
 /-- `FidCertArm64`-parameterized AAPCS64 Arm64 UNSAT soundness + framing (exact `cert.bound`). -/
@@ -403,7 +405,8 @@ theorem kissat_fid_arm64_unsat_nonvacuous_maxB_of_cert (cert : FidCertArm64)
         ⟨s, Labels.label "kissat_solve_bytes"⟩ := by
   obtain ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,
     ⟨h0, h1, h2, h3, h4⟩, ⟨hra, hsp⟩, hdm, hev⟩ :=
-    unsat_nonvacuous_maxB_of_abi arm64KissatAbi fidPkg cert rfl rfl (by decide) hh k₀ hc hu
+    unsat_nonvacuous_maxB_of_abi arm64KissatAbi fidPkg cert rfl rfl
+      (by decide) hh k₀ hc hu
   exact ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf, h0, h1, h2, h3, h4, hra, hsp, hdm, hev⟩
 
 /-- Closed concrete-host AAPCS64 Arm64 UNSAT execution witness on `cert.host`
