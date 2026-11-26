@@ -102,6 +102,7 @@ public import LeanQbe.T.Logic.C0HeadStep
 public import LeanQbe.T.Logic.C0HeadStepGuard
 public import LeanQbe.T.Logic.C0Step
 public import LeanQbe.T.Logic.C0StepAttr
+public import LeanQbe.T.Logic.CanonicalEnv
 public import LeanQbe.T.Logic.Cells
 public import LeanQbe.T.Logic.ControlComb
 public import LeanQbe.T.Logic.Mem
