@@ -18,6 +18,9 @@ public import LeanQbe.T.CanonLemmas
 public import LeanQbe.T.CompileGuard
 public import LeanQbe.T.CondThreadOpt
 public import LeanQbe.T.CondThreadOptLemmas
+public import LeanQbe.T.CondThreadOptLemmas0
+public import LeanQbe.T.CondThreadOptLemmas1
+public import LeanQbe.T.CondThreadOptLemmas2
 public import LeanQbe.T.Copy
 public import LeanQbe.T.CopyLemmas
 public import LeanQbe.T.Dce
@@ -154,6 +157,8 @@ public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.RegaLemmas1
 public import LeanQbe.T.RegaLemmas2
 public import LeanQbe.T.RegaLemmas3
+public import LeanQbe.T.RegaLemmas3a
+public import LeanQbe.T.RegaLemmas3b
 public import LeanQbe.T.RegaLemmas4
 public import LeanQbe.T.RegaZext
 public import LeanQbe.T.Scc
