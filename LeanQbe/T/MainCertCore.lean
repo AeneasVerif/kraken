@@ -320,4 +320,406 @@ separate `.lean` modules) into a single whole-module `LinkedCert` using only O(N
 
 end LinkedCert
 
+/-! ## 5. Zero-Recompilation `weakenNoExit` & `weakenExits` Combinators -/
+
+private theorem checkAndBoundExt_of_exits_nil (I : Isa) (raBytes : Nat) (nX : Nat)
+    (bounds : List (SigEntry × Nat)) (hHint : I.Hints) (ext : Rega.Ext) {n : Nat}
+    (h : checkAndBoundExt I raBytes [] nX bounds hHint ext = some n)
+    (exits' : List Sym) (nX' : Nat) :
+    checkAndBoundExt I raBytes exits' nX' bounds hHint ext = some n := by
+  unfold checkAndBoundExt at h ⊢
+  split at h
+  · contradiction
+  · rename_i n₁ hcb
+    dsimp only at h ⊢
+    split at h
+    · rename_i hAll
+      have hExitsEmpty : ext.exits = [] := by
+        cases hex : ext.exits with
+        | nil => rfl
+        | cons g _ => simp [hex] at hAll
+      simp [hExitsEmpty] at h ⊢
+      exact h
+    · contradiction
+
+private theorem checkAndBoundExt_mono_exits (I : Isa) (raBytes : Nat)
+    (exits exits' : List Sym) (nX : Nat)
+    (bounds : List (SigEntry × Nat)) (hHint : I.Hints) (ext : Rega.Ext) {n : Nat}
+    (h : checkAndBoundExt I raBytes exits nX bounds hHint ext = some n)
+    (hsub : ∀ s ∈ exits, s ∈ exits') :
+    checkAndBoundExt I raBytes exits' nX bounds hHint ext = some n := by
+  unfold checkAndBoundExt at h ⊢
+  split at h
+  · contradiction
+  · rename_i n₁ hcb
+    dsimp only at h ⊢
+    split at h
+    · rename_i hAll
+      have hAll' : (ext.exits.all fun g => exits'.contains g) = true := by
+        simp only [List.all_eq_true, List.contains_eq_mem, decide_eq_true_eq] at hAll ⊢
+        intro g hg
+        exact hsub g (hAll g hg)
+      simpa only [hAll', ↓reduceIte] using h
+    · contradiction
+
+theorem compileModule_of_exits_nil (isa : Isa) (lt : LegalTarget) (raBytes : Nat)
+    (extCallees : List (SigEntry × Nat)) (nX : Nat) :
+    ∀ (fs : List Fn) (hints : List isa.Hints) (code : List isa.Directive)
+      (bounds : List (Sym × Nat)),
+      compileModule isa lt raBytes extCallees [] nX fs hints = .ok (code, bounds) →
+      ∀ (exits' : List Sym) (nX' : Nat),
+        compileModule isa lt raBytes extCallees exits' nX' fs hints = .ok (code, bounds) := by
+  intro fs hints code bounds h exits' nX'
+  induction fs generalizing hints extCallees code bounds with
+  | nil =>
+    cases hints with
+    | nil => simpa [compileModule] using h
+    | cons _ _ => simp [compileModule] at h
+  | cons f fs ih =>
+    cases hints with
+    | nil => simp [compileModule] at h
+    | cons h0 hs =>
+      dsimp only [compileModule] at h ⊢
+      cases hsupp : f.earlyOpt.body.supportsSource lt with
+      | false => simp [hsupp] at h
+      | true =>
+        simp only [hsupp, ↓reduceIte] at h ⊢
+        cases hlow : Rega.lowerFn isa h0 (Fn.midFromEarly lt f.earlyOpt).ext
+            (Fn.midFromEarly lt f.earlyOpt) with
+        | error e => simp [hlow] at h
+        | ok c =>
+          simp only [hlow] at h ⊢
+          cases hcb : checkAndBoundExt isa raBytes [] nX extCallees h0
+              (Fn.midFromEarly lt f.earlyOpt).ext with
+          | none => simp [hcb] at h
+          | some b =>
+            have hcb' := checkAndBoundExt_of_exits_nil isa raBytes nX extCallees h0 _ hcb
+              exits' nX'
+            simp only [hcb] at h
+            simp only [hcb']
+            cases hrest : compileModule isa lt raBytes
+                (((Fn.midFromEarly lt f.earlyOpt).sig, b) :: extCallees) [] nX fs hs with
+            | error e => simp [hrest] at h
+            | ok res =>
+              simp only [hrest] at h
+              have ih' := ih (((Fn.midFromEarly lt f.earlyOpt).sig, b) :: extCallees)
+                hs res.1 res.2 hrest
+              simpa [ih'] using h
+
+theorem compileModule_mono_exits (isa : Isa) (lt : LegalTarget) (raBytes : Nat)
+    (extCallees : List (SigEntry × Nat)) (exits exits' : List Sym) (nX : Nat)
+    (hsub : ∀ s ∈ exits, s ∈ exits') :
+    ∀ (fs : List Fn) (hints : List isa.Hints) (code : List isa.Directive)
+      (bounds : List (Sym × Nat)),
+      compileModule isa lt raBytes extCallees exits nX fs hints = .ok (code, bounds) →
+      compileModule isa lt raBytes extCallees exits' nX fs hints = .ok (code, bounds) := by
+  intro fs hints code bounds h
+  induction fs generalizing hints extCallees code bounds with
+  | nil =>
+    cases hints with
+    | nil => simpa [compileModule] using h
+    | cons _ _ => simp [compileModule] at h
+  | cons f fs ih =>
+    cases hints with
+    | nil => simp [compileModule] at h
+    | cons h0 hs =>
+      dsimp only [compileModule] at h ⊢
+      cases hsupp : f.earlyOpt.body.supportsSource lt with
+      | false => simp [hsupp] at h
+      | true =>
+        simp only [hsupp, ↓reduceIte] at h ⊢
+        cases hlow : Rega.lowerFn isa h0 (Fn.midFromEarly lt f.earlyOpt).ext
+            (Fn.midFromEarly lt f.earlyOpt) with
+        | error e => simp [hlow] at h
+        | ok c =>
+          simp only [hlow] at h ⊢
+          cases hcb : checkAndBoundExt isa raBytes exits nX extCallees h0
+              (Fn.midFromEarly lt f.earlyOpt).ext with
+          | none => simp [hcb] at h
+          | some b =>
+            have hcb' := checkAndBoundExt_mono_exits isa raBytes exits exits' nX extCallees h0 _ hcb
+              hsub
+            simp only [hcb] at h
+            simp only [hcb']
+            cases hrest : compileModule isa lt raBytes
+                (((Fn.midFromEarly lt f.earlyOpt).sig, b) :: extCallees) exits nX fs hs with
+            | error e => simp [hrest] at h
+            | ok res =>
+              simp only [hrest] at h
+              have ih' := ih (((Fn.midFromEarly lt f.earlyOpt).sig, b) :: extCallees)
+                hs res.1 res.2 hrest
+              simpa [ih'] using h
+
+@[expose] def checkWeakenExitsChunk {T : Target} {lt : LegalTarget} {exits : List Sym}
+    {nX : Nat} (L : TargetLayout T) (exits' : List Sym)
+    (ch : CompiledChunk T lt exits nX) : Bool :=
+  L.progSmall (ch.compiled.code ++ exits'.map T.frame.label) &&
+  (ch.fs.map Fn.name ++ exits').Nodup &&
+  (ch.fs.map Fn.name ++ exits').all fnNameOk
+
+@[expose] def checkWeakenExitsChunks {T : Target} {lt : LegalTarget} {exits : List Sym}
+    {nX : Nat} (L : TargetLayout T) (exits' : List Sym)
+    (chunks : List (CompiledChunk T lt exits nX)) : Bool :=
+  chunks.all (checkWeakenExitsChunk L exits')
+
+theorem checkWeakenExitsChunk_parts {T : Target} {lt : LegalTarget} {exits : List Sym}
+    {nX : Nat} {L : TargetLayout T} {exits' : List Sym}
+    {ch : CompiledChunk T lt exits nX} (h : checkWeakenExitsChunk L exits' ch = true) :
+    L.progSmall (ch.compiled.code ++ exits'.map T.frame.label) = true ∧
+      (ch.fs.map Fn.name ++ exits').Nodup ∧
+      (ch.fs.map Fn.name ++ exits').all fnNameOk = true := by
+  simp only [checkWeakenExitsChunk, Bool.and_eq_true, decide_eq_true_eq] at h
+  exact ⟨h.1.1, h.1.2, h.2⟩
+
+/-- Lift a zero-exit `Compiled` certificate to arbitrary `(exits', nX')` in `O(1)` time with zero
+machine-code recompilation, preserving `code` and `bounds` definitionally. -/
+@[expose] noncomputable def Compiled.weakenNoExit {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget}
+    {extCallees : List (SigEntry × Nat)} {nX : Nat} {fs : List Fn}
+    {hints : List T.toIsa.Hints} {maxBound : Nat}
+    (c : Compiled T lt extCallees [] nX fs hints maxBound)
+    (exits' : List Sym) (nX' : Nat)
+    (hsmall : L.progSmall (c.code ++ exits'.map T.frame.label) = true)
+    (hnodup : (fs.map Fn.name ++ exits').Nodup)
+    (hok : (fs.map Fn.name ++ exits').all fnNameOk = true) :
+    Compiled T lt extCallees exits' nX' fs hints maxBound :=
+  let hcm' :
+      compileModule T.toIsa lt T.frame.raBytes extCallees exits' nX' fs hints =
+        .ok (c.code, c.bounds) :=
+    compileModule_of_exits_nil T.toIsa lt T.frame.raBytes extCallees nX fs hints c.code c.bounds
+      c.compileModule_eq exits' nX'
+  { code := c.code
+    bounds := c.bounds
+    compileModule_eq := hcm'
+    compile_eq := c.compile_eq
+    bound_mem := c.bound_mem
+    bound_le := c.bound_le
+    host := L.layoutOf (c.code ++ exits'.map T.frame.label) hsmall
+    prog_host := L.prog_layoutOf (c.code ++ exits'.map T.frame.label) hsmall
+    labelsUnique := by
+      intro i j l hi hj
+      rw [L.prog_layoutOf (c.code ++ exits'.map T.frame.label) hsmall] at hi hj
+      exact compileModule_labelsUnique hcl hcm' hnodup hok i j l hi hj }
+
+/-- Lift an existing `Compiled` certificate along `exits ⊆ exits'` at fixed `nX` in `O(1)` time
+with zero machine-code recompilation. -/
+@[expose] noncomputable def Compiled.weakenExits {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget}
+    {extCallees : List (SigEntry × Nat)} {exits : List Sym} {nX : Nat} {fs : List Fn}
+    {hints : List T.toIsa.Hints} {maxBound : Nat}
+    (c : Compiled T lt extCallees exits nX fs hints maxBound)
+    (exits' : List Sym) (hsub : ∀ s ∈ exits, s ∈ exits')
+    (hsmall : L.progSmall (c.code ++ exits'.map T.frame.label) = true)
+    (hnodup : (fs.map Fn.name ++ exits').Nodup)
+    (hok : (fs.map Fn.name ++ exits').all fnNameOk = true) :
+    Compiled T lt extCallees exits' nX fs hints maxBound :=
+  let hcm' :
+      compileModule T.toIsa lt T.frame.raBytes extCallees exits' nX fs hints =
+        .ok (c.code, c.bounds) :=
+    compileModule_mono_exits T.toIsa lt T.frame.raBytes extCallees exits exits' nX hsub
+      fs hints c.code c.bounds c.compileModule_eq
+  { code := c.code
+    bounds := c.bounds
+    compileModule_eq := hcm'
+    compile_eq := c.compile_eq
+    bound_mem := c.bound_mem
+    bound_le := c.bound_le
+    host := L.layoutOf (c.code ++ exits'.map T.frame.label) hsmall
+    prog_host := L.prog_layoutOf (c.code ++ exits'.map T.frame.label) hsmall
+    labelsUnique := by
+      intro i j l hi hj
+      rw [L.prog_layoutOf (c.code ++ exits'.map T.frame.label) hsmall] at hi hj
+      exact compileModule_labelsUnique hcl hcm' hnodup hok i j l hi hj }
+
+@[expose] noncomputable def CompiledChunk.weakenNoExit {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget} {nX : Nat}
+    (exits' : List Sym) (nX' : Nat)
+    (ch : CompiledChunk T lt [] nX)
+    (hchk : checkWeakenExitsChunk L exits' ch = true) :
+    CompiledChunk T lt exits' nX' where
+  extCallees := ch.extCallees
+  fs := ch.fs
+  hints := ch.hints
+  maxBound := ch.maxBound
+  compiled :=
+    let hp := checkWeakenExitsChunk_parts hchk
+    ch.compiled.weakenNoExit L hcl exits' nX' hp.1 hp.2.1 hp.2.2
+
+@[expose] noncomputable def CompiledChunk.weakenExits {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget} {exits : List Sym} {nX : Nat}
+    (exits' : List Sym) (hsub : ∀ s ∈ exits, s ∈ exits')
+    (ch : CompiledChunk T lt exits nX)
+    (hchk : checkWeakenExitsChunk L exits' ch = true) :
+    CompiledChunk T lt exits' nX where
+  extCallees := ch.extCallees
+  fs := ch.fs
+  hints := ch.hints
+  maxBound := ch.maxBound
+  compiled :=
+    let hp := checkWeakenExitsChunk_parts hchk
+    ch.compiled.weakenExits L hcl exits' hsub hp.1 hp.2.1 hp.2.2
+
+@[expose] noncomputable def weakenChunksNoExit {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget} {nX : Nat}
+    (exits' : List Sym) (nX' : Nat) :
+    (chunks : List (CompiledChunk T lt [] nX)) →
+    checkWeakenExitsChunks L exits' chunks = true →
+    List (CompiledChunk T lt exits' nX')
+  | [], _ => []
+  | ch :: rest, h =>
+    have hc : checkWeakenExitsChunk L exits' ch = true :=
+      (Bool.and_eq_true _ _ |>.mp h).1
+    have hr : checkWeakenExitsChunks L exits' rest = true :=
+      (Bool.and_eq_true _ _ |>.mp h).2
+    ch.weakenNoExit L hcl exits' nX' hc ::
+      weakenChunksNoExit L hcl exits' nX' rest hr
+
+@[expose] noncomputable def weakenChunksExits {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget} {exits : List Sym} {nX : Nat}
+    (exits' : List Sym) (hsub : ∀ s ∈ exits, s ∈ exits') :
+    (chunks : List (CompiledChunk T lt exits nX)) →
+    checkWeakenExitsChunks L exits' chunks = true →
+    List (CompiledChunk T lt exits' nX)
+  | [], _ => []
+  | ch :: rest, h =>
+    have hc : checkWeakenExitsChunk L exits' ch = true :=
+      (Bool.and_eq_true _ _ |>.mp h).1
+    have hr : checkWeakenExitsChunks L exits' rest = true :=
+      (Bool.and_eq_true _ _ |>.mp h).2
+    ch.weakenExits L hcl exits' hsub hc ::
+      weakenChunksExits L hcl exits' hsub rest hr
+
+theorem chunksFns_weakenChunksNoExit {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget} {nX : Nat}
+    (exits' : List Sym) (nX' : Nat) :
+    ∀ (chunks : List (CompiledChunk T lt [] nX))
+      (h : checkWeakenExitsChunks L exits' chunks = true),
+      chunksFns (weakenChunksNoExit L hcl exits' nX' chunks h) = chunksFns chunks
+  | [], _ => rfl
+  | _ :: rest, h => by
+    simp only [weakenChunksNoExit, chunksFns, CompiledChunk.weakenNoExit]
+    exact congrArg (_ ++ ·) (chunksFns_weakenChunksNoExit L hcl exits' nX' rest _)
+
+theorem chunksBounds_weakenChunksNoExit {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget} {nX : Nat}
+    (exits' : List Sym) (nX' : Nat) :
+    ∀ (chunks : List (CompiledChunk T lt [] nX))
+      (h : checkWeakenExitsChunks L exits' chunks = true),
+      chunksBounds (weakenChunksNoExit L hcl exits' nX' chunks h) = chunksBounds chunks
+  | [], _ => rfl
+  | ch :: rest, h => by
+    simp only [weakenChunksNoExit, chunksBounds, CompiledChunk.weakenNoExit,
+      Compiled.weakenNoExit]
+    exact congrArg (ch.compiled.bounds ++ ·)
+      (chunksBounds_weakenChunksNoExit L hcl exits' nX' rest _)
+
+theorem chunksMaxBound_weakenChunksNoExit {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget} {nX : Nat}
+    (exits' : List Sym) (nX' : Nat) :
+    ∀ (chunks : List (CompiledChunk T lt [] nX))
+      (h : checkWeakenExitsChunks L exits' chunks = true),
+      chunksMaxBound (weakenChunksNoExit L hcl exits' nX' chunks h) = chunksMaxBound chunks
+  | [], _ => rfl
+  | _ :: rest, h => by
+    simp only [weakenChunksNoExit, chunksMaxBound, CompiledChunk.weakenNoExit]
+    exact congrArg (Nat.max _) (chunksMaxBound_weakenChunksNoExit L hcl exits' nX' rest _)
+
+theorem chunksFns_weakenChunksExits {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget} {exits : List Sym} {nX : Nat}
+    (exits' : List Sym) (hsub : ∀ s ∈ exits, s ∈ exits') :
+    ∀ (chunks : List (CompiledChunk T lt exits nX))
+      (h : checkWeakenExitsChunks L exits' chunks = true),
+      chunksFns (weakenChunksExits L hcl exits' hsub chunks h) = chunksFns chunks
+  | [], _ => rfl
+  | _ :: rest, h => by
+    simp only [weakenChunksExits, chunksFns, CompiledChunk.weakenExits]
+    exact congrArg (_ ++ ·) (chunksFns_weakenChunksExits L hcl exits' hsub rest _)
+
+theorem chunksMaxBound_weakenChunksExits {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget} {exits : List Sym} {nX : Nat}
+    (exits' : List Sym) (hsub : ∀ s ∈ exits, s ∈ exits') :
+    ∀ (chunks : List (CompiledChunk T lt exits nX))
+      (h : checkWeakenExitsChunks L exits' chunks = true),
+      chunksMaxBound (weakenChunksExits L hcl exits' hsub chunks h) = chunksMaxBound chunks
+  | [], _ => rfl
+  | _ :: rest, h => by
+    simp only [weakenChunksExits, chunksMaxBound, CompiledChunk.weakenExits]
+    exact congrArg (Nat.max _) (chunksMaxBound_weakenChunksExits L hcl exits' hsub rest _)
+
+namespace LinkedCert
+
+/-- `O(1)` zero-recompilation lifting of a zero-exit `LinkedCert` (`exits = []`) to an arbitrary
+exit symbol list `exits'` and exit-frame bound `nX'`, enabling composition with exit-capable
+runtime certificates via `LinkedCert.append`. -/
+@[expose] noncomputable def weakenNoExit {T : Target} {L : TargetLayout T} {lt : LegalTarget}
+    {hcl : Rega.LabelClean T.toIsa} {mod : Module} {ext₀ : List (SigEntry × Nat)}
+    {nX maxB : Nat}
+    (c : LinkedCert T L lt hcl mod ext₀ [] nX maxB)
+    (exits' : List Sym) (nX' : Nat)
+    (hweaken : checkWeakenExitsChunks L exits' c.chunks = true)
+    (hchk : checkLinkList L ext₀ (weakenChunksNoExit L hcl exits' nX' c.chunks hweaken) = true) :
+    LinkedCert T L lt hcl mod ext₀ exits' nX' maxB where
+  chunks := weakenChunksNoExit L hcl exits' nX' c.chunks hweaken
+  linkCheck := hchk
+  fns_eq := by
+    rw [chunksFns_weakenChunksNoExit]
+    exact c.fns_eq
+  supportsAll := c.supportsAll
+  maxBound_le := by
+    rw [chunksMaxBound_weakenChunksNoExit]
+    exact c.maxBound_le
+
+/-- `O(1)` zero-recompilation lifting of an existing `LinkedCert` along `exits ⊆ exits'` at fixed
+`nX`. -/
+@[expose] noncomputable def weakenExits {T : Target} {L : TargetLayout T} {lt : LegalTarget}
+    {hcl : Rega.LabelClean T.toIsa} {mod : Module} {ext₀ : List (SigEntry × Nat)}
+    {exits : List Sym} {nX maxB : Nat}
+    (c : LinkedCert T L lt hcl mod ext₀ exits nX maxB)
+    (exits' : List Sym) (hsub : ∀ s ∈ exits, s ∈ exits')
+    (hweaken : checkWeakenExitsChunks L exits' c.chunks = true)
+    (hchk : checkLinkList L ext₀
+      (weakenChunksExits L hcl exits' hsub c.chunks hweaken) = true) :
+    LinkedCert T L lt hcl mod ext₀ exits' nX maxB where
+  chunks := weakenChunksExits L hcl exits' hsub c.chunks hweaken
+  linkCheck := hchk
+  fns_eq := by
+    rw [chunksFns_weakenChunksExits]
+    exact c.fns_eq
+  supportsAll := c.supportsAll
+  maxBound_le := by
+    rw [chunksMaxBound_weakenChunksExits]
+    exact c.maxBound_le
+
+theorem weakenNoExit_bounds {T : Target} {L : TargetLayout T} {lt : LegalTarget}
+    {hcl : Rega.LabelClean T.toIsa} {mod : Module} {ext₀ : List (SigEntry × Nat)}
+    {nX maxB : Nat} (c : LinkedCert T L lt hcl mod ext₀ [] nX maxB)
+    (exits' : List Sym) (nX' : Nat)
+    (hweaken : checkWeakenExitsChunks L exits' c.chunks = true)
+    (hchk : checkLinkList L ext₀ (weakenChunksNoExit L hcl exits' nX' c.chunks hweaken) = true) :
+    (c.weakenNoExit exits' nX' hweaken hchk).bounds = c.bounds := by
+  simp only [LinkedCert.bounds, LinkedCert.weakenNoExit, LinkedCert.compiled, linkCompiledList,
+    chunksBounds_weakenChunksNoExit]
+
+theorem length_weakenChunksNoExit {T : Target} (L : TargetLayout T)
+    (hcl : Rega.LabelClean T.toIsa) {lt : LegalTarget} {nX : Nat}
+    (exits' : List Sym) (nX' : Nat) :
+    ∀ (chunks : List (CompiledChunk T lt [] nX))
+      (h : checkWeakenExitsChunks L exits' chunks = true),
+      (weakenChunksNoExit L hcl exits' nX' chunks h).length = chunks.length
+  | [], _ => rfl
+  | _ :: rest, h => by
+    simp only [weakenChunksNoExit, List.length_cons]
+    exact congrArg Nat.succ (length_weakenChunksNoExit L hcl exits' nX' rest _)
+
+theorem weakenNoExit_numChunks {T : Target} {L : TargetLayout T} {lt : LegalTarget}
+    {hcl : Rega.LabelClean T.toIsa} {mod : Module} {ext₀ : List (SigEntry × Nat)}
+    {nX maxB : Nat} (c : LinkedCert T L lt hcl mod ext₀ [] nX maxB)
+    (exits' : List Sym) (nX' : Nat)
+    (hweaken : checkWeakenExitsChunks L exits' c.chunks = true)
+    (hchk : checkLinkList L ext₀ (weakenChunksNoExit L hcl exits' nX' c.chunks hweaken) = true) :
+    (c.weakenNoExit exits' nX' hweaken hchk).numChunks = c.numChunks := by
+  simp only [LinkedCert.numChunks, LinkedCert.weakenNoExit, length_weakenChunksNoExit]
+
+end LinkedCert
+
 end LeanQbe.T
