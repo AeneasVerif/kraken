@@ -4,6 +4,7 @@ public import LeanQbe.T.LeanLCNF.Basic
 public import LeanQbe.T.LeanLCNF.Coverage
 public import LeanQbe.T.LeanLCNF.Demo
 public import LeanQbe.T.LeanLCNF.FromIR
+public import LeanQbe.T.LeanLCNF.LExprSem
 public import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemo
 public import LeanQbe.T.LeanLCNF.LcnfC0ArrayDemoProof
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNum

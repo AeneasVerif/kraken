@@ -9,6 +9,10 @@ public import LeanQbe.T.LeanLRC.ToT
 * `lowerCode`: `let` → inline op / call, non-recursive `jp`/`jmp` → one-block `.group`/`.jump`,
   `cases` → tag dispatch (`jnz` chain), self tail calls `let r := f ys; return r` → `.jump` to a
   `loop1` header (O(1) stack, loop-carried registers), `unreach` → `exit lcnf_panic`.
+  It is structurally recursive on `LcCode` (mutually with `lowerAlts`), and the static
+  environments (`LEnv`, `LCtx`) are association lists, so `lowerModule` is total and reduces in
+  the kernel (no `partial`, no `Std.HashMap`/`String.hash`); `splice_lcnf_tflat!` relies on this
+  to emit a kernel-checked `<tfs>_lower : lowerModule lc = .ok <tfs>_raw`.
 * `lowerDecl`: `rt` + 5 register parameters, the rest reloaded from `rt->extra_args`; closed
   constants (0 parameters) are read through `rt->globals` once-cells and marked persistent.
 * `genApply k`: defunctionalized `lcnf_apply_k` (exact application dispatches on `fun_id` through
@@ -29,13 +33,14 @@ open LeanQbe.T.Frontend.C0 (LExpr LVar LArg LOp LFlatCtx lExprToTFlat TFlatFn)
 
 instance : Inhabited LExpr := ⟨.hlt⟩
 
-/-- Static lowering environment of one module. -/
+/-- Static lowering environment of one module. Every map is an association list (newest binding
+first, looked up with `List.lookup`), so that lookups reduce in the kernel. -/
 structure LEnv where
-  decls : Std.HashMap String LcDecl
-  funIds : Std.HashMap String Nat
-  globals : Std.HashMap String Nat
-  strLits : Std.HashMap String Nat
-  bigNatLits : Std.HashMap Nat Nat
+  decls : List (String × LcDecl)
+  funIds : List (String × Nat)
+  globals : List (String × Nat)
+  strLits : List (String × Nat)
+  bigNatLits : List (Nat × Nat)
 
 /-- Per-function lowering context. -/
 structure LCtx where
@@ -43,19 +48,19 @@ structure LCtx where
   rt : LArg
   retTy : LcTy
   params : List LcTy
-  vars : Std.HashMap Nat (LArg × LcTy) := {}
-  jps : Std.HashMap Nat (Nat × List LcTy) := {}
+  vars : List (Nat × LArg × LcTy) := []
+  jps : List (Nat × Nat × List LcTy) := []
   loop? : Option Nat := none
 
 /-- Look up a variable. -/
 def LCtx.var (c : LCtx) (x : Nat) : LM (LArg × LcTy) :=
-  match c.vars[x]? with
+  match c.vars.lookup x with
   | some r => pure r
   | none => lfail s!"LeanLCNF ({c.fn}): unbound variable x.{x}"
 
 /-- Bind a variable. -/
 def LCtx.bind (c : LCtx) (x : Nat) (a : LArg) (t : LcTy) : LCtx :=
-  { c with vars := c.vars.insert x (a, t) }
+  { c with vars := (x, a, t) :: c.vars }
 
 /-- Bind parameters to operands. -/
 def LCtx.bindAll (c : LCtx) (ps : List LcParam) (as : List LArg) : LCtx :=
@@ -148,10 +153,10 @@ def readBigNatLit (rt : LArg) (slot n : Nat) (k : LArg → LM LExpr) : LM LExpr 
 /-- `fap f as`. -/
 def lowerFap (env : LEnv) (c : LCtx) (f : String) (as : List LcArg) (ty : LcTy)
     (k : LArg → LM LExpr) : LM LExpr := do
-  match env.decls[f]? with
+  match env.decls.lookup f with
   | some d =>
     if d.params.isEmpty && !d.retTy.isScalar then
-      match env.globals[f]? with
+      match env.globals.lookup f with
       | some slot => readConst c.rt (mangleLc f) slot k
       | none => lfail s!"LeanLCNF: constant {f} has no global slot"
     else
@@ -166,8 +171,8 @@ def lowerFap (env : LEnv) (c : LCtx) (f : String) (as : List LcArg) (ty : LcTy)
 /-- `pap f as`: allocate a defunctionalized closure. -/
 def lowerPap (env : LEnv) (c : LCtx) (f : String) (as : List LcArg) (k : LArg → LM LExpr) :
     LM LExpr := do
-  let some fid := env.funIds[f]? | lfail s!"LeanLCNF: pap target {f} not in closure table"
-  let some d := env.decls[f]? | lfail s!"LeanLCNF: pap target {f} has no code"
+  let some fid := env.funIds.lookup f | lfail s!"LeanLCNF: pap target {f} not in closure table"
+  let some d := env.decls.lookup f | lfail s!"LeanLCNF: pap target {f} has no code"
   let nfix := as.length
   let sz := 24 + 8 * nfix
   let vs ← as.mapM (argOwn c)
@@ -201,6 +206,10 @@ def lowerReuse (c : LCtx) (x : LArg) (ci : LcCtor) (upd : Bool) (vs : List LArg)
     let keep ← if upd then storeAt i8 (imm 8 ci.cidx) x 7 (pure (j x)) else pure (j x)
     pure (.jnz s fresh keep)
 
+/-- Kernel-reducible `s!"lcnf_apply_{k}"` (`Nat.repr` is unexposed in `module` mode). -/
+def applySym (k : Nat) : Sym :=
+  "lcnf_apply_" ++ String.ofList (natDigits 10 k)
+
 /-- Lower a `LetValue` bound at type `ty`. -/
 def lowerVal (env : LEnv) (c : LCtx) (ty : LcTy) (v : LcVal) (k : LArg → LM LExpr) :
     LM LExpr := do
@@ -208,19 +217,19 @@ def lowerVal (env : LEnv) (c : LCtx) (ty : LcTy) (v : LcVal) (k : LArg → LM LE
   match v with
   | .lit (.nat n) =>
     if n < 2 ^ 63 then k (imm64 (2 * n + 1))
-    else match env.bigNatLits[n]? with
+    else match env.bigNatLits.lookup n with
       | some slot => readBigNatLit c.rt slot n k
       | none => lfail s!"LeanLCNF ({c.fn}): big Nat literal {n} has no global slot"
   | .lit (.scalar n) => k (imm w n)
   | .lit (.str s) =>
-    match env.strLits[s]? with
+    match env.strLits.lookup s with
     | some slot => readStrLit c.rt slot s k
     | none => lfail s!"LeanLCNF ({c.fn}): string literal has no global slot"
   | .erased => k (imm w (if ty.isScalar then 0 else 1))
   | .ap f as =>
     let (fa, _) ← c.var f
     let vs ← as.mapM (argOwn c)
-    callFn c.rt s!"lcnf_apply_{as.length}" ((fa :: vs).map (·, i64)) i64 k
+    callFn c.rt (applySym as.length) ((fa :: vs).map (·, i64)) i64 k
   | .ctor ci as =>
     if ci.isScalar then k (imm w (if ty.isScalar then ci.cidx else 2 * ci.cidx + 1))
     else
@@ -271,33 +280,68 @@ def altsHaveSelfTail (fn : String) (arity : Nat) : List (LcPat × LcCode) → Bo
   | (_, b) :: rest => hasSelfTail fn arity b || altsHaveSelfTail fn arity rest
 end
 
-mutual
-/-- Lower `Code .impure`. -/
-partial def lowerCode (env : LEnv) (c : LCtx) (code : LcCode) : LM LExpr := do
+/-- The loop-back `.jump` of a self tail call, when `code` is `let x := f ys; return x` with `f`
+the current function and a loop header is open. -/
+def selfTailJump? (c : LCtx) (code : LcCode) : Option (LM LExpr) :=
   match code, c.loop? with
   | .let_ _ _ (.fap _ as) _, some lbl =>
     if isSelfTail c.fn c.params.length code then
-      let args ← (as.zip c.params).mapM fun (a, t) => argAt c a t
-      pure (.jump lbl (c.params.map LcTy.toTTy) args)
-    else lowerStep env c code
-  | _, _ => lowerStep env c code
+      some do
+        let args ← (as.zip c.params).mapM fun (a, t) => argAt c a t
+        pure (.jump lbl (c.params.map LcTy.toTTy) args)
+    else none
+  | _, _ => none
 
-/-- Lower one construct (`lowerCode` handles self tail calls). -/
-partial def lowerStep (env : LEnv) (c : LCtx) : LcCode → LM LExpr
-  | .let_ x ty v k => lowerVal env c ty v fun r => lowerCode env (c.bind x r ty) k
+/-- Dispatch on a computed tag of width `w` over already lowered alternatives. -/
+def dispatchAlts (tag : LArg) (w : Nat) : List (LcPat × LM LExpr) → LM LExpr
+  | [] => pure .hlt
+  | [(_, b)] => b
+  | (.dflt, b) :: _ => b
+  | (.ctor ci _, b) :: rest => cmpOp .eq w tag (imm w ci) fun e => do
+    pure (.jnz e (← b) (← dispatchAlts tag w rest))
+
+/-- Lower `cases` over already lowered alternatives (unrun builder actions, so the fresh-id
+order is the dispatch order): compute the tag once, then a `jnz` chain over the alternatives.
+For a `tobject` scrutinee the scalar test is emitted before the tag join is opened (see
+`emitInc`). -/
+def lowerCases (c : LCtx) (x : Nat) (alts : List (LcPat × LM LExpr)) : LM LExpr := do
+  let (xa, xt) ← c.var x
+  let ctors := alts.filter fun | (.ctor .., _) => true | _ => false
+  let dflts := alts.filter fun | (.dflt, _) => true | _ => false
+  match ctors ++ dflts with
+  | [] => pure .hlt
+  | [(_, b)] => b
+  | sorted =>
+    if xt.isScalar then dispatchAlts xa xt.width sorted
+    else if xt == .object then loadAt i8 xa 7 fun t => dispatchAlts t 8 sorted
+    else if xt == .tagged then lshr64 xa (imm64 1) fun t => dispatchAlts t 64 sorted
+    else isScalarObj xa fun s =>
+      withJoin1 i64 (fun t => dispatchAlts t 64 sorted) fun j => do
+        let ptr ← loadAt i8 xa 7 fun t8 => convW 8 64 t8 fun t => pure (j t)
+        let sc ← lshr64 xa (imm64 1) fun t => pure (j t)
+        pure (.jnz s sc ptr)
+
+mutual
+/-- Lower `Code .impure` (structural recursion on the code tree; a self tail call becomes a
+`.jump` to the loop header, see `selfTailJump?`). -/
+def lowerCode (env : LEnv) (c : LCtx) : LcCode → LM LExpr
+  | .let_ x ty v k =>
+    match selfTailJump? c (.let_ x ty v k) with
+    | some jump => jump
+    | none => lowerVal env c ty v fun r => lowerCode env (c.bind x r ty) k
   | .jp j ps body k => do
     let lbl ← fresh
     let pvs ← ps.mapM fun p => freshVar p.ty.toTTy
-    let c' := { c with jps := c.jps.insert j (lbl, ps.map (·.ty)) }
+    let c' := { c with jps := (j, lbl, ps.map (·.ty)) :: c.jps }
     let b ← lowerCode env (c'.bindAll ps (pvs.map vArg)) body
     let kk ← lowerCode env c' k
     pure (.group [(lbl, pvs, b)] kk)
   | .jmp j as => do
-    let some (lbl, ts) := c.jps[j]? | lfail s!"LeanLCNF ({c.fn}): unbound join point {j}"
+    let some (lbl, ts) := c.jps.lookup j | lfail s!"LeanLCNF ({c.fn}): unbound join point {j}"
     if as.length != ts.length then lfail s!"LeanLCNF ({c.fn}): jmp arity"
     let args ← (as.zip ts).mapM fun (a, t) => argAt c a t
     pure (.jump lbl (ts.map LcTy.toTTy) args)
-  | .cases x alts => lowerCases env c x alts
+  | .cases x alts => lowerCases c x (lowerAlts env c alts)
   | .ret a => do pure (.ret [c.retTy.toTTy] [← argAt c a c.retTy])
   | .unreach => pure (.exit "lcnf_panic" [i64, i64] [c.rt, imm64 panicUnreachable])
   | .oset x i y k => do
@@ -316,34 +360,10 @@ partial def lowerStep (env : LEnv) (c : LCtx) : LcCode → LM LExpr
     emitDec c.rt xa xt n chk (lowerCode env c k)
   | .del x k => do call0 "lcnf_free_obj" [i64, i64] [c.rt, (← c.var x).1] (lowerCode env c k)
 
-/-- Lower `cases`: compute the tag once, then a `jnz` chain over the alternatives. For a
-`tobject` scrutinee the scalar test is emitted before the tag join is opened (see `emitInc`). -/
-partial def lowerCases (env : LEnv) (c : LCtx) (x : Nat) (alts : List (LcPat × LcCode)) :
-    LM LExpr := do
-  let (xa, xt) ← c.var x
-  let ctors := alts.filter fun | (.ctor .., _) => true | _ => false
-  let dflts := alts.filter fun | (.dflt, _) => true | _ => false
-  match ctors ++ dflts with
-  | [] => pure .hlt
-  | [(_, b)] => lowerCode env c b
-  | sorted =>
-    if xt.isScalar then dispatchAlts env c xa xt.width sorted
-    else if xt == .object then loadAt i8 xa 7 fun t => dispatchAlts env c t 8 sorted
-    else if xt == .tagged then lshr64 xa (imm64 1) fun t => dispatchAlts env c t 64 sorted
-    else isScalarObj xa fun s =>
-      withJoin1 i64 (fun t => dispatchAlts env c t 64 sorted) fun j => do
-        let ptr ← loadAt i8 xa 7 fun t8 => convW 8 64 t8 fun t => pure (j t)
-        let sc ← lshr64 xa (imm64 1) fun t => pure (j t)
-        pure (.jnz s sc ptr)
-
-/-- Dispatch on a computed tag of width `w`. -/
-partial def dispatchAlts (env : LEnv) (c : LCtx) (tag : LArg) (w : Nat) :
-    List (LcPat × LcCode) → LM LExpr
-  | [] => pure .hlt
-  | [(_, b)] => lowerCode env c b
-  | (.dflt, b) :: _ => lowerCode env c b
-  | (.ctor ci _, b) :: rest => cmpOp .eq w tag (imm w ci) fun e => do
-    pure (.jnz e (← lowerCode env c b) (← dispatchAlts env c tag w rest))
+/-- The (unrun) builder action of every `cases` alternative. -/
+def lowerAlts (env : LEnv) (c : LCtx) : List (LcPat × LcCode) → List (LcPat × LM LExpr)
+  | [] => []
+  | (p, b) :: rest => (p, lowerCode env c b) :: lowerAlts env c rest
 end
 
 /-! ## Declarations -/
@@ -428,8 +448,8 @@ def genApply (k : Nat) (targets : List CloTarget) :
         let r := k - (n + 1)
         if r == 0 then pure (panic rt)
         else cmpOp .eq 32 rem (imm 32 r) fun e => do
-          let hit ← callFn rt s!"lcnf_apply_{r}" ((f :: as.take r).map (·, i64)) i64 fun t =>
-            callFn rt s!"lcnf_apply_{k - r}" ((t :: as.drop r).map (·, i64)) i64 fun res =>
+          let hit ← callFn rt (applySym r) ((f :: as.take r).map (·, i64)) i64 fun t =>
+            callFn rt (applySym (k - r)) ((t :: as.drop r).map (·, i64)) i64 fun res =>
               pure (.ret [i64] [res])
           pure (.jnz e hit (← over rem n))
     loadAt i32 f 16 fun hw =>
@@ -445,14 +465,14 @@ def genApply (k : Nat) (targets : List CloTarget) :
       let ov ← over rem (k - 1)
       pure (.jnz isEq exact (.jnz isUnder under ov))
   let ((ps, body), _) ← act.run 1
-  finishFn s!"lcnf_apply_{k}" ps i64 body
+  finishFn (applySym k) ps i64 body
 
 /-! ## Modules -/
 
-/-- Fast `Nodup` on symbols. -/
-def symsNodup (xs : List String) : Bool :=
-  (xs.foldl (fun (s, ok) x => if s.contains x then (s, false) else (s.insert x, ok))
-    ((∅ : Std.HashSet String), true)).2
+/-- Kernel-reducible `Nodup` on symbols. -/
+def symsNodup : List String → Bool
+  | [] => true
+  | x :: xs => !xs.contains x && symsNodup xs
 
 /-- The closure table of a module. -/
 def LcModule.cloTargets (m : LcModule) : Except String (List CloTarget) :=
@@ -507,15 +527,15 @@ def lowerModule (m : LcModule) : Except String (List Frontend.C0.TFlatFn) := do
   let strBase := consts.length
   let natBase := strBase + strs.length
   let env : LEnv :=
-    { decls := m.decls.foldl (fun s d => s.insert d.name d) {}
+    { decls := m.decls.foldl (fun s d => (d.name, d) :: s) []
       funIds := m.papTargets.zip (List.range m.papTargets.length) |>.foldl
-        (fun s (f, i) => s.insert f i) {}
+        (fun s (f, i) => (f, i) :: s) []
       globals := consts.zip (List.range consts.length) |>.foldl
-        (fun s (d, i) => s.insert d.name i) {}
+        (fun s (d, i) => (d.name, i) :: s) []
       strLits := strs.zip (List.range strs.length) |>.foldl
-        (fun s (x, i) => s.insert x (strBase + i)) {}
+        (fun s (x, i) => (x, strBase + i) :: s) []
       bigNatLits := bigNats.zip (List.range bigNats.length) |>.foldl
-        (fun s (x, i) => s.insert x (natBase + i)) {} }
+        (fun s (x, i) => (x, natBase + i) :: s) [] }
   let fns ← m.decls.mapM (lowerDecl env)
   let maxK := if targets.isEmpty then m.maxAp else Nat.max 1 m.maxAp
   let applies ← (List.range maxK).mapM fun i => genApply (i + 1) targets

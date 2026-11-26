@@ -14,6 +14,15 @@ public meta import LeanQbe.T.MainCertElab
 Provides the `splice_lcnf_tflat!` command elaborator used to materialize `lowerModule lcMod` into
 exposed kernel `TFlatFn` definitions ordered strictly callees-first via post-order DFS topological
 sort, feeding `LeanLRC.tflatFnsToFns` + `LeanLRC.tflatFnsToFns_wf` and `compile_linked_chunks!`.
+
+The splice is *not trusted*: besides `<tfs>` (callees-first) the command emits
+* `<tfs>_raw : List TFlatFn`, the same `tf_i` constants in `lowerModule`'s own order,
+* `<tfs>_lower : lowerModule lcMod = .ok <tfs>_raw`, checked by the kernel by reduction
+  (`Eq.refl`; `lowerModule` is total and free of `Std.HashMap`/`String.hash`), and
+* `<tfs>_perm : <tfs>.Perm <tfs>_raw` (`reorderBy_perm`, the topological order as an index list).
+
+`lcnf_lower_thm! <tfs> lcMod` emits `<tfs>_lower : lowerModule lcMod = .ok <tfs>` alone, for
+splicers that keep `lowerModule`'s order (the cyclic/SCC demos).
 -/
 
 set_option autoImplicit false
@@ -21,6 +30,24 @@ set_option autoImplicit false
 @[expose] public section
 
 namespace LeanQbe.T.Bootstrap0
+
+/-- `xs` reordered by the index list `idx` (out-of-range indices are dropped). -/
+def reorderBy {α : Type} (idx : List Nat) (xs : List α) : List α :=
+  idx.filterMap (xs[·]?)
+
+theorem filterMap_getElem?_range {α : Type} :
+    ∀ xs : List α, (List.range xs.length).filterMap (xs[·]?) = xs
+  | [] => rfl
+  | x :: xs => by
+    rw [List.length_cons, List.range_succ_eq_map, List.filterMap_cons, List.filterMap_map]
+    simpa [Function.comp_def] using filterMap_getElem?_range xs
+
+/-- Reordering by a permutation of the positions is a permutation. -/
+theorem reorderBy_perm {α : Type} {idx : List Nat} {xs ys : List α}
+    (hidx : idx.Perm (List.range xs.length)) (h : reorderBy idx xs = ys) : ys.Perm xs := by
+  subst h
+  have := hidx.filterMap (xs[·]?)
+  rwa [filterMap_getElem?_range] at this
 
 meta section
 
@@ -178,12 +205,65 @@ partial def topoSortTFlat (tfs : List Frontend.C0.TFlatFn) :
     (done, out) ← visit tf.name {} done out
   return out
 
-/-- Splices `lowerModule lcMod` (topologically sorted callees-first) as kernel `TFlatFn` defs. -/
+/-- `List TFlatFn` type, and the list literal of the given `TFlatFn` constants. -/
+def tflatFnListTy : Lean.Expr :=
+  mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.Frontend.C0.TFlatFn)
+
+/-- The list literal of the given `TFlatFn` constants. -/
+def tflatFnListLit (names : List Name) : Lean.Expr :=
+  let c0TfConst := Lean.mkConst ``LeanQbe.T.Frontend.C0.TFlatFn
+  (names.map Lean.mkConst).foldr
+    (fun e acc => mkApp3 (Lean.mkConst ``List.cons [.zero]) c0TfConst e acc)
+    (mkApp (Lean.mkConst ``List.nil [.zero]) c0TfConst)
+
+/-- Add `thmNm : lowerModule lcE = .ok rawE`, proved by `Eq.refl` and so checked by kernel
+reduction of `lowerModule` alone (no elaborator, no compiled code in the trust base). -/
+def addLowerThm (thmNm : Name) (lcE rawE : Lean.Expr) : CoreM Unit := do
+  let exTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String) tflatFnListTy
+  let lhs := mkApp (Lean.mkConst ``LeanQbe.T.LeanLCNF.lowerModule) lcE
+  let rhs := mkApp3 (Lean.mkConst ``Except.ok [.zero, .zero]) (Lean.mkConst ``String)
+    tflatFnListTy rawE
+  addDecl <| .thmDecl {
+    name := thmNm, levelParams := []
+    type := mkApp3 (Lean.mkConst ``Eq [.succ .zero]) exTy lhs rhs
+    value := mkApp2 (Lean.mkConst ``Eq.refl [.succ .zero]) exTy rhs }
+
+/-- Add `thmNm : sortedE.Perm rawE` from `reorderBy idx rawE = sortedE` (`Eq.refl`) and
+`idx.Perm (List.range rawE.length)` (`decide`), both checked by the kernel. -/
+def addPermThm (thmNm : Name) (idx : List Nat) (sortedE rawE : Lean.Expr) : MetaM Unit := do
+  let tfC := Lean.mkConst ``LeanQbe.T.Frontend.C0.TFlatFn
+  let idxE := Lean.toExpr idx
+  let rangeE := mkApp (Lean.mkConst ``List.range)
+    (mkApp2 (Lean.mkConst ``List.length [.zero]) tfC rawE)
+  let hidx ← mkDecideProof
+    (mkApp3 (Lean.mkConst ``List.Perm [.zero]) (Lean.mkConst ``Nat) idxE rangeE)
+  let hre := mkApp2 (Lean.mkConst ``Eq.refl [.succ .zero]) tflatFnListTy sortedE
+  addDecl <| .thmDecl {
+    name := thmNm, levelParams := []
+    type := mkApp3 (Lean.mkConst ``List.Perm [.zero]) tfC sortedE rawE
+    value := mkAppN (Lean.mkConst ``LeanQbe.T.Bootstrap0.reorderBy_perm)
+      #[tfC, idxE, rawE, sortedE, hidx, hre] }
+
+/-- Emits the kernel-checked `<tfs>_lower : lowerModule lcMod = .ok <tfs>` for an already spliced
+`<tfs> : List TFlatFn` kept in `lowerModule`'s order. -/
+elab "lcnf_lower_thm! " tfsId:ident lcModT:term : command => do
+  let tfsNm ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo tfsId
+  let lcE ← liftTermElabM do
+    let e ← Term.elabTerm lcModT (some (Lean.mkConst ``LeanQbe.T.LeanLCNF.LcModule))
+    Term.synthesizeSyntheticMVarsNoPostponing
+    instantiateMVars e
+  liftCoreM <| addLowerThm (tfsNm.appendAfter "_lower") lcE (Lean.mkConst tfsNm)
+
+/-- Splices `lowerModule lcMod` (topologically sorted callees-first) as kernel `TFlatFn` defs,
+with the kernel-checked `<tfs>_lower : lowerModule lcMod = .ok <tfs>_raw` and
+`<tfs>_perm : <tfs>.Perm <tfs>_raw`. -/
 elab "splice_lcnf_tflat! " modId:ident lcModT:term : command => do
   let ns ← getCurrNamespace
   let outNm := ns ++ modId.getId
-  let lcE ← liftTermElabM <| Term.elabTerm lcModT
-    (some (Lean.mkConst ``LeanQbe.T.LeanLCNF.LcModule))
+  let lcE ← liftTermElabM do
+    let e ← Term.elabTerm lcModT (some (Lean.mkConst ``LeanQbe.T.LeanLCNF.LcModule))
+    Term.synthesizeSyntheticMVarsNoPostponing
+    instantiateMVars e
   let lcMod ← liftTermElabM <|
     unsafe Meta.evalExpr LcModule (Lean.mkConst ``LeanQbe.T.LeanLCNF.LcModule) lcE
   let tfsRaw ← match lowerModule lcMod with
@@ -204,11 +284,17 @@ elab "splice_lcnf_tflat! " modId:ident lcModT:term : command => do
     let nm := outNm ++ Name.mkSimple s!"tf_{i}"
     liftCoreM <| addExposedDecl nm c0TfConst e (forceExpose := true)
     fnNames := fnNames ++ [nm]
-  let tfsTy := mkApp (Lean.mkConst ``List [.zero]) c0TfConst
-  let tfsVal := (fnNames.map Lean.mkConst).foldr
-    (fun e acc => mkApp3 (Lean.mkConst ``List.cons [.zero]) c0TfConst e acc)
-    (mkApp (Lean.mkConst ``List.nil [.zero]) c0TfConst)
-  liftCoreM <| addExposedDecl outNm tfsTy tfsVal (forceExpose := true)
+  liftCoreM <| addExposedDecl outNm tflatFnListTy (tflatFnListLit fnNames) (forceExpose := true)
+  -- Kernel-checked lowering relation: `<tfs>_raw` lists the same constants in `lowerModule`'s
+  -- order (mangled symbols are unique: `lowerModule` checks `symsNodup`).
+  let posIn (xs : List Frontend.C0.TFlatFn) (nm : String) : Nat :=
+    (xs.findIdx? (·.name == nm)).getD 0
+  let rawNames := tfsRaw.map fun tf => fnNames.getD (posIn tfs tf.name) outNm
+  let rawNm := outNm.appendAfter "_raw"
+  liftCoreM <| addExposedDecl rawNm tflatFnListTy (tflatFnListLit rawNames) (forceExpose := true)
+  liftCoreM <| addLowerThm (outNm.appendAfter "_lower") lcE (Lean.mkConst rawNm)
+  liftTermElabM <| addPermThm (outNm.appendAfter "_perm") (tfs.map fun tf => posIn tfsRaw tf.name)
+    (Lean.mkConst outNm) (Lean.mkConst rawNm)
 
 /-- Compiled `meta` helper evaluating per-function compiled directive counts `(name, dirs)`. -/
 def evalModuleDirCounts (I : Isa) (lt : LegalTarget) (raBytes : Nat)

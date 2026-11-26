@@ -142,6 +142,7 @@ globs = [
   "LeanQbeTest.T.LcnfC0ContainersTest",
   "LeanQbeTest.T.LcnfC0RtTest",
   "LeanQbeTest.T.LcnfP5Test",
+  "LeanQbeTest.T.LcnfSemL1Test",
   "LeanQbeTest.T.LeanLCNFFromIRTest",
   "LeanQbeTest.T.LeanLCNFTest",
   "LeanQbeTest.T.LeanLRCTest",

@@ -196,12 +196,30 @@ def LcModule.papTargets (m : LcModule) : List String :=
 def LcModule.maxAp (m : LcModule) : Nat :=
   m.decls.foldl (fun a d => Nat.max a d.body.refs.2.2) 0
 
+/-- Hex/decimal digit character (`0`–`15`, kernel-reducible). -/
+def digitChar (d : Nat) : Char :=
+  match d with
+  | 0 => '0' | 1 => '1' | 2 => '2' | 3 => '3' | 4 => '4'
+  | 5 => '5' | 6 => '6' | 7 => '7' | 8 => '8' | 9 => '9'
+  | 10 => 'a' | 11 => 'b' | 12 => 'c' | 13 => 'd' | 14 => 'e' | 15 => 'f'
+  | _ => '0'
+
+/-- Kernel-reducible base-`b` digit list (`Nat.toDigits` is not `@[expose]`d in `module` mode). -/
+def natDigits (base : Nat) (n : Nat) : List Char :=
+  let rec go (fuel n : Nat) (acc : List Char) : List Char :=
+    match fuel with
+    | 0 => acc
+    | f + 1 =>
+      let acc' := digitChar (n % base) :: acc
+      if n < base then acc' else go f (n / base) acc'
+  go 64 n []
+
 /-- Mangle one character: ASCII alphanumerics and `_` are kept, other ASCII characters become `_`,
 and a non-ASCII character `c` becomes `u<hex c>_` (so `σ₀`/`σ₁`/`Σ₀`/`Σ₁` stay distinct). -/
 def mangleChar (c : Char) : String :=
   if c.isAlphanum || c == '_' then c.toString
   else if c.toNat < 128 then "_"
-  else "u" ++ String.ofList (Nat.toDigits 16 c.toNat) ++ "_"
+  else "u" ++ String.ofList (natDigits 16 c.toNat) ++ "_"
 
 /-- Mangle a Lean name into a C/assembly symbol (`l_` prefix, no `.L` substrings). -/
 def mangleLc (s : String) : String :=

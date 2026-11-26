@@ -1,6 +1,8 @@
 # One per line: <module to import> <fully qualified constant>.
 # Bootstrap Stage A (`LeanQbeBootstrap0` + `LeanQbeBootstrap0Test`) specs & kernel cert.
 LeanQbe.T.Bootstrap0.Mod0 LeanQbe.T.Bootstrap0.leanqbe0Mod0_wf
+LeanQbe.T.Bootstrap0.Mod0 LeanQbe.T.Bootstrap0.leanqbe0Tfs_lower
+LeanQbe.T.Bootstrap0.Mod0 LeanQbe.T.Bootstrap0.leanqbe0Tfs_perm
 LeanQbe.T.Bootstrap0.Mod0 LeanQbe.T.Bootstrap0.leanqbe0Mod0_acyclic
 LeanQbe.T.Bootstrap0.Mod0 LeanQbe.T.Bootstrap0.leanqbe0LinkedMod_wf
 LeanQbe.T.Bootstrap0.Mod0 LeanQbe.T.Bootstrap0.leanqbe0LinkedMod_acyclic

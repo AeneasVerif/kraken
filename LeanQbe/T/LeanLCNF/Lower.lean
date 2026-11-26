@@ -670,10 +670,19 @@ def objTagNat (x : LArg) (k : LArg → LM LExpr) : LM LExpr :=
     let e ← loadAt i8 x 7 fun t => convW 8 64 t fun t64 => boxSmall t64 fun r => pure (j r)
     pure (.jnz s (j x) e)
 
+/-- Kernel-reducible `s.splitOn "."` (`String.splitOn` is stuck under kernel reduction, which
+`lowerModule` must survive for the `<tfs>_lower` theorems of `splice_lcnf_tflat!`). -/
+def splitDot (s : String) : List String :=
+  let rec go : List Char → List Char → List String
+    | [], acc => [String.ofList acc.reverse]
+    | c :: cs, acc =>
+      if c == '.' then String.ofList acc.reverse :: go cs [] else go cs (c :: acc)
+  go s.toList []
+
 /-- Inline an imported extern by its Lean name, or fail. -/
 def externPrim (rt : LArg) (name : String) (as : List LArg) (k : LArg → LM LExpr) :
     LM LExpr :=
-  match name.splitOn "." with
+  match splitDot name with
   | ["Nat", op] => natPrim rt op as k
   | ["Array", op] => arrayPrim rt op as k
   | "String" :: rest => stringPrim rt rest as k

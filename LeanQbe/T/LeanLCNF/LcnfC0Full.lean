@@ -247,24 +247,16 @@ theorem rtC0CoreMod_namesNodup : rtC0CoreMod.namesNodup := by
 theorem rtC0CoreMod_fns_names_nodup : (rtC0CoreMod.fns.map Fn.name).Nodup :=
   (List.nodup_append.mp rtC0CoreMod_namesNodup).1
 
-private theorem symsNodup_fold_of_nodup :
-    ∀ (xs : List String) (s : Std.HashSet String),
-      xs.Nodup → (∀ x ∈ xs, s.contains x = false) →
-      (xs.foldl (fun (acc : Std.HashSet String × Bool) x =>
-        if acc.1.contains x then (acc.1, false) else (acc.1.insert x, acc.2)) (s, true)).2 = true
-  | [], _, _, _ => rfl
-  | x :: xs, s, hnd, hdisj => by
+private theorem symsNodup_of_nodup : ∀ (xs : List String), xs.Nodup → symsNodup xs = true
+  | [], _ => rfl
+  | x :: xs, hnd => by
     rw [List.nodup_cons] at hnd
-    have hx : s.contains x = false := hdisj x List.mem_cons_self
-    simp only [List.foldl_cons, hx, Bool.false_eq_true, ↓reduceIte]
-    refine symsNodup_fold_of_nodup xs (s.insert x) hnd.2 fun y hy => ?_
-    have hne : x ≠ y := fun heq => hnd.1 (heq ▸ hy)
-    have hsy : s.contains y = false := hdisj y (List.mem_cons_of_mem _ hy)
-    simp only [Std.HashSet.contains_insert, hsy, Bool.or_false, beq_eq_false_iff_ne]
-    exact hne
+    simp only [symsNodup, Bool.and_eq_true, Bool.not_eq_true', List.contains_eq_mem,
+      decide_eq_false_iff_not]
+    exact ⟨hnd.1, symsNodup_of_nodup xs hnd.2⟩
 
 theorem rtC0CoreMod_symsNodup : symsNodup (rtC0CoreMod.fns.map Fn.name) = true :=
-  symsNodup_fold_of_nodup _ ∅ rtC0CoreMod_fns_names_nodup fun _ _ => Std.HashSet.contains_empty
+  symsNodup_of_nodup _ rtC0CoreMod_fns_names_nodup
 
 theorem rtC0CoreMod_fns_wf : ∀ f ∈ rtC0CoreMod.fns, f.Wf := by
   intro f hf

@@ -109,6 +109,8 @@ lcnf_of_lean! mutRecDemoLcMod [MutRecDemo.roseSum, MutRecDemo.forestSum]
 
 splice_lcnf_tflat_scc! mutRecDemoTfs [MutRecDemo.roseSum, MutRecDemo.forestSum]
 
+lcnf_lower_thm! mutRecDemoTfs mutRecDemoLcMod
+
 /-- Mangled symbol name of `MutRecDemo.roseSum`. -/
 @[expose] def mutRecDemoRoseName : Sym :=
   "l_LeanQbe_T_LeanLCNF_MutRecDemo_roseSum"

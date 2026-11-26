@@ -76,6 +76,8 @@ lcnf_of_lean! recDemoLcMod [RecDemo.listSum]
 
 splice_lcnf_tflat_scc! recDemoTfs [RecDemo.listSum]
 
+lcnf_lower_thm! recDemoTfs recDemoLcMod
+
 /-- Mangled symbol name of `RecDemo.listSum`. -/
 @[expose] def recDemoListSumName : Sym :=
   "l_LeanQbe_T_LeanLCNF_RecDemo_listSum"

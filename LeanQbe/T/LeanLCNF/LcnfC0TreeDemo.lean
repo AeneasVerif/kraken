@@ -97,6 +97,8 @@ lcnf_of_lean! treeDemoLcMod [TreeDemo.treeSum, TreeDemo.treeSize]
 
 splice_lcnf_tflat_scc! treeDemoTfs [TreeDemo.treeSum, TreeDemo.treeSize]
 
+lcnf_lower_thm! treeDemoTfs treeDemoLcMod
+
 /-- Mangled symbol name of `TreeDemo.treeSum`. -/
 @[expose] def treeDemoSumName : Sym :=
   "l_LeanQbe_T_LeanLCNF_TreeDemo_treeSum"
