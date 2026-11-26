@@ -116,6 +116,7 @@ public import LeanQbe.T.Amd64.KissatM7PlusCert6
 public import LeanQbe.T.Amd64.KissatM7PlusCert7
 public import LeanQbe.T.Amd64.KissatM7PlusCert8
 public import LeanQbe.T.Amd64.KissatM7PlusCert9
+public import LeanQbe.T.Amd64.LcnfC0ArrayDemoCertX64
 public import LeanQbe.T.Amd64.LcnfC0FullCertX64
 public import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
 public import LeanQbe.T.Amd64.LcnfC0FullCertX64S1
