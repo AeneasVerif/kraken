@@ -104,6 +104,32 @@ def RotPlan.listHasRot : List RotPlan → Bool
   | p :: ps => p.hasRot || RotPlan.listHasRot ps
 end
 
+/-- True iff `code` is pure, total, and non-trapping, so duplicating it in a rotated loop header
+cannot introduce traps or floating-point nondeterminism. -/
+def isSafeHdrOp : {as rs : List Ty} → OpCode as rs → Bool
+  | _, _, .copy t => !t.hasFloat
+  | _, _, .add t | _, _, .sub t | _, _, .mul t | _, _, .neg t => !t.hasFloat
+  | _, _, .and t | _, _, .or t | _, _, .xor t | _, _, .not t | _, _, .ternlog t _ => !t.hasFloat
+  | _, _, .shl t | _, _, .lshr t | _, _, .ashr t | _, _, .rotl t | _, _, .rotr t => !t.hasFloat
+  | _, _, .fshl _ | _, _, .fshr _ => true
+  | _, _, .bswap t => t.bswapOk
+  | _, _, .clz _ | _, _, .cls _ | _, _, .rbit _ | _, _, .ctz _ | _, _, .popcnt _ => true
+  | _, _, .cmp _ t _ _ => !t.hasFloat
+  | _, _, .select t => !t.hasFloat
+  | _, _, .blend t _ _ => !t.hasFloat
+  | _, _, .zext m n => Nat.ble m n
+  | _, _, .sext m n => Nat.ble m n
+  | _, _, .trunc m n => Nat.ble n m
+  | _, _, .ofBool _ => true
+  | _, _, .addc _ | _, _, .subb _ | _, _, .umulw _ | _, _, .smulw _ => true
+  | _, _, .udiv0 _ | _, _, .sdiv0 _ => true
+  | _, _, .mkpair _ _ | _, _, .unpair _ _ => true
+  | _, _, .bitcast t u _ => !t.hasFloat && !u.hasFloat
+  | _, _, .shufd t _ | _, _, .shufb t | _, _, .alignr t _ | _, _, .blendw t _ =>
+    !t.hasFloat && t.size != 0 && t.size % 128 == 0
+  | _, _, .sha256rnds2 | _, _, .sha256msg1 | _, _, .sha256msg2 => true
+  | _, _, _ => false
+
 /-- Size and duplication limits for loop rotation (`buildRotPlan`). -/
 structure RotConfig where
   maxHdrOps : Nat := 6
@@ -111,8 +137,8 @@ structure RotConfig where
   maxEntryJumps : Nat := 4
   inlineExitMax : Nat := 3
   dupBudget : Nat := 40
-  maxContLiveVars : Nat := 4
-  allowLoadHdr : Bool := false
+  maxContLiveVars : Nat := 16
+  allowLoadHdr : Bool := true
   requireTailMajority : Bool := true
   deriving Repr, DecidableEq
 
@@ -295,9 +321,11 @@ def validateHdr {rs : List Ty} :
   | [], .jnz c t e, nv => pure (addArgKey c .empty, t, e, nv)
   | .let_ dts :: ss, .let_ (ts := dts') op k, nv =>
     match tysDecEq dts dts' with
-    | isTrue h => do
-      let (s, t, e, nv') ← validateHdr ss (k (h ▸ Tup.levels dts nv)) (nv + dts.length)
-      pure (addArgsSet op.args s, t, e, nv')
+    | isTrue h =>
+      if isSafeHdrOp op.code then do
+        let (s, t, e, nv') ← validateHdr ss (k (h ▸ Tup.levels dts nv)) (nv + dts.length)
+        pure (addArgsSet op.args s, t, e, nv')
+      else none
     | isFalse _ => none
   | .load t :: ss, .load t' a k, nv =>
     match tyDecEq t t' with
@@ -832,7 +860,7 @@ def analyzeTFlat (cfg : RotConfig) {rs : List Ty} (nv : Nat) : TFlat rs → Plan
     let ki := analyzeTFlat cfg (nv + ts.length) k
     let cand? := match ki.cand? with
       | some c =>
-        if c.hdr.length < cfg.maxHdrOps then
+        if isSafeHdrOp op.code && c.hdr.length < cfg.maxHdrOps then
           some { c with hdr := .let_ ts :: c.hdr, sHdr := addIdxArgs nv op.args c.sHdr }
         else none
       | none => none

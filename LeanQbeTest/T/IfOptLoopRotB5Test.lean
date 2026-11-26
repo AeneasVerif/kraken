@@ -428,7 +428,8 @@ theorem pWrap_rot_callsOk :
   Func.loopRotate_callsOk (by t_wf_reify) defaultRotConfig (by
     simp [partialWrapCallLoop, loop1, Expr.callsOk, Blocks.callsOk])
 
-/-- Negative guard: load-header loops are skipped (`allowLoadHdr := false`). -/
+/-- Negative guard: load-header loops are skipped when `allowLoadHdr := false`, and rotated under
+`defaultRotConfig` (`allowLoadHdr = true`). -/
 def loadHdrBlockedLoop : Func [i64] [i64] := fun _ _ (p, ()) =>
   loop1 (ts := [i64])
     (fun loop (q, ()) =>
@@ -439,9 +440,14 @@ def loadHdrBlockedLoop : Func [i64] [i64] := fun _ _ (p, ()) =>
         (.ret (.var q, ())))
     (fun loop => .jump loop (.var p, ()))
 
-theorem loadHdrBlocked_default_noRot :
-    (buildRotPlan (as := [i64]) defaultRotConfig
+theorem loadHdrBlocked_disabled_noRot :
+    (buildRotPlan (as := [i64]) { allowLoadHdr := false }
       (reifyFunc loadHdrBlockedLoop)).hasRot = false := by
+  t_kernel_rfl
+
+theorem loadHdrBlocked_default_rot :
+    (buildRotPlan (as := [i64]) defaultRotConfig
+      (reifyFunc loadHdrBlockedLoop)).hasRot = true := by
   t_kernel_rfl
 
 /-- Negative guard: loop whose back-edges are all direct conditional jumps (`condBack == backJumps`,
@@ -497,9 +503,11 @@ def m4MidFns : List Fn :=
     (reifyFunc fn.body)
   isPartialPlan plan
 #guard (m4MidFns.filter fun fn => fn.name == "full_prop_lit_raw").all fun fn =>
-  let plan := LoopRotate.buildRotPlan (as := fn.as) LoopRotate.defaultRotConfig
+  let oldPlan := LoopRotate.buildRotPlan (as := fn.as)
+    { allowLoadHdr := false, maxContLiveVars := 4 } (reifyFunc fn.body)
+  let newPlan := LoopRotate.buildRotPlan (as := fn.as) LoopRotate.defaultRotConfig
     (reifyFunc fn.body)
-  !isPartialPlan plan && plan.hasRot
+  !isPartialPlan oldPlan && oldPlan.hasRot && isPartialPlan newPlan && newPlan.hasRot
 
 /-! ## 4. Axiom audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 
