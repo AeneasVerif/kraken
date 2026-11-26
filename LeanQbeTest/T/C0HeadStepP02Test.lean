@@ -14,15 +14,15 @@ meta import LeanQbe.T.Logic.C0HeadStep
 # Verification Suite for `P0-2` (`C0HeadStep` Tactic Upgrades)
 
 Covers:
-1. `c0_call` across explicit, implicit, `Env.Has`, and `Env.Sat.has` caller specs, tail-call
+1. `c0_hcall` across explicit, implicit, `Env.Has`, and `Env.Sat.has` caller specs, tail-call
    `ret` reduction (`m6o_fwd0`/`m6o_fwd1` patterns), multi-step continuations, `Blocks.get`, and
-   outer/inner `MData`.
+   outer/inner `MData`, plus backward-compatibility check that `C0Step.c0_call` is unshadowed.
 2. `c0_hstep_np`, `c0_hfast_nogrp`, and `c0_hsteps_np` (unpruned `jnz` + stopping before
    `Expr.group`).
 3. `HeadStepConfig.useBound` and `c0_*_nobound` tactics (skipping `c0_bound` fallback when side
    bounds are supplied via `assumption`/`rfl`, failing fast when `c0_bound` would be needed).
-4. `.mdata` stripping (outer target AND inner `wp … (.mdata _ …)`) in `c0_step`, `c0_steps`,
-   `c0_steps!`, `c0_to_group`, and `c0_split`.
+4. `.mdata` stripping (outer target AND inner `wp … (.mdata _ …)`) in `c0_mstep`, `c0_msteps`,
+   `c0_msteps!`, `c0_mto_group`, and `c0_msplit` (without shadowing `C0Step.c0_step*`).
 5. `#print axioms` strictly `⊆ [propext, Classical.choice, Quot.sound]`.
 -/
 
@@ -71,9 +71,9 @@ private meta def checkGoalCount (expected : Nat) : Lean.Elab.Tactic.TacticM Unit
   unless n == expected do
     throwError "expected {expected} goals, got {n}"
 
-/-! ## 1. `c0_call` Compatibility & `O(1)` Behavior -/
+/-! ## 1. `c0_hcall` Compatibility, `O(1)` Behavior, & Unshadowed `c0_call` -/
 
-section C0CallTests
+section C0HCallTests
 
 def addOneSpec : Spec [i32] [i32] :=
   fun (x, ()) m Q _ => Q (x + 1#32, ()) m
@@ -100,6 +100,10 @@ def contBody : Func [i32] [i32] := fun _ _ (x, ()) =>
     .let_ (op2 (.add i32) (Arg.var r.1) (Arg.imm 2#32)) fun (y, _) =>
       .ret (Arg.var y, ())
 
+def letBeforeCallBody : Func [i32] [i32] := fun _ _ (x, ()) =>
+  .let_ (op2 (.xor i32) (Arg.var x) (Arg.imm 1#32)) fun (x', _) =>
+    .call "add1" (as := [i32]) (bs := [i32]) (Arg.var x', ()) fun r => .ret (Arg.var r.1, ())
+
 theorem fwd1_xfree : addOneSpec.XFree := by xfree
 
 theorem call_explicit_fwd1 (Γ : Env)
@@ -107,7 +111,7 @@ theorem call_explicit_fwd1 (Γ : Env)
     ∀ a m Q X, addOneSpec a m Q X → Func.wp Γ fwd1Body a m Q X := by
   intro (x, ()) m Q X hs
   unfold Func.wp fwd1Body
-  c0_call hSub
+  c0_hcall hSub
   rwa [fwd1_eq]
 
 theorem call_implicit_fwd0 (Γ : Env)
@@ -115,7 +119,7 @@ theorem call_implicit_fwd0 (Γ : Env)
     ∀ a m Q X, unitSpec a m Q X → Func.wp Γ fwd0Body a m Q X := by
   intro (x, ()) m Q X hs
   unfold Func.wp fwd0Body
-  c0_call hSub
+  c0_hcall hSub
   rwa [fwd0_eq]
 
 theorem call_env_has_cont (Γ : Env)
@@ -123,7 +127,7 @@ theorem call_env_has_cont (Γ : Env)
     (Q : Post [i32]) (X : XPost) (hQ : Q (x + 1#32 + 2#32, ()) m) :
     Func.wp Γ contBody (x, ()) m Q X := by
   unfold Func.wp contBody
-  c0_call hHas
+  c0_hcall hHas
   dsimp only [addOneSpec]
   c0_hsteps
   exact hQ
@@ -134,7 +138,7 @@ theorem call_env_sat_has (Γ : Env)
     (hQ : Q (x + 1#32 + 2#32, ()) m) :
     Func.wp Γ contBody (x, ()) m Q X := by
   unfold Func.wp contBody
-  c0_call (hSat.has (e := ⟨"add1", [i32], [i32], addOneSpec, true⟩) (by simp) fwd1_xfree)
+  c0_hcall (hSat.has (e := ⟨"add1", [i32], [i32], addOneSpec, true⟩) (by simp) fwd1_xfree)
   dsimp only [addOneSpec]
   c0_hsteps
   exact hQ
@@ -147,7 +151,7 @@ theorem call_mdata_wrapped_ret (Γ : Env)
       fun r => .ret (Arg.var r.1, ())) m := by
   wrap_wp_expr_mdata
   wrap_outer_mdata
-  c0_call hSub
+  c0_hcall hSub
   exact hQ
 
 theorem call_blocks_get_mdata (Γ : Env)
@@ -159,10 +163,20 @@ theorem call_blocks_get_mdata (Γ : Env)
           fun r => .ret (Arg.var r.1, ())) .nil)
         .here (x, ())) m := by
   wrap_outer_mdata
-  c0_call hHas
+  c0_hcall hHas
   exact hQ
 
-end C0CallTests
+theorem c0_call_unshadowed_let_before_call (Γ : Env)
+    (hSub : ∀ a m Q X, addOneSpec a m Q X → Γ "add1" [i32] [i32] a m Q X)
+    (x : BitVec 32) (m : Mem 64) (Q : Post [i32]) (X : XPost)
+    (hQ : Q ((x ^^^ 1#32) + 1#32, ()) m) :
+    Func.wp Γ letBeforeCallBody (x, ()) m Q X := by
+  unfold Func.wp letBeforeCallBody
+  run_tac expectTacticFail (← `(tactic| c0_hcall hSub))
+  c0_call hSub
+  exact hQ
+
+end C0HCallTests
 
 /-! ## 2. `c0_hstep_np`, `c0_hfast_nogrp`, and `c0_hsteps_np` -/
 
@@ -240,7 +254,7 @@ theorem hsplit_nobound_respects_flag (Γ : Env) (c : Bool) (a : BitVec 64) (i : 
 
 end UseBoundTests
 
-/-! ## 4. `.mdata` Stripping in `c0_step`, `c0_steps`, `c0_steps!`, `c0_to_group`, `c0_split` -/
+/-! ## 4. `.mdata` Stripping (`c0_mstep`, `c0_msteps`, `c0_msteps!`, `c0_mto_group`, `c0_msplit`) -/
 
 section MDataStrippingTests
 
@@ -254,10 +268,10 @@ theorem c0_step_and_steps_strip_outer_inner_mdata (Γ : Env) (a : BitVec 64) (i 
           .ret (Arg.var w, ())) m := by
   wrap_wp_expr_mdata
   wrap_outer_mdata
-  c0_step
+  c0_mstep
   wrap_wp_expr_mdata
   wrap_outer_mdata
-  c0_steps!
+  c0_msteps!
   exact hQ
 
 theorem c0_steps_non_strict_mdata (Γ : Env) (x : BitVec 32) (m : Mem 64)
@@ -266,7 +280,7 @@ theorem c0_steps_non_strict_mdata (Γ : Env) (x : BitVec 32) (m : Mem 64)
       .ret (Arg.var y, ())) m := by
   wrap_wp_expr_mdata
   wrap_outer_mdata
-  c0_steps
+  c0_msteps
   exact hQ
 
 theorem c0_to_group_strips_inner_mdata (Γ : Env) (x : BitVec 32) (m : Mem 64)
@@ -279,9 +293,9 @@ theorem c0_to_group_strips_inner_mdata (Γ : Env) (x : BitVec 32) (m : Mem 64)
             .jump J (Arg.var z, ())) m := by
   wrap_wp_expr_mdata
   wrap_outer_mdata
-  c0_to_group
+  c0_mto_group
   refine wp_unroll_group fun _ _ => ?_
-  c0_steps
+  c0_msteps
   exact hQ
 
 theorem c0_split_strips_inner_mdata (Γ : Env) (c : Bool) (x : BitVec 32) (m : Mem 64)
@@ -293,9 +307,18 @@ theorem c0_split_strips_inner_mdata (Γ : Env) (c : Bool) (x : BitVec 32) (m : M
       m := by
   wrap_wp_expr_mdata
   wrap_outer_mdata
-  c0_split
-  · c0_steps; simpa using hT
-  · c0_steps; simpa using hF
+  c0_msplit
+  · c0_msteps; simpa using hT
+  · c0_msteps; simpa using hF
+
+theorem c0_steps_unshadowed_stops_on_inner_mdata (Γ : Env) (x : BitVec 32) (m : Mem 64)
+    (Q : Post [i32]) (X : XPost) (hQ : Q (x + 5#32, ()) m) :
+    wp Γ Q X (.let_ (op2 (.add i32) (Arg.imm x) (Arg.imm 5#32)) fun (y, _) =>
+      .ret (Arg.var y, ())) m := by
+  wrap_wp_expr_mdata
+  run_tac expectTacticFail (← `(tactic| c0_step))
+  c0_msteps
+  exact hQ
 
 end MDataStrippingTests
 
@@ -307,6 +330,7 @@ end MDataStrippingTests
 #print axioms call_env_sat_has
 #print axioms call_mdata_wrapped_ret
 #print axioms call_blocks_get_mdata
+#print axioms c0_call_unshadowed_let_before_call
 #print axioms hstep_np_keeps_dead_jnz
 #print axioms hfast_nogrp_stops_before_groups
 #print axioms nobound_skips_c0_bound_and_uses_assumption
@@ -316,5 +340,6 @@ end MDataStrippingTests
 #print axioms c0_steps_non_strict_mdata
 #print axioms c0_to_group_strips_inner_mdata
 #print axioms c0_split_strips_inner_mdata
+#print axioms c0_steps_unshadowed_stops_on_inner_mdata
 
 end LeanQbeTest.T.C0HeadStepP02Test
