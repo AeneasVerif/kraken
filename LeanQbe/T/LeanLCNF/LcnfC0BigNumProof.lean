@@ -17,7 +17,7 @@ import all Kraken.Separation
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbe.T.LeanLCNF
 
@@ -32,6 +32,30 @@ local macro "sep_ac" : tactic =>
 
 local macro "sep_use " t:term : tactic =>
   `(tactic| exact sep_cast_ac $t (by ac_rfl))
+
+local macro "jnz_ne_step" : tactic =>
+  `(tactic| (refine jnz_false (by
+    simp only [beq_eq_false_iff_ne, ne_eq]
+    intro h; have ht := congrArg BitVec.toNat h; simp at ht; omega) ?_; c0_let_simp))
+
+private theorem op_beq_true {op : BitVec 64} {k : Nat} (hk : op.toNat = k)
+    (hk_lt : k < 2 ^ 64) : (op == BitVec.ofNat 64 k) = true := by
+  simp only [beq_iff_eq]
+  exact BitVec.eq_of_toNat_eq (hk.trans (by simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hk_lt]))
+
+private theorem op_beq_false {op : BitVec 64} {k : Nat} (hne : op.toNat ≠ k)
+    (hk_lt : k < 2 ^ 64) : (op == BitVec.ofNat 64 k) = false := by
+  simp only [beq_eq_false_iff_ne, ne_eq]
+  intro h; apply hne; subst h
+  simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hk_lt]
+
+private theorem bv64_ule_nat_left {k : Nat} {op : BitVec 64}
+    (hk : k < 2 ^ 64) (hle : k ≤ op.toNat) : BitVec.ule (BitVec.ofNat 64 k) op = true := by
+  simp [BitVec.ule, Nat.mod_eq_of_lt hk, hle]
+
+private theorem bv64_ule_nat_right {k : Nat} {op : BitVec 64}
+    (hk : k < 2 ^ 64) (hle : op.toNat ≤ k) : BitVec.ule op (BitVec.ofNat 64 k) = true := by
+  simp [BitVec.ule, Nat.mod_eq_of_lt hk, hle]
 
 theorem lcnf_int_op_wp :
     ∀ xs m Q X, lcnfIntOpSpec xs m Q X → Func.wp rtR1Env lcnf_int_op.body xs m Q X := by
@@ -50,284 +74,118 @@ theorem lcnf_int_op_wp :
     · intro J hJ
       c0_let_simp
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hop_conv
-      have hconv_lt : op.toNat < 2 ^ 64 := op.isLt
       rcases hop_conv with h1 | h2 | h3 | h9 | h13 | h16
-      · have heq : (op == 1#64) = true := by
-          simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h1)
-        refine jnz_true heq ?_; rw [wp_jump]; exact hJ () m hspec
-      · have hne1 : (op == 1#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 1); subst h
-          decide
-        have heq2 : (op == 2#64) = true := by
-          simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h2)
-        refine jnz_false hne1 ?_; c0_let_simp; refine jnz_true heq2 ?_
-        rw [wp_jump]; exact hJ () m hspec
-      · have hne1 : (op == 1#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 1); subst h
-          decide
-        have hne2 : (op == 2#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 2); subst h
-          decide
-        have heq3 : (op == 3#64) = true := by
-          simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h3)
-        refine jnz_false hne1 ?_; c0_let_simp; refine jnz_false hne2 ?_; c0_let_simp
-        refine jnz_true heq3 ?_; rw [wp_jump]; exact hJ () m hspec
-      · have hne1 : (op == 1#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 1); subst h
-          decide
-        have hne2 : (op == 2#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 2); subst h
-          decide
-        have hne3 : (op == 3#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 3); subst h
-          decide
-        have heq9 : (op == 9#64) = true := by
-          simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h9)
-        refine jnz_false hne1 ?_; c0_let_simp; refine jnz_false hne2 ?_; c0_let_simp
-        refine jnz_false hne3 ?_; c0_let_simp; refine jnz_true heq9 ?_; rw [wp_jump]
-        exact hJ () m hspec
-      · have hne1 : (op == 1#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 1); subst h
-          decide
-        have hne2 : (op == 2#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 2); subst h
-          decide
-        have hne3 : (op == 3#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 3); subst h
-          decide
-        have hne9 : (op == 9#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 9); subst h
-          decide
-        have heq13 : (op == 13#64) = true := by
-          simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h13)
-        refine jnz_false hne1 ?_; c0_let_simp; refine jnz_false hne2 ?_; c0_let_simp
-        refine jnz_false hne3 ?_; c0_let_simp; refine jnz_false hne9 ?_; c0_let_simp
-        refine jnz_true heq13 ?_; rw [wp_jump]; exact hJ () m hspec
-      · have hne1 : (op == 1#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 1); subst h
-          decide
-        have hne2 : (op == 2#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 2); subst h
-          decide
-        have hne3 : (op == 3#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 3); subst h
-          decide
-        have hne9 : (op == 9#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 9); subst h
-          decide
-        have hne13 : (op == 13#64) = false := by
-          simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 13); subst h
-          decide
-        have heq16 : (op == 16#64) = true := by
-          simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h16)
-        refine jnz_false hne1 ?_; c0_let_simp; refine jnz_false hne2 ?_; c0_let_simp
-        refine jnz_false hne3 ?_; c0_let_simp; refine jnz_false hne9 ?_; c0_let_simp
-        refine jnz_false hne13 ?_; c0_let_simp; refine jnz_true heq16 ?_; rw [wp_jump]
-        exact hJ () m hspec
+      · refine jnz_true (op_beq_true h1 (by decide)) ?_; rw [wp_jump]; exact hJ () m hspec
+      · jnz_ne_step
+        refine jnz_true (op_beq_true h2 (by decide)) ?_; rw [wp_jump]; exact hJ () m hspec
+      · jnz_ne_step; jnz_ne_step
+        refine jnz_true (op_beq_true h3 (by decide)) ?_; rw [wp_jump]; exact hJ () m hspec
+      · jnz_ne_step; jnz_ne_step; jnz_ne_step
+        refine jnz_true (op_beq_true h9 (by decide)) ?_; rw [wp_jump]; exact hJ () m hspec
+      · jnz_ne_step; jnz_ne_step; jnz_ne_step; jnz_ne_step
+        refine jnz_true (op_beq_true h13 (by decide)) ?_; rw [wp_jump]; exact hJ () m hspec
+      · jnz_ne_step; jnz_ne_step; jnz_ne_step; jnz_ne_step; jnz_ne_step
+        refine jnz_true (op_beq_true h16 (by decide)) ?_; rw [wp_jump]; exact hJ () m hspec
   · simp only [hop_conv, ↓reduceIte] at hspec
-    refine wp_join_group (fun _ _ => False) ?_ ?_
-    · intro _ _ _ hF; exact False.elim hF
-    · intro _ _
-      c0_let_simp
-      have hne_c : ∀ k, k ∈ [1, 2, 3, 9, 13, 16] → (op == BitVec.ofNat 64 k) = false := by
-        intro k hk
-        simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply hop_conv; subst h
-        simp only [List.mem_cons, List.not_mem_nil, or_false] at hk ⊢
-        rcases hk with rfl | rfl | rfl | rfl | rfl | rfl <;> decide
-      refine jnz_false (hne_c 1 (by decide)) ?_; c0_let_simp
-      refine jnz_false (hne_c 2 (by decide)) ?_; c0_let_simp
-      refine jnz_false (hne_c 3 (by decide)) ?_; c0_let_simp
-      refine jnz_false (hne_c 9 (by decide)) ?_; c0_let_simp
-      refine jnz_false (hne_c 13 (by decide)) ?_; c0_let_simp
-      refine jnz_false (hne_c 16 (by decide)) ?_
-      by_cases hop_as : op.toNat ∈ [4, 5, 10, 11, 12]
-      · simp only [hop_as, ↓reduceIte] at hspec
-        refine wp_join_group
-          (fun _ m0 => lcnfIntAddSubCmpSpec (rt, op, a, b, ()) m0 Q (fun _ _ _ _ => False)) ?_ ?_
-        · rintro _ ⟨⟩ m0 hc
-          rw [Blocks.get.eq_1]
-          refine wp_mono (fun _ _ h => h) (fun _ _ _ _ h => False.elim h) _ _ ?_
-          refine wp_call_ret1 _ _ (fun res m' => Q (res, ()) m') ?_ ?_
-          · exact rtR1Env_lcnf_int_addsub_cmp hc
-          · intro r m' hq; rw [wp_ret]; exact hq
-        · intro J hJ
-          c0_let_simp
-          simp only [List.mem_cons, List.not_mem_nil, or_false] at hop_as
-          rcases hop_as with h4 | h5 | h10 | h11 | h12
-          · have heq4 : (op == 4#64) = true := by
-              simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h4)
-            refine jnz_true heq4 ?_; rw [wp_jump]; exact hJ () m hspec
-          · have hne4 : (op == 4#64) = false := by
-              simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 4)
-              subst h; decide
-            have heq5 : (op == 5#64) = true := by
-              simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h5)
-            refine jnz_false hne4 ?_; c0_let_simp; refine jnz_true heq5 ?_
-            rw [wp_jump]; exact hJ () m hspec
-          · have hne4 : (op == 4#64) = false := by
-              simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 4)
-              subst h; decide
-            have hne5 : (op == 5#64) = false := by
-              simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 5)
-              subst h; decide
-            refine jnz_false hne4 ?_; c0_let_simp; refine jnz_false hne5 ?_
-            refine wp_join_group (fun _ _ => False) ?_ ?_
-            · intro _ _ _ hF; exact False.elim hF
-            · intro _ _
-              c0_let_simp
-              have huge : BitVec.ule 10#64 op = true := by
-                simp only [BitVec.ule, decide_eq_true_eq]
-                have : (10#64 : BitVec 64).toNat = 10 := by decide
-                omega
-              have hule : BitVec.ule op 12#64 = true := by
-                simp only [BitVec.ule, decide_eq_true_eq]
-                have : (12#64 : BitVec 64).toNat = 12 := by decide
-                omega
-              refine jnz_true huge ?_; c0_let_simp; refine jnz_true hule ?_
-              rw [wp_jump]; exact hJ () m hspec
-          · have hne4 : (op == 4#64) = false := by
-              simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 4)
-              subst h; decide
-            have hne5 : (op == 5#64) = false := by
-              simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 5)
-              subst h; decide
-            refine jnz_false hne4 ?_; c0_let_simp; refine jnz_false hne5 ?_
-            refine wp_join_group (fun _ _ => False) ?_ ?_
-            · intro _ _ _ hF; exact False.elim hF
-            · intro _ _
-              c0_let_simp
-              have huge : BitVec.ule 10#64 op = true := by
-                simp only [BitVec.ule, decide_eq_true_eq]
-                have : (10#64 : BitVec 64).toNat = 10 := by decide
-                omega
-              have hule : BitVec.ule op 12#64 = true := by
-                simp only [BitVec.ule, decide_eq_true_eq]
-                have : (12#64 : BitVec 64).toNat = 12 := by decide
-                omega
-              refine jnz_true huge ?_; c0_let_simp; refine jnz_true hule ?_
-              rw [wp_jump]; exact hJ () m hspec
-          · have hne4 : (op == 4#64) = false := by
-              simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 4)
-              subst h; decide
-            have hne5 : (op == 5#64) = false := by
-              simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 5)
-              subst h; decide
-            refine jnz_false hne4 ?_; c0_let_simp; refine jnz_false hne5 ?_
-            refine wp_join_group (fun _ _ => False) ?_ ?_
-            · intro _ _ _ hF; exact False.elim hF
-            · intro _ _
-              c0_let_simp
-              have huge : BitVec.ule 10#64 op = true := by
-                simp only [BitVec.ule, decide_eq_true_eq]
-                have : (10#64 : BitVec 64).toNat = 10 := by decide
-                omega
-              have hule : BitVec.ule op 12#64 = true := by
-                simp only [BitVec.ule, decide_eq_true_eq]
-                have : (12#64 : BitVec 64).toNat = 12 := by decide
-                omega
-              refine jnz_true huge ?_; c0_let_simp; refine jnz_true hule ?_
-              rw [wp_jump]; exact hJ () m hspec
-      · simp only [hop_as, ↓reduceIte] at hspec
-        by_cases hop_dm : op.toNat ∈ [6, 7, 8, 14, 15]
-        · simp only [hop_dm, ↓reduceIte] at hspec
-          refine wp_join_group (fun _ _ => False) ?_ ?_
-          · intro _ _ _ hF; exact False.elim hF
-          · intro _ _
+    refine wp_join_group (fun _ _ => False) (fun _ _ _ hF => False.elim hF) ?_
+    intro _ _
+    c0_let_simp
+    have hne_c : ∀ k, k ∈ [1, 2, 3, 9, 13, 16] → (op == BitVec.ofNat 64 k) = false :=
+      fun k hk => op_beq_false (fun h => hop_conv (h ▸ hk)) (by
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hk
+        rcases hk with rfl | rfl | rfl | rfl | rfl | rfl <;> decide)
+    refine jnz_false (hne_c 1 (by decide)) ?_; c0_let_simp
+    refine jnz_false (hne_c 2 (by decide)) ?_; c0_let_simp
+    refine jnz_false (hne_c 3 (by decide)) ?_; c0_let_simp
+    refine jnz_false (hne_c 9 (by decide)) ?_; c0_let_simp
+    refine jnz_false (hne_c 13 (by decide)) ?_; c0_let_simp
+    refine jnz_false (hne_c 16 (by decide)) ?_
+    by_cases hop_as : op.toNat ∈ [4, 5, 10, 11, 12]
+    · simp only [hop_as, ↓reduceIte] at hspec
+      refine wp_join_group
+        (fun _ m0 => lcnfIntAddSubCmpSpec (rt, op, a, b, ()) m0 Q (fun _ _ _ _ => False)) ?_ ?_
+      · rintro _ ⟨⟩ m0 hc
+        rw [Blocks.get.eq_1]
+        refine wp_mono (fun _ _ h => h) (fun _ _ _ _ h => False.elim h) _ _ ?_
+        refine wp_call_ret1 _ _ (fun res m' => Q (res, ()) m') ?_ ?_
+        · exact rtR1Env_lcnf_int_addsub_cmp hc
+        · intro r m' hq; rw [wp_ret]; exact hq
+      · intro J hJ
+        c0_let_simp
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hop_as
+        rcases hop_as with h4 | h5 | hop_as'
+        · refine jnz_true (op_beq_true h4 (by decide)) ?_; rw [wp_jump]; exact hJ () m hspec
+        · jnz_ne_step
+          refine jnz_true (op_beq_true h5 (by decide)) ?_; rw [wp_jump]; exact hJ () m hspec
+        · have h10_12 : 10 ≤ op.toNat ∧ op.toNat ≤ 12 := by
+            rcases hop_as' with h10 | h11 | h12 <;> omega
+          jnz_ne_step
+          refine jnz_false (by
+            simp only [beq_eq_false_iff_ne, ne_eq]
+            intro h; have ht := congrArg BitVec.toNat h; simp at ht; omega) ?_
+          refine wp_join_group (fun _ _ => False) (fun _ _ _ hF => False.elim hF) ?_
+          intro _ _; c0_let_simp
+          refine jnz_true (bv64_ule_nat_left (by decide) h10_12.1) ?_; c0_let_simp
+          refine jnz_true (bv64_ule_nat_right (by decide) h10_12.2) ?_
+          rw [wp_jump]; exact hJ () m hspec
+    · simp only [hop_as, ↓reduceIte] at hspec
+      by_cases hop_dm : op.toNat ∈ [6, 7, 8, 14, 15]
+      · simp only [hop_dm, ↓reduceIte] at hspec
+        refine wp_join_group (fun _ _ => False) (fun _ _ _ hF => False.elim hF) ?_
+        intro _ _; c0_let_simp
+        have hne_45 : ∀ k, k ∈ [4, 5] → (op == BitVec.ofNat 64 k) = false :=
+          fun k hk => op_beq_false (fun h => hop_as (by
+            simp only [List.mem_cons, List.not_mem_nil, or_false] at hk ⊢
+            rcases hk with rfl | rfl <;> omega)) (by
+            simp only [List.mem_cons, List.not_mem_nil, or_false] at hk
+            rcases hk with rfl | rfl <;> decide)
+        refine jnz_false (hne_45 4 (by decide)) ?_; c0_let_simp
+        refine jnz_false (hne_45 5 (by decide)) ?_
+        refine wp_join_group (fun _ m0 => m0 = m) ?_ ?_
+        · rintro _ ⟨⟩ m0 hm0
+          subst m0; rw [Blocks.get.eq_1]
+          refine wp_join_group
+            (fun _ m1 => lcnfIntMulDivSpec (rt, op, a, b, ()) m1 Q (fun _ _ _ _ => False)) ?_ ?_
+          · rintro _ ⟨⟩ m1 hc
+            rw [Blocks.get.eq_1]
+            refine wp_mono (fun _ _ h => h) (fun _ _ _ _ h => False.elim h) _ _ ?_
+            refine wp_call_ret1 _ _ (fun res m' => Q (res, ()) m') ?_ ?_
+            · exact rtR1Env_lcnf_int_muldiv hc
+            · intro r m' hq; rw [wp_ret]; exact hq
+          · intro J2 hJ2
             c0_let_simp
-            have hne_45 : ∀ k, k ∈ [4, 5] → (op == BitVec.ofNat 64 k) = false := by
-              intro k hk; simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply hop_as; subst h
-              simp only [List.mem_cons, List.not_mem_nil, or_false] at hk ⊢
-              rcases hk with rfl | rfl <;> decide
-            refine jnz_false (hne_45 4 (by decide)) ?_; c0_let_simp
-            refine jnz_false (hne_45 5 (by decide)) ?_
-            refine wp_join_group (fun _ m0 => m0 = m) ?_ ?_
-            · rintro _ ⟨⟩ m0 hm0
-              subst m0
-              rw [Blocks.get.eq_1]
-              refine wp_join_group
-                (fun _ m1 => lcnfIntMulDivSpec (rt, op, a, b, ()) m1 Q (fun _ _ _ _ => False)) ?_ ?_
-              · rintro _ ⟨⟩ m1 hc
-                rw [Blocks.get.eq_1]
-                refine wp_mono (fun _ _ h => h) (fun _ _ _ _ h => False.elim h) _ _ ?_
-                refine wp_call_ret1 _ _ (fun res m' => Q (res, ()) m') ?_ ?_
-                · exact rtR1Env_lcnf_int_muldiv hc
-                · intro r m' hq; rw [wp_ret]; exact hq
-              · intro J2 hJ2
-                c0_let_simp
-                simp only [List.mem_cons, List.not_mem_nil, or_false] at hop_dm
-                rcases hop_dm with h6 | h7 | h8 | h14 | h15
-                · have heq6 : (op == 6#64) = true := by
-                    simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h6)
-                  refine jnz_true heq6 ?_; rw [wp_jump]; exact hJ2 () m hspec
-                · have hne6 : (op == 6#64) = false := by
-                    simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 6)
-                    subst h; decide
-                  have heq7 : (op == 7#64) = true := by
-                    simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h7)
-                  refine jnz_false hne6 ?_; c0_let_simp; refine jnz_true heq7 ?_
-                  rw [wp_jump]; exact hJ2 () m hspec
-                · have hne6 : (op == 6#64) = false := by
-                    simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 6)
-                    subst h; decide
-                  have hne7 : (op == 7#64) = false := by
-                    simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 7)
-                    subst h; decide
-                  have heq8 : (op == 8#64) = true := by
-                    simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h8)
-                  refine jnz_false hne6 ?_; c0_let_simp; refine jnz_false hne7 ?_; c0_let_simp
-                  refine jnz_true heq8 ?_; rw [wp_jump]; exact hJ2 () m hspec
-                · have hne6 : (op == 6#64) = false := by
-                    simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 6)
-                    subst h; decide
-                  have hne7 : (op == 7#64) = false := by
-                    simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 7)
-                    subst h; decide
-                  have hne8 : (op == 8#64) = false := by
-                    simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 8)
-                    subst h; decide
-                  have heq14 : (op == 14#64) = true := by
-                    simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h14)
-                  refine jnz_false hne6 ?_; c0_let_simp; refine jnz_false hne7 ?_; c0_let_simp
-                  refine jnz_false hne8 ?_; c0_let_simp; refine jnz_true heq14 ?_
-                  rw [wp_jump]; exact hJ2 () m hspec
-                · have hne6 : (op == 6#64) = false := by
-                    simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 6)
-                    subst h; decide
-                  have hne7 : (op == 7#64) = false := by
-                    simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 7)
-                    subst h; decide
-                  have hne8 : (op == 8#64) = false := by
-                    simp only [beq_eq_false_iff_ne, ne_eq]; intro h; apply (by omega : op.toNat ≠ 8)
-                    subst h; decide
-                  have hne14 : (op == 14#64) = false := by
-                    simp only [beq_eq_false_iff_ne, ne_eq]; intro h
-                    apply (by omega : op.toNat ≠ 14); subst h; decide
-                  have heq15 : (op == 15#64) = true := by
-                    simp only [beq_iff_eq]; exact BitVec.eq_of_toNat_eq (by simpa using h15)
-                  refine jnz_false hne6 ?_; c0_let_simp; refine jnz_false hne7 ?_; c0_let_simp
-                  refine jnz_false hne8 ?_; c0_let_simp; refine jnz_false hne14 ?_; c0_let_simp
-                  refine jnz_true heq15 ?_; rw [wp_jump]; exact hJ2 () m hspec
-            · intro J1 hJ1
-              c0_let_simp
-              have hnot_10_12 : ¬(10 ≤ op.toNat ∧ op.toNat ≤ 12) := by
-                intro h; apply hop_as; simp only [List.mem_cons, List.not_mem_nil, or_false]; omega
-              by_cases hge10 : 10 ≤ op.toNat
-              · have huge : BitVec.ule 10#64 op = true := by
-                  simp only [BitVec.ule, decide_eq_true_eq]
-                  have : (10#64 : BitVec 64).toNat = 10 := by decide
-                  omega
-                have hnule : BitVec.ule op 12#64 = false := by
-                  simp only [BitVec.ule, decide_eq_false_iff_not]
-                  have : (12#64 : BitVec 64).toNat = 12 := by decide
-                  omega
-                refine jnz_true huge ?_; c0_let_simp; refine jnz_false hnule ?_
-                rw [wp_jump]; exact hJ1 () m rfl
-              · have hnuge : BitVec.ule 10#64 op = false := by
-                  simp only [BitVec.ule, decide_eq_false_iff_not]
-                  have : (10#64 : BitVec 64).toNat = 10 := by decide
-                  omega
-                refine jnz_false hnuge ?_; rw [wp_jump]; exact hJ1 () m rfl
-        · simp only [hop_dm, ↓reduceIte] at hspec
+            simp only [List.mem_cons, List.not_mem_nil, or_false] at hop_dm
+            rcases hop_dm with h6 | h7 | h8 | h14 | h15
+            · refine jnz_true (op_beq_true h6 (by decide)) ?_; rw [wp_jump]; exact hJ2 () m hspec
+            · jnz_ne_step
+              refine jnz_true (op_beq_true h7 (by decide)) ?_; rw [wp_jump]
+              exact hJ2 () m hspec
+            · jnz_ne_step; jnz_ne_step
+              refine jnz_true (op_beq_true h8 (by decide)) ?_; rw [wp_jump]
+              exact hJ2 () m hspec
+            · jnz_ne_step; jnz_ne_step; jnz_ne_step
+              refine jnz_true (op_beq_true h14 (by decide)) ?_; rw [wp_jump]
+              exact hJ2 () m hspec
+            · jnz_ne_step; jnz_ne_step; jnz_ne_step; jnz_ne_step
+              refine jnz_true (op_beq_true h15 (by decide)) ?_; rw [wp_jump]
+              exact hJ2 () m hspec
+        · intro J1 hJ1
+          c0_let_simp
+          have hnot_10_12 : ¬(10 ≤ op.toNat ∧ op.toNat ≤ 12) := by
+            intro h; apply hop_as; simp only [List.mem_cons, List.not_mem_nil, or_false]; omega
+          by_cases hge10 : 10 ≤ op.toNat
+          · have hnule : BitVec.ule op 12#64 = false := by
+              simp only [BitVec.ule, decide_eq_false_iff_not]
+              have : (12#64 : BitVec 64).toNat = 12 := by decide
+              omega
+            refine jnz_true (bv64_ule_nat_left (by decide) hge10) ?_; c0_let_simp
+            refine jnz_false hnule ?_; rw [wp_jump]; exact hJ1 () m rfl
+          · have hnuge : BitVec.ule 10#64 op = false := by
+              simp only [BitVec.ule, decide_eq_false_iff_not]
+              have : (10#64 : BitVec 64).toNat = 10 := by decide
+              omega
+            refine jnz_false hnuge ?_; rw [wp_jump]; exact hJ1 () m rfl
+      · simp only [hop_dm, ↓reduceIte] at hspec
 
 theorem rtR1Mod_tableImpl : TableImpl rtR1Env rtR1Mod.fns rtR1SpecEntries := by
   dsimp only [rtR1Mod, rtR1_fns, rtR1SpecEntries, TableImpl]
@@ -369,23 +227,23 @@ theorem lcnf_int_op_sound :
 
 /-! ## Concrete `Mem 64` Multi-Limb BigNum Non-Vacuity (`XPost := False`) -/
 
-def nvBnRtBase : BitVec 64 := 0x100000#64
-def nvBnWorkCap : Nat := 8
-def nvBnRem : Nat := 256
-def nvBnScrCap : Nat := 32
+@[expose] def nvBnRtBase : BitVec 64 := 0x100000#64
+@[expose] def nvBnWorkCap : Nat := 8
+@[expose] def nvBnRem : Nat := 256
+@[expose] def nvBnScrCap : Nat := 32
 
-def nvBnScr : BitVec 64 := nvBnRtBase + 34008#64
-def nvBnScrLimbs : List (BitVec 64) := List.replicate nvBnScrCap 0#64
-def nvBnHeapBase : BitVec 64 := nvBnRtBase + 34264#64
+@[expose] def nvBnScr : BitVec 64 := nvBnRtBase + 34008#64
+@[expose] def nvBnScrLimbs : List (BitVec 64) := List.replicate nvBnScrCap 0#64
+@[expose] def nvBnHeapBase : BitVec 64 := nvBnRtBase + 34264#64
 
-def nvBnAddrNatA : BitVec 64 := nvBnHeapBase
-def nvBnAddrNatB : BitVec 64 := nvBnHeapBase + 32#64
-def nvBnAddrIntNegA : BitVec 64 := nvBnHeapBase + 64#64
-def nvBnAddrIntPosB : BitVec 64 := nvBnHeapBase + 96#64
+@[expose] def nvBnAddrNatA : BitVec 64 := nvBnHeapBase
+@[expose] def nvBnAddrNatB : BitVec 64 := nvBnHeapBase + 32#64
+@[expose] def nvBnAddrIntNegA : BitVec 64 := nvBnHeapBase + 64#64
+@[expose] def nvBnAddrIntPosB : BitVec 64 := nvBnHeapBase + 96#64
 
 /-- Concrete initial `BigNumRt.RtC0State` with `workBuf` placed after `LcnfC0BigNumRt`
 (`+33688`), followed by a `256B` bump arena (`[+33752, +34008)`). -/
-def nvBnRtState : RtC0State where
+@[expose] def nvBnRtState : RtC0State where
   extraArgs := List.replicate rtExtraSlots 0#64
   globals := List.replicate rtGlobalSlots 0#64
   freeList := List.replicate rtNumClasses 0#64
@@ -419,57 +277,57 @@ def nvBnRtState : RtC0State where
   curNz := by decide
 
 /-- 2-limb `Nat` `3 * 2^64 - 1` (`[0xffffffffffffffff, 2]`). -/
-def nvValNatA : Nat := 3 * 2 ^ 64 - 1
+@[expose] def nvValNatA : Nat := 3 * 2 ^ 64 - 1
 
 /-- 2-limb `Nat` `2^64 + 5` (`[5, 1]`). -/
-def nvValNatB : Nat := 2 ^ 64 + 5
+@[expose] def nvValNatB : Nat := 2 ^ 64 + 5
 
 /-- Negative 2-limb `Int` `-(3 * 2^64 - 1)`. -/
-def nvValIntNegA : Int := -(nvValNatA : Int)
+@[expose] def nvValIntNegA : Int := -(nvValNatA : Int)
 
 /-- Positive 2-limb `Int` `2^64 + 5`. -/
-def nvValIntPosB : Int := (nvValNatB : Int)
+@[expose] def nvValIntPosB : Int := (nvValNatB : Int)
 
-def nvBnNatA : LcnfObj :=
+@[expose] def nvBnNatA : LcnfObj :=
   { addr := nvBnAddrNatA, rc := 1#32, csSz := 32, other := 0, tag := mpzTag,
     cap := 2, arrSize := 2, limbs := [0xffffffffffffffff#64, 2#64] }
 
-def nvBnNatB : LcnfObj :=
+@[expose] def nvBnNatB : LcnfObj :=
   { addr := nvBnAddrNatB, rc := 1#32, csSz := 32, other := 0, tag := mpzTag,
     cap := 2, arrSize := 2, limbs := [5#64, 1#64] }
 
-def nvBnIntNegA : LcnfObj :=
+@[expose] def nvBnIntNegA : LcnfObj :=
   { addr := nvBnAddrIntNegA, rc := 1#32, csSz := 32, other := 1, tag := mpzTag,
     cap := 2, arrSize := 2, limbs := [0xffffffffffffffff#64, 2#64] }
 
-def nvBnIntPosB : LcnfObj :=
+@[expose] def nvBnIntPosB : LcnfObj :=
   { addr := nvBnAddrIntPosB, rc := 1#32, csSz := 32, other := 0, tag := mpzTag,
     cap := 2, arrSize := 2, limbs := [5#64, 1#64] }
 
-def nvBnObjs : List LcnfObj := [nvBnNatA, nvBnNatB, nvBnIntNegA, nvBnIntPosB]
+@[expose] def nvBnObjs : List LcnfObj := [nvBnNatA, nvBnNatB, nvBnIntNegA, nvBnIntPosB]
 
-def nvBnHdrWords (h : LcnfC0BaseRt) : List (BitVec 64) :=
+@[expose] def nvBnHdrWords (h : LcnfC0BaseRt) : List (BitVec 64) :=
   [ h.s_large_free, h.s_ba_empty, h.s_cur, h.s_end, h.s_work, h.s_work_cap,
     h.s_chunks, h.s_nchunks, h.s_chunks_cap, h.s_st_allocs, h.s_st_frees,
     h.s_st_live, h.s_st_peak_live, h.s_st_persistent, h.s_st_reused,
     h.s_st_cold_decs, h.s_st_bytes ]
 
-def nvBnRtBytes : List UInt8 :=
+@[expose] def nvBnRtBytes : List UInt8 :=
   bytes64 nvBnRtState.extraArgs ++ bytes64 nvBnRtState.globals ++
   bytes64 nvBnRtState.freeList ++ bytes64 (nvBnHdrWords nvBnRtState.hdr) ++
   bytes64 [nvBnScr, BitVec.ofNat 64 nvBnScrCap] ++ bytes64 nvBnRtState.workBuf ++
   List.replicate nvBnRem 0 ++ bytes64 nvBnScrLimbs
 
-def nvBnObjBytes (o : LcnfObj) : List UInt8 :=
+@[expose] def nvBnObjBytes (o : LcnfObj) : List UInt8 :=
   bytes64 (o.header :: o.mpzMeta :: o.limbs)
 
-def nvBnHeapBytes : List UInt8 :=
+@[expose] def nvBnHeapBytes : List UInt8 :=
   nvBnObjBytes nvBnNatA ++ nvBnObjBytes nvBnNatB ++
   nvBnObjBytes nvBnIntNegA ++ nvBnObjBytes nvBnIntPosB
 
 /-- Concrete `Mem 64` image packing `LcnfC0BigNumRt` + `workBuf` + `256B` bump arena + `32`-limb
 scratch buffer (`34264B`) and `4` multi-limb `MPZ` objects (`128B`). -/
-def nvBnMem : Mem 64 := (nvBnRtBytes ++ nvBnHeapBytes).At nvBnRtBase
+@[expose] def nvBnMem : Mem 64 := (nvBnRtBytes ++ nvBnHeapBytes).At nvBnRtBase
 
 private theorem nvBn_sep_append {P Q : Mem 64 → Prop} {a : BitVec 64}
     {bs1 bs2 : List UInt8} {n1 n2 : Nat}
