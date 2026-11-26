@@ -99,6 +99,13 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofMin
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofMode
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofRsn
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofViv
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12A
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12AProofFactor
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12AProofProbe
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12AProofSweep
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12AProofTransLucky
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12ARows
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12ARowsProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12BBveFwd
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12BCong
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12BProofBackFwd
