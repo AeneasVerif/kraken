@@ -70,6 +70,10 @@ public import LeanQbe.T.LeanLCNF.Lower1
 public import LeanQbe.T.LeanLCNF.Sem.H
 public import LeanQbe.T.LeanLCNF.Sem.HBase
 public import LeanQbe.T.LeanLCNF.Sem.HPrim
+public import LeanQbe.T.LeanLCNF.Sem.P
+public import LeanQbe.T.LeanLCNF.Sem.PAdequacy
+public import LeanQbe.T.LeanLCNF.Sem.PLemmas
+public import LeanQbe.T.LeanLCNF.Sem.RcCheck
 public import LeanQbe.T.LeanLCNF.Sem.SpecNorm
 public import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
 
