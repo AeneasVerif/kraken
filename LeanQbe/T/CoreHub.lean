@@ -193,6 +193,7 @@ public import LeanQbe.T.SimplifyGroupPlan
 public import LeanQbe.T.SimplifyGroupPlanLemmas
 public import LeanQbe.T.SnippetCheck
 public import LeanQbe.T.Spill
+public import LeanQbe.T.SpillEmit
 public import LeanQbe.T.SpillFlags
 public import LeanQbe.T.SpillSnippet
 public import LeanQbe.T.StepSimp
