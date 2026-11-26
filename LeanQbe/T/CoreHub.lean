@@ -37,6 +37,7 @@ public import LeanQbe.T.FlatDirectLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Fold
 public import LeanQbe.T.FoldLemmas
+public import LeanQbe.T.FoldSimpKit
 public import LeanQbe.T.GroupLfpLemmas
 public import LeanQbe.T.Gvn
 public import LeanQbe.T.GvnLemmas
