@@ -32,6 +32,8 @@ public import LeanQbe.T.DivConst
 public import LeanQbe.T.DivConstLemmas
 public import LeanQbe.T.Driver
 public import LeanQbe.T.Flat
+public import LeanQbe.T.FlatDirect
+public import LeanQbe.T.FlatDirectLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Fold
 public import LeanQbe.T.FoldLemmas
@@ -57,6 +59,7 @@ public import LeanQbe.T.LegalCheck3
 public import LeanQbe.T.LegalCheck3a
 public import LeanQbe.T.LegalCheck3b
 public import LeanQbe.T.LegalEmit
+public import LeanQbe.T.LegalFlat
 public import LeanQbe.T.LegalLemmas
 public import LeanQbe.T.LegalMemLemmas
 public import LeanQbe.T.LegalMemLemmas1
@@ -120,6 +123,8 @@ public import LeanQbe.T.MainCertInlineProof
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.MainCertScc
 public import LeanQbe.T.MainCertSlices
+public import LeanQbe.T.MainFlat
+public import LeanQbe.T.MainFlatLemmas
 public import LeanQbe.T.MainInline
 public import LeanQbe.T.MainLateInline
 public import LeanQbe.T.MainLemmas
@@ -140,6 +145,12 @@ public import LeanQbe.T.NotationSugar
 public import LeanQbe.T.Ops
 public import LeanQbe.T.OpsLemmas
 public import LeanQbe.T.Opt
+public import LeanQbe.T.OptFlatCfg
+public import LeanQbe.T.OptFlatCfgLemmas
+public import LeanQbe.T.OptFlatMem
+public import LeanQbe.T.OptFlatMemLemmas
+public import LeanQbe.T.OptFlatValue
+public import LeanQbe.T.OptFlatValueLemmas
 public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.OptPolicy
 public import LeanQbe.T.OptUtil
@@ -153,6 +164,8 @@ public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.PrintUtil
 public import LeanQbe.T.Rega
 public import LeanQbe.T.RegaDefs
+public import LeanQbe.T.RegaFlat
+public import LeanQbe.T.RegaFlatLemmas
 public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.RegaLemmas1
 public import LeanQbe.T.RegaLemmas2
