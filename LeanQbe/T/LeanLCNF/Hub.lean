@@ -36,6 +36,8 @@ public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemoProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemoProof2
 public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemoProof3
 public import LeanQbe.T.LeanLCNF.LcnfC0LoopDemoProof4
+public import LeanQbe.T.LeanLCNF.LcnfC0MutRecDemo
+public import LeanQbe.T.LeanLCNF.LcnfC0MutRecDemoProof
 public import LeanQbe.T.LeanLCNF.LcnfC0RecDemo
 public import LeanQbe.T.LeanLCNF.LcnfC0RecDemoProof
 public import LeanQbe.T.LeanLCNF.LcnfC0Rt
