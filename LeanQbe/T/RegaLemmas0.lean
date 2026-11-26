@@ -139,5 +139,62 @@ theorem execMovi_spec {T : Target} {h : T.mach.Host} {k : Nat}
     · simp only [hcond, ↓reduceIte]; exact T.gprSpec.moviDeadFlags?_spec hmd
     · simp only [hcond, Bool.false_eq_true, ↓reduceIte]; exact T.gprSpec.movi_spec
 
+@[expose]
+def SymValAt (G : Ctx Val VNat) (w : Nat) (bv : BitVec w) : SymArg → Prop
+  | .var x => ⟨.bits w, bv, x⟩ ∈ G
+  | .immBits w' c => w' = w ∧ c.setWidth w = bv
+  | _ => False
+
+theorem SymValAt.mono {G G' : Ctx Val VNat} (hsub : ∀ p ∈ G, p ∈ G') {w : Nat}
+    {bv : BitVec w} {sa : SymArg} (h : SymValAt G w bv sa) : SymValAt G' w bv sa := by
+  cases sa with
+  | var _ => exact hsub _ h
+  | immBits _ _ => exact h
+  | _ => exact h
+
+theorem ctx_uniq_cons {G : Ctx Val VNat} {nv : Nat}
+    (hlt : ∀ p ∈ G, p.2.2 < nv)
+    (hu : ∀ {t : Ty} {x : Nat} {v₁ v₂ : Val t}, ⟨t, v₁, x⟩ ∈ G → ⟨t, v₂, x⟩ ∈ G → v₁ = v₂)
+    {t0 : Ty} {v0 : Val t0} {t : Ty} {x : Nat} {v₁ v₂ : Val t}
+    (h1 : ⟨t, v₁, x⟩ ∈ (⟨t0, v0, nv⟩ :: G : Ctx Val VNat))
+    (h2 : ⟨t, v₂, x⟩ ∈ (⟨t0, v0, nv⟩ :: G : Ctx Val VNat)) : v₁ = v₂ := by
+  rcases List.mem_cons.mp h1 with e1 | m1 <;> rcases List.mem_cons.mp h2 with e2 | m2
+  · cases e1; cases e2; rfl
+  · cases e1; exact absurd (hlt _ m2) (Nat.lt_irrefl _)
+  · cases e2; exact absurd (hlt _ m1) (Nat.lt_irrefl _)
+  · exact hu m1 m2
+
+theorem mem_zip_levels_ge :
+    ∀ {ts : List Ty} {rvs : Tup Val ts} {nv0 : Nat} {p : (t : Ty) × Val t × VNat t},
+      p ∈ Tup.zip rvs (Tup.levels ts nv0) → nv0 ≤ p.2.2
+  | [], _, _, _, h => by simp [Tup.zip] at h
+  | _ :: ts, (v, rvs), nv0, _, h => by
+    simp only [Tup.zip, Tup.levels, List.mem_cons] at h
+    rcases h with rfl | h
+    · exact Nat.le_refl _
+    · exact Nat.le_of_lt (Nat.lt_of_lt_of_le (Nat.lt_succ_self _) (mem_zip_levels_ge h))
+
+theorem ctx_uniq_zip {G : Ctx Val VNat} {nv : Nat}
+    (hlt : ∀ p ∈ G, p.2.2 < nv)
+    (hu : ∀ {t : Ty} {x : Nat} {v₁ v₂ : Val t}, ⟨t, v₁, x⟩ ∈ G → ⟨t, v₂, x⟩ ∈ G → v₁ = v₂) :
+    ∀ (ts : List Ty) (rvs : Tup Val ts) (nv0 : Nat), nv ≤ nv0 →
+    ∀ {t : Ty} {x : Nat} {v₁ v₂ : Val t},
+      ⟨t, v₁, x⟩ ∈ Tup.zip rvs (Tup.levels ts nv0) ++ G →
+      ⟨t, v₂, x⟩ ∈ Tup.zip rvs (Tup.levels ts nv0) ++ G → v₁ = v₂
+  | [], (), _, _, _, _, _, _, h1, h2 =>
+    hu (by simpa [Tup.zip] using h1) (by simpa [Tup.zip] using h2)
+  | _ :: ts, (v, rvs), nv0, hle, _, _, _, _, h1, h2 => by
+    simp only [Tup.zip, Tup.levels, List.cons_append] at h1 h2
+    have hge : ∀ p ∈ Tup.zip rvs (Tup.levels ts (nv0 + 1)) ++ G, p.2.2 ≠ nv0 := by
+      intro p hp
+      rcases List.mem_append.mp hp with hm | hm
+      · exact Nat.ne_of_gt (Nat.lt_of_lt_of_le (Nat.lt_succ_self _) (mem_zip_levels_ge hm))
+      · exact Nat.ne_of_lt (Nat.lt_of_lt_of_le (hlt p hm) hle)
+    rcases List.mem_cons.mp h1 with e1 | m1 <;> rcases List.mem_cons.mp h2 with e2 | m2
+    · cases e1; cases e2; rfl
+    · cases e1; exact absurd rfl (hge _ m2)
+    · cases e2; exact absurd rfl (hge _ m1)
+    · exact ctx_uniq_zip hlt hu ts rvs (nv0 + 1) (by omega) m1 m2
+
 end Rega
 end LeanQbe.T

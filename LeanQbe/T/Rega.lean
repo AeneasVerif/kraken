@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.RegaDefs
 public import LeanQbe.T.RegaZero
 public import LeanQbe.T.RegaZext
+public import LeanQbe.T.RegaCmpReuse
 
 /-!
 # PHOAS-First Checked Register-Allocation Lowering (`Rega`)
@@ -634,14 +635,6 @@ def opProducesZ32 (I : Isa) {sig : List Ty} : {rs : List Ty} → OpCode sig rs �
     | _ => false
   | _, _, _, _ => false
 
-def cmpIsSignedOrEq : CmpOp → Bool
-  | .eq | .ne | .slt | .sle | .sgt | .sge => true
-  | _ => false
-
-def cmpIsUnsignedOrEq : CmpOp → Bool
-  | .eq | .ne | .ult | .ule | .ugt | .uge => true
-  | _ => false
-
 def tryAddr (I : Isa) (st : SymState I) (vh : VariantHint) {α : Type}
     (a : Arg VNat i64) (k : AddrArg I.Reg → Option α) : Option α :=
   match a with
@@ -950,32 +943,6 @@ def tryLoadSext (I : Isa) (st : SymState I) (vh : VariantHint) {sig ts : List Ty
     | _ => none
   | _, _, _, _, _ => none
 
-def normZeroCmp : CmpOp → CmpOp
-  | .ugt => .ne
-  | .ule => .eq
-  | o => o
-
-def normCmpZero1 {n : Nat} (o : CmpOp) (c : BitVec n) : CmpOp × BitVec n :=
-  if c == 0#n then (normZeroCmp o, 0#n)
-  else if c == 1#n && Nat.ble 1 n then
-    match o with
-    | .ult => (.eq, 0#n)
-    | .uge => (.ne, 0#n)
-    | .sge => if Nat.ble 2 n then (.sgt, 0#n) else (o, c)
-    | .slt => if Nat.ble 2 n then (.sle, 0#n) else (o, c)
-    | _ => (o, c)
-  else (o, c)
-
-def normCmpExpr (co : CmpOp) (n : Nat) :
-    Arg VNat (.bits n) → Arg VNat (.bits n) → CmpOp × Arg VNat (.bits n) × Arg VNat (.bits n)
-  | .var t, .imm c =>
-    let (co', c') := normCmpZero1 co c
-    (co', .var t, .imm c')
-  | .imm c, .var t =>
-    let (co', c') := normCmpZero1 co.swap c
-    if c' == 0#n then (co', .var t, .imm 0#n) else (co, .imm c, .var t)
-  | a, b => (co, a, b)
-
 def recordBoolDef (defs : Trie DefFact) {sig ts : List Ty} (code : OpCode sig ts)
     (args : Tup (Arg VNat) sig) : Option DefFact :=
   match sig, ts, code, args with
@@ -1223,42 +1190,20 @@ def cmpOpFlags? (I : Isa) (st : SymState I) {sig ts : List Ty}
     (fl, none)
   | _, _, _, _, _ => (killFlags I cl st.flags, none)
 
-def reuseCmpPair? (I : Isa) (defs : Trie DefFact) (w n : Nat) (co : CmpOp)
-    (a b : Arg VNat (.bits n)) : Option (CmpOp × SymArg × SymArg) :=
-  if Nat.beq w n then
-    (toSymArg I (.bits n) a).bind fun sa =>
-      (toSymArg I (.bits n) b).map fun sb => (co, sa, sb)
-  else if Nat.blt 0 w && Nat.blt w n then
-    let ext? (co' : CmpOp) (t : Nat) (c : BitVec n) :=
-      let ok := match defs.find? t with
-        | some (.sextVar m n' x) =>
-          if Nat.beq m w && Nat.beq n' n && cmpIsSignedOrEq co' &&
-             (c.truncate w).signExtend n == c then some x else none
-        | some (.zextVar m n' x) =>
-          if Nat.beq m w && Nat.beq n' n && cmpIsUnsignedOrEq co' &&
-             (c.truncate w).zeroExtend n == c then some x else none
-        | _ => none
-      ok.map fun x => (co', .var x, .immBits w ((c.truncate w).setWidth 64))
-    match a, b with
-    | .var t, .imm c => ext? co t c
-    | .imm c, .var t => ext? co.swap t c
-    | _, _ => none
-  else none
-
 def tryReuseFlagCmp (I : Isa) (st : SymState I) {sig ts : List Ty}
     (code : OpCode sig ts) (args : Tup (Arg VNat) sig)
     (dsts : Tup (PDst I.Reg I.VReg I.Cond) ts) :
     Option (List I.Directive × FlagMask × Option FlagFact × Option I.Cond) :=
   match st.flags, sig, ts, code, args, dsts with
   | some (.cmp w lhs rhs eqNe), _, _, .cmp co (.bits n) .bool _, (a, b, ()), (pd, ()) =>
-    if !(!eqNe || co == .eq || co == .ne) then none
-    else
-      (reuseCmpPair? I st.defs w n co a b).bind fun (coBase, sa, sb) =>
-        let coUsed? :=
-          if symArgEq sa lhs && symArgEq sb rhs then some coBase
-          else if symArgEq sa rhs && symArgEq sb lhs then some coBase.swap
-          else none
-        coUsed?.bind fun coUsed =>
+    (reuseCmpPair? I st.defs w lhs rhs n co a b).bind fun (coBase, sa, sb) =>
+      let coUsed? :=
+        if symArgEq sa lhs && symArgEq sb rhs then some coBase
+        else if symArgEq sa rhs && symArgEq sb lhs then some coBase.swap
+        else none
+      coUsed?.bind fun coUsed =>
+        if !(!eqNe || coUsed == .eq || coUsed == .ne) then none
+        else
           (I.gpr.condOfCmp? coUsed).bind fun cc =>
             match pd with
             | .flag cd =>
@@ -1430,22 +1375,10 @@ inductive JnzCond (I : Isa) where
   | cmpZeroFlag (co : CmpOp) (w x : Nat) (r : I.Reg) (cc : I.Cond)
   | testImm (neg : Bool) (w : Nat) (r : I.Reg) (mask : BitVec w)
 
-def cmpZeroFlagCond? (I : Isa) (fl : Option FlagFact) (co : CmpOp) (w y : Nat) : Option I.Cond :=
-  match fl with
-  | some (.cmp w' lhs rhs eqNe) =>
-    if !(Nat.beq w' w && (!eqNe || co == .eq || co == .ne)) then none
-    else
-      let coUsed? :=
-        if symArgEq lhs (.var y) && symArgEq rhs (.immBits w 0#64) then some co
-        else if symArgEq rhs (.var y) && symArgEq lhs (.immBits w 0#64) then some co.swap
-        else none
-      coUsed?.bind I.gpr.condOfCmp?
-  | none => none
-
 def findJnzCond (I : Isa) (nslots : Nat) (st : SymState I) (x : Nat) : Option (JnzCond I) :=
   (findFlagFor I st.regs (.var x)).map .flag <|>
     (match st.defs.find? x with
-     | some (.cmpZeroVar co w y) => (cmpZeroFlagCond? I st.flags co w y).map .flag
+     | some (.cmpZeroVar co w y) => (cmpZeroFlagCond? I st.defs st.flags co w y).map .flag
      | _ => none) <|>
     (findGprFor I true st.regs (.var x)).map .gpr <|>
     (match st.defs.find? x with

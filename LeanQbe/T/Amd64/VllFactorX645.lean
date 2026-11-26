@@ -911,12 +911,12 @@ theorem opProducesZ32_eq {sig rs : List Ty} (code : OpCode sig rs)
     · rfl
   · rfl
 
-theorem reuseCmpPair?_eq (defs : Trie Rega.DefFact) (w n : Nat) (co : CmpOp)
-    (a b : Arg Rega.VNat (.bits n)) :
-    Rega.reuseCmpPair? vllX64IsaR defs w n co a b =
-      Rega.reuseCmpPair? x64Isa defs w n co a b := by
+theorem reuseCmpPair?_eq (defs : Trie Rega.DefFact) (w : Nat) (lhs rhs : SymArg)
+    (n : Nat) (co : CmpOp) (a b : Arg Rega.VNat (.bits n)) :
+    Rega.reuseCmpPair? vllX64IsaR defs w lhs rhs n co a b =
+      Rega.reuseCmpPair? x64Isa defs w lhs rhs n co a b := by
   dsimp only [Rega.reuseCmpPair?]
-  rw [vllR_toSymArg_eq, vllR_toSymArg_eq]
+  simp only [vllR_toSymArg_eq]
 
 theorem tryReuseFlagCmp_eq (st : Rega.SymState vllX64IsaR) {sig ts : List Ty}
     (code : OpCode sig ts) (args : Tup (Arg Rega.VNat) sig)
@@ -925,12 +925,12 @@ theorem tryReuseFlagCmp_eq (st : Rega.SymState vllX64IsaR) {sig ts : List Ty}
       Rega.tryReuseFlagCmp x64Isa (symStToX64 st) code args dsts := by
   dsimp only [Rega.tryReuseFlagCmp, symStToX64]
   split
-  · split
+  · refine mapOptCl_bind_congr' (by rw [reuseCmpPair?_eq]) fun p => ?_
+    rcases p with ⟨coBase, sa, sb⟩
+    refine mapOptCl_bind_congr fun coUsed => ?_
+    split
     · rfl
-    · refine mapOptCl_bind_congr' (by rw [reuseCmpPair?_eq]) fun p => ?_
-      rcases p with ⟨coBase, sa, sb⟩
-      refine mapOptCl_bind_congr fun coUsed => ?_
-      refine mapOptCl_bind_congr' (congrFun vllR_condOfCmp_eq coUsed) fun cc => ?_
+    · refine mapOptCl_bind_congr' (congrFun vllR_condOfCmp_eq coUsed) fun cc => ?_
       split
       · rw [decEq_beq_congr vllX64IsaR.decEqCond x64Isa.decEqCond]
         split <;> rfl

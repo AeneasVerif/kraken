@@ -134,21 +134,43 @@ def canOpReadFlag (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : Lis
             (probeOp I r0 r1 v0 v1 (fArg c) fDst none nv0 op vh).isSome
         | _, _ => false
 
+def sameBitsArg {n : Nat} : Arg Rega.VNat (.bits n) → Arg Rega.VNat (.bits n) → Bool
+  | .var x, .var y => Nat.beq x y
+  | .imm c, .imm d => c == d
+  | _, _ => false
+
+def normCmpOpForProbe (I : Isa) (cc? : Option I.Cond) {ts : List Ty}
+    (op : Op Rega.VNat ts) : Option (Op Rega.VNat ts) :=
+  let { sig := _, code, args } := op
+  match code, args with
+  | .cmp co (.bits n) .bool hpf, (a, b, ()) =>
+    let (co', a', b') := Rega.normCmpExpr co n a b
+    match cc? with
+    | none => some { code := .cmp co' (.bits n) .bool hpf, args := (a', b', ()) }
+    | some cc =>
+      if I.gpr.condOfCmp? co' == some cc then
+        some { code := .cmp co' (.bits n) .bool hpf, args := (a', b', ()) }
+      else if (I.gpr.condOfCmp? co').isSome then
+        if co' == co && sameBitsArg a' a && sameBitsArg b' b then some op else none
+      else some op
+  | _, _ => some op
+
 mutual
 def scanDefs (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond)
     (isBool : Nat → Bool) (bparams : Trie (List Nat)) : Tree → ScanInfo → ScanInfo
   | n@(.let_ _ ip nv0 ts op k), s =>
-    let bf := (opVarIds op).foldl (fun b x =>
-      if isBool x && !canOpReadFlag I r0 r1 v0 v1 conds nv0 op x then b.insert x true else b)
+    let opN := (normCmpOpForProbe I none op).getD op
+    let bf := (opVarIds opN).foldl (fun b x =>
+      if isBool x && !canOpReadFlag I r0 r1 v0 v1 conds nv0 opN x then b.insert x true else b)
       s.badFlag
-    let { sig := _, code, args } := op
+    let { sig := _, code, args } := opN
     let (di, bf) := match ts, code, args with
       | [.bool], .cmp _ (.bits _) .bool _, _ => (s.defIp.insert nv0 ip, bf)
       | [.bool], .not .bool, (.var x, ()) =>
         let canFlag := conds.any fun c => conds.any fun cDst =>
           let fArg y := if Nat.beq y x then some c else none
           let fDst y := if Nat.beq y nv0 then some cDst else none
-          (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op .default).isSome
+          (probeOp I r0 r1 v0 v1 fArg fDst none nv0 opN .default).isSome
         if canFlag then (s.defIp.insert nv0 ip, bf) else (s.defIp, bf.insert nv0 true)
       | [.bits _, .bool], .addc _, _ | [.bits _, .bool], .subb _, _ =>
         (s.defIp.insert (nv0 + 1) ip, bf)
@@ -319,25 +341,27 @@ def probeIntervening (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : 
   | none => match info.nodeAt.find? ip with
     | none => some st
     | some (.let_ _ _ nv0 ts op _) =>
-      let { sig := _, code, args } := op
+      let opDef := (normCmpOpForProbe I (st.flagHome.find? nv0) op).getD op
+      let { sig := _, code, args } := opDef
       match ts, code, args with
       | [.bool], .cmp _ (.bits _) .bool _, _ =>
-        (probeOp I r0 r1 v0 v1 fArg st.flagHome.find? none nv0 op .default).bind fun cl =>
+        (probeOp I r0 r1 v0 v1 fArg st.flagHome.find? none nv0 opDef .default).bind fun cl =>
           if FlagMask.disjoint reqMask cl then some st
           else if !isCand nv0 then none
           else conds.findSome? fun c =>
-            let fDst x := if Nat.beq x nv0 then some c else none
-            (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op .decInc).bind fun cl' =>
-              let usesOk := (info.usesOf.getD nv0 []).all fun u =>
-                match info.nodeAt.find? u with
-                | some (.let_ _ _ nu _ opU _) =>
-                  (carryVhs opU).any fun vhU =>
-                    let fArgU y := if Nat.beq y nv0 then some c else fArg y
-                    (probeOp I r0 r1 v0 v1 fArgU (fun _ => none) none nu opU vhU).isSome
-                | _ => true
-              if FlagMask.disjoint reqMask cl' && usesOk then
-                some { lockVh ip .decInc cl' st with flagHome := st.flagHome.insert nv0 c }
-              else none
+            (normCmpOpForProbe I (some c) op).bind fun opC =>
+              let fDst x := if Nat.beq x nv0 then some c else none
+              (probeOp I r0 r1 v0 v1 fArg fDst none nv0 opC .decInc).bind fun cl' =>
+                let usesOk := (info.usesOf.getD nv0 []).all fun u =>
+                  match info.nodeAt.find? u with
+                  | some (.let_ _ _ nu _ opU _) =>
+                    (carryVhs opU).any fun vhU =>
+                      let fArgU y := if Nat.beq y nv0 then some c else fArg y
+                      (probeOp I r0 r1 v0 v1 fArgU (fun _ => none) none nu opU vhU).isSome
+                  | _ => true
+                if FlagMask.disjoint reqMask cl' && usesOk then
+                  some { lockVh ip .decInc cl' st with flagHome := st.flagHome.insert nv0 c }
+                else none
       | [.bits _, .bool], .addc _, _ | [.bits _, .bool], .subb _, _ =>
         let cOut := nv0 + 1
         if (st.flagHome.find? cOut).isSome then none
@@ -429,10 +453,11 @@ def tryColorWeb (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
       (info.defIp.find? v).bind fun ip =>
         match info.nodeAt.find? ip with
         | some (.let_ _ _ nv0 [.bool] op _) =>
-          let { sig := _, code, args := _ } := op
-          match code with
-          | .cmp _ (.bits _) .bool _ => some (nv0, op)
-          | _ => none
+          (normCmpOpForProbe I (some cc) op).bind fun opN =>
+            let { sig := _, code, args := _ } := opN
+            match code with
+            | .cmp _ (.bits _) .bool _ => some (nv0, opN)
+            | _ => none
         | _ => none
     !cmpDefs.isEmpty && cmpDefs.all fun (nv0, op) =>
       let fDst x := if Nat.beq x nv0 then some cc else none
@@ -458,7 +483,8 @@ def tryColorWeb (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
           let cm := maskOf stAcc.flagHome liveOther
           let hasOther := !liveOther.isEmpty || info.hoistBlocked.getD ip false
           let locked := (stAcc.lockedClob.find? ip).isSome
-          let { sig := _, code, args } := op
+          (normCmpOpForProbe I (some cc) op).bind fun opN =>
+          let { sig := _, code, args } := opN
           match ts, code, args with
           | [.bool], .cmp _ (.bits _) .bool _, _ =>
             let vhs :=
@@ -466,11 +492,11 @@ def tryColorWeb (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
               else if hasOther then [.decInc, .default] else [.default, .decInc]
             vhs.findSome? fun vh =>
               let fDst x := if Nat.beq x nv0 then some cc else none
-              (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op vh).bind fun cl =>
+              (probeOp I r0 r1 v0 v1 fArg fDst none nv0 opN vh).bind fun cl =>
                 if FlagMask.disjoint cm cl then some (lockVh ip vh cl stAcc) else none
           | [.bool], .not .bool, (.var _, ()) =>
             let fDst z := if Nat.beq z nv0 then some cc else none
-            (probeOp I r0 r1 v0 v1 fArg fDst none nv0 op .default).bind fun cl =>
+            (probeOp I r0 r1 v0 v1 fArg fDst none nv0 opN .default).bind fun cl =>
               if FlagMask.disjoint cm cl then some (lockVh ip .default cl stAcc) else none
           | [.bits _, .bool], .addc _, (_, _, cin, _)
           | [.bits _, .bool], .subb _, (_, _, cin, _) =>
@@ -479,7 +505,7 @@ def tryColorWeb (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
               else if hasOther then [.adcx, .adox, .default] else [.default, .adcx, .adox]
             let tryVh (immF : Option I.Cond) (vh : VariantHint) :=
               let fDst x := if Nat.beq x (nv0 + 1) then some cc else none
-              (probeOp I r0 r1 v0 v1 fArg fDst immF nv0 op vh).bind fun cl =>
+              (probeOp I r0 r1 v0 v1 fArg fDst immF nv0 opN vh).bind fun cl =>
                 if FlagMask.disjoint cm cl then some cl else none
             let clr? := match cin with
               | .imm false =>
@@ -605,6 +631,87 @@ def computeDeadFlagsB {C : Type} (fh : Trie C) : TreeBlocks → Trie Bool → Tr
   | .cons _ _ b bs, acc => computeDeadFlagsB fh bs (computeDeadFlags fh b acc)
 end
 
+def expandCmpVar (extSrc : Trie Nat) (x : Nat) : List Nat :=
+  match extSrc.find? x with
+  | some s => [x, s]
+  | none => [x]
+
+def isBitsCmp {ts : List Ty} (op : Op Rega.VNat ts) : Bool :=
+  let { sig := _, code, args := _ } := op
+  match ts, code with
+  | [.bool], .cmp _ (.bits _) .bool _ => true
+  | _, _ => false
+
+def cmpReuseVars {ts : List Ty} (extSrc : Trie Nat) (op : Op Rega.VNat ts) : List Nat :=
+  let { sig := _, code, args } := op
+  match ts, code, args with
+  | [.bool], .cmp co (.bits n) .bool _, (a, b, ()) =>
+    let (_, a', b') := Rega.normCmpExpr co n a b
+    (argVarIds a' ++ argVarIds b').flatMap (expandCmpVar extSrc)
+  | _, _, _ => []
+
+def nextExtSrc (extSrc : Trie Nat) (nv0 : Nat) {ts : List Ty} (op : Op Rega.VNat ts) :
+    Trie Nat :=
+  let { sig := _, code, args } := op
+  match ts, code, args with
+  | [.bits _], .sext _ _, (.var s, ()) | [.bits _], .zext _ _, (.var s, ()) =>
+    extSrc.insert nv0 s
+  | _, _, _ => extSrc
+
+def opReuseFlagAction {ts : List Ty} (extSrc : Trie Nat) (nv0 : Nat)
+    (op : Op Rega.VNat ts) (avail : List Nat) : Option (List Nat) :=
+  let { sig := _, code, args := _ } := op
+  match ts, code with
+  | [.bool], .cmp _ (.bits _) .bool _ =>
+    let vs := cmpReuseVars extSrc op
+    some (if vs.any avail.contains then union avail vs else vs)
+  | [.bits _], .add (.bits _) | [.bits _], .sub (.bits _) => some (nv0 :: avail)
+  | [.bits _], .and (.bits _) | [.bits _], .or (.bits _)
+  | [.bits _], .xor (.bits _) | [.bits _], .neg (.bits _) => some [nv0]
+  | _, .copy _ | _, .sext _ _ | _, .zext _ _
+  | _, .trunc _ _ | _, .bitcast _ _ _ | _, .select _ => some avail
+  | _, _ => none
+
+def nextCmpVars (extSrc : Trie Nat) : Tree → List Nat
+  | .let_ _ _ nv0 _ op k =>
+    if isBitsCmp op then cmpReuseVars extSrc op
+    else
+      let extSrc' := nextExtSrc extSrc nv0 op
+      match opReuseFlagAction extSrc' nv0 op [] with
+      | some _ => nextCmpVars extSrc' k
+      | none => []
+  | .load _ _ _ _ _ k | .store _ _ _ _ _ k | .skip _ _ k => nextCmpVars extSrc k
+  | .jnz _ _ _ _ t e => union (nextCmpVars extSrc t) (nextCmpVars extSrc e)
+  | _ => []
+
+def protectIp (avail : List Nat) (extSrc : Trie Nat) (ip : Nat) (t : Tree)
+    (df : Trie Bool) : Trie Bool :=
+  if avail.isEmpty || !(nextCmpVars extSrc t).any avail.contains then df else df.insert ip false
+
+mutual
+def protectReuseFlags (avail : List Nat) (extSrc : Trie Nat) : Tree → Trie Bool → Trie Bool
+  | t@(.let_ _ ip nv0 _ op k), df =>
+    let df1 := protectIp avail extSrc ip t df
+    let extSrc1 := nextExtSrc extSrc nv0 op
+    let avail1 := (opReuseFlagAction extSrc1 nv0 op avail).getD []
+    protectReuseFlags avail1 extSrc1 k df1
+  | t@(.load _ ip _ _ _ k), df =>
+    protectReuseFlags avail extSrc k (protectIp avail extSrc ip t df)
+  | t@(.store _ ip _ _ _ k), df =>
+    protectReuseFlags avail extSrc k (protectIp avail extSrc ip t df)
+  | .skip _ _ k, df => protectReuseFlags avail extSrc k df
+  | t@(.jnz _ ip _ _ l r), df =>
+    protectReuseFlags avail extSrc r (protectReuseFlags avail extSrc l
+      (protectIp avail extSrc ip t df))
+  | .call _ _ _ _ _ _ _ k, df => protectReuseFlags [] extSrc k df
+  | .group _ bs k, df => protectReuseFlagsB bs (protectReuseFlags [] extSrc k df)
+  | _, df => df
+
+def protectReuseFlagsB : TreeBlocks → Trie Bool → Trie Bool
+  | .nil, df => df
+  | .cons _ _ b bs, df => protectReuseFlagsB bs (protectReuseFlags [] .empty b df)
+end
+
 /-- Flag-web coloring to a fixpoint: a candidate left uncolored (e.g. an `.addc`/`.subb` carry-out
 whose `adcx`/`adox` variant another web targeted) is demoted to a non-candidate and the round
 is rerun, so no colored web relies on an unchosen variant. -/
@@ -613,7 +720,8 @@ def gatherFlags (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
     (lTrie : Trie (List Nat)) (t : Tree) : FlagHints I.Cond :=
   let isBool (x : Nat) : Bool := match tys.getD x i64 with | .bool => true | _ => false
   if !(List.range nv).any isBool then
-    { deadFlags := computeDeadFlags (C := I.Cond) .empty t .empty }
+    let df := computeDeadFlags (C := I.Cond) .empty t .empty
+    { deadFlags := protectReuseFlags [] .empty t df }
   else
     let s0 := scanDefs I r0 r1 v0 v1 conds isBool bparams t {}
     let bf0 := (List.range nv).foldl
@@ -632,8 +740,9 @@ def gatherFlags (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
         let newFail := cands.filter fun x => (st.flagHome.find? x).isNone
         if newFail.isEmpty then st else loop fuel (newFail.foldl (·.insert ·) failed)
     let st := loop (nv + 2) {}
+    let df := computeDeadFlags st.flagHome t .empty
     { flagHome := st.flagHome, variant := st.variant, clearAt := st.clearAt,
-      deadFlags := computeDeadFlags st.flagHome t .empty }
+      deadFlags := protectReuseFlags [] .empty t df }
 
 end SpillFlags
 end LeanQbe.T

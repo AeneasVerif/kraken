@@ -182,7 +182,7 @@ private theorem lowerOp_z32_finish {zl : Bool} {G : VCtx} {nv k : Nat} {m : Mem 
       · exact ⟨hA2.defs y d hy, hA2.defs_lt y d hy⟩
     · exact ⟨hA2.defs y d hy, hA2.defs_lt y d hy⟩
   have hdg : ∀ r ∈ [rd], isAllocGpr T.toIsa hints.saved r = true := by simpa using hrda
-  exact kont (rv, ()) s' hP ⟨hA2.ctx_lt, hA2.regs, hA2.slots,
+  exact kont (rv, ()) s' hP ⟨hA2.ctx_lt, hA2.ctx_uniq, hA2.regs, hA2.slots,
     fun y d hy => (hd1 y d hy).1, hA2.vw, hA2.regs_lt, hA2.slots_lt,
     fun y d hy => (hd1 y d hy).2, hA2.vw_lt, hA2.vt, hA2.zeroExt32_ok, hflOk, hflLt⟩
     hM (hI.keep hm (keep_of_frame (gs := [rd]) hfr.1 hdg))
@@ -406,8 +406,10 @@ private theorem trySlotOp_ok {G : VCtx} {nv k : Nat} {st : SymState T.toIsa} {s 
                   unfold cmpMemRes at hmap; split at hmap <;> simp only [Prod.mk.injEq] at hmap <;>
                     exact ⟨hmap.1, hmap.2.1⟩
                 rcases hcm_eq with ⟨rfl, rfl⟩
-                exact wrap rfl (cmpMemRes_with_flags hw hA.flags_ok hA.flags_lt hsx hsb_ok hsx_lt
-                  hsb_lt hmap hcm (fun r hr => (List.mem_append.mp hr).elim (hsp idx r) (hpg r))
+                have hsb_at := symValAt_of_toSymArg (T := T) hw hb hsb
+                exact wrap rfl (cmpMemRes_with_flags hw hA.flags_ok hA.flags_lt hsx hsb_ok hmx
+                  hsb_at hsx_lt hsb_lt hmap hcm
+                  (fun r hr => (List.mem_append.mp hr).elim (hsp idx r) (hpg r))
                   hdg1 (spAddr_load_bits hlt hI hstd hσ (hgpr _ _ hmx)) hpb)
           · cases b with
             | imm _ => simp at h2
@@ -439,9 +441,11 @@ private theorem trySlotOp_ok {G : VCtx} {nv k : Nat} {st : SymState T.toIsa} {s 
                   unfold cmpMemRes at hmap; split at hmap <;> simp only [Prod.mk.injEq] at hmap <;>
                     exact ⟨hmap.1, hmap.2.1⟩
                 rcases hcm_eq with ⟨rfl, rfl⟩
+                have hsa_at := symValAt_of_toSymArg (T := T) hw ha hsa
                 exact wrap (CmpOp.swap_evalBits co _ _)
-                  (cmpMemRes_with_flags hw hA.flags_ok hA.flags_lt hsy hsa_ok hsy_lt hsa_lt hmap
-                    hcm (fun r hr => (List.mem_append.mp hr).elim (hsp idx r) (hpg r)) hdg1
+                  (cmpMemRes_with_flags hw hA.flags_ok hA.flags_lt hsy hsa_ok hmy hsa_at hsy_lt
+                    hsa_lt hmap hcm
+                    (fun r hr => (List.mem_append.mp hr).elim (hsp idx r) (hpg r)) hdg1
                     (spAddr_load_bits hlt hI hstd hσ (hgpr _ _ hmy)) hpa)
       | _ => simp [trySlotOp] at h
     | _ => simp [trySlotOp] at h
@@ -532,7 +536,8 @@ private theorem gprOp_with_flags {G : VCtx} {nv k : Nat} {vh : VariantHint}
       FlagFactOk T (Tup.zip rvs (Tup.levels ts nv) ++ G) s' fl ∧
       FlagFactScope (nv + ts.length) fl := by
     intro rvs s' fl hfo hfl
-    exact ⟨hfo.tr (fun p hp => (zip_levels_mem hp).imp id (·.1)) hfl,
+    exact ⟨hfo.tr (fun _ hp => List.mem_append_right _ hp)
+      (fun p hp => (zip_levels_mem hp).imp id (·.1)) hfl,
       hfl.mono (Nat.le_add_right _ _)⟩
   have fallback : (cmpOpFlags? T.toIsa st code args pas dsts nv clob).1 =
         killFlags T.toIsa clob st.flags →
@@ -573,7 +578,8 @@ private theorem gprOp_with_flags {G : VCtx} {nv k : Nat} {vh : VariantHint}
               fun s' ⟨⟨rv, hP, hpd, _, hflCmp⟩, hm⟩ hfr => ?_
             have hfok : FlagFactOk T (Tup.zip (rv, ()) (Tup.levels [.bits w] nv) ++ G) s'
                 (some (.cmp w (.var nv) (.immBits w 0#64) eqNe)) := by
-              refine ⟨hw64, rv, 0#w, fun v hv => ?_, ⟨rfl, by simp⟩, hflCmp⟩
+              refine ⟨hw64, rv, 0#w, List.mem_cons_self .., fun v hv => ?_, ⟨rfl, by simp⟩,
+                ⟨rfl, by simp⟩, hflCmp⟩
               cases mem_cons_top hA.ctx_lt hv; rfl
             have hfsc : FlagFactScope (nv + [Ty.bits w].length)
                 (some (.cmp w (.var nv) (.immBits w 0#64) eqNe)) :=
@@ -689,11 +695,15 @@ private theorem gprOp_with_flags {G : VCtx} {nv k : Nat} {vh : VariantHint}
                     have hsb_ok := tryArg_bits_det hA hw hb hpick_b hsb
                     have hsa_lt := symArgScopeOk_of_argRel hA.ctx_lt ha hsa
                     have hsb_lt := symArgScopeOk_of_argRel hA.ctx_lt hb hsb
+                    have hsa_at := symValAt_of_toSymArg (T := T) hw ha hsa
+                    have hsb_at := symValAt_of_toSymArg (T := T) hw hb hsb
                     have hflG : FlagFactOk T G s'
                         (some (.cmp w (if lf then sa else sb) (if lf then sb else sa) false)) := by
                       refine ⟨hw, if lf then a₁.val else b₁.val, if lf then b₁.val else a₁.val,
-                        ?_, ?_, hflCmp⟩
+                        ?_, ?_, ?_, ?_, hflCmp⟩
+                      · cases lf <;> simp [hsa_at, hsb_at]
                       · cases lf <;> simp [hsa_ok, hsb_ok]
+                      · cases lf <;> simp [hsa_at, hsb_at]
                       · cases lf <;> simp [hsa_ok, hsb_ok]
                     have hflSc : FlagFactScope nv
                         (some (.cmp w (if lf then sa else sb) (if lf then sb else sa) false)) := by
@@ -756,7 +766,8 @@ theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
     refine kont (rv, ()) s hP ?_ (hMgrow (rv, ())) hI
     simpa only [Tup.zip, Tup.levels, List.cons_append, List.nil_append,
       List.length_cons, List.length_nil] using
-      ({ ctx_lt := hA1.ctx_lt, regs := hA1.regs, slots := hA1.slots, vw := hA1.vw,
+      ({ ctx_lt := hA1.ctx_lt, ctx_uniq := hA1.ctx_uniq, regs := hA1.regs, slots := hA1.slots,
+         vw := hA1.vw,
          regs_lt := hA1.regs_lt, slots_lt := hA1.slots_lt, vw_lt := hA1.vw_lt,
          vt := hA1.vt, zeroExt32_ok := hA1.zeroExt32_ok,
          flags_ok := hA1.flags_ok, flags_lt := hA1.flags_lt,
@@ -977,7 +988,8 @@ theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
       (fun p hp => (zip_levels_mem hp).imp id (·.1))
       (fun p hp => (zip_levels_mem hp).elim (fun h => Nat.lt_of_lt_of_le (hA.ctx_lt p h)
         (Nat.le_add_right _ _)) (·.2))
-      (fun p hp => List.mem_append_right _ hp) hb2
+      (fun p hp => List.mem_append_right _ hp)
+      (ctx_uniq_zip hA.ctx_lt hA.ctx_uniq ts rvs nv (Nat.le_refl _)) hb2
       (fun x w hx hle => (hb3 x w hx hle).resolve_left (by simp [hnone x hle]))
       (fun p hp hle hn => hb4 p.1 p.2.1 p.2.2 hp hle hn)
     have hr1 := fun p hp => (hb1 p hp).elim (fun hp => ⟨hA1.regs p hp, hA1.regs_lt p hp⟩) id
@@ -989,7 +1001,7 @@ theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
         · cases hx; subst_vars; exact ⟨(hdef _ ‹_›).2, Nat.lt_add_of_pos_right (hdef _ ‹_›).1⟩
         · exact ⟨hA1.defs x d hx, hA1.defs_lt x d hx⟩
       · exact ⟨hA1.defs x d hx, hA1.defs_lt x d hx⟩
-    refine kont rvs s' hP ⟨hA1.ctx_lt, ?_, hA1.slots,
+    refine kont rvs s' hP ⟨hA1.ctx_lt, hA1.ctx_uniq, ?_, hA1.slots,
       fun x d hx => (hd1 x d hx).1, hA1.vw, ?_,
       hA1.slots_lt, fun x d hx => (hd1 x d hx).2, hA1.vw_lt, hA1.vt, hA1.zeroExt32_ok,
       hflOk, hflLt⟩ (hMgrow rvs) (hI.keep hm (keep_of_frame hfr.1 hdg))
@@ -1051,7 +1063,8 @@ theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
       FlagFactOk T G s' fl → FlagFactScope nv fl →
       FlagFactOk T (G' rvs) s' fl ∧ FlagFactScope (nv + ts.length) fl := by
     intro rvs s' fl hfo hfl
-    exact ⟨hfo.tr (fun p hp => (zip_levels_mem hp).imp id (·.1)) hfl,
+    exact ⟨hfo.tr (fun _ hp => List.mem_append_right _ hp)
+      (fun p hp => (zip_levels_mem hp).imp id (·.1)) hfl,
       hfl.mono (Nat.le_add_right _ _)⟩
   rcases orElse_eq_some hpick with hreuse | hpick
   · obtain ⟨⟨c'', cl, fl, ex⟩, hr, he⟩ := Option.map_eq_some_iff.mp hreuse
@@ -1171,7 +1184,8 @@ theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
                       hzfn rd rfl rfl hzop
                     have hfok : FlagFactOk T (G' (rv, ())) s'
                         (some (.cmp 32 (.var nv) (.immBits 32 0#64) eqNe)) := by
-                      refine ⟨by decide, rv, 0#32, fun v hv => ?_, ⟨rfl, by simp⟩, hflCmp⟩
+                      refine ⟨by decide, rv, 0#32, List.mem_cons_self .., fun v hv => ?_,
+                        ⟨rfl, by simp⟩, ⟨rfl, by simp⟩, hflCmp⟩
                       cases mem_cons_top hA.ctx_lt hv; rfl
                     have hfsc : FlagFactScope (nv + 1)
                         (some (.cmp 32 (.var nv) (.immBits 32 0#64) eqNe)) :=
@@ -1879,9 +1893,9 @@ private theorem tryReuseFlagCmp_clean {st : SymState I} {sig ts : List Ty}
     cases ty <;> cases mty <;> try (simp [tryReuseFlagCmp, hstf] at h; done)
     rcases args with ⟨a, b, ⟨⟩⟩; rcases dsts with ⟨pd, ⟨⟩⟩
     simp only [tryReuseFlagCmp, hstf] at h
-    split at h; · simp at h
     obtain ⟨⟨_, _, _⟩, _, h⟩ := Option.bind_eq_some_iff.mp h
     obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
+    split at h; · simp at h
     obtain ⟨_, _, h⟩ := Option.bind_eq_some_iff.mp h
     cases pd with
     | vec _ => simp at h

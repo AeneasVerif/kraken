@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.RegaLemmas1
+public import LeanQbe.T.RegaLemmasCmpReuse
 public import LeanQbe.T.RegaLemmas2
 public import LeanQbe.T.WPLemmas
 
@@ -341,7 +342,7 @@ theorem Agree.push {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MDa
     · cases hm; exact ⟨rfl, rfl⟩
     · exact absurd (hA.ctx_lt _ hm) (Nat.not_lt.mpr hx)
   refine hA.extend (Nat.le_succ nv) (fun p hp => ?_) (fun p hp => ?_) (fun _ hp =>
-    List.mem_cons_of_mem _ hp)
+    List.mem_cons_of_mem _ hp) (ctx_uniq_cons hA.ctx_lt hA.ctx_uniq)
     hvw0 (fun x w hx hle => ?_) (fun p hp hle hn => ?_)
   · rcases List.mem_cons.mp hp with rfl | hp
     · exact Or.inr (Nat.le_refl _)
@@ -1109,6 +1110,7 @@ theorem cmpMemRes_with_flags {G : VCtx} {nv k w : Nat} (hw : w ≤ 64)
     {pb : PArg T.Reg T.VReg T.Cond (.bits w)} {va vb : BitVec w} {s : T.mach.MData}
     (hA_fl : FlagFactOk T G s st.flags) (hA_flt : FlagFactScope nv st.flags)
     (hlhs : SymBits G w va lhs) (hrhs : SymBits G w vb rhs)
+    (hlhsAt : SymValAt G w va lhs) (hrhsAt : SymValAt G w vb rhs)
     (hsl : symArgScopeOk nv lhs = true) (hsr : symArgScopeOk nv rhs = true)
     (hres : cmpMemRes T.toIsa st co w lhs rhs pd c clob = (c, clob, flPost, ex))
     (hcm : T.gpr.cmpMem co w a pb pd = some (c, clob))
@@ -1134,9 +1136,11 @@ theorem cmpMemRes_with_flags {G : VCtx} {nv k w : Nat} (hw : w ≤ 64)
     rcases hres with ⟨-, -, rfl, rfl⟩
     refine (T.gprSpec.cmpMem_flags_spec hcmo hcm hreg hdg hlm hpb).conseq
       fun s' ⟨hd, hfl, hm⟩ _ => ?_
-    refine ⟨hd, ⟨hw, if lf then va else vb, if lf then vb else va, ?_, ?_, hfl⟩,
+    refine ⟨hd, ⟨hw, if lf then va else vb, if lf then vb else va, ?_, ?_, ?_, ?_, hfl⟩,
       ⟨?_, ?_⟩, fun cc hcc => ?_, hm⟩
+    · cases lf <;> simp [hlhsAt, hrhsAt]
     · cases lf <;> simp [hlhs, hrhs]
+    · cases lf <;> simp [hlhsAt, hrhsAt]
     · cases lf <;> simp [hlhs, hrhs]
     · cases lf <;> simp [hsl, hsr]
     · cases lf <;> simp [hsl, hsr]
@@ -1317,8 +1321,8 @@ private theorem tryExtCmp_ok {zl : Bool} {G : VCtx} {nv w t k : Nat} {vh : Varia
             have hlm : loadVal (T.mach.mem s) (.bits m') (aa.eval (T.mach.getGpr s)) = some va := by
               rw [haev]; exact loadVal_frame hI.2.2.2.1 hlv
             rw [hev]
-            exact cmpMemRes_with_flags hmw64 hA.flags_ok hA.flags_lt hsx himmOk hvarLt himmLt
-              hex hcm (by simpa [PArg.gprs] using hreg) hdg hlm rfl
+            exact cmpMemRes_with_flags hmw64 hA.flags_ok hA.flags_lt hsx himmOk hmx himmOk
+              hvarLt himmLt hex hcm (by simpa [PArg.gprs] using hreg) hdg hlm rfl
           · simp at h1
         | _ => simp [hmd] at h1
     · split at h2
@@ -1347,10 +1351,17 @@ private theorem tryExtCmp_ok {zl : Bool} {G : VCtx} {nv w t k : Nat} {vh : Varia
           refine (T.gprSpec.op_cmpFlags_spec hcmo hop (by simpa [PArg.gprs] using hrx) hdg
             (hgx _ _ hmx) rfl).conseq fun s' ⟨hd, hfl, hm⟩ _ => ?_
           refine ⟨hd, ⟨hmw64, if lf then va else ci.truncate mw,
-            if lf then ci.truncate mw else va, ?_, ?_, hfl⟩, ⟨?_, ?_⟩, fun cc hcc => ?_, hm⟩
+            if lf then ci.truncate mw else va, ?_, ?_, ?_, ?_, hfl⟩, ⟨?_, ?_⟩,
+            fun cc hcc => ?_, hm⟩
+          · cases lf <;> simp only [↓reduceIte, Bool.false_eq_true]
+            · exact himmOk
+            · exact hmx
           · cases lf <;> simp only [↓reduceIte, Bool.false_eq_true]
             · exact himmOk
             · exact fun v hv => by rw [← (hgx (.bits mw) v hv).2, (hgx (.bits mw) _ hmx).2]
+          · cases lf <;> simp only [↓reduceIte, Bool.false_eq_true]
+            · exact hmx
+            · exact himmOk
           · cases lf <;> simp only [↓reduceIte, Bool.false_eq_true]
             · exact fun v hv => by rw [← (hgx (.bits mw) v hv).2, (hgx (.bits mw) _ hmx).2]
             · exact himmOk
@@ -1451,8 +1462,9 @@ private theorem tryCmpMemVar_with_flags {zl : Bool} {G : VCtx} {nv w x k : Nat} 
             unfold cmpMemRes at hmap; split at hmap <;> simp only [Prod.mk.injEq] at hmap <;>
               exact ⟨hmap.1, hmap.2.1⟩
           rcases hcm_eq with ⟨rfl, rfl⟩
-          exact cmpMemRes_with_flags hw hA.flags_ok hA.flags_lt hsx hsb_ok hsx_lt hsb_lt hmap hk2
-            (fun r hr => (List.mem_append.mp hr).elim (hreg r) (hpb r)) hdg hlm hphp
+          have hsb_at := symValAt_of_toSymArg (T := T) hw hrel hsb
+          exact cmpMemRes_with_flags hw hA.flags_ok hA.flags_lt hsx hsb_ok hmx hsb_at hsx_lt
+            hsb_lt hmap hk2 (fun r hr => (List.mem_append.mp hr).elim (hreg r) (hpb r)) hdg hlm hphp
       · simp at hcmv
     | _ => simp [hmd] at hcmv
 
@@ -1654,79 +1666,6 @@ theorem tryLoadSext_ok {zl : Bool} {G : VCtx} {nv k : Nat} {vh : VariantHint}
                   simpa [tupDstGprs] using hfr
           · simp at h
         | _ => simp [hmd] at h
-
-private theorem normZeroCmp_evalBits {n : Nat} (o : CmpOp) (a : BitVec n) :
-    (normZeroCmp o).evalBits a 0#n = o.evalBits a 0#n := by
-  cases o
-  all_goals first
-    | rfl
-    | (simp only [normZeroCmp, CmpOp.evalBits, BitVec.ult, BitVec.ule, BitVec.toNat_zero]
-       by_cases h : a = 0#n
-       · subst h; simp
-       · have hpos : 0 < a.toNat :=
-           Nat.pos_of_ne_zero fun hz => h (BitVec.eq_of_toNat_eq (by simpa using hz))
-         have hne : a.toNat ≠ 0 := Nat.ne_of_gt hpos
-         simp [h, hpos, hne])
-
-private theorem normCmpZero1_evalBits {n : Nat} (o : CmpOp) (a c : BitVec n) :
-    (normCmpZero1 o c).1.evalBits a (normCmpZero1 o c).2 = o.evalBits a c := by
-  unfold normCmpZero1
-  by_cases hc0 : c = 0#n
-  · subst hc0; simp [normZeroCmp_evalBits]
-  · have hc0b : (c == 0#n) = false := beq_eq_false_iff_ne.mpr hc0
-    simp only [hc0b, Bool.false_eq_true, ite_false]
-    by_cases hcond : c = 1#n ∧ 1 ≤ n
-    · obtain ⟨rfl, hn1⟩ := hcond
-      have htb : (1#n == 1#n && Nat.ble 1 n) = true := by simp [Nat.ble_eq, hn1]
-      simp only [htb, ite_true]
-      have hpow1 : (2 : Nat) ≤ 2 ^ n := Nat.le_self_pow (by omega) 2
-      have h1toNat : (1#n).toNat = 1 := by simp [Nat.mod_eq_of_lt (by omega : 1 < 2 ^ n)]
-      cases o with
-      | ult =>
-        simp only [CmpOp.evalBits, BitVec.ult, h1toNat]
-        by_cases ha0 : a = 0#n <;> simp [ha0]
-        have : a.toNat ≠ 0 := fun h => ha0 (BitVec.eq_of_toNat_eq (by simpa using h))
-        omega
-      | uge =>
-        simp only [CmpOp.evalBits, BitVec.ule, h1toNat]
-        by_cases ha0 : a = 0#n <;> simp [ha0]
-        have : a.toNat ≠ 0 := fun h => ha0 (BitVec.eq_of_toNat_eq (by simpa using h))
-        omega
-      | sge =>
-        dsimp only; split
-        · rename_i hn2
-          have hn2' : 2 ≤ n := by simpa [Nat.ble_eq] using hn2
-          have hpow2 : 2 ^ 2 ≤ 2 ^ n := Nat.pow_le_pow_right (by decide) hn2'
-          have hpow2' : (4 : Nat) ≤ 2 ^ n := hpow2
-          have h1s : (1#n).toInt = 1 := by
-            rw [BitVec.toInt_eq_toNat_cond, h1toNat]
-            simp [show 2 * 1 < 2 ^ n by omega]
-          simp only [CmpOp.evalBits, BitVec.slt, BitVec.sle, h1s, BitVec.toInt_zero]
-          by_cases ha0 : (0 : Int) < a.toInt
-          · simp [ha0, show (1 : Int) ≤ a.toInt by omega]
-          · have hnot1 : ¬ ((1 : Int) ≤ a.toInt) := by omega
-            simp [ha0, hnot1]
-        · rfl
-      | slt =>
-        dsimp only; split
-        · rename_i hn2
-          have hn2' : 2 ≤ n := by simpa [Nat.ble_eq] using hn2
-          have hpow2 : 2 ^ 2 ≤ 2 ^ n := Nat.pow_le_pow_right (by decide) hn2'
-          have hpow2' : (4 : Nat) ≤ 2 ^ n := hpow2
-          have h1s : (1#n).toInt = 1 := by
-            rw [BitVec.toInt_eq_toNat_cond, h1toNat]
-            simp [show 2 * 1 < 2 ^ n by omega]
-          simp only [CmpOp.evalBits, BitVec.slt, BitVec.sle, h1s, BitVec.toInt_zero]
-          by_cases ha0 : a.toInt ≤ 0
-          · have hlt1 : a.toInt < 1 := by omega
-            simp [ha0, hlt1]
-          · have hnlt1 : ¬ (a.toInt < 1) := by omega
-            simp [ha0, hnlt1]
-        · rfl
-      | _ => rfl
-    · have hfb : (c == 1#n && Nat.ble 1 n) = false := by
-        cases h1 : (c == 1#n) <;> cases h2 : Nat.ble 1 n <;> simp_all [Nat.ble_eq]
-      simp only [hfb, Bool.false_eq_true, ite_false]
 
 private theorem normCmpOp_cmp (I : Isa) (co : CmpOp) (n : Nat) (hpf : Ty.bool = (Ty.bits n).mask)
     (a b : Arg VNat (Ty.bits n)) (pd : PDst I.Reg I.VReg I.Cond Ty.bool) :
@@ -2112,105 +2051,6 @@ theorem tryLeaArith_ok {zl : Bool} {G : VCtx} {nv k : Nat} {st : SymState T.toIs
               · exfalso; apply h64; simp_all
               · simp at hzext
 
-private def SymValAt (G : VCtx) (w : Nat) (bv : BitVec w) : SymArg → Prop
-  | .var x => ⟨.bits w, bv, x⟩ ∈ G
-  | .immBits w' c => w' = w ∧ c.setWidth w = bv
-  | _ => False
-
-private theorem symValAt_eq_symBits {G : VCtx} {w : Nat} {v1 v2 : BitVec w} {sa : SymArg}
-    (h1 : SymValAt G w v1 sa) (h2 : SymBits G w v2 sa) : v1 = v2 := by
-  cases sa with
-  | var x => exact h2 v1 h1
-  | immBits w' c => rcases h1 with ⟨rfl, rfl⟩; exact h2.2
-  | _ => cases h1
-
-private theorem reuseCmpPair_ok {G : VCtx} {w n : Nat} (hw : w ≤ 64) {defs : Trie DefFact}
-    (hdefs : ∀ x d, defs.find? x = some d → DefOk G x d)
-    {co : CmpOp} {a₁ b₁ : Arg Val (.bits n)} {a b : Arg VNat (.bits n)}
-    (ha : ArgRel G (.bits n) a₁ a) (hb : ArgRel G (.bits n) b₁ b)
-    {coBase : CmpOp} {sa sb : SymArg}
-    (h : reuseCmpPair? T.toIsa defs w n co a b = some (coBase, sa, sb)) :
-    (coBase = co ∨ coBase = co.swap) ∧
-    ∃ va vb : BitVec w, SymValAt G w va sa ∧ SymValAt G w vb sb ∧
-      co.evalBits a₁.val b₁.val = coBase.evalBits va vb := by
-  unfold reuseCmpPair? at h
-  split at h
-  · rename_i hwn
-    obtain rfl : w = n := Nat.beq_eq.mp hwn
-    obtain ⟨sa', hsa, hb'⟩ := Option.bind_eq_some_iff.mp h
-    obtain ⟨sb', hsb, hp⟩ := Option.map_eq_some_iff.mp hb'
-    simp only [Prod.mk.injEq] at hp; rcases hp with ⟨rfl, rfl, rfl⟩
-    have sym_of : ∀ {x₁ : Arg Val (.bits w)} {x : Arg VNat (.bits w)} {sx : SymArg},
-        ArgRel G (.bits w) x₁ x → toSymArg T.toIsa (.bits w) x = some sx →
-        SymValAt G w x₁.val sx := by
-      intro x₁ x sx hrel hsx
-      cases hrel with
-      | imm =>
-        simp only [toSymArg] at hsx; split at hsx
-        · simp only [Option.some.injEq] at hsx; subst hsx; exact symBits_imm64 (G := G) hw _
-        · simp at hsx
-      | var hm => simp only [toSymArg, Option.some.injEq] at hsx; subst hsx; exact hm
-    exact ⟨Or.inl rfl, a₁.val, b₁.val, sym_of ha hsa, sym_of hb hsb, rfl⟩
-  · split at h
-    · rename_i hlt
-      simp only [Bool.and_eq_true, Nat.blt_eq] at hlt
-      obtain ⟨hw0, hwn⟩ := hlt
-      have ext_ok : ∀ {co' : CmpOp} {t : Nat} {ci : BitVec n} {vt : BitVec n}
-          (hmt : ⟨.bits n, vt, t⟩ ∈ G),
-          (match defs.find? t with
-           | some (.sextVar m n' x) =>
-             if Nat.beq m w && Nat.beq n' n && cmpIsSignedOrEq co' &&
-                (ci.truncate w).signExtend n == ci then some x else none
-           | some (.zextVar m n' x) =>
-             if Nat.beq m w && Nat.beq n' n && cmpIsUnsignedOrEq co' &&
-                (ci.truncate w).zeroExtend n == ci then some x else none
-           | _ => none).map (fun x => (co', .var x, .immBits w ((ci.truncate w).setWidth 64))) =
-            some (coBase, sa, sb) →
-          coBase = co' ∧ ∃ va vb : BitVec w, SymValAt G w va sa ∧ SymValAt G w vb sb ∧
-            co'.evalBits vt ci = coBase.evalBits va vb := by
-        intro co' t ci vt hmt hx
-        obtain ⟨x, hok, hp⟩ := Option.map_eq_some_iff.mp hx
-        simp only [Prod.mk.injEq] at hp; rcases hp with ⟨rfl, rfl, rfl⟩
-        cases hdef : defs.find? t with
-        | none => simp [hdef] at hok
-        | some df =>
-          cases df with
-          | sextVar mw nw x' =>
-            simp only [hdef] at hok; split at hok
-            · rename_i hgd; simp only [Option.some.injEq] at hok; subst hok
-              simp only [Bool.and_eq_true, Nat.beq_eq, beq_iff_eq] at hgd
-              obtain ⟨⟨⟨rfl, rfl⟩, hco⟩, hci⟩ := hgd
-              obtain ⟨va, hmx, rfl⟩ := (hdefs t _ hdef).2.2.2 vt hmt
-              exact ⟨rfl, va, ci.truncate mw, hmx, symBits_imm64 (G := G) hw _,
-                cmpOp_evalBits_signExtend hw0 hwn hco va ci hci⟩
-            · simp at hok
-          | zextVar mw nw x' =>
-            simp only [hdef] at hok; split at hok
-            · rename_i hgd; simp only [Option.some.injEq] at hok; subst hok
-              simp only [Bool.and_eq_true, Nat.beq_eq, beq_iff_eq] at hgd
-              obtain ⟨⟨⟨rfl, rfl⟩, hco⟩, hci⟩ := hgd
-              obtain ⟨va, hmx, rfl⟩ := (hdefs t _ hdef).2.2.2 vt hmt
-              exact ⟨rfl, va, ci.truncate mw, hmx, symBits_imm64 (G := G) hw _,
-                cmpOp_evalBits_zeroExtend hwn hco va ci hci⟩
-            · simp at hok
-          | _ => simp [hdef] at hok
-      cases a with
-      | var t =>
-        cases b with
-        | imm ci =>
-          cases ha with | var hmt => cases hb with | imm =>
-          obtain ⟨hco, rest⟩ := ext_ok hmt h
-          exact ⟨Or.inl hco, rest⟩
-        | var _ => simp at h
-      | imm ci =>
-        cases b with
-        | var t =>
-          cases ha with | imm => cases hb with | var hmt =>
-          obtain ⟨hco, va, vb, hsa, hsb, hev⟩ := ext_ok hmt h
-          exact ⟨Or.inr hco, va, vb, hsa, hsb, (CmpOp.swap_evalBits co _ _).symm.trans hev⟩
-        | imm _ => simp at h
-    · simp at h
-
 theorem tryReuseFlagCmp_ok {G : VCtx} {nv k : Nat}
     {st : SymState T.toIsa} {s : T.mach.MData} {σ : List (BitVec 64)}
     {sig ts : List Ty} {code : OpCode sig ts} {args₁ : Tup (Arg Val) sig}
@@ -2244,21 +2084,18 @@ theorem tryReuseFlagCmp_ok {G : VCtx} {nv k : Nat}
             have hP : P (co.evalBits a₁.val b₁.val, ()) := by
               simpa [OpCode.wp_cmp, vals, liftCmp] using hwp
             unfold tryReuseFlagCmp at h; rw [hfl] at h; dsimp only at h
-            split at h; · simp at h
-            rename_i hgd
-            have heqNe : (!eqNe || co == .eq || co == .ne) = true := by
-              cases eqNe <;> cases co <;> simp_all
             obtain ⟨⟨coBase, sa, sb⟩, hpair, h⟩ := Option.bind_eq_some_iff.mp h
             obtain ⟨coUsed, hcoU, hbind⟩ := Option.bind_eq_some_iff.mp h
+            split at hbind; · simp at hbind
+            rename_i hgd
+            have heqNe : (!eqNe || coUsed == .eq || coUsed == .ne) = true := by
+              cases eqNe <;> cases coUsed <;> simp_all
             obtain ⟨cc, hcc, hpd⟩ := Option.bind_eq_some_iff.mp hbind
             have hflOk := hA.flags_ok; have hflLt := hA.flags_lt
             rw [hfl] at hflOk hflLt
-            obtain ⟨hw, va, vb, hlhs, hrhs, hcmp⟩ := hflOk
-            obtain ⟨hcoBase, va', vb', hsa, hsb, hbase⟩ := reuseCmpPair_ok hw hA.defs ha hb hpair
-            have hcoBaseNe : (!eqNe || coBase == .eq || coBase == .ne) = true := by
-              rcases hcoBase with rfl | rfl
-              · exact heqNe
-              · cases eqNe <;> cases co <;> simp_all [CmpOp.swap]
+            obtain ⟨hw, va, vb, hlhsAt, hlhs, hrhsAt, hrhs, hcmp⟩ := hflOk
+            obtain ⟨va', vb', hsa, hsb, hbase⟩ :=
+              reuseCmpPair_ok hw hA.defs hA.ctx_uniq hlhsAt hrhsAt ha hb hpair
             have heval : T.mach.evalCond s cc = co.evalBits a₁.val b₁.val := by
               rw [hbase]
               split at hcoU
@@ -2266,16 +2103,14 @@ theorem tryReuseFlagCmp_ok {G : VCtx} {nv k : Nat}
                 simp only [Bool.and_eq_true, symArgEq_iff] at hc
                 obtain ⟨rfl, rfl⟩ := hc
                 simp only [Option.some.injEq] at hcoU; subst hcoU
-                rw [hcmp coBase cc hcoBaseNe hcc,
+                rw [hcmp coBase cc heqNe hcc,
                   symValAt_eq_symBits hsa hlhs, symValAt_eq_symBits hsb hrhs]
               · split at hcoU
                 · next hc =>
                   simp only [Bool.and_eq_true, symArgEq_iff] at hc
                   obtain ⟨rfl, rfl⟩ := hc
                   simp only [Option.some.injEq] at hcoU; subst hcoU
-                  have hcoSwapNe : (!eqNe || coBase.swap == .eq || coBase.swap == .ne) = true := by
-                    cases eqNe <;> cases coBase <;> simp_all [CmpOp.swap]
-                  rw [hcmp coBase.swap cc hcoSwapNe hcc, CmpOp.swap_evalBits,
+                  rw [hcmp coBase.swap cc heqNe hcc, CmpOp.swap_evalBits,
                     symValAt_eq_symBits hsa hrhs, symValAt_eq_symBits hsb hlhs]
                 · simp at hcoU
             cases pd with
@@ -2291,7 +2126,7 @@ theorem tryReuseFlagCmp_ok {G : VCtx} {nv k : Nat}
                   .cons heval .nil, (fun _ hh => nomatch hh)⟩,
                   ?_, hflLt, rfl⟩
                   ⟨(fun _ _ => rfl), (fun _ _ => rfl), (fun _ _ => rfl)⟩
-                exact ⟨hw, va, vb, hlhs, hrhs, hcmp⟩
+                exact ⟨hw, va, vb, hlhsAt, hlhs, hrhsAt, hrhs, hcmp⟩
               · simp at hpd
             | gpr rd =>
               obtain ⟨⟨c0, cl0⟩, hop, hmap⟩ := Option.map_eq_some_iff.mp hpd

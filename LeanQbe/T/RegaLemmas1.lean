@@ -95,7 +95,9 @@ def SymBits (G : VCtx) (w : Nat) (bv : BitVec w) : SymArg → Prop
 def FlagFactOk (T : Target) (G : VCtx) (s : T.mach.MData) : Option FlagFact → Prop
   | none => True
   | some (.cmp w lhs rhs eqNe) =>
-    w ≤ 64 ∧ ∃ va vb : BitVec w, SymBits G w va lhs ∧ SymBits G w vb rhs ∧
+    w ≤ 64 ∧ ∃ va vb : BitVec w,
+      SymValAt G w va lhs ∧ SymBits G w va lhs ∧
+      SymValAt G w vb rhs ∧ SymBits G w vb rhs ∧
       FlagCmpOk T.mach T.gpr s va vb eqNe
 
 def FlagFactScope (nv : Nat) : Option FlagFact → Prop
@@ -245,6 +247,7 @@ theorem MemDefsOk.insert {G : VCtx} {m : Mem 64} {nv : Nat} {md : Trie (Ty × Ar
 structure Agree (T : Target) (G : VCtx) (nv : Nat) (st : SymState T.toIsa) (s : T.mach.MData)
     (σ : List (BitVec 64)) : Prop where
   ctx_lt : ∀ p ∈ G, p.2.2 < nv
+  ctx_uniq : ∀ {t : Ty} {x : Nat} {v₁ v₂ : Val t}, ⟨t, v₁, x⟩ ∈ G → ⟨t, v₂, x⟩ ∈ G → v₁ = v₂
   regs : ∀ p ∈ st.regs, RegLocOk T.mach G s p.1 p.2
   slots : ∀ i se, st.slots.find? i = some se → SlotOk G σ i se
   defs : ∀ x d, st.defs.find? x = some d → DefOk G x d
@@ -626,8 +629,8 @@ theorem FlagFactOk.frame {gClob : List T.Reg} {vClob : List T.VReg} {fClob : Fla
   | some f =>
     cases f with
     | cmp w lhs rhs eqNe =>
-      obtain ⟨hw, va, vb, ha, hb, hcmp⟩ := h
-      refine ⟨hw, va, vb, ha, hb, fun co cc hco hcc => ?_⟩
+      obtain ⟨hw, va, vb, hva, ha, hvb, hb, hcmp⟩ := h
+      refine ⟨hw, va, vb, hva, ha, hvb, hb, fun co cc hco hcc => ?_⟩
       subst hf
       rw [hfr.2.2 cc (by simp [FlagMask.disjoint, FlagMask.none])]
       exact hcmp co cc hco hcc
@@ -644,8 +647,8 @@ theorem FlagFactOk.kill {gClob : List T.Reg} {vClob : List T.VReg} {fClob : Flag
       simp only [killFlags]
       split
       · rename_i hk
-        obtain ⟨hw, va, vb, ha, hb, hcmp⟩ := h
-        refine ⟨hw, va, vb, ha, hb, fun co cc hco hcc => ?_⟩
+        obtain ⟨hw, va, vb, hva, ha, hvb, hb, hcmp⟩ := h
+        refine ⟨hw, va, vb, hva, ha, hvb, hb, fun co cc hco hcc => ?_⟩
         unfold keepFlagCmp at hk
         have hmem : co ∈ (if eqNe then [.eq, .ne]
             else [.eq, .ne, .ult, .ule, .ugt, .uge, .slt, .sle, .sgt, .sge]) := by
@@ -667,16 +670,16 @@ theorem FlagFactScope.mono {nv nv' : Nat} (hle : nv ≤ nv') {fl : Option FlagFa
   | some f => cases f; exact ⟨symArgScopeOk_mono hle h.1, symArgScopeOk_mono hle h.2⟩
 
 theorem FlagFactOk.tr {G G' : VCtx} {nv : Nat} {s : T.mach.MData} {fl : Option FlagFact}
-    (hG : ∀ p ∈ G', p ∈ G ∨ nv ≤ p.2.2) (hsc : FlagFactScope nv fl)
+    (hsub : ∀ p ∈ G, p ∈ G') (hG : ∀ p ∈ G', p ∈ G ∨ nv ≤ p.2.2) (hsc : FlagFactScope nv fl)
     (h : FlagFactOk T G s fl) : FlagFactOk T G' s fl := by
   cases fl with
   | none => trivial
   | some f =>
     cases f with
     | cmp w lhs rhs eqNe =>
-      obtain ⟨hw, va, vb, ha, hb, hcmp⟩ := h
-      exact ⟨hw, va, vb, SymBits.tr (mem_grow hG hsc.1) ha,
-        SymBits.tr (mem_grow hG hsc.2) hb, hcmp⟩
+      obtain ⟨hw, va, vb, hva, ha, hvb, hb, hcmp⟩ := h
+      exact ⟨hw, va, vb, hva.mono hsub, SymBits.tr (mem_grow hG hsc.1) ha,
+        hvb.mono hsub, SymBits.tr (mem_grow hG hsc.2) hb, hcmp⟩
 
 theorem FlagFactScope.kill {I : Isa} {nv : Nat} {fClob : FlagMask} {fl : Option FlagFact}
     (h : FlagFactScope nv fl) : FlagFactScope nv (killFlags I fClob fl) := by
@@ -884,12 +887,14 @@ trie may simultaneously gain entries for those new binders. -/
 theorem Agree.extend {G G' : VCtx} {nv nv' : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
     {σ : List (BitVec 64)} (hA : Agree T G nv st s σ) (hle : nv ≤ nv')
     (hG : ∀ p ∈ G', p ∈ G ∨ nv ≤ p.2.2) (hG' : ∀ p ∈ G', p.2.2 < nv') (hsub : ∀ p ∈ G, p ∈ G')
+    (huniq : ∀ {t : Ty} {x : Nat} {v₁ v₂ : Val t}, ⟨t, v₁, x⟩ ∈ G' → ⟨t, v₂, x⟩ ∈ G' → v₁ = v₂)
     {vw' : Trie SlotWidth} (hvw0 : ∀ x < nv, vw'.find? x = st.vecWidths.find? x)
     (hvw : ∀ x w, vw'.find? x = some w → nv ≤ x →
       x < nv' ∧ ∀ t v, ⟨t, v, x⟩ ∈ G' → t.size ≤ w.bits ∧ ∃ a b, t = .pair a b)
     (hty : ∀ p ∈ G', nv ≤ p.2.2 → vw'.find? p.2.2 = none → ∀ a b, p.1 ≠ .pair a b) :
     Agree T G' nv' { st with vecWidths := vw' } s σ where
   ctx_lt := hG'
+  ctx_uniq := huniq
   regs p hp := RegLocOk.tr (mem_grow hG (hA.regs_lt p hp)) (hA.regs p hp)
   slots i se h := SlotOk.tr (fun sa hsa => mem_grow hG (hA.slots_lt i se h sa hsa)) (hA.slots i se h)
   defs x d h := DefOk.grow hG hsub (hA.defs_lt x d h) (hA.defs x d h)
@@ -911,7 +916,7 @@ theorem Agree.extend {G G' : VCtx} {nv nv' : Nat} {st : SymState T.toIsa} {s : T
     · have hx : x < nv := hA.ctx_lt _ h; rw [hvw0 x hx] at hn; exact hA.vt x t v h hn
     · exact hty _ hm h hn
   zeroExt32_ok := hA.zeroExt32_ok
-  flags_ok := hA.flags_ok.tr hG hA.flags_lt
+  flags_ok := hA.flags_ok.tr hsub hG hA.flags_lt
   flags_lt := hA.flags_lt.mono hle
 
 /-- `Inv` survives register writes outside `allocatable ∪ saved ∪ arg ∪ ret ∪ scratch`. -/
@@ -1542,7 +1547,8 @@ theorem Agree.bindVar (hA : Agree T G nv st s σ) {t : Ty} (x : Val t) {vw' : Tr
     (hvtn : vw'.find? nv = none → ∀ a b, t ≠ .pair a b) : Agree T (⟨t, x, nv⟩ :: G) (nv + 1) { st with vecWidths := vw' } s σ
     := by
   have hlt := hA.ctx_lt
-  refine hA.extend (Nat.le_succ nv) (fun p hp => ?_) (fun p hp => ?_) (fun p hp => List.mem_cons_of_mem _ hp)
+  refine hA.extend (Nat.le_succ nv) (fun p hp => ?_) (fun p hp => ?_)
+    (fun p hp => List.mem_cons_of_mem _ hp) (ctx_uniq_cons hlt hA.ctx_uniq)
     hvw0 (fun y w hy hle => ?_) (fun p hp hle hn => ?_)
   · exact (List.mem_cons.mp hp).imp (fun e => e ▸ Nat.le_refl _) id |>.symm
   · exact (List.mem_cons.mp hp).elim (fun e => e ▸ Nat.lt_succ_self _) fun hp => Nat.lt_succ_of_lt (hlt p hp)
@@ -1556,7 +1562,8 @@ theorem Agree.congrG {G' : VCtx} {nv' : Nat} (hA : Agree T G nv st s σ) (hG : �
     Agree T G' nv' st s σ := by
   subst hn
   exact hA.extend (Nat.le_refl _) (fun p hp => Or.inl ((hG p).mpr hp)) (fun p hp => hA.ctx_lt p ((hG p).mpr hp))
-    (fun p hp => (hG p).mp hp) (fun _ _ => rfl) (fun y w hy hle => absurd (hA.vw_lt y w hy) (by omega))
+    (fun p hp => (hG p).mp hp) (fun h1 h2 => hA.ctx_uniq ((hG _).mpr h1) ((hG _).mpr h2))
+    (fun _ _ => rfl) (fun y w hy hle => absurd (hA.vw_lt y w hy) (by omega))
     (fun p hp hle _ => absurd (hA.ctx_lt p ((hG p).mpr hp)) (Nat.not_lt.mpr hle))
 
 theorem vw_none_of_ge (hA : Agree T G nv st s σ) {y : Nat} (hy : nv ≤ y) : st.vecWidths.find? y = none := by

@@ -1553,16 +1553,35 @@ theorem strict_assignRets (ts : List Ty) :
     vllArmStrictIsa.assignRets ts = armIsa.assignRets ts := by
   dsimp only [Isa.assignRets]; rw [strict_retRegs]; exact strict_assignSig ts _ []
 
-theorem strict_cmpZeroFlagCond? (fl : Option Rega.FlagFact) (co : CmpOp) (w y : Nat) :
-    Rega.cmpZeroFlagCond? vllArmStrictIsa fl co w y =
-      Rega.cmpZeroFlagCond? armIsa fl co w y := by
+theorem strict_reuseCmpPair? (defs : Trie Rega.DefFact) (w : Nat) (lhs rhs : SymArg)
+    (n : Nat) (co : CmpOp) (a b : Arg Rega.VNat (.bits n)) :
+    Rega.reuseCmpPair? vllArmStrictIsa defs w lhs rhs n co a b =
+      Rega.reuseCmpPair? armIsa defs w lhs rhs n co a b := by
+  dsimp only [Rega.reuseCmpPair?]
+  simp only [strict_toSymArg]
+
+theorem strict_cmpZeroFlagCond? (defs : Trie Rega.DefFact) (fl : Option Rega.FlagFact)
+    (co : CmpOp) (w y : Nat) :
+    Rega.cmpZeroFlagCond? vllArmStrictIsa defs fl co w y =
+      Rega.cmpZeroFlagCond? armIsa defs fl co w y := by
   cases fl with
   | none => rfl
   | some ff =>
-    cases ff; dsimp only [Rega.cmpZeroFlagCond?]
-    split
-    · rfl
-    · rw [strict_condOfCmp?]
+    cases ff with
+    | cmp w' lhs rhs eqNe =>
+      dsimp only [Rega.cmpZeroFlagCond?]
+      rw [strict_reuseCmpPair?]
+      cases Rega.reuseCmpPair? armIsa defs w' lhs rhs w co (.var y) (.imm 0#w) with
+      | none => rfl
+      | some p =>
+        dsimp only [Option.bind_some]
+        split
+        · dsimp only [Option.bind_some]
+          split <;> first | rfl | exact congrFun strict_condOfCmp? _
+        · split
+          · dsimp only [Option.bind_some]
+            split <;> first | rfl | exact congrFun strict_condOfCmp? _
+          · rfl
 
 theorem strict_tryReuseFlagCmp_none (st : Rega.SymState vllArmStrictIsa)
     {sig ts : List Ty} (code : OpCode sig ts) (args : Tup (Arg Rega.VNat) sig)
@@ -1580,13 +1599,16 @@ theorem strict_tryReuseFlagCmp_none (st : Rega.SymState vllArmStrictIsa)
         | bool | float _ | pair _ _ => rfl
         | bits n =>
           rcases args with ⟨a, b, ⟨⟩⟩; rcases dsts with ⟨pd, ⟨⟩⟩
-          dsimp only; split
-          · rfl
-          · cases Rega.reuseCmpPair? _ st.defs _ n co a b with
-            | none => rfl
-            | some p =>
-              dsimp only [Option.bind_some]
-              split <;> first | rfl | (split <;> rfl)
+          dsimp only
+          cases Rega.reuseCmpPair? _ st.defs _ _ _ n co a b with
+          | none => rfl
+          | some p =>
+            dsimp only [Option.bind_some]
+            split
+            · dsimp only [Option.bind_some]; split <;> rfl
+            · split
+              · dsimp only [Option.bind_some]; split <;> rfl
+              · rfl
       | _ => rfl)
 
 private theorem armMovImmI_ne_nil (d : XReg) (c : BitVec 64) : armMovImmI d c ≠ [] := by

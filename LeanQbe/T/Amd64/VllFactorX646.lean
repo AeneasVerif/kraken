@@ -744,18 +744,28 @@ theorem lowerLoad_eq_and_noRsp (h : x64Isa.Hints) (hs : savedNoRsp h.saved = tru
   | .cmpZeroFlag co w x r cc => .cmpZeroFlag co w x r cc
   | .testImm neg w r m => .testImm neg w r m
 
-private theorem cmpZeroFlagCond?_eq (fl : Option Rega.FlagFact) (co : CmpOp) (w y : Nat) :
-    Rega.cmpZeroFlagCond? vllX64IsaR fl co w y =
-      Rega.cmpZeroFlagCond? x64Isa fl co w y := by
+private theorem cmpZeroFlagCond?_eq (defs : Trie Rega.DefFact) (fl : Option Rega.FlagFact)
+    (co : CmpOp) (w y : Nat) :
+    Rega.cmpZeroFlagCond? vllX64IsaR defs fl co w y =
+      Rega.cmpZeroFlagCond? x64Isa defs fl co w y := by
   cases fl with
   | none => rfl
   | some f =>
     cases f with
     | cmp w' lhs rhs eqNe =>
       dsimp only [Rega.cmpZeroFlagCond?]
-      split
-      · rfl
-      · rw [vllR_condOfCmp_eq]
+      rw [reuseCmpPair?_eq]
+      cases Rega.reuseCmpPair? x64Isa defs w' lhs rhs w co (.var y) (.imm 0#w) with
+      | none => rfl
+      | some p =>
+        dsimp only [Option.bind_some]
+        split
+        · dsimp only [Option.bind_some]
+          split <;> first | rfl | exact congrFun vllR_condOfCmp_eq _
+        · split
+          · dsimp only [Option.bind_some]
+            split <;> first | rfl | exact congrFun vllR_condOfCmp_eq _
+          · rfl
 
 private theorem mapOpt_tryAddr {α β : Type} (f : α → β) (st : Rega.SymState vllX64IsaR)
     (vh : VariantHint) (a : Arg Rega.VNat i64)
@@ -869,11 +879,11 @@ private theorem findJnzCond_eq (nslots : Nat) (st : Rega.SymState vllX64IsaR) (x
   have h2 :
       ((match st.defs.find? x with
         | some (.cmpZeroVar co w y) =>
-          (Rega.cmpZeroFlagCond? vllX64IsaR st.flags co w y).map Rega.JnzCond.flag
+          (Rega.cmpZeroFlagCond? vllX64IsaR st.defs st.flags co w y).map Rega.JnzCond.flag
         | _ => none).map mapJnzCond) =
       (match st.defs.find? x with
        | some (.cmpZeroVar co w y) =>
-         (Rega.cmpZeroFlagCond? x64Isa st.flags co w y).map Rega.JnzCond.flag
+         (Rega.cmpZeroFlagCond? x64Isa st.defs st.flags co w y).map Rega.JnzCond.flag
        | _ => none) := by
     cases st.defs.find? x with
     | none => rfl
@@ -881,7 +891,7 @@ private theorem findJnzCond_eq (nslots : Nat) (st : Rega.SymState vllX64IsaR) (x
       | cmpZeroVar co w y =>
         dsimp only
         rw [cmpZeroFlagCond?_eq]
-        cases Rega.cmpZeroFlagCond? x64Isa st.flags co w y <;> rfl
+        cases Rega.cmpZeroFlagCond? x64Isa st.defs st.flags co w y <;> rfl
       | _ => rfl
   have h3 :
       ((Rega.findGprFor vllX64IsaR true st.regs (.var x)).map Rega.JnzCond.gpr).map mapJnzCond =
