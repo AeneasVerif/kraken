@@ -435,8 +435,11 @@ theorem armTestOp_wp [Host] (neg : Bool) {n : Nat}
     (_hd : ∀ r ∈ pd.gprs, r ∉ armScratch)
     (hpa : armMach.PArgHolds s (.bits n) pa va) (hpb : armMach.PArgHolds s (.bits n) pb vb) :
     _root_.Program.wp c (fun s' =>
-      armMach.PDstHolds s' .bool pd
+      (armMach.PDstHolds s' .bool pd
         ((if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& vb) 0#n) ∧
+        (clob ≠ maskNone →
+          (if neg then ArmCond.ne else ArmCond.eq).interp s'.status =
+            (if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& vb) 0#n)) ∧
       armMach.mem s' = armMach.mem s ∧
       armMach.Frame armCondReads s s' (pd.gprs ++ armScratch) [] clob)
       (fun _ _ => False) s := by
@@ -459,7 +462,9 @@ theorem armTestOp_wp [Host] (neg : Bool) {n : Nat}
           | .flag cf => if cf == wantCond then some (tst, maskNZCV) else none
           | .gpr .SP | .vec _ => none) = some (ci, clob) →
         _root_.Program.wp (emitClean ci) (fun sy =>
-          armMach.PDstHolds sy .bool pd want ∧ armMach.mem sy = armMach.mem s ∧
+          (armMach.PDstHolds sy .bool pd want ∧
+            (clob ≠ maskNone → wantCond.interp sy.status = want)) ∧
+          armMach.mem sy = armMach.mem s ∧
           armMach.Frame armCondReads s sy (pd.gprs ++ armScratch) [] clob)
           (fun _ _ => False) s := by
       intro tst htst hfin
@@ -469,14 +474,14 @@ theorem armTestOp_wp [Host] (neg : Bool) {n : Nat}
         dsimp only at hfin; split at hfin
         · rename_i heq; simp only [beq_iff_eq] at heq; subst heq
           rcases Option.some.inj hfin with ⟨rfl, rfl⟩
-          exact armWp_mono htst fun _ ⟨hcc, hdm, hfr⟩ => ⟨hcc, hdm, hfr⟩
+          exact armWp_mono htst fun _ ⟨hcc, hdm, hfr⟩ => ⟨⟨hcc, fun _ => hcc⟩, hdm, hfr⟩
         · cases hfin
       | gpr r => cases r with | SP => cases hfin | reg d =>
         rcases Option.some.inj hfin with ⟨rfl, rfl⟩
         rw [emitClean_append, emitClean_cons, emitClean_nil]
         refine armWp_append htst ?_; rintro sx ⟨hcc, hdm, hfr⟩
         refine armWp_mono (armCset64_wp d wantCond sx) ?_; rintro sy rfl
-        refine ⟨?_, hdm, armFrame_nzcv fun r hr => ?_⟩
+        refine ⟨⟨?_, fun _ => hcc⟩, hdm, armFrame_nzcv fun r hr => ?_⟩
         · simp only [Machine.PDstHolds, GprHolds, get_wr_same, hcc]; cases want <;> rfl
         · have hne : r ≠ .reg d ∧ r ∉ armScratch :=
             ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
@@ -513,7 +518,7 @@ theorem armTestOp_wp [Host] (neg : Bool) {n : Nat}
             rcases Option.some.inj hc with ⟨rfl, rfl⟩
             refine armWp_mono (armMovImm_wp d (BitVec.ofNat 64 want.toNat) s) ?_
             rintro sx rfl
-            refine ⟨?_, rfl, frame_wr d _ List.mem_cons_self maskNone⟩
+            refine ⟨⟨?_, fun hne => absurd rfl hne⟩, rfl, frame_wr d _ List.mem_cons_self maskNone⟩
             have hwant : BitVec.setWidth 8 (BitVec.ofNat 64 want.toNat) =
                 BitVec.ofNat 8 want.toNat := by
               generalize (want : Bool) = b; cases b <;> rfl

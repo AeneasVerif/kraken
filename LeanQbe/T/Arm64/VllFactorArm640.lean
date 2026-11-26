@@ -1282,16 +1282,21 @@ theorem armTestOp_pure_len {n : Nat} {neg : Bool}
         have hp := armTestDirectIns_pure_len ht
         exact ⟨insPure_append hp.1 (insPure_one rfl), by simp [emitClean]; omega⟩
 
-theorem armJnzGpr_pure_len (r : Arm64.Reg) (l : Sym) :
-    (armJnzGpr r l).1.all (dirPure (some l)) = true ∧ (armJnzGpr r l).1.length + 2 < 2 ^ 64 := by
+theorem armJnzGprInv_pure_len (r : Arm64.Reg) (inv : Bool) (l : Sym) :
+    (armJnzGprInv r inv l).1.all (dirPure (some l)) = true ∧
+      (armJnzGprInv r inv l).1.length + 2 < 2 ^ 64 := by
   cases r with
   | reg x =>
-    refine ⟨?_, by simp [armJnzGpr, armJnzGprIns, emitClean]⟩
-    simp [armJnzGpr, armJnzGprIns, emitClean, dirPure, opPure, branchTgtPure]
+    cases inv <;> refine ⟨?_, by simp [armJnzGprInv, emitClean]⟩ <;>
+      simp [armJnzGprInv, emitClean, dirPure, opPure, branchTgtPure]
   | SP =>
-    refine ⟨?_, by simp [armJnzGpr, armJnzGprIns, emitClean]⟩
-    simp [armJnzGpr, armJnzGprIns, emitClean, dirPure, opPure, branchTgtPure, extOrImmPure,
-      constPure]
+    cases inv <;> refine ⟨?_, by simp [armJnzGprInv, emitClean]⟩ <;>
+      simp [armJnzGprInv, emitClean, dirPure, opPure, branchTgtPure,
+        extOrImmPure, constPure]
+
+theorem armJnzGpr_pure_len (r : Arm64.Reg) (l : Sym) :
+    (armJnzGpr r l).1.all (dirPure (some l)) = true ∧ (armJnzGpr r l).1.length + 2 < 2 ^ 64 :=
+  armJnzGprInv_pure_len r false l
 
 theorem armCmpZeroJcc_pure_len {co : CmpOp} {n : Nat} {r : Arm64.Reg} {l : Sym}
     {ds : List _root_.Directive} {cl : FlagMask}

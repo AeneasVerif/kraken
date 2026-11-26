@@ -983,11 +983,13 @@ private theorem armAddsImm_wp [Host] {n : Nat} (hn : n ≤ 64) (w : RegWidth) (r
      exact hk _ (by simp [RegWidth.bits, MemWidth.bits]))
 
 private theorem armCmpImm_wp [Host] {n : Nat} (hn : n = 32 ∨ n = 64) (w : RegWidth)
-    (hw : w.bits = n) (rx : XReg) (imm : BitVec n) {cmp : List Instr} (o : CmpOp)
+    (hw : w.bits = n) (rx : XReg) (imm : BitVec n) {cmp : List Instr}
     (hc : armCmpImmIns? w rx imm = some cmp) (s : MachineData) :
     _root_.Program.wp (emitClean cmp)
-      (fun sx => (armCmpCond o).interp sx.status =
-          o.evalBits ((s.regs.getXReg rx).toBitVec.setWidth n) imm ∧
+      (fun sx =>
+        sx.status = StatusFlags.subs
+          ((s.regs.getXReg rx).toBitVec.setWidth n - imm)
+          ((s.regs.getXReg rx).toBitVec.setWidth n) imm ∧
         sx.dmem = s.dmem ∧ armMach.Frame armCondReads s sx armScratch [] maskNZCV)
       (fun _ _ => False) s := by
   have hn64 : n ≤ 64 := by rcases hn with rfl | rfl <;> decide
@@ -1002,7 +1004,7 @@ private theorem armCmpImm_wp [Host] {n : Nat} (hn : n = 32 ∨ n = 64) (w : RegW
     rintro s₁ rfl
     refine ⟨?_, rfl, armFrame_nzcv fun _ _ => rfl⟩
     cases w <;> simp only [RegWidth.bits, MemWidth.bits] at hw <;> subst hw <;>
-      simpa [BitVec.setWidth_eq] using armCmpCond_subs hn o _ imm
+      simp [BitVec.setWidth_eq]
   | none =>
     simp only [himm] at hc
     split at hc
@@ -1021,9 +1023,8 @@ private theorem armCmpImm_wp [Host] {n : Nat} (hn : n = 32 ∨ n = 64) (w : RegW
         refine ⟨?_, rfl, armFrame_nzcv fun _ _ => rfl⟩
         have hlt : (-imm).toNat < 16777216 := armImm12_toNat_lt hni
         cases w <;> simp only [RegWidth.bits, MemWidth.bits] at hw <;> subst hw <;>
-          (simp only [BitVec.setWidth_eq];
-           rw [adds_eq_subs_neg (by decide) _ _ hnimm0 hlt, BitVec.neg_neg];
-           exact armCmpCond_subs hn o _ imm)
+          simp only [BitVec.setWidth_eq] <;>
+          rw [adds_eq_subs_neg (by decide) _ _ hnimm0 hlt, BitVec.neg_neg]
 
 theorem subword_and_eq_zero {n : Nat} (hn : n ≤ 32) {x : BitVec 32} {va cy : BitVec n}
     (hx : x.setWidth n = va) :
@@ -1324,6 +1325,8 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
     (hpa : armMach.PArgHolds s (.bits n) pa va) (hpb : armMach.PArgHolds s (.bits n) pb vb) :
     _root_.Program.wp (emitClean c) (fun s' =>
       armMach.PDstHolds s' .bool dst (o.evalBits va vb) ∧
+      (∀ {lf}, armCmpFlagsOut o n pa pb dst = some lf →
+        FlagCmpOk armMach armGpr s' (if lf then va else vb) (if lf then vb else va) false) ∧
       armMach.mem s' = armMach.mem s ∧
       armMach.Frame armCondReads s s' (tupDstGprs (ts := [.bool]) (dst, ()) ++ armScratch) [] clob)
       (fun _ _ => False) s := by
@@ -1332,9 +1335,188 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
   · rename_i hn; replace hn := not_not_eq_true hn
     simp only [List.contains_eq_mem, decide_eq_true_eq] at hn
     have hn64 := mem_armWidths_le_64 hn
+    have hSub3264 : ∀ {sx : MachineData} {m : Nat} (hm : m = 32 ∨ m = 64) {x y : BitVec m},
+        sx.status = StatusFlags.subs (x - y) x y →
+        FlagCmpOk armMach armGpr sx x y false := by
+      intro sx m hm x y hst co' cc' _ hco'
+      cases hco'; dsimp only [Machine.evalCond, armMach]; rw [hst]
+      exact armCmpCond_subs hm co' x y
+    have hSignExtEval : ∀ {m : Nat} (hm : m = 8 ∨ m = 16) (co' : CmpOp) (x y : BitVec m),
+        co'.evalBits (x.signExtend 32) (y.signExtend 32) = co'.evalBits x y := by
+      intro m hm co' x y
+      have hle : m ≤ 32 := by rcases hm with rfl | rfl <;> decide
+      have hmsb : ∀ z : BitVec m, (z.signExtend 32).msb = z.msb := fun z => by
+        rw [BitVec.msb_eq_getLsbD_last, BitVec.getLsbD_signExtend]
+        have hz : z.msb = z.getLsbD (m - 1) := by
+          rcases hm with rfl | rfl <;> exact BitVec.msb_eq_getLsbD_last z
+        rw [hz]; rcases hm with rfl | rfl <;> simp
+      have hseNat : ∀ z : BitVec m,
+          (z.signExtend 32).toNat =
+            if z.msb then 2 ^ 32 - 2 ^ m + z.toNat else z.toNat := fun z => by
+        have hltz := z.isLt
+        have hlt32 := (z.signExtend 32).isLt
+        have hti := BitVec.toInt_signExtend_of_le (x := z) hle
+        rw [BitVec.toInt_eq_msb_cond, BitVec.toInt_eq_msb_cond, hmsb z] at hti
+        cases hz : z.msb <;> simp only [hz, ↓reduceIte, Bool.false_eq_true] at hti ⊢ <;>
+          rcases hm with rfl | rfl <;> omega
+      have hmle : ∀ z : BitVec m, z.msb = true ↔ 2 ^ (m - 1) ≤ z.toNat := fun z => by
+        rw [BitVec.msb_eq_decide, decide_eq_true_eq]
+      have hult : ∀ a b : BitVec m,
+          (a.signExtend 32).ult (b.signExtend 32) = a.ult b := fun a b => by
+        have ha := a.isLt; have hb := b.isLt
+        simp only [BitVec.ult, hseNat]
+        cases ha' : a.msb <;> cases hb' : b.msb
+        · simp only [Bool.false_eq_true, ↓reduceIte]
+        · simp only [Bool.false_eq_true, ↓reduceIte]
+          have ha2 : ¬(2 ^ (m - 1) ≤ a.toNat) := fun h => by
+            have := (hmle a).mpr h; rw [ha'] at this; cases this
+          have hb2 : 2 ^ (m - 1) ≤ b.toNat := (hmle b).mp hb'
+          rw [Bool.eq_iff_iff, decide_eq_true_eq, decide_eq_true_eq]
+          rcases hm with rfl | rfl <;>
+            simp only [Nat.reduceSub, Nat.reducePow] at ha2 hb2 <;> omega
+        · simp only [Bool.false_eq_true, ↓reduceIte]
+          have ha2 : 2 ^ (m - 1) ≤ a.toNat := (hmle a).mp ha'
+          have hb2 : ¬(2 ^ (m - 1) ≤ b.toNat) := fun h => by
+            have := (hmle b).mpr h; rw [hb'] at this; cases this
+          rw [Bool.eq_iff_iff, decide_eq_true_eq, decide_eq_true_eq]
+          rcases hm with rfl | rfl <;>
+            simp only [Nat.reduceSub, Nat.reducePow] at ha2 hb2 <;> omega
+        · simp only [↓reduceIte]
+          have ha2 : 2 ^ (m - 1) ≤ a.toNat := (hmle a).mp ha'
+          have hb2 : 2 ^ (m - 1) ≤ b.toNat := (hmle b).mp hb'
+          rw [Bool.eq_iff_iff, decide_eq_true_eq, decide_eq_true_eq]
+          rcases hm with rfl | rfl <;>
+            simp only [Nat.reduceSub, Nat.reducePow] at ha2 hb2 <;> omega
+      have heq : (x.signExtend 32 = y.signExtend 32) ↔ x = y := by
+        refine ⟨fun h => ?_, fun h => h ▸ rfl⟩
+        have h' := congrArg (BitVec.setWidth m) h
+        simpa only [setWidth_signExtend_self hle] using h'
+      have hule : ∀ a b : BitVec m,
+          (a.signExtend 32).ule (b.signExtend 32) = a.ule b := fun a b => by
+        have ha := a.isLt; have hb := b.isLt
+        simp only [BitVec.ule, hseNat]
+        cases ha' : a.msb <;> cases hb' : b.msb
+        · simp only [Bool.false_eq_true, ↓reduceIte]
+        · simp only [Bool.false_eq_true, ↓reduceIte]
+          have ha2 : ¬(2 ^ (m - 1) ≤ a.toNat) := fun h => by
+            have := (hmle a).mpr h; rw [ha'] at this; cases this
+          have hb2 : 2 ^ (m - 1) ≤ b.toNat := (hmle b).mp hb'
+          rw [Bool.eq_iff_iff, decide_eq_true_eq, decide_eq_true_eq]
+          rcases hm with rfl | rfl <;>
+            simp only [Nat.reduceSub, Nat.reducePow] at ha2 hb2 <;> omega
+        · simp only [Bool.false_eq_true, ↓reduceIte]
+          have ha2 : 2 ^ (m - 1) ≤ a.toNat := (hmle a).mp ha'
+          have hb2 : ¬(2 ^ (m - 1) ≤ b.toNat) := fun h => by
+            have := (hmle b).mpr h; rw [hb'] at this; cases this
+          rw [Bool.eq_iff_iff, decide_eq_true_eq, decide_eq_true_eq]
+          rcases hm with rfl | rfl <;>
+            simp only [Nat.reduceSub, Nat.reducePow] at ha2 hb2 <;> omega
+        · simp only [↓reduceIte]
+          have ha2 : 2 ^ (m - 1) ≤ a.toNat := (hmle a).mp ha'
+          have hb2 : 2 ^ (m - 1) ≤ b.toNat := (hmle b).mp hb'
+          rw [Bool.eq_iff_iff, decide_eq_true_eq, decide_eq_true_eq]
+          rcases hm with rfl | rfl <;>
+            simp only [Nat.reduceSub, Nat.reducePow] at ha2 hb2 <;> omega
+      cases co' with
+      | eq => simp only [CmpOp.evalBits, heq]
+      | ne => simp only [CmpOp.evalBits, ne_eq, heq]
+      | ult => exact hult x y
+      | ule => exact hule x y
+      | ugt => exact hult y x
+      | uge => exact hule y x
+      | slt | sle | sgt | sge => exact cmp_subword_signed hm _ rfl x y
+    have hCmpFlagsExtract : ∀ {lf}, armCmpFlagsOut o n pa pb dst = some lf →
+        ((n = 32 ∨ n = 64) ∨ armIsSignedCmp o = true) ∧
+        (match pa, pb with
+          | .gpr (.reg ra), .imm cb =>
+            (!(cb == 0#n && (armZeroCmpIns? o n ra dst).isSome)) = true ∧ lf = true
+          | .imm ca, .gpr (.reg rb) =>
+            if ca == 0#n then
+              (armZeroCmpIns? o.swap n rb dst = none) ∧ lf = false
+            else if n == 32 || n == 64 then
+              lf = !(armCmpImmIns? (armWidthOf n) rb ca).isSome
+            else lf = false
+          | .gpr (.reg _), .gpr (.reg _) => lf = true
+          | _, _ => False) := by
+      intro lf hfl
+      dsimp only [armCmpFlagsOut] at hfl
+      split at hfl; · cases hfl
+      split at hfl; · rename_i hbad; cases hfl
+      rename_i _ hnotbad
+      have hsgnOk : (n = 32 ∨ n = 64) ∨ armIsSignedCmp o = true := by
+        rcases mem_armWidths hn with rfl | rfl | rfl | rfl
+        · simp at hnotbad; exact Or.inr hnotbad
+        · simp at hnotbad; exact Or.inr hnotbad
+        · exact Or.inl (Or.inl rfl)
+        · exact Or.inl (Or.inr rfl)
+      refine ⟨hsgnOk, ?_⟩
+      simp only [Option.bind_eq_some_iff] at hfl
+      rcases hfl with ⟨lf', hlf', hfin⟩
+      have hlfEq : lf' = lf := by
+        cases dst with
+        | gpr r =>
+          cases r
+          · simp at hfin; exact hfin
+          · simp at hfin
+        | flag cf =>
+          dsimp only at hfin
+          by_cases hcf : (cf == armCmpCond (if lf' then o else o.swap)) = true
+          · simp only [hcf, ↓reduceIte, Option.some.injEq] at hfin; exact hfin
+          · simp only [hcf, ↓reduceIte, reduceCtorEq] at hfin
+        | vec v => exact v.elim
+      subst hlfEq
+      cases pa with
+      | vec v => exact v.elim
+      | imm ca => cases pb with
+        | vec v => exact v.elim
+        | imm _ => simp at hlf'
+        | gpr r2 => cases r2 with
+          | SP => simp at hlf'
+          | reg rb =>
+            dsimp only at hlf'
+            cases hca0 : ca == 0#n <;>
+              simp only [hca0, Bool.false_eq_true, ↓reduceIte] at hlf' ⊢
+            · cases hn3264 : n == 32 || n == 64 <;>
+                simp only [hn3264, Bool.false_eq_true, ↓reduceIte] at hlf' ⊢ <;>
+                cases hlf' <;> rfl
+            · cases hzc : armZeroCmpIns? o.swap n rb dst
+              · simp only [hzc, Option.isSome_none, Bool.false_eq_true, ↓reduceIte,
+                  Option.some.injEq] at hlf'
+                exact ⟨rfl, hlf'.symm⟩
+              · simp only [hzc, Option.isSome_some, ↓reduceIte] at hlf'; cases hlf'
+      | gpr r1 => cases r1 with
+        | SP => simp at hlf'
+        | reg ra => cases pb with
+          | vec v => exact v.elim
+          | imm cb =>
+            dsimp only at hlf'
+            cases hcond : (cb == 0#n && (armZeroCmpIns? o n ra dst).isSome) <;>
+              simp only [hcond, Bool.false_eq_true, ↓reduceIte] at hlf'
+            · cases hlf'; simp [hcond]
+            · cases hlf'
+          | gpr r2 => cases r2 with
+            | SP => simp at hlf'
+            | reg rb => cases hlf'; rfl
+    have hSgn816 : ∀ {lf}, n = 8 ∨ n = 16 → armCmpFlagsOut o n pa pb dst = some lf →
+        armIsSignedCmp o = true := fun hn' hfl => by
+      rcases (hCmpFlagsExtract hfl).1 with (rfl | rfl) | hs
+      · rcases hn' with h | h <;> cases h
+      · rcases hn' with h | h <;> cases h
+      · exact hs
+    have hSub816 : ∀ {sx : MachineData} (hn' : n = 8 ∨ n = 16) {x y : BitVec n},
+        sx.status = StatusFlags.subs (x.signExtend 32 - y.signExtend 32)
+          (x.signExtend 32) (y.signExtend 32) →
+        FlagCmpOk armMach armGpr sx x y false := by
+      intro sx hn' x y hst co' cc' _ hco'
+      cases hco'; dsimp only [Machine.evalCond, armMach]; rw [hst]
+      exact (armCmpCond_subs (Or.inl rfl) co' _ _).trans (hSignExtEval hn' co' x y)
     have finishSpec : ∀ {cmpCode : List Instr} {cond s'},
         _root_.Program.wp (emitClean cmpCode)
-          (fun sx => cond.interp sx.status = o.evalBits va vb ∧ sx.dmem = s.dmem ∧
+          (fun sx => cond.interp sx.status = o.evalBits va vb ∧
+            (∀ {lf}, armCmpFlagsOut o n pa pb dst = some lf →
+              FlagCmpOk armMach armGpr sx
+                (if lf then va else vb) (if lf then vb else va) false) ∧
+            sx.dmem = s.dmem ∧
             armMach.Frame armCondReads s sx armScratch [] maskNZCV) (fun _ _ => False) s' →
         (match dst with
           | .flag cf => if cf == cond then some (cmpCode, maskNZCV) else none
@@ -1342,9 +1524,12 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
           | .gpr .SP | .vec _ => none) = some (c, clob) →
         _root_.Program.wp (emitClean c)
           (fun sy => armMach.PDstHolds sy .bool dst (o.evalBits va vb) ∧
-          armMach.mem sy = armMach.mem s ∧
-          armMach.Frame armCondReads s sy (tupDstGprs (ts :=
-              [.bool]) (dst, ()) ++ armScratch) [] clob)
+            (∀ {lf}, armCmpFlagsOut o n pa pb dst = some lf →
+              FlagCmpOk armMach armGpr sy
+                (if lf then va else vb) (if lf then vb else va) false) ∧
+            armMach.mem sy = armMach.mem s ∧
+            armMach.Frame armCondReads s sy (tupDstGprs (ts :=
+                [.bool]) (dst, ()) ++ armScratch) [] clob)
           (fun _ _ => False) s' := by
       intro cmpCode cond s' hcmp hfin
       cases dst with
@@ -1353,20 +1538,21 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
         dsimp only at hfin; split at hfin
         · rename_i heq; simp only [beq_iff_eq] at heq; subst heq
           rcases Option.some.inj hfin with ⟨rfl, rfl⟩
-          exact armWp_mono hcmp fun _ ⟨hcc, hdm, hfr⟩ => ⟨hcc, hdm, hfr⟩
+          exact armWp_mono hcmp fun _ ⟨hcc, hfc, hdm, hfr⟩ => ⟨hcc, hfc, hdm, hfr⟩
         · cases hfin
       | gpr r => cases r with | SP => cases hfin | reg d =>
         rcases Option.some.inj hfin with ⟨rfl, rfl⟩
         rw [emitClean_append, emitClean_cons, emitClean_nil]
-        refine armWp_append hcmp ?_; rintro sx ⟨hcc, hdm, hfr⟩
+        refine armWp_append hcmp ?_; rintro sx ⟨hcc, hfc, hdm, hfr⟩
         refine armWp_mono (armCset64_wp d cond sx) ?_; rintro sy rfl
-        refine ⟨?_, hdm, armFrame_nzcv fun r hr => ?_⟩
+        refine ⟨?_, hfc, hdm, armFrame_nzcv fun r hr => ?_⟩
         · simp only [Machine.PDstHolds, GprHolds, get_wr_same, hcc]; cases o.evalBits va vb <;> rfl
         · have hne : r ≠ .reg d ∧ r ∉ armScratch :=
             ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
           rw [get_wr_of_ne sx d _ r hne.1]; exact hfr.1 r hne.2
     have fallback : ∀ {ca ra cb rb},
         armArgInIns .X16 pa = some (ca, ra) → armArgInIns .X17 pb = some (cb, rb) →
+        (∀ {lf}, armCmpFlagsOut o n pa pb dst = some lf → lf = true) →
         (if n == 32 || n == 64 then
            match dst with
            | .flag cf =>
@@ -1396,11 +1582,14 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
            | .gpr .SP | .vec _ => none) = some (c, clob) →
         _root_.Program.wp (emitClean c)
           (fun sy => armMach.PDstHolds sy .bool dst (o.evalBits va vb) ∧
-          armMach.mem sy = armMach.mem s ∧
-          armMach.Frame armCondReads s sy (tupDstGprs (ts :=
-              [.bool]) (dst, ()) ++ armScratch) [] clob)
+            (∀ {lf}, armCmpFlagsOut o n pa pb dst = some lf →
+              FlagCmpOk armMach armGpr sy
+                (if lf then va else vb) (if lf then vb else va) false) ∧
+            armMach.mem sy = armMach.mem s ∧
+            armMach.Frame armCondReads s sy (tupDstGprs (ts :=
+                [.bool]) (dst, ()) ++ armScratch) [] clob)
           (fun _ _ => False) s := by
-      intro ca ra cb rb ha hb hfb
+      intro ca ra cb rb ha hb hlf hfb
       split at hfb
       · rename_i hn3264
         have hn' : n = 32 ∨ n = 64 := by
@@ -1420,8 +1609,10 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
             simp only [t_step_simp, Reg64s.setRegOrZr_xzr, Int64.toInt_zero, Int.toNat_zero,
               BitVec.shiftLeft_zero]
             rw [hra, hrb]; exact hk _ rfl) hd₂ hfr₂) ?_
-          rintro s₃ ⟨_, hst₃, hdm₃, hfr₃⟩; exact ⟨hst₃ ▸ armCmpCond_subs (Or.inl rfl) o va vb, hdm₃,
-            hfr₃⟩
+          rintro s₃ ⟨_, hst₃, hdm₃, hfr₃⟩
+          refine ⟨hst₃ ▸ armCmpCond_subs (Or.inl rfl) o va vb, ?_, hdm₃, hfr₃⟩
+          intro lf hfl; obtain rfl := hlf hfl
+          exact hSub3264 (Or.inl rfl) hst₃
         · rw [show armWidthOf 64 = .W64 from rfl]
           refine armWp_mono (armStatusScratch_after (armDirFallsTo_wp (Q := fun s' =>
               s' = { s₂ with status :=
@@ -1429,8 +1620,10 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
             simp only [t_step_simp, Reg64s.setRegOrZr_xzr, Int64.toInt_zero, Int.toNat_zero,
               BitVec.shiftLeft_zero, BitVec.setWidth_eq] at hra hrb ⊢
             rw [hra, hrb]; exact hk _ rfl) hd₂ hfr₂) ?_
-          rintro s₃ ⟨_, hst₃, hdm₃, hfr₃⟩; exact ⟨hst₃ ▸ armCmpCond_subs (Or.inr rfl) o va vb, hdm₃,
-            hfr₃⟩
+          rintro s₃ ⟨_, hst₃, hdm₃, hfr₃⟩
+          refine ⟨hst₃ ▸ armCmpCond_subs (Or.inr rfl) o va vb, ?_, hdm₃, hfr₃⟩
+          intro lf hfl; obtain rfl := hlf hfl
+          exact hSub3264 (Or.inr rfl) hst₃
       · rename_i hn816
         have hn' : n = 8 ∨ n = 16 := by
           rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;> simp at hn816 ⊢
@@ -1462,10 +1655,20 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
             BitVec.shiftLeft_zero, RegWidth.bits, MemWidth.bits, h16₃, h17₃]; exact hk _ rfl) hd₃
             hfr₃) ?_
         rintro s₄ ⟨_, hst₄, hdm₄, hfr₄⟩
-        refine ⟨?_, hdm₄, hfr₄⟩; rw [hst₄, armCmpCond_subs (Or.inl rfl)]
-        cases hsgn : armIsSignedCmp o
-        · simp only [Bool.false_eq_true, ↓reduceIte]; exact cmp_subword_unsigned hn' o hsgn va vb
-        · simp only [↓reduceIte]; exact cmp_subword_signed hn' o hsgn va vb
+        refine ⟨?_, ?_, hdm₄, hfr₄⟩
+        · rw [hst₄, armCmpCond_subs (Or.inl rfl)]
+          cases hsgn : armIsSignedCmp o
+          · simp only [Bool.false_eq_true, ↓reduceIte]; exact cmp_subword_unsigned hn' o hsgn va vb
+          · simp only [↓reduceIte]; exact cmp_subword_signed hn' o hsgn va vb
+        · intro lf hfl
+          have hsgn := hSgn816 hn' hfl
+          obtain rfl := hlf hfl
+          have h16 : (if armIsSignedCmp o then va.signExtend 32 else va.setWidth 32) =
+              va.signExtend 32 := by simp [hsgn]
+          have h17 : (if armIsSignedCmp o then vb.signExtend 32 else vb.setWidth 32) =
+              vb.signExtend 32 := by simp [hsgn]
+          rw [h16, h17] at hst₄
+          exact hSub816 hn' hst₄
     have cmpImm816Run : ∀ (hn' : n = 8 ∨
       n = 16) (isSwap : Bool) (rx : XReg) (vr vimm : BitVec n) (o' : CmpOp),
         (s.regs.getXReg rx).toBitVec.setWidth n = vr →
@@ -1478,7 +1681,9 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
           | none => armExt32I sgn n .X16 rx :: armMovImmI .X17 (c32.setWidth 64) ++
               [armIselInsI (.SUBS_s (xzr .W32) (zr .X16 .W32) (sh .X17))]
         _root_.Program.wp (emitClean cmpCode)
-          (fun sx => (armCmpCond o').interp sx.status = o.evalBits va vb ∧ sx.dmem = s.dmem ∧
+          (fun sx => (armCmpCond o').interp sx.status = o.evalBits va vb ∧
+            (sgn = true → FlagCmpOk armMach armGpr sx vr vimm false) ∧
+            sx.dmem = s.dmem ∧
             armMach.Frame armCondReads s sx armScratch [] maskNZCV) (fun _ _ => False) s := by
       intro hn' isSwap rx vr vimm o' hrx hsweq sgn c32 cmpCode
       have hn0 : 0 < n := by rcases hn' with rfl | rfl <;> decide
@@ -1511,15 +1716,24 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
         rw [emitClean_cons]
         refine armWp_cons (armExt32_wp sgn hn0 hnw32 .X16 rx s vr hrx) ?_
         rintro s₁ rfl
-        refine armWp_mono (armCmpImm_wp (Or.inl rfl) .W32 rfl .X16 c32 o' hci _) ?_
-        rintro sx ⟨hcc, hdm, hfr⟩
+        refine armWp_mono (armCmpImm_wp (Or.inl rfl) .W32 rfl .X16 c32 hci _) ?_
+        rintro sx ⟨hst, hdm, hfr⟩
         have h16 :
             let v32 := if sgn then vr.signExtend 32 else vr.setWidth 32
             ((wr s .X16 (v32.setWidth 64)).regs.getXReg .X16).toBitVec.setWidth 32 = v32 := by
           simp [BitVec.setWidth_setWidth_of_le _ (by decide : 32 ≤ 64), BitVec.setWidth_eq]
-        rw [h16, hevalSub] at hcc
-        refine ⟨hcc, hdm, armFrame_nzcv fun r hr => ?_⟩
-        exact (hfr.1 r hr).trans ((frame_wr .X16 _ x16_mem_scratch maskNone).1 r hr)
+        rw [h16] at hst
+        have hcc : (armCmpCond o').interp sx.status = o.evalBits va vb := by
+          rw [hst, armCmpCond_subs (Or.inl rfl)]; exact hevalSub
+        refine ⟨hcc, fun hs => ?_, hdm, armFrame_nzcv fun r hr => ?_⟩
+        · dsimp only [sgn] at hs; dsimp only [sgn, c32] at hst
+          have hv' : (if armIsSignedCmp o then vr.signExtend 32 else vr.setWidth 32) =
+              vr.signExtend 32 := by simp [hs]
+          have hc' : (if armIsSignedCmp o then vimm.signExtend 32 else vimm.setWidth 32) =
+              vimm.signExtend 32 := by simp [hs]
+          rw [hv', hc'] at hst
+          exact hSub816 hn' hst
+        · exact (hfr.1 r hr).trans ((frame_wr .X16 _ x16_mem_scratch maskNone).1 r hr)
       | none =>
         dsimp only
         rw [List.cons_append, emitClean_cons, emitClean_append, emitClean_cons, emitClean_nil]
@@ -1544,7 +1758,15 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
               BitVec.shiftLeft_zero, RegWidth.bits, MemWidth.bits, h16₂, h17₂]
             exact hk _ rfl) (by rw [hs₂, hs₁]) hfr₂) ?_
         rintro s₃ ⟨_, hst₃, hdm₃, hfr₃⟩
-        exact ⟨hst₃ ▸ (armCmpCond_subs (Or.inl rfl) o' _ _).trans hevalSub, hdm₃, hfr₃⟩
+        refine ⟨hst₃ ▸ (armCmpCond_subs (Or.inl rfl) o' _ _).trans hevalSub,
+          fun hs => ?_, hdm₃, hfr₃⟩
+        dsimp only [sgn] at hs; dsimp only [sgn, c32] at hst₃
+        have hv' : (if armIsSignedCmp o then vr.signExtend 32 else vr.setWidth 32) =
+            vr.signExtend 32 := by simp [hs]
+        have hc' : (if armIsSignedCmp o then vimm.signExtend 32 else vimm.setWidth 32) =
+            vimm.signExtend 32 := by simp [hs]
+        rw [hv', hc'] at hst₃
+        exact hSub816 hn' hst₃
     cases pa with
     | vec vr => exact vr.elim
     | gpr r => cases r with
@@ -1554,21 +1776,31 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
         | imm _ | gpr _ => dsimp only at hc; simp [armArgInIns] at hc
       | reg ra => cases pb with
         | vec vr => exact vr.elim
-        | gpr _ =>
-          dsimp only at hc; simp only [bind, Option.bind_eq_some_iff] at hc
-          rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, hfin⟩; exact fallback ha hb hfin
+        | gpr r2 =>
+          cases r2 with
+          | SP => dsimp only at hc; simp [armArgInIns] at hc
+          | reg rb =>
+            dsimp only at hc; simp only [bind, Option.bind_eq_some_iff] at hc
+            rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, hfin⟩
+            exact fallback ha hb (fun hfl => (hCmpFlagsExtract hfl).2) hfin
         | imm cb =>
           dsimp only at hc
           have hra : (s.regs.getXReg ra).toBitVec.setWidth n = va := by
             simpa [Machine.PArgHolds, GprHolds, get_reg] using hpa.2
           have hcb : cb = vb := hpb
+          have hlfT : ∀ {lf}, armCmpFlagsOut o n (.gpr (.reg ra)) (.imm cb) dst = some lf →
+              lf = true := fun hfl => (hCmpFlagsExtract hfl).2.2
           by_cases hcb0 : cb == 0#n
           · simp only [hcb0, ↓reduceIte] at hc
             have hvb0 : vb = 0#n := hcb.symm.trans (beq_iff_eq.mp hcb0)
             cases hzc : armZeroCmpIns? o n ra dst with
             | some rz =>
               rw [hzc] at hc; rcases Option.some.inj hc with rfl
-              simpa [hvb0] using armZeroCmp_wp hn o ra dst hzc hra
+              refine armWp_mono (armZeroCmp_wp hn o ra dst hzc hra) ?_
+              rintro sy ⟨h1, h2, h3⟩
+              refine ⟨hvb0 ▸ h1, fun hfl => ?_, h2, h3⟩
+              have hbad := (hCmpFlagsExtract hfl).2.1
+              simp [hcb0, hzc] at hbad
             | none =>
               rw [hzc] at hc
               by_cases hn3264 : (n == 32 || n == 64) = true
@@ -1581,10 +1813,13 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
                 · rw [hcmp] at hc
                   have hw : (armWidthOf n).bits = n := by rcases hn' with rfl | rfl <;> rfl
                   refine finishSpec (cmpCode := cmp) (cond := armCmpCond o)
-                    (armWp_mono (armCmpImm_wp hn' (armWidthOf n) hw ra cb o hcmp s) ?_) hc
-                  rintro s₁ ⟨hcc, hdm, hfr⟩; rw [hra, hcb] at hcc; exact ⟨hcc, hdm, hfr⟩
+                    (armWp_mono (armCmpImm_wp hn' (armWidthOf n) hw ra cb hcmp s) ?_) hc
+                  rintro s₁ ⟨hst, hdm, hfr⟩; rw [hra, hcb] at hst
+                  refine ⟨hst ▸ armCmpCond_subs hn' o va vb, ?_, hdm, hfr⟩
+                  intro lf hfl; obtain rfl := hlfT hfl; exact hSub3264 hn' hst
               · have hn' : n = 8 ∨ n = 16 := by
-                  rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;> simp_all
+                  rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;>
+                    first | exact Or.inl rfl | exact Or.inr rfl | simp at hn3264
                 simp only [hn3264, Bool.false_eq_true, ↓reduceIte] at hc
                 rcases option_none_or_some (armCmpImmIns? .W32 .X16 0#32) with hnone | ⟨cmp, hcmp⟩
                 · rw [hnone] at hc; cases hc
@@ -1595,7 +1830,11 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
                       (if armIsSignedCmp o then cb.signExtend 32 else cb.setWidth 32) = 0#32 := by
                     rw [hcb0']; rcases hn' with rfl | rfl <;> cases armIsSignedCmp o <;> decide
                   simp only [hc32, hcmp] at hsub
-                  exact finishSpec hsub hc
+                  refine finishSpec (armWp_mono hsub ?_) hc
+                  rintro s₁ ⟨hcc, hfc, hdm, hfr⟩
+                  refine ⟨hcc, fun hfl => ?_, hdm, hfr⟩
+                  have hsgn := hSgn816 hn' hfl
+                  obtain rfl := hlfT hfl; rw [hcb] at hfc; exact hfc hsgn
           · simp only [hcb0, Bool.false_eq_true, ↓reduceIte] at hc
             split at hc
             · rename_i hn3264
@@ -1605,23 +1844,31 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
                 hcmp⟩
               · simp only [hnone, bind, Option.bind_eq_some_iff] at hc
                 rcases hc with ⟨⟨_, _⟩, ha, hfin⟩
-                have hfb := fallback (ca := []) (ra := ra) rfl ha
+                have hfb := fallback (ca := []) (ra := ra) rfl ha hlfT
                 simp only [hn3264, ↓reduceIte] at hfb
                 exact hfb hfin
               · simp only [hcmp] at hc
                 have hw : (armWidthOf n).bits = n := by rcases hn' with rfl | rfl <;> rfl
                 refine finishSpec (cmpCode := cmp) (cond := armCmpCond o)
-                  (armWp_mono (armCmpImm_wp hn' (armWidthOf n) hw ra cb o hcmp s) ?_) hc
-                rintro s₁ ⟨hcc, hdm, hfr⟩; rw [hra, hcb] at hcc; exact ⟨hcc, hdm, hfr⟩
+                  (armWp_mono (armCmpImm_wp hn' (armWidthOf n) hw ra cb hcmp s) ?_) hc
+                rintro s₁ ⟨hst, hdm, hfr⟩; rw [hra, hcb] at hst
+                refine ⟨hst ▸ armCmpCond_subs hn' o va vb, ?_, hdm, hfr⟩
+                intro lf hfl; obtain rfl := hlfT hfl; exact hSub3264 hn' hst
             · rename_i hn816
               have hn' : n = 8 ∨ n = 16 := by
                 rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;> simp at hn816 ⊢
-              exact finishSpec (cmpImm816Run hn' false ra va cb o hra ⟨rfl, rfl, hcb.symm⟩) hc
+              refine finishSpec
+                (armWp_mono (cmpImm816Run hn' false ra va cb o hra ⟨rfl, rfl, hcb.symm⟩) ?_) hc
+              rintro s₁ ⟨hcc, hfc, hdm, hfr⟩
+              refine ⟨hcc, fun hfl => ?_, hdm, hfr⟩
+              have hsgn := hSgn816 hn' hfl
+              obtain rfl := hlfT hfl; rw [hcb] at hfc; exact hfc hsgn
     | imm ca => cases pb with
       | vec vr => exact vr.elim
       | imm _ =>
         dsimp only at hc; simp only [bind, Option.bind_eq_some_iff] at hc
-        rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, hfin⟩; exact fallback ha hb hfin
+        rcases hc with ⟨⟨_, _⟩, ha, ⟨_, _⟩, hb, hfin⟩
+        exact fallback ha hb (fun hfl => False.elim (hCmpFlagsExtract hfl).2) hfin
       | gpr r => cases r with
         | SP => dsimp only at hc; simp [armArgInIns] at hc
         | reg rb =>
@@ -1632,10 +1879,17 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
           by_cases hca0 : ca == 0#n
           · simp only [hca0, ↓reduceIte] at hc
             have hva0 : va = 0#n := hca.symm.trans (beq_iff_eq.mp hca0)
+            have hlfF : ∀ {lf}, armCmpFlagsOut o n (.imm ca) (.gpr (.reg rb)) dst = some lf →
+                lf = false := fun hfl => by
+              have h := (hCmpFlagsExtract hfl).2; simp only [hca0, ↓reduceIte] at h; exact h.2
             cases hzc : armZeroCmpIns? o.swap n rb dst with
             | some rz =>
               rw [hzc] at hc; rcases Option.some.inj hc with rfl
-              simpa [hva0, CmpOp.swap_evalBits] using armZeroCmp_wp hn o.swap rb dst hzc hrb
+              refine armWp_mono (armZeroCmp_wp hn o.swap rb dst hzc hrb) ?_
+              rintro sy ⟨h1, h2, h3⟩
+              refine ⟨by rw [CmpOp.swap_evalBits] at h1; exact hva0 ▸ h1, fun hfl => ?_, h2, h3⟩
+              have h := (hCmpFlagsExtract hfl).2
+              simp [hca0, hzc] at h
             | none =>
               rw [hzc] at hc
               by_cases hn3264 : (n == 32 || n == 64) = true
@@ -1648,11 +1902,14 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
                 · rw [hcmp] at hc
                   have hw : (armWidthOf n).bits = n := by rcases hn' with rfl | rfl <;> rfl
                   refine finishSpec (cmpCode := cmp) (cond := armCmpCond o.swap)
-                    (armWp_mono (armCmpImm_wp hn' (armWidthOf n) hw rb ca o.swap hcmp s) ?_) hc
-                  rintro s₁ ⟨hcc, hdm, hfr⟩
-                  rw [hrb, hca, CmpOp.swap_evalBits] at hcc; exact ⟨hcc, hdm, hfr⟩
+                    (armWp_mono (armCmpImm_wp hn' (armWidthOf n) hw rb ca hcmp s) ?_) hc
+                  rintro s₁ ⟨hst, hdm, hfr⟩; rw [hrb, hca] at hst
+                  refine ⟨?_, ?_, hdm, hfr⟩
+                  · rw [hst, armCmpCond_subs hn' o.swap vb va, CmpOp.swap_evalBits]
+                  · intro lf hfl; obtain rfl := hlfF hfl; exact hSub3264 hn' hst
               · have hn' : n = 8 ∨ n = 16 := by
-                  rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;> simp_all
+                  rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;>
+                    first | exact Or.inl rfl | exact Or.inr rfl | simp at hn3264
                 simp only [hn3264, Bool.false_eq_true, ↓reduceIte] at hc
                 rcases option_none_or_some (armCmpImmIns? .W32 .X16 0#32) with hnone | ⟨cmp, hcmp⟩
                 · rw [hnone] at hc; cases hc
@@ -1663,7 +1920,11 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
                       (if armIsSignedCmp o then ca.signExtend 32 else ca.setWidth 32) = 0#32 := by
                     rw [hca0']; rcases hn' with rfl | rfl <;> cases armIsSignedCmp o <;> decide
                   simp only [hc32, hcmp] at hsub
-                  exact finishSpec hsub hc
+                  refine finishSpec (armWp_mono hsub ?_) hc
+                  rintro s₁ ⟨hcc, hfc, hdm, hfr⟩
+                  refine ⟨hcc, fun hfl => ?_, hdm, hfr⟩
+                  have hsgn := hSgn816 hn' hfl
+                  obtain rfl := hlfF hfl; rw [hca] at hfc; exact hfc hsgn
           · simp only [hca0, Bool.false_eq_true, ↓reduceIte] at hc
             split at hc
             · rename_i hn3264
@@ -1673,19 +1934,38 @@ theorem armCmpOp_wp [Host] (o : CmpOp) {n : Nat}
                 hcmp⟩
               · simp only [hnone, bind, Option.bind_eq_some_iff] at hc
                 rcases hc with ⟨⟨_, _⟩, ha, hfin⟩
-                have hfb := fallback (cb := []) (rb := rb) ha rfl
+                have hlfT : ∀ {lf}, armCmpFlagsOut o n (.imm ca) (.gpr (.reg rb)) dst = some lf →
+                    lf = true := fun hfl => by
+                  have h := (hCmpFlagsExtract hfl).2
+                  simp [hca0, hn3264, hnone] at h; exact h
+                have hfb := fallback (cb := []) (rb := rb) ha rfl hlfT
                 simp only [hn3264, ↓reduceIte, List.append_nil] at hfb
                 exact hfb hfin
               · simp only [hcmp] at hc
                 have hw : (armWidthOf n).bits = n := by rcases hn' with rfl | rfl <;> rfl
+                have hlfF : ∀ {lf}, armCmpFlagsOut o n (.imm ca) (.gpr (.reg rb)) dst = some lf →
+                    lf = false := fun hfl => by
+                  have h := (hCmpFlagsExtract hfl).2
+                  simp [hca0, hn3264, hcmp] at h; exact h
                 refine finishSpec (cmpCode := cmp) (cond := armCmpCond o.swap)
-                  (armWp_mono (armCmpImm_wp hn' (armWidthOf n) hw rb ca o.swap hcmp s) ?_) hc
-                rintro s₁ ⟨hcc, hdm, hfr⟩
-                rw [hrb, hca, CmpOp.swap_evalBits] at hcc; exact ⟨hcc, hdm, hfr⟩
+                  (armWp_mono (armCmpImm_wp hn' (armWidthOf n) hw rb ca hcmp s) ?_) hc
+                rintro s₁ ⟨hst, hdm, hfr⟩; rw [hrb, hca] at hst
+                refine ⟨?_, ?_, hdm, hfr⟩
+                · rw [hst, armCmpCond_subs hn' o.swap vb va, CmpOp.swap_evalBits]
+                · intro lf hfl; obtain rfl := hlfF hfl; exact hSub3264 hn' hst
             · rename_i hn816
               have hn' : n = 8 ∨ n = 16 := by
                 rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;> simp at hn816 ⊢
-              exact finishSpec (cmpImm816Run hn' true rb vb ca o.swap hrb ⟨rfl, hca.symm, rfl⟩) hc
+              have hlfF : ∀ {lf}, armCmpFlagsOut o n (.imm ca) (.gpr (.reg rb)) dst = some lf →
+                  lf = false := fun hfl => by
+                have h := (hCmpFlagsExtract hfl).2
+                simp [hca0, hn816] at h; exact h
+              refine finishSpec
+                (armWp_mono (cmpImm816Run hn' true rb vb ca o.swap hrb ⟨rfl, hca.symm, rfl⟩) ?_) hc
+              rintro s₁ ⟨hcc, hfc, hdm, hfr⟩
+              refine ⟨hcc, fun hfl => ?_, hdm, hfr⟩
+              have hsgn := hSgn816 hn' hfl
+              obtain rfl := hlfF hfl; rw [hca] at hfc; exact hfc hsgn
 
 
 end LeanQbe.T.Arm64

@@ -5,6 +5,7 @@ public import LeanQbe.T.MainLemmas
 import LeanQbe.T.RegaLemmas
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Arm64.IselLemmas4
+import LeanQbe.T.Arm64.IselFlagHooksLemmas
 import LeanQbe.T.Arm64.FrameLemmas
 
 /-!
@@ -43,6 +44,7 @@ theorem armLabelClean : Rega.LabelClean armTarget.toIsa where
   jmp := armJmp_noLab
   jcc := armJcc_noLab
   jnzGpr := armJnzGpr_noLab
+  jnzGprInv _ r inv tgt h l := by cases h; exact armJnzGprInv_noLab r inv tgt l
   op _ _ _ _ _ _ h l := armOp_noLab h l
   testOp _ _ _ _ _ _ _ h l := armTestOp_noLab h l
   cmpZeroJcc _ _ _ _ _ _ h l := armCmpZeroJcc_noLab h l

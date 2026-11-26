@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Arm64.IselLemmas3
+import LeanQbe.T.Arm64.IselFlagHooksLemmas
 import Kraken.AArch64.Parser
 
 /-!
@@ -1032,7 +1033,7 @@ theorem armOp_spec {h : Host} {k : Nat} {sig rs : List Ty} {code : OpCode sig rs
     rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩; rcases dsts with ⟨dst, ⟨⟩⟩
     have ⟨hpa, hpb⟩ := trel2_inv hrel; have ⟨hga, hgb⟩ := arg2_gprs hargs
     exact armFallsTo_of_wp (armWp_mono (armCmpOp_wp o pa pb dst hc hga hgb hdsts hpa hpb)
-      fun _ ⟨hdst, hdm, hfr⟩ => ⟨⟨⟨(o.evalBits va vb, ()), hwp, .cons hdst .nil⟩, hdm⟩, hfr⟩)
+      fun _ ⟨hdst, _, hdm, hfr⟩ => ⟨⟨⟨(o.evalBits va vb, ()), hwp, .cons hdst .nil⟩, hdm⟩, hfr⟩)
   | select t =>
     rcases dsts with ⟨⟨r | _⟩ | _ | vr, ⟨⟩⟩ <;> try exact False.elim vr.elim
     all_goals try cases t
@@ -1868,7 +1869,7 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
   op_zero32 := @armOp_zero32
   testOp_spec := fun hc hga hgd hpa hpb =>
     armFallsTo_of_wp (armWp_mono (armTestOp_wp _ _ _ _ hc hga hgd hpa hpb)
-      fun _ ⟨h1, h2, h3⟩ => ⟨⟨h1, h2⟩, h3⟩)
+      fun _ ⟨h1, h2, h3⟩ => ⟨⟨h1.1, h2⟩, h3⟩)
   loadSext_spec := @armLoadSext_spec
   cmpZeroJcc_spec := @armCmpZeroJcc_spec
   testJcc_spec := @armTestJcc_spec
@@ -1880,6 +1881,11 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
   loadSextZextIdx_spec := @armLoadSextZextIdx_spec
   storeZextIdx_spec := @armStoreZextIdx_spec
   leaArithZext_spec := @armLeaArithZext_spec
+  jnzGprInv_spec := @armJnzGprInv_spec
+  op_boolFlag_spec := @armBoolFlagOut_spec
+  op_cmpFlags_spec := @armCmpFlagsOut_spec
+  testOp_boolFlag_spec := @armTestOp_boolFlag_spec
+  testMem_boolFlag_spec := @armTestMem_boolFlag_spec
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/
 
@@ -1915,12 +1921,14 @@ theorem parser_moves_branches_rfl :
       csinc x0, xzr, xzr, ne
       mov x16, sp
       tbnz w16, #0, L_tgt
+      tbz w0, #0, L_tgt
       b L_tgt
       b.eq L_tgt
     ⸩ =
       armGpr.clearFlags ++ armGpr.mov (.reg .X0) (.reg .X1) ++ armGpr.mov .SP (.reg .X0) ++
-        armGpr.setcc (.reg .X0) .eq ++ (armGpr.jnzGpr .SP "L_tgt").1 ++ armGpr.jmp "L_tgt" ++
-        armGpr.jcc .eq "L_tgt" := rfl
+        armGpr.setcc (.reg .X0) .eq ++ (armGpr.jnzGpr .SP "L_tgt").1 ++
+        (armJnzGprInv (.reg .X0) true "L_tgt").1 ++
+        armGpr.jmp "L_tgt" ++ armGpr.jcc .eq "L_tgt" := rfl
 
 theorem parser_mem_sp_flag_rfl :
     ⸨prog|

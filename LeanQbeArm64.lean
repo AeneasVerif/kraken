@@ -9,6 +9,8 @@ public import LeanQbe.T.Arm64.Frame
 public import LeanQbe.T.Arm64.FrameLemmas
 public import LeanQbe.T.Arm64.Isa
 public import LeanQbe.T.Arm64.Isel
+public import LeanQbe.T.Arm64.IselFlagHooks
+public import LeanQbe.T.Arm64.IselFlagHooksLemmas
 public import LeanQbe.T.Arm64.IselLemmas1
 public import LeanQbe.T.Arm64.IselLemmas2
 public import LeanQbe.T.Arm64.IselLemmas3
@@ -136,6 +138,9 @@ public import LeanQbe.T.Arm64.VllFactorArm64
 public import LeanQbe.T.Arm64.VllFactorArm640
 public import LeanQbe.T.Arm64.VllFactorArm641
 public import LeanQbe.T.Arm64.VllFactorArm642
+public import LeanQbe.T.Arm64.VllFactorArm64CoreLemmas
+public import LeanQbe.T.Arm64.VllFactorArm64FlagLemmas
+public import LeanQbe.T.Arm64.VllFactorArm64Save
 
 set_option autoImplicit false
 

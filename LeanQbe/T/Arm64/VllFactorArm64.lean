@@ -196,10 +196,8 @@ private theorem tryExtCmp_factor (st : Rega.SymState vllArmStrictIsa) (vh : Vari
           | none => rfl
           | some p =>
             rcases p with ⟨d, cl⟩
-            have hcf1 : vllArmStrictIsa.gpr.cmpFlagsOut? co m (.gpr rx) (.imm (c.truncate m)) pd =
-                none := rfl
             dsimp only [Option.map_some, Function.comp_def]
-            rw [hcf1]; dsimp only [Option.bind]; rw [strict_killFlags]
+            rw [strict_cmpFlagsOut?, strict_condOfCmp?, strict_killFlags]
             cases pd with | vec v => exact v.elim | gpr _ | flag _ => rfl
     | _ => rfl
 
@@ -239,14 +237,16 @@ private theorem tryFuseCmp_factor (st : Rega.SymState vllArmStrictIsa) (vh : Var
             cases Rega.tryTestFuse vllArmStrictIsa st _ n _ pd with
             | none => rfl
             | some p =>
-              dsimp only [Option.map_some, Function.comp_def]; rw [strict_killFlags]; rfl
+              dsimp only [Option.map_some, Function.comp_def]
+              rw [strict_killFlags, strict_testBoolExtra?]
           · rfl
         · dsimp only; split
           · rw [Option.map_map, ← tryTestFuse_factor]
             cases Rega.tryTestFuse vllArmStrictIsa st _ n _ pd with
             | none => rfl
             | some p =>
-              dsimp only [Option.map_some, Function.comp_def]; rw [strict_killFlags]; rfl
+              dsimp only [Option.map_some, Function.comp_def]
+              rw [strict_killFlags, strict_testBoolExtra?]
           · rfl
       · rfl
     · cases a <;> cases b <;> first | rfl | exact tryExtCmp_factor ..
@@ -576,10 +576,14 @@ private theorem lowerOp_try6_factor (h : armIsa.Hints) (nv ip : Nat)
           ArmDirCode × FlagMask × Bool × Option Rega.FlagFact × Option ArmCond) =>
         (c, cl, false, z32, fl, ex))) := by
   rw [optMap_alt]; refine orElse_congr ?_ ?_
-  · rw [(strict_tryReuseFlagCmp_none st1 op.code op.args dsts).1,
-      (strict_tryReuseFlagCmp_none st1 opN.code opN.args dsts).1,
-      (strict_tryReuseFlagCmp_none st1 op.code op.args dsts).2,
-      (strict_tryReuseFlagCmp_none st1 opN.code opN.args dsts).2]; rfl
+  · rw [Option.map_map, optMap_alt, optMap_alt]
+    refine orElse_congr ?_ ?_
+    · have hr := tryReuseFlagCmp_factor st1 op.code op.args dsts
+      cases hfv : Rega.tryReuseFlagCmp vllArmStrictIsa st1 op.code op.args dsts <;>
+        simp only [hfv, Option.map_none, Option.map_some] at hr ⊢ <;> rw [← hr] <;> rfl
+    · have hr := tryReuseFlagCmp_factor st1 opN.code opN.args dsts
+      cases hfv : Rega.tryReuseFlagCmp vllArmStrictIsa st1 opN.code opN.args dsts <;>
+        simp only [hfv, Option.map_none, Option.map_some] at hr ⊢ <;> rw [← hr] <;> rfl
   · rw [optMap_alt]; refine orElse_congr ?_ ?_
     · rw [Option.map_map, ← tryFuseCmp_factor st1 (h.variant.getD ip .default)
         opN.code opN.args dsts]
@@ -798,7 +802,12 @@ private theorem findJnzCond_factor (nslots : Nat) (st : Rega.SymState vllArmStri
           | some p =>
             rcases p with ⟨ty, addr⟩; cases ty with
             | bool | float _ | pair _ _ => rfl
-            | bits m => dsimp only; split <;> rfl
+            | bits m =>
+              dsimp only; split
+              · dsimp only [vllArmStrictGpr, vllGprIsaOfHooks, vllArmNativeHooks, Function.comp_def]
+                simp only [Option.bind_some]
+                rw [tryAddr_map]; rfl
+              · rfl
         · rw [optMap_bind, strict_findGprFor]; congr 1; funext r
           have hcz : (vllArmStrictIsa.gpr.cmpZeroJcc co w r (Rega.lname "" 0)).isSome =
               (armIsa.gpr.cmpZeroJcc co w r (Rega.lname "" 0)).isSome := by
@@ -808,7 +817,20 @@ private theorem findJnzCond_factor (nslots : Nat) (st : Rega.SymState vllArmStri
             cases wrapArmNative (armCmpZeroJcc co w r (Rega.lname "" 0)) <;> rfl
           rw [hcz]; split
           · rfl
-          · split <;> rfl
+          · split
+            · have hco : vllArmStrictGpr.condOfCmp? co = some (armCmpCond co) := rfl
+              rw [hco]; dsimp only [Function.comp_def]; simp only [Option.bind_some]
+              have hop := vllArmStrictOp_asm (.cmp co (.bits w) (Ty.bits w).mask rfl)
+                (.gpr r, .imm 0#w, ()) (.flag (armCmpCond co), ()) .default
+              cases hvll : vllArmStrictGpr.op (.cmp co (.bits w) (Ty.bits w).mask rfl)
+                  (.gpr r, .imm 0#w, ()) (.flag (armCmpCond co), ()) .default with
+              | none =>
+                simp only [hvll, Option.map_none] at hop ⊢
+                rw [← hop]; rfl
+              | some q =>
+                simp only [hvll, Option.map_some] at hop ⊢
+                rw [← hop]; rfl
+            · rfl
       | testBitVar neg w y c =>
         dsimp only; rw [Option.map_map, strict_findGprFor]; rfl
       | _ => rfl
@@ -874,10 +896,11 @@ private theorem jnzSetup_factor {rs : List Ty} (h : armIsa.Hints) (fn : Sym) (nl
     rw [strict_jnzMode, strict_jcc_asm, strict_negCond]
     dsimp only [liftSt]; rw [strict_scratch, strict_killRegs, strict_killFlags]
   | gpr r =>
-    change Option.map _ (some _) = some _
-    dsimp only [Option.map_some, liftSt]
-    rw [strict_gprThread?, strict_jnzGpr_fst, strict_jnzGpr_snd,
-      strict_scratch, strict_killRegs, strict_killFlags]
+    dsimp only [Rega.jnzSetup, liftJnz]
+    exact fuseJnzChoice_factor h fn nl ipT ipE st1 t e ft fwd _ _
+      (fun inv l => by
+        dsimp only [Option.map_some, vllArmStrictGpr, vllGprIsaOfHooks, vllArmNativeHooks, armGpr]
+        rw [asmArm64List_map_native])
   | slot _ => rfl
   | cmpZero co w r =>
     dsimp only [Rega.jnzSetup, liftJnz]

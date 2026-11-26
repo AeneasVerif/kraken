@@ -4,7 +4,10 @@ public import LeanQbe.T.Vll.RegaInst
 public import LeanQbe.T.Arm64.VllArm64
 public import LeanQbe.T.Arm64.VllAsmArm64
 public import LeanQbe.T.Arm64.Targ
+public import LeanQbe.T.Arm64.VllFactorArm64Save
 import LeanQbe.T.Arm64.VllFactorArm640
+import LeanQbe.T.Arm64.VllFactorArm64CoreLemmas
+import LeanQbe.T.Arm64.VllFactorArm64FlagLemmas
 import LeanQbe.T.RegaLemmas
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.TargetLemmas
@@ -33,46 +36,6 @@ open Std Std.ExtHashMap
 
 /-! ## 1. AArch64 `VllNativeHooks` (Maximally Core `Instr arm64Arch`, Minimal `.native`) -/
 
-/-- Save callee-saved registers using core `.slotSt`, pairing adjacent GP registers into a single
-`.native` `STP` only when `armFitsPairOff (8 * i)` holds. -/
-@[expose] def vllArmSaveRegs : Nat → List Arm64.Reg → List (Instr arm64Arch)
-  | _, [] => []
-  | i, [r] => [.slotSt i r]
-  | i, .SP :: r2 :: rs => .slotSt i .SP :: vllArmSaveRegs (i + 1) (r2 :: rs)
-  | i, .reg r1 :: .SP :: rs => .slotSt i (.reg r1) :: vllArmSaveRegs (i + 1) (.SP :: rs)
-  | i, .reg r1 :: .reg r2 :: rs =>
-    (if armFitsPairOff (8 * i) then
-       [.native (.instr (armInsI (.STP (zr r1 .W64) (zr r2 .W64) (atOff .SP (8 * i)))))]
-     else [.slotSt i (.reg r1), .slotSt (i + 1) (.reg r2)]) ++
-      vllArmSaveRegs (i + 2) rs
-
-/-- Restore callee-saved registers using core `.slotLd`, pairing adjacent GP registers into a
-single `.native` `LDP` only when `armFitsPairOff (8 * i)` holds. -/
-@[expose] def vllArmRestoreRegs : Nat → List Arm64.Reg → List (Instr arm64Arch)
-  | _, [] => []
-  | i, [r] => [.slotLd r i]
-  | i, .SP :: r2 :: rs => .slotLd .SP i :: vllArmRestoreRegs (i + 1) (r2 :: rs)
-  | i, .reg r1 :: .SP :: rs => .slotLd (.reg r1) i :: vllArmRestoreRegs (i + 1) (.SP :: rs)
-  | i, .reg r1 :: .reg r2 :: rs =>
-    (if armFitsPairOff (8 * i) then
-       [.native (.instr (armInsI (.LDP (zr r1 .W64) (zr r2 .W64) (atOff .SP (8 * i)))))]
-     else [.slotLd (.reg r1) i, .slotLd (.reg r2) (i + 1)]) ++
-      vllArmRestoreRegs (i + 2) rs
-
-/-- Pure core `.load (.w8/.w16) .sx` lowering for `loadSext`, matching `armLoadSext` 1:1. -/
-@[expose] def vllArmLoadSext (m n : Nat) (rd : Arm64.Reg) (a : AddrArg Arm64.Reg) :
-    Option (List (Instr arm64Arch) × FlagMask) :=
-  if !(m == 8 || m == 16) || !Nat.blt m n || !Nat.ble n 64 then none
-  else match m with
-    | 8  => if armAddrValid 1 a then some ([.load .w8 .sx rd a], maskNone) else none
-    | 16 => if armAddrValid 2 a then some ([.load .w16 .sx rd a], maskNone) else none
-    | _  => none
-
-/-- Wrap a Kraken AArch64 `(List Directive × FlagMask)` result into `.native` VLL instructions. -/
-@[expose] def wrapArmNative (res : Option (List _root_.Directive × FlagMask)) :
-    Option (List (Instr arm64Arch) × FlagMask) :=
-  res.map fun (ds, cl) => (ds.map .native, cl)
-
 /-- Store hook: delegates GP-register stores on valid addresses to core `vllCoreStore` (`.store`),
 falling back to `.native` `armStore` only for `.SP`/`.imm`/`.flag` operands. -/
 @[expose] def vllArmStoreHook (t : Ty) (pa : PArg Arm64.Reg Empty ArmCond t)
@@ -81,14 +44,6 @@ falling back to `.native` `armStore` only for `.SP`/`.imm`/`.flag` operands. -/
   | .bool, .gpr (.reg _) | .bits 8, .gpr (.reg _) | .bits 16, .gpr (.reg _)
   | .bits 32, .gpr (.reg _) | .bits 64, .gpr (.reg _) => none
   | _, _ => wrapArmNative (armStore t pa a)
-
-/-- Pure core `.cmp` / `.cmp + .setcc` helper for 32/64-bit comparisons. -/
-@[expose] def vllArmCmpCore (o : CmpOp) (w : Width) (ra : XReg) (rhs : Src arm64Arch)
-    (dst : PDst Arm64.Reg Empty ArmCond .bool) : Option (List (Instr arm64Arch) × FlagMask) :=
-  match dst with
-  | .flag cf => if cf == armCmpCond o then some ([.cmp w (.reg ra) rhs], maskNZCV) else none
-  | .gpr (.reg d) => some ([.cmp w (.reg ra) rhs, .setcc (.reg d) (armCmpCond o)], maskNZCV)
-  | .gpr .SP | .vec _ => none
 
 /-- Scalar `opHook` lowering hot scalar operations into first-class core `Instr arm64Arch`
 (either directly or by returning `none` to delegate to `vllCoreOp`), using `.native` `armOp`
@@ -229,9 +184,13 @@ negated-imm `CMN`, sub-word 8/16-bit ALU/cmp, bool `CSEL`/`CSINC`). -/
   regName r := toString (repr r)
   vregName v := v.elim
   loadExt := .zx
-  condOfCmp? _ := none
+  condOfCmp? := some ∘ armCmpCond
   cmpFlags := [.eq, .ne, .lt, .ge, .le, .gt, .ls, .hi]
   jnzGpr? := some fun r l => let (ds, cl) := armJnzGpr r l; (ds.map .native, cl)
+  jnzGprInv? := some fun r inv l => let (ds, cl) := armJnzGprInv r inv l; (ds.map .native, cl)
+  boolFlagOut? := armBoolFlagOut
+  cmpFlagsOut? := armCmpFlagsOut
+  hasTestFlags := true
   opHook := vllArmOpHook
   loadHook _ _ _ := none
   storeHook := vllArmStoreHook
@@ -1017,444 +976,6 @@ private theorem vllArmOpHook_spec {h : VllHost arm64Arch} {k : Nat} {sig rs : Li
                 rintro s' ⟨⟨rvs, rfl, hdt⟩, hm'⟩ _; exact ⟨⟨_, hwp, hdt⟩, hm'⟩
   | _ => dsimp only [vllArmOpHook] at hhk; exact vllArmOpHook_fallback hhk ha hd hrel hwp
 
-private theorem sext32_shl_ashr {m : Nat} (hm : m = 8 ∨ m = 16 ∨ m = 32) (x : BitVec 64) :
-    let sh := ((BitVec.ofNat 64 (32 - m)).setWidth 32).toNat % 32
-    ((x.setWidth 32) <<< sh).sshiftRight sh = (x.setWidth m).signExtend 32 := by
-  have hsh : ((BitVec.ofNat 64 (32 - m)).setWidth 32).toNat % 32 = 32 - m := by
-    rcases hm with rfl | rfl | rfl <;> decide
-  have hm1 : 1 ≤ m := by omega
-  have hm32 : m ≤ 32 := by omega
-  dsimp only; rw [hsh]
-  apply BitVec.eq_of_getElem_eq; intro i hi
-  rw [BitVec.getElem_sshiftRight, BitVec.getElem_signExtend]
-  by_cases him : i < m
-  · have hlt : 32 - m + i < 32 := by omega
-    have hge : ¬(32 - m + i < 32 - m) := by omega
-    have hsub : 32 - m + i - (32 - m) = i := by omega
-    have hi64 : i < 64 := by omega
-    simp [hlt, him, BitVec.getElem_shiftLeft, hge, hsub, BitVec.getElem_setWidth, hi64]
-  · have hnlt : ¬(32 - m + i < 32) := by omega
-    have hmsb : ((x.setWidth 32) <<< (32 - m)).msb = (x.setWidth m).msb := by
-      rw [BitVec.msb_eq_getLsbD_last, BitVec.msb_eq_getLsbD_last]
-      have hge : ¬(31 < 32 - m) := by omega
-      have hsub : 31 - (32 - m) = m - 1 := by omega
-      have hm_lt : m - 1 < m := by omega
-      simp [hge, hsub, hm_lt]
-    simp [hnlt, him, hmsb]
-
-private theorem vllCoreOp_zero32 {h : VllHost arm64Arch} {k : Nat} {sig : List Ty}
-    {code : OpCode sig [.bits 32]} {pas : Tup (PArg Arm64.Reg Empty ArmCond) sig}
-    {rd : Arm64.Reg} {vh : VariantHint} {c : List (Instr arm64Arch)} {clob : FlagMask}
-    {vs : Tup Val sig} {P : Tup Val [.bits 32] → Prop}
-    {s : MachSt arm64Arch} {post : Config arm64Arch → Prop}
-    (hop : vllCoreOp arm64Arch (fun _ => none) code pas (.gpr rd, ()) vh = some (c, clob))
-    (ha : ∀ r ∈ tupArgGprs pas, r ∉ armScratch)
-    (hrel : TRel ((vllMach arm64Arch).PArgHolds s) pas vs) (hwp : code.wp vs P) :
-    (vllMach arm64Arch).FallsTo arm64Arch.condReads h k c (rd :: armScratch) [] clob s
-      (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.gpr rd = rv.setWidth 64) ∧
-        s'.mem = s.mem) post := by
-  have alu32 : ∀ {op : CoreAlu} {pa pb : PArg Arm64.Reg Empty ArmCond (.bits 32)}
-      {va vb : BitVec 32},
-      vllCoreAlu arm64Arch op .w32 pa pb rd = some (c, clob) →
-      (∀ r ∈ pb.gprs, r ∉ armScratch) →
-      (vllMach arm64Arch).PArgHolds s (.bits 32) pa va →
-      (vllMach arm64Arch).PArgHolds s (.bits 32) pb vb →
-      P (op.eval .w32 va vb, ()) →
-      (vllMach arm64Arch).FallsTo arm64Arch.condReads h k c (rd :: armScratch) [] clob s
-        (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.gpr rd = rv.setWidth 64) ∧
-          s'.mem = s.mem) post := by
-    intro op pa pb va vb halu hpb_ns hpa hpb hP
-    unfold vllCoreAlu at halu
-    have hpb_val : ∀ (sb : Src arm64Arch) (s1 : MachSt arm64Arch),
-        vllSrcOfPArg (A := arm64Arch) .w32 pb = some sb →
-        (vllMach arm64Arch).KeepsGpr s s1 armScratch →
-        sb.evalW .w32 s1.gpr = vb := by
-      intro sb s1 hsb hkp
-      cases pb with
-      | vec v => exact v.elim
-      | gpr rb =>
-        cases hsb; dsimp only [Src.evalW, Src.eval]
-        have hrb : s1.gpr rb = s.gpr rb := hkp rb (hpb_ns rb List.mem_cons_self)
-        rw [hrb]; exact hpb.2
-      | imm cb =>
-        cases hsb; have hEq : cb = vb := hpb; subst hEq
-        exact setWidth_setWidth_self64 (by decide) cb
-    cases hsb : vllSrcOfPArg (A := arm64Arch) .w32 pb with
-    | none => simp [hsb] at halu
-    | some sb =>
-      cases pa with
-      | vec v => exact v.elim
-      | gpr ra =>
-        simp only [vllRegOfPArg, hsb, Option.some.injEq, Prod.mk.injEq] at halu
-        rcases halu with ⟨rfl, rfl⟩
-        have hra : (s.gpr ra).setWidth 32 = va := hpa.2
-        refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-          (vllMach_alu_spec arm64Arch_wf (op := op) (w := .w32) (rd := rd) (lhs := ra)
-            (rhs := sb) (sf := false))) fun s' ⟨hg, _, _, hm⟩ _ => ?_
-        have hsb0 := hpb_val sb s hsb (fun _ _ => rfl)
-        dsimp only [Width.bits] at hg
-        rw [hra, hsb0] at hg
-        exact ⟨⟨_, hP, hg⟩, hm⟩
-      | imm ca =>
-        have hEq : ca = va := hpa; subst hEq
-        simp only [vllRegOfPArg, arm64Arch, arm64Abi, armScratch, List.head?_cons, Option.map_some,
-          hsb, Option.some.injEq, Prod.mk.injEq] at halu
-        rcases halu with ⟨rfl, rfl⟩
-        have hcomp : (vllMach arm64Arch).FallsTo arm64Arch.condReads h k
-            ([.movi (.reg .X16) (ca.setWidth 64)] ++ [.alu op .w32 rd (.reg .X16) sb false])
-            (armScratch ++ [rd]) ([] ++ []) (maskNone ||| arm64Arch.aluClob op false) s
-            (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.gpr rd = rv.setWidth 64) ∧
-              s'.mem = s.mem) post :=
-          Machine.FallsTo.comp
-            (Machine.FallsTo.weaken (g₂ := armScratch)
-              (vllMach_movi_spec (A := arm64Arch) (s := s) (rd := .reg .X16)
-                (imm := ca.setWidth 64))
-              (fun r hr => by
-                simp only [List.mem_singleton] at hr; subst hr; exact List.mem_cons_self)
-              (fun _ hr => False.elim (List.not_mem_nil hr)) (flagMask_none_sub _))
-            fun s1 ⟨hg1, hm1⟩ hfr1 => Machine.FallsTo.conseq
-              (vllMach_alu_spec arm64Arch_wf (op := op) (w := .w32) (rd := rd)
-                (lhs := .reg .X16) (rhs := sb) (sf := false)) fun s2 ⟨hg2, _, _, hm2⟩ _ => by
-                  have hg1' : s1.gpr (.reg .X16) = ca.setWidth 64 := hg1
-                  have ha1 : (s1.gpr (.reg .X16)).setWidth 32 = ca := by
-                    rw [hg1']; exact setWidth_setWidth_self64 (by decide) ca
-                  have hb1 := hpb_val sb s1 hsb hfr1.1
-                  dsimp only [Width.bits] at hg2
-                  rw [ha1, hb1] at hg2
-                  exact ⟨⟨_, hP, hg2⟩, hm2.trans hm1⟩
-        exact Machine.FallsTo.weaken hcomp
-          (fun r hr => by
-            rcases List.mem_append.mp hr with h1 | h2
-            · exact List.mem_cons_of_mem rd h1
-            · simp only [List.mem_singleton] at h2; subst h2; exact List.mem_cons_self)
-          (fun _ hr => False.elim (List.not_mem_nil hr)) (by cases op <;> decide)
-  cases code with
-  | copy t =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
-    rcases hrel with _ | ⟨hpa, hnil⟩; cases hnil
-    cases pa with
-    | vec v => exact v.elim
-    | gpr r =>
-      cases hop
-      have hr : (s.gpr r).setWidth 32 = va := hpa.2
-      refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-        (vllMach_movW_spec arm64Arch_wf (w := .w32) (rd := rd) (rs := r))) ?_
-      intro s' ⟨hg, _, hm⟩ _; dsimp only [Width.bits] at hg; rw [hr] at hg
-      exact ⟨⟨va, hwp, hg⟩, hm⟩
-    | imm cv =>
-      cases hop; have hEq : cv = va := hpa; subst hEq
-      refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-        (vllMach_movi_spec (A := arm64Arch) (rd := rd) (imm := cv.setWidth 64))) ?_
-      intro s' ⟨hg, hm⟩ _; exact ⟨⟨cv, hwp, hg⟩, hm⟩
-  | bitcast t u hsz =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
-    rcases hrel with _ | ⟨hpa, hnil⟩; cases hnil
-    cases t with
-    | bool | float _ | pair _ _ => cases hop
-    | bits m =>
-      have hmn : m = 32 := hsz; subst hmn
-      cases pa with
-      | vec v => exact v.elim
-      | gpr r =>
-        cases hop
-        have hr : (s.gpr r).setWidth 32 = va := hpa.2
-        refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-          (vllMach_movW_spec arm64Arch_wf (w := .w32) (rd := rd) (rs := r))) ?_
-        intro s' ⟨hg, _, hm⟩ _; dsimp only [Width.bits] at hg; rw [hr] at hg
-        exact ⟨⟨va, by simpa [OpCode.wp, ofBits, toBits] using hwp, hg⟩, hm⟩
-      | imm cv =>
-        cases hop; have hEq : cv = va := hpa; subst hEq
-        refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-          (vllMach_movi_spec (A := arm64Arch) (rd := rd) (imm := cv.setWidth 64))) ?_
-        intro s' ⟨hg, hm⟩ _
-        exact ⟨⟨cv, by simpa [OpCode.wp, ofBits, toBits] using hwp, hg⟩, hm⟩
-  | add _ | sub _ | mul _ | and _ | or _ | xor _ | shl _ | lshr _ | ashr _ =>
-    rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
-    rcases hrel with _ | ⟨hpa, hrel2⟩; rcases hrel2 with _ | ⟨hpb, hnil⟩; cases hnil
-    have hpb_ns : ∀ r ∈ pb.gprs, r ∉ armScratch := fun r hr =>
-      ha r (List.mem_append_right _ (List.mem_append_left _ hr))
-    exact alu32 hop hpb_ns hpa hpb hwp
-  | neg _ =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
-    rcases hrel with _ | ⟨hpa, hnil⟩; cases hnil
-    dsimp only [vllCoreOp, vllCoreNeg, withWidth, vllCoreNegW] at hop
-    cases hsb : vllSrcOfPArg (A := arm64Arch) .w32 pa with
-    | none => simp [hsb] at hop
-    | some sb =>
-      simp only [arm64Arch, arm64Abi, armScratch, List.head?_cons, hsb] at hop
-      cases hop
-      have hcomp : (vllMach arm64Arch).FallsTo arm64Arch.condReads h k
-          ([.movi (.reg .X16) 0#64] ++ [.alu .sub .w32 rd (.reg .X16) sb false])
-          (armScratch ++ [rd]) ([] ++ []) (maskNone ||| arm64Arch.aluClob .sub false) s
-          (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.gpr rd = rv.setWidth 64) ∧
-            s'.mem = s.mem) post :=
-        Machine.FallsTo.comp
-          (Machine.FallsTo.weaken (g₂ := armScratch)
-            (vllMach_movi_spec (A := arm64Arch) (s := s) (rd := .reg .X16) (imm := 0#64))
-            (fun r hr => by
-              simp only [List.mem_singleton] at hr; subst hr; exact List.mem_cons_self)
-            (fun _ hr => False.elim (List.not_mem_nil hr)) (flagMask_none_sub _))
-          fun s1 ⟨hg1, hm1⟩ hfr1 => Machine.FallsTo.conseq
-            (vllMach_alu_spec arm64Arch_wf (op := .sub) (w := .w32) (rd := rd)
-              (lhs := .reg .X16) (rhs := sb) (sf := false)) fun s2 ⟨hg2, _, _, hm2⟩ _ => by
-                have hg1' : s1.gpr (.reg .X16) = 0#64 := hg1
-                have hsb1 : sb.evalW .w32 s1.gpr = va := by
-                  cases pa with
-                  | vec v => exact v.elim
-                  | gpr r =>
-                    cases hsb; dsimp only [Src.evalW, Src.eval]
-                    have hr1 : s1.gpr r = s.gpr r :=
-                      hfr1.1 r (ha r (List.mem_append_left _ List.mem_cons_self))
-                    rw [hr1]; exact hpa.2
-                  | imm cv =>
-                    cases hsb; have hEq : cv = va := hpa; subst hEq
-                    exact setWidth_setWidth_self64 (by decide) cv
-                dsimp only [Width.bits] at hg2; rw [hg1', hsb1] at hg2
-                have hsub : CoreAlu.sub.eval .w32 ((0#64).setWidth 32) va = -va :=
-                  BitVec.zero_sub va
-                rw [hsub] at hg2; exact ⟨⟨-va, hwp, hg2⟩, hm2.trans hm1⟩
-      exact Machine.FallsTo.weaken hcomp
-        (fun r hr => by
-          rcases List.mem_append.mp hr with h1 | h2
-          · exact List.mem_cons_of_mem rd h1
-          · simp only [List.mem_singleton] at h2; subst h2; exact List.mem_cons_self)
-        (fun _ hr => False.elim (List.not_mem_nil hr)) (by decide)
-  | not _ =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
-    rcases hrel with _ | ⟨hpa, hnil⟩; cases hnil
-    dsimp only [vllCoreOp, vllCoreNot, withWidth, vllCoreNotW] at hop
-    have hxor : CoreAlu.xor.eval .w32 va ((~~~0#64).setWidth 32) = ~~~va := by
-      show va ^^^ ~~~0#32 = ~~~va; exact BitVec.xor_allOnes
-    cases pa with
-    | vec v => exact v.elim
-    | gpr r =>
-      cases hop
-      have hr : (s.gpr r).setWidth 32 = va := hpa.2
-      refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-        (vllMach_alu_spec arm64Arch_wf (op := .xor) (w := .w32) (rd := rd) (lhs := r)
-          (rhs := .imm (~~~0#64)) (sf := false))) fun s' ⟨hg, _, _, hm⟩ _ => by
-            dsimp only [Width.bits, Src.evalW, Src.eval] at hg; rw [hr, hxor] at hg
-            exact ⟨⟨~~~va, hwp, hg⟩, hm⟩
-    | imm cv =>
-      have hEq : cv = va := hpa; subst hEq; cases hop
-      have hcomp : (vllMach arm64Arch).FallsTo arm64Arch.condReads h k
-          ([.movi (.reg .X16) (cv.setWidth 64)] ++
-            [.alu .xor .w32 rd (.reg .X16) (.imm (~~~0#64)) false])
-          (armScratch ++ [rd]) ([] ++ []) (maskNone ||| arm64Arch.aluClob .xor false) s
-          (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.gpr rd = rv.setWidth 64) ∧
-            s'.mem = s.mem) post :=
-        Machine.FallsTo.comp
-          (Machine.FallsTo.weaken (g₂ := armScratch)
-            (vllMach_movi_spec (A := arm64Arch) (s := s) (rd := .reg .X16)
-              (imm := cv.setWidth 64))
-            (fun r hr => by
-              simp only [List.mem_singleton] at hr; subst hr; exact List.mem_cons_self)
-            (fun _ hr => False.elim (List.not_mem_nil hr)) (flagMask_none_sub _))
-          fun s1 ⟨hg1, hm1⟩ _ => Machine.FallsTo.conseq
-            (vllMach_alu_spec arm64Arch_wf (op := .xor) (w := .w32) (rd := rd) (lhs := .reg .X16)
-              (rhs := .imm (~~~0#64)) (sf := false)) fun s2 ⟨hg2, _, _, hm2⟩ _ => by
-                have hg1' : s1.gpr (.reg .X16) = cv.setWidth 64 := hg1
-                dsimp only [Width.bits, Src.evalW, Src.eval] at hg2
-                rw [hg1', setWidth_setWidth_self64 (by decide), hxor] at hg2
-                exact ⟨⟨~~~cv, hwp, hg2⟩, hm2.trans hm1⟩
-      exact Machine.FallsTo.weaken hcomp
-        (fun r hr => by
-          rcases List.mem_append.mp hr with h1 | h2
-          · exact List.mem_cons_of_mem rd h1
-          · simp only [List.mem_singleton] at h2; subst h2; exact List.mem_cons_self)
-        (fun _ hr => False.elim (List.not_mem_nil hr)) (by decide)
-  | zext m _ =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
-    rcases hrel with _ | ⟨hpa, hnil⟩; cases hnil
-    dsimp only [vllCoreOp, vllCoreZext] at hop
-    cases hok : (arm64Arch.abi.bitWidths.contains m && arm64Arch.abi.bitWidths.contains 32 &&
-        (Width.ofBits? m).isSome && (Width.ofBits? 32).isSome && Nat.ble m 32) <;>
-      simp only [hok, Bool.false_eq_true, ↓reduceIte] at hop
-    · cases hop
-    · have hm32 : m ≤ 32 := by simp only [Bool.and_eq_true, Nat.ble_eq] at hok; exact hok.2
-      have hmIn : m ∈ arm64Arch.abi.bitWidths := by
-        simp only [Bool.and_eq_true, List.contains_eq_mem, decide_eq_true_eq] at hok
-        exact hok.1.1.1.1
-      have hP : P (va.setWidth 32, ()) := hwp.2
-      cases pa with
-      | vec v => exact v.elim
-      | imm cv =>
-        cases hop; have hEq : cv = va := hpa; subst hEq
-        refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-          (vllMach_movi_spec (A := arm64Arch) (rd := rd)
-            (imm := (cv.setWidth 32).setWidth 64)))
-          fun s' ⟨hg, hm⟩ _ => ⟨⟨cv.setWidth 32, hP, hg⟩, hm⟩
-      | gpr r =>
-        cases hop
-        have hcomp : (vllMach arm64Arch).FallsTo arm64Arch.condReads h k
-            ([.mov .w64 rd r] ++ [.canonAbi (.bits m) rd])
-            ([rd] ++ (rd :: armScratch)) ([] ++ [])
-            (maskNone ||| arm64Arch.abi.canonAbiClob (.bits m)) s
-            (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.gpr rd = rv.setWidth 64) ∧
-              s'.mem = s.mem) post :=
-          Machine.FallsTo.comp (vllMach_mov_spec arm64Arch_wf (rd := rd) (rs := r))
-            fun s1 ⟨hg1, hm1⟩ _ => Machine.FallsTo.conseq
-              (vllMach_canonAbi_spec arm64Arch_wf (t := .bits m) (r := rd) (v := va)
-                (Or.inr ⟨m, hmIn, rfl⟩) (by
-                  have hg1' : s1.gpr rd = s.gpr r := hg1; rw [hg1']; exact hpa))
-              fun s2 ⟨hab, hm2⟩ _ => by
-                have h2 : s2.gpr rd = va.setWidth 64 := hab.2
-                have h3 : (va.setWidth 32).setWidth 64 = va.setWidth 64 := by
-                  apply BitVec.eq_of_getLsbD_eq; intro j
-                  by_cases hj : j < 64
-                  · by_cases hjm : j < m
-                    · simp [hj, show j < 32 by omega]
-                    · have h0 : va.getLsbD j = false :=
-                        Nat.testBit_lt_two_pow (Nat.lt_of_lt_of_le va.isLt
-                          (Nat.pow_le_pow_right (by decide) (by omega)))
-                      simp [h0]
-                  · simp [hj]
-                exact ⟨⟨va.setWidth 32, hP, h2.trans h3.symm⟩, hm2.trans hm1⟩
-        exact Machine.FallsTo.weaken hcomp
-          (fun r hr => by
-            simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at hr
-            rcases hr with rfl | rfl | hr'
-            · exact List.mem_cons_self
-            · exact List.mem_cons_self
-            · exact List.mem_cons_of_mem rd (by simpa [armScratch] using hr'))
-          (fun _ hr => False.elim (List.not_mem_nil hr))
-          (by dsimp only [arm64Arch, arm64Abi, Abi.canonAbiClob]; decide)
-  | sext m _ =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
-    rcases hrel with _ | ⟨hpa, hnil⟩; cases hnil
-    dsimp only [vllCoreOp, vllCoreSext, withWidth, vllCoreSextW] at hop
-    cases hw1 : (Width.ofBits? m).isSome <;> simp only [hw1, Bool.false_eq_true, ↓reduceIte] at hop
-    · cases hop
-    · cases hok : (arm64Arch.abi.bitWidths.contains m && arm64Arch.abi.bitWidths.contains 32 &&
-          Nat.ble 1 m && Nat.ble m 32) <;> simp only [hok, Bool.false_eq_true, ↓reduceIte] at hop
-      · cases hop
-      · have hm : m = 8 ∨ m = 16 ∨ m = 32 := by
-          simp only [Bool.and_eq_true, List.contains_eq_mem, decide_eq_true_eq, List.mem_cons,
-            List.not_mem_nil, or_false, Nat.ble_eq] at hok
-          rcases hok.1.1.1 with rfl | rfl | rfl | rfl <;> omega
-        have hP : P (va.signExtend 32, ()) := hwp.2
-        cases pa with
-        | vec v => exact v.elim
-        | imm cv =>
-          cases hop; have hEq : cv = va := hpa; subst hEq
-          refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-            (vllMach_movi_spec (A := arm64Arch) (rd := rd)
-              (imm := (cv.signExtend 32).setWidth 64)))
-            fun s' ⟨hg, hm'⟩ _ => ⟨⟨cv.signExtend 32, hP, hg⟩, hm'⟩
-        | gpr r =>
-          cases hop
-          have hr : (s.gpr r).setWidth m = va := hpa.2
-          have hcomp : (vllMach arm64Arch).FallsTo arm64Arch.condReads h k
-              ([.alu .shl .w32 rd r (.imm (BitVec.ofNat 64 (32 - m))) false] ++
-                [.alu .ashr .w32 rd rd (.imm (BitVec.ofNat 64 (32 - m))) false])
-              ([rd] ++ [rd]) ([] ++ [])
-              (arm64Arch.aluClob .shl false ||| arm64Arch.aluClob .ashr false) s
-              (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.gpr rd = rv.setWidth 64) ∧
-                s'.mem = s.mem) post :=
-            Machine.FallsTo.comp
-              (vllMach_alu_spec arm64Arch_wf (op := .shl) (w := .w32) (rd := rd) (lhs := r)
-                (rhs := .imm (BitVec.ofNat 64 (32 - m))) (sf := false))
-              fun s1 ⟨hg1, _, _, hm1⟩ _ => Machine.FallsTo.conseq
-                (vllMach_alu_spec arm64Arch_wf (op := .ashr) (w := .w32) (rd := rd) (lhs := rd)
-                  (rhs := .imm (BitVec.ofNat 64 (32 - m))) (sf := false))
-                fun s2 ⟨hg2, _, _, hm2⟩ _ => by
-                  have h2 : s2.gpr rd = (va.signExtend 32).setWidth 64 := by
-                    rw [hg2, hg1]; dsimp only [arm64Arch, writeSubZeroExtend, CoreAlu.eval,
-                      Src.evalW, Src.eval, Width.bits]
-                    rw [setWidth_setWidth_self64 (by decide), sext32_shl_ashr hm, hr]
-                  exact ⟨⟨va.signExtend 32, hP, h2⟩, hm2.trans hm1⟩
-          exact Machine.FallsTo.weaken hcomp
-            (fun r hr => by
-              simp only [List.mem_append, List.mem_singleton] at hr
-              rcases hr with rfl | rfl <;> exact List.mem_cons_self)
-            (fun _ hr => False.elim (List.not_mem_nil hr)) (by decide)
-  | trunc m _ =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
-    rcases hrel with _ | ⟨hpa, hnil⟩; cases hnil
-    dsimp only [vllCoreOp, vllCoreTrunc, withWidth, vllCoreTruncW] at hop
-    cases hw1 : (Width.ofBits? m).isSome <;> simp only [hw1, Bool.false_eq_true, ↓reduceIte] at hop
-    · cases hop
-    · cases hok : (arm64Arch.abi.bitWidths.contains m && arm64Arch.abi.bitWidths.contains 32 &&
-          Nat.ble 32 m) <;> simp only [hok, Bool.false_eq_true, ↓reduceIte] at hop
-      · cases hop
-      · have h32m : 32 ≤ m := by simp only [Bool.and_eq_true, Nat.ble_eq] at hok; exact hok.2
-        have hP : P (va.setWidth 32, ()) := hwp.2
-        cases pa with
-        | vec v => exact v.elim
-        | imm cv =>
-          cases hop; have hEq : cv = va := hpa; subst hEq
-          refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-            (vllMach_movi_spec (A := arm64Arch) (rd := rd)
-              (imm := (cv.setWidth 32).setWidth 64)))
-            fun s' ⟨hg, hm⟩ _ => ⟨⟨cv.setWidth 32, hP, hg⟩, hm⟩
-        | gpr r =>
-          cases hop
-          have hr : (s.gpr r).setWidth m = va := hpa.2
-          refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-            (vllMach_movW_spec arm64Arch_wf (w := .w32) (rd := rd) (rs := r)))
-            fun s' ⟨hg, _, hm⟩ _ => by
-              dsimp only [Width.bits] at hg
-              rw [show (s.gpr r).setWidth 32 = va.setWidth 32 by
-                rw [← hr, BitVec.setWidth_setWidth_of_le _ h32m]] at hg
-              exact ⟨⟨va.setWidth 32, hP, hg⟩, hm⟩
-  | ofBool _ =>
-    rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
-    rcases hrel with _ | ⟨hpa, hnil⟩; cases hnil
-    have h32b : BitVec.ofNat 64 va.toNat = (BitVec.ofNat 32 va.toNat).setWidth 64 := by
-      cases va <;> rfl
-    cases pa with
-    | vec v => exact v.elim
-    | imm b =>
-      cases hop; have hEq : b = va := hpa; subst hEq
-      refine Machine.FallsTo.conseq (fallsTo_weaken_rd
-        (vllMach_movi_spec (A := arm64Arch) (rd := rd) (imm := BitVec.ofNat 64 b.toNat)))
-        fun s' ⟨hg, hm⟩ _ => ⟨⟨BitVec.ofNat 32 b.toNat, hwp, hg.trans h32b⟩, hm⟩
-    | gpr r =>
-      cases hop
-      have hcomp : (vllMach arm64Arch).FallsTo arm64Arch.condReads h k
-          ([.mov .w64 rd r] ++ [.canonAbi .bool rd])
-          ([rd] ++ (rd :: armScratch)) ([] ++ [])
-          (maskNone ||| arm64Arch.abi.canonAbiClob .bool) s
-          (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.gpr rd = rv.setWidth 64) ∧
-            s'.mem = s.mem) post :=
-        Machine.FallsTo.comp (vllMach_mov_spec arm64Arch_wf (rd := rd) (rs := r))
-          fun s1 ⟨hg1, hm1⟩ _ => Machine.FallsTo.conseq
-            (vllMach_canonAbi_spec arm64Arch_wf (t := .bool) (r := rd) (Or.inl rfl)
-              (by have hg1' : s1.gpr rd = s.gpr r := hg1; rw [hg1']; exact hpa))
-            fun s2 ⟨hab, hm2⟩ _ => ⟨⟨BitVec.ofNat 32 va.toNat, hwp, hab.trans h32b⟩, hm2.trans hm1⟩
-      exact Machine.FallsTo.weaken hcomp
-        (fun r hr => by
-          simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at hr
-          rcases hr with rfl | rfl | hr'
-          · exact List.mem_cons_self
-          · exact List.mem_cons_self
-          · exact List.mem_cons_of_mem rd (by simpa [armScratch] using hr'))
-        (fun _ hr => False.elim (List.not_mem_nil hr)) (by decide)
-    | flag cf =>
-      cases hop
-      have hcomp : (vllMach arm64Arch).FallsTo arm64Arch.condReads h k
-          ([.setcc rd cf] ++ [.canonAbi .bool rd])
-          ([rd] ++ (rd :: armScratch)) ([] ++ [])
-          (maskNone ||| arm64Arch.abi.canonAbiClob .bool) s
-          (fun s' => (∃ rv : BitVec 32, P (rv, ()) ∧ s'.gpr rd = rv.setWidth 64) ∧
-            s'.mem = s.mem) post :=
-        Machine.FallsTo.comp
-          (vllMach_setcc_spec arm64Arch_wf (rd := rd) (c := cf))
-          fun s1 ⟨hg1, hm1⟩ _ => Machine.FallsTo.conseq
-            (vllMach_canonAbi_spec arm64Arch_wf (t := .bool) (r := rd) (Or.inl rfl)
-              (by rw [hpa] at hg1; exact hg1))
-            fun s2 ⟨hab, hm2⟩ _ => ⟨⟨BitVec.ofNat 32 va.toNat, hwp, hab.trans h32b⟩, hm2.trans hm1⟩
-      exact Machine.FallsTo.weaken hcomp
-        (fun r hr => by
-          simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at hr
-          rcases hr with rfl | rfl | hr'
-          · exact List.mem_cons_self
-          · exact List.mem_cons_self
-          · exact List.mem_cons_of_mem rd (by simpa [armScratch] using hr'))
-        (fun _ hr => False.elim (List.not_mem_nil hr)) (by decide)
-  | cmp _ t _ hm => cases t <;> cases hm
-  | _ => cases hop
-
 private theorem vllArmOp_zero32_aux {h : VllHost arm64Arch} {k : Nat} {sig : List Ty}
     {code : OpCode sig [.bits 32]} {pas : Tup (PArg Arm64.Reg Empty ArmCond) sig}
     {dsts : Tup (PDst Arm64.Reg Empty ArmCond) [.bits 32]} {rd : Arm64.Reg} {vh : VariantHint}
@@ -2136,7 +1657,7 @@ private theorem gprHolds_vllToMach {s : MachSt arm64Arch} {r : Arm64.Reg} {t : T
 /-- Complete soundness proof `VllPolicySpec arm64Arch vllArmNativeHooks`. -/
 theorem vllArmPolicySpec : VllPolicySpec arm64Arch vllArmNativeHooks where
   clearFlags_frame := clearFlags_frame_of_nonzero armCondReads_ne_zero
-  cmpFlags_spec := fun _ _ _ _ _ _ h => nomatch h
+  cmpFlags_spec := fun {_ _ _ _ _ _} h => vllArm_cmpFlags_spec h
   jnzGpr_override_spec := by
     intro fn h k j r l b s post hfn hc hl hr hb hcont
     cases hfn
@@ -2145,6 +1666,7 @@ theorem vllArmPolicySpec : VllPolicySpec arm64Arch vllArmNativeHooks where
     intro host jt postH hinfH hlabH hcontH
     exact arm_gprSpec.jnzGpr_spec (b := b) hinfH hlabH hr (gprHolds_vllToMach hb)
       (fun sm' hfr hm => by simpa only [Nat.zero_add] using hcontH sm' hfr hm)
+  jnzGprInv_spec := vllArm_jnzGprInv_spec
   opHook_spec := vllArmOpHook_spec
   storeHook_spec := by
     intro h k t pa a c clob v s post hhk hns hh hok
@@ -2275,6 +1797,175 @@ theorem vllArmPolicySpec : VllPolicySpec arm64Arch vllArmNativeHooks where
   restoreRegs_spec := by
     intro fn h k i rs s₀ s G post hfn hnd hcs hsp hm
     cases hfn; exact vllArmRestoreRegs_spec rs i hnd hcs hsp hm
+  op_boolFlag_spec := by
+    intro h k sig code pas pd cnd vh c clob vs P s post hfl hop _ _ hvs hwp
+    dsimp only [vllGprIsaOfHooks, vllArmNativeHooks] at hfl hop
+    cases pd with
+    | vec v => exact v.elim
+    | flag _ => cases hfl
+    | gpr r => cases r with
+      | SP => cases hfl
+      | reg d =>
+        cases code with
+        | copy =>
+          rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+          rcases hvs with _ | ⟨hpa, hnil⟩; cases hnil
+          cases pa with
+          | vec v => exact v.elim
+          | gpr _ | imm _ => cases hfl
+          | flag cf =>
+            cases hfl
+            dsimp only [vllArmOpHook, vllCoreOp, vllCoreCopy] at hop
+            rcases Option.some.inj hop with ⟨rfl, rfl⟩
+            exact vllArm_setcc_boolFlag_spec hpa hwp
+        | not =>
+          rcases pas with ⟨pa, ⟨⟩⟩; rcases vs with ⟨va, ⟨⟩⟩
+          rcases hvs with _ | ⟨hpa, hnil⟩; cases hnil
+          cases pa with
+          | vec v => exact v.elim
+          | gpr _ | imm _ => cases hfl
+          | flag cf =>
+            cases hfl
+            dsimp only [vllArmOpHook] at hop
+            rcases Option.some.inj hop with ⟨rfl, rfl⟩
+            dsimp only [OpCode.wp, lift1] at hwp
+            have hpa' : cf.interp s.flags = va := hpa
+            exact vllArm_setcc_boolFlag_spec (by rw [armNegCond_interp, hpa']) hwp
+        | _ => cases hfl
+  op_cmpFlags_spec := by
+    intro h k co w pa pb pd lhsFirst vh c clob va vb s post hfl hop ha hd hpa hpb
+    dsimp only [vllGprIsaOfHooks, vllArmNativeHooks] at hfl hop ⊢
+    have hfb_ne : wrapArmNative (armOp (.cmp co (.bits w) .bool rfl)
+        (pa, pb, ()) (pd, ()) vh) ≠ none := by
+      intro h0; have hs := armCmpOp_isSome_of_flagsOut (vh := vh) hfl
+      cases harm : armOp (.cmp co (.bits w) .bool rfl) (pa, pb, ()) (pd, ()) vh <;>
+        simp [wrapArmNative, harm] at h0 hs
+    have hCoreLf : ∀ {ra : XReg} {x : PArg Arm64.Reg Empty ArmCond (.bits w)},
+        armCmpFlagsOut co w (.gpr (.reg ra)) x pd = some lhsFirst → lhsFirst = true := by
+      intro ra x hfx
+      dsimp only [armCmpFlagsOut] at hfx
+      split at hfx; · cases hfx
+      split at hfx; · cases hfx
+      simp only [Option.bind_eq_some_iff] at hfx
+      rcases hfx with ⟨lf', hlf', hok⟩
+      have hl : lf' = lhsFirst := by
+        cases pd with
+        | vec v => exact v.elim
+        | gpr r => cases r with | SP => cases hok | reg _ => exact Option.some.inj hok
+        | flag cf =>
+          cases heq : (cf == armCmpCond (if lf' then co else co.swap)) <;>
+            simp only [heq, Bool.false_eq_true, ↓reduceIte] at hok <;>
+            first | exact Option.some.inj hok | cases hok
+      subst hl
+      cases x with
+      | vec v => exact v.elim
+      | imm cb => dsimp only at hlf'; split at hlf' <;> cases hlf'; rfl
+      | gpr r2 => cases r2 with | SP => cases hlf' | reg _ => exact (Option.some.inj hlf').symm
+    cases hhk : vllArmOpHook (.cmp co (.bits w) .bool rfl) (pa, pb, ()) (pd, ()) vh with
+    | none =>
+      exfalso; dsimp only [vllArmOpHook] at hhk
+      cases pa with
+      | vec v => exact v.elim
+      | imm ca => exact hfb_ne hhk
+      | gpr r1 => cases r1 with
+        | SP => exact hfb_ne hhk
+        | reg ra => cases pb with
+          | vec v => exact v.elim
+          | gpr r2 => cases r2 with
+            | SP => exact hfb_ne hhk
+            | reg rb =>
+              dsimp only at hhk
+              by_cases hn : (w == 32 || w == 64) = true <;>
+                simp only [hn, Bool.false_eq_true, ↓reduceIte] at hhk
+              · dsimp only [vllArmCmpCore] at hhk
+                cases pd with
+                | vec v => exact v.elim
+                | gpr r => cases r with | SP => simp [armCmpFlagsOut] at hfl | reg _ => cases hhk
+                | flag cf =>
+                  dsimp only [armCmpFlagsOut] at hfl
+                  split at hfl; · cases hfl
+                  split at hfl; · cases hfl
+                  simp only [Option.bind_eq_some_iff] at hfl
+                  rcases hfl with ⟨lf', hlf', hok⟩
+                  cases hlf'
+                  simp only [↓reduceIte] at hok
+                  split at hok
+                  · rename_i hcf; simp only [hcf, ↓reduceIte] at hhk; cases hhk
+                  · cases hok
+              · exact hfb_ne hhk
+          | imm cb =>
+            dsimp only at hhk
+            by_cases hcond : ((w == 32 || w == 64) &&
+                (cb != 0#w || (armZeroCmpIns? co w ra pd).isNone) &&
+                ((armImm12? cb).isSome || cb == 0#w || (armImm12? (-cb)).isNone)) = true <;>
+              simp only [hcond, Bool.false_eq_true, ↓reduceIte] at hhk
+            · dsimp only [vllArmCmpCore] at hhk
+              cases pd with
+              | vec v => exact v.elim
+              | gpr r => cases r with | SP => simp [armCmpFlagsOut] at hfl | reg _ => cases hhk
+              | flag cf =>
+                dsimp only [armCmpFlagsOut] at hfl
+                split at hfl; · cases hfl
+                split at hfl; · cases hfl
+                simp only [Option.bind_eq_some_iff] at hfl
+                rcases hfl with ⟨lf', hlf', hok⟩
+                split at hlf'
+                · cases hlf'
+                · cases hlf'
+                  simp only [↓reduceIte] at hok
+                  split at hok
+                  · rename_i hcf; simp only [hcf, ↓reduceIte] at hhk; cases hhk
+                  · cases hok
+            · exact hfb_ne hhk
+    | some res =>
+      rw [hhk] at hop; cases hop
+      dsimp only [vllArmOpHook] at hhk
+      cases pa with
+      | vec v => exact v.elim
+      | imm ca => exact vllArm_cmpNative_flags_spec rfl hfl hhk ha hd hpa hpb
+      | gpr r1 => cases r1 with
+        | SP => exact vllArm_cmpNative_flags_spec rfl hfl hhk ha hd hpa hpb
+        | reg ra => cases pb with
+          | vec v => exact v.elim
+          | gpr r2 => cases r2 with
+            | SP => exact vllArm_cmpNative_flags_spec rfl hfl hhk ha hd hpa hpb
+            | reg rb =>
+              dsimp only at hhk
+              by_cases hn : (w == 32 || w == 64) = true
+              · simp only [hn, ↓reduceIte] at hhk
+                have hn' : w = 32 ∨ w = 64 := by
+                  simp only [Bool.or_eq_true, beq_iff_eq] at hn; exact hn
+                obtain rfl : lhsFirst = true := hCoreLf hfl
+                rcases hn' with rfl | rfl
+                · exact vllArm_cmpCore_flags_spec rfl hhk hpa.2 hpb.2
+                · exact vllArm_cmpCore_flags_spec rfl hhk hpa.2 hpb.2
+              · simp only [hn, Bool.false_eq_true, ↓reduceIte] at hhk
+                exact vllArm_cmpNative_flags_spec rfl hfl hhk ha hd hpa hpb
+          | imm cb =>
+            dsimp only at hhk
+            by_cases hcond : ((w == 32 || w == 64) &&
+                (cb != 0#w || (armZeroCmpIns? co w ra pd).isNone) &&
+                ((armImm12? cb).isSome || cb == 0#w || (armImm12? (-cb)).isNone)) = true
+            · simp only [hcond, ↓reduceIte] at hhk
+              have hn' : w = 32 ∨ w = 64 := by
+                simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at hcond; exact hcond.1.1
+              obtain rfl : lhsFirst = true := hCoreLf hfl
+              have hcb : cb = vb := hpb
+              rcases hn' with rfl | rfl
+              · exact vllArm_cmpCore_flags_spec rfl hhk hpa.2
+                  (by dsimp only [Src.evalW, Src.eval, Width.bits]; rw [hcb]
+                      exact (BitVec.setWidth_setWidth_of_le vb (by decide)).trans
+                        (BitVec.setWidth_eq vb))
+              · exact vllArm_cmpCore_flags_spec rfl hhk hpa.2
+                  (by dsimp only [Src.evalW, Src.eval, Width.bits]; rw [hcb]
+                      exact (BitVec.setWidth_setWidth_of_le vb (by decide)).trans
+                        (BitVec.setWidth_eq vb))
+            · simp only [hcond, Bool.false_eq_true, ↓reduceIte] at hhk
+              exact vllArm_cmpNative_flags_spec rfl hfl hhk ha hd hpa hpb
+  testOp_boolFlag_spec := fun _ {_ _ _ _ _ _ _ _ _ _ _ _ _ _} hcl hcc hto ha hd hpa hpb =>
+    vllArm_testOp_boolFlag_spec hcl hcc hto ha hd hpa hpb
+  testMem_boolFlag_spec := by
+    intros; simp only [vllArmNativeHooks] at *; contradiction
   vecSpec := vllEmptyVecTarget arm64Arch Empty.elim
 
 /-- Verified AArch64 `VllPolicy arm64Arch`. -/
@@ -2317,15 +2008,11 @@ theorem vllArmStrictGprTarget :
     GprTarget (vllMach arm64Arch) vllArmStrictGpr armScratch := by
   have base := vllArmTarget.gprSpec
   refine
-    { negCond_reads := base.negCond_reads
-      negCond_eval := base.negCond_eval
+    { negCond_reads := base.negCond_reads, negCond_eval := base.negCond_eval
       clearFlags_spec := base.clearFlags_spec
-      mov_spec := base.mov_spec
-      movi_spec := base.movi_spec
-      setcc_spec := base.setcc_spec
-      jmp_spec := base.jmp_spec
-      jcc_spec := base.jcc_spec
-      jnzGpr_spec := base.jnzGpr_spec
+      mov_spec := base.mov_spec, movi_spec := base.movi_spec
+      setcc_spec := base.setcc_spec, jmp_spec := base.jmp_spec, jcc_spec := base.jcc_spec
+      jnzGpr_spec := base.jnzGpr_spec, jnzGprInv_spec := base.jnzGprInv_spec
       op_spec := fun hop => by
         dsimp only [vllArmStrictGpr] at hop
         split at hop <;> first | exact base.op_spec hop | cases hop
@@ -2344,17 +2031,19 @@ theorem vllArmStrictGprTarget :
       op_zero32 := fun hz hop => by
         dsimp only [vllArmStrictGpr] at hop
         split at hop <;> first | exact base.op_zero32 hz hop | cases hop
-      testOp_spec := base.testOp_spec
-      loadSext_spec := base.loadSext_spec
-      cmpZeroJcc_spec := base.cmpZeroJcc_spec
-      testJcc_spec := base.testJcc_spec
-      leaArith_spec := base.leaArith_spec
-      leaArith_zero32 := base.leaArith_zero32
-      loadZextIdx_spec := base.loadZextIdx_spec
-      loadZextIdx_zero32 := base.loadZextIdx_zero32
-      loadZextIdx_zext := base.loadZextIdx_zext
-      loadSextZextIdx_spec := base.loadSextZextIdx_spec
-      storeZextIdx_spec := base.storeZextIdx_spec
+      op_boolFlag_spec := fun hfl hop => by
+        dsimp only [vllArmStrictGpr] at hop
+        split at hop <;> first | exact base.op_boolFlag_spec hfl hop | cases hop
+      op_cmpFlags_spec := fun hfl hop => by
+        dsimp only [vllArmStrictGpr] at hop
+        split at hop <;> first | exact base.op_cmpFlags_spec hfl hop | cases hop
+      testOp_spec := base.testOp_spec, testOp_boolFlag_spec := base.testOp_boolFlag_spec
+      testMem_boolFlag_spec := base.testMem_boolFlag_spec
+      loadSext_spec := base.loadSext_spec, cmpZeroJcc_spec := base.cmpZeroJcc_spec
+      testJcc_spec := base.testJcc_spec, leaArith_spec := base.leaArith_spec
+      leaArith_zero32 := base.leaArith_zero32, loadZextIdx_spec := base.loadZextIdx_spec
+      loadZextIdx_zero32 := base.loadZextIdx_zero32, loadZextIdx_zext := base.loadZextIdx_zext
+      loadSextZextIdx_spec := base.loadSextZextIdx_spec, storeZextIdx_spec := base.storeZextIdx_spec
       leaArithZext_spec := base.leaArithZext_spec }
 
 /-- Verified strict domain-matched `Target` over `BedrockMach` L1 (`Instr arm64Arch`). -/
@@ -2364,40 +2053,6 @@ theorem vllArmStrictGprTarget :
   gprSpec := vllArmStrictGprTarget
   frameSpec := vllArmTarget.frameSpec
   vecSpec := vllArmTarget.vecSpec
-
-private theorem vllArmSaveRegs_noLab : ∀ i rs, NoVllLab (vllArmSaveRegs i rs)
-  | _, [] => noVllLab_nil
-  | _, [_] => noVllLab_one (fun _ e => by cases e)
-  | i, .SP :: r2 :: rs =>
-    noVllLab_cons (fun _ e => by cases e) (vllArmSaveRegs_noLab (i + 1) (r2 :: rs))
-  | i, .reg _ :: .SP :: rs =>
-    noVllLab_cons (fun _ e => by cases e) (vllArmSaveRegs_noLab (i + 1) (.SP :: rs))
-  | i, .reg _ :: .reg _ :: rs => by
-    dsimp only [vllArmSaveRegs]
-    refine noVllLab_append ?_ (vllArmSaveRegs_noLab (i + 2) rs)
-    split
-    · exact noVllLab_one (fun _ e => by cases e)
-    · exact noVllLab_two (fun _ e => by cases e) (fun _ e => by cases e)
-
-private theorem vllArmRestoreRegs_noLab : ∀ i rs, NoVllLab (vllArmRestoreRegs i rs)
-  | _, [] => noVllLab_nil
-  | _, [_] => noVllLab_one (fun _ e => by cases e)
-  | i, .SP :: r2 :: rs =>
-    noVllLab_cons (fun _ e => by cases e) (vllArmRestoreRegs_noLab (i + 1) (r2 :: rs))
-  | i, .reg _ :: .SP :: rs =>
-    noVllLab_cons (fun _ e => by cases e) (vllArmRestoreRegs_noLab (i + 1) (.SP :: rs))
-  | i, .reg _ :: .reg _ :: rs => by
-    dsimp only [vllArmRestoreRegs]
-    refine noVllLab_append ?_ (vllArmRestoreRegs_noLab (i + 2) rs)
-    split
-    · exact noVllLab_one (fun _ e => by cases e)
-    · exact noVllLab_two (fun _ e => by cases e) (fun _ e => by cases e)
-
-private theorem wrapArmNative_noLab {res : Option (List _root_.Directive × FlagMask)}
-    {c : List (Instr arm64Arch)} {cl : FlagMask} (h : wrapArmNative res = some (c, cl)) :
-    NoVllLab c := by
-  obtain ⟨_, _, rfl⟩ := wrapArmNative_eq_some h
-  exact insPure_map_native_noLab
 
 private theorem vllArmCmpCore_noLab {o : CmpOp} {w : Width} {ra : XReg} {rhs : Src arm64Arch}
     {dst : PDst Arm64.Reg Empty ArmCond .bool} {c : List (Instr arm64Arch)} {cl : FlagMask}
@@ -2447,6 +2102,7 @@ private theorem vllArmOpHook_noLab {sig rs : List Ty} {code : OpCode sig rs}
 /-- Structural label-freedom for `vllArmNativeHooks`. -/
 theorem vllArmHooksNoLab : VllHooksNoLab arm64Arch vllArmNativeHooks where
   jnzGpr := fun h => by cases h; exact insPure_map_native_noLab
+  jnzGprInv := fun h => by cases h; exact insPure_map_native_noLab
   opHook := fun h => vllArmOpHook_noLab h
   storeHook := fun {t pa a c cl} h => by
     dsimp only [vllArmNativeHooks, vllArmStoreHook] at h

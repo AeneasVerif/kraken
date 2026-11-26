@@ -841,17 +841,23 @@ theorem vllArmStrictOp_asm {sig rs : List Ty} (code : OpCode sig rs)
           by_cases hn : n = 32 ∨ n = 64
           · rcases hn with rfl | rfl <;> (
               dsimp only [vllArmStrictGpr, vllGprIsaOfHooks, vllArmNativeHooks, armGpr]
-              refine strict_eq ?_
+              refine strict_eq_some fun p hp => ?_
               cases dst with
               | vec v => exact v.elim
               | flag cf =>
-                dsimp only [vllArmOpHook, vllArmCmpCore, armOp, armOpIns, armCmpOpIns,
-                  emitCleanPair]
+                dsimp only [armOp, armOpIns, armCmpOpIns, emitCleanPair] at hp
+                dsimp only [vllArmOpHook, vllArmCmpCore]
                 cases hc : (cf == armCmpCond o) <;>
-                  (simp only [Bool.false_eq_true, ↓reduceIte]; rfl)
+                  simp only [hc, Bool.false_eq_true, ↓reduceIte] at hp ⊢
+                · cases hp
+                · cases hp; rfl
               | gpr rd => cases rd with
-                | SP => rfl
-                | reg d => rfl)
+                | SP =>
+                  dsimp only [armOp, armOpIns, armCmpOpIns, emitCleanPair] at hp
+                  cases hp
+                | reg d =>
+                  dsimp only [armOp, armOpIns, armCmpOpIns, emitCleanPair] at hp
+                  cases hp; rfl)
           · have hnot : (n == 32 || n == 64) = false := by
               simp only [Bool.or_eq_false_iff, beq_eq_false_iff_ne]; omega
             exact hfb (by dsimp only [vllArmOpHook]; simp only [hnot, Bool.false_eq_true,
@@ -879,33 +885,40 @@ theorem vllArmStrictOp_asm {sig rs : List Ty} (code : OpCode sig rs)
               · exact h2
             rcases hn with rfl | rfl <;> (
               dsimp only [vllArmStrictGpr, vllGprIsaOfHooks, vllArmNativeHooks, armGpr]
-              refine strict_eq ?_
-              dsimp only [vllArmOpHook, armOp, armOpIns, armCmpOpIns, emitCleanPair]
-              simp only [hcond, ↓reduceIte]
-              try rw [show (32 == 64) = false from rfl]
-              try rw [show (64 == 64) = true from rfl]
-              try rw [show (32 == 32 || 32 == 64) = true from rfl]
-              try rw [show (64 == 32 || 64 == 64) = true from rfl]
-              simp only [Bool.false_eq_true, ↓reduceIte]
+              refine strict_eq_some fun p hp => ?_
+              dsimp only [armOp, armOpIns, armCmpOpIns, emitCleanPair] at hp
+              dsimp only [vllArmOpHook]
+              simp only [hcond, ↓reduceIte] at hp ⊢
+              try rw [show (32 == 64) = false from rfl] at hp ⊢
+              try rw [show (64 == 64) = true from rfl] at hp ⊢
+              try rw [show (32 == 32 || 32 == 64) = true from rfl] at hp ⊢
+              try rw [show (64 == 32 || 64 == 64) = true from rfl] at hp ⊢
+              simp only [Bool.false_eq_true, ↓reduceIte] at hp ⊢
               by_cases h0 : cb = 0#_
               · have h0imm : armImm12? cb =
                     some (.imm { imm := .int64 0, shift := .S0 }) := by rw [h0]; rfl
                 have h0b : (cb == 0#_) = true := beq_iff_eq.mpr h0
                 have hzc0 := hzc h0
-                rw [h0b, hzc0]
+                rw [h0b, hzc0] at hp
                 cases dst with
                 | vec v => exact v.elim
                 | flag cf =>
+                  dsimp only [armCmpImmIns?, armWidthOf] at hp
                   dsimp only [armCmpImmIns?, armWidthOf, vllArmCmpCore]
-                  rw [h0imm]
-                  cases cf == armCmpCond o
-                  · rfl
-                  · simp only [↓reduceIte, Option.map_some]; rw [asmArm64List_one]
+                  rw [h0imm] at hp
+                  cases hc : (cf == armCmpCond o) <;>
+                    simp only [hc, Bool.false_eq_true, ↓reduceIte] at hp ⊢
+                  · cases hp
+                  · cases hp; dsimp only [Option.map_some]; rw [asmArm64List_one]
                     dsimp only [asmArm64, asmCmpIns, widthToRegWidth]
                     rw [setWidth_setWidth_self64 (by decide) cb, h0imm]; rfl
                 | gpr rd => cases rd with
-                  | SP => dsimp only [armCmpImmIns?, vllArmCmpCore]; rw [h0imm]; rfl
+                  | SP =>
+                    dsimp only [armCmpImmIns?, armWidthOf] at hp
+                    rw [h0imm] at hp; cases hp
                   | reg d =>
+                    dsimp only [armCmpImmIns?, armWidthOf] at hp
+                    rw [h0imm] at hp; cases hp
                     dsimp only [armCmpImmIns?, armWidthOf, vllArmCmpCore, Option.map_some]
                     rw [asmArm64List_two]
                     dsimp only [asmArm64, asmCmpIns, widthToRegWidth, armSetcc, armSetccIns]
@@ -917,45 +930,55 @@ theorem vllArmStrictOp_asm {sig rs : List Ty} (code : OpCode sig rs)
                   cases dst with
                   | vec v => exact v.elim
                   | flag cf =>
+                    dsimp only [armCmpImmIns?, armWidthOf] at hp
                     dsimp only [armCmpImmIns?, armWidthOf, vllArmCmpCore]
-                    rw [h0b, h1]
-                    cases cf == armCmpCond o
-                    · rfl
-                    · simp only [↓reduceIte, Option.map_some]; rw [asmArm64List_one]
+                    rw [h0b, h1] at hp
+                    cases hc : (cf == armCmpCond o) <;>
+                      simp only [hc, Bool.false_eq_true, ↓reduceIte] at hp ⊢
+                    · cases hp
+                    · cases hp; dsimp only [Option.map_some]; rw [asmArm64List_one]
                       dsimp only [asmArm64, asmCmpIns, widthToRegWidth]
                       rw [setWidth_setWidth_self64 (by decide) cb, h1]; rfl
                   | gpr rd => cases rd with
-                    | SP => dsimp only [armCmpImmIns?, vllArmCmpCore]; rw [h0b, h1]; rfl
+                    | SP =>
+                      dsimp only [armCmpImmIns?, armWidthOf] at hp
+                      rw [h0b, h1] at hp; cases hp
                     | reg d =>
+                      dsimp only [armCmpImmIns?, armWidthOf] at hp
+                      rw [h0b, h1] at hp; cases hp
                       dsimp only [armCmpImmIns?, armWidthOf, vllArmCmpCore, Option.map_some]
                       rw [asmArm64List_two]
                       dsimp only [asmArm64, asmCmpIns, widthToRegWidth, armSetcc, armSetccIns]
-                      rw [h0b, h1, setWidth_setWidth_self64 (by decide) cb, h1, ← emitClean_append]
+                      rw [setWidth_setWidth_self64 (by decide) cb, h1, ← emitClean_append]
                       rfl
                 | none =>
                   have h2 := hneg h1 h0
                   cases dst with
                   | vec v => exact v.elim
                   | flag cf =>
+                    dsimp only [armCmpImmIns?, armWidthOf, armArgInIns] at hp
                     dsimp only [armCmpImmIns?, armWidthOf, armArgInIns, vllArmCmpCore]
-                    rw [h0b, h1, h2]
-                    cases cf == armCmpCond o
-                    · rfl
-                    · simp only [↓reduceIte, Option.map_some]; rw [asmArm64List_one]
+                    rw [h0b, h1, h2] at hp
+                    cases hc : (cf == armCmpCond o) <;>
+                      simp only [hc, Bool.false_eq_true, ↓reduceIte] at hp ⊢
+                    · cases hp
+                    · cases hp; dsimp only [Option.map_some]; rw [asmArm64List_one]
                       dsimp only [asmArm64, asmCmpIns, armSrcToXIns, armRhsToXIns,
                         widthToRegWidth]
                       rw [setWidth_setWidth_self64 (by decide) cb, h1]; rfl
                   | gpr rd => cases rd with
-                    | SP => dsimp only [armCmpImmIns?, armArgInIns, vllArmCmpCore]
-                            rw [h0b, h1, h2]; rfl
+                    | SP =>
+                      dsimp only [armCmpImmIns?, armWidthOf, armArgInIns] at hp
+                      rw [h0b, h1, h2] at hp; cases hp
                     | reg d =>
+                      dsimp only [armCmpImmIns?, armWidthOf, armArgInIns] at hp
+                      rw [h0b, h1, h2] at hp; cases hp
                       dsimp only [armCmpImmIns?, armWidthOf, armArgInIns, vllArmCmpCore,
                         Option.map_some]
                       rw [asmArm64List_two]
                       dsimp only [asmArm64, asmCmpIns, armSrcToXIns, armRhsToXIns,
                         widthToRegWidth, armSetcc, armSetccIns]
-                      rw [h0b, h1, h2, setWidth_setWidth_self64 (by decide) cb, h1,
-                        ← emitClean_append]
+                      rw [setWidth_setWidth_self64 (by decide) cb, h1, ← emitClean_append]
                       rfl)
   | _ => exact hfb rfl
 
@@ -1389,21 +1412,21 @@ theorem strict_opProducesZ32 {sig : List Ty} :
   | [.bits _], _, _, (.vec v, ()) => v.elim
   | t1 :: _ :: _, _, _, _ => by cases t1 <;> rfl
 
-private theorem strict_cmpOpFlags?_vll (st : Rega.SymState vllArmStrictIsa) :
+theorem strict_cmpOpFlags? (st : Rega.SymState vllArmStrictIsa) :
     ∀ {sig ts : List Ty} (code : OpCode sig ts) (args : Tup (Arg Rega.VNat) sig)
       (pas : Tup (PArg Arm64.Reg Empty ArmCond) sig)
       (dsts : Tup (PDst Arm64.Reg Empty ArmCond) ts) (nv : Nat) (cl : FlagMask),
       Rega.cmpOpFlags? vllArmStrictIsa st code args pas dsts nv cl =
-        (Rega.killFlags vllArmStrictIsa cl st.flags, none)
-  | _, [], _, _, _, _, _, _ => rfl
-  | _, t1 :: _ :: _, _, _, _, _, _, _ => by cases t1 <;> rfl
-  | _, [.float _], _, _, _, _, _, _ => rfl
-  | _, [.pair _ _], _, _, _, _, _, _ => rfl
-  | _, [.bits w], code, _, _, (pd, ()), _, cl => by
-    dsimp only [Rega.cmpOpFlags?, vllArmStrictIsa, vllArmStrictGpr, vllGprIsaOfHooks,
-      vllArmNativeHooks]
-    cases (Nat.ble w 64 && !(cl == FlagMask.none)) <;> rfl
-  | _, [.bool], code, args, pas, (pd, PUnit.unit), _, _ => by
+        Rega.cmpOpFlags? armIsa (liftSt st) code args pas dsts nv cl
+  | _, [], _, _, _, _, _, _ => by dsimp only [Rega.cmpOpFlags?]; rw [strict_killFlags]
+  | _, t1 :: _ :: _, _, _, _, _, _, _ => by
+    cases t1 <;> (dsimp only [Rega.cmpOpFlags?]; rw [strict_killFlags])
+  | _, [.float _], _, _, _, _, _, _ => by dsimp only [Rega.cmpOpFlags?]; rw [strict_killFlags]
+  | _, [.pair _ _], _, _, _, _, _, _ => by dsimp only [Rega.cmpOpFlags?]; rw [strict_killFlags]
+  | _, [.bits w], code, args, pas, (pd, ()), nv, cl => by
+    dsimp only [Rega.cmpOpFlags?]
+    rw [strict_aluZeroOut?, strict_killFlags]
+  | _, [.bool], code, args, pas, (pd, PUnit.unit), nv, cl => by
     cases code with
     | cmp co ty m hm =>
       cases ty with
@@ -1411,58 +1434,77 @@ private theorem strict_cmpOpFlags?_vll (st : Rega.SymState vllArmStrictIsa) :
         rcases args with ⟨a, b, ⟨⟩⟩; rcases pas with ⟨pa, pb, ⟨⟩⟩; cases hm
         cases pd with
         | vec v => exact v.elim
-        | gpr _ =>
-          change (if w.ble 64 then Rega.killFlags _ _ _ else Rega.killFlags _ _ _,
-            if w.ble 64 then none else none) = _
-          cases w.ble 64 <;> rfl
-        | flag _ =>
-          change (if w.ble 64 then Rega.killFlags _ _ _ else Rega.killFlags _ _ _, none) = _
-          cases w.ble 64 <;> rfl
+        | flag cf =>
+          change (if Nat.ble w 64 then
+              match vllArmStrictIsa.gpr.cmpFlagsOut? co w pa pb (.flag cf),
+                  Rega.toSymArg vllArmStrictIsa (.bits w) a,
+                  Rega.toSymArg vllArmStrictIsa (.bits w) b with
+              | some lf, some sa, some sb =>
+                some (.cmp w (if lf then sa else sb) (if lf then sb else sa) false)
+              | _, _, _ => Rega.killFlags vllArmStrictIsa cl st.flags
+            else Rega.killFlags vllArmStrictIsa cl st.flags, none) =
+            (if Nat.ble w 64 then
+              match armIsa.gpr.cmpFlagsOut? co w pa pb (.flag cf),
+                  Rega.toSymArg armIsa (.bits w) a,
+                  Rega.toSymArg armIsa (.bits w) b with
+              | some lf, some sa, some sb =>
+                some (.cmp w (if lf then sa else sb) (if lf then sb else sa) false)
+              | _, _, _ => Rega.killFlags armIsa cl (liftSt st).flags
+            else Rega.killFlags armIsa cl (liftSt st).flags, none)
+          rw [strict_cmpFlagsOut?, strict_toSymArg, strict_toSymArg, strict_killFlags]
+        | gpr rd =>
+          change (if Nat.ble w 64 then
+              match vllArmStrictIsa.gpr.cmpFlagsOut? co w pa pb (.gpr rd),
+                  Rega.toSymArg vllArmStrictIsa (.bits w) a,
+                  Rega.toSymArg vllArmStrictIsa (.bits w) b with
+              | some lf, some sa, some sb =>
+                some (.cmp w (if lf then sa else sb) (if lf then sb else sa) false)
+              | _, _, _ => Rega.killFlags vllArmStrictIsa cl st.flags
+            else Rega.killFlags vllArmStrictIsa cl st.flags,
+            if Nat.ble w 64 then
+              (vllArmStrictIsa.gpr.cmpFlagsOut? co w pa pb (.gpr rd)).bind fun lf =>
+                vllArmStrictIsa.gpr.condOfCmp? (if lf then co else co.swap)
+            else none) =
+            (if Nat.ble w 64 then
+              match armIsa.gpr.cmpFlagsOut? co w pa pb (.gpr rd),
+                  Rega.toSymArg armIsa (.bits w) a,
+                  Rega.toSymArg armIsa (.bits w) b with
+              | some lf, some sa, some sb =>
+                some (.cmp w (if lf then sa else sb) (if lf then sb else sa) false)
+              | _, _, _ => Rega.killFlags armIsa cl (liftSt st).flags
+            else Rega.killFlags armIsa cl (liftSt st).flags,
+            if Nat.ble w 64 then
+              (armIsa.gpr.cmpFlagsOut? co w pa pb (.gpr rd)).bind fun lf =>
+                armIsa.gpr.condOfCmp? (if lf then co else co.swap)
+            else none)
+          rw [strict_cmpFlagsOut?, strict_toSymArg, strict_toSymArg, strict_killFlags,
+            strict_condOfCmp?]
       | bool | float _ =>
-        cases hm; cases pd with | vec v => exact v.elim | gpr _ | flag _ => rfl
-      | pair _ _ => cases hm
-    | _ => cases pd with | vec v => exact v.elim | gpr _ | flag _ => rfl
-
-private theorem strict_cmpOpFlags?_arm (st : Rega.SymState armIsa) :
-    ∀ {sig ts : List Ty} (code : OpCode sig ts) (args : Tup (Arg Rega.VNat) sig)
-      (pas : Tup (PArg Arm64.Reg Empty ArmCond) sig)
-      (dsts : Tup (PDst Arm64.Reg Empty ArmCond) ts) (nv : Nat) (cl : FlagMask),
-      Rega.cmpOpFlags? armIsa st code args pas dsts nv cl =
-        (Rega.killFlags armIsa cl st.flags, none)
-  | _, [], _, _, _, _, _, _ => rfl
-  | _, t1 :: _ :: _, _, _, _, _, _, _ => by cases t1 <;> rfl
-  | _, [.float _], _, _, _, _, _, _ => rfl
-  | _, [.pair _ _], _, _, _, _, _, _ => rfl
-  | _, [.bits w], code, _, _, (pd, ()), _, cl => by
-    dsimp only [Rega.cmpOpFlags?, armIsa, armGpr]
-    cases (Nat.ble w 64 && !(cl == FlagMask.none)) <;> rfl
-  | _, [.bool], code, args, pas, (pd, PUnit.unit), _, _ => by
-    cases code with
-    | cmp co ty m hm =>
-      cases ty with
-      | bits w =>
-        rcases args with ⟨a, b, ⟨⟩⟩; rcases pas with ⟨pa, pb, ⟨⟩⟩; cases hm
-        cases pd with
+        cases hm; cases pd with
         | vec v => exact v.elim
-        | gpr _ =>
-          change (if w.ble 64 then Rega.killFlags _ _ _ else Rega.killFlags _ _ _,
-            if w.ble 64 then none else none) = _
-          cases w.ble 64 <;> rfl
         | flag _ =>
-          change (if w.ble 64 then Rega.killFlags _ _ _ else Rega.killFlags _ _ _, none) = _
-          cases w.ble 64 <;> rfl
-      | bool | float _ =>
-        cases hm; cases pd with | vec v => exact v.elim | gpr _ | flag _ => rfl
+          change (Rega.killFlags vllArmStrictIsa cl st.flags, none) =
+            (Rega.killFlags armIsa cl (liftSt st).flags, none)
+          rw [strict_killFlags]
+        | gpr rd =>
+          change (Rega.killFlags vllArmStrictIsa cl st.flags,
+              vllArmStrictIsa.gpr.boolFlagOut? _ pas (.gpr rd)) =
+            (Rega.killFlags armIsa cl (liftSt st).flags,
+              armIsa.gpr.boolFlagOut? _ pas (.gpr rd))
+          rw [strict_killFlags, strict_boolFlagOut?]
       | pair _ _ => cases hm
-    | _ => cases pd with | vec v => exact v.elim | gpr _ | flag _ => rfl
-
-theorem strict_cmpOpFlags? (st : Rega.SymState vllArmStrictIsa) {sig ts : List Ty}
-    (code : OpCode sig ts) (args : Tup (Arg Rega.VNat) sig)
-    (pas : Tup (PArg Arm64.Reg Empty ArmCond) sig) (dsts : Tup (PDst Arm64.Reg Empty ArmCond) ts)
-    (nv : Nat) (cl : FlagMask) :
-    Rega.cmpOpFlags? vllArmStrictIsa st code args pas dsts nv cl =
-      Rega.cmpOpFlags? armIsa (liftSt st) code args pas dsts nv cl := by
-  rw [strict_cmpOpFlags?_vll, strict_cmpOpFlags?_arm, strict_killFlags]
+    | _ => cases pd with
+      | vec v => exact v.elim
+      | flag _ =>
+        change (Rega.killFlags vllArmStrictIsa cl st.flags, none) =
+          (Rega.killFlags armIsa cl (liftSt st).flags, none)
+        rw [strict_killFlags]
+      | gpr rd =>
+        change (Rega.killFlags vllArmStrictIsa cl st.flags,
+            vllArmStrictIsa.gpr.boolFlagOut? _ pas (.gpr rd)) =
+          (Rega.killFlags armIsa cl (liftSt st).flags,
+            armIsa.gpr.boolFlagOut? _ pas (.gpr rd))
+        rw [strict_killFlags, strict_boolFlagOut?]
 
 theorem strict_jumpTargets :
     ∀ {ts : List Ty} (args : Tup (Arg Rega.VNat) ts) (locs : List armIsa.Loc),
@@ -1583,33 +1625,72 @@ theorem strict_cmpZeroFlagCond? (defs : Trie Rega.DefFact) (fl : Option Rega.Fla
             split <;> first | rfl | exact congrFun strict_condOfCmp? _
           · rfl
 
-theorem strict_tryReuseFlagCmp_none (st : Rega.SymState vllArmStrictIsa)
+theorem strict_testBoolExtra? (neg : Bool) (cl : FlagMask)
+    (pd : PDst Arm64.Reg Empty ArmCond .bool) :
+    Rega.testBoolExtra? vllArmStrictIsa neg cl pd =
+      Rega.testBoolExtra? armIsa neg cl pd := by
+  cases pd with
+  | vec v => exact v.elim
+  | flag _ =>
+    dsimp only [Rega.testBoolExtra?, vllArmStrictGpr, vllGprIsaOfHooks, vllArmNativeHooks]; rfl
+  | gpr _ =>
+    dsimp only [Rega.testBoolExtra?, vllArmStrictGpr, vllGprIsaOfHooks, vllArmNativeHooks]; rfl
+
+theorem tryReuseFlagCmp_factor (st : Rega.SymState vllArmStrictIsa)
     {sig ts : List Ty} (code : OpCode sig ts) (args : Tup (Arg Rega.VNat) sig)
     (dsts : Tup (PDst Arm64.Reg Empty ArmCond) ts) :
-    Rega.tryReuseFlagCmp vllArmStrictIsa st code args dsts = none ∧
-      Rega.tryReuseFlagCmp armIsa (liftSt st) code args dsts = none := by
-  constructor <;> (
-    dsimp only [Rega.tryReuseFlagCmp, liftSt]
-    cases st.flags with
-    | none => rfl
-    | some ff =>
-      cases ff; cases code with
+    (Rega.tryReuseFlagCmp vllArmStrictIsa st code args dsts).map
+      (fun (c, cl, fl, ex) => (asmArm64List c, cl, fl, ex)) =
+      Rega.tryReuseFlagCmp armIsa (liftSt st) code args dsts := by
+  dsimp only [Rega.tryReuseFlagCmp, liftSt]
+  cases st.flags with
+  | none => rfl
+  | some ff =>
+    cases ff with
+    | cmp w lhs rhs eqNe =>
+      cases code with
       | cmp co ty m hm =>
         subst hm; cases ty with
         | bool | float _ | pair _ _ => rfl
         | bits n =>
           rcases args with ⟨a, b, ⟨⟩⟩; rcases dsts with ⟨pd, ⟨⟩⟩
           dsimp only
-          cases Rega.reuseCmpPair? _ st.defs _ _ _ n co a b with
+          rw [strict_reuseCmpPair?]
+          cases Rega.reuseCmpPair? armIsa st.defs w lhs rhs n co a b with
           | none => rfl
           | some p =>
-            dsimp only [Option.bind_some]
-            split
-            · dsimp only [Option.bind_some]; split <;> rfl
-            · split
-              · dsimp only [Option.bind_some]; split <;> rfl
+            rcases p with ⟨coBase, sa, sb⟩
+            simp only [Option.bind_some]
+            cases (if Rega.symArgEq sa lhs && Rega.symArgEq sb rhs then some coBase
+                else if Rega.symArgEq sa rhs && Rega.symArgEq sb lhs then some coBase.swap
+                else none) with
+            | none => rfl
+            | some coUsed =>
+              dsimp only [Option.bind_some]
+              split
               · rfl
-      | _ => rfl)
+              · dsimp only [vllArmStrictGpr, vllGprIsaOfHooks, vllArmNativeHooks,
+                  Function.comp_def]
+                simp only [Option.bind_some]
+                cases pd with
+                | vec v => exact v.elim
+                | flag cd =>
+                  cases heq : (cd == armCmpCond coUsed) <;>
+                    simp only [heq, Bool.false_eq_true, ↓reduceIte,
+                      Option.map_none, Option.map_some] <;> rfl
+                | gpr rd =>
+                  cases rd with
+                  | SP =>
+                    dsimp only [vllArmStrictGpr, vllGprIsaOfHooks, vllArmNativeHooks,
+                      armOp, armOpIns, emitCleanPair]
+                    rfl
+                  | reg d =>
+                    dsimp only [vllArmStrictGpr, vllGprIsaOfHooks, vllArmNativeHooks,
+                      armOp, armOpIns, armBoolOpIns, emitCleanPair, vllArmOpHook, vllCoreOp,
+                      vllCoreCopy]
+                    simp only [Option.isSome_some, ↓reduceIte, Option.map_some]
+                    rw [strict_killFlags, asmArm64List_one]; rfl
+      | _ => rfl
 
 private theorem armMovImmI_ne_nil (d : XReg) (c : BitVec 64) : armMovImmI d c ≠ [] := by
   unfold armMovImmI

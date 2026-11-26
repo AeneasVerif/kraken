@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Arm64.Base
 public import LeanQbe.T.IselStepAttr
+public import LeanQbe.T.Arm64.IselFlagHooks
 
 /-!
 # AArch64 Scalar Instruction Selection (`GprIsa`)
@@ -31,29 +32,13 @@ open LeanQbe.T
 
 /-! ## 1. Low-level instruction builders and operand helpers -/
 
-/-- Low-level AArch64 `Instr` constructor matching `ins`. -/
-abbrev armIselInsI {w : RegWidth} (op : Operation w) : Instr :=
-  { operation_size := w, operation := op }
-
 /-- Load 64-bit literal pool constant `c` into GP register `d` (`Instr`). -/
 abbrev armIselLdrPoolBvI (d : XReg) (c : BitVec 64) : Instr :=
   armIselInsI (w := .W64) (.LDR (zr d .W64) (.lit (.pool { expr := .int64 (Int64.ofBitVec c) })))
 
-/-- Move `s : Reg` (possibly `.SP`) to `d : XReg` (`Instr`). -/
-abbrev armIselMovToXI (d : XReg) (s : Reg) : Instr :=
-  armIselInsI (.ADD_e (.low (.reg d) .W64) (.low s .W64) imm0)
-
 /-- Move `s : XReg` to `.SP` (`Instr`). -/
 abbrev armIselMovToSpI (s : XReg) : Instr :=
   armIselInsI (.ADD_e (.low .SP .W64) (.low (.reg s) .W64) imm0)
-
-/-- Register width (`W64` for 64-bit operations, `W32` for 8/16/32-bit operations). -/
-abbrev armWidthOf (n : Nat) : RegWidth :=
-  if n == 64 then .W64 else .W32
-
-/-- Materialize condition `c` as `0/1` into `x_d` without clobbering flags (`Instr`). -/
-abbrev armCset64I (d : XReg) (c : ArmCond) : Instr :=
-  armIselInsI (.CSINC (zr d .W64) (xzr .W64) (xzr .W64) (armNegCond c).toKraken)
 
 /-- Materialize architectural condition `c` as `0/1` into `x_d` without clobbering flags. -/
 abbrev armCset64 (d : XReg) (c : ArmCond) : Directive :=
@@ -212,14 +197,6 @@ def armBoolArgInIns (tmp : XReg) : PArg Reg Empty ArmCond .bool → Option (List
   | .imm b => some (armMovImmI tmp (BitVec.ofNat 64 b.toNat), tmp)
   | .flag c => some ([armCset64I tmp c], tmp)
 
-/-- 12-bit unsigned arithmetic immediate (`S0` or `S12`). -/
-def armImm12? {n : Nat} (c : BitVec n) : Option ExtOrImmReg :=
-  if Nat.blt c.toNat 4096 then
-    some (.imm { imm := .int64 (Int64.ofNat c.toNat), shift := .S0 })
-  else if Nat.blt c.toNat 16777216 && (c.toNat % 4096 == 0) then
-    some (.imm { imm := .int64 (Int64.ofNat (c.toNat / 4096)), shift := .S12 })
-  else none
-
 /-- 12-bit immediate add/sub instruction, flipping sign via `ADD_e`/`SUB_e` for negative imms. -/
 def armAddSubImmI? {n : Nat} (isSub : Bool) (w : RegWidth) (d rx : XReg) (c : BitVec n) :
     Option Instr :=
@@ -295,19 +272,6 @@ def armJccIns (c : ArmCond) (l : Sym) : List Instr :=
 /-- Conditional branch `b.<c> l`. -/
 def armJcc (c : ArmCond) (l : Sym) : List Directive :=
   emitClean (armJccIns c l)
-
-/-- Test low bit `0` of `.bool` register `r` via `tbnz` (`Instr` builder). -/
-def armJnzGprIns (r : Reg) (l : Sym) : List Instr × FlagMask :=
-  match r with
-  | .reg x => ([armIselInsI (w := .W32) (.TBNZ (zr x .W32) 0 (.label l))], maskNone)
-  | .SP =>
-    ([armIselMovToXI .X16 .SP, armIselInsI (w := .W32) (.TBNZ (zr .X16 .W32) 0 (.label l))],
-      maskNone)
-
-/-- Test low bit `0` of `.bool` register `r` via `tbnz` (routing `.SP` via `.X16`), preserving flags. -/
-def armJnzGpr (r : Reg) (l : Sym) : List Directive × FlagMask :=
-  let p := armJnzGprIns r l
-  (emitClean p.1, p.2)
 
 /-- True iff `disp` fits as a scaled unsigned offset `[xb, #disp]` for access size `scale`. -/
 def armFitsScaledOff (scale : Nat) (disp : Int64) : Bool :=
@@ -522,15 +486,6 @@ def armStoreZextIdx (t : Ty) (pa : PArg Reg Empty ArmCond t) (base idx : Reg)
 
 /-! ## 3. Scalar `armOp` helpers (`[8, 16, 32, 64]`, `bswap`, `[32, 64]` bit/carry/mulw/fsh) -/
 
-/-- `ArmCond` corresponding to integer comparison `o` after `cmp a, b` (`SUBS`). -/
-def armCmpCond : CmpOp → ArmCond
-  | .eq => .eq | .ne => .ne | .ult => .cc | .ule => .ls | .ugt => .hi
-  | .uge => .cs | .slt => .lt | .sle => .le | .sgt => .gt | .sge => .ge
-
-def armIsSignedCmp : CmpOp → Bool
-  | .slt | .sle | .sgt | .sge => true
-  | _ => false
-
 /-- Extend low `n` bits (`8` or `16`) into `.W32` (`UBFM` or `SBFM`) (`Instr`). -/
 abbrev armExt32I (signed : Bool) (n : Nat) (d s : XReg) : Instr :=
   if signed then armIselInsI (.SBFM (zr d .W32) (zr s .W32) 0 (n - 1))
@@ -619,7 +574,8 @@ def armBoolOpIns {sig : List Ty} (code : OpCode sig [.bool])
   | .not .bool => match pas.1 with
     | .imm b => some (armMovImmI d (BitVec.ofNat 64 (!b).toNat), maskNone)
     | .flag c => some ([armCset64I d (armNegCond c)], maskNone)
-    | .gpr (.reg r) => some ([binBool (.EOR_i (.low (.reg d) .W32) (zr r .W32) (.int64 1))], maskNone)
+    | .gpr (.reg r) =>
+      some ([binBool (.EOR_i (.low (.reg d) .W32) (zr r .W32) (.int64 1))], maskNone)
     | _ => none
   | .and .bool => armBoolAndOrIns false pas.1 pas.2.1 d
   | .or .bool => armBoolAndOrIns true pas.1 pas.2.1 d
@@ -905,49 +861,6 @@ def armDivRemOpIns (k : ArmDivK) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bit
           maskNone)
       else
         some (ca ++ cb ++ prep ++ [divD], maskNone)
-
-/-- Immediate compare sequence for `w`-bit register `rx` against `imm`, using `SUBS_e`,
-`ADDS_e` (`CMN`) for non-zero negated 12-bit immediates, or `none` if literal load is needed. -/
-def armCmpImmIns? {m : Nat} (w : RegWidth) (rx : XReg) (imm : BitVec m) : Option (List Instr) :=
-  match armImm12? imm with
-  | some ei => some [armIselInsI (.SUBS_e (xzr w) (.low (.reg rx) w) ei)]
-  | none =>
-    if imm == 0#m then none
-    else match armImm12? (-imm) with
-      | some ei => some [armIselInsI (.ADDS_e (xzr w) (.low (.reg rx) w) ei)]
-      | none => none
-
-/-- Specialized compare-against-zero lowering for `o` on `rx : XReg` (`UBFM` sign-bit test for
-`.slt`/`.sge` into `.gpr`, and 1-insn `ANDS_i` `#0xFF`/`#0xFFFF` for narrow `8`/`16`-bit equality
-or `.gpr` `.ule`/`.ugt`). -/
-def armZeroCmpIns? (o : CmpOp) (n : Nat) (rx : XReg) (dst : PDst Reg Empty ArmCond .bool) :
-    Option (List Instr × FlagMask) :=
-  let w := armWidthOf n
-  match o, dst with
-  | .slt, .gpr (.reg d) =>
-    some ([armIselInsI (.UBFM (zr d w) (zr rx w) (n - 1) (n - 1))], maskNone)
-  | .sge, .gpr (.reg d) =>
-    if n == 8 || n == 16 then
-      some ([armIselInsI (.UBFM (zr d .W32) (zr rx .W32) (n - 1) (n - 1)),
-             armIselInsI (.EOR_i (.low (.reg d) .W32) (zr d .W32) (.int64 1))], maskNone)
-    else none
-  | .eq, _ | .ne, _ =>
-    if n == 8 || n == 16 then
-      let ands := armIselInsI (.ANDS_i (xzr .W32) (zr rx .W32)
-        (.int64 (if n == 8 then 0xFF else 0xFFFF)))
-      let cond := armCmpCond o
-      match dst with
-      | .flag cf => if cf == cond then some ([ands], maskNZCV) else none
-      | .gpr (.reg d) => some ([ands, armCset64I d cond], maskNZCV)
-      | .gpr .SP | .vec _ => none
-    else none
-  | .ule, .gpr (.reg d) | .ugt, .gpr (.reg d) =>
-    if n == 8 || n == 16 then
-      let ands := armIselInsI (.ANDS_i (xzr .W32) (zr rx .W32)
-        (.int64 (if n == 8 then 0xFF else 0xFFFF)))
-      some ([ands, armCset64I d (if o == .ule then .eq else .ne)], maskNZCV)
-    else none
-  | _, _ => none
 
 /-- Integer comparisons `cmp o (.bits n)` targeting `.flag c` or `.gpr d` (`Instr` builder). -/
 def armCmpOpIns (o : CmpOp) (n : Nat) (pa pb : PArg Reg Empty ArmCond (.bits n))
@@ -1594,5 +1507,10 @@ def armLeaArithZext (base? : Option Reg) (idx : Reg) (shift : Nat) (disp : Int64
   loadSextZextIdx := armLoadSextZextIdx
   storeZextIdx := armStoreZextIdx
   leaArithZext := armLeaArithZext
+  jnzGprInv? := some armJnzGprInv
+  condOfCmp? := some ∘ armCmpCond
+  boolFlagOut? := armBoolFlagOut
+  cmpFlagsOut? := armCmpFlagsOut
+  hasTestFlags := true
 
 end LeanQbe.T.Arm64
