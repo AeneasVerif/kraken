@@ -106,14 +106,14 @@ open Lean in
   dest :=
     .node none
       (.node none
-        (.node (some (.gpr (.reg .X2))) .empty (.node (some (.gpr (.reg .X2))) .empty .empty))
-        (.node none (.node (some (.flag ArmCond.ne)) .empty .empty)
-          (.node (some (.flag ArmCond.ne)) .empty .empty)))
-      (.node (some (.flag ArmCond.ne))
-        (.node (some (.flag ArmCond.ne))
+        (.node (some (.gpr (.reg .X2)))
           (.node none (.node (some (.gpr (.reg .X0))) .empty .empty) .empty)
           (.node (some (.gpr (.reg .X1))) .empty .empty))
         (.node none (.node (some (.gpr (.reg .X3))) .empty .empty) .empty))
+      (.node (some (.flag ArmCond.ne))
+        (.node none (.node (some (.flag ArmCond.ne)) .empty .empty)
+          (.node (some (.flag ArmCond.ne)) .empty .empty))
+        (.node none (.node (some (.gpr (.reg .X2))) .empty .empty) .empty))
   entry :=
     .node
       (some { live := [(SymArg.var 0, .gpr (.reg .X4))],
@@ -124,22 +124,27 @@ open Lean in
         .empty .empty)
       .empty
   pre :=
-    .node none (.node (some { moves := [Move.mov (.reg .X4) (.reg .X0)] }) .empty .empty)
-      (.node none
-        (.node none .empty
-          (.node none (.node (some { moves := [Move.st 0 (.reg .X0)] }) .empty .empty) .empty))
-        .empty)
-  elide :=
-    .node none (.node none .empty (.node none (.node (some true) .empty .empty) .empty))
-      (.node (some true) .empty .empty)
-  invertJnz :=
     .node none
-      (.node none (.node none (.node none (.node (some true) .empty .empty) .empty) .empty)
+      (.node (some { moves := [Move.mov (.reg .X4) (.reg .X0)] }) .empty
+        (.node none
+          (.node none
+            (.node (some { moves := [Move.st 0 (.reg .X0)] }) .empty .empty) .empty)
+          .empty))
+      .empty
+  elide :=
+    .node none .empty
+      (.node (some true) .empty (.node (some true) .empty .empty))
+  invertJnz :=
+    .node none .empty
+      (.node none
+        (.node none .empty (.node (some true) .empty .empty))
+        .empty)
+  deferJnz :=
+    .node none
+      (.node none
+        (.node none .empty (.node (some true) .empty .empty))
         .empty)
       .empty
-  deferJnz :=
-    .node none (.node none .empty (.node (some true) .empty .empty))
-      (.node none .empty (.node none .empty (.node (some true) .empty .empty)))
   nslots := 1
 
 @[expose] def armHints (fn : Fn) : armTarget.toIsa.Hints :=

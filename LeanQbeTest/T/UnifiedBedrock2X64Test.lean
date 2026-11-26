@@ -104,14 +104,14 @@ open Lean in
   dest :=
     .node none
       (.node none
-        (.node (some (.gpr Reg64.rdx)) .empty (.node (some (.gpr Reg64.rdx)) .empty .empty))
-        (.node none (.node (some (.gpr Reg64.rsi)) .empty .empty)
-          (.node (some (.flag CondCode.nz)) .empty .empty)))
-      (.node (some (.flag CondCode.nz))
-        (.node (some (.flag CondCode.nz))
+        (.node (some (.gpr Reg64.rdx))
           (.node none (.node (some (.gpr Reg64.rax)) .empty .empty) .empty)
           (.node (some (.gpr Reg64.rcx)) .empty .empty))
         (.node none (.node (some (.gpr Reg64.r8)) .empty .empty) .empty))
+      (.node (some (.flag CondCode.nz))
+        (.node none (.node (some (.gpr Reg64.rsi)) .empty .empty)
+          (.node (some (.flag CondCode.nz)) .empty .empty))
+        (.node none (.node (some (.gpr Reg64.rdx)) .empty .empty) .empty))
   entry :=
     .node
       (some { live := [(SymArg.var 0, .gpr Reg64.rdi)],
@@ -122,22 +122,27 @@ open Lean in
         .empty .empty)
       .empty
   pre :=
-    .node none (.node (some { moves := [Move.mov Reg64.rdi Reg64.rax] }) .empty .empty)
-      (.node none
-        (.node none .empty
-          (.node none (.node (some { moves := [Move.st 0 Reg64.rax] }) .empty .empty) .empty))
-        .empty)
-  elide :=
-    .node none (.node none .empty (.node none (.node (some true) .empty .empty) .empty))
-      (.node (some true) .empty .empty)
-  invertJnz :=
     .node none
-      (.node none (.node none (.node none (.node (some true) .empty .empty) .empty) .empty)
+      (.node (some { moves := [Move.mov Reg64.rdi Reg64.rax] }) .empty
+        (.node none
+          (.node none
+            (.node (some { moves := [Move.st 0 Reg64.rax] }) .empty .empty) .empty)
+          .empty))
+      .empty
+  elide :=
+    .node none .empty
+      (.node (some true) .empty (.node (some true) .empty .empty))
+  invertJnz :=
+    .node none .empty
+      (.node none
+        (.node none .empty (.node (some true) .empty .empty))
+        .empty)
+  deferJnz :=
+    .node none
+      (.node none
+        (.node none .empty (.node (some true) .empty .empty))
         .empty)
       .empty
-  deferJnz :=
-    .node none (.node none .empty (.node (some true) .empty .empty))
-      (.node none .empty (.node none .empty (.node (some true) .empty .empty)))
   nslots := 1
 
 @[expose] def x64Hints (fn : Fn) : x64Target.toIsa.Hints :=
