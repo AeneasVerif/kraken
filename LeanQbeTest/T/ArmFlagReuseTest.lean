@@ -1,7 +1,6 @@
 module
 
 public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.Arm64.VllFactorArm64
 public import LeanQbe.T.Spill
 public import LeanQbeTest.T.RegaTestKit
 public import LeanQbeTest.T.Arm64DirPreds
@@ -11,13 +10,6 @@ meta import LeanQbe.T.Arm64.Isel
 meta import LeanQbe.T.Arm64.IselFlagHooks
 meta import LeanQbe.T.Arm64.IselFlagHooksLemmas
 meta import LeanQbe.T.Arm64.TargLemmas
-meta import LeanQbe.T.Arm64.VllFactorArm64Save
-meta import LeanQbe.T.Arm64.VllFactorArm64CoreLemmas
-meta import LeanQbe.T.Arm64.VllFactorArm64FlagLemmas
-meta import LeanQbe.T.Arm64.VllFactorArm640
-meta import LeanQbe.T.Arm64.VllFactorArm641
-meta import LeanQbe.T.Arm64.VllFactorArm642
-meta import LeanQbe.T.Arm64.VllFactorArm64
 meta import LeanQbe.T.Spill
 meta import LeanQbeTest.T.RegaTestKit
 meta import LeanQbeTest.T.Arm64DirPreds
@@ -175,33 +167,43 @@ theorem armFlagReuse_mainFlatParity_check :
     MainFlatParityArm64Test.compileModuleFlat_ok_implies_compileModule_arm =
       MainFlatParityArm64Test.compileModuleFlat_ok_implies_compileModule_arm := rfl
 
+theorem armFlagReuse_gprSpec_check : GprTarget armMach armGpr armScratch :=
+  arm_gprSpec
+
+theorem armFlagReuse_labelClean_check : Rega.LabelClean armTarget.toIsa :=
+  armLabelClean
+
 #print axioms LeanQbe.T.Arm64.armGprSpec
 #print axioms LeanQbe.T.Arm64.armJnzGprInv_spec
 #print axioms LeanQbe.T.Arm64.armBoolFlagOut_spec
 #print axioms LeanQbe.T.Arm64.armCmpFlagsOut_spec
 #print axioms LeanQbe.T.Arm64.armTestOp_boolFlag_spec
-#print axioms LeanQbe.T.Arm64.vllArmStrict_to_armTarget_fnSpec
+#print axioms LeanQbe.T.Arm64.armJnzGprInv_noLab
+#print axioms LeanQbe.T.Arm64.arm_gprSpec
+#print axioms LeanQbe.T.Arm64.armLabelClean
+#print axioms LeanQbe.T.Arm64.arm64_of_call
 #print axioms armFlagReuse_mainFlatParity_check
+#print axioms armFlagReuse_gprSpec_check
+#print axioms armFlagReuse_labelClean_check
 
 open Lean
 
 private def allowedStdAxioms : List Name := [``propext, ``Classical.choice, ``Quot.sound]
 private def isForbiddenX64Mod (m : Name) : Bool :=
   (m.toString.splitOn "Amd64").length > 1 || m.toString.startsWith "Kraken.X64"
+private def isForbiddenVllMod (m : Name) : Bool :=
+  (m.toString.splitOn "Vll").length > 1
 
 #eval show MetaM Unit from do
-  for modName in [`LeanQbe.T.Arm64.IselFlagHooks, `LeanQbe.T.Arm64.IselFlagHooksLemmas,
-      `LeanQbe.T.Arm64.VllFactorArm64Save, `LeanQbe.T.Arm64.VllFactorArm64CoreLemmas,
-      `LeanQbe.T.Arm64.VllFactorArm64FlagLemmas, `LeanQbe.T.Arm64.VllFactorArm64] do
-    let env ← importModules #[{ module := modName }] {}
-    let bad := env.header.moduleNames.filter isForbiddenX64Mod
-    if !bad.isEmpty then throwError "{modName} imports Amd64/X64: {bad.toList}"
-  let testBad := (← getEnv).header.moduleNames.filter isForbiddenX64Mod
-  if !testBad.isEmpty then throwError "ArmFlagReuseTest imports Amd64/X64: {testBad.toList}"
+  let testBad := (← getEnv).header.moduleNames.filter fun m =>
+    isForbiddenX64Mod m || isForbiddenVllMod m
+  if !testBad.isEmpty then throwError "ArmFlagReuseTest imports Amd64/X64/Vll: {testBad.toList}"
   let env ← getEnv
   for nm in [``LeanQbe.T.Arm64.armGprSpec, ``LeanQbe.T.Arm64.armJnzGprInv_spec,
       ``LeanQbe.T.Arm64.armBoolFlagOut_spec, ``LeanQbe.T.Arm64.armCmpFlagsOut_spec,
-      ``LeanQbe.T.Arm64.armTestOp_boolFlag_spec, ``LeanQbe.T.Arm64.vllArmStrict_to_armTarget_fnSpec,
+      ``LeanQbe.T.Arm64.armTestOp_boolFlag_spec, ``LeanQbe.T.Arm64.armJnzGprInv_noLab,
+      ``LeanQbe.T.Arm64.arm_gprSpec, ``LeanQbe.T.Arm64.armLabelClean,
+      ``LeanQbe.T.Arm64.arm64_of_call,
       ``LeanQbeTest.T.MainFlatParityArm64Test.compileModuleFlat_ok_implies_compileModule_arm] do
     let axs ← Lean.collectAxioms nm
     let badAx := axs.filter fun a => !allowedStdAxioms.contains a

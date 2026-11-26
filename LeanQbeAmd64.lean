@@ -141,21 +141,6 @@ public import LeanQbe.T.Amd64.Snippet
 public import LeanQbe.T.Amd64.Targ
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Amd64.UnionFind
-public import LeanQbe.T.Amd64.VllAsmX64
-public import LeanQbe.T.Amd64.VllAsmX64Lemmas
-public import LeanQbe.T.Amd64.VllAsmX64Lemmas0
-public import LeanQbe.T.Amd64.VllAsmX64Lemmas1
-public import LeanQbe.T.Amd64.VllFactorX64
-public import LeanQbe.T.Amd64.VllFactorX640
-public import LeanQbe.T.Amd64.VllFactorX641
-public import LeanQbe.T.Amd64.VllFactorX642
-public import LeanQbe.T.Amd64.VllFactorX643
-public import LeanQbe.T.Amd64.VllFactorX644
-public import LeanQbe.T.Amd64.VllFactorX645
-public import LeanQbe.T.Amd64.VllFactorX646
-public import LeanQbe.T.Amd64.VllFactorX647
-public import LeanQbe.T.Amd64.VllFactorX64Zero
-public import LeanQbe.T.Amd64.VllX64
 
 set_option autoImplicit false
 
