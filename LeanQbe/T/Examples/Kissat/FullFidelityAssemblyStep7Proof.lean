@@ -2345,16 +2345,17 @@ private theorem fidStep7_all_sigs_batch :
 
 private theorem fidStep7_step9_in_all :
     fidStep7_step9_sigPairs.all (fidStep7_all_sigPairs.contains ·) = true := by
-  decide
+  t_kernel_rfl
 
 private theorem fidStep7_step10_in_all :
     fidStep7_step10_sigPairs.all (fidStep7_all_sigPairs.contains ·) = true := by
-  decide
+  t_kernel_rfl
 
 theorem fidStep7_step9_sig_at {p : Nat × SigEntry} (hp : p ∈ fidStep7_step9_sigPairs) :
     fidStep7Module.fns[p.1]?.map Fn.sig = some p.2 := by
   simpa using sigsAtSorted7_getElem? fidStep7Module.fns 0 fidStep7_all_sigPairs
-    (by decide) (fun _ _ => Nat.zero_le _) fidStep7_all_sigs_batch p
+    (pairwise_lt_of_isSortedLt7 (by t_kernel_rfl)) (fun _ _ => Nat.zero_le _)
+    fidStep7_all_sigs_batch p
     (List.contains_iff_mem.mp (List.all_eq_true.mp fidStep7_step9_in_all p hp))
 
 theorem fidStep7_step8_slots_ok :
@@ -2394,7 +2395,8 @@ theorem fidStep7Module_map_name :
 theorem fidStep7_step10_sig_at {p : Nat × SigEntry} (hp : p ∈ fidStep7_step10_sigPairs) :
     fidStep7Module.fns[p.1]?.map Fn.sig = some p.2 := by
   simpa using sigsAtSorted7_getElem? fidStep7Module.fns 0 fidStep7_all_sigPairs
-    (by decide) (fun _ _ => Nat.zero_le _) fidStep7_all_sigs_batch p
+    (pairwise_lt_of_isSortedLt7 (by t_kernel_rfl)) (fun _ _ => Nat.zero_le _)
+    fidStep7_all_sigs_batch p
     (List.contains_iff_mem.mp (List.all_eq_true.mp fidStep7_step10_in_all p hp))
 
 theorem fidStep7Env_s12Lift {f : Sym} {as bs : List Ty}
@@ -2423,6 +2425,25 @@ theorem fidStep7Env_elim_learnClause {xs : Tup Val [i64, i64]} {m : Mem 64}
       some ⟨"full_learn_clause", [i64, i64], [i64], Full.fullLearnClauseSpec, true⟩ := rfl
   have hf7 := fid7_of_prefix_mem ⟨_, List.mem_of_getElem? hrow, rfl, rfl, rfl⟩ h
   exact (m8cp_ofTable_sig_elim fidStep7_front_nodup (List.mem_of_getElem? hrow) hf7).2.2
+
+private theorem fidStep7_step12_in_all :
+    fidStep7_step12_sigPairs.all (fidStep7_all_sigPairs.contains ·) = true := by
+  t_kernel_rfl
+
+theorem fidStep7_step12_sig_at {p : Nat × SigEntry} (hp : p ∈ fidStep7_step12_sigPairs) :
+    fidStep7Module.fns[p.1]?.map Fn.sig = some p.2 := by
+  simpa using sigsAtSorted7_getElem? fidStep7Module.fns 0 fidStep7_all_sigPairs
+    (pairwise_lt_of_isSortedLt7 (by t_kernel_rfl)) (fun _ _ => Nat.zero_le _)
+    fidStep7_all_sigs_batch p
+    (List.contains_iff_mem.mp (List.all_eq_true.mp fidStep7_step12_in_all p hp))
+
+theorem fidStep7_workStep_at :
+    fidStep7Module.fns[270]? = some FullM6CongSubst.full_cong_work_step := by
+  t_kernel_rfl
+
+theorem fidStep7_s12_noCallBad :
+    checkNoCallBad fidS12SkipNames fidS12BadNames fidStep7Module.fns = true := by
+  t_kernel_rfl
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7
 

@@ -1901,6 +1901,108 @@ theorem fidStep9Env_elim_probeM6 {xs : Tup Val [i64, .bool]} {m : Mem 64}
       some fidStep9ReplRows[10] := rfl
   exact m6ProbeSpec_monoX (env_ofTable_find?_of_append hfind rfl rfl h)
 
+theorem fidStep9_slot_bvaUpdLit :
+    fidStep9Module.fns[443]?.map Fn.sig =
+      some ("full_bva_upd_lit_fid", [i64, i64, i64, i64, i64, i64], [i32]) := by
+  obtain ⟨g, _, hg, hsg⟩ := fidStep9_slot8
+    (i := 440) (s := ("full_bva_upd_lit_fid", [i64, i64, i64, i64, i32, i64, i32], [i32]))
+    (by decide)
+  have hgnm : g.name = "full_bva_upd_lit_fid" := congrArg Prod.fst hsg
+  have hsplit : fidStep8Module.fns =
+      fidStep8Module.fns.take 440 ++ g :: fidStep8Module.fns.drop 441 := by
+    have hd := List.take_append_drop 440 fidStep8Module.fns
+    rw [drop_eq_cons_9 hg] at hd; exact hd.symm
+  have hins : patchInsAt FullFidelityStep9.fidStep9Befores g = [] := by
+    unfold patchInsAt FullFidelityStep9.fidStep9Befores; simp [List.find?, hgnm]
+  have hpf : fidStep9Module.fns =
+      patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+        (fidStep8Module.fns.take 440) ++
+      ((FullFidelityStep9.fidStep9Repls.find? (·.name == g.name)).getD g) ::
+      patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+        (fidStep8Module.fns.drop 441) := by
+    have h1 : fidStep9Module.fns =
+        patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+          (fidStep8Module.fns.take 440 ++ g :: fidStep8Module.fns.drop 441) :=
+      congrArg (patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores) hsplit
+    rw [h1, fidStep9_patchFns_append]; simp [patchFns, hins]
+  have hpre_len : (patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+      (fidStep8Module.fns.take 440)).length = 443 := by
+    rw [← List.length_map Fn.name, patchFns_map_name, List.map_take, fidStep8Module_map_name,
+      fidStep9_shift_len (by decide)]
+    decide
+  rw [hpf, ← hpre_len, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self,
+    List.getElem?_cons_zero, Option.map_some]
+  have hr : FullFidelityStep9.fidStep9Repls.find? (·.name == g.name) =
+      some fidStep9BvaUpdLitFn := by simp [hgnm]; rfl
+  rw [hr]; rfl
+
+theorem fidStep9_workStep_at :
+    fidStep9Module.fns[273]? = some FullM6CongSubst.full_cong_work_step := by
+  have hg : fidStep8Module.fns[270]? = some FullM6CongSubst.full_cong_work_step :=
+    fidStep8_workStep_at
+  have hsplit : fidStep8Module.fns =
+      fidStep8Module.fns.take 270 ++ FullM6CongSubst.full_cong_work_step ::
+        fidStep8Module.fns.drop 271 := by
+    have hd := List.take_append_drop 270 fidStep8Module.fns
+    rw [drop_eq_cons_9 hg] at hd; exact hd.symm
+  have hgnm : FullM6CongSubst.full_cong_work_step.name = "full_cong_work_step" := rfl
+  have hins : patchInsAt FullFidelityStep9.fidStep9Befores FullM6CongSubst.full_cong_work_step =
+      [] := by
+    unfold patchInsAt FullFidelityStep9.fidStep9Befores; simp [List.find?, hgnm]
+  have hpf : fidStep9Module.fns =
+      patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+        (fidStep8Module.fns.take 270) ++
+      ((FullFidelityStep9.fidStep9Repls.find?
+        (·.name == FullM6CongSubst.full_cong_work_step.name)).getD
+          FullM6CongSubst.full_cong_work_step) ::
+      patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+        (fidStep8Module.fns.drop 271) := by
+    have h1 : fidStep9Module.fns =
+        patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+          (fidStep8Module.fns.take 270 ++ FullM6CongSubst.full_cong_work_step ::
+            fidStep8Module.fns.drop 271) :=
+      congrArg (patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores) hsplit
+    rw [h1, fidStep9_patchFns_append]; simp [patchFns, hins]
+  have hpre_len : (patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores
+      (fidStep8Module.fns.take 270)).length = 273 := by
+    rw [← List.length_map Fn.name, patchFns_map_name, List.map_take, fidStep8Module_map_name,
+      fidStep9_shift_len (by decide)]
+    decide
+  rw [hpf, ← hpre_len, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self,
+    List.getElem?_cons_zero]
+  have hr : FullFidelityStep9.fidStep9Repls.find?
+      (·.name == FullM6CongSubst.full_cong_work_step.name) = none := by
+    rw [hgnm]; rfl
+  rw [hr]; rfl
+
+private theorem fidStep9Patch_s12_noCallBad :
+    checkNoCallBad fidS12SkipNames fidS12BadNames
+      (FullFidelityStep9.fidStep9Repls ++
+        FullFidelityStep9.fidStep9Befores.flatMap Prod.snd) = true := by
+  t_kernel_rfl
+
+theorem fidStep9_s12_noCallBad :
+    checkNoCallBad fidS12SkipNames fidS12BadNames fidStep9Module.fns = true := by
+  rw [fidStep9Fns_eq, fidStep9Fns, ← fidStep8Fns_eq]
+  refine List.all_eq_true.mpr fun g hg => ?_
+  simp only [patchFns, List.mem_flatMap, List.mem_append, List.mem_singleton] at hg
+  rcases hg with ⟨f, hf, hins | rfl⟩
+  · unfold patchInsAt at hins
+    split at hins
+    · rename_i tgt ins hfind
+      exact List.all_eq_true.mp fidStep9Patch_s12_noCallBad g
+        (List.mem_append_right _ (List.mem_flatMap.mpr
+          ⟨(tgt, ins), List.mem_of_find?_eq_some hfind, hins⟩))
+    · nomatch hins
+  · cases hr : FullFidelityStep9.fidStep9Repls.find? (·.name == f.name) with
+    | none =>
+      simp only [Option.getD_none]
+      exact List.all_eq_true.mp fidStep8_s12_noCallBad f hf
+    | some r =>
+      simp only [Option.getD_some]
+      exact List.all_eq_true.mp fidStep9Patch_s12_noCallBad r
+        (List.mem_append_left _ (List.mem_of_find?_eq_some hr))
+
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
 
 end
