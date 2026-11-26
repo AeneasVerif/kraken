@@ -768,7 +768,7 @@ private theorem m8V12FlatTable_sigs_m7 :
 
 private theorem m8V12FlatTable_sigs :
     m8V12FlatTable.map fRowSig = m8FidV12Fns.map Fn.sig := by
-  rw [m8V12FlatTable_sigs_m7]; exact (spliceFns_sigs m8FidV12Repls_sigs).symm
+  rw [m8V12FlatTable_sigs_m7]; exact m8FidV12Fns_sigs.symm
 
 private theorem m8V12FlatTable_nodup : (m8V12FlatTable.map SpecEntry.name).Nodup :=
   rowSigs_eq_fnSigs_nodup m8V12FlatTable_sigs m8FidV12Fns_names_nodup
@@ -829,14 +829,15 @@ private theorem m8SwFlatTable_sigs :
     m8SwFlatTable.map fRowSig = m8FidV123t2Fns.map Fn.sig := by
   have hEq : m8FidV123t2Fns =
       PatchModule.patchFns m8SweepV2Repls m8FidV123t2Befores m8FidV12Fns := by
-    unfold m8FidV123t2Fns FullM7Splice.patchFns PatchModule.patchFns
+    rw [m8FidV123t2Fns_eq_patch]
+    unfold mfPatchFns PatchModule.patchFns
     induction m8FidV12Fns with
     | nil => rfl
     | cons a t ih =>
       simp only [List.flatMap_cons]
       have hi : PatchModule.patchInsAt m8FidV123t2Befores a =
-          FullM7Splice.patchInsAt m8FidV123t2Befores a := by
-        dsimp only [PatchModule.patchInsAt, FullM7Splice.patchInsAt, m8FidV123t2Befores]
+          mfPatchInsAt m8FidV123t2Befores a := by
+        dsimp only [PatchModule.patchInsAt, mfPatchInsAt, m8FidV123t2Befores]
         by_cases h1 : ("full_sweep_dense_m6" == a.name)
         · have h1e := beq_iff_eq.mp h1; rw [← h1e]
           simp only [beq_self_eq_true, List.find?, List.filterMap_cons, ↓reduceIte,
@@ -868,8 +869,7 @@ private theorem m8SwFlatTable_sigs :
   · intro r hr f hf hnm
     rcases List.mem_singleton.mp hr with rfl
     have hf_sig : f.sig ∈ m8FidV12Fns.map Fn.sig := List.mem_map_of_mem hf
-    dsimp only [m8FidV12Fns] at hf_sig
-    rw [spliceFns_sigs m8FidV12Repls_sigs] at hf_sig
+    rw [m8FidV12Fns_sigs] at hf_sig
     rcases List.mem_map.mp hf_sig with ⟨g, hg, hgf⟩
     have hs := sig_eq_of_idx m7FidelityFns_names_nodup m7f_idx_299 hg
       (hnm.trans (congrArg Prod.fst hgf).symm)

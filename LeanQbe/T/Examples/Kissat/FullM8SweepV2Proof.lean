@@ -22,7 +22,7 @@ import LeanQbe.T.Logic.C0HeadStep
 import LeanQbe.T.Logic.ControlComb
 
 /-!
-# Kissat M8 Tier B Revived Sweep (`V12 + V3t2`) — Closed `ModuleOk` & Soundness (`FullM8SweepV2Proof`)
+# Kissat M8 Tier B Revived Sweep (`V12 + V3t2`) — `ModuleOk` & Soundness (`FullM8SweepV2Proof`)
 
 Packages the closed environment `m8FidV123t2Env` and proves `449/449` `ModuleOk`
 (`m8FidV123t2_moduleOk`), top-level `kissat_solve_bytes` soundness (`m8FidV123t2_solve_bytes_sound`,
@@ -616,9 +616,57 @@ private theorem m8Sw_elim_sweepDense {xs m Q X}
   | extra he =>
     exact False.elim (absurd (m8Sw_ofTable_name_mem he) (by rw [m8MfExtra_names_eq]; decide))
 
+private theorem mf_patchModule_moduleOk {Γ Γ' : Env} {M : LeanQbe.T.Module}
+    (hM : ModuleOk Γ M) {repls : List Fn} {befores : List (Sym × List Fn)}
+    (hchk : ({ M with fns := mfPatchFns repls befores M.fns } :
+      LeanQbe.T.Module).checkAcyclic = true)
+    (hrWf : ∀ r ∈ repls, r.Wf)
+    (hiWf : ∀ p ∈ befores, ∀ h ∈ p.2, h.Wf)
+    (hCallee : ∀ f as bs xs m Q X, Γ f as bs xs m Q X → Γ' f as bs xs m Q X)
+    (hFnWp : ∀ g ∈ M.fns, repls.find? (fun x => x.name == g.name) = none →
+      (∀ xs m Q X, Γ' g.name g.as g.rs xs m Q X → Func.wp Γ' g.body xs m Q X) ∨
+      (∀ xs m Q X, Γ' g.name g.as g.rs xs m Q X → Γ g.name g.as g.rs xs m Q X))
+    (hrWp : ∀ r ∈ repls, ∀ xs m Q X,
+      Γ' r.name r.as r.rs xs m Q X → Func.wp Γ' r.body xs m Q X)
+    (hiWp : ∀ p ∈ befores, ∀ h ∈ p.2, ∀ xs m Q X,
+      Γ' h.name h.as h.rs xs m Q X → Func.wp Γ' h.body xs m Q X) :
+    ModuleOk Γ' { M with fns := mfPatchFns repls befores M.fns } := by
+  have hwfOrig : ∀ f ∈ M.fns, f.Wf := fun f hf => by
+    obtain ⟨pre, post, hsplit⟩ := List.append_of_mem hf
+    exact (hM.fnsOk pre f post hsplit).1
+  refine LeanQbe.T.Module.moduleOk_of_checkAcyclic hchk
+    (mfPatchFns_wf hwfOrig hrWf hiWf) ?_
+  intro fn hmem
+  rcases List.mem_flatMap.mp hmem with ⟨g, hg, hmem_g⟩
+  rcases List.mem_append.mp hmem_g with h_ins | h_rep
+  · rcases mem_mfPatchInsAt h_ins with ⟨hs, hm, hfn_hs⟩
+    exact hiWp (g.name, hs) hm fn hfn_hs
+  · rcases List.mem_singleton.mp h_rep with rfl
+    cases h : repls.find? (fun x => x.name == g.name) with
+    | some r =>
+      intro xs m Q X hspec
+      exact hrWp r (List.mem_of_find?_eq_some h) xs m Q X hspec
+    | none =>
+      intro xs m Q X hspec
+      rcases hFnWp g hg h with hNew | hPull
+      · exact hNew xs m Q X hspec
+      · obtain ⟨pre, post, hsplit⟩ := List.append_of_mem hg
+        have ⟨hwfG, hcallsG, hwpG⟩ := hM.fnsOk pre g post hsplit
+        exact wp_env_agree_of_callsOk
+          (hwfG Val (fun _ => Unit) Cont (fun _ => Unit) xs (Tup.units g.as))
+          hcallsG (fun f as bs _ => hCallee f as bs) m
+          (hwpG xs m Q X (hPull xs m Q X hspec))
+
 /-- Closed `449/449` `ModuleOk` for `FullM8SweepV2.m8FidV123t2Module` (`V12 + V3t2`, `0` hooks). -/
 theorem m8FidV123t2_moduleOk : ModuleOk m8FidV123t2Env m8FidV123t2Module := by
-  refine patchModule_moduleOk m8FidV12_moduleOk m8FidV123t2_acyclic m8SweepV2Repls_wf
+  have hMod : m8FidV123t2Module =
+      { m8FidV12Module with fns := mfPatchFns m8SweepV2Repls m8FidV123t2Befores m8FidV12Fns } := by
+    dsimp only [m8FidV123t2Module]; rw [m8FidV123t2Fns_eq_patch]
+  have hAcy : ({ m8FidV12Module with
+      fns := mfPatchFns m8SweepV2Repls m8FidV123t2Befores m8FidV12Fns } :
+      LeanQbe.T.Module).checkAcyclic = true := hMod ▸ m8FidV123t2_acyclic
+  rw [hMod]
+  refine mf_patchModule_moduleOk m8FidV12_moduleOk hAcy m8SweepV2Repls_wf
     ?_ m8Sw_v12_to_v123t2 ?_ ?_ ?_
   · intro p hp h hh
     rcases List.mem_singleton.mp hp with rfl
@@ -646,8 +694,10 @@ theorem m8FidV123t2_moduleOk : ModuleOk m8FidV123t2Env m8FidV123t2Module := by
 /-! ## 4. Top-Level `kissat_solve_bytes` Soundness & Concrete UNSAT Non-Vacuity -/
 
 /-- `kissat_solve_bytes` is in `m8FidV123t2Module.fns`. -/
-theorem m8FidV123t2_solveBytes_mem : m6oSolveBytesFn ∈ m8FidV123t2Module.fns :=
-  patchFns_mem_of_ne m8FidV12_solveBytes_mem
+theorem m8FidV123t2_solveBytes_mem : m6oSolveBytesFn ∈ m8FidV123t2Module.fns := by
+  change m6oSolveBytesFn ∈ m8FidV123t2Fns
+  rw [m8FidV123t2Fns_eq_patch]
+  exact mfPatchFns_mem_of_ne m8FidV12_solveBytes_mem
     (fun r hr => by
       rcases List.mem_singleton.mp hr with rfl
       decide)

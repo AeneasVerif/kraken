@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.Dimacs
 public import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
+public import LeanQbe.T.Examples.Kissat.PatchModule
 meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
@@ -13,7 +14,7 @@ meta import LeanQbe.T.Frontend.C0
 # Kissat M8 Fidelity Core (`V12` — `9` Localized Function Replacements)
 
 Purely additive C0 leaf module implementing Tier A (`V12`, `9` localized edits over
-`FullM7Fidelity.m7FidelityModule` with `0` ABI/header changes and `0` overlap with `FullM7V2Robust`):
+`FullM7Fidelity.m7FidelityModule` (`0` ABI/header changes, `0` overlap with `FullM7V2Robust`):
 
 1. **`V1c`** (`full_ana_failed_lit_m6_hdr`): calls `full_ema_update(h, 0ULL)` when
    `h->probing == 0ULL` before incrementing `h->conflicts` (`analyze.c:503`).
@@ -669,10 +670,24 @@ def m8FidV12Repls : List Fn :=
   , m8SwitchModeM7Fn
   , m8PreprocessM6Fn ]
 
-def m8FidV12Fns : List Fn := spliceFns m8FidV12Repls m7FidelityFns
+def m8FidV12Fns : List Fn := PatchModule.spliceFns m8FidV12Repls m7FidelityFns
 
 def m8FidV12Module : LeanQbe.T.Module :=
   { m7FidelityModule with fns := m8FidV12Fns }
+
+end LeanQbe.T.Examples.Kissat.FullM8FidV12
+
+end
+
+public section
+
+namespace LeanQbe.T.Examples.Kissat.FullM8FidV12
+
+open LeanQbe.T
+open LeanQbe.T.Frontend.C0
+open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.FullM7Fidelity
+open LeanQbe.T.Examples.Kissat.FullM7Splice
 
 theorem m8_ana_failed_lit_m6_hdr_wf : Func.Wf m8_ana_failed_lit_m6_hdr_body := by t_wf_reify
 theorem m8_analyze_wf : Func.Wf m8_analyze_body := by t_wf_reify
@@ -842,12 +857,92 @@ theorem m8FidV12Repls_sigs :
       (hnm.symm.trans (congrArg Prod.fst hs405.symm))
     subst hf0; exact hs405.symm
 
+private theorem pm_fn_find_name_eq {repls : List Fn} {f r : Fn}
+    (h : repls.find? (fun x => x.name == f.name) = some r) : r.name = f.name :=
+  beq_iff_eq.mp (List.find?_some (p := fun x : Fn => x.name == f.name) h)
+
+private theorem pm_spliceFns_sigs {repls fs : List Fn}
+    (hsig : ∀ r ∈ repls, ∀ f ∈ fs, r.name = f.name → r.sig = f.sig) :
+    (PatchModule.spliceFns repls fs).map Fn.sig = fs.map Fn.sig := by
+  unfold PatchModule.spliceFns
+  rw [List.map_map]
+  apply List.map_congr_left
+  intro f hf
+  dsimp only [Function.comp_def]
+  cases h : repls.find? (fun x => x.name == f.name) with
+  | none => rfl
+  | some r => exact hsig r (List.mem_of_find?_eq_some h) f hf (pm_fn_find_name_eq h)
+
+private theorem pm_checkFnsCallsOk_splice (exits : List Sym) (extSigs : List SigEntry) :
+    ∀ (seen fs repls : List Fn),
+    LeanQbe.T.Module.checkFnsCallsOk exits extSigs (seen.map Fn.sig) fs = true →
+    (∀ r ∈ repls, ∀ f ∈ fs, r.name = f.name → r.sig = f.sig) →
+    (∀ pre f post r, fs = pre ++ f :: post → r ∈ repls → r.name = f.name →
+      r.checkCallsOk ((seen ++ pre).map Fn.sig ++ extSigs) exits = true) →
+    LeanQbe.T.Module.checkFnsCallsOk exits extSigs (seen.map Fn.sig)
+      (PatchModule.spliceFns repls fs) = true
+  | _, [], _, _, _, _ => rfl
+  | seen, f :: rest, repls, hchk, hsig, hrepl => by
+    simp only [LeanQbe.T.Module.checkFnsCallsOk, Bool.and_eq_true] at hchk
+    unfold PatchModule.spliceFns
+    simp only [List.map_cons, LeanQbe.T.Module.checkFnsCallsOk, Bool.and_eq_true]
+    have hsig_rest : ∀ r ∈ repls, ∀ g ∈ rest, r.name = g.name → r.sig = g.sig :=
+      fun r hr g hg => hsig r hr g (List.mem_cons_of_mem f hg)
+    have hrepl_rest : ∀ pre g post r, rest = pre ++ g :: post → r ∈ repls → r.name = g.name →
+        r.checkCallsOk (((seen ++ [f]) ++ pre).map Fn.sig ++ extSigs) exits = true := by
+      intro pre g post r hsplit hr hnm
+      rw [List.append_assoc]
+      exact hrepl (f :: pre) g post r (by rw [hsplit]; rfl) hr hnm
+    have hhead_sig : ((repls.find? (fun x => x.name == f.name)).getD f).sig = f.sig := by
+      cases h : repls.find? (fun x => x.name == f.name) with
+      | none => rfl
+      | some r =>
+        dsimp only [Option.getD]
+        exact hsig r (List.mem_of_find?_eq_some h) f List.mem_cons_self (pm_fn_find_name_eq h)
+    have hhead_ok : ((repls.find? (fun x => x.name == f.name)).getD f).checkCallsOk
+        (seen.map Fn.sig ++ extSigs) exits = true := by
+      cases h : repls.find? (fun x => x.name == f.name) with
+      | none => exact hchk.1
+      | some r =>
+        simpa using hrepl [] f rest r rfl (List.mem_of_find?_eq_some h) (pm_fn_find_name_eq h)
+    refine ⟨hhead_ok, ?_⟩
+    have hchk2 : LeanQbe.T.Module.checkFnsCallsOk exits extSigs ((seen ++ [f]).map Fn.sig) rest =
+        true := by
+      simpa only [List.map_append, List.map_singleton] using hchk.2
+    rw [hhead_sig, show seen.map Fn.sig ++ [f.sig] = (seen ++ [f]).map Fn.sig by simp]
+    exact pm_checkFnsCallsOk_splice exits extSigs (seen ++ [f]) rest repls hchk2
+      hsig_rest hrepl_rest
+
+private theorem pm_spliceModule_checkAcyclic {M : LeanQbe.T.Module} {repls : List Fn}
+    (hM : M.checkAcyclic = true)
+    (hsig : ∀ r ∈ repls, ∀ f ∈ M.fns, r.name = f.name → r.sig = f.sig)
+    (hrepl : ∀ pre f post r, M.fns = pre ++ f :: post → r ∈ repls → r.name = f.name →
+      r.checkCallsOk (pre.map Fn.sig ++ M.externs.map Extern.sig) M.exits = true) :
+    ({ M with fns := PatchModule.spliceFns repls M.fns } : LeanQbe.T.Module).checkAcyclic =
+      true := by
+  simp only [LeanQbe.T.Module.checkAcyclic, Bool.and_eq_true] at hM ⊢
+  refine ⟨?_, ?_⟩
+  · have hnames : ({ M with fns := PatchModule.spliceFns repls M.fns } : LeanQbe.T.Module).names =
+        M.names := by
+      simp only [LeanQbe.T.Module.names]
+      have hm := congrArg (List.map Prod.fst) (pm_spliceFns_sigs hsig)
+      simp only [List.map_map, Function.comp_def, Fn.sig] at hm
+      rw [hm]
+    unfold LeanQbe.T.Module.checkNamesNodup
+    rw [hnames]
+    exact hM.1
+  · exact pm_checkFnsCallsOk_splice M.exits (M.externs.map Extern.sig) [] M.fns repls
+      hM.2 hsig (fun pre f post r hsplit hr hn => hrepl pre f post r hsplit hr hn)
+
 theorem m8FidV12Fns_length : m8FidV12Fns.length = 413 := by
-  rw [m8FidV12Fns, spliceFns_length]
+  rw [m8FidV12Fns, PatchModule.spliceFns, List.length_map]
   exact m7FidelityFns_length
 
+theorem m8FidV12Fns_sigs : m8FidV12Fns.map Fn.sig = m7FidelityFns.map Fn.sig :=
+  pm_spliceFns_sigs m8FidV12Repls_sigs
+
 theorem m8FidV12Fns_names_nodup : (m8FidV12Fns.map Fn.name).Nodup := by
-  have hs := congrArg (List.map Prod.fst) (spliceFns_sigs m8FidV12Repls_sigs)
+  have hs := congrArg (List.map Prod.fst) (pm_spliceFns_sigs m8FidV12Repls_sigs)
   simp only [List.map_map, Function.comp_def, Fn.sig] at hs
   change (m8FidV12Fns.map Fn.name) = m7FidelityFns.map Fn.name at hs
   rw [hs]; exact m7FidelityFns_names_nodup
@@ -900,7 +995,7 @@ theorem m8FidV12_acyclic : m8FidV12Module.checkAcyclic = true := by
   obtain ⟨g401, hg401, hsg401⟩ := fid_sig_of_idx fid_idx_401
   obtain ⟨g404, hg404, hsg404⟩ := fid_sig_of_idx fid_idx_404
   obtain ⟨g405, hg405, hsg405⟩ := fid_sig_of_idx fid_idx_405
-  refine spliceModule_checkAcyclic (M := m7FidelityModule) m7Fidelity_acyclic
+  refine pm_spliceModule_checkAcyclic (M := m7FidelityModule) m7Fidelity_acyclic
     m8FidV12Repls_sigs ?_
   intro pre f post r hsplit hr hnm
   change m7FidelityFns = pre ++ f :: post at hsplit
@@ -917,11 +1012,16 @@ theorem m8FidV12_acyclic : m8FidV12Module.checkAcyclic = true := by
     refine fn_checkCallsOk_mono (fun s hs => ?_) hc
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hs
     rcases hs with rfl | rfl | rfl | rfl | rfl
-    · exact hsg115 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg120 hn0 hg115 (by decide)
-    · exact hsg118 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg120 hn0 hg118 (by decide)
-    · exact hsg39 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg120 hn0 hg39 (by decide)
-    · exact hsg35 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg120 hn0 hg35 (by decide)
-    · exact hsg33 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg120 hn0 hg33 (by decide)
+    · exact hsg115 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg120 hn0 hg115 (by decide)
+    · exact hsg118 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg120 hn0 hg118 (by decide)
+    · exact hsg39 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg120 hn0 hg39 (by decide)
+    · exact hsg35 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg120 hn0 hg35 (by decide)
+    · exact hsg33 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg120 hn0 hg33 (by decide)
   · have hn0 : f.name = g149.name := hnm.symm.trans (congrArg Prod.fst hsg149.symm)
     have hc : m8AnalyzeFn.checkCallsOk
         [ ("full_one_lit_confl", [i64], [i64])
@@ -934,13 +1034,20 @@ theorem m8FidV12_acyclic : m8FidV12Module.checkAcyclic = true := by
     refine fn_checkCallsOk_mono (fun s hs => ?_) hc
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hs
     rcases hs with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    · exact hsg141 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg141 (by decide)
-    · exact hsg138 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg138 (by decide)
-    · exact hsg148 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg148 (by decide)
-    · exact hsg137 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg137 (by decide)
-    · exact hsg29 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg29 (by decide)
-    · exact hsg33 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg33 (by decide)
-    · exact hsg143 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg143 (by decide)
+    · exact hsg141 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg141 (by decide)
+    · exact hsg138 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg138 (by decide)
+    · exact hsg148 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg148 (by decide)
+    · exact hsg137 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg137 (by decide)
+    · exact hsg29 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg29 (by decide)
+    · exact hsg33 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg33 (by decide)
+    · exact hsg143 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg149 hn0 hg143 (by decide)
   · have hn0 : f.name = g150.name := hnm.symm.trans (congrArg Prod.fst hsg150.symm)
     have hc : m8AnalyzeCoreM6Fn.checkCallsOk
         [ ("full_one_lit_confl", [i64], [i64])
@@ -954,14 +1061,22 @@ theorem m8FidV12_acyclic : m8FidV12Module.checkAcyclic = true := by
     refine fn_checkCallsOk_mono (fun s hs => ?_) hc
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hs
     rcases hs with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    · exact hsg141 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg141 (by decide)
-    · exact hsg120 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg120 (by decide)
-    · exact hsg139 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg139 (by decide)
-    · exact hsg119 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg119 (by decide)
-    · exact hsg135 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg135 (by decide)
-    · exact hsg29 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg29 (by decide)
-    · exact hsg33 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg33 (by decide)
-    · exact hsg143 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg143 (by decide)
+    · exact hsg141 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg141 (by decide)
+    · exact hsg120 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg120 (by decide)
+    · exact hsg139 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg139 (by decide)
+    · exact hsg119 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg119 (by decide)
+    · exact hsg135 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg135 (by decide)
+    · exact hsg29 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg29 (by decide)
+    · exact hsg33 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg33 (by decide)
+    · exact hsg143 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg150 hn0 hg143 (by decide)
   · have hn0 : f.name = g170.name := hnm.symm.trans (congrArg Prod.fst hsg170.symm)
     have hc : m8RestartDueFn.checkCallsOk [("full_ilog10", [i64], [i64])] [] = true := by rfl
     refine fn_checkCallsOk_mono (fun s hs => ?_) hc
@@ -979,13 +1094,20 @@ theorem m8FidV12_acyclic : m8FidV12Module.checkAcyclic = true := by
     refine fn_checkCallsOk_mono (fun s hs => ?_) hc
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hs
     rcases hs with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    · exact hsg39 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg39 (by decide)
-    · exact hsg106 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg106 (by decide)
-    · exact hsg104 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg104 (by decide)
-    · exact hsg86 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg86 (by decide)
-    · exact hsg96 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg96 (by decide)
-    · exact hsg18 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg18 (by decide)
-    · exact hsg11 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg11 (by decide)
+    · exact hsg39 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg39 (by decide)
+    · exact hsg106 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg106 (by decide)
+    · exact hsg104 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg104 (by decide)
+    · exact hsg86 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg86 (by decide)
+    · exact hsg96 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg96 (by decide)
+    · exact hsg18 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg18 (by decide)
+    · exact hsg11 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg236 hn0 hg11 (by decide)
   · have hn0 : f.name = g249.name := hnm.symm.trans (congrArg Prod.fst hsg249.symm)
     have hc : m8CongTryXorIteFn.checkCallsOk
         [ ("full_has_ternary", [i64, i32, i32, i32], [.bool])
@@ -993,8 +1115,10 @@ theorem m8FidV12_acyclic : m8FidV12Module.checkAcyclic = true := by
     refine fn_checkCallsOk_mono (fun s hs => ?_) hc
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hs
     rcases hs with rfl | rfl
-    · exact hsg243 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg249 hn0 hg243 (by decide)
-    · exact hsg246 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg249 hn0 hg246 (by decide)
+    · exact hsg243 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg249 hn0 hg243 (by decide)
+    · exact hsg246 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg249 hn0 hg246 (by decide)
   · have hn0 : f.name = g275.name := hnm.symm.trans (congrArg Prod.fst hsg275.symm)
     have hc : m8CongruenceDenseFn.checkCallsOk
         [ ("full_cong_extract_binaries", [i64, i64], [i64])
@@ -1006,12 +1130,18 @@ theorem m8FidV12_acyclic : m8FidV12Module.checkAcyclic = true := by
     refine fn_checkCallsOk_mono (fun s hs => ?_) hc
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hs
     rcases hs with rfl | rfl | rfl | rfl | rfl | rfl
-    · exact hsg252 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg252 (by decide)
-    · exact hsg253 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg253 (by decide)
-    · exact hsg254 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg254 (by decide)
-    · exact hsg274 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg274 (by decide)
-    · exact hsg260 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg260 (by decide)
-    · exact hsg261 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg261 (by decide)
+    · exact hsg252 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg252 (by decide)
+    · exact hsg253 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg253 (by decide)
+    · exact hsg254 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg254 (by decide)
+    · exact hsg274 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg274 (by decide)
+    · exact hsg260 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg260 (by decide)
+    · exact hsg261 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg275 hn0 hg261 (by decide)
   · have hn0 : f.name = g401.name := hnm.symm.trans (congrArg Prod.fst hsg401.symm)
     have hc : m8SwitchModeM7Fn.checkCallsOk
         [ ("full_heap_down", [i64, i32], [])
@@ -1022,11 +1152,15 @@ theorem m8FidV12_acyclic : m8FidV12Module.checkAcyclic = true := by
     refine fn_checkCallsOk_mono (fun s hs => ?_) hc
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hs
     rcases hs with rfl | rfl | rfl | rfl | rfl
-    · exact hsg20 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg401 hn0 hg20 (by decide)
-    · exact hsg31 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg401 hn0 hg31 (by decide)
-    · exact hsg400 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg401 hn0 hg400 (by decide)
+    · exact hsg20 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg401 hn0 hg20 (by decide)
+    · exact hsg31 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg401 hn0 hg31 (by decide)
+    · exact hsg400 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg401 hn0 hg400 (by decide)
     · exact hsg9 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg401 hn0 hg9 (by decide)
-    · exact hsg390 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg401 hn0 hg390 (by decide)
+    · exact hsg390 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg401 hn0 hg390 (by decide)
   · have hn0 : f.name = g405.name := hnm.symm.trans (congrArg Prod.fst hsg405.symm)
     have hc : m8PreprocessM6Fn.checkCallsOk
         [ ("full_propagate", [i64], [i64])
@@ -1039,14 +1173,23 @@ theorem m8FidV12_acyclic : m8FidV12Module.checkAcyclic = true := by
     refine fn_checkCallsOk_mono (fun s hs => ?_) hc
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hs
     rcases hs with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-    · exact hsg86 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg86 (by decide)
-    · exact hsg104 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg104 (by decide)
-    · exact hsg184 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg184 (by decide)
-    · exact hsg354 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg354 (by decide)
-    · exact hsg366 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg366 (by decide)
-    · exact hsg32 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg32 (by decide)
-    · exact hsg404 ▸ sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg404 (by decide)
+    · exact hsg86 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg86 (by decide)
+    · exact hsg104 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg104 (by decide)
+    · exact hsg184 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg184 (by decide)
+    · exact hsg354 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg354 (by decide)
+    · exact hsg366 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg366 (by decide)
+    · exact hsg32 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg32 (by decide)
+    · exact hsg404 ▸
+        sig_mem_pre_of_lt_idx m7FidelityFns_names_nodup hsplit hg405 hn0 hg404 (by decide)
 
 theorem m8FidV12_noExit : m8FidV12Module.exits = [] := by t_kernel_rfl
 
 end LeanQbe.T.Examples.Kissat.FullM8FidV12
+
+end

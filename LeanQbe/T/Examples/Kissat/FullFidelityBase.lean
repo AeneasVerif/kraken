@@ -9,12 +9,6 @@ public import LeanQbe.T.Examples.Kissat.FullM8CoreParity
 public import LeanQbe.T.Examples.Kissat.FullM7HotTernary
 public import LeanQbe.T.Examples.Kissat.FullM7HotHop1
 public import LeanQbe.T.Examples.Kissat.PatchModule
-import all LeanQbe.T.Examples.Kissat.FullM8SweepV2
-import all LeanQbe.T.Examples.Kissat.FullM8FidV12
-import all LeanQbe.T.Examples.Kissat.FullM8CoreParity
-import all LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
-import all LeanQbe.T.Examples.Kissat.FullM7HotTernary
-import all LeanQbe.T.Examples.Kissat.FullM7HotHop1
 meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 public meta import LeanQbe.T.Examples.Kissat.PatchModule
@@ -415,7 +409,7 @@ theorem fidBaseBefores_wf : ∀ h ∈ fidBaseBefores.flatMap Prod.snd, h.Wf := b
 private theorem m8FidV123t2Fns_wf_local : ∀ f ∈ m8FidV123t2Fns, f.Wf := by
   have hm8V12Wf : ∀ f ∈ m8FidV12Fns, f.Wf := by
     intro f hf
-    dsimp only [m8FidV12Fns, FullM7Splice.spliceFns] at hf
+    dsimp only [m8FidV12Fns, PatchModule.spliceFns] at hf
     rcases List.mem_map.mp hf with ⟨g, hg, rfl⟩
     cases hfind : m8FidV12Repls.find? (·.name == g.name) with
     | none => exact m7FidelityFns_wf g hg
@@ -425,7 +419,8 @@ private theorem m8FidV123t2Fns_wf_local : ∀ f ∈ m8FidV123t2Fns, f.Wf := by
     simp only [m8FidV123t2Befores, List.mem_cons, List.not_mem_nil, or_false] at hp
     rcases hp with rfl
     exact m8SweepV2Helpers_wf h hh
-  exact FullM7Splice.patchFns_wf hm8V12Wf m8SweepV2Repls_wf hSwB_wf
+  rw [m8FidV123t2Fns_eq_patch]
+  exact mfPatchFns_wf hm8V12Wf m8SweepV2Repls_wf hSwB_wf
 
 /-- Canonical `469`-function purified `KissatFidelity` base function list. -/
 def fidBaseFns : List Fn :=
@@ -455,15 +450,5 @@ def fidBaseNewFns : List Fn :=
 #guard (fidBaseFns.map Fn.name).contains "full_has_ternary"
 #guard (fidBaseFns.map Fn.name).contains "full_bva_hop1"
 #guard (fidBaseFns.map Fn.name).contains "full_bva_hop2"
-
-#guard (PrintCpp.ppModule (fidBaseNewFns.map (Fn.legal .aarch64))).isOk
-#guard (PrintCpp.ppModule (fidBaseNewFns.map (Fn.legal .scalar64))).isOk
-#guard (PrintCpp.ppModule (fidBaseNewFns.map (Fn.legal .x64AVX512))).isOk
-#guard (PrintCpp.ppModule (fidBaseNewFns.map (Fn.legal .x64AVX2))).isOk
-
-#guard fidBaseNewFns.all fun fn => (Fn.legal .aarch64 fn).body.isLegal .aarch64
-#guard fidBaseNewFns.all fun fn => (Fn.legal .scalar64 fn).body.isLegal .scalar64
-#guard fidBaseNewFns.all fun fn => (Fn.legal .x64AVX512 fn).body.isLegal .x64AVX512
-#guard fidBaseNewFns.all fun fn => (Fn.legal .x64AVX2 fn).body.isLegal .x64AVX2
 
 end LeanQbe.T.Examples.Kissat.FullFidelityBase

@@ -201,8 +201,9 @@ theorem fidTiersRepls_wf : ∀ r ∈ fidTiersRepls, r.Wf := by
 theorem fidTiersStand_acyclic : fidTiersStandModule.checkAcyclic = true := by
   t_kernel_rfl
 
-theorem fidTiers_noExit : fidTiersModule.exits = [] :=
-  fidBase_noExit
+theorem fidTiers_noExit : fidTiersModule.exits = [] := by
+  dsimp only [fidTiersModule, PatchModule.patchModule]
+  exact fidBase_noExit
 
 /-! ## 3. Standalone Codegen & 4-ISA Legalization Guards -/
 

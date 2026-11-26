@@ -9,26 +9,7 @@ public import LeanQbe.T.Examples.Kissat.Dimacs
 public import LeanQbe.T.Examples.Kissat.FullM6Sweep
 public import LeanQbe.T.Examples.Kissat.FullM8FidV12
 public import LeanQbe.T.Examples.Kissat.FullM7Splice
-import all LeanQbe.T.Examples.Kissat.FullM8FidV12
-import all LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
-import all LeanQbe.T.Examples.Kissat.FullM7FidelityCore
-import all LeanQbe.T.Examples.Kissat.FullM7FidelitySearch
-import all LeanQbe.T.Examples.Kissat.FullM7Splice
-import all LeanQbe.T.Examples.Kissat.FullM7
-import all LeanQbe.T.Examples.Kissat.FullM5
-import all LeanQbe.T.Examples.Kissat.FullM6CongSubst
-import all LeanQbe.T.Examples.Kissat.FullM6CompactFlush
-import all LeanQbe.T.Examples.Kissat.FullM6OrchAdapters
-import all LeanQbe.T.Examples.Kissat.FullM6MinShrink
-import all LeanQbe.T.Examples.Kissat.FullM6Hdr
-import all LeanQbe.T.Examples.Kissat.FullM6VivBackbone
-import all LeanQbe.T.Examples.Kissat.FullM6
-import all LeanQbe.T.Examples.Kissat.FullM6Orch
-import all LeanQbe.T.Examples.Kissat.FullM7Bump
-import all LeanQbe.T.Examples.Kissat.FullM7AnalyzeSort
-import all LeanQbe.T.Examples.Kissat.FullM7Walk
-import all LeanQbe.T.Examples.Kissat.FullM7CongHash
-import all LeanQbe.T.Examples.Kissat.FullM7CongIte
+public import LeanQbe.T.Examples.Kissat.PatchModule
 meta import LeanQbe.T.Examples.Kissat.Dimacs
 meta import LeanQbe.T.Frontend.C0
 
@@ -55,7 +36,7 @@ Strictly additive (`Class S`) C0 implementation of the tuned `V3t2` sweep module
 
 set_option autoImplicit false
 
-public section
+@[expose] public section
 
 namespace LeanQbe.T.Examples.Kissat.FullM8SweepV2
 
@@ -556,25 +537,33 @@ u64 full_sweep_dense_m6(FullHdr *h, u64 budget, u64 tick_lim) {
 /-! ## 1. Ordered `36` Sweep Helpers + `full_sweep_dense_m6` Replacement -/
 
 def m8sw_full_m6_max_v : Fn := ⟨"full_m6_max_v", [i64], [i64], FullM6Sweep.full_m6_max_v_body⟩
-def m8sw_full_k6_add_ticks : Fn := ⟨"full_k6_add_ticks", [i64, i64], [], FullM6Sweep.full_k6_add_ticks_body⟩
+def m8sw_full_k6_add_ticks : Fn :=
+  ⟨"full_k6_add_ticks", [i64, i64], [], FullM6Sweep.full_k6_add_ticks_body⟩
 def m8sw_full_k6_init : Fn := ⟨"full_k6_init", [i64, i32], [], FullM6Sweep.full_k6_init_body⟩
-def m8sw_full_k6_watch : Fn := ⟨"full_k6_watch", [i64, i32, i32, i32], [], FullM6Sweep.full_k6_watch_body⟩
-def m8sw_full_k6_assign : Fn := ⟨"full_k6_assign", [i64, i32, i32], [], FullM6Sweep.full_k6_assign_body⟩
-def m8sw_full_k6_add_clause : Fn := ⟨"full_k6_add_clause", [i64, i64, i32], [.bool], full_k6_add_clause_body⟩
+def m8sw_full_k6_watch : Fn :=
+  ⟨"full_k6_watch", [i64, i32, i32, i32], [], FullM6Sweep.full_k6_watch_body⟩
+def m8sw_full_k6_assign : Fn :=
+  ⟨"full_k6_assign", [i64, i32, i32], [], FullM6Sweep.full_k6_assign_body⟩
+def m8sw_full_k6_add_clause : Fn :=
+  ⟨"full_k6_add_clause", [i64, i64, i32], [.bool], full_k6_add_clause_body⟩
 def m8sw_full_k6_mtf : Fn := ⟨"full_k6_mtf", [i64, i32], [], FullM6Sweep.full_k6_mtf_body⟩
-def m8sw_full_k6_backtrack : Fn := ⟨"full_k6_backtrack", [i64, i32], [], FullM6Sweep.full_k6_backtrack_body⟩
+def m8sw_full_k6_backtrack : Fn :=
+  ⟨"full_k6_backtrack", [i64, i32], [], FullM6Sweep.full_k6_backtrack_body⟩
 def m8sw_full_k6_propagate : Fn := ⟨"full_k6_propagate", [i64], [i32], full_k6_propagate_body⟩
 def m8sw_full_k6_ana_clause : Fn :=
   ⟨"full_k6_ana_clause", [i64, i32, i32], [], FullM6Sweep.full_k6_ana_clause_body⟩
-def m8sw_full_k6_analyze : Fn := ⟨"full_k6_analyze", [i64, i32], [.bool], FullM6Sweep.full_k6_analyze_body⟩
+def m8sw_full_k6_analyze : Fn :=
+  ⟨"full_k6_analyze", [i64, i32], [.bool], FullM6Sweep.full_k6_analyze_body⟩
 def m8sw_full_k6_solve : Fn := ⟨"full_k6_solve", [i64, i64], [i64], FullM6Sweep.full_k6_solve_body⟩
 def m8sw_full_k6_flip : Fn := ⟨"full_k6_flip", [i64, i32], [.bool], full_k6_flip_body⟩
 def m8sw_full_k512_add_live_m6 : Fn :=
   ⟨"full_k512_add_live_m6", [i64, i32, i32], [], FullM6Sweep.full_k512_add_live_m6_body⟩
 def m8sw_full_m6_dense_prop_lit : Fn :=
   ⟨"full_m6_dense_prop_lit", [i64, i32], [.bool], FullM6Sweep.full_m6_dense_prop_lit_body⟩
-def m8sw_full_m6_dense_prop : Fn := ⟨"full_m6_dense_prop", [i64], [.bool], FullM6Sweep.full_m6_dense_prop_body⟩
-def m8sw_full_m6_sweep_cone : Fn := ⟨"full_m6_sweep_cone", [i64, i32], [i64], full_m6_sweep_cone_body⟩
+def m8sw_full_m6_dense_prop : Fn :=
+  ⟨"full_m6_dense_prop", [i64], [.bool], FullM6Sweep.full_m6_dense_prop_body⟩
+def m8sw_full_m6_sweep_cone : Fn :=
+  ⟨"full_m6_sweep_cone", [i64, i32], [i64], full_m6_sweep_cone_body⟩
 def m8sw_full_m6_sweep_refine_sig : Fn :=
   ⟨"full_m6_sweep_refine_sig", [i64, i32, i32], [], FullM6Sweep.full_m6_sweep_refine_sig_body⟩
 def m8sw_full_m6_sweep_rand_phases : Fn :=
@@ -583,8 +572,10 @@ def m8sw_full_m6_sweep_solve : Fn :=
   ⟨"full_m6_sweep_solve", [i64, i32, i64], [i64], FullM6Sweep.full_m6_sweep_solve_body⟩
 def m8sw_full_m6_sweep_flip_round : Fn :=
   ⟨"full_m6_sweep_flip_round", [i64, i32], [i32], full_m6_sweep_flip_round_body⟩
-def m8sw_full_m6_sweep_sim : Fn := ⟨"full_m6_sweep_sim", [i64, i32, i64], [i32], full_m6_sweep_sim_body⟩
-def m8sw_full_m6_sweep_rearm : Fn := ⟨"full_m6_sweep_rearm", [i64, i32], [], FullM6Sweep.full_m6_sweep_rearm_body⟩
+def m8sw_full_m6_sweep_sim : Fn :=
+  ⟨"full_m6_sweep_sim", [i64, i32, i64], [i32], full_m6_sweep_sim_body⟩
+def m8sw_full_m6_sweep_rearm : Fn :=
+  ⟨"full_m6_sweep_rearm", [i64, i32], [], FullM6Sweep.full_m6_sweep_rearm_body⟩
 def m8sw_full_m6_sweep_build_pht : Fn :=
   ⟨"full_m6_sweep_build_pht", [i64, i32, i64], [], FullM6Sweep.full_m6_sweep_build_pht_body⟩
 def m8sw_full_m6_extract_pht : Fn :=
@@ -595,16 +586,22 @@ def m8sw_full_m6_sweep_units : Fn :=
   ⟨"full_m6_sweep_units", [i64, i32, i32, i64], [i64], FullM6Sweep.full_m6_sweep_units_body⟩
 def m8sw_full_m6_sweep_classes : Fn :=
   ⟨"full_m6_sweep_classes", [i64, i32, i32, i64], [i64], FullM6Sweep.full_m6_sweep_classes_body⟩
-def m8sw_full_m6_els_ar : Fn := ⟨"full_m6_els_ar", [i64, i32, i32], [.bool], FullM6Sweep.full_m6_els_ar_body⟩
-def m8sw_full_m6_els_lit : Fn := ⟨"full_m6_els_lit", [i64, i32, i32], [.bool], FullM6Sweep.full_m6_els_lit_body⟩
-def m8sw_full_m6_els_fold : Fn := ⟨"full_m6_els_fold", [i64, i32], [.bool], FullM6Sweep.full_m6_els_fold_body⟩
-def m8sw_full_m6_dense_els : Fn := ⟨"full_m6_dense_els", [i64, i32], [.bool], FullM6Sweep.full_m6_dense_els_body⟩
+def m8sw_full_m6_els_ar : Fn :=
+  ⟨"full_m6_els_ar", [i64, i32, i32], [.bool], FullM6Sweep.full_m6_els_ar_body⟩
+def m8sw_full_m6_els_lit : Fn :=
+  ⟨"full_m6_els_lit", [i64, i32, i32], [.bool], FullM6Sweep.full_m6_els_lit_body⟩
+def m8sw_full_m6_els_fold : Fn :=
+  ⟨"full_m6_els_fold", [i64, i32], [.bool], FullM6Sweep.full_m6_els_fold_body⟩
+def m8sw_full_m6_dense_els : Fn :=
+  ⟨"full_m6_dense_els", [i64, i32], [.bool], FullM6Sweep.full_m6_dense_els_body⟩
 def m8sw_full_m6_sweep_var : Fn :=
   ⟨"full_m6_sweep_var", [i64, i32, i64], [i64], FullM6Sweep.full_m6_sweep_var_body⟩
 def m8sw_full_m6_cand_sift : Fn :=
   ⟨"full_m6_cand_sift", [i64, i64, i32, i32], [], FullM6Sweep.full_m6_cand_sift_body⟩
-def m8sw_full_m6_collect_cands : Fn := ⟨"full_m6_collect_cands", [i64], [i32], full_m6_collect_cands_body⟩
-def m8sw_full_m6_sweep_vars : Fn := ⟨"full_m6_sweep_vars", [i64, i64, i64], [i64], full_m6_sweep_vars_body⟩
+def m8sw_full_m6_collect_cands : Fn :=
+  ⟨"full_m6_collect_cands", [i64], [i32], full_m6_collect_cands_body⟩
+def m8sw_full_m6_sweep_vars : Fn :=
+  ⟨"full_m6_sweep_vars", [i64, i64, i64], [i64], full_m6_sweep_vars_body⟩
 
 def m8SweepDenseFn : Fn := ⟨"full_sweep_dense_m6", [i64, i64, i64], [i64], full_sweep_dense_m6_body⟩
 
@@ -612,13 +609,15 @@ def m8SweepV2Helpers : List Fn :=
   [ m8sw_full_m6_max_v, m8sw_full_k6_add_ticks, m8sw_full_k6_init, m8sw_full_k6_watch
   , m8sw_full_k6_assign, m8sw_full_k6_add_clause, m8sw_full_k6_mtf, m8sw_full_k6_backtrack
   , m8sw_full_k6_propagate, m8sw_full_k6_ana_clause, m8sw_full_k6_analyze, m8sw_full_k6_solve
-  , m8sw_full_k6_flip, m8sw_full_k512_add_live_m6, m8sw_full_m6_dense_prop_lit, m8sw_full_m6_dense_prop
+  , m8sw_full_k6_flip, m8sw_full_k512_add_live_m6, m8sw_full_m6_dense_prop_lit
+  , m8sw_full_m6_dense_prop
   , m8sw_full_m6_sweep_cone, m8sw_full_m6_sweep_refine_sig, m8sw_full_m6_sweep_rand_phases
   , m8sw_full_m6_sweep_solve, m8sw_full_m6_sweep_flip_round, m8sw_full_m6_sweep_sim
   , m8sw_full_m6_sweep_rearm, m8sw_full_m6_sweep_build_pht, m8sw_full_m6_extract_pht
   , m8sw_full_m6_refine_partition, m8sw_full_m6_sweep_units, m8sw_full_m6_sweep_classes
   , m8sw_full_m6_els_ar, m8sw_full_m6_els_lit, m8sw_full_m6_els_fold, m8sw_full_m6_dense_els
-  , m8sw_full_m6_sweep_var, m8sw_full_m6_cand_sift, m8sw_full_m6_collect_cands, m8sw_full_m6_sweep_vars ]
+  , m8sw_full_m6_sweep_var, m8sw_full_m6_cand_sift, m8sw_full_m6_collect_cands
+  , m8sw_full_m6_sweep_vars ]
 
 def m8SweepV2Repls : List Fn :=
   [ m8SweepDenseFn ]
@@ -628,21 +627,218 @@ def m8FidV123t2Befores : List (Sym × List Fn) :=
       [ m8sw_full_m6_max_v, m8sw_full_k6_add_ticks, m8sw_full_k6_init, m8sw_full_k6_watch
       , m8sw_full_k6_assign, m8sw_full_k6_add_clause, m8sw_full_k6_mtf, m8sw_full_k6_backtrack
       , m8sw_full_k6_propagate, m8sw_full_k6_ana_clause, m8sw_full_k6_analyze, m8sw_full_k6_solve
-      , m8sw_full_k6_flip, m8sw_full_k512_add_live_m6, m8sw_full_m6_dense_prop_lit, m8sw_full_m6_dense_prop
+      , m8sw_full_k6_flip, m8sw_full_k512_add_live_m6, m8sw_full_m6_dense_prop_lit
+      , m8sw_full_m6_dense_prop
       , m8sw_full_m6_sweep_cone, m8sw_full_m6_sweep_refine_sig, m8sw_full_m6_sweep_rand_phases
       , m8sw_full_m6_sweep_solve, m8sw_full_m6_sweep_flip_round, m8sw_full_m6_sweep_sim
       , m8sw_full_m6_sweep_rearm, m8sw_full_m6_sweep_build_pht, m8sw_full_m6_extract_pht
       , m8sw_full_m6_refine_partition, m8sw_full_m6_sweep_units, m8sw_full_m6_sweep_classes
       , m8sw_full_m6_els_ar, m8sw_full_m6_els_lit, m8sw_full_m6_els_fold, m8sw_full_m6_dense_els
-      , m8sw_full_m6_sweep_var, m8sw_full_m6_cand_sift, m8sw_full_m6_collect_cands, m8sw_full_m6_sweep_vars ]) ]
+      , m8sw_full_m6_sweep_var, m8sw_full_m6_cand_sift, m8sw_full_m6_collect_cands
+      , m8sw_full_m6_sweep_vars ]) ]
 
-/-- Ordered `449`-function spliced module list for `M8` Tier B (`V12 + V3t2`). -/
+/-- Ordered `449`-function flat module list for `M8` Tier B (`V12 + V3t2`), definitionally
+equal to `mfPatchFns m8SweepV2Repls m8FidV123t2Befores m8FidV12Fns` (`m8FidV123t2Fns_eq_patch`). -/
 def m8FidV123t2Fns : List Fn :=
-  patchFns m8SweepV2Repls m8FidV123t2Befores m8FidV12Fns
+  [ kissat_is_ws, kissat_is_digit, kissat_skip_ws_comments, kissat_skip_ws1, kissat_read_nat
+  , kissat_parse_header, kissat_next_lit, kissat_check_model, Full.full_isqrt
+  , FullM7FidelitySched.fidIlog10Fn, FullM7Bump.m7RngNextFn, Full.full_arena_next
+  , Full.full_alloc_cl, Full.full_wsort_sift, FullM6WatchGc.full_wstack_radix_sort_m6
+  , FullM6WatchGc.full_wstack_defrag_m6, FullM6WatchGc.full_watch_push_m6
+  , FullM6Orch.m6oWstackDefragFn, FullM6Orch.m6oWatchPushFn, Full.full_heap_up
+  , Full.full_heap_down, Full.full_heap_push, Full.full_heap_pop, FullM6WalkParse.full_rescale_m6
+  , FullM6Orch.m6oRescaleFn, FullM4Bump.m4BumpVarFn, Full.full_bump_decay
+  , Full.full_queue_renumber, Full.full_queue_mtf, FullM3VivChrono.m3TickRelFn
+  , FullM5Sched.full_log10_q16, FullM7.m7Log10Q16CanonFn, FullM7.m7ScaleDeltaM5Fn
+  , FullM5Sched.full_ema_update, FullM7Bump.m7ScaleDeltaFn, Full.full_assign_lvl, Full.full_assign
+  , FullM5HeurCore.m5SaveTargetBestFn, FullM5HeurCore.m5BacktrackRawFn
+  , FullM5HeurCore.m5BacktrackFn, Full.full_add_clause, Full.full_zero_tables1
+  , Full.full_zero_tables2, Full.full_fixed_bytes, Full.full_init_ptrs
+  , FullFastBveBudgets.full_init_hdr, FullM7FidelitySched.fidCalcMaxVFn
+  , FullM5Orch.full_calc_ext_cap_m5, FullM5Orch.full_calc_scr_cap_m5, Full.full_init_arenas
+  , FullM5Orch.full_init_state_m5, FullM5.m5InitStateFwdFn, FullM6Hdr.full_m6_hdr_sizeof
+  , FullM6Hdr.full_m6_ext_sizeof, FullM6Hdr.m6_hdr_init, FullM6Hdr.m6_hdr_reset
+  , FullM6Hdr.m6_ext_ensure_init, FullM6Hdr.m6_hdr_ext_ready, FullM6Hdr.full_m6_mem_init
+  , FullM7ParityVivTiers.m7pSyncLegacyTiersFn, FullM6Hdr.m6_hdr_recompute_tiers_mode
+  , FullM6Hdr.m6_hdr_recompute_tiers, FullM6Hdr.m6_hdr_update_tier_limits
+  , FullM6Hdr.m6_hdr_record_used, FullM6Hdr.m6_hdr_get_tier1, FullM6Hdr.m6_hdr_get_tier2
+  , FullM6Hdr.m6_hdr_delaying, FullM6Hdr.m6_hdr_bump_delay, FullM6Hdr.m6_hdr_reduce_delay
+  , FullM6Hdr.m6_hdr_reset_delay, FullM6Hdr.m6_hdr_get_watermark, FullM6Hdr.m6_hdr_set_watermark
+  , FullM6Hdr.m6_hdr_add_ticks, FullM6Hdr.m6_hdr_dr_init, FullM6Hdr.m6_hdr_dr_update
+  , FullM6Hdr.m6_hdr_dr_allow, Full.full_skip_cl, Full.full_ingest_cl, Full.full_find_repl
+  , Full.full_assign_level, FullM5Otfs.full_unwatch_large, FullM7BcpHot.full_prop_lit_ovf_hot
+  , FullM7BcpHot.full_prop_chrono_hot, FullM7ParityVivTiers.m7pPropIgnoreHotFn
+  , FullM7BcpHot.full_bcp_hot, FullM7ParityVivTiers.m7pPropIgnoreFn, FullM7.m7PropCanonFn
+  , FullM6WalkParse.full_parse_body_m6, FullM6Orch.m6oParseBodyFn, Full.full_recompute_tiers
+  , FullM6WatchGc.full_lit_rank_m6, FullM6WatchGc.full_sweep_bins_range_m6
+  , FullM6WatchGc.full_rewatch_range_m6, FullM6WatchGc.full_rewatch_arena_m6
+  , FullM6Orch.m6oLitRankFn, FullM6CompactFlush.full_sweep_bins_m6cf, FullM6Orch.m6oSweepBinsFn
+  , FullM7CompactFix.m7fixSweepCopyFn, FullM6Orch.m6oRewatchArenaFn
+  , FullM6WatchGc.full_move_red_pass2_m6, FullM6WatchGc.full_move_red_end_buf_m6
+  , FullM6WatchGc.full_move_red_end_m6, FullM6WatchGc.full_arena_sweep_m6
+  , FullM6WatchGc.full_mark_reasons_m6, FullM6Orch.m6oArenaSweepFn, FullM6Orch.m6oMarkReasonsFn
+  , FullM6CompactFlush.full_flush_trail, Full.full_red_less, Full.full_red_sift
+  , Full.full_sort_reds, FullM6.m6CanonicalReduceFn, FullM7FidelitySchedFix.full_reduce_m6
+  , Full.full_analyze_lit, FullM7BvaGuFix.m7AnalyzeRsnFn, FullM6Orch.m6oAnalyzeRsnM6HdrFn
+  , Full.full_clear_ana, FullM6MinShrink.full_ana_sift_m6, FullM6MinShrink.full_sort_ana_qs_m6
+  , FullM7FidelitySearch.fidBumpAnalyzedFn, FullM6OrchAdapters.m6aRestoreBumpAnaM6HdrFn
+  , FullM8FidV12.m8AnaFailedLitM6HdrFn, FullM5Otfs.full_otfs_large, FullM6.m6CanonicalOtfsBinFn
+  , FullM5HeurCore.m5OtfsSubsumeFn, Full.full_min_mark, Full.full_tmp_less
+  , FullM7AnalyzeSort.m7SortTmpSiftFn, FullM7AnalyzeSort.full_sort_tmp_sift_m7
+  , FullM7AnalyzeSort.m7SortTmpHeapFn, FullM7AnalyzeSort.m7SortTmpFn
+  , FullM6MinShrink.full_min_lit_dfs_m6, FullM6MinShrink.full_min_lit_m6
+  , FullM6MinShrink.full_shrink_lower_m6, FullM6MinShrink.full_shrink_blk_bool_m6
+  , FullM6MinShrink.full_shrink_blk_m6, FullM7FidelityCore.fidMinShrinkM6Fn
+  , FullM6MinShrink.full_deduce_1uip_m6, FullM6Orch.m6oMinShrinkFn, FullM6Orch.m6oDeduce1uipFn
+  , FullM6Orch.m6oDeduce1uipM6HdrFn, Full.full_det_new_level, FullM5.m5OneLitConflFn
+  , FullM5HeurCore.m5EagerSubsumeFn, FullM5HeurCore.m5LearnClauseFn, FullM7Bump.full_bump_sift_m7
+  , FullM7Bump.full_bump_sort_stamps_m7, FullM7Bump.full_bump_reasons_m7
+  , FullM7Bump.m7BumpAnalyzedFn, FullM5HeurCore.m5RestoreBumpAnaFn, FullM8FidV12.m8AnalyzeFn
+  , FullM8FidV12.m8AnalyzeCoreM6Fn, FullM6OrchAdapters.m6aAnalyzeM6HdrFn, Full.full_next_dec_var
+  , FullM6Hdr.m6_hdr_decide, FullM7Walk.full_walk_cb_inv_m7, FullM7Walk.full_walk_init_table_m7
+  , FullM7Walk.full_walk_effort_m7, FullM7Walk.full_walk_init_vals_m7
+  , FullM7Walk.full_walk_collect_m7, FullM7Walk.full_walk_build_occ_m7
+  , FullM7Walk.full_walk_break_m7, FullM7Walk.full_walk_pick_m7, FullM7Walk.full_walk_flip_m7
+  , FullM7Walk.full_walk_save_min_m7, FullM7FidelityCore.fidWalkM7Fn, FullM7Walk.full_warmup_m7
+  , FullM7Walk.full_walk_warmup_m7, FullM7.m7WarmupCanonFn, FullM7.m7WalkCanonFn
+  , FullM7AnalyzeSort.m7RephaseFn, FullM8FidV12.m8RestartDueFn, Full.full_restart
+  , FullM6CompactFlush.m6cfExtendPush2Fn, FullM6CompactFlush.m6cfExtendPushClFn, FullM4.m4ExtendFn
+  , Full.full_has_bin, Full.full_delete_bin_side, FullM6VivBackbone.full_add_bin_m6
+  , FullM6OrchAdapters.m6aAddBinFn, Full.full_delete_binary, Full.full_set_inactive
+  , Full.full_add_unit, Full.full_lucky_scan, Full.full_lucky_polar, Full.full_lucky
+  , FullM5.m5HbrDomFn, FullM5.m5ProbePropLitFn, Full.full_probe_prop, Full.full_probe_flush_hbr
+  , FullM6.m6CanonicalProbeAssumePairFn, FullM3.m3ProbeRunFn
+  , FullM6VivBackbone.full_viv_unreason_m6, FullM6VivBackbone.full_viv_watch_rank_m6
+  , FullM6VivBackbone.full_viv_best_watch_m6, FullM6VivBackbone.full_viv_simplify_m6
+  , FullM6VivBackbone.full_viv_commit_m6, FullM6VivBackbone.full_viv_mark_garb_m6
+  , FullM6VivBackbone.full_viv_subsumes_bin_m6, FullM6VivBackbone.full_viv_subsumes_cl_m6
+  , FullM6VivBackbone.full_viv_deduce_m6, FullM6VivBackbone.full_viv_best_implied_m6
+  , FullM6VivBackbone.full_viv_reestablish_m6, FullM6VivBackbone.full_viv_inst_check_m6
+  , FullM6VivBackbone.full_viv_inst_m6, FullM6VivBackbone.full_viv_finish_m6
+  , FullM6VivBackbone.full_viv_sort_counts_m6, FullM6VivBackbone.full_viv_has_l0_m6
+  , FullM6VivBackbone.full_viv_l0_simp_m6, FullM6VivBackbone.full_viv_reuse_prefix_m6
+  , FullM6VivBackbone.full_viv_clause_m6, FullM6VivBackbone.full_viv_tier_match_m6
+  , FullM6VivBackbone.full_viv_collect_m6, FullM6VivBackbone.full_viv_count_m6
+  , FullM6VivBackbone.full_viv_keys_m6, FullM6VivBackbone.full_viv_sort_sched_m6
+  , FullM6VivBackbone.full_viv_clear_tier_m6, FullM6VivBackbone.full_vivify_m6
+  , FullM7ParityVivTiers.m7pVivifyTierFn, FullM7ParityVivTiers.m7pVivifyFn
+  , FullM6VivBackbone.full_prioritize_binaries_m6, FullM6VivBackbone.full_backbone_sched_m6
+  , FullM6VivBackbone.full_backbone_keep_m6, FullM6VivBackbone.full_backbone_unwind_m6
+  , FullM6VivBackbone.full_backbone_prop_m6, FullM6VivBackbone.full_backbone_analyze_m6
+  , FullM6VivBackbone.full_backbone_round_m6, FullM6VivBackbone.full_backbone_m6
+  , FullM6VivBackbone.full_trans_lit_m6, FullM6VivBackbone.full_trans_sort_m6
+  , FullM6VivBackbone.full_transitive_m6, Full.full_tarjan_pop_scc
+  , FullM6CongSubst.full_tarjan_scc, Full.full_subst_elim_vars
+  , FullM6CongSubst.full_subst_rewrite_bins, FullM6CongSubst.full_subst_rewrite_ar
+  , FullM6CongSubst.full_substitute, FullM8FidV12.m8EnterDenseFn, Full.full_rebuild_watches
+  , Full.full_cong_find, FullM6CongSubst.full_cong_merge, FullM3CongBva.m3MarkTrailFn
+  , FullM3CongBva.m3UnitFoldFn, FullM3CongBva.m3EquivFoldFn, FullM4InprocHot.m4HasTernaryFn
+  , FullM7AnalyzeSort.m7SortU32Fn, FullM6CongSubst.full_cong_extract_ite
+  , FullM6CongSubst.full_cong_emit_xor, FullM6CongSubst.full_cong_has_clause_k
+  , FullM6CongSubst.full_cong_extract_xor_k, FullM8FidV12.m8CongTryXorIteFn
+  , FullM6CongSubst.full_cong_count_bins, FullM6CongSubst.full_cong_eb_match
+  , FullM6CongSubst.full_cong_extract_binaries, FullM6CongSubst.full_cong_find_units_equivs
+  , FullM6CongSubst.full_cong_extract, FullM6CongSubst.full_cong_and_match
+  , FullM6CongSubst.full_cong_xor_match, FullM6CongSubst.full_cong_enq_var
+  , FullM6CongSubst.full_cong_eval_gate, FullM6CongSubst.full_cong_work_step
+  , FullM6CongSubst.full_cong_worklist, FullM6CongSubst.full_cong_fwd_subsume
+  , FullM7CongHash.full_cong_ht_hash_ent_m7, FullM7CongHash.full_cong_ht_init_m7
+  , FullM7CongHash.full_cong_ht_grow_m7, FullM7CongHash.full_cong_ht_grow_clear_m7
+  , FullM7CongHash.full_cong_ht_lookup_m7, FullM7CongHash.full_cong_ht_insert_m7
+  , FullM7CongIte.full_cong_u64_sift_m7, FullM7CongIte.full_cong_u64_sort_m7
+  , FullM7CongIte.full_cong_bsearch_u64_m7, FullM7CongIte.full_cong_copy_condbin_m7
+  , FullM7CongIte.full_cong_extract_condeq_m7, FullM7CongIte.full_cong_merge_condeq_m7
+  , FullM7CongIte.full_cong_extract_ite_all_m7, FullM8FidV12.m8CongruenceDenseFn
+  , FullM4Sweep.full_k512_init, FullM4Sweep.full_k512_watch, FullM4Sweep.full_k512_assign
+  , FullM4Sweep.full_k512_add_clause, FullM4Sweep.full_k512_mtf, FullM4Sweep.full_k512_backtrack
+  , FullM4Sweep.full_k512_propagate, FullM4Sweep.full_k512_ana_clause
+  , FullM4Sweep.full_k512_analyze, FullM4Sweep.full_k512_solve, FullM4Sweep.full_k512_flip
+  , FullM4Sweep.full_k512_add_live, FullM4Sweep.full_m4_sweep_cone
+  , FullM4Sweep.full_m4_sweep_refine_sig, FullM4Sweep.full_m4_sweep_rand_phases
+  , FullM4Sweep.full_m4_sweep_flip_round, FullM4Sweep.full_m4_sweep_sim
+  , FullM4Sweep.full_m4_sweep_rearm, FullM4Sweep.full_m4_sweep_build_pht
+  , FullM4Sweep.full_m4_sweep_units, FullM4Sweep.full_m4_sweep_classes
+  , FullM4Sweep.full_m4_sweep_var, FullM5Orch.full_sweep_dense_m5, m8sw_full_m6_max_v
+  , m8sw_full_k6_add_ticks, m8sw_full_k6_init, m8sw_full_k6_watch, m8sw_full_k6_assign
+  , m8sw_full_k6_add_clause, m8sw_full_k6_mtf, m8sw_full_k6_backtrack, m8sw_full_k6_propagate
+  , m8sw_full_k6_ana_clause, m8sw_full_k6_analyze, m8sw_full_k6_solve, m8sw_full_k6_flip
+  , m8sw_full_k512_add_live_m6, m8sw_full_m6_dense_prop_lit, m8sw_full_m6_dense_prop
+  , m8sw_full_m6_sweep_cone, m8sw_full_m6_sweep_refine_sig, m8sw_full_m6_sweep_rand_phases
+  , m8sw_full_m6_sweep_solve, m8sw_full_m6_sweep_flip_round, m8sw_full_m6_sweep_sim
+  , m8sw_full_m6_sweep_rearm, m8sw_full_m6_sweep_build_pht, m8sw_full_m6_extract_pht
+  , m8sw_full_m6_refine_partition, m8sw_full_m6_sweep_units, m8sw_full_m6_sweep_classes
+  , m8sw_full_m6_els_ar, m8sw_full_m6_els_lit, m8sw_full_m6_els_fold, m8sw_full_m6_dense_els
+  , m8sw_full_m6_sweep_var, m8sw_full_m6_cand_sift, m8sw_full_m6_collect_cands
+  , m8sw_full_m6_sweep_vars, m8SweepDenseFn, Full.full_fwd_dedup_bins
+  , FullM7BveGates.full_dense_prop_unit_m7, FullM7BveGates.full_dense_flush_units_m7
+  , FullM7BveGates.full_fwd_flush_large_m7, FullM7BveGates.full_fwd_reconnect_irred_m7
+  , FullM7BveGates.full_fwd_scan_lit_m7, FullM7BveGates.full_fwd_check_cl_m7
+  , FullM7BveGates.full_fwd_connect_subsumer_m7, FullM7BveGates.full_fwd_collect_sort_m7
+  , FullM7BveGates.full_forward_sub_m7, FullM7BveGates.full_bve_collect_m7
+  , FullM7BvaV5Fix.m7v5ForwardSubFn, FullM7.m7BveCollectCanonFn
+  , FullM7BveGates.full_bve_mark_and_m7, FullM7BveGates.full_bve_find_equiv_m7
+  , FullM7BveGates.full_bve_find_and_m7, FullM7BveGates.full_bve_get_tern_m7
+  , FullM7BveGates.full_bve_match_tern_m7, FullM7BveGates.full_bve_find_ite_side_m7
+  , FullM7BveGates.full_bve_find_ite_m7, FullM7BveGates.full_bve_xor_pat_m7
+  , FullM7BveGates.full_bve_find_xor_m7, FullM7BveGates.full_k6_watch_m7
+  , FullM7BveGates.full_k6_assign_m7, FullM7BveGates.full_k6_mtf_m7
+  , FullM7BveGates.full_k6_backtrack_m7, FullM7BveGates.full_k6_prop_m7
+  , FullM7BveGates.full_k6_ana_cl_m7, FullM7BveGates.full_k6_analyze_m7
+  , FullM7BveGates.full_k6_solve_m7, FullM7BveGates.full_k6_core_m7
+  , FullM7BveGates.full_bve_def_k6_m7, FullM7BveGates.full_bve_gates_m7
+  , Full.full_bve_resolve_pair, Full.full_bve_weaken, Full.full_bve_try_bce
+  , Full.full_bve_commit_res, Full.full_bve_ext_need, FullM7BveGates.full_bve_var_m7
+  , FullM7.m7BveVarCanonFn, FullM7BvaFactor.m7InitFreshVarFn, FullM4Bva.m4Hop1Fn
+  , FullM4Bva.m4Hop2Fn, FullM4Bva.m4Hop3Fn, FullBvaHeap.full_bva_match_large
+  , FullM7FidelityCore.fidBvaScanCandsFn, FullM6BvaNoHops.m6BvaPickCandFn
+  , FullM7FidelityCore.fidBvaMatchLargeFidFn, FullM7FidelityCore.fidBvaFilterRowFn
+  , FullM7BvaGuFix.m7BvaCommitFn, FullM7BvaFactor.m7BvaTryLitFn, FullBvaHeap.full_fheap_up
+  , FullBvaHeap.full_fheap_down, FullM7BvaFactor.m7FactorFn, FullM7CompactFix.m7fixCompactNeededFn
+  , FullM6CompactFlush.m6cfCompactFlushFn, FullM7CompactFix.m7fixCompactMarkLiveFn
+  , FullM4Compact.full_compact_assign_map, FullM4Compact.full_compact_record_ext
+  , FullM4Compact.full_compact_bins, FullM4Compact.full_compact_arena
+  , FullM7CompactFix.m7fixCompactVarsFn, FullM4Compact.full_compact_sift_q
+  , FullM4Compact.full_compact_vmtf, FullM4Compact.full_compact_sift_h
+  , FullM4Compact.full_compact_heap, FullM4Compact.full_compact
+  , FullM7Reorder.full_reorder_weight_m7, FullM7Reorder.full_reorder_sift_m7
+  , FullM7FidelityCore.fidReorderSiftFidFn, FullM7FidelityCore.fidReorderQueueM7Fn
+  , FullM7FidelityCore.fidReorderM6Fn, FullM4VivBce.full_bce_side_m4
+  , FullM4VivBce.full_bce_pair_m4, FullM4VivBce.full_bce_var_m4, FullM4VivBce.full_bce_m4
+  , FullFastSched.full_min_u64, FullFastSched.full_max_u64, FullM6.m6CanonicalElimDticksFn
+  , FullM7BveGates.full_bve_var_key_m7, FullM7BveGates.full_bve_heap_up_m7
+  , FullM7BveGates.full_bve_heap_down_m7, FullM7BveGates.full_bve_heap_push_m7
+  , FullM7BveGates.full_bve_heap_pop_m7, FullM7BveGates.full_bve_collect_nbrs_m7
+  , FullM7FidelityCore.fidElimBveM7Fn, FullM7BveGates.full_eliminate_m7
+  , FullM7FidelitySchedFix.full_eliminate_m6, FullM7Search.full_lcg_next_m7
+  , FullM7Search.full_m7_get64, FullM7Search.full_m7_set64, FullM7Search.full_m7_state_init
+  , FullM7Search.full_tumble_clause_m7, FullM7Search.full_tumble_clauses_m7
+  , FullM7Search.full_tumble_m7, FullM7Search.full_lucky_polar_m7, FullM7Search.full_lucky_late_m7
+  , FullM7Search.full_randec_step_m7, FullM7Search.full_randec_var_m7, FullM7Search.full_decide_m7
+  , FullM7Search.full_ema_swap_m7, FullM8FidV12.m8SwitchModeM7Fn
+  , FullM6OrchAdapters.m6aProbeDticksM6HdrFn, FullM7FidelitySchedFix.full_probe_tail_m6
+  , FullM7FidelitySchedFix.full_probe_m6, FullM8FidV12.m8PreprocessM6Fn
+  , FullM6Orch.m6oSimplifyM6Fn, FullM7FidelitySearch.fidHdrDecideFn
+  , FullM7FidelitySearch.fidSearchM6Fn, FullM6Orch.m6oSolveBytesM6Fn, FullM6Orch.m6oPreprocessFn
+  , FullM6Orch.m6oSearchFn, FullM6Orch.m6oSolveBytesFn ]
 
 /-- Closed `449`-function `M8` Tier B module (`0` externs, `0` exits). -/
 def m8FidV123t2Module : LeanQbe.T.Module :=
   { m8FidV12Module with fns := m8FidV123t2Fns }
+
+end LeanQbe.T.Examples.Kissat.FullM8SweepV2
+
+end
+
+public section
+
+namespace LeanQbe.T.Examples.Kissat.FullM8SweepV2
+
+open LeanQbe.T
+open LeanQbe.T.Examples.Kissat
+open LeanQbe.T.Examples.Kissat.FullM6Sweep
+open LeanQbe.T.Examples.Kissat.FullM7Fidelity
+open LeanQbe.T.Examples.Kissat.FullM7Splice
+open LeanQbe.T.Examples.Kissat.FullM8FidV12
 
 /-! ## 2. Structural Theorems: Well-Formedness, Length `449`, `Nodup`, & Acyclicity -/
 
@@ -833,7 +1029,8 @@ private theorem m8FidV12_split_299 :
   have hrepl0 :
       (m7FidRepls.find? (fun x => x.name == FullM6Orch.m6oSweepDenseM6Fn.name)).getD
         FullM6Orch.m6oSweepDenseM6Fn = FullM6Orch.m6oSweepDenseM6Fn := by
-    have hnone : m7FidRepls.find? (fun x => x.name == FullM6Orch.m6oSweepDenseM6Fn.name) = none := by
+    have hnone :
+        m7FidRepls.find? (fun x => x.name == FullM6Orch.m6oSweepDenseM6Fn.name) = none := by
       rw [hnm299, List.find?_eq_none]
       intro r hr heq
       have hm : r.name ∈ m7FidRepls.map Fn.name := List.mem_map.mpr ⟨r, hr, rfl⟩
@@ -842,14 +1039,16 @@ private theorem m8FidV12_split_299 :
     rw [hnone]; rfl
   rw [hins0, hrepl0, List.nil_append] at hmf
   have hm8 : m8FidV12Fns =
-      spliceFns m8FidV12Repls (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.take 299)) ++
+      PatchModule.spliceFns m8FidV12Repls
+        (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.take 299)) ++
         (m8FidV12Repls.find? (fun x => x.name == FullM6Orch.m6oSweepDenseM6Fn.name)).getD
           FullM6Orch.m6oSweepDenseM6Fn ::
-        spliceFns m8FidV12Repls (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.drop 300)) := by
+        PatchModule.spliceFns m8FidV12Repls
+          (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.drop 300)) := by
     dsimp only [m8FidV12Fns]
     conv => lhs; rw [hmf]
-    rw [spliceFns_append, spliceFns_append, List.append_assoc]
-    simp only [spliceFns, List.map_cons, List.map_nil, List.singleton_append]
+    rw [PatchModule.spliceFns_append, PatchModule.spliceFns_append, List.append_assoc]
+    simp only [PatchModule.spliceFns, List.map_cons, List.map_nil, List.singleton_append]
   have hrepl8 :
       (m8FidV12Repls.find? (fun x => x.name == FullM6Orch.m6oSweepDenseM6Fn.name)).getD
         FullM6Orch.m6oSweepDenseM6Fn = FullM6Orch.m6oSweepDenseM6Fn := by
@@ -866,7 +1065,8 @@ private theorem m8FidV12_split_299 :
     rw [List.length_append, m7_p1_len, m7_p2_len]; omega
   have h7eq : FullM7.m7Fns = (FullM7.m7FnsPart1 ++ FullM7.m7FnsPart2) ++ FullM7.m7FnsPart3 := by
     dsimp only [FullM7.m7Fns]
-  refine ⟨spliceFns m8FidV12Repls (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.take 299)),
+  refine ⟨PatchModule.spliceFns m8FidV12Repls
+          (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.take 299)),
     FullM6Orch.m6oSweepDenseM6Fn, _, hm8, hnm299, hsig299, fun g hg0 => ?_⟩
   have hg : g ∈ FullM7.m7Fns.take 299 := by
     rw [h7eq]
@@ -880,7 +1080,8 @@ private theorem m8FidV12_split_299 :
       ((m8FidV12Repls.find?
           (fun x => x.name == ((m7FidRepls.find? (fun x => x.name == g.name)).getD g).name)).getD
         ((m7FidRepls.find? (fun x => x.name == g.name)).getD g)) ∈
-        spliceFns m8FidV12Repls (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.take 299)) :=
+        PatchModule.spliceFns m8FidV12Repls
+          (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.take 299)) :=
     List.mem_map.mpr ⟨_, hmem_fid, rfl⟩
   constructor
   · rintro ⟨hgnm, hgas, hgrs⟩
@@ -895,7 +1096,8 @@ private theorem m8FidV12_split_299 :
       rw [hgnm]
       t_kernel_rfl
     have hmem_ed : m8EnterDenseFn ∈
-        spliceFns m8FidV12Repls (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.take 299)) := by
+        PatchModule.spliceFns m8FidV12Repls
+          (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.take 299)) := by
       simpa only [hnone1, Option.getD_none, hfind8, Option.getD_some] using hmem_m8
     have hed_sig : m8EnterDenseFn.sig = ("full_enter_dense", [i64], [.bool]) := by t_kernel_rfl
     have hgsig : g.sig = m8EnterDenseFn.sig := by
@@ -916,7 +1118,8 @@ private theorem m8FidV12_split_299 :
       rw [beq_iff_eq.mp heq] at hm
       exact hn2 hm
     have hmem_g : g ∈
-        spliceFns m8FidV12Repls (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.take 299)) := by
+        PatchModule.spliceFns m8FidV12Repls
+          (mfPatchFns m7FidRepls m7FidBefores (FullM7.m7Fns.take 299)) := by
       simpa only [hnone1, Option.getD_none, hnone2, Option.getD_none] using hmem_m8
     exact List.mem_map.mpr ⟨g, hmem_g, rfl⟩
 
@@ -925,7 +1128,7 @@ private theorem m8SweepV2Helpers_names_nodup :
   decide
 
 private theorem mem_spliceFns_name {repls fs : List Fn} {x : Fn}
-    (hx : x ∈ spliceFns repls fs) :
+    (hx : x ∈ PatchModule.spliceFns repls fs) :
     x.name ∈ fs.map Fn.name := by
   rcases List.mem_map.mp hx with ⟨g, hg, rfl⟩
   cases hf : repls.find? (fun r => r.name == g.name) with
@@ -1030,36 +1233,225 @@ private theorem m8SweepV2Helpers_not_in_m7Fid :
       · rw [hxp] at hhm
         exact absurd hhm (by decide)
 
+private theorem sw_fn_find_name_eq {repls : List Fn} {f r : Fn}
+    (h : repls.find? (fun x => x.name == f.name) = some r) : r.name = f.name :=
+  beq_iff_eq.mp (List.find?_some (p := fun x : Fn => x.name == f.name) h)
+
+private theorem mfPatchFns_names_map {repls fs : List Fn} {befores : List (Sym × List Fn)}
+    (hsig : ∀ r ∈ repls, ∀ f ∈ fs, r.name = f.name → r.sig = f.sig) :
+    (mfPatchFns repls befores fs).map Fn.name =
+      fs.flatMap fun f => (mfPatchInsAt befores f).map Fn.name ++ [f.name] := by
+  induction fs with
+  | nil => rfl
+  | cons f rest ih =>
+    have hsig_r : ∀ r ∈ repls, ∀ g ∈ rest, r.name = g.name → r.sig = g.sig :=
+      fun r hr g hg => hsig r hr g (List.mem_cons_of_mem f hg)
+    have hname : ((repls.find? (fun x => x.name == f.name)).getD f).name = f.name := by
+      cases h : repls.find? (fun x => x.name == f.name) with
+      | none => rfl
+      | some r => exact sw_fn_find_name_eq h
+    simp only [mfPatchFns, List.flatMap_cons, List.map_append, List.map_cons, List.map_nil] at ih ⊢
+    rw [hname, ih hsig_r]
+
+private theorem mfPatchFns_names_nodup {repls fs : List Fn} {befores : List (Sym × List Fn)}
+    (hnd : (fs.map Fn.name).Nodup)
+    (hsig : ∀ r ∈ repls, ∀ f ∈ fs, r.name = f.name → r.sig = f.sig)
+    (hinsNd : ∀ f ∈ fs, ((mfPatchInsAt befores f).map Fn.name).Nodup)
+    (hinsDisj : ∀ f ∈ fs, ∀ h ∈ mfPatchInsAt befores f, h.name ∉ fs.map Fn.name)
+    (hinsPair : ∀ f₁ ∈ fs, ∀ f₂ ∈ fs, f₁.name ≠ f₂.name →
+      ∀ h ∈ mfPatchInsAt befores f₁, h.name ∉ (mfPatchInsAt befores f₂).map Fn.name) :
+    ((mfPatchFns repls befores fs).map Fn.name).Nodup := by
+  rw [mfPatchFns_names_map hsig]
+  clear hsig repls
+  induction fs with
+  | nil => exact List.nodup_nil
+  | cons f rest ih =>
+    simp only [List.map_cons, List.nodup_cons] at hnd
+    have hinsNd_r : ∀ g ∈ rest, ((mfPatchInsAt befores g).map Fn.name).Nodup :=
+      fun g hg => hinsNd g (List.mem_cons_of_mem f hg)
+    have hinsDisj_r : ∀ g ∈ rest, ∀ h ∈ mfPatchInsAt befores g, h.name ∉ rest.map Fn.name :=
+      fun g hg h hh hm => hinsDisj g (List.mem_cons_of_mem f hg) h hh
+        (by simp [List.mem_cons, hm])
+    have hinsPair_r : ∀ g₁ ∈ rest, ∀ g₂ ∈ rest, g₁.name ≠ g₂.name →
+        ∀ h ∈ mfPatchInsAt befores g₁, h.name ∉ (mfPatchInsAt befores g₂).map Fn.name :=
+      fun g₁ hg₁ g₂ hg₂ => hinsPair g₁ (List.mem_cons_of_mem f hg₁)
+        g₂ (List.mem_cons_of_mem f hg₂)
+    have hrest_nd := ih hnd.2 hinsNd_r hinsDisj_r hinsPair_r
+    simp only [List.flatMap_cons, List.nodup_append]
+    refine ⟨⟨hinsNd f List.mem_cons_self, by simp, ?_⟩, hrest_nd, ?_⟩
+    · intro x hx y hy hxy
+      subst hxy
+      simp only [List.mem_singleton] at hy
+      subst hy
+      rcases List.mem_map.mp hx with ⟨h, hh, hnm⟩
+      exact hinsDisj f List.mem_cons_self h hh (by simp [List.mem_cons, hnm])
+    · intro x hx y hy hxy
+      subst hxy
+      rcases List.mem_flatMap.mp hy with ⟨g, hg, hy_g⟩
+      have hne_fg : f.name ≠ g.name := fun heq => hnd.1 (heq ▸ List.mem_map_of_mem hg)
+      rcases List.mem_append.mp hx with hx_ins | hx_f
+      · rcases List.mem_map.mp hx_ins with ⟨h, hh, rfl⟩
+        rcases List.mem_append.mp hy_g with hy_ins | hy_gname
+        · exact hinsPair f List.mem_cons_self g (List.mem_cons_of_mem f hg) hne_fg h hh hy_ins
+        · simp only [List.mem_singleton] at hy_gname
+          exact hinsDisj f List.mem_cons_self h hh (by
+            simp [List.mem_cons, hy_gname, List.mem_map_of_mem hg])
+      · simp only [List.mem_singleton] at hx_f
+        subst hx_f
+        rcases List.mem_append.mp hy_g with hy_ins | hy_gname
+        · rcases List.mem_map.mp hy_ins with ⟨h, hh, hnm⟩
+          exact hinsDisj g (List.mem_cons_of_mem f hg) h hh (by simp [List.mem_cons, hnm])
+        · simp only [List.mem_singleton] at hy_gname
+          exact hne_fg hy_gname
+
+private theorem mf_checkFnsCallsOk_patch (exits : List Sym) (extSigs : List SigEntry)
+    (repls : List Fn) (befores : List (Sym × List Fn)) :
+    ∀ (origSeen : List Fn) (seen : List SigEntry) (fs : List Fn),
+    (∀ g ∈ origSeen, g.sig ∈ seen) →
+    LeanQbe.T.Module.checkFnsCallsOk exits extSigs (origSeen.map Fn.sig) fs = true →
+    (∀ r ∈ repls, ∀ f ∈ fs, r.name = f.name → r.sig = f.sig) →
+    (∀ pre f post, fs = pre ++ f :: post →
+      LeanQbe.T.Module.checkFnsCallsOk exits extSigs
+        ((origSeen ++ pre).map Fn.sig) (mfPatchInsAt befores f) = true) →
+    (∀ pre f post r, fs = pre ++ f :: post → r ∈ repls → r.name = f.name →
+      r.checkCallsOk
+        ((origSeen ++ pre).map Fn.sig ++ (mfPatchInsAt befores f).map Fn.sig ++ extSigs)
+        exits = true) →
+    LeanQbe.T.Module.checkFnsCallsOk exits extSigs seen (mfPatchFns repls befores fs) = true
+  | _, _, [], _, _, _, _, _ => rfl
+  | origSeen, seen, f :: rest, hsub, hchk, hsig, hins, hrepl => by
+    simp only [LeanQbe.T.Module.checkFnsCallsOk, Bool.and_eq_true] at hchk
+    unfold mfPatchFns
+    simp only [List.flatMap_cons]
+    have hsig_rest : ∀ r ∈ repls, ∀ g ∈ rest, r.name = g.name → r.sig = g.sig :=
+      fun r hr g hg => hsig r hr g (List.mem_cons_of_mem f hg)
+    have hins_rest : ∀ pre g post, rest = pre ++ g :: post →
+        LeanQbe.T.Module.checkFnsCallsOk exits extSigs
+          (((origSeen ++ [f]) ++ pre).map Fn.sig) (mfPatchInsAt befores g) = true := by
+      intro pre g post hsplit
+      rw [List.append_assoc]
+      exact hins (f :: pre) g post (by rw [hsplit]; rfl)
+    have hrepl_rest : ∀ pre g post r, rest = pre ++ g :: post → r ∈ repls → r.name = g.name →
+        r.checkCallsOk
+          (((origSeen ++ [f]) ++ pre).map Fn.sig ++ (mfPatchInsAt befores g).map Fn.sig ++ extSigs)
+          exits = true := by
+      intro pre g post r hsplit hr hnm
+      simpa only [List.append_assoc, List.cons_append, List.nil_append] using
+        hrepl (f :: pre) g post r (by rw [hsplit]; rfl) hr hnm
+    have hhead_sig : ((repls.find? (fun x => x.name == f.name)).getD f).sig = f.sig := by
+      cases h : repls.find? (fun x => x.name == f.name) with
+      | none => rfl
+      | some r =>
+        dsimp only [Option.getD]
+        exact hsig r (List.mem_of_find?_eq_some h) f List.mem_cons_self (sw_fn_find_name_eq h)
+    have hsub_ext : ∀ s ∈ origSeen.map Fn.sig ++ extSigs, s ∈ seen ++ extSigs := by
+      intro s hs
+      rcases List.mem_append.mp hs with hs1 | hs2
+      · rcases List.mem_map.mp hs1 with ⟨g, hg, rfl⟩
+        exact List.mem_append_left _ (hsub g hg)
+      · exact List.mem_append_right _ hs2
+    have h_ins_ok : LeanQbe.T.Module.checkFnsCallsOk exits extSigs seen
+        (mfPatchInsAt befores f) = true := by
+      have h0 := hins [] f rest rfl
+      simp only [List.append_nil] at h0
+      exact checkFnsCallsOk_mono hsub_ext h0
+    have h_mid_ok : ((repls.find? (fun x => x.name == f.name)).getD f).checkCallsOk
+        ((seen ++ (mfPatchInsAt befores f).map Fn.sig) ++ extSigs) exits = true := by
+      cases h : repls.find? (fun x => x.name == f.name) with
+      | none =>
+        refine fn_checkCallsOk_mono (fun s hs => ?_) hchk.1
+        rcases List.mem_append.mp (hsub_ext s hs) with hs1 | hs2
+        · exact List.mem_append_left _ (List.mem_append_left _ hs1)
+        · exact List.mem_append_right _ hs2
+      | some r =>
+        have h0 := hrepl [] f rest r rfl (List.mem_of_find?_eq_some h) (sw_fn_find_name_eq h)
+        simp only [List.append_nil] at h0
+        refine fn_checkCallsOk_mono (fun s hs => ?_) h0
+        rcases List.mem_append.mp hs with hs1 | hs2
+        · rcases List.mem_append.mp hs1 with hs1a | hs1b
+          · rcases List.mem_map.mp hs1a with ⟨g, hg, rfl⟩
+            exact List.mem_append_left _ (List.mem_append_left _ (hsub g hg))
+          · exact List.mem_append_left _ (List.mem_append_right _ hs1b)
+        · exact List.mem_append_right _ hs2
+    rw [List.append_assoc, checkFnsCallsOk_append, h_ins_ok, Bool.true_and,
+      checkFnsCallsOk_append, LeanQbe.T.Module.checkFnsCallsOk, h_mid_ok]
+    simp only [LeanQbe.T.Module.checkFnsCallsOk, Bool.true_and, List.map_singleton,
+      List.append_assoc]
+    have hsub_next : ∀ g ∈ origSeen ++ [f],
+        g.sig ∈ seen ++ ((mfPatchInsAt befores f).map Fn.sig ++
+          [((repls.find? (fun x => x.name == f.name)).getD f).sig]) := by
+      intro g hg
+      rcases List.mem_append.mp hg with hg1 | hg2
+      · exact List.mem_append_left _ (hsub g hg1)
+      · simp only [List.mem_singleton] at hg2
+        subst hg2
+        exact List.mem_append_right _ (List.mem_append_right _ (by simp [hhead_sig]))
+    have hchk2 :
+        LeanQbe.T.Module.checkFnsCallsOk exits extSigs ((origSeen ++ [f]).map Fn.sig) rest =
+          true := by
+      simpa only [List.map_append, List.map_singleton] using hchk.2
+    exact mf_checkFnsCallsOk_patch exits extSigs repls befores (origSeen ++ [f])
+      (seen ++ ((mfPatchInsAt befores f).map Fn.sig ++
+        [((repls.find? (fun x => x.name == f.name)).getD f).sig]))
+      rest hsub_next hchk2 hsig_rest hins_rest hrepl_rest
+
+private theorem mfPatchModule_checkAcyclic {M : LeanQbe.T.Module} {repls : List Fn}
+    {befores : List (Sym × List Fn)}
+    (hnd : ((mfPatchFns repls befores M.fns).map Fn.name ++ M.externs.map Extern.name).Nodup)
+    (hM : M.checkAcyclic = true)
+    (hsig : ∀ r ∈ repls, ∀ f ∈ M.fns, r.name = f.name → r.sig = f.sig)
+    (hins : ∀ pre f post, M.fns = pre ++ f :: post →
+      LeanQbe.T.Module.checkFnsCallsOk M.exits (M.externs.map Extern.sig)
+        (pre.map Fn.sig) (mfPatchInsAt befores f) = true)
+    (hrepl : ∀ pre f post r, M.fns = pre ++ f :: post → r ∈ repls → r.name = f.name →
+      r.checkCallsOk
+        (pre.map Fn.sig ++ (mfPatchInsAt befores f).map Fn.sig ++ M.externs.map Extern.sig)
+        M.exits = true) :
+    ({ M with fns := mfPatchFns repls befores M.fns } : LeanQbe.T.Module).checkAcyclic = true := by
+  simp only [LeanQbe.T.Module.checkAcyclic, Bool.and_eq_true] at hM ⊢
+  refine ⟨listNodup_iff.mpr hnd, ?_⟩
+  exact mf_checkFnsCallsOk_patch M.exits (M.externs.map Extern.sig) repls befores [] [] M.fns
+    (fun _ h => nomatch h) hM.2 hsig
+    (fun pre f post h => hins pre f post h)
+    (fun pre f post r h => hrepl pre f post r h)
+
 private theorem patchFns_len_sum (repls : List Fn) (befores : List (Sym × List Fn)) :
     ∀ fs : List Fn,
-      (patchFns repls befores fs).length =
-        fs.length + (fs.map (fun f => (patchInsAt befores f).length)).sum
+      (mfPatchFns repls befores fs).length =
+        fs.length + (fs.map (fun f => (mfPatchInsAt befores f).length)).sum
   | [] => rfl
   | f :: t => by
     have ih := patchFns_len_sum repls befores t
-    unfold patchFns at ih ⊢
+    unfold mfPatchFns at ih ⊢
     simp only [List.flatMap_cons, List.length_append, List.length_cons, List.length_nil,
       List.map_cons, List.sum_cons] at ih ⊢
     omega
 
+/-- Definitional equality between flat `m8FidV123t2Fns` and its `mfPatchFns` splice form. -/
+theorem m8FidV123t2Fns_eq_patch :
+    m8FidV123t2Fns = mfPatchFns m8SweepV2Repls m8FidV123t2Befores m8FidV12Fns := by
+  t_kernel_rfl
+
 theorem m8FidV123t2Fns_length : m8FidV123t2Fns.length = 449 := by
   have hb_eq : m8FidV123t2Befores = [("full_sweep_dense_m6", m8SweepV2Helpers)] := rfl
-  have hsum : (m8FidV12Fns.map (fun f => (patchInsAt m8FidV123t2Befores f).length)).sum = 36 := by
+  have hsum : (m8FidV12Fns.map (fun f => (mfPatchInsAt m8FidV123t2Befores f).length)).sum = 36 := by
     rw [hb_eq]
     have hnd := m8FidV12Fns_names_nodup
     rcases m8FidV12_split_299 with ⟨pfx, r299, sfx, hm8, hnm, _, _⟩
     rw [hm8]
     simp only [List.map_append, List.map_cons, List.sum_append, List.sum_cons]
-    have hpfx0 : ∀ g ∈ pfx, (patchInsAt [("full_sweep_dense_m6", m8SweepV2Helpers)] g).length = 0 := by
+    have hpfx0 :
+        ∀ g ∈ pfx, (mfPatchInsAt [("full_sweep_dense_m6", m8SweepV2Helpers)] g).length = 0 := by
       intro g hg
       have hne : g.name ≠ "full_sweep_dense_m6" := by
         intro heq
         have hnd' := hnd
         rw [hm8, List.map_append, List.map_cons, List.nodup_append] at hnd'
         exact hnd'.2.2 _ (heq ▸ List.mem_map.mpr ⟨g, hg, rfl⟩) _ List.mem_cons_self hnm.symm
-      dsimp only [patchInsAt]
+      dsimp only [mfPatchInsAt]
       simp [hne.symm]
-    have hsfx0 : ∀ g ∈ sfx, (patchInsAt [("full_sweep_dense_m6", m8SweepV2Helpers)] g).length = 0 := by
+    have hsfx0 :
+        ∀ g ∈ sfx, (mfPatchInsAt [("full_sweep_dense_m6", m8SweepV2Helpers)] g).length = 0 := by
       intro g hg
       have hne : g.name ≠ "full_sweep_dense_m6" := by
         intro heq
@@ -1068,33 +1460,34 @@ theorem m8FidV123t2Fns_length : m8FidV123t2Fns.length = 449 := by
         have hc := hnd'.2.1
         rw [List.nodup_cons] at hc
         exact hc.1 (hnm ▸ heq ▸ List.mem_map.mpr ⟨g, hg, rfl⟩)
-      dsimp only [patchInsAt]
+      dsimp only [mfPatchInsAt]
       simp [hne.symm]
-    have hr : (patchInsAt [("full_sweep_dense_m6", m8SweepV2Helpers)] r299).length = 36 := by
-      dsimp only [patchInsAt]
+    have hr : (mfPatchInsAt [("full_sweep_dense_m6", m8SweepV2Helpers)] r299).length = 36 := by
+      dsimp only [mfPatchInsAt]
       simp [hnm.symm, m8SweepV2Helpers_length]
     have hsum0 : ∀ {fs : List Fn},
-        (∀ g ∈ fs, (patchInsAt [("full_sweep_dense_m6", m8SweepV2Helpers)] g).length = 0) →
-        (fs.map (fun f => (patchInsAt [("full_sweep_dense_m6", m8SweepV2Helpers)] f).length)).sum = 0 := by
+        (∀ g ∈ fs, (mfPatchInsAt [("full_sweep_dense_m6", m8SweepV2Helpers)] g).length = 0) →
+        (fs.map fun f =>
+          (mfPatchInsAt [("full_sweep_dense_m6", m8SweepV2Helpers)] f).length).sum = 0 := by
       intro fs hfs
       induction fs with
       | nil => rfl
       | cons a t ih =>
         simp [hfs a List.mem_cons_self, ih fun b hb => hfs b (List.mem_cons_of_mem _ hb)]
     rw [hsum0 hpfx0, hr, hsum0 hsfx0]
-  dsimp only [m8FidV123t2Fns]
+  rw [m8FidV123t2Fns_eq_patch]
   have hlen : m8FidV12Fns.length = 413 := by
     dsimp only [m8FidV12Fns]
-    rw [spliceFns_length, m7FidelityFns_length]
+    rw [PatchModule.spliceFns, List.length_map, m7FidelityFns_length]
   rw [patchFns_len_sum, hlen, hsum]
 
 private theorem patchInsAt_single_pos {a : Sym} {hs : List Fn} {f : Fn} (h : a = f.name) :
-    patchInsAt [(a, hs)] f = hs := by
-  simp [patchInsAt, h]
+    mfPatchInsAt [(a, hs)] f = hs := by
+  simp [mfPatchInsAt, h]
 
 private theorem patchInsAt_single_neg {a : Sym} {hs : List Fn} {f : Fn} (h : a ≠ f.name) :
-    patchInsAt [(a, hs)] f = [] := by
-  simp [patchInsAt, h]
+    mfPatchInsAt [(a, hs)] f = [] := by
+  simp [mfPatchInsAt, h]
 
 private theorem m8FidV12_repl_sig :
     ∀ r ∈ m8SweepV2Repls, ∀ f ∈ m8FidV12Fns, r.name = f.name → r.sig = f.sig := by
@@ -1110,8 +1503,8 @@ private theorem m8FidV12_repl_sig :
 
 theorem m8FidV123t2Fns_names_nodup : (m8FidV123t2Fns.map Fn.name).Nodup := by
   have hbef : m8FidV123t2Befores = [("full_sweep_dense_m6", m8SweepV2Helpers)] := rfl
-  dsimp only [m8FidV123t2Fns]
-  refine patchFns_names_nodup m8FidV12Fns_names_nodup m8FidV12_repl_sig ?_ ?_ ?_
+  rw [m8FidV123t2Fns_eq_patch]
+  refine mfPatchFns_names_nodup m8FidV12Fns_names_nodup m8FidV12_repl_sig ?_ ?_ ?_
   · intro f _
     rw [hbef]
     by_cases hnm : f.name = "full_sweep_dense_m6"
@@ -1178,11 +1571,14 @@ theorem m8FidV123t2_acyclic : m8FidV123t2Module.checkAcyclic = true := by
   have m8Ext : m8FidV12Module.externs = [] := by t_kernel_rfl
   have m8Ex : m8FidV12Module.exits = [] := m8FidV12_noExit
   have hbef : m8FidV123t2Befores = [("full_sweep_dense_m6", m8SweepV2Helpers)] := rfl
-  dsimp only [m8FidV123t2Module, m8FidV123t2Fns]
+  dsimp only [m8FidV123t2Module]
+  rw [m8FidV123t2Fns_eq_patch]
   have hnd :
-      ((patchFns m8SweepV2Repls m8FidV123t2Befores m8FidV12Module.fns).map Fn.name ++
+      ((mfPatchFns m8SweepV2Repls m8FidV123t2Befores m8FidV12Module.fns).map Fn.name ++
         m8FidV12Module.externs.map Extern.name).Nodup := by
     rw [m8Ext, List.map_nil, List.append_nil]
+    dsimp only [m8FidV12Module]
+    rw [← m8FidV123t2Fns_eq_patch]
     exact m8FidV123t2Fns_names_nodup
   have hExt_ok :
       LeanQbe.T.Module.checkFnsCallsOk [] [] m8SweepExtSigs m8SweepV2Helpers = true := by
@@ -1219,15 +1615,18 @@ theorem m8FidV123t2_acyclic : m8FidV123t2Module.checkAcyclic = true := by
         g.sig = ("full_set_inactive", [i64, i32, i32], []) :=
       (option_map_some (by t_kernel_rfl : (((FullM5.m5Fns.drop 108).take 10)[1]?).map Fn.sig =
         some ("full_set_inactive", [i64, i32, i32], []))).elim fun g hg =>
-          ⟨g, List.mem_append_right _ (m7P2_mem_ext (Or.inr (Or.inr (Or.inl (List.mem_of_getElem? hg.1))))), hg.2⟩
+          ⟨g, List.mem_append_right _
+            (m7P2_mem_ext (Or.inr (Or.inr (Or.inl (List.mem_of_getElem? hg.1))))), hg.2⟩
     have h181_ex : ∃ g ∈ FullM7.m7FnsPart1 ++ FullM7.m7FnsPart2,
         g.sig = ("full_add_unit", [i64, i32], [.bool]) :=
       (option_map_some (by t_kernel_rfl : (((FullM5.m5Fns.drop 108).take 10)[2]?).map Fn.sig =
         some ("full_add_unit", [i64, i32], [.bool]))).elim fun g hg =>
-          ⟨g, List.mem_append_right _ (m7P2_mem_ext (Or.inr (Or.inr (Or.inl (List.mem_of_getElem? hg.1))))), hg.2⟩
+          ⟨g, List.mem_append_right _
+            (m7P2_mem_ext (Or.inr (Or.inr (Or.inl (List.mem_of_getElem? hg.1))))), hg.2⟩
     have h235_ex : ∃ g ∈ FullM7.m7FnsPart1 ++ FullM7.m7FnsPart2,
         g.sig = ("full_substitute", [i64], [i64]) :=
-      (option_map_some (by t_kernel_rfl : (((FullM6CongSubst.m6CongSubst_fns.drop 1).take 3)[2]?).map Fn.sig =
+      (option_map_some (by t_kernel_rfl :
+          (((FullM6CongSubst.m6CongSubst_fns.drop 1).take 3)[2]?).map Fn.sig =
         some ("full_substitute", [i64], [i64]))).elim fun g hg =>
           ⟨g, List.mem_append_right _
             (m7P2_mem_ext (Or.inr (Or.inr (Or.inr (Or.inl (List.mem_of_getElem? hg.1)))))), hg.2⟩
@@ -1253,9 +1652,11 @@ theorem m8FidV123t2_acyclic : m8FidV123t2Module.checkAcyclic = true := by
     · exact mem_untouched h39_ex (by decide) (by decide)
     · exact mem_untouched h86_ex (by decide) (by decide)
     · exact mem_untouched ⟨FullM6CompactFlush.m6cfExtendPush2Fn,
-        List.mem_append_right _ (m7P2_mem_ext (Or.inl rfl)), by t_kernel_rfl⟩ (by decide) (by decide)
+        List.mem_append_right _ (m7P2_mem_ext (Or.inl rfl)), by t_kernel_rfl⟩
+        (by decide) (by decide)
     · exact mem_untouched ⟨FullM6OrchAdapters.m6aAddBinFn,
-        List.mem_append_right _ (m7P2_mem_ext (Or.inr (Or.inl rfl))), by t_kernel_rfl⟩ (by decide) (by decide)
+        List.mem_append_right _ (m7P2_mem_ext (Or.inr (Or.inl rfl))), by t_kernel_rfl⟩
+        (by decide) (by decide)
     · exact mem_untouched h180_ex (by decide) (by decide)
     · exact mem_untouched h181_ex (by decide) (by decide)
     · exact mem_untouched h235_ex (by decide) (by decide)
@@ -1263,18 +1664,20 @@ theorem m8FidV123t2_acyclic : m8FidV123t2Module.checkAcyclic = true := by
         (m7P2_mem_ext (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl))))))
       have heds := (hk FullM6CompactFlush.m6cfEnterDenseFn hed_mem).1
         ⟨by t_kernel_rfl, by t_kernel_rfl, by t_kernel_rfl⟩
-      have hed_sig : FullM6CompactFlush.m6cfEnterDenseFn.sig = ("full_enter_dense", [i64], [.bool]) := by
+      have hed_sig :
+          FullM6CompactFlush.m6cfEnterDenseFn.sig = ("full_enter_dense", [i64], [.bool]) := by
         t_kernel_rfl
       exact hed_sig ▸ heds
     · exact mem_untouched h237_ex (by decide) (by decide)
-  refine patchModule_checkAcyclic (M := m8FidV12Module) hnd m8FidV12_acyclic m8FidV12_repl_sig
+  refine mfPatchModule_checkAcyclic (M := m8FidV12Module) hnd m8FidV12_acyclic m8FidV12_repl_sig
     ?_ ?_
   · intro pre f post hsplit
     change m8FidV12Fns = pre ++ f :: post at hsplit
     rw [m8Ext, m8Ex, hbef]
     by_cases hnm : f.name = "full_sweep_dense_m6"
     · rw [patchInsAt_single_pos hnm.symm]
-      have huniq := list_nodup_append_unique Fn.name m8FidV12Fns_names_nodup hsplit hm8 (hnm.trans hrnm.symm)
+      have huniq := list_nodup_append_unique Fn.name m8FidV12Fns_names_nodup hsplit hm8
+        (hnm.trans hrnm.symm)
       rw [huniq.1, List.map_nil]
       exact checkFnsCallsOk_mono (fun s hs => by
         simp only [List.append_nil] at hs
@@ -1285,8 +1688,9 @@ theorem m8FidV123t2_acyclic : m8FidV123t2Module.checkAcyclic = true := by
     simp only [m8SweepV2Repls, List.mem_singleton] at hr
     subst hr
     change m8FidV12Fns = pre ++ f :: post at hsplit
-    have huniq := list_nodup_append_unique Fn.name m8FidV12Fns_names_nodup hsplit hm8 (hnm.symm.trans hrnm.symm)
-    have hins_eq : patchInsAt m8FidV123t2Befores f = m8SweepV2Helpers := by
+    have huniq := list_nodup_append_unique Fn.name m8FidV12Fns_names_nodup hsplit hm8
+      (hnm.symm.trans hrnm.symm)
+    have hins_eq : mfPatchInsAt m8FidV123t2Befores f = m8SweepV2Helpers := by
       rw [huniq.2.1, hbef, patchInsAt_single_pos hrnm.symm]
     rw [huniq.1, hins_eq, m8Ext, m8Ex]
     simp only [List.map_nil, List.append_nil]

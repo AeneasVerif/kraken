@@ -235,7 +235,31 @@ private theorem m8cp_hop_replSigs :
     subst hfg; exact hs2.symm
 
 theorem m8HotHop1Bridge_acyclic : m8HotHop1BridgeModule.checkAcyclic = true := by
-  t_kernel_rfl
+  dsimp only [m8HotHop1BridgeModule, m8HotHop1BridgeFns]
+  refine spliceModule_checkAcyclic (M := bvaHeapModule) bvaHeap_acyclic m8cp_hop_replSigs ?_
+  have hnd : (bvaHeapModule.fns.map Fn.name).Nodup := by
+    have hchk := bvaHeap_acyclic
+    simp only [LeanQbe.T.Module.checkAcyclic, Bool.and_eq_true] at hchk
+    have hn := LeanQbe.T.Module.namesNodup_of_checkNamesNodup hchk.1
+    change (bvaHeapModule.fns.map Fn.name ++ bvaHeapModule.externs.map Extern.name).Nodup at hn
+    exact (List.nodup_append.mp hn).1
+  have h1 : bvaHeapModule.fns[1]?.map Fn.sig = some ("full_bva_hop1", [i64, i32, i32], [i64]) :=
+    rfl
+  have h2 : bvaHeapModule.fns[2]?.map Fn.sig = some ("full_bva_hop2", [i64, i32, i32], [i64]) :=
+    rfl
+  obtain ⟨g1, hg1, hs1⟩ := m8cp_sig_of_map h1
+  obtain ⟨g2, hg2, hs2⟩ := m8cp_sig_of_map h2
+  intro pre f post r hsplit hr hnm
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hr
+  rcases hr with rfl | rfl
+  · have hc : m7Hop1Fn.checkCallsOk [] [] = true := by t_kernel_rfl
+    exact fn_checkCallsOk_mono (fun _ h => False.elim (List.not_mem_nil h)) hc
+  · have hc : m7Hop2Fn.checkCallsOk
+        [("full_bva_hop1", [i64, i32, i32], [i64])] [] = true := by t_kernel_rfl
+    refine fn_checkCallsOk_mono (fun s hs => ?_) hc
+    simp only [List.mem_singleton] at hs; subst hs
+    exact List.mem_append_left _ (hs1 ▸ sig_mem_pre_of_lt_idx hnd hsplit hg2
+      (hnm.symm.trans (congrArg Prod.fst hs2).symm) hg1 (by decide))
 
 theorem m8HotHop1Bridge_moduleOk : ModuleOk bvaHeapEnv m8HotHop1BridgeModule := by
   dsimp only [m8HotHop1BridgeModule, m8HotHop1BridgeFns]
@@ -371,7 +395,7 @@ theorem m8SweepV2CoreParityFns_names_nodup : (m8SweepV2CoreParityFns.map Fn.name
 private theorem m8cp_sw_v12Table_sigs :
     m8SwV12SpecTable.map spliceRowSig = m8FidV12Fns.map Fn.sig := by
   have hFns : m8FidV12Fns.map Fn.sig = m7FidelityFns.map Fn.sig :=
-    spliceFns_sigs m8FidV12Repls_sigs
+    m8FidV12Fns_sigs
   have hm7 : m7FidSpecTable.map spliceRowSig = m7FidelityFns.map Fn.sig := by
     change m7FidSpecTable.map (fun e => (e.name, e.as, e.rs)) = _
     exact m7FidSpecTable_sigs
@@ -420,14 +444,15 @@ private theorem m8cp_swBase_sigs :
     m8SwBaseSpecTable.map spliceRowSig = m8FidV123t2Fns.map Fn.sig := by
   have hEq : m8FidV123t2Fns =
       PatchModule.patchFns m8SweepV2Repls m8FidV123t2Befores m8FidV12Fns := by
-    unfold m8FidV123t2Fns FullM7Splice.patchFns PatchModule.patchFns
+    rw [m8FidV123t2Fns_eq_patch]
+    unfold mfPatchFns PatchModule.patchFns
     induction m8FidV12Fns with
     | nil => rfl
     | cons a t ih =>
       simp only [List.flatMap_cons]
       have hi : PatchModule.patchInsAt m8FidV123t2Befores a =
-          FullM7Splice.patchInsAt m8FidV123t2Befores a := by
-        dsimp only [PatchModule.patchInsAt, FullM7Splice.patchInsAt, m8FidV123t2Befores]
+          mfPatchInsAt m8FidV123t2Befores a := by
+        dsimp only [PatchModule.patchInsAt, mfPatchInsAt, m8FidV123t2Befores]
         by_cases h1 : ("full_sweep_dense_m6" == a.name)
         · have h1e := beq_iff_eq.mp h1
           rw [← h1e]
@@ -587,8 +612,8 @@ private theorem m8cp_sw_base_to_env {f : Sym} {as bs : List Ty} {xs : Tup Val as
       have hm := congrArg (List.map Prod.fst) m8cp_sw_v12Table_sigs
       simp only [List.map_map, Function.comp_def, Fn.sig] at hm
       rw [hm]
-      have hm2 := congrArg (List.map Prod.fst) (spliceFns_sigs m8FidV12Repls_sigs)
-      simpa only [m8FidV12Fns, List.map_map, Function.comp_def, Fn.sig] using hm2
+      have hm2 := congrArg (List.map Prod.fst) m8FidV12Fns_sigs
+      simpa only [List.map_map, Function.comp_def, Fn.sig] using hm2
     rw [hn]
     intro p hp b hb hmem
     rcases List.mem_singleton.mp hp with rfl
