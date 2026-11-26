@@ -99,7 +99,7 @@ theorem fidStep8Module_map_name :
   rw [fidStep8Fns_eq, fidStep8Fns, patchFns_nil_befores_map_name, ← fidStep7Module_map_name]
   rfl
 
-private def fidStep8FrontNames : List Sym :=
+@[expose] def fidStep8FrontNames : List Sym :=
   [ "full_walk_effort_m7", "full_watch_push_slow_m6", "full_watch_push_m6"
   , "full_delete_bin_side", "full_bva_commit" ]
 
@@ -1283,6 +1283,59 @@ theorem fidStep8Env_elim_preprocessM6 {xs : Tup Val [i64]} {m : Mem 64}
     (h : fidStep8Env "full_preprocess_m6" [i64] [i64] xs m Q X) :
     FullM6.fullM6PreprocessSpec xs m Q X :=
   fidStep7Env_elim_preprocessM6 (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8Env_s12Lift {f : Sym} {as bs : List Ty}
+    (hf8 : !(fidStep8FrontNames.contains f) = true)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep7Env f as bs xs m Q X) : fidStep8Env f as bs xs m Q X :=
+  fid8_of_step7 hf8 h
+
+theorem fidStep8Env_s12Peel {f : Sym} {as bs : List Ty}
+    (hf8 : !(fidStep8FrontNames.contains f) = true)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep8Env f as bs xs m Q X) : fidStep7Env f as bs xs m Q X :=
+  fidStep8_peel_from_base hf8 h
+
+theorem fidStep8_step12_sig_at {p : Nat × SigEntry} (hp : p ∈ fidStep7_step12_sigPairs) :
+    fidStep8Module.fns[p.1]?.map Fn.sig = some p.2 := by
+  have h1 : (fidStep8Module.fns.map Fn.sig)[p.1]? = some p.2 := by
+    rw [fidStep8Fns_map_sig, List.getElem?_map]
+    exact fidStep7_step12_sig_at hp
+  simpa [List.getElem?_map] using h1
+
+private theorem fidStep8Repls_noWorkStep :
+    FullFidelityStep8.fidStep8Repls.find? (·.name == "full_cong_work_step") = none := rfl
+
+theorem fidStep8_workStep_at :
+    fidStep8Module.fns[270]? = some FullM6CongSubst.full_cong_work_step := by
+  have h1 : fidStep8Module.fns[270]? =
+      fidStep7Module.fns[270]?.map fun f =>
+        (FullFidelityStep8.fidStep8Repls.find? (·.name == f.name)).getD f := by
+    rw [fidStep8Fns_eq, fidStep8Fns, patchFns_nil, PatchModule.spliceFns, List.getElem?_map,
+      ← fidStep7Fns_eq]
+  rw [h1, fidStep7_workStep_at, Option.map_some]
+  change some ((FullFidelityStep8.fidStep8Repls.find?
+    (·.name == FullM6CongSubst.full_cong_work_step.name)).getD
+      FullM6CongSubst.full_cong_work_step) = some FullM6CongSubst.full_cong_work_step
+  have hnm : FullM6CongSubst.full_cong_work_step.name = "full_cong_work_step" := rfl
+  rw [hnm, fidStep8Repls_noWorkStep]; rfl
+
+private theorem fidStep8Repls_s12_noCallBad :
+    checkNoCallBad fidS12SkipNames fidS12BadNames FullFidelityStep8.fidStep8Repls = true := by
+  t_kernel_rfl
+
+theorem fidStep8_s12_noCallBad :
+    checkNoCallBad fidS12SkipNames fidS12BadNames fidStep8Module.fns = true := by
+  rw [fidStep8Fns_eq, fidStep8Fns, patchFns_nil, PatchModule.spliceFns]
+  refine List.all_eq_true.mpr fun g hg => ?_
+  rcases List.mem_map.mp hg with ⟨f, hf, rfl⟩
+  cases hr : FullFidelityStep8.fidStep8Repls.find? (·.name == f.name) with
+  | none =>
+    simp only [Option.getD_none]
+    exact List.all_eq_true.mp fidStep7_s12_noCallBad f hf
+  | some r =>
+    simp only [Option.getD_some]
+    exact List.all_eq_true.mp fidStep8Repls_s12_noCallBad r (List.mem_of_find?_eq_some hr)
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8
 

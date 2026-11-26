@@ -1708,10 +1708,9 @@ private def S12cNrSpec (F_cur : List (List Nat)) (s : FullState) (uip wm : BitVe
         q ∈ (tmp_sw.take s.core.tmp_len).map BitVec.toNat) ∧
       uip.toNat ∈ fullArenaClauseLits sac r_ac.toNat)
 
-/-- Step-12C `full_learn_clause_m6` (pre-add headroom + 3-step `defrag` / `full_reduce_m6(h, true)`
-/ `full_reduce_purge_c0(h)` OOM retry ladder) satisfies `step10LearnClauseM6Spec` verbatim,
-parametrically in `Γ` and `X`. -/
-theorem full_learn_clause_m6_step12c_wp (Γ : Env)
+/-- Generalized Step-12C `full_learn_clause_m6` taking canonical `Full.fullReduceSpec (h, true, ())`
+directly for `"full_reduce_purge_c0"`, parametrically in `Γ` and `X`. -/
+theorem full_learn_clause_m6_step12c_full_wp (Γ : Env)
     (hBt : ∀ a m Q X, fullBacktrackSpec a m Q X →
       Γ "full_backtrack" [i64, i64] [] a m Q X)
     (hAsgn : ∀ a m Q X, fullAssignLvlSpec a m Q X →
@@ -1722,8 +1721,8 @@ theorem full_learn_clause_m6_step12c_wp (Γ : Env)
       Γ "full_wstack_defrag" [i64] [] a m Q X)
     (hRedM6 : ∀ a m Q X, m6ReduceSpec a m Q X →
       Γ "full_reduce_m6" [i64, .bool] [i64] a m Q X)
-    (hRedPurge : ∀ a m Q X, fullReducePurgeC0Spec a m Q X →
-      Γ "full_reduce_purge_c0" [i64] [i64] a m Q X)
+    (hRedPurge : ∀ h m Q X, Full.fullReduceSpec (h, true, ()) m Q X →
+      Γ "full_reduce_purge_c0" [i64] [i64] (h, ()) m Q X)
     (hAddCl : ∀ a m Q X, fullAddClauseSpec a m Q X →
       Γ "full_add_clause" [i64, i32, i32, .bool] [i64] a m Q X)
     (hEsub : ∀ a m Q X, fullEagerSubsumeSpec a m Q X →
@@ -2285,9 +2284,8 @@ theorem full_learn_clause_m6_step12c_wp (Γ : Env)
                       ⟨ext_r, s_r, hr_inv.extOk, hr_inv.sparseW, hr_dom, hr_cl, hr_fu, hr_cv,
                         hr_tmp, hr_tl, hr_ws2, hr_20, hr_pos, hm_r⟩
                   · c0_call hRedPurge
-                    refine fullReducePurgeC0Spec_of_full
-                      ⟨c, F0, F_cur, s_lp, m6ExtMem (m6ExtAddr c.hdr) ext_lp ⋆ R,
-                        rfl, hlp_pre.1, hmLf, ?_⟩
+                    refine ⟨c, F0, F_cur, s_lp, m6ExtMem (m6ExtAddr c.hdr) ext_lp ⋆ R,
+                      rfl, hlp_pre.1, hmLf, ?_⟩
                     intro rr s_r m_r hr_sp hr_dom hr_cl hr_fu hr_cv hr_tmp hr_tl hr_ws2
                       hr_20 _ hr_pos hm_r
                     c0_steps
@@ -2414,6 +2412,32 @@ theorem full_learn_clause_m6_step12c_wp (Γ : Env)
             exact hJgc () m_bt ⟨ext, s_bt, hext, ⟨s12c_laSparse_to_canon hbt_sparse, hcl_bt, rfl,
               Nat.le_refl _, rfl, rfl, rfl, rfl, rfl, rfl, hbt_pres.2.2.1⟩,
               fullM6HdrMem_unfocus hm_bt⟩
+
+/-- Step-12C `full_learn_clause_m6` (pre-add headroom + 3-step `defrag` / `full_reduce_m6(h, true)`
+/ `full_reduce_purge_c0(h)` OOM retry ladder) satisfies `step10LearnClauseM6Spec` verbatim,
+parametrically in `Γ` and `X`. -/
+theorem full_learn_clause_m6_step12c_wp (Γ : Env)
+    (hBt : ∀ a m Q X, fullBacktrackSpec a m Q X →
+      Γ "full_backtrack" [i64, i64] [] a m Q X)
+    (hAsgn : ∀ a m Q X, fullAssignLvlSpec a m Q X →
+      Γ "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X)
+    (hDnl : ∀ a m Q X, fullDetNewLevelSpec a m Q X →
+      Γ "full_det_new_level" [i64, i64] [i64] a m Q X)
+    (hDefrag : ∀ a m Q X, fullWstackDefragSpec a m Q X →
+      Γ "full_wstack_defrag" [i64] [] a m Q X)
+    (hRedM6 : ∀ a m Q X, m6ReduceSpec a m Q X →
+      Γ "full_reduce_m6" [i64, .bool] [i64] a m Q X)
+    (hRedPurge : ∀ a m Q X, fullReducePurgeC0Spec a m Q X →
+      Γ "full_reduce_purge_c0" [i64] [i64] a m Q X)
+    (hAddCl : ∀ a m Q X, fullAddClauseSpec a m Q X →
+      Γ "full_add_clause" [i64, i32, i32, .bool] [i64] a m Q X)
+    (hEsub : ∀ a m Q X, fullEagerSubsumeSpec a m Q X →
+      Γ "full_eager_subsume" [i64, i64] [] a m Q X) :
+    ∀ args m Q X, step10LearnClauseM6Spec args m Q X →
+      Func.wp Γ fidStep12CLearnClauseM6Fn.body args m Q X :=
+  full_learn_clause_m6_step12c_full_wp Γ hBt hAsgn hDnl hDefrag hRedM6
+    (fun _ m Q X hs => hRedPurge _ m Q X (fullReducePurgeC0Spec_of_full hs))
+    hAddCl hEsub
 
 end LearnStep12CProof
 

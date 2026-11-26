@@ -138,7 +138,11 @@ def load_kissat(kdir):
         for m in ren_body_re.finditer(txt):
             ns, bname, rname, bref = _ns_at(txt, m.start()), m.group(1), m.group(2), m.group(3)
             base = _resolve_body(bref, ns, opens)
-            pairs = rename_maps.get(f"{ns}.{rname}", [])
+            pairs = []
+            for rc in (rname, f"{ns}.{rname}", *(f"{o}.{rname}" for o in opens), f"{KISSAT_NS}.{rname}"):
+                if rc in rename_maps:
+                    pairs = rename_maps[rc]
+                    break
             if base is not None:
                 code = base["text"]
                 for old, new in pairs:
@@ -579,6 +583,8 @@ def check_fns(fns, spec, root, imp_mod, open_ns, sym):
 
 BASE_TARGET_SPECS = {
     "plain": ("Plain", "Plain", "plainFns"),
+    "fidelity-step12": ("FullFidelityAssemblyStep12", "FullFidelityAssemblyStep12", "fidStep12Fns"),
+    "step12": ("FullFidelityAssemblyStep12", "FullFidelityAssemblyStep12", "fidStep12Fns"),
     "fidelity-step11": ("FullFidelityAssemblyStep11", "FullFidelityAssemblyStep11", "fidStep11Fns"),
     "step11": ("FullFidelityAssemblyStep11", "FullFidelityAssemblyStep11", "fidStep11Fns"),
     "fidelity-step10": ("FullFidelityAssemblyStep10", "FullFidelityAssemblyStep10", "fidStep10Fns"),
@@ -613,7 +619,8 @@ BASE_TARGET_SPECS = {
 }
 
 ALL_TARGET_CHOICES = [
-    "plain", "fidelity", "fid", "fidelity-step11", "step11", "fidelity-step10", "step10",
+    "plain", "fidelity", "fid", "fidelity-step12", "step12", "fidelity-step11", "step11",
+    "fidelity-step10", "step10",
     "fidelity-step9", "step9",
     "fidelity-step9-memshrink", "step9-memshrink", "fidelity-step8", "step8",
     "fidelity-step7", "fidelity-step6", "fidelity-c0",

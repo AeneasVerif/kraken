@@ -6,6 +6,7 @@ module
 
 public import LeanQbe.T.Examples.Kissat.FullFidelityBacktrackCs
 public import LeanQbe.T.Examples.Kissat.FullFidelityBacktrackCsProof0
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofAnalyze
 public import LeanQbe.T.Examples.Kissat.FullM6HdrProof0
 public import LeanQbe.T.Examples.Kissat.FullM6OrchProof0
 public import LeanQbe.T.Examples.Kissat.FullSpec
@@ -2107,8 +2108,7 @@ private theorem fid_denoteB_wp_arsn_lift {Γ : Env} (hΓ : FidArsnLiftHyps Γ)
           (by rw [hp]; exact hb_eq) Q₁ Q₂ hQ m_s ext m_f hext hsep hb)
 end
 
-/-- Canonical `FullM6Hdr.m6Deduce1uipHdrSpec` proof for `fid11Deduce1uipM6HdrFn.body`. -/
-theorem fid11_deduce_1uip_m6_hdr_wp (Γ : Env)
+private theorem fid11_deduce_1uip_m6_hdr_aux (Γ : Env)
     (hAlit : ∀ a m Q X, Full.fullAnalyzeLitSpec a m Q X →
       Γ "full_analyze_lit" [i64, i32, i32] [.bool] a m Q X)
     (hArsn : ∀ a m Q X, m6AnalyzeRsnHdrSpec a m Q X →
@@ -2120,12 +2120,36 @@ theorem fid11_deduce_1uip_m6_hdr_wp (Γ : Env)
     (hOtfsBin : ∀ a m Q X, Full.fullOtfsBinSpec a m Q X →
       Γ "full_otfs_bin" [i64, i32, i32] [.bool] a m Q X)
     (hOtfsSub : ∀ a m Q X, Full.fullOtfsSubsumeSpec a m Q X →
-      Γ "full_otfs_subsume" [i64, i32, i64, i64, .bool] [] a m Q X) :
-    ∀ a m Q X, m6Deduce1uipHdrSpec a m Q X →
-      Func.wp Γ fid11Deduce1uipM6HdrFn.body a m Q X := by
-  rintro ⟨h, ⟨⟩⟩ m Q X hs
-  rcases m6Deduce1uipHdrSpec_elim hs with
-    ⟨c, F0, F_cur, cut, ext, s, R, rfl, hcfg, hext, hcut, hlvl, hcf, hm, hQ⟩
+      Γ "full_otfs_subsume" [i64, i32, i64, i64, .bool] [] a m Q X)
+    {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)} {cut : Nat}
+    {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hcut : FullCutInvW c F0 F_cur cut s)
+    (hlvl : 0 < s.core.cur_level) (hcf : FullConflictOkCut F_cur cut s)
+    (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ (r : BitVec 64) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
+      M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
+      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
+      (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
+      (r = 1#64 → FullOtfsInvW c F0 F_cur s' ∧ s'.core.cur_level = s.core.cur_level ∧
+        1 ≤ s'.core.tmp_len ∧ s'.core.tmp_len ≤ s'.core.cur_vars ∧
+        (List.map (fun x => x.toNat / 2) (List.take s'.core.tmp_len s'.core.tmp)).Nodup ∧
+        (∀ k, k < s'.core.tmp_len → let l := (s'.core.tmp[k]?.getD 0#32).toNat
+          l < 2 * s'.core.cur_vars ∧ s'.core.vals[l]?.getD 0#8 = 255#8) ∧
+        (∀ k, 1 ≤ k → k < s'.core.tmp_len →
+          let lv := (s'.core.lvl[(s'.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat
+          0 < lv ∧ lv < s'.core.cur_level) ∧
+        (s'.core.lvl[(s'.core.tmp[0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat =
+          s'.core.cur_level ∧
+        (cnfOfClauses F_cur).EntailsClause
+          (cnfClause (List.map BitVec.toNat (List.take s'.core.tmp_len s'.core.tmp)))) →
+      (r = 2#64 → ∃ cut', cut' ≤ s'.core.trail_end ∧ FullCutInvW c F0 F_cur cut' s' ∧
+        s'.core.cur_level = s.core.cur_level ∧ FullConflictOkCut F_cur cut' s') →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m') :
+    Func.wp Γ fid11Deduce1uipM6HdrFn.body (c.hdr, ()) m Q X := by
   have hmap : fidTflatMapArsn 1 (reifyFunc fid11_deduce_1uip_m6_body) =
       some (reifyFunc fid11Deduce1uipM6HdrFn.body) := by t_kernel_rfl
   rcases fid_sep_split_ext hm with ⟨m_s, hm_s, hsep⟩
@@ -2154,6 +2178,50 @@ theorem fid11_deduce_1uip_m6_hdr_wp (Γ : Env)
     t_kernel_rfl
   exact wp_mono (fun _ _ h => h) (fun _ _ _ _ h => False.elim h) _ _
     (by rw [← hren_hdr]; exact hden_new)
+
+/-- Canonical `FullM6Hdr.m6Deduce1uipHdrSpec` proof for `fid11Deduce1uipM6HdrFn.body`. -/
+theorem fid11_deduce_1uip_m6_hdr_wp (Γ : Env)
+    (hAlit : ∀ a m Q X, Full.fullAnalyzeLitSpec a m Q X →
+      Γ "full_analyze_lit" [i64, i32, i32] [.bool] a m Q X)
+    (hArsn : ∀ a m Q X, m6AnalyzeRsnHdrSpec a m Q X →
+      Γ "full_analyze_rsn_m6_hdr" [i64, i32, i32] [.bool] a m Q X)
+    (hClear : ∀ a m Q X, Full.fullClearAnaSpec a m Q X →
+      Γ "full_clear_ana" [i64] [] a m Q X)
+    (hOtfsLarge : ∀ a m Q X, Full.fullOtfsLargeSpec a m Q X →
+      Γ "full_otfs_large" [i64, i32, i32] [.bool] a m Q X)
+    (hOtfsBin : ∀ a m Q X, Full.fullOtfsBinSpec a m Q X →
+      Γ "full_otfs_bin" [i64, i32, i32] [.bool] a m Q X)
+    (hOtfsSub : ∀ a m Q X, Full.fullOtfsSubsumeSpec a m Q X →
+      Γ "full_otfs_subsume" [i64, i32, i64, i64, .bool] [] a m Q X) :
+    ∀ a m Q X, m6Deduce1uipHdrSpec a m Q X →
+      Func.wp Γ fid11Deduce1uipM6HdrFn.body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  rcases m6Deduce1uipHdrSpec_elim hs with
+    ⟨c, F0, F_cur, cut, ext, s, R, rfl, hcfg, hext, hcut, hlvl, hcf, hm, hQ⟩
+  exact fid11_deduce_1uip_m6_hdr_aux Γ hAlit hArsn hClear hOtfsLarge hOtfsBin hOtfsSub
+    hcfg hext hcut hlvl hcf hm hQ
+
+/-- Step-11 `s11Deduce1uipHdrSpec` bridge proof for `fid11Deduce1uipM6HdrFn.body`. -/
+theorem fid11_deduce_1uip_m6_hdr_s11_wp (Γ : Env)
+    (hAlit : ∀ a m Q X, Full.fullAnalyzeLitSpec a m Q X →
+      Γ "full_analyze_lit" [i64, i32, i32] [.bool] a m Q X)
+    (hArsn : ∀ a m Q X, m6AnalyzeRsnHdrSpec a m Q X →
+      Γ "full_analyze_rsn_m6_hdr" [i64, i32, i32] [.bool] a m Q X)
+    (hClear : ∀ a m Q X, Full.fullClearAnaSpec a m Q X →
+      Γ "full_clear_ana" [i64] [] a m Q X)
+    (hOtfsLarge : ∀ a m Q X, Full.fullOtfsLargeSpec a m Q X →
+      Γ "full_otfs_large" [i64, i32, i32] [.bool] a m Q X)
+    (hOtfsBin : ∀ a m Q X, Full.fullOtfsBinSpec a m Q X →
+      Γ "full_otfs_bin" [i64, i32, i32] [.bool] a m Q X)
+    (hOtfsSub : ∀ a m Q X, Full.fullOtfsSubsumeSpec a m Q X →
+      Γ "full_otfs_subsume" [i64, i32, i64, i64, .bool] [] a m Q X) :
+    ∀ a m Q X, FullFidelityStep11.s11Deduce1uipHdrSpec a m Q X →
+      Func.wp Γ fid11Deduce1uipM6HdrFn.body a m Q X := by
+  rintro ⟨h, ⟨⟩⟩ m Q X hs
+  rcases FullFidelityStep11.s11Deduce1uipHdrSpec_elim hs with
+    ⟨c, F0, F_cur, cut, ext, s, R, rfl, hcfg, hext, hcut, hlvl, hcf, hm, hQ⟩
+  exact fid11_deduce_1uip_m6_hdr_aux Γ hAlit hArsn hClear hOtfsLarge hOtfsBin hOtfsSub
+    hcfg hext hcut hlvl hcf hm hQ
 
 end Deduce1UipHdrFid
 

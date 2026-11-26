@@ -70,6 +70,21 @@ theorem fid11VivCollectSpec_monoX {xs : Tup Val [i64, i64]} {m : Mem 64}
     fid11VivCollectSpec xs m Q X' := by
   rcases xs with ⟨_, _, ⟨⟩⟩; exact h
 
+theorem fid11VivCollectSpec_elim {h tier_mode : BitVec 64} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (hsp0 : fid11VivCollectSpec (h, tier_mode, ()) m Q X) :
+    ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullSparseInv c F0 s ∧ (FullMem c s ⋆ R) m ∧
+      ∀ bn arena' rr' m',
+        let s' : FullState :=
+          { core := { s.core with arena := arena' }
+            scratch := { s.scratch with red_refs := rr' } }
+        bn.toNat ≤ c.red_cap → rr'.length = c.red_cap →
+        FullSparseInv c F0 s' → fullArenaClauseRefs s' = fullArenaClauseRefs s →
+        (∀ k < bn.toNat, (rr'[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s') →
+        (FullMem c s' ⋆ R) m' → Q (bn, ()) m' :=
+  hsp0
+
 section VivStep11Helpers
 
 private theorem s11_sparse_with_rr {c : FullCfg} {F0 : CNF Nat} {s : FullState}

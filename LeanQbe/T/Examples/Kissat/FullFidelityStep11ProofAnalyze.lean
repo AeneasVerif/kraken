@@ -103,14 +103,105 @@ private def S11AnaCoreCutJoin (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List N
 
 end AnalyzeCoreStep11
 
-/-- Parametric `Func.wp` proof for `fidStep11AnalyzeCoreM6Fn` (`full_analyze_core_m6` with
-probing-guarded OTFS `conflicts++`) against `FullM6Hdr.m6HdrAnalyzeSpec`. -/
-theorem full_analyze_core_m6_step11_wp (Γ : Env)
+/-- Step-11 transparent-bridge specification for `full_deduce_1uip_m6_hdr` matching canonical
+`m7Deduce1uipHdrSpec` / `m6Deduce1uipHdrSpec` (`0` `@[expose]`, paired `_of`/`_elim`). -/
+def s11Deduce1uipHdrSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
+  ∃ c F0 F_cur cut ext s R, h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧
+    FullCutInvW c F0 F_cur cut s ∧ 0 < s.core.cur_level ∧ FullConflictOkCut F_cur cut s ∧
+    (FullM6HdrMem c ext s ⋆ R) m ∧
+    ∀ (r : BitVec 64) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
+      M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
+      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
+      (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
+      (r = 1#64 → FullOtfsInvW c F0 F_cur s' ∧ s'.core.cur_level = s.core.cur_level ∧
+        1 ≤ s'.core.tmp_len ∧ s'.core.tmp_len ≤ s'.core.cur_vars ∧
+        (List.map (fun x => x.toNat / 2) (List.take s'.core.tmp_len s'.core.tmp)).Nodup ∧
+        (∀ k, k < s'.core.tmp_len → let l := (s'.core.tmp[k]?.getD 0#32).toNat
+          l < 2 * s'.core.cur_vars ∧ s'.core.vals[l]?.getD 0#8 = 255#8) ∧
+        (∀ k, 1 ≤ k → k < s'.core.tmp_len →
+          let lv := (s'.core.lvl[(s'.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat
+          0 < lv ∧ lv < s'.core.cur_level) ∧
+        (s'.core.lvl[(s'.core.tmp[0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat = s'.core.cur_level ∧
+        (cnfOfClauses F_cur).EntailsClause
+          (cnfClause (List.map BitVec.toNat (List.take s'.core.tmp_len s'.core.tmp)))) →
+      (r = 2#64 → ∃ cut', cut' ≤ s'.core.trail_end ∧ FullCutInvW c F0 F_cur cut' s' ∧
+        s'.core.cur_level = s.core.cur_level ∧ FullConflictOkCut F_cur cut' s') →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m'
+
+theorem s11Deduce1uipHdrSpec_monoX {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X X' : XPost} (h : s11Deduce1uipHdrSpec xs m Q X) :
+    s11Deduce1uipHdrSpec xs m Q X' := by
+  rcases xs with ⟨_, ⟨⟩⟩; exact h
+
+theorem s11Deduce1uipHdrSpec_of {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {cut : Nat} {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hcut : FullCutInvW c F0 F_cur cut s)
+    (hlvl : 0 < s.core.cur_level) (hcf : FullConflictOkCut F_cur cut s)
+    (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ (r : BitVec 64) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
+      M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
+      s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
+      s'.scratch.work_stk2 = s.scratch.work_stk2 →
+      (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+        s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
+      (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
+      (r = 1#64 → FullOtfsInvW c F0 F_cur s' ∧ s'.core.cur_level = s.core.cur_level ∧
+        1 ≤ s'.core.tmp_len ∧ s'.core.tmp_len ≤ s'.core.cur_vars ∧
+        (List.map (fun x => x.toNat / 2) (List.take s'.core.tmp_len s'.core.tmp)).Nodup ∧
+        (∀ k, k < s'.core.tmp_len → let l := (s'.core.tmp[k]?.getD 0#32).toNat
+          l < 2 * s'.core.cur_vars ∧ s'.core.vals[l]?.getD 0#8 = 255#8) ∧
+        (∀ k, 1 ≤ k → k < s'.core.tmp_len →
+          let lv := (s'.core.lvl[(s'.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat
+          0 < lv ∧ lv < s'.core.cur_level) ∧
+        (s'.core.lvl[(s'.core.tmp[0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat =
+          s'.core.cur_level ∧
+        (cnfOfClauses F_cur).EntailsClause
+          (cnfClause (List.map BitVec.toNat (List.take s'.core.tmp_len s'.core.tmp)))) →
+      (r = 2#64 → ∃ cut', cut' ≤ s'.core.trail_end ∧ FullCutInvW c F0 F_cur cut' s' ∧
+        s'.core.cur_level = s.core.cur_level ∧ FullConflictOkCut F_cur cut' s') →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m') :
+    s11Deduce1uipHdrSpec (c.hdr, ()) m Q X :=
+  ⟨c, F0, F_cur, cut, ext, s, R, rfl, hcfg, hext, hcut, hlvl, hcf, hm, hQ⟩
+
+theorem s11Deduce1uipHdrSpec_elim {h : BitVec 64} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost} (hs : s11Deduce1uipHdrSpec (h, ()) m Q X) :
+    ∃ c F0 F_cur cut ext s R, h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧
+      FullCutInvW c F0 F_cur cut s ∧ 0 < s.core.cur_level ∧ FullConflictOkCut F_cur cut s ∧
+      (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ (r : BitVec 64) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
+        M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
+        s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
+        s'.scratch.work_stk2 = s.scratch.work_stk2 →
+        (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+          s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
+        (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
+        (r = 1#64 → FullOtfsInvW c F0 F_cur s' ∧ s'.core.cur_level = s.core.cur_level ∧
+          1 ≤ s'.core.tmp_len ∧ s'.core.tmp_len ≤ s'.core.cur_vars ∧
+          (List.map (fun x => x.toNat / 2) (List.take s'.core.tmp_len s'.core.tmp)).Nodup ∧
+          (∀ k, k < s'.core.tmp_len → let l := (s'.core.tmp[k]?.getD 0#32).toNat
+            l < 2 * s'.core.cur_vars ∧ s'.core.vals[l]?.getD 0#8 = 255#8) ∧
+          (∀ k, 1 ≤ k → k < s'.core.tmp_len →
+            let lv := (s'.core.lvl[(s'.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat
+            0 < lv ∧ lv < s'.core.cur_level) ∧
+          (s'.core.lvl[(s'.core.tmp[0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat =
+            s'.core.cur_level ∧
+          (cnfOfClauses F_cur).EntailsClause
+            (cnfClause (List.map BitVec.toNat (List.take s'.core.tmp_len s'.core.tmp)))) →
+        (r = 2#64 → ∃ cut', cut' ≤ s'.core.trail_end ∧ FullCutInvW c F0 F_cur cut' s' ∧
+          s'.core.cur_level = s.core.cur_level ∧ FullConflictOkCut F_cur cut' s') →
+        (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' :=
+  hs
+
+private theorem full_analyze_core_m6_step11_aux (Γ : Env)
     (hOneLit : ∀ a m Q X, Full.fullOneLitConflSpec a m Q X →
       Γ "full_one_lit_confl" [i64] [i64] a m Q X)
     (hFailed : ∀ a m Q X, FullM6OrchAdapters.m6aAnaFailedLitSpecP M6ExtW2bPres a m Q X →
       Γ "full_ana_failed_lit_m6_hdr" [i64] [i64] a m Q X)
-    (hDeduce : ∀ a m Q X, m7Deduce1uipHdrSpec a m Q X →
+    (hDeduce : ∀ a m Q X, s11Deduce1uipHdrSpec a m Q X →
       Γ "full_deduce_1uip_m6_hdr" [i64] [i64] a m Q X)
     (hRestore : ∀ a m Q X, FullM6OrchAdapters.m6aRestoreBumpAnaSpecP M6ExtW2bPres a m Q X →
       Γ "full_restore_bump_ana_m6_hdr" [i64] [] a m Q X)
@@ -167,7 +258,7 @@ theorem full_analyze_core_m6_step11_wp (Γ : Env)
             (fun heq => ⟨FullM6HdrInvW.mk_inv hinv.cfgOk hext3 (hr1 heq).1,
               Nat.lt_of_lt_of_le (hr1 heq).2 (Nat.le_trans hlle2 hcl1)⟩) hm3
         · c0_call hDeduce
-          refine m7Deduce1uipHdrSpec_of hinv.cfgOk hext1 hcut2 hlvl2 hcf2 hm2' ?_
+          refine s11Deduce1uipHdrSpec_of hinv.cfgOk hext1 hcut2 hlvl2 hcf2 hm2' ?_
           intro dst ext3 s3 m3 hext3 hlen3 hdst hcv3 hfu3 hws3 hr20 hr0 hr1 hr2 hm3
           rcases hdst with rfl | rfl | rfl | rfl
           · c0_hsteps_nogrp
@@ -469,6 +560,53 @@ theorem full_analyze_core_m6_step11_wp (Γ : Env)
         (by rw [hfu1]; exact Nat.le_refl _)
         ⟨hws1, fun h => by cases h⟩ (fun h => by cases h)
         (fun _ => hcut1.toOtfs) (fun h => by cases h) (fullM6HdrMem_unfocus hm1)
+
+/-- Parametric `Func.wp` proof for `fidStep11AnalyzeCoreM6Fn` against `s11Deduce1uipHdrSpec`. -/
+theorem full_analyze_core_m6_step11_s11_wp (Γ : Env)
+    (hOneLit : ∀ a m Q X, Full.fullOneLitConflSpec a m Q X →
+      Γ "full_one_lit_confl" [i64] [i64] a m Q X)
+    (hFailed : ∀ a m Q X, FullM6OrchAdapters.m6aAnaFailedLitSpecP M6ExtW2bPres a m Q X →
+      Γ "full_ana_failed_lit_m6_hdr" [i64] [i64] a m Q X)
+    (hDeduce : ∀ a m Q X, s11Deduce1uipHdrSpec a m Q X →
+      Γ "full_deduce_1uip_m6_hdr" [i64] [i64] a m Q X)
+    (hRestore : ∀ a m Q X, FullM6OrchAdapters.m6aRestoreBumpAnaSpecP M6ExtW2bPres a m Q X →
+      Γ "full_restore_bump_ana_m6_hdr" [i64] [] a m Q X)
+    (hMinShrink : ∀ a m Q X, m8MinShrinkSpec a m Q X →
+      Γ "full_min_shrink_m6" [i64] [] a m Q X)
+    (hTick : ∀ a m Q X, Full.fullTickRelSpec a m Q X → Γ "full_tick_rel" [i64] [] a m Q X)
+    (hEma : ∀ a m Q X, Full.fullEmaUpdateSpec a m Q X →
+      Γ "full_ema_update" [i64, i64] [] a m Q X)
+    (hLearnM6 : ∀ a m Q X, step10LearnClauseM6Spec a m Q X →
+      Γ "full_learn_clause_m6" [i64, i64] [i64] a m Q X) :
+    ∀ a m Q X, FullM6Hdr.m6HdrAnalyzeSpec a m Q X →
+      Func.wp Γ fidStep11AnalyzeCoreM6Fn.body a m Q X :=
+  full_analyze_core_m6_step11_aux Γ hOneLit hFailed hDeduce hRestore hMinShrink hTick hEma hLearnM6
+
+/-- Parametric `Func.wp` proof for `fidStep11AnalyzeCoreM6Fn` (`full_analyze_core_m6` with
+probing-guarded OTFS `conflicts++`) against `FullM6Hdr.m6HdrAnalyzeSpec`. -/
+theorem full_analyze_core_m6_step11_wp (Γ : Env)
+    (hOneLit : ∀ a m Q X, Full.fullOneLitConflSpec a m Q X →
+      Γ "full_one_lit_confl" [i64] [i64] a m Q X)
+    (hFailed : ∀ a m Q X, FullM6OrchAdapters.m6aAnaFailedLitSpecP M6ExtW2bPres a m Q X →
+      Γ "full_ana_failed_lit_m6_hdr" [i64] [i64] a m Q X)
+    (hDeduce : ∀ a m Q X, m7Deduce1uipHdrSpec a m Q X →
+      Γ "full_deduce_1uip_m6_hdr" [i64] [i64] a m Q X)
+    (hRestore : ∀ a m Q X, FullM6OrchAdapters.m6aRestoreBumpAnaSpecP M6ExtW2bPres a m Q X →
+      Γ "full_restore_bump_ana_m6_hdr" [i64] [] a m Q X)
+    (hMinShrink : ∀ a m Q X, m8MinShrinkSpec a m Q X →
+      Γ "full_min_shrink_m6" [i64] [] a m Q X)
+    (hTick : ∀ a m Q X, Full.fullTickRelSpec a m Q X → Γ "full_tick_rel" [i64] [] a m Q X)
+    (hEma : ∀ a m Q X, Full.fullEmaUpdateSpec a m Q X →
+      Γ "full_ema_update" [i64, i64] [] a m Q X)
+    (hLearnM6 : ∀ a m Q X, step10LearnClauseM6Spec a m Q X →
+      Γ "full_learn_clause_m6" [i64, i64] [i64] a m Q X) :
+    ∀ a m Q X, FullM6Hdr.m6HdrAnalyzeSpec a m Q X →
+      Func.wp Γ fidStep11AnalyzeCoreM6Fn.body a m Q X :=
+  full_analyze_core_m6_step11_aux Γ hOneLit hFailed (fun ⟨h, ⟨⟩⟩ m Q X hs => by
+    rcases s11Deduce1uipHdrSpec_elim hs with
+      ⟨c, F0, F_cur, cut, ext, s, R, rfl, hcfg, hext, hcut, hlvl, hcf, hm, hQ⟩
+    exact hDeduce _ m Q X (m7Deduce1uipHdrSpec_of hcfg hext hcut hlvl hcf hm hQ))
+    hRestore hMinShrink hTick hEma hLearnM6
 
 /-! ## 2. `full_analyze_step11_wp` (`Full.fullAnalyzeSpec`) -/
 

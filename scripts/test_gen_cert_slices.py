@@ -1311,6 +1311,26 @@ class GenCertSlicesTest(unittest.TestCase):
         self.assertIn("meta import LeanQbe.T.MainCertFlatElab", m6_files["LeanQbe/T/Amd64/KissatM6Cert1.lean"])
         self.assertIn("(flat := true)", m6_files["LeanQbe/T/Amd64/KissatM6Cert1.lean"])
 
+        # 4. FullFidelityStep12 unified 517-fn preset defaults & dry-run hygiene.
+        s12_cfg = gcs.build_config(
+            gcs.parse_args(
+                ["--module", "step12", "--root", str(REPO_ROOT), "--dry-run"]
+            )
+        )
+        self.assertEqual(s12_cfg.prefix, "KissatFidelityStep12")
+        self.assertEqual(s12_cfg.stem, "fidStep12")
+        self.assertEqual(s12_cfg.total_fns, 517)
+        self.assertEqual(s12_cfg.inl_mod, "LeanQbe.T.Examples.Kissat.FullFidelityStep12Inl")
+        self.assertTrue(s12_cfg.flat)
+        self.assertEqual(s12_cfg.chunk_size, 1)
+        self.assertEqual(s12_cfg.tree_groups, 8)
+        s12_files = dict(gcs.build_plan(s12_cfg, ["amd64", "arm64"]))
+        self._assert_hygiene(list(s12_files.items()))
+        self.assertIn(
+            "fidStep12Cert",
+            s12_files["LeanQbe/T/Amd64/KissatFidelityStep12Cert.lean"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

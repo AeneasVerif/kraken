@@ -37,6 +37,25 @@
     "is_fidelity": true,
     "is_solver_extension": false
   },
+  "FullFidelityStep12": {
+    "module": "FullFidelityAssemblyStep12",
+    "aliases": ["fullfidelitystep12", "fidelity-step12", "step12"],
+    "tag": "step12",
+    "c0_target": "step12",
+    "lean_mod": "LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12",
+    "mod_file": "FullFidelityAssemblyStep12",
+    "mod_expr": "LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module",
+    "extra_imports": ["LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy"],
+    "fns_expr": "((LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12.fidStep12Module).optInlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns",
+    "policy_desc": "fidInlPolicy / FullFidelityAssemblyStep12 (Step-11 + Step-12 unified assembly; certified UNSAT)",
+    "cert_name": "KissatFidelity",
+    "cert_x64_file": "LeanQbe/T/Amd64/KissatFidelity.lean",
+    "cert_arm64_file": "LeanQbe/T/Arm64/KissatFidelity.lean",
+    "unsat_only": false,
+    "default_inline": 0,
+    "is_fidelity": true,
+    "is_solver_extension": false
+  },
   "KissatM8Opt": {
     "module": "KissatM8Opt",
     "aliases": ["fullm8opt", "m8opt", "opt", "fullm8", "m8"],

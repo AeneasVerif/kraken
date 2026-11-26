@@ -191,7 +191,7 @@ theorem fidStep7_externs_empty : fidStep7Module.externs = [] :=
 theorem fidStep7Fns_length : fidStep7Fns.length = 501 := by
   t_kernel_rfl
 
-private def fidStep7FrontNames : List Sym :=
+@[expose] def fidStep7FrontNames : List Sym :=
   [ "full_init_state_m5", "full_restore_bump_ana_m6_hdr", "full_ana_failed_lit_m6_hdr"
   , "full_min_shrink_m6", "full_analyze_core_m6", "full_walk_m7", "full_init_fresh_var"
   , "full_calc_max_v", "full_calc_scr_cap_m5", "m6_hdr_init", "full_reduce"
@@ -2345,16 +2345,17 @@ private theorem fidStep7_all_sigs_batch :
 
 private theorem fidStep7_step9_in_all :
     fidStep7_step9_sigPairs.all (fidStep7_all_sigPairs.contains ·) = true := by
-  decide
+  t_kernel_rfl
 
 private theorem fidStep7_step10_in_all :
     fidStep7_step10_sigPairs.all (fidStep7_all_sigPairs.contains ·) = true := by
-  decide
+  t_kernel_rfl
 
 theorem fidStep7_step9_sig_at {p : Nat × SigEntry} (hp : p ∈ fidStep7_step9_sigPairs) :
     fidStep7Module.fns[p.1]?.map Fn.sig = some p.2 := by
   simpa using sigsAtSorted7_getElem? fidStep7Module.fns 0 fidStep7_all_sigPairs
-    (by decide) (fun _ _ => Nat.zero_le _) fidStep7_all_sigs_batch p
+    (pairwise_lt_of_isSortedLt7 (by t_kernel_rfl)) (fun _ _ => Nat.zero_le _)
+    fidStep7_all_sigs_batch p
     (List.contains_iff_mem.mp (List.all_eq_true.mp fidStep7_step9_in_all p hp))
 
 theorem fidStep7_step8_slots_ok :
@@ -2394,8 +2395,55 @@ theorem fidStep7Module_map_name :
 theorem fidStep7_step10_sig_at {p : Nat × SigEntry} (hp : p ∈ fidStep7_step10_sigPairs) :
     fidStep7Module.fns[p.1]?.map Fn.sig = some p.2 := by
   simpa using sigsAtSorted7_getElem? fidStep7Module.fns 0 fidStep7_all_sigPairs
-    (by decide) (fun _ _ => Nat.zero_le _) fidStep7_all_sigs_batch p
+    (pairwise_lt_of_isSortedLt7 (by t_kernel_rfl)) (fun _ _ => Nat.zero_le _)
+    fidStep7_all_sigs_batch p
     (List.contains_iff_mem.mp (List.all_eq_true.mp fidStep7_step10_in_all p hp))
+
+theorem fidStep7Env_s12Lift {f : Sym} {as bs : List Ty}
+    (hf7 : !(fidStep7FrontNames.contains f) = true)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidEnv f as bs xs m Q X) : fidStep7Env f as bs xs m Q X :=
+  fid7_of_fidEnv hf7 h
+
+theorem fidStep7Env_s12Peel {f : Sym} {as bs : List Ty}
+    (hf7 : !(fidStep7FrontNames.contains f) = true)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep7Env f as bs xs m Q X) : fidEnv f as bs xs m Q X := by
+  change patchEnv fidStep7Bundle f as bs xs m Q X at h
+  rwa [patchEnv_base_eq fidStep7Bundle (fid7_find_none_front7 hf7)] at h
+
+theorem fidStep7Env_reduce :
+    ∀ a m Q X, Full.fullReduceSpec a m Q X →
+      fidStep7Env "full_reduce" [i64, .bool] [i64] a m Q X :=
+  fid7_frontRow 10 "full_reduce" Full.fullReduceSpec
+
+theorem fidStep7Env_elim_learnClause {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep7Env "full_learn_clause" [i64, i64] [i64] xs m Q X) :
+    Full.fullLearnClauseSpec xs m Q X := by
+  have hrow : fidStep7Bundle.frontTable[14]? =
+      some ⟨"full_learn_clause", [i64, i64], [i64], Full.fullLearnClauseSpec, true⟩ := rfl
+  have hf7 := fid7_of_prefix_mem ⟨_, List.mem_of_getElem? hrow, rfl, rfl, rfl⟩ h
+  exact (m8cp_ofTable_sig_elim fidStep7_front_nodup (List.mem_of_getElem? hrow) hf7).2.2
+
+private theorem fidStep7_step12_in_all :
+    fidStep7_step12_sigPairs.all (fidStep7_all_sigPairs.contains ·) = true := by
+  t_kernel_rfl
+
+theorem fidStep7_step12_sig_at {p : Nat × SigEntry} (hp : p ∈ fidStep7_step12_sigPairs) :
+    fidStep7Module.fns[p.1]?.map Fn.sig = some p.2 := by
+  simpa using sigsAtSorted7_getElem? fidStep7Module.fns 0 fidStep7_all_sigPairs
+    (pairwise_lt_of_isSortedLt7 (by t_kernel_rfl)) (fun _ _ => Nat.zero_le _)
+    fidStep7_all_sigs_batch p
+    (List.contains_iff_mem.mp (List.all_eq_true.mp fidStep7_step12_in_all p hp))
+
+theorem fidStep7_workStep_at :
+    fidStep7Module.fns[270]? = some FullM6CongSubst.full_cong_work_step := by
+  t_kernel_rfl
+
+theorem fidStep7_s12_noCallBad :
+    checkNoCallBad fidS12SkipNames fidS12BadNames fidStep7Module.fns = true := by
+  t_kernel_rfl
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7
 
