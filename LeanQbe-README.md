@@ -21,9 +21,6 @@ logic. All active theorems depend only on Lean 4's standard axioms (`propext`, `
     register allocation (`regaBackend`) across C0, Lean `LCNF`, and `Kraken.Bedrock2`, together with
     witness-checked CFG recovery and contification over structured `BedrockWord` programs and
     cross-calling `Xcap` contracts.
-  - [Virtual Low-Level IR (`Vll`)](LeanQbe/T/Vll/Syntax.lean) with generic machine semantics,
-    target-neutral verified peepholes, and byte-identical factoring to the x86-64 and AArch64
-    backends.
   - [Direct flat-IR optimizer (`MainFlat`)](LeanQbe/T/MainFlat.lean) proved equivalent to the PHOAS
     pipeline (`compileFlatFn_eq_compileFn`).
 - **Frontends & Standalone Runtime:**
@@ -31,7 +28,9 @@ logic. All active theorems depend only on Lean 4's standard axioms (`propext`, `
     `offsetof`, `_Static_assert`, provenance checks, and SysV LP64 bitfield layout.
   - Lean `LCNF` compiler paired with a standalone 86-function pure-C0 runtime
     ([LcnfC0Full.lean](LeanQbe/T/LeanLCNF/LcnfC0Full.lean)) covering 35 of 38 runtime calls (leaving
-    only three floating-point helpers external), alongside a Lean `λRC` frontend (`LeanLRC`).
+    only three floating-point helpers external), with a verified SysV x86-64 `LinkedCert`
+    ([LcnfC0FullCertX64.lean](LeanQbe/T/Amd64/LcnfC0FullCertX64.lean), `≤ 272 B` stack bound) and
+    concrete x86-64 machine execution witnesses, alongside a Lean `λRC` frontend (`LeanLRC`).
   - Universal Software Fault Isolation (SFI) safety proofs for validated WebAssembly modules
     (including bulk memory operations) and mutual/cyclic recursion linking.
 - **Verified Systems Programs & Kissat SAT Solver:**
@@ -81,7 +80,7 @@ logic. All active theorems depend only on Lean 4's standard axioms (`propext`, `
 - **Kissat native solver & 4-way benchmark tools:**
   [bench/kissat/build_solver.sh](bench/kissat/build_solver.sh),
   [bench/kissat/extract_c0_direct.py](bench/kissat/extract_c0_direct.py),
-  [bench/kissat/run_4way_stage1.py](bench/kissat/run_4way_stage1.py), and the 245-line minimal
+  [bench/kissat/run_4way_stage1.py](bench/kissat/run_4way_stage1.py), and the minimal
   4-way comparison script [bench/kissat/compare_4way_min.py](bench/kissat/compare_4way_min.py).
 
 ---
@@ -108,7 +107,11 @@ logic. All active theorems depend only on Lean 4's standard axioms (`propext`, `
      `LeanQbe.T`, with a standalone verified pure-C0 runtime
      ([LcnfC0Full.lean](LeanQbe/T/LeanLCNF/LcnfC0Full.lean)) combining base runtime helpers,
      multi-precision integers (`BigNum`), containers, and strings (`86` functions, `35 / 38`
-     runtime calls covered, `ModuleOk` and `Mem 64` non-vacuity proved).
+     runtime calls covered, `ModuleOk` and `Mem 64` non-vacuity proved), together with a verified
+     SysV x86-64 `LinkedCert`
+     ([LcnfC0FullCertX64.lean](LeanQbe/T/Amd64/LcnfC0FullCertX64.lean), `≤ 272 B` stack bound) and
+     closed x86-64 execution witnesses
+     ([LcnfC0FullCertTest.lean](LeanQbeTest/T/LcnfC0FullCertTest.lean)).
    - **WebAssembly ([Wasm/Safety.lean](LeanQbe/T/Wasm/Safety.lean)):** Decodes, validates, and
      compiles Wasm modules—including bulk-memory operations—with proved SFI host-memory isolation
      across arbitrary call graphs (`ModuleSccOk`).
@@ -117,15 +120,10 @@ logic. All active theorems depend only on Lean 4's standard axioms (`propext`, `
      structured ASTs and witness-checked CFG recovery and contification
      ([CfgRecovery.lean](LeanQbe/T/Unified/CfgRecovery.lean),
      [CfgContify.lean](LeanQbe/T/Unified/CfgContify.lean)).
-3. **Unified Pipeline & Low-Level Machine IR (`Unified/`, `Vll/`, `Xcap/`):**
+3. **Unified Pipeline & External Interop (`Unified/`, `Xcap/`):**
    - [Unified/Core.lean](LeanQbe/T/Unified/Core.lean) and
      [Unified/Driver.lean](LeanQbe/T/Unified/Driver.lean) decouple frontends (C0, `LCNF`, `Bedrock2`)
      from backends through shared optimization (`midEnd`) and register allocation (`regaBackend`).
-   - [Vll/](LeanQbe/T/Vll/Syntax.lean) defines a target-parametric low-level machine IR (`Instr A`,
-     `vllMach`, `vllTarget`) supporting generic machine peepholes (`Passes.lean`), direct lowering
-     from `BedrockWord`, and factoring theorems proving byte-identical output with the concrete
-     x86-64 ([VllFactorX64.lean](LeanQbe/T/Amd64/VllFactorX64.lean)) and AArch64
-     ([VllFactorArm64.lean](LeanQbe/T/Arm64/VllFactorArm64.lean)) backends.
    - [Xcap/Bridge.lean](LeanQbe/T/Xcap/Bridge.lean) converts compiled `FnSpec` guarantees to and
      from Certified Assembly Programming (`Xcap.cptr`) code pointers, enabling verified cross-calls
      between `LeanQbe.T`-compiled functions and externally verified machine-code blocks.
@@ -155,10 +153,9 @@ Computing Base:
 | **Compiler Core & Linking** | [Main.lean](LeanQbe/T/Main.lean), [MainCertCore.lean](LeanQbe/T/MainCertCore.lean), [LinkScc.lean](LeanQbe/T/LinkScc.lean), [LinkRec.lean](LeanQbe/T/LinkRec.lean) | [CompilerAuditSpec.lean](LeanQbeTest/T/CompilerAuditSpec.lean) / [CompilerAuditX64.lean](LeanQbeTest/T/CompilerAuditX64.lean) / [CompilerAuditArm64.lean](LeanQbeTest/T/CompilerAuditArm64.lean) |
 | **Flat-IR Parity Pipeline** | [MainFlat.lean](LeanQbe/T/MainFlat.lean), [MainFlatLemmas.lean](LeanQbe/T/MainFlatLemmas.lean) | [MainFlatParityTest.lean](LeanQbeTest/T/MainFlatParityTest.lean) / [MainFlatParityArm64Test.lean](LeanQbeTest/T/MainFlatParityArm64Test.lean) |
 | **Unified Pipeline & CFG Recovery** | [Unified/Driver.lean](LeanQbe/T/Unified/Driver.lean), [Unified/CfgRecoveryBridge.lean](LeanQbe/T/Unified/CfgRecoveryBridge.lean) | [UnifiedPipelineTest.lean](LeanQbeTest/T/UnifiedPipelineTest.lean), [UnifiedC0Test.lean](LeanQbeTest/T/UnifiedC0Test.lean), [UnifiedLcnfTest.lean](LeanQbeTest/T/UnifiedLcnfTest.lean), [UnifiedBedrock2X64Test.lean](LeanQbeTest/T/UnifiedBedrock2X64Test.lean), [UnifiedBedrock2Arm64Test.lean](LeanQbeTest/T/UnifiedBedrock2Arm64Test.lean), [BedrockCfgRecoveryTest.lean](LeanQbeTest/T/BedrockCfgRecoveryTest.lean) |
-| **Virtual Low-Level IR (`Vll`)** | [Vll/Sem.lean](LeanQbe/T/Vll/Sem.lean), [Vll/Passes.lean](LeanQbe/T/Vll/Passes.lean), [Vll/FromWord.lean](LeanQbe/T/Vll/FromWord.lean) | [VllCoreTest.lean](LeanQbeTest/T/VllCoreTest.lean), [VllPassesTest.lean](LeanQbeTest/T/VllPassesTest.lean), [VllFactorX64Test.lean](LeanQbeTest/T/VllFactorX64Test.lean), [VllFactorArm64Test.lean](LeanQbeTest/T/VllFactorArm64Test.lean) |
 | **XCAP Interop Bridge** | [Xcap/Core.lean](LeanQbe/T/Xcap/Core.lean), [Xcap/Bridge.lean](LeanQbe/T/Xcap/Bridge.lean) | [XcapBridgeTest.lean](LeanQbeTest/T/XcapBridgeTest.lean) / [XcapBridgeX64Test.lean](LeanQbeTest/T/XcapBridgeX64Test.lean) / [XcapBridgeArm64Test.lean](LeanQbeTest/T/XcapBridgeArm64Test.lean) |
 | **C0 Frontend & Logic** | [Frontend/C0.lean](LeanQbe/T/Frontend/C0.lean), [Logic/C0Step.lean](LeanQbe/T/Logic/C0Step.lean) | [C0LogicAudit.lean](LeanQbeTest/T/C0LogicAudit.lean), [C0ExtensionsTest.lean](LeanQbeTest/T/C0ExtensionsTest.lean) |
-| **Lean `LCNF` & Standalone C0 Runtime** | [LeanLCNF/Hub.lean](LeanQbe/T/LeanLCNF/Hub.lean), [LcnfC0Full.lean](LeanQbe/T/LeanLCNF/LcnfC0Full.lean) | [LcnfAudit.lean](LeanQbeTest/T/LcnfAudit.lean), [LcnfC0FullTest.lean](LeanQbeTest/T/LcnfC0FullTest.lean) |
+| **Lean `LCNF` & Standalone C0 Runtime** | [LeanLCNF/Hub.lean](LeanQbe/T/LeanLCNF/Hub.lean), [LcnfC0Full.lean](LeanQbe/T/LeanLCNF/LcnfC0Full.lean), [LcnfC0FullCertX64.lean](LeanQbe/T/Amd64/LcnfC0FullCertX64.lean) | [LcnfAudit.lean](LeanQbeTest/T/LcnfAudit.lean), [LcnfC0FullTest.lean](LeanQbeTest/T/LcnfC0FullTest.lean), [LcnfC0FullCertTest.lean](LeanQbeTest/T/LcnfC0FullCertTest.lean) |
 | **ChaCha20, Curve25519, UnionFind** | [ChaCha.lean](LeanQbe/T/Examples/ChaCha.lean), [Bignum.lean](LeanQbe/T/Examples/Bignum.lean), [UnionFind.lean](LeanQbe/T/Examples/UnionFind.lean) | [WorkloadsAuditSpec.lean](LeanQbeTest/T/WorkloadsAuditSpec.lean) / [WorkloadsAuditX64.lean](LeanQbeTest/T/WorkloadsAuditX64.lean) / [WorkloadsAuditArm64.lean](LeanQbeTest/T/WorkloadsAuditArm64.lean) |
 | **LRAT Proof Checker (`lrat_check_bytes`)** | [LratBytes.lean](LeanQbe/T/Examples/LratBytes.lean), [LratBytesSpec.lean](LeanQbe/T/Examples/LratBytesSpec.lean) | [LratAuditSpec.lean](LeanQbeTest/T/LratAuditSpec.lean) / [LratAuditX64.lean](LeanQbeTest/T/LratAuditX64.lean) / [LratAuditArm64.lean](LeanQbeTest/T/LratAuditArm64.lean) |
 | **WebAssembly Sandbox** | [Wasm/Safety.lean](LeanQbe/T/Wasm/Safety.lean), [Wasm/BulkSafety.lean](LeanQbe/T/Wasm/BulkSafety.lean) | [WasmAuditSpec.lean](LeanQbeTest/T/WasmAuditSpec.lean) / [WasmAuditX64.lean](LeanQbeTest/T/WasmAuditX64.lean) / [WasmAuditArm64.lean](LeanQbeTest/T/WasmAuditArm64.lean) |
@@ -190,9 +187,9 @@ timeout 1800 lake build --wfail \
   LeanQbeTest.T.WorkloadsAuditSpec LeanQbeTest.T.WorkloadsAuditX64 LeanQbeTest.T.WorkloadsAuditArm64 \
   LeanQbeTest.T.LratAuditSpec LeanQbeTest.T.LratAuditX64 LeanQbeTest.T.LratAuditArm64 \
   LeanQbeTest.T.WasmAuditSpec LeanQbeTest.T.WasmAuditX64 LeanQbeTest.T.WasmAuditArm64 \
-  LeanQbeTest.T.C0LogicAudit LeanQbeTest.T.LcnfAudit LeanQbeTest.T.LcnfC0FullTest \
+  LeanQbeTest.T.C0LogicAudit LeanQbeTest.T.LcnfAudit LeanQbeTest.T.LcnfC0FullTest LeanQbeTest.T.LcnfC0FullCertTest \
   LeanQbeTest.T.MainFlatParityTest LeanQbeTest.T.UnifiedPipelineTest \
-  LeanQbeTest.T.VllFactorX64Test LeanQbeTest.T.VllFactorArm64Test LeanQbeTest.T.XcapBridgeTest \
+  LeanQbeTest.T.XcapBridgeTest \
   LeanQbeTest.T.KissatFidelityAuditSpec \
   LeanQbeTest.T.KissatFidelityParamAuditX64 LeanQbeTest.T.KissatFidelityParamAuditArm64 \
   LeanQbeTest.T.KissatM7FidelityAuditSpec \
@@ -227,34 +224,21 @@ QBE where applicable:
 verified sequence of passes parameterized by a `Target` record:
 
 1. **Early Optimization (`Func.earlyOpt`):**
-   `fold` (constant folding & algebraic simplification) -> `canon` (operator canonicalization) ->
-   `copy` (copy propagation) -> `gvn` (global value numbering) -> `copy` -> `fold` -> `ifOpt`
-   (branch/switch simplification) -> `simplifyGroupFast` (bounded boolean simplification) ->
-   `peelFast 24` (loop header peeling) -> `zeroPeelWith { peelBudget := 24 }` (zero-trip guard
-   peeling) -> `copy` -> `fold` -> `dceP` (dead-code elimination with parameter pruning) ->
-   `renorm`.
+   Runs constant folding and algebraic simplification, operator canonicalization, copy propagation,
+   global value numbering (GVN), branch/switch and bounded boolean simplification, loop-header and
+   zero-trip guard peeling, and dead-code elimination with parameter pruning.
 2. **Legalization (`Func.legal`):**
-   Rewrites unsupported constants, widths, addressing modes, and instructions according to
-   `legalTarget` (`Legal.lean`, `LegalCheck3.lean`), followed by normalization.
+   Rewrites unsupported constants, widths, addressing modes, and instructions according to the
+   target's `LegalTarget` contract ([Legal.lean](LeanQbe/T/Legal.lean)).
 3. **Mid-Stage / Late Optimization (`Fn.midStage` / `Func.lateOpt`):**
-   Organized into five fixed sub-stages:
-   - `lateCorePre`: `fold` -> `canon` -> `divConst` (strength reduction for constant division) ->
-     `copy` (+ `renorm`).
-   - `lateCorePost`: `memLoad` (redundant load forwarding) -> `gvn` -> `assumeBits`
-     (range/bitwidth assumption propagation) -> `fold` (+ `renorm`).
-   - `lateCfgPre`: `ifOptBits` -> `simplifyGroupFast` -> `deadLoadElim` -> `assumeElim` ->
-     `fold` -> `addrRangeOpt` (base+offset range elimination) -> `gvn` (+ `renorm`).
-   - `lateLoopRotate`: `licm` (loop-invariant code motion) -> `dceP` -> `loopRotate` (bottom-tested
-     loop conversion) (+ `renorm`).
-   - `lateCondThread`: `condThreadLateOpt` (late jump threading) -> `fold` -> `dceP` -> `tailDup`
-     (tail duplication) -> `mergeRets` (shared epilogue merging) (+ `renorm`).
-4. **First-Order Flat Pipeline & `Vll` Factoring (`MainFlat`, `Vll`):**
-   - [MainFlat.lean](LeanQbe/T/MainFlat.lean) executes the entire early and mid-stage optimization
-     pipeline directly on flat first-order representation (`TFlat`), proved equal to the PHOAS
-     pipeline (`compileFlatFn_eq_compileFn`).
-   - After register allocation, [Vll/Passes.lean](LeanQbe/T/Vll/Passes.lean) verifies target-neutral
-     machine peepholes (`elimSelfMov`, `elimZeroFrame`, `elimCanonAbi64`, `elimRedundantWindow`,
-     `threadJmp`, `invertJccJmp`, `elimFallthrough`) over abstract machine semantics (`vllMach`).
+   Combines constant-division strength reduction, redundant load forwarding, range and bitwidth
+   assumption propagation, dead-load and base+offset address-range elimination, loop-invariant code
+   motion (LICM), bottom-tested loop rotation, jump threading, tail duplication, and shared epilogue
+   merging, interleaved with folding, GVN, copy propagation, and dead-code elimination.
+4. **First-Order Flat Pipeline (`MainFlat`):**
+   [MainFlat.lean](LeanQbe/T/MainFlat.lean) executes the entire early and mid-stage optimization
+   pipeline directly on flat first-order representation (`TFlat`), proved equal to the PHOAS
+   pipeline (`compileFlatFn_eq_compileFn`).
 5. **Spilling, Register Allocation, & Code Emission (`Spill.lean`, `Rega.lean`, `Amd64/`,
    `Arm64/`):**
    - `Spill.hints` inserts spill/reload hints to fit architectural register budgets while preserving
@@ -330,7 +314,7 @@ python3 bench/kissat/extract_c0_direct.py --target fidelity -o /tmp/kissat_c0.c
 
 ### Four-Way Benchmark Comparison
 
-[bench/kissat/run_4way_stage1.py](bench/kissat/run_4way_stage1.py) and the 245-line
+[bench/kissat/run_4way_stage1.py](bench/kissat/run_4way_stage1.py) and
 [bench/kissat/compare_4way_min.py](bench/kissat/compare_4way_min.py) benchmark the `413`-function
 certified Kissat solver on 140 CNF instances on x86-64 (comparing extracted C compiled with
 `gcc -O2`, verified `LeanQbe.T` native x86-64 codegen, and stock QBE):
@@ -375,7 +359,6 @@ Lean-extracted Stage-0 compiler (`leanqbe0Compile`) with `LeanQbe.T` itself:
 | `LeanQbe/T/` | Core SSA IR (`IL`, `Flat`), semantics (`WP`), optimizer (`Opt`, `Main`, `MainFlat`), spilling (`Spill`), register allocation (`Rega`), certificates (`MainCert*`), linking (`MainLink*`, `LinkRec`, `LinkScc`, `LinkLfp`), QBE/C++20 printers (`PrintQbe`, `PrintCpp`) |
 | `LeanQbe/T/Amd64/` & `LeanQbe/T/Arm64/` | SysV x86-64 and AAPCS64 AArch64 target contracts, instruction selection, frame lowering, and assembly printers |
 | `LeanQbe/T/Unified/` | Arch-free multi-frontend / multi-backend driver, CFG recovery, and contification (`C0`, `LeanLCNF`, `Bedrock2`) |
-| `LeanQbe/T/Vll/` | Parametric low-level machine IR, verified peepholes, `BedrockWord` lowering, and dual-arch factoring |
 | `LeanQbe/T/Xcap/` | Bidirectional `FnSpec` <-> `Xcap.cptr` bridge and linking combinators |
 | `LeanQbe/T/Frontend/C0/`, `LeanLCNF/`, `LeanLRC/`, `Wasm/`, `Bedrock2/`, `BedrockWord/` | Source language frontends, SFI Wasm compiler, and standalone 86-fn C0 `LCNF` runtime (`LcnfC0Full`) |
 | `LeanQbe/T/Logic/` | Separation-logic tree/slab automation, symbolic C0 stepper (`C0Step`), and control/legality combinators |
