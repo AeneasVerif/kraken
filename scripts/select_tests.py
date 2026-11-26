@@ -16,11 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sync_hubs import ALL_HUBS
-
-BARREL_PATHS: frozenset[str] = frozenset(
-    m.replace(".", "/") + ".lean" for m in ALL_HUBS
-)
+from lean_imports import BARREL_PATHS
 
 # Canonical execution order for deterministic output.
 SUITE_ORDER: tuple[str, ...] = (

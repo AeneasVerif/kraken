@@ -22,7 +22,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -32,23 +31,35 @@ from typing import Iterator
 SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+import _common  # noqa: E402
+from _common import (  # noqa: E402
+    ensure_worktree,
+    format_audit_manifest,
+    read_blob_at_commit,
+    resolve_audit_axioms_bin,
+    resolve_commit,
+    resolve_script,
+    run_git,
+    systemd_scope_available,
+)
 from lean_imports import (  # noqa: E402
+    BARRELS,
     DEFAULT_MAX_COL,
     DEFAULT_MAX_LOC,
     DEFAULT_MAX_PROOF_THM_LOC,
-    LEGACY_CERT_RE,
+    EXE_ROOT_TO_TARGET,
     audit_lean_source,
+    classify_module_arch,
+    collect_active_headlines,
+    collect_hygiene_violations,
+    collect_lean_rdeps,
+    is_kraken_path as _is_kraken_path,
     mod_to_rel_path,
-    parse_imports,
+    modules_to_lake_targets,
     rel_path_to_mod,
 )
-from rdeps_scope import (  # noqa: E402
-    BARRELS,
-    EXE_ROOT_TO_TARGET,
-    _is_kraken_path,
-    compute_rdeps,
-    modules_to_lake_targets,
-)
+
+from rdeps_scope import compute_rdeps  # noqa: E402
 
 MAX_LOC = DEFAULT_MAX_LOC
 MAX_COL = DEFAULT_MAX_COL
@@ -87,18 +98,6 @@ X64_PFX = ("Kraken.X64", "LeanQbe.T.Amd64.")
 ARM_PFX = ("Kraken.AArch64", "LeanQbe.T.Arm64.")
 
 
-def systemd_scope_available() -> bool:
-    """Return True if `systemd-run --user --scope` works in this session."""
-    if shutil.which("systemd-run") is None:
-        return False
-    res = subprocess.run(
-        ["systemd-run", "--user", "--scope", "true"],
-        capture_output=True,
-        check=False,
-    )
-    return res.returncode == 0
-
-
 def wrap_build_cmd(
     cmd: list[str],
     *,
@@ -107,54 +106,18 @@ def wrap_build_cmd(
     use_systemd: bool | None = None,
 ) -> list[str]:
     """Wrap command in `timeout` + `systemd-run --user --scope` + Lake env."""
-    env_prefix = [
-        "env",
-        "LAKE_ARTIFACT_CACHE=true",
-        "LAKE_RESTORE_ARTIFACTS=true",
-        "LAKE_JOBS=2",
-        "LEAN_NUM_THREADS=2",
-    ]
-    base_cmd = ["timeout", "--foreground", str(timeout_sec), *env_prefix, *cmd]
     scoped = systemd_scope_available() if use_systemd is None else use_systemd
-    if scoped:
-        return [
-            "systemd-run",
-            "--user",
-            "--scope",
-            "--quiet",
-            "--slice=leanqbe-builds.slice",
-            "-p",
-            f"MemoryMax={memory_max}",
-            "-p",
-            "MemorySwapMax=0",
-            "-p",
-            "OOMPolicy=kill",
-            *base_cmd,
-        ]
-    return base_cmd
-
-
-def resolve_commit(repo: Path, ref: str) -> str:
-    """Resolve `ref` to a 40-char commit SHA or raise RuntimeError."""
-    res = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "--verify", f"{ref}^{{commit}}"],
-        capture_output=True,
-        text=True,
-        check=False,
+    return _common.wrap_build_cmd(
+        cmd,
+        timeout_sec=timeout_sec,
+        memory_max=memory_max,
+        use_systemd=scoped,
     )
-    if res.returncode != 0:
-        raise RuntimeError(f"cannot resolve commit '{ref}': {res.stderr.strip()}")
-    return res.stdout.strip()
 
 
 def run_merge_tree(repo: Path, base_sha: str, target_sha: str) -> dict[str, object]:
     """Run zero-disk `git merge-tree --write-tree` between two commits."""
-    res = subprocess.run(
-        ["git", "-C", str(repo), "merge-tree", "--write-tree", base_sha, target_sha],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    res = run_git(repo, "merge-tree", "--write-tree", base_sha, target_sha)
     lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
     tree = lines[0] if lines and re.fullmatch(r"[0-9a-f]{40}", lines[0]) else None
     conflicts = [ln for ln in lines[1:] if "CONFLICT" in ln]
@@ -168,30 +131,12 @@ def run_merge_tree(repo: Path, base_sha: str, target_sha: str) -> dict[str, obje
 
 
 def collect_diff_stats(
-    repo: Path,
-    base_sha: str,
-    target_sha: str,
-    allow_regex: str | None = None,
+    repo: Path, base_sha: str, target_sha: str, allow_regex: str | None = None
 ) -> dict[str, object]:
     """Compute exact diff stats, whitespace check, and `--allow` compliance."""
-    ns_res = subprocess.run(
-        ["git", "-C", str(repo), "diff", "--name-status", base_sha, target_sha],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    num_res = subprocess.run(
-        ["git", "-C", str(repo), "diff", "--numstat", base_sha, target_sha],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    chk_res = subprocess.run(
-        ["git", "-C", str(repo), "diff", "--check", base_sha, target_sha],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    ns_res = run_git(repo, "diff", "--name-status", base_sha, target_sha, check=True)
+    num_res = run_git(repo, "diff", "--numstat", base_sha, target_sha, check=True)
+    chk_res = run_git(repo, "diff", "--check", base_sha, target_sha)
 
     files: list[str] = []
     deletions: list[str] = []
@@ -252,19 +197,6 @@ def audit_lean_text(rel_path: str, text: str) -> dict[str, object]:
     )
 
 
-def read_blob_at_commit(repo: Path, commit: str, rel_path: str) -> str | None:
-    """Read tracked file text at `commit` via `git show` (zero disk)."""
-    res = subprocess.run(
-        ["git", "-C", str(repo), "show", f"{commit}:{rel_path}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if res.returncode != 0:
-        return None
-    return res.stdout
-
-
 def audit_static_hygiene(
     repo: Path,
     target_sha: str,
@@ -294,50 +226,23 @@ def audit_static_hygiene(
         total_import_all += int(rep["total_import_all"])  # type: ignore[arg-type]
         for ln_info in rep["long_lines"]:  # type: ignore[attr-defined]
             max_col = max(max_col, int(ln_info["cols"]))
-        if rep["over_loc"]:
-            base_txt = (
-                read_blob_at_commit(repo, base_sha, rel) if base_sha else None
-            )
+        base_loc: int | None = None
+        if rep["over_loc"] and base_sha:
+            base_txt = read_blob_at_commit(repo, base_sha, rel)
             if base_txt is not None:
                 base_loc = len(base_txt.splitlines())
-                if base_loc >= MAX_LOC:
-                    if loc > base_loc:
-                        violations.append(
-                            f"{rel}: grandfathered file grew {base_loc} -> {loc} LOC (>= {MAX_LOC})"
-                        )
-                else:
-                    violations.append(f"{rel}: {loc} LOC >= {MAX_LOC}")
-            else:
-                violations.append(f"{rel}: {loc} LOC >= {MAX_LOC}")
-        if rep["long_lines"]:
-            first = rep["long_lines"][0]  # type: ignore[index]
-            violations.append(
-                f"{rel}:{first['line']}: width {first['cols']} > {MAX_COL}"
+        violations.extend(
+            collect_hygiene_violations(
+                rel,
+                rep,
+                base_loc=base_loc,
+                max_loc=MAX_LOC,
+                max_col=MAX_COL,
+                max_proof_thm_loc=MAX_PROOF_THM_LOC,
+                first_long_line_only=True,
+                banned_label="banned token",
             )
-        for ln in rep["expose_on_thm"]:  # type: ignore[attr-defined]
-            violations.append(f"{rel}:{ln}: @[expose] on theorem/lemma")
-        for hit in rep["banned_hits"]:  # type: ignore[attr-defined]
-            violations.append(
-                f"{rel}:{hit['line']}: banned token in `{hit['text']}`"
-            )
-        for ln in rep["bad_import_all"]:  # type: ignore[attr-defined]
-            violations.append(f"{rel}:{ln}: forbidden `import all`")
-        for ln in rep["proof_import_all"]:  # type: ignore[attr-defined]
-            if ln not in rep["bad_import_all"]:  # type: ignore[operator]
-                violations.append(f"{rel}:{ln}: forbidden `import all` in Proof/ shard")
-        for sec in rep["proof_expose_section"]:  # type: ignore[attr-defined]
-            violations.append(
-                f"{rel}:{sec['theorem_line']}: theorem/lemma inside file-level "
-                f"`@[expose] public section` (line {sec['section_line']})"
-            )
-        for thm in rep["proof_long_theorems"]:  # type: ignore[attr-defined]
-            violations.append(
-                f"{rel}:{thm['start_line']}: theorem `{thm['name']}` is "
-                f"{thm['lines']} lines > {MAX_PROOF_THM_LOC} "
-                f"(L{thm['start_line']}-L{thm['end_line']})"
-            )
-        for ln in rep["conflicts"]:  # type: ignore[attr-defined]
-            violations.append(f"{rel}:{ln}: merge conflict marker")
+        )
 
     return {
         "status": "pass" if not violations else "fail",
@@ -351,25 +256,11 @@ def audit_static_hygiene(
 
 @contextlib.contextmanager
 def target_worktree_ctx(
-    repo: Path,
-    target_sha: str,
-    *,
-    worktree_pool: Path | None,
-    dry_run: bool,
+    repo: Path, target_sha: str, *, worktree_pool: Path | None, dry_run: bool
 ) -> Iterator[Path]:
     """Provide a clean checkout worktree at `target_sha`."""
-    head_res = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    dirty_res = subprocess.run(
-        ["git", "-C", str(repo), "status", "--porcelain"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    head_res = run_git(repo, "rev-parse", "HEAD")
+    dirty_res = run_git(repo, "status", "--porcelain")
     if (
         dry_run
         and head_res.returncode == 0
@@ -382,68 +273,22 @@ def target_worktree_ctx(
     if dry_run or worktree_pool is None:
         with tempfile.TemporaryDirectory(prefix="l2-audit-wt-") as td:
             wt = Path(td) / "wt"
-            subprocess.run(
-                ["git", "-C", str(repo), "worktree", "add", "--detach", str(wt), target_sha],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
+            run_git(repo, "worktree", "add", "--detach", str(wt), target_sha, check=True)
             try:
                 yield wt
             finally:
-                subprocess.run(
-                    ["git", "-C", str(repo), "worktree", "remove", "--force", str(wt)],
-                    capture_output=True,
-                    check=False,
-                )
-                subprocess.run(
-                    ["git", "-C", str(repo), "worktree", "prune"],
-                    capture_output=True,
-                    check=False,
-                )
+                run_git(repo, "worktree", "remove", "--force", str(wt))
+                run_git(repo, "worktree", "prune")
         return
 
-    # Persistent pooled worktree mode (preserves `.lake/build` cache).
     pool = worktree_pool.resolve()
-    if not (pool / ".git").exists():
-        pool.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "-C", str(repo), "worktree", "add", "--detach", str(pool), target_sha],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    else:
-        subprocess.run(
-            ["git", "-C", str(pool), "merge", "--abort"],
-            capture_output=True,
-            check=False,
-        )
-        subprocess.run(
-            ["git", "-C", str(pool), "reset", "--hard"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(pool), "clean", "-fd", "-e", ".lake"],
-            capture_output=True,
-            check=False,
-        )
-        subprocess.run(
-            ["git", "-C", str(pool), "checkout", "--detach", target_sha],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+    ensure_worktree(repo, pool, target_sha, checkout_detached=True)
     yield pool
 
 
 def run_sync_hubs_check(wt: Path) -> dict[str, object]:
     """Run `sync_hubs.py --check --strict` against `wt`."""
-    script = wt / "scripts" / "sync_hubs.py"
-    if not script.is_file():
-        script = SCRIPTS_DIR / "sync_hubs.py"
+    script = resolve_script(wt, "sync_hubs.py", SCRIPTS_DIR)
     res = subprocess.run(
         [
             "timeout",
@@ -468,9 +313,7 @@ def run_sync_hubs_check(wt: Path) -> dict[str, object]:
 
 def run_firewall_check(wt: Path) -> dict[str, object]:
     """Run `check_firewall.py --require-isa` (+ `--data-proof` if supported)."""
-    script = wt / "scripts" / "check_firewall.py"
-    if not script.is_file():
-        script = SCRIPTS_DIR / "check_firewall.py"
+    script = resolve_script(wt, "check_firewall.py", SCRIPTS_DIR)
     help_res = subprocess.run(
         [sys.executable, "-B", str(script), "--help"],
         capture_output=True,
@@ -523,52 +366,10 @@ def compute_exact_lean_rdeps(
             seeds.add(mod)
     if not seeds:
         return [], []
-
-    raw_ls = subprocess.check_output(
-        [
-            "git",
-            "-C",
-            str(wt),
-            "ls-files",
-            "-z",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "*.lean",
-        ]
+    rdeps = collect_lean_rdeps(
+        wt, seeds, barrels=BARRELS, include_legacy=False, max_rdeps=None
     )
-    rgraph: dict[str, list[str]] = collections.defaultdict(list)
-    for blob in raw_ls.split(b"\0"):
-        if not blob:
-            continue
-        rel = Path(blob.decode("utf-8"))
-        if _is_kraken_path(rel):
-            continue
-        mod = rel_path_to_mod(rel)
-        if mod in BARRELS:
-            continue
-        if mod not in seeds and (
-            (rel.parts and rel.parts[0] == "LeanQbeLegacyTest")
-            or LEGACY_CERT_RE.match(mod)
-        ):
-            continue
-        full = wt / rel
-        if not full.is_file():
-            continue
-        _, imps = parse_imports(full)
-        for imp in imps:
-            if imp.module not in BARRELS:
-                rgraph[imp.module].append(mod)
-
-    seen = set(seeds)
-    q: collections.deque[str] = collections.deque(sorted(seeds))
-    while q:
-        cur = q.popleft()
-        for nxt in rgraph.get(cur, ()):
-            if nxt not in seen:
-                seen.add(nxt)
-                q.append(nxt)
-    return sorted(seeds), sorted(seen)
+    return sorted(seeds), (rdeps or [])
 
 
 def plan_rdeps_and_canary(
@@ -647,134 +448,15 @@ def execute_lake_build(
     }
 
 
-def classify_module_arch(
-    wt: Path, mod: str, cache: dict[str, str], stack: set[str]
-) -> str:
-    """Classify a Lean module as `generic`, `x64`, `arm64`, or `conflict`."""
-    if mod in cache:
-        return cache[mod]
-    if mod == "LeanQbeAmd64" or mod.startswith(X64_PFX):
-        cache[mod] = "x64"
-        return "x64"
-    if mod == "LeanQbeArm64" or mod.startswith(ARM_PFX):
-        cache[mod] = "arm64"
-        return "arm64"
-    if mod in stack:
-        return "generic"
-    p = wt / mod_to_rel_path(mod)
-    if not p.is_file():
-        return "generic"
-    _, imps = parse_imports(p)
-    arches: set[str] = set()
-    nxt = stack | {mod}
-    for imp in imps:
-        sub = classify_module_arch(wt, imp.module, cache, nxt)
-        if sub in ("x64", "arm64", "conflict"):
-            arches.add(sub)
-    if "conflict" in arches or ("x64" in arches and "arm64" in arches):
-        res = "conflict"
-    elif "x64" in arches:
-        res = "x64"
-    elif "arm64" in arches:
-        res = "arm64"
-    else:
-        res = "generic"
-    cache[mod] = res
-    return res
-
-
 def collect_active_headlines_for_mods(
     wt: Path, mods: set[str]
 ) -> dict[str, list[str]]:
     """Map audited module -> headline constants from `scripts/headlines.d/*.txt`."""
-    hdir = wt / "scripts" / "headlines.d"
     out: dict[str, list[str]] = collections.defaultdict(list)
-    if not hdir.is_dir():
-        return out
-    for fp in sorted(hdir.glob("*.txt")):
-        if "legacy" in fp.name:
-            continue
-        for raw in fp.read_text(encoding="utf-8").splitlines():
-            s = raw.strip()
-            if not s or s.startswith("#"):
-                continue
-            parts = s.split()
-            if len(parts) >= 2 and parts[0] in mods:
-                out[parts[0]].append(parts[1])
+    for mod, const in collect_active_headlines(wt, include_legacy=False):
+        if mod in mods:
+            out[mod].append(const)
     return out
-
-
-def build_axiom_lean_script(
-    groups: list[tuple[str, list[str], list[str]]]
-) -> str:
-    """Generate a Lean 4 script checking `collectAxioms` + `isUnsafe`."""
-    lines = [
-        "import Lean",
-        "open Lean",
-        "private def allowed : Array Name :=",
-        "  #[``propext, ``Classical.choice, ``Quot.sound]",
-        "private def parseName (s : String) : Name :=",
-        '  (s.splitOn ".").foldl (fun acc part => Name.str acc part) .anonymous',
-        "private def isLeanQbeOrKraken (n : Name) : Bool :=",
-        '  let s := n.toString',
-        '  s.startsWith "LeanQbe." || s.startsWith "LeanQbeTest."'
-        ' || s.startsWith "Kraken."',
-        "private def checkGroup (grp : String)",
-        "    (mods consts : List String) : IO Bool := do",
-        "  let imps : Array Import := mods.toArray.map fun m =>",
-        "    { module := parseName m }",
-        "  let env ← importModules imps {} (trustLevel := 0) (loadExts := false)",
-        "  let modIdxs := mods.filterMap fun m => env.getModuleIdx? (parseName m)",
-        "  let mut targets : Array Name := consts.toArray.map parseName",
-        "  let extra := env.constants.fold (init := #[]) fun acc nm _ =>",
-        '    if !nm.isInternal && !nm.toString.endsWith "._unsafe_rec" then',
-        "      match env.getModuleIdxFor? nm with",
-        "      | some idx => if modIdxs.contains idx then acc.push nm else acc",
-        "      | none => acc",
-        "    else acc",
-        "  targets := targets ++ extra",
-        "  let ctx : Core.Context := { fileName := \"<audit>\", fileMap := default }",
-        "  let st : Core.State := { env := env }",
-        "  let ((failed, checked), _) ← (Core.CoreM.toIO (ctx := ctx) (s := st)) do",
-        "    let mut failed := false",
-        "    let mut checked := 0",
-        "    let mut seen : Std.HashSet Name := {}",
-        "    for nm in targets do",
-        "      if seen.contains nm then continue",
-        "      seen := seen.insert nm",
-        "      match env.find? nm with",
-        "      | none =>",
-        '        IO.eprintln s!"FAIL [{grp}] missing constant {nm}"',
-        "        failed := true",
-        "      | some (.opaqueInfo _) =>",
-        "        if isLeanQbeOrKraken nm then",
-        '          IO.eprintln s!"FAIL [{grp}] opaque decl {nm}"',
-        "          failed := true",
-        "      | some ci =>",
-        "        if ci.isUnsafe then",
-        '          IO.eprintln s!"FAIL [{grp}] unsafe decl {nm}"',
-        "          failed := true",
-        "        let axs ← Lean.collectAxioms nm",
-        "        for ax in axs do",
-        "          if !allowed.contains ax then",
-        '            IO.eprintln s!"FAIL [{grp}] {nm} disallowed axiom {ax}"',
-        "            failed := true",
-        "        checked := checked + 1",
-        "    return (failed, checked)",
-        '  IO.println s!"AXIOM_GROUP {grp} checked={checked} failed={failed}"',
-        "  return failed",
-        "#eval show IO Unit from do",
-        "  initSearchPath (← findSysroot)",
-        "  let mut anyFail := false",
-    ]
-    for grp, mods, consts in groups:
-        m_lit = ", ".join(f'"{m}"' for m in mods)
-        c_lit = ", ".join(f'"{c}"' for c in consts)
-        lines.append(
-            f'  if (← checkGroup "{grp}" [{m_lit}] [{c_lit}]) then anyFail := true'
-        )
-    lines.append('  if anyFail then throw <| IO.userError "axiom/unsafe check failed"')
-    return "\n".join(lines) + "\n"
 
 
 def _chunk_modules(mods: list[str], chunk_size: int) -> list[list[str]]:
@@ -791,7 +473,7 @@ def run_axiom_audit(
     dry_run: bool,
     chunk_size: int = AXIOM_AUDIT_CHUNK_SIZE,
 ) -> dict[str, object]:
-    """Run kernel `collectAxioms` + `!isUnsafe` across audited modules."""
+    """Run kernel `collectAxioms` + `!isUnsafe` via `audit_axioms` (with `lean --run` fallback)."""
     rev_exe = {v: k for k, v in EXE_ROOT_TO_TARGET.items()}
     mods = sorted(
         {
@@ -810,7 +492,7 @@ def run_axiom_audit(
         arch = classify_module_arch(wt, m, arch_cache, set())
         grouped[arch].append(m)
 
-    groups: list[tuple[str, list[str], list[str]]] = []
+    groups: list[tuple[str, list[str], list[tuple[str, str]]]] = []
     for arch in ("generic", "x64", "arm64"):
         ms = grouped.get(arch, [])
         if not ms:
@@ -818,58 +500,125 @@ def run_axiom_audit(
         chunks = _chunk_modules(ms, chunk_size)
         for idx, chunk_ms in enumerate(chunks, 1):
             grp_name = arch if len(chunks) == 1 else f"{arch}_{idx}"
-            cs = [c for m in chunk_ms for c in headlines.get(m, [])]
-            groups.append((grp_name, chunk_ms, cs))
+            entries = [(m, c) for m in chunk_ms for c in headlines.get(m, [])]
+            groups.append((grp_name, chunk_ms, entries))
     for idx, m in enumerate(grouped.get("conflict", []), 1):
-        groups.append((f"solo_{idx}", [m], headlines.get(m, [])))
+        entries = [(m, c) for c in headlines.get(m, [])]
+        groups.append((f"solo_{idx}", [m], entries))
 
     group_meta = [
-        {"group": g, "modules": ms, "headline_consts": len(cs)}
-        for g, ms, cs in groups
+        {"group": g, "modules": ms, "headline_consts": len(entries)}
+        for g, ms, entries in groups
     ]
     if dry_run:
         return {"status": "planned", "groups": group_meta}
 
-    # Execute each <=12-module chunk in its own process so RSS stays bounded.
+    active_groups = [(g, ms, entries) for g, ms, entries in groups if entries]
+    if not active_groups:
+        return {
+            "status": "skip",
+            "reason": "no_headline_theorems",
+            "groups": group_meta,
+            "chunk_runs": [],
+            "stdout": "",
+            "stderr": "",
+        }
+
+    audit_bin = resolve_audit_axioms_bin(wt)
     use_systemd = systemd_scope_available()
+
+    if audit_bin is not None:
+        with tempfile.TemporaryDirectory(prefix="l2-axioms-") as td:
+            manifest_p = Path(td) / "audit_manifest.txt"
+            manifest_p.write_text(
+                format_audit_manifest((g, entries) for g, _, entries in active_groups),
+                encoding="utf-8",
+            )
+            cmd = wrap_build_cmd(
+                ["lake", "env", str(audit_bin), str(manifest_p)],
+                timeout_sec=180,
+                use_systemd=use_systemd,
+            )
+            res = subprocess.run(
+                cmd, cwd=str(wt), capture_output=True, text=True, check=False
+            )
+        ok = res.returncode == 0
+        chunk_runs = [
+            {
+                "group": g,
+                "module_count": len(ms),
+                "headline_consts": len(entries),
+                "status": "pass" if ok else "fail",
+                "returncode": res.returncode,
+                "backend": "audit_axioms",
+            }
+            for g, ms, entries in active_groups
+        ]
+        return {
+            "status": "pass" if ok else "fail",
+            "backend": "audit_axioms",
+            "audit_axioms_bin": str(audit_bin),
+            "groups": group_meta,
+            "chunk_runs": chunk_runs,
+            "stdout": res.stdout.strip()[:1200],
+            "stderr": res.stderr.strip()[:1200],
+        }
+
+    # Safe fallback when compiled `audit_axioms` isn't built yet: run
+    # `scripts/AuditAxioms.lean` per active group via `lake env lean --run`.
+    audit_src = resolve_script(wt, "AuditAxioms.lean", SCRIPTS_DIR)
+    if not audit_src.is_file():
+        return {
+            "status": "fail",
+            "backend": "lean_run_fallback",
+            "reason": f"missing {audit_src}",
+            "groups": group_meta,
+            "chunk_runs": [],
+            "stdout": "",
+            "stderr": f"missing {audit_src}",
+        }
+
     all_ok = True
     stdout_parts: list[str] = []
     stderr_parts: list[str] = []
-    chunk_runs: list[dict[str, object]] = []
-    for grp, ms, cs in groups:
-        script = build_axiom_lean_script([(grp, ms, cs)])
-        cmd = wrap_build_cmd(
-            ["lake", "env", "lean", "--stdin"],
-            timeout_sec=180,
-            use_systemd=use_systemd,
-        )
-        res = subprocess.run(
-            cmd,
-            cwd=str(wt),
-            input=script,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        out_s = res.stdout.strip()
-        err_s = res.stderr.strip()
-        if out_s:
-            stdout_parts.append(out_s)
-        if err_s:
-            stderr_parts.append(err_s)
-        ok_chunk = res.returncode == 0
-        if not ok_chunk:
-            all_ok = False
-        chunk_runs.append(
-            {
-                "group": grp,
-                "module_count": len(ms),
-                "status": "pass" if ok_chunk else "fail",
-                "returncode": res.returncode,
-            }
-        )
+    chunk_runs = []
+    with tempfile.TemporaryDirectory(prefix="l2-axioms-fb-") as td:
+        td_p = Path(td)
+        for grp, ms, entries in active_groups:
+            manifest_p = td_p / f"{grp}.txt"
+            manifest_p.write_text(
+                format_audit_manifest([(grp, entries)]), encoding="utf-8"
+            )
+            cmd = wrap_build_cmd(
+                ["lake", "env", "lean", "--run", str(audit_src), str(manifest_p)],
+                timeout_sec=180,
+                use_systemd=use_systemd,
+            )
+            res = subprocess.run(
+                cmd, cwd=str(wt), capture_output=True, text=True, check=False
+            )
+            out_s = res.stdout.strip()
+            err_s = res.stderr.strip()
+            if out_s:
+                stdout_parts.append(out_s)
+            if err_s:
+                stderr_parts.append(err_s)
+            ok_chunk = res.returncode == 0
+            if not ok_chunk:
+                all_ok = False
+            chunk_runs.append(
+                {
+                    "group": grp,
+                    "module_count": len(ms),
+                    "headline_consts": len(entries),
+                    "status": "pass" if ok_chunk else "fail",
+                    "returncode": res.returncode,
+                    "backend": "lean_run_fallback",
+                }
+            )
     return {
         "status": "pass" if all_ok else "fail",
+        "backend": "lean_run_fallback",
         "groups": group_meta,
         "chunk_runs": chunk_runs,
         "stdout": "\n".join(stdout_parts)[:1200],

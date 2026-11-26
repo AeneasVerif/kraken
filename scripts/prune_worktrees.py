@@ -33,6 +33,9 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import is_dirty_worktree  # noqa: E402
+
 GIB = float(1024**3)
 
 
@@ -185,26 +188,6 @@ def is_ancestor(repo: Path, commit: str | None, base_ref: str) -> bool:
         check=False,
     )
     return res.returncode == 0
-
-
-def is_dirty_worktree(wt_path: Path) -> bool | None:
-    """Return True if worktree has modified/untracked files, None on git error."""
-    res = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(wt_path),
-            "status",
-            "--porcelain",
-            "--untracked-files=normal",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if res.returncode != 0:
-        return None
-    return bool(res.stdout.strip())
 
 
 def collect_running_processes() -> list[tuple[int, str, str]]:
@@ -375,11 +358,6 @@ def is_bee_wt(wt_path: Path) -> bool:
         if len(parts) >= 2 and parts[-1] == "wt" and BEE_DIR_RE.fullmatch(parts[-2]):
             return True
     return False
-
-
-def is_bee4_wt(wt_path: Path) -> bool:
-    """Backward-compatible alias for `is_bee_wt`."""
-    return is_bee_wt(wt_path)
 
 
 def is_swarm_worktree(wt_path: Path) -> bool:

@@ -39,17 +39,16 @@ TARGET="${POSITIONAL[1]}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
 
+# shellcheck source=scripts/common.sh
+source "$ROOT/scripts/common.sh"
+leanqbe_export_lake_cache
+leanqbe_register_traps
+
 CHECK_TIMEOUT="${CHECK_TIMEOUT:-3600}"
 TEST_TIMEOUT="${TEST_TIMEOUT:-1800}"
 RSYNC_TIMEOUT="${RSYNC_TIMEOUT:-300}"
 
 LOG_DIR=""
-cleanup() {
-  if [ -n "$LOG_DIR" ] && [ -d "$LOG_DIR" ]; then
-    rm -rf "$LOG_DIR"
-  fi
-}
-trap cleanup EXIT
 
 [ -d "$STAGING" ] || { echo "fast_land: staging worktree not found: $STAGING" >&2; exit 2; }
 STAGING="$(cd "$STAGING" && pwd)"
@@ -152,8 +151,6 @@ STAGING_DIRTY="$(git -C "$STAGING" status --porcelain 2>/dev/null || echo dirty)
 
 # Prefer Lake 5.0 cross-worktree artifact cache (zero rsync of 30k .olean/.trace files).
 # Only hardlink-seed executables unless FAST_LAND_RSYNC=1 is explicitly requested.
-export LAKE_ARTIFACT_CACHE="${LAKE_ARTIFACT_CACHE:-true}"
-export LAKE_RESTORE_ARTIFACTS="${LAKE_RESTORE_ARTIFACTS:-true}"
 if [ "${FAST_LAND_RSYNC:-0}" = "1" ] && [ -d "$STAGING/.lake/build" ]; then
   if [ -z "$STAGING_DIRTY" ] && [ "$STAGING_TREE" = "$TARGET_TREE" ]; then
     echo "== fast_land: syncing warm .lake/build (exact tree match) from $STAGING"
@@ -207,6 +204,7 @@ fi
 
 unset OUT
 LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fast-land-tests.XXXXXX")"
+_LEANQBE_CLEANUP_PATHS+=("$LOG_DIR")
 
 needs_qbe=0
 needs_kissat_warm=0
@@ -221,14 +219,13 @@ done
 
 if [ "$needs_kissat_warm" -eq 1 ]; then
   echo "== fast_land: warming extra kissat test imports"
-  timeout "$CHECK_TIMEOUT" lake build --wfail \
+  run_cgroup --mem "${CHECK_MEM_MAX:-48G}" --unit-prefix leanqbe-land \
+    --timeout "$CHECK_TIMEOUT" --log "$LOG_DIR/prebuild.log" -- \
+    env "LEAN_NUM_THREADS=${LAKE_JOBS:-${LEAN_NUM_THREADS:-6}}" lake build --wfail \
     LeanQbe.T.Examples.Kissat.Solver LeanQbe.T.Examples.Kissat.FullM3 \
     LeanQbe.T.PrintCpp LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Arm64.Targ \
     LeanQbeTest.T.KissatC0Test Kraken.X64.PrintATT Kraken.AArch64.Print \
-    >"$LOG_DIR/prebuild.log" 2>&1 || {
-    cat "$LOG_DIR/prebuild.log" >&2
-    exit 1
-  }
+    || { cat "$LOG_DIR/prebuild.log" >&2; exit 1; }
 fi
 
 if [ "$needs_qbe" -eq 1 ] && [ -z "${NOQBE:-}" ] && [ -z "${QBE:-}" ] && [ -x "$ROOT/scripts/ensure_qbe.sh" ]; then

@@ -16,6 +16,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPTS_DIR.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+import _common  # noqa: E402
 import lean_imports as li  # noqa: E402
 import rdeps_scope as rs  # noqa: E402
 import select_tests as st  # noqa: E402
@@ -336,7 +337,13 @@ class TestCheckAndFastLandSmoke(unittest.TestCase):
             staging = Path(tmp) / "staging"
             staging.mkdir()
             (root / "scripts").mkdir(parents=True)
-            for name in ("fast_land.sh", "select_tests.py", "sync_hubs.py", "lean_imports.py"):
+            for name in (
+                "fast_land.sh",
+                "common.sh",
+                "select_tests.py",
+                "sync_hubs.py",
+                "lean_imports.py",
+            ):
                 shutil.copy2(SCRIPTS_DIR / name, root / "scripts" / name)
 
             _git(root, "init")
@@ -648,14 +655,121 @@ class TestPreflightAndGateParity(unittest.TestCase):
         self.assertEqual(res_spec_ok.returncode, 0, res_spec_ok.stdout + res_spec_ok.stderr)
 
     def test_gate_scripts_swap_slice_and_unittest_wiring(self) -> None:
+        common_sh = (SCRIPTS_DIR / "common.sh").read_text(encoding="utf-8")
+        self.assertIn("--slice=", common_sh)
+        self.assertIn("MemorySwapMax=0", common_sh)
+        self.assertIn("OOMPolicy=kill", common_sh)
+
         check_txt = (SCRIPTS_DIR / "check.sh").read_text(encoding="utf-8")
-        self.assertIn("--slice=leanqbe-builds.slice", check_txt)
-        self.assertIn("MemorySwapMax=0", check_txt)
+        self.assertIn("common.sh", check_txt)
+        self.assertIn("run_cgroup", check_txt)
         self.assertIn("unittest discover", check_txt)
+
+        for name in ("tier3_check.sh", "fast_land.sh"):
+            txt = (SCRIPTS_DIR / name).read_text(encoding="utf-8")
+            self.assertIn("common.sh", txt)
+            self.assertIn("run_cgroup", txt)
 
         tier3_txt = (SCRIPTS_DIR / "tier3_check.sh").read_text(encoding="utf-8")
         self.assertIn("--slice=leanqbe-builds.slice", tier3_txt)
         self.assertIn("MemorySwapMax=0", tier3_txt)
+
+    def test_common_sh_build_and_run_cgroup(self) -> None:
+        common_sh = SCRIPTS_DIR / "common.sh"
+        script = (
+            f'source "{common_sh}"\n'
+            'LEANQBE_FORCE_SCOPE=1 build_cgroup_cmd c_on 12G u1 leanqbe-builds.slice '
+            '-- lake build\n'
+            'printf "ON:%s\\n" "${c_on[*]}"\n'
+            'CHECK_NO_SCOPE=1 LEANQBE_FORCE_SCOPE=0 build_cgroup_cmd c_off 12G u1 '
+            'leanqbe-builds.slice -- lake build\n'
+            'printf "OFF:%s\\n" "${c_off[*]}"\n'
+            'CHECK_NO_SCOPE=1 run_cgroup --mem 8G --timeout 10 -- echo cgroup-ok\n'
+        )
+        res = subprocess.run(
+            ["timeout", "15", "bash", "-c", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn(
+            "ON:systemd-run --user --scope --quiet --unit=u1 "
+            "--slice=leanqbe-builds.slice -p MemoryMax=12G "
+            "-p MemorySwapMax=0 -p OOMPolicy=kill lake build",
+            res.stdout,
+        )
+        self.assertIn("OFF:lake build", res.stdout)
+        self.assertIn("cgroup-ok", res.stdout)
+
+    def test_consolidated_rdeps_closure_and_scope_classification(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "A.lean").write_text("def a : Nat := 1\n", encoding="utf-8")
+            (root / "B.lean").write_text(
+                "import A\ndef b : Nat := a + 1\n", encoding="utf-8"
+            )
+            (root / "LeanQbe.lean").write_text("import B\n", encoding="utf-8")
+            (root / "Test.lean").write_text(
+                "import B\ndef t : Nat := b\n", encoding="utf-8"
+            )
+            closure = li.compute_import_closure(["LeanQbe"], root)
+            self.assertEqual(closure, {"LeanQbe", "A", "B"})
+
+            rdeps = li.collect_lean_rdeps(
+                root,
+                ["A"],
+                lean_rel_paths=["A.lean", "B.lean", "LeanQbe.lean", "Test.lean"],
+                barrels={"LeanQbe"},
+            )
+            self.assertEqual(rdeps, ["A", "B", "Test"])
+
+        self.assertEqual(li.classify_scope_paths(["README.md"]), "class0")
+        self.assertEqual(li.classify_scope_paths(["scripts/common.sh"]), "full")
+        self.assertEqual(li.classify_scope_paths(["scripts/_common.py"]), "full")
+        self.assertEqual(
+            li.classify_scope_paths(["LeanQbe/T/Amd64/Foo.lean"]), "x64"
+        )
+
+    def test_audit_batches_rdeps_filter_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "repo"
+            tmp_dir = Path(td) / "tmp"
+            (root / "LeanQbe" / "T").mkdir(parents=True)
+            tmp_dir.mkdir()
+            (root / "LeanQbe" / "T" / "ModA.lean").write_text(
+                "theorem thm_a : True := trivial\n", encoding="utf-8"
+            )
+            (root / "LeanQbe" / "T" / "ModB.lean").write_text(
+                "theorem thm_b : True := trivial\n", encoding="utf-8"
+            )
+            (tmp_dir / "closure_LeanQbe.txt").write_text(
+                "LeanQbe.T.ModA\nLeanQbe.T.ModB\n", encoding="utf-8"
+            )
+            (tmp_dir / "headlines_all.txt").write_text(
+                "LeanQbe.T.ModA thm_a\nLeanQbe.T.ModB thm_b\n", encoding="utf-8"
+            )
+            rf = tmp_dir / "rdeps_headlines_filter.txt"
+            rf.write_text("LeanQbe.T.ModA\n", encoding="utf-8")
+
+            rc = _common.main(
+                ["audit-batches", str(root), str(tmp_dir), "rdeps", str(rf)]
+            )
+            self.assertEqual(rc, 0)
+            selected = (tmp_dir / "selected_headlines.txt").read_text(encoding="utf-8")
+            manifest = (tmp_dir / "audit_manifest.txt").read_text(encoding="utf-8")
+            self.assertEqual(selected, "LeanQbe.T.ModA thm_a\n")
+            self.assertIn("thm_a", manifest)
+            self.assertNotIn("thm_b", manifest)
+
+            rc_full = _common.main(
+                ["audit-batches", str(root), str(tmp_dir), "full", ""]
+            )
+            self.assertEqual(rc_full, 0)
+            self.assertEqual(
+                (tmp_dir / "selected_headlines.txt").read_text(encoding="utf-8"),
+                "LeanQbe.T.ModA thm_a\nLeanQbe.T.ModB thm_b\n",
+            )
 
 
 if __name__ == "__main__":

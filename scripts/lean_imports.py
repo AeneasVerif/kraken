@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+import collections
 import re
+import subprocess
+import sys
+from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -234,46 +239,56 @@ def strip_comments_line(
     return "".join(out).strip(), depth, saw_doc_open
 
 
+def _parse_imports_lines(lines: Iterable[str]) -> tuple[bool, list[ImportStmt]]:
+    """Parse header import statements from an iterable of raw Lean lines."""
+    uses_module_system = False
+    seen_header = False
+    imports: list[ImportStmt] = []
+    depth = 0
+
+    for lineno, raw_line in enumerate(lines, start=1):
+        s, depth, _ = strip_comments_line(raw_line, depth)
+        if not s:
+            continue
+        if not seen_header and s in ("module", "prelude"):
+            if s == "module":
+                uses_module_system = True
+            seen_header = True
+            continue
+        m = IMPORT_LINE_RE.match(s)
+        if m:
+            seen_header = True
+            vis = m.group(1)
+            is_public = (vis == "public") if uses_module_system else (vis != "private")
+            imports.append(
+                ImportStmt(
+                    line=lineno,
+                    module=m.group(4),
+                    is_public=is_public,
+                    is_meta=m.group(2) is not None,
+                    is_all=m.group(3) is not None,
+                    comment=m.group(5),
+                )
+            )
+            continue
+        if seen_header or depth == 0:
+            break
+    return uses_module_system, imports
+
+
+def parse_imports_text(text: str) -> tuple[bool, list[ImportStmt]]:
+    """Parse header import statements from an in-memory Lean source string."""
+    return _parse_imports_lines(text.splitlines())
+
+
 def parse_imports(path: Path) -> tuple[bool, list[ImportStmt]]:
     """Parse header import statements from a Lean file quickly.
 
     Stops immediately at the first non-comment, non-import line so large proof
     or data modules are scanned in microseconds.
     """
-    uses_module_system = False
-    seen_header = False
-    imports: list[ImportStmt] = []
-    depth = 0
-
     with path.open("r", encoding="utf-8") as fh:
-        for lineno, raw_line in enumerate(fh, start=1):
-            s, depth, _ = strip_comments_line(raw_line, depth)
-            if not s:
-                continue
-            if not seen_header and s in ("module", "prelude"):
-                if s == "module":
-                    uses_module_system = True
-                seen_header = True
-                continue
-            m = IMPORT_LINE_RE.match(s)
-            if m:
-                seen_header = True
-                vis = m.group(1)
-                is_public = (vis == "public") if uses_module_system else (vis != "private")
-                imports.append(
-                    ImportStmt(
-                        line=lineno,
-                        module=m.group(4),
-                        is_public=is_public,
-                        is_meta=m.group(2) is not None,
-                        is_all=m.group(3) is not None,
-                        comment=m.group(5),
-                    )
-                )
-                continue
-            if seen_header or depth == 0:
-                break
-    return uses_module_system, imports
+        return _parse_imports_lines(fh)
 
 
 def seen_module_or_import(has_module: bool, seen_import: bool) -> bool:
@@ -663,3 +678,452 @@ def audit_lean_source(
         "proof_expose_section": proof_expose_section,
         "proof_long_theorems": proof_long_theorems,
     }
+
+
+SUBSYSTEM_HUBS: tuple[str, ...] = (
+    "LeanQbe.T.CoreHub", "LeanQbe.T.Frontend.C0.Hub", "LeanQbe.T.LeanLCNF.Hub",
+    "LeanQbe.T.LeanLRC.Hub", "LeanQbe.T.Examples.Hub", "LeanQbe.T.Examples.Kissat.BaseHub",
+    "LeanQbe.T.Examples.Kissat.M3Hub", "LeanQbe.T.Examples.Kissat.M4Hub",
+    "LeanQbe.T.Examples.Kissat.M5Hub", "LeanQbe.T.Examples.Kissat.M6Hub",
+    "LeanQbe.T.Examples.Kissat.M7Hub", "LeanQbe.T.Examples.Kissat.M8Hub",
+    "LeanQbe.T.Examples.Kissat.FidelityHub",
+)
+ROOT_LIBS: tuple[str, ...] = (
+    "LeanQbe", "LeanQbeAmd64", "LeanQbeArm64",
+    "LeanQbeLegacyAmd64", "LeanQbeLegacyArm64", "LeanQbeBootstrap0",
+)
+ALL_HUBS: tuple[str, ...] = ROOT_LIBS + SUBSYSTEM_HUBS
+BARRELS: frozenset[str] = frozenset(ALL_HUBS)
+BARREL_PATHS: frozenset[str] = frozenset(mod_to_rel_path(m).as_posix() for m in ALL_HUBS)
+KRAKEN_ROOT_FILES: frozenset[str] = frozenset({
+    "Kraken.lean", "KrakenAArch64.lean", "KrakenBedrock2.lean",
+    "KrakenRunnerX64.lean", "KrakenRunnerAArch64.lean", "Att2Intel.lean", "Bedrock2C.lean",
+})
+X64_PFX: tuple[str, ...] = ("Kraken.X64", "LeanQbe.T.Amd64.")
+ARM_PFX: tuple[str, ...] = ("Kraken.AArch64", "LeanQbe.T.Arm64.")
+EXE_ROOT_TO_TARGET: dict[str, str] = {"Main": "leanqbe", "MainArm64": "leanqbe-arm64"}
+
+FORBIDDEN_TOKENS_PRE_RE = re.compile(
+    r"\b(?:sorry|admit|bv_decide|native_decide|ofReduceBool|ofReduceNat"
+    r"|trustCompiler|axiom|implemented_by|extern)\b|\+native"
+)
+FORBIDDEN_CLASS0_RE = re.compile(
+    r"^(?:lakefile\.toml|lean-toolchain|lake-manifest\.json"
+    r"|scripts/(?:check\.sh|common\.sh|_common\.py|lean_imports\.py|headline\.txt|headlines\.d/))"
+)
+CLASS0_RE = re.compile(
+    r"^(?:(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md|docs/.*|bench/.*"
+    r"|test/.*\.(?:c|h|py|sh|cnf|lrat)|scripts/(?:fast_land|tier3_check|all|preflight)\.sh"
+    r"|scripts/(?:gen_cert_slices|test_gen_cert_slices|test_infra_speedup"
+    r"|merge_lean_imports|select_tests)\.py)$"
+)
+X64_LEAN_RE = re.compile(r"^(?:LeanQbe/T/Amd64/.*|LeanQbeTest/T/[^/]*(?:X64|Amd64)[^/]*)\.lean$")
+ARM64_LEAN_RE = re.compile(r"^(?:LeanQbe/T/Arm64/.*|LeanQbeTest/T/[^/]*Arm64[^/]*)\.lean$")
+_ARCH_NONLEAN_TAIL = r"(?:LeanQbe-)?README\.md|NOTES\.md|DEVELOPER\.md|CONTRIBUTING\.md|docs/.*"
+X64_NONLEAN_RE = re.compile(rf"^(?:{_ARCH_NONLEAN_TAIL}|scripts/headlines\.d/amd64\.txt)$")
+ARM64_NONLEAN_RE = re.compile(rf"^(?:{_ARCH_NONLEAN_TAIL}|scripts/headlines\.d/arm64\.txt)$")
+
+
+def run_git(
+    repo: Path, *args: str, check: bool = False, text: bool = True
+) -> subprocess.CompletedProcess:
+    """Execute `git -C <repo> <args...>` capturing stdout/stderr."""
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=text, check=check
+    )
+
+
+def is_kraken_path(rel: Path | str) -> bool:
+    """Return True if `rel` resides under `Kraken/` or is a root Kraken file."""
+    p = rel if isinstance(rel, Path) else Path(rel)
+    return (bool(p.parts) and p.parts[0] == "Kraken") or (p.name in KRAKEN_ROOT_FILES)
+
+
+def modules_to_lake_targets(mods: Iterable[str]) -> list[str]:
+    """Map executable root modules (`Main`, `MainArm64`) to Lake exe targets."""
+    return sorted({EXE_ROOT_TO_TARGET.get(m, m) for m in mods})
+
+
+def list_lean_files(
+    root: Path, *paths: str, include_untracked: bool = True, excludes: tuple[str, ...] = ()
+) -> list[Path]:
+    """List `.lean` repo-relative paths via `git ls-files` (with `rglob` fallback)."""
+    cmd = ["ls-files", "-z", "--cached"]
+    if include_untracked:
+        cmd.extend(["--others", "--exclude-standard"])
+    cmd.extend(paths if paths else ("*.lean",))
+    cmd.extend(f":(exclude){ex}" for ex in excludes)
+    res = run_git(root, *cmd, text=False)
+    if res.returncode == 0:
+        rels = (Path(b.decode("utf-8")) for b in res.stdout.split(b"\0") if b)
+        return sorted({r for r in rels if r.suffix == ".lean"})
+    bases = [root / p for p in paths] if paths else [root]
+    out = {
+        p.relative_to(root)
+        for base in bases if base.is_dir()
+        for p in base.rglob("*.lean")
+        if not any(p.relative_to(root).parts[:1] == (ex,) for ex in excludes)
+    }
+    return sorted(out)
+
+
+def compute_import_closure(
+    roots: Iterable[str], root: Path, *, import_cache: dict[str, list[ImportStmt]] | None = None
+) -> set[str]:
+    """Compute transitive import closure of `roots` across local `.lean` files."""
+    cache = import_cache if import_cache is not None else {}
+    seen: set[str] = set()
+    stack = list(roots)
+    while stack:
+        mod = stack.pop()
+        if mod in seen:
+            continue
+        seen.add(mod)
+        if mod not in cache:
+            path = root / mod_to_rel_path(mod)
+            if not path.is_file():
+                continue
+            _, cache[mod] = parse_imports(path)
+        for imp in cache[mod]:
+            if imp.module not in seen:
+                stack.append(imp.module)
+    return seen
+
+
+def bfs_rdeps(
+    seeds: Iterable[str], rgraph: Mapping[str, Iterable[str]], *, max_rdeps: int | None = None
+) -> list[str] | None:
+    """Run BFS over `rgraph` from `seeds`, returning `None` if `max_rdeps` exceeded."""
+    seed_list = sorted(set(seeds))
+    if not seed_list:
+        return []
+    if max_rdeps is not None and len(seed_list) > max_rdeps:
+        return None
+    seen = set(seed_list)
+    q: collections.deque[str] = collections.deque(seed_list)
+    while q:
+        cur = q.popleft()
+        for nxt in rgraph.get(cur, ()):
+            if nxt not in seen:
+                seen.add(nxt)
+                if max_rdeps is not None and len(seen) > max_rdeps:
+                    return None
+                q.append(nxt)
+    return sorted(seen)
+
+
+def collect_lean_rdeps(
+    root: Path,
+    seeds: Iterable[str],
+    *,
+    lean_rel_paths: Iterable[Path | str] | None = None,
+    read_imports_fn: Callable[[Path], Iterable[str]] | None = None,
+    barrels: AbstractSet[str] = BARRELS,
+    include_legacy: bool = False,
+    max_rdeps: int | None = None,
+) -> list[str] | None:
+    """Build non-barrel reverse-import graph and return BFS closure of `seeds`."""
+    seed_set = set(seeds)
+    if not seed_set:
+        return []
+    if max_rdeps is not None and len(seed_set) > max_rdeps:
+        return None
+    raw_paths = list(lean_rel_paths) if lean_rel_paths is not None else list_lean_files(root)
+    rgraph: dict[str, list[str]] = collections.defaultdict(list)
+    for raw_rel in raw_paths:
+        rel = raw_rel if isinstance(raw_rel, Path) else Path(raw_rel)
+        if is_kraken_path(rel):
+            continue
+        mod = rel_path_to_mod(rel)
+        if mod in barrels:
+            continue
+        if not include_legacy and mod not in seed_set:
+            if (rel.parts and rel.parts[0] == "LeanQbeLegacyTest") or LEGACY_CERT_RE.match(mod):
+                continue
+        if read_imports_fn is not None:
+            imps = read_imports_fn(rel)
+        else:
+            full = root / rel
+            if not full.is_file():
+                continue
+            imps = (imp.module for imp in parse_imports(full)[1])
+        for imp_mod in imps:
+            if imp_mod not in barrels:
+                rgraph[imp_mod].append(mod)
+    return bfs_rdeps(seed_set, rgraph, max_rdeps=max_rdeps)
+
+
+def classify_module_arch(
+    root: Path,
+    mod: str,
+    cache: dict[str, str],
+    stack: set[str] | None = None,
+    *,
+    c_gen: AbstractSet[str] = frozenset(),
+    x64_only: AbstractSet[str] = frozenset(),
+    arm_only: AbstractSet[str] = frozenset(),
+    recurse_prefixes: tuple[str, ...] | None = None,
+    missing_status: str = "generic",
+    import_cache: dict[str, list[ImportStmt]] | None = None,
+) -> str:
+    """Classify a Lean module as `generic`, `x64`, `arm64`, or `conflict`."""
+    if mod in cache:
+        return cache[mod]
+    if mod in c_gen:
+        cache[mod] = "generic"
+        return "generic"
+    if mod in x64_only or mod == "LeanQbeAmd64" or mod.startswith(X64_PFX):
+        cache[mod] = "x64"
+        return "x64"
+    if mod in arm_only or mod == "LeanQbeArm64" or mod.startswith(ARM_PFX):
+        cache[mod] = "arm64"
+        return "arm64"
+    cur_stack = stack if stack is not None else set()
+    if mod in cur_stack:
+        return "generic"
+    p = root / mod_to_rel_path(mod)
+    if not p.is_file():
+        return missing_status
+    if import_cache is not None and mod in import_cache:
+        imps = import_cache[mod]
+    else:
+        _, imps = parse_imports(p)
+        if import_cache is not None:
+            import_cache[mod] = imps
+
+    arches: set[str] = set()
+    nxt = cur_stack | {mod}
+    for imp in imps:
+        im = imp.module
+        if im in c_gen:
+            continue
+        is_direct = (
+            im in ("LeanQbeAmd64", "LeanQbeArm64") or im in x64_only or im in arm_only
+            or im.startswith(X64_PFX) or im.startswith(ARM_PFX)
+        )
+        if recurse_prefixes is not None and not is_direct and not im.startswith(recurse_prefixes):
+            continue
+        sub = classify_module_arch(
+            root, im, cache, nxt, c_gen=c_gen, x64_only=x64_only, arm_only=arm_only,
+            recurse_prefixes=recurse_prefixes, missing_status=missing_status,
+            import_cache=import_cache,
+        )
+        if sub in ("x64", "arm64", "conflict"):
+            arches.add(sub)
+    res = (
+        "conflict" if ("conflict" in arches or {"x64", "arm64"} <= arches)
+        else "x64" if "x64" in arches
+        else "arm64" if "arm64" in arches
+        else "generic"
+    )
+    cache[mod] = res
+    return res
+
+
+def read_headline_entries(lines: Iterable[str]) -> list[tuple[str, str]]:
+    """Parse `<module> <constant>` pairs from headline lines."""
+    entries: list[tuple[str, str]] = []
+    for raw in lines:
+        s = raw.strip()
+        if s and not s.startswith("#"):
+            parts = s.split()
+            if len(parts) >= 2:
+                entries.append((parts[0], parts[1]))
+    return entries
+
+
+def collect_active_headlines(root: Path, *, include_legacy: bool = False) -> list[tuple[str, str]]:
+    """Collect `<module> <constant>` entries from `scripts/headlines.d/` or `headline.txt`."""
+    hdir = root / "scripts" / "headlines.d"
+    files = sorted(hdir.glob("*.txt")) if hdir.is_dir() else []
+    if files:
+        if not include_legacy:
+            files = [f for f in files if "legacy" not in f.name]
+    else:
+        single = root / "scripts" / "headline.txt"
+        files = [single] if single.is_file() else []
+    out: list[tuple[str, str]] = []
+    for fp in files:
+        out.extend(read_headline_entries(fp.read_text(encoding="utf-8").splitlines()))
+    return out
+
+
+def collect_hygiene_violations(
+    rel_path: str,
+    rep: Mapping[str, object],
+    *,
+    base_loc: int | None = None,
+    max_loc: int = DEFAULT_MAX_LOC,
+    max_col: int = DEFAULT_MAX_COL,
+    max_proof_thm_loc: int = DEFAULT_MAX_PROOF_THM_LOC,
+    first_long_line_only: bool = False,
+    banned_label: str = "forbidden token",
+) -> list[str]:
+    """Format static hygiene violations from an `audit_lean_source` report."""
+    errs: list[str] = []
+    loc = int(rep["loc"])  # type: ignore[arg-type]
+    if rep["over_loc"]:
+        if base_loc is not None and base_loc >= max_loc:
+            if loc > base_loc:
+                errs.append(
+                    f"{rel_path}: grandfathered file grew {base_loc} -> {loc} LOC (>= {max_loc})"
+                )
+        else:
+            errs.append(f"{rel_path}: {loc} LOC >= {max_loc}")
+
+    long_lines: list[dict[str, object]] = rep["long_lines"]  # type: ignore[assignment]
+    for ln_info in (long_lines[:1] if first_long_line_only else long_lines):
+        errs.append(f"{rel_path}:{ln_info['line']}: line width {ln_info['cols']} > {max_col}")
+
+    errs.extend(
+        f"{rel_path}:{ln}: merge conflict marker"
+        for ln in rep["conflicts"]  # type: ignore[attr-defined]
+    )
+    bad_all: list[int] = rep["bad_import_all"]  # type: ignore[assignment]
+    errs.extend(f"{rel_path}:{ln}: forbidden `import all`" for ln in bad_all)
+    errs.extend(
+        f"{rel_path}:{ln}: forbidden `import all` in Proof/ shard"
+        for ln in rep["proof_import_all"] if ln not in bad_all  # type: ignore[attr-defined]
+    )
+    errs.extend(
+        f"{rel_path}:{hit['line']}: {banned_label} in `{hit['text']}`"
+        for hit in rep["banned_hits"]  # type: ignore[attr-defined]
+    )
+    errs.extend(
+        f"{rel_path}:{ln}: @[expose] on theorem/lemma"
+        for ln in rep["expose_on_thm"]  # type: ignore[attr-defined]
+    )
+    errs.extend(
+        f"{rel_path}:{s['theorem_line']}: theorem/lemma inside file-level "
+        f"`@[expose] public section` (line {s['section_line']})"
+        for s in rep["proof_expose_section"]  # type: ignore[attr-defined]
+    )
+    errs.extend(
+        f"{rel_path}:{t['start_line']}: theorem `{t['name']}` is "
+        f"{t['lines']} lines > {max_proof_thm_loc} (L{t['start_line']}-L{t['end_line']})"
+        for t in rep["proof_long_theorems"]  # type: ignore[attr-defined]
+    )
+    return errs
+
+
+def scan_forbidden_tokens(root: Path) -> list[str]:
+    """Scan all tracked/untracked non-Kraken `.lean` files for banned tokens/axioms."""
+    excludes = ("Kraken", "Kraken*.lean", "Att2Intel.lean", "Bedrock2C.lean", "bv_decide_qbe")
+    hits: list[str] = []
+    for rel in list_lean_files(root, excludes=excludes):
+        p = root / rel
+        if not p.is_file():
+            hits.append(f"{rel}: tracked file missing from working tree")
+            continue
+        raw_txt = p.read_text(encoding="utf-8")
+        if not FORBIDDEN_TOKENS_PRE_RE.search(raw_txt):
+            continue
+        cleaned = strip_lean_code(raw_txt)
+        for lineno, line in enumerate(cleaned.splitlines(), 1):
+            if BANNED_TOKEN_RE.search(line) or AXIOM_DECL_RE.search(line):
+                hits.append(f"{rel}:{lineno}: {line.strip()}")
+        for m in BANNED_ATTR_RE.finditer(cleaned):
+            hits.append(f"{rel}:{cleaned[: m.start()].count(chr(10)) + 1}: {m.group(0)}")
+    return hits
+
+
+def classify_scope_paths(files: Iterable[str]) -> str:
+    """Classify changed paths into `class0`, `x64`, `arm64`, or `full`."""
+    items = [ln.strip() for ln in files if ln.strip()]
+    if not items:
+        return "full"
+    if all(
+        (not f.endswith(".lean")) and (not FORBIDDEN_CLASS0_RE.match(f)) and CLASS0_RE.fullmatch(f)
+        for f in items
+    ):
+        return "class0"
+    lean_files = [f for f in items if f.endswith(".lean")]
+    nonlean_files = [f for f in items if not f.endswith(".lean")]
+    if (
+        lean_files
+        and all(X64_LEAN_RE.fullmatch(f) and "Arm64" not in f for f in lean_files)
+        and all(X64_NONLEAN_RE.fullmatch(f) for f in nonlean_files)
+    ):
+        return "x64"
+    if (
+        lean_files
+        and all(
+            ARM64_LEAN_RE.fullmatch(f) and "X64" not in f and "Amd64" not in f for f in lean_files
+        )
+        and all(ARM64_NONLEAN_RE.fullmatch(f) for f in nonlean_files)
+    ):
+        return "arm64"
+    return "full"
+
+
+def run_preflight_lean_hygiene(root: Path, base: str) -> tuple[int, list[str]]:
+    """Run static `.lean` hygiene over files changed since `base` + working tree."""
+    changed: set[str] = set()
+    cmds = [("diff", "--name-only", "HEAD"), ("ls-files", "--others", "--exclude-standard")]
+    base_tree_ref: str | None = None
+    if run_git(root, "rev-parse", "--verify", f"{base}^{{commit}}").returncode == 0:
+        cmds.insert(0, ("diff", "--name-only", f"{base}...HEAD"))
+        mb = run_git(root, "merge-base", base, "HEAD")
+        base_tree_ref = mb.stdout.strip() if mb.returncode == 0 else base
+    elif run_git(root, "rev-parse", "--verify", "HEAD^{commit}").returncode == 0:
+        base_tree_ref = "HEAD"
+
+    for git_args in cmds:
+        r = run_git(root, *git_args)
+        if r.returncode == 0:
+            changed.update(
+                ln.strip() for ln in r.stdout.splitlines()
+                if ln.strip().endswith(".lean") and not ln.strip().startswith("bv_decide_qbe/")
+            )
+
+    errs: list[str] = []
+    for f in sorted(changed):
+        p = root / f
+        if not p.is_file():
+            continue
+        rep = audit_lean_source(
+            f, p.read_text(encoding="utf-8"), max_loc=DEFAULT_MAX_LOC,
+            max_col=DEFAULT_MAX_COL, max_proof_thm_loc=DEFAULT_MAX_PROOF_THM_LOC,
+        )
+        base_loc: int | None = None
+        if rep["over_loc"] and base_tree_ref is not None:
+            res = run_git(root, "show", f"{base_tree_ref}:{f}")
+            if res.returncode == 0:
+                base_loc = len(res.stdout.splitlines())
+        errs.extend(collect_hygiene_violations(f, rep, base_loc=base_loc))
+    return len(changed), errs
+
+
+def _cli_main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args:
+        print(
+            "Usage: lean_imports.py <preflight-hygiene|classify-stdin|scan-forbidden>",
+            file=sys.stderr,
+        )
+        return 2
+    cmd = args[0]
+    if cmd == "preflight-hygiene":
+        base = args[1] if len(args) > 1 else "HEAD~1"
+        root = Path(args[2]).resolve() if len(args) > 2 else Path.cwd()
+        count, errs = run_preflight_lean_hygiene(root, base)
+        if errs:
+            print("\n".join(f"FAIL: {e}" for e in errs[:40]), file=sys.stderr)
+            return 1
+        print(f"preflight .lean hygiene: OK ({count} changed file(s))")
+        return 0
+    if cmd == "classify-stdin":
+        print(classify_scope_paths(sys.stdin))
+        return 0
+    if cmd == "scan-forbidden":
+        hits = scan_forbidden_tokens(Path(args[1]).resolve() if len(args) > 1 else Path.cwd())
+        if hits:
+            print("\n".join(hits[:50]), file=sys.stderr)
+            return 1
+        return 0
+    print(f"unknown subcommand: {cmd}", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(_cli_main())
