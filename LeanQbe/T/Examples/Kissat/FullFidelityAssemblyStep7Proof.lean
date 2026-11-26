@@ -16,7 +16,8 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof2a1
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof2a2
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7Proof2b
 import LeanQbe.T.Examples.Kissat.FullM7FidelityCore
-import LeanQbe.T.Examples.Kissat.FullM7WalkProof0
+public import LeanQbe.T.Examples.Kissat.FullM7WalkProof0
+import all LeanQbe.T.Examples.Kissat.FullM7WalkProof0
 import all LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep1Proof
 import all LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2Proof
 import all LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep3Proof
@@ -1453,6 +1454,242 @@ def fidStep7UnsatPkg : KissatUnsatPkg :=
   mkFidUnsatPkg fidStep7Module fidInlPolicy fidStep7_solveBytes_mem
     fidStep7Env fidStep7_moduleOk fidStep7Env_noExit
     (fun _ _ _ _ hs => fidStep7Env_solve_bytes_of hs)
+
+/-! ## 5. Additive Thin Spec Interface for `fidStep7Env` (`0` `import all` Needed Down-Stream) -/
+
+def fidStep7BaseSpecTable : List SpecEntry :=
+  fidStep7Bundle.frontTable ++ fidStep7Bundle.baseTable
+
+theorem fidStep7Base_eq_env : Env.ofTable fidStep7BaseSpecTable = fidStep7Env := by
+  unfold fidStep7BaseSpecTable fidStep7Env patchEnv
+  rfl
+
+theorem fidStep7Base_moduleOk :
+    ModuleOk (Env.ofTable fidStep7BaseSpecTable) fidStep7Module :=
+  fidStep7_moduleOk
+
+theorem fidStep7Base_noExit :
+    ∀ f as bs xs m Q X X',
+      Env.ofTable fidStep7BaseSpecTable f as bs xs m Q X →
+      Env.ofTable fidStep7BaseSpecTable f as bs xs m Q X' :=
+  fidStep7Env_noExit
+
+theorem fidStep7BaseSpecTable_noExit :
+    fidStep7BaseSpecTable.all SpecEntry.noExit = true := by
+  unfold fidStep7BaseSpecTable
+  rw [List.all_append, Bool.and_eq_true]
+  refine ⟨?_, ?_⟩
+  · change (fidStep7RewiredRows ++ fidStep7ReplRows ++ fidStep7BeforeRows).all
+      SpecEntry.noExit = true
+    decide
+  · change (fidBundle.frontTable ++ (fidStep5Bundle.frontTable ++ (fidStep4Bundle.frontTable ++
+      (fidStep3Bundle.frontTable ++ (fidStep2Bundle.frontTable ++
+        (fidStep1ReplRows ++ fidBaseSpecTable)))))).all SpecEntry.noExit = true
+    rw [List.all_append, List.all_append, List.all_append, List.all_append, List.all_append,
+      List.all_append, Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true, Bool.and_eq_true,
+      Bool.and_eq_true, Bool.and_eq_true]
+    exact ⟨by decide, ⟨by decide, ⟨by decide, ⟨by decide, ⟨by decide,
+      ⟨by decide, fidBaseSpecTable_noExit⟩⟩⟩⟩⟩⟩
+
+theorem fidStep7Base_solve_bytes_of {a : Tup Val [i64, i64, i64, i64, i64]}
+    {m : Mem 64} {Q : Post [i64]} {X : XPost} :
+    m7FidSolveBytesSpec a m Q X →
+      Env.ofTable fidStep7BaseSpecTable "kissat_solve_bytes"
+        [i64, i64, i64, i64, i64] [i64] a m Q X :=
+  fidStep7Env_solve_bytes_of
+
+theorem fidStep7Env_elim_walkEffort {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep7Env "full_walk_effort_m7" [i64, i64] [i64] xs m Q X) :
+    FullM7Walk.m7EffortSpec xs m Q X := by
+  change patchEnv fidStep7Bundle "full_walk_effort_m7" [i64, i64] [i64] xs m Q X at h
+  rw [patchEnv_base_eq fidStep7Bundle (fid7_find_none_front7 (by decide))] at h
+  have hsw := m8SwFlatTable_iff.mp (fidBaseEnv_to_m8SwFlat (by decide) (by decide) (by decide)
+    (fid7_elim_to_fidBase h))
+  have hm7 := m8cp_sw_to_m7_of_ne (by decide) (not_in_swRows _ (by decide))
+    (by decide) (by decide) (by decide) hsw
+  have hrow : m7FidBaseTable[156]? =
+      some ⟨"full_walk_effort_m7", [i64, i64], [i64], FullM7Walk.m7EffortSpec, true⟩ := rfl
+  cases hm7 with
+  | base _ hb => exact m7FidBase_elim_of_mem (List.mem_of_getElem? hrow) hb
+  | extra hex => exact mf_extra_elim (List.mem_of_getElem? (i := 16) rfl) hex
+
+theorem fidStep7_m7EffortSpec_monoX {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X X' : XPost}
+    (h : FullM7Walk.m7EffortSpec xs m Q X) :
+    FullM7Walk.m7EffortSpec xs m Q X' := by
+  unfold FullM7Walk.m7EffortSpec at h ⊢
+  exact h
+
+theorem fidStep7_m7EffortSpec_elim {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : FullM7Walk.m7EffortSpec xs m Q X) :
+    SafetySlice.spec (as := [i64, i64]) (rs := [i64]) fullSafetySlice
+      (fun c (h, _mf, ()) _ => h = c.hdr)
+      (fun _ _ (r, ()) s s' => s' = s ∧ 500000 ≤ r.toNat ∧ r.toNat ≤ 40000000)
+      xs m Q X := by
+  unfold FullM7Walk.m7EffortSpec at h
+  exact h
+
+theorem fidStep7Env_elim_watchPushSlow {xs : Tup Val [i64, i32, i32, i32, i32]} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (h : fidStep7Env "full_watch_push_slow_m6" [i64, i32, i32, i32, i32] [.bool] xs m Q X) :
+    Full.fullWatchPushSpec xs m Q X := by
+  change patchEnv fidStep7Bundle "full_watch_push_slow_m6"
+    [i64, i32, i32, i32, i32] [.bool] xs m Q X at h
+  rw [patchEnv_base_eq fidStep7Bundle (fid7_find_none_front7 (by decide))] at h
+  change patchEnv fidBundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidBundle (fid_find_none_front (by decide))] at h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h
+  have hmem : (⟨"full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool],
+      Full.fullWatchPushSpec, true⟩ : SpecEntry) ∈ fidStep2Bundle.frontTable :=
+    List.mem_append.mpr (Or.inr List.mem_cons_self)
+  have hf2 := fid7_of_prefix_mem ⟨_, hmem, rfl, rfl, rfl⟩ h
+  obtain ⟨_, _, hc⟩ := m8cp_ofTable_sig_elim fidStep2_front_nodup hmem hf2
+  exact hc
+
+theorem fidStep7Env_elim_watchPushM6 {xs : Tup Val [i64, i32, i32, i32, i32]} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (h : fidStep7Env "full_watch_push_m6" [i64, i32, i32, i32, i32] [.bool] xs m Q X) :
+    Full.fullWatchPushSpec xs m Q X := by
+  change patchEnv fidStep7Bundle "full_watch_push_m6"
+    [i64, i32, i32, i32, i32] [.bool] xs m Q X at h
+  rw [patchEnv_base_eq fidStep7Bundle (fid7_find_none_front7 (by decide))] at h
+  change patchEnv fidBundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidBundle (fid_find_none_front (by decide))] at h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h
+  have hmem : (⟨"full_watch_push_m6", [i64, i32, i32, i32, i32], [.bool],
+      Full.fullWatchPushSpec, true⟩ : SpecEntry) ∈ fidStep2Bundle.frontTable :=
+    List.mem_append.mpr (Or.inl (List.mem_append.mpr (Or.inr List.mem_cons_self)))
+  have hf2 := fid7_of_prefix_mem ⟨_, hmem, rfl, rfl, rfl⟩ h
+  obtain ⟨_, _, hc⟩ := m8cp_ofTable_sig_elim fidStep2_front_nodup hmem hf2
+  exact hc
+
+theorem fidStep7Env_elim_deleteBinSide {xs : Tup Val [i64, i32, i32]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidStep7Env "full_delete_bin_side" [i64, i32, i32] [] xs m Q X) :
+    Full.fullDeleteBinSideSpec xs m Q X := by
+  change patchEnv fidStep7Bundle "full_delete_bin_side" [i64, i32, i32] [] xs m Q X at h
+  rw [patchEnv_base_eq fidStep7Bundle (fid7_find_none_front7 (by decide))] at h
+  have hrow : m7FidBaseTable[176]? =
+      some ⟨"full_delete_bin_side", [i64, i32, i32], [],
+        Full.fullDeleteBinSideSpec, true⟩ := rfl
+  exact fid7_elim_m7Base (List.mem_of_getElem? hrow) h
+
+theorem fidStep7Env_elim_bvaCommit {xs : Tup Val [i64, i32]} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (h : fidStep7Env "full_bva_commit" [i64, i32] [.bool] xs m Q X) :
+    FullFidelityStep7.step7BvaCommitSpec xs m Q X := by
+  have hrow : fidStep7Bundle.frontTable[19]? =
+      some ⟨"full_bva_commit", [i64, i32], [.bool],
+        FullFidelityStep7.step7BvaCommitSpec, true⟩ := rfl
+  have hf7 := fid7_of_prefix_mem ⟨_, List.mem_of_getElem? hrow, rfl, rfl, rfl⟩ h
+  obtain ⟨_, _, hc⟩ := m8cp_ofTable_sig_elim fidStep7_front_nodup (List.mem_of_getElem? hrow) hf7
+  have hc' : FullFidelityStep7.step7BvaCommitSpec xs m Q (fun _ _ _ _ => False) := hc
+  exact FullFidelityStep7.step7BvaCommitSpec_monoX hc'
+
+theorem fidStep7Env_wstackDefragM6 :
+    ∀ a m Q X, Full.fullWstackDefragSpec a m Q X →
+      fidStep7Env "full_wstack_defrag_m6" [i64] [] a m Q X :=
+  fid7_m7Row (m7FidPart1PfxCallees_of_sub m7FidBase_part1_mem).wstackDefragM6
+
+theorem fidStep7Env_watchPushSlowM6 :
+    ∀ a m Q X, Full.fullWatchPushSpec a m Q X →
+      fidStep7Env "full_watch_push_slow_m6" [i64, i32, i32, i32, i32] [.bool] a m Q X :=
+  fun a m Q X hs => fid7_of_fidEnv (by decide) (by
+    change patchEnv fidBundle "full_watch_push_slow_m6" _ _ a m Q X
+    rw [patchEnv_base_eq fidBundle (fid_find_none_front (by decide))]
+    change patchEnv fidStep5Bundle _ _ _ a m Q X
+    rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))]
+    change patchEnv fidStep4Bundle _ _ _ a m Q X
+    rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))]
+    change patchEnv fidStep3Bundle _ _ _ a m Q X
+    rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))]
+    exact patchEnv_of_front_mem fidStep2Bundle fidStep2_front_nodup
+      (e := ⟨"full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool],
+        Full.fullWatchPushSpec, true⟩)
+      (List.mem_append.mpr (Or.inr List.mem_cons_self)) hs)
+
+theorem fidStep7Env_bvaStepsCap :
+    ∀ a m Q X, fidBvaStepsCapSpec a m Q X →
+      fidStep7Env "full_bva_steps_cap_fid" [i64] [i32] a m Q X :=
+  fid7_step6FrontRow 7 "full_bva_steps_cap_fid" fidBvaStepsCapSpec
+
+theorem fidStep7Env_wstackDefrag :
+    ∀ a m Q X, Full.fullWstackDefragSpec a m Q X →
+      fidStep7Env "full_wstack_defrag" [i64] [] a m Q X :=
+  fid7_m7Row (m7FidBase_pfx_mem _ m7FidOrchPfxRows_specs.wstackDefrag)
+
+theorem fidStep7Env_initFreshVar :
+    ∀ a m Q X, FullFidelityStep7.step7InitFreshVarSpec a m Q X →
+      fidStep7Env "full_init_fresh_var" [i64, i32] [] a m Q X :=
+  fid7_frontRow 6 "full_init_fresh_var" FullFidelityStep7.step7InitFreshVarSpec
+    rfl (fun _ _ _ _ h => FullFidelityStep7.step7InitFreshVarSpec_monoX h)
+
+theorem fidStep7Env_addBin :
+    ∀ a m Q X, Full.fullAddBinSpec a m Q X →
+      fidStep7Env "full_add_bin" [i64, i32, i32] [i64] a m Q X :=
+  fid7_m7Row_at 178 "full_add_bin" Full.fullAddBinSpec
+
+theorem fidStep7Env_allocCl :
+    ∀ a m Q X, Full.fullAllocClSpec a m Q X →
+      fidStep7Env "full_alloc_cl" [i64, i32, i32, .bool] [i64] a m Q X :=
+  fid7_m7Row (m7FidPart1Callees_of_sub m7FidBase_part1_mem).allocCl
+
+theorem fidStep7Env_watchPush :
+    ∀ a m Q X, Full.fullWatchPushSpec a m Q X →
+      fidStep7Env "full_watch_push" [i64, i32, i32, i32, i32] [.bool] a m Q X :=
+  fid7_m7Row (m7FidBase_pfx_mem _ m7FidOrchPfxRows_specs.watchPush)
+
+theorem fidStep7Env_deleteBinary :
+    ∀ a m Q X, Full.fullDeleteBinarySpec a m Q X →
+      fidStep7Env "full_delete_binary" [i64, i32, i32] [] a m Q X :=
+  fid7_m7Row (m7Part2Callees_of_sub m7FidBase_part2_mem).deleteBinary
+
+theorem fidStep7Env_unwatchLarge :
+    ∀ a m Q X, Full.fullUnwatchLargeSpec a m Q X →
+      fidStep7Env "full_unwatch_large" [i64, i32, i32] [] a m Q X :=
+  fid7_step4FrontRow 0 "full_unwatch_large" Full.fullUnwatchLargeSpec
+
+theorem fidStep7_step8_slots_ok :
+    ( ((fidStep7Module.fns[161]?.map Fn.sig == some ("full_walk_effort_m7", [i64, i64], [i64])) &&
+        ([] : List SigEntry).all fun d =>
+          ((fidStep7Module.fns.take 161).map Fn.sig).contains d) &&
+      ((fidStep7Module.fns[16]?.map Fn.sig ==
+          some ("full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool])) &&
+        ([("full_wstack_defrag_m6", [i64], [])] : List SigEntry).all fun d =>
+          ((fidStep7Module.fns.take 16).map Fn.sig).contains d) &&
+      ((fidStep7Module.fns[17]?.map Fn.sig ==
+          some ("full_watch_push_m6", [i64, i32, i32, i32, i32], [.bool])) &&
+        ([("full_watch_push_slow_m6", [i64, i32, i32, i32, i32], [.bool])] :
+          List SigEntry).all fun d =>
+            ((fidStep7Module.fns.take 17).map Fn.sig).contains d) &&
+      ((fidStep7Module.fns[181]?.map Fn.sig ==
+          some ("full_delete_bin_side", [i64, i32, i32], [])) &&
+        ([] : List SigEntry).all fun d =>
+          ((fidStep7Module.fns.take 181).map Fn.sig).contains d) &&
+      ((fidStep7Module.fns[436]?.map Fn.sig ==
+          some ("full_bva_commit", [i64, i32], [.bool])) &&
+        ([ ("full_bva_steps_cap_fid", [i64], [i32])
+         , ("full_wstack_defrag", [i64], [])
+         , ("full_init_fresh_var", [i64, i32], [])
+         , ("full_add_bin", [i64, i32, i32], [i64])
+         , ("full_alloc_cl", [i64, i32, i32, .bool], [i64])
+         , ("full_watch_push", [i64, i32, i32, i32, i32], [.bool])
+         , ("full_delete_binary", [i64, i32, i32], [])
+         , ("full_unwatch_large", [i64, i32, i32], []) ] : List SigEntry).all fun d =>
+           ((fidStep7Module.fns.take 436).map Fn.sig).contains d) ) = true := by
+  t_kernel_rfl
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7
 
