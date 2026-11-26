@@ -105,17 +105,8 @@ theorem sat_survivingCnf_iff (α : Nat → Bool) (clauses : Array (Option Clause
 
 theorem sat_binariesCnf_iff (α : Nat → Bool) (bins : List (Nat × Nat)) :
     (binariesCnf bins).Sat α ↔ ∀ p ∈ bins, (cnfClause [p.1, p.2]).Sat α := by
-  unfold binariesCnf
-  suffices ∀ init : CNF Nat,
-      (bins.foldl (fun acc p => acc.add (cnfClause [p.1, p.2])) init).Sat α ↔
-        init.Sat α ∧ ∀ p ∈ bins, (cnfClause [p.1, p.2]).Sat α by
-    simpa using this CNF.empty
-  induction bins with
-  | nil => intro init; simp
-  | cons x xs ih =>
-    intro init
-    simp only [List.foldl_cons, ih, CNF.sat_add, List.mem_cons, forall_eq_or_imp]
-    exact ⟨fun ⟨⟨hx, hi⟩, hxs⟩ => ⟨hi, hx, hxs⟩, fun ⟨hi, hx, hxs⟩ => ⟨⟨hx, hi⟩, hxs⟩⟩
+  rw [binariesCnf]
+  exact sat_foldl_cnfClause_iff (fun p => [p.1, p.2]) α bins
 
 /-- Active-reason predicate (`trail.c:26-43`): `true` iff some trail literal cites `.large cid`
 as its `stateReason`. -/
@@ -205,26 +196,6 @@ private theorem remapReasonStep_getD_decision (targets : Array RefTarget) (rs : 
   by_cases hv : v = litVar lit
   · subst hv; rw [remapReasonStep_getD_eq, remapReasonTarget_eq_decision]
   · rw [remapReasonStep_getD_ne _ _ hv]
-
-private theorem list_map_nodup_of_getElem {l : List Nat}
-    (h : ∀ i j (hi : i < l.length) (hj : j < l.length), litVar l[i] = litVar l[j] → i = j) :
-    (l.map litVar).Nodup := by
-  induction l with
-  | nil => simp
-  | cons a as ih =>
-    apply List.nodup_cons.mpr
-    constructor
-    · intro hm
-      obtain ⟨b, hb, hvar⟩ := List.mem_map.mp hm
-      obtain ⟨k, hk, rfl⟩ := List.mem_iff_getElem.mp hb
-      have hk1 : k + 1 < (a :: as).length := by simpa using Nat.succ_lt_succ hk
-      have heq := h 0 (k + 1) (by simp) hk1 (by simpa using hvar.symm)
-      omega
-    · refine ih fun i j hi hj hvar => ?_
-      have hi1 : i + 1 < (a :: as).length := by simpa using Nat.succ_lt_succ hi
-      have hj1 : j + 1 < (a :: as).length := by simpa using Nat.succ_lt_succ hj
-      have heq := h (i + 1) (j + 1) hi1 hj1 (by simpa using hvar)
-      omega
 
 private theorem foldl_remapReasonStep_not_mem (targets : Array RefTarget) (v : Nat) :
     ∀ (ls : List Nat) (rs : Array Reason), (∀ x ∈ ls, litVar x ≠ v) →
@@ -448,48 +419,16 @@ theorem core_collect_lazy_sound {s : CdclState} (hinv : LazyTrailInv s) :
     (∀ (nid : Nat) (c : Clause), s'.clauses[nid]? = some (some c) → !c.garbage = true →
       s.f0.EntailsClause (cnfClause c.lits)) ∧
     (∀ α : Nat → Bool, s.f0.Sat α → (survivingCnf s'.clauses).Sat α) := by
-  have hrs := collectClauses_sound hinv.db_sound
-  let rmap := (collectClauses s.clauses).2
-  let s' : CdclState :=
-    { s with
-      clauses := (collectClauses s.clauses).1
-      reasons := s.reasons.map (remapReason rmap) }
-  have htr : s'.trail = s.trail := rfl
-  have hf0 : s'.f0 = s.f0 := rfl
-  have hlvl : ∀ x, stateLevel s' x = stateLevel s x := fun _ => rfl
-  have hinv' : LazyTrailInv s' := by
-    refine ⟨hinv.vars_nodup, hinv.levels_le, ?_, hrs.2.2, hinv.units_sound, ?_,
-      hinv.inconsistent_sound⟩
-    · intro i j hi hj hleq hrsn_j
-      have hsr : stateReason s' s'.trail[j] = remapReason rmap (stateReason s s.trail[j]) :=
-        stateReason_map (by rfl) _
-      rw [hsr, remapReason_eq_decision] at hrsn_j
-      exact hinv.dec_earliest i j hi hj hleq hrsn_j
-    · intro i hi
-      have hrd := hinv.reason_dag i hi; dsimp only at hrd
-      have hsr : stateReason s' s.trail[i] = remapReason rmap (stateReason s s.trail[i]) :=
-        stateReason_map (by rfl) _
-      change match stateReason s' s'.trail[i] with | _ => _
-      simp only [htr, hf0, hlvl, hsr]
-      generalize hrsn : stateReason s s.trail[i] = rsn; rw [hrsn] at hrd
-      cases rsn with
-      | decision | unit | binary _ => exact hrd
-      | large cid =>
-        obtain ⟨c, hget, hng, hlmem, hall⟩ := hrd
-        obtain ⟨nid, hlkp, hnew⟩ := hrs.2.1 cid c hget hng
-        dsimp only [remapReason]
-        rw [show (collectClauses s.clauses).2.lookup cid = some nid from hlkp]
-        exact ⟨c, hnew, hng, hlmem, hall⟩
+  have hc := collect_preserves_lazyInv hinv
   have hsurv : ∀ (nid : Nat) (c : Clause),
-      s'.clauses[nid]? = some (some c) → !c.garbage = true →
+      (collect s).1.clauses[nid]? = some (some c) → !c.garbage = true →
       s.f0.EntailsClause (cnfClause c.lits) :=
-    fun nid c hget _ => hrs.2.2 nid c hget
-  have hsat : ∀ α : Nat → Bool, s.f0.Sat α → (survivingCnf s'.clauses).Sat α := by
+    fun nid c hget _ => hc.2.2.2.2 nid c hget
+  have hsat : ∀ α : Nat → Bool, s.f0.Sat α → (survivingCnf (collect s).1.clauses).Sat α := by
     intro α hα
     rw [sat_survivingCnf_iff]
-    intro nid c hget hng
-    exact CNF.entails_clause_def.mp (hsurv nid c hget hng) α hα
-  exact ⟨hinv', rfl, rfl, hrs, fun i hi => lazyTrailEntailment hinv' i hi, hsurv, hsat⟩
+    exact fun nid c hget hng => CNF.entails_clause_def.mp (hsurv nid c hget hng) α hα
+  exact ⟨hc.1, hc.2.1, rfl, hc.2.2, fun i hi => lazyTrailEntailment hc.1 i hi, hsurv, hsat⟩
 
 /-! ## 2. Deletion of unreferenced clauses and `reduce` garbage marking -/
 
@@ -513,10 +452,6 @@ theorem deleteUnreferencedClauses_sound {s : CdclState} (hinv : LazyTrailInv s)
       s.f0.EntailsClause (cnfClause c.lits)) ∧
     (∀ α : Nat → Bool, s.f0.Sat α → (survivingCnf s'.clauses).Sat α) := by
   let s' := deleteUnreferencedClauses s dropPred
-  have hs_tr : s'.trail = s.trail := rfl
-  have hs_f0 : s'.f0 = s.f0 := rfl
-  have hs_lvl : ∀ x, stateLevel s' x = stateLevel s x := fun _ => rfl
-  have hs_rsn : ∀ x, stateReason s' x = stateReason s x := fun _ => rfl
   have hdb : ∀ (cid : Nat) (c : Clause), s'.clauses[cid]? = some (some c) →
       s.f0.EntailsClause (cnfClause c.lits) := by
     intro cid c hget
@@ -534,36 +469,16 @@ theorem deleteUnreferencedClauses_sound {s : CdclState} (hinv : LazyTrailInv s)
           rw [← hget]
           exact hinv.db_sound cid c0 (by simp [hlt, hget0])
     · cases hget
-  have hinv' : LazyTrailInv s' := by
-    refine ⟨hinv.vars_nodup, hinv.levels_le, hinv.dec_earliest, hdb, hinv.units_sound, ?_,
-      hinv.inconsistent_sound⟩
-    intro i hi
-    have hi_s : i < s.trail.size := hi
-    have hrd := hinv.reason_dag i hi_s
-    dsimp only at hrd
-    change match stateReason s' s'.trail[i] with | _ => _
-    simp only [hs_tr, hs_f0, hs_lvl, hs_rsn]
-    generalize hrsn : stateReason s s.trail[i] = rsn
-    rw [hrsn] at hrd
-    cases rsn with
-    | decision | unit | binary _ => exact hrd
-    | large cid =>
-      obtain ⟨c, hget, hng, hm, hall⟩ := hrd
-      have hact : isActiveLargeReason s cid = true :=
-        isActiveLargeReason_iff.mpr ⟨i, hi_s, hrsn⟩
-      have hlt : cid < s.clauses.size := by
-        rw [Array.getElem?_eq_some_iff] at hget; exact hget.1
-      have hget' : s'.clauses[cid]? = some (some c) := by
-        simp only [s', deleteUnreferencedClauses, Array.getElem?_ofFn, hlt, ↓reduceDIte]
-        have hce : s.clauses[cid] = some c := by
-          rw [Array.getElem?_eq_some_iff] at hget; exact hget.2
-        simp [hce, hact]
-      exact ⟨c, hget', hng, hm, hall⟩
-  have hsat : ∀ α : Nat → Bool, s.f0.Sat α → (survivingCnf s'.clauses).Sat α := by
-    intro α hα
-    rw [sat_survivingCnf_iff]
-    intro nid c hget _
-    exact CNF.entails_clause_def.mp (hdb nid c hget) α hα
+  have hinv' : LazyTrailInv s' :=
+    lazyTrailInv_withClauses hinv s'.clauses hdb fun i hi cid c hrsn hget _ => by
+      have hact : isActiveLargeReason s cid = true := isActiveLargeReason_iff.mpr ⟨i, hi, hrsn⟩
+      have hlt : cid < s.clauses.size := (Array.getElem?_eq_some_iff.mp hget).1
+      have hce : s.clauses[cid] = some c := (Array.getElem?_eq_some_iff.mp hget).2
+      simp only [s', deleteUnreferencedClauses, Array.getElem?_ofFn, hlt, ↓reduceDIte, hce, hact,
+        Bool.not_true, Bool.and_false, Bool.false_eq_true, ↓reduceIte]
+  have hsat : ∀ α : Nat → Bool, s.f0.Sat α → (survivingCnf s'.clauses).Sat α :=
+    fun α hα => (sat_survivingCnf_iff α s'.clauses).mpr fun nid c hget _ =>
+      CNF.entails_clause_def.mp (hdb nid c hget) α hα
   exact ⟨hinv', rfl, rfl, hdb, hsat⟩
 
 /-- Every `.large` trail reason points to a strictly positive decision level (`unflushed == 0` /
@@ -603,10 +518,6 @@ theorem markGarbageIf_sound {s : CdclState} (hinv : LazyTrailInv s)
       s.f0.EntailsClause (cnfClause c.lits)) ∧
     (∀ α : Nat → Bool, s.f0.Sat α → (survivingCnf s'.clauses).Sat α) := by
   let s' := markGarbageIf s markPred
-  have hs_tr : s'.trail = s.trail := rfl
-  have hs_f0 : s'.f0 = s.f0 := rfl
-  have hs_lvl : ∀ x, stateLevel s' x = stateLevel s x := fun _ => rfl
-  have hs_rsn : ∀ x, stateReason s' x = stateReason s x := fun _ => rfl
   have hdb : ∀ (cid : Nat) (c : Clause), s'.clauses[cid]? = some (some c) →
       s.f0.EntailsClause (cnfClause c.lits) := by
     intro cid c hget
@@ -639,42 +550,21 @@ theorem markGarbageIf_sound {s : CdclState} (hinv : LazyTrailInv s)
         rw [hget0, hact] at hget
         simp only [Bool.not_true, Bool.and_false, Bool.false_eq_true, ↓reduceIte,
           Option.some.injEq] at hget
-        subst hget
-        simp [hlt, hget0]
+        subst hget; simp [hlt, hget0]
     · cases hget
-  have hinv' : LazyTrailInv s' := by
-    refine ⟨hinv.vars_nodup, hinv.levels_le, hinv.dec_earliest, hdb, hinv.units_sound, ?_,
-      hinv.inconsistent_sound⟩
-    intro i hi
-    have hi_s : i < s.trail.size := hi
-    have hrd := hinv.reason_dag i hi_s
-    dsimp only at hrd
-    change match stateReason s' s'.trail[i] with | _ => _
-    simp only [hs_tr, hs_f0, hs_lvl, hs_rsn]
-    generalize hrsn : stateReason s s.trail[i] = rsn
-    rw [hrsn] at hrd
-    cases rsn with
-    | decision | unit | binary _ => exact hrd
-    | large cid =>
-      obtain ⟨c, hget, hng, hm, hall⟩ := hrd
-      have hact : isActiveLargeReason s cid = true :=
-        isActiveLargeReason_iff.mpr ⟨i, hi_s, hrsn⟩
-      have hlt : cid < s.clauses.size := by
-        rw [Array.getElem?_eq_some_iff] at hget; exact hget.1
-      have hget' : s'.clauses[cid]? = some (some c) := by
-        simp only [s', markGarbageIf, Array.getElem?_ofFn, hlt, ↓reduceDIte]
-        have hce : s.clauses[cid] = some c := by
-          rw [Array.getElem?_eq_some_iff] at hget; exact hget.2
-        simp [hce, hact]
-      exact ⟨c, hget', hng, hm, hall⟩
+  have hinv' : LazyTrailInv s' :=
+    lazyTrailInv_withClauses hinv s'.clauses hdb fun i hi cid c hrsn hget _ => by
+      have hact : isActiveLargeReason s cid = true := isActiveLargeReason_iff.mpr ⟨i, hi, hrsn⟩
+      have hlt : cid < s.clauses.size := (Array.getElem?_eq_some_iff.mp hget).1
+      have hce : s.clauses[cid] = some c := (Array.getElem?_eq_some_iff.mp hget).2
+      simp only [s', markGarbageIf, Array.getElem?_ofFn, hlt, ↓reduceDIte, hce, hact,
+        Bool.not_true, Bool.and_false, Bool.false_eq_true, ↓reduceIte]
   have hrlp : ReasonLevelsPos s → ReasonLevelsPos s' := fun h i hi cid hrsn => h i hi cid hrsn
   have hrnr : ReasonHasNonRootAntecedent s → ReasonHasNonRootAntecedent s' :=
     fun h i hi cid c hrsn hget => h i hi cid c hrsn (hactive_same i hi cid c hrsn hget)
-  have hsat : ∀ α : Nat → Bool, s.f0.Sat α → (survivingCnf s'.clauses).Sat α := by
-    intro α hα
-    rw [sat_survivingCnf_iff]
-    intro nid c hget _
-    exact CNF.entails_clause_def.mp (hdb nid c hget) α hα
+  have hsat : ∀ α : Nat → Bool, s.f0.Sat α → (survivingCnf s'.clauses).Sat α :=
+    fun α hα => (sat_survivingCnf_iff α s'.clauses).mpr fun nid c hget _ =>
+      CNF.entails_clause_def.mp (hdb nid c hget) α hα
   exact ⟨hinv', rfl, rfl, hrlp, hrnr, hdb, hsat⟩
 
 /-! ## 3. Flushing root-level & root-antecedent trail reasons (`flushRootReasons`) -/

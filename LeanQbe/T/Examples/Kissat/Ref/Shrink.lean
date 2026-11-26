@@ -92,36 +92,14 @@ private theorem antecedentShrinkable_falsified {s : MinState} (h : MinBaseInv s)
     (hok : s.litLevel x = 0 ∨ (s.litLevel x < L ∧ s.isRemovable (litVar x) = true))
     {α : Nat → Bool} (hα : s.cdcl.f0.Sat α)
     (hsub : ∀ l ∈ C, l ∉ B → varLe s (litVar l) v → ¬ (cnfClause [l]).Sat α) :
-    ¬ (cnfClause [x]).Sat α := by
-  obtain ⟨j, hj, hjeq⟩ := hx_trl
-  rcases hok with hl0 | ⟨hltL, hrx⟩
-  · have hl0' : stateLevel s.cdcl s.cdcl.trail[j] = 0 := by
-      simpa [hjeq, stateLevel_litNeg, MinState.litLevel, MinState.varLevel, stateLevel] using hl0
-    have hent := lazyTrailEntailment_level0 h.trail_inv hj hl0'
-    rw [hjeq] at hent
-    exact (sat_cnfClause_litNeg_iff α x).mp (CNF.entails_clause_def.mp hent α hα)
-  · by_cases hpos : 0 < s.varLevel (litVar x)
-    · obtain ⟨j', hj', hj'var, himp⟩ := hrem (litVar x) hrx hpos
-      have hj'eq : j' = j :=
-        h.trail_inv.vars_nodup j' j hj' hj (by rw [hj'var, hjeq, litVar_litNeg])
-      subst hj'eq
-      have hsat : (cnfClause [litNeg x]).Sat α := by
-        rw [← hjeq]
-        refine himp α hα fun l hlC hle => hsub l hlC ?_ (varLe_trans hle hlt.to_varLe)
-        intro hlB
-        have hlvl_b : s.varLevel (litVar l) = L := by
-          simpa [MinState.litLevel] using hB_lvl l hlB
-        have hlv_le : s.varLevel (litVar l) ≤ s.varLevel (litVar x) := by
-          rcases hle with hlt1 | ⟨heq1, _⟩ <;> omega
-        have hvx : s.varLevel (litVar x) < L := by simpa [MinState.litLevel] using hltL
-        omega
-      exact (sat_cnfClause_litNeg_iff α x).mp hsat
-    · have hl0' : stateLevel s.cdcl s.cdcl.trail[j] = 0 := by
-        simp only [MinState.varLevel] at hpos
-        rw [hjeq, stateLevel_litNeg]; unfold stateLevel; omega
-      have hent := lazyTrailEntailment_level0 h.trail_inv hj hl0'
-      rw [hjeq] at hent
-      exact (sat_cnfClause_litNeg_iff α x).mp (CNF.entails_clause_def.mp hent α hα)
+    ¬ (cnfClause [x]).Sat α :=
+  antecedent_falsified h hrem hx_trl (hok.elim Or.inl (fun hp => Or.inr hp.2)) hα
+    (fun hpos l hl hle => hsub l hl (fun hlB => by
+      rcases hok with h0 | ⟨hltL, _⟩
+      · simp [MinState.litLevel] at h0; omega
+      · have hbl : s.varLevel (litVar l) = L := by simpa [MinState.litLevel] using hB_lvl l hlB
+        have hxl : s.varLevel (litVar x) < L := by simpa [MinState.litLevel] using hltL
+        rcases hle with hlt1 | ⟨heq1, _⟩ <;> omega) (varLe_trans hle hlt.to_varLe))
 
 /-- Key inductive helper for `shrink_block_cut_sound`: every resolved variable `v ∈ S` has its
 true trail literal entailed under `F₀` plus falsification of
@@ -476,56 +454,6 @@ shrink), then resets `poisoned`. -/
   (resAcc, sEnd.resetPoisoned)
 
 /-! ### Proofs for `shrinkLiteralExec`, `shrinkWalk`, `shrinkBlockExec`, `shrinkClauseExec` -/
-
-private theorem filter_nodup_drop_one {S : List Nat} (hnodup : S.Nodup) {u : Nat} (hu : u ∈ S)
-    {p p' : Nat → Bool} (hpu : p u = true) (hp'u : p' u = false)
-    (heq : ∀ v ∈ S, v ≠ u → p v = p' v) :
-    (S.filter p).length = (S.filter p').length + 1 := by
-  induction S with
-  | nil => cases hu
-  | cons x xs ih =>
-    have hnd := List.nodup_cons.mp hnodup
-    rcases List.mem_cons.mp hu with rfl | hxs
-    · have hfx : xs.filter p = xs.filter p' := by
-        apply List.filter_congr
-        intro v hv
-        exact heq v (List.mem_cons_of_mem _ hv) (fun hvu => hnd.1 (hvu ▸ hv))
-      simp [hpu, hp'u, hfx]
-    · have heqx : p x = p' x := heq x (by simp) (fun hxu => hnd.1 (hxu ▸ hxs))
-      have ih_res := ih hnd.2 hxs (fun v hv hvne => heq v (List.mem_cons_of_mem _ hv) hvne)
-      cases hpx : p' x
-      · have hpx1 : p x = false := by rw [heqx, hpx]
-        simp [hpx, hpx1, ih_res]
-      · have hpx1 : p x = true := by rw [heqx, hpx]
-        simp [hpx, hpx1, ih_res]
-
-private theorem nodup_filter_length_one {S : List Nat} (hnodup : S.Nodup) {u : Nat} (hu : u ∈ S)
-    {p : Nat → Bool} (hpu : p u = true) (hlen : (S.filter p).length ≤ 1) :
-    ∀ v ∈ S, p v = true → v = u := by
-  induction S with
-  | nil => cases hu
-  | cons x xs ih =>
-    have hnd := List.nodup_cons.mp hnodup
-    rcases List.mem_cons.mp hu with rfl | hxs
-    · intro v hv hpv
-      rcases List.mem_cons.mp hv with rfl | hvxs
-      · rfl
-      · exfalso
-        have hpos : 0 < (xs.filter p).length :=
-          List.length_pos_iff.mpr (List.ne_nil_of_mem (List.mem_filter.mpr ⟨hvxs, hpv⟩))
-        rw [List.filter_cons, ite_eq_left hpu, List.length_cons] at hlen
-        omega
-    · intro v hv hpv
-      by_cases hpx : p x = true
-      · simp only [List.filter_cons, hpx, ↓reduceIte, List.length_cons] at hlen
-        have hpos : 0 < (xs.filter p).length :=
-          List.length_pos_iff.mpr (List.ne_nil_of_mem (List.mem_filter.mpr ⟨hxs, hpu⟩))
-        omega
-      · have hpxf : p x = false := Bool.eq_false_iff.mpr hpx
-        simp only [List.filter_cons, hpxf, Bool.false_eq_true, ↓reduceIte] at hlen
-        rcases List.mem_cons.mp hv with rfl | hvxs
-        · exact absurd hpv hpx
-        · exact ih hnd.2 hxs hlen v hvxs hpv
 
 private theorem shrinkLiteralExec_sound {s : MinState} (h : MinBaseInv s) {C : List Nat}
     (hrem : s.RemovableInv C) {alwaysMin : Bool} {maxDepth level t lit : Nat}

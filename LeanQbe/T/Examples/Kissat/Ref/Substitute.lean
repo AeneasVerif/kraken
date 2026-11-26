@@ -39,159 +39,7 @@ namespace LeanQbe.T.Examples.Kissat.Ref
 
 open Std.Sat
 
-/-! ## 1. Assignment evaluation, point updates, tautologies, and CNF bijection -/
-
-@[simp] theorem litNeg_mkLit (v : Nat) (pol : Bool) :
-    litNeg (mkLit v pol) = mkLit v (!pol) := by
-  cases pol <;> simp [mkLit, litNeg_eq] <;> omega
-
-theorem mkLit_litVar_litPol (l : Nat) : mkLit (litVar l) (litPol l) = l := by
-  simp only [mkLit, litVar, litPol]
-  rcases Nat.mod_two_eq_zero_or_one l with h | h <;> simp [h] <;> omega
-
-theorem mkLit_ne_neg (v : Nat) (pol : Bool) : mkLit v pol ≠ mkLit v (!pol) := by
-  cases pol <;> simp [mkLit] <;> omega
-
-/-- Evaluate a Kissat-encoded literal `l` under a total Boolean assignment `α : Nat → Bool`. -/
-@[expose, inline] def evalLitVal (α : Nat → Bool) (l : Nat) : Bool :=
-  α (litVar l) != litSign l
-
-/-- Evaluate a clause (disjunction of Kissat literals) under `α : Nat → Bool`. -/
-@[expose] def clauseEvalVal (α : Nat → Bool) (c : List Nat) : Bool :=
-  c.any (evalLitVal α)
-
-/-- Evaluate a clause list (conjunction of clauses) under `α : Nat → Bool`. -/
-@[expose] def cnfEvalVal (α : Nat → Bool) (cs : List (List Nat)) : Bool :=
-  cs.all (clauseEvalVal α)
-
-/-- Point update `α[v ↦ val]` on a total Boolean assignment `α : Nat → Bool`. -/
-@[expose, inline] def substUpdate (α : Nat → Bool) (v : Nat) (val : Bool) : Nat → Bool :=
-  fun x => if x == v then val else α x
-
-/-- Tautology detector: `true` iff `c` contains a complementary pair `x` and `litNeg x`. -/
-@[expose] def clauseIsTaut (c : List Nat) : Bool :=
-  c.any (fun x => c.contains (litNeg x))
-
-/-- Variable `v` does not occur in any clause of `cs`. -/
-@[expose] def VarFreshIn (cs : List (List Nat)) (v : Nat) : Prop :=
-  ∀ c ∈ cs, ∀ x ∈ c, litVar x ≠ v
-
-/-- Executable Boolean checker for `VarFreshIn`. -/
-@[expose] def varFreshInBool (cs : List (List Nat)) (v : Nat) : Bool :=
-  cs.all fun c => c.all fun x => litVar x != v
-
-theorem varFreshInBool_iff (cs : List (List Nat)) (v : Nat) :
-    varFreshInBool cs v = true ↔ VarFreshIn cs v := by
-  simp [varFreshInBool, VarFreshIn, List.all_eq_true, bne_iff_ne]
-
-/-- Variable `v` does not occur in any clause of `f : CNF Nat`. -/
-@[expose] def VarFreshCnf (f : CNF Nat) (v : Nat) : Prop :=
-  VarFreshIn (clausesOfCnf f) v
-
-theorem evalLitVal_iff (α : Nat → Bool) (l : Nat) :
-    evalLitVal α l = true ↔ (cnfClause [l]).Sat α := by
-  simp only [evalLitVal, sat_cnfClause_singleton]
-  cases α (litVar l) <;> cases litSign l <;> decide
-
-@[simp] theorem evalLitVal_litNeg (α : Nat → Bool) (l : Nat) :
-    evalLitVal α (litNeg l) = !(evalLitVal α l) := by
-  simp only [evalLitVal, litVar_litNeg, litSign_litNeg]
-  cases α (litVar l) <;> cases litSign l <;> decide
-
-@[simp] theorem evalLitVal_mkLit (α : Nat → Bool) (v : Nat) (pol : Bool) :
-    evalLitVal α (mkLit v pol) = (α v == pol) := by
-  simp only [evalLitVal, litVar_mkLit, litSign_mkLit]
-  cases α v <;> cases pol <;> decide
-
-theorem evalLitVal_evalVar (σ : Array Bool) (l : Nat) :
-    evalLitVal (evalVar σ) l = evalLit σ l := rfl
-
-theorem clauseEvalVal_iff (α : Nat → Bool) (c : List Nat) :
-    clauseEvalVal α c = true ↔ (cnfClause c).Sat α := by
-  rw [clauseEvalVal, List.any_eq_true, clause_sat_cnfClause_iff]
-  constructor
-  · rintro ⟨l, hl, h⟩
-    exact ⟨l, hl, (sat_cnfClause_singleton α l).mp ((evalLitVal_iff α l).mp h)⟩
-  · rintro ⟨l, hl, h⟩
-    exact ⟨l, hl, (evalLitVal_iff α l).mpr ((sat_cnfClause_singleton α l).mpr h)⟩
-
-theorem cnfEvalVal_iff (α : Nat → Bool) (cs : List (List Nat)) :
-    cnfEvalVal α cs = true ↔ (cnfOfClauses cs).Sat α := by
-  simp only [cnfEvalVal, List.all_eq_true, clauseEvalVal_iff, cnf_sat_cnfOfClauses_iff]
-
-@[simp] theorem substUpdate_self (α : Nat → Bool) (v : Nat) (val : Bool) :
-    substUpdate α v val v = val := by
-  simp [substUpdate]
-
-@[simp] theorem substUpdate_ne (α : Nat → Bool) {v w : Nat} (val : Bool) (hne : w ≠ v) :
-    substUpdate α v val w = α w := by
-  simp [substUpdate, hne]
-
-theorem evalLitVal_substUpdate_ne (α : Nat → Bool) {v l : Nat} (val : Bool)
-    (hne : litVar l ≠ v) :
-    evalLitVal (substUpdate α v val) l = evalLitVal α l := by
-  simp [evalLitVal, substUpdate_ne α val hne]
-
-theorem clause_sat_of_agree {α β : Nat → Bool} {c : List Nat}
-    (h : ∀ x ∈ c, evalLitVal α x = evalLitVal β x) :
-    (cnfClause c).Sat α ↔ (cnfClause c).Sat β := by
-  simp only [← clauseEvalVal_iff, clauseEvalVal, List.any_eq_true]
-  exact ⟨fun ⟨x, hx, hs⟩ => ⟨x, hx, h x hx ▸ hs⟩, fun ⟨x, hx, hs⟩ => ⟨x, hx, (h x hx).symm ▸ hs⟩⟩
-
-theorem clause_sat_substUpdate_fresh {α : Nat → Bool} {c : List Nat} {v : Nat} (val : Bool)
-    (hf : ∀ x ∈ c, litVar x ≠ v) :
-    (cnfClause c).Sat (substUpdate α v val) ↔ (cnfClause c).Sat α :=
-  clause_sat_of_agree fun x hx => evalLitVal_substUpdate_ne α val (hf x hx)
-
-theorem clause_sat_dedup_iff (α : Nat → Bool) (c : List Nat) :
-    (cnfClause (dedupLits c)).Sat α ↔ (cnfClause c).Sat α := by
-  simp only [clause_sat_cnfClause_iff]
-  exact ⟨fun ⟨l, hl, hs⟩ => ⟨l, mem_dedupLits_iff.mp hl, hs⟩,
-    fun ⟨l, hl, hs⟩ => ⟨l, mem_dedupLits_iff.mpr hl, hs⟩⟩
-
-theorem clauseIsTaut_iff (c : List Nat) :
-    clauseIsTaut c = true ↔ ∃ x ∈ c, litNeg x ∈ c := by
-  simp [clauseIsTaut, List.any_eq_true]
-
-/-- Any clause flagged by `clauseIsTaut` is satisfied under every assignment `α`. -/
-theorem clauseIsTaut_sat {c : List Nat} (ht : clauseIsTaut c = true) (α : Nat → Bool) :
-    (cnfClause c).Sat α := by
-  obtain ⟨x, hx, hnx⟩ := (clauseIsTaut_iff c).mp ht
-  rw [← clauseEvalVal_iff, clauseEvalVal, List.any_eq_true]
-  cases h : evalLitVal α x
-  · exact ⟨litNeg x, hnx, by simp [evalLitVal_litNeg, h]⟩
-  · exact ⟨x, hx, h⟩
-
-@[simp] theorem cnfOfClauses_clausesOfCnf (f : CNF Nat) :
-    cnfOfClauses (clausesOfCnf f) = f := by
-  cases f with
-  | mk arr =>
-    simp [cnfOfClauses, clausesOfCnf, Function.comp_def]
-
-@[simp] theorem clausesOfCnf_cnfOfClauses (cs : List (List Nat)) :
-    clausesOfCnf (cnfOfClauses cs) = cs := by
-  simp [clausesOfCnf, cnfOfClauses, Function.comp_def]
-
-theorem sat_iff_clausesOfCnf (α : Nat → Bool) (f : CNF Nat) :
-    f.Sat α ↔ ∀ c ∈ clausesOfCnf f, (cnfClause c).Sat α := by
-  have h := cnf_sat_cnfOfClauses_iff α (clausesOfCnf f)
-  rwa [cnfOfClauses_clausesOfCnf] at h
-
-theorem entails_mem_clausesOfCnf {f : CNF Nat} {c : List Nat} (hc : c ∈ clausesOfCnf f) :
-    f.EntailsClause (cnfClause c) := by
-  rw [CNF.entails_clause_def]
-  intro α hα
-  exact (sat_iff_clausesOfCnf α f).mp hα c hc
-
-theorem entails_mem_cnfOfClauses {cs : List (List Nat)} {c : List Nat} (hc : c ∈ cs) :
-    (cnfOfClauses cs).EntailsClause (cnfClause c) :=
-  entails_mem_clausesOfCnf (by simpa using hc)
-
-theorem checkModel_cnfOfClauses_eq_evalCnf (cs : List (List Nat)) (σ : Array Bool) :
-    checkModel (cnfOfClauses cs) σ = evalCnf σ cs := by
-  rw [← checkModel_iff_evalCnf, clausesOfCnf_cnfOfClauses]
-
-/-! ## 2. Single-step equivalence substitution and model reconstruction -/
+/-! ## 1. Single-step equivalence substitution and model reconstruction -/
 
 /-- Formula `f` entails the literal equivalence `v ↔ l`, represented by the two binary
 implication clauses `[¬v, l]` (`v → l`) and `[v, ¬l]` (`l → v`). -/
@@ -208,6 +56,49 @@ theorem equivEntailed_eval {f : CNF Nat} {v l : Nat} {α : Nat → Bool}
     evalLitVal_mkLit, evalLitVal_litNeg] at h1 h2
   cases hv : α v <;> cases hl : evalLitVal α l <;> simp_all
 
+/-- Apply literal map `f` to clause `c`, deduplicating and dropping tautologies (`none`). -/
+@[expose] def mapClauseTaut (f : Nat → Nat) (c : List Nat) : Option (List Nat) :=
+  let c' := dedupLits (c.map f)
+  if clauseIsTaut c' then none else some c'
+
+private theorem clause_sat_map_iff (f : Nat → Nat) (α' α : Nat → Bool)
+    (hdual : ∀ x, evalLitVal α' x = evalLitVal α (f x)) (c : List Nat) :
+    (cnfClause (c.map f)).Sat α ↔ (cnfClause c).Sat α' := by
+  simp only [← clauseEvalVal_iff, clauseEvalVal, List.any_eq_true, List.mem_map]
+  constructor
+  · rintro ⟨_, ⟨x, hx, rfl⟩, hsat⟩; exact ⟨x, hx, by rwa [hdual]⟩
+  · rintro ⟨x, hx, hsat⟩; exact ⟨f x, ⟨x, hx, rfl⟩, by rwa [← hdual]⟩
+
+private theorem mapClauses_sat_fwd {f : Nat → Nat} {fα : (Nat → Bool) → (Nat → Bool)}
+    {cnf : CNF Nat} {α : Nat → Bool}
+    (hdual : ∀ β x, evalLitVal (fα β) x = evalLitVal β (f x))
+    (hid : fα α = α) (hα : cnf.Sat α) :
+    (cnfOfClauses ((clausesOfCnf cnf).filterMap (mapClauseTaut f))).Sat α := by
+  rw [cnf_sat_cnfOfClauses_iff]
+  intro c' hc'
+  rw [List.mem_filterMap] at hc'
+  obtain ⟨c, hc, hsub⟩ := hc'
+  unfold mapClauseTaut at hsub; dsimp only at hsub
+  split at hsub
+  · cases hsub
+  · injection hsub with hce
+    rw [← hce, clause_sat_dedup_iff, clause_sat_map_iff f (fα α) α (hdual α), hid]
+    exact (sat_iff_clausesOfCnf α cnf).mp hα c hc
+
+private theorem mapClauses_sat_recon {f : Nat → Nat} {fα : (Nat → Bool) → (Nat → Bool)}
+    {cnf : CNF Nat} {α : Nat → Bool}
+    (hdual : ∀ β x, evalLitVal (fα β) x = evalLitVal β (f x))
+    (hα : (cnfOfClauses ((clausesOfCnf cnf).filterMap (mapClauseTaut f))).Sat α) :
+    cnf.Sat (fα α) := by
+  rw [sat_iff_clausesOfCnf]
+  intro c hc
+  rw [← clause_sat_map_iff f (fα α) α (hdual α), ← clause_sat_dedup_iff]
+  by_cases ht : clauseIsTaut (dedupLits (c.map f)) = true
+  · exact clauseIsTaut_sat ht α
+  · have hmem : dedupLits (c.map f) ∈ (clausesOfCnf cnf).filterMap (mapClauseTaut f) :=
+      List.mem_filterMap.mpr ⟨c, hc, by simp [mapClauseTaut, ht]⟩
+    exact (cnf_sat_cnfOfClauses_iff α _).mp hα _ hmem
+
 /-- Substitute `l` for positive occurrences of `v` and `¬l` for negative occurrences of `v`. -/
 @[expose, inline] def substLit (v l x : Nat) : Nat :=
   if litVar x == v then
@@ -216,9 +107,8 @@ theorem equivEntailed_eval {f : CNF Nat} {v l : Nat} {α : Nat → Bool}
     x
 
 /-- Substitute `(v ↦ l)` into clause `c`, deduplicating and dropping tautologies (`none`). -/
-@[expose] def substClause (v l : Nat) (c : List Nat) : Option (List Nat) :=
-  let c' := dedupLits (c.map (substLit v l))
-  if clauseIsTaut c' then none else some c'
+abbrev substClause (v l : Nat) (c : List Nat) : Option (List Nat) :=
+  mapClauseTaut (substLit v l) c
 
 /-- Apply single-variable substitution `(v ↦ l)` across a list of clauses, dropping tautologies. -/
 @[expose] def substClauses (v l : Nat) (cs : List (List Nat)) : List (List Nat) :=
@@ -254,8 +144,7 @@ theorem evalLitVal_substExtend (v l : Nat) (α : Nat → Bool) (x : Nat) :
   by_cases hx : litVar x = v
   · simp only [hx, beq_self_eq_true, ↓reduceIte, evalLitVal, substUpdate_self]
     cases hs : litSign x <;> simp
-  · have hxf : (litVar x == v) = false := beq_false_of_ne hx
-    simp only [hxf, Bool.false_eq_true, ↓reduceIte]
+  · simp only [beq_false_of_ne hx, Bool.false_eq_true, ↓reduceIte]
     exact evalLitVal_substUpdate_ne α (evalLitVal α l) hx
 
 theorem evalLitVal_substLit_of_eq {v l : Nat} {α : Nat → Bool}
@@ -263,21 +152,13 @@ theorem evalLitVal_substLit_of_eq {v l : Nat} {α : Nat → Bool}
     evalLitVal α (substLit v l x) = evalLitVal α x := by
   rw [← evalLitVal_substExtend]
   have hfn : substExtend v l α = α := by
-    funext w
-    unfold substExtend substUpdate
-    by_cases hw : w = v
-    · subst hw; simp [heq]
-    · simp [hw]
+    funext w; unfold substExtend substUpdate
+    by_cases hw : w = v <;> simp [hw, heq]
   rw [hfn]
 
 theorem clause_sat_subst_map_iff (v l : Nat) (α : Nat → Bool) (c : List Nat) :
-    (cnfClause (c.map (substLit v l))).Sat α ↔ (cnfClause c).Sat (substExtend v l α) := by
-  simp only [← clauseEvalVal_iff, clauseEvalVal, List.any_eq_true, List.mem_map]
-  constructor
-  · rintro ⟨_, ⟨x, hx, rfl⟩, hsat⟩
-    exact ⟨x, hx, by rwa [evalLitVal_substExtend]⟩
-  · rintro ⟨x, hx, hsat⟩
-    exact ⟨substLit v l x, ⟨x, hx, rfl⟩, by rwa [← evalLitVal_substExtend]⟩
+    (cnfClause (c.map (substLit v l))).Sat α ↔ (cnfClause c).Sat (substExtend v l α) :=
+  clause_sat_map_iff (substLit v l) (substExtend v l α) α (evalLitVal_substExtend v l α) c
 
 theorem substExtend_agrees_ne (v l : Nat) (α : Nat → Bool) {w : Nat} (hne : w ≠ v) :
     substExtend v l α w = α w :=
@@ -300,46 +181,23 @@ theorem subst_sat_fwd {f : CNF Nat} {v l : Nat} {α : Nat → Bool}
     (heq : EquivEntailed f v l) (hα : f.Sat α) :
     (substCnf v l f).Sat α := by
   have hval := equivEntailed_eval heq hα
-  rw [substCnf, cnf_sat_cnfOfClauses_iff]
-  intro c' hc'
-  rw [substClauses, List.mem_filterMap] at hc'
-  obtain ⟨c, hc, hsub⟩ := hc'
-  unfold substClause at hsub
-  dsimp only at hsub
-  split at hsub
-  · cases hsub
-  · injection hsub with hce
-    rw [← hce, clause_sat_dedup_iff, clause_sat_subst_map_iff]
-    have hfn : substExtend v l α = α := by
-      funext w
-      unfold substExtend substUpdate
-      by_cases hw : w = v
-      · subst hw; simp [hval]
-      · simp [hw]
-    rw [hfn]
-    exact (sat_iff_clausesOfCnf α f).mp hα c hc
+  have hfn : substExtend v l α = α := by
+    funext w; unfold substExtend substUpdate
+    by_cases hw : w = v <;> simp [hw, hval]
+  exact mapClauses_sat_fwd (evalLitVal_substExtend v l) hfn hα
 
 /-- UNSAT soundness of single-step equivalence substitution (`F'.Unsat → F.Unsat`). -/
 theorem subst_unsat_sound {f : CNF Nat} {v l : Nat}
     (heq : EquivEntailed f v l) (hu : (substCnf v l f).Unsat) : f.Unsat := by
   rw [CNF.unsat_iff_not_sat] at hu ⊢
-  intro α hα
-  exact hu α (subst_sat_fwd heq hα)
+  exact fun α hα => hu α (subst_sat_fwd heq hα)
 
 /-- Explicit SAT model reconstruction for single-step substitution: any model `α` of
 `substCnf v l f` reconstructs to `α' = substExtend v l α` satisfying `f`. -/
 theorem subst_sat_reconstruct {f : CNF Nat} {v l : Nat} {α : Nat → Bool}
     (hα : (substCnf v l f).Sat α) :
-    f.Sat (substExtend v l α) := by
-  rw [sat_iff_clausesOfCnf]
-  intro c hc
-  rw [← clause_sat_subst_map_iff, ← clause_sat_dedup_iff]
-  by_cases ht : clauseIsTaut (dedupLits (c.map (substLit v l))) = true
-  · exact clauseIsTaut_sat ht α
-  · have hmem : dedupLits (c.map (substLit v l)) ∈ substClauses v l (clausesOfCnf f) := by
-      rw [substClauses, List.mem_filterMap]
-      exact ⟨c, hc, by simp [substClause, ht]⟩
-    exact (cnf_sat_cnfOfClauses_iff α _).mp hα _ hmem
+    f.Sat (substExtend v l α) :=
+  mapClauses_sat_recon (evalLitVal_substExtend v l) hα
 
 /-- Equisatisfiability of single-step equivalence substitution. -/
 theorem subst_equisat {f : CNF Nat} {v l : Nat} (heq : EquivEntailed f v l) :
@@ -361,7 +219,7 @@ theorem subst_var_elim {f : CNF Nat} {v l : Nat} (hne : litVar l ≠ v) :
   intro c' hc' x hx
   rw [substCnf, clausesOfCnf_cnfOfClauses, substClauses, List.mem_filterMap] at hc'
   obtain ⟨c, _, hsub⟩ := hc'
-  unfold substClause at hsub
+  unfold substClause mapClauseTaut at hsub
   dsimp only at hsub
   split at hsub
   · cases hsub
@@ -370,7 +228,7 @@ theorem subst_var_elim {f : CNF Nat} {v l : Nat} (hne : litVar l ≠ v) :
     obtain ⟨y, _, rfl⟩ := List.mem_map.mp (mem_dedupLits_iff.mp hx)
     exact litVar_substLit_ne hne y
 
-/-! ## 3. Multi-step substitution trace and witness stack composition -/
+/-! ## 2. Multi-step substitution trace and witness stack composition -/
 
 /-- One recorded literal substitution `(var ↦ repr)` on the substitution witness stack. -/
 structure SubstEntry where
@@ -552,9 +410,8 @@ to literals (`Nat → Nat`). -/
   if litSign x then litNeg (m (litVar x)) else m (litVar x)
 
 /-- Apply simultaneous representative map `m` to clause `c`, dropping tautologies. -/
-@[expose] def substMapClause (m : Nat → Nat) (c : List Nat) : Option (List Nat) :=
-  let c' := dedupLits (c.map (substMapLit m))
-  if clauseIsTaut c' then none else some c'
+abbrev substMapClause (m : Nat → Nat) (c : List Nat) : Option (List Nat) :=
+  mapClauseTaut (substMapLit m) c
 
 /-- Apply simultaneous representative map `m` across a clause list, dropping tautologies. -/
 @[expose] def substMapClauses (m : Nat → Nat) (cs : List (List Nat)) : List (List Nat) :=
@@ -575,53 +432,27 @@ theorem evalLitVal_substMapExtend (m : Nat → Nat) (α : Nat → Bool) (x : Nat
   cases hs : litSign x <;> simp [evalLitVal, hs]
 
 theorem clause_sat_substMap_iff (m : Nat → Nat) (α : Nat → Bool) (c : List Nat) :
-    (cnfClause (c.map (substMapLit m))).Sat α ↔ (cnfClause c).Sat (substMapExtend m α) := by
-  simp only [← clauseEvalVal_iff, clauseEvalVal, List.any_eq_true, List.mem_map]
-  constructor
-  · rintro ⟨_, ⟨x, hx, rfl⟩, hsat⟩
-    exact ⟨x, hx, by rwa [evalLitVal_substMapExtend]⟩
-  · rintro ⟨x, hx, hsat⟩
-    exact ⟨substMapLit m x, ⟨x, hx, rfl⟩, by rwa [← evalLitVal_substMapExtend]⟩
+    (cnfClause (c.map (substMapLit m))).Sat α ↔ (cnfClause c).Sat (substMapExtend m α) :=
+  clause_sat_map_iff (substMapLit m) (substMapExtend m α) α (evalLitVal_substMapExtend m α) c
 
 /-- Forward satisfiability preservation for simultaneous SCC representative substitution. -/
 theorem substMap_sat_fwd {f : CNF Nat} {m : Nat → Nat} {α : Nat → Bool}
     (hm : ∀ v, EquivEntailed f v (m v)) (hα : f.Sat α) :
     (substMapCnf m f).Sat α := by
-  have hfn : substMapExtend m α = α := by
-    funext v
-    exact (equivEntailed_eval (hm v) hα).symm
-  rw [substMapCnf, cnf_sat_cnfOfClauses_iff]
-  intro c' hc'
-  rw [substMapClauses, List.mem_filterMap] at hc'
-  obtain ⟨c, hc, hsub⟩ := hc'
-  unfold substMapClause at hsub
-  dsimp only at hsub
-  split at hsub
-  · cases hsub
-  · injection hsub with hce
-    rw [← hce, clause_sat_dedup_iff, clause_sat_substMap_iff, hfn]
-    exact (sat_iff_clausesOfCnf α f).mp hα c hc
+  have hfn : substMapExtend m α = α := funext fun v => (equivEntailed_eval (hm v) hα).symm
+  exact mapClauses_sat_fwd (evalLitVal_substMapExtend m) hfn hα
 
 /-- UNSAT soundness for simultaneous SCC representative substitution. -/
 theorem substMap_unsat_sound {f : CNF Nat} {m : Nat → Nat}
     (hm : ∀ v, EquivEntailed f v (m v)) (hu : (substMapCnf m f).Unsat) : f.Unsat := by
   rw [CNF.unsat_iff_not_sat] at hu ⊢
-  intro α hα
-  exact hu α (substMap_sat_fwd hm hα)
+  exact fun α hα => hu α (substMap_sat_fwd hm hα)
 
 /-- Explicit SAT model reconstruction for simultaneous SCC representative substitution. -/
 theorem substMap_sat_recon {f : CNF Nat} {m : Nat → Nat} {α : Nat → Bool}
     (hα : (substMapCnf m f).Sat α) :
-    f.Sat (substMapExtend m α) := by
-  rw [sat_iff_clausesOfCnf]
-  intro c hc
-  rw [← clause_sat_substMap_iff, ← clause_sat_dedup_iff]
-  by_cases ht : clauseIsTaut (dedupLits (c.map (substMapLit m))) = true
-  · exact clauseIsTaut_sat ht α
-  · have hmem : dedupLits (c.map (substMapLit m)) ∈ substMapClauses m (clausesOfCnf f) := by
-      rw [substMapClauses, List.mem_filterMap]
-      exact ⟨c, hc, by simp [substMapClause, ht]⟩
-    exact (cnf_sat_cnfOfClauses_iff α _).mp hα _ hmem
+    f.Sat (substMapExtend m α) :=
+  mapClauses_sat_recon (evalLitVal_substMapExtend m) hα
 
 /-- Equisatisfiability for simultaneous SCC representative substitution. -/
 theorem substMap_equisat {f : CNF Nat} {m : Nat → Nat}
@@ -669,24 +500,14 @@ theorem checkBinPath_sound {cs : List (List Nat)} :
     ∀ {a : Nat} {path : List Nat} {b : Nat},
       checkBinPath cs a path b = true → BinReach (cnfOfClauses cs) a b
   | a, [], b, h => by
-    simp only [checkBinPath, beq_iff_eq] at h
-    subst h
-    exact .refl a
+    simp only [checkBinPath, beq_iff_eq] at h; subst h; exact .refl a
   | a, next :: rest, b, h => by
     simp only [checkBinPath, Bool.and_eq_true] at h
     exact .step (hasBinEdge_sound h.1) (checkBinPath_sound h.2)
 
 theorem evalVar_substExtendArr (v l : Nat) (σ : Array Bool) :
-    evalVar (substExtendArr v l σ) = substExtend v l (evalVar σ) := by
-  funext w
-  unfold substExtendArr substExtend substUpdate evalVar
-  have hiff : ∀ (arr : Array Bool) (k : Nat), arr[k]?.getD false = arr.getD k false := by
-    intro arr k
-    by_cases hk : k < arr.size <;> simp [Array.getD, hk]
-  rw [hiff, arraySetPad_getD, ← hiff]
-  by_cases hw : w = v
-  · subst hw; simp [evalLit, evalLitVal, evalVar]
-  · simp [hw]
+    evalVar (substExtendArr v l σ) = substExtend v l (evalVar σ) :=
+  evalVar_arraySetPad σ v (evalLit σ l)
 
 theorem evalVar_substTraceExtendArr (tr : SubstTrace) (σ : Array Bool) :
     evalVar (substTraceExtendArr tr σ) = substExtendTrace tr (evalVar σ) := by

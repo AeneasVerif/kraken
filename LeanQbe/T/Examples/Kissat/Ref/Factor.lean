@@ -369,18 +369,6 @@ def extendGateBveArr (v : Nat) (posClauses : List (List Nat)) (σ : Array Bool) 
 @[expose] def tierBTraceExtendArr (tr : TierBTrace) (σ : Array Bool) : Array Bool :=
   tr.foldr tierBStepExtendArr σ
 
-private theorem evalVar_arraySetPad (σ : Array Bool) (v : Nat) (val : Bool) :
-    evalVar (arraySetPad σ v val false) = substUpdate (evalVar σ) v val := by
-  funext w
-  unfold evalVar substUpdate
-  have hiff : ∀ (arr : Array Bool) (k : Nat), arr[k]?.getD false = arr.getD k false := by
-    intro arr k
-    by_cases hk : k < arr.size <;> simp [Array.getD, hk]
-  rw [hiff, arraySetPad_getD, ← hiff]
-  by_cases hw : w = v
-  · subst hw; simp
-  · simp [hw]
-
 theorem evalVar_extendBceArr (l : Nat) (c : List Nat) (σ : Array Bool) :
     evalVar (extendBceArr l c σ) = extendBce l c (evalVar σ) := by
   unfold extendBceArr extendBce setLitTrue

@@ -46,85 +46,8 @@ theorem minimizeBlockExec_sound {s : MinState} (h : MinBaseInv s)
     (∀ l ∈ B', l ∈ B) ∧
     (∀ l ∈ pref ++ B' ++ suff, litNeg l ∈ s'.cdcl.trail.toList) ∧
     (∀ w, s.isRemovable w = true → s'.isRemovable w = true) := by
-  have hfold : ∀ (xs acc : List Nat) (st : MinState),
-      MinBaseInv st → st.cdcl = s.cdcl → st.trailPos = s.trailPos →
-      st.cdcl.f0.EntailsClause (cnfClause (pref ++ acc.reverse ++ xs ++ suff)) →
-      st.RemovableInv (pref ++ acc.reverse ++ xs ++ suff) →
-      (∀ l ∈ acc, litNeg l ∈ st.cdcl.trail.toList ∧ l ∈ B) →
-      (∀ l ∈ xs, litNeg l ∈ st.cdcl.trail.toList ∧ l ∈ B) →
-      let res := xs.foldl (fun (p : List Nat × MinState) lit =>
-        let (ok, st') := minimizeLiteralWorklist p.2 true maxDepth lit 0
-        if ok then (p.1, st') else (lit :: p.1, st')) (acc, st)
-      MinBaseInv res.2 ∧ res.2.cdcl = s.cdcl ∧ res.2.trailPos = s.trailPos ∧
-      res.2.cdcl.f0.EntailsClause (cnfClause (pref ++ res.1.reverse ++ suff)) ∧
-      res.2.RemovableInv (pref ++ res.1.reverse ++ suff) ∧
-      (∀ l ∈ res.1.reverse, litNeg l ∈ res.2.cdcl.trail.toList ∧ l ∈ B) ∧
-      (∀ w, st.isRemovable w = true → res.2.isRemovable w = true) := by
-    intro xs
-    induction xs with
-    | nil =>
-      intro acc st hst hcdcl htp hent' hrem' hacc _
-      simp only [List.foldl_nil]
-      refine ⟨hst, hcdcl, htp, by simpa using hent', by simpa using hrem', fun l hl => ?_,
-        fun _ hw => hw⟩
-      exact hacc l (List.mem_reverse.mp hl)
-    | cons x xs ih =>
-      intro acc st hst hcdcl htp hent' hrem' hacc hxs
-      have hml := minimizeLiteralWorklist_sound hst hent' hrem' true maxDepth x
-      cases hres : minimizeLiteralWorklist st true maxDepth x 0 with
-      | mk ok st1 =>
-        rw [hres] at hml
-        obtain ⟨hb1, hcd1, htp1, hr1, hm1, hcut1⟩ := hml
-        simp only [List.foldl_cons, hres]
-        have hxs' : ∀ l ∈ xs, litNeg l ∈ st1.cdcl.trail.toList ∧ l ∈ B := fun l hl => by
-          simpa [hcd1] using hxs l (List.mem_cons_of_mem _ hl)
-        cases ok with
-        | true =>
-          have hcut := hcut1 rfl
-          have hsub : ∀ y ∈ (pref ++ acc.reverse ++ (x :: xs) ++ suff).filter (· != x),
-              y ∈ pref ++ acc.reverse ++ xs ++ suff := by
-            intro y hy
-            rw [List.mem_filter] at hy
-            rcases List.mem_append.mp hy.1 with hpa | hsuf
-            · rcases List.mem_append.mp hpa with hpa0 | hcons
-              · exact List.mem_append_left _ (List.mem_append_left _ hpa0)
-              · rcases List.mem_cons.mp hcons with rfl | hxs_m
-                · simp at hy
-                · exact List.mem_append_left _ (List.mem_append_right _ hxs_m)
-            · exact List.mem_append_right _ hsuf
-          have hsub_ent :
-              st1.cdcl.f0.EntailsClause (cnfClause (pref ++ acc.reverse ++ xs ++ suff)) := by
-            have hce := hcut.1
-            rw [CNF.entails_clause_def] at hce ⊢
-            intro α hα
-            obtain ⟨y, hy, hys⟩ := (clause_sat_cnfClause_iff α _).mp (hce α hα)
-            exact (clause_sat_cnfClause_iff α _).mpr ⟨y, hsub y hy, hys⟩
-          have hsub_rem : st1.RemovableInv (pref ++ acc.reverse ++ xs ++ suff) :=
-            removableInv_mono_clause hsub hcut.2
-          have hacc1 : ∀ l ∈ acc, litNeg l ∈ st1.cdcl.trail.toList ∧ l ∈ B := fun l hl => by
-            simpa [hcd1] using hacc l hl
-          have hih := ih acc st1 hb1 (hcd1.trans hcdcl) (htp1.trans htp)
-            hsub_ent hsub_rem hacc1 hxs'
-          exact ⟨hih.1, hih.2.1, hih.2.2.1, hih.2.2.2.1, hih.2.2.2.2.1, hih.2.2.2.2.2.1,
-            fun w hw => hih.2.2.2.2.2.2 w (hm1 w hw)⟩
-        | false =>
-          have heq_list : pref ++ (x :: acc).reverse ++ xs ++ suff =
-              pref ++ acc.reverse ++ (x :: xs) ++ suff := by
-            simp [List.reverse_cons, List.append_assoc]
-          have hent1 : st1.cdcl.f0.EntailsClause
-              (cnfClause (pref ++ (x :: acc).reverse ++ xs ++ suff)) := by
-            rw [heq_list, hcd1]; exact hent'
-          have hrem1 : st1.RemovableInv (pref ++ (x :: acc).reverse ++ xs ++ suff) := by
-            rw [heq_list]; exact hr1
-          have hacc1 : ∀ l ∈ x :: acc, litNeg l ∈ st1.cdcl.trail.toList ∧ l ∈ B := by
-            intro l hl; rcases List.mem_cons.mp hl with rfl | ha
-            · simpa [hcd1] using hxs l (by simp)
-            · simpa [hcd1] using hacc l ha
-          have hih := ih (x :: acc) st1 hb1 (hcd1.trans hcdcl) (htp1.trans htp)
-            hent1 hrem1 hacc1 hxs'
-          exact ⟨hih.1, hih.2.1, hih.2.2.1, hih.2.2.2.1, hih.2.2.2.2.1, hih.2.2.2.2.2.1,
-            fun w hw => hih.2.2.2.2.2.2 w (hm1 w hw)⟩
-  have hmain := hfold B [] s h rfl rfl (by simpa using hent) (by simpa using hrem)
+  have hmain := minimizeLiteralFold_sound (s := s) (pref := pref) (suff := suff) (B := B)
+    maxDepth B [] s h rfl rfl (by simpa using hent) (by simpa using hrem)
     (fun _ hl => by cases hl)
     (fun l hl => ⟨hfals l (List.mem_append_left _ (List.mem_append_right _ hl)), hl⟩)
   unfold minimizeBlockExec
@@ -737,6 +660,12 @@ private theorem resolveLargeFailed_props {s : CdclState} (hinv : LazyTrailInv s)
               · obtain ⟨y, hy, hys⟩ := (clause_sat_cnfClause_iff α _).mp (htrue α hα he)
                 exact (clause_sat_cnfClause_iff α _).mpr ⟨y, List.mem_cons_of_mem _ hy, hys⟩
 
+private theorem mem_append_singleton_ok {P : Nat → Prop} {xs : List Nat} {x u : Nat}
+    (hxs : ∀ v ∈ xs, P v) (hx : P x) (hu : u ∈ xs ++ [x]) : P u := by
+  rcases List.mem_append.mp hu with hv1 | hv2
+  · exact hxs u hv1
+  · simp only [List.mem_singleton] at hv2; subst hv2; exact hx
+
 private theorem analyzeFailedLoop_sound {s : CdclState} (hinv : LazyTrailInv s)
     {notFailed : Nat} (hnf_ent : s.f0.EntailsClause (cnfClause [notFailed])) :
     ∀ (t : Nat) (A units : List Nat) (prevUnit : Option Nat),
@@ -792,79 +721,46 @@ private theorem analyzeFailedLoop_sound {s : CdclState} (hinv : LazyTrailInv s)
           subst hkx_z
           rw [← hkx_eq, hlit_eq] at hys
           exact (sat_cnfClause_singleton α _).mpr hys
-        have hu'_ent : ∀ v ∈ units ++ [litNeg lit], s.f0.EntailsClause (cnfClause [v]) := by
-          intro v hv
-          rcases List.mem_append.mp hv with hv1 | hv2
-          · exact hu_ent v hv1
-          · simp only [List.mem_singleton] at hv2; subst hv2; exact hunit_ent
+        have hu'_ent : ∀ v ∈ units ++ [litNeg lit], s.f0.EntailsClause (cnfClause [v]) :=
+          fun _ hv => mem_append_singleton_ok hu_ent hunit_ent hv
         simp only [hemit, ↓reduceIte] at hu_mem
         cases hrsn : stateReason s lit with
         | decision | unit =>
           rw [hrsn] at hu_mem
-          rcases List.mem_append.mp hu_mem with hv1 | hv2
-          · exact hu'_ent u hv1
-          · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+          exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
         | binary other =>
           rw [hrsn] at hu_mem; dsimp only at hu_mem
           split at hu_mem
-          · rcases List.mem_append.mp hu_mem with hv1 | hv2
-            · exact hu'_ent u hv1
-            · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+          · exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
           · split at hu_mem
-            · rcases List.mem_append.mp hu_mem with hv1 | hv2
-              · exact hu'_ent u hv1
-              · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
-            · split at hu_mem <;> rcases List.mem_append.mp hu_mem with hv1 | hv2
-              · exact hu'_ent u hv1
-              · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
-              · exact hu'_ent u hv1
-              · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+            · exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
+            · split at hu_mem <;> exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
         | large cid =>
           rw [hrsn] at hu_mem; dsimp only at hu_mem
           cases hgc : s.clauses[cid]? with
           | none =>
-            rw [hgc] at hu_mem
-            rcases List.mem_append.mp hu_mem with hv1 | hv2
-            · exact hu'_ent u hv1
-            · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+            rw [hgc] at hu_mem; exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
           | some opt =>
             cases opt with
             | none =>
-              rw [hgc] at hu_mem
-              rcases List.mem_append.mp hu_mem with hv1 | hv2
-              · exact hu'_ent u hv1
-              · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+              rw [hgc] at hu_mem; exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
             | some cl =>
               rw [hgc] at hu_mem; dsimp only at hu_mem
               split at hu_mem
               · cases hrl : resolveLargeFailed s lit notFailed (some (litNeg lit)) cl.lits [] with
-                | none =>
+                | none | some _ =>
                   rw [hnil_rest, hrl] at hu_mem
-                  rcases List.mem_append.mp hu_mem with hv1 | hv2
-                  · exact hu'_ent u hv1
-                  · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
-                | some A' =>
-                  rw [hnil_rest, hrl] at hu_mem
-                  rcases List.mem_append.mp hu_mem with hv1 | hv2
-                  · exact hu'_ent u hv1
-                  · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
-              · rcases List.mem_append.mp hu_mem with hv1 | hv2
-                · exact hu'_ent u hv1
-                · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+                  exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
+              · exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
       · have hany_t : (!A.any (fun a => litVar a == litVar lit)) = true := by simp [hany]
         rw [ite_eq_left hany_t] at hu_mem
-        rcases List.mem_append.mp hu_mem with hv1 | hv2
-        · exact hu_ent u hv1
-        · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+        exact mem_append_singleton_ok hu_ent hnf_ent hu_mem
   | succ t' ih =>
     intro A units prevUnit hu_ent hpu hA hnd hent u hu_mem
     unfold analyzeFailedLoop at hu_mem
     cases hget : s.trail[t' + 1]? with
     | none =>
-      rw [hget] at hu_mem
-      rcases List.mem_append.mp hu_mem with hv1 | hv2
-      · exact hu_ent u hv1
-      · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+      rw [hget] at hu_mem; exact mem_append_singleton_ok hu_ent hnf_ent hu_mem
     | some lit =>
       rw [hget] at hu_mem; dsimp only at hu_mem
       rw [Array.getElem?_eq_some_iff] at hget
@@ -1063,17 +959,11 @@ private theorem analyzeFailedLoop_sound {s : CdclState} (hinv : LazyTrailInv s)
           rw [hrsn] at hu_mem; dsimp only at hu_mem
           cases hgc : s.clauses[cid]? with
           | none =>
-            rw [hgc] at hu_mem
-            rcases List.mem_append.mp hu_mem with hv1 | hv2
-            · exact hu'_ent u hv1
-            · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+            rw [hgc] at hu_mem; exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
           | some opt =>
             cases opt with
             | none =>
-              rw [hgc] at hu_mem
-              rcases List.mem_append.mp hu_mem with hv1 | hv2
-              · exact hu'_ent u hv1
-              · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+              rw [hgc] at hu_mem; exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
             | some cl =>
               rw [hgc] at hu_mem; dsimp only at hu_mem
               by_cases hok : (!cl.garbage && cl.lits.contains lit) = true
@@ -1093,10 +983,7 @@ private theorem analyzeFailedLoop_sound {s : CdclState} (hinv : LazyTrailInv s)
                 rw [hlit_eq] at hrl_p
                 cases hrl : resolveLargeFailed s lit notFailed prevUnit' cl.lits A_rest with
                 | none =>
-                  rw [hrl] at hu_mem
-                  rcases List.mem_append.mp hu_mem with hv1 | hv2
-                  · exact hu'_ent u hv1
-                  · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+                  rw [hrl] at hu_mem; exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
                 | some A' =>
                   rw [hrl] at hrl_p hu_mem
                   obtain ⟨hA', hnd', hent'⟩ := hrl_p
@@ -1105,9 +992,7 @@ private theorem analyzeFailedLoop_sound {s : CdclState} (hinv : LazyTrailInv s)
                     intro a ha; obtain ⟨k, hk, hkt, hke⟩ := hA' a ha; exact ⟨k, by omega, hkt, hke⟩
                   exact ih A' units' prevUnit' hu'_ent hpu_next hA'_le hnd' hent' u hu_mem
               · rw [ite_eq_right hok] at hu_mem
-                rcases List.mem_append.mp hu_mem with hv1 | hv2
-                · exact hu'_ent u hv1
-                · simp only [List.mem_singleton] at hv2; subst hv2; exact hnf_ent
+                exact mem_append_singleton_ok hu'_ent hnf_ent hu_mem
       · have hany_t : (!A.any (fun a => litVar a == litVar lit)) = true := by simp [hany]
         rw [ite_eq_left hany_t] at hu_mem
         have hA' : ∀ a ∈ A,

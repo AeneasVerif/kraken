@@ -157,23 +157,14 @@ theorem bce_extend_sat {cs : List (List Nat)} {c : List Nat} {l : Nat} {α : Nat
         rw [← clauseEvalVal_iff, clauseEvalVal, List.any_eq_true]
         exact ⟨y, hy, by rw [evalLitVal_setLitTrue_ne α hvy]; exact hysat⟩
 
-private theorem mem_of_mem_erase {cs : List (List Nat)} {c d : List Nat}
-    (hd : d ∈ cs.erase c) : d ∈ cs :=
-  List.mem_of_mem_erase hd
-
-private theorem mem_or_eq_of_mem {cs : List (List Nat)} {c d : List Nat}
-    (hd : d ∈ cs) : d = c ∨ d ∈ cs.erase c := by
-  by_cases hdc : d = c
-  · exact Or.inl hdc
-  · exact Or.inr ((List.mem_erase_of_ne hdc).mpr hd)
-
 /-- UNSAT soundness of single-step BCE (`(cs.erase c).Unsat → cs.Unsat`). -/
 theorem bce_erase_unsat {cs : List (List Nat)} {c : List Nat}
     (hu : (cnfOfClauses (cs.erase c)).Unsat) : (cnfOfClauses cs).Unsat := by
   rw [CNF.unsat_iff_not_sat] at hu ⊢
   intro α hα
   rw [cnf_sat_cnfOfClauses_iff] at hα
-  exact hu α ((cnf_sat_cnfOfClauses_iff α _).mpr fun d hd => hα d (mem_of_mem_erase hd))
+  exact hu α ((cnf_sat_cnfOfClauses_iff α _).mpr fun d hd =>
+    hα d (List.mem_of_mem_erase hd))
 
 /-- Explicit SAT model reconstruction for single-step BCE removing a blocked clause `c ∈ cs`. -/
 theorem bce_erase_sat {cs : List (List Nat)} {c : List Nat} {l : Nat} {α : Nat → Bool}
@@ -183,7 +174,7 @@ theorem bce_erase_sat {cs : List (List Nat)} {c : List Nat} {l : Nat} {α : Nat 
   have hext := (cnf_sat_cnfOfClauses_iff _ _).mp (bce_extend_sat hblk hsat)
   rw [cnf_sat_cnfOfClauses_iff]
   intro d hd
-  rcases mem_or_eq_of_mem (c := c) hd with rfl | hmem
+  rcases mem_or_eq_of_mem (x := c) hd with rfl | hmem
   · exact hext d (List.mem_cons_self ..)
   · exact hext d (List.mem_cons_of_mem c hmem)
 
@@ -194,7 +185,7 @@ theorem bce_erase_equisat {cs : List (List Nat)} {c : List Nat} {l : Nat}
   constructor
   · rintro ⟨α, hα⟩
     rw [cnf_sat_cnfOfClauses_iff] at hα
-    exact ⟨α, (cnf_sat_cnfOfClauses_iff α _).mpr fun d hd => hα d (mem_of_mem_erase hd)⟩
+    exact ⟨α, (cnf_sat_cnfOfClauses_iff α _).mpr fun d hd => hα d (List.mem_of_mem_erase hd)⟩
   · rintro ⟨α, hα⟩
     exact ⟨extendBce l c α, bce_erase_sat hblk hα⟩
 
@@ -480,53 +471,32 @@ theorem gateBve_unsat_sound {v : Nat} {gp : GatePartition}
   intro α hα
   exact hu α (gateBve_sat_fwd hα)
 
-private theorem false_filter_of_false_update_false {v : Nat} {c : List Nat} {α : Nat → Bool}
-    (hcf : clauseEvalVal (substUpdate α v false) c = false) :
-    ∀ x ∈ c.filter (· != mkLit v true), evalLitVal α x = false := by
+private theorem false_filter_of_false_update {v : Nat} {pol : Bool} {c : List Nat}
+    {α : Nat → Bool} (hcf : clauseEvalVal (substUpdate α v pol) c = false) :
+    ∀ x ∈ c.filter (· != mkLit v (!pol)), evalLitVal α x = false := by
   intro x hx
   rw [List.mem_filter, bne_iff_ne] at hx
-  have hxf : evalLitVal (substUpdate α v false) x = false := by
+  have hxf : evalLitVal (substUpdate α v pol) x = false := by
     apply Bool.eq_false_iff.mpr
     intro ht
-    have hany : clauseEvalVal (substUpdate α v false) c = true :=
+    have hany : clauseEvalVal (substUpdate α v pol) c = true :=
       List.any_eq_true.mpr ⟨x, hx.1, ht⟩
     rw [hcf] at hany; cases hany
   have hvar : litVar x ≠ v := by
     intro hv
-    have hveq : litVar x = litVar (mkLit v true) := by simpa using hv
-    rcases (litVar_eq_iff x (mkLit v true)).mp hveq with h1 | h2
+    have hveq : litVar x = litVar (mkLit v (!pol)) := by simpa using hv
+    rcases (litVar_eq_iff x (mkLit v (!pol))).mp hveq with h1 | h2
     · exact hx.2 h1
-    · rw [litNeg_mkLit] at h2
+    · rw [litNeg_mkLit, Bool.not_not] at h2
       rw [h2, evalLitVal_mkLit, substUpdate_self] at hxf
-      cases hxf
-  rwa [evalLitVal_substUpdate_ne α false hvar] at hxf
-
-private theorem false_filter_of_false_update_true {v : Nat} {d : List Nat} {α : Nat → Bool}
-    (hdf : clauseEvalVal (substUpdate α v true) d = false) :
-    ∀ y ∈ d.filter (· != mkLit v false), evalLitVal α y = false := by
-  intro y hy
-  rw [List.mem_filter, bne_iff_ne] at hy
-  have hyf : evalLitVal (substUpdate α v true) y = false := by
-    apply Bool.eq_false_iff.mpr
-    intro ht
-    have hany : clauseEvalVal (substUpdate α v true) d = true :=
-      List.any_eq_true.mpr ⟨y, hy.1, ht⟩
-    rw [hdf] at hany; cases hany
-  have hvar : litVar y ≠ v := by
-    intro hv
-    have hveq : litVar y = litVar (mkLit v false) := by simpa using hv
-    rcases (litVar_eq_iff y (mkLit v false)).mp hveq with h1 | h2
-    · exact hy.2 h1
-    · rw [litNeg_mkLit] at h2
-      rw [h2, evalLitVal_mkLit, substUpdate_self] at hyf
-      cases hyf
-  rwa [evalLitVal_substUpdate_ne α true hvar] at hyf
+      cases pol <;> cases hxf
+  rwa [evalLitVal_substUpdate_ne α pol hvar] at hxf
 
 private theorem sat_neg_of_resolve_sat {v : Nat} {c d : List Nat} {α : Nat → Bool}
     (hcf : clauseEvalVal (substUpdate α v false) c = false)
     (hres : (cnfClause (resolveOn (mkLit v true) c d)).Sat α) :
     (cnfClause d).Sat (substUpdate α v true) := by
-  have hleft := false_filter_of_false_update_false hcf
+  have hleft := false_filter_of_false_update (pol := false) hcf
   obtain ⟨y, hy, hysat⟩ := List.any_eq_true.mp ((clauseEvalVal_iff α _).mpr hres)
   unfold resolveOn at hy
   rw [List.mem_append] at hy
@@ -664,7 +634,7 @@ theorem gateFunctional_entails {v : Nat} {gp : GatePartition}
           · rfl
     obtain ⟨dg, hdg, hdgf⟩ := hex
     have hres := sat_nonTaut_or_taut hc hdg hpngng
-    have hright := false_filter_of_false_update_true hdgf
+    have hright := false_filter_of_false_update (pol := true) hdgf
     obtain ⟨x, hx, hxsat⟩ := List.any_eq_true.mp ((clauseEvalVal_iff α _).mpr hres)
     unfold resolveOn at hx
     rw [List.mem_append, litNeg_mkLit] at hx
@@ -680,7 +650,7 @@ theorem gateFunctional_entails {v : Nat} {gp : GatePartition}
           · rfl
     obtain ⟨cg, hcg, hcgf⟩ := hex
     have hres := sat_nonTaut_or_taut hcg (List.mem_append_right _ hd) hpgn
-    have hleft := false_filter_of_false_update_false hcgf
+    have hleft := false_filter_of_false_update (pol := false) hcgf
     obtain ⟨y, hy, hysat⟩ := List.any_eq_true.mp ((clauseEvalVal_iff α _).mpr hres)
     unfold resolveOn at hy
     rw [List.mem_append] at hy

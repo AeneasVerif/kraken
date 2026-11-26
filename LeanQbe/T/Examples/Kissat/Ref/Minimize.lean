@@ -35,105 +35,7 @@ namespace LeanQbe.T.Examples.Kissat.Ref
 
 open Std.Sat
 
-/-! ## 1. Lazy-level trail invariant, trail entailment, and filtering backtrack -/
-
-/-- Kissat-faithful trail invariant supporting lazy assignment levels (`levels_mono` omitted). -/
-structure LazyTrailInv (s : CdclState) : Prop where
-  vars_nodup : ∀ i j, (hi : i < s.trail.size) → (hj : j < s.trail.size) →
-    litVar s.trail[i] = litVar s.trail[j] → i = j
-  levels_le : ∀ i, (hi : i < s.trail.size) → stateLevel s s.trail[i] ≤ s.level
-  dec_earliest : ∀ i j, (hi : i < s.trail.size) → (hj : j < s.trail.size) →
-    stateLevel s s.trail[i] = stateLevel s s.trail[j] →
-    stateReason s s.trail[j] = .decision → j ≤ i
-  db_sound : ∀ (cid : Nat) (c : Clause),
-    s.clauses[cid]? = some (some c) → s.f0.EntailsClause (cnfClause c.lits)
-  units_sound : ∀ u ∈ s.units, s.f0.EntailsClause (cnfClause [u])
-  reason_dag : ReasonDagInv s
-  inconsistent_sound : s.inconsistent = true → s.f0.Unsat
-
-/-- Every `Trail.TrailInv` state satisfies `LazyTrailInv`. -/
-theorem TrailInv.toLazy {s : CdclState} (h : TrailInv s) : LazyTrailInv s :=
-  ⟨h.vars_nodup, h.levels_le, h.dec_earliest, h.db_sound, h.units_sound,
-    h.reason_dag, h.inconsistent_sound⟩
-
-/-- Trail entailment under lazy levels (no `levels_mono` hypothesis required). -/
-theorem lazyTrailEntailment {s : CdclState} (hinv : LazyTrailInv s) :
-    ∀ (i : Nat) (hi : i < s.trail.size),
-      (s.f0 ++ unitsCnf (decisionsAtMost s (stateLevel s s.trail[i]))).EntailsClause
-        (cnfClause [s.trail[i]]) := by
-  intro i
-  induction i using Nat.strongRecOn with
-  | ind i ih =>
-    intro hi
-    have hrd := hinv.reason_dag i hi
-    dsimp only at hrd
-    generalize hrsn : stateReason s s.trail[i] = rsn; rw [hrsn] at hrd
-    cases rsn with
-    | decision =>
-      refine CNF.entails_clause_def.mpr fun α hα => ?_
-      rw [CNF.sat_append, sat_unitsCnf_iff] at hα
-      exact hα.2 s.trail[i] (mem_decisionsAtMost_iff.mpr
-        ⟨trail_mem_iff_exists.mpr ⟨i, hi, rfl⟩, hrsn, Nat.le_refl _⟩)
-    | unit => exact CNF.entails_clause_trans CNF.append_entails_left hrd.2
-    | binary other =>
-      obtain ⟨hbin, j, hj, hjlt, hjeq, hle, _⟩ := hrd
-      have hneg : (s.f0 ++ unitsCnf (decisionsAtMost s (stateLevel s s.trail[i]))).EntailsClause
-          (cnfClause [litNeg other]) := by
-        rw [← hjeq]
-        exact CNF.entails_clause_trans
-          (unitsCnf_decisionsAtMost_mono (by simpa [hjeq, stateLevel] using hle)) (ih j hjlt hj)
-      refine CNF.entails_clause_def.mpr fun α hα => ?_
-      have hα_neg := CNF.entails_clause_def.mp hneg α hα
-      obtain ⟨y, hy, hsat⟩ := (clause_sat_cnfClause_iff α [s.trail[i], other]).mp
-        (CNF.entails_clause_def.mp hbin α (CNF.sat_append.mp hα).1)
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hy
-      rcases hy with heq | heq <;> rw [heq] at hsat
-      · exact (sat_cnfClause_singleton α s.trail[i]).mpr hsat
-      · exact absurd ((sat_cnfClause_singleton α other).mpr hsat)
-          ((sat_cnfClause_litNeg_iff α other).mp hα_neg)
-    | large cid =>
-      obtain ⟨c, hget, _, _, hall⟩ := hrd
-      refine CNF.entails_clause_def.mpr fun α hα => ?_
-      obtain ⟨x, hx, hsat⟩ := (clause_sat_cnfClause_iff α c.lits).mp
-        (CNF.entails_clause_def.mp (hinv.db_sound cid c hget) α (CNF.sat_append.mp hα).1)
-      by_cases hxeq : x = s.trail[i]
-      · rw [hxeq] at hsat; exact (sat_cnfClause_singleton α s.trail[i]).mpr hsat
-      · obtain ⟨j, hj, hjlt, hjeq, hle, _⟩ := hall x hx hxeq
-        have hneg : (s.f0 ++ unitsCnf (decisionsAtMost s (stateLevel s s.trail[i]))).EntailsClause
-            (cnfClause [litNeg x]) := by
-          rw [← hjeq]
-          exact CNF.entails_clause_trans
-            (unitsCnf_decisionsAtMost_mono (by simpa [hjeq, stateLevel] using hle)) (ih j hjlt hj)
-        exact absurd ((sat_cnfClause_singleton α x).mpr hsat)
-          ((sat_cnfClause_litNeg_iff α x).mp (CNF.entails_clause_def.mp hneg α hα))
-
-theorem lazyDecisionsAtMost_zero_empty {s : CdclState} (hinv : LazyTrailInv s) :
-    decisionsAtMost s 0 = [] := by
-  apply List.eq_nil_iff_forall_not_mem.mpr
-  intro l hl; rw [mem_decisionsAtMost_iff] at hl
-  obtain ⟨i, hi, rfl⟩ := trail_mem_iff_exists.mp hl.1
-  have hrd := hinv.reason_dag i hi; dsimp only at hrd; rw [hl.2.1] at hrd; omega
-
-theorem lazyTrailEntailment_level0 {s : CdclState} (hinv : LazyTrailInv s) {i : Nat}
-    (hi : i < s.trail.size) (hlvl : stateLevel s s.trail[i] = 0) :
-    s.f0.EntailsClause (cnfClause [s.trail[i]]) := by
-  have h := lazyTrailEntailment hinv i hi
-  rw [hlvl, lazyDecisionsAtMost_zero_empty hinv] at h
-  exact CNF.entails_clause_def.mpr fun α hα =>
-    CNF.entails_clause_def.mp h α (by simpa [unitsCnf] using hα)
-
-theorem lazyUnsat_of_conflict {s : CdclState} (hinv : LazyTrailInv s) {confl : List Nat}
-    (hlvl : s.level = 0) (hconfl : s.f0.EntailsClause (cnfClause confl))
-    (hfals : ∀ l ∈ confl, litNeg l ∈ s.trail.toList) : s.f0.Unsat := by
-  rw [CNF.unsat_iff_not_sat]
-  intro α hα
-  obtain ⟨l, hl, hsat⟩ :=
-    (clause_sat_cnfClause_iff α confl).mp (CNF.entails_clause_def.mp hconfl α hα)
-  obtain ⟨i, hi, hieq⟩ := trail_mem_iff_exists.mp (hfals l hl)
-  have hli : stateLevel s s.trail[i] = 0 := by have := hinv.levels_le i hi; omega
-  have hent := lazyTrailEntailment_level0 hinv hi hli; rw [hieq] at hent
-  exact (sat_cnfClause_litNeg_iff α l).mp (CNF.entails_clause_def.mp hent α hα)
-    ((sat_cnfClause_singleton α l).mpr hsat)
+/-! ## 1. Lazy-level filtering backtrack -/
 
 /-- Kissat-faithful filtering backtrack (`backtrack.c:94-112`): compacts every trail literal
 with `level ≤ targetLevel` left-to-right without assuming `levels_mono`. -/
@@ -842,15 +744,15 @@ theorem seedRemovable_preserves {s : MinState} {C : List Nat}
     ∃ cl : Clause, s.cdcl.clauses[cid]? = some (some cl) ∧ !cl.garbage = true ∧ t ∈ cl.lits ∧
       ∀ x ∈ cl.lits, x ≠ t → s.litLevel x = 0 ∨ s.isRemovable (litVar x) = true
 
-/-- Helper: given `RemovableInv s C`, any falsified literal `x` on the trail with `varLt x v`
-whose variable is level-0 or `removable` must be falsified under `α`. -/
-private theorem antecedent_falsified {s : MinState} (h : MinBaseInv s) {C : List Nat}
-    (hrem : s.RemovableInv C) {v x : Nat}
+/-- Helper: given `RemovableInv s C`, any falsified literal `x` on the trail whose variable is
+level-0 or `removable` (with all smaller `C` literals falsified) must be falsified under `α`. -/
+theorem antecedent_falsified {s : MinState} (h : MinBaseInv s) {C : List Nat}
+    (hrem : s.RemovableInv C) {x : Nat}
     (hx_trail : ∃ (j : Nat) (_hj : j < s.cdcl.trail.size), s.cdcl.trail[j] = litNeg x)
-    (hlt : varLt s (litVar x) v)
     (hok : s.litLevel x = 0 ∨ s.isRemovable (litVar x) = true)
     {α : Nat → Bool} (hα : s.cdcl.f0.Sat α)
-    (hC : ∀ l ∈ C, varLt s (litVar l) v → ¬ (cnfClause [l]).Sat α) :
+    (hC : 0 < s.varLevel (litVar x) →
+      ∀ l ∈ C, varLe s (litVar l) (litVar x) → ¬ (cnfClause [l]).Sat α) :
     ¬ (cnfClause [x]).Sat α := by
   obtain ⟨j, hj, hjeq⟩ := hx_trail
   rcases hok with hl0 | hrx
@@ -864,8 +766,7 @@ private theorem antecedent_falsified {s : MinState} (h : MinBaseInv s) {C : List
       have hj'eq : j' = j := trail_idx_unique_of_var h hj' hj (by rw [hj'var, hjeq, litVar_litNeg])
       subst hj'eq
       have hsat : (cnfClause [litNeg x]).Sat α := by
-        rw [← hjeq]
-        exact himp α hα fun l hlC hle => hC l hlC (varLt_of_varLe_varLt hle hlt)
+        rw [← hjeq]; exact himp α hα (hC hpos)
       exact (sat_cnfClause_litNeg_iff α x).mp hsat
     · have hl0' : stateLevel s.cdcl s.cdcl.trail[j] = 0 := by
         simp only [MinState.varLevel] at hpos
@@ -896,7 +797,8 @@ theorem trailLit_entailed_of_antecedents {s : MinState} (h : MinBaseInv s) {C : 
   | binary other =>
     obtain ⟨hbin, j, hj, _, hjeq, _, hlt⟩ := hrd
     have hnf : ¬ (cnfClause [other]).Sat α :=
-      antecedent_falsified h hrem ⟨j, hj, hjeq⟩ hlt hant hα hC
+      antecedent_falsified h hrem ⟨j, hj, hjeq⟩ hant hα
+        (fun _ l hl hle => hC l hl (varLt_of_varLe_varLt hle hlt))
     obtain ⟨y, hy, hsat⟩ :=
       (clause_sat_cnfClause_iff α _).mp (CNF.entails_clause_def.mp hbin α hα)
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hy
@@ -914,7 +816,8 @@ theorem trailLit_entailed_of_antecedents {s : MinState} (h : MinBaseInv s) {C : 
     · rw [hxeq] at hsat; exact (sat_cnfClause_singleton α _).mpr hsat
     · obtain ⟨j, hj, _, hjeq, _, hlt⟩ := hall x hx hxeq
       have hnf : ¬ (cnfClause [x]).Sat α :=
-        antecedent_falsified h hrem ⟨j, hj, hjeq⟩ hlt (hall_ant x hx hxeq) hα hC
+        antecedent_falsified h hrem ⟨j, hj, hjeq⟩ (hall_ant x hx hxeq) hα
+          (fun _ l hl hle => hC l hl (varLt_of_varLe_varLt hle hlt))
       exact absurd ((sat_cnfClause_singleton α _).mpr hsat) hnf
 
 /-- (c) Single-step `removable` caching preserves `RemovableInv` whenever antecedents are

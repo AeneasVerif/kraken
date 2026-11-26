@@ -278,26 +278,15 @@ theorem vivify_confl_clauses {cs : List (List Nat)} {i : Nat} {pref : List Nat}
     (hunsat : ((cnfOfClauses (deleteIdx cs i)) ++ unitsCnf (pref.map litNeg)).Unsat) :
     (∀ α : Nat → Bool,
       (cnfOfClauses (replaceIdx cs i pref)).Sat α ↔ (cnfOfClauses cs).Sat α) ∧
-      ((cnfOfClauses (replaceIdx cs i pref)).Unsat ↔ (cnfOfClauses cs).Unsat) := by
-  have heq := vivify_conflict_equiv hsub hunsat
-  have hsat : ∀ α : Nat → Bool,
-      (cnfOfClauses (replaceIdx cs i pref)).Sat α ↔ (cnfOfClauses cs).Sat α := by
-    intro α
-    rw [sat_cnfOfClauses_replaceIdx_iff _ _ hi, sat_cnfOfClauses_iff_getElem]
-    have hrem_iff : (∀ (j : Nat) (hj : j < cs.length), j ≠ i → (cnfClause cs[j]).Sat α) ↔
-        (cnfOfClauses (deleteIdx cs i)).Sat α :=
-      (sat_cnfOfClauses_deleteIdx_iff α cs i).symm
-    constructor
-    · rintro ⟨hp, hrest⟩ k hk
-      by_cases hki : k = i
-      · subst hki; exact sat_clause_of_subset hsub hp
-      · exact hrest k hk hki
-    · intro hall
-      have hdel : (cnfOfClauses (deleteIdx cs i)).Sat α :=
-        hrem_iff.mp fun j hj _ => hall j hj
-      exact ⟨((heq.1 α).mpr (CNF.sat_add.mpr ⟨hall i hi, hdel⟩) |> CNF.sat_add.mp).1,
-        fun j hj _ => hall j hj⟩
-  exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
+      ((cnfOfClauses (replaceIdx cs i pref)).Unsat ↔ (cnfOfClauses cs).Unsat) :=
+  sat_cnfOfClauses_replaceIdx_equiv hi
+    (fun _ _ hp => sat_clause_of_subset hsub hp)
+    (fun α hall =>
+      let hget := (sat_cnfOfClauses_iff_getElem α cs).mp hall
+      let hdel : (cnfOfClauses (deleteIdx cs i)).Sat α :=
+        (sat_cnfOfClauses_deleteIdx_iff α cs i).mpr fun j hj _ => hget j hj
+      (((vivify_conflict_equiv hsub hunsat).1 α).mpr
+        (CNF.sat_add.mpr ⟨hget i hi, hdel⟩) |> CNF.sat_add.mp).1)
 
 /-- **Vivification implied-literal strengthening (clause list)**: replacing `cs[i]` with
 `pref ++ [lm]` when `(cnfOfClauses (deleteIdx cs i)) ∧ ¬pref ⊨ lm` preserves `Sat α` (`↔`)
@@ -308,28 +297,17 @@ theorem vivify_imp_clauses {cs : List (List Nat)} {i : Nat} {pref : List Nat} {l
       (cnfClause [lm])) :
     (∀ α : Nat → Bool,
       (cnfOfClauses (replaceIdx cs i (pref ++ [lm]))).Sat α ↔ (cnfOfClauses cs).Sat α) ∧
-      ((cnfOfClauses (replaceIdx cs i (pref ++ [lm]))).Unsat ↔ (cnfOfClauses cs).Unsat) := by
-  have heq := vivify_implied_equiv hsub hlm hent
-  have hsat : ∀ α : Nat → Bool,
-      (cnfOfClauses (replaceIdx cs i (pref ++ [lm]))).Sat α ↔ (cnfOfClauses cs).Sat α := by
-    intro α
-    rw [sat_cnfOfClauses_replaceIdx_iff _ _ hi, sat_cnfOfClauses_iff_getElem]
-    have hrem_iff : (∀ (j : Nat) (hj : j < cs.length), j ≠ i → (cnfClause cs[j]).Sat α) ↔
-        (cnfOfClauses (deleteIdx cs i)).Sat α :=
-      (sat_cnfOfClauses_deleteIdx_iff α cs i).symm
-    constructor
-    · rintro ⟨hp, hrest⟩ k hk
-      by_cases hki : k = i
-      · subst hki
-        exact sat_clause_of_subset (fun x hx => (List.mem_append.mp hx).elim (hsub x)
-          (fun hm => by simp only [List.mem_singleton] at hm; exact hm ▸ hlm)) hp
-      · exact hrest k hk hki
-    · intro hall
-      have hdel : (cnfOfClauses (deleteIdx cs i)).Sat α :=
-        hrem_iff.mp fun j hj _ => hall j hj
-      exact ⟨((heq.1 α).mpr (CNF.sat_add.mpr ⟨hall i hi, hdel⟩) |> CNF.sat_add.mp).1,
-        fun j hj _ => hall j hj⟩
-  exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
+      ((cnfOfClauses (replaceIdx cs i (pref ++ [lm]))).Unsat ↔ (cnfOfClauses cs).Unsat) :=
+  sat_cnfOfClauses_replaceIdx_equiv hi
+    (fun _ _ hp => sat_clause_of_subset
+      (fun x hx => (List.mem_append.mp hx).elim (hsub x)
+        (fun hm => by simp only [List.mem_singleton] at hm; exact hm ▸ hlm)) hp)
+    (fun α hall =>
+      let hget := (sat_cnfOfClauses_iff_getElem α cs).mp hall
+      let hdel : (cnfOfClauses (deleteIdx cs i)).Sat α :=
+        (sat_cnfOfClauses_deleteIdx_iff α cs i).mpr fun j hj _ => hget j hj
+      (((vivify_implied_equiv hsub hlm hent).1 α).mpr
+        (CNF.sat_add.mpr ⟨hget i hi, hdel⟩) |> CNF.sat_add.mp).1)
 
 /-- Dropping a falsified literal `x` when `f ∧ ¬pref ⊨ ¬x`: preserves satisfaction of
 `pref ++ x :: rest` relative to `f`. -/
@@ -620,70 +598,23 @@ against `deleteIdx cs i` and preserves both `Sat α` (`↔`) and `Unsat` (`↔`)
 theorem vivify_clause_equiv (fuel : Nat) (cs : List (List Nat)) {i : Nat} (hi : i < cs.length) :
     let cs' := replaceIdx cs i (vivifyClause fuel (deleteIdx cs i) cs[i])
     (∀ α : Nat → Bool, (cnfOfClauses cs').Sat α ↔ (cnfOfClauses cs).Sat α) ∧
-      ((cnfOfClauses cs').Unsat ↔ (cnfOfClauses cs).Unsat) := by
-  have hv := (vivifyClause_sound fuel (deleteIdx cs i) cs[i]).1
-  have hsat : ∀ α : Nat → Bool,
-      (cnfOfClauses (replaceIdx cs i (vivifyClause fuel (deleteIdx cs i) cs[i]))).Sat α ↔
-        (cnfOfClauses cs).Sat α := by
-    intro α
-    rw [sat_cnfOfClauses_replaceIdx_iff _ _ hi, sat_cnfOfClauses_iff_getElem]
-    have hdel_iff : (cnfOfClauses (deleteIdx cs i)).Sat α ↔
-        ∀ (j : Nat) (hj : j < cs.length), j ≠ i → (cnfClause cs[j]).Sat α :=
-      sat_cnfOfClauses_deleteIdx_iff α cs i
-    constructor
-    · rintro ⟨hc', hrest⟩ k hk
-      by_cases hki : k = i
-      · subst hki; exact (hv α (hdel_iff.mpr hrest)).mp hc'
-      · exact hrest k hk hki
-    · intro hall
-      have hdel : (cnfOfClauses (deleteIdx cs i)).Sat α :=
-        hdel_iff.mpr fun j hj _ => hall j hj
-      exact ⟨(hv α hdel).mpr (hall i hi), fun j hj _ => hall j hj⟩
-  exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
+      ((cnfOfClauses cs').Unsat ↔ (cnfOfClauses cs).Unsat) :=
+  sat_cnfOfClauses_replaceIdx_equiv hi
+    (fun α hdel hc' => ((vivifyClause_sound fuel (deleteIdx cs i) cs[i]).1 α hdel).mp hc')
+    (fun α hall =>
+      let hget := (sat_cnfOfClauses_iff_getElem α cs).mp hall
+      let hdel : (cnfOfClauses (deleteIdx cs i)).Sat α :=
+        (sat_cnfOfClauses_deleteIdx_iff α cs i).mpr fun j hj _ => hget j hj
+      ((vivifyClause_sound fuel (deleteIdx cs i) cs[i]).1 α hdel).mpr (hget i hi))
 
 /-- Auxiliary single-pass executable vivification over `todo`, testing each clause against all
 other kept + remaining clauses (`kept ++ rest`). -/
-@[expose] def vivifyPassAux (fuel : Nat) : List (List Nat) → List (List Nat) → List (List Nat)
-  | kept, [] => kept.reverse
-  | kept, c :: rest =>
-    let c' := vivifyClause fuel (kept ++ rest) c
-    vivifyPassAux fuel (c' :: kept) rest
+abbrev vivifyPassAux (fuel : Nat) : List (List Nat) → List (List Nat) → List (List Nat) :=
+  clauseTransformPassAux (vivifyClause fuel)
 
 /-- Single executable vivification pass over `cs`. -/
 @[expose] def vivifyPass (fuel : Nat) (cs : List (List Nat)) : List (List Nat) :=
   vivifyPassAux fuel [] cs
-
-private theorem vivifyPassAux_sat_iff (fuel : Nat) (α : Nat → Bool) :
-    ∀ (todo kept : List (List Nat)),
-      (cnfOfClauses (vivifyPassAux fuel kept todo)).Sat α ↔
-        (cnfOfClauses (kept.reverse ++ todo)).Sat α
-  | [], kept => by simp [vivifyPassAux]
-  | c :: rest, kept => by
-    have ih := vivifyPassAux_sat_iff fuel α rest (vivifyClause fuel (kept ++ rest) c :: kept)
-    rw [vivifyPassAux, ih]
-    simp only [cnf_sat_cnfOfClauses_iff, List.mem_append, List.mem_cons, List.mem_reverse]
-    have hv := (vivifyClause_sound fuel (kept ++ rest) c).1 α
-    have hkr_iff : (cnfOfClauses (kept ++ rest)).Sat α ↔
-        (∀ d, d ∈ kept ∨ d ∈ rest → (cnfClause d).Sat α) := by
-      rw [cnf_sat_cnfOfClauses_iff]
-      simp [List.mem_append]
-    constructor
-    · intro h
-      have hkr : ∀ d, d ∈ kept ∨ d ∈ rest → (cnfClause d).Sat α := fun d hd =>
-        h d (hd.elim (fun hk => Or.inl (Or.inr hk)) (fun hr => Or.inr hr))
-      intro d hd
-      rcases hd with hk | rfl | hr
-      · exact hkr d (Or.inl hk)
-      · exact (hv (hkr_iff.mpr hkr)).mp (h _ (Or.inl (Or.inl rfl)))
-      · exact hkr d (Or.inr hr)
-    · intro h
-      have hkr : ∀ d, d ∈ kept ∨ d ∈ rest → (cnfClause d).Sat α := fun d hd =>
-        h d (hd.elim (fun hk => Or.inl hk) (fun hr => Or.inr (Or.inr hr)))
-      intro d hd
-      rcases hd with (rfl | hk) | hr
-      · exact (hv (hkr_iff.mpr hkr)).mpr (h _ (Or.inr (Or.inl rfl)))
-      · exact hkr d (Or.inl hk)
-      · exact hkr d (Or.inr hr)
 
 /-- **Executable vivification pass soundness**: `vivifyPass` preserves both `Sat α` (`↔`) and
 `Unsat` (`↔`). -/
@@ -693,7 +624,11 @@ theorem vivify_pass_equiv (fuel : Nat) (cs : List (List Nat)) :
       ((cnfOfClauses (vivifyPass fuel cs)).Unsat ↔ (cnfOfClauses cs).Unsat) := by
   have hsat : ∀ α : Nat → Bool,
       (cnfOfClauses (vivifyPass fuel cs)).Sat α ↔ (cnfOfClauses cs).Sat α := fun α => by
-    simpa [vivifyPass] using vivifyPassAux_sat_iff fuel α cs []
+    have hstep : ∀ β c others, (cnfOfClauses others).Sat β →
+        ((cnfClause (vivifyClause fuel others c)).Sat β ↔ (cnfClause c).Sat β) :=
+      fun β c others ho => (vivifyClause_sound fuel others c).1 β ho
+    simpa [vivifyPass, vivifyPassAux] using
+      clauseTransformPassAux_sat_iff (vivifyClause fuel) hstep α cs []
   exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
 
 end LeanQbe.T.Examples.Kissat.Ref

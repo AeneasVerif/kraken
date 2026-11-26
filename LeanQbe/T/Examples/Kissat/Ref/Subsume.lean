@@ -185,22 +185,31 @@ theorem sat_cnfOfClauses_replaceIdx_iff (α : Nat → Bool) (cs : List (List Nat
         ∀ (j : Nat) (hj : j < cs.length), j ≠ i → (cnfClause cs[j]).Sat α := by
   rw [cnf_sat_cnfOfClauses_iff, forall_mem_replaceIdx_iff cs hi]
 
-theorem cnf_unsat_iff_of_sat_iff {f g : CNF Nat} (h : ∀ α, f.Sat α ↔ g.Sat α) :
-    f.Unsat ↔ g.Unsat := by
-  simp only [CNF.unsat_iff_not_sat]
-  exact ⟨fun hf α hα => hf α ((h α).mpr hα), fun hg α hα => hg α ((h α).mp hα)⟩
+theorem sat_cnfOfClauses_replaceIdx_equiv {cs : List (List Nat)} {i : Nat}
+    (hi : i < cs.length) {c' : List Nat}
+    (hbwd : ∀ α, (cnfOfClauses (deleteIdx cs i)).Sat α →
+      (cnfClause c').Sat α → (cnfClause cs[i]).Sat α)
+    (hfwd : ∀ α, (cnfOfClauses cs).Sat α → (cnfClause c').Sat α) :
+    (∀ α : Nat → Bool,
+      (cnfOfClauses (replaceIdx cs i c')).Sat α ↔ (cnfOfClauses cs).Sat α) ∧
+      ((cnfOfClauses (replaceIdx cs i c')).Unsat ↔ (cnfOfClauses cs).Unsat) := by
+  have hsat : ∀ α : Nat → Bool,
+      (cnfOfClauses (replaceIdx cs i c')).Sat α ↔ (cnfOfClauses cs).Sat α := by
+    intro α
+    rw [sat_cnfOfClauses_replaceIdx_iff _ _ hi, sat_cnfOfClauses_iff_getElem]
+    have hdel : (cnfOfClauses (deleteIdx cs i)).Sat α ↔
+        ∀ (j : Nat) (hj : j < cs.length), j ≠ i → (cnfClause cs[j]).Sat α :=
+      sat_cnfOfClauses_deleteIdx_iff α cs i
+    constructor
+    · rintro ⟨hc', hrest⟩ k hk
+      by_cases hki : k = i
+      · subst hki; exact hbwd α (hdel.mpr hrest) hc'
+      · exact hrest k hk hki
+    · intro hall
+      exact ⟨hfwd α ((sat_cnfOfClauses_iff_getElem α cs).mpr hall), fun j hj _ => hall j hj⟩
+  exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
 
 /-! ## 2. Subsumption deletion soundness -/
-
-/-- General semantic clause deletion soundness: if remaining formula `f` already entails
-clause `c`, deleting `c` preserves both `Sat α` (`↔`) and `Unsat` (`↔`). -/
-theorem entailed_del_equiv {f : CNF Nat} {c : CNF.Clause Nat}
-    (hent : f.EntailsClause c) :
-    (∀ α : Nat → Bool, (f.add c).Sat α ↔ f.Sat α) ∧ ((f.add c).Unsat ↔ f.Unsat) := by
-  have hsat : ∀ α : Nat → Bool, (f.add c).Sat α ↔ f.Sat α := fun α => by
-    rw [CNF.sat_add]
-    exact ⟨fun h => h.2, fun hf => ⟨CNF.entails_clause_def.mp hent α hf, hf⟩⟩
-  exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
 
 /-- **Subsumption deletion soundness (`CNF Nat`)**: if remaining formula `f` entails clause `d`
 and `d ⊆ c`, deleting `c` preserves both `Sat α` (`↔`) and `Unsat` (`↔`). -/
@@ -211,28 +220,6 @@ theorem subsume_cnf_equiv {f : CNF Nat} {d c : List Nat}
   entailed_del_equiv (CNF.entails_clause_def.mpr fun α hf =>
     sat_clause_of_subset hsub (CNF.entails_clause_def.mp hd α hf))
 
-/-- **Subsumption deletion soundness (clause list)**: deleting clause at index `i` when a
-distinct remaining slot `j ≠ i` satisfies `cs[j] ⊆ cs[i]` preserves both `Sat α` (`↔`) and
-`Unsat` (`↔`). -/
-theorem subsume_clauses_equiv {cs : List (List Nat)} {i j : Nat}
-    (hi : i < cs.length) (hj : j < cs.length) (hne : j ≠ i)
-    (hsub : ∀ l ∈ cs[j], l ∈ cs[i]) :
-    (∀ α : Nat → Bool,
-      (cnfOfClauses (deleteIdx cs i)).Sat α ↔ (cnfOfClauses cs).Sat α) ∧
-      ((cnfOfClauses (deleteIdx cs i)).Unsat ↔ (cnfOfClauses cs).Unsat) := by
-  have hsat : ∀ α : Nat → Bool,
-      (cnfOfClauses (deleteIdx cs i)).Sat α ↔ (cnfOfClauses cs).Sat α := by
-    intro α
-    rw [sat_cnfOfClauses_deleteIdx_iff, sat_cnfOfClauses_iff_getElem]
-    constructor
-    · intro hrem k hk
-      by_cases hki : k = i
-      · subst hki; exact sat_clause_of_subset hsub (hrem j hj hne)
-      · exact hrem k hk hki
-    · intro hall k hk _; exact hall k hk
-  exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
-
-/-- Subsumption deletion when witnessing subsumer `d ∈ deleteIdx cs i` directly. -/
 theorem subsume_mem_equiv {cs : List (List Nat)} {i : Nat} {d : List Nat}
     (hi : i < cs.length) (hd : d ∈ deleteIdx cs i) (hsub : ∀ l ∈ d, l ∈ cs[i]) :
     (∀ α : Nat → Bool,
@@ -253,6 +240,17 @@ theorem subsume_mem_equiv {cs : List (List Nat)} {i : Nat} {d : List Nat}
       · exact hrem k hk hki
     · intro hall k hk _; exact hall k hk
   exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
+
+/-- **Subsumption deletion soundness (clause list)**: deleting clause at index `i` when a
+distinct remaining slot `j ≠ i` satisfies `cs[j] ⊆ cs[i]` preserves both `Sat α` (`↔`) and
+`Unsat` (`↔`). -/
+theorem subsume_clauses_equiv {cs : List (List Nat)} {i j : Nat}
+    (hi : i < cs.length) (hj : j < cs.length) (hne : j ≠ i)
+    (hsub : ∀ l ∈ cs[j], l ∈ cs[i]) :
+    (∀ α : Nat → Bool,
+      (cnfOfClauses (deleteIdx cs i)).Sat α ↔ (cnfOfClauses cs).Sat α) ∧
+      ((cnfOfClauses (deleteIdx cs i)).Unsat ↔ (cnfOfClauses cs).Unsat) :=
+  subsume_mem_equiv hi (mem_deleteIdx_of_ne hj hne) hsub
 
 /-! ## 3. Self-subsuming resolution (`SSR`) and on-the-fly subsumption (`OTFS`) -/
 
@@ -324,57 +322,33 @@ theorem ssr_clauses_equiv {cs : List (List Nat)} {i j l : Nat}
     (∀ α : Nat → Bool,
       (cnfOfClauses (replaceIdx cs i (removeLit cs[i] l))).Sat α ↔
         (cnfOfClauses cs).Sat α) ∧
-      ((cnfOfClauses (replaceIdx cs i (removeLit cs[i] l))).Unsat ↔
-        (cnfOfClauses cs).Unsat) := by
-  have hne : j ≠ i := ssr_distinct_idx hi hj hl hsub
-  have hsat : ∀ α : Nat → Bool,
-      (cnfOfClauses (replaceIdx cs i (removeLit cs[i] l))).Sat α ↔
-        (cnfOfClauses cs).Sat α := by
-    intro α
-    rw [sat_cnfOfClauses_replaceIdx_iff _ _ hi, sat_cnfOfClauses_iff_getElem]
-    constructor
-    · rintro ⟨hc', hrest⟩ k hk
-      by_cases hki : k = i
-      · subst hki; exact sat_clause_of_subset (removeLit_subset _ l) hc'
-      · exact hrest k hk hki
-    · intro hall
-      refine ⟨((sat_ssr_and_iff α hl hnd hsub).mp ⟨hall j hj, hall i hi⟩).2,
-        fun k hk _ => hall k hk⟩
-  exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
+        ((cnfOfClauses (replaceIdx cs i (removeLit cs[i] l))).Unsat ↔
+        (cnfOfClauses cs).Unsat) :=
+  sat_cnfOfClauses_replaceIdx_equiv hi
+    (fun _ _ hc' => sat_clause_of_subset (removeLit_subset _ l) hc')
+    (fun α hall =>
+      have hget := (sat_cnfOfClauses_iff_getElem α cs).mp hall
+      ((sat_ssr_and_iff α hl hnd hsub).mp ⟨hget j hj, hget i hi⟩).2)
 
 /-- **On-the-fly subsumption (`OTFS`) soundness**: when resolving `cs[i]` and distinct
 `cs[j]` (`j ≠ i`) on `l` yields `R = resolveOn l cs[i] cs[j]` with `R ⊆ cs[i]`, replacing
 `cs[i]` with `R` preserves both `Sat α` (`↔`) and `Unsat` (`↔`). -/
 theorem otfs_clauses_equiv {cs : List (List Nat)} {i j l : Nat}
-    (hi : i < cs.length) (hj : j < cs.length) (hne : j ≠ i)
+    (hi : i < cs.length) (hj : j < cs.length) (_hne : j ≠ i)
     (hsub : ∀ x ∈ resolveOn l cs[i] cs[j], x ∈ cs[i]) :
     (∀ α : Nat → Bool,
       (cnfOfClauses (replaceIdx cs i (resolveOn l cs[i] cs[j]))).Sat α ↔
         (cnfOfClauses cs).Sat α) ∧
       ((cnfOfClauses (replaceIdx cs i (resolveOn l cs[i] cs[j]))).Unsat ↔
-        (cnfOfClauses cs).Unsat) := by
-  have hsat : ∀ α : Nat → Bool,
-      (cnfOfClauses (replaceIdx cs i (resolveOn l cs[i] cs[j]))).Sat α ↔
-        (cnfOfClauses cs).Sat α := by
-    intro α
-    rw [sat_cnfOfClauses_replaceIdx_iff _ _ hi, sat_cnfOfClauses_iff_getElem]
-    constructor
-    · rintro ⟨hres, hrest⟩ k hk
-      by_cases hki : k = i
-      · subst hki; exact sat_clause_of_subset hsub hres
-      · exact hrest k hk hki
-    · intro hall
-      have hi_ent : (cnfOfClauses cs).EntailsClause (cnfClause cs[i]) :=
+        (cnfOfClauses cs).Unsat) :=
+  sat_cnfOfClauses_replaceIdx_equiv hi
+    (fun _ _ hres => sat_clause_of_subset hsub hres)
+    (fun α hall =>
+      let hent (k : Nat) (hk : k < cs.length) :
+          (cnfOfClauses cs).EntailsClause (cnfClause cs[k]) :=
         CNF.entails_clause_def.mpr fun β hβ =>
-          (sat_cnfOfClauses_iff_getElem β cs).mp hβ i hi
-      have hj_ent : (cnfOfClauses cs).EntailsClause (cnfClause cs[j]) :=
-        CNF.entails_clause_def.mpr fun β hβ =>
-          (sat_cnfOfClauses_iff_getElem β cs).mp hβ j hj
-      have hres_ent := entails_resolve (p := l) hi_ent hj_ent
-      have hsat_cs : (cnfOfClauses cs).Sat α :=
-        (sat_cnfOfClauses_iff_getElem α cs).mpr hall
-      exact ⟨CNF.entails_clause_def.mp hres_ent α hsat_cs, fun k hk _ => hall k hk⟩
-  exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
+          (sat_cnfOfClauses_iff_getElem β cs).mp hβ k hk
+      CNF.entails_clause_def.mp (entails_resolve (p := l) (hent i hi) (hent j hj)) α hall)
 
 /-- Bridge from `Sat.strengthenWithBinary` to full logical equivalence (`Sat α ↔` / `Unsat ↔`). -/
 theorem strengthenBinary_equiv {f : CNF Nat} {c : List Nat} {pivot binOther : Nat}
@@ -525,46 +499,12 @@ theorem subsume_pass_equiv (cs : List (List Nat)) :
 
 /-- Single SSR strengthening pass: strengthens every clause `c` against all other kept and
 remaining clauses (`kept ++ rest`). -/
-@[expose] def ssrPassAux : List (List Nat) → List (List Nat) → List (List Nat)
-  | kept, [] => kept.reverse
-  | kept, c :: rest =>
-    let c' := strengthenWithList c (kept ++ rest)
-    ssrPassAux (c' :: kept) rest
+abbrev ssrPassAux : List (List Nat) → List (List Nat) → List (List Nat) :=
+  clauseTransformPassAux (fun others c => strengthenWithList c others)
 
 /-- Self-subsuming resolution pass over `cs`. -/
 @[expose] def ssrPass (cs : List (List Nat)) : List (List Nat) :=
   ssrPassAux [] cs
-
-private theorem ssrPassAux_sat_iff (α : Nat → Bool) :
-    ∀ (todo kept : List (List Nat)),
-      (cnfOfClauses (ssrPassAux kept todo)).Sat α ↔
-        (cnfOfClauses (kept.reverse ++ todo)).Sat α
-  | [], kept => by simp [ssrPassAux]
-  | c :: rest, kept => by
-    have ih := ssrPassAux_sat_iff α rest (strengthenWithList c (kept ++ rest) :: kept)
-    rw [ssrPassAux, ih]
-    simp only [cnf_sat_cnfOfClauses_iff, List.mem_append, List.mem_cons, List.mem_reverse]
-    have heq : (∀ d, d ∈ kept ∨ d ∈ rest → (cnfClause d).Sat α) →
-        ((cnfClause (strengthenWithList c (kept ++ rest))).Sat α ↔ (cnfClause c).Sat α) :=
-      fun h => strengthenWithList_equiv α c (kept ++ rest) fun d hd =>
-        h d (List.mem_append.mp hd)
-    constructor
-    · intro h
-      have hkr : ∀ d, d ∈ kept ∨ d ∈ rest → (cnfClause d).Sat α := fun d hd =>
-        h d (hd.elim (fun hk => Or.inl (Or.inr hk)) (fun hr => Or.inr hr))
-      intro d hd
-      rcases hd with hk | rfl | hr
-      · exact hkr d (Or.inl hk)
-      · exact (heq hkr).mp (h _ (Or.inl (Or.inl rfl)))
-      · exact hkr d (Or.inr hr)
-    · intro h
-      have hkr : ∀ d, d ∈ kept ∨ d ∈ rest → (cnfClause d).Sat α := fun d hd =>
-        h d (hd.elim (fun hk => Or.inl hk) (fun hr => Or.inr (Or.inr hr)))
-      intro d hd
-      rcases hd with (rfl | hk) | hr
-      · exact (heq hkr).mpr (h _ (Or.inr (Or.inl rfl)))
-      · exact hkr d (Or.inl hk)
-      · exact hkr d (Or.inr hr)
 
 /-- **Executable SSR pass soundness**: `ssrPass` preserves both `Sat α` (`↔`) and `Unsat` (`↔`). -/
 theorem ssr_pass_equiv (cs : List (List Nat)) :
@@ -572,7 +512,12 @@ theorem ssr_pass_equiv (cs : List (List Nat)) :
       ((cnfOfClauses (ssrPass cs)).Unsat ↔ (cnfOfClauses cs).Unsat) := by
   have hsat : ∀ α : Nat → Bool,
       (cnfOfClauses (ssrPass cs)).Sat α ↔ (cnfOfClauses cs).Sat α := fun α => by
-    simpa [ssrPass] using ssrPassAux_sat_iff α cs []
+    have hstep : ∀ β c others, (cnfOfClauses others).Sat β →
+        ((cnfClause (strengthenWithList c others)).Sat β ↔ (cnfClause c).Sat β) :=
+      fun β c others ho =>
+        strengthenWithList_equiv β c others ((cnf_sat_cnfOfClauses_iff β others).mp ho)
+    simpa [ssrPass, ssrPassAux] using
+      clauseTransformPassAux_sat_iff (fun others c => strengthenWithList c others) hstep α cs []
   exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
 
 /-- Iterated subsumption + self-subsuming resolution simplifier (`fuel` rounds). -/
@@ -596,15 +541,6 @@ theorem subsume_ssr_equiv (fuel : Nat) (cs : List (List Nat)) :
   exact ⟨hsat, cnf_unsat_iff_of_sat_iff hsat⟩
 
 /-! ## 5. Clause-DB (`Array (Option Clause)`) & `LazyTrailInv` bridge -/
-
-private theorem getElem?_setIfInBounds {α : Type} (xs : Array α) (i j : Nat) (v : α) :
-    (xs.setIfInBounds i v)[j]? = if i < xs.size ∧ j = i then some v else xs[j]? := by
-  by_cases hi : i < xs.size
-  · by_cases hij : j = i
-    · subst hij
-      simp [hi]
-    · simp only [hi, hij, and_false, ↓reduceIte, Array.getElem?_setIfInBounds, Ne.symm hij]
-  · simp [hi, Array.setIfInBounds]
 
 /-- **Clause-DB subsumption deletion soundness**: deleting slot `cid` from `clauses` when a
 distinct surviving slot `did ≠ cid` contains `d ⊆ c` preserves `survivingCnf` equivalence. -/
@@ -701,10 +637,6 @@ theorem subsume_preserves_inv {s : CdclState} (hinv : LazyTrailInv s)
     ((survivingCnf s'.clauses).Unsat ↔ (survivingCnf s.clauses).Unsat) := by
   let s' := { s with clauses := s.clauses.setIfInBounds cid none }
   have hdb_eqv := subsume_db_equiv hne hc hd hng hsub
-  have hs_tr : s'.trail = s.trail := rfl
-  have hs_f0 : s'.f0 = s.f0 := rfl
-  have hs_lvl : ∀ x, stateLevel s' x = stateLevel s x := fun _ => rfl
-  have hs_rsn : ∀ x, stateReason s' x = stateReason s x := fun _ => rfl
   have hdb : ∀ (k : Nat) (c0 : Clause), s'.clauses[k]? = some (some c0) →
       s.f0.EntailsClause (cnfClause c0.lits) := by
     intro k c0 hget
@@ -712,26 +644,13 @@ theorem subsume_preserves_inv {s : CdclState} (hinv : LazyTrailInv s)
     split at hget
     · cases hget
     · exact hinv.db_sound k c0 hget
-  have hinv' : LazyTrailInv s' := by
-    refine ⟨hinv.vars_nodup, hinv.levels_le, hinv.dec_earliest, hdb, hinv.units_sound, ?_,
-      hinv.inconsistent_sound⟩
-    intro i hi
-    have hi_s : i < s.trail.size := hi
-    have hrd := hinv.reason_dag i hi_s
-    dsimp only at hrd
-    change match stateReason s' s'.trail[i] with | _ => _
-    simp only [hs_tr, hs_f0, hs_lvl, hs_rsn]
-    generalize hrsn : stateReason s s.trail[i] = rsn
-    rw [hrsn] at hrd
-    cases rsn with
-    | decision | unit | binary _ => exact hrd
-    | large k =>
-      obtain ⟨ck, hgetk, hngk, hmk, hallk⟩ := hrd
-      have hne_k : k ≠ cid := by
-        intro heq; subst heq
-        have hact := isActiveLargeReason_iff.mpr ⟨i, hi_s, hrsn⟩
+  have hinv' : LazyTrailInv s' :=
+    lazyTrailInv_withClauses hinv s'.clauses hdb fun i hi k ck hrsn hgetk _ => by
+      have hne_k : k ≠ cid := fun heq => by
+        subst heq
+        have hact := isActiveLargeReason_iff.mpr ⟨i, hi, hrsn⟩
         rw [hact] at hnonact; cases hnonact
-      refine ⟨ck, ?_, hngk, hmk, hallk⟩
+      change (s.clauses.setIfInBounds cid none)[k]? = some (some ck)
       rw [getElem?_setIfInBounds, ite_eq_right (by simp [hne_k])]
       exact hgetk
   exact ⟨hinv', rfl, rfl, hdb_eqv.1, hdb_eqv.2⟩

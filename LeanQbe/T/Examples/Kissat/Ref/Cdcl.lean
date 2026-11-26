@@ -33,38 +33,6 @@ open Std.Sat
 @[simp] theorem stateLevel_litNeg (s : CdclState) (l : Nat) :
     stateLevel s (litNeg l) = stateLevel s l := by simp [stateLevel]
 
-private theorem dedupLits_ne_nil {c : List Nat} (hc : c ≠ []) : dedupLits c ≠ [] := by
-  cases c with
-  | nil => exact absurd rfl hc
-  | cons x xs =>
-    simp only [dedupLits]
-    split
-    · rename_i hmem; exact fun heq => by simp [heq] at hmem
-    · simp
-
-private theorem filter_nodup_singleton_le_one {P : Nat → Bool} {np : Nat} :
-    ∀ {xs : List Nat}, xs.Nodup → (∀ x ∈ xs, P x = true → x = np) → (xs.filter P).length ≤ 1
-  | [], _, _ => by simp
-  | x :: xs, hnd, hall => by
-    rw [List.nodup_cons] at hnd
-    simp only [List.filter_cons]
-    by_cases hpx : P x = true
-    · simp only [hpx, ↓reduceIte, List.length_cons]
-      have hxeq : x = np := hall x (by simp) hpx
-      have hnil : xs.filter P = [] := List.eq_nil_iff_forall_not_mem.mpr fun y hy => by
-        rw [List.mem_filter] at hy
-        exact hnd.1 ((hall y (by simp [hy.1]) hy.2).trans hxeq.symm ▸ hy.1)
-      simp [hnil]
-    · have hpf : P x = false := Bool.eq_false_iff.mpr hpx
-      simp only [hpf, Bool.false_eq_true, ↓reduceIte]
-      exact filter_nodup_singleton_le_one hnd.2 fun y hy => hall y (List.mem_cons_of_mem _ hy)
-
-private theorem exists_ne_of_filter_gt_one {P : Nat → Bool} {np : Nat} {xs : List Nat}
-    (hnd : xs.Nodup) (hgt : 1 < (xs.filter P).length) : ∃ q ∈ xs, P q = true ∧ q ≠ np :=
-  Classical.byContradiction fun hno =>
-    absurd (filter_nodup_singleton_le_one hnd fun q hq hpq =>
-      Classical.byContradiction fun hne => hno ⟨q, hq, hpq, hne⟩) (by omega)
-
 private theorem analyze1UIPAux_inv {s : CdclState} (hinv : TrailInv s) (hlvl_pos : 0 < s.level) :
     ∀ (i : Nat), i ≤ s.trail.size → ∀ (cl : List Nat),
       s.f0.EntailsClause (cnfClause cl) →
@@ -666,17 +634,17 @@ theorem remapReason_eq_decision {rmap : RefMap} {r : Reason} :
   cases r <;> simp [remapReason]
   split <;> simp
 
-theorem collect_preserves_inv {s : CdclState} (hinv : TrailInv s) :
+theorem collect_preserves_lazyInv {s : CdclState} (hinv : LazyTrailInv s) :
     let (s', rmap) := collect s
-    TrailInv s' ∧ s'.f0 = s.f0 ∧ RefMapSound s.clauses s'.clauses rmap s.f0 := by
+    LazyTrailInv s' ∧ s'.f0 = s.f0 ∧ RefMapSound s.clauses s'.clauses rmap s.f0 := by
   have hrs := collectClauses_sound hinv.db_sound
   let rmap := (collectClauses s.clauses).2
   let s' : CdclState :=
     { s with
       clauses := (collectClauses s.clauses).1
       reasons := s.reasons.map (remapReason rmap) }
-  change TrailInv s' ∧ s'.f0 = s.f0 ∧ RefMapSound s.clauses s'.clauses rmap s.f0
-  refine ⟨⟨hinv.vars_nodup, hinv.levels_le, hinv.levels_mono, ?_, hrs.2.2,
+  change LazyTrailInv s' ∧ s'.f0 = s.f0 ∧ RefMapSound s.clauses s'.clauses rmap s.f0
+  refine ⟨⟨hinv.vars_nodup, hinv.levels_le, ?_, hrs.2.2,
     hinv.units_sound, ?_, hinv.inconsistent_sound⟩, rfl, hrs⟩
   · intro i j hi hj hleq hrsn_j
     have hsr : stateReason s' s'.trail[j] = remapReason rmap (stateReason s s.trail[j]) :=
@@ -702,34 +670,27 @@ theorem collect_preserves_inv {s : CdclState} (hinv : TrailInv s) :
       rw [show (collectClauses s.clauses).2.lookup cid = some nid from hlkp]
       exact ⟨c, hnew, hng, hlmem, hall⟩
 
+theorem collect_preserves_inv {s : CdclState} (hinv : TrailInv s) :
+    let (s', rmap) := collect s
+    TrailInv s' ∧ s'.f0 = s.f0 ∧ RefMapSound s.clauses s'.clauses rmap s.f0 := by
+  have hc := collect_preserves_lazyInv hinv.toLazy
+  refine ⟨⟨hc.1.vars_nodup, hc.1.levels_le, hinv.levels_mono, hc.1.dec_earliest,
+    hc.1.db_sound, hc.1.units_sound, hc.1.reason_dag, hc.1.inconsistent_sound⟩, hc.2⟩
+
 theorem deleteClauseState_preserves_inv {s : CdclState} (hinv : TrailInv s) (cid : Nat)
     (hunused : ∀ i (hi : i < s.trail.size), stateReason s s.trail[i] ≠ .large cid) :
     TrailInv (deleteClauseState s cid) ∧ (deleteClauseState s cid).f0 = s.f0 := by
-  have hs_tr : (deleteClauseState s cid).trail = s.trail := rfl
-  have hs_f0 : (deleteClauseState s cid).f0 = s.f0 := rfl
-  have hs_lvl : ∀ x, stateLevel (deleteClauseState s cid) x = stateLevel s x := fun _ => rfl
-  have hs_rsn : ∀ x, stateReason (deleteClauseState s cid) x = stateReason s x := fun _ => rfl
-  refine ⟨⟨hinv.vars_nodup, hinv.levels_le, hinv.levels_mono, hinv.dec_earliest, ?_,
-    hinv.units_sound, ?_, hinv.inconsistent_sound⟩, rfl⟩
-  · intro k c hk
-    simp only [deleteClauseState, Array.getElem?_setIfInBounds] at hk
-    split at hk
-    · split at hk <;> cases hk
-    · exact hinv.db_sound k c hk
-  · intro i hi
-    have hrd := hinv.reason_dag i hi; dsimp only at hrd
-    change match stateReason (deleteClauseState s cid) (deleteClauseState s cid).trail[i] with
-      | _ => _
-    simp only [hs_tr, hs_f0, hs_lvl, hs_rsn]
-    generalize hrsn : stateReason s s.trail[i] = rsn; rw [hrsn] at hrd
-    cases rsn with
-    | decision | unit | binary _ => exact hrd
-    | large cid' =>
+  have hlazy := lazyTrailInv_withClauses hinv.toLazy (deleteClauseState s cid).clauses
+    (fun k c hk => by
+      simp only [deleteClauseState, Array.getElem?_setIfInBounds] at hk
+      split at hk
+      · split at hk <;> cases hk
+      · exact hinv.db_sound k c hk)
+    (fun i hi cid' c hrsn hget _ => by
       have hne : cid ≠ cid' := Ne.symm (by simpa [hrsn] using hunused i hi)
-      obtain ⟨c, hget, hng, hlmem, hall⟩ := hrd
-      refine ⟨c, ?_, hng, hlmem, hall⟩
-      simp only [deleteClauseState, Array.getElem?_setIfInBounds, hne, ↓reduceIte]
-      exact hget
+      simp only [deleteClauseState, Array.getElem?_setIfInBounds, hne, ↓reduceIte]; exact hget)
+  exact ⟨⟨hlazy.vars_nodup, hlazy.levels_le, hinv.levels_mono, hlazy.dec_earliest,
+    hlazy.db_sound, hlazy.units_sound, hlazy.reason_dag, hlazy.inconsistent_sound⟩, rfl⟩
 
 /-! ## 9. Top-level CDCL reference solver soundness (`cdclSolve_sound`) -/
 
@@ -770,10 +731,10 @@ theorem pickBranchLit?_unassigned {s : CdclState} {l : Nat}
           cases hst : litStatus s.trail w <;> simp_all
   · exact pickVarFrom?_unassigned s s.numVars 0 l (Nat.le_refl _) h
 
-theorem cdclLoop_sound {fuel : Nat} {s : CdclState} (hinv : TrailInv s) :
+theorem cdclLoop_sound_full {fuel : Nat} {s : CdclState} (hinv : TrailInv s) :
     match cdclLoop fuel s with
     | .unsat => s.f0.Unsat
-    | .sat _ => ¬ s.f0.Unsat ∧ ∃ α, s.f0.Sat α
+    | .sat σ => checkModel s.f0 σ = true
     | .unknown => True := by
   induction fuel generalizing s with
   | zero => simp [cdclLoop]
@@ -822,10 +783,26 @@ theorem cdclLoop_sound {fuel : Nat} {s : CdclState} (hinv : TrailInv s) :
         | none =>
           dsimp only
           by_cases hchk : checkModel s1.f0 (modelFromTrail s1.numVars s1.trail) = true
-          · rw [ite_eq_left hchk, ← hf01]; exact checkModel_sound hchk
+          · rw [ite_eq_left hchk, ← hf01]; exact hchk
           · have hchkf : checkModel s1.f0 (modelFromTrail s1.numVars s1.trail) = false :=
               Bool.eq_false_iff.mpr hchk
             simp [hchkf]
+
+theorem cdclLoop_sound {fuel : Nat} {s : CdclState} (hinv : TrailInv s) :
+    match cdclLoop fuel s with
+    | .unsat => s.f0.Unsat
+    | .sat _ => ¬ s.f0.Unsat ∧ ∃ α, s.f0.Sat α
+    | .unknown => True := by
+  have h := cdclLoop_sound_full (fuel := fuel) hinv
+  cases hres : cdclLoop fuel s with
+  | unsat => rw [hres] at h; exact h
+  | unknown => trivial
+  | sat σ => rw [hres] at h; exact checkModel_sound h
+
+theorem cdclSolve_sat_model {fuel : Nat} {cnf : CNF Nat} {σ : Array Bool}
+    (h : cdclSolve fuel cnf = .sat σ) : checkModel cnf σ = true := by
+  have hm := cdclLoop_sound_full (fuel := fuel) (initState_inv cnf).1
+  unfold cdclSolve at h; rw [h, (initState_inv cnf).2] at hm; exact hm
 
 /-- Refutation soundness of `cdclSolve`. -/
 theorem cdclSolve_unsat_sound {fuel : Nat} {cnf : CNF Nat}
@@ -835,9 +812,8 @@ theorem cdclSolve_unsat_sound {fuel : Nat} {cnf : CNF Nat}
 
 /-- Satisfiability soundness of `cdclSolve`. -/
 theorem cdclSolve_sat_sound {fuel : Nat} {cnf : CNF Nat} {σ : Array Bool}
-    (h : cdclSolve fuel cnf = .sat σ) : ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α := by
-  have hloop := cdclLoop_sound (fuel := fuel) (initState_inv cnf).1
-  unfold cdclSolve at h; rw [h, (initState_inv cnf).2] at hloop; exact hloop
+    (h : cdclSolve fuel cnf = .sat σ) : ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α :=
+  checkModel_sound (cdclSolve_sat_model h)
 
 /-- Combined top-level Layer-A solver soundness theorem (`cdclSolve_sound`). -/
 theorem cdclSolve_sound (fuel : Nat) (cnf : CNF Nat) :
