@@ -28,6 +28,8 @@ public import LeanQbe.T.DivConst
 public import LeanQbe.T.DivConstLemmas
 public import LeanQbe.T.Driver
 public import LeanQbe.T.Flat
+public import LeanQbe.T.FlatDirect
+public import LeanQbe.T.FlatDirectLemmas
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Fold
 public import LeanQbe.T.FoldLemmas
@@ -53,6 +55,7 @@ public import LeanQbe.T.LegalCheck3
 public import LeanQbe.T.LegalCheck3a
 public import LeanQbe.T.LegalCheck3b
 public import LeanQbe.T.LegalEmit
+public import LeanQbe.T.LegalFlat
 public import LeanQbe.T.LegalLemmas
 public import LeanQbe.T.LegalMemLemmas
 public import LeanQbe.T.LegalMemLemmas1
@@ -115,6 +118,8 @@ public import LeanQbe.T.MainCertInlineChunk
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.MainCertScc
 public import LeanQbe.T.MainCertSlices
+public import LeanQbe.T.MainFlat
+public import LeanQbe.T.MainFlatLemmas
 public import LeanQbe.T.MainInline
 public import LeanQbe.T.MainLateInline
 public import LeanQbe.T.MainLemmas
@@ -148,6 +153,8 @@ public import LeanQbe.T.PrintQbe
 public import LeanQbe.T.PrintUtil
 public import LeanQbe.T.Rega
 public import LeanQbe.T.RegaDefs
+public import LeanQbe.T.RegaFlat
+public import LeanQbe.T.RegaFlatLemmas
 public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.RegaLemmas1
 public import LeanQbe.T.RegaLemmas2
