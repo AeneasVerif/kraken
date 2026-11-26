@@ -90,6 +90,10 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofLearn
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofMisc
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep11Pr3Rows
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep11Pr3RowsProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12C
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12CProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12CRows
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12CRowsProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep2S15
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7BvaSpec

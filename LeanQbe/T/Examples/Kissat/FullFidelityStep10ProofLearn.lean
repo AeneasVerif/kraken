@@ -106,6 +106,36 @@ theorem step10LearnClauseM6Spec_of {c : FullCfg} {F0 : CNF Nat} {F_cur : List (L
   ⟨c, F0, F_cur, ext, s, R, rfl, hcfg, hext, ho, hcur, htl1, htl_cv, hnd, hvals, hlvls, hent, hm,
     hQ⟩
 
+theorem step10LearnClauseM6Spec_elim {h glue : BitVec 64} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost} (hs : step10LearnClauseM6Spec (h, glue, ()) m Q X) :
+    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (ext : List (BitVec 64))
+      (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧
+      FullOtfsInvW c F0 F_cur s ∧ 0 < s.core.cur_level ∧
+      1 ≤ s.core.tmp_len ∧ s.core.tmp_len ≤ s.core.cur_vars ∧
+      (List.map (fun x => x.toNat / 2) (List.take s.core.tmp_len s.core.tmp)).Nodup ∧
+      (∀ k, k < s.core.tmp_len →
+        let l := (s.core.tmp[k]?.getD 0#32).toNat
+        l < 2 * s.core.cur_vars ∧ s.core.vals[l]?.getD 0#8 = 255#8) ∧
+      (∀ k, 1 ≤ k → k < s.core.tmp_len →
+        let lv := (s.core.lvl[(s.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat
+        0 < lv ∧ lv < s.core.cur_level ∧
+        lv ≤ (s.core.lvl[(s.core.tmp[s.core.tmp_len - 1]?.getD 0#32).toNat / 2]?.getD
+          0#32).toNat) ∧
+      (cnfOfClauses F_cur).EntailsClause
+        (cnfClause (List.map BitVec.toNat (List.take s.core.tmp_len s.core.tmp))) ∧
+      (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ (r : BitVec 64) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
+        M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 20#64) →
+        s'.core.cur_vars = s.core.cur_vars → s'.core.fuel.toNat ≤ s.core.fuel.toNat →
+        s'.scratch.work_stk2 = s.scratch.work_stk2 →
+        (r = 20#64 →
+          F0.Unsat ∧ FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
+        (r = 0#64 → FullSparseInvW c F0 F_cur s') →
+        (r = 1#64 → FullSparseInvW c F0 F_cur s' ∧ s'.core.cur_level < s.core.cur_level) →
+        (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' :=
+  hs
+
 /-! ## 2. Local Helpers (Permutation, Insertion Sort, `used = 31` & Post-Add-Clause) -/
 
 section LearnStep10Proof
