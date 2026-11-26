@@ -126,6 +126,7 @@ public import LeanQbe.T.Amd64.LcnfC0FullCertX64S4
 public import LeanQbe.T.Amd64.LcnfC0FullCertX64S5
 public import LeanQbe.T.Amd64.LcnfC0FullCertX64S6
 public import LeanQbe.T.Amd64.LcnfC0FullCertX64S7
+public import LeanQbe.T.Amd64.LcnfC0LoopDemoCertX64
 public import LeanQbe.T.Amd64.LcnfC0RecDemoCertX64
 public import LeanQbe.T.Amd64.LcnfC0TreeDemoCertX64
 public import LeanQbe.T.Amd64.LinkRec
