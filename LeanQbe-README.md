@@ -216,7 +216,7 @@ QBE where applicable:
 | [test/run.sh](test/run.sh) | Core x86-64 scalar/litmus binaries, `PrintQbe` cross-compilation, and C0/LRC/Kissat integration |
 | [test/arm64/run.sh](test/arm64/run.sh) | AAPCS64 AArch64 assembly vs. stock QBE under `qemu-aarch64` |
 | [test/c0/run.sh](test/c0/run.sh) | Positive/negative C0 probes, SysV struct/bitfield layout, and host C differential tests |
-| [test/lcnf/run.sh](test/lcnf/run.sh) & [test/lrc/run.sh](test/lrc/run.sh) | `LeanLCNF` / `LeanLRC` reference Lean executables vs. C++20, x86-64, and AArch64 |
+| [test/lcnf/run.sh](test/lcnf/run.sh), [test/lcnf/run_c0rt.sh](test/lcnf/run_c0rt.sh) & [test/lrc/run.sh](test/lrc/run.sh) | `LeanLCNF` / `LeanLRC` reference Lean executables vs. C++20, x86-64, and AArch64 (including compiled `rtC0CoreMod` runtime lane) |
 | [test/cpp/run.sh](test/cpp/run.sh) | C++20 standalone compilation and trap behavior under `g++` and `clang++` ASan/UBSan |
 | [test/t_bignum/run.sh](test/t_bignum/run.sh), [test/t_chacha/run.sh](test/t_chacha/run.sh) | Differential x86-64 & AArch64 tests for Curve25519 arithmetic and RFC 8439 ChaCha20 |
 | [test/t_lrat/run.sh](test/t_lrat/run.sh), [test/t_qbe/run.sh](test/t_qbe/run.sh) | C++20 ASan/UBSan tests for `lrat_check_bytes` and stock QBE IL emission |

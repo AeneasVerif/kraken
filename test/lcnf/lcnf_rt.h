@@ -57,6 +57,17 @@ typedef struct {
   LcnfState s;                      /* C-only */
 } LcnfRt;
 
+/* Extended runtime block (`33688` bytes) matching `LcnfC0FullRt` (`scratch` + `scratch_cap`). */
+#ifdef LCNF_C0RT
+typedef struct {
+  LcnfRt base;
+  u64 scratch;
+  u64 scratch_cap;
+} LcnfC0RtBlock;
+#else
+typedef LcnfRt LcnfC0RtBlock;
+#endif
+
 /* Entry points called from LeanQbe.T code (all arguments / results are 64-bit). */
 u64 lcnf_alloc(u64 rt, u64 sz);
 void lcnf_dec_ref_cold(u64 rt, u64 o);

@@ -15,6 +15,8 @@
 #     with the runtime's `live == persistent` zero-leak check after every call and the FBIP
 #     in-place reuse assertion.
 #  5. Benchmarks LeanQbe.T x86-64 against `leanc -O2` standalone (uncontended wall clock + telemetry).
+#  6. Runs the compiled-C0-runtime (`rtC0CoreMod`) differential lane (`test/lcnf/run_c0rt.sh`,
+#     enabled by default via `WITH_C0RT=1`; set `WITH_C0RT=0` to skip).
 # Every command runs under `timeout`.
 set -euo pipefail
 
@@ -31,10 +33,14 @@ echo "outputs in $OUT"
 
 echo "== 1. build LeanLCNF + tests (Func.Wf theorems, #guards) =="
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  EXTRA_C0RT_MODS=()
+  if [ "${WITH_C0RT:-1}" = "1" ]; then
+    EXTRA_C0RT_MODS=(LeanQbe.T.LeanLCNF.LcnfC0Full LeanQbe.T.LeanLCNF.LcnfC0Demo)
+  fi
   timeout 600 lake build --wfail LeanQbe.T.LeanLCNF.Demo LeanQbe.T.LeanLCNF.Coverage \
     LeanQbeTest.T.LeanLCNFTest LeanQbeTest.T.LcnfP5Test LeanQbeTest.T.LcnfAudit \
     LeanQbe.T.Driver LeanQbe.T.Amd64.Targ LeanQbe.T.Amd64.PrintATTAlign \
-    LeanQbe.T.Arm64.Targ Kraken.AArch64.Print 2>&1 | tail -n 3
+    LeanQbe.T.Arm64.Targ Kraken.AArch64.Print "${EXTRA_C0RT_MODS[@]}" 2>&1 | tail -n 3
 else
   echo "SKIP_BUILD=1: skipping lake build LeanLCNF + tests"
 fi
@@ -380,5 +386,15 @@ join <(sort "$OUT/bench_ref.out" | awk '{print $2, $3, $4}') \
     sed 's/.*allocs=\([0-9]*\).*reused=\([0-9]*\).*/\1\/\2/')
   printf '%-12s %12.1f %14.1f %7.2fx  %s\n' "$n" "$tr" "$tx" "$(echo "$tx / $tr" | bc -l)" "$st"
 done
+
+if [ "${WITH_C0RT:-1}" = "1" ]; then
+  echo "== 6. compiled C0 runtime differential lane (WITH_C0RT=1) =="
+  env -u OUT SKIP_BUILD=1 \
+    LCNF_C0RT_REF_OUT="$OUT/ref.out" \
+    LCNF_C0RT_REF_P5_OUT="$OUT/ref_p5.out" \
+    LCNF_C0RT_DEMO_X64_S="$OUT/lcnf_x64.s" \
+    LCNF_C0RT_DEMO_ARM64_S="$OUT/lcnf_arm64.s" \
+    bash "$T/run_c0rt.sh"
+fi
 
 echo "== test/lcnf/run.sh: ALL CHECKS PASSED =="

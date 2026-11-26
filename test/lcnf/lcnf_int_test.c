@@ -6,7 +6,7 @@
 #include <string.h>
 typedef __int128 i128;
 typedef unsigned __int128 u128x;
-static LcnfRt blk;
+static LcnfC0RtBlock blk;
 static u64 rt;
 static int fails = 0;
 

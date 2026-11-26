@@ -32,7 +32,7 @@ u64 COV(uintBvBench)(u64 rt, u64 n);
 u64 COV(shapeBench)(u64 rt, u64 n);
 u64 COV(usizeBench)(u64 rt, u64 n);
 u64 COV(shaMix)(u64 rt, u64 n);
-static LcnfRt g_rtblock;
+static LcnfC0RtBlock g_rtblock;
 static u64 g_rt;
 #define CALL1(f, a) COV(f)(g_rt, a)
 #define CALL2(f, a, b) COV(f)(g_rt, a, b)
@@ -130,12 +130,14 @@ int main(int argc, char **argv) {
     printf("BA n=%llu r=%llu\n", (unsigned long long)baN[i], (unsigned long long)r);
   }
 
+#ifndef LCNF_NO_FLOAT
   static const u64 fltN[] = {0, 1, 7, 42};
   for (size_t i = 0; i < sizeof fltN / sizeof fltN[0]; i++) {
     u64 r = CALL1(floatBench, bx(fltN[i]));
     leak_check("floatBench");
     printf("FLT n=%llu r=%llu\n", (unsigned long long)fltN[i], (unsigned long long)r);
   }
+#endif
 
   /* Int (small + bignum, all sign combinations), BitVec.toInt/ofInt, Int64, UIntN.ofBitVec,
    * getObjTagNat (derived DecidableEq / ctorIdx), USize.{ofNatLT,repr}, non-ASCII symbols. */

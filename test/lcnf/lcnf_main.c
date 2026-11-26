@@ -43,7 +43,7 @@ u64 DEMO(vmBench)(u64 rt, u64 n, u64 depth, u64 seed);
 u64 DEMO(usizeSum)(u64 rt, u64 n);
 u64 l_LeanQbe_T_LeanLCNF_Probe_resetDec(u64 rt, u64 n);
 u64 l_LeanQbe_T_LeanLCNF_Probe_reuse(u64 rt, u64 n);
-static LcnfRt g_rtblock;
+static LcnfC0RtBlock g_rtblock;
 static u64 g_rt;
 #define CALL1(f, a) DEMO(f)(g_rt, a)
 #define CALL2(f, a, b) DEMO(f)(g_rt, a, b)
