@@ -1,9 +1,11 @@
 module
 
 public import LeanQbe.T.Amd64.VllAsmX64Lemmas
+public import LeanQbe.T.Logic.ProofKit
 import LeanQbe.T.Amd64.IselLemmas1
 import LeanQbe.T.Logic.MemLemmas
 meta import Lean
+meta import LeanQbe.T.Logic.ProofKit
 meta import LeanQbe.T.Amd64.VllX64
 meta import LeanQbe.T.Amd64.VllAsmX64
 meta import LeanQbe.T.Amd64.VllAsmX64Lemmas0
@@ -349,8 +351,8 @@ end CallSlotTailTest
 #print axioms LeanQbe.T.Amd64.asmX64List_fallsTo
 #print axioms LeanQbe.T.Amd64.asmX64_jump
 #print axioms LeanQbe.T.Amd64.asmX64Block_run
-#print axioms AluIndirectTest.alu_indirect_e2e
-#print axioms CallSlotTailTest.call_slot_tail_e2e
+open LeanQbe.T.ProofKit in
+check_std_axioms! AluIndirectTest.alu_indirect_e2e CallSlotTailTest.call_slot_tail_e2e
 
 meta section
 open Lean
