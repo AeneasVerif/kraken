@@ -864,11 +864,11 @@ theorem wp_jnz_false {rs : List Ty} {Q : Post rs} {X : XPost}
 
 private theorem bv64_ult_ofNat_false {a b : Nat} (ha : a < 2 ^ 64) (hb : b < 2 ^ 64) (h : b ≤ a) :
     BitVec.ult (BitVec.ofNat 64 a) (BitVec.ofNat 64 b) = false := by
-  rw [BitVec.ult]; simp [Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb, h]
+  rw [BitVec.ult]; simp [h]
 
 private theorem bv64_ult_ofNat_true {a b : Nat} (ha : a < 2 ^ 64) (hb : b < 2 ^ 64) (h : a < b) :
     BitVec.ult (BitVec.ofNat 64 a) (BitVec.ofNat 64 b) = true := by
-  rw [BitVec.ult]; simp [Nat.mod_eq_of_lt ha, Nat.mod_eq_of_lt hb, h]
+  rw [BitVec.ult]; simp [h]
 
 private theorem bv64_beq0_ofNat_false {a : Nat} (ha : a < 2 ^ 64) (hpos : 0 < a) :
     (BitVec.ofNat 64 a == 0#64) = false := by
@@ -1138,7 +1138,7 @@ theorem bn_nat_pow_wp (xs : Tup Val [i64, i64, i64]) (m : Mem 64)
           · intro J hJ; rw [wp_jump]; apply hJ
             refine ⟨1, aVal, sRes1, sBase1, sTmp0, sProd0, by decide, by omega, ?_, ?_, rfl, ?_,
               hna_le_tn, hsRes1_len, ?_, hsTmp0_len, hsProd0_len, ?_, ?_, ?_⟩
-            · simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega : bVal < 2 ^ 64)]
+            · simp [BitVec.toNat_ofNat]
             · simp [limbLenNat_eq_one]
             · simp [limbLenNat_eq_one, htn_pos]
             · omega
@@ -1198,8 +1198,7 @@ theorem bn_nat_pow_wp (xs : Tup Val [i64, i64, i64]) (m : Mem 64)
                 c0_step
                 have hnext_eq : expBV >>> 1 = BitVec.ofNat 64 (expBV.toNat / 2) := by
                   apply BitVec.eq_of_toNat_eq; rw [BitVec.toNat_ushiftRight]
-                  simp [Nat.shiftRight_eq_div_pow,
-                    Nat.mod_eq_of_lt (by omega : expBV.toNat / 2 < 2 ^ 64)]
+                  simp [Nat.shiftRight_eq_div_pow]
                 rw [hnext_eq]
                 let nextExp := expBV.toNat / 2
                 let PowMid2 : Tup Val [i64] → Mem 64 → Prop := fun ys2 m2 =>

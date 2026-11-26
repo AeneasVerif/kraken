@@ -1583,7 +1583,7 @@ theorem bn_load_nat_wp :
       (List.drop_set_of_lt (by decide)) (sep_unpick2_3 ‹_›)
     cases dstXs with
     | nil => simp at hdstPos
-    | cons d ds => simp [limbsVal_cons, limbsVal_nil, Nat.mod_eq_of_lt (by omega : val < 2 ^ 64)]
+    | cons d ds => simp [limbsVal_cons, limbsVal_nil]
   · have hnsm := natRep_big_of_even hrep ‹_›
     simp only [natRep, hnsm, ↓reduceIte] at hrep
     rcases hrep with ⟨_, obj, hIn, haddr, hcanon⟩
@@ -1667,7 +1667,7 @@ theorem bn_load_int_wp :
     cases dstXs with
     | nil => simp at hdstPos
     | cons d ds =>
-      simp [limbsVal_cons, limbsVal_nil, Nat.mod_eq_of_lt (by omega : val.natAbs < 2 ^ 64)]
+      simp [limbsVal_cons, limbsVal_nil]
   · have hnbig := intRep_big_of_even hrep ‹_›
     simp only [intRep, hnbig, ↓reduceIte] at hrep
     rcases hrep with ⟨_, obj, hIn, haddr, hcanon⟩
