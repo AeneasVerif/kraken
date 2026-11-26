@@ -77,11 +77,15 @@ target libkissat_qbe : Dynlib := do
   let dynJob ← buildLeanSharedLibOfStatic staticJob
   dynJob.mapM fun path => return { path, name := "kissat_qbe" }
 
-lean_lib BvDecideQbe where
+lean_lib BvDecideQbeNative where
   roots := #[]
-  globs := #[Glob.submodules `BvDecideQbe]
+  globs := #[`BvDecideQbe.FFI, `BvDecideQbe.Encode, `BvDecideQbe.Counterexample]
   precompileModules := true
   moreLinkLibs := #[libkissat_qbe]
+
+lean_lib BvDecideQbe where
+  roots := #[]
+  globs := #[`BvDecideQbe.Prover, `BvDecideQbe.Cegar, `BvDecideQbe.Tactic]
 
 @[default_target]
 lean_lib BvDecideQbeTest where

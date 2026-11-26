@@ -7,11 +7,11 @@ cd "$ROOT"
 RUN_SCOPE=(
   systemd-run --user --scope --quiet
   --slice=leanqbe-builds.slice
-  -p MemoryMax=14G -p MemorySwapMax=0 -p OOMPolicy=kill
-  env LAKE_ARTIFACT_CACHE=true LAKE_RESTORE_ARTIFACTS=true LEAN_NUM_THREADS=2
+  -p MemoryMax=18G -p MemorySwapMax=0 -p OOMPolicy=kill
+  env LAKE_ARTIFACT_CACHE=true LAKE_RESTORE_ARTIFACTS=true LEAN_NUM_THREADS=1
 )
 
-echo "== [1/7] scan bv_decide_qbe/*.lean for forbidden tokens (0 axiom / 0 sorry / 0 native_decide) =="
+echo "== [1/8] scan bv_decide_qbe/*.lean for forbidden tokens (0 axiom/sorry/native_decide) =="
 timeout 60 python3 -B - <<'PY'
 import pathlib, re, sys
 
@@ -77,10 +77,10 @@ if hits:
 print(f"token scan: OK ({len(files)} .lean files, 0 axiom / 0 sorry / 0 native_decide)")
 PY
 
-echo "== [2/7] lake build (BvDecideQbe + BvDecideQbeTest + libkissat_qbe) =="
-timeout 3600 "${RUN_SCOPE[@]}" lake build BvDecideQbe BvDecideQbeTest
+echo "== [2/8] lake build (BvDecideQbeNative + BvDecideQbe + BvDecideQbeTest + libkissat_qbe) =="
+timeout 3600 "${RUN_SCOPE[@]}" lake build BvDecideQbeNative BvDecideQbe BvDecideQbeTest
 
-echo "== [3/7] check .globl hygiene in kissat_solver.s =="
+echo "== [3/8] check .globl hygiene in kissat_solver.s =="
 ASM_PATH=".lake/build/c/kissat_solver.s"
 test -f "$ASM_PATH"
 GLOBLS="$(grep -E '^[[:space:]]*\.globl[[:space:]]+' "$ASM_PATH" | awk '{print $2}' | tr '\n' ' ')"
@@ -91,7 +91,7 @@ if [ "$GLOBLS" != "kissat_solve_bytes " ]; then
 fi
 tail -n 3 "$ASM_PATH" | grep -q '\.note\.GNU-stack'
 
-echo "== [4/7] readelf -d TEXTREL == 0 check =="
+echo "== [4/8] readelf -d TEXTREL == 0 check =="
 SO_FILES=()
 while IFS= read -r -d '' so; do
   SO_FILES+=("$so")
@@ -109,7 +109,7 @@ for so in "${SO_FILES[@]}"; do
   echo "TEXTREL=0: $so"
 done
 
-echo "== [5/7] clang -fsanitize=address,undefined c_det_test.c (4-mmap x 2 runs + guarded_buf.h) =="
+echo "== [5/8] clang -fsanitize=address,undefined c_det_test.c (4-mmap x 2 runs + guarded_buf.h) =="
 LEAN_INC="$(lean --print-prefix)/include"
 TMP_BIN="$(mktemp "${TMPDIR:-/tmp}/c_det_test.XXXXXX")"
 trap 'rm -f "$TMP_BIN"' EXIT
@@ -120,10 +120,13 @@ timeout 120 clang -std=c99 -O1 -g -fsanitize=address,undefined \
   -o "$TMP_BIN"
 timeout 120 "$TMP_BIN"
 
-echo "== [6/7] live in-process Lean FfiTest (precompileModules dlopen + differential checks) =="
+echo "== [6/8] live in-process Lean FfiTest (precompileModules dlopen + differential checks) =="
 timeout 600 "${RUN_SCOPE[@]}" lake lean BvDecideQbeTest/FfiTest.lean
 
-echo "== [7/7] live in-process Lean EncodeCexTest (round-trip + sizing + CEX evalEfficient) =="
+echo "== [7/8] live in-process Lean EncodeCexTest (round-trip + sizing + CEX evalEfficient) =="
 timeout 600 "${RUN_SCOPE[@]}" lake lean BvDecideQbeTest/EncodeCexTest.lean
+
+echo "== [8/8] live in-process Lean UnitTest (bv_decide_qbe tactic + CEGAR +uf + axioms + rfl) =="
+timeout 600 "${RUN_SCOPE[@]}" lake lean BvDecideQbeTest/UnitTest.lean
 
 echo "== bv_decide_qbe/scripts/check.sh: ALL PASSED =="
