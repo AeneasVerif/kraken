@@ -1,0 +1,730 @@
+module
+
+public import LeanQbe.T.FlatDirect
+public import LeanQbe.T.DceParam
+public import LeanQbe.T.IfOpt
+
+/-!
+# Native `Trie`-Env First-Order Mid-End CFG Passes (`OptFlatCfg`)
+
+Direct `TFlat rs → TFlat rs` implementations of the CFG/cleanup mid-end passes (`Func.dceWith`,
+`Func.dce`, `Func.deadLoadElim`, `Func.dcePWith`, `Func.dceP`, `Func.ifOptWith`, `Func.ifOpt`,
+`Func.ifOptBits`) using de Bruijn level `Trie` environments and output level counters:
+
+* `OptFlatCfg.dceWithFlat` / `OptFlatCfg.dceFlat` / `OptFlatCfg.deadLoadElimFlat`: dead-`let_`
+  and dead-`.load` elimination (`Dce.lean`).
+* `OptFlatCfg.dcePWithFlat` / `OptFlatCfg.dcePFlat`: dead-`let_` and dead-`.group`-parameter
+  elimination (`DceParam.lean`).
+* `OptFlatCfg.ifOptFlat`: diamond `.jnz` → `.select` if-conversion (`IfOpt.lean`).
+-/
+
+set_option autoImplicit false
+
+@[expose] public section
+
+namespace LeanQbe.T
+namespace OptFlatCfg
+
+/-! ## Shared `Trie` Environment & Operand/Label Resolution Helpers -/
+
+/-- Insert a tuple of typed payloads into `env` starting at de Bruijn level `depth`
+(matching `Flat.pushTup` / `FlatDirectLemmas.insertTupTrie`). -/
+def insertTupEnv {α : Type} {W : α → Type} (depth : Nat) (env : Trie ((a : α) × W a)) :
+    {ts : List α} → Tup W ts → Trie ((a : α) × W a)
+  | [], () => env
+  | a :: _, (w, ws) => insertTupEnv (depth + 1) (env.insert depth ⟨a, w⟩) ws
+
+/-- Initial `Trie` variable environment populated with fresh parameter wrappers for `as`. -/
+def initEnv {W : Ty → Type} (fresh : ∀ {t : Ty}, K t → Nat → W t) (as : List Ty) :
+    Trie ((t : Ty) × W t) :=
+  insertTupEnv 0 .empty (tupFreshWith fresh as (Tup.levels as 0) 0)
+
+/-- Resolve a `TFlat` variable/immediate operand in a level-indexed `Trie` environment of depth
+`depth` (falling back to `.imm default` on out-of-scope indices, unreachable under `wfCheck`). -/
+def resolveArg {W : Ty → Type} (depth : Nat) (env : Trie ((t : Ty) × W t)) {t : Ty} :
+    Arg K t → Arg W t
+  | .imm c => .imm c
+  | .var idx =>
+    match env.find? (depth - 1 - idx) with
+    | some ⟨t', w⟩ =>
+      match castTy t' t w with
+      | some w' => .var w'
+      | none => .imm default
+    | none => .imm default
+
+/-- Resolve a tuple of `TFlat` operands in `env`. -/
+def resolveArgs {W : Ty → Type} (depth : Nat) (env : Trie ((t : Ty) × W t)) :
+    {ts : List Ty} → Tup (Arg K) ts → Tup (Arg W) ts
+  | [], () => ()
+  | _ :: _, (a, as) => (resolveArg depth env a, resolveArgs depth env as)
+
+/-- Resolve a `TFlat` de Bruijn label index `j` at signature `ts` in a level-indexed `Trie`
+label environment of depth `lDepth`. -/
+def resolveLabel {W : List Ty → Type} (lDepth : Nat) (lEnv : Trie ((ts : List Ty) × W ts))
+    (ts : List Ty) (j : Nat) : Option (W ts) :=
+  match lEnv.find? (lDepth - 1 - j) with
+  | some ⟨ts', w⟩ => castListTy ts' ts w
+  | none => none
+
+/-- Convert an output de Bruijn label level `lbl` into a de Bruijn index at label depth `nl`
+(matching `toTFlat`). -/
+def idxLabel (nl lbl : Nat) : Nat :=
+  if lbl < nl then nl - 1 - lbl else nl
+
+/-- Convert a `TFlat` de Bruijn index operand into a de Bruijn level operand at depth `b`. -/
+def levelArg (b : Nat) {t : Ty} : Arg K t → Arg K t
+  | .var idx => .var (b - 1 - idx)
+  | .imm c => .imm c
+
+/-- Convert a tuple of `TFlat` de Bruijn index operands into de Bruijn level operands. -/
+def levelArgs (b : Nat) : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts
+  | [], () => ()
+  | _ :: _, (a, as) => (levelArg b a, levelArgs b as)
+
+/-! ## 1. Native `TFlat` Dead-Binding & Dead-Load Elimination (`dceWithFlat`, `deadLoadElimFlat`) -/
+
+mutual
+/-- Bottom-up liveness scan directly over `TFlat rs` mirroring `LeanQbe.T.liveVarsWith`. -/
+def liveVarsFlat (dropLets dropLoads : Bool) {rs : List Ty} (b : Nat) :
+    TFlat rs → Trie Unit × KeepTree
+  | .let_ (ts := ts) op k =>
+    let (s, kt) := liveVarsFlat dropLets dropLoads (b + ts.length) k
+    if !dropLets || anyLive b ts.length s then
+      (addArgKeys (levelArgs b op.args) s, .letNode true kt)
+    else
+      (s, .letNode false kt)
+  | .load _ a k =>
+    let (s, kt) := liveVarsFlat dropLets dropLoads (b + 1) k
+    if !dropLoads || (s.find? b).isSome then
+      (addArgKey (levelArg b a) s, .letNode true kt)
+    else
+      (s, .letNode false kt)
+  | .store v a k =>
+    let (s, kt) := liveVarsFlat dropLets dropLoads b k
+    (addArgKey (levelArg b v) (addArgKey (levelArg b a) s), .node1 kt)
+  | .call _ bs args k =>
+    let (s, kt) := liveVarsFlat dropLets dropLoads (b + bs.length) k
+    (addArgKeys (levelArgs b args) s, .node1 kt)
+  | .jnz c t e =>
+    let (st, ktt) := liveVarsFlat dropLets dropLoads b t
+    let (se, kte) := liveVarsFlat dropLets dropLoads b e
+    (addArgKey (levelArg b c) (trieUnion st se), .node2 ktt kte)
+  | .jump _ args => (addArgKeys (levelArgs b args) .empty, .leaf)
+  | .ret vs => (addArgKeys (levelArgs b vs) .empty, .leaf)
+  | .exit _ args => (addArgKeys (levelArgs b args) .empty, .leaf)
+  | .hlt => (.empty, .leaf)
+  | .group bodies k =>
+    let (sb, kbs) := liveVarsBFlat dropLets dropLoads b bodies
+    let (sk, ktk) := liveVarsFlat dropLets dropLoads b k
+    (trieUnion sb sk, .groupNode kbs ktk)
+
+/-- Block-list companion of `liveVarsFlat`. -/
+def liveVarsBFlat (dropLets dropLoads : Bool) {rs : List Ty} (b : Nat) :
+    {sig : List (List Ty)} → TBlocks rs sig → Trie Unit × KeepBlocks
+  | _, .nil => (.empty, .nil)
+  | _, .cons (ts := ts) hd tl =>
+    let (sh, kh) := liveVarsFlat dropLets dropLoads (b + ts.length) hd
+    let (st, kt) := liveVarsBFlat dropLets dropLoads b tl
+    (trieUnion sh st, .cons kh kt)
+end
+
+mutual
+/-- Top-down `TFlat` DCE sweep guided by `kt : KeepTree` mirroring `LeanQbe.T.dceSweep`. -/
+def dceSweepFlat {rs : List Ty} (kt : KeepTree) :
+    TFlat rs → Nat → Trie ((t : Ty) × OptV K t) → Nat → TFlat rs
+  | .let_ (ts := ts) op k, inD, inE, outD =>
+    match kt with
+    | .letNode true kt' =>
+      let args' := idxArgs outD (argsSweep (resolveArgs inD inE op.args))
+      let wrapped := someTup ts (Tup.levels ts outD)
+      .let_ ⟨op.code, args'⟩
+        (dceSweepFlat kt' k (inD + ts.length) (insertTupEnv inD inE wrapped) (outD + ts.length))
+    | .letNode false kt' =>
+      dceSweepFlat kt' k (inD + ts.length) (insertTupEnv inD inE (noneTup ts)) outD
+    | _ => .hlt
+  | .load t a k, inD, inE, outD =>
+    match kt with
+    | .letNode true kt' =>
+      let a' := idxArg outD (argSweep (resolveArg inD inE a))
+      .load t a' (dceSweepFlat kt' k (inD + 1) (inE.insert inD ⟨t, some outD⟩) (outD + 1))
+    | .letNode false kt' =>
+      dceSweepFlat kt' k (inD + 1) (inE.insert inD ⟨t, none⟩) outD
+    | _ => .hlt
+  | .store v a k, inD, inE, outD =>
+    match kt with
+    | .node1 kt' =>
+      let v' := idxArg outD (argSweep (resolveArg inD inE v))
+      let a' := idxArg outD (argSweep (resolveArg inD inE a))
+      .store v' a' (dceSweepFlat kt' k inD inE outD)
+    | _ => .hlt
+  | .call f bs args k, inD, inE, outD =>
+    match kt with
+    | .node1 kt' =>
+      let args' := idxArgs outD (argsSweep (resolveArgs inD inE args))
+      let wrapped := someTup bs (Tup.levels bs outD)
+      .call f bs args'
+        (dceSweepFlat kt' k (inD + bs.length) (insertTupEnv inD inE wrapped) (outD + bs.length))
+    | _ => .hlt
+  | .jnz c t e, inD, inE, outD =>
+    match kt with
+    | .node2 ktt kte =>
+      let c' := idxArg outD (argSweep (resolveArg inD inE c))
+      .jnz c' (dceSweepFlat ktt t inD inE outD) (dceSweepFlat kte e inD inE outD)
+    | _ => .hlt
+  | .jump j args, inD, inE, outD =>
+    .jump j (idxArgs outD (argsSweep (resolveArgs inD inE args)))
+  | .ret vs, inD, inE, outD =>
+    .ret (idxArgs outD (argsSweep (resolveArgs inD inE vs)))
+  | .exit f args, inD, inE, outD =>
+    .exit f (idxArgs outD (argsSweep (resolveArgs inD inE args)))
+  | .hlt, _, _, _ => .hlt
+  | .group bodies k, inD, inE, outD =>
+    match kt with
+    | .groupNode kbs ktk =>
+      .group (dceSweepBFlat kbs bodies inD inE outD) (dceSweepFlat ktk k inD inE outD)
+    | _ => .hlt
+
+/-- Block-list companion of `dceSweepFlat`. -/
+def dceSweepBFlat {rs : List Ty} (kbs : KeepBlocks) :
+    {sig : List (List Ty)} → TBlocks rs sig →
+    Nat → Trie ((t : Ty) × OptV K t) → Nat → TBlocks rs sig
+  | _, .nil, _, _, _ => .nil
+  | _, .cons (ts := ts) b bs, inD, inE, outD =>
+    match kbs with
+    | .cons kh kt =>
+      let wrapped := someTup ts (Tup.levels ts outD)
+      .cons
+        (dceSweepFlat kh b (inD + ts.length) (insertTupEnv inD inE wrapped) (outD + ts.length))
+        (dceSweepBFlat kt bs inD inE outD)
+    | _ => .cons .hlt (dceSweepBFlat .nil bs inD inE outD)
+end
+
+/-- Direct `TFlat` configurable dead-binding elimination matching
+`reifyFunc (Func.dceWith dropLets dropLoads (denoteFunc tf))`. -/
+def dceWithFlat (dropLets dropLoads : Bool) (as : List Ty) {rs : List Ty}
+    (tf : TFlat rs) : TFlat rs :=
+  let kt := (liveVarsFlat dropLets dropLoads as.length tf).2
+  dceSweepFlat kt tf as.length (initEnv (fun x _ => some x) as) as.length
+
+/-- Direct `TFlat` dead-`let_` elimination matching `reifyFunc (Func.dce (denoteFunc tf))`. -/
+def dceFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
+  dceWithFlat true false as tf
+
+/-- Direct `TFlat` dead-`.load` elimination matching
+`reifyFunc (Func.deadLoadElim (denoteFunc tf))`. -/
+def deadLoadElimFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
+  dceWithFlat false true as tf
+
+/-- `TFlatFn` wrapper for `dceFlat`. -/
+def dceFlatFn (f : TFlatFn) : TFlatFn :=
+  ⟨f.name, f.as, f.rs, dceFlat f.as f.body⟩
+
+/-- `TFlatFn` wrapper for `deadLoadElimFlat`. -/
+def deadLoadElimFlatFn (f : TFlatFn) : TFlatFn :=
+  ⟨f.name, f.as, f.rs, deadLoadElimFlat f.as f.body⟩
+
+/-! ## 2. Native `TFlat` Dead-`.group`-Parameter & Dead-`let_` Elimination (`dcePFlat`) -/
+
+section DceParamFlat
+open DceParam
+
+mutual
+/-- Bottom-up liveness and mask-plan analysis directly over `TFlat rs` with a guessed `PTree`
+plan, mirroring `DceParam.liveVarsP`. -/
+def liveVarsPFlat (dropLets dropLoads : Bool) {rs : List Ty} (g : PTree)
+    (b inLD : Nat) (inLE : Trie ((ts : List Ty) × Mask ts)) :
+    TFlat rs → Trie Unit × PTree × Bool
+  | .let_ (ts := ts) op k =>
+    let (s, kt, ok) := liveVarsPFlat dropLets dropLoads g.sub1 (b + ts.length) inLD inLE k
+    if !dropLets || anyLive b ts.length s then
+      (addArgKeys (levelArgs b op.args) s, .letNode true kt, ok)
+    else
+      (s, .letNode false kt, ok)
+  | .load _ a k =>
+    let (s, kt, ok) := liveVarsPFlat dropLets dropLoads g.sub1 (b + 1) inLD inLE k
+    if !dropLoads || (s.find? b).isSome then
+      (addArgKey (levelArg b a) s, .letNode true kt, ok)
+    else
+      (s, .letNode false kt, ok)
+  | .store v a k =>
+    let (s, kt, ok) := liveVarsPFlat dropLets dropLoads g.sub1 b inLD inLE k
+    (addArgKey (levelArg b v) (addArgKey (levelArg b a) s), .node1 kt, ok)
+  | .call _ bs args k =>
+    let (s, kt, ok) := liveVarsPFlat dropLets dropLoads g.sub1 (b + bs.length) inLD inLE k
+    (addArgKeys (levelArgs b args) s, .node1 kt, ok)
+  | .jnz c t e =>
+    let (st, ktt, okt) := liveVarsPFlat dropLets dropLoads g.subT b inLD inLE t
+    let (se, kte, oke) := liveVarsPFlat dropLets dropLoads g.subE b inLD inLE e
+    (addArgKey (levelArg b c) (trieUnion st se), .node2 ktt kte, okt && oke)
+  | .jump (ts := ts) j args =>
+    match resolveLabel inLD inLE ts j with
+    | some m => (addMasked m (levelArgs b args) .empty, .leaf, true)
+    | none => (.empty, .leaf, true)
+  | .ret vs => (addArgKeys (levelArgs b vs) .empty, .leaf, true)
+  | .exit _ args => (addArgKeys (levelArgs b args) .empty, .leaf, true)
+  | .hlt => (.empty, .leaf, true)
+  | .group (sig := sig) bodies k =>
+    let ls := g.subB.masksOf sig
+    let inLD' := inLD + sig.length
+    let inLE' := insertTupEnv inLD inLE ls
+    let (sb, kbs, okb) := liveVarsBPFlat dropLets dropLoads g.subB b inLD' inLE' bodies
+    let (sk, ktk, okk) := liveVarsPFlat dropLets dropLoads g.subK b inLD' inLE' k
+    (trieUnion sb sk, .groupNode kbs ktk, okb && okk)
+
+/-- Block-list companion of `liveVarsPFlat`. -/
+def liveVarsBPFlat (dropLets dropLoads : Bool) {rs : List Ty} (g : PBlocks)
+    (b inLD : Nat) (inLE : Trie ((ts : List Ty) × Mask ts)) :
+    {sig : List (List Ty)} → TBlocks rs sig → Trie Unit × PBlocks × Bool
+  | _, .nil => (.empty, .nil, true)
+  | _, .cons (ts := ts) hd tl =>
+    let (sh, kh, okh) := liveVarsPFlat dropLets dropLoads g.hd (b + ts.length) inLD inLE hd
+    let (st, kt, okt) := liveVarsBPFlat dropLets dropLoads g.tl b inLD inLE tl
+    let m := liveMask b ts.length sh
+    (trieUnion sh st, .cons m kh kt, maskLe (maskOf ts m) (maskOf ts g.mask) && okh && okt)
+end
+
+mutual
+/-- Top-down `TFlat` sweep narrowing `.group` signatures and `.jump` operands according to
+`kt : PTree`, mirroring `DceParam.dceSweepP`. -/
+def dceSweepPFlat {rs : List Ty} (kt : PTree) :
+    TFlat rs → Nat → Trie ((t : Ty) × OptV K t) →
+    Nat → Trie ((ts : List Ty) × NLabel KL ts) → Nat → Nat → TFlat rs
+  | .let_ (ts := ts) op k, inVD, inVE, inLD, inLE, outVD, outLD =>
+    match kt with
+    | .letNode true kt' =>
+      let args' := idxArgs outVD (argsSweep (resolveArgs inVD inVE op.args))
+      let wrapped := someTup ts (Tup.levels ts outVD)
+      .let_ ⟨op.code, args'⟩
+        (dceSweepPFlat kt' k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
+          inLD inLE (outVD + ts.length) outLD)
+    | .letNode false kt' =>
+      dceSweepPFlat kt' k (inVD + ts.length) (insertTupEnv inVD inVE (noneTup ts))
+        inLD inLE outVD outLD
+    | _ => .hlt
+  | .load t a k, inVD, inVE, inLD, inLE, outVD, outLD =>
+    match kt with
+    | .letNode true kt' =>
+      let a' := idxArg outVD (argSweep (resolveArg inVD inVE a))
+      .load t a'
+        (dceSweepPFlat kt' k (inVD + 1) (inVE.insert inVD ⟨t, some outVD⟩)
+          inLD inLE (outVD + 1) outLD)
+    | .letNode false kt' =>
+      dceSweepPFlat kt' k (inVD + 1) (inVE.insert inVD ⟨t, none⟩) inLD inLE outVD outLD
+    | _ => .hlt
+  | .store v a k, inVD, inVE, inLD, inLE, outVD, outLD =>
+    match kt with
+    | .node1 kt' =>
+      let v' := idxArg outVD (argSweep (resolveArg inVD inVE v))
+      let a' := idxArg outVD (argSweep (resolveArg inVD inVE a))
+      .store v' a' (dceSweepPFlat kt' k inVD inVE inLD inLE outVD outLD)
+    | _ => .hlt
+  | .call f bs args k, inVD, inVE, inLD, inLE, outVD, outLD =>
+    match kt with
+    | .node1 kt' =>
+      let args' := idxArgs outVD (argsSweep (resolveArgs inVD inVE args))
+      let wrapped := someTup bs (Tup.levels bs outVD)
+      .call f bs args'
+        (dceSweepPFlat kt' k (inVD + bs.length) (insertTupEnv inVD inVE wrapped)
+          inLD inLE (outVD + bs.length) outLD)
+    | _ => .hlt
+  | .jnz c t e, inVD, inVE, inLD, inLE, outVD, outLD =>
+    match kt with
+    | .node2 ktt kte =>
+      let c' := idxArg outVD (argSweep (resolveArg inVD inVE c))
+      .jnz c'
+        (dceSweepPFlat ktt t inVD inVE inLD inLE outVD outLD)
+        (dceSweepPFlat kte e inVD inVE inLD inLE outVD outLD)
+    | _ => .hlt
+  | .jump (ts := ts) j args, inVD, inVE, inLD, inLE, outVD, outLD =>
+    match resolveLabel inLD inLE ts j with
+    | some (.mk m l) =>
+      .jump (idxLabel outLD l)
+        (idxArgs outVD (tupNarrow ts m (argsSweep (resolveArgs inVD inVE args))))
+    | none => .hlt
+  | .ret vs, inVD, inVE, _, _, outVD, _ =>
+    .ret (idxArgs outVD (argsSweep (resolveArgs inVD inVE vs)))
+  | .exit f args, inVD, inVE, _, _, outVD, _ =>
+    .exit f (idxArgs outVD (argsSweep (resolveArgs inVD inVE args)))
+  | .hlt, _, _, _, _, _, _ => .hlt
+  | .group (sig := sig) bodies k, inVD, inVE, inLD, inLE, outVD, outLD =>
+    match kt with
+    | .groupNode kbs ktk =>
+      let ms := kbs.masksOf sig
+      let sig' := narrowSig sig ms
+      let wrappedL := wrapLabels sig ms (Tup.levels sig' outLD)
+      let inLD' := inLD + sig.length
+      let inLE' := insertTupEnv inLD inLE wrappedL
+      let outLD' := outLD + sig'.length
+      .group (sig := sig')
+        (dceSweepBPFlat kbs bodies inVD inVE inLD' inLE' outVD outLD')
+        (dceSweepPFlat ktk k inVD inVE inLD' inLE' outVD outLD')
+    | _ => .hlt
+
+/-- Block-list companion of `dceSweepPFlat`. -/
+def dceSweepBPFlat {rs : List Ty} (kbs : PBlocks) :
+    {sig : List (List Ty)} → TBlocks rs sig → Nat → Trie ((t : Ty) × OptV K t) →
+    Nat → Trie ((ts : List Ty) × NLabel KL ts) → Nat → Nat →
+    TBlocks rs (narrowSig sig (kbs.masksOf sig))
+  | [], .nil, _, _, _, _, _, _ => .nil
+  | ts :: _, .cons b bs, inVD, inVE, inLD, inLE, outVD, outLD =>
+    let m := maskOf ts kbs.mask
+    let widened := tupWiden ts m (Tup.levels (narrow ts m) outVD)
+    .cons
+      (dceSweepPFlat kbs.hd b (inVD + ts.length) (insertTupEnv inVD inVE widened)
+        inLD inLE (outVD + (narrow ts m).length) outLD)
+      (dceSweepBPFlat kbs.tl bs inVD inVE inLD inLE outVD outLD)
+end
+
+/-- Direct `TFlat` configurable dead-binding and dead-`.group`-parameter elimination matching
+`reifyFunc (Func.dcePWith dropLets dropLoads rounds (denoteFunc tf))`. -/
+def dcePWithFlat (dropLets dropLoads : Bool) (rounds : Nat := 0)
+    (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
+  let g := iterN (fun g => (liveVarsPFlat dropLets dropLoads g as.length 0 .empty tf).2.1)
+    rounds .leaf
+  let r := liveVarsPFlat dropLets dropLoads g as.length 0 .empty tf
+  if r.2.2 then
+    dceSweepPFlat r.2.1 tf as.length (initEnv (fun x _ => some x) as) 0 .empty as.length 0
+  else
+    dceWithFlat dropLets dropLoads as tf
+
+/-- Direct `TFlat` dead-`let_` and dead-`.group`-parameter elimination matching
+`reifyFunc (Func.dceP (denoteFunc tf))`. -/
+def dcePFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
+  dcePWithFlat true false 0 as tf
+
+/-- `TFlatFn` wrapper for `dcePFlat`. -/
+def dcePFlatFn (f : TFlatFn) : TFlatFn :=
+  ⟨f.name, f.as, f.rs, dcePFlat f.as f.body⟩
+
+end DceParamFlat
+
+/-! ## 3. Native `TFlat` Diamond `jnz` → `select` If-Conversion (`ifOptFlat`) -/
+
+section IfOptFlat
+open IfOptImpl
+
+/-- Direct `TFlat` mirror of `IfOptImpl.findFirstJump`. -/
+def findFirstJumpFlat {rs : List Ty} :
+    Nat → Nat → Trie ((ts : List Ty) × JLabel KL ts) → TFlat rs → Option (TaggedTarget KL)
+  | 0, _, _, _ => none
+  | _ + 1, inLD, inLE, .jump (ts := ts) j _ =>
+    match resolveLabel inLD inLE ts j with
+    | some (.tag id lbl) => some ⟨ts, id, lbl⟩
+    | _ => none
+  | fuel + 1, inLD, inLE, .let_ _ k => findFirstJumpFlat fuel inLD inLE k
+  | fuel + 1, inLD, inLE, .jnz _ t _ => findFirstJumpFlat fuel inLD inLE t
+  | _ + 1, _, _, _ => none
+
+/-- Direct `TFlat` mirror of `IfOptImpl.checkArm`. -/
+def checkArmFlat (tgt : ArmTarget) :
+    Nat → Nat → Nat → Trie ((ts : List Ty) × JLabel KL ts) → {rs : List Ty} →
+    TFlat rs → Option (ArmPlan × Nat)
+  | jnzFuel, letFuel, inLD, inLE, _, .let_ op k =>
+    if isSafeOp op.code then
+      match letFuel with
+      | 0 => none
+      | letFuel' + 1 =>
+        (checkArmFlat tgt jnzFuel letFuel' inLD inLE k).map fun (p, rem) => (.let_ p, rem)
+    else none
+  | _, letFuel, inLD, inLE, _, .jump (ts := ts) j _ =>
+    match resolveLabel inLD inLE ts j with
+    | some jl =>
+      match tgt, jl with
+      | .loc jId jTs, .loc id
+      | .tag jId jTs, .tag id _ =>
+        if id == jId && Ty.listBeq ts jTs then some (.jump, letFuel) else none
+      | _, _ => none
+    | none => none
+  | _, letFuel, _, _, _, .ret _ =>
+    match tgt with
+    | .ret => some (.ret, letFuel)
+    | _ => none
+  | jnzFuel + 1, letFuel, inLD, inLE, _, .jnz _ t e => do
+    let (pT, rem1) ← checkArmFlat tgt jnzFuel letFuel inLD inLE t
+    let (pE, rem2) ← checkArmFlat tgt jnzFuel rem1 inLD inLE e
+    pure (.jnz pT pE, rem2)
+  | _, _, _, _, _, _ => none
+
+/-- Direct `TFlat` mirror of `IfOptImpl.checkDiamondWith`. -/
+def checkDiamondFlat (bitsOnly : Bool) (jId : Nat) (jTs : List Ty)
+    (inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts)) {rs : List Ty} :
+    TFlat rs → Option DiamondPlan
+  | .let_ _ k => (checkDiamondFlat bitsOnly jId jTs inLD inLE k).map .let_
+  | .load _ _ k => (checkDiamondFlat bitsOnly jId jTs inLD inLE k).map .load
+  | .store _ _ k => (checkDiamondFlat bitsOnly jId jTs inLD inLE k).map .store
+  | .call _ _ _ k => (checkDiamondFlat bitsOnly jId jTs inLD inLE k).map .call
+  | .jnz _ t e =>
+    if isSelectSigWith bitsOnly jTs then
+      match checkArmFlat (.loc jId jTs) 2 4 inLD inLE t,
+            checkArmFlat (.loc jId jTs) 2 4 inLD inLE e with
+      | some (pT, _), some (pE, _) => some (.jnz pT pE)
+      | _, _ => none
+    else none
+  | _ => none
+
+/-- Direct `TFlat` mirror of `IfOptImpl.mkPairIValArg`. -/
+def mkPairIValArgFlat {rs : List Ty} {a b : Ty}
+    (outVD : Nat) (x : Arg (IVal K) a) (y : Arg (IVal K) b)
+    (cont : Nat → Arg (IVal K) (.pair a b) → TFlat rs) : TFlat rs :=
+  match iout x, iout y with
+  | .imm cx, .imm cy => cont outVD (.imm (cx, cy))
+  | vx, vy =>
+    .let_ ⟨.mkpair a b, (idxArg outVD vx, idxArg outVD vy, ())⟩
+      (cont (outVD + 1) (.var (.var outVD, .var outVD)))
+
+/-- Direct `TFlat` mirror of `IfOptImpl.splitPairIVal`. -/
+def splitPairIValFlat {rs : List Ty} {a b : Ty}
+    (outVD : Nat) (p : Arg (IVal K) (.pair a b))
+    (cont : Nat → Arg (IVal K) a → Arg (IVal K) b → TFlat rs) : TFlat rs :=
+  match iout p with
+  | .imm (c₁, c₂) => cont outVD (.imm c₁) (.imm c₂)
+  | .var v =>
+    .let_ ⟨.unpair a b, (idxArg outVD (.var v), ())⟩
+      (cont (outVD + 2)
+        (.var (.var outVD, .var outVD))
+        (.var (.var (outVD + 1), .var (outVD + 1))))
+
+/-- Direct `TFlat` mirror of `IfOptImpl.emitSelectTyIVal`. -/
+def emitSelectTyIValFlat {rs : List Ty} (c : Arg K .bool) :
+    (t : Ty) → Nat → Arg (IVal K) t → Arg (IVal K) t →
+    (Nat → Arg (IVal K) t → TFlat rs) → TFlat rs
+  | .bool, outVD, aT, aE, cont
+  | .bits _, outVD, aT, aE, cont =>
+    if fKeyBeq (ikey aT) (ikey aE) then cont outVD aT
+    else
+      .let_ ⟨.select _, (idxArg outVD c, idxArg outVD (iout aT), idxArg outVD (iout aE), ())⟩
+        (cont (outVD + 1) (.var (.var outVD, .var outVD)))
+  | .float _, outVD, aT, _, cont => cont outVD aT
+  | .pair a b, outVD, aT, aE, cont =>
+    if fKeyBeq (ikey aT) (ikey aE) then cont outVD aT
+    else
+      splitPairIValFlat outVD aT fun od₁ aT₁ aT₂ =>
+      splitPairIValFlat od₁ aE fun od₂ aE₁ aE₂ =>
+      emitSelectTyIValFlat c a od₂ aT₁ aE₁ fun od₃ r₁ =>
+      emitSelectTyIValFlat c b od₃ aT₂ aE₂ fun od₄ r₂ =>
+      mkPairIValArgFlat od₄ r₁ r₂ cont
+
+/-- Direct `TFlat` mirror of `IfOptImpl.emitSelectTupIVal`. -/
+def emitSelectTupIValFlat {rs : List Ty} (c : Arg K .bool) :
+    (ts : List Ty) → Nat → Tup (Arg (IVal K)) ts → Tup (Arg (IVal K)) ts →
+    (Nat → Tup (Arg (IVal K)) ts → TFlat rs) → TFlat rs
+  | [], outVD, (), (), cont => cont outVD ()
+  | t :: ts, outVD, (aT, asT), (aE, asE), cont =>
+    emitSelectTyIValFlat c t outVD aT aE fun od' r =>
+    emitSelectTupIValFlat c ts od' asT asE fun od'' rs' =>
+    cont od'' (r, rs')
+
+/-- Direct `TFlat` mirror of `IfOptImpl.emitSelectTup`. -/
+def emitSelectTupFlat {rs : List Ty} (c : Arg K .bool) (ts : List Ty) (outVD : Nat)
+    (asT asE : Tup (Arg (IVal K)) ts)
+    (cont : Nat → Tup (Arg K) ts → TFlat rs) : TFlat rs :=
+  emitSelectTupIValFlat c ts outVD asT asE fun od' sel => cont od' (tupIOut sel)
+
+/-- Direct `TFlat` mirror of `IfOptImpl.hoistArm`. -/
+def hoistArmFlat {rs : List Ty} (jTs : List Ty) :
+    ArmPlan → TFlat rs → Nat → Trie ((t : Ty) × IVal K t) → Nat →
+    (Nat → Tup (Arg (IVal K)) jTs → TFlat rs) → TFlat rs
+  | .jump, .jump (ts := ts) _ args, inVD, inVE, outVD, cont =>
+    let args' := resolveArgs inVD inVE args
+    match listTyDecEq ts jTs with
+    | isTrue h => cont outVD (h ▸ args')
+    | isFalse _ => .hlt
+  | .ret, .ret vs, inVD, inVE, outVD, cont =>
+    let vs' := resolveArgs inVD inVE vs
+    match listTyDecEq rs jTs with
+    | isTrue h => cont outVD (h ▸ vs')
+    | isFalse _ => .hlt
+  | .let_ rest, .let_ (ts := ts) op k, inVD, inVE, outVD, cont =>
+    let args' := resolveArgs inVD inVE op.args
+    let wrapped := freshIVals ts (Tup.levels ts outVD) outVD
+    .let_ ⟨op.code, idxArgs outVD (tupIOut args')⟩
+      (hoistArmFlat jTs rest k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
+        (outVD + ts.length) cont)
+  | .jnz pT pE, .jnz c t e, inVD, inVE, outVD, cont =>
+    let c' := iout (resolveArg inVD inVE c)
+    hoistArmFlat jTs pT t inVD inVE outVD fun od₁ argsT =>
+    hoistArmFlat jTs pE e inVD inVE od₁ fun od₂ argsE =>
+    emitSelectTupIValFlat c' jTs od₂ argsT argsE cont
+  | _, _, _, _, _, _ => .hlt
+
+/-- Direct `TFlat` mirror of `IfOptImpl.hoistJnzArms`. -/
+def hoistJnzArmsFlat {rs : List Ty} (jTs : List Ty)
+    (pT pE : ArmPlan) (c : Arg K .bool) (t e : TFlat rs)
+    (inVD : Nat) (inVE : Trie ((t : Ty) × IVal K t)) (outVD : Nat)
+    (fin : Nat → Tup (Arg K) jTs → TFlat rs) : TFlat rs :=
+  hoistArmFlat jTs pT t inVD inVE outVD fun od₁ argsT =>
+  hoistArmFlat jTs pE e inVD inVE od₁ fun od₂ argsE =>
+  emitSelectTupFlat c jTs od₂ argsT argsE fin
+
+/-- Direct `TFlat` mirror of `IfOptImpl.hoistDiamond`. -/
+def hoistDiamondFlat {rs : List Ty} {jTs : List Ty} (jLbl : KL jTs) :
+    DiamondPlan → TFlat rs → Nat → Trie ((t : Ty) × IVal K t) → Nat → Nat → TFlat rs
+  | .jnz pT pE, .jnz c t e, inVD, inVE, outVD, outLD =>
+    let c' := iout (resolveArg inVD inVE c)
+    hoistJnzArmsFlat jTs pT pE c' t e inVD inVE outVD fun od' selArgs =>
+      .jump (idxLabel outLD jLbl) (idxArgs od' selArgs)
+  | .let_ rest, .let_ (ts := ts) op k, inVD, inVE, outVD, outLD =>
+    let args' := resolveArgs inVD inVE op.args
+    let wrapped := freshIVals ts (Tup.levels ts outVD) outVD
+    .let_ ⟨op.code, idxArgs outVD (tupIOut args')⟩
+      (hoistDiamondFlat jLbl rest k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
+        (outVD + ts.length) outLD)
+  | .load rest, .load t a k, inVD, inVE, outVD, outLD =>
+    let a' := iout (resolveArg inVD inVE a)
+    let inVE' := inVE.insert inVD ⟨t, (.var outVD, .var outVD)⟩
+    .load t (idxArg outVD a')
+      (hoistDiamondFlat jLbl rest k (inVD + 1) inVE' (outVD + 1) outLD)
+  | .store rest, .store v a k, inVD, inVE, outVD, outLD =>
+    let v' := iout (resolveArg inVD inVE v)
+    let a' := iout (resolveArg inVD inVE a)
+    .store (idxArg outVD v') (idxArg outVD a')
+      (hoistDiamondFlat jLbl rest k inVD inVE outVD outLD)
+  | .call rest, .call f bs args k, inVD, inVE, outVD, outLD =>
+    let args' := resolveArgs inVD inVE args
+    let wrapped := freshIVals bs (Tup.levels bs outVD) outVD
+    .call f bs (idxArgs outVD (tupIOut args'))
+      (hoistDiamondFlat jLbl rest k (inVD + bs.length) (insertTupEnv inVD inVE wrapped)
+        (outVD + bs.length) outLD)
+  | _, _, _, _, _, _ => .hlt
+
+/-- Direct `TFlat` mirror of `IfOptImpl.tryJnzDiamond`. -/
+def tryJnzDiamondFlat {rs : List Ty} (bitsOnly : Bool)
+    (c : Arg K .bool) (t e : TFlat rs)
+    (inVD : Nat) (inVE : Trie ((t : Ty) × IVal K t))
+    (inLD : Nat) (inLE : Trie ((ts : List Ty) × JLabel KL ts))
+    (outVD outLD : Nat) : Option (TFlat rs) :=
+  match findFirstJumpFlat 8 inLD inLE t with
+  | some ⟨jTs, jId, jLbl⟩ =>
+    if isSelectSigWith bitsOnly jTs then
+      match checkArmFlat (.tag jId jTs) 2 4 inLD inLE t,
+            checkArmFlat (.tag jId jTs) 2 4 inLD inLE e with
+      | some (pT, _), some (pE, _) =>
+        some (hoistJnzArmsFlat jTs pT pE c t e inVD inVE outVD fun od' selArgs =>
+          .jump (idxLabel outLD jLbl) (idxArgs od' selArgs))
+      | _, _ => none
+    else none
+  | none =>
+    if isSelectSigWith bitsOnly rs then
+      match checkArmFlat .ret 2 4 inLD inLE t,
+            checkArmFlat .ret 2 4 inLD inLE e with
+      | some (pT, _), some (pE, _) =>
+        some (hoistJnzArmsFlat rs pT pE c t e inVD inVE outVD fun od' selArgs =>
+          .ret (idxArgs od' selArgs))
+      | _, _ => none
+    else none
+
+mutual
+/-- Recursive `TFlat` mirror of `LeanQbe.T.ifOptWith`. -/
+def ifOptWithFlat {rs : List Ty} (bitsOnly : Bool) (depth : Nat) :
+    TFlat rs → Nat → Trie ((t : Ty) × IVal K t) →
+    Nat → Trie ((ts : List Ty) × JLabel KL ts) → Nat → Nat → TFlat rs
+  | .let_ (ts := ts) op k, inVD, inVE, inLD, inLE, outVD, outLD =>
+    let args' := resolveArgs inVD inVE op.args
+    let wrapped := freshIVals ts (Tup.levels ts outVD) outVD
+    .let_ ⟨op.code, idxArgs outVD (tupIOut args')⟩
+      (ifOptWithFlat bitsOnly depth k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
+        inLD inLE (outVD + ts.length) outLD)
+  | .load t a k, inVD, inVE, inLD, inLE, outVD, outLD =>
+    let a' := iout (resolveArg inVD inVE a)
+    let inVE' := inVE.insert inVD ⟨t, (.var outVD, .var outVD)⟩
+    .load t (idxArg outVD a')
+      (ifOptWithFlat bitsOnly depth k (inVD + 1) inVE' inLD inLE (outVD + 1) outLD)
+  | .store v a k, inVD, inVE, inLD, inLE, outVD, outLD =>
+    let v' := iout (resolveArg inVD inVE v)
+    let a' := iout (resolveArg inVD inVE a)
+    .store (idxArg outVD v') (idxArg outVD a')
+      (ifOptWithFlat bitsOnly depth k inVD inVE inLD inLE outVD outLD)
+  | .call f bs args k, inVD, inVE, inLD, inLE, outVD, outLD =>
+    let args' := resolveArgs inVD inVE args
+    let wrapped := freshIVals bs (Tup.levels bs outVD) outVD
+    .call f bs (idxArgs outVD (tupIOut args'))
+      (ifOptWithFlat bitsOnly depth k (inVD + bs.length) (insertTupEnv inVD inVE wrapped)
+        inLD inLE (outVD + bs.length) outLD)
+  | .jnz c t e, inVD, inVE, inLD, inLE, outVD, outLD =>
+    let c' := iout (resolveArg inVD inVE c)
+    let fallback :=
+      .jnz (idxArg outVD c')
+        (ifOptWithFlat bitsOnly depth t inVD inVE inLD inLE outVD outLD)
+        (ifOptWithFlat bitsOnly depth e inVD inVE inLD inLE outVD outLD)
+    if bitsOnly then
+      (tryJnzDiamondFlat bitsOnly c' t e inVD inVE inLD inLE outVD outLD).getD fallback
+    else fallback
+  | .jump (ts := ts) j args, inVD, inVE, inLD, inLE, outVD, outLD =>
+    match resolveLabel inLD inLE ts j with
+    | some jl =>
+      match unwrapJLabel jl with
+      | some l =>
+        .jump (idxLabel outLD l) (idxArgs outVD (tupIOut (resolveArgs inVD inVE args)))
+      | none => .hlt
+    | none => .hlt
+  | .ret vs, inVD, inVE, _, _, outVD, _ =>
+    .ret (idxArgs outVD (tupIOut (resolveArgs inVD inVE vs)))
+  | .exit f args, inVD, inVE, _, _, outVD, _ =>
+    .exit f (idxArgs outVD (tupIOut (resolveArgs inVD inVE args)))
+  | .hlt, _, _, _, _, _, _ => .hlt
+  | .group (sig := sig) bodies k, inVD, inVE, inLD, inLE, outVD, outLD =>
+    let outJs := Tup.levels sig outLD
+    let inLD' := inLD + sig.length
+    let outLD' := outLD + sig.length
+    if bitsOnly then
+      let tagged := tagLabels depth outJs
+      let inLE' := insertTupEnv inLD inLE tagged
+      .group (sig := sig)
+        (ifOptBWithFlat true (depth + sig.length) bodies inVD inVE inLD' inLE' outVD outLD')
+        (ifOptWithFlat true (depth + sig.length) k inVD inVE inLD' inLE' outVD outLD')
+    else
+      match sig, bodies with
+      | [], bodies =>
+        .group (sig := [])
+          (ifOptBWithFlat false depth bodies inVD inVE inLD inLE outVD outLD)
+          (ifOptWithFlat false depth k inVD inVE inLD inLE outVD outLD)
+      | [ts], bodies =>
+        let plan? := checkDiamondFlat false depth ts (inLD + 1)
+          (inLE.insert inLD ⟨ts, .loc depth⟩) k
+        let inLE' := inLE.insert inLD ⟨ts, .outer outLD⟩
+        .group (sig := [ts])
+          (ifOptBWithFlat false (depth + 1) bodies inVD inVE inLD' inLE' outVD outLD')
+          (match plan? with
+           | some plan => hoistDiamondFlat (jTs := ts) outLD plan k inVD inVE outVD outLD'
+           | none => ifOptWithFlat false (depth + 1) k inVD inVE inLD' inLE' outVD outLD')
+      | ts₁ :: ts₂ :: rest, bodies =>
+        let sig' := ts₁ :: ts₂ :: rest
+        let outJs' := Tup.levels sig' outLD
+        let outer := outJs'.map fun _ l => JLabel.outer l
+        let inLE' := insertTupEnv inLD inLE outer
+        let inLD'' := inLD + sig'.length
+        let outLD'' := outLD + sig'.length
+        .group (sig := sig')
+          (ifOptBWithFlat false (depth + rest.length + 2) bodies
+            inVD inVE inLD'' inLE' outVD outLD'')
+          (ifOptWithFlat false (depth + rest.length + 2) k
+            inVD inVE inLD'' inLE' outVD outLD'')
+
+/-- Block-list companion of `ifOptWithFlat`. -/
+def ifOptBWithFlat {rs : List Ty} (bitsOnly : Bool) (depth : Nat) :
+    {sig : List (List Ty)} → TBlocks rs sig → Nat → Trie ((t : Ty) × IVal K t) →
+    Nat → Trie ((ts : List Ty) × JLabel KL ts) → Nat → Nat → TBlocks rs sig
+  | _, .nil, _, _, _, _, _, _ => .nil
+  | _, .cons (ts := ts) b bs, inVD, inVE, inLD, inLE, outVD, outLD =>
+    let wrapped := freshIVals ts (Tup.levels ts outVD) outVD
+    .cons
+      (ifOptWithFlat bitsOnly depth b (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
+        inLD inLE (outVD + ts.length) outLD)
+      (ifOptBWithFlat bitsOnly depth bs inVD inVE inLD inLE outVD outLD)
+end
+
+/-- Direct `TFlat` diamond `jnz` → `select` if-conversion matching
+`if bitsOnly then reifyFunc (Func.ifOptBits (denoteFunc tf))`
+`else reifyFunc (Func.ifOpt (denoteFunc tf))`. -/
+def ifOptFlat (bitsOnly : Bool) (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
+  ifOptWithFlat bitsOnly 0 tf as.length (initEnv (fun x next => (.var x, .var next)) as)
+    0 .empty as.length 0
+
+/-- `TFlatFn` wrapper for `ifOptFlat`. -/
+def ifOptFlatFn (bitsOnly : Bool) (f : TFlatFn) : TFlatFn :=
+  ⟨f.name, f.as, f.rs, ifOptFlat bitsOnly f.as f.body⟩
+
+end IfOptFlat
+
+end OptFlatCfg
+end LeanQbe.T

@@ -140,6 +140,8 @@ public import LeanQbe.T.NotationSugar
 public import LeanQbe.T.Ops
 public import LeanQbe.T.OpsLemmas
 public import LeanQbe.T.Opt
+public import LeanQbe.T.OptFlatCfg
+public import LeanQbe.T.OptFlatCfgLemmas
 public import LeanQbe.T.OptLemmas
 public import LeanQbe.T.OptPolicy
 public import LeanQbe.T.OptUtil
