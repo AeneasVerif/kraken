@@ -2,8 +2,10 @@ module
 
 public import LeanQbe.T.ZeroPeel
 public import LeanQbe.T.Module
-import all LeanQbe.T.ZeroPeel
 import LeanQbe.T.ZeroPeelLemmas1
+import LeanQbe.T.ZeroPeelLemmas2
+import LeanQbe.T.ZeroPeelLemmas3
+import LeanQbe.T.ZeroPeelLemmas4
 import LeanQbe.T.FlatLemmas
 import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.OpsLemmas
@@ -374,7 +376,7 @@ private def SymRel (vsOuter : List ((t : Ty) × Val t)) (iVal : Val i64) :
       tv = ⟨Ty.bool, if isLt then decide (iVal < bndA.val) else decide (iVal ≤ bndA.val)⟩
   | .other, _ => True
 
-private def offVal (vsOuter : List ((t : Ty) × Val t)) :
+private def offVal0 (vsOuter : List ((t : Ty) × Val t)) :
     Option (Arg K i64) → Option (BitVec 64)
   | none => some 0#64
   | some off => Option.map Arg.val (denoteArg vsOuter off)
@@ -524,17 +526,17 @@ private theorem matchOffLoop_add_arm {vsOuter : List ((t : Ty) × Val t)} {iVal 
     {s : Sym64} {off? : Option (Arg K i64)} (ha : va = iVal)
     (hb : SymRel vsOuter iVal s ⟨i64, vb⟩)
     (hm : Option.map some (symToOuterArg64 s) = some off?) :
-    ∃ oVal : BitVec 64, offVal vsOuter off? = some oVal ∧ iVal + oVal = va + vb := by
+    ∃ oVal : BitVec 64, offVal0 vsOuter off? = some oVal ∧ iVal + oVal = va + vb := by
   rcases Option.map_eq_some_iff.mp hm with ⟨off, hoff, rfl⟩
   obtain ⟨offA, hd, hEq⟩ := symToOuterArg64_correct hb hoff
   have hvb : vb = offA.val := sigma_val_eq hEq
   subst ha; subst hvb
-  exact ⟨offA.val, by dsimp only [offVal]; rw [hd]; rfl, rfl⟩
+  exact ⟨offA.val, by dsimp only [offVal0]; rw [hd]; rfl, rfl⟩
 
 private theorem matchOffLoop_correct {vsOuter : List ((t : Ty) × Val t)} {iVal : Val i64}
     {s : Sym64} {tv : (t : Ty) × Val t} {off? : Option (Arg K i64)}
     (hrel : SymRel vsOuter iVal s tv) (hm : matchOffLoop s = some off?) :
-    ∃ oVal : BitVec 64, offVal vsOuter off? = some oVal ∧ tv = ⟨i64, iVal + oVal⟩ := by
+    ∃ oVal : BitVec 64, offVal0 vsOuter off? = some oVal ∧ tv = ⟨i64, iVal + oVal⟩ := by
   cases s with
   | loopI =>
     dsimp only [matchOffLoop] at hm; cases hm
@@ -573,7 +575,7 @@ private theorem matchAddrCheck_correct {vsOuter : List ((t : Ty) × Val t)} {iVa
       | none => none) = some (base, off?))
     (hp : SymRel vsOuter iVal sp ⟨i64, vp⟩) (hidx : SymRel vsOuter iVal sidx ⟨i64, vidx⟩) :
     ∃ (baseVal : Arg Val i64) (oVal : BitVec 64),
-      denoteArg vsOuter base = some baseVal ∧ offVal vsOuter off? = some oVal ∧
+      denoteArg vsOuter base = some baseVal ∧ offVal0 vsOuter off? = some oVal ∧
       vp + vidx = baseVal.val + ((iVal + oVal) <<< sExpected) := by
   cases hOuter : symToOuterArg64 sp with
   | none => rw [hOuter] at hc; cases hc
@@ -614,7 +616,7 @@ private theorem matchAddr_correct {vsOuter : List ((t : Ty) × Val t)} {iVal : V
     {base : Arg K i64} {off? : Option (Arg K i64)}
     (hrel : SymRel vsOuter iVal s tv) (hm : matchAddr sExpected s = some (base, off?)) :
     ∃ (baseVal : Arg Val i64) (oVal : BitVec 64),
-      denoteArg vsOuter base = some baseVal ∧ offVal vsOuter off? = some oVal ∧
+      denoteArg vsOuter base = some baseVal ∧ offVal0 vsOuter off? = some oVal ∧
       tv = ⟨i64, baseVal.val + ((iVal + oVal) <<< sExpected)⟩ := by
   cases s with
   | add x y =>
@@ -879,7 +881,7 @@ private theorem matchBodyTail_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
             m →
           ∀ (baseA : Arg Val i64) (oVal : BitVec 64),
             denoteArg vsOuter spec.base = some baseA →
-            offVal vsOuter spec.off? = some oVal →
+            offVal0 vsOuter spec.off? = some oVal →
             storeOk m t_atom (baseA.val + ((iVal + oVal) <<< spec.shift)) ∧
             JLoop (iVal + 1#64, ())
               (storeMem m t_atom (baseA.val + ((iVal + oVal) <<< spec.shift)) fillAtom)
@@ -945,7 +947,7 @@ private theorem matchFillBody_spec {Γ : Env} {rs : List Ty} {Q : Post rs} {X : 
             (⟨[i64], JLoop⟩ :: ls)) m →
           ∀ (bndA baseA : Arg Val i64) (oVal : BitVec 64),
             denoteArg vsOuter spec.bound = some bndA → denoteArg vsOuter spec.base = some baseA →
-            offVal vsOuter spec.off? = some oVal →
+            offVal0 vsOuter spec.off? = some oVal →
             (if spec.isLt then decide (iVal < bndA.val) else decide (iVal ≤ bndA.val)) = true →
             storeOk m t_atom (baseA.val + ((iVal + oVal) <<< spec.shift)) ∧
             JLoop (iVal + 1#64, ())
@@ -1041,14 +1043,14 @@ private theorem widenFillSingle_wp {Γ : Env} {rs ts0 : List Ty} {Q : Post rs} {
   obtain ⟨bndA, hdBnd⟩ := Option.isSome_iff_exists.mp (denoteArg_isSome_of_checkArg hCtxV hSpec.1)
   obtain ⟨baseA, hdBase⟩ :=
     Option.isSome_iff_exists.mp (denoteArg_isSome_of_checkArg hCtxV hSpec.2.1)
-  obtain ⟨oVal, hdOff⟩ : ∃ oVal : BitVec 64, offVal vs spec.off? = some oVal := by
+  obtain ⟨oVal, hdOff⟩ : ∃ oVal : BitVec 64, offVal0 vs spec.off? = some oVal := by
     cases hOff : spec.off? with
     | none => exact ⟨0#64, rfl⟩
     | some off =>
       have hOffWf := hSpec.2.2.1; rw [hOff, Option.all_some] at hOffWf
       obtain ⟨offA, hdOffA⟩ :=
         Option.isSome_iff_exists.mp (denoteArg_isSome_of_checkArg hCtxV hOffWf)
-      exact ⟨offA.val, by simp [offVal, hdOffA]⟩
+      exact ⟨offA.val, by simp [offVal0, hdOffA]⟩
   have hG := ctx_diagV_of_vs (vs := vs); have hD := ctx_monoD_of_ls (ls := ls)
   have hRelV := ctxRel_refl_vs (vs := vs); have hRelL := ctxRel_refl_ls (ls := ls)
   let bodies : Tup Cont [[i64]] → Blocks Val Cont rs [[i64]] := fun Js =>
@@ -1220,12 +1222,12 @@ private theorem widenFillSingle_wp {Γ : Env} {rs ts0 : List Ty} {Q : Post rs} {
       cases hOff : spec.off? with
       | none =>
         have hOVar : oVal = 0#64 := by
-          dsimp only [offVal] at hdOff; rw [hOff] at hdOff; cases hdOff; rfl
+          dsimp only [offVal0] at hdOff; rw [hOff] at hdOff; cases hdOff; rfl
         exact runWithShift vsL0 (.var 2) (.var i') (Nat.succ_pos _) rfl
           (by dsimp only [Arg.val]; rw [hOVar, BitVec.add_zero]) rfl
       | some off =>
         have hOffArg : ∃ aOff, denoteArg vs off = some aOff ∧ aOff.val = oVal := by
-          dsimp only [offVal] at hdOff; rw [hOff] at hdOff; exact Option.map_eq_some_iff.mp hdOff
+          dsimp only [offVal0] at hdOff; rw [hOff] at hdOff; exact Option.map_eq_some_iff.mp hdOff
         obtain ⟨aOff, hdOffA, haOffVal⟩ := hOffArg
         rw [denote_let_eq, denoteArgs_pair_eq]
         have hOffSh : denoteArg (vsL0 ++ vs) (tArgShift 3 off) = some aOff := by
@@ -1304,9 +1306,15 @@ private def zpeelGroupWrap (cfg : ZeroPeelConfig) {rs : List Ty}
     match widenFillSingle cfg.unrollN ts0 body k' with
     | some g => g
     | none =>
-      match peelSingle cfg ts0 body k' with
+      match widenFillExt cfg.unrollN ts0 body k' with
       | some g => g
-      | none => .group (sig := [ts0]) (.cons body .nil) k'
+      | none =>
+        match unrollCountedSingle cfg.unrollN ts0 body k' with
+        | some g => g
+        | none =>
+          match peelSingle cfg ts0 body k' with
+          | some g => g
+          | none => .group (sig := [ts0]) (.cons body .nil) k'
   | _, _ => .group bs' k'
 private theorem zpeelGroupWrap_nil (cfg : ZeroPeelConfig) {rs : List Ty} (k' : TFlat rs) :
     zpeelGroupWrap cfg .nil k' = .group .nil k' := rfl
@@ -1318,8 +1326,10 @@ private theorem zpeelGroupWrap_cons_nil (cfg : ZeroPeelConfig) {rs : List Ty}
     (ts0 : List Ty) (body k' : TFlat rs) :
     zpeelGroupWrap cfg (.cons (ts := ts0) body .nil) k' =
       (match widenFillSingle cfg.unrollN ts0 body k' with
-      | some g => g | none => match peelSingle cfg ts0 body k' with
-        | some g => g | none => .group (sig := [ts0]) (.cons body .nil) k') := rfl
+      | some g => g | none => match widenFillExt cfg.unrollN ts0 body k' with
+        | some g => g | none => match unrollCountedSingle cfg.unrollN ts0 body k' with
+          | some g => g | none => match peelSingle cfg ts0 body k' with
+            | some g => g | none => .group (sig := [ts0]) (.cons body .nil) k') := rfl
 
 private theorem zpeelTF_group (cfg : ZeroPeelConfig) {rs : List Ty}
     {sig : List (List Ty)} (bs : TBlocks rs sig) (k : TFlat rs) :
@@ -1340,12 +1350,18 @@ private theorem zpeelGroupWrap_wf {rs : List Ty} (cfg : ZeroPeelConfig)
       cases hw : widenFillSingle cfg.unrollN ts0 body k' with
       | some g => exact wfCheck_widenFillSingle hwf hw
       | none =>
-        cases hp : peelSingle cfg ts0 body k' with
-        | some g =>
-          rw [wfCheck_group_eq, wfCheckB_cons_eq, wfCheckB_nil_eq, Bool.and_true,
-            Bool.and_eq_true] at hwf
-          exact wfCheck_peelSingle hwf.1 hwf.2 hp
-        | none => exact hwf
+        cases he : widenFillExt cfg.unrollN ts0 body k' with
+        | some g => exact wfCheck_widenFillExt hwf he
+        | none =>
+          cases hu : unrollCountedSingle cfg.unrollN ts0 body k' with
+          | some g => exact unrollCountedSingle_wf hwf hu
+          | none =>
+            cases hp : peelSingle cfg ts0 body k' with
+            | some g =>
+              rw [wfCheck_group_eq, wfCheckB_cons_eq, wfCheckB_nil_eq, Bool.and_true,
+                Bool.and_eq_true] at hwf
+              exact wfCheck_peelSingle hwf.1 hwf.2 hp
+            | none => exact hwf
     | cons _ _ => exact hwf
 
 mutual
@@ -1473,11 +1489,17 @@ private theorem zpeelGroupWrap_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : X
       cases hw : widenFillSingle cfg.unrollN ts0 body k' with
       | some g => exact widenFillSingle_wp hG hD hwf hw hwp
       | none =>
-        cases hp : peelSingle cfg ts0 body k' with
-        | some g =>
-          rw [wfCheck_group_eq, Bool.and_eq_true] at hwf
-          exact peelSingle_wp hG hD hwf.2 hp hwp
-        | none => exact hwp
+        cases he : widenFillExt cfg.unrollN ts0 body k' with
+        | some g => exact widenFillExt_wp hG hD hwf he hwp
+        | none =>
+          cases hu : unrollCountedSingle cfg.unrollN ts0 body k' with
+          | some g => exact unrollCountedSingle_wp hG hD hwf hu hwp
+          | none =>
+            cases hp : peelSingle cfg ts0 body k' with
+            | some g =>
+              rw [wfCheck_group_eq, Bool.and_eq_true] at hwf
+              exact peelSingle_wp hG hD hwf.2 hp hwp
+            | none => exact hwp
     | cons _ _ => rw [zpeelGroupWrap_cons2]; exact hwp
 
 mutual
@@ -1736,14 +1758,24 @@ private theorem zpeelGroupWrap_callsOk {allowed : List SigEntry} {exits : List S
         simp only [PassFlatKit.callsOkBs_cons, PassFlatKit.callsOkBs_nil] at hbs
         simp [hbs.1, mkWideWrapper_callsOk spec cfg.unrollN initArg]
       | none =>
-        cases hp : peelSingle cfg ts0 body k' with
+        cases he : widenFillExt cfg.unrollN ts0 body k' with
         | some g =>
-          dsimp only [peelSingle] at hp; split at hp
-          · simp only [Option.some.injEq] at hp; subst hp
-            simp only [PassFlatKit.callsOkBs_cons] at hbs
-            simp [hbs, inlineJump0_callsOk body ts0 hbs.1 0 k' hk]
-          · cases hp
-        | none => simp [hbs, hk]
+          simp only [PassFlatKit.callsOkBs_cons, PassFlatKit.callsOkBs_nil] at hbs
+          exact widenFillExt_callsOk hbs.1 he
+        | none =>
+          cases hu : unrollCountedSingle cfg.unrollN ts0 body k' with
+          | some g =>
+            simp only [PassFlatKit.callsOkBs_cons, PassFlatKit.callsOkBs_nil] at hbs
+            exact unrollCountedSingle_callsOk hbs.1 hu
+          | none =>
+            cases hp : peelSingle cfg ts0 body k' with
+            | some g =>
+              dsimp only [peelSingle] at hp; split at hp
+              · simp only [Option.some.injEq] at hp; subst hp
+                simp only [PassFlatKit.callsOkBs_cons] at hbs
+                simp [hbs, inlineJump0_callsOk body ts0 hbs.1 0 k' hk]
+              · cases hp
+            | none => simp [hbs, hk]
     | cons _ _ => rw [zpeelGroupWrap_cons2]; simp [hbs, hk]
 
 mutual

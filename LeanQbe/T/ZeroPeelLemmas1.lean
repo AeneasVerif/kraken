@@ -4,7 +4,6 @@ public import LeanQbe.T.ZeroPeel
 public import LeanQbe.T.Wf
 public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.GroupLfpLemmas
-import all LeanQbe.T.ZeroPeel
 import LeanQbe.T.WPLemmas
 import LeanQbe.T.OptUtilLemmas
 import LeanQbe.T.OpsLemmas
@@ -1089,21 +1088,22 @@ private theorem union_assoc (m₁ m₂ m₃ : Mem 64) :
   simp only [Std.ExtHashMap.union_eq, Std.ExtHashMap.getElem?_union]
   cases m₁[k]? <;> cases m₂[k]? <;> simp
 
-private theorem storeBytes_nil (m : Mem 64) (a : BitVec 64) :
+public theorem storeBytes_nil (m : Mem 64) (a : BitVec 64) :
     m.storeBytes a [] = m := by
   apply Std.ExtHashMap.ext_getElem?
   intro k
   simp [Mem.storeBytes, List.At, Std.ExtHashMap.union_eq, Std.ExtHashMap.getElem?_union]
 
-private theorem storeBytes_append (m : Mem 64) (a : BitVec 64) (bs1 bs2 : List UInt8)
+public theorem storeBytes_append (m : Mem 64) (a : BitVec 64) (bs1 bs2 : List UInt8)
     (hlen : bs1.length + bs2.length ≤ 2 ^ 64) :
     (m.storeBytes a bs1).storeBytes (a + BitVec.ofNat 64 bs1.length) bs2 =
       m.storeBytes a (bs1 ++ bs2) := by
   simp only [Mem.storeBytes, union_assoc, ← List.At_append bs1 bs2 a hlen]
 
-private theorem storeMem_eq_storeBytes (m : Mem 64) (t : Ty) (a : BitVec 64) (v : Val t) :
+public theorem storeMem_eq_storeBytes (m : Mem 64) (t : Ty) (a : BitVec 64) (v : Val t) :
     storeMem m t a v =
-      m.storeBytes a (Int.toBytes t.bytes ((toBits t v).setWidth (8 * t.bytes)).toInt) := rfl
+      m.storeBytes a (Int.toBytes t.bytes ((toBits t v).setWidth (8 * t.bytes)).toInt) := by
+  dsimp only [storeMem, Mem.storeInt]
 
 private theorem list_mapM_some_iff {α β : Type} (f : α → Option β) :
     (xs : List α) → (∃ rs, List.mapM f xs = some rs) ↔ ∀ x ∈ xs, (f x).isSome = true
@@ -1131,7 +1131,7 @@ private theorem list_mapM_some_iff {α β : Type} (f : α → Option β) :
           (list_mapM_some_iff f xs).2 (fun y hy => h y (List.mem_cons_of_mem _ hy))
         exact ⟨v :: rest, by simp [List.mapM_cons, hfx, hrest]⟩
 
-private theorem storeOk_iff_forall_mem (m : Mem 64) (t : Ty) (a : BitVec 64) :
+public theorem storeOk_iff_forall_mem (m : Mem 64) (t : Ty) (a : BitVec 64) :
     storeOk m t a ↔ ∀ j < t.bytes, (m.get? (a + BitVec.ofNat 64 j)).isSome = true := by
   have h1 : storeOk m t a ↔ ∃ bs, m.loadBytes a t.bytes = some bs := by
     constructor
@@ -1162,13 +1162,13 @@ private theorem get?_storeBytes_isSome_of_all_mem (m : Mem 64) (a : BitVec 64) (
     | some v => simp
   · rw [Std.ExtHashMap.getElem?_eq_none hkb, Option.none_or]
 
-private theorem storeOk_storeBytes_iff (m : Mem 64) (a : BitVec 64) (bs : List UInt8)
+public theorem storeOk_storeBytes_iff (m : Mem 64) (a : BitVec 64) (bs : List UInt8)
     (hmem : ∀ j < bs.length, (m.get? (a + BitVec.ofNat 64 j)).isSome = true)
     (u : Ty) (b : BitVec 64) :
     storeOk (m.storeBytes a bs) u b ↔ storeOk m u b := by
   simp only [storeOk_iff_forall_mem, get?_storeBytes_isSome_of_all_mem m a bs hmem]
 
-private theorem storeOk_storeMem_iff (m : Mem 64) (t : Ty) (a : BitVec 64) (v : Val t)
+public theorem storeOk_storeMem_iff (m : Mem 64) (t : Ty) (a : BitVec 64) (v : Val t)
     (hOk : storeOk m t a) (u : Ty) (b : BitVec 64) :
     storeOk (storeMem m t a v) u b ↔ storeOk m u b := by
   rw [storeOk_iff_forall_mem] at hOk
@@ -1642,10 +1642,10 @@ public theorem runScalarMem_step {JLoop : Cont [i64]}
         rw [BitVec.add_assoc, ← BitVec.ofNat_add]
       rwa [hRep, ← hStepI]
 
-private theorem bv64_setWidth_toBits (v : BitVec 64) :
+public theorem bv64_setWidth_toBits (v : BitVec 64) :
     (BitVec.setWidth (8 * (Ty.bits 64).bytes) (toBits (Ty.bits 64) v)).toInt = v.toInt := rfl
 
-private theorem storeMem_i64_prepend_bytes (mem : Mem 64) (p fill64 : BitVec 64) (k : Nat)
+public theorem storeMem_i64_prepend_bytes (mem : Mem 64) (p fill64 : BitVec 64) (k : Nat)
     (hk : 8 * (k + 1) ≤ 2 ^ 64) :
     (storeMem mem i64 p fill64).storeBytes (p + BitVec.ofNat 64 8)
       (List.replicate k (Int.toBytes 8 fill64.toInt)).flatten =

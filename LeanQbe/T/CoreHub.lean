@@ -262,6 +262,9 @@ public import LeanQbe.T.Xcap.Link
 public import LeanQbe.T.ZeroPeel
 public import LeanQbe.T.ZeroPeelLemmas
 public import LeanQbe.T.ZeroPeelLemmas1
+public import LeanQbe.T.ZeroPeelLemmas2
+public import LeanQbe.T.ZeroPeelLemmas3
+public import LeanQbe.T.ZeroPeelLemmas4
 
 set_option autoImplicit false
 
