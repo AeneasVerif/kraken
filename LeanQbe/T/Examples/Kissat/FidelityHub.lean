@@ -8,6 +8,11 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep10Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep11
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep11Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12Proof0
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12ProofAgree
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12ProofReplsA
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12ProofReplsB
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep1Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2Proof

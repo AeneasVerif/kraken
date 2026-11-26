@@ -19,7 +19,8 @@ import Kraken.Mem
 import Kraken.Separation
 
 /-!
-# Kissat Step-12 `S1.5` Del-Spec Bridge for `full_reduce_purge_c0` (`FullFidelityStep12ProofPurgeDel`)
+# Kissat Step-12 `S1.5` Del-Spec Bridge for `full_reduce_purge_c0`
+(`FullFidelityStep12ProofPurgeDel`)
 
 Purely additive `Full.fullPropagateDelSpec` proof of `FullM7V2Robust.full_reduce_purge_c0_body`
 (`full_reduce_purge_c0_del_wp`) against `Full.fullReduceSpec (h, true, ())`, bridging
