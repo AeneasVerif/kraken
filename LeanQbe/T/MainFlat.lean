@@ -7,19 +7,21 @@ public import LeanQbe.T.Opt
 public import LeanQbe.T.OptFlatValue
 public import LeanQbe.T.OptFlatMem
 public import LeanQbe.T.OptFlatCfg
+public import LeanQbe.T.OptFlatAddrRange
+public import LeanQbe.T.OptFlatPathCond
 
 /-!
 # Staged `TFlat`-Direct Compilation Driver (`MainFlat`)
 
 Implements first-order `TFlat` equivalents of the mid-end and end-to-end compilation pipeline:
 
-* Native `TFlat` structural/gate/value/mem/CFG passes: `TFlat.assumeElim`, `TFlat.mergeRets`,
-  `OptFlatValue.{foldFlat,copyFlat,canonFlat,gvnFlat}`,
+* Native `TFlat` structural/gate/value/mem/CFG/address/path passes: `TFlat.assumeElim`,
+  `TFlat.mergeRets`, `OptFlatValue.{foldFlat,copyFlat,canonFlat,gvnFlat}`,
   `OptFlatMem.{memLoadFlat,assumeBitsFlat,divConstFlat}`,
-  `OptFlatCfg.{dcePFlat,deadLoadElimFlat,ifOptFlat}`, `TFlat.zeroPeelWith`,
-  `simplifyGroupFastFlat`, `peelFastFlat`, `licmFlat`, `loopRotateFlat`.
-* Remaining `reifyFunc`-backed bridges (`addrRangeOptFlat`, `condThreadLateOptFlat`,
-  `tailDupFlat`).
+  `OptFlatCfg.{dcePFlat,deadLoadElimFlat,ifOptFlat}`,
+  `OptFlatAddrRange.addrRangeOptFlat`, `OptFlatPathCond.pathCondOptFlat`,
+  `TFlat.zeroPeelWith`, `simplifyGroupFastFlat`, `peelFastFlat`, `licmFlat`, `loopRotateFlat`.
+* Remaining `TFlat`-gated `reifyFunc`-backed bridges (`condThreadPassFlat`, `tailDupFlat`).
 * End-to-end entry points matching `Fn.earlyOpt`, `Fn.midFromEarly`, `compileFn`, and
   `compileModule`: `earlyOptFlat`, `midStageFlat`, `compileFlatFn`, `compileModuleFlat`.
 -/
@@ -136,13 +138,15 @@ def loopRotateFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs)
   if plan.hasRot then reifyFunc (Func.loopRotateWithPlan plan (denoteFunc (as := as) tf))
   else tf
 
-/-! ## 2. `TFlat`-Gated Bridges (`addrRangeOpt`, `condThreadLateOpt`, `tailDup`) -/
+/-! ## 2. Native `OptFlat{AddrRange,PathCond}` & Gated Bridges (`condThreadPass`, `tailDup`) -/
 
-/-- `TFlat`-gated `addrRangeOpt` bypassing PHOAS whenever no candidate sites exist. -/
+/-- Native `TFlat` loop-aware address reassociation and range-check collapse (`addrRangeOpt`). -/
 def addrRangeOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  if (AddrRangeOpt.buildLoopTree false tf).2 then
-    reifyFunc (Func.addrRangeOpt (denoteFunc (as := as) tf))
-  else tf
+  OptFlatAddrRange.addrRangeOptFlat as tf
+
+/-- Native `TFlat` dominating path-fact and known-condition pass (`pathCondOpt`). -/
+def pathCondOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
+  OptFlatPathCond.pathCondOptFlat as tf
 
 /-- `TFlat`-gated `condThreadPass` bypassing PHOAS whenever `buildCTPlan` finds no changes. -/
 def condThreadPassFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
@@ -151,9 +155,9 @@ def condThreadPassFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs 
   if plan.hasChanges then reifyFunc (Func.condThreadWithPlan plan (denoteFunc (as := as) tf))
   else tf
 
-/-- `condThreadLateOpt` bridge (`pathCondOpt` + `TFlat`-gated `condThreadPassFlat`). -/
+/-- `condThreadLateOpt` (`OptFlatPathCond.pathCondOptFlat` + `TFlat`-gated `condThreadPassFlat`). -/
 def condThreadLateOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  condThreadPassFlat as (reifyFunc (Func.pathCondOpt (denoteFunc (as := as) tf)))
+  condThreadPassFlat as (pathCondOptFlat as tf)
 
 /-- `TFlat`-gated `tailDup` bypassing PHOAS whenever `TailDup.buildPlan` finds no changes. -/
 def tailDupFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs)

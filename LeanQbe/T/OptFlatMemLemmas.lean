@@ -30,33 +30,9 @@ public section
 namespace LeanQbe.T
 namespace OptFlatMem
 
+open OptFlatPlanKit
+
 /-! ## Shared Context, `Trie` Lookup, and Label Helpers -/
-
-private theorem ctxTypes_pushTup_rev {α : Type} {f : α → Type} :
-    {ts : List α} → (xs : Tup f ts) → {Γ : List α} → {vs : List ((a : α) × f a)} →
-    CtxTypes Γ vs → CtxTypes (pushTypes ts Γ) (pushTup xs vs)
-  | [], (), _, _, h => h
-  | _ :: _, (_, xs), _, _, h => ctxTypes_pushTup_rev xs (.cons h)
-
-private theorem insertTupEnv_eq {W : Ty → Type} (depth : Nat)
-    (env : Trie ((t : Ty) × W t)) :
-    {ts : List Ty} → (xs : Tup W ts) →
-    insertTupEnv depth env xs = insertTupTrie depth env xs
-  | [], () => rfl
-  | _ :: _, (_, xs) => insertTupEnv_eq (depth + 1) _ xs
-
-private def mkFreshTup {W : Ty → Type} (mk : (t : Ty) → Nat → Nat → W t) :
-    (ts : List Ty) → Nat → Nat → Tup W ts
-  | [], _, _ => ()
-  | t :: ts, inD, outD => (mk t inD outD, mkFreshTup mk ts (inD + 1) (outD + 1))
-
-private theorem insertFreshWith_eq {W : Ty → Type} (mk : (t : Ty) → Nat → Nat → W t) :
-    (ts : List Ty) → (inD outD : Nat) → (env : Trie ((t : Ty) × W t)) →
-    insertFreshWith mk inD outD ts env = insertTupTrie inD env (mkFreshTup mk ts inD outD)
-  | [], _, _, _ => rfl
-  | t :: ts, inD, outD, env => by
-    dsimp only [insertFreshWith, mkFreshTup, insertTupTrie]
-    exact insertFreshWith_eq mk ts (inD + 1) (outD + 1) _
 
 private theorem mkFreshTup_mval :
     (ts : List Ty) → (inD outD : Nat) →
@@ -85,94 +61,11 @@ private theorem mkFreshTup_arg :
     dsimp only [mkFreshTup, Tup.levels, toArgTup]
     exact congrArg (_, ·) (mkFreshTup_arg ts (inD + 1) (outD + 1))
 
-private theorem trieCtxMatch_insertTupEnv {W : Ty → Type}
-    {inDepth : Nat} {env : Trie ((t : Ty) × W t)} {vs : List ((t : Ty) × W t)}
-    (hm : TrieCtxMatch inDepth env vs) {ts : List Ty} (xs : Tup W ts) :
-    TrieCtxMatch (inDepth + ts.length) (insertTupEnv inDepth env xs) (pushTup xs vs) := by
-  rw [insertTupEnv_eq]
-  exact TrieCtxMatch.pushTup xs hm
-
-private theorem trieCtxMatch_insertFreshWith {W : Ty → Type}
-    (mk : (t : Ty) → Nat → Nat → W t) {inDepth : Nat} {env : Trie ((t : Ty) × W t)}
-    {vs : List ((t : Ty) × W t)} (hm : TrieCtxMatch inDepth env vs)
-    (ts : List Ty) (outDepth : Nat) :
-    TrieCtxMatch (inDepth + ts.length) (insertFreshWith mk inDepth outDepth ts env)
-      (pushTup (mkFreshTup mk ts inDepth outDepth) vs) := by
-  rw [insertFreshWith_eq]
-  exact TrieCtxMatch.pushTup (mkFreshTup mk ts inDepth outDepth) hm
-
-private theorem lookupEnv_eq {W : Ty → Type} {Γ : List Ty} {vs : List ((t : Ty) × W t)}
-    {inDepth : Nat} {env : Trie ((t : Ty) × W t)}
-    (hΓ : CtxTypes Γ vs) (hm : TrieCtxMatch inDepth env vs)
-    {t : Ty} {idx : Nat} (hc : checkArg Γ t (.var idx) = true) :
-    lookupEnv inDepth env t idx = lookupV vs t idx :=
-  TrieCtxMatch.lookupV_eq hΓ hm hc
-
-private theorem resolveArg_eq {W : Ty → Type} (dflt : ∀ t, Arg W t)
-    {Γ : List Ty} {vs : List ((t : Ty) × W t)} {inDepth : Nat} {env : Trie ((t : Ty) × W t)}
-    (hΓ : CtxTypes Γ vs) (hm : TrieCtxMatch inDepth env vs)
-    {t : Ty} (a : Arg K t) (hc : checkArg Γ t a = true) :
-    denoteArg vs a = some (resolveArg dflt inDepth env a) := by
-  cases a with
-  | imm c => rfl
-  | var idx =>
-    dsimp only [resolveArg, denoteArg]
-    rw [lookupEnv_eq hΓ hm hc]
-    obtain ⟨w, hget, _⟩ := ctxTypes_listGet? hΓ (checkArg_eq_true_iff.mp hc)
-    have hlk : lookupV vs t idx = some w := by
-      dsimp only [lookupV]; rw [hget]; dsimp only; exact PassFlatKit.castTy_self t w
-    rw [hlk]
-
-private theorem resolveArgs_eq {W : Ty → Type} (dflt : ∀ t, Arg W t)
-    {Γ : List Ty} {vs : List ((t : Ty) × W t)} {inDepth : Nat} {env : Trie ((t : Ty) × W t)}
-    (hΓ : CtxTypes Γ vs) (hm : TrieCtxMatch inDepth env vs) :
-    {ts : List Ty} → (as : Tup (Arg K) ts) → checkArgs Γ as = true →
-    denoteArgs vs as = some (resolveArgs dflt inDepth env as)
-  | [], (), _ => rfl
-  | _ :: _, (a, as), hc => by
-    dsimp only [checkArgs] at hc; simp only [Bool.and_eq_true] at hc
-    dsimp only [denoteArgs, resolveArgs]
-    rw [resolveArg_eq dflt hΓ hm a hc.1, resolveArgs_eq dflt hΓ hm as hc.2]
-
-private theorem lookupL_wf_eq {Δ : List (List Ty)} {ls : List ((ts : List Ty) × KL ts)}
-    (hΔ : CtxTypes Δ ls) (hll : CtxLevels ls) {ts : List Ty} {j : Nat}
-    (hj : (match listGet? Δ j with
-           | some ts' => match listTyDecEq ts' ts with | isTrue _ => true | isFalse _ => false
-           | none => false) = true) :
-    ∃ l', lookupL ls ts j = some l' ∧
-      (if l' < ls.length then ls.length - 1 - l' else ls.length) = j := by
-  obtain ⟨lvl, hgetls, hlt⟩ := ctxTypes_listGet? hΔ (checkJump_eq_true_iff.mp hj)
-  have hlvl : lvl = ls.length - 1 - j := hll j ts lvl hgetls
-  refine ⟨lvl, ?_, ?_⟩
-  · dsimp only [lookupL]; rw [hgetls]; dsimp only; exact PassFlatKit.castListTy_self ts lvl
-  · subst hlvl
-    have h1 : ls.length - 1 - j < ls.length := by omega
-    have h2 : ls.length - 1 - (ls.length - 1 - j) = j := by omega
-    simp [h1, h2]
+private abbrev lookupL_wf_eq := @lookupL_jump_eq
+private abbrev denoteArg_lvlArg := @denoteArg_eq_some_levelArg
+private abbrev denoteArgs_lvlArgs := @denoteArgs_eq_some_levelArgs
 
 /-! ## 1. `memLoadFlat` Simulation Proofs -/
-
-private theorem denoteArg_lvlArg {Γ : List Ty} {vs : List ((t : Ty) × K t)}
-    (hΓ : CtxTypes Γ vs) (hvl : CtxLevels vs) {t : Ty} (a : Arg K t)
-    (hc : checkArg Γ t a = true) :
-    denoteArg vs a = some (lvlArg vs.length a) := by
-  cases a with
-  | imm c => rfl
-  | var idx =>
-    obtain ⟨lvl, hgetvs, _⟩ := ctxTypes_listGet? hΓ (checkArg_eq_true_iff.mp hc)
-    have hlvl : lvl = vs.length - 1 - idx := hvl idx t lvl hgetvs
-    dsimp only [lvlArg, denoteArg, lookupV]
-    rw [hgetvs]; dsimp only; rw [PassFlatKit.castTy_self, hlvl]
-
-private theorem denoteArgs_lvlArgs {Γ : List Ty} {vs : List ((t : Ty) × K t)}
-    (hΓ : CtxTypes Γ vs) (hvl : CtxLevels vs) :
-    {ts : List Ty} → (as : Tup (Arg K) ts) → checkArgs Γ as = true →
-    denoteArgs vs as = some (lvlArgs vs.length as)
-  | [], (), _ => rfl
-  | _ :: _, (a, as), hc => by
-    dsimp only [checkArgs] at hc; simp only [Bool.and_eq_true] at hc
-    dsimp only [denoteArgs, lvlArgs]
-    rw [denoteArg_lvlArg hΓ hvl a hc.1, denoteArgs_lvlArgs hΓ hvl as hc.2]
 
 mutual
 private theorem analyzeMemFlat_eq {rs : List Ty} :
@@ -530,14 +423,14 @@ private theorem resolveABArg_eq {Γ : List Ty} {vs : List ((t : Ty) × ABVal K t
     (hΓ : CtxTypes Γ vs) (hm : TrieCtxMatch inDepth inEnv vs)
     {t : Ty} (a : Arg K t) (hc : checkArg Γ t a = true) :
     denoteArg vs a = some (resolveABArg inDepth inEnv a) :=
-  resolveArg_eq (fun _ => (.var ⟨.var 0, {}⟩ : Arg (ABVal K) _)) hΓ hm a hc
+  denoteArg_eq_some_resolveEnvArg hΓ hm a hc (fun _ => .var ⟨.var 0, {}⟩)
 
 private theorem resolveABArgs_eq {Γ : List Ty} {vs : List ((t : Ty) × ABVal K t)}
     {inDepth : Nat} {inEnv : Trie ((t : Ty) × ABVal K t)}
     (hΓ : CtxTypes Γ vs) (hm : TrieCtxMatch inDepth inEnv vs) :
     {ts : List Ty} → (as : Tup (Arg K) ts) → checkArgs Γ as = true →
     denoteArgs vs as = some (resolveABArgs inDepth inEnv as) :=
-  resolveArgs_eq (fun _ => (.var ⟨.var 0, {}⟩ : Arg (ABVal K) _)) hΓ hm
+  fun as hc => denoteArgs_eq_some_resolveEnvArgs hΓ hm as hc (fun _ => .var ⟨.var 0, {}⟩)
 
 private theorem resolveAOuts_eq {inDepth outDepth : Nat} {inEnv : Trie ((t : Ty) × ABVal K t)} :
     {ts : List Ty} → (as : Tup (Arg K) ts) →
@@ -1189,7 +1082,7 @@ private theorem divConstGo_eq {rs : List Ty} :
       divConstGo_eq e hΓ hΔ hll hm hwf.2 outDepth]
   | .jump (ts := ts) j args, _, _, vs, ls, inDepth, inEnv, hΓ, hΔ, hll, hm, hwf, outDepth => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    obtain ⟨l', hlk, hinv⟩ := lookupL_wf_eq hΔ hll hwf.1
+    obtain ⟨l', hlk, hinv⟩ := lookupL_jump_eq hΔ hll hwf.1
     obtain ⟨args', hda, hflat⟩ := resolveFlatArgs_eq hΓ hm args hwf.2
     dsimp only [divConstGo, denote]
     rw [hlk, hda]

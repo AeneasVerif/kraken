@@ -26,29 +26,7 @@ public section
 namespace LeanQbe.T
 namespace OptFlatCfg
 
-/-! ## Shared `Trie` Environment, Operand, and Label Simulation Lemmas -/
-
-private theorem insertTupEnv_eq_insertTupTrie {α : Type} {W : α → Type} :
-    ∀ (depth : Nat) (env : Trie ((a : α) × W a)) {ts : List α} (xs : Tup W ts),
-      insertTupEnv depth env xs = insertTupTrie depth env xs
-  | _, _, [], () => rfl
-  | depth, _env, _ :: _, (_, ws) => insertTupEnv_eq_insertTupTrie (depth + 1) _ ws
-
-private theorem trieCtxMatch_insertTupEnv {α : Type} {W : α → Type} {inDepth : Nat}
-    {inEnv : Trie ((a : α) × W a)} {vs : List ((a : α) × W a)}
-    (hm : TrieCtxMatch inDepth inEnv vs) {ts : List α} (ws : Tup W ts) :
-    TrieCtxMatch (inDepth + ts.length) (insertTupEnv inDepth inEnv ws) (pushTup ws vs) := by
-  rw [insertTupEnv_eq_insertTupTrie]
-  exact hm.pushTup ws
-
-private theorem trieCtxMatch_initEnv {W : Ty → Type} (fresh : ∀ {t : Ty}, K t → Nat → W t)
-    (as : List Ty) :
-    TrieCtxMatch as.length (initEnv fresh as)
-      (pushTup (tupFreshWith fresh as (Tup.levels as 0) 0) []) := by
-  dsimp only [initEnv]
-  rw [insertTupEnv_eq_insertTupTrie]
-  simpa [Nat.zero_add] using
-    TrieCtxMatch.pushTup (tupFreshWith fresh as (Tup.levels as 0) 0) TrieCtxMatch.empty
+open OptFlatPlanKit
 
 private theorem tupFreshWith_some_eq :
     {ts : List Ty} → (xs : Tup K ts) → (n : Nat) →
@@ -57,92 +35,6 @@ private theorem tupFreshWith_some_eq :
   | _ :: _, (_, xs), n => by
     dsimp only [tupFreshWith, someTup]
     rw [tupFreshWith_some_eq xs (n + 1)]
-
-private theorem denoteArg_eq_some_resolveArg {Γ : List Ty} {W : Ty → Type} {inDepth : Nat}
-    {inEnv : Trie ((t : Ty) × W t)} {vs : List ((t : Ty) × W t)}
-    (hΓ : CtxTypes Γ vs) (hm : TrieCtxMatch inDepth inEnv vs)
-    {t : Ty} (a : Arg K t) (hc : checkArg Γ t a = true) :
-    denoteArg vs a = some (resolveArg inDepth inEnv a) := by
-  cases a with
-  | imm _ => rfl
-  | var idx =>
-    obtain ⟨w, hgetvs, hlt⟩ := ctxTypes_listGet? hΓ (checkArg_eq_true_iff.mp hc)
-    have hfind := hm.2 idx hlt
-    rw [hgetvs] at hfind
-    have hcast : castTy t t w = some w := PassFlatKit.castTy_self t w
-    dsimp only [denoteArg, lookupV, resolveArg]
-    rw [hgetvs, hfind]; dsimp only
-    rw [hcast]
-
-private theorem denoteArgs_eq_some_resolveArgs {Γ : List Ty} {W : Ty → Type} {inDepth : Nat}
-    {inEnv : Trie ((t : Ty) × W t)} {vs : List ((t : Ty) × W t)}
-    (hΓ : CtxTypes Γ vs) (hm : TrieCtxMatch inDepth inEnv vs) :
-    {ts : List Ty} → (as : Tup (Arg K) ts) → checkArgs Γ as = true →
-    denoteArgs vs as = some (resolveArgs inDepth inEnv as)
-  | [], (), _ => rfl
-  | _ :: _, (a, as), hc => by
-    dsimp only [checkArgs] at hc; simp only [Bool.and_eq_true] at hc
-    dsimp only [denoteArgs, resolveArgs]
-    rw [denoteArg_eq_some_resolveArg hΓ hm a hc.1,
-      denoteArgs_eq_some_resolveArgs hΓ hm as hc.2]
-
-private theorem denoteArg_eq_some_levelArg {Γ : List Ty} {vs : List ((t : Ty) × K t)}
-    (hΓ : CtxTypes Γ vs) (hvl : CtxLevels vs) {t : Ty} (a : Arg K t)
-    (hc : checkArg Γ t a = true) :
-    denoteArg vs a = some (levelArg vs.length a) := by
-  cases a with
-  | imm _ => rfl
-  | var idx =>
-    obtain ⟨lvl, hgetvs, _⟩ := ctxTypes_listGet? hΓ (checkArg_eq_true_iff.mp hc)
-    dsimp only [K] at lvl
-    have hlvl : lvl = vs.length - 1 - idx := hvl idx t lvl hgetvs
-    dsimp only [denoteArg, lookupV, levelArg]
-    rw [hgetvs]; dsimp only
-    rw [PassFlatKit.castTy_self, hlvl]
-
-private theorem denoteArgs_eq_some_levelArgs {Γ : List Ty} {vs : List ((t : Ty) × K t)}
-    (hΓ : CtxTypes Γ vs) (hvl : CtxLevels vs) :
-    {ts : List Ty} → (as : Tup (Arg K) ts) → checkArgs Γ as = true →
-    denoteArgs vs as = some (levelArgs vs.length as)
-  | [], (), _ => rfl
-  | _ :: _, (a, as), hc => by
-    dsimp only [checkArgs] at hc; simp only [Bool.and_eq_true] at hc
-    dsimp only [denoteArgs, levelArgs]
-    rw [denoteArg_eq_some_levelArg hΓ hvl a hc.1,
-      denoteArgs_eq_some_levelArgs hΓ hvl as hc.2]
-
-private theorem lookupL_jump_eq {Δ : List (List Ty)} {ls : List ((ts : List Ty) × KL ts)}
-    (hΔ : CtxTypes Δ ls) (hll : CtxLevels ls) {ts : List Ty} {j : Nat}
-    (hj : (match listGet? Δ j with
-      | some ts' => match listTyDecEq ts' ts with | isTrue _ => true | isFalse _ => false
-      | none => false) = true) :
-    ∃ lvl, lookupL ls ts j = some lvl ∧
-      (if lvl < ls.length then ls.length - 1 - lvl else ls.length) = j := by
-  obtain ⟨lvl, hgetls, _⟩ := ctxTypes_listGet? hΔ (checkJump_eq_true_iff.mp hj)
-  dsimp only [KL] at lvl
-  have hlvl : lvl = ls.length - 1 - j := hll j ts lvl hgetls
-  have hlk : lookupL ls ts j = some lvl := by
-    dsimp only [lookupL]; rw [hgetls]; dsimp only; rw [PassFlatKit.castListTy_self]
-  refine ⟨lvl, hlk, ?_⟩
-  subst hlvl
-  have hlt' : ls.length - 1 - j < ls.length := by omega
-  have hinv : ls.length - 1 - (ls.length - 1 - j) = j := by omega
-  simp [hlt', hinv]
-
-private theorem lookupL_eq_some_resolveLabel {Δ : List (List Ty)} {W : List Ty → Type}
-    {inLD : Nat} {inLE : Trie ((ts : List Ty) × W ts)} {ls : List ((ts : List Ty) × W ts)}
-    (hΔ : CtxTypes Δ ls) (hm : TrieCtxMatch inLD inLE ls) {ts : List Ty} {j : Nat}
-    (hj : (match listGet? Δ j with
-      | some ts' => match listTyDecEq ts' ts with | isTrue _ => true | isFalse _ => false
-      | none => false) = true) :
-    ∃ w, lookupL ls ts j = some w ∧ resolveLabel inLD inLE ts j = some w := by
-  obtain ⟨w, hgetls, hlt⟩ := ctxTypes_listGet? hΔ (checkJump_eq_true_iff.mp hj)
-  have hfind := hm.2 j hlt
-  rw [hgetls] at hfind
-  have hcast : castListTy ts ts w = some w := PassFlatKit.castListTy_self ts w
-  refine ⟨w, ?_, ?_⟩
-  · dsimp only [lookupL]; rw [hgetls]; dsimp only; exact hcast
-  · dsimp only [resolveLabel]; rw [hfind]; dsimp only; exact hcast
 
 /-! ## 1. `dceWithFlat`, `dceFlat`, `deadLoadElimFlat` Simulation Proofs -/
 
@@ -237,7 +129,7 @@ private theorem dceSweepFlat_eq {rs : List Ty} :
   | .let_ (ts := ts) op k, kt, Γ, Δ, vs, ls, inVD, outVD, inVE, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm op.args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args hwf.1]
     cases kt with
     | letNode keep kt' =>
       cases keep with
@@ -254,7 +146,7 @@ private theorem dceSweepFlat_eq {rs : List Ty} :
   | .load t a k, kt, Γ, Δ, vs, ls, inVD, outVD, inVE, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm a hwf.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1]
     cases kt with
     | letNode keep kt' =>
       cases keep with
@@ -269,8 +161,8 @@ private theorem dceSweepFlat_eq {rs : List Ty} :
   | .store v a k, kt, Γ, Δ, vs, ls, inVD, outVD, inVE, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm v hwf.1.1,
-      denoteArg_eq_some_resolveArg hΓ hm a hwf.1.2]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm v hwf.1.1,
+      denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1.2]
     cases kt with
     | node1 kt' =>
       dsimp only [dceSweep, dceSweepFlat, toTFlat]
@@ -279,7 +171,7 @@ private theorem dceSweepFlat_eq {rs : List Ty} :
   | .call f bs args k, kt, Γ, Δ, vs, ls, inVD, outVD, inVE, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.1]
     cases kt with
     | node1 kt' =>
       dsimp only [dceSweep, dceSweepFlat, toTFlat]
@@ -290,7 +182,7 @@ private theorem dceSweepFlat_eq {rs : List Ty} :
   | .jnz c t e, kt, Γ, Δ, vs, ls, inVD, outVD, inVE, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm c hwf.1.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm c hwf.1.1]
     cases kt with
     | node2 ktt kte =>
       dsimp only [dceSweep, dceSweepFlat, toTFlat]
@@ -301,16 +193,16 @@ private theorem dceSweepFlat_eq {rs : List Ty} :
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     obtain ⟨lvl, hlk, hidx⟩ := lookupL_jump_eq hΔ hll hwf.1
     dsimp only [denote]
-    rw [hlk, denoteArgs_eq_some_resolveArgs hΓ hm args hwf.2]
+    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.2]
     dsimp only [dceSweep, dceSweepFlat, toTFlat]
     rw [hidx]
   | .ret vs', _, Γ, _, vs, _, inVD, outVD, inVE, hΓ, _, _, hm, hwf => by
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm vs' hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm vs' hwf]
     rfl
   | .exit f args, _, Γ, _, vs, _, inVD, outVD, inVE, hΓ, _, _, hm, hwf => by
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm args hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf]
     rfl
   | .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
   | .group (sig := sig) bodies k, kt, Γ, Δ, vs, ls, inVD, outVD, inVE,
@@ -575,7 +467,7 @@ private theorem dceSweepPFlat_eq {rs : List Ty} :
       hΓ, hΔ, hmV, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV op.args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV op.args hwf.1]
     cases kt with
     | letNode keep kt' =>
       cases keep with
@@ -593,7 +485,7 @@ private theorem dceSweepPFlat_eq {rs : List Ty} :
       hΓ, hΔ, hmV, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV a hwf.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1]
     cases kt with
     | letNode keep kt' =>
       cases keep with
@@ -609,8 +501,8 @@ private theorem dceSweepPFlat_eq {rs : List Ty} :
       hΓ, hΔ, hmV, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV v hwf.1.1,
-      denoteArg_eq_some_resolveArg hΓ hmV a hwf.1.2]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hwf.1.1,
+      denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1.2]
     cases kt with
     | node1 kt' =>
       dsimp only [dceSweepP, dceSweepPFlat, toTFlat]
@@ -620,7 +512,7 @@ private theorem dceSweepPFlat_eq {rs : List Ty} :
       hΓ, hΔ, hmV, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1]
     cases kt with
     | node1 kt' =>
       dsimp only [dceSweepP, dceSweepPFlat, toTFlat]
@@ -632,7 +524,7 @@ private theorem dceSweepPFlat_eq {rs : List Ty} :
       hΓ, hΔ, hmV, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV c hwf.1.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hwf.1.1]
     cases kt with
     | node2 ktt kte =>
       dsimp only [dceSweepP, dceSweepPFlat, toTFlat]
@@ -644,18 +536,18 @@ private theorem dceSweepPFlat_eq {rs : List Ty} :
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     obtain ⟨nl, hlk, hres⟩ := lookupL_eq_some_resolveLabel hΔ hmL hwf.1
     dsimp only [denote]
-    rw [hlk, denoteArgs_eq_some_resolveArgs hΓ hmV args hwf.2]
+    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.2]
     cases nl with
     | mk m l =>
       dsimp only [dceSweepP, dceSweepPFlat, toTFlat]
       rw [hres]; rfl
   | .ret vs', _, Γ, _, vs, _, inVD, outVD, _, _, inVE, _, hΓ, _, hmV, _, hwf => by
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV vs' hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf]
     rfl
   | .exit f args, _, Γ, _, vs, _, inVD, outVD, _, _, inVE, _, hΓ, _, hmV, _, hwf => by
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV args hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf]
     rfl
   | .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
   | .group (sig := sig) bodies k, kt, Γ, Δ, vs, ls, inVD, outVD, inLD, outLD, inVE, inLE,
@@ -1062,7 +954,7 @@ private theorem hoistArmFlat_eq {rs : List Ty} (jTs : List Ty) :
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     obtain ⟨j', hj⟩ := Option.isSome_iff_exists.1 (lookupL_isSome_of_check hΔ hwf.1)
     dsimp only [denote]
-    rw [hj, denoteArgs_eq_some_resolveArgs hΓ hmV args hwf.2]
+    rw [hj, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.2]
     cases plan <;> try rfl
     dsimp only [hoistArm, hoistArmFlat]
     cases listTyDecEq ts jTs with
@@ -1071,7 +963,7 @@ private theorem hoistArmFlat_eq {rs : List Ty} (jTs : List Ty) :
   | .ret vs', plan, Γ, _, vs, _, inVD, outVD, outLD, inVE,
       cont_p, cont_f, hΓ, _, hmV, hwf, hcont => by
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV vs' hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf]
     cases plan <;> try rfl
     dsimp only [hoistArm, hoistArmFlat]
     cases listTyDecEq rs jTs with
@@ -1081,7 +973,7 @@ private theorem hoistArmFlat_eq {rs : List Ty} (jTs : List Ty) :
       cont_p, cont_f, hΓ, hΔ, hmV, hwf, hcont => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV op.args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV op.args hwf.1]
     cases plan with
     | let_ rest =>
       dsimp only [hoistArm, hoistArmFlat, toTFlat]
@@ -1093,7 +985,7 @@ private theorem hoistArmFlat_eq {rs : List Ty} (jTs : List Ty) :
       cont_p, cont_f, hΓ, hΔ, hmV, hwf, hcont => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV c hwf.1.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hwf.1.1]
     cases plan with
     | jnz pT pE =>
       dsimp only [hoistArm, hoistArmFlat]
@@ -1106,22 +998,22 @@ private theorem hoistArmFlat_eq {rs : List Ty} (jTs : List Ty) :
   | .load t a k, plan, Γ, _, vs, _, _, _, _, inVE, _, _, hΓ, _, hmV, hwf, _ => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV a hwf.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1]
     cases plan <;> rfl
   | .store v a k, plan, Γ, _, vs, _, _, _, _, inVE, _, _, hΓ, _, hmV, hwf, _ => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV v hwf.1.1,
-      denoteArg_eq_some_resolveArg hΓ hmV a hwf.1.2]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hwf.1.1,
+      denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1.2]
     cases plan <;> rfl
   | .call f bs args k, plan, Γ, _, vs, _, _, _, _, inVE, _, _, hΓ, _, hmV, hwf, _ => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1]
     cases plan <;> rfl
   | .exit f args, plan, Γ, _, vs, _, _, _, _, inVE, _, _, hΓ, _, hmV, hwf, _ => by
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV args hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf]
     cases plan <;> rfl
   | .hlt, plan, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => by
     cases plan <;> rfl
@@ -1159,7 +1051,7 @@ private theorem hoistDiamondFlat_eq {rs : List Ty} {jTs : List Ty} (jLbl : KL jT
   | .jnz c t e, plan, Γ, Δ, vs, ls, inVD, outVD, outLD, inVE, hΓ, hΔ, hmV, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV c hwf.1.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hwf.1.1]
     cases plan with
     | jnz pT pE =>
       dsimp only [hoistDiamond, hoistDiamondFlat]
@@ -1168,7 +1060,7 @@ private theorem hoistDiamondFlat_eq {rs : List Ty} {jTs : List Ty} (jLbl : KL jT
   | .let_ (ts := ts) op k, plan, Γ, Δ, vs, ls, inVD, outVD, outLD, inVE, hΓ, hΔ, hmV, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV op.args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV op.args hwf.1]
     cases plan with
     | let_ rest =>
       dsimp only [hoistDiamond, hoistDiamondFlat, toTFlat]
@@ -1179,7 +1071,7 @@ private theorem hoistDiamondFlat_eq {rs : List Ty} {jTs : List Ty} (jLbl : KL jT
   | .load t a k, plan, Γ, Δ, vs, ls, inVD, outVD, outLD, inVE, hΓ, hΔ, hmV, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV a hwf.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1]
     cases plan with
     | load rest =>
       dsimp only [hoistDiamond, hoistDiamondFlat, toTFlat]
@@ -1189,8 +1081,8 @@ private theorem hoistDiamondFlat_eq {rs : List Ty} {jTs : List Ty} (jLbl : KL jT
   | .store v a k, plan, Γ, Δ, vs, ls, inVD, outVD, outLD, inVE, hΓ, hΔ, hmV, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV v hwf.1.1,
-      denoteArg_eq_some_resolveArg hΓ hmV a hwf.1.2]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hwf.1.1,
+      denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1.2]
     cases plan with
     | store rest =>
       dsimp only [hoistDiamond, hoistDiamondFlat, toTFlat]
@@ -1199,7 +1091,7 @@ private theorem hoistDiamondFlat_eq {rs : List Ty} {jTs : List Ty} (jLbl : KL jT
   | .call f bs args k, plan, Γ, Δ, vs, ls, inVD, outVD, outLD, inVE, hΓ, hΔ, hmV, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1]
     cases plan with
     | call rest =>
       dsimp only [hoistDiamond, hoistDiamondFlat, toTFlat]
@@ -1211,15 +1103,15 @@ private theorem hoistDiamondFlat_eq {rs : List Ty} {jTs : List Ty} (jLbl : KL jT
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     obtain ⟨j', hj⟩ := Option.isSome_iff_exists.1 (lookupL_isSome_of_check hΔ hwf.1)
     dsimp only [denote]
-    rw [hj, denoteArgs_eq_some_resolveArgs hΓ hmV args hwf.2]
+    rw [hj, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.2]
     cases plan <;> rfl
   | .ret vs', plan, Γ, _, vs, _, _, _, _, inVE, hΓ, _, hmV, hwf => by
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV vs' hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf]
     cases plan <;> rfl
   | .exit f args, plan, Γ, _, vs, _, _, _, _, inVE, hΓ, _, hmV, hwf => by
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV args hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf]
     cases plan <;> rfl
   | .hlt, plan, _, _, _, _, _, _, _, _, _, _, _, _ => by cases plan <;> rfl
   | .group _ _, plan, _, _, _, _, _, _, _, _, _, _, _, _ => by cases plan <;> rfl
@@ -1317,7 +1209,7 @@ private theorem ifOptWithFlat_eq (bitsOnly : Bool) {rs : List Ty} :
       hΓ, hΔ, hmV, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV op.args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV op.args hwf.1]
     dsimp only [ifOptWith, ifOptWithFlat, toTFlat]
     exact congrArg (TFlat.let_ _)
       (ifOptWithFlat_eq bitsOnly k depth (CtxTypes.push _ hΓ) hΔ
@@ -1326,7 +1218,7 @@ private theorem ifOptWithFlat_eq (bitsOnly : Bool) {rs : List Ty} :
       hΓ, hΔ, hmV, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV a hwf.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1]
     dsimp only [ifOptWith, ifOptWithFlat, toTFlat]
     exact congrArg (TFlat.load t _)
       (ifOptWithFlat_eq bitsOnly k depth (.cons hΓ) hΔ (hmV.cons t _) hmL hwf.2)
@@ -1334,8 +1226,8 @@ private theorem ifOptWithFlat_eq (bitsOnly : Bool) {rs : List Ty} :
       hΓ, hΔ, hmV, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV v hwf.1.1,
-      denoteArg_eq_some_resolveArg hΓ hmV a hwf.1.2]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV v hwf.1.1,
+      denoteArg_eq_some_resolveEnvArg hΓ hmV a hwf.1.2]
     dsimp only [ifOptWith, ifOptWithFlat, toTFlat]
     exact congrArg (TFlat.store _ _)
       (ifOptWithFlat_eq bitsOnly k depth hΓ hΔ hmV hmL hwf.2)
@@ -1343,7 +1235,7 @@ private theorem ifOptWithFlat_eq (bitsOnly : Bool) {rs : List Ty} :
       hΓ, hΔ, hmV, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.1]
     dsimp only [ifOptWith, ifOptWithFlat, toTFlat]
     exact congrArg (TFlat.call f bs _)
       (ifOptWithFlat_eq bitsOnly k depth (CtxTypes.push _ hΓ) hΔ
@@ -1352,7 +1244,7 @@ private theorem ifOptWithFlat_eq (bitsOnly : Bool) {rs : List Ty} :
       hΓ, hΔ, hmV, hmL, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hmV c hwf.1.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hmV c hwf.1.1]
     have ht := ifOptWithFlat_eq bitsOnly t depth hΓ hΔ hmV hmL hwf.1.2
       (outVD := outVD) (outLD := outLD)
     have he := ifOptWithFlat_eq bitsOnly e depth hΓ hΔ hmV hmL hwf.2
@@ -1363,10 +1255,10 @@ private theorem ifOptWithFlat_eq (bitsOnly : Bool) {rs : List Ty} :
       simp only [Bool.false_eq_true, ↓reduceIte, toTFlat]
       rw [ht, he]
     | true =>
-      have htry := tryJnzDiamondFlat_eq true (resolveArg inVD inVE c) t e hΓ hΔ hmV hmL
+      have htry := tryJnzDiamondFlat_eq true (resolveEnvArg inVD inVE c) t e hΓ hΔ hmV hmL
         hwf.1.2 hwf.2 (outVD := outVD) (outLD := outLD)
       simp only [↓reduceIte]
-      cases hopt : tryJnzDiamond true outVD (resolveArg inVD inVE c)
+      cases hopt : tryJnzDiamond true outVD (resolveEnvArg inVD inVE c)
           (denote (IVal K) (JLabel KL) t vs ls) (denote (IVal K) (JLabel KL) e vs ls) with
       | none =>
         rw [hopt, Option.map_none] at htry
@@ -1382,18 +1274,18 @@ private theorem ifOptWithFlat_eq (bitsOnly : Bool) {rs : List Ty} :
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     obtain ⟨jl, hlk, hres⟩ := lookupL_eq_some_resolveLabel hΔ hmL hwf.1
     dsimp only [denote]
-    rw [hlk, denoteArgs_eq_some_resolveArgs hΓ hmV args hwf.2]
+    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf.2]
     dsimp only [ifOptWith, ifOptWithFlat]
     rw [hres]
     dsimp only
     cases unwrapJLabel jl <;> rfl
   | .ret vs', _, Γ, _, vs, _, inVD, outVD, _, _, inVE, _, hΓ, _, hmV, _, hwf => by
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV vs' hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV vs' hwf]
     rfl
   | .exit f args, _, Γ, _, vs, _, inVD, outVD, _, _, inVE, _, hΓ, _, hmV, _, hwf => by
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hmV args hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hmV args hwf]
     rfl
   | .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
   | .group (sig := []) bodies k, depth, Γ, Δ, vs, ls, inVD, outVD, inLD, outLD, inVE, inLE,

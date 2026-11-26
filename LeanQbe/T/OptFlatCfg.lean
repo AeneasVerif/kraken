@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.FlatDirect
+public import LeanQbe.T.OptFlatPlanKit
 public import LeanQbe.T.DceParam
 public import LeanQbe.T.IfOpt
 
@@ -25,61 +26,7 @@ set_option autoImplicit false
 namespace LeanQbe.T
 namespace OptFlatCfg
 
-/-! ## Shared `Trie` Environment & Operand/Label Resolution Helpers -/
-
-/-- Insert a tuple of typed payloads into `env` starting at de Bruijn level `depth`
-(matching `Flat.pushTup` / `FlatDirectLemmas.insertTupTrie`). -/
-def insertTupEnv {α : Type} {W : α → Type} (depth : Nat) (env : Trie ((a : α) × W a)) :
-    {ts : List α} → Tup W ts → Trie ((a : α) × W a)
-  | [], () => env
-  | a :: _, (w, ws) => insertTupEnv (depth + 1) (env.insert depth ⟨a, w⟩) ws
-
-/-- Initial `Trie` variable environment populated with fresh parameter wrappers for `as`. -/
-def initEnv {W : Ty → Type} (fresh : ∀ {t : Ty}, K t → Nat → W t) (as : List Ty) :
-    Trie ((t : Ty) × W t) :=
-  insertTupEnv 0 .empty (tupFreshWith fresh as (Tup.levels as 0) 0)
-
-/-- Resolve a `TFlat` variable/immediate operand in a level-indexed `Trie` environment of depth
-`depth` (falling back to `.imm default` on out-of-scope indices, unreachable under `wfCheck`). -/
-def resolveArg {W : Ty → Type} (depth : Nat) (env : Trie ((t : Ty) × W t)) {t : Ty} :
-    Arg K t → Arg W t
-  | .imm c => .imm c
-  | .var idx =>
-    match env.find? (depth - 1 - idx) with
-    | some ⟨t', w⟩ =>
-      match castTy t' t w with
-      | some w' => .var w'
-      | none => .imm default
-    | none => .imm default
-
-/-- Resolve a tuple of `TFlat` operands in `env`. -/
-def resolveArgs {W : Ty → Type} (depth : Nat) (env : Trie ((t : Ty) × W t)) :
-    {ts : List Ty} → Tup (Arg K) ts → Tup (Arg W) ts
-  | [], () => ()
-  | _ :: _, (a, as) => (resolveArg depth env a, resolveArgs depth env as)
-
-/-- Resolve a `TFlat` de Bruijn label index `j` at signature `ts` in a level-indexed `Trie`
-label environment of depth `lDepth`. -/
-def resolveLabel {W : List Ty → Type} (lDepth : Nat) (lEnv : Trie ((ts : List Ty) × W ts))
-    (ts : List Ty) (j : Nat) : Option (W ts) :=
-  match lEnv.find? (lDepth - 1 - j) with
-  | some ⟨ts', w⟩ => castListTy ts' ts w
-  | none => none
-
-/-- Convert an output de Bruijn label level `lbl` into a de Bruijn index at label depth `nl`
-(matching `toTFlat`). -/
-def idxLabel (nl lbl : Nat) : Nat :=
-  if lbl < nl then nl - 1 - lbl else nl
-
-/-- Convert a `TFlat` de Bruijn index operand into a de Bruijn level operand at depth `b`. -/
-def levelArg (b : Nat) {t : Ty} : Arg K t → Arg K t
-  | .var idx => .var (b - 1 - idx)
-  | .imm c => .imm c
-
-/-- Convert a tuple of `TFlat` de Bruijn index operands into de Bruijn level operands. -/
-def levelArgs (b : Nat) : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg K) ts
-  | [], () => ()
-  | _ :: _, (a, as) => (levelArg b a, levelArgs b as)
+open OptFlatPlanKit
 
 /-! ## 1. Native `TFlat` Dead-Binding & Dead-Load Elimination (`dceWithFlat`, `deadLoadElimFlat`) -/
 
@@ -135,7 +82,7 @@ def dceSweepFlat {rs : List Ty} (kt : KeepTree) :
   | .let_ (ts := ts) op k, inD, inE, outD =>
     match kt with
     | .letNode true kt' =>
-      let args' := idxArgs outD (argsSweep (resolveArgs inD inE op.args))
+      let args' := idxArgs outD (argsSweep (resolveEnvArgs inD inE op.args))
       let wrapped := someTup ts (Tup.levels ts outD)
       .let_ ⟨op.code, args'⟩
         (dceSweepFlat kt' k (inD + ts.length) (insertTupEnv inD inE wrapped) (outD + ts.length))
@@ -145,7 +92,7 @@ def dceSweepFlat {rs : List Ty} (kt : KeepTree) :
   | .load t a k, inD, inE, outD =>
     match kt with
     | .letNode true kt' =>
-      let a' := idxArg outD (argSweep (resolveArg inD inE a))
+      let a' := idxArg outD (argSweep (resolveEnvArg inD inE a))
       .load t a' (dceSweepFlat kt' k (inD + 1) (inE.insert inD ⟨t, some outD⟩) (outD + 1))
     | .letNode false kt' =>
       dceSweepFlat kt' k (inD + 1) (inE.insert inD ⟨t, none⟩) outD
@@ -153,14 +100,14 @@ def dceSweepFlat {rs : List Ty} (kt : KeepTree) :
   | .store v a k, inD, inE, outD =>
     match kt with
     | .node1 kt' =>
-      let v' := idxArg outD (argSweep (resolveArg inD inE v))
-      let a' := idxArg outD (argSweep (resolveArg inD inE a))
+      let v' := idxArg outD (argSweep (resolveEnvArg inD inE v))
+      let a' := idxArg outD (argSweep (resolveEnvArg inD inE a))
       .store v' a' (dceSweepFlat kt' k inD inE outD)
     | _ => .hlt
   | .call f bs args k, inD, inE, outD =>
     match kt with
     | .node1 kt' =>
-      let args' := idxArgs outD (argsSweep (resolveArgs inD inE args))
+      let args' := idxArgs outD (argsSweep (resolveEnvArgs inD inE args))
       let wrapped := someTup bs (Tup.levels bs outD)
       .call f bs args'
         (dceSweepFlat kt' k (inD + bs.length) (insertTupEnv inD inE wrapped) (outD + bs.length))
@@ -168,15 +115,15 @@ def dceSweepFlat {rs : List Ty} (kt : KeepTree) :
   | .jnz c t e, inD, inE, outD =>
     match kt with
     | .node2 ktt kte =>
-      let c' := idxArg outD (argSweep (resolveArg inD inE c))
+      let c' := idxArg outD (argSweep (resolveEnvArg inD inE c))
       .jnz c' (dceSweepFlat ktt t inD inE outD) (dceSweepFlat kte e inD inE outD)
     | _ => .hlt
   | .jump j args, inD, inE, outD =>
-    .jump j (idxArgs outD (argsSweep (resolveArgs inD inE args)))
+    .jump j (idxArgs outD (argsSweep (resolveEnvArgs inD inE args)))
   | .ret vs, inD, inE, outD =>
-    .ret (idxArgs outD (argsSweep (resolveArgs inD inE vs)))
+    .ret (idxArgs outD (argsSweep (resolveEnvArgs inD inE vs)))
   | .exit f args, inD, inE, outD =>
-    .exit f (idxArgs outD (argsSweep (resolveArgs inD inE args)))
+    .exit f (idxArgs outD (argsSweep (resolveEnvArgs inD inE args)))
   | .hlt, _, _, _ => .hlt
   | .group bodies k, inD, inE, outD =>
     match kt with
@@ -292,7 +239,7 @@ def dceSweepPFlat {rs : List Ty} (kt : PTree) :
   | .let_ (ts := ts) op k, inVD, inVE, inLD, inLE, outVD, outLD =>
     match kt with
     | .letNode true kt' =>
-      let args' := idxArgs outVD (argsSweep (resolveArgs inVD inVE op.args))
+      let args' := idxArgs outVD (argsSweep (resolveEnvArgs inVD inVE op.args))
       let wrapped := someTup ts (Tup.levels ts outVD)
       .let_ ⟨op.code, args'⟩
         (dceSweepPFlat kt' k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
@@ -304,7 +251,7 @@ def dceSweepPFlat {rs : List Ty} (kt : PTree) :
   | .load t a k, inVD, inVE, inLD, inLE, outVD, outLD =>
     match kt with
     | .letNode true kt' =>
-      let a' := idxArg outVD (argSweep (resolveArg inVD inVE a))
+      let a' := idxArg outVD (argSweep (resolveEnvArg inVD inVE a))
       .load t a'
         (dceSweepPFlat kt' k (inVD + 1) (inVE.insert inVD ⟨t, some outVD⟩)
           inLD inLE (outVD + 1) outLD)
@@ -314,14 +261,14 @@ def dceSweepPFlat {rs : List Ty} (kt : PTree) :
   | .store v a k, inVD, inVE, inLD, inLE, outVD, outLD =>
     match kt with
     | .node1 kt' =>
-      let v' := idxArg outVD (argSweep (resolveArg inVD inVE v))
-      let a' := idxArg outVD (argSweep (resolveArg inVD inVE a))
+      let v' := idxArg outVD (argSweep (resolveEnvArg inVD inVE v))
+      let a' := idxArg outVD (argSweep (resolveEnvArg inVD inVE a))
       .store v' a' (dceSweepPFlat kt' k inVD inVE inLD inLE outVD outLD)
     | _ => .hlt
   | .call f bs args k, inVD, inVE, inLD, inLE, outVD, outLD =>
     match kt with
     | .node1 kt' =>
-      let args' := idxArgs outVD (argsSweep (resolveArgs inVD inVE args))
+      let args' := idxArgs outVD (argsSweep (resolveEnvArgs inVD inVE args))
       let wrapped := someTup bs (Tup.levels bs outVD)
       .call f bs args'
         (dceSweepPFlat kt' k (inVD + bs.length) (insertTupEnv inVD inVE wrapped)
@@ -330,7 +277,7 @@ def dceSweepPFlat {rs : List Ty} (kt : PTree) :
   | .jnz c t e, inVD, inVE, inLD, inLE, outVD, outLD =>
     match kt with
     | .node2 ktt kte =>
-      let c' := idxArg outVD (argSweep (resolveArg inVD inVE c))
+      let c' := idxArg outVD (argSweep (resolveEnvArg inVD inVE c))
       .jnz c'
         (dceSweepPFlat ktt t inVD inVE inLD inLE outVD outLD)
         (dceSweepPFlat kte e inVD inVE inLD inLE outVD outLD)
@@ -339,12 +286,12 @@ def dceSweepPFlat {rs : List Ty} (kt : PTree) :
     match resolveLabel inLD inLE ts j with
     | some (.mk m l) =>
       .jump (idxLabel outLD l)
-        (idxArgs outVD (tupNarrow ts m (argsSweep (resolveArgs inVD inVE args))))
+        (idxArgs outVD (tupNarrow ts m (argsSweep (resolveEnvArgs inVD inVE args))))
     | none => .hlt
   | .ret vs, inVD, inVE, _, _, outVD, _ =>
-    .ret (idxArgs outVD (argsSweep (resolveArgs inVD inVE vs)))
+    .ret (idxArgs outVD (argsSweep (resolveEnvArgs inVD inVE vs)))
   | .exit f args, inVD, inVE, _, _, outVD, _ =>
-    .exit f (idxArgs outVD (argsSweep (resolveArgs inVD inVE args)))
+    .exit f (idxArgs outVD (argsSweep (resolveEnvArgs inVD inVE args)))
   | .hlt, _, _, _, _, _, _ => .hlt
   | .group (sig := sig) bodies k, inVD, inVE, inLD, inLE, outVD, outLD =>
     match kt with
@@ -525,23 +472,23 @@ def hoistArmFlat {rs : List Ty} (jTs : List Ty) :
     ArmPlan → TFlat rs → Nat → Trie ((t : Ty) × IVal K t) → Nat →
     (Nat → Tup (Arg (IVal K)) jTs → TFlat rs) → TFlat rs
   | .jump, .jump (ts := ts) _ args, inVD, inVE, outVD, cont =>
-    let args' := resolveArgs inVD inVE args
+    let args' := resolveEnvArgs inVD inVE args
     match listTyDecEq ts jTs with
     | isTrue h => cont outVD (h ▸ args')
     | isFalse _ => .hlt
   | .ret, .ret vs, inVD, inVE, outVD, cont =>
-    let vs' := resolveArgs inVD inVE vs
+    let vs' := resolveEnvArgs inVD inVE vs
     match listTyDecEq rs jTs with
     | isTrue h => cont outVD (h ▸ vs')
     | isFalse _ => .hlt
   | .let_ rest, .let_ (ts := ts) op k, inVD, inVE, outVD, cont =>
-    let args' := resolveArgs inVD inVE op.args
+    let args' := resolveEnvArgs inVD inVE op.args
     let wrapped := freshIVals ts (Tup.levels ts outVD) outVD
     .let_ ⟨op.code, idxArgs outVD (tupIOut args')⟩
       (hoistArmFlat jTs rest k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
         (outVD + ts.length) cont)
   | .jnz pT pE, .jnz c t e, inVD, inVE, outVD, cont =>
-    let c' := iout (resolveArg inVD inVE c)
+    let c' := iout (resolveEnvArg inVD inVE c)
     hoistArmFlat jTs pT t inVD inVE outVD fun od₁ argsT =>
     hoistArmFlat jTs pE e inVD inVE od₁ fun od₂ argsE =>
     emitSelectTupIValFlat c' jTs od₂ argsT argsE cont
@@ -560,27 +507,27 @@ def hoistJnzArmsFlat {rs : List Ty} (jTs : List Ty)
 def hoistDiamondFlat {rs : List Ty} {jTs : List Ty} (jLbl : KL jTs) :
     DiamondPlan → TFlat rs → Nat → Trie ((t : Ty) × IVal K t) → Nat → Nat → TFlat rs
   | .jnz pT pE, .jnz c t e, inVD, inVE, outVD, outLD =>
-    let c' := iout (resolveArg inVD inVE c)
+    let c' := iout (resolveEnvArg inVD inVE c)
     hoistJnzArmsFlat jTs pT pE c' t e inVD inVE outVD fun od' selArgs =>
       .jump (idxLabel outLD jLbl) (idxArgs od' selArgs)
   | .let_ rest, .let_ (ts := ts) op k, inVD, inVE, outVD, outLD =>
-    let args' := resolveArgs inVD inVE op.args
+    let args' := resolveEnvArgs inVD inVE op.args
     let wrapped := freshIVals ts (Tup.levels ts outVD) outVD
     .let_ ⟨op.code, idxArgs outVD (tupIOut args')⟩
       (hoistDiamondFlat jLbl rest k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
         (outVD + ts.length) outLD)
   | .load rest, .load t a k, inVD, inVE, outVD, outLD =>
-    let a' := iout (resolveArg inVD inVE a)
+    let a' := iout (resolveEnvArg inVD inVE a)
     let inVE' := inVE.insert inVD ⟨t, (.var outVD, .var outVD)⟩
     .load t (idxArg outVD a')
       (hoistDiamondFlat jLbl rest k (inVD + 1) inVE' (outVD + 1) outLD)
   | .store rest, .store v a k, inVD, inVE, outVD, outLD =>
-    let v' := iout (resolveArg inVD inVE v)
-    let a' := iout (resolveArg inVD inVE a)
+    let v' := iout (resolveEnvArg inVD inVE v)
+    let a' := iout (resolveEnvArg inVD inVE a)
     .store (idxArg outVD v') (idxArg outVD a')
       (hoistDiamondFlat jLbl rest k inVD inVE outVD outLD)
   | .call rest, .call f bs args k, inVD, inVE, outVD, outLD =>
-    let args' := resolveArgs inVD inVE args
+    let args' := resolveEnvArgs inVD inVE args
     let wrapped := freshIVals bs (Tup.levels bs outVD) outVD
     .call f bs (idxArgs outVD (tupIOut args'))
       (hoistDiamondFlat jLbl rest k (inVD + bs.length) (insertTupEnv inVD inVE wrapped)
@@ -619,29 +566,29 @@ def ifOptWithFlat {rs : List Ty} (bitsOnly : Bool) (depth : Nat) :
     TFlat rs → Nat → Trie ((t : Ty) × IVal K t) →
     Nat → Trie ((ts : List Ty) × JLabel KL ts) → Nat → Nat → TFlat rs
   | .let_ (ts := ts) op k, inVD, inVE, inLD, inLE, outVD, outLD =>
-    let args' := resolveArgs inVD inVE op.args
+    let args' := resolveEnvArgs inVD inVE op.args
     let wrapped := freshIVals ts (Tup.levels ts outVD) outVD
     .let_ ⟨op.code, idxArgs outVD (tupIOut args')⟩
       (ifOptWithFlat bitsOnly depth k (inVD + ts.length) (insertTupEnv inVD inVE wrapped)
         inLD inLE (outVD + ts.length) outLD)
   | .load t a k, inVD, inVE, inLD, inLE, outVD, outLD =>
-    let a' := iout (resolveArg inVD inVE a)
+    let a' := iout (resolveEnvArg inVD inVE a)
     let inVE' := inVE.insert inVD ⟨t, (.var outVD, .var outVD)⟩
     .load t (idxArg outVD a')
       (ifOptWithFlat bitsOnly depth k (inVD + 1) inVE' inLD inLE (outVD + 1) outLD)
   | .store v a k, inVD, inVE, inLD, inLE, outVD, outLD =>
-    let v' := iout (resolveArg inVD inVE v)
-    let a' := iout (resolveArg inVD inVE a)
+    let v' := iout (resolveEnvArg inVD inVE v)
+    let a' := iout (resolveEnvArg inVD inVE a)
     .store (idxArg outVD v') (idxArg outVD a')
       (ifOptWithFlat bitsOnly depth k inVD inVE inLD inLE outVD outLD)
   | .call f bs args k, inVD, inVE, inLD, inLE, outVD, outLD =>
-    let args' := resolveArgs inVD inVE args
+    let args' := resolveEnvArgs inVD inVE args
     let wrapped := freshIVals bs (Tup.levels bs outVD) outVD
     .call f bs (idxArgs outVD (tupIOut args'))
       (ifOptWithFlat bitsOnly depth k (inVD + bs.length) (insertTupEnv inVD inVE wrapped)
         inLD inLE (outVD + bs.length) outLD)
   | .jnz c t e, inVD, inVE, inLD, inLE, outVD, outLD =>
-    let c' := iout (resolveArg inVD inVE c)
+    let c' := iout (resolveEnvArg inVD inVE c)
     let fallback :=
       .jnz (idxArg outVD c')
         (ifOptWithFlat bitsOnly depth t inVD inVE inLD inLE outVD outLD)
@@ -654,13 +601,13 @@ def ifOptWithFlat {rs : List Ty} (bitsOnly : Bool) (depth : Nat) :
     | some jl =>
       match unwrapJLabel jl with
       | some l =>
-        .jump (idxLabel outLD l) (idxArgs outVD (tupIOut (resolveArgs inVD inVE args)))
+        .jump (idxLabel outLD l) (idxArgs outVD (tupIOut (resolveEnvArgs inVD inVE args)))
       | none => .hlt
     | none => .hlt
   | .ret vs, inVD, inVE, _, _, outVD, _ =>
-    .ret (idxArgs outVD (tupIOut (resolveArgs inVD inVE vs)))
+    .ret (idxArgs outVD (tupIOut (resolveEnvArgs inVD inVE vs)))
   | .exit f args, inVD, inVE, _, _, outVD, _ =>
-    .exit f (idxArgs outVD (tupIOut (resolveArgs inVD inVE args)))
+    .exit f (idxArgs outVD (tupIOut (resolveEnvArgs inVD inVE args)))
   | .hlt, _, _, _, _, _, _ => .hlt
   | .group (sig := sig) bodies k, inVD, inVE, inLD, inLE, outVD, outLD =>
     let outJs := Tup.levels sig outLD

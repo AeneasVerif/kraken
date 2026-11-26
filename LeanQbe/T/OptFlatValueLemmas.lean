@@ -28,75 +28,7 @@ public section
 namespace LeanQbe.T
 namespace OptFlatValue
 
-/-! ## Shared `Trie` Environment & Operand Simulation Lemmas -/
-
-private theorem insertTupEnv_eq_insertTupTrie {W : Ty → Type} :
-    ∀ (depth : Nat) (env : Trie ((t : Ty) × W t)) {ts : List Ty} (xs : Tup W ts),
-      insertTupEnv depth env xs = insertTupTrie depth env xs
-  | _, _, [], () => rfl
-  | depth, _env, _ :: _, (_, ws) => insertTupEnv_eq_insertTupTrie (depth + 1) _ ws
-
-private theorem trieCtxMatch_insertTupEnv {W : Ty → Type} {inDepth : Nat}
-    {inEnv : Trie ((t : Ty) × W t)} {vs : List ((t : Ty) × W t)}
-    (hm : TrieCtxMatch inDepth inEnv vs) {ts : List Ty} (ws : Tup W ts) :
-    TrieCtxMatch (inDepth + ts.length) (insertTupEnv inDepth inEnv ws) (pushTup ws vs) := by
-  rw [insertTupEnv_eq_insertTupTrie]
-  exact hm.pushTup ws
-
-private theorem trieCtxMatch_initEnv {W : Ty → Type} (fresh : ∀ {t : Ty}, K t → Nat → W t)
-    (as : List Ty) :
-    TrieCtxMatch as.length (initEnv fresh as)
-      (pushTup (tupFreshWith fresh as (Tup.levels as 0) 0) []) := by
-  dsimp only [initEnv]
-  rw [insertTupEnv_eq_insertTupTrie]
-  simpa [Nat.zero_add] using
-    TrieCtxMatch.pushTup (tupFreshWith fresh as (Tup.levels as 0) 0) TrieCtxMatch.empty
-
-private theorem denoteArg_eq_some_resolveArg {Γ : List Ty} {W : Ty → Type} {inDepth : Nat}
-    {inEnv : Trie ((t : Ty) × W t)} {vs : List ((t : Ty) × W t)}
-    (hΓ : CtxTypes Γ vs) (hm : TrieCtxMatch inDepth inEnv vs)
-    {t : Ty} (a : Arg K t) (hc : checkArg Γ t a = true) :
-    denoteArg vs a = some (resolveArg inDepth inEnv a) := by
-  cases a with
-  | imm c => rfl
-  | var idx =>
-    obtain ⟨w, hgetvs, hlt⟩ := ctxTypes_listGet? hΓ (checkArg_eq_true_iff.mp hc)
-    have hfind := hm.2 idx hlt
-    rw [hgetvs] at hfind
-    have hcast : castTy t t w = some w := PassFlatKit.castTy_self t w
-    dsimp only [denoteArg, lookupV, resolveArg]
-    rw [hgetvs, hfind]; dsimp only
-    rw [hcast]
-
-private theorem denoteArgs_eq_some_resolveArgs {Γ : List Ty} {W : Ty → Type} {inDepth : Nat}
-    {inEnv : Trie ((t : Ty) × W t)} {vs : List ((t : Ty) × W t)}
-    (hΓ : CtxTypes Γ vs) (hm : TrieCtxMatch inDepth inEnv vs) :
-    {ts : List Ty} → (as : Tup (Arg K) ts) → checkArgs Γ as = true →
-    denoteArgs vs as = some (resolveArgs inDepth inEnv as)
-  | [], (), _ => rfl
-  | _ :: _, (a, as), hc => by
-    dsimp only [checkArgs] at hc; simp only [Bool.and_eq_true] at hc
-    dsimp only [denoteArgs, resolveArgs]
-    rw [denoteArg_eq_some_resolveArg hΓ hm a hc.1,
-      denoteArgs_eq_some_resolveArgs hΓ hm as hc.2]
-
-private theorem lookupL_jump_eq {Δ : List (List Ty)} {ls : List ((ts : List Ty) × KL ts)}
-    (hΔ : CtxTypes Δ ls) (hll : CtxLevels ls) {ts : List Ty} {j : Nat}
-    (hj : (match listGet? Δ j with
-      | some ts' => match listTyDecEq ts' ts with | isTrue _ => true | isFalse _ => false
-      | none => false) = true) :
-    ∃ lvl, lookupL ls ts j = some lvl ∧
-      (if lvl < ls.length then ls.length - 1 - lvl else ls.length) = j := by
-  obtain ⟨lvl, hgetls, hlt⟩ := ctxTypes_listGet? hΔ (checkJump_eq_true_iff.mp hj)
-  dsimp only [KL] at lvl
-  have hlvl : lvl = ls.length - 1 - j := hll j ts lvl hgetls
-  have hlk : lookupL ls ts j = some lvl := by
-    dsimp only [lookupL]; rw [hgetls]; dsimp only; rw [PassFlatKit.castListTy_self]
-  refine ⟨lvl, hlk, ?_⟩
-  subst hlvl
-  have hlt' : ls.length - 1 - j < ls.length := by omega
-  have hinv : ls.length - 1 - (ls.length - 1 - j) = j := by omega
-  simp [hlt', hinv]
+open OptFlatPlanKit
 
 /-! ## 1. `foldFlat` Simulation Proofs -/
 
@@ -140,19 +72,19 @@ private theorem foldFlatAux_eq {rs : List Ty} :
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     rw [foldFlatAux.eq_def]
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm op.args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args hwf.1]
     dsimp only
     rw [fold_let_eq]
     dsimp only
     cases
-      (⟨op.code, resolveArgs inDepth inEnv op.args⟩ : Op (FVal K) ts).simpAct with
+      (⟨op.code, resolveEnvArgs inDepth inEnv op.args⟩ : Op (FVal K) ts).simpAct with
     | some act =>
       dsimp only
       exact foldFlatAux_eq k (CtxTypes.push _ hΓ) hΔ hll (trieCtxMatch_insertTupEnv hm _) hwf.2
     | none =>
       dsimp only
       cases
-        (⟨op.code, resolveArgs inDepth inEnv op.args⟩ : Op (FVal K) ts).simpProv? with
+        (⟨op.code, resolveEnvArgs inDepth inEnv op.args⟩ : Op (FVal K) ts).simpProv? with
       | some res =>
         dsimp only
         exact foldFlatAux_eq k (CtxTypes.push _ hΓ) hΔ hll (trieCtxMatch_insertTupEnv hm _) hwf.2
@@ -163,21 +95,21 @@ private theorem foldFlatAux_eq {rs : List Ty} :
   | .load t a k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [foldFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm a hwf.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1]
     dsimp only [fold, toTFlat]
     exact congrArg (TFlat.load t _)
       (foldFlatAux_eq k (.cons hΓ) hΔ hll (hm.cons t _) hwf.2)
   | .store v a k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [foldFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm v hwf.1.1,
-      denoteArg_eq_some_resolveArg hΓ hm a hwf.1.2]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm v hwf.1.1,
+      denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1.2]
     dsimp only [fold, toTFlat]
     exact congrArg (TFlat.store _ _) (foldFlatAux_eq k hΓ hΔ hll hm hwf.2)
   | .call f bs args k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [foldFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.1]
     dsimp only [fold, toTFlat]
     exact congrArg (TFlat.call f bs _)
       (foldFlatAux_eq k (CtxTypes.push _ hΓ) hΔ hll (trieCtxMatch_insertTupEnv hm _) hwf.2)
@@ -185,10 +117,10 @@ private theorem foldFlatAux_eq {rs : List Ty} :
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     rw [foldFlatAux.eq_def]
     dsimp only [denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm c hwf.1.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm c hwf.1.1]
     dsimp only
     rw [fold_jnz_eq]
-    cases hc : (resolveArg inDepth inEnv c).fout with
+    cases hc : (resolveEnvArg inDepth inEnv c).fout with
     | imm b =>
       cases b with
       | true => exact foldFlatAux_eq t hΓ hΔ hll hm hwf.1.2
@@ -200,16 +132,16 @@ private theorem foldFlatAux_eq {rs : List Ty} :
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     obtain ⟨lvl, hlk, hidx⟩ := lookupL_jump_eq hΔ hll hwf.1
     dsimp only [foldFlatAux, denote]
-    rw [hlk, denoteArgs_eq_some_resolveArgs hΓ hm args hwf.2]
+    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.2]
     dsimp only [fold, toTFlat]
     rw [hidx]
   | .ret vs', Γ, _, vs, ls, inDepth, outDepth, inEnv, hΓ, _, _, hm, hwf => by
     dsimp only [foldFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm vs' hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm vs' hwf]
     rfl
   | .exit f args, Γ, _, vs, ls, inDepth, outDepth, inEnv, hΓ, _, _, hm, hwf => by
     dsimp only [foldFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm args hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf]
     rfl
   | .hlt, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
   | .group (sig := sig) bodies k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv,
@@ -341,11 +273,11 @@ private theorem copyFlatAux_eq {rs : List Ty} :
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     rw [copyFlatAux.eq_def]
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm op.args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args hwf.1]
     dsimp only
     rw [copy_let_eq]
     cases hst :
-      (⟨op.code, resolveArgs inDepth inEnv op.args⟩ : Op (CVal K) ts).copyLet outDepth with
+      (⟨op.code, resolveEnvArgs inDepth inEnv op.args⟩ : Op (CVal K) ts).copyLet outDepth with
     | elim res =>
       dsimp only
       exact copyFlatAux_eq k (CtxTypes.push _ hΓ) hΔ hll (trieCtxMatch_insertTupEnv hm _) hwf.2
@@ -358,44 +290,44 @@ private theorem copyFlatAux_eq {rs : List Ty} :
   | .load t a k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [copyFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm a hwf.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1]
     dsimp only [copy, toTFlat]
     exact congrArg (TFlat.load t _)
       (copyFlatAux_eq k (.cons hΓ) hΔ hll (hm.cons t _) hwf.2)
   | .store v a k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [copyFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm v hwf.1.1,
-      denoteArg_eq_some_resolveArg hΓ hm a hwf.1.2]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm v hwf.1.1,
+      denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1.2]
     dsimp only [copy, toTFlat]
     exact congrArg (TFlat.store _ _) (copyFlatAux_eq k hΓ hΔ hll hm hwf.2)
   | .call f bs args k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [copyFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.1]
     dsimp only [copy, toTFlat]
     exact congrArg (TFlat.call f bs _)
       (copyFlatAux_eq k (CtxTypes.push _ hΓ) hΔ hll (trieCtxMatch_insertTupEnv hm _) hwf.2)
   | .jnz c t e, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [copyFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm c hwf.1.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm c hwf.1.1]
     dsimp only [copy, toTFlat]
     rw [copyFlatAux_eq t hΓ hΔ hll hm hwf.1.2, copyFlatAux_eq e hΓ hΔ hll hm hwf.2]
   | .jump (ts := ts) j args, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     obtain ⟨lvl, hlk, hidx⟩ := lookupL_jump_eq hΔ hll hwf.1
     dsimp only [copyFlatAux, denote]
-    rw [hlk, denoteArgs_eq_some_resolveArgs hΓ hm args hwf.2]
+    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.2]
     dsimp only [copy, toTFlat]
     rw [hidx]
   | .ret vs', Γ, _, vs, ls, inDepth, outDepth, inEnv, hΓ, _, _, hm, hwf => by
     dsimp only [copyFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm vs' hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm vs' hwf]
     rfl
   | .exit f args, Γ, _, vs, ls, inDepth, outDepth, inEnv, hΓ, _, _, hm, hwf => by
     dsimp only [copyFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm args hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf]
     rfl
   | .hlt, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
   | .group (sig := sig) bodies k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv,
@@ -475,51 +407,51 @@ private theorem canonFlatAux_eq {rs : List Ty} :
   | .let_ (ts := ts) op k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [canonFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm op.args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args hwf.1]
     dsimp only [canon, toTFlat]
     exact congrArg (TFlat.let_ _)
       (canonFlatAux_eq k (CtxTypes.push _ hΓ) hΔ hll (trieCtxMatch_insertTupEnv hm _) hwf.2)
   | .load t a k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [canonFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm a hwf.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1]
     dsimp only [canon, toTFlat]
     exact congrArg (TFlat.load t _)
       (canonFlatAux_eq k (.cons hΓ) hΔ hll (hm.cons t _) hwf.2)
   | .store v a k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [canonFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm v hwf.1.1,
-      denoteArg_eq_some_resolveArg hΓ hm a hwf.1.2]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm v hwf.1.1,
+      denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1.2]
     dsimp only [canon, toTFlat]
     exact congrArg (TFlat.store _ _) (canonFlatAux_eq k hΓ hΔ hll hm hwf.2)
   | .call f bs args k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [canonFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.1]
     dsimp only [canon, toTFlat]
     exact congrArg (TFlat.call f bs _)
       (canonFlatAux_eq k (CtxTypes.push _ hΓ) hΔ hll (trieCtxMatch_insertTupEnv hm _) hwf.2)
   | .jnz c t e, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [canonFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm c hwf.1.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm c hwf.1.1]
     dsimp only [canon, toTFlat]
     rw [canonFlatAux_eq t hΓ hΔ hll hm hwf.1.2, canonFlatAux_eq e hΓ hΔ hll hm hwf.2]
   | .jump (ts := ts) j args, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     obtain ⟨lvl, hlk, hidx⟩ := lookupL_jump_eq hΔ hll hwf.1
     dsimp only [canonFlatAux, denote]
-    rw [hlk, denoteArgs_eq_some_resolveArgs hΓ hm args hwf.2]
+    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.2]
     dsimp only [canon, toTFlat]
     rw [hidx]
   | .ret vs', Γ, _, vs, ls, inDepth, outDepth, inEnv, hΓ, _, _, hm, hwf => by
     dsimp only [canonFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm vs' hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm vs' hwf]
     rfl
   | .exit f args, Γ, _, vs, ls, inDepth, outDepth, inEnv, hΓ, _, _, hm, hwf => by
     dsimp only [canonFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm args hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf]
     rfl
   | .hlt, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
   | .group (sig := sig) bodies k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv,
@@ -615,11 +547,11 @@ private theorem gvnFlatAux_eq {rs : List Ty} :
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     rw [gvnFlatAux.eq_def]
     dsimp only [denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm op.args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args hwf.1]
     dsimp only
     rw [gvn_let_eq]
     dsimp only
-    cases tbl.find op.sig ts op.code (tupGKey (resolveArgs inDepth inEnv op.args)) with
+    cases tbl.find op.sig ts op.code (tupGKey (resolveEnvArgs inDepth inEnv op.args)) with
     | some cached =>
       dsimp only
       exact gvnFlatAux_eq k (CtxTypes.push _ hΓ) hΔ hll (trieCtxMatch_insertTupEnv hm _) hwf.2
@@ -630,28 +562,28 @@ private theorem gvnFlatAux_eq {rs : List Ty} :
   | .load t a k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, tbl, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [gvnFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm a hwf.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1]
     dsimp only [gvn, toTFlat]
     exact congrArg (TFlat.load t _)
       (gvnFlatAux_eq k (.cons hΓ) hΔ hll (hm.cons t _) hwf.2)
   | .store v a k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, tbl, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [gvnFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm v hwf.1.1,
-      denoteArg_eq_some_resolveArg hΓ hm a hwf.1.2]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm v hwf.1.1,
+      denoteArg_eq_some_resolveEnvArg hΓ hm a hwf.1.2]
     dsimp only [gvn, toTFlat]
     exact congrArg (TFlat.store _ _) (gvnFlatAux_eq k hΓ hΔ hll hm hwf.2)
   | .call f bs args k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, tbl, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [gvnFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm args hwf.1]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.1]
     dsimp only [gvn, toTFlat]
     exact congrArg (TFlat.call f bs _)
       (gvnFlatAux_eq k (CtxTypes.push _ hΓ) hΔ hll (trieCtxMatch_insertTupEnv hm _) hwf.2)
   | .jnz c t e, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, tbl, hΓ, hΔ, hll, hm, hwf => by
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     dsimp only [gvnFlatAux, denote]
-    rw [denoteArg_eq_some_resolveArg hΓ hm c hwf.1.1]
+    rw [denoteArg_eq_some_resolveEnvArg hΓ hm c hwf.1.1]
     dsimp only [gvn, toTFlat]
     rw [gvnFlatAux_eq t hΓ hΔ hll hm hwf.1.2, gvnFlatAux_eq e hΓ hΔ hll hm hwf.2]
   | .jump (ts := ts) j args, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, _,
@@ -659,16 +591,16 @@ private theorem gvnFlatAux_eq {rs : List Ty} :
     dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
     obtain ⟨lvl, hlk, hidx⟩ := lookupL_jump_eq hΔ hll hwf.1
     dsimp only [gvnFlatAux, denote]
-    rw [hlk, denoteArgs_eq_some_resolveArgs hΓ hm args hwf.2]
+    rw [hlk, denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf.2]
     dsimp only [gvn, toTFlat]
     rw [hidx]
   | .ret vs', Γ, _, vs, ls, inDepth, outDepth, inEnv, _, hΓ, _, _, hm, hwf => by
     dsimp only [gvnFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm vs' hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm vs' hwf]
     rfl
   | .exit f args, Γ, _, vs, ls, inDepth, outDepth, inEnv, _, hΓ, _, _, hm, hwf => by
     dsimp only [gvnFlatAux, denote]
-    rw [denoteArgs_eq_some_resolveArgs hΓ hm args hwf]
+    rw [denoteArgs_eq_some_resolveEnvArgs hΓ hm args hwf]
     rfl
   | .hlt, _, _, _, _, _, _, _, _, _, _, _, _, _ => rfl
   | .group (sig := sig) bodies k, Γ, Δ, vs, ls, inDepth, outDepth, inEnv, tbl,

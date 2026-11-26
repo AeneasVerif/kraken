@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Flat
+public import LeanQbe.T.OptFlatPlanKit
 public import LeanQbe.T.Trie
 public import LeanQbe.T.MemLoad
 public import LeanQbe.T.AssumeBits
@@ -29,42 +30,7 @@ set_option autoImplicit false
 namespace LeanQbe.T
 namespace OptFlatMem
 
-/-! ## Shared `Trie`-Env Lookup and Insertion Helpers -/
-
-/-- Lookup a type-tagged payload at de Bruijn index `idx` under `(inDepth, env)`. -/
-def lookupEnv {W : Ty → Type} (inDepth : Nat) (env : Trie ((t : Ty) × W t))
-    (t : Ty) (idx : Nat) : Option (W t) :=
-  match env.find? (inDepth - 1 - idx) with
-  | some ⟨t', w⟩ => castTy t' t w
-  | none => none
-
-/-- Insert `ts.length` fresh payloads `mk t (inDepth + i) (outDepth + i)` into `env`. -/
-def insertFreshWith {W : Ty → Type} (mk : (t : Ty) → Nat → Nat → W t) :
-    Nat → Nat → List Ty → Trie ((t : Ty) × W t) → Trie ((t : Ty) × W t)
-  | _, _, [], env => env
-  | inD, outD, t :: ts, env =>
-    insertFreshWith mk (inD + 1) (outD + 1) ts (env.insert inD ⟨t, mk t inD outD⟩)
-
-/-- Insert a tuple of payloads `xs : Tup W ts` into `env` starting at `inDepth`. -/
-def insertTupEnv {W : Ty → Type} (inDepth : Nat) (env : Trie ((t : Ty) × W t)) :
-    {ts : List Ty} → Tup W ts → Trie ((t : Ty) × W t)
-  | [], () => env
-  | t :: _, (x, xs) => insertTupEnv (inDepth + 1) (env.insert inDepth ⟨t, x⟩) xs
-
-/-- Resolve a `TFlat` operand `Arg K t` into `Arg W t` via `(inDepth, env)`. -/
-def resolveArg {W : Ty → Type} (dflt : ∀ t, Arg W t) (inDepth : Nat)
-    (env : Trie ((t : Ty) × W t)) {t : Ty} : Arg K t → Arg W t
-  | .imm c => .imm c
-  | .var idx =>
-    match lookupEnv inDepth env t idx with
-    | some w => .var w
-    | none => dflt t
-
-/-- Resolve a tuple of `TFlat` operands via `resolveArg`. -/
-def resolveArgs {W : Ty → Type} (dflt : ∀ t, Arg W t) (inDepth : Nat)
-    (env : Trie ((t : Ty) × W t)) : {ts : List Ty} → Tup (Arg K) ts → Tup (Arg W) ts
-  | [], () => ()
-  | _ :: _, (a, as) => (resolveArg dflt inDepth env a, resolveArgs dflt inDepth env as)
+open OptFlatPlanKit
 
 /-- Resolve a `TFlat` operand `Arg K t` directly into a lowered `Arg K t` output level. -/
 def resolveFlatArg (inDepth : Nat) (env : Trie ((t : Ty) × Arg K t)) {t : Ty} :
@@ -84,14 +50,10 @@ def resolveFlatArgs (inDepth : Nat) (env : Trie ((t : Ty) × Arg K t)) :
 /-! ## 1. Native `TFlat` `memLoadFlat` (Phase 1 `analyzeMemFlat` + Phase 2 `memLoadSweepFlat`) -/
 
 /-- Convert a de Bruijn index operand at depth `next` into its `FKey` level. -/
-def lvlArg (next : Nat) {t : Ty} : Arg K t → FKey t
-  | .var idx => .var (next - 1 - idx)
-  | .imm c => .imm c
+abbrev lvlArg (next : Nat) {t : Ty} : Arg K t → FKey t := levelArg next
 
 /-- Convert a tuple of de Bruijn index operands at depth `next` into `FKey` levels. -/
-def lvlArgs (next : Nat) : {ts : List Ty} → Tup (Arg K) ts → Tup FKey ts
-  | [], () => ()
-  | _ :: _, (a, as) => (lvlArg next a, lvlArgs next as)
+abbrev lvlArgs (next : Nat) : {ts : List Ty} → Tup (Arg K) ts → Tup FKey ts := levelArgs next
 
 mutual
 /-- Phase 1 of `memLoadFlat`: compute conservative `MemSumTree` directly over `TFlat`. -/
@@ -244,14 +206,14 @@ def memLoadFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
 /-! ## 2. Native `TFlat` `assumeBitsFlat` -/
 
 /-- Resolve a `TFlat` operand into `Arg (ABVal K) t`. -/
-def resolveABArg (inDepth : Nat) (env : Trie ((t : Ty) × ABVal K t)) {t : Ty} :
-    Arg K t → Arg (ABVal K) t :=
-  resolveArg (fun _ => .var ⟨.var 0, {}⟩) inDepth env
+def resolveABArg (inDepth : Nat) (env : Trie ((t : Ty) × ABVal K t)) {t : Ty}
+    (a : Arg K t) : Arg (ABVal K) t :=
+  resolveEnvArg inDepth env a (fun _ => .var ⟨.var 0, {}⟩)
 
 /-- Resolve a tuple of `TFlat` operands into `Tup (Arg (ABVal K)) ts`. -/
-def resolveABArgs (inDepth : Nat) (env : Trie ((t : Ty) × ABVal K t)) :
-    {ts : List Ty} → Tup (Arg K) ts → Tup (Arg (ABVal K)) ts :=
-  resolveArgs (fun _ => .var ⟨.var 0, {}⟩) inDepth env
+def resolveABArgs (inDepth : Nat) (env : Trie ((t : Ty) × ABVal K t)) {ts : List Ty}
+    (args : Tup (Arg K) ts) : Tup (Arg (ABVal K)) ts :=
+  resolveEnvArgs inDepth env args (fun _ => .var ⟨.var 0, {}⟩)
 
 /-- Resolve and re-index `assumeBits` output operands directly at `outDepth`. -/
 def resolveAOuts (inDepth outDepth : Nat) (env : Trie ((t : Ty) × ABVal K t)) :
