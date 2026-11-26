@@ -14,6 +14,7 @@ import LeanQbe.T.OptFlatCfgLemmas
 import LeanQbe.T.OptFlatAddrRangeLemmas
 import LeanQbe.T.OptFlatPathCondLemmas
 import LeanQbe.T.OptFlatBranchLemmas
+import LeanQbe.T.OptFlatLoopLemmas
 import LeanQbe.T.FoldLemmas
 import LeanQbe.T.CopyLemmas
 import LeanQbe.T.DceParamLemmas
@@ -672,52 +673,27 @@ theorem peelFastFlat_eq {as rs : List Ty} (tf : TFlat rs) (budget : Nat := 24)
 /-- `licmFlat` preserves `wfCheck`. -/
 theorem licmFlat_wfCheck {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    (licmFlat as tf).wfCheck (pushTypes as []) [] = true := by
-  dsimp only [licmFlat]
-  split
-  · exact hwf
-  · exact wfCheck_reifyBridge (Func.licm_wf (Func.wf_of_denote tf rfl))
+    (licmFlat as tf).wfCheck (pushTypes as []) [] = true :=
+  OptFlatLoop.licmFlat_wfCheck tf hwf
 
 /-- `denoteFunc (licmFlat as tf) = Func.licm (denoteFunc tf)` under `wfCheck = true`. -/
 theorem denoteFunc_licmFlat {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    denoteFunc (as := as) (licmFlat as tf) = Func.licm (denoteFunc (as := as) tf) := by
-  dsimp only [licmFlat]
-  by_cases hskip : (!(Licm.buildHoistPlan as.length tf).hasHoists &&
-      !(Licm.buildRoPlan as.length tf).hasChanges) = true
-  · simp only [hskip, ↓reduceIte]
-    rw [Bool.and_eq_true, Bool.not_eq_true', Bool.not_eq_true'] at hskip
-    have hf1 : (denoteFunc (as := as) tf).licmPure = denoteFunc (as := as) tf := by
-      dsimp only [Func.licmPure]
-      rw [reifyFunc_denoteFunc_eq tf hwf, hskip.1]
-      simp only [Bool.false_eq_true, ↓reduceIte]
-    dsimp only [Func.licm]
-    rw [hf1, reifyFunc_denoteFunc_eq tf hwf, hskip.2]
-    simp only [Bool.false_eq_true, ↓reduceIte]
-  · simp only [hskip, Bool.false_eq_true, ↓reduceIte]
-    exact denoteFunc_reifyBridge (fun hg => Func.licm_wf hg) tf
+    denoteFunc (as := as) (licmFlat as tf) = Func.licm (denoteFunc (as := as) tf) :=
+  OptFlatLoop.denoteFunc_licmFlat tf hwf
 
 /-- `licmFlat as tf = reifyFunc (Func.licm (denoteFunc tf))` under `wfCheck = true`. -/
 theorem licmFlat_eq {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    licmFlat as tf = reifyFunc (Func.licm (denoteFunc (as := as) tf)) := by
-  rw [← denoteFunc_licmFlat tf hwf, reifyFunc_denoteFunc_eq _ (licmFlat_wfCheck tf hwf)]
+    licmFlat as tf = reifyFunc (Func.licm (denoteFunc (as := as) tf)) :=
+  OptFlatLoop.licmFlat_eq tf hwf
 
 /-- `loopRotateFlat` preserves `wfCheck`. -/
 theorem loopRotateFlat_wfCheck {as rs : List Ty} (tf : TFlat rs)
     (cfg : LoopRotate.RotConfig := LoopRotate.defaultRotConfig)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    (loopRotateFlat as tf cfg).wfCheck (pushTypes as []) [] = true := by
-  dsimp only [loopRotateFlat]
-  split
-  · rename_i hrot
-    have hwfRot : (Func.loopRotate (denoteFunc (as := as) tf) cfg).Wf :=
-      Func.loopRotate_wf (Func.wf_of_denote tf rfl) cfg
-    dsimp only [Func.loopRotate] at hwfRot
-    rw [reifyFunc_denoteFunc_eq tf hwf] at hwfRot
-    simp only [hrot, ↓reduceIte] at hwfRot
-    exact wfCheck_reifyBridge hwfRot
-  · exact hwf
+    (loopRotateFlat as tf cfg).wfCheck (pushTypes as []) [] = true :=
+  OptFlatLoop.loopRotateFlat_wfCheck tf cfg hwf
 
 /-- `denoteFunc (loopRotateFlat as tf cfg) = Func.loopRotate (denoteFunc tf) cfg` under
 `wfCheck = true`. -/
@@ -725,26 +701,15 @@ theorem denoteFunc_loopRotateFlat {as rs : List Ty} (tf : TFlat rs)
     (cfg : LoopRotate.RotConfig := LoopRotate.defaultRotConfig)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
     denoteFunc (as := as) (loopRotateFlat as tf cfg) =
-      Func.loopRotate (denoteFunc (as := as) tf) cfg := by
-  dsimp only [loopRotateFlat, Func.loopRotate]
-  rw [reifyFunc_denoteFunc_eq tf hwf]
-  by_cases hrot : (LoopRotate.buildRotPlan (as := as) cfg tf).hasRot = true
-  · simp only [hrot, ↓reduceIte]
-    have hwfRot : (Func.loopRotate (denoteFunc (as := as) tf) cfg).Wf :=
-      Func.loopRotate_wf (Func.wf_of_denote tf rfl) cfg
-    dsimp only [Func.loopRotate] at hwfRot
-    rw [reifyFunc_denoteFunc_eq tf hwf] at hwfRot
-    simp only [hrot, ↓reduceIte] at hwfRot
-    exact Func.renorm_eq_self hwfRot
-  · simp only [hrot, Bool.false_eq_true, ↓reduceIte]
+      Func.loopRotate (denoteFunc (as := as) tf) cfg :=
+  OptFlatLoop.denoteFunc_loopRotateFlat tf cfg hwf
 
 /-- `loopRotateFlat as tf cfg = reifyFunc (Func.loopRotate (denoteFunc tf) cfg)`. -/
 theorem loopRotateFlat_eq {as rs : List Ty} (tf : TFlat rs)
     (cfg : LoopRotate.RotConfig := LoopRotate.defaultRotConfig)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    loopRotateFlat as tf cfg = reifyFunc (Func.loopRotate (denoteFunc (as := as) tf) cfg) := by
-  rw [← denoteFunc_loopRotateFlat tf cfg hwf,
-    reifyFunc_denoteFunc_eq _ (loopRotateFlat_wfCheck tf cfg hwf)]
+    loopRotateFlat as tf cfg = reifyFunc (Func.loopRotate (denoteFunc (as := as) tf) cfg) :=
+  OptFlatLoop.loopRotateFlat_eq tf cfg hwf
 
 private theorem wfCheck_zeroPeel24 {as rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :

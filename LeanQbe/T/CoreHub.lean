@@ -162,6 +162,10 @@ public import LeanQbe.T.OptFlatBranchLemmas
 public import LeanQbe.T.OptFlatBranchLemmas0
 public import LeanQbe.T.OptFlatCfg
 public import LeanQbe.T.OptFlatCfgLemmas
+public import LeanQbe.T.OptFlatLoop
+public import LeanQbe.T.OptFlatLoopLemmas
+public import LeanQbe.T.OptFlatLoopLemmas0
+public import LeanQbe.T.OptFlatLoopLemmas1
 public import LeanQbe.T.OptFlatMem
 public import LeanQbe.T.OptFlatMemLemmas
 public import LeanQbe.T.OptFlatPathCond

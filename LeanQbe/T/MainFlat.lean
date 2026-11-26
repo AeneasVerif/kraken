@@ -10,6 +10,7 @@ public import LeanQbe.T.OptFlatCfg
 public import LeanQbe.T.OptFlatAddrRange
 public import LeanQbe.T.OptFlatPathCond
 public import LeanQbe.T.OptFlatBranch
+public import LeanQbe.T.OptFlatLoop
 
 /-!
 # Staged `TFlat`-Direct Compilation Driver (`MainFlat`)
@@ -125,19 +126,14 @@ def peelFastFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) (budget : Nat := 
     reifyFunc (Func.peel (denoteFunc (as := as) tf) budget)
   else tf
 
-/-- `TFlat`-gated `licm` bypassing PHOAS whenever neither pure hoisting nor read-only load
-hoisting finds changes. -/
+/-- Native `TFlat` `licm` (pure + read-only hoisting) via `OptFlatLoop.licmFlat`. -/
 def licmFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  let p1 := Licm.buildHoistPlan as.length tf
-  if !p1.hasHoists && !(Licm.buildRoPlan as.length tf).hasChanges then tf
-  else reifyFunc (Func.licm (denoteFunc (as := as) tf))
+  OptFlatLoop.licmFlat as tf
 
-/-- `TFlat`-gated `loopRotate` bypassing PHOAS whenever `buildRotPlan` triggers no rotation. -/
+/-- Native `TFlat` loop rotation via `OptFlatLoop.loopRotateFlat`. -/
 def loopRotateFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs)
     (cfg : LoopRotate.RotConfig := LoopRotate.defaultRotConfig) : TFlat rs :=
-  let plan := LoopRotate.buildRotPlan (as := as) cfg tf
-  if plan.hasRot then reifyFunc (Func.loopRotateWithPlan plan (denoteFunc (as := as) tf))
-  else tf
+  OptFlatLoop.loopRotateFlat as tf cfg
 
 /-! ## 2. Native `OptFlat{AddrRange,PathCond}` & Gated Bridges (`condThreadPass`, `tailDup`) -/
 
