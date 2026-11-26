@@ -270,10 +270,6 @@ u64 full_propagate_ignore_fid(FullHdr *h, u64 ignore_ref) {
     }
     ticks = ticks + 1ULL + ((sz + 31ULL) >> 5ULL);
     u32 nl_lvl = lvl[not_lit >> 1];
-    u64 t0 = 0xFFFFFFFFFFFFFFFFULL;
-    if (clvl != 0ULL && (u64)nl_lvl < clvl) {
-      t0 = tend;
-    }
     u64 p = off;
     u64 q = off;
     u64 end = off + sz;
@@ -491,10 +487,6 @@ u64 full_propagate_ignore_fid(FullHdr *h, u64 ignore_ref) {
     }
     if (di > 0ULL) {
       if (!full_prop_flush_del_fid(h, di)) { brk = 2ULL; }
-    }
-    if (brk != 2ULL && t0 < tend) {
-      h->trail_end = tend;
-      if (!full_prop_chrono_hot(h, t0)) { brk = 2ULL; }
     }
     if (brk != 0ULL) {
       if (brk == 2ULL) { h->oom = 1ULL; }

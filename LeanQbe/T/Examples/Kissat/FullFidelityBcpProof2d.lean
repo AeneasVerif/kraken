@@ -15,7 +15,7 @@ import all LeanQbe.T.Examples.Kissat.FullFidelityBcpProof0
 Plain `public section` (`@[expose]` ONLY on non-recursive concrete AST `Expr` builders, `0`
 `import all`). Defines the outer-loop framing mask and spec continuation of
 `full_propagate_ignore_fid`, the post-scan AST builders (overflow flush + cold push + rebase,
-compaction, final delayed-watch flush, chrono repair, exits), and proves their WPs.
+compaction, final delayed-watch flush, exits), and proves their WPs.
 -/
 
 set_option autoImplicit false
@@ -186,7 +186,7 @@ theorem fid_exit_hQ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat))
     hr2 (fun h => by simpa [hst_eq] using hnoop h)
     (hst_eq.symm ▸ hm)
 
-/-! ## 2. Post-Scan AST Builders (Compaction, Final Flush, Chrono, Exits) -/
+/-! ## 2. Post-Scan AST Builders (Compaction, Final Flush, Exits) -/
 
 /-- `h->search_ticks += ticks; return brk`. -/
 @[expose] def fidPostTicksExpr {Val : Ty → Type} {Cont : List Ty → Type}
@@ -228,38 +228,13 @@ with `prop + 1`. -/
      .jump J_out (.var p7.1, (.var te_b, (.var fuel1, (.var un_b, (.var uf_b,
        (.var tk_b, ())))))))
 
-/-- Chrono repair `if (brk != 2 && t0 < tend) { ...; full_prop_chrono_hot(h, t0) }`. -/
-@[expose] def fidPostChronoExpr {Val : Ty → Type} {Cont : List Ty → Type}
-    (J_out : Cont [i64, i64, i64, i64, i64, i64])
-    (h_p prop_v fuel1 te_b un_b uf_b tk_b brk_f t0_v : Val i64) : Expr Val Cont [i64] :=
-  .group (sig := [[i64]])
-    (fun _Jch => .cons (fun brk_c =>
-      fidPostBrkContExpr J_out h_p prop_v fuel1 te_b un_b uf_b tk_b brk_c.1) .nil)
-    (fun Jch =>
-      .let_ (Op.mk (.cmp .ne i64) (.var brk_f, (.imm 2, ()))) fun c1 =>
-      .jnz (.var c1.1)
-        (.let_ (Op.mk (.cmp .ult i64) (.var t0_v, (.var te_b, ()))) fun c2 =>
-         .jnz (.var c2.1)
-           (.let_ (Op.mk (.add i64) (.var h_p, (.imm 144, ()))) fun p1 =>
-            .store (.var te_b) (.var p1.1)
-              (.group (sig := [[i64]])
-                (fun _Js_1 => .cons (fun r => .jump Jch.1 (.var r.1, ())) .nil)
-                (fun Js_1 =>
-                  @Expr.call _ _ [i64] "full_prop_chrono_hot" [i64, i64] [.bool]
-                    (.var h_p, (.var t0_v, ())) fun ok =>
-                  .jnz (.var ok.1)
-                    (.jump Js_1.1 (.var brk_f, ()))
-                    (.jump Js_1.1 (.imm 2, ())))))
-           (.jump Jch.1 (.var brk_f, ())))
-        (.jump Jch.1 (.var brk_f, ())))
-
 /-- Final delayed-watch flush `if (di > 0) { if (!full_prop_flush_del_fid(h, di)) brk = 2; }`. -/
 @[expose] def fidPostFlushExpr {Val : Ty → Type} {Cont : List Ty → Type}
     (J_out : Cont [i64, i64, i64, i64, i64, i64])
-    (h_p prop_v fuel1 te_b un_b uf_b tk_b di_b brk_b t0_v : Val i64) : Expr Val Cont [i64] :=
+    (h_p prop_v fuel1 te_b un_b uf_b tk_b di_b brk_b : Val i64) : Expr Val Cont [i64] :=
   .group (sig := [[i64]])
     (fun _Jfl => .cons (fun brk_f =>
-      fidPostChronoExpr J_out h_p prop_v fuel1 te_b un_b uf_b tk_b brk_f.1 t0_v) .nil)
+      fidPostBrkContExpr J_out h_p prop_v fuel1 te_b un_b uf_b tk_b brk_f.1) .nil)
     (fun Jfl =>
       .let_ (Op.mk (.cmp .ugt i64) (.var di_b, (.imm 0, ()))) fun cd =>
       .jnz (.var cd.1)
@@ -273,12 +248,11 @@ with `prop + 1`. -/
               (.jump Js_5.1 (.imm 2, ()))))
         (.jump Jfl.1 (.var brk_b, ())))
 
-/-- Watch compaction tail copy, slice-size store, sentinel fill, then final flush / chrono /
-exit. -/
+/-- Watch compaction tail copy, slice-size store, sentinel fill, then final flush / exit. -/
 @[expose] def fidCompactAndPostExpr {Val : Ty → Type} {Cont : List Ty → Type}
     (J_out : Cont [i64, i64, i64, i64, i64, i64])
-    (h_p pWstk pWvec nl64 prop_v fuel1 te_b un_b uf_b tk_b off_b p_b q_b end_b di_b brk_b
-      t0_v : Val i64) : Expr Val Cont [i64] :=
+    (h_p pWstk pWvec nl64 prop_v fuel1 te_b un_b uf_b tk_b off_b p_b q_b end_b di_b
+      brk_b : Val i64) : Expr Val Cont [i64] :=
   .group (sig := [[i64, i64]])
     (fun Jc => .cons (fun pc_qc =>
       .let_ (Op.mk (.cmp .ult i64) (.var pc_qc.1, (.var end_b, ()))) fun c_lt =>
@@ -300,7 +274,7 @@ exit. -/
          .store (.var sz32.1) (.var ptr1.1)
            (.group (sig := [[]])
              (fun _Jfn => .cons (fun _ =>
-               fidPostFlushExpr J_out h_p prop_v fuel1 te_b un_b uf_b tk_b di_b brk_b t0_v) .nil)
+               fidPostFlushExpr J_out h_p prop_v fuel1 te_b un_b uf_b tk_b di_b brk_b) .nil)
              (fun Jfn =>
                .let_ (Op.mk (.cmp .ult i64) (.var pc_qc.2.1, (.var end_b, ()))) fun ck =>
                .jnz (.var ck.1)
@@ -632,15 +606,13 @@ theorem fid_post_exit_brk1 {c : FullCfg} {F0 : CNF Nat}
     (fun h => absurd h (Nat.ne_of_lt hpr_lt))
     hm
 
-/-! ## 4. Post-Compaction Flush, Chrono Repair, \& Exit / Continue -/
+/-! ## 4. Post-Compaction Flush \& Exit / Continue -/
 
-theorem fid_post_chrono_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
-    {F_cur : List (List Nat)} {s sem s_base s_disk sem_b st_fin : FullState}
-    {ignore_ref prop_v fuel1 te_b un_b uf_b tk_b brk_b t0_v : BitVec 64}
-    {R : Mem 64 → Prop} {Q : Post [i64]} {X : XPost} {mf : Mem 64}
+theorem fid_post_brk_cont_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
+    {F_cur : List (List Nat)} {s sem s_base s_disk sem_b st_c : FullState}
+    {ignore_ref prop_v fuel1 te_b un_b uf_b tk_b brk_c : BitVec 64}
+    {R : Mem 64 → Prop} {Q : Post [i64]} {X : XPost} {mc0 : Mem 64}
     {J_out : Cont [i64, i64, i64, i64, i64, i64]}
-    (hChrono : ∀ args m Q X, fullPropChronoHotSpec args m Q X →
-      Γ "full_prop_chrono_hot" [i64, i64] [.bool] args m Q X)
     (hQ : FidHQ c F0 F_cur s ignore_ref R Q)
     (hJ_out : ∀ (sem_next : FullState) (te_mc : Nat) (mc0 : Mem 64),
       sem_next.LengthsOk c →
@@ -691,37 +663,37 @@ theorem fid_post_chrono_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     (hfuel_le : sem.core.fuel.toNat ≤ s.core.fuel.toNat)
     (hp1_prop : (prop_v + 1#64).toNat = prop_v.toNat + 1)
     (hp_lt_o : prop_v.toNat < sem.core.trail_end)
-    (hpr_ge : s.core.propagated ≤ prop_v.toNat)
+    (_hpr_ge : s.core.propagated ≤ prop_v.toNat)
     (_hpi_b_len : sem_b.LengthsOk c)
     (hpi_b_cv : sem_b.core.cur_vars = s_base.core.cur_vars)
     (hpi_b_tr : FullPropDecSpecs.FullTrailExt s_base.core sem_b.core)
     (hdense_b : s_base.core.dense_mode = 0#64)
     (hte_b : te_b.toNat = sem_b.core.trail_end)
     (hun_b : un_b = sem_b.core.unassigned) (huf_b : uf_b = sem_b.core.unflushed)
-    (hbr0 : brk_b = 0#64 → sem_b.core.oom = 0#64 ∧ sem_b.core.confl_type = s.core.confl_type)
-    (hbr1 : brk_b = 1#64 → PropLitConfl F_cur ignore_ref sem_b.core ∧ sem_b.core.oom = 0#64)
-    (hbr_cases : brk_b = 0#64 ∨ brk_b = 1#64 ∨ brk_b = 2#64)
-    (hlen_f : st_fin.LengthsOk c) (hwf_f : FullWitnessInv c F0 F_cur st_fin.core)
-    (hag_f : AgreesExcept propLitCoreMask s_base.core st_fin.core)
-    (htr_f : FullPropDecSpecs.FullTrailExt s_base.core st_fin.core)
-    (hperm_f : FullPropDecSpecs.FullArenaPermEq s_base.core st_fin.core)
-    (hoom_f : st_fin.core.oom = sem_b.core.oom)
-    (hct_f : st_fin.core.confl_type = sem_b.core.confl_type)
-    (hcr_f : st_fin.core.confl_ref = sem_b.core.confl_ref)
-    (hc0_f : st_fin.core.confl_lit0 = sem_b.core.confl_lit0)
-    (hc1_f : st_fin.core.confl_lit1 = sem_b.core.confl_lit1)
-    (hcv_f : st_fin.core.cur_vars = sem_b.core.cur_vars)
-    (hvals_f : st_fin.core.vals = sem_b.core.vals)
-    (hte_f : st_fin.core.trail_end = sem_b.core.trail_end)
-    (hun_f : st_fin.core.unassigned = sem_b.core.unassigned)
-    (huf_f : st_fin.core.unflushed = sem_b.core.unflushed)
-    (halen_f : st_fin.core.arena_len = sem_b.core.arena_len)
-    (hcl_f : st_fin.core.cur_level = sem_b.core.cur_level)
-    (har_f : st_fin.core.arena = sem_b.core.arena)
-    (hscr_f : FidScr s st_fin)
-    (hd0_f : c.delayed_cap = 0 → st_fin.scratch.delayed = s.scratch.delayed)
-    (hmf : (FullMem c (fastPropMem s_disk st_fin) ⋆ R) mf) :
-    wp Γ Q X (fidPostChronoExpr J_out c.hdr prop_v fuel1 te_b un_b uf_b tk_b brk_b t0_v) mf := by
+    (hbr0 : brk_c = 0#64 → sem_b.core.oom = 0#64 ∧ sem_b.core.confl_type = s.core.confl_type)
+    (hbr1 : brk_c = 1#64 → PropLitConfl F_cur ignore_ref sem_b.core ∧ sem_b.core.oom = 0#64)
+    (hbr_cases : brk_c = 0#64 ∨ brk_c = 1#64 ∨ brk_c = 2#64)
+    (hlen_c : st_c.LengthsOk c) (hwf_c : FullWitnessInv c F0 F_cur st_c.core)
+    (hag_l : AgreesExcept propLitCoreMask s_base.core st_c.core)
+    (htr_l : FullPropDecSpecs.FullTrailExt s_base.core st_c.core)
+    (hperm_l : FullPropDecSpecs.FullArenaPermEq s_base.core st_c.core)
+    (hoom_c : st_c.core.oom = sem_b.core.oom)
+    (hct_c : st_c.core.confl_type = sem_b.core.confl_type)
+    (hcr_c : st_c.core.confl_ref = sem_b.core.confl_ref)
+    (hc0_c : st_c.core.confl_lit0 = sem_b.core.confl_lit0)
+    (hc1_c : st_c.core.confl_lit1 = sem_b.core.confl_lit1)
+    (hcv_c : st_c.core.cur_vars = sem_b.core.cur_vars)
+    (hvals_c : st_c.core.vals = sem_b.core.vals)
+    (hte_c : st_c.core.trail_end = sem_b.core.trail_end)
+    (hun_c : st_c.core.unassigned = sem_b.core.unassigned)
+    (huf_c : st_c.core.unflushed = sem_b.core.unflushed)
+    (halen_c : st_c.core.arena_len = sem_b.core.arena_len)
+    (hcl_c : st_c.core.cur_level = sem_b.core.cur_level)
+    (har_c : st_c.core.arena = sem_b.core.arena)
+    (hsc_c : FidScr s st_c)
+    (hd0_c : c.delayed_cap = 0 → st_c.scratch.delayed = s.scratch.delayed)
+    (hmc0 : (FullMem c (fastPropMem s_disk st_c) ⋆ R) mc0) :
+    wp Γ Q X (fidPostBrkContExpr J_out c.hdr prop_v fuel1 te_b un_b uf_b tk_b brk_c) mc0 := by
   obtain ⟨te_mem, rfl, htem_le, hpr_tem⟩ := hs_disk
   have hte_sem_le : sem.core.trail_end ≤ sem_b.core.trail_end := by
     have := hpi_b_tr.te_ge; rw [hs_base] at this; exact this
@@ -729,301 +701,122 @@ theorem fid_post_chrono_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     rw [hte_b]; exact Nat.le_trans hp_lt_o hte_sem_le
   have hfuel1_lt : fuel1.toNat < s.core.fuel.toNat := by
     rw [hfuel1]; exact Nat.lt_of_lt_of_le hfl_rem_dec hfuel_le
-  unfold fidPostChronoExpr fidPostBrkContExpr fidPostTicksExpr
-  refine wp_join_group (fun (brk_c, ()) mc0 =>
-      ∃ st_c : FullState,
-        st_c.LengthsOk c ∧
-        FullWitnessInv c F0 F_cur st_c.core ∧
-        FullPropDecSpecs.FullTrailExt s_base.core st_c.core ∧
-        FullPropDecSpecs.FullArenaPermEq s_base.core st_c.core ∧
-        AgreesExcept fidCoreMask s.core st_c.core ∧
-        st_c.core.cur_vars = sem_b.core.cur_vars ∧
-        st_c.core.vals = sem_b.core.vals ∧
-        st_c.core.trail_end = sem_b.core.trail_end ∧
-        st_c.core.unassigned = sem_b.core.unassigned ∧
-        st_c.core.unflushed = sem_b.core.unflushed ∧
-        st_c.core.arena_len = sem_b.core.arena_len ∧
-        st_c.core.cur_level = sem_b.core.cur_level ∧
-        st_c.core.confl_ref = st_fin.core.confl_ref ∧
-        st_c.core.confl_lit0 = st_fin.core.confl_lit0 ∧
-        st_c.core.confl_lit1 = st_fin.core.confl_lit1 ∧
-        (brk_c = 0#64 → st_c.core.oom = 0#64 ∧ st_c.core.confl_type = s.core.confl_type) ∧
-        (brk_c = 1#64 → PropLitConfl F_cur ignore_ref st_c.core ∧ st_c.core.oom = 0#64) ∧
-        (brk_c = 2#64 → True) ∧
-        (brk_c = 0#64 ∨ brk_c = 1#64 ∨ brk_c = 2#64) ∧
-        st_c.core.propagated = s.core.propagated ∧
-        st_c.core.fuel = s_base.core.fuel ∧
-        st_c.core.probing = s.core.probing ∧
-        st_c.core.dense_mode = 0#64 ∧
-        FidScr s st_c ∧
-        (c.delayed_cap = 0 → st_c.scratch.delayed = s.scratch.delayed) ∧
-        ∃ te_mc : Nat,
-          te_mc ≤ st_c.core.trail_end ∧ s.core.propagated ≤ te_mc ∧
-          (FullMem c (fastPropMem { s with core := { s.core with trail_end := te_mc } } st_c) ⋆
-            R) mc0) ?_ ?_
-  · rintro _ ⟨brk_c, ⟨⟩⟩ mc0 ⟨st_c, hlen_c, hwf_c, htr_c, hperm_c, hag_sc, hcv_c,
-        hvals_c, hte_c, hun_c, huf_c, halen_c, hcl_c, _hcr_c, _hc0_c, _hc1_c,
-        hc_br0, hc_br1, _hc_br2, hc_cases, hpr_c, hfuel_c, hprob_c, hdm_c,
-        hsc_c, hd0_c, te_mc, htemc_le, hpr_temc, hmc0⟩
-    let s_dmc : FullState := { s with core := { s.core with trail_end := te_mc } }
-    have hsdmc_len : s_dmc.LengthsOk c :=
-      ⟨{ hlen0.core_ok with
-          trail_end_le := by
-            dsimp only [s_dmc]
-            rw [← hcv_o, show sem.core.cur_vars = st_c.core.cur_vars from by
-              rw [hcv_c, hpi_b_cv, hs_base]]
-            exact Nat.le_trans htemc_le hlen_c.core_ok.trail_end_le
-          propagated_le := hpr_temc },
-       hlen0.scratch_ok⟩
-    have hmem_c_len' := fastPropMem_lengthsOk hsdmc_len hlen_c
-      (by simpa [s_dmc, hcv_c, hpi_b_cv, hs_base] using hcv_o)
-      (by simp [s_dmc, hpr_c]) rfl
-    have hte_c_eq : te_b.toNat = st_c.core.trail_end := hte_b.trans hte_c.symm
-    have hun_c_eq : un_b = st_c.core.unassigned := hun_b.trans hun_c.symm
-    have huf_c_eq : uf_b = st_c.core.unflushed := huf_b.trans huf_c.symm
-    have htr_c' : FullPropDecSpecs.FullTrailExt sem.core st_c.core := by
-      rw [hs_base] at htr_c; exact ⟨htr_c.te_ge, htr_c.trl_pref, htr_c.lvl_pres⟩
-    have htr_s_c : FullPropDecSpecs.FullTrailExt s.core st_c.core := htr_o.trans htr_c'
-    have hperm_c' : FullPropDecSpecs.FullArenaPermEq sem.core st_c.core := by
-      rw [hs_base] at hperm_c; exact hperm_c
-    have hperm_s_c : FullPropDecSpecs.FullArenaPermEq s.core st_c.core := hperm_o.trans hperm_c'
-    have hfuel_cs : st_c.core.fuel = s.core.fuel := by rw [hfuel_c, hs_base]
+  have hag_base : AgreesExcept fidCoreMask s.core s_base.core := by
+    unfold AgreesExcept fidCoreMask at hag_o ⊢
+    rw [hs_base]; exact hag_o
+  have hag_sc : AgreesExcept fidCoreMask s.core st_c.core :=
+    hag_base.trans_mono hag_l (fun _ => rfl) (fun _ => rfl)
+  have hdm_c : st_c.core.dense_mode = 0#64 :=
+    (hag_l.get FullCoreState.dense_mode).trans hdense_b
+  have hpr_c : st_c.core.propagated = s.core.propagated := by
+    simpa [hs_base] using hag_l.get FullCoreState.propagated
+  have hfuel_cs : st_c.core.fuel = s.core.fuel := by
+    rw [hag_l.get FullCoreState.fuel, hs_base]
+  have hprob_c : st_c.core.probing = s.core.probing := by
+    rw [hag_l.get FullCoreState.probing, hs_base]; exact hprob_o
+  have htemc_le : te_mem ≤ st_c.core.trail_end := hte_c ▸ Nat.le_trans htem_le hte_sem_le
+  let s_dmc : FullState := { s with core := { s.core with trail_end := te_mem } }
+  have hsdmc_len : s_dmc.LengthsOk c :=
+    ⟨{ hlen0.core_ok with
+        trail_end_le := by
+          dsimp only [s_dmc]
+          rw [← hcv_o, show sem.core.cur_vars = st_c.core.cur_vars from by
+            rw [hcv_c, hpi_b_cv, hs_base]]
+          exact Nat.le_trans htemc_le hlen_c.core_ok.trail_end_le
+        propagated_le := hpr_tem },
+     hlen0.scratch_ok⟩
+  have hmem_c_len' := fastPropMem_lengthsOk hsdmc_len hlen_c
+    (by simpa [s_dmc, hcv_c, hpi_b_cv, hs_base] using hcv_o)
+    (by simp [s_dmc, hpr_c]) rfl
+  have hte_c_eq : te_b.toNat = st_c.core.trail_end := hte_b.trans hte_c.symm
+  have hun_c_eq : un_b = st_c.core.unassigned := hun_b.trans hun_c.symm
+  have huf_c_eq : uf_b = st_c.core.unflushed := huf_b.trans huf_c.symm
+  have htr_c' : FullPropDecSpecs.FullTrailExt sem.core st_c.core := by
+    rw [hs_base] at htr_l; exact ⟨htr_l.te_ge, htr_l.trl_pref, htr_l.lvl_pres⟩
+  have htr_s_c : FullPropDecSpecs.FullTrailExt s.core st_c.core := htr_o.trans htr_c'
+  have hperm_c' : FullPropDecSpecs.FullArenaPermEq sem.core st_c.core := by
+    rw [hs_base] at hperm_l; exact hperm_l
+  have hperm_s_c : FullPropDecSpecs.FullArenaPermEq s.core st_c.core := hperm_o.trans hperm_c'
+  have hperm_bc : FullPropDecSpecs.FullArenaPermEq sem_b.core st_c.core :=
+    m7_arenaPermEq_congr rfl rfl har_c halen_c (.refl sem_b.core)
+  unfold fidPostBrkContExpr fidPostTicksExpr
+  fid_hsplit
+  · have hbrk_ne0 : brk_c ≠ 0#64 := hc
+    clear hc
+    refine wp_unroll_group fun Js_brk hJs_brk => ?_
     fid_hsplit
-    · have hbrk_ne0 : brk_c ≠ 0#64 := hc
-      clear hc
-      refine wp_unroll_group fun Js_brk hJs_brk => ?_
-      fid_hsplit
-      · subst hc
-        fid_hsteps
-        exact fid_post_exit_brk2 hQ hlen_c hwf_c htr_s_c hperm_s_c hag_sc hdm_c
-          (Nat.le_of_lt hfuel1_lt) hsc_c hd0_c hte_c_eq hpr_lt hpr_lt_teb
-          (by simpa only [fastPropMem, s_dmc, hp1_prop, hte_c_eq, hun_c_eq, huf_c_eq,
-            BitVec.ofNat_eq_ofNat] using hm)
-      · have hbrk1 : brk_c = 1#64 := by
-          rcases hc_cases with rfl | rfl | rfl
-          · exact absurd rfl hbrk_ne0
-          · rfl
-          · exact absurd rfl hc
-        subst hbrk1
-        have ⟨hconfl_c, hoom_c⟩ := hc_br1 rfl
-        have hconfl_w : FullPropDecSpecs.FullConflOkW F_cur st_c.core := by
-          rcases hconfl_c with hne0 | hok
-          · exact absurd hoom_c hne0
-          · exact hok.1
-        have hc2_ign : st_c.core.confl_type = 2#64 → st_c.core.confl_ref ≠ ignore_ref := by
-          rcases hconfl_c with hne0 | hok
-          · exact absurd hoom_c hne0
-          · exact hok.2
-        fid_hsteps
-        exact fid_post_exit_brk1 hQ hlen_c hwf_c htr_s_c hperm_s_c hag_sc hdm_c
-          hfuel1_lt hoom_c hconfl_w hc2_ign hsc_c hd0_c hte_c_eq hpr_lt hpr_lt_teb
-          (by simpa only [fastPropMem, s_dmc, hp1_prop, hte_c_eq, hun_c_eq, huf_c_eq,
-            BitVec.ofNat_eq_ofNat] using hm)
-    · have ⟨hoom_c0, hct_c0⟩ := hc_br0 hc
+    · subst hc
       fid_hsteps
-      let sem_next : FullState :=
-        { st_c with core := { st_c.core with propagated := prop_v.toNat + 1, fuel := fuel1 } }
-      have hlen_next : sem_next.LengthsOk c :=
-        ⟨{ hlen_c.core_ok with propagated_le := by rw [← hte_c_eq]; exact hpr_lt_teb },
-         { hlen_c.scratch_ok with }⟩
-      have hwf_next : FullWitnessInv c F0 F_cur sem_next.core := by
-        have hnw := fullWitnessInv_nw_congr hlen_next.core_ok.cur_vars_le
-          (fullWitnessInv_to_nw hlen_c.core_ok.cur_vars_le hwf_c)
-          rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-        have hwat_next : WatchesInv F_cur sem_next.core := by
-          have hw_sp : ModeWatchesInv F_cur sem_next.core :=
-            hwf_c.watches.with_wstk rfl rfl rfl rfl rfl (fun _ hr => hr)
-          simpa only [ModeWatchesInv, sem_next, hdm_c, ↓reduceIte] using hw_sp
-        exact fullWitnessInv_of_nw hnw hdm_c hwat_next
-      have hcl_sb : sem_b.core.cur_level = s.core.cur_level := by
-        have h1 : st_fin.core.cur_level = s_base.core.cur_level :=
-          hag_f.get FullCoreState.cur_level
-        rw [← hcl_f, h1, hs_base]; exact hcl_o
-      have halen_sb : sem_b.core.arena_len = s.core.arena_len := by
-        have h1 : st_fin.core.arena_len = s_base.core.arena_len :=
-          hag_f.get FullCoreState.arena_len
-        rw [← halen_f, h1, hs_base]; exact halen_o
-      exact hJ_out sem_next te_mc mc0 hlen_next hwf_next
-        ⟨by simpa [sem_next] using htr_s_c.te_ge,
-         by simpa [sem_next] using htr_s_c.trl_pref,
-         by simpa [sem_next] using htr_s_c.lvl_pres⟩
-        (m7_arenaPermEq_congr rfl rfl rfl rfl hperm_s_c)
-        (hag_sc.update (fun k => { k with propagated := prop_v.toNat + 1, fuel := fuel1 }))
-        (by simp [sem_next, hp1_prop]) rfl hte_c_eq.symm hun_c_eq.symm huf_c_eq.symm
-        (by simp [sem_next, hoom_c0]) (by simp [sem_next, hct_c0]) hdm_c
-        (by rw [hcv_c, hpi_b_cv, hs_base]; exact hcv_o)
-        (by rw [hcl_c]; exact hcl_sb)
-        hprob_c
-        (by rw [halen_c]; exact halen_sb)
-        (by dsimp only [sem_next]; rw [hfuel1]; exact hfl_rem_dec)
-        hfuel1_lt (Nat.le_of_lt hfuel1_lt)
-        (by simp [sem_next]; omega) htemc_le hpr_temc
-        (by unfold FidScr at hsc_c ⊢; exact hsc_c) hd0_c
-        (by simpa [sem_next, fastPropMem, hpr_c, hfuel_cs] using hmc0)
-  · intro Jch hJch
-    have hag_base : AgreesExcept fidCoreMask s.core s_base.core := by
-      unfold AgreesExcept fidCoreMask at hag_o ⊢
-      rw [hs_base]; exact hag_o
-    have hag_s_fin : AgreesExcept fidCoreMask s.core st_fin.core :=
-      hag_base.trans_mono hag_f (fun _ => rfl) (fun _ => rfl)
-    fid_hsplit
-    · have hbrk_ne2 : brk_b ≠ 2#64 := hc
-      clear hc
-      fid_hsplit
-      · have ht0_lt_te : t0_v.toNat < sem_b.core.trail_end := by rw [← hte_b]; exact hc
-        have ht0_le_fin : t0_v.toNat ≤ st_fin.core.trail_end := by
-          rw [hte_f]; exact Nat.le_of_lt ht0_lt_te
-        fid_hsteps
-        let st_c_in : FullState :=
-          { st_fin with
-            core :=
-              { st_fin.core with
-                unassigned := s.core.unassigned, unflushed := s.core.unflushed }
-            scratch := { st_fin.scratch with search_ticks := s.scratch.search_ticks } }
-        have hcin_len : st_c_in.LengthsOk c :=
-          ⟨{ hlen_f.core_ok with }, { hlen_f.scratch_ok with }⟩
-        have hcin_nw : FullWitnessInv c F0 F_cur (withEmptyWatchesCore c st_c_in.core) :=
-          fullWitnessInv_nw_congr hcin_len.core_ok.cur_vars_le
-            (fullWitnessInv_to_nw hlen_f.core_ok.cur_vars_le hwf_f)
-            rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-        have hdm_cin : st_c_in.core.dense_mode = 0#64 :=
-          (hag_f.get FullCoreState.dense_mode).trans hdense_b
-        have hwat_cin : WatchesInv F_cur st_c_in.core := by
-          have hw_sp : ModeWatchesInv F_cur st_c_in.core :=
-            hwf_f.watches.with_wstk rfl rfl rfl rfl rfl (fun _ hr => hr)
-          simpa only [ModeWatchesInv, hdm_cin, ↓reduceIte] using hw_sp
-        have hcin_wf : FullWitnessInv c F0 F_cur st_c_in.core :=
-          fullWitnessInv_of_nw hcin_nw hdm_cin hwat_cin
-        have hpr_f : st_fin.core.propagated = s.core.propagated := by
-          have := hag_f.get FullCoreState.propagated
-          rw [this, hs_base]
-        have hm_cin : (FullMem c st_c_in ⋆ R) m := by
-          simpa only [st_c_in, fastPropMem, hte_f, hte_b, hpr_f] using hm
-        c0_call hChrono
-        refine ⟨c, F0, F_cur, st_c_in, R, rfl, hcin_len, hcin_wf,
-          hdm_cin, by simpa [st_c_in] using ht0_le_fin, hm_cin,
-          fun ok wv' ar' ws' wl' wu' oom' wso' mc' hlen' hwf' hperm' hok_t
-            hok_f hmc' => ?_⟩
-        let st_c' : FullState :=
-          { st_fin with
-            core :=
-              { st_fin.core with
-                wvec := wv', arena := ar', wstk := ws', wlen := wl',
-                wusable := wu', oom := oom' }
-            scratch := { st_fin.scratch with wsort := wso' } }
-        have hlen_c' : st_c'.LengthsOk c :=
-          ⟨{ hlen'.core_ok with }, { hlen'.scratch_ok with }⟩
-        have hnw_c' : FullWitnessInv c F0 F_cur (withEmptyWatchesCore c st_c'.core) :=
-          fullWitnessInv_nw_congr hlen_c'.core_ok.cur_vars_le
-            (fullWitnessInv_to_nw hlen'.core_ok.cur_vars_le hwf')
-            rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
-        have hdm_c' : st_c'.core.dense_mode = 0#64 := hdm_cin
-        have hwat_c' : WatchesInv F_cur st_c'.core := by
-          have hw_sp : ModeWatchesInv F_cur st_c'.core :=
-            hwf'.watches.with_wstk rfl rfl rfl rfl rfl (fun _ hr => hr)
-          simpa only [ModeWatchesInv, hdm_c', ↓reduceIte] using hw_sp
-        have hwf_c' : FullWitnessInv c F0 F_cur st_c'.core :=
-          fullWitnessInv_of_nw hnw_c' hdm_c' hwat_c'
-        have hperm_fc : FullPropDecSpecs.FullArenaPermEq st_fin.core st_c'.core :=
-          m7_arenaPermEq_congr rfl rfl rfl rfl hperm'
-        have hscr_c' : FidScr s st_c' := by
-          unfold FidScr at hscr_f ⊢; dsimp only [st_c']; rw [hscr_f]
-        have hpr_c_le : s.core.propagated ≤ st_c'.core.trail_end := by
-          rw [← hpr_f]
-          have := hlen'.core_ok.propagated_le
-          simpa [st_c', st_c_in] using this
-        have hmc'_fin : (FullMem c (fastPropMem { s with core :=
-            { s.core with trail_end := st_c'.core.trail_end } } st_c') ⋆ R) mc' := by
-          simpa only [fastPropMem, st_c', st_c_in, hpr_f, hte_f] using hmc'
-        fid_hsplit
-        · have hoom_eq' : oom' = sem_b.core.oom := (hok_t hc).trans hoom_f
-          have hperm_bc' : FullPropDecSpecs.FullArenaPermEq sem_b.core st_c'.core :=
-            (m7_arenaPermEq_congr rfl rfl har_f halen_f (.refl sem_b.core)).trans hperm_fc
-          have hconfl_pres :
-              (brk_b = 1#64 → PropLitConfl F_cur ignore_ref st_c'.core ∧
-                st_c'.core.oom = 0#64) := fun h1 => by
-            have ⟨hcf, hoo⟩ := hbr1 h1
-            have hcf' : FullPropDecSpecs.FullConflOkW F_cur st_c'.core := by
-              rcases hcf with hne | hok
-              · exact absurd hoo hne
-              · exact m7_fullConflOkW_of_perm hperm_bc' hcv_f hvals_f
-                  hct_f hcr_f hc0_f hc1_f hok.1
-            refine ⟨Or.inr ⟨hcf', fun h2 => ?_⟩, ?_⟩
-            · rcases hcf with hne | hok
-              · exact absurd hoo hne
-              · simpa [st_c', hct_f, hcr_f] using hok.2 (by simpa [st_c', hct_f] using h2)
-            · simp [st_c', hoom_eq', hoo]
-          subst hc
-          fid_hsteps
-          exact hJch (brk_b, ()) mc'
-            ⟨st_c', hlen_c', hwf_c', ⟨htr_f.te_ge, htr_f.trl_pref, htr_f.lvl_pres⟩,
-              hperm_f.trans hperm_fc,
-              hag_s_fin.update (fun k =>
-                { k with wvec := wv', arena := ar', wstk := ws', wlen := wl',
-                         wusable := wu', oom := oom' }),
-              hcv_f, hvals_f, hte_f, hun_f, huf_f, halen_f, hcl_f, rfl, rfl, rfl,
-              fun h0 => by
-                have ⟨hoo, hct0⟩ := hbr0 h0
-                exact ⟨by simp [st_c', hoom_eq', hoo], by simp [st_c', hct_f, hct0]⟩,
-              hconfl_pres, fun _ => trivial,
-              by rcases hbr_cases with rfl | rfl | rfl <;> simp,
-              hpr_f, by simpa [st_c', hs_base] using hag_f.get FullCoreState.fuel,
-              by rw [show st_c'.core.probing = st_fin.core.probing from rfl,
-                  hag_f.get FullCoreState.probing, hs_base]; exact hprob_o,
-              hdm_c', hscr_c', hd0_f, st_c'.core.trail_end, Nat.le_refl _, hpr_c_le, hmc'_fin⟩
-        · subst hc
-          fid_hsteps
-          exact hJch (2#64, ()) mc'
-            ⟨st_c', hlen_c', hwf_c', ⟨htr_f.te_ge, htr_f.trl_pref, htr_f.lvl_pres⟩,
-              hperm_f.trans hperm_fc,
-              hag_s_fin.update (fun k =>
-                { k with wvec := wv', arena := ar', wstk := ws', wlen := wl',
-                         wusable := wu', oom := oom' }),
-              hcv_f, hvals_f, hte_f, hun_f, huf_f, halen_f, hcl_f, rfl, rfl, rfl,
-              fun h => absurd h (by decide), fun h => absurd h (by decide),
-              fun _ => trivial, Or.inr (Or.inr rfl),
-              hpr_f, by simpa [st_c', hs_base] using hag_f.get FullCoreState.fuel,
-              by rw [show st_c'.core.probing = st_fin.core.probing from rfl,
-                  hag_f.get FullCoreState.probing, hs_base]; exact hprob_o,
-              hdm_c', hscr_c', hd0_f, st_c'.core.trail_end, Nat.le_refl _, hpr_c_le, hmc'_fin⟩
-      · have hperm_bf : FullPropDecSpecs.FullArenaPermEq sem_b.core st_fin.core :=
-          m7_arenaPermEq_congr rfl rfl har_f halen_f (.refl sem_b.core)
-        fid_hsteps
-        exact hJch (brk_b, ()) mf
-          ⟨st_fin, hlen_f, hwf_f, htr_f, hperm_f, hag_s_fin, hcv_f, hvals_f,
-            hte_f, hun_f, huf_f, halen_f, hcl_f, rfl, rfl, rfl,
-            fun h0 => by
-              have ⟨hoo, hct0⟩ := hbr0 h0
-              exact ⟨by rw [hoom_f, hoo], by rw [hct_f, hct0]⟩,
-            fun h1 => by
-              have ⟨hcf, hoo⟩ := hbr1 h1
-              refine ⟨?_, by rw [hoom_f, hoo]⟩
-              rcases hcf with hne | hok
-              · exact absurd hoo hne
-              · refine Or.inr ⟨m7_fullConflOkW_of_perm hperm_bf hcv_f hvals_f
-                    hct_f hcr_f hc0_f hc1_f hok.1, fun h2 => ?_⟩
-                rw [hct_f] at h2; simpa [hcr_f] using hok.2 h2,
-            fun _ => trivial, hbr_cases,
-            by simpa [hs_base] using hag_f.get FullCoreState.propagated,
-            hag_f.get FullCoreState.fuel,
-            by rw [hag_f.get FullCoreState.probing, hs_base]; exact hprob_o,
-            (hag_f.get FullCoreState.dense_mode).trans hdense_b,
-            hscr_f, hd0_f,
-            te_mem, Nat.le_trans htem_le (hte_f ▸ hte_sem_le), hpr_tem, hmf⟩
-    · have hbr_ne0 : brk_b ≠ 0#64 := by rw [hc]; decide
-      have hbr_ne1 : brk_b ≠ 1#64 := by rw [hc]; decide
-      subst hc
-      exact hJch (2#64, ()) mf
-        ⟨st_fin, hlen_f, hwf_f, htr_f, hperm_f, hag_s_fin, hcv_f, hvals_f, hte_f,
-          hun_f, huf_f, halen_f, hcl_f, rfl, rfl, rfl,
-          fun h => absurd h (by decide), fun h => absurd h (by decide),
-          fun _ => trivial, Or.inr (Or.inr rfl),
-          by simpa [hs_base] using hag_f.get FullCoreState.propagated,
-          hag_f.get FullCoreState.fuel,
-          by rw [hag_f.get FullCoreState.probing, hs_base]; exact hprob_o,
-          (hag_f.get FullCoreState.dense_mode).trans hdense_b,
-          hscr_f, hd0_f,
-          te_mem, Nat.le_trans htem_le (hte_f ▸ hte_sem_le), hpr_tem, hmf⟩
+      exact fid_post_exit_brk2 hQ hlen_c hwf_c htr_s_c hperm_s_c hag_sc hdm_c
+        (Nat.le_of_lt hfuel1_lt) hsc_c hd0_c hte_c_eq hpr_lt hpr_lt_teb
+        (by simpa only [fastPropMem, s_dmc, hp1_prop, hte_c_eq, hun_c_eq, huf_c_eq,
+          BitVec.ofNat_eq_ofNat] using hm)
+    · have hbrk1 : brk_c = 1#64 := by
+        rcases hbr_cases with rfl | rfl | rfl
+        · exact absurd rfl hbrk_ne0
+        · rfl
+        · exact absurd rfl hc
+      subst hbrk1
+      have ⟨hconfl_c, hoom_b⟩ := hbr1 rfl
+      have hoom_c : st_c.core.oom = 0#64 := hoom_c.trans hoom_b
+      have hconfl_w : FullPropDecSpecs.FullConflOkW F_cur st_c.core := by
+        rcases hconfl_c with hne0 | hok
+        · exact absurd hoom_b hne0
+        · exact m7_fullConflOkW_of_perm hperm_bc hcv_c hvals_c hct_c hcr_c hc0_c hc1_c hok.1
+      have hc2_ign : st_c.core.confl_type = 2#64 → st_c.core.confl_ref ≠ ignore_ref := by
+        rcases hconfl_c with hne0 | hok
+        · exact absurd hoom_b hne0
+        · intro h2
+          rw [hct_c] at h2
+          simpa [hcr_c] using hok.2 h2
+      fid_hsteps
+      exact fid_post_exit_brk1 hQ hlen_c hwf_c htr_s_c hperm_s_c hag_sc hdm_c
+        hfuel1_lt hoom_c hconfl_w hc2_ign hsc_c hd0_c hte_c_eq hpr_lt hpr_lt_teb
+        (by simpa only [fastPropMem, s_dmc, hp1_prop, hte_c_eq, hun_c_eq, huf_c_eq,
+          BitVec.ofNat_eq_ofNat] using hm)
+  · have ⟨hoom_b0, hct_b0⟩ := hbr0 hc
+    have hoom_c0 : st_c.core.oom = 0#64 := hoom_c.trans hoom_b0
+    have hct_c0 : st_c.core.confl_type = s.core.confl_type := hct_c.trans hct_b0
+    fid_hsteps
+    let sem_next : FullState :=
+      { st_c with core := { st_c.core with propagated := prop_v.toNat + 1, fuel := fuel1 } }
+    have hlen_next : sem_next.LengthsOk c :=
+      ⟨{ hlen_c.core_ok with propagated_le := by rw [← hte_c_eq]; exact hpr_lt_teb },
+       { hlen_c.scratch_ok with }⟩
+    have hwf_next : FullWitnessInv c F0 F_cur sem_next.core := by
+      have hnw := fullWitnessInv_nw_congr hlen_next.core_ok.cur_vars_le
+        (fullWitnessInv_to_nw hlen_c.core_ok.cur_vars_le hwf_c)
+        rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl rfl
+      have hwat_next : WatchesInv F_cur sem_next.core := by
+        have hw_sp : ModeWatchesInv F_cur sem_next.core :=
+          hwf_c.watches.with_wstk rfl rfl rfl rfl rfl (fun _ hr => hr)
+        simpa only [ModeWatchesInv, sem_next, hdm_c, ↓reduceIte] using hw_sp
+      exact fullWitnessInv_of_nw hnw hdm_c hwat_next
+    have hcl_sb : sem_b.core.cur_level = s.core.cur_level := by
+      have h1 : st_c.core.cur_level = s_base.core.cur_level :=
+        hag_l.get FullCoreState.cur_level
+      rw [← hcl_c, h1, hs_base]; exact hcl_o
+    have halen_sb : sem_b.core.arena_len = s.core.arena_len := by
+      have h1 : st_c.core.arena_len = s_base.core.arena_len :=
+        hag_l.get FullCoreState.arena_len
+      rw [← halen_c, h1, hs_base]; exact halen_o
+    exact hJ_out sem_next te_mem mc0 hlen_next hwf_next
+      ⟨by simpa [sem_next] using htr_s_c.te_ge,
+       by simpa [sem_next] using htr_s_c.trl_pref,
+       by simpa [sem_next] using htr_s_c.lvl_pres⟩
+      (m7_arenaPermEq_congr rfl rfl rfl rfl hperm_s_c)
+      (hag_sc.update (fun k => { k with propagated := prop_v.toNat + 1, fuel := fuel1 }))
+      (by simp [sem_next, hp1_prop]) rfl hte_c_eq.symm hun_c_eq.symm huf_c_eq.symm
+      (by simp [sem_next, hoom_c0]) (by simp [sem_next, hct_c0]) hdm_c
+      (by rw [hcv_c, hpi_b_cv, hs_base]; exact hcv_o)
+      (by rw [hcl_c]; exact hcl_sb)
+      hprob_c
+      (by rw [halen_c]; exact halen_sb)
+      (by dsimp only [sem_next]; rw [hfuel1]; exact hfl_rem_dec)
+      hfuel1_lt (Nat.le_of_lt hfuel1_lt)
+      (by simp [sem_next]; omega) htemc_le hpr_tem
+      (by unfold FidScr at hsc_c ⊢; exact hsc_c) hd0_c
+      (by simpa [sem_next, fastPropMem, hpr_c, hfuel_cs] using hmc0)
 
 /-- Transfer `WatchesInv` across states agreeing on all watch-relevant fields. -/
 theorem fid_watches_congr {F_cur : List (List Nat)} {k k' : FullCoreState}
@@ -1036,15 +829,13 @@ theorem fid_watches_congr {F_cur : List (List Nat)} {k k' : FullCoreState}
   simpa only [ModeWatchesInv, hdm', hdm, ↓reduceIte] using hm'
 
 /-- Final delayed-watch flush `if (di > 0) { if (!full_prop_flush_del_fid(h, di)) brk = 2; }`
-followed by chrono repair and exit / continue. -/
+followed by exit / continue. -/
 theorem fid_post_flush_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {s sem s_base s_disk sem_b st_fin : FullState}
-    {ignore_ref prop_v fuel1 te_b un_b uf_b tk_b di_b brk_b t0_v : BitVec 64}
+    {ignore_ref prop_v fuel1 te_b un_b uf_b tk_b di_b brk_b : BitVec 64}
     {not_lit : BitVec 32} {dlen_b : Nat}
     {R : Mem 64 → Prop} {Q : Post [i64]} {X : XPost} {mf : Mem 64}
     {J_out : Cont [i64, i64, i64, i64, i64, i64]}
-    (hChrono : ∀ args m Q X, fullPropChronoHotSpec args m Q X →
-      Γ "full_prop_chrono_hot" [i64, i64] [.bool] args m Q X)
     (hFlush : ∀ args m Q X, fidPropFlushDelSpec args m Q X →
       Γ "full_prop_flush_del_fid" [i64, i64] [.bool] args m Q X)
     (hQ : FidHQ c F0 F_cur s ignore_ref R Q)
@@ -1129,7 +920,7 @@ theorem fid_post_flush_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     (hscr_f : FidScr s st_fin)
     (hd0_f : c.delayed_cap = 0 → st_fin.scratch.delayed = s.scratch.delayed)
     (hmf : (FullMem c (fastPropMem s_disk st_fin) ⋆ R) mf) :
-    wp Γ Q X (fidPostFlushExpr J_out c.hdr prop_v fuel1 te_b un_b uf_b tk_b di_b brk_b t0_v)
+    wp Γ Q X (fidPostFlushExpr J_out c.hdr prop_v fuel1 te_b un_b uf_b tk_b di_b brk_b)
       mf := by
   let P : BitVec 64 → Mem 64 → Prop := fun brk_f mfl =>
     ∃ st_fl : FullState,
@@ -1160,7 +951,7 @@ theorem fid_post_flush_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
   · rintro _ ⟨brk_f, ⟨⟩⟩ mfl ⟨st_fl, hlen_l, hwf_l, hag_l, htr_l, hperm_l, hoom_l, hct_l, hcr_l,
       hc0_l, hc1_l, hcv_l, hvals_l, hte_l, hun_l, huf_l, halen_l, hcl_l, har_l, hscr_l, hd0_l,
       hb0, hb1, hbc, hmfl⟩
-    exact fid_post_chrono_wp hChrono hQ hJ_out hlen0 hpr_lt hs_base hfuel1 hs_disk htr_o
+    exact fid_post_brk_cont_wp hQ hJ_out hlen0 hpr_lt hs_base hfuel1 hs_disk htr_o
       hperm_o hag_o hcv_o hcl_o hprob_o halen_o _hsc_o hfl_rem_dec hfuel_le hp1_prop hp_lt_o
       hpr_ge hpi_b_len hpi_b_cv hpi_b_tr hdense_b hte_b hun_b huf_b
       (fun h => hbr0 (hb0 h)) (fun h => hbr1 (hb1 h)) hbc hlen_l hwf_l hag_l htr_l hperm_l

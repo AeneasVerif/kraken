@@ -16,7 +16,7 @@ private `import all` of `FullFidelityBcpProof0` and `FullM6BcpS15Proof1`).
 Proves `full_propagate_ignore_fid_wp` certifying `full_propagate_ignore_fid_body` against
 `FullM6BcpS15.fullPropagateIgnoreS15Spec`:
 1. `fid_compact_post_wp`: watch compaction, sentinel fill, final `full_prop_flush_del_fid`,
-   chrono repair, and exit / outer-loop continue.
+   and exit / outer-loop continue.
 2. `fid_post_lp_ovf_wp`: post-scan overflow handler (delayed-watch flush, cold
    `full_prop_lit_ovf_hot` push, `wvec[nl64]` rebase, arena swap or keep + `brk = 2`).
 3. `full_propagate_ignore_fid_wp`: outer propagation loop (`while (prop < tend)`), hoisted scalar
@@ -54,17 +54,15 @@ local macro "fid_hsteps_nogrp" : tactic =>
 local macro "fid_hsplit" : tactic =>
   `(tactic| ((try (first | change Func.wp _ _ _ _ _ _ | change wp _ _ _ _ _)); c0_hsplit))
 
-/-! ## 1. Compaction + Final Flush + Chrono + Exit/Continue (`fid_compact_post_wp`) -/
+/-! ## 1. Compaction + Final Flush + Exit/Continue (`fid_compact_post_wp`) -/
 
 private theorem fid_compact_post_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {s sem s_base s_disk sem_b : FullState}
     {ignore_ref prop_v fuel1 te_b un_b uf_b tk_b off_b p_b q_b end_b di_b brk_b
-      t0_v nl64 : BitVec 64}
+      nl64 : BitVec 64}
     {not_lit : BitVec 32} {dlen_b : Nat}
     {R : Mem 64 → Prop} {Q : Post [i64]} {X : XPost} {mb : Mem 64}
     {J_out : Cont [i64, i64, i64, i64, i64, i64]}
-    (hChrono : ∀ args m Q X, fullPropChronoHotSpec args m Q X →
-      Γ "full_prop_chrono_hot" [i64, i64] [.bool] args m Q X)
     (hFlush : ∀ args m Q X, fidPropFlushDelSpec args m Q X →
       Γ "full_prop_flush_del_fid" [i64, i64] [.bool] args m Q X)
     (hQ : FidHQ c F0 F_cur s ignore_ref R Q)
@@ -136,7 +134,7 @@ private theorem fid_compact_post_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     (hbr_cases : brk_b = 0#64 ∨ brk_b = 1#64 ∨ brk_b = 2#64)
     (hmb : (FullMem c (fastPropMem s_disk sem_b) ⋆ R) mb) :
     wp Γ Q X (fidCompactAndPostExpr J_out c.hdr c.pWstk c.pWvec nl64 prop_v fuel1 te_b un_b
-      uf_b tk_b off_b p_b q_b end_b di_b brk_b t0_v) mb := by
+      uf_b tk_b off_b p_b q_b end_b di_b brk_b) mb := by
   subst nl64
   obtain ⟨te_mem, hs_disk_eq, htem_le, hpr_tem⟩ := hs_disk
   have hnot_b : not_lit.toNat < 2 * sem_b.core.cur_vars := by
@@ -263,7 +261,7 @@ private theorem fid_compact_post_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
       · rintro _ ⟨⟩ mf ⟨st_fin, hlen_f, hwf_f, hag_f, htr_f, hperm_f, hoom_f, hct_f,
             hcr_f, hc0_f, hc1_f, hcv_f, hvals_f, hte_f, hun_f, huf_f, halen_f, hcl_f,
             har_f, hscr_f, hd0_f, hdok_f, hmf⟩
-        exact fid_post_flush_wp hChrono hFlush hQ hJ_out hlen0 hpr_lt hs_base hfuel1
+        exact fid_post_flush_wp hFlush hQ hJ_out hlen0 hpr_lt hs_base hfuel1
           ⟨te_mem, hs_disk_eq, htem_le, hpr_tem⟩ htr_o hperm_o hag_o hcv_o hcl_o hprob_o
           halen_o hsc_o hfl_rem_dec hfuel_le hp1_prop hp_lt_o hpr_ge hpi_b.len hpi_b.cur_vars_eq
           hpi_b.tr hdense_b hte_b hun_b huf_b hbr0 hbr1 hbr_cases hdi_b hdlen_b hdok_f
@@ -382,7 +380,7 @@ private theorem fid_compact_post_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
 
 private theorem fid_post_lp_ovf_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     {F_cur : List (List Nat)} {s s_base s_disk sem_o sem_p : FullState}
-    {ignore_ref t0_v off_o p_o end_o te_p un_p uf_p tk_p p_p q_p di_p brk_p : BitVec 64}
+    {ignore_ref off_o p_o end_o te_p un_p uf_p tk_p p_p q_p di_p brk_p : BitVec 64}
     {ovf_p : Bool} {not_lit not_lit_v ovf_rw_p ovf_oth_p ovf_cr_p : BitVec 32}
     {ovf_ri_p nl64 : BitVec 64} {dlen_p : Nat}
     {R : Mem 64 → Prop} {Q : Post [i64]} {X : XPost} {mbp : Mem 64}
@@ -403,7 +401,6 @@ private theorem fid_post_lp_ovf_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
             (c.delayed_cap = 0 → sem_b.scratch.delayed = s.scratch.delayed) ∧
             te_b.toNat = sem_b.core.trail_end ∧ un_b = sem_b.core.unassigned ∧
             uf_b = sem_b.core.unflushed ∧
-            (t0_v = 0xFFFFFFFFFFFFFFFF#64 ∨ t0_v.toNat ≤ sem_b.core.trail_end) ∧
             (brk_b = 0#64 →
               sem_b.core.oom = 0#64 ∧ sem_b.core.confl_type = s.core.confl_type ∧
               p_b = end_b) ∧
@@ -425,7 +422,6 @@ private theorem fid_post_lp_ovf_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
             (c.delayed_cap = 0 → sem_o'.scratch.delayed = s.scratch.delayed) ∧
             te_o'.toNat = sem_o'.core.trail_end ∧ un_o' = sem_o'.core.unassigned ∧
             uf_o' = sem_o'.core.unflushed ∧
-            (t0_v = 0xFFFFFFFFFFFFFFFF#64 ∨ t0_v.toNat ≤ sem_o'.core.trail_end) ∧
             (ovf_o' = true → brk_o' = 0#64 ∧ sem_o'.core.oom = 0#64 ∧
               sem_o'.core.confl_type = s.core.confl_type) ∧
             (ovf_o' = false →
@@ -443,7 +439,6 @@ private theorem fid_post_lp_ovf_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     (hnl64 : nl64 = not_lit.setWidth 64 <<< (1 : Nat))
     (hnl64_idx : (not_lit.setWidth 64 <<< (1 : Nat)).toNat = 2 * not_lit.toNat)
     (hct_o2 : sem_o.core.confl_type = s.core.confl_type)
-    (ht0_p : t0_v = 0xFFFFFFFFFFFFFFFF#64 ∨ t0_v.toNat ≤ sem_p.core.trail_end)
     (hnl_eq : not_lit_v = not_lit)
     (hpi_p : PropLitInv c F0 F_cur
       { s_base with scratch := { s_base.scratch with delayed := sem_p.scratch.delayed } }
@@ -764,7 +759,6 @@ private theorem fid_post_lp_ovf_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
                 fun _ hj => absurd hj (Nat.not_lt_zero _),
                 fun h0 => hdel_sn.trans (hd0_p h0),
                 hte_p.trans hte4.symm, hun_p.trans hun4.symm, huf_p.trans huf4.symm,
-                ht0_p.imp_right (fun h => hte4 ▸ h),
                 fun _ => ⟨rfl, hoom4.trans hoom_p, hct4.trans (hct_p.trans hct_o2)⟩,
                 fun h => absurd h (by decide),
                 by
@@ -815,7 +809,6 @@ private theorem fid_post_lp_ovf_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
               rfl, Nat.zero_le _, fun _ hj => absurd hj (Nat.not_lt_zero _),
               fun h0 => hdel5.trans (hd0_p h0),
               hte_p.trans hte4.symm, hun_p.trans hun4.symm, huf_p.trans huf4.symm,
-              ht0_p.imp_right (fun h => hte4 ▸ h),
               fun h => absurd h (by decide), fun h => absurd h (by decide), Or.inr (Or.inr rfl),
               by
                 have h1_idx : (BitVec.setWidth 64
@@ -1039,7 +1032,7 @@ private theorem fid_post_lp_ovf_wp {Γ : Env} {c : FullCfg} {F0 : CNF Nat}
     fid_hsteps
     exact ih_o _ (te_p, un_p, uf_p, tk_p, off_o, p_p, q_p, end_o, di_p, brk_p, false, ()) mbp
       (by simp only [Bool.false_eq_true, ↓reduceIte]; have := _hpo_le_pp; omega)
-      ⟨sem_p, dlen_p, rfl, hpi_p, hdi_p, hdlen_p, hdok_p, hd0_p, hte_p, hun_p, huf_p, ht0_p,
+      ⟨sem_p, dlen_p, rfl, hpi_p, hdi_p, hdlen_p, hdok_p, hd0_p, hte_p, hun_p, huf_p,
         fun h => absurd h (by decide),
         fun _ => ⟨fun h0 => ⟨hoom_p, (hbrk0_fn h0).2.trans hct_o2, (hbrk0_fn h0).1⟩,
           fun h1 => ⟨hbrk1_fn h1, hoom_p⟩, by rcases hbrk_disj with rfl | rfl <;> simp⟩,
@@ -1088,7 +1081,7 @@ buffering, hoisted outer scalar fields, and delayed `h->fuel` memory writeback. 
 theorem full_propagate_ignore_fid_wp (Γ : Env)
     (hOvf : ∀ args m Q X, FullM7BcpHot.fullPropLitOvfHotSpec args m Q X →
       Γ "full_prop_lit_ovf_hot" [i64, i32, i32, i32] [.bool] args m Q X)
-    (hChrono : ∀ args m Q X, FullM7BcpHot.fullPropChronoHotSpec args m Q X →
+    (_hChrono : ∀ args m Q X, FullM7BcpHot.fullPropChronoHotSpec args m Q X →
       Γ "full_prop_chrono_hot" [i64, i64] [.bool] args m Q X)
     (hFlush : ∀ args m Q X, fidPropFlushDelSpec args m Q X →
       Γ "full_prop_flush_del_fid" [i64, i64] [.bool] args m Q X) :
@@ -1379,302 +1372,284 @@ theorem full_propagate_ignore_fid_wp (Γ : Env)
               fid_hsteps_nogrp
               have hm_base : (FullMem c (fastPropMem s_disk s_base) ⋆ R) ml := hml
               clear hml
-              refine wp_join_group (fun (t0_v, ()) mt =>
-                  mt = ml ∧
-                  (t0_v = 0xFFFFFFFFFFFFFFFF#64 ∨ t0_v.toNat ≤ sem.core.trail_end))
-                ?_ ?_
-              · rintro _ ⟨t0_v, ⟨⟩⟩ mt ⟨rfl, ht0_bound⟩
-                have hend0_lt64 : fullWatchOffCore s_base.core not_lit.toNat +
-                    fullWatchSizeCore s_base.core not_lit.toNat < 2 ^ 64 := by
-                  have := hpi0.end_lt_wcap hnot_lt
-                  exact Nat.lt_of_le_of_lt (Nat.le_trans this.1 this.2)
-                    (Nat.lt_trans hwc (by decide))
-                fid_hsteps_nogrp
-                refine wp_loop_break_group
-                  (fun (te_b, un_b, uf_b, tk_b, off_b, p_b, q_b, end_b, di_b, brk_b, _ovf_b, ())
-                      mb =>
-                    ∃ (sem_b : FullState) (dlen_b : Nat),
-                      PropLitInv c F0 F_cur
-                        { s_base with scratch :=
-                          { s_base.scratch with delayed := sem_b.scratch.delayed } }
-                        sem_b not_lit.toNat off_b.toNat q_b.toNat p_b.toNat end_b.toNat ∧
-                      di_b.toNat = 3 * dlen_b ∧ dlen_b ≤ c.delayed_cap ∧
-                      DelayedWatchesOk s_base.core sem_b.scratch.delayed dlen_b not_lit.toNat ∧
-                      (c.delayed_cap = 0 → sem_b.scratch.delayed = s.scratch.delayed) ∧
-                      te_b.toNat = sem_b.core.trail_end ∧ un_b = sem_b.core.unassigned ∧
-                      uf_b = sem_b.core.unflushed ∧
-                      (t0_v = 0xFFFFFFFFFFFFFFFF#64 ∨ t0_v.toNat ≤ sem_b.core.trail_end) ∧
-                      (brk_b = 0#64 →
-                        sem_b.core.oom = 0#64 ∧ sem_b.core.confl_type = s.core.confl_type ∧
-                        p_b = end_b) ∧
-                      (brk_b = 1#64 → PropLitConfl F_cur ignore_ref sem_b.core ∧
-                        sem_b.core.oom = 0#64) ∧
-                      (brk_b = 0#64 ∨ brk_b = 1#64 ∨ brk_b = 2#64) ∧
-                      (FullMem c (fastPropMem s_disk sem_b) ⋆ R) mb)
-                  (fun rem_o (te_o, un_o, uf_o, tk_o, off_o, p_o, q_o, end_o, di_o, brk_o, ovf_o,
-                      ()) mo =>
-                    ∃ (sem_o : FullState) (dlen_o : Nat),
-                      rem_o = (end_o.toNat - p_o.toNat) + (if ovf_o then 1 else 0) ∧
-                      PropLitInv c F0 F_cur
-                        { s_base with scratch :=
-                          { s_base.scratch with delayed := sem_o.scratch.delayed } }
-                        sem_o not_lit.toNat off_o.toNat q_o.toNat p_o.toNat end_o.toNat ∧
-                      di_o.toNat = 3 * dlen_o ∧ dlen_o ≤ c.delayed_cap ∧
-                      DelayedWatchesOk s_base.core sem_o.scratch.delayed dlen_o not_lit.toNat ∧
-                      (c.delayed_cap = 0 → sem_o.scratch.delayed = s.scratch.delayed) ∧
-                      te_o.toNat = sem_o.core.trail_end ∧ un_o = sem_o.core.unassigned ∧
-                      uf_o = sem_o.core.unflushed ∧
-                      (t0_v = 0xFFFFFFFFFFFFFFFF#64 ∨ t0_v.toNat ≤ sem_o.core.trail_end) ∧
-                      (ovf_o = true → brk_o = 0#64 ∧ sem_o.core.oom = 0#64 ∧
-                        sem_o.core.confl_type = s.core.confl_type) ∧
-                      (ovf_o = false →
-                        (brk_o = 0#64 →
-                          sem_o.core.oom = 0#64 ∧ sem_o.core.confl_type = s.core.confl_type ∧
-                          p_o = end_o) ∧
-                        (brk_o = 1#64 → PropLitConfl F_cur ignore_ref sem_o.core ∧
-                          sem_o.core.oom = 0#64) ∧
-                        (brk_o = 0#64 ∨ brk_o = 1#64)) ∧
-                      (FullMem c (fastPropMem s_disk sem_o) ⋆ R) mo)
-                  ?_ ?_ ?_
-                · rintro _ ⟨te_b, un_b, uf_b, tk_b, off_b, p_b, q_b, end_b, di_b, brk_b, ovf_b,
-                      ⟨⟩⟩ mb
-                    ⟨sem_b, dlen_b, hpi_b, hdi_b, hdl_b, hdok_b, hd0_b, hte_b, hun_b, huf_b,
-                      _ht0_b, hbr0, hbr1, hbr_cases, hmb⟩
-                  exact fid_compact_post_wp hChrono hFlush hQ_fid
-                    (fun sem_next te_mc mc0 hlen_n hw_n htr_n hperm_n hag_n hpr_n hfl_n
-                      hte_n hun_n huf_n hoom_n hct_n hdm_n hcv_n hcl_n hprob_n halen_n hfl_sem_lt
-                      hfl_s_lt hfl_le hpr_ge_n htemc_le hpr_temc hsc_n hd0_n hm_mc =>
-                      ih sem_next.core.fuel.toNat
-                        (prop_v + 1#64, te_b, fuel_v - 1#64, un_b, uf_b, tk_b, ()) mc0 hfl_sem_lt
-                        ⟨sem_next, te_mc, rfl, hlen_n, hw_n, htr_n, hperm_n, hag_n, hpr_n,
-                          hte_n, (by rw [hfl_n]; rfl), hun_n, huf_n, hoom_n, hct_n, hdm_n,
-                          hcv_n, hcl_n, hprob_n, halen_n, hfl_le, fun _ => hfl_s_lt,
-                          (hpr_n ▸ hpr_ge_n), htemc_le, hpr_temc, hsc_n, hd0_n, hm_mc⟩)
-                    hwc hmaxv hlen0 hpr_lt rfl (by rw [hfuel_eq]; rfl)
-                    ⟨te_mem, rfl, htem_le, hpr_tem⟩
-                    htr_o hperm_o hag_o hcv_o hcl_o hprob_o halen_o hsc_o hfl_rem_dec hfuel_le
-                    hp1_prop (htend_eq ▸ hp_lt_o) hpr_ge rfl hnot_lt hdm_o hpi_b hdi_b hdl_b
-                    hdok_b hd0_b hte_b hun_b huf_b (fun h => let x := hbr0 h; ⟨x.1, x.2.1⟩)
-                    hbr1 hbr_cases hmb
-                · rintro Bo Lo rem_o ⟨te_o, un_o, uf_o, tk_o, off_o, p_o, q_o, end_o, di_o, brk_o,
-                      ovf_o, ⟨⟩⟩ mo hBo ih_o
-                    ⟨sem_o, dlen_o, rfl, hpi_o, hdi_o, hdl_o, hdok_o, hd0_o, hte_o, hun_o, huf_o,
-                      ht0_o, hov_t, hov_f, hmo⟩
-                  fid_hsplit
-                  · have hov_t_eq : ovf_o = true := hc
-                    have ⟨hbr0_o, hoom_o2, hct_o2⟩ := hov_t hov_t_eq
-                    clear hov_t hov_f hc
-                    fid_hsteps_nogrp
-                    refine wp_join_group
-                      (fun (te_p, un_p, uf_p, tk_p, p_p, q_p, di_p, brk_p, ovf_p,
-                          ovf_rw_p, ovf_oth_p, ovf_cr_p, ovf_ri_p, ()) mbp =>
-                        ∃ (sem_p : FullState) (dlen_p : Nat),
-                          PropLitInv c F0 F_cur
-                            { s_base with scratch :=
-                              { s_base.scratch with delayed := sem_p.scratch.delayed } }
-                            sem_p not_lit.toNat off_o.toNat q_p.toNat p_p.toNat end_o.toNat ∧
-                          di_p.toNat = 3 * dlen_p ∧ dlen_p ≤ c.delayed_cap ∧
-                          DelayedWatchesOk s_base.core sem_p.scratch.delayed dlen_p not_lit.toNat ∧
-                          (c.delayed_cap = 0 → sem_p.scratch.delayed = s.scratch.delayed) ∧
-                          p_o.toNat ≤ p_p.toNat ∧ sem_o.core.trail_end ≤ sem_p.core.trail_end ∧
-                          te_p.toNat = sem_p.core.trail_end ∧ un_p = sem_p.core.unassigned ∧
-                          uf_p = sem_p.core.unflushed ∧ sem_p.core.oom = 0#64 ∧
-                          (ovf_p = false →
-                            (brk_p = 0#64 → p_p = end_o ∧
-                              sem_p.core.confl_type = sem_o.core.confl_type) ∧
-                            (brk_p = 1#64 → PropLitConfl F_cur ignore_ref sem_p.core) ∧
-                            (brk_p = 0#64 ∨ brk_p = 1#64)) ∧
-                          (ovf_p = true →
-                            brk_p = 0#64 ∧ sem_p.core.confl_type = sem_o.core.confl_type ∧
-                            2 ≤ p_p.toNat - off_o.toNat ∧ q_p.toNat + 2 ≤ p_p.toNat ∧
-                            end_o.toNat - p_p.toNat < end_o.toNat - p_o.toNat ∧
-                            ovf_cr_p.toNat < 0x80000000 ∧
-                            ovf_cr_p.toNat ∈ fullArenaClauseRefsCore sem_p.core ∧
-                            ovf_cr_p.toNat + 3 +
-                              fullArenaClauseSizeCore sem_p.core ovf_cr_p.toNat ≤
-                              sem_p.core.arena_len ∧
-                            ovf_oth_p.toNat < 2 * sem_p.core.cur_vars ∧
-                            ovf_rw_p.toNat < 2 * sem_p.core.cur_vars ∧
-                            ovf_rw_p.toNat ≠ not_lit.toNat ∧
-                            2 ≤ ovf_ri_p.toNat ∧
-                            ovf_ri_p.toNat < fullArenaClauseSizeCore sem_p.core ovf_cr_p.toNat ∧
-                            sem_p.core.arena[ovf_cr_p.toNat + 3]? = some ovf_oth_p ∧
-                            sem_p.core.arena[ovf_cr_p.toNat + 4]? = some not_lit ∧
-                            sem_p.core.arena[ovf_cr_p.toNat + 3 + ovf_ri_p.toNat]? =
-                              some ovf_rw_p) ∧
-                          (FullMem c (fastPropMem s_disk sem_p) ⋆ R) mbp) ?_ ?_
-                    · rintro _ ⟨te_p, un_p, uf_p, tk_p, p_p, q_p, di_p, brk_p, ovf_p,
-                          ovf_rw_p, ovf_oth_p, ovf_cr_p, ovf_ri_p, ⟨⟩⟩ mbp
-                        ⟨sem_p, dlen_p, hpi_p, hdi_p, hdl_p, hdok_p, hd0_p, _hpo_le_pp, hte_ge_p,
-                          hte_p, hun_p, huf_p, hoom_p, hnoov, hov_yes, hmbp⟩
-                      have ht0_p :
-                          t0_v = 0xFFFFFFFFFFFFFFFF#64 ∨ t0_v.toNat ≤ sem_p.core.trail_end :=
-                        ht0_o.imp_right (fun h => Nat.le_trans h hte_ge_p)
-                      dsimp only [Blocks.get]
-                      exact fid_post_lp_ovf_wp hOvf hFlush hBo
-                        (fun n' xs m hlt => ih_o n' xs m
-                          (by simpa only [hov_t_eq, ↓reduceIte] using hlt))
-                        har hwc hsd_len
-                        (by dsimp only [s_disk, s_base]; rw [hpi_p.cur_vars_eq, hcv_o])
-                        (by simp [s_disk, s_base, hpi_p.ag.get FullCoreState.propagated])
-                        (hpi_p.cur_vars_eq.symm ▸ hnot_lt)
-                        rfl hnl64_idx hct_o2 ht0_p
-                        (by
-                          simp only [not_lit, lit, fastPropMem_trl, fc_getElem_trl,
-                            sem_d, BitVec.ofNat_eq_ofNat])
-                        hpi_p hdi_p hdl_p hdok_p hd0_p _hpo_le_pp hte_p hun_p huf_p hoom_p
-                        hnoov hov_yes hmbp
-                    · intro J_ovf hJ_ovf
-                      have hnot_o : not_lit.toNat < 2 * sem_o.core.cur_vars :=
-                        hpi_o.cur_vars_eq.symm ▸ hnot_lt
-                      have hcl32_o : sem_o.core.cur_level < 2 ^ 32 := by
-                        rw [hpi_o.ag.get FullCoreState.cur_level]
-                        change sem.core.cur_level < 2 ^ 32
-                        rw [hcl_o]; exact hclv_lt32
-                      have hnl_sbase : ∀ k : FullCoreState,
-                          FullPropDecSpecs.FullTrailExt s_base.core k →
-                          k.lvl[not_lit.toNat / 2]?.getD 0#32 =
-                            (fastPropMem s_disk sem_d).core.lvl[(((((fastPropMem
-                              s_disk sem_d).core.trl[prop_v.toNat]'hp_lt_trl ^^^
-                              1#32) >>> 1#32).setWidth 64)).toNat]'hnl_idx_lt := by
-                        intro k htr
-                        have hnot_div2 :
-                            not_lit.toNat / 2 =
-                              (s_base.core.trl[prop_v.toNat]?.getD 0#32).toNat / 2 := by
-                          have hlt_eq : s_base.core.trl[prop_v.toNat]?.getD 0#32 = lit := by
-                            dsimp only [s_base]
-                            rw [List.getElem?_eq_getElem hp_sem_lt_trl, Option.getD_some]
-                            simp only [lit, fc_getElem_trl, sem_d]
-                          rw [hlt_eq]; dsimp only [not_lit]; rw [BitVec.toNat_xor]
-                          simp only [BitVec.toNat_ofNat, Nat.reducePow, Nat.reduceMod,
-                            fc_nat_xor_one]
-                          split <;> omega
-                        have hp_lt_sb : prop_v.toNat < s_base.core.trail_end := by
-                          dsimp only [s_base]; rw [← hprop_eq]; exact hp_lt_sem
-                        have hlp := htr.lvl_pres prop_v.toNat hp_lt_sb
-                        rw [← hnot_div2] at hlp
-                        rw [hlp]
-                        have hsb_lt : not_lit.toNat / 2 < s_base.core.lvl.length := by
-                          dsimp only [s_base]; rw [hlen_o.core_ok.lvl_len]
-                          have := hlen_o.core_ok.cur_vars_le; omega
-                        have hget : some (s_base.core.lvl[not_lit.toNat / 2]'hsb_lt) =
-                            some ((fastPropMem s_disk sem_d).core.lvl[(((((fastPropMem
-                              s_disk sem_d).core.trl[prop_v.toNat]'hp_lt_trl ^^^ 1#32) >>>
-                              1#32).setWidth 64)).toNat]'hnl_idx_lt) := by
-                          rw [← List.getElem?_eq_getElem hsb_lt,
-                            ← List.getElem?_eq_getElem hnl_idx_lt, fastPropMem_lvl, hnl_div]
-                        rw [List.getElem?_eq_getElem hsb_lt, Option.getD_some]
-                        exact Option.some.inj hget
-                      refine fid_lp_loop_wp (ignore_ref := ignore_ref)
-                        c.hmaxv c.harena c.hwcap hpi_o hnot_o
-                        (by
-                          rw [hpi_o.cur_vars_eq]; dsimp only [s_base]; rw [hcv_o]
-                          simp only [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat]
-                          rw [Nat.mod_eq_of_lt hcv_lt64,
-                            show (OfNat.ofNat 1 : Nat) = 1 from rfl,
-                            Nat.shiftLeft_eq, Nat.pow_one,
-                            Nat.mul_comm s.core.cur_vars 2, Nat.mod_eq_of_lt h2cv_lt64])
-                        (by
-                          apply BitVec.eq_of_toNat_eq
-                          rw [hpi_o.ag.get FullCoreState.cur_level]; dsimp only [s_base]
-                          rw [hcl_o]
-                          simp only [BitVec.toNat_setWidth, BitVec.toNat_ofNat,
-                            Nat.mod_eq_of_lt hclv_lt32, Nat.mod_eq_of_lt hclv_lt64])
-                        hcl32_o hte_o hun_o huf_o hoom_o2 hbr0_o hnl_sbase
-                        hdi_o hdl_o hdlim_toNat hdok_o
-                        (fun h0 => (hd0_o h0).trans (hd0_sem h0).symm)
-                        hmo ?_
-                      intro sem' te' un' uf' tk' p' q' di' brk' ovf' ovf_rw' ovf_oth' ovf_cr'
-                        ovf_ri' dlen' m' hpi' hdi' hdl' hdok' hd0' hp' hte_ge' hte' hun' huf'
-                        hoom' hno' hyes' hm'
-                      fid_hsteps
-                      exact hJ_ovf _ m' ⟨sem', dlen', hpi', hdi', hdl', hdok',
-                        fun h0 => (hd0' h0).trans (hd0_sem h0),
-                        hp', hte_ge', hte', hun', huf', hoom', hno', hyes', hm'⟩
-                  · have hov_f_eq : ovf_o = false := by revert hc; cases ovf_o <;> simp
-                    have ⟨h0, h1, hcs⟩ := hov_f hov_f_eq
-                    exact hBo _ mo ⟨sem_o, dlen_o, hpi_o, hdi_o, hdl_o, hdok_o, hd0_o,
-                      hte_o, hun_o, huf_o, ht0_o, h0, h1,
-                      hcs.elim Or.inl (fun h => Or.inr (Or.inl h)), hmo⟩
-                · intro Bo Lo hBo hLo
-                  fid_hsteps
-                  have hsz_trl : ∀ (trl : List (BitVec 32)) (htrl : trl = sem.core.trl) pf1 pf2,
-                      (sem.core.wvec[((BitVec.setWidth 64
-                          (trl[prop_v.toNat]'pf1 ^^^ (1 : BitVec 32))
-                        <<< (1 : Nat)) + (1 : BitVec 64)).toNat]'pf2).setWidth 64 =
-                      BitVec.ofNat 64 (fullWatchSizeCore s_base.core not_lit.toNat) := by
-                    intro trl htrl pf1 pf2
-                    have h1 : trl[prop_v.toNat]'pf1 = lit := by
-                      subst htrl
-                      exact (fc_getElem_eq_of_idx rfl pf1 hp_sem_lt_trl).trans
-                        (by simp only [lit, fc_getElem_trl, sem_d])
-                    have hidx := m7_shl1_add1_eq_of_trl rfl pf1 pf1 h1
-                    have hget : (sem.core.wvec[((BitVec.setWidth 64
-                        (trl[prop_v.toNat]'pf1 ^^^ (1 : BitVec 32)) <<< (1 : Nat)) +
-                        (1 : BitVec 64)).toNat]'pf2).setWidth 64 =
-                        (sem.core.wvec[((not_lit.setWidth 64 <<< (1 : Nat)) + 1#64).toNat]'
-                          hnl64_1_lt_wv0).setWidth 64 := by
-                      congr 1; exact fc_getElem_eq_of_idx (hidx.trans hnl64_1_idx.symm) pf2
-                        hnl64_1_lt_wv0
-                    rw [hget]; apply BitVec.eq_of_toNat_eq
-                    rw [hsz0_nat, m7_bv64_ofNat_toNat_lt (by
-                      have := hpi0.end_lt_wcap hnot_lt; omega)]
-                  have hoff_trl : ∀ (trl : List (BitVec 32)) (htrl : trl = sem.core.trl) pf1 pf2,
-                      (sem.core.wvec[(BitVec.setWidth 64 (trl[prop_v.toNat]'pf1 ^^^ (1 : BitVec 32))
-                        <<< (1 : Nat)).toNat]'pf2).setWidth 64 =
-                      BitVec.ofNat 64 (fullWatchOffCore s_base.core not_lit.toNat) := by
-                    intro trl htrl pf1 pf2
-                    have h1 : trl[prop_v.toNat]'pf1 = lit := by
-                      subst htrl
-                      exact (fc_getElem_eq_of_idx rfl pf1 hp_sem_lt_trl).trans
-                        (by simp only [lit, fc_getElem_trl, sem_d])
-                    have hidx := m7_shl1_eq_of_trl rfl pf1 pf1 h1
-                    have hget : (sem.core.wvec[(BitVec.setWidth 64
-                        (trl[prop_v.toNat]'pf1 ^^^ (1 : BitVec 32)) <<< (1 : Nat)).toNat]'
-                        pf2).setWidth 64 =
-                        (sem.core.wvec[(not_lit.setWidth 64 <<< (1 : Nat)).toNat]'
-                          hnl64_lt_wv0).setWidth 64 := by
-                      congr 1; exact fc_getElem_eq_of_idx (hidx.trans hnl64_idx.symm) pf2
-                        hnl64_lt_wv0
-                    rw [hget]; apply BitVec.eq_of_toNat_eq
-                    rw [hoff0_nat, m7_bv64_ofNat_toNat_lt (by
-                      have := hpi0.end_lt_wcap hnot_lt; omega)]
-                  have hoff0_lt64 : fullWatchOffCore s_base.core not_lit.toNat < 2 ^ 64 :=
-                    Nat.lt_of_le_of_lt (Nat.le_add_right _ _) hend0_lt64
-                  have hsz0_lt64 : fullWatchSizeCore s_base.core not_lit.toNat < 2 ^ 64 :=
-                    Nat.lt_of_le_of_lt (Nat.le_add_left _ _) hend0_lt64
-                  have hof0_eq := m7_bv64_ofNat_toNat_lt hoff0_lt64
-                  have hsz0_eq := m7_bv64_ofNat_toNat_lt hsz0_lt64
-                  have hadd0_eq : (BitVec.ofNat 64 (fullWatchOffCore s_base.core not_lit.toNat) +
-                      BitVec.ofNat 64 (fullWatchSizeCore s_base.core not_lit.toNat)).toNat =
-                      fullWatchOffCore s_base.core not_lit.toNat +
-                      fullWatchSizeCore s_base.core not_lit.toNat := by
-                    rw [BitVec.toNat_add, hof0_eq, hsz0_eq, Nat.mod_eq_of_lt hend0_lt64]
-                  simp only [fastPropMem_wvec]
-                  refine hLo (fullWatchSizeCore s_base.core not_lit.toNat + 1) _ mt ?_
-                  refine ⟨s_base, 0, ?_, ?_, rfl, Nat.zero_le _,
-                    fun _ h => absurd h (Nat.not_lt_zero _), hd0_sem,
-                    htend_eq.symm, hunass_eq.symm, hunfl_eq.symm,
-                    ht0_bound, fun _ => ⟨rfl, hoom_o, hct_o⟩,
-                    fun h => absurd h (by decide), hm_base⟩
-                  · simp only [fastPropMem_trl]
-                    erw [hoff_trl sem.core.trl rfl _ _, hsz_trl sem.core.trl rfl _ _]
-                    rw [hadd0_eq, hof0_eq]
-                    simp only [↓reduceIte]
-                    exact congrArg (· + 1)
-                      (Nat.add_sub_cancel_left (fullWatchOffCore s_base.core not_lit.toNat)
-                        (fullWatchSizeCore s_base.core not_lit.toNat)).symm
-                  · simp only [fastPropMem_trl]
-                    erw [hoff_trl sem.core.trl rfl _ _, hsz_trl sem.core.trl rfl _ _]
-                    rw [hof0_eq, hadd0_eq]
-                    exact hpi0
-              · intro Jt0 hJt0
+              have hend0_lt64 : fullWatchOffCore s_base.core not_lit.toNat +
+                  fullWatchSizeCore s_base.core not_lit.toNat < 2 ^ 64 := by
+                have := hpi0.end_lt_wcap hnot_lt
+                exact Nat.lt_of_le_of_lt (Nat.le_trans this.1 this.2)
+                  (Nat.lt_trans hwc (by decide))
+              refine wp_loop_break_group
+                (fun (te_b, un_b, uf_b, tk_b, off_b, p_b, q_b, end_b, di_b, brk_b, _ovf_b, ())
+                    mb =>
+                  ∃ (sem_b : FullState) (dlen_b : Nat),
+                    PropLitInv c F0 F_cur
+                      { s_base with scratch :=
+                        { s_base.scratch with delayed := sem_b.scratch.delayed } }
+                      sem_b not_lit.toNat off_b.toNat q_b.toNat p_b.toNat end_b.toNat ∧
+                    di_b.toNat = 3 * dlen_b ∧ dlen_b ≤ c.delayed_cap ∧
+                    DelayedWatchesOk s_base.core sem_b.scratch.delayed dlen_b not_lit.toNat ∧
+                    (c.delayed_cap = 0 → sem_b.scratch.delayed = s.scratch.delayed) ∧
+                    te_b.toNat = sem_b.core.trail_end ∧ un_b = sem_b.core.unassigned ∧
+                    uf_b = sem_b.core.unflushed ∧
+                    (brk_b = 0#64 →
+                      sem_b.core.oom = 0#64 ∧ sem_b.core.confl_type = s.core.confl_type ∧
+                      p_b = end_b) ∧
+                    (brk_b = 1#64 → PropLitConfl F_cur ignore_ref sem_b.core ∧
+                      sem_b.core.oom = 0#64) ∧
+                    (brk_b = 0#64 ∨ brk_b = 1#64 ∨ brk_b = 2#64) ∧
+                    (FullMem c (fastPropMem s_disk sem_b) ⋆ R) mb)
+                (fun rem_o (te_o, un_o, uf_o, tk_o, off_o, p_o, q_o, end_o, di_o, brk_o, ovf_o,
+                    ()) mo =>
+                  ∃ (sem_o : FullState) (dlen_o : Nat),
+                    rem_o = (end_o.toNat - p_o.toNat) + (if ovf_o then 1 else 0) ∧
+                    PropLitInv c F0 F_cur
+                      { s_base with scratch :=
+                        { s_base.scratch with delayed := sem_o.scratch.delayed } }
+                      sem_o not_lit.toNat off_o.toNat q_o.toNat p_o.toNat end_o.toNat ∧
+                    di_o.toNat = 3 * dlen_o ∧ dlen_o ≤ c.delayed_cap ∧
+                    DelayedWatchesOk s_base.core sem_o.scratch.delayed dlen_o not_lit.toNat ∧
+                    (c.delayed_cap = 0 → sem_o.scratch.delayed = s.scratch.delayed) ∧
+                    te_o.toNat = sem_o.core.trail_end ∧ un_o = sem_o.core.unassigned ∧
+                    uf_o = sem_o.core.unflushed ∧
+                    (ovf_o = true → brk_o = 0#64 ∧ sem_o.core.oom = 0#64 ∧
+                      sem_o.core.confl_type = s.core.confl_type) ∧
+                    (ovf_o = false →
+                      (brk_o = 0#64 →
+                        sem_o.core.oom = 0#64 ∧ sem_o.core.confl_type = s.core.confl_type ∧
+                        p_o = end_o) ∧
+                      (brk_o = 1#64 → PropLitConfl F_cur ignore_ref sem_o.core ∧
+                        sem_o.core.oom = 0#64) ∧
+                      (brk_o = 0#64 ∨ brk_o = 1#64)) ∧
+                    (FullMem c (fastPropMem s_disk sem_o) ⋆ R) mo)
+                ?_ ?_ ?_
+              · rintro _ ⟨te_b, un_b, uf_b, tk_b, off_b, p_b, q_b, end_b, di_b, brk_b, ovf_b,
+                    ⟨⟩⟩ mb
+                  ⟨sem_b, dlen_b, hpi_b, hdi_b, hdl_b, hdok_b, hd0_b, hte_b, hun_b, huf_b,
+                    hbr0, hbr1, hbr_cases, hmb⟩
+                exact fid_compact_post_wp hFlush hQ_fid
+                  (fun sem_next te_mc mc0 hlen_n hw_n htr_n hperm_n hag_n hpr_n hfl_n
+                    hte_n hun_n huf_n hoom_n hct_n hdm_n hcv_n hcl_n hprob_n halen_n hfl_sem_lt
+                    hfl_s_lt hfl_le hpr_ge_n htemc_le hpr_temc hsc_n hd0_n hm_mc =>
+                    ih sem_next.core.fuel.toNat
+                      (prop_v + 1#64, te_b, fuel_v - 1#64, un_b, uf_b, tk_b, ()) mc0 hfl_sem_lt
+                      ⟨sem_next, te_mc, rfl, hlen_n, hw_n, htr_n, hperm_n, hag_n, hpr_n,
+                        hte_n, (by rw [hfl_n]; rfl), hun_n, huf_n, hoom_n, hct_n, hdm_n,
+                        hcv_n, hcl_n, hprob_n, halen_n, hfl_le, fun _ => hfl_s_lt,
+                        (hpr_n ▸ hpr_ge_n), htemc_le, hpr_temc, hsc_n, hd0_n, hm_mc⟩)
+                  hwc hmaxv hlen0 hpr_lt rfl (by rw [hfuel_eq]; rfl)
+                  ⟨te_mem, rfl, htem_le, hpr_tem⟩
+                  htr_o hperm_o hag_o hcv_o hcl_o hprob_o halen_o hsc_o hfl_rem_dec hfuel_le
+                  hp1_prop (htend_eq ▸ hp_lt_o) hpr_ge rfl hnot_lt hdm_o hpi_b hdi_b hdl_b
+                  hdok_b hd0_b hte_b hun_b huf_b (fun h => let x := hbr0 h; ⟨x.1, x.2.1⟩)
+                  hbr1 hbr_cases hmb
+              · rintro Bo Lo rem_o ⟨te_o, un_o, uf_o, tk_o, off_o, p_o, q_o, end_o, di_o, brk_o,
+                    ovf_o, ⟨⟩⟩ mo hBo ih_o
+                  ⟨sem_o, dlen_o, rfl, hpi_o, hdi_o, hdl_o, hdok_o, hd0_o, hte_o, hun_o, huf_o,
+                    hov_t, hov_f, hmo⟩
                 fid_hsplit
-                · fid_hsplit
-                  · fid_hsteps
-                    exact hJt0 (tend_v, ()) ml ⟨rfl, Or.inr (htend_eq ▸ Nat.le_refl _)⟩
-                  · fid_hsteps; exact hJt0 (0xFFFFFFFFFFFFFFFF#64, ()) ml ⟨rfl, Or.inl rfl⟩
-                · fid_hsteps; exact hJt0 (0xFFFFFFFFFFFFFFFF#64, ()) ml ⟨rfl, Or.inl rfl⟩
+                · have hov_t_eq : ovf_o = true := hc
+                  have ⟨hbr0_o, hoom_o2, hct_o2⟩ := hov_t hov_t_eq
+                  clear hov_t hov_f hc
+                  fid_hsteps_nogrp
+                  refine wp_join_group
+                    (fun (te_p, un_p, uf_p, tk_p, p_p, q_p, di_p, brk_p, ovf_p,
+                        ovf_rw_p, ovf_oth_p, ovf_cr_p, ovf_ri_p, ()) mbp =>
+                      ∃ (sem_p : FullState) (dlen_p : Nat),
+                        PropLitInv c F0 F_cur
+                          { s_base with scratch :=
+                            { s_base.scratch with delayed := sem_p.scratch.delayed } }
+                          sem_p not_lit.toNat off_o.toNat q_p.toNat p_p.toNat end_o.toNat ∧
+                        di_p.toNat = 3 * dlen_p ∧ dlen_p ≤ c.delayed_cap ∧
+                        DelayedWatchesOk s_base.core sem_p.scratch.delayed dlen_p not_lit.toNat ∧
+                        (c.delayed_cap = 0 → sem_p.scratch.delayed = s.scratch.delayed) ∧
+                        p_o.toNat ≤ p_p.toNat ∧ sem_o.core.trail_end ≤ sem_p.core.trail_end ∧
+                        te_p.toNat = sem_p.core.trail_end ∧ un_p = sem_p.core.unassigned ∧
+                        uf_p = sem_p.core.unflushed ∧ sem_p.core.oom = 0#64 ∧
+                        (ovf_p = false →
+                          (brk_p = 0#64 → p_p = end_o ∧
+                            sem_p.core.confl_type = sem_o.core.confl_type) ∧
+                          (brk_p = 1#64 → PropLitConfl F_cur ignore_ref sem_p.core) ∧
+                          (brk_p = 0#64 ∨ brk_p = 1#64)) ∧
+                        (ovf_p = true →
+                          brk_p = 0#64 ∧ sem_p.core.confl_type = sem_o.core.confl_type ∧
+                          2 ≤ p_p.toNat - off_o.toNat ∧ q_p.toNat + 2 ≤ p_p.toNat ∧
+                          end_o.toNat - p_p.toNat < end_o.toNat - p_o.toNat ∧
+                          ovf_cr_p.toNat < 0x80000000 ∧
+                          ovf_cr_p.toNat ∈ fullArenaClauseRefsCore sem_p.core ∧
+                          ovf_cr_p.toNat + 3 +
+                            fullArenaClauseSizeCore sem_p.core ovf_cr_p.toNat ≤
+                            sem_p.core.arena_len ∧
+                          ovf_oth_p.toNat < 2 * sem_p.core.cur_vars ∧
+                          ovf_rw_p.toNat < 2 * sem_p.core.cur_vars ∧
+                          ovf_rw_p.toNat ≠ not_lit.toNat ∧
+                          2 ≤ ovf_ri_p.toNat ∧
+                          ovf_ri_p.toNat < fullArenaClauseSizeCore sem_p.core ovf_cr_p.toNat ∧
+                          sem_p.core.arena[ovf_cr_p.toNat + 3]? = some ovf_oth_p ∧
+                          sem_p.core.arena[ovf_cr_p.toNat + 4]? = some not_lit ∧
+                          sem_p.core.arena[ovf_cr_p.toNat + 3 + ovf_ri_p.toNat]? =
+                            some ovf_rw_p) ∧
+                        (FullMem c (fastPropMem s_disk sem_p) ⋆ R) mbp) ?_ ?_
+                  · rintro _ ⟨te_p, un_p, uf_p, tk_p, p_p, q_p, di_p, brk_p, ovf_p,
+                        ovf_rw_p, ovf_oth_p, ovf_cr_p, ovf_ri_p, ⟨⟩⟩ mbp
+                      ⟨sem_p, dlen_p, hpi_p, hdi_p, hdl_p, hdok_p, hd0_p, _hpo_le_pp, _hte_ge_p,
+                        hte_p, hun_p, huf_p, hoom_p, hnoov, hov_yes, hmbp⟩
+                    dsimp only [Blocks.get]
+                    exact fid_post_lp_ovf_wp hOvf hFlush hBo
+                      (fun n' xs m hlt => ih_o n' xs m
+                        (by simpa only [hov_t_eq, ↓reduceIte] using hlt))
+                      har hwc hsd_len
+                      (by dsimp only [s_disk, s_base]; rw [hpi_p.cur_vars_eq, hcv_o])
+                      (by simp [s_disk, s_base, hpi_p.ag.get FullCoreState.propagated])
+                      (hpi_p.cur_vars_eq.symm ▸ hnot_lt)
+                      rfl hnl64_idx hct_o2
+                      (by
+                        simp only [not_lit, lit, fastPropMem_trl, fc_getElem_trl,
+                          sem_d, BitVec.ofNat_eq_ofNat])
+                      hpi_p hdi_p hdl_p hdok_p hd0_p _hpo_le_pp hte_p hun_p huf_p hoom_p
+                      hnoov hov_yes hmbp
+                  · intro J_ovf hJ_ovf
+                    have hnot_o : not_lit.toNat < 2 * sem_o.core.cur_vars :=
+                      hpi_o.cur_vars_eq.symm ▸ hnot_lt
+                    have hcl32_o : sem_o.core.cur_level < 2 ^ 32 := by
+                      rw [hpi_o.ag.get FullCoreState.cur_level]
+                      change sem.core.cur_level < 2 ^ 32
+                      rw [hcl_o]; exact hclv_lt32
+                    have hnl_sbase : ∀ k : FullCoreState,
+                        FullPropDecSpecs.FullTrailExt s_base.core k →
+                        k.lvl[not_lit.toNat / 2]?.getD 0#32 =
+                          (fastPropMem s_disk sem_d).core.lvl[(((((fastPropMem
+                            s_disk sem_d).core.trl[prop_v.toNat]'hp_lt_trl ^^^
+                            1#32) >>> 1#32).setWidth 64)).toNat]'hnl_idx_lt := by
+                      intro k htr
+                      have hnot_div2 :
+                          not_lit.toNat / 2 =
+                            (s_base.core.trl[prop_v.toNat]?.getD 0#32).toNat / 2 := by
+                        have hlt_eq : s_base.core.trl[prop_v.toNat]?.getD 0#32 = lit := by
+                          dsimp only [s_base]
+                          rw [List.getElem?_eq_getElem hp_sem_lt_trl, Option.getD_some]
+                          simp only [lit, fc_getElem_trl, sem_d]
+                        rw [hlt_eq]; dsimp only [not_lit]; rw [BitVec.toNat_xor]
+                        simp only [BitVec.toNat_ofNat, Nat.reducePow, Nat.reduceMod,
+                          fc_nat_xor_one]
+                        split <;> omega
+                      have hp_lt_sb : prop_v.toNat < s_base.core.trail_end := by
+                        dsimp only [s_base]; rw [← hprop_eq]; exact hp_lt_sem
+                      have hlp := htr.lvl_pres prop_v.toNat hp_lt_sb
+                      rw [← hnot_div2] at hlp
+                      rw [hlp]
+                      have hsb_lt : not_lit.toNat / 2 < s_base.core.lvl.length := by
+                        dsimp only [s_base]; rw [hlen_o.core_ok.lvl_len]
+                        have := hlen_o.core_ok.cur_vars_le; omega
+                      have hget : some (s_base.core.lvl[not_lit.toNat / 2]'hsb_lt) =
+                          some ((fastPropMem s_disk sem_d).core.lvl[(((((fastPropMem
+                            s_disk sem_d).core.trl[prop_v.toNat]'hp_lt_trl ^^^ 1#32) >>>
+                            1#32).setWidth 64)).toNat]'hnl_idx_lt) := by
+                        rw [← List.getElem?_eq_getElem hsb_lt,
+                          ← List.getElem?_eq_getElem hnl_idx_lt, fastPropMem_lvl, hnl_div]
+                      rw [List.getElem?_eq_getElem hsb_lt, Option.getD_some]
+                      exact Option.some.inj hget
+                    refine fid_lp_loop_wp (ignore_ref := ignore_ref)
+                      c.hmaxv c.harena c.hwcap hpi_o hnot_o
+                      (by
+                        rw [hpi_o.cur_vars_eq]; dsimp only [s_base]; rw [hcv_o]
+                        simp only [BitVec.toNat_shiftLeft, BitVec.toNat_ofNat]
+                        rw [Nat.mod_eq_of_lt hcv_lt64,
+                          show (OfNat.ofNat 1 : Nat) = 1 from rfl,
+                          Nat.shiftLeft_eq, Nat.pow_one,
+                          Nat.mul_comm s.core.cur_vars 2, Nat.mod_eq_of_lt h2cv_lt64])
+                      (by
+                        apply BitVec.eq_of_toNat_eq
+                        rw [hpi_o.ag.get FullCoreState.cur_level]; dsimp only [s_base]
+                        rw [hcl_o]
+                        simp only [BitVec.toNat_setWidth, BitVec.toNat_ofNat,
+                          Nat.mod_eq_of_lt hclv_lt32, Nat.mod_eq_of_lt hclv_lt64])
+                      hcl32_o hte_o hun_o huf_o hoom_o2 hbr0_o hnl_sbase
+                      hdi_o hdl_o hdlim_toNat hdok_o
+                      (fun h0 => (hd0_o h0).trans (hd0_sem h0).symm)
+                      hmo ?_
+                    intro sem' te' un' uf' tk' p' q' di' brk' ovf' ovf_rw' ovf_oth' ovf_cr'
+                      ovf_ri' dlen' m' hpi' hdi' hdl' hdok' hd0' hp' hte_ge' hte' hun' huf'
+                      hoom' hno' hyes' hm'
+                    fid_hsteps
+                    exact hJ_ovf _ m' ⟨sem', dlen', hpi', hdi', hdl', hdok',
+                      fun h0 => (hd0' h0).trans (hd0_sem h0),
+                      hp', hte_ge', hte', hun', huf', hoom', hno', hyes', hm'⟩
+                · have hov_f_eq : ovf_o = false := by revert hc; cases ovf_o <;> simp
+                  have ⟨h0, h1, hcs⟩ := hov_f hov_f_eq
+                  exact hBo _ mo ⟨sem_o, dlen_o, hpi_o, hdi_o, hdl_o, hdok_o, hd0_o,
+                    hte_o, hun_o, huf_o, h0, h1,
+                    hcs.elim Or.inl (fun h => Or.inr (Or.inl h)), hmo⟩
+              · intro Bo Lo hBo hLo
+                fid_hsteps
+                have hsz_trl : ∀ (trl : List (BitVec 32)) (htrl : trl = sem.core.trl) pf1 pf2,
+                    (sem.core.wvec[((BitVec.setWidth 64
+                        (trl[prop_v.toNat]'pf1 ^^^ (1 : BitVec 32))
+                      <<< (1 : Nat)) + (1 : BitVec 64)).toNat]'pf2).setWidth 64 =
+                    BitVec.ofNat 64 (fullWatchSizeCore s_base.core not_lit.toNat) := by
+                  intro trl htrl pf1 pf2
+                  have h1 : trl[prop_v.toNat]'pf1 = lit := by
+                    subst htrl
+                    exact (fc_getElem_eq_of_idx rfl pf1 hp_sem_lt_trl).trans
+                      (by simp only [lit, fc_getElem_trl, sem_d])
+                  have hidx := m7_shl1_add1_eq_of_trl rfl pf1 pf1 h1
+                  have hget : (sem.core.wvec[((BitVec.setWidth 64
+                      (trl[prop_v.toNat]'pf1 ^^^ (1 : BitVec 32)) <<< (1 : Nat)) +
+                      (1 : BitVec 64)).toNat]'pf2).setWidth 64 =
+                      (sem.core.wvec[((not_lit.setWidth 64 <<< (1 : Nat)) + 1#64).toNat]'
+                        hnl64_1_lt_wv0).setWidth 64 := by
+                    congr 1; exact fc_getElem_eq_of_idx (hidx.trans hnl64_1_idx.symm) pf2
+                      hnl64_1_lt_wv0
+                  rw [hget]; apply BitVec.eq_of_toNat_eq
+                  rw [hsz0_nat, m7_bv64_ofNat_toNat_lt (by
+                    have := hpi0.end_lt_wcap hnot_lt; omega)]
+                have hoff_trl : ∀ (trl : List (BitVec 32)) (htrl : trl = sem.core.trl) pf1 pf2,
+                    (sem.core.wvec[(BitVec.setWidth 64 (trl[prop_v.toNat]'pf1 ^^^ (1 : BitVec 32))
+                      <<< (1 : Nat)).toNat]'pf2).setWidth 64 =
+                    BitVec.ofNat 64 (fullWatchOffCore s_base.core not_lit.toNat) := by
+                  intro trl htrl pf1 pf2
+                  have h1 : trl[prop_v.toNat]'pf1 = lit := by
+                    subst htrl
+                    exact (fc_getElem_eq_of_idx rfl pf1 hp_sem_lt_trl).trans
+                      (by simp only [lit, fc_getElem_trl, sem_d])
+                  have hidx := m7_shl1_eq_of_trl rfl pf1 pf1 h1
+                  have hget : (sem.core.wvec[(BitVec.setWidth 64
+                      (trl[prop_v.toNat]'pf1 ^^^ (1 : BitVec 32)) <<< (1 : Nat)).toNat]'
+                      pf2).setWidth 64 =
+                      (sem.core.wvec[(not_lit.setWidth 64 <<< (1 : Nat)).toNat]'
+                        hnl64_lt_wv0).setWidth 64 := by
+                    congr 1; exact fc_getElem_eq_of_idx (hidx.trans hnl64_idx.symm) pf2
+                      hnl64_lt_wv0
+                  rw [hget]; apply BitVec.eq_of_toNat_eq
+                  rw [hoff0_nat, m7_bv64_ofNat_toNat_lt (by
+                    have := hpi0.end_lt_wcap hnot_lt; omega)]
+                have hoff0_lt64 : fullWatchOffCore s_base.core not_lit.toNat < 2 ^ 64 :=
+                  Nat.lt_of_le_of_lt (Nat.le_add_right _ _) hend0_lt64
+                have hsz0_lt64 : fullWatchSizeCore s_base.core not_lit.toNat < 2 ^ 64 :=
+                  Nat.lt_of_le_of_lt (Nat.le_add_left _ _) hend0_lt64
+                have hof0_eq := m7_bv64_ofNat_toNat_lt hoff0_lt64
+                have hsz0_eq := m7_bv64_ofNat_toNat_lt hsz0_lt64
+                have hadd0_eq : (BitVec.ofNat 64 (fullWatchOffCore s_base.core not_lit.toNat) +
+                    BitVec.ofNat 64 (fullWatchSizeCore s_base.core not_lit.toNat)).toNat =
+                    fullWatchOffCore s_base.core not_lit.toNat +
+                    fullWatchSizeCore s_base.core not_lit.toNat := by
+                  rw [BitVec.toNat_add, hof0_eq, hsz0_eq, Nat.mod_eq_of_lt hend0_lt64]
+                simp only [fastPropMem_wvec]
+                refine hLo (fullWatchSizeCore s_base.core not_lit.toNat + 1) _ ml ?_
+                refine ⟨s_base, 0, ?_, ?_, rfl, Nat.zero_le _,
+                  fun _ h => absurd h (Nat.not_lt_zero _), hd0_sem,
+                  htend_eq.symm, hunass_eq.symm, hunfl_eq.symm,
+                  fun _ => ⟨rfl, hoom_o, hct_o⟩,
+                  fun h => absurd h (by decide), hm_base⟩
+                · simp only [fastPropMem_trl]
+                  erw [hoff_trl sem.core.trl rfl _ _, hsz_trl sem.core.trl rfl _ _]
+                  rw [hadd0_eq, hof0_eq]
+                  simp only [↓reduceIte]
+                  exact congrArg (· + 1)
+                    (Nat.add_sub_cancel_left (fullWatchOffCore s_base.core not_lit.toNat)
+                      (fullWatchSizeCore s_base.core not_lit.toNat)).symm
+                · simp only [fastPropMem_trl]
+                  erw [hoff_trl sem.core.trl rfl _ _, hsz_trl sem.core.trl rfl _ _]
+                  rw [hof0_eq, hadd0_eq]
+                  exact hpi0
         · have hpe_o : sem.core.propagated = sem.core.trail_end := by
             have hh : tend_v.toNat ≤ prop_v.toNat := Nat.le_of_not_lt hc
             rw [← htend_eq, ← hprop_eq] at hh
