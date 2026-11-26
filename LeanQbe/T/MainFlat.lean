@@ -136,16 +136,31 @@ def loopRotateFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs)
   if plan.hasRot then reifyFunc (Func.loopRotateWithPlan plan (denoteFunc (as := as) tf))
   else tf
 
-/-! ## 2. Remaining PHOAS Bridges (`addrRangeOpt`, `condThreadLateOpt`, `tailDup`) -/
+/-! ## 2. `TFlat`-Gated Bridges (`addrRangeOpt`, `condThreadLateOpt`, `tailDup`) -/
 
+/-- `TFlat`-gated `addrRangeOpt` bypassing PHOAS whenever no candidate sites exist. -/
 def addrRangeOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  reifyFunc (Func.addrRangeOpt (denoteFunc (as := as) tf))
+  if (AddrRangeOpt.buildLoopTree false tf).2 then
+    reifyFunc (Func.addrRangeOpt (denoteFunc (as := as) tf))
+  else tf
 
+/-- `TFlat`-gated `condThreadPass` bypassing PHOAS whenever `buildCTPlan` finds no changes. -/
+def condThreadPassFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
+  let (st, _) := CondThreadOpt.collectStats 0 tf
+  let plan := CondThreadOpt.buildCTPlan [] tf st
+  if plan.hasChanges then reifyFunc (Func.condThreadWithPlan plan (denoteFunc (as := as) tf))
+  else tf
+
+/-- `condThreadLateOpt` bridge (`pathCondOpt` + `TFlat`-gated `condThreadPassFlat`). -/
 def condThreadLateOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  reifyFunc (Func.condThreadLateOpt (denoteFunc (as := as) tf))
+  condThreadPassFlat as (reifyFunc (Func.pathCondOpt (denoteFunc (as := as) tf)))
 
-def tailDupFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  reifyFunc (Func.tailDup (denoteFunc (as := as) tf))
+/-- `TFlat`-gated `tailDup` bypassing PHOAS whenever `TailDup.buildPlan` finds no changes. -/
+def tailDupFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs)
+    (cfg : TailDup.TailDupConfig := {}) : TFlat rs :=
+  let (_, info) := TailDup.buildPlan cfg 0 tf
+  if info.changed then reifyFunc (Func.tailDup (denoteFunc (as := as) tf) cfg)
+  else tf
 
 /-! ## 3. End-to-End `earlyOptFlat`, `midStageFlat`, `compileFlatFn`, `compileModuleFlat` -/
 
