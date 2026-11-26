@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.Main
 public import LeanQbe.T.DebugAsmCommon
 public import LeanQbe.T.Arm64.Frame
+public import LeanQbe.T.Arm64.PrintAlign
 public import Kraken.AArch64.Print
 import Std.Data.HashSet
 
@@ -222,7 +223,8 @@ private def armRestoreChunks : Nat → List Reg → List (List Reg × List Direc
       armRestoreChunks (i + 2) rs
   | i, r :: rs => ([r], armSlotLd r i) :: armRestoreChunks (i + 1) rs
 
-private def armCfg (fn : Sym) (nonLocal : HashSet Sym) : DebugAsmCfg Directive Reg where
+private def armCfg (fn : Sym) (nonLocal : HashSet Sym) (loopHdrs : HashSet Sym)
+    (loopAlign : Bool) : DebugAsmCfg Directive Reg where
   commentPfx := "//"; p2align? := some "\t.p2align 2"; emitLtorg := true
   cfaDesc sz := s!"sp+{sz}"; frameSize := armFrameSize; cfaBase sz := sz
   proSteps fn ns sz :=
@@ -241,26 +243,31 @@ private def armCfg (fn : Sym) (nonLocal : HashSet Sym) : DebugAsmCfg Directive R
      (emitClean (armAddSpIns sz), ["\t.cfi_def_cfa_offset 0"])]
   isTailDir := isTailDir fn nonLocal; printDir d := Print.directive (scrubDir fn nonLocal d)
   cfiReg := cfiReg
+  preBodyDir d := match d with
+    | .label l => if loopAlign && loopHdrs.contains l then some loopAlignDirective else none
+    | _ => none
 
 /-- Emit ELF + DWARF CFI + `.L`-scrubbed AAPCS64 assembly from compiled `fs` and `code`.
 When `hints?` is supplied, exact `(nslots, saved)` values are enforced against `code`; otherwise
 they are inferred from prologue `str x30` + `saveCs` and cross-checked across all exit tails. -/
 def emitArm64DebugAsmChecked (fs : List Fn) (code : List Directive)
     (hints? : Option (List Arm64Hints) := none) (exits : List Sym := [])
-    (comments : Bool := false) : Except String String :=
+    (comments : Bool := false) (loopAlign : Bool := true) : Except String String :=
   let pro0 := emitClean (armSubSpIns (armFrameSize 0)) ++ emitClean (armStSpXRegIns .X30 0)
   emitDebugAsmChecked dirLabel? Print.directive
     (fun fn body h => fnInfoOfHints armFrame.leafZeroFrame pro0 isNonLeafOrFrameDir
       s!"function '{fn}': Arm64 prologue mismatch (totalSlots=0)" h.nslots h.saved body)
     inferFnFrame (fun fn info nonLocal body out =>
-      emitFnWithCfi (armCfg fn nonLocal) fn info comments body out)
+      let loopHdrs : HashSet Sym :=
+        if loopAlign then (detectLoopHeaders body).foldl (fun s l => s.insert l) {} else {}
+      emitFnWithCfi (armCfg fn nonLocal loopHdrs loopAlign) fn info comments body out)
     fs code hints? exits
 
 /-- Infallible wrapper around `emitArm64DebugAsmChecked` for CLI assembly emission. -/
 def emitArm64DebugAsm (fs : List Fn) (code : List Directive)
     (hints? : Option (List Arm64Hints) := none) (exits : List Sym := [])
-    (comments : Bool := false) : String :=
-  match emitArm64DebugAsmChecked fs code hints? exits comments with
+    (comments : Bool := false) (loopAlign : Bool := true) : String :=
+  match emitArm64DebugAsmChecked fs code hints? exits comments loopAlign with
   | .ok s => s | .error e => panic! s!"emitArm64DebugAsm: {e}"
 
 end LeanQbe.T.Arm64

@@ -81,7 +81,8 @@ theorem DScope_makeLabJs {fwd : Trie Nat} {G : VCtx} :
     ∀ (sig : List (List Ty)) (lid : Nat) {D : Ctx Cont LNat},
     DScope lid D →
     DScope (lid + sig.length)
-      (Tup.zip (makeLabJs T host hints E fn s₀ ra n nX Rf Q X fwd G sig lid) (Tup.levels sig lid) ++ D)
+      (Tup.zip (makeLabJs T host hints E fn s₀ ra n nX Rf Q X fwd G sig lid)
+        (Tup.levels sig lid) ++ D)
   | [], lid, D, hD => by simpa [makeLabJs, Tup.levels, Tup.zip] using hD
   | ts :: sig, lid, D, hD => by
     intro ts' J' ℓ hmem
@@ -109,10 +110,12 @@ theorem DOk_fwd_mono {fwd fwd' : Trie Nat} {nl : Nat} {G : VCtx} {D : Ctx Cont L
 
 theorem makeLabJs_dok {fwd : Trie Nat} {G : VCtx} :
     ∀ (sig : List (List Ty)) (lid : Nat) {D : Ctx Cont LNat},
-    (∀ i, i < sig.length → ∃ k : Nat, (T.mach.prog host)[k]? = some (T.frame.label (lname fn (tgtLab fwd (lid + i))))) →
+    (∀ i, i < sig.length → ∃ k : Nat,
+      (T.mach.prog host)[k]? = some (T.frame.label (lname fn (tgtLab fwd (lid + i))))) →
     DOk T host hints E fn s₀ ra n nX Rf Q X fwd G D →
     DOk T host hints E fn s₀ ra n nX Rf Q X fwd G
-      (Tup.zip (makeLabJs T host hints E fn s₀ ra n nX Rf Q X fwd G sig lid) (Tup.levels sig lid) ++ D)
+      (Tup.zip (makeLabJs T host hints E fn s₀ ra n nX Rf Q X fwd G sig lid)
+        (Tup.levels sig lid) ++ D)
   | [], _, _, _, hD => by simpa [makeLabJs, Tup.levels, Tup.zip] using hD
   | ts :: sig, lid, D, hl, hD => by
     intro ts' J ℓ hmem
@@ -135,7 +138,8 @@ theorem LocOk.frame {G : VCtx} {s s' : T.mach.MData} {σ : List (BitVec 64)} {sa
   | flag c => simp only [LocOk] at hok ⊢; rwa [hfr.2.2 c (hf c rfl)]
   | slot i w => exact hok
 
-theorem jumpLocOk_spec {nslots : Nat} {loc : T.toIsa.Loc} (h : jumpLocOk T.toIsa nslots loc = true) :
+theorem jumpLocOk_spec {nslots : Nat} {loc : T.toIsa.Loc}
+    (h : jumpLocOk T.toIsa nslots loc = true) :
     (∀ r, loc = .gpr r → r ∉ T.frame.scratch) ∧ (∀ vr, loc = .vec vr → vr ∉ T.vec.vecScratch) := by
   cases loc <;> simp_all [jumpLocOk]
 
@@ -367,9 +371,11 @@ def Motive (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints) (E : Ext) (
 
 /-- Jump to a join point `J = LabJ G' codeℓ entryℓ` after targets hold. -/
 theorem enter_labJ (hy : Hyps T host hints E Γ s₀ n nX bound) {G G' : VCtx} (hGs : ∀ p ∈ G', p ∈ G)
-    {ts : List Ty} {args₁ : Tup (Arg Val) ts} {args : Tup (Arg VNat) ts} (hargs : TRel (ArgRel G) args₁ args)
+    {ts : List Ty} {args₁ : Tup (Arg Val) ts} {args : Tup (Arg VNat) ts}
+    (hargs : TRel (ArgRel G) args₁ args)
     {codeℓ entryℓ k : Nat} {en : Entry T.Reg T.VReg T.Cond} {argTgts : List (SymArg × T.toIsa.Loc)}
-    (hen : hints.entry.find? entryℓ = some en) (hjt : jumpTargets T.toIsa args en.ploc = some argTgts)
+    (hen : hints.entry.find? entryℓ = some en)
+    (hjt : jumpTargets T.toIsa args en.ploc = some argTgts)
     {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
     (hok : ∀ p ∈ en.live ++ argTgts, LocOk T.mach G s σ p.1 p.2)
     (hI : Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E))
@@ -384,7 +390,8 @@ theorem enter_labJ (hy : Hyps T host hints E Γ s₀ n nX bound) {G G' : VCtx} (
   exact paramsOk_of_jumpTargets hargs hjt fun p hp => hok p (List.mem_append_right _ hp)
 
 theorem lowerBlocks_labelPos {I : Isa} {h : I.Hints} {E : Ext} {prog : List I.Directive} :
-    ∀ {sig : List (List Ty)} (bs : Blocks VNat LNat rs sig) (lid nv nl ip : Nat) (defs : Trie DefFact)
+    ∀ {sig : List (List Ty)} (bs : Blocks VNat LNat rs sig) (lid nv nl ip : Nat)
+      (defs : Trie DefFact)
       (vw : Trie SlotWidth) (ft : Option Nat) (fwd : Trie Nat) (fwdTgts : Trie Bool)
       (cb : List I.Directive) (nv' nl' ip' kb : Nat),
     lowerBlocks I h E fn bs lid nv nl ip defs vw ft fwd fwdTgts = .ok (cb, nv', nl', ip') →
@@ -399,7 +406,8 @@ theorem lowerBlocks_labelPos {I : Isa} {h : I.Hints} {E : Ext} {prog : List I.Di
     refine ⟨fun _ hi _ => by simp at hi, fun hft j hj => ?_⟩
     simp only [firstNonFwd] at hj
     simpa using hft j hj
-  | _ :: _, .cons b bs, lid, nv, nl, ip, defs, vw, ft, fwd, fwdTgts, cb, nv', nl', ip', kb, hl, hc => by
+  | _ :: _, .cons b bs, lid, nv, nl, ip, defs, vw, ft, fwd, fwdTgts, cb, nv', nl', ip', kb,
+      hl, hc => by
     simp only [lowerBlocks] at hl
     cases hfw : fwd.find? lid with
     | some fwdTgt =>
@@ -410,7 +418,8 @@ theorem lowerBlocks_labelPos {I : Isa} {h : I.Hints} {E : Ext} {prog : List I.Di
         rw [hbt] at hl; dsimp only at hl
         split at hl
         · simp at hl
-        · have ih := lowerBlocks_labelPos bs (lid + 1) _ _ _ defs vw ft fwd fwdTgts cb nv' nl' ip' kb hl hc
+        · have ih := lowerBlocks_labelPos bs (lid + 1) _ _ _ defs vw ft fwd fwdTgts cb nv' nl' ip'
+            kb hl hc
           refine ⟨fun i hi hni => ?_, fun hft j hj => ?_⟩
           · cases i with
             | zero => simp [hfw] at hni
@@ -449,7 +458,8 @@ private theorem wf_jump_right {G : VCtx} {D : Ctx Cont LNat}
       e₁ = .jump J₁ args₁ ∧ ⟨ts, J₁, j₂⟩ ∈ D ∧ TRel (ArgRel G) args₁ args₂ := by
   cases h with | jump hj hargs => exact ⟨_, _, rfl, hj, hargs⟩
 
-theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx} {D' : Ctx Cont LNat}
+theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound)
+    {G : VCtx} {D' : Ctx Cont LNat}
     {fwd : Trie Nat} {fwdTgts : Trie Bool}
     (hD' : DOk T host hints E fn s₀ ra n nX Rf Q X fwd G D') {nvg : Nat} {stg : SymState T.toIsa}
     {sg : T.mach.MData} {σg : List (BitVec 64)} (hAg : Agree T G nvg stg sg σg) :
@@ -539,7 +549,8 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VC
                               obtain ⟨⟨kj', hlabj'⟩, G'', hG'', rfl⟩ := hD' _ J₁ j'' hj1
                               have hlabF : (T.mach.prog host)[kj']? =
                                   some (T.frame.label (lname fn (tgtLab fwd lid))) := by
-                                have h1 : tgtLab fwd lid = fwdTgt := by simp [tgtLab, Trie.getD, hfw]
+                                have h1 : tgtLab fwd lid = fwdTgt := by
+                                  simp [tgtLab, Trie.getD, hfw]
                                 rw [h1, ← htgtEq]
                                 exact hlabj'
                               refine ⟨kj', en, hlabF, hen, fun s σ hlive hparams hI => ?_⟩
@@ -601,7 +612,8 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VC
                   have hlabsR := lowerBlocks_labelPos (prog := T.mach.prog host) bs₂ (lid + 1)
                     nv1 nl1 ip1 stg.defs stg.vecWidths ft fwd fwdTgts cr nv' nl' ip'
                     (kb + (T.frame.label (lname fn lid) :: cbb).length) hpr hrest
-                  refine ihb .here xs₁ (Tup.levels ts nv) (nv + ts.length) nl ip initSt _ fwd fwdTgts
+                  refine ihb .here xs₁ (Tup.levels ts nv) (nv + ts.length) nl ip initSt _ fwd
+                    fwdTgts
                     cbb nv1 nl1 ip1 (kb + 1) s σ m' hlb hcbb ?_ hFb hSc
                     (hD'.weaken fun _ hp => List.mem_append_right _ hp)
                     hA1 (hmd ▸ MemDefsOk.empty _ _ _) hI hwpb
@@ -611,11 +623,13 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VC
                         kb + (T.frame.label (lname fn lid) :: cbb ++ cr).length := by
                       simp only [List.length_cons, List.length_append]; omega
                     rw [heq1]; exact hft j' hj') j hj
-                  have heq2 : kb + 1 + cbb.length = kb + (T.frame.label (lname fn lid) :: cbb).length := by
+                  have heq2 : kb + 1 + cbb.length =
+                      kb + (T.frame.label (lname fn lid) :: cbb).length := by
                     simp only [List.length_cons]; omega
                   rwa [heq2]
                 · exact lowerBlocks_closed hy hD' hAg hbs' (fun i => ihb (.there i)) (lid + 1)
-                    nv1 nl1 ip1 ft cr nv' nl' ip' (kb + (T.frame.label (lname fn lid) :: cbb).length)
+                    nv1 nl1 ip1 ft cr nv' nl' ip'
+                    (kb + (T.frame.label (lname fn lid) :: cbb).length)
                     (Nat.le_trans hle hnv1) (hFb.mono hnl1) (hSc.mono hnl1) hpr hrest (by
                       have e : kb + (T.frame.label (lname fn lid) :: cbb).length + cr.length =
                           kb + (T.frame.label (lname fn lid) :: cbb ++ cr).length := by
@@ -677,7 +691,8 @@ theorem keep_of_frame_scratch {s s' : T.mach.MData} {v : List T.VReg} {f : FlagM
   fun r hr => hfr.1 r fun hm => by simp [isMoveGpr, hm] at hr
 
 
-theorem FT_congr {a b : Nat} {ft : Option Nat} (h : a = b) (hf : FT T host fn ft a) : FT T host fn ft b :=
+theorem FT_congr {a b : Nat} {ft : Option Nat} (h : a = b) (hf : FT T host fn ft a) :
+    FT T host fn ft b :=
   h ▸ hf
 
 theorem FT_none (k : Nat) : FT T host fn none k := fun _ h => nomatch h
@@ -704,7 +719,8 @@ theorem finishJnzBranch_some {I : Isa} {fn : Sym} {nl j : Nat} {b : Expr VNat LN
 theorem finishJnzBranch_none {I : Isa} {fn : Sym} {nl : Nat} {b : Expr VNat LNat rs}
     {br cft ctk cf : List I.Directive} {nv2 nl2 ip2 nv' nl' ip' : Nat}
     (h : finishJnzBranch I fn nl none b br cft ctk nv2 nl2 ip2 = .ok (cf, nv', nl', ip')) :
-    cf = br ++ (cft ++ ([I.frame.label (lname fn nl)] ++ ctk)) ∧ nv' = nv2 ∧ nl' = nl2 ∧ ip' = ip2 := by
+    cf = br ++ (cft ++ ([I.frame.label (lname fn nl)] ++ ctk)) ∧
+      nv' = nv2 ∧ nl' = nl2 ∧ ip' = ip2 := by
   simp only [finishJnzBranch, Except.ok.injEq, Prod.mk.injEq] at h
   exact ⟨by rw [← h.1]; simp [List.append_assoc], h.2.1.symm, h.2.2.1.symm, h.2.2.2.symm⟩
 
@@ -1190,7 +1206,8 @@ private theorem blockTrampoline_target {G : VCtx} {D : Ctx Cont LNat}
                   | some argTgts =>
                     rw [hjt] at hbt; dsimp only at hbt
                     split at hbt; · simp at hbt
-                    cases hsh : shuffle T.toIsa hints.nslots hints.saved st1 (en'.live ++ argTgts) with
+                    cases hsh : shuffle T.toIsa hints.nslots hints.saved st1
+                        (en'.live ++ argTgts) with
                     | none => simp [hsh] at hbt
                     | some p2 =>
                       rcases p2 with ⟨sc, _⟩
@@ -1333,7 +1350,8 @@ private theorem foldGroupFwds_inv {lo hi : Nat} {raw fwd : Trie Nat} {fwdTgts : 
           refine ⟨fun x y hx => ?_, fun x hx => ?_⟩
           · by_cases hxl : x = lid
             · subst hxl; rw [Trie.find?_insert_self] at hx; cases hx
-              exact ⟨hhi, by rw [Trie.find?_insert_ne _ _ hml]; exact hf_m, Trie.find?_insert_self _ _ _⟩
+              exact ⟨hhi, by rw [Trie.find?_insert_ne _ _ hml]; exact hf_m,
+                Trie.find?_insert_self _ _ _⟩
             · rw [Trie.find?_insert_ne _ _ hxl] at hx
               have ⟨hxhi, hfy, hfty⟩ := hFb.1 x y hx
               have hyl : y ≠ lid := fun he => hftL (he ▸ hfty)
@@ -1376,7 +1394,8 @@ private theorem foldGroupFwds_inv {lo hi : Nat} {raw fwd : Trie Nat} {fwdTgts : 
         exact foldGroupFwds_inv hFb0 xs f ft hFb hEq hRaw hRes
           (fun x hx => hXs x (List.mem_cons_of_mem _ hx)) hNd'.2
 
-private theorem resolveTrampoline_step_mem {G : VCtx} {D D' : Ctx Cont LNat} {raw fwd fwd' : Trie Nat}
+private theorem resolveTrampoline_step_mem {G : VCtx} {D D' : Ctx Cont LNat}
+    {raw fwd fwd' : Trie Nat}
     {lo hi : Nat} (hRaw : RawJumpOk D' lo hi raw)
     (hMem : ∀ ts' (J' : Cont ts') y, ⟨ts', J', y⟩ ∈ D' → y < lo →
       ∃ ts'', ∃ (J'' : Cont ts''), ⟨ts'', J'', y⟩ ∈ D)
@@ -1420,7 +1439,8 @@ private theorem resolveTrampoline_step_mem {G : VCtx} {D D' : Ctx Cont LNat} {ra
 theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx} {D : Ctx Cont LNat}
     {e₁ : Expr Val Cont rs} {e₂ : Expr VNat LNat rs} (hwf : Wf G D e₁ e₂) :
     Motive T host hints E Γ fn s₀ ra n nX Rf Q X G D e₁ e₂ := by
-  refine Wf.induct (motive := fun G D e₁ e₂ _ => Motive T host hints E Γ fn s₀ ra n nX Rf Q X G D e₁ e₂)
+  refine Wf.induct
+    (motive := fun G D e₁ e₂ _ => Motive T host hints E Γ fn s₀ ra n nX Rf Q X G D e₁ e₂)
     ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ hwf
   · -- let_
     intro G D ts op₁ op₂ k₁ k₂ hop _ ih nv nl ip st ft fwd fwdTgts c nv' nl' ip' k s σ m
@@ -1519,11 +1539,13 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
           cases htg : abiTargets T.toIsa args₂ argLocs with
           | none => simp [htg] at hl
           | some tgts =>
-            cases hsh : shuffle T.toIsa hints.nslots hints.saved st1 tgts with
+            cases hsh : shuffle T.toIsa hints.nslots hints.saved st1 tgts
+                (hints.deadFlags.getD ip false) with
             | none => simp [htg, hsh] at hl
             | some p2 =>
               obtain ⟨sc, st2⟩ := p2
-              cases hb : bindAbiParams T.toIsa retLocs nv (afterCallState T.toIsa hints.saved st2) with
+              cases hb :
+                  bindAbiParams T.toIsa retLocs nv (afterCallState T.toIsa hints.saved st2) with
               | none => simp [htg, hsh, hb] at hl
               | some st4 =>
                 simp only [htg, hsh, hb] at hl
@@ -1560,7 +1582,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
         simp only [wp, Arg.val] at hwp
         have hM1 : MemDefsOk G m nv st1.memDefs := stepPre_memDefs hp ▸ hM
         refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
-        have hft' : FT T host fn ft (k + mc.length + cb.length) := FT_congr (by simp [Nat.add_assoc]) hft
+        have hft' : FT T host fn ft (k + mc.length + cb.length) :=
+          FT_congr (by simp [Nat.add_assoc]) hft
         cases b
         · simp only [Bool.false_eq_true, ite_false] at hlb
           exact ihe nv nl (ip + 1) st1 ft fwd fwdTgts cb nv' nl' ip' _ s1 σ1 m
@@ -1680,7 +1703,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
           simp only [hp, hen, hjt] at hl
           split at hl; · simp at hl
           rename_i hlocs
-          cases hsh : shuffle T.toIsa hints.nslots hints.saved st1 (en.live ++ argTgts) with
+          cases hsh : shuffle T.toIsa hints.nslots hints.saved st1 (en.live ++ argTgts)
+              (hints.deadFlags.getD ip false) with
           | none => simp [hsh] at hl
           | some p2 =>
             obtain ⟨sc, st2⟩ := p2
@@ -1700,8 +1724,10 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
               have hl0 := hft (tgtLab fwd j₂) (by simpa using hfj)
               exact enter_labJ hy hGs hargs hen hjt hok hI2 (by simpa [Nat.add_assoc] using hl0) hwp
             · simp only [hfj, Bool.false_eq_true, ite_false] at hc3
-              refine T.gprSpec.jmp_spec hc3 (labelAddr_of_unique hy.unique hlabℓ) fun s3 hfr hm => ?_
-              refine enter_labJ hy hGs hargs hen hjt (fun p hp => ?_) (hI2.keep hm (keep_of_frame_scratch hfr))
+              refine T.gprSpec.jmp_spec hc3 (labelAddr_of_unique hy.unique hlabℓ)
+                fun s3 hfr hm => ?_
+              refine enter_labJ hy hGs hargs hen hjt (fun p hp => ?_)
+                (hI2.keep hm (keep_of_frame_scratch hfr))
                 hlabℓ hwp
               have hjl := jumpLocOk_spec (hlocs p hp)
               exact LocOk.frame hfr (hok p hp) hjl.1 (fun _ _ => List.not_mem_nil)
@@ -1721,7 +1747,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
         cases htg : abiTargets T.toIsa vs₂ retLocs with
         | none => simp [htg] at hl
         | some tgts =>
-          cases hsh : shuffle T.toIsa hints.nslots hints.saved st1 tgts with
+          cases hsh : shuffle T.toIsa hints.nslots hints.saved st1 tgts
+              (hints.deadFlags.getD ip false) with
           | none => simp [htg, hsh] at hl
           | some p2 =>
             obtain ⟨sc, st2⟩ := p2
@@ -1754,7 +1781,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
         cases htg : abiTargets T.toIsa args₂ argLocs with
         | none => simp [htg] at hl
         | some tgts =>
-          cases hsh : shuffle T.toIsa hints.nslots hints.saved st1 tgts with
+          cases hsh : shuffle T.toIsa hints.nslots hints.saved st1 tgts
+              (hints.deadFlags.getD ip false) with
           | none => simp [htg, hsh] at hl
           | some p2 =>
             obtain ⟨sc, st2⟩ := p2
@@ -1784,12 +1812,16 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
     let fwd' := fwdRes.1
     let tgts' := fwdRes.2
     have hnl1 : nl + sig.length ≤ nl1 := (lowerExpr_nv_le hlk).2
-    have hlabs := lowerBlocks_labelPos (prog := T.mach.prog host) (b₂ (Tup.levels sig nl)) nl nv1 nl1 ip1
+    have hlabs := lowerBlocks_labelPos (prog := T.mach.prog host) (b₂ (Tup.levels sig nl))
+      nl nv1 nl1 ip1
       st.defs st.vecWidths ft fwd' tgts' cb nv' nl' ip' _ hpb hcb
-    let D_pre := Tup.zip (makeLabJs T host hints E fn s₀ ra n nX Rf Q X fwd' G sig nl) (Tup.levels sig nl) ++ D
+    let D_pre :=
+      Tup.zip (makeLabJs T host hints E fn s₀ ra n nX Rf Q X fwd' G sig nl)
+        (Tup.levels sig nl) ++ D
     have hSc' : DScope (nl + sig.length) D_pre := DScope_makeLabJs sig nl hSc
     let hcnt := exprIpCount (k₂ (Tup.levels sig nl)) nv (nl + sig.length)
-    have hRawLids := collectRawFwds_aux (T := T) (hints := hints) (defs := st.defs) (vw := st.vecWidths)
+    have hRawLids := collectRawFwds_aux (T := T) (hints := hints) (defs := st.defs)
+      (vw := st.vecWidths)
       (fwd := fwd) (fwdTgts := fwdTgts)
       (hb (makeLabJs T host hints E fn s₀ ra n nX Rf Q X fwd' G sig nl) (Tup.levels sig nl))
       nl nl hcnt.1 hcnt.2.1 (ip + hcnt.2.2) (Nat.le_refl _) .empty []
@@ -1856,7 +1888,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
         exact absurd (hge sig nl h1) (Nat.not_le.mpr hylo)
       · exact ⟨ts', J', h2⟩
     have hLabSig : ∀ i, i < sig.length →
-        ∃ k : Nat, (T.mach.prog host)[k]? = some (T.frame.label (lname fn (tgtLab fwd' (nl + i)))) := by
+        ∃ k : Nat, (T.mach.prog host)[k]? =
+          some (T.frame.label (lname fn (tgtLab fwd' (nl + i)))) := by
       intro i hi
       cases hfx : fwd'.find? (nl + i) with
       | none =>
@@ -1880,7 +1913,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
           | some nxt =>
             rw [hrc] at hres
             obtain ⟨_, _, ts', J', hnxt⟩ := hRawLids.1 (nl + i) nxt hrc
-            have hstep := resolveTrampoline_step_mem (T := T) (host := host) (hints := hints) (E := E)
+            have hstep := resolveTrampoline_step_mem (T := T) (host := host) (hints := hints)
+              (E := E)
               (fn := fn) (s₀ := s₀) (ra := ra) (n := n) (nX := nX) (Rf := Rf) (Q := Q) (X := X)
               (G := G) hRawLids.1 hMem_pre hSc' hD
               (fun j hj hfj => hlabs.1 j (by omega) hfj)
@@ -1936,8 +1970,10 @@ theorem lowerFn_correct (T : Target) (host : T.mach.Host) (hints : T.toIsa.Hints
           subst hl
           intro args m Q X hspec s ra R hargs hra hspE hmem
           have hy : Hyps T host hints E Γ s n nX bound :=
-            { unique := hu, spE := hspE, frame_le := hfr, frame_bound := by omega, stack_bound := hn,
-              saved_cs := fun r hr => by simpa using hsv.2 r hr, saved_nodup := listNodup_nodup hsv.1,
+            { unique := hu, spE := hspE, frame_le := hfr, frame_bound := by omega,
+              stack_bound := hn,
+              saved_cs := fun r hr => by simpa using hsv.2 r hr,
+              saved_nodup := listNodup_nodup hsv.1,
               callees := hcal, exits := hex }
           have hmd0 : st0.memDefs = .empty := bindAbiParams_memDefs hb
           obtain ⟨hlab, hrest⟩ := List.IsInfixAt.cons hc

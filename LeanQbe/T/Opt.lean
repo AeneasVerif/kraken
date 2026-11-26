@@ -113,7 +113,7 @@ def hasSimpGroup (allowSmall : Bool) {rs : List Ty} : TFlat rs → Bool
     let tailJump := match k with | .jump 0 _ => true | _ => false
     let acyc := tflatJumps 0 b == 0
     let jc := tflatJumps 0 k
-    (acyc && (jc == 0 || tailJump || (allowSmall && jc == 1 && tflatSize b ≤ 16))) ||
+    (acyc && (jc == 0 || tailJump || jc == 1)) ||
       hasSimpGroup allowSmall b || hasSimpGroup allowSmall k
   | .group (sig := _) bodies k => hasSimpGroupB allowSmall bodies || hasSimpGroup allowSmall k
 

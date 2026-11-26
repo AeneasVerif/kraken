@@ -838,7 +838,7 @@ theorem lowerFlatExpr_eq (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List
         | none => rfl
         | some tgts =>
           dsimp only
-          cases shuffle I h.nslots h.saved p.2 tgts with
+          cases shuffle I h.nslots h.saved p.2 tgts (h.deadFlags.getD ip false) with
           | none => rfl
           | some q =>
             dsimp only

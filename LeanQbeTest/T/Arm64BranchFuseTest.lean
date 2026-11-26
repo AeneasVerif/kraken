@@ -254,8 +254,9 @@ meta def m4BcpEx : List (SigEntry × Nat) :=
 #guard chk Examples.LratBytes.lratBytesFns
 #guard countDirs (fun d => isCbzDir d || isCbnzDir d)
   (codeOf Examples.LratBytes.lratBytesFns) ≥ 20
+-- Rank-2 `SimplifyGroupPlan` splicing eliminates 1 raw `tbnz #0` bool branch (`25 -> 24`).
 #guard countDirs (fun d => isTbzDir d || isTbnzDir d)
-  (codeOf Examples.LratBytes.lratBytesFns) ≥ 25
+  (codeOf Examples.LratBytes.lratBytesFns) ≥ 24
 
 theorem lratBytes_compiled_check :
     checkCompile armTarget armLayout armLegalTarget [] [] 0

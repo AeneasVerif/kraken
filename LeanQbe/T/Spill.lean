@@ -476,15 +476,19 @@ def gatherAtB {I : Isa} (c : Ctx I) :
     let isLoop := c.loops.getD l false
     let blkLps := if c.cfg.backEdgeCoal then c.blkLoops.getD l [] else []
     let lps' := union blkLps (if isLoop then l :: lps else lps)
+    let extraDepth := lps'.length - lps.length
+    let pow10 : Nat → Nat
+      | 0 => 1 | 1 => 10 | 2 => 100 | 3 => 1000 | _ => 10000
     let mB :=
-      if isLoop then
-        let scaled := if lps.isEmpty then max (10 * mult) (10 * baseMult) else 10 * max mult 1
+      if Nat.ble 1 extraDepth then
+        let f := pow10 extraDepth
+        let scaled := if lps.isEmpty then max (f * mult) (f * baseMult) else f * max mult 1
         min scaled 160000
       else mult
     let lr' := lps'.foldl (fun a lh => union (c.loopReach.getD lh []) a) lr
     let dw := pvars.foldl (fun t p => t.insert p mB) acc.defWT
     let bp := pvars.foldl (fun t p => t.insert p true) acc.isBP
-    let pW := if isLoop then max (baseMult / 4) (mB / 4) else baseMult / 4
+    let pW := if !lps'.isEmpty then max (baseMult / 4) (mB / 4) else baseMult / 4
     gatherAtB c lps lr mult bs
       (gatherAt c (some l) lps' lr' mB .empty b { acc with
         weights := addWeight pW pvars acc.weights,
@@ -772,13 +776,15 @@ def tryEvictSplit {I : Isa} (c : Ctx I) (x : Nat) (xI peers pids : List Nat)
       | some badBlks0 =>
         let evBlks := badBlks0.foldl (fun acc b =>
           let acc := if natMem b acc then acc else b :: acc
-          if c.loops.getD b false then
-            (c.loopReach.getD b []).foldl (fun a b2 =>
+          let lhdrs :=
+            if c.cfg.backEdgeCoal then c.blkLoops.getD b []
+            else if c.loops.getD b false then [b] else []
+          lhdrs.foldl (fun acc lh =>
+            (union [lh] (c.loopReach.getD lh [])).foldl (fun a b2 =>
               if !natMem b2 a && natMem x (c.lTrie.getD b2 []) &&
                   !natMem x (c.blkUses.getD b2 []) &&
                   !(isBp && natMem x (c.bparams.getD b2 [])) then b2 :: a
-              else a) acc
-          else acc) []
+              else a) acc) acc) []
         let okEv := evBlks.all fun b =>
           !natMem x (c.blkUses.getD b []) && !(isBp && natMem x (c.bparams.getD b []))
         if !okEv then none
@@ -839,6 +845,67 @@ def tryEvictSplit {I : Isa} (c : Ctx I) (x : Nat) (xI peers pids : List Nat)
                   hT := s.hT.insert x (.gpr r), gPb := decPts pidsOut s.gPb,
                   bk := s.bk.insert x (bSlot, .w64, canEagerEv),
                   nslots := max s.nslots (bSlot + 1), forceEv := fe }
+
+/-- Split a spilled GPR variable `x` across multi-block inner loops where `x` is live-in but
+completely unused: evict `x` to a backup slot on loop entry and reload on loop exits so `x`
+keeps a GPR outside while freeing that GPR for hot inner-loop variables. -/
+def tryLoopBoundarySplit {I : Isa} (c : Ctx I) (x : Nat) (xI pids : List Nat)
+    (ptBlks : Array (Option Nat)) (forbBkSlots : List (Nat × Nat))
+    (prefs avoid : List (Nat × Nat)) (isBp isX : Bool) (dw cw wx slotCost : Nat)
+    (s : ColorSt I.Cond) : Option (ColorSt I.Cond) :=
+  if !(c.cfg.regEntry && c.cfg.sink && c.cfg.armEvict && c.cfg.armLoops && c.cfg.backEdgeCoal) ||
+      !Nat.ble (2 * baseMult) wx || (isX && !c.cfg.armX) then none
+  else
+    let unusedLoops := (c.varBlks.getD x []).filter fun b =>
+      c.loops.getD b false && natMem x (c.lTrie.getD b []) &&
+        let rch := union [b] (c.loopReach.getD b [])
+        rch.all fun b2 =>
+          !natMem x (c.blkUses.getD b2 []) && !(isBp && natMem x (c.bparams.getD b2 []))
+    if unusedLoops.isEmpty then none
+    else
+      let evBlks := unusedLoops.foldl (fun acc lh =>
+        union (union [lh] (c.loopReach.getD lh [])) acc) []
+      let inEvBlk (p : Nat) : Bool := match ptBlks[p]? with
+        | some (some b) => natMem b evBlks | _ => false
+      let pidsOut := pids.filter (!inEvBlk ·)
+      let callerOk := pidsOut.all fun p => Nat.ble 1 (s.gPb.getD p 0)
+      let wEnter := c.blkEdges.foldl (fun a (src, dst, w, _) =>
+        if !natMem src evBlks && natMem dst evBlks &&
+            natMem x (c.lTrie.getD dst []) then a + w else a) 0
+      let wExit := c.blkEdges.foldl (fun a (src, dst, w, args) =>
+        if natMem src evBlks && !natMem dst evBlks &&
+            (natMem x (c.lTrie.getD dst []) || natMem x args) then a + w else a) 0
+      let canEagerEv := !isBp && Nat.ble dw (wEnter + cw)
+      let evCost := (if canEagerEv then dw + cw else 2 * cw + wEnter) + min wEnter wExit
+      let nExit := c.blkEdges.foldl (fun a (src, dst, _, args) =>
+        if natMem src evBlks && !natMem dst evBlks &&
+            (natMem x (c.lTrie.getD dst []) || natMem x args) then a + 1 else a) 0
+      if !Nat.ble 1 wEnter || !Nat.ble nExit 4 ||
+          !Nat.ble (2 * evCost + baseMult) slotCost then none
+      else
+        let exitArgs := c.blkEdges.foldl (fun a (src, dst, _, args) =>
+          if natMem src evBlks && !natMem dst evBlks then args ++ a else a) []
+        let isInterior (y : Nat) : Bool :=
+          let ybs := c.varBlks.getD y []
+          !ybs.isEmpty && !natMem y exitArgs && ybs.all (natMem · evBlks)
+        let forbOut := xI.foldl (fun rs y =>
+          if isInterior y then rs
+          else match s.hT.getD y .none with
+            | .gpr r => if natMem r rs then rs else r :: rs | _ => rs) []
+        let cands :=
+          ((if callerOk then c.gAlloc else []) ++ s.usedCs).filter (!natMem · forbOut)
+        match bestRegPref prefs avoid cands with
+        | none => none
+        | some r =>
+          let isCaller := Nat.blt r c.nGpr
+          let bSlot := firstFreeSlotRange 1 forbBkSlots
+          let fe := evBlks.foldl (fun t b => triePush t b x) s.forceEv
+          some { s with
+            hT := s.hT.insert x (.gpr r),
+            gPb := if isCaller then decPts pidsOut s.gPb else s.gPb,
+            bk := s.bk.insert x (bSlot, .w64, canEagerEv),
+            nslots := max s.nslots (bSlot + 1),
+            forceEv := fe }
 
 /-- Color one variable `x` of weight `wx` and call-crossing weight `cw`. A call-crossing GPR
 prefers an already-saved CS register; if splitting beats both saving a new CS register and spilling
@@ -995,7 +1062,13 @@ def colorOne {I : Isa} (c : Ctx I) (interf : Trie (List Nat)) (gVp gCp vVp : Tri
               csThresh wx s
           match armEv? with
           | some sA => sA
-          | none => toSlotG
+          | none =>
+            let loopEv? := if !peers.isEmpty then none
+              else tryLoopBoundarySplit c x xI pids ptBlks forbBkSlots prefs avoid
+                (isBP.getD x false) isX dw cw wx slotCost s
+            match loopEv? with
+            | some sL => sL
+            | none => toSlotG
       let orSplitOrSlot : ColorSt I.Cond :=
         match (if isX && splitOk then pickReg caller else none) with
         | some r => inReg r
@@ -1291,19 +1364,24 @@ private abbrev RegionVarSet := List Nat × Trie Unit
 private def rvsAdd (s : RegionVarSet) (xs : List Nat) : RegionVarSet :=
   xs.foldl (fun (ks, t) x => if trieMem t x then (ks, t) else (x :: ks, t.insert x ())) s
 
-private def rvsUnion (a b : RegionVarSet) : RegionVarSet :=
-  if Nat.ble a.1.length b.1.length then rvsAdd b a.1 else rvsAdd a b.1
+private def rvsInter (a b : RegionVarSet) : RegionVarSet :=
+  let (small, bigM) := if Nat.ble a.1.length b.1.length then (a.1, b.2) else (b.1, a.2)
+  small.foldl (fun (ks, m) x =>
+    if trieMem bigM x then (x :: ks, m.insert x ()) else (ks, m)) ([], .empty)
 
 mutual
 /-- Linear bottom-up pass recording, at each `.let_` `ip`, the continuation live-ins reused
-within the same extended-basic-block region before `.call`/`.ret`/`.exit`/`.stop`. -/
+within the same straight-line region (or both arms of a `jnz`) by non-compare ops. -/
 private def buildRegionReused {I : Isa} (c : Ctx I) :
     Tree → Trie (List Nat) → RegionVarSet × Trie (List Nat)
   | .let_ _ ip _ _ op k, acc =>
     let ((ksK, mK), acc1) := buildRegionReused c k acc
     let both := k.lv.filter (trieMem mK ·)
     let acc2 := if both.isEmpty then acc1 else acc1.insert ip both
-    (rvsAdd (ksK, mK) (c.addrDeps.getD ip (opVarIds op)), acc2)
+    let rvs' :=
+      if isCmpBitsCode op.code then (ksK, mK)
+      else rvsAdd (ksK, mK) (c.addrDeps.getD ip (opVarIds op))
+    (rvs', acc2)
   | .load _ ip _ _ a k, acc =>
     let (vsK, acc1) := buildRegionReused c k acc
     (rvsAdd vsK (c.addrDeps.getD ip (argVarIds a)), acc1)
@@ -1317,7 +1395,7 @@ private def buildRegionReused {I : Isa} (c : Ctx I) :
   | .jnz _ _ cx _ t e, acc =>
     let (vsT, acc1) := buildRegionReused c t acc
     let (vsE, acc2) := buildRegionReused c e acc1
-    (rvsAdd (rvsUnion vsT vsE) [cx], acc2)
+    (rvsAdd (rvsInter vsT vsE) [cx], acc2)
   | .jump _ _ _ _ args, acc =>
     (rvsAdd ([], .empty) (tupVarIds args), acc)
   | .call _ _ _ _ _ _ args k, acc =>
@@ -1493,7 +1571,9 @@ def hints (I : Isa) (f : Fn)
   let (loops, loopReach) := loopBlocksScoped (blocksWithMin t1)
   let loopHdrs := bs0.filterMap fun (l, _, _) => if loops.getD l false then some l else none
   let blkLoops := loopHdrs.foldl (fun m lh =>
-    (lh :: loopReach.getD lh []).foldl (fun m b => triePush m b lh) m) (.empty : Trie (List Nat))
+    (union [lh] (loopReach.getD lh [])).foldl (fun m b =>
+      if natMem lh (m.getD b []) then m else triePush m b lh) m)
+    (.empty : Trie (List Nat))
   let csCost := 2 * baseMult
   let c : Ctx I := {
     allGpr := allGpr, allVec := allVec,

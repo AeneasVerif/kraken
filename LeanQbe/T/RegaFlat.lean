@@ -469,7 +469,7 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
           let args' := flatArgs vDepth vEnv args
           match abiTargets I args' argLocs with
           | none => .error "call: imm"
-          | some tgts => match shuffle I h.nslots h.saved st1 tgts with
+          | some tgts => match shuffle I h.nslots h.saved st1 tgts (h.deadFlags.getD ip false) with
             | none => .error "call: shuffle"
             | some (sc, st2) => match bindAbiParams I retLocs nv (afterCallState I h.saved st2) with
               | none => .error "call: ret bind"
@@ -526,7 +526,7 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
       | some argTgts =>
         let tgts := en.live ++ argTgts
         if !(tgts.all fun (_, loc) => jumpLocOk I h.nslots loc) then .error "jump: loc"
-        else match shuffle I h.nslots h.saved st1 tgts with
+        else match shuffle I h.nslots h.saved st1 tgts (h.deadFlags.getD ip false) with
           | none => .error "jump: shuffle"
           | some (sc, _) =>
             let jt := tgtLab fwd jLvl

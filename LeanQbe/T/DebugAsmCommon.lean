@@ -56,7 +56,12 @@ def scrubSym (fn : Sym) (nonLocal : HashSet Sym) (s : Sym) : Sym :=
   then ".L" ++ s else s
 
 def isLocalFnLabel (fn : Sym) (nonLocal : HashSet Sym) (s : Sym) : Bool :=
-  scrubSym fn nonLocal s != s
+  let dotPfx := ".L" ++ fn ++ "."
+  let dotTail := String.ofList (s.toList.drop dotPfx.length)
+  let alreadyLocal :=
+    !nonLocal.contains s && s.startsWith dotPfx && !dotTail.isEmpty &&
+      dotTail.toList.all Char.isDigit
+  alreadyLocal || scrubSym fn nonLocal s != s
 
 def dropPrefix? {α : Type} [BEq α] : List α → List α → Option (List α)
   | [], ys => some ys

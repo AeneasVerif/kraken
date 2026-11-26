@@ -208,57 +208,68 @@ theorem hasDotLChars_append_dotL : ∀ (xs ds : List Char),
     · rw [List.cons_append, List.cons_append, hasDotLChars_cons_ne h]
       exact ih
 
-private theorem hasDotLChars_tail {x : Char} {xs : List Char}
-    (h : hasDotLChars (x :: xs) = false) : hasDotLChars xs = false := by
-  cases xs with
-  | nil => rfl
-  | cons y zs =>
-    by_cases hxy : x = '.' ∧ y = 'L'
-    · rcases hxy with ⟨rfl, rfl⟩; simp [hasDotLChars] at h
-    · simpa [hasDotLChars_cons_ne hxy] using h
+private theorem natDigits_no_dot : ∀ fuel n acc, (∀ c ∈ acc, c ≠ '.') →
+    ∀ c ∈ Rega.natDigits fuel n acc, c ≠ '.'
+  | 0, _, _, hacc, c, hc => hacc c hc
+  | fuel + 1, n, acc, hacc, c, hc => by
+    have hd : ∀ d < 10, Char.ofNat (48 + d) ≠ '.' := by decide
+    have hacc' : ∀ x ∈ Char.ofNat (48 + n % 10) :: acc, x ≠ '.' := by
+      intro x hx
+      rcases List.mem_cons.mp hx with rfl | hx'
+      · exact hd _ (Nat.mod_lt _ (by decide))
+      · exact hacc x hx'
+    simp only [Rega.natDigits] at hc
+    split at hc
+    · exact natDigits_no_dot fuel (n / 10) _ hacc' c hc
+    · exact hacc' c hc
 
-private theorem dotL_nil_absurd {y : Char} {ys ds₁ ds₂ : List Char}
-    (hy : hasDotLChars (y :: ys) = false)
-    (h : '.' :: 'L' :: ds₁ = (y :: ys) ++ '.' :: 'L' :: ds₂) : False := by
-  simp only [List.cons_append, List.cons.injEq] at h
-  rcases ys with _ | ⟨z, zs⟩
-  · cases h.2
-  · simp only [List.cons_append, List.cons.injEq] at h
-    rcases h with ⟨rfl, rfl, _⟩; simp [hasDotLChars] at hy
-
-private theorem dotL_prefix_eq :
-    ∀ {xs ys ds₁ ds₂ : List Char},
-      hasDotLChars xs = false → hasDotLChars ys = false →
-      xs ++ '.' :: 'L' :: ds₁ = ys ++ '.' :: 'L' :: ds₂ → xs = ys
-  | [], [], _, _, _, _, _ => rfl
-  | [], _ :: _, _, _, _, hy, h => absurd h (dotL_nil_absurd hy)
-  | _ :: _, [], _, _, hx, _, h => absurd h.symm (dotL_nil_absurd hx)
-  | x :: xs, y :: ys, _, _, hx, hy, h => by
+private theorem dot_suffix_eq : ∀ (d₁ d₂ : List Char) {r₁ r₂ : List Char},
+    (∀ c ∈ d₁, c ≠ '.') → (∀ c ∈ d₂, c ≠ '.') →
+    d₁ ++ '.' :: r₁ = d₂ ++ '.' :: r₂ → r₁ = r₂
+  | [], [], _, _, _, _, h => by simp at h; exact h
+  | [], c :: _, _, _, _, h2, h => by
+    simp only [List.nil_append, List.cons_append, List.cons.injEq] at h
+    exact absurd h.1.symm (h2 c List.mem_cons_self)
+  | c :: _, [], _, _, h1, _, h => by
+    simp only [List.nil_append, List.cons_append, List.cons.injEq] at h
+    exact absurd h.1 (h1 c List.mem_cons_self)
+  | _ :: d₁, _ :: d₂, _, _, h1, h2, h => by
     simp only [List.cons_append, List.cons.injEq] at h
-    rcases h with ⟨rfl, htail⟩
-    exact congrArg (x :: ·) (dotL_prefix_eq (hasDotLChars_tail hx) (hasDotLChars_tail hy) htail)
+    exact dot_suffix_eq d₁ d₂ (fun c hc => h1 c (List.mem_cons_of_mem _ hc))
+      (fun c hc => h2 c (List.mem_cons_of_mem _ hc)) h.2
 
 private theorem lname_toList (fn : Sym) (a : Nat) :
     (Rega.lname fn a).toList =
-      fn.toList ++ '.' :: 'L' :: (String.ofList (Rega.natDigits (a + 1) a [])).toList := by
-  simp only [Rega.lname, String.toList_append, List.append_assoc]; rfl
+      '.' :: 'L' :: (fn.toList ++ '.' :: Rega.natDigits (a + 1) a []) := by
+  simp only [Rega.lname, String.toList_append, String.toList_ofList, List.append_assoc]; rfl
 
 /-- Generated local label `Rega.lname f a` can never equal any valid symbol `g` (`fnNameOk g`). -/
 theorem lname_ne_cross {f g : Sym} {a : Nat} (hg : fnNameOk g = true) :
     Rega.lname f a ≠ g := fun h => by
   have h1 := congrArg (fun s => hasDotLChars s.toList) h
-  rw [lname_toList, hasDotLChars_append_dotL] at h1
-  simp only [fnNameOk, Bool.not_eq_true'] at hg
+  rw [lname_toList] at h1
+  simp only [hasDotLChars, fnNameOk, Bool.not_eq_true'] at h1 hg
   rw [hg] at h1; cases h1
 
 /-- Cross-function injectivity of `Rega.lname` whenever both function names satisfy `fnNameOk`. -/
 theorem lname_inj_cross {f g : Sym} {a b : Nat}
-    (hf : fnNameOk f = true) (hg : fnNameOk g = true)
+    (_hf : fnNameOk f = true) (_hg : fnNameOk g = true)
     (h : Rega.lname f a = Rega.lname g b) : f = g ∧ a = b := by
-  simp only [fnNameOk, Bool.not_eq_true'] at hf hg
   have hl := congrArg String.toList h
   rw [lname_toList, lname_toList] at hl
-  have heq : f = g := String.ext (dotL_prefix_eq hf hg hl)
+  simp only [List.cons.injEq, true_and] at hl
+  have hrev := congrArg List.reverse hl
+  simp only [List.reverse_append, List.reverse_cons, List.append_assoc, List.cons_append,
+    List.nil_append] at hrev
+  have hd1 : ∀ c ∈ (Rega.natDigits (a + 1) a []).reverse, c ≠ '.' := fun c hc =>
+    natDigits_no_dot (a + 1) a [] (fun _ h => by cases h) c (List.mem_reverse.mp hc)
+  have hd2 : ∀ c ∈ (Rega.natDigits (b + 1) b []).reverse, c ≠ '.' := fun c hc =>
+    natDigits_no_dot (b + 1) b [] (fun _ h => by cases h) c (List.mem_reverse.mp hc)
+  have hfgRev : f.toList.reverse = g.toList.reverse := dot_suffix_eq _ _ hd1 hd2 hrev
+  have hfg : f.toList = g.toList := by
+    have := congrArg List.reverse hfgRev
+    simpa using this
+  have heq : f = g := String.ext hfg
   subst heq; exact ⟨rfl, Rega.lname_inj h⟩
 
 theorem stringsNodup_nodup {ss : List String} (h : stringsNodup ss = true) : ss.Nodup :=

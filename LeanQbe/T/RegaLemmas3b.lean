@@ -1278,7 +1278,8 @@ private theorem natDigits_fold : ∀ (fuel n : Nat) (acc : List Char), n < fuel 
 theorem lname_inj {fn : Sym} {a b : Nat} (h : lname fn a = lname fn b) : a = b := by
   have h' := congrArg String.toList h
   simp only [lname, String.toList_append, String.toList_ofList, List.append_assoc] at h'
-  have := congrArg (List.foldl digF 0) (List.append_cancel_left (List.append_cancel_left h'))
+  have h'' := List.append_cancel_left (List.append_cancel_left (List.append_cancel_left h'))
+  have := congrArg (List.foldl digF 0) h''
   rwa [natDigits_fold _ _ _ (Nat.lt_succ_self a), natDigits_fold _ _ _ (Nat.lt_succ_self b)] at this
 
 theorem lname_ne {fn : Sym} {a : Nat} : lname fn a ≠ fn := fun h => by
@@ -1490,8 +1491,8 @@ theorem stepPre_clean {h : I.Hints} {ip : Nat} {st st' : SymState I} {c : List I
     · exact execMoves_clean hcl h1
 
 theorem shuffle_clean {nslots : Nat} {saved : List I.Reg} {st st' : SymState I}
-    {tgts : List (SymArg × I.Loc)} {c : List I.Directive}
-    (hs : shuffle I nslots saved st tgts = some (c, st')) : NoLab I c := by
+    {tgts : List (SymArg × I.Loc)} {deadHint : Bool} {c : List I.Directive}
+    (hs : shuffle I nslots saved st tgts deadHint = some (c, st')) : NoLab I c := by
   simp only [shuffle] at hs
   split at hs
   · simp only [Option.some.injEq, Prod.mk.injEq] at hs; rw [← hs.1]; exact NoLab.nil
