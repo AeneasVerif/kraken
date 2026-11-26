@@ -29,6 +29,16 @@ private theorem sign_ofBitVec_toBitVec (s : UnpackedFloat.Sign) :
     UnpackedFloat.Sign.ofBitVec s.toBitVec = s := by
   cases s <;> decide
 
+private theorem sign_toBitVec_ofBitVec (b : BitVec 1) :
+    (UnpackedFloat.Sign.ofBitVec b).toBitVec = b := by
+  by_cases h : b = 0#1
+  · subst h; rfl
+  · have h1 : b = 1#1 := BitVec.eq_of_toNat_eq (by
+      have hlt : b.toNat < 2 := b.isLt
+      have h0 : b.toNat ≠ 0 := fun ht => h (BitVec.eq_of_toNat_eq ht)
+      change b.toNat = 1; omega)
+    subst h1; rfl
+
 private theorem unpackSign_packComponents_binary32 (s : UnpackedFloat.Sign)
     (e : BitVec 8) (m : BitVec 23) :
     UnpackedFloat.unpackSign (spec := .binary32) (UnpackedFloat.packComponents .binary32 s e m) =
@@ -38,9 +48,7 @@ private theorem unpackSign_packComponents_binary32 (s : UnpackedFloat.Sign)
   simp only [UnpackedFloat.unpackSign, UnpackedFloat.packComponents, BitVec.getLsbD_extractLsb',
     Nat.add_zero, show (0 : Nat) < 1 from by decide, decide_true, Bool.true_and,
     BitVec.getLsbD_append]
-  have h1 : ¬(23 + 8 < 23) := by decide
-  have h2 : ¬(23 + 8 - 23 < 8) := by decide
-  simp [h1, h2]
+  simp [show ¬(23 + 8 < 23) from by decide, show ¬(23 + 8 - 23 < 8) from by decide]
 
 private theorem unpackExponent_packComponents_binary32 (s : UnpackedFloat.Sign)
     (e : BitVec 8) (m : BitVec 23) :
@@ -50,9 +58,7 @@ private theorem unpackExponent_packComponents_binary32 (s : UnpackedFloat.Sign)
   have hi8 : i < 8 := hi
   simp only [UnpackedFloat.unpackExponent, UnpackedFloat.packComponents, BitVec.getLsbD_extractLsb',
     hi8, decide_true, Bool.true_and, BitVec.getLsbD_append]
-  have h1 : ¬(23 + i < 23) := by omega
-  have h3 : 23 + i - 23 = i := by omega
-  simp [h1, h3, hi8]
+  simp [show ¬(23 + i < 23) from by omega, show 23 + i - 23 = i from by omega, hi8]
 
 private theorem unpackMantissa_packComponents_binary32 (s : UnpackedFloat.Sign)
     (e : BitVec 8) (m : BitVec 23) :
@@ -63,20 +69,6 @@ private theorem unpackMantissa_packComponents_binary32 (s : UnpackedFloat.Sign)
   simp only [UnpackedFloat.unpackMantissa, UnpackedFloat.packComponents, BitVec.getLsbD_extractLsb',
     hi23, decide_true, Bool.true_and, BitVec.getLsbD_append]
   simp [hi23]
-
-private theorem unpack_notANumber_of_packedNaN :
-    UnpackedFloat.unpack .binary32 (UnpackedFloat.packedNaN .binary32) = .notANumber := by
-  simp [UnpackedFloat.unpack, UnpackedFloat.packedNaN]
-
-private theorem unpack_packedInfinity (s : UnpackedFloat.Sign) :
-    UnpackedFloat.unpack .binary32 (UnpackedFloat.packedInfinity .binary32 s) = .infinity s := by
-  simp [UnpackedFloat.unpack, UnpackedFloat.packedInfinity,
-    unpackSign_packComponents_binary32, sign_ofBitVec_toBitVec]
-
-private theorem unpack_packedZero (s : UnpackedFloat.Sign) :
-    UnpackedFloat.unpack .binary32 (UnpackedFloat.packedZero .binary32 s) = .zero s := by
-  simp [UnpackedFloat.unpack, UnpackedFloat.packedZero,
-    unpackSign_packComponents_binary32, sign_ofBitVec_toBitVec]
 
 private theorem unpack_not_isNaN_of_exp_ne {b : BitVec 32}
     (h : UnpackedFloat.unpackExponent (spec := .binary32) b ≠ -1#8) :
@@ -93,31 +85,29 @@ private theorem packComponents_unpack_eq (a : BitVec 32) :
       (UnpackedFloat.unpackMantissa (spec := .binary32) a) = a := by
   apply BitVec.eq_of_getLsbD_eq; intro i hi
   have hi32 : i < 32 := hi
-  simp only [UnpackedFloat.packComponents, BitVec.getLsbD_append,
+  simp only [UnpackedFloat.packComponents, BitVec.getLsbD_append, sign_toBitVec_ofBitVec,
     UnpackedFloat.unpackSign, UnpackedFloat.unpackExponent, UnpackedFloat.unpackMantissa,
     BitVec.getLsbD_extractLsb']
   by_cases hi23 : i < 23
   · simp [hi23]
   · by_cases hi31 : i < 31
-    · have hsub : i - 23 < 8 := by omega
-      have hadd : 23 + (i - 23) = i := by omega
-      simp [hi23, hsub, hadd]
-    · have hi31eq : i = 31 := by omega
-      subst hi31eq
-      simp only [show ¬(31 < 23) from by decide, show ¬(31 - 23 < 8) from by decide, decide_false,
-        Bool.false_and]
-      cases hbit : a.getLsbD 31
-      · have hzero : BitVec.extractLsb' (23 + 8) 1 a = 0#1 := by
-          apply BitVec.eq_of_getLsbD_eq; intro j hj
-          obtain rfl : j = 0 := by omega
-          simpa using hbit
-        simp [UnpackedFloat.Sign.ofBitVec, UnpackedFloat.Sign.toBitVec, hzero]
-      · have hone : BitVec.extractLsb' (23 + 8) 1 a = 1#1 := by
-          apply BitVec.eq_of_getLsbD_eq; intro j hj
-          obtain rfl : j = 0 := by omega
-          simpa using hbit
-        have hne : (1#1 : BitVec 1) ≠ 0#1 := by decide
-        simp [UnpackedFloat.Sign.ofBitVec, UnpackedFloat.Sign.toBitVec, hone, hne]
+    · simp [hi23, show i - 23 < 8 by omega, show 23 + (i - 23) = i by omega]
+    · obtain rfl : i = 31 := by omega
+      simp
+
+private theorem unpack_notANumber_of_packedNaN :
+    UnpackedFloat.unpack .binary32 (UnpackedFloat.packedNaN .binary32) = .notANumber := by
+  simp [UnpackedFloat.unpack, UnpackedFloat.packedNaN]
+
+private theorem unpack_packedInfinity (s : UnpackedFloat.Sign) :
+    UnpackedFloat.unpack .binary32 (UnpackedFloat.packedInfinity .binary32 s) = .infinity s := by
+  simp [UnpackedFloat.unpack, UnpackedFloat.packedInfinity,
+    unpackSign_packComponents_binary32, sign_ofBitVec_toBitVec]
+
+private theorem unpack_packedZero (s : UnpackedFloat.Sign) :
+    UnpackedFloat.unpack .binary32 (UnpackedFloat.packedZero .binary32 s) = .zero s := by
+  simp [UnpackedFloat.unpack, UnpackedFloat.packedZero,
+    unpackSign_packComponents_binary32, sign_ofBitVec_toBitVec]
 
 private theorem isNaN_unpack_pack_binary32 (u : UnpackedFloat) :
     (UnpackedFloat.unpack .binary32 (UnpackedFloat.pack .binary32 u)).isNaN = u.isNaN := by
@@ -128,7 +118,6 @@ private theorem isNaN_unpack_pack_binary32 (u : UnpackedFloat) :
   | finite s m e hm =>
     dsimp only [UnpackedFloat.pack]
     have h8 : Format.binary32.exponentBits = 8 := rfl
-    have h127 : Format.binary32.exponentBias = 127 := rfl
     have h23 : Format.binary32.mantissaBitsWithoutImplicit = 23 := rfl
     by_cases hinf : 2 ^ Format.binary32.exponentBits ≤
         (e + ↑Format.binary32.exponentBias + ↑Format.binary32.mantissaBitsWithoutImplicit).toNat + 1
@@ -139,13 +128,8 @@ private theorem isNaN_unpack_pack_binary32 (u : UnpackedFloat) :
         refine unpack_not_isNaN_of_exp_ne ?_
         rw [unpackExponent_packComponents_binary32]; intro h
         have hv := congrArg BitVec.toNat h
-        have hlt : (e + ↑Format.binary32.exponentBias +
-            ↑Format.binary32.mantissaBitsWithoutImplicit).toNat < 255 := by
-          rw [h8] at hinf; omega
-        have hlt23 : (e + ↑Format.binary32.exponentBias + ↑(23 : Nat)).toNat < 255 := by
-          change (e + ↑Format.binary32.exponentBias +
-            ↑Format.binary32.mantissaBitsWithoutImplicit).toNat < 255
-          exact hlt
+        have hlt : (e + ↑Format.binary32.exponentBias + ↑(23 : Nat)).toNat < 255 := by
+          rw [h8, h23] at hinf; omega
         have hmod : (e + ↑Format.binary32.exponentBias + ↑(23 : Nat)).toNat % 2 ^ 8 =
             (e + ↑Format.binary32.exponentBias + ↑(23 : Nat)).toNat :=
           Nat.mod_eq_of_lt (by omega)
@@ -164,49 +148,43 @@ private theorem pack_unpack_of_not_isNaN (a : BitVec 32)
   · by_cases hman0 : UnpackedFloat.unpackMantissa (spec := .binary32) a = 0#23
     · simp only [eq_true hexp1, eq_true hman0, ↓reduceIte, UnpackedFloat.pack,
         UnpackedFloat.packedInfinity]
-      have h := packComponents_unpack_eq a; rw [hexp1, hman0] at h; exact h
+      have h := packComponents_unpack_eq a; rwa [hexp1, hman0] at h
     · simp [hexp1, hman0, UnpackedFloat.isNaN] at hna
   · by_cases hexp0 : UnpackedFloat.unpackExponent (spec := .binary32) a = 0#8
     · by_cases hman0 : UnpackedFloat.unpackMantissa (spec := .binary32) a = 0#23
       · simp only [eq_false hexp1, eq_true hexp0, eq_true hman0, ↓reduceIte,
           UnpackedFloat.pack, UnpackedFloat.packedZero]
-        have h := packComponents_unpack_eq a; rw [hexp0, hman0] at h; exact h
+        have h := packComponents_unpack_eq a; rwa [hexp0, hman0] at h
       · simp only [eq_false hexp1, eq_true hexp0, ↓reduceIte, hman0, ↓reduceDIte,
           UnpackedFloat.pack]
-        have hlt_pow := (UnpackedFloat.unpackMantissa (spec := .binary32) a).isLt
         have hnz : (UnpackedFloat.unpackMantissa (spec := .binary32) a).toNat ≠ 0 :=
           fun h => hman0 (BitVec.eq_of_toNat_eq (by simpa using h))
         have hlog : (UnpackedFloat.unpackMantissa (spec := .binary32) a).toNat.log2 < 23 :=
-          (Nat.log2_lt hnz).mpr hlt_pow
+          (Nat.log2_lt hnz).mpr (UnpackedFloat.unpackMantissa (spec := .binary32) a).isLt
         have hbi : (↑(UnpackedFloat.unpackExponent (spec := .binary32) a).toNat -
             (↑Format.binary32.exponentBias + ↑(23 : Nat)) +
             1 + ↑Format.binary32.exponentBias + ↑(23 : Nat) : Int).toNat = 1 := by
-          change (↑(UnpackedFloat.unpackExponent (spec := .binary32) a).toNat -
-            (↑127 + ↑23) + 1 + ↑127 + ↑23 : Int).toNat = 1
           rw [hexp0]; decide
         have hne24 : ¬((UnpackedFloat.unpackMantissa (spec := .binary32) a).toNat.log2 + 1 =
             Format.binary32.mantissaBits) := by
-          rw [show Format.binary32.mantissaBits = 24 from rfl]; omega
+          change _ ≠ 24; omega
         rw [hbi]
         simp only [show ¬(2 ^ 8 ≤ (1 : Nat) + 1) from by decide, eq_false hne24, ↓reduceIte,
           show BitVec.ofNat Format.binary32.mantissaBitsWithoutImplicit
             (UnpackedFloat.unpackMantissa (spec := .binary32) a).toNat =
             UnpackedFloat.unpackMantissa (spec := .binary32) a from
               BitVec.eq_of_toNat_eq (by simp)]
-        have h := packComponents_unpack_eq a; rw [hexp0] at h; exact h
+        have h := packComponents_unpack_eq a; rwa [hexp0] at h
     · simp only [eq_false hexp1, eq_false hexp0, ↓reduceIte, UnpackedFloat.pack]
-      have h24 : Format.binary32.mantissaBits = 24 := rfl
       have hbi_eq : (↑(UnpackedFloat.unpackExponent (spec := .binary32) a).toNat -
           (↑Format.binary32.exponentBias + ↑(23 : Nat)) +
           ↑Format.binary32.exponentBias + ↑(23 : Nat) : Int).toNat =
           (UnpackedFloat.unpackExponent (spec := .binary32) a).toNat := by
         change (↑(UnpackedFloat.unpackExponent (spec := .binary32) a).toNat -
-          (↑127 + ↑23) + ↑127 + ↑23 : Int).toNat = _
-        omega
+          (↑127 + ↑23) + ↑127 + ↑23 : Int).toNat = _; omega
       have hexp_lt : (UnpackedFloat.unpackExponent (spec := .binary32) a).toNat < 255 := by
-        have hlt8 : (UnpackedFloat.unpackExponent (spec := .binary32) a).toNat < 2 ^ 8 := by
-          change _ < 2 ^ Format.binary32.exponentBits
-          exact (UnpackedFloat.unpackExponent (spec := .binary32) a).isLt
+        have hlt8 : (UnpackedFloat.unpackExponent (spec := .binary32) a).toNat < 2 ^ 8 :=
+          (UnpackedFloat.unpackExponent (spec := .binary32) a).isLt
         have hne : (UnpackedFloat.unpackExponent (spec := .binary32) a).toNat ≠ 255 :=
           fun h => hexp1 (BitVec.eq_of_toNat_eq (by simpa using h))
         omega
@@ -233,26 +211,18 @@ private theorem pack_unpack_of_not_isNaN (a : BitVec 32)
       have hlt24 :
           (1#1 ++ UnpackedFloat.unpackMantissa (spec := .binary32) a : BitVec 24).toNat < 2 ^ 24 :=
         (1#1 ++ UnpackedFloat.unpackMantissa (spec := .binary32) a : BitVec 24).isLt
-      have hm_ne :
-          (1#1 ++ UnpackedFloat.unpackMantissa (spec := .binary32) a : BitVec 24).toNat ≠ 0 := by
-        omega
-      have hlog_ge :
-          23 ≤ (1#1 ++ UnpackedFloat.unpackMantissa (spec := .binary32) a : BitVec 24).toNat.log2 :=
-        (Nat.le_log2 hm_ne).mpr hge
-      have hlog_lt :
-          (1#1 ++ UnpackedFloat.unpackMantissa (spec := .binary32) a : BitVec 24).toNat.log2 < 24 :=
-        (Nat.log2_lt hm_ne).mpr hlt24
+      have hlog_ge := (Nat.le_log2 (by omega)).mpr hge
+      have hlog_lt := (Nat.log2_lt (by omega)).mpr hlt24
       have heq24 :
           (1#1 ++ UnpackedFloat.unpackMantissa (spec := .binary32) a : BitVec 24).toNat.log2 + 1 =
-          Format.binary32.mantissaBits := by rw [h24]; omega
-      have hlt256 :
-          ¬(2 ^ 8 ≤ (UnpackedFloat.unpackExponent (spec := .binary32) a).toNat + 1) := by omega
+          Format.binary32.mantissaBits := by
+        change _ = 24; omega
       rw [hbi_eq]
-      simp only [eq_false hlt256, eq_true heq24, ↓reduceIte]
+      simp only [show ¬(2 ^ 8 ≤ (UnpackedFloat.unpackExponent (spec := .binary32) a).toNat + 1)
+          by omega, eq_true heq24, ↓reduceIte]
       have hexp_eq : BitVec.ofNat 8 (UnpackedFloat.unpackExponent (spec := .binary32) a).toNat =
           UnpackedFloat.unpackExponent (spec := .binary32) a := BitVec.eq_of_toNat_eq (by simp)
-      have hman_eq :
-          BitVec.ofNat 23
+      have hman_eq : BitVec.ofNat 23
             (1#1 ++ UnpackedFloat.unpackMantissa (spec := .binary32) a : BitVec 24).toNat =
           UnpackedFloat.unpackMantissa (spec := .binary32) a := by
         apply BitVec.eq_of_getLsbD_eq; intro i hi
@@ -284,12 +254,9 @@ private theorem isFloatNaN_quiet (a : BitVec 32) (h : isFloatNaN .s a = true) :
         simp [hman0, UnpackedFloat.isNaN] at h
     · simp [eq_false hexp0, UnpackedFloat.isNaN] at h
 
-private theorem isFloatNaN_default : isFloatNaN .s 0xffc00000#32 = true := by decide
-
 private theorem toFloat32_isNaN_eq (a : BitVec 32) :
     a.toFloat32.isNaN = isFloatNaN .s a := by
-  simp only [BitVec.toFloat32, Float32.isNaN, Float32.Model.isNaN,
-    Float32.Model.unpack]
+  simp only [BitVec.toFloat32, Float32.isNaN, Float32.Model.isNaN, Float32.Model.unpack]
   exact isNaN_unpack_pack_binary32 (UnpackedFloat.unpack .binary32 a)
 
 private theorem toFloat32_toModel_unpack (a : BitVec 32) (h : isFloatNaN .s a = false) :
@@ -312,21 +279,17 @@ private theorem sseBinOp_floatResultWp (op : Float32 → Float32 → Float32)
   dsimp only [sseBinOp]
   rw [toFloat32_isNaN_eq a, toFloat32_isNaN_eq b]
   by_cases ha : isFloatNaN .s a = true
-  · simp only [ha, ↓reduceIte]
-    have hna : unpackFloat .s a = .notANumber := by
-      dsimp only [isFloatNaN] at ha
-      cases h : unpackFloat .s a <;> simp_all [UnpackedFloat.isNaN]
+  · have hna : unpackFloat .s a = .notANumber := by
+      dsimp only [isFloatNaN] at ha; cases h : unpackFloat .s a <;> simp_all [UnpackedFloat.isNaN]
     rw [hna, hop_nanL] at hk
-    exact hk _ (isFloatNaN_quiet a ha)
-  · have ha' : isFloatNaN .s a = false := Bool.eq_false_iff.mpr ha
+    simpa [ha] using hk _ (isFloatNaN_quiet a ha)
+  · have ha' := Bool.eq_false_iff.mpr ha
     by_cases hb : isFloatNaN .s b = true
-    · simp only [ha', Bool.false_eq_true, ↓reduceIte, hb]
-      have hnb : unpackFloat .s b = .notANumber := by
-        dsimp only [isFloatNaN] at hb
-        cases h : unpackFloat .s b <;> simp_all [UnpackedFloat.isNaN]
+    · have hnb : unpackFloat .s b = .notANumber := by
+        dsimp only [isFloatNaN] at hb; cases h : unpackFloat .s b <;> simp_all [UnpackedFloat.isNaN]
       rw [hnb, hop_nanR] at hk
-      exact hk _ (isFloatNaN_quiet b hb)
-    · have hb' : isFloatNaN .s b = false := Bool.eq_false_iff.mpr hb
+      simpa [ha', hb] using hk _ (isFloatNaN_quiet b hb)
+    · have hb' := Bool.eq_false_iff.mpr hb
       simp only [ha', hb', Bool.false_eq_true, ↓reduceIte]
       have hpack : (op a.toFloat32 b.toFloat32).toBitVec =
           packFloat .s (mop .binary32 (unpackFloat .s a) (unpackFloat .s b)) := by
@@ -334,14 +297,12 @@ private theorem sseBinOp_floatResultWp (op : Float32 → Float32 → Float32)
       have hnan : (op a.toFloat32 b.toFloat32).isNaN =
           (mop .binary32 (unpackFloat .s a) (unpackFloat .s b)).isNaN := by
         simp only [Float32.isNaN, Float32.Model.isNaN, Float32.Model.unpack]
-        have heq : (op a.toFloat32 b.toFloat32).toModel.toBits.toBitVec =
-            (op a.toFloat32 b.toFloat32).toBitVec := rfl
-        rw [heq, hpack]
-        exact isNaN_unpack_pack_binary32 _
+        change UnpackedFloat.isNaN (UnpackedFloat.unpack .binary32 (op _ _).toBitVec) = _
+        rw [hpack]; exact isNaN_unpack_pack_binary32 _
       rw [hnan]
       dsimp only [floatResultWp] at hk
       by_cases hres : (mop .binary32 (unpackFloat .s a) (unpackFloat .s b)).isNaN = true
-      · simp only [hres, ↓reduceIte] at hk ⊢; exact hk _ isFloatNaN_default
+      · simp only [hres, ↓reduceIte] at hk ⊢; exact hk _ (by decide)
       · have hres' := Bool.eq_false_iff.mpr hres
         simp only [hres', Bool.false_eq_true, ↓reduceIte] at hk ⊢; rwa [hpack]
 
@@ -367,20 +328,15 @@ theorem x64IsF32Vec_size_pos {t : Ty} (h : x64IsF32Vec t = true) : 32 ≤ t.size
 
 theorem x64IsF32Vec_128_eq {t : Ty} (hf : x64IsF32Vec t = true) (hsz : t.size = 128) :
     t = v4f32 := by
-  cases t with
-  | bool | bits _ => simp [x64IsF32Vec] at hf
-  | float f => cases f <;> simp [x64IsF32Vec, Ty.size, Fmt.width] at hf hsz
-  | pair a b =>
-    simp only [x64IsF32Vec, Bool.and_eq_true, beq_iff_eq] at hf
-    rcases hf with ⟨rfl, ha⟩
-    have ha64 : a.size = 64 := by simp only [Ty.size] at hsz; omega
-    cases a with
-    | bool | bits _ => simp [x64IsF32Vec] at ha
-    | float f => cases f <;> simp [x64IsF32Vec, Ty.size, Fmt.width] at ha ha64
+  have f32_64 : ∀ u, x64IsF32Vec u = true → u.size = 64 → u = .pair (.float .s) (.float .s) := by
+    intro u hu husz
+    cases u with
+    | bool | bits _ => simp [x64IsF32Vec] at hu
+    | float f => cases f <;> simp [x64IsF32Vec, Ty.size, Fmt.width] at hu husz
     | pair c d =>
-      simp only [x64IsF32Vec, Bool.and_eq_true, beq_iff_eq] at ha
-      rcases ha with ⟨rfl, hc⟩
-      have hc32 : c.size = 32 := by simp only [Ty.size] at ha64; omega
+      simp only [x64IsF32Vec, Bool.and_eq_true, beq_iff_eq] at hu
+      rcases hu with ⟨rfl, hc⟩
+      have hc32 : c.size = 32 := by simp only [Ty.size] at husz; omega
       cases c with
       | bool | bits _ => simp [x64IsF32Vec] at hc
       | float f => cases f <;> simp [x64IsF32Vec, Ty.size] at hc hc32; rfl
@@ -388,6 +344,14 @@ theorem x64IsF32Vec_128_eq {t : Ty} (hf : x64IsF32Vec t = true) (hsz : t.size = 
         simp only [x64IsF32Vec, Bool.and_eq_true, beq_iff_eq] at hc
         rcases hc with ⟨rfl, he⟩
         have := x64IsF32Vec_size_pos he; simp only [Ty.size] at hc32; omega
+  cases t with
+  | bool | bits _ => simp [x64IsF32Vec] at hf
+  | float f => cases f <;> simp [x64IsF32Vec, Ty.size, Fmt.width] at hf hsz
+  | pair a b =>
+    simp only [x64IsF32Vec, Bool.and_eq_true, beq_iff_eq] at hf
+    rcases hf with ⟨rfl, ha⟩
+    have haeq := f32_64 a ha (by simp only [Ty.size] at hsz; omega)
+    rw [haeq]
 
 end FloatBridge
 
@@ -426,27 +390,21 @@ theorem x64IsVecBits_pos {t : Ty} (h : x64IsVecBits t = true) : 0 < t.size := by
   induction t with
   | bool => simp [x64IsVecBits, x64IsI32Vec, x64IsF32Vec] at h
   | bits n =>
-    simp only [x64IsVecBits, x64IsF32Vec, Bool.or_false] at h
     by_cases hn : n = 32
     · subst hn; decide
-    · simp [x64IsI32Vec, hn] at h
+    · simp [x64IsVecBits, x64IsI32Vec, x64IsF32Vec, hn] at h
   | float f => cases f <;> simp [x64IsVecBits, x64IsI32Vec, x64IsF32Vec] at h; decide
   | pair a b iha _ =>
-    rcases Bool.or_eq_true_iff.mp h with h1 | h1
-    · simp only [x64IsI32Vec, Bool.and_eq_true, beq_iff_eq] at h1
-      have := iha (Bool.or_eq_true_iff.mpr (Or.inl h1.2)); simp only [Ty.size]; omega
-    · simp only [x64IsF32Vec, Bool.and_eq_true, beq_iff_eq] at h1
-      have := iha (Bool.or_eq_true_iff.mpr (Or.inr h1.2)); simp only [Ty.size]; omega
+    rcases Bool.or_eq_true_iff.mp h with h1 | h1 <;>
+      simp only [x64IsI32Vec, x64IsF32Vec, Bool.and_eq_true, beq_iff_eq] at h1 <;>
+      have := iha (by simp [x64IsVecBits, h1.2]) <;> simp only [Ty.size] <;> omega
 
 theorem x64IsVecBits_pair_elim {a b : Ty} (h : x64IsVecBits (.pair a b) = true) :
     x64IsVecBits a = true ∧ x64IsVecBits b = true := by
-  rcases Bool.or_eq_true_iff.mp h with h1 | h1
-  · simp only [x64IsI32Vec, Bool.and_eq_true, beq_iff_eq] at h1
-    rcases h1 with ⟨rfl, ha⟩
-    exact ⟨Bool.or_eq_true_iff.mpr (Or.inl ha), Bool.or_eq_true_iff.mpr (Or.inl ha)⟩
-  · simp only [x64IsF32Vec, Bool.and_eq_true, beq_iff_eq] at h1
-    rcases h1 with ⟨rfl, ha⟩
-    exact ⟨Bool.or_eq_true_iff.mpr (Or.inr ha), Bool.or_eq_true_iff.mpr (Or.inr ha)⟩
+  rcases Bool.or_eq_true_iff.mp h with h1 | h1 <;>
+    simp only [x64IsI32Vec, x64IsF32Vec, Bool.and_eq_true, beq_iff_eq] at h1 <;>
+    obtain ⟨rfl, ha⟩ := h1 <;>
+    simp [x64IsVecBits, ha]
 
 theorem toBits_lift1_not {t : Ty} (h : x64IsVecBits t = true) (g : Bool → Bool) (x : Val t) :
     toBits t (lift1 (~~~ ·) g t x) = ~~~(toBits t x) := by
@@ -459,10 +417,9 @@ theorem toBits_lift1_not {t : Ty} (h : x64IsVecBits t = true) (g : Bool → Bool
     rw [iha ha x.1, ihb hb x.2]
     apply BitVec.eq_of_getLsbD_eq; intro i hi
     simp only [Ty.size] at hi
-    have hltb : ¬(i < a.size) → i - a.size < b.size := fun h => by omega
     simp only [BitVec.getLsbD_cast, BitVec.getLsbD_not, BitVec.getLsbD_append,
       hi, decide_true, Bool.true_and]
-    by_cases hlt : i < a.size <;> simp [hlt, hltb]
+    by_cases hlt : i < a.size <;> simp [hlt, show ¬(i < a.size) → i - a.size < b.size from by omega]
 
 theorem toBits_lift2_bitwise
     (op : ∀ {n}, BitVec n → BitVec n → BitVec n) (opb : Bool → Bool → Bool)
@@ -480,12 +437,9 @@ theorem toBits_lift2_bitwise
     rw [BitVec.getLsbD_cast, hop _ _ i hi, BitVec.getLsbD_cast, BitVec.getLsbD_cast,
       BitVec.getLsbD_append, BitVec.getLsbD_append, BitVec.getLsbD_append]
     by_cases hlt : i < a.size
-    · simp only [hlt, ↓reduceIte]; exact hop (toBits a x.1) (toBits a y.1) i hlt
+    · simp only [hlt, ↓reduceIte]; exact hop _ _ i hlt
     · simp only [hlt, ↓reduceIte]
-      exact hop (toBits b x.2) (toBits b y.2) (i - a.size) (by simp only [Ty.size] at hi; omega)
-
-private theorem ternaryLogic_eq_kraken {w : Nat} (a b c : BitVec w) (imm : BitVec 8) :
-    LeanQbe.T.ternaryLogic a b c imm = BitVec.ternaryLogic a b c imm := rfl
+      exact hop _ _ (i - a.size) (by simp only [Ty.size] at hi; omega)
 
 theorem toBits_lift3_ternlog {t : Ty} (h : x64IsVecBits t = true) (imm : BitVec 8)
     (g : Bool → Bool → Bool → Bool) (a b c : Val t) :
@@ -493,7 +447,7 @@ theorem toBits_lift3_ternlog {t : Ty} (h : x64IsVecBits t = true) (imm : BitVec 
       BitVec.ternaryLogic (toBits t a) (toBits t b) (toBits t c) imm := by
   induction t with
   | bool => simp [x64IsVecBits, x64IsI32Vec, x64IsF32Vec] at h
-  | bits _ | float _ => exact ternaryLogic_eq_kraken a b c imm
+  | bits _ | float _ => rfl
   | pair s u ihs ihu =>
     obtain ⟨hs, hu⟩ := x64IsVecBits_pair_elim h
     simp only [lift3, toBits]
@@ -502,36 +456,38 @@ theorem toBits_lift3_ternlog {t : Ty} (h : x64IsVecBits t = true) (imm : BitVec 
     rw [BitVec.getLsbD_cast, getLsbD_ternaryLogic _ _ _ imm i hi]
     simp only [BitVec.getLsbD_cast, BitVec.getLsbD_append]
     by_cases hlt : i < s.size
+    · simp only [hlt, ↓reduceIte]; exact getLsbD_ternaryLogic _ _ _ imm i hlt
     · simp only [hlt, ↓reduceIte]
-      exact getLsbD_ternaryLogic (toBits s a.1) (toBits s b.1) (toBits s c.1) imm i hlt
-    · simp only [hlt, ↓reduceIte]
-      exact getLsbD_ternaryLogic (toBits u a.2) (toBits u b.2) (toBits u c.2) imm (i - s.size)
-        (by simp only [Ty.size] at hi; omega)
+      exact getLsbD_ternaryLogic _ _ _ imm (i - s.size) (by simp only [Ty.size] at hi; omega)
+
+private theorem ternaryLogic_bin2 {w : Nat} (a b : BitVec w) (imm : BitVec 8) (rhs : BitVec w)
+    (h : ∀ i, i < w →
+      imm.getLsbD (4 * (a.getLsbD i).toNat + 2 * (b.getLsbD i).toNat + (b.getLsbD i).toNat) =
+        rhs.getLsbD i) :
+    BitVec.ternaryLogic a b b imm = rhs := by
+  apply BitVec.eq_of_getLsbD_eq; intro i hi
+  rw [getLsbD_ternaryLogic a b b imm i hi]; exact h i hi
 
 theorem ternaryLogic_0x33 {w : Nat} (a x : BitVec w) :
-    BitVec.ternaryLogic a x x 0x33#8 = ~~~x := by
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  rw [getLsbD_ternaryLogic a x x 0x33#8 i hi]
-  simp only [BitVec.getLsbD_not, hi, decide_true, Bool.true_and]
-  cases a.getLsbD i <;> cases x.getLsbD i <;> rfl
+    BitVec.ternaryLogic a x x 0x33#8 = ~~~x :=
+  ternaryLogic_bin2 a x 0x33#8 (~~~x) fun i hi => by
+    simp only [BitVec.getLsbD_not, hi, decide_true, Bool.true_and]
+    cases a.getLsbD i <;> cases x.getLsbD i <;> rfl
 
 theorem ternaryLogic_0xC0 {w : Nat} (a b : BitVec w) :
-    BitVec.ternaryLogic a b b 0xC0#8 = a &&& b := by
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  rw [getLsbD_ternaryLogic a b b 0xC0#8 i hi, BitVec.getLsbD_and]
-  cases a.getLsbD i <;> cases b.getLsbD i <;> rfl
+    BitVec.ternaryLogic a b b 0xC0#8 = a &&& b :=
+  ternaryLogic_bin2 a b 0xC0#8 (a &&& b) fun i _ => by
+    rw [BitVec.getLsbD_and]; cases a.getLsbD i <;> cases b.getLsbD i <;> rfl
 
 theorem ternaryLogic_0xFC {w : Nat} (a b : BitVec w) :
-    BitVec.ternaryLogic a b b 0xFC#8 = a ||| b := by
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  rw [getLsbD_ternaryLogic a b b 0xFC#8 i hi, BitVec.getLsbD_or]
-  cases a.getLsbD i <;> cases b.getLsbD i <;> rfl
+    BitVec.ternaryLogic a b b 0xFC#8 = a ||| b :=
+  ternaryLogic_bin2 a b 0xFC#8 (a ||| b) fun i _ => by
+    rw [BitVec.getLsbD_or]; cases a.getLsbD i <;> cases b.getLsbD i <;> rfl
 
 theorem ternaryLogic_0x3C {w : Nat} (a b : BitVec w) :
-    BitVec.ternaryLogic a b b 0x3C#8 = a ^^^ b := by
-  apply BitVec.eq_of_getLsbD_eq; intro i hi
-  rw [getLsbD_ternaryLogic a b b 0x3C#8 i hi, BitVec.getLsbD_xor]
-  cases a.getLsbD i <;> cases b.getLsbD i <;> rfl
+    BitVec.ternaryLogic a b b 0x3C#8 = a ^^^ b :=
+  ternaryLogic_bin2 a b 0x3C#8 (a ^^^ b) fun i _ => by
+    rw [BitVec.getLsbD_xor]; cases a.getLsbD i <;> cases b.getLsbD i <;> rfl
 
 theorem ternlog_keep_flip {w : Nat} (x bvB bvC : BitVec w) (imm : BitVec 8) :
     (x &&& (BitVec.ternaryLogic (BitVec.allOnes w) bvB bvC imm ^^^
@@ -548,6 +504,20 @@ theorem packedBinOp32_cast {p q : Nat} (f : BitVec 32 → BitVec 32 → BitVec 3
     BitVec.packedBinOp 32 f (a.cast hp) (b.cast hp) = (BitVec.packedBinOp 32 f a b).cast hp := by
   subst hp; rfl
 
+private theorem take32_append {w1 w2 : Nat} (h : 32 ≤ w1) (u2 : BitVec w2) (u1 : BitVec w1) :
+    (u2 ++ u1).take 32 = u1.take 32 :=
+  BitVec.eq_of_getLsbD_eq fun i hi => by
+    simp [take_eq_setWidth, BitVec.getLsbD_append, show i < 32 from hi, show i < w1 by omega]
+
+private theorem drop32_append {w1 w2 : Nat} (h : 32 ≤ w1) (u2 : BitVec w2) (u1 : BitVec w1) :
+    (u2 ++ u1).drop 32 = (u2 ++ u1.drop 32).cast (by omega) :=
+  BitVec.eq_of_getLsbD_eq fun i hi => by
+    simp only [BitVec.drop, BitVec.getLsbD_extractLsb', BitVec.getLsbD_cast, BitVec.getLsbD_append]
+    by_cases hlt : i < w1 - 32
+    · simp [hlt, show 32 + i < w1 by omega, show i < w2 + w1 - 32 from hi]
+    · simp [hlt, show ¬(32 + i < w1) by omega, show 32 + i - w1 = i - (w1 - 32) by omega,
+        show i < w2 + w1 - 32 from hi]
+
 private theorem packedBinOp32_append_mul {w2 : Nat} (f : BitVec 32 → BitVec 32 → BitVec 32)
     (k : Nat) : ∀ {w1 : Nat}, w1 = 32 * k →
     ∀ (u2 v2 : BitVec w2) (u1 v1 : BitVec w1),
@@ -555,45 +525,22 @@ private theorem packedBinOp32_append_mul {w2 : Nat} (f : BitVec 32 → BitVec 32
         BitVec.packedBinOp 32 f u2 v2 ++ BitVec.packedBinOp 32 f u1 v1 := by
   induction k with
   | zero =>
-    intro w1 hw1 u2 v2 u1 v1
-    subst hw1
+    intro w1 hw1 u2 v2 u1 v1; subst hw1
     apply BitVec.eq_of_getLsbD_eq; intro i hi
     have hu : u2 ++ u1 = u2 := BitVec.eq_of_getLsbD_eq fun j hj => by simp [show j < w2 from hj]
     have hv : v2 ++ v1 = v2 := BitVec.eq_of_getLsbD_eq fun j hj => by simp [show j < w2 from hj]
     simp only [Nat.mul_zero] at hi
-    rw [hu, hv, BitVec.getLsbD_append]
-    simp [show i < w2 from hi, show ¬(i < 0) by omega]
+    rw [hu, hv, BitVec.getLsbD_append]; simp [show i < w2 from hi]
   | succ k ih =>
     intro w1 hw1 u2 v2 u1 v1
-    have hgt1 : ¬(32 = 0 ∨ w2 + w1 < 32) := by omega
-    have hgt2 : ¬(32 = 0 ∨ w1 < 32) := by omega
+    have hw32 : 32 ≤ w1 := by omega
     rw [BitVec.packedBinOp.eq_1 32 f (u2 ++ u1) (v2 ++ v1), BitVec.packedBinOp.eq_1 32 f u1 v1]
-    simp only [hgt1, hgt2, ↓reduceDIte]
-    have htakeU : (u2 ++ u1).take 32 = u1.take 32 := BitVec.eq_of_getLsbD_eq fun i hi => by
-      simp [take_eq_setWidth, BitVec.getLsbD_append, show i < 32 from hi, show i < w1 by omega]
-    have htakeV : (v2 ++ v1).take 32 = v1.take 32 := BitVec.eq_of_getLsbD_eq fun i hi => by
-      simp [take_eq_setWidth, BitVec.getLsbD_append, show i < 32 from hi, show i < w1 by omega]
-    have hdropU : (u2 ++ u1).drop 32 = (u2 ++ u1.drop 32).cast (by omega) :=
-      BitVec.eq_of_getLsbD_eq fun i hi => by
-        simp only [BitVec.drop, BitVec.getLsbD_extractLsb', BitVec.getLsbD_cast,
-          BitVec.getLsbD_append]
-        by_cases h : i < w1 - 32
-        · simp [h, show 32 + i < w1 by omega, show i < w2 + w1 - 32 from hi]
-        · simp [h, show ¬(32 + i < w1) by omega, show 32 + i - w1 = i - (w1 - 32) by omega,
-            show i < w2 + w1 - 32 from hi]
-    have hdropV : (v2 ++ v1).drop 32 = (v2 ++ v1.drop 32).cast (by omega) :=
-      BitVec.eq_of_getLsbD_eq fun i hi => by
-        simp only [BitVec.drop, BitVec.getLsbD_extractLsb', BitVec.getLsbD_cast,
-          BitVec.getLsbD_append]
-        by_cases h : i < w1 - 32
-        · simp [h, show 32 + i < w1 by omega, show i < w2 + w1 - 32 from hi]
-        · simp [h, show ¬(32 + i < w1) by omega, show 32 + i - w1 = i - (w1 - 32) by omega,
-            show i < w2 + w1 - 32 from hi]
-    rw [htakeU, htakeV, hdropU, hdropV, packedBinOp32_cast,
+    simp only [show ¬(32 = 0 ∨ w2 + w1 < 32) by omega, show ¬(32 = 0 ∨ w1 < 32) by omega,
+      ↓reduceDIte, take32_append hw32, drop32_append hw32, packedBinOp32_cast,
       ih (by omega) u2 v2 (u1.drop 32) (v1.drop 32)]
     apply BitVec.eq_of_getLsbD_eq; intro i hi
-    rw [show ∀ {m n} (x : BitVec m) (y : BitVec n), x.append y = x ++ y from fun _ _ => rfl]
-    rw [BitVec.getLsbD_setWidth, BitVec.getLsbD_append]
+    rw [show ∀ {m n} (x : BitVec m) (y : BitVec n), x.append y = x ++ y from fun _ _ => rfl,
+      BitVec.getLsbD_setWidth, BitVec.getLsbD_append]
     simp only [show i < w2 + w1 from hi, decide_true, Bool.true_and]
     by_cases hi32 : i < 32
     · simp [hi32, show i < w1 by omega, BitVec.getLsbD_append]
@@ -605,9 +552,8 @@ private theorem packedBinOp32_append_mul {w2 : Nat} (f : BitVec 32 → BitVec 32
 private theorem packedBinOp32_append {w1 w2 : Nat} (f : BitVec 32 → BitVec 32 → BitVec 32)
     (h1 : 32 ∣ w1) (u2 v2 : BitVec w2) (u1 v1 : BitVec w1) :
     BitVec.packedBinOp 32 f (u2 ++ u1) (v2 ++ v1) =
-      BitVec.packedBinOp 32 f u2 v2 ++ BitVec.packedBinOp 32 f u1 v1 := by
-  obtain ⟨k, hk⟩ := h1
-  exact packedBinOp32_append_mul f k hk u2 v2 u1 v1
+      BitVec.packedBinOp 32 f u2 v2 ++ BitVec.packedBinOp 32 f u1 v1 :=
+  let ⟨k, hk⟩ := h1; packedBinOp32_append_mul f k hk u2 v2 u1 v1
 
 private theorem packedBinOp32_32 (f : BitVec 32 → BitVec 32 → BitVec 32) (a b : BitVec 32) :
     BitVec.packedBinOp 32 f a b = f a b := by
@@ -620,6 +566,14 @@ private theorem packedBinOp32_32 (f : BitVec 32 → BitVec 32 → BitVec 32) (a 
     BitVec.getLsbD_setWidth, BitVec.getLsbD_append]
   simp [show i < 32 from hi]
 
+private theorem ofBits_v4f32_pack (w0 w1 w2 w3 : BitVec 32) :
+    ofBits v4f32 ((w3 ++ w2) ++ (w1 ++ w0)) = ((w0, w1), (w2, w3)) := by
+  refine Prod.ext (Prod.ext ?_ ?_) (Prod.ext ?_ ?_) <;>
+  · apply BitVec.eq_of_getLsbD_eq; intro i hi
+    simp only [ofBits, Fmt.width, Ty.size, BitVec.getLsbD_extractLsb']
+    rw [BitVec.getLsbD_append]
+    grind
+
 theorem sseBinOp_v4f32_spec (op : Float32 → Float32 → Float32)
     (mop : Float.Model.Format → Float.Model.UnpackedFloat →
       Float.Model.UnpackedFloat → Float.Model.UnpackedFloat)
@@ -630,33 +584,14 @@ theorem sseBinOp_v4f32_spec (op : Float32 → Float32 → Float32)
     P (ofBits v4f32 (BitVec.packedBinOp 32 (sseBinOp op) (toBits v4f32 a) (toBits v4f32 b))) := by
   rcases a with ⟨⟨a0, a1⟩, ⟨a2, a3⟩⟩
   rcases b with ⟨⟨b0, b1⟩, ⟨b2, b3⟩⟩
-  have happ : ∀ x : Val v4f32, toBits v4f32 x = (x.2.2 ++ x.2.1) ++ (x.1.2 ++ x.1.1) := by
-    rintro ⟨⟨_, _⟩, ⟨_, _⟩⟩; rfl
   have hexpr : ofBits v4f32 (BitVec.packedBinOp 32 (sseBinOp op)
       (toBits v4f32 ((a0, a1), (a2, a3))) (toBits v4f32 ((b0, b1), (b2, b3)))) =
       ((sseBinOp op a0 b0, sseBinOp op a1 b1), (sseBinOp op a2 b2, sseBinOp op a3 b3)) := by
-    rw [happ, happ, packedBinOp32_append _ ⟨2, rfl⟩, packedBinOp32_append _ ⟨1, rfl⟩,
+    change ofBits v4f32 (BitVec.packedBinOp 32 (sseBinOp op)
+      ((a3 ++ a2) ++ (a1 ++ a0)) ((b3 ++ b2) ++ (b1 ++ b0))) = _
+    rw [packedBinOp32_append _ ⟨2, rfl⟩, packedBinOp32_append _ ⟨1, rfl⟩,
       packedBinOp32_append _ ⟨1, rfl⟩,
-      packedBinOp32_32, packedBinOp32_32, packedBinOp32_32, packedBinOp32_32]
-    refine Prod.ext (Prod.ext ?_ ?_) (Prod.ext ?_ ?_)
-    · apply BitVec.eq_of_getLsbD_eq; intro i hi; have hi32 : i < 32 := hi
-      simp only [ofBits, Fmt.width, Ty.size, BitVec.getLsbD_extractLsb']
-      rw [BitVec.getLsbD_append, BitVec.getLsbD_append]; simp [hi32, show i < 64 by omega]
-    · apply BitVec.eq_of_getLsbD_eq; intro i hi; have hi32 : i < 32 := hi
-      simp only [ofBits, Fmt.width, Ty.size, BitVec.getLsbD_extractLsb']
-      rw [BitVec.getLsbD_append, BitVec.getLsbD_append]
-      simp [hi32, show 32 + i < 64 by omega, show ¬(32 + i < 32) by omega]
-    · apply BitVec.eq_of_getLsbD_eq; intro i hi; have hi32 : i < 32 := hi
-      simp only [ofBits, Fmt.width, Ty.size, BitVec.getLsbD_extractLsb']
-      rw [BitVec.getLsbD_append]
-      simp [show ¬(64 + i < 64) by omega]
-      rw [BitVec.getLsbD_append]; simp [hi32, show i < 64 by omega]
-    · apply BitVec.eq_of_getLsbD_eq; intro i hi; have hi32 : i < 32 := hi
-      simp only [ofBits, Fmt.width, Ty.size, BitVec.getLsbD_extractLsb']
-      rw [BitVec.getLsbD_append]
-      simp [show ¬(64 + (32 + i) < 64) by omega]
-      rw [BitVec.getLsbD_append]
-      simp [hi32, show 32 + i < 64 by omega, show ¬(32 + i < 32) by omega]
+      packedBinOp32_32, packedBinOp32_32, packedBinOp32_32, packedBinOp32_32, ofBits_v4f32_pack]
   dsimp only [liftFloatRel2, Fmt.format] at hwp
   rw [hexpr]
   exact hlane a3 b3 _ (hlane a2 b2 _ (hlane a1 b1 _ (hlane a0 b0 _ hwp)))
@@ -676,18 +611,15 @@ theorem toBits_lift2_add {t : Ty} (ht : x64IsI32Vec t = true) (g : Bool → Bool
     have hdvd := x64IsI32Vec_dvd_32 hx
     simp only [lift2, toBits]
     rw [ihx hx a.1 b.1, ihy hx a.2 b.2, ← packedBinOp32_append (· + ·) hdvd]
-    apply BitVec.eq_of_getLsbD_eq; intro i hi
-    simp
+    apply BitVec.eq_of_getLsbD_eq; intro i hi; simp
 
 private theorem mapLanes32_32 (f : BitVec 32 → BitVec 32) (a : BitVec 32) :
     a.mapLanes 32 f = f a := by
   apply BitVec.eq_of_getLsbD_eq; intro i hi
   rw [BitVec.mapLanes, getLsbD_ofLanes _ (by decide) (by decide) i hi]
-  have hd : i / 32 = 0 := by omega
-  have hm : i % 32 = i := by omega
   have hl : a.lane 32 0 = a := by
     apply BitVec.eq_of_getLsbD_eq; intro j hj; simp [BitVec.lane, show j < 32 from hj]
-  simp [hd, hm, hl]
+  simp [show i / 32 = 0 by omega, show i % 32 = i by omega, hl]
 
 private theorem mapLanes32_append {w1 w2 : Nat} (f : BitVec 32 → BitVec 32)
     (h1 : 32 ∣ w1) (h2 : 32 ∣ w2) (u2 : BitVec w2) (u1 : BitVec w1) :
@@ -705,17 +637,29 @@ private theorem mapLanes32_append {w1 w2 : Nat} (f : BitVec 32 → BitVec 32)
     simp [hil, hlan]
   · have hdiv : k1 ≤ i / 32 :=
       (Nat.le_div_iff_mul_le (by decide : 0 < 32)).mpr (by rw [Nat.mul_comm, ← hk1]; omega)
-    have hsub : (i - w1) / 32 = i / 32 - k1 := by rw [hk1]; omega
-    have hmod : (i - w1) % 32 = i % 32 := by rw [hk1]; omega
-    have hilt2 : i - w1 < w2 := by omega
     dsimp only [BitVec.mapLanes]
-    rw [getLsbD_ofLanes _ (by decide) ⟨k2, hk2⟩ (i - w1) hilt2, hsub, hmod]
+    rw [getLsbD_ofLanes _ (by decide) ⟨k2, hk2⟩ (i - w1) (by omega),
+      show (i - w1) / 32 = i / 32 - k1 by rw [hk1]; omega,
+      show (i - w1) % 32 = i % 32 by rw [hk1]; omega]
     have hlan : (u2 ++ u1).lane 32 (i / 32) = u2.lane 32 (i / 32 - k1) := by
       apply BitVec.eq_of_getLsbD_eq; intro j hj
-      have hge1 : ¬(32 * (i / 32) + j < w1) := by rw [hk1]; omega
-      have heq1 : 32 * (i / 32) + j - w1 = 32 * (i / 32 - k1) + j := by rw [hk1]; omega
-      simp [BitVec.lane, BitVec.getLsbD_append, hge1, heq1]
+      simp [BitVec.lane, BitVec.getLsbD_append, show ¬(32 * (i / 32) + j < w1) by rw [hk1]; omega,
+        show 32 * (i / 32) + j - w1 = 32 * (i / 32 - k1) + j by rw [hk1]; omega]
     simp [hil, hlan]
+
+private theorem x64UniformI32Splat?_pair {x : Ty} {cb : Val (.pair x x)} {cnt : Nat}
+    (h : x64UniformI32Splat? (.pair x x) cb = some cnt) :
+    x64UniformI32Splat? x cb.1 = some cnt ∧ x64UniformI32Splat? x cb.2 = some cnt := by
+  dsimp only [x64UniformI32Splat?] at h
+  cases hx1 : x64UniformI32Splat? x cb.1 with
+  | none => simp [hx1] at h
+  | some c1 =>
+    cases hx2 : x64UniformI32Splat? x cb.2 with
+    | none => simp [hx1, hx2] at h
+    | some c2 =>
+      simp [hx1, hx2] at h
+      rcases h with ⟨rfl, rfl⟩
+      exact ⟨rfl, rfl⟩
 
 theorem toBits_lift2_splat32 (op : ∀ {n}, BitVec n → BitVec n → BitVec n)
     (f : Nat → BitVec 32 → BitVec 32) (cnt : Nat)
@@ -727,36 +671,18 @@ theorem toBits_lift2_splat32 (op : ∀ {n}, BitVec n → BitVec n → BitVec n)
   | bool | float _ => dsimp only [x64IsI32Vec] at ht; cases ht
   | bits n =>
     by_cases hn : n = 32
-    · subst hn
-      simp only [x64UniformI32Splat?, Option.some.injEq] at hsplat
-      dsimp only [toBits, lift2]
-      rw [mapLanes32_32 (f cnt) a]; exact hstep a cb hsplat
+    · subst hn; simp only [x64UniformI32Splat?, Option.some.injEq] at hsplat
+      dsimp only [toBits, lift2]; rw [mapLanes32_32 (f cnt) a]; exact hstep a cb hsplat
     · simp [x64IsI32Vec, hn] at ht
   | pair x y ihx ihy =>
-    dsimp only [x64IsI32Vec] at ht
-    simp only [Bool.and_eq_true, beq_iff_eq] at ht
+    dsimp only [x64IsI32Vec] at ht; simp only [Bool.and_eq_true, beq_iff_eq] at ht
     obtain ⟨rfl, hx⟩ := ht
-    dsimp only [x64UniformI32Splat?] at hsplat
-    cases hx1 : x64UniformI32Splat? x cb.1 with
-    | none => simp [hx1] at hsplat
-    | some c1 =>
-      cases hx2 : x64UniformI32Splat? x cb.2 with
-      | none => simp [hx1, hx2] at hsplat
-      | some c2 =>
-        dsimp only [Bind.bind, Option.bind] at hsplat
-        rw [hx1, hx2] at hsplat
-        dsimp only at hsplat
-        by_cases heq : (c1 == c2) = true
-        · simp only [heq, ↓reduceIte, Option.some.injEq] at hsplat
-          subst hsplat
-          have hx2' : x64UniformI32Splat? x cb.2 = some c1 := by
-            rw [← beq_iff_eq.mp heq] at hx2; exact hx2
-          have hdvd := x64IsI32Vec_dvd_32 hx
-          simp only [lift2, toBits]
-          rw [ihx hx a.1 cb.1 hx1, ihy hx a.2 cb.2 hx2']
-          apply BitVec.eq_of_getLsbD_eq; intro i hi
-          rw [BitVec.getLsbD_cast, ← mapLanes32_append (f c1) hdvd hdvd]; rfl
-        · simp [heq] at hsplat
+    obtain ⟨hs1, hs2⟩ := x64UniformI32Splat?_pair hsplat
+    have hdvd := x64IsI32Vec_dvd_32 hx
+    simp only [lift2, toBits]
+    rw [ihx hx a.1 cb.1 hs1, ihy hx a.2 cb.2 hs2]
+    apply BitVec.eq_of_getLsbD_eq; intro i hi
+    rw [BitVec.getLsbD_cast, ← mapLanes32_append (f cnt) hdvd hdvd]; rfl
 
 theorem x64UniformI32Splat?_lt32 {t : Ty} {cb : Val t} {cnt : Nat}
     (ht : x64IsI32Vec t = true) (h : x64UniformI32Splat? t cb = some cnt) : cnt < 32 := by
@@ -767,22 +693,9 @@ theorem x64UniformI32Splat?_lt32 {t : Ty} {cb : Val t} {cnt : Nat}
     · subst hn; simp only [x64UniformI32Splat?, Option.some.injEq] at h; omega
     · simp [x64IsI32Vec, hn] at ht
   | pair x y ihx _ =>
-    dsimp only [x64IsI32Vec] at ht
-    simp only [Bool.and_eq_true, beq_iff_eq] at ht
+    dsimp only [x64IsI32Vec] at ht; simp only [Bool.and_eq_true, beq_iff_eq] at ht
     obtain ⟨rfl, hx⟩ := ht
-    dsimp only [x64UniformI32Splat?] at h
-    cases hx1 : x64UniformI32Splat? x cb.1 with
-    | none => simp [hx1] at h
-    | some c1 =>
-      cases hx2 : x64UniformI32Splat? x cb.2 with
-      | none => simp [hx1, hx2] at h
-      | some c2 =>
-        dsimp only [Bind.bind, Option.bind] at h
-        rw [hx1, hx2] at h; dsimp only at h
-        by_cases heq : (c1 == c2) = true
-        · simp only [heq, ↓reduceIte, Option.some.injEq] at h
-          subst h; exact ihx hx hx1
-        · simp [heq] at h
+    exact ihx hx (x64UniformI32Splat?_pair h).1
 
 theorem shuffleDwords_eq {w : Nat} (a : BitVec w) (imm : BitVec 8) :
     LeanQbe.T.shuffleDwords a imm = a.shuffleDwords imm := rfl
@@ -801,9 +714,6 @@ end BitVecBridges
 /-! ## 3. Single-instruction `Directive.FallsTo` and generic `x64Vop` combinators -/
 
 section OpSpecs
-
-private theorem imm8_take (imm : BitVec 8) : (BitVec.ofNat 64 imm.toNat).take 8 = imm := by
-  rw [take_eq_setWidth]; apply BitVec.eq_of_toNat_eq; simp
 
 private theorem x64Vpaddd_fallsTo (w : SlotWidth) (vd s1 s2 : RegMm) (s : MachineData) :
     Directive.FallsTo
@@ -912,49 +822,38 @@ theorem x64VmovOut64_reg_fallsTo (rd : Reg64) (vs : RegMm) (s : MachineData) :
   exact hk _ rfl
 
 theorem x64Mov32_fallsTo (rd rs : Reg64) (s : MachineData) :
-    Directive.FallsTo (ins32 (.mov (.reg (d rd)) (.reg (d rs)))) s
-      (fun s' => s' =
-        { s with
-          regs := s.regs.set64 rd
-            (BitVec.setWidth 64 ((s.regs.get64 rs).setWidth 32)) }) := by
-  intro _ p next jmp P hk
-  simp only [t_step_simp]
-  exact hk _ rfl
+    Directive.FallsTo (ins32 (.mov (.reg (d rd)) (.reg (d rs)))) s (fun s' => s' =
+      { s with regs := s.regs.set64 rd (BitVec.setWidth 64 ((s.regs.get64 rs).setWidth 32)) }) := by
+  intro _ p next jmp P hk; simp only [t_step_simp]; exact hk _ rfl
+
+private theorem shift32_mask_eq : ((Int64.toBitVec 32).take 8).toNat &&& 63 = 32 := by decide
 
 theorem x64Shl32Imm_fallsTo (r : Reg64) (s : MachineData) :
     Directive.FallsTo (ins (.shl (.reg (q r)) (.imm8 (.int64 32)))) s
       (fun s' => s'.dmem = s.dmem ∧ s'.zmms = s.zmms ∧
         s'.regs = s.regs.set64 r (s.regs.get64 r <<< (32 : Nat))) := by
   intro _ p next jmp P hk
-  simp only [t_step_simp, ConstExpr.interp, ShiftCountExpr.interp, ShiftCountExpr.interpMasked]
-  have h32 : ((Int64.toBitVec 32).take 8).toNat &&& 63 = 32 := by decide
-  rw [h32]
-  simp only [show (32 == 0) = false from rfl, Bool.false_eq_true, ↓reduceIte,
+  simp only [t_step_simp, ConstExpr.interp, ShiftCountExpr.interp, ShiftCountExpr.interpMasked,
+    shift32_mask_eq, show (32 == 0) = false from rfl, Bool.false_eq_true, ↓reduceIte,
     show (32 < 64) by decide, show (32 == 1) = false from rfl, Effects.All]
-  intro _ _
-  exact hk _ ⟨rfl, rfl, rfl⟩
+  intro _ _; exact hk _ ⟨rfl, rfl, rfl⟩
 
 theorem x64Shr32Imm_fallsTo (r : Reg64) (s : MachineData) :
     Directive.FallsTo (ins (.shr (.reg (q r)) (.imm8 (.int64 32)))) s
       (fun s' => s'.dmem = s.dmem ∧ s'.zmms = s.zmms ∧
         s'.regs = s.regs.set64 r ((s.regs.get64 r).ushiftRight 32)) := by
   intro _ p next jmp P hk
-  simp only [t_step_simp, ConstExpr.interp, ShiftCountExpr.interp, ShiftCountExpr.interpMasked]
-  have h32 : ((Int64.toBitVec 32).take 8).toNat &&& 63 = 32 := by decide
-  rw [h32]
-  simp only [show (32 == 0) = false from rfl, Bool.false_eq_true, ↓reduceIte,
+  simp only [t_step_simp, ConstExpr.interp, ShiftCountExpr.interp, ShiftCountExpr.interpMasked,
+    shift32_mask_eq, show (32 == 0) = false from rfl, Bool.false_eq_true, ↓reduceIte,
     show (32 < 64) by decide, show (32 == 1) = false from rfl, Effects.All]
-  intro _ _
-  exact hk _ ⟨rfl, rfl, rfl⟩
+  intro _ _; exact hk _ ⟨rfl, rfl, rfl⟩
 
 theorem x64Or64_fallsTo (rd rs : Reg64) (s : MachineData) :
     Directive.FallsTo (ins (.or (.reg (q rd)) (.reg (q rs)))) s
       (fun s' => s'.dmem = s.dmem ∧ s'.zmms = s.zmms ∧
         s'.regs = s.regs.set64 rd (s.regs.get64 rd ||| s.regs.get64 rs)) := by
   intro _ p next jmp P hk
-  simp only [t_step_simp, Effects.All]
-  intro _
-  exact hk _ ⟨rfl, rfl, rfl⟩
+  simp only [t_step_simp, Effects.All]; intro _; exact hk _ ⟨rfl, rfl, rfl⟩
 
 theorem regMm_beq_true {a b : RegMm} (h : a = b) : (a == b) = true := by
   subst h; cases a <;> rfl
@@ -1047,6 +946,47 @@ theorem x64Vmovi_step [Host] (tmp : RegMm) (w : SlotWidth) (d vd : RegMm)
   exact ⟨⟨hd', hs', hr', fun vr hvr => hz' vr (fun e => hvr (by simp [e, hd]))
     (fun e => hvr (by simp [e, htmp]))⟩, hz', hval⟩
 
+theorem x64Vmovi_step_cast [Host] (tmp : RegMm) (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
+    (d vd : RegMm) (hd : d ∈ vd :: x64VecScratch) (htmp : tmp ∈ vd :: x64VecScratch)
+    (hne : tmp ≠ d) (va : Val t) {p : List Instr}
+    (hv : x64VmoviWithIns tmp w d ((toBits t va).setWidth 512) = some p) (s : MachineData) :
+    @Program.wp _ (emitClean p)
+      (fun s' => VecStepFrame vd s s' ∧
+        (∀ vr, vr ≠ d → vr ≠ tmp → s'.zmms.get512 vr = s.zmms.get512 vr) ∧
+        (s'.zmms.get512 d).setWidth w.bits = (toBits t va).cast ht)
+      (fun _ _ => False) s := by
+  refine Program.wp.mono (x64Vmovi_step tmp w d vd hd htmp hne _ hv s) ?_
+  rintro s' ⟨hf, hz, hval⟩
+  exact ⟨hf, hz, hval.trans (setWidth_512_cast ht _)⟩
+
+theorem x64Vmovi_scratch_step [Host] (tmp d vd : RegMm) (w : SlotWidth) {t : Ty}
+    (ht : t.size = w.bits) (hd : d ∈ x64VecScratch) (htmp : tmp ∈ x64VecScratch)
+    (hne : tmp ≠ d) (va : Val t) {p : List Instr}
+    (hv : x64VmoviWithIns tmp w d ((toBits t va).setWidth 512) = some p) (s : MachineData) :
+    @Program.wp _ (emitClean p)
+      (fun s' => VecStepFrame vd s s' ∧
+        (∀ vr, vr ∉ x64VecScratch → s'.zmms.get512 vr = s.zmms.get512 vr) ∧
+        (s'.zmms.get512 d).setWidth w.bits = (toBits t va).cast ht)
+      (fun _ _ => False) s := by
+  refine Program.wp.mono (x64Vmovi_step_cast tmp w ht d vd
+    (List.mem_cons_of_mem _ hd) (List.mem_cons_of_mem _ htmp) hne va hv s) ?_
+  rintro s' ⟨hf, hz, hval⟩
+  exact ⟨hf, fun vr hvr => hz vr (fun e => hvr (e ▸ hd)) (fun e => hvr (e ▸ htmp)), hval⟩
+
+theorem x64Vmov_self_or_step [Host] (w : SlotWidth) (vd rx : RegMm) (s : MachineData)
+    {val : BitVec w.bits} (hx : (s.zmms.get512 rx).setWidth w.bits = val) :
+    @Program.wp _ (if rx == vd then [] else x64Vmov w vd rx)
+      (fun s' => VecStepFrame vd s s' ∧
+        (∀ vr, vr ≠ vd → s'.zmms.get512 vr = s.zmms.get512 vr) ∧
+        (s'.zmms.get512 vd).setWidth w.bits = val)
+      (fun _ _ => False) s := by
+  by_cases hrx : rx = vd
+  · subst rx; simp only [regMm_beq_true rfl, ↓reduceIte]
+    exact Program.wp_nil ⟨VecStepFrame.refl vd s, fun _ _ => rfl, hx⟩
+  · simp only [regMm_beq_false hrx, Bool.false_eq_true, ↓reduceIte]
+    refine Program.wp.mono (x64Vmov_step w vd rx vd (by simp) s) ?_
+    rintro s' ⟨hf, hz, hv⟩; exact ⟨hf, hz, hv.trans hx⟩
+
 theorem x64FallsTo_widen {h : Host} {k : Nat} {c : List Directive}
     {g1 g2 : List Reg64} {v1 v2 : List RegMm} {f : FlagMask} {s : MachineData}
     {Q R : MachineData → Prop} {post : MachineState → Prop}
@@ -1086,15 +1026,21 @@ theorem x64EmitUnary_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
     @Program.wp _ (emitClean c) (fun s' => VecStepFrame vd s s' ∧
       (s'.zmms.get512 vd).setWidth t.size = res ((toBits t va).cast ht)) (fun _ _ => False) s := by
   have hne14 : .mm14 ≠ vd := (ne_of_not_mem_x64VecScratch hvd).1.symm
+  have step_unary : ∀ (s1 : MachineData) (src : RegMm),
+      (s1.zmms.get512 src).setWidth w.bits = (toBits t va).cast ht →
+      @Program.wp _ [.instr (emit vd src)] (fun s' => VecStepFrame vd s1 s' ∧
+        (s'.zmms.get512 vd).setWidth t.size = res ((toBits t va).cast ht))
+        (fun _ _ => False) s1 := by
+    intro s1 src hsrc
+    refine Program.wp.mono (Directive.FallsTo.wp (hemit vd src s1)) ?_
+    rintro s' ⟨hd, hs, hr, hz, hres⟩
+    exact ⟨⟨hd, hs, fun _ _ => hr ▸ rfl, fun v hv => hz v (fun e => hv (e ▸ List.mem_cons_self))⟩,
+      by rw [hres, hsrc, hupd]⟩
   cases pa with
   | gpr _ | flag _ => dsimp only [x64EmitUnaryIns] at hc; cases hc
   | vec vr =>
-    dsimp only [x64EmitUnaryIns] at hc
-    simp only [Option.some.injEq] at hc; subst hc
-    refine Program.wp.mono (Directive.FallsTo.wp (hemit vd vr s)) ?_
-    rintro s' ⟨hd, hs, hr, hz, hres⟩
-    exact ⟨⟨hd, hs, fun _ _ => hr ▸ rfl, fun v hv => hz v (fun e => hv (e ▸ List.mem_cons_self))⟩,
-      by rw [hres, setWidth_vecHolds ht _ _ hhold, hupd]⟩
+    dsimp only [x64EmitUnaryIns] at hc; simp only [Option.some.injEq] at hc; subst hc
+    exact step_unary s vr (setWidth_vecHolds ht _ _ hhold)
   | imm ca =>
     rcases hhold with rfl
     dsimp only [x64EmitUnaryIns] at hc
@@ -1103,15 +1049,11 @@ theorem x64EmitUnary_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
     | some p =>
       rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
       simp only [emitClean_append, emitClean_cons, emitClean_nil]
-      refine Program.wp.append (x64Vmovi_step .mm14 w vd vd (by simp)
-        (by simp [x64VecScratch]) hne14 _ hv s) ?_
+      refine Program.wp.append (x64Vmovi_step_cast .mm14 w ht vd vd (by simp)
+        (by simp [x64VecScratch]) hne14 ca hv s) ?_
       rintro s1 ⟨hf1, _, hv1⟩
-      refine Program.wp.mono (Directive.FallsTo.wp (hemit vd vd s1)) ?_
-      rintro s' ⟨hd', hs', hr', hz', hres⟩
-      have hsf : VecStepFrame vd s1 s' :=
-        ⟨hd', hs', fun _ _ => hr' ▸ rfl, fun v hvm => hz' v (fun e => hvm (e ▸ List.mem_cons_self))⟩
-      refine ⟨hf1.trans hsf, ?_⟩
-      rw [hres, hv1, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht, hupd]
+      refine Program.wp.mono (step_unary s1 vd hv1) ?_
+      rintro s' ⟨hf2, hres⟩; exact ⟨hf1.trans hf2, hres⟩
 
 theorem x64EmitVpaddd_wp [Host] (w : SlotWidth) (hw : w ≠ .w64) {t : Ty} (ht : t.size = w.bits)
     {vd : RegMm} {pa pb : PArg Reg64 RegMm CondCode t} {va vb : Val t} {c : List Instr}
@@ -1149,50 +1091,42 @@ theorem x64EmitVpaddd_wp [Host] (w : SlotWidth) (hw : w ≠ .w64) {t : Ty} (ht :
   cases pa with
   | gpr _ | flag _ => dsimp only [x64EmitVpadddIns] at hc; cases hc
   | vec r1 =>
-    have hr1 : r1 ∉ x64VecScratch := hpaV r1 (by dsimp only [pargVecs]; exact List.mem_cons_self)
+    have hr1 := hpaV r1 (by dsimp only [pargVecs]; exact List.mem_cons_self)
     cases pb with
     | gpr _ | flag _ => dsimp only [x64EmitVpadddIns] at hc; cases hc
     | vec r2 =>
-      dsimp only [x64EmitVpadddIns] at hc
-      simp only [Option.some.injEq] at hc; subst hc
+      dsimp only [x64EmitVpadddIns] at hc; simp only [Option.some.injEq] at hc; subst hc
       exact step_padd s r1 r2 (setWidth_vecHolds ht _ _ hha) (setWidth_vecHolds ht _ _ hhb)
     | imm cb =>
-      rcases hhb with rfl
-      dsimp only [x64EmitVpadddIns] at hc
+      rcases hhb with rfl; dsimp only [x64EmitVpadddIns] at hc
       cases hv : x64VmoviIns w .mm15 ((toBits t cb).setWidth 512) with
       | none => simp [hv] at hc
       | some p =>
         rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
         simp only [emitClean_append, emitClean_cons, emitClean_nil]
-        refine Program.wp.append (x64Vmovi_step .mm14 w .mm15 vd (by simp [x64VecScratch])
-          (by simp [x64VecScratch]) hne145 _ hv s) ?_
+        refine Program.wp.append (x64Vmovi_scratch_step .mm14 .mm15 vd w ht
+          (by simp [x64VecScratch]) (by simp [x64VecScratch]) hne145 cb hv s) ?_
         rintro s1 ⟨hf1, hz1, hv1⟩
         refine Program.wp.mono (step_padd s1 r1 .mm15
-          (by rw [hz1 r1 (ne_of_not_mem_x64VecScratch hr1).2
-                (ne_of_not_mem_x64VecScratch hr1).1]
-              exact setWidth_vecHolds ht _ _ hha)
-          (by rw [hv1, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht])) ?_
+          (by rw [hz1 r1 hr1]; exact setWidth_vecHolds ht _ _ hha) hv1) ?_
         rintro s' ⟨hf2, hres⟩; exact ⟨hf1.trans hf2, hres⟩
   | imm ca =>
     rcases hha with rfl
     cases pb with
     | gpr _ | flag _ => dsimp only [x64EmitVpadddIns] at hc; cases hc
     | vec r2 =>
-      have hr2 : r2 ∉ x64VecScratch := hpbV r2 (by dsimp only [pargVecs]; exact List.mem_cons_self)
+      have hr2 := hpbV r2 (by dsimp only [pargVecs]; exact List.mem_cons_self)
       dsimp only [x64EmitVpadddIns] at hc
       cases hv : x64VmoviIns w .mm15 ((toBits t ca).setWidth 512) with
       | none => simp [hv] at hc
       | some p =>
         rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
         simp only [emitClean_append, emitClean_cons, emitClean_nil]
-        refine Program.wp.append (x64Vmovi_step .mm14 w .mm15 vd (by simp [x64VecScratch])
-          (by simp [x64VecScratch]) hne145 _ hv s) ?_
+        refine Program.wp.append (x64Vmovi_scratch_step .mm14 .mm15 vd w ht
+          (by simp [x64VecScratch]) (by simp [x64VecScratch]) hne145 ca hv s) ?_
         rintro s1 ⟨hf1, hz1, hv1⟩
-        refine Program.wp.mono (step_padd s1 .mm15 r2
-          (by rw [hv1, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht])
-          (by rw [hz1 r2 (ne_of_not_mem_x64VecScratch hr2).2
-                (ne_of_not_mem_x64VecScratch hr2).1]
-              exact setWidth_vecHolds ht _ _ hhb)) ?_
+        refine Program.wp.mono (step_padd s1 .mm15 r2 hv1
+          (by rw [hz1 r2 hr2]; exact setWidth_vecHolds ht _ _ hhb)) ?_
         rintro s' ⟨hf2, hres⟩; exact ⟨hf1.trans hf2, hres⟩
     | imm cb =>
       rcases hhb with rfl
@@ -1205,16 +1139,14 @@ theorem x64EmitVpaddd_wp [Host] (w : SlotWidth) (hw : w ≠ .w64) {t : Ty} (ht :
         | some p2 =>
           rw [hv1, hv2] at hc; simp only [Option.some.injEq] at hc; subst hc
           simp only [emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
-          refine Program.wp.append (x64Vmovi_step .mm14 w vd vd (by simp)
-            (by simp [x64VecScratch]) hne14d _ hv1 s) ?_
+          refine Program.wp.append (x64Vmovi_step_cast .mm14 w ht vd vd (by simp)
+            (by simp [x64VecScratch]) hne14d ca hv1 s) ?_
           rintro s1 ⟨hf1, _, hvd1⟩
-          refine Program.wp.append (x64Vmovi_step .mm14 w .mm15 vd (by simp [x64VecScratch])
-            (by simp [x64VecScratch]) hne145 _ hv2 s1) ?_
+          refine Program.wp.append (x64Vmovi_scratch_step .mm14 .mm15 vd w ht
+            (by simp [x64VecScratch]) (by simp [x64VecScratch]) hne145 cb hv2 s1) ?_
           rintro s2 ⟨hf2, hz2, hv2s⟩
           refine Program.wp.mono (step_padd s2 vd .mm15
-            (by rw [hz2 vd hne15d.symm hne14d.symm, hvd1,
-                  BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht])
-            (by rw [hv2s, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht])) ?_
+            (by rw [hz2 vd hvd, hvd1]) hv2s) ?_
           rintro s' ⟨hf3, hres⟩; exact ⟨(hf1.trans hf2).trans hf3, hres⟩
 
 theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
@@ -1252,13 +1184,12 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
   cases pa with
   | gpr _ | flag _ => dsimp only [x64EmitBinInPlaceIns] at hc; cases hc
   | vec r1 =>
-    have hr1 : r1 ∉ x64VecScratch := hpaV r1 (by dsimp only [pargVecs]; exact List.mem_cons_self)
+    have hr1 := hpaV r1 (by dsimp only [pargVecs]; exact List.mem_cons_self)
     cases pb with
     | gpr _ | flag _ => dsimp only [x64EmitBinInPlaceIns] at hc; cases hc
     | vec r2 =>
-      have hr2 : r2 ∉ x64VecScratch := hpbV r2 (by dsimp only [pargVecs]; exact List.mem_cons_self)
-      dsimp only [x64EmitBinInPlaceIns] at hc
-      simp only [Option.some.injEq] at hc; subst hc
+      have hr2 := hpbV r2 (by dsimp only [pargVecs]; exact List.mem_cons_self)
+      dsimp only [x64EmitBinInPlaceIns] at hc; simp only [Option.some.injEq] at hc; subst hc
       by_cases h1 : r1 = vd
       · subst h1; simp only [regMm_beq_true rfl, ↓reduceIte, emitClean_cons, emitClean_nil]
         exact finish s r2 (setWidth_vecHolds ht _ _ hha) (setWidth_vecHolds ht _ _ hhb)
@@ -1284,38 +1215,27 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
             (by rw [hz1 r2 h2]; exact setWidth_vecHolds ht _ _ hhb)) ?_
           rintro s' ⟨hf2, hres⟩; exact ⟨hf1.trans hf2, hres⟩
     | imm cb =>
-      rcases hhb with rfl
-      dsimp only [x64EmitBinInPlaceIns] at hc
+      rcases hhb with rfl; dsimp only [x64EmitBinInPlaceIns] at hc
       cases hv : x64VmoviIns w .mm15 ((toBits t cb).setWidth 512) with
       | none => simp [hv] at hc
       | some p =>
         rw [hv] at hc; simp only [Option.map_some, Option.some.injEq] at hc; subst hc
         simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil,
           List.append_assoc]
-        refine Program.wp.append (x64Vmovi_step .mm14 w .mm15 vd (by simp [x64VecScratch])
-          (by simp [x64VecScratch]) hne145 _ hv s) ?_
+        refine Program.wp.append (x64Vmovi_scratch_step .mm14 .mm15 vd w ht
+          (by simp [x64VecScratch]) (by simp [x64VecScratch]) hne145 cb hv s) ?_
         rintro s1 ⟨hf1, hz1, h15⟩
-        have h15' : (s1.zmms.get512 .mm15).setWidth w.bits = (toBits t cb).cast ht := by
-          rw [h15, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht]
-        have hr1_s1 : (s1.zmms.get512 r1).setWidth w.bits = (toBits t va).cast ht := by
-          rw [hz1 r1 (ne_of_not_mem_x64VecScratch hr1).2 (ne_of_not_mem_x64VecScratch hr1).1]
-          exact setWidth_vecHolds ht _ _ hha
-        by_cases h1 : r1 = vd
-        · subst h1; simp only [regMm_beq_true rfl, ↓reduceIte, List.nil_append]
-          refine Program.wp.mono (finish s1 .mm15 hr1_s1 h15') ?_
-          rintro s' ⟨hf2, hres⟩; exact ⟨hf1.trans hf2, hres⟩
-        · simp only [regMm_beq_false h1, Bool.false_eq_true, ↓reduceIte]
-          refine Program.wp.append (x64Vmov_step w vd r1 vd (by simp) s1) ?_
-          rintro s2 ⟨hf2, hz2, hrd2⟩
-          refine Program.wp.mono (finish s2 .mm15 (hrd2.trans hr1_s1)
-            (by rw [hz2 .mm15 hne15d, h15'])) ?_
-          rintro s' ⟨hf3, hres⟩; exact ⟨(hf1.trans hf2).trans hf3, hres⟩
+        refine Program.wp.append (x64Vmov_self_or_step w vd r1 s1 (val := (toBits t va).cast ht)
+          (by rw [hz1 r1 hr1]; exact setWidth_vecHolds ht _ _ hha)) ?_
+        rintro s2 ⟨hf2, hz2, hrd2⟩
+        refine Program.wp.mono (finish s2 .mm15 hrd2 (by rw [hz2 .mm15 hne15d, h15])) ?_
+        rintro s' ⟨hf3, hres⟩; exact ⟨(hf1.trans hf2).trans hf3, hres⟩
   | imm ca =>
     rcases hha with rfl
     cases pb with
     | gpr _ | flag _ => dsimp only [x64EmitBinInPlaceIns] at hc; cases hc
     | vec r2 =>
-      have hr2 : r2 ∉ x64VecScratch := hpbV r2 (by dsimp only [pargVecs]; exact List.mem_cons_self)
+      have hr2 := hpbV r2 (by dsimp only [pargVecs]; exact List.mem_cons_self)
       dsimp only [x64EmitBinInPlaceIns] at hc
       cases hv : x64VmoviIns w vd ((toBits t ca).setWidth 512) with
       | none => simp [hv] at hc
@@ -1327,26 +1247,23 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
             emitClean_nil, List.append_assoc]
           refine Program.wp.append (x64Vmov_step w .mm15 r2 r2 (by simp [x64VecScratch]) s) ?_
           rintro s1 ⟨hf1, _, h15⟩
-          refine Program.wp.append (x64Vmovi_step .mm14 w r2 r2 (by simp)
-            (by simp [x64VecScratch]) hne14d _ hv s1) ?_
+          refine Program.wp.append (x64Vmovi_step_cast .mm14 w ht r2 r2 (by simp)
+            (by simp [x64VecScratch]) hne14d ca hv s1) ?_
           rintro s2 ⟨hf2, hz2, hrd2⟩
-          refine Program.wp.mono (finish s2 .mm15
-            (by rw [hrd2, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht])
+          refine Program.wp.mono (finish s2 .mm15 hrd2
             (by rw [hz2 .mm15 hne15d hne145.symm, h15]; exact setWidth_vecHolds ht _ _ hhb)) ?_
           rintro s' ⟨hf3, hres⟩; exact ⟨(hf1.trans hf2).trans hf3, hres⟩
         · simp only [regMm_beq_false h2, Bool.false_eq_true, ↓reduceIte, emitClean_append,
             emitClean_cons, emitClean_nil]
-          refine Program.wp.append (x64Vmovi_step .mm14 w vd vd (by simp)
-            (by simp [x64VecScratch]) hne14d _ hv s) ?_
+          refine Program.wp.append (x64Vmovi_step_cast .mm14 w ht vd vd (by simp)
+            (by simp [x64VecScratch]) hne14d ca hv s) ?_
           rintro s1 ⟨hf1, hz1, hrd1⟩
-          refine Program.wp.mono (finish s1 r2
-            (by rw [hrd1, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht])
+          refine Program.wp.mono (finish s1 r2 hrd1
             (by rw [hz1 r2 h2 (ne_of_not_mem_x64VecScratch hr2).1]
                 exact setWidth_vecHolds ht _ _ hhb)) ?_
           rintro s' ⟨hf2, hres⟩; exact ⟨hf1.trans hf2, hres⟩
     | imm cb =>
-      rcases hhb with rfl
-      dsimp only [x64EmitBinInPlaceIns, Bind.bind, Option.bind] at hc
+      rcases hhb with rfl; dsimp only [x64EmitBinInPlaceIns, Bind.bind, Option.bind] at hc
       cases hv1 : x64VmoviIns w vd ((toBits t ca).setWidth 512) with
       | none => simp [hv1] at hc
       | some p1 =>
@@ -1355,16 +1272,13 @@ theorem x64EmitBinInPlace_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bi
         | some p2 =>
           rw [hv1, hv2] at hc; simp only [Option.some.injEq] at hc; subst hc
           simp only [emitClean_append, emitClean_cons, emitClean_nil, List.append_assoc]
-          refine Program.wp.append (x64Vmovi_step .mm14 w vd vd (by simp)
-            (by simp [x64VecScratch]) hne14d _ hv1 s) ?_
+          refine Program.wp.append (x64Vmovi_step_cast .mm14 w ht vd vd (by simp)
+            (by simp [x64VecScratch]) hne14d ca hv1 s) ?_
           rintro s1 ⟨hf1, _, hrd1⟩
-          refine Program.wp.append (x64Vmovi_step .mm14 w .mm15 vd (by simp [x64VecScratch])
-            (by simp [x64VecScratch]) hne145 _ hv2 s1) ?_
+          refine Program.wp.append (x64Vmovi_scratch_step .mm14 .mm15 vd w ht
+            (by simp [x64VecScratch]) (by simp [x64VecScratch]) hne145 cb hv2 s1) ?_
           rintro s2 ⟨hf2, hz2, h15⟩
-          refine Program.wp.mono (finish s2 .mm15
-            (by rw [hz2 vd hne15d.symm hne14d.symm, hrd1,
-                  BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht])
-            (by rw [h15, BitVec.setWidth_setWidth_of_le _ w.bits_le_512, setWidth_of_eq ht])) ?_
+          refine Program.wp.mono (finish s2 .mm15 (by rw [hz2 vd hvd, hrd1]) h15) ?_
           rintro s' ⟨hf3, hres⟩; exact ⟨(hf1.trans hf2).trans hf3, hres⟩
 
 theorem x64TernlogD_step [Host] (w : SlotWidth) (vd dst s2 s3 : RegMm)
@@ -1385,6 +1299,25 @@ theorem x64TernlogD_step [Host] (w : SlotWidth) (vd dst s2 s3 : RegMm)
     BitVec.setWidth_setWidth_of_le _ (x64W_bits_le_awBits w),
     BitVec.setWidth_setWidth_of_le _ (x64W_bits_le_awBits w)]
 
+theorem x64TernlogD_step_ty [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
+    (vd s2 s3 : RegMm) (a b c : BitVec t.size) (imm : BitVec 8) (st : MachineData)
+    (h1 : (st.zmms.get512 vd).setWidth w.bits = a.setWidth w.bits)
+    (h2 : (st.zmms.get512 s2).setWidth w.bits = b.setWidth w.bits)
+    (h3 : (st.zmms.get512 s3).setWidth w.bits = c.setWidth w.bits) :
+    @Program.wp _ [x64TernlogD w vd s2 s3 imm]
+      (fun s' => VecStepFrame vd st s' ∧
+        (s'.zmms.get512 vd).setWidth t.size = BitVec.ternaryLogic a b c imm)
+      (fun _ _ => False) st := by
+  refine Program.wp.mono (x64TernlogD_step w vd vd s2 s3 (by simp) imm st) ?_
+  rintro s' ⟨hf, hvd'⟩
+  refine ⟨hf, ?_⟩
+  have h0 : (s'.zmms.get512 vd).setWidth w.bits =
+      BitVec.ternaryLogic (a.setWidth w.bits) (b.setWidth w.bits) (c.setWidth w.bits) imm := by
+    rw [hvd', h1, h2, h3]
+  have h1' := congrArg (BitVec.setWidth t.size) h0
+  simpa only [BitVec.setWidth_setWidth_of_le _ (by omega : t.size ≤ w.bits),
+    setWidth_ternaryLogic (by omega : t.size ≤ w.bits), BitVec.setWidth_eq] using h1'
+
 theorem x64EmitTernlog1Vec_wp [Host] (w : SlotWidth) {vd rx : RegMm}
     {f0 f1 x : BitVec 512} {c : List Instr} {s : MachineData}
     (hc : x64EmitTernlog1VecIns w vd rx f0 f1 = some c) (hvd : vd ∉ x64VecScratch)
@@ -1403,18 +1336,9 @@ theorem x64EmitTernlog1Vec_wp [Host] (w : SlotWidth) {vd rx : RegMm}
     | none => simp [hk, hf] at hc
     | some pf =>
       rw [hk, hf] at hc; simp only [Option.some.injEq] at hc; subst hc
-      have hprep : @Program.wp _ (if rx == vd then [] else x64Vmov w vd rx)
-          (fun s1 => VecStepFrame vd s s1 ∧ (s1.zmms.get512 vd).setWidth w.bits = x.setWidth w.bits)
-          (fun _ _ => False) s := by
-        by_cases hrv : rx = vd
-        · subst rx; simp only [regMm_beq_true rfl, ↓reduceIte]
-          exact fun _ _ => Eventually.done _ (Or.inl ⟨rfl, VecStepFrame.refl vd s, hx⟩)
-        · simp only [regMm_beq_false hrv, Bool.false_eq_true, ↓reduceIte]
-          refine Program.wp.mono (x64Vmov_step w vd rx vd (by simp) s) ?_
-          rintro s1 ⟨hf1, _, hv1⟩; exact ⟨hf1, hv1.trans hx⟩
       simp only [emitClean_append, emitClean_ite, emitClean_cons, emitClean_nil,
         List.append_assoc, List.cons_append, List.nil_append]
-      refine Program.wp.append hprep ?_
+      refine Program.wp.append (x64Vmov_self_or_step w vd rx s hx) ?_
       rintro s1 ⟨hf1, hvd1⟩
       refine Program.wp.append (x64Vmovi_step .mm14 w .mm15 vd (by simp [x64VecScratch])
         (by simp [x64VecScratch]) hne145 _ hk s1) ?_
@@ -1428,7 +1352,7 @@ theorem x64EmitTernlog1Vec_wp [Host] (w : SlotWidth) {vd rx : RegMm}
       rintro s' ⟨hf5, hvd5⟩
       refine ⟨(((hf1.trans hf2).trans hf3).trans hf4).trans hf5, ?_⟩
       rw [hvd5, ternaryLogic_0x3C, hz4 vd hne15d.symm hne14d.symm, hvd3, ternaryLogic_0xC0,
-        hz2 vd hne15d.symm hne14d.symm, hvd1, h15_2, h15_4]
+        hz2 vd hne15d.symm hne14d.symm, hvd1.2, h15_2, h15_4]
       simp only [BitVec.setWidth_and, BitVec.setWidth_xor]
 
 theorem t_ternaryLogic_eq {w : Nat} (a b c : BitVec w) (imm : BitVec 8) :
@@ -1448,37 +1372,19 @@ theorem ternlog_3reg_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
       (fun s' => VecStepFrame vd st s' ∧
         (s'.zmms.get512 vd).setWidth t.size = BitVec.ternaryLogic a b c imm)
       (fun _ _ => False) st := by
-  have finish : ∀ (s1 : MachineData) (r2 r3 : RegMm),
-      (s1.zmms.get512 vd).setWidth w.bits = a.setWidth w.bits →
-      (s1.zmms.get512 r2).setWidth w.bits = b.setWidth w.bits →
-      (s1.zmms.get512 r3).setWidth w.bits = c.setWidth w.bits →
-      @Program.wp _ [x64TernlogD w vd r2 r3 imm]
-        (fun s' => VecStepFrame vd s1 s' ∧
-          (s'.zmms.get512 vd).setWidth t.size = BitVec.ternaryLogic a b c imm)
-        (fun _ _ => False) s1 := by
-    intro s1 r2 r3 h1 h2 h3
-    refine Program.wp.mono (x64TernlogD_step w vd vd r2 r3 (by simp) imm s1) ?_
-    rintro s' ⟨hf, hvd'⟩
-    refine ⟨hf, ?_⟩
-    have h0 : (s'.zmms.get512 vd).setWidth w.bits =
-        BitVec.ternaryLogic (a.setWidth w.bits) (b.setWidth w.bits) (c.setWidth w.bits) imm := by
-      rw [hvd', h1, h2, h3]
-    have h1' := congrArg (BitVec.setWidth t.size) h0
-    simpa only [BitVec.setWidth_setWidth_of_le _ (by omega : t.size ≤ w.bits),
-      setWidth_ternaryLogic (by omega : t.size ≤ w.bits), BitVec.setWidth_eq] using h1'
   have h15d : (.mm15 : RegMm) ≠ vd := (ne_of_not_mem_x64VecScratch hvd).2.symm
   have h15a : ra ≠ .mm15 := (ne_of_not_mem_x64VecScratch hra).2
   by_cases had : ra = vd
-  · subst had; simp only [regMm_beq_true rfl, ↓reduceIte]
-    exact finish st sb sc ha hb hc
+  · subst ra; simp only [regMm_beq_true rfl, ↓reduceIte]
+    exact x64TernlogD_step_ty w ht vd sb sc a b c imm st ha hb hc
   · simp only [regMm_beq_false had, Bool.false_eq_true, ↓reduceIte]
     by_cases hbc : sb ≠ vd ∧ sc ≠ vd
     · simp only [bne, regMm_beq_false hbc.1, regMm_beq_false hbc.2,
         Bool.not_false, Bool.and_self, ↓reduceIte]
       refine Program.wp.append (x64Vmov_step w vd ra vd (by simp) st) ?_
       rintro s1 ⟨hf1, hz1, hvd1⟩
-      refine Program.wp.mono (finish s1 sb sc (hvd1.trans ha)
-        (by rw [hz1 sb hbc.1, hb]) (by rw [hz1 sc hbc.2, hc])) ?_
+      refine Program.wp.mono (x64TernlogD_step_ty w ht vd sb sc a b c imm s1
+        (hvd1.trans ha) (by rw [hz1 sb hbc.1, hb]) (by rw [hz1 sc hbc.2, hc])) ?_
       rintro s' ⟨hf2, hres⟩; exact ⟨hf1.trans hf2, hres⟩
     · have hnot : (sb != vd && sc != vd) = false := by
         cases hbd : (sb == vd) <;> cases hcd : (sc == vd)
@@ -1499,8 +1405,8 @@ theorem ternlog_3reg_wp [Host] (w : SlotWidth) {t : Ty} (ht : t.size = w.bits)
         · subst hrd; simp only [regMm_beq_true rfl, ↓reduceIte, hz2 .mm15 h15d, h15, hrval]
         · simp only [regMm_beq_false hrd, Bool.false_eq_true, ↓reduceIte,
             hz2 r hrd, hz1 r hr15, hrval]
-      refine Program.wp.mono (finish s2 _ _ (by rw [hvd2, hz1 ra h15a, ha])
-        (hsrc sb b hsb15 hb) (hsrc sc c hsc15 hc)) ?_
+      refine Program.wp.mono (x64TernlogD_step_ty w ht vd _ _ a b c imm s2
+        (by rw [hvd2, hz1 ra h15a, ha]) (hsrc sb b hsb15 hb) (hsrc sc c hsc15 hc)) ?_
       rintro s' ⟨hf3, hres⟩; exact ⟨(hf1.trans hf2).trans hf3, hres⟩
 
 theorem pargVecs_sub_2_1 {a b : Ty} (pa : PArg Reg64 RegMm CondCode a)
