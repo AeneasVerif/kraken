@@ -579,6 +579,8 @@ def check_fns(fns, spec, root, imp_mod, open_ns, sym):
 
 BASE_TARGET_SPECS = {
     "plain": ("Plain", "Plain", "plainFns"),
+    "fidelity-step11": ("FullFidelityAssemblyStep11", "FullFidelityAssemblyStep11", "fidStep11Fns"),
+    "step11": ("FullFidelityAssemblyStep11", "FullFidelityAssemblyStep11", "fidStep11Fns"),
     "fidelity-step10": ("FullFidelityAssemblyStep10", "FullFidelityAssemblyStep10", "fidStep10Fns"),
     "step10": ("FullFidelityAssemblyStep10", "FullFidelityAssemblyStep10", "fidStep10Fns"),
     "fidelity-step9": ("FullFidelityAssemblyStep9", "FullFidelityAssemblyStep9", "fidStep9Fns"),
@@ -611,7 +613,7 @@ BASE_TARGET_SPECS = {
 }
 
 ALL_TARGET_CHOICES = [
-    "plain", "fidelity", "fid", "fidelity-step10", "step10",
+    "plain", "fidelity", "fid", "fidelity-step11", "step11", "fidelity-step10", "step10",
     "fidelity-step9", "step9",
     "fidelity-step9-memshrink", "step9-memshrink", "fidelity-step8", "step8",
     "fidelity-step7", "fidelity-step6", "fidelity-c0",

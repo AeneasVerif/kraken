@@ -904,6 +904,534 @@ def fidStep10UnsatPkg : KissatUnsatPkg :=
     fidStep10Env fidStep10_moduleOk fidStep10Env_noExit
     (fun _ _ _ _ hs => fidStep10Env_solve_bytes_of hs)
 
+/-! ## 5. Additive Thin Spec & Slot Interface for `fidStep10Env` (`0` `import all` Down-Stream) -/
+
+def fidStep10BaseSpecTable : List SpecEntry :=
+  fidStep10Bundle.frontTable ++ fidStep10Bundle.baseTable
+
+theorem fidStep10Base_eq_env : Env.ofTable fidStep10BaseSpecTable = fidStep10Env := by
+  unfold fidStep10BaseSpecTable fidStep10Env patchEnv
+  rfl
+
+theorem fidStep10Base_moduleOk :
+    ModuleOk (Env.ofTable fidStep10BaseSpecTable) fidStep10Module :=
+  fidStep10_moduleOk
+
+theorem fidStep10Base_noExit :
+    ∀ f as bs xs m Q X X',
+      Env.ofTable fidStep10BaseSpecTable f as bs xs m Q X →
+      Env.ofTable fidStep10BaseSpecTable f as bs xs m Q X' :=
+  fidStep10Env_noExit
+
+theorem fidStep10BaseSpecTable_noExit :
+    fidStep10BaseSpecTable.all SpecEntry.noExit = true := by
+  unfold fidStep10BaseSpecTable
+  rw [List.all_append, Bool.and_eq_true]
+  exact ⟨by decide, fidStep9BaseSpecTable_noExit⟩
+
+theorem fidStep10Base_solve_bytes_of {a : Tup Val [i64, i64, i64, i64, i64]}
+    {m : Mem 64} {Q : Post [i64]} {X : XPost} :
+    m7FidSolveBytesSpec a m Q X →
+      Env.ofTable fidStep10BaseSpecTable "kissat_solve_bytes"
+        [i64, i64, i64, i64, i64] [i64] a m Q X :=
+  fidStep10Env_solve_bytes_of
+
+@[expose] def fidStep10PatchStrNames (nm : Sym) : List Sym :=
+  if nm == "full_analyze_core_m6" then ["full_learn_clause_m6", nm] else [nm]
+
+@[expose] def fidStep10FnNames : List Sym :=
+  fidStep9FnNames.flatMap fidStep10PatchStrNames
+
+private theorem fidStep10PatchStrNames_eq (nm : Sym) :
+    fidStep10PatchStrNames nm = patchStrNames10 nm :=
+  rfl
+
+theorem fidStep10Module_map_name :
+    fidStep10Module.fns.map Fn.name = fidStep10FnNames := by
+  rw [fidStep10Fns_eq, fidStep10_map_name]
+  rfl
+
+private theorem fidStep10_shift_check :
+    (List.range 505).all (fun i =>
+      ((fidStep9FnNames.take i).flatMap fidStep10PatchStrNames).length ==
+        if i ≤ 157 then i else i + 1) = true := by
+  t_kernel_rfl
+
+private theorem fidStep10_shift_len {i : Nat} (hi : i ≤ 504) :
+    ((fidStep9FnNames.take i).flatMap fidStep10PatchStrNames).length =
+      if i ≤ 157 then i else i + 1 :=
+  beq_iff_eq.mp (List.all_eq_true.mp fidStep10_shift_check i (List.mem_range.mpr (by omega)))
+
+private theorem fidStep10_patchFns_append (xs ys : List Fn) :
+    patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores (xs ++ ys) =
+      patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores xs ++
+      patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores ys := by
+  unfold patchFns; exact List.flatMap_append
+
+private theorem fidStep10_slot9_of_step8 {i7 : Nat} {s : SigEntry}
+    (h8 : fidStep8Module.fns[i7]?.map Fn.sig = some s)
+    (hne : s.1 ≠ "full_bva_upd_lit_fid")
+    (hni : s.1 ≠ "full_zero_tables1" ∧ s.1 ≠ "full_prop_flush_del_fid" ∧
+      s.1 ≠ "full_rebuild_watches") :
+    fidStep9Module.fns[i7 + (if i7 ≤ 42 then 0 else if i7 ≤ 84 then 1 else
+      if i7 ≤ 247 then 2 else 3)]?.map Fn.sig = some s :=
+  fidStep9_slot_of_step8 h8 hne hni rfl
+
+private theorem fidStep10_slot_of_step9 {i j : Nat} {s : SigEntry}
+    (h9 : fidStep9Module.fns[i]?.map Fn.sig = some s)
+    (hne : s.1 ≠ "full_analyze_core_m6")
+    (hj : j = if i ≤ 157 then i else i + 1) :
+    fidStep10Module.fns[j]?.map Fn.sig = some s := by
+  cases hg : fidStep9Module.fns[i]? with
+  | none => simp [hg] at h9
+  | some g =>
+    simp only [hg, Option.map_some, Option.some.injEq] at h9
+    have hi_lt : i < fidStep9Module.fns.length :=
+      Nat.lt_of_not_le fun hge => by rw [List.getElem?_eq_none hge] at hg; cases hg
+    have hlen9 : fidStep9Module.fns.length = 504 := by
+      rw [fidStep9Fns_eq]; exact fidStep9Fns_length
+    have hsplit : fidStep9Module.fns =
+        fidStep9Module.fns.take i ++ g :: fidStep9Module.fns.drop (i + 1) := by
+      have hd := List.take_append_drop i fidStep9Module.fns
+      rw [drop_eq_cons_10 hg] at hd; exact hd.symm
+    have hgnm : g.name = s.1 := congrArg Prod.fst h9
+    have hins : patchInsAt FullFidelityStep10.fidStep10Befores g = [] := by
+      unfold patchInsAt FullFidelityStep10.fidStep10Befores
+      have h1 : ("full_analyze_core_m6" == g.name) = false :=
+        beq_false_of_ne (Ne.symm (hgnm ▸ hne))
+      simp [List.find?, h1]
+    have hpf : fidStep10Module.fns =
+        patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores
+          (fidStep9Module.fns.take i) ++
+        ((FullFidelityStep10.fidStep10Repls.find? (·.name == g.name)).getD g) ::
+        patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores
+          (fidStep9Module.fns.drop (i + 1)) := by
+      have h1 : fidStep10Module.fns =
+          patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores
+            (fidStep9Module.fns.take i ++ g :: fidStep9Module.fns.drop (i + 1)) :=
+        congrArg (patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores)
+          hsplit
+      rw [h1, fidStep10_patchFns_append]
+      simp [patchFns, hins]
+    have hpre_len : (patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores
+        (fidStep9Module.fns.take i)).length = j := by
+      rw [← List.length_map Fn.name, patchFns_map_name10, List.map_take, fidStep9Module_map_name]
+      change ((fidStep9FnNames.take i).flatMap fidStep10PatchStrNames).length = j
+      rw [fidStep10_shift_len (by omega), hj]
+    have hget10 : fidStep10Module.fns[j]? =
+        some ((FullFidelityStep10.fidStep10Repls.find? (·.name == g.name)).getD g) := by
+      rw [hpf, ← hpre_len, List.getElem?_append_right (Nat.le_refl _), Nat.sub_self,
+        List.getElem?_cons_zero]
+    rw [hget10, Option.map_some]
+    cases hr : FullFidelityStep10.fidStep10Repls.find? (·.name == g.name) with
+    | none => simp [h9]
+    | some r =>
+      have hrnm : r.name = g.name :=
+        beq_iff_eq.mp (List.find?_some (p := fun y : Fn => y.name == g.name) hr)
+      have hsig := fidStep10Module_replSigs_ok r (List.mem_of_find?_eq_some hr)
+        g (List.mem_of_getElem? hg) hrnm
+      simp [hsig, h9]
+
+private theorem fidStep10_slot_learnAndCore :
+    fidStep10Module.fns[157]?.map Fn.sig = some ("full_learn_clause_m6", [i64, i64], [i64]) ∧
+    fidStep10Module.fns[158]?.map Fn.sig = some ("full_analyze_core_m6", [i64], [i64]) := by
+  obtain ⟨g, _, hg, hsg⟩ := fidStep10_slot9_of_at (fidStep9_slot_of_step8
+    (fidStep8_step10_sig_at (p := (155, ("full_analyze_core_m6", [i64], [i64]))) (by decide))
+    (by decide) (by decide) rfl)
+  change fidStep9Module.fns[157]? = some g at hg
+  have hgnm : g.name = "full_analyze_core_m6" := congrArg Prod.fst hsg
+  have hsplit : fidStep9Module.fns =
+      fidStep9Module.fns.take 157 ++ g :: fidStep9Module.fns.drop 158 := by
+    have hd := List.take_append_drop 157 fidStep9Module.fns
+    rw [drop_eq_cons_10 hg] at hd; exact hd.symm
+  have hins : patchInsAt FullFidelityStep10.fidStep10Befores g =
+      [fidStep10LearnClauseM6Fn] := by
+    unfold patchInsAt FullFidelityStep10.fidStep10Befores
+    simp [List.find?, hgnm]
+  have hpf : fidStep10Module.fns =
+      patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores
+        (fidStep9Module.fns.take 157) ++
+      fidStep10LearnClauseM6Fn ::
+      ((FullFidelityStep10.fidStep10Repls.find? (·.name == g.name)).getD g) ::
+      patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores
+        (fidStep9Module.fns.drop 158) := by
+    have h1 : fidStep10Module.fns =
+        patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores
+          (fidStep9Module.fns.take 157 ++ g :: fidStep9Module.fns.drop 158) :=
+      congrArg (patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores)
+        hsplit
+    rw [h1, fidStep10_patchFns_append]
+    simp [patchFns, hins]
+  have hpre_len : (patchFns FullFidelityStep10.fidStep10Repls FullFidelityStep10.fidStep10Befores
+      (fidStep9Module.fns.take 157)).length = 157 := by
+    rw [← List.length_map Fn.name, patchFns_map_name10, List.map_take, fidStep9Module_map_name]
+    change ((fidStep9FnNames.take 157).flatMap fidStep10PatchStrNames).length = 157
+    rw [fidStep10_shift_len (by decide)]
+    decide
+  have h157 : fidStep10Module.fns[157]? = some fidStep10LearnClauseM6Fn := by
+    rw [hpf, List.getElem?_append_right (Nat.le_of_eq hpre_len), hpre_len]
+    rfl
+  have h158 : fidStep10Module.fns[158]? =
+      some ((FullFidelityStep10.fidStep10Repls.find? (·.name == g.name)).getD g) := by
+    rw [hpf, List.getElem?_append_right (by rw [hpre_len]; decide), hpre_len]
+    rfl
+  refine ⟨?_, ?_⟩
+  · rw [h157]; rfl
+  · rw [h158, Option.map_some]
+    cases hr : FullFidelityStep10.fidStep10Repls.find? (·.name == g.name) with
+    | none => simp [hsg]
+    | some r =>
+      have hrnm : r.name = g.name :=
+        beq_iff_eq.mp (List.find?_some (p := fun y : Fn => y.name == g.name) hr)
+      have hsig := fidStep10Module_replSigs_ok r (List.mem_of_find?_eq_some hr)
+        g (List.mem_of_getElem? hg) hrnm
+      simp [hsig, hsg]
+
+@[expose] def fidStep10_step11_baseTriples : List (Nat × Nat × Bool × SigEntry) :=
+  [ (9, 9, true, ("full_ilog10", [i64], [i64]))
+  , (21, 21, true, ("full_heap_down", [i64, i32], []))
+  , (30, 30, true, ("full_tick_rel", [i64], []))
+  , (32, 32, false, ("full_log10_q16_m7", [i64], [i64]))
+  , (33, 33, false, ("full_scale_delta_m5", [i64, i64], [i64]))
+  , (34, 34, true, ("full_ema_update", [i64, i64], []))
+  , (36, 36, true, ("full_assign_lvl", [i64, i32, i32, i32], []))
+  , (40, 40, false, ("full_backtrack", [i64, i64], []))
+  , (65, 64, true, ("m6_hdr_record_used", [i64, i64], []))
+  , (90, 88, false, ("full_propagate", [i64], [i64]))
+  , (108, 106, false, ("full_arena_sweep", [i64], [i64]))
+  , (116, 114, true, ("full_analyze_lit", [i64, i32, i32], [.bool]))
+  , (118, 116, true, ("full_analyze_rsn_m6_hdr", [i64, i32, i32], [.bool]))
+  , (119, 117, true, ("full_clear_ana", [i64], []))
+  , (122, 120, true, ("full_bump_analyzed_m6_hdr", [i64], []))
+  , (123, 121, true, ("full_restore_bump_ana_m6_hdr", [i64], []))
+  , (124, 122, true, ("full_ana_failed_lit_m6_hdr", [i64], [i64]))
+  , (128, 126, true, ("full_min_mark", [i64, i32, i8], []))
+  , (133, 131, true, ("full_sort_tmp", [i64], []))
+  , (139, 137, true, ("full_min_lit_dfs_m8", [i64, i32, .bool, .bool], [.bool]))
+  , (141, 139, true, ("full_shrink_blk_bool_m8", [i64, i64, i64, i32, i64], [.bool]))
+  , (142, 140, true, ("full_min_shrink_m6", [i64], []))
+  , (144, 142, true, ("full_min_shrink", [i64], []))
+  , (145, 143, true, ("full_deduce_1uip", [i64], [i64]))
+  , (146, 144, true, ("full_deduce_1uip_m6_hdr", [i64], [i64]))
+  , (148, 146, true, ("full_one_lit_confl", [i64], [i64]))
+  , (150, 148, true, ("full_learn_clause", [i64, i64], [i64]))
+  , (155, 153, true, ("full_restore_bump_ana_m5", [i64], []))
+  , (156, 154, true, ("full_analyze", [i64], [i64]))
+  , (192, 189, true, ("full_lucky", [i64], [i64]))
+  , (217, 214, true, ("full_viv_clause_m6", [i64, i32], [i64]))
+  , (223, 220, true, ("full_viv_clear_tier_m6", [i64, i64], []))
+  , (225, 222, true, ("full_viv_collect_fid", [i64, i64], [i64]))
+  , (226, 223, true, ("full_viv_count_fid", [i64, i64], []))
+  , (228, 225, true, ("full_viv_sort_fid", [i64, i64], []))
+  , (229, 226, true, ("full_vivify_tier_m6_hdr", [i64, i64, i64, i64], [i64]))
+  , (446, 442, false, ("full_compact_needed", [i64], [.bool]))
+  , (458, 454, true, ("full_compact", [i64], [i64]))
+  , (481, 477, true, ("full_m7_get64", [i64, i64], [i64]))
+  , (482, 478, true, ("full_m7_set64", [i64, i64, i64], []))
+  , (492, 488, true, ("full_ema_swap_m7", [i64, i64, i64], []))
+  , (493, 489, true, ("full_switch_mode_m7", [i64], []))
+  , (496, 492, false, ("full_probe_m6", [i64, .bool], [i64]))
+  , (497, 493, true, ("full_preprocess_m6", [i64], [i64])) ]
+
+private def fidStep10CheckTriple (t : Nat × Nat × Bool × SigEntry) : Bool :=
+  let (j10, i7, isS10, s) := t
+  let j9 := i7 + (if i7 ≤ 42 then 0 else if i7 ≤ 84 then 1 else if i7 ≤ 247 then 2 else 3)
+  (if isS10 then fidStep7_step10_sigPairs.contains (i7, s)
+    else fidStep7_step9_sigPairs.contains (i7, s)) &&
+  (s.1 != "full_bva_upd_lit_fid") &&
+  (s.1 != "full_zero_tables1") &&
+  (s.1 != "full_prop_flush_del_fid") &&
+  (s.1 != "full_rebuild_watches") &&
+  (s.1 != "full_analyze_core_m6") &&
+  (j10 == if j9 ≤ 157 then j9 else j9 + 1)
+
+private theorem fidStep10_baseTriples_ok :
+    fidStep10_step11_baseTriples.all fidStep10CheckTriple = true := by
+  t_kernel_rfl
+
+/-- `(slot, sig)` table covering Step-11 PR 1's `8` replacements and their callees
+inside `fidStep10Module.fns`. -/
+@[expose] def fidStep10_step11_sigPairs : List (Nat × SigEntry) :=
+  [ (157, ("full_learn_clause_m6", [i64, i64], [i64]))
+  , (158, ("full_analyze_core_m6", [i64], [i64])) ] ++
+    fidStep10_step11_baseTriples.map fun t => (t.1, t.2.2.2)
+
+theorem fidStep10_step11_sig_at {p : Nat × SigEntry}
+    (hp : p ∈ fidStep10_step11_sigPairs) :
+    fidStep10Module.fns[p.1]?.map Fn.sig = some p.2 := by
+  simp only [fidStep10_step11_sigPairs, List.mem_append, List.mem_cons, List.not_mem_nil,
+    or_false, List.mem_map] at hp
+  rcases hp with (rfl | rfl) | ⟨⟨j10, i7, isS10, s⟩, ht, rfl⟩
+  · exact fidStep10_slot_learnAndCore.1
+  · exact fidStep10_slot_learnAndCore.2
+  · have hchk := List.all_eq_true.mp fidStep10_baseTriples_ok (j10, i7, isS10, s) ht
+    dsimp only [fidStep10CheckTriple] at hchk
+    simp only [Bool.and_eq_true, bne_iff_ne, ne_eq, beq_iff_eq] at hchk
+    rcases hchk with ⟨⟨⟨⟨⟨⟨hmem, h1⟩, h2⟩, h3⟩, h4⟩, h5⟩, hj10⟩
+    have h8 : fidStep8Module.fns[i7]?.map Fn.sig = some s := by
+      cases isS10
+      · exact fidStep8_step9_sig_at (List.contains_iff_mem.mp (by simpa using hmem))
+      · exact fidStep8_step10_sig_at (List.contains_iff_mem.mp (by simpa using hmem))
+    exact fidStep10_slot_of_step9 (fidStep10_slot9_of_step8 h8 h1 ⟨h2, h3, h4⟩) h5 hj10
+
+theorem fidStep10Env_ilog10 :
+    ∀ a m Q X, Full.fullIlog10Spec a m Q X → fidStep10Env "full_ilog10" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_ilog10 a m Q X hs)
+
+theorem fidStep10Env_heapDown :
+    ∀ a m Q X, Full.fullHeapDownSpec a m Q X →
+      fidStep10Env "full_heap_down" [i64, i32] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_heapDown a m Q X hs)
+
+theorem fidStep10Env_tickRel :
+    ∀ a m Q X, Full.fullTickRelSpec a m Q X → fidStep10Env "full_tick_rel" [i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_tickRel a m Q X hs)
+
+theorem fidStep10Env_log10Q16M7 :
+    ∀ a m Q X, FullM7Search.m7Log10Q16Spec a m Q X →
+      fidStep10Env "full_log10_q16_m7" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_log10Q16M7 a m Q X hs)
+
+theorem fidStep10Env_scaleDeltaM5 :
+    ∀ a m Q X, FullFastSched.schedScaleDeltaSpec a m Q X →
+      fidStep10Env "full_scale_delta_m5" [i64, i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_scaleDeltaM5 a m Q X hs)
+
+theorem fidStep10Env_emaUpdate :
+    ∀ a m Q X, Full.fullEmaUpdateSpec a m Q X →
+      fidStep10Env "full_ema_update" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_emaUpdate a m Q X hs)
+
+theorem fidStep10Env_assignLvl :
+    ∀ a m Q X, Full.fullAssignLvlSpec a m Q X →
+      fidStep10Env "full_assign_lvl" [i64, i32, i32, i32] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_assignLvl a m Q X hs)
+
+theorem fidStep10Env_backtrack :
+    ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
+      fidStep10Env "full_backtrack" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_backtrack a m Q X hs)
+
+theorem fidStep10Env_hdrRecordUsed :
+    ∀ a m Q X, m6HdrW2aSpec [i64] [] a m Q X →
+      fidStep10Env "m6_hdr_record_used" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_hdrRecordUsed a m Q X hs)
+
+theorem fidStep10Env_propagate :
+    ∀ a m Q X, FullM6BcpS15.fullBcpS15Spec a m Q X →
+      fidStep10Env "full_propagate" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_propagate a m Q X hs)
+
+theorem fidStep10Env_arenaSweep :
+    ∀ a m Q X, Full.fullArenaSweepSpec a m Q X →
+      fidStep10Env "full_arena_sweep" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_arenaSweep a m Q X hs)
+
+theorem fidStep10Env_analyzeLit :
+    ∀ a m Q X, Full.fullAnalyzeLitSpec a m Q X →
+      fidStep10Env "full_analyze_lit" [i64, i32, i32] [.bool] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_analyzeLit a m Q X hs)
+
+theorem fidStep10Env_clearAna :
+    ∀ a m Q X, Full.fullClearAnaSpec a m Q X →
+      fidStep10Env "full_clear_ana" [i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_clearAna a m Q X hs)
+
+theorem fidStep10Env_bumpAnalyzedM6Hdr :
+    ∀ a m Q X, m6aBumpAnalyzedSpecP M6ExtW2bPres a m Q X →
+      fidStep10Env "full_bump_analyzed_m6_hdr" [i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_bumpAnalyzedM6Hdr a m Q X hs)
+
+theorem fidStep10Env_restoreBumpAnaM6Hdr :
+    ∀ a m Q X, m6aRestoreBumpAnaSpecP M6ExtW2bPres a m Q X →
+      fidStep10Env "full_restore_bump_ana_m6_hdr" [i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_restoreBumpAnaM6Hdr a m Q X hs)
+
+theorem fidStep10Env_anaFailedLitM6Hdr :
+    ∀ a m Q X, m6aAnaFailedLitSpecP M6ExtW2bPres a m Q X →
+      fidStep10Env "full_ana_failed_lit_m6_hdr" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_anaFailedLitM6Hdr a m Q X hs)
+
+theorem fidStep10Env_minMark :
+    ∀ a m Q X, Full.fullMinMarkSpec a m Q X →
+      fidStep10Env "full_min_mark" [i64, i32, i8] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_minMark a m Q X hs)
+
+theorem fidStep10Env_sortTmp :
+    ∀ a m Q X, FullM8CoreParity.step7SortTmpSpec a m Q X →
+      fidStep10Env "full_sort_tmp" [i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_sortTmp a m Q X hs)
+
+theorem fidStep10Env_minLitDfsM8 :
+    ∀ a m Q X, FullM8CoreParity.m8MinLitDfsSpec a m Q X →
+      fidStep10Env "full_min_lit_dfs_m8" [i64, i32, .bool, .bool] [.bool] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_minLitDfsM8 a m Q X hs)
+
+theorem fidStep10Env_shrinkBlkBoolM8 :
+    ∀ a m Q X, FullM8CoreParity.m8ShrinkBlkBoolSpec a m Q X →
+      fidStep10Env "full_shrink_blk_bool_m8" [i64, i64, i64, i32, i64] [.bool] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_shrinkBlkBoolM8 a m Q X hs)
+
+theorem fidStep10Env_minShrinkM6 :
+    ∀ a m Q X, FullM8CoreParity.m8MinShrinkSpec a m Q X →
+      fidStep10Env "full_min_shrink_m6" [i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_minShrinkM6 a m Q X hs)
+
+theorem fidStep10Env_minShrink :
+    ∀ a m Q X, FullM8CoreParity.m8MinShrinkSpec a m Q X →
+      fidStep10Env "full_min_shrink" [i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_minShrink a m Q X hs)
+
+theorem fidStep10Env_deduce1uip :
+    ∀ a m Q X, Full.fullDeduce1uipSpec a m Q X →
+      fidStep10Env "full_deduce_1uip" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_deduce1uip a m Q X hs)
+
+theorem fidStep10Env_deduce1uipM6Hdr :
+    ∀ a m Q X, FullM7Proof.m7Deduce1uipHdrSpec a m Q X →
+      fidStep10Env "full_deduce_1uip_m6_hdr" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_deduce1uipM6Hdr a m Q X hs)
+
+theorem fidStep10Env_oneLitConfl :
+    ∀ a m Q X, Full.fullOneLitConflSpec a m Q X →
+      fidStep10Env "full_one_lit_confl" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_oneLitConfl a m Q X hs)
+
+theorem fidStep10Env_learnClause :
+    ∀ a m Q X, Full.fullLearnClauseSpec a m Q X →
+      fidStep10Env "full_learn_clause" [i64, i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_learnClause a m Q X hs)
+
+theorem fidStep10Env_restoreBumpAnaM5 :
+    ∀ a m Q X, FullM5HeurCore.fullRestoreBumpAnaSpec a m Q X →
+      fidStep10Env "full_restore_bump_ana_m5" [i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_restoreBumpAnaM5 a m Q X hs)
+
+theorem fidStep10Env_learnClauseM6 :
+    ∀ a m Q X, step10LearnClauseM6Spec a m Q X →
+      fidStep10Env "full_learn_clause_m6" [i64, i64] [i64] a m Q X :=
+  fid10_frontRow 5 "full_learn_clause_m6" step10LearnClauseM6Spec rfl
+    (fun _ _ _ _ h => step10LearnClauseM6Spec_monoX h)
+
+theorem fidStep10Env_lucky :
+    ∀ a m Q X, Full.fullLuckySpec a m Q X → fidStep10Env "full_lucky" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_lucky a m Q X hs)
+
+theorem fidStep10Env_vivClauseM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivClauseM6Spec a m Q X →
+      fidStep10Env "full_viv_clause_m6" [i64, i32] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_vivClauseM6 a m Q X hs)
+
+theorem fidStep10Env_vivClearTierM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivClearTierM6Spec a m Q X →
+      fidStep10Env "full_viv_clear_tier_m6" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_vivClearTierM6 a m Q X hs)
+
+theorem fidStep10Env_vivCollectFid :
+    ∀ a m Q X, FullFidelityVivK6.fullVivCollectFidSpec a m Q X →
+      fidStep10Env "full_viv_collect_fid" [i64, i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_vivCollectFid a m Q X hs)
+
+theorem fidStep10Env_vivCountFid :
+    ∀ a m Q X, FullFidelityVivK6.fullVivCountFidSpec a m Q X →
+      fidStep10Env "full_viv_count_fid" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_vivCountFid a m Q X hs)
+
+theorem fidStep10Env_vivSortFid :
+    ∀ a m Q X, FullFidelityVivK6.fullVivSortFidSpec a m Q X →
+      fidStep10Env "full_viv_sort_fid" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_vivSortFid a m Q X hs)
+
+theorem fidStep10Env_compactNeeded :
+    ∀ a m Q X, FullM4Compact.fullCompactNeededSpec a m Q X →
+      fidStep10Env "full_compact_needed" [i64] [.bool] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_compactNeeded a m Q X hs)
+
+theorem fidStep10Env_compact :
+    ∀ a m Q X, FullM4Compact.fullCompactSpec a m Q X →
+      fidStep10Env "full_compact" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_compact a m Q X hs)
+
+theorem fidStep10Env_m7Get64 :
+    ∀ a m Q X, FullM7Search.m7Get64Spec a m Q X →
+      fidStep10Env "full_m7_get64" [i64, i64] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_m7Get64 a m Q X hs)
+
+theorem fidStep10Env_m7Set64 :
+    ∀ a m Q X, FullM7Search.m7Set64Spec a m Q X →
+      fidStep10Env "full_m7_set64" [i64, i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_m7Set64 a m Q X hs)
+
+theorem fidStep10Env_emaSwapM7 :
+    ∀ a m Q X, FullM7Search.m7EmaSwapSpec a m Q X →
+      fidStep10Env "full_ema_swap_m7" [i64, i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_emaSwapM7 a m Q X hs)
+
+theorem fidStep10Env_probeM6 :
+    ∀ a m Q X, m6ProbeSpec a m Q X → fidStep10Env "full_probe_m6" [i64, .bool] [i64] a m Q X :=
+  fun a m Q X hs => fid10_of_step9 (by decide) (fidStep9Env_probeM6 a m Q X hs)
+
+private theorem fidStep10_peel_from_base {f : Sym} {as bs : List Ty}
+    (hf10 : !(fidStep10FrontNames.contains f) = true := by decide)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep10Env f as bs xs m Q X) :
+    fidStep9Env f as bs xs m Q X := by
+  change patchEnv fidStep10Bundle f as bs xs m Q X at h
+  rw [patchEnv_base_eq fidStep10Bundle (fidStep10_front_none_of_names hf10)] at h
+  dsimp only [fidStep10Bundle] at h
+  rwa [fidStep9Base_eq_env] at h
+
+theorem fidStep10Env_elim_analyzeRsnM6Hdr {xs : Tup Val [i64, i32, i32]} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (h : fidStep10Env "full_analyze_rsn_m6_hdr" [i64, i32, i32] [.bool] xs m Q X) :
+    m6AnalyzeRsnHdrSpec xs m Q X :=
+  fidStep9Env_elim_analyzeRsnM6Hdr (fidStep10_peel_from_base (by decide) h)
+
+theorem fidStep10Env_elim_anaFailedLitM6Hdr {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep10Env "full_ana_failed_lit_m6_hdr" [i64] [i64] xs m Q X) :
+    m6aAnaFailedLitSpecP M6ExtW2bPres xs m Q X :=
+  fidStep9Env_elim_anaFailedLitM6Hdr (fidStep10_peel_from_base (by decide) h)
+
+theorem fidStep10Env_elim_minShrinkM6 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidStep10Env "full_min_shrink_m6" [i64] [] xs m Q X) :
+    FullM8CoreParity.m8MinShrinkSpec xs m Q X :=
+  fidStep9Env_elim_minShrinkM6 (fidStep10_peel_from_base (by decide) h)
+
+theorem fidStep10Env_elim_analyze {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep10Env "full_analyze" [i64] [i64] xs m Q X) : Full.fullAnalyzeSpec xs m Q X :=
+  fidStep9Env_elim_analyze (fidStep10_peel_from_base (by decide) h)
+
+theorem fidStep10Env_elim_analyzeCoreM6 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep10Env "full_analyze_core_m6" [i64] [i64] xs m Q X) :
+    m6HdrAnalyzeSpec xs m Q X := by
+  have hfind : fidStep10Bundle.frontTable.find? (·.name == "full_analyze_core_m6") =
+      some fidStep10ReplRows[0] := rfl
+  exact m6HdrAnalyzeSpec_monoX (env_ofTable_find?_of_append hfind rfl rfl h)
+
+theorem fidStep10Env_elim_vivifyTierM6Hdr {xs : Tup Val [i64, i64, i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep10Env "full_vivify_tier_m6_hdr" [i64, i64, i64, i64] [i64] xs m Q X) :
+    m6aVivifyTierSpec xs m Q X := by
+  have hfind : fidStep10Bundle.frontTable.find? (·.name == "full_vivify_tier_m6_hdr") =
+      some fidStep10ReplRows[1] := rfl
+  exact m6aVivifyTierSpec_monoX (env_ofTable_find?_of_append hfind rfl rfl h)
+
+theorem fidStep10Env_elim_switchModeM7 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidStep10Env "full_switch_mode_m7" [i64] [] xs m Q X) :
+    FullM7Search.m7SwitchModeSpec xs m Q X :=
+  fidStep9Env_elim_switchModeM7 (fidStep10_peel_from_base (by decide) h)
+
+theorem fidStep10Env_elim_preprocessM6 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep10Env "full_preprocess_m6" [i64] [i64] xs m Q X) :
+    fullM6PreprocessSpec xs m Q X :=
+  fidStep9Env_elim_preprocessM6 (fidStep10_peel_from_base (by decide) h)
+
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep10
 
 end

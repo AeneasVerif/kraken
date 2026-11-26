@@ -5,6 +5,8 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep1
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep10
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep10Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep11
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep11Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep1Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2Proof
@@ -88,8 +90,15 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofAnalyze
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofCong
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofLearn
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofMisc
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep11
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep11Pr3Rows
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep11Pr3RowsProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofAnalyze
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofFailed
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofMin
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofMode
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofRsn
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep11ProofViv
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12C
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12CProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12CRows

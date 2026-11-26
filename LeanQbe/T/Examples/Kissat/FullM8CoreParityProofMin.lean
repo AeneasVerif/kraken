@@ -1562,6 +1562,31 @@ theorem step7SortTmpSpec_monoX {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []}
     {X X' : XPost} (h : step7SortTmpSpec xs m Q X) : step7SortTmpSpec xs m Q X' := by
   rcases xs with ⟨_, ⟨⟩⟩; exact h
 
+theorem step7SortTmpSpec_of {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (hlen : s.LengthsOk c) (htl : s.core.tmp_len ≤ c.max_vars)
+    (hbd : ∀ k, 1 ≤ k → k < s.core.tmp_len → (s.core.tmp[k]?.getD 0#32).toNat < 2 * c.max_vars)
+    (hm : (FullMem c s ⋆ R) m)
+    (hQ : ∀ tmp' wsort' m',
+      let s' : FullState :=
+        { core := { s.core with tmp := tmp' }
+          scratch := { s.scratch with wsort := wsort' } }
+      s'.LengthsOk c → tmp'.length = c.max_vars →
+      (s.core.tmp_len ≤ 32 → wsort' = s.scratch.wsort) →
+      (tmp'.take s.core.tmp_len).Perm (s.core.tmp.take s.core.tmp_len) →
+      (0 < s.core.tmp_len → tmp'[0]? = s.core.tmp[0]?) →
+      (∀ j, 1 ≤ j → j < s.core.tmp_len →
+        ∃ i, 1 ≤ i ∧ i < s.core.tmp_len ∧ tmp'[j]? = s.core.tmp[i]?) →
+      (∀ i, 1 ≤ i → i < s.core.tmp_len →
+        ∃ j, 1 ≤ j ∧ j < s.core.tmp_len ∧ s.core.tmp[i]? = tmp'[j]?) →
+      (∀ i j, 1 ≤ i → i ≤ j → j < s.core.tmp_len →
+        (s.core.lvl[(tmp'[i]?.getD 0#32).toNat / 2]?.getD 0#32).toNat ≤
+        (s.core.lvl[(tmp'[j]?.getD 0#32).toNat / 2]?.getD 0#32).toNat) →
+      Full.FullExtScratchPres s s' →
+      (FullMem c s' ⋆ R) m' → Q () m') :
+    step7SortTmpSpec (c.hdr, ()) m Q X :=
+  ⟨c, s, R, rfl, hlen, htl, hbd, hm, hQ⟩
+
 private theorem full_min_shrink_m6_m8_wp_core (Γ : Env)
     (hStCore : ∀ {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64}
       {Q : Post []} {X : XPost},

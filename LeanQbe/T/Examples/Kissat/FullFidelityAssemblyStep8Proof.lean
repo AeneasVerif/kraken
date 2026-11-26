@@ -1155,6 +1155,135 @@ theorem fidStep8_step10_sig_at {p : Nat × SigEntry} (hp : p ∈ fidStep7_step10
     exact fidStep7_step10_sig_at hp
   simpa [List.getElem?_map] using h1
 
+-- Additive Step-11 PR 1 callee & elim lifts (`0` `import all` needed down-stream)
+theorem fidStep8Env_analyzeLit :
+    ∀ a m Q X, Full.fullAnalyzeLitSpec a m Q X →
+      fidStep8Env "full_analyze_lit" [i64, i32, i32] [.bool] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_analyzeLit a m Q X hs)
+
+theorem fidStep8Env_hdrRecordUsed :
+    ∀ a m Q X, FullM6Hdr.m6HdrW2aSpec [i64] [] a m Q X →
+      fidStep8Env "m6_hdr_record_used" [i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_hdrRecordUsed a m Q X hs)
+
+theorem fidStep8Env_clearAna :
+    ∀ a m Q X, Full.fullClearAnaSpec a m Q X → fidStep8Env "full_clear_ana" [i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_clearAna a m Q X hs)
+
+theorem fidStep8Env_bumpAnalyzedM6Hdr :
+    ∀ a m Q X, FullM6OrchAdapters.m6aBumpAnalyzedSpecP FullM6Hdr.M6ExtW2bPres a m Q X →
+      fidStep8Env "full_bump_analyzed_m6_hdr" [i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_bumpAnalyzedM6Hdr a m Q X hs)
+
+theorem fidStep8Env_sortTmp :
+    ∀ a m Q X, FullM8CoreParity.step7SortTmpSpec a m Q X →
+      fidStep8Env "full_sort_tmp" [i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_sortTmp a m Q X hs)
+
+theorem fidStep8Env_minMark :
+    ∀ a m Q X, Full.fullMinMarkSpec a m Q X →
+      fidStep8Env "full_min_mark" [i64, i32, i8] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_minMark a m Q X hs)
+
+theorem fidStep8Env_minLitDfsM8 :
+    ∀ a m Q X, FullM8CoreParity.m8MinLitDfsSpec a m Q X →
+      fidStep8Env "full_min_lit_dfs_m8" [i64, i32, .bool, .bool] [.bool] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_minLitDfsM8 a m Q X hs)
+
+theorem fidStep8Env_shrinkBlkBoolM8 :
+    ∀ a m Q X, FullM8CoreParity.m8ShrinkBlkBoolSpec a m Q X →
+      fidStep8Env "full_shrink_blk_bool_m8" [i64, i64, i64, i32, i64] [.bool] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_shrinkBlkBoolM8 a m Q X hs)
+
+theorem fidStep8Env_deduce1uip :
+    ∀ a m Q X, Full.fullDeduce1uipSpec a m Q X →
+      fidStep8Env "full_deduce_1uip" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_deduce1uip a m Q X hs)
+
+theorem fidStep8Env_restoreBumpAnaM5 :
+    ∀ a m Q X, FullM5HeurCore.fullRestoreBumpAnaSpec a m Q X →
+      fidStep8Env "full_restore_bump_ana_m5" [i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_restoreBumpAnaM5 a m Q X hs)
+
+theorem fidStep8Env_minShrink :
+    ∀ a m Q X, FullM8CoreParity.m8MinShrinkSpec a m Q X →
+      fidStep8Env "full_min_shrink" [i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_minShrink a m Q X hs)
+
+theorem fidStep8Env_learnClause :
+    ∀ a m Q X, Full.fullLearnClauseSpec a m Q X →
+      fidStep8Env "full_learn_clause" [i64, i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_learnClause a m Q X hs)
+
+theorem fidStep8Env_ilog10 :
+    ∀ a m Q X, Full.fullIlog10Spec a m Q X → fidStep8Env "full_ilog10" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_ilog10 a m Q X hs)
+
+theorem fidStep8Env_heapDown :
+    ∀ a m Q X, Full.fullHeapDownSpec a m Q X →
+      fidStep8Env "full_heap_down" [i64, i32] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_heapDown a m Q X hs)
+
+theorem fidStep8Env_emaSwapM7 :
+    ∀ a m Q X, FullM7Search.m7EmaSwapSpec a m Q X →
+      fidStep8Env "full_ema_swap_m7" [i64, i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_emaSwapM7 a m Q X hs)
+
+theorem fidStep8Env_m7Get64 :
+    ∀ a m Q X, FullM7Search.m7Get64Spec a m Q X →
+      fidStep8Env "full_m7_get64" [i64, i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_m7Get64 a m Q X hs)
+
+theorem fidStep8Env_m7Set64 :
+    ∀ a m Q X, FullM7Search.m7Set64Spec a m Q X →
+      fidStep8Env "full_m7_set64" [i64, i64, i64] [] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_m7Set64 a m Q X hs)
+
+theorem fidStep8Env_lucky :
+    ∀ a m Q X, Full.fullLuckySpec a m Q X → fidStep8Env "full_lucky" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_lucky a m Q X hs)
+
+theorem fidStep8Env_compact :
+    ∀ a m Q X, FullM4Compact.fullCompactSpec a m Q X →
+      fidStep8Env "full_compact" [i64] [i64] a m Q X :=
+  fun a m Q X hs => fid8_of_step7 (by decide) (fidStep7Env_compact a m Q X hs)
+
+theorem fidStep8Env_elim_analyzeRsnM6Hdr {xs : Tup Val [i64, i32, i32]} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (h : fidStep8Env "full_analyze_rsn_m6_hdr" [i64, i32, i32] [.bool] xs m Q X) :
+    m6AnalyzeRsnHdrSpec xs m Q X :=
+  fidStep7Env_elim_analyzeRsnM6Hdr (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8Env_elim_anaFailedLitM6Hdr {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep8Env "full_ana_failed_lit_m6_hdr" [i64] [i64] xs m Q X) :
+    FullM6OrchAdapters.m6aAnaFailedLitSpecP FullM6Hdr.M6ExtW2bPres xs m Q X :=
+  fidStep7Env_elim_anaFailedLitM6Hdr (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8Env_elim_minShrinkM6 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidStep8Env "full_min_shrink_m6" [i64] [] xs m Q X) :
+    FullM8CoreParity.m8MinShrinkSpec xs m Q X :=
+  fidStep7Env_elim_minShrinkM6 (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8Env_elim_analyze {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep8Env "full_analyze" [i64] [i64] xs m Q X) :
+    Full.fullAnalyzeSpec xs m Q X :=
+  fidStep7Env_elim_analyze (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8Env_elim_switchModeM7 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidStep8Env "full_switch_mode_m7" [i64] [] xs m Q X) :
+    FullM7Search.m7SwitchModeSpec xs m Q X :=
+  fidStep7Env_elim_switchModeM7 (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8Env_elim_preprocessM6 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep8Env "full_preprocess_m6" [i64] [i64] xs m Q X) :
+    FullM6.fullM6PreprocessSpec xs m Q X :=
+  fidStep7Env_elim_preprocessM6 (fidStep8_peel_from_base (by decide) h)
+
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8
 
 end
