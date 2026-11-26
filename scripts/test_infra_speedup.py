@@ -108,8 +108,8 @@ class TestRdepsScope(unittest.TestCase):
         assert mods is not None
         self.assertIn("LeanQbe.T.Examples.Kissat.FullFidelityAssembly", mods)
         self.assertNotIn("LeanQbe.T.Examples.Kissat.FidelityHub", mods)
-        # Includes Step-7/8 assembly proofs + dual-arch KissatFidelityParam/CompileGuard rdeps.
-        self.assertLess(len(mods), 60)
+        # Includes Step-7..10+ assembly proofs + dual-arch KissatFidelityParam/CompileGuard rdeps.
+        self.assertLess(len(mods), 120)
 
     def test_fail_closed_cases(self) -> None:
         # Empty list
