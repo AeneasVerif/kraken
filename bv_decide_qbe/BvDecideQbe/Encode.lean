@@ -426,6 +426,10 @@ def encode (e : BVLogicalExpr) : Option EncodedProg := do
     stats := stats
   }
 
+/-- Encode a `BVLogicalExpr` into `BVP1` 32-bit `Nat` words (`none` if any limit reaches `2^32`). -/
+def encodeWords (e : BVLogicalExpr) : Option (List Nat) :=
+  (encode e).map (·.words)
+
 /-- Convenience upfront workspace size estimate directly from a `BVLogicalExpr`. -/
 def estimateWorkSizeOfExpr (e : BVLogicalExpr) : UInt64 :=
   match encode e with
