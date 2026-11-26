@@ -447,8 +447,9 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
             "LeanQbeTest.T.TargetConsumerTest",
         ):
             cl = local_closure(test_mod)
-            # CoreHub includes pure decoupling helpers (`CompileGuard`, `MainCertInlineProof`).
-            self.assertLess(len(cl), 285, f"{test_mod} closure too large: {len(cl)}")
+            # CoreHub includes pure decoupling helpers (`CompileGuard`, `MainCertInlineProof`),
+            # N5 `OptFlat*`/`MainFlat*`, and split lemma modules (still decoupled from Kissat).
+            self.assertLess(len(cl), 350, f"{test_mod} closure too large: {len(cl)}")
             kissat = [m for m in cl if "Examples.Kissat" in m]
             self.assertEqual(kissat, [], f"{test_mod} leaked Kissat modules: {kissat[:5]}")
 
