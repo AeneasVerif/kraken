@@ -108,7 +108,8 @@ class TestRdepsScope(unittest.TestCase):
         assert mods is not None
         self.assertIn("LeanQbe.T.Examples.Kissat.FullFidelityAssembly", mods)
         self.assertNotIn("LeanQbe.T.Examples.Kissat.FidelityHub", mods)
-        self.assertLess(len(mods), 40)
+        # Includes Step-7/8 assembly proofs + dual-arch KissatFidelityParam/CompileGuard rdeps.
+        self.assertLess(len(mods), 60)
 
     def test_fail_closed_cases(self) -> None:
         # Empty list
@@ -446,6 +447,7 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
             "LeanQbeTest.T.TargetConsumerTest",
         ):
             cl = local_closure(test_mod)
+            # CoreHub includes pure decoupling helpers (`CompileGuard`, `MainCertInlineProof`).
             self.assertLess(len(cl), 285, f"{test_mod} closure too large: {len(cl)}")
             kissat = [m for m in cl if "Examples.Kissat" in m]
             self.assertEqual(kissat, [], f"{test_mod} leaked Kissat modules: {kissat[:5]}")

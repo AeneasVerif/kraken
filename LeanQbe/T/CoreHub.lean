@@ -15,6 +15,7 @@ public import LeanQbe.T.BedrockWord.Exec
 public import LeanQbe.T.BedrockWord.Ops
 public import LeanQbe.T.Canon
 public import LeanQbe.T.CanonLemmas
+public import LeanQbe.T.CompileGuard
 public import LeanQbe.T.CondThreadOpt
 public import LeanQbe.T.CondThreadOptLemmas
 public import LeanQbe.T.Copy
@@ -112,6 +113,7 @@ public import LeanQbe.T.MainCertCore
 public import LeanQbe.T.MainCertElab
 public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.MainCertInlineChunk
+public import LeanQbe.T.MainCertInlineProof
 public import LeanQbe.T.MainCertProof
 public import LeanQbe.T.MainCertScc
 public import LeanQbe.T.MainCertSlices
