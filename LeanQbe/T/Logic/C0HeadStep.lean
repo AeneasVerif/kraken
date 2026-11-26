@@ -1394,20 +1394,32 @@ meta def headSteps (cfg : HeadStepConfig := {}) (fuel : Nat := 10000) : TacticM 
     if let some msg := err? then throwError msg
 
 /-! ## 6. Public Tactics (`c0_hstep`, `c0_hstep_np`, `c0_hsteps`, `c0_hsteps!`, `c0_hsteps_nogrp`,
-`c0_hsplit`, `c0_hfast`, `c0_hfast_nogrp`, `c0_*_nobound`, `c0_call`, `c0_step`, `c0_steps`,
-`c0_split`, `c0_to_group`) -/
+`c0_hsplit`, `c0_hfast`, `c0_hfast_nogrp`, `c0_*_nobound`, `c0_hcall`, `c0_mstep`, `c0_msteps`,
+`c0_msteps!`, `c0_msplit`, `c0_mto_group`, `c0_split`, `c0_to_group`) -/
 
-/-- Unwrap outer `MData`/head-beta and any `MData`/head-beta on the `Expr` argument of
-`LeanQbe.T.wp` with zero `isDefEq` overhead, returning the refreshed goal and consumed type. -/
+/-- Unwrap outer `MData` from `g`'s target with zero `isDefEq` overhead (exact pre-P0-2
+behavior for `c0_split` / `c0_to_group`). -/
+private meta def unwrapOuterMData (g : MVarId) : TacticM (MVarId × Lean.Expr) := do
+  let rawTy ← instantiateMVars (← g.getType)
+  let ty := rawTy.consumeMData
+  if rawTy.isMData then
+    return (← g.change ty (checkDefEq := false), ty)
+  return (g, ty)
+
+/-- Unwrap outer `MData` and any `MData` on the `Expr` argument of `LeanQbe.T.wp` with zero
+`isDefEq` overhead, leaving goals without `MData` untouched. -/
 private meta def unwrapGoalMData (g : MVarId) : TacticM (MVarId × Lean.Expr) :=
   g.withContext do
     let ty0 ← instantiateMVars (← g.getType)
-    let ty1 := ty0.consumeMData.headBeta.consumeMData
+    let outerMData := ty0.isMData
+    let ty1 := if outerMData then ty0.consumeMData.headBeta.consumeMData else ty0.headBeta
+    let innerMData := ty1.isAppOfArity ``LeanQbe.T.wp 6 && (ty1.getArg! 4).headBeta.isMData
+    if !outerMData && !innerMData then
+      return (g, ty0)
     let ty2 :=
-      if ty1.isAppOfArity ``LeanQbe.T.wp 6 then
-        let e := ty1.getArg! 4
-        let e' := e.consumeMData.headBeta.consumeMData
-        if e' != e then Lean.mkAppN ty1.getAppFn (ty1.getAppArgs.set! 4 e') else ty1
+      if innerMData then
+        let e' := (ty1.getArg! 4).consumeMData.headBeta.consumeMData
+        Lean.mkAppN ty1.getAppFn (ty1.getAppArgs.set! 4 e')
       else ty1
     if ty2 != ty0 then
       return (← g.change ty2 (checkDefEq := false), ty2)
@@ -1527,9 +1539,9 @@ private meta def stepCallHead : TacticM Bool := withMainContext do
 
 /-- Discharge an `Expr.call` site in `O(1)` using caller hypothesis `h` (`∀ a m Q X, spec → Γ …`,
 `Env.Has`, `Env.Sat.has`, etc.), without running `c0_let_simp` over arbitrary continuations. -/
-elab "c0_call" h:term : tactic => do
+elab "c0_hcall" h:term : tactic => do
   unless ← stepCallHead do
-    throwError "c0_call: goal is not a `wp … (.call …)` call site"
+    throwError "c0_hcall: goal is not a `wp … (.call …)` call site"
   evalTactic (← `(tactic| apply $h))
 
 private meta def stepOnceClean : TacticM Bool := do
@@ -1577,50 +1589,68 @@ private meta def c0StepsClean (fuel : Nat) (strictMem : Bool := false) : TacticM
   if !progressed then
     if let some msg := err? then throwError msg
 
-private meta partial def c0SplitLoop (fuel : Nat) : TacticM Unit := do
+private meta def unwrapStepGoal (stripInner : Bool) (g : MVarId) : TacticM (MVarId × Lean.Expr) :=
+  if stripInner then unwrapGoalMData g else unwrapOuterMData g
+
+private meta def stepOnceCompat (stripInner : Bool) : TacticM Bool :=
+  if stripInner then stepOnceClean else LeanQbe.T.C0Step.stepOnce
+
+private meta partial def c0SplitLoop (stripInner : Bool) (fuel : Nat) : TacticM Unit := do
   if fuel = 0 then return
   let g0 ← getMainGoal
-  let (g, ty) ← unwrapGoalMData g0
+  let (g, ty) ← unwrapStepGoal stripInner g0
   if g != g0 then replaceMainGoal [g]
   if isWpHeadExpr ty ``LeanQbe.T.Expr.jnz then
-    let _ ← stepOnceClean
+    let _ ← stepOnceCompat stripInner
     return
-  if ← stepOnceClean then c0SplitLoop (fuel - 1)
+  if ← stepOnceCompat stripInner then c0SplitLoop stripInner (fuel - 1)
 
-private meta partial def c0ToGroupLoop (fuel : Nat) : TacticM Unit := do
+private meta partial def c0ToGroupLoop (stripInner : Bool) (fuel : Nat) : TacticM Unit := do
   if fuel = 0 then
-    setGoals (← (← getUnsolvedGoals).mapM fun g' => Prod.fst <$> unwrapGoalMData g')
+    if stripInner then
+      setGoals (← (← getUnsolvedGoals).mapM fun g' => Prod.fst <$> unwrapGoalMData g')
     return
   let mut out : Array MVarId := #[]
   for g in ← getUnsolvedGoals do
     if ← g.isAssigned then continue
-    let (g, ty) ← unwrapGoalMData g
+    let (g, ty) ← unwrapStepGoal stripInner g
     setGoals [g]
     if isWpHeadExpr ty ``LeanQbe.T.Expr.group then
       out := out.push g
-    else if ← stepOnceClean then
-      c0ToGroupLoop (fuel - 1)
+    else if ← stepOnceCompat stripInner then
+      c0ToGroupLoop stripInner (fuel - 1)
       out := out ++ (← getUnsolvedGoals)
     else out := out.push g
   setGoals out.toList
 
-/-- Single `C0Step.stepOnce` step with outer and inner `Expr`-argument `MData` stripping. -/
-elab "c0_step" : tactic => do
-  unless ← stepOnceClean do throwError "c0_step: no step applies"
+/-- Single `C0Step.stepOnce` step with outer and inner `Expr`-argument `MData` stripping (never
+shadows `C0Step.c0_step`). -/
+elab "c0_mstep" : tactic => do
+  unless ← stepOnceClean do throwError "c0_mstep: no step applies"
 
-/-- Full `C0Step.steps` executor with `MData` stripping across goals and `Expr` heads. -/
-elab "c0_steps" : tactic => c0StepsClean 10000
+/-- Full `C0Step.steps` executor with outer and inner `MData` stripping (never shadows
+`C0Step.c0_steps`). -/
+elab "c0_msteps" : tactic => c0StepsClean 10000
 
-/-- Strict `C0Step.steps` executor with `MData` stripping. -/
-elab "c0_steps!" : tactic => c0StepsClean 10000 (strictMem := true)
+/-- Strict `C0Step.steps` executor with outer and inner `MData` stripping (never shadows
+`C0Step.c0_steps!`). -/
+elab "c0_msteps!" : tactic => c0StepsClean 10000 (strictMem := true)
 
-/-- Step straight-line ops on the main goal via `C0Step.stepOnce` (unwrapping `MData`) until the
-next `Expr.jnz`, then split it once. -/
-elab "c0_split" : tactic => c0SplitLoop 100
+/-- Step straight-line ops on the main goal via `C0Step.stepOnce` (unwrapping outer and inner
+`MData`) until the next `Expr.jnz`, then split it once. -/
+elab "c0_msplit" : tactic => c0SplitLoop true 100
 
-/-- Step all goals via `C0Step.stepOnce` (unwrapping `MData`), stopping each branch at
+/-- Step all goals via `C0Step.stepOnce` (unwrapping outer and inner `MData`), stopping each
+branch at `Expr.group`. -/
+elab "c0_mto_group" : tactic => c0ToGroupLoop true 500
+
+/-- Step straight-line ops on the main goal via `C0Step.stepOnce` (unwrapping outer `MData`)
+until the next `Expr.jnz`, then split it once. -/
+elab "c0_split" : tactic => c0SplitLoop false 100
+
+/-- Step all goals via `C0Step.stepOnce` (unwrapping outer `MData`), stopping each branch at
 `Expr.group`. -/
-elab "c0_to_group" : tactic => c0ToGroupLoop 500
+elab "c0_to_group" : tactic => c0ToGroupLoop false 500
 
 end LeanQbe.T.C0HeadStep
 
