@@ -60,14 +60,14 @@ local macro "s12b_call" h:term : tactic =>
 
 private def s12bBbPrio (fl : List (BitVec 32)) (vals : List (BitVec 8)) (u : Nat) : Nat :=
   if (fl[u]?.getD 0#32 &&& 1#32) ≠ 0#32 ∧ vals[2 * u]?.getD 0#8 = 0#8 then
-    (if (fl[u]?.getD 0#32 &&& 256#32) ≠ 0#32 then 1 else 0) +
-    (if (fl[u]?.getD 0#32 &&& 512#32) ≠ 0#32 then 1 else 0)
+    (if (fl[u]?.getD 0#32 &&& 128#32) ≠ 0#32 then 1 else 0) +
+    (if (fl[u]?.getD 0#32 &&& 256#32) ≠ 0#32 then 1 else 0)
   else 0
 
 private def s12bBbUnprio (fl : List (BitVec 32)) (vals : List (BitVec 8)) (u : Nat) : Nat :=
   if (fl[u]?.getD 0#32 &&& 1#32) ≠ 0#32 ∧ vals[2 * u]?.getD 0#8 = 0#8 then
-    (if (fl[u]?.getD 0#32 &&& 256#32) = 0#32 then 1 else 0) +
-    (if (fl[u]?.getD 0#32 &&& 512#32) = 0#32 then 1 else 0)
+    (if (fl[u]?.getD 0#32 &&& 128#32) = 0#32 then 1 else 0) +
+    (if (fl[u]?.getD 0#32 &&& 256#32) = 0#32 then 1 else 0)
   else 0
 
 private def s12bSumTo (f : Nat → Nat) : Nat → Nat
@@ -79,8 +79,8 @@ private theorem s12bBbPrio_add_unprio_le (fl : List (BitVec 32)) (vals : List (B
   unfold s12bBbPrio s12bBbUnprio
   by_cases h1 : (fl[u]?.getD 0#32 &&& 1#32) = 0#32 <;>
   by_cases hv : vals[2 * u]?.getD 0#8 = 0#8 <;>
-  by_cases h0 : (fl[u]?.getD 0#32 &&& 256#32) = 0#32 <;>
-  by_cases h2 : (fl[u]?.getD 0#32 &&& 512#32) = 0#32 <;>
+  by_cases h0 : (fl[u]?.getD 0#32 &&& 128#32) = 0#32 <;>
+  by_cases h2 : (fl[u]?.getD 0#32 &&& 256#32) = 0#32 <;>
   simp [h1, hv, h0, h2]
 
 private theorem s12b_sext32_eq0_imp : ∀ x : BitVec 8, x.signExtend 32 = 0#32 → x = 0#8 := by
@@ -262,20 +262,20 @@ theorem full_backbone_sched_m6_s12b_wp (Γ : Env) :
             have hcond : (fl[v.toNat]?.getD 0#32 &&& 1#32) ≠ 0#32 ∧
                 vals[2 * v.toNat]?.getD 0#8 = 0#8 := ⟨hact, hval0⟩
             have hprio_eq : s12bBbPrio fl vals v.toNat =
-                (if (fl[v.toNat]?.getD 0#32 &&& 256#32) ≠ 0#32 then 1 else 0) +
-                (if (fl[v.toNat]?.getD 0#32 &&& 512#32) ≠ 0#32 then 1 else 0) := by
+                (if (fl[v.toNat]?.getD 0#32 &&& 128#32) ≠ 0#32 then 1 else 0) +
+                (if (fl[v.toNat]?.getD 0#32 &&& 256#32) ≠ 0#32 then 1 else 0) := by
               unfold s12bBbPrio; rw [ite_eq_left hcond]
             have hunprio_eq : s12bBbUnprio fl vals v.toNat =
-                (if (fl[v.toNat]?.getD 0#32 &&& 256#32) = 0#32 then 1 else 0) +
-                (if (fl[v.toNat]?.getD 0#32 &&& 512#32) = 0#32 then 1 else 0) := by
+                (if (fl[v.toNat]?.getD 0#32 &&& 128#32) = 0#32 then 1 else 0) +
+                (if (fl[v.toNat]?.getD 0#32 &&& 256#32) = 0#32 then 1 else 0) := by
               unfold s12bBbUnprio; rw [ite_eq_left hcond]
             refine wp_join_group (ts := [i64, i64])
               (fun (cn1, nr1, ()) m_a => ∃ ws1_a : List (BitVec 32),
                 ws1_a.length = 2 * c.max_vars ∧
                 cn1.toNat = cand_n.toNat +
-                  (if (fl[v.toNat]?.getD 0#32 &&& 256#32) ≠ 0#32 then 1 else 0) ∧
+                  (if (fl[v.toNat]?.getD 0#32 &&& 128#32) ≠ 0#32 then 1 else 0) ∧
                 nr1.toNat = not_resched.toNat +
-                  (if (fl[v.toNat]?.getD 0#32 &&& 256#32) = 0#32 then 1 else 0) ∧
+                  (if (fl[v.toNat]?.getD 0#32 &&& 128#32) = 0#32 then 1 else 0) ∧
                 (∀ i < cn1.toNat, (ws1_a[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
                 (FullMem c { s with scratch := { s.scratch with work_stk1 := ws1_a } } ⋆ R) m_a)
               (fun _ ⟨cn1, nr1, ⟨⟩⟩ m_a ⟨ws1_a, hws1_a, hcn1, hnr1, hlta, hma⟩ => by
@@ -299,7 +299,7 @@ theorem full_backbone_sched_m6_s12b_wp (Γ : Env) :
                         (((v <<< (BitVec.signExtend 64 1#32)) ||| 1#64).truncate 32).toNat <
                           2 * s.core.cur_vars := s12b_bv64_shl1_sext_or1_tr v hv_lt (by omega)
                     fvt_steps
-                    · have hb1 : (fl[v.toNat]?.getD 0#32 &&& 512#32) ≠ 0#32 := by
+                    · have hb1 : (fl[v.toNat]?.getD 0#32 &&& 256#32) ≠ 0#32 := by
                         rw [hfl_get]; exact by assumption
                       refine hJb (cn1 + 1#64, nr1, ()) _ ⟨_, by simp [hws1_a], ?_, ?_,
                         fun i hi => ?_, hm⟩
@@ -308,7 +308,7 @@ theorem full_backbone_sched_m6_s12b_wp (Γ : Env) :
                       · rcases (by omega : i < cn1.toNat ∨ i = cn1.toNat) with hi' | rfl
                         · rw [List.getElem?_set_ne (by omega)]; exact hlta i hi'
                         · rw [List.getElem?_set_self hcn1_lt, Option.getD_some]; exact hl1_lt
-                    · have hb1 : (fl[v.toNat]?.getD 0#32 &&& 512#32) = 0#32 := by
+                    · have hb1 : (fl[v.toNat]?.getD 0#32 &&& 256#32) = 0#32 := by
                         rw [hfl_get]; exact by assumption
                       refine hJb (cn1, nr1 + 1#64, ()) m_a ⟨ws1_a, hws1_a, ?_, ?_, hlta, hma⟩
                       · simp only [s12bSumTo, hprio_eq, hb1, ne_eq, not_true_eq_false, ↓reduceIte,
@@ -322,14 +322,14 @@ theorem full_backbone_sched_m6_s12b_wp (Γ : Env) :
                     ((v <<< (BitVec.signExtend 64 1#32)).truncate 32).toNat <
                       2 * s.core.cur_vars := s12b_bv64_shl1_sext_tr v hv_lt (by omega)
                 fvt_steps
-                · have hb0 : (fl[v.toNat]?.getD 0#32 &&& 256#32) ≠ 0#32 := by
+                · have hb0 : (fl[v.toNat]?.getD 0#32 &&& 128#32) ≠ 0#32 := by
                     rw [hfl_get]; exact by assumption
                   refine hJa (cand_n + 1#64, not_resched, ()) _ ⟨_, by simp [hws1],
                     by simp [hb0, hcn_1], by simp [hb0], fun i hi => ?_, hm⟩
                   rcases (by omega : i < cand_n.toNat ∨ i = cand_n.toNat) with hi' | rfl
                   · rw [List.getElem?_set_ne (by omega)]; exact hlt1 i hi'
                   · rw [List.getElem?_set_self hcn_lt, Option.getD_some]; exact hl0_lt
-                · have hb0 : (fl[v.toNat]?.getD 0#32 &&& 256#32) = 0#32 := by
+                · have hb0 : (fl[v.toNat]?.getD 0#32 &&& 128#32) = 0#32 := by
                     rw [hfl_get]; exact by assumption
                   exact hJa (cand_n, not_resched + 1#64, ()) m1 ⟨ws1, hws1,
                     by simp [hb0], by simp [hb0, hnr_1], hlt1, hm1⟩)
@@ -436,14 +436,14 @@ theorem full_backbone_sched_m6_s12b_wp (Γ : Env) :
                       have hcond2 : (fl[v2.toNat]?.getD 0#32 &&& 1#32) ≠ 0#32 ∧
                           vals[2 * v2.toNat]?.getD 0#8 = 0#8 := ⟨hact2, hval02⟩
                       have hu_eq : s12bBbUnprio fl vals v2.toNat =
-                          (if (fl[v2.toNat]?.getD 0#32 &&& 256#32) = 0#32 then 1 else 0) +
-                          (if (fl[v2.toNat]?.getD 0#32 &&& 512#32) = 0#32 then 1 else 0) := by
+                          (if (fl[v2.toNat]?.getD 0#32 &&& 128#32) = 0#32 then 1 else 0) +
+                          (if (fl[v2.toNat]?.getD 0#32 &&& 256#32) = 0#32 then 1 else 0) := by
                         unfold s12bBbUnprio; rw [ite_eq_left hcond2]
                       refine wp_join_group (ts := [i64])
                         (fun (cn2a, ()) m_a => ∃ ws2a : List (BitVec 32),
                           ws2a.length = 2 * c.max_vars ∧
                           cn2a.toNat = cn2.toNat +
-                            (if (fl[v2.toNat]?.getD 0#32 &&& 256#32) = 0#32 then 1 else 0) ∧
+                            (if (fl[v2.toNat]?.getD 0#32 &&& 128#32) = 0#32 then 1 else 0) ∧
                           (∀ i < cn2a.toNat, (ws2a[i]?.getD 0#32).toNat < 2 * s.core.cur_vars) ∧
                           (FullMem c { s with scratch :=
                             { s.scratch with work_stk1 := ws2a } } ⋆ R) m_a)
@@ -464,7 +464,7 @@ theorem full_backbone_sched_m6_s12b_wp (Γ : Env) :
                                     32).toNat < 2 * s.core.cur_vars :=
                                 s12b_bv64_shl1_sext_or1_tr v2 hv2_lt (by omega)
                               c0_hsplit
-                              · have hb1 : (fl[v2.toNat]?.getD 0#32 &&& 512#32) = 0#32 := by
+                              · have hb1 : (fl[v2.toNat]?.getD 0#32 &&& 256#32) = 0#32 := by
                                   rw [hfl2_get]; exact hc
                                 have hcn2a_lt : cn2a.toNat < ws2a.length := by
                                   rw [hu_eq, ite_eq_left hb1] at hcn2_add_u; omega
@@ -479,7 +479,7 @@ theorem full_backbone_sched_m6_s12b_wp (Γ : Env) :
                                   · rw [List.getElem?_set_ne (by omega)]; exact hlt2a i hi'
                                   · rw [List.getElem?_set_self hcn2a_lt, Option.getD_some]
                                     exact hl1_lt
-                              · have hb1 : (fl[v2.toNat]?.getD 0#32 &&& 512#32) ≠ 0#32 := by
+                              · have hb1 : (fl[v2.toNat]?.getD 0#32 &&& 256#32) ≠ 0#32 := by
                                   rw [hfl2_get]; exact hc
                                 c0_hsteps!
                                 refine hJb (cn2a, ()) m_a ⟨ws2a, hws2a, ?_, hlt2a, hma⟩
@@ -489,7 +489,7 @@ theorem full_backbone_sched_m6_s12b_wp (Γ : Env) :
                               ((v2 <<< (BitVec.signExtend 64 1#32)).truncate 32).toNat <
                                 2 * s.core.cur_vars := s12b_bv64_shl1_sext_tr v2 hv2_lt (by omega)
                           c0_hsplit
-                          · have hb0 : (fl[v2.toNat]?.getD 0#32 &&& 256#32) = 0#32 := by
+                          · have hb0 : (fl[v2.toNat]?.getD 0#32 &&& 128#32) = 0#32 := by
                               rw [hfl2_get]; exact hc
                             have hcn2_lt : cn2.toNat < ws2.length := by
                               rw [hu_eq, ite_eq_left hb0] at hcn2_add_u; omega
@@ -500,7 +500,7 @@ theorem full_backbone_sched_m6_s12b_wp (Γ : Env) :
                             rcases (by omega : i < cn2.toNat ∨ i = cn2.toNat) with hi' | rfl
                             · rw [List.getElem?_set_ne (by omega)]; exact hlt2 i hi'
                             · rw [List.getElem?_set_self hcn2_lt, Option.getD_some]; exact hl0_lt
-                          · have hb0 : (fl[v2.toNat]?.getD 0#32 &&& 256#32) ≠ 0#32 := by
+                          · have hb0 : (fl[v2.toNat]?.getD 0#32 &&& 128#32) ≠ 0#32 := by
                               rw [hfl2_get]; exact hc
                             c0_hsteps!
                             exact hJa (cn2, ()) m2 ⟨ws2, hws2, by rw [ite_eq_right hb0]; omega,

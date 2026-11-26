@@ -55,8 +55,8 @@ kissat_c0! fidStep12BBveFwd "
 #define FL_ELIM_C             16u
 #define FL_FACT_P             32u
 #define FL_FACT_N             64u
-#define FL_BONE0              256u
-#define FL_BONE1              512u
+#define FL_BONE0              128u
+#define FL_BONE1              256u
 
 #define M8_OCC_LIM            2001u
 #define M8_NEG_OFF            2001u

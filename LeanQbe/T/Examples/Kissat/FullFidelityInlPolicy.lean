@@ -34,8 +34,9 @@ Extends `FullM7InlPolicy.m7PgoBudget` with budgets tuned on the purified `469`-f
 * Tunes `maxCallerSize := 2800`, `leafMax := 165`, `maxCalleeLoops := some 1`,
   `maxTotalDup := 1500`, `maxCallerCalls := 24`, plus Wave-5 A/B-validated leaf & callee budgets
   (`full_assign_lvl => 180`, `full_min_mark => 90`, `full_watch_push_m6 => 200`,
-  `full_k6_flip => 290`, `full_fill_u64_m7 => 40`, `full_sort_bin_watches_fid => 110`,
-  `full_k6_init => 220`, `full_walk_flip_m7 => 280`, `full_decide_m7 => 265`).
+  `full_watch_push => 220`, `full_k6_flip => 290`, `full_fill_u64_m7 => 40`,
+  `full_sort_bin_watches_fid => 110`, `full_k6_init => 220`, `full_walk_flip_m7 => 280`,
+  `full_decide_m7 => 265`).
 
 All `Module.optInlinePolicy_*` correctness, `Func.Wf`, acyclicity, and `LegalTarget` transport
 theorems apply directly with `0` compiler proof LOC.
@@ -82,8 +83,9 @@ def fidPgoBudget : Sym → Nat
   | "m6_hdr_dr_init" => 60
   | "m6_hdr_sync_legacy_tiers" => 30
   | "m6_hdr_decide_fid" => 130
-  -- Keep cold/spill-regressing helpers OOL; inline hot `full_watch_push_m6`, `k6`, & `cong` helpers
+  -- Keep cold/spill-regressing helpers OOL; inline hot `full_watch_push{,_m6}`, `k6`, & `cong`
   | "full_watch_push_m6" => 200
+  | "full_watch_push" => 220
   | "full_watch_push_slow_m6" => 0
   | "full_prop_flush_slow_fid" => 0
   | "full_prop_flush_del_fid" => 0
