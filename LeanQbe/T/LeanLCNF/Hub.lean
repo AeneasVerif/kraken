@@ -27,6 +27,8 @@ public import LeanQbe.T.LeanLCNF.LcnfC0DemoProof
 public import LeanQbe.T.LeanLCNF.LcnfC0Full
 public import LeanQbe.T.LeanLCNF.LcnfC0FullProof
 public import LeanQbe.T.LeanLCNF.LcnfC0LinkKit
+public import LeanQbe.T.LeanLCNF.LcnfC0RecDemo
+public import LeanQbe.T.LeanLCNF.LcnfC0RecDemoProof
 public import LeanQbe.T.LeanLCNF.LcnfC0Rt
 public import LeanQbe.T.LeanLCNF.LcnfC0RtProof
 public import LeanQbe.T.LeanLCNF.LcnfC0RtProofCommon
