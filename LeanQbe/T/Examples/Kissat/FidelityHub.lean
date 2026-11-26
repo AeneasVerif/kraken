@@ -23,6 +23,9 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
+public import LeanQbe.T.Examples.Kissat.FullFidelityBacktrackCs
+public import LeanQbe.T.Examples.Kissat.FullFidelityBacktrackCsProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityBacktrackCsProof0
 public import LeanQbe.T.Examples.Kissat.FullFidelityBase
 public import LeanQbe.T.Examples.Kissat.FullFidelityBaseProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityBaseProof0
@@ -85,6 +88,8 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofAnalyze
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofCong
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofLearn
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep10ProofMisc
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep11Pr3Rows
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep11Pr3RowsProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep2S15
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7BvaSpec
@@ -126,6 +131,8 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep9ProofProbe
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep9ProofProbe0
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep9ProofProbe1
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweep
+public import LeanQbe.T.Examples.Kissat.FullFidelitySweepEnv
+public import LeanQbe.T.Examples.Kissat.FullFidelitySweepEnvProof
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProof
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofCone0
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofCone1
@@ -142,6 +149,8 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleProofSat
 public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleRows
 public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleRowsProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleSpec
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivFlag
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivFlagProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof0a

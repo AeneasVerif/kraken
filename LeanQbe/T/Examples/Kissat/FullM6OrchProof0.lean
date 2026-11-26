@@ -205,6 +205,62 @@ theorem m6AnalyzeRsnHdrSpec_monoX {xs : Tup Val [i64, i32, i32]} {m : Mem 64}
     {Q : Post [.bool]} {X X' : XPost} (h : m6AnalyzeRsnHdrSpec xs m Q X) :
     m6AnalyzeRsnHdrSpec xs m Q X' := by rcases xs with ⟨_, _, _, ⟨⟩⟩; exact h
 
+theorem m6AnalyzeRsnHdrSpec_intro {c : FullCfg} {F0 : CNF Nat} {F_cur : List (List Nat)}
+    {cut : Nat} {ext : List (BitVec 64)} {s : FullState} {R : Mem 64 → Prop}
+    {rsn skip_var : BitVec 32} {m : Mem 64} {Q : Post [.bool]} {X : XPost}
+    (hcfg : FullM6HdrCfgOk c) (hext : M6HdrExtOk ext) (hlen : s.LengthsOk c)
+    (hcut : FullWitnessCutInv c F0 F_cur cut s.core) (hcov : FullAnaMarksCov c s)
+    (htl : s.core.tmp_len ≤ s.core.cur_vars)
+    (htc : s.core.tmp_cnt + s.core.cur_vars + 1 < 2 ^ 64)
+    (href : rsn ≠ 0xFFFFFFFF#32 → (rsn &&& 0x80000000#32) = 0#32 →
+      rsn.toNat ∈ fullArenaClauseRefs s)
+    (hm : (FullM6HdrMem c ext s ⋆ R) m)
+    (hQ : ∀ (ok : Bool) mrk' tmp' tc' tl' mcl' arena' sc' ext' m',
+      let s' : FullState := { s with
+        core := { s.core with mrk := mrk', tmp := tmp', tmp_cnt := tc', tmp_len := tl',
+                              min_clr_len := mcl', arena := arena' }
+        scratch := sc' }
+      M6HdrExtOk ext' → (M6HdrExtInitOk ext → M6ExtW2bPres ext ext') →
+      s'.LengthsOk c → FullWitnessCutInv c F0 F_cur cut s'.core → FullAnaMarksCov c s' →
+      FullExtScratchPres s s' → sc'.work_stk2 = s.scratch.work_stk2 →
+      s.core.tmp_len ≤ tl' → tl' ≤ s.core.cur_vars → s.core.tmp_cnt ≤ tc' →
+      fullArenaClauseRefs s' = fullArenaClauseRefs s →
+      (∀ r ∈ fullArenaClauseRefs s, fullArenaClauseSize s' r = fullArenaClauseSize s r ∧
+        fullArenaClauseGarb s' r = fullArenaClauseGarb s r ∧
+        fullArenaClauseLits s' r = fullArenaClauseLits s r) →
+      (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 ≠ 0#8 →
+        mrk'[v]?.getD 0#8 = s.core.mrk[v]?.getD 0#8) →
+      (∀ k < s.core.tmp_len, tmp'[k]? = s.core.tmp[k]?) →
+      (∀ v < c.max_vars, s.core.mrk[v]?.getD 0#8 = 0#8 → mrk'[v]?.getD 0#8 ≠ 0#8 →
+        ∃ l ∈ fullRsnLits s rsn, l / 2 = v ∧ v < s.core.cur_vars ∧ v ≠ skip_var.toNat ∧
+          0 < (s.core.lvl[v]?.getD 0#32).toNat ∧
+          (s.core.lvl[v]?.getD 0#32).toNat ≤ s.core.cur_level) →
+      (∀ j, s.core.tmp_len ≤ j → j < tl' → let l := (tmp'[j]?.getD 0#32).toNat
+        l ∈ fullRsnLits s rsn ∧ l < 2 * s.core.cur_vars ∧ l / 2 ≠ skip_var.toNat ∧
+        s.core.mrk[l / 2]?.getD 0#8 = 0#8 ∧ 0 < (s.core.lvl[l / 2]?.getD 0#32).toNat ∧
+        (s.core.lvl[l / 2]?.getD 0#32).toNat < s.core.cur_level ∧ mrk'[l / 2]?.getD 0#8 ≠ 0#8) →
+      (∀ j1 j2, s.core.tmp_len ≤ j1 → j1 < j2 → j2 < tl' →
+        (tmp'[j1]?.getD 0#32).toNat / 2 ≠ (tmp'[j2]?.getD 0#32).toNat / 2) →
+      (tc' - s.core.tmp_cnt = ((List.range s.core.cur_vars).filter fun w =>
+        decide (s.core.mrk[w]?.getD 0#8 = 0#8) && decide (mrk'[w]?.getD 0#8 ≠ 0#8) &&
+        decide ((s.core.lvl[w]?.getD 0#32).toNat = s.core.cur_level)).length) →
+      (sc'.res_sz = s.scratch.res_sz + BitVec.ofNat 64 ((List.range s.core.cur_vars).filter fun w =>
+        decide (s.core.mrk[w]?.getD 0#8 = 0#8) && decide (mrk'[w]?.getD 0#8 ≠ 0#8)).length) →
+      (ok = true → rsn ≠ 0xFFFFFFFF#32 ∧
+        sc'.ant_sz = s.scratch.ant_sz + BitVec.ofNat 64 ((fullRsnLits s rsn).countP fun l =>
+          decide (l / 2 < s.core.cur_vars ∧ 0 < (s.core.lvl[l / 2]?.getD 0#32).toNat ∧
+            (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ s.core.cur_level)) ∧
+        ∀ l ∈ fullRsnLits s rsn, l / 2 < s.core.cur_vars ∧ (l / 2 ≠ skip_var.toNat →
+          (0 < (s.core.lvl[l / 2]?.getD 0#32).toNat → mrk'[l / 2]?.getD 0#8 ≠ 0#8) ∧
+          (s.core.mrk[l / 2]?.getD 0#8 = 0#8 →
+            (s.core.lvl[l / 2]?.getD 0#32).toNat ≤ s.core.cur_level ∧
+            (0 < (s.core.lvl[l / 2]?.getD 0#32).toNat →
+              (s.core.lvl[l / 2]?.getD 0#32).toNat < s.core.cur_level →
+              ∃ j, s.core.tmp_len ≤ j ∧ j < tl' ∧ (tmp'[j]?.getD 0#32).toNat / 2 = l / 2)))) →
+      (FullM6HdrMem c ext' s' ⋆ R) m' → Q (ok, ()) m') :
+    m6AnalyzeRsnHdrSpec (c.hdr, rsn, skip_var, ()) m Q X :=
+  ⟨c, F0, F_cur, cut, ext, s, R, rfl, hcfg, hext, hlen, hcut, hcov, htl, htc, href, hm, hQ⟩
+
 def m6Deduce1uipHdrSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
   ∃ c F0 F_cur cut ext s R, h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧
     FullCutInvW c F0 F_cur cut s ∧ 0 < s.core.cur_level ∧ FullConflictOkCut F_cur cut s ∧
@@ -234,6 +290,34 @@ def m6Deduce1uipHdrSpec : Spec [i64] [i64] := fun (h, ()) m Q _ =>
 theorem m6Deduce1uipHdrSpec_monoX {xs : Tup Val [i64]} {m : Mem 64}
     {Q : Post [i64]} {X X' : XPost} (h : m6Deduce1uipHdrSpec xs m Q X) :
     m6Deduce1uipHdrSpec xs m Q X' := by rcases xs with ⟨h0, ⟨⟩⟩; exact h
+
+theorem m6Deduce1uipHdrSpec_elim {h : BitVec 64} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost} (hs : m6Deduce1uipHdrSpec (h, ()) m Q X) :
+    ∃ c F0 F_cur cut ext s R, h = c.hdr ∧ FullM6HdrCfgOk c ∧ M6HdrExtOk ext ∧
+      FullCutInvW c F0 F_cur cut s ∧ 0 < s.core.cur_level ∧ FullConflictOkCut F_cur cut s ∧
+      (FullM6HdrMem c ext s ⋆ R) m ∧
+      ∀ (r : BitVec 64) (ext' : List (BitVec 64)) (s' : FullState) (m' : Mem 64),
+        M6HdrExtOk ext' → s'.LengthsOk c → (r = 0#64 ∨ r = 1#64 ∨ r = 2#64 ∨ r = 20#64) →
+        s'.core.cur_vars = s.core.cur_vars → s'.core.fuel = s.core.fuel →
+        s'.scratch.work_stk2 = s.scratch.work_stk2 →
+        (r = 20#64 → F0.Unsat ∧ FullOtfsInvW c F0 F_cur s' ∧
+          s'.core.cur_level ≤ s.core.cur_level ∧ s'.core.dense_mode = s.core.dense_mode) →
+        (r = 0#64 → FullOtfsInvW c F0 F_cur s') →
+        (r = 1#64 → FullOtfsInvW c F0 F_cur s' ∧ s'.core.cur_level = s.core.cur_level ∧
+          1 ≤ s'.core.tmp_len ∧ s'.core.tmp_len ≤ s'.core.cur_vars ∧
+          (List.map (fun x => x.toNat / 2) (List.take s'.core.tmp_len s'.core.tmp)).Nodup ∧
+          (∀ k, k < s'.core.tmp_len → let l := (s'.core.tmp[k]?.getD 0#32).toNat
+            l < 2 * s'.core.cur_vars ∧ s'.core.vals[l]?.getD 0#8 = 255#8) ∧
+          (∀ k, 1 ≤ k → k < s'.core.tmp_len →
+            let lv := (s'.core.lvl[(s'.core.tmp[k]?.getD 0#32).toNat / 2]?.getD 0#32).toNat
+            0 < lv ∧ lv < s'.core.cur_level) ∧
+          (s'.core.lvl[(s'.core.tmp[0]?.getD 0#32).toNat / 2]?.getD 0#32).toNat =
+            s'.core.cur_level ∧
+          (cnfOfClauses F_cur).EntailsClause
+            (cnfClause (List.map BitVec.toNat (List.take s'.core.tmp_len s'.core.tmp)))) →
+        (r = 2#64 → ∃ cut', cut' ≤ s'.core.trail_end ∧ FullCutInvW c F0 F_cur cut' s' ∧
+          s'.core.cur_level = s.core.cur_level ∧ FullConflictOkCut F_cur cut' s') →
+        (FullM6HdrMem c ext' s' ⋆ R) m' → Q (r, ()) m' := hs
 
 /-! ### Private Helpers -/
 

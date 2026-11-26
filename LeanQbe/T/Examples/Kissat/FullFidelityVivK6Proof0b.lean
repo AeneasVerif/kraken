@@ -126,6 +126,19 @@ theorem fullVivCountFidSpec_intro {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     fullVivCountFidSpec (h, bn, ()) m Q X :=
   ⟨c, F0, s, R, hh, hsp, hbn, hrr, hm, hQ⟩
 
+theorem fullVivSort2FidSpec_intro {c : FullCfg} {F0 : CNF Nat} {s : FullState}
+    {R : Mem 64 → Prop} {h bn md : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
+    (hh : h = c.hdr) (hsp : FullSparseInv c F0 s) (hbn : bn.toNat ≤ c.red_cap)
+    (hmd : (md = 1#64 ∧ 3 * bn.toNat ≤ c.red_cap) ∨ (md = 2#64 ∧ 2 * bn.toNat ≤ c.scratch_cap))
+    (hrr : ∀ k < bn.toNat, (s.scratch.red_refs[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s)
+    (hm : (FullMem c s ⋆ R) m)
+    (hQ : ∀ rr' scr' m', rr'.length = c.red_cap → scr'.length = c.scratch_cap →
+      (∀ k < bn.toNat, (rr'[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s) →
+      (FullMem c { s with scratch := { s.scratch with red_refs := rr', scratch_buf := scr' } } ⋆ R)
+        m' → Q () m') :
+    fullVivSort2FidSpec (h, bn, md, ()) m Q X :=
+  ⟨c, F0, s, R, hh, hsp, hbn, hmd, hrr, hm, hQ⟩
+
 theorem fullVivSortFidSpec_intro {c : FullCfg} {F0 : CNF Nat} {s : FullState}
     {R : Mem 64 → Prop} {h bn : BitVec 64} {m : Mem 64} {Q : Post []} {X : XPost}
     (hh : h = c.hdr) (hsp : FullSparseInv c F0 s) (hbn : bn.toNat ≤ c.red_cap)
@@ -137,6 +150,31 @@ theorem fullVivSortFidSpec_intro {c : FullCfg} {F0 : CNF Nat} {s : FullState}
         m' → Q () m') :
     fullVivSortFidSpec (h, bn, ()) m Q X :=
   ⟨c, F0, s, R, hh, hsp, hbn, hrr, hm, hQ⟩
+
+theorem fullVivSort2FidSpec_elim {h bn md : BitVec 64} {m : Mem 64}
+    {Q : Post []} {X : XPost} (hs : fullVivSort2FidSpec (h, bn, md, ()) m Q X) :
+    ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullSparseInv c F0 s ∧ bn.toNat ≤ c.red_cap ∧
+      ((md = 1#64 ∧ 3 * bn.toNat ≤ c.red_cap) ∨
+        (md = 2#64 ∧ 2 * bn.toNat ≤ c.scratch_cap)) ∧
+      (∀ k < bn.toNat, (s.scratch.red_refs[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s) ∧
+      (FullMem c s ⋆ R) m ∧
+      ∀ rr' scr' m',
+        rr'.length = c.red_cap → scr'.length = c.scratch_cap →
+        (∀ k < bn.toNat, (rr'[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s) →
+        (FullMem c { s with scratch := { s.scratch with red_refs := rr', scratch_buf := scr' } }
+          ⋆ R) m' → Q () m' := hs
+
+theorem fullVivSortFidSpec_elim {h bn : BitVec 64} {m : Mem 64}
+    {Q : Post []} {X : XPost} (hs : fullVivSortFidSpec (h, bn, ()) m Q X) :
+    ∃ (c : FullCfg) (F0 : CNF Nat) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullSparseInv c F0 s ∧ bn.toNat ≤ c.red_cap ∧
+      (∀ k < bn.toNat, (s.scratch.red_refs[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s) ∧
+      (FullMem c s ⋆ R) m ∧
+      ∀ rr' scr' m', rr'.length = c.red_cap → scr'.length = c.scratch_cap →
+        (∀ k < bn.toNat, (rr'[k]?.getD 0#32).toNat ∈ fullArenaClauseRefs s) →
+        (FullMem c { s with scratch := { s.scratch with red_refs := rr', scratch_buf := scr' } }
+          ⋆ R) m' → Q () m' := hs
 
 end VivFidSpecs
 
