@@ -905,6 +905,24 @@ theorem fullDensePropUnitM6Spec_noExit :
       fullDensePropUnitM6Spec xs m Q (fun _ _ _ _ => False) :=
   fun _ _ _ _ h => h
 
+theorem fullDensePropUnitM6Spec_elim {h : BitVec 64} {lit : BitVec 32} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (hs : fullDensePropUnitM6Spec (h, lit, ()) m Q X) :
+    ∃ (c : FullCfg) (F0 : CNF Nat) (F_cur : List (List Nat)) (s : FullState) (R : Mem 64 → Prop),
+      h = c.hdr ∧ FullDenseInvW c F0 F_cur s ∧ (FullMem c s ⋆ R) m ∧
+      ∀ (ok : Bool) s' m',
+        FullDenseInvW c F0 F_cur s' → s'.core.cur_vars = s.core.cur_vars →
+        s'.core.arena_len = s.core.arena_len → s'.core.fuel = s.core.fuel →
+        fullArenaClauseRefs s' = fullArenaClauseRefs s →
+        s'.scratch.tarjan_mark = s.scratch.tarjan_mark →
+        s'.scratch.red_refs = s.scratch.red_refs →
+        s'.scratch.scratch_buf = s.scratch.scratch_buf →
+        s'.scratch.work_stk1 = s.scratch.work_stk1 →
+        s'.scratch.work_stk2 = s.scratch.work_stk2 →
+        s'.scratch.sim_sig = s.scratch.sim_sig →
+        (ok = false → F0.Unsat) → (FullMem c s' ⋆ R) m' → Q (ok, ()) m' :=
+  hs
+
 /-- Contract for `full_dense_flush_units_m6`: flushes all pending level-`0` trail units while
 dense watches are connected, preserving `FullDenseInvW`, `cur_vars`, `arena_len`,
 `fullArenaClauseRefs`, `fuel`, `tarjan_mark`, and scratch buffers. -/
