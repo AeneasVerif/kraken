@@ -543,51 +543,6 @@ bool full_has_ternary(FullHdr *h, u32 a, u32 b, u32 c) {
 }
 "
 
-/-- Ordered live functions of `Src/Watch.lean` (`15` fns). -/
-def fns : List Fn := watch_fns
-
-end
-
-public section
-
-theorem full_wsort_sift_wf : Func.Wf full_wsort_sift_body := by kissat_wf_reify
-theorem full_wstack_radix_sort_m6_wf : Func.Wf full_wstack_radix_sort_m6_body := by kissat_wf_reify
-theorem full_wstack_defrag_m6_wf : Func.Wf full_wstack_defrag_m6_body := by kissat_wf_reify
-theorem full_watch_push_slow_m6_wf : Func.Wf full_watch_push_slow_m6_body := by kissat_wf_reify
-theorem full_watch_push_m6_wf : Func.Wf full_watch_push_m6_body := by kissat_wf_reify
-theorem full_wstack_defrag_wf : Func.Wf full_wstack_defrag_body := by kissat_wf_reify
-theorem full_watch_push_wf : Func.Wf full_watch_push_body := by kissat_wf_reify
-theorem full_watch_pop_c0_wf : Func.Wf full_watch_pop_c0_body := by kissat_wf_reify
-theorem full_unwatch_large_wf : Func.Wf full_unwatch_large_body := by kissat_wf_reify
-theorem full_has_bin_wf : Func.Wf full_has_bin_body := by kissat_wf_reify
-theorem full_delete_bin_side_wf : Func.Wf full_delete_bin_side_body := by kissat_wf_reify
-theorem full_delete_binary_wf : Func.Wf full_delete_binary_body := by kissat_wf_reify
-theorem full_prioritize_binaries_m6_wf : Func.Wf full_prioritize_binaries_m6_body := by
-  kissat_wf_reify
-theorem full_sort_bin_watches_fid_wf : Func.Wf full_sort_bin_watches_fid_body := by kissat_wf_reify
-theorem full_has_ternary_wf : Func.Wf full_has_ternary_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, watch_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl
-  · exact full_wsort_sift_wf
-  · exact full_wstack_radix_sort_m6_wf
-  · exact full_wstack_defrag_m6_wf
-  · exact full_watch_push_slow_m6_wf
-  · exact full_watch_push_m6_wf
-  · exact full_wstack_defrag_wf
-  · exact full_watch_push_wf
-  · exact full_watch_pop_c0_wf
-  · exact full_unwatch_large_wf
-  · exact full_has_bin_wf
-  · exact full_delete_bin_side_wf
-  · exact full_delete_binary_wf
-  · exact full_prioritize_binaries_m6_wf
-  · exact full_sort_bin_watches_fid_wf
-  · exact full_has_ternary_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Watch

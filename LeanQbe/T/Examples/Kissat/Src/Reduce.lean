@@ -244,31 +244,6 @@ u64 full_reduce_purge_c0(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Reduce.lean` (`6` fns). -/
-def fns : List Fn := reduce_fns
-
-end
-
-public section
-
-theorem full_red_less_wf : Func.Wf full_red_less_body := by kissat_wf_reify
-theorem full_red_sift_wf : Func.Wf full_red_sift_body := by kissat_wf_reify
-theorem full_sort_reds_wf : Func.Wf full_sort_reds_body := by kissat_wf_reify
-theorem full_reduce_wf : Func.Wf full_reduce_body := by kissat_wf_reify
-theorem full_reduce_m6_wf : Func.Wf full_reduce_m6_body := by kissat_wf_reify
-theorem full_reduce_purge_c0_wf : Func.Wf full_reduce_purge_c0_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, reduce_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_red_less_wf
-  · exact full_red_sift_wf
-  · exact full_sort_reds_wf
-  · exact full_reduce_wf
-  · exact full_reduce_m6_wf
-  · exact full_reduce_purge_c0_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Reduce

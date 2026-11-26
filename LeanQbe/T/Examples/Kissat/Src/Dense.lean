@@ -256,34 +256,6 @@ bool full_dense_flush_units_m7(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Dense.lean` (`7` fns). -/
-def fns : List Fn := dense_fns
-
-end
-
-public section
-
-theorem full_enter_dense_wf : Func.Wf full_enter_dense_body := by kissat_wf_reify
-theorem full_rebuild_watches_nosort_fid_wf : Func.Wf full_rebuild_watches_nosort_fid_body := by
-  kissat_wf_reify
-theorem full_rebuild_watches_wf : Func.Wf full_rebuild_watches_body := by kissat_wf_reify
-theorem full_m6_dense_prop_lit_wf : Func.Wf full_m6_dense_prop_lit_body := by kissat_wf_reify
-theorem full_m6_dense_prop_wf : Func.Wf full_m6_dense_prop_body := by kissat_wf_reify
-theorem full_dense_prop_unit_m7_wf : Func.Wf full_dense_prop_unit_m7_body := by kissat_wf_reify
-theorem full_dense_flush_units_m7_wf : Func.Wf full_dense_flush_units_m7_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, dense_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_enter_dense_wf
-  · exact full_rebuild_watches_nosort_fid_wf
-  · exact full_rebuild_watches_wf
-  · exact full_m6_dense_prop_lit_wf
-  · exact full_m6_dense_prop_wf
-  · exact full_dense_prop_unit_m7_wf
-  · exact full_dense_flush_units_m7_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Dense

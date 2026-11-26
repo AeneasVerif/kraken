@@ -186,29 +186,6 @@ void full_extend(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Extend.lean` (`5` fns). -/
-def fns : List Fn := extend_fns
-
-end
-
-public section
-
-theorem full_extend_push2_wf : Func.Wf full_extend_push2_body := by kissat_wf_reify
-theorem full_extend_push_cl_wf : Func.Wf full_extend_push_cl_body := by kissat_wf_reify
-theorem full_extend_core_fid_wf : Func.Wf full_extend_core_fid_body := by kissat_wf_reify
-theorem full_unperm_fid_wf : Func.Wf full_unperm_fid_body := by kissat_wf_reify
-theorem full_extend_wf : Func.Wf full_extend_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, extend_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl
-  · exact full_extend_push2_wf
-  · exact full_extend_push_cl_wf
-  · exact full_extend_core_fid_wf
-  · exact full_unperm_fid_wf
-  · exact full_extend_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Extend

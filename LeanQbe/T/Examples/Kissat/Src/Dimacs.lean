@@ -240,37 +240,6 @@ bool full_skip_cl(u64 cnf_end, KissatDimacs *d) {
 }
 "
 
-/-- Ordered live functions of `Src/Dimacs.lean` (`9` fns). -/
-def fns : List Fn := dimacs_fns
-
-end
-
-public section
-
-theorem kissat_is_ws_wf : Func.Wf kissat_is_ws_body := by kissat_wf_reify
-theorem kissat_is_digit_wf : Func.Wf kissat_is_digit_body := by kissat_wf_reify
-theorem kissat_skip_ws_comments_wf : Func.Wf kissat_skip_ws_comments_body := by kissat_wf_reify
-theorem kissat_skip_ws1_wf : Func.Wf kissat_skip_ws1_body := by kissat_wf_reify
-theorem kissat_read_nat_wf : Func.Wf kissat_read_nat_body := by kissat_wf_reify
-theorem kissat_parse_header_wf : Func.Wf kissat_parse_header_body := by kissat_wf_reify
-theorem kissat_next_lit_wf : Func.Wf kissat_next_lit_body := by kissat_wf_reify
-theorem kissat_check_model_wf : Func.Wf kissat_check_model_body := by kissat_wf_reify
-theorem full_skip_cl_wf : Func.Wf full_skip_cl_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, dimacs_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact kissat_is_ws_wf
-  · exact kissat_is_digit_wf
-  · exact kissat_skip_ws_comments_wf
-  · exact kissat_skip_ws1_wf
-  · exact kissat_read_nat_wf
-  · exact kissat_parse_header_wf
-  · exact kissat_next_lit_wf
-  · exact kissat_check_model_wf
-  · exact full_skip_cl_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Dimacs

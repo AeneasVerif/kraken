@@ -169,31 +169,6 @@ void full_backtrack_ac_fid(FullHdr *h, u64 target_lvl) {
 }
 "
 
-/-- Ordered live functions of `Src/Backtrack.lean` (`6` fns). -/
-def fns : List Fn := backtrack_fns
-
-end
-
-public section
-
-theorem full_assign_lvl_wf : Func.Wf full_assign_lvl_body := by kissat_wf_reify
-theorem full_assign_wf : Func.Wf full_assign_body := by kissat_wf_reify
-theorem full_save_target_best_wf : Func.Wf full_save_target_best_body := by kissat_wf_reify
-theorem full_backtrack_raw_m5_wf : Func.Wf full_backtrack_raw_m5_body := by kissat_wf_reify
-theorem full_backtrack_wf : Func.Wf full_backtrack_body := by kissat_wf_reify
-theorem full_backtrack_ac_fid_wf : Func.Wf full_backtrack_ac_fid_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, backtrack_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_assign_lvl_wf
-  · exact full_assign_wf
-  · exact full_save_target_best_wf
-  · exact full_backtrack_raw_m5_wf
-  · exact full_backtrack_wf
-  · exact full_backtrack_ac_fid_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Backtrack

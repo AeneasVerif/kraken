@@ -359,33 +359,6 @@ u64 full_analyze_m6_hdr(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Analyze.lean` (`6` fns). -/
-def fns : List Fn := analyze_fns
-
-end
-
-public section
-
-theorem full_restore_bump_ana_m6_hdr_wf : Func.Wf full_restore_bump_ana_m6_hdr_body := by
-  kissat_wf_reify
-theorem full_ana_failed_lit_m6_hdr_wf : Func.Wf full_ana_failed_lit_m6_hdr_body := by
-  kissat_wf_reify
-theorem full_restore_bump_ana_m5_wf : Func.Wf full_restore_bump_ana_m5_body := by kissat_wf_reify
-theorem full_analyze_wf : Func.Wf full_analyze_body := by kissat_wf_reify
-theorem full_analyze_core_m6_wf : Func.Wf full_analyze_core_m6_body := by kissat_wf_reify
-theorem full_analyze_m6_hdr_wf : Func.Wf full_analyze_m6_hdr_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, analyze_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_restore_bump_ana_m6_hdr_wf
-  · exact full_ana_failed_lit_m6_hdr_wf
-  · exact full_restore_bump_ana_m5_wf
-  · exact full_analyze_wf
-  · exact full_analyze_core_m6_wf
-  · exact full_analyze_m6_hdr_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Analyze

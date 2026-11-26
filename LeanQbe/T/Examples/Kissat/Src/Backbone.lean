@@ -284,33 +284,6 @@ u64 full_backbone_m6(FullHdr *h, u64 tick_lim) {
 }
 "
 
-/-- Ordered live functions of `Src/Backbone.lean` (`7` fns). -/
-def fns : List Fn := backbone_fns
-
-end
-
-public section
-
-theorem full_backbone_sched_m6_wf : Func.Wf full_backbone_sched_m6_body := by kissat_wf_reify
-theorem full_backbone_keep_m6_wf : Func.Wf full_backbone_keep_m6_body := by kissat_wf_reify
-theorem full_backbone_unwind_m6_wf : Func.Wf full_backbone_unwind_m6_body := by kissat_wf_reify
-theorem full_backbone_prop_m6_wf : Func.Wf full_backbone_prop_m6_body := by kissat_wf_reify
-theorem full_backbone_analyze_m6_wf : Func.Wf full_backbone_analyze_m6_body := by kissat_wf_reify
-theorem full_backbone_round_m6_wf : Func.Wf full_backbone_round_m6_body := by kissat_wf_reify
-theorem full_backbone_m6_wf : Func.Wf full_backbone_m6_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, backbone_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_backbone_sched_m6_wf
-  · exact full_backbone_keep_m6_wf
-  · exact full_backbone_unwind_m6_wf
-  · exact full_backbone_prop_m6_wf
-  · exact full_backbone_analyze_m6_wf
-  · exact full_backbone_round_m6_wf
-  · exact full_backbone_m6_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Backbone

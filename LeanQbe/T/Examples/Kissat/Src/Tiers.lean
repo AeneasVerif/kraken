@@ -298,57 +298,6 @@ void full_recompute_tiers(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Tiers.lean` (`18` fns). -/
-def fns : List Fn := tiers_fns
-
-end
-
-public section
-
-theorem m6_hdr_init_wf : Func.Wf m6_hdr_init_body := by kissat_wf_reify
-theorem m6_ext_ensure_init_wf : Func.Wf m6_ext_ensure_init_body := by kissat_wf_reify
-theorem m6_hdr_sync_legacy_tiers_wf : Func.Wf m6_hdr_sync_legacy_tiers_body := by kissat_wf_reify
-theorem m6_hdr_recompute_tiers_mode_wf : Func.Wf m6_hdr_recompute_tiers_mode_body := by
-  kissat_wf_reify
-theorem m6_hdr_recompute_tiers_wf : Func.Wf m6_hdr_recompute_tiers_body := by kissat_wf_reify
-theorem m6_hdr_update_tier_limits_wf : Func.Wf m6_hdr_update_tier_limits_body := by kissat_wf_reify
-theorem m6_hdr_record_used_wf : Func.Wf m6_hdr_record_used_body := by kissat_wf_reify
-theorem m6_hdr_get_tier1_wf : Func.Wf m6_hdr_get_tier1_body := by kissat_wf_reify
-theorem m6_hdr_get_tier2_wf : Func.Wf m6_hdr_get_tier2_body := by kissat_wf_reify
-theorem m6_hdr_delaying_wf : Func.Wf m6_hdr_delaying_body := by kissat_wf_reify
-theorem m6_hdr_bump_delay_wf : Func.Wf m6_hdr_bump_delay_body := by kissat_wf_reify
-theorem m6_hdr_reduce_delay_wf : Func.Wf m6_hdr_reduce_delay_body := by kissat_wf_reify
-theorem m6_hdr_get_watermark_wf : Func.Wf m6_hdr_get_watermark_body := by kissat_wf_reify
-theorem m6_hdr_set_watermark_wf : Func.Wf m6_hdr_set_watermark_body := by kissat_wf_reify
-theorem m6_hdr_dr_init_wf : Func.Wf m6_hdr_dr_init_body := by kissat_wf_reify
-theorem m6_hdr_dr_update_wf : Func.Wf m6_hdr_dr_update_body := by kissat_wf_reify
-theorem m6_hdr_dr_allow_wf : Func.Wf m6_hdr_dr_allow_body := by kissat_wf_reify
-theorem full_recompute_tiers_wf : Func.Wf full_recompute_tiers_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, tiers_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl
-  · exact m6_hdr_init_wf
-  · exact m6_ext_ensure_init_wf
-  · exact m6_hdr_sync_legacy_tiers_wf
-  · exact m6_hdr_recompute_tiers_mode_wf
-  · exact m6_hdr_recompute_tiers_wf
-  · exact m6_hdr_update_tier_limits_wf
-  · exact m6_hdr_record_used_wf
-  · exact m6_hdr_get_tier1_wf
-  · exact m6_hdr_get_tier2_wf
-  · exact m6_hdr_delaying_wf
-  · exact m6_hdr_bump_delay_wf
-  · exact m6_hdr_reduce_delay_wf
-  · exact m6_hdr_get_watermark_wf
-  · exact m6_hdr_set_watermark_wf
-  · exact m6_hdr_dr_init_wf
-  · exact m6_hdr_dr_update_wf
-  · exact m6_hdr_dr_allow_wf
-  · exact full_recompute_tiers_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Tiers

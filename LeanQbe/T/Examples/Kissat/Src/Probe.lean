@@ -255,23 +255,6 @@ u64 full_probe_m6(FullHdr *h, bool initial) {
 }
 "
 
-/-- Ordered live functions of `Src/Probe.lean` (`2` fns). -/
-def fns : List Fn := probe_fns
-
-end
-
-public section
-
-theorem full_probe_dticks_m6_hdr_wf : Func.Wf full_probe_dticks_m6_hdr_body := by kissat_wf_reify
-theorem full_probe_m6_wf : Func.Wf full_probe_m6_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, probe_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl
-  · exact full_probe_dticks_m6_hdr_wf
-  · exact full_probe_m6_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Probe

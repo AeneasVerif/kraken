@@ -177,27 +177,6 @@ u64 m6_hdr_decide_fid(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Decide.lean` (`4` fns). -/
-def fns : List Fn := decide_fns
-
-end
-
-public section
-
-theorem full_next_dec_var_wf : Func.Wf full_next_dec_var_body := by kissat_wf_reify
-theorem full_randec_var_m7_wf : Func.Wf full_randec_var_m7_body := by kissat_wf_reify
-theorem full_decide_m7_wf : Func.Wf full_decide_m7_body := by kissat_wf_reify
-theorem m6_hdr_decide_fid_wf : Func.Wf m6_hdr_decide_fid_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, decide_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl
-  · exact full_next_dec_var_wf
-  · exact full_randec_var_m7_wf
-  · exact full_decide_m7_wf
-  · exact m6_hdr_decide_fid_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Decide

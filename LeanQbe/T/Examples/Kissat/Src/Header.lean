@@ -398,18 +398,10 @@ _Static_assert(offsetof(FullHdr, res_sz) == 1144, \"FullHdr.res_sz offset must b
 #define KM_LRN                0x40000000u
 "
 
-/-! ## 3. Scoped `kissat_c0!` Elaborator & Kernel `Wf` Tactics -/
+/-! ## 3. Scoped Kernel `Wf` Tactics -/
 
 meta section
 open Lean Elab Command Tactic Meta
-
-/-- Elaborate an acyclic C0 translation unit into `@[expose] public` `<fn>_body`, `<fn>`, and
-`<pfx>_fns` declarations (`forceExpose := true`, `emitModule := false`). -/
-def elabKissatC0 (pfx : Name) (src : String) : CommandElabM Unit :=
-  elabC0Module (some pfx) src (forceExpose := true) (emitModule := false)
-
-scoped elab "kissat_c0! " pfx:ident src:str : command =>
-  elabKissatC0 pfx.getId src.getString
 
 /-- Close `lhs = rhs` with `Eq.refl lhs`, checked solely by the Lean kernel (skipping
 elaborator `isDefEq` on large PHOAS terms). -/
@@ -670,9 +662,116 @@ theorem kissat_wf_of_reify {as rs : List Ty} {f : Func as rs}
   exact denote_wf tf
     ((ctxRel_pushTup xs₁ xs₂ (.nil (G := []))).mono fun _ hp => by simpa using hp) .nil
 
+/-- Empty-list base case for generated `fns_wf` theorems. -/
+theorem fns_wf_nil : ∀ f ∈ ([] : List Fn), f.Wf :=
+  fun _ hf => nomatch hf
+
+/-- Cons step for generated `fns_wf` theorems (`O(1)` per function, zero tactic overhead). -/
+theorem fns_wf_cons {fn : Fn} {rest : List Fn}
+    (hfn : Func.Wf fn.body) (hrest : ∀ f ∈ rest, f.Wf) :
+    ∀ f ∈ fn :: rest, f.Wf := fun _ hf =>
+  match hf with
+  | .head _ => hfn
+  | .tail _ hr => hrest _ hr
+
 /-- Prove `Func.Wf f` for a closed concrete function by reification + kernel `rfl`. -/
 scoped macro "kissat_wf_reify" : tactic =>
   `(tactic| (refine kissat_wf_of_reify ?_; kissat_kernel_rfl))
+
+end
+
+/-! ## 5. Scoped `kissat_c0!` & `kissat_src_postlude!` Elaborators (`0` `@[expose]` on Theorems) -/
+
+public section
+open Lean Elab Command Meta
+
+private meta def extractFnListConsts (e : Lean.Expr) : Except String (List Name) :=
+  match e with
+  | .app (.const ``List.nil _) _ => .ok []
+  | .app (.app (.app (.const ``List.cons _) _) (.const fnNm _)) rest => do
+    let tail ← extractFnListConsts rest
+    .ok (fnNm :: tail)
+  | _ => .error s!"kissat_src_postlude!: expected `List Fn` literal of constants, got {e}"
+
+/-- Emit `@[expose] public def fns` (unless already declared), per-function `public`
+`theorem <fn>_wf : Func.Wf <fn>_body`, and `public theorem fns_wf : ∀ f ∈ fns, f.Wf`. -/
+meta def elabKissatSrcPostlude (pfx : Name) : CommandElabM Unit := do
+  let ns ← getCurrNamespace
+  let fnType := Lean.mkConst ``LeanQbe.T.Fn
+  let fnsDefName := ns ++ `fns
+  let pfxFnsName := ns ++ Name.mkSimple (pfx.toString ++ "_fns")
+  let env ← getEnv
+  if !env.contains fnsDefName then
+    let fnsTy := mkApp (Lean.mkConst ``List [.one]) fnType
+    liftCoreM <| addExposedDecl fnsDefName fnsTy (Lean.mkConst pfxFnsName) (forceExpose := true)
+  let some pfxInfo := (← getEnv).find? pfxFnsName
+    | throwError "kissat_src_postlude!: missing `{pfxFnsName}`"
+  let some pfxVal := pfxInfo.value?
+    | throwError "kissat_src_postlude!: `{pfxFnsName}` has no definition body"
+  let fnConstNames ← match extractFnListConsts pfxVal with
+    | .ok nms => pure nms
+    | .error err => throwError err
+  let mut wfEntries : List (Name × Name) := []
+  for fnName in fnConstNames do
+    let Name.str pre base := fnName
+      | throwError "kissat_src_postlude!: unexpected function name `{fnName}`"
+    let bodyName := Name.str pre (base ++ "_body")
+    let wfName := Name.str pre (base ++ "_wf")
+    liftTermElabM do
+      let ci ← getConstInfo bodyName
+      let funcTy := ci.type
+      let some (asE, rsE) := funcTy.app2? ``Func
+        | throwError "kissat_src_postlude!: `{bodyName}` does not have type `Func as rs`"
+      let bodyC := Lean.mkConst bodyName
+      let wfTy := mkApp3 (Lean.mkConst ``Func.Wf) asE rsE bodyC
+      let u ← getLevel funcTy
+      let reflPf := mkApp2 (Lean.mkConst ``Eq.refl [u]) funcTy bodyC
+      let wfVal := mkApp4 (Lean.mkConst ``kissat_wf_of_reify) asE rsE bodyC reflPf
+      withCurrHeartbeats do
+        addDecl <| .thmDecl {
+          name := wfName, levelParams := [], type := wfTy, value := wfVal
+        }
+    wfEntries := wfEntries ++ [(fnName, wfName)]
+  liftTermElabM do
+    let fnsConst := Lean.mkConst fnsDefName
+    let fnsWfTy ← withLocalDeclD `f fnType fun f => do
+      let memTy ← mkAppM ``Membership.mem #[fnsConst, f]
+      let bodyTy := Lean.mkApp (Lean.mkConst ``Fn.Wf) f
+      mkForallFVars #[f] (← mkArrow memTy bodyTy)
+    let nilList := mkApp (Lean.mkConst ``List.nil [.one]) fnType
+    let (_, fnsWfVal) := wfEntries.foldr
+      (init := (nilList, Lean.mkConst ``fns_wf_nil))
+      fun (fnName, wfName) (restE, restPf) =>
+        let fnC := Lean.mkConst fnName
+        let stepPf := mkApp4 (Lean.mkConst ``fns_wf_cons)
+          fnC restE (Lean.mkConst wfName) restPf
+        let consE := mkApp3 (Lean.mkConst ``List.cons [.one]) fnType fnC restE
+        (consE, stepPf)
+    withCurrHeartbeats do
+      addDecl <| .thmDecl {
+        name := ns ++ `fns_wf, levelParams := [], type := fnsWfTy, value := fnsWfVal
+      }
+
+/-- Elaborate an acyclic C0 translation unit into `@[expose] public` `<fn>_body`, `<fn>`, and
+`<pfx>_fns` declarations (`forceExpose := true`, `emitModule := false`), plus by default the
+`fns`, `<fn>_wf`, and `fns_wf` postlude (`0` `@[expose]` on theorems). -/
+meta def elabKissatC0 (pfx : Name) (src : String) (emitPostlude : Bool := true) :
+    CommandElabM Unit := do
+  elabC0Module (some pfx) src (forceExpose := true) (emitModule := false)
+  if emitPostlude then
+    elabKissatSrcPostlude pfx
+
+scoped elab "kissat_c0! " pfx:ident src:str : command =>
+  elabKissatC0 pfx.getId src.getString true
+
+scoped elab "kissat_c0! " "(" &"postlude" " := " &"true" ")" pfx:ident src:str : command =>
+  elabKissatC0 pfx.getId src.getString true
+
+scoped elab "kissat_c0! " "(" &"postlude" " := " &"false" ")" pfx:ident src:str : command =>
+  elabKissatC0 pfx.getId src.getString false
+
+scoped elab "kissat_src_postlude! " pfx:ident : command =>
+  elabKissatSrcPostlude pfx.getId
 
 end
 

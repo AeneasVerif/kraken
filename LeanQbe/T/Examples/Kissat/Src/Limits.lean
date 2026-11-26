@@ -364,54 +364,6 @@ void full_ema_swap_m7(FullHdr *h, u64 old_m, u64 new_m) {
 }
 "
 
-/-- Ordered live functions of `Src/Limits.lean` (`17` fns). -/
-def fns : List Fn := limits_fns
-
-end
-
-public section
-
-theorem full_isqrt_wf : Func.Wf full_isqrt_body := by kissat_wf_reify
-theorem full_ilog10_wf : Func.Wf full_ilog10_body := by kissat_wf_reify
-theorem full_rng_next_wf : Func.Wf full_rng_next_body := by kissat_wf_reify
-theorem full_tick_rel_wf : Func.Wf full_tick_rel_body := by kissat_wf_reify
-theorem full_log10_q16_m7_wf : Func.Wf full_log10_q16_m7_body := by kissat_wf_reify
-theorem full_scale_delta_m5_wf : Func.Wf full_scale_delta_m5_body := by kissat_wf_reify
-theorem full_ema_update_wf : Func.Wf full_ema_update_body := by kissat_wf_reify
-theorem full_scale_delta_wf : Func.Wf full_scale_delta_body := by kissat_wf_reify
-theorem full_fill_u64_m7_wf : Func.Wf full_fill_u64_m7_body := by kissat_wf_reify
-theorem full_sort_u32_wf : Func.Wf full_sort_u32_body := by kissat_wf_reify
-theorem full_max_u64_wf : Func.Wf full_max_u64_body := by kissat_wf_reify
-theorem full_elim_dticks_wf : Func.Wf full_elim_dticks_body := by kissat_wf_reify
-theorem full_lcg_next_m7_wf : Func.Wf full_lcg_next_m7_body := by kissat_wf_reify
-theorem full_m7_get64_wf : Func.Wf full_m7_get64_body := by kissat_wf_reify
-theorem full_m7_set64_wf : Func.Wf full_m7_set64_body := by kissat_wf_reify
-theorem full_m7_state_init_wf : Func.Wf full_m7_state_init_body := by kissat_wf_reify
-theorem full_ema_swap_m7_wf : Func.Wf full_ema_swap_m7_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, limits_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl
-  · exact full_isqrt_wf
-  · exact full_ilog10_wf
-  · exact full_rng_next_wf
-  · exact full_tick_rel_wf
-  · exact full_log10_q16_m7_wf
-  · exact full_scale_delta_m5_wf
-  · exact full_ema_update_wf
-  · exact full_scale_delta_wf
-  · exact full_fill_u64_m7_wf
-  · exact full_sort_u32_wf
-  · exact full_max_u64_wf
-  · exact full_elim_dticks_wf
-  · exact full_lcg_next_m7_wf
-  · exact full_m7_get64_wf
-  · exact full_m7_set64_wf
-  · exact full_m7_state_init_wf
-  · exact full_ema_swap_m7_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Limits

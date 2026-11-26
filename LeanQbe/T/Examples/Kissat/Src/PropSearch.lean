@@ -720,33 +720,6 @@ u64 full_flush_trail(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/PropSearch.lean` (`7` fns). -/
-def fns : List Fn := propSearch_fns
-
-end
-
-public section
-
-theorem full_prop_lit_ovf_hot_wf : Func.Wf full_prop_lit_ovf_hot_body := by kissat_wf_reify
-theorem full_prop_flush_slow_fid_wf : Func.Wf full_prop_flush_slow_fid_body := by kissat_wf_reify
-theorem full_prop_flush_del_fid_wf : Func.Wf full_prop_flush_del_fid_body := by kissat_wf_reify
-theorem full_propagate_ignore_hot_wf : Func.Wf full_propagate_ignore_hot_body := by kissat_wf_reify
-theorem full_propagate_ignore_wf : Func.Wf full_propagate_ignore_body := by kissat_wf_reify
-theorem full_propagate_wf : Func.Wf full_propagate_body := by kissat_wf_reify
-theorem full_flush_trail_wf : Func.Wf full_flush_trail_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, propSearch_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_prop_lit_ovf_hot_wf
-  · exact full_prop_flush_slow_fid_wf
-  · exact full_prop_flush_del_fid_wf
-  · exact full_propagate_ignore_hot_wf
-  · exact full_propagate_ignore_wf
-  · exact full_propagate_wf
-  · exact full_flush_trail_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.PropSearch

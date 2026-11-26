@@ -293,31 +293,6 @@ u64 full_substitute(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Substitute.lean` (`6` fns). -/
-def fns : List Fn := substitute_fns
-
-end
-
-public section
-
-theorem full_tarjan_pop_scc_wf : Func.Wf full_tarjan_pop_scc_body := by kissat_wf_reify
-theorem full_tarjan_scc_wf : Func.Wf full_tarjan_scc_body := by kissat_wf_reify
-theorem full_subst_elim_vars_wf : Func.Wf full_subst_elim_vars_body := by kissat_wf_reify
-theorem full_subst_rewrite_bins_wf : Func.Wf full_subst_rewrite_bins_body := by kissat_wf_reify
-theorem full_subst_rewrite_ar_wf : Func.Wf full_subst_rewrite_ar_body := by kissat_wf_reify
-theorem full_substitute_wf : Func.Wf full_substitute_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, substitute_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_tarjan_pop_scc_wf
-  · exact full_tarjan_scc_wf
-  · exact full_subst_elim_vars_wf
-  · exact full_subst_rewrite_bins_wf
-  · exact full_subst_rewrite_ar_wf
-  · exact full_substitute_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Substitute

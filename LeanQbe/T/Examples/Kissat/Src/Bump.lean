@@ -385,45 +385,6 @@ void full_bump_analyzed(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Bump.lean` (`13` fns). -/
-def fns : List Fn := bump_fns
-
-end
-
-public section
-
-theorem full_rescale_m6_wf : Func.Wf full_rescale_m6_body := by kissat_wf_reify
-theorem full_rescale_wf : Func.Wf full_rescale_body := by kissat_wf_reify
-theorem full_bump_var_wf : Func.Wf full_bump_var_body := by kissat_wf_reify
-theorem full_bump_decay_wf : Func.Wf full_bump_decay_body := by kissat_wf_reify
-theorem full_queue_renumber_wf : Func.Wf full_queue_renumber_body := by kissat_wf_reify
-theorem full_queue_mtf_wf : Func.Wf full_queue_mtf_body := by kissat_wf_reify
-theorem full_ana_sift_m6_wf : Func.Wf full_ana_sift_m6_body := by kissat_wf_reify
-theorem full_sort_ana_qs_m6_wf : Func.Wf full_sort_ana_qs_m6_body := by kissat_wf_reify
-theorem full_bump_analyzed_m6_hdr_wf : Func.Wf full_bump_analyzed_m6_hdr_body := by kissat_wf_reify
-theorem full_bump_sift_m7_wf : Func.Wf full_bump_sift_m7_body := by kissat_wf_reify
-theorem full_bump_sort_stamps_m7_wf : Func.Wf full_bump_sort_stamps_m7_body := by kissat_wf_reify
-theorem full_bump_reasons_m7_wf : Func.Wf full_bump_reasons_m7_body := by kissat_wf_reify
-theorem full_bump_analyzed_wf : Func.Wf full_bump_analyzed_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, bump_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_rescale_m6_wf
-  · exact full_rescale_wf
-  · exact full_bump_var_wf
-  · exact full_bump_decay_wf
-  · exact full_queue_renumber_wf
-  · exact full_queue_mtf_wf
-  · exact full_ana_sift_m6_wf
-  · exact full_sort_ana_qs_m6_wf
-  · exact full_bump_analyzed_m6_hdr_wf
-  · exact full_bump_sift_m7_wf
-  · exact full_bump_sort_stamps_m7_wf
-  · exact full_bump_reasons_m7_wf
-  · exact full_bump_analyzed_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Bump

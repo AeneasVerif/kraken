@@ -499,47 +499,6 @@ void full_k512_add_live_m6(FullHdr *h, u32 a, u32 b) {
 }
 "
 
-/-- Ordered live functions of `Src/Kitten.lean` (`14` fns). -/
-def fns : List Fn := kitten_fns
-
-end
-
-public section
-
-theorem full_m6_max_v_wf : Func.Wf full_m6_max_v_body := by kissat_wf_reify
-theorem full_k6_add_ticks_wf : Func.Wf full_k6_add_ticks_body := by kissat_wf_reify
-theorem full_k6_init_wf : Func.Wf full_k6_init_body := by kissat_wf_reify
-theorem full_k6_watch_wf : Func.Wf full_k6_watch_body := by kissat_wf_reify
-theorem full_k6_assign_wf : Func.Wf full_k6_assign_body := by kissat_wf_reify
-theorem full_k6_add_clause_wf : Func.Wf full_k6_add_clause_body := by kissat_wf_reify
-theorem full_k6_mtf_wf : Func.Wf full_k6_mtf_body := by kissat_wf_reify
-theorem full_k6_backtrack_wf : Func.Wf full_k6_backtrack_body := by kissat_wf_reify
-theorem full_k6_propagate_wf : Func.Wf full_k6_propagate_body := by kissat_wf_reify
-theorem full_k6_ana_clause_wf : Func.Wf full_k6_ana_clause_body := by kissat_wf_reify
-theorem full_k6_analyze_wf : Func.Wf full_k6_analyze_body := by kissat_wf_reify
-theorem full_k6_solve_wf : Func.Wf full_k6_solve_body := by kissat_wf_reify
-theorem full_k6_flip_wf : Func.Wf full_k6_flip_body := by kissat_wf_reify
-theorem full_k512_add_live_m6_wf : Func.Wf full_k512_add_live_m6_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, kitten_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_m6_max_v_wf
-  · exact full_k6_add_ticks_wf
-  · exact full_k6_init_wf
-  · exact full_k6_watch_wf
-  · exact full_k6_assign_wf
-  · exact full_k6_add_clause_wf
-  · exact full_k6_mtf_wf
-  · exact full_k6_backtrack_wf
-  · exact full_k6_propagate_wf
-  · exact full_k6_ana_clause_wf
-  · exact full_k6_analyze_wf
-  · exact full_k6_solve_wf
-  · exact full_k6_flip_wf
-  · exact full_k512_add_live_m6_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Kitten

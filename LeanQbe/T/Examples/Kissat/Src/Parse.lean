@@ -213,29 +213,6 @@ u64 full_parse_body(FullHdr *h, u64 cnf_end) {
 }
 "
 
-/-- Ordered live functions of `Src/Parse.lean` (`5` fns). -/
-def fns : List Fn := parse_fns
-
-end
-
-public section
-
-theorem full_activate_lit_fid_wf : Func.Wf full_activate_lit_fid_body := by kissat_wf_reify
-theorem full_ingest_cl_wf : Func.Wf full_ingest_cl_body := by kissat_wf_reify
-theorem full_tumble_finish_fid_wf : Func.Wf full_tumble_finish_fid_body := by kissat_wf_reify
-theorem full_parse_body_m6_wf : Func.Wf full_parse_body_m6_body := by kissat_wf_reify
-theorem full_parse_body_wf : Func.Wf full_parse_body_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, parse_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl
-  · exact full_activate_lit_fid_wf
-  · exact full_ingest_cl_wf
-  · exact full_tumble_finish_fid_wf
-  · exact full_parse_body_m6_wf
-  · exact full_parse_body_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Parse

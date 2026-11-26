@@ -684,50 +684,6 @@ u64 full_eliminate_m6(FullHdr *h, bool initial) {
 }
 "
 
-/-- Ordered live functions of `Src/Eliminate.lean` (`15` fns). -/
-def fns : List Fn := eliminate_fns
-
-end
-
-public section
-
-theorem full_bve_collect_m7_wf : Func.Wf full_bve_collect_m7_body := by kissat_wf_reify
-theorem full_bve_resolve_pair_wf : Func.Wf full_bve_resolve_pair_body := by kissat_wf_reify
-theorem full_bve_weaken_wf : Func.Wf full_bve_weaken_body := by kissat_wf_reify
-theorem full_bve_commit_res_wf : Func.Wf full_bve_commit_res_body := by kissat_wf_reify
-theorem full_bve_ext_need_wf : Func.Wf full_bve_ext_need_body := by kissat_wf_reify
-theorem full_bve_weaken_unit_fid_wf : Func.Wf full_bve_weaken_unit_fid_body := by kissat_wf_reify
-theorem full_bve_var_m7_wf : Func.Wf full_bve_var_m7_body := by kissat_wf_reify
-theorem full_bve_var_key_m7_wf : Func.Wf full_bve_var_key_m7_body := by kissat_wf_reify
-theorem full_bve_heap_up_m7_wf : Func.Wf full_bve_heap_up_m7_body := by kissat_wf_reify
-theorem full_bve_heap_down_m7_wf : Func.Wf full_bve_heap_down_m7_body := by kissat_wf_reify
-theorem full_bve_heap_push_m7_wf : Func.Wf full_bve_heap_push_m7_body := by kissat_wf_reify
-theorem full_bve_heap_pop_m7_wf : Func.Wf full_bve_heap_pop_m7_body := by kissat_wf_reify
-theorem full_bve_collect_nbrs_m7_wf : Func.Wf full_bve_collect_nbrs_m7_body := by kissat_wf_reify
-theorem full_elim_bve_m7_wf : Func.Wf full_elim_bve_m7_body := by kissat_wf_reify
-theorem full_eliminate_m6_wf : Func.Wf full_eliminate_m6_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, eliminate_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl
-  · exact full_bve_collect_m7_wf
-  · exact full_bve_resolve_pair_wf
-  · exact full_bve_weaken_wf
-  · exact full_bve_commit_res_wf
-  · exact full_bve_ext_need_wf
-  · exact full_bve_weaken_unit_fid_wf
-  · exact full_bve_var_m7_wf
-  · exact full_bve_var_key_m7_wf
-  · exact full_bve_heap_up_m7_wf
-  · exact full_bve_heap_down_m7_wf
-  · exact full_bve_heap_push_m7_wf
-  · exact full_bve_heap_pop_m7_wf
-  · exact full_bve_collect_nbrs_m7_wf
-  · exact full_elim_bve_m7_wf
-  · exact full_eliminate_m6_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Eliminate

@@ -318,27 +318,6 @@ u64 full_lucky_late_m7(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Lucky.lean` (`4` fns). -/
-def fns : List Fn := lucky_fns
-
-end
-
-public section
-
-theorem full_lucky_ord_fid_wf : Func.Wf full_lucky_ord_fid_body := by kissat_wf_reify
-theorem full_lucky_scan_wf : Func.Wf full_lucky_scan_body := by kissat_wf_reify
-theorem full_lucky_polar_m7_wf : Func.Wf full_lucky_polar_m7_body := by kissat_wf_reify
-theorem full_lucky_late_m7_wf : Func.Wf full_lucky_late_m7_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, lucky_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl
-  · exact full_lucky_ord_fid_wf
-  · exact full_lucky_scan_wf
-  · exact full_lucky_polar_m7_wf
-  · exact full_lucky_late_m7_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Lucky

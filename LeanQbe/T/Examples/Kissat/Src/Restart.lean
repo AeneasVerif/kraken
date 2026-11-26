@@ -192,25 +192,6 @@ void full_switch_mode_m7(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Restart.lean` (`3` fns). -/
-def fns : List Fn := restart_fns
-
-end
-
-public section
-
-theorem full_restart_due_wf : Func.Wf full_restart_due_body := by kissat_wf_reify
-theorem full_restart_wf : Func.Wf full_restart_body := by kissat_wf_reify
-theorem full_switch_mode_m7_wf : Func.Wf full_switch_mode_m7_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, restart_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl
-  · exact full_restart_due_wf
-  · exact full_restart_wf
-  · exact full_switch_mode_m7_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Restart

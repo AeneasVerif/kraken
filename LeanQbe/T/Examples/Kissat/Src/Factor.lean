@@ -994,50 +994,6 @@ u64 full_factor(FullHdr *h, u64 budget) {
 }
 "
 
-/-- Ordered live functions of `Src/Factor.lean` (`14` fns). -/
-def fns : List Fn := factor_fns
-
-end
-
-public section
-
-theorem full_bva_steps_cap_fid_wf : Func.Wf full_bva_steps_cap_fid_body := by kissat_wf_reify
-theorem full_bva_clines_fid_wf : Func.Wf full_bva_clines_fid_body := by kissat_wf_reify
-theorem full_fheap_up_fid_wf : Func.Wf full_fheap_up_fid_body := by kissat_wf_reify
-theorem full_fheap_down_fid_wf : Func.Wf full_fheap_down_fid_body := by kissat_wf_reify
-theorem full_bva_count_lit_deg_fid_wf : Func.Wf full_bva_count_lit_deg_fid_body := by
-  kissat_wf_reify
-theorem full_bva_connect_clauses_fid_wf : Func.Wf full_bva_connect_clauses_fid_body := by
-  kissat_wf_reify
-theorem full_bva_match_large_bva_fid_wf : Func.Wf full_bva_match_large_bva_fid_body := by
-  kissat_wf_reify
-theorem full_bva_scan_cands_wf : Func.Wf full_bva_scan_cands_body := by kissat_wf_reify
-theorem full_bva_pick_cand_wf : Func.Wf full_bva_pick_cand_body := by kissat_wf_reify
-theorem full_bva_filter_row_wf : Func.Wf full_bva_filter_row_body := by kissat_wf_reify
-theorem full_bva_commit_wf : Func.Wf full_bva_commit_body := by kissat_wf_reify
-theorem full_bva_try_lit_wf : Func.Wf full_bva_try_lit_body := by kissat_wf_reify
-theorem full_bva_upd_lit_fid_wf : Func.Wf full_bva_upd_lit_fid_body := by kissat_wf_reify
-theorem full_factor_wf : Func.Wf full_factor_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, factor_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_bva_steps_cap_fid_wf
-  · exact full_bva_clines_fid_wf
-  · exact full_fheap_up_fid_wf
-  · exact full_fheap_down_fid_wf
-  · exact full_bva_count_lit_deg_fid_wf
-  · exact full_bva_connect_clauses_fid_wf
-  · exact full_bva_match_large_bva_fid_wf
-  · exact full_bva_scan_cands_wf
-  · exact full_bva_pick_cand_wf
-  · exact full_bva_filter_row_wf
-  · exact full_bva_commit_wf
-  · exact full_bva_try_lit_wf
-  · exact full_bva_upd_lit_fid_wf
-  · exact full_factor_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Factor

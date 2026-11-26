@@ -269,25 +269,6 @@ u64 full_reorder_m6(FullHdr *h, u64 budget) {
 }
 "
 
-/-- Ordered live functions of `Src/Reorder.lean` (`3` fns). -/
-def fns : List Fn := reorder_fns
-
-end
-
-public section
-
-theorem full_reorder_sift_fid_wf : Func.Wf full_reorder_sift_fid_body := by kissat_wf_reify
-theorem full_reorder_queue_m7_wf : Func.Wf full_reorder_queue_m7_body := by kissat_wf_reify
-theorem full_reorder_m6_wf : Func.Wf full_reorder_m6_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, reorder_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl
-  · exact full_reorder_sift_fid_wf
-  · exact full_reorder_queue_m7_wf
-  · exact full_reorder_m6_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Reorder

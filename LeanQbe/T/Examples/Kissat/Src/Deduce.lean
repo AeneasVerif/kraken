@@ -494,39 +494,6 @@ u64 full_deduce_1uip_m6_hdr(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Deduce.lean` (`10` fns). -/
-def fns : List Fn := deduce_fns
-
-end
-
-public section
-
-theorem full_analyze_lit_wf : Func.Wf full_analyze_lit_body := by kissat_wf_reify
-theorem full_analyze_rsn_wf : Func.Wf full_analyze_rsn_body := by kissat_wf_reify
-theorem full_analyze_rsn_m6_hdr_wf : Func.Wf full_analyze_rsn_m6_hdr_body := by kissat_wf_reify
-theorem full_clear_ana_wf : Func.Wf full_clear_ana_body := by kissat_wf_reify
-theorem full_otfs_large_wf : Func.Wf full_otfs_large_body := by kissat_wf_reify
-theorem full_otfs_bin_wf : Func.Wf full_otfs_bin_body := by kissat_wf_reify
-theorem full_otfs_subsume_wf : Func.Wf full_otfs_subsume_body := by kissat_wf_reify
-theorem full_deduce_1uip_m6_wf : Func.Wf full_deduce_1uip_m6_body := by kissat_wf_reify
-theorem full_deduce_1uip_wf : Func.Wf full_deduce_1uip_body := by kissat_wf_reify
-theorem full_deduce_1uip_m6_hdr_wf : Func.Wf full_deduce_1uip_m6_hdr_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, deduce_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_analyze_lit_wf
-  · exact full_analyze_rsn_wf
-  · exact full_analyze_rsn_m6_hdr_wf
-  · exact full_clear_ana_wf
-  · exact full_otfs_large_wf
-  · exact full_otfs_bin_wf
-  · exact full_otfs_subsume_wf
-  · exact full_deduce_1uip_m6_wf
-  · exact full_deduce_1uip_wf
-  · exact full_deduce_1uip_m6_hdr_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Deduce

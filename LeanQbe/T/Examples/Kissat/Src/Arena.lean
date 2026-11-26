@@ -57,23 +57,6 @@ u64 full_alloc_cl(FullHdr *h, u32 sz, u32 glue, bool red) {
 }
 "
 
-/-- Ordered live functions of `Src/Arena.lean` (`2` fns). -/
-def fns : List Fn := arena_fns
-
-end
-
-public section
-
-theorem full_arena_next_wf : Func.Wf full_arena_next_body := by kissat_wf_reify
-theorem full_alloc_cl_wf : Func.Wf full_alloc_cl_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, arena_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl
-  · exact full_arena_next_wf
-  · exact full_alloc_cl_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Arena

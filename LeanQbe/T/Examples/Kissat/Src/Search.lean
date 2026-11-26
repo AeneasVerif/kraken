@@ -217,29 +217,6 @@ u64 kissat_solve_bytes(u64 cnf_ptr, u64 cnf_len, u64 work_ptr, u64 work_cap, u64
 }
 "
 
-/-- Ordered live functions of `Src/Search.lean` (`5` fns). -/
-def fns : List Fn := search_fns
-
-end
-
-public section
-
-theorem full_preprocess_m6_wf : Func.Wf full_preprocess_m6_body := by kissat_wf_reify
-theorem full_simplify_m6_wf : Func.Wf full_simplify_m6_body := by kissat_wf_reify
-theorem full_search_m6_wf : Func.Wf full_search_m6_body := by kissat_wf_reify
-theorem kissat_solve_bytes_m6_wf : Func.Wf kissat_solve_bytes_m6_body := by kissat_wf_reify
-theorem kissat_solve_bytes_wf : Func.Wf kissat_solve_bytes_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, search_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl
-  · exact full_preprocess_m6_wf
-  · exact full_simplify_m6_wf
-  · exact full_search_m6_wf
-  · exact kissat_solve_bytes_m6_wf
-  · exact kissat_solve_bytes_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Search

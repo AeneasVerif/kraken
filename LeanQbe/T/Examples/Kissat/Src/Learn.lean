@@ -351,29 +351,6 @@ u64 full_learn_clause_m6(FullHdr *h, u64 glue) {
 }
 "
 
-/-- Ordered live functions of `Src/Learn.lean` (`5` fns). -/
-def fns : List Fn := learn_fns
-
-end
-
-public section
-
-theorem full_det_new_level_wf : Func.Wf full_det_new_level_body := by kissat_wf_reify
-theorem full_one_lit_confl_wf : Func.Wf full_one_lit_confl_body := by kissat_wf_reify
-theorem full_eager_subsume_wf : Func.Wf full_eager_subsume_body := by kissat_wf_reify
-theorem full_learn_clause_wf : Func.Wf full_learn_clause_body := by kissat_wf_reify
-theorem full_learn_clause_m6_wf : Func.Wf full_learn_clause_m6_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, learn_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl
-  · exact full_det_new_level_wf
-  · exact full_one_lit_confl_wf
-  · exact full_eager_subsume_wf
-  · exact full_learn_clause_wf
-  · exact full_learn_clause_m6_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Learn

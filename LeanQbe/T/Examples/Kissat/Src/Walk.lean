@@ -769,47 +769,6 @@ void full_rephase(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Walk.lean` (`14` fns). -/
-def fns : List Fn := walk_fns
-
-end
-
-public section
-
-theorem full_walk_cb_inv_m7_wf : Func.Wf full_walk_cb_inv_m7_body := by kissat_wf_reify
-theorem full_walk_init_table_m7_wf : Func.Wf full_walk_init_table_m7_body := by kissat_wf_reify
-theorem full_walk_effort_m7_wf : Func.Wf full_walk_effort_m7_body := by kissat_wf_reify
-theorem full_walk_init_vals_m7_wf : Func.Wf full_walk_init_vals_m7_body := by kissat_wf_reify
-theorem full_walk_collect_m7_wf : Func.Wf full_walk_collect_m7_body := by kissat_wf_reify
-theorem full_walk_build_occ_m7_wf : Func.Wf full_walk_build_occ_m7_body := by kissat_wf_reify
-theorem full_walk_break_m7_wf : Func.Wf full_walk_break_m7_body := by kissat_wf_reify
-theorem full_walk_pick_m7_wf : Func.Wf full_walk_pick_m7_body := by kissat_wf_reify
-theorem full_walk_flip_m7_wf : Func.Wf full_walk_flip_m7_body := by kissat_wf_reify
-theorem full_walk_save_min_m7_wf : Func.Wf full_walk_save_min_m7_body := by kissat_wf_reify
-theorem full_walk_m7_wf : Func.Wf full_walk_m7_body := by kissat_wf_reify
-theorem full_warmup_m7_wf : Func.Wf full_warmup_m7_body := by kissat_wf_reify
-theorem full_walk_wf : Func.Wf full_walk_body := by kissat_wf_reify
-theorem full_rephase_wf : Func.Wf full_rephase_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, walk_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_walk_cb_inv_m7_wf
-  · exact full_walk_init_table_m7_wf
-  · exact full_walk_effort_m7_wf
-  · exact full_walk_init_vals_m7_wf
-  · exact full_walk_collect_m7_wf
-  · exact full_walk_build_occ_m7_wf
-  · exact full_walk_break_m7_wf
-  · exact full_walk_pick_m7_wf
-  · exact full_walk_flip_m7_wf
-  · exact full_walk_save_min_m7_wf
-  · exact full_walk_m7_wf
-  · exact full_warmup_m7_wf
-  · exact full_walk_wf
-  · exact full_rephase_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Walk

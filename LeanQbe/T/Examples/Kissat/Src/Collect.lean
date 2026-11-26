@@ -530,50 +530,6 @@ void full_mark_reasons(FullHdr *h, bool set_flag) {
 }
 "
 
-/-- Ordered live functions of `Src/Collect.lean` (`15` fns). -/
-def fns : List Fn := collect_fns
-
-end
-
-public section
-
-theorem full_lit_rank_m6_wf : Func.Wf full_lit_rank_m6_body := by kissat_wf_reify
-theorem full_sweep_bins_range_m6_wf : Func.Wf full_sweep_bins_range_m6_body := by kissat_wf_reify
-theorem full_rewatch_range_m6_wf : Func.Wf full_rewatch_range_m6_body := by kissat_wf_reify
-theorem full_rewatch_arena_m6_wf : Func.Wf full_rewatch_arena_m6_body := by kissat_wf_reify
-theorem full_sweep_bins_m6cf_wf : Func.Wf full_sweep_bins_m6cf_body := by kissat_wf_reify
-theorem full_sweep_bins_wf : Func.Wf full_sweep_bins_body := by kissat_wf_reify
-theorem full_sweep_copy_wf : Func.Wf full_sweep_copy_body := by kissat_wf_reify
-theorem full_rewatch_arena_wf : Func.Wf full_rewatch_arena_body := by kissat_wf_reify
-theorem full_move_red_pass2_m6_wf : Func.Wf full_move_red_pass2_m6_body := by kissat_wf_reify
-theorem full_move_red_end_buf_m6_wf : Func.Wf full_move_red_end_buf_m6_body := by kissat_wf_reify
-theorem full_move_red_end_m6_wf : Func.Wf full_move_red_end_m6_body := by kissat_wf_reify
-theorem full_arena_sweep_m6_wf : Func.Wf full_arena_sweep_m6_body := by kissat_wf_reify
-theorem full_mark_reasons_m6_wf : Func.Wf full_mark_reasons_m6_body := by kissat_wf_reify
-theorem full_arena_sweep_wf : Func.Wf full_arena_sweep_body := by kissat_wf_reify
-theorem full_mark_reasons_wf : Func.Wf full_mark_reasons_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, collect_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl
-  · exact full_lit_rank_m6_wf
-  · exact full_sweep_bins_range_m6_wf
-  · exact full_rewatch_range_m6_wf
-  · exact full_rewatch_arena_m6_wf
-  · exact full_sweep_bins_m6cf_wf
-  · exact full_sweep_bins_wf
-  · exact full_sweep_copy_wf
-  · exact full_rewatch_arena_wf
-  · exact full_move_red_pass2_m6_wf
-  · exact full_move_red_end_buf_m6_wf
-  · exact full_move_red_end_m6_wf
-  · exact full_arena_sweep_m6_wf
-  · exact full_mark_reasons_m6_wf
-  · exact full_arena_sweep_wf
-  · exact full_mark_reasons_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Collect

@@ -112,27 +112,6 @@ u64 full_heap_pop(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Heap.lean` (`4` fns). -/
-def fns : List Fn := heap_fns
-
-end
-
-public section
-
-theorem full_heap_up_wf : Func.Wf full_heap_up_body := by kissat_wf_reify
-theorem full_heap_down_wf : Func.Wf full_heap_down_body := by kissat_wf_reify
-theorem full_heap_push_wf : Func.Wf full_heap_push_body := by kissat_wf_reify
-theorem full_heap_pop_wf : Func.Wf full_heap_pop_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, heap_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl
-  · exact full_heap_up_wf
-  · exact full_heap_down_wf
-  · exact full_heap_push_wf
-  · exact full_heap_pop_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Heap

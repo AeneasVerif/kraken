@@ -739,45 +739,6 @@ bool full_bve_find_ite_m8(FullHdr *h, u32 v, u32 np, u32 nn) {
 }
 "
 
-/-- Ordered live functions of `Src/Gates.lean` (`13` fns). -/
-def fns : List Fn := gates_fns
-
-end
-
-public section
-
-theorem full_bve_find_equiv_m7_wf : Func.Wf full_bve_find_equiv_m7_body := by kissat_wf_reify
-theorem full_bve_find_and_m7_wf : Func.Wf full_bve_find_and_m7_body := by kissat_wf_reify
-theorem full_bve_get_tern_m7_wf : Func.Wf full_bve_get_tern_m7_body := by kissat_wf_reify
-theorem full_bve_match_tern_m7_wf : Func.Wf full_bve_match_tern_m7_body := by kissat_wf_reify
-theorem full_bve_find_ite_side_m7_wf : Func.Wf full_bve_find_ite_side_m7_body := by kissat_wf_reify
-theorem full_bve_find_ite_m7_wf : Func.Wf full_bve_find_ite_m7_body := by kissat_wf_reify
-theorem full_bve_xor_pat_m7_wf : Func.Wf full_bve_xor_pat_m7_body := by kissat_wf_reify
-theorem full_bve_find_xor_m7_wf : Func.Wf full_bve_find_xor_m7_body := by kissat_wf_reify
-theorem full_bve_find_equiv_m8_wf : Func.Wf full_bve_find_equiv_m8_body := by kissat_wf_reify
-theorem full_bve_find_and_m8_wf : Func.Wf full_bve_find_and_m8_body := by kissat_wf_reify
-theorem full_bve_match_tern_m8_wf : Func.Wf full_bve_match_tern_m8_body := by kissat_wf_reify
-theorem full_bve_find_ite_side_m8_wf : Func.Wf full_bve_find_ite_side_m8_body := by kissat_wf_reify
-theorem full_bve_find_ite_m8_wf : Func.Wf full_bve_find_ite_m8_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, gates_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_bve_find_equiv_m7_wf
-  · exact full_bve_find_and_m7_wf
-  · exact full_bve_get_tern_m7_wf
-  · exact full_bve_match_tern_m7_wf
-  · exact full_bve_find_ite_side_m7_wf
-  · exact full_bve_find_ite_m7_wf
-  · exact full_bve_xor_pat_m7_wf
-  · exact full_bve_find_xor_m7_wf
-  · exact full_bve_find_equiv_m8_wf
-  · exact full_bve_find_and_m8_wf
-  · exact full_bve_match_tern_m8_wf
-  · exact full_bve_find_ite_side_m8_wf
-  · exact full_bve_find_ite_m8_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Gates

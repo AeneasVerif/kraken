@@ -542,45 +542,6 @@ u64 full_compact(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Compact.lean` (`13` fns). -/
-def fns : List Fn := compact_fns
-
-end
-
-public section
-
-theorem full_compact_needed_wf : Func.Wf full_compact_needed_body := by kissat_wf_reify
-theorem full_compact_flush_wf : Func.Wf full_compact_flush_body := by kissat_wf_reify
-theorem full_compact_mark_live_wf : Func.Wf full_compact_mark_live_body := by kissat_wf_reify
-theorem full_compact_assign_map_wf : Func.Wf full_compact_assign_map_body := by kissat_wf_reify
-theorem full_compact_record_ext_wf : Func.Wf full_compact_record_ext_body := by kissat_wf_reify
-theorem full_compact_bins_wf : Func.Wf full_compact_bins_body := by kissat_wf_reify
-theorem full_compact_arena_wf : Func.Wf full_compact_arena_body := by kissat_wf_reify
-theorem full_compact_vars_wf : Func.Wf full_compact_vars_body := by kissat_wf_reify
-theorem full_compact_sift_q_wf : Func.Wf full_compact_sift_q_body := by kissat_wf_reify
-theorem full_compact_vmtf_wf : Func.Wf full_compact_vmtf_body := by kissat_wf_reify
-theorem full_compact_sift_h_wf : Func.Wf full_compact_sift_h_body := by kissat_wf_reify
-theorem full_compact_heap_wf : Func.Wf full_compact_heap_body := by kissat_wf_reify
-theorem full_compact_wf : Func.Wf full_compact_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, compact_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_compact_needed_wf
-  · exact full_compact_flush_wf
-  · exact full_compact_mark_live_wf
-  · exact full_compact_assign_map_wf
-  · exact full_compact_record_ext_wf
-  · exact full_compact_bins_wf
-  · exact full_compact_arena_wf
-  · exact full_compact_vars_wf
-  · exact full_compact_sift_q_wf
-  · exact full_compact_vmtf_wf
-  · exact full_compact_sift_h_wf
-  · exact full_compact_heap_wf
-  · exact full_compact_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Compact

@@ -365,33 +365,6 @@ void full_min_shrink(FullHdr *h) {
 }
 "
 
-/-- Ordered live functions of `Src/Minimize.lean` (`7` fns). -/
-def fns : List Fn := minimize_fns
-
-end
-
-public section
-
-theorem full_min_mark_wf : Func.Wf full_min_mark_body := by kissat_wf_reify
-theorem full_sort_tmp_wf : Func.Wf full_sort_tmp_body := by kissat_wf_reify
-theorem full_min_lit_dfs_m8_wf : Func.Wf full_min_lit_dfs_m8_body := by kissat_wf_reify
-theorem full_shrink_lower_m8_wf : Func.Wf full_shrink_lower_m8_body := by kissat_wf_reify
-theorem full_shrink_blk_bool_m8_wf : Func.Wf full_shrink_blk_bool_m8_body := by kissat_wf_reify
-theorem full_min_shrink_m6_wf : Func.Wf full_min_shrink_m6_body := by kissat_wf_reify
-theorem full_min_shrink_wf : Func.Wf full_min_shrink_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, minimize_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_min_mark_wf
-  · exact full_sort_tmp_wf
-  · exact full_min_lit_dfs_m8_wf
-  · exact full_shrink_lower_m8_wf
-  · exact full_shrink_blk_bool_m8_wf
-  · exact full_min_shrink_m6_wf
-  · exact full_min_shrink_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Minimize

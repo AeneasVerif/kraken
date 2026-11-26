@@ -989,62 +989,6 @@ u64 full_sweep_dense_m6(FullHdr *h, u64 budget, u64 tick_lim) {
 }
 "
 
-/-- Ordered live functions of `Src/Sweep.lean` (`21` fns). -/
-def fns : List Fn := sweep_fns
-
-end
-
-public section
-
-theorem full_m6_sweep_cone_wf : Func.Wf full_m6_sweep_cone_body := by kissat_wf_reify
-theorem full_m6_sweep_refine_sig_wf : Func.Wf full_m6_sweep_refine_sig_body := by kissat_wf_reify
-theorem full_m6_sweep_rand_phases_wf : Func.Wf full_m6_sweep_rand_phases_body := by kissat_wf_reify
-theorem full_m6_sweep_solve_wf : Func.Wf full_m6_sweep_solve_body := by kissat_wf_reify
-theorem full_m6_sweep_flip_round_wf : Func.Wf full_m6_sweep_flip_round_body := by kissat_wf_reify
-theorem full_m6_sweep_sim_wf : Func.Wf full_m6_sweep_sim_body := by kissat_wf_reify
-theorem full_m6_sweep_rearm_wf : Func.Wf full_m6_sweep_rearm_body := by kissat_wf_reify
-theorem full_m6_sweep_build_pht_wf : Func.Wf full_m6_sweep_build_pht_body := by kissat_wf_reify
-theorem full_m6_extract_pht_wf : Func.Wf full_m6_extract_pht_body := by kissat_wf_reify
-theorem full_m6_refine_partition_wf : Func.Wf full_m6_refine_partition_body := by kissat_wf_reify
-theorem full_m6_sweep_units_wf : Func.Wf full_m6_sweep_units_body := by kissat_wf_reify
-theorem full_m6_sweep_classes_wf : Func.Wf full_m6_sweep_classes_body := by kissat_wf_reify
-theorem full_m6_els_ar_wf : Func.Wf full_m6_els_ar_body := by kissat_wf_reify
-theorem full_m6_els_lit_wf : Func.Wf full_m6_els_lit_body := by kissat_wf_reify
-theorem full_m6_els_fold_wf : Func.Wf full_m6_els_fold_body := by kissat_wf_reify
-theorem full_m6_dense_els_wf : Func.Wf full_m6_dense_els_body := by kissat_wf_reify
-theorem full_m6_sweep_var_wf : Func.Wf full_m6_sweep_var_body := by kissat_wf_reify
-theorem full_m6_cand_sift_wf : Func.Wf full_m6_cand_sift_body := by kissat_wf_reify
-theorem full_m6_collect_cands_wf : Func.Wf full_m6_collect_cands_body := by kissat_wf_reify
-theorem full_m6_sweep_vars_wf : Func.Wf full_m6_sweep_vars_body := by kissat_wf_reify
-theorem full_sweep_dense_m6_wf : Func.Wf full_sweep_dense_m6_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, sweep_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_m6_sweep_cone_wf
-  · exact full_m6_sweep_refine_sig_wf
-  · exact full_m6_sweep_rand_phases_wf
-  · exact full_m6_sweep_solve_wf
-  · exact full_m6_sweep_flip_round_wf
-  · exact full_m6_sweep_sim_wf
-  · exact full_m6_sweep_rearm_wf
-  · exact full_m6_sweep_build_pht_wf
-  · exact full_m6_extract_pht_wf
-  · exact full_m6_refine_partition_wf
-  · exact full_m6_sweep_units_wf
-  · exact full_m6_sweep_classes_wf
-  · exact full_m6_els_ar_wf
-  · exact full_m6_els_lit_wf
-  · exact full_m6_els_fold_wf
-  · exact full_m6_dense_els_wf
-  · exact full_m6_sweep_var_wf
-  · exact full_m6_cand_sift_wf
-  · exact full_m6_collect_cands_wf
-  · exact full_m6_sweep_vars_wf
-  · exact full_sweep_dense_m6_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Sweep

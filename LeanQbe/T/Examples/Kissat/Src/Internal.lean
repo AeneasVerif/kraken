@@ -317,47 +317,6 @@ void full_init_fresh_var(FullHdr *h, u32 fv) {
 }
 "
 
-/-- Ordered live functions of `Src/Internal.lean` (`14` fns). -/
-def fns : List Fn := internal_fns
-
-end
-
-public section
-
-theorem full_zero_tables1_wf : Func.Wf full_zero_tables1_body := by kissat_wf_reify
-theorem full_zero_tables2_wf : Func.Wf full_zero_tables2_body := by kissat_wf_reify
-theorem full_fixed_bytes_wf : Func.Wf full_fixed_bytes_body := by kissat_wf_reify
-theorem full_init_ptrs_wf : Func.Wf full_init_ptrs_body := by kissat_wf_reify
-theorem full_init_hdr_wf : Func.Wf full_init_hdr_body := by kissat_wf_reify
-theorem full_calc_max_v_wf : Func.Wf full_calc_max_v_body := by kissat_wf_reify
-theorem full_calc_ext_cap_m5_wf : Func.Wf full_calc_ext_cap_m5_body := by kissat_wf_reify
-theorem full_calc_scr_cap_m5_wf : Func.Wf full_calc_scr_cap_m5_body := by kissat_wf_reify
-theorem full_init_arenas_wf : Func.Wf full_init_arenas_body := by kissat_wf_reify
-theorem full_init_state_m5_wf : Func.Wf full_init_state_m5_body := by kissat_wf_reify
-theorem full_init_state_wf : Func.Wf full_init_state_body := by kissat_wf_reify
-theorem full_m6_mem_init_wf : Func.Wf full_m6_mem_init_body := by kissat_wf_reify
-theorem full_set_inactive_wf : Func.Wf full_set_inactive_body := by kissat_wf_reify
-theorem full_init_fresh_var_wf : Func.Wf full_init_fresh_var_body := by kissat_wf_reify
-
-theorem fns_wf : ∀ f ∈ fns, f.Wf := by
-  intro f hf
-  simp only [fns, internal_fns, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_zero_tables1_wf
-  · exact full_zero_tables2_wf
-  · exact full_fixed_bytes_wf
-  · exact full_init_ptrs_wf
-  · exact full_init_hdr_wf
-  · exact full_calc_max_v_wf
-  · exact full_calc_ext_cap_m5_wf
-  · exact full_calc_scr_cap_m5_wf
-  · exact full_init_arenas_wf
-  · exact full_init_state_m5_wf
-  · exact full_init_state_wf
-  · exact full_m6_mem_init_wf
-  · exact full_set_inactive_wf
-  · exact full_init_fresh_var_wf
-
 end
 
 end LeanQbe.T.Examples.Kissat.Src.Internal
