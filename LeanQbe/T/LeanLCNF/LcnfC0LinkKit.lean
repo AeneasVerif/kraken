@@ -30,7 +30,6 @@ public section
 namespace LeanQbe.T.LeanLCNF
 
 open LeanQbe.T
-open LeanQbe.T.Frontend.C0 (TFlatFn)
 
 /-! ## 1. Linked Module Shape, Well-Formedness, & Signature Legality -/
 
@@ -38,39 +37,39 @@ open LeanQbe.T.Frontend.C0 (TFlatFn)
 @[expose] def rtCoreFnNames : List Sym :=
   rtC0CoreMod.fns.map Fn.name
 
-/-- Standalone user `Module` wrapping `tfs : List TFlatFn` with standard `rtExitSyms`. -/
-@[expose] def lcnfProgMod (progTfs : List TFlatFn) : Module :=
+/-- Standalone user `Module` wrapping `tfs : List Frontend.C0.TFlatFn` with `rtExitSyms`. -/
+@[expose] def lcnfProgMod (progTfs : List Frontend.C0.TFlatFn) : Module :=
   { fns := LeanLRC.tflatFnsToFns progTfs, externs := [], exits := rtExitSyms }
 
-theorem linkLcnfWithRtC0_fns_eq (progTfs : List TFlatFn) :
+theorem linkLcnfWithRtC0_fns_eq (progTfs : List Frontend.C0.TFlatFn) :
     (linkLcnfWithRtC0 progTfs false).fns =
       rtC0CoreMod.fns ++ (lcnfProgMod progTfs).fns :=
   rfl
 
-theorem linkLcnfWithRtC0_externs_eq (progTfs : List TFlatFn) :
+theorem linkLcnfWithRtC0_externs_eq (progTfs : List Frontend.C0.TFlatFn) :
     (linkLcnfWithRtC0 progTfs false).externs = [] :=
   rfl
 
-theorem linkLcnfWithRtC0_exits_eq (progTfs : List TFlatFn) :
+theorem linkLcnfWithRtC0_exits_eq (progTfs : List Frontend.C0.TFlatFn) :
     (linkLcnfWithRtC0 progTfs false).exits = rtExitSyms :=
   rfl
 
-theorem tflatFn_toFn_mem_progMod {progTfs : List TFlatFn} {tf : TFlatFn}
+theorem tflatFn_toFn_mem_progMod {progTfs : List Frontend.C0.TFlatFn} {tf : Frontend.C0.TFlatFn}
     (htf : tf ∈ progTfs) : tf.toFn ∈ (lcnfProgMod progTfs).fns :=
   List.mem_map_of_mem htf
 
-theorem tflatFn_toFn_mem_linked {progTfs : List TFlatFn} {tf : TFlatFn}
+theorem tflatFn_toFn_mem_linked {progTfs : List Frontend.C0.TFlatFn} {tf : Frontend.C0.TFlatFn}
     (htf : tf ∈ progTfs) : tf.toFn ∈ (linkLcnfWithRtC0 progTfs false).fns := by
   rw [linkLcnfWithRtC0_fns_eq]
   exact List.mem_append_right _ (tflatFn_toFn_mem_progMod htf)
 
-theorem lcnfProgMod_fns_wf (progTfs : List TFlatFn) :
+theorem lcnfProgMod_fns_wf (progTfs : List Frontend.C0.TFlatFn) :
     ∀ f ∈ (lcnfProgMod progTfs).fns, f.Wf := by
   intro f hf
   obtain ⟨tf, _, rfl⟩ := List.mem_map.mp hf
   exact tf.toFn_wf
 
-theorem linkLcnfWithRtC0_fns_wf (progTfs : List TFlatFn) :
+theorem linkLcnfWithRtC0_fns_wf (progTfs : List Frontend.C0.TFlatFn) :
     ∀ f ∈ (linkLcnfWithRtC0 progTfs false).fns, f.Wf := by
   intro f hf
   rw [linkLcnfWithRtC0_fns_eq, List.mem_append] at hf
@@ -78,19 +77,19 @@ theorem linkLcnfWithRtC0_fns_wf (progTfs : List TFlatFn) :
   · exact rtC0CoreMod_fns_wf f hrt
   · exact lcnfProgMod_fns_wf progTfs f hprog
 
-theorem linkLcnfWithRtC0_legalSigAll (lt : LegalTarget) (progTfs : List TFlatFn)
+theorem linkLcnfWithRtC0_legalSigAll (lt : LegalTarget) (progTfs : List Frontend.C0.TFlatFn)
     (hRt : checkLegalSigAll lt rtC0CoreMod.fns = true)
     (hProg : checkLegalSigAll lt (lcnfProgMod progTfs).fns = true) :
     LegalSigAll lt (linkLcnfWithRtC0 progTfs false).fns := by
   rw [linkLcnfWithRtC0_fns_eq]
   exact legalSigAll_append hRt (legalSigAll_of_check hProg)
 
-theorem linkLcnfWithRtC0_nodup_of_checkAcyclic {progTfs : List TFlatFn}
+theorem linkLcnfWithRtC0_nodup_of_checkAcyclic {progTfs : List Frontend.C0.TFlatFn}
     (hacyc : (linkLcnfWithRtC0 progTfs false).checkAcyclic = true) :
     (linkLcnfWithRtC0 progTfs false).namesNodup :=
   Module.namesNodup_of_checkNamesNodup ((Bool.and_eq_true _ _).mp hacyc).1
 
-theorem lcnfProgMod_disjoint_rt_of_nodup {progTfs : List TFlatFn}
+theorem lcnfProgMod_disjoint_rt_of_nodup {progTfs : List Frontend.C0.TFlatFn}
     (hnd : (linkLcnfWithRtC0 progTfs false).namesNodup) :
     ∀ f ∈ (lcnfProgMod progTfs).fns, f.name ∉ rtCoreFnNames := by
   intro f hf hmem
@@ -184,7 +183,7 @@ theorem rtC0Core_fn_wp_linkEnv (progEnv : Env) {fn : Fn} (hfn : fn ∈ rtC0CoreM
   exact (linkRtC0Env_rt progEnv hgName).mpr hcall
 
 /-- Whole-module `Func.wp` soundness across all functions in `linkLcnfWithRtC0 progTfs false`. -/
-theorem linkLcnfWithRtC0_wp_all {progTfs : List TFlatFn} (progEnv : Env)
+theorem linkLcnfWithRtC0_wp_all {progTfs : List Frontend.C0.TFlatFn} (progEnv : Env)
     (hacyc : (linkLcnfWithRtC0 progTfs false).checkAcyclic = true)
     (hprogWp : ∀ fn ∈ (lcnfProgMod progTfs).fns,
       ∀ xs m Q X, progEnv fn.name fn.as fn.rs xs m Q X →
@@ -202,7 +201,7 @@ theorem linkLcnfWithRtC0_wp_all {progTfs : List TFlatFn} (progEnv : Env)
     exact hprogWp fn hprog xs m Q X ((linkRtC0Env_prog progEnv hnot).mp hpre)
 
 /-- Compositional `ModuleOk` for `linkLcnfWithRtC0 progTfs false` under `linkRtC0Env progEnv`. -/
-theorem linkLcnfWithRtC0_moduleOk {progTfs : List TFlatFn} (progEnv : Env)
+theorem linkLcnfWithRtC0_moduleOk {progTfs : List Frontend.C0.TFlatFn} (progEnv : Env)
     (hacyc : (linkLcnfWithRtC0 progTfs false).checkAcyclic = true)
     (hprogWp : ∀ fn ∈ (lcnfProgMod progTfs).fns,
       ∀ xs m Q X, progEnv fn.name fn.as fn.rs xs m Q X →
@@ -217,7 +216,7 @@ theorem linkLcnfWithRtC0_moduleOk {progTfs : List TFlatFn} (progEnv : Env)
 target `T : Target`. -/
 @[expose] noncomputable def linkRtC0Cert
     {T : Target} {L : TargetLayout T} {lt : LegalTarget} {hcl : Rega.LabelClean T.toIsa}
-    {progTfs : List TFlatFn} {rtExt : List (SigEntry × Nat)} {maxB₁ maxB₂ : Nat}
+    {progTfs : List Frontend.C0.TFlatFn} {rtExt : List (SigEntry × Nat)} {maxB₁ maxB₂ : Nat}
     (rtCert : LinkedCert T L lt hcl rtC0CoreMod [] rtExitSyms 64 maxB₁)
     (progCert : LinkedCert T L lt hcl (lcnfProgMod progTfs) rtExt rtExitSyms 64 maxB₂)
     (hchk : checkLinkList L [] (rtCert.chunks ++ progCert.chunks) = true) :
@@ -229,7 +228,7 @@ target `T : Target`. -/
 on a linked `linkLcnfWithRtC0 progTfs false` certificate. -/
 theorem linkRtC0Cert_fnSpec
     {T : Target} {L : TargetLayout T} {lt : LegalTarget} {hcl : Rega.LabelClean T.toIsa}
-    {progTfs : List TFlatFn} {maxB : Nat}
+    {progTfs : List Frontend.C0.TFlatFn} {maxB : Nat}
     (cert : LinkedCert T L lt hcl (linkLcnfWithRtC0 progTfs false) [] rtExitSyms 64 maxB)
     (progEnv : Env)
     (hacyc : (linkLcnfWithRtC0 progTfs false).checkAcyclic = true)
@@ -259,7 +258,7 @@ theorem linkRtC0Cert_fnSpec
 `spec : Spec f.as f.rs`. -/
 theorem linkRtC0Cert_fnSpec_of_spec
     {T : Target} {L : TargetLayout T} {lt : LegalTarget} {hcl : Rega.LabelClean T.toIsa}
-    {progTfs : List TFlatFn} {maxB : Nat}
+    {progTfs : List Frontend.C0.TFlatFn} {maxB : Nat}
     (cert : LinkedCert T L lt hcl (linkLcnfWithRtC0 progTfs false) [] rtExitSyms 64 maxB)
     (progEnv : Env)
     (hacyc : (linkLcnfWithRtC0 progTfs false).checkAcyclic = true)
@@ -281,7 +280,7 @@ theorem linkRtC0Cert_fnSpec_of_spec
 on a linked `linkLcnfWithRtC0 progTfs false` certificate. -/
 theorem linkRtC0Cert_rt_fnSpec
     {T : Target} {L : TargetLayout T} {lt : LegalTarget} {hcl : Rega.LabelClean T.toIsa}
-    {progTfs : List TFlatFn} {maxB : Nat}
+    {progTfs : List Frontend.C0.TFlatFn} {maxB : Nat}
     (cert : LinkedCert T L lt hcl (linkLcnfWithRtC0 progTfs false) [] rtExitSyms 64 maxB)
     (progEnv : Env)
     (hacyc : (linkLcnfWithRtC0 progTfs false).checkAcyclic = true)
