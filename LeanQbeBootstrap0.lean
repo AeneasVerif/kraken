@@ -31,6 +31,7 @@ public import LeanQbe.T.Bootstrap0.Sound0
 public import LeanQbe.T.Bootstrap0.Sound0Part1
 public import LeanQbe.T.Bootstrap0.Sound0Part10
 public import LeanQbe.T.Bootstrap0.Sound0Part11
+public import LeanQbe.T.Bootstrap0.Sound0Part11a
 public import LeanQbe.T.Bootstrap0.Sound0Part12
 public import LeanQbe.T.Bootstrap0.Sound0Part2
 public import LeanQbe.T.Bootstrap0.Sound0Part3
@@ -40,6 +41,7 @@ public import LeanQbe.T.Bootstrap0.Sound0Part6
 public import LeanQbe.T.Bootstrap0.Sound0Part7
 public import LeanQbe.T.Bootstrap0.Sound0Part8
 public import LeanQbe.T.Bootstrap0.Sound0Part9
+public import LeanQbe.T.Bootstrap0.Sound0Part9a
 public import LeanQbe.T.Bootstrap0.Splice0
 public import LeanQbe.T.Bootstrap0.StageC
 public import LeanQbe.T.Bootstrap0.Types0

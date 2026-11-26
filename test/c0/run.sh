@@ -122,7 +122,7 @@ pid_neg_diag=$!
 # Symlink tqbe_rt.hpp into $OUT so g++'s `#pragma once` matches `$OUT/tqbe_rt.hpp.gch` when
 # `<probe>.hpp` re-includes `"tqbe_rt.hpp"`. (Step 3 puts `-I$ROOT/LeanQbe/T/Runtime` before `-I$OUT`.)
 ln -sf "$ROOT/LeanQbe/T/Runtime/tqbe_rt.hpp" "$OUT/tqbe_rt.hpp"
-timeout 60 g++ -std=c++20 -O2 -w -DTQBE_CATCH_UB=1 -x c++-header \
+timeout 60 g++ -std=c++20 -O2 -w -DTQBE_CATCH_UB=1 -I"$ROOT/LeanQbe/T/Runtime" -x c++-header \
   "$OUT/tqbe_rt.hpp" -o "$OUT/tqbe_rt.hpp.gch" >"$OUT/logs/pch_gpp.log" 2>&1 &
 pid_gch=$!
 timeout 60 clang++ -std=c++20 -O2 -w -fsanitize=undefined,address -DTQBE_CATCH_UB=1 -x c++-header \
