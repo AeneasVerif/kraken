@@ -875,12 +875,16 @@ private theorem validateHdr_diag_eq {rs : List Ty} : (hdr : HdrPlan) → {nv : N
       | isFalse => simp [hdec] at h1
       | isTrue heq =>
         subst heq; simp only [tysDecEq_self_isTrue dts] at h1 h2
-        rcases Option.bind_eq_some_iff.1 h1 with ⟨⟨_, _, _, _⟩, h1', ⟨⟩⟩
-        rcases Option.bind_eq_some_iff.1 h2 with ⟨⟨_, _, _, _⟩, h2', ⟨⟩⟩
-        cases hop with | mk _ hargs =>
-        obtain ⟨rfl, rfl, Gk', hdiag', ht', he'⟩ := validateHdr_diag_eq ss
-          (DiagCtx.append (DiagCtx.zip_self (Tup.levels dts nv)) hdiag) (hk _ _) h1' h2'
-        rw [hdiag.trel_eq hargs]; exact ⟨rfl, rfl, Gk', hdiag', ht', he'⟩
+        cases hop with | mk code hargs =>
+        cases hsafe : isSafeHdrOp code with
+        | false => simp [hsafe] at h1
+        | true =>
+          simp only [hsafe, ↓reduceIte] at h1 h2
+          rcases Option.bind_eq_some_iff.1 h1 with ⟨⟨_, _, _, _⟩, h1', ⟨⟩⟩
+          rcases Option.bind_eq_some_iff.1 h2 with ⟨⟨_, _, _, _⟩, h2', ⟨⟩⟩
+          obtain ⟨rfl, rfl, Gk', hdiag', ht', he'⟩ := validateHdr_diag_eq ss
+            (DiagCtx.append (DiagCtx.zip_self (Tup.levels dts nv)) hdiag) (hk _ _) h1' h2'
+          rw [hdiag.trel_eq hargs]; exact ⟨rfl, rfl, Gk', hdiag', ht', he'⟩
     | _ => dsimp only [validateHdr] at h1; cases h1
   | .load t :: ss, nv, _, _, _, _, hdiag, hwf, _, _, _, _, _, _, _, _, h1, h2 => by
     cases hwf with
@@ -1064,23 +1068,27 @@ private theorem hdrEmit_wp {Γ : Env} {rs : List Ty} {Q : Post rs} {X : XPost} (
       | isFalse => simp [hdec] at hval
       | isTrue heq =>
         subst heq; simp only [tysDecEq_self_isTrue dts] at hval
-        rcases Option.bind_eq_some_iff.1 hval with ⟨⟨_, _, _, _⟩, hv', ⟨⟩⟩
         cases hop with | mk code hargs => cases hopk with | mk _ hargsk =>
-        dsimp only [hdrEmit]; simp only [tysDecEq_self_isTrue dts, flatOptOp, wp, Op.wp] at hw2 ⊢
-        rw [flatOptArgs_vals_of_inSet hnd hG hargsk hargs (ArgsInSet.addArgKeys _ _)]
-        refine OpCode.wp_mono code _ (fun ys hys => hdrEmit_wp dir ss cMs.tail xMs.tail
-          (nv := nv + dts.length) hv' (hkk _ _) (hkkd _ _) (hk _ ys)
-          (NoneDeadOpt.append_someVars (NoneDeadOpt.sub (TrieSub.addArgKeys _ _) hnd) _ _)
-          (SomeValEq.append_someVars hG ys) (DiagCtx.append (DiagCtx.zip_self _) hdiag)
-          htc htx hys (fun _ _ _ _ hbr hwC hrest => hC (ys, _) _ _
-            (tupAppend (tupSelectArgs dts _ (toArgTup ys)) _)
-            (by simpa [hdrSrcBranch, tysDecEq_self_isTrue dts] using hbr) hwC
-            (by rw [vals_tupAppend, vals_tupSelectArgs, toArgTup_vals, hrest]; rfl))
-          fun _ _ _ _ _ _ _ _ hnd_l hG_l hdk_l hwk_l hwkd_l hwf_l hbr hwX hrest => hX (ys, _) _ _
-            _ _ _ _ (tupAppend (tupSelectArgs dts _ (toArgTup ys)) _) (fun s hs => hnd_l s
-              (NoneDeadOpt.append_someVars hs _ _)) hG_l hdk_l hwk_l hwkd_l hwf_l
-            (by simpa [hdrSrcBranch, tysDecEq_self_isTrue dts] using hbr) hwX
-            (by rw [vals_tupAppend, vals_tupSelectArgs, toArgTup_vals, hrest]; rfl)) hw2
+        cases hsafe : isSafeHdrOp code with
+        | false => simp [hsafe] at hval
+        | true =>
+          simp only [hsafe, ↓reduceIte] at hval
+          rcases Option.bind_eq_some_iff.1 hval with ⟨⟨_, _, _, _⟩, hv', ⟨⟩⟩
+          dsimp only [hdrEmit]; simp only [tysDecEq_self_isTrue dts, flatOptOp, wp, Op.wp] at hw2 ⊢
+          rw [flatOptArgs_vals_of_inSet hnd hG hargsk hargs (ArgsInSet.addArgKeys _ _)]
+          refine OpCode.wp_mono code _ (fun ys hys => hdrEmit_wp dir ss cMs.tail xMs.tail
+            (nv := nv + dts.length) hv' (hkk _ _) (hkkd _ _) (hk _ ys)
+            (NoneDeadOpt.append_someVars (NoneDeadOpt.sub (TrieSub.addArgKeys _ _) hnd) _ _)
+            (SomeValEq.append_someVars hG ys) (DiagCtx.append (DiagCtx.zip_self _) hdiag)
+            htc htx hys (fun _ _ _ _ hbr hwC hrest => hC (ys, _) _ _
+              (tupAppend (tupSelectArgs dts _ (toArgTup ys)) _)
+              (by simpa [hdrSrcBranch, tysDecEq_self_isTrue dts] using hbr) hwC
+              (by rw [vals_tupAppend, vals_tupSelectArgs, toArgTup_vals, hrest]; rfl))
+            fun _ _ _ _ _ _ _ _ hnd_l hG_l hdk_l hwk_l hwkd_l hwf_l hbr hwX hrest => hX (ys, _) _ _
+              _ _ _ _ (tupAppend (tupSelectArgs dts _ (toArgTup ys)) _) (fun s hs => hnd_l s
+                (NoneDeadOpt.append_someVars hs _ _)) hG_l hdk_l hwk_l hwkd_l hwf_l
+              (by simpa [hdrSrcBranch, tysDecEq_self_isTrue dts] using hbr) hwX
+              (by rw [vals_tupAppend, vals_tupSelectArgs, toArgTup_vals, hrest]; rfl)) hw2
     | _ => cases hwk <;> (dsimp only [validateHdr] at hval; cases hval)
   | .load t :: ss, cMs, xMs, nv, _, _, _, _, _, _, _, _, _, _, _, _, _, hval, hwk, hwk_diag,
       hwf, hnd, hG, hdiag, _, _, _, _, htc, htx, _, _, _, hw2, hC, hX => by
@@ -1147,20 +1155,24 @@ private theorem hdrPeel_wf_src {rs tail : List Ty} (dir wantCont : Bool) : (hdr 
       hwk, hwk_diag, hwf, hnd, hG, hdiag, (ys, rest_hv), tl, hbr => by
     cases hwf with
     | @let_ _ _ dts' _ _ _ _ _ hk =>
-      rcases hwk.rhs_let with ⟨_, kk, rfl, _, hkk⟩; rcases hwk_diag.let_inv with ⟨_, hkkd⟩
+      rcases hwk.rhs_let with ⟨opk, kk, rfl, _, hkk⟩; rcases hwk_diag.let_inv with ⟨_, hkkd⟩
       dsimp only [validateHdr] at hval
       cases hdec : tysDecEq dts dts' with
       | isFalse => simp [hdec] at hval
       | isTrue heq =>
         subst heq; simp only [tysDecEq_self_isTrue dts] at hval
-        rcases Option.bind_eq_some_iff.1 hval with ⟨⟨_, _, _, _⟩, hv', ⟨⟩⟩
-        dsimp only [checkDeadStepMasks, hdrSelect, hdrPeel, hdrSrcBranch] at hchk hbr ⊢
-        simp only [Bool.and_eq_true] at hchk
-        simp only [tysDecEq_self_isTrue dts, tupSplit_tupAppend] at hbr ⊢
-        exact hdrPeel_wf_src dir wantCont ss ms.tail hv' hchk.2 (hkk _ _) (hkkd _ _) (hk _ ys)
-          (checkDeadMask_noneDeadOpt dts _ hchk.1 _ hnd)
-          (SomeValEq.append_tupWiden_tupSelectVals hG dts _ rfl)
-          (DiagCtx.append (DiagCtx.zip_self _) hdiag) rest_hv tl hbr
+        cases hsafe : isSafeHdrOp opk.code with
+        | false => simp [hsafe] at hval
+        | true =>
+          simp only [hsafe, ↓reduceIte] at hval
+          rcases Option.bind_eq_some_iff.1 hval with ⟨⟨_, _, _, _⟩, hv', ⟨⟩⟩
+          dsimp only [checkDeadStepMasks, hdrSelect, hdrPeel, hdrSrcBranch] at hchk hbr ⊢
+          simp only [Bool.and_eq_true] at hchk
+          simp only [tysDecEq_self_isTrue dts, tupSplit_tupAppend] at hbr ⊢
+          exact hdrPeel_wf_src dir wantCont ss ms.tail hv' hchk.2 (hkk _ _) (hkkd _ _) (hk _ ys)
+            (checkDeadMask_noneDeadOpt dts _ hchk.1 _ hnd)
+            (SomeValEq.append_tupWiden_tupSelectVals hG dts _ rfl)
+            (DiagCtx.append (DiagCtx.zip_self _) hdiag) rest_hv tl hbr
     | _ => cases hwk <;> (dsimp only [validateHdr] at hval; cases hval)
   | .load t :: ss, ms, nv, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, hval, hchk,
       hwk, hwk_diag, hwf, hnd, hG, hdiag, ((v, ()), rest_hv), tl, hbr => by

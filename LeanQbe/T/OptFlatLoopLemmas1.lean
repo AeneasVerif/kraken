@@ -218,50 +218,62 @@ private theorem validateHdrFlat_spec {rs : List Ty} :
         rw [hdec]
       | isTrue heq =>
         subst heq
-        have ih := validateHdrFlat_spec ss k (CtxTypes.push _ hΓ) (CtxLevels_pushTup_k hvl) hwf.2
-        have hlen : (pushTup (Tup.levels dts vs.length) vs).length = vs.length + dts.length :=
-          pushTup_length _ vs
-        rw [hlen] at ih
-        cases hvh : validateHdrFlat ss k (vs.length + dts.length) with
-        | none =>
-          rw [hvh] at ih
+        cases hsafe : isSafeHdrOp op.code with
+        | false =>
           refine ValidateHdrSpec.isNone ?_
-          intro ls hΔ
+          intro ls _
           have hargs := denoteArgs_eq_some_levelArgs hΓ hvl op.args hwf.1
           dsimp only [denote]
           rw [hargs]
           dsimp only [validateHdr]
           rw [hdec]
-          cases ih with
-          | isNone hnone =>
-            have hsub := hnone hΔ
-            rw [hlen] at hsub
-            dsimp only
-            rw [hsub]
-            rfl
-        | some val =>
-          rcases val with ⟨sh, tF, eF, nv'⟩
-          rw [hvh] at ih
-          cases ih with
-          | isSome _ _ _ _ hnv hΓ' hvl' hl' htF heF hsome =>
-            have hnv' : nv' = vs.length + hdrStepCount (.let_ dts :: ss) := by
-              dsimp only [hdrStepCount, HdrStep.tys]; omega
-            have hl'' : (hdrVs (.let_ dts :: ss) vs).length =
-                vs.length + hdrStepCount (.let_ dts :: ss) := by
-              dsimp only [hdrVs, hdrStepCount, HdrStep.tys]; omega
-            refine ValidateHdrSpec.isSome (addArgKeys (levelArgs vs.length op.args) sh) tF eF nv'
-              hnv' hΓ' hvl' hl'' htF heF ?_
+          simp [hsafe]
+        | true =>
+          have ih := validateHdrFlat_spec ss k (CtxTypes.push _ hΓ) (CtxLevels_pushTup_k hvl) hwf.2
+          have hlen : (pushTup (Tup.levels dts vs.length) vs).length = vs.length + dts.length :=
+            pushTup_length _ vs
+          rw [hlen] at ih
+          cases hvh : validateHdrFlat ss k (vs.length + dts.length) with
+          | none =>
+            rw [hvh] at ih
+            refine ValidateHdrSpec.isNone ?_
             intro ls hΔ
             have hargs := denoteArgs_eq_some_levelArgs hΓ hvl op.args hwf.1
             dsimp only [denote]
             rw [hargs]
-            dsimp only [validateHdr, addArgsSet]
+            dsimp only [validateHdr]
             rw [hdec]
-            have hsub := hsome hΔ
-            rw [hlen] at hsub
-            dsimp only
-            rw [hsub]
-            rfl
+            cases ih with
+            | isNone hnone =>
+              have hsub := hnone hΔ
+              rw [hlen] at hsub
+              simp only [hsafe, ↓reduceIte]
+              rw [hsub]
+              rfl
+          | some val =>
+            rcases val with ⟨sh, tF, eF, nv'⟩
+            rw [hvh] at ih
+            cases ih with
+            | isSome _ _ _ _ hnv hΓ' hvl' hl' htF heF hsome =>
+              have hnv' : nv' = vs.length + hdrStepCount (.let_ dts :: ss) := by
+                dsimp only [hdrStepCount, HdrStep.tys]; omega
+              have hl'' : (hdrVs (.let_ dts :: ss) vs).length =
+                  vs.length + hdrStepCount (.let_ dts :: ss) := by
+                dsimp only [hdrVs, hdrStepCount, HdrStep.tys]; omega
+              simp only [↓reduceIte]
+              refine ValidateHdrSpec.isSome (addArgKeys (levelArgs vs.length op.args) sh) tF eF nv'
+                hnv' hΓ' hvl' hl'' htF heF ?_
+              intro ls hΔ
+              have hargs := denoteArgs_eq_some_levelArgs hΓ hvl op.args hwf.1
+              dsimp only [denote]
+              rw [hargs]
+              dsimp only [validateHdr, addArgsSet]
+              rw [hdec]
+              have hsub := hsome hΔ
+              rw [hlen] at hsub
+              simp only [hsafe, ↓reduceIte]
+              rw [hsub]
+              rfl
     | _ =>
       refine ValidateHdrSpec.isNone fun _ => ?_
       dsimp only [denote]

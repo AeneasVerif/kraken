@@ -212,34 +212,38 @@ private theorem hdrPeelFlat_of_validateHdr {rs tail : List Ty} (dir wantCont : B
       | isTrue heq =>
         subst heq
         rw [hdec] at hvh; dsimp only at hvh
-        cases hvh2 : validateHdrFlat ss k (nv + dts.length) with
-        | none => rw [hvh2] at hvh; contradiction
-        | some val =>
-          rcases val with ⟨sh2, tF2, eF2, nv2⟩
-          rw [hvh2] at hvh
-          have h_eq : tF2 = tF ∧ eF2 = eF ∧ nv2 = nv' := by
-            injection hvh with h0
-            exact ⟨congrArg (·.2.1) h0, congrArg (·.2.2.1) h0, congrArg (·.2.2.2) h0⟩
-          rcases h_eq with ⟨rfl, rfl, rfl⟩
-          let hsp := LoopRotate.tupSplit (filterTys dts (ms.headD [])) params
-          have ih := hdrPeelFlat_of_validateHdr dir wantCont ss ms.tail hsp.2 k
-            (Γ := pushTypes dts Γ) (Δ := Δ)
-            (vs := pushTup (tupWiden dts (ms.headD []) hsp.1) vs)
-            (nv := nv + dts.length)
-            (inVD := inVD + dts.length)
-            (inVE := insertTupEnv inVD inVE (tupWiden dts (ms.headD []) hsp.1))
-            hvh2 (CtxTypes.push _ hΓ) (trieCtxMatch_insertTupEnv hm _) hwf.2
-          rcases ih with ⟨iv', ie', Γ', vs', hiv', hpeel, hΓ', hm', hwf', hden⟩
-          refine ⟨iv', ie', Γ', vs', ?_, ?_, hΓ', hm', hwf', ?_⟩
-          · dsimp only [hdrStepCount, HdrStep.tys] at hiv' ⊢; omega
-          · dsimp only [hdrPeelFlat]; rw [hdec]; dsimp only; exact hpeel
-          · intro ls hΔ
-            have hargs := denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args hwf.1
-            dsimp only [denote]
-            rw [hargs]
-            dsimp only [hdrPeel]
-            rw [hdec]; dsimp only
-            exact hden ls hΔ
+        cases hsafe : isSafeHdrOp op.code with
+        | false => simp [hsafe] at hvh
+        | true =>
+          simp only [hsafe, ↓reduceIte] at hvh
+          cases hvh2 : validateHdrFlat ss k (nv + dts.length) with
+          | none => rw [hvh2] at hvh; contradiction
+          | some val =>
+            rcases val with ⟨sh2, tF2, eF2, nv2⟩
+            rw [hvh2] at hvh
+            have h_eq : tF2 = tF ∧ eF2 = eF ∧ nv2 = nv' := by
+              injection hvh with h0
+              exact ⟨congrArg (·.2.1) h0, congrArg (·.2.2.1) h0, congrArg (·.2.2.2) h0⟩
+            rcases h_eq with ⟨rfl, rfl, rfl⟩
+            let hsp := LoopRotate.tupSplit (filterTys dts (ms.headD [])) params
+            have ih := hdrPeelFlat_of_validateHdr dir wantCont ss ms.tail hsp.2 k
+              (Γ := pushTypes dts Γ) (Δ := Δ)
+              (vs := pushTup (tupWiden dts (ms.headD []) hsp.1) vs)
+              (nv := nv + dts.length)
+              (inVD := inVD + dts.length)
+              (inVE := insertTupEnv inVD inVE (tupWiden dts (ms.headD []) hsp.1))
+              hvh2 (CtxTypes.push _ hΓ) (trieCtxMatch_insertTupEnv hm _) hwf.2
+            rcases ih with ⟨iv', ie', Γ', vs', hiv', hpeel, hΓ', hm', hwf', hden⟩
+            refine ⟨iv', ie', Γ', vs', ?_, ?_, hΓ', hm', hwf', ?_⟩
+            · dsimp only [hdrStepCount, HdrStep.tys] at hiv' ⊢; omega
+            · dsimp only [hdrPeelFlat]; rw [hdec]; dsimp only; exact hpeel
+            · intro ls hΔ
+              have hargs := denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args hwf.1
+              dsimp only [denote]
+              rw [hargs]
+              dsimp only [hdrPeel]
+              rw [hdec]; dsimp only
+              exact hden ls hΔ
     | _ => dsimp only [validateHdrFlat] at hvh; contradiction
   | .load t :: ss, ms, params, b, Γ, Δ, vs, nv, inVD, inVE,
       sh, tF, eF, nv', hvh, hΓ, hm, hwf => by
@@ -342,37 +346,41 @@ private theorem hdrEmitFlat_eq {rs tailC tailX : List Ty} (dir : Bool)
       | isTrue heq =>
         subst heq
         rw [hdec] at hvh; dsimp only at hvh
-        cases hvh2 : validateHdrFlat ss k (nv + dts.length) with
-        | none => rw [hvh2] at hvh; contradiction
-        | some val =>
-          rcases val with ⟨sh2, tF2, eF2, nv2⟩
-          rw [hvh2] at hvh
-          have h_eq : tF2 = tF ∧ eF2 = eF ∧ nv2 = nv' := by
-            injection hvh with h0
-            exact ⟨congrArg (·.2.1) h0, congrArg (·.2.2.1) h0, congrArg (·.2.2.2) h0⟩
-          rcases h_eq with ⟨rfl, rfl, rfl⟩
-          have hargs := denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args hwf.1
-          dsimp only [denote, hdrEmitFlat]
-          rw [hargs]
-          dsimp only [hdrEmit]
-          rw [hdec]
-          dsimp only [flatOptOp, toTFlat]
-          refine congrArg (TFlat.let_ _) ?_
-          exact hdrEmitFlat_eq dir tailCArgs tailXArgs ss cMs.tail xMs.tail k
-            hvh2 (CtxTypes.push _ hΓ)
-            (trieCtxMatch_insertTupEnv hm (someVarsToOpt (Tup.levels dts outVD)))
-            hΔ hwf.2
-            (fun rest => kC (LoopRotate.tupAppend
-              (tupSelectArgs dts (cMs.headD []) (toArgTup (Tup.levels dts outVD))) rest))
-            (fun od rest => kCFlat od (LoopRotate.tupAppend
-              (tupSelectArgs dts (cMs.headD []) (toArgTup (Tup.levels dts outVD))) rest))
-            (fun od rest => hkC od _)
-            (fun ex rest => kX ex (LoopRotate.tupAppend
-              (tupSelectArgs dts (xMs.headD []) (toArgTup (Tup.levels dts outVD))) rest))
-            (fun ex iv ie od rest => kXFlat ex iv ie od (LoopRotate.tupAppend
-              (tupSelectArgs dts (xMs.headD []) (toArgTup (Tup.levels dts outVD))) rest))
-            (fun iv' ie' Γ' vs' od rest hiv' hΓ' hm' hwf' => hkX iv' ie' Γ' vs' od _
-              (by dsimp only [hdrStepCount, HdrStep.tys] at hiv' ⊢; omega) hΓ' hm' hwf')
+        cases hsafe : isSafeHdrOp op.code with
+        | false => simp [hsafe] at hvh
+        | true =>
+          simp only [hsafe, ↓reduceIte] at hvh
+          cases hvh2 : validateHdrFlat ss k (nv + dts.length) with
+          | none => rw [hvh2] at hvh; contradiction
+          | some val =>
+            rcases val with ⟨sh2, tF2, eF2, nv2⟩
+            rw [hvh2] at hvh
+            have h_eq : tF2 = tF ∧ eF2 = eF ∧ nv2 = nv' := by
+              injection hvh with h0
+              exact ⟨congrArg (·.2.1) h0, congrArg (·.2.2.1) h0, congrArg (·.2.2.2) h0⟩
+            rcases h_eq with ⟨rfl, rfl, rfl⟩
+            have hargs := denoteArgs_eq_some_resolveEnvArgs hΓ hm op.args hwf.1
+            dsimp only [denote, hdrEmitFlat]
+            rw [hargs]
+            dsimp only [hdrEmit]
+            rw [hdec]
+            dsimp only [flatOptOp, toTFlat]
+            refine congrArg (TFlat.let_ _) ?_
+            exact hdrEmitFlat_eq dir tailCArgs tailXArgs ss cMs.tail xMs.tail k
+              hvh2 (CtxTypes.push _ hΓ)
+              (trieCtxMatch_insertTupEnv hm (someVarsToOpt (Tup.levels dts outVD)))
+              hΔ hwf.2
+              (fun rest => kC (LoopRotate.tupAppend
+                (tupSelectArgs dts (cMs.headD []) (toArgTup (Tup.levels dts outVD))) rest))
+              (fun od rest => kCFlat od (LoopRotate.tupAppend
+                (tupSelectArgs dts (cMs.headD []) (toArgTup (Tup.levels dts outVD))) rest))
+              (fun od rest => hkC od _)
+              (fun ex rest => kX ex (LoopRotate.tupAppend
+                (tupSelectArgs dts (xMs.headD []) (toArgTup (Tup.levels dts outVD))) rest))
+              (fun ex iv ie od rest => kXFlat ex iv ie od (LoopRotate.tupAppend
+                (tupSelectArgs dts (xMs.headD []) (toArgTup (Tup.levels dts outVD))) rest))
+              (fun iv' ie' Γ' vs' od rest hiv' hΓ' hm' hwf' => hkX iv' ie' Γ' vs' od _
+                (by dsimp only [hdrStepCount, HdrStep.tys] at hiv' ⊢; omega) hΓ' hm' hwf')
     | _ => dsimp only [validateHdrFlat] at hvh; contradiction
   | .load t :: ss, cMs, xMs, b, Γ, Δ, vs, ls,
       inVD, outVD, outLD, nv, inVE, sh, tF, eF, nv',

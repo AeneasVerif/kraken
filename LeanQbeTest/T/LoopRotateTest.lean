@@ -288,8 +288,8 @@ theorem multiBackCallLoop_callsOk :
 
 /-! ## 3. Config gates, negative heuristic cases, and adversarial invalid `RotPlan`s -/
 
-/-- `.load` header is skipped under `defaultRotConfig` (`allowLoadHdr = false`) and rotated
-under `{ allowLoadHdr := true }`. -/
+/-- `.load` header is skipped under `{ allowLoadHdr := false }` and rotated under
+`defaultRotConfig` (`allowLoadHdr = true`). -/
 def loadHdrLoop : Func [i64, i64] [i64] := fun _ _ (n, ptr, ()) =>
   loop1 (ts := [i64])
     (fun loop (acc, ()) =>
@@ -301,17 +301,18 @@ def loadHdrLoop : Func [i64, i64] [i64] := fun _ _ (n, ptr, ()) =>
         (.ret (.var acc, ())))
     (fun loop => .jump loop (.var n, ()))
 
-theorem loadHdrLoop_default_noRot :
-    (buildRotPlan (as := [i64, i64]) defaultRotConfig (reifyFunc loadHdrLoop)).hasRot = false := by
+theorem loadHdrLoop_noLoad_noRot :
+    (buildRotPlan (as := [i64, i64]) { allowLoadHdr := false }
+      (reifyFunc loadHdrLoop)).hasRot = false := by
   t_kernel_rfl
 
 theorem loadHdrLoop_allowLoad_rot :
-    (buildRotPlan (as := [i64, i64]) { allowLoadHdr := true }
+    (buildRotPlan (as := [i64, i64]) defaultRotConfig
       (reifyFunc loadHdrLoop)).hasRot = true := by
   t_kernel_rfl
 
 theorem loadHdrLoop_allowLoad_checkTFlat :
-    Func.checkTFlat (Func.loopRotate loadHdrLoop { allowLoadHdr := true }) = true := by
+    Func.checkTFlat (Func.loopRotate loadHdrLoop) = true := by
   t_kernel_rfl
 
 /-- `condJumps`-majority loop is skipped under `requireTailMajority = true`. -/

@@ -326,9 +326,11 @@ def validateHdrFlat {rs : List Ty} :
   | [], .jnz c t e, nv => pure (addArgKey (levelArg nv c) .empty, t, e, nv)
   | .let_ dts :: ss, .let_ (ts := dts') op k, nv =>
     match tysDecEq dts dts' with
-    | isTrue _ => do
-      let (s, t, e, nv') ← validateHdrFlat ss k (nv + dts.length)
-      pure (addArgKeys (levelArgs nv op.args) s, t, e, nv')
+    | isTrue _ =>
+      if isSafeHdrOp op.code then do
+        let (s, t, e, nv') ← validateHdrFlat ss k (nv + dts.length)
+        pure (addArgKeys (levelArgs nv op.args) s, t, e, nv')
+      else none
     | isFalse _ => none
   | .load t :: ss, .load t' a k, nv =>
     match tyDecEq t t' with
