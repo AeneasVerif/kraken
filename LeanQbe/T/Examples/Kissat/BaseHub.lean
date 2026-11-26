@@ -19,6 +19,10 @@ public import LeanQbe.T.Examples.Kissat.CorePlusSpec1
 public import LeanQbe.T.Examples.Kissat.Dimacs
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas
 public import LeanQbe.T.Examples.Kissat.DimacsLemmas1
+public import LeanQbe.T.Examples.Kissat.ExportCnfEntry
+public import LeanQbe.T.Examples.Kissat.ExportCnfEntryProof
+public import LeanQbe.T.Examples.Kissat.ExportCnfEntryProof0
+public import LeanQbe.T.Examples.Kissat.ExportCnfEntryProofNv
 public import LeanQbe.T.Examples.Kissat.ExportCnfFmt
 public import LeanQbe.T.Examples.Kissat.ExportCnfFmtProof
 public import LeanQbe.T.Examples.Kissat.ExportCnfState
