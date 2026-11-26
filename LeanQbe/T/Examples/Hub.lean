@@ -2,6 +2,9 @@ module
 
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.BignumProg
+public import LeanQbe.T.Examples.Bitblast.Ref.Aig
+public import LeanQbe.T.Examples.Bitblast.Ref.BVProg
+public import LeanQbe.T.Examples.Bitblast.Ref.Tseitin
 public import LeanQbe.T.Examples.BvDecideBridge
 public import LeanQbe.T.Examples.ChaCha
 public import LeanQbe.T.Examples.ChaChaProg
