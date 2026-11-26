@@ -344,8 +344,8 @@ theorem cfLoop_cf_writers :
     codeCfLoop.filter Instr.writesCF = [.xorz 11, .adc 64 0 (.reg 0) (.reg 6)] ∧
     codeCfLoop.filter Instr.flagMove = [.setcc 2 .cf] := ⟨by t_kernel_rfl, by t_kernel_rfl⟩
 
-/-- Core litmus highlights: `jcc` on flags for every branch, `vmovi` + 2×i32 `vbin`, a carry spilled
-across `call` via `setc`/slot/`bt`, and 8-bit `lshr`/`cmp`/`jcc`. -/
+/-- Core litmus highlights: `jcc` on flags for every branch, `vmovi` + 2×i32 `vbin`, a carry kept
+across `call` via `setc`/callee-saved reg/`bt`, and 8-bit `lshr`/`cmp`/`jcc`. -/
 theorem g12a_code_highlights :
     codeBranches.contains (.jcc .cf "branches.L1") = true ∧
     codeLoop.contains (.jcc .nzf "loop.L0") = true ∧
@@ -354,7 +354,7 @@ theorem g12a_code_highlights :
     codePairLoop.contains (.bin .xor 8 2 (.reg 2) (.imm 1#64)) = true ∧
     codeVecLoop.contains (.vmovi 0 0x200000001#512) = true ∧
     codeVecLoop.contains (.vbin .add v2i32 0 0 0) = true ∧
-    codeCarryCall.filter Instr.flagMove = [.setcc 0 .cf, .bt0 2, .setcc 2 .cf] ∧
+    codeCarryCall.filter Instr.flagMove = [.setcc 3 .cf, .bt0 3, .setcc 2 .cf] ∧
     codeCarryCall.contains (.call "inc") = true ∧
     codeBits8.contains (.bin .lshr 8 0 (.reg 0) (.imm 1#64)) = true ∧
     codeBits8.contains (.cmp 8 (.reg 0) (.reg 6)) = true ∧
