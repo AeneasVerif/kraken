@@ -13,6 +13,7 @@ import LeanQbe.T.OptFlatMemLemmas
 import LeanQbe.T.OptFlatCfgLemmas
 import LeanQbe.T.OptFlatAddrRangeLemmas
 import LeanQbe.T.OptFlatPathCondLemmas
+import LeanQbe.T.OptFlatBranchLemmas
 import LeanQbe.T.FoldLemmas
 import LeanQbe.T.CopyLemmas
 import LeanQbe.T.DceParamLemmas
@@ -805,31 +806,23 @@ theorem pathCondOptFlat_eq (as : List Ty) {rs : List Ty} (tf : TFlat rs)
 /-- `condThreadPassFlat` preserves `wfCheck`. -/
 theorem condThreadPassFlat_wfCheck (as : List Ty) {rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    (condThreadPassFlat as tf).wfCheck (pushTypes as []) [] = true := by
-  dsimp only [condThreadPassFlat]
-  split
-  · exact wfCheck_reifyBridge (Func.condThreadWithPlan_wf _ (Func.wf_of_denote tf rfl))
-  · exact hwf
+    (condThreadPassFlat as tf).wfCheck (pushTypes as []) [] = true :=
+  OptFlatBranch.condThreadPassFlat_wfCheck tf hwf
 
 /-- `denoteFunc (condThreadPassFlat as tf) = Func.condThreadPass (denoteFunc tf)` under
 `wfCheck = true`. -/
 theorem denoteFunc_condThreadPassFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
     denoteFunc (as := as) (condThreadPassFlat as tf) =
-      Func.condThreadPass (denoteFunc (as := as) tf) := by
-  dsimp only [condThreadPassFlat, Func.condThreadPass]
-  rw [reifyFunc_denoteFunc_eq tf hwf]
-  split
-  · exact Func.renorm_eq_self (Func.condThreadWithPlan_wf _ (Func.wf_of_denote tf rfl))
-  · rfl
+      Func.condThreadPass (denoteFunc (as := as) tf) :=
+  OptFlatBranch.denoteFunc_condThreadPassFlat tf hwf
 
 /-- `condThreadPassFlat as tf = reifyFunc (Func.condThreadPass (denoteFunc tf))` under
 `wfCheck = true`. -/
 theorem condThreadPassFlat_eq (as : List Ty) {rs : List Ty} (tf : TFlat rs)
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    condThreadPassFlat as tf = reifyFunc (Func.condThreadPass (denoteFunc (as := as) tf)) := by
-  rw [← denoteFunc_condThreadPassFlat as tf hwf,
-    reifyFunc_denoteFunc_eq _ (condThreadPassFlat_wfCheck as tf hwf)]
+    condThreadPassFlat as tf = reifyFunc (Func.condThreadPass (denoteFunc (as := as) tf)) :=
+  OptFlatBranch.condThreadPassFlat_eq tf hwf
 
 /-- `condThreadLateOptFlat` preserves `wfCheck`. -/
 theorem condThreadLateOptFlat_wfCheck (as : List Ty) {rs : List Ty} (tf : TFlat rs)
@@ -862,11 +855,8 @@ theorem condThreadLateOptFlat_eq (as : List Ty) {rs : List Ty} (tf : TFlat rs)
 theorem tailDupFlat_wfCheck (as : List Ty) {rs : List Ty} (tf : TFlat rs)
     (cfg : TailDup.TailDupConfig := {})
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    (tailDupFlat as tf cfg).wfCheck (pushTypes as []) [] = true := by
-  dsimp only [tailDupFlat]
-  split
-  · exact reifyBridge_wfCheck (fun hg => Func.tailDup_wf hg cfg) tf
-  · exact hwf
+    (tailDupFlat as tf cfg).wfCheck (pushTypes as []) [] = true :=
+  OptFlatBranch.tailDupFlat_wfCheck tf cfg hwf
 
 /-- `denoteFunc (tailDupFlat as tf cfg) = Func.tailDup (denoteFunc tf) cfg` under
 `wfCheck = true`. -/
@@ -874,28 +864,16 @@ theorem denoteFunc_tailDupFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs)
     (cfg : TailDup.TailDupConfig := {})
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
     denoteFunc (as := as) (tailDupFlat as tf cfg) =
-      Func.tailDup (denoteFunc (as := as) tf) cfg := by
-  dsimp only [tailDupFlat]
-  by_cases hch : (TailDup.buildPlan cfg 0 tf).2.changed = true
-  · simp only [hch, ↓reduceIte]
-    exact denoteFunc_reifyBridge (fun hg => Func.tailDup_wf hg cfg) tf
-  · simp only [hch, Bool.false_eq_true, ↓reduceIte]
-    cases hmax : cfg.maxIters with
-    | zero =>
-      dsimp only [Func.tailDup]; rw [hmax]; rfl
-    | succ n =>
-      dsimp only [Func.tailDup]; rw [hmax]
-      simp only [Func.tailDupLoop, Func.tailDupOnce, reifyFunc_denoteFunc_eq tf hwf,
-        hch, Bool.false_eq_true, ↓reduceIte]
+      Func.tailDup (denoteFunc (as := as) tf) cfg :=
+  OptFlatBranch.denoteFunc_tailDupFlat tf cfg hwf
 
 /-- `tailDupFlat as tf cfg = reifyFunc (Func.tailDup (denoteFunc tf) cfg)` under
 `wfCheck = true`. -/
 theorem tailDupFlat_eq (as : List Ty) {rs : List Ty} (tf : TFlat rs)
     (cfg : TailDup.TailDupConfig := {})
     (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    tailDupFlat as tf cfg = reifyFunc (Func.tailDup (denoteFunc (as := as) tf) cfg) := by
-  rw [← denoteFunc_tailDupFlat as tf cfg hwf,
-    reifyFunc_denoteFunc_eq _ (tailDupFlat_wfCheck as tf cfg hwf)]
+    tailDupFlat as tf cfg = reifyFunc (Func.tailDup (denoteFunc (as := as) tf) cfg) :=
+  OptFlatBranch.tailDupFlat_eq tf cfg hwf
 
 section PipelineProofs
 
