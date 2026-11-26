@@ -133,6 +133,15 @@ public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofVar
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofVar2
 public import LeanQbe.T.Examples.Kissat.FullFidelityTiers
 public import LeanQbe.T.Examples.Kissat.FullFidelityTiersProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityTumble
+public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleProofAct
+public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleProofIngest
+public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleProofLucky
+public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleProofParse
+public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleProofSat
+public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleRows
+public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleRowsProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityTumbleSpec
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof0a
