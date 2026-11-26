@@ -44,6 +44,9 @@ public import LeanQbe.T.GvnLemmas
 public import LeanQbe.T.IL
 public import LeanQbe.T.IfOpt
 public import LeanQbe.T.IfOptLemmas
+public import LeanQbe.T.IfOptLemmas0
+public import LeanQbe.T.IfOptLemmas1
+public import LeanQbe.T.IfOptLemmas2
 public import LeanQbe.T.Inline
 public import LeanQbe.T.InlineChunk
 public import LeanQbe.T.InlineLemmas
@@ -158,6 +161,7 @@ public import LeanQbe.T.OptFlatAddrRange
 public import LeanQbe.T.OptFlatAddrRangeLemmas
 public import LeanQbe.T.OptFlatCfg
 public import LeanQbe.T.OptFlatCfgLemmas
+public import LeanQbe.T.OptFlatCfgLemmas0
 public import LeanQbe.T.OptFlatMem
 public import LeanQbe.T.OptFlatMemLemmas
 public import LeanQbe.T.OptFlatPathCond
