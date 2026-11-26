@@ -128,8 +128,8 @@ def countBlocksIrOps : Live.TreeBlocks → Nat
 end
 
 /-- Project `I.Hints` from an outer inlined function back onto `sDirect`'s `(nv, ip, lid)` index
-space via `TreeZip` (preserving registers, flags, variants, elides, and `clearFlags`, with `nslots = 0`
-for interior spill-free replay). -/
+space via `TreeZip` (preserving registers, flags, variants, elides, and `clearFlags`, with
+`nslots = 0` for interior spill-free replay). -/
 def extractSubHints (I : Isa) (hOuter : I.Hints) (z : SpillSnippet.TreeZip) : I.Hints :=
   let dest := z.nvMap.foldl (fun t (v1, v2) =>
     match hOuter.dest.find? v2 with
@@ -216,8 +216,8 @@ def auditRegionHints (I : Isa) (hOuter : I.Hints) (reg : SpillSnippet.RegionFind
   let diags := match budget.maxEdgeMoves with
     | some maxE =>
       if totalEdgeMoves > maxE then
-        diags ++ [{ ip? := some reg.startIp, kind := "edge_moves",
-                    message := s!"@{budget.name} emitted {totalEdgeMoves} edge moves > budget {maxE}" }]
+        let msg := s!"@{budget.name} emitted {totalEdgeMoves} edge moves > budget {maxE}"
+        diags ++ [{ ip? := some reg.startIp, kind := "edge_moves", message := msg }]
       else diags
     | none => diags
   let diags := match budget.maxTotalInsns, bodyInsns? with
@@ -656,6 +656,513 @@ partial def lowerNExprGen (rs : List Ty) (env : List (Nat × Ty)) (lenv : List (
     let ⟨sig, tbs, nv2, nl2, ip2, vhBs, elBs, vmBs⟩ ← lowerBs blocks rK.nv rK.nl rK.ip
     pure { tflat := .group (sig := sig) tbs rK.tflat, nv := nv2, nl := nl2, ip := ip2,
            vhs := rK.vhs ++ vhBs, elides := rK.elides ++ elBs, vmap := rK.vmap ++ vmBs }
+
+/-! ## Shared Target-Generic Stripper, Profiler, CFG, `AsmIso`, & Lifter Engine -/
+
+/-- Target-generic normalized basic block parameterized by instruction and branch types. -/
+structure GenCfgBlock (Instr BC : Type) where
+  label  : String
+  instrs : List Instr
+  term   : CfgTerm BC
+  deriving Repr, Inhabited
+
+/-- Peel trailing directives satisfying `p` from a reversed directive list. -/
+def peelRevWhile {D : Type} (p : D → Bool) : List D → List D
+  | d :: rest => if p d then peelRevWhile p rest else d :: rest
+  | [] => []
+
+/-- Strip epilogue directives immediately before each return directive (`isRet`, `peelEpiRev`). -/
+def stripBeforeRetGen {D : Type} (isRet : D → Bool) (peelEpiRev : List D → List D)
+    (ds : List D) : List D :=
+  let rec go : List D → List D → List D
+    | [], acc => acc.reverse
+    | d :: rest, acc =>
+      if isRet d then go rest (d :: peelEpiRev acc) else go rest (d :: acc)
+  go ds []
+
+/-- Strip optional leading non-local label, peel prologue with `peelPro`, and strip epilogue
+before each return directive (`stripBeforeRetGen`). -/
+def stripPrologueEpilogueGen {D R : Type}
+    (stripNops : List D → List D)
+    (labelOf? : D → Option String)
+    (peelPro : List R → Nat → List D → List D × Nat × List R)
+    (isRet : D → Bool) (peelEpiRev : List D → List D)
+    (ds : List D) : List D × Nat × List R :=
+  let ds0 := stripNops ds
+  let ds1 := match ds0 with
+    | d :: rest =>
+      match labelOf? d with
+      | some l => if !isLocalLabel l then rest else ds0
+      | none => ds0
+    | [] => []
+  let (ds2, frameSz, saved) := peelPro [] 0 ds1
+  (stripBeforeRetGen isRet peelEpiRev ds2, frameSz, saved)
+
+/-- Profile directive list `ds` into `BudgetMetrics` using target hooks. -/
+def profileDirsGen {D Instr BodySt : Type}
+    (stripNops stripBody : List D → List D)
+    (instrOf? : D → Option Instr)
+    (isSpill : Instr → Bool)
+    (initSt : BodySt)
+    (stepBody : Instr → BodySt → BudgetMetrics → BodySt × BudgetMetrics)
+    (ds : List D) (stripFrame : Bool := true) : BudgetMetrics :=
+  let allInsns := (stripNops ds).filterMap instrOf?
+  let body := if stripFrame then stripBody ds else stripNops ds
+  let bodyIns := body.filterMap instrOf?
+  let rec countBody : List Instr → BodySt → BudgetMetrics → BudgetMetrics
+    | [], _, m => m
+    | i :: rest, bst, m =>
+      let m := { m with bodyInsns := m.bodyInsns + 1 }
+      let m := if isSpill i then { m with spills := m.spills + 1 } else m
+      let (bst', m') := stepBody i bst m
+      countBody rest bst' m'
+  let bm := countBody bodyIns initSt {}
+  { bm with totalInsns := allInsns.length }
+
+/-- Decompose directives into normalized `GenCfgBlock`s using target instruction hooks. -/
+def toCfgBlocksGen {D Instr BC : Type}
+    (stripNops stripBody : List D → List D)
+    (labelOf? : D → Option String)
+    (instrOf? : D → Option Instr)
+    (isTerm : Instr → Bool)
+    (parseTerm : Instr → Option String → Option (CfgTerm BC))
+    (extractBranch? : Instr → Option (BC × String))
+    (ds : List D) (stripFrame : Bool := true) : List (GenCfgBlock Instr BC) :=
+  let body := if stripFrame then stripBody ds else stripNops ds
+  let rec splitRaw (curLbl : String) (curIns : List Instr) (idx : Nat) (justClosed : Bool) :
+      List D → List (String × List Instr)
+    | [] => if justClosed && curIns.isEmpty then [] else [(curLbl, curIns.reverse)]
+    | d :: rest =>
+      match labelOf? d with
+      | some l =>
+        if curIns.isEmpty && (justClosed || (curLbl == "__entry" && idx == 0)) then
+          splitRaw l [] (idx + 1) false rest
+        else
+          (curLbl, curIns.reverse) :: splitRaw l [] (idx + 1) false rest
+      | none =>
+        match instrOf? d with
+        | some i =>
+          if isTerm i then
+            let blk := (curLbl, (i :: curIns).reverse)
+            match rest with
+            | [] => [blk]
+            | d2 :: _ =>
+              if (labelOf? d2).isSome then
+                blk :: splitRaw "__closed" [] (idx + 1) true rest
+              else
+                blk :: splitRaw s!"__fall_{idx}" [] (idx + 1) false rest
+          else
+            splitRaw curLbl (i :: curIns) (idx + 1) false rest
+        | none => splitRaw curLbl curIns (idx + 1) justClosed rest
+  let raw0 := splitRaw "__entry" [] 0 false body
+  let raw := match raw0.reverse with
+    | (l, ins) :: rest =>
+      if raw0.length > 1 && l == "__entry" && ins.isEmpty then rest.reverse else raw0
+    | [] => []
+  let rec finalize : List (String × List Instr) → List (GenCfgBlock Instr BC)
+    | [] => []
+    | (lbl, ins) :: rest =>
+      let nextLbl? := rest.head?.map Prod.fst
+      let fallTerm : CfgTerm BC := match nextLbl? with
+        | some nxt => .fall nxt
+        | none => .endMark
+      let (core, term) : List Instr × CfgTerm BC := match ins.reverse with
+        | iTerm :: revPre =>
+          match parseTerm iTerm nextLbl? with
+          | some t => (revPre.reverse, t)
+          | none => (ins, fallTerm)
+        | [] => ([], fallTerm)
+      let (core', term') : List Instr × CfgTerm BC := match term with
+        | .jmp fallLbl =>
+          match core.reverse with
+          | iTerm :: revPre2 =>
+            match extractBranch? iTerm with
+            | some (bc, tgt) => (revPre2.reverse, .jcc bc tgt fallLbl)
+            | none => (core, term)
+          | [] => (core, term)
+        | _ => (core, term)
+      { label := lbl, instrs := core', term := term' } :: finalize rest
+  let bs0 := finalize raw
+  let lbls := bs0.map (·.label)
+  bs0.map fun b =>
+    match b.term with
+    | .jmp t => if lbls.contains t then b else { b with term := .exit t }
+    | _ => b
+
+/-- Register/label alpha-isomorphism state parameterized by register type `R`. -/
+structure GenIsoState (R : Type) where
+  regMap     : List (R × R) := []
+  lblMap     : List (String × String) := []
+  slotMap    : List (Int64 × Int64) := []
+  visited    : List (String × String) := []
+  tier2Notes : List String := []
+  deriving Repr
+
+/-- Match two registers modulo fixed-register pinning and 1-to-1 alpha bijection `regMap`. -/
+def matchFixedReg {R : Type} [BEq R] (fixed : List R) (r1 r2 : R)
+    (st : GenIsoState R) : Option (GenIsoState R) :=
+  if fixed.contains r1 || fixed.contains r2 then
+    if r1 == r2 then some st else none
+  else
+    (bindBijection r1 r2 st.regMap).map fun rm => { st with regMap := rm }
+
+/-- Match two assembly labels modulo 1-to-1 alpha bijection `lblMap`. -/
+def matchLabelBijection {R : Type} (l1 l2 : String)
+    (st : GenIsoState R) : Option (GenIsoState R) :=
+  (bindBijection l1 l2 st.lblMap).map fun lm => { st with lblMap := lm }
+
+/-- Match two target constant expressions structurally or via alpha-renaming bijection on labels. -/
+def matchConstExprGen {R C : Type} [BEq C] (label? : C → Option String) (c1 c2 : C)
+    (st : GenIsoState R) : Option (GenIsoState R) :=
+  if c1 == c2 then some st
+  else match label? c1, label? c2 with
+    | some l1, some l2 => matchLabelBijection l1 l2 st
+    | _, _ => none
+
+/-- Diagnose budget/CFG divergence between reference and candidate blocks. -/
+def classifyMismatchGen {Instr BC : Type}
+    (ifConvKind ifConvLbl branchLbl boolKind boolLbl cmpsLbl : String)
+    (ref cand : List (GenCfgBlock Instr BC)) (refB candB : BudgetMetrics) :
+    String × String :=
+  let insnDelta := s!"insns {refB.bodyInsns}->{candB.bodyInsns}"
+  if candB.spills > refB.spills then
+    ("spill_in_body", s!"spills {refB.spills}->{candB.spills}, {insnDelta}")
+  else if candB.selectOps > refB.selectOps && candB.branches < refB.branches then
+    let b := s!"{branchLbl} {refB.branches}->{candB.branches}"
+    (ifConvKind, s!"{ifConvLbl} {refB.selectOps}->{candB.selectOps}, {b}")
+  else if candB.boolChains > refB.boolChains then
+    (boolKind, s!"{boolLbl} {refB.boolChains}->{candB.boolChains}")
+  else if candB.cmpsTests > refB.cmpsTests then
+    ("extra_cmp_flag_miss", s!"{cmpsLbl} {refB.cmpsTests}->{candB.cmpsTests}")
+  else if candB.regMoves > refB.regMoves then
+    ("extra_mov_copy", s!"regMoves {refB.regMoves}->{candB.regMoves}, {insnDelta}")
+  else if candB.jmps > refB.jmps then
+    ("extra_jmp_edge", s!"jmps {refB.jmps}->{candB.jmps}")
+  else
+    ("insn_or_cfg_diff", s!"blocks {ref.length}->{cand.length}, {insnDelta}")
+
+/-- Target-generic DFS CFG isomorphism checker modulo block/register renaming and branch
+condition inversion. -/
+partial def matchCfgFromGen {R Instr BC : Type}
+    (matchSeq : Bool → List R → List Instr → List Instr →
+      GenIsoState R → Option (GenIsoState R))
+    (matchBranch : List R → BC → BC → GenIsoState R → Option (GenIsoState R))
+    (negBranch : BC → BC)
+    (tier2 : Bool) (fixed : List R)
+    (bs1 bs2 : List (GenCfgBlock Instr BC)) (l1 l2 : String) (st : GenIsoState R) :
+    Option (GenIsoState R) :=
+  if st.visited.any (fun p => p.1 == l1 && p.2 == l2) then some st
+  else do
+    let lm ← bindBijection l1 l2 st.lblMap
+    let b1 ← bs1.find? (·.label == l1)
+    let b2 ← bs2.find? (·.label == l2)
+    let st0 := { st with lblMap := lm, visited := (l1, l2) :: st.visited }
+    let st1 ← matchSeq tier2 fixed b1.instrs b2.instrs st0
+    match b1.term, b2.term with
+    | .ret, .ret | .endMark, .endMark | .ret, .endMark | .endMark, .ret => some st1
+    | .exit s1, .exit s2 => if s1 == s2 then some st1 else none
+    | .jmp t1, .jmp t2 | .jmp t1, .fall t2 | .fall t1, .jmp t2 | .fall t1, .fall t2 =>
+      matchCfgFromGen matchSeq matchBranch negBranch tier2 fixed bs1 bs2 t1 t2 st1
+    | .jcc bc1 t1 f1, .jcc bc2 t2 f2 =>
+      (match matchBranch fixed bc1 bc2 st1 with
+       | some st2 =>
+         matchCfgFromGen matchSeq matchBranch negBranch tier2 fixed bs1 bs2 t1 t2 st2 >>=
+         matchCfgFromGen matchSeq matchBranch negBranch tier2 fixed bs1 bs2 f1 f2
+       | none => none) <|>
+      (match matchBranch fixed (negBranch bc1) bc2 st1 with
+       | some st2 =>
+         matchCfgFromGen matchSeq matchBranch negBranch tier2 fixed bs1 bs2 t1 f2 st2 >>=
+         matchCfgFromGen matchSeq matchBranch negBranch tier2 fixed bs1 bs2 f1 t2
+       | none => none)
+    | _, _ => none
+
+/-- Two-tier `AsmIso` entry point over target CFG, profiler, and matcher hooks. -/
+def checkAsmIsoGen {D R Instr BC : Type}
+    (toCfg : List D → Bool → List (GenCfgBlock Instr BC))
+    (profile : List D → Bool → BudgetMetrics)
+    (matchSeq : Bool → List R → List Instr → List Instr →
+      GenIsoState R → Option (GenIsoState R))
+    (matchBranch : List R → BC → BC → GenIsoState R → Option (GenIsoState R))
+    (negBranch : BC → BC)
+    (classify : List (GenCfgBlock Instr BC) → List (GenCfgBlock Instr BC) →
+      BudgetMetrics → BudgetMetrics → String × String)
+    (fixedPerm fixedNoPerm : List R) (initSt : GenIsoState R)
+    (ref cand : List D) (stripFrame : Bool := true) (allowRegPerm : Bool := true) :
+    IsoVerdict :=
+  let bs1 := toCfg ref stripFrame
+  let bs2 := toCfg cand stripFrame
+  let bRef := profile ref stripFrame
+  let bCand := profile cand stripFrame
+  let fixed := if allowRegPerm then fixedPerm else fixedNoPerm
+  match bs1.head?, bs2.head? with
+  | some h1, some h2 =>
+    match matchCfgFromGen matchSeq matchBranch negBranch false fixed
+        bs1 bs2 h1.label h2.label initSt with
+    | some _ => .tier1 bs1.length bRef.bodyInsns
+    | none =>
+      match matchCfgFromGen matchSeq matchBranch negBranch true fixed
+          bs1 bs2 h1.label h2.label initSt with
+      | some st => .tier2 bs1.length bRef.bodyInsns st.tier2Notes.length st.tier2Notes.reverse
+      | none =>
+        let (rsn, det) := classify bs1 bs2 bRef bCand
+        .fail rsn det
+  | _, _ => .fail "empty_cfg" "missing entry block"
+
+/-- Fixed-point backward liveness analysis computing live-in registers per CFG block. -/
+def computeLiveInRegsGen {R Instr BC : Type} [BEq R]
+    (termUses : CfgTerm BC → List R)
+    (instrRW : Instr → List R × List R)
+    (skipReg : R → Bool)
+    (blocks : List (GenCfgBlock Instr BC)) (retRegs : List R) : List (String × List R) :=
+  let succs (t : CfgTerm BC) : List String := match t with
+    | .jmp l | .fall l => [l]
+    | .jcc _ l1 l2 => [l1, l2]
+    | _ => []
+  let addUniq (acc : List R) (rs : List R) (filt : R → Bool) : List R :=
+    rs.foldl (fun a reg => if filt reg || a.contains reg then a else a ++ [reg]) acc
+  let blockUsesDefs (b : GenCfgBlock Instr BC) : List R × List R :=
+    let (u0, d0) := b.instrs.foldl (fun (u, d) ins =>
+      let (r, w) := instrRW ins
+      let u' := addUniq u r fun reg => d.contains reg || skipReg reg
+      let d' := addUniq d w skipReg
+      (u', d')) ([], [])
+    let uFin := addUniq u0 (termUses b.term) fun reg => d0.contains reg || skipReg reg
+    (uFin, d0)
+  let rec loop (fuel : Nat) (liveIn : List (String × List R)) : List (String × List R) :=
+    match fuel with
+    | 0 => liveIn
+    | f + 1 =>
+      let (changed, next) := blocks.foldr (fun b (chg, acc) =>
+        let (uses, defs) := blockUsesDefs b
+        let outFromSucc := match b.term with
+          | .ret | .endMark => retRegs
+          | _ => (succs b.term).foldl (fun (rs : List R) (s : String) =>
+              let p? := liveIn.find? (fun (p : String × List R) => p.1 == s)
+              let sLive := p?.map Prod.snd |>.getD []
+              addUniq rs sLive fun _ => false) []
+        let passThrough := outFromSucc.filter fun r => !defs.contains r
+        let newIn := addUniq uses passThrough fun _ => false
+        let old? := liveIn.find? (fun (p : String × List R) => p.1 == b.label)
+        let oldIn := old?.map Prod.snd |>.getD []
+        let chg' := chg || !(newIn.all oldIn.contains && oldIn.all newIn.contains)
+        (chg', (b.label, newIn) :: acc)) (false, [])
+      if changed then loop f next else next
+  loop (blocks.length * 4 + 4) (blocks.map fun b => (b.label, []))
+
+/-- Target-generic mutable lifting state parameterized by physical reg `LR`, ISA reg `R`, ISA
+condition `C`, and optional raw condition `BC`. -/
+structure GenLiftSt (LR R C : Type) (BC : Type := Unit) where
+  nextVar      : Nat := 0
+  regVars      : List (LR × Nat) := []
+  varTys       : List (Nat × Ty) := []
+  lastCmp?     : Option (Nat × Option Nat × Option (BitVec 64) × Nat) := none
+  lastCmpEqNe  : Bool := false
+  lastCarry?   : Option Nat := none
+  cliques      : List (List Nat) := []
+  flags        : List (Nat × C) := []
+  softRegs     : List (Nat × R) := []
+  varHints     : List (Nat × VariantHint) := []
+  elideVars    : List Nat := []
+  movzConst    : List (LR × BitVec 64) := []
+  lastCmpBool? : Option (Nat × BC) := none
+  deriving Repr
+
+namespace GenLiftSt
+
+def fresh {LR R C BC : Type} (toReg? : LR → Option R) (st : GenLiftSt LR R C BC)
+    (r? : Option LR) (ty? : Option Ty := none) : Nat × GenLiftSt LR R C BC :=
+  let v := st.nextVar
+  let sr := match r?.bind toReg? with | some r => (v, r) :: st.softRegs | none => st.softRegs
+  let vt := match ty? with | some ty => (v, ty) :: st.varTys | none => st.varTys
+  (v, { st with nextVar := v + 1, softRegs := sr, varTys := vt })
+
+def setReg {LR R C BC : Type} [BEq LR] (r : LR) (v : Nat) (st : GenLiftSt LR R C BC) :
+    GenLiftSt LR R C BC :=
+  { st with regVars := (r, v) :: st.regVars.filter (fun p => p.1 != r),
+            movzConst := st.movzConst.filter (fun p => p.1 != r) }
+
+def setImm {LR R C BC : Type} [BEq LR] (r : LR) (v : Nat) (imm : BitVec 64)
+    (st : GenLiftSt LR R C BC) : GenLiftSt LR R C BC :=
+  { st with regVars := (r, v) :: st.regVars.filter (fun p => p.1 != r),
+            movzConst := (r, imm) :: st.movzConst.filter (fun p => p.1 != r) }
+
+def regVar? {LR R C BC : Type} [BEq LR] (r : LR) (st : GenLiftSt LR R C BC) : Option Nat :=
+  (st.regVars.find? (fun p => p.1 == r)).map Prod.snd
+
+def regImm? {LR R C BC : Type} [BEq LR] (r : LR) (st : GenLiftSt LR R C BC) :
+    Option (BitVec 64) :=
+  (st.movzConst.find? (fun p => p.1 == r)).map Prod.snd
+
+def setTy {LR R C BC : Type} (v : Nat) (t : Ty) (st : GenLiftSt LR R C BC) :
+    GenLiftSt LR R C BC :=
+  { st with varTys := (v, t) :: st.varTys }
+
+def ty? {LR R C BC : Type} (v : Nat) (st : GenLiftSt LR R C BC) : Option Ty :=
+  (st.varTys.find? (·.1 == v)).map Prod.snd
+
+def elide {LR R C BC : Type} (vs : List Nat) (st : GenLiftSt LR R C BC) : GenLiftSt LR R C BC :=
+  { st with elideVars := vs ++ st.elideVars }
+
+def clique {LR R C BC : Type} (vs : List Nat) (st : GenLiftSt LR R C BC) : GenLiftSt LR R C BC :=
+  { st with cliques := vs :: st.cliques }
+
+end GenLiftSt
+
+/-- Target-specific hooks plugged into `liftSnippetUGen` and `liftSnippetGen`. -/
+structure LiftHooks (I : Isa) (D LR Instr BC : Type) (RawC : Type := Unit) where
+  preCheck    : List D → Except String Unit := fun _ => pure ()
+  stripFrame  : List D → List D × Nat × List I.Reg
+  toCfg       : List D → Bool → List (GenCfgBlock Instr BC)
+  argLiveRegs : Nat → List LR
+  retLiveRegs : Nat → List LR
+  toIsaReg    : LR → I.Reg
+  termUses    : CfgTerm BC → List LR := fun _ => []
+  instrRW     : Instr → List LR × List LR
+  skipReg     : LR → Bool := fun _ => false
+  reprLR      : LR → String
+  liftBlock   : GenCfgBlock Instr BC → GenLiftSt LR I.Reg I.Cond RawC →
+    Except String (List LiftedStmt × GenLiftSt LR I.Reg I.Cond RawC)
+  lowerJcc    : BC → GenLiftSt LR I.Reg I.Cond RawC →
+    Except String (List LiftedStmt × Nat × GenLiftSt LR I.Reg I.Cond RawC)
+
+/-- Lift target directives into a `LiftedSnippet I.Reg I.Cond rs` plus mapped `RelHints`. -/
+def liftSnippetUGen {I : Isa} {D LR Instr BC RawC : Type} [BEq LR]
+    (hooks : LiftHooks I D LR Instr BC RawC)
+    (name : Sym) (as rs : List Ty) (dirs : List D) :
+    Except String (LiftedSnippet I.Reg I.Cond rs) := do
+  hooks.preCheck dirs
+  let (bodyDirs, _frameSz, saved) := hooks.stripFrame dirs
+  let blocks := hooks.toCfg bodyDirs false
+  if blocks.isEmpty then throw "empty_blocks"
+  let argRegs := hooks.argLiveRegs as.length
+  let retRegs := hooks.retLiveRegs rs.length
+  let liveInMap :=
+    computeLiveInRegsGen hooks.termUses hooks.instrRW hooks.skipReg blocks retRegs
+  let isSingleStraight := blocks.length == 1 && match blocks[0]!.term with
+    | .ret | .endMark => true
+    | _ => false
+  let env0 := (as.mapIdx fun i t => (i, t)).reverse
+  let (topNExpr, finalSt, blockParamList) ← if isSingleStraight then do
+      let b0 := blocks[0]!
+      let initRegs := argRegs.mapIdx fun i r => (r, i)
+      let initSoft := argRegs.mapIdx fun i r => (i, hooks.toIsaReg r)
+      let initTys := as.mapIdx fun i t => (i, t)
+      let st0 : GenLiftSt LR I.Reg I.Cond RawC :=
+        { nextVar := as.length, regVars := initRegs, varTys := initTys, softRegs := initSoft }
+      let (stmts, stAfter) ← hooks.liftBlock b0 st0
+      let rvs ← retRegs.mapM fun rr =>
+        match stAfter.regVar? rr with
+        | some vr => pure vr
+        | none => throw s!"ret_reg_uninit {hooks.reprLR rr}"
+      pure (wrapStmts stmts (NExpr.ret rvs), stAfter, ([] : List (Nat × List I.Reg)))
+    else do
+      let initArgTys := as.mapIdx fun i t => (i, t)
+      let mut nextV : Nat := as.length
+      let mut blkParamVars : List (String × List (Nat × LR)) := []
+      for b in blocks do
+        let regs := (liveInMap.find? (·.1 == b.label)).map Prod.snd |>.getD []
+        let pvars := regs.mapIdx fun i r => (nextV + i, r)
+        nextV := nextV + regs.length
+        blkParamVars := blkParamVars ++ [(b.label, pvars)]
+      let mut blockExprs : List (Nat × List (Nat × Ty) × NExpr) := []
+      let blkIdxOf (l : String) : Nat := (blocks.findIdx? (·.label == l)).getD 0
+      let getParamArgs (l : String) (st : GenLiftSt LR I.Reg I.Cond RawC) :
+          Except String (List Nat) := do
+        let pvars := (blkParamVars.find? (·.1 == l)).map Prod.snd |>.getD []
+        pvars.mapM fun (_, r) =>
+          match st.regVar? r with
+          | some v => pure v
+          | none => throw s!"missing_live_reg {hooks.reprLR r} at jump to {l}"
+      let resetBlk (st : GenLiftSt LR I.Reg I.Cond RawC) (regs : List (LR × Nat))
+          (tys : List (Nat × Ty)) (soft : List (Nat × I.Reg)) :
+          GenLiftSt LR I.Reg I.Cond RawC :=
+        { nextVar := st.nextVar, regVars := regs, varTys := tys ++ st.varTys,
+          cliques := st.cliques, flags := st.flags, softRegs := soft ++ st.softRegs,
+          varHints := st.varHints, elideVars := st.elideVars }
+      let mut sharedSt : GenLiftSt LR I.Reg I.Cond RawC :=
+        { nextVar := nextV, varTys := initArgTys }
+      for i in List.range blocks.length do
+        let b := blocks[i]!
+        let pvars := (blkParamVars.find? (·.1 == b.label)).map Prod.snd |>.getD []
+        let initRegs := pvars.map fun (v, r) => (r, v)
+        let initSoft := pvars.map fun (v, r) => (v, hooks.toIsaReg r)
+        let psTy := pvars.map fun (v, _) => (v, i64)
+        let stB := resetBlk sharedSt initRegs psTy initSoft
+        let (stmts, stAfter) ← hooks.liftBlock b stB
+        let (extraStmts, termExpr, stFinal) ← match b.term with
+          | .ret | .endMark =>
+            let rvs ← retRegs.mapM fun rr =>
+              match stAfter.regVar? rr with
+              | some vr => pure vr
+              | none => throw s!"ret_reg_uninit {hooks.reprLR rr}"
+            pure ([], NExpr.ret rvs, stAfter)
+          | .jmp tgt | .fall tgt =>
+            let args ← getParamArgs tgt stAfter
+            pure ([], NExpr.jump (blkIdxOf tgt) args, stAfter)
+          | .jcc bc taken fall =>
+            let (condStmts, vc, s2) ← hooks.lowerJcc bc stAfter
+            let argsT ← getParamArgs taken s2
+            let argsF ← getParamArgs fall s2
+            let tExpr := NExpr.jnz vc (.jump (blkIdxOf taken) argsT) (.jump (blkIdxOf fall) argsF)
+            pure (condStmts, tExpr, s2)
+          | .exit sym => throw s!"exit_unsupported: {sym}"
+        sharedSt := stFinal
+        blockExprs := blockExprs ++ [(i, psTy, wrapStmts (stmts ++ extraStmts) termExpr)]
+      let entryRegs := argRegs.mapIdx fun i r => (r, i)
+      let entryArgs ← getParamArgs blocks[0]!.label { regVars := entryRegs }
+      let bpr := blkParamVars.mapIdx fun idx (_, pvs) =>
+        (idx, pvs.map (fun (_, r) => hooks.toIsaReg r))
+      pure (NExpr.group blockExprs (.jump 0 entryArgs), sharedSt, bpr)
+  let rawRH : SpillSnippet.RelHints I.Reg I.Cond := {
+    sameRegCliques := finalSt.cliques
+    flagBindings := finalSt.flags
+    variants := finalSt.varHints
+    softPrefs := finalSt.softRegs ++ (argRegs.mapIdx fun i r => (i, hooks.toIsaReg r))
+    elideVars := finalSt.elideVars
+    blockParamRegs := blockParamList
+    savedRegs := saved
+    nslots := 0
+  }
+  let resL ← lowerNExprGen rs env0 [] as.length 0 0 rawRH.variants rawRH.elideVars topNExpr
+  let mapVar (vid : Nat) : Nat := (resL.vmap.find? (·.1 == vid)).map Prod.snd |>.getD vid
+  let mappedRH : SpillSnippet.RelHints I.Reg I.Cond := {
+    sameRegCliques := rawRH.sameRegCliques.map (·.map mapVar)
+    flagBindings := rawRH.flagBindings.map (fun (v, c) => (mapVar v, c))
+    variants := resL.vhs
+    softPrefs := rawRH.softPrefs.map (fun (v, r) => (mapVar v, r))
+    elideVars := rawRH.elideVars.map mapVar
+    elideIps := resL.elides
+    blockParamRegs := rawRH.blockParamRegs
+    savedRegs := saved
+    nslots := 0
+  }
+  pure { name := name, as := as, tflat := resL.tflat, relHints := mappedRH,
+         ipHintMap := resL.vhs, ipElideMap := resL.elides, varToSoftReg := mappedRH.softPrefs }
+
+/-- Output bundle of end-to-end snippet lifting + self-round-trip `AsmIso` check. -/
+structure LiftResult (I : Isa) where
+  rs     : List Ty
+  lifted : LiftedSnippet I.Reg I.Cond rs
+  hints  : I.Hints
+  code   : List I.Directive
+  iso    : IsoVerdict
+
+/-- Materialize the `Fn` of a `LiftResult`. -/
+def LiftResult.fn {I : Isa} (r : LiftResult I) : Fn := r.lifted.toFn
+
+/-- Full untrusted directive lifting + `solveRelHints` + standalone `Rega.lowerFn` +
+`checkAsmIso` round-trip check. -/
+def liftSnippetGen {I : Isa} {LR Instr BC RawC : Type} [BEq LR]
+    (hooks : LiftHooks I I.Directive LR Instr BC RawC)
+    (checkIso : List I.Directive → List I.Directive → Bool → Bool → IsoVerdict)
+    (name : Sym) (as rs : List Ty) (dirs : List I.Directive)
+    (avoidRegs : List I.Reg := []) : Except String (LiftResult I) := do
+  let lifted ← liftSnippetUGen hooks name as rs dirs
+  let fn := lifted.toFn
+  let hints := SpillSnippet.solveRelHints I lifted.relHints fn avoidRegs lifted.ipElideMap
+  let code ← Rega.lowerFn I hints fn.ext fn
+  let iso := checkIso dirs code true true
+  pure { rs := rs, lifted := lifted, hints := hints, code := code, iso := iso }
 
 end SnippetCheck
 

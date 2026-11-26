@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Examples.LitmusProgsLemmas
+public import LeanQbe.T.Examples.BenchmarkCertKit
 public import LeanQbe.T.MainSplice
 import LeanQbe.T.Logic.MemLemmas
 import all Kraken.Mem
@@ -138,51 +139,11 @@ def sumcallCompiled :
 
 /-! ## 2. Module Linking Helpers (`allFns` `Wf` & `supportsSource`) -/
 
-private theorem litmus_allFns_wf : ∀ fn ∈ allFns, fn.Wf := by
-  intro fn hfn
-  simp only [allFns, List.mem_cons, List.not_mem_nil, or_false] at hfn
-  rcases hfn with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact tracer_wf
-  · exact ifelse_wf
-  · exact sumto_wf
-  · exact evenodd_wf
-  · exact nested_wf
-  · exact swap_wf
-  · exact inc_wf
-  · exact callinc_wf
-  · exact check_wf
-  · exact twice_wf
-  · exact spill10_wf
-  · exact sumcall_wf
-
 private theorem allFns_supportsSource_all :
     allFns.all (fun f => (f.earlyOpt).body.supportsSource x64LegalTarget) = true := by
   t_kernel_rfl
 
-private theorem litmus_allFns_supports :
-    ∀ fn ∈ allFns, (fn.earlyOpt).body.supportsSource x64LegalTarget = true :=
-  supportsAll_to_forall allFns_supportsSource_all
-
-private theorem noExit_module_fnspec {hh : Host} {mod : Module}
-    {hints : List x64Target.toIsa.Hints}
-    (M : Compiled x64Target x64LegalTarget [] [] 0 mod.fns hints 2048)
-    (hacyc : mod.checkAcyclic = true) (hsub : ∀ fn ∈ mod.fns, fn ∈ allFns)
-    (k₀ : Nat) (hc : M.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
-    {fn : Fn} (hf : fn ∈ mod.fns)
-    (has : x64LegalTarget.legalSig fn.as = fn.as)
-    (hrs : x64LegalTarget.legalSig fn.rs = fn.rs)
-    (hnoex : ∀ args m Q X X',
-      litmusEnv fn.name fn.as fn.rs args m Q X → litmusEnv fn.name fn.as fn.rs args m Q X') :
-    x64Target.Defined hh fn.name ∧
-      x64Target.FnSpec hh fn.name (litmusEnv fn.name fn.as fn.rs) (M.bound fn.name) 0 :=
-  M.fnSpec_noExit_id mod rfl hh litmusEnv k₀ hc hu hacyc
-    (fun g hg => litmus_allFns_wf g (hsub g hg))
-    (fun g hg => litmus_allFns_supports g (hsub g hg))
-    (fun g hg => litmusEnv_sound g (hsub g hg))
-    hf has hrs hnoex
-
-private theorem single_fnspec {hh : Host} {f : Fn}
-    {hints : List x64Target.toIsa.Hints}
+private theorem litmus_single_x64 {hh : Host} {f : Fn} {hints : List x64Target.toIsa.Hints}
     (M : Compiled x64Target x64LegalTarget [] [] 0 [f] hints 2048)
     (hacyc : ({ fns := [f], externs := [], exits := [] } : Module).checkAcyclic = true)
     (hf : f ∈ allFns) (k₀ : Nat) (hc : M.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
@@ -192,8 +153,8 @@ private theorem single_fnspec {hh : Host} {f : Fn}
       litmusEnv f.name f.as f.rs args m Q X → litmusEnv f.name f.as f.rs args m Q X') :
     x64Target.Defined hh f.name ∧
       x64Target.FnSpec hh f.name (litmusEnv f.name f.as f.rs) (M.bound f.name) 0 :=
-  noExit_module_fnspec (mod := ⟨[f], [], []⟩) M hacyc
-    (fun g hg => by simp at hg; subst hg; exact hf) k₀ hc hu List.mem_cons_self has hrs hnoex
+  Examples.BenchmarkCertKit.litmus_single_fnspec_gen M hh
+    (supportsAll_to_forall allFns_supportsSource_all) hacyc hf k₀ hc hu has hrs hnoex
 
 /-! ## 3. Generic `FnSpec` and Closed Kraken x64 Theorems -/
 
@@ -204,49 +165,49 @@ theorem tracer_fnspec (k₀ : Nat) (hc : tracerCompiled.code.IsInfixAt Host.prog
     (hu : Host.LabelsUnique) :
     x64Target.Defined hh "tracer" ∧
       x64Target.FnSpec hh "tracer" tracerContract (tracerCompiled.bound "tracer") 0 :=
-  single_fnspec tracerCompiled tracerModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
+  litmus_single_x64 tracerCompiled tracerModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
     (fun _ _ _ _ _ h => h)
 
 theorem ifelse_fnspec (k₀ : Nat) (hc : ifelseCompiled.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) :
     x64Target.Defined hh "ifelse" ∧
       x64Target.FnSpec hh "ifelse" ifelseContract (ifelseCompiled.bound "ifelse") 0 :=
-  single_fnspec ifelseCompiled ifelseModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
+  litmus_single_x64 ifelseCompiled ifelseModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
     (fun _ _ _ _ _ h => h)
 
 theorem sumto_fnspec (k₀ : Nat) (hc : sumtoCompiled.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) :
     x64Target.Defined hh "sumto" ∧
       x64Target.FnSpec hh "sumto" sumtoContract (sumtoCompiled.bound "sumto") 0 :=
-  single_fnspec sumtoCompiled sumtoModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
+  litmus_single_x64 sumtoCompiled sumtoModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
     (fun _ _ _ _ _ h => h)
 
 theorem evenodd_fnspec (k₀ : Nat) (hc : evenoddCompiled.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) :
     x64Target.Defined hh "evenodd" ∧
       x64Target.FnSpec hh "evenodd" evenoddContract (evenoddCompiled.bound "evenodd") 0 :=
-  single_fnspec evenoddCompiled evenoddModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
+  litmus_single_x64 evenoddCompiled evenoddModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
     (fun _ _ _ _ _ h => h)
 
 theorem nested_fnspec (k₀ : Nat) (hc : nestedCompiled.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) :
     x64Target.Defined hh "nested" ∧
       x64Target.FnSpec hh "nested" nestedContract (nestedCompiled.bound "nested") 0 :=
-  single_fnspec nestedCompiled nestedModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
+  litmus_single_x64 nestedCompiled nestedModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
     (fun _ _ _ _ _ h => h)
 
 theorem swap_fnspec (k₀ : Nat) (hc : swapCompiled.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) :
     x64Target.Defined hh "swap" ∧
       x64Target.FnSpec hh "swap" swapContract (swapCompiled.bound "swap") 0 :=
-  single_fnspec swapCompiled swapModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
+  litmus_single_x64 swapCompiled swapModule_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
     (fun _ _ _ _ _ h => h)
 
 theorem spill10_fnspec (k₀ : Nat) (hc : spill10Compiled.code.IsInfixAt Host.prog k₀)
     (hu : Host.LabelsUnique) :
     x64Target.Defined hh "spill10" ∧
       x64Target.FnSpec hh "spill10" spill10Contract (spill10Compiled.bound "spill10") 0 :=
-  single_fnspec spill10Compiled spill10Module_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
+  litmus_single_x64 spill10Compiled spill10Module_acyclic (by simp [allFns]) k₀ hc hu rfl rfl
     (fun _ _ _ _ _ h => h)
 
 theorem callinc_module_fnspec (k₀ : Nat)
@@ -254,62 +215,35 @@ theorem callinc_module_fnspec (k₀ : Nat)
     {fn : Fn} (hf : fn ∈ callincModule.fns) :
     x64Target.Defined hh fn.name ∧
       x64Target.FnSpec hh fn.name (litmusEnv fn.name fn.as fn.rs)
-        (callincCompiled.bound fn.name) 0 := by
-  have hmem := hf
-  simp only [callincModule, List.mem_cons, List.not_mem_nil, or_false] at hmem
-  have ⟨has, hrs, hnoex⟩ :
-      x64LegalTarget.legalSig fn.as = fn.as ∧ x64LegalTarget.legalSig fn.rs = fn.rs ∧
-        (∀ args m Q X X', litmusEnv fn.name fn.as fn.rs args m Q X →
-          litmusEnv fn.name fn.as fn.rs args m Q X') := by
-    rcases hmem with rfl | rfl <;> exact ⟨rfl, rfl, fun _ _ _ _ _ h => h⟩
-  exact noExit_module_fnspec callincCompiled callincModule_acyclic
+        (callincCompiled.bound fn.name) 0 :=
+  Examples.BenchmarkCertKit.litmus_twoFn_fnspec_gen callincModule rfl callincModule_acyclic
+    ⟨rfl, rfl⟩ ⟨rfl, rfl⟩
     (fun g hg => by simp [callincModule] at hg; rcases hg with rfl | rfl <;> simp [allFns])
-    k₀ hc hu hf has hrs hnoex
+    (fun g hg => by
+      simp [callincModule] at hg; rcases hg with rfl | rfl <;> exact fun _ _ _ _ _ h => h)
+    callincCompiled hh rfl (supportsAll_to_forall allFns_supportsSource_all) k₀ hc hu hf
 
 theorem sumcall_module_fnspec (k₀ : Nat)
     (hc : sumcallCompiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     {fn : Fn} (hf : fn ∈ sumcallModule.fns) :
     x64Target.Defined hh fn.name ∧
       x64Target.FnSpec hh fn.name (litmusEnv fn.name fn.as fn.rs)
-        (sumcallCompiled.bound fn.name) 0 := by
-  have hmem := hf
-  simp only [sumcallModule, List.mem_cons, List.not_mem_nil, or_false] at hmem
-  have ⟨has, hrs, hnoex⟩ :
-      x64LegalTarget.legalSig fn.as = fn.as ∧ x64LegalTarget.legalSig fn.rs = fn.rs ∧
-        (∀ args m Q X X', litmusEnv fn.name fn.as fn.rs args m Q X →
-          litmusEnv fn.name fn.as fn.rs args m Q X') := by
-    rcases hmem with rfl | rfl <;> exact ⟨rfl, rfl, fun _ _ _ _ _ h => h⟩
-  exact noExit_module_fnspec sumcallCompiled sumcallModule_acyclic
+        (sumcallCompiled.bound fn.name) 0 :=
+  Examples.BenchmarkCertKit.litmus_twoFn_fnspec_gen sumcallModule rfl sumcallModule_acyclic
+    ⟨rfl, rfl⟩ ⟨rfl, rfl⟩
     (fun g hg => by simp [sumcallModule] at hg; rcases hg with rfl | rfl <;> simp [allFns])
-    k₀ hc hu hf has hrs hnoex
+    (fun g hg => by
+      simp [sumcallModule] at hg; rcases hg with rfl | rfl <;> exact fun _ _ _ _ _ h => h)
+    sumcallCompiled hh rfl (supportsAll_to_forall allFns_supportsSource_all) k₀ hc hu hf
 
 theorem twice_module_fnspec (k₀ : Nat)
     (hc : twiceCompiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
     (hfail : x64Target.Defined hh "fail") {fn : Fn} (hf : fn ∈ twiceModule.fns) :
     x64Target.Defined hh fn.name ∧
       x64Target.FnSpec hh fn.name (litmusEnv fn.name fn.as fn.rs)
-        (twiceCompiled.bound fn.name) 0 := by
-  have hsub : ∀ g ∈ twiceModule.fns, g ∈ allFns := fun g hg => by
-    simp [twiceModule] at hg; rcases hg with rfl | rfl <;> simp [allFns]
-  obtain ⟨hdef, hspec⟩ := twiceCompiled.fnSpec twiceModule rfl hh litmusEnv k₀ hc hu
-    twiceModule_acyclic
-    (fun g hg => litmus_allFns_wf g (hsub g hg))
-    (fun g hg => litmus_allFns_supports g (hsub g hg))
-    (fun g hg => litmusEnv_sound g (hsub g hg))
-    (fun _ h => nomatch h) ⟨(fun _ h => nomatch h), (fun _ h => nomatch h)⟩
-    (fun g hg => by simp at hg; subst hg; exact hfail) hf
-  have hmem := hf
-  simp only [twiceModule, List.mem_cons, List.not_mem_nil, or_false] at hmem
-  have ⟨has, hrs⟩ :
-      x64LegalTarget.legalSig fn.as = fn.as ∧ x64LegalTarget.legalSig fn.rs = fn.rs := by
-    rcases hmem with rfl | rfl <;> exact ⟨rfl, rfl⟩
-  have hfn' := fnSpec_of_legalEnv_legalSig_eq has hrs
-    (List.mem_append_left _ (List.mem_map_of_mem hf)) hspec
-  refine ⟨hdef, fun args m Q X hs => hfn' args m Q X ?_⟩
-  rcases hmem with rfl | rfl
-  · exact ⟨hs.1, fun hna => legal_xpost_i64 (lt := x64LegalTarget) rfl (hs.2 hna)⟩
-  · exact ⟨hs.1, fun hna => legal_xpost_i64 (lt := x64LegalTarget) rfl (hs.2.1 hna),
-      fun ha hnb => legal_xpost_i64 (lt := x64LegalTarget) rfl (hs.2.2 ha hnb)⟩
+        (twiceCompiled.bound fn.name) 0 :=
+  Examples.BenchmarkCertKit.twice_module_fnspec_gen twiceCompiled hh rfl
+    (supportsAll_to_forall allFns_supportsSource_all) k₀ hc hu hfail hf
 
 /-- End-to-end correctness of `tracer` on Kraken x64 (`cell64 p v0 ↦ cell64 p (a + b)`). -/
 theorem tracer_x64_correct (k₀ : Nat) (hc : tracerCompiled.code.IsInfixAt Host.prog k₀)
@@ -333,17 +267,10 @@ theorem tracer_x64_correct (k₀ : Nat) (hc : tracerCompiled.code.IsInfixAt Host
   have hargs : x64Target.ArgsIn (as := [i64, i64, i64]) (a, b, p, ()) s :=
     ⟨_, rfl, .cons ⟨by decide, by simpa using ha⟩
       (.cons ⟨by decide, by simpa using hb⟩ (.cons ⟨by decide, by simpa using hpp⟩ .nil))⟩
-  obtain ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, hm, hf⟩, hmR⟩ := hmem
-  have hmEq : s.dmem =⋆ Eq m ⋆
-      (region (s.regs.get64 .rsp - BitVec.ofNat 64 (tracerCompiled.bound "tracer"))
-          (tracerCompiled.bound "tracer") ⋆
-        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R :=
-    ⟨mf, mR, hu1, hd1, ⟨m, f, hu2, hd2, rfl, hf⟩, hmR⟩
-  have hspec : tracerContract (a, b, p, ()) m
-      (fun r m' => r = (a + b, ()) ∧ cell64 p (a + b) m') (fun _ _ _ _ => False) :=
-    ⟨v0, emp, by rw [sep_emp]; exact hm, fun m' hm' => ⟨rfl, by rwa [sep_emp] at hm'⟩⟩
+  obtain ⟨m, hm, hmEq⟩ := BenchmarkCertKit.sep_extract_eq hmem
   refine eventually_weaken _ _ _ _ ?_
-    (x64_of_returns (tracer_fnspec k₀ hc hu).2 hspec s ra R hargs hsp hmEq)
+    (x64_of_returns (tracer_fnspec k₀ hc hu).2
+      (Examples.BenchmarkCertKit.tracer_spec_ok a b p v0 hm) s ra R hargs hsp hmEq)
   rintro st ⟨hpc, hcs, hsp', _, m', ⟨rfl, hcell⟩, hrets, hm'⟩
   exact ⟨hpc, x64Init.retsIn_singleton (a + b) st.data hrets, hcs, hsp',
     sep_mono (fun _ => sep_mono (fun _ e => e ▸ hcell)) hm'⟩
@@ -375,6 +302,29 @@ theorem sumto_x64_correct (k₀ : Nat) (hc : sumtoCompiled.code.IsInfixAt Host.p
   rintro st ⟨hpc, hcs, hsp', _, hrets, rfl, hm'⟩
   exact ⟨hpc, x64Init.retsIn_singleton (tri n.toNat) st.data hrets, hcs, hsp', hm'⟩
 
+private theorem litmus_ret2_x64_lift {sym : Sym} {b : Nat} {spec : Spec [i64, i64] [i64]}
+    {x y v : BitVec 64}
+    (hfn : x64Target.FnSpec hh sym spec b 0)
+    (hspec : spec (x, y, ()) ∅ (fun r m' => r = (v, ()) ∧ emp m') (fun _ _ _ _ => False))
+    (s : MachineData) (ra : Int64) (R : Mem 64 → Prop)
+    (hx : s.regs.get64 .rdi = x) (hy : s.regs.get64 .rsi = y)
+    (hsp : (s.regs.get64 .rsp + 8#64).toNat % 16 = 0)
+    (hmem : s.dmem =⋆
+      (region (s.regs.get64 .rsp - BitVec.ofNat 64 b) b ⋆
+        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R) :
+    Eventually (step1 Host.exe)
+      (fun st => st.pc = ra ∧ st.data.regs.get64 .rax = v ∧
+        (∀ r ∈ [Reg64.rbx, .rbp, .r12, .r13, .r14, .r15],
+          st.data.regs.get64 r = s.regs.get64 r) ∧
+        st.data.regs.get64 .rsp = s.regs.get64 .rsp + 8#64 ∧
+        (st.data.dmem =⋆ region (s.regs.get64 .rsp - BitVec.ofNat 64 b) (b + 8) ⋆ R))
+      ⟨s, Labels.label sym⟩ := by
+  have hargs : x64Target.ArgsIn (as := [i64, i64]) (x, y, ()) s :=
+    ⟨_, rfl, .cons ⟨by decide, by simpa using hx⟩ (.cons ⟨by decide, by simpa using hy⟩ .nil)⟩
+  refine eventually_weaken _ _ _ _ ?_ (x64_of_returns_emp hfn hspec s ra R hargs hsp hmem)
+  rintro st ⟨hpc, hcs, hsp', _, hrets, rfl, hm'⟩
+  exact ⟨hpc, x64Init.retsIn_singleton v st.data hrets, hcs, hsp', hm'⟩
+
 /-- End-to-end correctness of `callinc` on Kraken x64. -/
 theorem callinc_x64_correct (k₀ : Nat)
     (hc : callincCompiled.code.IsInfixAt Host.prog k₀) (hu : Host.LabelsUnique)
@@ -394,15 +344,9 @@ theorem callinc_x64_correct (k₀ : Nat)
           region (s.regs.get64 .rsp - BitVec.ofNat 64 (callincCompiled.bound "callinc"))
             (callincCompiled.bound "callinc" + 8) ⋆ R))
       ⟨s, Labels.label "callinc"⟩ := by
-  have hargs : x64Target.ArgsIn (as := [i64, i64]) (a, b, ()) s :=
-    ⟨_, rfl, .cons ⟨by decide, by simpa using ha⟩ (.cons ⟨by decide, by simpa using hb⟩ .nil)⟩
   have hfn : x64Target.FnSpec hh "callinc" callincContract (callincCompiled.bound "callinc") 0 :=
     (callinc_module_fnspec k₀ hc hu (fn := callinc) (by simp [callincModule])).2
-  have hspec : callincContract (a, b, ()) ∅ (fun r m' => r = (a + 1 + b, ()) ∧ emp m')
-      (fun _ _ _ _ => False) := ⟨rfl, rfl⟩
-  refine eventually_weaken _ _ _ _ ?_ (x64_of_returns_emp hfn hspec s ra R hargs hsp hmem)
-  rintro st ⟨hpc, hcs, hsp', _, hrets, rfl, hm'⟩
-  exact ⟨hpc, x64Init.retsIn_singleton (a + 1 + b) st.data hrets, hcs, hsp', hm'⟩
+  exact litmus_ret2_x64_lift hfn ⟨rfl, rfl⟩ s ra R ha hb hsp hmem
 
 /-- End-to-end correctness of `twice` (including abnormal exit `"fail"`) on Kraken x64. -/
 theorem twice_x64_correct (k₀ : Nat)
@@ -435,14 +379,8 @@ theorem twice_x64_correct (k₀ : Nat)
     rw [eq_empty_eq_emp, emp_sep]; exact hmem
   have hfn : x64Target.FnSpec hh "twice" twiceContract (twiceCompiled.bound "twice") 0 :=
     (twice_module_fnspec k₀ hc hu hfail (fn := twice) (by simp [twiceModule])).2
-  have hspec : twiceContract (a, b, ()) ∅
-      (fun r m' => Truthy a ∧ Truthy b ∧ r = (a + b, ()) ∧ m' = ∅)
-      (fun sym cs xs m' => ∃ h : cs = [i64], sym = "fail" ∧ m' = ∅ ∧
-        ((¬Truthy a ∧ xs = h ▸ (a, ())) ∨ (Truthy a ∧ ¬Truthy b ∧ xs = h ▸ (b, ())))) :=
-    ⟨fun ha hb => ⟨ha, hb, rfl, rfl⟩,
-     fun hna => ⟨rfl, rfl, rfl, Or.inl ⟨hna, rfl⟩⟩,
-     fun ha hnb => ⟨rfl, rfl, rfl, Or.inr ⟨ha, hnb, rfl⟩⟩⟩
-  refine eventually_weaken _ _ _ _ ?_ (x64_of_call_emp hfn hspec s ra R hargs hsp hmem')
+  refine eventually_weaken _ _ _ _ ?_
+    (x64_of_call_emp hfn (Examples.BenchmarkCertKit.twice_spec_ok a b) s ra R hargs hsp hmem')
   rintro st (⟨hpc, hcs, hsp', _, _, ⟨hta, htb, rfl, _⟩, hrets, _⟩ |
     ⟨_, _, _, _, ⟨rfl, rfl, _, hcase⟩, _, hpc, has', hspE⟩)
   · exact Or.inl ⟨hta, htb, hpc, x64Init.retsIn_singleton (a + b) st.data hrets, hcs, hsp'⟩
@@ -468,15 +406,8 @@ theorem spill10_x64_correct (k₀ : Nat) (hc : spill10Compiled.code.IsInfixAt Ho
         (st.data.dmem =⋆
           region (s.regs.get64 .rsp - BitVec.ofNat 64 (spill10Compiled.bound "spill10"))
             (spill10Compiled.bound "spill10" + 8) ⋆ R))
-      ⟨s, Labels.label "spill10"⟩ := by
-  have hargs : x64Target.ArgsIn (as := [i64, i64]) (a, b, ()) s :=
-    ⟨_, rfl, .cons ⟨by decide, by simpa using ha⟩ (.cons ⟨by decide, by simpa using hb⟩ .nil)⟩
-  have hspec : spill10Contract (a, b, ()) ∅ (fun r m' => r = (spill10Val a b, ()) ∧ emp m')
-      (fun _ _ _ _ => False) := ⟨rfl, rfl⟩
-  refine eventually_weaken _ _ _ _ ?_
-    (x64_of_returns_emp (spill10_fnspec k₀ hc hu).2 hspec s ra R hargs hsp hmem)
-  rintro st ⟨hpc, hcs, hsp', _, hrets, rfl, hm'⟩
-  exact ⟨hpc, x64Init.retsIn_singleton (spill10Val a b) st.data hrets, hcs, hsp', hm'⟩
+      ⟨s, Labels.label "spill10"⟩ :=
+  litmus_ret2_x64_lift (spill10_fnspec k₀ hc hu).2 ⟨rfl, rfl⟩ s ra R ha hb hsp hmem
 
 /-- End-to-end correctness of `sumcall` (call in loop body) on Kraken x64. -/
 theorem sumcall_x64_correct (k₀ : Nat)
@@ -498,21 +429,15 @@ theorem sumcall_x64_correct (k₀ : Nat)
           region (s.regs.get64 .rsp - BitVec.ofNat 64 (sumcallCompiled.bound "sumcall"))
             (sumcallCompiled.bound "sumcall" + 8) ⋆ R))
       ⟨s, Labels.label "sumcall"⟩ := by
-  have hargs : x64Target.ArgsIn (as := [i64, i64]) (n, b, ()) s :=
-    ⟨_, rfl, .cons ⟨by decide, by simpa using hrdi⟩ (.cons ⟨by decide, by simpa using hrsi⟩ .nil)⟩
   have hfn : x64Target.FnSpec hh "sumcall" sumcallContract (sumcallCompiled.bound "sumcall") 0 :=
     (sumcall_module_fnspec k₀ hc hu (fn := sumcall) (by simp [sumcallModule])).2
-  have hspec : sumcallContract (n, b, ()) ∅ (fun r m' => r = (tri n.toNat + n + b, ()) ∧ emp m')
-      (fun _ _ _ _ => False) := ⟨hn, rfl, rfl⟩
-  refine eventually_weaken _ _ _ _ ?_ (x64_of_returns_emp hfn hspec s ra R hargs hsp hmem)
-  rintro st ⟨hpc, hcs, hsp', _, hrets, rfl, hm'⟩
-  exact ⟨hpc, x64Init.retsIn_singleton (tri n.toNat + n + b) st.data hrets, hcs, hsp', hm'⟩
+  exact litmus_ret2_x64_lift hfn ⟨hn, rfl, rfl⟩ s ra R hrdi hrsi hsp hmem
 
 end Generic
 
 /-! ## 4. Concrete SysV x64 Execution Witnesses -/
 
-def zeros8 : List UInt8 := Int.toBytes 8 (0#64).toInt
+abbrev zeros8 : List UInt8 := Examples.BenchmarkCertKit.zeros8
 
 abbrev tracerHost : Host := tracerCompiled.host
 def tracerState0 : MachineData :=
@@ -527,17 +452,14 @@ theorem tracer_x64_nonvacuous :
           region (0x0ff8#64 - BitVec.ofNat 64 (tracerCompiled.bound "tracer"))
             (tracerCompiled.bound "tracer" + 8) ⋆ emp))
       ⟨tracerState0, Labels.label "tracer"⟩ := by
-  have hspec : tracerContract (40#64, 2#64, 0x1000#64, ()) (zeros8.At 0x1000#64)
-      (fun r m' => r = (42#64, ()) ∧ cell64 0x1000#64 42#64 m') (fun _ _ _ _ => False) :=
-    ⟨0#64, emp, by rw [sep_emp]; rfl, fun _ hm' => ⟨rfl, by rwa [sep_emp] at hm'⟩⟩
   refine eventually_weaken _ _ _ _
     (fun st ⟨hpc, hrax, hm⟩ => ⟨hpc, hrax, by
       simpa only [Target.Exit, x64Target, x64FrameTarget, x64FramePreds, x64Frame, x64Init] using
         hm⟩)
     (x64Init.run_ret1_sep_i64 tracerCompiled
       (tracer_fnspec 0 tracerCompiled.code_infix_host tracerCompiled.labelsUnique).2
-      zeros8 (40#64, 2#64, 0x1000#64, ()) 42#64 (cell64 0x1000#64 42#64) (by decide) rfl hspec
-      fun _ _ h => h)
+      zeros8 (40#64, 2#64, 0x1000#64, ()) 42#64 (cell64 0x1000#64 42#64) (by decide) rfl
+      (Examples.BenchmarkCertKit.tracer_spec_ok 40#64 2#64 0x1000#64 0#64 rfl) fun _ _ h => h)
 
 abbrev sumtoHost : Host := sumtoCompiled.host
 def sumtoState : MachineData :=
@@ -550,8 +472,8 @@ theorem sumto_x64_nonvacuous :
       ⟨sumtoState, Labels.label "sumto"⟩ :=
   x64Init.run_ret1_i64 sumtoCompiled
     (sumto_fnspec 0 sumtoCompiled.code_infix_host sumtoCompiled.labelsUnique).2
-    [] (3#64, ()) 6#64 (by decide) rfl
-    (Q := fun r _ => r = (6#64, ())) ⟨by decide, rfl⟩ fun _ _ h => h
+    [] (3#64, ()) 6#64 (by decide) rfl (Q := fun r _ => r = (6#64, ()))
+    ⟨by decide, rfl⟩ fun _ _ h => h
 
 abbrev callincHost : Host := callincCompiled.host
 def callincState : MachineData :=
@@ -566,8 +488,8 @@ theorem callinc_x64_nonvacuous :
       (callincCompiled.bound "callinc") 0 :=
     (callinc_module_fnspec 0 callincCompiled.code_infix_host callincCompiled.labelsUnique
       (fn := callinc) (by simp [callincModule])).2
-  exact x64Init.run_ret1_i64 callincCompiled hfn [] (40#64, 1#64, ()) 42#64
-    (by decide) rfl (Q := fun r _ => r = (42#64, ())) rfl fun _ _ h => h
+  exact x64Init.run_ret1_i64 callincCompiled hfn [] (40#64, 1#64, ()) 42#64 (by decide) rfl
+    (Q := fun r _ => r = (42#64, ())) rfl fun _ _ h => h
 
 abbrev twiceHost : Host := twiceCompiled.host
 def twiceState (a b : BitVec 64) : MachineData :=
@@ -585,11 +507,10 @@ theorem twice_x64_nonvacuous_exit :
     (Q := fun _ _ => False)
     (X := fun g cs xs _ => ∃ h : cs = [i64], g = "fail" ∧ xs = h ▸ (0#64, ()))
     ⟨fun _ h0 => absurd h0 (by simp [Truthy]),
-      fun h20 => absurd (by simp [Truthy] : Truthy 20#64) h20,
-      fun _ _ => ⟨rfl, rfl, rfl⟩⟩ ?_
+      fun h20 => absurd (by simp [Truthy] : Truthy 20#64) h20, fun _ _ => ⟨rfl, rfl, rfl⟩⟩ ?_
   rintro st (⟨_, _, _, hq, _⟩ | ⟨_, _, _, _, ⟨rfl, rfl, rfl⟩, hpc, has⟩)
   · exact hq.elim
-  · exact ⟨hpc, x64Init.argsIn_singleton 0#64 st.data has⟩
+  · exact ⟨hpc, x64Init.argsIn_singleton 0#64 _ has⟩
 
 abbrev spill10Host : Host := spill10Compiled.host
 def spill10State : MachineData :=
@@ -618,7 +539,7 @@ theorem sumcall_x64_nonvacuous :
       (sumcallCompiled.bound "sumcall") 0 :=
     (sumcall_module_fnspec 0 sumcallCompiled.code_infix_host sumcallCompiled.labelsUnique
       (fn := sumcall) (by simp [sumcallModule])).2
-  exact x64Init.run_ret1_i64 sumcallCompiled hfn [] (3#64, 10#64, ()) 19#64
-    (by decide) rfl (Q := fun r _ => r = (19#64, ())) ⟨by decide, rfl⟩ fun _ _ h => h
+  exact x64Init.run_ret1_i64 sumcallCompiled hfn [] (3#64, 10#64, ()) 19#64 (by decide) rfl
+    (Q := fun r _ => r = (19#64, ())) ⟨by decide, rfl⟩ fun _ _ h => h
 
 end LeanQbe.T.Amd64.Litmus

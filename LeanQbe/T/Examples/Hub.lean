@@ -1,5 +1,6 @@
 module
 
+public import LeanQbe.T.Examples.BenchmarkCertKit
 public import LeanQbe.T.Examples.Bignum
 public import LeanQbe.T.Examples.BignumProg
 public import LeanQbe.T.Examples.Bitblast.Ref.Aig
