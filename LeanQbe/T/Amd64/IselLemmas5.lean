@@ -1,5 +1,6 @@
 module
 
+public import LeanQbe.T.Amd64.IselLemmas6
 public import LeanQbe.T.Amd64.IselLemmasBitcnt
 import LeanQbe.T.Amd64.IselZeroLemmas
 
@@ -470,7 +471,8 @@ theorem x64Gpr_op_spec {h : x64Mach.Host} {k : Nat} {sig rs : List Ty} {code : O
     cases t <;> try exact none_ne_some (rfl : x64OpIns _ _ _ _ = none) hc
     · dsimp only [x64OpIns] at hc; dsimp only [OpCode.wp, Ty.hasFloat, lift2] at hwp
       refine opPostDst1_fallsTo hwp fun {_} _ =>
-        opBoolBin_spec _ _ (by first | exact Bool.and_comm | exact Bool.or_comm | exact Bool.xor_comm)
+        opBoolBin_spec _ _
+          (by first | exact Bool.and_comm | exact Bool.or_comm | exact Bool.xor_comm)
           (fun dst src s0 _ p0 n0 j0 P0 hk => ?_) hc
           (fun r hr => hdst r (by simpa [tupDstGprs] using hr)) (arg2_not_sc hargs) ha hb
       first
@@ -1670,6 +1672,7 @@ theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
     x64Gpr_load_zext (v := v) (s := s) (post := post) hc hrd ha hlv
   op_zero32 := x64Gpr_op_zero32
   testOp_spec := x64Gpr_testOp_spec
+  testJcc_spec := x64Gpr_testJcc_spec
   cmpMem_spec := x64Gpr_cmpMem_spec
   testMem_spec := x64Gpr_testMem_spec
   loadSext_spec := x64Gpr_loadSext_spec

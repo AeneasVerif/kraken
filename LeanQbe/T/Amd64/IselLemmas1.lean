@@ -171,6 +171,16 @@ example : ⸨prog| incq 8(%rdi) ⸩ = [ins (.inc (.mem (atDisp .rdi 8)))] := rfl
 example : ⸨prog| decl (%rdi) ⸩ = [ins32 (.dec (.mem (atReg .rdi)))] := rfl
 example : ⸨prog| addl %esi, (%rdi) ⸩ = [ins32 (.add (.mem (atReg .rdi)) (.reg (d .rsi)))] := rfl
 example : ⸨prog| xorq $7, (%rdi) ⸩ = [ins (.xor (.mem (atReg .rdi)) (immBitsOp .W64 7))] := rfl
+example : ⸨prog| testl %eax, %eax; js L0 ⸩ =
+    ((x64TestJcc true 32 .rax 0x80000000#32 "L0").get rfl).1 := rfl
+example : ⸨prog| testl %eax, %eax; jns L0 ⸩ =
+    ((x64TestJcc false 32 .rax 0x80000000#32 "L0").get rfl).1 := rfl
+example : ⸨prog| testq %rax, %rax; js L0 ⸩ =
+    ((x64TestJcc true 64 .rax 0x8000000000000000#64 "L0").get rfl).1 := rfl
+example : ⸨prog| leal (%rax,%rax,2), %ecx ⸩ =
+    [ins32 (.lea (d .rcx) (atSIB .rax .rax .s2 0))] := rfl
+example : ⸨prog| leaq (%rax,%rax,8), %rcx ⸩ =
+    [ins (.lea (q .rcx) (atSIB .rax .rax .s8 0))] := rfl
 
 end ParserChecks
 
@@ -235,6 +245,10 @@ theorem x64Gpr_testOp_noLab {w : Nat} {neg : Bool}
     {pa pb : PArg Reg64 RegMm CondCode (.bits w)} {pd : PDst Reg64 RegMm CondCode .bool}
     {c : List Directive} {clob : FlagMask} (h : x64Gpr.testOp w neg pa pb pd = some (c, clob)) :
     ∀ l, Kraken.Directive.label l ∉ c :=
+  emitCleanPair_noLab h
+theorem x64Gpr_testJcc_noLab {neg : Bool} {w : Nat} {r : Reg64} {mask : BitVec w} {l : Sym}
+    {c : List Directive} {clob : FlagMask} (h : x64Gpr.testJcc neg w r mask l = some (c, clob)) :
+    ∀ lab, Kraken.Directive.label lab ∉ c :=
   emitCleanPair_noLab h
 theorem x64Gpr_cmpMem_noLab {co : CmpOp} {w : Nat} {a : AddrArg Reg64}
     {pb : PArg Reg64 RegMm CondCode (.bits w)} {pd : PDst Reg64 RegMm CondCode .bool}
@@ -766,7 +780,10 @@ theorem fallsTo_setcc (s : MachineData) (cc : CondCode) (rd : Reg64) :
 theorem wp_setccOnly [Host] {E : Int64 → MachineData → Prop} (s : MachineData)
     (rd : Reg64) (cc : CondCode) :
     _root_.Program.wp (setccOnly rd cc)
-      (fun s' => s' = { s with regs := s.regs.set64 rd ((s.regs.get64 rd).replaceLow (BitVec.ofNat 8 (cc.interp s.status).toNat)) })
+      (fun s' => s' =
+        { s with
+          regs := s.regs.set64 rd
+            ((s.regs.get64 rd).replaceLow (BitVec.ofNat 8 (cc.interp s.status).toNat)) })
       E s := by
   simp only [setccOnly, setccOnlyIns, emitClean_cons, emitClean_nil]
   exact Directive.FallsTo.wp (fallsTo_setcc s cc rd)
@@ -1045,7 +1062,8 @@ private theorem x64JnzGpr_spec {h : Host} {k j : Nat} {r : Reg64} {inv : Bool} {
     (hk : ∀ s', x64Mach.Frame x64Gpr.condReads s s' x64Scratch [] (x64JnzGpr r inv l).2 →
       x64Mach.mem s' = x64Mach.mem s →
       ((if inv then !b else b) = true → x64Mach.Run h j s' post) ∧
-      ((if inv then !b else b) = false → x64Mach.Run h (k + (x64JnzGpr r inv l).1.length) s' post)) :
+      ((if inv then !b else b) = false →
+        x64Mach.Run h (k + (x64JnzGpr r inv l).1.length) s' post)) :
     x64Mach.Run h k s post := by
   letI := h
   have hw0 : _root_.Program.wp [ins8 (.test (.reg (b8 r)) (.reg (b8 r)))]
