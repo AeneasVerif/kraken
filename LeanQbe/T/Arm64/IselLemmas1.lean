@@ -625,28 +625,48 @@ theorem armMov_spec {h : Host} {k : Nat} {rd rs : Reg} {s : MachineData}
     armMach.FallsTo armCondReads h k (armMov rd rs) [rd] [] FlagMask.none s
       (fun s' => armMach.getGpr s' rd = armMach.getGpr s rs ∧ s'.dmem = s.dmem) post := by
   letI := h
-  refine armFallsTo_of_wp (armWp_mono (armDirFallsTo_wp (by
-    intro _ p next jmp P hk
-    simp only [t_step_simp, imm0, Int64.toInt_zero]
-    rw [show BitVec.ofInt RegWidth.W64.bits 0 = 0#64 from rfl, BitVec.add_zero]
-    exact hk _ rfl)) ?_)
-  rintro s' rfl
-  refine ⟨⟨?_, rfl⟩, armFrame_status_eq (fun r hr => ?_) rfl⟩
-  · cases rd <;> cases rs <;>
-      simp [get_reg, get_sp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64,
-        Reg64s.getRegOrSp_reg64, Reg64s.getRegOrSp_sp64]
-  · have hne : r ≠ rd := fun e => hr (e ▸ List.mem_cons_self)
-    cases rd with
+  cases rd with
+  | reg xd =>
+    cases rs with
+    | reg xs =>
+      refine armFallsTo_of_wp (armWp_mono (armDirFallsTo_wp (by
+        intro _ p next jmp P hk
+        simp only [t_step_simp, Int64.toInt_zero, Int.toNat_zero,
+          BitVec.shiftLeft_zero, BitVec.zero_or, RegWidth.bits, MemWidth.bits, BitVec.setWidth_eq]
+        exact hk _ rfl)) ?_)
+      rintro s' rfl
+      refine ⟨⟨?_, rfl⟩, frame_wr xd _ List.mem_cons_self FlagMask.none⟩
+      exact get_wr_same s xd _
     | SP =>
+      refine armFallsTo_of_wp (armWp_mono (armDirFallsTo_wp (by
+        intro _ p next jmp P hk
+        simp only [t_step_simp, imm0, Int64.toInt_zero]
+        rw [show BitVec.ofInt RegWidth.W64.bits 0 = 0#64 from rfl, BitVec.add_zero]
+        exact hk _ rfl)) ?_)
+      rintro s' rfl
+      refine ⟨⟨?_, rfl⟩, armFrame_status_eq (fun r hr => ?_) rfl⟩
+      · simp [get_reg, get_sp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64, Reg64s.getRegOrSp_sp64]
+      · have hne : r ≠ .reg xd := fun e => hr (e ▸ List.mem_cons_self)
+        cases r with
+        | SP => simp [get_sp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64]
+        | reg xr =>
+          have hx : xd ≠ xr := fun e => hne (congrArg XRegOrSp.reg e.symm)
+          simp [get_reg, Reg64s.setRegOrSp, Reg64s.setRegOrSp64, hx]
+  | SP =>
+    refine armFallsTo_of_wp (armWp_mono (armDirFallsTo_wp (by
+      intro _ p next jmp P hk
+      simp only [t_step_simp, imm0, Int64.toInt_zero]
+      rw [show BitVec.ofInt RegWidth.W64.bits 0 = 0#64 from rfl, BitVec.add_zero]
+      exact hk _ rfl)) ?_)
+    rintro s' rfl
+    refine ⟨⟨?_, rfl⟩, armFrame_status_eq (fun r hr => ?_) rfl⟩
+    · cases rs <;>
+        simp [get_reg, get_sp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64,
+          Reg64s.getRegOrSp_reg64, Reg64s.getRegOrSp_sp64]
+    · have hne : r ≠ .SP := fun e => hr (e ▸ List.mem_cons_self)
       cases r with
       | SP => exact absurd rfl hne
       | reg xr => rfl
-    | reg xd =>
-      cases r with
-      | SP => simp [get_sp, Reg64s.setRegOrSp, Reg64s.setRegOrSp64]
-      | reg xr =>
-        have hx : xd ≠ xr := fun e => hne (congrArg XRegOrSp.reg e.symm)
-        simp [get_reg, Reg64s.setRegOrSp, Reg64s.setRegOrSp64, hx]
 
 theorem armMovi_spec {h : Host} {k : Nat} {rd : Reg} {c : BitVec 64} {s : MachineData}
     {post : MachineState → Prop} :

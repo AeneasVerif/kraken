@@ -12,8 +12,8 @@ Two-phase `O(N)` PHOAS `.group` simplification pass (avoiding `O(3^d)` bottom-up
    merge), AST node counts (`exprSizeJ`-identical), and tail-jump targets bottom-up in a single
    linear pass, emitting a structural `SimpPlan` tree with per-`.group` actions:
    - `GroupAct.unwrap`: dead-group elimination (`0` reachable blocks);
-   - `GroupAct.splice idx`: non-recursive single-block tail-jump or bounded single-use (`≤ 16`
-     nodes, `count == 1`) block splicing;
+   - `GroupAct.splice idx`: non-recursive single-block tail-jump or single-use (`count == 1`)
+     block splicing;
    - `GroupAct.filter keep`: dead-block elimination / label rebinding.
 2. **Phase 2 (verified single-pass PHOAS validator + rewriter)**:
    - `validatePlan`: single `O(N)` pass at `(UnitV, BoolL)` verifying plan structure and proving no
@@ -167,7 +167,7 @@ def decideGroup (nl : Nat) (sig : List (List Ty))
         | some (id, ts') => id == nl && Ty.listBeq ts' ts
         | none => false
       let jumps := (ik.jumps.eraseRange nl 1).merge (ib.jumps.eraseRange nl 1)
-      if !selfRec && (isTail || (ib.size ≤ 16 && kc == 1)) then
+      if !selfRec && (isTail || kc == 1) then
         let tj := if isTail then ib.tailJump else none
         (.group (.splice 0) pbs pk, ⟨jumps, ik.size - 1 + ib.size, tj, true⟩)
       else
@@ -192,7 +192,7 @@ def decideGroup (nl : Nat) (sig : List (List Ty))
           | some (id, ts') => id == jId && Ty.listBeq ts' ts
           | none => false
         let jumps := (ik.jumps.eraseRange nl len).merge (ib.jumps.eraseRange nl len)
-        if !selfRec && (isTail || (ib.size ≤ 16 && kc == 1)) then
+        if !selfRec && (isTail || kc == 1) then
           let tj := if isTail then ib.tailJump else none
           (.group (.splice idx) pbs pk, ⟨jumps, ik.size - 1 + ib.size, tj, true⟩)
         else

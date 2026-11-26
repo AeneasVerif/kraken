@@ -127,7 +127,8 @@ def fnCmpJcc : Fn := ⟨"cmpJcc", [i64, i64], [i64], fun _ _ (a, b, ()) =>
   .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
 
 /-- An `adc` chain: `(a1:a0) + (b1:b0)`, returning the high limb and the carry-out limb. -/
-def fnAdcChain : Fn := ⟨"adcChain", [i64, i64, i64, i64], [i64, i64], fun _ _ (a0, a1, b0, b1, ()) =>
+def fnAdcChain : Fn :=
+  ⟨"adcChain", [i64, i64, i64, i64], [i64, i64], fun _ _ (a0, a1, b0, b1, ()) =>
   .let_ (op3 (.addc 64) (.var a0) (.var b0) (.imm false)) fun (_s0, c0, ()) =>
   .let_ (op3 (.addc 64) (.var a1) (.var b1) (.var c0)) fun (s1, c1, ()) =>
   .let_ (op3 (.addc 64) (.imm 0) (.imm 0) (.var c1)) fun (s2, _c2, ()) =>
@@ -314,8 +315,8 @@ def Instr.flagMove : Instr → Bool
 
 /-- `cmp → jcc`: the comparison result never leaves `CF` (no `setcc`). -/
 theorem cmpJcc_code : codeCmpJcc =
-    [.label "cmpJcc", .spAdd 0#64, .cmp 64 (.reg 7) (.reg 6), .jcc .cf "cmpJcc.L0",
-     .mov 0 6, .spAdd 0#64, .ret, .label "cmpJcc.L0", .mov 0 7, .spAdd 0#64, .ret] := by
+    [.label "cmpJcc", .spAdd 0#64, .cmp 64 (.reg 7) (.reg 6), .jcc .cf ".LcmpJcc.0",
+     .mov 0 6, .spAdd 0#64, .ret, .label ".LcmpJcc.0", .mov 0 7, .spAdd 0#64, .ret] := by
   t_kernel_rfl
 
 /-- `adc` chain: one `xor` clears `CF`, then three `adc`s ripple the carry through `CF`; the dead
@@ -329,15 +330,15 @@ theorem adcChain_code : codeAdcChain =
 `adcx`es; no flag ever moves through a GPR. -/
 theorem adcxAdox_code : codeAdcxAdox =
     [.label "adcxAdox", .spAdd 0#64, .mov 0 6, .xorz 11, .adcx 64 7 (.reg 7) (.reg 2),
-     .adox 64 1 (.reg 1) (.reg 9), .adcx 64 0 (.reg 0) (.imm 0#64), .adox 64 2 (.reg 8) (.imm 0#64),
-     .spAdd 0#64, .ret] := by t_kernel_rfl
+     .adox 64 1 (.reg 1) (.reg 9), .adcx 64 0 (.reg 0) (.imm 0#64), .adox 64 8 (.reg 8) (.imm 0#64),
+     .mov 2 8, .spAdd 0#64, .ret] := by t_kernel_rfl
 
 /-- Loop-carried `CF`: `adc` produces it, `lea`/`dec`/`tstz`/`jcc`/`mov`/`jmp` preserve it around
 the back-edge into the next `adc`; it is materialised (`setc`) only on exit. -/
 theorem cfLoop_code : codeCfLoop =
     [.label "cfLoop", .spAdd 0#64, .xorz 11, .movi 0 0#64,
-     .label "cfLoop.L0", .adc 64 0 (.reg 0) (.reg 6), .lea 6 6 8#64, .dec 64 7 (.reg 7),
-     .tstz 64 (.reg 7), .jcc .nzf "cfLoop.L0", .setcc 2 .cf, .zext 8 2, .spAdd 0#64,
+     .label ".LcfLoop.0", .adc 64 0 (.reg 0) (.reg 6), .lea 6 6 8#64, .dec 64 7 (.reg 7),
+     .tstz 64 (.reg 7), .jcc .nzf ".LcfLoop.0", .setcc 2 .cf, .zext 8 2, .spAdd 0#64,
      .ret] := by t_kernel_rfl
 
 theorem cfLoop_cf_writers :
@@ -347,10 +348,10 @@ theorem cfLoop_cf_writers :
 /-- Core litmus highlights: `jcc` on flags for every branch, `vmovi` + 2×i32 `vbin`, a carry kept
 across `call` via `setc`/callee-saved reg/`bt`, and 8-bit `lshr`/`cmp`/`jcc`. -/
 theorem g12a_code_highlights :
-    codeBranches.contains (.jcc .cf "branches.L1") = true ∧
-    codeLoop.contains (.jcc .nzf "loop.L0") = true ∧
-    codeEvenOdd.contains (.jcc .nzf "evenOdd.L1") = true ∧
-    codeNested.contains (.jcc .nzf "nested.L1") = true ∧
+    codeBranches.contains (.jcc .cf ".Lbranches.1") = true ∧
+    codeLoop.contains (.jcc .nzf ".Lloop.0") = true ∧
+    codeEvenOdd.contains (.jcc .nzf ".LevenOdd.1") = true ∧
+    codeNested.contains (.jcc .nzf ".Lnested.1") = true ∧
     codePairLoop.contains (.bin .xor 8 2 (.reg 2) (.imm 1#64)) = true ∧
     codeVecLoop.contains (.vmovi 0 0x200000001#512) = true ∧
     codeVecLoop.contains (.vbin .add v2i32 0 0 0) = true ∧
@@ -358,7 +359,7 @@ theorem g12a_code_highlights :
     codeCarryCall.contains (.call "inc") = true ∧
     codeBits8.contains (.bin .lshr 8 0 (.reg 0) (.imm 1#64)) = true ∧
     codeBits8.contains (.cmp 8 (.reg 0) (.reg 6)) = true ∧
-    codeBits8.contains (.jcc .cf "bits8.L0") = true := by
+    codeBits8.contains (.jcc .cf ".Lbits8.0") = true := by
   refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩ <;> t_kernel_rfl
 
 /-- Base+disp elides both `add` (`+16`) and `sub` (`-(-8)`) in `fnAddrDisp` and elides `+8` across

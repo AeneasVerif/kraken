@@ -130,7 +130,8 @@ def natDigits : Nat → Nat → List Char → List Char
     let acc := Char.ofNat (48 + n % 10) :: acc
     if Nat.ble 10 n then natDigits fuel (n / 10) acc else acc
 
-def lname (fn : Sym) (n : Nat) : Sym := fn ++ ".L" ++ String.ofList (natDigits (n + 1) n [])
+def lname (fn : Sym) (n : Nat) : Sym :=
+  ".L" ++ fn ++ "." ++ String.ofList (natDigits (n + 1) n [])
 
 def isGprTy (I : Isa) : Ty → Bool
   | .bool => true | .bits n => I.frame.bitWidths.contains n && Nat.ble n 64 | _ => false

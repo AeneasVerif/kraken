@@ -131,6 +131,7 @@ public import LeanQbe.T.Arm64.LcnfC0TreeDemoCertArm64
 public import LeanQbe.T.Arm64.LinkRec
 public import LeanQbe.T.Arm64.Litmus
 public import LeanQbe.T.Arm64.LratBytes
+public import LeanQbe.T.Arm64.PrintAlign
 public import LeanQbe.T.Arm64.Snippet
 public import LeanQbe.T.Arm64.Targ
 public import LeanQbe.T.Arm64.TargLemmas

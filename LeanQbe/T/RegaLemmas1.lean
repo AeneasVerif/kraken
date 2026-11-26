@@ -65,18 +65,15 @@ def SymZ (G : VCtx) (w : BitVec 64) : SymArg → Prop
 def FlagHolds (b : Bool) : (t : Ty) → Val t → Prop
   | .bool, v => v = b
   | _, _ => False
-
 def GprSym (G : VCtx) (w : BitVec 64) : SymArg → Prop
   | .var x => ∀ t v, ⟨t, v, x⟩ ∈ G → GprHolds w t v
   | .immBool b => GprHolds w .bool b
   | .immBits n c => n ≤ 64 ∧ w.setWidth n = c.setWidth n
   | .immVec _ _ => False
-
 def VecSym (G : VCtx) (sw : SlotWidth) (bv : BitVec 512) : SymArg → Prop
   | .var x => ∀ t v, ⟨t, v, x⟩ ∈ G → t.size ≤ sw.bits ∧ VecHolds bv t v
   | .immVec w c => w.bits ≤ sw.bits ∧ bv.setWidth w.bits = c.setWidth w.bits
   | _ => False
-
 def FlagSym (G : VCtx) (b : Bool) : SymArg → Prop
   | .var x => ∀ t v, ⟨t, v, x⟩ ∈ G → FlagHolds b t v
   | .immBool b' => b = b'
@@ -106,12 +103,10 @@ def FlagFactScope (nv : Nat) : Option FlagFact → Prop
 
 @[simp] theorem FlagFactOk_none (T : Target) (G : VCtx) (s : T.mach.MData) :
     FlagFactOk T G s none = True := rfl
-
 @[simp] theorem FlagFactScope_none (nv : Nat) : FlagFactScope nv none = True := rfl
 
 def SlotEntry.sas : SlotEntry → List SymArg
   | .gpr sas => sas | .gprZ sas => sas.map (·.1) | .vec _ sas => sas
-
 def SlotOk (G : VCtx) (σ : List (BitVec 64)) (i : Nat) : SlotEntry → Prop
   | .gpr sas => ∃ w, σ[i]? = some w ∧ ∀ sa ∈ sas, GprSym G w sa
   | .gprZ sas => ∃ w, σ[i]? = some w ∧
@@ -144,7 +139,8 @@ def LocVal (s : M.MData) (σ : List (BitVec 64)) (t : Ty) (v : Val t) : Loc R V 
       ∃ a b, t = .pair a b) ∨
     (w = .w64 ∧ ∃ x, σ[i]? = some x ∧ GprHolds x t v)
 
-def ParamsOk (s : M.MData) (σ : List (BitVec 64)) : (ts : List Ty) → Tup Val ts → List (Loc R V C) → Prop
+def ParamsOk (s : M.MData) (σ : List (BitVec 64)) :
+    (ts : List Ty) → Tup Val ts → List (Loc R V C) → Prop
   | [], (), [] => True
   | t :: ts, (v, vs), loc :: locs => LocVal M s σ t v loc ∧ ParamsOk s σ ts vs locs
   | _, _, _ => False
@@ -266,19 +262,13 @@ structure Agree (T : Target) (G : VCtx) (nv : Nat) (st : SymState T.toIsa) (s : 
 
 theorem setWidth_setWidth_64_32 (w : BitVec 64) :
     ((w.setWidth 32).setWidth 64).setWidth 32 = w.setWidth 32 := by
-  apply BitVec.eq_of_getLsbD_eq
-  intro i hi
-  simp [show (i : Nat) < 32 from hi]
-
+  apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [show (i : Nat) < 32 from hi]
 theorem setWidth_32_64_idem (w : BitVec 64) :
     ((((w.setWidth 32).setWidth 64).setWidth 32).setWidth 64) = ((w.setWidth 32).setWidth 64) := by
   rw [setWidth_setWidth_64_32]
-
 theorem setWidth_32_64_val (v : BitVec 32) :
     ((v.setWidth 64).setWidth 32).setWidth 64 = v.setWidth 64 := by
-  apply BitVec.eq_of_getLsbD_eq
-  intro i hi
-  simp [show (i : Nat) < 64 from hi]
+  apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [show (i : Nat) < 64 from hi]
 
 theorem tyEq_iff {a b : Ty} : tyEq a b = true ↔ a = b := by
   induction a generalizing b with
@@ -299,13 +289,12 @@ theorem effFrame_le (I : Isa) (h : I.Hints) (E : Ext) :
   · exact Nat.zero_le _
   · exact Nat.le_refl _
 abbrev base : BitVec 64 := T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 (frame T hints)
-
 abbrev baseZ (zl : Bool) : BitVec 64 :=
   T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 (frameZ T hints zl)
 
 def csSlots : Mem 64 → Prop :=
-  array64 (base T hints s₀ + BitVec.ofNat 64 (8 * hints.nslots)) (hints.saved.map (T.mach.getGpr s₀))
-
+  array64 (base T hints s₀ + BitVec.ofNat 64 (8 * hints.nslots))
+    (hints.saved.map (T.mach.getGpr s₀))
 def csSlotsZ (zl : Bool) : Mem 64 → Prop :=
   array64 (baseZ T hints s₀ zl + BitVec.ofNat 64 (8 * hints.nslots))
     (hints.saved.map (T.mach.getGpr s₀))
@@ -313,7 +302,6 @@ def csSlotsZ (zl : Bool) : Mem 64 → Prop :=
 def Fr : Mem 64 → Prop :=
   csSlots T hints s₀ ⋆ (T.frameSpec.Saved (T.mach.getGpr s₀ T.frame.sp) ra hints.totalSlots ⋆
     (region (T.mach.getGpr s₀ T.frame.sp - BitVec.ofNat 64 n) (n - frame T hints) ⋆ Rf))
-
 def FrZ (zl : Bool) : Mem 64 → Prop :=
   csSlotsZ T hints s₀ zl ⋆
     ((if zl then T.frameSpec.RetAddr (T.mach.getGpr s₀ T.frame.sp) ra
@@ -389,24 +377,28 @@ theorem SlotOk.splice {G : VCtx} {σ ws : List (BitVec 64)} {i k j : Nat} {se : 
   cases se with
   | gpr sas =>
     obtain ⟨x, h1, h2⟩ := hs
-    exact ⟨x, by rw [getElem?_splice_disj h hw (by simp [SlotEntry.slots] at hd; omega)]; exact h1, h2⟩
+    exact ⟨x, by
+      rw [getElem?_splice_disj h hw (by simp [SlotEntry.slots] at hd; omega)]; exact h1, h2⟩
   | gprZ sas =>
     obtain ⟨x, h1, h2⟩ := hs
     exact ⟨x, by
       rw [getElem?_splice_disj h hw (by simp [SlotEntry.slots] at hd; omega)]; exact h1, h2⟩
-  | vec sw sas => obtain ⟨bv, h1, h2⟩ := hs; exact ⟨bv, by rw [slice_splice_disj (kj := sw.slots) h hw hd]; exact h1, h2⟩
+  | vec sw sas =>
+    obtain ⟨bv, h1, h2⟩ := hs
+    exact ⟨bv, by rw [slice_splice_disj (kj := sw.slots) h hw hd]; exact h1, h2⟩
 
 /-! ## 4. Interface lemmas (`execMoves_ok`, `stepPre_ok`, `holdsLoc_ok`, `shuffle_ok`) -/
 
 section Lemmas
 variable {T : Target} {host : T.mach.Host} {post : T.mach.State → Prop} {hints : T.toIsa.Hints}
-  {s₀ : T.mach.MData} {ra : T.mach.Addr} {n : Nat} {Rf : Mem 64 → Prop}
-variable {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s s' : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
+  {s₀ : T.mach.MData} {ra : T.mach.Addr} {n : Nat} {Rf : Mem 64 → Prop} {G : VCtx} {nv : Nat}
+  {st : SymState T.toIsa} {s s' : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
 
 theorem scope_lt {nv x : Nat} (h : symArgScopeOk nv (.var x) = true) : x < nv := by
   simp only [symArgScopeOk, Nat.ble_eq] at h; omega
-private theorem mem_grow {G G' : VCtx} (hG : ∀ p ∈ G', p ∈ G ∨ nv ≤ p.2.2) {sa : SymArg} (hs : symArgScopeOk nv sa = true)
-    : ∀ x, sa = .var x → ∀ t (v : Val t), ⟨t, v, x⟩ ∈ G' → ⟨t, v, x⟩ ∈ G := by
+private theorem mem_grow {G G' : VCtx} (hG : ∀ p ∈ G', p ∈ G ∨ nv ≤ p.2.2) {sa : SymArg}
+    (hs : symArgScopeOk nv sa = true) :
+    ∀ x, sa = .var x → ∀ t (v : Val t), ⟨t, v, x⟩ ∈ G' → ⟨t, v, x⟩ ∈ G := by
   rintro x rfl t v hm; exact (hG _ hm).resolve_right (Nat.not_le.mpr (scope_lt hs))
 
 section Tr
@@ -420,7 +412,8 @@ theorem SymZ.tr {w : BitVec 64} (h : SymZ G' w sa) : SymZ G w sa := by
   cases sa with
   | var x => exact fun t v hm => h t v (hT x rfl t v hm)
   | _ => trivial
-theorem VecSym.tr {sw : SlotWidth} {bv : BitVec 512} (h : VecSym G' sw bv sa) : VecSym G sw bv sa := by
+theorem VecSym.tr {sw : SlotWidth} {bv : BitVec 512} (h : VecSym G' sw bv sa) :
+    VecSym G sw bv sa := by
   cases sa <;> first | exact h | exact fun t v hm => h t v (hT _ rfl t v hm)
 theorem FlagSym.tr {b : Bool} (h : FlagSym G' b sa) : FlagSym G b sa := by
   cases sa <;> first | exact h | exact fun t v hm => h t v (hT _ rfl t v hm)
@@ -440,16 +433,18 @@ theorem RegLocOk.tr {R V C D : Type} {M : Machine R V C D} {s : M.MData} {rl : R
 end Tr
 
 theorem SlotOk.tr {G G' : VCtx} {i : Nat} {se : SlotEntry}
-    (hT : ∀ sa ∈ se.sas, ∀ x, sa = .var x → ∀ t (v : Val t), ⟨t, v, x⟩ ∈ G → ⟨t, v, x⟩ ∈ G') (h : SlotOk G' σ i se)
-    : SlotOk G σ i se := by
+    (hT : ∀ sa ∈ se.sas, ∀ x, sa = .var x → ∀ t (v : Val t), ⟨t, v, x⟩ ∈ G → ⟨t, v, x⟩ ∈ G')
+    (h : SlotOk G' σ i se) : SlotOk G σ i se := by
   cases se with
-  | gpr sas => obtain ⟨w, h1, h2⟩ := h; exact ⟨w, h1, fun sa hsa => GprSym.tr (hT sa hsa) (h2 sa hsa)⟩
+  | gpr sas =>
+    obtain ⟨w, h1, h2⟩ := h; exact ⟨w, h1, fun sa hsa => GprSym.tr (hT sa hsa) (h2 sa hsa)⟩
   | gprZ sas =>
     obtain ⟨w, h1, h2⟩ := h
     refine ⟨w, h1, fun p hp => ?_⟩
     have hmem : p.1 ∈ SlotEntry.sas (.gprZ sas) := List.mem_map.mpr ⟨p, hp, rfl⟩
     exact ⟨GprSym.tr (hT p.1 hmem) (h2 p hp).1, fun hz => SymZ.tr (hT p.1 hmem) ((h2 p hp).2 hz)⟩
-  | vec sw sas => obtain ⟨w, h1, h2⟩ := h; exact ⟨w, h1, fun sa hsa => VecSym.tr (hT sa hsa) (h2 sa hsa)⟩
+  | vec sw sas =>
+    obtain ⟨w, h1, h2⟩ := h; exact ⟨w, h1, fun sa hsa => VecSym.tr (hT sa hsa) (h2 sa hsa)⟩
 
 theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', p ∈ G ∨ nv ≤ p.2.2)
     (hsub : ∀ p ∈ G, p ∈ G') (hx : x < nv) (h : DefOk G x d) : DefOk G' x d := by
@@ -464,40 +459,31 @@ theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', 
   | imm64 c => intro v hv; exact h v (hm _ _ hv)
   | andVarVar w a b =>
     refine ⟨h.1, fun v hv => ?_⟩
-    obtain ⟨va, vb, h1, h2, h3⟩ := h.2 v (hm _ _ hv)
-    exact ⟨va, vb, hsub _ h1, hsub _ h2, h3⟩
+    obtain ⟨va, vb, h1, h2, h3⟩ := h.2 v (hm _ _ hv); exact ⟨va, vb, hsub _ h1, hsub _ h2, h3⟩
   | andVarImm w a c =>
     refine ⟨h.1, fun v hv => ?_⟩
-    obtain ⟨va, h1, h2⟩ := h.2 v (hm _ _ hv)
-    exact ⟨va, hsub _ h1, h2⟩
+    obtain ⟨va, h1, h2⟩ := h.2 v (hm _ _ hv); exact ⟨va, hsub _ h1, h2⟩
   | binVarVar w op a b =>
     refine ⟨h.1, fun v hv => ?_⟩
-    obtain ⟨va, vb, h1, h2, h3⟩ := h.2 v (hm _ _ hv)
-    exact ⟨va, vb, hsub _ h1, hsub _ h2, h3⟩
+    obtain ⟨va, vb, h1, h2, h3⟩ := h.2 v (hm _ _ hv); exact ⟨va, vb, hsub _ h1, hsub _ h2, h3⟩
   | binVarImm w op a c =>
     refine ⟨h.1, fun v hv => ?_⟩
-    obtain ⟨va, h1, h2⟩ := h.2 v (hm _ _ hv)
-    exact ⟨va, hsub _ h1, h2⟩
+    obtain ⟨va, h1, h2⟩ := h.2 v (hm _ _ hv); exact ⟨va, hsub _ h1, h2⟩
   | shlVarImm w a sh =>
     refine ⟨h.1, h.2.1, fun v hv => ?_⟩
-    obtain ⟨va, h1, h2⟩ := h.2.2 v (hm _ _ hv)
-    exact ⟨va, hsub _ h1, h2⟩
+    obtain ⟨va, h1, h2⟩ := h.2.2 v (hm _ _ hv); exact ⟨va, hsub _ h1, h2⟩
   | sextVar m n a =>
     refine ⟨h.1, h.2.1, h.2.2.1, fun v hv => ?_⟩
-    obtain ⟨va, h1, h2⟩ := h.2.2.2 v (hm _ _ hv)
-    exact ⟨va, hsub _ h1, h2⟩
+    obtain ⟨va, h1, h2⟩ := h.2.2.2 v (hm _ _ hv); exact ⟨va, hsub _ h1, h2⟩
   | zextVar m n a =>
     refine ⟨h.1, h.2.1, h.2.2.1, fun v hv => ?_⟩
-    obtain ⟨va, h1, h2⟩ := h.2.2.2 v (hm _ _ hv)
-    exact ⟨va, hsub _ h1, h2⟩
+    obtain ⟨va, h1, h2⟩ := h.2.2.2 v (hm _ _ hv); exact ⟨va, hsub _ h1, h2⟩
   | cmpZeroVar co w a =>
     refine ⟨h.1, fun cv hcv => ?_⟩
-    obtain ⟨va, h1, h2⟩ := h.2 cv (hm _ _ hcv)
-    exact ⟨va, hsub _ h1, h2⟩
+    obtain ⟨va, h1, h2⟩ := h.2 cv (hm _ _ hcv); exact ⟨va, hsub _ h1, h2⟩
   | testBitVar neg w a c =>
     refine ⟨h.1, fun cv hcv => ?_⟩
-    obtain ⟨va, h1, h2⟩ := h.2 cv (hm _ _ hcv)
-    exact ⟨va, hsub _ h1, h2⟩
+    obtain ⟨va, h1, h2⟩ := h.2 cv (hm _ _ hcv); exact ⟨va, hsub _ h1, h2⟩
 
 theorem execMove_memDefs {I : Isa} {nslots : Nat} {saved : List I.Reg} {mv : I.Move}
     {st st' : SymState I} {deadHint : Bool} {c : List I.Directive}
@@ -529,13 +515,13 @@ theorem stepPre_memDefs {I : Isa} {h : I.Hints} {ip : Nat} {st st' : SymState I}
       simpa using execMoves_memDefs h1
 
 theorem shuffle_memDefs {I : Isa} {nslots : Nat} {saved : List I.Reg} {st st' : SymState I}
-    {tgts : List (SymArg × I.Loc)} {c : List I.Directive}
-    (hs : shuffle I nslots saved st tgts = some (c, st')) : st'.memDefs = st.memDefs := by
+    {tgts : List (SymArg × I.Loc)} {deadHint : Bool} {c : List I.Directive}
+    (hs : shuffle I nslots saved st tgts deadHint = some (c, st')) : st'.memDefs = st.memDefs := by
   unfold shuffle at hs; split at hs
   · simp only [Option.some.injEq, Prod.mk.injEq] at hs; exact congrArg SymState.memDefs hs.2.symm
   · dsimp only at hs
     cases hem : execMoves I nslots saved
-        (pmoveAux I nslots saved (2 * tgts.length + 4) st tgts []) st with
+        (pmoveAux I nslots saved (2 * tgts.length + 4) st tgts []) st deadHint with
     | none => simp [hem] at hs
     | some p =>
       rcases p with ⟨code, st1⟩
@@ -588,8 +574,9 @@ theorem bindAbiParams_memDefs {I : Isa} :
     obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h; simpa using bindAbiParams_memDefs h
 
 theorem keepRegLoc_frame {gClob : List T.Reg} {vClob : List T.VReg} {fClob : FlagMask}
-    (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob) {sa : SymArg} {rl : RegLoc T.Reg T.VReg T.Cond}
-    (hk : keepRegLoc T.toIsa gClob vClob fClob rl = true) (h : RegLocOk T.mach G s sa rl) : RegLocOk T.mach G s' sa rl := by
+    (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob) {sa : SymArg}
+    {rl : RegLoc T.Reg T.VReg T.Cond} (hk : keepRegLoc T.toIsa gClob vClob fClob rl = true)
+    (h : RegLocOk T.mach G s sa rl) : RegLocOk T.mach G s' sa rl := by
   cases rl with
   | gpr r => simp only [RegLocOk] at h ⊢; rwa [hfr.1 r (by simpa [keepRegLoc] using hk)]
   | gprZ r => simp only [RegLocOk] at h ⊢; rwa [hfr.1 r (by simpa [keepRegLoc] using hk)]
@@ -614,7 +601,6 @@ theorem zeroExt32_frame {gClob : List T.Reg} {vClob : List T.VReg} {fClob : Flag
 theorem keepFlagCmp_none (I : Isa) (eqNe : Bool) : keepFlagCmp I FlagMask.none eqNe = true := by
   unfold keepFlagCmp; rw [List.all_eq_true]; intro co _
   cases h : I.gpr.condOfCmp? co <;> simp [FlagMask.disjoint, FlagMask.none]
-
 theorem killFlags_none (I : Isa) (fl : Option FlagFact) : killFlags I FlagMask.none fl = fl := by
   cases fl with
   | none => rfl
@@ -662,13 +648,11 @@ theorem FlagFactOk.kill {gClob : List T.Reg} {vClob : List T.VReg} {fClob : Flag
 theorem symArgScopeOk_mono {nv nv' : Nat} (hle : nv ≤ nv') {sa : SymArg}
     (h : symArgScopeOk nv sa = true) : symArgScopeOk nv' sa = true := by
   cases sa <;> simp only [symArgScopeOk, Nat.ble_eq] at h ⊢ <;> omega
-
 theorem FlagFactScope.mono {nv nv' : Nat} (hle : nv ≤ nv') {fl : Option FlagFact}
     (h : FlagFactScope nv fl) : FlagFactScope nv' fl := by
   cases fl with
   | none => trivial
   | some f => cases f; exact ⟨symArgScopeOk_mono hle h.1, symArgScopeOk_mono hle h.2⟩
-
 theorem FlagFactOk.tr {G G' : VCtx} {nv : Nat} {s : T.mach.MData} {fl : Option FlagFact}
     (hsub : ∀ p ∈ G, p ∈ G') (hG : ∀ p ∈ G', p ∈ G ∨ nv ≤ p.2.2) (hsc : FlagFactScope nv fl)
     (h : FlagFactOk T G s fl) : FlagFactOk T G' s fl := by
@@ -692,17 +676,18 @@ theorem Agree.setRegs (hA : Agree T G nv st s σ) (R : List (SymArg × RegLoc T.
     {zExt : List T.Reg}
     (hz : ∀ r ∈ zExt, T.mach.getGpr s' r = ((T.mach.getGpr s' r).setWidth 32).setWidth 64)
     (hfl : FlagFactOk T G s' st.flags) :
-    Agree T G nv { st with
-      regs := R
-      zeroExt32 := zExt } s' σ :=
+    Agree T G nv { st with regs := R, zeroExt32 := zExt } s' σ :=
   { hA with
     regs := fun p hp => (hR p hp).1, regs_lt := fun p hp => (hR p hp).2, zeroExt32_ok := hz,
     flags_ok := hfl }
 
-theorem kill_ok (hA : Agree T G nv st s σ) {gClob : List T.Reg} {vClob : List T.VReg} {fClob : FlagMask}
-    (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob) {p : SymArg × RegLoc T.Reg T.VReg T.Cond}
-    (hp : p ∈ killRegs T.toIsa gClob vClob fClob st.regs) : RegLocOk T.mach G s' p.1 p.2 ∧ symArgScopeOk nv p.1 = true :=
-  have h : p ∈ st.regs ∧ keepRegLoc T.toIsa gClob vClob fClob p.2 = true := by simpa [killRegs] using hp
+theorem kill_ok (hA : Agree T G nv st s σ) {gClob : List T.Reg} {vClob : List T.VReg}
+    {fClob : FlagMask} (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob)
+    {p : SymArg × RegLoc T.Reg T.VReg T.Cond}
+    (hp : p ∈ killRegs T.toIsa gClob vClob fClob st.regs) :
+    RegLocOk T.mach G s' p.1 p.2 ∧ symArgScopeOk nv p.1 = true :=
+  have h : p ∈ st.regs ∧ keepRegLoc T.toIsa gClob vClob fClob p.2 = true := by
+    simpa [killRegs] using hp
   ⟨keepRegLoc_frame hfr h.2 (hA.regs p h.1), hA.regs_lt p h.1⟩
 
 theorem isMoveGpr_false {saved : List T.Reg} {r : T.Reg} (h1 : r ∉ T.frame.allocatable)
@@ -714,7 +699,8 @@ theorem vecWidth?_spec {I : Isa} {t : Ty} {w : SlotWidth} (h : vecWidth? I t = s
   unfold vecWidth? at h; split at h <;> try split at h <;> try split at h
   all_goals simp_all
 
-theorem immVec_vecHolds {t : Ty} {c : Val t} {w : SlotWidth} {bv : BitVec 512} (hle : t.size ≤ w.bits)
+theorem immVec_vecHolds {t : Ty} {c : Val t} {w : SlotWidth} {bv : BitVec 512}
+    (hle : t.size ≤ w.bits)
     (h : bv.setWidth w.bits = ((toBits t c).setWidth 512).setWidth w.bits) : VecHolds bv t c := by
   have h512 : t.size ≤ 512 := Nat.le_trans hle (SlotWidth.bits_le_512 w); refine ⟨h512, ?_⟩
   rw [← BitVec.setWidth_setWidth_of_le bv hle, h, BitVec.setWidth_setWidth_of_le _ hle,
@@ -728,24 +714,29 @@ theorem symArgEq_iff {a b : SymArg} : symArgEq a b = true ↔ a = b := by
 theorem gprHolds_boolImm (b : Bool) : GprHolds (if b then 1#64 else 0#64) .bool b := by
   cases b <;> rfl
 
-theorem GprSym.ofMatch {w : BitVec 64} {sa' sa : SymArg} (hm : symArgMatchesGpr sa' sa = true) (h : GprSym G w sa')
-    : GprSym G w sa := by
+theorem GprSym.ofMatch {w : BitVec 64} {sa' sa : SymArg} (hm : symArgMatchesGpr sa' sa = true)
+    (h : GprSym G w sa') : GprSym G w sa := by
   unfold symArgMatchesGpr at hm; split at hm
   · rename_i he; rw [symArgEq_iff.mp he] at h; exact h
-  · split at hm <;> simp only [Bool.and_eq_true, Nat.beq_eq, Nat.ble_eq, beq_iff_eq, Bool.false_eq_true] at hm <;>
+  · split at hm <;>
+      simp only [Bool.and_eq_true, Nat.beq_eq, Nat.ble_eq, beq_iff_eq,
+        Bool.false_eq_true] at hm <;>
       obtain ⟨_, he⟩ := h
-    · obtain ⟨⟨rfl, hk⟩, rfl⟩ := hm; rw [BitVec.setWidth_eq, BitVec.setWidth_eq] at he; subst he; exact ⟨hk, rfl⟩
-    · obtain ⟨rfl, rfl⟩ := hm; rw [BitVec.setWidth_eq, BitVec.setWidth_eq] at he; subst he; exact gprHolds_boolImm _
+    · obtain ⟨⟨rfl, hk⟩, rfl⟩ := hm
+      rw [BitVec.setWidth_eq, BitVec.setWidth_eq] at he; subst he; exact ⟨hk, rfl⟩
+    · obtain ⟨rfl, rfl⟩ := hm
+      rw [BitVec.setWidth_eq, BitVec.setWidth_eq] at he; subst he; exact gprHolds_boolImm _
 
 theorem vecTy_of_width (hA : Agree T G nv st s σ) {sa : SymArg} {wsa : SlotWidth}
     (hw : symArgWidth st.vecWidths sa = some wsa) : VecTy G sa := by
   cases sa <;> first | trivial | exact fun t v hm => (hA.vw _ _ hw t v hm).2
 theorem isMoveGpr_scratch {saved : List T.Reg} {r : T.Reg} (h : r ∈ T.frame.scratch) :
     isMoveGpr T.toIsa saved r = true := by simp [isMoveGpr, h]
-theorem isMoveGpr_of_alloc {saved : List T.Reg} {r : T.Reg} (h : isAllocGpr T.toIsa saved r = true) :
+theorem isMoveGpr_of_alloc {saved : List T.Reg} {r : T.Reg}
+    (h : isAllocGpr T.toIsa saved r = true) :
     isMoveGpr T.toIsa saved r = true := by simp [isMoveGpr, h]
-theorem Agree.frame (hA : Agree T G nv st s σ) {gClob : List T.Reg} {vClob : List T.VReg} {fClob : FlagMask}
-    (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob)
+theorem Agree.frame (hA : Agree T G nv st s σ) {gClob : List T.Reg} {vClob : List T.VReg}
+    {fClob : FlagMask} (hfr : T.mach.Frame T.gpr.condReads s s' gClob vClob fClob)
     (hk : ∀ p ∈ st.regs, keepRegLoc T.toIsa gClob vClob fClob p.2 = true)
     (hz : ∀ r ∈ st.zeroExt32, T.mach.getGpr s' r = ((T.mach.getGpr s' r).setWidth 32).setWidth 64)
     (hf : fClob = FlagMask.none := by rfl) :
@@ -759,16 +750,14 @@ theorem Agree.frame (hA : Agree T G nv st s σ) {gClob : List T.Reg} {vClob : Li
 theorem mem_gprTaggedEntries {I : Isa} {r : I.Reg} {R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)}
     {sa : SymArg} {z : Bool} (h : (sa, z) ∈ gprTaggedEntries r R) :
     (sa, if z then RegLoc.gprZ r else .gpr r) ∈ R := by
-  simp only [gprTaggedEntries, List.mem_filterMap] at h
-  obtain ⟨⟨sa', rl⟩, hm, he⟩ := h
+  simp only [gprTaggedEntries, List.mem_filterMap] at h; obtain ⟨⟨sa', rl⟩, hm, he⟩ := h
   cases rl <;> simp at he
   · obtain ⟨rfl, rfl, rfl⟩ := he; exact hm
   · obtain ⟨rfl, rfl, rfl⟩ := he; exact hm
 
 theorem mem_flagEntries {I : Isa} {c : I.Cond} {R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)}
     {sa : SymArg} (h : sa ∈ flagEntries c R) : (sa, RegLoc.flag c) ∈ R := by
-  simp only [flagEntries, List.mem_filterMap] at h
-  obtain ⟨⟨sa', rl⟩, hm, he⟩ := h
+  simp only [flagEntries, List.mem_filterMap] at h; obtain ⟨⟨sa', rl⟩, hm, he⟩ := h
   cases rl <;> simp at he
   obtain ⟨rfl, rfl⟩ := he; exact hm
 
@@ -781,31 +770,33 @@ theorem mem_vecEntries {I : Isa} {vw : Trie SlotWidth} {w : SlotWidth} {v : I.VR
   split at he <;> try split at he <;> try split at he
   all_goals simp_all
 
-theorem VecSym.setW {sw : SlotWidth} {bv bv' : BitVec 512} {sa : SymArg} (he : bv'.setWidth sw.bits = bv.setWidth sw.bits)
+theorem VecSym.setW {sw : SlotWidth} {bv bv' : BitVec 512} {sa : SymArg}
+    (he : bv'.setWidth sw.bits = bv.setWidth sw.bits)
     (h : VecSym G sw bv sa) : VecSym G sw bv' sa := by
   cases sa with
-  | var x => exact fun t v hm => ⟨(h t v hm).1, VecHolds.of_setWidth_eq (h t v hm).1 he (h t v hm).2⟩
+  | var x =>
+    exact fun t v hm => ⟨(h t v hm).1, VecHolds.of_setWidth_eq (h t v hm).1 he (h t v hm).2⟩
   | immVec w c =>
     obtain ⟨h1, h2⟩ := h
-    exact ⟨h1, by rw [← BitVec.setWidth_setWidth_of_le bv' h1, he, BitVec.setWidth_setWidth_of_le bv h1, h2]⟩
+    exact ⟨h1, by
+      rw [← BitVec.setWidth_setWidth_of_le bv' h1, he, BitVec.setWidth_setWidth_of_le bv h1, h2]⟩
   | _ => exact h
-
-theorem VecSym.widen {sw sw' : SlotWidth} {bv : BitVec 512} {sa : SymArg} (hle : sw.bits ≤ sw'.bits) (h : VecSym G sw bv sa)
-    : VecSym G sw' bv sa := by
+theorem VecSym.widen {sw sw' : SlotWidth} {bv : BitVec 512} {sa : SymArg}
+    (hle : sw.bits ≤ sw'.bits) (h : VecSym G sw bv sa) : VecSym G sw' bv sa := by
   cases sa with
   | var x => exact fun t v hm => ⟨Nat.le_trans (h t v hm).1 hle, (h t v hm).2⟩
   | immVec w c => exact ⟨Nat.le_trans h.1 hle, h.2⟩
   | _ => exact h
-
-theorem VecSym.narrow (hA : Agree T G nv st s σ) {sw w wsa : SlotWidth} {bv : BitVec 512} {sa : SymArg}
-    (hw : symArgWidth st.vecWidths sa = some wsa) (hle : wsa.bits ≤ w.bits) (h : VecSym G sw bv sa) : VecSym G w bv sa := by
+theorem VecSym.narrow (hA : Agree T G nv st s σ) {sw w wsa : SlotWidth} {bv : BitVec 512}
+    {sa : SymArg} (hw : symArgWidth st.vecWidths sa = some wsa) (hle : wsa.bits ≤ w.bits)
+    (h : VecSym G sw bv sa) : VecSym G w bv sa := by
   cases sa with
   | var x => exact fun t v hm => ⟨Nat.le_trans (hA.vw x wsa hw t v hm).1 hle, (h t v hm).2⟩
   | immVec w' c => simp only [symArgWidth, Option.some.injEq] at hw; subst hw; exact ⟨hle, h.2⟩
   | _ => simp [symArgWidth] at hw
 
-theorem FlagSym.toGpr {b : Bool} {w : BitVec 64} {sa : SymArg} (hb : GprHolds w .bool b) (h : FlagSym G b sa) : GprSym
-    G w sa := by
+theorem FlagSym.toGpr {b : Bool} {w : BitVec 64} {sa : SymArg} (hb : GprHolds w .bool b)
+    (h : FlagSym G b sa) : GprSym G w sa := by
   cases sa with
   | var x =>
     intro t v hm
@@ -832,7 +823,8 @@ theorem Inv.window {zl : Bool} (hI : Inv T hints s₀ ra n Rf m s σ zl) {i k : 
   have e := array64_splice_eq (baseZ T hints s₀ zl) (σ.take i) (slice σ i k) (σ.drop (i + k))
   rw [List.length_take_of_le (by omega), slice_length h] at e
   rw [← splice_slice (σ := σ) (i := i) (k := k)] at hmem
-  rw [show splice σ i k (slice σ i k) = σ.take i ++ slice σ i k ++ σ.drop (i + k) from rfl, e] at hmem
+  rw [show splice σ i k (slice σ i k) = σ.take i ++ slice σ i k ++ σ.drop (i + k) from rfl, e]
+    at hmem
   rw [hsp]; dsimp only [Rest]; exact sep_cast hmem (by ac_rfl)
 
 theorem Inv.unwindow {zl : Bool} {σ ws : List (BitVec 64)}
@@ -855,10 +847,11 @@ theorem Inv.unwindow {zl : Bool} {σ ws : List (BitVec 64)}
     exact ⟨htot, T.frameSpec.raReg_of_raRegs s s' ra
       (fun r hr => hg r (T.frameSpec.ra_disj r hr).2.1) hra⟩
 
-theorem Agree.writeSlot (hA : Agree T G nv st s σ) {i k : Nat} (h : i + k ≤ σ.length) {ws : List (BitVec 64)}
-    (hw : ws.length = k) {E : SlotEntry} (hE : SlotOk G (splice σ i k ws) i E)
-    (hEs : ∀ sa ∈ E.sas, symArgScopeOk nv sa = true) : Agree T G nv
-    { st with slots := (clearSlotRange i k st.slots).insert i E } s (splice σ i k ws) := by
+theorem Agree.writeSlot (hA : Agree T G nv st s σ) {i k : Nat} (h : i + k ≤ σ.length)
+    {ws : List (BitVec 64)} (hw : ws.length = k) {E : SlotEntry}
+    (hE : SlotOk G (splice σ i k ws) i E) (hEs : ∀ sa ∈ E.sas, symArgScopeOk nv sa = true) :
+    Agree T G nv { st with slots := (clearSlotRange i k st.slots).insert i E } s
+      (splice σ i k ws) := by
   refine { hA with slots := fun j se hj => ?_, slots_lt := fun j se hj => ?_ } <;>
     (by_cases hji : j = i
      · subst hji; rw [Trie.find?_insert_self] at hj; cases hj; assumption)
@@ -896,7 +889,8 @@ theorem Agree.extend {G G' : VCtx} {nv nv' : Nat} {st : SymState T.toIsa} {s : T
   ctx_lt := hG'
   ctx_uniq := huniq
   regs p hp := RegLocOk.tr (mem_grow hG (hA.regs_lt p hp)) (hA.regs p hp)
-  slots i se h := SlotOk.tr (fun sa hsa => mem_grow hG (hA.slots_lt i se h sa hsa)) (hA.slots i se h)
+  slots i se h :=
+    SlotOk.tr (fun sa hsa => mem_grow hG (hA.slots_lt i se h sa hsa)) (hA.slots i se h)
   defs x d h := DefOk.grow hG hsub (hA.defs_lt x d h) (hA.defs x d h)
   vw x w h t v hm := by
     by_cases hx : x < nv
@@ -930,7 +924,8 @@ theorem Inv.keep {zl : Bool} {m : Mem 64} {s s' : T.mach.MData} {σ : List (BitV
   · rw [hs _ (isMoveGpr_false sd.2.1 (fun h => sd.2.2.1 (hsv _ h)) sd.2.2.2.1 sd.2.2.2.2.1 sd.1)]
     exact hsp
   · have cd := T.frameSpec.cs_disj r hr
-    rw [hs r (isMoveGpr_false cd.1 hns cd.2.1 cd.2.2 fun h => (T.frameSpec.scratch_disj r h).2.1 hr)]
+    rw [hs r (isMoveGpr_false cd.1 hns cd.2.1 cd.2.2 fun h =>
+      (T.frameSpec.scratch_disj r h).2.1 hr)]
     exact hcs r hr hns
   · obtain ⟨htot, hra⟩ := hzl h
     refine ⟨htot, T.frameSpec.raReg_of_raRegs s s' ra (fun r hr => ?_) hra⟩
@@ -942,7 +937,8 @@ theorem not_scratch_of_isAllocGpr (hsv : ∀ r ∈ hints.saved, r ∈ T.frame.ca
     (h : isAllocGpr T.toIsa hints.saved r = true) : r ∉ T.frame.scratch := by
   intro hr
   have sd := T.frameSpec.scratch_disj r hr
-  simp only [isAllocGpr, Bool.or_eq_true, List.contains_iff_mem] at h; rcases h with ((h | h) | h) | h
+  simp only [isAllocGpr, Bool.or_eq_true, List.contains_iff_mem] at h
+  rcases h with ((h | h) | h) | h
   · exact sd.1 h
   · exact sd.2.1 (hsv r h)
   · exact sd.2.2.1 h
@@ -987,7 +983,8 @@ theorem Agree.addKillZ (hA : Agree T G nv st s σ)
   hA.setRegs _ (fun p hp => (List.mem_append.mp hp).elim (hL p) (kill_ok hA hfr)) hz
     (hA.flags_ok.frame hfr hf)
 
-theorem Agree.addKill (hA : Agree T G nv st s σ) {gC : List T.Reg} {vC : List T.VReg} {fC : FlagMask}
+theorem Agree.addKill (hA : Agree T G nv st s σ)
+    {gC : List T.Reg} {vC : List T.VReg} {fC : FlagMask}
     (hfr : T.mach.Frame T.gpr.condReads s s' gC vC fC)
     (L : List (SymArg × RegLoc T.Reg T.VReg T.Cond))
     (hL : ∀ p ∈ L, RegLocOk T.mach G s' p.1 p.2 ∧ symArgScopeOk nv p.1 = true)
@@ -1009,7 +1006,9 @@ local macro "peel " he:ident hg:ident " : " t:term : tactic =>
   `(tactic| (peel $he; rename_i $hg:ident; replace $hg:ident : $t := by simpa using $hg:ident))
 /-- Substitute `some (c, st') = some (_, _)`. -/
 local macro "fin " he:ident : tactic =>
-  `(tactic| (simp only [Option.some.injEq, Prod.mk.injEq] at $he:ident; obtain ⟨h₁, h₂⟩ := $he:ident; subst h₁ h₂))
+  `(tactic| (
+    simp only [Option.some.injEq, Prod.mk.injEq] at $he:ident
+    obtain ⟨h₁, h₂⟩ := $he:ident; subst h₁ h₂))
 
 theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
     {mv : T.toIsa.Move} {st st' : SymState T.toIsa} {deadHint : Bool}
@@ -1021,14 +1020,16 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
       T.mach.Run host (k + c.length) s' post)
     : T.mach.Run host k s post := by
   have hsv := hI.2.2.2.2.1
-  have hscr : ∀ r ∈ T.frame.scratch, isMoveGpr T.toIsa hints.saved r = true := fun _ h => isMoveGpr_scratch h
+  have hscr : ∀ r ∈ T.frame.scratch, isMoveGpr T.toIsa hints.saved r = true :=
+    fun _ h => isMoveGpr_scratch h
   have rsc : ∀ {sa rl}, (sa, rl) ∈ st.regs → symArgScopeOk nv sa = true := fun h => hA.regs_lt _ h
   cases mv with
   | mov d r =>
     peel he hg : isMoveGpr T.toIsa hints.saved d = true; split at he
     · rename_i hdr; fin he; have hdr : d = r := by simpa using hdr
       subst hdr
-      refine T.gprSpec.mov_spec hc fun s1 ⟨hd1, hm1⟩ hfr => kont s1 σ ?_ (inv_of_frame hI hm1 hfr.1 (by simpa using hg))
+      refine T.gprSpec.mov_spec hc fun s1 ⟨hd1, hm1⟩ hfr =>
+        kont s1 σ ?_ (inv_of_frame hI hm1 hfr.1 (by simpa using hg))
       refine hA.frame (gClob := []) ⟨fun q _ => ?_, hfr.2.1, hfr.2.2⟩
         (fun ⟨_, rl⟩ _ => by cases rl <;> simp [keepRegLoc]) (fun q hq => ?_)
       · exact if hq : q = d then hq ▸ hd1 else hfr.1 q (by simpa using hq)
@@ -1094,14 +1095,17 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
     have hi : i < σ.length := by rw [hI.1]; omega
     have hw := hI.window (i := i) (k := 1) (by omega)
     rw [slice_one hi, array64_single] at hw
-    refine T.frameSpec.slotLd_spec (not_scratch_of_isAllocGpr hsv hg.1) hsp hw hc fun s1 ⟨hd1, hm1⟩ hfr =>
-      kont s1 σ (hA.addKill hfr _ fun p hp => ?_) (inv_of_frame hI hm1 hfr.1 (moveCons (isMoveGpr_of_alloc hg.1)))
+    refine T.frameSpec.slotLd_spec (not_scratch_of_isAllocGpr hsv hg.1) hsp hw hc
+      fun s1 ⟨hd1, hm1⟩ hfr =>
+        kont s1 σ (hA.addKill hfr _ fun p hp => ?_)
+          (inv_of_frame hI hm1 hfr.1 (moveCons (isMoveGpr_of_alloc hg.1)))
     split at hp
     · rename_i sas hf
       obtain ⟨sa, hsa, rfl⟩ := List.mem_map.mp hp
       obtain ⟨x, hx, hall⟩ := hA.slots i _ hf
       rw [List.getElem?_eq_getElem hi] at hx; cases hx
-      exact ⟨by show GprSym G (T.mach.getGpr s1 d) sa; rw [hd1]; exact hall sa hsa, hA.slots_lt i _ hf sa hsa⟩
+      exact ⟨by show GprSym G (T.mach.getGpr s1 d) sa; rw [hd1]; exact hall sa hsa,
+        hA.slots_lt i _ hf sa hsa⟩
     · rename_i sas hf
       obtain ⟨⟨sa, z⟩, hsa, rfl⟩ := List.mem_map.mp hp
       obtain ⟨x, hx, hall⟩ := hA.slots i _ hf
@@ -1141,7 +1145,8 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
   | setcc d c =>
     peel he hg : isAllocGpr T.toIsa hints.saved d = true; fin he
     refine T.gprSpec.setcc_spec (not_scratch_of_isAllocGpr hsv hg) hc fun s1 ⟨hd1, hm1⟩ hfr =>
-      kont s1 σ (hA.addKill hfr _ fun p hp => ?_) (inv_of_frame hI hm1 hfr.1 (moveCons (isMoveGpr_of_alloc hg)))
+      kont s1 σ (hA.addKill hfr _ fun p hp => ?_)
+        (inv_of_frame hI hm1 hfr.1 (moveCons (isMoveGpr_of_alloc hg)))
     obtain ⟨sa, hsa, rfl⟩ := List.mem_map.mp hp
     exact ⟨FlagSym.toGpr hd1 (hA.regs _ (mem_flagEntries hsa)), rsc (mem_flagEntries hsa)⟩
   | vmov w d r =>
@@ -1152,7 +1157,8 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
         (inv_of_frame hI hm1 hfr.1 (by simp))
     obtain ⟨sa, hsa, rfl⟩ := List.mem_map.mp hp
     obtain ⟨hm, wsa, hw, hle⟩ := mem_vecEntries hsa
-    exact ⟨((VecSym.narrow hA hw hle (hA.regs _ hm)).setW hd1).widen (SlotWidth.bits_le_512 w), rsc hm⟩
+    exact ⟨((VecSym.narrow hA hw hle (hA.regs _ hm)).setW hd1).widen (SlotWidth.bits_le_512 w),
+      rsc hm⟩
   | vmovi w d c =>
     peel he hg : isAllocVec T.toIsa d = true; split at he
     · simp at he
@@ -1165,10 +1171,12 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
     have hwpos : 0 < w.slots := by cases w <;> decide
     have hsp := spOk_of_inv hspE hI (by omega)
     have hk : i + w.slots ≤ σ.length := by rw [hI.1]; exact hg.2
-    obtain ⟨bv0, hb0⟩ : ∃ bv, unpackSlotWords w bv = slice σ i w.slots := ⟨_, unpack_packW (slice_length hk)⟩
+    obtain ⟨bv0, hb0⟩ : ∃ bv, unpackSlotWords w bv = slice σ i w.slots :=
+      ⟨_, unpack_packW (slice_length hk)⟩
     have hw := hI.window hk
     rw [← hb0] at hw; refine T.vecSpec.vslotLd_spec (not_vecScratch_of_isAllocVec hg.1) hsp hw hc
-      fun s1 ⟨hd1, hm1⟩ hfr => kont s1 σ (hA.addKill hfr _ fun p hq => ?_) (inv_of_frame hI hm1 hfr.1 hscr)
+      fun s1 ⟨hd1, hm1⟩ hfr =>
+        kont s1 σ (hA.addKill hfr _ fun p hq => ?_) (inv_of_frame hI hm1 hfr.1 hscr)
     rcases hf : st.slots.find? i with _ | ⟨sas⟩ | ⟨sas⟩ | ⟨w', sas⟩ <;> try (simp [hf] at hq; done)
     simp only [hf] at hq; split at hq
     · rename_i hww; rw [slotWidthEq_iff] at hww; subst hww
@@ -1187,7 +1195,8 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
     rw [slice_length hk] at hreg
     have hlen := unpackSlotWords_length w (T.mach.getVec s r)
     refine T.vecSpec.vslotSt_spec hg.1 hsp hreg hc fun s1 hm1 hfr =>
-      kont s1 (splice σ i w.slots (unpackSlotWords w (T.mach.getVec s r))) ?_ (Inv.unwindow hI hk hlen hm1 hfr.1)
+      kont s1 (splice σ i w.slots (unpackSlotWords w (T.mach.getVec s r))) ?_
+        (Inv.unwindow hI hk hlen hm1 hfr.1)
     have hK : Agree T G nv
         { st with
           regs := killRegs T.toIsa T.frame.scratch T.vec.vecScratch FlagMask.none st.regs
@@ -1310,8 +1319,8 @@ theorem holdsLoc_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MD
 
 theorem shuffle_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp)) {G : VCtx}
     {nv : Nat} {m : Mem 64} {st st' : SymState T.toIsa} {tgts : List (SymArg × T.toIsa.Loc)}
-    {c : List T.Directive} {k : Nat} {s : T.mach.MData} {σ : List (BitVec 64)}
-    (hs : shuffle T.toIsa hints.nslots hints.saved st tgts = some (c, st'))
+    {deadHint : Bool} {c : List T.Directive} {k : Nat} {s : T.mach.MData} {σ : List (BitVec 64)}
+    (hs : shuffle T.toIsa hints.nslots hints.saved st tgts deadHint = some (c, st'))
     (hc : c.IsInfixAt (T.mach.prog host) k)
     (hA : Agree T G nv st s σ) (hI : Inv T hints s₀ ra n Rf m s σ zl)
     (kont : ∀ s' σ', (∀ p ∈ tgts, LocOk T.mach G s' σ' p.1 p.2) → Agree T G nv st' s' σ' →
@@ -1352,12 +1361,15 @@ theorem locVal_of_locOk {G : VCtx} {s : T.mach.MData} {σ : List (BitVec 64)} {t
       cases loc with
       | flag c' => exact hok.symm
       | slot i w =>
-        exact hok.elim (fun ⟨⟨_, _, h2⟩, _⟩ => (h2 _ (hm1 _)).elim) fun ⟨hw, x', h1, h2⟩ => Or.inr ⟨hw, x', h1, h2 _ (hm1 _)⟩
+        exact hok.elim (fun ⟨⟨_, _, h2⟩, _⟩ => (h2 _ (hm1 _)).elim)
+          fun ⟨hw, x', h1, h2⟩ => Or.inr ⟨hw, x', h1, h2 _ (hm1 _)⟩
       | _ => first | exact hok | exact hok.elim
     | bits k =>
       simp only [toSymArg] at hsa; split at hsa
-      · rename_i hk; simp only [Option.some.injEq] at hsa; subst hsa; have hk : k ≤ 64 := by simpa using hk
-        have e : ∀ x : BitVec 64, x.setWidth k = (c.setWidth 64).setWidth k → GprHolds x (.bits k) c :=
+      · rename_i hk; simp only [Option.some.injEq] at hsa; subst hsa
+        have hk : k ≤ 64 := by simpa using hk
+        have e : ∀ x : BitVec 64,
+            x.setWidth k = (c.setWidth 64).setWidth k → GprHolds x (.bits k) c :=
           fun x h => ⟨hk, by rw [h, BitVec.setWidth_setWidth_of_le _ hk, BitVec.setWidth_eq]⟩
         cases loc with
         | gpr r => exact e _ hok.2
@@ -1383,14 +1395,16 @@ theorem locVal_of_locOk {G : VCtx} {s : T.mach.MData} {σ : List (BitVec 64)} {t
 theorem LocOk.mono {G G' : VCtx} (hsub : ∀ p ∈ G, p ∈ G') {s : T.mach.MData}
     {σ : List (BitVec 64)} {sa : SymArg} {loc : T.toIsa.Loc}
     (h : LocOk T.mach G' s σ sa loc) : LocOk T.mach G s σ sa loc := by
-  have hT : ∀ x, sa = .var x → ∀ t (v : Val t), ⟨t, v, x⟩ ∈ G → ⟨t, v, x⟩ ∈ G' := fun _ _ _ _ hm => hsub _ hm
+  have hT : ∀ x, sa = .var x → ∀ t (v : Val t), ⟨t, v, x⟩ ∈ G → ⟨t, v, x⟩ ∈ G' :=
+    fun _ _ _ _ hm => hsub _ hm
   have hT' : ∀ sa' ∈ [sa], ∀ x, sa' = .var x → ∀ t (v : Val t), ⟨t, v, x⟩ ∈ G → ⟨t, v, x⟩ ∈ G' :=
     fun _ _ _ _ _ _ hm => hsub _ hm
   cases loc with
   | gpr r => exact GprSym.tr hT h
   | vec r => exact VecSym.tr hT h
   | flag c => exact FlagSym.tr hT h
-  | slot i w => exact h.imp (fun h => ⟨SlotOk.tr hT' h.1, VecTy.tr hT h.2⟩) fun h => ⟨h.1, SlotOk.tr hT' h.2⟩
+  | slot i w =>
+    exact h.imp (fun h => ⟨SlotOk.tr hT' h.1, VecTy.tr hT h.2⟩) fun h => ⟨h.1, SlotOk.tr hT' h.2⟩
 
 theorem paramsOk_of_jumpTargets {G : VCtx} {s : T.mach.MData} {σ : List (BitVec 64)} :
     ∀ {ts : List Ty} {args₁ : Tup (Arg Val) ts} {args : Tup (Arg VNat) ts}
@@ -1406,7 +1420,8 @@ theorem paramsOk_of_jumpTargets {G : VCtx} {s : T.mach.MData} {σ : List (BitVec
     | cons loc locs =>
       simp only [jumpTargets] at hj; split at hj
       · rename_i sa rest hsa hrest; simp only [Option.some.injEq] at hj; subst hj
-        exact ⟨locVal_of_locOk hr hsa (hok _ (List.mem_cons_self ..)), ih hrest fun p hp => hok p (List.mem_cons_of_mem _ hp)⟩
+        exact ⟨locVal_of_locOk hr hsa (hok _ (List.mem_cons_self ..)),
+          ih hrest fun p hp => hok p (List.mem_cons_of_mem _ hp)⟩
       · simp at hj
 
 /-! ### Block entry and parameter binding -/
@@ -1418,7 +1433,8 @@ abbrev SlotsOk (G : VCtx) (nv : Nat) (σ : List (BitVec 64)) (sl : Trie SlotEntr
   ∀ j se, sl.find? j = some se → SlotOk G σ j se ∧ ∀ sa ∈ se.sas, symArgScopeOk nv sa = true
 
 theorem SlotsOk.insert {sl : Trie SlotEntry} (h : SlotsOk G nv σ sl) {i : Nat} {E : SlotEntry}
-    (hE : SlotOk G σ i E ∧ ∀ sa ∈ E.sas, symArgScopeOk nv sa = true) : SlotsOk G nv σ (sl.insert i E) := by
+    (hE : SlotOk G σ i E ∧ ∀ sa ∈ E.sas, symArgScopeOk nv sa = true) :
+    SlotsOk G nv σ (sl.insert i E) := by
   intro j se hj; by_cases hji : j = i
   · subst hji; rw [Trie.find?_insert_self] at hj; cases hj; exact hE
   · rw [Trie.find?_insert_ne _ _ hji] at hj; exact h j se hj
@@ -1435,7 +1451,8 @@ theorem addSlotEntry_ok {vw : Trie SlotWidth} {sa : SymArg} {i : Nat} {w : SlotW
     (hi : i + w.slots ≤ σ.length) : SlotsOk G nv σ sl' := by
   have hm1 : sa ∈ [sa] := List.mem_singleton_self _
   have hsc' : ∀ sas : List SymArg, (∀ sa ∈ sas, symArgScopeOk nv sa = true) →
-      ∀ sa' ∈ sa :: sas, symArgScopeOk nv sa' = true := fun sas h sa' hm => (List.mem_cons.mp hm).elim (· ▸ hsc) (h sa')
+      ∀ sa' ∈ sa :: sas, symArgScopeOk nv sa' = true :=
+    fun sas h sa' hm => (List.mem_cons.mp hm).elim (· ▸ hsc) (h sa')
   unfold addSlotEntry at ha
   split at ha
   · rename_i wsa hw
@@ -1445,19 +1462,25 @@ theorem addSlotEntry_ok {vw : Trie SlotWidth} {sa : SymArg} {i : Nat} {w : SlotW
       · exact (h2 sa hm1).setW (unpack_inj (hbv.symm.trans h1))
       · have h3 := h2 sa hm1
         cases sa with
-        | var x' => exact fun t v hm => by obtain ⟨a, b, rfl⟩ := hvw x' wsa hw t v hm; exact (h3 _ v hm).elim
+        | var x' =>
+          exact fun t v hm => by
+            obtain ⟨a, b, rfl⟩ := hvw x' wsa hw t v hm; exact (h3 _ v hm).elim
         | immVec _ _ => exact h3.elim
         | _ => simp [symArgWidth] at hw
-    have hfresh : SlotOk G σ i (.vec w [sa]) ∧ ∀ sa' ∈ (SlotEntry.vec w [sa]).sas, symArgScopeOk nv sa' = true :=
+    have hfresh : SlotOk G σ i (.vec w [sa]) ∧
+        ∀ sa' ∈ (SlotEntry.vec w [sa]).sas, symArgScopeOk nv sa' = true :=
       ⟨⟨packW (slice σ i w.slots), (unpack_packW (slice_length hi)).symm,
-        by simpa using hall _ (unpack_packW (slice_length hi)).symm⟩, by simpa [SlotEntry.sas] using hsc⟩
+        by simpa using hall _ (unpack_packW (slice_length hi)).symm⟩,
+        by simpa [SlotEntry.sas] using hsc⟩
     split at ha
     · simp at ha
     · split at ha
       · rename_i w' sas hf; split at ha
-        · rename_i hww; rw [slotWidthEq_iff] at hww; subst hww; simp only [Option.some.injEq] at ha; subst ha
+        · rename_i hww; rw [slotWidthEq_iff] at hww; subst hww
+          simp only [Option.some.injEq] at ha; subst ha
           obtain ⟨⟨bv, h1, h2⟩, h3⟩ := hsl i _ hf
-          exact hsl.insert ⟨⟨bv, h1, fun sa' hm => (List.mem_cons.mp hm).elim (· ▸ hall bv h1) (h2 sa')⟩, hsc' sas h3⟩
+          exact hsl.insert ⟨⟨bv, h1,
+            fun sa' hm => (List.mem_cons.mp hm).elim (· ▸ hall bv h1) (h2 sa')⟩, hsc' sas h3⟩
         · simp only [Option.some.injEq] at ha; subst ha; exact (hsl.clear _ _).insert hfresh
       · simp only [Option.some.injEq] at ha; subst ha; exact (hsl.clear _ _).insert hfresh
   · rename_i hw; split at ha
@@ -1468,30 +1491,30 @@ theorem addSlotEntry_ok {vw : Trie SlotWidth} {sa : SymArg} {i : Nat} {w : SlotW
       intro x hx; rcases hloc with ⟨⟨bv0, _, h2⟩, hty⟩ | ⟨_, x0, h1, h2⟩
       · have h3 := h2 sa hm1
         cases sa with
-        | var x' => exact fun t v hm => by obtain ⟨a, b, rfl⟩ := hty t v hm; exact (hvt x' hw _ v hm a b rfl).elim
+        | var x' =>
+          exact fun t v hm => by
+            obtain ⟨a, b, rfl⟩ := hty t v hm; exact (hvt x' hw _ v hm a b rfl).elim
         | immVec _ _ => simp [symArgWidth] at hw
         | _ => exact h3.elim
       · rw [hx] at h1; cases h1; exact h2 sa hm1
-    have hfresh : SlotOk G σ i (.gpr [sa]) ∧ ∀ sa' ∈ (SlotEntry.gpr [sa]).sas, symArgScopeOk nv sa' = true :=
+    have hfresh : SlotOk G σ i (.gpr [sa]) ∧
+        ∀ sa' ∈ (SlotEntry.gpr [sa]).sas, symArgScopeOk nv sa' = true :=
       ⟨⟨σ[i], List.getElem?_eq_getElem hi', by simpa using hall _ (List.getElem?_eq_getElem hi')⟩,
         by simpa [SlotEntry.sas] using hsc⟩
     split at ha
     · rename_i sas hf; simp only [Option.some.injEq] at ha; subst ha
       obtain ⟨⟨x, h1, h2⟩, h3⟩ := hsl i _ hf
-      exact hsl.insert ⟨⟨x, h1, fun sa' hm => (List.mem_cons.mp hm).elim (· ▸ hall x h1) (h2 sa')⟩, hsc' sas h3⟩
+      exact hsl.insert ⟨⟨x, h1,
+        fun sa' hm => (List.mem_cons.mp hm).elim (· ▸ hall x h1) (h2 sa')⟩, hsc' sas h3⟩
     · simp only [Option.some.injEq] at ha; subst ha; exact (hsl.clear _ _).insert hfresh
 
-theorem Agree.setSlots (hA : Agree T G nv st s σ) {sl : Trie SlotEntry} (h : SlotsOk G nv σ sl) : Agree T G nv
-    { st with slots := sl } s σ :=
+theorem Agree.setSlots (hA : Agree T G nv st s σ) {sl : Trie SlotEntry} (h : SlotsOk G nv σ sl) :
+    Agree T G nv { st with slots := sl } s σ :=
   { hA with slots := fun j se hj => (h j se hj).1, slots_lt := fun j se hj => (h j se hj).2 }
 theorem Agree.pushRegZ (hA : Agree T G nv st s σ) {sa : SymArg} {rl : RegLoc T.Reg T.VReg T.Cond}
-    (h : RegLocOk T.mach G s sa rl) (hsc : symArgScopeOk nv sa = true)
-    (zExt : List T.Reg)
+    (h : RegLocOk T.mach G s sa rl) (hsc : symArgScopeOk nv sa = true) (zExt : List T.Reg)
     (hz : ∀ r ∈ zExt, T.mach.getGpr s r = ((T.mach.getGpr s r).setWidth 32).setWidth 64) :
-    Agree T G nv
-    { st with
-      regs := (sa, rl) :: st.regs
-      zeroExt32 := zExt } s σ :=
+    Agree T G nv { st with regs := (sa, rl) :: st.regs, zeroExt32 := zExt } s σ :=
   hA.setRegs _ (fun p hp => (List.mem_cons.mp hp).elim (fun e => e ▸ ⟨h, hsc⟩)
     fun hp => ⟨hA.regs p hp, hA.regs_lt p hp⟩) hz hA.flags_ok
 
@@ -1505,7 +1528,8 @@ theorem buildEntryBase_aux {vw : Trie SlotWidth} {s : T.mach.MData} (hσ : σ.le
     buildEntryBase T.toIsa hints.nslots vw live st = some st' →
     (∀ p ∈ live, LocOk T.mach G s σ p.1 p.2) → (∀ p ∈ live, symArgScopeOk nv p.1 = true) →
     Agree T G nv st s σ → Agree T G nv st' s σ
-  | [], st, st', _, hb, _, _, hA => by simp only [buildEntryBase, Option.some.injEq] at hb; subst hb; exact hA
+  | [], st, st', _, hb, _, _, hA => by
+    simp only [buildEntryBase, Option.some.injEq] at hb; subst hb; exact hA
   | (sa, loc) :: rest, st, st', hvw, hb, hl, hs, hA => by
     have hl0 := hl _ (List.mem_cons_self ..)
     have hs0 : symArgScopeOk nv sa = true := hs _ (List.mem_cons_self ..)
@@ -1520,15 +1544,17 @@ theorem buildEntryBase_aux {vw : Trie SlotWidth} {s : T.mach.MData} (hσ : σ.le
       simp only [buildEntryBase] at hb; split at hb
       · exact IH _ (by exact hvw) hb (hA.pushReg (rl := .vec v) hl0 hs0)
       · simp at hb
-    | flag c => simp only [buildEntryBase] at hb; exact IH _ (by exact hvw) hb (hA.pushReg (rl := .flag c) hl0 hs0)
+    | flag c =>
+      simp only [buildEntryBase] at hb
+      exact IH _ (by exact hvw) hb (hA.pushReg (rl := .flag c) hl0 hs0)
     | slot i w =>
       simp only [buildEntryBase] at hb; split at hb
       · simp at hb
-      rename_i hi
-      simp only [Option.bind_eq_some_iff] at hb
-      obtain ⟨sl', ha, hb⟩ := hb
-      exact IH _ (by exact hvw) hb (hA.setSlots (addSlotEntry_ok ha (fun j se hj => ⟨hA.slots j se hj, hA.slots_lt j se hj⟩) hl0 hs0
-        (fun x wx hx t v hm => (hA.vw x wx (hvw ▸ hx) t v hm).2) (fun x hx t v hm => hA.vt x t v hm (hvw ▸ hx))
+      rename_i hi; simp only [Option.bind_eq_some_iff] at hb; obtain ⟨sl', ha, hb⟩ := hb
+      exact IH _ (by exact hvw) hb (hA.setSlots (addSlotEntry_ok ha
+        (fun j se hj => ⟨hA.slots j se hj, hA.slots_lt j se hj⟩) hl0 hs0
+        (fun x wx hx t v hm => (hA.vw x wx (hvw ▸ hx) t v hm).2)
+        (fun x hx t v hm => hA.vt x t v hm (hvw ▸ hx))
         (by rw [hσ]; simpa using hi)))
 
 theorem mem_head_cases (hlt : ∀ p ∈ G, p.2.2 < nv) {t t' : Ty} {x : Val t} {v' : Val t'}
@@ -1543,43 +1569,50 @@ theorem not_pair_of_isGprTy {I : Isa} {t : Ty} (h : isGprTy I t = true) : ∀ a 
 
 theorem Agree.bindVar (hA : Agree T G nv st s σ) {t : Ty} (x : Val t) {vw' : Trie SlotWidth}
     (hvw0 : ∀ y < nv, vw'.find? y = st.vecWidths.find? y)
-    (hvwn : ∀ w, vw'.find? nv = some w → t.size ≤ w.bits ∧ ∃ a b, t = .pair a b) (hvwy : ∀ y, nv < y → vw'.find? y = none)
-    (hvtn : vw'.find? nv = none → ∀ a b, t ≠ .pair a b) : Agree T (⟨t, x, nv⟩ :: G) (nv + 1) { st with vecWidths := vw' } s σ
-    := by
+    (hvwn : ∀ w, vw'.find? nv = some w → t.size ≤ w.bits ∧ ∃ a b, t = .pair a b)
+    (hvwy : ∀ y, nv < y → vw'.find? y = none)
+    (hvtn : vw'.find? nv = none → ∀ a b, t ≠ .pair a b) :
+    Agree T (⟨t, x, nv⟩ :: G) (nv + 1) { st with vecWidths := vw' } s σ := by
   have hlt := hA.ctx_lt
   refine hA.extend (Nat.le_succ nv) (fun p hp => ?_) (fun p hp => ?_)
     (fun p hp => List.mem_cons_of_mem _ hp) (ctx_uniq_cons hlt hA.ctx_uniq)
     hvw0 (fun y w hy hle => ?_) (fun p hp hle hn => ?_)
   · exact (List.mem_cons.mp hp).imp (fun e => e ▸ Nat.le_refl _) id |>.symm
-  · exact (List.mem_cons.mp hp).elim (fun e => e ▸ Nat.lt_succ_self _) fun hp => Nat.lt_succ_of_lt (hlt p hp)
-  · obtain rfl : y = nv := Decidable.byContradiction fun hy' => by rw [hvwy y (by omega)] at hy; cases hy
+  · exact (List.mem_cons.mp hp).elim (fun e => e ▸ Nat.lt_succ_self _)
+      fun hp => Nat.lt_succ_of_lt (hlt p hp)
+  · obtain rfl : y = nv := Decidable.byContradiction fun hy' => by
+      rw [hvwy y (by omega)] at hy; cases hy
     exact ⟨Nat.lt_succ_self _, fun t' v' hm =>
       mem_head_cases hlt hm (fun t' _ => t'.size ≤ w.bits ∧ ∃ a b, t' = .pair a b) (hvwn w hy)⟩
   · exact (List.mem_cons.mp hp).elim (fun e => by subst e; exact hvtn hn)
       fun hp => absurd (hlt p hp) (Nat.not_lt.mpr hle)
 
-theorem Agree.congrG {G' : VCtx} {nv' : Nat} (hA : Agree T G nv st s σ) (hG : ∀ p, p ∈ G ↔ p ∈ G') (hn : nv = nv') :
-    Agree T G' nv' st s σ := by
+theorem Agree.congrG {G' : VCtx} {nv' : Nat} (hA : Agree T G nv st s σ)
+    (hG : ∀ p, p ∈ G ↔ p ∈ G') (hn : nv = nv') : Agree T G' nv' st s σ := by
   subst hn
-  exact hA.extend (Nat.le_refl _) (fun p hp => Or.inl ((hG p).mpr hp)) (fun p hp => hA.ctx_lt p ((hG p).mpr hp))
+  exact hA.extend (Nat.le_refl _) (fun p hp => Or.inl ((hG p).mpr hp))
+    (fun p hp => hA.ctx_lt p ((hG p).mpr hp))
     (fun p hp => (hG p).mp hp) (fun h1 h2 => hA.ctx_uniq ((hG _).mpr h1) ((hG _).mpr h2))
     (fun _ _ => rfl) (fun y w hy hle => absurd (hA.vw_lt y w hy) (by omega))
     (fun p hp hle _ => absurd (hA.ctx_lt p ((hG p).mpr hp)) (Nat.not_lt.mpr hle))
 
-theorem vw_none_of_ge (hA : Agree T G nv st s σ) {y : Nat} (hy : nv ≤ y) : st.vecWidths.find? y = none := by
+theorem vw_none_of_ge (hA : Agree T G nv st s σ) {y : Nat} (hy : nv ≤ y) :
+    st.vecWidths.find? y = none := by
   cases h : st.vecWidths.find? y with
   | none => rfl
   | some w => exact absurd (hA.vw_lt y w h) (by omega)
 
 /-- Binding a non-vector variable (no new width). -/
-theorem Agree.bindSame (hA : Agree T G nv st s σ) {t : Ty} (x : Val t) (hty : ∀ a b, t ≠ .pair a b) : Agree T
-    (⟨t, x, nv⟩ :: G) (nv + 1) { st with vecWidths := st.vecWidths } s σ :=
+theorem Agree.bindSame (hA : Agree T G nv st s σ) {t : Ty} (x : Val t)
+    (hty : ∀ a b, t ≠ .pair a b) :
+    Agree T (⟨t, x, nv⟩ :: G) (nv + 1) { st with vecWidths := st.vecWidths } s σ :=
   hA.bindVar x (fun _ _ => rfl) (fun w h => by rw [vw_none_of_ge hA (Nat.le_refl _)] at h; cases h)
     (fun y hy => vw_none_of_ge hA (by omega)) fun _ => hty
 
 /-- Binding a vector variable with width `w`. -/
-theorem Agree.bindIns (hA : Agree T G nv st s σ) {t : Ty} (x : Val t) {w : SlotWidth} (hw : vecWidth? T.toIsa t = some w)
-    : Agree T (⟨t, x, nv⟩ :: G) (nv + 1) { st with vecWidths := st.vecWidths.insert nv w } s σ :=
+theorem Agree.bindIns (hA : Agree T G nv st s σ) {t : Ty} (x : Val t) {w : SlotWidth}
+    (hw : vecWidth? T.toIsa t = some w) :
+    Agree T (⟨t, x, nv⟩ :: G) (nv + 1) { st with vecWidths := st.vecWidths.insert nv w } s σ :=
   hA.bindVar x (fun y hy => Trie.find?_insert_ne _ _ (by omega))
     (fun w' h => by rw [Trie.find?_insert_self] at h; cases h; exact vecWidth?_spec hw)
     (fun y hy => by rw [Trie.find?_insert_ne _ _ (by omega)]; exact vw_none_of_ge hA (by omega))
@@ -1589,15 +1622,21 @@ end Entry
 
 theorem scope_nv (nv : Nat) : symArgScopeOk (nv + 1) (.var nv) = true := by simp [symArgScopeOk]
 
-theorem bindBlockParams_aux {s : T.mach.MData} {σ : List (BitVec 64)} (hσ : σ.length = hints.nslots) :
-    ∀ (ts : List Ty) (xs : Tup Val ts) (ploc : List T.toIsa.Loc) (G : VCtx) (nv : Nat) (st st' : SymState T.toIsa),
+theorem bindBlockParams_aux {s : T.mach.MData} {σ : List (BitVec 64)}
+    (hσ : σ.length = hints.nslots) :
+    ∀ (ts : List Ty) (xs : Tup Val ts) (ploc : List T.toIsa.Loc) (G : VCtx) (nv : Nat)
+      (st st' : SymState T.toIsa),
     bindBlockParams T.toIsa hints.nslots ts ploc nv st = some st' → ParamsOk T.mach s σ ts xs ploc →
     Agree T G nv st s σ → Agree T (Tup.zip xs (Tup.levels ts nv) ++ G) (nv + ts.length) st' s σ
-  | [], _, [], G, nv, st, st', hb, _, hA => by simp only [bindBlockParams, Option.some.injEq] at hb; subst hb; exact hA
-  | [], _, _ :: _, _, _, _, _, hb, _, _ | _ :: _, _, [], _, _, _, _, hb, _, _ => by simp [bindBlockParams] at hb
+  | [], _, [], G, nv, st, st', hb, _, hA => by
+    simp only [bindBlockParams, Option.some.injEq] at hb; subst hb; exact hA
+  | [], _, _ :: _, _, _, _, _, hb, _, _ | _ :: _, _, [], _, _, _, _, hb, _, _ => by
+    simp [bindBlockParams] at hb
   | t :: ts, (x, xs), loc :: locs, G, nv, st, st', hb, ⟨hp0, hp'⟩, hA => by
-    have fin := fun st1 hb1 hA1 => (bindBlockParams_aux hσ ts xs locs (⟨t, x, nv⟩ :: G) _ st1 st' hb1 hp' hA1).congrG
-      (G' := Tup.zip (x, xs) (Tup.levels (t :: ts) nv) ++ G) (fun p => List.perm_middle.mem_iff) (show nv + 1 + ts.length = nv + (ts.length + 1) by omega)
+    have fin := fun st1 hb1 hA1 =>
+      (bindBlockParams_aux hσ ts xs locs (⟨t, x, nv⟩ :: G) _ st1 st' hb1 hp' hA1).congrG
+        (G' := Tup.zip (x, xs) (Tup.levels (t :: ts) nv) ++ G) (fun p => List.perm_middle.mem_iff)
+        (show nv + 1 + ts.length = nv + (ts.length + 1) by omega)
     have hlt := hA.ctx_lt
     cases loc with
     | gpr r =>
@@ -1605,57 +1644,66 @@ theorem bindBlockParams_aux {s : T.mach.MData} {σ : List (BitVec 64)} (hσ : σ
       · rename_i hg
         have hg : r ∉ T.frame.scratch ∧ isGprTy T.toIsa t = true := by simpa using hg
         exact fin _ hb ((hA.bindSame x (not_pair_of_isGprTy hg.2)).pushReg (rl := .gpr r)
-          (fun t' v' hm => mem_head_cases hlt hm (fun t v => GprHolds (T.mach.getGpr s r) t v) hp0) (scope_nv nv))
+          (fun t' v' hm => mem_head_cases hlt hm
+            (fun t v => GprHolds (T.mach.getGpr s r) t v) hp0) (scope_nv nv))
       · simp at hb
     | vec v =>
-      simp only [bindBlockParams, Option.bind_eq_some_iff] at hb
-      obtain ⟨w, hw, hb⟩ := hb
+      simp only [bindBlockParams, Option.bind_eq_some_iff] at hb; obtain ⟨w, hw, hb⟩ := hb
       split at hb
-      · exact fin _ hb ((hA.bindIns x hw).pushReg (rl := .vec v) (fun t' v' hm => mem_head_cases hlt hm
-          (fun t0 v0 => t0.size ≤ SlotWidth.w512.bits ∧ VecHolds (T.mach.getVec s v) t0 v0) ⟨hp0.1, hp0⟩) (scope_nv nv))
+      · exact fin _ hb ((hA.bindIns x hw).pushReg (rl := .vec v)
+          (fun t' v' hm => mem_head_cases hlt hm
+            (fun t0 v0 => t0.size ≤ SlotWidth.w512.bits ∧ VecHolds (T.mach.getVec s v) t0 v0)
+            ⟨hp0.1, hp0⟩) (scope_nv nv))
       · simp at hb
     | flag c =>
-      simp only [bindBlockParams] at hb
-      split at hb
+      simp only [bindBlockParams] at hb; split at hb
       · exact fin _ hb ((hA.bindSame x (by simp)).pushReg (rl := .flag c) (fun t' v' hm =>
           mem_head_cases hlt hm (fun t v => FlagHolds (T.mach.evalCond s c) t v) hp0) (scope_nv nv))
       · simp at hb
     | slot i w =>
-      simp only [bindBlockParams] at hb
-      split at hb
+      simp only [bindBlockParams] at hb; split at hb
       · simp at hb
       rename_i hg
-      have hg : i + w.slots ≤ hints.nslots ∧ (isGprTy T.toIsa t = false → ¬vecWidth? T.toIsa t = none) := by
+      have hg : i + w.slots ≤ hints.nslots ∧
+          (isGprTy T.toIsa t = false → ¬vecWidth? T.toIsa t = none) := by
         simpa using hg
-      simp only [Option.bind_eq_some_iff] at hb
-      obtain ⟨sl', ha, hb⟩ := hb
-      have hA1 : Agree T (⟨t, x, nv⟩ :: G) (nv + 1) { st with vecWidths := match vecWidth? T.toIsa t with
-          | some wt => st.vecWidths.insert nv wt | none => st.vecWidths } s σ := by
+      simp only [Option.bind_eq_some_iff] at hb; obtain ⟨sl', ha, hb⟩ := hb
+      have hA1 : Agree T (⟨t, x, nv⟩ :: G) (nv + 1)
+          { st with vecWidths := match vecWidth? T.toIsa t with
+            | some wt => st.vecWidths.insert nv wt | none => st.vecWidths } s σ := by
         split
         · rename_i wt hwt; exact hA.bindIns x hwt
         · rename_i hwt; refine hA.bindSame x ?_
           cases hgt : isGprTy T.toIsa t
           · exact (hg.2 hgt hwt).elim
           · exact not_pair_of_isGprTy hgt
-      refine fin _ hb (hA1.setSlots (addSlotEntry_ok ha (fun j se hj => ⟨hA1.slots j se hj, hA1.slots_lt j se hj⟩) ?_
-        (scope_nv nv) (fun y wy hy t' v' hm => (hA1.vw y wy hy t' v' hm).2) (fun y hy t' v' hm => hA1.vt y t' v' hm hy)
+      refine fin _ hb (hA1.setSlots (addSlotEntry_ok ha
+        (fun j se hj => ⟨hA1.slots j se hj, hA1.slots_lt j se hj⟩) ?_ (scope_nv nv)
+        (fun y wy hy t' v' hm => (hA1.vw y wy hy t' v' hm).2)
+        (fun y hy t' v' hm => hA1.vt y t' v' hm hy)
         (by rw [hσ]; exact hg.1)))
       rcases hp0 with ⟨⟨bv, h1, h2, h3⟩, hpair⟩ | ⟨rfl, y, h1, h2⟩
-      · refine Or.inl ⟨⟨bv, h1, fun sa hm => ?_⟩, fun t' v' hm => mem_head_cases hlt hm (fun t _ => ∃ a b, t = .pair a b) hpair⟩
+      · refine Or.inl ⟨⟨bv, h1, fun sa hm => ?_⟩,
+          fun t' v' hm => mem_head_cases hlt hm (fun t _ => ∃ a b, t = .pair a b) hpair⟩
         rw [List.mem_singleton] at hm; subst hm
-        exact fun t' v' hm => mem_head_cases hlt hm (fun t v => t.size ≤ w.bits ∧ VecHolds bv t v) ⟨h2, h3⟩
+        exact fun t' v' hm =>
+          mem_head_cases hlt hm (fun t v => t.size ≤ w.bits ∧ VecHolds bv t v) ⟨h2, h3⟩
       · refine Or.inr ⟨rfl, y, h1, fun sa hm => ?_⟩
         rw [List.mem_singleton] at hm; subst hm
         exact fun t' v' hm => mem_head_cases hlt hm (fun t v => GprHolds y t v) h2
 
 theorem bindAbiParams_aux {s : T.mach.MData} {σ : List (BitVec 64)} :
     ∀ (ts : List Ty) (xs : Tup Val ts) (locs : Tup (AbiReg T.Reg T.VReg) ts) (G : VCtx) (nv : Nat)
-      (st st' : SymState T.toIsa), bindAbiParams T.toIsa locs nv st = some st' → TRel (T.mach.AbiHolds s) locs xs →
+      (st st' : SymState T.toIsa), bindAbiParams T.toIsa locs nv st = some st' →
+      TRel (T.mach.AbiHolds s) locs xs →
     Agree T G nv st s σ → Agree T (Tup.zip xs (Tup.levels ts nv) ++ G) (nv + ts.length) st' s σ
-  | [], _, _, G, nv, st, st', hb, _, hA => by simp only [bindAbiParams, Option.some.injEq] at hb; subst hb; exact hA
+  | [], _, _, G, nv, st, st', hb, _, hA => by
+    simp only [bindAbiParams, Option.some.injEq] at hb; subst hb; exact hA
   | t :: ts, (x, xs), (loc, locs), G, nv, st, st', hb, .cons hr0 hr', hA => by
-    have fin := fun st1 hb1 (hA1 : Agree T _ _ st1 s σ) => (bindAbiParams_aux ts xs locs (⟨t, x, nv⟩ :: G) _ st1 st' hb1 hr' hA1).congrG
-      (G' := Tup.zip (x, xs) (Tup.levels (t :: ts) nv) ++ G) (fun p => List.perm_middle.mem_iff) (show nv + 1 + ts.length = nv + (ts.length + 1) by omega)
+    have fin := fun st1 hb1 (hA1 : Agree T _ _ st1 s σ) =>
+      (bindAbiParams_aux ts xs locs (⟨t, x, nv⟩ :: G) _ st1 st' hb1 hr' hA1).congrG
+        (G' := Tup.zip (x, xs) (Tup.levels (t :: ts) nv) ++ G) (fun p => List.perm_middle.mem_iff)
+        (show nv + 1 + ts.length = nv + (ts.length + 1) by omega)
     cases loc with
     | gpr r =>
       simp only [bindAbiParams] at hb; split at hb
@@ -1686,10 +1734,11 @@ theorem bindAbiParams_aux {s : T.mach.MData} {σ : List (BitVec 64)} :
           hreg (scope_nv nv) zExt hzExt)
       · simp at hb
     | vec v =>
-      simp only [bindAbiParams, Option.bind_eq_some_iff] at hb
-      obtain ⟨w, hw, hb⟩ := hb
-      exact fin _ hb ((hA.bindIns x hw).pushReg (rl := .vec v) (fun t' v' hm => mem_head_cases hA.ctx_lt hm
-        (fun t0 v0 => t0.size ≤ SlotWidth.w512.bits ∧ VecHolds (T.mach.getVec s v) t0 v0) ⟨hr0.1, hr0⟩) (scope_nv nv))
+      simp only [bindAbiParams, Option.bind_eq_some_iff] at hb; obtain ⟨w, hw, hb⟩ := hb
+      exact fin _ hb ((hA.bindIns x hw).pushReg (rl := .vec v)
+        (fun t' v' hm => mem_head_cases hA.ctx_lt hm
+          (fun t0 v0 => t0.size ≤ SlotWidth.w512.bits ∧ VecHolds (T.mach.getVec s v) t0 v0)
+          ⟨hr0.1, hr0⟩) (scope_nv nv))
 
 /-- Block entry: the live set of `Entry` (lexical `defs`/`vw` of the enclosing group). -/
 theorem buildEntryBase_ok {G : VCtx} {nv : Nat} {vw : Trie SlotWidth} {defs : Trie DefFact}
@@ -1732,37 +1781,26 @@ private theorem findSlotGprGo_spec {G : VCtx} {σ : List (BitVec 64)} {slots : T
     simp only [findSlotGprGo] at h
     cases hf : slots.find? i with
     | none =>
-      rw [hf] at h
-      obtain ⟨hlt, hw⟩ := findSlotGprGo_spec hS (i + 1) fuel idx h
+      rw [hf] at h; obtain ⟨hlt, hw⟩ := findSlotGprGo_spec hS (i + 1) fuel idx h
       exact ⟨by omega, hw⟩
     | some se =>
       rw [hf] at h
       cases se with
       | vec _ _ =>
-        obtain ⟨hlt, hw⟩ := findSlotGprGo_spec hS (i + 1) fuel idx h
-        exact ⟨by omega, hw⟩
+        obtain ⟨hlt, hw⟩ := findSlotGprGo_spec hS (i + 1) fuel idx h; exact ⟨by omega, hw⟩
       | gpr sas =>
-        dsimp only at h
-        split at h
-        · rename_i hany
-          simp only [Option.some.injEq] at h; subst h
-          obtain ⟨sa, hsa, heq⟩ := List.any_eq_true.mp hany
-          rw [symArgEq_iff] at heq; subst heq
-          obtain ⟨w, hw, hall⟩ := hS i _ hf
-          exact ⟨by omega, w, hw, hall (.var x) hsa⟩
-        · obtain ⟨hlt, hw⟩ := findSlotGprGo_spec hS (i + 1) fuel idx h
-          exact ⟨by omega, hw⟩
+        dsimp only at h; split at h
+        · rename_i hany; simp only [Option.some.injEq] at h; subst h
+          obtain ⟨sa, hsa, heq⟩ := List.any_eq_true.mp hany; rw [symArgEq_iff] at heq; subst heq
+          obtain ⟨w, hw, hall⟩ := hS i _ hf; exact ⟨by omega, w, hw, hall (.var x) hsa⟩
+        · obtain ⟨hlt, hw⟩ := findSlotGprGo_spec hS (i + 1) fuel idx h; exact ⟨by omega, hw⟩
       | gprZ sas =>
-        dsimp only at h
-        split at h
-        · rename_i hany
-          simp only [Option.some.injEq] at h; subst h
+        dsimp only at h; split at h
+        · rename_i hany; simp only [Option.some.injEq] at h; subst h
           obtain ⟨⟨sa, z⟩, hsa, heq⟩ := List.any_eq_true.mp hany
           rw [symArgEq_iff] at heq; subst heq
-          obtain ⟨w, hw, hall⟩ := hS i _ hf
-          exact ⟨by omega, w, hw, (hall (.var x, z) hsa).1⟩
-        · obtain ⟨hlt, hw⟩ := findSlotGprGo_spec hS (i + 1) fuel idx h
-          exact ⟨by omega, hw⟩
+          obtain ⟨w, hw, hall⟩ := hS i _ hf; exact ⟨by omega, w, hw, (hall (.var x, z) hsa).1⟩
+        · obtain ⟨hlt, hw⟩ := findSlotGprGo_spec hS (i + 1) fuel idx h; exact ⟨by omega, hw⟩
 
 theorem findSlotGpr_ok {G : VCtx} {nv : Nat} {st : SymState T.toIsa} {s : T.mach.MData}
     {σ : List (BitVec 64)} (hA : Agree T G nv st s σ) {x idx : Nat}
@@ -1777,13 +1815,10 @@ private theorem spAddr_cell64 {zl : Bool} {idx : Nat} {w64 : BitVec 64}
       (T.mach.mem s) := by
   have hi : idx < σ.length := by rw [hI.1]; omega
   have hwin := hI.window (i := idx) (k := 1) (by omega)
-  rw [slice_one hi, array64_single] at hwin
-  rw [List.getElem?_eq_getElem hi] at hσ
-  cases hσ
+  rw [slice_one hi, array64_single] at hwin; rw [List.getElem?_eq_getElem hi] at hσ; cases hσ
   have hev : (spAddr T.toIsa idx).eval (T.mach.getGpr s) =
       T.mach.getGpr s T.frame.sp + BitVec.ofNat 64 (8 * idx) := rfl
-  rw [hev]
-  exact ⟨_, hwin⟩
+  rw [hev]; exact ⟨_, hwin⟩
 
 theorem spAddr_load_bits {zl : Bool} {idx w : Nat} {w64 : BitVec 64} {vx : BitVec w}
     (hlt : idx < hints.nslots) (hI : Inv T hints s₀ ra n Rf m s σ zl)
@@ -1807,15 +1842,12 @@ end Lemmas
 theorem orElse_eq_some {α : Type} {a b : Option α} {r : α} (h : (a <|> b) = some r) :
     a = some r ∨ b = some r := by
   cases a <;> simp_all [HOrElse.hOrElse, OrElse.orElse, Option.orElse]
-
 theorem slotWidthEq_eq {a b : SlotWidth} (h : slotWidthEq a b = true) : a = b := by
   cases a <;> cases b <;> simp_all [slotWidthEq]
-
 theorem symArgEq_eq {a b : SymArg} (h : symArgEq a b = true) : a = b := by
   cases a <;> cases b <;> simp_all [symArgEq]
   · rename_i x y; revert h; cases x <;> cases y <;> decide
   · exact slotWidthEq_eq h.1
-
 theorem regLocEq_eq {I : Isa} {a b : RegLoc I.Reg I.VReg I.Cond} (h : regLocEq a b = true) :
     a = b := by
   cases a <;> cases b <;> simp_all [regLocEq]
@@ -2389,27 +2421,15 @@ theorem recordDef_elide_ok {G : VCtx} {nv : Nat} {defs : Trie DefFact}
   | sub _ =>
     simp only [OpCode.wp_sub, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp'
     exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
-  | or _ =>
-    simp only [OpCode.wp_or] at hwp'
-    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
-  | xor _ =>
-    simp only [OpCode.wp_xor] at hwp'
-    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
+  | or _ => simp only [OpCode.wp_or] at hwp'; exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
+  | xor _ => simp only [OpCode.wp_xor] at hwp'; exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
   | shl _ =>
     simp only [OpCode.wp_shl, Ty.hasFloat, Bool.false_eq_true, ite_false] at hwp'
     exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
-  | copy _ =>
-    simp only [OpCode.wp_copy] at hwp'
-    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
-  | and _ =>
-    simp only [OpCode.wp_and] at hwp'
-    exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
-  | sext _ _ =>
-    simp only [OpCode.wp_sext] at hwp'
-    exact ⟨w, rfl, _, hwp'.2.1, hwp'.2.2.2⟩
-  | zext _ _ =>
-    simp only [OpCode.wp_zext] at hwp'
-    exact ⟨w, rfl, _, hwp'.2.1, hwp'.2.2.2⟩
+  | copy _ => simp only [OpCode.wp_copy] at hwp'; exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
+  | and _ => simp only [OpCode.wp_and] at hwp'; exact ⟨w, rfl, _, hwp'.1, hwp'.2.2⟩
+  | sext _ _ => simp only [OpCode.wp_sext] at hwp'; exact ⟨w, rfl, _, hwp'.2.1, hwp'.2.2.2⟩
+  | zext _ _ => simp only [OpCode.wp_zext] at hwp'; exact ⟨w, rfl, _, hwp'.2.1, hwp'.2.2.2⟩
   | _ => simp [recordDef] at hd
 
 end Rega

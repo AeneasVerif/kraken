@@ -41,7 +41,8 @@ build_lean_path() {
   for pair in \
     "LeanQbe/T/Amd64 DebugAsm" \
     "LeanQbe/T/Amd64 PrintATTAlign" \
-    "LeanQbe/T/Arm64 DebugAsm"; do
+    "LeanQbe/T/Arm64 DebugAsm" \
+    "LeanQbe/T/Arm64 PrintAlign"; do
     sub="${pair% *}"
     mod="${pair#* }"
     if [ -f "$wt/$sub/$mod.olean" ]; then
@@ -193,8 +194,7 @@ def main (args : List String) : IO Unit := do
     if h.nslots != 0 || !h.saved.isEmpty then
       throw (IO.userError s!"expected 0 slots for arm64 {fn.name}")
   let dirs ← IO.ofExcept (compile armTarget.toIsa armLegalTarget fns hs)
-  let printArm := fun c => ".p2align 2\n" ++
-    String.intercalate "\n" (c.map Kraken.AArch64.Print.directive) ++ "\n"
+  let printArm := fun c => ".p2align 2\n" ++ toAsmAligned c ++ "\n"
   let raw := Driver.emitAsm printArm fns dirs
   let eoFns := [evenodd]
   let eoHs := [Fn.computeHints armTarget.toIsa armLegalTarget evenodd]
@@ -596,8 +596,7 @@ def main (args : List String) : IO Unit := do
   let m := LeanQbe.T.Examples.Kissat.FullM4.m4Module
   let hs := m.fns.map (Fn.computeHints armTarget.toIsa armLegalTarget)
   let dirs ← IO.ofExcept (compile armTarget.toIsa armLegalTarget m.fns hs)
-  let printArm := fun c => ".p2align 2\n" ++
-    String.intercalate "\n" (c.map Kraken.AArch64.Print.directive) ++ "\n"
+  let printArm := fun c => ".p2align 2\n" ++ toAsmAligned c ++ "\n"
   let raw := Driver.emitAsm printArm m.fns dirs
   let dbgSome ← IO.ofExcept (emitArm64DebugAsmChecked m.fns dirs (some hs) m.exits true)
   let dbgNone ← IO.ofExcept (emitArm64DebugAsmChecked m.fns dirs none m.exits true)

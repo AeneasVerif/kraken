@@ -229,11 +229,14 @@ def armClearFlagsIns : List Instr :=
 def armClearFlags : List Directive :=
   emitClean armClearFlagsIns
 
-/-- `add rd, rs, #0` (`Instr` builder). -/
+/-- `orr xd, xzr, xs` (`mov xd, xs`, zero-cycle register rename) for GP-to-GP moves;
+`add rd, rs, #0` when either operand is `.SP` (`Instr` builder). -/
 def armMovIns (rd rs : Reg) : List Instr :=
-  [armIselInsI (w := .W64) (.ADD_e (.low rd .W64) (.low rs .W64) imm0)]
+  match rd, rs with
+  | .reg d, .reg s => [armIselInsI (w := .W64) (.ORR_s (zr d .W64) (xzr .W64) (sh s))]
+  | _, _ => [armIselInsI (w := .W64) (.ADD_e (.low rd .W64) (.low rs .W64) imm0)]
 
-/-- `add rd, rs, #0`: valid for all `rd, rs : Reg` including `.SP`, preserving all flags. -/
+/-- Move `rs` into `rd` (`orr`/`mov` for GP-to-GP, `add #0` for `.SP`), preserving all flags. -/
 def armMov (rd rs : Reg) : List Directive :=
   emitClean (armMovIns rd rs)
 
@@ -639,7 +642,7 @@ def armOfBoolOpIns (n : Nat) (pa : PArg Reg Empty ArmCond .bool) (d : XReg) :
     | .imm b => some (armMovImmI d (BitVec.ofNat 64 b.toNat), maskNone)
     | .flag c => some ([armCset64I d c], maskNone)
 
-/-- Wrapping binary ALU operations (`add`, `sub`, `mul`, `and`, `or`, `xor`) at `[8, 16, 32, 64]`. -/
+/-- Wrapping binary ALU ops (`add`, `sub`, `mul`, `and`, `or`, `xor`) at `[8, 16, 32, 64]`. -/
 inductive ArmBinK | add | sub | mul | and | or | xor
 
 abbrev armBinDirI (k : ArmBinK) (w : RegWidth) (d ra rb : XReg) : Instr :=

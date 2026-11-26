@@ -83,6 +83,7 @@ globs = [
   "LeanQbe.T.Arm64.LinkRec",
   "LeanQbe.T.Arm64.Litmus",
   "LeanQbe.T.Arm64.LratBytes",
+  "LeanQbe.T.Arm64.PrintAlign",
   "LeanQbe.T.Arm64.Snippet",
   "LeanQbe.T.Arm64.Targ",
   "LeanQbe.T.Arm64.TargLemmas",
