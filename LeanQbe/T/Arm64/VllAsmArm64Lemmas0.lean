@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.Vll.Sem
-public import LeanQbe.T.Vll.AsmArm64
+public import LeanQbe.T.Arm64.VllAsmArm64
 import LeanQbe.T.Arm64.IselLemmas1
 import LeanQbe.T.Arm64.FrameLemmas
 import LeanQbe.T.AbiLemmas
@@ -9,9 +9,9 @@ import LeanQbe.T.Logic.MemLemmas
 import Kraken.AArch64.WP.Control
 
 /-!
-# AArch64 `BedrockMach` L1 Assembler Simulation Base (`Vll.AsmArm64Lemmas0`)
+# AArch64 `BedrockMach` L1 Assembler Simulation Base (`Arm64.VllAsmArm64Lemmas0`)
 
-Foundational definitions and lemmas for `LeanQbe.T.Vll.AsmArm64Lemmas`:
+Foundational definitions and lemmas for `LeanQbe.T.Arm64.VllAsmArm64Lemmas`:
 
 * `hostSymAddr`, `instrListClobFlags`, `ExecBodyOk`.
 * Label-index map `ρ` (`asmArm64Offset`) preservation: `asmArm64_noLab`, `asmArm64List_append`,
@@ -28,10 +28,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Arm64
 
 open LeanQbe.T
-open LeanQbe.T.Arm64
+open LeanQbe.T.Vll
 
 /-! ## 1. Host Symbol Map, `ExecBodyOk`, and Label-Map `ρ` Preservation -/
 
@@ -1406,4 +1406,4 @@ theorem asmNative_jump_run {h : Host} {k : Nat} {d : _root_.Directive}
     subst hsEq; rw [haEq]
     exact hcont sm' (stateRel_of_agreeNonScratch ha') hfr'
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Arm64

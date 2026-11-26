@@ -1,10 +1,11 @@
 module
 
-public import LeanQbe.T.Vll.FactorX643
-public import LeanQbe.T.Vll.AsmX64
+public import LeanQbe.T.Amd64.VllFactorX643
+public import LeanQbe.T.Amd64.VllAsmX64
 
 /-!
-# BedrockMach SysV x86-64 State Transport, Move/Shuffle Parity, & Lowering Parity (`Vll.FactorX644`)
+# BedrockMach SysV x86-64 State Transport, Move/Shuffle Parity, & Lowering
+  (`Amd64.VllFactorX644`)
 
 Part 2a of the exact `asmX64List` lowering equality proof between `vllX64Isa` (`vllX64Target`) and
 `x64Isa` (`x64Target`), factored cleanly so every file stays well below `2,500` LOC:
@@ -25,10 +26,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 open Std Std.ExtHashMap
 
 /-! ## 0. Reducible `vllX64IsaR` View & `DecidableEq` Congruence Toolkit -/
@@ -2118,4 +2119,4 @@ theorem extCmpMemRes_eq (co : CmpOp) (pd : PDst Reg64 RegMm CondCode .bool)
   rw [vllR_cmpMemFlagsOut?_eq, vllR_condOfCmp_eq]
   cases pd <;> rfl
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

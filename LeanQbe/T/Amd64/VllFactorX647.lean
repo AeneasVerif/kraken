@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Vll.FactorX646
+public import LeanQbe.T.Amd64.VllFactorX646
 
 /-!
-# BedrockMach SysV x86-64 `Fn.mid` & Top-Level Parity (`Vll.FactorX647`)
+# BedrockMach SysV x86-64 `Fn.mid` & Top-Level Parity (`Amd64.VllFactorX647`)
 
 Part 2c–2d of the exact `asmX64List` lowering equality proof between `vllX64Isa` (`vllX64Target`)
 and `x64Isa` (`x64Target`):
@@ -19,10 +19,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 open Std Std.ExtHashMap
 
 /-! ## 2c. `fnNoSameExt_mid`: `opNoSameExt` Closure Across `Fn.mid` -/
@@ -470,6 +470,312 @@ private theorem blocksNoSameExtGen_to_blocks {rs : List Ty} :
       (blocksNoSameExtGen_to_blocks _ hbs)
 end
 
+private def DupLSafe {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    {ts : List Ty} → TailDup.DupL V L rs ts → Prop
+  | _, .keep _ => True
+  | _, .dead => True
+  | _, .dup body => ∀ args, ExprNoSameExtGen (body args)
+
+private def TupDupLSafe {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    {sig : List (List Ty)} → Tup (TailDup.DupL V L rs) sig → Prop
+  | [], () => True
+  | _ :: _, (l, ls) => DupLSafe l ∧ TupDupLSafe ls
+
+private theorem pushTup_listDupLSafe {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    ∀ {sig : List (List Ty)} (Js : Tup (TailDup.DupL V L rs) sig)
+      {ls : List ((ts : List Ty) × TailDup.DupL V L rs ts)},
+      TupDupLSafe Js → (∀ p ∈ ls, DupLSafe p.2) →
+      ∀ p ∈ pushTup Js ls, DupLSafe p.2
+  | [], (), _, _, hls => hls
+  | _ :: _, (_, Js), _, ⟨hl, hJs⟩, hls =>
+    pushTup_listDupLSafe Js hJs fun p hp =>
+      (List.mem_cons.mp hp).elim (fun e => e ▸ hl) (hls p)
+
+private theorem listGet?_mem {α : Type} :
+    ∀ (xs : List α) (idx : Nat) {a : α}, listGet? xs idx = some a → a ∈ xs
+  | a :: _, 0, _, h => by cases h; exact .head _
+  | _ :: as, idx + 1, a, h => .tail _ (listGet?_mem as idx h)
+
+private theorem lookupL_dupLSafe {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (ls : List ((ts : List Ty) × TailDup.DupL V L rs ts))
+    (hls : ∀ p ∈ ls, DupLSafe p.2) {ts : List Ty} {idx : Nat}
+    {l : TailDup.DupL V L rs ts} (hl : lookupL ls ts idx = some l) :
+    DupLSafe l := by
+  dsimp only [lookupL] at hl
+  cases hget : listGet? ls idx with
+  | none => rw [hget] at hl; cases hl
+  | some p =>
+    rw [hget] at hl
+    obtain ⟨ts', l'⟩ := p
+    have hmem := hls ⟨ts', l'⟩ (listGet?_mem ls idx hget)
+    dsimp only [castListTy] at hl
+    cases hdec : listTyDecEq ts' ts with
+    | isFalse => rw [hdec] at hl; cases hl
+    | isTrue h => rw [hdec] at hl; cases h; cases hl; exact hmem
+
+mutual
+private inductive ExprDupSafe {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    Expr (Arg V) (TailDup.DupL V L rs) rs → Prop where
+  | let_ {ts : List Ty} {op : Op (Arg V) ts}
+      {k : Tup (Arg V) ts → Expr (Arg V) (TailDup.DupL V L rs) rs} :
+      opNoSameExt op.code = true → (∀ xs, ExprDupSafe (k xs)) →
+      ExprDupSafe (.let_ op k)
+  | load {t : Ty} {a : Arg (Arg V) i64}
+      {k : Arg V t → Expr (Arg V) (TailDup.DupL V L rs) rs} :
+      (∀ x, ExprDupSafe (k x)) → ExprDupSafe (.load t a k)
+  | store {t : Ty} {v : Arg (Arg V) t} {a : Arg (Arg V) i64}
+      {k : Expr (Arg V) (TailDup.DupL V L rs) rs} :
+      ExprDupSafe k → ExprDupSafe (.store v a k)
+  | call {as : List Ty} {f : Sym} {bs : List Ty} {args : Tup (Arg (Arg V)) as}
+      {k : Tup (Arg V) bs → Expr (Arg V) (TailDup.DupL V L rs) rs} :
+      (∀ xs, ExprDupSafe (k xs)) → ExprDupSafe (.call f args k)
+  | jnz {c : Arg (Arg V) .bool} {t e : Expr (Arg V) (TailDup.DupL V L rs) rs} :
+      ExprDupSafe t → ExprDupSafe e → ExprDupSafe (.jnz c t e)
+  | jump {ts : List Ty} {j : TailDup.DupL V L rs ts}
+      {args : Tup (Arg (Arg V)) ts} :
+      DupLSafe j → ExprDupSafe (.jump j args)
+  | ret {vs : Tup (Arg (Arg V)) rs} : ExprDupSafe (.ret vs)
+  | exit {as : List Ty} {f : Sym} {args : Tup (Arg (Arg V)) as} :
+      ExprDupSafe (.exit f args)
+  | hlt : ExprDupSafe .hlt
+  | group {sig : List (List Ty)}
+      {bodies : Tup (TailDup.DupL V L rs) sig → Blocks (Arg V) (TailDup.DupL V L rs) rs sig}
+      {k : Tup (TailDup.DupL V L rs) sig → Expr (Arg V) (TailDup.DupL V L rs) rs} :
+      (∀ ls, TupDupLSafe ls → BlocksDupSafe (bodies ls)) →
+      (∀ ls, TupDupLSafe ls → ExprDupSafe (k ls)) →
+      ExprDupSafe (.group bodies k)
+
+private inductive BlocksDupSafe {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    {sig : List (List Ty)} → Blocks (Arg V) (TailDup.DupL V L rs) rs sig → Prop where
+  | nil : BlocksDupSafe .nil
+  | cons {ts : List Ty} {sig : List (List Ty)}
+      {b : Tup (Arg V) ts → Expr (Arg V) (TailDup.DupL V L rs) rs}
+      {bs : Blocks (Arg V) (TailDup.DupL V L rs) rs sig} :
+      (∀ xs, ExprDupSafe (b xs)) → BlocksDupSafe bs → BlocksDupSafe (.cons b bs)
+end
+
+mutual
+private theorem denote_dupSafe (V : Ty → Type) (L : List Ty → Type) {rs : List Ty} :
+    ∀ (tf : TFlat rs) (vs : List ((t : Ty) × Arg V t))
+      (ls : List ((ts : List Ty) × TailDup.DupL V L rs ts)),
+      TFlatNoSameExt tf → (∀ p ∈ ls, DupLSafe p.2) →
+      ExprDupSafe (denote (Arg V) (TailDup.DupL V L rs) tf vs ls)
+  | .let_ op k, vs, ls, .let_ hok hk, hls => by
+    dsimp only [denote]
+    cases denoteArgs vs op.args with
+    | none => exact .hlt
+    | some _ => exact .let_ hok fun xs => denote_dupSafe V L k (pushTup xs vs) ls hk hls
+  | .load _ a k, vs, ls, .load hk, hls => by
+    dsimp only [denote]
+    cases denoteArg vs a with
+    | none => exact .hlt
+    | some _ => exact .load fun v => denote_dupSafe V L k _ ls hk hls
+  | .store v a k, vs, ls, .store hk, hls => by
+    dsimp only [denote]
+    cases denoteArg vs v with
+    | none => exact .hlt
+    | some _ => cases denoteArg vs a with
+      | none => exact .hlt
+      | some _ => exact .store (denote_dupSafe V L k vs ls hk hls)
+  | .call _ _ args k, vs, ls, .call hk, hls => by
+    dsimp only [denote]
+    cases denoteArgs vs args with
+    | none => exact .hlt
+    | some _ => exact .call fun xs => denote_dupSafe V L k (pushTup xs vs) ls hk hls
+  | .jnz c t e, vs, ls, .jnz ht he, hls => by
+    dsimp only [denote]
+    cases denoteArg vs c with
+    | none => exact .hlt
+    | some _ => exact .jnz (denote_dupSafe V L t vs ls ht hls) (denote_dupSafe V L e vs ls he hls)
+  | .jump (ts := ts) j args, vs, ls, .jump, hls => by
+    dsimp only [denote]
+    cases hlk : lookupL ls ts j with
+    | none => exact .hlt
+    | some j' =>
+      cases denoteArgs vs args with
+      | none => exact .hlt
+      | some _ => exact .jump (lookupL_dupLSafe ls hls hlk)
+  | .ret vs', vs, _, .ret, _ => by
+    dsimp only [denote]; cases denoteArgs vs vs' <;> first | exact .hlt | exact .ret
+  | .exit _ args, vs, _, .exit, _ => by
+    dsimp only [denote]; cases denoteArgs vs args <;> first | exact .hlt | exact .exit
+  | .hlt, _, _, .hlt, _ => .hlt
+  | .group bodies k, vs, ls, .group hb hk, hls =>
+    .group (fun Js hJs => denoteB_dupSafe V L bodies vs (pushTup Js ls) hb
+        (pushTup_listDupLSafe Js hJs hls))
+      (fun Js hJs => denote_dupSafe V L k vs (pushTup Js ls) hk
+        (pushTup_listDupLSafe Js hJs hls))
+
+private theorem denoteB_dupSafe (V : Ty → Type) (L : List Ty → Type) {rs : List Ty} :
+    ∀ {sig : List (List Ty)} (bs : TBlocks rs sig)
+      (vs : List ((t : Ty) × Arg V t)) (ls : List ((ts : List Ty) × TailDup.DupL V L rs ts)),
+      TBlocksNoSameExt bs → (∀ p ∈ ls, DupLSafe p.2) →
+      BlocksDupSafe (denoteB (Arg V) (TailDup.DupL V L rs) bs vs ls)
+  | _, .nil, _, _, .nil, _ => .nil
+  | _, .cons b bs, vs, ls, .cons hb hbs, hls =>
+    .cons (fun xs => denote_dupSafe V L b (pushTup xs vs) ls hb hls)
+      (denoteB_dupSafe V L bs vs ls hbs hls)
+end
+
+private theorem deadTup_dupSafe {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    ∀ (sig : List (List Ty)),
+      TupDupLSafe (TailDup.deadTup (V := V) (L := L) (rs := rs) sig)
+  | [] => trivial
+  | _ :: sig => ⟨trivial, deadTup_dupSafe sig⟩
+
+private theorem expandKeepLabels_dupSafe {V : Ty → Type} {L : List Ty → Type} {rs : List Ty} :
+    ∀ (acts : List TailDup.DupAct) (sig : List (List Ty))
+      (Js : Tup L (TailDup.filterActsSig acts sig)),
+      TupDupLSafe (TailDup.expandKeepLabels (V := V) (rs := rs) acts sig Js)
+  | _, [], () => trivial
+  | [], _ :: sig, () => ⟨trivial, deadTup_dupSafe sig⟩
+  | .keep :: acts, _ :: sig, (_, Js) => ⟨trivial, expandKeepLabels_dupSafe acts sig Js⟩
+  | .dup :: acts, _ :: sig, Js | .drop :: acts, _ :: sig, Js =>
+    ⟨trivial, expandKeepLabels_dupSafe acts sig Js⟩
+
+mutual
+private theorem rewriteExpr_noSameExt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (plan : TailDup.DupPlan) :
+    ∀ (e : Expr (Arg V) (TailDup.DupL V L rs) rs),
+      ExprDupSafe e → ExprNoSameExtGen (TailDup.rewriteExpr plan e)
+  | .let_ op k, .let_ hok hk => by
+    cases plan with
+    | node1 pk => exact .let_ hok fun xs => rewriteExpr_noSameExt pk _ (hk _)
+    | _ => exact .hlt
+  | .load t a k, .load hk => by
+    cases plan with
+    | node1 pk => exact .load fun v => rewriteExpr_noSameExt pk _ (hk _)
+    | _ => exact .hlt
+  | .store v a k, .store hk => by
+    cases plan with
+    | node1 pk => exact .store (rewriteExpr_noSameExt pk k hk)
+    | _ => exact .hlt
+  | .call f args k, .call hk => by
+    cases plan with
+    | node1 pk => exact .call fun xs => rewriteExpr_noSameExt pk _ (hk _)
+    | _ => exact .hlt
+  | .jnz c t e, .jnz ht he => by
+    cases plan with
+    | node2 pt pe =>
+      exact .jnz (rewriteExpr_noSameExt pt t ht) (rewriteExpr_noSameExt pe e he)
+    | _ => exact .hlt
+  | .jump j args, .jump hj => by
+    cases plan with
+    | leaf =>
+      cases j with
+      | keep _ => exact .jump
+      | dead => exact .hlt
+      | dup body => exact hj _
+    | _ => exact .hlt
+  | .ret _, .ret => by
+    cases plan <;> first | exact .ret | exact .hlt
+  | .exit _ _, .exit => by
+    cases plan <;> first | exact .exit | exact .hlt
+  | .hlt, .hlt => by
+    cases plan <;> exact .hlt
+  | .group (sig := sig) bodies k, .group hb hk => by
+    cases plan with
+    | group acts pbs pk =>
+      dsimp only [TailDup.rewriteExpr]
+      split
+      · refine .group (fun Js => ?_) (fun Js => ?_)
+        · have hNo := expandKeepLabels_dupSafe (V := V) (rs := rs) acts sig Js
+          have hDup := buildDupLabels_dupSafe acts pbs (bodies _) _ (hb _ hNo) hNo
+          exact rewriteKeptBlocks_noSameExt acts pbs _ (hb _ hDup)
+        · have hNo := expandKeepLabels_dupSafe (V := V) (rs := rs) acts sig Js
+          have hDup := buildDupLabels_dupSafe acts pbs (bodies _) _ (hb _ hNo) hNo
+          exact rewriteExpr_noSameExt pk _ (hk _ hDup)
+      · have hNo := deadTup_dupSafe (V := V) (L := L) (rs := rs) sig
+        have hDup := buildDupLabels_dupSafe acts pbs (bodies _) _ (hb _ hNo) hNo
+        exact rewriteExpr_noSameExt pk _ (hk _ hDup)
+    | _ => exact .hlt
+
+private theorem buildDupLabels_dupSafe {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (acts : List TailDup.DupAct) (pbs : TailDup.DupPlanB) :
+    ∀ {sig : List (List Ty)} (bs : Blocks (Arg V) (TailDup.DupL V L rs) rs sig)
+      (ls : Tup (TailDup.DupL V L rs) sig),
+      BlocksDupSafe bs → TupDupLSafe ls →
+      TupDupLSafe (TailDup.buildDupLabels acts pbs bs ls)
+  | [], .nil, (), .nil, _ => trivial
+  | _ :: sig, .cons b bs, (l, ls), .cons hb hbs, ⟨hl, hls⟩ => by
+    cases acts with
+    | nil => exact ⟨trivial, deadTup_dupSafe sig⟩
+    | cons a acts' =>
+      cases pbs with
+      | nil => cases a <;> exact ⟨trivial, deadTup_dupSafe sig⟩
+      | cons pb pbs' =>
+        cases a with
+        | dup => exact ⟨fun args => rewriteExpr_noSameExt pb _ (hb args),
+            buildDupLabels_dupSafe acts' pbs' bs ls hbs hls⟩
+        | keep => exact ⟨hl, buildDupLabels_dupSafe acts' pbs' bs ls hbs hls⟩
+        | drop => exact ⟨trivial, buildDupLabels_dupSafe acts' pbs' bs ls hbs hls⟩
+
+private theorem rewriteKeptBlocks_noSameExt {V : Ty → Type} {L : List Ty → Type} {rs : List Ty}
+    (acts : List TailDup.DupAct) (pbs : TailDup.DupPlanB) :
+    ∀ {sig : List (List Ty)} (bs : Blocks (Arg V) (TailDup.DupL V L rs) rs sig),
+      BlocksDupSafe bs →
+      BlocksNoSameExtGen (TailDup.rewriteKeptBlocks acts pbs bs)
+  | [], .nil, .nil => .nil
+  | _ :: _, .cons b bs, .cons hb hbs => by
+    cases acts with
+    | nil => exact .nil
+    | cons a acts' =>
+      cases pbs with
+      | nil =>
+        cases a with
+        | keep => exact .cons (fun _ => .hlt) (rewriteKeptBlocks_noSameExt acts' .nil bs hbs)
+        | dup | drop => exact rewriteKeptBlocks_noSameExt acts' .nil bs hbs
+      | cons pb pbs' =>
+        cases a with
+        | keep =>
+          exact .cons (fun xs => rewriteExpr_noSameExt pb _ (hb _))
+            (rewriteKeptBlocks_noSameExt acts' pbs' bs hbs)
+        | dup | drop => exact rewriteKeptBlocks_noSameExt acts' pbs' bs hbs
+end
+
+private theorem ite_func {as rs : List Ty} (c : Prop) [Decidable c]
+    (t e : Func as rs) (V : Ty → Type) (L : List Ty → Type) (xs : Tup V as) :
+    (if c then t else e) V L xs = if c then t V L xs else e V L xs := by
+  by_cases h : c <;> simp [h]
+
+private theorem tailDupOnce_noSameExt (cfg : TailDup.TailDupConfig) {as rs : List Ty}
+    (f : Func as rs)
+    (hf : ∀ (V : Ty → Type) (L : List Ty → Type) (xs : Tup V as), ExprNoSameExtGen (f V L xs))
+    (V : Ty → Type) (L : List Ty → Type) (xs : Tup V as) :
+    ExprNoSameExtGen ((Func.tailDupOnce f cfg).1 V L xs) := by
+  dsimp only [Func.tailDupOnce]
+  have htf : TFlatNoSameExt (reifyFunc f) := toTFlat_noSameExt _ _ _ (hf K KL _)
+  split
+  · dsimp only [Func.tailDupWithPlan]
+    rw [ite_func]
+    split
+    · exact rewriteExpr_noSameExt _ _
+        (denote_dupSafe V L (reifyFunc f) _ [] htf fun _ hp => nomatch hp)
+    · dsimp only [denoteFunc]
+      exact denote_noSameExt V L (reifyFunc f) _ [] htf
+  · dsimp only [denoteFunc]
+    exact denote_noSameExt V L (reifyFunc f) _ [] htf
+
+private theorem tailDupLoop_noSameExt (cfg : TailDup.TailDupConfig) :
+    ∀ (fuel : Nat) {as rs : List Ty} (f : Func as rs),
+      (∀ (V : Ty → Type) (L : List Ty → Type) (xs : Tup V as),
+        ExprNoSameExtGen (f V L xs)) →
+      ∀ (V : Ty → Type) (L : List Ty → Type) (xs : Tup V as),
+        ExprNoSameExtGen ((Func.tailDupLoop cfg fuel f) V L xs)
+  | 0, _, _, _, hf, V, L, xs => hf V L xs
+  | fuel + 1, _, _, f, hf, V, L, xs => by
+    dsimp only [Func.tailDupLoop]
+    rw [ite_func]
+    split
+    · exact tailDupLoop_noSameExt cfg fuel _ (tailDupOnce_noSameExt cfg f hf) V L xs
+    · exact tailDupOnce_noSameExt cfg f hf V L xs
+
+private theorem tailDup_noSameExt {as rs : List Ty} (f : Func as rs)
+    (hf : ∀ (V : Ty → Type) (L : List Ty → Type) (xs : Tup V as), ExprNoSameExtGen (f V L xs))
+    (V : Ty → Type) (L : List Ty → Type) (xs : Tup V as) :
+    ExprNoSameExtGen ((Func.tailDup f) V L xs) :=
+  tailDupLoop_noSameExt _ _ f hf V L xs
+
 private theorem renorm_lateCondThread_noSameExt {as rs : List Ty} (g : Func as rs)
     (xs : Tup Rega.VNat as) :
     ExprNoSameExt (Func.renorm (Func.lateCondThread g) Rega.VNat Rega.LNat xs) := by
@@ -506,7 +812,8 @@ private theorem renorm_lateCondThread_noSameExt {as rs : List Ty} (g : Func as r
     intro as rs h hh V L xs
     dsimp only [Func.renorm, denoteFunc, reifyFunc]
     exact denote_noSameExt V L _ _ _ (toTFlat_noSameExt _ _ _ (hh K KL _))
-  exact exprNoSameExtGen_to_expr _ ((hren _ (hmerge _ (hdceP _ (hfold _)))) Rega.VNat Rega.LNat xs)
+  exact exprNoSameExtGen_to_expr _
+    ((hren _ (hmerge _ (tailDup_noSameExt _ (hdceP _ (hfold _))))) Rega.VNat Rega.LNat xs)
 
 theorem fnNoSameExt_mid (lt : LegalTarget) (f : Fn) :
     ExprNoSameExt ((f.mid lt).body Rega.VNat Rega.LNat (Tup.levels (f.mid lt).as 0)) :=
@@ -748,4 +1055,4 @@ theorem vllX64_compileModule_eq (lt : LegalTarget) (raBytes : Nat) (exits : List
             simp only [hrest, hrx, Except.map, vllDir_append_asm]
     · rfl
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

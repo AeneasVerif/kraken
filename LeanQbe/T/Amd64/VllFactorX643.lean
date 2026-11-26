@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.Vll.FactorX642
-public import LeanQbe.T.Vll.AsmX64
+public import LeanQbe.T.Amd64.VllFactorX642
+public import LeanQbe.T.Amd64.VllAsmX64
 
 /-!
-# BedrockMach SysV x86-64 Callback Parity (`Vll.FactorX643`)
+# BedrockMach SysV x86-64 Callback Parity (`Amd64.VllFactorX643`)
 
 Part 1 of the exact `asmX64List` lowering equality proof between `vllX64Isa` (`vllX64Target`) and
 `x64Isa` (`x64Target`), factored cleanly so every file stays well below `2,500` LOC:
@@ -19,10 +19,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 open Std Std.ExtHashMap
 
 /-! ## 1. 1:1 `asmX64List` Callback Parity (`vllX64Isa` vs `x64Isa`) -/
@@ -86,10 +86,10 @@ private theorem addrToExprIns_clob (a : AddrArg Reg64) : (addrToExprIns a).2.2 =
   | baseIdxDisp _ _ _ _ => dsimp only [addrToExprIns]; repeat' (split <;> try rfl)
   | imm _ => rfl
 
-private theorem width_bits_toX64 : ∀ w : Width, w.bits = w.toX64.bits
+private theorem width_bits_toX64 : ∀ w : Vll.Width, w.bits = w.toX64.bits
   | .w8 => rfl | .w16 => rfl | .w32 => rfl | .w64 => rfl
 
-private theorem bitvec_setWidth_64_roundtrip (w : Width) (cb : BitVec w.bits) :
+private theorem bitvec_setWidth_64_roundtrip (w : Vll.Width) (cb : BitVec w.bits) :
     (cb.setWidth 64).setWidth w.bits = cb := by
   rw [BitVec.setWidth_setWidth_of_le _ w.bits_le_64, BitVec.setWidth_eq]
 
@@ -296,15 +296,15 @@ theorem vllX64_loadSext_eq (m n : Nat) (rd : Reg64) (a : AddrArg Reg64) :
     have h8 : m = 8 ∨ m = 16 ∨ m = 32 ∨ (m ≠ 8 ∧ m ≠ 16 ∧ m ≠ 32) := by omega
     rcases h8 with rfl | rfl | rfl | ⟨hn8, hn16, hn32⟩
     · simp only [Option.map, asmX64List, List.flatMap_cons, List.flatMap_nil, List.append_nil,
-        asmX64, Width.bits, x64LoadSext, x64LoadSextIns, emitCleanPair, ha, Bool.true_and,
+        asmX64, Vll.Width.bits, x64LoadSext, x64LoadSextIns, emitCleanPair, ha, Bool.true_and,
         Nat.blt, addrToExprIns_clob]
       rfl
     · simp only [Option.map, asmX64List, List.flatMap_cons, List.flatMap_nil, List.append_nil,
-        asmX64, Width.bits, x64LoadSext, x64LoadSextIns, emitCleanPair, ha, Bool.true_and,
+        asmX64, Vll.Width.bits, x64LoadSext, x64LoadSextIns, emitCleanPair, ha, Bool.true_and,
         Nat.blt, addrToExprIns_clob]
       rfl
     · simp only [Option.map, asmX64List, List.flatMap_cons, List.flatMap_nil, List.append_nil,
-        asmX64, Width.bits, x64LoadSext, x64LoadSextIns, emitCleanPair, ha, Bool.true_and,
+        asmX64, Vll.Width.bits, x64LoadSext, x64LoadSextIns, emitCleanPair, ha, Bool.true_and,
         Nat.blt, addrToExprIns_clob]
       rfl
     · split <;> first
@@ -349,8 +349,8 @@ theorem vllX64_store_eq (t : Ty) (pa : PArg Reg64 RegMm CondCode t) (a : AddrArg
       dsimp only [vllX64Isa, vllIsa, vllX64Policy, vllIsaOfHooks, vllGprIsaOfHooks,
         vllX64NativeHooks, vllX64StoreHook, vllCoreStore, x64Isa, x64Gpr]
       simp only [Option.map, asmX64List, List.flatMap_cons, List.flatMap_nil, List.append_nil,
-        asmX64, Width.toTy, Width.bits, x64Store, x64StoreIns, emitCleanPair, ha, Bool.true_and,
-        Bool.not_true, Bool.false_eq_true, ↓reduceIte, addrToExprIns_clob]
+        asmX64, Vll.Width.toTy, Vll.Width.bits, x64Store, x64StoreIns, emitCleanPair, ha,
+        Bool.true_and, Bool.not_true, Bool.false_eq_true, ↓reduceIte, addrToExprIns_clob]
       rfl
   | bits n =>
     by_cases hbw : ([8, 16, 32, 64] : List Nat).contains n = true
@@ -368,11 +368,11 @@ theorem vllX64_store_eq (t : Ty) (pa : PArg Reg64 RegMm CondCode t) (a : AddrArg
         split at hx <;> cases hx
       | gpr r =>
         dsimp only [vllX64Isa, vllIsa, vllX64Policy, vllIsaOfHooks, vllGprIsaOfHooks,
-          vllX64NativeHooks, vllX64StoreHook, vllCoreStore, vllCoreStoreW, withWidth, x64Arch,
+          vllX64NativeHooks, vllX64StoreHook, vllCoreStore, vllCoreStoreW, Vll.withWidth, x64Arch,
           x64Frame, x64Isa, x64Gpr]
         simp only [hbw, x64BitWidths, Bool.true_and, ↓reduceIte, Option.map, asmX64List,
-          List.flatMap_cons, List.flatMap_nil, List.append_nil, asmX64, Width.toTy, Width.bits,
-          x64Store, x64StoreIns, Amd64.withWidth, emitCleanPair, ha, Bool.not_true,
+          List.flatMap_cons, List.flatMap_nil, List.append_nil, asmX64, Vll.Width.toTy,
+          Vll.Width.bits, x64Store, x64StoreIns, Amd64.withWidth, emitCleanPair, ha, Bool.not_true,
           Bool.false_eq_true, addrToExprIns_clob]
         rfl
     · have hbwf : x64BitWidths.contains n = false := Bool.eq_false_iff.mpr hbw
@@ -404,12 +404,12 @@ theorem vllX64_store_eq_of_x64 {t : Ty} {pa : PArg Reg64 RegMm CondCode t} {a : 
   cases hpe
   exact ⟨cs, hcs, rfl⟩
 
-private theorem asmX64_load_zx_of_valid (w : Width) (rd : Reg64) (a : AddrArg Reg64)
+private theorem asmX64_load_zx_of_valid (w : Vll.Width) (rd : Reg64) (a : AddrArg Reg64)
     (ha : x64AddrValid a = true) :
     some (asmX64List [.load w .zx rd a], maskNone) = x64Load w.toTy rd a := by
   simp only [asmX64List, List.flatMap_cons, List.flatMap_nil, List.append_nil, asmX64]
   cases w <;>
-    (dsimp only [Width.toTy, x64Load, x64LoadIns, emitCleanPair]
+    (dsimp only [Vll.Width.toTy, x64Load, x64LoadIns, emitCleanPair]
      rw [ha]
      simp [addrToExprIns_clob])
 
@@ -489,7 +489,7 @@ private theorem opBinLeaImm_none_of_logic {w : _root_.Width} {k : AluBinKind}
     opBinLeaImm? w k ra cb rd = none := by
   cases k <;> simp_all [opBinLeaImm?]
 
-private theorem asmX64List_aluBin_hook_gpr_logic (w : Width) (k : AluBinKind) (rd ra rb : Reg64)
+private theorem asmX64List_aluBin_hook_gpr_logic (w : Vll.Width) (k : AluBinKind) (rd ra rb : Reg64)
     (hk : k = .and ∨ k = .or ∨ k = .xor)
     (hwide : (ra == rd) = true ∨ w = .w32 ∨ w = .w64) :
     let op : CoreAlu := match k with
@@ -505,7 +505,7 @@ private theorem asmX64List_aluBin_hook_gpr_logic (w : Width) (k : AluBinKind) (r
   have hk_comm : k.isComm = true := by rcases hk with rfl | rfl | rfl <;> rfl
   have hk_ne_sub : (k == .sub) = false := by rcases hk with rfl | rfl | rfl <;> rfl
   cases w <;> dsimp only [asmX64List, List.flatMap_cons, List.flatMap_nil, List.append_nil,
-    opBinIns, emitCleanPair, Width.toX64]
+    opBinIns, emitCleanPair, Vll.Width.toX64]
   all_goals
     by_cases hrr : (ra == rd) = true
     · rcases hk with rfl | rfl | rfl <;>
@@ -524,7 +524,7 @@ private theorem asmX64List_aluBin_hook_gpr_logic (w : Width) (k : AluBinKind) (r
             simp [hrrf, hrbf, hrbne, hk_comm, hk_ne_sub, opBinLeaReg_none_of_not_add hk_ne_add,
               asmX64, asmX64AluIns, asmX64AluBinIns, asmX64BinCoreIns, movSubWI, regW]
 
-private theorem asmX64List_aluBin_hook_imm_logic (w : Width) (k : AluBinKind) (rd ra : Reg64)
+private theorem asmX64List_aluBin_hook_imm_logic (w : Vll.Width) (k : AluBinKind) (rd ra : Reg64)
     (cb : BitVec w.bits) (hk : k = .and ∨ k = .or ∨ k = .xor)
     (hwide : (ra == rd) = true ∨ w = .w32 ∨ w = .w64) :
     let op : CoreAlu := match k with
@@ -544,7 +544,7 @@ private theorem asmX64List_aluBin_hook_imm_logic (w : Width) (k : AluBinKind) (r
   have hw32 : (_root_.Width.W32 != _root_.Width.W64) = true := rfl
   have hw64 : (_root_.Width.W64 != _root_.Width.W64) = false := rfl
   cases w <;> dsimp only [asmX64List, List.flatMap_cons, List.flatMap_nil, List.append_nil,
-    opBinIns, emitCleanPair, Width.toX64]
+    opBinIns, emitCleanPair, Vll.Width.toX64]
   have opBinLeaImm_self_none : ∀ (w : _root_.Width) (k : AluBinKind) (rd : Reg64)
       (cb : BitVec w.bits), opBinLeaImm? w k rd cb rd = none := by
     intro w' k' rd' cb'
@@ -554,7 +554,7 @@ private theorem asmX64List_aluBin_hook_imm_logic (w : Width) (k : AluBinKind) (r
     · rcases hk with rfl | rfl | rfl <;>
         (simp only [hrr, opBinLeaImm_none_of_logic hk_ne, Option.map, List.flatMap_cons,
            List.flatMap_nil, List.append_nil, asmX64, asmX64AluIns, asmX64AluBinIns,
-           asmX64BinCoreIns, Width.toX64, cast_eq, hcb, ↓reduceIte, Option.getD_none]
+           asmX64BinCoreIns, Vll.Width.toX64, cast_eq, hcb, ↓reduceIte, Option.getD_none]
          try rw [hw8]
          try rw [hw16]
          try rw [hw32]
@@ -569,14 +569,14 @@ private theorem asmX64List_aluBin_hook_imm_logic (w : Width) (k : AluBinKind) (r
         rcases hk with rfl | rfl | rfl <;>
           (simp only [hrrf, opBinLeaImm_none_of_logic hk_ne, Option.map, List.flatMap_cons,
              List.flatMap_nil, List.append_nil, asmX64, asmX64AluIns, asmX64AluBinIns,
-             asmX64BinCoreIns, Width.toX64, cast_eq, hcb, movSubWI, regW, Bool.false_eq_true,
+             asmX64BinCoreIns, Vll.Width.toX64, cast_eq, hcb, movSubWI, regW, Bool.false_eq_true,
              ↓reduceIte, Option.getD_none]
            try rw [hw32]
            try rw [hw64]
            simp only [Bool.true_or, Bool.false_or, ↓reduceIte]
            try (by_cases hf : fitsImm32 cb <;> simp [hf]))
 
-private theorem asmX64List_aluBin_hook_eq (w : Width) (k : AluBinKind) (rd ra : Reg64)
+private theorem asmX64List_aluBin_hook_eq (w : Vll.Width) (k : AluBinKind) (rd ra : Reg64)
     (pb : PArg Reg64 RegMm CondCode (.bits w.bits))
     (hwide : (ra == rd) = true ∨ w = .w32 ∨ w = .w64)
     (hk : (k = .add ∧ ra = rd) ∨ (k = .sub ∧ ra = rd) ∨ k = .and ∨ k = .or ∨ k = .xor) :
@@ -604,13 +604,13 @@ private theorem asmX64List_aluBin_hook_eq (w : Width) (k : AluBinKind) (rd ra : 
     | vec _ => cases w <;> rfl
     | gpr rb =>
       cases w <;> simp [asmX64List, asmX64, asmX64AluIns, asmX64AluBinIns, asmX64BinCoreIns,
-        opBinIns, emitCleanPair, Width.toX64, reg64_beq_self]
+        opBinIns, emitCleanPair, Vll.Width.toX64, reg64_beq_self]
     | imm cb =>
       have hcb := bitvec_setWidth_64_roundtrip w cb
       cases w <;>
         (simp only [asmX64List, List.flatMap_cons, List.flatMap_nil, List.append_nil, asmX64,
            asmX64AluIns, asmX64AluBinIns, asmX64BinCoreIns, opBinIns, hlea_self, emitCleanPair,
-           Option.map, Width.toX64, cast_eq, reg64_beq_self, hcb, ↓reduceIte, Option.getD_none]
+           Option.map, Vll.Width.toX64, cast_eq, reg64_beq_self, hcb, ↓reduceIte, Option.getD_none]
          try rw [hw8]
          try rw [hw16]
          try rw [hw32]
@@ -621,13 +621,13 @@ private theorem asmX64List_aluBin_hook_eq (w : Width) (k : AluBinKind) (rd ra : 
     | vec _ => cases w <;> rfl
     | gpr rb =>
       cases w <;> simp [asmX64List, asmX64, asmX64AluIns, asmX64AluBinIns, asmX64BinCoreIns,
-        opBinIns, emitCleanPair, Width.toX64, reg64_beq_self]
+        opBinIns, emitCleanPair, Vll.Width.toX64, reg64_beq_self]
     | imm cb =>
       have hcb := bitvec_setWidth_64_roundtrip w cb
       cases w <;>
         (simp only [asmX64List, List.flatMap_cons, List.flatMap_nil, List.append_nil, asmX64,
            asmX64AluIns, asmX64AluBinIns, asmX64BinCoreIns, opBinIns, hlea_self, emitCleanPair,
-           Option.map, Width.toX64, cast_eq, reg64_beq_self, hcb, ↓reduceIte, Option.getD_none]
+           Option.map, Vll.Width.toX64, cast_eq, reg64_beq_self, hcb, ↓reduceIte, Option.getD_none]
          try rw [hw8]
          try rw [hw16]
          try rw [hw32]
@@ -651,7 +651,7 @@ private theorem asmX64List_aluBin_hook_eq (w : Width) (k : AluBinKind) (rd ra : 
     | imm cb =>
       exact asmX64List_aluBin_hook_imm_logic w .xor rd ra cb (Or.inr (Or.inr rfl)) hwide
 
-private theorem asmX64List_mul_core_eq (w : Width) (hw : w = .w16 ∨ w = .w32 ∨ w = .w64)
+private theorem asmX64List_mul_core_eq (w : Vll.Width) (hw : w = .w16 ∨ w = .w32 ∨ w = .w64)
     (rd : Reg64) (pb : PArg Reg64 RegMm CondCode (.bits w.bits)) (vh : VariantHint) :
     ((vllCoreAlu x64Arch .mul w (.gpr rd) pb rd).map
         (fun (c0, cl) => (asmX64List c0, cl))) =
@@ -678,42 +678,42 @@ private theorem asmX64List_mul_core_eq (w : Width) (hw : w = .w16 ∨ w = .w32 �
     | vec _ => rw [hmul_vh]; simp [vllCoreAlu, vllRegOfPArg, vllSrcOfPArg, opBinIns, emitCleanPair]
     | gpr rb =>
       rw [hmul_vh]; simp [vllCoreAlu, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64,
-        asmX64AluIns, asmX64AluMulIns, asmX64BinCoreIns, opBinIns, emitCleanPair, Width.toX64,
+        asmX64AluIns, asmX64AluMulIns, asmX64BinCoreIns, opBinIns, emitCleanPair, Vll.Width.toX64,
         reg64_beq_self]
     | imm cb =>
       have hcb := bitvec_setWidth_64_roundtrip .w16 cb
       rw [hmul_vh]
       simp [vllCoreAlu, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, asmX64AluIns,
-        asmX64AluMulIns, asmX64BinCoreIns, opBinIns, emitCleanPair, opBinLeaImm?, Width.toX64,
+        asmX64AluMulIns, asmX64BinCoreIns, opBinIns, emitCleanPair, opBinLeaImm?, Vll.Width.toX64,
         reg64_beq_self, hcb, hw16]
   · cases pb with
     | vec _ => rw [hmul_vh]; simp [vllCoreAlu, vllRegOfPArg, vllSrcOfPArg, opBinIns, emitCleanPair]
     | gpr rb =>
       rw [hmul_vh]; simp [vllCoreAlu, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64,
-        asmX64AluIns, asmX64AluMulIns, asmX64BinCoreIns, opBinIns, emitCleanPair, Width.toX64,
+        asmX64AluIns, asmX64AluMulIns, asmX64BinCoreIns, opBinIns, emitCleanPair, Vll.Width.toX64,
         reg64_beq_self]
     | imm cb =>
       have hcb := bitvec_setWidth_64_roundtrip .w32 cb
       rw [hmul_vh]
       simp [vllCoreAlu, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, asmX64AluIns,
-        asmX64AluMulIns, asmX64BinCoreIns, opBinIns, emitCleanPair, opBinLeaImm?, Width.toX64,
+        asmX64AluMulIns, asmX64BinCoreIns, opBinIns, emitCleanPair, opBinLeaImm?, Vll.Width.toX64,
         reg64_beq_self, hcb, hw32]
   · cases pb with
     | vec _ => rw [hmul_vh]; simp [vllCoreAlu, vllRegOfPArg, vllSrcOfPArg, opBinIns, emitCleanPair]
     | gpr rb =>
       rw [hmul_vh]; simp [vllCoreAlu, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64,
-        asmX64AluIns, asmX64AluMulIns, asmX64BinCoreIns, opBinIns, emitCleanPair, Width.toX64,
+        asmX64AluIns, asmX64AluMulIns, asmX64BinCoreIns, opBinIns, emitCleanPair, Vll.Width.toX64,
         reg64_beq_self]
     | imm cb =>
       rw [hmul_vh]
       simp only [vllCoreAlu, vllRegOfPArg, vllSrcOfPArg, List.nil_append, opBinIns, emitCleanPair,
-        opBinLeaImm?, Width.toX64, cast_eq, reg64_beq_self, hw64, Option.map, ↓reduceIte,
+        opBinLeaImm?, Vll.Width.toX64, cast_eq, reg64_beq_self, hw64, Option.map, ↓reduceIte,
         Bool.false_or, BitVec.setWidth_eq, Option.some.injEq]
       by_cases hf : fitsImm32 cb <;>
-        simp [asmX64List, asmX64, asmX64AluIns, asmX64AluMulIns, asmX64BinCoreIns, Width.toX64,
+        simp [asmX64List, asmX64, asmX64AluIns, asmX64AluMulIns, asmX64BinCoreIns, Vll.Width.toX64,
           reg64_beq_self, hw64, hf]
 
-private theorem asmX64List_cmp_core_eq (co : CmpOp) (w : Width) (rx : Reg64)
+private theorem asmX64List_cmp_core_eq (co : CmpOp) (w : Vll.Width) (rx : Reg64)
     (pb : PArg Reg64 RegMm CondCode (.bits w.bits)) (pd : PDst Reg64 RegMm CondCode .bool)
     (hpd : (∃ rd, pd = .gpr rd) ∨ pd = .flag (condOf co)) :
     (vllCoreCmpW x64Arch (some ∘ condOf) co w (.gpr rx) pb pd).map
@@ -735,39 +735,39 @@ private theorem asmX64List_cmp_core_eq (co : CmpOp) (w : Width) (rx : Reg64)
   | gpr ry =>
     rcases hpd with ⟨rd, rfl⟩ | rfl <;> cases w
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Width.toX64]
+        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Vll.Width.toX64]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Width.toX64]
+        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Vll.Width.toX64]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Width.toX64]
+        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Vll.Width.toX64]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Width.toX64]
+        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Vll.Width.toX64]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, Width.toX64, hcc]
+        cmpDirectIns, emitCleanPair, emitClean, Vll.Width.toX64, hcc]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, Width.toX64, hcc]
+        cmpDirectIns, emitCleanPair, emitClean, Vll.Width.toX64, hcc]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, Width.toX64, hcc]
+        cmpDirectIns, emitCleanPair, emitClean, Vll.Width.toX64, hcc]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, Width.toX64, hcc]
+        cmpDirectIns, emitCleanPair, emitClean, Vll.Width.toX64, hcc]
   | imm cy =>
     rcases hpd with ⟨rd, rfl⟩ | rfl <;> cases w
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Width.toX64, hcy .w8]
+        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Vll.Width.toX64, hcy .w8]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Width.toX64, hcy .w16]
+        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Vll.Width.toX64, hcy .w16]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Width.toX64, hcy .w32]
+        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Vll.Width.toX64, hcy .w32]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Width.toX64]
+        cmpDirectIns, emitCleanPair, emitClean, setccOnly, setccOnlyIns, Vll.Width.toX64]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, Width.toX64, hcy .w8, hcc]
+        cmpDirectIns, emitCleanPair, emitClean, Vll.Width.toX64, hcy .w8, hcc]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, Width.toX64, hcy .w16, hcc]
+        cmpDirectIns, emitCleanPair, emitClean, Vll.Width.toX64, hcy .w16, hcc]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, Width.toX64, hcy .w32, hcc]
+        cmpDirectIns, emitCleanPair, emitClean, Vll.Width.toX64, hcy .w32, hcc]
     · simp [vllCoreCmpW, vllRegOfPArg, vllSrcOfPArg, asmX64List, asmX64, srcToPArg, opCmpIns,
-        cmpDirectIns, emitCleanPair, emitClean, Width.toX64, hcc]
+        cmpDirectIns, emitCleanPair, emitClean, Vll.Width.toX64, hcc]
 
 /-- `true` when `code` does not use equal widths in `zext`/`sext`/`trunc` (`x64Op` requires
 strict width change while `vllCoreOp` allows `m = n`). -/
@@ -867,7 +867,7 @@ private theorem vllCoreBinBits_none_of_not_bw (op : CoreAlu) (n : Nat)
     vllCoreBinBits x64Arch op n pa pb rd = none := by
   dsimp only [vllCoreBinBits, x64Arch, x64Frame]; rw [hbw]; rfl
 
-private theorem vllX64WidthOfBits_eq_opt {n : Nat} {w : Width}
+private theorem vllX64WidthOfBits_eq_opt {n : Nat} {w : Vll.Width}
     (hw : vllX64WidthOfBits? n = some w) : n = w.bits := by
   unfold vllX64WidthOfBits? at hw; split at hw <;> cases hw <;> rfl
 
@@ -886,7 +886,7 @@ private theorem withWidth_parg2 {α : Type} (w : _root_.Width)
       PArg Reg64 RegMm CondCode (.bits m)) w.bits x k = k w x := by
   cases w <;> rfl
 
-private theorem withWidth_vll_parg2 {α : Type} (w : Width)
+private theorem withWidth_vll_parg2 {α : Type} (w : Vll.Width)
     (x : PArg Reg64 RegMm CondCode (.bits w.bits) × PArg Reg64 RegMm CondCode (.bits w.bits))
     (k : ∀ w' : _root_.Width, PArg Reg64 RegMm CondCode (.bits w'.bits) ×
       PArg Reg64 RegMm CondCode (.bits w'.bits) → Option α) :
@@ -910,15 +910,15 @@ private theorem withWidth_parg64 {α : Type}
 
 private theorem vll_withWidth_none {α : Type} (n : Nat)
     (hn : n ≠ 8 ∧ n ≠ 16 ∧ n ≠ 32 ∧ n ≠ 64)
-    (k : ∀ w : Width, n = w.bits → Option α) : withWidth n k = none := by
-  unfold withWidth
+    (k : ∀ w : Vll.Width, n = w.bits → Option α) : Vll.withWidth n k = none := by
+  unfold Vll.withWidth
   split <;> first
     | exact absurd rfl hn.1 | exact absurd rfl hn.2.1
     | exact absurd rfl hn.2.2.1 | exact absurd rfl hn.2.2.2 | rfl
 
-private theorem vll_withWidth_at_bits {α : Type} (w : Width)
-    (k : ∀ w' : Width, w.bits = w'.bits → Option α) :
-    withWidth w.bits k = k w rfl := by
+private theorem vll_withWidth_at_bits {α : Type} (w : Vll.Width)
+    (k : ∀ w' : Vll.Width, w.bits = w'.bits → Option α) :
+    Vll.withWidth w.bits k = k w rfl := by
   cases w <;> rfl
 
 private theorem boolArgTo8I_ne_none (rd : Reg64) (pa : PArg Reg64 RegMm CondCode .bool)
@@ -1170,7 +1170,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
                 rw [show ([8, 16, 32, 64] : List Nat).contains 32 = true from rfl,
                   vll_withWidth_at_bits .w32, withWidth_parg32 (.gpr rs)]
                 simp only [↓reduceIte, opCopyBitsIns, asmX64List, List.flatMap_cons,
-                  List.flatMap_nil, List.append_nil, asmX64, Width.toX64, movSubWI, regW, hbeq,
+                  List.flatMap_nil, List.append_nil, asmX64, Vll.Width.toX64, movSubWI, regW, hbeq,
                   Bool.false_eq_true]
                 rfl
           · cases pa with
@@ -1195,7 +1195,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
                 rw [show ([8, 16, 32, 64] : List Nat).contains 64 = true from rfl,
                   vll_withWidth_at_bits .w64, withWidth_parg64 (.gpr rs)]
                 simp only [↓reduceIte, opCopyBitsIns, asmX64List, List.flatMap_cons,
-                  List.flatMap_nil, List.append_nil, asmX64, Width.toX64, movSubWI, regW, hbeq,
+                  List.flatMap_nil, List.append_nil, asmX64, Vll.Width.toX64, movSubWI, regW, hbeq,
                   Bool.false_eq_true]
                 rfl
         · have hbwf : ([8, 16, 32, 64] : List Nat).contains n = false := Bool.eq_false_iff.mpr hbw
@@ -1264,8 +1264,8 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
                   simp only [↓reduceIte]
                   rw [withWidth_parg32 (.gpr rs)]
                   simp only [opCopyBitsIns, asmX64List, List.flatMap_cons,
-                    List.flatMap_nil, List.append_nil, asmX64, Width.toX64, movSubWI, regW, hbeq,
-                    Bool.false_eq_true, ↓reduceIte]
+                    List.flatMap_nil, List.append_nil, asmX64, Vll.Width.toX64, movSubWI, regW,
+                    hbeq, Bool.false_eq_true, ↓reduceIte]
                   rfl
             · cases pa with
               | vec v =>
@@ -1291,8 +1291,8 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
                   simp only [↓reduceIte]
                   rw [withWidth_parg64 (.gpr rs)]
                   simp only [opCopyBitsIns, asmX64List, List.flatMap_cons,
-                    List.flatMap_nil, List.append_nil, asmX64, Width.toX64, movSubWI, regW, hbeq,
-                    Bool.false_eq_true, ↓reduceIte]
+                    List.flatMap_nil, List.append_nil, asmX64, Vll.Width.toX64, movSubWI, regW,
+                    hbeq, Bool.false_eq_true, ↓reduceIte]
                   rfl
           · have hbmf : ([8, 16, 32, 64] : List Nat).contains m = false := Bool.eq_false_iff.mpr hbm
             have hbmf' : x64BitWidths.contains m = false := hbmf
@@ -1310,7 +1310,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
       | vec _ => rfl
       | gpr rd =>
         dsimp only [vllCoreOp, vllCoreTrunc]
-        cases hw_m : Width.ofBits? m with
+        cases hw_m : Vll.Width.ofBits? m with
         | none => rfl
         | some wm =>
           simp only [Option.isSome, ↓reduceIte]
@@ -1324,10 +1324,10 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
               by_cases hlt : Nat.ble (n + 1) m = true
               · cases pa' with
                 | vec v =>
-                  have hvec : ∀ wn : Width, vllCoreTruncW x64Arch m wn (.vec v) rd = none :=
+                  have hvec : ∀ wn : Vll.Width, vllCoreTruncW x64Arch m wn (.vec v) rd = none :=
                     fun wn => by dsimp only [vllCoreTruncW]; split <;> rfl
                   rcases hn_mem with rfl | rfl | rfl | rfl <;>
-                    (dsimp only [withWidth]; exact hvec _)
+                    (dsimp only [Vll.withWidth]; exact hvec _)
                 | imm _ =>
                   exfalso
                   have hlt_le := Nat.ble_eq.mp hlt
@@ -1354,13 +1354,13 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
                   · rfl
                   · exfalso; apply hlt; apply Nat.ble_eq.mpr; have := Nat.ble_eq.mp h1; omega
                 rcases hn_mem with rfl | rfl | rfl | rfl <;>
-                  (dsimp only [withWidth, vllCoreTruncW, x64Arch, x64Frame]
+                  (dsimp only [Vll.withWidth, vllCoreTruncW, x64Arch, x64Frame]
                    simp only [hm_bw, hn_bw, hltf, Bool.true_and, Bool.and_false,
                      Bool.false_eq_true, ↓reduceIte])
             · have hn_f := Bool.eq_false_iff.mpr hn_bw
               by_cases hn8 : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64
               · rcases hn8 with rfl | rfl | rfl | rfl <;>
-                  (dsimp only [withWidth, vllCoreTruncW, x64Arch, x64Frame]
+                  (dsimp only [Vll.withWidth, vllCoreTruncW, x64Arch, x64Frame]
                    simp only [hm_bw, hn_f, Bool.true_and, Bool.false_and,
                      Bool.false_eq_true, ↓reduceIte])
               · have hn' : n ≠ 8 ∧ n ≠ 16 ∧ n ≠ 32 ∧ n ≠ 64 :=
@@ -1371,7 +1371,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
           · have hm_f := Bool.eq_false_iff.mpr hm_bw
             by_cases hn8 : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64
             · rcases hn8 with rfl | rfl | rfl | rfl <;>
-                (dsimp only [withWidth, vllCoreTruncW, x64Arch, x64Frame]
+                (dsimp only [Vll.withWidth, vllCoreTruncW, x64Arch, x64Frame]
                  simp only [hm_f, Bool.false_and, Bool.false_eq_true, ↓reduceIte])
             · have hn' : n ≠ 8 ∧ n ≠ 16 ∧ n ≠ 32 ∧ n ≠ 64 :=
                 ⟨fun e => hn8 (Or.inl e), fun e => hn8 (Or.inr (Or.inl e)),
@@ -1400,8 +1400,8 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
             have hbeq : (rs == rd) = false := reg64_beq_false_of_ne hne
             refine vllGprOp_hook_none_eq
               (by dsimp only [vllX64OpHook]; simp only [hbn, ↓reduceIte]; try rfl) ?_
-            dsimp only [vllCoreOp, vllCoreTrunc, vllCoreTruncW, withWidth, x64Arch, x64Frame,
-              x64Op, x64OpIns, opTruncIns, emitCleanPair, Option.map]
+            dsimp only [vllCoreOp, vllCoreTrunc, vllCoreTruncW, Vll.withWidth, x64Arch,
+              x64Frame, x64Op, x64OpIns, opTruncIns, emitCleanPair, Option.map]
             rw [hbeq]
             rfl
       · have hcf : (m == 64 && n == 32) = false := by
@@ -1459,7 +1459,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
                 refine vllGprOp_hook_none_eq
                   (by dsimp only [vllX64OpHook]
                       simp only [hcond, reg64_beq_self, ↓reduceIte]; try rfl) ?_
-                have hxw : ∃ xw : Width, n = xw.bits ∧ (xw = .w16 ∨ xw = .w32 ∨ xw = .w64) := by
+                have hxw : ∃ xw : Vll.Width, n = xw.bits ∧ (xw = .w16 ∨ xw = .w32 ∨ xw = .w64) := by
                   rcases hwn with rfl | rfl | rfl
                   · exact ⟨.w16, rfl, Or.inl rfl⟩
                   · exact ⟨.w32, rfl, Or.inr (Or.inl rfl)⟩
@@ -1478,7 +1478,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
                 refine vllGprOp_hook_none_eq
                   (by dsimp only [vllX64OpHook]
                       simp only [hcond, reg64_beq_self, ↓reduceIte]; try rfl) ?_
-                have hxw : ∃ xw : Width, n = xw.bits ∧ (xw = .w16 ∨ xw = .w32 ∨ xw = .w64) := by
+                have hxw : ∃ xw : Vll.Width, n = xw.bits ∧ (xw = .w16 ∨ xw = .w32 ∨ xw = .w64) := by
                   rcases hwn with rfl | rfl | rfl
                   · exact ⟨.w16, rfl, Or.inl rfl⟩
                   · exact ⟨.w32, rfl, Or.inr (Or.inl rfl)⟩
@@ -1877,7 +1877,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
       | bool | float _ | pair _ _ => rfl
       | bits n =>
         by_cases hbw : ([8, 16, 32, 64] : List Nat).contains n = true
-        · have hmn : ∃ xw : Width, n = xw.bits := by
+        · have hmn : ∃ xw : Vll.Width, n = xw.bits := by
             rcases (by simpa [List.contains_eq_mem] using hbw :
                 n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64) with rfl | rfl | rfl | rfl
             · exact ⟨.w8, rfl⟩
@@ -1976,7 +1976,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
       exact vllGprOp_hook_fb_eq rfl (hnone_cmp _ _ _ _)
     | bits n =>
       by_cases hbw : ([8, 16, 32, 64] : List Nat).contains n = true
-      · have hmn : ∃ xw : Width, n = xw.bits := by
+      · have hmn : ∃ xw : Vll.Width, n = xw.bits := by
           rcases (by simpa [List.contains_eq_mem] using hbw :
               n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64) with rfl | rfl | rfl | rfl
           · exact ⟨.w8, rfl⟩
@@ -2234,13 +2234,13 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
     cases pd with
     | vec _ => rfl
     | gpr rd =>
-      cases hm_w : Width.ofBits? m with
+      cases hm_w : Vll.Width.ofBits? m with
       | none =>
         dsimp only [vllCoreOp, vllCoreZext, x64Arch, x64Frame]
         rw [hm_w]
         simp only [Option.isSome, Bool.false_and, Bool.and_false, Bool.false_eq_true, ↓reduceIte]
       | some wm =>
-        cases hn_w : Width.ofBits? n with
+        cases hn_w : Vll.Width.ofBits? n with
         | none =>
           dsimp only [vllCoreOp, vllCoreZext, x64Arch, x64Frame]
           rw [hm_w, hn_w]
@@ -2292,7 +2292,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
     | vec _ => rfl
     | gpr rd =>
       dsimp only [vllCoreOp, vllCoreSext]
-      cases hm_w : Width.ofBits? m
+      cases hm_w : Vll.Width.ofBits? m
       · dsimp only [Option.isSome, Bool.false_eq_true, ↓reduceIte]; rfl
       · simp only [Option.isSome, ↓reduceIte]
         by_cases hm_bw : ([8, 16, 32, 64] : List Nat).contains m = true
@@ -2304,10 +2304,10 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
             by_cases hlt : Nat.ble (m + 1) n = true
             · cases pa with
               | vec v =>
-                have hvec : ∀ wn : Width, vllCoreSextW x64Arch m wn (.vec v) rd = none :=
+                have hvec : ∀ wn : Vll.Width, vllCoreSextW x64Arch m wn (.vec v) rd = none :=
                   fun wn => by dsimp only [vllCoreSextW]; split <;> rfl
                 rcases hn_mem with rfl | rfl | rfl | rfl <;>
-                  (dsimp only [withWidth]; exact hvec _)
+                  (dsimp only [Vll.withWidth]; exact hvec _)
               | imm _ | gpr _ =>
                 exfalso
                 have hlt_le := Nat.ble_eq.mp hlt
@@ -2324,7 +2324,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
                 · rfl
                 · exfalso; apply hlt; apply Nat.ble_eq.mpr; have := Nat.ble_eq.mp h1; omega
               rcases hn_mem with rfl | rfl | rfl | rfl <;>
-                (dsimp only [withWidth, vllCoreSextW, x64Arch, x64Frame]
+                (dsimp only [Vll.withWidth, vllCoreSextW, x64Arch, x64Frame]
                  simp only [hm_bw, hn_bw, hltf, Bool.true_and, Bool.and_false,
                    Bool.false_eq_true, ↓reduceIte])
           · have hn_f := Bool.eq_false_iff.mpr hn_bw
@@ -2335,7 +2335,7 @@ theorem vllX64_op_eq {sig rs : List Ty} (code : OpCode sig rs)
         · have hm_f := Bool.eq_false_iff.mpr hm_bw
           by_cases hn8 : n = 8 ∨ n = 16 ∨ n = 32 ∨ n = 64
           · rcases hn8 with rfl | rfl | rfl | rfl <;>
-              (dsimp only [withWidth, vllCoreSextW, x64Arch, x64Frame]
+              (dsimp only [Vll.withWidth, vllCoreSextW, x64Arch, x64Frame]
                simp only [hm_f, Bool.false_and, Bool.false_eq_true, ↓reduceIte])
           · have hn' : n ≠ 8 ∧ n ≠ 16 ∧ n ≠ 32 ∧ n ≠ 64 :=
               ⟨fun e => hn8 (Or.inl e), fun e => hn8 (Or.inr (Or.inl e)),
@@ -2394,4 +2394,4 @@ theorem vllX64_op_eq_of_x64 {sig rs : List Ty} (code : OpCode sig rs)
         rw [hlt] at hx
         simp at hx
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

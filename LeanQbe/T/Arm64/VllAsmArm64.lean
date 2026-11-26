@@ -1,10 +1,10 @@
 module
 
 public import LeanQbe.T.Vll.Syntax
-public import LeanQbe.T.Vll.Arm64
+public import LeanQbe.T.Arm64.VllArm64
 
 /-!
-# Context-Free 1:1 AArch64 Assembler (`Vll.AsmArm64`)
+# Context-Free 1:1 AArch64 Assembler (`Arm64.VllAsmArm64`)
 
 Pure, computable, context-free assembler `asmArm64 : Instr arm64Arch → List Directive` lowering
 every `BedrockMach` L1 `Instr arm64Arch` instruction to Kraken AArch64 directives with zero
@@ -24,10 +24,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Arm64
 
 open LeanQbe.T
-open LeanQbe.T.Arm64
+open LeanQbe.T.Vll
 
 /-! ## 1. Width & Operand Lowering Helpers -/
 
@@ -413,4 +413,4 @@ slot/frame instructions (`slotSt`, `slotLd`, `prologue`, `epilogue`). -/
     Prop :=
   arm64InstrStaticOk i ∧ arm64InstrDynOk i s
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Arm64

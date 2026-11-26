@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.Vll.FactorX640
+public import LeanQbe.T.Amd64.VllFactorX640
 import LeanQbe.T.Amd64.TargLemmas
 import Kraken.X64.Regs
 
 /-!
-# Cleanliness & Bounded-Length Proofs for `Amd64` Scalar/Vector Builders (`Vll.FactorX641`)
+# Cleanliness & Bounded-Length Proofs for `Amd64` Scalar/Vector Builders (`Amd64.VllFactorX641`)
 
 Auxiliary straight-line cleanliness (`cleanBound`) and Jcc-split lemmas supporting
-`LeanQbe.T.Vll.FactorX64`, keeping every module under `2,500` LOC:
+`LeanQbe.T.Amd64.VllFactorX64`, keeping every module under `2,500` LOC:
 * `cleanBound_x64OpIns`, `cleanBound_x64StoreIns`, `cleanBound_x64LoadSextIns`,
   `cleanBound_x64TestOpIns`, `cleanBound_x64CmpMemIns`, `cleanBound_x64TestMemIns`,
   `cleanBound_x64AluMemIns`, `cleanBound_x64RmwMemIns`, `cleanBound_x64LeaArithIns`,
@@ -23,10 +23,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 
 private theorem dst_reg {w : _root_.Width} (r : Reg w) : dstNoRip (.reg r) = true := rfl
 private theorem rm_reg {w : _root_.Width} (r : Reg w) : rmNoRip (.reg r) = true := rfl
@@ -2427,4 +2427,4 @@ theorem cleanBound_x64VopIns {sig rs : List Ty} (code : OpCode sig rs)
     · cases h
   all_goals cases h
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Vll.FactorX64
+public import LeanQbe.T.Amd64.VllFactorX64
 public import LeanQbe.T.MainSplice
 public import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
 public import LeanQbe.T.Examples.ChaCha
@@ -18,26 +18,26 @@ public meta import LeanQbe.T.Amd64.IselVec
 public meta import LeanQbe.T.Amd64.Frame
 public meta import LeanQbe.T.Amd64.Isa
 public meta import LeanQbe.T.Amd64.Targ
-public meta import LeanQbe.T.Vll.X64
-public meta import LeanQbe.T.Vll.AsmX64
+public meta import LeanQbe.T.Amd64.VllX64
+public meta import LeanQbe.T.Amd64.VllAsmX64
 public meta import LeanQbe.T.Vll.RegaInst0
 public meta import LeanQbe.T.Vll.RegaInst
-public meta import LeanQbe.T.Vll.FactorX640
-public meta import LeanQbe.T.Vll.FactorX641
-public meta import LeanQbe.T.Vll.FactorX642
-public meta import LeanQbe.T.Vll.FactorX643
-public meta import LeanQbe.T.Vll.FactorX644
-public meta import LeanQbe.T.Vll.FactorX645
-public meta import LeanQbe.T.Vll.FactorX646
-public meta import LeanQbe.T.Vll.FactorX647
-public meta import LeanQbe.T.Vll.FactorX64
+public meta import LeanQbe.T.Amd64.VllFactorX640
+public meta import LeanQbe.T.Amd64.VllFactorX641
+public meta import LeanQbe.T.Amd64.VllFactorX642
+public meta import LeanQbe.T.Amd64.VllFactorX643
+public meta import LeanQbe.T.Amd64.VllFactorX644
+public meta import LeanQbe.T.Amd64.VllFactorX645
+public meta import LeanQbe.T.Amd64.VllFactorX646
+public meta import LeanQbe.T.Amd64.VllFactorX647
+public meta import LeanQbe.T.Amd64.VllFactorX64
 public meta import LeanQbe.T.Examples.ChaCha
 public meta import LeanQbe.T.Examples.ChaChaProg
 public meta import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
 public meta import LeanQbeTest.T.Common.Fixtures
 
 /-!
-# Verification & `413`-Fn Parity Suite for `Vll.FactorX64` (`VllFactorX64Test`)
+# Verification & `413`-Fn Parity Suite for `Amd64.VllFactorX64` (`VllFactorX64Test`)
 
 Tests:
 1. `Unified.Factoring` (`FlatFn`, `x64FactoringOn`, `x64Factoring`), `sanitizeHints`, core
@@ -370,33 +370,33 @@ end LeanQbeTest.T.VllFactorX64Test
 
 /-! ## 4. Standard-Axiom Audit (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 
-#print axioms LeanQbe.T.Vll.vllX64Policy
-#print axioms LeanQbe.T.Vll.vllX64Target
-#print axioms LeanQbe.T.Vll.x64FactoringOn
-#print axioms LeanQbe.T.Vll.x64Factoring
-#print axioms LeanQbe.T.Vll.x64Factoring_eq_direct
-#print axioms LeanQbe.T.Vll.x64Factoring_flat_same_bytes
-#print axioms LeanQbe.T.Vll.x64Factoring_flat_transport
-#print axioms LeanQbe.T.Vll.x64Factoring_lowerFn
-#print axioms LeanQbe.T.Vll.x64Factoring_same_bytes
-#print axioms LeanQbe.T.Vll.x64Factoring_transport
-#print axioms LeanQbe.T.Vll.x64Factoring_compile_ok
-#print axioms LeanQbe.T.Vll.x64Factoring_compileModule_ok
-#print axioms LeanQbe.T.Vll.fnNoSameExt_mid
-#print axioms LeanQbe.T.Vll.vllX64_lowerFn_eq
-#print axioms LeanQbe.T.Vll.vllX64_compileFn_eq
-#print axioms LeanQbe.T.Vll.vllX64_compile_eq
-#print axioms LeanQbe.T.Vll.vllX64_compileModule_eq
-#print axioms LeanQbe.T.Vll.vllX64_compiled_to_x64
-#print axioms LeanQbe.T.Vll.x64_compiled_to_vllX64
-#print axioms LeanQbe.T.Vll.vllX64_compileChecked_pair
-#print axioms LeanQbe.T.Vll.vllX64_compiled_fnSpec_pair
-#print axioms LeanQbe.T.Vll.x64_compiled_fnSpec_to_vllX64
-#print axioms LeanQbe.T.Vll.vllX64_compiled_fnSpec_src
-#print axioms LeanQbe.T.Vll.vllX64_of_call
-#print axioms LeanQbe.T.Vll.vllX64_argsIn_iff
-#print axioms LeanQbe.T.Vll.vllX64_retsIn_iff
-#print axioms LeanQbe.T.Vll.vllX64_restored_iff
+#print axioms LeanQbe.T.Amd64.vllX64Policy
+#print axioms LeanQbe.T.Amd64.vllX64Target
+#print axioms LeanQbe.T.Amd64.x64FactoringOn
+#print axioms LeanQbe.T.Amd64.x64Factoring
+#print axioms LeanQbe.T.Amd64.x64Factoring_eq_direct
+#print axioms LeanQbe.T.Amd64.x64Factoring_flat_same_bytes
+#print axioms LeanQbe.T.Amd64.x64Factoring_flat_transport
+#print axioms LeanQbe.T.Amd64.x64Factoring_lowerFn
+#print axioms LeanQbe.T.Amd64.x64Factoring_same_bytes
+#print axioms LeanQbe.T.Amd64.x64Factoring_transport
+#print axioms LeanQbe.T.Amd64.x64Factoring_compile_ok
+#print axioms LeanQbe.T.Amd64.x64Factoring_compileModule_ok
+#print axioms LeanQbe.T.Amd64.fnNoSameExt_mid
+#print axioms LeanQbe.T.Amd64.vllX64_lowerFn_eq
+#print axioms LeanQbe.T.Amd64.vllX64_compileFn_eq
+#print axioms LeanQbe.T.Amd64.vllX64_compile_eq
+#print axioms LeanQbe.T.Amd64.vllX64_compileModule_eq
+#print axioms LeanQbe.T.Amd64.vllX64_compiled_to_x64
+#print axioms LeanQbe.T.Amd64.x64_compiled_to_vllX64
+#print axioms LeanQbe.T.Amd64.vllX64_compileChecked_pair
+#print axioms LeanQbe.T.Amd64.vllX64_compiled_fnSpec_pair
+#print axioms LeanQbe.T.Amd64.x64_compiled_fnSpec_to_vllX64
+#print axioms LeanQbe.T.Amd64.vllX64_compiled_fnSpec_src
+#print axioms LeanQbe.T.Amd64.vllX64_of_call
+#print axioms LeanQbe.T.Amd64.vllX64_argsIn_iff
+#print axioms LeanQbe.T.Amd64.vllX64_retsIn_iff
+#print axioms LeanQbe.T.Amd64.vllX64_restored_iff
 #print axioms LeanQbeTest.T.VllFactorX64Test.flatBranch_factor_eq
 #print axioms LeanQbeTest.T.VllFactorX64Test.chacha20_factor_eq
 #print axioms LeanQbeTest.T.VllFactorX64Test.certMod_dual_fnSpec

@@ -1,11 +1,11 @@
 module
 
-public import LeanQbe.T.Vll.X64
+public import LeanQbe.T.Amd64.VllX64
 public import LeanQbe.T.Vll.Syntax
 public import LeanQbe.T.Amd64.Isel
 
 /-!
-# Context-Free 1:1 x86-64 Assembler (`Vll.AsmX64`)
+# Context-Free 1:1 x86-64 Assembler (`Amd64.VllAsmX64`)
 
 Pure, deterministic, context-free 1:1 lowering `asmX64 : Instr x64Arch → List _root_.Directive`,
 plus `asmX64List`, `asmX64Block`, and `asmX64Prog`:
@@ -22,10 +22,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 
 /-! ## 1. Operand and Sub-Word Helpers -/
 
@@ -188,4 +188,4 @@ preserving upper bits on sub-word writes and setting exact `sub` flags on `rs ==
 @[expose] def asmX64Prog (cm : VllCodeMap x64Arch) : List _root_.Directive :=
   asmX64List cm.flatten
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

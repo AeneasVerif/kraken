@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Vll.AsmX64Lemmas0
+public import LeanQbe.T.Amd64.VllAsmX64Lemmas0
 import LeanQbe.T.Amd64.IselStepRules
 import LeanQbe.T.Amd64.IselLemmas1
 import LeanQbe.T.Amd64.IselLemmas2
@@ -10,7 +10,7 @@ import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.AbiLemmas
 
 /-!
-# Assembler Verification Part 1: ALU Compilation Proofs (`Vll.AsmX64Lemmas1`)
+# Assembler Verification Part 1: ALU Compilation Proofs (`Amd64.VllAsmX64Lemmas1`)
 
 Modular ALU simulation proofs for `asmX64` (`add`/`sub`/`and`/`or`/`xor`, `mul`,
 `shl`/`lshr`/`ashr`) exporting `asmX64_alu_fallsTo`. Zero Arm64/AArch64 imports,
@@ -21,10 +21,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 open Std Std.ExtHashMap
 
 /-! ## 1. Private ALU Flag and Sub-Word Bridges -/
@@ -39,7 +39,7 @@ private theorem getLsbD_replaceLow {old : BitVec 64} {n : Nat} (hn : n ≤ 64) (
   · rfl
   · simp [BitVec.drop, show i - n < 64 - n by omega, show n + (i - n) = i by omega]
 
-private theorem writeSubX64_self (w : Width) (hw : w ≠ .w32) (x : BitVec 64) :
+private theorem writeSubX64_self (w : Vll.Width) (hw : w ≠ .w32) (x : BitVec 64) :
     writeSubX64 w x (x.setWidth w.bits) = x := by
   cases w with
   | w8 =>
@@ -55,28 +55,28 @@ private theorem writeSubX64_self (w : Width) (hw : w ≠ .w32) (x : BitVec 64) :
   | w64 => simp [writeSubX64, BitVec.setWidth_eq]
   | w32 => exact absurd rfl hw
 
-private theorem writeSubX64_of_pre (w : Width) (old s1r : BitVec 64) (v : BitVec w.bits)
+private theorem writeSubX64_of_pre (w : Vll.Width) (old s1r : BitVec 64) (v : BitVec w.bits)
     (h : s1r = old ∨ ∃ rv, s1r = writeSubX64 w old rv) :
     writeSubX64 w s1r v = writeSubX64 w old v := by
   rcases h with rfl | ⟨rv, rfl⟩
   · rfl
   · exact writeSubX64_idem w old rv v
 
-private theorem setWidth_toNat_mod_wbits (w : Width) (v : BitVec 64) :
+private theorem setWidth_toNat_mod_wbits (w : Vll.Width) (v : BitVec 64) :
     (v.setWidth w.bits).toNat % w.bits = v.toNat % w.bits := by
   cases w with
   | w8 =>
-    simp only [Width.bits, BitVec.toNat_setWidth]
+    simp only [Vll.Width.bits, BitVec.toNat_setWidth]
     exact Nat.mod_mod_of_dvd v.toNat (by decide)
   | w16 =>
-    simp only [Width.bits, BitVec.toNat_setWidth]
+    simp only [Vll.Width.bits, BitVec.toNat_setWidth]
     exact Nat.mod_mod_of_dvd v.toNat (by decide)
   | w32 =>
-    simp only [Width.bits, BitVec.toNat_setWidth]
+    simp only [Vll.Width.bits, BitVec.toNat_setWidth]
     exact Nat.mod_mod_of_dvd v.toNat (by decide)
-  | w64 => simp [Width.bits, BitVec.setWidth_eq]
+  | w64 => simp [Vll.Width.bits, BitVec.setWidth_eq]
 
-private theorem cond_testSelf_aluFlags_eq (op : CoreAlu) (w : Width)
+private theorem cond_testSelf_aluFlags_eq (op : CoreAlu) (w : Vll.Width)
     (hop : op = .mul ∨ op = .shl ∨ op = .lshr ∨ op = .ashr)
     (a b : BitVec w.bits) (f : StatusFlags) (af : Bool) (cc : CondCode) :
     cc.interp (testFlags (op.eval w a b) (op.eval w a b) af) =
@@ -84,7 +84,7 @@ private theorem cond_testSelf_aluFlags_eq (op : CoreAlu) (w : Width)
   rcases hop with rfl | rfl | rfl | rfl <;> cases cc <;>
     simp [CondCode.interp, testFlags, x64AluFlags, StatusFlags.from_result, BitVec.and_self]
 
-private theorem aluFlags_add_comm (w : Width) (a b : BitVec w.bits) (f : StatusFlags)
+private theorem aluFlags_add_comm (w : Vll.Width) (a b : BitVec w.bits) (f : StatusFlags)
     (cc : CondCode) :
     cc.interp (x64AluFlags .add w true b a f) = cc.interp (x64AluFlags .add w true a b f) := by
   apply cond_statusFlags_of_fields
@@ -96,7 +96,7 @@ private theorem aluFlags_add_comm (w : Width) (a b : BitVec w.bits) (f : StatusF
   · simp [x64AluFlags, StatusFlags.from_result, BitVec.add_comm b a]
   · simp [x64AluFlags, StatusFlags.from_result, BitVec.add_comm b a, Int.add_comm]
 
-private theorem aluFlags_comm (k : AluBinKind) (op : CoreAlu) (w : Width)
+private theorem aluFlags_comm (k : AluBinKind) (op : CoreAlu) (w : Vll.Width)
     (hk : (op = .add ∧ k = .add) ∨ (op = .and ∧ k = .and) ∨
           (op = .or ∧ k = .or) ∨ (op = .xor ∧ k = .xor))
     (a b : BitVec w.bits) (f : StatusFlags) (cc : CondCode) :
@@ -107,14 +107,14 @@ private theorem aluFlags_comm (k : AluBinKind) (op : CoreAlu) (w : Width)
   · simp [x64AluFlags, BitVec.or_comm]
   · simp [x64AluFlags, BitVec.xor_comm]
 
-private theorem x64AluFlags_sf_true (op : CoreAlu) (w : Width) (a b : BitVec w.bits)
+private theorem x64AluFlags_sf_true (op : CoreAlu) (w : Vll.Width) (a b : BitVec w.bits)
     (f₁ f₂ : StatusFlags) :
     x64AluFlags op w true a b f₁ = x64AluFlags op w true a b f₂ := by
   cases op <;> rfl
 
 /-! ## 2. Private ALU Compilation Proofs -/
 
-private def exactBinFlags (op : CoreAlu) (w : Width) (a b : BitVec w.bits)
+private def exactBinFlags (op : CoreAlu) (w : Vll.Width) (a b : BitVec w.bits)
     (f₀ st : StatusFlags) : Prop :=
   match op with
   | .add | .sub | .and | .or | .xor =>
@@ -132,7 +132,7 @@ private theorem mk_machineData_eq (s : MachineData) (rd : Reg64) (v₁ v₂ : Bi
       { s with regs := s.regs.set64 rd v₂, status := st } := by
   subst hv; rfl
 
-private theorem fallsTo_aluBinI_reg (op : CoreAlu) (k : AluBinKind) (w : Width)
+private theorem fallsTo_aluBinI_reg (op : CoreAlu) (k : AluBinKind) (w : Vll.Width)
     (hk : coreAluToBin? op = some k) (h8 : k = .mul → w ≠ .w8)
     (s : MachineData) (rd rs : Reg64) :
     Directive.FallsTo (.instr (aluBinI w.toX64 k rd (.reg (regW w.toX64 rs)))) s
@@ -147,7 +147,7 @@ private theorem fallsTo_aluBinI_reg (op : CoreAlu) (k : AluBinKind) (w : Width)
   | shl | lshr | ashr => simp [coreAluToBin?] at hk
   | add =>
     simp only [coreAluToBin?, Option.some.injEq] at hk; subst hk
-    cases w <;> simp only [Width.toX64, regW, t_step_simp, Reg64s.set] <;>
+    cases w <;> simp only [Vll.Width.toX64, regW, t_step_simp, Reg64s.set] <;>
       refine hcont _ ⟨_, ?_, by
         congr 2; first
         | (rw [replaceLow_8_eq_writeSubX64, BitVec.add_comm]; rfl)
@@ -157,13 +157,13 @@ private theorem fallsTo_aluBinI_reg (op : CoreAlu) (k : AluBinKind) (w : Width)
       exact fun cc => by
         simp only [x64AluFlags, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
           StatusFlags.from_result]
-        dsimp only [Width.bits, _root_.Width.bits]
+        dsimp only [Vll.Width.bits, _root_.Width.bits]
         repeat rw [BitVec.setWidth_eq]
         apply cond_statusFlags_of_fields <;>
           (dsimp only; first | rfl | (rw [BitVec.add_comm]; try rw [Int.add_comm]))
   | sub =>
     simp only [coreAluToBin?, Option.some.injEq] at hk; subst hk
-    cases w <;> simp only [Width.toX64, regW, t_step_simp, Reg64s.set] <;>
+    cases w <;> simp only [Vll.Width.toX64, regW, t_step_simp, Reg64s.set] <;>
       refine hcont _ ⟨_, ?_, mk_machineData_eq s rd _ _ _ (by
         first
         | rw [replaceLow_8_eq_writeSubX64]; rfl
@@ -174,12 +174,12 @@ private theorem fallsTo_aluBinI_reg (op : CoreAlu) (k : AluBinKind) (w : Width)
         simp only [x64AluFlags, x64CmpFlags, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
           StatusFlags.from_result]
         all_goals (
-          dsimp only [Width.bits, _root_.Width.bits]
+          dsimp only [Vll.Width.bits, _root_.Width.bits]
           try repeat rw [BitVec.setWidth_eq]
           try (apply cond_statusFlags_of_fields <;> dsimp only <;> rfl))
   | and | or | xor =>
     simp only [coreAluToBin?, Option.some.injEq] at hk; subst hk
-    cases w <;> simp only [Width.toX64, regW, t_step_simp, Reg64s.set, Effects.All] <;>
+    cases w <;> simp only [Vll.Width.toX64, regW, t_step_simp, Reg64s.set, Effects.All] <;>
       intro af <;> refine hcont _ ⟨_, ?_, mk_machineData_eq s rd _ _ _ (by
         first
         | rw [replaceLow_8_eq_writeSubX64]; rfl
@@ -189,30 +189,30 @@ private theorem fallsTo_aluBinI_reg (op : CoreAlu) (k : AluBinKind) (w : Width)
       exact fun cc => by
         simp only [x64AluFlags, x64TestFlags, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
           StatusFlags.from_result]
-        dsimp only [Width.bits, _root_.Width.bits]
+        dsimp only [Vll.Width.bits, _root_.Width.bits]
         try repeat rw [BitVec.setWidth_eq]
         apply cond_statusFlags_of_fields <;> dsimp only <;> rfl
   | mul =>
     simp only [coreAluToBin?, Option.some.injEq] at hk; subst hk
     cases w
     · exact absurd rfl (h8 rfl)
-    · simp only [Width.toX64, regW, t_step_simp, Reg64s.set, Effects.All]
+    · simp only [Vll.Width.toX64, regW, t_step_simp, Reg64s.set, Effects.All]
       intro _ _ _ _
       exact hcont _ ⟨_, trivial, mk_machineData_eq s rd _ _ _ (by
-        rw [replaceLow_16_eq_writeSubX64]; dsimp only [writeSubX64, AluBinKind.eval, Width.bits]
+        rw [replaceLow_16_eq_writeSubX64]; dsimp only [writeSubX64, AluBinKind.eval, Vll.Width.bits]
         try repeat rw [BitVec.setWidth_eq])⟩
-    · simp only [Width.toX64, regW, t_step_simp, Reg64s.set, Effects.All]
+    · simp only [Vll.Width.toX64, regW, t_step_simp, Reg64s.set, Effects.All]
       intro _ _ _ _
       exact hcont _ ⟨_, trivial, mk_machineData_eq s rd _ _ _ (by
-        dsimp only [writeSubX64, AluBinKind.eval, Width.bits]
+        dsimp only [writeSubX64, AluBinKind.eval, Vll.Width.bits]
         all_goals (try rw [BitVec.zeroExtend_eq_setWidth]; try repeat rw [BitVec.setWidth_eq]))⟩
-    · simp only [Width.toX64, regW, t_step_simp, Reg64s.set, Effects.All]
+    · simp only [Vll.Width.toX64, regW, t_step_simp, Reg64s.set, Effects.All]
       intro _ _ _ _
       exact hcont _ ⟨_, trivial, mk_machineData_eq s rd _ _ _ (by
-        dsimp only [writeSubX64, AluBinKind.eval, Width.bits]
+        dsimp only [writeSubX64, AluBinKind.eval, Vll.Width.bits]
         try repeat rw [BitVec.setWidth_eq])⟩
 
-private theorem fallsTo_aluBinI_imm (op : CoreAlu) (k : AluBinKind) (w : Width)
+private theorem fallsTo_aluBinI_imm (op : CoreAlu) (k : AluBinKind) (w : Vll.Width)
     (hk : coreAluToBin? op = some k) (h8 : k = .mul → w ≠ .w8)
     (s : MachineData) (rd : Reg64) (cb : BitVec w.toX64.bits) :
     Directive.FallsTo (.instr (aluBinI w.toX64 k rd (immBitsOp w.toX64 cb))) s
@@ -228,7 +228,7 @@ private theorem fallsTo_aluBinI_imm (op : CoreAlu) (k : AluBinKind) (w : Width)
   | add =>
     simp only [coreAluToBin?, Option.some.injEq] at hk; subst hk
     cases w <;>
-      (simp only [Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set, BitVec.setWidth_eq]
+      (simp only [Vll.Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set, BitVec.setWidth_eq]
        (try rw [Int64.toBitVec_ofBitVec, truncate_signExtend_64 (by decide)])
        (try rw [Int64.toBitVec_ofBitVec, BitVec.signExtend_eq])) <;>
       refine hcont _ ⟨_, ?_, by
@@ -240,14 +240,14 @@ private theorem fallsTo_aluBinI_imm (op : CoreAlu) (k : AluBinKind) (w : Width)
       exact fun cc => by
         simp only [x64AluFlags, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
           StatusFlags.from_result]
-        dsimp only [Width.bits, _root_.Width.bits]
+        dsimp only [Vll.Width.bits, _root_.Width.bits]
         repeat rw [BitVec.setWidth_eq]
         apply cond_statusFlags_of_fields <;>
           (dsimp only; first | rfl | (rw [BitVec.add_comm]; try rw [Int.add_comm]))
   | sub =>
     simp only [coreAluToBin?, Option.some.injEq] at hk; subst hk
     cases w <;>
-      (simp only [Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set, BitVec.setWidth_eq]
+      (simp only [Vll.Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set, BitVec.setWidth_eq]
        (try rw [Int64.toBitVec_ofBitVec, truncate_signExtend_64 (by decide)])
        (try rw [Int64.toBitVec_ofBitVec, BitVec.signExtend_eq])) <;>
       refine hcont _ ⟨_, ?_, mk_machineData_eq s rd _ _ _ (by
@@ -260,13 +260,13 @@ private theorem fallsTo_aluBinI_imm (op : CoreAlu) (k : AluBinKind) (w : Width)
         simp only [x64AluFlags, x64CmpFlags, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
           StatusFlags.from_result]
         all_goals (
-          dsimp only [Width.bits, _root_.Width.bits]
+          dsimp only [Vll.Width.bits, _root_.Width.bits]
           try repeat rw [BitVec.setWidth_eq]
           try (apply cond_statusFlags_of_fields <;> dsimp only <;> rfl))
   | and | or | xor =>
     simp only [coreAluToBin?, Option.some.injEq] at hk; subst hk
     cases w <;>
-      (simp only [Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set,
+      (simp only [Vll.Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set,
          Effects.All, BitVec.setWidth_eq]
        (try rw [Int64.toBitVec_ofBitVec, truncate_signExtend_64 (by decide)])
        (try rw [Int64.toBitVec_ofBitVec, BitVec.signExtend_eq])) <;>
@@ -279,35 +279,35 @@ private theorem fallsTo_aluBinI_imm (op : CoreAlu) (k : AluBinKind) (w : Width)
       exact fun cc => by
         simp only [x64AluFlags, x64TestFlags, Bool.not_true, Bool.false_eq_true, ↓reduceIte,
           StatusFlags.from_result]
-        dsimp only [Width.bits, _root_.Width.bits]
+        dsimp only [Vll.Width.bits, _root_.Width.bits]
         try repeat rw [BitVec.setWidth_eq]
         apply cond_statusFlags_of_fields <;> dsimp only <;> rfl
   | mul =>
     simp only [coreAluToBin?, Option.some.injEq] at hk; subst hk
     cases w
     · exact absurd rfl (h8 rfl)
-    · simp only [Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set, Effects.All]
+    · simp only [Vll.Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set, Effects.All]
       rw [Int64.toBitVec_ofBitVec, truncate_signExtend_64 (by decide)]
       intro _ _ _ _
       exact hcont _ ⟨_, trivial, mk_machineData_eq s rd _ _ _ (by
-        rw [replaceLow_16_eq_writeSubX64]; dsimp only [writeSubX64, AluBinKind.eval, Width.bits]
+        rw [replaceLow_16_eq_writeSubX64]; dsimp only [writeSubX64, AluBinKind.eval, Vll.Width.bits]
         try repeat rw [BitVec.setWidth_eq])⟩
-    · simp only [Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set, Effects.All]
+    · simp only [Vll.Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set, Effects.All]
       rw [Int64.toBitVec_ofBitVec, truncate_signExtend_64 (by decide)]
       intro _ _ _ _
       exact hcont _ ⟨_, trivial, mk_machineData_eq s rd _ _ _ (by
-        dsimp only [writeSubX64, AluBinKind.eval, Width.bits]
+        dsimp only [writeSubX64, AluBinKind.eval, Vll.Width.bits]
         rw [BitVec.zeroExtend_eq_setWidth]; try repeat rw [BitVec.setWidth_eq])⟩
-    · simp only [Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set, Effects.All,
+    · simp only [Vll.Width.toX64, immBitsOp, regW, t_step_simp, Reg64s.set, Effects.All,
         BitVec.setWidth_eq]
       rw [Int64.toBitVec_ofBitVec, BitVec.signExtend_eq]
       intro _ _ _ _
       exact hcont _ ⟨_, trivial, mk_machineData_eq s rd _ _ _ (by
-        dsimp only [writeSubX64, AluBinKind.eval, Width.bits]
+        dsimp only [writeSubX64, AluBinKind.eval, Vll.Width.bits]
         try repeat rw [BitVec.setWidth_eq])⟩
 
 private theorem wp_asmX64BinCore [Host] {E : Int64 → MachineData → Prop} (op : CoreAlu)
-    (k : AluBinKind) (w : Width) (hk : coreAluToBin? op = some k) (h8 : k = .mul → w ≠ .w8)
+    (k : AluBinKind) (w : Vll.Width) (hk : coreAluToBin? op = some k) (h8 : k = .mul → w ≠ .w8)
     (s : MachineData) (rd lhs : Reg64) (rhs : Src x64Arch)
     (hrd : rd ∉ x64Scratch) (hlhs : lhs ∉ x64Scratch)
     (hrhs : ∀ rs, rhs = .reg rs → rs ∉ x64Scratch) :
@@ -439,7 +439,7 @@ private theorem wp_asmX64BinCore [Host] {E : Int64 → MachineData → Prop} (op
         (fallsTo_aluBinI_imm op k w hk h8 s1 rd (imm.setWidth w.toX64.bits))) ?_
       rintro s2 ⟨st, hex, rfl⟩
       have hcb : (imm.setWidth w.toX64.bits).setWidth w.bits = b := by
-        cases w <;> simp [Width.toX64, Width.bits, b, Src.evalW, Src.eval]
+        cases w <;> simp [Vll.Width.toX64, Vll.Width.bits, b, Src.evalW, Src.eval]
       rw [hcb, hst1, hrd1] at hex
       refine ⟨hex, ?_, fun r hr hsc => ?_, hzm1, hdm1⟩
       · rw [Reg64s.get64_set64_same, hrd1, hcb, writeSubX64_of_pre w _ _ _ hold1]
@@ -450,13 +450,13 @@ private theorem wp_asmX64BinCore [Host] {E : Int64 → MachineData → Prop} (op
         cases w with
         | w64 => rfl
         | w8 | w16 | w32 =>
-          exact False.elim (hnofit (by simp only [Width.toX64,
-            show (Width.W8 != .W64) = true from by decide,
-            show (Width.W16 != .W64) = true from by decide,
-            show (Width.W32 != .W64) = true from by decide, Bool.true_or]))
+          exact False.elim (hnofit (by simp only [Vll.Width.toX64,
+            show (_root_.Width.W8 != .W64) = true from by decide,
+            show (_root_.Width.W16 != .W64) = true from by decide,
+            show (_root_.Width.W32 != .W64) = true from by decide, Bool.true_or]))
       subst hw64
-      simp only [Width.toX64, Width.bits, BitVec.setWidth_eq, emitClean_append, emitClean_cons,
-        emitClean_nil]
+      simp only [Vll.Width.toX64, Vll.Width.bits, BitVec.setWidth_eq, emitClean_append,
+        emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD s .r10 imm)) ?_
       rintro s1 rfl
       refine Program.wp.append (runPre _ (fun r hr => Reg64s.get64_set64_of_ne _ .r10 r _ hr.symm)
@@ -468,17 +468,18 @@ private theorem wp_asmX64BinCore [Host] {E : Int64 → MachineData → Prop} (op
       have hr10_val : s2.regs.get64 .r10 = imm := by
         refine hr10_2.trans ?_; dsimp only; exact Reg64s.get64_set64_same ..
       have hrd2' : s2.regs.get64 rd = a := by
-        simpa [Width.bits, BitVec.setWidth_eq] using hrd2
+        simpa [Vll.Width.bits, BitVec.setWidth_eq] using hrd2
       have hex' : exactBinFlags op .w64 a b s.status st := by
-        simpa [Width.bits, BitVec.setWidth_eq, hst2, hrd2', hr10_val, b,
+        simpa [Vll.Width.bits, BitVec.setWidth_eq, hst2, hrd2', hr10_val, b,
           Src.evalW, Src.eval] using hex
       refine ⟨hex', ?_, fun r hr hsc => ?_, hzm2, hdm2⟩
-      · simp only [Reg64s.get64_set64_same, Width.bits, BitVec.setWidth_eq, writeSubX64] at hrd2 ⊢
+      · simp only [Reg64s.get64_set64_same, Vll.Width.bits, BitVec.setWidth_eq,
+          writeSubX64] at hrd2 ⊢
         rw [hrd2, hr10_val]; rfl
       · rw [Reg64s.get64_set64_of_ne _ rd r _ hr.symm]
         exact hr2 r hr (ne_of_not_mem_x64Scratch hsc).1
 
-private theorem wp_shiftMaskRcx_low [Host] {E : Int64 → MachineData → Prop} (w : Width)
+private theorem wp_shiftMaskRcx_low [Host] {E : Int64 → MachineData → Prop} (w : Vll.Width)
     (hw : w = .w8 ∨ w = .w16) (s s₀ : MachineData) (a b : BitVec w.bits)
     (hb : (s.regs.get64 .rcx).setWidth w.bits = b)
     (hr10 : s.regs.get64 .r10 = s₀.regs.get64 .rcx)
@@ -493,7 +494,7 @@ private theorem wp_shiftMaskRcx_low [Host] {E : Int64 → MachineData → Prop} 
       (∀ r, r ≠ .rcx → r ∉ x64Scratch → s4.regs.get64 r = s₀.regs.get64 r) ∧
       s4.zmms = s₀.zmms ∧ s4.dmem = s₀.dmem) E s := by
   rcases hw with rfl | rfl
-  · simp only [Width.toX64, shiftMaskRcxIns, emitClean_cons, emitClean_nil]
+  · simp only [Vll.Width.toX64, shiftMaskRcxIns, emitClean_cons, emitClean_nil]
     refine _root_.Program.wp_singleton fun _ _ => ?_
     simp only [t_step_simp, ConstExpr.interp, Effects.All]; intro _
     refine Or.inl ⟨trivial, ?_, ?_, ?_, ?_, hzm, hdm⟩
@@ -512,7 +513,7 @@ private theorem wp_shiftMaskRcx_low [Host] {E : Int64 → MachineData → Prop} 
           Nat.mod_eq_of_lt (by omega : (s.regs.get64 .rcx).toNat % 8 < 2 ^ 8)]
       have hlt8 : (s.regs.get64 .rcx).toNat % 8 < 8 := Nat.mod_lt _ (by decide)
       have hb8 : b.toNat % 8 = (s.regs.get64 .rcx).toNat % 8 := by
-        rw [← hb, Width.bits, BitVec.toNat_setWidth, Nat.mod_mod_of_dvd _ (by decide)]
+        rw [← hb, Vll.Width.bits, BitVec.toNat_setWidth, Nat.mod_mod_of_dvd _ (by decide)]
       have hrcx_val : ((s.regs.set64 .rcx (BitVec.zeroExtend 64
           ((s.regs.get64 .rcx).setWidth 32 &&&
             BitVec.truncate 32 (7 : Int64).toBitVec))).rcx.toBitVec) =
@@ -520,13 +521,13 @@ private theorem wp_shiftMaskRcx_low [Host] {E : Int64 → MachineData → Prop} 
             BitVec.setWidth 32 (7 : Int64).toBitVec).setWidth 64 := by
         change (s.regs.set64 .rcx _).get64 .rcx = _
         rw [Reg64s.get64_set64_same]
-      simp only [Width.bits, hrcx_val]
+      simp only [Vll.Width.bits, hrcx_val]
       rw [hm, hb8, show (0x1f : Nat) = 2 ^ 5 - 1 from rfl, Nat.and_two_pow_sub_one_eq_mod,
         Nat.mod_eq_of_lt (by omega : (s.regs.get64 .rcx).toNat % 8 < 32)]
     · rw [Reg64s.get64_set64_of_ne _ .rcx .r10 _ (by decide), hr10]
     · rw [Reg64s.get64_set64_of_ne _ .rcx .r11 _ (by decide), hr11]
     · intro r hr hsc; rw [Reg64s.get64_set64_of_ne _ .rcx r _ hr.symm]; exact hkeep r hr hsc
-  · simp only [Width.toX64, shiftMaskRcxIns, emitClean_cons, emitClean_nil]
+  · simp only [Vll.Width.toX64, shiftMaskRcxIns, emitClean_cons, emitClean_nil]
     refine _root_.Program.wp_singleton fun _ _ => ?_
     simp only [t_step_simp, ConstExpr.interp, Effects.All]; intro _
     refine Or.inl ⟨trivial, ?_, ?_, ?_, ?_, hzm, hdm⟩
@@ -545,7 +546,7 @@ private theorem wp_shiftMaskRcx_low [Host] {E : Int64 → MachineData → Prop} 
           Nat.mod_eq_of_lt (by omega : (s.regs.get64 .rcx).toNat % 16 < 2 ^ 8)]
       have hlt16 : (s.regs.get64 .rcx).toNat % 16 < 16 := Nat.mod_lt _ (by decide)
       have hb16 : b.toNat % 16 = (s.regs.get64 .rcx).toNat % 16 := by
-        rw [← hb, Width.bits, BitVec.toNat_setWidth, Nat.mod_mod_of_dvd _ (by decide)]
+        rw [← hb, Vll.Width.bits, BitVec.toNat_setWidth, Nat.mod_mod_of_dvd _ (by decide)]
       have hrcx_val : ((s.regs.set64 .rcx (BitVec.zeroExtend 64
           ((s.regs.get64 .rcx).setWidth 32 &&&
             BitVec.truncate 32 (15 : Int64).toBitVec))).rcx.toBitVec) =
@@ -553,14 +554,14 @@ private theorem wp_shiftMaskRcx_low [Host] {E : Int64 → MachineData → Prop} 
             BitVec.setWidth 32 (15 : Int64).toBitVec).setWidth 64 := by
         change (s.regs.set64 .rcx _).get64 .rcx = _
         rw [Reg64s.get64_set64_same]
-      simp only [Width.bits, hrcx_val]
+      simp only [Vll.Width.bits, hrcx_val]
       rw [hm, hb16, show (0x1f : Nat) = 2 ^ 5 - 1 from rfl, Nat.and_two_pow_sub_one_eq_mod,
         Nat.mod_eq_of_lt (by omega : (s.regs.get64 .rcx).toNat % 16 < 32)]
     · rw [Reg64s.get64_set64_of_ne _ .rcx .r10 _ (by decide), hr10]
     · rw [Reg64s.get64_set64_of_ne _ .rcx .r11 _ (by decide), hr11]
     · intro r hr hsc; rw [Reg64s.get64_set64_of_ne _ .rcx r _ hr.symm]; exact hkeep r hr hsc
 
-private theorem fallsTo_shiftOp (w : Width) (op : CoreAlu) (sk : ShiftKind)
+private theorem fallsTo_shiftOp (w : Vll.Width) (op : CoreAlu) (sk : ShiftKind)
     (hsk : (op = .shl ∧ sk = .shl) ∨ (op = .lshr ∧ sk = .lshr) ∨ (op = .ashr ∧ sk = .ashr))
     (ce : ShiftCountExpr) (k : Nat) (hk_lt : k < w.bits) (hw32_nz : w = .w32 → k ≠ 0)
     (s₀ : MachineData) (dst : Reg64)
@@ -580,8 +581,8 @@ private theorem fallsTo_shiftOp (w : Width) (op : CoreAlu) (sk : ShiftKind)
     intro st v hv; subst hv; exact hc _ ⟨st, rfl⟩
   cases w <;> rcases hsk with ⟨_, rfl⟩ | ⟨_, rfl⟩ | ⟨_, rfl⟩ <;>
     (have hkp'' := hkp'
-     dsimp only [ShiftCountExpr.interpMasked, ShiftCountExpr.interp, Width.toX64] at hkp''
-     simp only [ShiftKind.toOp, Width.toX64, insW, regW, t_step_simp, Reg64s.set]
+     dsimp only [ShiftCountExpr.interpMasked, ShiftCountExpr.interp, Vll.Width.toX64] at hkp''
+     simp only [ShiftKind.toOp, Vll.Width.toX64, insW, regW, t_step_simp, Reg64s.set]
      rw [hkp'']) <;>
     (by_cases hk0 : k = 0
      · subst hk0
@@ -593,18 +594,18 @@ private theorem fallsTo_shiftOp (w : Width) (op : CoreAlu) (sk : ShiftKind)
             BitVec.sshiftRight_zero]
           try rw [replaceLow_8_eq_writeSubX64]
           try rw [replaceLow_16_eq_writeSubX64]
-          all_goals (dsimp only [writeSubX64, Width.bits]; try rw [BitVec.setWidth_eq]))
+          all_goals (dsimp only [writeSubX64, Vll.Width.bits]; try rw [BitVec.setWidth_eq]))
      · simp only [beq_false_of_ne hk0, Bool.false_eq_true, ↓reduceIte, Effects.All]
-       (try (have hlt1 : k < Width.W8.bits := hk_lt; simp only [hlt1, ↓reduceIte]))
-       (try (have hlt1 : k < Width.W16.bits := hk_lt; simp only [hlt1, ↓reduceIte]))
-       (try (have hlt1 : k < Width.W32.bits := hk_lt; simp only [hlt1, ↓reduceIte]))
-       (try (have hlt1 : k < Width.W64.bits := hk_lt; simp only [hlt1, ↓reduceIte]))
+       (try (have hlt1 : k < _root_.Width.W8.bits := hk_lt; simp only [hlt1, ↓reduceIte]))
+       (try (have hlt1 : k < _root_.Width.W16.bits := hk_lt; simp only [hlt1, ↓reduceIte]))
+       (try (have hlt1 : k < _root_.Width.W32.bits := hk_lt; simp only [hlt1, ↓reduceIte]))
+       (try (have hlt1 : k < _root_.Width.W64.bits := hk_lt; simp only [hlt1, ↓reduceIte]))
        intro _; split
        · refine closeGoal _ _ ?_
          first
          | rw [replaceLow_8_eq_writeSubX64]; rfl
          | rw [replaceLow_16_eq_writeSubX64]; rfl
-         | (dsimp only [writeSubX64, ShiftKind.eval, _root_.Width.bits, Width.bits]
+         | (dsimp only [writeSubX64, ShiftKind.eval, _root_.Width.bits, Vll.Width.bits]
             try rw [BitVec.zeroExtend_eq_setWidth]
             try repeat rw [BitVec.setWidth_eq]
             try rfl)
@@ -612,13 +613,13 @@ private theorem fallsTo_shiftOp (w : Width) (op : CoreAlu) (sk : ShiftKind)
          first
          | rw [replaceLow_8_eq_writeSubX64]; rfl
          | rw [replaceLow_16_eq_writeSubX64]; rfl
-         | (dsimp only [writeSubX64, ShiftKind.eval, _root_.Width.bits, Width.bits]
+         | (dsimp only [writeSubX64, ShiftKind.eval, _root_.Width.bits, Vll.Width.bits]
             try rw [BitVec.zeroExtend_eq_setWidth]
             try repeat rw [BitVec.setWidth_eq]
             try rfl))
 
 private theorem wp_asmX64AluShift [Host] {E : Int64 → MachineData → Prop} (op : CoreAlu)
-    (sk : ShiftKind) (w : Width)
+    (sk : ShiftKind) (w : Vll.Width)
     (hsk : (op = .shl ∧ sk = .shl) ∨ (op = .lshr ∧ sk = .lshr) ∨ (op = .ashr ∧ sk = .ashr))
     (s : MachineData) (rd lhs : Reg64) (rhs : Src x64Arch) (sf : Bool)
     (hrd : rd ∉ x64Scratch) (_hlhs : lhs ∉ x64Scratch)
@@ -664,7 +665,7 @@ private theorem wp_asmX64AluShift [Host] {E : Int64 → MachineData → Prop} (o
         have := congrArg (·.setWidth w.bits) h1
         simpa [writeSubX64_setWidth] using this
       dsimp only
-      cases w <;> simp only [Width.toX64, Width.bits] at hrdw ⊢ <;> rw [hrdw] <;>
+      cases w <;> simp only [Vll.Width.toX64, Vll.Width.bits] at hrdw ⊢ <;> rw [hrdw] <;>
         exact cond_testSelf_aluFlags_eq op _ hop a b s.status af cc
   refine finish_sf _ ?_
   cases rhs with
@@ -718,10 +719,10 @@ private theorem wp_asmX64AluShift [Host] {E : Int64 → MachineData → Prop} (o
         have h5 : (31 : Nat) = 2 ^ 5 - 1 := rfl
         have h6 : (63 : Nat) = 2 ^ 6 - 1 := rfl
         cases w <;>
-          dsimp only [Width.toX64] <;>
+          dsimp only [Vll.Width.toX64] <;>
           simp only [ShiftCountExpr.interpMasked, ShiftCountExpr.interp,
             ConstExpr.interp, BitVec.take, BitVec.extractLsb'_toNat, Int64.ofNat,
-            Int64.toBitVec, BitVec.toNat_ofNat, _root_.Width.bits, Width.bits,
+            Int64.toBitVec, BitVec.toNat_ofNat, _root_.Width.bits, Vll.Width.bits,
             Nat.shiftRight_zero, h5, h6, Nat.and_two_pow_sub_one_eq_mod]
         · have h := Nat.mod_lt imm.toNat (by decide : 0 < 8)
           rw [Nat.mod_eq_of_lt (Nat.lt_trans h (by decide : 8 < 2 ^ 64)),
@@ -757,12 +758,12 @@ private theorem wp_asmX64AluShift [Host] {E : Int64 → MachineData → Prop} (o
     have hrb11 := (ne_of_not_mem_x64Scratch hrb).2
     dsimp only [asmX64AluShiftIns]
     by_cases hw3264 : (w.toX64 == .W32 || w.toX64 == .W64) = true
-    · have hw : w = .w32 ∨ w = .w64 := by cases w <;> simp_all [Width.toX64]
+    · have hw : w = .w32 ∨ w = .w64 := by cases w <;> simp_all [Vll.Width.toX64]
       simp only [hw3264, ↓reduceIte, emitClean_cons, emitClean_nil]
       refine _root_.Program.wp_singleton fun _ _ => ?_
       rcases hw with rfl | rfl <;> rcases hsk with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
       all_goals
-        simp only [Width.toX64, asmX64Bmi2Op, regW, _root_.Width.bits, t_step_simp, Effects.All,
+        simp only [Vll.Width.toX64, asmX64Bmi2Op, regW, _root_.Width.bits, t_step_simp, Effects.All,
           MachineData.setReg, Reg64s.set, BitVec.zeroExtend_eq_setWidth]
         refine Or.inl ⟨trivial, ?_, fun r hr _ => Reg64s.get64_set64_of_ne _ rd r _ hr.symm,
           trivial, trivial⟩
@@ -773,7 +774,7 @@ private theorem wp_asmX64AluShift [Host] {E : Int64 → MachineData → Prop} (o
         | (rw [Reg64s.get64_set64_same,
             show (64 - 1 : Nat) = 63 from rfl, show (63 : Nat) = 2 ^ 6 - 1 from rfl,
             Nat.and_two_pow_sub_one_eq_mod, show (2 ^ 6 : Nat) = 64 from rfl]; rfl)
-    · have hw816 : w = .w8 ∨ w = .w16 := by cases w <;> simp_all [Width.toX64]
+    · have hw816 : w = .w8 ∨ w = .w16 := by cases w <;> simp_all [Vll.Width.toX64]
       simp only [hw3264, Bool.false_eq_true, ↓reduceIte, emitClean_cons, emitClean_append,
         emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_movSubW w s .r11 lhs)) ?_
@@ -862,7 +863,7 @@ private theorem wp_asmX64AluShift [Host] {E : Int64 → MachineData → Prop} (o
         · rw [Reg64s.get64_set64_of_ne _ .rcx r _ (Ne.symm hrc),
             Reg64s.get64_set64_of_ne _ .r11 r _ hne.2.symm, hr4 r hrc hsc]
 
-private theorem wp_asmX64AluMul [Host] {E : Int64 → MachineData → Prop} (w : Width)
+private theorem wp_asmX64AluMul [Host] {E : Int64 → MachineData → Prop} (w : Vll.Width)
     (s : MachineData) (rd lhs : Reg64) (rhs : Src x64Arch) (sf : Bool)
     (hrd : rd ∉ x64Scratch) (hlhs : lhs ∉ x64Scratch)
     (hrhs : ∀ rs, rhs = .reg rs → rs ∉ x64Scratch) :
@@ -972,11 +973,11 @@ private theorem wp_asmX64AluMul [Host] {E : Int64 → MachineData → Prop} (w :
       have := congrArg (·.setWidth w.bits) h1
       simpa [writeSubX64_setWidth, CoreAlu.eval] using this
     dsimp only
-    cases w <;> simp only [Width.toX64, Width.bits] at hrdw ⊢ <;> rw [hrdw] <;>
+    cases w <;> simp only [Vll.Width.toX64, Vll.Width.bits] at hrdw ⊢ <;> rw [hrdw] <;>
       exact cond_testSelf_aluFlags_eq .mul _ (.inl rfl) a b s.status af cc
 
 private theorem wp_asmX64AluBin [Host] {E : Int64 → MachineData → Prop} (op : CoreAlu)
-    (k : AluBinKind) (w : Width) (hk : coreAluToBin? op = some k) (hk_nm : op ≠ .mul)
+    (k : AluBinKind) (w : Vll.Width) (hk : coreAluToBin? op = some k) (hk_nm : op ≠ .mul)
     (s : MachineData) (rd lhs : Reg64) (rhs : Src x64Arch) (sf : Bool)
     (hrd : rd ∉ x64Scratch) (hlhs : lhs ∉ x64Scratch)
     (hrhs : ∀ rs, rhs = .reg rs → rs ∉ x64Scratch) :
@@ -1018,7 +1019,7 @@ private theorem wp_asmX64AluBin [Host] {E : Int64 → MachineData → Prop} (op 
           have hsib := atSIB_interp s.regs ra rb .s1 0 p
           simp only [AddrScale.shift, BitVec.shiftLeft_zero, hz0, BitVec.add_zero] at hsib
           rcases hw3264 with rfl | rfl
-          · simp only [Width.toX64, regW, insW, t_step_simp, Reg64s.set]
+          · simp only [Vll.Width.toX64, regW, insW, t_step_simp, Reg64s.set]
             have h32 : (@AddrExpr.interp _ ⟨.W64⟩ (atSIB ra rb .s1 0) s.regs p).zeroExtend 32 =
                 (s.regs.get64 ra).setWidth 32 + (s.regs.get64 rb).setWidth 32 := by
               have h0 :
@@ -1029,8 +1030,8 @@ private theorem wp_asmX64AluBin [Host] {E : Int64 → MachineData → Prop} (op 
               rw [BitVec.zeroExtend_eq_setWidth, ← h0, hsib]
               exact setWidth_add_le (by decide) _ _
             rw [h32]; refine hkcont _ ?_; simp [writeSubX64]
-          · simp only [Width.toX64, regW, insW, t_step_simp, Reg64s.set, hsib]
-            refine hkcont _ ?_; simp [Width.bits, BitVec.setWidth_eq, writeSubX64]
+          · simp only [Vll.Width.toX64, regW, insW, t_step_simp, Reg64s.set, hsib]
+            refine hkcont _ ?_; simp [Vll.Width.bits, BitVec.setWidth_eq, writeSubX64]
         unfold opBinLeaReg? at hlea
         split at hlea
         · rename_i hcond
@@ -1038,7 +1039,7 @@ private theorem wp_asmX64AluBin [Host] {E : Int64 → MachineData → Prop} (op 
           have hkadd : k = .add := hcond.1.1.1; subst hkadd
           have hop : op = .add := by cases op <;> simp_all [coreAluToBin?]
           subst hop
-          have hw3264 : w = .w32 ∨ w = .w64 := by cases w <;> simp_all [Width.toX64]
+          have hw3264 : w = .w32 ∨ w = .w64 := by cases w <;> simp_all [Vll.Width.toX64]
           have lea_wp : ∀ (ra rb : Reg64),
               res.1 = [x64InsI w.toX64 (.lea (regW w.toX64 rd) (atSIB ra rb .s1 0))] →
               (s.regs.get64 ra).setWidth w.bits + (s.regs.get64 rb).setWidth w.bits =
@@ -1079,7 +1080,7 @@ private theorem wp_asmX64AluBin [Host] {E : Int64 → MachineData → Prop} (op 
           intro hw3264 off _ p _ _ _ hkcont
           have hdisp := atDisp_interp s.regs lhs off p
           rcases hw3264 with rfl | rfl
-          · simp only [Width.toX64, regW, insW, t_step_simp, Reg64s.set]
+          · simp only [Vll.Width.toX64, regW, insW, t_step_simp, Reg64s.set]
             have h32 : (@AddrExpr.interp _ ⟨.W64⟩ (atDisp lhs off) s.regs p).zeroExtend 32 =
                 (s.regs.get64 lhs).setWidth 32 + off.toBitVec.setWidth 32 := by
               have h0 :
@@ -1090,13 +1091,13 @@ private theorem wp_asmX64AluBin [Host] {E : Int64 → MachineData → Prop} (op 
               rw [BitVec.zeroExtend_eq_setWidth, ← h0, hdisp]
               exact setWidth_add_le (by decide) _ _
             rw [h32]; refine hkcont _ ?_; simp [writeSubX64]
-          · simp only [Width.toX64, regW, insW, t_step_simp, Reg64s.set, hdisp]
-            refine hkcont _ ?_; simp [Width.bits, BitVec.setWidth_eq, writeSubX64]
+          · simp only [Vll.Width.toX64, regW, insW, t_step_simp, Reg64s.set, hdisp]
+            refine hkcont _ ?_; simp [Vll.Width.bits, BitVec.setWidth_eq, writeSubX64]
         unfold opBinLeaImm? at hlea
         split at hlea
         · rename_i hcond
           simp only [Bool.and_eq_true, Bool.or_eq_true, beq_width_iff, beq_iff_eq] at hcond
-          have hw3264 : w = .w32 ∨ w = .w64 := by cases w <;> simp_all [Width.toX64]
+          have hw3264 : w = .w32 ∨ w = .w64 := by cases w <;> simp_all [Vll.Width.toX64]
           have finish_disp : ∀ (off : Int64),
               res.1 = [x64InsI w.toX64 (.lea (regW w.toX64 rd) (atDisp lhs off))] →
               (s.regs.get64 lhs).setWidth w.bits + off.toBitVec.setWidth w.bits =
@@ -1123,9 +1124,9 @@ private theorem wp_asmX64AluBin [Host] {E : Int64 → MachineData → Prop} (op 
             · simp only [Option.some.injEq] at hlea; subst res
               refine finish_disp _ rfl ?_
               rcases hw3264 with rfl | rfl
-              · simp [Width.toX64, Width.bits, CoreAlu.eval, a, b, Src.evalW, Src.eval,
+              · simp [Vll.Width.toX64, Vll.Width.bits, CoreAlu.eval, a, b, Src.evalW, Src.eval,
                   Int64.toBitVec_ofBitVec, truncate_signExtend_64 (by decide : 32 ≤ 64)]
-              · simp [Width.toX64, Width.bits, CoreAlu.eval, a, b, Src.evalW, Src.eval,
+              · simp [Vll.Width.toX64, Vll.Width.bits, CoreAlu.eval, a, b, Src.evalW, Src.eval,
                   Int64.toBitVec_ofBitVec]
             · simp at hlea
           · have hop : op = .sub := by cases op <;> simp_all [coreAluToBin?]
@@ -1137,10 +1138,10 @@ private theorem wp_asmX64AluBin [Host] {E : Int64 → MachineData → Prop} (op 
             · simp only [Option.some.injEq] at hlea; subst res
               refine finish_disp _ rfl ?_
               rcases hw3264 with rfl | rfl
-              · simp [Width.toX64, Width.bits, CoreAlu.eval, a, b, Src.evalW, Src.eval,
+              · simp [Vll.Width.toX64, Vll.Width.bits, CoreAlu.eval, a, b, Src.evalW, Src.eval,
                   Int64.toBitVec_ofBitVec, truncate_signExtend_64 (by decide : 32 ≤ 64),
                   BitVec.sub_eq_add_neg]
-              · simp [Width.toX64, Width.bits, CoreAlu.eval, a, b, Src.evalW, Src.eval,
+              · simp [Vll.Width.toX64, Vll.Width.bits, CoreAlu.eval, a, b, Src.evalW, Src.eval,
                   Int64.toBitVec_ofBitVec, BitVec.sub_eq_add_neg]
             · simp at hlea
         · simp at hlea
@@ -1152,7 +1153,7 @@ private theorem wp_asmX64AluBin [Host] {E : Int64 → MachineData → Prop} (op 
         | mul => exact absurd rfl hk_nm
         | shl | lshr | ashr => simp [coreAluToBin?] at hk⟩
 
-private theorem wp_asmX64Alu [Host] {E : Int64 → MachineData → Prop} (op : CoreAlu) (w : Width)
+private theorem wp_asmX64Alu [Host] {E : Int64 → MachineData → Prop} (op : CoreAlu) (w : Vll.Width)
     (s : MachineData) (rd lhs : Reg64) (rhs : Src x64Arch) (sf : Bool)
     (hrd : rd ∉ x64Scratch) (hlhs : lhs ∉ x64Scratch)
     (hrhs : ∀ rs, rhs = .reg rs → rs ∉ x64Scratch) :
@@ -1176,7 +1177,7 @@ private theorem wp_asmX64Alu [Host] {E : Int64 → MachineData → Prop} (op : C
 
 /-! ## 3. Public ALU Simulation Theorem -/
 
-theorem asmX64_alu_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {op : CoreAlu} {w : Width}
+theorem asmX64_alu_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {op : CoreAlu} {w : Vll.Width}
     {rd lhs : Reg64} {rhs : Src x64Arch} {sf : Bool}
     {sv : MachSt x64Arch} {sk : MachineData} {post : MachineState → Prop}
     (hsim : SimState fMask sv sk) (hrd : rd ∉ x64Scratch) (hlhs : lhs ∉ x64Scratch)
@@ -1214,6 +1215,6 @@ theorem asmX64_alu_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {op : CoreAlu
       dsimp only [sv', MachSt.flags_setFlags]
       exact (h5 rfl cc).trans (by rw [ha, hb, x64AluFlags_sf_true op w a b sk.status sv.flags])⟩
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64
 
 end

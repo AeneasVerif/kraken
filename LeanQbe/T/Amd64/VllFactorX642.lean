@@ -1,14 +1,14 @@
 module
 
-public import LeanQbe.T.Vll.FactorX640
-public import LeanQbe.T.Vll.FactorX641
+public import LeanQbe.T.Amd64.VllFactorX640
+public import LeanQbe.T.Amd64.VllFactorX641
 import LeanQbe.T.Amd64.TargLemmas
 import LeanQbe.T.AbiLemmas
 import LeanQbe.T.TargetLemmas
 import Kraken.X64.Regs
 
 /-!
-# BedrockMach SysV x86-64 Policy, Target, and Soundness (`Vll.FactorX642`)
+# BedrockMach SysV x86-64 Policy, Target, and Soundness (`Amd64.VllFactorX642`)
 
 Constructs and verifies the `BedrockMach` L1 SysV x86-64 lowering policy and target:
 end-to-end semantic correspondence with `x64Target`:
@@ -24,10 +24,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 
 /-! ## 1. Compare Flags (`x64Arch_cmpFlags_spec`) and Native Lifting Bridges -/
 
@@ -57,7 +57,7 @@ private theorem subFlags_zf_eq {n : Nat} (x y : BitVec n) (af : Bool) :
       exact heq he
     simp [heq, hne]
 
-private theorem two_pow_coe_w (w : Width) :
+private theorem two_pow_coe_w (w : Vll.Width) :
     ((2 ^ w.bits : Nat) : Int) = 2 * ((2 ^ (w.bits - 1) : Nat) : Int) ∧
       ((2 ^ (w.bits - 1) : Nat) : Int) = (2 : Int) ^ (w.bits - 1) := by
   cases w <;> exact ⟨rfl, rfl⟩
@@ -105,7 +105,7 @@ private theorem bmod_two_pow_w (m : Nat) (H : Int) (hm : (m : Int) = 2 * H) (hpo
 
 /-- Proof of `cmpFlags_spec` for `x64CmpFlags` across all 10 `CmpOp` comparisons. -/
 theorem x64Arch_cmpFlags_spec :
-    ∀ co cc (w : Width) (a b : BitVec w.bits) f,
+    ∀ co cc (w : Vll.Width) (a b : BitVec w.bits) f,
       vllX64NativeHooks.condOfCmp? co = some cc →
       x64Arch.evalCond (x64Arch.cmpFlags w a b f) cc = co.evalBits a b := by
   intro co cc w a b f hco
@@ -272,14 +272,14 @@ private theorem x64Native_fallsTo_of_clean {vh : VllHost x64Arch} {k : Nat}
     (vllMach x64Arch).FallsTo x64CondReads vh k (ds.map .native) gClob vClob fClob sv Q post :=
   x64Mach_fallsTo_to_vll hclean hlen hx hQ
 
-private theorem gprHolds_to_bits {v : BitVec 64} {w : Width} {x : BitVec w.bits}
+private theorem gprHolds_to_bits {v : BitVec 64} {w : Vll.Width} {x : BitVec w.bits}
     (h : GprHolds v (.bits w.bits) x) : v.setWidth w.bits = x := h.2
 
 private theorem writeSubX64_w32 (old : BitVec 64) (v : BitVec 32) :
     writeSubX64 .w32 old v = v.setWidth 64 := rfl
 
-private theorem vllX64WidthOfBits_eq {n : Nat} {w : Width} (hw : vllX64WidthOfBits? n = some w) :
-    n = w.bits := by
+private theorem vllX64WidthOfBits_eq {n : Nat} {w : Vll.Width}
+    (hw : vllX64WidthOfBits? n = some w) : n = w.bits := by
   unfold vllX64WidthOfBits? at hw; split at hw <;> cases hw <;> rfl
 
 private theorem nativePair_some_iff {x : Option (List _root_.Directive × FlagMask)}
@@ -404,7 +404,7 @@ private theorem opHook_native_fb {h : VllHost x64Arch} {k : Nat} {sig rs : List 
   exact ⟨⟨rvs, hp, tRel_pDstHolds_of_x64Mach hsim htr⟩, (krakenSim_mem_eq hsim).trans hm⟩
 
 private theorem opHook_alu_core {h : VllHost x64Arch} {k : Nat} {op : CoreAlu}
-    {w : Width} {rd ra : Reg64} {pb : PArg Reg64 RegMm CondCode (.bits w.bits)}
+    {w : Vll.Width} {rd ra : Reg64} {pb : PArg Reg64 RegMm CondCode (.bits w.bits)}
     {sb : Src x64Arch} {va vb : BitVec w.bits} {P : Tup Val [.bits w.bits] → Prop}
     {s : MachSt x64Arch} {post : Config x64Arch → Prop}
     (hsb : match pb with
@@ -451,7 +451,7 @@ private theorem vllX64OpHook_spec {h : VllHost x64Arch} {k : Nat} {sig rs : List
       (tupDstGprs dsts ++ x64Arch.abi.scratch) [] clob s
       (fun s' => (∃ rvs, P rvs ∧ TRel ((vllMach x64Arch).PDstHolds s') dsts rvs) ∧
         s'.mem = s.mem) post := by
-  have aluBin : ∀ (w : Width) (op : CoreAlu) (rd ra : Reg64)
+  have aluBin : ∀ (w : Vll.Width) (op : CoreAlu) (rd ra : Reg64)
       (pb : PArg Reg64 RegMm CondCode (.bits w.bits)) (va vb : BitVec w.bits)
       {P' : Tup Val [.bits w.bits] → Prop}
       (hsb : match pb with
@@ -1251,7 +1251,7 @@ private theorem vllX64Op_zero32 {h : VllHost x64Arch} {k : Nat} {sig : List Ty}
     | cmp _ _ _ _ => cases hz
     | _ => cases hop
 
-private theorem statusFlags_from_result_zero_sub (w : Width) (rv : BitVec w.bits)
+private theorem statusFlags_from_result_zero_sub (w : Vll.Width) (rv : BitVec w.bits)
     (f : StatusFlags) (cc : CondCode) :
     cc.interp (StatusFlags.from_result rv { cf := false, af := false, of := false }) =
       cc.interp (x64CmpFlags w rv 0#w.bits f) := by
@@ -1356,7 +1356,7 @@ private theorem x64BitWidths_eq_false_of_none {w : Nat} (h : vllX64WidthOfBits? 
 private abbrev CmpPairF (m : Nat) : Type :=
   PArg Reg64 RegMm CondCode (.bits m) × PArg Reg64 RegMm CondCode (.bits m)
 
-private theorem opCmpIns_imm_gpr_ne_none (co : CmpOp) (xw : Width)
+private theorem opCmpIns_imm_gpr_ne_none (co : CmpOp) (xw : Vll.Width)
     (cx : BitVec xw.bits) (ry : Reg64) (pd : PDst Reg64 RegMm CondCode .bool)
     (b : Bool) (vh : VariantHint)
     (hfl : x64CmpFlagsOut co xw.bits (.imm cx) (.gpr ry) pd = some b) :
@@ -1376,20 +1376,20 @@ private theorem opCmpIns_imm_gpr_ne_none (co : CmpOp) (xw : Width)
     cases xw <;> simp only [Amd64.withWidth, opCmpIns] at hop <;> split at hop <;> cases hop
   | flag cf =>
     cases xw <;> simp only [Amd64.withWidth, opCmpIns] at hop <;>
-      (try rw [show (Width.W8 != Width.W64) = true from rfl] at hop) <;>
-      (try rw [show (Width.W16 != Width.W64) = true from rfl] at hop) <;>
-      (try rw [show (Width.W32 != Width.W64) = true from rfl] at hop) <;>
-      (try rw [show (Width.W64 != Width.W64) = false from rfl] at hop) <;>
-      (try rw [show Width.w8.bits = 8 from rfl] at hfl) <;>
-      (try rw [show Width.w16.bits = 16 from rfl] at hfl) <;>
-      (try rw [show Width.w32.bits = 32 from rfl] at hfl) <;>
-      (try rw [show Width.w64.bits = 64 from rfl] at hfl) <;>
+      (try rw [show (_root_.Width.W8 != _root_.Width.W64) = true from rfl] at hop) <;>
+      (try rw [show (_root_.Width.W16 != _root_.Width.W64) = true from rfl] at hop) <;>
+      (try rw [show (_root_.Width.W32 != _root_.Width.W64) = true from rfl] at hop) <;>
+      (try rw [show (_root_.Width.W64 != _root_.Width.W64) = false from rfl] at hop) <;>
+      (try rw [show Vll.Width.w8.bits = 8 from rfl] at hfl) <;>
+      (try rw [show Vll.Width.w16.bits = 16 from rfl] at hfl) <;>
+      (try rw [show Vll.Width.w32.bits = 32 from rfl] at hfl) <;>
+      (try rw [show Vll.Width.w64.bits = 64 from rfl] at hfl) <;>
       by_cases h1 : (cf == condOf co.swap) = true <;>
       by_cases h2 : (cf == condOf co) = true <;>
       by_cases hf : fitsImm32 (cx.setWidth 64) = true <;>
       simp_all
 
-private theorem vllX64OpHook_cmp_gpr_flag_eq (co : CmpOp) (xw : Width)
+private theorem vllX64OpHook_cmp_gpr_flag_eq (co : CmpOp) (xw : Vll.Width)
     (rx : Reg64) (pb : PArg Reg64 RegMm CondCode (.bits xw.bits)) (cf : CondCode)
     (b : Bool) (vh : VariantHint)
     (hfl : x64CmpFlagsOut co xw.bits (.gpr rx) pb (.flag cf) = some b)
@@ -1559,7 +1559,7 @@ theorem vllX64PolicySpec : VllPolicySpec x64Arch vllX64NativeHooks where
     dsimp only [vllX64NativeHooks, vllX64LoadSext] at hls
     split at hls
     · cases hls
-    · have go : ∀ (w : Width) (hw : m = w.bits),
+    · have go : ∀ (w : Vll.Width) (hw : m = w.bits),
           [.load w .sx rd a] = c → clob = FlagMask.none →
           (vllMach x64Arch).FallsTo x64Arch.condReads h k c (rd :: x64Arch.abi.scratch) [] clob s
             (fun s' => s'.gpr rd = v.signExtend 64 ∧ s'.mem = s.mem) post := by
@@ -1801,7 +1801,7 @@ theorem vllX64PolicySpec : VllPolicySpec x64Arch vllX64NativeHooks where
         cases hb : x64BitWidths.contains w
         · dsimp only [x64CmpFlagsOut] at hfl; rw [hb] at hfl; cases hfl
         · rfl
-      obtain ⟨xw, hxw, hcore⟩ : ∃ (xw : Width) (hxw : w = xw.bits),
+      obtain ⟨xw, hxw, hcore⟩ : ∃ (xw : Vll.Width) (hxw : w = xw.bits),
           vllCoreCmpW x64Arch (some ∘ condOf) co xw (hxw ▸ pa) (hxw ▸ pb) pd = some (c, clob) := by
         dsimp only [vllCoreOp, vllCoreCmp] at hop
         have hbw' : x64Arch.abi.bitWidths.contains w = true := hbw
@@ -1990,7 +1990,7 @@ theorem vllX64PolicySpec : VllPolicySpec x64Arch vllX64NativeHooks where
       exact ⟨⟨rv, hp, pDstHolds_of_x64Mach hsim hpd, fun rd' hw32 hpr hzx =>
         (krakenSim_gpr_eq hsim rd').trans (hz32 rd' hw32 hpr hzx),
         flagCmpOk_of_x64Mach hsim hfc⟩, (krakenSim_mem_eq hsim).trans hm⟩
-    have aluZeroCore : ∀ (op : CoreAlu) (xw : Width) (hn : w = xw.bits)
+    have aluZeroCore : ∀ (op : CoreAlu) (xw : Vll.Width) (hn : w = xw.bits)
         (ra rd : Reg64) (pb : PArg Reg64 RegMm CondCode (.bits xw.bits))
         (sb : Src x64Arch) (va vb : BitVec xw.bits),
         (match pb with
@@ -2037,7 +2037,7 @@ theorem vllX64PolicySpec : VllPolicySpec x64Arch vllX64NativeHooks where
       dsimp only [vllMach, x64Arch] at hg_sub hg hflg
       rw [hva', heval] at hg_sub hg hflg
       refine ⟨⟨op.eval xw va vb, hP, hg, fun rd' hw32 heq _ => ?_, ?_⟩, hm⟩
-      · cases heq; cases xw <;> simp [Width.bits] at hw32
+      · cases heq; cases xw <;> simp [Vll.Width.bits] at hw32
         simpa [writeSubX64_w32] using hg_sub
       · intro co cc hco_ok hcc
         simp only [vllGprIsaOfHooks, vllX64NativeHooks, Function.comp_apply, Option.some.injEq]
@@ -2098,7 +2098,7 @@ theorem vllX64PolicySpec : VllPolicySpec x64Arch vllX64NativeHooks where
           cases hbw : x64Arch.abi.bitWidths.contains w
           · simp only [hbw, Bool.false_eq_true, ↓reduceIte] at hop; cases hop
           · simp only [hbw, ↓reduceIte] at hop
-            obtain ⟨xw, rfl, hcore⟩ : ∃ (xw : Width) (hw : w = xw.bits),
+            obtain ⟨xw, rfl, hcore⟩ : ∃ (xw : Vll.Width) (hw : w = xw.bits),
                 vllCoreNegW x64Arch xw (hw ▸ pa) rd = some (c, clob) :=
               match w, hbw, pa, hop with
               | 8, _, _, h0 => ⟨.w8, rfl, h0⟩ | 16, _, _, h0 => ⟨.w16, rfl, h0⟩
@@ -2350,4 +2350,4 @@ theorem vllX64LabelClean : Rega.LabelClean vllX64Isa :=
   vllLabelClean x64Arch vllX64Policy vllX64Hooks_noLab
 
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

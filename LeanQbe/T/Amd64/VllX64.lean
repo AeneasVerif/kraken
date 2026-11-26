@@ -5,7 +5,7 @@ public import LeanQbe.T.Amd64.IselVec
 import LeanQbe.T.AbiLemmas
 
 /-!
-# Target Architecture Instance for SysV x86-64 (`Vll.X64`)
+# Target Architecture Instance for SysV x86-64 (`Amd64.VllX64`)
 
 Defines `x64Arch : Arch`, `x64Arch_wf : x64Arch.Wf`, and
 `x64Arch_nativeEffectSound : x64Arch.NativeEffectSound` for `BedrockMach` L1 VLLIR on x86-64
@@ -20,14 +20,18 @@ public section
 
 namespace LeanQbe.T.Vll
 
-open LeanQbe.T
-open LeanQbe.T.Amd64
-
-/-! ## 1. Width Mapping, Registers, and Flag Helpers -/
-
 /-- Convert a `BedrockMach` scalar `Vll.Width` to Kraken `Width`. -/
 @[expose, reducible] def Width.toX64 : Width → _root_.Width
   | .w8 => .W8 | .w16 => .W16 | .w32 => .W32 | .w64 => .W64
+
+end LeanQbe.T.Vll
+
+namespace LeanQbe.T.Amd64
+
+open LeanQbe.T
+open LeanQbe.T.Vll
+
+/-! ## 1. Width Mapping, Registers, and Flag Helpers -/
 
 /-- All 16 general-purpose registers in Kraken `Reg64`. -/
 @[expose] def x64AllGprs : List Reg64 :=
@@ -43,7 +47,7 @@ open LeanQbe.T.Amd64
   { cf := false, pf := true, af := false, zf := true, sf := false, of := false }
 
 /-- Flag state produced by `cmp a b` at width `w` (`sub` flags). -/
-@[expose] def x64CmpFlags (w : Width) (a b : BitVec w.bits) (_ : StatusFlags) : StatusFlags :=
+@[expose] def x64CmpFlags (w : Vll.Width) (a b : BitVec w.bits) (_ : StatusFlags) : StatusFlags :=
   let v := a - b
   StatusFlags.from_result v {
     cf := v.unsigned != a.unsigned - b.unsigned
@@ -51,7 +55,7 @@ open LeanQbe.T.Amd64
     of := v.signed != a.signed - b.signed }
 
 /-- Flag state produced by `test a b` at width `w`. -/
-@[expose] def x64TestFlags (w : Width) (a b : BitVec w.bits) (_ : StatusFlags) : StatusFlags :=
+@[expose] def x64TestFlags (w : Vll.Width) (a b : BitVec w.bits) (_ : StatusFlags) : StatusFlags :=
   StatusFlags.from_result (a &&& b) { cf := false, af := false, of := false }
 
 /-- Flag state produced by `jnzGpr r l` (`testb %rb, %rb`). -/
@@ -59,7 +63,7 @@ open LeanQbe.T.Amd64
   StatusFlags.from_result (v.setWidth 8) { cf := false, af := false, of := false }
 
 /-- Flag state update for `alu op w _ _ _ setFlags` on x86-64. -/
-@[expose] def x64AluFlags (op : CoreAlu) (w : Width) (sf : Bool)
+@[expose] def x64AluFlags (op : CoreAlu) (w : Vll.Width) (sf : Bool)
     (a b : BitVec w.bits) (f : StatusFlags) : StatusFlags :=
   if !sf then f
   else match op with
@@ -596,4 +600,4 @@ theorem x64Arch_nativeEffectSound : x64Arch.NativeEffectSound := by
     exact finish (EffectsPreserves.reaches_sound hp hr)
   | halt _ _ => exact hbody.elim
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Vll.FactorX647
+public import LeanQbe.T.Amd64.VllFactorX647
 public import LeanQbe.T.MainLemmas
 public import LeanQbe.T.Unified.DriverLemmas
 public import LeanQbe.T.Amd64.TargLemmas
@@ -26,10 +26,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 open Std Std.ExtHashMap
 
 /-! ## 3. `Unified.Factoring` & Top-Level Compilation Parity -/
@@ -563,4 +563,4 @@ theorem vllX64_compiled_fnSpec_src {lt : LegalTarget} {exits : List Sym} {nX : N
     simp only [Compiled.bound, hcm.2]
   exact ⟨hcm.1, hvSpec, hb_eq ▸ hxSpec⟩
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

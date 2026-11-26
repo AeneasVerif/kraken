@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Vll.AsmX64Lemmas1
+public import LeanQbe.T.Amd64.VllAsmX64Lemmas1
 import LeanQbe.T.Amd64.IselLemmas1
 import LeanQbe.T.Amd64.IselLemmas2
 import LeanQbe.T.Amd64.FrameLemmas
@@ -8,7 +8,7 @@ import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.AbiLemmas
 
 /-!
-# Assembler Verification & Simulation Proofs for SysV x86-64 (`Vll.AsmX64Lemmas`)
+# Assembler Verification & Simulation Proofs for SysV x86-64 (`Amd64.VllAsmX64Lemmas`)
 
 Completes verification of `asmX64` / `asmX64List` / `asmX64Block` / `asmX64Prog`:
 * `NoLab` & label-map `ρ` preservation (`asmOffset`, `asmX64_noLab`, `asmX64List_labelAddr`).
@@ -26,16 +26,16 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 open Std Std.ExtHashMap
 
 /-! ## 1. `NoLab` and Label-Map `ρ` Preservation -/
 
 /-- Instruction emits no `.label` directives when assembled via `asmX64`. -/
-@[expose] def Instr.noLab : Instr x64Arch → Prop
+@[expose] def instrNoLab : Instr x64Arch → Prop
   | .label _ => False
   | .native d => ∀ l, Kraken.Directive.label l ≠ d
   | _ => True
@@ -46,7 +46,7 @@ open Std Std.ExtHashMap
 
 theorem asmX64_label (l : Sym) : asmX64 (.label l) = [Kraken.Directive.label l] := rfl
 
-theorem asmX64_noLab {i : Instr x64Arch} (hi : i.noLab) (l : Sym) :
+theorem asmX64_noLab {i : Instr x64Arch} (hi : instrNoLab i) (l : Sym) :
     Kraken.Directive.label l ∉ asmX64 i := by
   cases i with
   | label _ => exact False.elim hi
@@ -98,7 +98,7 @@ theorem asmX64List_append (xs ys : List (Instr x64Arch)) :
     asmX64List (xs ++ ys) = asmX64List xs ++ asmX64List ys :=
   List.flatMap_append
 
-theorem asmX64List_noLab {is : List (Instr x64Arch)} (his : ∀ i ∈ is, i.noLab) (l : Sym) :
+theorem asmX64List_noLab {is : List (Instr x64Arch)} (his : ∀ i ∈ is, instrNoLab i) (l : Sym) :
     Kraken.Directive.label l ∉ asmX64List is := by
   intro hm
   obtain ⟨i, hi, hmem⟩ := List.mem_flatMap.mp hm
@@ -160,7 +160,7 @@ theorem asmX64List_labelAddr {h : Host} {k0 vi : Nat} {vis : List (Instr x64Arch
     have hget_vis : vis[idx]? = some (vis.take vi)[idx] :=
       (List.getElem?_take_of_lt hlen_lt).symm.trans (List.getElem?_eq_getElem hidx_mem)
     have hcond := hnolab idx hlen_lt _ hget_vis
-    have hnol : (vis.take vi)[idx].noLab := by
+    have hnol : instrNoLab (vis.take vi)[idx] := by
       generalize hu : (vis.take vi)[idx] = u at hlmem hcond ⊢
       cases u with
       | label s =>
@@ -298,7 +298,7 @@ theorem asmX64_movi_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {rd : Reg64}
   · dsimp only [sv']; rw [MachSt.gpr_setGpr_ne _ _ hrr]
     exact (hfr.1 r (by simp [List.mem_cons, hrr, hr])).trans (hsim.1 r hr)
 
-theorem asmX64_store_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width} {rs : Reg64}
+theorem asmX64_store_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Vll.Width} {rs : Reg64}
     {addr : AddrArg Reg64} {sv : MachSt x64Arch} {sk : MachineData} {post : MachineState → Prop}
     (hsim : SimState fMask sv sk) (hrs : rs ∉ x64Scratch)
     (ha : ∀ r ∈ addr.regs, r ∉ x64Scratch) (hval : x64AddrValid addr = true)
@@ -310,7 +310,7 @@ theorem asmX64_store_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
         SimState fMask sv' sk') post := by
   have hst_some : ∃ c, x64Store w.toTy (.gpr rs) addr = some (c, maskNone) := by
     cases w <;> cases addr <;>
-      simp_all [Width.toTy, Width.bits, x64Store, x64StoreIns, withWidth,
+      simp_all [Vll.Width.toTy, Vll.Width.bits, x64Store, x64StoreIns, withWidth,
         emitCleanPair, Option.map_some, addrToExprIns]
     all_goals (repeat (first | exact rfl | exact ⟨_, rfl⟩ | split))
   obtain ⟨c, hsc⟩ := hst_some
@@ -324,7 +324,7 @@ theorem asmX64_store_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
   have hok_k : storeOk sk.dmem w.toTy (addr.eval sk.regs.get64) := by
     rw [hsim.2.2.1, heval]; exact hst
   have hpa : x64Mach.PArgHolds sk w.toTy (.gpr rs) ((sv.gpr rs).setWidth w.bits) := by
-    cases w <;> simp [Machine.PArgHolds, GprHolds, Width.bits, hsim.1 rs hrs]
+    cases w <;> simp [Machine.PArgHolds, GprHolds, Vll.Width.bits, hsim.1 rs hrs]
   simp only [asmX64, hsc, Option.map_some, Option.getD_some]
   intro hinf hcont
   refine x64Gpr_store_spec hsc (fun r hr => by
@@ -1129,6 +1129,6 @@ theorem asmX64Block_run {h : Host} {k : Nat} {fMask : FlagMask} (next? : Option 
   refine asmX64Block_body_fallsTo b hsim hbody hc'.append.1 fun sk' ⟨sv', hex, hsim'⟩ hfr => ?_
   exact hterm sv' sk' hex hsim' hfr hc'.append.2
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64
 
 end

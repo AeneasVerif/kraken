@@ -1,16 +1,16 @@
 module
 
-public import LeanQbe.T.Vll.AsmX64Lemmas
+public import LeanQbe.T.Amd64.VllAsmX64Lemmas
 import LeanQbe.T.Amd64.IselLemmas1
 import LeanQbe.T.Logic.MemLemmas
 meta import Lean
-meta import LeanQbe.T.Vll.X64
-meta import LeanQbe.T.Vll.AsmX64
-meta import LeanQbe.T.Vll.AsmX64Lemmas0
-meta import LeanQbe.T.Vll.AsmX64Lemmas1
-meta import LeanQbe.T.Vll.AsmX64Lemmas
+meta import LeanQbe.T.Amd64.VllX64
+meta import LeanQbe.T.Amd64.VllAsmX64
+meta import LeanQbe.T.Amd64.VllAsmX64Lemmas0
+meta import LeanQbe.T.Amd64.VllAsmX64Lemmas1
+meta import LeanQbe.T.Amd64.VllAsmX64Lemmas
 
-/-! # Smoke Tests & Audit for `Vll.X64` / `Vll.AsmX64` (`VllAsmX64Test`) -/
+/-! # Smoke Tests & Audit for `Amd64.VllX64` / `Amd64.VllAsmX64` (`VllAsmX64Test`) -/
 
 set_option autoImplicit false
 
@@ -343,12 +343,12 @@ end CallSlotTailTest
 
 /-! ## 4. `#print axioms` & MetaM Closure / Kernel Audit -/
 
-#print axioms LeanQbe.T.Vll.x64Arch_wf
-#print axioms LeanQbe.T.Vll.x64Arch_nativeEffectSound
-#print axioms LeanQbe.T.Vll.asmX64_fallsTo
-#print axioms LeanQbe.T.Vll.asmX64List_fallsTo
-#print axioms LeanQbe.T.Vll.asmX64_jump
-#print axioms LeanQbe.T.Vll.asmX64Block_run
+#print axioms LeanQbe.T.Amd64.x64Arch_wf
+#print axioms LeanQbe.T.Amd64.x64Arch_nativeEffectSound
+#print axioms LeanQbe.T.Amd64.asmX64_fallsTo
+#print axioms LeanQbe.T.Amd64.asmX64List_fallsTo
+#print axioms LeanQbe.T.Amd64.asmX64_jump
+#print axioms LeanQbe.T.Amd64.asmX64Block_run
 #print axioms AluIndirectTest.alu_indirect_e2e
 #print axioms CallSlotTailTest.call_slot_tail_e2e
 
@@ -360,19 +360,21 @@ private def isForbiddenArchMod (m : Name) : Bool :=
   let s := m.toString; (s.splitOn "Arm64").length > 1 || s.startsWith "Kraken.AArch64"
 
 #eval show MetaM Unit from do
-  let mods : List Name := [`LeanQbe.T.Vll.X64, `LeanQbe.T.Vll.AsmX64,
-    `LeanQbe.T.Vll.AsmX64Lemmas0, `LeanQbe.T.Vll.AsmX64Lemmas1, `LeanQbe.T.Vll.AsmX64Lemmas]
+  let mods : List Name := [`LeanQbe.T.Amd64.VllX64, `LeanQbe.T.Amd64.VllAsmX64,
+    `LeanQbe.T.Amd64.VllAsmX64Lemmas0, `LeanQbe.T.Amd64.VllAsmX64Lemmas1,
+    `LeanQbe.T.Amd64.VllAsmX64Lemmas]
   for mod in mods do
     let env ← importModules #[{ module := mod }] {}
     let bad := env.header.moduleNames.filter isForbiddenArchMod
     if !bad.isEmpty then throwError "Module {mod} imports Arm64/AArch64: {bad.toList}"
   let testBad := (← getEnv).header.moduleNames.filter isForbiddenArchMod
   if !testBad.isEmpty then throwError "VllAsmX64Test imports Arm64/AArch64: {testBad.toList}"
-  let targets : List Name := [``LeanQbe.T.Vll.x64Arch, ``LeanQbe.T.Vll.x64Arch_wf,
-    ``LeanQbe.T.Vll.x64Arch_nativeEffectSound, ``LeanQbe.T.Vll.asmX64, ``LeanQbe.T.Vll.asmX64List,
-    ``LeanQbe.T.Vll.asmX64Block, ``LeanQbe.T.Vll.asmX64Prog, ``LeanQbe.T.Vll.asmX64_fallsTo,
-    ``LeanQbe.T.Vll.asmX64List_fallsTo, ``LeanQbe.T.Vll.asmX64_jump,
-    ``LeanQbe.T.Vll.asmX64Block_run, ``AluIndirectTest.alu_indirect_e2e,
+  let targets : List Name := [``LeanQbe.T.Amd64.x64Arch, ``LeanQbe.T.Amd64.x64Arch_wf,
+    ``LeanQbe.T.Amd64.x64Arch_nativeEffectSound, ``LeanQbe.T.Amd64.asmX64,
+    ``LeanQbe.T.Amd64.asmX64List,
+    ``LeanQbe.T.Amd64.asmX64Block, ``LeanQbe.T.Amd64.asmX64Prog, ``LeanQbe.T.Amd64.asmX64_fallsTo,
+    ``LeanQbe.T.Amd64.asmX64List_fallsTo, ``LeanQbe.T.Amd64.asmX64_jump,
+    ``LeanQbe.T.Amd64.asmX64Block_run, ``AluIndirectTest.alu_indirect_e2e,
     ``CallSlotTailTest.call_slot_tail_e2e]
   let env ← getEnv
   for nm in targets do

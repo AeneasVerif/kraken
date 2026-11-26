@@ -2,16 +2,16 @@ module
 
 public import LeanQbe.T.Vll.Passes
 public import LeanQbe.T.Vll.PassesLemmas
-public import LeanQbe.T.Vll.FactorArm64
+public import LeanQbe.T.Arm64.VllFactorArm64
 public import LeanQbe.T.Spill
 meta import Lean
 meta import LeanQbe.T.Vll.Passes
 meta import LeanQbe.T.Vll.PassesLemmas0
 meta import LeanQbe.T.Vll.PassesLemmas
-meta import LeanQbe.T.Vll.Arm64
-meta import LeanQbe.T.Vll.AsmArm64
-meta import LeanQbe.T.Vll.FactorArm641
-meta import LeanQbe.T.Vll.FactorArm64
+meta import LeanQbe.T.Arm64.VllArm64
+meta import LeanQbe.T.Arm64.VllAsmArm64
+meta import LeanQbe.T.Arm64.VllFactorArm641
+meta import LeanQbe.T.Arm64.VllFactorArm64
 meta import LeanQbe.T.Spill
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
@@ -372,9 +372,24 @@ private def findM7Fn (name : Sym) : Option Fn :=
       retsAfter > retsBefore &&
       definedLabels opt == definedLabels code
 
--- `full_k6_backtrack_m7`: two `jmp`-to-`ret` threadings (`1 -> 3` `.ret`s) + exact labels!
+-- `full_k6_backtrack_m7`: `jmp`-to-`ret` threading (`1 -> 2` `.ret`s) + exact labels!
 #guard
   match findM7Fn "full_k6_backtrack_m7" with
+  | none => false
+  | some f =>
+    match compileVllFn f with
+    | .error _ => false
+    | .ok code =>
+      let opt := passPipe arm64Arch code
+      let retsBefore := (code.filter isRetInstr).length
+      let retsAfter := (opt.filter isRetInstr).length
+      opt.length ≤ code.length &&
+      retsAfter == retsBefore + 1 &&
+      definedLabels opt == definedLabels code
+
+-- `full_isqrt`: two `jmp`-to-`ret` threadings (`1 -> 3` `.ret`s) + exact labels!
+#guard
+  match findM7Fn "full_isqrt" with
   | none => false
   | some f =>
     match compileVllFn f with

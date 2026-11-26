@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.Vll.FactorArm641
+public import LeanQbe.T.Arm64.VllFactorArm641
 public import LeanQbe.T.Unified.Driver
 public import LeanQbe.T.Main
-import LeanQbe.T.Vll.FactorArm640
-import LeanQbe.T.Vll.FactorArm642
+import LeanQbe.T.Arm64.VllFactorArm640
+import LeanQbe.T.Arm64.VllFactorArm642
 import LeanQbe.T.Unified.DriverLemmas
 import LeanQbe.T.RegaLemmas
 import LeanQbe.T.Logic.MemLemmas
@@ -12,7 +12,7 @@ import LeanQbe.T.TargetLemmas
 import LeanQbe.T.AbiLemmas
 
 /-!
-# `BedrockMach` L1 AArch64 Factoring & Byte-Exact Parity (`Vll.FactorArm64`)
+# `BedrockMach` L1 AArch64 Factoring & Byte-Exact Parity (`Arm64.VllFactorArm64`)
 
 Proves full structural `Rega` factoring (`vllArmStrict_lowerFn_factor`,
 `vllArmStrict_compileFn_factor`, `vllArmStrict_compile_factor`,
@@ -30,10 +30,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Arm64
 
 open LeanQbe.T
-open LeanQbe.T.Arm64
+open LeanQbe.T.Vll
 
 /-! ### 3.1 Structural `Rega` Instruction/Block/Function Factoring (`vllArmStrictIsa` ↦ `armIsa`) -/
 
@@ -1889,4 +1889,4 @@ theorem vllArmStrict_same_bytes (hints : Fn → armIsa.Hints) (f : Fn)
     compileFn armTarget.toIsa armLegalTarget (hints f) f = .ok (asmArm64List is) :=
   (arm64Factoring hints).same_bytes f is h
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Arm64

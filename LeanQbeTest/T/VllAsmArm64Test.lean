@@ -1,12 +1,12 @@
 module
 
-public import LeanQbe.T.Vll.AsmArm64Lemmas
+public import LeanQbe.T.Arm64.VllAsmArm64Lemmas
 import Kraken.AArch64.Parser
 import LeanQbe.T.Logic.MemLemmas
 meta import Lean
-meta import LeanQbe.T.Vll.Arm64
-meta import LeanQbe.T.Vll.AsmArm64
-meta import LeanQbe.T.Vll.AsmArm64Lemmas
+meta import LeanQbe.T.Arm64.VllArm64
+meta import LeanQbe.T.Arm64.VllAsmArm64
+meta import LeanQbe.T.Arm64.VllAsmArm64Lemmas
 
 /-!
 # Verification Suite for AArch64 `BedrockMach` L1 (`VllAsmArm64Test`)
@@ -340,13 +340,13 @@ theorem progControl_runs (sv : MachSt arm64Arch) (sm : MachineData)
 
 /-! ## 3. `#print axioms` Checks (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 
-#print axioms LeanQbe.T.Vll.arm64Arch_wf
-#print axioms LeanQbe.T.Vll.arm64Arch_nativeEffectSound
-#print axioms LeanQbe.T.Vll.asmArm64List_definedLabels
-#print axioms LeanQbe.T.Vll.asmArm64List_label_addr
-#print axioms LeanQbe.T.Vll.asmArm64_fallsTo
-#print axioms LeanQbe.T.Vll.asmArm64List_fallsTo
-#print axioms LeanQbe.T.Vll.asmArm64_jump
+#print axioms LeanQbe.T.Arm64.arm64Arch_wf
+#print axioms LeanQbe.T.Arm64.arm64Arch_nativeEffectSound
+#print axioms LeanQbe.T.Arm64.asmArm64List_definedLabels
+#print axioms LeanQbe.T.Arm64.asmArm64List_label_addr
+#print axioms LeanQbe.T.Arm64.asmArm64_fallsTo
+#print axioms LeanQbe.T.Arm64.asmArm64List_fallsTo
+#print axioms LeanQbe.T.Arm64.asmArm64_jump
 #print axioms LeanQbeTest.T.VllAsmArm64Test.progStraight_runs
 #print axioms LeanQbeTest.T.VllAsmArm64Test.progControl_runs
 
@@ -360,8 +360,8 @@ private def isForbiddenX64Mod (m : Name) : Bool :=
   (m.toString.splitOn "Amd64").length > 1 || m.toString.startsWith "Kraken.X64"
 
 #eval show MetaM Unit from do
-  for modName in [`LeanQbe.T.Vll.Arm64, `LeanQbe.T.Vll.AsmArm64,
-      `LeanQbe.T.Vll.AsmArm64Lemmas0, `LeanQbe.T.Vll.AsmArm64Lemmas] do
+  for modName in [`LeanQbe.T.Arm64.VllArm64, `LeanQbe.T.Arm64.VllAsmArm64,
+      `LeanQbe.T.Arm64.VllAsmArm64Lemmas0, `LeanQbe.T.Arm64.VllAsmArm64Lemmas] do
     let env ← importModules #[{ module := modName }] {}
     let bad := env.header.moduleNames.filter isForbiddenX64Mod
     if !bad.isEmpty then throwError "{modName} imports Amd64/X64: {bad.toList}"
@@ -369,13 +369,13 @@ private def isForbiddenX64Mod (m : Name) : Bool :=
   if !testBad.isEmpty then throwError "VllAsmArm64Test imports Amd64/X64: {testBad.toList}"
   let env ← getEnv
   let targets : List Name :=
-    [ ``LeanQbe.T.Vll.arm64Arch, ``LeanQbe.T.Vll.arm64Arch_wf
-    , ``LeanQbe.T.Vll.arm64Arch_nativeEffectSound, ``LeanQbe.T.Vll.asmArm64
-    , ``LeanQbe.T.Vll.asmArm64List, ``LeanQbe.T.Vll.asmArm64Offset
-    , ``LeanQbe.T.Vll.asmArm64_noLab, ``LeanQbe.T.Vll.asmArm64List_definedLabels
-    , ``LeanQbe.T.Vll.asmArm64List_labelsUnique, ``LeanQbe.T.Vll.asmArm64List_label_addr
-    , ``LeanQbe.T.Vll.asmArm64_fallsTo, ``LeanQbe.T.Vll.asmArm64List_fallsTo
-    , ``LeanQbe.T.Vll.asmArm64_jump, ``LeanQbeTest.T.VllAsmArm64Test.progStraight_runs
+    [ ``LeanQbe.T.Arm64.arm64Arch, ``LeanQbe.T.Arm64.arm64Arch_wf
+    , ``LeanQbe.T.Arm64.arm64Arch_nativeEffectSound, ``LeanQbe.T.Arm64.asmArm64
+    , ``LeanQbe.T.Arm64.asmArm64List, ``LeanQbe.T.Arm64.asmArm64Offset
+    , ``LeanQbe.T.Arm64.asmArm64_noLab, ``LeanQbe.T.Arm64.asmArm64List_definedLabels
+    , ``LeanQbe.T.Arm64.asmArm64List_labelsUnique, ``LeanQbe.T.Arm64.asmArm64List_label_addr
+    , ``LeanQbe.T.Arm64.asmArm64_fallsTo, ``LeanQbe.T.Arm64.asmArm64List_fallsTo
+    , ``LeanQbe.T.Arm64.asmArm64_jump, ``LeanQbeTest.T.VllAsmArm64Test.progStraight_runs
     , ``LeanQbeTest.T.VllAsmArm64Test.progControl_runs ]
   for nm in targets do
     let axs ← Lean.collectAxioms nm

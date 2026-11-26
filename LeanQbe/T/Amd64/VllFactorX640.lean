@@ -1,15 +1,16 @@
 module
 
 public import LeanQbe.T.Vll.RegaInst
-public import LeanQbe.T.Vll.X64
+public import LeanQbe.T.Amd64.VllX64
 public import LeanQbe.T.Amd64.Targ
 import LeanQbe.T.Amd64.TargLemmas
 import Kraken.X64.Regs
 
 /-!
-# BedrockMach SysV x86-64 Hooks and Native Semantic Lifting (`Vll.FactorX640`)
+# BedrockMach SysV x86-64 Hooks and Native Semantic Lifting (`Amd64.VllFactorX640`)
 
-Provides the pure data configuration and low-level lifting bridges for `LeanQbe.T.Vll.FactorX64`:
+Provides the pure data configuration and low-level lifting bridges for
+`LeanQbe.T.Amd64.VllFactorX64`:
 * `vllX64Vec` & `vllX64NativeHooks : VllNativeHooks x64Arch` emitting first-class `Instr x64Arch`
   wherever 1:1 parity with `x64Isa` holds and `.native` for x86-64 fused/exotic/SIMD callbacks.
 * `vllX64Hooks_noLab : VllHooksNoLab x64Arch vllX64NativeHooks`.
@@ -25,10 +26,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 
 /-! ## 1. Pure Hooks `vllX64NativeHooks` and `VllHooksNoLab` -/
 
@@ -54,7 +55,7 @@ open LeanQbe.T.Amd64
     Option (List (Instr x64Arch) × FlagMask) :=
   res.map fun (ds, cl) => (ds.map .native, cl)
 
-@[expose] def vllX64WidthOfBits? : Nat → Option Width
+@[expose] def vllX64WidthOfBits? : Nat → Option Vll.Width
   | 8 => some .w8 | 16 => some .w16 | 32 => some .w32 | 64 => some .w64 | _ => none
 
 @[expose] def vllX64CoreAluOf? {sig rs : List Ty} : OpCode sig rs → Option (CoreAlu × Nat)
@@ -1019,9 +1020,10 @@ private theorem lockstep_op_hi (L₁ L₂ : Labels) (as : AddressSize) {n₁ n�
   | mul s | imul1 s =>
     dsimp only [opStraightClean] at hop
     cases w <;>
-      simp only [Operation.interp, show (Width.W8 == .W8) = true from rfl,
-        show (Width.W16 == .W8) = false from rfl, show (Width.W32 == .W8) = false from rfl,
-        show (Width.W64 == .W8) = false from rfl, Bool.false_eq_true, ↓reduceIte] <;>
+      simp only [Operation.interp, show (_root_.Width.W8 == .W8) = true from rfl,
+        show (_root_.Width.W16 == .W8) = false from rfl,
+        show (_root_.Width.W32 == .W8) = false from rfl,
+        show (_root_.Width.W64 == .W8) = false from rfl, Bool.false_eq_true, ↓reduceIte] <;>
       (rw [hregs]; exact lockstep_rm L₁ L₂ as s hop hs p₁ p₂ fun b s₁' s₂' hs' =>
         .undef fun sf => .undef fun zf => .undef fun af => .undef fun pf =>
           .fall (krakenSim_withStatus (by first
@@ -1044,9 +1046,10 @@ private theorem lockstep_op_hi (L₁ L₂ : Labels) (as : AddressSize) {n₁ n�
   | div s | idiv s =>
     dsimp only [opStraightClean] at hop
     cases w <;>
-      simp only [Operation.interp, show (Width.W8 == .W8) = true from rfl,
-        show (Width.W16 == .W8) = false from rfl, show (Width.W32 == .W8) = false from rfl,
-        show (Width.W64 == .W8) = false from rfl, Bool.false_eq_true, ↓reduceIte] <;>
+      simp only [Operation.interp, show (_root_.Width.W8 == .W8) = true from rfl,
+        show (_root_.Width.W16 == .W8) = false from rfl,
+        show (_root_.Width.W32 == .W8) = false from rfl,
+        show (_root_.Width.W64 == .W8) = false from rfl, Bool.false_eq_true, ↓reduceIte] <;>
       exact lockstep_rm L₁ L₂ as s hop hs p₁ p₂ fun v s₁' s₂' hs' => by
         have hr' : s₁'.regs = s₂'.regs := reg64s_eq_of_get64 hs'.1
         rw [hr']
@@ -2099,4 +2102,4 @@ theorem clean_addrToExprIns (a : AddrArg Reg64) :
           reg_ne_rip rb], by simp⟩, by simp [addrNoRip, constNoLab, reg_ne_rip .r10]⟩
   | imm addr => exact ⟨cleanBound_cons (instr_moviI _ _) ⟨rfl, by simp⟩, rfl⟩
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

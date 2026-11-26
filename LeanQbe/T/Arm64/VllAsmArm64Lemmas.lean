@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Vll.AsmArm64Lemmas0
+public import LeanQbe.T.Arm64.VllAsmArm64Lemmas0
 import LeanQbe.T.Arm64.IselLemmas1
 import LeanQbe.T.Arm64.FrameLemmas
 import LeanQbe.T.AbiLemmas
@@ -8,7 +8,7 @@ import LeanQbe.T.Logic.MemLemmas
 import Kraken.AArch64.WP.Control
 
 /-!
-# AArch64 `BedrockMach` L1 Assembler Simulation Proofs (`Vll.AsmArm64Lemmas`)
+# AArch64 `BedrockMach` L1 Assembler Simulation Proofs (`Arm64.VllAsmArm64Lemmas`)
 
 Per-instruction and straight-line simulation proofs for `asmArm64` over Kraken AArch64:
 
@@ -26,10 +26,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Arm64
 
 open LeanQbe.T
-open LeanQbe.T.Arm64
+open LeanQbe.T.Vll
 
 /-! ## 1. Private Per-Opcode Straight-Line WP Lemmas -/
 
@@ -1851,4 +1851,4 @@ theorem asmArm64_jump {h : Host} {k : Nat}
       cases hEq
       exact asmNative_jump_run hc huses hrel hst hcont
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Arm64

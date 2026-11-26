@@ -1,9 +1,9 @@
 module
 
-public import LeanQbe.T.Vll.FactorX644
+public import LeanQbe.T.Amd64.VllFactorX644
 
 /-!
-# BedrockMach SysV x86-64 `lowerOp` Parity (`Vll.FactorX645`)
+# BedrockMach SysV x86-64 `lowerOp` Parity (`Amd64.VllFactorX645`)
 
 Part 2b1 of the exact `asmX64List` lowering equality proof between `vllX64Isa` (`vllX64Target`) and
 `x64Isa` (`x64Target`): fused test/cmp/ext/slot/loadSext/LEA helpers, flag-cmp reuse, `normCmpOp`,
@@ -16,10 +16,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 open Std Std.ExtHashMap
 
 private theorem mapOptCl_option_map {α γ : Type}
@@ -1526,4 +1526,4 @@ theorem lowerOp_of_x64_some (h : x64Isa.Hints) (hs : savedNoRsp h.saved = true)
                         rcases dsts with ⟨pd, ⟨⟩⟩
                         cases t <;> cases pd <;> exact hbd
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

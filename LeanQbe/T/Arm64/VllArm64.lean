@@ -6,7 +6,7 @@ public import LeanQbe.T.Arm64.Isel
 import LeanQbe.T.AbiLemmas
 
 /-!
-# AArch64 `BedrockMach` L1 Architecture (`Vll.Arm64`)
+# AArch64 `BedrockMach` L1 Architecture (`Arm64.VllArm64`)
 
 Instantiates `LeanQbe.T.Vll.Arch` for AAPCS64 AArch64 (`arm64Arch`) with zero `Amd64` or
 `Kraken.X64` imports and zero public `*Lemmas*` imports:
@@ -26,10 +26,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Arm64
 
 open LeanQbe.T
-open LeanQbe.T.Arm64
+open LeanQbe.T.Vll
 
 /-! ## 1. VLL ↔ Kraken `MachineData` Conversion & Labels Environment -/
 
@@ -585,4 +585,4 @@ theorem arm64Arch_nativeEffectSound : arm64Arch.NativeEffectSound := by
     exact ⟨fun r hr => (heff.1 r hr).trans (get_vllToMachData s r),
       fun vr => vr.elim, heff.2.1, heff.2.2⟩
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Arm64

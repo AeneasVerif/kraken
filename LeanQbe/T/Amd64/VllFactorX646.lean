@@ -1,10 +1,10 @@
 module
 
-public import LeanQbe.T.Vll.FactorX645
+public import LeanQbe.T.Amd64.VllFactorX645
 public import LeanQbe.T.Main
 
 /-!
-# BedrockMach SysV x86-64 Lowering & `Fn.mid` Parity (`Vll.FactorX646`)
+# BedrockMach SysV x86-64 Lowering & `Fn.mid` Parity (`Amd64.VllFactorX646`)
 
 Part 2b2 of the exact `asmX64List` lowering equality proof between `vllX64Isa` (`vllX64Target`)
 and `x64Isa` (`x64Target`):
@@ -22,10 +22,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 open Std Std.ExtHashMap
 
 /-! ## 2b2. Remaining `Rega` Helpers, Entry/ABI Binders, Store/Load, and Jnz Lowering -/
@@ -2188,4 +2188,4 @@ theorem lowerBlocks_eq (h : x64Isa.Hints) (hh : hintsNoRsp h = true)
                     hbs_ex)
 end
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

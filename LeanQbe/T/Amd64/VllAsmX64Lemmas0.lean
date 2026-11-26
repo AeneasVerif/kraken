@@ -1,6 +1,6 @@
 module
 
-public import LeanQbe.T.Vll.AsmX64
+public import LeanQbe.T.Amd64.VllAsmX64
 public import LeanQbe.T.Vll.Sem
 import LeanQbe.T.Amd64.IselStepRules
 import LeanQbe.T.Amd64.IselLemmas1
@@ -12,9 +12,9 @@ import LeanQbe.T.AbiLemmas
 import Kraken.X64.Parser
 
 /-!
-# Assembler Verification Part 0: ALU, Native, and Simulation Core (`Vll.AsmX64Lemmas0`)
+# Assembler Verification Part 0: ALU, Native, and Simulation Core (`Amd64.VllAsmX64Lemmas0`)
 
-Core foundations for `LeanQbe.T.Vll.AsmX64Lemmas`:
+Core foundations for `LeanQbe.T.Amd64.VllAsmX64Lemmas`:
 * `ParserChecks`: `rfl` conformance against `Kraken.X64.Parser`.
 * `hostSymAddr`, `SimState`, `SimExact`, `nextFlagMask`, `nextFlagMaskList`, `VllStepPre`,
   `VllFallPre`, `VllListPre`.
@@ -28,10 +28,10 @@ Zero `Arm64`/`Kraken.AArch64` imports, zero `@[expose]` on theorems/lemmas.
 
 set_option autoImplicit false
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Amd64
 
 open LeanQbe.T
-open LeanQbe.T.Amd64
+open LeanQbe.T.Vll
 open Std Std.ExtHashMap
 
 /-! ## 1. `ParserChecks` (`rfl` against `Kraken.X64.Parser`) -/
@@ -230,7 +230,7 @@ theorem replaceLow_16_eq_writeSubX64 (old : BitVec 64) (v : BitVec 16) :
   · have hv : v.getLsbD i = false := getLsbD_of_ge v (by omega)
     simp [hi16, hv]
 
-theorem writeSubX64_idem (w : Width) (old : BitVec 64) (v₁ v₂ : BitVec w.bits) :
+theorem writeSubX64_idem (w : Vll.Width) (old : BitVec 64) (v₁ v₂ : BitVec w.bits) :
     writeSubX64 w (writeSubX64 w old v₁) v₂ = writeSubX64 w old v₂ := by
   cases w with
   | w8 =>
@@ -242,7 +242,7 @@ theorem writeSubX64_idem (w : Width) (old : BitVec 64) (v₁ v₂ : BitVec w.bit
     rw [hnot]
     by_cases hi8 : i < 8
     · simp [hi8]
-    · have hle : Width.w8.bits ≤ i := by change 8 ≤ i; omega
+    · have hle : Vll.Width.w8.bits ≤ i := by change 8 ≤ i; omega
       simp [hi8, getLsbD_of_ge v₁ hle, getLsbD_of_ge v₂ hle]
   | w16 =>
     apply BitVec.eq_of_getLsbD_eq; intro i hi
@@ -253,7 +253,7 @@ theorem writeSubX64_idem (w : Width) (old : BitVec 64) (v₁ v₂ : BitVec w.bit
     rw [hnot]
     by_cases hi16 : i < 16
     · simp [hi16]
-    · have hle : Width.w16.bits ≤ i := by change 16 ≤ i; omega
+    · have hle : Vll.Width.w16.bits ≤ i := by change 16 ≤ i; omega
       simp [hi16, getLsbD_of_ge v₁ hle, getLsbD_of_ge v₂ hle]
   | w32 | w64 => rfl
 
@@ -268,13 +268,13 @@ private theorem cond_clearFlags_eq (af : Bool) (cc : CondCode) :
       cc.interp x64ClearFlagsVal := by
   cases cc <;> simp [CondCode.interp, StatusFlags.from_result, x64ClearFlagsVal] <;> decide
 
-private theorem cond_cmpFlags_eq (w : Width) (a b : BitVec w.bits) (f : StatusFlags)
+private theorem cond_cmpFlags_eq (w : Vll.Width) (a b : BitVec w.bits) (f : StatusFlags)
     (cc : CondCode) :
     cc.interp (subFlags a b) = cc.interp (x64CmpFlags w a b f) := by
   apply cond_statusFlags_of_fields rfl rfl rfl rfl rfl
 
-private theorem cond_testFlags_eq (w : Width) (a b : BitVec w.bits) (f : StatusFlags) (af : Bool)
-    (cc : CondCode) :
+private theorem cond_testFlags_eq (w : Vll.Width) (a b : BitVec w.bits) (f : StatusFlags)
+    (af : Bool) (cc : CondCode) :
     cc.interp (testFlags a b af) = cc.interp (x64TestFlags w a b f) := by
   apply cond_statusFlags_of_fields rfl rfl rfl rfl rfl
 
@@ -301,19 +301,21 @@ private theorem frame_of_gpr_set {s s' : MachineData} {gClob : List Reg64} {fClo
     x64Mach.Frame x64CondReads s s' gClob [] fClob :=
   ⟨hkeep, fun vr _ => by simp [hzm], hflg⟩
 
-theorem fallsTo_movSubW (w : Width) (s : MachineData) (rd rs : Reg64) :
+theorem fallsTo_movSubW (w : Vll.Width) (s : MachineData) (rd rs : Reg64) :
     Directive.FallsTo (.instr (movSubWI w.toX64 rd rs)) s
       (· = { s with regs := s.regs.set64 rd (writeSubX64 w (s.regs.get64 rd)
         ((s.regs.get64 rs).setWidth w.bits)) }) := by
   intro _ _ _ _ _ hk
   cases w
-  · simp only [movSubWI, Width.toX64, regW, t_step_simp, Reg64s.set, replaceLow_8_eq_writeSubX64]
+  · simp only [movSubWI, Vll.Width.toX64, regW, t_step_simp, Reg64s.set,
+      replaceLow_8_eq_writeSubX64]
     exact hk _ rfl
-  · simp only [movSubWI, Width.toX64, regW, t_step_simp, Reg64s.set, replaceLow_16_eq_writeSubX64]
+  · simp only [movSubWI, Vll.Width.toX64, regW, t_step_simp, Reg64s.set,
+      replaceLow_16_eq_writeSubX64]
     exact hk _ rfl
-  · simp only [movSubWI, Width.toX64, regW, t_step_simp, Reg64s.set]
+  · simp only [movSubWI, Vll.Width.toX64, regW, t_step_simp, Reg64s.set]
     simpa [writeSubX64, BitVec.zeroExtend_eq_setWidth] using hk _ rfl
-  · simp only [movSubWI, Width.toX64, regW, t_step_simp, Reg64s.set]
+  · simp only [movSubWI, Vll.Width.toX64, regW, t_step_simp, Reg64s.set]
     simpa [writeSubX64, BitVec.setWidth_eq] using hk _ rfl
 
 /-! ## 4. Continuation Transport for `.native` (`EffectsSim4`) -/
@@ -610,9 +612,10 @@ private theorem op_interp_sim4_lo [Labels] [AddressSize] {w : _root_.Width} (op 
     · apply sim4_store; intro _; exact .fall
   | div _ | idiv _ =>
     cases w <;>
-      simp only [Operation.interp, show (Width.W8 == .W8) = true from rfl,
-        show (Width.W16 == .W8) = false from rfl, show (Width.W32 == .W8) = false from rfl,
-        show (Width.W64 == .W8) = false from rfl, Bool.false_eq_true, ↓reduceIte] <;>
+      simp only [Operation.interp, show (_root_.Width.W8 == .W8) = true from rfl,
+        show (_root_.Width.W16 == .W8) = false from rfl,
+        show (_root_.Width.W32 == .W8) = false from rfl,
+        show (_root_.Width.W64 == .W8) = false from rfl, Bool.false_eq_true, ↓reduceIte] <;>
       apply sim4_rm <;> intro _ _ <;> split <;>
       first | exact .fail fun P hp => hp | exact .undef fun _ => .fall
   | mul _ | imul1 _ =>
@@ -710,7 +713,7 @@ private theorem dir_interp_sim4 [Labels] (d : _root_.Directive) (p : Std.Rco Int
 
 /-! ## 5. Public Non-ALU & Control Simulation Theorems -/
 
-theorem asmX64_mov_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width} {rd rs : Reg64}
+theorem asmX64_mov_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Vll.Width} {rd rs : Reg64}
     {sv : MachSt x64Arch} {sk : MachineData} {post : MachineState → Prop}
     (hsim : SimState fMask sv sk) (hrd : rd ∉ x64Scratch) (hrs : rs ∉ x64Scratch) :
     let sv' := sv.setGprW w rd ((sv.gpr rs).setWidth w.bits)
@@ -730,7 +733,7 @@ theorem asmX64_mov_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width} {
   · subst hrr; simp [Reg64s.get64_set64_same, hsim.1 r hr, hsim.1 rs hrs, sv', x64Arch]
   · simp [Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hrr), hsim.1 r hr, sv', hrr]
 
-theorem asmX64_cmp_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
+theorem asmX64_cmp_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Vll.Width}
     {lhs : Reg64} {rhs : Src x64Arch} {sv : MachSt x64Arch} {sk : MachineData}
     {post : MachineState → Prop}
     (hsim : SimState fMask sv sk) (hlhs : lhs ∉ x64Scratch)
@@ -765,7 +768,8 @@ theorem asmX64_cmp_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
     refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_cmp_reg w.toX64 sk lhs rs)) ?_
     rintro sk' rfl
     exact finish _ (fun cc => by
-      cases w <;> simp [Width.toX64, Width.bits, hsim.1 lhs hlhs, hrs, Src.evalW, Src.eval]) rfl
+      cases w <;> simp [Vll.Width.toX64, Vll.Width.bits, hsim.1 lhs hlhs, hrs,
+        Src.evalW, Src.eval]) rfl
   | imm imm =>
     simp only [asmX64, srcToPArg, cmpDirectIns, cmpRegImmIns, Option.getD_some]
     by_cases hz : (imm.setWidth w.toX64.bits == 0#w.toX64.bits) = true
@@ -776,7 +780,7 @@ theorem asmX64_cmp_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
       rintro sk' ⟨af, rfl⟩
       refine finish _ (fun cc => ?_) rfl
       have hsub := cond_testFlags_self ((sv.gpr lhs).setWidth w.bits) af cc
-      cases w <;> simp_all [Width.toX64, Width.bits, hsim.1 lhs hlhs, Src.evalW, Src.eval]
+      cases w <;> simp_all [Vll.Width.toX64, Vll.Width.bits, hsim.1 lhs hlhs, Src.evalW, Src.eval]
     · simp only [hz, Bool.false_eq_true, ↓reduceIte]
       split
       · simp only [emitClean_cons, emitClean_nil]
@@ -784,18 +788,19 @@ theorem asmX64_cmp_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
           (fallsTo_cmp_imm w.toX64 sk lhs (imm.setWidth w.toX64.bits))) ?_
         rintro sk' rfl
         exact finish _ (fun cc => by
-          cases w <;> simp [Width.toX64, Width.bits, hsim.1 lhs hlhs, Src.evalW, Src.eval]) rfl
+          cases w <;> simp [Vll.Width.toX64, Vll.Width.bits, hsim.1 lhs hlhs,
+            Src.evalW, Src.eval]) rfl
       · rename_i hnofit
         have hw64 : w = .w64 := by
           cases w with
           | w64 => rfl
           | w8 | w16 | w32 =>
-            exact False.elim (hnofit (by simp only [Width.toX64,
-              show (Width.W8 != .W64) = true from by decide,
-              show (Width.W16 != .W64) = true from by decide,
-              show (Width.W32 != .W64) = true from by decide, Bool.true_or]))
+            exact False.elim (hnofit (by simp only [Vll.Width.toX64,
+              show (_root_.Width.W8 != .W64) = true from by decide,
+              show (_root_.Width.W16 != .W64) = true from by decide,
+              show (_root_.Width.W32 != .W64) = true from by decide, Bool.true_or]))
         subst hw64
-        simp only [Width.toX64, BitVec.setWidth_eq, emitClean_cons, emitClean_nil]
+        simp only [Vll.Width.toX64, BitVec.setWidth_eq, emitClean_cons, emitClean_nil]
         refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD sk .r10 imm)) ?_
         rintro s1 rfl
         refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_cmp_reg .W64 _ lhs .r10)) ?_
@@ -804,14 +809,14 @@ theorem asmX64_cmp_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
           (Reg64s.get64_set64_of_ne _ .r10 lhs _ hlhs10.symm).trans (hsim.1 lhs hlhs)
         refine ⟨⟨rfl, fun r hr => ?_, hsim.2.1, hsim.2.2.1, fun cc _ => by
             dsimp only [sv']
-            simpa [Width.bits, BitVec.setWidth_eq, hl10, Reg64s.get64_set64_same,
+            simpa [Vll.Width.bits, BitVec.setWidth_eq, hl10, Reg64s.get64_set64_same,
               Src.evalW, Src.eval] using cond_cmpFlags_eq .w64 (sv.gpr lhs) imm sv.flags cc⟩,
           x64_frame_of_eq (fun r hr => Reg64s.get64_set64_of_ne _ .r10 r _
             (ne_of_not_mem_x64Scratch hr).1.symm) rfl (updFlags_maskAll _ _)⟩
         exact (Reg64s.get64_set64_of_ne _ .r10 r _ (ne_of_not_mem_x64Scratch hr).1.symm).trans
           (hsim.1 r hr)
 
-theorem asmX64_test_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
+theorem asmX64_test_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Vll.Width}
     {lhs : Reg64} {rhs : Src x64Arch} {sv : MachSt x64Arch} {sk : MachineData}
     {post : MachineState → Prop}
     (hsim : SimState fMask sv sk) (hlhs : lhs ∉ x64Scratch)
@@ -834,7 +839,7 @@ theorem asmX64_test_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
     rintro sk' ⟨af, rfl⟩
     refine ⟨⟨rfl, hsim.1, hsim.2.1, hsim.2.2.1, fun cc _ => by
         dsimp only [sv']; rw [hsim.1 lhs hlhs, hrs]
-        simp only [MachSt.flags_setFlags, Width.toX64, _root_.Width.bits, Width.bits,
+        simp only [MachSt.flags_setFlags, Vll.Width.toX64, _root_.Width.bits, Vll.Width.bits,
           Src.evalW, Src.eval]
         cases w with
         | w8 =>
@@ -859,7 +864,7 @@ theorem asmX64_test_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
       rintro sk' ⟨af, rfl⟩
       refine ⟨⟨rfl, hsim.1, hsim.2.1, hsim.2.2.1, fun cc _ => by
           dsimp only [sv']; rw [hsim.1 lhs hlhs]
-          simp only [MachSt.flags_setFlags, Width.toX64, _root_.Width.bits, Width.bits,
+          simp only [MachSt.flags_setFlags, Vll.Width.toX64, _root_.Width.bits, Vll.Width.bits,
             Src.evalW, Src.eval]
           cases w with
           | w8 =>
@@ -879,12 +884,12 @@ theorem asmX64_test_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
         cases w with
         | w64 => rfl
         | w8 | w16 | w32 =>
-          exact False.elim (hnofit (by simp only [Width.toX64,
-            show (Width.W8 != .W64) = true from by decide,
-            show (Width.W16 != .W64) = true from by decide,
-            show (Width.W32 != .W64) = true from by decide, Bool.true_or]))
+          exact False.elim (hnofit (by simp only [Vll.Width.toX64,
+            show (_root_.Width.W8 != .W64) = true from by decide,
+            show (_root_.Width.W16 != .W64) = true from by decide,
+            show (_root_.Width.W32 != .W64) = true from by decide, Bool.true_or]))
       subst hw64
-      simp only [Width.toX64, BitVec.setWidth_eq, emitClean_cons, emitClean_nil]
+      simp only [Vll.Width.toX64, BitVec.setWidth_eq, emitClean_cons, emitClean_nil]
       refine Program.wp.cons (Directive.FallsTo.wp (fallsTo_moviD sk .r10 imm)) ?_
       rintro s1 rfl
       refine Program.wp.mono (Directive.FallsTo.wp (fallsTo_test_reg .W64 _ lhs .r10)) ?_
@@ -895,7 +900,7 @@ theorem asmX64_test_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width}
           (Reg64s.get64_set64_of_ne _ .r10 r _ (ne_of_not_mem_x64Scratch hr).1.symm).trans
             (hsim.1 r hr), hsim.2.1, hsim.2.2.1, fun cc _ => by
           dsimp only [sv']
-          simpa [Width.bits, BitVec.setWidth_eq, hl10, Reg64s.get64_set64_same,
+          simpa [Vll.Width.bits, BitVec.setWidth_eq, hl10, Reg64s.get64_set64_same,
             Src.evalW, Src.eval] using cond_testFlags_eq .w64 (sv.gpr lhs) imm sv.flags af cc⟩,
         x64_frame_of_eq (fun r hr => Reg64s.get64_set64_of_ne _ .r10 r _
           (ne_of_not_mem_x64Scratch hr).1.symm) rfl (updFlags_maskAll _ _)⟩
@@ -945,7 +950,7 @@ theorem asmX64_setcc_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {rd : Reg64
     simp [sv', Reg64s.get64_set64_same, replaceLow_8_eq_writeSubX64, hsim.1 r hr, hcc, x64Arch]
   · simp [sv', hrr, Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hrr), hsim.1 r hr]
 
-private theorem asmX64_load_sub_post {fMask : FlagMask} {w : Width}
+private theorem asmX64_load_sub_post {fMask : FlagMask} {w : Vll.Width}
     {rd : Reg64} {addr : AddrArg Reg64} {sv : MachSt x64Arch} {sk s1 : MachineData}
     {regs' : Reg64s} {sym : Sym → BitVec 64} {nextPc : BitVec 64} {v : BitVec w.bits} {pc' : Int64}
     (hsim : SimState fMask sv sk) (hrd : rd ∉ x64Scratch)
@@ -974,7 +979,7 @@ private theorem asmX64_load_sub_post {fMask : FlagMask} {w : Width}
   · simp only [List.mem_cons, not_or] at hr
     rw [hkeep r hr.1, hr1 r hr.2.1]
 
-private theorem asmX64_load_sub816_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} (w : Width)
+private theorem asmX64_load_sub816_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} (w : Vll.Width)
     (hw : w = .w8 ∨ w = .w16) {rd : Reg64} {addr : AddrArg Reg64} {sv : MachSt x64Arch}
     {sk : MachineData} {post : MachineState → Prop}
     (hsim : SimState fMask sv sk) (hrd : rd ∉ x64Scratch)
@@ -1007,7 +1012,7 @@ private theorem asmX64_load_sub816_fallsTo {h : Host} {k : Nat} {fMask : FlagMas
   rcases hw with rfl | rfl
   · obtain ⟨i, hi, rfl⟩ := loadVal_width_spec .W8 (hm1 ▸ hload)
     simp only [insW, regW, t_step_simp, MachineData.load, Effects.All_require_read_access,
-      haddr1 s1.regs (fun _ _ => rfl), hm1, Width.toX64, _root_.Width.bytes, _root_.Width.bits]
+      haddr1 s1.regs (fun _ _ => rfl), hm1, Vll.Width.toX64, _root_.Width.bytes, _root_.Width.bits]
     rw [hm1] at hi; rw [hi]
     refine Or.inl ?_
     refine @asmX64_load_sub_post fMask .w8 rd addr sv sk s1 _ _ _ _ _
@@ -1016,7 +1021,7 @@ private theorem asmX64_load_sub816_fallsTo {h : Host} {k : Nat} {fMask : FlagMas
     · exact fun r hrr => Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hrr)
   · obtain ⟨i, hi, rfl⟩ := loadVal_width_spec .W16 (hm1 ▸ hload)
     simp only [insW, regW, t_step_simp, MachineData.load, Effects.All_require_read_access,
-      haddr1 s1.regs (fun _ _ => rfl), hm1, Width.toX64, _root_.Width.bytes, _root_.Width.bits]
+      haddr1 s1.regs (fun _ _ => rfl), hm1, Vll.Width.toX64, _root_.Width.bytes, _root_.Width.bits]
     rw [hm1] at hi; rw [hi]
     refine Or.inl ?_
     refine @asmX64_load_sub_post fMask .w16 rd addr sv sk s1 _ _ _ _ _
@@ -1024,7 +1029,7 @@ private theorem asmX64_load_sub816_fallsTo {h : Host} {k : Nat} {fMask : FlagMas
     · simp only [Reg64s.set, Reg64s.get64_set64_same, replaceLow_16_eq_writeSubX64]
     · exact fun r hrr => Reg64s.get64_set64_of_ne _ rd r _ (Ne.symm hrr)
 
-theorem asmX64_load_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width} {ext : LoadExt}
+theorem asmX64_load_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Vll.Width} {ext : LoadExt}
     {rd : Reg64} {addr : AddrArg Reg64} {sv : MachSt x64Arch} {sk : MachineData}
     {post : MachineState → Prop}
     (hsim : SimState fMask sv sk) (hrd : rd ∉ x64Scratch)
@@ -1051,19 +1056,19 @@ theorem asmX64_load_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width} 
     · dsimp only [addrToExprIns]; split; rfl; split <;> rfl
     · dsimp only [addrToExprIns]; split <;> rfl
     · rfl
-  have hzx_some : ∀ (w' : Width), ∃ c, x64Load w'.toTy rd addr = some (c, maskNone) := by
+  have hzx_some : ∀ (w' : Vll.Width), ∃ c, x64Load w'.toTy rd addr = some (c, maskNone) := by
     intro w'
     cases w' <;> cases addr <;>
-      simp_all [Width.toTy, x64Load, x64LoadIns, emitCleanPair, Option.map_some, addrToExprIns]
+      simp_all [Vll.Width.toTy, x64Load, x64LoadIns, emitCleanPair, Option.map_some, addrToExprIns]
     all_goals (split; exact ⟨_, rfl⟩; try (split <;> exact ⟨_, rfl⟩))
-  have hsx_some : ∀ (w' : Width) (hne : w' ≠ .w64),
+  have hsx_some : ∀ (w' : Vll.Width) (hne : w' ≠ .w64),
       ∃ c, x64LoadSext w'.bits 64 rd addr = some (c, maskNone) := by
     intro w' hne
     cases w' with
     | w64 => exact absurd rfl hne
     | w8 | w16 | w32 =>
       cases addr <;>
-        simp_all [Width.bits, x64LoadSext, x64LoadSextIns, emitCleanPair, addrToExprIns]
+        simp_all [Vll.Width.bits, x64LoadSext, x64LoadSextIns, emitCleanPair, addrToExprIns]
       all_goals (split; exact ⟨_, rfl⟩; try (split <;> exact ⟨_, rfl⟩))
   have of_zext : ∀ {c : List _root_.Directive} (hl : x64Load w.toTy rd addr = some (c, maskNone))
       (hext : ext.apply x64Arch w (sv.gpr rd) v = v.setWidth 64),
@@ -1109,7 +1114,8 @@ theorem asmX64_load_fallsTo {h : Host} {k : Nat} {fMask : FlagMask} {w : Width} 
     cases w with
     | w64 =>
       obtain ⟨c, hl⟩ := hzx_some .w64
-      simpa [asmX64, Width.toTy, hl] using of_zext hl (by simp [LoadExt.apply, BitVec.setWidth_eq])
+      simpa [asmX64, Vll.Width.toTy, hl] using
+        of_zext hl (by simp [LoadExt.apply, BitVec.setWidth_eq])
     | w8 =>
       obtain ⟨c, hl⟩ := hsx_some .w8 (by decide)
       simpa [asmX64, hl] using of_sx (by decide) hl
@@ -1292,4 +1298,4 @@ theorem asmX64_jnzGpr_run {h : Host} {k : Nat} {fMask : FlagMask} {r : Reg64} {l
 
 end
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Amd64

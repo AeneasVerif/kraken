@@ -1,13 +1,13 @@
 module
 
-public import LeanQbe.T.Vll.FactorArm64
+public import LeanQbe.T.Arm64.VllFactorArm64
 public import LeanQbe.T.Spill
 import LeanQbe.T.Unified.DriverLemmas
 meta import Lean
-meta import LeanQbe.T.Vll.FactorArm640
-meta import LeanQbe.T.Vll.FactorArm641
-meta import LeanQbe.T.Vll.FactorArm642
-meta import LeanQbe.T.Vll.FactorArm64
+meta import LeanQbe.T.Arm64.VllFactorArm640
+meta import LeanQbe.T.Arm64.VllFactorArm641
+meta import LeanQbe.T.Arm64.VllFactorArm642
+meta import LeanQbe.T.Arm64.VllFactorArm64
 meta import LeanQbe.T.Spill
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
@@ -252,30 +252,30 @@ end
 
 /-! ## 3. `#print axioms` Checks (`⊆ [propext, Classical.choice, Quot.sound]`) -/
 
-#print axioms LeanQbe.T.Vll.vllArmNativeHooks
-#print axioms LeanQbe.T.Vll.vllArmPolicySpec
-#print axioms LeanQbe.T.Vll.vllArmPolicy
-#print axioms LeanQbe.T.Vll.vllArmTarget
-#print axioms LeanQbe.T.Vll.vllArmStrictTarget
-#print axioms LeanQbe.T.Vll.vllArmHooksNoLab
-#print axioms LeanQbe.T.Vll.vllArmLabelClean
-#print axioms LeanQbe.T.Vll.vllArmStrictLabelClean
-#print axioms LeanQbe.T.Vll.vllArmStrict_lowerFn_factor
-#print axioms LeanQbe.T.Vll.vllArmStrict_compileFn_factor
-#print axioms LeanQbe.T.Vll.vllArmStrict_compile_factor
-#print axioms LeanQbe.T.Vll.vllArmStrict_compileModule_factor
-#print axioms LeanQbe.T.Vll.arm64Factoring
-#print axioms LeanQbe.T.Vll.arm64LowerFactoring
-#print axioms LeanQbe.T.Vll.arm64FactoringAuto
-#print axioms LeanQbe.T.Vll.arm64FactoringOn
-#print axioms LeanQbe.T.Vll.arm64LowerFactoringOn
-#print axioms LeanQbe.T.Vll.arm64FactoringList
-#print axioms LeanQbe.T.Vll.arm64FactoringAutoList
-#print axioms LeanQbe.T.Vll.vllArmTarget_lowerFn_correct
-#print axioms LeanQbe.T.Vll.vllArmStrict_lowerFn_correct
-#print axioms LeanQbe.T.Vll.vllArmStrict_to_armTarget_fnSpec
-#print axioms LeanQbe.T.Vll.vllArmStrict_transport_cert
-#print axioms LeanQbe.T.Vll.vllArmStrict_same_bytes
+#print axioms LeanQbe.T.Arm64.vllArmNativeHooks
+#print axioms LeanQbe.T.Arm64.vllArmPolicySpec
+#print axioms LeanQbe.T.Arm64.vllArmPolicy
+#print axioms LeanQbe.T.Arm64.vllArmTarget
+#print axioms LeanQbe.T.Arm64.vllArmStrictTarget
+#print axioms LeanQbe.T.Arm64.vllArmHooksNoLab
+#print axioms LeanQbe.T.Arm64.vllArmLabelClean
+#print axioms LeanQbe.T.Arm64.vllArmStrictLabelClean
+#print axioms LeanQbe.T.Arm64.vllArmStrict_lowerFn_factor
+#print axioms LeanQbe.T.Arm64.vllArmStrict_compileFn_factor
+#print axioms LeanQbe.T.Arm64.vllArmStrict_compile_factor
+#print axioms LeanQbe.T.Arm64.vllArmStrict_compileModule_factor
+#print axioms LeanQbe.T.Arm64.arm64Factoring
+#print axioms LeanQbe.T.Arm64.arm64LowerFactoring
+#print axioms LeanQbe.T.Arm64.arm64FactoringAuto
+#print axioms LeanQbe.T.Arm64.arm64FactoringOn
+#print axioms LeanQbe.T.Arm64.arm64LowerFactoringOn
+#print axioms LeanQbe.T.Arm64.arm64FactoringList
+#print axioms LeanQbe.T.Arm64.arm64FactoringAutoList
+#print axioms LeanQbe.T.Arm64.vllArmTarget_lowerFn_correct
+#print axioms LeanQbe.T.Arm64.vllArmStrict_lowerFn_correct
+#print axioms LeanQbe.T.Arm64.vllArmStrict_to_armTarget_fnSpec
+#print axioms LeanQbe.T.Arm64.vllArmStrict_transport_cert
+#print axioms LeanQbe.T.Arm64.vllArmStrict_same_bytes
 #print axioms LeanQbeTest.T.VllFactorArm64Test.unitSuite_same_bytes
 #print axioms LeanQbeTest.T.VllFactorArm64Test.fnLeafAdd_fnSpec_bridge
 
@@ -289,8 +289,8 @@ private def isForbiddenX64Mod (m : Name) : Bool :=
   (m.toString.splitOn "Amd64").length > 1 || m.toString.startsWith "Kraken.X64"
 
 #eval show MetaM Unit from do
-  for modName in [`LeanQbe.T.Vll.FactorArm640, `LeanQbe.T.Vll.FactorArm641,
-      `LeanQbe.T.Vll.FactorArm642, `LeanQbe.T.Vll.FactorArm64] do
+  for modName in [`LeanQbe.T.Arm64.VllFactorArm640, `LeanQbe.T.Arm64.VllFactorArm641,
+      `LeanQbe.T.Arm64.VllFactorArm642, `LeanQbe.T.Arm64.VllFactorArm64] do
     let env ← importModules #[{ module := modName }] {}
     let bad := env.header.moduleNames.filter isForbiddenX64Mod
     if !bad.isEmpty then throwError "{modName} imports Amd64/X64: {bad.toList}"
@@ -298,30 +298,30 @@ private def isForbiddenX64Mod (m : Name) : Bool :=
   if !testBad.isEmpty then throwError "VllFactorArm64Test imports Amd64/X64: {testBad.toList}"
   let env ← getEnv
   let targets : List Name :=
-    [ ``LeanQbe.T.Vll.vllArmNativeHooks
-    , ``LeanQbe.T.Vll.vllArmPolicySpec
-    , ``LeanQbe.T.Vll.vllArmPolicy
-    , ``LeanQbe.T.Vll.vllArmTarget
-    , ``LeanQbe.T.Vll.vllArmStrictTarget
-    , ``LeanQbe.T.Vll.vllArmHooksNoLab
-    , ``LeanQbe.T.Vll.vllArmLabelClean
-    , ``LeanQbe.T.Vll.vllArmStrictLabelClean
-    , ``LeanQbe.T.Vll.vllArmStrict_lowerFn_factor
-    , ``LeanQbe.T.Vll.vllArmStrict_compileFn_factor
-    , ``LeanQbe.T.Vll.vllArmStrict_compile_factor
-    , ``LeanQbe.T.Vll.vllArmStrict_compileModule_factor
-    , ``LeanQbe.T.Vll.arm64Factoring
-    , ``LeanQbe.T.Vll.arm64LowerFactoring
-    , ``LeanQbe.T.Vll.arm64FactoringAuto
-    , ``LeanQbe.T.Vll.arm64FactoringOn
-    , ``LeanQbe.T.Vll.arm64LowerFactoringOn
-    , ``LeanQbe.T.Vll.arm64FactoringList
-    , ``LeanQbe.T.Vll.arm64FactoringAutoList
-    , ``LeanQbe.T.Vll.vllArmTarget_lowerFn_correct
-    , ``LeanQbe.T.Vll.vllArmStrict_lowerFn_correct
-    , ``LeanQbe.T.Vll.vllArmStrict_to_armTarget_fnSpec
-    , ``LeanQbe.T.Vll.vllArmStrict_transport_cert
-    , ``LeanQbe.T.Vll.vllArmStrict_same_bytes
+    [ ``LeanQbe.T.Arm64.vllArmNativeHooks
+    , ``LeanQbe.T.Arm64.vllArmPolicySpec
+    , ``LeanQbe.T.Arm64.vllArmPolicy
+    , ``LeanQbe.T.Arm64.vllArmTarget
+    , ``LeanQbe.T.Arm64.vllArmStrictTarget
+    , ``LeanQbe.T.Arm64.vllArmHooksNoLab
+    , ``LeanQbe.T.Arm64.vllArmLabelClean
+    , ``LeanQbe.T.Arm64.vllArmStrictLabelClean
+    , ``LeanQbe.T.Arm64.vllArmStrict_lowerFn_factor
+    , ``LeanQbe.T.Arm64.vllArmStrict_compileFn_factor
+    , ``LeanQbe.T.Arm64.vllArmStrict_compile_factor
+    , ``LeanQbe.T.Arm64.vllArmStrict_compileModule_factor
+    , ``LeanQbe.T.Arm64.arm64Factoring
+    , ``LeanQbe.T.Arm64.arm64LowerFactoring
+    , ``LeanQbe.T.Arm64.arm64FactoringAuto
+    , ``LeanQbe.T.Arm64.arm64FactoringOn
+    , ``LeanQbe.T.Arm64.arm64LowerFactoringOn
+    , ``LeanQbe.T.Arm64.arm64FactoringList
+    , ``LeanQbe.T.Arm64.arm64FactoringAutoList
+    , ``LeanQbe.T.Arm64.vllArmTarget_lowerFn_correct
+    , ``LeanQbe.T.Arm64.vllArmStrict_lowerFn_correct
+    , ``LeanQbe.T.Arm64.vllArmStrict_to_armTarget_fnSpec
+    , ``LeanQbe.T.Arm64.vllArmStrict_transport_cert
+    , ``LeanQbe.T.Arm64.vllArmStrict_same_bytes
     , ``LeanQbeTest.T.VllFactorArm64Test.unitSuite_same_bytes
     , ``LeanQbeTest.T.VllFactorArm64Test.fnLeafAdd_fnSpec_bridge ]
   for nm in targets do
@@ -332,8 +332,8 @@ private def isForbiddenX64Mod (m : Name) : Bool :=
     | some ci => if ci.isUnsafe then throwError "Declaration {nm} failed isUnsafe check"
     | none => throwError "Declaration {nm} not found"
   let mut checkedAll : Nat := 0
-  for modName in [`LeanQbe.T.Vll.FactorArm640, `LeanQbe.T.Vll.FactorArm641,
-      `LeanQbe.T.Vll.FactorArm642, `LeanQbe.T.Vll.FactorArm64] do
+  for modName in [`LeanQbe.T.Arm64.VllFactorArm640, `LeanQbe.T.Arm64.VllFactorArm641,
+      `LeanQbe.T.Arm64.VllFactorArm642, `LeanQbe.T.Arm64.VllFactorArm64] do
     let some idx := env.getModuleIdx? modName
       | throwError "Module {modName} not found in environment"
     let modData := env.header.moduleData[idx.toNat]!

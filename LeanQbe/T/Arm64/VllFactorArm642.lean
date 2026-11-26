@@ -1,26 +1,26 @@
 module
 
-public import LeanQbe.T.Vll.FactorArm641
-import LeanQbe.T.Vll.FactorArm640
+public import LeanQbe.T.Arm64.VllFactorArm641
+import LeanQbe.T.Arm64.VllFactorArm640
 
 /-!
-# `BedrockMach` L1 AArch64 Pointwise 1:1 `asmArm64List` Parity (`Vll.FactorArm642`)
+# `BedrockMach` L1 AArch64 Pointwise 1:1 `asmArm64List` Parity (`Arm64.VllFactorArm642`)
 
 Proves pointwise 1:1 `asmArm64List` directive parity for every `vllArmStrictGpr` and
 `vllArmNativeHooks` callback (`saveRegs`, `restoreRegs`, `loadSext`, `load`, `store`, `op`) against
 `Arm64.armGpr`.
 
-Imported privately by `Vll.FactorArm64` to keep every module well under `2,500` LOC.
+Imported privately by `Arm64.VllFactorArm64` to keep every module well under `2,500` LOC.
 -/
 
 set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Arm64
 
 open LeanQbe.T
-open LeanQbe.T.Arm64
+open LeanQbe.T.Vll
 
 private theorem setWidth_setWidth_self64 {n : Nat} (hn : n ≤ 64) (v : BitVec n) :
     (v.setWidth 64).setWidth n = v := by
@@ -2042,4 +2042,4 @@ theorem restoreCs_factor (base : Nat) (rs : List Arm64.Reg) :
   | nil => rfl
   | cons _ _ => exact vllArmRestoreRegs_asm base _
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Arm64

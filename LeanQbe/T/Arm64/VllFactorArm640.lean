@@ -1,7 +1,7 @@
 module
 
-public import LeanQbe.T.Vll.Arm64
-public import LeanQbe.T.Vll.AsmArm64
+public import LeanQbe.T.Arm64.VllArm64
+public import LeanQbe.T.Arm64.VllAsmArm64
 public import LeanQbe.T.Vll.RegaInst
 public import LeanQbe.T.Arm64.Isa
 import LeanQbe.T.Arm64.IselLemmas4
@@ -12,9 +12,9 @@ import LeanQbe.T.Logic.MemLemmas
 import Kraken.AArch64.WP.Control
 
 /-!
-# AArch64 Native-Step Lifting Bridge & Pure-Directive Lemmas (`Vll.FactorArm640`)
+# AArch64 Native-Step Lifting Bridge & Pure-Directive Lemmas (`Arm64.VllFactorArm640`)
 
-Foundation module for `LeanQbe.T.Vll.FactorArm64`, providing a generic, axiom-clean bridge from
+Foundation module for `LeanQbe.T.Arm64.VllFactorArm64`, providing a generic, axiom-clean bridge from
 Kraken AArch64 `armMach.FallsTo` / `armMach.Run` proofs (from `Arm64/IselLemmas*` and
 `Arm64/FrameLemmas`) to `BedrockMach` L1 `vllMach arm64Arch` on `ds.map Instr.native`:
 
@@ -33,10 +33,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Arm64
 
 open LeanQbe.T
-open LeanQbe.T.Arm64
+open LeanQbe.T.Vll
 
 /-! ## 1. PC-Independent Pure Directives & Universal `Directive.interp` Determinism -/
 
@@ -2444,4 +2444,4 @@ theorem armOp_pure_len {sig rs : List Ty} {code : OpCode sig rs}
     have hp := armFunnelOpIns_pure_len hci; exact ⟨hp.1, by omega⟩
   | _ => dsimp only [armOpIns] at hci; cases hci
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Arm64

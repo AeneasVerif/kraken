@@ -1,23 +1,23 @@
 module
 
 public import LeanQbe.T.Vll.RegaInst
-public import LeanQbe.T.Vll.Arm64
-public import LeanQbe.T.Vll.AsmArm64
+public import LeanQbe.T.Arm64.VllArm64
+public import LeanQbe.T.Arm64.VllAsmArm64
 public import LeanQbe.T.Arm64.Targ
-import LeanQbe.T.Vll.FactorArm640
+import LeanQbe.T.Arm64.VllFactorArm640
 import LeanQbe.T.RegaLemmas
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.TargetLemmas
 import LeanQbe.T.AbiLemmas
 
 /-!
-# `BedrockMach` L1 AArch64 Hooks, Verified Policy, & Targets (`Vll.FactorArm641`)
+# `BedrockMach` L1 AArch64 Hooks, Verified Policy, & Targets (`Arm64.VllFactorArm641`)
 
 Instantiates `VllNativeHooks arm64Arch`, `VllPolicySpec arm64Arch`, `vllArmPolicy`,
 `vllArmTarget`, and `vllArmStrictTarget` over `BedrockMach` L1 (`Instr arm64Arch`), plus
 label-freedom (`vllArmHooksNoLab`, `vllArmLabelClean`, `vllArmStrictLabelClean`).
 
-Factored out of `Vll.FactorArm64` to keep every module well under `2,500` LOC with zero public
+Factored out of `Arm64.VllFactorArm64` to keep every module well under `2,500` LOC with zero public
 `*Lemmas*` imports and zero `Amd64`/`Kraken.X64` imports.
 -/
 
@@ -25,10 +25,10 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Vll
+namespace LeanQbe.T.Arm64
 
 open LeanQbe.T
-open LeanQbe.T.Arm64
+open LeanQbe.T.Vll
 open Std Std.ExtHashMap
 
 /-! ## 1. AArch64 `VllNativeHooks` (Maximally Core `Instr arm64Arch`, Minimal `.native`) -/
@@ -2493,4 +2493,4 @@ theorem vllArmStrictLabelClean : Rega.LabelClean vllArmStrictTarget.toIsa := by
         dsimp only [vllArmStrictTarget, vllArmStrictIsa, vllArmStrictGpr] at h
         split at h <;> first | exact b.store t pa a c cl h | cases h }
 
-end LeanQbe.T.Vll
+end LeanQbe.T.Arm64

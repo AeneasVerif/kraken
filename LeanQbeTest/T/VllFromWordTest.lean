@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.Vll.FromWordLemmas
-public import LeanQbe.T.Vll.AsmArm64Lemmas
+public import LeanQbe.T.Arm64.VllAsmArm64Lemmas
 public import LeanQbe.T.Arm64.Isel
 public import LeanQbeTest.T.BedrockCfgStage2Test
 public import LeanQbeTest.T.XcapBridgeArm64Test
@@ -16,8 +16,8 @@ import Kraken.Separation
 public meta import Lean
 public meta import LeanQbe.T.Vll.FromWord
 public meta import LeanQbe.T.Vll.FromWordLemmas
-public meta import LeanQbe.T.Vll.Arm64
-public meta import LeanQbe.T.Vll.AsmArm64
+public meta import LeanQbe.T.Arm64.VllArm64
+public meta import LeanQbe.T.Arm64.VllAsmArm64
 public meta import LeanQbeTest.T.BedrockCfgStage2Test
 public meta import LeanQbeTest.T.XcapBridgeArm64Test
 
@@ -25,7 +25,7 @@ public meta import LeanQbeTest.T.XcapBridgeArm64Test
 # Verification Suite for `Vll.FromWord` on AArch64 (`VllFromWordTest`)
 
 Instantiates the arch-free `LeanQbe.T.Vll.FromWord` + `FromWordLemmas` pipeline on concrete
-`arm64Arch` / `asmArm64` (`LeanQbe.T.Vll.Arm64` / `AsmArm64`):
+`arm64Arch` / `asmArm64` (`LeanQbe.T.Arm64.VllArm64` / `AsmArm64`):
 
 1. `armWordBind : WordRegBind arm64Arch` (`x0..x5` AAPCS64 GPR binding, `x9` dual-ret flag,
    `x10..x12` scratch, `x13..x15` temp pool, `.btiJC` pads, `Arm64.armCmpCond`) + `armWordBind_wf`.
@@ -1574,8 +1574,7 @@ private def allowedStdAxioms : List Name := [``propext, ``Classical.choice, ``Qu
 private def isForbiddenArchMod (m : Name) : Bool :=
   let s := m.toString
   s.startsWith "Kraken.X64" || s.startsWith "Kraken.AArch64" ||
-  s.startsWith "LeanQbe.T.Amd64" || s.startsWith "LeanQbe.T.Arm64" ||
-  s.startsWith "LeanQbe.T.Vll.Arm64" || s.startsWith "LeanQbe.T.Vll.AsmArm64"
+  s.startsWith "LeanQbe.T.Amd64" || s.startsWith "LeanQbe.T.Arm64"
 
 #eval show MetaM Unit from do
   for modName in [`LeanQbe.T.Vll.FromWord, `LeanQbe.T.Vll.FromWordLemmas] do
