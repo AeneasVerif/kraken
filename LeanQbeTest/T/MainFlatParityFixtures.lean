@@ -2,17 +2,19 @@ module
 
 public import LeanQbe.T.MainFlatLemmas
 public import LeanQbe.T.Examples.LitmusProgsProg
+public import LeanQbe.T.Examples.LratBytesProg
 public import LeanQbe.T.Examples.Kissat.FullM7FidelitySched
 meta import LeanQbe.T.MainFlat
 meta import LeanQbe.T.Examples.LitmusProgsProg
+meta import LeanQbe.T.Examples.LratBytesProg
 meta import LeanQbe.T.Examples.Kissat.FullM7FidelitySched
 
 /-!
 # Shared Arch-Neutral Differential Parity Fixtures (`MainFlatParityFixtures`)
 
 Holds shared pure-generic `TFlatFn` and `Fn` test suites plus differential bit-exactness
-helpers shared across `MainFlatParityTest` (SysV x64) and `MainFlatParityArm64Test` (AArch64)
-without co-importing opposing Kraken backend crates.
+and native wall-time benchmark helpers shared across `MainFlatParityTest` (SysV x64) and
+`MainFlatParityArm64Test` (AArch64) without co-importing opposing Kraken backend crates.
 -/
 
 set_option autoImplicit false
@@ -76,6 +78,19 @@ theorem divModFlat_wf : divModFlat.wfCheck = true := by decide
 theorem assumeLoopFlat_wf : assumeLoopFlat.wfCheck = true := by decide
 theorem litmusTFlatMod_wf : litmusTFlatMod.all TFlatFn.wfCheck = true := by decide
 
+@[expose] def litmusAllTFlatMod : List TFlatFn :=
+  Examples.Litmus.allFns.map fnToTFlat
+
+@[expose] def lratBytesTFlatMod : List TFlatFn :=
+  Examples.LratBytes.lratBytesFns.map fnToTFlat
+
+@[expose] def fidSchedTFlatMod : List TFlatFn :=
+  Examples.Kissat.FullM7FidelitySched.fidSchedFns.map fnToTFlat
+
+@[expose] def fidSchedExtCallees (lt : LegalTarget) : List (SigEntry × Nat) :=
+  Examples.Kissat.FullM7FidelitySched.fidSchedExterns.map fun e =>
+    ((e.name, lt.legalSig e.as, lt.legalSig e.rs), 0)
+
 @[expose] def firstByteDiff (a b : ByteArray) :
     Option (Nat × Option UInt8 × Option UInt8) := Id.run do
   let n := Nat.min a.size b.size
@@ -87,31 +102,81 @@ theorem litmusTFlatMod_wf : litmusTFlatMod.all TFlatFn.wfCheck = true := by deci
       if n < b.size then some b[n]! else none)
   return none
 
-@[expose] def checkTargetParity (tag : String) (I : Isa) (lt : LegalTarget) (raBytes : Nat)
-    (render : List I.Directive → String) : IO Unit := do
-  let kissatFns : List TFlatFn :=
-    (Examples.Kissat.FullM7FidelitySched.fidSchedFns.take 2).map fnToTFlat
-  let flatFns : List TFlatFn := litmusTFlatMod ++ kissatFns
+@[expose] def formatSpeedup (flatNs phoNs : Nat) : String :=
+  if flatNs == 0 then "inf"
+  else
+    let tenths := (phoNs * 10 + flatNs / 2) / flatNs
+    s!"{tenths / 10}.{tenths % 10}x"
+
+@[expose] def checkSuiteParity (tag suiteName : String) (I : Isa) (lt : LegalTarget)
+    (raBytes : Nat) (extCallees : List (SigEntry × Nat)) (exits : List Sym)
+    (render : List I.Directive → String) (flatFns : List TFlatFn)
+    (benchIters : Nat := 1) : IO (Nat × Nat) := do
   let fns : List Fn := flatFns.map TFlatFn.toFn
   for ff in flatFns do
     if !ff.wfCheck then
-      throw <| IO.userError s!"{tag}: wfCheck failed for {ff.name}"
+      throw <| IO.userError s!"{tag}/{suiteName}: wfCheck failed for {ff.name}"
   let hints := fns.map (Fn.computeHints I lt)
   let (flatCode, flatBounds) ← IO.ofExcept
-    (compileModuleFlat I lt raBytes [] [] 0 flatFns hints)
+    (compileModuleFlat I lt raBytes extCallees exits 0 flatFns hints)
   let (phoCode, phoBounds) ← IO.ofExcept
-    (compileModule I lt raBytes [] [] 0 fns hints)
+    (compileModule I lt raBytes extCallees exits 0 fns hints)
   if flatBounds != phoBounds then
-    throw <| IO.userError s!"{tag}: bounds mismatch: {flatBounds} vs {phoBounds}"
+    throw <| IO.userError
+      s!"{tag}/{suiteName}: bounds mismatch: {flatBounds} vs {phoBounds}"
   let flatBytes := (render flatCode).toUTF8
   let phoBytes := (render phoCode).toUTF8
   if let some (pos, bf, bp) := firstByteDiff flatBytes phoBytes then
-    throw <| IO.userError s!"{tag}: assembly diff at byte {pos}: {bf} vs {bp}"
+    throw <| IO.userError s!"{tag}/{suiteName}: assembly diff at byte {pos}: {bf} vs {bp}"
   for ((ff, fn), h) in (flatFns.zip fns).zip hints do
     let fDirs ← IO.ofExcept (compileFlatFn I lt h ff)
     let pDirs ← IO.ofExcept (compileFn I lt h fn)
-    if let some (pos, bf, bp) := firstByteDiff (render fDirs).toUTF8 (render pDirs).toUTF8 then
-      throw <| IO.userError s!"{tag}: per-fn '{fn.name}' diff at byte {pos}: {bf} vs {bp}"
-  IO.println s!"OK ({tag}): {fns.length} fns, {flatCode.length} dirs, {flatBytes.size} B, 0 diff"
+    let fB := (render fDirs).toUTF8
+    let pB := (render pDirs).toUTF8
+    if let some (pos, bf, bp) := firstByteDiff fB pB then
+      throw <| IO.userError
+        s!"{tag}/{suiteName}: per-fn '{fn.name}' diff at byte {pos}: {bf} vs {bp}"
+  let tf0 ← IO.monoNanosNow
+  let mut flatAcc := 0
+  for i in [:benchIters] do
+    let inFns := if tf0 == 0 && i == 999999 then [] else flatFns
+    match compileModuleFlat I lt raBytes extCallees exits 0 inFns hints with
+    | .ok (c, _) => flatAcc := flatAcc + c.length
+    | .error e => throw <| IO.userError s!"{tag}/{suiteName}: flat bench error: {e}"
+  let tf1 ← IO.monoNanosNow
+  let tp0 ← IO.monoNanosNow
+  let mut phoAcc := 0
+  for i in [:benchIters] do
+    let inFns := if tp0 == 0 && i == 999999 then [] else fns
+    match compileModule I lt raBytes extCallees exits 0 inFns hints with
+    | .ok (c, _) => phoAcc := phoAcc + c.length
+    | .error e => throw <| IO.userError s!"{tag}/{suiteName}: pho bench error: {e}"
+  let tp1 ← IO.monoNanosNow
+  if flatAcc != phoAcc then
+    throw <| IO.userError s!"{tag}/{suiteName}: bench dir count mismatch"
+  let flatNs := tf1 - tf0
+  let phoNs := tp1 - tp0
+  let flatUs := flatNs / 1000
+  let phoUs := phoNs / 1000
+  let spd := formatSpeedup flatNs phoNs
+  IO.println (s!"OK ({tag}/{suiteName}): {fns.length} fns, {flatCode.length} dirs, " ++
+    s!"{flatBytes.size} B, 0 diff | {benchIters}x flat={flatUs}us vs pho={phoUs}us ({spd})")
+  pure (flatNs, phoNs)
+
+@[expose] def checkTargetParity (tag : String) (I : Isa) (lt : LegalTarget) (raBytes : Nat)
+    (render : List I.Directive → String) : IO Unit := do
+  let coreFns : List TFlatFn := litmusTFlatMod ++ (fidSchedTFlatMod.take 2)
+  let _ ← checkSuiteParity tag "core" I lt raBytes [] [] render coreFns 10
+  let (f1, p1) ← checkSuiteParity tag "litmus_all" I lt raBytes [] ["fail"] render
+    litmusAllTFlatMod 10
+  let (f2, p2) ← checkSuiteParity tag "lrat_bytes" I lt raBytes [] [] render
+    lratBytesTFlatMod 5
+  let (f3, p3) ← checkSuiteParity tag "fid_sched" I lt raBytes (fidSchedExtCallees lt) [] render
+    fidSchedTFlatMod 5
+  let totFlatMs := (f1 + f2 + f3) / 1000000
+  let totPhoMs := (p1 + p2 + p3) / 1000000
+  let spd := formatSpeedup (f1 + f2 + f3) (p1 + p2 + p3)
+  IO.println (s!"OK ({tag} total): 25 fns across 3 suites, 0 diff | " ++
+    s!"flat={totFlatMs}ms vs pho={totPhoMs}ms ({spd})")
 
 end LeanQbeTest.T.MainFlatParityFixtures

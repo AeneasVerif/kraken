@@ -51,6 +51,55 @@ theorem assumeLoopFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints) :
       compileFn Amd64.x64Target.toIsa Amd64.x64LegalTarget h assumeLoopFlat.toFn :=
   compileFlatFn_eq_compileFn _ _ _ _ assumeLoopFlat_wf
 
+theorem compileModuleFlat_ok_implies_compileModule_litmusAll_x64
+    (hints : List Amd64.x64Target.toIsa.Hints)
+    {code : List Amd64.x64Target.toIsa.Directive} {bounds : List (Sym × Nat)}
+    (hok : compileModuleFlat Amd64.x64Target.toIsa Amd64.x64LegalTarget
+      Amd64.x64Target.frame.raBytes [] ["fail"] 0 litmusAllTFlatMod hints = .ok (code, bounds)) :
+    compileModule Amd64.x64Target.toIsa Amd64.x64LegalTarget
+        Amd64.x64Target.frame.raBytes [] ["fail"] 0 (litmusAllTFlatMod.map TFlatFn.toFn) hints =
+      .ok (code, bounds) :=
+  compileModule_of_compileModuleFlat _ _ _ [] ["fail"] 0 litmusAllTFlatMod hints code bounds hok
+
+theorem compileModuleFlat_ok_implies_compileModule_lrat_x64
+    (hints : List Amd64.x64Target.toIsa.Hints)
+    {code : List Amd64.x64Target.toIsa.Directive} {bounds : List (Sym × Nat)}
+    (hok : compileModuleFlat Amd64.x64Target.toIsa Amd64.x64LegalTarget
+      Amd64.x64Target.frame.raBytes [] [] 0 lratBytesTFlatMod hints = .ok (code, bounds)) :
+    compileModule Amd64.x64Target.toIsa Amd64.x64LegalTarget
+        Amd64.x64Target.frame.raBytes [] [] 0 (lratBytesTFlatMod.map TFlatFn.toFn) hints =
+      .ok (code, bounds) :=
+  compileModule_of_compileModuleFlat _ _ _ [] [] 0 lratBytesTFlatMod hints code bounds hok
+
+theorem compileModuleFlat_ok_implies_compileModule_fidSched_x64
+    (hints : List Amd64.x64Target.toIsa.Hints)
+    {code : List Amd64.x64Target.toIsa.Directive} {bounds : List (Sym × Nat)}
+    (hok : compileModuleFlat Amd64.x64Target.toIsa Amd64.x64LegalTarget
+      Amd64.x64Target.frame.raBytes (fidSchedExtCallees Amd64.x64LegalTarget) [] 0
+      fidSchedTFlatMod hints = .ok (code, bounds)) :
+    compileModule Amd64.x64Target.toIsa Amd64.x64LegalTarget
+        Amd64.x64Target.frame.raBytes (fidSchedExtCallees Amd64.x64LegalTarget) [] 0
+        (fidSchedTFlatMod.map TFlatFn.toFn) hints =
+      .ok (code, bounds) :=
+  compileModule_of_compileModuleFlat _ _ _ (fidSchedExtCallees Amd64.x64LegalTarget) [] 0
+    fidSchedTFlatMod hints code bounds hok
+
+theorem fidPreprocessFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints) :
+    compileFlatFn Amd64.x64Target.toIsa Amd64.x64LegalTarget h
+        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidPreprocessFn) =
+      compileFn Amd64.x64Target.toIsa Amd64.x64LegalTarget h
+        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidPreprocessFn).toFn :=
+  compileFlatFn_eq_compileFn _ _ _ _
+    (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.FullM7FidelitySched.full_preprocess_fid_wf)
+
+theorem fidReduceFlat_compileFlatFn_eq_x64 (h : Amd64.x64Target.toIsa.Hints) :
+    compileFlatFn Amd64.x64Target.toIsa Amd64.x64LegalTarget h
+        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidReduceFn) =
+      compileFn Amd64.x64Target.toIsa Amd64.x64LegalTarget h
+        (fnToTFlat Examples.Kissat.FullM7FidelitySched.fidReduceFn).toFn :=
+  compileFlatFn_eq_compileFn _ _ _ _
+    (PassFlatKit.reifyFunc_wfCheck Examples.Kissat.FullM7FidelitySched.full_reduce_fid_wf)
+
 @[expose] def foldCasesFlat : TFlatFn :=
   { name := "fold_cases_flat"
     as := [i64, i32]
@@ -210,10 +259,14 @@ theorem optFlatValue_valueCases_compile_eq_x64
     if !ff.wfCheck then
       throw <| IO.userError s!"optFlatValue: wfCheck failed on {ff.name}"
     let fnsAndRefs : List (String × TFlatFn × TFlatFn) :=
-      [ ("fold", OptFlatValue.foldFlatFn ff, ⟨ff.name, ff.as, ff.rs, foldFlat ff.as ff.body⟩)
-      , ("copy", OptFlatValue.copyFlatFn ff, ⟨ff.name, ff.as, ff.rs, copyFlat ff.as ff.body⟩)
-      , ("canon", OptFlatValue.canonFlatFn ff, ⟨ff.name, ff.as, ff.rs, canonFlat ff.as ff.body⟩)
-      , ("gvn", OptFlatValue.gvnFlatFn ff, ⟨ff.name, ff.as, ff.rs, gvnFlat ff.as ff.body⟩) ]
+      [ ("fold", OptFlatValue.foldFlatFn ff,
+          ⟨ff.name, ff.as, ff.rs, reifyFunc (Func.fold ff.toFn.body)⟩)
+      , ("copy", OptFlatValue.copyFlatFn ff,
+          ⟨ff.name, ff.as, ff.rs, reifyFunc (Func.copy ff.toFn.body)⟩)
+      , ("canon", OptFlatValue.canonFlatFn ff,
+          ⟨ff.name, ff.as, ff.rs, reifyFunc (Func.canon ff.toFn.body)⟩)
+      , ("gvn", OptFlatValue.gvnFlatFn ff,
+          ⟨ff.name, ff.as, ff.rs, reifyFunc (Func.gvn ff.toFn.body)⟩) ]
     for (pTag, gotFf, refFf) in fnsAndRefs do
       if !gotFf.wfCheck then
         throw <| IO.userError s!"optFlatValue({pTag}): wfCheck failed on {ff.name}"
@@ -266,5 +319,10 @@ theorem optFlatValue_valueCases_compile_eq_x64
 #print axioms compileModuleFlat_ok_implies_compileModule_x64
 #print axioms divModFlat_compileFlatFn_eq_x64
 #print axioms assumeLoopFlat_compileFlatFn_eq_x64
+#print axioms compileModuleFlat_ok_implies_compileModule_litmusAll_x64
+#print axioms compileModuleFlat_ok_implies_compileModule_lrat_x64
+#print axioms compileModuleFlat_ok_implies_compileModule_fidSched_x64
+#print axioms fidPreprocessFlat_compileFlatFn_eq_x64
+#print axioms fidReduceFlat_compileFlatFn_eq_x64
 
 end LeanQbeTest.T.MainFlatParityTest

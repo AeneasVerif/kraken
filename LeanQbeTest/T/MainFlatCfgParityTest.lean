@@ -19,8 +19,8 @@ meta import LeanQbe.T.Amd64.PrintAsm0
 
 Verifies `OptFlatCfg.{dceFlat, deadLoadElimFlat, dcePFlat, ifOptFlat}` exact correspondence with
 `Func.{dce, deadLoadElim, dceP, ifOpt, ifOptBits}` (`reifyFunc` + `compileFlatFn_eq_compileFn`),
-byte-exact `Amd64.printAsm0` assembly parity against `MainFlat.{dcePFlat, deadLoadElimFlat,
-ifOptFlat}`, and `std3`-only axioms.
+byte-exact `Amd64.printAsm0` assembly parity against `reifyFunc (Func.* ff.toFn.body)`, and
+`std3`-only axioms.
 -/
 
 set_option autoImplicit false
@@ -192,13 +192,14 @@ theorem optFlatCfg_cfgCases_compile_eq_x64
     if !(OptFlatCfg.dceFlatFn ff).wfCheck then
       throw <| IO.userError s!"optFlatCfg(dce): wfCheck failed on {ff.name}"
     let fnsAndRefs : List (String × TFlatFn × TFlatFn) :=
-      [ ("dceP", OptFlatCfg.dcePFlatFn ff, ⟨ff.name, ff.as, ff.rs, dcePFlat ff.as ff.body⟩)
+      [ ("dceP", OptFlatCfg.dcePFlatFn ff,
+          ⟨ff.name, ff.as, ff.rs, reifyFunc (Func.dceP ff.toFn.body)⟩)
       , ("deadLoadElim", OptFlatCfg.deadLoadElimFlatFn ff,
-          ⟨ff.name, ff.as, ff.rs, deadLoadElimFlat ff.as ff.body⟩)
+          ⟨ff.name, ff.as, ff.rs, reifyFunc (Func.deadLoadElim ff.toFn.body)⟩)
       , ("ifOpt", OptFlatCfg.ifOptFlatFn false ff,
-          ⟨ff.name, ff.as, ff.rs, ifOptFlat false ff.as ff.body⟩)
+          ⟨ff.name, ff.as, ff.rs, reifyFunc (Func.ifOpt ff.toFn.body)⟩)
       , ("ifOptBits", OptFlatCfg.ifOptFlatFn true ff,
-          ⟨ff.name, ff.as, ff.rs, ifOptFlat true ff.as ff.body⟩) ]
+          ⟨ff.name, ff.as, ff.rs, reifyFunc (Func.ifOptBits ff.toFn.body)⟩) ]
     for (pTag, gotFf, refFf) in fnsAndRefs do
       if !gotFf.wfCheck then
         throw <| IO.userError s!"optFlatCfg({pTag}): wfCheck failed on {ff.name}"

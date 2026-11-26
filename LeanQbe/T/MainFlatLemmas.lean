@@ -8,15 +8,13 @@ import LeanQbe.T.LegalFlat
 import LeanQbe.T.RegaFlatLemmas
 import LeanQbe.T.OptLemmas
 import LeanQbe.T.LegalLemmas
+import LeanQbe.T.OptFlatValueLemmas
+import LeanQbe.T.OptFlatMemLemmas
+import LeanQbe.T.OptFlatCfgLemmas
 import LeanQbe.T.FoldLemmas
-import LeanQbe.T.CanonLemmas
 import LeanQbe.T.CopyLemmas
-import LeanQbe.T.DceLemmas
 import LeanQbe.T.DceParamLemmas
-import LeanQbe.T.DivConstLemmas
-import LeanQbe.T.MemLoadLemmas
 import LeanQbe.T.PeelLemmas
-import LeanQbe.T.IfOptLemmas
 import LeanQbe.T.SimplifyGroupPlanLemmas
 import LeanQbe.T.LicmLemmas
 import LeanQbe.T.AddrRangeOptLemmas
@@ -24,7 +22,6 @@ import LeanQbe.T.LoopRotateLemmas
 import LeanQbe.T.CondThreadOptLemmas
 import LeanQbe.T.TailDupLemmas
 import LeanQbe.T.ZeroPeelLemmas
-import LeanQbe.T.AssumeBitsLemmas
 
 /-!
 # Simulation Proofs for `MainFlat` (`compileModule_of_compileModuleFlat`)
@@ -33,9 +30,10 @@ Establishes exact `=` correspondence (`std3` axioms only) between every pass and
 point in `LeanQbe.T.MainFlat` and its PHOAS counterpart in `Opt` / `Main`:
 
 * Generic `reifyFunc` / `Func.renorm` bridges (`wfCheck_reifyBridge`, `denoteFunc_reifyBridge`)
-* Direct `TFlat` pass simulation: `assumeElimFlat_eq`, `mergeRetsFlat_eq`, `divConstFlat_eq`,
+* Direct `TFlat` pass simulation: `assumeElimFlat_eq`, `mergeRetsFlat_eq`,
   `simplifyGroupFastFlat_eq`, `peelFastFlat_eq`, `licmFlat_eq`, `loopRotateFlat_eq`
-* Staged mid-end simulation: `earlyOptFlat_toFn`, `midStageFlat_toFn`
+* Staged mid-end simulation (`OptFlatValue` + `OptFlatMem` + `OptFlatCfg`): `earlyOptFlat_toFn`,
+  `midStageFlat_toFn`
 * End-to-end compilation parity: `compileFlatFn_eq_compileFn`, `compileModule_of_compileModuleFlat`
 -/
 
@@ -521,176 +519,6 @@ private theorem denoteB_mergeRetsAux_eq {V : Ty → Type} {L : List Ty → Type}
     exact denote_mergeRetsAux_eq exit_lbl b (ctxTypes_pushTup_rev xs hΓ) hΔ hwf.1
 end
 
-/-! ## Private `divConst` Bypass Proofs -/
-
-private def varLiftArg {V : Ty → Type} {t : Ty} : Arg V t → Arg (Arg V) t
-  | .var v => .var (.var v)
-  | .imm c => .imm c
-
-private abbrev varLiftArgs {V : Ty → Type} {ts : List Ty} :
-    Tup (Arg V) ts → Tup (Arg (Arg V)) ts :=
-  tupMapArg fun _ => varLiftArg
-
-private def liftEnv {V : Ty → Type} :
-    List ((t : Ty) × V t) → List ((t : Ty) × Arg V t) :=
-  List.map fun p => ⟨p.1, Arg.var p.2⟩
-
-private theorem liftEnv_pushTup {V : Ty → Type} :
-    {ts : List Ty} → (xs : Tup V ts) → (vs : List ((t : Ty) × V t)) →
-    pushTup (toArgTup xs) (liftEnv vs) = liftEnv (pushTup xs vs)
-  | [], (), _ => rfl
-  | t :: _, (x, xs), vs => by
-    dsimp only [toArgTup, pushTup]
-    exact liftEnv_pushTup xs (⟨t, x⟩ :: vs)
-
-private theorem flattenArg_varLift {V : Ty → Type} {t : Ty} (a : Arg V t) :
-    flattenArg (varLiftArg a) = a := by
-  cases a <;> rfl
-
-private theorem flattenArgs_varLift {V : Ty → Type} :
-    {ts : List Ty} → (as : Tup (Arg V) ts) → flattenArgs (varLiftArgs as) = as
-  | [], () => rfl
-  | _ :: _, (a, as) => by
-    dsimp only [flattenArgs, varLiftArgs, tupMapArg]
-    rw [flattenArg_varLift a]
-    exact congrArg (_, ·) (flattenArgs_varLift as)
-
-private theorem denoteArg_liftEnv {V : Ty → Type} {Γ : List Ty}
-    {vs : List ((t : Ty) × V t)} (hΓ : CtxTypes Γ vs) {t : Ty} :
-    (a : Arg K t) → checkArg Γ t a = true →
-    ∃ a', denoteArg vs a = some a' ∧ denoteArg (liftEnv vs) a = some (varLiftArg a')
-  | .imm c, _ => ⟨.imm c, rfl, rfl⟩
-  | .var idx, hc => by
-    obtain ⟨v, hget, _⟩ := ctxTypes_listGet? hΓ (checkArg_eq_true_iff.mp hc)
-    have h1 : denoteArg vs (.var (t := t) idx) = some (.var v) := by
-      dsimp only [denoteArg, lookupV]; rw [hget]; dsimp only; rw [PassFlatKit.castTy_self]
-    have h2 : denoteArg (liftEnv vs) (.var (t := t) idx) = some (.var (.var v)) := by
-      dsimp only [denoteArg, lookupV, liftEnv]; rw [listGet?_map, hget]
-      simp only [Option.map_some]; rw [PassFlatKit.castTy_self]
-    exact ⟨.var v, h1, h2⟩
-
-private theorem denoteArgs_liftEnv {V : Ty → Type} {Γ : List Ty}
-    {vs : List ((t : Ty) × V t)} (hΓ : CtxTypes Γ vs) :
-    {ts : List Ty} → (as : Tup (Arg K) ts) → checkArgs Γ as = true →
-    ∃ as', denoteArgs vs as = some as' ∧ denoteArgs (liftEnv vs) as = some (varLiftArgs as')
-  | [], (), _ => ⟨(), rfl, rfl⟩
-  | _ :: _, (a, as), hc => by
-    dsimp only [checkArgs] at hc; simp only [Bool.and_eq_true] at hc
-    obtain ⟨a', ha1, ha2⟩ := denoteArg_liftEnv hΓ a hc.1
-    obtain ⟨as', has1, has2⟩ := denoteArgs_liftEnv hΓ as hc.2
-    exact ⟨(a', as'), by dsimp only [denoteArgs]; rw [ha1, has1], by
-      dsimp only [denoteArgs, varLiftArgs, tupMapArg]; rw [ha2, has2]⟩
-
-private theorem divConstOp_eq_fallback {V : Ty → Type} {L : List Ty → Type} {rs ts : List Ty}
-    (op : Op (Arg V) ts) (h : opCodeIsDivRem op.code = false)
-    (k : Tup (Arg V) ts → Expr V L rs) :
-    divConstOp op k = .let_ (flattenOp op) fun xs => k (toArgTup xs) := by
-  rcases op with ⟨code, args⟩
-  cases code <;> first | exact Bool.noConfusion h | rfl
-
-mutual
-private theorem denote_divConst_eq_of_noDivRem {V : Ty → Type} {L : List Ty → Type}
-    {rs : List Ty} :
-    (tf : TFlat rs) → {Γ : List Ty} → {Δ : List (List Ty)} →
-    {vs : List ((t : Ty) × V t)} → {ls : List ((ts : List Ty) × L ts)} →
-    CtxTypes Γ vs → CtxTypes Δ ls → tf.wfCheck Γ Δ = true → tf.hasDivRem = false →
-    divConst (denote (Arg V) L tf (liftEnv vs) ls) = denote V L tf vs ls
-  | .let_ op k, _, _, vs, ls, hΓ, hΔ, hwf, hdiv => by
-    dsimp only [TFlat.wfCheck, TFlat.hasDivRem] at hwf hdiv
-    simp only [Bool.and_eq_true, Bool.or_eq_false_iff] at hwf hdiv
-    obtain ⟨args', hda1, hda2⟩ := denoteArgs_liftEnv hΓ op.args hwf.1
-    dsimp only [denote, divConst]
-    rw [hda1, hda2]; dsimp only [divConst]
-    rw [divConstOp_eq_fallback ⟨op.code, varLiftArgs args'⟩ hdiv.1]
-    have hfl : flattenOp ⟨op.code, varLiftArgs args'⟩ = ⟨op.code, args'⟩ := by
-      dsimp only [flattenOp]; rw [flattenArgs_varLift]
-    rw [hfl]
-    refine congrArg (Expr.let_ _) (funext fun xs => ?_)
-    rw [liftEnv_pushTup]
-    exact denote_divConst_eq_of_noDivRem k (ctxTypes_pushTup_rev xs hΓ) hΔ hwf.2 hdiv.2
-  | .load t a k, _, _, vs, ls, hΓ, hΔ, hwf, hdiv => by
-    dsimp only [TFlat.wfCheck, TFlat.hasDivRem] at hwf hdiv
-    simp only [Bool.and_eq_true] at hwf
-    obtain ⟨a', hda1, hda2⟩ := denoteArg_liftEnv hΓ a hwf.1
-    dsimp only [denote, divConst]
-    rw [hda1, hda2]; dsimp only [divConst]
-    rw [flattenArg_varLift]
-    refine congrArg (Expr.load t a') (funext fun v => ?_)
-    change divConst (denote (Arg V) L k (liftEnv (⟨t, v⟩ :: vs)) ls) =
-      denote V L k (⟨t, v⟩ :: vs) ls
-    exact denote_divConst_eq_of_noDivRem k (.cons hΓ) hΔ hwf.2 hdiv
-  | .store v a k, _, _, vs, ls, hΓ, hΔ, hwf, hdiv => by
-    dsimp only [TFlat.wfCheck, TFlat.hasDivRem] at hwf hdiv
-    simp only [Bool.and_eq_true] at hwf
-    obtain ⟨v', hdv1, hdv2⟩ := denoteArg_liftEnv hΓ v hwf.1.1
-    obtain ⟨a', hda1, hda2⟩ := denoteArg_liftEnv hΓ a hwf.1.2
-    dsimp only [denote, divConst]
-    rw [hdv1, hdv2, hda1, hda2]; dsimp only [divConst]
-    rw [flattenArg_varLift, flattenArg_varLift]
-    exact congrArg (Expr.store v' a') (denote_divConst_eq_of_noDivRem k hΓ hΔ hwf.2 hdiv)
-  | .call f bs args k, _, _, vs, ls, hΓ, hΔ, hwf, hdiv => by
-    dsimp only [TFlat.wfCheck, TFlat.hasDivRem] at hwf hdiv
-    simp only [Bool.and_eq_true] at hwf
-    obtain ⟨args', hda1, hda2⟩ := denoteArgs_liftEnv hΓ args hwf.1
-    dsimp only [denote, divConst]
-    rw [hda1, hda2]; dsimp only [divConst]
-    rw [flattenArgs_varLift]
-    refine congrArg (Expr.call f args') (funext fun xs => ?_)
-    rw [liftEnv_pushTup]
-    exact denote_divConst_eq_of_noDivRem k (ctxTypes_pushTup_rev xs hΓ) hΔ hwf.2 hdiv
-  | .jnz c t e, _, _, vs, ls, hΓ, hΔ, hwf, hdiv => by
-    dsimp only [TFlat.wfCheck, TFlat.hasDivRem] at hwf hdiv
-    simp only [Bool.and_eq_true, Bool.or_eq_false_iff] at hwf hdiv
-    obtain ⟨c', hdc1, hdc2⟩ := denoteArg_liftEnv hΓ c hwf.1.1
-    dsimp only [denote, divConst]
-    rw [hdc1, hdc2]; dsimp only [divConst]
-    rw [flattenArg_varLift]
-    rw [denote_divConst_eq_of_noDivRem t hΓ hΔ hwf.1.2 hdiv.1,
-      denote_divConst_eq_of_noDivRem e hΓ hΔ hwf.2 hdiv.2]
-  | .jump (ts := ts) j args, _, _, vs, ls, hΓ, hΔ, hwf, _ => by
-    dsimp only [TFlat.wfCheck] at hwf; simp only [Bool.and_eq_true] at hwf
-    obtain ⟨j', hj⟩ := Option.isSome_iff_exists.1 (lookupL_isSome_of_check hΔ hwf.1)
-    obtain ⟨args', hda1, hda2⟩ := denoteArgs_liftEnv hΓ args hwf.2
-    dsimp only [denote, divConst]
-    rw [hj, hda1, hda2]; dsimp only [divConst]
-    rw [flattenArgs_varLift]
-  | .ret vs', _, _, vs, _, hΓ, _, hwf, _ => by
-    obtain ⟨vs'', hdv1, hdv2⟩ := denoteArgs_liftEnv hΓ vs' hwf
-    dsimp only [denote, divConst]
-    rw [hdv1, hdv2]; dsimp only [divConst]
-    rw [flattenArgs_varLift]
-  | .exit f args, _, _, vs, _, hΓ, _, hwf, _ => by
-    obtain ⟨args', hda1, hda2⟩ := denoteArgs_liftEnv hΓ args hwf
-    dsimp only [denote, divConst]
-    rw [hda1, hda2]; dsimp only [divConst]
-    rw [flattenArgs_varLift]
-  | .hlt, _, _, _, _, _, _, _, _ => rfl
-  | .group bodies k, _, _, vs, ls, hΓ, hΔ, hwf, hdiv => by
-    dsimp only [TFlat.wfCheck, TFlat.hasDivRem] at hwf hdiv
-    simp only [Bool.and_eq_true, Bool.or_eq_false_iff] at hwf hdiv
-    dsimp only [denote, divConst]
-    refine congr (congrArg Expr.group (funext fun Js => ?_)) (funext fun Js => ?_)
-    · exact denoteB_divConst_eq_of_noDivRem bodies hΓ (ctxTypes_pushTup_rev Js hΔ) hwf.1 hdiv.1
-    · exact denote_divConst_eq_of_noDivRem k hΓ (ctxTypes_pushTup_rev Js hΔ) hwf.2 hdiv.2
-
-private theorem denoteB_divConst_eq_of_noDivRem {V : Ty → Type} {L : List Ty → Type}
-    {rs : List Ty} :
-    {sig : List (List Ty)} → (tb : TBlocks rs sig) →
-    {Γ : List Ty} → {Δ : List (List Ty)} →
-    {vs : List ((t : Ty) × V t)} → {ls : List ((ts : List Ty) × L ts)} →
-    CtxTypes Γ vs → CtxTypes Δ ls → tb.wfCheck Γ Δ = true → tb.hasDivRem = false →
-    divConstB (denoteB (Arg V) L tb (liftEnv vs) ls) = denoteB V L tb vs ls
-  | _, .nil, _, _, _, _, _, _, _, _ => rfl
-  | _, .cons b bs, _, _, vs, ls, hΓ, hΔ, hwf, hdiv => by
-    dsimp only [TBlocks.wfCheck, TBlocks.hasDivRem] at hwf hdiv
-    simp only [Bool.and_eq_true, Bool.or_eq_false_iff] at hwf hdiv
-    dsimp only [denoteB, divConstB]
-    refine congr (congrArg Blocks.cons (funext fun xs => ?_))
-      (denoteB_divConst_eq_of_noDivRem bs hΓ hΔ hwf.2 hdiv.2)
-    rw [liftEnv_pushTup]
-    exact denote_divConst_eq_of_noDivRem b (ctxTypes_pushTup_rev xs hΓ) hΔ hwf.1 hdiv.1
-end
-
 /-! ## Public Pass-Level and End-to-End Simulation Theorems -/
 
 public section
@@ -774,39 +602,6 @@ theorem mergeRetsFlat_eq {as rs : List Ty} (tf : TFlat rs)
     mergeRetsFlat tf = reifyFunc (Func.mergeRets (denoteFunc (as := as) tf)) := by
   rw [← denoteFunc_mergeRetsFlat tf hwf]
   exact (reifyFunc_denoteFunc_eq (mergeRetsFlat tf) (TFlat.wfCheck_mergeRets hwf)).symm
-
-/-- `divConstFlat` preserves `wfCheck`. -/
-theorem divConstFlat_wfCheck {as rs : List Ty} (tf : TFlat rs)
-    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    (divConstFlat as tf).wfCheck (pushTypes as []) [] = true := by
-  dsimp only [divConstFlat]
-  by_cases hd : tf.hasDivRem = true
-  · simp only [hd, ↓reduceIte]
-    exact wfCheck_reifyBridge (Func.divConst_wf (Func.wf_of_denote tf rfl))
-  · simp only [hd, Bool.false_eq_true, ↓reduceIte]; exact hwf
-
-/-- `denoteFunc (divConstFlat as tf) = Func.divConst (denoteFunc tf)` under `wfCheck = true`. -/
-theorem denoteFunc_divConstFlat {as rs : List Ty} (tf : TFlat rs)
-    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    denoteFunc (as := as) (divConstFlat as tf) = Func.divConst (denoteFunc (as := as) tf) := by
-  dsimp only [divConstFlat]
-  by_cases hd : tf.hasDivRem = true
-  · simp only [hd, ↓reduceIte]
-    exact denoteFunc_reifyBridge (fun hg => Func.divConst_wf hg) tf
-  · have hnd : tf.hasDivRem = false := Bool.eq_false_iff.mpr hd
-    simp only [hnd, Bool.false_eq_true, ↓reduceIte]
-    funext V L xs
-    dsimp only [Func.divConst, denoteFunc]
-    have hlift : pushTup (toArgTup xs) [] = liftEnv (pushTup xs []) := by
-      simpa [liftEnv] using liftEnv_pushTup xs []
-    rw [hlift]
-    exact (denote_divConst_eq_of_noDivRem tf (ctxTypes_pushTup_rev xs .nil) .nil hwf hnd).symm
-
-/-- `divConstFlat as tf = reifyFunc (Func.divConst (denoteFunc tf))` under `wfCheck = true`. -/
-theorem divConstFlat_eq {as rs : List Ty} (tf : TFlat rs)
-    (hwf : tf.wfCheck (pushTypes as []) [] = true) :
-    divConstFlat as tf = reifyFunc (Func.divConst (denoteFunc (as := as) tf)) := by
-  rw [← denoteFunc_divConstFlat tf hwf, reifyFunc_denoteFunc_eq _ (divConstFlat_wfCheck tf hwf)]
 
 /-- `simplifyGroupFastFlat` preserves `wfCheck`. -/
 theorem simplifyGroupFastFlat_wfCheck {as rs : List Ty} (tf : TFlat rs)
@@ -964,54 +759,17 @@ private theorem denoteFunc_zeroPeel24 {as rs : List Ty} (tf : TFlat rs)
   · simp [hsz]
   · simp [hsz]
 
-private theorem ifOptFlat_wfCheck (bitsOnly : Bool) (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    (ifOptFlat bitsOnly as tf).wfCheck (pushTypes as []) [] = true := by
-  dsimp only [ifOptFlat]
-  cases bitsOnly
-  · exact reifyBridge_wfCheck (fun hg => Func.ifOpt_wf hg) tf
-  · exact reifyBridge_wfCheck (fun hg => Func.ifOptBits_wf hg) tf
+private theorem addrRangeOptFlat_wfCheck (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
+    (addrRangeOptFlat as tf).wfCheck (pushTypes as []) [] = true :=
+  reifyBridge_wfCheck (fun hg => Func.addrRangeOpt_wf hg) tf
 
-private theorem denoteFunc_ifOptFlat_false (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    denoteFunc (as := as) (ifOptFlat false as tf) = Func.ifOpt (denoteFunc (as := as) tf) :=
-  denoteFunc_reifyBridge (fun hg => Func.ifOpt_wf hg) tf
+private theorem condThreadLateOptFlat_wfCheck (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
+    (condThreadLateOptFlat as tf).wfCheck (pushTypes as []) [] = true :=
+  reifyBridge_wfCheck (fun {g} _ => Func.condThreadLateOpt_wf g) tf
 
-private theorem denoteFunc_ifOptFlat_true (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    denoteFunc (as := as) (ifOptFlat true as tf) = Func.ifOptBits (denoteFunc (as := as) tf) :=
-  denoteFunc_reifyBridge (fun hg => Func.ifOptBits_wf hg) tf
-
-private theorem denoteFunc_foldFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    denoteFunc (as := as) (foldFlat as tf) = Func.fold (denoteFunc (as := as) tf) :=
-  denoteFunc_reifyBridge (fun hg => Func.fold_wf hg) tf
-
-private theorem denoteFunc_canonFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    denoteFunc (as := as) (canonFlat as tf) = Func.canon (denoteFunc (as := as) tf) :=
-  denoteFunc_reifyBridge (fun hg => Func.canon_wf hg) tf
-
-private theorem denoteFunc_copyFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    denoteFunc (as := as) (copyFlat as tf) = Func.copy (denoteFunc (as := as) tf) :=
-  denoteFunc_reifyBridge (fun hg => Func.copy_wf hg) tf
-
-private theorem denoteFunc_gvnFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    denoteFunc (as := as) (gvnFlat as tf) = Func.gvn (denoteFunc (as := as) tf) :=
-  denoteFunc_reifyBridge (fun hg => Func.gvn_wf hg) tf
-
-private theorem denoteFunc_dcePFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    denoteFunc (as := as) (dcePFlat as tf) = Func.dceP (denoteFunc (as := as) tf) :=
-  denoteFunc_reifyBridge (fun hg => Func.dceP_wf hg) tf
-
-private theorem denoteFunc_memLoadFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    denoteFunc (as := as) (memLoadFlat as tf) = Func.memLoad (denoteFunc (as := as) tf) :=
-  denoteFunc_reifyBridge (fun hg => Func.memLoad_wf hg) tf
-
-private theorem denoteFunc_assumeBitsFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    denoteFunc (as := as) (assumeBitsFlat as tf) =
-      Func.assumeBits (denoteFunc (as := as) tf) :=
-  denoteFunc_reifyBridge (fun hg => Func.assumeBits_wf hg) tf
-
-private theorem denoteFunc_deadLoadElimFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
-    denoteFunc (as := as) (deadLoadElimFlat as tf) =
-      Func.deadLoadElim (denoteFunc (as := as) tf) :=
-  denoteFunc_reifyBridge (fun hg => Func.deadLoadElim_wf hg) tf
+private theorem tailDupFlat_wfCheck (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
+    (tailDupFlat as tf).wfCheck (pushTypes as []) [] = true :=
+  reifyBridge_wfCheck (fun hg => Func.tailDup_wf hg) tf
 
 private theorem denoteFunc_addrRangeOptFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) :
     denoteFunc (as := as) (addrRangeOptFlat as tf) =
@@ -1027,28 +785,81 @@ private theorem denoteFunc_tailDupFlat (as : List Ty) {rs : List Ty} (tf : TFlat
     denoteFunc (as := as) (tailDupFlat as tf) = Func.tailDup (denoteFunc (as := as) tf) :=
   denoteFunc_reifyBridge (fun hg => Func.tailDup_wf hg) tf
 
+section PipelineProofs
+
+attribute [local irreducible]
+  OptFlatValue.foldFlat OptFlatValue.copyFlat OptFlatValue.canonFlat OptFlatValue.gvnFlat
+  OptFlatMem.memLoadFlat OptFlatMem.assumeBitsFlat OptFlatMem.divConstFlat
+  OptFlatCfg.dcePFlat OptFlatCfg.deadLoadElimFlat OptFlatCfg.ifOptFlat
+  simplifyGroupFastFlat peelFastFlat licmFlat loopRotateFlat TFlat.zeroPeelWith
+  legalFlat addrRangeOptFlat condThreadLateOptFlat tailDupFlat
+
 /-- `earlyOptFlat` preserves `TFlatFn.wfCheck`. -/
 theorem earlyOptFlat_wfCheck (f : TFlatFn) (_hwf : f.wfCheck = true) :
     (earlyOptFlat f).wfCheck = true := by
-  dsimp only [earlyOptFlat, TFlatFn.wfCheck]
-  exact reifyBridge_wfCheck (fun hg => Func.dceP_wf hg) _
+  let tf0a := OptFlatValue.foldFlat f.as f.body
+  let tf0b := OptFlatValue.canonFlat f.as tf0a
+  let tf0c := OptFlatValue.copyFlat f.as tf0b
+  let tf0d := OptFlatValue.gvnFlat f.as tf0c
+  let tf0e := OptFlatValue.copyFlat f.as tf0d
+  let tf0 := OptFlatValue.foldFlat f.as tf0e
+  let tf1 := OptFlatCfg.ifOptFlat false f.as tf0
+  let tf2 := simplifyGroupFastFlat f.as tf1
+  let tf3 := peelFastFlat f.as tf2 24
+  let tf4 := TFlat.zeroPeelWith { peelBudget := 24 } tf3
+  let tf5a := OptFlatValue.copyFlat f.as tf4
+  let tf5b := OptFlatValue.foldFlat f.as tf5a
+  have h1 := OptFlatValue.foldFlat_wfCheck f.body _hwf
+  have h2 := OptFlatValue.canonFlat_wfCheck tf0a h1
+  have h3 := OptFlatValue.copyFlat_wfCheck tf0b h2
+  have h4 := OptFlatValue.gvnFlat_wfCheck tf0c h3
+  have h5 := OptFlatValue.copyFlat_wfCheck tf0d h4
+  have h6 := OptFlatValue.foldFlat_wfCheck tf0e h5
+  have h7 := OptFlatCfg.ifOptFlat_wfCheck false tf0 h6
+  have h8 := simplifyGroupFastFlat_wfCheck tf1 h7
+  have h9 := peelFastFlat_wfCheck tf2 24 h8
+  have h10 := wfCheck_zeroPeel24 tf3 h9
+  have h11 := OptFlatValue.copyFlat_wfCheck tf4 h10
+  have h12 := OptFlatValue.foldFlat_wfCheck tf5a h11
+  exact OptFlatCfg.dcePFlat_wfCheck tf5b h12
 
 /-- `(earlyOptFlat f).toFn = f.toFn.earlyOpt` whenever `f.wfCheck = true`. -/
 theorem earlyOptFlat_toFn (f : TFlatFn) (_hwf : f.wfCheck = true) :
     (earlyOptFlat f).toFn = f.toFn.earlyOpt := by
-  have h7 := ifOptFlat_wfCheck false f.as
-    (foldFlat f.as (copyFlat f.as (gvnFlat f.as
-      (copyFlat f.as (canonFlat f.as (foldFlat f.as f.body))))))
-  have h8 := simplifyGroupFastFlat_wfCheck _ h7
-  have h9 := peelFastFlat_wfCheck _ 24 h8
+  let tf0a := OptFlatValue.foldFlat f.as f.body
+  let tf0b := OptFlatValue.canonFlat f.as tf0a
+  let tf0c := OptFlatValue.copyFlat f.as tf0b
+  let tf0d := OptFlatValue.gvnFlat f.as tf0c
+  let tf0e := OptFlatValue.copyFlat f.as tf0d
+  let tf0 := OptFlatValue.foldFlat f.as tf0e
+  let tf1 := OptFlatCfg.ifOptFlat false f.as tf0
+  let tf2 := simplifyGroupFastFlat f.as tf1
+  let tf3 := peelFastFlat f.as tf2 24
+  let tf4 := TFlat.zeroPeelWith { peelBudget := 24 } tf3
+  let tf5a := OptFlatValue.copyFlat f.as tf4
+  let tf5b := OptFlatValue.foldFlat f.as tf5a
+  have h1 := OptFlatValue.foldFlat_wfCheck f.body _hwf
+  have h2 := OptFlatValue.canonFlat_wfCheck tf0a h1
+  have h3 := OptFlatValue.copyFlat_wfCheck tf0b h2
+  have h4 := OptFlatValue.gvnFlat_wfCheck tf0c h3
+  have h5 := OptFlatValue.copyFlat_wfCheck tf0d h4
+  have h6 := OptFlatValue.foldFlat_wfCheck tf0e h5
+  have h7 := OptFlatCfg.ifOptFlat_wfCheck false tf0 h6
+  have h8 := simplifyGroupFastFlat_wfCheck tf1 h7
+  have h9 := peelFastFlat_wfCheck tf2 24 h8
+  have h10 := wfCheck_zeroPeel24 tf3 h9
+  have h11 := OptFlatValue.copyFlat_wfCheck tf4 h10
+  have h12 := OptFlatValue.foldFlat_wfCheck tf5a h11
   dsimp only [TFlatFn.toFn, Fn.earlyOpt, earlyOptFlat]
   rw [Func.earlyOpt_eq, Func.earlyCore_eq]
   refine congrArg (Fn.mk f.name f.as f.rs) ?_
-  rw [denoteFunc_dcePFlat, denoteFunc_foldFlat, denoteFunc_copyFlat,
-    denoteFunc_zeroPeel24 _ h9, denoteFunc_peelFastFlat _ 24 h8,
-    denoteFunc_simplifyGroupFastFlat _ h7, denoteFunc_ifOptFlat_false,
-    denoteFunc_foldFlat, denoteFunc_copyFlat, denoteFunc_gvnFlat,
-    denoteFunc_copyFlat, denoteFunc_canonFlat, denoteFunc_foldFlat]
+  rw [OptFlatCfg.denoteFunc_dcePFlat tf5b h12, OptFlatValue.denoteFunc_foldFlat tf5a h11,
+    OptFlatValue.denoteFunc_copyFlat tf4 h10, denoteFunc_zeroPeel24 tf3 h9,
+    denoteFunc_peelFastFlat tf2 24 h8, denoteFunc_simplifyGroupFastFlat tf1 h7,
+    OptFlatCfg.denoteFunc_ifOptFlat_false tf0 h6, OptFlatValue.denoteFunc_foldFlat tf0e h5,
+    OptFlatValue.denoteFunc_copyFlat tf0d h4, OptFlatValue.denoteFunc_gvnFlat tf0c h3,
+    OptFlatValue.denoteFunc_copyFlat tf0b h2, OptFlatValue.denoteFunc_canonFlat tf0a h1,
+    OptFlatValue.denoteFunc_foldFlat f.body _hwf]
   exact (Func.renorm_eq_self (Func.dceP_wf (Func.fold_wf (Func.copy_wf
     (Func.zeroPeelWith_wf _ (Func.peelFast_wf _ 24)))))).symm
 
@@ -1056,46 +867,61 @@ theorem earlyOptFlat_toFn (f : TFlatFn) (_hwf : f.wfCheck = true) :
 theorem midStageFlat_wfCheck (lt : LegalTarget) (ef : TFlatFn) (_hwf : ef.wfCheck = true) :
     (midStageFlat lt ef).wfCheck = true := by
   dsimp only [midStageFlat, TFlatFn.wfCheck]
-  exact TFlat.wfCheck_mergeRets (reifyBridge_wfCheck (fun hg => Func.tailDup_wf hg) _)
+  exact TFlat.wfCheck_mergeRets (tailDupFlat_wfCheck _ _)
 
 /-- `(midStageFlat lt ef).toFn = Fn.midFromEarly lt ef.toFn` whenever `ef.wfCheck = true`. -/
 theorem midStageFlat_toFn (lt : LegalTarget) (ef : TFlatFn) (hwf : ef.wfCheck = true) :
     (midStageFlat lt ef).toFn = Fn.midFromEarly lt ef.toFn := by
   let as' := lt.legalSig ef.as
   let tf0 := legalFlat lt (as := ef.as) ef.body
-  let tf1a := foldFlat as' tf0
-  let tf1b := canonFlat as' tf1a
-  let tf1c := divConstFlat as' tf1b
-  let tf1 := copyFlat as' tf1c
-  let tf2a := memLoadFlat as' tf1
-  let tf2b := gvnFlat as' tf2a
-  let tf2c := assumeBitsFlat as' tf2b
-  let tf2 := foldFlat as' tf2c
-  let tf3a := ifOptFlat true as' tf2
+  let tf1a := OptFlatValue.foldFlat as' tf0
+  let tf1b := OptFlatValue.canonFlat as' tf1a
+  let tf1c := OptFlatMem.divConstFlat as' tf1b
+  let tf1 := OptFlatValue.copyFlat as' tf1c
+  let tf2a := OptFlatMem.memLoadFlat as' tf1
+  let tf2b := OptFlatValue.gvnFlat as' tf2a
+  let tf2c := OptFlatMem.assumeBitsFlat as' tf2b
+  let tf2 := OptFlatValue.foldFlat as' tf2c
+  let tf3a := OptFlatCfg.ifOptFlat true as' tf2
   let tf3b := simplifyGroupFastFlat as' tf3a
-  let tf3c := deadLoadElimFlat as' tf3b
+  let tf3c := OptFlatCfg.deadLoadElimFlat as' tf3b
   let tf3d := assumeElimFlat tf3c
-  let tf3e := foldFlat as' tf3d
+  let tf3e := OptFlatValue.foldFlat as' tf3d
   let tf3f := addrRangeOptFlat as' tf3e
-  let tf3 := gvnFlat as' tf3f
+  let tf3 := OptFlatValue.gvnFlat as' tf3f
   let tf4a := licmFlat as' tf3
-  let tf4b := dcePFlat as' tf4a
+  let tf4b := OptFlatCfg.dcePFlat as' tf4a
   let tf4 := loopRotateFlat as' tf4b
   let tf5a := condThreadLateOptFlat as' tf4
-  let tf5b := foldFlat as' tf5a
-  let tf5c := dcePFlat as' tf5b
+  let tf5b := OptFlatValue.foldFlat as' tf5a
+  let tf5c := OptFlatCfg.dcePFlat as' tf5b
   let tf5d := tailDupFlat as' tf5c
-  have h1b : tf1b.wfCheck (pushTypes as' []) [] = true :=
-    reifyBridge_wfCheck (fun hg => Func.canon_wf hg) tf1a
-  have h3a : tf3a.wfCheck (pushTypes as' []) [] = true := ifOptFlat_wfCheck true as' tf2
-  have h3c : tf3c.wfCheck (pushTypes as' []) [] = true :=
-    reifyBridge_wfCheck (fun hg => Func.deadLoadElim_wf hg) tf3b
-  have h3 : tf3.wfCheck (pushTypes as' []) [] = true :=
-    reifyBridge_wfCheck (fun hg => Func.gvn_wf hg) tf3f
-  have h4b : tf4b.wfCheck (pushTypes as' []) [] = true :=
-    reifyBridge_wfCheck (fun hg => Func.dceP_wf hg) tf4a
-  have h5d : tf5d.wfCheck (pushTypes as' []) [] = true :=
-    reifyBridge_wfCheck (fun hg => Func.tailDup_wf hg) tf5c
+  have h0 : tf0.wfCheck (pushTypes as' []) [] = true := by
+    dsimp only [tf0]
+    rw [legalFlat_eq lt ef.body hwf]
+    exact wfCheck_reifyBridge (Func.legal_wf lt (Func.wf_of_denote ef.body rfl))
+  have h1a := OptFlatValue.foldFlat_wfCheck tf0 h0
+  have h1b := OptFlatValue.canonFlat_wfCheck tf1a h1a
+  have h1c := OptFlatMem.divConstFlat_wfCheck tf1b h1b
+  have h1 := OptFlatValue.copyFlat_wfCheck tf1c h1c
+  have h2a := OptFlatMem.memLoadFlat_wfCheck tf1 h1
+  have h2b := OptFlatValue.gvnFlat_wfCheck tf2a h2a
+  have h2c := OptFlatMem.assumeBitsFlat_wfCheck tf2b h2b
+  have h2 := OptFlatValue.foldFlat_wfCheck tf2c h2c
+  have h3a := OptFlatCfg.ifOptFlat_wfCheck true tf2 h2
+  have h3b := simplifyGroupFastFlat_wfCheck tf3a h3a
+  have h3c := OptFlatCfg.deadLoadElimFlat_wfCheck tf3b h3b
+  have h3d := TFlat.wfCheck_assumeElim h3c
+  have h3e := OptFlatValue.foldFlat_wfCheck tf3d h3d
+  have h3f := addrRangeOptFlat_wfCheck as' tf3e
+  have h3 := OptFlatValue.gvnFlat_wfCheck tf3f h3f
+  have h4a := licmFlat_wfCheck tf3 h3
+  have h4b := OptFlatCfg.dcePFlat_wfCheck tf4a h4a
+  have h4 := loopRotateFlat_wfCheck tf4b LoopRotate.defaultRotConfig h4b
+  have h5a := condThreadLateOptFlat_wfCheck as' tf4
+  have h5b := OptFlatValue.foldFlat_wfCheck tf5a h5a
+  have h5c := OptFlatCfg.dcePFlat_wfCheck tf5b h5b
+  have h5d := tailDupFlat_wfCheck as' tf5c
   have d0 : denoteFunc (as := as') tf0 = Func.legal lt (denoteFunc (as := ef.as) ef.body) := by
     dsimp only [tf0]
     rw [legalFlat_eq lt ef.body hwf]
@@ -1116,15 +942,22 @@ theorem midStageFlat_toFn (lt : LegalTarget) (ef : TFlatFn) (hwf : ef.wfCheck = 
   rw [Func.lateCondThread_eq, Func.lateLoopRotate_eq, Func.lateCfgPost_eq, Func.lateCfgPre_eq,
     Func.lateCorePost_eq, Func.lateCorePre_eq]
   change denoteFunc (as := as') (mergeRetsFlat tf5d) = _
-  rw [denoteFunc_mergeRetsFlat tf5d h5d, denoteFunc_tailDupFlat, denoteFunc_dcePFlat,
-    denoteFunc_foldFlat, denoteFunc_condThreadLateOptFlat,
+  rw [denoteFunc_mergeRetsFlat tf5d h5d, denoteFunc_tailDupFlat,
+    OptFlatCfg.denoteFunc_dcePFlat tf5b h5b, OptFlatValue.denoteFunc_foldFlat tf5a h5a,
+    denoteFunc_condThreadLateOptFlat,
     denoteFunc_loopRotateFlat tf4b LoopRotate.defaultRotConfig h4b,
-    denoteFunc_dcePFlat, denoteFunc_licmFlat tf3 h3, denoteFunc_gvnFlat,
-    denoteFunc_addrRangeOptFlat, denoteFunc_foldFlat, denoteFunc_assumeElimFlat tf3c h3c,
-    denoteFunc_deadLoadElimFlat, denoteFunc_simplifyGroupFastFlat tf3a h3a,
-    denoteFunc_ifOptFlat_true, denoteFunc_foldFlat, denoteFunc_assumeBitsFlat,
-    denoteFunc_gvnFlat, denoteFunc_memLoadFlat, denoteFunc_copyFlat,
-    denoteFunc_divConstFlat tf1b h1b, denoteFunc_canonFlat, denoteFunc_foldFlat, d0]
+    OptFlatCfg.denoteFunc_dcePFlat tf4a h4a, denoteFunc_licmFlat tf3 h3,
+    OptFlatValue.denoteFunc_gvnFlat tf3f h3f, denoteFunc_addrRangeOptFlat,
+    OptFlatValue.denoteFunc_foldFlat tf3d h3d, denoteFunc_assumeElimFlat tf3c h3c,
+    OptFlatCfg.denoteFunc_deadLoadElimFlat tf3b h3b,
+    denoteFunc_simplifyGroupFastFlat tf3a h3a,
+    OptFlatCfg.denoteFunc_ifOptFlat_true tf2 h2, OptFlatValue.denoteFunc_foldFlat tf2c h2c,
+    OptFlatMem.denoteFunc_assumeBitsFlat tf2b h2b, OptFlatValue.denoteFunc_gvnFlat tf2a h2a,
+    OptFlatMem.denoteFunc_memLoadFlat tf1 h1, OptFlatValue.denoteFunc_copyFlat tf1c h1c,
+    OptFlatMem.denoteFunc_divConstFlat tf1b h1b, OptFlatValue.denoteFunc_canonFlat tf1a h1a,
+    OptFlatValue.denoteFunc_foldFlat tf0 h0, d0]
+
+end PipelineProofs
 
 section EndToEnd
 
