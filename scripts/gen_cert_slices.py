@@ -449,6 +449,10 @@ class ModulePreset:
     default_prune_ext: bool = False
     default_no_bounds_import: bool = False
     default_tree_groups: int = 0
+    default_chunk_size: int | None = None
+    default_max_slice_size: int | None = None
+    default_workers: int | None = None
+    default_flat: bool = False
 
 
 MODULE_PRESETS: dict[str, ModulePreset] = {
@@ -532,6 +536,51 @@ MODULE_PRESETS: dict[str, ModulePreset] = {
         default_prune_ext=True,
         default_no_bounds_import=True,
         default_tree_groups=8,
+    ),
+    "FullFidelityStep11": ModulePreset(
+        name="FullFidelityStep11",
+        prefix="KissatFidelityStep11",
+        stem="fidStep11",
+        source_mod="LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep11",
+        proof_mod="LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep11Proof",
+        fns="fidStep11Fns",
+        mod="fidStep11Module",
+        cert_name="fidStep11Cert",
+        acyclic="fidStep11Module_acyclic",
+        wf="fidStep11Module_wf",
+        env="fidStep11Env",
+        spec_table="fidStep11SpecTable",
+        spec_sigs="fidStep11SpecTable_sigs",
+        module_ok="fidStep11_moduleOk",
+        no_exit="fidStep11Env_noExit",
+        entry_const="FullM6Orch.m6oSolveBytesFn",
+        entry_spec="m7FidSolveBytesSpec",
+        default_total_fns=505,
+        inl_mod="LeanQbe.T.Examples.Kissat.FullFidelityStep11Inl",
+        inl_policy_mod="LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy",
+        inl_fns="fidStep11InlFns",
+        inl_mod_sym="fidStep11InlMod",
+        inl_policy="fidInlChunkPolicy",
+        sat_sound_mod="",
+        sat_nv_mod="LeanQbe.T.Examples.Kissat.FullM6SatNv",
+        hdr_model="m6",
+        default_max_dirs=M6_MAX_DIRS,
+        emit_sound=False,
+        source_ns="LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep11",
+        proof_ns="LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep11",
+        solve_spec_intro="FullM7Fidelity.m7FidSolveBytesSpec_intro",
+        solve_spec_has_sat=False,
+        solve_mem_thm="fidStep11_solveBytes_mem",
+        default_cert_style="slices",
+        default_abi_common=True,
+        fns_length_thm="fidStep11InlFns_length",
+        default_prune_ext=True,
+        default_no_bounds_import=True,
+        default_tree_groups=8,
+        default_chunk_size=1,
+        default_max_slice_size=500,
+        default_workers=2,
+        default_flat=True,
     ),
     "FullM8Opt": ModulePreset(
         name="FullM8Opt",
@@ -765,6 +814,10 @@ PRESET_ALIASES: dict[str, str] = {
     "fidelitystep7": "FullFidelityStep7",
     "fidstep7": "FullFidelityStep7",
     "step7": "FullFidelityStep7",
+    "kissatfidelitystep11": "FullFidelityStep11",
+    "fidelitystep11": "FullFidelityStep11",
+    "fidstep11": "FullFidelityStep11",
+    "step11": "FullFidelityStep11",
     "kissatm8opt": "FullM8Opt",
     "m8opt": "FullM8Opt",
     "opt": "FullM8Opt",
@@ -937,6 +990,7 @@ class CertConfig:
     ) = None
     tree_groups: int = 0
     max_slice_weight: float | None = None
+    flat: bool = False
 
     @property
     def is_inlined(self) -> bool:
@@ -2137,18 +2191,19 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
     """Render `<Prefix>Bounds.lean` using `eval_prefix_ext!`."""
     ns = f"{arch.ns_prefix}.{cfg.prefix}Bounds"
     mb_opt = fmt_max_bound_opt(cfg.max_bound)
+    flat_opt = " (flat := true)" if cfg.flat else ""
     cert_fns = cfg.cert_fns
     cert_src = cfg.cert_source_mod
     eval_call = (
         f"eval_prefix_ext! {cfg.stem}AllExt {arch.targ} {arch.lt} "
         f"{cert_fns}{mb_opt}\n"
-        f"  (prefixDef := {cfg.stem}ExtPrefix)"
+        f"  (prefixDef := {cfg.stem}ExtPrefix){flat_opt}"
     )
-    if len(eval_call.splitlines()[0]) > MAX_LINE_LEN:
+    if any(len(ln) > MAX_LINE_LEN for ln in eval_call.splitlines()):
         eval_call = (
             f"eval_prefix_ext! {cfg.stem}AllExt\n"
             f"  {arch.targ} {arch.lt} {cert_fns}{mb_opt}\n"
-            f"  (prefixDef := {cfg.stem}ExtPrefix)"
+            f"  (prefixDef := {cfg.stem}ExtPrefix){flat_opt}"
         )
 
     hub_note = f" (hub `{cfg.hub_mod}`)" if cfg.hub_mod else ""
@@ -2156,10 +2211,12 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
         "module",
         "",
         "public import LeanQbe.T.Main",
+        *(["public import LeanQbe.T.MainCertFlat"] if cfg.flat else []),
         f"public import {arch.targ_mod}",
         f"public import {cert_src}",
         "meta import Lean",
         "meta import LeanQbe.T.MainCertElab",
+        *(["meta import LeanQbe.T.MainCertFlatElab"] if cfg.flat else []),
         f"meta import {arch.targ_mod}",
         *([] if is_materialized_inl_mod(cert_src) else [f"meta import {cert_src}"]),
         "",
@@ -2327,6 +2384,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
 
     pub_imports = [
         "public import LeanQbe.T.MainCertCore",
+        *(["public import LeanQbe.T.MainCertFlat"] if cfg.flat else []),
         f"public import {arch.lemmas_mod}",
     ]
     if uses_bounds_mod:
@@ -2336,6 +2394,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
     meta_imports = [
         "meta import Lean",
         "meta import LeanQbe.T.MainCertElab",
+        *(["meta import LeanQbe.T.MainCertFlatElab"] if cfg.flat else []),
         f"meta import {arch.targ_mod}",
     ]
     if uses_bounds_mod:
@@ -2388,6 +2447,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
                 f"({cert_fns}.take {sl.start})",
                 *([mb_opt.strip()] if mb_opt else []),
                 f"(pruneFor := slice{sl.index}Mod.fns)",
+                *(["(flat := true)"] if cfg.flat else []),
             ]
             ext_def_lines = [
                 (
@@ -2399,6 +2459,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
             ]
 
     prune_opt = " (pruneExt := true)" if cfg.prune_ext else ""
+    flat_opt = " (flat := true)" if cfg.flat else ""
     cmd_head = (
         f"compile_linked_chunks! cert{sl.index} {arch.targ} {arch.layout} "
         f"{arch.lt} {arch.cl}"
@@ -2409,6 +2470,7 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
         f"(maxDirs := {cfg.max_dirs})",
         *([mb_opt.strip()] if mb_opt else []),
         *([prune_opt.strip()] if prune_opt else []),
+        *([flat_opt.strip()] if flat_opt else []),
     ]
     one_tail = "  " + " ".join(tail_opts)
     if len(one_tail) <= MAX_LINE_LEN:
@@ -4490,8 +4552,8 @@ def render_m6_unsat_section(
         )
         nv_body_lines = [
             f"theorem {nv_thm} [hh : Host] (k₀ : Nat)",
-            f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀) "
-            "(hu : Host.LabelsUnique) :",
+            f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
+            "    (hu : Host.LabelsUnique) :",
             *nv_ret[:-1],
             f"{nv_ret[-1]} := by",
             "  obtain ⟨cp, wp, fu, cb, wl, s, ra, R, hcf, hwf,",
@@ -4517,8 +4579,8 @@ def render_m6_unsat_section(
     else:
         nv_body_lines = [
             f"theorem {nv_thm} [hh : Host] (k₀ : Nat)",
-            f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀) "
-            "(hu : Host.LabelsUnique) :",
+            f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
+            "    (hu : Host.LabelsUnique) :",
             *nv_ret[:-1],
             f"{nv_ret[-1]} := by",
             f"  have hfn : {arch.targ}.FnSpec hh \"{cfg.entry_fn}\"",
@@ -4631,8 +4693,8 @@ def render_m6_unsat_section(
         lines.extend(
             [
                 "theorem ax_unsat_nv [hh : Host] (k₀ : Nat)",
-                f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀) "
-                "(hu : Host.LabelsUnique) :",
+                f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
+                "    (hu : Host.LabelsUnique) :",
                 *nv_ret[:-1],
                 f"{nv_ret[-1]} :=",
                 f"  {nv_thm} k₀ hc hu",
@@ -4841,8 +4903,8 @@ def render_sound_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
         alias_defs.extend(
             [
                 "theorem ax_sat_nv [hh : Host] (k₀ : Nat)",
-                f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀) "
-                "(hu : Host.LabelsUnique) :",
+                f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
+                "    (hu : Host.LabelsUnique) :",
                 *sat_nv_stmt[:-1],
                 f"{sat_nv_stmt[-1]} :=",
                 f"  {sat_nv_thm} k₀ hc hu",
@@ -5062,8 +5124,8 @@ def render_sound_wrapper(cfg: CertConfig, arch: ArchSpec) -> str:
             f"`{M6_NV_WORK_LEN}`-byte workspace, `fuel = 16`). -/"
         ),
         f"theorem {sat_nv_thm} [hh : Host] (k₀ : Nat)",
-        f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀) "
-        "(hu : Host.LabelsUnique) :",
+        f"    (hc : {compiled_name}.code.IsInfixAt Host.prog k₀)",
+        "    (hu : Host.LabelsUnique) :",
         *sat_nv_stmt[:-1],
         f"{sat_nv_stmt[-1]} := by",
         f"  have hfn := ({sound_fnspec} k₀ hc hu solve_in_{cfg.mod}).2",
@@ -5545,8 +5607,37 @@ def build_config(args: argparse.Namespace) -> CertConfig:
     else:
         fn_metrics = resolve_static_metrics(root, source_mod, fns, total_fns, stem)
 
+    flat: bool = (
+        args.flat
+        if args.flat is not None
+        else (preset.default_flat if preset else False)
+    )
+    chunk_size: int = (
+        args.chunk_size
+        if args.chunk_size is not None
+        else (
+            preset.default_chunk_size
+            if preset and preset.default_chunk_size is not None
+            else (1 if flat else 4)
+        )
+    )
+    workers: int = (
+        args.workers
+        if args.workers is not None
+        else (
+            preset.default_workers
+            if preset and preset.default_workers is not None
+            else (2 if flat else DEFAULT_WORKERS)
+        )
+    )
+    max_slice_size: int | None = (
+        args.max_slice_size
+        if args.max_slice_size is not None
+        else (preset.default_max_slice_size if preset else None)
+    )
+
     uniform_slices = compute_slices(total_fns, args.slice_size, None)
-    before_stats = compute_slice_stats(fn_metrics, uniform_slices, workers=args.workers)
+    before_stats = compute_slice_stats(fn_metrics, uniform_slices, workers=workers)
 
     reuse_prefix: str | None = None
     reuse_inl_mod: str | None = None
@@ -5640,11 +5731,11 @@ def build_config(args: argparse.Namespace) -> CertConfig:
             fn_metrics,
             rspec["reused_slices"],
             slice_size=args.slice_size,
-            workers=args.workers,
+            workers=workers,
             balance=args.balance,
             singleton_size=args.singleton_size,
             singleton_work=args.singleton_work,
-            max_slice_size=args.max_slice_size,
+            max_slice_size=max_slice_size,
             heavy_thresh=args.heavy_thresh,
             fresh_sizes=fresh_sizes,
             max_slice_weight=args.max_slice_weight,
@@ -5655,7 +5746,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
     elif explicit_sizes is not None:
         slices = compute_slices(total_fns, args.slice_size, explicit_sizes)
     elif (
-        args.max_slice_size is not None
+        max_slice_size is not None
         or args.singleton_size is not None
         or args.max_slice_weight is not None
     ):
@@ -5670,7 +5761,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         else:
             sing_sz = args.singleton_size if args.singleton_size is not None else 350
             sing_wk = args.singleton_work if args.singleton_work is not None else sing_sz * 6
-            max_sz = args.max_slice_size if args.max_slice_size is not None else 500
+            max_sz = max_slice_size if max_slice_size is not None else 500
         raw_slices = singleton_isolated_slices(
             fn_metrics,
             singleton_size=sing_sz,
@@ -5692,7 +5783,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         slices = autobalance_slices(
             fn_metrics,
             slice_size=args.slice_size,
-            workers=args.workers,
+            workers=workers,
             target_slices=args.target_slices,
             heavy_thresh=args.heavy_thresh,
             pin_cuts=pin_cuts,
@@ -5707,7 +5798,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         else:
             slices = uniform_slices
 
-    after_stats = compute_slice_stats(fn_metrics, slices, workers=args.workers)
+    after_stats = compute_slice_stats(fn_metrics, slices, workers=workers)
 
     entry_idx = args.entry_idx if args.entry_idx is not None else total_fns - 1
     if not 0 <= entry_idx < total_fns:
@@ -5783,7 +5874,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         entry_idx=entry_idx,
         total_fns=total_fns,
         slices=slices,
-        chunk_size=args.chunk_size,
+        chunk_size=chunk_size,
         max_dirs=max_dirs,
         max_bound=args.max_bound,
         wrapper_mode=args.wrapper_mode,
@@ -5832,6 +5923,7 @@ def build_config(args: argparse.Namespace) -> CertConfig:
         bounds_literals=bounds_literals,
         tree_groups=tree_groups,
         max_slice_weight=args.max_slice_weight,
+        flat=flat,
     )
 
 
@@ -6085,8 +6177,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--workers",
         type=int,
-        default=DEFAULT_WORKERS,
-        help=f"Parallel worker count for LPT bin packing (default: {DEFAULT_WORKERS}).",
+        default=None,
+        help=(
+            f"Parallel worker count for LPT bin packing "
+            f"(default: 2 for --flat/FullFidelityStep11, else {DEFAULT_WORKERS})."
+        ),
     )
     ap.add_argument(
         "--target-slices",
@@ -6111,7 +6206,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_false",
         help="Omit `#print axioms` commands from generated files.",
     )
-    ap.add_argument("--chunk-size", type=int, default=4, help="Chunk size (default: 4).")
+    ap.add_argument(
+        "--chunk-size",
+        type=int,
+        default=None,
+        help="Chunk size (default: 1 for --flat/FullFidelityStep11, else 4).",
+    )
+    ap.add_argument(
+        "--flat",
+        dest="flat",
+        action="store_true",
+        default=None,
+        help=(
+            "Emit first-order `MainCertFlat`/`MainCertFlatElab` imports and "
+            "`(flat := true)` on cert slices and bounds (default: on for FullFidelityStep11)."
+        ),
+    )
+    ap.add_argument(
+        "--no-flat",
+        dest="flat",
+        action="store_false",
+        help="Disable `(flat := true)` flat kernel path even if preset enables it.",
+    )
     ap.add_argument(
         "--max-dirs",
         type=int,

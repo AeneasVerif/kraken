@@ -1226,6 +1226,91 @@ class GenCertSlicesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             gcs.build_config(bad_tree_args)
 
+    def test_n5_shard4_flat_flag_and_full_fidelity_step11_preset(self) -> None:
+        # 1. FullFidelityStep11 preset defaults: flat=True, chunk_size=1, workers=2,
+        #    max_dirs=600, tree_groups=8, prune_ext=True, materialized FullFidelityStep11Inl.
+        s11_args = gcs.parse_args(
+            ["--module", "FullFidelityStep11", "--root", str(REPO_ROOT), "--dry-run"]
+        )
+        s11_cfg = gcs.build_config(s11_args)
+        self.assertEqual(s11_cfg.prefix, "KissatFidelityStep11")
+        self.assertEqual(s11_cfg.stem, "fidStep11")
+        self.assertEqual(s11_cfg.total_fns, 505)
+        self.assertEqual(s11_cfg.inl_mod, "LeanQbe.T.Examples.Kissat.FullFidelityStep11Inl")
+        self.assertTrue(gcs.is_materialized_inl_mod(s11_cfg.cert_source_mod))
+        self.assertTrue(s11_cfg.flat)
+        self.assertEqual(s11_cfg.chunk_size, 1)
+        self.assertEqual(s11_cfg.max_dirs, 600)
+        self.assertEqual(s11_cfg.tree_groups, 8)
+        self.assertEqual(s11_cfg.cert_style, "slices")
+        self.assertTrue(s11_cfg.prune_ext)
+        self.assertTrue(s11_cfg.no_bounds_import)
+        self.assertEqual(s11_cfg.after_stats.lpt.workers, 2)
+
+        s11_files = dict(gcs.build_plan(s11_cfg, ["amd64", "arm64"]))
+        self._assert_hygiene(list(s11_files.items()))
+        for arch_dir in ("Amd64", "Arm64"):
+            s1 = s11_files[f"LeanQbe/T/{arch_dir}/KissatFidelityStep11Cert1.lean"]
+            s2 = s11_files[f"LeanQbe/T/{arch_dir}/KissatFidelityStep11Cert2.lean"]
+            for sl_src in (s1, s2):
+                self.assertIn("public import LeanQbe.T.MainCertFlat", sl_src)
+                self.assertIn("meta import LeanQbe.T.MainCertFlatElab", sl_src)
+                self.assertNotIn("meta import LeanQbe.T.Examples.Kissat.FullFidelityStep11Inl", sl_src)
+                self.assertIn("noncomputable abbrev slice", sl_src)
+                self.assertIn("(flat := true)", sl_src)
+                self.assertIn("(pruneExt := true)", sl_src)
+            self.assertIn("slice1Mod 1", s1)
+            self.assertIn("eval_prefix_ext! slice2Ext", s2)
+            self.assertEqual(s2.count("(flat := true)"), 2)
+
+        # 2. Explicit --bounds-import with --flat emits flat imports + `(flat := true)` in Bounds.
+        b_args = gcs.parse_args(
+            [
+                "--module",
+                "FullFidelityStep11",
+                "--bounds-import",
+                "--root",
+                str(REPO_ROOT),
+                "--dry-run",
+            ]
+        )
+        b_cfg = gcs.build_config(b_args)
+        b_files = dict(gcs.build_plan(b_cfg, ["amd64", "arm64"]))
+        self._assert_hygiene(list(b_files.items()))
+        for arch_dir in ("Amd64", "Arm64"):
+            bnd = b_files[f"LeanQbe/T/{arch_dir}/KissatFidelityStep11Bounds.lean"]
+            self.assertIn("public import LeanQbe.T.MainCertFlat", bnd)
+            self.assertIn("meta import LeanQbe.T.MainCertFlatElab", bnd)
+            self.assertNotIn("meta import LeanQbe.T.Examples.Kissat.FullFidelityStep11Inl", bnd)
+            self.assertIn("(flat := true)", bnd)
+
+        # 3. --no-flat disables flat imports/options on FullFidelityStep11; --flat enables on M6.
+        nf_cfg = gcs.build_config(
+            gcs.parse_args(
+                ["--module", "FullFidelityStep11", "--no-flat", "--root", str(REPO_ROOT), "--dry-run"]
+            )
+        )
+        self.assertFalse(nf_cfg.flat)
+        nf_files = dict(gcs.build_plan(nf_cfg, ["amd64"]))
+        self._assert_hygiene(list(nf_files.items()))
+        nf_s1 = nf_files["LeanQbe/T/Amd64/KissatFidelityStep11Cert1.lean"]
+        self.assertNotIn("MainCertFlat", nf_s1)
+        self.assertNotIn("(flat := true)", nf_s1)
+
+        m6_flat_cfg = gcs.build_config(
+            gcs.parse_args(
+                ["--module", "FullM6", "--flat", "--root", str(REPO_ROOT), "--dry-run"]
+            )
+        )
+        self.assertTrue(m6_flat_cfg.flat)
+        self.assertEqual(m6_flat_cfg.chunk_size, 1)
+        self.assertEqual(m6_flat_cfg.after_stats.lpt.workers, 2)
+        m6_files = dict(gcs.build_plan(m6_flat_cfg, ["amd64"]))
+        self._assert_hygiene(list(m6_files.items()))
+        self.assertIn("public import LeanQbe.T.MainCertFlat", m6_files["LeanQbe/T/Amd64/KissatM6Bounds.lean"])
+        self.assertIn("meta import LeanQbe.T.MainCertFlatElab", m6_files["LeanQbe/T/Amd64/KissatM6Cert1.lean"])
+        self.assertIn("(flat := true)", m6_files["LeanQbe/T/Amd64/KissatM6Cert1.lean"])
+
 
 if __name__ == "__main__":
     unittest.main()
