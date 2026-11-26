@@ -21,6 +21,7 @@ public import LeanQbe.T.Amd64.IselVecLemmas1
 public import LeanQbe.T.Amd64.IselVecLemmas2
 public import LeanQbe.T.Amd64.IselVecLemmas3
 public import LeanQbe.T.Amd64.KissatAbi
+public import LeanQbe.T.Amd64.KissatFidelityParam
 public import LeanQbe.T.Amd64.KissatM7Fidelity
 public import LeanQbe.T.Amd64.KissatM7FidelityBounds
 public import LeanQbe.T.Amd64.KissatM7FidelityCert

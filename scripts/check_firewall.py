@@ -9,6 +9,10 @@ lemmas (`*Lemmas*` or `*.Targ`) via `public import`s (Neon Pillar 5 Risk #2):
   - L3 (`TargLemmas`): LeanQbe/T/{Amd64,Arm64}/TargLemmas.lean
   - L4 (`Main`/`Isa` boundary): Main.lean, MainArm64.lean,
         LeanQbe/T/{Amd64,Arm64}/Isa.lean
+  - L5 (`Param`/`CompileGuard` boundary):
+        LeanQbe/T/{Amd64,Arm64}/*Param.lean,
+        LeanQbe/T/CompileGuard.lean,
+        LeanQbeTest/T/*CompileGuard*.lean
 
 Explicitly allowlisted type-only interfaces (e.g. `LeanQbe.T.MainLemmas` in
 `{Amd64,Arm64}/TargLemmas.lean`) are permitted.
@@ -35,6 +39,27 @@ from lean_imports import (
 )
 
 TARG_MOD_RE = re.compile(r"^LeanQbe\.T\.(?:Amd64|Arm64)\.Targ(?:Lemmas)?$")
+TARG_SUFFIX_RE = re.compile(r"\.Targ(?:Lemmas)?$")
+PARAM_FILE_RE = re.compile(r"^LeanQbe/T/(Amd64|Arm64)/[^/]+Param\.lean$")
+GUARD_LEAF_RE = re.compile(r"^LeanQbeTest/T/[^/]*CompileGuard[^/]*\.lean$")
+CERT_MOD_RE = re.compile(r"^LeanQbe\.T\.(?:Amd64|Arm64)\..*Cert.*$")
+INL_MOD_RE = re.compile(r"^LeanQbe\.T\.Examples\.Kissat\.Full.*Inl(?:Base|[0-9]+)?$")
+GUARD_TARG_PROOF_RE = re.compile(
+    r"^LeanQbe\.T\.(?:Amd64|Arm64)\.(?:Targ.*|ScalarTarg|.*Lemmas.*|Kissat.*)$"
+)
+CERT_ELAB_MODS = frozenset(
+    {
+        "LeanQbe.T.MainCertElab",
+        "LeanQbe.T.MainCertInline",
+        "LeanQbe.T.MainCertInlineChunk",
+        "LeanQbe.T.MainCertScc",
+        "LeanQbe.T.MainCertSlices",
+        "LeanQbe.T.MainLinkSplice",
+    }
+)
+ARCH_PREFIXES = ("LeanQbe.T.Amd64.", "LeanQbe.T.Arm64.", "Kraken.X64", "Kraken.AArch64")
+ARM64_PREFIXES = ("LeanQbe.T.Arm64.", "Kraken.AArch64")
+AMD64_PREFIXES = ("LeanQbe.T.Amd64.", "Kraken.X64")
 
 
 @dataclass
@@ -51,7 +76,7 @@ class Violation:
 
 @dataclass
 class LeakGroupReport:
-    """Summary of one firewall leak category (L1-L4)."""
+    """Summary of one firewall leak category (L1-L5)."""
 
     leak_id: str
     label: str
@@ -204,8 +229,287 @@ def check_boundary_files(
     return missing, violations
 
 
+def _load_imports(
+    path: Path, cache: dict[Path, list[ImportStmt]]
+) -> list[ImportStmt]:
+    """Read and cache parsed Lean imports for `path`."""
+    if path not in cache:
+        _, imps = parse_imports(path)
+        cache[path] = imps
+    return cache[path]
+
+
+def _walk_all_imports(
+    root: Path,
+    start_imports: list[ImportStmt],
+    cache: dict[Path, list[ImportStmt]],
+    stop_bridge: bool = False,
+    stop_cert_bridge: bool = False,
+) -> dict[str, tuple[list[str], int]]:
+    """Return shortest import chains across all import edges (`public`, private, `meta`).
+
+    When `stop_bridge` is True, traversal does not expand through allowlisted
+    metaprogramming bridge modules (`PatchModule`, `Kraken.*`, `*Lemmas*`, or
+    transitional `KissatCertCommon`). When `stop_cert_bridge` is True, traversal
+    does not expand past transitional `KissatCertCommon` (to be tightened after
+    `KissatCertCommon` switches `MainCertInline` -> `MainCertInlineProof`).
+    """
+    queue: list[tuple[str, list[str], int]] = [
+        (imp.module, [imp.module], imp.line) for imp in start_imports
+    ]
+    reached: dict[str, tuple[list[str], int]] = {}
+    while queue:
+        mod, chain, first_line = queue.pop(0)
+        if mod in reached:
+            continue
+        reached[mod] = (chain, first_line)
+        if stop_cert_bridge and mod == "LeanQbe.T.Examples.Kissat.KissatCertCommon":
+            continue
+        if stop_bridge and (
+            mod
+            in {
+                "LeanQbe.T.Examples.Kissat.PatchModule",
+                "LeanQbe.T.Examples.Kissat.KissatCertCommon",
+                "Kraken.Attribute",
+                "Kraken.Bedrock2.Notation",
+            }
+            or "Lemmas" in mod
+        ):
+            continue
+        path = module_to_path(root, mod)
+        if path is None or not path.is_file():
+            continue
+        for nxt in _load_imports(path, cache):
+            if nxt.module not in reached:
+                queue.append((nxt.module, [*chain, nxt.module], first_line))
+    return reached
+
+
+def _l5_arch_prefixes(rel: str) -> tuple[str, ...]:
+    """Return cross-arch module prefixes forbidden for a param or guard file."""
+    if "/Amd64/" in rel or rel.endswith("X64.lean"):
+        return ARM64_PREFIXES
+    if "/Arm64/" in rel or rel.endswith("Arm64.lean"):
+        return AMD64_PREFIXES
+    return ()
+
+
+def _is_cert_elab_mod(mod: str) -> bool:
+    """Return True if `mod` is an elaboration/chunk/splice cert module."""
+    return mod in CERT_ELAB_MODS or mod.startswith("LeanQbe.T.MainCertSlices")
+
+
+def _discover_l5_files(root: Path) -> tuple[list[str], list[str], list[str]]:
+    """Collect existing L5 parametric, pure guard, and guard-leaf files under `root`."""
+    param_files: list[str] = []
+    for arch in ("Amd64", "Arm64"):
+        d = root / "LeanQbe" / "T" / arch
+        if d.is_dir():
+            for p in sorted(d.glob("*Param.lean")):
+                rel = p.relative_to(root).as_posix()
+                if PARAM_FILE_RE.match(rel):
+                    param_files.append(rel)
+
+    guard_core = ["LeanQbe/T/CompileGuard.lean"] if (root / "LeanQbe/T/CompileGuard.lean").is_file() else []
+
+    guard_leaves: list[str] = []
+    test_dir = root / "LeanQbeTest" / "T"
+    if test_dir.is_dir():
+        for p in sorted(test_dir.glob("*CompileGuard*.lean")):
+            rel = p.relative_to(root).as_posix()
+            if GUARD_LEAF_RE.match(rel):
+                guard_leaves.append(rel)
+    return param_files, guard_core, guard_leaves
+
+
+def _flag_chain_violations(
+    rel: str,
+    reached: dict[str, tuple[list[str], int]],
+    predicate,
+    kind: str,
+    reason: str,
+) -> list[Violation]:
+    """Build deterministic violations for every reached module matching `predicate`."""
+    out: list[Violation] = []
+    for mod in sorted(reached):
+        if not predicate(mod):
+            continue
+        chain, line = reached[mod]
+        out.append(
+            Violation(
+                leak_id="L5",
+                file=rel,
+                line=line,
+                module=mod,
+                kind=kind,
+                detail=f"{reason}: {' -> '.join(chain)}",
+            )
+        )
+    return out
+
+
+def check_l5_param_and_guards(
+    root: Path, cache: dict[Path, list[ImportStmt]]
+) -> tuple[list[str], list[Violation]]:
+    """Verify Tier-1 `*Param.lean`, `CompileGuard.lean`, and Tier-2 `*CompileGuard*.lean`."""
+    param_files, guard_core, guard_leaves = _discover_l5_files(root)
+    violations: list[Violation] = []
+
+    for rel in param_files:
+        imps = _load_imports(root / rel, cache)
+        reached = _walk_all_imports(root, imps, cache)
+        cert_unbridged = _walk_all_imports(root, imps, cache, stop_cert_bridge=True)
+        unbridged = _walk_all_imports(root, imps, cache, stop_bridge=True)
+        bad_arch = _l5_arch_prefixes(rel)
+
+        violations.extend(
+            _flag_chain_violations(
+                rel,
+                cert_unbridged,
+                lambda m: bool(CERT_MOD_RE.match(m)) or _is_cert_elab_mod(m),
+                "param-cert-leak",
+                "Tier-1 *Param module pulls cert/elab module",
+            )
+        )
+        violations.extend(
+            _flag_chain_violations(
+                rel,
+                reached,
+                lambda m: bool(CERT_MOD_RE.match(m))
+                or m.startswith("LeanQbe.T.MainCertSlices")
+                or m in {"LeanQbe.T.MainCertInlineChunk", "LeanQbe.T.MainCertScc"},
+                "param-cert-leak",
+                "Tier-1 *Param module pulls cert/chunk/slice module",
+            )
+        )
+        violations.extend(
+            _flag_chain_violations(
+                rel,
+                reached,
+                lambda m: bool(INL_MOD_RE.match(m)),
+                "param-inl-leak",
+                "Tier-1 *Param module pulls materialized *Inl* AST module",
+            )
+        )
+        if bad_arch:
+            violations.extend(
+                _flag_chain_violations(
+                    rel,
+                    reached,
+                    lambda m, p=bad_arch: m.startswith(p),
+                    "param-cross-arch",
+                    "Tier-1 *Param module pulls opposite-arch module",
+                )
+            )
+        violations.extend(
+            _flag_chain_violations(
+                rel,
+                unbridged,
+                lambda m: m == "Lean",
+                "param-lean-meta",
+                "Tier-1 *Param module pulls un-allowlisted `Lean` meta module",
+            )
+        )
+
+    for rel in guard_core:
+        imps = _load_imports(root / rel, cache)
+        reached = _walk_all_imports(root, imps, cache)
+        forbidden = (
+            lambda m: "Lemmas" in m
+            or "Proof" in m
+            or "Cert" in m
+            or m == "LeanQbe.T.MainInline"
+            or m.startswith("LeanQbe.T.MainCert")
+            or bool(TARG_SUFFIX_RE.search(m))
+            or m == "Lean"
+            or m.startswith(ARCH_PREFIXES)
+        )
+        violations.extend(
+            _flag_chain_violations(
+                rel,
+                reached,
+                forbidden,
+                "compile-guard-core-leak",
+                "pure `CompileGuard` module pulls forbidden proof/target/meta module",
+            )
+        )
+
+    for rel in guard_leaves:
+        imps = _load_imports(root / rel, cache)
+        bad_arch = _l5_arch_prefixes(rel)
+        for imp in imps:
+            if imp.is_public:
+                violations.append(
+                    Violation(
+                        leak_id="L5",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="guard-public-import",
+                        detail=f"Tier-2 guard leaf must use `meta import` (not `public import {imp.module}`)",
+                    )
+                )
+            if (
+                "Lemmas" in imp.module
+                or "Proof" in imp.module
+                or "Cert" in imp.module
+                or bool(TARG_SUFFIX_RE.search(imp.module))
+                or imp.module == "LeanQbe.T.MainInline"
+                or imp.module.startswith("LeanQbe.T.MainCert")
+                or imp.module == "Lean"
+            ):
+                violations.append(
+                    Violation(
+                        leak_id="L5",
+                        file=rel,
+                        line=imp.line,
+                        module=imp.module,
+                        kind="guard-direct-forbidden",
+                        detail=f"Tier-2 guard leaf directly imports forbidden module `{imp.module}`",
+                    )
+                )
+
+        reached = _walk_all_imports(root, imps, cache)
+        unbridged = _walk_all_imports(root, imps, cache, stop_bridge=True)
+        violations.extend(
+            _flag_chain_violations(
+                rel,
+                reached,
+                lambda m: (
+                    "Cert" in m
+                    or _is_cert_elab_mod(m)
+                    or bool(INL_MOD_RE.match(m))
+                    or bool(GUARD_TARG_PROOF_RE.match(m))
+                ),
+                "guard-transitive-leak",
+                "Tier-2 guard leaf transitively pulls forbidden cert/inl/target-proof module",
+            )
+        )
+        if bad_arch:
+            violations.extend(
+                _flag_chain_violations(
+                    rel,
+                    reached,
+                    lambda m, p=bad_arch: m.startswith(p),
+                    "guard-cross-arch",
+                    "Tier-2 guard leaf pulls opposite-arch module",
+                )
+            )
+        violations.extend(
+            _flag_chain_violations(
+                rel,
+                unbridged,
+                lambda m: m == "Lean",
+                "guard-lean-meta",
+                "Tier-2 guard leaf pulls un-allowlisted `Lean` meta module",
+            )
+        )
+
+    return [*param_files, *guard_core, *guard_leaves], violations
+
+
 def run_audit(root: Path, require_isa: bool = False) -> list[LeakGroupReport]:
-    """Run all firewall checks (L1-L4) against `root`."""
+    """Run all firewall checks (L1-L5) against `root`."""
     cache: dict[Path, list[ImportStmt]] = {}
 
     l1_files = ["LeanQbe/T/MainLemmas.lean"]
@@ -248,6 +552,8 @@ def run_audit(root: Path, require_isa: bool = False) -> list[LeakGroupReport]:
                 )
             )
 
+    l5_files, l5_viols = check_l5_param_and_guards(root, cache)
+
     return [
         LeakGroupReport(
             leak_id="L1",
@@ -276,6 +582,13 @@ def run_audit(root: Path, require_isa: bool = False) -> list[LeakGroupReport]:
             files=l4_files,
             missing_files=l4_missing,
             violations=l4_viols,
+        ),
+        LeakGroupReport(
+            leak_id="L5",
+            label="Parametric / CompileGuard firewall",
+            files=l5_files,
+            missing_files=[],
+            violations=l5_viols,
         ),
     ]
 

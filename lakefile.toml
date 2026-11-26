@@ -213,6 +213,15 @@ globs = [
   "LeanQbeTest.T.ZeroPeelTest",
 ]
 
+# Dual-arch fail-closed Kissat preflight compile guards (`#eval IO` leaves).
+[[lean_lib]]
+name = "LeanQbeCompileGuards"
+roots = []
+globs = [
+  "LeanQbeTest.T.KissatFidelityCompileGuardX64",
+  "LeanQbeTest.T.KissatFidelityCompileGuardArm64",
+]
+
 # Generic: must never import Kraken.X64 or Kraken.AArch64 (directly or transitively).
 [[lean_lib]]
 name = "LeanQbe"

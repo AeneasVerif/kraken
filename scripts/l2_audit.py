@@ -64,6 +64,10 @@ CANARY_FRONTIER: tuple[str, ...] = (
     "LeanQbe.T.MainLinkReuseLegalCalls",
     "LeanQbe.T.Amd64.Targ",
     "LeanQbe.T.Arm64.Targ",
+    "LeanQbe.T.Amd64.KissatFidelityParam",
+    "LeanQbe.T.Arm64.KissatFidelityParam",
+    "LeanQbeTest.T.KissatFidelityCompileGuardX64",
+    "LeanQbeTest.T.KissatFidelityCompileGuardArm64",
     "LeanQbe.T.Examples.Kissat.FullFidelityBcpProof1",
     "LeanQbe.T.Examples.Kissat.FullFidelityBvaProof1a",
 )
