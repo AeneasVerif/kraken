@@ -579,6 +579,10 @@ def check_fns(fns, spec, root, imp_mod, open_ns, sym):
 
 BASE_TARGET_SPECS = {
     "plain": ("Plain", "Plain", "plainFns"),
+    "fidelity-step9": ("FullFidelityAssemblyStep9", "FullFidelityAssemblyStep9", "fidStep9Fns"),
+    "step9": ("FullFidelityAssemblyStep9", "FullFidelityAssemblyStep9", "fidStep9Fns"),
+    "fidelity-step8": ("FullFidelityAssemblyStep8", "FullFidelityAssemblyStep8", "fidStep8Fns"),
+    "step8": ("FullFidelityAssemblyStep8", "FullFidelityAssemblyStep8", "fidStep8Fns"),
     "fidelity-step7": ("FullFidelityAssemblyStep7", "FullFidelityAssemblyStep7", "fidStep7Fns"),
     "fidelity-step6": ("FullFidelityAssembly", "FullFidelityAssembly", "fidFns"),
     "fidelity-c0": ("FullFidelityC0Assembly", "FullFidelityC0Assembly", "fidC0Fns"),
@@ -599,7 +603,8 @@ BASE_TARGET_SPECS = {
 }
 
 ALL_TARGET_CHOICES = [
-    "plain", "fidelity", "fid", "fidelity-step7", "fidelity-step6", "fidelity-c0",
+    "plain", "fidelity", "fid", "fidelity-step9", "step9", "fidelity-step8", "step8",
+    "fidelity-step7", "fidelity-step6", "fidelity-c0",
     "m8opt", "opt", "m8", "m5", "m6", "m7", "m7plus", "m7fidelity",
     "m7plus-memshrink", "m7fidelity-memshrink",
 ]

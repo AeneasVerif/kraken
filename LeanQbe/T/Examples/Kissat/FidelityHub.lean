@@ -18,6 +18,7 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7Proof0
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7Proof1
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
 public import LeanQbe.T.Examples.Kissat.FullFidelityBase
 public import LeanQbe.T.Examples.Kissat.FullFidelityBaseProof
@@ -101,6 +102,7 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep8ProofBva2
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep8ProofWalkDel
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep8ProofWatch0
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep8ProofWatch1
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep9
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweep
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProof
 public import LeanQbe.T.Examples.Kissat.FullFidelitySweepProofCone0
