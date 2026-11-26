@@ -40,7 +40,7 @@ open LeanQbeTest.T.Common.Fixtures
 abbrev fnStep := fnStepInl
 abbrev fnEntry := fnEntryInl
 
-inline_mod! inlModB5 inlSrcMod InlinePolicy.b5
+inline_mod! inlModB5 inlSrcMod InlinePolicy.b5 (compile := true)
 
 def dummyFn : Fn := ⟨"", [], [], fun _ _ _ => .hlt⟩
 

@@ -253,18 +253,13 @@ import LeanQbe.T.MainInline"
   INL_DESC="inline-policy=b5"
 elif [ "$MODULE" = FullM6 ]; then
   IMPORTS="$IMPORTS
-import LeanQbe.T.Examples.Kissat.FullM6Inl"
-  LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullM6Inl)
-  FNS_EXPR="LeanQbe.T.Examples.Kissat.FullM6Inl.m6InlFns"
-  INL_DESC="inline-policy=m6InlPolicy (FullM6Inl; matches kissatM6_compiled_${ARCH}.code)"
+import LeanQbe.T.MainInline
+import LeanQbe.T.Examples.Kissat.FullM6InlPolicy"
+  LAKE_EXTRA+=(LeanQbe.T.MainInline LeanQbe.T.Examples.Kissat.FullM6InlPolicy)
+  FNS_EXPR="(($EXPR).optInlinePolicy LeanQbe.T.Examples.Kissat.FullM6InlPolicy.m6InlPolicy).fns"
+  INL_DESC="inline-policy=m6InlPolicy"
 elif [ "$MODULE" = FullM7 ]; then
-  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7Inl.lean" ]; then
-    IMPORTS="$IMPORTS
-import LeanQbe.T.Examples.Kissat.FullM7Inl"
-    LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullM7Inl)
-    FNS_EXPR="LeanQbe.T.Examples.Kissat.FullM7Inl.m7InlFns"
-    INL_DESC="inline-policy=FullM7Inl"
-  elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
+  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
     IMPORTS="$IMPORTS
 import LeanQbe.T.MainInline
 import LeanQbe.T.Examples.Kissat.FullM7InlPolicy"
@@ -280,18 +275,13 @@ import LeanQbe.T.MainInline"
   fi
 elif [ "$MODULE" = FullM7Plus ]; then
   IMPORTS="$IMPORTS
-import LeanQbe.T.Examples.Kissat.FullM7PlusInl"
-  LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullM7PlusInl)
-  FNS_EXPR="LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns"
-  INL_DESC="inline-policy=m7InlPolicy (FullM7PlusInl)"
+import LeanQbe.T.MainInline
+import LeanQbe.T.Examples.Kissat.FullM7InlPolicy"
+  LAKE_EXTRA+=(LeanQbe.T.MainInline LeanQbe.T.Examples.Kissat.FullM7InlPolicy)
+  FNS_EXPR="(($EXPR).optInlinePolicy LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
+  INL_DESC="inline-policy=m7InlPolicy"
 elif [ "$MODULE" = KissatFidelity ]; then
-  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInl.lean" ]; then
-    IMPORTS="$IMPORTS
-import LeanQbe.T.Examples.Kissat.FullFidelityInl"
-    LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullFidelityInl)
-    FNS_EXPR="LeanQbe.T.Examples.Kissat.FullFidelityInl.fidInlFns"
-    INL_DESC="inline-policy=fidInlPolicy (FullFidelityInl; matches kissatFidelity_compiled_${ARCH}.code)"
-  elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
+  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
     IMPORTS="$IMPORTS
 import LeanQbe.T.MainInline
 import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy"
@@ -303,13 +293,7 @@ import LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy"
     INL_DESC="inline-max=0"
   fi
 elif [ "$MODULE" = KissatM8Opt ]; then
-  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptInl.lean" ]; then
-    IMPORTS="$IMPORTS
-import LeanQbe.T.Examples.Kissat.FullM8OptInl"
-    LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullM8OptInl)
-    FNS_EXPR="LeanQbe.T.Examples.Kissat.FullM8OptInl.m8OptInlFns"
-    INL_DESC="inline-policy=m8InlPolicy (FullM8OptInl; matches kissatM8Opt_compiled_${ARCH}.code)"
-  elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
+  if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
     IMPORTS="$IMPORTS
 import LeanQbe.T.MainInline
 import LeanQbe.T.Examples.Kissat.FullM8InlPolicy"
@@ -322,10 +306,11 @@ import LeanQbe.T.Examples.Kissat.FullM8InlPolicy"
   fi
 elif [ "$MODULE" = FullM7Fidelity ]; then
   IMPORTS="$IMPORTS
-import LeanQbe.T.Examples.Kissat.FullM7FidelityInl"
-  LAKE_EXTRA+=(LeanQbe.T.Examples.Kissat.FullM7FidelityInl)
-  FNS_EXPR="LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns"
-  INL_DESC="inline-policy=m7InlPolicy (FullM7FidelityInl)"
+import LeanQbe.T.MainInline
+import LeanQbe.T.Examples.Kissat.FullM7InlPolicy"
+  LAKE_EXTRA+=(LeanQbe.T.MainInline LeanQbe.T.Examples.Kissat.FullM7InlPolicy)
+  FNS_EXPR="(($EXPR).optInlinePolicy LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
+  INL_DESC="inline-policy=m7InlPolicy"
 else
   FNS_EXPR="($EXPR).fns"
   INL_DESC="inline-max=0"

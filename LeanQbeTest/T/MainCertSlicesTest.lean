@@ -149,8 +149,8 @@ theorem inlSrcMod_legalSig : LegalSigAll x64LegalTarget inlSrcMod.fns :=
 
 theorem inlModS_fns_len : inlModS.fns.length = 4 := rfl
 
-abbrev inlSlice1Mod : Module := { fns := inlModS.fns.take 2 }
-abbrev inlSlice2Mod : Module := { fns := inlModS.fns.drop 2 }
+noncomputable abbrev inlSlice1Mod : Module := { fns := inlModS.fns.take 2 }
+noncomputable abbrev inlSlice2Mod : Module := { fns := inlModS.fns.drop 2 }
 
 compile_linked_chunks! inlC1
   x64Target x64Layout x64LegalTarget x64LabelClean inlSlice1Mod 1

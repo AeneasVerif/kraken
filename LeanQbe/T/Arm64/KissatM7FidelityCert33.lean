@@ -27,7 +27,7 @@ open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Arm64.KissatM7FidelityBounds
 open LeanQbe.T.Examples.Kissat.FullM7FidelityInl
 
 /-- Slice 33 sub-module (`[366, 370)`, `4` functions). -/
-abbrev slice33Mod : Module := { fns := (m7FidInlFns.drop 366).take 4 }
+noncomputable abbrev slice33Mod : Module := { fns := (m7FidInlFns.drop 366).take 4 }
 
 compile_linked_chunks! cert33 armTarget armLayout armLegalTarget armLabelClean
   slice33Mod 4 (ext := m7FidelityExtPrefix 366) (maxDirs := 600)

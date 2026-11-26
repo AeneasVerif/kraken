@@ -348,8 +348,9 @@ end
 
 /-! ## Declarations -/
 
-/-- Scope-check a generated body into a `TFlatFn`. -/
-def finishFn (name : Sym) (ps : List LVar) (ret : Ty) (body : LExpr) : Except String TFlatFn := do
+/-- Scope-check a generated body into a `Frontend.C0.TFlatFn`. -/
+def finishFn (name : Sym) (ps : List LVar) (ret : Ty) (body : LExpr) :
+    Except String Frontend.C0.TFlatFn := do
   let tf ← lExprToTFlat (({} : LFlatCtx).pushVars ps) [ret] body
   let as := ps.map (·.ty)
   if tf.wfCheck (pushTypes as []) [] then pure { name, as, rs := [ret], flat := tf }
@@ -364,7 +365,7 @@ def withParams (tys : List Ty) (k : LArg → List LArg → LM LExpr) : LM (List 
   pure (rtV :: regVs, body)
 
 /-- Lower one declaration. -/
-def lowerDecl (env : LEnv) (d : LcDecl) : Except String TFlatFn := do
+def lowerDecl (env : LEnv) (d : LcDecl) : Except String Frontend.C0.TFlatFn := do
   let tys := d.params.map (·.ty.toTTy)
   let act := withParams tys fun rt pargs => do
     let c0 : LCtx := { fn := d.name, rt, retTy := d.retTy, params := d.params.map (·.ty) }
@@ -383,7 +384,8 @@ def lowerDecl (env : LEnv) (d : LcDecl) : Except String TFlatFn := do
 abbrev CloTarget := Nat × Sym × Nat
 
 /-- `lcnf_apply_k`. -/
-def genApply (k : Nat) (targets : List CloTarget) : Except String TFlatFn := do
+def genApply (k : Nat) (targets : List CloTarget) :
+    Except String Frontend.C0.TFlatFn := do
   let panic (rt : LArg) : LExpr := .exit "lcnf_panic" [i64, i64] [rt, imm64 panicBadClosure]
   let act := withParams (List.replicate (k + 1) i64) fun rt pargs => do
     let f := pargs.headD (imm64 1)
@@ -494,7 +496,7 @@ def dedupNat (xs : List Nat) : List Nat :=
   xs.foldl (fun acc x => if acc.contains x then acc else acc ++ [x]) []
 
 /-- Lower a whole impure LCNF module (functions + `lcnf_apply_1..k`). -/
-def lowerModule (m : LcModule) : Except String (List TFlatFn) := do
+def lowerModule (m : LcModule) : Except String (List Frontend.C0.TFlatFn) := do
   let targets ← m.cloTargets
   let consts := m.decls.filter fun d => d.params.isEmpty && !d.retTy.isScalar
   let allLits := m.decls.map (·.body.lits)
@@ -526,7 +528,7 @@ def rtExterns : List Extern := rtCalls.map fun (n, as, bs) => { name := n, as, r
 
 /-- The `LeanQbe.T.Module` of a lowered program (runtime calls are externs); every function is
 `Func.Wf` by `LeanLRC.tflatFnsToFns_wf`. -/
-def lcnfTModule (tfs : List TFlatFn) : Module :=
+def lcnfTModule (tfs : List Frontend.C0.TFlatFn) : Module :=
   { fns := LeanLRC.tflatFnsToFns tfs, externs := rtExterns, exits := rtExitSyms }
 
 end LeanQbe.T.LeanLCNF

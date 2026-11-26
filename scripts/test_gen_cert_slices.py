@@ -470,8 +470,17 @@ class GenCertSlicesTest(unittest.TestCase):
             bnds = files[f"LeanQbe/T/{arch_dir}/KissatM7FidelityBounds.lean"]
             self.assertIn("(prefixDef := m7FidelityExtPrefix)", bnds)
             self.assertNotIn("@[expose]", bnds)
+            self.assertIn(
+                "public import LeanQbe.T.Examples.Kissat.FullM7FidelityInl", bnds
+            )
+            self.assertNotIn(
+                "meta import LeanQbe.T.Examples.Kissat.FullM7FidelityInl", bnds
+            )
             sl1 = files[f"LeanQbe/T/{arch_dir}/KissatM7FidelityCert1.lean"]
-            self.assertIn("abbrev slice1Mod : Module :=", sl1)
+            self.assertIn("noncomputable abbrev slice1Mod : Module :=", sl1)
+            self.assertNotIn(
+                "meta import LeanQbe.T.Examples.Kissat.FullM7FidelityInl", sl1
+            )
             self.assertNotIn("@[expose]", sl1)
             top = files[f"LeanQbe/T/{arch_dir}/KissatM7Fidelity.lean"]
             self.assertIn("m7FidSolveBytesSpec_intro", top)

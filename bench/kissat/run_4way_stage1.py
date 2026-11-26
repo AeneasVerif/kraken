@@ -106,15 +106,7 @@ def resolve_module_spec(raw_name):
     cert_x64 = (ROOT / matched["cert_x64_file"]).is_file() if "cert_x64_file" in matched else False
 
     if mod == "KissatFidelity":
-        if (kdir / "FullFidelityInl.lean").is_file():
-            extra_imports = ["LeanQbe.T.Examples.Kissat.FullFidelityInl"]
-            fns_expr = "LeanQbe.T.Examples.Kissat.FullFidelityInl.fidInlFns"
-            policy_desc = (
-                "fidInlPolicy / FullFidelityInl (certified kissatFidelity_compiled_x64)"
-                if cert_x64
-                else "fidInlPolicy / FullFidelityInl (WP-verified IR; x64 LinkedCert pending)"
-            )
-        elif (kdir / "FullFidelityInlPolicy.lean").is_file():
+        if (kdir / "FullFidelityInlPolicy.lean").is_file():
             extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy"]
             fns_expr = (
                 "((LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule).optInlinePolicy "
@@ -126,15 +118,7 @@ def resolve_module_spec(raw_name):
             fns_expr = f"({matched['mod_expr']}).fns"
             policy_desc = "uninlined fidModule.fns (FullFidelityInl / Policy not present)"
     elif mod == "KissatM8Opt":
-        if (kdir / "FullM8OptInl.lean").is_file():
-            extra_imports = ["LeanQbe.T.Examples.Kissat.FullM8OptInl"]
-            fns_expr = "LeanQbe.T.Examples.Kissat.FullM8OptInl.m8OptInlFns"
-            policy_desc = (
-                "m8InlPolicy / FullM8OptInl (certified kissatM8Opt_compiled_x64)"
-                if cert_x64
-                else "m8InlPolicy / FullM8OptInl (WP-verified IR; x64 LinkedCert pending)"
-            )
-        elif (kdir / "FullM8InlPolicy.lean").is_file():
+        if (kdir / "FullM8InlPolicy.lean").is_file():
             extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM8InlPolicy"]
             fns_expr = (
                 "((LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule).optInlinePolicy "
@@ -146,11 +130,7 @@ def resolve_module_spec(raw_name):
             fns_expr = f"({matched['mod_expr']}).fns"
             policy_desc = "uninlined m8OptModule.fns (FullM8OptInl / Policy not present)"
     elif mod == "FullM7":
-        if (kdir / "FullM7Inl.lean").is_file():
-            extra_imports = ["LeanQbe.T.Examples.Kissat.FullM7Inl"]
-            fns_expr = "LeanQbe.T.Examples.Kissat.FullM7Inl.m7InlFns"
-            policy_desc = "m7InlPolicy / FullM7Inl"
-        elif (kdir / "FullM7InlPolicy.lean").is_file():
+        if (kdir / "FullM7InlPolicy.lean").is_file():
             extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
             fns_expr = (
                 "((LeanQbe.T.Examples.Kissat.FullM7.m7Module).optInlinePolicy "
@@ -158,15 +138,7 @@ def resolve_module_spec(raw_name):
             )
             policy_desc = "m7InlPolicy"
     elif mod == "FullM7Plus":
-        if (kdir / "FullM7PlusInl.lean").is_file():
-            extra_imports = ["LeanQbe.T.Examples.Kissat.FullM7PlusInl"]
-            fns_expr = "LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns"
-            policy_desc = (
-                "m7InlPolicy / FullM7PlusInl (certified kissatM7Plus_compiled_x64)"
-                if cert_x64
-                else "m7InlPolicy / FullM7PlusInl (WP-verified IR; x64 LinkedCert pending)"
-            )
-        elif (kdir / "FullM7InlPolicy.lean").is_file():
+        if (kdir / "FullM7InlPolicy.lean").is_file():
             extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
             fns_expr = (
                 "((LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusModule).optInlinePolicy "
@@ -174,15 +146,7 @@ def resolve_module_spec(raw_name):
             )
             policy_desc = "m7InlPolicy"
     elif mod == "FullM7Fidelity":
-        if (kdir / "FullM7FidelityInl.lean").is_file():
-            extra_imports = ["LeanQbe.T.Examples.Kissat.FullM7FidelityInl"]
-            fns_expr = "LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns"
-            policy_desc = (
-                "m7InlPolicy / FullM7FidelityInl (certified kissatM7Fidelity_compiled_x64)"
-                if cert_x64
-                else "m7InlPolicy / FullM7FidelityInl (WP-verified IR; x64 LinkedCert pending)"
-            )
-        elif (kdir / "FullM7InlPolicy.lean").is_file():
+        if (kdir / "FullM7InlPolicy.lean").is_file():
             extra_imports = ["LeanQbe.T.MainInline", "LeanQbe.T.Examples.Kissat.FullM7InlPolicy"]
             fns_expr = (
                 "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy "

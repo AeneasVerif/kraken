@@ -61,11 +61,12 @@ private theorem arm_s2_raw_chk :
     checkRawCallsCover armLegalTarget ((m7PlusInlFns.drop 12).take 12) armS2Callees = true := by
   t_kernel_rfl
 
-def armS2Bundle : CalleesCoverBundle armLegalTarget ((m7PlusInlFns.drop 12).take 12) :=
+noncomputable def armS2Bundle :
+    CalleesCoverBundle armLegalTarget ((m7PlusInlFns.drop 12).take 12) :=
   CalleesCoverBundle.ofCheckRaw armS2Callees
     (wf_of_take_drop 12 12 m7PlusInlFns_wf) arm_s2_raw_chk
 
-def armS2FidMod : Module := { fns := (m7FidInlFns.drop 12).take 12 }
+noncomputable def armS2FidMod : Module := { fns := (m7FidInlFns.drop 12).take 12 }
 
 private theorem arm_s2_fid_eq : armS2FidMod.fns = slice2Mod.fns := by
   simpa [armS2FidMod, slice2Mod] using reuse_m7p_eq_2

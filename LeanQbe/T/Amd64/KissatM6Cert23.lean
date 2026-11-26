@@ -26,7 +26,7 @@ namespace LeanQbe.T.Amd64.KissatM6Cert23
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Amd64.KissatM6Bounds LeanQbe.T.Examples.Kissat.FullM6Inl
 
 /-- Slice 23 sub-module (`[192, 202)`, `10` functions). -/
-def slice23Mod : Module := { fns := (m6InlFns.drop 192).take 10 }
+noncomputable def slice23Mod : Module := { fns := (m6InlFns.drop 192).take 10 }
 
 compile_linked_chunks! cert23 x64Target x64Layout x64LegalTarget x64LabelClean
   slice23Mod 4 (ext := m6ExtPrefix 192) (maxDirs := 600)

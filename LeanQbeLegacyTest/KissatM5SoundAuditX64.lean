@@ -187,7 +187,7 @@ theorem audit_m5_x64_sound_only [hh : Host] (k₀ : Nat)
     s ra R hrdi hrsi hrdx hrcx hr8 hsp hmem
 
 #guard FullM5.m5Fns.length == 270
-#guard FullM5InlB5.m5InlB5Fns.length == 270
+example : FullM5InlB5.m5InlB5Fns.length = 270 := FullM5InlB5.m5InlB5Fns_length
 
 #print axioms audit_m5_x64_sat_fnspec
 #print axioms audit_m5_x64_model

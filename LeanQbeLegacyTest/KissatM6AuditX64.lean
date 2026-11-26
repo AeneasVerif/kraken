@@ -161,7 +161,7 @@ theorem audit_m6_x64_nv_closed :
     kissatM6_compiled_x64.code_infix_host kissatM6_compiled_x64.labelsUnique
 
 #guard FullM6.m6Fns.length == 382
-#guard FullM6Inl.m6InlFns.length == 382
+example : FullM6Inl.m6InlFns.length = 382 := FullM6Inl.m6InlFns_length
 
 #print axioms audit_m6_x64_fnspec
 #print axioms audit_m6_x64_unsat

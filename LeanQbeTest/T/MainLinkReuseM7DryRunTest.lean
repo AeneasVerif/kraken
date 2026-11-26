@@ -63,11 +63,12 @@ private theorem s2_raw_chk :
   t_kernel_rfl
 
 /-- Option A bundle built via Option B raw check (`0` `Fn.mid` kernel evaluation). -/
-def s2Bundle : CalleesCoverBundle x64LegalTarget ((m7PlusInlFns.drop 12).take 12) :=
+noncomputable def s2Bundle :
+    CalleesCoverBundle x64LegalTarget ((m7PlusInlFns.drop 12).take 12) :=
   CalleesCoverBundle.ofCheckRaw s2Callees (wf_of_take_drop 12 12 m7PlusInlFns_wf) s2_raw_chk
 
 /-- Target slice 2 module in `FullM7FidelityInl`. -/
-def s2FidMod : Module := { fns := (m7FidInlFns.drop 12).take 12 }
+noncomputable def s2FidMod : Module := { fns := (m7FidInlFns.drop 12).take 12 }
 
 private theorem s2_fid_eq_chunks : s2FidMod.fns = slice2Mod.fns := by
   simpa [s2FidMod, slice2Mod] using reuse_m7p_eq_2
@@ -121,7 +122,8 @@ private theorem s44_raw_chk :
   t_kernel_rfl
 
 /-- Option A bundle for slice 44 transported by `O(1)` `of_eq` onto `m7FidInlFns`. -/
-def s44BundleFid : CalleesCoverBundle x64LegalTarget ((m7FidInlFns.drop 333).take 7) :=
+noncomputable def s44BundleFid :
+    CalleesCoverBundle x64LegalTarget ((m7FidInlFns.drop 333).take 7) :=
   (CalleesCoverBundle.ofCheckRaw s44Callees
     (wf_of_take_drop 333 7 m7PlusInlFns_wf) s44_raw_chk).of_eq reuse_m7p_eq_44
 
@@ -133,7 +135,7 @@ theorem ax_s44_raw :
   exact calleesCover_rawLegal x64LegalTarget (wf_of_take_drop 333 7 m7PlusInlFns_wf)
 
 /-- Target slice 44 module in `FullM7FidelityInl`. -/
-def s44FidMod : Module := { fns := (m7FidInlFns.drop 333).take 7 }
+noncomputable def s44FidMod : Module := { fns := (m7FidInlFns.drop 333).take 7 }
 
 private theorem s44_fid_eq_chunks : s44FidMod.fns = slice44Mod.fns := by
   simpa [s44FidMod, slice44Mod] using reuse_m7p_eq_44

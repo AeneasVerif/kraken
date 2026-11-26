@@ -6,10 +6,9 @@ public import LeanQbe.T.Legal
 public import LeanQbe.T.Main
 
 /-!
-# First-Order `TFlat` Function Carrier, Target-Support Check, and `Ext` Collector
+# First-Order `TFlat` Target-Support Check and `Ext` Collector
 
-* `TFlatFn`, `TFlatFn.toFn`, `TFlatFn.wfCheck`, `TFlatFn.sig`, `TFlatFn.supportsSource`:
-  first-order `Type 0` mirror of `Fn` backed by `denoteFunc`.
+* `TFlatFn.sig`, `TFlatFn.supportsSource`: signature and target-support helpers over `Flat.TFlatFn`.
 * `TFlat.extAux`, `TBlocks.extAux`, `TFlat.ext`: direct `TFlat` extraction of `Rega.Ext`
   (callee signatures and exit symbols, pruning dead `.jnz (.imm b)` arms) matching `Fn.ext`.
 -/
@@ -19,21 +18,6 @@ set_option autoImplicit false
 @[expose] public section
 
 namespace LeanQbe.T
-
-/-- First-order `Type 0` function mirroring `Fn` (`denoteFunc`-backed). -/
-structure TFlatFn where
-  name : Sym
-  as : List Ty
-  rs : List Ty
-  body : TFlat rs
-
-/-- Reconstruct a closed PHOAS `Fn` from a first-order `TFlatFn`. -/
-def TFlatFn.toFn (f : TFlatFn) : Fn :=
-  ⟨f.name, f.as, f.rs, denoteFunc f.body⟩
-
-/-- Computable scope and type well-formedness check for a closed `TFlatFn`. -/
-def TFlatFn.wfCheck (f : TFlatFn) : Bool :=
-  f.body.wfCheck (pushTypes f.as []) []
 
 /-- Signature entry `(name, as, rs)` matching `Fn.sig`. -/
 def TFlatFn.sig (f : TFlatFn) : SigEntry :=

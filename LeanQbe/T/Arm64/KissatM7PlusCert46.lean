@@ -27,7 +27,7 @@ open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Arm64.KissatM7PlusBounds
 open LeanQbe.T.Examples.Kissat.FullM7PlusInl
 
 /-- Slice 46 sub-module (`[346, 347)`, `1` functions). -/
-def slice46Mod : Module := { fns := (m7PlusInlFns.drop 346).take 1 }
+noncomputable def slice46Mod : Module := { fns := (m7PlusInlFns.drop 346).take 1 }
 
 compile_linked_chunks! cert46 armTarget armLayout armLegalTarget armLabelClean
   slice46Mod 4 (ext := m7PlusExtPrefix 346) (maxDirs := 600)

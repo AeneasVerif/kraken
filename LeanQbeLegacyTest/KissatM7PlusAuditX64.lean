@@ -185,7 +185,8 @@ theorem audit_m7p_x64_run_unsat :
   exact h
 
 #guard LeanQbe.T.Examples.Kissat.FullM7Plus.m7PlusFns.length == 410
-#guard LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns.length == 410
+example : LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns.length = 410 :=
+  LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlFns_length
 
 #print axioms audit_m7p_x64_compiled
 #print axioms audit_m7p_x64_fnspec

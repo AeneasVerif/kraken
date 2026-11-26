@@ -26,7 +26,7 @@ namespace LeanQbe.T.Amd64.KissatM5Cert4
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Amd64.KissatM5Bounds LeanQbe.T.Examples.Kissat.FullM5InlB5
 
 /-- Slice 4 sub-module (`[30, 40)`, `10` functions). -/
-def slice4Mod : Module := { fns := (m5InlB5Fns.drop 30).take 10 }
+noncomputable def slice4Mod : Module := { fns := (m5InlB5Fns.drop 30).take 10 }
 
 compile_linked_chunks! cert4 x64Target x64Layout x64LegalTarget x64LabelClean
   slice4Mod 4 (ext := m5ExtPrefix 30) (maxDirs := 450)

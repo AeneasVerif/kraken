@@ -254,25 +254,19 @@ mod_lean() {
     CorePlus|Plain|Full) echo "LeanQbe.T.Examples.Kissat.$1" ;;
     KissatFidelity)
       local deps=("LeanQbe.T.Examples.Kissat.FullFidelityAssembly")
-      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInl.lean" ]; then
-        deps+=("LeanQbe.T.Examples.Kissat.FullFidelityInl")
-      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
         deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy")
       fi
       echo "${deps[*]}" ;;
     KissatM8Opt)
       local deps=("LeanQbe.T.Examples.Kissat.FullM8OptAssembly")
-      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptInl.lean" ]; then
-        deps+=("LeanQbe.T.Examples.Kissat.FullM8OptInl")
-      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
         deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullM8InlPolicy")
       fi
       echo "${deps[*]}" ;;
     FullM7Fidelity)
       local deps=("LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly")
-      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityInl.lean" ]; then
-        deps+=("LeanQbe.T.Examples.Kissat.FullM7FidelityInl")
-      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
         deps+=("LeanQbe.T.MainInline" "LeanQbe.T.Examples.Kissat.FullM7InlPolicy")
       fi
       echo "${deps[*]}" ;;
@@ -296,25 +290,19 @@ mod_fns_expr() {
     Plain) echo "(LeanQbe.T.Examples.Kissat.Plain.plainModule).fns" ;;
     Full) echo "(LeanQbe.T.Examples.Kissat.Full.fullModule).fns" ;;
     KissatFidelity)
-      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInl.lean" ]; then
-        echo "LeanQbe.T.Examples.Kissat.FullFidelityInl.fidInlFns"
-      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullFidelityInlPolicy.lean" ]; then
         echo "((LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule).optInlinePolicy LeanQbe.T.Examples.Kissat.FullFidelityInlPolicy.fidInlPolicy).fns"
       else
         echo "(LeanQbe.T.Examples.Kissat.FullFidelityAssembly.fidModule).fns"
       fi ;;
     KissatM8Opt)
-      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8OptInl.lean" ]; then
-        echo "LeanQbe.T.Examples.Kissat.FullM8OptInl.m8OptInlFns"
-      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM8InlPolicy.lean" ]; then
         echo "((LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule).optInlinePolicy LeanQbe.T.Examples.Kissat.FullM8InlPolicy.m8InlPolicy).fns"
       else
         echo "(LeanQbe.T.Examples.Kissat.FullM8OptAssembly.m8OptModule).fns"
       fi ;;
     FullM7Fidelity)
-      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7FidelityInl.lean" ]; then
-        echo "LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns"
-      elif [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
+      if [ -f "$ROOT/LeanQbe/T/Examples/Kissat/FullM7InlPolicy.lean" ]; then
         echo "((LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).optInlinePolicy LeanQbe.T.Examples.Kissat.FullM7InlPolicy.m7InlPolicy).fns"
       else
         echo "(LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityModule).fns"

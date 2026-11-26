@@ -36,6 +36,10 @@ and return the flat `List SigEntry` literal expression. -/
 def evalRawCalleesLit (lt : LegalTarget) (fs : List Fn) : Lean.Expr :=
   Lean.toExpr <| dedupSigEntries <| fs.flatMap fun f => f.rawCalls.map (sigEntryLegal lt)
 
+/-- Flat-list variant of `evalRawCalleesLit` over `.olean`-decoded `List TFlatFn`. -/
+def evalRawCalleesFlatLit (lt : LegalTarget) (tfs : List TFlatFn) : Lean.Expr :=
+  evalRawCalleesLit lt (tfs.map TFlatFn.toFn)
+
 /-- Evaluate `pruneExt S acc` in compiled meta code and return the flat `List (SigEntry × Nat)`
 literal expression. -/
 def evalPrunedExtLit (S : List SigEntry) (acc : List (SigEntry × Nat)) : Lean.Expr :=
@@ -57,9 +61,18 @@ scoped elab_rules : command
       Term.synthesizeSyntheticMVarsNoPostponing
       let ltE ← instantiateMVars ltE
       let fnsE ← instantiateMVars fnsE
-      let callE ← instantiateMVars
-        (mkAppN (Lean.mkConst ``LeanQbe.T.evalRawCalleesLit) #[ltE, fnsE])
-      unsafe evalExpr Lean.Expr (Lean.mkConst ``Lean.Expr) callE
+      match (← decodeFlatSliceExpr fnsE) with
+      | some (flatFns, _, _) =>
+        let listFlatTy := mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.TFlatFn)
+        let runnerTy := Lean.mkForall `_ .default listFlatTy (Lean.mkConst ``Lean.Expr)
+        let callE ← instantiateMVars
+          (mkApp (Lean.mkConst ``LeanQbe.T.evalRawCalleesFlatLit) ltE)
+        let runner ← unsafe evalExpr (List TFlatFn → Lean.Expr) runnerTy callE
+        pure (runner flatFns)
+      | none =>
+        let callE ← instantiateMVars
+          (mkAppN (Lean.mkConst ``LeanQbe.T.evalRawCalleesLit) #[ltE, fnsE])
+        unsafe evalExpr Lean.Expr (Lean.mkConst ``Lean.Expr) callE
     liftCoreM <| addCertDef outNm listSigTy lit true
 
 /-- `eval_pruned_ext! outName calleesExpr accExpr` computes `pruneExt calleesExpr accExpr` in

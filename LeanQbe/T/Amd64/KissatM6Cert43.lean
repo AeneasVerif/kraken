@@ -26,7 +26,7 @@ namespace LeanQbe.T.Amd64.KissatM6Cert43
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Amd64.KissatM6Bounds LeanQbe.T.Examples.Kissat.FullM6Inl
 
 /-- Slice 43 sub-module (`[333, 335)`, `2` functions). -/
-def slice43Mod : Module := { fns := (m6InlFns.drop 333).take 2 }
+noncomputable def slice43Mod : Module := { fns := (m6InlFns.drop 333).take 2 }
 
 compile_linked_chunks! cert43 x64Target x64Layout x64LegalTarget x64LabelClean
   slice43Mod 4 (ext := m6ExtPrefix 333) (maxDirs := 600)

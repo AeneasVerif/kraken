@@ -27,7 +27,7 @@ open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Amd64.KissatM7PlusBounds
 open LeanQbe.T.Examples.Kissat.FullM7PlusInl
 
 /-- Slice 29 sub-module (`[239, 249)`, `10` functions). -/
-def slice29Mod : Module := { fns := (m7PlusInlFns.drop 239).take 10 }
+noncomputable def slice29Mod : Module := { fns := (m7PlusInlFns.drop 239).take 10 }
 
 compile_linked_chunks! cert29 x64Target x64Layout x64LegalTarget x64LabelClean
   slice29Mod 4 (ext := m7PlusExtPrefix 239) (maxDirs := 600)

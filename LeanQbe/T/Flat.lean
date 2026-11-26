@@ -310,4 +310,23 @@ holds unconditionally by parametricity for any reified term (`Func.wf_of_reify`)
 def Func.checkTFlat {as rs : List Ty} (f : Func as rs) : Bool :=
   (reifyFunc f).wfCheck (pushTypes as []) []
 
+/-- First-order closed function payload carrying a `TFlat` body (`Type 0`). -/
+structure TFlatFn where
+  name : Sym
+  as : List Ty
+  rs : List Ty
+  body : TFlat rs
+
+/-- Default inhabited instance for `TFlatFn` container operations. -/
+instance : Inhabited TFlatFn where
+  default := ⟨"", [], [], .hlt⟩
+
+/-- Denote a first-order `TFlatFn` back into a PHOAS `Fn`. -/
+def TFlatFn.toFn (f : TFlatFn) : Fn :=
+  ⟨f.name, f.as, f.rs, denoteFunc f.body⟩
+
+/-- Scope-check `f.body` under parameter context `pushTypes f.as []`. -/
+def TFlatFn.wfCheck (f : TFlatFn) : Bool :=
+  f.body.wfCheck (pushTypes f.as []) []
+
 end LeanQbe.T

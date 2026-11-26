@@ -46,9 +46,9 @@ abbrev fnEntry := fnEntryInl
 
 /-! ## 2. Materialized inlined modules via `inline_mod!` + `#guard` inlining assertions -/
 
-inline_mod! inlModB5 inlSrcMod InlinePolicy.b5
+inline_mod! inlModB5 inlSrcMod InlinePolicy.b5 (compile := true)
 
-inline_mod! inlMod40 inlSrcMod (InlinePolicy.const 40)
+inline_mod! inlMod40 inlSrcMod (InlinePolicy.const 40) (compile := true)
 
 def dummyFn : Fn := ⟨"", [], [], fun _ _ _ => .hlt⟩
 

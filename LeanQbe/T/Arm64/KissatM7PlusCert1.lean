@@ -24,7 +24,7 @@ namespace LeanQbe.T.Arm64.KissatM7PlusCert1
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Examples.Kissat.FullM7PlusInl
 
 /-- Slice 1 sub-module (`[0, 12)`, `12` functions). -/
-def slice1Mod : Module := { fns := m7PlusInlFns.take 12 }
+noncomputable def slice1Mod : Module := { fns := m7PlusInlFns.take 12 }
 
 compile_linked_chunks! cert1 armTarget armLayout armLegalTarget armLabelClean
   slice1Mod 4 (maxDirs := 600)

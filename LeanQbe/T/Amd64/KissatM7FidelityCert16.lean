@@ -27,7 +27,7 @@ open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Amd64.KissatM7FidelityBounds
 open LeanQbe.T.Examples.Kissat.FullM7FidelityInl
 
 /-- Slice 16 sub-module (`[160, 161)`, `1` functions). -/
-abbrev slice16Mod : Module := { fns := (m7FidInlFns.drop 160).take 1 }
+noncomputable abbrev slice16Mod : Module := { fns := (m7FidInlFns.drop 160).take 1 }
 
 compile_linked_chunks! cert16 x64Target x64Layout x64LegalTarget x64LabelClean
   slice16Mod 4 (ext := m7FidelityExtPrefix 160) (maxDirs := 600)

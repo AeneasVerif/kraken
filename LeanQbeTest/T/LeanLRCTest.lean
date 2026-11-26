@@ -27,7 +27,7 @@ set_option autoImplicit false
 
 namespace LeanQbeTest.T.LeanLRCTest
 
-open LeanQbe.T
+open LeanQbe.T hiding TFlatFn
 open LeanQbe.T.LeanLRC
 open LeanQbe.T.Frontend.C0 (TFlatFn)
 open LeanQbe.T.PrintCpp

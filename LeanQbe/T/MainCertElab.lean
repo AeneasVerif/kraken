@@ -4,6 +4,7 @@ public import LeanQbe.T.MainCertCore
 public meta import Lean
 public meta import LeanQbe.T.MainLink
 public meta import LeanQbe.T.MainCertCore
+public meta import LeanQbe.T.MainCertFlatDecode
 public meta import LeanQbe.T.MainLinkSplice
 public meta import LeanQbe.T.MainSplice
 
@@ -178,6 +179,16 @@ def evalLinkedChunks (I : Isa) (lt : LegalTarget) (raBytes : Nat)
         let sigs := grp.map fun x => (x.2.2.2.2.1, x.2.2.2.1)
         groupChunks fuel (idx + grp.length) (sigs.reverse ++ acc) rest' (entry :: out)
     pure (groupChunks (compiled.length + 1) 0 ext0 compiled [])
+
+/-- Curried meta chunk evaluator over decoded `List TFlatFn` (converting via `TFlatFn.toFn`). -/
+def makeChunkEvaluator (I : Isa) (lt : LegalTarget) (raBytes : Nat)
+    (ext0 : List (SigEntry × Nat)) (exits : List Sym)
+    (nX chunkSize maxBound maxDirs : Nat) (pruneExt : Bool := false)
+    [Lean.ToExpr (List I.Hints)] [Lean.ToExpr (List I.Directive)] :
+    List TFlatFn → Except String EvalModuleData :=
+  fun fs =>
+    evalLinkedChunks I lt raBytes ext0 exits nX (fs.map TFlatFn.toFn)
+      chunkSize maxBound maxDirs pruneExt
 
 def addCertDef (declNm : Name) (ty val : Lean.Expr) (compile : Bool := true) : CoreM Unit :=
   withCurrHeartbeats do
@@ -442,14 +453,25 @@ def elabAndEvalChunks (targT layoutT ltT clT modT : Term) (chunkSize : Nat)
   let b ← elabCertBase targT layoutT ltT clT opts
   let pruneExt ← evalBoolOpt opts.pruneExtT? false
   let modE ← instantiateMVars (← Term.elabTerm modT (some (Lean.mkConst ``LeanQbe.T.Module)))
+  let fnsE := mkApp (Lean.mkConst ``LeanQbe.T.Module.fns) modE
   let pruneExtE := Lean.mkConst (if pruneExt then ``Bool.true else ``Bool.false)
-  let callE ← instantiateMVars (mkAppN (Lean.mkConst ``LeanQbe.T.evalLinkedChunks)
-    #[b.isaE, b.ltE, b.raE, b.ext0E, b.exitsE, b.nXE,
-      mkApp (Lean.mkConst ``LeanQbe.T.Module.fns) modE, mkNatLit chunkSize, b.maxBE,
-      b.maxDirsE, pruneExtE, b.toExprHintsInst, b.toExprDirInst])
   let outTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String)
     (Lean.mkConst ``LeanQbe.T.EvalModuleData)
-  match (← unsafe evalExpr (Except String EvalModuleData) outTy callE) with
+  let evalRes ← match (← decodeFlatSliceExpr fnsE) with
+    | some (flatFns, _, _) =>
+      let listFlatTy := mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.TFlatFn)
+      let runnerTy := Lean.mkForall `_ .default listFlatTy outTy
+      let callE ← instantiateMVars (mkAppN (Lean.mkConst ``LeanQbe.T.makeChunkEvaluator)
+        #[b.isaE, b.ltE, b.raE, b.ext0E, b.exitsE, b.nXE, mkNatLit chunkSize, b.maxBE,
+          b.maxDirsE, pruneExtE, b.toExprHintsInst, b.toExprDirInst])
+      let runner ← unsafe evalExpr (List TFlatFn → Except String EvalModuleData) runnerTy callE
+      pure (runner flatFns)
+    | none =>
+      let callE ← instantiateMVars (mkAppN (Lean.mkConst ``LeanQbe.T.evalLinkedChunks)
+        #[b.isaE, b.ltE, b.raE, b.ext0E, b.exitsE, b.nXE, fnsE, mkNatLit chunkSize, b.maxBE,
+          b.maxDirsE, pruneExtE, b.toExprHintsInst, b.toExprDirInst])
+      unsafe evalExpr (Except String EvalModuleData) outTy callE
+  match evalRes with
   | .error e => throwError "compile_linked_chunks!: {e}"
   | .ok md => return {
       base := b, modE := modE, chunks := md.chunks, finalExtLit := md.finalExtLit }
@@ -566,6 +588,22 @@ def evalPrefixExt (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (fs : List Fn) : Except String Lean.Expr :=
   Prod.snd <$> evalPrefixExtWithLen I lt raBytes ext0 exits nX maxBound fs
 
+/-- Curried meta prefix-bound evaluator over decoded `List TFlatFn`. -/
+def makePrefixExtEvaluator (I : Isa) (lt : LegalTarget) (raBytes : Nat)
+    (ext0 : List (SigEntry × Nat)) (exits : List Sym) (nX maxBound : Nat)
+    (pruneFor? : Option (List Fn) := none) :
+    List TFlatFn → Except String (Nat × Lean.Expr) :=
+  fun fs =>
+    evalPrefixExtWithLen I lt raBytes ext0 exits nX maxBound (fs.map TFlatFn.toFn) pruneFor?
+
+/-- Curried meta prefix-bound evaluator when both `fns` and `pruneFor` are `TFlatFn`-decoded. -/
+def makePrefixExtPrunedEvaluator (I : Isa) (lt : LegalTarget) (raBytes : Nat)
+    (ext0 : List (SigEntry × Nat)) (exits : List Sym) (nX maxBound : Nat) :
+    List TFlatFn → List TFlatFn → Except String (Nat × Lean.Expr) :=
+  fun fs pfs =>
+    evalPrefixExtWithLen I lt raBytes ext0 exits nX maxBound
+      (fs.map TFlatFn.toFn) (some (pfs.map TFlatFn.toFn))
+
 def parsePrefixExtOptions (optKeys : TSyntaxArray `ident) (optVals : TSyntaxArray `term) :
     CommandElabM (Option Term × Option Term × Option Term ×
       Option Term × Option Ident × Option Term) :=
@@ -590,23 +628,50 @@ def elabAndEvalPrefixExt (targT ltT fnsT : Term)
   let ltE ← Term.elabTerm ltT (some (Lean.mkConst ``LeanQbe.T.LegalTarget))
   let fnsE ← Term.elabTerm fnsT (some tys.listFnTy)
   let (ext0E, exitsE, nXE, maxBE) ← elabCommonBoundArgs extT? exitsT? nXT? maxBT?
-  let pruneForE ← match pruneForT? with
-    | some t =>
-      let pfE ← Term.elabTerm t (some tys.listFnTy)
-      pure (mkApp2 (Lean.mkConst ``Option.some [1]) tys.listFnTy pfE)
-    | none => pure (mkApp (Lean.mkConst ``Option.none [1]) tys.listFnTy)
+  let pruneForRaw? ← match pruneForT? with
+    | some t => some <$> Term.elabTerm t (some tys.listFnTy)
+    | none => pure none
   Term.synthesizeSyntheticMVarsNoPostponing
   let targE ← instantiateMVars targE; let ltE ← instantiateMVars ltE
   let fnsE ← instantiateMVars fnsE; let ext0E ← instantiateMVars ext0E
   let exitsE ← instantiateMVars exitsE; let nXE ← instantiateMVars nXE
-  let maxBE ← instantiateMVars maxBE; let pruneForE ← instantiateMVars pruneForE
+  let maxBE ← instantiateMVars maxBE
+  let pruneForRaw? ← pruneForRaw?.mapM instantiateMVars
+  let pruneForE := match pruneForRaw? with
+    | some pfE => mkApp2 (Lean.mkConst ``Option.some [1]) tys.listFnTy pfE
+    | none => mkApp (Lean.mkConst ``Option.none [1]) tys.listFnTy
   let isaE := mkApp (Lean.mkConst ``LeanQbe.T.Target.toIsa) targE
   let raE ← mkAppM ``LeanQbe.T.FrameIsa.raBytes #[← mkAppM ``LeanQbe.T.Isa.frame #[isaE]]
-  let callE ← instantiateMVars (mkAppN (Lean.mkConst ``LeanQbe.T.evalPrefixExtWithLen)
-    #[isaE, ltE, raE, ext0E, exitsE, nXE, maxBE, fnsE, pruneForE])
   let pairTy := mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) tys.natTy (Lean.mkConst ``Lean.Expr)
   let outTy := mkApp2 (Lean.mkConst ``Except [.zero, .zero]) (Lean.mkConst ``String) pairTy
-  match (← unsafe evalExpr (Except String (Nat × Lean.Expr)) outTy callE) with
+  let listFlatTy := mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.TFlatFn)
+  let evalRes ← match (← decodeFlatSliceExpr fnsE) with
+    | some (flatFns, _, _) =>
+      let decodedPrune? ← match pruneForRaw? with
+        | some pfE => decodeFlatSliceExpr pfE
+        | none => pure none
+      match decodedPrune? with
+      | some (pruneFlats, _, _) =>
+        let runnerTy := Lean.mkForall `_ .default listFlatTy
+          (Lean.mkForall `_ .default listFlatTy outTy)
+        let callE ← instantiateMVars
+          (mkAppN (Lean.mkConst ``LeanQbe.T.makePrefixExtPrunedEvaluator)
+            #[isaE, ltE, raE, ext0E, exitsE, nXE, maxBE])
+        let runner ← unsafe evalExpr
+          (List TFlatFn → List TFlatFn → Except String (Nat × Lean.Expr)) runnerTy callE
+        pure (runner flatFns pruneFlats)
+      | none =>
+        let runnerTy := Lean.mkForall `_ .default listFlatTy outTy
+        let callE ← instantiateMVars (mkAppN (Lean.mkConst ``LeanQbe.T.makePrefixExtEvaluator)
+          #[isaE, ltE, raE, ext0E, exitsE, nXE, maxBE, pruneForE])
+        let runner ← unsafe evalExpr
+          (List TFlatFn → Except String (Nat × Lean.Expr)) runnerTy callE
+        pure (runner flatFns)
+    | none =>
+      let callE ← instantiateMVars (mkAppN (Lean.mkConst ``LeanQbe.T.evalPrefixExtWithLen)
+        #[isaE, ltE, raE, ext0E, exitsE, nXE, maxBE, fnsE, pruneForE])
+      unsafe evalExpr (Except String (Nat × Lean.Expr)) outTy callE
+  match evalRes with
   | .error e => throwError "eval_prefix_ext!: {e}"
   | .ok (total, extLit) => return (tys.listExtTy, total, extLit)
 

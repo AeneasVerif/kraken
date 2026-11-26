@@ -26,7 +26,7 @@ namespace LeanQbe.T.Arm64.KissatM5Cert33
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Arm64.KissatM5Bounds LeanQbe.T.Examples.Kissat.FullM5InlB5
 
 /-- Slice 33 sub-module (`[248, 260)`, `12` functions). -/
-def slice33Mod : Module := { fns := (m5InlB5Fns.drop 248).take 12 }
+noncomputable def slice33Mod : Module := { fns := (m5InlB5Fns.drop 248).take 12 }
 
 compile_linked_chunks! cert33 armTarget armLayout armLegalTarget armLabelClean
   slice33Mod 4 (ext := m5ExtPrefix 248) (maxDirs := 450)

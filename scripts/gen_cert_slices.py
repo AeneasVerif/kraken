@@ -2126,6 +2126,13 @@ def wrap_open_pairs(items: list[str]) -> list[str]:
     return lines
 
 
+def is_materialized_inl_mod(mod: str) -> bool:
+    """True for `inline_mod*`-materialized (`noncomputable` `TFlatFn`) `.olean` modules."""
+    return bool(mod) and ("Inl" in mod) and not mod.endswith("Data") and not mod.endswith(
+        "FullFidelityInl"
+    )
+
+
 def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
     """Render `<Prefix>Bounds.lean` using `eval_prefix_ext!`."""
     ns = f"{arch.ns_prefix}.{cfg.prefix}Bounds"
@@ -2154,7 +2161,7 @@ def render_bounds(cfg: CertConfig, arch: ArchSpec) -> str:
         "meta import Lean",
         "meta import LeanQbe.T.MainCertElab",
         f"meta import {arch.targ_mod}",
-        f"meta import {cert_src}",
+        *([] if is_materialized_inl_mod(cert_src) else [f"meta import {cert_src}"]),
         "",
         "/-!",
         f"# {cfg.prefix} Auto-Computed Prefix Bounds on {arch.isa_title}",
@@ -2333,7 +2340,8 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
     ]
     if uses_bounds_mod:
         meta_imports.append(f"meta import {bounds_mod}")
-    meta_imports.append(f"meta import {cert_src}")
+    if not is_materialized_inl_mod(cert_src):
+        meta_imports.append(f"meta import {cert_src}")
 
     open_parts = ["LeanQbe.T", arch.ns_prefix]
     if uses_bounds_mod:
@@ -2349,10 +2357,11 @@ def render_slice(cfg: CertConfig, arch: ArchSpec, sl: SliceRange) -> str:
     else:
         mod_rhs = f"({cert_fns}.drop {sl.start}).take {sl.count}"
 
-    mod_def = f"abbrev slice{sl.index}Mod : Module := {{ fns := {mod_rhs} }}"
+    abbrev_kw = "noncomputable abbrev" if is_materialized_inl_mod(cert_src) else "abbrev"
+    mod_def = f"{abbrev_kw} slice{sl.index}Mod : Module := {{ fns := {mod_rhs} }}"
     if len(mod_def) > MAX_LINE_LEN:
         mod_def = (
-            f"abbrev slice{sl.index}Mod : Module :=\n"
+            f"{abbrev_kw} slice{sl.index}Mod : Module :=\n"
             f"  {{ fns := {mod_rhs} }}"
         )
 
@@ -2595,11 +2604,11 @@ def render_cert_slices(cfg: CertConfig, arch: ArchSpec) -> str:
         "meta import Lean",
         *(["meta import LeanQbe.T.MainLinkReuseElab"] if pruned_relink else []),
         f"meta import {arch.targ_mod}",
-        f"meta import {cfg.cert_source_mod}",
+        *([] if is_materialized_inl_mod(cfg.cert_source_mod) else [f"meta import {cfg.cert_source_mod}"]),
     ]
     if pruned_relink:
         meta_imports.append(f"meta import {bounds_mod}")
-    if has_reuse and cfg.reuse_inl_mod:
+    if has_reuse and cfg.reuse_inl_mod and not is_materialized_inl_mod(cfg.reuse_inl_mod):
         meta_imports.append(f"meta import {cfg.reuse_inl_mod}")
     meta_imports = list(dict.fromkeys(meta_imports))
 
@@ -3077,11 +3086,11 @@ def render_cert_ladder(cfg: CertConfig, arch: ArchSpec) -> str:
         "meta import Lean",
         *(["meta import LeanQbe.T.MainLinkReuseElab"] if pruned_relink else []),
         f"meta import {arch.targ_mod}",
-        f"meta import {cfg.cert_source_mod}",
+        *([] if is_materialized_inl_mod(cfg.cert_source_mod) else [f"meta import {cfg.cert_source_mod}"]),
     ]
     if pruned_relink:
         meta_imports.append(f"meta import {bounds_mod}")
-    if has_reuse and cfg.reuse_inl_mod:
+    if has_reuse and cfg.reuse_inl_mod and not is_materialized_inl_mod(cfg.reuse_inl_mod):
         meta_imports.append(f"meta import {cfg.reuse_inl_mod}")
     meta_imports = list(dict.fromkeys(meta_imports))
 

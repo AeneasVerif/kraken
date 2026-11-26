@@ -26,7 +26,7 @@ namespace LeanQbe.T.Amd64.KissatM6Cert47
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Amd64.KissatM6Bounds LeanQbe.T.Examples.Kissat.FullM6Inl
 
 /-- Slice 47 sub-module (`[346, 355)`, `9` functions). -/
-def slice47Mod : Module := { fns := (m6InlFns.drop 346).take 9 }
+noncomputable def slice47Mod : Module := { fns := (m6InlFns.drop 346).take 9 }
 
 compile_linked_chunks! cert47 x64Target x64Layout x64LegalTarget x64LabelClean
   slice47Mod 4 (ext := m6ExtPrefix 346) (maxDirs := 600)

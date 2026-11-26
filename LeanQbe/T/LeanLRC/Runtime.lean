@@ -288,8 +288,9 @@ def genLeanApplyC0 (targets : List LrcClosureTarget) (k : Nat) : String :=
   "    lean_dec(clo_raw);\n    lean_rt_leave(rt_raw);\n    return c2;\n  }\n" ++
   overBranches ++ tree ++ "}\n"
 
-/-- Lower generated `lean_apply_k` (`k ≥ 1`) via C0 frontend to a verified `TFlatFn`. -/
-def genLeanApplyTFlatFn (targets : List LrcClosureTarget) (k : Nat) : Except String TFlatFn := do
+/-- Lower generated `lean_apply_k` (`k ≥ 1`) via C0 frontend to a verified `Frontend.C0.TFlatFn`. -/
+def genLeanApplyTFlatFn (targets : List LrcClosureTarget) (k : Nat) :
+    Except String Frontend.C0.TFlatFn := do
   if k == 0 then throw "genLeanApplyTFlatFn: arity k must be ≥ 1"
   let fns ← compileC0Source rtExits (genLeanApplyC0 targets k)
   match fns with
@@ -298,7 +299,7 @@ def genLeanApplyTFlatFn (targets : List LrcClosureTarget) (k : Nat) : Except Str
 
 /-- Lower `lean_apply_1 .. lean_apply_maxK` for closure table `targets`. -/
 def genLeanApplyTFlatFns (targets : List LrcClosureTarget) (maxK : Nat) :
-    Except String (List TFlatFn) :=
+    Except String (List Frontend.C0.TFlatFn) :=
   (List.range maxK).mapM fun idx => genLeanApplyTFlatFn targets (idx + 1)
 
 end LeanQbe.T.LeanLRC

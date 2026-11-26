@@ -24,7 +24,7 @@ namespace LeanQbe.T.Arm64.KissatM7FidelityCert1
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Examples.Kissat.FullM7FidelityInl
 
 /-- Slice 1 sub-module (`[0, 7)`, `7` functions). -/
-abbrev slice1Mod : Module := { fns := m7FidInlFns.take 7 }
+noncomputable abbrev slice1Mod : Module := { fns := m7FidInlFns.take 7 }
 
 compile_linked_chunks! cert1 armTarget armLayout armLegalTarget armLabelClean
   slice1Mod 4 (maxDirs := 600)
