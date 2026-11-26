@@ -99,7 +99,7 @@ theorem fidStep8Module_map_name :
   rw [fidStep8Fns_eq, fidStep8Fns, patchFns_nil_befores_map_name, ← fidStep7Module_map_name]
   rfl
 
-private def fidStep8FrontNames : List Sym :=
+@[expose] def fidStep8FrontNames : List Sym :=
   [ "full_walk_effort_m7", "full_watch_push_slow_m6", "full_watch_push_m6"
   , "full_delete_bin_side", "full_bva_commit" ]
 
@@ -1283,6 +1283,18 @@ theorem fidStep8Env_elim_preprocessM6 {xs : Tup Val [i64]} {m : Mem 64}
     (h : fidStep8Env "full_preprocess_m6" [i64] [i64] xs m Q X) :
     FullM6.fullM6PreprocessSpec xs m Q X :=
   fidStep7Env_elim_preprocessM6 (fidStep8_peel_from_base (by decide) h)
+
+theorem fidStep8Env_s12Lift {f : Sym} {as bs : List Ty}
+    (hf8 : !(fidStep8FrontNames.contains f) = true)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep7Env f as bs xs m Q X) : fidStep8Env f as bs xs m Q X :=
+  fid8_of_step7 hf8 h
+
+theorem fidStep8Env_s12Peel {f : Sym} {as bs : List Ty}
+    (hf8 : !(fidStep8FrontNames.contains f) = true)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep8Env f as bs xs m Q X) : fidStep7Env f as bs xs m Q X :=
+  fidStep8_peel_from_base hf8 h
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8
 

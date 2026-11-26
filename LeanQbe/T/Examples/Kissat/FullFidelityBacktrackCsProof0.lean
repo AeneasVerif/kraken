@@ -426,7 +426,7 @@ private theorem diagV_tupZip_nil :
   have h := diagV_tupZip xs (G := []) (fun _ _ _ h => by cases h)
   rwa [List.append_nil] at h
 
-private theorem func_wp_of_renameFuncCalls {as rs : List Ty} (σ : Sym → Sym) (f : Func as rs)
+theorem func_wp_of_renameFuncCalls {as rs : List Ty} (σ : Sym → Sym) (f : Func as rs)
     (hwf : Func.Wf f) (Γ : Env) {spec : Spec as rs}
     (hwp : ∀ a m Q X, spec a m Q X → Func.wp (fun fn as' bs' => Γ (σ fn) as' bs') f a m Q X) :
     ∀ a m Q X, spec a m Q X → Func.wp Γ (renameFuncCalls σ f) a m Q X :=

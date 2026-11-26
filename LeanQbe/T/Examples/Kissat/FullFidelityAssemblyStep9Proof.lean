@@ -301,7 +301,7 @@ theorem fidStep9Module_names_nodup : fidStep9Module.namesNodup := by
   rw [fidStep9_externs_empty, List.map_nil, List.append_nil, fidStep9Fns_eq, fidStep9_map_name]
   exact nodup_flatMap_patchStrNames hnd7 h1 h2 h3
 
-private def fidStep9FrontNames : List Sym :=
+@[expose] def fidStep9FrontNames : List Sym :=
   [ "full_prop_flush_del_fid", "full_arena_sweep_m6", "full_reduce_m6"
   , "full_congruence_dense", "full_rebuild_watches", "full_bva_commit"
   , "full_bva_upd_lit_fid", "full_factor", "full_compact_needed"
@@ -1860,6 +1860,46 @@ theorem fidStep9Env_elim_preprocessM6 {xs : Tup Val [i64]} {m : Mem 64}
     (h : fidStep9Env "full_preprocess_m6" [i64] [i64] xs m Q X) :
     fullM6PreprocessSpec xs m Q X :=
   fidStep8Env_elim_preprocessM6 (fidStep9_peel_from_base (by decide) h)
+
+theorem fidStep9Env_s12Lift {f : Sym} {as bs : List Ty}
+    (hf9 : !(fidStep9FrontNames.contains f) = true)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep8Env f as bs xs m Q X) : fidStep9Env f as bs xs m Q X :=
+  fid9_of_step8 hf9 h
+
+theorem fidStep9Env_s12Peel {f : Sym} {as bs : List Ty}
+    (hf9 : !(fidStep9FrontNames.contains f) = true)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep9Env f as bs xs m Q X) : fidStep8Env f as bs xs m Q X :=
+  fidStep9_peel_from_base hf9 h
+
+theorem fidStep9Env_bvaUpdLitFid :
+    ∀ a m Q X, step9BvaUpdLitSpec a m Q X →
+      fidStep9Env "full_bva_upd_lit_fid" [i64, i64, i64, i64, i64, i64] [i32] a m Q X :=
+  fid9_frontRow 6 "full_bva_upd_lit_fid" step9BvaUpdLitSpec rfl step9BvaUpdLitSpec_noExit
+
+theorem fidStep9Env_elim_congruenceDense {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep9Env "full_congruence_dense" [i64, i64] [i64] xs m Q X) :
+    FullM3CongBva.m3CongruenceDenseSpec xs m Q (fun _ _ _ _ => False) := by
+  have hfind : fidStep9Bundle.frontTable.find? (·.name == "full_congruence_dense") =
+      some fidStep9ReplRows[3] := rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h
+
+theorem fidStep9Env_elim_factor {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep9Env "full_factor" [i64, i64] [i64] xs m Q X) :
+    FullBvaHeap.fullFactorHeapSpec xs m Q (fun _ _ _ _ => False) := by
+  have hfind : fidStep9Bundle.frontTable.find? (·.name == "full_factor") =
+      some fidStep9ReplRows[7] := rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h
+
+theorem fidStep9Env_elim_probeM6 {xs : Tup Val [i64, .bool]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep9Env "full_probe_m6" [i64, .bool] [i64] xs m Q X) : m6ProbeSpec xs m Q X := by
+  have hfind : fidStep9Bundle.frontTable.find? (·.name == "full_probe_m6") =
+      some fidStep9ReplRows[10] := rfl
+  exact m6ProbeSpec_monoX (env_ofTable_find?_of_append hfind rfl rfl h)
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep9
 

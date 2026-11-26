@@ -195,7 +195,7 @@ theorem fidStep10Module_names_nodup : fidStep10Module.namesNodup := by
   rw [fidStep10_externs_empty, List.map_nil, List.append_nil, fidStep10Fns_eq, fidStep10_map_name]
   exact nodup_flatMap_patchStrNames10 hnd9 h1
 
-private def fidStep10FrontNames : List Sym :=
+@[expose] def fidStep10FrontNames : List Sym :=
   [ "full_analyze_core_m6", "full_vivify_tier_m6_hdr", "full_rebuild_watches_nosort_fid"
   , "full_cong_has_clause_k", "full_bve_def_k6_fid", "full_learn_clause_m6" ]
 
@@ -1431,6 +1431,31 @@ theorem fidStep10Env_elim_preprocessM6 {xs : Tup Val [i64]} {m : Mem 64}
     (h : fidStep10Env "full_preprocess_m6" [i64] [i64] xs m Q X) :
     fullM6PreprocessSpec xs m Q X :=
   fidStep9Env_elim_preprocessM6 (fidStep10_peel_from_base (by decide) h)
+
+theorem fidStep10Env_s12Lift {f : Sym} {as bs : List Ty}
+    (hf10 : !(fidStep10FrontNames.contains f) = true)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep9Env f as bs xs m Q X) : fidStep10Env f as bs xs m Q X :=
+  fid10_of_step9 hf10 h
+
+theorem fidStep10Env_s12Peel {f : Sym} {as bs : List Ty}
+    (hf10 : !(fidStep10FrontNames.contains f) = true)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidStep10Env f as bs xs m Q X) : fidStep9Env f as bs xs m Q X :=
+  fidStep10_peel_from_base hf10 h
+
+theorem fidStep10Env_rebuildWatchesNosort :
+    ∀ a m Q X, Full.fullRebuildWatchesSpec a m Q X →
+      fidStep10Env "full_rebuild_watches_nosort_fid" [i64] [i64] a m Q X :=
+  fid10_frontRow 2 "full_rebuild_watches_nosort_fid" Full.fullRebuildWatchesSpec
+
+theorem fidStep10Env_elim_learnClauseM6 {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep10Env "full_learn_clause_m6" [i64, i64] [i64] xs m Q X) :
+    step10LearnClauseM6Spec xs m Q X := by
+  have hfind : fidStep10Bundle.frontTable.find? (·.name == "full_learn_clause_m6") =
+      some fidStep10BeforeRows[0] := rfl
+  exact step10LearnClauseM6Spec_monoX (env_ofTable_find?_of_append hfind rfl rfl h)
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep10
 
