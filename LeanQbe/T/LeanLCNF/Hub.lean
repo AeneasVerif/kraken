@@ -27,6 +27,11 @@ public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof3
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersSpec
 public import LeanQbe.T.LeanLCNF.LcnfC0Demo
 public import LeanQbe.T.LeanLCNF.LcnfC0DemoProof
+public import LeanQbe.T.LeanLCNF.LcnfC0Ffi
+public import LeanQbe.T.LeanLCNF.LcnfC0FfiProof
+public import LeanQbe.T.LeanLCNF.LcnfC0FfiProof1
+public import LeanQbe.T.LeanLCNF.LcnfC0FfiProof2
+public import LeanQbe.T.LeanLCNF.LcnfC0FfiSpec
 public import LeanQbe.T.LeanLCNF.LcnfC0Full
 public import LeanQbe.T.LeanLCNF.LcnfC0FullProof
 public import LeanQbe.T.LeanLCNF.LcnfC0LinkKit
