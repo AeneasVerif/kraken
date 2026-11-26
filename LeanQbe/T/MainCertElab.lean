@@ -680,12 +680,6 @@ def evalPrefixExtWithLen (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     targetFns.map fun f => Task.spawn fun () => evalOneFnBoundStage1 I lt f
   evalPrefixExtFromTasks I raBytes ext0 exits nX maxBound tasks pruneTasks?
 
-/-- Evaluates `evalOneFnBound` in order over `fs` starting from `ext0`. -/
-def evalPrefixExt (I : Isa) (lt : LegalTarget) (raBytes : Nat)
-    (ext0 : List (SigEntry × Nat)) (exits : List Sym) (nX maxBound : Nat)
-    (fs : List Fn) : Except String Lean.Expr :=
-  Prod.snd <$> evalPrefixExtWithLen I lt raBytes ext0 exits nX maxBound fs
-
 /-- Curried meta prefix-bound evaluator over decoded `List TFlatFn`. -/
 def makePrefixExtEvaluator (I : Isa) (lt : LegalTarget) (raBytes : Nat)
     (ext0 : List (SigEntry × Nat)) (exits : List Sym) (nX maxBound : Nat)

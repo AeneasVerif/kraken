@@ -60,10 +60,8 @@ def evalOptInlinePolicyData (M : Module) (policy : InlinePolicy) : MatModData :=
 -- Shared MetaM AST literal builders and elaboration helpers for `inline_mod!` and chunking.
 namespace InlineMeta
 
-def mkListLit (u : Level) (ty : Lean.Expr) (elems : List Lean.Expr) : Lean.Expr :=
-  elems.reverse.foldl
-    (fun acc x => mkApp3 (Lean.mkConst ``List.cons [u]) ty x acc)
-    (mkApp (Lean.mkConst ``List.nil [u]) ty)
+abbrev mkListLit (u : Level) (ty : Lean.Expr) (elems : List Lean.Expr) : Lean.Expr :=
+  LeanQbe.T.mkExprList u ty elems
 
 private def mkPairTy (a b : Lean.Expr) : Lean.Expr :=
   mkApp2 (Lean.mkConst ``Prod [.zero, .zero]) a b

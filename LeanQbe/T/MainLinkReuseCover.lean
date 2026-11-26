@@ -160,20 +160,20 @@ private theorem blocksRawLegalCallsAux_acc (lt : LegalTarget) {rs : List Ty}
 end
 
 mutual
-private theorem rawCallsAux_mem_or (lt : LegalTarget) {rs : List Ty}
+private theorem calleesAux_mem_or (lt : LegalTarget) {rs : List Ty}
     (cs cs' : List SigEntry) :
     (e : Expr (fun _ => Unit) (fun _ => Unit) rs) →
-    ∀ {g}, g ∈ Expr.rawCallsAux cs e →
+    ∀ {g}, g ∈ Expr.calleesAux e cs →
       g ∈ cs ∨ sigEntryLegal lt g ∈ Expr.rawLegalCallsAux lt e cs'
   | .let_ _ k, g, hg =>
-    rawCallsAux_mem_or lt cs cs' (k (Tup.units _)) hg
+    calleesAux_mem_or lt cs cs' (k (Tup.units _)) hg
   | .load _ _ k, g, hg =>
-    rawCallsAux_mem_or lt cs cs' (k ()) hg
+    calleesAux_mem_or lt cs cs' (k ()) hg
   | .store _ _ k, g, hg =>
-    rawCallsAux_mem_or lt cs cs' k hg
+    calleesAux_mem_or lt cs cs' k hg
   | .call (as := as) (bs := bs) nm _ k, g, hg => by
-    dsimp only [Expr.rawCallsAux, Expr.rawLegalCallsAux] at hg ⊢
-    rcases rawCallsAux_mem_or lt _ _ (k (Tup.units bs)) hg with h | h
+    dsimp only [Expr.calleesAux, addCalleeEntry, Expr.rawLegalCallsAux] at hg ⊢
+    rcases calleesAux_mem_or lt _ _ (k (Tup.units bs)) hg with h | h
     · split at h
       · exact Or.inl h
       · rcases List.mem_cons.mp h with rfl | h
@@ -182,36 +182,33 @@ private theorem rawCallsAux_mem_or (lt : LegalTarget) {rs : List Ty}
         · exact Or.inl h
     · exact Or.inr h
   | .jnz _ t e, g, hg => by
-    dsimp only [Expr.rawCallsAux, Expr.rawLegalCallsAux] at hg ⊢
-    rcases rawCallsAux_mem_or lt _ cs' e hg with h | h
-    · rcases rawCallsAux_mem_or lt cs (Expr.rawLegalCallsAux lt e cs') t h with h1 | h2
+    dsimp only [Expr.calleesAux, Expr.rawLegalCallsAux] at hg ⊢
+    rcases calleesAux_mem_or lt _ cs' e hg with h | h
+    · rcases calleesAux_mem_or lt cs (Expr.rawLegalCallsAux lt e cs') t h with h1 | h2
       · exact Or.inl h1
       · exact Or.inr h2
     · exact Or.inr (rawLegalCallsAux_acc lt _ t h)
-  | .jump _ _, _, hg => Or.inl hg
-  | .ret _, _, hg => Or.inl hg
-  | .exit _ _, _, hg => Or.inl hg
-  | .hlt, _, hg => Or.inl hg
+  | .jump _ _, _, hg | .ret _, _, hg | .exit _ _, _, hg | .hlt, _, hg => Or.inl hg
   | .group b k, g, hg => by
-    dsimp only [Expr.rawCallsAux, Expr.rawLegalCallsAux] at hg ⊢
-    rcases rawCallsAux_mem_or lt _ cs' (k (Tup.units _)) hg with h | h
-    · rcases blocksRawCallsAux_mem_or lt cs (Expr.rawLegalCallsAux lt (k (Tup.units _)) cs')
-          (b (Tup.units _)) h with h1 | h2
+    dsimp only [Expr.calleesAux, Expr.rawLegalCallsAux] at hg ⊢
+    rcases blocksCalleesAux_mem_or lt _ (Expr.rawLegalCallsAux lt (k (Tup.units _)) cs')
+        (b (Tup.units _)) hg with h | h
+    · rcases calleesAux_mem_or lt cs cs' (k (Tup.units _)) h with h1 | h2
       · exact Or.inl h1
-      · exact Or.inr h2
-    · exact Or.inr (blocksRawLegalCallsAux_acc lt _ (b (Tup.units _)) h)
+      · exact Or.inr (blocksRawLegalCallsAux_acc lt _ (b (Tup.units _)) h2)
+    · exact Or.inr h
 
-private theorem blocksRawCallsAux_mem_or (lt : LegalTarget) {rs : List Ty}
+private theorem blocksCalleesAux_mem_or (lt : LegalTarget) {rs : List Ty}
     (cs cs' : List SigEntry) :
     {sig : List (List Ty)} → (bs : Blocks (fun _ => Unit) (fun _ => Unit) rs sig) →
-    ∀ {g}, g ∈ Blocks.rawCallsAux cs bs →
+    ∀ {g}, g ∈ Blocks.calleesAux bs cs →
       g ∈ cs ∨ sigEntryLegal lt g ∈ Blocks.rawLegalCallsAux lt bs cs'
   | [], .nil, _, hg => Or.inl hg
   | _ :: _, .cons b bs, g, hg => by
-    dsimp only [Blocks.rawCallsAux, Blocks.rawLegalCallsAux] at hg ⊢
-    rcases blocksRawCallsAux_mem_or lt _ (Expr.rawLegalCallsAux lt (b (Tup.units _)) cs')
+    dsimp only [Blocks.calleesAux, Blocks.rawLegalCallsAux] at hg ⊢
+    rcases blocksCalleesAux_mem_or lt _ (Expr.rawLegalCallsAux lt (b (Tup.units _)) cs')
         bs hg with h | h
-    · rcases rawCallsAux_mem_or lt cs cs' (b (Tup.units _)) h with h1 | h2
+    · rcases calleesAux_mem_or lt cs cs' (b (Tup.units _)) h with h1 | h2
       · exact Or.inl h1
       · exact Or.inr (blocksRawLegalCallsAux_acc lt _ bs h2)
     · exact Or.inr h
@@ -222,8 +219,8 @@ theorem rawCalls_map_sub_rawLegalCallees (lt : LegalTarget) (f : Fn) :
     ∀ g ∈ f.rawCalls.map (sigEntryLegal lt), g ∈ f.rawLegalCallees lt := by
   intro g hg
   rcases List.mem_map.mp hg with ⟨g₀, hg₀, rfl⟩
-  dsimp only [Fn.rawCalls] at hg₀
-  rcases rawCallsAux_mem_or lt [] []
+  dsimp only [Fn.rawCalls, Fn.callees] at hg₀
+  rcases calleesAux_mem_or lt [] []
       (f.body (fun _ => Unit) (fun _ => Unit) (Tup.units f.as))
       (List.mem_reverse.mp hg₀) with h | h
   · exact nomatch h
@@ -445,16 +442,6 @@ etc., using a `CalleesCover` proof and `checkChunksExtAgreeOn`. -/
     c.relinkCover acc S (calleesCover_cons_left hcov) hpair.1 ::
       relinkChunkListCover cs (c.compiled.sigBounds ++ acc) S
         (calleesCover_cons_right hcov) hpair.2
-
-/-- Relink every chunk in `chunks` using pruned accumulator `pruneExt S newAcc` for chunk 0. -/
-@[expose] def relinkChunkListPrune {T : Target} {lt : LegalTarget}
-    {exits : List Sym} {nX : Nat}
-    (chunks : List (CompiledChunk T lt exits nX))
-    (newAcc : List (SigEntry × Nat)) (S : List SigEntry)
-    (hcov : CalleesCover lt (chunksFns chunks) S)
-    (hagree : checkChunksExtAgreeOn S chunks (pruneExt S newAcc) = true) :
-    List (CompiledChunk T lt exits nX) :=
-  relinkChunkListCover chunks (pruneExt S newAcc) S hcov hagree
 
 /-- Relink every chunk in `chunks` against pre-pruned literal `extLits` without calling
 `pruneExt` inside the kernel. -/

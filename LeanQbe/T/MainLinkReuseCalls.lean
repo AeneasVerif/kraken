@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Opt
 public import LeanQbe.T.Main
+public import LeanQbe.T.Scc
 public import LeanQbe.T.MainLinkReuseLegalCalls
 import LeanQbe.T.OptLemmas
 import LeanQbe.T.LegalLemmas
@@ -43,32 +44,8 @@ namespace LeanQbe.T
 
 /-! ## Raw pre-legal call/exit collectors and monotonicity -/
 
-mutual
-/-- Collect deduplicated `(callee, argTys, retTys)` triples from pre-legal expressions. -/
-@[expose] def Expr.rawCallsAux {rs : List Ty} (acc : List SigEntry) :
-    Expr (fun _ => Unit) (fun _ => Unit) rs → List SigEntry
-  | .let_ _ k => Expr.rawCallsAux acc (k (Tup.units _))
-  | .load _ _ k => Expr.rawCallsAux acc (k ())
-  | .store _ _ k => Expr.rawCallsAux acc k
-  | .call f (as := as) (bs := bs) _ k =>
-    let acc' := if (f, as, bs) ∈ acc then acc else (f, as, bs) :: acc
-    Expr.rawCallsAux acc' (k (Tup.units bs))
-  | .jnz _ t e => Expr.rawCallsAux (Expr.rawCallsAux acc t) e
-  | .jump _ _ | .ret _ | .exit _ _ | .hlt => acc
-  | .group (sig := sig) bodies k =>
-    Expr.rawCallsAux (Blocks.rawCallsAux acc (bodies (Tup.units sig))) (k (Tup.units sig))
-
-/-- Block-list companion of `Expr.rawCallsAux`. -/
-@[expose] def Blocks.rawCallsAux {rs : List Ty} (acc : List SigEntry) :
-    {sig : List (List Ty)} → Blocks (fun _ => Unit) (fun _ => Unit) rs sig → List SigEntry
-  | _, .nil => acc
-  | ts :: _, .cons b bs =>
-    Blocks.rawCallsAux (Expr.rawCallsAux acc (b (Tup.units ts))) bs
-end
-
-/-- Deduplicated pre-legal callees of `f`. -/
-@[expose] def Fn.rawCalls (f : Fn) : List SigEntry :=
-  (Expr.rawCallsAux [] (f.body (fun _ => Unit) (fun _ => Unit) (Tup.units f.as))).reverse
+/-- Deduplicated pre-legal callees of `f` (delegating to `Fn.callees`). -/
+abbrev Fn.rawCalls (f : Fn) : List SigEntry := f.callees
 
 mutual
 /-- Collect deduplicated abnormal-exit symbols from expressions. -/
@@ -101,15 +78,13 @@ private theorem tup_units_unit_eq {α : Type} :
   | [], () => rfl
   | _ :: _, ((), rest) => congrArg ((), ·) (tup_units_unit_eq rest)
 
-private theorem blocks_callsOk_of_get_unit {allowed : List SigEntry} {exits : List Sym}
+private theorem blocks_callsOk_of_get_rw {allowed : List SigEntry} {exits : List Sym}
     {rs : List Ty} :
     ∀ {sig : List (List Ty)} (bs : Blocks (fun _ => Unit) (fun _ => Unit) rs sig),
-      (∀ {ts} (i : Member ts sig) (xs : Tup (fun _ => Unit) ts),
-        (bs.get i xs).callsOk allowed exits) →
+      (∀ {ts} (i : Member ts sig), (bs.get i (Tup.units ts)).callsOk allowed exits) →
       bs.callsOk allowed exits
   | _, .nil, _ => trivial
-  | _, .cons _ _, h =>
-    ⟨h .here (Tup.units _), blocks_callsOk_of_get_unit _ fun i => h (.there i)⟩
+  | _, .cons _ _, h => ⟨h .here, blocks_callsOk_of_get_rw _ fun i => h (.there i)⟩
 
 /-- `Expr.callsOk` is monotone in both `allowed` and `exits`. -/
 theorem Expr.callsOk_mono_both {a₁ a₂ : List SigEntry} {x₁ x₂ : List Sym}
@@ -125,36 +100,46 @@ theorem Expr.callsOk_mono_both {a₁ a₂ : List SigEntry} {x₁ x₂ : List Sym
   | jump _ _ | ret _ | hlt => exact hc
   | exit _ _ => exact hx _ hc
   | group _ _ ihb ihk =>
-    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_, ihk (Tup.units _) ?_⟩
-    · rw [tup_units_unit_eq xs]
-      exact ihb (Tup.units _) i (Tup.units _) (Blocks.callsOk_get hc.1 i)
-    · exact hc.2
+    exact ⟨blocks_callsOk_of_get_rw _ fun i =>
+      ihb (Tup.units _) i (Tup.units _) (Blocks.callsOk_get hc.1 i), ihk (Tup.units _) hc.2⟩
+
+private theorem addCalleeEntry_self {e : SigEntry} {cs : List SigEntry} :
+    e ∈ addCalleeEntry e cs := by
+  dsimp only [addCalleeEntry]; split
+  · rename_i h; rw [List.any_eq_true] at h
+    obtain ⟨x, hx, hbeq⟩ := h
+    have heq : e = x := SigEntry.beq_iff_eq.mp (by simpa [SigEntry.beq] using hbeq)
+    exact heq ▸ hx
+  · exact List.mem_cons_self
+
+private theorem addCalleeEntry_mem {x e : SigEntry} {cs : List SigEntry}
+    (hx : x ∈ cs) : x ∈ addCalleeEntry e cs := by
+  dsimp only [addCalleeEntry]; split
+  · exact hx
+  · exact List.mem_cons_of_mem _ hx
 
 mutual
-private theorem expr_rawCallsAux_acc {rs : List Ty} (acc : List SigEntry) {x : SigEntry}
+private theorem expr_calleesAux_acc {rs : List Ty} (acc : List SigEntry) {x : SigEntry}
     (hx : x ∈ acc) : (e : Expr (fun _ => Unit) (fun _ => Unit) rs) →
-    x ∈ Expr.rawCallsAux acc e
-  | .let_ _ k => expr_rawCallsAux_acc acc hx (k (Tup.units _))
-  | .load _ _ k => expr_rawCallsAux_acc acc hx (k ())
-  | .store _ _ k => expr_rawCallsAux_acc acc hx k
-  | .call f (as := as) (bs := bs) _ k => by
-    dsimp only [Expr.rawCallsAux]
-    split
-    · exact expr_rawCallsAux_acc acc hx (k (Tup.units bs))
-    · exact expr_rawCallsAux_acc _ (List.mem_cons_of_mem _ hx) (k (Tup.units bs))
+    x ∈ Expr.calleesAux e acc
+  | .let_ _ k => expr_calleesAux_acc acc hx (k (Tup.units _))
+  | .load _ _ k => expr_calleesAux_acc acc hx (k ())
+  | .store _ _ k => expr_calleesAux_acc acc hx k
+  | .call _ (bs := bs) _ k =>
+    expr_calleesAux_acc _ (addCalleeEntry_mem hx) (k (Tup.units bs))
   | .jnz _ t e =>
-    expr_rawCallsAux_acc _ (expr_rawCallsAux_acc acc hx t) e
+    expr_calleesAux_acc _ (expr_calleesAux_acc acc hx t) e
   | .jump _ _ | .ret _ | .exit _ _ | .hlt => hx
   | .group (sig := sig) bodies k =>
-    expr_rawCallsAux_acc _ (blocks_rawCallsAux_acc acc hx (bodies (Tup.units sig)))
-      (k (Tup.units sig))
+    blocks_calleesAux_acc _ (expr_calleesAux_acc acc hx (k (Tup.units sig)))
+      (bodies (Tup.units sig))
 
-private theorem blocks_rawCallsAux_acc {rs : List Ty} (acc : List SigEntry) {x : SigEntry}
+private theorem blocks_calleesAux_acc {rs : List Ty} (acc : List SigEntry) {x : SigEntry}
     (hx : x ∈ acc) : {sig : List (List Ty)} →
-    (bs : Blocks (fun _ => Unit) (fun _ => Unit) rs sig) → x ∈ Blocks.rawCallsAux acc bs
+    (bs : Blocks (fun _ => Unit) (fun _ => Unit) rs sig) → x ∈ Blocks.calleesAux bs acc
   | _, .nil => hx
   | ts :: _, .cons b bs =>
-    blocks_rawCallsAux_acc _ (expr_rawCallsAux_acc acc hx (b (Tup.units ts))) bs
+    blocks_calleesAux_acc _ (expr_calleesAux_acc acc hx (b (Tup.units ts))) bs
 end
 
 mutual
@@ -194,23 +179,20 @@ private theorem blocks_callsOk_mono_both {a₁ a₂ : List SigEntry} {x₁ x₂ 
     ⟨Expr.callsOk_mono_both ha hx (b (Tup.units _)) h.1, blocks_callsOk_mono_both ha hx bs h.2⟩
 
 mutual
-private theorem expr_callsOk_rawAux {rs : List Ty} (acc : List SigEntry) (eacc : List Sym) :
+private theorem expr_callsOk_calleesAux {rs : List Ty} (acc : List SigEntry) (eacc : List Sym) :
     (e : Expr (fun _ => Unit) (fun _ => Unit) rs) →
-    e.callsOk (Expr.rawCallsAux acc e) (Expr.rawExitsAux eacc e)
-  | .let_ _ k => expr_callsOk_rawAux acc eacc (k (Tup.units _))
-  | .load _ _ k => expr_callsOk_rawAux acc eacc (k ())
-  | .store _ _ k => expr_callsOk_rawAux acc eacc k
+    e.callsOk (Expr.calleesAux e acc) (Expr.rawExitsAux eacc e)
+  | .let_ _ k => expr_callsOk_calleesAux acc eacc (k (Tup.units _))
+  | .load _ _ k => expr_callsOk_calleesAux acc eacc (k ())
+  | .store _ _ k => expr_callsOk_calleesAux acc eacc k
   | .call f (as := as) (bs := bs) _ k => by
-    dsimp only [Expr.callsOk, Expr.rawCallsAux, Expr.rawExitsAux]
-    have hmem : (f, as, bs) ∈ (if (f, as, bs) ∈ acc then acc else (f, as, bs) :: acc) := by
-      split
-      · assumption
-      · exact List.mem_cons_self
-    exact ⟨expr_rawCallsAux_acc _ hmem _, expr_callsOk_rawAux _ eacc (k (Tup.units bs))⟩
+    dsimp only [Expr.callsOk, Expr.calleesAux, Expr.rawExitsAux]
+    exact ⟨expr_calleesAux_acc _ addCalleeEntry_self _,
+      expr_callsOk_calleesAux _ eacc (k (Tup.units bs))⟩
   | .jnz _ t e =>
-    ⟨Expr.callsOk_mono_both (fun _ h => expr_rawCallsAux_acc _ h e)
-        (fun _ h => expr_rawExitsAux_acc _ h e) t (expr_callsOk_rawAux acc eacc t),
-      expr_callsOk_rawAux (Expr.rawCallsAux acc t) (Expr.rawExitsAux eacc t) e⟩
+    ⟨Expr.callsOk_mono_both (fun _ h => expr_calleesAux_acc _ h e)
+        (fun _ h => expr_rawExitsAux_acc _ h e) t (expr_callsOk_calleesAux acc eacc t),
+      expr_callsOk_calleesAux (Expr.calleesAux t acc) (Expr.rawExitsAux eacc t) e⟩
   | .jump _ _ | .ret _ | .hlt => trivial
   | .exit g _ => by
     dsimp only [Expr.callsOk, Expr.rawExitsAux]
@@ -218,25 +200,31 @@ private theorem expr_callsOk_rawAux {rs : List Ty} (acc : List SigEntry) (eacc :
     · assumption
     · exact List.mem_cons_self
   | .group (sig := sig) bodies k => by
-    dsimp only [Expr.callsOk, Expr.rawCallsAux, Expr.rawExitsAux]
+    dsimp only [Expr.callsOk, Expr.calleesAux, Expr.rawExitsAux]
     refine ⟨blocks_callsOk_mono_both
-        (fun _ h => expr_rawCallsAux_acc _ h (k (Tup.units sig)))
+        (fun _ h => h)
         (fun _ h => expr_rawExitsAux_acc _ h (k (Tup.units sig)))
-        (bodies (Tup.units sig)) (blocks_callsOk_rawAux acc eacc (bodies (Tup.units sig))),
-      expr_callsOk_rawAux (Blocks.rawCallsAux acc (bodies (Tup.units sig)))
-        (Blocks.rawExitsAux eacc (bodies (Tup.units sig))) (k (Tup.units sig))⟩
+        (bodies (Tup.units sig))
+        (blocks_callsOk_calleesAux (Expr.calleesAux (k (Tup.units sig)) acc) eacc
+          (bodies (Tup.units sig))),
+      Expr.callsOk_mono_both
+        (fun _ h => blocks_calleesAux_acc _ h (bodies (Tup.units sig)))
+        (fun _ h => h)
+        (k (Tup.units sig))
+        (expr_callsOk_calleesAux acc (Blocks.rawExitsAux eacc (bodies (Tup.units sig)))
+          (k (Tup.units sig)))⟩
 
-private theorem blocks_callsOk_rawAux {rs : List Ty} (acc : List SigEntry) (eacc : List Sym) :
+private theorem blocks_callsOk_calleesAux {rs : List Ty} (acc : List SigEntry) (eacc : List Sym) :
     {sig : List (List Ty)} → (bs : Blocks (fun _ => Unit) (fun _ => Unit) rs sig) →
-    bs.callsOk (Blocks.rawCallsAux acc bs) (Blocks.rawExitsAux eacc bs)
+    bs.callsOk (Blocks.calleesAux bs acc) (Blocks.rawExitsAux eacc bs)
   | _, .nil => trivial
   | ts :: _, .cons b bs => by
-    dsimp only [Blocks.callsOk, Blocks.rawCallsAux, Blocks.rawExitsAux]
+    dsimp only [Blocks.callsOk, Blocks.calleesAux, Blocks.rawExitsAux]
     refine ⟨Expr.callsOk_mono_both
-        (fun _ h => blocks_rawCallsAux_acc _ h bs)
+        (fun _ h => blocks_calleesAux_acc _ h bs)
         (fun _ h => blocks_rawExitsAux_acc _ h bs)
-        (b (Tup.units ts)) (expr_callsOk_rawAux acc eacc (b (Tup.units ts))),
-      blocks_callsOk_rawAux (Expr.rawCallsAux acc (b (Tup.units ts)))
+        (b (Tup.units ts)) (expr_callsOk_calleesAux acc eacc (b (Tup.units ts))),
+      blocks_callsOk_calleesAux (Expr.calleesAux (b (Tup.units ts)) acc)
         (Expr.rawExitsAux eacc (b (Tup.units ts))) bs⟩
 end
 
@@ -245,46 +233,73 @@ theorem Fn.callsOk_raw (f : Fn) : f.callsOk f.rawCalls f.rawExits :=
   Expr.callsOk_mono_both (fun _ h => List.mem_reverse.mpr h)
     (fun _ h => List.mem_reverse.mpr h)
     (f.body (fun _ => Unit) (fun _ => Unit) (Tup.units f.as))
-    (expr_callsOk_rawAux [] [] _)
+    (expr_callsOk_calleesAux [] [] _)
 
 /-! ## `fold`, `canon`, `copy`, `gvn`, `divConst` `callsOk` preservation -/
+
+local macro "calls_step" fn:ident ih:ident : tactic =>
+  `(tactic| (
+    repeat' intro; rename_i hc
+    unfold $fn; (try dsimp only [Expr.callsOk])
+    apply $ih <;> first
+      | exact (Tup.units _) | exact () | exact (.var ())
+      | exact (toArgTup (Tup.units _)) | exact hc | assumption))
+
+local macro "calls_call" fn:ident ih:ident : tactic =>
+  `(tactic| (
+    repeat' intro; rename_i hc
+    unfold $fn; (try dsimp only [Expr.callsOk])
+    exact ⟨hc.1, by
+      apply $ih <;> first
+        | exact hc.2 | exact (Tup.units _) | exact (toArgTup (Tup.units _)) | assumption⟩))
+
+local macro "calls_jnz" fn:ident iht:ident ihe:ident : tactic =>
+  `(tactic| (
+    repeat' intro; rename_i hc
+    unfold $fn; (try dsimp only [Expr.callsOk])
+    exact ⟨
+      by apply $iht <;> first | exact hc.1 | exact (Tup.units _) | assumption,
+      by apply $ihe <;> first | exact hc.2 | exact (Tup.units _) | assumption⟩))
+
+local macro "calls_grp" fn:ident rwb:tactic ihb:ident ihk:ident : tactic =>
+  `(tactic| (
+    repeat' intro; rename_i hc
+    unfold $fn
+    (try dsimp only [Expr.callsOk])
+    refine ⟨blocks_callsOk_of_get_rw _ fun i => ?_,
+      by apply $ihk <;> first | exact hc.2 | exact (Tup.units _) | assumption⟩
+    $rwb
+    apply $ihb <;> first
+      | exact (Blocks.callsOk_get hc.1 i) | exact (Tup.units _)
+      | exact (toArgTup (Tup.units _)) | assumption))
+
+local macro "calls_triv" fn:ident : tactic =>
+  `(tactic| (intros; (try unfold $fn); trivial))
 
 private theorem foldExpr_callsOk {allowed : List SigEntry} {exits : List Sym} {rs : List Ty}
     {G : Ctx (FVal (fun _ => Unit)) (fun _ => Unit)}
     {D : Ctx (fun _ => Unit) (fun _ => Unit)}
     {e₁ : Expr (FVal (fun _ => Unit)) (fun _ => Unit) rs}
-    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hwf : Wf G D e₁ e₂) :
+    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs} (hwf : Wf G D e₁ e₂) :
     ∀ b, e₂.callsOk allowed exits → (fold b e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
   | @let_ _ _ _ op₁ _ _ _ _ _ ih =>
-    intro b hc
-    unfold fold
+    intro b hc; unfold fold
     cases op₁.simpAct with
     | some _ => exact ih _ (Tup.units _) b hc
-    | none =>
-      cases op₁.simpProv? with
+    | none => cases op₁.simpProv? with
       | some _ => exact ih _ (Tup.units _) b hc
       | none => exact ih _ (Tup.units _) (b + _) hc
-  | load _ _ _ ih => intro b hc; exact ih _ () (b + 1) hc
-  | store _ _ _ ih => intro b hc; exact ih b hc
-  | call _ _ _ ih => intro b ⟨hm, hc⟩; exact ⟨hm, ih _ (Tup.units _) (b + _) hc⟩
+  | load _ _ _ ih | store _ _ _ ih => calls_step fold ih
+  | call _ _ _ ih => calls_call fold ih
   | @jnz _ _ c₁ _ _ _ _ _ _ _ _ iht ihe =>
-    intro b ⟨ht, he⟩
-    dsimp only [fold]
+    intro b ⟨ht, he⟩; dsimp only [fold]
     cases c₁.fout with
     | imm bv => cases bv <;> first | exact iht b ht | exact ihe b he
     | var _ => exact ⟨iht b ht, ihe b he⟩
-  | jump _ _ => intro _ _; trivial
-  | ret _ => intro _ _; trivial
-  | exit _ _ => intro _ hx; exact hx
-  | hlt => intro _ _; trivial
-  | group _ _ ihb ihk =>
-    intro b ⟨hb, hk⟩
-    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_,
-      ihk (Tup.units _) (Tup.units _) b hk⟩
-    rw [foldB_get, tup_units_unit_eq xs]
-    exact ihb (Tup.units _) (Tup.units _) i _ (Tup.units _) (b + _) (Blocks.callsOk_get hb i)
+  | jump _ _ | ret _ | hlt => calls_triv fold
+  | exit _ _ => intros; assumption
+  | group _ _ ihb ihk => calls_grp fold (rw [foldB_get]) ihb ihk
 
 /-- `Func.fold` preserves `Expr.callsOk`. -/
 theorem Func.fold_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -298,25 +313,15 @@ private theorem canonExpr_callsOk {allowed : List SigEntry} {exits : List Sym} {
     {G : Ctx (CanonVal (fun _ => Unit)) (fun _ => Unit)}
     {D : Ctx (fun _ => Unit) (fun _ => Unit)}
     {e₁ : Expr (CanonVal (fun _ => Unit)) (fun _ => Unit) rs}
-    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hwf : Wf G D e₁ e₂) :
+    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs} (hwf : Wf G D e₁ e₂) :
     ∀ b, e₂.callsOk allowed exits → (canon b e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
-  | let_ _ _ ih => intro b hc; exact ih _ (Tup.units _) (b + _) hc
-  | load _ _ _ ih => intro b hc; exact ih _ () (b + 1) hc
-  | store _ _ _ ih => intro b hc; exact ih b hc
-  | call _ _ _ ih => intro b ⟨hm, hc⟩; exact ⟨hm, ih _ (Tup.units _) (b + _) hc⟩
-  | jnz _ _ _ iht ihe => intro b ⟨ht, he⟩; exact ⟨iht b ht, ihe b he⟩
-  | jump _ _ => intro _ _; trivial
-  | ret _ => intro _ _; trivial
-  | exit _ _ => intro _ hx; exact hx
-  | hlt => intro _ _; trivial
-  | group _ _ ihb ihk =>
-    intro b ⟨hb, hk⟩
-    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_,
-      ihk (Tup.units _) (Tup.units _) b hk⟩
-    rw [canonB_get, tup_units_unit_eq xs]
-    exact ihb (Tup.units _) (Tup.units _) i _ (Tup.units _) (b + _) (Blocks.callsOk_get hb i)
+  | let_ _ _ ih | load _ _ _ ih | store _ _ _ ih => calls_step canon ih
+  | call _ _ _ ih => calls_call canon ih
+  | jnz _ _ _ iht ihe => calls_jnz canon iht ihe
+  | jump _ _ | ret _ | hlt => calls_triv canon
+  | exit _ _ => intros; assumption
+  | group _ _ ihb ihk => calls_grp canon (rw [canonB_get]) ihb ihk
 
 /-- `Func.canon` preserves `Expr.callsOk`. -/
 theorem Func.canon_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -330,30 +335,20 @@ private theorem copyExpr_callsOk {allowed : List SigEntry} {exits : List Sym} {r
     {G : Ctx (CVal (fun _ => Unit)) (fun _ => Unit)}
     {D : Ctx (fun _ => Unit) (fun _ => Unit)}
     {e₁ : Expr (CVal (fun _ => Unit)) (fun _ => Unit) rs}
-    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hwf : Wf G D e₁ e₂) :
+    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs} (hwf : Wf G D e₁ e₂) :
     ∀ b, e₂.callsOk allowed exits → (copy b e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
   | @let_ _ _ _ op₁ _ _ _ _ _ ih =>
-    intro b hc
-    unfold copy
+    intro b hc; unfold copy
     cases op₁.copyLet b with
     | elim _ => exact ih _ (Tup.units _) b hc
     | emit _ next' _ => exact ih _ (Tup.units _) next' hc
-  | load _ _ _ ih => intro b hc; exact ih _ () (b + 1) hc
-  | store _ _ _ ih => intro b hc; exact ih b hc
-  | call _ _ _ ih => intro b ⟨hm, hc⟩; exact ⟨hm, ih _ (Tup.units _) (b + _) hc⟩
-  | jnz _ _ _ iht ihe => intro b ⟨ht, he⟩; exact ⟨iht b ht, ihe b he⟩
-  | jump _ _ => intro _ _; trivial
-  | ret _ => intro _ _; trivial
-  | exit _ _ => intro _ hx; exact hx
-  | hlt => intro _ _; trivial
-  | group _ _ ihb ihk =>
-    intro b ⟨hb, hk⟩
-    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_,
-      ihk (Tup.units _) (Tup.units _) b hk⟩
-    rw [copyB_get, tup_units_unit_eq xs]
-    exact ihb (Tup.units _) (Tup.units _) i _ (Tup.units _) (b + _) (Blocks.callsOk_get hb i)
+  | load _ _ _ ih | store _ _ _ ih => calls_step copy ih
+  | call _ _ _ ih => calls_call copy ih
+  | jnz _ _ _ iht ihe => calls_jnz copy iht ihe
+  | jump _ _ | ret _ | hlt => calls_triv copy
+  | exit _ _ => intros; assumption
+  | group _ _ ihb ihk => calls_grp copy (rw [copyB_get]) ihb ihk
 
 /-- `Func.copy` preserves `Expr.callsOk`. -/
 theorem Func.copy_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -367,31 +362,17 @@ private theorem gvnExpr_callsOk {allowed : List SigEntry} {exits : List Sym} {rs
     {G : Ctx (GVal (fun _ => Unit)) (fun _ => Unit)}
     {D : Ctx (fun _ => Unit) (fun _ => Unit)}
     {e₁ : Expr (GVal (fun _ => Unit)) (fun _ => Unit) rs}
-    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hwf : Wf G D e₁ e₂) :
+    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs} (hwf : Wf G D e₁ e₂) :
     ∀ b tbl, e₂.callsOk allowed exits → (gvn b tbl e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
   | let_ _ _ ih =>
-    intro b tbl hc
-    unfold gvn
-    dsimp only
-    split
-    · exact ih _ (Tup.units _) b tbl hc
-    · exact ih _ (Tup.units _) (b + _) _ hc
-  | load _ _ _ ih => intro b tbl hc; exact ih _ () (b + 1) tbl hc
-  | store _ _ _ ih => intro b tbl hc; exact ih b tbl hc
-  | call _ _ _ ih => intro b tbl ⟨hm, hc⟩; exact ⟨hm, ih _ (Tup.units _) (b + _) tbl hc⟩
-  | jnz _ _ _ iht ihe => intro b tbl ⟨ht, he⟩; exact ⟨iht b tbl ht, ihe b tbl he⟩
-  | jump _ _ => intro _ _ _; trivial
-  | ret _ => intro _ _ _; trivial
-  | exit _ _ => intro _ _ hx; exact hx
-  | hlt => intro _ _ _; trivial
-  | group _ _ ihb ihk =>
-    intro b tbl ⟨hb, hk⟩
-    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_,
-      ihk (Tup.units _) (Tup.units _) b tbl hk⟩
-    rw [gvnB_get, tup_units_unit_eq xs]
-    exact ihb (Tup.units _) (Tup.units _) i _ (Tup.units _) (b + _) tbl (Blocks.callsOk_get hb i)
+    intro b tbl hc; unfold gvn; dsimp only; split <;> exact ih _ (Tup.units _) _ _ hc
+  | load _ _ _ ih | store _ _ _ ih => calls_step gvn ih
+  | call _ _ _ ih => calls_call gvn ih
+  | jnz _ _ _ iht ihe => calls_jnz gvn iht ihe
+  | jump _ _ | ret _ | hlt => calls_triv gvn
+  | exit _ _ => intros; assumption
+  | group _ _ ihb ihk => calls_grp gvn (rw [gvnB_get]) ihb ihk
 
 /-- `Func.gvn` preserves `Expr.callsOk`. -/
 theorem Func.gvn_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -482,22 +463,17 @@ private theorem divConstExpr_callsOk {allowed : List SigEntry} {exits : List Sym
     {G : Ctx (Arg (fun _ => Unit)) (fun _ => Unit)}
     {D : Ctx (fun _ => Unit) (fun _ => Unit)}
     {e₁ : Expr (Arg (fun _ => Unit)) (fun _ => Unit) rs}
-    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hwf : Wf G D e₁ e₂) (hc : e₂.callsOk allowed exits) :
-    (divConst e₁).callsOk allowed exits := by
+    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs} (hwf : Wf G D e₁ e₂) :
+    e₂.callsOk allowed exits → (divConst e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
   | let_ _ _ ih =>
-    exact divConstOp_callsOk _ _ fun res => ih res (Tup.units _) hc
-  | load _ _ _ ih => exact ih (.var ()) () hc
-  | store _ _ _ ih => exact ih hc
-  | call _ _ _ ih => exact ⟨hc.1, ih (toArgTup _) (Tup.units _) hc.2⟩
-  | jnz _ _ _ iht ihe => exact ⟨iht hc.1, ihe hc.2⟩
-  | jump _ _ | ret _ | hlt => trivial
-  | exit _ _ => exact hc
-  | group _ _ ihb ihk =>
-    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_, ihk (Tup.units _) (Tup.units _) hc.2⟩
-    rw [divConstB_get_eq, tup_units_unit_eq xs]
-    exact ihb (Tup.units _) (Tup.units _) i (toArgTup _) (Tup.units _) (Blocks.callsOk_get hc.1 i)
+    intro hc; exact divConstOp_callsOk _ _ fun res => ih res (Tup.units _) hc
+  | load _ _ _ ih | store _ _ _ ih => calls_step divConst ih
+  | call _ _ _ ih => calls_call divConst ih
+  | jnz _ _ _ iht ihe => calls_jnz divConst iht ihe
+  | jump _ _ | ret _ | hlt => calls_triv divConst
+  | exit _ _ => intros; assumption
+  | group _ _ ihb ihk => calls_grp divConst (rw [divConstB_get_eq]) ihb ihk
 
 /-- `Func.divConst` preserves `Expr.callsOk`. -/
 theorem Func.divConst_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -538,38 +514,22 @@ private theorem memLoadSweep_callsOk {allowed : List SigEntry} {exits : List Sym
     ∀ next baseOff cache mst, e₂.callsOk allowed exits →
       (memLoadSweep next baseOff cache mst e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
-  | let_ _ _ ih => intro next baseOff cache mst hc; exact ih _ (Tup.units _) _ _ _ _ hc
+  | let_ _ _ ih | store _ _ _ ih => calls_step memLoadSweep ih
   | load _ _ _ ih =>
-    intro next baseOff cache mst hc
-    unfold memLoadSweep
-    dsimp only
-    split
-    · exact ih _ () (next + 1) baseOff cache _ hc
-    · exact ih _ () (next + 1) baseOff _ _ hc
-  | store _ _ _ ih => intro next baseOff cache mst hc; exact ih next baseOff _ _ hc
-  | call _ _ _ ih =>
-    intro next baseOff cache mst ⟨hm, hc⟩
-    exact ⟨hm, ih _ (Tup.units _) _ baseOff [] _ hc⟩
-  | jnz _ _ _ iht ihe =>
-    intro next baseOff cache mst ⟨ht, he⟩
-    exact ⟨iht next baseOff cache _ ht, ihe next baseOff cache _ he⟩
-  | jump _ _ | ret _ | hlt => intro _ _ _ _ _; trivial
-  | exit _ _ => intro _ _ _ _ hx; exact hx
+    intro next baseOff cache mst hc; unfold memLoadSweep; dsimp only
+    split <;> exact ih _ () (next + 1) baseOff _ _ hc
+  | call _ _ _ ih => calls_call memLoadSweep ih
+  | jnz _ _ _ iht ihe => calls_jnz memLoadSweep iht ihe
+  | jump _ _ | ret _ | hlt => calls_triv memLoadSweep
+  | exit _ _ => intros; assumption
   | group _ _ ihb ihk =>
     intro next baseOff cache mst ⟨hb, hk⟩
-    unfold memLoadSweep
-    dsimp only
-    split
-    · refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_,
-        ihk (Tup.units _) (Tup.units _) next baseOff _ _ hk⟩
-      rw [memLoadSweepB_get_eq, tup_units_unit_eq xs]
-      exact ihb (Tup.units _) (Tup.units _) i _ (Tup.units _) (next + _) baseOff _ _
-        (Blocks.callsOk_get hb i)
-    · refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_,
-        ihk (Tup.units _) (Tup.units _) next baseOff _ _ hk⟩
-      rw [memLoadSweepB_get_eq, tup_units_unit_eq xs]
-      exact ihb (Tup.units _) (Tup.units _) i _ (Tup.units _) (next + _) baseOff _ _
-        (Blocks.callsOk_get hb i)
+    unfold memLoadSweep; dsimp only
+    split <;> refine ⟨blocks_callsOk_of_get_rw _ fun i => ?_,
+        ihk (Tup.units _) (Tup.units _) next baseOff _ _ hk⟩ <;>
+      · rw [memLoadSweepB_get_eq]
+        exact ihb (Tup.units _) (Tup.units _) i _ (Tup.units _) (next + _) baseOff _ _
+          (Blocks.callsOk_get hb i)
 
 /-- `Func.memLoad` preserves `Expr.callsOk`. -/
 theorem Func.memLoad_callsOk {allowed : List SigEntry} {exits : List Sym}
@@ -812,8 +772,8 @@ private theorem expr_mergeRets_callsOk {allowed : List SigEntry} {exits : List S
   | jump _ _ | ret _ | hlt => trivial
   | exit _ _ => exact hc
   | group _ _ ihb ihk =>
-    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_, ihk (Tup.units _) hc.2⟩
-    rw [Blocks.mergeRets_get, tup_units_unit_eq xs]
+    refine ⟨blocks_callsOk_of_get_rw _ fun i => ?_, ihk (Tup.units _) hc.2⟩
+    rw [Blocks.mergeRets_get]
     exact ihb (Tup.units _) i (Tup.units _) (Blocks.callsOk_get hc.1 i)
 
 /-- `Func.mergeRets` preserves `Expr.callsOk`. -/
@@ -934,45 +894,29 @@ private theorem rewriteExpr_callsOk {allowed : List SigEntry} {exits : List Sym}
     {rs : List Ty} {G : Ctx (Arg UnitV) (fun _ => Unit)}
     {D : Ctx (PlanL UnitV (fun _ => Unit) rs) (fun _ => Unit)}
     {e₁ : Expr (Arg UnitV) (PlanL UnitV (fun _ => Unit) rs) rs}
-    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hwf : Wf G D e₁ e₂) :
+    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs} (hwf : Wf G D e₁ e₂) :
     ∀ plan, PlanLblOk allowed exits D → e₂.callsOk allowed exits →
       (rewriteExpr plan e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
-  | let_ _ _ ih =>
-    intro plan hD hc
-    cases plan <;> try trivial
-    exact ih (toArgTup (Tup.units _)) (Tup.units _) _ hD hc
-  | load _ _ _ ih =>
-    intro plan hD hc
-    cases plan <;> try trivial
-    exact ih (.var ()) () _ hD hc
-  | store _ _ _ ih =>
-    intro plan hD hc
-    cases plan <;> try trivial
-    exact ih _ hD hc
+  | let_ _ _ ih | load _ _ _ ih | store _ _ _ ih =>
+    intro plan hD hc; cases plan <;> try trivial
+    apply ih <;> first
+      | exact (toArgTup (Tup.units _)) | exact (.var ()) | exact (Tup.units _)
+      | exact () | assumption
   | call _ _ _ ih =>
-    intro plan hD ⟨hm, hc⟩
-    cases plan <;> try trivial
+    intro plan hD ⟨hm, hc⟩; cases plan <;> try trivial
     exact ⟨hm, ih (toArgTup (Tup.units _)) (Tup.units _) _ hD hc⟩
   | jnz _ _ _ iht ihe =>
-    intro plan hD ⟨ht, he⟩
-    cases plan <;> try trivial
+    intro plan hD ⟨ht, he⟩; cases plan <;> try trivial
     exact ⟨iht _ hD ht, ihe _ hD he⟩
   | @jump _ _ _ j₁ _ _ _ hj _ =>
-    intro plan hD _
-    have hlbl := hD _ hj
+    intro plan hD _; have hlbl := hD _ hj
     cases plan with
-    | leaf =>
-      dsimp only [rewriteExpr]
-      cases j₁ with
-      | keep _ => trivial
-      | dead => trivial
-      | splice _ => exact hlbl _
+    | leaf => dsimp only [rewriteExpr]; cases j₁ with
+      | keep _ | dead => trivial | splice _ => exact hlbl _
     | _ => trivial
-  | ret _ => intro plan _ _; cases plan <;> trivial
+  | ret _ | hlt => intro plan _ _; cases plan <;> trivial
   | exit _ _ => intro plan _ hx; cases plan <;> first | exact hx | trivial
-  | hlt => intro plan _ _; cases plan <;> trivial
   | @group _ _ sig _ _ _ _ _ _ ihb ihk =>
     intro plan hD ⟨hb, hk⟩
     cases plan with
@@ -984,8 +928,7 @@ private theorem rewriteExpr_callsOk {allowed : List SigEntry} {exits : List Sym}
         exact ihk (rewriteSpliceLabels idx pbs _) (Tup.units sig) pk
           (planLblOk_rewriteSpliceLabels hD idx pbs _ (Tup.units sig) fun i p xs =>
             ihb (deadTup sig) (Tup.units sig) i xs (Tup.units _) p
-              (planLblOk_dead hD sig (Tup.units sig)) (Blocks.callsOk_get hb i))
-          hk
+              (planLblOk_dead hD sig (Tup.units sig)) (Blocks.callsOk_get hb i)) hk
       | filter keep =>
         refine ⟨rewriteFilteredBlocks_callsOk keep pbs _ fun i p xs =>
             ihb (expandKeepLabels keep sig _) (Tup.units sig) i xs (Tup.units _) p
@@ -1087,35 +1030,18 @@ private theorem peelAux_callsOk {allowed : List SigEntry} {exits : List Sym} {rs
     {G : Ctx (Arg (fun _ => Unit)) (fun _ => Unit)}
     {D : Ctx (PeelL (fun _ => Unit) (fun _ => Unit) rs) (fun _ => Unit)}
     {e₁ : Expr (Arg (fun _ => Unit)) (PeelL (fun _ => Unit) (fun _ => Unit) rs) rs}
-    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hwf : Wf G D e₁ e₂) :
+    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs} (hwf : Wf G D e₁ e₂) :
     ∀ budget depth, PeelLblOk allowed exits D → e₂.callsOk allowed exits →
       (peelAux budget depth e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
-  | let_ _ _ ih =>
-    intro budget depth hD hc
-    exact ih (toArgTup _) (Tup.units _) budget depth hD hc
-  | load _ _ _ ih =>
-    intro budget depth hD hc
-    exact ih (.var ()) () budget depth hD hc
-  | store _ _ _ ih =>
-    intro budget depth hD hc
-    exact ih budget depth hD hc
-  | call _ _ _ ih =>
-    intro budget depth hD ⟨hm, hc⟩
-    exact ⟨hm, ih (toArgTup _) (Tup.units _) budget depth hD hc⟩
-  | jnz _ _ _ iht ihe =>
-    intro budget depth hD ⟨ht, he⟩
-    exact ⟨iht budget depth hD ht, ihe budget depth hD he⟩
+  | let_ _ _ ih | load _ _ _ ih | store _ _ _ ih => calls_step peelAux ih
+  | call _ _ _ ih => calls_call peelAux ih
+  | jnz _ _ _ iht ihe => calls_jnz peelAux iht ihe
   | @jump _ _ _ j₁ _ _ _ hj _ =>
-    intro _ _ hD _
-    dsimp only [peelAux]
-    have hl := hD _ hj
-    cases j₁ with
-    | subst _ _ => exact hl _
-    | outer _ | probe _ => trivial
-  | ret _ | hlt => intro _ _ _ _; trivial
-  | exit _ _ => intro _ _ _ hx; exact hx
+    intro _ _ hD _; dsimp only [peelAux]; have hl := hD _ hj
+    cases j₁ with | subst _ _ => exact hl _ | outer _ | probe _ => trivial
+  | ret _ | hlt => calls_triv peelAux
+  | exit _ _ => intros; assumption
   | @group _ _ sig b₁ _ k₁ _ _ _ ihb ihk =>
     intro budget depth hD ⟨hb, hk⟩
     have hkeep :
@@ -1127,26 +1053,23 @@ private theorem peelAux_callsOk {allowed : List SigEntry} {exits : List Sym} {rs
             (peelLblOk_outer hD sig (Tup.units sig) (Tup.units sig)) (Blocks.callsOk_get hb i),
         ihk (toOuterTup (Tup.units sig)) (Tup.units sig) budget depth
           (peelLblOk_outer hD sig (Tup.units sig) (Tup.units sig)) hk⟩
-    rcases sig with _ | ⟨ts, sig'⟩
+    rcases sig with _ | ⟨ts, _ | ⟨ts', sig''⟩⟩
     · exact hkeep
-    · rcases sig' with _ | ⟨ts', sig''⟩
-      · dsimp only [peelAux]
-        split
-        · refine ihk (.subst (2 * depth + 1) _, ()) ((), ()) budget (depth + 1)
-            (peelLblOk_subst hD (2 * depth + 1) _ fun args' => ?_) hk
-          rw [peelArgBAux_fst_eq]
-          refine ihb (.subst (2 * depth) _, ()) ((), ()) .here args' (Tup.units ts)
-            ((_ - _) / 2) (depth + 1)
-            (peelLblOk_subst hD (2 * depth) _ fun backArgs => ?_)
-            (Blocks.callsOk_get hb .here)
-          exact ⟨peelBAux_callsOk ((_ - _) / 2) (depth + 1) _ fun i xs =>
-              ihb (toOuterTup (Tup.units [ts])) (Tup.units [ts]) i xs (Tup.units _)
-                ((_ - _) / 2) (depth + 1)
-                (peelLblOk_outer hD [ts] (Tup.units [ts]) (Tup.units [ts]))
-                (Blocks.callsOk_get hb i),
-            trivial⟩
-        · exact hkeep
+    · dsimp only [peelAux]
+      split
+      · refine ihk (.subst (2 * depth + 1) _, ()) ((), ()) budget (depth + 1)
+          (peelLblOk_subst hD (2 * depth + 1) _ fun args' => ?_) hk
+        rw [peelArgBAux_fst_eq]
+        refine ihb (.subst (2 * depth) _, ()) ((), ()) .here args' (Tup.units ts)
+          ((_ - _) / 2) (depth + 1)
+          (peelLblOk_subst hD (2 * depth) _ fun backArgs => ?_) (Blocks.callsOk_get hb .here)
+        exact ⟨peelBAux_callsOk ((_ - _) / 2) (depth + 1) _ fun i xs =>
+            ihb (toOuterTup (Tup.units [ts])) (Tup.units [ts]) i xs (Tup.units _)
+              ((_ - _) / 2) (depth + 1)
+              (peelLblOk_outer hD [ts] (Tup.units [ts]) (Tup.units [ts]))
+              (Blocks.callsOk_get hb i), trivial⟩
       · exact hkeep
+    · exact hkeep
 
 end PeelCalls
 
@@ -1222,37 +1145,20 @@ private theorem licmSweep_callsOk {allowed : List SigEntry} {exits : List Sym} {
       (licmSweep b env tbl plan e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
   | let_ _ _ ih =>
-    intro b env tbl plan hc
-    unfold licmSweep
-    dsimp only
-    split
-    · exact ih _ (Tup.units _) b env tbl _ hc
-    · exact ih _ (Tup.units _) (b + _) (envInsertTup env b _) tbl _ hc
-  | load _ _ _ ih =>
-    intro b env tbl plan hc
-    dsimp only [licmSweep]
-    exact ih _ () (b + 1) _ tbl _ hc
-  | store _ _ _ ih =>
-    intro b env tbl plan hc
-    dsimp only [licmSweep]
-    exact ih b env tbl _ hc
-  | call _ _ _ ih =>
-    intro b env tbl plan ⟨hm, hc⟩
-    dsimp only [licmSweep, Expr.callsOk]
-    exact ⟨hm, ih _ (Tup.units _) (b + _) (envInsertTup env b _) tbl _ hc⟩
-  | jnz _ _ _ iht ihe =>
-    intro b env tbl plan ⟨ht, he⟩
-    dsimp only [licmSweep, Expr.callsOk]
-    exact ⟨iht b env tbl _ ht, ihe b env tbl _ he⟩
-  | jump _ _ | ret _ | hlt => intro _ _ _ _ _; trivial
-  | exit _ _ => intro _ _ _ _ hx; exact hx
+    intro b env tbl plan hc; unfold licmSweep; dsimp only
+    split <;> exact ih _ (Tup.units _) _ _ tbl _ hc
+  | load _ _ _ ih | store _ _ _ ih => calls_step licmSweep ih
+  | call _ _ _ ih => calls_call licmSweep ih
+  | jnz _ _ _ iht ihe => calls_jnz licmSweep iht ihe
+  | jump _ _ | ret _ | hlt => calls_triv licmSweep
+  | exit _ _ => intros; assumption
   | group _ _ ihb ihk =>
     intro b env tbl plan ⟨hb, hk⟩
     dsimp only [licmSweep]
     refine emitHoists_callsOk _ (fun b' env' tbl' => ?_) _ b env tbl
-    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_,
+    refine ⟨blocks_callsOk_of_get_rw _ fun i => ?_,
       ihk (Tup.units _) (Tup.units _) b' env' tbl' _ hk⟩
-    rw [licmSweepB_get_eq', tup_units_unit_eq xs]
+    rw [licmSweepB_get_eq']
     exact ihb (Tup.units _) (Tup.units _) i _ (Tup.units _) (b' + _)
       (envInsertTup env' b' (Tup.units _)) tbl' _ (Blocks.callsOk_get hb i)
 
@@ -1293,43 +1199,25 @@ private theorem roSweep_callsOk {allowed : List SigEntry} {exits : List Sym} {rs
     ∀ b env plan, e₂.callsOk allowed exits →
       (roSweep b env plan e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
-  | let_ _ _ ih =>
-    intro b env plan hc
-    dsimp only [roSweep, Expr.callsOk]
-    exact ih (Tup.units _) (Tup.units _) (b + _) (envInsertTup env b _) _ hc
+  | let_ _ _ ih | store _ _ _ ih => calls_step roSweep ih
   | load _ _ _ ih =>
-    intro b env plan hc
-    unfold roSweep
+    intro b env plan hc; unfold roSweep
     cases plan with
     | fwdLoad lvl kPlan =>
       dsimp only
-      split
-      · split
-        · exact ih () () b env kPlan hc
-        · exact ih () () (b + 1) _ kPlan hc
-      · exact ih () () (b + 1) _ kPlan hc
+      repeat' (first | exact ih () () _ _ kPlan hc | split)
     | _ => exact ih () () (b + 1) _ _ hc
-  | store _ _ _ ih =>
-    intro b env plan hc
-    dsimp only [roSweep, Expr.callsOk]
-    exact ih b env _ hc
-  | call _ _ _ ih =>
-    intro b env plan ⟨hm, hc⟩
-    dsimp only [roSweep, Expr.callsOk]
-    exact ⟨hm, ih (Tup.units _) (Tup.units _) (b + _) (envInsertTup env b _) _ hc⟩
-  | jnz _ _ _ iht ihe =>
-    intro b env plan ⟨ht, he⟩
-    dsimp only [roSweep, Expr.callsOk]
-    exact ⟨iht b env _ ht, ihe b env _ he⟩
-  | jump _ _ | ret _ | hlt => intro _ _ _ _; trivial
-  | exit _ _ => intro _ _ _ hx; exact hx
+  | call _ _ _ ih => calls_call roSweep ih
+  | jnz _ _ _ iht ihe => calls_jnz roSweep iht ihe
+  | jump _ _ | ret _ | hlt => calls_triv roSweep
+  | exit _ _ => intros; assumption
   | group _ _ ihb ihk =>
     intro b env plan ⟨hb, hk⟩
     dsimp only [roSweep]
     refine emitRoHoists_callsOk _ (fun b' env' => ?_) _ b env
-    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_,
+    refine ⟨blocks_callsOk_of_get_rw _ fun i => ?_,
       ihk (Tup.units _) (Tup.units _) b' env' _ hk⟩
-    rw [roSweepB_get_eq', tup_units_unit_eq xs]
+    rw [roSweepB_get_eq']
     exact ihb (Tup.units _) (Tup.units _) i (Tup.units _) (Tup.units _) (b' + _)
       (envInsertTup env' b' (Tup.units _)) _ (Blocks.callsOk_get hb i)
 
@@ -1495,54 +1383,30 @@ private theorem addrRangeSweep_callsOk {allowed : List SigEntry} {exits : List S
     {rs : List Ty} {G : Ctx (ARVal (fun _ => Unit)) (fun _ => Unit)}
     {D : Ctx (fun _ => Unit) (fun _ => Unit)}
     {e₁ : Expr (ARVal (fun _ => Unit)) (fun _ => Unit) rs}
-    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs}
-    (hwf : Wf G D e₁ e₂) :
+    {e₂ : Expr (fun _ => Unit) (fun _ => Unit) rs} (hwf : Wf G D e₁ e₂) :
     ∀ curD b plan, e₂.callsOk allowed exits →
       (addrRangeSweep curD b plan e₁).callsOk allowed exits := by
   induction hwf using Wf.induct with
   | @let_ _ _ ts op₁ _ _ _ _ _ ih =>
-    intro curD b plan hc
-    rw [addrRangeSweep_let]
-    dsimp only
-    split
-    · exact ih _ (Tup.units _) curD b _ hc
-    · dsimp only [Expr.callsOk]
-      exact ih _ (Tup.units _) curD (b + _) _ hc
-    · dsimp only [Expr.callsOk]
-      exact ih _ (Tup.units _) curD (b + 1) _ hc
-    · dsimp only [Expr.callsOk]
-      split <;> ((try dsimp only [Expr.callsOk]); exact ih _ (Tup.units _) curD (b + 1) _ hc)
-    · dsimp only [Expr.callsOk]
-      split <;> ((try dsimp only [Expr.callsOk]); exact ih _ (Tup.units _) curD (b + 1) _ hc)
-  | load _ _ _ ih =>
-    intro curD b plan hc
-    dsimp only [addrRangeSweep]
-    exact ih _ () curD (b + 1) _ hc
-  | store _ _ _ ih =>
-    intro curD b plan hc
-    dsimp only [addrRangeSweep]
-    exact ih curD b _ hc
-  | call _ _ _ ih =>
-    intro curD b plan ⟨hm, hc⟩
-    dsimp only [addrRangeSweep, Expr.callsOk]
-    exact ⟨hm, ih _ (Tup.units _) curD (b + _) _ hc⟩
+    intro curD b plan hc; rw [addrRangeSweep_let]; dsimp only
+    split <;> repeat' (first
+      | ((try dsimp only [Expr.callsOk]); exact ih _ (Tup.units _) curD _ _ hc)
+      | split)
+  | load _ _ _ ih | store _ _ _ ih => calls_step addrRangeSweep ih
+  | call _ _ _ ih => calls_call addrRangeSweep ih
   | @jnz _ _ c₁ _ _ _ _ _ _ _ _ iht ihe =>
-    intro curD b plan ⟨ht, he⟩
-    dsimp only [addrRangeSweep]
+    intro curD b plan ⟨ht, he⟩; dsimp only [addrRangeSweep]
     cases c₁.arOut with
     | imm bv => cases bv <;> first | exact iht curD b _ ht | exact ihe curD b _ he
     | var _ => exact ⟨iht curD b _ ht, ihe curD b _ he⟩
-  | jump _ _ | ret _ | hlt => intro _ _ _ _; trivial
-  | exit _ _ => intro _ _ _ hx; exact hx
+  | jump _ _ | ret _ | hlt => calls_triv addrRangeSweep
+  | exit _ _ => intros; assumption
   | group _ _ ihb ihk =>
-    intro curD b plan ⟨hb, hk⟩
-    dsimp only [addrRangeSweep, Expr.callsOk]
-    refine ⟨blocks_callsOk_of_get_unit _ fun i xs => ?_,
-      ihk (Tup.units _) (Tup.units _) curD b _ hk⟩
-    rw [addrRangeSweepB_get_eq, tup_units_unit_eq xs]
-    exact ihb (Tup.units _) (Tup.units _) i _ (Tup.units _)
-      (if (plan.stepGroup.1.get i).1 then curD + 1 else curD) (b + _) _
-      (Blocks.callsOk_get hb i)
+    intro curD b plan ⟨hb, hk⟩; dsimp only [addrRangeSweep, Expr.callsOk]
+    exact ⟨blocks_callsOk_of_get_rw _ fun i => by
+        rw [addrRangeSweepB_get_eq]
+        exact ihb _ _ i _ _ _ _ _ (Blocks.callsOk_get hb i),
+      ihk _ _ curD b _ hk⟩
 
 /-- `Func.addrRangeOpt` preserves `Expr.callsOk`. -/
 theorem Func.addrRangeOpt_callsOk {allowed : List SigEntry} {exits : List Sym}
