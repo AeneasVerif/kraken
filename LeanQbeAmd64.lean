@@ -14,6 +14,7 @@ public import LeanQbe.T.Amd64.IselLemmas2
 public import LeanQbe.T.Amd64.IselLemmas3
 public import LeanQbe.T.Amd64.IselLemmas4
 public import LeanQbe.T.Amd64.IselLemmas5
+public import LeanQbe.T.Amd64.IselLemmas6
 public import LeanQbe.T.Amd64.IselLemmasBitcnt
 public import LeanQbe.T.Amd64.IselStepRules
 public import LeanQbe.T.Amd64.IselVec

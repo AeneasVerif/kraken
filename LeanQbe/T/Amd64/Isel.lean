@@ -19,7 +19,8 @@ Implements `x64Gpr : GprIsa Reg64 RegMm CondCode Directive` over `LeanQbe.T.Amd6
     `copy/and/or/xor/not`.
   - `[16, 32, 64]`: `bswap` (`rolw $8`, `bswapl`, `bswapq`).
   - `[32, 64]`: `addc` (`.default` `adc`, `.adcx` `adcx`, `.adox` `adox`), `subb` (`sbb`),
-    `umulw` (`.default` `mul`, `.mulxFast` `mulx`), `smulw` (`imul1`), `fshl`/`fshr` (`shld`/`shrd`).
+    `umulw` (`.default` `mul`, `.mulxFast` `mulx`), `smulw` (`imul1`),
+    `fshl`/`fshr` (`shld`/`shrd`).
 * Supports `VariantHint.disp` (`lea disp(%rb), %rd`), `VariantHint.decInc` (`dec`/`inc` preserving
   `CF`), 2-address ALU fast paths, immediate shifts/ALU/cmp, and `[base]`/`[base+disp]`/`imm`
   `load`/`store`.
@@ -380,6 +381,29 @@ def opBinLeaReg? (w : Width) (k : AluBinKind) (ra rb rd : Reg64) :
     else none
   else none
 
+/-- Lower constant multiplication by `{3, 5, 6, 9, 10, 12}` into 1-cycle `lea` (`+ add`/`shl`) at
+`W32`/`W64` when `ra != .rsp` (`%rsp` is illegal as SIB index). -/
+def opBinLeaMul? (w : Width) (k : AluBinKind) (ra : Reg64) (cb : BitVec w.bits) (rd : Reg64) :
+    Option (List Instr × FlagMask) :=
+  if k == .mul && (w == .W32 || w == .W64) && ra != .rsp then
+    if cb == 3#w.bits then
+      some ([x64InsI w (.lea (regW w rd) (atSIB ra ra .s2 0))], maskNone)
+    else if cb == 5#w.bits then
+      some ([x64InsI w (.lea (regW w rd) (atSIB ra ra .s4 0))], maskNone)
+    else if cb == 9#w.bits then
+      some ([x64InsI w (.lea (regW w rd) (atSIB ra ra .s8 0))], maskNone)
+    else if cb == 6#w.bits then
+      some ([x64InsI w (.lea (regW w rd) (atSIB ra ra .s2 0)),
+             aluBinI w .add rd (.reg (regW w rd))], maskAll)
+    else if cb == 10#w.bits then
+      some ([x64InsI w (.lea (regW w rd) (atSIB ra ra .s4 0)),
+             aluBinI w .add rd (.reg (regW w rd))], maskAll)
+    else if cb == 12#w.bits then
+      some ([x64InsI w (.lea (regW w rd) (atSIB ra ra .s2 0)),
+             x64InsI w (.shl (.reg (regW w rd)) (.imm8 (.int64 2)))], maskAll)
+    else none
+  else none
+
 /-- Lower binary ALU ops (`add`, `sub`, `and`, `or`, `xor`, `mul`) at `w`,
 including `VariantHint.disp` (`lea`), `VariantHint.decInc` (`inc`/`dec` preserving `CF`),
 and flag-free non-destructive 3-address `lea` for `add`/`sub` imm when `ra != rd`. -/
@@ -463,12 +487,14 @@ def opBinIns (w : Width) (k : AluBinKind)
             else
               some ([movWI w .r11 ra, aluBinI w k .r11 (.reg (regW w rb)),
                      movWI w rd .r11], maskAll)
-      | .gpr ra, .imm cb => some ((opBinLeaImm? w k ra cb rd).getD (regImm ra cb))
+      | .gpr ra, .imm cb =>
+        some ((opBinLeaImm? w k ra cb rd <|> opBinLeaMul? w k ra cb rd).getD (regImm ra cb))
       | .imm ca, .gpr rb =>
         if k == .sub && ca == 0 then
           let pre := if rb == rd then [] else [movWI w rd rb]
           some (pre ++ [x64InsI w (.neg (.reg (regW w rd)))], maskAll)
-        else if k.isComm then some ((opBinLeaImm? w k rb ca rd).getD (regImm rb ca))
+        else if k.isComm then
+          some ((opBinLeaImm? w k rb ca rd <|> opBinLeaMul? w k rb ca rd).getD (regImm rb ca))
         else
           some ([moviI .r11 (ca.setWidth 64), aluBinI w .sub .r11 (.reg (regW w rb)),
                  movWI w rd .r11], maskAll)
@@ -1591,6 +1617,29 @@ def x64JnzGpr (r : Reg64) (inv : Bool) (l : Sym) : List Directive × FlagMask :=
   (emitClean [x64InsI .W8 (.test (.reg (b8 r)) (.reg (b8 r))),
               x64InsI .W64 (.jcc (if inv then .z else .nz) l)], maskAll)
 
+/-- Width at which `(r &&& mask) ==/!= 0` is equivalent to testing `SF` via `test %r, %r`:
+matches width sign bits (`8`/`16`/`32`/`64`) and bit 31 (`0x80000000`) within `64`-bit GPRs. -/
+def signTestWidth? (n : Nat) (mask : BitVec n) : Option Width :=
+  withWidth (F := fun k => BitVec k) n mask fun w mask' =>
+    if mask' == (1#w.bits <<< (w.bits - 1)) then some w
+    else match w, mask' with
+      | .W64, m => if m == 0x80000000#64 then some .W32 else none
+      | _, _ => none
+
+/-- Lower fused `(r &&& mask) ==/!= 0` sign-bit branch (`neg = true` -> `!= 0` -> `js`, `false` ->
+`== 0` -> `jns`) via macro-fusable `test %r, %r; js/jns`. -/
+def x64TestJccIns (neg : Bool) (n : Nat) (r : Reg64) (mask : BitVec n) (l : Sym) :
+    Option (List Instr × FlagMask) :=
+  (signTestWidth? n mask).map fun tw =>
+    let cc : CondCode := if neg then .s else .ns
+    ([x64InsI tw (.test (.reg (regW tw r)) (.reg (regW tw r))),
+      x64InsI .W64 (.jcc cc l)], maskAll)
+
+/-- Lower fused sign-bit branch `(r &&& mask) ==/!= 0` into x64 directives. -/
+def x64TestJcc (neg : Bool) (n : Nat) (r : Reg64) (mask : BitVec n) (l : Sym) :
+    Option (List Directive × FlagMask) :=
+  emitCleanPair (x64TestJccIns neg n r mask l)
+
 /-- Condition code holding the `.bool` GPR result simultaneously in flags after `x64Op`. -/
 def x64BoolFlagOut {sig : List Ty} (code : OpCode sig [.bool])
     (pas : Tup (PArg Reg64 RegMm CondCode) sig) (pd : PDst Reg64 RegMm CondCode .bool) :
@@ -1684,6 +1733,7 @@ def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   cmpMem := x64CmpMem
   testMem := x64TestMem
   loadSext := x64LoadSext
+  testJcc := x64TestJcc
   aluMem := x64AluMem
   zeroUpper32AluMem := true
   jnzMem := x64JnzMem
