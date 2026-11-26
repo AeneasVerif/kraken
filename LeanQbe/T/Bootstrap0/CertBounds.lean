@@ -6,6 +6,7 @@ import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
 import LeanQbe.T.Bootstrap0.Mod0
 meta import Lean
 meta import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.MainCertFlatElab
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Amd64.LcnfC0FullCertX64Bounds
 meta import LeanQbe.T.Bootstrap0.Mod0
@@ -27,7 +28,7 @@ namespace LeanQbe.T.Bootstrap0
 open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64
 
 eval_prefix_ext! leanqbe0AllExt x64Target x64LegalTarget leanqbe0Mod0.fns
-  (ext := rtC0CoreAllExt) (exits := rtExitSyms) (nX := 64)
+  (ext := rtC0CoreAllExt) (exits := rtExitSyms) (nX := 64) (flat := true)
 
 /-- Pre-verified callee accumulator `(sig, stackBound)` covering `leanqbe0Mod0.fns.take k`. -/
 @[expose] def extBefore0 (k : Nat) : List (SigEntry × Nat) :=

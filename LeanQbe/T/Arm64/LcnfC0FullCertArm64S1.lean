@@ -1,10 +1,12 @@
 module
 
 public import LeanQbe.T.MainCertCore
+public import LeanQbe.T.MainCertFlat
 public import LeanQbe.T.Arm64.TargLemmas
-public import LeanQbe.T.LeanLCNF.LcnfC0Full
+public import LeanQbe.T.LeanLCNF.LcnfC0FullFlat
 meta import Lean
 meta import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.MainCertFlatElab
 meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.LeanLCNF.LcnfC0Full
 
@@ -24,10 +26,10 @@ namespace LeanQbe.T.Arm64
 open LeanQbe.T LeanQbe.T.LeanLCNF
 
 /-- Slice 1 sub-module (`[0, 15)`, `15` functions). -/
-@[expose] def rtC0Arm64Slice1Mod : Module :=
-  { fns := rtC0CoreMod.fns.take 15, exits := rtExitSyms }
+@[expose] noncomputable def rtC0Arm64Slice1Mod : Module :=
+  { fns := rtC0CoreFlatMod.fns.take 15, exits := rtExitSyms }
 
 compile_linked_chunks! rtC0Arm64CertS1 armTarget armLayout armLegalTarget armLabelClean
-  rtC0Arm64Slice1Mod 8 (exits := rtExitSyms) (nX := 64) (maxDirs := 600)
+  rtC0Arm64Slice1Mod 8 (exits := rtExitSyms) (nX := 64) (maxDirs := 600) (flat := true)
 
 end LeanQbe.T.Arm64

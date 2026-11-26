@@ -300,74 +300,127 @@ private def decodeTFlatFnFields (nmE asE rsE bodyE : Lean.Expr) : Option TFlatFn
   let rs ← decodeList decodeTy rsE
   return { name, as, rs, body := ← decodeTFlat rs bodyE }
 
+private def c0TFlatFnMkName : Name := `LeanQbe.T.Frontend.C0.TFlatFn.mk
+private def c0TFlatFnToFnName : Name := `LeanQbe.T.Frontend.C0.TFlatFn.toFn
+private def c0TFlatFnToCoreName : Name := `LeanQbe.T.Frontend.C0.TFlatFn.toCoreFlat
+private def lrcTFlatFnsToFnsName : Name := `LeanQbe.T.LeanLRC.tflatFnsToFns
+private def lcnfProgModName : Name := `LeanQbe.T.LeanLCNF.lcnfProgMod
+
 private def findConstVal? (nm : Name) : OptionT MetaM Lean.Expr := do
   let some ci := (← getEnv).find? nm | failure
   let some v := ci.value? | failure
   return v
 
-private partial def resolveModuleFns (modE : Lean.Expr) : OptionT MetaM Lean.Expr := do
-  let m := modE.consumeMData
-  if m.isAppOfArity ``LeanQbe.T.Module.mk 3 then return m.getArg! 0
-  else if let .const nm [] := m then resolveModuleFns (← findConstVal? nm)
-  else failure
+private partial def unfoldConstValue (e0 : Lean.Expr) : MetaM Lean.Expr := do
+  let e := e0.consumeMData
+  if let .const nm [] := e then
+    if let some ci := (← getEnv).find? nm then
+      if let some v := ci.value? then
+        return ← unfoldConstValue v
+  return e
 
-private partial def resolveListExpr (fnWrap? : Bool) (e0 : Lean.Expr) :
+private partial def resolveModuleFns (modE : Lean.Expr) (fuel : Nat := 16) :
+    OptionT MetaM Lean.Expr := do
+  match fuel with
+  | 0 => failure
+  | fuel' + 1 =>
+    let m := modE.consumeMData
+    if m.isAppOfArity ``LeanQbe.T.Module.mk 3 then return m.getArg! 0
+    else if m.isAppOfArity lcnfProgModName 1 then
+      return mkApp (Lean.mkConst lrcTFlatFnsToFnsName) (m.getArg! 0)
+    else if let .const nm [] := m then
+      resolveModuleFns (← findConstVal? nm) fuel'
+    else if let .const nm [] := m.getAppFn.consumeMData then
+      let v ← findConstVal? nm
+      if v.isLambda then resolveModuleFns (v.beta m.getAppArgs) fuel'
+      else failure
+    else failure
+
+private partial def resolveListExpr (wrapFn? : Option Name) (e0 : Lean.Expr) :
     OptionT MetaM (Array Lean.Expr) := do
   let mut cur := e0.consumeMData
   let mut acc : Array Lean.Expr := #[]
   while cur.isAppOfArity ``List.cons 3 do
     let hd := cur.getArg! 1
-    acc := acc.push (if fnWrap? then mkApp (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) hd else hd)
+    acc := acc.push (match wrapFn? with | some w => mkApp (Lean.mkConst w) hd | none => hd)
     cur := (cur.getArg! 2).consumeMData
   if cur.isAppOfArity ``List.nil 1 then return acc
   let tail ←
-    if let .const nm [] := cur then resolveListExpr fnWrap? (← findConstVal? nm)
+    if let .const nm [] := cur then resolveListExpr wrapFn? (← findConstVal? nm)
     else if cur.isAppOfArity ``LeanQbe.T.Module.fns 1 then
-      if fnWrap? then failure else resolveListExpr false (← resolveModuleFns (cur.getArg! 0))
+      if wrapFn?.isSome then failure
+      else resolveListExpr none (← resolveModuleFns (cur.getArg! 0))
     else if let .proj ``LeanQbe.T.Module 0 modE := cur then
-      if fnWrap? then failure else resolveListExpr false (← resolveModuleFns modE)
+      if wrapFn?.isSome then failure
+      else resolveListExpr none (← resolveModuleFns modE)
     else if cur.isAppOfArity ``List.append 3 then
-      pure ((← resolveListExpr fnWrap? (cur.getArg! 1)) ++
-        (← resolveListExpr fnWrap? (cur.getArg! 2)))
+      pure ((← resolveListExpr wrapFn? (cur.getArg! 1)) ++
+        (← resolveListExpr wrapFn? (cur.getArg! 2)))
     else if cur.isAppOfArity ``HAppend.hAppend 6 then
-      pure ((← resolveListExpr fnWrap? (cur.getArg! 4)) ++
-        (← resolveListExpr fnWrap? (cur.getArg! 5)))
+      pure ((← resolveListExpr wrapFn? (cur.getArg! 4)) ++
+        (← resolveListExpr wrapFn? (cur.getArg! 5)))
     else if cur.isAppOfArity ``List.drop 3 then
       let k ← decodeNatM (cur.getArg! 1)
-      let xs ← resolveListExpr fnWrap? (cur.getArg! 2)
+      let xs ← resolveListExpr wrapFn? (cur.getArg! 2)
       pure (xs.extract k xs.size)
     else if cur.isAppOfArity ``List.take 3 then
       let k ← decodeNatM (cur.getArg! 1)
-      let xs ← resolveListExpr fnWrap? (cur.getArg! 2)
+      let xs ← resolveListExpr wrapFn? (cur.getArg! 2)
       pure (xs.extract 0 (min k xs.size))
-    else if !fnWrap? && cur.isAppOfArity ``List.map 4 &&
-        (cur.getArg! 2).consumeMData.isConstOf ``LeanQbe.T.TFlatFn.toFn then
-      resolveListExpr true (cur.getArg! 3)
+    else if wrapFn?.isNone && cur.isAppOfArity lrcTFlatFnsToFnsName 1 then
+      resolveListExpr (some c0TFlatFnToFnName) (cur.getArg! 0)
+    else if cur.isAppOfArity ``List.map 4 then
+      let fnArg := (cur.getArg! 2).consumeMData
+      let listArg := cur.getArg! 3
+      if wrapFn?.isNone && fnArg.isConstOf ``LeanQbe.T.TFlatFn.toFn then
+        resolveListExpr (some ``LeanQbe.T.TFlatFn.toFn) listArg
+      else if wrapFn?.isNone && fnArg.isConstOf c0TFlatFnToFnName then
+        resolveListExpr (some c0TFlatFnToFnName) listArg
+      else if wrapFn? == some ``LeanQbe.T.TFlatFn.toFn &&
+          fnArg.isConstOf c0TFlatFnToCoreName then
+        resolveListExpr (some c0TFlatFnToFnName) listArg
+      else failure
     else failure
   return acc ++ tail
 
-private def decodeFlatValue (flatE : Lean.Expr) : OptionT MetaM TFlatFn := do
-  let e := flatE.consumeMData
-  let e ← if let .const nm [] := e then pure (← findConstVal? nm).consumeMData else pure e
-  if !e.isAppOfArity ``LeanQbe.T.TFlatFn.mk 4 then failure
-  let some tf := decodeTFlatFnFields (e.getArg! 0) (e.getArg! 1) (e.getArg! 2) (e.getArg! 3)
-    | failure
-  return tf
+private partial def decodeFlatValue (flatE : Lean.Expr) : OptionT MetaM TFlatFn := do
+  let e ← unfoldConstValue flatE
+  if e.isAppOfArity c0TFlatFnToCoreName 1 then
+    decodeFlatValue (e.getArg! 0)
+  else if e.isAppOfArity ``LeanQbe.T.TFlatFn.mk 4 || e.isAppOfArity c0TFlatFnMkName 4 then
+    let bodyE ← unfoldConstValue (e.getArg! 3)
+    let some tf := decodeTFlatFnFields (e.getArg! 0) (e.getArg! 1) (e.getArg! 2) bodyE
+      | failure
+    return tf
+  else failure
 
 private def decodeFlatElem (fnE : Lean.Expr) : OptionT MetaM (TFlatFn × Lean.Expr) := do
-  let e := fnE.consumeMData
-  let e ← if let .const nm [] := e then pure (← findConstVal? nm).consumeMData else pure e
+  let e ← unfoldConstValue fnE
   if e.isAppOfArity ``LeanQbe.T.TFlatFn.toFn 1 then
     let flatArg := (e.getArg! 0).consumeMData
     let tf ← decodeFlatValue flatArg
     let flatExpr := match flatArg with | .const flatNm [] => Lean.mkConst flatNm | _ => flatArg
+    return (tf, flatExpr)
+  else if e.isAppOfArity c0TFlatFnToFnName 1 then
+    let flatArg := (e.getArg! 0).consumeMData
+    let tf ← decodeFlatValue flatArg
+    let flatExpr ←
+      if (← getEnv).contains c0TFlatFnToCoreName then
+        let argE := match flatArg with | .const flatNm [] => Lean.mkConst flatNm | _ => flatArg
+        pure (mkApp (Lean.mkConst c0TFlatFnToCoreName) argE)
+      else
+        let v ← unfoldConstValue flatArg
+        if !v.isAppOfArity c0TFlatFnMkName 4 then failure
+        pure (mkApp4 (Lean.mkConst ``LeanQbe.T.TFlatFn.mk)
+          (v.getArg! 0) (v.getArg! 1) (v.getArg! 2) (v.getArg! 3))
     return (tf, flatExpr)
   else if e.isAppOfArity ``LeanQbe.T.Fn.mk 4 then
     let nmE := e.getArg! 0; let asE := e.getArg! 1; let rsE := e.getArg! 2
     let bodyE := (e.getArg! 3).consumeMData
     if !bodyE.isAppOfArity ``LeanQbe.T.denoteFunc 3 then failure
     let tfE := (bodyE.getArg! 2).consumeMData
-    let some tf := decodeTFlatFnFields nmE asE rsE tfE | failure
+    let tfVal ← unfoldConstValue tfE
+    let some tf := decodeTFlatFnFields nmE asE rsE tfVal | failure
     return (tf, mkApp4 (Lean.mkConst ``LeanQbe.T.TFlatFn.mk) nmE asE rsE tfE)
   else failure
 
@@ -377,7 +430,7 @@ returning `none` when any element is not materialized as `TFlatFn` or `denoteFun
 def decodeFlatSliceExpr (fnsE : Lean.Expr) :
     MetaM (Option (List TFlatFn × Lean.Expr × Lean.Expr)) :=
   OptionT.run do
-    let elems ← resolveListExpr false fnsE
+    let elems ← resolveListExpr none fnsE
     let decoded ← elems.mapM decodeFlatElem
     let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
     let fnTy := Lean.mkConst ``LeanQbe.T.Fn

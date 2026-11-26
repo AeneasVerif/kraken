@@ -2,9 +2,10 @@ module
 
 public import LeanQbe.T.Main
 import LeanQbe.T.Arm64.Targ
-import LeanQbe.T.LeanLCNF.LcnfC0Full
+import LeanQbe.T.LeanLCNF.LcnfC0FullFlat
 meta import Lean
 meta import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.MainCertFlatElab
 meta import LeanQbe.T.Arm64.Targ
 meta import LeanQbe.T.LeanLCNF.LcnfC0Full
 
@@ -24,8 +25,8 @@ namespace LeanQbe.T.Arm64
 
 open LeanQbe.T LeanQbe.T.LeanLCNF
 
-eval_prefix_ext! rtC0CoreArm64AllExt armTarget armLegalTarget rtC0CoreMod.fns
-  (exits := rtExitSyms) (nX := 64)
+eval_prefix_ext! rtC0CoreArm64AllExt armTarget armLegalTarget rtC0CoreFlatMod.fns
+  (exits := rtExitSyms) (nX := 64) (flat := true)
 
 /-- Pre-verified callee accumulator `(sig, stackBound)` covering `rtC0CoreMod.fns.take k`. -/
 @[expose] def rtC0Arm64ExtBefore (k : Nat) : List (SigEntry × Nat) :=

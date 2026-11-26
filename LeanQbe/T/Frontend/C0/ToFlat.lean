@@ -112,6 +112,10 @@ structure TFlatFn where
 def TFlatFn.toFn (tf : TFlatFn) : Fn :=
   ⟨tf.name, tf.as, tf.rs, denoteFunc tf.flat⟩
 
+/-- Convert `Frontend.C0.TFlatFn` into core `LeanQbe.T.TFlatFn` (preserving `.toFn` by `rfl`). -/
+def TFlatFn.toCoreFlat (tf : TFlatFn) : LeanQbe.T.TFlatFn :=
+  ⟨tf.name, tf.as, tf.rs, tf.flat⟩
+
 /-- Universal `Func.Wf` theorem for every `TFlatFn` via `Func.wf_of_denote`. -/
 theorem TFlatFn.toFn_wf (tf : TFlatFn) : tf.toFn.Wf :=
   Func.wf_of_denote tf.flat rfl

@@ -1,11 +1,13 @@
 module
 
 public import LeanQbe.T.MainCertCore
+public import LeanQbe.T.MainCertFlat
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Bootstrap0.Mod0
 public import LeanQbe.T.Bootstrap0.CertBounds
 meta import Lean
 meta import LeanQbe.T.MainCertElab
+meta import LeanQbe.T.MainCertFlatElab
 meta import LeanQbe.T.Amd64.Targ
 meta import LeanQbe.T.Bootstrap0.Mod0
 meta import LeanQbe.T.Bootstrap0.CertBounds
@@ -30,5 +32,6 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64
 
 compile_linked_chunks! cert3 x64Target x64Layout x64LegalTarget x64LabelClean
   slice3Mod 4 (ext := extBefore0 25) (exits := rtExitSyms) (nX := 64) (maxDirs := 250)
+  (flat := true)
 
 end LeanQbe.T.Bootstrap0
