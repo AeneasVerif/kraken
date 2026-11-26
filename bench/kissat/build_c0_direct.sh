@@ -57,8 +57,9 @@ while [ $# -gt 0 ]; do
 done
 
 case "$TARGET" in
-  plain|fidelity|fid|fidelity-step9|step9|fidelity-step8|step8|fidelity-step7|fidelity-step6|\
-  fidelity-c0|m8opt|opt|m8|m5|m6|m7|m7plus|m7fidelity|m7plus-memshrink|m7fidelity-memshrink) ;;
+  plain|fidelity|fid|fidelity-step9|step9|fidelity-step9-memshrink|step9-memshrink|\
+  fidelity-step8|step8|fidelity-step7|fidelity-step6|fidelity-c0|m8opt|opt|m8|m5|m6|m7|\
+  m7plus|m7fidelity|m7plus-memshrink|m7fidelity-memshrink) ;;
   *) echo "ERROR: unsupported --target '$TARGET'" >&2; exit 2 ;;
 esac
 

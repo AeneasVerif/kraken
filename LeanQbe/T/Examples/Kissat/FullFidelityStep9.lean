@@ -11,7 +11,7 @@ meta import LeanQbe.T.Frontend.C0
 /-!
 # Kissat Fidelity Step 9 Parity & Hot-Path Closures (`FullFidelityStep9`)
 
-Pure C0 parity & optimization layer (`23` replacements + `4` inserted helpers = `505` fns,
+Pure C0 parity & optimization layer (`11` replacements + `3` inserted helpers = `504` fns,
 `0` externs, `0` exits) atop Step 8 `fidStep8Module` (`501` fns):
 1. `S9-0`: Pack `full_bva_upd_lit_fid` from 7 args to 6 args (`(hsz << 32) | tl`) and update
    its `4` call sites in `full_factor` for SysV x64 & Arm64 6-arg ABI compliance.
@@ -21,13 +21,13 @@ Pure C0 parity & optimization layer (`23` replacements + `4` inserted helpers = 
    prefix clearing into the single `[0..fp)` scan in `full_arena_sweep_m6`.
 3. `S9-P0.2`: Skip `enter_dense`/`rebuild_watches` in `full_probe_m6` when congruence and sweep
    are both delayed, split `full_rebuild_watches_nosort_fid` so `full_sort_bin_watches_fid`
-   runs once at final probe exit, and align inproc/initial stages with `probe.c:33-67`.
-4. `S9-P0.3`: Wire `FullM7MemShrinkV5` (`151 -> 90 B/var` resident + `58 B/var` transient pool),
-   preserving Step-7 `cand = 32768ULL` & `scr_cap = 8388608ULL` (`8M`) plus entry clearing of
-   `tarjan_mark[0..cv]` in `full_congruence_dense`.
-5. `S9-P1.1` & `S9-P1.2`: Split cold realloc fallback (`full_prop_flush_slow_fid`) out of
+   runs once at final probe exit, and align inproc/initial stages with `probe.c:33-67`, plus
+   entry clearing of `tarjan_mark[0..cv]` in `full_congruence_dense`.
+4. `S9-P1.1` & `S9-P1.2`: Split cold realloc fallback (`full_prop_flush_slow_fid`) out of
    `full_prop_flush_del_fid` so fast-path `wlen`/`wusable` stay in registers, and restore
    alignment-guarded `u64` copy + `full_fill_u64_m7` `cnt` wipe in `full_bva_commit`.
+5. Experimental `S9-P0.3` (`MemShrinkV5` + `cand = 32768` + `scr_cap = 8M`) is factored into
+   `LeanQbe.T.Examples.Kissat.FullFidelityStep9MemShrink`.
 -/
 
 set_option autoImplicit false
@@ -105,7 +105,6 @@ typedef struct {
 #define M6_WM_REDUCE_CONFL    2ULL
 #define M6_WM_REDUCE_TICKS    3ULL
 
-extern bool kissat_parse_header(u64 p, u64 cend, KissatDimacs *d);
 extern bool full_watch_push(FullHdr *h, u32 lit, u32 w0, u32 w1, u32 cnt);
 extern u64 full_flush_trail(FullHdr *h);
 extern u32 full_arena_next(FullHdr *h, u32 cref);
@@ -167,250 +166,6 @@ void full_fill_u64_m7(u64 *dst, u64 n, u64 val) {
     dst[i] = val;
     i = i + 1ULL;
   }
-}
-
-void full_zero_tables1(FullHdr *h) {
-  u64 nlits = h->max_vars << 1;
-  u64 n_v64 = ((nlits + 7ULL) & (~7ULL)) >> 3;
-  full_fill_u64_m7((u64 *)h->values, n_v64, 0ULL);
-  full_fill_u64_m7((u64 *)h->lit_mark, n_v64, 0ULL);
-  full_fill_u64_m7((u64 *)h->watch_vec, nlits, 0ULL);
-  if (h->wcap > 0ULL) {
-    u32 *wstk = (u32 *)h->watch_stk;
-    wstk[0] = 0u;
-  }
-  full_fill_u64_m7((u64 *)h->min_stk, h->min_depth, 0ULL);
-  full_fill_u64_m7((u64 *)h->glue_used, 32ULL, 0ULL);
-  full_fill_u64_m7((u64 *)h->last_learned, 8ULL, 0xFFFFFFFFFFFFFFFFULL);
-}
-
-void full_zero_tables2(FullHdr *h) {
-  u64 mv = h->d.mv;
-  u64 mx = h->max_vars;
-  u64 mb_words = ((mx + 7ULL) & (~7ULL)) >> 3;
-  u64 ub_words = ((((mx + 1ULL) << 2) + 7ULL) & (~7ULL)) >> 3;
-  full_fill_u64_m7((u64 *)h->mark, mb_words, 0ULL);
-  full_fill_u64_m7((u64 *)h->phases_target, mb_words, 0ULL);
-  full_fill_u64_m7((u64 *)h->phases_best, mb_words, 0ULL);
-  full_fill_u64_m7((u64 *)h->phases, mb_words, 0x0101010101010101ULL);
-  full_fill_u64_m7((u64 *)h->level, ub_words, 0ULL);
-  full_fill_u64_m7((u64 *)h->frame_trail, ub_words, 0ULL);
-  full_fill_u64_m7((u64 *)h->reason, ub_words, 0xFFFFFFFFFFFFFFFFULL);
-  full_fill_u64_m7((u64 *)h->frame_dec, ub_words, 0xFFFFFFFFFFFFFFFFULL);
-  full_fill_u64_m7((u64 *)h->score, mx, 0ULL);
-  u32 *fl = (u32 *)h->flags;
-  u32 *hp = (u32 *)h->heap;
-  u32 *ps = (u32 *)h->pos;
-  u32 *qs = (u32 *)h->q_stamp;
-  u32 *qp = (u32 *)h->q_prev;
-  u32 *qn = (u32 *)h->q_next;
-  u32 all_c = FL_ACTIVE | FL_SUBSUME | FL_ELIM_C | FL_FACT_P | FL_FACT_N |
-              FL_BONE0 | FL_BONE1 | FL_TRANS | FL_SWEEP;
-  u64 v = 0ULL;
-  while (v < mv) {
-    fl[v] = all_c;
-    hp[v] = (u32)v;
-    ps[v] = (u32)v;
-    qs[v] = (u32)(v + 1ULL);
-    qp[v] = (v == 0ULL) ? 0xFFFFFFFFu : (u32)(v - 1ULL);
-    qn[v] = (v + 1ULL >= mv) ? 0xFFFFFFFFu : (u32)(v + 1ULL);
-    v = v + 1ULL;
-  }
-  while (v < mx) {
-    fl[v] = 0u;
-    hp[v] = 0u;
-    ps[v] = 0xFFFFFFFFu;
-    qp[v] = 0xFFFFFFFFu;
-    qn[v] = 0xFFFFFFFFu;
-    qs[v] = 0u;
-    v = v + 1ULL;
-  }
-}
-
-u64 full_fixed_bytes(u64 max_v) {
-  u64 nlits = max_v << 1;
-  u64 vals_b = (nlits + 7ULL) & (~7ULL);
-  u64 mark_b = (max_v + 7ULL) & (~7ULL);
-  u64 u32_b = (((max_v + 1ULL) << 2) + 7ULL) & (~7ULL);
-  u64 mdepth = (max_v + 1ULL < 1000ULL) ? (max_v + 1ULL) : 1000ULL;
-  return (u64)sizeof(FullHdr) + 320ULL + vals_b + (mark_b << 2) +
-         (u32_b * 15ULL) + (nlits << 3) + (max_v << 3) + (mdepth << 3);
-}
-
-void full_init_ptrs(FullHdr *h, u64 hdr_addr, u64 max_v) {
-  u64 nlits = max_v << 1;
-  u64 vb = (nlits + 7ULL) & (~7ULL);
-  u64 mb = (max_v + 7ULL) & (~7ULL);
-  u64 ub = (((max_v + 1ULL) << 2) + 7ULL) & (~7ULL);
-  u64 u64b = max_v << 3;
-  u64 mdepth = (max_v + 1ULL < 1000ULL) ? (max_v + 1ULL) : 1000ULL;
-  u64 base = hdr_addr + (u64)sizeof(FullHdr);
-  h->values = base; base = base + vb;
-  h->mark = base; base = base + mb;
-  h->phases = base; base = base + mb;
-  h->phases_target = base; base = base + mb;
-  h->phases_best = base; base = base + mb;
-  h->flags = base; base = base + ub;
-  h->level = base; base = base + ub;
-  h->reason = base; base = base + ub;
-  h->trail = base; base = base + ub;
-  h->trail_pos = base; base = base + ub;
-  h->tmp_lits = base; base = base + ub;
-  h->heap = base; base = base + ub;
-  h->pos = base; base = base + ub;
-  h->min_clr = base; base = base + ub;
-  h->shrink_stk = base; base = base + ub;
-  h->q_prev = base; base = base + ub;
-  h->q_next = base; base = base + ub;
-  h->q_stamp = base; base = base + ub;
-  h->frame_trail = base; base = base + ub;
-  h->frame_dec = base; base = base + ub;
-  h->watch_vec = base; base = base + (nlits << 3);
-  h->score = base; base = base + u64b;
-  h->min_stk = base; base = base + (mdepth << 3);
-  h->glue_used = base; base = base + 256ULL;
-  h->last_learned = base; base = base + 64ULL;
-  h->arena = base;
-  h->min_depth = mdepth;
-}
-
-void full_init_hdr(FullHdr *h, u64 mv, u64 max_v, u64 fuel) {
-  h->max_vars = max_v; h->cur_vars = mv; h->bva_cap = max_v - mv;
-  h->unassigned = mv;
-  h->delayed_len = 0ULL; h->arena_len = 0ULL; h->wlen = 1ULL; h->wusable = 0ULL;
-  h->arena_garbage = 0ULL; h->first_reducible = 0xFFFFFFFFULL;
-  h->num_irred = 0ULL; h->num_redundant = 0ULL; h->num_binary = 0ULL;
-  h->unflushed = 0ULL; h->probing = 0ULL; h->trail_end = 0ULL; h->propagated = 0ULL;
-  h->cur_level = 0ULL; h->fuel = fuel; h->confl_ref = 0xFFFFFFFFULL;
-  h->confl_type = 0ULL; h->confl_lit0 = 0ULL; h->confl_lit1 = 0ULL;
-  h->tmp_cnt = 0ULL; h->tmp_len = 0ULL; h->heap_len = mv; h->scinc = 1ULL << 28;
-  h->min_clr_len = 0ULL; h->min_clr_full = 0ULL;
-  h->rel_period = 1024ULL; h->rel_limit = 1048576ULL; h->rel_wait = 1024ULL;
-  h->rel_u = 1ULL; h->rel_v = 1ULL; h->rel_trigger = 0ULL;
-  h->conflicts = 0ULL; h->learned_lits = 0ULL; h->min_removed = 0ULL;
-  h->stable = 0ULL; h->switched = 0ULL; h->mode_count = 0ULL;
-  h->mode_confl_lim = 1000ULL; h->mode_tick_lim = 0ULL;
-  h->mode_saved_ticks = 0ULL; h->search_ticks = 0ULL;
-  h->q_first = (mv == 0ULL) ? 0xFFFFFFFFULL : 0ULL;
-  h->q_last = (mv == 0ULL) ? 0xFFFFFFFFULL : (mv - 1ULL);
-  h->q_search_idx = (mv == 0ULL) ? 0xFFFFFFFFULL : (mv - 1ULL);
-  h->q_search_stamp = mv; h->q_cur_stamp = mv;
-  h->target_assigned = 0ULL; h->best_assigned = 0ULL;
-  h->rephase_limit = 1000ULL; h->rephased = 0ULL;
-  h->reduce_limit = 1000ULL; h->reductions = 0ULL;
-  h->tier1 = 2ULL; h->tier2 = 6ULL;
-  h->restarts = 0ULL; h->restart_limit = 1ULL;
-  h->ema_fast_biased = 0ULL; h->ema_fast_exp = 1ULL << 24;
-  h->ema_slow_biased = 0ULL; h->ema_slow_exp = 1ULL << 24;
-  h->oom = 0ULL; h->extend_len = 0ULL;
-  h->rng_state = 0x9E3779B97F4A7C15ULL ^ (mv + 1ULL);
-  h->chrono_levels = 100ULL; h->otfs_cnt = 0ULL; h->eager_sub_cnt = 0ULL;
-  h->probe_limit = 2000ULL; h->probings = 0ULL;
-  h->elim_limit = 5000ULL; h->eliminations = 0ULL; h->elim_bound = 0ULL;
-  h->dense_mode = 0ULL; h->inconsistent = 0ULL; h->iterating = 0ULL;
-  h->hbr_cnt = 0ULL; h->trans_cnt = 0ULL; h->viv_cnt = 0ULL; h->subst_cnt = 0ULL;
-  h->cong_cnt = 0ULL; h->sweep_cnt = 0ULL; h->bve_cnt = 0ULL; h->bce_cnt = 0ULL;
-  h->bva_cnt = 0ULL; h->walk_cnt_stat = 0ULL; h->fwd_sub_cnt = 0ULL; h->fwd_str_cnt = 0ULL;
-  h->ant_sz = 0ULL; h->res_sz = 0ULL;
-}
-
-u64 full_trans_bytes_m7(u64 max_v) {
-  u64 nlits = max_v << 1;
-  u64 vals_b = (nlits + 7ULL) & (~7ULL);
-  u64 u64b = max_v << 3;
-  return (u64b * 7ULL) + vals_b;
-}
-
-u64 full_calc_max_v(u64 avail, u64 mv, u64 nc, u64 f0) {
-  u64 rem0 = avail - f0;
-  u64 bva_cap = 0ULL;
-  if (mv >= 2ULL && rem0 > nc * 48ULL + 8192ULL) {
-    u64 cand = 32768ULL;
-    u64 max_bva = (rem0 - nc * 48ULL - 4096ULL) / 2688ULL;
-    bva_cap = (cand < max_bva) ? cand : max_bva;
-  }
-  u64 max_v = mv + bva_cap;
-  u64 need = full_fixed_bytes(max_v) + full_trans_bytes_m7(max_v);
-  if (avail < need || avail - need < nc * 40ULL + 136ULL) { return mv; }
-  return max_v;
-}
-
-u64 full_calc_ext_cap_m5(u64 rem) {
-  if (rem < 8192ULL) { return 0ULL; }
-  u64 c = rem >> 5;
-  if (c > 4194304ULL) { c = 4194304ULL; }
-  return c & (~1ULL);
-}
-
-u64 full_calc_scr_cap_m5(u64 rem) {
-  if (rem < 8192ULL) { return 0ULL; }
-  u64 c = (rem >= 16384ULL) ? (rem >> 4) : (rem >> 5);
-  if (c > 8388608ULL) { c = 8388608ULL; }
-  return c & (~1ULL);
-}
-
-void full_init_arenas(FullHdr *h, u64 hdr_addr, u64 max_v, u64 avail_dyn) {
-  u64 del_bytes = h->delayed_cap * 12ULL;
-  u64 ext_cap = h->extend_cap;
-  u64 tp = avail_dyn >> 3;
-  u64 ap = (tp * 3ULL) / 5ULL;
-  if (ap > 134217727ULL) { ap = 134217727ULL; }
-  u64 rp = (ap + 5ULL) / 6ULL;
-  u64 wp = tp - ap - rp;
-  if (wp > 134217727ULL) { wp = 134217727ULL; }
-  full_init_ptrs(h, hdr_addr, max_v);
-  u64 base = h->arena + (ap << 3);
-  h->watch_stk = base; base = base + (wp << 3);
-  h->delayed = base; base = base + del_bytes;
-  h->red_refs = base; base = base + (rp << 3);
-  h->extend_stk = base; base = base + (ext_cap << 2);
-  h->scratch_buf = base; base = base + (h->scratch_cap << 2);
-  h->arena_cap = ap << 1; h->wcap = wp << 1; h->red_cap = rp << 1;
-
-  u64 u64b = max_v << 3;
-  u64 t_base = base;
-  h->wsort = t_base;
-  h->work_stk1 = t_base + u64b;
-  h->work_stk2 = t_base + (u64b * 2ULL);
-  h->tarjan_mark = t_base + (u64b * 3ULL);
-  h->tarjan_reach = t_base + (u64b * 4ULL);
-  h->repr = t_base + (u64b * 5ULL);
-  h->walk_vals = t_base + (u64b * 5ULL);
-  h->sim_sig = t_base + (u64b * 6ULL);
-  h->walk_best = t_base + (u64b * 6ULL);
-  h->lit_mark = t_base + (u64b * 7ULL);
-}
-
-bool full_init_state_m5(u64 cnf_ptr, u64 cnf_end, u64 hdr_addr, u64 avail, u64 fuel) {
-  FullHdr *h = (FullHdr *)hdr_addr;
-  if (!kissat_parse_header(cnf_ptr, cnf_end, &h->d)) { return false; }
-  u64 mv = h->d.mv; u64 nc = h->d.nc;
-  u64 f0 = full_fixed_bytes(mv);
-  u64 t0 = full_trans_bytes_m7(mv);
-  if (avail < f0 + t0 || avail - (f0 + t0) < nc * 40ULL + 136ULL) { return false; }
-  u64 max_v = full_calc_max_v(avail, mv, nc, f0);
-  u64 tb = full_trans_bytes_m7(max_v);
-  u64 rem = avail - full_fixed_bytes(max_v);
-  if (rem < tb + nc * 40ULL + 136ULL) { return false; }
-  u64 rem_arenas = rem - tb;
-  u64 del_cap = (rem_arenas >= 524288ULL) ? 4096ULL : 8ULL;
-  u64 del_bytes = del_cap * 12ULL;
-  u64 ext_cap = full_calc_ext_cap_m5(rem_arenas);
-  u64 scr_cap = full_calc_scr_cap_m5(rem_arenas);
-  u64 dyn = del_bytes + (ext_cap << 2) + (scr_cap << 2);
-  if (rem_arenas < dyn + nc * 40ULL + 136ULL) {
-    ext_cap = 0ULL; scr_cap = 0ULL; dyn = del_bytes;
-  }
-  h->delayed_cap = del_cap; h->extend_cap = ext_cap; h->scratch_cap = scr_cap;
-  full_init_arenas(h, hdr_addr, max_v, rem_arenas - dyn);
-  full_init_hdr(h, mv, max_v, fuel);
-  full_zero_tables1(h);
-  full_zero_tables2(h);
-  return true;
-}
-
-bool full_init_state(u64 cnf_ptr, u64 cnf_end, u64 hdr_addr, u64 avail, u64 fuel) {
-  return full_init_state_m5(cnf_ptr, cnf_end, hdr_addr, avail, fuel);
 }
 
 bool full_prop_flush_slow_fid(FullHdr *h, u64 j, u64 di) {
@@ -523,11 +278,16 @@ u64 full_arena_sweep_m6(FullHdr *h) {
           p + 3ULL + (u64)sz > fp) {
         pre_ok = false; break;
       }
-      if ((hdr & PH_RSN) != 0u) { ar[p] = hdr & (~PH_RSN); }
       p = p + 3ULL + (u64)sz;
       cnt = cnt + 1ULL;
     }
     if (pre_ok && p == fp) {
+      u64 cp0 = 0ULL;
+      while (cp0 < fp) {
+        u32 hdr = ar[cp0]; u32 sz = ar[cp0 + 2ULL];
+        if ((hdr & PH_RSN) != 0u) { ar[cp0] = hdr & (~PH_RSN); }
+        cp0 = cp0 + 3ULL + (u64)sz;
+      }
       start = fp;
       pre_irred = cnt;
     }
@@ -627,7 +387,7 @@ u64 full_reduce_m6(FullHdr *h, bool force) {
     u32 *rr = (u32 *)h->red_refs;
     u64 rc = 0ULL;
     u64 alen = h->arena_len;
-    u64 p = (h->first_reducible < alen) ? h->first_reducible : alen;
+    u64 p = 0ULL;
     u64 t1 = h->tier1;
     u64 t2 = h->tier2;
     while (p < alen) {
@@ -1129,71 +889,6 @@ u64 full_factor(FullHdr *h, u64 budget) {
   return 1ULL;
 }
 
-void full_compact_vars(FullHdr *h, u64 old_cv, u64 ncv) {
-  i8 *vals = (i8 *)h->values;
-  u32 *fl = (u32 *)h->flags;
-  u32 *lvl = (u32 *)h->level;
-  u32 *rsns = (u32 *)h->reason;
-  u32 *ftrl = (u32 *)h->frame_trail;
-  u32 *fdec = (u32 *)h->frame_dec;
-  i8 *ph = (i8 *)h->phases;
-  i8 *ptgt = (i8 *)h->phases_target;
-  i8 *pbst = (i8 *)h->phases_best;
-  u64 *sc = (u64 *)h->score;
-  u32 *qs = (u32 *)h->q_stamp;
-  u32 *qp = (u32 *)h->q_prev;
-  u32 *qn = (u32 *)h->q_next;
-  u32 *ps = (u32 *)h->pos;
-  u32 *inv = (u32 *)h->work_stk2;
-  u64 l = 0ULL;
-  u64 nlits = old_cv << 1;
-  while (l < nlits) { vals[l] = (i8)0; l = l + 1ULL; }
-  u64 tgt_asg = 0ULL;
-  u64 bst_asg = 0ULL;
-  u64 nv = 0ULL;
-  while (nv < ncv) {
-    u32 ov = inv[nv];
-    fl[nv] = fl[ov];
-    ph[nv] = ph[ov];
-    i8 tv = ptgt[ov];
-    i8 bv = pbst[ov];
-    ptgt[nv] = tv;
-    pbst[nv] = bv;
-    if (tv != (i8)0) { tgt_asg = tgt_asg + 1ULL; }
-    if (bv != (i8)0) { bst_asg = bst_asg + 1ULL; }
-    sc[nv] = sc[ov];
-    qs[nv] = qs[ov];
-    lvl[nv] = 0u;
-    rsns[nv] = 0xFFFFFFFFu;
-    nv = nv + 1ULL;
-  }
-  u64 v = ncv;
-  while (v < old_cv) {
-    fl[v] = 0u;
-    lvl[v] = 0u;
-    rsns[v] = 0xFFFFFFFFu;
-    sc[v] = 0ULL;
-    qs[v] = 0u;
-    qp[v] = 0xFFFFFFFFu;
-    qn[v] = 0xFFFFFFFFu;
-    ps[v] = 0xFFFFFFFFu;
-    v = v + 1ULL;
-  }
-  ftrl[0] = 0u;
-  fdec[0] = 0xFFFFFFFFu;
-  h->trail_end = 0ULL;
-  h->propagated = 0ULL;
-  h->cur_level = 0ULL;
-  h->unflushed = 0ULL;
-  h->confl_ref = 0xFFFFFFFFULL;
-  h->confl_type = 0ULL;
-  h->target_assigned = tgt_asg;
-  h->best_assigned = bst_asg;
-  h->cur_vars = ncv;
-  h->unassigned = ncv;
-  if (ncv < h->d.mv) { h->d.mv = ncv; h->bva_cap = h->max_vars - ncv; }
-}
-
 bool full_compact_needed(FullHdr *h) {
   if (h->cur_level != 0ULL || h->dense_mode != 0ULL) { return false; }
   u64 cv = h->cur_vars;
@@ -1402,46 +1097,10 @@ u64 full_probe_m6(FullHdr *h, bool initial) {
 }
 "
 
-/-! ## 1. Canonical `Fn` Handles, Replacement / Insertion Lists & Module (`505` fns) -/
+/-! ## 1. Canonical `Fn` Handles, Replacement / Insertion Lists & Module (`504` fns) -/
 
 def fidStep9FillU64Fn : Fn :=
   ⟨"full_fill_u64_m7", [i64, i64, i64], [], full_fill_u64_m7_body⟩
-
-def fidStep9ZeroTables1Fn : Fn :=
-  ⟨"full_zero_tables1", [i64], [], full_zero_tables1_body⟩
-
-def fidStep9ZeroTables2Fn : Fn :=
-  ⟨"full_zero_tables2", [i64], [], full_zero_tables2_body⟩
-
-def fidStep9FixedBytesFn : Fn :=
-  ⟨"full_fixed_bytes", [i64], [i64], full_fixed_bytes_body⟩
-
-def fidStep9InitPtrsFn : Fn :=
-  ⟨"full_init_ptrs", [i64, i64, i64], [], full_init_ptrs_body⟩
-
-def fidStep9InitHdrFn : Fn :=
-  ⟨"full_init_hdr", [i64, i64, i64, i64], [], full_init_hdr_body⟩
-
-def fidStep9TransBytesFn : Fn :=
-  ⟨"full_trans_bytes_m7", [i64], [i64], full_trans_bytes_m7_body⟩
-
-def fidStep9CalcMaxVFn : Fn :=
-  ⟨"full_calc_max_v", [i64, i64, i64, i64], [i64], full_calc_max_v_body⟩
-
-def fidStep9CalcExtCapM5Fn : Fn :=
-  ⟨"full_calc_ext_cap_m5", [i64], [i64], full_calc_ext_cap_m5_body⟩
-
-def fidStep9CalcScrCapM5Fn : Fn :=
-  ⟨"full_calc_scr_cap_m5", [i64], [i64], full_calc_scr_cap_m5_body⟩
-
-def fidStep9InitArenasFn : Fn :=
-  ⟨"full_init_arenas", [i64, i64, i64, i64], [], full_init_arenas_body⟩
-
-def fidStep9InitStateM5Fn : Fn :=
-  ⟨"full_init_state_m5", [i64, i64, i64, i64, i64], [.bool], full_init_state_m5_body⟩
-
-def fidStep9InitStateFn : Fn :=
-  ⟨"full_init_state", [i64, i64, i64, i64, i64], [.bool], full_init_state_body⟩
 
 def fidStep9PropFlushSlowFn : Fn :=
   ⟨"full_prop_flush_slow_fid", [i64, i64, i64], [.bool], full_prop_flush_slow_fid_body⟩
@@ -1473,9 +1132,6 @@ def fidStep9BvaUpdLitFn : Fn :=
 def fidStep9FactorFn : Fn :=
   ⟨"full_factor", [i64, i64], [i64], full_factor_body⟩
 
-def fidStep9CompactVarsFn : Fn :=
-  ⟨"full_compact_vars", [i64, i64, i64], [], full_compact_vars_body⟩
-
 def fidStep9CompactNeededFn : Fn :=
   ⟨"full_compact_needed", [i64], [.bool], full_compact_needed_body⟩
 
@@ -1485,20 +1141,9 @@ def fidStep9CompactFlushFn : Fn :=
 def fidStep9ProbeM6Fn : Fn :=
   ⟨"full_probe_m6", [i64, .bool], [i64], full_probe_m6_body⟩
 
-/-- Exact `23`-function Step-9 replacement list over `fidStep8Fns`. -/
+/-- Exact `11`-function non-MemShrink Step-9 replacement list over `fidStep8Fns`. -/
 def fidStep9Repls : List Fn :=
-  [ fidStep9ZeroTables1Fn
-  , fidStep9ZeroTables2Fn
-  , fidStep9FixedBytesFn
-  , fidStep9InitPtrsFn
-  , fidStep9InitHdrFn
-  , fidStep9CalcMaxVFn
-  , fidStep9CalcExtCapM5Fn
-  , fidStep9CalcScrCapM5Fn
-  , fidStep9InitArenasFn
-  , fidStep9InitStateM5Fn
-  , fidStep9InitStateFn
-  , fidStep9PropFlushDelFn
+  [ fidStep9PropFlushDelFn
   , fidStep9ArenaSweepM6Fn
   , fidStep9ReduceM6Fn
   , fidStep9CongruenceDenseFn
@@ -1506,23 +1151,21 @@ def fidStep9Repls : List Fn :=
   , fidStep9BvaCommitFn
   , fidStep9BvaUpdLitFn
   , fidStep9FactorFn
-  , fidStep9CompactVarsFn
   , fidStep9CompactNeededFn
   , fidStep9CompactFlushFn
   , fidStep9ProbeM6Fn ]
 
-/-- Ordered helper insertions (`+4` helpers, net `501 -> 505` functions). -/
+/-- Ordered helper insertions (`+3` helpers, net `501 -> 504` functions). -/
 def fidStep9Befores : List (Sym × List Fn) :=
   [ ("full_zero_tables1", [fidStep9FillU64Fn])
-  , ("full_calc_max_v", [fidStep9TransBytesFn])
   , ("full_prop_flush_del_fid", [fidStep9PropFlushSlowFn])
   , ("full_rebuild_watches", [fidStep9RebuildWatchesNosortFn]) ]
 
-/-- Ordered `505`-fn Step-9 `KissatFidelity` function list (`patchFns` over `fidStep8Fns`). -/
+/-- Ordered `504`-fn Step-9 `KissatFidelity` function list (`patchFns` over `fidStep8Fns`). -/
 def fidStep9ModuleFns : List Fn :=
   patchFns fidStep9Repls fidStep9Befores fidStep8Fns
 
-/-- Closed `505`-function Gate-1 Step-9 `KissatFidelity` module (`0` externs, `0` exits). -/
+/-- Closed `504`-function Gate-1 Step-9 `KissatFidelity` module (`0` externs, `0` exits). -/
 def fidStep9Module : LeanQbe.T.Module :=
   { fidStep8Module with fns := fidStep9ModuleFns }
 
@@ -1532,18 +1175,6 @@ theorem fidStep9ModuleFns_eq : fidStep9Module.fns = fidStep9ModuleFns :=
 /-! ## 2. Function Well-Formedness (`Func.Wf`) & Exit-Freedom -/
 
 theorem full_fill_u64_m7_step9_wf : Func.Wf fidStep9FillU64Fn.body := by t_wf_reify
-theorem full_zero_tables1_step9_wf : Func.Wf fidStep9ZeroTables1Fn.body := by t_wf_reify
-theorem full_zero_tables2_step9_wf : Func.Wf fidStep9ZeroTables2Fn.body := by t_wf_reify
-theorem full_fixed_bytes_step9_wf : Func.Wf fidStep9FixedBytesFn.body := by t_wf_reify
-theorem full_init_ptrs_step9_wf : Func.Wf fidStep9InitPtrsFn.body := by t_wf_reify
-theorem full_init_hdr_step9_wf : Func.Wf fidStep9InitHdrFn.body := by t_wf_reify
-theorem full_trans_bytes_m7_step9_wf : Func.Wf fidStep9TransBytesFn.body := by t_wf_reify
-theorem full_calc_max_v_step9_wf : Func.Wf fidStep9CalcMaxVFn.body := by t_wf_reify
-theorem full_calc_ext_cap_m5_step9_wf : Func.Wf fidStep9CalcExtCapM5Fn.body := by t_wf_reify
-theorem full_calc_scr_cap_m5_step9_wf : Func.Wf fidStep9CalcScrCapM5Fn.body := by t_wf_reify
-theorem full_init_arenas_step9_wf : Func.Wf fidStep9InitArenasFn.body := by t_wf_reify
-theorem full_init_state_m5_step9_wf : Func.Wf fidStep9InitStateM5Fn.body := by t_wf_reify
-theorem full_init_state_step9_wf : Func.Wf fidStep9InitStateFn.body := by t_wf_reify
 theorem full_prop_flush_slow_step9_wf : Func.Wf fidStep9PropFlushSlowFn.body := by t_wf_reify
 theorem full_prop_flush_del_step9_wf : Func.Wf fidStep9PropFlushDelFn.body := by t_wf_reify
 theorem full_arena_sweep_m6_step9_wf : Func.Wf fidStep9ArenaSweepM6Fn.body := by t_wf_reify
@@ -1556,7 +1187,6 @@ theorem full_rebuild_watches_step9_wf : Func.Wf fidStep9RebuildWatchesFn.body :=
 theorem full_bva_commit_step9_wf : Func.Wf fidStep9BvaCommitFn.body := by t_wf_reify
 theorem full_bva_upd_lit_step9_wf : Func.Wf fidStep9BvaUpdLitFn.body := by t_wf_reify
 theorem full_factor_step9_wf : Func.Wf fidStep9FactorFn.body := by t_wf_reify
-theorem full_compact_vars_step9_wf : Func.Wf fidStep9CompactVarsFn.body := by t_wf_reify
 theorem full_compact_needed_step9_wf : Func.Wf fidStep9CompactNeededFn.body := by t_wf_reify
 theorem full_compact_flush_step9_wf : Func.Wf fidStep9CompactFlushFn.body := by t_wf_reify
 theorem full_probe_m6_step9_wf : Func.Wf fidStep9ProbeM6Fn.body := by t_wf_reify
@@ -1565,28 +1195,15 @@ theorem fidStep9Befores_wf : ∀ h ∈ fidStep9Befores.flatMap Prod.snd, h.Wf :=
   intro h hh
   simp only [fidStep9Befores, List.flatMap_cons, List.flatMap_nil, List.append_nil,
     List.cons_append, List.nil_append, List.mem_cons, List.not_mem_nil, or_false] at hh
-  rcases hh with rfl | rfl | rfl | rfl
+  rcases hh with rfl | rfl | rfl
   · exact full_fill_u64_m7_step9_wf
-  · exact full_trans_bytes_m7_step9_wf
   · exact full_prop_flush_slow_step9_wf
   · exact full_rebuild_watches_nosort_step9_wf
 
 theorem fidStep9Repls_wf : ∀ f ∈ fidStep9Repls, f.Wf := by
   intro f hf
   simp only [fidStep9Repls, List.mem_cons, List.not_mem_nil, or_false] at hf
-  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
-  · exact full_zero_tables1_step9_wf
-  · exact full_zero_tables2_step9_wf
-  · exact full_fixed_bytes_step9_wf
-  · exact full_init_ptrs_step9_wf
-  · exact full_init_hdr_step9_wf
-  · exact full_calc_max_v_step9_wf
-  · exact full_calc_ext_cap_m5_step9_wf
-  · exact full_calc_scr_cap_m5_step9_wf
-  · exact full_init_arenas_step9_wf
-  · exact full_init_state_m5_step9_wf
-  · exact full_init_state_step9_wf
+  rcases hf with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
   · exact full_prop_flush_del_step9_wf
   · exact full_arena_sweep_m6_step9_wf
   · exact full_reduce_m6_step9_wf
@@ -1595,7 +1212,6 @@ theorem fidStep9Repls_wf : ∀ f ∈ fidStep9Repls, f.Wf := by
   · exact full_bva_commit_step9_wf
   · exact full_bva_upd_lit_step9_wf
   · exact full_factor_step9_wf
-  · exact full_compact_vars_step9_wf
   · exact full_compact_needed_step9_wf
   · exact full_compact_flush_step9_wf
   · exact full_probe_m6_step9_wf

@@ -30,8 +30,12 @@ import all LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof0
 import all LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof
 import all LeanQbe.T.Examples.Kissat.FullM8SweepV2Proof
 import all LeanQbe.T.Examples.Kissat.FullM8CoreParityProof
+import LeanQbe.T.Examples.Kissat.FullFidelityBcpProof0
 import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof0b
 import LeanQbe.T.Examples.Kissat.FullM6MinShrinkProof1
+import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof1b
+import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2a
+import LeanQbe.T.Examples.Kissat.FullM6WatchGcProof2c
 import LeanQbe.T.Examples.Kissat.FullBvaHeapSpec
 import LeanQbe.T.Examples.Kissat.FullDefSweep
 import LeanQbe.T.Examples.Kissat.FullFastSched
@@ -1661,6 +1665,475 @@ theorem fidStep7Env_unwatchLarge :
       fidStep7Env "full_unwatch_large" [i64, i32, i32] [] a m Q X :=
   fid7_step4FrontRow 0 "full_unwatch_large" Full.fullUnwatchLargeSpec
 
+theorem fidStep7Env_arenaNext :
+    ∀ a m Q X, Full.fullArenaNextSpec a m Q X →
+      fidStep7Env "full_arena_next" [i64, i32] [i32] a m Q X :=
+  fid7_m7Row (m7FidPart1Callees_of_sub m7FidBase_part1_mem).arenaNext
+
+theorem fidStep7Env_arenaSweep :
+    ∀ a m Q X, Full.fullArenaSweepSpec a m Q X →
+      fidStep7Env "full_arena_sweep" [i64] [i64] a m Q X :=
+  fid7_m7Row (m7FidBase_pfx_mem _ (List.mem_of_getElem? (i := 7) rfl))
+
+theorem fidStep7Env_sweepBinsRangeM6 :
+    ∀ a m Q X, FullM6WatchGc.fullSweepBinsRangeSpec a m Q X →
+      fidStep7Env "full_sweep_bins_range_m6" [i64, i64] [] a m Q X :=
+  fid7_m7Row (m7FidBase_part1_mem _ (by
+    unfold m7FidRowsPart1
+    (iterate 18 apply List.mem_append_right)
+    exact List.mem_append_left _ (List.mem_of_getElem? (i := 1) rfl)))
+    (hno := fun _ _ _ _ h => FullM6WatchGc.fullSweepBinsRangeSpec_xirrel h)
+
+theorem fidStep7Env_sweepCopy :
+    ∀ a m Q X, Full.fullSweepCopySpec a m Q X →
+      fidStep7Env "full_sweep_copy" [i64, i64, i64, i32, .bool] [i64] a m Q X :=
+  fid7_m7Row (m7FidBase_part1_mem _ (by
+    unfold m7FidRowsPart1
+    (iterate 23 apply List.mem_append_right)
+    exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl)))
+
+theorem fidStep7Env_moveRedEndM6 :
+    ∀ a m Q X, FullM6WatchGc.fullMoveRedEndSpec a m Q X →
+      fidStep7Env "full_move_red_end_m6" [i64, i64, i64] [] a m Q X :=
+  fid7_m7Row (m7FidBase_part1_mem _ (by
+    unfold m7FidRowsPart1
+    (iterate 25 apply List.mem_append_right)
+    exact List.mem_append_left _ (List.mem_of_getElem? (i := 2) rfl)))
+    (hno := fun _ _ _ _ h => FullM6WatchGc.fullMoveRedEndSpec_xirrel h)
+
+theorem fidStep7Env_rewatchRangeM6 :
+    ∀ a m Q X, FullM6WatchGc.fullRewatchRangeSpec a m Q X →
+      fidStep7Env "full_rewatch_range_m6" [i64, i64, i64] [.bool] a m Q X :=
+  fid7_m7Row (m7FidBase_part1_mem _ (by
+    unfold m7FidRowsPart1
+    (iterate 19 apply List.mem_append_right)
+    exact List.mem_append_left _ (List.mem_of_getElem? (i := 0) rfl)))
+    (hno := fun _ _ _ _ h => FullM6WatchGc.fullRewatchRangeSpec_xirrel h)
+
+theorem fidStep7Env_backtrack :
+    ∀ a m Q X, Full.fullBacktrackSpec a m Q X →
+      fidStep7Env "full_backtrack" [i64, i64] [] a m Q X :=
+  fid7_m7Row (m7FidPart1Callees_of_sub m7FidBase_part1_mem).backtrack
+
+theorem fidStep7Env_hdrRecomputeTiers :
+    ∀ a m Q X, m6HdrW2aSpec [] [] a m Q X →
+      fidStep7Env "m6_hdr_recompute_tiers" [i64] [] a m Q X :=
+  fid7_m7Row_at 61 "m6_hdr_recompute_tiers" (m6HdrW2aSpec [] [])
+    (hno := fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+
+theorem fidStep7Env_markReasons :
+    ∀ a m Q X, Full.fullMarkReasonsSpec a m Q X →
+      fidStep7Env "full_mark_reasons" [i64, .bool] [] a m Q X :=
+  fid7_m7Row (m7FidBase_pfx_mem _ (List.mem_of_getElem? (i := 8) rfl))
+
+theorem fidStep7Env_isqrt :
+    ∀ a m Q X, Full.fullIsqrtSpec a m Q X →
+      fidStep7Env "full_isqrt" [i64] [i64] a m Q X :=
+  fid7_m7Row (m7FidPart1Callees_of_sub m7FidBase_part1_mem).isqrt
+
+theorem fidStep7Env_sortReds :
+    ∀ a m Q X, Full.fullSortRedsSpec a m Q X →
+      fidStep7Env "full_sort_reds" [i64, i64] [] a m Q X :=
+  fid7_m7Row_at 109 "full_sort_reds" Full.fullSortRedsSpec
+
+theorem fidStep7Env_log10Q16M7 :
+    ∀ a m Q X, m7Log10Q16Spec a m Q X →
+      fidStep7Env "full_log10_q16_m7" [i64] [i64] a m Q X :=
+  fid7_m7Row (m7FidPart1Callees_of_sub m7FidBase_part1_mem).log10Q16M7
+    (hno := fun _ _ _ _ h => m7Log10Q16Spec_monoX h)
+
+theorem fidStep7Env_hdrSetWatermark :
+    ∀ a m Q X, m6HdrW2aSpec [i64, i64] [] a m Q X →
+      fidStep7Env "m6_hdr_set_watermark" [i64, i64, i64] [] a m Q X :=
+  fid7_m7Row_at 71 "m6_hdr_set_watermark" (m6HdrW2aSpec [i64, i64] [])
+    (hno := fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+
+theorem fidStep7Env_hdrGetWatermark :
+    ∀ a m Q X, m6HdrW2aSpec [i64] [i64] a m Q X →
+      fidStep7Env "m6_hdr_get_watermark" [i64, i64] [i64] a m Q X :=
+  fid7_m7Row_at 70 "m6_hdr_get_watermark" (m6HdrW2aSpec [i64] [i64])
+    (hno := fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+
+theorem fidStep7Env_congExtractBinaries :
+    ∀ a m Q X, FullM6CongSubst.m6CongExtractBinariesSpec a m Q X →
+      fidStep7Env "full_cong_extract_binaries" [i64, i64] [i64] a m Q X :=
+  fid7_m7Row (m7Part2CongCallees_of_sub m7FidBase_part2_mem).extBin
+
+theorem fidStep7Env_congFindUnitsEquivs :
+    ∀ a m Q X, FullM6CongSubst.m6CongFindUnitsEquivsSpec a m Q X →
+      fidStep7Env "full_cong_find_units_equivs" [i64] [i64] a m Q X :=
+  fid7_m7Row (m7Part2CongCallees_of_sub m7FidBase_part2_mem).findUE
+
+theorem fidStep7Env_probeDticksM6Hdr :
+    ∀ a m Q X, m6HdrW2aSpec [.bool] [i64] a m Q X →
+      fidStep7Env "full_probe_dticks_m6_hdr" [i64, .bool] [i64] a m Q X :=
+  fid7_m7Row (m7FidPart3PfxCallees_of_sub m7FidBase_part3Pfx_mem).probeDticks
+    (hno := fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+
+theorem fidStep7Env_scaleDeltaM5 :
+    ∀ a m Q X, schedScaleDeltaSpec a m Q X →
+      fidStep7Env "full_scale_delta_m5" [i64, i64] [i64] a m Q X :=
+  fid7_m7Row (m7FidPart1Callees_of_sub m7FidBase_part1_mem).scaleDeltaM5
+
+theorem fidStep7Env_hdrDelaying :
+    ∀ a m Q X, m6HdrW2aSpec [i64] [.bool] a m Q X →
+      fidStep7Env "m6_hdr_delaying" [i64, i64] [.bool] a m Q X :=
+  fid7_m7Row_at 66 "m6_hdr_delaying" (m6HdrW2aSpec [i64] [.bool])
+    (hno := fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+
+theorem fidStep7Env_hdrReduceDelay :
+    ∀ a m Q X, m6HdrW2aSpec [i64] [] a m Q X →
+      fidStep7Env "m6_hdr_reduce_delay" [i64, i64] [] a m Q X :=
+  fid7_m7Row_at 68 "m6_hdr_reduce_delay" (m6HdrW2aSpec [i64] [])
+    (hno := fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+
+theorem fidStep7Env_hdrBumpDelay :
+    ∀ a m Q X, m6HdrW2aSpec [i64] [] a m Q X →
+      fidStep7Env "m6_hdr_bump_delay" [i64, i64] [] a m Q X :=
+  fid7_m7Row_at 67 "m6_hdr_bump_delay" (m6HdrW2aSpec [i64] [])
+    (hno := fun _ _ _ _ h => m6HdrW2aSpec_monoX h)
+
+theorem fidStep7Env_sweepDenseM6 :
+    ∀ a m Q X, FullDefSweep.fullSweepDenseSpec a m Q X →
+      fidStep7Env "full_sweep_dense_m6" [i64, i64, i64] [i64] a m Q X :=
+  fid7_m7Row (m7FidBase_pfx_mem _ (List.mem_of_getElem? (i := 15) rfl))
+
+theorem fidStep7Env_sortBinWatches :
+    ∀ a m Q X, FullFidelityStep7.step7SortBinWatchesSpec a m Q X →
+      fidStep7Env "full_sort_bin_watches_fid" [i64] [] a m Q X :=
+  fid7_frontRow 27 "full_sort_bin_watches_fid" FullFidelityStep7.step7SortBinWatchesSpec rfl
+    (fun _ _ _ _ h => FullFidelityStep7.step7SortBinWatchesSpec_monoX h)
+
+theorem fidStep7Env_vivifyM6Hdr :
+    ∀ a m Q X, FullM6OrchAdapters.m6aVivifySpec a m Q X →
+      fidStep7Env "full_vivify_m6_hdr" [i64] [i64] a m Q X :=
+  fid7_frontRow 17 "full_vivify_m6_hdr" m6aVivifySpec rfl
+    (fun _ _ _ _ h => m6aVivifySpec_monoX h)
+
+theorem fidStep7Env_bvaTryLit :
+    ∀ a m Q X, FullFidelityStep7.step7BvaTryLitSpec a m Q X →
+      fidStep7Env "full_bva_try_lit" [i64, i32, i64] [.bool] a m Q X :=
+  fid7_frontRow 20 "full_bva_try_lit" FullFidelityStep7.step7BvaTryLitSpec rfl
+    (fun _ _ _ _ h => FullFidelityStep7.step7BvaTryLitSpec_monoX h)
+
+theorem fidStep7Env_fheapUp :
+    ∀ a m Q X, FullFidelityBva.fidFheapUpSpec a m Q X →
+      fidStep7Env "full_fheap_up_fid" [i64, i64, i64, i32] [] a m Q X :=
+  fid7_step6FrontRow 9 "full_fheap_up_fid" fidFheapUpSpec
+
+theorem fidStep7Env_fheapDown :
+    ∀ a m Q X, FullFidelityBva.fidFheapDownSpec a m Q X →
+      fidStep7Env "full_fheap_down_fid" [i64, i64, i64, i32, i32] [] a m Q X :=
+  fid7_step6FrontRow 10 "full_fheap_down_fid" fidFheapDownSpec
+
+theorem fidStep7Env_bvaCountLitDeg :
+    ∀ a m Q X, FullFidelityBva.fidBvaCountLitDegSpec a m Q X →
+      fidStep7Env "full_bva_count_lit_deg_fid" [i64, i32] [i32] a m Q X :=
+  fid7_step6FrontRow 11 "full_bva_count_lit_deg_fid" fidBvaCountLitDegSpec
+
+theorem fidStep7Env_bvaConnectClauses :
+    ∀ a m Q X, FullFidelityBva.fidBvaConnectClausesSpec a m Q X →
+      fidStep7Env "full_bva_connect_clauses_fid" [i64] [] a m Q X :=
+  fid7_step6FrontRow 12 "full_bva_connect_clauses_fid" fidBvaConnectClausesSpec
+
+theorem fidStep7Env_congExtract :
+    ∀ a m Q X, FullFidelityCong.fidCongExtractSpec a m Q X →
+      fidStep7Env "full_cong_extract" [i64, i64, i64] [i64] a m Q X :=
+  fid7_step3FrontRow 5 "full_cong_extract" FullFidelityCong.fidCongExtractSpec
+
+theorem fidStep7Env_congWorklist :
+    ∀ a m Q X, FullFidelityCong.fidCongWorklistSpec a m Q X →
+      fidStep7Env "full_cong_worklist" [i64, i64, i64, i64] [i64] a m Q X :=
+  fid7_step3FrontRow 8 "full_cong_worklist" FullFidelityCong.fidCongWorklistSpec
+
+theorem fidStep7Env_congFwdSubsume :
+    ∀ a m Q X, FullM6CongSubst.m6CongFwdSubsumeSpec a m Q X →
+      fidStep7Env "full_cong_fwd_subsume" [i64, i64] [i64] a m Q X :=
+  fid7_step3FrontRow 9 "full_cong_fwd_subsume" FullM6CongSubst.m6CongFwdSubsumeSpec
+
+theorem fidStep7Env_congExtractIteAll :
+    ∀ a m Q X, FullFidelityCong.fidCongExtractIteAllSpec a m Q X →
+      fidStep7Env "full_cong_extract_ite_all_m7" [i64, i32, i32, i64] [i32] a m Q X :=
+  fid7_step3FrontRow 18 "full_cong_extract_ite_all_m7"
+    FullFidelityCong.fidCongExtractIteAllSpec
+
+theorem fidStep7Env_propagate :
+    ∀ a m Q X, FullM6BcpS15.fullBcpS15Spec a m Q X →
+      fidStep7Env "full_propagate" [i64] [i64] a m Q X :=
+  fid7_step2FrontRow 1 "full_propagate" FullM6BcpS15.fullBcpS15Spec
+
+theorem fidStep7Env_flushTrail :
+    ∀ a m Q X, FullM6CompactFlush.fullFlushTrailSpec a m Q X →
+      fidStep7Env "full_flush_trail" [i64] [i64] a m Q X :=
+  fid7_step2FrontRow 3 "full_flush_trail" FullM6CompactFlush.fullFlushTrailSpec
+
+theorem fidStep7Env_backboneM6 :
+    ∀ a m Q X, FullM3Backbone.fullBackboneSpec a m Q X →
+      fidStep7Env "full_backbone_m6" [i64, i64] [i64] a m Q X :=
+  fid7_step2FrontRow 16 "full_backbone_m6" fullBackboneSpec
+
+theorem fidStep7Env_transitiveM6 :
+    ∀ a m Q X, FullFastBveBudgets.fullTransitiveFastSpec a m Q X →
+      fidStep7Env "full_transitive_m6" [i64, i64] [i64] a m Q X :=
+  fid7_step2FrontRow 17 "full_transitive_m6" FullFastBveBudgets.fullTransitiveFastSpec
+
+theorem fidStep7Env_substitute :
+    ∀ a m Q X, Full.fullSubstituteSpec a m Q X →
+      fidStep7Env "full_substitute" [i64] [i64] a m Q X :=
+  fid7_step2FrontRow 19 "full_substitute" fullSubstituteSpec
+
+theorem fidStep7Env_enterDense :
+    ∀ a m Q X, FullFastSched.schedEnterDenseSpec a m Q X →
+      fidStep7Env "full_enter_dense" [i64] [.bool] a m Q X :=
+  fid7_step2FrontRow 20 "full_enter_dense" schedEnterDenseSpec
+
+theorem fidStep7Env_elim_propFlushDel {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (h : fidStep7Env "full_prop_flush_del_fid" [i64, i64] [.bool] xs m Q X) :
+    FullFidelityBcp.fidPropFlushDelSpec xs m Q X := by
+  change patchEnv fidStep7Bundle "full_prop_flush_del_fid" [i64, i64] [.bool] xs m Q X at h
+  rw [patchEnv_base_eq fidStep7Bundle (fid7_find_none_front7 (by decide))] at h
+  change patchEnv fidBundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidBundle (fid_find_none_front (by decide))] at h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h
+  have hrow : fidStep2Bundle.frontTable[36]? =
+      some ⟨"full_prop_flush_del_fid", [i64, i64], [.bool],
+        FullFidelityBcp.fidPropFlushDelSpec, true⟩ := by t_kernel_rfl
+  have hf2 := fid7_of_prefix_mem ⟨_, List.mem_of_getElem? hrow, rfl, rfl, rfl⟩ h
+  obtain ⟨_, _, hc⟩ := m8cp_ofTable_sig_elim fidStep2_front_nodup
+    (List.mem_of_getElem? hrow) hf2
+  have hc' : FullFidelityBcp.fidPropFlushDelSpec xs m Q (fun _ _ _ _ => False) := hc
+  exact FullFidelityBcp.fidPropFlushDelSpec_monoX hc'
+
+theorem fidStep7Env_elim_reduceM6 {xs : Tup Val [i64, .bool]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep7Env "full_reduce_m6" [i64, .bool] [i64] xs m Q X) :
+    m6ReduceSpec xs m Q X := by
+  have hrow : fidStep7Bundle.frontTable[11]? =
+      some ⟨"full_reduce_m6", [i64, .bool], [i64], m6ReduceSpec, true⟩ := rfl
+  have hf7 := fid7_of_prefix_mem ⟨_, List.mem_of_getElem? hrow, rfl, rfl, rfl⟩ h
+  obtain ⟨_, _, hc⟩ := m8cp_ofTable_sig_elim fidStep7_front_nodup
+    (List.mem_of_getElem? hrow) hf7
+  have hc' : m6ReduceSpec xs m Q (fun _ _ _ _ => False) := hc
+  exact m6ReduceSpec_monoX hc'
+
+theorem fidStep7Env_elim_congruenceDense {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep7Env "full_congruence_dense" [i64, i64] [i64] xs m Q X) :
+    FullM3CongBva.m3CongruenceDenseSpec xs m Q X := by
+  change patchEnv fidStep7Bundle "full_congruence_dense" [i64, i64] [i64] xs m Q X at h
+  rw [patchEnv_base_eq fidStep7Bundle (fid7_find_none_front7 (by decide))] at h
+  change patchEnv fidBundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidBundle (fid_find_none_front (by decide))] at h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h
+  have hrow : fidStep3Bundle.frontTable[19]? =
+      some ⟨"full_congruence_dense", [i64, i64], [i64],
+        FullM3CongBva.m3CongruenceDenseSpec, true⟩ := by t_kernel_rfl
+  have hf3 := fid7_of_prefix_mem ⟨_, List.mem_of_getElem? hrow, rfl, rfl, rfl⟩ h
+  obtain ⟨_, _, hc⟩ := m8cp_ofTable_sig_elim fidStep3_front_nodup
+    (List.mem_of_getElem? hrow) hf3
+  exact hc
+
+theorem fidStep7Env_elim_rebuildWatches {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep7Env "full_rebuild_watches" [i64] [i64] xs m Q X) :
+    Full.fullRebuildWatchesSpec xs m Q X := by
+  have hrow : fidStep7Bundle.frontTable[18]? =
+      some ⟨"full_rebuild_watches", [i64], [i64], Full.fullRebuildWatchesSpec, true⟩ := rfl
+  have hf7 := fid7_of_prefix_mem ⟨_, List.mem_of_getElem? hrow, rfl, rfl, rfl⟩ h
+  obtain ⟨_, _, hc⟩ := m8cp_ofTable_sig_elim fidStep7_front_nodup
+    (List.mem_of_getElem? hrow) hf7
+  exact hc
+
+theorem fidStep7Env_elim_factor {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep7Env "full_factor" [i64, i64] [i64] xs m Q X) :
+    FullBvaHeap.fullFactorHeapSpec xs m Q X := by
+  have hrow : fidStep7Bundle.frontTable[21]? =
+      some ⟨"full_factor", [i64, i64], [i64], FullBvaHeap.fullFactorHeapSpec, true⟩ := rfl
+  have hf7 := fid7_of_prefix_mem ⟨_, List.mem_of_getElem? hrow, rfl, rfl, rfl⟩ h
+  obtain ⟨_, _, hc⟩ := m8cp_ofTable_sig_elim fidStep7_front_nodup
+    (List.mem_of_getElem? hrow) hf7
+  exact hc
+
+theorem fidStep7Env_elim_probeM6 {xs : Tup Val [i64, .bool]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep7Env "full_probe_m6" [i64, .bool] [i64] xs m Q X) :
+    m6ProbeSpec xs m Q X := by
+  have hrow : fidStep7Bundle.frontTable[25]? =
+      some ⟨"full_probe_m6", [i64, .bool], [i64], m6ProbeSpec, true⟩ := rfl
+  have hf7 := fid7_of_prefix_mem ⟨_, List.mem_of_getElem? hrow, rfl, rfl, rfl⟩ h
+  obtain ⟨_, _, hc⟩ := m8cp_ofTable_sig_elim fidStep7_front_nodup
+    (List.mem_of_getElem? hrow) hf7
+  have hc' : m6ProbeSpec xs m Q (fun _ _ _ _ => False) := hc
+  exact m6ProbeSpec_monoX hc'
+
+theorem fidStep7Env_elim_arenaSweepM6 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep7Env "full_arena_sweep_m6" [i64] [i64] xs m Q X) :
+    Full.fullArenaSweepSpec xs m Q X := by
+  change patchEnv fidStep7Bundle "full_arena_sweep_m6" [i64] [i64] xs m Q X at h
+  rw [patchEnv_base_eq fidStep7Bundle (fid7_find_none_front7 (by decide))] at h
+  exact fid7_elim_m7Base (m7FidPart1PfxCallees_of_sub m7FidBase_part1_mem).arenaSweepM6 h
+
+theorem fidStep7Env_elim_compactNeeded {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (h : fidStep7Env "full_compact_needed" [i64] [.bool] xs m Q X) :
+    FullM4Compact.fullCompactNeededSpec xs m Q X := by
+  change patchEnv fidStep7Bundle "full_compact_needed" [i64] [.bool] xs m Q X at h
+  rw [patchEnv_base_eq fidStep7Bundle (fid7_find_none_front7 (by decide))] at h
+  have hsw := m8SwFlatTable_iff.mp (fidBaseEnv_to_m8SwFlat (by decide) (by decide) (by decide)
+    (fid7_elim_to_fidBase h))
+  have hm7 := m8cp_sw_to_m7_of_ne (by decide) (not_in_swRows _ (by decide))
+    (by decide) (by decide) (by decide) hsw
+  cases hm7 with
+  | base hne _ => exact absurd (by decide : "full_compact_needed" ∈ mfExclNames) hne
+  | extra hex => exact mf_extra_elim (List.mem_of_getElem? (i := 52) rfl) hex
+
+theorem fidStep7Env_elim_compactFlush {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidStep7Env "full_compact_flush" [i64] [i64] xs m Q X) :
+    FullM4Compact.fullCompactFlushSpec xs m Q X := by
+  change patchEnv fidStep7Bundle "full_compact_flush" [i64] [i64] xs m Q X at h
+  rw [patchEnv_base_eq fidStep7Bundle (fid7_find_none_front7 (by decide))] at h
+  have hmem : (⟨"full_compact_flush", [i64], [i64],
+      FullM4Compact.fullCompactFlushSpec, true⟩ : SpecEntry) ∈ m7FidBaseTable :=
+    m7FidBase_part3Pfx_mem _ (by
+      unfold m7FidRowsPart3Pfx
+      (iterate 17 apply List.mem_append_right)
+      exact List.mem_append_left _ (List.mem_of_getElem? (i := 1) rfl))
+  exact fid7_elim_m7Base hmem h
+
+private def sigsAtSorted7 (i : Nat) : List Nat → List Fn → List SigEntry
+  | [], _ => []
+  | _, [] => []
+  | k :: ks, f :: fs =>
+    if i == k then f.sig :: sigsAtSorted7 (i + 1) ks fs
+    else sigsAtSorted7 (i + 1) (k :: ks) fs
+
+private theorem sigsAtSorted7_getElem? :
+    ∀ (fs : List Fn) (i : Nat) (pairs : List (Nat × SigEntry)),
+      (pairs.map Prod.fst).Pairwise (· < ·) →
+      (∀ q ∈ pairs, i ≤ q.1) →
+      sigsAtSorted7 i (pairs.map Prod.fst) fs = pairs.map Prod.snd →
+      ∀ p ∈ pairs, fs[p.1 - i]?.map Fn.sig = some p.2
+  | [], _, [], _, _, _, _, hp => nomatch hp
+  | [], _, _ :: _, _, _, h, _, _ => by simp [sigsAtSorted7] at h
+  | _ :: _, _, [], _, _, _, _, hp => nomatch hp
+  | f :: fs, i, hd :: tl, hsort, hall, h, p, hp => by
+    simp only [sigsAtSorted7, List.map_cons] at h
+    simp only [List.map_cons, List.pairwise_cons, List.mem_map] at hsort
+    have hi_hd : i ≤ hd.1 := hall hd List.mem_cons_self
+    by_cases heq : i = hd.1
+    · simp only [heq, beq_self_eq_true, ↓reduceIte, List.cons.injEq] at h
+      rcases List.mem_cons.mp hp with rfl | htl
+      · simp [heq, h.1]
+      · have hlt : hd.1 < p.1 := hsort.1 p.1 ⟨p, htl, rfl⟩
+        have h' : sigsAtSorted7 (i + 1) (tl.map Prod.fst) fs = tl.map Prod.snd := by
+          rw [heq]; exact h.2
+        have ih := sigsAtSorted7_getElem? fs (i + 1) tl hsort.2
+          (fun q hq => by have := hsort.1 q.1 ⟨q, hq, rfl⟩; omega) h' p htl
+        have hsub : p.1 - i = (p.1 - (i + 1)) + 1 := by omega
+        rw [hsub]; simpa using ih
+    · have hne : (i == hd.1) = false := beq_false_of_ne heq
+      simp only [hne, Bool.false_eq_true, ↓reduceIte] at h
+      have hall' : ∀ q ∈ hd :: tl, i + 1 ≤ q.1 := fun q hq => by
+        rcases List.mem_cons.mp hq with rfl | htl
+        · omega
+        · have := hsort.1 q.1 ⟨q, htl, rfl⟩; omega
+      have ih := sigsAtSorted7_getElem? fs (i + 1) (hd :: tl)
+        (by simpa [List.map_cons, List.pairwise_cons, List.mem_map] using hsort)
+        hall' h p hp
+      have hp_ge : i + 1 ≤ p.1 := hall' p hp
+      have hsub : p.1 - i = (p.1 - (i + 1)) + 1 := by omega
+      rw [hsub]; simpa using ih
+
+theorem fidStep7_noCallBvaUpdLit_tail :
+    checkNoCallBad ["full_factor"] ["full_bva_upd_lit_fid"]
+      (fidStep7Module.fns.drop 441) = true := by
+  t_kernel_rfl
+
+/-- Sorted `(slot, sig)` table covering all `11` Step-9 replacements, `full_zero_tables1`
+(`before` anchor), and all transitive callees in `fidStep7Module.fns`. -/
+@[expose] def fidStep7_step9_sigPairs : List (Nat × SigEntry) :=
+  [ (8, ("full_isqrt", [i64], [i64]))
+  , (11, ("full_arena_next", [i64, i32], [i32]))
+  , (12, ("full_alloc_cl", [i64, i32, i32, .bool], [i64]))
+  , (18, ("full_wstack_defrag", [i64], []))
+  , (19, ("full_watch_push", [i64, i32, i32, i32, i32], [.bool]))
+  , (32, ("full_log10_q16_m7", [i64], [i64]))
+  , (33, ("full_scale_delta_m5", [i64, i64], [i64]))
+  , (40, ("full_backtrack", [i64, i64], []))
+  , (42, ("full_zero_tables1", [i64], []))
+  , (62, ("m6_hdr_recompute_tiers", [i64], []))
+  , (67, ("m6_hdr_delaying", [i64, i64], [.bool]))
+  , (68, ("m6_hdr_bump_delay", [i64, i64], []))
+  , (69, ("m6_hdr_reduce_delay", [i64, i64], []))
+  , (71, ("m6_hdr_get_watermark", [i64, i64], [i64]))
+  , (72, ("m6_hdr_set_watermark", [i64, i64, i64], []))
+  , (81, ("full_unwatch_large", [i64, i32, i32], []))
+  , (84, ("full_prop_flush_del_fid", [i64, i64], [.bool]))
+  , (88, ("full_propagate", [i64], [i64]))
+  , (93, ("full_sweep_bins_range_m6", [i64, i64], []))
+  , (94, ("full_rewatch_range_m6", [i64, i64, i64], [.bool]))
+  , (99, ("full_sweep_copy", [i64, i64, i64, i32, .bool], [i64]))
+  , (103, ("full_move_red_end_m6", [i64, i64, i64], []))
+  , (104, ("full_arena_sweep_m6", [i64], [i64]))
+  , (106, ("full_arena_sweep", [i64], [i64]))
+  , (107, ("full_mark_reasons", [i64, .bool], []))
+  , (108, ("full_flush_trail", [i64], [i64]))
+  , (111, ("full_sort_reds", [i64, i64], []))
+  , (113, ("full_reduce_m6", [i64, .bool], [i64]))
+  , (183, ("full_add_bin", [i64, i32, i32], [i64]))
+  , (184, ("full_delete_binary", [i64, i32, i32], []))
+  , (227, ("full_vivify_m6_hdr", [i64], [i64]))
+  , (235, ("full_backbone_m6", [i64, i64], [i64]))
+  , (238, ("full_transitive_m6", [i64, i64], [i64]))
+  , (244, ("full_substitute", [i64], [i64]))
+  , (245, ("full_enter_dense", [i64], [.bool]))
+  , (246, ("full_sort_bin_watches_fid", [i64], []))
+  , (247, ("full_rebuild_watches", [i64], [i64]))
+  , (263, ("full_cong_extract_binaries", [i64, i64], [i64]))
+  , (264, ("full_cong_find_units_equivs", [i64], [i64]))
+  , (265, ("full_cong_extract", [i64, i64, i64], [i64]))
+  , (271, ("full_cong_worklist", [i64, i64, i64, i64], [i64]))
+  , (274, ("full_cong_fwd_subsume", [i64, i64], [i64]))
+  , (287, ("full_cong_extract_ite_all_m7", [i64, i32, i32, i64], [i32]))
+  , (288, ("full_congruence_dense", [i64, i64], [i64]))
+  , (348, ("full_sweep_dense_m6", [i64, i64, i64], [i64]))
+  , (420, ("full_init_fresh_var", [i64, i32], []))
+  , (425, ("full_bva_steps_cap_fid", [i64], [i32]))
+  , (427, ("full_fheap_up_fid", [i64, i64, i64, i32], []))
+  , (428, ("full_fheap_down_fid", [i64, i64, i64, i32, i32], []))
+  , (429, ("full_bva_count_lit_deg_fid", [i64, i32], [i32]))
+  , (430, ("full_bva_connect_clauses_fid", [i64], []))
+  , (436, ("full_bva_commit", [i64, i32], [.bool]))
+  , (437, ("full_bva_try_lit", [i64, i32, i64], [.bool]))
+  , (440, ("full_bva_upd_lit_fid", [i64, i64, i64, i64, i32, i64, i32], [i32]))
+  , (441, ("full_factor", [i64, i64], [i64]))
+  , (442, ("full_compact_needed", [i64], [.bool]))
+  , (443, ("full_compact_flush", [i64], [i64]))
+  , (490, ("full_probe_dticks_m6_hdr", [i64, .bool], [i64]))
+  , (492, ("full_probe_m6", [i64, .bool], [i64])) ]
+
+private theorem fidStep7_step9_sigs_batch :
+    sigsAtSorted7 0 (fidStep7_step9_sigPairs.map Prod.fst) fidStep7Module.fns =
+      fidStep7_step9_sigPairs.map Prod.snd := by
+  t_kernel_rfl
+
+theorem fidStep7_step9_sig_at {p : Nat × SigEntry} (hp : p ∈ fidStep7_step9_sigPairs) :
+    fidStep7Module.fns[p.1]?.map Fn.sig = some p.2 := by
+  simpa using sigsAtSorted7_getElem? fidStep7Module.fns 0 fidStep7_step9_sigPairs
+    (by decide) (fun _ _ => Nat.zero_le _) fidStep7_step9_sigs_batch p hp
+
 theorem fidStep7_step8_slots_ok :
     ( ((fidStep7Module.fns[161]?.map Fn.sig == some ("full_walk_effort_m7", [i64, i64], [i64])) &&
         ([] : List SigEntry).all fun d =>
@@ -1689,6 +2162,145 @@ theorem fidStep7_step8_slots_ok :
          , ("full_delete_binary", [i64, i32, i32], [])
          , ("full_unwatch_large", [i64, i32, i32], []) ] : List SigEntry).all fun d =>
            ((fidStep7Module.fns.take 436).map Fn.sig).contains d) ) = true := by
+  t_kernel_rfl
+
+@[expose] def fidStep7FnNames : List Sym :=
+  [ "kissat_is_ws", "kissat_is_digit", "kissat_skip_ws_comments", "kissat_skip_ws1"
+  , "kissat_read_nat", "kissat_parse_header", "kissat_next_lit", "kissat_check_model"
+  , "full_isqrt", "full_ilog10", "full_rng_next", "full_arena_next", "full_alloc_cl"
+  , "full_wsort_sift", "full_wstack_radix_sort_m6", "full_wstack_defrag_m6"
+  , "full_watch_push_slow_m6", "full_watch_push_m6", "full_wstack_defrag", "full_watch_push"
+  , "full_heap_up", "full_heap_down", "full_heap_push", "full_heap_pop", "full_rescale_m6"
+  , "full_rescale", "full_bump_var", "full_bump_decay", "full_queue_renumber", "full_queue_mtf"
+  , "full_tick_rel", "full_log10_q16", "full_log10_q16_m7", "full_scale_delta_m5"
+  , "full_ema_update", "full_scale_delta", "full_assign_lvl", "full_assign"
+  , "full_save_target_best", "full_backtrack_raw_m5", "full_backtrack", "full_add_clause"
+  , "full_zero_tables1", "full_zero_tables2", "full_fixed_bytes", "full_init_ptrs"
+  , "full_init_hdr", "full_calc_max_v", "full_calc_ext_cap_m5", "full_calc_scr_cap_m5"
+  , "full_init_arenas", "full_init_state_m5", "full_init_state", "full_m6_hdr_sizeof"
+  , "full_m6_ext_sizeof", "m6_hdr_init", "m6_hdr_reset", "m6_ext_ensure_init", "m6_hdr_ext_ready"
+  , "full_m6_mem_init", "m6_hdr_sync_legacy_tiers", "m6_hdr_recompute_tiers_mode"
+  , "m6_hdr_recompute_tiers", "m6_hdr_update_tier_limits", "m6_hdr_record_used"
+  , "m6_hdr_get_tier1", "m6_hdr_get_tier2", "m6_hdr_delaying", "m6_hdr_bump_delay"
+  , "m6_hdr_reduce_delay", "m6_hdr_reset_delay", "m6_hdr_get_watermark", "m6_hdr_set_watermark"
+  , "m6_hdr_add_ticks", "m6_hdr_dr_init", "m6_hdr_dr_update", "m6_hdr_dr_allow", "full_skip_cl"
+  , "full_ingest_cl", "full_find_repl", "full_assign_level", "full_unwatch_large"
+  , "full_prop_lit_ovf_hot", "full_prop_chrono_hot", "full_prop_flush_del_fid"
+  , "full_propagate_ignore_hot", "full_bcp_hot", "full_propagate_ignore", "full_propagate"
+  , "full_parse_body_m6", "full_parse_body", "full_recompute_tiers", "full_lit_rank_m6"
+  , "full_sweep_bins_range_m6", "full_rewatch_range_m6", "full_rewatch_arena_m6", "full_lit_rank"
+  , "full_sweep_bins_m6cf", "full_sweep_bins", "full_sweep_copy", "full_rewatch_arena"
+  , "full_move_red_pass2_m6", "full_move_red_end_buf_m6", "full_move_red_end_m6"
+  , "full_arena_sweep_m6", "full_mark_reasons_m6", "full_arena_sweep", "full_mark_reasons"
+  , "full_flush_trail", "full_red_less", "full_red_sift", "full_sort_reds", "full_reduce"
+  , "full_reduce_m6", "full_analyze_lit", "full_analyze_rsn", "full_analyze_rsn_m6_hdr"
+  , "full_clear_ana", "full_ana_sift_m6", "full_sort_ana_qs_m6", "full_bump_analyzed_m6_hdr"
+  , "full_restore_bump_ana_m6_hdr", "full_ana_failed_lit_m6_hdr", "full_otfs_large"
+  , "full_otfs_bin", "full_otfs_subsume", "full_min_mark", "full_tmp_less", "full_sort_tmp_sift"
+  , "full_sort_tmp_sift_m7", "full_sort_tmp_heap_m7", "full_sort_tmp", "full_min_lit_dfs_m6"
+  , "full_min_lit_m6", "full_shrink_lower_m6", "full_shrink_blk_bool_m6", "full_shrink_blk_m6"
+  , "full_min_lit_dfs_m8", "full_shrink_lower_m8", "full_shrink_blk_bool_m8", "full_min_shrink_m6"
+  , "full_deduce_1uip_m6", "full_min_shrink", "full_deduce_1uip", "full_deduce_1uip_m6_hdr"
+  , "full_det_new_level", "full_one_lit_confl", "full_eager_subsume", "full_learn_clause"
+  , "full_bump_sift_m7", "full_bump_sort_stamps_m7", "full_bump_reasons_m7", "full_bump_analyzed"
+  , "full_restore_bump_ana_m5", "full_analyze", "full_analyze_core_m6", "full_analyze_m6_hdr"
+  , "full_next_dec_var", "m6_hdr_decide", "full_walk_cb_inv_m7", "full_walk_init_table_m7"
+  , "full_walk_effort_m7", "full_walk_init_vals_m7", "full_walk_collect_m7"
+  , "full_walk_build_occ_m7", "full_walk_break_m7", "full_walk_pick_m7", "full_walk_flip_m7"
+  , "full_walk_save_min_m7", "full_walk_m7", "full_warmup_m7", "full_walk_warmup_m7"
+  , "full_warmup", "full_walk", "full_rephase", "full_restart_due", "full_restart"
+  , "full_extend_push2", "full_extend_push_cl", "full_extend", "full_has_bin"
+  , "full_delete_bin_side", "full_add_bin_m6", "full_add_bin", "full_delete_binary"
+  , "full_set_inactive", "full_add_unit", "full_lucky_scan", "full_lucky_polar", "full_lucky"
+  , "full_hbr_dom", "full_probe_prop_lit", "full_probe_prop", "full_probe_flush_hbr"
+  , "full_probe_assume_pair", "full_probe_run", "full_viv_unreason_m6", "full_viv_watch_rank_m6"
+  , "full_viv_best_watch_m6", "full_viv_simplify_m6", "full_viv_commit_m6"
+  , "full_viv_mark_garb_m6", "full_viv_subsumes_bin_m6", "full_viv_subsumes_cl_m6"
+  , "full_viv_deduce_m6", "full_viv_best_implied_m6", "full_viv_reestablish_m6"
+  , "full_viv_inst_check_m6", "full_viv_inst_m6", "full_viv_finish_m6", "full_viv_sort_counts_m6"
+  , "full_viv_has_l0_m6", "full_viv_l0_simp_m6", "full_viv_reuse_prefix_m6", "full_viv_clause_m6"
+  , "full_viv_tier_match_m6", "full_viv_collect_m6", "full_viv_count_m6", "full_viv_keys_m6"
+  , "full_viv_sort_sched_m6", "full_viv_clear_tier_m6", "full_vivify_m6", "full_viv_collect_fid"
+  , "full_viv_count_fid", "full_viv_sort2_fid", "full_viv_sort_fid", "full_vivify_tier_m6_hdr"
+  , "full_vivify_m6_hdr", "full_prioritize_binaries_m6", "full_backbone_sched_m6"
+  , "full_backbone_keep_m6", "full_backbone_unwind_m6", "full_backbone_prop_m6"
+  , "full_backbone_analyze_m6", "full_backbone_round_m6", "full_backbone_m6", "full_trans_lit_m6"
+  , "full_trans_sort_m6", "full_transitive_m6", "full_tarjan_pop_scc", "full_tarjan_scc"
+  , "full_subst_elim_vars", "full_subst_rewrite_bins", "full_subst_rewrite_ar", "full_substitute"
+  , "full_enter_dense", "full_sort_bin_watches_fid", "full_rebuild_watches", "full_cong_find"
+  , "full_cong_merge", "full_cong_mark_trail", "full_cong_unit_fold", "full_cong_equiv_fold"
+  , "full_has_ternary", "full_sort_u32", "full_cong_extract_ite", "full_cong_emit_xor"
+  , "full_cong_has_clause_k", "full_cong_emit_xor4", "full_cong_extract_xor_k"
+  , "full_cong_try_xor_ite", "full_cong_count_bins", "full_cong_eb_match"
+  , "full_cong_extract_binaries", "full_cong_find_units_equivs", "full_cong_extract"
+  , "full_cong_and_match", "full_cong_xor_match", "full_cong_enq_var", "full_cong_eval_gate"
+  , "full_cong_work_step", "full_cong_worklist", "full_cong_sift_pairs_fid"
+  , "full_cong_sort_pairs_fid", "full_cong_fwd_subsume", "full_cong_ht_hash_ent_m7"
+  , "full_cong_ht_init_m7", "full_cong_ht_grow_m7", "full_cong_ht_grow_clear_m7"
+  , "full_cong_ht_lookup_m7", "full_cong_ht_insert_m7", "full_cong_u64_sift_m7"
+  , "full_cong_u64_sort_m7", "full_cong_bsearch_u64_m7", "full_cong_copy_condbin_m7"
+  , "full_cong_extract_condeq_m7", "full_cong_merge_condeq_m7", "full_cong_extract_ite_all_m7"
+  , "full_congruence_dense", "full_k512_init", "full_k512_watch", "full_k512_assign"
+  , "full_k512_add_clause", "full_k512_mtf", "full_k512_backtrack", "full_k512_propagate"
+  , "full_k512_ana_clause", "full_k512_analyze", "full_k512_solve", "full_k512_flip"
+  , "full_k512_add_live", "full_m4_sweep_cone", "full_m4_sweep_refine_sig"
+  , "full_m4_sweep_rand_phases", "full_m4_sweep_flip_round", "full_m4_sweep_sim"
+  , "full_m4_sweep_rearm", "full_m4_sweep_build_pht", "full_m4_sweep_units"
+  , "full_m4_sweep_classes", "full_m4_sweep_var", "full_sweep_dense_m5", "full_m6_max_v"
+  , "full_k6_add_ticks", "full_k6_init", "full_k6_watch", "full_k6_assign", "full_k6_add_clause"
+  , "full_k6_mtf", "full_k6_backtrack", "full_k6_propagate", "full_k6_ana_clause"
+  , "full_k6_analyze", "full_k6_solve", "full_k6_flip", "full_k512_add_live_m6"
+  , "full_m6_dense_prop_lit", "full_m6_dense_prop", "full_m6_sweep_cone"
+  , "full_m6_sweep_refine_sig", "full_m6_sweep_rand_phases", "full_m6_sweep_solve"
+  , "full_m6_sweep_flip_round", "full_m6_sweep_sim", "full_m6_sweep_rearm"
+  , "full_m6_sweep_build_pht", "full_m6_extract_pht", "full_m6_refine_partition"
+  , "full_m6_sweep_units", "full_m6_sweep_classes", "full_m6_els_ar", "full_m6_els_lit"
+  , "full_m6_els_fold", "full_m6_dense_els", "full_m6_sweep_var", "full_m6_cand_sift"
+  , "full_m6_collect_cands", "full_m6_sweep_vars", "full_sweep_dense_m6", "full_fwd_dedup_bins"
+  , "full_dense_prop_unit_m7", "full_dense_flush_units_m7", "full_fwd_flush_large_m7"
+  , "full_fwd_reconnect_irred_m7", "full_fwd_scan_lit_m7", "full_fwd_check_cl_m7"
+  , "full_fwd_connect_subsumer_m7", "full_fwd_collect_sort_m7", "full_forward_sub_m7"
+  , "full_bve_collect_m7", "full_forward_sub", "full_bve_collect", "full_bve_mark_and_m7"
+  , "full_bve_find_equiv_m7", "full_bve_find_and_m7", "full_bve_get_tern_m7"
+  , "full_bve_match_tern_m7", "full_bve_find_ite_side_m7", "full_bve_find_ite_m7"
+  , "full_bve_xor_pat_m7", "full_bve_find_xor_m7", "full_k6_watch_m7", "full_k6_assign_m7"
+  , "full_k6_mtf_m7", "full_k6_backtrack_m7", "full_k6_prop_m7", "full_k6_ana_cl_m7"
+  , "full_k6_analyze_m7", "full_k6_solve_m7", "full_k6_core_m7", "full_bve_def_k6_m7"
+  , "full_bve_gates_m7", "full_bve_resolve_pair", "full_bve_weaken", "full_bve_try_bce"
+  , "full_bve_commit_res", "full_bve_ext_need", "full_bve_find_equiv_m8", "full_bve_find_and_m8"
+  , "full_bve_match_tern_m8", "full_bve_find_ite_side_m8", "full_bve_find_ite_m8"
+  , "full_k6_watch_m8", "full_k6_assign_m8", "full_k6_mtf_m8", "full_k6_backtrack_m8"
+  , "full_k6_prop_m8", "full_k6_ana_cl_m8", "full_k6_analyze_m8", "full_k6_solve_m8"
+  , "full_k6_core_m8", "full_k6_extract_and_solve_m8", "full_bve_def_k6_m8", "full_bve_k6_mv_fid"
+  , "full_fid_k6_add_ticks", "full_k6_watch_fid", "full_k6_assign_fid", "full_k6_mtf_fid"
+  , "full_k6_backtrack_fid", "full_k6_prop_fid", "full_k6_ana_cl_fid", "full_k6_analyze_fid"
+  , "full_k6_solve_fid", "full_k6_core_fid", "full_k6_extract_and_solve_fid"
+  , "full_bve_certify_unit_fid", "full_bve_def_k6_fid", "full_bve_gates_fid", "full_bve_var_m7"
+  , "full_bve_var", "full_init_fresh_var", "full_bva_hop1", "full_bva_hop2", "full_bva_hop3"
+  , "full_bva_match_large", "full_bva_steps_cap_fid", "full_bva_clines_fid", "full_fheap_up_fid"
+  , "full_fheap_down_fid", "full_bva_count_lit_deg_fid", "full_bva_connect_clauses_fid"
+  , "full_bva_match_large_bva_fid", "full_bva_scan_cands", "full_bva_pick_cand"
+  , "full_bva_match_large_fid", "full_bva_filter_row", "full_bva_commit", "full_bva_try_lit"
+  , "full_fheap_up", "full_fheap_down", "full_bva_upd_lit_fid", "full_factor"
+  , "full_compact_needed", "full_compact_flush", "full_compact_mark_live"
+  , "full_compact_assign_map", "full_compact_record_ext", "full_compact_bins"
+  , "full_compact_arena", "full_compact_vars", "full_compact_sift_q", "full_compact_vmtf"
+  , "full_compact_sift_h", "full_compact_heap", "full_compact", "full_reorder_weight_m7"
+  , "full_reorder_sift_m7", "full_reorder_sift_fid", "full_reorder_queue_m7", "full_reorder_m6"
+  , "full_bce_side_m4", "full_bce_pair_m4", "full_bce_var_m4", "full_bce_m4", "full_min_u64"
+  , "full_max_u64", "full_elim_dticks", "full_bve_var_key_m7", "full_bve_heap_up_m7"
+  , "full_bve_heap_down_m7", "full_bve_heap_push_m7", "full_bve_heap_pop_m7"
+  , "full_bve_collect_nbrs_m7", "full_elim_bve_m7", "full_eliminate_m7", "full_eliminate_m6"
+  , "full_lcg_next_m7", "full_m7_get64", "full_m7_set64", "full_m7_state_init"
+  , "full_tumble_clause_m7", "full_tumble_clauses_m7", "full_tumble_m7", "full_lucky_polar_m7"
+  , "full_lucky_late_m7", "full_randec_step_m7", "full_randec_var_m7", "full_decide_m7"
+  , "full_ema_swap_m7", "full_switch_mode_m7", "full_probe_dticks_m6_hdr", "full_probe_tail_m6"
+  , "full_probe_m6", "full_preprocess_m6", "full_simplify_m6", "m6_hdr_decide_fid"
+  , "full_search_m6", "kissat_solve_bytes_m6", "full_preprocess", "full_search"
+  , "kissat_solve_bytes" ]
+
+theorem fidStep7Module_map_name :
+    fidStep7Module.fns.map Fn.name = fidStep7FnNames := by
   t_kernel_rfl
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep7

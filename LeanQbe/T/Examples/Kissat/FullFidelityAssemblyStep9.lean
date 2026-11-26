@@ -9,12 +9,14 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep9
 public import LeanQbe.T.Examples.Kissat.PatchModule
 
 /-!
-# Canonical Gate-1 `KissatFidelity` Assembly — Step 9 (`FullFidelityAssemblyStep9`, `505` fns)
+# Canonical Gate-1 `KissatFidelity` Assembly — Step 9 (`FullFidelityAssemblyStep9`, `504` fns)
 
 Pure C0/IR assembly (`0` `*Proof*` imports, `0` `import all`, `0` `meta import` of
-`PrintCpp`/`PrintQbe`/`Legal`) splicing the `23` Step-9 upstream-parity & hotspot-closure
-replacements (`FullFidelityStep9.fidStep9Repls`) and `4` inserted helpers
-(`FullFidelityStep9.fidStep9Befores`) onto `fidStep8Module` (`501 -> 505` fns).
+`PrintCpp`/`PrintQbe`/`Legal`) splicing the `11` Step-9 upstream-parity & hotspot-closure
+replacements (`FullFidelityStep9.fidStep9Repls`) and `3` inserted helpers
+(`FullFidelityStep9.fidStep9Befores`) onto `fidStep8Module` (`501 -> 504` fns).
+Experimental `S9-P0.3` (`MemShrinkV5`) is layered separately in
+`LeanQbe.T.Examples.Kissat.FullFidelityStep9MemShrink`.
 -/
 
 set_option autoImplicit false
@@ -28,12 +30,12 @@ open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep8
 open LeanQbe.T.Examples.Kissat.PatchModule
 
-/-- Ordered `505`-fn Step-9 `KissatFidelity` function list (`fidStep8Fns` patched with
+/-- Ordered `504`-fn Step-9 `KissatFidelity` function list (`fidStep8Fns` patched with
 `FullFidelityStep9.fidStep9Repls` and `FullFidelityStep9.fidStep9Befores`). -/
 def fidStep9Fns : List Fn :=
   patchFns FullFidelityStep9.fidStep9Repls FullFidelityStep9.fidStep9Befores fidStep8Fns
 
-/-- Closed `505`-function Gate-1 Step-9 `KissatFidelity` module (`0` externs, `0` exits). -/
+/-- Closed `504`-function Gate-1 Step-9 `KissatFidelity` module (`0` externs, `0` exits). -/
 def fidStep9Module : LeanQbe.T.Module :=
   { fidStep8Module with fns := fidStep9Fns }
 
