@@ -18,29 +18,54 @@ echo "== preflight: 2. firewall & strict hub sync (<1s) =="
 timeout 30 python3 -B scripts/check_firewall.py --root "$ROOT" --require-isa
 timeout 30 python3 -B scripts/sync_hubs.py --root "$ROOT" --check --strict
 
-echo "== preflight: 3. changed .lean hygiene (tokens, <=3000 LOC, <=100c, 0 LeanQbe import all) =="
+echo "== preflight: 3. changed .lean hygiene (tokens, <2500 LOC, <=100c, @[expose], P0-5) =="
 timeout 30 python3 -B - "$BASE" "$ROOT" <<'PY'
 import pathlib
-import re
 import subprocess
 import sys
 
 base = sys.argv[1]
 root = pathlib.Path(sys.argv[2])
 sys.path.insert(0, str(root / "scripts"))
-from lean_imports import strip_comments_line
+from lean_imports import (
+    DEFAULT_MAX_COL,
+    DEFAULT_MAX_LOC,
+    DEFAULT_MAX_PROOF_THM_LOC,
+    audit_lean_source,
+)
 
 changed: set[str] = set()
 cmds = [
     ["git", "diff", "--name-only", "HEAD"],
     ["git", "ls-files", "--others", "--exclude-standard"],
 ]
-if subprocess.run(
-    ["git", "rev-parse", "--verify", f"{base}^{{commit}}"],
-    capture_output=True,
-    check=False,
-).returncode == 0:
+has_base = (
+    subprocess.run(
+        ["git", "rev-parse", "--verify", f"{base}^{{commit}}"],
+        capture_output=True,
+        check=False,
+    ).returncode
+    == 0
+)
+base_tree_ref: str | None = None
+if has_base:
     cmds.insert(0, ["git", "diff", "--name-only", f"{base}...HEAD"])
+    mb = subprocess.run(
+        ["git", "merge-base", base, "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    base_tree_ref = mb.stdout.strip() if mb.returncode == 0 else base
+elif (
+    subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD^{commit}"],
+        capture_output=True,
+        check=False,
+    ).returncode
+    == 0
+):
+    base_tree_ref = "HEAD"
 
 for cmd in cmds:
     r = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -52,38 +77,69 @@ for cmd in cmds:
             and not ln.strip().startswith("bv_decide_qbe/")
         )
 
-tok_re = re.compile(
-    r"\b(?:sorry|admit|bv_decide|native_decide|ofReduceBool|ofReduceNat|trustCompiler)\b"
-    r"|decide\s+\+native"
-    r"|@\[[^\]]*\b(?:implemented_by|extern)\b"
-)
-imp_all_bad_re = re.compile(
-    r"^\s*(?:public\s+(?:meta\s+)?import\s+all\b|(?:meta\s+)?import\s+all\s+LeanQbe\b)"
-)
-conflict_re = re.compile(r"^(?:<{7}|={7}|>{7})(?: |$)")
-str_re = re.compile(r'"(?:\\.|[^"\\])*"')
+
+def read_base_loc(rel_path: str) -> int | None:
+    if base_tree_ref is None:
+        return None
+    res = subprocess.run(
+        ["git", "-C", str(root), "show", f"{base_tree_ref}:{rel_path}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if res.returncode != 0:
+        return None
+    return len(res.stdout.splitlines())
+
 
 errs: list[str] = []
 for f in sorted(changed):
     p = root / f
     if not p.is_file():
         continue
-    lines = p.read_text(encoding="utf-8").splitlines()
-    if len(lines) > 3000:
-        errs.append(f"{f}: {len(lines)} LOC > 3000")
-    depth = 0
-    for idx, ln in enumerate(lines, 1):
-        if conflict_re.match(ln):
-            errs.append(f"{f}:{idx}: merge conflict marker")
-        code, depth, _ = strip_comments_line(ln, depth)
-        if code:
-            if imp_all_bad_re.match(code):
-                errs.append(f"{f}:{idx}: forbidden `{code.strip()}`")
-            code_nostr = str_re.sub('""', code)
-            if tok_re.search(code_nostr):
-                errs.append(f"{f}:{idx}: forbidden token in `{code.strip()[:80]}`")
-        if len(ln) > 100 and not ln.strip().startswith(("--", "/-", '"')):
-            errs.append(f"{f}:{idx}: line width {len(ln)} > 100")
+    text = p.read_text(encoding="utf-8")
+    rep = audit_lean_source(
+        f,
+        text,
+        max_loc=DEFAULT_MAX_LOC,
+        max_col=DEFAULT_MAX_COL,
+        max_proof_thm_loc=DEFAULT_MAX_PROOF_THM_LOC,
+    )
+    loc = int(rep["loc"])  # type: ignore[arg-type]
+    if rep["over_loc"]:
+        base_loc = read_base_loc(f)
+        if base_loc is not None and base_loc >= DEFAULT_MAX_LOC:
+            if loc > base_loc:
+                errs.append(
+                    f"{f}: grandfathered file grew {base_loc} -> {loc} LOC "
+                    f"(>= {DEFAULT_MAX_LOC})"
+                )
+        else:
+            errs.append(f"{f}: {loc} LOC >= {DEFAULT_MAX_LOC}")
+    for ln in rep["conflicts"]:  # type: ignore[attr-defined]
+        errs.append(f"{f}:{ln}: merge conflict marker")
+    for ln in rep["bad_import_all"]:  # type: ignore[attr-defined]
+        errs.append(f"{f}:{ln}: forbidden `import all`")
+    for ln in rep["proof_import_all"]:  # type: ignore[attr-defined]
+        if ln not in rep["bad_import_all"]:  # type: ignore[operator]
+            errs.append(f"{f}:{ln}: forbidden `import all` in Proof/ shard")
+    for hit in rep["banned_hits"]:  # type: ignore[attr-defined]
+        errs.append(f"{f}:{hit['line']}: forbidden token in `{hit['text']}`")
+    for ln in rep["expose_on_thm"]:  # type: ignore[attr-defined]
+        errs.append(f"{f}:{ln}: @[expose] on theorem/lemma")
+    for sec in rep["proof_expose_section"]:  # type: ignore[attr-defined]
+        errs.append(
+            f"{f}:{sec['theorem_line']}: theorem/lemma inside file-level "
+            f"`@[expose] public section` (line {sec['section_line']})"
+        )
+    for thm in rep["proof_long_theorems"]:  # type: ignore[attr-defined]
+        errs.append(
+            f"{f}:{thm['start_line']}: theorem `{thm['name']}` is "
+            f"{thm['lines']} lines > {DEFAULT_MAX_PROOF_THM_LOC} "
+            f"(L{thm['start_line']}-L{thm['end_line']})"
+        )
+    for ln_info in rep["long_lines"]:  # type: ignore[attr-defined]
+        errs.append(f"{f}:{ln_info['line']}: line width {ln_info['cols']} > {DEFAULT_MAX_COL}")
 
 if errs:
     print("\n".join(f"FAIL: {e}" for e in errs[:40]), file=sys.stderr)

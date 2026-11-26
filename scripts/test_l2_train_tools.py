@@ -279,6 +279,79 @@ class TestL2Audit(unittest.TestCase):
         too_long = "\n".join(["-- line"] * 2500)
         self.assertTrue(l2.audit_lean_text("Huge.lean", too_long)["over_loc"])
 
+        # P0-5 Proof/ rules and axiom / multiline @[extern] checks
+        proof_bad = "\n".join(
+            [
+                "module",
+                "import all Kraken.Mem",
+                "@[expose] public section",
+                "theorem bad_in_expose : True := trivial",
+                "axiom ax_bad : False",
+            ]
+        )
+        rep_p = l2.audit_lean_text(
+            "LeanQbe/T/Examples/Kissat/Proof/BadProof.lean", proof_bad
+        )
+        self.assertEqual(rep_p["proof_import_all"], [2])
+        self.assertEqual(
+            rep_p["proof_expose_section"], [{"section_line": 3, "theorem_line": 4}]
+        )
+        self.assertEqual(len(rep_p["banned_hits"]), 1)
+
+        # Data defs in Proof/Spec or closed @[expose] public section must not false-positive
+        proof_spec_ok = "\n".join(
+            [
+                "module",
+                "@[expose] public section",
+                "structure SpecState where",
+                "  x : Nat",
+                "end",
+                "public section",
+                "@[expose] def helper : Nat := 1",
+                "theorem ok_thm : helper = 1 := rfl",
+            ]
+        )
+        rep_spec = l2.audit_lean_text(
+            "LeanQbe/T/Examples/Kissat/Proof/Spec/OkSpec.lean", proof_spec_ok
+        )
+        self.assertEqual(rep_spec["proof_import_all"], [])
+        self.assertEqual(rep_spec["proof_expose_section"], [])
+        self.assertEqual(rep_spec["expose_on_thm"], [])
+
+    def test_wrap_build_cmd_swap_and_slice_flags(self) -> None:
+        cmd = l2.wrap_build_cmd(["lake", "build"], memory_max="12G", use_systemd=True)
+        self.assertEqual(cmd[0], "systemd-run")
+        self.assertIn("--slice=leanqbe-builds.slice", cmd)
+        self.assertIn("MemorySwapMax=0", cmd)
+        self.assertIn("MemoryMax=12G", cmd)
+        self.assertIn("OOMPolicy=kill", cmd)
+
+    def test_audit_static_hygiene_grandfathered_loc(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            _git(repo, "init", "-b", "leanqbe/main")
+            _git(repo, "config", "user.name", "Test")
+            _git(repo, "config", "user.email", "test@example.com")
+            c_base = _commit_file(
+                repo, "Big.lean", "\n".join(["-- line"] * 2600) + "\n", "base"
+            )
+            c_shrink = _commit_file(
+                repo, "Big.lean", "\n".join(["-- line"] * 2590) + "\n", "shrink"
+            )
+            res_ok = l2.audit_static_hygiene(
+                repo, c_shrink, ["Big.lean"], set(), base_sha=c_base
+            )
+            self.assertEqual(res_ok["status"], "pass", res_ok)
+
+            c_grow = _commit_file(
+                repo, "Big.lean", "\n".join(["-- line"] * 2605) + "\n", "grow"
+            )
+            res_fail = l2.audit_static_hygiene(
+                repo, c_grow, ["Big.lean"], set(), base_sha=c_base
+            )
+            self.assertEqual(res_fail["status"], "fail", res_fail)
+            self.assertIn("grew 2600 -> 2605", res_fail["violations"][0])
+
     def test_c0_memo_cache_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cache = Path(td) / "c0_memo.json"
@@ -400,6 +473,8 @@ class TestL2Audit(unittest.TestCase):
         self.assertEqual(len(live["chunk_runs"]), len(groups))
 
     def test_live_kernel_axiom_audit_cached_module(self) -> None:
+        if os.environ.get("CHECK_NO_LAKE_TESTS") == "1":
+            self.skipTest("CHECK_NO_LAKE_TESTS=1")
         build_res = l2.execute_lake_build(
             REPO_ROOT, ["LeanQbeTest.T.Amd64FrameTest"]
         )

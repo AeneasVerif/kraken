@@ -26,6 +26,58 @@ LEGACY_CERT_DEFAULT = (
 
 LEGACY_CERT_RE = re.compile(LEGACY_CERT_DEFAULT)
 
+DEFAULT_MAX_LOC = 2500
+DEFAULT_MAX_COL = 100
+DEFAULT_MAX_PROOF_THM_LOC = 450
+
+PROOF_SHARD_PREFIXES: tuple[str, ...] = (
+    "LeanQbe/T/Examples/Kissat/Proof/",
+    "LeanQbe/T/Examples/Bitblast/Proof/",
+)
+
+BANNED_TOKEN_RE = re.compile(
+    r"\b(?:sorry|admit|bv_decide|native_decide|ofReduceBool|ofReduceNat"
+    r"|trustCompiler)\b"
+    r"|decide\s+\+native"
+)
+BANNED_ATTR_RE = re.compile(r"@\[[^\]]*\b(?:implemented_by|extern)\b")
+AXIOM_DECL_RE = re.compile(
+    r"(?:^|;|\bin\s+)\s*(?:(?:@\[[^\]]*\]|public|private|protected|unsafe|"
+    r"noncomputable|local|scoped|meta)\s+)*axiom\b"
+)
+BAD_IMPORT_ALL_RE = re.compile(
+    r"^\s*(?:public\s+(?:meta\s+)?import\s+all\b"
+    r"|(?:meta\s+)?import\s+all\s+LeanQbe\b)"
+)
+ANY_IMPORT_ALL_RE = re.compile(
+    r"^\s*(?:(?:public|private|meta)\s+)*import\s+all\b"
+)
+CONFLICT_RE = re.compile(r"^(?:<{7}|={7}|>{7})(?: |$)")
+EXPOSE_ATTR_RE = re.compile(r"@\[[^\]]*\bexpose\b[^\]]*\]")
+ANY_ATTR_RE = re.compile(r"@\[[^\]]*\]")
+THM_DECL_RE = re.compile(
+    r"^(?:(?:public|private|protected|noncomputable|unsafe)\s+)*"
+    r"(?:theorem|lemma)\b(?:\s+([^\s:({\[<]+))?"
+)
+MODIFIER_ONLY_RE = re.compile(
+    r"^(?:(?:@\[[^\]]*\]|public|private|protected|noncomputable|unsafe)(?:\s+|$))+$"
+)
+NS_OPEN_RE = re.compile(r"^namespace\s+(\S+)")
+SEC_OPEN_RE = re.compile(
+    r"^(?:(?:@\[[^\]]*\]|public|private|protected|noncomputable)\s+)*"
+    r"section(?:\s+(\S+))?(?:\s|$)"
+)
+MUTUAL_OPEN_RE = re.compile(r"^mutual(?:\s|$)")
+END_SCOPE_RE = re.compile(r"^end(?:\s+(\S+))?(?:\s|$)")
+TOP_DECL_RE = re.compile(
+    r"^(?:(?:public|private|protected|noncomputable|unsafe|partial|local|"
+    r"scoped|meta)\s+)*(?:theorem|lemma|def|abbrev|structure|inductive|class|"
+    r"instance|axiom|opaque|example|macro|macro_rules|syntax|elab|elab_rules|"
+    r"declare_syntax_cat|section|namespace|end|open|variable|universe|"
+    r"set_option|attribute|mutual|initialize|builtin_initialize|"
+    r"register_simp_attr|deriving|#print|#check|#guard|#eval|#reduce)\b"
+)
+
 
 @dataclass(frozen=True)
 class ImportEntry:
@@ -336,3 +388,278 @@ def split_lean_file(text: str) -> ParsedLeanFile:
         body=body,
         has_header=True,
     )
+
+
+def _strip_lean_lines(src: str) -> tuple[str, list[bool]]:
+    """Strip Lean comments, strings, and char literals; also flag top-level doc opens."""
+    out: list[str] = []
+    doc_opens: list[bool] = []
+    cur_doc = False
+    i = 0
+    n = len(src)
+    depth = 0
+    in_str = False
+    while i < n:
+        ch = src[i]
+        nxt = src[i + 1] if i + 1 < n else ""
+        if depth > 0:
+            if ch == "/" and nxt == "-":
+                depth += 1
+                i += 2
+                continue
+            if ch == "-" and nxt == "/":
+                depth -= 1
+                i += 2
+                continue
+            if ch == "\n":
+                out.append("\n")
+                doc_opens.append(cur_doc)
+                cur_doc = False
+            i += 1
+            continue
+        if in_str:
+            if ch == "\\" and i + 1 < n:
+                if src[i + 1] == "\n":
+                    out.append("\n")
+                    doc_opens.append(cur_doc)
+                    cur_doc = False
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+                i += 1
+                continue
+            if ch == "\n":
+                out.append("\n")
+                doc_opens.append(cur_doc)
+                cur_doc = False
+            i += 1
+            continue
+        if ch == "-" and nxt == "-":
+            while i < n and src[i] != "\n":
+                i += 1
+            continue
+        if ch == "/" and nxt == "-":
+            if i + 2 < n and src[i + 2] in ("!", "-"):
+                cur_doc = True
+            depth = 1
+            i += 2
+            continue
+        if ch == '"':
+            in_str = True
+            out.append('""')
+            i += 1
+            continue
+        if ch == "'" and (i == 0 or not (src[i - 1].isalnum() or src[i - 1] in "_'")):
+            if i + 2 < n and src[i + 1] == "\\":
+                j = i + 2
+                while j < n and src[j] != "\n" and src[j] != "'" and j - i < 12:
+                    j += 1
+                if j < n and src[j] == "'":
+                    out.append("''")
+                    i = j + 1
+                    continue
+            elif i + 2 < n and src[i + 1] != "\n" and src[i + 2] == "'":
+                out.append("''")
+                i += 3
+                continue
+        if ch == "\n":
+            out.append("\n")
+            doc_opens.append(cur_doc)
+            cur_doc = False
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    doc_opens.append(cur_doc)
+    return "".join(out), doc_opens
+
+
+def strip_lean_code(src: str) -> str:
+    """Strip Lean comments, strings, and char literals, preserving line numbers."""
+    cleaned, _ = _strip_lean_lines(src)
+    return cleaned
+
+
+def is_proof_shard_path(rel_path: str) -> bool:
+    """Return True if `rel_path` is a P0-5 `Kissat/Proof/` or `Bitblast/Proof/` shard."""
+    return rel_path.startswith(PROOF_SHARD_PREFIXES)
+
+
+def _pop_scope(scopes: list[tuple[str, str | None, bool, int]], end_name: str | None) -> None:
+    """Pop matching Lean `namespace`/`section`/`mutual` scope(s) from stack."""
+    if not scopes:
+        return
+    if end_name is not None:
+        for pos in range(len(scopes) - 1, -1, -1):
+            if scopes[pos][1] == end_name:
+                del scopes[pos:]
+                return
+    scopes.pop()
+
+
+def audit_lean_source(
+    rel_path: str,
+    text: str,
+    *,
+    max_loc: int = DEFAULT_MAX_LOC,
+    max_col: int = DEFAULT_MAX_COL,
+    max_proof_thm_loc: int = DEFAULT_MAX_PROOF_THM_LOC,
+) -> dict[str, object]:
+    """Audit a single `.lean` source string for hygiene and P0-5 Proof shard rules."""
+    raw_lines = text.splitlines()
+    loc = len(raw_lines)
+    over_loc = loc >= max_loc
+    long_lines: list[dict[str, object]] = []
+    expose_on_thm: list[int] = []
+    banned_by_line: dict[int, str] = {}
+    bad_import_all: list[int] = []
+    total_import_all = 0
+    conflicts: list[int] = []
+
+    is_proof_shard = is_proof_shard_path(rel_path)
+    proof_import_all: list[int] = []
+    proof_expose_section: list[dict[str, int]] = []
+    proof_long_theorems: list[dict[str, object]] = []
+
+    cleaned, doc_opens = _strip_lean_lines(text)
+    for m in BANNED_ATTR_RE.finditer(cleaned):
+        lineno = cleaned[: m.start()].count("\n") + 1
+        banned_by_line.setdefault(lineno, m.group(0).replace("\n", " ")[:90])
+
+    cleaned_lines = cleaned.splitlines()
+    # Pad if trailing newline edge cases cause a mismatch.
+    while len(cleaned_lines) < loc:
+        cleaned_lines.append("")
+    while len(doc_opens) < loc:
+        doc_opens.append(False)
+
+    pending_expose = False
+    scopes: list[tuple[str, str | None, bool, int]] = []
+    flagged_expose_secs: set[int] = set()
+    in_thm: tuple[str, int, int] | None = None
+    last_thm_code_ln = 0
+
+    for idx, raw in enumerate(raw_lines, 1):
+        if CONFLICT_RE.match(raw):
+            conflicts.append(idx)
+        if len(raw) > max_col and not raw.strip().startswith(("--", "/-", '"')):
+            long_lines.append({"line": idx, "cols": len(raw)})
+
+        raw_clean = cleaned_lines[idx - 1]
+        code = raw_clean.strip()
+        indent = len(raw) - len(raw.lstrip())
+        is_doc_start = doc_opens[idx - 1]
+
+        if in_thm is not None:
+            thm_name, thm_start, thm_indent = in_thm
+            # Close theorem before the next top-level command, attribute, or doc comment.
+            if indent <= thm_indent and (
+                is_doc_start
+                or code.startswith("@[")
+                or (code and TOP_DECL_RE.match(code))
+            ):
+                span = last_thm_code_ln - thm_start + 1
+                if is_proof_shard and span > max_proof_thm_loc:
+                    proof_long_theorems.append(
+                        {
+                            "name": thm_name,
+                            "start_line": thm_start,
+                            "end_line": last_thm_code_ln,
+                            "lines": span,
+                        }
+                    )
+                in_thm = None
+
+        if not code:
+            continue
+
+        if BAD_IMPORT_ALL_RE.match(code):
+            bad_import_all.append(idx)
+        if ANY_IMPORT_ALL_RE.match(code):
+            total_import_all += 1
+            if is_proof_shard:
+                proof_import_all.append(idx)
+        if BANNED_TOKEN_RE.search(code) or AXIOM_DECL_RE.search(code):
+            banned_by_line.setdefault(idx, code[:90])
+
+        # Track section/namespace/mutual scopes when not inside a theorem body.
+        if in_thm is None:
+            m_ns = NS_OPEN_RE.match(code)
+            m_sec = SEC_OPEN_RE.match(code)
+            if m_ns:
+                scopes.append(("ns", m_ns.group(1), False, idx))
+            elif MUTUAL_OPEN_RE.match(code):
+                scopes.append(("mutual", None, False, idx))
+            elif m_sec:
+                sec_expose = bool(EXPOSE_ATTR_RE.search(code)) or pending_expose
+                scopes.append(("sec", m_sec.group(1), sec_expose, idx))
+                pending_expose = False
+            else:
+                m_end = END_SCOPE_RE.match(code)
+                if m_end:
+                    _pop_scope(scopes, m_end.group(1))
+
+        has_expose = bool(EXPOSE_ATTR_RE.search(code))
+        without_attrs = ANY_ATTR_RE.sub("", code).strip()
+        m_thm = THM_DECL_RE.match(without_attrs)
+
+        if m_thm:
+            if has_expose or pending_expose:
+                expose_on_thm.append(idx)
+            pending_expose = False
+            if is_proof_shard:
+                for kind, _sname, sec_exp, sec_ln in scopes:
+                    if kind == "sec" and sec_exp and sec_ln not in flagged_expose_secs:
+                        flagged_expose_secs.add(sec_ln)
+                        proof_expose_section.append(
+                            {"section_line": sec_ln, "theorem_line": idx}
+                        )
+            if in_thm is None:
+                in_thm = (m_thm.group(1) or "<anon>", idx, indent)
+                last_thm_code_ln = idx
+        else:
+            if has_expose:
+                if (
+                    not SEC_OPEN_RE.match(code)
+                    and (not without_attrs or MODIFIER_ONLY_RE.match(without_attrs))
+                ):
+                    pending_expose = True
+                else:
+                    pending_expose = False
+            elif pending_expose:
+                if not (not without_attrs or MODIFIER_ONLY_RE.match(without_attrs)):
+                    pending_expose = False
+            if in_thm is not None:
+                last_thm_code_ln = idx
+
+    if in_thm is not None:
+        thm_name, thm_start, _ = in_thm
+        span = last_thm_code_ln - thm_start + 1
+        if is_proof_shard and span > max_proof_thm_loc:
+            proof_long_theorems.append(
+                {
+                    "name": thm_name,
+                    "start_line": thm_start,
+                    "end_line": last_thm_code_ln,
+                    "lines": span,
+                }
+            )
+
+    banned_hits = [
+        {"line": ln, "text": banned_by_line[ln]} for ln in sorted(banned_by_line)
+    ]
+    return {
+        "file": rel_path,
+        "loc": loc,
+        "over_loc": over_loc,
+        "long_lines": long_lines,
+        "expose_on_thm": expose_on_thm,
+        "banned_hits": banned_hits,
+        "bad_import_all": bad_import_all,
+        "total_import_all": total_import_all,
+        "conflicts": conflicts,
+        "proof_import_all": proof_import_all,
+        "proof_expose_section": proof_expose_section,
+        "proof_long_theorems": proof_long_theorems,
+    }

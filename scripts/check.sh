@@ -34,9 +34,10 @@
 #       lock (`${CHECK_FAST_LOCK_PREFIX:-/tmp/leanqbe_check_fast}_{0,1}.lock`). Set
 #       `CHECK_NO_LOCK=1` to bypass.
 #   CHECK_MEM_MAX=<size>
-#       `MemoryMax` passed to `systemd-run --user --scope` for Step 1 `lake build`
-#       (default: `48G` for heavy scopes, `16G` via `CHECK_FAST_MEM_MAX` for `rdeps`,
-#       `OOMPolicy=kill`). Set `CHECK_NO_SCOPE=1` to bypass.
+#       `MemoryMax` passed to `systemd-run --user --scope --slice=leanqbe-builds.slice`
+#       (with `MemorySwapMax=0`, `OOMPolicy=kill`) for Step 1 `lake build`
+#       (default: `48G` for heavy scopes, `16G` via `CHECK_FAST_MEM_MAX` for `rdeps`).
+#       Set `CHECK_NO_SCOPE=1` to bypass.
 #   CHECK_TIMES=0|1
 #       Set to `1` to enable standalone Step 5 re-elaboration CPU timing.
 #
@@ -277,92 +278,22 @@ fail=0
 err() { echo "FAIL: $*"; fail=1; }
 
 scan_lean_forbidden_tokens() {
-  timeout 60 python3 -B - <<'PY'
+  timeout 60 python3 -B - "$ROOT" <<'PY'
 import pathlib, re, subprocess, sys
+
+root_dir = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(root_dir / "scripts"))
+from lean_imports import AXIOM_DECL_RE, BANNED_ATTR_RE, BANNED_TOKEN_RE, strip_lean_code
 
 raw = subprocess.check_output(
     ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "*.lean", ":(exclude)Kraken", ":(exclude)Kraken*.lean", ":(exclude)Att2Intel.lean", ":(exclude)Bedrock2C.lean", ":(exclude)bv_decide_qbe"]
 )
 files = [f.decode("utf-8") for f in raw.split(b"\0") if f]
 
-def strip_lean(src: str) -> str:
-    out = []
-    i = 0
-    n = len(src)
-    depth = 0
-    in_str = False
-    while i < n:
-        ch = src[i]
-        nxt = src[i + 1] if i + 1 < n else ""
-        if depth > 0:
-            if ch == "/" and nxt == "-":
-                depth += 1
-                i += 2
-                continue
-            if ch == "-" and nxt == "/":
-                depth -= 1
-                i += 2
-                continue
-            if ch == "\n":
-                out.append("\n")
-            i += 1
-            continue
-        if in_str:
-            if ch == "\\" and i + 1 < n:
-                if src[i + 1] == "\n":
-                    out.append("\n")
-                i += 2
-                continue
-            if ch == '"':
-                in_str = False
-                i += 1
-                continue
-            if ch == "\n":
-                out.append("\n")
-            i += 1
-            continue
-        if ch == "-" and nxt == "-":
-            while i < n and src[i] != "\n":
-                i += 1
-            continue
-        if ch == "/" and nxt == "-":
-            depth = 1
-            i += 2
-            continue
-        if ch == '"':
-            in_str = True
-            out.append('""')
-            i += 1
-            continue
-        if ch == "'" and (i == 0 or not (src[i - 1].isalnum() or src[i - 1] in "_'")):
-            if i + 2 < n and src[i + 1] == "\\":
-                j = i + 2
-                while j < n and src[j] != "\n" and src[j] != "'" and j - i < 12:
-                    j += 1
-                if j < n and src[j] == "'":
-                    out.append("''")
-                    i = j + 1
-                    continue
-            elif i + 2 < n and src[i + 1] != "\n" and src[i + 2] == "'":
-                out.append("''")
-                i += 3
-                continue
-        out.append(ch)
-        i += 1
-    return "".join(out)
-
 pre_re = re.compile(
     r"\b(?:sorry|admit|bv_decide|native_decide|ofReduceBool|ofReduceNat"
     r"|trustCompiler|axiom|implemented_by|extern)\b|\+native"
 )
-tok_re = re.compile(
-    r"\b(sorry|admit|bv_decide|native_decide|ofReduceBool|ofReduceNat|trustCompiler)\b"
-    r"|decide\s+\+native"
-)
-axiom_re = re.compile(
-    r"(?:^|;)\s*(?:(?:public|private|protected|unsafe|noncomputable|local|scoped)\s+)*axiom\b"
-)
-attr_re = re.compile(r"@\[[^\]]*\b(?:implemented_by|extern)\b")
 
 hits = []
 for rel in files:
@@ -370,15 +301,15 @@ for rel in files:
     if not p.is_file():
         hits.append(f"{rel}: tracked file missing from working tree")
         continue
-    raw = p.read_text(encoding="utf-8")
-    if not pre_re.search(raw):
+    raw_txt = p.read_text(encoding="utf-8")
+    if not pre_re.search(raw_txt):
         continue
-    cleaned = strip_lean(raw)
+    cleaned = strip_lean_code(raw_txt)
     for lineno, line in enumerate(cleaned.splitlines(), 1):
-        m = tok_re.search(line) or axiom_re.search(line)
+        m = BANNED_TOKEN_RE.search(line) or AXIOM_DECL_RE.search(line)
         if m:
             hits.append(f"{rel}:{lineno}: {line.strip()}")
-    for m in attr_re.finditer(cleaned):
+    for m in BANNED_ATTR_RE.finditer(cleaned):
         lineno = cleaned[:m.start()].count("\n") + 1
         hits.append(f"{rel}:{lineno}: {m.group(0)}")
 if hits:
@@ -430,12 +361,11 @@ if [ "$RESOLVED_SCOPE" = "class0" ]; then
       python3 -m py_compile "${py_files[@]}" || err "python3 -m py_compile failed"
   fi
 
-  echo "== 2c0b. generator unit tests & pure-Python gates (0 lake calls)"
-  if [ -f scripts/test_gen_cert_slices.py ]; then
-    timeout 120 env PYTHONDONTWRITEBYTECODE=1 python3 -B scripts/test_gen_cert_slices.py \
-      >"$TMP/test_gen_cert_slices.log" 2>&1 \
-      || { tail -n 30 "$TMP/test_gen_cert_slices.log"; err "scripts/test_gen_cert_slices.py failed"; }
-  fi
+  echo "== 2c0b. scripts unit tests & pure-Python gates (0 lake calls)"
+  timeout 180 env PYTHONDONTWRITEBYTECODE=1 CHECK_NO_LAKE_TESTS=1 \
+    python3 -B -m unittest discover -s "$ROOT/scripts" -p 'test_*.py' \
+    >"$TMP/scripts_unittest.log" 2>&1 \
+    || { tail -n 30 "$TMP/scripts_unittest.log"; err "scripts unit tests failed (unittest discover)"; }
   timeout 60 python3 -B "$ROOT/scripts/check_firewall.py" --root "$ROOT" --require-isa \
     || err "incrementality firewall check failed (check_firewall.py)"
   timeout 60 python3 -B "$ROOT/scripts/sync_hubs.py" --root "$ROOT" --check \
@@ -737,7 +667,8 @@ if [ "$CHECK_NO_SCOPE" != "1" ] \
     && systemd-run --user --scope true >/dev/null 2>&1; then
   SCOPE_UNIT="leanqbe-check-${$}-$(date +%s).scope"
   build_cmd=(systemd-run --user --scope --quiet --unit="$SCOPE_UNIT" \
-    -p "MemoryMax=$ACTIVE_MEM_MAX" -p OOMPolicy=kill "${build_cmd[@]}")
+    --slice=leanqbe-builds.slice -p "MemoryMax=$ACTIVE_MEM_MAX" \
+    -p MemorySwapMax=0 -p OOMPolicy=kill "${build_cmd[@]}")
 fi
 if [ "$CHECK_NO_LOCK" != "1" ] && command -v flock >/dev/null 2>&1; then
   if [ "$RESOLVED_SCOPE" = "rdeps" ] && [ -z "$USER_CHECK_LOCK_FILE" ]; then
@@ -1024,6 +955,13 @@ fi
 if [ -f "$ROOT/scripts/sync_hubs.py" ]; then
   timeout 60 python3 -B "$ROOT/scripts/sync_hubs.py" --root "$ROOT" --check \
     || err "barrel/hub check failed (sync_hubs.py --check)"
+fi
+if [ "$RESOLVED_SCOPE" = "full" ] || printf '%s\n' "$CHANGED_FILES" | grep -q '^scripts/'; then
+  echo "== 3c. scripts unit tests (unittest discover)"
+  timeout 180 env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -B -m unittest discover -s "$ROOT/scripts" -p 'test_*.py' \
+    >"$TMP/scripts_unittest.log" 2>&1 \
+    || { tail -n 30 "$TMP/scripts_unittest.log"; err "scripts unit tests failed (unittest discover)"; }
 fi
 
 echo "== 4. axiom & isUnsafe audit"

@@ -33,11 +33,14 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from lean_imports import (  # noqa: E402
+    DEFAULT_MAX_COL,
+    DEFAULT_MAX_LOC,
+    DEFAULT_MAX_PROOF_THM_LOC,
     LEGACY_CERT_RE,
+    audit_lean_source,
     mod_to_rel_path,
     parse_imports,
     rel_path_to_mod,
-    strip_comments_line,
 )
 from rdeps_scope import (  # noqa: E402
     BARRELS,
@@ -47,8 +50,9 @@ from rdeps_scope import (  # noqa: E402
     modules_to_lake_targets,
 )
 
-MAX_LOC = 2500
-MAX_COL = 100
+MAX_LOC = DEFAULT_MAX_LOC
+MAX_COL = DEFAULT_MAX_COL
+MAX_PROOF_THM_LOC = DEFAULT_MAX_PROOF_THM_LOC
 CANARY_RDEPS_THRESHOLD = 50
 RDEPS_BUILD_CAP = 250
 AXIOM_AUDIT_CHUNK_SIZE = 12
@@ -79,33 +83,6 @@ CORE_TRIGGER_RE = re.compile(
     r"|LeanQbe/T/(?:Amd64|Arm64)/Targ(?:Lemmas)?\.lean)$"
 )
 
-BANNED_TOKEN_RE = re.compile(
-    r"\b(?:sorry|admit|bv_decide|native_decide|ofReduceBool|ofReduceNat"
-    r"|trustCompiler)\b"
-    r"|decide\s+\+native"
-    r"|@\[[^\]]*\b(?:implemented_by|extern)\b"
-)
-AXIOM_DECL_RE = re.compile(
-    r"(?:^|;)\s*(?:(?:public|private|protected|unsafe|noncomputable|"
-    r"local|scoped)\s+)*axiom\b"
-)
-BAD_IMPORT_ALL_RE = re.compile(
-    r"^\s*(?:public\s+(?:meta\s+)?import\s+all\b"
-    r"|(?:meta\s+)?import\s+all\s+LeanQbe\b)"
-)
-ANY_IMPORT_ALL_RE = re.compile(
-    r"^\s*(?:(?:public|private|meta)\s+)*import\s+all\b"
-)
-CONFLICT_RE = re.compile(r"^(?:<{7}|={7}|>{7})(?: |$)")
-STRING_LIT_RE = re.compile(r'"(?:\\.|[^"\\])*"')
-EXPOSE_ATTR_RE = re.compile(r"@\[[^\]]*\bexpose\b[^\]]*\]")
-THM_DECL_RE = re.compile(
-    r"^(?:(?:public|private|protected|noncomputable|unsafe)\s+)*"
-    r"(?:theorem|lemma)\b"
-)
-MODIFIER_ONLY_RE = re.compile(
-    r"^(?:@\[[^\]]*\]|public|private|protected|noncomputable|unsafe)+$"
-)
 X64_PFX = ("Kraken.X64", "LeanQbe.T.Amd64.")
 ARM_PFX = ("Kraken.AArch64", "LeanQbe.T.Arm64.")
 
@@ -145,8 +122,11 @@ def wrap_build_cmd(
             "--user",
             "--scope",
             "--quiet",
+            "--slice=leanqbe-builds.slice",
             "-p",
             f"MemoryMax={memory_max}",
+            "-p",
+            "MemorySwapMax=0",
             "-p",
             "OOMPolicy=kill",
             *base_cmd,
@@ -261,71 +241,15 @@ def collect_diff_stats(
     }
 
 
-def _clean_lean_code_lines(lines: list[str]) -> list[tuple[int, str, str]]:
-    """Return `[(lineno, raw_line, code_without_comments_or_strings)]`."""
-    out: list[tuple[int, str, str]] = []
-    depth = 0
-    for idx, raw in enumerate(lines, 1):
-        code, depth, _ = strip_comments_line(raw, depth)
-        code_nostr = STRING_LIT_RE.sub('""', code) if code else ""
-        out.append((idx, raw, code_nostr))
-    return out
-
-
 def audit_lean_text(rel_path: str, text: str) -> dict[str, object]:
     """Audit a single `.lean` source string for hygiene invariants."""
-    lines = text.splitlines()
-    loc = len(lines)
-    over_loc = loc >= MAX_LOC
-    long_lines: list[dict[str, object]] = []
-    expose_on_thm: list[int] = []
-    banned_hits: list[dict[str, object]] = []
-    bad_import_all: list[int] = []
-    total_import_all = 0
-    conflicts: list[int] = []
-
-    pending_expose = False
-    cleaned = _clean_lean_code_lines(lines)
-    for idx, raw, code in cleaned:
-        if CONFLICT_RE.match(raw):
-            conflicts.append(idx)
-        if len(raw) > MAX_COL and not raw.strip().startswith(("--", "/-", '"')):
-            long_lines.append({"line": idx, "cols": len(raw)})
-        if not code:
-            continue
-        if BAD_IMPORT_ALL_RE.match(code):
-            bad_import_all.append(idx)
-        if ANY_IMPORT_ALL_RE.match(code):
-            total_import_all += 1
-        if BANNED_TOKEN_RE.search(code) or AXIOM_DECL_RE.search(code):
-            banned_hits.append({"line": idx, "text": code.strip()[:90]})
-
-        # Track `@[expose]` applying to a theorem/lemma on same or later line.
-        has_expose = bool(EXPOSE_ATTR_RE.search(code))
-        after_expose = EXPOSE_ATTR_RE.sub("", code).strip()
-        if THM_DECL_RE.match(after_expose) and (has_expose or pending_expose):
-            expose_on_thm.append(idx)
-            pending_expose = False
-        elif has_expose:
-            if not after_expose or MODIFIER_ONLY_RE.match(after_expose):
-                pending_expose = True
-            else:
-                pending_expose = False
-        elif pending_expose:
-            if not MODIFIER_ONLY_RE.match(code):
-                pending_expose = False
-
-    return {
-        "file": rel_path,
-        "loc": loc,
-        "over_loc": over_loc,
-        "long_lines": long_lines,
-        "expose_on_thm": expose_on_thm,
-        "banned_hits": banned_hits,
-        "bad_import_all": bad_import_all,
-        "total_import_all": total_import_all,
-        "conflicts": conflicts,
-    }
+    return audit_lean_source(
+        rel_path,
+        text,
+        max_loc=MAX_LOC,
+        max_col=MAX_COL,
+        max_proof_thm_loc=MAX_PROOF_THM_LOC,
+    )
 
 
 def read_blob_at_commit(repo: Path, commit: str, rel_path: str) -> str | None:
@@ -346,8 +270,10 @@ def audit_static_hygiene(
     target_sha: str,
     changed_files: list[str],
     deletions: set[str],
+    *,
+    base_sha: str | None = None,
 ) -> dict[str, object]:
-    """Run LOC, line-width, `@[expose]`, banned-token, and `import all` checks."""
+    """Run LOC, line-width, `@[expose]`, banned-token, `import all`, and P0-5 checks."""
     lean_files = [
         f for f in changed_files if f.endswith(".lean") and f not in deletions
     ]
@@ -369,7 +295,20 @@ def audit_static_hygiene(
         for ln_info in rep["long_lines"]:  # type: ignore[attr-defined]
             max_col = max(max_col, int(ln_info["cols"]))
         if rep["over_loc"]:
-            violations.append(f"{rel}: {loc} LOC >= {MAX_LOC}")
+            base_txt = (
+                read_blob_at_commit(repo, base_sha, rel) if base_sha else None
+            )
+            if base_txt is not None:
+                base_loc = len(base_txt.splitlines())
+                if base_loc >= MAX_LOC:
+                    if loc > base_loc:
+                        violations.append(
+                            f"{rel}: grandfathered file grew {base_loc} -> {loc} LOC (>= {MAX_LOC})"
+                        )
+                else:
+                    violations.append(f"{rel}: {loc} LOC >= {MAX_LOC}")
+            else:
+                violations.append(f"{rel}: {loc} LOC >= {MAX_LOC}")
         if rep["long_lines"]:
             first = rep["long_lines"][0]  # type: ignore[index]
             violations.append(
@@ -383,6 +322,20 @@ def audit_static_hygiene(
             )
         for ln in rep["bad_import_all"]:  # type: ignore[attr-defined]
             violations.append(f"{rel}:{ln}: forbidden `import all`")
+        for ln in rep["proof_import_all"]:  # type: ignore[attr-defined]
+            if ln not in rep["bad_import_all"]:  # type: ignore[operator]
+                violations.append(f"{rel}:{ln}: forbidden `import all` in Proof/ shard")
+        for sec in rep["proof_expose_section"]:  # type: ignore[attr-defined]
+            violations.append(
+                f"{rel}:{sec['theorem_line']}: theorem/lemma inside file-level "
+                f"`@[expose] public section` (line {sec['section_line']})"
+            )
+        for thm in rep["proof_long_theorems"]:  # type: ignore[attr-defined]
+            violations.append(
+                f"{rel}:{thm['start_line']}: theorem `{thm['name']}` is "
+                f"{thm['lines']} lines > {MAX_PROOF_THM_LOC} "
+                f"(L{thm['start_line']}-L{thm['end_line']})"
+            )
         for ln in rep["conflicts"]:  # type: ignore[attr-defined]
             violations.append(f"{rel}:{ln}: merge conflict marker")
 
@@ -1231,7 +1184,9 @@ def run_audit(
     changed_files: list[str] = diff_res["files"]  # type: ignore[assignment]
     deletions = set(diff_res["deletions"])  # type: ignore[arg-type]
 
-    hygiene_res = audit_static_hygiene(repo, target_sha, changed_files, deletions)
+    hygiene_res = audit_static_hygiene(
+        repo, target_sha, changed_files, deletions, base_sha=base_sha
+    )
 
     with target_worktree_ctx(
         repo,

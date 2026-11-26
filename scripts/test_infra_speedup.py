@@ -467,5 +467,196 @@ class TestP1DecouplingAndHubs(unittest.TestCase):
         self.assertEqual(exes["audit_axioms"]["root"], "scripts.AuditAxioms")
 
 
+class TestPreflightAndGateParity(unittest.TestCase):
+    """Covers P0-1 + P0-5 preflight hygiene, swap/slice flags, and unittest wiring."""
+
+    def _run_preflight_in_temp_repo(
+        self,
+        base_files: dict[str, str],
+        head_files: dict[str, str],
+    ) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            for name in ("preflight.sh", "lean_imports.py"):
+                shutil.copy2(SCRIPTS_DIR / name, scripts / name)
+            (scripts / "check_firewall.py").write_text(
+                "import sys\nsys.exit(0)\n", encoding="utf-8"
+            )
+            (scripts / "sync_hubs.py").write_text(
+                "import sys\nsys.exit(0)\n", encoding="utf-8"
+            )
+            for rel, txt in base_files.items():
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(txt, encoding="utf-8")
+            _git(root, "init")
+            _git(root, "config", "user.name", "Test")
+            _git(root, "config", "user.email", "test@example.com")
+            _git(root, "config", "commit.gpgsign", "false")
+            _git(root, "add", "-A")
+            _git(root, "commit", "-m", "base")
+            base_sha = _git(root, "rev-parse", "HEAD").stdout.strip()
+
+            for rel, txt in head_files.items():
+                p = root / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(txt, encoding="utf-8")
+            _git(root, "add", "-A")
+            _git(root, "commit", "-m", "change")
+
+            return subprocess.run(
+                ["bash", str(scripts / "preflight.sh"), base_sha],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+
+    def test_preflight_catches_axiom_and_expose_on_theorem(self) -> None:
+        res_ax = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/BadAx.lean": "module\nprivate axiom badAx : False\n"},
+        )
+        self.assertNotEqual(res_ax.returncode, 0)
+        self.assertIn("forbidden token", res_ax.stderr)
+
+        res_exp = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {
+                "LeanQbe/T/BadExpose.lean": (
+                    "module\n@[expose]\nprivate lemma bad_lem : True := trivial\n"
+                )
+            },
+        )
+        self.assertNotEqual(res_exp.returncode, 0)
+        self.assertIn("@[expose] on theorem/lemma", res_exp.stderr)
+
+        # Comments, strings, @[expose] def, and bv_decide_qbe/ must NOT fail.
+        res_ok = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {
+                "LeanQbe/T/Clean.lean": (
+                    "module\n"
+                    "-- axiom ignored in comment\n"
+                    "/- @[expose] theorem ignored_block : True := trivial -/\n"
+                    '@[expose] def msg : String := "axiom @[expose] theorem"\n'
+                    "@[simp] theorem clean_ok : True := trivial\n"
+                ),
+                "bv_decide_qbe/TestSkip.lean": "axiom ignoredHere : False\n",
+            },
+        )
+        self.assertEqual(res_ok.returncode, 0, res_ok.stdout + res_ok.stderr)
+
+    def test_preflight_2500_loc_and_grandfathered_handling(self) -> None:
+        new_2500 = "\n".join(["-- line"] * 2500) + "\n"
+        res_new = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/TooBig.lean": new_2500},
+        )
+        self.assertNotEqual(res_new.returncode, 0)
+        self.assertIn("2500 LOC >= 2500", res_new.stderr)
+
+        grand_base = "\n".join(["-- line"] * 2600) + "\n"
+        grand_same = "\n".join(["-- ok"] * 2600) + "\n"
+        res_same = self._run_preflight_in_temp_repo(
+            {"LeanQbe/T/Grand.lean": grand_base},
+            {"LeanQbe/T/Grand.lean": grand_same},
+        )
+        self.assertEqual(res_same.returncode, 0, res_same.stdout + res_same.stderr)
+
+        grand_grown = "\n".join(["-- ok"] * 2601) + "\n"
+        res_grown = self._run_preflight_in_temp_repo(
+            {"LeanQbe/T/Grand.lean": grand_base},
+            {"LeanQbe/T/Grand.lean": grand_grown},
+        )
+        self.assertNotEqual(res_grown.returncode, 0)
+        self.assertIn("grandfathered file grew 2600 -> 2601", res_grown.stderr)
+
+    def test_preflight_p0_5_proof_shard_rules_and_no_false_positives(self) -> None:
+        # 1. Any `import all` banned in Kissat/Proof/ & Bitblast/Proof/
+        res_imp = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {
+                "LeanQbe/T/Examples/Kissat/Proof/Sub.lean": (
+                    "module\nimport all Kraken.Mem\n"
+                )
+            },
+        )
+        self.assertNotEqual(res_imp.returncode, 0)
+        self.assertIn("forbidden `import all` in Proof/ shard", res_imp.stderr)
+
+        # 2. File-level `@[expose] public section` over theorems banned
+        res_sec = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {
+                "LeanQbe/T/Examples/Bitblast/Proof/BadSec.lean": (
+                    "module\n@[expose] public section\ntheorem bad : True := trivial\n"
+                )
+            },
+        )
+        self.assertNotEqual(res_sec.returncode, 0)
+        self.assertIn("@[expose] public section", res_sec.stderr)
+
+        # 3. Single theorem > 450 lines flagged; <= 450 lines + trailing doc comment OK
+        long_thm = (
+            "module\npublic section\ntheorem mega_wp : True := by\n"
+            + "\n".join(["  have h := True.intro"] * 449)
+            + "\n  exact h\n"
+        )
+        res_long = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/Examples/Kissat/Proof/Mega.lean": long_thm},
+        )
+        self.assertNotEqual(res_long.returncode, 0)
+        self.assertIn("451 lines > 450", res_long.stderr)
+
+        ok_450 = (
+            "module\npublic section\ntheorem ok_wp : True := by\n"
+            + "\n".join(["  have h := True.intro"] * 448)
+            + "\n  exact h\n\n/-- trailing doc comment for next decl -/\n"
+            + "\n".join(["-- comment"] * 10)
+            + "\ntheorem tiny : True := trivial\n"
+        )
+        res_450 = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {"LeanQbe/T/Examples/Bitblast/Proof/Ok450.lean": ok_450},
+        )
+        self.assertEqual(res_450.returncode, 0, res_450.stdout + res_450.stderr)
+
+        # 4. Non-theorem data defs in Bitblast/Proof/ & Kissat/Proof/Spec/ must pass
+        res_spec_ok = self._run_preflight_in_temp_repo(
+            {"README.md": "ok\n"},
+            {
+                "LeanQbe/T/Examples/Kissat/Proof/Spec/DataOnly.lean": (
+                    "module\n@[expose] public section\n"
+                    "structure SpecHdr where\n  x : Nat\n"
+                    "def specFn (h : SpecHdr) : Nat := h.x\n"
+                ),
+                "LeanQbe/T/Examples/Bitblast/Proof/SpecAndProof.lean": (
+                    "module\n@[expose] public section\n"
+                    "def localSpec : Nat := 1\n"
+                    "end\n"
+                    "public section\n"
+                    "@[expose] def exposedData : Nat := 2\n"
+                    "theorem proof_ok : localSpec = 1 := rfl\n"
+                ),
+            },
+        )
+        self.assertEqual(res_spec_ok.returncode, 0, res_spec_ok.stdout + res_spec_ok.stderr)
+
+    def test_gate_scripts_swap_slice_and_unittest_wiring(self) -> None:
+        check_txt = (SCRIPTS_DIR / "check.sh").read_text(encoding="utf-8")
+        self.assertIn("--slice=leanqbe-builds.slice", check_txt)
+        self.assertIn("MemorySwapMax=0", check_txt)
+        self.assertIn("unittest discover", check_txt)
+
+        tier3_txt = (SCRIPTS_DIR / "tier3_check.sh").read_text(encoding="utf-8")
+        self.assertIn("--slice=leanqbe-builds.slice", tier3_txt)
+        self.assertIn("MemorySwapMax=0", tier3_txt)
+
+
 if __name__ == "__main__":
     unittest.main()

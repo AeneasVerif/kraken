@@ -61,7 +61,8 @@ if [ "${#extra_targets[@]}" -gt 0 ]; then
       && systemd-run --user --scope true >/dev/null 2>&1; then
     SCOPE_UNIT="leanqbe-tier3-${$}-$(date +%s).scope"
     build_cmd=(systemd-run --user --scope --quiet --unit="$SCOPE_UNIT" \
-      -p "MemoryMax=$CHECK_MEM_MAX" -p OOMPolicy=kill "${build_cmd[@]}")
+      --slice=leanqbe-builds.slice -p "MemoryMax=$CHECK_MEM_MAX" \
+      -p MemorySwapMax=0 -p OOMPolicy=kill "${build_cmd[@]}")
   fi
   if [ "$CHECK_NO_LOCK" != "1" ] && command -v flock >/dev/null 2>&1; then
     if ! flock -n "$CHECK_LOCK_FILE" true 2>/dev/null; then
