@@ -175,12 +175,15 @@ public import LeanQbe.T.RegaDefs
 public import LeanQbe.T.RegaFlat
 public import LeanQbe.T.RegaFlatLemmas
 public import LeanQbe.T.RegaLemmas
+public import LeanQbe.T.RegaLemmas0
 public import LeanQbe.T.RegaLemmas1
 public import LeanQbe.T.RegaLemmas2
 public import LeanQbe.T.RegaLemmas3
 public import LeanQbe.T.RegaLemmas3a
 public import LeanQbe.T.RegaLemmas3b
 public import LeanQbe.T.RegaLemmas4
+public import LeanQbe.T.RegaLemmasZero
+public import LeanQbe.T.RegaZero
 public import LeanQbe.T.RegaZext
 public import LeanQbe.T.Scc
 public import LeanQbe.T.SccLemmas
@@ -226,6 +229,7 @@ public import LeanQbe.T.Vll.FromWordLemmas4
 public import LeanQbe.T.Vll.Passes
 public import LeanQbe.T.Vll.PassesLemmas
 public import LeanQbe.T.Vll.PassesLemmas0
+public import LeanQbe.T.Vll.PassesLemmasZero
 public import LeanQbe.T.Vll.RegaInst
 public import LeanQbe.T.Vll.RegaInst0
 public import LeanQbe.T.Vll.Sem

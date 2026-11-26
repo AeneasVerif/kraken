@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Amd64.Base
+public import LeanQbe.T.Amd64.IselZero
 public import LeanQbe.T.IselStepAttr
 
 /-!
@@ -63,9 +64,6 @@ def regW : (w : Width) → Reg64 → Reg w
   | .W32, r => d r
   | .W64, r => q r
 
-/-- Width-indexed 64-bit-addressed instruction constructor. -/
-abbrev x64InsI (w : Width) (op : Operation w) : Instr := .regular .W64 w op
-
 /-- `mov %rs, %rd` (64-bit) instruction. -/
 abbrev movI (rd rs : Reg64) : Instr :=
   x64InsI .W64 (.mov (.reg (q rd)) (.reg (q rs)))
@@ -73,17 +71,6 @@ abbrev movI (rd rs : Reg64) : Instr :=
 /-- `movl %rs32, %rd32` instruction (zero-extends to 64 bits). -/
 abbrev movlI (rd rs : Reg64) : Instr :=
   x64InsI .W32 (.mov (.reg (d rd)) (.reg (d rs)))
-
-/-- Whether `c` fits in a zero-extended 32-bit immediate (`0 .. 2^32 - 1`). -/
-def fitsUImm32 (c : BitVec 64) : Bool :=
-  (c >>> 32) == 0#64
-
-/-- `mov $c, %rd` (5-byte `movl` when `0 ≤ c < 2^32`, else `movq`; preserves all status flags). -/
-abbrev moviI (rd : Reg64) (c : BitVec 64) : Instr :=
-  if fitsUImm32 c then
-    x64InsI .W32 (.mov (.reg (d rd)) (.imm (.int64 (Int64.ofBitVec c))))
-  else
-    x64InsI .W64 (.mov (.reg (q rd)) (.imm (.int64 (Int64.ofBitVec c))))
 
 /-- Width-preserving register-to-register move (`movzbl`/`movzwl`/`movl`/`movq`) instruction. -/
 abbrev movWI (w : Width) (rd rs : Reg64) : Instr :=
@@ -1710,5 +1697,6 @@ def x64Gpr : GprIsa Reg64 RegMm CondCode Directive where
   aluZeroOut? := x64AluZeroOut
   hasTestFlags := true
   cmpMemFlagsOut? := x64CmpMemFlagsOut
+  moviDeadFlags? := some x64MoviDeadFlags
 
 end LeanQbe.T.Amd64

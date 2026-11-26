@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Amd64.VllFactorX644
+import LeanQbe.T.Amd64.VllFactorX64Zero
 
 /-!
 # BedrockMach SysV x86-64 `lowerOp` Parity (`Amd64.VllFactorX645`)
@@ -950,6 +951,64 @@ private theorem tupDstFlags_eq :
     | gpr _ | vec _ => exact tupDstFlags_eq dsts
     | flag _ => exact congrArg (_ :: ·) (tupDstFlags_eq dsts)
 
+private theorem tryMoviZero_eq (h : x64Isa.Hints) (ip : Nat) (st : Rega.SymState vllX64IsaR)
+    {sig ts : List Ty} (code : OpCode sig ts) (args : Tup (Arg Rega.VNat) sig)
+    (dsts : Tup (PDst Reg64 RegMm CondCode) ts) :
+    (Rega.tryMoviZero vllX64IsaR h ip st code args dsts).map
+        (fun (c, cl, z) => (asmX64List c, cl, z)) =
+      Rega.tryMoviZero x64Isa h ip (symStToX64 st) code args dsts := by
+  dsimp only [Rega.tryMoviZero]
+  have hst : Rega.stHasFlagReg (I := vllX64IsaR) st.regs =
+      Rega.stHasFlagReg (I := x64Isa) st.regs := by
+    dsimp only [Rega.stHasFlagReg]
+    exact congrArg (List.any st.regs) (funext fun p => by cases p.2 <;> rfl)
+  have hfl : Rega.flagsDeadAt vllX64IsaR h (some ip) st =
+      Rega.flagsDeadAt x64Isa h (some ip) (symStToX64 st) := by
+    dsimp only [Rega.flagsDeadAt, symStToX64]; rw [hst]
+  rw [hfl]
+  split
+  · rfl
+  · have h1 : vllX64GprR.moviDeadFlags? = some vllX64MoviDeadFlags := rfl
+    have h2 : x64Gpr.moviDeadFlags? = some x64MoviDeadFlags := rfl
+    have hbw : vllX64FrameR.bitWidths = [8, 16, 32, 64] := rfl
+    have hemit1 : ∀ rd,
+        asmX64List (vllX64MoviDeadFlags rd 0#64).1 = (x64MoviDeadFlags rd 0#64).1 :=
+      fun rd => congrArg Prod.fst (asmX64List_vllX64MoviDeadFlags rd 0#64)
+    have hemit2 : ∀ rd, (vllX64MoviDeadFlags rd 0#64).2 = (x64MoviDeadFlags rd 0#64).2 :=
+      fun rd => congrArg Prod.snd (asmX64List_vllX64MoviDeadFlags rd 0#64)
+    cases code with
+    | copy t =>
+      cases t with
+      | bits n =>
+        rcases args with ⟨a, ⟨⟩⟩; rcases dsts with ⟨d0, ⟨⟩⟩
+        cases a <;> cases d0 <;> try rfl
+        dsimp only; rw [h1, h2, hbw]; dsimp only
+        split <;> first | rfl | simp only [Option.map_some, hemit1, hemit2]
+      | bool =>
+        rcases args with ⟨a, ⟨⟩⟩; rcases dsts with ⟨d0, ⟨⟩⟩
+        cases a with
+        | var _ => rfl
+        | imm b =>
+          cases b <;> cases d0 <;> first
+            | rfl
+            | simp only [h1, h2, hbw, Option.map_some, hemit1, hemit2]
+      | float _ | pair _ _ => rfl
+    | ofBool n =>
+      rcases args with ⟨a, ⟨⟩⟩; rcases dsts with ⟨d0, ⟨⟩⟩
+      cases a with
+      | var _ => rfl
+      | imm b =>
+        cases b <;> cases d0 <;> try rfl
+        dsimp only; rw [h1, h2, hbw]; dsimp only
+        split <;> first | rfl | simp only [Option.map_some, hemit1, hemit2]
+    | bitcast t u _ =>
+      cases t <;> cases u <;> try rfl
+      rcases args with ⟨a, ⟨⟩⟩; rcases dsts with ⟨d0, ⟨⟩⟩
+      cases a <;> cases d0 <;> try rfl
+      dsimp only; rw [h1, h2, hbw]; dsimp only
+      split <;> first | rfl | simp only [Option.map_some, hemit1, hemit2]
+    | _ => rfl
+
 private theorem mapOptCl_lowerOpBody (st1 : Rega.SymState vllX64IsaR) (h : x64Isa.Hints)
     (nv ip : Nat) {ts : List Ty} (op : Op Rega.VNat ts)
     (dsts : Tup (PDst Reg64 RegMm CondCode) ts)
@@ -967,6 +1026,9 @@ private theorem mapOptCl_lowerOpBody (st1 : Rega.SymState vllX64IsaR) (h : x64Is
         ((Rega.tryLoadSext vllX64IsaR st1 vh opN.code opN.args dsts).map
           fun (c, cl) => (c, cl, false, false, Rega.killFlags vllX64IsaR cl st1.flags, none)) <|>
         ((Rega.tryLeaArith vllX64IsaR st1 opN.code opN.args dsts).map
+          fun (c, cl, z32) =>
+            (c, cl, false, z32, Rega.killFlags vllX64IsaR cl st1.flags, none)) <|>
+        ((Rega.tryMoviZero vllX64IsaR h ip st1 opN.code opN.args dsts).map
           fun (c, cl, z32) =>
             (c, cl, false, z32, Rega.killFlags vllX64IsaR cl st1.flags, none)) <|>
         (Rega.pickPArgs vllX64IsaR st1 (Rega.tupDstFlags dsts) opN.args fun pas =>
@@ -991,6 +1053,9 @@ private theorem mapOptCl_lowerOpBody (st1 : Rega.SymState vllX64IsaR) (h : x64Is
         fun (c, cl) =>
           (c, cl, false, false, Rega.killFlags x64Isa cl (symStToX64 st1).flags, none)) <|>
       ((Rega.tryLeaArith x64Isa (symStToX64 st1) opNx.code opNx.args dsts).map
+        fun (c, cl, z32) =>
+          (c, cl, false, z32, Rega.killFlags x64Isa cl (symStToX64 st1).flags, none)) <|>
+      ((Rega.tryMoviZero x64Isa h ip (symStToX64 st1) opNx.code opNx.args dsts).map
         fun (c, cl, z32) =>
           (c, cl, false, z32, Rega.killFlags x64Isa cl (symStToX64 st1).flags, none)) <|>
       (Rega.pickPArgs x64Isa (symStToX64 st1) (Rega.tupDstFlags dsts) opNx.args fun pas =>
@@ -1065,8 +1130,11 @@ private theorem mapOptCl_lowerOpBody (st1 : Rega.SymState vllX64IsaR) (h : x64Is
         (mapOptCl_or_congr
           (mapOptCl_option_map (tryLeaArith_eq st1 _ _ dsts) fun _ ⟨cl, z32⟩ => by
             dsimp only; rw [killFlags_eq])
-          (mapOptCl_or_congr hpick
-            (mapOptCl_option_map (trySlotOp_eq h st1 _ _ dsts) fun _ _ => rfl)))))
+          (mapOptCl_or_congr
+            (mapOptCl_option_map (tryMoviZero_eq h ip st1 _ _ dsts) fun _ ⟨cl, z32⟩ => by
+              dsimp only; rw [killFlags_eq])
+            (mapOptCl_or_congr hpick
+              (mapOptCl_option_map (trySlotOp_eq h st1 _ _ dsts) fun _ _ => rfl))))))
 
 theorem lowerOp_eq_and_noRsp (h : x64Isa.Hints) (hs : savedNoRsp h.saved = true)
     (nv ip : Nat) (st1 : Rega.SymState vllX64IsaR) {ts : List Ty} (op : Op Rega.VNat ts)
@@ -1161,6 +1229,11 @@ theorem lowerOp_eq_and_noRsp (h : x64Isa.Hints) (hs : savedNoRsp h.saved = true)
                     fun (c, cl) =>
                       (c, cl, false, false, Rega.killFlags vllX64IsaR cl st1.flags, none)) <|>
                   ((Rega.tryLeaArith vllX64IsaR st1
+                      (Rega.normCmpOp (I := vllX64IsaR) op dsts).code
+                      (Rega.normCmpOp (I := vllX64IsaR) op dsts).args dsts).map
+                    fun (c, cl, z32) =>
+                      (c, cl, false, z32, Rega.killFlags vllX64IsaR cl st1.flags, none)) <|>
+                  ((Rega.tryMoviZero vllX64IsaR h ip st1
                       (Rega.normCmpOp (I := vllX64IsaR) op dsts).code
                       (Rega.normCmpOp (I := vllX64IsaR) op dsts).args dsts).map
                     fun (c, cl, z32) =>
@@ -1371,6 +1444,18 @@ private theorem opNoSameExt_false_x64_pickPArgs_none (st : Rega.SymState x64Isa)
     split <;> rfl
   exact pickPArgs_const_none x64Isa st _ args _ hk
 
+private theorem opNoSameExt_false_tryMoviZero_none (I : Isa) (h : I.Hints) (ip : Nat)
+    (st : Rega.SymState I) {sig ts : List Ty} (code : OpCode sig ts)
+    (args : Tup (Arg Rega.VNat) sig) (dsts : Tup (PDst I.Reg I.VReg I.Cond) ts)
+    (hfalse : opNoSameExt code = false) :
+    Rega.tryMoviZero I h ip st code args dsts = none := by
+  dsimp only [Rega.tryMoviZero]
+  split
+  · rfl
+  · cases I.gpr.moviDeadFlags?
+    · rfl
+    · cases code <;> simp [opNoSameExt] at hfalse <;> rfl
+
 theorem lowerOp_of_x64_some (h : x64Isa.Hints) (hs : savedNoRsp h.saved = true)
     (nv ip : Nat) (st1 : Rega.SymState vllX64IsaR) {ts : List Ty} (op : Op Rega.VNat ts)
     (deferFuse : Bool) (hno : regsNoRsp st1.regs = true)
@@ -1473,6 +1558,8 @@ theorem lowerOp_of_x64_some (h : x64Isa.Hints) (hs : savedNoRsp h.saved = true)
                       code args dsts = none := by rw [← hx_ls, hls]; rfl
                   rw [hlsx,
                     opNoSameExt_false_x64_tryLeaArith_none (symStToX64 st1) code args dsts hfalse,
+                    opNoSameExt_false_tryMoviZero_none x64Isa h ip (symStToX64 st1) code args dsts
+                      hfalse,
                     opNoSameExt_false_x64_pickPArgs_none (symStToX64 st1) nv _ code args dsts
                       hfalse,
                     opNoSameExt_false_trySlotOp_none x64Isa h (symStToX64 st1) code args dsts

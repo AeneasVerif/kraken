@@ -353,6 +353,8 @@ structure Arch : Type 1 where
   nativeEffect : Native → NativeEffect Reg VReg := fun _ => {}
   /-- Whether `load (.bits 32)` with `.sub` zeroes bits `32..63`. -/
   zeroUpper32Write : Bool := true
+  /-- Whether 32-bit `xor rd rd` zeroes 64 bits and sets flags to `clearFlagsVal`. -/
+  xor32ZeroClearFlags : Bool := false
 
 attribute [instance] Arch.decEqReg Arch.decEqVReg Arch.decEqCond
 

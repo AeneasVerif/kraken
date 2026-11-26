@@ -20,6 +20,8 @@ public import LeanQbe.T.Amd64.IselVec
 public import LeanQbe.T.Amd64.IselVecLemmas1
 public import LeanQbe.T.Amd64.IselVecLemmas2
 public import LeanQbe.T.Amd64.IselVecLemmas3
+public import LeanQbe.T.Amd64.IselZero
+public import LeanQbe.T.Amd64.IselZeroLemmas
 public import LeanQbe.T.Amd64.KissatAbi
 public import LeanQbe.T.Amd64.KissatFidelityParam
 public import LeanQbe.T.Amd64.KissatM7Fidelity
@@ -147,6 +149,7 @@ public import LeanQbe.T.Amd64.VllFactorX644
 public import LeanQbe.T.Amd64.VllFactorX645
 public import LeanQbe.T.Amd64.VllFactorX646
 public import LeanQbe.T.Amd64.VllFactorX647
+public import LeanQbe.T.Amd64.VllFactorX64Zero
 public import LeanQbe.T.Amd64.VllX64
 
 set_option autoImplicit false

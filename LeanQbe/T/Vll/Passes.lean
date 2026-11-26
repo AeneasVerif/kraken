@@ -190,6 +190,11 @@ move-back `.mov .w64`, and dead pure GPR writes overwritten by `.movi`/`.mov .w6
   match i₁, i₂ with
   | .clearFlags, i₂ =>
     if i₂.overwritesClearFlags then some i₂ else none
+  | .movi rd c, .clearFlags =>
+    if A.xor32ZeroClearFlags && c == 0#64 then
+      some (.alu .xor .w32 rd rd (.reg rd) true)
+    else
+      none
   | i₁, i₂ => peepholePairCore? A i₁ i₂
 
 /-- Generic linear-time 2-instruction straight-line peephole pass driven by `rule`. -/

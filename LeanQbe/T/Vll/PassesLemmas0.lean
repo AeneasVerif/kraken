@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Vll.Passes
+public import LeanQbe.T.Vll.PassesLemmasZero
 public import LeanQbe.T.Vll.Sem
 public import LeanQbe.T.Vll.RegaInst
 import LeanQbe.T.TargetLemmas
@@ -49,6 +50,9 @@ structure Arch.PassWf (A : Arch) : Prop extends A.Wf where
   canonAbi64_flags : A.isCanonAbi64Noop = true → ∀ f, A.canonAbiFlags (.bits 64) f = f
   cmp_overwrite : ∀ w a b f, A.cmpFlags w a b A.clearFlagsVal = A.cmpFlags w a b f
   test_overwrite : ∀ w a b f, A.testFlags w a b A.clearFlagsVal = A.testFlags w a b f
+  xor32_zero_clearFlags : A.xor32ZeroClearFlags = true →
+    ∀ old a f, A.writeSub .w32 old 0#32 = 0#64 ∧
+      A.aluFlags .xor .w32 true a a f = A.clearFlagsVal := by intro h; cases h
 
 private theorem MachSt.setGpr_self {A : Arch} (s : MachSt A) (r : A.Reg) :
     s.setGpr r (s.gpr r) = s := by
@@ -339,6 +343,17 @@ theorem peepholePair?_detFall {A : Arch} (hwf : A.PassWf) (symAddr : Sym → Bit
         simp only [instrRel, MachSt.gpr_setFlags, MachSt.flags_setFlags,
           hwf.test_overwrite w a b s.flags, MachSt.setFlags_setFlags, a, b]
       | _ => cases ho
+  | movi rd c =>
+    cases i₂ with
+    | clearFlags =>
+      dsimp only [peepholePair?] at h
+      split at h
+      · rename_i hc
+        simp only [Bool.and_eq_true, beq_iff_eq] at hc
+        cases h; rw [hc.2]
+        exact movi_clearFlags_detFall_core symAddr rd (hwf.xor32_zero_clearFlags hc.1)
+      · cases h
+    | _ => exact peepholePairCore?_detFall hwf.toWf symAddr h
   | _ => exact peepholePairCore?_detFall hwf.toWf symAddr h
 
 theorem peepholePairCore?_no_label_call {A : Arch} {i₁ i₂ i' : Instr A}
@@ -411,6 +426,17 @@ theorem peepholePair?_no_label_call {A : Arch} {i₁ i₂ i' : Instr A}
       all_goals
         exact ⟨⟨(fun _ e => by cases e), (fun _ e => by cases e), (fun _ e => by cases e)⟩,
           rfl, rfl, rfl⟩
+  | movi rd c =>
+    cases i₂ with
+    | clearFlags =>
+      dsimp only [peepholePair?] at h
+      split at h
+      · rename_i hc
+        simp only [Bool.and_eq_true, beq_iff_eq] at hc
+        cases h; rw [hc.2]
+        exact movi_clearFlags_no_label_call rd
+      · cases h
+    | _ => exact peepholePairCore?_no_label_call h
   | _ => exact peepholePairCore?_no_label_call h
 
 /-! ## 2. Structural Label Preservation (`definedLabels`, `NoVllLab`, `LabelsUnique`) -/

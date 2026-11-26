@@ -1732,11 +1732,11 @@ theorem tryAddrZext_map {α β : Type} (f : α → β) (st : Rega.SymState vllAr
           rw [optMap_bind, strict_findGprFor]
       | _ => rfl
 
-theorem execMove_factor (nslots : Nat) (saved : List Arm64.Reg) (mv : armIsa.Move)
-    (st : Rega.SymState vllArmStrictIsa) :
-    (Rega.execMove vllArmStrictIsa nslots saved mv st).map
+theorem execMove_factor {deadHint : Bool} (nslots : Nat) (saved : List Arm64.Reg)
+    (mv : armIsa.Move) (st : Rega.SymState vllArmStrictIsa) :
+    (Rega.execMove vllArmStrictIsa nslots saved mv st deadHint).map
       (fun (c, st') => (asmArm64List c, liftSt st')) =
-      Rega.execMove armIsa nslots saved mv (liftSt st) := by
+      Rega.execMove armIsa nslots saved mv (liftSt st) deadHint := by
   cases mv with
   | mov d s =>
     dsimp only [Rega.execMove, liftSt]
@@ -1750,7 +1750,14 @@ theorem execMove_factor (nslots : Nat) (saved : List Arm64.Reg) (mv : armIsa.Mov
     dsimp only [Rega.execMove, liftSt]
     rw [strict_isMoveGpr]; split
     · rfl
-    · dsimp only [Option.map_some, liftSt]; rw [strict_movi_asm, strict_scratch, strict_killRegs]
+    · have hmd1 : vllArmStrictIsa.gpr.moviDeadFlags? = none := rfl
+      have hm1 : Rega.execMovi vllArmStrictIsa st deadHint d c =
+          (vllArmStrictIsa.gpr.movi d c, FlagMask.none) := by
+        dsimp only [Rega.execMovi]; rw [hmd1]
+      have hm2 : Rega.execMovi armIsa (liftSt st) deadHint d c =
+          (armIsa.gpr.movi d c, FlagMask.none) := rfl
+      simp only [Option.map_some, hm1, hm2, beq_self_eq_true, ↓reduceIte]
+      rw [strict_movi_asm, strict_scratch, strict_killRegs]
   | ld d i =>
     dsimp only [Rega.execMove, liftSt]
     rw [strict_isAllocGpr]; split
@@ -1770,9 +1777,9 @@ theorem execMove_factor (nslots : Nat) (saved : List Arm64.Reg) (mv : armIsa.Mov
       rw [strict_setcc_asm, strict_flagEntries, strict_scratch, strict_killRegs]
   | vmov _ d _ | vmovi _ d _ | vld _ d _ | vst _ _ d => exact d.elim
 
-theorem execMove_asm_ne_nil {nslots : Nat} {saved : List Arm64.Reg} {mv : armIsa.Move}
-    {st st' : Rega.SymState vllArmStrictIsa} {c : List (Instr arm64Arch)}
-    (h : Rega.execMove vllArmStrictIsa nslots saved mv st = some (c, st')) :
+theorem execMove_asm_ne_nil {deadHint : Bool} {nslots : Nat} {saved : List Arm64.Reg}
+    {mv : armIsa.Move} {st st' : Rega.SymState vllArmStrictIsa} {c : List (Instr arm64Arch)}
+    (h : Rega.execMove vllArmStrictIsa nslots saved mv st deadHint = some (c, st')) :
     asmArm64List c ≠ [] := by
   cases mv with
   | mov d s =>
@@ -1780,7 +1787,9 @@ theorem execMove_asm_ne_nil {nslots : Nat} {saved : List Arm64.Reg} {mv : armIsa
     split at h <;> (
       cases h; rw [strict_mov_asm]; simp [armMov, armMovIns, emitClean])
   | movi d cv =>
-    dsimp only [Rega.execMove] at h; split at h; · cases h
+    dsimp only [Rega.execMove, Rega.execMovi] at h; split at h; · cases h
+    have hmd1 : vllArmStrictGpr.moviDeadFlags? = none := rfl
+    rw [hmd1] at h
     cases h; rw [strict_movi_asm]; exact armMovi_ne_nil d cv
   | ld d i =>
     dsimp only [Rega.execMove] at h; split at h; · cases h
@@ -1793,40 +1802,40 @@ theorem execMove_asm_ne_nil {nslots : Nat} {saved : List Arm64.Reg} {mv : armIsa
     cases h; rw [strict_setcc_asm]; exact armSetcc_ne_nil d cf
   | vmov _ d _ | vmovi _ d _ | vld _ d _ | vst _ _ d => exact d.elim
 
-theorem execMoves_factor (nslots : Nat) (saved : List Arm64.Reg) :
+theorem execMoves_factor {deadHint : Bool} (nslots : Nat) (saved : List Arm64.Reg) :
     ∀ (mvs : List armIsa.Move) (st : Rega.SymState vllArmStrictIsa),
-      (Rega.execMoves vllArmStrictIsa nslots saved mvs st).map
+      (Rega.execMoves vllArmStrictIsa nslots saved mvs st deadHint).map
         (fun (c, st') => (asmArm64List c, liftSt st')) =
-        Rega.execMoves armIsa nslots saved mvs (liftSt st)
+        Rega.execMoves armIsa nslots saved mvs (liftSt st) deadHint
   | [], _ => rfl
   | mv :: mvs, st => by
     dsimp only [Rega.execMoves]
-    rw [← execMove_factor nslots saved mv st]
-    cases Rega.execMove vllArmStrictIsa nslots saved mv st with
+    rw [← execMove_factor (deadHint := deadHint) nslots saved mv st]
+    cases Rega.execMove vllArmStrictIsa nslots saved mv st deadHint with
     | none => rfl
     | some p =>
       rcases p with ⟨c1, st1⟩
       dsimp only [Option.bind_some, Option.map_some]
-      rw [← execMoves_factor nslots saved mvs st1]
-      cases Rega.execMoves vllArmStrictIsa nslots saved mvs st1 with
+      rw [← execMoves_factor (deadHint := deadHint) nslots saved mvs st1]
+      cases Rega.execMoves vllArmStrictIsa nslots saved mvs st1 deadHint with
       | none => rfl
       | some p2 =>
         rcases p2 with ⟨c2, st2⟩
         simp [asmArm64List_append]
 
-theorem execMoves_nil_iff {nslots : Nat} {saved : List Arm64.Reg} :
+theorem execMoves_nil_iff {deadHint : Bool} {nslots : Nat} {saved : List Arm64.Reg} :
     ∀ {mvs : List armIsa.Move} {st st' : Rega.SymState vllArmStrictIsa}
       {c : List (Instr arm64Arch)},
-      Rega.execMoves vllArmStrictIsa nslots saved mvs st = some (c, st') →
+      Rega.execMoves vllArmStrictIsa nslots saved mvs st deadHint = some (c, st') →
       (asmArm64List c = [] ↔ c = [])
   | [], _, _, _, h => by cases h; simp [asmArm64List_nil]
   | mv :: mvs, st, st', c, h => by
     dsimp only [Rega.execMoves] at h
-    cases h1 : Rega.execMove vllArmStrictIsa nslots saved mv st with
+    cases h1 : Rega.execMove vllArmStrictIsa nslots saved mv st deadHint with
     | none => simp [h1] at h
     | some p1 =>
       rcases p1 with ⟨c1, st1⟩; rw [h1] at h; dsimp only [Option.bind_some] at h
-      cases h2 : Rega.execMoves vllArmStrictIsa nslots saved mvs st1 with
+      cases h2 : Rega.execMoves vllArmStrictIsa nslots saved mvs st1 deadHint with
       | none => simp [h2] at h
       | some p2 =>
         rcases p2 with ⟨c2, st2⟩; rw [h2] at h; cases h
@@ -1844,8 +1853,9 @@ theorem stepPre_factor (h : armIsa.Hints) (ip : Nat) (st : Rega.SymState vllArmS
   | none => rfl
   | some ps =>
     dsimp only
-    rw [← execMoves_factor h.nslots h.saved ps.moves st]
-    cases Rega.execMoves vllArmStrictIsa h.nslots h.saved ps.moves st with
+    rw [← execMoves_factor (deadHint := h.deadFlags.getD ip false) h.nslots h.saved ps.moves st]
+    cases Rega.execMoves vllArmStrictIsa h.nslots h.saved ps.moves st
+        (h.deadFlags.getD ip false) with
     | none => rfl
     | some p =>
       rcases p with ⟨mc, st1⟩
@@ -1867,7 +1877,8 @@ theorem stepPre_nil_iff {h : armIsa.Hints} {ip : Nat}
   | none => rw [hfind] at hs; cases hs; simp [asmArm64List_nil]
   | some ps =>
     rw [hfind] at hs; dsimp only at hs
-    cases hm : Rega.execMoves vllArmStrictIsa h.nslots h.saved ps.moves st with
+    cases hm : Rega.execMoves vllArmStrictIsa h.nslots h.saved ps.moves st
+        (h.deadFlags.getD ip false) with
     | none => rw [hm] at hs; cases hs
     | some p =>
       rcases p with ⟨mc, st1⟩; rw [hm] at hs

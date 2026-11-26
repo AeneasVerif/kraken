@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Rega
+public import LeanQbe.T.RegaLemmas0
 public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.WfLemmas
 public import LeanQbe.T.WPLemmas
@@ -26,6 +27,31 @@ set_option autoImplicit false
 
 namespace LeanQbe.T
 namespace Rega
+
+theorem array64_splice_eq (a : BitVec 64) (pre ws post : List (BitVec 64)) :
+    array64 a (pre ++ ws ++ post) = (array64 (a + BitVec.ofNat 64 (8 * pre.length)) ws ⋆
+      (array64 a pre ⋆ array64 (a + BitVec.ofNat 64 (8 * (pre.length + ws.length))) post)) := by
+  rw [List.append_assoc, array64_append, array64_append, Std.ExtHashMap.sep_comm_l]; congr 3
+  rw [BitVec.add_assoc, ← BitVec.ofNat_add]; congr 2; omega
+
+theorem array64_single (a v : BitVec 64) : array64 a [v] = cell64 a v := by
+  simp [Std.ExtHashMap.sep_emp]
+
+theorem cell64_region {a v : BitVec 64} {f : Mem 64} (h : cell64 a v f) : region a 8 f :=
+  ⟨_, Int.toBytes_length 8 v.toInt, h.symm⟩
+
+theorem array64_toRegion : ∀ (a : BitVec 64) (xs : List (BitVec 64)) (f : Mem 64),
+    8 * xs.length ≤ 2 ^ 64 → array64 a xs f → region a (8 * xs.length) f
+  | a, [], f, _, h => ⟨[], rfl, by
+      simp only [array64_nil, Std.ExtHashMap.emp] at h; subst h; simp [List.At]⟩
+  | a, x :: xs, f, hl, h => by
+    obtain ⟨f1, f2, hu, hd, h1, h2⟩ := h
+    obtain ⟨bs, hbs, rfl⟩ := array64_toRegion (a + 8) xs f2 (by simp at hl; omega) h2
+    have e := Mem.At_append_sep (Int.toBytes 8 x.toInt) bs a
+      (by simp [Int.toBytes_length, hbs]; simp at hl; omega)
+    refine ⟨Int.toBytes 8 x.toInt ++ bs, by simp [Int.toBytes_length, hbs]; omega, ?_⟩
+    refine ((congrFun e f).mpr ⟨f1, _, hu, hd, h1, ?_⟩).symm
+    rw [Int.toBytes_length]; rfl
 
 abbrev VCtx : Type := Ctx Val VNat
 
@@ -83,9 +109,6 @@ def FlagFactScope (nv : Nat) : Option FlagFact → Prop
 
 def SlotEntry.sas : SlotEntry → List SymArg
   | .gpr sas => sas | .gprZ sas => sas.map (·.1) | .vec _ sas => sas
-
-/-- The `w.slots` words of `σ` starting at slot `i`. -/
-def slice (σ : List (BitVec 64)) (i k : Nat) : List (BitVec 64) := (σ.drop i).take k
 
 def SlotOk (G : VCtx) (σ : List (BitVec 64)) (i : Nat) : SlotEntry → Prop
   | .gpr sas => ∃ w, σ[i]? = some w ∧ ∀ sa ∈ sas, GprSym G w sa
@@ -303,120 +326,6 @@ def Inv (m : Mem 64) (s : T.mach.MData) (σ : List (BitVec 64)) (zl : Bool := fa
 
 end Frame
 
-/-! ## Slot words, splices and `array64` windows -/
-
-theorem unpack_ofFn (w : SlotWidth) (bv : BitVec 512) :
-    unpackSlotWords w bv = List.ofFn (n := w.slots) fun n => bv.extractLsb' (64 * n) 64 := by
-  cases w <;> simp [unpackSlotWords, List.ofFn_succ]
-
-def packW : List (BitVec 64) → BitVec 512
-  | [] => 0
-  | x :: xs => x.setWidth 512 ||| (packW xs <<< 64)
-
-theorem extract_packW : ∀ (xs : List (BitVec 64)) (n : Nat) (h : n < xs.length), n < 8 →
-    (packW xs).extractLsb' (64 * n) 64 = xs[n]
-  | [], _, h, _ => by simp at h
-  | x :: xs, 0, _, _ => by
-    apply BitVec.eq_of_getLsbD_eq; intro j hj
-    simp [packW, BitVec.getLsbD_or, BitVec.getLsbD_setWidth, BitVec.getLsbD_shiftLeft, hj]
-    omega
-  | x :: xs, n + 1, h, h8 => by
-    have hn : n < xs.length := by simp at h; omega
-    have ih := extract_packW xs n hn (by omega)
-    apply BitVec.eq_of_getLsbD_eq; intro j hj
-    show _ = (xs[n]'hn).getLsbD j
-    rw [← ih]
-    simp [packW, BitVec.getLsbD_or, BitVec.getLsbD_setWidth, BitVec.getLsbD_shiftLeft, hj]
-    simp [show 64 * (n + 1) + j < 512 by omega, show ¬ 64 * (n + 1) + j < 64 by omega,
-      show 64 * (n + 1) + j - 64 = 64 * n + j by omega, BitVec.getLsbD_of_ge x _ (by omega : 64 ≤ 64 * (n + 1) + j)]
-
-theorem unpack_packW {w : SlotWidth} {ws : List (BitVec 64)} (h : ws.length = w.slots) :
-    unpackSlotWords w (packW ws) = ws := by
-  rw [unpack_ofFn]; apply List.ext_getElem (by simp [h])
-  intro n h1 h2; simp only [List.getElem_ofFn]
-  exact extract_packW ws n h2 (by simp at h1; have := SlotWidth.slots_le_eight w; omega)
-
-theorem unpack_inj {w : SlotWidth} {bv bv' : BitVec 512}
-    (h : unpackSlotWords w bv = unpackSlotWords w bv') : bv.setWidth w.bits = bv'.setWidth w.bits := by
-  rw [unpack_ofFn, unpack_ofFn] at h; apply BitVec.eq_of_getLsbD_eq; intro j hj
-  have hb := SlotWidth.bits_eq_64_mul_slots w
-  have hn : j / 64 < w.slots := by omega
-  have e := congrArg (fun l => l[j / 64]?) h
-  simp [hn] at e
-  have e2 := congrArg (fun x => BitVec.getLsbD x (j % 64)) e
-  have hj' : j < 64 * w.slots := by omega
-  simp [hj', Nat.mod_lt] at e2 ⊢; have : 64 * (j / 64) + j % 64 = j := by omega
-  rw [this] at e2; exact e2
-
-def splice (σ : List (BitVec 64)) (i k : Nat) (ws : List (BitVec 64)) : List (BitVec 64) :=
-  σ.take i ++ ws ++ σ.drop (i + k)
-
-section Splice
-variable {σ ws : List (BitVec 64)} {i k : Nat}
-
-theorem length_splice (h : i + k ≤ σ.length) (hw : ws.length = k) : (splice σ i k ws).length = σ.length := by
-  simp [splice, hw]; omega
-
-theorem getElem?_splice (h : i + k ≤ σ.length) (hw : ws.length = k) (j : Nat) :
-    (splice σ i k ws)[j]? = if j < i then σ[j]? else if j < i + k then ws[j - i]? else σ[j]? := by
-  unfold splice; have hi : (σ.take i).length = i := by simp; omega
-  split
-  · rw [List.append_assoc, List.getElem?_append_left (by omega), List.getElem?_take_of_lt (by omega)]
-  · rw [List.append_assoc, List.getElem?_append_right (by omega), hi]
-    split
-    · rw [List.getElem?_append_left (by omega)]
-    · rw [List.getElem?_append_right (by omega), List.getElem?_drop, hw]; congr 1; omega
-
-theorem getElem?_slice (n : Nat) : (slice σ i k)[n]? = if n < k then σ[i + n]? else none := by
-  simp only [slice, List.getElem?_take, List.getElem?_drop]
-
-theorem slice_splice_self (h : i + k ≤ σ.length) (hw : ws.length = k) : slice (splice σ i k ws) i k = ws := by
-  apply List.ext_getElem?; intro n; rw [getElem?_slice, getElem?_splice h hw]; split
-  · simp only [show ¬ (i + n < i) by omega, show i + n < i + k by omega, ↓reduceIte]
-    congr 1; omega
-  · rw [List.getElem?_eq_none (by omega)]
-
-theorem slice_splice_disj (h : i + k ≤ σ.length) (hw : ws.length = k) {j kj : Nat}
-    (hd : j + kj ≤ i ∨ i + k ≤ j) : slice (splice σ i k ws) j kj = slice σ j kj := by
-  apply List.ext_getElem?; intro n; rw [getElem?_slice, getElem?_slice, getElem?_splice h hw]
-  split; split; rfl; simp only [show ¬ (j + n < i + k) by omega, ↓reduceIte]; rfl
-
-theorem getElem?_splice_disj (h : i + k ≤ σ.length) (hw : ws.length = k) {j : Nat}
-    (hd : j < i ∨ i + k ≤ j) : (splice σ i k ws)[j]? = σ[j]? := by
-  rw [getElem?_splice h hw]; split; rfl; simp only [show ¬ (j < i + k) by omega, ↓reduceIte]
-
-theorem slice_length (h : i + k ≤ σ.length) : (slice σ i k).length = k := by
-  simp [slice]; omega
-theorem splice_slice : splice σ i k (slice σ i k) = σ := by
-  simp only [splice, slice, List.append_assoc]
-  rw [← List.drop_drop, List.take_append_drop, List.take_append_drop]
-
-theorem slice_one (h : i < σ.length) : slice σ i 1 = [σ[i]] := by
-  apply List.ext_getElem?; intro n; rw [getElem?_slice]; rcases n with _ | n <;> simp [List.getElem?_eq_getElem h]
-end Splice
-
-theorem array64_splice_eq (a : BitVec 64) (pre ws post : List (BitVec 64)) :
-    array64 a (pre ++ ws ++ post) = (array64 (a + BitVec.ofNat 64 (8 * pre.length)) ws ⋆
-      (array64 a pre ⋆ array64 (a + BitVec.ofNat 64 (8 * (pre.length + ws.length))) post)) := by
-  rw [List.append_assoc, array64_append, array64_append, Std.ExtHashMap.sep_comm_l]; congr 3
-  rw [BitVec.add_assoc, ← BitVec.ofNat_add]; congr 2; omega
-
-theorem array64_single (a v : BitVec 64) : array64 a [v] = cell64 a v := by
-  simp [Std.ExtHashMap.sep_emp]
-theorem cell64_region {a v : BitVec 64} {f : Mem 64} (h : cell64 a v f) : region a 8 f :=
-  ⟨_, Int.toBytes_length 8 v.toInt, h.symm⟩
-
-theorem array64_toRegion : ∀ (a : BitVec 64) (xs : List (BitVec 64)) (f : Mem 64),
-    8 * xs.length ≤ 2 ^ 64 → array64 a xs f → region a (8 * xs.length) f
-  | a, [], f, _, h => ⟨[], rfl, by simp only [array64_nil, Std.ExtHashMap.emp] at h; subst h; simp [List.At]⟩
-  | a, x :: xs, f, hl, h => by
-    obtain ⟨f1, f2, hu, hd, h1, h2⟩ := h
-    obtain ⟨bs, hbs, rfl⟩ := array64_toRegion (a + 8) xs f2 (by simp at hl; omega) h2
-    have e := Mem.At_append_sep (Int.toBytes 8 x.toInt) bs a (by simp [Int.toBytes_length, hbs]; simp at hl; omega)
-    refine ⟨Int.toBytes 8 x.toInt ++ bs, by simp [Int.toBytes_length, hbs]; omega, ?_⟩
-    refine ((congrFun e f).mpr ⟨f1, _, hu, hd, h1, ?_⟩).symm
-    rw [Int.toBytes_length]; rfl
-
 /-! ## `clearSlotRange` -/
 
 theorem eraseIfOverlaps_find {i d j : Nat} {sl : Trie SlotEntry} {se : SlotEntry}
@@ -588,15 +497,15 @@ theorem DefOk.grow {G G' : VCtx} {nv x : Nat} {d : DefFact} (hG : ∀ p ∈ G', 
     exact ⟨va, hsub _ h1, h2⟩
 
 theorem execMove_memDefs {I : Isa} {nslots : Nat} {saved : List I.Reg} {mv : I.Move}
-    {st st' : SymState I} {c : List I.Directive}
-    (h : execMove I nslots saved mv st = some (c, st')) : st'.memDefs = st.memDefs := by
+    {st st' : SymState I} {deadHint : Bool} {c : List I.Directive}
+    (h : execMove I nslots saved mv st deadHint = some (c, st')) : st'.memDefs = st.memDefs := by
   cases mv <;> simp only [execMove] at h <;> (repeat' split at h) <;>
     first | (simp at h; done) |
       (simp only [Option.some.injEq, Prod.mk.injEq] at h; obtain ⟨-, rfl⟩ := h; rfl)
 
-theorem execMoves_memDefs {I : Isa} {nslots : Nat} {saved : List I.Reg} :
+theorem execMoves_memDefs {I : Isa} {nslots : Nat} {saved : List I.Reg} {deadHint : Bool} :
     ∀ {mvs : List I.Move} {st st' : SymState I} {c : List I.Directive},
-    execMoves I nslots saved mvs st = some (c, st') → st'.memDefs = st.memDefs
+    execMoves I nslots saved mvs st deadHint = some (c, st') → st'.memDefs = st.memDefs
   | [], _, _, _, h => by
     simp only [execMoves, Option.some.injEq, Prod.mk.injEq] at h
     exact congrArg SymState.memDefs h.2.symm
@@ -1098,8 +1007,9 @@ local macro "fin " he:ident : tactic =>
   `(tactic| (simp only [Option.some.injEq, Prod.mk.injEq] at $he:ident; obtain ⟨h₁, h₂⟩ := $he:ident; subst h₁ h₂))
 
 theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
-    {mv : T.toIsa.Move} {st st' : SymState T.toIsa}
-    {c : List T.Directive} {k : Nat} (he : execMove T.toIsa hints.nslots hints.saved mv st = some (c, st'))
+    {mv : T.toIsa.Move} {st st' : SymState T.toIsa} {deadHint : Bool}
+    {c : List T.Directive} {k : Nat}
+    (he : execMove T.toIsa hints.nslots hints.saved mv st deadHint = some (c, st'))
     (hc : c.IsInfixAt (T.mach.prog host) k) (hA : Agree T G nv st s σ)
     (hI : Inv T hints s₀ ra n Rf m s σ zl)
     (kont : ∀ s' σ', Agree T G nv st' s' σ' → Inv T hints s₀ ra n Rf m s' σ' zl →
@@ -1144,7 +1054,7 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
                   rw [hd1]; exact hm, hsc⟩
   | movi d c =>
     peel he hg : isMoveGpr T.toIsa hints.saved d = true; fin he
-    refine T.gprSpec.movi_spec hc fun s1 ⟨hd1, hm1⟩ hfr => ?_
+    refine execMovi_spec hc fun s1 ⟨hd1, hm1⟩ hfr => ?_
     have hzExt : ∀ q ∈ (if (BitVec.setWidth 64 (BitVec.setWidth 32 c) == c) = true then
         d :: killZeroExt (d :: T.frame.scratch) st.zeroExt32
       else killZeroExt (d :: T.frame.scratch) st.zeroExt32),
@@ -1158,10 +1068,21 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
           exact hc_eq.symm
         · exact zeroExt32_frame hA hfr q hq'
       · exact zeroExt32_frame hA hfr q hq
-    refine kont s1 σ (hA.addKillZ hfr [_] (fun p hp => ?_) _ hzExt)
+    have hK := hA.kill (gClob := d :: T.frame.scratch) (vClob := [])
+      (fClob := (execMovi T.toIsa st deadHint d c).2) hfr
+    have hfl_eq : (if (execMovi T.toIsa st deadHint d c).2 == FlagMask.none then st.flags
+        else killFlags T.toIsa (execMovi T.toIsa st deadHint d c).2 st.flags) =
+        killFlags T.toIsa (execMovi T.toIsa st deadHint d c).2 st.flags := by
+      by_cases hf : (execMovi T.toIsa st deadHint d c).2 = FlagMask.none
+      · rw [hf]; simp [killFlags_none]
+      · simp [hf]
+    refine kont s1 σ (by
+      rw [hfl_eq]
+      exact hK.setRegs _ (fun p hp => by
+        rcases List.mem_cons.mp hp with rfl | hp'
+        · exact ⟨⟨Nat.le_refl _, by show (T.mach.getGpr s1 d).setWidth 64 = _; rw [hd1]⟩, rfl⟩
+        · exact kill_ok hA hfr hp') hzExt hK.flags_ok)
       (inv_of_frame hI hm1 hfr.1 (moveCons hg))
-    rw [List.mem_singleton.mp hp]
-    exact ⟨⟨Nat.le_refl _, by show (T.mach.getGpr s1 d).setWidth 64 = _; rw [hd1]⟩, rfl⟩
   | ld d i =>
     peel he hg : isAllocGpr T.toIsa hints.saved d = true ∧ i + 1 ≤ hints.nslots; fin he
     have hsp := spOk_of_inv hspE hI (by omega)
@@ -1274,10 +1195,10 @@ theorem execMove_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ 
     exact VecSym.narrow hA hw hle (hA.regs _ hm)
 
 theorem execMoves_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T.frame.sp))
-    {G : VCtx} {nv : Nat} {m : Mem 64} :
+    {G : VCtx} {nv : Nat} {m : Mem 64} {deadHint : Bool} :
     ∀ (mvs : List T.toIsa.Move) (st st' : SymState T.toIsa) (c : List T.Directive) (k : Nat)
       (s : T.mach.MData) (σ : List (BitVec 64)),
-    execMoves T.toIsa hints.nslots hints.saved mvs st = some (c, st') →
+    execMoves T.toIsa hints.nslots hints.saved mvs st deadHint = some (c, st') →
     c.IsInfixAt (T.mach.prog host) k →
     Agree T G nv st s σ → Inv T hints s₀ ra n Rf m s σ zl →
     (∀ s' σ', Agree T G nv st' s' σ' → Inv T hints s₀ ra n Rf m s' σ' zl →

@@ -161,6 +161,7 @@ structure VllNativeHooks (A : Arch) : Type where
     Option (List (Instr A) × FlagMask) := fun _ _ _ _ _ _ => none
   leaArithZext : Option A.Reg → A.Reg → Nat → Int64 → A.Reg →
     Option (List (Instr A) × FlagMask) := fun _ _ _ _ _ => none
+  moviDeadFlags? : Option (A.Reg → BitVec 64 → List (Instr A) × FlagMask) := none
   saveRegs? : Option (Nat → List A.Reg → List (Instr A)) := none
   restoreRegs? : Option (Nat → List A.Reg → List (Instr A)) := none
   supportsAddrDisp : Ty → BitVec 64 → Bool := fun _ _ => false
@@ -237,6 +238,7 @@ structure VllNativeHooks (A : Arch) : Type where
   loadSextZextIdx := H.loadSextZextIdx
   storeZextIdx := H.storeZextIdx
   leaArithZext := H.leaArithZext
+  moviDeadFlags? := H.moviDeadFlags?
 
 /-- Extend `vllFrameIsa A` with optional bulk callee-saved save/restore overrides from `H`. -/
 @[expose] def vllFrameIsaOfHooks (A : Arch) (H : VllNativeHooks A) : FrameIsa A.Reg (Instr A) :=
@@ -606,6 +608,11 @@ structure VllPolicySpec (A : Arch) (H : VllNativeHooks A) : Prop where
     (vllMach A).FallsTo A.condReads h k c (rd :: A.abi.scratch) [] clob s
       (fun s' => GprHolds (s'.gpr rd) (.bits 64) res ∧ s'.mem = s.mem) post :=
     by intros; contradiction
+  moviDeadFlags?_spec : ∀ {fn h k rd c s post},
+    H.moviDeadFlags? = some fn →
+    (vllMach A).FallsTo A.condReads h k (fn rd c).1 (rd :: A.abi.scratch) [] (fn rd c).2 s
+      (fun s' => s'.gpr rd = c ∧ s'.mem = s.mem) post :=
+    by intros; contradiction
   saveRegs_spec : ∀ {fn h k i rs s G post},
     H.saveRegs? = some fn → 8 * i + 8 * rs.length ≤ 2 ^ 64 →
     (∀ r ∈ rs, r ∉ A.abi.scratch) → A.abi.spOk (s.gpr A.abi.sp) →
@@ -771,6 +778,7 @@ theorem vllGprTarget (A : Arch) (hwf : A.Wf) (P : VllPolicy A) :
   loadSextZextIdx_spec := P.spec.loadSextZextIdx_spec
   storeZextIdx_spec := P.spec.storeZextIdx_spec
   leaArithZext_spec := P.spec.leaArithZext_spec
+  moviDeadFlags?_spec := P.spec.moviDeadFlags?_spec
 
 /-- Extend `vllFrameTarget A hwf` with optional bulk save/restore specs from `P`. -/
 theorem vllFrameSpecWith (A : Arch) (hwf : A.Wf) (P : VllPolicy A) :
@@ -912,6 +920,8 @@ structure VllHooksNoLab (A : Arch) (H : VllNativeHooks A) : Prop where
     H.storeZextIdx t pa base idx sc disp = some (c, cl) → NoVllLab c := by intros; contradiction
   leaArithZext : ∀ {base? idx sh disp rd c cl},
     H.leaArithZext base? idx sh disp rd = some (c, cl) → NoVllLab c := by intros; contradiction
+  moviDeadFlags : ∀ {f d c}, H.moviDeadFlags? = some f → NoVllLab (f d c).1 :=
+    by intros; contradiction
   saveRegs : ∀ {f base rs}, H.saveRegs? = some f → NoVllLab (f base rs) := by intros; contradiction
   restoreRegs : ∀ {f base rs}, H.restoreRegs? = some f → NoVllLab (f base rs) :=
     by intros; contradiction
@@ -978,6 +988,7 @@ theorem vllLabelClean (A : Arch) (P : VllPolicy A) (hnl : VllHooksNoLab A P.hook
   loadSextZextIdx _ _ _ _ _ _ _ _ _ h := hnl.loadSextZextIdx h
   storeZextIdx _ _ _ _ _ _ _ _ h := hnl.storeZextIdx h
   leaArithZext _ _ _ _ _ _ _ h := hnl.leaArithZext h
+  moviDeadFlags _ _ _ h := hnl.moviDeadFlags h
   load t r a c cl h := by
     dsimp only [vllIsa, vllIsaOfHooks, vllGprIsaOfHooks] at h
     cases hhk : P.hooks.loadHook t r a with

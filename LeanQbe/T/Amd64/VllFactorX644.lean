@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Amd64.VllFactorX643
 public import LeanQbe.T.Amd64.VllAsmX64
+import LeanQbe.T.Amd64.VllFactorX64Zero
 
 /-!
 # BedrockMach SysV x86-64 State Transport, Move/Shuffle Parity, & Lowering
@@ -846,12 +847,53 @@ private theorem vllR_vslotSt_ne_nil (w : SlotWidth) (i : Nat) (s : RegMm) :
   simp only [List.map_append, List.map_cons, List.map_nil, List.append_eq_nil_iff,
     List.cons_ne_nil, and_false] at h
 
-theorem execMove_eq_and_noRsp {nslots : Nat} {saved : List Reg64}
+private theorem vllR_moviDeadFlags_ne_nil (d : Reg64) (cb : BitVec 64) :
+    asmX64List (vllX64MoviDeadFlags d cb).1 ≠ [] := by
+  have hfst : asmX64List (vllX64MoviDeadFlags d cb).1 = (x64MoviDeadFlags d cb).1 :=
+    congrArg Prod.fst (asmX64List_vllX64MoviDeadFlags d cb)
+  rw [hfst]
+  dsimp only [x64MoviDeadFlags]
+  split <;> simp [emitClean]
+
+private theorem execMovi_eq (st : Rega.SymState vllX64IsaR) (deadHint : Bool)
+    (d : Reg64) (cb : BitVec 64) :
+    let p := Rega.execMovi vllX64IsaR st deadHint d cb
+    (asmX64List p.1, p.2) = Rega.execMovi x64Isa (symStToX64 st) deadHint d cb := by
+  dsimp only [Rega.execMovi, symStToX64]
+  have h1 : vllX64IsaR.gpr.moviDeadFlags? = some vllX64MoviDeadFlags := rfl
+  have h2 : x64Isa.gpr.moviDeadFlags? = some x64MoviDeadFlags := rfl
+  have hst : Rega.stHasFlagReg (I := vllX64IsaR) st.regs =
+      Rega.stHasFlagReg (I := x64Isa) st.regs := by
+    dsimp only [Rega.stHasFlagReg]
+    exact list_any_congr (fun p => by cases p.2 <;> rfl) st.regs
+  rw [h1, h2, hst]
+  dsimp only
+  cases (st.flags.isNone && !Rega.stHasFlagReg (I := x64Isa) st.regs) || deadHint
+  · exact Prod.ext (vllR_movi_eq d cb) rfl
+  · exact asmX64List_vllX64MoviDeadFlags d cb
+
+private theorem execMovi_ne_nil (st : Rega.SymState vllX64IsaR) (deadHint : Bool)
+    (d : Reg64) (cb : BitVec 64) :
+    asmX64List (Rega.execMovi vllX64IsaR st deadHint d cb).1 ≠ [] := by
+  have hfst : asmX64List (Rega.execMovi vllX64IsaR st deadHint d cb).1 =
+      (Rega.execMovi x64Isa (symStToX64 st) deadHint d cb).1 :=
+    congrArg Prod.fst (execMovi_eq st deadHint d cb)
+  rw [hfst]
+  dsimp only [Rega.execMovi]
+  have h2 : x64Isa.gpr.moviDeadFlags? = some x64MoviDeadFlags := rfl
+  rw [h2]; dsimp only
+  split
+  · dsimp only [x64MoviDeadFlags]
+    split <;> simp [emitClean]
+  · exact fun h => by
+      rw [← vllR_movi_eq d cb] at h; exact vllR_movi_ne_nil d cb h
+
+theorem execMove_eq_and_noRsp {nslots : Nat} {saved : List Reg64} {deadHint : Bool}
     (hs : savedNoRsp saved = true) (mv : vllX64IsaR.Move) (st : Rega.SymState vllX64IsaR)
     (hno : regsNoRsp st.regs = true) :
-    mapOptSt (Rega.execMove vllX64IsaR nslots saved mv st) =
-      Rega.execMove x64Isa nslots saved mv (symStToX64 st) ∧
-    (∀ c0 st', Rega.execMove vllX64IsaR nslots saved mv st = some (c0, st') →
+    mapOptSt (Rega.execMove vllX64IsaR nslots saved mv st deadHint) =
+      Rega.execMove x64Isa nslots saved mv (symStToX64 st) deadHint ∧
+    (∀ c0 st', Rega.execMove vllX64IsaR nslots saved mv st deadHint = some (c0, st') →
       regsNoRsp st'.regs = true ∧ (asmX64List c0 = [] → c0 = [])) := by
   cases mv with
   | mov d s =>
@@ -890,9 +932,23 @@ theorem execMove_eq_and_noRsp {nslots : Nat} {saved : List Reg64}
       refine ⟨?_, fun _ _ heq => by
         cases heq
         exact ⟨regsNoRsp_cons_gpr hd (regsNoRsp_killRegs _ hno),
-          fun h => absurd h (vllR_movi_ne_nil d cb)⟩⟩
-      dsimp only [symStToX64]
-      rw [vllR_movi_eq, vllR_scratch_eq, killZeroExt_eq, killRegs_eq]
+          fun h => absurd h (execMovi_ne_nil st deadHint d cb)⟩⟩
+      have h1 : asmX64List (Rega.execMovi vllX64IsaR st deadHint d cb).1 =
+          (Rega.execMovi x64Isa (symStToX64 st) deadHint d cb).1 :=
+        congrArg Prod.fst (execMovi_eq st deadHint d cb)
+      have h2 : (Rega.execMovi vllX64IsaR st deadHint d cb).2 =
+          (Rega.execMovi x64Isa (symStToX64 st) deadHint d cb).2 :=
+        congrArg Prod.snd (execMovi_eq st deadHint d cb)
+      have hkf : ∀ cl fl, Rega.killFlags vllX64IsaR cl fl = Rega.killFlags x64Isa cl fl :=
+        fun cl fl => by cases fl <;> rfl
+      dsimp only [symStToX64] at h1 h2 ⊢
+      rw [vllR_scratch_eq, killZeroExt_eq, killRegs_eq, hkf, h1]
+      generalize (Rega.execMovi vllX64IsaR st deadHint d cb).2 = f1 at h2 ⊢
+      generalize (Rega.execMovi x64Isa
+          { regs := st.regs, slots := st.slots, defs := st.defs, vecWidths := st.vecWidths,
+            memDefs := st.memDefs, zeroExt32 := st.zeroExt32, flags := st.flags }
+          deadHint d cb).2 = f2 at h2 ⊢
+      subst h2; rfl
   | ld d i =>
     dsimp only [Rega.execMove]
     rw [vllR_isAllocGpr_eq]
@@ -1028,45 +1084,45 @@ theorem execMove_eq_and_noRsp {nslots : Nat} {saved : List Reg64}
       dsimp only [symStToX64]
       rw [vllR_vslotSt_eq, vllR_scratch_eq, vecEntries_eq, killZeroExt_eq, killRegs_eq]
 
-theorem execMoves_eq_and_noRsp {nslots : Nat} {saved : List Reg64}
+theorem execMoves_eq_and_noRsp {nslots : Nat} {saved : List Reg64} {deadHint : Bool}
     (hs : savedNoRsp saved = true) :
     ∀ (mvs : List vllX64IsaR.Move) (st : Rega.SymState vllX64IsaR),
       regsNoRsp st.regs = true →
-      mapOptSt (Rega.execMoves vllX64IsaR nslots saved mvs st) =
-        Rega.execMoves x64Isa nslots saved mvs (symStToX64 st) ∧
-      (∀ c0 st', Rega.execMoves vllX64IsaR nslots saved mvs st = some (c0, st') →
+      mapOptSt (Rega.execMoves vllX64IsaR nslots saved mvs st deadHint) =
+        Rega.execMoves x64Isa nslots saved mvs (symStToX64 st) deadHint ∧
+      (∀ c0 st', Rega.execMoves vllX64IsaR nslots saved mvs st deadHint = some (c0, st') →
         regsNoRsp st'.regs = true ∧ (asmX64List c0 = [] → c0 = []))
   | [], st, hno =>
     ⟨rfl, fun _ _ h => by cases h; exact ⟨hno, fun _ => rfl⟩⟩
   | mv :: mvs, st, hno => by
-    obtain ⟨hm1, hp1⟩ := execMove_eq_and_noRsp hs mv st hno
+    obtain ⟨hm1, hp1⟩ := execMove_eq_and_noRsp (deadHint := deadHint) hs mv st hno
     dsimp only [Rega.execMoves]
-    cases h1 : Rega.execMove vllX64IsaR nslots saved mv st with
+    cases h1 : Rega.execMove vllX64IsaR nslots saved mv st deadHint with
     | none =>
-      have h1x : Rega.execMove x64Isa nslots saved mv (symStToX64 st) = none := by
+      have h1x : Rega.execMove x64Isa nslots saved mv (symStToX64 st) deadHint = none := by
         rw [← hm1, h1]; rfl
       rw [h1x]
       exact ⟨rfl, fun _ _ h => by cases h⟩
     | some p1 =>
       rcases p1 with ⟨c1, st1⟩
       obtain ⟨hno1, hnil1⟩ := hp1 c1 st1 h1
-      have h1x : Rega.execMove x64Isa nslots saved mv (symStToX64 st) =
+      have h1x : Rega.execMove x64Isa nslots saved mv (symStToX64 st) deadHint =
           some (asmX64List c1, symStToX64 st1) := by
         rw [← hm1, h1]; rfl
-      obtain ⟨hm2, hp2⟩ := execMoves_eq_and_noRsp hs mvs st1 hno1
+      obtain ⟨hm2, hp2⟩ := execMoves_eq_and_noRsp (deadHint := deadHint) hs mvs st1 hno1
       dsimp only [Option.bind]
       rw [h1x]
       dsimp only [Option.bind]
-      cases h2 : Rega.execMoves vllX64IsaR nslots saved mvs st1 with
+      cases h2 : Rega.execMoves vllX64IsaR nslots saved mvs st1 deadHint with
       | none =>
-        have h2x : Rega.execMoves x64Isa nslots saved mvs (symStToX64 st1) = none := by
+        have h2x : Rega.execMoves x64Isa nslots saved mvs (symStToX64 st1) deadHint = none := by
           rw [← hm2, h2]; rfl
         rw [h2x]
         exact ⟨rfl, fun _ _ h => by cases h⟩
       | some p2 =>
         rcases p2 with ⟨c2, st2⟩
         obtain ⟨hno2, hnil2⟩ := hp2 c2 st2 h2
-        have h2x : Rega.execMoves x64Isa nslots saved mvs (symStToX64 st1) =
+        have h2x : Rega.execMoves x64Isa nslots saved mvs (symStToX64 st1) deadHint =
             some (asmX64List c2, symStToX64 st2) := by
           rw [← hm2, h2]; rfl
         rw [h2x]
@@ -1105,18 +1161,21 @@ theorem stepPre_eq_and_noRsp (h : x64Isa.Hints) (ip : Nat)
     exact ⟨rfl, fun _ _ h0 => by cases h0; exact ⟨hno, fun _ => rfl⟩⟩
   | some ps =>
     dsimp only
-    obtain ⟨hm, hp⟩ := execMoves_eq_and_noRsp hs ps.moves st hno
-    cases h1 : Rega.execMoves vllX64IsaR h.nslots h.saved ps.moves st with
+    obtain ⟨hm, hp⟩ :=
+      execMoves_eq_and_noRsp (deadHint := h.deadFlags.getD ip false) hs ps.moves st hno
+    cases h1 : Rega.execMoves vllX64IsaR h.nslots h.saved ps.moves st
+        (h.deadFlags.getD ip false) with
     | none =>
-      have h1x : Rega.execMoves x64Isa h.nslots h.saved ps.moves (symStToX64 st) = none := by
+      have h1x : Rega.execMoves x64Isa h.nslots h.saved ps.moves (symStToX64 st)
+          (h.deadFlags.getD ip false) = none := by
         rw [← hm, h1]; rfl
       rw [h1x]
       exact ⟨rfl, fun _ _ h0 => by cases h0⟩
     | some p1 =>
       rcases p1 with ⟨mc, st1⟩
       obtain ⟨hno1, hnil1⟩ := hp mc st1 h1
-      have h1x : Rega.execMoves x64Isa h.nslots h.saved ps.moves (symStToX64 st) =
-          some (asmX64List mc, symStToX64 st1) := by
+      have h1x : Rega.execMoves x64Isa h.nslots h.saved ps.moves (symStToX64 st)
+          (h.deadFlags.getD ip false) = some (asmX64List mc, symStToX64 st1) := by
         rw [← hm, h1]; rfl
       dsimp only [Option.map]
       rw [h1x]

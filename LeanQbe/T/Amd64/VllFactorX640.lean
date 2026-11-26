@@ -189,6 +189,12 @@ other `x64Op` sequences in `.native`. -/
     (ds.map .native, cl)
   else ([.jnzGpr r l], maskAll)
 
+/-- Load 64-bit constant `c` into `rd` when status flags are statically dead, emitting 2-byte
+`xorl %ed, %ed` (`maskAll`) when `c == 0#64` and `.movi rd c` (`maskNone`) otherwise. -/
+@[expose] def vllX64MoviDeadFlags (rd : Reg64) (c : BitVec 64) :
+    List (Instr x64Arch) × FlagMask :=
+  if c == 0#64 then ([.alu .xor .w32 rd rd (.reg rd) true], maskAll) else ([.movi rd c], maskNone)
+
 /-- Hybrid `VllNativeHooks x64Arch` achieving exact 1:1 `x64Isa` parity across SysV x86-64. -/
 @[expose] def vllX64NativeHooks : VllNativeHooks x64Arch where
   regName := toString ∘ repr
@@ -226,6 +232,7 @@ other `x64Op` sequences in `.native`. -/
   supportsTestMem := x64SupportsCmpMem
   vec := vllX64Vec
   legalTarget? := some x64LegalTarget
+  moviDeadFlags? := some vllX64MoviDeadFlags
 
 private theorem noVllLab_map_native {A : Arch} (ds : List A.Native) :
     NoVllLab (ds.map (Instr.native (A := A))) := by
@@ -288,6 +295,10 @@ theorem vllX64Hooks_noLab : VllHooksNoLab x64Arch vllX64NativeHooks where
     dsimp only [vllX64NativeHooks, vllX64Vec] at h
     rcases Option.map_eq_some_iff.mp h with ⟨ds, _, rfl⟩
     exact noVllLab_map_native (A := x64Arch) ds
+  moviDeadFlags {_ rd c} h := by
+    cases h
+    dsimp only [vllX64MoviDeadFlags]
+    split <;> exact noVllLab_one (fun _ e => by cases e)
   vslotSt _ _ _ := noVllLab_map_native (A := x64Arch) _
   vslotLd _ _ _ := noVllLab_map_native (A := x64Arch) _
   vop code pas dsts vh c cl h := by

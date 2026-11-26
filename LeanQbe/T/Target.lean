@@ -105,6 +105,9 @@ structure Hints (Reg VReg Cond : Type) where
   /-- `ip`s of `let [_] op …; let op2 k` sites (`Rega.isLeaDeferCand op`) whose result is dead in
   `k` (precomputed `Rega.exprFreeOfVar` lookahead; consumed by `Rega.deferLeaNext`). -/
   deferLea : Trie Bool := .empty
+  /-- Untrusted hint: `true` at `ip`s where status flags are dead after `ip` (enabling
+  flag-clobbering zero materialization via `GprIsa.moviDeadFlags?`). -/
+  deadFlags : Trie Bool := .empty
   nslots : Nat := 0
   saved : List Reg := []
   deriving Repr, Lean.ToExpr
@@ -354,6 +357,9 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
   /-- Fused 64-bit `rd := (base? + ((zext 32 64 idx) <<< shift) + disp)`. -/
   leaArithZext : Option Reg → Reg → Nat → Int64 → Reg →
     Option (List Directive × FlagMask) := fun _ _ _ _ _ => none
+  /-- Optional flag-clobbering immediate materializer used when status flags are dead
+  (e.g. 2-byte `xorl %ed, %ed` for `0#64`, returning `(code, clobMask)`). -/
+  moviDeadFlags? : Option (Reg → BitVec 64 → List Directive × FlagMask) := none
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -939,6 +945,11 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
       (if base?.isSome then vb else 0#64) + (vi.setWidth 64 <<< shift) + disp.toBitVec
     M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
       (fun s' => GprHolds (M.getGpr s' rd) (.bits 64) res ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  moviDeadFlags?_spec : ∀ {fn h k rd c s post},
+    g.moviDeadFlags? = some fn →
+    M.FallsTo g.condReads h k (fn rd c).1 (rd :: scratch) [] (fn rd c).2 s
+      (fun s' => M.getGpr s' rd = c ∧ M.mem s' = M.mem s) post :=
     by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where

@@ -517,6 +517,9 @@ private theorem lowerOp_try6_factor (h : armIsa.Hints) (nv ip : Nat)
      ((Rega.tryLeaArith vllArmStrictIsa st1 opN.code opN.args dsts).map
       fun ((c, cl, z32) : VllArmCode × FlagMask × Bool) =>
         (c, cl, false, z32, Rega.killFlags vllArmStrictIsa cl st1.flags, none)) <|>
+     ((Rega.tryMoviZero vllArmStrictIsa h ip st1 opN.code opN.args dsts).map
+      fun ((c, cl, z32) : VllArmCode × FlagMask × Bool) =>
+        (c, cl, false, z32, Rega.killFlags vllArmStrictIsa cl st1.flags, none)) <|>
      (Rega.pickPArgs vllArmStrictIsa st1 (Rega.tupDstFlags dsts) opN.args fun pas =>
       if (tupDstVecs dsts).isEmpty && (tupArgVecs pas).isEmpty then
         ((vllArmStrictIsa.gpr.op opN.code pas dsts (h.variant.getD ip .default)).map
@@ -550,6 +553,9 @@ private theorem lowerOp_try6_factor (h : armIsa.Hints) (nv ip : Nat)
       fun ((c, cl) : ArmDirCode × FlagMask) =>
         (c, cl, false, false, Rega.killFlags armIsa cl (liftSt st1).flags, none)) <|>
      ((Rega.tryLeaArith armIsa (liftSt st1) opN.code opN.args dsts).map
+      fun ((c, cl, z32) : ArmDirCode × FlagMask × Bool) =>
+        (c, cl, false, z32, Rega.killFlags armIsa cl (liftSt st1).flags, none)) <|>
+     ((Rega.tryMoviZero armIsa h ip (liftSt st1) opN.code opN.args dsts).map
       fun ((c, cl, z32) : ArmDirCode × FlagMask × Bool) =>
         (c, cl, false, z32, Rega.killFlags armIsa cl (liftSt st1).flags, none)) <|>
      (Rega.pickPArgs armIsa (liftSt st1) (Rega.tupDstFlags dsts) opN.args fun pas =>
@@ -591,9 +597,18 @@ private theorem lowerOp_try6_factor (h : armIsa.Hints) (nv ip : Nat)
           cases Rega.tryLeaArith vllArmStrictIsa st1 opN.code opN.args dsts with
           | none => rfl
           | some p => dsimp only [Option.map_some, Function.comp_def]; rw [strict_killFlags]
-        · rw [optMap_alt]; refine orElse_congr (lowerOp_pick_factor h nv ip st1 opN dsts) ?_
-          rw [Option.map_map, ← trySlotOp_factor h st1 opN.code opN.args dsts]
-          cases Rega.trySlotOp vllArmStrictIsa h st1 opN.code opN.args dsts <;> rfl
+        · rw [optMap_alt]; refine orElse_congr ?_ ?_
+          · have htz : ∀ (I : Isa) (h : I.Hints) (ip : Nat) (st : Rega.SymState I)
+                {sig ts : List Ty} (code : OpCode sig ts) (args : Tup (Arg Rega.VNat) sig)
+                (dsts : Tup (PDst I.Reg I.VReg I.Cond) ts),
+                I.gpr.moviDeadFlags? = none →
+                Rega.tryMoviZero I h ip st code args dsts = none := by
+              intro I h' ip' st' sig' ts' c' a' d' hm
+              dsimp only [Rega.tryMoviZero]; split <;> simp [hm]
+            rw [htz vllArmStrictIsa _ _ _ _ _ _ rfl, htz armIsa _ _ _ _ _ _ rfl]; rfl
+          · rw [optMap_alt]; refine orElse_congr (lowerOp_pick_factor h nv ip st1 opN dsts) ?_
+            rw [Option.map_map, ← trySlotOp_factor h st1 opN.code opN.args dsts]
+            cases Rega.trySlotOp vllArmStrictIsa h st1 opN.code opN.args dsts <;> rfl
 
 private theorem lowerOp_factor (h : armIsa.Hints) (nv ip : Nat)
     (st1 : Rega.SymState vllArmStrictIsa) {ts : List Ty} (op : Op Rega.VNat ts)

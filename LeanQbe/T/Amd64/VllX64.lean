@@ -205,6 +205,7 @@ inductive EffectsReaches : Effects → MachineState → Prop where
   nativeStep := x64NativeStep
   nativeEffect := x64NativeEffect
   zeroUpper32Write := true
+  xor32ZeroClearFlags := true
 
 private theorem x64_flagsAgree_maskAll (f f' : StatusFlags) :
     x64Arch.FlagsAgree f f' maskAll := by

@@ -5,6 +5,7 @@ public import LeanQbe.T.MainLemmas
 import LeanQbe.T.RegaLemmas
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Amd64.IselLemmas5
+import LeanQbe.T.Amd64.IselZeroLemmas
 import LeanQbe.T.Amd64.IselVecLemmas3
 import LeanQbe.T.Amd64.FrameLemmas
 
@@ -53,6 +54,7 @@ theorem x64LabelClean : Rega.LabelClean x64Target.toIsa where
   jnzMem _ _ _ _ _ h l := x64Gpr_jnzMem_noLab h l
   rmwMem _ _ _ _ _ _ h l := x64Gpr_rmwMem_noLab h l
   leaArith _ _ _ _ _ _ _ _ h l := x64Gpr_leaArith_noLab h l
+  moviDeadFlags _ d c h l := by cases h; exact x64Gpr_moviDeadFlags_noLab d c l
   load _ _ _ _ _ h l := x64Gpr_load_noLab h l
   store _ _ _ _ _ h l := x64Gpr_store_noLab h l
   clearFlags l := x64Gpr_clearFlags_noLab l

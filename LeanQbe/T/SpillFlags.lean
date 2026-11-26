@@ -88,6 +88,7 @@ structure FlagHints (Cond : Type) where
   flagHome : Trie Cond := .empty
   variant : Trie VariantHint := .empty
   clearAt : Trie Bool := .empty
+  deadFlags : Trie Bool := .empty
 
 structure ScanInfo where
   badFlag : Trie Bool := .empty
@@ -582,14 +583,38 @@ def colorRound (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I
     else (tryColorWeb I r0 r1 v0 v1 conds isCand info vs st).getD st) st1
   (st2, cands)
 
+mutual
+/-- Mark each instruction pointer `ip` whose live-in set contains no flag-homed variable as safe
+for flag-clobbering zero-idiom materialization (`Hints.deadFlags`). -/
+def computeDeadFlags {C : Type} (fh : Trie C) : Tree → Trie Bool → Trie Bool
+  | .let_ lv ip _ _ _ k, acc =>
+    computeDeadFlags fh k (acc.insert ip (!(lv.any fun x => (fh.find? x).isSome)))
+  | .load lv ip _ _ _ k, acc | .store lv ip _ _ _ k, acc | .skip lv ip k, acc
+  | .call lv ip _ _ _ _ _ k, acc =>
+    computeDeadFlags fh k (acc.insert ip (!(lv.any fun x => (fh.find? x).isSome)))
+  | .jnz lv ip _ _ t e, acc =>
+    computeDeadFlags fh t
+      (computeDeadFlags fh e (acc.insert ip (!(lv.any fun x => (fh.find? x).isSome))))
+  | .jump lv ip _ _ _, acc | .ret lv ip _ _, acc | .exit lv ip _ _ _, acc =>
+    acc.insert ip (!(lv.any fun x => (fh.find? x).isSome))
+  | .group _ bs k, acc => computeDeadFlagsB fh bs (computeDeadFlags fh k acc)
+  | .stop _, acc => acc
+
+def computeDeadFlagsB {C : Type} (fh : Trie C) : TreeBlocks → Trie Bool → Trie Bool
+  | .nil, acc => acc
+  | .cons _ _ b bs, acc => computeDeadFlagsB fh bs (computeDeadFlags fh b acc)
+end
+
 /-- Flag-web coloring to a fixpoint: a candidate left uncolored (e.g. an `.addc`/`.subb` carry-out
-whose `adcx`/`adox` variant another web speculated on) is demoted to a non-candidate and the round
-is rerun, so no colored web relies on a speculation that did not materialize. -/
+whose `adcx`/`adox` variant another web targeted) is demoted to a non-candidate and the round
+is rerun, so no colored web relies on an unchosen variant. -/
 def gatherFlags (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List I.Cond) (nv : Nat)
     (fnParams : List Nat) (cross : Trie Bool) (bparams : Trie (List Nat)) (tys : Trie Ty)
     (lTrie : Trie (List Nat)) (t : Tree) : FlagHints I.Cond :=
   let isBool (x : Nat) : Bool := match tys.getD x i64 with | .bool => true | _ => false
-  if !(List.range nv).any isBool then {} else
+  if !(List.range nv).any isBool then
+    { deadFlags := computeDeadFlags (C := I.Cond) .empty t .empty }
+  else
     let s0 := scanDefs I r0 r1 v0 v1 conds isBool bparams t {}
     let bf0 := (List.range nv).foldl
       (fun bf x => if isBool x && cross.getD x false then bf.insert x true else bf)
@@ -607,7 +632,8 @@ def gatherFlags (I : Isa) (r0 r1 : I.Reg) (v0 v1 : Option I.VReg) (conds : List 
         let newFail := cands.filter fun x => (st.flagHome.find? x).isNone
         if newFail.isEmpty then st else loop fuel (newFail.foldl (·.insert ·) failed)
     let st := loop (nv + 2) {}
-    { flagHome := st.flagHome, variant := st.variant, clearAt := st.clearAt }
+    { flagHome := st.flagHome, variant := st.variant, clearAt := st.clearAt,
+      deadFlags := computeDeadFlags st.flagHome t .empty }
 
 end SpillFlags
 end LeanQbe.T

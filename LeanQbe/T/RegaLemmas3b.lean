@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.RegaLemmas3a
+public import LeanQbe.T.RegaLemmasZero
 
 /-!
 # `RegaLemmas` Part 3b: Slot Operations, `lowerOp_ok`, and Structural `LabelsUnique`
@@ -1094,6 +1095,25 @@ theorem lowerOp_ok {zl : Bool} (hspE : T.frameSpec.spEntry (T.mach.getGpr s₀ T
     dsimp only; rw [hz]
     dsimp only [tupDstGprs, tupFlatMap, PDst.gprs]
     exact hA''
+  rcases orElse_eq_some hpick with hzero | hpick
+  · obtain ⟨⟨c'', cl, z''⟩, htz, he⟩ := Option.map_eq_some_iff.mp hzero
+    cases he
+    refine tryMoviZero_ok hargsN hwpN hc htz
+      (fun hz s' ⟨rvs, hP, hdh⟩ hm hfr => fin hz s' [] ⟨rvs, hP, hdh, (fun _ h => nomatch h),
+        (hflTr rvs (hA.flags_ok.kill hfr) hA.flags_lt.kill).1,
+        (hflTr rvs (hA.flags_ok.kill hfr) hA.flags_lt.kill).2⟩ hm hfr rfl)
+      (fun hz {rd} ht hd s' rv ⟨hP, hdef⟩ hrd_eq hm hfr => ?_)
+    subst ht; dsimp only at hd; subst hd
+    have hrda : isAllocGpr T.toIsa hints.saved rd = true :=
+      hdg rd (by simp [tupDstGprs])
+    refine lowerOp_z32_finish hA hI (hMgrow (rv, ())) hdef
+      (hflTr (rv, ()) (hA.flags_ok.kill hfr) hA.flags_lt.kill).1
+      (hflTr (rv, ()) (hA.flags_ok.kill hfr) hA.flags_lt.kill).2
+      hP hrd_eq hm hfr hrda fun rvs s'' hP'' hA'' hM'' hI'' => ?_
+    refine kont rvs s'' hP'' ?_ hM'' hI''
+    dsimp only; rw [hz]
+    dsimp only [tupDstGprs, tupFlatMap, PDst.gprs]
+    exact hA''
   rcases orElse_eq_some hpick with hpick | hslot
   · obtain ⟨pas, hk, hpg, hpv, hph⟩ := pickPArgs_ok hA hargsN hpick
     split at hk <;> (try rcases orElse_eq_some hk with hk | hk) <;>
@@ -1406,14 +1426,25 @@ theorem tryAddrZext_some {st : SymState I} {α : Type} {a : Arg VNat i64}
 variable (hcl : LabelClean I)
 include hcl
 
+private theorem execMovi_clean (st : SymState I) (deadHint : Bool) (d : I.Reg) (c : BitVec 64) :
+    NoLab I (execMovi I st deadHint d c).1 := by
+  unfold execMovi
+  split
+  · rename_i fn hmd
+    split
+    · exact hcl.moviDeadFlags fn d c hmd
+    · exact hcl.movi d c
+  · exact hcl.movi d c
+
 theorem execMove_clean {nslots : Nat} {saved : List I.Reg} {mv : I.Move} {st st' : SymState I}
-    {c : List I.Directive} (h : execMove I nslots saved mv st = some (c, st')) : NoLab I c := by
+    {deadHint : Bool} {c : List I.Directive}
+    (h : execMove I nslots saved mv st deadHint = some (c, st')) : NoLab I c := by
   cases mv <;> simp only [execMove] at h <;> (repeat' split at h) <;>
     first | (simp at h; done) | (simp only [Option.some.injEq, Prod.mk.injEq] at h; obtain ⟨rfl,
       -⟩ := h)
   all_goals first
     | exact hcl.mov _ _
-    | exact hcl.movi _ _
+    | exact execMovi_clean hcl _ _ _ _
     | exact hcl.slotLd _ _
     | exact hcl.slotSt _ _
     | exact hcl.setcc _ _
@@ -1422,9 +1453,9 @@ theorem execMove_clean {nslots : Nat} {saved : List I.Reg} {mv : I.Move} {st st'
     | exact hcl.vslotSt _ _ _
     | exact hcl.vmovi _ _ _ _ ‹_›
 
-theorem execMoves_clean {nslots : Nat} {saved : List I.Reg} :
+theorem execMoves_clean {nslots : Nat} {saved : List I.Reg} {deadHint : Bool} :
     ∀ {mvs : List I.Move} {st st' : SymState I} {c : List I.Directive},
-    execMoves I nslots saved mvs st = some (c, st') → NoLab I c
+    execMoves I nslots saved mvs st deadHint = some (c, st') → NoLab I c
   | [], _, _, _, h => by
     simp only [execMoves, Option.some.injEq, Prod.mk.injEq] at h
     rw [← h.1]; exact NoLab.nil
@@ -1895,6 +1926,9 @@ theorem lowerOp_clean {h : I.Hints} {nv ip : Nat} {st st' : SymState I} {ts : Li
   rcases orElse_eq_some hp with hlea | hp
   · obtain ⟨⟨_, _, _⟩, htl, he⟩ := Option.map_eq_some_iff.mp hlea; cases he
     exact tryLeaArith_clean hcl htl
+  rcases orElse_eq_some hp with hzero | hp
+  · obtain ⟨⟨_, _, _⟩, htz, he⟩ := Option.map_eq_some_iff.mp hzero; cases he
+    exact tryMoviZero_clean hcl htz
   rcases orElse_eq_some hp with hp | hslot
   · obtain ⟨pas, hk⟩ := pickPArgs_some hp
     have hv : ((I.vec.vop (normCmpOp op dsts).code pas dsts (h.variant.getD ip .default)).map

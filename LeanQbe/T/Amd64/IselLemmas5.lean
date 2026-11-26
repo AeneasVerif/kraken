@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.Amd64.IselLemmasBitcnt
+import LeanQbe.T.Amd64.IselZeroLemmas
 
 /-!
 # x64 Scalar `GprTarget` Proofs — Part 5
@@ -1685,6 +1686,7 @@ theorem x64GprSpec : GprTarget x64Mach x64Gpr x64Scratch where
   testOp_boolFlag_spec := x64Gpr_testOp_boolFlag_spec
   testMem_boolFlag_spec := x64Gpr_testMem_boolFlag_spec
   cmpMem_flags_spec := x64Gpr_cmpMem_flags_spec
+  moviDeadFlags?_spec := fun hfn => by cases hfn; exact x64Gpr_moviDeadFlags_spec
 
 end
 

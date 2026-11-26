@@ -2473,7 +2473,7 @@ def hints (I : Isa) (f : Fn)
     if I.frame.scratch.isEmpty then nslots1 else min nslots1 (usedSlotCount nip nl st)
   let h0 : I.Hints :=
     { dest := st.dest, entry := st.entry, pre := st.pre, variant := st.variant, elide := elideIps,
-      invertJnz := acc.invertJnz,
+      invertJnz := acc.invertJnz, deadFlags := fh.deadFlags,
       nslots := finalSlots, saved := st.usedCs.map fun r => c.gReg.getD r I.frame.sp }
   Rega.addDeferHints h0 f
 

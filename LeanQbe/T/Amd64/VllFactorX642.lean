@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Amd64.VllFactorX640
 public import LeanQbe.T.Amd64.VllFactorX641
+import LeanQbe.T.Amd64.VllFactorX64Zero
 import LeanQbe.T.Amd64.TargLemmas
 import LeanQbe.T.AbiLemmas
 import LeanQbe.T.TargetLemmas
@@ -2329,6 +2330,7 @@ theorem vllX64PolicySpec : VllPolicySpec x64Arch vllX64NativeHooks where
     intro sv' sk' hsim ⟨hpd, hcmp, hm⟩
     exact ⟨pDstHolds_of_x64Mach hsim hpd, flagCmpOk_of_x64Mach hsim hcmp,
       (krakenSim_mem_eq hsim).trans hm⟩
+  moviDeadFlags?_spec := fun hfn => by cases hfn; exact vllX64_moviDeadFlags_spec
   vecSpec := vllX64VecTarget
 
 /-- Verified hybrid lowering policy for SysV x86-64 on `BedrockMach` L1 (`x64Arch`). -/

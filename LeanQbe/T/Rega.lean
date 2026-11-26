@@ -1,6 +1,7 @@
 module
 
 public import LeanQbe.T.RegaDefs
+public import LeanQbe.T.RegaZero
 public import LeanQbe.T.RegaZext
 
 /-!
@@ -107,8 +108,8 @@ def vecEntries {I : Isa} (vw : Trie SlotWidth) (w : SlotWidth) (v : I.VReg)
 def flagEntries {I : Isa} (c : I.Cond) (R : List (SymArg × RegLoc I.Reg I.VReg I.Cond)) : List SymArg :=
   R.filterMap fun (sa, rl) => match rl with | .flag c' => if c' == c then some sa else none | _ => none
 
-def execMove (I : Isa) (nslots : Nat) (saved : List I.Reg) (mv : I.Move) (st : SymState I) :
-    Option (List I.Directive × SymState I) :=
+def execMove (I : Isa) (nslots : Nat) (saved : List I.Reg) (mv : I.Move) (st : SymState I)
+    (deadHint : Bool := false) : Option (List I.Directive × SymState I) :=
   match mv with
   | .mov d s =>
     if !isMoveGpr I saved d then none
@@ -128,10 +129,12 @@ def execMove (I : Isa) (nslots : Nat) (saved : List I.Reg) (mv : I.Move) (st : S
       let clob := d :: I.frame.scratch
       let zExt := if (c.setWidth 32).setWidth 64 == c then d :: killZeroExt clob st.zeroExt32
                   else killZeroExt clob st.zeroExt32
-      some (I.gpr.movi d c,
+      let (code, fClob) := execMovi I st deadHint d c
+      some (code,
         { st with
-          regs := (.immBits 64 c, .gpr d) :: killRegs I clob [] FlagMask.none st.regs
-          zeroExt32 := zExt })
+          regs := (.immBits 64 c, .gpr d) :: killRegs I clob [] fClob st.regs
+          zeroExt32 := zExt
+          flags := if fClob == FlagMask.none then st.flags else killFlags I fClob st.flags })
   | .ld d i =>
     if !(isAllocGpr I saved d && Nat.ble (i + 1) nslots) then none
     else
@@ -190,10 +193,10 @@ def execMove (I : Isa) (nslots : Nat) (saved : List I.Reg) (mv : I.Move) (st : S
         zeroExt32 := killZeroExt I.frame.scratch st.zeroExt32 })
 
 def execMoves (I : Isa) (nslots : Nat) (saved : List I.Reg) :
-    List I.Move → SymState I → Option (List I.Directive × SymState I)
-  | [], st => some ([], st)
-  | mv :: mvs, st => (execMove I nslots saved mv st).bind fun (c1, st1) =>
-      (execMoves I nslots saved mvs st1).map fun (c2, st2) => (c1 ++ c2, st2)
+    List I.Move → SymState I → (deadHint : Bool := false) → Option (List I.Directive × SymState I)
+  | [], st, _ => some ([], st)
+  | mv :: mvs, st, deadHint => (execMove I nslots saved mv st deadHint).bind fun (c1, st1) =>
+      (execMoves I nslots saved mvs st1 deadHint).map fun (c2, st2) => (c1 ++ c2, st2)
 
 def execClearFlags (I : Isa) (st : SymState I) : List I.Directive × SymState I :=
   (I.gpr.clearFlags, { st with
@@ -205,7 +208,8 @@ def execClearFlags (I : Isa) (st : SymState I) : List I.Directive × SymState I 
 def stepPre (I : Isa) (h : I.Hints) (ip : Nat) (st : SymState I) : Option (List I.Directive × SymState I) :=
   match h.pre.find? ip with
   | none => some ([], st)
-  | some ps => (execMoves I h.nslots h.saved ps.moves st).map fun (mc, st1) =>
+  | some ps =>
+    (execMoves I h.nslots h.saved ps.moves st (h.deadFlags.getD ip false)).map fun (mc, st1) =>
       if ps.clearFlags then let (cc, st2) := execClearFlags I st1; (mc ++ cc, st2) else (mc, st1)
 
 /-! ## Target Presence Checking and Untrusted Parallel-Move Shuffle -/
@@ -1308,6 +1312,8 @@ def lowerOp (I : Isa) (h : I.Hints) (nv ip : Nat) (st1 : SymState I) {ts : List 
           (c, cl, false, false, killFlags I cl st1.flags, none)) <|>
         ((tryLeaArith I st1 opN.code opN.args dsts).map fun (c, cl, z32) =>
           (c, cl, false, z32, killFlags I cl st1.flags, none)) <|>
+        ((tryMoviZero I h ip st1 opN.code opN.args dsts).map fun (c, cl, z32) =>
+          (c, cl, false, z32, killFlags I cl st1.flags, none)) <|>
         (pickPArgs I st1 (tupDstFlags dsts) opN.args fun pas =>
           if dstVecs.isEmpty && (tupArgVecs pas).isEmpty then
             ((I.gpr.op opN.code pas dsts vh).map fun (c, cl) =>
@@ -2278,6 +2284,8 @@ structure LabelClean (I : Isa) : Prop where
   leaArithZext : ∀ base? idx sh disp rd c cl,
     I.gpr.leaArithZext base? idx sh disp rd = some (c, cl) → NoLab I c :=
     by intro _ _ _ _ _ _ _ h; cases h
+  moviDeadFlags : ∀ fn d c, I.gpr.moviDeadFlags? = some fn → NoLab I (fn d c).1 :=
+    by intro _ _ _ h; cases h
   (load : ∀ t r a c cl, I.gpr.load t r a = some (c, cl) → NoLab I c)
   (store : ∀ t pa a c cl, I.gpr.store t pa a = some (c, cl) → NoLab I c)
   (clearFlags : NoLab I I.gpr.clearFlags) (vmov : ∀ w d s, NoLab I (I.vec.vmov w d s))
