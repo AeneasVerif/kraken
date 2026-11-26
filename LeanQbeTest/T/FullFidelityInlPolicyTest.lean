@@ -319,18 +319,23 @@ theorem pureFidFns_wf : ∀ f ∈ pureFidMod.fns, f.Wf := by
 
 #guard fidInlPolicy.leafMax == 165
 #guard fidInlPolicy.singleSiteMax == 0
-#guard fidInlPolicy.maxCallerSize == 4000
+#guard fidInlPolicy.maxCallerSize == 2800
 #guard fidInlPolicy.maxCalleeCalls == 2
 #guard fidInlPolicy.maxCalleeLoops == some 1
 #guard fidInlPolicy.maxTotalDup == 1500
 #guard fidInlPolicy.maxCallerCalls == 24
-#guard fidInlPolicy.keepOutOfLine == ["m6_hdr_init", "full_watch_push_slow_m6"]
+#guard fidInlPolicy.keepOutOfLine ==
+  ["m6_hdr_init", "full_watch_push_slow_m6", "full_prop_flush_slow_fid", "full_prop_flush_del_fid"]
 
--- Keep `m6_hdr_init` and `full_watch_push_slow_m6` strictly OOL (`budget = 0` + `keepOutOfLine`)
+-- Keep cold/spill-regressing helpers strictly OOL (`budget = 0` + `keepOutOfLine`)
 #guard fidPgoBudget "m6_hdr_init" == 0
 #guard fidPgoBudget "full_watch_push_slow_m6" == 0
+#guard fidPgoBudget "full_prop_flush_slow_fid" == 0
+#guard fidPgoBudget "full_prop_flush_del_fid" == 0
+#guard fidPgoBudget "full_rebuild_watches_nosort_fid" == 0
+#guard fidPgoBudget "full_congruence_dense" == 0
 #guard fidPgoBudget "full_unwatch_large" == 0
-#guard fidPgoBudget "full_watch_push_m6" == 150
+#guard fidPgoBudget "full_watch_push_m6" == 200
 #guard fidPgoBudget "full_k6_ana_cl_fid" == 145
 #guard fidPgoBudget "full_cong_sift_pairs_fid" == 95
 -- Fixed underbudgeted PGO entries
@@ -342,9 +347,15 @@ theorem pureFidFns_wf : ∀ f ∈ pureFidMod.fns, f.Wf := by
 -- Covered hot leaves & helpers
 #guard fidPgoBudget "full_bva_match_large_fid" >= 65
 #guard fidPgoBudget "full_reorder_sift_fid" >= 105
-#guard fidPgoBudget "full_assign_lvl" >= 165
+#guard fidPgoBudget "full_assign_lvl" >= 180
 #guard fidPgoBudget "full_assign" >= 150
-#guard fidPgoBudget "full_min_mark" >= 75
+#guard fidPgoBudget "full_min_mark" >= 90
+#guard fidPgoBudget "full_fill_u64_m7" >= 40
+#guard fidPgoBudget "full_sort_bin_watches_fid" >= 110
+#guard fidPgoBudget "full_k6_flip" >= 290
+#guard fidPgoBudget "full_k6_init" >= 220
+#guard fidPgoBudget "full_walk_flip_m7" >= 280
+#guard fidPgoBudget "full_decide_m7" >= 265
 #guard fidPgoBudget "full_cong_enq_var" >= 85
 #guard fidPgoBudget "full_backtrack" >= 64
 #guard fidPgoBudget "full_extend_push2" >= 97
@@ -389,16 +400,21 @@ def fidComparisonOk : Bool :=
     checkDriver fid.fns "full_bva_filter_row" 314 0 &&
     checkDriver fid.fns "full_deduce_1uip_m6_hdr" 1814 4 &&
     checkDriver fid.fns "full_arena_sweep_m6" 692 5 &&
-    checkDriver fid.fns "full_m6_sweep_classes" 1227 11 &&
+    checkDriver fid.fns "full_m6_sweep_classes" 1783 9 &&
     checkDriver fid.fns "full_k6_extract_and_solve_m8" 739 2
   rawOk &&
     m7.fns.length == 469 && fid.fns.length == 469 &&
-    m7Calls == 951 && fidCalls == 749 && fidCalls < m7Calls &&
-    m7LpCalls == 627 && fidLpCalls == 478 && fidLpCalls < m7LpCalls &&
+    m7Calls == 951 && fidCalls == 743 && fidCalls < m7Calls &&
+    m7LpCalls == 627 && fidLpCalls == 473 && fidLpCalls < m7LpCalls &&
     m7MaxSz == 1009 && fidMaxSz == 2792 && noOversize &&
     fid.checkAcyclic == true && drvOk
 
 #guard fidComparisonOk
+#guard fidInlChunkPolicy.leafMax == fidInlPolicy.leafMax
+#guard fidInlChunkPolicy.maxCallerSize == fidInlPolicy.maxCallerSize
+#guard fidInlChunkPolicy.keepOutOfLine == fidInlPolicy.keepOutOfLine
+#guard fidInlChunkPolicy.maxCalleeLoops == fidInlPolicy.maxCalleeLoops
+#guard fidInlChunkPolicy.maxCallerCalls == fidInlPolicy.maxCallerCalls
 
 /-! ## 3. Formal `Wf`, Acyclicity, and Soundness Transport Proofs -/
 
