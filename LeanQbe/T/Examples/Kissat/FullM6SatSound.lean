@@ -250,43 +250,49 @@ theorem checkModel_post_to_m6_region {work_ptr : BitVec 64} {wlen : Nat}
       (FullCheckRest c s ⋆ (array64 (c.hdr - 2304) ext ⋆
         region work_ptr (fullAlignPad work_ptr) ⋆ R))) m := sep_ac hm
   have hm1 := checkModel_post_to_region hlen hm0
-  have hext_len := hext.len
   have hsub : c.hdr - 2304 = fullM6WorkBase work_ptr := by
     rw [← m6ExtAddr_eq, hhdr, m6ExtAddr_fullM6WorkHdr]
   have hreg_ext : ∀ f, array64 (c.hdr - 2304) ext f →
       region (fullM6WorkBase work_ptr) fullM6ExtBytes f := fun f hf => by
+    have hext_len := hext.len
     have hr := array_to_region (t := i64) (a := c.hdr - 2304) (xs := ext)
-      (by simp only [Ty.bytes, Ty.size]; omega)
-      ((array64_eq_array _ ext) ▸ hf)
+      (by simp only [Ty.bytes, Ty.size]; omega) ((array64_eq_array _ ext) ▸ hf)
     rw [hsub] at hr
     simpa [Ty.bytes, Ty.size, hext_len, fullM6ExtBytes] using hr
-  have hm1a : ((bytes cnf_ptr cnfBytes ⋆ R) ⋆
-      (region work_ptr (fullAlignPad work_ptr) ⋆
-        (array64 (c.hdr - 2304) ext ⋆ region c.hdr c.avail))) m := sep_ac hm1
-  have hm2 : ((bytes cnf_ptr cnfBytes ⋆ R) ⋆
-      (region work_ptr (fullAlignPad work_ptr) ⋆
-        (region (fullM6WorkBase work_ptr) fullM6ExtBytes ⋆
-          region (fullM6WorkHdr work_ptr) c.avail))) m := by
-    refine sep_mono_r (fun _ => sep_mono_r (sep_mono2 hreg_ext (fun _ h => ?_))) hm1a
-    rwa [← hhdr]
-  have hmerge_ext : (region (fullM6WorkBase work_ptr) fullM6ExtBytes ⋆
+  have hm1a : ((bytes cnf_ptr cnfBytes ⋆ R) ⋆ (region work_ptr (fullAlignPad work_ptr) ⋆
+      (array64 (c.hdr - 2304) ext ⋆ region c.hdr c.avail))) m := sep_ac hm1
+  have hm2 : ((bytes cnf_ptr cnfBytes ⋆ R) ⋆ (region work_ptr (fullAlignPad work_ptr) ⋆
+      (region (fullM6WorkBase work_ptr) fullM6ExtBytes ⋆
+        region (fullM6WorkHdr work_ptr) c.avail))) m :=
+    sep_mono_r (fun _ => sep_mono_r (sep_mono2 hreg_ext (fun _ h => by rwa [← hhdr]))) hm1a
+  have hsum : fullM6ExtBytes + c.avail = wlen - fullAlignPad work_ptr := by
+    rw [hav]; unfold fullM6HdrTotalBytes fullM6ExtBytes at *; omega
+  rw [show (region (fullM6WorkBase work_ptr) fullM6ExtBytes ⋆
       region (fullM6WorkHdr work_ptr) c.avail) =
-      region (fullM6WorkBase work_ptr) (wlen - fullAlignPad work_ptr) := by
-    rw [hav]
-    have hsum : fullM6ExtBytes + (wlen - fullAlignPad work_ptr - fullM6ExtBytes) =
-        wlen - fullAlignPad work_ptr := by
-      unfold fullM6HdrTotalBytes fullM6ExtBytes at *; omega
-    exact region_merge_eq (a := fullM6WorkBase work_ptr) hsum (by omega)
-  have hm3 : ((bytes cnf_ptr cnfBytes ⋆ R) ⋆
-      (region work_ptr (fullAlignPad work_ptr) ⋆
-        region (fullM6WorkBase work_ptr) (wlen - fullAlignPad work_ptr))) m := by
-    rw [← hmerge_ext]
-    exact hm2
+      region (fullM6WorkBase work_ptr) (wlen - fullAlignPad work_ptr) from
+    region_merge_eq (a := fullM6WorkBase work_ptr) hsum (by omega)] at hm2
   have heq : fullAlignPad work_ptr + (wlen - fullAlignPad work_ptr) = wlen := by omega
-  have hmerge_pad := region_merge_eq (a := work_ptr) heq hfit
-  have hm4 : ((bytes cnf_ptr cnfBytes ⋆ R) ⋆ region work_ptr wlen) m := by
-    refine sep_mono_r (fun _ hr => (congrFun hmerge_pad _).mp hr) hm3
-  exact sep_ac hm4
+  exact sep_ac (sep_mono_r (fun _ hr => (congrFun (region_merge_eq heq hfit) _).mp hr) hm2)
+
+private theorem readModelFromWorkM6_of_loads {c : FullCfg} {s : FullState}
+    {m' M : Mem 64} {F : Mem 64 → Prop} {work_ptr : BitVec 64}
+    (hhdr : c.hdr = fullM6WorkHdr work_ptr) (hlen : s.LengthsOk c)
+    (hvptr_hdr : loadVal m' i64 (c.hdr + 64#64) = some c.pVals)
+    (hm_arr : ∀ {i} (hi : i < s.core.vals.length),
+      loadVal m' i8 (c.pVals + BitVec.ofNat 64 i) = some s.core.vals[i])
+    (hM : (Eq m' ⋆ F) M) {v : Nat} (hv1 : 1 ≤ v) (hv2 : v ≤ c.mv) :
+    readModelFromWorkM6 M work_ptr v =
+      i8BytePos ((s.core.vals.map UInt8.ofBitVec).getD (2 * (v - 1)) 0) := by
+  have hvptr : loadVal m' i64
+      (work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr) + 2368#64) = some c.pVals := by
+    have ha : work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr) + 2368#64 = c.hdr + 64#64 := by
+      rw [hhdr, fullM6WorkHdr_add_64]; rfl
+    rwa [ha]
+  have hidx_lt : 2 * (v - 1) < s.core.vals.length := by
+    have := hlen.core_ok.vals_len; have := hlen.core_ok.cur_vars_ge
+    have := hlen.core_ok.cur_vars_le; omega
+  rw [readModelFromWorkM6_frame hM hvptr (hm_arr hidx_lt), beq_false_of_ne (by omega)]
+  simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hidx_lt]
 
 /-- From `FullM6HdrMem c ext s` framed in `m'` and any extended host memory `M` satisfying
 `(Eq m' ⋆ F) M`, `readModelFromWorkM6 M work_ptr v` equals the signed polarity of
@@ -299,48 +305,22 @@ theorem readModelFromWorkM6_of_vals {c : FullCfg} {ext : List (BitVec 64)} {s : 
     readModelFromWorkM6 M work_ptr v =
       i8BytePos ((s.core.vals.map UInt8.ofBitVec).getD (2 * (v - 1)) 0) := by
   rw [fullM6HdrMem_iff] at hm'
-  have hmem_full : (FullMem c s ⋆ (array64 (c.hdr - 2304) ext ⋆ R)) m' := hm'
   have hvptr_hdr : loadVal m' i64 (c.hdr + 64#64) = some c.pVals := by
-    have hl := fullHdrTailGet (c := c) (s := s) 4 (by decide) hmem_full
-    have hidx : (Full.hdrTailWords c s)[4]'(by simp) = c.pVals := by rfl
-    rw [hidx] at hl
-    simpa [BitVec.add_assoc] using hl
-  have hvptr : loadVal m' i64
-      (work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr) + 2368#64) = some c.pVals := by
-    have haddr : work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr) + 2368#64 =
-        c.hdr + 64#64 := by
-      rw [hhdr, fullM6WorkHdr_add_64]; rfl
-    rwa [haddr]
+    have hl := fullHdrTailGet (c := c) (s := s) 4 (by decide) hm'
+    simpa [BitVec.add_assoc, show (Full.hdrTailWords c s)[4]'(by simp) = c.pVals from rfl]
+      using hl
   have hmem_vals : (array (t := i8) c.pVals s.core.vals ⋆
       (array64 (c.hdr + 32) (Full.hdrTailWords c s) ⋆
       dimacsState c.hdr (BitVec.ofNat 64 c.mv) (BitVec.ofNat 64 c.nc)
         s.core.d_cur s.core.d_val ⋆
-      array (t := i8) c.pLitMark s.core.lit_mark ⋆
-      array (t := i8) c.pMark s.core.mrk ⋆
+      array (t := i8) c.pLitMark s.core.lit_mark ⋆ array (t := i8) c.pMark s.core.mrk ⋆
       FullCoreU32A c s.core ⋆ FullCoreU32B c s.core ⋆ FullCoreDynArrs c s.core ⋆
-      FullScratchArrays c s.scratch ⋆ c.pad ⋆
-      array64 (c.hdr - 2304) ext ⋆ R)) m' := by
-    unfold FullMem FullCoreArrays FullCoreByteArrs at hmem_full
-    exact sep_ac hmem_full
-  have hidx_lt : 2 * (v - 1) < s.core.vals.length := by
-    have hlt := hlen.core_ok.vals_len
-    have hle := hlen.core_ok.cur_vars_ge
-    have hle2 := hlen.core_ok.cur_vars_le
-    omega
-  have hb_at : loadVal m' i8 (c.pVals + BitVec.ofNat 64 (2 * (v - 1))) =
-      some s.core.vals[2 * (v - 1)] := by
-    have hl := loadVal_array (t := i8) (a := c.pVals) (xs := s.core.vals)
-      (i := 2 * (v - 1)) (by decide) hidx_lt hmem_vals
-    simpa [Ty.bytes, Ty.size] using hl
-  have hframe := readModelFromWorkM6_frame hM hvptr hb_at
-  have hvne : (v == 0) = false := beq_false_of_ne (by omega)
-  rw [hframe, hvne]
-  simp only [Bool.false_eq_true, ↓reduceIte]
-  have hget : (s.core.vals.map UInt8.ofBitVec).getD (2 * (v - 1)) 0 =
-      UInt8.ofBitVec s.core.vals[2 * (v - 1)] := by
-    rw [List.getD_eq_getElem?_getD, List.getElem?_map,
-      List.getElem?_eq_getElem hidx_lt, Option.map_some, Option.getD_some]
-  rw [hget]
+      FullScratchArrays c s.scratch ⋆ c.pad ⋆ array64 (c.hdr - 2304) ext ⋆ R)) m' := by
+    unfold FullMem FullCoreArrays FullCoreByteArrs at hm'; exact sep_ac hm'
+  exact readModelFromWorkM6_of_loads hhdr hlen hvptr_hdr
+    (fun {i} hi => by
+      simpa [Ty.bytes, Ty.size] using loadVal_array (t := i8) (a := c.pVals) (xs := s.core.vals)
+        (i := i) (by decide) hi hmem_vals) hM hv1 hv2
 
 /-- Extract `readModelFromWorkM6 M work_ptr v` directly from the un-collapsed
 `kissat_check_model` postcondition heap (`FullCheckRest c s` + `bytes c.pVals ...`). -/
@@ -353,69 +333,59 @@ theorem readModelFromWorkM6_of_checkModel_post {c : FullCfg} {s : FullState}
     readModelFromWorkM6 M work_ptr v =
       i8BytePos ((s.core.vals.map UInt8.ofBitVec).getD (2 * (v - 1)) 0) := by
   have hm_unfold : (array64 (c.hdr + 32) (Full.hdrTailWords c s) ⋆
-      (dimacsState c.hdr mv' nc' cur' val' ⋆
-        bytes c.pVals (s.core.vals.map UInt8.ofBitVec) ⋆
-        array (t := i8) c.pLitMark s.core.lit_mark ⋆
-        array (t := i8) c.pMark s.core.mrk ⋆
+      (dimacsState c.hdr mv' nc' cur' val' ⋆ bytes c.pVals (s.core.vals.map UInt8.ofBitVec) ⋆
+        array (t := i8) c.pLitMark s.core.lit_mark ⋆ array (t := i8) c.pMark s.core.mrk ⋆
         FullCoreU32A c s.core ⋆ FullCoreU32B c s.core ⋆ FullCoreDynArrs c s.core ⋆
         FullScratchArrays c s.scratch ⋆ c.pad ⋆ R)) m' := by
-    unfold FullCheckRest at hm'
-    exact sep_ac hm'
+    unfold FullCheckRest at hm'; exact sep_ac hm'
   have hvptr_hdr : loadVal m' i64 (c.hdr + 64#64) = some c.pVals := by
     have hl := loadVal_array64 (a := c.hdr + 32) (xs := Full.hdrTailWords c s) (i := 4)
       (by simp) hm_unfold
-    have h4 : (Full.hdrTailWords c s)[4]'(by simp) = c.pVals := by rfl
-    rw [h4] at hl
-    have ha : c.hdr + 32 + BitVec.ofNat 64 (8 * 4) = c.hdr + 64#64 := by
-      rw [BitVec.add_assoc]; rfl
-    rwa [ha] at hl
-  have hvptr : loadVal m' i64
-      (work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr) + 2368#64) = some c.pVals := by
-    have haddr : work_ptr + BitVec.ofNat 64 (fullAlignPad work_ptr) + 2368#64 =
-        c.hdr + 64#64 := by
-      rw [hhdr, fullM6WorkHdr_add_64]; rfl
-    rwa [haddr]
+    have ha : c.hdr + 32 + BitVec.ofNat 64 (8 * 4) = c.hdr + 64#64 := by rw [BitVec.add_assoc]; rfl
+    rwa [show (Full.hdrTailWords c s)[4]'(by simp) = c.pVals from rfl, ha] at hl
   have hfit_vals : (i8).bytes * s.core.vals.length ≤ 2 ^ 64 := by
-    have hmx := c.hmaxv; have hvl := hlen.core_ok.vals_len; unfold dimacsBound at hmx
+    have hmx := c.hmaxv; have := hlen.core_ok.vals_len; unfold dimacsBound at hmx
     simp only [Ty.bytes, Ty.size]; omega
   have hm_bytes : (bytes c.pVals (s.core.vals.map UInt8.ofBitVec) ⋆
       (array64 (c.hdr + 32) (Full.hdrTailWords c s) ⋆
         dimacsState c.hdr mv' nc' cur' val' ⋆
-        array (t := i8) c.pLitMark s.core.lit_mark ⋆
-        array (t := i8) c.pMark s.core.mrk ⋆
+        array (t := i8) c.pLitMark s.core.lit_mark ⋆ array (t := i8) c.pMark s.core.mrk ⋆
         FullCoreU32A c s.core ⋆ FullCoreU32B c s.core ⋆ FullCoreDynArrs c s.core ⋆
         FullScratchArrays c s.scratch ⋆ c.pad ⋆ R)) m' := sep_ac hm_unfold
   have hm_arr : (array (t := i8) c.pVals s.core.vals ⋆
       (array64 (c.hdr + 32) (Full.hdrTailWords c s) ⋆
         dimacsState c.hdr mv' nc' cur' val' ⋆
-        array (t := i8) c.pLitMark s.core.lit_mark ⋆
-        array (t := i8) c.pMark s.core.mrk ⋆
+        array (t := i8) c.pLitMark s.core.lit_mark ⋆ array (t := i8) c.pMark s.core.mrk ⋆
         FullCoreU32A c s.core ⋆ FullCoreU32B c s.core ⋆ FullCoreDynArrs c s.core ⋆
-        FullScratchArrays c s.scratch ⋆ c.pad ⋆ R)) m' := by
-    refine sep_mono (fun _ hb => ?_) hm_bytes
-    unfold bytes at hb
-    subst hb
-    rw [← bytesOf_i8_eq_map]
-    exact array_bytes (t := i8) c.pVals s.core.vals hfit_vals
-  have hidx_lt : 2 * (v - 1) < s.core.vals.length := by
-    have hlt := hlen.core_ok.vals_len
-    have hle := hlen.core_ok.cur_vars_ge
-    have hle2 := hlen.core_ok.cur_vars_le
-    omega
-  have hb_at : loadVal m' i8 (c.pVals + BitVec.ofNat 64 (2 * (v - 1))) =
-      some s.core.vals[2 * (v - 1)] := by
-    have hl := loadVal_array (t := i8) (a := c.pVals) (xs := s.core.vals)
-      (i := 2 * (v - 1)) (by decide) hidx_lt hm_arr
-    simpa [Ty.bytes, Ty.size] using hl
-  have hframe := readModelFromWorkM6_frame hM hvptr hb_at
-  have hvne : (v == 0) = false := beq_false_of_ne (by omega)
-  rw [hframe, hvne]
-  simp only [Bool.false_eq_true, ↓reduceIte]
-  have hget : (s.core.vals.map UInt8.ofBitVec).getD (2 * (v - 1)) 0 =
-      UInt8.ofBitVec s.core.vals[2 * (v - 1)] := by
-    rw [List.getD_eq_getElem?_getD, List.getElem?_map,
-      List.getElem?_eq_getElem hidx_lt, Option.map_some, Option.getD_some]
-  rw [hget]
+        FullScratchArrays c s.scratch ⋆ c.pad ⋆ R)) m' :=
+    sep_mono (fun _ hb => by
+      unfold bytes at hb; subst hb; rw [← bytesOf_i8_eq_map]
+      exact array_bytes (t := i8) c.pVals s.core.vals hfit_vals) hm_bytes
+  exact readModelFromWorkM6_of_loads hhdr hlen hvptr_hdr
+    (fun {i} hi => by
+      simpa [Ty.bytes, Ty.size] using loadVal_array (t := i8) (a := c.pVals) (xs := s.core.vals)
+        (i := i) (by decide) hi hm_arr) hM hv1 hv2
+
+private theorem sat_of_vals_m6 {c : FullCfg} {s : FullState}
+    {m' : Mem 64} {work_ptr : BitVec 64} {cnfBytes : List UInt8}
+    (hchk : runKissatCheckModel cnfBytes (s.core.vals.map UInt8.ofBitVec) c.mv = true)
+    (hrm : ∀ F M, (Eq m' ⋆ F) M → ∀ {v}, 1 ≤ v → v ≤ c.mv →
+      readModelFromWorkM6 M work_ptr v =
+        i8BytePos ((s.core.vals.map UInt8.ofBitVec).getD (2 * (v - 1)) 0)) :
+    ∃ cnf, parseDimacs cnfBytes = some cnf ∧
+      ¬ cnf.Unsat ∧ (∃ β, cnf.Sat β) ∧
+      ∀ (F : Mem 64 → Prop) (M : Mem 64),
+        (Eq m' ⋆ F) M → cnf.Sat (readModelFromWorkM6 M work_ptr) := by
+  obtain ⟨cnf, mv, hp, _, hvars, hsat⟩ := runKissatCheckModel_sat_exact hchk
+  have hnot := cnf_not_unsat_of_sat hsat
+  refine ⟨cnf, hp, hnot.1, hnot.2, fun F M hM => ?_⟩
+  rw [CNF.sat_iff_all_mem_sat] at hsat ⊢
+  intro cl hcl
+  obtain ⟨lit, hmem, heq⟩ := (CNF.Clause.sat_iff_exists_mem_eq).mp (hsat cl hcl)
+  have hb := hvars cl hcl lit hmem
+  refine (CNF.Clause.sat_iff_exists_mem_eq).mpr ⟨lit, hmem, ?_⟩
+  rw [hrm F M hM hb.1 (by omega)]
+  simpa [beq_false_of_ne (by omega : lit.1 ≠ 0)] using heq
 
 /-- Zero-drag SAT soundness from concrete `runKissatCheckModel = true` over `FullM6HdrMem`:
 produces parsed `cnf`, constructive host-framed `cnf.Sat (readModelFromWorkM6 M work_ptr)`,
@@ -428,20 +398,8 @@ theorem sat_of_runKissatCheckModel_m6 {c : FullCfg} {ext : List (BitVec 64)} {s 
     ∃ cnf, parseDimacs cnfBytes = some cnf ∧
       ¬ cnf.Unsat ∧ (∃ β, cnf.Sat β) ∧
       ∀ (F : Mem 64 → Prop) (M : Mem 64),
-        (Eq m' ⋆ F) M → cnf.Sat (readModelFromWorkM6 M work_ptr) := by
-  obtain ⟨cnf, mv, hp, hmv, hvars, hsat⟩ := runKissatCheckModel_sat_exact hchk
-  have hnot := cnf_not_unsat_of_sat hsat
-  refine ⟨cnf, hp, hnot.1, hnot.2, fun F M hM => ?_⟩
-  rw [CNF.sat_iff_all_mem_sat] at hsat ⊢
-  intro cl hcl
-  obtain ⟨lit, hlit_mem, hlit_eq⟩ :=
-    (CNF.Clause.sat_iff_exists_mem_eq).mp (hsat cl hcl)
-  have hb := hvars cl hcl lit hlit_mem
-  have hvne : (lit.1 == 0) = false := beq_false_of_ne (by omega)
-  have hrm := readModelFromWorkM6_of_vals hhdr hlen hm' hM hb.1 (by omega)
-  refine (CNF.Clause.sat_iff_exists_mem_eq).mpr ⟨lit, hlit_mem, ?_⟩
-  rw [hrm]
-  simpa [hvne] using hlit_eq
+        (Eq m' ⋆ F) M → cnf.Sat (readModelFromWorkM6 M work_ptr) :=
+  sat_of_vals_m6 hchk fun _ _ hM _ hv1 hv2 => readModelFromWorkM6_of_vals hhdr hlen hm' hM hv1 hv2
 
 /-- Zero-drag SAT soundness directly from the post-`kissat_check_model` heap. -/
 theorem sat_of_checkModel_post_m6 {c : FullCfg} {s : FullState}
@@ -454,20 +412,9 @@ theorem sat_of_checkModel_post_m6 {c : FullCfg} {s : FullState}
     ∃ cnf, parseDimacs cnfBytes = some cnf ∧
       ¬ cnf.Unsat ∧ (∃ β, cnf.Sat β) ∧
       ∀ (F : Mem 64 → Prop) (M : Mem 64),
-        (Eq m' ⋆ F) M → cnf.Sat (readModelFromWorkM6 M work_ptr) := by
-  obtain ⟨cnf, mv, hp, hmv, hvars, hsat⟩ := runKissatCheckModel_sat_exact hchk
-  have hnot := cnf_not_unsat_of_sat hsat
-  refine ⟨cnf, hp, hnot.1, hnot.2, fun F M hM => ?_⟩
-  rw [CNF.sat_iff_all_mem_sat] at hsat ⊢
-  intro cl hcl
-  obtain ⟨lit, hlit_mem, hlit_eq⟩ :=
-    (CNF.Clause.sat_iff_exists_mem_eq).mp (hsat cl hcl)
-  have hb := hvars cl hcl lit hlit_mem
-  have hvne : (lit.1 == 0) = false := beq_false_of_ne (by omega)
-  have hrm := readModelFromWorkM6_of_checkModel_post hhdr hlen hm' hM hb.1 (by omega)
-  refine (CNF.Clause.sat_iff_exists_mem_eq).mpr ⟨lit, hlit_mem, ?_⟩
-  rw [hrm]
-  simpa [hvne] using hlit_eq
+        (Eq m' ⋆ F) M → cnf.Sat (readModelFromWorkM6 M work_ptr) :=
+  sat_of_vals_m6 hchk fun _ _ hM _ hv1 hv2 =>
+    readModelFromWorkM6_of_checkModel_post hhdr hlen hm' hM hv1 hv2
 
 /-! ## 3. `FullM6` Phase & Top-Level Specifications -/
 
@@ -1028,16 +975,13 @@ theorem fullM6_extend_check_cont {cnf_ptr cnf_end work_ptr : BitVec 64}
       array64 (c.hdr - 2304) ext ⋆ region work_ptr (fullAlignPad work_ptr) ⋆ R)) m := sep_ac hm0
   refine ⟨c, s, bytes cnf_ptr cnfBytes ⋆ array64 (c.hdr - 2304) ext ⋆
       region work_ptr (fullAlignPad work_ptr) ⋆ R,
-    ⟨rfl, hext_le⟩, hlen, hm_full, fun r s1 m1 _ hlen1 _ hm1 => ?_⟩
-  rcases r with ⟨⟩
-  unfold fullExtendSlice SafetySlice.ofMask at hlen1 hm1
-  dsimp only at hlen1 hm1
+    ⟨rfl, hext_le⟩, hlen, hm_full, fun ⟨⟩ s1 m1 _ hlen1 _ hm1 => ?_⟩
+  unfold fullExtendSlice SafetySlice.ofMask at hlen1 hm1; dsimp only at hlen1 hm1
   have hm1_sep : (FullMem c s1 ⋆ (array64 (c.hdr - 2304) ext ⋆
       (bytes cnf_ptr cnfBytes ⋆ region work_ptr (fullAlignPad work_ptr) ⋆ R))) m1 := sep_ac hm1
+  rw [← fullM6HdrMem_iff] at hm1_sep
   have hm1_m6 : (bytes cnf_ptr cnfBytes ⋆ FullM6HdrMem c ext s1 ⋆
-      region work_ptr (fullAlignPad work_ptr) ⋆ R) m1 := by
-    rw [← fullM6HdrMem_iff] at hm1_sep
-    exact sep_ac hm1_sep
+      region work_ptr (fullAlignPad work_ptr) ⋆ R) m1 := sep_ac hm1_sep
   refine ⟨s1, hlen1, hm1_m6, BitVec.ofNat 64 c.mv, BitVec.ofNat 64 c.nc,
     s1.core.d_cur, s1.core.d_val, cnfBytes, s1.core.vals.map UInt8.ofBitVec, c.mv,
     FullCheckRest c s1 ⋆ array64 (c.hdr - 2304) ext ⋆
@@ -1047,33 +991,24 @@ theorem fullM6_extend_check_cont {cnf_ptr cnf_end work_ptr : BitVec 64}
       (R := region work_ptr (fullAlignPad work_ptr) ⋆ R) hlen1 (sep_ac hm1_m6)),
     fun ok mv' nc' cur' val' m2 hok hm2 => ?_⟩
   · have hmv := c.hmv; unfold dimacsBound at hmv; omega
-  · simp only [List.length_map, hlen1.core_ok.vals_len]
-    have hle_mv : c.mv ≤ c.max_vars := by
-      have := hlen1.core_ok.cur_vars_ge; have := hlen1.core_ok.cur_vars_le; omega
-    omega
-  · simp only [List.length_map, hlen1.core_ok.vals_len]
-    have hmx := c.hmaxv; unfold dimacsBound at hmx; omega
-  · have hm2_reg : (bytes cnf_ptr cnfBytes ⋆ region work_ptr wlen ⋆ R) m2 :=
-      checkModel_post_to_m6_region hle (by omega) hhdr hav hext hlen1 hm2
-    by_cases hrun :
-        runKissatCheckModel cnfBytes (s1.core.vals.map UInt8.ofBitVec) c.mv = true
-    · have hok1 : ok = 1#64 := by rw [hok, hrun]; rfl
-      rw [hok1]; simp only [beq_self_eq_true, ↓reduceIte]
+  · have := hlen1.core_ok.cur_vars_ge; have := hlen1.core_ok.cur_vars_le
+    simp only [List.length_map, hlen1.core_ok.vals_len]; omega
+  · have hmx := c.hmaxv; unfold dimacsBound at hmx
+    simp only [List.length_map, hlen1.core_ok.vals_len]; omega
+  · have hm2_reg := checkModel_post_to_m6_region hle (by omega) hhdr hav hext hlen1 hm2
+    cases hrun : runKissatCheckModel cnfBytes (s1.core.vals.map UInt8.ofBitVec) c.mv
+    · simp only [show (if ok == 1#64 then (10#64 : BitVec 64) else 0#64) = 0#64 from by
+        rw [hok, hrun]; decide]
+      exact hk 0#64 m2 (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm2_reg
+    · simp only [show (if ok == 1#64 then (10#64 : BitVec 64) else 0#64) = 10#64 from by
+        rw [hok, hrun]; decide]
       have hm2_chk : (dimacsState c.hdr mv' nc' cur' val' ⋆
           bytes c.pVals (s1.core.vals.map UInt8.ofBitVec) ⋆ FullCheckRest c s1 ⋆
           (bytes cnf_ptr cnfBytes ⋆ array64 (c.hdr - 2304) ext ⋆
             region work_ptr (fullAlignPad work_ptr) ⋆ R)) m2 := sep_ac hm2
-      obtain ⟨cnf, hp, _, _, hsat⟩ :=
-        sat_of_checkModel_post_m6 hhdr hlen1 hm2_chk (by simpa using hrun)
-      exact hk 10#64 m2 (Or.inr (Or.inl rfl)) (by intro h; cases h)
-        (fun _ => ⟨cnf, hp, hsat⟩) hm2_reg
-    · have hrunf :
-          runKissatCheckModel cnfBytes (s1.core.vals.map UInt8.ofBitVec) c.mv = false :=
-        Bool.eq_false_iff.mpr hrun
-      have hok0 : ok = 0#64 := by rw [hok, hrunf]; rfl
-      rw [hok0]
-      simp only [show (0#64 == 1#64) = false by decide, Bool.false_eq_true, ↓reduceIte]
-      exact hk 0#64 m2 (Or.inl rfl) (by intro h; cases h) (fun h => by cases h) hm2_reg
+      obtain ⟨cnf, hp, _, _, hsat⟩ := sat_of_checkModel_post_m6 hhdr hlen1 hm2_chk hrun
+      exact hk 10#64 m2 (Or.inr (Or.inl rfl)) (fun h => by cases h) (fun _ => ⟨cnf, hp, hsat⟩)
+        hm2_reg
 
 /-- Specification-level post-hoc combinator upgrading any `fullM6SolvePreCheckSpec` outcome
 into `fullM6SolveBytesSpec` via `fullM6_extend_check_cont`. -/
@@ -1107,8 +1042,8 @@ theorem fullM6_preCheck_to_solveBytesSpec {cnf_ptr cnf_end work_ptr : BitVec 64}
   · exact Or.inl ⟨rfl, hk 0#64 m' (Or.inl rfl) (fun h => by cases h) (fun h => by cases h) hm0⟩
   · exact Or.inr (Or.inl ⟨rfl,
       hk 20#64 m' (Or.inr (Or.inr rfl)) (fun _ => hu) (fun h => by cases h) hm20⟩)
-  · refine Or.inr (Or.inr ⟨rfl, c, ext, s, ?_⟩)
-    exact fullM6_extend_check_cont hcend hcfit hwfit hle hhdr hav hext hlen hext_le hm10 hk
+  · exact Or.inr (Or.inr ⟨rfl, c, ext, s,
+      fullM6_extend_check_cont hcend hcfit hwfit hle hhdr hav hext hlen hext_le hm10 hk⟩)
 
 /-! ## 5. Generic `FullM6` Top-Level Soundness Combinators -/
 
