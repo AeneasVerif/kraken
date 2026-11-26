@@ -9,6 +9,7 @@ public import LeanQbe.T.Examples.Bitblast.Src.Aig
 public import LeanQbe.T.Examples.Bitblast.Src.Driver
 public import LeanQbe.T.Examples.Bitblast.Src.Full
 public import LeanQbe.T.Examples.Bitblast.Src.Header
+public import LeanQbe.T.Examples.Bitblast.Src.OpsCore
 public import LeanQbe.T.Examples.Bitblast.Src.Tseitin
 public import LeanQbe.T.Examples.Bitblast.Src.Validate
 public import LeanQbe.T.Examples.BvDecideBridge
