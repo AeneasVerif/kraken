@@ -29,6 +29,6 @@ eval_prefix_ext! m7PlusAllExt x64Target x64LegalTarget m7PlusInlFns
 
 /-- Exported callee signatures and stack bounds for prefix `[0, k)`. -/
 def m7PlusExtPrefix (k : Nat) : List (SigEntry × Nat) :=
-  m7PlusAllExt.drop (m7PlusInlFns.length - k)
+  m7PlusAllExt.drop (m7PlusAllExt.length - k)
 
 end LeanQbe.T.Amd64.KissatM7PlusBounds

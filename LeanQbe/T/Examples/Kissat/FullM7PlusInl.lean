@@ -68,7 +68,7 @@ theorem m7PlusInlFns_length : m7PlusInlFns.length = 410 := by
 
 end LeanQbe.T.Examples.Kissat.FullM7PlusInl
 
-abbrev m7p_inl_mod := @LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlMod
+noncomputable abbrev m7p_inl_mod := @LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlMod
 abbrev m7p_inl_eq := @LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlMod.eq
 abbrev m7p_inl_fns_eq := @LeanQbe.T.Examples.Kissat.FullM7PlusInl.m7PlusInlMod.fns_eq
 

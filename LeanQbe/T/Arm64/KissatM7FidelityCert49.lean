@@ -27,7 +27,7 @@ open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Arm64.KissatM7FidelityBounds
 open LeanQbe.T.Examples.Kissat.FullM7FidelityInl
 
 /-- Slice 49 sub-module (`[409, 413)`, `4` functions). -/
-abbrev slice49Mod : Module := { fns := m7FidInlFns.drop 409 }
+noncomputable abbrev slice49Mod : Module := { fns := m7FidInlFns.drop 409 }
 
 compile_linked_chunks! cert49 armTarget armLayout armLegalTarget armLabelClean
   slice49Mod 4 (ext := m7FidelityExtPrefix 409) (maxDirs := 600)

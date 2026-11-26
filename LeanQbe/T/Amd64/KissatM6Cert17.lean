@@ -26,7 +26,7 @@ namespace LeanQbe.T.Amd64.KissatM6Cert17
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Amd64.KissatM6Bounds LeanQbe.T.Examples.Kissat.FullM6Inl
 
 /-- Slice 17 sub-module (`[133, 144)`, `11` functions). -/
-def slice17Mod : Module := { fns := (m6InlFns.drop 133).take 11 }
+noncomputable def slice17Mod : Module := { fns := (m6InlFns.drop 133).take 11 }
 
 compile_linked_chunks! cert17 x64Target x64Layout x64LegalTarget x64LabelClean
   slice17Mod 4 (ext := m6ExtPrefix 133) (maxDirs := 600)

@@ -29,6 +29,6 @@ eval_prefix_ext! m5AllExt x64Target x64LegalTarget m5InlB5Fns
 
 /-- Exported callee signatures and stack bounds for prefix `[0, k)`. -/
 def m5ExtPrefix (k : Nat) : List (SigEntry × Nat) :=
-  m5AllExt.drop (m5InlB5Fns.length - k)
+  m5AllExt.drop (m5AllExt.length - k)
 
 end LeanQbe.T.Amd64.KissatM5Bounds

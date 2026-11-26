@@ -26,7 +26,7 @@ namespace LeanQbe.T.Arm64.KissatM6Cert42
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Arm64.KissatM6Bounds LeanQbe.T.Examples.Kissat.FullM6Inl
 
 /-- Slice 42 sub-module (`[332, 333)`, `1` functions). -/
-def slice42Mod : Module := { fns := (m6InlFns.drop 332).take 1 }
+noncomputable def slice42Mod : Module := { fns := (m6InlFns.drop 332).take 1 }
 
 compile_linked_chunks! cert42 armTarget armLayout armLegalTarget armLabelClean
   slice42Mod 4 (ext := m6ExtPrefix 332) (maxDirs := 600)

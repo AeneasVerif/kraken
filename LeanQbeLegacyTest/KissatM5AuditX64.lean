@@ -160,7 +160,7 @@ theorem audit_m5_x64_nv_closed :
     kissatM5_compiled_x64.code_infix_host kissatM5_compiled_x64.labelsUnique
 
 #guard FullM5.m5Fns.length == 270
-#guard FullM5InlB5.m5InlB5Fns.length == 270
+example : FullM5InlB5.m5InlB5Fns.length = 270 := FullM5InlB5.m5InlB5Fns_length
 
 #print axioms audit_m5_x64_fnspec
 #print axioms audit_m5_x64_unsat

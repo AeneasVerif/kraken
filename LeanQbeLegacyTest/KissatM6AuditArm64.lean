@@ -175,7 +175,7 @@ theorem audit_m6_arm_nv_closed :
 abbrev audit_m6_arm64_nv_closed := @audit_m6_arm_nv_closed
 
 #guard FullM6.m6Fns.length == 382
-#guard FullM6Inl.m6InlFns.length == 382
+example : FullM6Inl.m6InlFns.length = 382 := FullM6Inl.m6InlFns_length
 
 #print axioms audit_m6_arm_fnspec
 #print axioms audit_m6_arm_unsat

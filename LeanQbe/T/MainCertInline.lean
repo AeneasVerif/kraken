@@ -46,6 +46,10 @@ structure MatModData where
   externs : List Extern
   exits : List Sym
 
+/-- Convert a `MatFnData` entry into a `Type 0` `TFlatFn`. -/
+def MatFnData.toTFlatFn (f : MatFnData) : TFlatFn :=
+  ⟨f.name, f.as, f.rs, f.flat⟩
+
 /-- Evaluate `M.inlinePolicy policy` and reify every function body once into `Type 0` `TFlat`. -/
 def evalOptInlinePolicyData (M : Module) (policy : InlinePolicy) : MatModData :=
   let M' := M.inlinePolicy policy
@@ -254,6 +258,12 @@ def matFnToExpr (f : MatFnData) : Lean.Expr :=
   let bodyE := mkApp3 (Lean.mkConst ``LeanQbe.T.denoteFunc) asE rsE (tflatToExpr f.rs f.flat)
   mkApp4 (Lean.mkConst ``LeanQbe.T.Fn.mk) (Lean.toExpr f.name) asE rsE bodyE
 
+def tflatFnToExpr (f : TFlatFn) : Lean.Expr :=
+  let asE := listTyToExpr f.as
+  let rsE := listTyToExpr f.rs
+  mkApp4 (Lean.mkConst ``LeanQbe.T.TFlatFn.mk) (Lean.toExpr f.name) asE rsE
+    (tflatToExpr f.rs f.body)
+
 def externToExpr (e : Extern) : Lean.Expr :=
   mkApp3 (Lean.mkConst ``LeanQbe.T.Extern.mk) (Lean.toExpr e.name)
     (listTyToExpr e.as) (listTyToExpr e.rs)
@@ -284,16 +294,29 @@ def elabModAndPolicy (srcModT policyT : Syntax) : TermElabM (Lean.Expr × Lean.E
   Term.synthesizeSyntheticMVarsNoPostponing
   return (← instantiateMVars srcModE, ← instantiateMVars policyE)
 
-def emitMatFnDefs (pfx : Name) (fns : List MatFnData) : CoreM (List Lean.Expr) := do
+def evalBoolInlineOpt (v : Syntax) : CommandElabM Bool :=
+  liftTermElabM do
+    let e ← Term.elabTerm v (some (Lean.mkConst ``Bool))
+    Term.synthesizeSyntheticMVarsNoPostponing
+    unsafe evalExpr Bool (Lean.mkConst ``Bool) (← instantiateMVars e)
+
+def emitMatFnDefs (pfx : Name) (fns : List TFlatFn) (compile : Bool := false) :
+    CoreM (List Lean.Expr × List Lean.Expr) := do
+  let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
   let fnTy := Lean.mkConst ``LeanQbe.T.Fn
+  let mut flatConsts : Array Lean.Expr := #[]
   let mut fnConsts : Array Lean.Expr := #[]
   let mut idx : Nat := 0
   for f in fns do
+    let flatNm := pfx ++ `flat ++ Name.mkSimple s!"f{idx}"
     let fnNm := pfx ++ `fn ++ Name.mkSimple s!"f{idx}"
-    addCertDef fnNm fnTy (matFnToExpr f) true
+    addCertDef flatNm flatTy (tflatFnToExpr f) compile
+    addCertDef fnNm fnTy
+      (mkApp (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) (Lean.mkConst flatNm)) compile
+    flatConsts := flatConsts.push (Lean.mkConst flatNm)
     fnConsts := fnConsts.push (Lean.mkConst fnNm)
     idx := idx + 1
-  return fnConsts.toList
+  return (flatConsts.toList, fnConsts.toList)
 
 end InlineMeta
 
@@ -304,17 +327,21 @@ private def matModExpr (fnConsts : List Lean.Expr) (m : MatModData) : Lean.Expr 
   mkApp3 (Lean.mkConst ``LeanQbe.T.Module.mk) fnsE
     (listExternToExpr m.externs) (listSymToExpr m.exits)
 
-/-- `inline_mod! inlModName srcMod policy` evaluates `srcMod.optInlinePolicy policy` once in
-MetaM, emits per-function literal `denoteFunc`-backed `Fn` definitions assembled into
-`inlModName : Module` (avoiding monolithic codegen recursion depth on large modules), and proves
-`inlModName.eq : inlModName = srcMod.optInlinePolicy policy` and `inlModName.fns_eq` once via
-`addKernelEqThm` so parallel `compile_linked_chunks!` slices incur zero repeated inlining. -/
-scoped syntax "inline_mod! " ident term:arg term:arg : command
+/-- `inline_mod! inlModName srcMod policy [(compile := ...)]` evaluates
+`srcMod.optInlinePolicy policy` once in MetaM, emits `(flat.f{i}, fn.f{i})` literal `TFlatFn`
+and `TFlatFn.toFn` definitions (noncomputable by default unless `(compile := true)`), and proves
+`inlModName.eq`, `inlModName.fns_eq`, and `inlModName.fns_flat_eq`. -/
+scoped syntax "inline_mod! " ident term:arg term:arg ("(" ident " := " term ")")* : command
 
 scoped elab_rules : command
-  | `(inline_mod! $inlId $srcModT $policyT) => do
+  | `(inline_mod! $inlId $srcModT $policyT $[($optKeys := $optVals)]*) => do
     let ns ← getCurrNamespace
     let inlNm := ns ++ inlId.getId
+    let mut compile := false
+    for i in [:optKeys.size] do
+      match optKeys[i]!.getId with
+      | `compile => compile ← evalBoolInlineOpt optVals[i]!
+      | k => throwErrorAt optKeys[i]! "inline_mod!: unknown option '{k}'"
     let (matData, optInlE) ← liftTermElabM do
       let (srcModE, policyE) ← elabModAndPolicy srcModT policyT
       let callE := mkApp2 (Lean.mkConst ``LeanQbe.T.evalOptInlinePolicyData) srcModE policyE
@@ -322,10 +349,21 @@ scoped elab_rules : command
       let optInlE ← instantiateMVars
         (mkApp2 (Lean.mkConst ``LeanQbe.T.Module.optInlinePolicy) srcModE policyE)
       return (matData, optInlE)
+    let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
+    let fnTy := Lean.mkConst ``LeanQbe.T.Fn
+    let listFlatTy := mkApp (Lean.mkConst ``List [.zero]) flatTy
+    let listFnTy := mkApp (Lean.mkConst ``List [.one]) fnTy
     let modTy := Lean.mkConst ``LeanQbe.T.Module
     liftCoreM do
-      let fnConsts ← emitMatFnDefs inlNm matData.fns
-      addCertDef inlNm modTy (matModExpr fnConsts matData) true
+      let tfs := matData.fns.map MatFnData.toTFlatFn
+      let (flatConsts, fnConsts) ← emitMatFnDefs inlNm tfs compile
+      let flatFnsNm := inlNm ++ `flatFns
+      addCertDef flatFnsNm listFlatTy (mkListLit .zero flatTy flatConsts) compile
+      addCertDef inlNm modTy (matModExpr fnConsts matData) compile
+      let modFnsE := mkApp (Lean.mkConst ``LeanQbe.T.Module.fns) (Lean.mkConst inlNm)
+      let mapFlatE := mkApp4 (Lean.mkConst ``List.map [.zero, .one])
+        flatTy fnTy (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) (Lean.mkConst flatFnsNm)
+      addKernelEqThm (inlNm ++ `fns_flat_eq) listFnTy modFnsE mapFlatE .one
       addKernelEqThm (inlNm ++ `eq) modTy (Lean.mkConst inlNm) optInlE .one
     let (fnsEqTy, fnsEqProof) ← liftTermElabM do
       let proof ← mkAppM ``congrArg

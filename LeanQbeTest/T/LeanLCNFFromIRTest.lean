@@ -31,7 +31,7 @@ set_option autoImplicit false
 
 namespace LeanQbeTest.T.LeanLCNFFromIRTest
 
-open LeanQbe.T
+open LeanQbe.T hiding TFlatFn
 open LeanQbe.T.LeanLCNF
 open LeanQbe.T.Frontend.C0 (TFlatFn)
 

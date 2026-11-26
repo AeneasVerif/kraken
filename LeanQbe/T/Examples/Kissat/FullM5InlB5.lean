@@ -31,7 +31,7 @@ open LeanQbe.T LeanQbe.T.Examples.Kissat.FullM5
 inline_mod! m5InlB5Mod m5Module InlinePolicy.b5
 
 /-- Materialized `InlinePolicy.b5` function list (`270` functions) for `FullM5`. -/
-@[expose] def m5InlB5Fns : List Fn := m5InlB5Mod.fns
+@[expose] noncomputable def m5InlB5Fns : List Fn := m5InlB5Mod.fns
 
 theorem m5InlB5Fns_length : m5InlB5Fns.length = 270 := by
   t_kernel_rfl

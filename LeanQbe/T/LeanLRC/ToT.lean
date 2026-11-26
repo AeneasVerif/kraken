@@ -609,9 +609,9 @@ def lowerCaseBranch (fns : List LrcFn) (exts : List LrcExtern) (targets : List L
       (.jnz (c1.varAt cmpLvl) thenBody elseBody))
 end
 
-/-- Check ABI arity and compile one `LrcFn` into a `TFlatFn` (`rt : i64` prepended). -/
+/-- Check ABI arity and compile one `LrcFn` into a `Frontend.C0.TFlatFn` (`rt : i64` prepended). -/
 def lowerLrcFn (fns : List LrcFn) (exts : List LrcExtern) (targets : List LrcClosureTarget)
-    (fn : LrcFn) : Except String TFlatFn := do
+    (fn : LrcFn) : Except String Frontend.C0.TFlatFn := do
   if fn.params.length > 5 then
     throw s!"LeanLRC: '{fn.name}' has {fn.params.length} params (> 5 max for x64 ABI)"
   let mangled := mangleSym fn.name
@@ -647,7 +647,7 @@ def lowerLrcFn (fns : List LrcFn) (exts : List LrcExtern) (targets : List LrcClo
     throw s!"LeanLRC: TFlat.wfCheck failed on lowered function '{fn.name}'"
 
 /-- Lower an `LrcModule` (user functions + per-arity `lean_apply_k` dispatchers). -/
-def lowerLrcProgram (m : LrcModule) : Except String (List TFlatFn) := do
+def lowerLrcProgram (m : LrcModule) : Except String (List Frontend.C0.TFlatFn) := do
   let targets ← m.closureTargets
   for t in targets do
     match m.fns.find? (fun f => mangleSym f.name == t.fnName) with
@@ -666,12 +666,12 @@ def lowerLrcProgram (m : LrcModule) : Except String (List TFlatFn) := do
     throw s!"LeanLRC: duplicate lowered symbol names in module '{m.name}'"
   pure allFns
 
-/-- Convert a list of `TFlatFn` into reified PHOAS `Fn`s (each guaranteed `Wf`). -/
-def tflatFnsToFns (tfs : List TFlatFn) : List Fn :=
-  tfs.map TFlatFn.toFn
+/-- Convert a list of `Frontend.C0.TFlatFn` into reified PHOAS `Fn`s (each guaranteed `Wf`). -/
+def tflatFnsToFns (tfs : List Frontend.C0.TFlatFn) : List Fn :=
+  tfs.map Frontend.C0.TFlatFn.toFn
 
 /-- Build a full `LeanQbe.T.Module` combining `rtBase_fns` and lowered program functions. -/
-def toLeanModuleWithRuntime (tfs : List TFlatFn) : Module :=
+def toLeanModuleWithRuntime (tfs : List Frontend.C0.TFlatFn) : Module :=
   { fns := rtBase_fns ++ tflatFnsToFns tfs, externs := [], exits := rtExits }
 
 /-- Merge multiple `LrcModule`s into one namespace-clean module (deduplicating externs). -/
@@ -683,8 +683,9 @@ def mergeLrcModules (name : String) (ms : List LrcModule) : LrcModule :=
     else acc ++ [ex]) []
   { name, fns := allFns, externs := dedupExts }
 
-/-- Every reified `TFlatFn` satisfies `Func.Wf`. -/
-theorem tflatFnsToFns_wf (tfs : List TFlatFn) : ∀ f ∈ tflatFnsToFns tfs, f.Wf := by
+/-- Every reified `Frontend.C0.TFlatFn` satisfies `Func.Wf`. -/
+theorem tflatFnsToFns_wf (tfs : List Frontend.C0.TFlatFn) :
+    ∀ f ∈ tflatFnsToFns tfs, f.Wf := by
   intro f hf
   simp only [tflatFnsToFns, List.mem_map] at hf
   rcases hf with ⟨tf, _, rfl⟩
@@ -735,8 +736,8 @@ structure LrcFnMetrics where
   calls : Nat
   deriving Repr
 
-/-- Collect per-function IR metrics for a list of `TFlatFn`s. -/
-def collectMetrics (tfs : List TFlatFn) : List LrcFnMetrics :=
+/-- Collect per-function IR metrics for a list of `Frontend.C0.TFlatFn`s. -/
+def collectMetrics (tfs : List Frontend.C0.TFlatFn) : List LrcFnMetrics :=
   tfs.map fun tf =>
     let (ops, jnzes, calls) := tflatCounts tf.flat
     { name := tf.name, ops, jnzes, calls }

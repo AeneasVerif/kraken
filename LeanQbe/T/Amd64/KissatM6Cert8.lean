@@ -26,7 +26,7 @@ namespace LeanQbe.T.Amd64.KissatM6Cert8
 open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Amd64.KissatM6Bounds LeanQbe.T.Examples.Kissat.FullM6Inl
 
 /-- Slice 8 sub-module (`[80, 81)`, `1` functions). -/
-def slice8Mod : Module := { fns := (m6InlFns.drop 80).take 1 }
+noncomputable def slice8Mod : Module := { fns := (m6InlFns.drop 80).take 1 }
 
 compile_linked_chunks! cert8 x64Target x64Layout x64LegalTarget x64LabelClean
   slice8Mod 4 (ext := m6ExtPrefix 80) (maxDirs := 600)

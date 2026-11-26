@@ -34,7 +34,7 @@ public section
 
 namespace LeanQbeTest.T.LcnfC0FullTest
 
-open LeanQbe.T
+open LeanQbe.T hiding TFlatFn
 open LeanQbe.T.LeanLCNF
 open LeanQbe.T.Frontend.C0 (TFlatFn)
 

@@ -184,7 +184,8 @@ theorem audit_m7f_arm_run_unsat :
   simpa only [m7FidelityNvWorkLen_eq, m7FidelityNvPayload_eq] using m7Fidelity_arm64_run_unsat
 
 #guard LeanQbe.T.Examples.Kissat.FullM7Fidelity.m7FidelityFns.length == 413
-#guard LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns.length == 413
+example : LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns.length = 413 :=
+  LeanQbe.T.Examples.Kissat.FullM7FidelityInl.m7FidInlFns_length
 
 #print axioms audit_m7f_arm_compiled
 #print axioms audit_m7f_arm_fnspec

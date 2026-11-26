@@ -26,7 +26,7 @@ namespace LeanQbe.T.Arm64.KissatM5Cert24
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Arm64.KissatM5Bounds LeanQbe.T.Examples.Kissat.FullM5InlB5
 
 /-- Slice 24 sub-module (`[198, 203)`, `5` functions). -/
-def slice24Mod : Module := { fns := (m5InlB5Fns.drop 198).take 5 }
+noncomputable def slice24Mod : Module := { fns := (m5InlB5Fns.drop 198).take 5 }
 
 compile_linked_chunks! cert24 armTarget armLayout armLegalTarget armLabelClean
   slice24Mod 4 (ext := m5ExtPrefix 198) (maxDirs := 450)

@@ -3,6 +3,7 @@ module
 public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.InlineChunk
 public meta import Lean
+public meta import Lean.Elab.Parallel
 public meta import LeanQbe.T.MainCertInline
 public meta import LeanQbe.T.InlineChunk
 
@@ -29,6 +30,14 @@ set_option autoImplicit false
 public section
 
 namespace LeanQbe.T
+
+/-- Congruence combinator lifting `fns = flatFns.map TFlatFn.toFn` over `List.append`. -/
+theorem list_map_append_congr {α : Type} {β : Type 1} {f : α → β}
+    {a1 a2 : List α} {b1 b2 : List β}
+    (ha : b1 = a1.map f) (hb : b2 = a2.map f) :
+    List.append b1 b2 = List.map f (List.append a1 a2) := by
+  change b1 ++ b2 = List.map f (a1 ++ a2)
+  rw [ha, hb, List.map_append]
 
 meta section
 
@@ -412,8 +421,59 @@ scoped elab_rules : command
       return (← instantiateMVars (← inferType pf), ← instantiateMVars pf)
     liftCoreM <| addCertThm (baseNm ++ `rest0_eq) rest0Ty rest0Val
 
+private def normCandWavefront (chunkNm : Name) (fnTy : Lean.Expr)
+    (curCandArr sliceFnExprs : Array Lean.Expr) (candFlags : List Bool)
+    (candSelIdxs : List (List Nat)) : CommandElabM (Array Lean.Expr) := do
+  let prevLen := curCandArr.size
+  let mut j : Nat := 0
+  let mut selQueue := candSelIdxs
+  let mut acceptedArr : Array (Name × List Nat × Lean.Expr) := #[]
+  for ok in candFlags do
+    if ok then
+      let pushIdxs := selQueue.head!
+      selQueue := selQueue.tail!
+      let cNm := chunkNm ++ `cand ++ Name.mkSimple s!"c{j}"
+      acceptedArr := acceptedArr.push (cNm, pushIdxs, sliceFnExprs[j]!)
+    j := j + 1
+  let allCandArr := curCandArr ++ acceptedArr.map fun (cNm, _, _) => Lean.mkConst cNm
+  let m := acceptedArr.size
+  let mut ready := Array.replicate m false
+  let mut remaining := m
+  while remaining > 0 do
+    let mut wave : Array Nat := #[]
+    for k in [:m] do
+      if !ready[k]! then
+        let depsOk := acceptedArr[k]!.2.1.all fun idx =>
+          idx < prevLen || (idx - prevLen < m && ready[idx - prevLen]!)
+        if depsOk then wave := wave.push k
+    if wave.isEmpty then
+      throwError "inline_mod_chunk!: cyclic intra-chunk candidate dependency"
+    let maxBatch := 8
+    let mut pos : Nat := 0
+    while pos < wave.size do
+      let stop := min (pos + maxBatch) wave.size
+      let batch := (wave.extract pos stop).toList
+      let jobs : List (MetaM Lean.Expr) := batch.map fun k => do
+        let (_, pushIdxs, fnE) := acceptedArr[k]!
+        let selListE := mkListLit .one fnTy (pushIdxs.map fun idx => allCandArr[idx]!)
+        normPhoasFn (mkApp2 (Lean.mkConst ``LeanQbe.T.Fn.inline) selListE fnE)
+      if jobs.length == 1 then
+        let normE ← liftTermElabM jobs.head!
+        liftCoreM <| addCertDef acceptedArr[batch.head!]!.1 fnTy normE false
+      else
+        let results ← liftTermElabM <| MetaM.par' jobs
+        for (k, res) in batch.zip results do
+          match res with
+          | .ok normE => liftCoreM <| addCertDef acceptedArr[k]!.1 fnTy normE false
+          | .error e => throw e
+      pos := stop
+    for k in wave do
+      ready := ready.set! k true
+    remaining := remaining - wave.size
+  return acceptedArr.map fun (cNm, _, _) => Lean.mkConst cNm
+
 /-- `inline_mod_chunk! chunkId baseId srcMod policy startIdx count [(prev := ...)]
-[(isLast := ...)]` materializes and kernel-checks ONLY `[startIdx, startIdx + count)`. -/
+[(isLast := ...)] [(compile := ...)]` materializes `[startIdx, startIdx + count)`. -/
 scoped syntax "inline_mod_chunk! " ident ident term:arg term:arg num num
     ("(" ident " := " term ")")* : command
 
@@ -426,17 +486,15 @@ scoped elab_rules : command
     let (aN, nN) := (startLit.getNat, countLit.getNat)
     let mut prevNm? : Option Name := none
     let mut isLast := false
+    let mut compile := false
     for i in [:optKeys.size] do
       let v := optVals[i]!
       match optKeys[i]!.getId with
       | `prev =>
         if let `($pid:ident) := v then prevNm? := some (ns ++ pid.getId)
         else throwErrorAt v "inline_mod_chunk!: prev must be an identifier"
-      | `isLast =>
-        isLast ← liftTermElabM do
-          let e ← Term.elabTerm v (some (Lean.mkConst ``Bool))
-          Term.synthesizeSyntheticMVarsNoPostponing
-          unsafe evalExpr Bool (Lean.mkConst ``Bool) (← instantiateMVars e)
+      | `isLast => isLast ← evalBoolInlineOpt v
+      | `compile => compile ← evalBoolInlineOpt v
       | k => throwErrorAt optKeys[i]! "inline_mod_chunk!: unknown option '{k}'"
     let (scNm, lcNm) := (baseNm ++ `siteCounts, baseNm ++ `loopCounts)
     let (srcModE, policyE, chunkEx) ← liftTermElabM do
@@ -447,7 +505,9 @@ scoped elab_rules : command
         (Lean.mkConst ``LeanQbe.T.EvalChunkInlDataEx) callE
       return (srcModE, policyE, cd)
     let chunkData := chunkEx.base
+    let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
     let fnTy := Lean.mkConst ``LeanQbe.T.Fn
+    let listFlatTy := mkApp (Lean.mkConst ``List [.zero]) flatTy
     let listFnTy := mkApp (Lean.mkConst ``List [1]) fnTy
     let listSigTy := mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``LeanQbe.T.SigEntry)
     let fnsE := mkApp (Lean.mkConst ``LeanQbe.T.Module.fns) srcModE
@@ -462,9 +522,16 @@ scoped elab_rules : command
     let candsInE := match prevNm? with
       | none => mkApp (Lean.mkConst ``List.nil [1]) fnTy
       | some p => Lean.mkConst (p ++ `candsOut)
-    let fnConsts ← liftCoreM <| emitMatFnDefs chunkNm chunkData.matFns
+    let tfs := chunkData.matFns.map MatFnData.toTFlatFn
+    let (flatConsts, fnConsts) ← liftCoreM <| emitMatFnDefs chunkNm tfs compile
+    let litFlatFnsNm := chunkNm ++ `flatFns
     let litFnsNm := chunkNm ++ `fns
-    liftCoreM <| addCertDef litFnsNm listFnTy (mkListLit .one fnTy fnConsts) true
+    liftCoreM do
+      addCertDef litFlatFnsNm listFlatTy (mkListLit .zero flatTy flatConsts) compile
+      addCertDef litFnsNm listFnTy (mkListLit .one fnTy fnConsts) compile
+      let mapFlatE := mkApp4 (Lean.mkConst ``List.map [.zero, .one])
+        flatTy fnTy (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) (Lean.mkConst litFlatFnsNm)
+      addKernelEqThm (chunkNm ++ `fns_flat_eq) listFnTy (Lean.mkConst litFnsNm) mapFlatE .one
     let sliceE := mkApp3 (Lean.mkConst ``List.take [1]) fnTy (mkNatLit nN)
       (mkApp3 (Lean.mkConst ``List.drop [1]) fnTy (mkNatLit aN) fnsE)
     let rhsRaw := mkAppN (Lean.mkConst ``LeanQbe.T.inlineFnsPolicy)
@@ -493,30 +560,19 @@ scoped elab_rules : command
       let seenOutVal := mkApp3 (Lean.mkConst ``List.append [.zero])
         (Lean.mkConst ``LeanQbe.T.SigEntry) seenInE (listSigToExpr sliceSigs)
       liftCoreM <| addCertDef seenOutNm listSigTy seenOutVal false
-      let mut curCandArr ← liftTermElabM do
-        match prevNm? with
-        | none => pure #[]
-        | some p => resolveConstLitElemsRev (p ++ `candsOut)
-      let sliceFnExprs ← liftTermElabM do
-        if chunkData.candFlags.any id then peelListRange fnsE aN nN else pure #[]
-      let mut newCands : Array Lean.Expr := #[]
-      let mut selQueue := chunkEx.candSelIdxs
-      let mut j : Nat := 0
-      for ok in chunkData.candFlags do
-        if ok then
-          let pushIdxs := selQueue.head!
-          selQueue := selQueue.tail!
-          let normE ← liftTermElabM do
-            let selListE := mkListLit .one fnTy (pushIdxs.map fun idx => curCandArr[idx]!)
-            normPhoasFn (mkApp2 (Lean.mkConst ``LeanQbe.T.Fn.inline) selListE sliceFnExprs[j]!)
-          let cNm := chunkNm ++ `cand ++ Name.mkSimple s!"c{j}"
-          liftCoreM <| addCertDef cNm fnTy normE false
-          let cConst := Lean.mkConst cNm
-          curCandArr := curCandArr.push cConst
-          newCands := newCands.push cConst
-        j := j + 1
-      let candsOutVal := newCands.foldl
-        (fun acc x => mkApp3 (Lean.mkConst ``List.cons [.one]) fnTy x acc) candsInE
+      let candsOutVal ←
+        if !chunkData.candFlags.any id then
+          pure candsInE
+        else
+          let curCandArr ← liftTermElabM do
+            match prevNm? with
+            | none => pure #[]
+            | some p => resolveConstLitElemsRev (p ++ `candsOut)
+          let sliceFnExprs ← liftTermElabM <| peelListRange fnsE aN nN
+          let newCands ← normCandWavefront chunkNm fnTy curCandArr sliceFnExprs
+            chunkData.candFlags chunkEx.candSelIdxs
+          pure <| newCands.foldl
+            (fun acc x => mkApp3 (Lean.mkConst ``List.cons [.one]) fnTy x acc) candsInE
       liftCoreM <| addCertDef candsOutNm listFnTy candsOutVal false
       let seenRhs := mkApp3 (Lean.mkConst ``List.append [.zero])
         (Lean.mkConst ``LeanQbe.T.SigEntry) seenInE
@@ -541,32 +597,54 @@ scoped elab_rules : command
         return (← instantiateMVars (← inferType pf), ← instantiateMVars pf)
       liftCoreM <| addCertThm (chunkNm ++ `step_eq) stepTy stepVal
 
-/-- `inline_mod_join! modId fnsId srcMod policy baseId [c0, c1, ...]` concatenates chunk
-function lists right-associatively into `fnsId` and `modId`, proving `modId.fns_eq` and
+/-- `inline_mod_join! modId fnsId srcMod policy baseId [c0, c1, ...] [(compile := ...)]` joins
+chunk lists into `flatFns`, `fnsId`, and `modId`, proving `modId.fns_flat_eq`, `modId.fns_eq`, and
 `modId.eq` in `O(#chunks)` with zero kernel AST reduction. -/
 scoped syntax "inline_mod_join! " ident ident term:arg term:arg ident
-    "[" ident,* "]" : command
+    "[" ident,* "]" ("(" ident " := " term ")")* : command
 
 scoped elab_rules : command
-  | `(inline_mod_join! $modId $fnsId $srcModT $policyT $baseId [$chunkIds,*]) => do
+  | `(inline_mod_join! $modId $fnsId $srcModT $policyT $baseId [$chunkIds,*]
+      $[($optKeys := $optVals)]*) => do
     let ns ← getCurrNamespace
     let (modNm, fnsNm, baseNm) := (ns ++ modId.getId, ns ++ fnsId.getId, ns ++ baseId.getId)
+    let flatFnsNm := modNm ++ `flatFns
+    let mut compile := false
+    for i in [:optKeys.size] do
+      match optKeys[i]!.getId with
+      | `compile => compile ← evalBoolInlineOpt optVals[i]!
+      | k => throwErrorAt optKeys[i]! "inline_mod_join!: unknown option '{k}'"
     let chunkNms := chunkIds.getElems.toList.map fun id => ns ++ id.getId
     if chunkNms.isEmpty then throwError "inline_mod_join!: chunk list cannot be empty"
     let (srcModE, policyE, baseData) ← liftTermElabM (evalChunkBaseElab srcModT policyT)
+    let flatTy := Lean.mkConst ``LeanQbe.T.TFlatFn
     let fnTy := Lean.mkConst ``LeanQbe.T.Fn
+    let listFlatTy := mkApp (Lean.mkConst ``List [.zero]) flatTy
     let listFnTy := mkApp (Lean.mkConst ``List [1]) fnTy
     let modTy := Lean.mkConst ``LeanQbe.T.Module
+    let flatFnsVal := match (chunkNms.map fun c => Lean.mkConst (c ++ `flatFns)).reverse with
+      | [] => mkApp (Lean.mkConst ``List.nil [.zero]) flatTy
+      | last :: restRev =>
+        restRev.foldl (fun acc pre => mkApp3 (Lean.mkConst ``List.append [.zero]) flatTy pre acc)
+          last
     let fnsVal := match (chunkNms.map fun c => Lean.mkConst (c ++ `fns)).reverse with
       | [] => mkApp (Lean.mkConst ``List.nil [1]) fnTy
       | last :: restRev =>
         restRev.foldl (fun acc pre => mkApp3 (Lean.mkConst ``List.append [1]) fnTy pre acc) last
     liftCoreM do
-      addCertDef fnsNm listFnTy fnsVal true
+      addCertDef flatFnsNm listFlatTy flatFnsVal compile
+      addCertDef fnsNm listFnTy fnsVal compile
       addCertDef modNm modTy (mkApp3 (Lean.mkConst ``LeanQbe.T.Module.mk) (Lean.mkConst fnsNm)
-        (listExternToExpr baseData.externs) (listSymToExpr baseData.exits)) true
-    let (fnsEqTy, fnsEqProof, modEqTy, modEqProof) ← liftTermElabM do
+        (listExternToExpr baseData.externs) (listSymToExpr baseData.exits)) compile
+    let (fnsFlatEqTy, fnsFlatEqProof, fnsEqTy, fnsEqProof, modEqTy, modEqProof) ← liftTermElabM do
       let revChunks := chunkNms.reverse
+      let mut flatEqPf : Lean.Expr := Lean.mkConst (revChunks.head! ++ `fns_flat_eq)
+      for cNm in revChunks.tail! do
+        flatEqPf ← mkAppM ``LeanQbe.T.list_map_append_congr
+          #[Lean.mkConst (cNm ++ `fns_flat_eq), flatEqPf]
+      let mapFlatE := mkApp4 (Lean.mkConst ``List.map [.zero, .one])
+        flatTy fnTy (Lean.mkConst ``LeanQbe.T.TFlatFn.toFn) (Lean.mkConst flatFnsNm)
+      let modFnsFlatEqTy := mkApp3 (Lean.mkConst ``Eq [2]) listFnTy (Lean.mkConst fnsNm) mapFlatE
       let mut eqPf : Lean.Expr := Lean.mkConst (revChunks.head! ++ `last_eq)
       for cNm in revChunks.tail! do
         eqPf ← mkAppM ``LeanQbe.T.inlRest_prepend_eq #[Lean.mkConst (cNm ++ `step_eq), eqPf]
@@ -584,9 +662,11 @@ scoped elab_rules : command
       let modEqPf := mkApp5 (Lean.mkConst ``LeanQbe.T.Module.eq_of_fields)
         (Lean.mkConst modNm) optModE fnsEqPf extsEq exitsEq
       let modEqTy := mkApp3 (Lean.mkConst ``Eq [2]) modTy (Lean.mkConst modNm) optModE
-      return (← instantiateMVars modFnsEqTy, ← instantiateMVars fnsEqPf,
+      return (← instantiateMVars modFnsFlatEqTy, ← instantiateMVars flatEqPf,
+        ← instantiateMVars modFnsEqTy, ← instantiateMVars fnsEqPf,
         ← instantiateMVars modEqTy, ← instantiateMVars modEqPf)
     liftCoreM do
+      addCertThm (modNm ++ `fns_flat_eq) fnsFlatEqTy fnsFlatEqProof
       addCertThm (modNm ++ `fns_eq) fnsEqTy fnsEqProof
       addCertThm (modNm ++ `eq) modEqTy modEqProof
 

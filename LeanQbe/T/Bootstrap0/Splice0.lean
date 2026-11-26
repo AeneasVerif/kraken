@@ -124,8 +124,8 @@ partial def spliceTBlocks (rsE : Lean.Expr) {rs : List Ty} :
     pure <| mkAppN (Lean.mkConst ``LeanQbe.T.TBlocks.cons) #[rsE, tsE, sigE, bE, bsE]
 end
 
-/-- Reify `TFlatFn` to a kernel `Lean.Expr`. -/
-def spliceTFlatFn (tf : TFlatFn) : Except String Lean.Expr := do
+/-- Reify `Frontend.C0.TFlatFn` to a kernel `Lean.Expr`. -/
+def spliceTFlatFn (tf : Frontend.C0.TFlatFn) : Except String Lean.Expr := do
   let asE := listLit tyConst (tf.as.map tyExpr0)
   let rsE := listLit tyConst (tf.rs.map tyExpr0)
   let flatE ← spliceTFlat rsE tf.flat
@@ -148,12 +148,14 @@ partial def collectCallsTBlocks {rs : List Ty} :
   | _, .cons b bs => collectCallsTFlat b ++ collectCallsTBlocks bs
 end
 
-/-- Topologically sort `TFlatFn`s strictly callees-first via post-order DFS; fail on cycles. -/
-partial def topoSortTFlat (tfs : List TFlatFn) : Except String (List TFlatFn) := do
-  let byName : Std.HashMap String TFlatFn :=
+/-- Topologically sort `Frontend.C0.TFlatFn`s strictly callees-first via DFS; fail on cycles. -/
+partial def topoSortTFlat (tfs : List Frontend.C0.TFlatFn) :
+    Except String (List Frontend.C0.TFlatFn) := do
+  let byName : Std.HashMap String Frontend.C0.TFlatFn :=
     tfs.foldl (fun m tf => m.insert tf.name tf) {}
   let rec visit (nm : String) (visiting done : Std.HashSet String)
-      (out : List TFlatFn) : Except String (Std.HashSet String × List TFlatFn) := do
+      (out : List Frontend.C0.TFlatFn) :
+      Except String (Std.HashSet String × List Frontend.C0.TFlatFn) := do
     if done.contains nm then
       return (done, out)
     if visiting.contains nm then
@@ -171,7 +173,7 @@ partial def topoSortTFlat (tfs : List TFlatFn) : Except String (List TFlatFn) :=
           (d, acc) ← visit c visiting' d acc
       return (d.insert nm, acc ++ [tf])
   let mut done : Std.HashSet String := {}
-  let mut out : List TFlatFn := []
+  let mut out : List Frontend.C0.TFlatFn := []
   for tf in tfs do
     (done, out) ← visit tf.name {} done out
   return out
@@ -194,17 +196,18 @@ elab "splice_lcnf_tflat! " modId:ident lcModT:term : command => do
     if !tf.flat.wfCheck (pushTypes tf.as []) [] then
       throwError "splice_lcnf_tflat!: wfCheck failed for {tf.name}"
   let mut fnNames : List Name := []
+  let c0TfConst := Lean.mkConst ``LeanQbe.T.Frontend.C0.TFlatFn
   for (tf, i) in tfs.zip (List.range tfs.length) do
     let e ← match spliceTFlatFn tf with
       | .ok e => pure e
       | .error err => throwError "splice_lcnf_tflat!: {err}"
     let nm := outNm ++ Name.mkSimple s!"tf_{i}"
-    liftCoreM <| addExposedDecl nm (Lean.mkConst ``TFlatFn) e (forceExpose := true)
+    liftCoreM <| addExposedDecl nm c0TfConst e (forceExpose := true)
     fnNames := fnNames ++ [nm]
-  let tfsTy := mkApp (Lean.mkConst ``List [.zero]) (Lean.mkConst ``TFlatFn)
+  let tfsTy := mkApp (Lean.mkConst ``List [.zero]) c0TfConst
   let tfsVal := (fnNames.map Lean.mkConst).foldr
-    (fun e acc => mkApp3 (Lean.mkConst ``List.cons [.zero]) (Lean.mkConst ``TFlatFn) e acc)
-    (mkApp (Lean.mkConst ``List.nil [.zero]) (Lean.mkConst ``TFlatFn))
+    (fun e acc => mkApp3 (Lean.mkConst ``List.cons [.zero]) c0TfConst e acc)
+    (mkApp (Lean.mkConst ``List.nil [.zero]) c0TfConst)
   liftCoreM <| addExposedDecl outNm tfsTy tfsVal (forceExpose := true)
 
 /-- Compiled `meta` helper evaluating per-function compiled directive counts `(name, dirs)`. -/

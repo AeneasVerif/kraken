@@ -26,7 +26,7 @@ namespace LeanQbe.T.Arm64.KissatM6Cert15
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Arm64.KissatM6Bounds LeanQbe.T.Examples.Kissat.FullM6Inl
 
 /-- Slice 15 sub-module (`[120, 121)`, `1` functions). -/
-def slice15Mod : Module := { fns := (m6InlFns.drop 120).take 1 }
+noncomputable def slice15Mod : Module := { fns := (m6InlFns.drop 120).take 1 }
 
 compile_linked_chunks! cert15 armTarget armLayout armLegalTarget armLabelClean
   slice15Mod 4 (ext := m6ExtPrefix 120) (maxDirs := 600)

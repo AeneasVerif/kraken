@@ -26,7 +26,7 @@ namespace LeanQbe.T.Arm64.KissatM6Cert7
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Arm64.KissatM6Bounds LeanQbe.T.Examples.Kissat.FullM6Inl
 
 /-- Slice 7 sub-module (`[68, 80)`, `12` functions). -/
-def slice7Mod : Module := { fns := (m6InlFns.drop 68).take 12 }
+noncomputable def slice7Mod : Module := { fns := (m6InlFns.drop 68).take 12 }
 
 compile_linked_chunks! cert7 armTarget armLayout armLegalTarget armLabelClean
   slice7Mod 4 (ext := m6ExtPrefix 68) (maxDirs := 600)

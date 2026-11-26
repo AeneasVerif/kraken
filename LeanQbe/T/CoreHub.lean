@@ -120,6 +120,9 @@ public import LeanQbe.T.LoopRotateLemmas
 public import LeanQbe.T.Main
 public import LeanQbe.T.MainCertCore
 public import LeanQbe.T.MainCertElab
+public import LeanQbe.T.MainCertFlat
+public import LeanQbe.T.MainCertFlatDecode
+public import LeanQbe.T.MainCertFlatElab
 public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.MainCertInlineChunk
 public import LeanQbe.T.MainCertInlineProof
