@@ -12,13 +12,13 @@ public import LeanQbe.T.Examples.Kissat.Ref.Sat
 Proves foundational semantic soundness for `LeanQbe.T.Examples.Kissat.Ref.Sat` over
 `Std.Sat.CNF Nat` (pure Lean, zero `Kraken.Mem`):
 
-1. Literal encoding bijection and `checkModel_sound`.
-2. Propositional resolution (`entails_resolve`), root-literal stripping (`entails_stripFalsified`),
-   clause addition (`entails_addClause`), empty-clause refutation (`unsat_of_entails_nil`),
-   root-unit pruning (`pruneClause_sound`), and binary strengthening (`strengthenWithBinary_sound`).
-3. `ReasonDagInv`, `TrailInv`, and `trailEntailment` (`F₀ ∧ decisions ≤_k ⊨ literal`).
-4. Transition invariant preservation for `initState`, `decideLit`, `assignProp`, `addRootUnit`,
-   `backtrackTo`, `addLearnedClause`, `unitPropStep`, and `propagateAll`.
+1. Signed DIMACS literal round-trip lemmas (`litToDimacs`, `dimacsToLit`).
+2. Root-unit stripping/pruning (`pruneClause_sound`) and binary strengthening
+   (`strengthenWithBinary_sound`).
+3. `ReasonDagInv`, `LazyTrailInv`, `TrailInv`, and `lazyTrailEntailment` / `trailEntailment`.
+4. Transition invariant preservation (`reasonDagInv_assignLit`, `initState`, `decideLit`,
+   `assignProp`, `addRootUnit`, `backtrackTo`, `addLearnedClause`, `unitPropStep`,
+   `propagateAll`).
 -/
 
 set_option autoImplicit false
@@ -29,64 +29,7 @@ namespace LeanQbe.T.Examples.Kissat.Ref
 
 open Std.Sat
 
-/-! ## 1. Literal encoding, CNF bridge, and `checkModel_sound` -/
-
-@[simp] theorem litVar_mkLit (v : Nat) (pol : Bool) : litVar (mkLit v pol) = v := by
-  cases pol <;> simp [litVar, mkLit] <;> omega
-
-@[simp] theorem litSign_mkLit (v : Nat) (pol : Bool) : litSign (mkLit v pol) = !pol := by
-  cases pol <;> simp [litSign, mkLit] <;> omega
-
-@[simp] theorem litPol_mkLit (v : Nat) (pol : Bool) : litPol (mkLit v pol) = pol := by
-  cases pol <;> simp [litPol, mkLit] <;> omega
-
-theorem litNeg_eq (l : Nat) : litNeg l = if l % 2 = 0 then l + 1 else l - 1 := by
-  unfold litNeg
-  have hd : (l ^^^ 1) / 2 = l / 2 := by
-    simpa using Nat.xor_div_two_pow (a := l) (b := 1) (n := 1)
-  have hm : (l ^^^ 1) % 2 = l % 2 ^^^ 1 := by
-    simpa using Nat.xor_mod_two_pow (a := l) (b := 1) (n := 1)
-  rcases Nat.mod_two_eq_zero_or_one l with h | h
-  · rw [h] at hm; change (l ^^^ 1) % 2 = 1 at hm; simp [h]; omega
-  · rw [h] at hm; change (l ^^^ 1) % 2 = 0 at hm; simp [h]; omega
-
-@[simp] theorem litVar_litNeg (l : Nat) : litVar (litNeg l) = litVar l := by
-  simp [litVar, litNeg_eq]; split <;> omega
-
-@[simp] theorem litSign_litNeg (l : Nat) : litSign (litNeg l) = !litSign l := by
-  simp [litSign, litNeg_eq]
-  rcases Nat.mod_two_eq_zero_or_one l with h | h <;> simp [h] <;> omega
-
-@[simp] theorem litPol_litNeg (l : Nat) : litPol (litNeg l) = !litPol l := by
-  simp [litPol, litNeg_eq]
-  rcases Nat.mod_two_eq_zero_or_one l with h | h <;> simp [h] <;> omega
-
-@[simp] theorem litNeg_litNeg (l : Nat) : litNeg (litNeg l) = l := by
-  rw [litNeg_eq (litNeg l), litNeg_eq l]
-  rcases Nat.mod_two_eq_zero_or_one l with h | h
-  · rw [ite_eq_left h, ite_eq_right (by omega : (l + 1) % 2 ≠ 0)]; omega
-  · rw [ite_eq_right (by omega : l % 2 ≠ 0), ite_eq_left (by omega : (l - 1) % 2 = 0)]; omega
-
-theorem litNeg_ne_self (l : Nat) : litNeg l ≠ l := by
-  simp [litNeg_eq]; split <;> omega
-
-theorem litVar_eq_iff (x y : Nat) : litVar x = litVar y ↔ x = y ∨ x = litNeg y := by
-  simp only [litVar, litNeg_eq]
-  rcases Nat.mod_two_eq_zero_or_one x with hx | hx <;>
-    rcases Nat.mod_two_eq_zero_or_one y with hy | hy <;> simp [hy] <;> omega
-
-@[simp] theorem litToLiteral_litOfLiteral (lit : Literal Nat) :
-    litToLiteral (litOfLiteral lit) = lit := by
-  rcases lit with ⟨v, pol⟩; simp [litToLiteral, litOfLiteral]
-
-@[simp] theorem litOfLiteral_litToLiteral (l : Nat) :
-    litOfLiteral (litToLiteral l) = l := by
-  simp [litOfLiteral, litToLiteral, mkLit, litVar, litSign]
-  rcases Nat.mod_two_eq_zero_or_one l with h | h <;> simp [h] <;> omega
-
-@[simp] theorem litToLiteral_litNeg (l : Nat) :
-    litToLiteral (litNeg l) = (litToLiteral l).negate := by
-  simp [litToLiteral, Literal.negate]
+/-! ## 1. Signed DIMACS `Int` literal bridges -/
 
 theorem litToDimacs_litNeg (l : Nat) : litToDimacs (litNeg l) = -litToDimacs l := by
   simp only [litToDimacs, litVar_litNeg, litSign_litNeg]; cases litSign l <;> simp
@@ -129,177 +72,7 @@ theorem litToDimacs_dimacsToLit {e : Int} {l : Nat} (h : dimacsToLit e = some l)
       rw [litToDimacs, litSign, litVar, hs]
       simp [show (2 * k + 1) / 2 = k by omega, Int.ofNat_eq_natCast]
 
-@[simp] theorem literals_cnfClause (lits : List Nat) :
-    (cnfClause lits).literals = lits.map litToLiteral := by simp [cnfClause]
-
-@[simp] theorem mem_cnfClause_iff {lits : List Nat} {lit : Literal Nat} :
-    lit ∈ cnfClause lits ↔ litOfLiteral lit ∈ lits := by
-  rw [← CNF.Clause.mem_literals_iff, literals_cnfClause, List.mem_map]
-  exact ⟨fun ⟨x, hx, h⟩ => h ▸ by simpa using hx,
-    fun h => ⟨litOfLiteral lit, h, litToLiteral_litOfLiteral lit⟩⟩
-
-theorem clause_sat_cnfClause_iff (α : Nat → Bool) (lits : List Nat) :
-    (cnfClause lits).Sat α ↔ ∃ l ∈ lits, α (litVar l) = !(litSign l) := by
-  rw [CNF.Clause.sat_iff_exists_mem_eq]
-  constructor
-  · rintro ⟨lit, hmem, heq⟩
-    refine ⟨litOfLiteral lit, mem_cnfClause_iff.mp hmem, ?_⟩
-    simpa [litToLiteral, litOfLiteral] using heq
-  · rintro ⟨l, hl, heq⟩
-    refine ⟨litToLiteral l, ?_, heq⟩
-    rw [← CNF.Clause.mem_literals_iff, literals_cnfClause]
-    exact List.mem_map_of_mem hl
-
-@[simp] theorem sat_cnfClause_singleton (α : Nat → Bool) (l : Nat) :
-    (cnfClause [l]).Sat α ↔ α (litVar l) = !(litSign l) := by
-  simp [clause_sat_cnfClause_iff]
-
-@[simp] theorem cnfClause_nil : cnfClause [] = (CNF.Clause.empty : CNF.Clause Nat) :=
-  CNF.Clause.ext (by simp)
-
-@[simp] theorem clauseOfCnf_cnfClause (lits : List Nat) :
-    clauseOfCnf (cnfClause lits) = lits := by simp [clauseOfCnf, Function.comp_def]
-
-@[simp] theorem cnfClause_clauseOfCnf (c : CNF.Clause Nat) :
-    cnfClause (clauseOfCnf c) = c :=
-  CNF.Clause.ext (by simp [clauseOfCnf, Function.comp_def])
-
-theorem cnf_sat_cnfOfClauses_iff (α : Nat → Bool) (cs : List (List Nat)) :
-    (cnfOfClauses cs).Sat α ↔ ∀ c ∈ cs, (cnfClause c).Sat α := by
-  rw [CNF.sat_iff_all_mem_sat]
-  simp only [CNF.Internal.mem_iff, cnfOfClauses, List.mem_toArray, List.mem_map]
-  constructor
-  · intro h c hc; exact h (cnfClause c) ⟨c, hc, rfl⟩
-  · rintro h _ ⟨c, hc, rfl⟩; exact h c hc
-
-theorem sat_cnfClause_litNeg_iff (α : Nat → Bool) (l : Nat) :
-    (cnfClause [litNeg l]).Sat α ↔ ¬ (cnfClause [l]).Sat α := by
-  simp only [sat_cnfClause_singleton, litVar_litNeg, litSign_litNeg]
-  cases α (litVar l) <;> cases litSign l <;> decide
-
-theorem evalLit_iff (σ : Array Bool) (l : Nat) :
-    evalLit σ l = true ↔ (cnfClause [l]).Sat (evalVar σ) := by
-  simp only [evalLit, sat_cnfClause_singleton]
-  cases evalVar σ (litVar l) <;> cases litSign l <;> decide
-
-theorem evalClause_iff (σ : Array Bool) (c : List Nat) :
-    evalClause σ c = true ↔ (cnfClause c).Sat (evalVar σ) := by
-  rw [evalClause, List.any_eq_true, clause_sat_cnfClause_iff]
-  simp only [evalLit_iff, sat_cnfClause_singleton]
-
-theorem evalCnf_iff (σ : Array Bool) (cs : List (List Nat)) :
-    evalCnf σ cs = true ↔ (cnfOfClauses cs).Sat (evalVar σ) := by
-  simp only [evalCnf, List.all_eq_true, evalClause_iff, cnf_sat_cnfOfClauses_iff]
-
-theorem checkModel_iff_sat (cnf : CNF Nat) (σ : Array Bool) :
-    checkModel cnf σ = true ↔ cnf.Sat (evalVar σ) :=
-  (CNF.sat_def (evalVar σ) cnf).symm
-
-theorem checkModel_iff_evalCnf (cnf : CNF Nat) (σ : Array Bool) :
-    evalCnf σ (clausesOfCnf cnf) = checkModel cnf σ := by
-  rw [Bool.eq_iff_iff, evalCnf_iff, checkModel_iff_sat, CNF.sat_iff_all_mem_sat,
-    CNF.sat_iff_all_mem_sat]
-  simp only [CNF.Internal.mem_iff, cnfOfClauses, clausesOfCnf, List.mem_toArray,
-    List.mem_map, Array.mem_toList_iff]
-  refine ⟨fun h c hc => ?_, fun h _ ⟨lits, ⟨c, hc, h1⟩, h2⟩ => ?_⟩
-  · simpa [cnfClause_clauseOfCnf] using h c ⟨clauseOfCnf c, ⟨c, hc, rfl⟩, cnfClause_clauseOfCnf c⟩
-  · rw [← h2, ← h1, cnfClause_clauseOfCnf]; exact h c hc
-
-/-- Model-checking soundness (`sat` witness). -/
-theorem checkModel_sat {cnf : CNF Nat} {σ : Array Bool}
-    (h : checkModel cnf σ = true) : ∃ α, cnf.Sat α :=
-  ⟨evalVar σ, (checkModel_iff_sat cnf σ).mp h⟩
-
-/-- Model-checking soundness (`¬ cnf.Unsat ∧ ∃ α, cnf.Sat α`). -/
-theorem checkModel_sound {cnf : CNF Nat} {σ : Array Bool}
-    (h : checkModel cnf σ = true) : ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α := by
-  obtain ⟨α, hα⟩ := checkModel_sat h
-  exact ⟨fun hu => CNF.unsat_iff_not_sat.mp hu α hα, α, hα⟩
-
-/-- Parametric parser bridge for `checkModel_sound`. -/
-theorem checkModel_sound_of_parse {parse : List UInt8 → Option (CNF Nat)}
-    {bs : List UInt8} {cnf : CNF Nat} {σ : Array Bool}
-    (_hp : parse bs = some cnf) (h : checkModel cnf σ = true) :
-    ¬ cnf.Unsat ∧ ∃ α, cnf.Sat α :=
-  checkModel_sound h
-
-/-! ## 2. Resolution, stripping, pruning, strengthening, and entailment -/
-
-theorem entails_addClause {f : CNF Nat} {c : CNF.Clause Nat}
-    (hc : f.EntailsClause c) : f.Entails (f.add c) :=
-  CNF.entails_add_of_entails_clause f c hc
-
-theorem entails_addClause_mono {f g : CNF Nat} {c : CNF.Clause Nat}
-    (hfg : f.Entails g) (hc : f.EntailsClause c) : f.Entails (g.add c) :=
-  CNF.entails_add_iff.mpr ⟨hfg, hc⟩
-
-theorem unsat_of_entails_nil {f : CNF Nat} (h : f.EntailsClause (cnfClause [])) : f.Unsat := by
-  rw [cnfClause_nil] at h; exact CNF.unsat_iff_entails_clause_empty.mpr h
-
-theorem mem_dedupLits_iff {y : Nat} {c : List Nat} : y ∈ dedupLits c ↔ y ∈ c := by
-  suffices ∀ c z, z ∈ dedupLits c ↔ z ∈ c from this c y
-  intro c; induction c with
-  | nil => simp [dedupLits]
-  | cons x xs ih =>
-    intro z; simp only [dedupLits, List.contains_iff_mem]
-    by_cases hc : x ∈ dedupLits xs
-    · simp only [hc, ↓reduceIte, List.mem_cons]
-      exact ⟨fun hz => Or.inr ((ih z).mp hz),
-        fun h => (ih z).mpr (h.elim (fun hzx => hzx ▸ (ih x).mp hc) id)⟩
-    · simp [hc, ih]
-
-theorem nodup_dedupLits (c : List Nat) : (dedupLits c).Nodup := by
-  induction c with
-  | nil => simp [dedupLits]
-  | cons x xs ih =>
-    simp only [dedupLits, List.contains_iff_mem]
-    by_cases hc : x ∈ dedupLits xs <;> simp [hc, ih]
-
-theorem entails_dedupLits {f : CNF Nat} {c : List Nat}
-    (hc : f.EntailsClause (cnfClause c)) : f.EntailsClause (cnfClause (dedupLits c)) := by
-  rw [CNF.entails_clause_def] at hc ⊢
-  intro α hα
-  obtain ⟨y, hy, hsat⟩ := (clause_sat_cnfClause_iff α c).mp (hc α hα)
-  exact (clause_sat_cnfClause_iff α _).mpr ⟨y, mem_dedupLits_iff.mpr hy, hsat⟩
-
-theorem entails_swap2 {f : CNF Nat} {a b : Nat}
-    (h : f.EntailsClause (cnfClause [a, b])) : f.EntailsClause (cnfClause [b, a]) := by
-  rw [CNF.entails_clause_def] at h ⊢
-  intro α hα
-  obtain ⟨x, hx, hs⟩ := (clause_sat_cnfClause_iff α [a, b]).mp (h α hα)
-  simp only [List.mem_cons, List.not_mem_nil, or_false] at hx
-  exact (clause_sat_cnfClause_iff α [b, a]).mpr ⟨x, by rcases hx with rfl | rfl <;> simp, hs⟩
-
-/-- Propositional resolution soundness. -/
-theorem entails_resolve {f : CNF Nat} {p : Nat} {c1 c2 : List Nat}
-    (h1 : f.EntailsClause (cnfClause c1)) (h2 : f.EntailsClause (cnfClause c2)) :
-    f.EntailsClause (cnfClause (resolveOn p c1 c2)) := by
-  rw [CNF.entails_clause_def] at h1 h2 ⊢
-  intro α hα
-  rw [clause_sat_cnfClause_iff]
-  by_cases hp : (cnfClause [p]).Sat α
-  · obtain ⟨l, hl, hsat⟩ := (clause_sat_cnfClause_iff α c2).mp (h2 α hα)
-    have hne : l ≠ litNeg p := by
-      rintro rfl
-      exact (sat_cnfClause_litNeg_iff α p).mp ((sat_cnfClause_singleton α (litNeg p)).mpr hsat) hp
-    exact ⟨l, List.mem_append_right _ (List.mem_filter.mpr ⟨hl, by simp [hne]⟩), hsat⟩
-  · obtain ⟨l, hl, hsat⟩ := (clause_sat_cnfClause_iff α c1).mp (h1 α hα)
-    have hne : l ≠ p := by rintro rfl; exact hp ((sat_cnfClause_singleton α l).mpr hsat)
-    exact ⟨l, List.mem_append_left _ (List.mem_filter.mpr ⟨hl, by simp [hne]⟩), hsat⟩
-
-/-- Soundness of stripping root-falsified literals from a clause. -/
-theorem entails_stripFalsified {f : CNF Nat} {isRootFalse : Nat → Bool} {c : List Nat}
-    (hc : f.EntailsClause (cnfClause c))
-    (hroot : ∀ l ∈ c, isRootFalse l = true → f.EntailsClause (cnfClause [litNeg l])) :
-    f.EntailsClause (cnfClause (stripFalsified isRootFalse c)) := by
-  rw [CNF.entails_clause_def] at hc ⊢
-  intro α hα
-  obtain ⟨l, hl, hsat⟩ := (clause_sat_cnfClause_iff α c).mp (hc α hα)
-  by_cases hrf : isRootFalse l = true
-  · have hneg := CNF.entails_clause_def.mp (hroot l hl hrf) α hα
-    exact absurd ((sat_cnfClause_singleton α l).mpr hsat) ((sat_cnfClause_litNeg_iff α l).mp hneg)
-  · have hrf' : isRootFalse l = false := Bool.eq_false_iff.mpr hrf
-    exact (clause_sat_cnfClause_iff α _).mpr ⟨l, by simp [stripFalsified, hl, hrf'], hsat⟩
+/-! ## 2. Root-unit stripping, pruning, and binary strengthening soundness -/
 
 theorem entails_stripRootUnits {f : CNF Nat} {units c : List Nat}
     (hc : f.EntailsClause (cnfClause c))
@@ -355,7 +128,7 @@ theorem binaryStrengthen_sound {f : CNF Nat} {units c : List Nat} {a b : Nat}
     f.EntailsClause (cnfClause [a, b]) := by
   have h := pruneClause_sound hc hunits; simpa [hpr] using h
 
-/-! ## 3. `ReasonDagInv`, `TrailInv`, and `trailEntailment` -/
+/-! ## 3. `ReasonDagInv`, `LazyTrailInv`, `TrailInv`, and trail entailment -/
 
 /-- Strict lexicographic `(level, trailIdx)` precedence relation. -/
 @[expose] def lexLt (lvl1 idx1 lvl2 idx2 : Nat) : Prop :=
@@ -365,24 +138,6 @@ theorem binaryStrengthen_sound {f : CNF Nat} {units c : List Nat} {a b : Nat}
 @[expose] def decisionsAtMost (s : CdclState) (k : Nat) : List Nat :=
   s.trail.toList.filter fun l =>
     decide (stateReason s l = .decision) && decide (stateLevel s l ≤ k)
-
-/-- Convert a list of unit literals into a `Std.Sat.CNF Nat`. -/
-@[expose] def unitsCnf (lits : List Nat) : CNF Nat :=
-  lits.foldl (fun acc l => acc.add (cnfClause [l])) CNF.empty
-
-theorem sat_unitsCnf_iff (α : Nat → Bool) (lits : List Nat) :
-    (unitsCnf lits).Sat α ↔ ∀ l ∈ lits, (cnfClause [l]).Sat α := by
-  unfold unitsCnf
-  suffices ∀ (init : CNF Nat),
-      (lits.foldl (fun acc l => acc.add (cnfClause [l])) init).Sat α ↔
-        init.Sat α ∧ ∀ l ∈ lits, (cnfClause [l]).Sat α by
-    simpa using this CNF.empty
-  induction lits with
-  | nil => intro init; simp
-  | cons x xs ih =>
-    intro init
-    simp only [List.foldl_cons, ih, CNF.sat_add, List.mem_cons, forall_eq_or_imp]
-    exact ⟨fun ⟨⟨hx, hi⟩, hxs⟩ => ⟨hi, hx, hxs⟩, fun ⟨hi, hx, hxs⟩ => ⟨⟨hx, hi⟩, hxs⟩⟩
 
 theorem mem_decisionsAtMost_iff {s : CdclState} {k l : Nat} :
     l ∈ decisionsAtMost s k ↔
@@ -418,6 +173,20 @@ trail predecessors with non-greater decision level (strictly smaller `(level, id
           ∃ (j : Nat) (hj : j < s.trail.size), j < i ∧
             s.trail[j] = litNeg x ∧ stateLevel s x ≤ d ∧
             lexLt (stateLevel s x) j d i
+
+/-- Kissat-faithful trail invariant supporting lazy assignment levels (`levels_mono` omitted). -/
+structure LazyTrailInv (s : CdclState) : Prop where
+  vars_nodup : ∀ i j, (hi : i < s.trail.size) → (hj : j < s.trail.size) →
+    litVar s.trail[i] = litVar s.trail[j] → i = j
+  levels_le : ∀ i, (hi : i < s.trail.size) → stateLevel s s.trail[i] ≤ s.level
+  dec_earliest : ∀ i j, (hi : i < s.trail.size) → (hj : j < s.trail.size) →
+    stateLevel s s.trail[i] = stateLevel s s.trail[j] →
+    stateReason s s.trail[j] = .decision → j ≤ i
+  db_sound : ∀ (cid : Nat) (c : Clause),
+    s.clauses[cid]? = some (some c) → s.f0.EntailsClause (cnfClause c.lits)
+  units_sound : ∀ u ∈ s.units, s.f0.EntailsClause (cnfClause [u])
+  reason_dag : ReasonDagInv s
+  inconsistent_sound : s.inconsistent = true → s.f0.Unsat
 
 /-- Complete Layer-A CDCL trail & database soundness invariant. -/
 structure TrailInv (s : CdclState) : Prop where
@@ -474,34 +243,6 @@ theorem litStatus_none_no_var {trail : Array Nat} {l : Nat}
   · exact h.1 hx
   · exact h.2 hx
 
-theorem arraySetPad_getD {α : Type} (arr : Array α) (idx : Nat) (val pad : α) (j : Nat) :
-    (arraySetPad arr idx val pad).getD j pad = if j = idx then val else arr.getD j pad := by
-  unfold arraySetPad
-  rw [Array.getD_eq_getD_getElem?, Array.getD_eq_getD_getElem?]
-  split
-  · rename_i hlt
-    by_cases hj : j = idx
-    · subst hj; simp [hlt]
-    · simp only [hj, ↓reduceIte, Array.getElem?_set]
-      split
-      · exact absurd (Eq.symm ‹_›) hj
-      · rfl
-  · rw [Array.set!_eq_setIfInBounds, Array.getElem?_setIfInBounds]
-    have hps : (arr ++ Array.replicate (idx + 1 - arr.size) pad).size = idx + 1 := by
-      simp [Array.size_append, Array.size_replicate]; omega
-    by_cases hj : j = idx
-    · subst hj; simp [hps]
-    · have hij : idx ≠ j := Ne.symm hj
-      simp only [hj, hij, ↓reduceIte]
-      by_cases hja : j < arr.size
-      · rw [Array.getElem?_eq_getElem (by omega), Array.getElem?_eq_getElem hja]
-        simp [hja, Array.getElem_append_left]
-      · rw [Array.getElem?_eq_none (Nat.le_of_not_lt hja)]
-        by_cases hjp : j < (arr ++ Array.replicate (idx + 1 - arr.size) pad).size
-        · rw [Array.getElem?_eq_getElem hjp]
-          simp [Array.getElem_append_right (Nat.le_of_not_lt hja), Array.getElem_replicate]
-        · rw [Array.getElem?_eq_none (Nat.le_of_not_lt hjp)]
-
 @[simp] theorem trail_assignLit (s : CdclState) (l lvl : Nat) (rsn : Reason) :
     (assignLit s l lvl rsn).trail = s.trail.push l := rfl
 @[simp] theorem level_assignLit (s : CdclState) (l lvl : Nat) (rsn : Reason) :
@@ -536,9 +277,13 @@ theorem arraySetPad_getD {α : Type} (arr : Array α) (idx : Nat) (val pad : α)
 @[simp] theorem stateReason_addLearnedClause (s : CdclState) (lits : List Nat) (glue x : Nat) :
     stateReason (addLearnedClause s lits glue) x = stateReason s x := rfl
 
-/-- Trail entailment: every literal `s.trail[i]` at level `d` is entailed by `s.f0` plus decisions
-at level `≤ d`. -/
-theorem trailEntailment {s : CdclState} (hinv : TrailInv s) :
+/-- Every `TrailInv` state satisfies `LazyTrailInv`. -/
+theorem TrailInv.toLazy {s : CdclState} (h : TrailInv s) : LazyTrailInv s :=
+  ⟨h.vars_nodup, h.levels_le, h.dec_earliest, h.db_sound, h.units_sound,
+    h.reason_dag, h.inconsistent_sound⟩
+
+/-- Trail entailment under lazy levels (`levels_mono` omitted): `F₀ ∧ decisions ≤_k ⊨ literal`. -/
+theorem lazyTrailEntailment {s : CdclState} (hinv : LazyTrailInv s) :
     ∀ (i : Nat) (hi : i < s.trail.size),
       (s.f0 ++ unitsCnf (decisionsAtMost s (stateLevel s s.trail[i]))).EntailsClause
         (cnfClause [s.trail[i]]) := by
@@ -588,27 +333,22 @@ theorem trailEntailment {s : CdclState} (hinv : TrailInv s) :
         exact absurd ((sat_cnfClause_singleton α x).mpr hsat)
           ((sat_cnfClause_litNeg_iff α x).mp (CNF.entails_clause_def.mp hneg α hα))
 
-theorem trailEntailment_le {s : CdclState} (hinv : TrailInv s) {i k : Nat}
-    (hi : i < s.trail.size) (hle : stateLevel s s.trail[i] ≤ k) :
-    (s.f0 ++ unitsCnf (decisionsAtMost s k)).EntailsClause (cnfClause [s.trail[i]]) :=
-  CNF.entails_clause_trans (unitsCnf_decisionsAtMost_mono hle) (trailEntailment hinv i hi)
-
-theorem decisionsAtMost_zero_empty {s : CdclState} (hinv : TrailInv s) :
+theorem lazyDecisionsAtMost_zero_empty {s : CdclState} (hinv : LazyTrailInv s) :
     decisionsAtMost s 0 = [] := by
   apply List.eq_nil_iff_forall_not_mem.mpr
   intro l hl; rw [mem_decisionsAtMost_iff] at hl
   obtain ⟨i, hi, rfl⟩ := trail_mem_iff_exists.mp hl.1
   have hrd := hinv.reason_dag i hi; dsimp only at hrd; rw [hl.2.1] at hrd; omega
 
-theorem trailEntailment_level0 {s : CdclState} (hinv : TrailInv s) {i : Nat}
+theorem lazyTrailEntailment_level0 {s : CdclState} (hinv : LazyTrailInv s) {i : Nat}
     (hi : i < s.trail.size) (hlvl : stateLevel s s.trail[i] = 0) :
     s.f0.EntailsClause (cnfClause [s.trail[i]]) := by
-  have h := trailEntailment hinv i hi
-  rw [hlvl, decisionsAtMost_zero_empty hinv] at h
+  have h := lazyTrailEntailment hinv i hi
+  rw [hlvl, lazyDecisionsAtMost_zero_empty hinv] at h
   exact CNF.entails_clause_def.mpr fun α hα =>
     CNF.entails_clause_def.mp h α (by simpa [unitsCnf] using hα)
 
-theorem unsat_of_conflict {s : CdclState} (hinv : TrailInv s) {confl : List Nat}
+theorem lazyUnsat_of_conflict {s : CdclState} (hinv : LazyTrailInv s) {confl : List Nat}
     (hlvl : s.level = 0) (hconfl : s.f0.EntailsClause (cnfClause confl))
     (hfals : ∀ l ∈ confl, litNeg l ∈ s.trail.toList) : s.f0.Unsat := by
   rw [CNF.unsat_iff_not_sat]
@@ -617,9 +357,36 @@ theorem unsat_of_conflict {s : CdclState} (hinv : TrailInv s) {confl : List Nat}
     (clause_sat_cnfClause_iff α confl).mp (CNF.entails_clause_def.mp hconfl α hα)
   obtain ⟨i, hi, hieq⟩ := trail_mem_iff_exists.mp (hfals l hl)
   have hli : stateLevel s s.trail[i] = 0 := by have := hinv.levels_le i hi; omega
-  have hent := trailEntailment_level0 hinv hi hli; rw [hieq] at hent
+  have hent := lazyTrailEntailment_level0 hinv hi hli; rw [hieq] at hent
   exact (sat_cnfClause_litNeg_iff α l).mp (CNF.entails_clause_def.mp hent α hα)
     ((sat_cnfClause_singleton α l).mpr hsat)
+
+/-- Trail entailment: every literal `s.trail[i]` at level `d` is entailed by `s.f0` plus decisions
+at level `≤ d`. -/
+theorem trailEntailment {s : CdclState} (hinv : TrailInv s) :
+    ∀ (i : Nat) (hi : i < s.trail.size),
+      (s.f0 ++ unitsCnf (decisionsAtMost s (stateLevel s s.trail[i]))).EntailsClause
+        (cnfClause [s.trail[i]]) :=
+  lazyTrailEntailment hinv.toLazy
+
+theorem trailEntailment_le {s : CdclState} (hinv : TrailInv s) {i k : Nat}
+    (hi : i < s.trail.size) (hle : stateLevel s s.trail[i] ≤ k) :
+    (s.f0 ++ unitsCnf (decisionsAtMost s k)).EntailsClause (cnfClause [s.trail[i]]) :=
+  CNF.entails_clause_trans (unitsCnf_decisionsAtMost_mono hle) (trailEntailment hinv i hi)
+
+theorem decisionsAtMost_zero_empty {s : CdclState} (hinv : TrailInv s) :
+    decisionsAtMost s 0 = [] :=
+  lazyDecisionsAtMost_zero_empty hinv.toLazy
+
+theorem trailEntailment_level0 {s : CdclState} (hinv : TrailInv s) {i : Nat}
+    (hi : i < s.trail.size) (hlvl : stateLevel s s.trail[i] = 0) :
+    s.f0.EntailsClause (cnfClause [s.trail[i]]) :=
+  lazyTrailEntailment_level0 hinv.toLazy hi hlvl
+
+theorem unsat_of_conflict {s : CdclState} (hinv : TrailInv s) {confl : List Nat}
+    (hlvl : s.level = 0) (hconfl : s.f0.EntailsClause (cnfClause confl))
+    (hfals : ∀ l ∈ confl, litNeg l ∈ s.trail.toList) : s.f0.Unsat :=
+  lazyUnsat_of_conflict hinv.toLazy hlvl hconfl hfals
 
 /-! ## 4. Transition invariant preservation -/
 
@@ -677,6 +444,54 @@ private def withLvlUnits (s : CdclState) (nl : Nat) (us : List Nat) : CdclState 
     stateLevel (withLvlUnits s nl us) x = stateLevel s x := rfl
 @[simp] private theorem stateReason_wlu (s : CdclState) (nl : Nat) (us : List Nat) (x : Nat) :
     stateReason (withLvlUnits s nl us) x = stateReason s x := rfl
+
+/-- `ReasonDagInv` preservation across `assignLit s l lvl rsn` (shared by standard & chrono). -/
+theorem reasonDagInv_assignLit {s : CdclState} (hrd_old : ReasonDagInv s) {l lvl : Nat}
+    {rsn : Reason} (hun : litStatus s.trail l = none) (hrsn : ReasonOk s l lvl rsn) :
+    ReasonDagInv (assignLit s l lvl rsn) := by
+  have hold_lt : ∀ {i : Nat} (hi : i < s.trail.size), litVar s.trail[i] ≠ litVar l :=
+    fun hi => litStatus_none_no_var hun _ (Array.mem_toList_iff.mpr (Array.getElem_mem hi))
+  intro i hi
+  simp only [trail_assignLit, Array.size_push] at hi
+  rcases Nat.lt_succ_iff_lt_or_eq.mp hi with hi' | rfl
+  · have hrd := hrd_old i hi'; dsimp only at hrd
+    simp only [trail_assignLit, Array.getElem_push_lt hi', stateLevel_assignLit,
+      stateReason_assignLit, hold_lt hi', ↓reduceIte, f0_assignLit, clauses_assignLit]
+    generalize hrs : stateReason s s.trail[i] = r0; rw [hrs] at hrd
+    cases r0 with
+    | decision | unit => exact hrd
+    | binary other =>
+      obtain ⟨hbin, j, hj, hjlt, hjeq, hle, hlex⟩ := hrd
+      have hnv : litVar other ≠ litVar l := by simpa [hjeq] using hold_lt hj
+      refine ⟨hbin, j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hjlt,
+        by simp [Array.getElem_push_lt hj, hjeq],
+        by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
+    | large cid =>
+      obtain ⟨c, hget, hng, hlmem, hall⟩ := hrd
+      refine ⟨c, hget, hng, hlmem, fun x hx hne => ?_⟩
+      obtain ⟨j, hj, hjlt, hjeq, hle, hlex⟩ := hall x hx hne
+      have hnv : litVar x ≠ litVar l := by simpa [hjeq] using hold_lt hj
+      refine ⟨j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hjlt,
+        by simp [Array.getElem_push_lt hj, hjeq],
+        by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
+  · simp only [trail_assignLit, Array.getElem_push_eq, stateLevel_assignLit,
+      stateReason_assignLit, ↓reduceIte, f0_assignLit, clauses_assignLit]
+    cases rsn with
+    | decision | unit => exact hrsn
+    | binary other =>
+      obtain ⟨hbin, j, hj, hjeq, hle, hlex⟩ := hrsn
+      have hnv : litVar other ≠ litVar l := by simpa [hjeq] using hold_lt hj
+      refine ⟨hbin, j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hj,
+        by simp [Array.getElem_push_lt hj, hjeq],
+        by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
+    | large cid =>
+      obtain ⟨c, hget, hng, hlmem, hall⟩ := hrsn
+      refine ⟨c, hget, hng, hlmem, fun x hx hne => ?_⟩
+      obtain ⟨j, hj, hjeq, hle, hlex⟩ := hall x hx hne
+      have hnv : litVar x ≠ litVar l := by simpa [hjeq] using hold_lt hj
+      refine ⟨j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hj,
+        by simp [Array.getElem_push_lt hj, hjeq],
+        by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
 
 private theorem pushLit_inv {s : CdclState} (hinv : TrailInv s) {l lvl newLvl : Nat}
     {rsn : Reason} {us : List Nat}
@@ -740,49 +555,7 @@ private theorem pushLit_inv {s : CdclState} (hinv : TrailInv s) {l lvl newLvl : 
           stateLevel_assignLit, stateLevel_wlu, hold_lt hi', ↓reduceIte] at hleq
         exact absurd hleq (Nat.ne_of_lt (hdec_old hrsn_j i hi'))
       · exact Nat.le_refl _
-  · intro i hi
-    simp only [trail_assignLit, trail_wlu, Array.size_push] at hi
-    rcases Nat.lt_succ_iff_lt_or_eq.mp hi with hi' | rfl
-    · have hrd := hinv.reason_dag i hi'; dsimp only at hrd
-      simp only [trail_assignLit, trail_wlu, Array.getElem_push_lt hi', stateLevel_assignLit,
-        stateReason_assignLit, stateLevel_wlu, stateReason_wlu, hold_lt hi', ↓reduceIte,
-        f0_assignLit, f0_wlu, clauses_assignLit, clauses_wlu]
-      generalize hrs : stateReason s s.trail[i] = r0; rw [hrs] at hrd
-      cases r0 with
-      | decision | unit => exact hrd
-      | binary other =>
-        obtain ⟨hbin, j, hj, hjlt, hjeq, hle, hlex⟩ := hrd
-        have hnv : litVar other ≠ litVar l := by simpa [hjeq] using hold_lt hj
-        refine ⟨hbin, j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hjlt,
-          by simp [Array.getElem_push_lt hj, hjeq],
-          by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
-      | large cid =>
-        obtain ⟨c, hget, hng, hlmem, hall⟩ := hrd
-        refine ⟨c, hget, hng, hlmem, fun x hx hne => ?_⟩
-        obtain ⟨j, hj, hjlt, hjeq, hle, hlex⟩ := hall x hx hne
-        have hnv : litVar x ≠ litVar l := by simpa [hjeq] using hold_lt hj
-        refine ⟨j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hjlt,
-          by simp [Array.getElem_push_lt hj, hjeq],
-          by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
-    · simp only [trail_assignLit, trail_wlu, Array.getElem_push_eq, stateLevel_assignLit,
-        stateReason_assignLit, stateLevel_wlu, ↓reduceIte, f0_assignLit, f0_wlu,
-        clauses_assignLit, clauses_wlu]
-      cases rsn with
-      | decision | unit => exact hrsn
-      | binary other =>
-        obtain ⟨hbin, j, hj, hjeq, hle, hlex⟩ := hrsn
-        have hnv : litVar other ≠ litVar l := by simpa [hjeq] using hold_lt hj
-        refine ⟨hbin, j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hj,
-          by simp [Array.getElem_push_lt hj, hjeq],
-          by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
-      | large cid =>
-        obtain ⟨c, hget, hng, hlmem, hall⟩ := hrsn
-        refine ⟨c, hget, hng, hlmem, fun x hx hne => ?_⟩
-        obtain ⟨j, hj, hjeq, hle, hlex⟩ := hall x hx hne
-        have hnv : litVar x ≠ litVar l := by simpa [hjeq] using hold_lt hj
-        refine ⟨j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hj,
-          by simp [Array.getElem_push_lt hj, hjeq],
-          by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
+  · exact reasonDagInv_assignLit hinv.reason_dag hun hrsn
 
 theorem decideLit_inv {s : CdclState} (hinv : TrailInv s) {l : Nat}
     (hun : litStatus s.trail l = none) :
@@ -810,24 +583,6 @@ theorem addRootUnit_inv {s : CdclState} (hinv : TrailInv s) (hl0 : s.level = 0) 
     (fun i hi => by have := hinv.levels_le i hi; omega)
     (fun h => by cases h) ⟨rfl, hent⟩
     (fun u hu => (List.mem_cons.mp hu).elim (· ▸ hent) (hinv.units_sound u))
-
-private theorem takeWhile_props {α : Type} (p : α → Bool) (xs : List α) :
-    (xs.takeWhile p).length ≤ xs.length ∧
-    ∀ (i : Nat) (hi : i < (xs.takeWhile p).length),
-      ∃ (_hxi : i < xs.length), (xs.takeWhile p)[i] = xs[i] ∧ p xs[i] = true := by
-  induction xs with
-  | nil => simp
-  | cons y ys ih =>
-    simp only [List.takeWhile_cons]
-    by_cases hp : p y = true
-    · simp only [hp, ↓reduceIte, List.length_cons]
-      refine ⟨Nat.succ_le_succ ih.1, fun i hi => ?_⟩
-      cases i with
-      | zero => exact ⟨Nat.zero_lt_succ _, rfl, hp⟩
-      | succ k =>
-        obtain ⟨hk, heq, hpk⟩ := ih.2 k (Nat.lt_of_succ_lt_succ hi)
-        exact ⟨Nat.succ_lt_succ hk, heq, hpk⟩
-    · simp [Bool.eq_false_iff.mpr hp]
 
 @[simp] theorem f0_backtrackTo (s : CdclState) (t : Nat) : (backtrackTo s t).f0 = s.f0 := rfl
 @[simp] theorem clauses_backtrackTo (s : CdclState) (t : Nat) :
@@ -896,27 +651,54 @@ theorem backtrackTo_inv {s : CdclState} (hinv : TrailInv s) (targetLevel : Nat) 
       exact ⟨j, Nat.lt_trans hjlt hi, hjlt,
         by rw [trail_backtrackTo_getElem]; exact hjeq, hle, hlex⟩
 
+/-- Replacing `s.clauses` while keeping all active trail-referenced clauses intact preserves
+`ReasonDagInv`. -/
+theorem reasonDagInv_withClauses {s : CdclState} (hrd_old : ReasonDagInv s)
+    (clauses' : Array (Option Clause))
+    (hact : ∀ (i : Nat) (_hi : i < s.trail.size) (cid : Nat) (c : Clause),
+      stateReason s s.trail[i] = .large cid → s.clauses[cid]? = some (some c) →
+      !c.garbage = true → clauses'[cid]? = some (some c)) :
+    ReasonDagInv { s with clauses := clauses' } := by
+  intro i hi
+  have hrd := hrd_old i hi
+  have hrs_eq : ∀ x, stateReason { s with clauses := clauses' } x = stateReason s x := fun _ => rfl
+  have hlv_eq : ∀ x, stateLevel { s with clauses := clauses' } x = stateLevel s x := fun _ => rfl
+  dsimp only [ReasonDagInv] at hrd ⊢
+  simp only [hrs_eq, hlv_eq]
+  cases hrsn : stateReason s s.trail[i] <;> simp only [hrsn] at hrd ⊢
+  · exact hrd
+  · exact hrd
+  · exact hrd
+  · obtain ⟨c, hget, hng, hm, hall⟩ := hrd
+    exact ⟨c, hact i hi _ c hrsn hget hng, hng, hm, hall⟩
+
+/-- Replacing `s.clauses` while keeping all active trail-referenced clauses intact preserves
+`LazyTrailInv`. -/
+theorem lazyTrailInv_withClauses {s : CdclState} (hinv : LazyTrailInv s)
+    (clauses' : Array (Option Clause))
+    (hdb : ∀ (cid : Nat) (c : Clause),
+      clauses'[cid]? = some (some c) → s.f0.EntailsClause (cnfClause c.lits))
+    (hact : ∀ (i : Nat) (_hi : i < s.trail.size) (cid : Nat) (c : Clause),
+      stateReason s s.trail[i] = .large cid → s.clauses[cid]? = some (some c) →
+      !c.garbage = true → clauses'[cid]? = some (some c)) :
+    LazyTrailInv { s with clauses := clauses' } :=
+  ⟨hinv.vars_nodup, hinv.levels_le, hinv.dec_earliest, hdb, hinv.units_sound,
+    reasonDagInv_withClauses hinv.reason_dag clauses' hact, hinv.inconsistent_sound⟩
+
 theorem addLearnedClause_inv {s : CdclState} (hinv : TrailInv s) {lits : List Nat} {glue : Nat}
     (hent : s.f0.EntailsClause (cnfClause lits)) :
     TrailInv (addLearnedClause s lits glue) ∧ (addLearnedClause s lits glue).f0 = s.f0 := by
-  refine ⟨⟨hinv.vars_nodup, hinv.levels_le, hinv.levels_mono, hinv.dec_earliest, ?_,
-    hinv.units_sound, ?_, hinv.inconsistent_sound⟩, rfl⟩
-  · intro cid c hget
-    simp only [addLearnedClause, Array.getElem?_push] at hget
-    split at hget
-    · simp only [Option.some.injEq] at hget; subst hget; exact hent
-    · exact hinv.db_sound cid c hget
-  · intro i hi
-    have hrd := hinv.reason_dag i hi; dsimp only at hrd
-    simp only [trail_addLearnedClause, f0_addLearnedClause, stateLevel_addLearnedClause,
-      stateReason_addLearnedClause]
-    cases hrsn : stateReason s s.trail[i] with
-    | decision | unit | binary _ => rw [hrsn] at hrd; exact hrd
-    | large cid =>
-      rw [hrsn] at hrd; obtain ⟨c, hget, hng, hlmem, hall⟩ := hrd
+  have hlazy := lazyTrailInv_withClauses hinv.toLazy (addLearnedClause s lits glue).clauses
+    (fun cid c hget => by
+      simp only [addLearnedClause, Array.getElem?_push] at hget
+      split at hget
+      · simp only [Option.some.injEq] at hget; subst hget; exact hent
+      · exact hinv.db_sound cid c hget)
+    (fun i hi cid c _ hget _ => by
       have hne : cid ≠ s.clauses.size := Nat.ne_of_lt (Array.getElem?_eq_some_iff.mp hget).1
-      refine ⟨c, ?_, hng, hlmem, hall⟩
-      simp only [addLearnedClause, Array.getElem?_push, hne, ↓reduceIte]; exact hget
+      simp only [addLearnedClause, Array.getElem?_push, hne, ↓reduceIte]; exact hget)
+  exact ⟨⟨hlazy.vars_nodup, hlazy.levels_le, hinv.levels_mono, hlazy.dec_earliest,
+    hlazy.db_sound, hlazy.units_sound, hlazy.reason_dag, hlazy.inconsistent_sound⟩, rfl⟩
 
 private theorem classifyClauseAux_sound {trail : Array Nat}
     (hnodup : ∀ i j, (hi : i < trail.size) → (hj : j < trail.size) →

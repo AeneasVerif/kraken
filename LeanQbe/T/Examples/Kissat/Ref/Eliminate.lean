@@ -34,42 +34,15 @@ namespace LeanQbe.T.Examples.Kissat.Ref
 
 open Std.Sat
 
-/-! ## 1. Tautology congruence, literal helpers, and `Array Bool` updates -/
-
-theorem litVar_eq_iff_mkLit (l : Nat) (v : Nat) :
-    litVar l = v ↔ l = mkLit v true ∨ l = mkLit v false := by
-  have h1 := litVar_eq_iff l (mkLit v true)
-  simp only [litVar_mkLit, litNeg_mkLit, Bool.not_true] at h1
-  exact h1
-
-theorem clauseIsTaut_congr {r1 r2 : List Nat} (h : ∀ x, x ∈ r1 ↔ x ∈ r2) :
-    clauseIsTaut r1 = clauseIsTaut r2 := by
-  apply Bool.eq_iff_iff.mpr
-  simp only [clauseIsTaut_iff]
-  constructor <;> rintro ⟨l, hl, hn⟩
-  · exact ⟨l, (h l).mp hl, (h (litNeg l)).mp hn⟩
-  · exact ⟨l, (h l).mpr hl, (h (litNeg l)).mpr hn⟩
-
-theorem sat_cnfClause_congr {α : Nat → Bool} {c1 c2 : List Nat} (h : ∀ x, x ∈ c1 ↔ x ∈ c2) :
-    (cnfClause c1).Sat α ↔ (cnfClause c2).Sat α := by
-  simp only [clause_sat_cnfClause_iff]
-  constructor <;> rintro ⟨x, hx, hs⟩
-  · exact ⟨x, (h x).mp hx, hs⟩
-  · exact ⟨x, (h x).mpr hx, hs⟩
+/-! ## 1. Model variable update helper -/
 
 /-- Pointwise variable update on executable `Array Bool` model. -/
 @[expose] def setModelVar (σ : Array Bool) (v : Nat) (b : Bool) : Array Bool :=
   arraySetPad σ v b false
 
 @[simp] theorem evalVar_setModelVar (σ : Array Bool) (v : Nat) (b : Bool) (x : Nat) :
-    evalVar (setModelVar σ v b) x = substUpdate (evalVar σ) v b x := by
-  simp only [evalVar, setModelVar, substUpdate, beq_iff_eq, ← Array.getD_eq_getD_getElem?]
-  exact arraySetPad_getD σ v b false x
-
-theorem resolveOn_comm_mem (p : Nat) (c1 c2 : List Nat) (x : Nat) :
-    x ∈ resolveOn (litNeg p) c2 c1 ↔ x ∈ resolveOn p c1 c2 := by
-  simp only [resolveOn, litNeg_litNeg, List.mem_append, List.mem_filter, bne_iff_ne]
-  exact ⟨fun h => h.elim Or.inr Or.inl, fun h => h.elim Or.inr Or.inl⟩
+    evalVar (setModelVar σ v b) x = substUpdate (evalVar σ) v b x :=
+  congrFun (evalVar_arraySetPad σ v b) x
 
 /-! ## 2. Pivot partition, BVE resolvents, and `bve` formula transformation -/
 
@@ -708,63 +681,6 @@ theorem bveBounded_sound (bound : Nat) (cs : List (List Nat)) (pivots : List Nat
     exact h.2 (evalVar σ) ((evalCnf_iff σ _).mp hσ)
 
 /-! ## 3. Integration with `cdclSolve` -/
-
-private theorem cdclLoop_sat_model {fuel : Nat} {s : CdclState} (hinv : TrailInv s) :
-    match cdclLoop fuel s with
-    | .sat σ => checkModel s.f0 σ = true
-    | _ => True := by
-  induction fuel generalizing s with
-  | zero => simp [cdclLoop]
-  | succ fuel ih =>
-    simp only [cdclLoop]
-    by_cases hinc : s.inconsistent = true
-    · simp [hinc]
-    · have hincf : s.inconsistent = false := Bool.eq_false_iff.mpr hinc
-      simp only [hincf, Bool.false_eq_true, ↓reduceIte]
-      let propFuel := s.numVars + s.clauses.size + s.units.length + 16
-      have hprop := propagateAll_inv (fuel := propFuel) hinv
-      cases hp : propagateAll propFuel s with
-      | outOfFuel _ => simp
-      | conflict confl s1 =>
-        rw [hp] at hprop; obtain ⟨hinv1, hf01, _, hconfl1, hfals1, _⟩ := hprop
-        dsimp only [propFuel]
-        by_cases hl0 : s1.level = 0
-        · simp [hl0]
-        · have hl0f : (s1.level == 0) = false := beq_false_of_ne hl0
-          simp only [hl0f, Bool.false_eq_true, ↓reduceIte]
-          by_cases he : (minimizeClause s1 (analyze1UIP s1 confl)).isEmpty = true
-          · simp [he]
-          · have hef : (minimizeClause s1 (analyze1UIP s1 confl)).isEmpty = false :=
-              Bool.eq_false_iff.mpr he
-            simp only [hef, Bool.false_eq_true, ↓reduceIte]
-            have h1uip := analyze1UIP_sound hinv1 hconfl1 hfals1
-            have hmin := minimizeCut_sound hinv1 h1uip.1
-            have hbl := backtrack_learn_preserves_inv hinv1
-              (Nat.min (s1.level - 1)
-                (backtrackLevel s1 (minimizeClause s1 (analyze1UIP s1 confl))))
-              (glue := 0) hmin
-            have hih := ih hbl.1
-            simpa [hbl.2, hf01] using hih
-      | ok s1 =>
-        rw [hp] at hprop; obtain ⟨hinv1, hf01, _⟩ := hprop
-        dsimp only [propFuel]
-        cases hpick : pickBranchLit? s1 with
-        | some l =>
-          have hdec := decideLit_inv hinv1 (pickBranchLit?_unassigned hpick)
-          have hih := ih hdec.1
-          simpa [hdec.2, hf01] using hih
-        | none =>
-          dsimp only
-          by_cases hchk : checkModel s1.f0 (modelFromTrail s1.numVars s1.trail) = true
-          · simp only [hchk, ↓reduceIte]; rwa [← hf01]
-          · have hchkf : checkModel s1.f0 (modelFromTrail s1.numVars s1.trail) = false :=
-              Bool.eq_false_iff.mpr hchk
-            simp [hchkf]
-
-theorem cdclSolve_sat_model {fuel : Nat} {cnf : CNF Nat} {σ : Array Bool}
-    (h : cdclSolve fuel cnf = .sat σ) : checkModel cnf σ = true := by
-  have hm := cdclLoop_sat_model (fuel := fuel) (initState_inv cnf).1
-  unfold cdclSolve at h; rw [h, (initState_inv cnf).2] at hm; exact hm
 
 /-- **End-to-end BVE + CDCL solver soundness**: running `cdclSolve fuel (bveElimCnf cnf pivots).1`
 certifies `cnf.Unsat` on `.unsat` and produces a verified extended `Array Bool` model

@@ -103,7 +103,7 @@ theorem ChronoTrailInv.toLazy {s : ChronoState} (h : ChronoTrailInv s) : LazyTra
   refine ⟨h.vars_nodup, h.levels_le, fun i j hi hj hleq hrsn => ?_,
     h.db_sound, h.units_sound, h.reason_dag, h.inconsistent_sound⟩
   have hdec : s.isDecision s.cdcl.trail[j] = true := by
-    rw [h.dec_sync j hj, hrsn]; rfl
+    rw [h.dec_sync j hj, hrsn]; exact decide_eq_true rfl
   exact h.dec_earliest i j hi hj hleq hdec
 
 theorem LazyTrailInv.toChrono {cdcl : CdclState} (h : LazyTrailInv cdcl)
@@ -145,58 +145,9 @@ theorem chronoTrailEntailment {s : ChronoState} (hinv : ChronoTrailInv s) :
       (s.cdcl.f0 ++ unitsCnf
         (chronoDecisionsAtMost s (stateLevel s.cdcl s.cdcl.trail[i]))).EntailsClause
         (cnfClause [s.cdcl.trail[i]]) := by
-  intro i
-  induction i using Nat.strongRecOn with
-  | ind i ih =>
-    intro hi
-    have hrd := hinv.reason_dag i hi
-    dsimp only at hrd
-    generalize hrsn : stateReason s.cdcl s.cdcl.trail[i] = rsn
-    rw [hrsn] at hrd
-    cases rsn with
-    | decision =>
-      refine CNF.entails_clause_def.mpr fun α hα => ?_
-      rw [CNF.sat_append, sat_unitsCnf_iff] at hα
-      have hdec : s.isDecision s.cdcl.trail[i] = true := by
-        rw [hinv.dec_sync i hi, hrsn]; rfl
-      exact hα.2 s.cdcl.trail[i] (mem_chronoDecisionsAtMost_iff.mpr
-        ⟨trail_mem_iff_exists.mpr ⟨i, hi, rfl⟩, hdec, Nat.le_refl _⟩)
-    | unit => exact CNF.entails_clause_trans CNF.append_entails_left hrd.2
-    | binary other =>
-      obtain ⟨hbin, j, hj, hjlt, hjeq, hle, _⟩ := hrd
-      have hneg : (s.cdcl.f0 ++ unitsCnf
-          (chronoDecisionsAtMost s (stateLevel s.cdcl s.cdcl.trail[i]))).EntailsClause
-          (cnfClause [litNeg other]) := by
-        rw [← hjeq]
-        exact CNF.entails_clause_trans
-          (unitsCnf_chronoDecisionsAtMost_mono (by simpa [hjeq, stateLevel] using hle))
-          (ih j hjlt hj)
-      refine CNF.entails_clause_def.mpr fun α hα => ?_
-      have hα_neg := CNF.entails_clause_def.mp hneg α hα
-      obtain ⟨y, hy, hsat⟩ := (clause_sat_cnfClause_iff α [s.cdcl.trail[i], other]).mp
-        (CNF.entails_clause_def.mp hbin α (CNF.sat_append.mp hα).1)
-      simp only [List.mem_cons, List.not_mem_nil, or_false] at hy
-      rcases hy with heq | heq <;> rw [heq] at hsat
-      · exact (sat_cnfClause_singleton α s.cdcl.trail[i]).mpr hsat
-      · exact absurd ((sat_cnfClause_singleton α other).mpr hsat)
-          ((sat_cnfClause_litNeg_iff α other).mp hα_neg)
-    | large cid =>
-      obtain ⟨c, hget, _, _, hall⟩ := hrd
-      refine CNF.entails_clause_def.mpr fun α hα => ?_
-      obtain ⟨x, hx, hsat⟩ := (clause_sat_cnfClause_iff α c.lits).mp
-        (CNF.entails_clause_def.mp (hinv.db_sound cid c hget) α (CNF.sat_append.mp hα).1)
-      by_cases hxeq : x = s.cdcl.trail[i]
-      · rw [hxeq] at hsat; exact (sat_cnfClause_singleton α s.cdcl.trail[i]).mpr hsat
-      · obtain ⟨j, hj, hjlt, hjeq, hle, _⟩ := hall x hx hxeq
-        have hneg : (s.cdcl.f0 ++ unitsCnf
-            (chronoDecisionsAtMost s (stateLevel s.cdcl s.cdcl.trail[i]))).EntailsClause
-            (cnfClause [litNeg x]) := by
-          rw [← hjeq]
-          exact CNF.entails_clause_trans
-            (unitsCnf_chronoDecisionsAtMost_mono (by simpa [hjeq, stateLevel] using hle))
-            (ih j hjlt hj)
-        exact absurd ((sat_cnfClause_singleton α x).mpr hsat)
-          ((sat_cnfClause_litNeg_iff α x).mp (CNF.entails_clause_def.mp hneg α hα))
+  intro i hi
+  rw [chronoDecisionsAtMost_eq hinv]
+  exact lazyTrailEntailment hinv.toLazy i hi
 
 theorem chronoDecisionsAtMost_zero_empty {s : ChronoState} (hinv : ChronoTrailInv s) :
     chronoDecisionsAtMost s 0 = [] := by
@@ -315,51 +266,8 @@ private theorem chronoPush_inv {s : ChronoState} (hinv : ChronoTrailInv s)
           hold_lt hi', ↓reduceIte] at hleq
         exact absurd hleq (hdec_ne (of_decide_eq_true hdj) i hi')
       · exact Nat.le_refl _
-  · intro i hi
-    simp only [chronoPushRaw, trail_chronoWlu, trail_assignLit, Array.size_push] at hi
-    rcases Nat.lt_succ_iff_lt_or_eq.mp hi with hi' | rfl
-    · have hrd := hinv.reason_dag i hi'; dsimp only at hrd
-      simp only [chronoPushRaw, trail_chronoWlu, f0_chronoWlu, clauses_chronoWlu,
-        trail_assignLit, Array.getElem_push_lt hi', stateLevel_assignLit, stateLevel_chronoWlu,
-        stateReason_assignLit, stateReason_chronoWlu, hold_lt hi', ↓reduceIte,
-        f0_assignLit, clauses_assignLit]
-      generalize hrs : stateReason s.cdcl s.cdcl.trail[i] = r0
-      rw [hrs] at hrd
-      cases r0 with
-      | decision | unit => exact hrd
-      | binary other =>
-        obtain ⟨hbin, j, hj, hjlt, hjeq, hle, hlex⟩ := hrd
-        have hnv : litVar other ≠ litVar l := by simpa [hjeq] using hold_lt hj
-        refine ⟨hbin, j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hjlt,
-          by simp [Array.getElem_push_lt hj, hjeq],
-          by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
-      | large cid =>
-        obtain ⟨c, hget, hng, hlmem, hall⟩ := hrd
-        refine ⟨c, hget, hng, hlmem, fun x hx hne => ?_⟩
-        obtain ⟨j, hj, hjlt, hjeq, hle, hlex⟩ := hall x hx hne
-        have hnv : litVar x ≠ litVar l := by simpa [hjeq] using hold_lt hj
-        refine ⟨j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hjlt,
-          by simp [Array.getElem_push_lt hj, hjeq],
-          by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
-    · simp only [chronoPushRaw, trail_chronoWlu, f0_chronoWlu, clauses_chronoWlu,
-        trail_assignLit, Array.getElem_push_eq, stateLevel_assignLit, stateLevel_chronoWlu,
-        stateReason_assignLit, ↓reduceIte, f0_assignLit, clauses_assignLit]
-      cases rsn with
-      | decision | unit => exact hrsn
-      | binary other =>
-        obtain ⟨hbin, j, hj, hjeq, hle, hlex⟩ := hrsn
-        have hnv : litVar other ≠ litVar l := by simpa [hjeq] using hold_lt hj
-        refine ⟨hbin, j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hj,
-          by simp [Array.getElem_push_lt hj, hjeq],
-          by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
-      | large cid =>
-        obtain ⟨c, hget, hng, hlmem, hall⟩ := hrsn
-        refine ⟨c, hget, hng, hlmem, fun x hx hne => ?_⟩
-        obtain ⟨j, hj, hjeq, hle, hlex⟩ := hall x hx hne
-        have hnv : litVar x ≠ litVar l := by simpa [hjeq] using hold_lt hj
-        refine ⟨j, by rw [Array.size_push]; exact Nat.lt_succ_of_lt hj, hj,
-          by simp [Array.getElem_push_lt hj, hjeq],
-          by simpa [hnv] using hle, by simpa [hnv] using hlex⟩
+  · exact reasonDagInv_assignLit (s := chronoWithLvlUnits s newLvl us fs |>.cdcl)
+      hinv.reason_dag hun hrsn
 
 /-- Push a new branch decision literal at `s.cdcl.level + 1` and record its frame offset. -/
 @[expose] def chronoDecide (s : ChronoState) (l : Nat) : ChronoState :=
@@ -628,40 +536,6 @@ lower-level out-of-order trail literals are skipped cleanly. -/
   if s.cdcl.level == 0 then { learned := [], otfs := [] }
   else chronoAnalyze1UIPAux s s.cdcl.trail.size (dedupLits confl) []
 
-private theorem dedupLits_ne_nil_chrono {c : List Nat} (hc : c ≠ []) : dedupLits c ≠ [] := by
-  cases c with
-  | nil => exact absurd rfl hc
-  | cons x xs =>
-    simp only [dedupLits]
-    split
-    · rename_i hmem; exact fun heq => by simp [heq] at hmem
-    · simp
-
-private theorem filter_nodup_singleton_le_one_chrono {P : Nat → Bool} {np : Nat} :
-    ∀ {xs : List Nat}, xs.Nodup → (∀ x ∈ xs, P x = true → x = np) → (xs.filter P).length ≤ 1
-  | [], _, _ => by simp
-  | x :: xs, hnd, hall => by
-    rw [List.nodup_cons] at hnd
-    simp only [List.filter_cons]
-    by_cases hpx : P x = true
-    · simp only [hpx, ↓reduceIte, List.length_cons]
-      have hxeq : x = np := hall x (by simp) hpx
-      have hnil : xs.filter P = [] := List.eq_nil_iff_forall_not_mem.mpr fun y hy => by
-        rw [List.mem_filter] at hy
-        exact hnd.1 ((hall y (by simp [hy.1]) hy.2).trans hxeq.symm ▸ hy.1)
-      simp [hnil]
-    · have hpf : P x = false := Bool.eq_false_iff.mpr hpx
-      simp only [hpf, Bool.false_eq_true, ↓reduceIte]
-      exact filter_nodup_singleton_le_one_chrono hnd.2 fun y hy =>
-        hall y (List.mem_cons_of_mem _ hy)
-
-private theorem exists_ne_of_filter_gt_one_chrono {P : Nat → Bool} {np : Nat}
-    {xs : List Nat} (hnd : xs.Nodup) (hgt : 1 < (xs.filter P).length) :
-    ∃ q ∈ xs, P q = true ∧ q ≠ np :=
-  Classical.byContradiction fun hno =>
-    absurd (filter_nodup_singleton_le_one_chrono hnd fun q hq hpq =>
-      Classical.byContradiction fun hne => hno ⟨q, hq, hpq, hne⟩) (by omega)
-
 private theorem chronoAnalyze1UIPAux_inv {s : ChronoState} (hinv : ChronoTrailInv s)
     (hlvl_pos : 0 < s.cdcl.level) :
     ∀ (i : Nat), i ≤ s.cdcl.trail.size → ∀ (cl : List Nat) (ups : List OtfsUpdate),
@@ -687,7 +561,7 @@ private theorem chronoAnalyze1UIPAux_inv {s : ChronoState} (hinv : ChronoTrailIn
         obtain ⟨j, _, _, hlt⟩ := htrl x (mem_dedupLits_iff.mp hx.1)
         have h0 := hlt (by simpa using hx.2); omega
     refine ⟨entails_dedupLits hent, fun x hx => ?_, by simp [countAtLevel, hnil],
-      dedupLits_ne_nil_chrono, hups⟩
+      dedupLits_ne_nil, hups⟩
     obtain ⟨j, hj, hjeq, _⟩ := htrl x (mem_dedupLits_iff.mp hx)
     exact ⟨j, hj, hjeq⟩
   | succ i ih =>
@@ -702,7 +576,7 @@ private theorem chronoAnalyze1UIPAux_inv {s : ChronoState} (hinv : ChronoTrailIn
     by_cases hcnt : countAtLevel s.cdcl cl' s.cdcl.level ≤ 1
     · rw [ite_eq_left hcnt]
       exact ⟨hent', fun x hx => let ⟨j, hj, heq, _⟩ := htrl' x hx; ⟨j, hj, heq⟩,
-        hcnt, fun h => dedupLits_ne_nil_chrono h, hups⟩
+        hcnt, fun h => dedupLits_ne_nil h, hups⟩
     · have hi' : i < s.cdcl.trail.size := by omega
       rw [ite_eq_right hcnt, dite_eq_left hi']
       let p := s.cdcl.trail[i]
@@ -718,7 +592,7 @@ private theorem chronoAnalyze1UIPAux_inv {s : ChronoState} (hinv : ChronoTrailIn
         simp only [Bool.and_eq_true, List.contains_iff_mem, beq_iff_eq, Bool.not_eq_true'] at hres
         obtain ⟨⟨hnp_mem, hplvl⟩, hnotdec⟩ := hres
         have hne_step : ∀ (r : List Nat), resolveOn np cl' r ≠ [] := fun r => by
-          obtain ⟨q, hq, _, hqne⟩ := exists_ne_of_filter_gt_one_chrono
+          obtain ⟨q, hq, _, hqne⟩ := exists_ne_of_filter_gt_one
             (P := fun l => stateLevel s.cdcl l == s.cdcl.level) (np := np) hnd
             (by unfold countAtLevel at hcnt; omega)
           exact List.ne_nil_of_mem
@@ -742,8 +616,8 @@ private theorem chronoAnalyze1UIPAux_inv {s : ChronoState} (hinv : ChronoTrailIn
         | decision =>
           have hds := hinv.dec_sync i hi'
           rw [hrsn] at hds
-          change s.isDecision p = true at hds
-          rw [hds] at hnotdec; cases hnotdec
+          have hds' : s.isDecision p = true := hds.trans (decide_eq_true rfl)
+          rw [hds'] at hnotdec; cases hnotdec
         | unit =>
           have h0 : stateLevel s.cdcl s.cdcl.trail[i] = 0 := hrd.1
           have hpl : stateLevel s.cdcl p = s.cdcl.level := hplvl
@@ -753,7 +627,7 @@ private theorem chronoAnalyze1UIPAux_inv {s : ChronoState} (hinv : ChronoTrailIn
           refine ih (Nat.le_of_lt hi') _ ups
             (entails_dedupLits (entails_resolve hent' hbin)) (fun x hx => ?_) hups |>
             fun ⟨h1, h2, h3, h4, h5⟩ =>
-              ⟨h1, h2, h3, fun _ => h4 (dedupLits_ne_nil_chrono (hne_step _)), h5⟩
+              ⟨h1, h2, h3, fun _ => h4 (dedupLits_ne_nil (hne_step _)), h5⟩
           rcases List.mem_append.mp (mem_dedupLits_iff.mp hx) with hx1 | hx2
           · exact hkeep x hx1
           · rw [List.mem_filter, bne_iff_ne] at hx2
@@ -805,10 +679,10 @@ private theorem chronoAnalyze1UIPAux_inv {s : ChronoState} (hinv : ChronoTrailIn
               exact hups
           exact ih (Nat.le_of_lt hi') res _ hres_ent hres_trl hups' |>
             fun ⟨h1, h2, h3, h4, h5⟩ =>
-              ⟨h1, h2, h3, fun _ => h4 (dedupLits_ne_nil_chrono (hne_step _)), h5⟩
+              ⟨h1, h2, h3, fun _ => h4 (dedupLits_ne_nil (hne_step _)), h5⟩
       · rw [ite_eq_right hres]
         refine ih (Nat.le_of_lt hi') cl' ups hent' (fun x hx => ?_) hups |>
-          fun ⟨h1, h2, h3, h4, h5⟩ => ⟨h1, h2, h3, fun hne => h4 (dedupLits_ne_nil_chrono hne), h5⟩
+          fun ⟨h1, h2, h3, h4, h5⟩ => ⟨h1, h2, h3, fun hne => h4 (dedupLits_ne_nil hne), h5⟩
         obtain ⟨j, hj, hjeq, hjlt⟩ := htrl' x hx
         refine ⟨j, hj, hjeq, fun hlvl => ?_⟩
         have hji : j ≠ i := by
@@ -832,7 +706,7 @@ private theorem chronoAnalyze1UIPAux_inv {s : ChronoState} (hinv : ChronoTrailIn
                 have hle_ij := hinv.dec_earliest jy j hjy hi' hleq hd
                 have hjy_eq : jy = j := by have := hjylt hyl'; omega
                 subst hjy_eq; dsimp only [np, p]; rw [hjyeq, litNeg_litNeg]
-              exact hcnt (filter_nodup_singleton_le_one_chrono hnd hall_eq)
+              exact hcnt (filter_nodup_singleton_le_one hnd hall_eq)
             · exact Bool.eq_false_iff.mpr hd
           exact hres (by simp [hnp_mem, hpl, hnd_dec])
         have := hjlt hlvl; omega
@@ -873,7 +747,7 @@ theorem chronoAnalyze1UIP_sound {s : ChronoState} (hinv : ChronoTrailInv s) {con
     rw [← heq] at haux
     exact ⟨haux.1, fun x hx => let ⟨j, hj, heq⟩ := haux.2.1 x hx;
       trail_mem_iff_exists.mpr ⟨j, hj, heq⟩,
-      fun _ => ⟨haux.2.2.1, fun hne => haux.2.2.2.1 (dedupLits_ne_nil_chrono hne)⟩,
+      fun _ => ⟨haux.2.2.1, fun hne => haux.2.2.2.1 (dedupLits_ne_nil hne)⟩,
       fun h => absurd h hl0, haux.2.2.2.2⟩
 
 /-- Apply one OTFS database clause replacement at `u.cid`. -/
@@ -887,14 +761,6 @@ def applyOtfsUpdate (clauses : Array (Option Clause)) (u : OtfsUpdate) : Array (
 @[expose] def applyOtfsUpdates (clauses : Array (Option Clause)) (ups : List OtfsUpdate) :
     Array (Option Clause) :=
   ups.foldl applyOtfsUpdate clauses
-
-private theorem getElem?_setIfInBounds_chrono {α : Type} (xs : Array α) (i j : Nat) (v : α) :
-    (xs.setIfInBounds i v)[j]? = if i < xs.size ∧ j = i then some v else xs[j]? := by
-  by_cases hi : i < xs.size
-  · by_cases hij : j = i
-    · subst hij; simp [hi]
-    · simp only [hi, hij, and_false, ↓reduceIte, Array.getElem?_setIfInBounds, Ne.symm hij]
-  · simp [hi, Array.setIfInBounds]
 
 theorem otfsUpdate_unused_after_backtrack {s : ChronoState} (hinv : ChronoTrailInv s)
     {targetLevel : Nat} (hlt : targetLevel < s.cdcl.level) {u : OtfsUpdate}
@@ -952,7 +818,7 @@ private theorem applyOtfsUpdate_preserves_inv {s : ChronoState} (hinv : ChronoTr
       cases opt with
       | none => rw [huc] at hget; exact hinv.db_sound cid c hget
       | some oldC =>
-        rw [huc, getElem?_setIfInBounds_chrono] at hget
+        rw [huc, getElem?_setIfInBounds] at hget
         split at hget
         · simp only [Option.some.injEq] at hget; subst hget; exact hent
         · exact hinv.db_sound cid c hget
@@ -960,31 +826,19 @@ private theorem applyOtfsUpdate_preserves_inv {s : ChronoState} (hinv : ChronoTr
   have htrl : s'.cdcl.trail = s.cdcl.trail := rfl
   have hsl : ∀ x, stateLevel s'.cdcl x = stateLevel s.cdcl x := fun _ => rfl
   have hsr : ∀ x, stateReason s'.cdcl x = stateReason s.cdcl x := fun _ => rfl
-  have hinv' : ChronoTrailInv s' := by
-    refine ⟨hinv.vars_nodup, hinv.levels_le, hinv.dec_sync, hinv.dec_earliest,
-      hdb, hinv.units_sound, ?_, hinv.inconsistent_sound⟩
-    intro i hi
-    have hrd := hinv.reason_dag i hi; dsimp only at hrd
-    change match stateReason s'.cdcl s'.cdcl.trail[i] with | _ => _
-    simp only [hf0, htrl, hsl, hsr]
-    generalize hrs : stateReason s.cdcl s.cdcl.trail[i] = rsn
-    rw [hrs] at hrd
-    cases rsn with
-    | decision | unit | binary _ => exact hrd
-    | large cid =>
-      obtain ⟨c, hget, hng, hlmem, hall⟩ := hrd
-      have hne : cid ≠ u.cid := fun h => hnonact i hi (h ▸ hrs)
-      refine ⟨c, ?_, hng, hlmem, hall⟩
-      change (applyOtfsUpdate s.cdcl.clauses u)[cid]? = some (some c)
-      unfold applyOtfsUpdate
-      cases huc : s.cdcl.clauses[u.cid]? with
-      | none => exact hget
-      | some opt =>
-        cases opt with
+  have hinv' : ChronoTrailInv s' :=
+    ⟨hinv.vars_nodup, hinv.levels_le, hinv.dec_sync, hinv.dec_earliest, hdb, hinv.units_sound,
+      reasonDagInv_withClauses hinv.reason_dag s'.cdcl.clauses (fun i hi cid c hrsn hget _ => by
+        have hne : cid ≠ u.cid := fun h => hnonact i hi (h ▸ hrsn)
+        change (applyOtfsUpdate s.cdcl.clauses u)[cid]? = some (some c)
+        unfold applyOtfsUpdate
+        cases huc : s.cdcl.clauses[u.cid]? with
         | none => exact hget
-        | some oldC =>
-          rw [getElem?_setIfInBounds_chrono, ite_eq_right (by simp [hne])]
-          exact hget
+        | some opt =>
+          cases opt with
+          | none => exact hget
+          | some _ => rw [getElem?_setIfInBounds, ite_eq_right (by simp [hne])]; exact hget),
+      hinv.inconsistent_sound⟩
   exact ⟨hinv', rfl, fun k hk cid hrsn heq => hnonact k hk (heq ▸ hrsn)⟩
 
 /-- Applying OTFS database clause updates after chronological backtrack (leaving `level < oldLvl`)
@@ -1015,33 +869,21 @@ theorem chronoAddLearnedClause_inv {s : ChronoState} (hinv : ChronoTrailInv s)
     {lits : List Nat} {glue : Nat} (hent : s.cdcl.f0.EntailsClause (cnfClause lits)) :
     ChronoTrailInv (chronoAddLearnedClause s lits glue) ∧
       (chronoAddLearnedClause s lits glue).cdcl.f0 = s.cdcl.f0 := by
-  have hf0 : (chronoAddLearnedClause s lits glue).cdcl.f0 = s.cdcl.f0 := rfl
-  have htrl : (chronoAddLearnedClause s lits glue).cdcl.trail = s.cdcl.trail := rfl
-  have hsl : ∀ x, stateLevel (chronoAddLearnedClause s lits glue).cdcl x =
-      stateLevel s.cdcl x := fun _ => rfl
-  have hsr : ∀ x, stateReason (chronoAddLearnedClause s lits glue).cdcl x =
-      stateReason s.cdcl x := fun _ => rfl
-  refine ⟨⟨hinv.vars_nodup, hinv.levels_le, hinv.dec_sync, hinv.dec_earliest, ?_,
-    hinv.units_sound, ?_, hinv.inconsistent_sound⟩, rfl⟩
-  · intro cid c hget
-    simp only [chronoAddLearnedClause, addLearnedClause, Array.getElem?_push] at hget
+  have hdb : ∀ (cid : Nat) (c : Clause),
+      (addLearnedClause s.cdcl lits glue).clauses[cid]? = some (some c) →
+      s.cdcl.f0.EntailsClause (cnfClause c.lits) := fun cid c hget => by
+    simp only [addLearnedClause, Array.getElem?_push] at hget
     split at hget
     · simp only [Option.some.injEq] at hget; subst hget; exact hent
     · exact hinv.db_sound cid c hget
-  · intro i hi
-    have hrd := hinv.reason_dag i hi; dsimp only at hrd
-    change match stateReason (chronoAddLearnedClause s lits glue).cdcl
-        (chronoAddLearnedClause s lits glue).cdcl.trail[i] with | _ => _
-    simp only [hf0, htrl, hsl, hsr]
-    cases hrsn : stateReason s.cdcl s.cdcl.trail[i] with
-    | decision | unit | binary _ => rw [hrsn] at hrd; exact hrd
-    | large cid =>
-      rw [hrsn] at hrd; obtain ⟨c, hget, hng, hlmem, hall⟩ := hrd
-      have hne : cid ≠ s.cdcl.clauses.size :=
-        Nat.ne_of_lt (Array.getElem?_eq_some_iff.mp hget).1
-      refine ⟨c, ?_, hng, hlmem, hall⟩
-      simp only [chronoAddLearnedClause, addLearnedClause, Array.getElem?_push, hne, ↓reduceIte]
-      exact hget
+  exact ⟨⟨hinv.vars_nodup, hinv.levels_le, hinv.dec_sync, hinv.dec_earliest, hdb,
+    hinv.units_sound,
+    reasonDagInv_withClauses hinv.reason_dag (addLearnedClause s.cdcl lits glue).clauses
+      (fun _ _ cid c _ hget _ => by
+        have hne : cid ≠ s.cdcl.clauses.size :=
+          Nat.ne_of_lt (Array.getElem?_eq_some_iff.mp hget).1
+        simp only [addLearnedClause, Array.getElem?_push, hne, ↓reduceIte]; exact hget),
+    hinv.inconsistent_sound⟩, rfl⟩
 
 /-- Run lexicographic `(level, trailPos)` recursive minimization (`MinimizeDfs`) on
 `s : ChronoState`. -/
@@ -1233,27 +1075,6 @@ private theorem backtrackLevel_le_of_mem_lt {s : CdclState} {learned : List Nat}
         · exact absurd hlt hy
         · exact hstep.2 hys
   exact (hgen learned 0).2 hx
-
-private theorem mem_two_filter_length_gt_one {P : Nat → Bool} {u y : Nat}
-    (huy : u ≠ y) (hpu : P u = true) (hpy : P y = true) :
-    ∀ {xs : List Nat}, xs.Nodup → u ∈ xs → y ∈ xs → 1 < (xs.filter P).length
-  | [], _, hu, _ => by cases hu
-  | x :: xs, hnd, hu, hy => by
-    rw [List.nodup_cons] at hnd
-    simp only [List.mem_cons] at hu hy
-    simp only [List.filter_cons]
-    by_cases hpx : P x = true
-    · simp only [hpx, ↓reduceIte, List.length_cons]
-      rcases hu with rfl | hu' <;> rcases hy with rfl | hy'
-      · exact absurd rfl huy
-      · exact Nat.succ_lt_succ (List.length_pos_of_mem (List.mem_filter.mpr ⟨hy', hpy⟩))
-      · exact Nat.succ_lt_succ (List.length_pos_of_mem (List.mem_filter.mpr ⟨hu', hpu⟩))
-      · have := mem_two_filter_length_gt_one huy hpu hpy hnd.2 hu' hy'; omega
-    · have hpf : P x = false := Bool.eq_false_iff.mpr hpx
-      simp only [hpf, Bool.false_eq_true, ↓reduceIte]
-      have hu' : u ∈ xs := hu.elim (fun h => by subst h; simp [hpu] at hpx) id
-      have hy' : y ∈ xs := hy.elim (fun h => by subst h; simp [hpy] at hpx) id
-      exact mem_two_filter_length_gt_one huy hpu hpy hnd.2 hu' hy'
 
 private theorem chronoAnalyze1UIPAux_nodup (s : ChronoState) :
     ∀ (k : Nat) (cl : List Nat) (ups : List OtfsUpdate),

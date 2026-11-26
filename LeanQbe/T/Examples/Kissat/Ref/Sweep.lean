@@ -92,37 +92,20 @@ theorem varsBounded_resolveOn {mv : Nat} {p : Nat} {c d : List Nat}
   ∀ cl ∈ cnf, ∀ lit ∈ cl.literals, 1 ≤ lit.1 ∧ lit.1 ≤ mv
 
 /-- Shift a 1-based DIMACS clause (`v ≥ 1`) down to 0-based Kissat variables (`v ↦ v - 1`). -/
-@[expose] def shiftDimacsClause (cl : CNF.Clause Nat) : CNF.Clause Nat :=
-  CNF.Clause.ofLiterals (cl.literals.map fun (v, p) => (v - 1, p))
+abbrev shiftDimacsClause := shiftDownClause
 
 /-- Shift a 1-based DIMACS `CNF Nat` down to 0-based Kissat variables. -/
-@[expose] def shiftDimacsCnf (cnf : CNF Nat) : CNF Nat :=
-  ⟨cnf.clauses.map shiftDimacsClause⟩
+abbrev shiftDimacsCnf := shiftDownCnf
 
 theorem shiftDimacsClause_sat_of_sat {cl : CNF.Clause Nat} {α : Nat → Bool}
     (hpos : ∀ lit ∈ cl.literals, 1 ≤ lit.1) (hsat : cl.Sat α) :
-    (shiftDimacsClause cl).Sat (fun v => α (v + 1)) := by
-  rw [CNF.Clause.sat_iff_exists_mem_eq] at hsat ⊢
-  obtain ⟨⟨v, p⟩, hmem, heq⟩ := hsat
-  have hmem' : (v, p) ∈ cl.literals := CNF.Clause.mem_literals_iff.mpr hmem
-  have hv1 : 1 ≤ v := hpos (v, p) hmem'
-  refine ⟨(v - 1, p), ?_, ?_⟩
-  · rw [← CNF.Clause.mem_literals_iff, shiftDimacsClause, CNF.Clause.literals_ofLiterals]
-    exact List.mem_map.mpr ⟨(v, p), hmem', rfl⟩
-  · simpa [Nat.sub_add_cancel hv1] using heq
+    (shiftDimacsClause cl).Sat (fun v => α (v + 1)) :=
+  shiftDownClause_sat_of_sat hpos hsat
 
 theorem shiftDimacsCnf_unsat {cnf : CNF Nat}
     (hpos : ∀ cl ∈ cnf, ∀ lit ∈ cl.literals, 1 ≤ lit.1)
-    (hu : (shiftDimacsCnf cnf).Unsat) : cnf.Unsat := by
-  rw [CNF.unsat_iff_not_sat] at hu ⊢
-  intro α hα
-  apply hu (fun v => α (v + 1))
-  rw [CNF.sat_iff_all_mem_sat] at hα ⊢
-  intro cl' hcl'
-  rw [CNF.Internal.mem_iff, shiftDimacsCnf, Array.mem_map] at hcl'
-  obtain ⟨cl, hcl, rfl⟩ := hcl'
-  have hmem : cl ∈ cnf := CNF.Internal.mem_iff.mpr hcl
-  exact shiftDimacsClause_sat_of_sat (hpos cl hmem) (hα cl hmem)
+    (hu : (shiftDimacsCnf cnf).Unsat) : cnf.Unsat :=
+  shiftDownCnf_unsat hpos hu
 
 theorem varsBounded_clausesOfCnf_of0 {mv : Nat} {cnf : CNF Nat}
     (hb : DimacsVarsBounded0 mv cnf) : VarsBounded mv (clausesOfCnf cnf) := by
@@ -142,10 +125,10 @@ theorem varsBounded_shiftDimacsCnf {mv : Nat} {cnf : CNF Nat}
     VarsBounded mv (clausesOfCnf (shiftDimacsCnf cnf)) := by
   apply varsBounded_clausesOfCnf_of0
   intro cl' hcl' lit hlit
-  rw [CNF.Internal.mem_iff, shiftDimacsCnf, Array.mem_map] at hcl'
+  rw [CNF.Internal.mem_iff, shiftDimacsCnf, shiftDownCnf, Array.mem_map] at hcl'
   obtain ⟨cl, hcl, rfl⟩ := hcl'
   have hcl_mem : cl ∈ cnf := CNF.Internal.mem_iff.mpr hcl
-  rw [shiftDimacsClause, CNF.Clause.literals_ofLiterals, List.mem_map] at hlit
+  rw [shiftDownClause, CNF.Clause.literals_ofLiterals, List.mem_map] at hlit
   obtain ⟨⟨v, p⟩, hvp, heq⟩ := hlit
   have hvp_b := hb cl hcl_mem (v, p) hvp
   cases heq
@@ -995,8 +978,7 @@ theorem extUnsatSound_substMap {F0 : CNF Nat} {mv : Nat} {F_cur : List (List Nat
   refine ⟨fun c' hc' l hl => ?_, fun hu => hs.2 ?_⟩
   · rw [substMapClauses, List.mem_filterMap] at hc'
     obtain ⟨c, hc, hsub⟩ := hc'
-    unfold substMapClause at hsub
-    dsimp only at hsub
+    simp only [substMapClause, mapClauseTaut] at hsub
     split at hsub
     · cases hsub
     · injection hsub with hce

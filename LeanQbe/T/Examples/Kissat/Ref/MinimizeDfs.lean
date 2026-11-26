@@ -1162,6 +1162,87 @@ theorem minimizeLiteralWorklist_sub_sound {s : MinState} (h : MinBaseInv s) {C :
     · exact Or.inr hr
     · omega
 
+/-- Shared soundness induction for greedy left-to-right clause/block literal minimization
+folds inside surrounding literals `pref ++ acc.reverse ++ xs ++ suff`. -/
+theorem minimizeLiteralFold_sound {s : MinState}
+    {pref suff B : List Nat} (maxDepth : Nat) :
+    ∀ (xs acc : List Nat) (st : MinState),
+      MinBaseInv st → st.cdcl = s.cdcl → st.trailPos = s.trailPos →
+      st.cdcl.f0.EntailsClause (cnfClause (pref ++ acc.reverse ++ xs ++ suff)) →
+      st.RemovableInv (pref ++ acc.reverse ++ xs ++ suff) →
+      (∀ l ∈ acc, litNeg l ∈ st.cdcl.trail.toList ∧ l ∈ B) →
+      (∀ l ∈ xs, litNeg l ∈ st.cdcl.trail.toList ∧ l ∈ B) →
+      let res := xs.foldl (fun (p : List Nat × MinState) lit =>
+        let (ok, st') := minimizeLiteralWorklist p.2 true maxDepth lit 0
+        if ok then (p.1, st') else (lit :: p.1, st')) (acc, st)
+      MinBaseInv res.2 ∧ res.2.cdcl = s.cdcl ∧ res.2.trailPos = s.trailPos ∧
+      res.2.cdcl.f0.EntailsClause (cnfClause (pref ++ res.1.reverse ++ suff)) ∧
+      res.2.RemovableInv (pref ++ res.1.reverse ++ suff) ∧
+      (∀ l ∈ res.1.reverse, litNeg l ∈ res.2.cdcl.trail.toList ∧ l ∈ B) ∧
+      (∀ w, st.isRemovable w = true → res.2.isRemovable w = true)
+  | [] => by
+    intro acc st hst hcdcl htp hent' hrem' hacc _
+    simp only [List.foldl_nil]
+    refine ⟨hst, hcdcl, htp, by simpa using hent', by simpa using hrem', fun l hl => ?_,
+      fun _ hw => hw⟩
+    exact hacc l (List.mem_reverse.mp hl)
+  | x :: xs => by
+    intro acc st hst hcdcl htp hent' hrem' hacc hxs
+    have hml := minimizeLiteralWorklist_sound hst hent' hrem' true maxDepth x
+    cases hres : minimizeLiteralWorklist st true maxDepth x 0 with
+    | mk ok st1 =>
+      rw [hres] at hml
+      obtain ⟨hb1, hcd1, htp1, hr1, hm1, hcut1⟩ := hml
+      simp only [List.foldl_cons, hres]
+      have hxs' : ∀ l ∈ xs, litNeg l ∈ st1.cdcl.trail.toList ∧ l ∈ B := fun l hl => by
+        simpa [hcd1] using hxs l (List.mem_cons_of_mem _ hl)
+      cases ok with
+      | true =>
+        have hcut := hcut1 rfl
+        have hsub : ∀ y ∈ (pref ++ acc.reverse ++ (x :: xs) ++ suff).filter (· != x),
+            y ∈ pref ++ acc.reverse ++ xs ++ suff := by
+          intro y hy
+          rw [List.mem_filter] at hy
+          rcases List.mem_append.mp hy.1 with hpa | hsuf
+          · rcases List.mem_append.mp hpa with hpa0 | hcons
+            · exact List.mem_append_left _ (List.mem_append_left _ hpa0)
+            · rcases List.mem_cons.mp hcons with rfl | hxs_m
+              · simp at hy
+              · exact List.mem_append_left _ (List.mem_append_right _ hxs_m)
+          · exact List.mem_append_right _ hsuf
+        have hsub_ent :
+            st1.cdcl.f0.EntailsClause (cnfClause (pref ++ acc.reverse ++ xs ++ suff)) := by
+          have hce := hcut.1
+          rw [CNF.entails_clause_def] at hce ⊢
+          intro α hα
+          obtain ⟨y, hy, hys⟩ := (clause_sat_cnfClause_iff α _).mp (hce α hα)
+          exact (clause_sat_cnfClause_iff α _).mpr ⟨y, hsub y hy, hys⟩
+        have hsub_rem : st1.RemovableInv (pref ++ acc.reverse ++ xs ++ suff) :=
+          removableInv_mono_clause hsub hcut.2
+        have hacc1 : ∀ l ∈ acc, litNeg l ∈ st1.cdcl.trail.toList ∧ l ∈ B := fun l hl => by
+          simpa [hcd1] using hacc l hl
+        have hih := minimizeLiteralFold_sound maxDepth xs acc st1 hb1 (hcd1.trans hcdcl)
+          (htp1.trans htp) hsub_ent hsub_rem hacc1 hxs'
+        exact ⟨hih.1, hih.2.1, hih.2.2.1, hih.2.2.2.1, hih.2.2.2.2.1, hih.2.2.2.2.2.1,
+          fun w hw => hih.2.2.2.2.2.2 w (hm1 w hw)⟩
+      | false =>
+        have heq_list : pref ++ (x :: acc).reverse ++ xs ++ suff =
+            pref ++ acc.reverse ++ (x :: xs) ++ suff := by
+          simp [List.reverse_cons, List.append_assoc]
+        have hent1 : st1.cdcl.f0.EntailsClause
+            (cnfClause (pref ++ (x :: acc).reverse ++ xs ++ suff)) := by
+          rw [heq_list, hcd1]; exact hent'
+        have hrem1 : st1.RemovableInv (pref ++ (x :: acc).reverse ++ xs ++ suff) := by
+          rw [heq_list]; exact hr1
+        have hacc1 : ∀ l ∈ x :: acc, litNeg l ∈ st1.cdcl.trail.toList ∧ l ∈ B := by
+          intro l hl; rcases List.mem_cons.mp hl with rfl | ha
+          · simpa [hcd1] using hxs l (by simp)
+          · simpa [hcd1] using hacc l ha
+        have hih := minimizeLiteralFold_sound maxDepth xs (x :: acc) st1 hb1 (hcd1.trans hcdcl)
+          (htp1.trans htp) hent1 hrem1 hacc1 hxs'
+        exact ⟨hih.1, hih.2.1, hih.2.2.1, hih.2.2.2.1, hih.2.2.2.2.1, hih.2.2.2.2.2.1,
+          fun w hw => hih.2.2.2.2.2.2 w (hm1 w hw)⟩
+
 /-- Full iterative clause minimization soundness (`minimize_worklist_sound`). -/
 theorem minimize_worklist_sound {s : MinState} (h : MinBaseInv s) {C : List Nat}
     (hent : s.cdcl.f0.EntailsClause (cnfClause C))
@@ -1178,83 +1259,9 @@ theorem minimize_worklist_sound {s : MinState} (h : MinBaseInv s) {C : List Nat}
   have hs0_rem : (seedRemovable s C).RemovableInv C := seedRemovable_preserves hrem hfals
   have hs0_ent : (seedRemovable s C).cdcl.f0.EntailsClause (cnfClause C) := by
     simpa [seedRemovable_cdcl] using hent
-  have hfold : ∀ (xs acc : List Nat) (st : MinState),
-      MinBaseInv st → st.cdcl = s.cdcl → st.trailPos = s.trailPos →
-      st.cdcl.f0.EntailsClause (cnfClause (acc.reverse ++ xs)) →
-      st.RemovableInv (acc.reverse ++ xs) →
-      (∀ l ∈ acc, litNeg l ∈ st.cdcl.trail.toList ∧ l ∈ C) →
-      (∀ l ∈ xs, litNeg l ∈ st.cdcl.trail.toList ∧ l ∈ C) →
-      let res := xs.foldl (fun (p : List Nat × MinState) lit =>
-        let (ok, st') := minimizeLiteralWorklist p.2 true maxDepth lit 0
-        if ok then (p.1, st') else (lit :: p.1, st')) (acc, st)
-      MinBaseInv res.2 ∧ res.2.cdcl = s.cdcl ∧ res.2.trailPos = s.trailPos ∧
-      res.2.cdcl.f0.EntailsClause (cnfClause res.1.reverse) ∧ res.2.RemovableInv res.1.reverse ∧
-      (∀ l ∈ res.1.reverse, litNeg l ∈ res.2.cdcl.trail.toList ∧ l ∈ C) ∧
-      (∀ w, st.isRemovable w = true → res.2.isRemovable w = true) := by
-    intro xs
-    induction xs with
-    | nil =>
-      intro acc st hst hcdcl htp hent' hrem' hacc _
-      simp only [List.foldl_nil]
-      refine ⟨hst, hcdcl, htp, by simpa using hent', by simpa using hrem', fun l hl => ?_,
-        fun _ hw => hw⟩
-      exact hacc l (List.mem_reverse.mp hl)
-    | cons x xs ih =>
-      intro acc st hst hcdcl htp hent' hrem' hacc hxs
-      have hml := minimizeLiteralWorklist_sound hst hent' hrem' true maxDepth x
-      cases hres : minimizeLiteralWorklist st true maxDepth x 0 with
-      | mk ok st1 =>
-        rw [hres] at hml
-        obtain ⟨hb1, hcd1, htp1, hr1, hm1, hcut1⟩ := hml
-        simp only [List.foldl_cons, hres]
-        have hxs' : ∀ l ∈ xs, litNeg l ∈ st1.cdcl.trail.toList ∧ l ∈ C := fun l hl => by
-          simpa [hcd1] using hxs l (List.mem_cons_of_mem _ hl)
-        cases ok with
-        | true =>
-          have hcut := hcut1 rfl
-          have hsub_ent : st1.cdcl.f0.EntailsClause (cnfClause (acc.reverse ++ xs)) := by
-            have hcut_ent := hcut.1
-            rw [CNF.entails_clause_def] at hcut_ent ⊢
-            intro α hα
-            obtain ⟨y, hy, hys⟩ := (clause_sat_cnfClause_iff α _).mp (hcut_ent α hα)
-            rw [List.mem_filter] at hy
-            refine (clause_sat_cnfClause_iff α _).mpr ⟨y, ?_, hys⟩
-            rcases List.mem_append.mp hy.1 with ha | hcons
-            · exact List.mem_append_left _ ha
-            · rcases List.mem_cons.mp hcons with rfl | hxs_mem
-              · simp at hy
-              · exact List.mem_append_right _ hxs_mem
-          have hsub_rem : st1.RemovableInv (acc.reverse ++ xs) := by
-            refine removableInv_mono_clause (fun y hy => ?_) hcut.2
-            rw [List.mem_filter] at hy
-            rcases List.mem_append.mp hy.1 with ha | hcons
-            · exact List.mem_append_left _ ha
-            · rcases List.mem_cons.mp hcons with rfl | hxs_mem
-              · simp at hy
-              · exact List.mem_append_right _ hxs_mem
-          have hacc1 : ∀ l ∈ acc, litNeg l ∈ st1.cdcl.trail.toList ∧ l ∈ C := fun l hl => by
-            simpa [hcd1] using hacc l hl
-          have hih := ih acc st1 hb1 (hcd1.trans hcdcl) (htp1.trans htp)
-            hsub_ent hsub_rem hacc1 hxs'
-          exact ⟨hih.1, hih.2.1, hih.2.2.1, hih.2.2.2.1, hih.2.2.2.2.1, hih.2.2.2.2.2.1,
-            fun w hw => hih.2.2.2.2.2.2 w (hm1 w hw)⟩
-        | false =>
-          have heq_list : (x :: acc).reverse ++ xs = acc.reverse ++ (x :: xs) := by
-            simp [List.reverse_cons, List.append_assoc]
-          have hent1 : st1.cdcl.f0.EntailsClause (cnfClause ((x :: acc).reverse ++ xs)) := by
-            rw [heq_list, hcd1]; exact hent'
-          have hrem1 : st1.RemovableInv ((x :: acc).reverse ++ xs) := by
-            rw [heq_list]; exact hr1
-          have hacc1 : ∀ l ∈ x :: acc, litNeg l ∈ st1.cdcl.trail.toList ∧ l ∈ C := by
-            intro l hl; rcases List.mem_cons.mp hl with rfl | ha
-            · simpa [hcd1] using hxs l (by simp)
-            · simpa [hcd1] using hacc l ha
-          have hih := ih (x :: acc) st1 hb1 (hcd1.trans hcdcl) (htp1.trans htp)
-            hent1 hrem1 hacc1 hxs'
-          exact ⟨hih.1, hih.2.1, hih.2.2.1, hih.2.2.2.1, hih.2.2.2.2.1, hih.2.2.2.2.2.1,
-            fun w hw => hih.2.2.2.2.2.2 w (hm1 w hw)⟩
-  have hmain := hfold C [] (seedRemovable s C) hs0_base (seedRemovable_cdcl s C)
-    (seedRemovable_trailPos s C) hs0_ent hs0_rem (fun _ h => by cases h)
+  have hmain := minimizeLiteralFold_sound (s := s) (pref := []) (suff := []) (B := C) maxDepth
+    C [] (seedRemovable s C) hs0_base (seedRemovable_cdcl s C) (seedRemovable_trailPos s C)
+    (by simpa using hs0_ent) (by simpa using hs0_rem) (fun _ h => by cases h)
     (fun l hl => ⟨by simpa [seedRemovable_cdcl] using hfals l hl, hl⟩)
   unfold minimizeClauseWorklist
   dsimp only
@@ -1266,8 +1273,8 @@ theorem minimize_worklist_sound {s : MinState} (h : MinBaseInv s) {C : List Nat}
     refine ⟨hmain.1.resetPoisoned, ?_, ?_, ?_, ?_, ?_, ?_, fun w hw => ?_⟩
     · simpa [MinState.cdcl_resetPoisoned] using hmain.2.1
     · simpa [MinState.trailPos_resetPoisoned] using hmain.2.2.1
-    · simpa [MinState.cdcl_resetPoisoned] using hmain.2.2.2.1
-    · exact removableInv_resetPoisoned.mpr hmain.2.2.2.2.1
+    · simpa [MinState.cdcl_resetPoisoned, List.nil_append, List.append_nil] using hmain.2.2.2.1
+    · exact removableInv_resetPoisoned.mpr (by simpa using hmain.2.2.2.2.1)
     · intro l hl; simpa [MinState.cdcl_resetPoisoned] using (hmain.2.2.2.2.2.1 l hl).1
     · intro l hl; exact (hmain.2.2.2.2.2.1 l hl).2
     · rw [MinState.isRemovable_resetPoisoned]
