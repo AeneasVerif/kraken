@@ -161,14 +161,6 @@ theorem FullLastLearnedWf.of_cleared {s : FullState}
     (hclear : ∀ i < 8, s.scratch.last_learned[i]?.getD 0xFFFFFFFF#32 = 0xFFFFFFFF#32) :
     FullLastLearnedWf s := fun i hi => Or.inl (hclear i hi)
 
-private theorem nodup_of_map {α β : Type} (f : α → β) :
-    ∀ {xs : List α}, (xs.map f).Nodup → xs.Nodup
-  | [], _ => List.Pairwise.nil
-  | x :: xs, h => by
-    rw [List.map_cons, List.nodup_cons] at h
-    rw [List.nodup_cons]
-    exact ⟨fun hx => h.1 (List.mem_map_of_mem hx), nodup_of_map f h.2⟩
-
 theorem FullArenaVarsNodup.nodup_lits {s : FullState} (h : FullArenaVarsNodup s)
     {r : Nat} (hr : r ∈ fullArenaClauseRefs s) (hg : fullArenaClauseGarb s r = false) :
     (fullArenaClauseLits s r).Nodup :=

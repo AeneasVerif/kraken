@@ -739,10 +739,6 @@ theorem m6Hdr_call_m6HdrW2a {Γ : Env} {f : Sym} {extraArgs rs ret : List Ty}
 
 /-! ### 3.1 Unsigned BitVec Arithmetic, Saturating Add, Masks, Literals, Arena Bounds -/
 
-theorem bv64_add_small_eq {a b : BitVec 64} (h : a.toNat + b.toNat < 2 ^ 64) :
-    (a + b).toNat = a.toNat + b.toNat := by
-  rw [BitVec.toNat_add, Nat.mod_eq_of_lt h]
-
 theorem bv32_add_small_eq {a b : BitVec 32} (h : a.toNat + b.toNat < 2 ^ 32) :
     (a + b).toNat = a.toNat + b.toNat := by
   rw [BitVec.toNat_add, Nat.mod_eq_of_lt h]
@@ -869,10 +865,6 @@ theorem bv64_arena_clen_le {p clen : BitVec 64} {alen : Nat}
   exact BitVec.le_def.mp hle
 
 /-! ### 3.2 `c0_hfast` Frame-Lift Glue & Scoped `FullM6HdrMem` Tactics -/
-
-private theorem sep_swap_l {P Q R : Mem 64 → Prop} {m : Mem 64}
-    (h : (P ⋆ (Q ⋆ R)) m) : (Q ⋆ (P ⋆ R)) m := by
-  rw [← sep_assoc, sep_comm P Q, sep_assoc] at h; exact h
 
 theorem fullM6HdrMem_focus {c : FullCfg} {ext : List (BitVec 64)} {s : FullState}
     {R : Mem 64 → Prop} {m : Mem 64} (hm : (FullM6HdrMem c ext s ⋆ R) m) :
@@ -1216,12 +1208,7 @@ private theorem nodup_getElem?_inj {α : Type _} :
   | _ :: _, i + 1, j + 1, _, hnd, hi, hj =>
     congrArg Nat.succ (nodup_getElem?_inj (List.nodup_cons.mp hnd).2 hi hj)
 
-private theorem nodup_of_map {α : Type _} {β : Type _} (f : α → β) :
-    ∀ {xs : List α}, (xs.map f).Nodup → xs.Nodup
-  | [], _ => .nil
-  | _ :: _, h =>
-    let hm := List.nodup_cons.mp h
-    List.nodup_cons.mpr ⟨fun hmem => hm.1 (List.mem_map_of_mem hmem), nodup_of_map f hm.2⟩
+/-! `nodup_of_map` is inherited from `Proof.Spec.MemBridges`. -/
 
 /-- Pointwise agreement between `Env.ofTable t1` and `Env.ofTable t2` on every signature
 whose entry appears in both tables under `Nodup` names. -/

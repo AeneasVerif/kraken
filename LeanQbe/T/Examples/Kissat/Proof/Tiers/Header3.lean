@@ -13,7 +13,7 @@ public import Kraken.Mem
 public import Kraken.Separation
 
 /-!
-# Kissat M6 `FullM6Hdr` Decision-Rate Helper Proofs (`Proof.Spec.Header3`)
+# Kissat M6 `FullM6Hdr` Decision-Rate Helper Proofs (`Proof.Tiers.Header3`)
 
 Live `Func.wp` proofs for the `3` `Src.Tiers` decision-rate functions (`m6_hdr_dr_init`,
 `m6_hdr_dr_update`, `m6_hdr_dr_allow`).
@@ -23,7 +23,7 @@ set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Examples.Kissat.Proof.Spec
+namespace LeanQbe.T.Examples.Kissat.Proof.Tiers
 
 open Std Std.Sat Std.ExtHashMap
 open LeanQbe.T
@@ -32,17 +32,11 @@ open LeanQbe.T.C0HeadStep
 open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Src
+open LeanQbe.T.Examples.Kissat.Proof.Spec
 open FullArenaTactics
 open scoped FullArenaTactics
 open scoped M6HdrTactics
 open Kraken.Bedrock2.Test
-
-local macro "m6h_call" h:term : tactic =>
-  `(tactic| refine LeanQbe.T.wp_call_of_spec _ _ ($h _ _ _ _ ?_))
-
-private theorem bv64_add_small2 {k x : BitVec 64} {n : Nat} (hk : k.toNat = n)
-    (hsum : n + x.toNat < 2 ^ 64) : (k + x).toNat = n + x.toNat := by
-  rw [BitVec.toNat_add, hk, Nat.mod_eq_of_lt hsum]
 
 private theorem w2b_pres_of_init {ext ext1 ext' : List (BitVec 64)}
     (h1 : M6HdrExtInitOk ext → ext1 = ext) (h2 : M6ExtW2aPres ext1 ext') :
@@ -101,11 +95,11 @@ theorem m6_hdr_dr_update_wp (Γ : Env)
   subst m2
   have hmode_le : mode.toNat ≤ 1 := by rcases hmode with rfl | rfl <;> decide
   have hp_eq : ((2 : BitVec 64) + mode).toNat = 2 + mode.toNat :=
-    bv64_add_small2 (n := 2) rfl (by omega)
+    bv64_add_small (n := 2) rfl (by omega)
   have hsb_eq : ((4 : BitVec 64) + mode).toNat = 4 + mode.toNat :=
-    bv64_add_small2 (n := 4) rfl (by omega)
+    bv64_add_small (n := 4) rfl (by omega)
   have hse_eq : ((6 : BitVec 64) + mode).toNat = 6 + mode.toNat :=
-    bv64_add_small2 (n := 6) rfl (by omega)
+    bv64_add_small (n := 6) rfl (by omega)
   have hp_lt : ((2 : BitVec 64) + mode).toNat < ext1.length := by rw [hl1, hp_eq]; omega
   have hsb_lt : ((4 : BitVec 64) + mode).toNat < ext1.length := by rw [hl1, hsb_eq]; omega
   have hse_lt : ((6 : BitVec 64) + mode).toNat < ext1.length := by rw [hl1, hse_eq]; omega
@@ -181,9 +175,9 @@ theorem m6_hdr_dr_allow_wp (Γ : Env)
     subst m2
     have hmode_le : mode.toNat ≤ 1 := by rcases hmode with rfl | rfl <;> decide
     have hsb_lt : ((4 : BitVec 64) + mode).toNat < ext1.length := by
-      rw [hl1, bv64_add_small2 (n := 4) rfl (by omega)]; omega
+      rw [hl1, bv64_add_small (n := 4) rfl (by omega)]; omega
     have hse_lt : ((6 : BitVec 64) + mode).toNat < ext1.length := by
-      rw [hl1, bv64_add_small2 (n := 6) rfl (by omega)]; omega
+      rw [hl1, bv64_add_small (n := 6) rfl (by omega)]; omega
     c0_hsteps_nogrp
     refine wp_join_group (ts := [i64]) (fun _ m2 => m2 = m1)
       (fun _ (_sd, ()) m2 hm2 => by
@@ -193,4 +187,4 @@ theorem m6_hdr_dr_allow_wp (Γ : Env)
       (fun _ hJsd => by c0_hsteps <;> exact hJsd (_, ()) m1 rfl)
 
 
-end LeanQbe.T.Examples.Kissat.Proof.Spec
+end LeanQbe.T.Examples.Kissat.Proof.Tiers

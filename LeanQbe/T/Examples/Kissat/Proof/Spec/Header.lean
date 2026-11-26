@@ -261,10 +261,6 @@ theorem FullM6HdrCoreInv.coreInv {c : FullCfg} {F0 : CNF Nat} {ext : List (BitVe
 theorem fullM6HdrMem_mk {c : FullCfg} {ext : List (BitVec 64)} {s : FullState} {m : Mem 64}
     (h : (array64 (c.hdr - 2304) ext ⋆ FullMem c s) m) : FullM6HdrMem c ext s m := h
 
-private theorem sep_swap_l {P Q R : Mem 64 → Prop} {m : Mem 64}
-    (h : (P ⋆ (Q ⋆ R)) m) : (Q ⋆ (P ⋆ R)) m := by
-  rw [← sep_assoc, sep_comm P Q, sep_assoc] at h; exact h
-
 theorem fullM6HdrMem_iff (c : FullCfg) (ext : List (BitVec 64)) (s : FullState)
     (R : Mem 64 → Prop) (m : Mem 64) :
     (FullM6HdrMem c ext s ⋆ R) m ↔ (FullMem c s ⋆ (array64 (c.hdr - 2304) ext ⋆ R)) m := by
@@ -399,9 +395,6 @@ theorem fullM6Hdr_frame_safety_void {c : FullCfg} {ext : List (BitVec 64)} {s : 
 
 namespace M6HdrTactics
 
-private theorem m8_eq (a i : BitVec 64) : a + i * 8 = a + BitVec.ofNat 64 (8 * i.toNat) := by
-  rw [show (8 : BitVec 64) = BitVec.ofNat 64 8 from rfl, c0_mul_ofNat]
-
 private theorem shl3_eq {a i : BitVec 64} (hi : i.toNat < 2 ^ 61) :
     a + (i <<< (((3 : BitVec 32).signExtend 64).toNat % 64)) =
       a + BitVec.ofNat 64 (8 * i.toNat) := by
@@ -416,14 +409,14 @@ private theorem shl3_eq {a i : BitVec 64} (hi : i.toNat < 2 ^ 61) :
     {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64}
     (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hi : i.toNat < ext.length) :
     loadVal m i64 (a + i * 8) = some (ext[i.toNat]'hi) := by
-  rw [m8_eq]; exact loadVal_array64 hi (sep_swap_l hm)
+  rw [m8]; exact loadVal_array64 hi (sep_swap_l hm)
 
 @[scoped c0_store] theorem store_m6Ext_mul8 {c : FullCfg} {s : FullState} {a i : BitVec 64}
     {ext : List (BitVec 64)} {R : Mem 64 → Prop} {m : Mem 64} (v : BitVec 64)
     (hm : (FullMem c s ⋆ (array64 a ext ⋆ R)) m) (hi : i.toNat < ext.length) :
     storeOk m i64 (a + i * 8) ∧
       (FullMem c s ⋆ (array64 a (ext.set i.toNat v) ⋆ R)) (storeMem m i64 (a + i * 8) v) := by
-  rw [m8_eq]
+  rw [m8]
   obtain ⟨hok, hst⟩ := store_array64 v hi (sep_swap_l hm)
   exact ⟨hok, sep_swap_l hst⟩
 
@@ -495,6 +488,9 @@ private theorem shl3_eq {a i : BitVec 64} (hi : i.toNat < 2 ^ 61) :
   rw [hk]
   obtain ⟨hok, hst⟩ := store_array64 v hi (sep_swap_l hm)
   exact ⟨hok, sep_swap_l hst⟩
+
+scoped macro "m6h_call" h:term : tactic =>
+  `(tactic| refine LeanQbe.T.wp_call_of_spec _ _ ($h _ _ _ _ ?_))
 
 end M6HdrTactics
 

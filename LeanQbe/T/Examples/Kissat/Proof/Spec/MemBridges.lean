@@ -994,4 +994,29 @@ theorem sep_exists_eq {P Q : Mem 64 → Prop} {M : Mem 64}
   obtain ⟨m, hm'⟩ := hm
   exact ⟨m, sep_pure_l (φ := P m) (P := Eq m) (R := Q).mp hm'⟩
 
+theorem sep_swap_l {P Q R : Mem 64 → Prop} {m : Mem 64}
+    (h : (P ⋆ (Q ⋆ R)) m) : (Q ⋆ (P ⋆ R)) m := by
+  rw [← sep_assoc, sep_comm P Q, sep_assoc] at h; exact h
+
+/-! ## 6. Shared BitVec arithmetic and list helpers -/
+
+theorem bv64_add_small_eq {a b : BitVec 64} (h : a.toNat + b.toNat < 2 ^ 64) :
+    (a + b).toNat = a.toNat + b.toNat := by
+  rw [BitVec.toNat_add, Nat.mod_eq_of_lt h]
+
+theorem bv64_add_small {k x : BitVec 64} {n : Nat} (hk : k.toNat = n)
+    (hsum : n + x.toNat < 2 ^ 64) : (k + x).toNat = n + x.toNat := by
+  rw [BitVec.toNat_add, hk, Nat.mod_eq_of_lt hsum]
+
+theorem bv64_add1_toNat_lt {g : BitVec 64} (h : g.toNat + 1 < 2 ^ 64) :
+    (g + 1).toNat = g.toNat + 1 := by
+  rw [BitVec.toNat_add, show (1 : BitVec 64).toNat = 1 from rfl, Nat.mod_eq_of_lt h]
+
+theorem nodup_of_map {α : Type _} {β : Type _} (f : α → β) :
+    ∀ {xs : List α}, (xs.map f).Nodup → xs.Nodup
+  | [], _ => .nil
+  | _ :: _, h =>
+    let hm := List.nodup_cons.mp h
+    List.nodup_cons.mpr ⟨fun hmem => hm.1 (List.mem_map_of_mem hmem), nodup_of_map f hm.2⟩
+
 end LeanQbe.T.Examples.Kissat.Proof.Spec

@@ -1121,13 +1121,6 @@ theorem shift_split_65536 {k : Nat} (hk : k < 16) :
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
     rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> decide
 
-theorem bv64_add_toNat {a b : BitVec 64} (h : a.toNat + b.toNat < 2 ^ 64) :
-    (a + b).toNat = a.toNat + b.toNat := by
-  rw [BitVec.toNat_add, Nat.mod_eq_of_lt h]
-
-theorem bv64_add1_toNat {g : BitVec 64} (h : g.toNat + 1 < 2 ^ 64) :
-    (g + 1#64).toNat = g.toNat + 1 := bv64_add_toNat h
-
 theorem bv64_sub_toNat {a b : BitVec 64} (h : b.toNat ≤ a.toNat) :
     (a - b).toNat = a.toNat - b.toNat := by bv_omega
 
@@ -1143,22 +1136,10 @@ theorem bv64_shl1_toNat {v : BitVec 64} (h : 2 * v.toNat < 2 ^ 64) :
     Nat.mod_eq_of_lt (by omega)]
   omega
 
-theorem bv64_ofNat_toNat {n : Nat} (hn : n < 2 ^ 64) : (BitVec.ofNat 64 n).toNat = n := by
-  simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn]
-
-theorem bv32_ofNat_toNat {n : Nat} (hn : n < 2 ^ 32) : (BitVec.ofNat 32 n).toNat = n := by
-  simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hn]
-
 theorem zext_toNat {w1 w2 : Nat} (x : BitVec w1) (hle : w1 ≤ w2) :
     (x.setWidth w2).toNat = x.toNat := by
   rw [BitVec.toNat_setWidth, Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le x.isLt (Nat.pow_le_pow_right
     (by omega) hle))]
-
-theorem bv64_trunc32_ofNat {n : Nat} (hn : n < 2 ^ 32) :
-    (BitVec.ofNat 64 n).setWidth 32 = BitVec.ofNat 32 n := by
-  apply BitVec.eq_of_toNat_eq
-  rw [BitVec.toNat_setWidth, bv64_ofNat_toNat (by omega), bv32_ofNat_toNat hn,
-    Nat.mod_eq_of_lt hn]
 
 theorem bv64_zext32_ushr1 (x : BitVec 32) :
     ((x.setWidth 64) >>> (BitVec.signExtend 64 (1 : BitVec 32)).toNat).toNat = x.toNat / 2 := by
@@ -1284,7 +1265,7 @@ theorem full_log10_q16_core_wp (Γ : Env) (x : BitVec 64) (m : Mem 64)
             · have hi_lt : i.toNat < 16 := by c0_bound
               have hf_lt : frac.toNat < 2 ^ 15 :=
                 Nat.lt_of_lt_of_le hfl (Nat.pow_le_pow_right (by omega) (by omega))
-              have hi1 : (i + 1#64).toNat = i.toNat + 1 := bv64_add1_toNat (by omega)
+              have hi1 : (i + 1#64).toNat = i.toNat + 1 := bv64_add1_toNat_lt (by omega)
               have hf2p1 : (frac <<< (1 : Nat) + 1#64).toNat = 2 * frac.toNat + 1 := by bv_omega
               have hf2p1_lt : 2 * frac.toNat + 1 < 2 ^ (i.toNat + 1) := by rw [Nat.pow_succ]; omega
               exact hJ2 (_, (frac <<< (1 : Nat)) + 1#64, i + 1#64, ()) m (by dsimp only; omega)
@@ -1295,7 +1276,7 @@ theorem full_log10_q16_core_wp (Γ : Env) (x : BitVec 64) (m : Mem 64)
               have hf_sh : (frac <<< (1 : Nat)).toNat = 2 * frac.toNat := by
                 rw [BitVec.toNat_shiftLeft]; simp [Nat.shiftLeft_eq]; omega
               have hf2_lt : 2 * frac.toNat < 2 ^ (i.toNat + 1) := by rw [Nat.pow_succ]; omega
-              have hi1 : (i + 1#64).toNat = i.toNat + 1 := bv64_add1_toNat (by omega)
+              have hi1 : (i + 1#64).toNat = i.toNat + 1 := bv64_add1_toNat_lt (by omega)
               exact hJ2 (_, frac <<< (1 : Nat), i + 1#64, ()) m (by dsimp only; omega)
                 ⟨rfl, by omega, by rw [hi1, hf_sh]; exact hf2_lt⟩
             · have hflt : frac.toNat < 65536 :=
@@ -1314,7 +1295,7 @@ theorem full_log10_q16_core_wp (Γ : Env) (x : BitVec 64) (m : Mem 64)
       · intro _ hJexit; c0_hsteps_nogrp
         · have hd_lt : d.toNat < 19 := by c0_bound
           obtain ⟨hp10, _, hp_mul⟩ := pow10_succ_mul10 hd_lt hple
-          have hd1 : (d + 1#64).toNat = d.toNat + 1 := bv64_add1_toNat (by omega)
+          have hd1 : (d + 1#64).toNat = d.toNat + 1 := bv64_add1_toNat_lt (by omega)
           exact hJ (d + 1#64, pow10 * 10#64, ()) m (by dsimp only; omega)
             ⟨rfl, by omega, by omega, by rw [hd1, hp_mul]; exact hp10,
              fun h0 => by rw [hd1] at h0; omega⟩

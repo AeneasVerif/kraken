@@ -18,7 +18,7 @@ import Kraken.Separation
 # Kissat Fidelity BVE & BVA Heap Tactics / Scan Helpers (`Proof.Spec.Tactics1`)
 
 1. `FidK6Tactics`, `fid_norm_ofnat`, `fid_ne`, `fid_omega`, `fid_call`, `fidScr*`.
-2. `pack64` / `repr64Get` / `repr64Set`, `FullBvaHeapTactics`, and `c0_hfast`.
+2. `pack64` / `repr64Get` / `repr64Set` and `FullBvaHeapTactics`.
 3. `FullBvaHeapScanHelpers` (`LmBit2Inv`, bit-mask restoration, `arViv_congr`).
 -/
 
@@ -99,13 +99,9 @@ namespace FidK6Tactics
   exact fid_bv32_xor1_ofNat x
 
 @[scoped bv_c0] theorem fid_bv32_shr1_ofNat (x : BitVec 32) :
-    (x >>> (1 : BitVec 32)).toNat = x.toNat / 2 := by
-  have h : x >>> (1 : BitVec 32) = x >>> 1 := rfl
-  rw [h, BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow, Nat.pow_one]
+    (x >>> (1 : BitVec 32)).toNat = x.toNat / 2 := bv32_lshr_1 x
 
-@[scoped bv_c0] theorem fid_bv32_shr1_nat (x : BitVec 32) :
-    (x >>> (1 : Nat)).toNat = x.toNat / 2 := by
-  rw [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow, Nat.pow_one]
+attribute [scoped bv_c0] bv32_lshr_1
 
 @[scoped bv_c0] theorem fid_bv32_shl_nat (x : BitVec 32) (k : Nat) :
     (x <<< k).toNat = (x.toNat * 2 ^ k) % 2 ^ 32 := by
@@ -343,13 +339,6 @@ namespace FullBvaHeapTactics
 open FullArenaTactics
 open scoped FullArenaTactics
 
-private theorem m8 (a i : BitVec 64) : a + i * 8 = a + BitVec.ofNat 64 (8 * i.toNat) := by
-  rw [show (8 : BitVec 64) = BitVec.ofNat 64 8 from rfl, c0_mul_ofNat]
-
-private theorem ufM {c : FullCfg} {s s' : FullState} {G G' B B' R : Mem 64 → Prop}
-    {m' : Mem 64} (_hs : FullMem c s = (G ⋆ B)) (hs' : FullMem c s' = (G' ⋆ B'))
-    (hb : B' = B) (h : ((G' ⋆ B) ⋆ R) m') : (FullMem c s' ⋆ R) m' := by rw [hs', hb]; exact h
-
 private def reprRest (c : FullCfg) (s : FullState) (R : Mem 64 → Prop) : Mem 64 → Prop :=
   (array (t := i32) c.pFrameTrail s.core.frame_trail ⋆
     array (t := i32) c.pFrameDec s.core.frame_dec ⋆
@@ -460,12 +449,7 @@ private def reprRest (c : FullCfg) (s : FullState) (R : Mem 64 → Prop) : Mem 6
         (storeMem m i32 c.pTarjanMark v) := by
   simpa using store_full_tarjan_mark (i := 0) v hi hm
 
-@[scoped bv_c0] theorem bv32_lshr1_nat (x : BitVec 32) : (x >>> (1 : Nat)).toNat = x.toNat / 2 := by
-  simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
-
-@[scoped bv_c0] theorem bv32_lshr1_bv (x : BitVec 32) :
-    (x >>> (1 : BitVec 32)).toNat = x.toNat / 2 := by
-  simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
+attribute [scoped bv_c0] bv32_lshr_1 FidK6Tactics.fid_bv32_shr1_ofNat repr64Set_length
 
 @[scoped bv_c0] theorem bv64_lshr1_nat (x : BitVec 64) : (x >>> (1 : Nat)).toNat = x.toNat / 2 := by
   simp [BitVec.toNat_ushiftRight, Nat.shiftRight_eq_div_pow]
@@ -480,10 +464,6 @@ private def reprRest (c : FullCfg) (s : FullState) (R : Mem 64 → Prop) : Mem 6
 
 @[scoped bv_c0] theorem bv32_shl1_bv (x : BitVec 32) :
     (x <<< (1 : BitVec 32)).toNat = (2 * x.toNat) % 2 ^ 32 := by
-  simp [BitVec.toNat_shiftLeft, Nat.shiftLeft_eq, Nat.mul_comm]
-
-@[scoped bv_c0] theorem bv64_shl1_nat (x : BitVec 64) :
-    (x <<< (1 : Nat)).toNat = (2 * x.toNat) % 2 ^ 64 := by
   simp [BitVec.toNat_shiftLeft, Nat.shiftLeft_eq, Nat.mul_comm]
 
 @[scoped bv_c0] theorem bv64_shl1_bv (x : BitVec 64) :
@@ -506,19 +486,12 @@ private def reprRest (c : FullCfg) (s : FullState) (R : Mem 64 → Prop) : Mem 6
     (((x >>> (1 : Nat)) <<< (1 : Nat)) ||| y).toNat = 2 * (x.toNat / 2) + y.toNat := by
   have hlt : 2 * (x.toNat / 2) < 2 ^ 32 := by have := x.isLt; omega
   have hev : ((x >>> (1 : Nat)) <<< (1 : Nat)).toNat = 2 * (x.toNat / 2) := by
-    rw [bv32_shl1_nat, bv32_lshr1_nat, Nat.mod_eq_of_lt hlt]
+    rw [bv32_shl1_nat, bv32_lshr_1, Nat.mod_eq_of_lt hlt]
   rcases (by omega : y.toNat = 0 ∨ y.toNat = 1) with h0 | h1
   · have hy0 : y = 0#32 := BitVec.eq_of_toNat_eq h0; subst hy0
     rw [BitVec.or_zero, hev]; rfl
   · have hy1 : y = 1#32 := BitVec.eq_of_toNat_eq h1; subst hy1
     rw [FullBvaFwdTactics.bv32_or1_of_even (by omega), hev]; rfl
-
-@[scoped bv_c0] theorem bv_repr64Set_len (r : List (BitVec 32)) (i : Nat) (v : BitVec 64) :
-    (repr64Set r i v).length = r.length := repr64Set_length r i v
-
-/-- Fast `c0_hsteps` variant with `pruneJnz := false` (never runs `simp only [bv_c0] at *` across
-large nested-loop contexts). -/
-scoped elab "c0_hfast" : tactic => LeanQbe.T.C0HeadStep.headSteps { pruneJnz := false } 10000
 
 end FullBvaHeapTactics
 

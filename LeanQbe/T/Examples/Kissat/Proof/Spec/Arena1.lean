@@ -39,9 +39,13 @@ private theorem arrPutI64 {a : BitVec 64} {xs : List (BitVec 64)} {F : Mem 64 �
     {i : Nat} {m : Mem 64} (v : BitVec 64) (hi : i < xs.length) (h : (array64 a xs ⋆ F) m) :
     storeOk m i64 (a + BitVec.ofNat 64 (8 * i)) ∧ (array64 a (xs.set i v) ⋆ F)
       (storeMem m i64 (a + BitVec.ofNat 64 (8 * i)) v) := store_array64 v hi h
-private theorem ufM {c : FullCfg} {s s' : FullState} {G G' B B' R : Mem 64 → Prop}
+theorem ufM {c : FullCfg} {s s' : FullState} {G G' B B' R : Mem 64 → Prop}
     {m' : Mem 64} (_hs : FullMem c s = (G ⋆ B)) (hs' : FullMem c s' = (G' ⋆ B'))
     (hb : B' = B) (h : ((G' ⋆ B) ⋆ R) m') : (FullMem c s' ⋆ R) m' := by rw [hs', hb]; exact h
+
+theorem m8 (a i : BitVec 64) : a + i * 8 = a + BitVec.ofNat 64 (8 * i.toNat) := by
+  rw [show (8 : BitVec 64) = BitVec.ofNat 64 8 from rfl, c0_mul_ofNat]
+
 /-! Strictly scoped `FullMem` load/store/bitvector automation (`zero global attributes`). -/
 namespace FullArenaTactics
 private theorem gH {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {m : Mem 64} (i : Nat)
@@ -50,8 +54,6 @@ private theorem gH {c : FullCfg} {s : FullState} {R : Mem 64 → Prop} {m : Mem 
   fullHdrTailGet i hi hm
 private theorem m4 (a i : BitVec 64) : a + i * 4 = a + BitVec.ofNat 64 (4 * i.toNat) := by
   rw [show (4 : BitVec 64) = BitVec.ofNat 64 4 from rfl, c0_mul_ofNat]
-private theorem m8 (a i : BitVec 64) : a + i * 8 = a + BitVec.ofNat 64 (8 * i.toNat) := by
-  rw [show (8 : BitVec 64) = BitVec.ofNat 64 8 from rfl, c0_mul_ofNat]
 private theorem bvId (i : BitVec 64) : BitVec.ofNat 64 i.toNat = i := @bv_ofNat_toNat_eq 64 i
 local macro "hP" n:num hm:ident : tactic =>
   `(tactic| exact fullHdrTailPut $n (by decide) _ _ $hm rfl rfl rfl rfl rfl)

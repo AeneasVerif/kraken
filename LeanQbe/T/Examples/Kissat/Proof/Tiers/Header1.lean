@@ -5,6 +5,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 module
 
 public import LeanQbe.T.Examples.Kissat.Proof.Spec.Header
+public import LeanQbe.T.Examples.Kissat.Proof.Spec.SatNv1
 public import LeanQbe.T.Examples.Kissat.Src.Tiers
 public import LeanQbe.T.Examples.Kissat.Src.Internal
 public import LeanQbe.T.Logic.C0Step
@@ -14,19 +15,20 @@ public import Kraken.Mem
 public import Kraken.Separation
 
 /-!
-# Kissat M6 `FullM6Hdr` Group-A Init Proofs (`Proof.Spec.Header1`)
+# Kissat M6 `FullM6Hdr` Group-A Init Proofs (`Proof.Tiers.Header1`)
 
 Live `Func.wp` proofs for `Src.Tiers` / `Src.Internal`:
 1. `m6_hdr_init_wp` (`Src.Tiers.m6_hdr_init_body`)
 2. `m6_ext_ensure_init_wp` (`Src.Tiers.m6_ext_ensure_init_body`)
-3. `full_m6_mem_init_wp` (`Src.Internal.full_m6_mem_init_body`)
+3. `full_m6_mem_init_wp` (`Src.Internal.full_m6_mem_init_body`) and concrete
+   `nvM6_unsat_full_m6_mem_init_of`
 -/
 
 set_option autoImplicit false
 
 public section
 
-namespace LeanQbe.T.Examples.Kissat.Proof.Spec
+namespace LeanQbe.T.Examples.Kissat.Proof.Tiers
 
 open Std Std.Sat Std.ExtHashMap
 open LeanQbe.T
@@ -36,12 +38,10 @@ open LeanQbe.T.ProofUtil
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Ref
 open LeanQbe.T.Examples.Kissat.Src
+open LeanQbe.T.Examples.Kissat.Proof.Spec
 open scoped FullArenaTactics
 open scoped M6HdrTactics
 open Kraken.Bedrock2.Test
-
-local macro "m6h_call" h:term : tactic =>
-  `(tactic| refine LeanQbe.T.wp_call_of_spec _ _ ($h _ _ _ _ ?_))
 
 theorem m6_hdr_init_wp (Γ : Env) :
     ∀ a m Q X, m6HdrInitSpec a m Q X → Func.wp Γ Src.Tiers.m6_hdr_init_body a m Q X := by
@@ -91,10 +91,6 @@ theorem m6_ext_ensure_init_wp (Γ : Env)
     have hinit : M6HdrExtInitOk ext := ⟨hext.len, by rw [List.getElem?_eq_getElem h0, heq]⟩
     exact hQ ext m hinit (fun _ => rfl) ((fullM6HdrMem_iff ..).mpr hm)
 
-
-private theorem sep_swap_l {P Q R : Mem 64 → Prop} {m : Mem 64}
-    (h : (P ⋆ (Q ⋆ R)) m) : (Q ⋆ (P ⋆ R)) m := by
-  rw [← sep_assoc, sep_comm P Q, sep_assoc] at h; exact h
 
 private theorem sep_init_split {A B C R : Mem 64 → Prop} {m : Mem 64}
     (h : (A ⋆ (B ⋆ C) ⋆ R) m) : (A ⋆ C ⋆ (B ⋆ R)) m := by
@@ -249,5 +245,104 @@ theorem full_m6_mem_init_wp (Γ : Env)
         hoom hinc (sep_init_unpack hm2)
     · cases hc
 
+private theorem nvM6_mem_init_of (Γ : Env)
+    (hinit : ∀ a m Q X, fullInitStateSpec a m Q X →
+      Γ "full_init_state" [i64, i64, i64, i64, i64] [.bool] a m Q X)
+    (hm6 : ∀ a m Q X, m6HdrInitSpec a m Q X → Γ "m6_hdr_init" [i64] [] a m Q X)
+    {cnfBytes : List UInt8} {workPtr : BitVec 64} {initMem : Mem 64} {mv nc : Nat}
+    (hle : fullAlignPad workPtr + fullM6HdrTotalBytes ≤ nvM6WorkLen)
+    (hfit : nvM6WorkLen ≤ 2 ^ 64)
+    (hsep : (bytes nvM6CnfPtr cnfBytes ⋆ region workPtr nvM6WorkLen) initMem)
+    (hcfit : nvM6CnfPtr.toNat + cnfBytes.length < 2 ^ 64)
+    (hwfit : (fullM6WorkBase workPtr).toNat + (nvM6WorkLen - fullAlignPad workPtr) < 2 ^ 64)
+    (hnotsmall : ¬ (nvM6WorkLen - fullAlignPad workPtr <
+      fullM6ExtBytes + fullFixedBytes mv + nc * 40 + 136 + 8))
+    (hnothdr : ¬ (nvM6WorkLen - fullAlignPad workPtr < fullM6HdrTotalBytes))
+    (hph : parseHeader cnfBytes = some (mv, nc, cnfBytes.drop 9))
+    (hlen9 : 9 ≤ cnfBytes.length) :
+    Func.wp Γ Src.Internal.full_m6_mem_init_body
+      (nvM6CnfPtr, nvM6CnfPtr + BitVec.ofNat 64 cnfBytes.length,
+        fullM6WorkBase workPtr,
+        BitVec.ofNat 64 (nvM6WorkLen - fullAlignPad workPtr), 16#64, ())
+      initMem
+      (fun rs m' =>
+        match rs with
+        | (hdr, ()) =>
+          ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState),
+            hdr = c.hdr ∧ c.hdr = fullM6WorkHdr workPtr ∧
+            c.avail = nvM6WorkLen - fullAlignPad workPtr - fullM6ExtBytes ∧
+            c.mv = mv ∧ c.nc = nc ∧
+            FullM6HdrCfgOk c ∧ M6HdrExtInitOk ext ∧
+            FullM6HdrInv c (shiftDownCnf CNF.empty) ext s ∧
+            s.core.cur_vars = c.mv ∧
+            s.core.d_cur = nvM6CnfPtr + 9#64 ∧
+            s.core.arena_len = 0 ∧ s.core.wlen = 1 ∧ s.core.trail_end = 0 ∧
+            s.core.propagated = 0 ∧ s.core.cur_level = 0 ∧ s.core.fuel = 16#64 ∧
+            s.core.oom = 0#64 ∧ s.core.inconsistent = 0#64 ∧
+            (bytes nvM6CnfPtr cnfBytes ⋆ FullM6HdrMem c ext s ⋆
+              region workPtr (fullAlignPad workPtr)) m')
+      (fun _ _ _ _ => False) := by
+  have hbnat : (BitVec.ofNat 64 (nvM6WorkLen - fullAlignPad workPtr)).toNat =
+      nvM6WorkLen - fullAlignPad workPtr := bv64_ofNat_toNat (by unfold nvM6WorkLen; omega)
+  have hm : (bytes nvM6CnfPtr cnfBytes ⋆
+      region (fullM6WorkBase workPtr) (BitVec.ofNat 64 (nvM6WorkLen - fullAlignPad workPtr)).toNat ⋆
+      region workPtr (fullAlignPad workPtr)) initMem := by
+    rw [hbnat]
+    exact sep_ac (sep_mono_r (fun _ hr => region_work_to_m6_workBase hle hfit hr) hsep)
+  refine full_m6_mem_init_wp Γ hinit hm6 _ _ _ _
+    (fullM6MemInitSpec_of rfl hcfit (by rwa [hbnat]) hm
+      (fun _ _ hfail => by
+        rcases hfail with hlt | hsmall
+        · rw [hbnat] at hlt; exact absurd hlt hnothdr
+        · have h := hsmall mv nc _ hph; rw [hbnat] at h; omega)
+      (fun c ext s j rest _ hhdr hav hcfg hext hph' hj hd hinv hcv hdcur hal hw hte hpr hcl
+        hfu hoom hinc hm' => by
+        rw [hph, Option.some.injEq, Prod.mk.injEq] at hph'
+        rcases hph' with ⟨hmv, hncr⟩
+        rw [Prod.mk.injEq] at hncr
+        rcases hncr with ⟨hnc, hrest⟩
+        have hrest_len : (cnfBytes.drop j).length = (cnfBytes.drop 9).length := by rw [hd, hrest]
+        have hj9 : j = 9 := by simp only [List.length_drop] at hj hrest_len; omega
+        subst hj9
+        have hc_avail : c.avail = nvM6WorkLen - fullAlignPad workPtr - fullM6ExtBytes := by
+          rw [hav, hbnat]
+        exact ⟨c, ext, s, rfl, hhdr.trans rfl, hc_avail, hmv.symm, hnc.symm, hcfg, hext, hinv,
+          hcv, hdcur, hal, hw, hte, hpr, hcl, hfu, hoom, hinc, hm'⟩))
 
-end LeanQbe.T.Examples.Kissat.Proof.Spec
+/-- Parametric C0 `full_m6_mem_init` execution (`XPost := False`, `0` vacuous hypotheses) on
+concrete `8 KiB` `nvM6UnsatInitMem` (`(x1) ∧ (~x1)`, `pad = 5`, `avail = 8187`). -/
+theorem nvM6_unsat_full_m6_mem_init_of (Γ : Env)
+    (hinit : ∀ a m Q X, fullInitStateSpec a m Q X →
+      Γ "full_init_state" [i64, i64, i64, i64, i64] [.bool] a m Q X)
+    (hm6 : ∀ a m Q X, m6HdrInitSpec a m Q X →
+      Γ "m6_hdr_init" [i64] [] a m Q X) :
+    Func.wp Γ Src.Internal.full_m6_mem_init_body
+      (nvM6CnfPtr, nvM6CnfPtr + BitVec.ofNat 64 nvM6UnsatBytes.length,
+        fullM6WorkBase nvM6UnsatWorkPtr,
+        BitVec.ofNat 64 (nvM6WorkLen - fullAlignPad nvM6UnsatWorkPtr), 16#64, ())
+      nvM6UnsatInitMem
+      (fun rs m' =>
+        match rs with
+        | (hdr, ()) =>
+          ∃ (c : FullCfg) (ext : List (BitVec 64)) (s : FullState),
+            hdr = c.hdr ∧ c.hdr = fullM6WorkHdr nvM6UnsatWorkPtr ∧
+            c.avail = nvM6WorkLen - fullAlignPad nvM6UnsatWorkPtr - fullM6ExtBytes ∧
+            c.mv = 1 ∧ c.nc = 2 ∧
+            FullM6HdrCfgOk c ∧ M6HdrExtInitOk ext ∧
+            FullM6HdrInv c (shiftDownCnf CNF.empty) ext s ∧
+            s.core.cur_vars = c.mv ∧
+            s.core.d_cur = nvM6CnfPtr + 9#64 ∧
+            s.core.arena_len = 0 ∧ s.core.wlen = 1 ∧ s.core.trail_end = 0 ∧
+            s.core.propagated = 0 ∧ s.core.cur_level = 0 ∧ s.core.fuel = 16#64 ∧
+            s.core.oom = 0#64 ∧ s.core.inconsistent = 0#64 ∧
+            (bytes nvM6CnfPtr nvM6UnsatBytes ⋆ FullM6HdrMem c ext s ⋆
+              region nvM6UnsatWorkPtr (fullAlignPad nvM6UnsatWorkPtr)) m')
+      (fun _ _ _ _ => False) :=
+  nvM6_mem_init_of Γ hinit hm6 (by decide) (by unfold nvM6WorkLen; omega) nvM6UnsatInitMem_sep
+    (by decide) (by decide)
+    (by unfold nvM6WorkLen fullM6ExtBytes fullFixedBytes valsBytes markBytes u32FullBytes
+          fullMinDepthOf; decide)
+    (by decide) nvM6Unsat_header (by decide)
+
+
+end LeanQbe.T.Examples.Kissat.Proof.Tiers
