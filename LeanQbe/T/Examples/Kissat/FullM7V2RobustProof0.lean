@@ -100,6 +100,11 @@ theorem fullReducePurgeC0Spec_of_full {h : BitVec 64} {m : Mem 64} {Q : Post [i6
     fullReducePurgeC0Spec (h, ()) m Q X :=
   hr
 
+theorem fullReducePurgeC0Spec_elim {h : BitVec 64} {m : Mem 64} {Q : Post [i64]}
+    {X : XPost} (hp : fullReducePurgeC0Spec (h, ()) m Q X) :
+    Full.fullReduceSpec (h, true, ()) m Q X :=
+  hp
+
 private theorem wvec_set_odd_pop {wvec : List (BitVec 32)} {l : Nat} {v : BitVec 32}
     (hl : 2 * l + 1 < wvec.length) (j : Nat) :
     (wvec.set (2 * l + 1) v)[2 * j]? = wvec[2 * j]? ∧

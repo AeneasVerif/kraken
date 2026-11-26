@@ -7,6 +7,12 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep10
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep10Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep11
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep11Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12Proof
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12Proof0
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12ProofAgree
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12ProofReplsA
+public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep12ProofReplsB
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep1Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep2Proof
@@ -124,6 +130,9 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityStep12C
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12CProof
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12CRows
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep12CRowsProof
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12ProofLuckyS15
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12ProofPurgeDel
+public import LeanQbe.T.Examples.Kissat.FullFidelityStep12ProofVivDel
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep2S15
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7
 public import LeanQbe.T.Examples.Kissat.FullFidelityStep7BvaSpec

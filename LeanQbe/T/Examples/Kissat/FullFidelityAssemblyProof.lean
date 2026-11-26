@@ -8,6 +8,29 @@ public import LeanQbe.T.Examples.Kissat.FullFidelityAssembly
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyStep5Proof
 public import LeanQbe.T.Examples.Kissat.FullFidelityAssemblyUtil
 public import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof
+public import LeanQbe.T.Examples.Kissat.FullSpec
+public import LeanQbe.T.Examples.Kissat.FullFastBveBudgets
+public import LeanQbe.T.Examples.Kissat.FullM3Backbone
+public import LeanQbe.T.Examples.Kissat.FullM3CongBva
+public import LeanQbe.T.Examples.Kissat.FullM5HeurCore
+public import LeanQbe.T.Examples.Kissat.FullM5HeurCoreProof0
+public import LeanQbe.T.Examples.Kissat.FullM6BcpS15Proof1
+public import LeanQbe.T.Examples.Kissat.FullM6BveFwd
+public import LeanQbe.T.Examples.Kissat.FullM6CongSubst
+public import LeanQbe.T.Examples.Kissat.FullM6CongSubstProof0
+public import LeanQbe.T.Examples.Kissat.FullM6Orch
+public import LeanQbe.T.Examples.Kissat.FullM6OrchProof0
+public import LeanQbe.T.Examples.Kissat.FullM6SweepProofSpec
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackbone
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof3a
+public import LeanQbe.T.Examples.Kissat.FullM6VivBackboneProof3b
+public import LeanQbe.T.Examples.Kissat.FullM7BveGates
+public import LeanQbe.T.Examples.Kissat.FullM7BveGatesProof0
+public import LeanQbe.T.Examples.Kissat.FullM7Search
+public import LeanQbe.T.Examples.Kissat.FullM7SearchProof0
+public import LeanQbe.T.Examples.Kissat.FullM8CoreParityProofBve0
+public import LeanQbe.T.Examples.Kissat.FullFidelityCongProof0
+public import LeanQbe.T.Examples.Kissat.FullFidelityVivK6Proof0b
 import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof0
 import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof1a
 import LeanQbe.T.Examples.Kissat.FullFidelityBvaProof1b
@@ -27,16 +50,11 @@ import all LeanQbe.T.Examples.Kissat.FullM7FidelityAssemblyProof0
 import LeanQbe.T.Examples.Kissat.FullBvaHeapSpec
 import LeanQbe.T.Examples.Kissat.FullDefSweep
 import LeanQbe.T.Examples.Kissat.FullFastSched
-import LeanQbe.T.Examples.Kissat.FullM3Backbone
-import LeanQbe.T.Examples.Kissat.FullM3CongBva
-import LeanQbe.T.Examples.Kissat.FullM6BveFwd
 import LeanQbe.T.Examples.Kissat.FullM6Hdr
-import LeanQbe.T.Examples.Kissat.FullM6Orch
 import LeanQbe.T.Examples.Kissat.FullM6OrchAdapters
 import LeanQbe.T.Examples.Kissat.FullM6SatNv
 import LeanQbe.T.Examples.Kissat.FullM7FidelityAssembly
 import LeanQbe.T.Examples.Kissat.FullM7Proof
-import LeanQbe.T.Examples.Kissat.FullM7Search
 import Kraken.Mem
 import Kraken.Separation
 
@@ -352,7 +370,7 @@ private theorem fid_m7Row {nm : Sym} {as bs : List Ty} {sp : Spec as bs}
     (fidBaseEnv_of_m7 hncp (M7FidelityEnv.base hnmf (m7FidBase_row_mem hmem hno a m Q X hs)))
 
 private theorem fid_m7Row_at (i : Nat) (nm : Sym) {as bs : List Ty} (sp : Spec as bs)
-    (hi : m7FidBaseTable[i]? = some ⟨nm, as, bs, sp, true⟩ := by rfl)
+    (hi : m7FidBaseTable[i]? = some ⟨nm, as, bs, sp, true⟩ := by t_kernel_rfl)
     (hf : !(fidFrontNames.contains nm) = true := by decide)
     (hf5 : !(fidStep5FrontNames.contains nm) = true := by decide)
     (hf4 : !((fidStep4Bundle.frontTable.map SpecEntry.name).contains nm) = true := by decide)
@@ -868,6 +886,647 @@ def fidUnsatPkg : KissatUnsatPkg :=
   mkFidUnsatPkg fidModule fidInlPolicy fid_solveBytes_mem
     fidEnv fid_moduleOk fidEnv_noExit
     (fun _ _ _ _ hs => fidEnv_solve_bytes_of hs)
+
+/-! ## 5. Additive Thin Spec Interface for Step-12 (`0` `import all` Down-Stream) -/
+
+private theorem fid_step5FrontRow (i : Nat) (nm : Sym) {as bs : List Ty} (sp : Spec as bs)
+    (hi : fidStep5Bundle.frontTable[i]? = some ⟨nm, as, bs, sp, true⟩ := by t_kernel_rfl)
+    (hf : !(fidFrontNames.contains nm) = true := by decide)
+    (hno : ∀ xs m Q X, sp xs m Q X → sp xs m Q (fun _ _ _ _ => False) := by
+      exact fun _ _ _ _ h => h) :
+    FidEnvSpec nm sp := fun a m Q X hs => by
+  change patchEnv fidBundle nm as bs a m Q X
+  rw [patchEnv_base_eq fidBundle (fid_find_none_front hf)]
+  exact patchEnv_of_front_mem fidStep5Bundle fidStep5_front_nodup (List.mem_of_getElem? hi)
+    (hno a m Q X hs)
+
+private theorem fid_step1FrontRow (nm : Sym) {as bs : List Ty} (sp : Spec as bs)
+    (hfind : fidStep1Bundle.frontTable.find? (·.name == nm) =
+      some ⟨nm, as, bs, sp, true⟩ := by t_kernel_rfl)
+    (hf : !(fidFrontNames.contains nm) = true := by decide)
+    (hf5 : !(fidStep5FrontNames.contains nm) = true := by decide)
+    (hf4 : !((fidStep4Bundle.frontTable.map SpecEntry.name).contains nm) = true := by decide)
+    (hf3 : !(fidStep3FrontNames.contains nm) = true := by decide)
+    (hf2 : !((fidStep2Bundle.frontTable.map SpecEntry.name).contains nm) = true := by decide)
+    (hno : ∀ xs m Q X, sp xs m Q X → sp xs m Q (fun _ _ _ _ => False) := by
+      exact fun _ _ _ _ h => h) :
+    FidEnvSpec nm sp := fun a m Q X hs => by
+  change patchEnv fidBundle nm as bs a m Q X
+  rw [patchEnv_base_eq fidBundle (fid_find_none_front hf)]
+  change patchEnv fidStep5Bundle nm as bs a m Q X
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 hf5)]
+  change patchEnv fidStep4Bundle nm as bs a m Q X
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 hf4)]
+  change patchEnv fidStep3Bundle nm as bs a m Q X
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 hf3)]
+  change patchEnv fidStep2Bundle nm as bs a m Q X
+  rw [patchEnv_base_eq fidStep2Bundle (fid_find_none_front2 hf2)]
+  exact patchEnv_of_front_mem fidStep1Bundle fidStep1_front_nodup
+    (List.mem_of_find?_eq_some hfind) (hno a m Q X hs)
+
+private theorem fid_mfExtraRow (i : Nat) (nm : Sym) {as bs : List Ty} (sp : Spec as bs)
+    (hi : mfExtraRows[i]? = some ⟨nm, as, bs, sp, true⟩ := by rfl)
+    (hf : !(fidFrontNames.contains nm) = true := by decide)
+    (hf5 : !(fidStep5FrontNames.contains nm) = true := by decide)
+    (hf4 : !((fidStep4Bundle.frontTable.map SpecEntry.name).contains nm) = true := by decide)
+    (hf3 : !(fidStep3FrontNames.contains nm) = true := by decide)
+    (hf2 : !((fidStep2Bundle.frontTable.map SpecEntry.name).contains nm) = true := by decide)
+    (hf1 : !(fidStep1ReplRows.map SpecEntry.name).contains nm = true := by decide)
+    (hne : nm ∉ m8CpExclNames := by decide)
+    (hno : ∀ xs m Q X, sp xs m Q X → sp xs m Q (fun _ _ _ _ => False) := by
+      exact fun _ _ _ _ h => h) :
+    FidEnvSpec nm sp := fun a m Q X hs =>
+  fid_of_fidBase hf hf5 hf4 hf3 hf2 hf1 (fid_extraRow i nm as bs sp hi hno hne a m Q X hs)
+
+-- Step 1..5 front / extra / base / m7FidBase intro exports (52)
+theorem fidEnv_bveGatesFid :
+    ∀ a m Q X, FullM8CoreParity.m8BveGatesSpec a m Q X →
+      fidEnv "full_bve_gates_fid" [i64, i32, i32, i32] [] a m Q X :=
+  fid_step5FrontRow 5 "full_bve_gates_fid" m8BveGatesSpec (by t_kernel_rfl)
+    (by decide) (fun _ _ _ _ h => m8BveGatesSpec_noExit _ _ _ _ h)
+
+theorem fidEnv_congExtractXorK :
+    ∀ a m Q X, FullFidelityCong.fidCongExtractXorKSpec a m Q X →
+      fidEnv "full_cong_extract_xor_k" [i64, i32, i32, i64, i64] [i64] a m Q X :=
+  fid_step3FrontRow 3 "full_cong_extract_xor_k" FullFidelityCong.fidCongExtractXorKSpec
+
+theorem fidEnv_congTryXorIte :
+    ∀ a m Q X, FullFidelityCong.fidCongTryXorIteSpec a m Q X →
+      fidEnv "full_cong_try_xor_ite" [i64, i32, i32, i32, i64, i64] [i64] a m Q X :=
+  fid_step3FrontRow 4 "full_cong_try_xor_ite" FullFidelityCong.fidCongTryXorIteSpec
+
+theorem fidEnv_luckyLateM7 :
+    ∀ a m Q X, FullM7Search.m7LuckyLateSpec a m Q X →
+      fidEnv "full_lucky_late_m7" [i64] [i64] a m Q X :=
+  fid_step2FrontRow 23 "full_lucky_late_m7" FullM7Search.m7LuckyLateSpec (by t_kernel_rfl)
+    (by decide) (by decide) (by decide) (by decide)
+    (fun _ _ _ _ h => FullM7Search.m7LuckyLateSpec_monoX h)
+
+theorem fidEnv_propagateIgnore :
+    ∀ a m Q X, FullM6BcpS15.fullPropagateIgnoreS15Spec a m Q X →
+      fidEnv "full_propagate_ignore" [i64, i64] [i64] a m Q X :=
+  fid_step2FrontRow 30 "full_propagate_ignore" FullM6BcpS15.fullPropagateIgnoreS15Spec
+
+theorem fidEnv_m6CollectCands :
+    ∀ a m Q X, FullM6Sweep.m6CollectCandsSpec a m Q X →
+      fidEnv "full_m6_collect_cands" [i64] [i32] a m Q X :=
+  fid_step1FrontRow "full_m6_collect_cands" FullM6Sweep.m6CollectCandsSpec
+
+theorem fidEnv_m6MaxV :
+    ∀ a m Q X, FullM6Sweep.m6MaxVSpec a m Q X →
+      fidEnv "full_m6_max_v" [i64] [i64] a m Q X :=
+  fid_baseRow_at 302 "full_m6_max_v" FullM6Sweep.m6MaxVSpec
+
+theorem fidEnv_k6Init :
+    ∀ a m Q X, FullM6Sweep.k6InitSpec a m Q X →
+      fidEnv "full_k6_init" [i64, i32] [] a m Q X :=
+  fid_baseRow_at 304 "full_k6_init" FullM6Sweep.k6InitSpec
+
+theorem fidEnv_k6AddClause :
+    ∀ a m Q X, FullM6Sweep.k6AddClauseSpec a m Q X →
+      fidEnv "full_k6_add_clause" [i64, i64, i32] [.bool] a m Q X :=
+  fid_baseRow_at 307 "full_k6_add_clause" FullM6Sweep.k6AddClauseSpec
+
+theorem fidEnv_m6DenseProp :
+    ∀ a m Q X, FullM6Sweep.m6DensePropSpec a m Q X →
+      fidEnv "full_m6_dense_prop" [i64] [.bool] a m Q X :=
+  fid_baseRow_at 317 "full_m6_dense_prop" FullM6Sweep.m6DensePropSpec
+
+theorem fidEnv_m6SweepRefineSig :
+    ∀ a m Q X, FullM6Sweep.m6SweepRefineSigSpec a m Q X →
+      fidEnv "full_m6_sweep_refine_sig" [i64, i32, i32] [] a m Q X :=
+  fid_baseRow_at 319 "full_m6_sweep_refine_sig" FullM6Sweep.m6SweepRefineSigSpec
+
+theorem fidEnv_m6SweepSolve :
+    ∀ a m Q X, FullM6Sweep.m6SweepSolveSpec a m Q X →
+      fidEnv "full_m6_sweep_solve" [i64, i32, i64] [i64] a m Q X :=
+  fid_baseRow_at 321 "full_m6_sweep_solve" FullM6Sweep.m6SweepSolveSpec
+
+theorem fidEnv_m6SweepFlipRound :
+    ∀ a m Q X, FullM6Sweep.m6SweepFlipRoundSpec a m Q X →
+      fidEnv "full_m6_sweep_flip_round" [i64, i32] [i32] a m Q X :=
+  fid_baseRow_at 322 "full_m6_sweep_flip_round" FullM6Sweep.m6SweepFlipRoundSpec
+
+theorem fidEnv_m6SweepVar :
+    ∀ a m Q X, FullM6Sweep.m6SweepVarSpec a m Q X →
+      fidEnv "full_m6_sweep_var" [i64, i32, i64] [i64] a m Q X :=
+  fid_baseRow_at 334 "full_m6_sweep_var" FullM6Sweep.m6SweepVarSpec
+
+theorem fidEnv_vivBestImpliedM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivBestImpliedM6Spec a m Q X →
+      fidEnv "full_viv_best_implied_m6" [i64, i32] [i32] a m Q X :=
+  fid_mfExtraRow 35 "full_viv_best_implied_m6" FullM6VivBackbone.fullVivBestImpliedM6Spec
+
+theorem fidEnv_vivFinishM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivFinishM6Spec a m Q X →
+      fidEnv "full_viv_finish_m6" [i64, i32, i32, .bool, i32, .bool] [i64] a m Q X :=
+  fid_mfExtraRow 39 "full_viv_finish_m6" FullM6VivBackbone.fullVivFinishM6Spec
+
+theorem fidEnv_vivL0SimpM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivL0SimpM6Spec a m Q X →
+      fidEnv "full_viv_l0_simp_m6" [i64, i32, i32] [i64] a m Q X :=
+  fid_mfExtraRow 42 "full_viv_l0_simp_m6" FullM6VivBackbone.fullVivL0SimpM6Spec
+
+theorem fidEnv_vivReusePrefixM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivReusePrefixM6Spec a m Q X →
+      fidEnv "full_viv_reuse_prefix_m6" [i64, i32, i32] [] a m Q X :=
+  fid_mfExtraRow 43 "full_viv_reuse_prefix_m6" FullM6VivBackbone.fullVivReusePrefixM6Spec
+
+theorem fidEnv_vivTierMatchM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullVivTierMatchM6Spec a m Q X →
+      fidEnv "full_viv_tier_match_m6" [i64, i32, i64] [.bool] a m Q X :=
+  fid_mfExtraRow 45 "full_viv_tier_match_m6" FullM6VivBackbone.fullVivTierMatchM6Spec
+
+theorem fidEnv_kissatSkipWsComments :
+    ∀ a m Q X, kissatSkipWsCommentsSpec a m Q X →
+      fidEnv "kissat_skip_ws_comments" [i64, i64] [i64] a m Q X :=
+  fid_m7Row_at 2 "kissat_skip_ws_comments" kissatSkipWsCommentsSpec
+
+theorem fidEnv_kissatNextLit :
+    ∀ a m Q X, kissatNextLitSpec a m Q X →
+      fidEnv "kissat_next_lit" [i64, i64] [i64] a m Q X :=
+  fid_m7Row_at 6 "kissat_next_lit" kissatNextLitSpec
+
+theorem fidEnv_heapPush :
+    ∀ a m Q X, Full.fullHeapPushSpec a m Q X →
+      fidEnv "full_heap_push" [i64, i32] [] a m Q X :=
+  fid_m7Row_at 21 "full_heap_push" Full.fullHeapPushSpec
+
+theorem fidEnv_assign :
+    ∀ a m Q X, Full.fullAssignSpec a m Q X →
+      fidEnv "full_assign" [i64, i32, i32] [] a m Q X :=
+  fid_m7Row_at 36 "full_assign" Full.fullAssignSpec
+
+theorem fidEnv_backtrackRawM5 :
+    ∀ a m Q X, FullM5HeurCore.fullBacktrackRawSpec a m Q X →
+      fidEnv "full_backtrack_raw_m5" [i64, i64] [] a m Q X :=
+  fid_m7Row_at 38 "full_backtrack_raw_m5" FullM5HeurCore.fullBacktrackRawSpec
+
+theorem fidEnv_skipCl :
+    ∀ a m Q X, Full.fullSkipClSpec a m Q X →
+      fidEnv "full_skip_cl" [i64, i64] [.bool] a m Q X :=
+  fid_m7Row_at 76 "full_skip_cl" Full.fullSkipClSpec
+
+theorem fidEnv_analyzeRsn :
+    ∀ a m Q X, Full.fullAnalyzeRsnSpec a m Q X →
+      fidEnv "full_analyze_rsn" [i64, i32, i32] [.bool] a m Q X :=
+  fid_m7Row_at 113 "full_analyze_rsn" Full.fullAnalyzeRsnSpec
+
+theorem fidEnv_otfsLarge :
+    ∀ a m Q X, Full.fullOtfsLargeSpec a m Q X →
+      fidEnv "full_otfs_large" [i64, i32, i32] [.bool] a m Q X :=
+  fid_m7Row_at 121 "full_otfs_large" Full.fullOtfsLargeSpec
+
+theorem fidEnv_otfsBin :
+    ∀ a m Q X, Full.fullOtfsBinSpec a m Q X →
+      fidEnv "full_otfs_bin" [i64, i32, i32] [.bool] a m Q X :=
+  fid_m7Row_at 122 "full_otfs_bin" Full.fullOtfsBinSpec
+
+theorem fidEnv_otfsSubsume :
+    ∀ a m Q X, Full.fullOtfsSubsumeSpec a m Q X →
+      fidEnv "full_otfs_subsume" [i64, i32, i64, i64, .bool] [] a m Q X :=
+  fid_m7Row_at 123 "full_otfs_subsume" Full.fullOtfsSubsumeSpec
+
+theorem fidEnv_setInactive :
+    ∀ a m Q X, Full.fullSetInactiveSpec a m Q X →
+      fidEnv "full_set_inactive" [i64, i32, i32] [] a m Q X :=
+  fid_m7Row_at 180 "full_set_inactive" Full.fullSetInactiveSpec
+
+theorem fidEnv_addUnit :
+    ∀ a m Q X, Full.fullAddUnitSpec a m Q X →
+      fidEnv "full_add_unit" [i64, i32] [.bool] a m Q X :=
+  fid_m7Row_at 181 "full_add_unit" Full.fullAddUnitSpec
+
+theorem fidEnv_prioritizeBinariesM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullPrioritizeBinariesM6Spec a m Q X →
+      fidEnv "full_prioritize_binaries_m6" [i64] [.bool] a m Q X :=
+  fid_m7Row_at 219 "full_prioritize_binaries_m6" FullM6VivBackbone.fullPrioritizeBinariesM6Spec
+
+theorem fidEnv_backboneKeepM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullBackboneKeepM6Spec a m Q X →
+      fidEnv "full_backbone_keep_m6" [i64, i64] [] a m Q X :=
+  fid_m7Row_at 221 "full_backbone_keep_m6" FullM6VivBackbone.fullBackboneKeepM6Spec
+
+theorem fidEnv_backboneRoundM6 :
+    ∀ a m Q X, FullM6VivBackbone.fullBackboneRoundM6Spec a m Q X →
+      fidEnv "full_backbone_round_m6" [i64, i64, .bool] [i64] a m Q X :=
+  fid_m7Row_at 225 "full_backbone_round_m6" FullM6VivBackbone.fullBackboneRoundM6Spec
+
+theorem fidEnv_congFind :
+    ∀ a m Q X, Full.fullCongFindSpec a m Q X →
+      fidEnv "full_cong_find" [i64, i32] [i32] a m Q X :=
+  fid_m7Row_at 238 "full_cong_find" Full.fullCongFindSpec
+
+theorem fidEnv_congUnitFold :
+    ∀ a m Q X, FullM3CongBva.m3CongUnitFoldSpec a m Q X →
+      fidEnv "full_cong_unit_fold" [i64, i32, i32] [i64] a m Q X :=
+  fid_m7Row_at 241 "full_cong_unit_fold" FullM3CongBva.m3CongUnitFoldSpec
+
+theorem fidEnv_congEquivFold :
+    ∀ a m Q X, FullM3CongBva.m3CongEquivFoldSpec a m Q X →
+      fidEnv "full_cong_equiv_fold" [i64, i32, i32, i32] [i64] a m Q X :=
+  fid_m7Row_at 242 "full_cong_equiv_fold" FullM3CongBva.m3CongEquivFoldSpec
+
+theorem fidEnv_sortU32 :
+    ∀ a m Q X, Full.fullSortU32Spec a m Q X →
+      fidEnv "full_sort_u32" [i64, i32] [] a m Q X :=
+  fid_m7Row_at 244 "full_sort_u32" Full.fullSortU32Spec
+
+theorem fidEnv_congCountBins :
+    ∀ a m Q X, FullM6CongSubst.m6CongCountBinsSpec a m Q X →
+      fidEnv "full_cong_count_bins" [i64] [] a m Q X :=
+  fid_m7Row_at 250 "full_cong_count_bins" FullM6CongSubst.m6CongCountBinsSpec
+
+theorem fidEnv_congXorMatch :
+    ∀ a m Q X, FullM6CongSubst.m6CongXorMatchSpec a m Q X →
+      fidEnv "full_cong_xor_match" [i64, i32, i32] [i32] a m Q X :=
+  fid_m7Row_at 256 "full_cong_xor_match" FullM6CongSubst.m6CongXorMatchSpec
+
+theorem fidEnv_fwdDedupBins :
+    ∀ a m Q X, Full.fullFwdDedupBinsSpec a m Q X →
+      fidEnv "full_fwd_dedup_bins" [i64] [.bool] a m Q X :=
+  fid_m7Row_at 300 "full_fwd_dedup_bins" Full.fullFwdDedupBinsSpec
+
+theorem fidEnv_denseFlushUnitsM7 :
+    ∀ a m Q X, FullM6BveFwd.fullDenseFlushUnitsM6Spec a m Q X →
+      fidEnv "full_dense_flush_units_m7" [i64] [.bool] a m Q X :=
+  fid_m7Row_at 302 "full_dense_flush_units_m7" FullM6BveFwd.fullDenseFlushUnitsM6Spec rfl
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) FullM6BveFwd.fullDenseFlushUnitsM6Spec_noExit
+
+theorem fidEnv_fwdFlushLargeM7 :
+    ∀ a m Q X, FullM6BveFwd.fullFwdFlushLargeM6Spec a m Q X →
+      fidEnv "full_fwd_flush_large_m7" [i64] [] a m Q X :=
+  fid_m7Row_at 303 "full_fwd_flush_large_m7" FullM6BveFwd.fullFwdFlushLargeM6Spec rfl
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) FullM6BveFwd.fullFwdFlushLargeM6Spec_noExit
+
+theorem fidEnv_fwdReconnectIrredM7 :
+    ∀ a m Q X, FullM6BveFwd.fullFwdReconnectIrredM6Spec a m Q X →
+      fidEnv "full_fwd_reconnect_irred_m7" [i64] [] a m Q X :=
+  fid_m7Row_at 304 "full_fwd_reconnect_irred_m7" FullM6BveFwd.fullFwdReconnectIrredM6Spec rfl
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) FullM6BveFwd.fullFwdReconnectIrredM6Spec_noExit
+
+theorem fidEnv_fwdCheckClM7 :
+    ∀ a m Q X, FullM7BveGates.fullFwdCheckClM7Spec a m Q X →
+      fidEnv "full_fwd_check_cl_m7" [i64, i32] [.bool] a m Q X :=
+  fid_m7Row_at 306 "full_fwd_check_cl_m7" FullM7BveGates.fullFwdCheckClM7Spec rfl
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) FullM7BveGates.fullFwdCheckClM7Spec_noExit
+
+theorem fidEnv_fwdConnectSubsumerM7 :
+    ∀ a m Q X, FullM6BveFwd.fullFwdConnectSubsumerM6Spec a m Q X →
+      fidEnv "full_fwd_connect_subsumer_m7" [i64, i32] [] a m Q X :=
+  fid_m7Row_at 307 "full_fwd_connect_subsumer_m7" FullM6BveFwd.fullFwdConnectSubsumerM6Spec rfl
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) FullM6BveFwd.fullFwdConnectSubsumerM6Spec_noExit
+
+theorem fidEnv_fwdCollectSortM7 :
+    ∀ a m Q X, FullM6BveFwd.fullFwdCollectSortM6Spec a m Q X →
+      fidEnv "full_fwd_collect_sort_m7" [i64] [i64] a m Q X :=
+  fid_m7Row_at 308 "full_fwd_collect_sort_m7" FullM6BveFwd.fullFwdCollectSortM6Spec rfl
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) FullM6BveFwd.fullFwdCollectSortM6Spec_noExit
+
+theorem fidEnv_bveCollectM7 :
+    ∀ a m Q X, Full.fullBveCollectSpec a m Q X →
+      fidEnv "full_bve_collect_m7" [i64, i32, i64, i32] [i32] a m Q X :=
+  fid_m7Row_at 310 "full_bve_collect_m7" Full.fullBveCollectSpec
+
+theorem fidEnv_bveGatesM7 :
+    ∀ a m Q X, FullM7BveGates.fullBveGatesM7Spec a m Q X →
+      fidEnv "full_bve_gates_m7" [i64, i32, i32, i32] [] a m Q X :=
+  fid_m7Row_at 332 "full_bve_gates_m7" FullM7BveGates.fullBveGatesM7Spec rfl
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) FullM7BveGates.fullBveGatesM7Spec_noExit
+
+theorem fidEnv_bveResolvePair :
+    ∀ a m Q X, Full.fullBveResolvePairSpec a m Q X →
+      fidEnv "full_bve_resolve_pair" [i64, i32, i32, i32] [.bool] a m Q X :=
+  fid_m7Row_at 333 "full_bve_resolve_pair" Full.fullBveResolvePairSpec
+
+theorem fidEnv_bveWeaken :
+    ∀ a m Q X, FullFastBveBudgets.fullBveWeakenTmkSpec a m Q X →
+      fidEnv "full_bve_weaken" [i64, i32, i32, i32] [.bool] a m Q X :=
+  fid_m7Row_at 334 "full_bve_weaken" FullFastBveBudgets.fullBveWeakenTmkSpec
+
+theorem fidEnv_bveExtNeed :
+    ∀ a m Q X, Full.fullBveExtNeedSpec a m Q X →
+      fidEnv "full_bve_ext_need" [i64, i32, i32] [i64] a m Q X :=
+  fid_m7Row_at 337 "full_bve_ext_need" Full.fullBveExtNeedSpec
+
+-- Step 1..5 / mfExtra / m7FidBase elim exports (27)
+private theorem fid_peel_to_step5 {f : Sym} {as bs : List Ty}
+    (hf : !(fidFrontNames.contains f) = true := by decide)
+    {xs : Tup Val as} {m : Mem 64} {Q : Post bs} {X : XPost}
+    (h : fidEnv f as bs xs m Q X) : Env.ofTable fidStep5EnvTable f as bs xs m Q X := by
+  change patchEnv fidBundle f as bs xs m Q X at h
+  rwa [patchEnv_base_eq fidBundle (fid_find_none_front hf)] at h
+
+theorem fidEnv_elim_zeroTables2 {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X : XPost}
+    (h : fidEnv "full_zero_tables2" [i64] [] xs m Q X) : Full.fullZeroTables2Spec xs m Q X :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 42) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_initHdr {xs : Tup Val [i64, i64, i64, i64]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidEnv "full_init_hdr" [i64, i64, i64, i64] [] xs m Q X) :
+    Full.fullInitHdrSpec xs m Q X :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 45) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_parseBodyM6 {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_parse_body_m6" [i64, i64] [i64] xs m Q X) :
+    Full.fullParseBodySpec xs m Q X := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h5
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h5
+  change Env.ofTable (fidStep2Bundle.frontTable ++ fidStep2Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep2Bundle.frontTable.find? (·.name == "full_parse_body_m6") =
+      some ⟨"full_parse_body_m6", [i64, i64], [i64], Full.fullParseBodySpec, true⟩ := by
+    t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_extend {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X : XPost}
+    (h : fidEnv "full_extend" [i64] [] xs m Q X) : Full.fullExtendSpec xs m Q X :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 174) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_luckyScan {xs : Tup Val [i64, .bool, .bool]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_lucky_scan" [i64, .bool, .bool] [i64] xs m Q X) :
+    Full.fullLuckyScanSpec xs m Q X := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h5
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h5
+  change Env.ofTable (fidStep2Bundle.frontTable ++ fidStep2Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep2Bundle.frontTable.find? (·.name == "full_lucky_scan") =
+      some ⟨"full_lucky_scan", [i64, .bool, .bool], [i64], Full.fullLuckyScanSpec, true⟩ := by
+    t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_m6SweepCone {xs : Tup Val [i64, i32]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_m6_sweep_cone" [i64, i32] [i64] xs m Q X) :
+    FullM6Sweep.m6SweepConeSpec xs m Q X := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h5
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h5
+  change patchEnv fidStep2Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep2Bundle (fid_find_none_front2 (by decide))] at h5
+  change Env.ofTable (fidStep1Bundle.frontTable ++ fidStep1Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep1Bundle.frontTable.find? (·.name == "full_m6_sweep_cone") =
+      some ⟨"full_m6_sweep_cone", [i64, i32], [i64], FullM6Sweep.m6SweepConeSpec, true⟩ := by
+    t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_saveTargetBest {xs : Tup Val [i64]} {m : Mem 64} {Q : Post []} {X : XPost}
+    (h : fidEnv "full_save_target_best" [i64] [] xs m Q X) :
+    Full.fullSaveTargetBestSpec xs m Q X :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 37) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_backtrack {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post []} {X : XPost}
+    (h : fidEnv "full_backtrack" [i64, i64] [] xs m Q X) : Full.fullBacktrackSpec xs m Q X :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 39) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_deduce1uipM6 {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_deduce_1uip_m6" [i64] [i64] xs m Q X) :
+    Full.fullDeduce1uipSpec xs m Q X := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h5
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h5
+  change Env.ofTable (fidStep2Bundle.frontTable ++ fidStep2Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep2Bundle.frontTable.find? (·.name == "full_deduce_1uip_m6") =
+      some ⟨"full_deduce_1uip_m6", [i64], [i64], Full.fullDeduce1uipSpec, true⟩ := by
+    t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_deduce1uipM6Hdr {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_deduce_1uip_m6_hdr" [i64] [i64] xs m Q X) :
+    FullM6Orch.m6Deduce1uipHdrSpec xs m Q X := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h5
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h5
+  change Env.ofTable (fidStep2Bundle.frontTable ++ fidStep2Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep2Bundle.frontTable.find? (·.name == "full_deduce_1uip_m6_hdr") =
+      some ⟨"full_deduce_1uip_m6_hdr", [i64], [i64],
+        FullM6Orch.m6Deduce1uipHdrSpec, true⟩ := by
+    t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_oneLitConfl {xs : Tup Val [i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_one_lit_confl" [i64] [i64] xs m Q X) :
+    Full.fullOneLitConflSpec xs m Q X :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 141) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_vivSort2Fid {xs : Tup Val [i64, i64, i64]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidEnv "full_viv_sort2_fid" [i64, i64, i64] [] xs m Q X) :
+    FullFidelityVivK6.fullVivSort2FidSpec xs m Q X := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change Env.ofTable (fidStep4Bundle.frontTable ++ fidStep4Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep4Bundle.frontTable.find? (·.name == "full_viv_sort2_fid") =
+      some ⟨"full_viv_sort2_fid", [i64, i64, i64], [],
+        FullFidelityVivK6.fullVivSort2FidSpec, true⟩ := by t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_vivSortFid {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidEnv "full_viv_sort_fid" [i64, i64] [] xs m Q X) :
+    FullFidelityVivK6.fullVivSortFidSpec xs m Q X := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change Env.ofTable (fidStep4Bundle.frontTable ++ fidStep4Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep4Bundle.frontTable.find? (·.name == "full_viv_sort_fid") =
+      some ⟨"full_viv_sort_fid", [i64, i64], [],
+        FullFidelityVivK6.fullVivSortFidSpec, true⟩ := by t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_vivClauseM6 {xs : Tup Val [i64, i32]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_viv_clause_m6" [i64, i32] [i64] xs m Q X) :
+    FullM6VivBackbone.fullVivClauseM6Spec xs m Q X := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h5
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h5
+  change Env.ofTable (fidStep2Bundle.frontTable ++ fidStep2Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep2Bundle.frontTable.find? (·.name == "full_viv_clause_m6") =
+      some ⟨"full_viv_clause_m6", [i64, i32], [i64],
+        FullM6VivBackbone.fullVivClauseM6Spec, true⟩ := by t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_backboneSchedM6 {xs : Tup Val [i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_backbone_sched_m6" [i64] [i64] xs m Q X) :
+    FullM6VivBackbone.fullBackboneSchedM6Spec xs m Q X :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 220) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_backboneM6 {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_backbone_m6" [i64, i64] [i64] xs m Q X) :
+    FullM3Backbone.fullBackboneSpec xs m Q X := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h5
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h5
+  change Env.ofTable (fidStep2Bundle.frontTable ++ fidStep2Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep2Bundle.frontTable.find? (·.name == "full_backbone_m6") =
+      some ⟨"full_backbone_m6", [i64, i64], [i64], FullM3Backbone.fullBackboneSpec, true⟩ := by
+    t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_densePropUnitM7 {xs : Tup Val [i64, i32]} {m : Mem 64}
+    {Q : Post [.bool]} {X : XPost}
+    (h : fidEnv "full_dense_prop_unit_m7" [i64, i32] [.bool] xs m Q X) :
+    FullM6BveFwd.fullDensePropUnitM6Spec xs m Q (fun _ _ _ _ => False) := by
+  have hmem : fidBaseSpecTable[340]? = some
+      ⟨"full_dense_prop_unit_m7", [i64, i32], [.bool],
+        FullM6BveFwd.fullDensePropUnitM6Spec, true⟩ := by t_kernel_rfl
+  exact (m8cp_ofTable_sig_elim fidBaseSpecTable_nodup (List.mem_of_getElem? hmem)
+    (fid_elim_to_fidBase (fid_peel_to_step5 (by decide) h))).2.2
+
+theorem fidEnv_elim_forwardSubM7 {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_forward_sub_m7" [i64, i64] [i64] xs m Q X) :
+    FullFastBveBudgets.fullForwardSubFastSpec xs m Q (fun _ _ _ _ => False) :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 309) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_bveCommitRes {xs : Tup Val [i64, i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_bve_commit_res" [i64, i64, i64] [i64] xs m Q X) :
+    FullFastBveBudgets.fullBveCommitResTmkSpec xs m Q (fun _ _ _ _ => False) := by
+  have hmem : fidBaseSpecTable[375]? = some
+      ⟨"full_bve_commit_res", [i64, i64, i64], [i64],
+        FullFastBveBudgets.fullBveCommitResTmkSpec, true⟩ := by t_kernel_rfl
+  exact (m8cp_ofTable_sig_elim fidBaseSpecTable_nodup (List.mem_of_getElem? hmem)
+    (fid_elim_to_fidBase (fid_peel_to_step5 (by decide) h))).2.2
+
+theorem fidEnv_elim_bveVarM7 {xs : Tup Val [i64, i32]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_bve_var_m7" [i64, i32] [i64] xs m Q X) :
+    FullFastBveBudgets.fullBveVarDefSpec xs m Q (fun _ _ _ _ => False) := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change Env.ofTable (fidStep5Bundle.frontTable ++ fidStep5Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep5Bundle.frontTable.find? (·.name == "full_bve_var_m7") =
+      some ⟨"full_bve_var_m7", [i64, i32], [i64],
+        FullFastBveBudgets.fullBveVarDefSpec, true⟩ := by t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_congWorkStep {xs : Tup Val [i64, i64, i64, i64, i32]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_cong_work_step" [i64, i64, i64, i64, i32] [i64] xs m Q X) :
+    FullM6CongSubst.m6CongWorkStepSpec xs m Q (fun _ _ _ _ => False) := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h5
+  change Env.ofTable (fidStep3Bundle.frontTable ++ fidStep3Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep3Bundle.frontTable.find? (·.name == "full_cong_work_step") =
+      some ⟨"full_cong_work_step", [i64, i64, i64, i64, i32], [i64],
+        FullM6CongSubst.m6CongWorkStepSpec, true⟩ := by t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_addClause {xs : Tup Val [i64, i32, i32, .bool]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_add_clause" [i64, i32, i32, .bool] [i64] xs m Q X) :
+    Full.fullAddClauseSpec xs m Q (fun _ _ _ _ => False) :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 40) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_sweepCopy {xs : Tup Val [i64, i64, i64, i32, .bool]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_sweep_copy" [i64, i64, i64, i32, .bool] [i64] xs m Q X) :
+    Full.fullSweepCopySpec xs m Q (fun _ _ _ _ => False) :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 97) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_vivSortCountsM6 {xs : Tup Val [i64, i32]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidEnv "full_viv_sort_counts_m6" [i64, i32] [] xs m Q X) :
+    FullM6VivBackbone.fullVivSortCountsM6Spec xs m Q (fun _ _ _ _ => False) := by
+  have hsw := m8SwFlatTable_iff.mp (fidBaseEnv_to_m8SwFlat (by decide) (by decide)
+    (by decide) (fid_elim_to_fidBase (fid_peel_to_step5 (by decide) h)))
+  have hm7 := m8cp_sw_to_m7_of_ne (by decide) (not_in_swRows _ (by decide))
+    (by decide) (by decide) (by decide) hsw
+  have hrow : m7FidBaseTable[205]? = some
+      ⟨"full_viv_sort_counts_m6", [i64, i32], [],
+        FullM6VivBackbone.fullVivSortCountsM6Spec, true⟩ := rfl
+  cases hm7 with
+  | base _ hb => exact m7FidBase_elim_of_mem (List.mem_of_getElem? hrow) hb
+  | extra hex => exact mf_extra_elim (List.mem_of_getElem? (i := 40) rfl) hex
+
+theorem fidEnv_elim_transSortM6 {xs : Tup Val [i64, i64]} {m : Mem 64}
+    {Q : Post []} {X : XPost}
+    (h : fidEnv "full_trans_sort_m6" [i64, i64] [] xs m Q X) :
+    FullM6VivBackbone.fullTransSortM6Spec xs m Q (fun _ _ _ _ => False) :=
+  fid_elim_m7Base (List.mem_of_getElem? (i := 228) rfl) (fid_peel_to_step5 (by decide) h)
+
+theorem fidEnv_elim_m6SweepSim {xs : Tup Val [i64, i32, i64]} {m : Mem 64}
+    {Q : Post [i32]} {X : XPost}
+    (h : fidEnv "full_m6_sweep_sim" [i64, i32, i64] [i32] xs m Q X) :
+    FullM6Sweep.m6SweepSimSpec xs m Q (fun _ _ _ _ => False) := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h5
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h5
+  change patchEnv fidStep2Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep2Bundle (fid_find_none_front2 (by decide))] at h5
+  change Env.ofTable (fidStep1Bundle.frontTable ++ fidStep1Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep1Bundle.frontTable.find? (·.name == "full_m6_sweep_sim") =
+      some ⟨"full_m6_sweep_sim", [i64, i32, i64], [i32],
+        FullM6Sweep.m6SweepSimSpec, true⟩ := by t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
+
+theorem fidEnv_elim_m6SweepVars {xs : Tup Val [i64, i64, i64]} {m : Mem 64}
+    {Q : Post [i64]} {X : XPost}
+    (h : fidEnv "full_m6_sweep_vars" [i64, i64, i64] [i64] xs m Q X) :
+    FullM6Sweep.m6SweepVarsSpec xs m Q (fun _ _ _ _ => False) := by
+  have h5 := fid_peel_to_step5 (by decide) h
+  change patchEnv fidStep5Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep5Bundle (fid_find_none_front5 (by decide))] at h5
+  change patchEnv fidStep4Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep4Bundle (fid_find_none_front4 (by decide))] at h5
+  change patchEnv fidStep3Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep3Bundle (fid_find_none_front3 (by decide))] at h5
+  change patchEnv fidStep2Bundle _ _ _ xs m Q X at h5
+  rw [patchEnv_base_eq fidStep2Bundle (fid_find_none_front2 (by decide))] at h5
+  change Env.ofTable (fidStep1Bundle.frontTable ++ fidStep1Bundle.baseTable) _ _ _ xs m Q X at h5
+  have hfind : fidStep1Bundle.frontTable.find? (·.name == "full_m6_sweep_vars") =
+      some ⟨"full_m6_sweep_vars", [i64, i64, i64], [i64],
+        FullM6Sweep.m6SweepVarsSpec, true⟩ := by t_kernel_rfl
+  exact env_ofTable_find?_of_append hfind rfl rfl h5
 
 end LeanQbe.T.Examples.Kissat.FullFidelityAssembly
 
