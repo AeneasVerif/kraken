@@ -166,17 +166,11 @@ structure HState where
   fullRtInv rt σ.st σ.scr σ.scrLimbs ⋆ lcnfHeap σ.objs
 
 /-- Global well-formedness invariant of an `HState` rooted at `rt`:
-1. `BigNumRtWfR0` (48-bit arena bound, non-overflowing header and scratch array).
-2. Every heap object is structurally well-formed (`LcnfObj.Wf`).
-3. Heap closure (`lcnfHeapClosed`).
-4. Heap object count fits in DFS worklist capacity (`σ.objs.length ≤ σ.st.workCap`, G-R5).
-5. Every object's reference count stays below `2^31 - 1` (G-R6). -/
+`BigNumRtWfR0` (48-bit arena bound, non-overflowing header and scratch array).
+Object-level `LcnfObj.Wf` and `lcnfHeapClosed` invariants live on the individual
+`H*Wp` / `HDec1Pre` preconditions that actually require them. -/
 @[expose] def HInv (rt : BitVec 64) (σ : HState) : Prop :=
-  BigNumRtWfR0 rt σ.st σ.scr σ.scrLimbs ∧
-  (∀ o ∈ σ.objs, o.Wf) ∧
-  lcnfHeapClosed σ.objs ∧
-  σ.objs.length ≤ σ.st.workCap ∧
-  (∀ o ∈ σ.objs, o.rc.toNat < 2 ^ 31 - 1)
+  BigNumRtWfR0 rt σ.st σ.scr σ.scrLimbs
 
 /-- Return postcondition at Tier H. -/
 abbrev HPost : Type := Word → HState → Prop
@@ -222,8 +216,9 @@ abbrev HJEnv : Type := Nat → List Word → HState → Prop
   if !ty.needsRc then True
   else if (x &&& 1#64) ≠ 0#64 then chk = true ∧ ty = .tobject
   else
-    ∃ o ∈ σ.objs, o.addr = x ∧
-      (o.rc = 1#32 → σ.objs.length ≤ σ.st.workCap ∧ lcnfHeapClosed σ.objs ∧ RcSound x σ.objs)
+    ∃ o ∈ σ.objs, o.addr = x ∧ o.Wf ∧
+      (o.rc = 1#32 → σ.objs.length ≤ σ.st.workCap ∧
+        (∀ obj ∈ σ.objs, obj.Wf) ∧ lcnfHeapClosed σ.objs ∧ RcSound x σ.objs)
 
 /-- Relational post-state for a single `dec` step (`Lower.emitDec1`). -/
 @[expose] def HDec1Rel (x : BitVec 64) (ty : LcTy) (σ σ' : HState) : Prop :=
@@ -269,13 +264,13 @@ abbrev HJEnv : Type := Nat → List Word → HState → Prop
     else
       let v64 : BitVec 64 := v.setWidth 64
       if ty = .object then
-        w = 64 ∧ ∃ o ∈ σ.objs, o.addr = v64 ∧ tag = o.tag
+        w = 64 ∧ ∃ o ∈ σ.objs, o.addr = v64 ∧ o.Wf ∧ tag = o.tag
       else if ty = .tagged then
         w = 64 ∧ tag = (v64 >>> 1).toNat
       else
         w = 64 ∧
         if (v64 &&& 1#64) ≠ 0#64 then tag = (v64 >>> 1).toNat
-        else ∃ o ∈ σ.objs, o.addr = v64 ∧ tag = o.tag
+        else ∃ o ∈ σ.objs, o.addr = v64 ∧ o.Wf ∧ tag = o.tag
   | _ => False
 
 /-! ## 4. Order and RC Monotonicity Lemmas -/
