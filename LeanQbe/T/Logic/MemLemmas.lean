@@ -641,4 +641,89 @@ theorem store_array64_step {m : Mem 64} {p : BitVec 64}
   rw [heq]
   exact ⟨h1, hk _ h2⟩
 
+private theorem mapM_id_length {α : Type} :
+    ∀ {xs : List (Option α)} {bs : List α}, xs.mapM id = some bs → bs.length = xs.length
+  | [], _, h => by simp at h; subst h; rfl
+  | x :: xs, bs, h => by
+    simp only [List.mapM_cons, id, Option.bind_eq_bind, Option.pure_def,
+      Option.bind_eq_some_iff, Option.some.injEq] at h
+    obtain ⟨b, -, bs', h', rfl⟩ := h
+    simp [mapM_id_length h']
+
+private theorem mapM_id_append {α : Type} :
+    ∀ {xs ys : List (Option α)} {bs : List α}, (xs ++ ys).mapM id = some bs →
+      ∃ bs1 bs2, xs.mapM id = some bs1 ∧ ys.mapM id = some bs2 ∧ bs = bs1 ++ bs2
+  | [], ys, bs, h => ⟨[], bs, rfl, h, rfl⟩
+  | x :: xs, ys, bs, h => by
+    simp only [List.cons_append, List.mapM_cons, id, Option.bind_eq_bind, Option.pure_def,
+      Option.bind_eq_some_iff, Option.some.injEq] at h
+    obtain ⟨b, hx, bs', h', rfl⟩ := h
+    obtain ⟨bs1, bs2, h1, h2, rfl⟩ := mapM_id_append h'
+    exact ⟨b :: bs1, bs2, by simp [hx, h1], h2, rfl⟩
+
+private theorem loadBytes_take {m : Mem 64} {a : BitVec 64} {k n : Nat} {bs : List UInt8}
+    (hk : k ≤ n) (h : m.loadBytes a n = some bs) : m.loadBytes a k = some (bs.take k) := by
+  unfold Mem.loadBytes at h ⊢
+  rw [show n = k + (n - k) by omega, List.range_add, List.map_append] at h
+  obtain ⟨bs1, bs2, h1, _, rfl⟩ := mapM_id_append h
+  have hlen : bs1.length = k := (mapM_id_length h1).trans (by simp)
+  rw [List.take_left' hlen]
+  exact h1
+
+private theorem ofBytes_take_mod : ∀ (k : Nat) (bs : List UInt8),
+    Int.ofBytes bs % (2 : Int) ^ (8 * k) = Int.ofBytes (bs.take k) % (2 : Int) ^ (8 * k)
+  | 0, _ => by simp
+  | k + 1, [] => by simp
+  | k + 1, b :: bs => by
+    simp only [List.take_succ_cons, Int.ofBytes_cons]
+    have hpow : (2 : Int) ^ (8 * (k + 1)) = (2 : Int) ^ (8 * k) * 256 := by
+      rw [show 8 * (k + 1) = 8 * k + 8 by omega, Int.pow_add]; rfl
+    rw [hpow, Int.emod_eq_emod_iff_emod_sub_eq_zero]
+    have hdvd : (2 : Int) ^ (8 * k) ∣ Int.ofBytes bs - Int.ofBytes (bs.take k) :=
+      Int.dvd_of_emod_eq_zero (Int.emod_eq_emod_iff_emod_sub_eq_zero.mp (ofBytes_take_mod k bs))
+    obtain ⟨q, hq⟩ := hdvd
+    have hsub : Int.ofBytes bs * 256 + ↑b.toNat - (Int.ofBytes (bs.take k) * 256 + ↑b.toNat) =
+        ((2 : Int) ^ (8 * k) * 256) * q := by
+      calc Int.ofBytes bs * 256 + ↑b.toNat - (Int.ofBytes (bs.take k) * 256 + ↑b.toNat)
+          = (Int.ofBytes bs - Int.ofBytes (bs.take k)) * 256 := by omega
+        _ = ((2 : Int) ^ (8 * k) * q) * 256 := by rw [hq]
+        _ = ((2 : Int) ^ (8 * k) * 256) * q := Int.mul_right_comm _ q 256
+    rw [hsub]
+    exact Int.mul_emod_right _ _
+
+/-- Truncating an `8/16/32/64`-bit load result to `8/16/32` bits equals loading at the narrower
+bit width from the same memory and address. -/
+theorem loadVal_bits_truncate {M : Mem 64} {a : BitVec 64} {m n : Nat} {vm : BitVec m}
+    (hm : m = 16 ∨ m = 32 ∨ m = 64) (hn : n = 8 ∨ n = 16 ∨ n = 32) (hnm : n < m)
+    (hl : loadVal M (.bits m) a = some vm) :
+    loadVal M (.bits n) a = some (vm.truncate n) := by
+  have hm_eq : 8 * (Ty.bits m).bytes = m := by rcases hm with rfl | rfl | rfl <;> rfl
+  have hn_eq : 8 * (Ty.bits n).bytes = n := by rcases hn with rfl | rfl | rfl <;> rfl
+  have hbnm : (Ty.bits n).bytes ≤ (Ty.bits m).bytes := by
+    rcases hm with rfl | rfl | rfl <;> rcases hn with rfl | rfl | rfl <;>
+      first | exact absurd hnm (by decide) | decide
+  simp only [loadVal, Mem.loadInt, Option.bind_eq_some_iff, Option.map_eq_some_iff,
+    ofBits, Option.some.injEq] at hl ⊢
+  obtain ⟨z, ⟨bs, hbs, rfl⟩, rfl⟩ := hl
+  refine ⟨Int.ofBytes (bs.take (Ty.bits n).bytes),
+    ⟨bs.take (Ty.bits n).bytes, loadBytes_take hbnm hbs, rfl⟩, ?_⟩
+  apply BitVec.eq_of_toNat_eq
+  have hle : n ≤ m := Nat.le_of_lt hnm
+  simp only [BitVec.truncate_eq_setWidth, BitVec.toNat_setWidth, BitVec.toNat_ofInt]
+  have hdvd : (2 ^ n : Int) ∣ (2 ^ m : Int) := by
+    refine ⟨(2 ^ (m - n) : Int), ?_⟩
+    rw [← Int.pow_add, Nat.add_sub_cancel' hle]
+  have hnn1 : 0 ≤ Int.ofBytes bs % (2 : Int) ^ m :=
+    Int.emod_nonneg _ (Int.ne_of_gt (Int.pow_pos (by decide)))
+  have hnn2 : 0 ≤ Int.ofBytes (bs.take (Ty.bits n).bytes) % (2 : Int) ^ n :=
+    Int.emod_nonneg _ (Int.ne_of_gt (Int.pow_pos (by decide)))
+  apply Int.ofNat.inj
+  show (((Int.ofBytes (bs.take (Ty.bits n).bytes) % ↑(2 ^ n)).toNat : Nat) : Int) =
+    (((Int.ofBytes bs % ↑(2 ^ m)).toNat % 2 ^ n : Nat) : Int)
+  rw [Int.natCast_emod, Int.natCast_pow, Int.cast_ofNat_Int, Int.toNat_of_nonneg hnn1,
+    Int.toNat_of_nonneg hnn2, Int.emod_emod_of_dvd _ hdvd]
+  have hpow : (2 : Int) ^ n = (2 : Int) ^ (8 * (Ty.bits n).bytes) := by rw [hn_eq]
+  rw [hpow]
+  exact (ofBytes_take_mod (Ty.bits n).bytes bs).symm
+
 end LeanQbe.T

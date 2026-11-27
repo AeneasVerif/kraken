@@ -46,7 +46,9 @@ private theorem armCmpSeqFinish_wp [Host] {cmpCode : List Instr} {cond : ArmCond
     (hfk : ∀ sx sy : MachineData, fk sx → sy.status = sx.status → fk sy)
     (hfin : armCmpSeqFinish cmpCode cond dst = some (c, clob)) :
     _root_.Program.wp (emitClean c) (fun s' =>
-      armMach.PDstHolds s' .bool dst res ∧ fk s' ∧ armMach.mem s' = armMach.mem s ∧
+      armMach.PDstHolds s' .bool dst res ∧
+      (∀ rd, dst = .gpr rd → AbiGprHolds (armMach.getGpr s' rd) .bool res) ∧
+      fk s' ∧ armMach.mem s' = armMach.mem s ∧
       armMach.Frame armCondReads s s' (dst.gprs ++ armScratch) [] clob)
       (fun _ _ => False) s := by
   cases dst with
@@ -56,7 +58,8 @@ private theorem armCmpSeqFinish_wp [Host] {cmpCode : List Instr} {cond : ArmCond
     · rename_i heq; simp only [beq_iff_eq] at heq; subst heq
       rcases Option.some.inj hfin with ⟨rfl, rfl⟩
       refine armWp_mono hcmp ?_; rintro sx ⟨hcc, hfx, hdm, hfr⟩
-      exact ⟨by simpa [Machine.PDstHolds, Machine.evalCond] using hcc, hfx, hdm, hfr⟩
+      exact ⟨by simpa [Machine.PDstHolds, Machine.evalCond] using hcc,
+        (fun _ h => nomatch h), hfx, hdm, hfr⟩
     · cases hfin
   | gpr r => cases r with
     | SP => cases hfin
@@ -65,8 +68,11 @@ private theorem armCmpSeqFinish_wp [Host] {cmpCode : List Instr} {cond : ArmCond
       rw [emitClean_append, emitClean_cons, emitClean_nil]
       refine armWp_append hcmp ?_; rintro sx ⟨hcc, hfx, hdm, hfr⟩
       refine armWp_mono (armCset64_wp d cond sx) ?_; rintro sy rfl
-      refine ⟨?_, hfk sx (wr sx d _) hfx rfl, hdm, armFrame_nzcv fun r hr => ?_⟩
-      · simp only [Machine.PDstHolds, GprHolds, get_wr_same, hcc]; cases res <;> rfl
+      have habi : AbiGprHolds (armMach.getGpr (wr sx d
+          (BitVec.ofNat 64 (cond.interp sx.status).toNat)) (.reg d)) .bool res := by
+        simp only [AbiGprHolds, get_wr_same, hcc]
+      refine ⟨habi.toGprHolds, (fun _ h => by cases h; exact habi),
+        hfk sx (wr sx d _) hfx rfl, hdm, armFrame_nzcv fun r hr => ?_⟩
       · have hne : r ≠ .reg d ∧ r ∉ armScratch :=
           ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
         rw [get_wr_of_ne sx d _ r hne.1]; exact hfr.1 r hne.2
@@ -243,7 +249,7 @@ theorem armCmpZextOp_spec {h : Host} {k : Nat} {o : CmpOp} {n : Nat} {az bz : Bo
                 rintro sx ⟨hst, hdm, hfr⟩
                 rw [hrb32] at hst
                 exact ⟨by rw [hst, armCmpCond_subs (Or.inl rfl), heval], trivial, hdm, hfr⟩
-              · rintro s' ⟨hpd, _, hdm, hfr⟩; exact ⟨⟨hpd, hdm⟩, hfr⟩
+              · rintro s' ⟨hpd, _, _, hdm, hfr⟩; exact ⟨⟨hpd, hdm⟩, hfr⟩
             | none =>
               simp only [hci] at hc
               refine armFallsTo_of_wp (armWp_mono (armCmpSeqFinish_wp
@@ -268,7 +274,7 @@ theorem armCmpZextOp_spec {h : Host} {k : Nat} {o : CmpOp} {n : Nat} {az bz : Bo
                     exact hk _ rfl) rfl hfr₁) ?_
                 rintro s₂ ⟨_, hst₂, hdm₂, hfr₂⟩
                 exact ⟨by rw [hst₂, armCmpCond_subs (Or.inl rfl), hev2], trivial, hdm₂, hfr₂⟩
-              · rintro s' ⟨hpd, _, hdm, hfr⟩; exact ⟨⟨hpd, hdm⟩, hfr⟩
+              · rintro s' ⟨hpd, _, _, hdm, hfr⟩; exact ⟨⟨hpd, hdm⟩, hfr⟩
     | gpr r1 => cases r1 with
       | SP => exact fallback hc
       | reg ra => cases pb with
@@ -313,7 +319,7 @@ theorem armCmpZextOp_spec {h : Host} {k : Nat} {o : CmpOp} {n : Nat} {az bz : Bo
                     exact hk _ rfl) rfl hfr₁) ?_
                 rintro s₂ ⟨_, hst₂, hdm₂, hfr₂⟩
                 exact ⟨by rw [hst₂, armCmpCond_subs (Or.inl rfl), heval], trivial, hdm₂, hfr₂⟩
-            · rintro s' ⟨hpd, _, hdm, hfr⟩; exact ⟨⟨hpd, hdm⟩, hfr⟩
+            · rintro s' ⟨hpd, _, _, hdm, hfr⟩; exact ⟨⟨hpd, hdm⟩, hfr⟩
         | gpr r2 => cases r2 with
           | SP => exact fallback hc
           | reg rb =>
@@ -340,7 +346,7 @@ theorem armCmpZextOp_spec {h : Host} {k : Nat} {o : CmpOp} {n : Nat} {az bz : Bo
                     exact hk _ rfl) rfl hfr0) ?_
                 rintro s₁ ⟨_, hst₁, hdm₁, hfr₁⟩
                 exact ⟨by rw [hst₁, armCmpCond_subs (Or.inl rfl), heval], trivial, hdm₁, hfr₁⟩
-              · rintro s' ⟨hpd, _, hdm, hfr⟩; exact ⟨⟨hpd, hdm⟩, hfr⟩
+              · rintro s' ⟨hpd, _, _, hdm, hfr⟩; exact ⟨⟨hpd, hdm⟩, hfr⟩
             · have hfalse : (az && bz) = false := Bool.eq_false_iff.mpr hboth
               simp only [hfalse, Bool.false_eq_true, ↓reduceIte] at hc
               exact fallback hc
@@ -485,7 +491,7 @@ private theorem armCmpMemSwapSeq_wp [Host] {o : CmpOp} {n : Nat}
           ((h17k _ _).trans (h17b (Or.inr rfl))) hdm₂ (hfrX16 _))
           fun _ ⟨hst, hdm, hfr⟩ => ⟨hev3264 (Or.inr rfl) hst, hdm, hfr⟩
 
-private theorem armCmpMem_core_wp [Host] {o : CmpOp} {n : Nat} {a : AddrArg Reg}
+theorem armCmpMem_core_wp [Host] {o : CmpOp} {n : Nat} {a : AddrArg Reg}
     {pb : PArg Reg Empty ArmCond (.bits n)} {dst : PDst Reg Empty ArmCond .bool}
     {ci : List Instr} {clob : FlagMask} {va vb : BitVec n} {s : MachineData}
     (hc : armCmpMemIns o n a pb dst = some (ci, clob))
@@ -494,6 +500,7 @@ private theorem armCmpMem_core_wp [Host] {o : CmpOp} {n : Nat} {a : AddrArg Reg}
     (hpb : armMach.PArgHolds s (.bits n) pb vb) :
     _root_.Program.wp (emitClean ci) (fun s' =>
       armMach.PDstHolds s' .bool dst (o.evalBits va vb) ∧
+      (∀ rd, dst = .gpr rd → AbiGprHolds (armMach.getGpr s' rd) .bool (o.evalBits va vb)) ∧
       (∀ {lf}, armCmpMemFlagsOut o n pb dst = some lf →
         FlagCmpOk armMach armGpr s' (if lf then va else vb) (if lf then vb else va) false) ∧
       armMach.mem s' = armMach.mem s ∧
@@ -907,7 +914,7 @@ private theorem armCmpMem_core_wp [Host] {o : CmpOp} {n : Nat} {a : AddrArg Reg}
                 obtain ⟨hcc, hfc⟩ := hSub3264 (Or.inr rfl) hst₄
                 refine ⟨hcc, fun {lf} hfl => ?_, hdm₄, hfr₄⟩
                 obtain rfl := hflTrue hfl; exact hfc
-      · rintro s' ⟨hpd, hfc, hdm, hfr⟩; exact ⟨hpd, hfc, hdm, hfr⟩
+      · exact fun _ h => h
     · have hvat : (!armAddrValid scale a) = true := by simp [hva]
       simp [hvat] at hc
 
@@ -927,7 +934,7 @@ theorem armCmpMem_spec {h : Host} {k : Nat} {co : CmpOp} {w : Nat} {a : AddrArg 
   letI := h
   obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
   exact armFallsTo_of_wp (armWp_mono (armCmpMem_core_wp hc hargs hload hpb)
-    fun _ ⟨hpd, _, hdm, hfr⟩ => ⟨⟨hpd, hdm⟩, hfr⟩)
+    fun _ ⟨hpd, _, _, hdm, hfr⟩ => ⟨⟨hpd, hdm⟩, hfr⟩)
 
 /-- Flag-reuse `FallsTo` specification matching `GprTarget.cmpMem_flags_spec` for `armCmpMem`. -/
 theorem armCmpMem_flags_spec {h : Host} {k : Nat} {co : CmpOp} {w : Nat} {a : AddrArg Reg}
@@ -948,7 +955,7 @@ theorem armCmpMem_flags_spec {h : Host} {k : Nat} {co : CmpOp} {w : Nat} {a : Ad
   letI := h
   obtain ⟨ci, hc, rfl⟩ := emitCleanPair_eq_some.mp hc_in
   exact armFallsTo_of_wp (armWp_mono (armCmpMem_core_wp hc hargs hload hpb)
-    fun _ ⟨hpd, hfc, hdm, hfr⟩ => ⟨⟨hpd, hfc hfl, hdm⟩, hfr⟩)
+    fun _ ⟨hpd, _, hfc, hdm, hfr⟩ => ⟨⟨hpd, hfc hfl, hdm⟩, hfr⟩)
 
 private theorem armAluShift_eval {w : Nat} (sh : AluShift) (v : BitVec w) (k : Nat) :
     (armAluShift sh).eval v k = sh.eval v k := by

@@ -847,7 +847,7 @@ private theorem bv64_take32_unsigned (v : BitVec 64) :
     Nat.lt_trans (Nat.mod_lt _ (by decide : 0 < 2 ^ 32)) (by decide : 2 ^ 32 < 2 ^ 64)
   rw [Nat.mod_eq_of_lt hlt]
 
-private theorem armAtIdxExtScale_eval [Labels] (zextIdx : Bool) (s : MachineData)
+theorem armAtIdxExtScale_eval [Labels] (zextIdx : Bool) (s : MachineData)
     (rb ri : XReg) {scale : Nat} {sc : AddrScale} {amt : MemExtendAmount}
     (hamt : armMemExtendAmount scale sc = some amt) (p : Std.Rco Int64) :
     (armAtIdxExtScale zextIdx rb ri amt).eval s p =
@@ -1026,7 +1026,7 @@ private theorem armSetupAddr_addImm_wp [Host] (zextIdx : Bool) (rb ri : XReg) (h
   congr 1
   rw [BitVec.add_assoc, BitVec.add_comm disp.toBitVec, ← BitVec.add_assoc]
 
-private theorem armSetupIdxDisp_wp [Host] (zextIdx : Bool) (scale : Nat) (rb ri : XReg)
+theorem armSetupIdxDisp_wp [Host] (zextIdx : Bool) (scale : Nat) (rb ri : XReg)
     (sc : AddrScale) (disp : Int64) (s : MachineData) (hri16 : ri ≠ .X16)
     (hva : armAddrIdxValid scale sc disp = true) :
     let (setup, addr) := armSetupIdxDispIns zextIdx scale rb ri sc disp
@@ -1580,11 +1580,11 @@ theorem armLoadSextZextIdx_spec {h : Host} {k m n : Nat} {rd base idx : Reg}
     rw [hrb, hri] at hwpSetup
     exact fun hclean hk => armLoadSextTail_wp hc hnoSp hwpSetup hv hclean hk
 
-private theorem getRegOrZr_low64_reg (regs : Reg64s) (x : XReg) :
+theorem getRegOrZr_low64_reg (regs : Reg64s) (x : XReg) :
     regs.getRegOrZr (.low (.reg x) .W64) = (regs.getXReg x).toBitVec := by
   simp [Reg64s.getRegOrZr, Reg64s.getRegOrZr64, RegOrZr.base, BitVec.take]
 
-private theorem getRegOrZr_low64_xzr (regs : Reg64s) :
+theorem getRegOrZr_low64_xzr (regs : Reg64s) :
     regs.getRegOrZr (.low .XZR .W64) = 0#64 := rfl
 
 private theorem getRegOrZr_low32_eq (regs : Reg64s) (rx : XRegOrXzr) :
@@ -1596,7 +1596,7 @@ private theorem getRegOrZr_low32_eq (regs : Reg64s) (rx : XRegOrXzr) :
     apply BitVec.eq_of_getLsbD_eq; intro i hi
     simp [Reg64s.getRegOrZr, Reg64s.getRegOrZr64, RegOrZr.base, BitVec.take, hi]
 
-private theorem armStoreValIn_wp [Host] {t : Ty} {pa : PArg Reg Empty ArmCond t}
+theorem armStoreValIn_wp [Host] {t : Ty} {pa : PArg Reg Empty ArmCond t}
     {v : Val t} {s : MachineData} {valSetup : List Instr} {rx : XRegOrXzr}
     (hpa : armStoreValInIns t pa = some (valSetup, rx))
     (hp : armMach.PArgHolds s t pa v)
@@ -1689,7 +1689,7 @@ private theorem take_setWidth_32_low {k : Nat} (hk : k ≤ 32) (v : BitVec 64) :
     ((v.setWidth 32).take k) = v.setWidth k := by
   ext i hi; simp [BitVec.take, show (i : Nat) < 32 by omega]
 
-private theorem armStoreDir_wp [Host] {t : Ty} {rx : XRegOrXzr} {addr : AddrExpr} {a : BitVec 64}
+theorem armStoreDir_wp [Host] {t : Ty} {rx : XRegOrXzr} {addr : AddrExpr} {a : BitVec 64}
     {v : Val t} {s : MachineData} {dir : Instr}
     (hdir : armStoreDirI t rx addr = some dir) (hnoSp : ∃ r, addr.base = .low (.reg r) .W64)
     (heval : ∀ [Labels] p, addr.eval s p = (a, s))
@@ -1740,7 +1740,7 @@ private theorem armStoreDir_wp [Host] {t : Ty} {rx : XRegOrXzr} {addr : AddrExpr
          rw [hval.2]; rfl))
   | float _ | pair _ _ => simp [armStoreDirI] at hdir
 
-private theorem armTy_of_armMemScale {t : Ty} {scale : Nat} (hsc : armMemScale t = some scale) :
+theorem armTy_of_armMemScale {t : Ty} {scale : Nat} (hsc : armMemScale t = some scale) :
     t = .bool ∨ t = .bits 8 ∨ t = .bits 16 ∨ t = .bits 32 ∨ t = .bits 64 := by
   match t with
   | .bool => exact Or.inl rfl

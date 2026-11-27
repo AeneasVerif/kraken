@@ -437,6 +437,8 @@ theorem armTestOp_wp [Host] (neg : Bool) {n : Nat}
     _root_.Program.wp c (fun s' =>
       (armMach.PDstHolds s' .bool pd
         ((if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& vb) 0#n) ∧
+        (∀ rd, pd = .gpr rd → AbiGprHolds (armMach.getGpr s' rd) .bool
+          ((if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& vb) 0#n)) ∧
         (clob ≠ maskNone →
           (if neg then ArmCond.ne else ArmCond.eq).interp s'.status =
             (if neg then CmpOp.ne else CmpOp.eq).evalBits (va &&& vb) 0#n)) ∧
@@ -463,6 +465,7 @@ theorem armTestOp_wp [Host] (neg : Bool) {n : Nat}
           | .gpr .SP | .vec _ => none) = some (ci, clob) →
         _root_.Program.wp (emitClean ci) (fun sy =>
           (armMach.PDstHolds sy .bool pd want ∧
+            (∀ rd, pd = .gpr rd → AbiGprHolds (armMach.getGpr sy rd) .bool want) ∧
             (clob ≠ maskNone → wantCond.interp sy.status = want)) ∧
           armMach.mem sy = armMach.mem s ∧
           armMach.Frame armCondReads s sy (pd.gprs ++ armScratch) [] clob)
@@ -474,15 +477,19 @@ theorem armTestOp_wp [Host] (neg : Bool) {n : Nat}
         dsimp only at hfin; split at hfin
         · rename_i heq; simp only [beq_iff_eq] at heq; subst heq
           rcases Option.some.inj hfin with ⟨rfl, rfl⟩
-          exact armWp_mono htst fun _ ⟨hcc, hdm, hfr⟩ => ⟨⟨hcc, fun _ => hcc⟩, hdm, hfr⟩
+          exact armWp_mono htst fun _ ⟨hcc, hdm, hfr⟩ =>
+            ⟨⟨hcc, (fun _ h => nomatch h), fun _ => hcc⟩, hdm, hfr⟩
         · cases hfin
       | gpr r => cases r with | SP => cases hfin | reg d =>
         rcases Option.some.inj hfin with ⟨rfl, rfl⟩
         rw [emitClean_append, emitClean_cons, emitClean_nil]
         refine armWp_append htst ?_; rintro sx ⟨hcc, hdm, hfr⟩
         refine armWp_mono (armCset64_wp d wantCond sx) ?_; rintro sy rfl
-        refine ⟨⟨?_, fun _ => hcc⟩, hdm, armFrame_nzcv fun r hr => ?_⟩
-        · simp only [Machine.PDstHolds, GprHolds, get_wr_same, hcc]; cases want <;> rfl
+        have habi : AbiGprHolds (armMach.getGpr (wr sx d
+            (BitVec.ofNat 64 (wantCond.interp sx.status).toNat)) (.reg d)) .bool want := by
+          simp only [AbiGprHolds, get_wr_same, hcc]
+        refine ⟨⟨habi.toGprHolds, (fun _ h => by cases h; exact habi), fun _ => hcc⟩, hdm,
+          armFrame_nzcv fun r hr => ?_⟩
         · have hne : r ≠ .reg d ∧ r ∉ armScratch :=
             ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
           rw [get_wr_of_ne sx d _ r hne.1]; exact hfr.1 r hne.2
@@ -518,12 +525,11 @@ theorem armTestOp_wp [Host] (neg : Bool) {n : Nat}
             rcases Option.some.inj hc with ⟨rfl, rfl⟩
             refine armWp_mono (armMovImm_wp d (BitVec.ofNat 64 want.toNat) s) ?_
             rintro sx rfl
-            refine ⟨⟨?_, fun hne => absurd rfl hne⟩, rfl, frame_wr d _ List.mem_cons_self maskNone⟩
-            have hwant : BitVec.setWidth 8 (BitVec.ofNat 64 want.toNat) =
-                BitVec.ofNat 8 want.toNat := by
-              generalize (want : Bool) = b; cases b <;> rfl
-            simp only [Machine.PDstHolds, GprHolds, get_wr_same]
-            exact hwant
+            have habi : AbiGprHolds (armMach.getGpr (wr s d (BitVec.ofNat 64 want.toNat)) (.reg d))
+                .bool want := by
+              simp only [AbiGprHolds, get_wr_same]
+            refine ⟨⟨habi.toGprHolds, (fun _ h => by cases h; exact habi),
+              fun hne => absurd rfl hne⟩, rfl, frame_wr d _ List.mem_cons_self maskNone⟩
           | gpr r2 =>
             rcases option_none_or_some (armTestDirectIns n (.imm cx) (.gpr r2)) with
               hnone | ⟨tst, htst⟩
@@ -537,11 +543,11 @@ theorem armTestOp_wp [Host] (neg : Bool) {n : Nat}
           · rw [htst] at hc; rcases Option.some.inj hc with ⟨rfl, rfl⟩
             exact finishSpec (hdir htst) rfl
 
-private theorem getRegOrZr_low_xzr (regs : Reg64s) (w : RegWidth) :
+theorem getRegOrZr_low_xzr (regs : Reg64s) (w : RegWidth) :
     regs.getRegOrZr (.low .XZR w) = 0#w.bits := by
   cases w <;> rfl
 
-private theorem armSelectDir_wp [Host] (op : Nat) (w : RegWidth) (d : XReg)
+theorem armSelectDir_wp [Host] (op : Nat) (w : RegWidth) (d : XReg)
     (ra rb : XRegOrXzr) (cnd : ArmCond) (s : MachineData) :
     _root_.Program.wp [match op with
         | 0 => ins (.CSEL (zr d w) (.low ra w) (.low rb w) cnd.toKraken)
@@ -810,7 +816,160 @@ private theorem armSelectCond_wp [Host] {n : Nat} (hn : n ∈ [8, 16, 32, 64])
                 simp only [Bool.and_eq_true, beq_iff_eq] at h0n1
                 exact fastImmImm true false (hca.symm.trans h0n1.1) (hcb.symm.trans h0n1.2) rfl
               · simp only [h0n1, Bool.false_eq_true, ↓reduceIte] at hc
-                exact fallback hc
+                have fastImmOne : ∀ (op : Nat) (isSwap : Bool) (tmp : XReg)
+                    (_htmp : XRegOrSp.reg tmp ∈ armScratch)
+                    {ca' : List Instr} {ra : XReg}
+                    (himm : (if isSwap then va else vb) = match op with
+                      | 0 => 0#n | 1 => 1#n | _ => ~~~0#n)
+                    (ha : armArgInIns tmp (if isSwap then .imm cb else .imm ca) = some (ca', ra))
+                    (hc_eq : c = ca' ++ [match op with
+                      | 0 => armIselInsI (.CSEL (zr d (armWidthOf n)) (zr ra (armWidthOf n))
+                          (xzr (armWidthOf n)) (if isSwap then armNegCond cond else cond).toKraken)
+                      | 1 => armIselInsI (.CSINC (zr d (armWidthOf n)) (zr ra (armWidthOf n))
+                          (xzr (armWidthOf n)) (if isSwap then armNegCond cond else cond).toKraken)
+                      | _ => armIselInsI (.CSINV (zr d (armWidthOf n)) (zr ra (armWidthOf n))
+                          (xzr (armWidthOf n)) (if isSwap then armNegCond cond else
+                            cond).toKraken)]),
+                    _root_.Program.wp (emitClean c) (fun s' =>
+                      GprHoldsZ (armMach.getGpr s' (.reg d)) n (if vc then va else vb) ∧
+                      armMach.mem s' = armMach.mem s ∧
+                      armMach.Frame armCondReads s s' (.reg d :: armScratch) [] maskNone)
+                      (fun _ _ => False) s := by
+                  intro op isSwap tmp _htmp ca' ra himm ha hceq
+                  subst hceq
+                  rw [emitClean_append]
+                  have hpa1 : armMach.PArgHolds s (.bits n) (if isSwap then .imm cb else .imm ca)
+                      (if isSwap then vb else va) := by
+                    cases isSwap
+                    · exact hca
+                    · exact hcb
+                  refine armWp_append (armArgIn_wp hn64 ha hpa1) ?_
+                  rintro s₁ ⟨hra₁, hdmem₁, hst₁, hfr₁⟩
+                  have hfrScr : armMach.Frame armCondReads s s₁ armScratch [] maskNone :=
+                    hfr₁.weaken (fun r hr => by simp_all) (fun v => v.elim) rfl
+                  simp only [emitClean_cons, emitClean_nil]
+                  have hcnd : (if isSwap then armNegCond cond else cond).interp s₁.status =
+                      if isSwap then !vc else vc := by
+                    rw [hst₁]; cases isSwap <;> simp [armNegCond_interp, hpc]
+                  have hrxw : (s₁.regs.getRegOrZr (.low (.reg ra) (armWidthOf n))).setWidth n =
+                      if isSwap then vb else va := by
+                    have h' : s₁.regs.getRegOrZr (.low (.reg ra) (armWidthOf n)) =
+                        (s₁.regs.getXReg ra).toBitVec.setWidth (armWidthOf n).bits := by
+                      cases armWidthOf n <;>
+                        (simp only [Reg64s.getRegOrZr, Reg64s.getRegOrZr64, RegOrZr.base,
+                          BitVec.take];
+                         apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [hi])
+                    rw [h', BitVec.setWidth_setWidth_of_le _ hnw, hra₁]
+                  have hrx32 : s₁.regs.getRegOrZr (.low (.reg ra) .W32) =
+                      (s₁.regs.getXReg ra).toBitVec.setWidth 32 := by
+                    simp only [Reg64s.getRegOrZr, Reg64s.getRegOrZr64, RegOrZr.base, BitVec.take]
+                    apply BitVec.eq_of_getLsbD_eq; intro i hi; simp [hi]
+                  have finish : ∀ (dir : Directive) (val64 : BitVec 64)
+                      (hwp : _root_.Program.wp [dir] (fun s' => s' = wr s₁ d val64) (fun _ _ =>
+                        False) s₁),
+                      val64.setWidth n = (if vc then va else vb) →
+                      (n = 32 → val64 = (if vc then va else vb).setWidth 64) →
+                      _root_.Program.wp [dir] (fun s' =>
+                        GprHoldsZ (armMach.getGpr s' (.reg d)) n (if vc then va else vb) ∧
+                        armMach.mem s' = armMach.mem s ∧
+                        armMach.Frame armCondReads s s' (.reg d :: armScratch) [] maskNone)
+                        (fun _ _ => False) s₁ :=
+                    fun _ _ hwp hv hv32 => armWrDst_after_scratch hn64 d hwp hdmem₁ hfrScr hv hv32
+                  rcases op with _ | _ | op
+                  · refine finish _ _
+                      (armSelectDir_wp 0 (armWidthOf n) d (.reg ra) .XZR
+                        (if isSwap then armNegCond cond else cond) s₁) ?_ ?_
+                    · rw [BitVec.setWidth_setWidth_of_le _ hn64, hcnd, getRegOrZr_low_xzr]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false] at himm hrxw ⊢
+                      all_goals first
+                        | rw [hrxw]
+                        | (rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;> rw [himm] <;>
+                           simp only [armWidthOf, RegWidth.bits, MemWidth.bits] <;> try decide)
+                    · intro hn32; subst hn32
+                      rw [show armWidthOf 32 = .W32 from rfl, hcnd, hrx32, getRegOrZr_low_xzr]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false] at himm hra₁ ⊢ <;>
+                        first | rw [hra₁] | (rw [himm]; try decide)
+                  · refine finish _ _
+                      (armSelectDir_wp 1 (armWidthOf n) d (.reg ra) .XZR
+                        (if isSwap then armNegCond cond else cond) s₁) ?_ ?_
+                    · rw [BitVec.setWidth_setWidth_of_le _ hn64, hcnd, getRegOrZr_low_xzr]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false] at himm hrxw ⊢
+                      all_goals first
+                        | rw [hrxw]
+                        | (rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;> rw [himm] <;>
+                           simp only [armWidthOf, RegWidth.bits, MemWidth.bits] <;> try decide)
+                    · intro hn32; subst hn32
+                      rw [show armWidthOf 32 = .W32 from rfl, hcnd, hrx32, getRegOrZr_low_xzr]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false] at himm hra₁ ⊢ <;>
+                        first | rw [hra₁] | (rw [himm]; try decide)
+                  · refine finish _ _
+                      (armSelectDir_wp (op + 2) (armWidthOf n) d (.reg ra) .XZR
+                        (if isSwap then armNegCond cond else cond) s₁) ?_ ?_
+                    · rw [BitVec.setWidth_setWidth_of_le _ hn64, hcnd, getRegOrZr_low_xzr]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false] at himm hrxw ⊢
+                      all_goals first
+                        | rw [hrxw]
+                        | (rcases mem_armWidths hn with rfl | rfl | rfl | rfl <;> rw [himm] <;>
+                           simp only [armWidthOf, RegWidth.bits, MemWidth.bits] <;> try decide)
+                    · intro hn32; subst hn32
+                      rw [show armWidthOf 32 = .W32 from rfl, hcnd, hrx32, getRegOrZr_low_xzr]
+                      cases isSwap <;> cases vc <;>
+                        simp only [↓reduceIte, Bool.false_eq_true, Bool.not_true,
+                          Bool.not_false] at himm hra₁ ⊢ <;>
+                        first | rw [hra₁] | (rw [himm]; try decide)
+                by_cases hcb0 : (cb == 0#n) = true
+                · simp only [hcb0, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                    Option.some.injEq] at hc
+                  rcases hc with ⟨⟨ca', ra⟩, ha, rfl⟩
+                  exact fastImmOne 0 false .X16 x16_mem_scratch
+                    (hcb.symm.trans (beq_iff_eq.mp hcb0)) ha rfl
+                · simp only [hcb0, Bool.false_eq_true, ↓reduceIte] at hc
+                  by_cases hcb1 : (cb == 1#n) = true
+                  · simp only [hcb1, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                      Option.some.injEq] at hc
+                    rcases hc with ⟨⟨ca', ra⟩, ha, rfl⟩
+                    exact fastImmOne 1 false .X16 x16_mem_scratch
+                      (hcb.symm.trans (beq_iff_eq.mp hcb1)) ha rfl
+                  · simp only [hcb1, Bool.false_eq_true, ↓reduceIte] at hc
+                    by_cases hcbn1 : (cb == ~~~0#n) = true
+                    · simp only [hcbn1, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                        Option.some.injEq] at hc
+                      rcases hc with ⟨⟨ca', ra⟩, ha, rfl⟩
+                      exact fastImmOne 2 false .X16 x16_mem_scratch
+                        (hcb.symm.trans (beq_iff_eq.mp hcbn1)) ha rfl
+                    · simp only [hcbn1, Bool.false_eq_true, ↓reduceIte] at hc
+                      by_cases hca0 : (ca == 0#n) = true
+                      · simp only [hca0, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                          Option.some.injEq] at hc
+                        rcases hc with ⟨⟨cb', rb⟩, hb, rfl⟩
+                        exact fastImmOne 0 true .X17 x17_mem_scratch
+                          (hca.symm.trans (beq_iff_eq.mp hca0)) hb rfl
+                      · simp only [hca0, Bool.false_eq_true, ↓reduceIte] at hc
+                        by_cases hca1 : (ca == 1#n) = true
+                        · simp only [hca1, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                            Option.some.injEq] at hc
+                          rcases hc with ⟨⟨cb', rb⟩, hb, rfl⟩
+                          exact fastImmOne 1 true .X17 x17_mem_scratch
+                            (hca.symm.trans (beq_iff_eq.mp hca1)) hb rfl
+                        · simp only [hca1, Bool.false_eq_true, ↓reduceIte] at hc
+                          by_cases hcan1 : (ca == ~~~0#n) = true
+                          · simp only [hcan1, ↓reduceIte, bind, Option.bind_eq_some_iff,
+                              Option.some.injEq] at hc
+                            rcases hc with ⟨⟨cb', rb⟩, hb, rfl⟩
+                            exact fastImmOne 2 true .X17 x17_mem_scratch
+                              (hca.symm.trans (beq_iff_eq.mp hcan1)) hb rfl
+                          · simp only [hcan1, Bool.false_eq_true, ↓reduceIte] at hc
+                            exact fallback hc
   | gpr r => cases r with
     | SP =>
       dsimp only [armSelectCondIns] at hc

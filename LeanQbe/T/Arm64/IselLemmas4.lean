@@ -2,6 +2,7 @@ module
 
 public import LeanQbe.T.Arm64.IselLemmas3
 public import LeanQbe.T.Arm64.IselNarrowLemmas
+public import LeanQbe.T.Arm64.IselScrLemmas5
 import LeanQbe.T.Arm64.IselFlagHooksLemmas
 import Kraken.AArch64.Parser
 
@@ -2132,19 +2133,88 @@ theorem armCmpZeroZextJcc_spec {h : Host} {k j : Nat} {isZext : Bool} {co : CmpO
     simp only [hfalse, Bool.false_eq_true, ↓reduceIte] at hci
     exact fallback (emitCleanPair_eq_some.mpr ⟨ci, hci, rfl⟩)
 
+theorem armOp_zext {h : Host} {k : Nat} {sig : List Ty} {t0 : Ty}
+    {code : OpCode sig [t0]} {pas : Tup (PArg Reg Empty ArmCond) sig} {rd : Reg}
+    {vh : VariantHint} {c : List Directive} {clob : FlagMask} {vs : Tup Val sig}
+    {P : Tup Val [t0] → Prop} {s : MachineData} {post : MachineState → Prop}
+    (hz : armGpr.zeroExtOp code pas (.gpr rd, ()) = true)
+    (hc : armGpr.op code pas (.gpr rd, ()) vh = some (c, clob))
+    (hargs : ∀ r ∈ tupArgGprs pas, r ∉ armScratch) (hrd : rd ∉ armScratch)
+    (hrel : TRel (armMach.PArgHolds s) pas vs) (hwp : code.wp vs P) :
+    armMach.FallsTo armGpr.condReads h k c (rd :: armScratch) [] clob s
+      (fun s' => (∃ rv : Val t0, P (rv, ()) ∧ AbiGprHolds (armMach.getGpr s' rd) t0 rv) ∧
+        armMach.mem s' = armMach.mem s) post := by
+  by_cases ht : t0 = .bits 32
+  · subst ht; cases rd with
+    | SP => dsimp only [armGpr, armZeroExtOp] at hz; cases hz
+    | reg d =>
+      exact (armOp_zero32 (by rfl) hc rfl hargs hrd hrel hwp).conseq
+        fun _ ⟨⟨rv, hp, hr⟩, hm⟩ _ => ⟨⟨rv, hp, ⟨by decide, hr⟩⟩, hm⟩
+  · exact armOp_zext_non32_fallsTo ht hz hc hargs hrd hrel hwp
+
+theorem armOpScr_spec {fn} {h : Host} {k : Nat} {scr : List (Reg × BitVec 64)} {sig rs : List Ty}
+    {code : OpCode sig rs} {pas : Tup (PArg Reg Empty ArmCond) sig}
+    {dsts : Tup (PDst Reg Empty ArmCond) rs} {vh : VariantHint} {c : List Directive}
+    {clob : FlagMask} {scrOut : List (Reg × BitVec 64)} {vs : Tup Val sig} {P : Tup Val rs → Prop}
+    {s : MachineData} {post : MachineState → Prop}
+    (hf : armGpr.opScr? = some fn) (hc : fn scr code pas dsts vh = some (c, clob, scrOut))
+    (hargs : ∀ r ∈ tupArgGprs pas, r ∉ armScratch) (hdsts : ∀ r ∈ tupDstGprs dsts, r ∉ armScratch)
+    (hscr : ScrOk armMach armScratch scr s) (hrel : TRel (armMach.PArgHolds s) pas vs)
+    (hwp : code.wp vs P) :
+    armMach.FallsTo armCondReads h k c (tupDstGprs dsts ++ armScratch) [] clob s
+      (fun s' => (∃ rvs, P rvs ∧ TRel (armMach.PDstHolds s') dsts rvs ∧
+          (∀ {t0} {ht : rs = [t0]} {rd}, dsts = ht ▸ (.gpr rd, ()) →
+            armGpr.zeroExtOp code pas dsts = true →
+            AbiGprHolds (armMach.getGpr s' rd) t0 (ht ▸ rvs).1) ∧
+          (∀ {co w pa pb pd lf} {h1 : sig = [.bits w, .bits w]} {h2 : rs = [.bool]}
+              {_he : code = h1 ▸ h2 ▸ (.cmp co (.bits w) .bool rfl)},
+            pas = h1 ▸ (pa, pb, ()) → dsts = h2 ▸ (pd, ()) →
+            armGpr.cmpFlagsOut? co w pa pb pd = some lf →
+            FlagCmpOk armMach armGpr s'
+              (if lf then (h1 ▸ vs).1 else (h1 ▸ vs).2.1)
+              (if lf then (h1 ▸ vs).2.1 else (h1 ▸ vs).1) false)) ∧
+        armMach.mem s' = armMach.mem s ∧ ScrOk armMach armScratch scrOut s') post := by
+  cases hf
+  refine armOpScr_spec_aux (fun {c' cl'} hop => ?_)
+    (fun {t0 ht rd c' cl'} hdr hz hop => by
+      subst ht; cases hdr
+      exact armOp_zext hz hop hargs (hdsts rd (by simp [tupDstGprs])) hrel hwp)
+    hc hargs hdsts hscr hrel hwp
+  by_cases hcmp : ∃ co w, ∃ h1 : sig = [.bits w, .bits w], ∃ h2 : rs = [.bool],
+      code = h1 ▸ h2 ▸ (.cmp co (.bits w) .bool rfl)
+  · rcases hcmp with ⟨co, w, h1, h2, he⟩
+    subst h1; subst h2; subst he
+    rcases pas with ⟨pa, pb, ⟨⟩⟩; rcases dsts with ⟨pd, ⟨⟩⟩; rcases vs with ⟨va, vb, ⟨⟩⟩
+    have ⟨hpa, hpb⟩ := trel2_inv hrel
+    have hga : ∀ r ∈ pa.gprs ++ pb.gprs, r ∉ armScratch := fun r hr =>
+      hargs r (by simpa [tupArgGprs] using hr)
+    have hgd : ∀ r ∈ pd.gprs, r ∉ armScratch := fun r hr =>
+      hdsts r (by simpa [tupDstGprs] using hr)
+    cases hlf : armGpr.cmpFlagsOut? co w pa pb pd with
+    | none =>
+      exact (armOp_spec hop hargs hdsts hrel hwp).conseq fun s' ⟨⟨rvs, hp, htr⟩, hm⟩ _ =>
+        ⟨⟨rvs, hp, htr, fun {co' w' pa' pb' pd' lf'} {h1' h2' he'} hpa' hpb' hl' => by
+          have hw' : w = w' := Ty.bits.inj (List.cons.inj h1').1
+          subst hw'; cases he'; cases hpa'; cases hpb'; rw [hlf] at hl'; cases hl'⟩, hm⟩
+    | some lf =>
+      rw [tupDstGprs_cons, tupDstGprs_nil, List.append_nil]
+      exact (@armCmpFlagsOut_spec h k co w pa pb pd lf vh c' cl' va vb s post hlf hop
+        hga hgd hpa hpb).conseq fun s' ⟨hpd, hfc, hm⟩ _ =>
+          ⟨⟨(co.evalBits va vb, ()), hwp, .cons hpd .nil,
+            fun {co' w' pa' pb' pd' lf'} {h1' h2' he'} hpa' hpb' hl' => by
+              have hw' : w = w' := Ty.bits.inj (List.cons.inj h1').1
+              subst hw'; cases he'; cases hpa'; cases hpb'
+              rw [hlf] at hl'; cases hl'; exact hfc⟩, hm⟩
+  · exact (armOp_spec hop hargs hdsts hrel hwp).conseq fun s' ⟨⟨rvs, hp, htr⟩, hm⟩ _ =>
+      ⟨⟨rvs, hp, htr, fun {co w pa pb pd lf} {h1 h2 he} _ _ _ =>
+        absurd ⟨co, w, h1, h2, he⟩ hcmp⟩, hm⟩
+
 /-- Verified AArch64 scalar `GprTarget` specification. -/
 theorem armGprSpec : GprTarget armMach armGpr armScratch where
-  negCond_reads := armNegCond_reads
-  negCond_eval s c := armNegCond_interp c s.status
-  clearFlags_spec := @armClearFlags_spec
-  mov_spec := @armMov_spec
-  movi_spec := @armMovi_spec
-  setcc_spec := @armSetcc_spec
-  jmp_spec := @armJmp_spec
-  jcc_spec := @armJcc_spec
-  jnzGpr_spec := @armJnzGpr_spec
-  op_spec := @armOp_spec
-  load_spec := @armLoad_spec
+  negCond_reads := armNegCond_reads; negCond_eval s c := armNegCond_interp c s.status
+  clearFlags_spec := @armClearFlags_spec; mov_spec := @armMov_spec; movi_spec := @armMovi_spec
+  setcc_spec := @armSetcc_spec; jmp_spec := @armJmp_spec; jcc_spec := @armJcc_spec
+  jnzGpr_spec := @armJnzGpr_spec; op_spec := @armOp_spec; load_spec := @armLoad_spec
   store_spec := @armStore_spec
   load_zero32 _ {h k rd a c clob s post v} := @armLoad_zero32 h k rd a c clob v s post
   load_zext _ {h k t rd a c clob v s post} := @armLoad_zext rfl h k t rd a c clob v s post
@@ -2152,27 +2222,38 @@ theorem armGprSpec : GprTarget armMach armGpr armScratch where
   testOp_spec := fun hc hga hgd hpa hpb =>
     armFallsTo_of_wp (armWp_mono (armTestOp_wp _ _ _ _ hc hga hgd hpa hpb)
       fun _ ⟨h1, h2, h3⟩ => ⟨⟨h1.1, h2⟩, h3⟩)
-  loadSext_spec := @armLoadSext_spec
-  cmpZeroJcc_spec := @armCmpZeroJcc_spec
-  testJcc_spec := @armTestJcc_spec
-  leaArith_spec := @armLeaArith_spec
-  leaArith_zero32 := @armLeaArith_zero32
-  loadZextIdx_spec := @armLoadZextIdx_spec
-  loadZextIdx_zero32 _ := @armLoadZextIdx_zero32
-  loadZextIdx_zext _ := @armLoadZextIdx_zext
-  loadSextZextIdx_spec := @armLoadSextZextIdx_spec
-  storeZextIdx_spec := @armStoreZextIdx_spec
-  leaArithZext_spec := @armLeaArithZext_spec
-  cmpMem_spec := @armCmpMem_spec
-  jnzGprInv_spec := @armJnzGprInv_spec
-  op_boolFlag_spec := @armBoolFlagOut_spec
-  op_cmpFlags_spec := @armCmpFlagsOut_spec
-  testOp_boolFlag_spec := @armTestOp_boolFlag_spec
-  testMem_boolFlag_spec := @armTestMem_boolFlag_spec
-  shiftAlu_spec := @armShiftAlu_spec
-  shiftAlu_zero32 _ := @armShiftAlu_zero32
-  shiftCmp_spec := @armShiftCmp_spec
-  shiftCmp_flags_spec := @armShiftCmp_flags_spec
+  loadSext_spec := @armLoadSext_spec; cmpZeroJcc_spec := @armCmpZeroJcc_spec
+  testJcc_spec := @armTestJcc_spec; leaArith_spec := @armLeaArith_spec
+  leaArith_zero32 := @armLeaArith_zero32; loadZextIdx_spec := @armLoadZextIdx_spec
+  loadZextIdx_zero32 _ := @armLoadZextIdx_zero32; loadZextIdx_zext _ := @armLoadZextIdx_zext
+  loadSextZextIdx_spec := @armLoadSextZextIdx_spec; storeZextIdx_spec := @armStoreZextIdx_spec
+  leaArithZext_spec := @armLeaArithZext_spec; cmpMem_spec := @armCmpMem_spec
+  jnzGprInv_spec := @armJnzGprInv_spec; op_boolFlag_spec := @armBoolFlagOut_spec
+  op_cmpFlags_spec := @armCmpFlagsOut_spec; testOp_boolFlag_spec := @armTestOp_boolFlag_spec
+  testMem_boolFlag_spec := @armTestMem_boolFlag_spec; shiftAlu_spec := @armShiftAlu_spec
+  shiftAlu_zero32 _ := @armShiftAlu_zero32; shiftCmp_spec := @armShiftCmp_spec
+  shiftCmp_flags_spec := @armShiftCmp_flags_spec; setcc_zext := @armSetcc_zext
+  op_zext := @armOp_zext; testOp_zext := @armTestOp_zext; cmpMem_zext := @armCmpMem_zext
+  testMem_zext := fun _ {h k w neg a pb rd c} => by simp
+  shiftCmp_zext := @armShiftCmp_zext
+  mulHi_spec := fun {fn h k isSigned n pa pb rd c clob va vb s post} hf hc => by
+    cases hf; exact @armMulHi_spec h k isSigned n pa pb rd c clob va vb s post hc
+  storeScr_spec := fun {fn h k scr t pa a c clob scrOut v s post} hf hc => by
+    cases hf; exact @armStoreScr_spec h k scr t pa a c clob scrOut v s post hc
+  storeZextIdxScr_spec := fun {fn h k scr t pa base idx sc disp c clob scrOut v vb vi s post}
+      hf hc => by
+    cases hf
+    exact @armStoreZextIdxScr_spec h k scr t pa base idx sc disp c clob scrOut v vb vi s post hc
+  loadScr_spec := fun {fn h k scr t rd a c clob scrOut v s post} hf hc h1 h2 h3 h4 => by
+    cases hf
+    simpa [armGpr] using @armLoadScr_spec h k scr t rd a c clob scrOut v s post hc h1 h2 h3 h4
+  loadZextIdxScr_spec := fun {fn h k scr t rd base idx sc disp c clob scrOut v vb vi s post}
+      hf hc h1 h2 h3 h4 h5 h6 h7 => by
+    cases hf
+    simpa [armGpr] using
+      @armLoadZextIdxScr_spec h k scr t rd base idx sc disp c clob scrOut v vb vi s post
+        hc h1 h2 h3 h4 h5 h6 h7
+  opScr_spec := @armOpScr_spec
 
 /-! ## 3. `armOp_noLab` for downstream `Rega.LabelClean` -/
 
@@ -2180,20 +2261,17 @@ theorem armOp_noLab {sig rs : List Ty} {code : OpCode sig rs}
     {pas : Tup (PArg Reg Empty ArmCond) sig} {dsts : Tup (PDst Reg Empty ArmCond) rs}
     {vh : VariantHint} {c : List Directive} {clob : FlagMask}
     (hc : armGpr.op code pas dsts vh = some (c, clob)) (l : Sym) :
-    Kraken.Directive.label l ∉ c :=
-  emitCleanPair_noLab hc l
+    Kraken.Directive.label l ∉ c := emitCleanPair_noLab hc l
 
 theorem armCmpZeroJcc_noLab {co : CmpOp} {n : Nat} {r : Reg} {l : Sym}
     {c : List Directive} {clob : FlagMask}
     (hc : armGpr.cmpZeroJcc co n r l = some (c, clob)) (lab : Sym) :
-    Kraken.Directive.label lab ∉ c :=
-  emitCleanPair_noLab hc lab
+    Kraken.Directive.label lab ∉ c := emitCleanPair_noLab hc lab
 
 theorem armTestJcc_noLab {neg : Bool} {n : Nat} {r : Reg} {mask : BitVec n} {l : Sym}
     {c : List Directive} {clob : FlagMask}
     (hc : armGpr.testJcc neg n r mask l = some (c, clob)) (lab : Sym) :
-    Kraken.Directive.label lab ∉ c :=
-  emitCleanPair_noLab hc lab
+    Kraken.Directive.label lab ∉ c := emitCleanPair_noLab hc lab
 
 /-! ## 4. Kernel `rfl` `ParserChecks` against `Kraken.AArch64.Parser` -/
 

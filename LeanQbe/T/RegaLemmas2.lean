@@ -1017,7 +1017,8 @@ theorem call_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {rs : List Ty} {Q 
           rw [hkeep r hcs, hcs1 r hcs]
           exact hA.zeroExt32_ok r hr.1
         flags_ok := trivial
-        flags_lt := trivial }
+        flags_lt := trivial
+        scrConsts_ok := scrOk_nil _ _ _ }
     have hI' : Inv T hints s₀ ra n Rf m' (T.mach.data st0) σ false := by
       refine ⟨hσ, by show T.mach.getGpr (T.mach.data st0) T.frame.sp = base T hints s₀
                      rw [hspr, hsp2, BitVec.sub_add_cancel],
@@ -1075,7 +1076,7 @@ theorem fn_entry_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {as : List Ty}
       exact sep_cast hmem (by ac_rfl)
     have hA0 : Agree T [] 0
         { regs := [], slots := .empty, defs := .empty, vecWidths := .empty } s₀ [] := by
-      constructor <;> intros <;> simp_all [Trie.find?]
+      constructor <;> intros <;> first | exact scrOk_nil _ _ _ | simp_all [Trie.find?]
     have hA := bindAbiParams_ok hb htr hA0
     rw [List.append_nil, Nat.zero_add] at hA
     have hlen : k + (fnPrologue T.toIsa hints E ++
@@ -1151,7 +1152,7 @@ theorem fn_entry_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {as : List Ty}
         (fun v => (hv2 v).trans (hfr1.2.1 v List.not_mem_nil)) htr
     have hA0 : Agree T [] 0
         { regs := [], slots := .empty, defs := .empty, vecWidths := .empty } s2 σ := by
-      constructor <;> intros <;> simp_all [Trie.find?]
+      constructor <;> intros <;> first | exact scrOk_nil _ _ _ | simp_all [Trie.find?]
     have hA := bindAbiParams_ok hb htr2 hA0
     rw [List.append_nil, Nat.zero_add] at hA
     have := kont s2 σ hA hI2

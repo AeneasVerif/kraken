@@ -11,6 +11,7 @@ public import LeanQbe.T.Arm64.Frame
 public import LeanQbe.T.Arm64.FrameLemmas
 public import LeanQbe.T.Arm64.Isa
 public import LeanQbe.T.Arm64.Isel
+public import LeanQbe.T.Arm64.IselCore
 public import LeanQbe.T.Arm64.IselFlagHooks
 public import LeanQbe.T.Arm64.IselFlagHooksLemmas
 public import LeanQbe.T.Arm64.IselLemmas1
@@ -21,6 +22,12 @@ public import LeanQbe.T.Arm64.IselLemmas31
 public import LeanQbe.T.Arm64.IselLemmas4
 public import LeanQbe.T.Arm64.IselNarrow
 public import LeanQbe.T.Arm64.IselNarrowLemmas
+public import LeanQbe.T.Arm64.IselScr
+public import LeanQbe.T.Arm64.IselScrLemmas1
+public import LeanQbe.T.Arm64.IselScrLemmas2
+public import LeanQbe.T.Arm64.IselScrLemmas3
+public import LeanQbe.T.Arm64.IselScrLemmas4
+public import LeanQbe.T.Arm64.IselScrLemmas5
 public import LeanQbe.T.Arm64.IselShift
 public import LeanQbe.T.Arm64.IselShiftLemmas
 public import LeanQbe.T.Arm64.IselStepRules
