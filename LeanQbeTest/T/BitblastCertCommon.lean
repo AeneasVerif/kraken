@@ -25,8 +25,8 @@ import Kraken.Separation
 /-!
 # Shared Arch-Free Linked Proof Bridge for `Bitblast` + `KissatPlain` (`BitblastCertCommon`)
 
-Composes the `59`-function `Kissat.Plain.plainModule` (`plainEnv_moduleOk`) with the `30`-function
-`Bitblast` core (`bitblast_moduleOk`) into the closed `89`-function `bitblastLinkedMod` (`0`
+Composes the `59`-function `Kissat.Plain.plainModule` (`plainEnv_moduleOk`) with the `64`-function
+`Bitblast` core (`bitblast_moduleOk`) into the closed `123`-function `bitblastLinkedMod` (`0`
 externs, `0` exits) and `bitblastLinkedEnv` (`<= std3` axioms, arch-free), plus concrete `0x1000#64`
 `nvProgBytes` slab witnesses fitting `x64Init` / `armInit` (`4148 ≤ 8192` bytes).
 -/
@@ -77,7 +77,7 @@ theorem kissatSolveBytesUnsatSpec_refines_plain
     rw [hcl, BitVec.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
   · exact BitVec.eq_of_toNat_eq (by simp)
 
-/-- Closed `89`-function linked `Module` (`plainModule.fns ++ bitblastModule.fns`, `0` externs, `0`
+/-- Closed `123`-function linked `Module` (`plainModule.fns ++ bitblastModule.fns`, `0` externs, `0`
 exits). -/
 @[expose] def bitblastLinkedMod : Module :=
   { fns := plainModule.fns ++ bitblastModule.fns, externs := [], exits := [] }
@@ -116,7 +116,7 @@ private theorem plain_bitblast_sig_disj {f : Sym} {as bs : List Ty}
     exact List.mem_map.mpr ⟨fn, hfn, congrArg Prod.fst he⟩
   exact plain_bitblast_names_disj f h1 h2
 
-/-- Disjoint union of `plainEnv` (`59` Kissat functions) and `bitblastEnv` (`30` Bitblast
+/-- Disjoint union of `plainEnv` (`59` Kissat functions) and `bitblastEnv` (`64` Bitblast
 functions). -/
 @[expose] def bitblastLinkedEnv : Env :=
   fun f as bs xs m Q X =>
@@ -134,7 +134,7 @@ private theorem kissat_sig_mem_plain :
     ("kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64]) ∈ plainModule.sigs := by
   rw [Module.sigs]; decide
 
-/-- All `89` functions in `bitblastLinkedMod` satisfy their `bitblastLinkedEnv` contracts under
+/-- All `123` functions in `bitblastLinkedMod` satisfy their `bitblastLinkedEnv` contracts under
 `bitblastLinkedEnv` (`0` external calls unresolved). -/
 theorem bitblastLinkedEnv_sound :
     ∀ fn ∈ bitblastLinkedMod.fns, ∀ xs m Q X,
@@ -186,8 +186,8 @@ theorem bitblastLinkedEnv_sound :
       exact Or.inl ⟨kissat_sig_mem_plain,
         mkPlainEnv_solve_bytes plainSolveBytesSpec (fun _ _ _ _ h => h) ys m' P E hplainSpec⟩
 
-/-- Complete closed `89`-function `ModuleOk` theorem composing `Kissat.Plain` (`59` fns) and
-`Bitblast` (`30` fns). -/
+/-- Complete closed `123`-function `ModuleOk` theorem composing `Kissat.Plain` (`59` fns) and
+`Bitblast` (`64` fns). -/
 theorem bitblastLinkedEnv_moduleOk : ModuleOk bitblastLinkedEnv bitblastLinkedMod :=
   Module.moduleOk_of_checkAcyclic bitblastLinkedMod_checkAcyclic
     bitblastLinkedMod_wf bitblastLinkedEnv_sound
@@ -201,7 +201,7 @@ theorem bitblastLinked_bvSolveBytesSpec
       bitblastModule.fns.map Fn.sig := by
     decide
   refine Or.inr ⟨hsig, ?_⟩
-  exact bitblastEnv_row_at 29
+  exact bitblastEnv_row_at 63
     ⟨"bv_solve_bytes", [i64, i64, i64, i64, i64], [i64], bvSolveBytesSpec, true⟩
     (by rfl) (fun _ _ _ _ hs => hs) xs m Q X h
 

@@ -14,7 +14,7 @@ meta import LeanQbe.T.Examples.Bitblast.Src.Full
 /-!
 # Materialized `TFlatFn` Data Leaf for `bitblastModule` (`Flat`)
 
-Materializes all `30` C0 functions of `LeanQbe.T.Examples.Bitblast.Src.Full.bitblastModule` into
+Materializes all `64` C0 functions of `LeanQbe.T.Examples.Bitblast.Src.Full.bitblastModule` into
 exposed, noncomputable (`compile := false`) `TFlatFn` definitions (`bitblastFlatFns` and
 `bitblastFlatMod`) with kernel-checked `rfl` bridges (`bitblastFlatMod_fns_flat_eq`,
 `bitblastFlatMod_fns_eq`, `bitblastFlatMod_eq`).

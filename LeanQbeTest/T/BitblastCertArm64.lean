@@ -21,15 +21,19 @@ public import LeanQbe.T.Logic.Mem
 public import LeanQbeTest.T.BitblastCertCommon
 public import LeanQbeTest.T.BitblastCertArm64S0
 public import LeanQbeTest.T.BitblastCertArm64S1
+public import LeanQbeTest.T.BitblastCertArm64S2
+public import LeanQbeTest.T.BitblastCertArm64S3
+public import LeanQbeTest.T.BitblastCertArm64S4
+public import LeanQbeTest.T.BitblastCertArm64S5
 public import Kraken.Mem
 public import Kraken.Separation
 
 /-!
 # Bitblast + KissatPlain AAPCS64 Arm64 Linked Certificate (`BitblastCertArm64`)
 
-Composes `Arm64.KissatPlainCert.plainCert` (`59` Kissat fns) with the two sliced `(flat := true)`
-Bitblast certificates (`bitblastCertArm64S0` + `bitblastCertArm64S1`, `30` fns) via zero-recomp
-`LinkedCert.append` (`89` functions total, `0` externs left), and proves:
+Composes `Arm64.KissatPlainCert.plainCert` (`59` Kissat fns) with the six sliced `(flat := true)`
+Bitblast certificates (`bitblastCertArm64S0`..`bitblastCertArm64S5`, `64` fns) via zero-recomp
+`LinkedCert.append` (`123` functions total, `0` externs left), and proves:
 * `bitblastArm64_bv_solve_bytes_fnSpec`: machine-level `Defined` + `FnSpec` for `bv_solve_bytes`;
 * `bitblastArm64_bv_solve_bytes_unsat_sound` / `bitblastArm64_host_bv_solve_bytes_unsat_sound`:
   end-to-end machine-code UNSAT soundness (`X0 = 20#64 -> ∀ prog, parse = some prog → prog.Unsat`);
@@ -53,15 +57,63 @@ open LeanQbe.T.Examples.Bitblast.Build
 open LeanQbeTest.T.BitblastCertCommon
 open LeanQbeTest.T.BitblastCertArm64S0
 open LeanQbeTest.T.BitblastCertArm64S1
+open LeanQbeTest.T.BitblastCertArm64S2
+open LeanQbeTest.T.BitblastCertArm64S3
+open LeanQbeTest.T.BitblastCertArm64S4
+open LeanQbeTest.T.BitblastCertArm64S5
 
-/-- Zero-recompilation AAPCS64 Arm64 Bitblast tail certificate (`30` fns, `S0 ++ S1`). -/
-@[expose] noncomputable def bitblastTailArm64Cert :=
+/-- Prefix sub-module `[0, 22)`. -/
+@[expose] noncomputable def bitblastPref1ModArm64 : Module :=
+  { fns := bitblastFlatMod.fns.take 22 }
+
+/-- Prefix sub-module `[0, 33)`. -/
+@[expose] noncomputable def bitblastPref2ModArm64 : Module :=
+  { fns := bitblastFlatMod.fns.take 33 }
+
+/-- Prefix sub-module `[0, 44)`. -/
+@[expose] noncomputable def bitblastPref3ModArm64 : Module :=
+  { fns := bitblastFlatMod.fns.take 44 }
+
+/-- Prefix sub-module `[0, 54)`. -/
+@[expose] noncomputable def bitblastPref4ModArm64 : Module :=
+  { fns := bitblastFlatMod.fns.take 54 }
+
+/-- Prefix certificate `[0, 22)` (`S0 ++ S1`). -/
+@[expose] noncomputable def bitblastPref1Arm64Cert :=
   bitblastCertArm64S0.append bitblastCertArm64S1
-    (mod := bitblastFlatMod)
-    (by exact (List.take_append_drop 15 bitblastFlatMod.fns).symm)
+    (mod := bitblastPref1ModArm64)
+    (by exact List.take_add (l := bitblastFlatMod.fns) (i := 11) (j := 11))
     (by t_kernel_rfl)
 
-/-- Closed `89`-function AAPCS64 Arm64 `LinkedCert` (`KissatPlainCert.plainCert` + `bitblast`,
+/-- Prefix certificate `[0, 33)` (`S0..S2`). -/
+@[expose] noncomputable def bitblastPref2Arm64Cert :=
+  bitblastPref1Arm64Cert.append bitblastCertArm64S2
+    (mod := bitblastPref2ModArm64)
+    (by exact List.take_add (l := bitblastFlatMod.fns) (i := 22) (j := 11))
+    (by t_kernel_rfl)
+
+/-- Prefix certificate `[0, 44)` (`S0..S3`). -/
+@[expose] noncomputable def bitblastPref3Arm64Cert :=
+  bitblastPref2Arm64Cert.append bitblastCertArm64S3
+    (mod := bitblastPref3ModArm64)
+    (by exact List.take_add (l := bitblastFlatMod.fns) (i := 33) (j := 11))
+    (by t_kernel_rfl)
+
+/-- Prefix certificate `[0, 54)` (`S0..S4`). -/
+@[expose] noncomputable def bitblastPref4Arm64Cert :=
+  bitblastPref3Arm64Cert.append bitblastCertArm64S4
+    (mod := bitblastPref4ModArm64)
+    (by exact List.take_add (l := bitblastFlatMod.fns) (i := 44) (j := 10))
+    (by t_kernel_rfl)
+
+/-- Zero-recompilation AAPCS64 Arm64 Bitblast tail certificate (`64` fns, `S0..S5`). -/
+@[expose] noncomputable def bitblastTailArm64Cert :=
+  bitblastPref4Arm64Cert.append bitblastCertArm64S5
+    (mod := bitblastFlatMod)
+    (by exact (List.take_append_drop 54 bitblastFlatMod.fns).symm)
+    (by t_kernel_rfl)
+
+/-- Closed `123`-function AAPCS64 Arm64 `LinkedCert` (`KissatPlainCert.plainCert` + `bitblast`,
 `0` Kissat recompilation, `0` externs, `0` exits). -/
 @[expose] noncomputable def bitblastArm64Cert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
@@ -79,7 +131,7 @@ theorem bitblastArm64_legalSigAll : LegalSigAll armLegalTarget bitblastLinkedMod
 private theorem bvSolveBytesFn_mem_linked :
     bvSolveBytesFn ∈ bitblastLinkedMod.fns :=
   List.mem_append_right _
-    (List.mem_of_getElem? (rfl : bitblastModule.fns[29]? = some bvSolveBytesFn))
+    (List.mem_of_getElem? (rfl : bitblastModule.fns[63]? = some bvSolveBytesFn))
 
 /-- `armTarget.Defined` + `armTarget.FnSpec` for `bv_solve_bytes` on any legal AAPCS64 Arm64
 host embedding `bitblastArm64Cert.code`. -/

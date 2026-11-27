@@ -49,6 +49,29 @@ extern u32 bv_aig_ite(BVHdr *h, u32 c, u32 t, u32 f);
 extern u32 bv_lits_alloc(BVHdr *h, u32 count);
 extern void bv_coi_mark(BVHdr *h, u32 root);
 extern bool bv_dimacs_write(BVHdr *h, u32 root);
+extern u32 bv_blast_extract(BVHdr *h, u32 a_off, u32 aw, u32 start, u32 len);
+extern u32 bv_blast_append(BVHdr *h, u32 lhs_off, u32 lw, u32 rhs_off, u32 rw);
+extern u32 bv_blast_not(BVHdr *h, u32 a_off, u32 w);
+extern u32 bv_blast_and(BVHdr *h, u32 a_off, u32 b_off, u32 w);
+extern u32 bv_blast_or(BVHdr *h, u32 a_off, u32 b_off, u32 w);
+extern u32 bv_blast_xor(BVHdr *h, u32 a_off, u32 b_off, u32 w);
+extern u32 bv_blast_add(BVHdr *h, u32 a_off, u32 b_off, u32 w);
+extern u32 bv_blast_eq(BVHdr *h, u32 a_off, u32 b_off, u32 w);
+extern u32 bv_blast_ult(BVHdr *h, u32 a_off, u32 b_off, u32 w);
+extern u32 bv_blast_get_lsb_d(BVHdr *h, u32 a_off, u32 aw, u32 idx);
+extern u32 bv_blast_replicate(BVHdr *h, u32 a_off, u32 aw, u32 n);
+extern u32 bv_blast_rotl(BVHdr *h, u32 a_off, u32 w, u32 n);
+extern u32 bv_blast_rotr(BVHdr *h, u32 a_off, u32 w, u32 n);
+extern u32 bv_blast_ashrc(BVHdr *h, u32 a_off, u32 w, u32 n);
+extern u32 bv_blast_reverse(BVHdr *h, u32 a_off, u32 w);
+extern u32 bv_blast_shl(BVHdr *h, u32 a_off, u32 w, u32 b_off, u32 nw);
+extern u32 bv_blast_ushr(BVHdr *h, u32 a_off, u32 w, u32 b_off, u32 nw);
+extern u32 bv_blast_ashr(BVHdr *h, u32 a_off, u32 w, u32 b_off, u32 nw);
+extern u32 bv_blast_mul(BVHdr *h, u32 a_off, u32 b_off, u32 w);
+extern u32 bv_blast_clz(BVHdr *h, u32 a_off, u32 w);
+extern u32 bv_blast_udiv(BVHdr *h, u32 n_off, u32 d_off, u32 w);
+extern u32 bv_blast_umod(BVHdr *h, u32 n_off, u32 d_off, u32 w);
+extern u32 bv_blast_cpop(BVHdr *h, u32 a_off, u32 w);
 extern u64 kissat_solve_bytes(u64 cnf_ptr, u64 cnf_len,
                               u64 work_ptr, u64 work_cap, u64 fuel);
 
@@ -90,57 +113,176 @@ bool bv_eval_ops_core(BVHdr *h, u32 node_idx) {
     slice_off[node_idx] = off;
     return true;
   }
-  if (op == BV_OP_NOT) {
-    u32 off = bv_lits_alloc(h, w);
+  if (op == BV_OP_EXTRACT) {
+    u32 bw = bv_read_u32(h->prog_ptr, nodes_w + (u64)b * 5ULL + 1ULL);
+    u32 res = bv_blast_extract(h, slice_off[b], bw, a, w);
     if (h->oom != 0u) { return false; }
-    u32 *lits = (u32 *)h->lits_ptr;
-    u32 a_off = slice_off[a];
-    u32 j = 0u;
-    while (j < w) {
-      lits[off + j] = bv_aig_not(lits[a_off + j]);
-      j = j + 1u;
-    }
-    slice_off[node_idx] = off;
+    slice_off[node_idx] = res;
     return true;
   }
-  if (op == BV_OP_GETLSBD) {
-    u32 ew = bv_read_u32(h->prog_ptr, nodes_w + (u64)a * 5ULL + 1ULL);
-    u32 res = 0u;
-    if (b < ew) {
-      u32 a_off = slice_off[a];
-      res = ((u32 *)h->lits_ptr)[a_off + b];
-    }
+  if (op == BV_OP_AND) {
+    u32 res = bv_blast_and(h, slice_off[a], slice_off[b], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_OR) {
+    u32 res = bv_blast_or(h, slice_off[a], slice_off[b], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_XOR) {
+    u32 res = bv_blast_xor(h, slice_off[a], slice_off[b], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_ADD) {
+    u32 res = bv_blast_add(h, slice_off[a], slice_off[b], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_NOT) {
+    u32 res = bv_blast_not(h, slice_off[a], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_APPEND) {
+    u32 lw = bv_read_u32(h->prog_ptr, nodes_w + (u64)a * 5ULL + 1ULL);
+    u32 rw = bv_read_u32(h->prog_ptr, nodes_w + (u64)b * 5ULL + 1ULL);
+    u32 res = bv_blast_append(h, slice_off[a], lw, slice_off[b], rw);
+    if (h->oom != 0u) { return false; }
     slice_off[node_idx] = res;
     return true;
   }
   if (op == BV_OP_EQ) {
     u32 ew = bv_read_u32(h->prog_ptr, nodes_w + (u64)a * 5ULL + 1ULL);
-    u32 *lits = (u32 *)h->lits_ptr;
-    u32 a_off = slice_off[a];
-    u32 b_off = slice_off[b];
-    u32 acc = 1u;
-    u32 j = 0u;
-    while (j < ew) {
-      u32 eqj = bv_aig_beq(h, lits[a_off + j], lits[b_off + j]);
-      acc = bv_mk_and(h, acc, eqj);
-      if (h->oom != 0u) { return false; }
-      j = j + 1u;
-    }
-    slice_off[node_idx] = acc;
+    u32 res = bv_blast_eq(h, slice_off[a], slice_off[b], ew);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_ULT) {
+    u32 ew = bv_read_u32(h->prog_ptr, nodes_w + (u64)a * 5ULL + 1ULL);
+    u32 res = bv_blast_ult(h, slice_off[a], slice_off[b], ew);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_GETLSBD) {
+    u32 ew = bv_read_u32(h->prog_ptr, nodes_w + (u64)a * 5ULL + 1ULL);
+    u32 res = bv_blast_get_lsb_d(h, slice_off[a], ew, b);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
     return true;
   }
   return false;
 }
 
 bool bv_eval_ops_shift_mul(BVHdr *h, u32 node_idx) {
-  (void)h;
-  (void)node_idx;
+  u64 nodes_w = BV_NODES_OFF(h->n_vars, h->n_cwords);
+  u64 base = nodes_w + (u64)node_idx * 5ULL;
+  u32 op = bv_read_u32(h->prog_ptr, base);
+  u32 w = bv_read_u32(h->prog_ptr, base + 1ULL);
+  u32 a = bv_read_u32(h->prog_ptr, base + 2ULL);
+  u32 b = bv_read_u32(h->prog_ptr, base + 3ULL);
+  u32 *slice_off = (u32 *)h->slice_off_ptr;
+  if (op == BV_OP_ROTL) {
+    u32 res = bv_blast_rotl(h, slice_off[a], w, b);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_ROTR) {
+    u32 res = bv_blast_rotr(h, slice_off[a], w, b);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_ASHRC) {
+    u32 res = bv_blast_ashrc(h, slice_off[a], w, b);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_REVERSE) {
+    u32 res = bv_blast_reverse(h, slice_off[a], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_CLZ) {
+    u32 res = bv_blast_clz(h, slice_off[a], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_REPLICATE) {
+    u32 aw = bv_read_u32(h->prog_ptr, nodes_w + (u64)a * 5ULL + 1ULL);
+    u32 res = bv_blast_replicate(h, slice_off[a], aw, b);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_SHL) {
+    u32 nw = bv_read_u32(h->prog_ptr, nodes_w + (u64)b * 5ULL + 1ULL);
+    u32 res = bv_blast_shl(h, slice_off[a], w, slice_off[b], nw);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_USHR) {
+    u32 nw = bv_read_u32(h->prog_ptr, nodes_w + (u64)b * 5ULL + 1ULL);
+    u32 res = bv_blast_ushr(h, slice_off[a], w, slice_off[b], nw);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_ASHR) {
+    u32 nw = bv_read_u32(h->prog_ptr, nodes_w + (u64)b * 5ULL + 1ULL);
+    u32 res = bv_blast_ashr(h, slice_off[a], w, slice_off[b], nw);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_MUL) {
+    u32 res = bv_blast_mul(h, slice_off[a], slice_off[b], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
   return false;
 }
 
 bool bv_eval_ops_div_cpop(BVHdr *h, u32 node_idx) {
-  (void)h;
-  (void)node_idx;
+  u64 nodes_w = BV_NODES_OFF(h->n_vars, h->n_cwords);
+  u64 base = nodes_w + (u64)node_idx * 5ULL;
+  u32 op = bv_read_u32(h->prog_ptr, base);
+  u32 w = bv_read_u32(h->prog_ptr, base + 1ULL);
+  u32 a = bv_read_u32(h->prog_ptr, base + 2ULL);
+  u32 b = bv_read_u32(h->prog_ptr, base + 3ULL);
+  u32 *slice_off = (u32 *)h->slice_off_ptr;
+  if (op == BV_OP_UDIV) {
+    u32 res = bv_blast_udiv(h, slice_off[a], slice_off[b], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_UMOD) {
+    u32 res = bv_blast_umod(h, slice_off[a], slice_off[b], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
+  if (op == BV_OP_CPOP) {
+    u32 res = bv_blast_cpop(h, slice_off[a], w);
+    if (h->oom != 0u) { return false; }
+    slice_off[node_idx] = res;
+    return true;
+  }
   return false;
 }
 

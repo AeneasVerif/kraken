@@ -11,8 +11,11 @@ public import LeanQbe.T.Examples.Bitblast.Proof.Driver
 public import LeanQbe.T.Examples.Bitblast.Proof.Driver0
 public import LeanQbe.T.Examples.Bitblast.Proof.Driver0Helpers
 public import LeanQbe.T.Examples.Bitblast.Proof.Driver1
+public import LeanQbe.T.Examples.Bitblast.Proof.DriverDivCpop
 public import LeanQbe.T.Examples.Bitblast.Proof.DriverHelpers
 public import LeanQbe.T.Examples.Bitblast.Proof.DriverInit
+public import LeanQbe.T.Examples.Bitblast.Proof.DriverParsed
+public import LeanQbe.T.Examples.Bitblast.Proof.DriverShiftMul
 public import LeanQbe.T.Examples.Bitblast.Proof.Full
 public import LeanQbe.T.Examples.Bitblast.Proof.OpsCore
 public import LeanQbe.T.Examples.Bitblast.Proof.OpsCore0

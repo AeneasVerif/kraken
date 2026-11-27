@@ -319,6 +319,8 @@ def bvBlastAddSpec : Spec [i64, i32, i32, i32] [i32] :=
         (∀ i < hdr.lits_len.toNat, litsPool'.getD i 0#32 = litsPool.getD i 0#32) →
         hdr.lits_len.toNat ≤ hdr'.lits_len.toNat →
         hdr'.lits_len.toNat ≤ hdr.lits_len.toNat + w.toNat →
+        (hdr.lits_len.toNat ≤ hdr.lits_cap.toNat →
+          hdr'.lits_len.toNat ≤ hdr'.lits_cap.toNat) →
         (hdr.oom ≠ 0#32 → hdr'.oom ≠ 0#32) →
         (hdr.oom = 0#32 → sliceBoundsOk hdr a_off w = true → sliceBoundsOk hdr b_off w = true →
           w.toNat ≤ hdr.lits_cap.toNat - hdr.lits_len.toNat →

@@ -17,9 +17,9 @@ meta import LeanQbe.T.Examples.Bitblast.Build.Flat
 meta import LeanQbeTest.T.BitblastCertArm64S0
 
 /-!
-# Bitblast AAPCS64 Arm64 Certificate Slice 1/2 (`[15, 30)`)
+# Bitblast AAPCS64 Arm64 Certificate Slice 1/6 (`[11, 22)`)
 
-Kernel-checked native `(flat := true)` certificate (`bitblastCertArm64S1`) for functions `[15, 30)`
+Kernel-checked native `(flat := true)` certificate (`bitblastCertArm64S1`) for functions `[11, 22)`
 of `bitblastFlatMod` on `armTarget` against `bitblastCertArm64S0.exportedExt`.
 -/
 
@@ -32,13 +32,13 @@ namespace LeanQbeTest.T.BitblastCertArm64S1
 open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Examples.Bitblast.Build
 open LeanQbeTest.T.BitblastCertArm64S0
 
-/-- Slice 1 sub-module (`[15, 30)`, `15` functions). -/
+/-- Slice 1 sub-module (`[11, 22)`, `11` functions). -/
 @[expose] noncomputable def bitblastSlice1ModArm64 : Module :=
-  { fns := bitblastFlatMod.fns.drop 15 }
+  { fns := (bitblastFlatMod.fns.drop 11).take 11 }
 
 compile_linked_chunks! bitblastCertArm64S1
   armTarget armLayout armLegalTarget armLabelClean
-  bitblastSlice1ModArm64 4 (ext := bitblastCertArm64S0.exportedExt) (maxDirs := 1200)
-  (flat := true)
+  bitblastSlice1ModArm64 4 (ext := bitblastCertArm64S0.exportedExt) (maxDirs := 2500)
+  (compileExt := true) (flat := true)
 
 end LeanQbeTest.T.BitblastCertArm64S1
