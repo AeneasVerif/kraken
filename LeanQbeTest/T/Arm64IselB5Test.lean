@@ -54,6 +54,14 @@ meta def chk (fs : List Fn) (exs : List (SigEntry × Nat) := []) : Bool :=
 meta def codeOf (fs : List Fn) (exs : List (SigEntry × Nat) := []) : List Directive :=
   RegaTestKit.codeOf armTarget armLegalTarget fs exs
 
+meta def isLdrsbDir : Directive → Bool
+  | .instr { operation := .LDRSB .., .. } => true
+  | _ => false
+
+meta def isLdrshDir : Directive → Bool
+  | .instr { operation := .LDRSH .., .. } => true
+  | _ => false
+
 /-! ## 1. Constant materialization, `ADD`/`SUB` flip, and `CMN` -/
 
 theorem armGpr_zeroExtLoad_rfl : armGpr.zeroExtLoad = true := rfl
@@ -125,7 +133,7 @@ theorem armMovImm_u32max_rfl :
 
 /-! ## 3. End-to-end verified lowering regressions -/
 
-/-- `full_prop_lit_raw`-style byte load and signed compare `< 1` (`0` dual exts/movz). -/
+/-- `full_prop_lit_raw`-style byte load + signed `< 1` fuses via `cmpMem` (`ldrsb`, `0` exts). -/
 meta def byteCmpSltFn : Fn :=
   ⟨"byteCmpSlt", [i64, i64, i64], [i64], fun _ _ (p, a, b, ()) =>
     .load i8 (.var p) fun v =>
@@ -141,7 +149,7 @@ meta def lratByteWsFn : Fn :=
     .let_ (op2 (.cmp .ult i64) (.var t) (.imm 5)) fun (c, ()) =>
     .jnz (.var c) (.ret (.var a, ())) (.ret (.var b, ()))⟩
 
-/-- Byte load + `cmp .eq i8 32` uses 1 ext + `subs #32` without `movz`. -/
+/-- Byte load + `cmp .eq i8 32` widens `.gprZ` to `.W32` (`subs #32`, `0` `ubfm`/`movz`). -/
 meta def byteCmpEqFn : Fn :=
   ⟨"byteCmpEq", [i64, i64, i64], [i64], fun _ _ (p, a, b, ()) =>
     .load i8 (.var p) fun v =>
@@ -160,7 +168,7 @@ meta def zextLoad16Fn : Fn :=
     .load i16 (.var p) fun v =>
     .let_ (op1 (.zext 16 64) (.var v)) fun (y, ()) => .ret (.var y, ())⟩
 
-/-- Signed negative `i16` comparison (`< -5`) uses `sbfm #0,#15` + `adds wzr, w16, #5`. -/
+/-- Signed negative `i16` compare (`< -5`) fuses via `cmpMem` (`ldrsh` + `adds #5`, `0` exts). -/
 meta def cmpNegImm16Fn : Fn :=
   ⟨"cmpNegImm16", [i64, i64, i64], [i64], fun _ _ (p, a, b, ()) =>
     .load i16 (.var p) fun v =>
@@ -184,14 +192,16 @@ meta def storeConstsFn : Fn :=
 
 #guard chk [byteCmpSltFn]
 #guard countDirs isMovzDir (codeOf [byteCmpSltFn]) == 0
-#guard countDirs isExt32Dir (codeOf [byteCmpSltFn]) == 1
+#guard countDirs isExt32Dir (codeOf [byteCmpSltFn]) == 0
+#guard countDirs isLdrsbDir (codeOf [byteCmpSltFn]) == 1
 
 #guard chk [lratByteWsFn]
 #guard countDirs isUbfmZext8Dir (codeOf [lratByteWsFn]) == 0
 #guard countDirs isMovzDir (codeOf [lratByteWsFn]) == 0
 
 #guard chk [byteCmpEqFn]
-#guard countDirs isUbfmZext8Dir (codeOf [byteCmpEqFn]) == 1
+#guard countDirs isUbfmZext8Dir (codeOf [byteCmpEqFn]) == 0
+#guard countDirs isSubsImmDir (codeOf [byteCmpEqFn]) == 1
 #guard countDirs isMovzDir (codeOf [byteCmpEqFn]) == 0
 
 #guard chk [zextLoad8Fn]
@@ -201,7 +211,8 @@ meta def storeConstsFn : Fn :=
 #guard countDirs isUbfmZext16Dir (codeOf [zextLoad16Fn]) == 0
 
 #guard chk [cmpNegImm16Fn]
-#guard countDirs isExt32Dir (codeOf [cmpNegImm16Fn]) == 1
+#guard countDirs isExt32Dir (codeOf [cmpNegImm16Fn]) == 0
+#guard countDirs isLdrshDir (codeOf [cmpNegImm16Fn]) == 1
 #guard countDirs isAddsImmDir (codeOf [cmpNegImm16Fn]) == 1
 
 #guard chk [negSub0Fn]

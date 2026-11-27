@@ -75,11 +75,11 @@ def bvaHop1Diamond : Func [i32, i32, i32] [i32] := fun _ _ (ol, sl, dst, ()) =>
         (.jump J (.var sl, ())))
 
 theorem bvaHop1Diamond_out : ifSimpBits bvaHop1Diamond = fun _ _ (ol, sl, dst, ()) =>
-    .let_ (op2 (.cmp .ne i32) (.var ol) (.var sl)) fun (c1, ()) =>
     .let_ (op2 (.lshr i32) (.var ol) (.imm 1)) fun (v, ()) =>
     .let_ (op2 (.cmp .eq i32) (.var v) (.var dst)) fun (c2, ()) =>
     .let_ (op2 (.xor i32) (.var ol) (.imm 1)) fun (flp, ()) =>
     .let_ (op3 (.select i32) (.var c2) (.var flp) (.var ol)) fun (s1, ()) =>
+    .let_ (op2 (.cmp .ne i32) (.var ol) (.var sl)) fun (c1, ()) =>
     .let_ (op3 (.select i32) (.var c1) (.var s1) (.var sl)) fun (s2, ()) =>
     .ret (.var s2, ()) := by
   t_kernel_rfl
@@ -127,10 +127,10 @@ def propLitRawClampDiamond : Func [i32, i32] [i32] := fun _ _ (fl, unass, ()) =>
 
 theorem propLitRawClamp_out : ifSimpBits propLitRawClampDiamond = fun _ _ (fl, unass, ()) =>
     .let_ (op2 (.and i32) (.var fl) (.imm 1)) fun (b, ()) =>
-    .let_ (op2 (.cmp .ne i32) (.var b) (.imm 0)) fun (c1, ()) =>
     .let_ (op2 (.cmp .ugt i32) (.var unass) (.imm 0)) fun (c2, ()) =>
     .let_ (op2 (.sub i32) (.var unass) (.imm 1)) fun (dec, ()) =>
     .let_ (op3 (.select i32) (.var c2) (.var dec) (.imm 0)) fun (s1, ()) =>
+    .let_ (op2 (.cmp .ne i32) (.var b) (.imm 0)) fun (c1, ()) =>
     .let_ (op3 (.select i32) (.var c1) (.var s1) (.var unass)) fun (s2, ()) =>
     .ret (.var s2, ()) := by
   t_kernel_rfl

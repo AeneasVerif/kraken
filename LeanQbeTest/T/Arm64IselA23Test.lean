@@ -54,6 +54,10 @@ meta def chk (fs : List Fn) (exs : List (SigEntry × Nat) := []) : Bool :=
 meta def codeOf (fs : List Fn) (exs : List (SigEntry × Nat) := []) : List Directive :=
   RegaTestKit.codeOf armTarget armLegalTarget fs exs
 
+meta def isAddLslDir : Directive → Bool
+  | .instr { operation := .ADD_s _ _ sr, .. } => sr.amount != 0
+  | _ => false
+
 /-! ## 1. Test-fusion & `baseIdxDisp` Isa & Isel unit checks -/
 
 theorem armIsa_a2_a3_rfl :
@@ -152,7 +156,7 @@ meta def extCmpSext8Fn : Fn :=
         .let_ (op2 (.cmp .slt i64) (.var sx) (.imm (-1))) fun (c, ()) =>
         .jnz (.var c) (.jump j1 ()) (.jump j0 ())⟩
 
-/-- `wdata[i + 1]` load & store (`base + (i << 2) + 4`) fuse into `ADD_s x16` + `[x16, #4]`. -/
+/-- Shared `base + (i << 2)` load & store at `+4`/`+8` share 1 `ADD_s` via `addrCse`. -/
 meta def baseIdxDisp4Fn : Fn :=
   ⟨"baseIdxDisp4", [i64, i64], [i32], fun _ _ (base, idx, ()) =>
     .let_ (op2 (.shl i64) (.var idx) (.imm 2)) fun (off, ()) =>
@@ -163,6 +167,15 @@ meta def baseIdxDisp4Fn : Fn :=
     .let_ (op2 (.add i64) (.var base) (.var off2)) fun (q0, ()) =>
     .let_ (op2 (.add i64) (.var q0) (.imm 8)) fun (q1, ()) =>
     .store (t := i32) (.var v) (.var q1) <|
+    .ret (.var v, ())⟩
+
+/-- Single access `wdata[i + 1]` (`base + (i << 2) + 4`) emits `ADD_s x16` + `[x16, #4]`. -/
+meta def baseIdxDispSingleFn : Fn :=
+  ⟨"baseIdxDispSingle", [i64, i64], [i32], fun _ _ (base, idx, ()) =>
+    .let_ (op2 (.shl i64) (.var idx) (.imm 2)) fun (off, ()) =>
+    .let_ (op2 (.add i64) (.var base) (.var off)) fun (p0, ()) =>
+    .let_ (op2 (.add i64) (.var p0) (.imm 4)) fun (p1, ()) =>
+    .load i32 (.var p1) fun v =>
     .ret (.var v, ())⟩
 
 /-- Negative offset `arr[i - 1]` uses `SUB_e x16, base, #4` + `[x16, i, lsl #2]`. -/
@@ -214,8 +227,13 @@ meta def bitTestMultiImm32Fn : Fn :=
 #guard countDirs isSubsDir (codeOf [extCmpSext8Fn]) == 0
 
 #guard chk [baseIdxDisp4Fn]
-#guard countDirs isAddScaledDir (codeOf [baseIdxDisp4Fn]) == 2
+#guard countDirs isAddLslDir (codeOf [baseIdxDisp4Fn]) == 1
+#guard countDirs isAddScaledDir (codeOf [baseIdxDisp4Fn]) == 0
 #guard countDirs isLslDir (codeOf [baseIdxDisp4Fn]) == 0
+
+#guard chk [baseIdxDispSingleFn]
+#guard countDirs isAddScaledDir (codeOf [baseIdxDispSingleFn]) == 1
+#guard countDirs isLslDir (codeOf [baseIdxDispSingleFn]) == 0
 
 #guard chk [baseIdxNegDispFn]
 #guard countDirs isSubImmX16Dir (codeOf [baseIdxNegDispFn]) == 1
