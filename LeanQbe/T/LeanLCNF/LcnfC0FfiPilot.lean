@@ -40,7 +40,6 @@ namespace LeanQbe.T.LeanLCNF.LcnfC0FfiPilot
 open LeanQbe.T
 open LeanQbe.T.Frontend.C0
 open LeanQbe.T.LeanLCNF
-open LeanQbe.T.LeanLRC
 
 /-! ## 1. Pure Lean FFI Stubs (`@&` Borrows, Zero `@[extern]`) & Pilot Callers -/
 
@@ -314,7 +313,7 @@ splice_lcnf_tflat_with_exts! pilotTfs pilotLcMod pilotC0Externs
 theorem pilotProgMod_fns_wf : ∀ f ∈ pilotProgMod.fns, f.Wf := by
   intro f hf
   simpa [pilotProgMod, lcnfTModuleWithExts] using
-    LeanLRC.tflatFnsToFns_wf pilotTfs f hf
+    Frontend.C0.tflatFnsToFns_wf pilotTfs f hf
 
 end
 

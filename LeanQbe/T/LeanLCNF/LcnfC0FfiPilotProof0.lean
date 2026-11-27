@@ -30,7 +30,6 @@ namespace LeanQbe.T.LeanLCNF.LcnfC0FfiPilot
 
 open LeanQbe.T
 open LeanQbe.T.LeanLCNF
-open LeanQbe.T.LeanLRC
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Plain

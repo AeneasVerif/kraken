@@ -31,13 +31,13 @@ splice_lcnf_tflat! leanqbe0Tfs leanqbe0LcMod
 
 /-- Kernel `LeanQbe.T.Module` lowered from `leanqbe0Compile`. -/
 def leanqbe0Mod0 : Module :=
-  { fns := LeanLRC.tflatFnsToFns leanqbe0Tfs
+  { fns := Frontend.C0.tflatFnsToFns leanqbe0Tfs
     externs := rtExterns
     exits := rtExitSyms }
 
 /-- Every lowered function in `leanqbe0Mod0` satisfies `Func.Wf` via `tflatFnsToFns_wf`. -/
 theorem leanqbe0Mod0_wf : ∀ f ∈ leanqbe0Mod0.fns, f.Wf :=
-  LeanLRC.tflatFnsToFns_wf leanqbe0Tfs
+  Frontend.C0.tflatFnsToFns_wf leanqbe0Tfs
 
 /-- Call graph of `leanqbe0Mod0` is strictly acyclic (`checkAcyclic = true`). -/
 theorem leanqbe0Mod0_acyclic : leanqbe0Mod0.checkAcyclic = true := by

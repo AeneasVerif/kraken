@@ -12,6 +12,8 @@ meta import LeanQbe.T.LeanLCNF.Lower1
 meta import LeanQbe.T.LeanLCNF.Demo
 meta import LeanQbe.T.LeanLCNF.Coverage
 meta import LeanQbe.T.Driver
+meta import LeanQbe.T.PrintCpp
+meta import LeanQbe.T.PrintQbe
 
 /-!
 # Cross-Module `Lean.IR` → `LcModule` Extractor Tests (`LeanQbe.T.LeanLCNF.FromIR`)
@@ -46,10 +48,10 @@ public def irSmallTfs : List TFlatFn :=
   (lowerModule irSmallMod).toOption.getD []
 
 public def irSmallFns : List Fn :=
-  LeanLRC.tflatFnsToFns irSmallTfs
+  Frontend.C0.tflatFnsToFns irSmallTfs
 
 public theorem ir_demo_wf : ∀ f ∈ irSmallFns, f.Wf :=
-  LeanLRC.tflatFnsToFns_wf irSmallTfs
+  Frontend.C0.tflatFnsToFns_wf irSmallTfs
 
 #guard irSmallMod.decls.length ≥ 60
 #guard irSmallMod.snaps.isEmpty

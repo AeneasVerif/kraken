@@ -54,7 +54,7 @@ splice_lcnf_tflat! factLoopTfs factLoopLcMod
 
 /-- Standalone user `Module` containing the two lowered Lean `LCNF` functions. -/
 @[expose] def factLoopProgMod : Module :=
-  { fns := LeanLRC.tflatFnsToFns factLoopTfs, externs := [], exits := rtExitSyms }
+  { fns := Frontend.C0.tflatFnsToFns factLoopTfs, externs := [], exits := rtExitSyms }
 
 /-- Full `88`-function linked `Module`: `rtC0CoreMod` (`86` fns) ++
 `factLoopProgMod` (`2` fns). -/

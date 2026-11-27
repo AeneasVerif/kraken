@@ -61,7 +61,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Amd64
 private def emitOne (tag : String) (m : LcModule) (out : System.FilePath) : IO Unit := do
   let t0 ← IO.monoMsNow
   let tfs ← IO.ofExcept (lowerModule m)
-  let fns := LeanLRC.tflatFnsToFns tfs
+  let fns := Frontend.C0.tflatFnsToFns tfs
   let hints := fns.map (Fn.computeHints x64Target.toIsa x64LegalTarget)
   let dirs ← IO.ofExcept (LeanQbe.T.compile x64Target.toIsa x64LegalTarget fns hints)
   IO.FS.writeFile out (Driver.emitAsm (fun c => toATTAligned c ++ "\n") fns dirs)
@@ -90,7 +90,7 @@ open LeanQbe.T LeanQbe.T.LeanLCNF LeanQbe.T.Arm64
 private def emitOne (tag : String) (m : LcModule) (out : System.FilePath) : IO Unit := do
   let t0 ← IO.monoMsNow
   let tfs ← IO.ofExcept (lowerModule m)
-  let fns := LeanLRC.tflatFnsToFns tfs
+  let fns := Frontend.C0.tflatFnsToFns tfs
   let hints := fns.map (Fn.computeHints armTarget.toIsa armLegalTarget)
   let dirs ← IO.ofExcept (LeanQbe.T.compile armTarget.toIsa armLegalTarget fns hints)
   let pp := fun c =>

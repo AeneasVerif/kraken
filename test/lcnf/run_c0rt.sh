@@ -74,11 +74,11 @@ def main (args : List String) : IO Unit := do
   | rtOut :: p5Out :: c0demoOut :: demoOut :: _ =>
     emitFns "rtC0Core" rtC0CoreMod.fns rtOut
     let covTfs ← IO.ofExcept (lowerModule covNoFloatMod)
-    emitFns "cov_nofloat" (LeanLRC.tflatFnsToFns covTfs) p5Out
+    emitFns "cov_nofloat" (Frontend.C0.tflatFnsToFns covTfs) p5Out
     emitFns "c0demo" demoNatStrProgMod.fns c0demoOut
     if demoOut != "-" then
       let demoTfs ← IO.ofExcept (lowerModule Demo.lcnfProgram)
-      emitFns "demo" (LeanLRC.tflatFnsToFns demoTfs) demoOut
+      emitFns "demo" (Frontend.C0.tflatFnsToFns demoTfs) demoOut
   | _ => throw (IO.userError "usage: emit_c0rt_x64 <rt.s> <p5_nf.s> <c0demo.s> <demo.s|->")
 EOF
 
@@ -118,11 +118,11 @@ def main (args : List String) : IO Unit := do
   | rtOut :: p5Out :: c0demoOut :: demoOut :: _ =>
     emitFns "rtC0Core" rtC0CoreMod.fns rtOut
     let covTfs ← IO.ofExcept (lowerModule covNoFloatMod)
-    emitFns "cov_nofloat" (LeanLRC.tflatFnsToFns covTfs) p5Out
+    emitFns "cov_nofloat" (Frontend.C0.tflatFnsToFns covTfs) p5Out
     emitFns "c0demo" demoNatStrProgMod.fns c0demoOut
     if demoOut != "-" then
       let demoTfs ← IO.ofExcept (lowerModule Demo.lcnfProgram)
-      emitFns "demo" (LeanLRC.tflatFnsToFns demoTfs) demoOut
+      emitFns "demo" (Frontend.C0.tflatFnsToFns demoTfs) demoOut
   | _ => throw (IO.userError "usage: emit_c0rt_arm64 <rt.s> <p5_nf.s> <c0demo.s> <demo.s|->")
 EOF
 

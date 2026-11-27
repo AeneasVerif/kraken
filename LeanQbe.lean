@@ -6,7 +6,6 @@ public import LeanQbe.T.Unified.Hub
 public import LeanQbe.T.Wasm.Hub
 public import LeanQbe.T.Frontend.C0.Hub
 public import LeanQbe.T.LeanLCNF.Hub
-public import LeanQbe.T.LeanLRC.Hub
 public import LeanQbe.T.Examples.Hub
 public import LeanQbe.T.Examples.Kissat.BaseHub
 public import LeanQbe.T.Examples.Kissat.M3Hub

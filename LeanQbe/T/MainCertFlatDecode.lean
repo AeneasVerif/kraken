@@ -305,7 +305,7 @@ private def decodeTFlatFnFields (nmE asE rsE bodyE : Lean.Expr) : Option TFlatFn
 private def c0TFlatFnMkName : Name := `LeanQbe.T.Frontend.C0.TFlatFn.mk
 private def c0TFlatFnToFnName : Name := `LeanQbe.T.Frontend.C0.TFlatFn.toFn
 private def c0TFlatFnToCoreName : Name := `LeanQbe.T.Frontend.C0.TFlatFn.toCoreFlat
-private def lrcTFlatFnsToFnsName : Name := `LeanQbe.T.LeanLRC.tflatFnsToFns
+private def c0TFlatFnsToFnsName : Name := `LeanQbe.T.Frontend.C0.tflatFnsToFns
 private def lcnfProgModName : Name := `LeanQbe.T.LeanLCNF.lcnfProgMod
 private def budgetModuleNm : Name := `LeanQbe.T.BudgetModule
 private def budgetModuleMkName : Name := `LeanQbe.T.BudgetModule.mk
@@ -338,7 +338,7 @@ private partial def resolveModFnsField (mkNm : Name) (allowLcnf : Bool)
     let m := modE.consumeMData
     if m.isAppOfArity mkNm 3 then return m.getArg! 0
     else if allowLcnf && m.isAppOfArity lcnfProgModName 1 then
-      return mkApp (Lean.mkConst lrcTFlatFnsToFnsName) (m.getArg! 0)
+      return mkApp (Lean.mkConst c0TFlatFnsToFnsName) (m.getArg! 0)
     else if let .const nm [] := m then
       resolveModFnsField mkNm allowLcnf (← findConstVal? nm) fuel'
     else if let .const nm [] := m.getAppFn.consumeMData then
@@ -384,7 +384,7 @@ private partial def resolveListExpr (wrapFn? : Option Name) (e0 : Lean.Expr) :
       let k ← decodeNatM (cur.getArg! 1)
       let xs ← resolveListExpr wrapFn? (cur.getArg! 2)
       pure (xs.extract 0 (min k xs.size))
-    else if wrapFn?.isNone && cur.isAppOfArity lrcTFlatFnsToFnsName 1 then
+    else if wrapFn?.isNone && cur.isAppOfArity c0TFlatFnsToFnsName 1 then
       resolveListExpr (some c0TFlatFnToFnName) (cur.getArg! 0)
     else if cur.isAppOfArity ``List.map 4 then
       let fnArg := (cur.getArg! 2).consumeMData

@@ -13,20 +13,19 @@
 #   test/t_bignum/run.sh     typed-IR bignum x64 + AArch64 native differential tests
 #   test/t_chacha/run.sh     typed-IR ChaCha20 x64 + AArch64 RFC 8439 & differential tests
 #   test/t_qbe/run.sh        typed-IR PrintQbe stock QBE (x64 + arm64) round-trip tests
-#   test/lrc/run.sh          Lean λRC / Lean.IR -> LeanQbe.T C++/x64/arm64/QBE differential tests
 #   test/kissat/run.sh       Kissat C0 SAT solver differential & native tests
 #   test/lcnf/run.sh         LeanLCNF impure LCNF -> LeanQbe.T C++/x64/arm64 differential & bench tests
 #
-# Runs scripts/check.sh first, then runs the remaining thirteen scripts (sequentially when
+# Runs scripts/check.sh first, then runs the remaining twelve scripts (sequentially when
 # ALL_JOBS=1, or up to ALL_JOBS in parallel when ALL_JOBS > 1, each with isolated OUT and
 # shared read-only QBE). Prints one line per script (`PASS` or `FAIL`) and exits 0 iff all
-# fourteen passed.
+# thirteen passed.
 #
-# There is no timeout here: the fourteen scripts run their commands under `timeout`. For one bound on
+# There is no timeout here: the thirteen scripts run their commands under `timeout`. For one bound on
 # the whole run, put all.sh under an outer `timeout`, as with the scripts themselves.
 #
 # Environment knobs:
-#   ALL_JOBS=1|4|...   Parallel jobs for the 13 post-check test suites (default: 1).
+#   ALL_JOBS=1|4|...   Parallel jobs for the 12 post-check test suites (default: 1).
 #   SKIP_CHECK=1       Skip running scripts/check.sh first (e.g. if caller just ran it).
 #   SKIP_BUILD=1       Forwarded to test scripts (set automatically when check.sh succeeds).
 #   QBE, QBE_SRC, CC_AARCH64, BUILD_TIMEOUT, ...
@@ -54,7 +53,6 @@ TEST_SCRIPTS=(
   test/t_bignum/run.sh
   test/t_chacha/run.sh
   test/t_qbe/run.sh
-  test/lrc/run.sh
   test/kissat/run.sh
   test/lcnf/run.sh
 )

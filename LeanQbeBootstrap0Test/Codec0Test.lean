@@ -146,13 +146,13 @@ private def badModBuffers : List (List UInt8) :=
 
 splice_lcnf_tflat! codec0DecodeTfs codec0DecodeLcMod
 def codec0DecodeMod : Module :=
-  { fns := LeanLRC.tflatFnsToFns codec0DecodeTfs, externs := rtExterns, exits := rtExitSyms }
+  { fns := Frontend.C0.tflatFnsToFns codec0DecodeTfs, externs := rtExterns, exits := rtExitSyms }
 eval_dir_stats! codec0DecodeDirStats x64Target x64LegalTarget codec0DecodeMod
   rtExtBounds0 rtExitSyms
 
 splice_lcnf_tflat! codec0Tfs codec0LcMod
 def codec0Mod : Module :=
-  { fns := LeanLRC.tflatFnsToFns codec0Tfs, externs := rtExterns, exits := rtExitSyms }
+  { fns := Frontend.C0.tflatFnsToFns codec0Tfs, externs := rtExterns, exits := rtExitSyms }
 eval_dir_stats! codec0DirStats x64Target x64LegalTarget codec0Mod
   rtExtBounds0 rtExitSyms
 

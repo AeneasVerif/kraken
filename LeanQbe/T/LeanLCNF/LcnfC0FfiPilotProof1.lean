@@ -23,7 +23,6 @@ namespace LeanQbe.T.LeanLCNF.LcnfC0FfiPilot
 
 open LeanQbe.T
 open LeanQbe.T.LeanLCNF
-open LeanQbe.T.LeanLRC
 open LeanQbe.T.Examples.Kissat.Plain
 open scoped LeanQbe.T.ProofUtil
 

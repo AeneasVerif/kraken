@@ -26,7 +26,6 @@ open Std Std.Sat Std.ExtHashMap
 open LeanQbe.T
 open LeanQbe.T.C0Step
 open LeanQbe.T.LeanLCNF
-open LeanQbe.T.LeanLRC
 open LeanQbe.T.Examples.LratBytes
 open LeanQbe.T.Examples.Kissat
 open LeanQbe.T.Examples.Kissat.Plain

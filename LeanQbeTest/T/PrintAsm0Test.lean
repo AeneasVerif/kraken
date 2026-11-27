@@ -4,8 +4,8 @@ public import LeanQbe.T.Amd64.PrintAsm0
 public import LeanQbe.T.Amd64.PrintAsm0Lemmas
 public import LeanQbe.T.Amd64.Isa
 public import LeanQbe.T.Frontend.C0.Elab
+public import LeanQbe.T.Frontend.C0.ToFlat
 public import LeanQbe.T.LeanLCNF.Lower1
-public import LeanQbe.T.LeanLRC.ToT
 public import LeanQbe.T.Main
 public import LeanQbe.T.Spill
 public import Kraken.X64.PrintATT
@@ -14,8 +14,8 @@ meta import LeanQbe.T.Amd64.PrintAsm0
 meta import LeanQbe.T.Amd64.PrintAsm0Lemmas
 meta import LeanQbe.T.Amd64.Isa
 meta import LeanQbe.T.Frontend.C0.Elab
+meta import LeanQbe.T.Frontend.C0.ToFlat
 meta import LeanQbe.T.LeanLCNF.Lower1
-meta import LeanQbe.T.LeanLRC.ToT
 meta import LeanQbe.T.Main
 meta import LeanQbe.T.Spill
 meta import Kraken.X64.PrintATT
@@ -301,7 +301,7 @@ private def printAsm0Lowered : Except String (List Frontend.C0.TFlatFn) :=
 
 private def printAsm0MaxCompiledDirs : Except String Nat := do
   let tfs ← printAsm0Lowered
-  let fns := LeanLRC.tflatFnsToFns tfs
+  let fns := Frontend.C0.tflatFnsToFns tfs
   let mut maxD := 0
   for f in fns do
     let h := Spill.hints x64Isa (f.mid x64LegalTarget)
@@ -315,7 +315,7 @@ private def printAsm0MaxCompiledDirs : Except String Nat := do
 #guard printAsm0LcMod.decls.length <= 80
 #guard match printAsm0Lowered with
   | .ok tfs =>
-    let fns := LeanLRC.tflatFnsToFns tfs
+    let fns := Frontend.C0.tflatFnsToFns tfs
     let mod : Module := { fns, externs := rtExterns, exits := rtExitSyms }
     fns.length <= 80 && fns.all (fun f => Func.checkTFlat f.body) && mod.checkAcyclic
   | .error _ => false

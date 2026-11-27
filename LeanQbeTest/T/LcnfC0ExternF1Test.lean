@@ -11,6 +11,8 @@ public meta import LeanQbe.T.Amd64.Targ
 public meta import LeanQbe.T.LeanLCNF.Lower
 public meta import LeanQbe.T.LeanLCNF.C0Extern
 public meta import LeanQbe.T.Bootstrap0.Splice0
+public meta import LeanQbe.T.PrintCpp
+public meta import LeanQbe.T.PrintQbe
 
 /-!
 # Shard `F1` Verification Tests (`LinkedCert.weakenNoExit` Amd64 & `C0Extern`)
@@ -38,7 +40,6 @@ open LeanQbe.T
 open LeanQbe.T.Amd64
 open LeanQbe.T.LeanLCNF
 open LeanQbe.T.Frontend.C0
-open LeanQbe.T.LeanLRC
 
 #eval show Lean.CoreM Unit from do
   let mods := (← Lean.getEnv).allImportedModuleNames
