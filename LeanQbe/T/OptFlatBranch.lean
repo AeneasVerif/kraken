@@ -911,13 +911,20 @@ def condThreadWithPlanFlat (as : List Ty) {rs : List Ty} (plan : CTPlan)
   else
     tf
 
-/-- Native `TFlat` constant-arg branch threading and bool-param splitting matching
+/-- Single native `TFlat` pass matching `Func.condThreadPassOnce`. -/
+def condThreadPassOnceFlat (as : List Ty) (splitOnly : Bool := false) {rs : List Ty}
+    (tf : TFlat rs) : TFlat rs × Bool :=
+  let (st, _) := collectStats 0 tf
+  let plan := buildCTPlan [] tf st splitOnly
+  if plan.hasChanges then (condThreadWithPlanFlat as plan tf, true)
+  else (tf, false)
+
+/-- Two-iteration native `TFlat` constant-arg branch threading and bool-param splitting matching
 `reifyFunc (Func.condThreadPass ...)`. -/
 def condThreadPassFlat (as : List Ty) {rs : List Ty} (tf : TFlat rs) : TFlat rs :=
-  let (st, _) := collectStats 0 tf
-  let plan := buildCTPlan [] tf st
-  if plan.hasChanges then condThreadWithPlanFlat as plan tf
-  else tf
+  let (tf1, ch1) := condThreadPassOnceFlat as false tf
+  if ch1 then (condThreadPassOnceFlat as true tf1).1
+  else tf1
 
 /-- `TFlatFn` wrapper for `condThreadPassFlat`. -/
 def condThreadPassFlatFn (f : TFlatFn) : TFlatFn :=

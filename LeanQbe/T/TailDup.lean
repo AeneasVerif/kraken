@@ -54,6 +54,15 @@ structure TailDupConfig where
   dropDead : Bool := true
   /-- Maximum tail-duplication iterations (`tailDupOnce`). -/
   maxIters : Nat := 3
+  /-- Allow duplicating tiny `.jnz` loop-latch blocks whose arms both `.jump`
+  (disabled by default: triggers Step-12 `.text`/branch regressions; retained for G4 ablation). -/
+  allowJnzLatch : Bool := false
+  /-- Maximum non-terminator instructions in an eligible `.jnz` latch block. -/
+  maxLatchInstrs : Nat := 3
+  /-- Maximum incoming jump count (`1 .. maxLatchPreds`) for an eligible `.jnz` latch block. -/
+  maxLatchPreds : Nat := 3
+  /-- Require `.jnz` latch candidates to target an enclosing self-loop header block. -/
+  requireLoopHdr : Bool := true
   deriving Repr, DecidableEq
 
 /-- Default tail-duplication configuration (`≤ 2` instrs, `≤ 2` preds, `.jmp`/`.ret`). -/
@@ -204,26 +213,66 @@ def hasAcyclicHigherEligible (cfg : TailDupConfig) (nl lvl : Nat) (totalJumps : 
       else checkIdx (idx + 1) bs
   checkIdx 0 bis
 
+/-- Inspect whether `b` is a straight-line prefix followed by `.jnz _ (.jump _ _) (.jump _ _)`,
+returning `(instrCount, hasMem)`. -/
+def trivJnzInfo? {rs : List Ty} : TFlat rs → Nat → Bool → Option (Nat × Bool)
+  | .let_ _ k, n, m => trivJnzInfo? k (n + 1) m
+  | .load _ _ k, n, _ | .store _ _ k, n, _ => trivJnzInfo? k (n + 1) true
+  | .jnz _ (.jump _ _) (.jump _ _), n, m => some (n, m)
+  | _, _, _ => none
+
+/-- Check whether block `bi` at `lvl` in `[nl, nl + len)` qualifies as a tiny `.jnz`
+loop-latch candidate under `cfg`. -/
+def isJnzLatchCandidate (cfg : TailDupConfig) (nl lvl : Nat) (totalJumps : JumpMap)
+    (loopHdrs : List Nat) (bi : PlanInfo) (cand : Option (Nat × Bool)) : Bool :=
+  if !cfg.allowJnzLatch then false
+  else
+    match cand with
+    | none => false
+    | some (ins, hasM) =>
+      let preds := totalJumps.get lvl
+      let outerSuccs := collectLocal 0 nl bi.jumps
+      let hitsHdr := outerSuccs.any (fun s => loopHdrs.contains s)
+      ins ≤ cfg.maxLatchInstrs && 1 ≤ preds && preds ≤ cfg.maxLatchPreds &&
+        (cfg.allowMem || !hasM) && (!cfg.requireLoopHdr || hitsHdr) && bi.jumps.get lvl == 0
+
+/-- Patch `PlanInfo` for eligible `.jnz` latches so `hasAcyclicHigherEligible` sees them. -/
+def patchLatchInfos (cfg : TailDupConfig) (nl : Nat) (totalJumps : JumpMap)
+    (loopHdrs : List Nat) :
+    Nat → List PlanInfo → List (Option (Nat × Bool)) → List PlanInfo
+  | _, [], _ => []
+  | idx, bi :: rest, lc :: lrest =>
+    let bi' :=
+      if isJnzLatchCandidate cfg nl (nl + idx) totalJumps loopHdrs bi lc &&
+          bi.tailInstrs?.isNone then
+        ⟨bi.jumps, some 0, bi.changed⟩
+      else bi
+    bi' :: patchLatchInfos cfg nl totalJumps loopHdrs (idx + 1) rest lrest
+  | _, bi :: rest, [] => bi :: rest
+
 /-- Select `DupAct` for each block in a `.group`, guaranteeing no `.dup` block targets `.dup` or
-`.drop` in the same `.group`. -/
+`.drop` in the same `.group` (including optional tiny `.jnz` loop-latch candidates). -/
 def chooseActs (cfg : TailDupConfig) (nl len : Nat) (reach : List Nat)
-    (totalJumps : JumpMap) (allBis : List PlanInfo) :
-    Nat → List PlanInfo → List Nat → List Nat → List DupAct
-  | _, [], _, _ => []
-  | idx, bi :: rest, dupSet, dupTargets =>
+    (totalJumps : JumpMap) (loopHdrs : List Nat) (allBis : List PlanInfo) :
+    Nat → List PlanInfo → List (Option (Nat × Bool)) → List Nat → List Nat → List DupAct
+  | _, [], _, _, _ => []
+  | idx, bi :: rest, lcRest, dupSet, dupTargets =>
     let lvl := nl + idx
     if cfg.dropDead && !reach.contains lvl then
-      .drop :: chooseActs cfg nl len reach totalJumps allBis (idx + 1) rest dupSet dupTargets
+      .drop :: chooseActs cfg nl len reach totalJumps loopHdrs allBis (idx + 1) rest
+        (lcRest.drop 1) dupSet dupTargets
     else
       let localSuccs := collectLocal nl len bi.jumps
-      let cand := isDupCandidate cfg lvl totalJumps bi
+      let cand := isDupCandidate cfg lvl totalJumps bi ||
+        isJnzLatchCandidate cfg nl lvl totalJumps loopHdrs bi (lcRest.headD none)
       let conflict := dupTargets.contains lvl || localSuccs.any (fun t => dupSet.contains t)
       let defer := hasAcyclicHigherEligible cfg nl lvl totalJumps reach allBis localSuccs
       if cand && !conflict && !defer then
-        .dup :: chooseActs cfg nl len reach totalJumps allBis (idx + 1) rest
-          (lvl :: dupSet) (localSuccs ++ dupTargets)
+        .dup :: chooseActs cfg nl len reach totalJumps loopHdrs allBis (idx + 1) rest
+          (lcRest.drop 1) (lvl :: dupSet) (localSuccs ++ dupTargets)
       else
-        .keep :: chooseActs cfg nl len reach totalJumps allBis (idx + 1) rest dupSet dupTargets
+        .keep :: chooseActs cfg nl len reach totalJumps loopHdrs allBis (idx + 1) rest
+          (lcRest.drop 1) dupSet dupTargets
 
 /-- Merge outer jumps and `changed` flag across `acts` and `bis`, scaling `.dup` blocks' outer
 jumps by their incoming predecessor count `totalJumps.get (nl + idx)`. -/
@@ -242,8 +291,9 @@ def mergeGroupInfo (nl len : Nat) (totalJumps : JumpMap) :
     mergeGroupInfo nl len totalJumps (idx + 1) acts bis jAcc true
 
 /-- Decide the `.group` plan and post-duplication `PlanInfo`. -/
-def decideGroup (cfg : TailDupConfig) (nl : Nat) (sig : List (List Ty))
-    (pbs : DupPlanB) (bis : List PlanInfo) (pk : DupPlan) (ik : PlanInfo) :
+def decideGroup (cfg : TailDupConfig) (nl : Nat) (loopHdrs : List Nat)
+    (sig : List (List Ty)) (pbs : DupPlanB) (bis : List PlanInfo)
+    (latchCands : List (Option (Nat × Bool))) (pk : DupPlan) (ik : PlanInfo) :
     DupPlan × PlanInfo :=
   let len := sig.length
   if len == 0 then
@@ -254,28 +304,42 @@ def decideGroup (cfg : TailDupConfig) (nl : Nat) (sig : List (List Ty))
     let reach :=
       if cfg.dropDead then reachFixpoint forwardReachStep adj (len + 1) init else []
     let totalJumps := mergeReachJumps nl cfg.dropDead reach 0 bis ik.jumps
-    let acts := chooseActs cfg nl len reach totalJumps bis 0 bis [] []
+    let effBis :=
+      if cfg.allowJnzLatch then patchLatchInfos cfg nl totalJumps loopHdrs 0 bis latchCands
+      else bis
+    let acts := chooseActs cfg nl len reach totalJumps loopHdrs effBis 0 bis latchCands [] []
     let (jumps, changed) :=
       mergeGroupInfo nl len totalJumps 0 acts bis (ik.jumps.eraseRange nl len) ik.changed
     (.group acts pbs pk, ⟨jumps, none, changed⟩)
 
+/-- Extend `loopHdrs` with any self-loop header block `[nl, nl + bis.length)` from `bis`. -/
+def collectSelfLoopHdrs (nl : Nat) (loopHdrs : List Nat) (bis : List PlanInfo) : List Nat :=
+  let rec go (idx : Nat) (acc : List Nat) : List PlanInfo → List Nat
+    | [] => acc
+    | bi :: rest =>
+      let lvl := nl + idx
+      let acc' := if bi.jumps.get lvl > 0 then lvl :: acc else acc
+      go (idx + 1) acc' rest
+  go 0 loopHdrs bis
+
 mutual
-/-- Single-pass bottom-up planner over `TFlat rs` tracking enclosing label depth `nl`. -/
-def buildPlan (cfg : TailDupConfig) {rs : List Ty} (nl : Nat) : TFlat rs → DupPlan × PlanInfo
+/-- Pass-1 planner tracking enclosing self-loop headers `loopHdrs` alongside label depth `nl`. -/
+def buildPlanWithHdrs (cfg : TailDupConfig) {rs : List Ty} (loopHdrs : List Nat) (nl : Nat) :
+    TFlat rs → DupPlan × PlanInfo
   | .let_ _ k =>
-    let (pk, ik) := buildPlan cfg nl k
+    let (pk, ik) := buildPlanWithHdrs cfg loopHdrs nl k
     (.node1 pk, ⟨ik.jumps, ik.tailInstrs?.map (· + 1), ik.changed⟩)
   | .load _ _ k | .store _ _ k =>
-    let (pk, ik) := buildPlan cfg nl k
+    let (pk, ik) := buildPlanWithHdrs cfg loopHdrs nl k
     let ti := if cfg.allowMem then ik.tailInstrs?.map (· + 1) else none
     (.node1 pk, ⟨ik.jumps, ti, ik.changed⟩)
   | .call _ _ _ k =>
-    let (pk, ik) := buildPlan cfg nl k
+    let (pk, ik) := buildPlanWithHdrs cfg loopHdrs nl k
     let ti := if cfg.allowCall then ik.tailInstrs?.map (· + 1) else none
     (.node1 pk, ⟨ik.jumps, ti, ik.changed⟩)
   | .jnz _ t e =>
-    let (pt, it) := buildPlan cfg nl t
-    let (pe, ie) := buildPlan cfg nl e
+    let (pt, it) := buildPlanWithHdrs cfg loopHdrs nl t
+    let (pe, ie) := buildPlanWithHdrs cfg loopHdrs nl e
     (.node2 pt pe, ⟨it.jumps.merge ie.jumps, none, it.changed || ie.changed⟩)
   | .jump j _ =>
     if j < nl then
@@ -288,19 +352,31 @@ def buildPlan (cfg : TailDupConfig) {rs : List Ty} (nl : Nat) : TFlat rs → Dup
     (.leaf, ⟨.empty, if cfg.allowExit then some 0 else none, false⟩)
   | .group (sig := sig) bodies k =>
     let nl' := nl + sig.length
-    let (pbs, bis) := buildPlanB cfg nl' bodies
-    let (pk, ik) := buildPlan cfg nl' k
-    decideGroup cfg nl sig pbs bis pk ik
+    let innerHdrs :=
+      if cfg.allowJnzLatch then
+        let (_, rawBis, _) :=
+          buildPlanWithHdrsB { cfg with allowJnzLatch := false } loopHdrs nl' bodies
+        collectSelfLoopHdrs nl loopHdrs rawBis
+      else loopHdrs
+    let (pbs, bis, latchCands) := buildPlanWithHdrsB cfg innerHdrs nl' bodies
+    let (pk, ik) := buildPlanWithHdrs cfg innerHdrs nl' k
+    decideGroup cfg nl loopHdrs sig pbs bis latchCands pk ik
 
-/-- Block-list companion of `buildPlan`. -/
-def buildPlanB (cfg : TailDupConfig) {rs : List Ty} (nl : Nat) :
-    {sig : List (List Ty)} → TBlocks rs sig → DupPlanB × List PlanInfo
-  | _, .nil => (.nil, [])
+/-- Block-list companion of `buildPlanWithHdrs`. -/
+def buildPlanWithHdrsB (cfg : TailDupConfig) {rs : List Ty} (loopHdrs : List Nat) (nl : Nat) :
+    {sig : List (List Ty)} → TBlocks rs sig → DupPlanB × List PlanInfo × List (Option (Nat × Bool))
+  | _, .nil => (.nil, [], [])
   | _, .cons b bs =>
-    let (pb, ib) := buildPlan cfg nl b
-    let (pbs, bis) := buildPlanB cfg nl bs
-    (.cons pb pbs, ib :: bis)
+    let (pb, ib) := buildPlanWithHdrs cfg loopHdrs nl b
+    let (pbs, bis, lcs) := buildPlanWithHdrsB cfg loopHdrs nl bs
+    let lc := if cfg.allowJnzLatch then trivJnzInfo? b 0 false else none
+    (.cons pb pbs, ib :: bis, lc :: lcs)
 end
+
+/-- Single-pass bottom-up planner over `TFlat rs` tracking enclosing label depth `nl`. -/
+def buildPlan (cfg : TailDupConfig) {rs : List Ty} (nl : Nat) (tf : TFlat rs) :
+    DupPlan × PlanInfo :=
+  buildPlanWithHdrs cfg [] nl tf
 
 /-! ## Phase 2: Verified `O(N)` Plan Validator & Single-Pass PHOAS Rewriter -/
 
