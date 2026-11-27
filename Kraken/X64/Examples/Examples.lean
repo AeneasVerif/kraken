@@ -27,10 +27,10 @@ open Kraken.X64.Parser
 
 --------------------------------------------------------------------------------
 
-def p1 := ⸨prog| start: mov $1, %rax ⸩
+def p1 : Program := ⸨prog| start: mov $1, %rax ⸩
 
 -- Super-simple example to debug tactics
-example (layout : Layout) [layout.WellFormed p1] s :
+example (layout : Layout) [p1.AssemblableWith layout] s :
     Eventually (step1 (layout.apply p1))
       (fun s => s.pc = (layout.apply p1).addrOf p1.length ∧ s.1.regs.rax = 1) ⟨s, layout.start⟩ := by
   kprologue p1 with s
@@ -46,7 +46,7 @@ def swap : Program := ⸨prog|
   xor %rax, %rbx
   xor %rbx, %rax⸩
 
-theorem swap_correct (layout : Layout) [layout.WellFormed swap] (d : MachineData) :
+theorem swap_correct (layout : Layout) [swap.AssemblableWith layout] (d : MachineData) :
     Eventually (step1 (layout.apply swap))
       (fun s' =>
         s'.pc = (layout.apply swap).addrOf swap.length ∧
@@ -67,7 +67,7 @@ start:
   mov $2, %rax⸩
 
 -- Example 2: stepping through both straightline and control instructions
-example (layout : Layout) [layout.WellFormed p2] (s : MachineData) :
+example (layout : Layout) [p2.AssemblableWith layout] (s : MachineData) :
     Eventually (step1 (layout.apply p2))
       (fun s => s.pc = (layout.apply p2).addrOf p2.length ∧ s.1.regs.rax = 2) ⟨s, layout.start⟩ := by
   kprologue p2 with s
@@ -93,7 +93,7 @@ loop:
   mov $42, %rax⸩
 
 -- Example 2b: taking a jump to an internal label once, then falling through
-example (layout : Layout) [layout.WellFormed p2_jump] (s : MachineData) :
+example (layout : Layout) [p2_jump.AssemblableWith layout] (s : MachineData) :
     Eventually (step1 (layout.apply p2_jump))
       (fun s => s.pc = (layout.apply p2_jump).addrOf p2_jump.length ∧ s.1.regs.rax = 42)
       ⟨s, layout.start⟩ := by
@@ -130,7 +130,7 @@ _end:
 def p3_spec (s: MachineData): Nat := 2^(2^s.regs.rbx.toNat)
 
 set_option maxHeartbeats 4000000 in
-theorem p3_correct (layout : Layout) [layout.WellFormed p3] (s : MachineData) :
+theorem p3_correct (layout : Layout) [p3.AssemblableWith layout] (s : MachineData) :
     p3_spec s < 2 ^ 64 →
     Eventually (step1 (layout.apply p3))
       (fun s => s.pc = (layout.apply p3).addrOf p3.length ∧
@@ -227,11 +227,11 @@ theorem p3_correct (layout : Layout) [layout.WellFormed p3] (s : MachineData) :
                   apply Nat.pow_le_pow_right (by decide)
                   omega -/
 
-def p4 := eval% ⸨prog|start: mov $2, %rax
+def p4 : Program := eval% ⸨prog|start: mov $2, %rax
 dec %rax⸩
 
 -- Super-simple example to debug tactics
-example (layout : Layout) [layout.WellFormed p4] s :
+example (layout : Layout) [p4.AssemblableWith layout] s :
     Eventually (step1 (layout.apply p4))
       (fun s => s.pc = (layout.apply p4).addrOf p4.length ∧ s.1.regs.rax = 1) ⟨s, layout.start⟩ := by
   kprologue p4 with s
@@ -243,7 +243,7 @@ example (layout : Layout) [layout.WellFormed p4] s :
 
 /- Examples -/
 
-def p5 := ⸨prog|start: mov $2, %rax
+def p5 : Program := ⸨prog|start: mov $2, %rax
 dec %rax
 start2:
 dec %rax⸩
@@ -252,7 +252,7 @@ set_option maxHeartbeats 1000000
 set_option pp.rawOnError true
 /- set_option pp.all true -/
 
-example (layout : Layout) [layout.WellFormed p5] s :
+example (layout : Layout) [p5.AssemblableWith layout] s :
     Eventually (step1 (layout.apply p5))
       (fun s => s.pc = (layout.apply p5).addrOf p5.length ∧ s.1.regs.rax = 0) ⟨s, layout.start⟩ := by
   kprologue p5 with s
@@ -261,7 +261,7 @@ example (layout : Layout) [layout.WellFormed p5] s :
   dsimp only
   bv_decide
 
-def p6 := ⸨prog|push %rax
+def p6 : Program := ⸨prog|push %rax
 mov $0, %rax
 pop %rax⸩
 
@@ -290,7 +290,7 @@ attribute [ksimp]
   UInt64.toBitVec_sub
   UInt64.toNat_toBitVec
 
-theorem p6_correct (layout : Layout) [layout.WellFormed p6] (s₀ : MachineData)
+theorem p6_correct (layout : Layout) [p6.AssemblableWith layout] (s₀ : MachineData)
     (stack : List UInt8) (h_len : stack.length = 8) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (stack.At (s₀.regs.rsp.toBitVec - 8#64)) ⋆ R) :
     Eventually (step1 (layout.apply p6))
@@ -326,7 +326,7 @@ done:
 The hypothesis `h_mem` says the loader put that value in memory: nothing in this framework links
 the program text to memory yet, so it is assumed.
 -/
-theorem p7_correct (layout : Layout) [layout.WellFormed p7] (s₀ : MachineData) (R : DataMem → Prop)
+theorem p7_correct (layout : Layout) [p7.AssemblableWith layout] (s₀ : MachineData) (R : DataMem → Prop)
     (h_mem : let := Executable.labels (layout.apply p7)
       s₀.dmem =⋆ Eq ((Int.toBytes 4 (label! "end" - label! "start").toInt).At (label! "size").toBitVec) ⋆ R) :
     Eventually (step1 (layout.apply p7))
@@ -388,14 +388,14 @@ theorem p7_correct (layout : Layout) [layout.WellFormed p7] (s₀ : MachineData)
 open Std
 open Std.ExtHashMap
 
-def move_2_regs_to_heap := ⸨prog|
+def move_2_regs_to_heap : Program := ⸨prog|
     movq %rax, (%rdi)
     movq %rcx, 8(%rdi)
     movq (%rdi), %r12
     movq 8(%rdi), %r13
 ⸩
 
-theorem move_2_regs_to_heap_correct (layout : Layout) [layout.WellFormed move_2_regs_to_heap]
+theorem move_2_regs_to_heap_correct (layout : Layout) [move_2_regs_to_heap.AssemblableWith layout]
     (s₀ : MachineData) (v1 v2 : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v1.At s₀.regs.rdi.toBitVec) ⋆
       Eq (v2.At (s₀.regs.rdi.toBitVec + 8#64)) ⋆ R) :
@@ -438,7 +438,7 @@ theorem move_2_regs_to_heap_correct (layout : Layout) [layout.WellFormed move_2_
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   exact ⟨rfl, rfl, rfl, rfl⟩
 
-def sib_example := ⸨prog|
+def sib_example : Program := ⸨prog|
     movq $42, %rax
     movq %rax, (%rdi, %r15, 8)
     movq $0, %rax
@@ -446,7 +446,7 @@ def sib_example := ⸨prog|
 
 -- FIXME: I had to replace `s₀.regs.r15.toBitVec * 8#64` with `BitVec.ofInt 64
 -- (s₀.regs.r15.toBitVec.toInt * 8)` to make the example go through. Why?
-theorem sib_example_correct (layout : Layout) [layout.WellFormed sib_example] (s₀ : MachineData)
+theorem sib_example_correct (layout : Layout) [sib_example.AssemblableWith layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdi.toBitVec + BitVec.ofInt 64 (s₀.regs.r15.toBitVec.toInt * 8))) ⋆ R) :
     Eventually (step1 (layout.apply sib_example))
@@ -467,13 +467,13 @@ theorem sib_example_correct (layout : Layout) [layout.WellFormed sib_example] (s
   tactic =>
   exact .done _ ⟨rfl, rfl⟩
 
-def alu_mem_example := ⸨prog|
+def alu_mem_example : Program := ⸨prog|
     movq $42, %rax
     movq %rax, 136(%rdx)
     movq $100, %rcx
     addq 136(%rdx), %rcx⸩
 
-theorem alu_mem_example_correct (layout : Layout) [layout.WellFormed alu_mem_example] (s₀ : MachineData)
+theorem alu_mem_example_correct (layout : Layout) [alu_mem_example.AssemblableWith layout] (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.rdx.toBitVec + 136#64)) ⋆ R) :
     Eventually (step1 (layout.apply alu_mem_example))
@@ -498,7 +498,7 @@ theorem alu_mem_example_correct (layout : Layout) [layout.WellFormed alu_mem_exa
   rw [BitVec.ofInt_ofBytes_toBytes 64 8 rfl]
   rfl
 
-def dynamic_stack_example := ⸨prog|
+def dynamic_stack_example : Program := ⸨prog|
     movq $99, -8(%rsp)
     movq %rsp, %rbp
     leaq -1024(%rsp, %r9, 8), %rsp
@@ -509,7 +509,7 @@ def dynamic_stack_example := ⸨prog|
     movq %rbp, %rsp
     movq -8(%rsp), %rbx⸩
 
-theorem dynamic_stack_example_correct (layout : Layout) [layout.WellFormed dynamic_stack_example]
+theorem dynamic_stack_example_correct (layout : Layout) [dynamic_stack_example.AssemblableWith layout]
     (s₀ : MachineData)
     (stack : List UInt8) (lstack : stack.length = 1024) R
     (h : s₀.regs.r9.toNat + s₀.regs.r15.toNat < 125)

@@ -52,7 +52,7 @@ example (layout : Layout) (s : MachineData) :
   kprologue kprologueOtherProgram with s
 
 -- `kstep 1` skips leading zero-size `.label` directives and steps one instruction.
-example (layout : Layout) [layout.WellFormed kstepLabelProgram] (s : MachineData) :
+example (layout : Layout) [kstepLabelProgram.AssemblableWith layout] (s : MachineData) :
     Eventually (step1 (layout.apply kstepLabelProgram))
       (fun s' => s'.pc = (layout.apply kstepLabelProgram).addrOf 2 ∧ s'.1.regs.X0 = 1)
       ⟨s, layout.start⟩ := by
@@ -63,7 +63,7 @@ example (layout : Layout) [layout.WellFormed kstepLabelProgram] (s : MachineData
   bv_decide
 
 -- `kstep` follows unconditional branches to internal labels.
-example (layout : Layout) [layout.WellFormed kstepJumpProgram] (s : MachineData) :
+example (layout : Layout) [kstepJumpProgram.AssemblableWith layout] (s : MachineData) :
     Eventually (step1 (layout.apply kstepJumpProgram))
       (fun s' => s'.pc = (layout.apply kstepJumpProgram).addrOf kstepJumpProgram.length ∧ s'.1.regs.X0 = 42)
       ⟨s, layout.start⟩ := by

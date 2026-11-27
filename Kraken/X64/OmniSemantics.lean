@@ -93,7 +93,7 @@ theorem Directives.interp_directivesAtAddress_of_zeroSizePrefix
       inert_of_size_zero hd' hz0]
     exact ih s (fun c' hc' => hmem c' (List.mem_cons_of_mem _ hc'))
 
-theorem eventually_of_interp {p : Program} {l : Layout} (hl : l.WellFormed p)
+theorem eventually_of_interp {p : Program} {l : Layout} (hl : p.AssemblableWith l)
     {k : Nat} {d : Directive} (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
     (h : letI := Executable.labels (l.apply p)
       (d.interp s
@@ -121,7 +121,7 @@ theorem eventually_of_interp {p : Program} {l : Layout} (hl : l.WellFormed p)
 @[ksimp] theorem Int64.ofBitVec_toBitVec_ksimp (a : Int64) : Int64.ofBitVec a.toBitVec = a :=
   Int64.ofBitVec_toBitVec a
 
-theorem step_at {p : Program} {l : Layout} [hl : l.WellFormed p] {k : Nat} {d : Directive}
+theorem step_at {p : Program} {l : Layout} [hl : p.AssemblableWith l] {k : Nat} {d : Directive}
     (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
     (h : letI := Executable.labels (l.apply p)
       (d.interp s
@@ -169,7 +169,7 @@ theorem labels_append_left_subset (p₁ p₂ : Program) (l : Layout) :
   rw [Kraken.Program.apply_append_withAddresses p₁ p₂ l, List.findSome?_append, ha]
   rfl
 
-theorem labels_append_right_subset {p₁ p₂ : Program} {l : Layout} (hl : l.WellFormed (p₁ ++ p₂)) :
+theorem labels_append_right_subset {p₁ p₂ : Program} {l : Layout} (hl : Kraken.Program.AssemblableWith (p₁ ++ p₂) l) :
     Executable.labels ((l.offset p₁).apply p₂) ⊆ Executable.labels (l.apply (p₁ ++ p₂)) := by
   intro lbl a ha
   change List.findSome? _ _ = some a at ha ⊢
@@ -209,16 +209,24 @@ theorem Eventually.mono_of_zeroSizePrefix {p q : Program} {lp lq : Layout}
           Directives.interp, Effects.All] at hstep
       exact ih ⟨s.data, s.pc⟩ hstep
 
-theorem Eventually.append_left {p₁ p₂ : Program} {l : Layout} (hl : l.WellFormed (p₁ ++ p₂))
+theorem Eventually.append_left {p₁ p₂ : Program} {l : Layout} (hl : Kraken.Program.AssemblableWith (p₁ ++ p₂) l)
     {post : MachineState → Prop} {init : MachineState}
     (h : Eventually (step1 (l.apply p₁)) post init) :
     Eventually (step1 (l.apply (p₁ ++ p₂))) post init :=
   Eventually.mono_of_zeroSizePrefix (labels_append_left_subset p₁ p₂ l)
     (fun pc hpc => ⟨[], by simp [Kraken.Program.directivesAtAddress_append_left hl pc hpc], by simp⟩) h
 
-theorem Eventually.append_right {p₁ p₂ : Program} {l : Layout} (hl : l.WellFormed (p₁ ++ p₂))
+theorem Eventually.append_right {p₁ p₂ : Program} {l : Layout} (hl : Kraken.Program.AssemblableWith (p₁ ++ p₂) l)
     {post : MachineState → Prop} {init : MachineState}
     (h : Eventually (step1 ((l.offset p₁).apply p₂)) post init) :
     Eventually (step1 (l.apply (p₁ ++ p₂))) post init :=
   Eventually.mono_of_zeroSizePrefix (labels_append_right_subset hl)
     (Kraken.Program.directivesAtAddress_append_right hl) h
+
+
+/-
+theorem Directives.mono {L₁ L₂ : Labels} (hL : L₁ ⊆ L₂)
+  {ret₁ ret₂ : MachineState → Effects }  (hret : ∀ ms, (ret₁ ms).CompatibleWith (ret₂ ms))
+  {ds : List (Sized Directive)} :
+    ()
+-/

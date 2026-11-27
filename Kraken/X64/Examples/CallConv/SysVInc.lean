@@ -36,7 +36,7 @@ sysv_caller:
   addq $8, %rsp
   ret⸩
 
-variable (layout : Layout) [layout.WellFormed prog]
+variable (layout : Layout) [prog.AssemblableWith layout]
 
 /-- The address of label `l` in `prog`. -/
 abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels (layout.apply prog)) l
@@ -64,7 +64,7 @@ theorem inc_spec : IncSpec layout 0 (lbl layout "sysv_inc") := by
   · exact Owned.intro hmem (Int.toBytes_length _ _)
   · simp (config := { zetaDelta := true }) [harg, BitVec.add_comm]
 
-omit [layout.WellFormed prog] in
+omit [prog.AssemblableWith layout] in
 private theorem reserve16_eq (r : BitVec 64) :
     Reserve 16 r = Owned 8 (r - 8 - 8) ⋆ Owned 8 (r - 8) := by
   rw [Reserve, show (16 : Nat) = 8 + 8 from rfl, Owned.split 8 8 _ (by omega)]

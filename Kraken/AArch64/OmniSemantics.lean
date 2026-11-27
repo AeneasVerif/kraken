@@ -56,7 +56,7 @@ theorem Directives.interp_directivesAtAddress_of_zeroSizePrefix
     exact ih s (fun c' hc' => hmem c' (List.mem_cons_of_mem _ hc'))
 
 /- More general version of `step_at` theorem which does not constrain the shape of the postcondition. -/
-theorem eventually_of_interp {p : Program} {l : Layout} (hl : l.WellFormed p)
+theorem eventually_of_interp {p : Program} {l : Layout} (hl : p.AssemblableWith l)
     {k : Nat} {d : Directive} (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
     (h : letI := Executable.labels (l.apply p)
       (d.interp s
@@ -82,7 +82,7 @@ theorem eventually_of_interp {p : Program} {l : Layout} (hl : l.WellFormed p)
 
 /- This theorem is meant to be used when the user is doing a proof over `Eventually` and wants to keep the
    state of the goal as an `Eventually` -/
-theorem step_at {p : Program} {l : Layout} [hl : l.WellFormed p] {k : Nat} {d : Directive}
+theorem step_at {p : Program} {l : Layout} [hl : p.AssemblableWith l] {k : Nat} {d : Directive}
     (hd : p[k]? = some d) {post : @Post MachineState} {s : MachineData}
     (h : letI := Executable.labels (l.apply p)
       (d.interp s

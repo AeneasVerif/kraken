@@ -8,9 +8,9 @@ open Kraken (Layout)
 public class Host where
   prog : Program
   layout : Layout
-  wf : layout.WellFormed prog
+  wf : prog.AssemblableWith layout
 
-public instance [Host] : Host.layout.WellFormed Host.prog := Host.wf
+public instance [Host] : Host.prog.AssemblableWith Host.layout := Host.wf
 
 @[expose] public def Host.exe [Host] : Executable := Host.layout.apply Host.prog
 

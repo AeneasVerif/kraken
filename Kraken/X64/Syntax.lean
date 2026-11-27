@@ -295,7 +295,7 @@ instance [AddressSize] {w : AvxWidth} : CoeOut (AvxOperation w) Instr where
 
 abbrev Directive := Kraken.Directive Instr ConstExpr
 
-abbrev Program := List Directive
+abbrev Program := Kraken.Program Instr ConstExpr
 
 abbrev Executable := Kraken.Executable Instr ConstExpr
 

@@ -49,7 +49,7 @@ def swap : Program := ⸨prog|
   eor x0, x0, x1
 ⸩
 
-theorem swap_correct (layout : Layout) [layout.WellFormed swap] (d : MachineData) :
+theorem swap_correct (layout : Layout) [swap.AssemblableWith layout] (d : MachineData) :
     Eventually (step1 (layout.apply swap))
       (fun s' =>
         s'.pc = (layout.apply swap).addrOf swap.length ∧
@@ -68,7 +68,7 @@ def arith_shift : Program := ⸨prog|
   sub x3, x2, x0
 ⸩
 
-theorem arith_shift_correct (layout : Layout) [layout.WellFormed arith_shift] (d : MachineData) :
+theorem arith_shift_correct (layout : Layout) [arith_shift.AssemblableWith layout] (d : MachineData) :
     Eventually (step1 (layout.apply arith_shift))
       (fun s' =>
         s'.pc = (layout.apply arith_shift).addrOf arith_shift.length ∧
@@ -90,7 +90,7 @@ start:
   mov x1, #42
 ⸩
 
-theorem p4_correct (layout : Layout) [layout.WellFormed controlflow] (d : MachineData) :
+theorem p4_correct (layout : Layout) [controlflow.AssemblableWith layout] (d : MachineData) :
     Eventually (step1 (layout.apply controlflow))
       (fun s' => s'.pc = (layout.apply controlflow).addrOf controlflow.length ∧ s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
@@ -113,7 +113,7 @@ loop:
   mov x1, #42
 ⸩
 
-theorem controlflow_jump_correct (layout : Layout) [layout.WellFormed controlflow_jump] (d : MachineData) :
+theorem controlflow_jump_correct (layout : Layout) [controlflow_jump.AssemblableWith layout] (d : MachineData) :
     Eventually (step1 (layout.apply controlflow_jump))
       (fun s' => s'.pc = (layout.apply controlflow_jump).addrOf controlflow_jump.length ∧ s'.1.regs.X1 = 42)
       ⟨d, layout.start⟩ := by
@@ -142,7 +142,7 @@ def move_2_regs_to_heap : Program := ⸨prog|
     ldr x4, [x2, #8]
 ⸩
 
-theorem move_2_regs_to_heap_correct (layout : Layout) [layout.WellFormed move_2_regs_to_heap]
+theorem move_2_regs_to_heap_correct (layout : Layout) [move_2_regs_to_heap.AssemblableWith layout]
     (s₀ : MachineData)
     (v1 v2 : UInt64)
     (R : DataMem → Prop)
@@ -191,7 +191,7 @@ def reg_offset_example : Program := ⸨prog|
     ldr x3, [x1, x2, lsl #3]
 ⸩
 
-theorem reg_offset_example_correct (layout : Layout) [layout.WellFormed reg_offset_example]
+theorem reg_offset_example_correct (layout : Layout) [reg_offset_example.AssemblableWith layout]
     (s₀ : MachineData)
     (v : UInt64) (R : DataMem → Prop)
     (h_mem : s₀.dmem =⋆ Eq (v.At (s₀.regs.X1.toBitVec + BitVec.ofInt 64 (s₀.regs.X2.toBitVec.toNat <<< 3))) ⋆ R) :

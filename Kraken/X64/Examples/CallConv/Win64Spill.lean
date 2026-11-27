@@ -39,7 +39,7 @@ theorem reserve24_eq (r : BitVec 64) :
   rw [Reserve, show (24 : Nat) = 16 + 8 from rfl, Owned.split 16 8 _ (by omega)]
   congr 2 <;> bv_omega
 
-variable (layout : Layout) [layout.WellFormed prog]
+variable (layout : Layout) [prog.AssemblableWith layout]
 
 theorem spill_spec (R : Mem 64 → Prop) (ra : Int64) :
     (layout.apply prog).ProcSpec

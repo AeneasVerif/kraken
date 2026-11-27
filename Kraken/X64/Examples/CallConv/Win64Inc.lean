@@ -38,7 +38,7 @@ win64_caller:
   addq $40, %rsp
   ret⸩
 
-variable (layout : Layout) [layout.WellFormed prog]
+variable (layout : Layout) [prog.AssemblableWith layout]
 
 /-- The address of label `l` in `prog`. -/
 abbrev lbl (l : String) : Int64 := @Labels.label! (Executable.labels (layout.apply prog)) l
@@ -49,7 +49,7 @@ private theorem lbl_inc : lbl layout "win64_inc" = (layout.apply prog).addrOf 0 
 private theorem lbl_caller : lbl layout "win64_caller" = (layout.apply prog).addrOf 5 :=
   Labels.label!_of_label? (label?_eq_some_addrOf rfl)
 
-omit [layout.WellFormed prog] in
+omit [prog.AssemblableWith layout] in
 private theorem shadow_split (r : BitVec 64) : Shadow r = Owned 8 (r + 8) ⋆ Owned 24 (r + 16) := by
   rw [Shadow, show (32 : Nat) = 8 + 24 from rfl, Owned.split 8 24 _ (by omega)]
   congr 2
@@ -98,7 +98,7 @@ theorem inc_spec : IncSpec layout 0 (lbl layout "win64_inc") := by
   · simp (config := { zetaDelta := true }) [BitVec.ofInt_ofBytes_toBytes 64 8 rfl, harg,
       BitVec.add_comm]
 
-omit [layout.WellFormed prog] in
+omit [prog.AssemblableWith layout] in
 /-- The caller's 48-byte reservation: the callee's return-address slot, its shadow space, and the padding. -/
 private theorem frame_eq (r : BitVec 64) :
     Reserve 48 r = Owned 8 (r - 40 - 8) ⋆ (Shadow (r - 40 - 8) ⋆ Owned 8 (r - 8)) := by
