@@ -55,7 +55,7 @@ open LeanQbe.T LeanQbe.T.Amd64 Kraken
 
 /-! ## Helpers -/
 
-@[expose] def countStoresTFlat {rs : List Ty} : TFlat rs → Nat
+def countStoresTFlat {rs : List Ty} : TFlat rs → Nat
   | .let_ _ k | .load _ _ k => countStoresTFlat k
   | .store _ _ k => 1 + countStoresTFlat k
   | .call _ _ _ k => countStoresTFlat k
@@ -67,13 +67,13 @@ where
     | _, .nil => 0
     | _, .cons b bs => countStoresTFlat b + countStoresBs bs
 
-@[expose] def countAsmLines (asm : String) (sub : String) : Nat :=
+def countAsmLines (asm : String) (sub : String) : Nat :=
   ((asm.splitOn "\n").filter fun s => (s.splitOn sub).length > 1).length
 
-@[expose] def hasSubstring (asm sub : String) : Bool :=
+def hasSubstring (asm sub : String) : Bool :=
   (asm.splitOn sub).length > 1
 
-@[expose] def compileX64Asm (name : String) (as rs : List Ty) (body : Func as rs) :
+def compileX64Asm (name : String) (as rs : List Ty) (body : Func as rs) :
     Except String String := do
   let tf := reifyFunc body
   let h := Fn.computeHints x64Target.toIsa x64LegalTarget ⟨name, as, rs, body⟩
@@ -83,7 +83,7 @@ where
 /-! ## 1. `u32`-IV Single-Store Widening (`u32Zero8`, `u32Zero32`) -/
 
 /-- `u32` IV (`0 ..< n`) filling `u8` array with `0#8` via `.zext 32 64`. -/
-@[expose] def u32Zero8 : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
+def u32Zero8 : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
   loop1 (ts := [i32])
     (fun loop (i, ()) =>
       .let_ (op2 (.ult i32) (.var i) (.var n)) fun (c, ()) =>
@@ -97,7 +97,7 @@ where
     (fun loop => .jump loop (.imm 0#32, ()))
 
 /-- `u32` IV (`0 ..< n`) filling `u32` array with `0#32` via `.zext 32 64` + `.shl 64 ... 2`. -/
-@[expose] def u32Zero32 : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
+def u32Zero32 : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
   loop1 (ts := [i32])
     (fun loop (i, ()) =>
       .let_ (op2 (.ult i32) (.var i) (.var n)) fun (c, ()) =>
@@ -186,7 +186,7 @@ theorem u32Zero8_zp_spec (Γ : Env) (ptr : BitVec 64) (xs : List (Val (.bits 8))
 /-! ## 2. Multi-Store `u32` Widening (`u32MultiFill2`) & Overlap Soundness -/
 
 /-- `full_k6_init` Loop 2 shape: `u32` IV filling 2 `u32` arrays (`0` and `-1`). -/
-@[expose] def u32MultiFill2 : Func [i64, i64, i32] [i64] := fun _ _ (p0, p1, n, ()) =>
+def u32MultiFill2 : Func [i64, i64, i32] [i64] := fun _ _ (p0, p1, n, ()) =>
   loop1 (ts := [i32])
     (fun loop (i, ()) =>
       .let_ (op2 (.ult i32) (.var i) (.var n)) fun (c, ()) =>
@@ -210,7 +210,7 @@ theorem u32MultiFill2_zeroPeel_wf : (Func.zeroPeel u32MultiFill2).Wf :=
 #guard Func.checkTFlat (Func.zeroPeel u32MultiFill2)
 #guard countStoresTFlat (TFlat.zeroPeelWith {} (reifyFunc u32MultiFill2)) == 10
 
-@[expose] def zeroNegList (n : Nat) : List (Val i32) :=
+def zeroNegList (n : Nat) : List (Val i32) :=
   List.replicate n 0#32 ++ [0xffffffff#32]
 
 private theorem shift2_zext_eq (i : BitVec 32) :
@@ -383,7 +383,7 @@ theorem u32Fill2_zp_ovlp (Γ : Env) (p0 : BitVec 64) (n : Nat) (hn0 : 0 < n)
 /-! ## 3. 6-Store `u32` Unrolling (`k6Loop1Shape`), `Kissat.Plain` IR & x64 Reduction `#guard`s -/
 
 /-- Synthetic 6-store `u32` loop (`u32` IV storing 6 `u32` arrays including `i+1`). -/
-@[expose] def k6Loop1Shape : Func [i64, i64, i64, i64, i64, i64, i32] [i32] :=
+def k6Loop1Shape : Func [i64, i64, i64, i64, i64, i64, i32] [i32] :=
   fun _ _ (a0, a1, a2, a3, a4, a5, n, ()) =>
     loop1 (ts := [i32])
       (fun loop (i, ()) =>
@@ -457,7 +457,7 @@ theorem k6Loop1Shape_zeroPeel_wf : (Func.zeroPeel k6Loop1Shape).Wf :=
 /-! ## 4. Negative Tests (Wrapping / Non-Unit / Signed `u32` IVs Stay Untouched) -/
 
 /-- Decrementing `sub 32` IV (must not trigger widening or unrolling). -/
-@[expose] def u32SubNeg : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
+def u32SubNeg : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
   loop1 (ts := [i32])
     (fun loop (i, ()) =>
       .let_ (op2 (.ult i32) (.imm 0#32) (.var i)) fun (c, ()) =>
@@ -470,7 +470,7 @@ theorem k6Loop1Shape_zeroPeel_wf : (Func.zeroPeel k6Loop1Shape).Wf :=
     (fun loop => .jump loop (.var n, ()))
 
 /-- Non-unit step `add 32 i 2` (must not widen or unroll). -/
-@[expose] def u32Step2Neg : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
+def u32Step2Neg : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
   loop1 (ts := [i32])
     (fun loop (i, ()) =>
       .let_ (op2 (.ult i32) (.var i) (.var n)) fun (c, ()) =>
@@ -484,7 +484,7 @@ theorem k6Loop1Shape_zeroPeel_wf : (Func.zeroPeel k6Loop1Shape).Wf :=
     (fun loop => .jump loop (.imm 0#32, ()))
 
 /-- Signed `slt` comparison (`i <s n`, unsafe under `u32` wrap semantics): untouched. -/
-@[expose] def u32SignedLtNeg : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
+def u32SignedLtNeg : Func [i64, i32] [i64] := fun _ _ (ptr, n, ()) =>
   loop1 (ts := [i32])
     (fun loop (i, ()) =>
       .let_ (op2 (.slt i32) (.var i) (.var n)) fun (c, ()) =>
@@ -506,10 +506,10 @@ theorem u32SignedLtNeg_unchanged :
 
 /-! ## 5. Certified x86-64 Compilation & Concrete Machine Execution (`disjoint` + `overlap`) -/
 
-@[expose] def fnU32Zero8 : Fn := ⟨"u32_zero8", [i64, i32], [i64], u32Zero8⟩
-@[expose] def fnU32MultiFill2 : Fn := ⟨"u32_multi_fill2", [i64, i64, i32], [i64], u32MultiFill2⟩
+def fnU32Zero8 : Fn := ⟨"u32_zero8", [i64, i32], [i64], u32Zero8⟩
+def fnU32MultiFill2 : Fn := ⟨"u32_multi_fill2", [i64, i64, i32], [i64], u32MultiFill2⟩
 
-@[expose] def widenX64SrcMod : Module where
+def widenX64SrcMod : Module where
   fns := [fnU32Zero8, fnU32MultiFill2]
 
 inline_mod! widenX64Mod widenX64SrcMod {} (compile := false)
@@ -540,7 +540,7 @@ noncomputable def widenX64FlatCast :
       (widenX64SrcMod.optInlinePolicy {}) [] [] 0 2048 :=
   widenX64Flat.castModule widenX64Mod.eq
 
-@[expose] def multiFill2Spec : Spec [i64, i64, i32] [i64] :=
+def multiFill2Spec : Spec [i64, i64, i32] [i64] :=
   fun (p0, p1, n, ()) m Q _ =>
     (∃ (xs0 xs1 : List (Val i32)) (R : Mem 64 → Prop),
       xs0.length = xs1.length ∧ xs0.length < 2 ^ 32 ∧
@@ -554,7 +554,7 @@ noncomputable def widenX64FlatCast :
       (array p0 xs ⋆ R) m ∧
       ∀ m', (array p0 (zeroNegList nNat) ⋆ R) m' → Q (p0, ()) m')
 
-@[expose] def widenX64Γ : Env
+def widenX64Γ : Env
   | "u32_multi_fill2", [.bits 64, .bits 64, .bits 32], [.bits 64], args, m, Q, X =>
     multiFill2Spec args m Q X
   | _, _, _, _, _, _, _ => False

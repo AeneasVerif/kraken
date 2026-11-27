@@ -44,48 +44,48 @@ open LeanQbe.T.LeanLCNF.Sem
 
 /-! ## 1. Pure Helpers & Negative `RcCheck` Test Fixtures -/
 
-@[expose] def mkTestMod (name : String) (decls : List LcDecl) : LcModule :=
+def mkTestMod (name : String) (decls : List LcDecl) : LcModule :=
   { name := name, roots := decls.map (·.name), decls := decls, externs := [], snaps := [] }
 
-@[expose] def pObj (id : Nat) (borrow : Bool := false) : LcParam :=
+def pObj (id : Nat) (borrow : Bool := false) : LcParam :=
   { id := id, ty := .object, borrow := borrow }
 
-@[expose] def pTagged (id : Nat) : LcParam :=
+def pTagged (id : Nat) : LcParam :=
   { id := id, ty := .tobject, borrow := false }
 
-@[expose] def ctorBoolFalse : LcCtor := LcCtor.mk "Bool.false" 0 0 0 0
-@[expose] def ctorBoolTrue : LcCtor := LcCtor.mk "Bool.true" 1 0 0 0
-@[expose] def ctorPair : LcCtor := LcCtor.mk "Pair" 0 2 0 0
-@[expose] def ctorSingle : LcCtor := LcCtor.mk "Box" 0 1 0 0
+def ctorBoolFalse : LcCtor := LcCtor.mk "Bool.false" 0 0 0 0
+def ctorBoolTrue : LcCtor := LcCtor.mk "Bool.true" 1 0 0 0
+def ctorPair : LcCtor := LcCtor.mk "Pair" 0 2 0 0
+def ctorSingle : LcCtor := LcCtor.mk "Box" 0 1 0 0
 
-@[expose] def encTree : TreeDemo.Tree → PVal
+def encTree : TreeDemo.Tree → PVal
   | .leaf => .ctor 0 [] []
   | .node v l r => .ctor 1 [.nat v, encTree l, encTree r] []
 
-@[expose] def sampleTree : TreeDemo.Tree :=
+def sampleTree : TreeDemo.Tree :=
   .node 10 (.node 3 .leaf .leaf) (.node 7 (.node 1 .leaf .leaf) .leaf)
 
 mutual
-@[expose] def encRose : MutRecDemo.Rose → PVal
+def encRose : MutRecDemo.Rose → PVal
   | .node v cs => .ctor 0 [.nat v, encForest cs] []
-@[expose] def encForest : MutRecDemo.Forest → PVal
+def encForest : MutRecDemo.Forest → PVal
   | .nil => .ctor 0 [] []
   | .cons hd tl => .ctor 1 [encRose hd, encForest tl] []
 end
 
-@[expose] def sampleRose : MutRecDemo.Rose :=
+def sampleRose : MutRecDemo.Rose :=
   .node 5 (.cons (.node 2 .nil) (.cons (.node 8 (.cons (.node 1 .nil) .nil)) .nil))
 
-@[expose] def sampleForest : MutRecDemo.Forest :=
+def sampleForest : MutRecDemo.Forest :=
   .cons (.node 4 .nil) (.cons sampleRose .nil)
 
 /-- Negative (a): leaked owned variable (`x.1` never consumed or `dec`'d). -/
-@[expose] def badLeakMod : LcModule :=
+def badLeakMod : LcModule :=
   mkTestMod "BadLeak"
     [{ name := "badLeak", params := [pObj 1], retTy := .erased, body := .ret .erased }]
 
 /-- Negative (b1): double `dec` on an owned variable (`x.1` already dead at second `dec`). -/
-@[expose] def badDoubleDecMod : LcModule :=
+def badDoubleDecMod : LcModule :=
   mkTestMod "BadDoubleDec"
     [{ name := "badDoubleDec"
        params := [pObj 1]
@@ -93,7 +93,7 @@ end
        body := .dec 1 1 false (.dec 1 1 false (.ret .erased)) }]
 
 /-- Negative (b2): use-after-free (`oproj` on `x.1` after `dec 1 1`). -/
-@[expose] def badUseAfterFreeMod : LcModule :=
+def badUseAfterFreeMod : LcModule :=
   mkTestMod "BadUseAfterFree"
     [{ name := "badUaf"
        params := [pObj 1]
@@ -102,7 +102,7 @@ end
          (.inc 2 1 false (.ret (.var 2)))) }]
 
 /-- Negative (c): consuming a borrowed `@&` variable without `inc`. -/
-@[expose] def badConsumeBorrowMod : LcModule :=
+def badConsumeBorrowMod : LcModule :=
   mkTestMod "BadConsumeBorrow"
     [{ name := "badConsumeBorrow"
        params := [pObj 1 (borrow := true)]
@@ -110,7 +110,7 @@ end
        body := .ret (.var 1) }]
 
 /-- Negative (d1): unguarded `.oset` without `isShared == false` or fresh allocation. -/
-@[expose] def badUnguardedOsetMod : LcModule :=
+def badUnguardedOsetMod : LcModule :=
   mkTestMod "BadUnguardedOset"
     [{ name := "badOset"
        params := [pObj 1, pObj 2]
@@ -118,7 +118,7 @@ end
        body := .oset 1 0 (.var 2) (.ret (.var 1)) }]
 
 /-- Negative (d2): unguarded `.setTag` without exclusivity proof. -/
-@[expose] def badUnguardedSetTagMod : LcModule :=
+def badUnguardedSetTagMod : LcModule :=
   mkTestMod "BadUnguardedSetTag"
     [{ name := "badSetTag"
        params := [pObj 1]
@@ -126,7 +126,7 @@ end
        body := .setTag 1 1 (.ret (.var 1)) }]
 
 /-- Negative (d3): unguarded `.del` without exclusivity proof. -/
-@[expose] def badUnguardedDelMod : LcModule :=
+def badUnguardedDelMod : LcModule :=
   mkTestMod "BadUnguardedDel"
     [{ name := "badDel"
        params := [pObj 1]
@@ -134,7 +134,7 @@ end
        body := .del 1 (.ret .erased) }]
 
 /-- Negative (e): child `oproj` borrow invalidated after parent `dec`. -/
-@[expose] def badParentDecBorrowMod : LcModule :=
+def badParentDecBorrowMod : LcModule :=
   mkTestMod "BadParentDecBorrow"
     [{ name := "badParentDecBorrow"
        params := [pObj 1]
@@ -143,7 +143,7 @@ end
          (.dec 1 1 false (.inc 2 1 false (.ret (.var 2)))) }]
 
 /-- Negative (f): mismatched owned counts across two `jmp` sites targeting the same `jp`. -/
-@[expose] def badJmpMismatchMod : LcModule :=
+def badJmpMismatchMod : LcModule :=
   mkTestMod "BadJmpMismatch"
     [{ name := "badJmpMismatch"
        params := [pObj 1, pTagged 2]
@@ -155,7 +155,7 @@ end
              , (.ctor 1 "Bool.true", .dec 1 1 false (.jmp 1 [])) ]) }]
 
 /-- Negative (g1): mutating a `reset` token via `.oset`. -/
-@[expose] def badResetOsetMod : LcModule :=
+def badResetOsetMod : LcModule :=
   mkTestMod "BadResetOset"
     [{ name := "badResetOset"
        params := [pObj 1]
@@ -165,7 +165,7 @@ end
            (.let_ 3 .object (.reuse 2 ctorSingle false [.erased]) (.ret (.var 3)))) }]
 
 /-- Negative (g2): freeing a `reset` token via `.del`. -/
-@[expose] def badResetDelMod : LcModule :=
+def badResetDelMod : LcModule :=
   mkTestMod "BadResetDel"
     [{ name := "badResetDel"
        params := [pObj 1]
@@ -174,7 +174,7 @@ end
 
 /-- Positive control: `isShared == false` branch grants exclusivity for `oset`, while `true`
 branch allocates fresh and `dec`s old parent. -/
-@[expose] def goodGuardedOsetMod : LcModule :=
+def goodGuardedOsetMod : LcModule :=
   mkTestMod "GoodGuardedOset"
     [{ name := "goodOset"
        params := [pObj 1, pObj 2]
@@ -191,7 +191,7 @@ branch allocates fresh and `dec`s old parent. -/
 
 /-! ## 2. Concrete Non-Vacuity & Metatheory Theorems -/
 
-@[expose] def jpLoopDecl : LcDecl :=
+def jpLoopDecl : LcDecl :=
   { name := "jpCountdown"
     params := [pTagged 1, pTagged 2]
     retTy := .tobject
@@ -207,7 +207,7 @@ branch allocates fresh and `dec`s old parent. -/
               , (.ctor 1 "Bool.true", .ret (.var 4)) ])))
         (.jmp 10 [.var 1, .var 2]) }
 
-@[expose] def jpLoopMod : LcModule :=
+def jpLoopMod : LcModule :=
   mkTestMod "JpLoopMod" [jpLoopDecl]
 
 /-- Pure symbolic loop verification via `PWp_jp_loop` + `PWp_frame_pure` on a `.jp` loop. -/

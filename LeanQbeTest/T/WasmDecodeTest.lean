@@ -59,7 +59,7 @@ def wasmTestGpr := WasmCertKit.wasmTestGpr
 def wasmTestFrame := WasmCertKit.wasmTestFrame
 
 /-- Neutral `Isa` instance for verified end-to-end PHOAS driver testing. -/
-@[expose] def wasmTestIsa := WasmCertKit.wasmTestIsa
+def wasmTestIsa := WasmCertKit.wasmTestIsa
 
 /-- Check that an acyclic lowered module compiles under a given legal target. -/
 def checkAcyclicCompile := WasmCertKit.wasmCheckCompile

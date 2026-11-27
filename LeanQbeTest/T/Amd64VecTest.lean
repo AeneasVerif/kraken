@@ -24,7 +24,7 @@ Standalone downstream test suite verifying `x64Vec` and `x64VecSpec`:
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.Amd64VecTest
 
@@ -63,7 +63,8 @@ theorem x64Vec_metadata_rfl :
     x64Vec.vecSlotWidth i64 = none ∧
     x64Vec.vecSlotWidth (.float .d) = none ∧
     x64Vec.vecSlotWidth .bool = none := by
-  exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl,
+    rfl⟩
 
 theorem x64Vec_supportsVecOp_rfl :
     x64Vec.supportsVecOp (.copy v4i32) (.var (), ()) = true ∧
@@ -91,7 +92,8 @@ theorem x64Vec_supportsVecOp_rfl :
     x64Vec.supportsVecOp .sha256rnds2 (.var (), .var (), .var (), ()) = false ∧
     x64Vec.supportsVecOp .sha256msg1 (.var (), .var (), ()) = false ∧
     x64Vec.supportsVecOp .sha256msg2 (.var (), .var (), ()) = false ∧
-    x64Vec.supportsVecOp (.rotr v4i32) (.var (), .imm ((16#32, 12#32), (16#32, 16#32)), ()) = false ∧
+    x64Vec.supportsVecOp (.rotr v4i32)
+      (.var (), .imm ((16#32, 12#32), (16#32, 16#32)), ()) = false ∧
     x64Vec.supportsVecOp (.rotr v4i32) (.var (), .var (), ()) = false ∧
     x64Vec.supportsVecOp (.add v2i32) (.var (), .var (), ()) = false ∧
     x64Vec.supportsVecOp (.copy v2f32) (.var (), ()) = false ∧
@@ -105,7 +107,8 @@ theorem x64Vec_evex_sse_parser_rfl :
       x64Vec.vmov .w512 .mm0 .mm1 ++
         (x64Vec.vop (.add v16i32) (.vec .mm1, .vec .mm2, ()) (.vec .mm0, ()) .default).get!.1 ∧
     ⸨prog| vpsrld $5, %ymm1, %ymm0 ⸩ =
-      (x64Vec.vop (.lshr v8i32) (.vec .mm1, .imm (splatV 3 37#32), ()) (.vec .mm0, ()) .default).get!.1 ∧
+      (x64Vec.vop (.lshr v8i32) (.vec .mm1, .imm (splatV 3 37#32), ())
+        (.vec .mm0, ()) .default).get!.1 ∧
     ⸨prog| movabs $2147483648, %r10; leaq (%rbx, %r10, 1), %r10; vmovdqu32 %xmm0, (%r10) ⸩ =
       (x64Vec.vstore v4i32 .mm0 (.baseDisp .rbx 2147483648)).get!.1 := by
   exact ⟨rfl, rfl, rfl⟩
@@ -149,16 +152,20 @@ theorem step_vop1 {h : Host} {k : Nat} {sig : List Ty} {t : Ty}
 def chachaOps : List (List Directive) :=
   [ (x64Vec.vop (.add v4i32) (.vec .mm0, .vec .mm1, ()) (.vec .mm0, ()) .default).get!.1
   , (x64Vec.vop (.xor v4i32) (.vec .mm3, .vec .mm0, ()) (.vec .mm3, ()) .default).get!.1
-  , (x64Vec.vop (.rotr v4i32) (.vec .mm3, .imm (splatV 2 16#32), ()) (.vec .mm3, ()) .default).get!.1
+  , (x64Vec.vop (.rotr v4i32) (.vec .mm3, .imm (splatV 2 16#32), ())
+    (.vec .mm3, ()) .default).get!.1
   , (x64Vec.vop (.add v4i32) (.vec .mm2, .vec .mm3, ()) (.vec .mm2, ()) .default).get!.1
   , (x64Vec.vop (.xor v4i32) (.vec .mm1, .vec .mm2, ()) (.vec .mm1, ()) .default).get!.1
-  , (x64Vec.vop (.rotr v4i32) (.vec .mm1, .imm (splatV 2 20#32), ()) (.vec .mm1, ()) .default).get!.1
+  , (x64Vec.vop (.rotr v4i32) (.vec .mm1, .imm (splatV 2 20#32), ())
+    (.vec .mm1, ()) .default).get!.1
   , (x64Vec.vop (.add v4i32) (.vec .mm0, .vec .mm1, ()) (.vec .mm0, ()) .default).get!.1
   , (x64Vec.vop (.xor v4i32) (.vec .mm3, .vec .mm0, ()) (.vec .mm3, ()) .default).get!.1
-  , (x64Vec.vop (.rotr v4i32) (.vec .mm3, .imm (splatV 2 24#32), ()) (.vec .mm3, ()) .default).get!.1
+  , (x64Vec.vop (.rotr v4i32) (.vec .mm3, .imm (splatV 2 24#32), ())
+    (.vec .mm3, ()) .default).get!.1
   , (x64Vec.vop (.add v4i32) (.vec .mm2, .vec .mm3, ()) (.vec .mm2, ()) .default).get!.1
   , (x64Vec.vop (.xor v4i32) (.vec .mm1, .vec .mm2, ()) (.vec .mm1, ()) .default).get!.1
-  , (x64Vec.vop (.rotr v4i32) (.vec .mm1, .imm (splatV 2 25#32), ()) (.vec .mm1, ()) .default).get!.1
+  , (x64Vec.vop (.rotr v4i32) (.vec .mm1, .imm (splatV 2 25#32), ())
+    (.vec .mm1, ()) .default).get!.1
   , (x64Vec.vop (.shufd v4i32 0x39#8) (.vec .mm1, ()) (.vec .mm1, ()) .default).get!.1
   ]
 
@@ -166,14 +173,16 @@ def chachaQrProg : List Directive := chachaOps.flatten
 
 theorem chachaQrProg_small :
     (Kraken.Layout.apply testLayout chachaQrProg).sizeBefore chachaQrProg.length < 2 ^ 64 := by
-  simp only [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size, chachaQrProg, chachaOps]
+  simp only [Kraken.Layout.apply, Kraken.Executable.sizeBefore, Kraken.Layout.size, chachaQrProg,
+    chachaOps]
   decide
 
 @[instance_reducible] def chachaHost : Host :=
   Host.ofLayout chachaQrProg testLayout chachaQrProg_small
 
 def rowRotr (r : Row) (n : Nat) : Row :=
-  lift2 (fun x y => x.rotateRight (y.toNat % 32)) (fun _ y => y) v4i32 r (splatV 2 (BitVec.ofNat 32 n))
+  lift2 (fun x y => x.rotateRight (y.toNat % 32))
+    (fun _ y => y) v4i32 r (splatV 2 (BitVec.ofNat 32 n))
 
 def rowAddV (a b : Row) : Row := lift2 (· + ·) (fun x _ => x) v4i32 a b
 def rowXorV (a b : Row) : Row := lift2 (· ^^^ ·) (fun x _ => x) v4i32 a b
@@ -322,7 +331,8 @@ theorem chachaQrModel_rfc8439_lane0_shufd :
     let initD := mkRow 0x01234567#32 0x13#32 0x23#32 0x33#32
     let (a', b'shuf, c', d') := chachaQrModel initA initB initC initD
     -- Lane 0 of (a', c', d') and lane 3 of shufd $0x39 b' match RFC 8439 §2.1.1 directly:
-    (a'.1.1, b'shuf.2.2, c'.1.1, d'.1.1) = quarterRound 0x11111111#32 0x01020304#32 0x9b8d6f43#32 0x01234567#32 ∧
+    (a'.1.1, b'shuf.2.2, c'.1.1,
+      d'.1.1) = quarterRound 0x11111111#32 0x01020304#32 0x9b8d6f43#32 0x01234567#32 ∧
     -- `shufd $0x39` shifts `b` lanes left (downward by 1 dword) cleanly:
     b'shuf.1.1 = (quarterRound 0x10#32 0x11#32 0x12#32 0x13#32).2.1 ∧
     b'shuf.1.2 = (quarterRound 0x20#32 0x21#32 0x22#32 0x23#32).2.1 ∧
@@ -351,24 +361,31 @@ private theorem unpackFloat_notANumber {x : BitVec 32} (hx : isFloatNaN .s x = t
   | infinity _ | zero _ | finite _ _ _ _ => simp [hu, Float.Model.UnpackedFloat.isNaN] at hx
 
 private theorem floatResultWp_of_eval {x y expect : BitVec 32}
-    (hna : (Float.Model.UnpackedFloat.add .binary32 (unpackFloat .s x) (unpackFloat .s y)).isNaN = false)
-    (hpk : packFloat .s (Float.Model.UnpackedFloat.add .binary32 (unpackFloat .s x) (unpackFloat .s y)) = expect) :
+    (hna : (Float.Model.UnpackedFloat.add .binary32 (unpackFloat .s x)
+      (unpackFloat .s y)).isNaN = false)
+    (hpk : packFloat .s (Float.Model.UnpackedFloat.add .binary32 (unpackFloat .s x)
+      (unpackFloat .s y)) = expect) :
     floatResultWp .s (Float.Model.UnpackedFloat.add .binary32 (unpackFloat .s x) (unpackFloat .s y))
       (fun r => r = expect) := by
   unfold floatResultWp; simp [hna, hpk]
 
 private theorem floatResultWp_sub_of_eval {x y expect : BitVec 32}
-    (hna : (Float.Model.UnpackedFloat.sub .binary32 (unpackFloat .s x) (unpackFloat .s y)).isNaN = false)
-    (hpk : packFloat .s (Float.Model.UnpackedFloat.sub .binary32 (unpackFloat .s x) (unpackFloat .s y)) = expect) :
+    (hna : (Float.Model.UnpackedFloat.sub .binary32 (unpackFloat .s x)
+      (unpackFloat .s y)).isNaN = false)
+    (hpk : packFloat .s (Float.Model.UnpackedFloat.sub .binary32 (unpackFloat .s x)
+      (unpackFloat .s y)) = expect) :
     floatResultWp .s (Float.Model.UnpackedFloat.sub .binary32 (unpackFloat .s x) (unpackFloat .s y))
       (fun r => r = expect) := by
   unfold floatResultWp; simp [hna, hpk]
 
 theorem floatVecProg_nan_run {n0 n1 : BitVec 32}
     (hn0 : isFloatNaN .s n0 = true) (hn1 : isFloatNaN .s n1 = true) {s : MachineData}
-    (h0 : VecHolds (x64Mach.getVec s .mm0) v4f32 ((0x3f800000#32, n0), (0x40200000#32, 0x40400000#32)))
-    (h1 : VecHolds (x64Mach.getVec s .mm1) v4f32 ((0x40000000#32, 0x3f800000#32), (0x3fc00000#32, n1)))
-    (h2 : VecHolds (x64Mach.getVec s .mm2) v4f32 ((0x3f000000#32, 0x3f800000#32), (0x3f000000#32, 0x3f800000#32))) :
+    (h0 : VecHolds (x64Mach.getVec s .mm0) v4f32 ((0x3f800000#32, n0), (0x40200000#32,
+      0x40400000#32)))
+    (h1 : VecHolds (x64Mach.getVec s .mm1) v4f32 ((0x40000000#32, 0x3f800000#32), (0x3fc00000#32,
+      n1)))
+    (h2 : VecHolds (x64Mach.getVec s .mm2) v4f32 ((0x3f000000#32, 0x3f800000#32), (0x3f000000#32,
+      0x3f800000#32))) :
     x64Mach.Run floatHost 0 s fun st =>
       ∃ res : Val v4f32, VecHolds (x64Mach.getVec st.data .mm0) v4f32 res ∧
         res.1.1 = 0x40200000#32 ∧ isFloatNaN .s res.1.2 = true ∧
@@ -410,7 +427,8 @@ theorem floatVecProg_nan_run {n0 n1 : BitVec 32}
   rcases mid with ⟨⟨m0, m1⟩, ⟨m2, m3⟩⟩
   dsimp only at hm0 hm1n hm2 hm3n
   subst hm0 hm2
-  have h2_s1 : VecHolds (x64Mach.getVec s1 .mm2) v4f32 ((0x3f000000#32, 0x3f800000#32), (0x3f000000#32, 0x3f800000#32)) := by
+  have h2_s1 : VecHolds (x64Mach.getVec s1 .mm2) v4f32 ((0x3f000000#32, 0x3f800000#32),
+    (0x3f000000#32, 0x3f800000#32)) := by
     rw [hfr1.2.1 .mm2 (by simp [tupDstVecs, x64VecScratch])]; exact h2
   have hwp_sub : (OpCode.fsub v4f32).wp
       (((0x40400000#32, m1), (0x40800000#32, m3)),
@@ -667,8 +685,10 @@ theorem unalignedProg_run {v64 : Val v2i32} {v128 : Val v4i32} {v512 : Val v16i3
       hfr2.2.1 .mm4 (by simp [x64VecScratch]), hfr1.2.1 .mm4 (by simp [x64VecScratch])]; exact hm4
   -- Step 4–5: vslotSt .w512 (2 ^ 29) .mm4 ; vslotLd .w512 .mm5 (2 ^ 29)
   have hmem4 : s4.dmem =⋆
-      region (x64Mach.getGpr s4 x64Frame.sp + BitVec.ofNat 64 (8 * 2 ^ 29)) (8 * SlotWidth.w512.slots) ⋆
-      (array64 (x64Mach.getGpr s x64Frame.sp + 8#64) (unpackSlotWords .w128 (x64Mach.getVec s2 .mm2)) ⋆
+      region (x64Mach.getGpr s4 x64Frame.sp + BitVec.ofNat 64 (8 * 2 ^ 29))
+        (8 * SlotWidth.w512.slots) ⋆
+      (array64 (x64Mach.getGpr s x64Frame.sp + 8#64)
+        (unpackSlotWords .w128 (x64Mach.getVec s2 .mm2)) ⋆
         array64 (x64Mach.getGpr s x64Frame.sp) (unpackSlotWords .w64 (x64Mach.getVec s .mm0)) ⋆
         cell (x64Mach.getGpr s .rbx + 2147483648#64) memInit ⋆ R) := by
     change s4.dmem = s3.dmem at hdmem4
@@ -683,12 +703,14 @@ theorem unalignedProg_run {v64 : Val v2i32} {v128 : Val v4i32} {v512 : Val v16i3
   have hmem5' : s5.dmem =⋆
       array64 (x64Mach.getGpr s5 x64Frame.sp + BitVec.ofNat 64 (8 * 2 ^ 29))
         (unpackSlotWords .w512 (x64Mach.getVec s4 .mm4)) ⋆
-      (array64 (x64Mach.getGpr s x64Frame.sp + 8#64) (unpackSlotWords .w128 (x64Mach.getVec s2 .mm2)) ⋆
+      (array64 (x64Mach.getGpr s x64Frame.sp + 8#64)
+        (unpackSlotWords .w128 (x64Mach.getVec s2 .mm2)) ⋆
         array64 (x64Mach.getGpr s x64Frame.sp) (unpackSlotWords .w64 (x64Mach.getVec s .mm0)) ⋆
         cell (x64Mach.getGpr s .rbx + 2147483648#64) memInit ⋆ R) := by
     change (array64 (x64Mach.getGpr s4 x64Frame.sp + BitVec.ofNat 64 (8 * 2 ^ 29))
         (unpackSlotWords .w512 (x64Mach.getVec s4 .mm4)) ⋆
-      (array64 (x64Mach.getGpr s x64Frame.sp + 8#64) (unpackSlotWords .w128 (x64Mach.getVec s2 .mm2)) ⋆
+      (array64 (x64Mach.getGpr s x64Frame.sp + 8#64)
+        (unpackSlotWords .w128 (x64Mach.getVec s2 .mm2)) ⋆
         array64 (x64Mach.getGpr s x64Frame.sp) (unpackSlotWords .w64 (x64Mach.getVec s .mm0)) ⋆
         cell (x64Mach.getGpr s .rbx + 2147483648#64) memInit ⋆ R)) s5.dmem at hmem5
     rw [hsp4] at hmem5; rw [hsp5]; exact hmem5
@@ -697,9 +719,11 @@ theorem unalignedProg_run {v64 : Val v2i32} {v128 : Val v4i32} {v512 : Val v16i3
   have hm5_6 : VecHolds (x64Mach.getVec s6 .mm5) v16i32 v512 :=
     VecHolds.of_setWidth_eq (by decide) hld5 hm4_4
   have hm1_6 : VecHolds (x64Mach.getVec s6 .mm1) v2i32 v64 := by
-    rw [hfr6.2.1 .mm1 (by simp [x64VecScratch]), hfr5.2.1 .mm1 (by simp [x64VecScratch])]; exact hm1_4
+    rw [hfr6.2.1 .mm1 (by simp [x64VecScratch]), hfr5.2.1 .mm1 (by simp [x64VecScratch])];
+    exact hm1_4
   have hm3_6 : VecHolds (x64Mach.getVec s6 .mm3) v4i32 v128 := by
-    rw [hfr6.2.1 .mm3 (by simp [x64VecScratch]), hfr5.2.1 .mm3 (by simp [x64VecScratch])]; exact hm3_4
+    rw [hfr6.2.1 .mm3 (by simp [x64VecScratch]), hfr5.2.1 .mm3 (by simp [x64VecScratch])];
+    exact hm3_4
   have hm6_6 : VecHolds (x64Mach.getVec s6 .mm6) v4i32 memVal := by
     rw [hfr6.2.1 .mm6 (by simp [x64VecScratch]), hfr5.2.1 .mm6 (by simp [x64VecScratch]),
       hfr4.2.1 .mm6 (by simp [x64VecScratch]), hfr3.2.1 .mm6 (by simp [x64VecScratch]),
@@ -712,8 +736,10 @@ theorem unalignedProg_run {v64 : Val v2i32} {v128 : Val v4i32} {v512 : Val v16i3
   have hmem6 : (cell (x64Mach.getGpr s6 .rbx + 2147483648#64) memInit ⋆
       (array64 (x64Mach.getGpr s x64Frame.sp + BitVec.ofNat 64 (8 * 2 ^ 29))
         (unpackSlotWords .w512 (x64Mach.getVec s4 .mm4)) ⋆
-        array64 (x64Mach.getGpr s x64Frame.sp + 8#64) (unpackSlotWords .w128 (x64Mach.getVec s2 .mm2)) ⋆
-        array64 (x64Mach.getGpr s x64Frame.sp) (unpackSlotWords .w64 (x64Mach.getVec s .mm0)) ⋆ R)) s6.dmem := by
+        array64 (x64Mach.getGpr s x64Frame.sp + 8#64)
+          (unpackSlotWords .w128 (x64Mach.getVec s2 .mm2)) ⋆
+        array64 (x64Mach.getGpr s x64Frame.sp)
+          (unpackSlotWords .w64 (x64Mach.getVec s .mm0)) ⋆ R)) s6.dmem := by
     change s6.dmem = s5.dmem at hdmem6
     rw [hdmem6, hrbx6]
     rw [hsp5] at hmem5'
@@ -729,8 +755,10 @@ theorem unalignedProg_run {v64 : Val v2i32} {v128 : Val v4i32} {v512 : Val v16i3
   have hmem7' : (cell (AddrArg.eval (x64Mach.getGpr s7) (.baseDisp .rbx 2147483648)) memVal ⋆
       (array64 (x64Mach.getGpr s x64Frame.sp + BitVec.ofNat 64 (8 * 2 ^ 29))
         (unpackSlotWords .w512 (x64Mach.getVec s4 .mm4)) ⋆
-        array64 (x64Mach.getGpr s x64Frame.sp + 8#64) (unpackSlotWords .w128 (x64Mach.getVec s2 .mm2)) ⋆
-        array64 (x64Mach.getGpr s x64Frame.sp) (unpackSlotWords .w64 (x64Mach.getVec s .mm0)) ⋆ R)) s7.dmem := by
+        array64 (x64Mach.getGpr s x64Frame.sp + 8#64)
+          (unpackSlotWords .w128 (x64Mach.getVec s2 .mm2)) ⋆
+        array64 (x64Mach.getGpr s x64Frame.sp)
+          (unpackSlotWords .w64 (x64Mach.getVec s .mm0)) ⋆ R)) s7.dmem := by
     change s7.dmem = _ at hmem7
     rw [hmem7, ha_eval6, show AddrArg.eval (x64Mach.getGpr s7) (.baseDisp .rbx 2147483648) =
       x64Mach.getGpr s6 .rbx + 2147483648#64 by rw [AddrArg.eval, hrbx7]; rfl]
@@ -739,10 +767,16 @@ theorem unalignedProg_run {v64 : Val v2i32} {v128 : Val v4i32} {v512 : Val v16i3
     (by simp [AddrArg.regs, x64Scratch]) (loadVal_cell (by decide) hmem7') hc7 ?_
   rintro s8 ⟨hm7_8, _⟩ hfr8
   exact Eventually.done _
-    ⟨by rw [hfr8.2.1 .mm1 (by simp [x64VecScratch]), hfr7.2.1 .mm1 (by simp [x64VecScratch])]; exact hm1_6,
-     by rw [hfr8.2.1 .mm3 (by simp [x64VecScratch]), hfr7.2.1 .mm3 (by simp [x64VecScratch])]; exact hm3_6,
-     by rw [hfr8.2.1 .mm5 (by simp [x64VecScratch]), hfr7.2.1 .mm5 (by simp [x64VecScratch])]; exact hm5_6,
-     hm7_8, hspUnalign, haddrUnalign⟩
+    ⟨(by
+        rw [hfr8.2.1 .mm1 (by simp [x64VecScratch]), hfr7.2.1 .mm1 (by simp [x64VecScratch])]
+        exact hm1_6),
+      (by
+        rw [hfr8.2.1 .mm3 (by simp [x64VecScratch]), hfr7.2.1 .mm3 (by simp [x64VecScratch])]
+        exact hm3_6),
+      (by
+        rw [hfr8.2.1 .mm5 (by simp [x64VecScratch]), hfr7.2.1 .mm5 (by simp [x64VecScratch])]
+        exact hm5_6),
+      hm7_8, hspUnalign, haddrUnalign⟩
 
 /-! ## 6. Standard-axiom audit -/
 

@@ -36,20 +36,20 @@ open LeanQbe.T.LeanLCNF
     throwError "LcnfC0ExternF1Arm64Test leaked Amd64 imports: {bad.toList}"
 
 /-- Pure leaf function (`f1_leaf x = x + 7`), zero exits. -/
-@[expose] def fnF1LeafArm : Fn :=
+def fnF1LeafArm : Fn :=
   ⟨"f1_leaf", [i64], [i64], fun _ _ (x, ()) =>
     .let_ ⟨.add i64, (.var x, .imm 7#64, ())⟩ fun (r, ()) =>
     .ret (.var r, ())⟩
 
 /-- Pure caller (`f1_callee x = f1_leaf(x) + 1`), zero exits. -/
-@[expose] def fnF1CalleeArm : Fn :=
+def fnF1CalleeArm : Fn :=
   ⟨"f1_callee", [i64], [i64], fun _ _ (x, ()) =>
     .call "f1_leaf" (as := [i64]) (bs := [i64]) (.var x, ()) fun (y, ()) =>
     .let_ ⟨.add i64, (.var y, .imm 1#64, ())⟩ fun (r, ()) =>
     .ret (.var r, ())⟩
 
 /-- Exit-capable caller calling `.exit "lcnf_panic"` on `x = 0` else `f1_callee x`. -/
-@[expose] def fnF1CheckedArm : Fn :=
+def fnF1CheckedArm : Fn :=
   ⟨"f1_checked", [i64], [i64], fun _ _ (x, ()) =>
     .let_ ⟨.cmp .eq i64, (.var x, .imm 0#64, ())⟩ fun (b, ()) =>
     .jnz (.var b)
@@ -57,15 +57,15 @@ open LeanQbe.T.LeanLCNF
       (.call "f1_callee" (as := [i64]) (bs := [i64]) (.var x, ()) fun (y, ()) =>
         .ret (.var y, ()))⟩
 
-@[expose] def noExitModArm : Module :=
+def noExitModArm : Module :=
   { fns := [fnF1LeafArm, fnF1CalleeArm], externs := [], exits := [] }
 
-@[expose] def exitRtModArm : Module :=
+def exitRtModArm : Module :=
   { fns := [fnF1CheckedArm]
     externs := [{ name := "f1_callee", as := [i64], rs := [i64] }]
     exits := rtExitSyms }
 
-@[expose] def fullF1ModArm : Module :=
+def fullF1ModArm : Module :=
   { fns := noExitModArm.fns ++ exitRtModArm.fns, externs := [], exits := rtExitSyms }
 
 compile_linked_chunks! armNoExitCert
@@ -77,13 +77,13 @@ compile_linked_chunks! armExitCert
   (ext := armNoExitCert.exportedExt) (exits := rtExitSyms) (nX := 64)
 
 /-- Lift zero-exit `armNoExitCert` to `exits = rtExitSyms`, `nX = 64` with zero recompilation. -/
-@[expose] noncomputable def armWeakCert :
+noncomputable def armWeakCert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
       noExitModArm [] rtExitSyms 64 2048 :=
   armNoExitCert.weakenNoExit rtExitSyms 64 (by t_kernel_rfl) (by t_kernel_rfl)
 
 theorem armWeakCert_numChunks : armWeakCert.numChunks = armNoExitCert.numChunks :=
-  rfl
+  by rfl
 
 theorem armWeakCert_bounds : armWeakCert.bounds = armNoExitCert.bounds :=
   armNoExitCert.weakenNoExit_bounds rtExitSyms 64 (by t_kernel_rfl) (by t_kernel_rfl)
@@ -91,13 +91,13 @@ theorem armWeakCert_bounds : armWeakCert.bounds = armNoExitCert.bounds :=
 theorem armWeakCert_code0 :
     (armWeakCert.chunks[0]'(by decide)).compiled.code =
       (armNoExitCert.chunks[0]'(by decide)).compiled.code :=
-  rfl
+  by rfl
 
 theorem armWeakCert_defined_panic :
     armTarget.Defined armWeakCert.host "lcnf_panic" :=
   armWeakCert.defined_exit_host (by simp [rtExitSyms])
 
-@[expose] noncomputable def armComposedCert :
+noncomputable def armComposedCert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
       fullF1ModArm [] rtExitSyms 64 2048 :=
   armWeakCert.append armExitCert rfl (by t_kernel_rfl)
@@ -106,7 +106,7 @@ theorem armComposedCert_bounds_len : armComposedCert.bounds.length = 3 := by
   rw [armComposedCert.bounds_length, armComposedCert.fns_eq]
   decide
 
-@[expose] noncomputable def armExtraExitCert :
+noncomputable def armExtraExitCert :
     LinkedCert armTarget armLayout armLegalTarget armLabelClean
       noExitModArm [] (rtExitSyms ++ ["f1_extra_arm"]) 64 2048 :=
   armWeakCert.weakenExits (rtExitSyms ++ ["f1_extra_arm"])

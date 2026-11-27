@@ -37,7 +37,7 @@ Wave 6.2-A `GprIsa` hooks switched off (`armIsaNoOpt710`):
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.Arm64W62Opt710Test
 

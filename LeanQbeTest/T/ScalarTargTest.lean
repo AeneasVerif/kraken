@@ -36,13 +36,13 @@ open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Notation Kraken
 /-! ## 1. Sample Scalar `T` Module (`add_fn` + `loop_fn`) -/
 
 /-- `add_fn(a, b) = a + b`. -/
-@[expose] def addFn : Fn := tqbe $add_fn(%a:l, %b:l) -> l {
+def addFn : Fn := tqbe $add_fn(%a:l, %b:l) -> l {
   %s =l add %a, %b
   ret %s
 }
 
 /-- `loop_fn(p, n)`: adds `1 + 2 + … + n` into `*p` via `add_fn` and stores/returns the sum. -/
-@[expose] def loopFn : Fn := tqbe $loop_fn(%p:l, %n:l) -> l {
+def loopFn : Fn := tqbe $loop_fn(%p:l, %n:l) -> l {
   %acc0 =l load %p
   loop @loop(%i:l = %n, %s:l = %acc0) {
     %w =w trunc %i
@@ -58,7 +58,7 @@ open LeanQbe.T LeanQbe.T.Amd64 LeanQbe.T.Notation Kraken
   }
 }
 
-@[expose] def scalarMod : Module :=
+def scalarMod : Module :=
   { fns := [addFn, loopFn] }
 
 theorem addFn_wf : addFn.Wf := by t_wf_reify

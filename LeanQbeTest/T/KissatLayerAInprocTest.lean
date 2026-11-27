@@ -29,7 +29,7 @@ open LeanQbe.T.Examples.Kissat
 
 /-! ## 1. Subsumption & Self-Subsuming Resolution (`LayerASubsume`) -/
 
-@[expose] public def subsumeSample : List (List Nat) :=
+public def subsumeSample : List (List Nat) :=
   [[0, 2, 4], [0, 2], [0, 2], [1, 2, 6], [2, 6, 8]]
 
 #guard
@@ -49,7 +49,7 @@ open LeanQbe.T.Examples.Kissat
 
 /-! ## 2. Failed-Literal Probing & Vivification (`LayerAVivify`) -/
 
-@[expose] public def probeSample : List (List Nat) :=
+public def probeSample : List (List Nat) :=
   [[0, 2], [1, 2], [3, 4]]
 
 #guard
@@ -57,9 +57,9 @@ open LeanQbe.T.Examples.Kissat
   probeFailedLit 16 probeSample 2 &&
   !(probeFailedLit 16 probeSample 0)
 
-@[expose] public def vivifyConflRest : List (List Nat) := [[0, 2], [0, 3]]
-@[expose] public def vivifyImpRest : List (List Nat) := [[0, 2], [3, 4]]
-@[expose] public def vivifyDropRest : List (List Nat) := [[0, 3]]
+public def vivifyConflRest : List (List Nat) := [[0, 2], [0, 3]]
+public def vivifyImpRest : List (List Nat) := [[0, 2], [3, 4]]
+public def vivifyDropRest : List (List Nat) := [[0, 3]]
 
 #guard
   -- Conflict vivification: assuming `¬0 = 1` triggers conflict in `[[0, 2], [0, 3]]` -> `[0]`.
@@ -69,7 +69,7 @@ open LeanQbe.T.Examples.Kissat
   -- Falsified-literal drop: `¬0 = 1` propagates `3 = ¬2` -> drops `2` -> `[0, 4]`.
   vivifyClause 16 vivifyDropRest [0, 2, 4] == [0, 4]
 
-@[expose] public def vivifyPassSample : List (List Nat) :=
+public def vivifyPassSample : List (List Nat) :=
   [[0, 2], [0, 3], [0, 4, 6], [1, 4, 5]]
 
 #guard vivifyPass 16 vivifyPassSample == [[0], [0], [0], [4, 5]]
@@ -77,7 +77,7 @@ open LeanQbe.T.Examples.Kissat
 
 /-! ## 3. Bounded Variable Elimination & Model Reconstruction (`LayerABve1`, `LayerABve`) -/
 
-@[expose] public def bveSatSample : List (List Nat) :=
+public def bveSatSample : List (List Nat) :=
   [[0, 2, 4], [1, 3, 4], [0, 5], [1, 2, 6], [2, 3, 7], [0, 1, 8]]
 
 #guard
@@ -95,7 +95,7 @@ open LeanQbe.T.Examples.Kissat
     evalCnf σ red && evalCnf σFull bveSatSample && checkModel (cnfOfClauses bveSatSample) σFull
   | _ => false
 
-@[expose] public def bveUnsatSample : List (List Nat) :=
+public def bveUnsatSample : List (List Nat) :=
   [[0, 2], [0, 3], [1, 2], [1, 3]]
 
 #guard

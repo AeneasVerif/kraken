@@ -7,8 +7,6 @@ public import LeanQbe.T.Logic.MemLemmas
 public import Kraken.Layout
 public import Kraken.Separation
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Shared Multi-Chunk Linking Fixtures & Specifications (`MainLinkFixtures`)

@@ -45,7 +45,7 @@ Self-contained audit for the Lean 4 impure-LCNF (`LeanQbe.T.LeanLCNF`) frontend 
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LcnfAudit
 

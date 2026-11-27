@@ -299,7 +299,7 @@ theorem lratTrim_x64_checkCompile :
 
 /-- `Kissat.Plain` callee-first slice (`plain_assign`, `plain_find_repl`, `plain_red_less`,
 `plain_sort_reds`). -/
-@[expose] def kissatPropSlice : List Fn :=
+def kissatPropSlice : List Fn :=
   [plain_assign, plain_find_repl, plain_red_less, plain_sort_reds]
 
 -- Compile the Kissat propagation slice on x64 (`checkCompile = true`).

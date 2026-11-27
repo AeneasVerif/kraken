@@ -46,17 +46,17 @@ namespace LeanQbeTest.T.IfOptStoreSinkTest
 open LeanQbe.T
 
 /-- Check whether `op` is a `.select` operation. -/
-@[expose] def isSelectOp : {sig ts : List Ty} → OpCode sig ts → Bool
+def isSelectOp : {sig ts : List Ty} → OpCode sig ts → Bool
   | _, _, .select _ => true
   | _, _, _ => false
 
 /-- Combine 4-tuple counters `(jnz, load, store, select)` componentwise. -/
-@[expose] def add4 (a b : Nat × Nat × Nat × Nat) : Nat × Nat × Nat × Nat :=
+def add4 (a b : Nat × Nat × Nat × Nat) : Nat × Nat × Nat × Nat :=
   (a.1 + b.1, a.2.1 + b.2.1, a.2.2.1 + b.2.2.1, a.2.2.2 + b.2.2.2)
 
 mutual
 /-- Recursive `(jnz, load, store, select)` counter across `TFlat`. -/
-@[expose] def countTFlat : {rs : List Ty} → TFlat rs → Nat × Nat × Nat × Nat
+def countTFlat : {rs : List Ty} → TFlat rs → Nat × Nat × Nat × Nat
   | _, .let_ op k =>
     let sel := if isSelectOp op.code then 1 else 0
     add4 (0, 0, 0, sel) (countTFlat k)
@@ -68,7 +68,7 @@ mutual
   | _, .jump _ _ | _, .ret _ | _, .exit _ _ | _, .hlt => (0, 0, 0, 0)
 
 /-- Recursive `(jnz, load, store, select)` counter across `TBlocks`. -/
-@[expose] def countTBlocks : {rs : List Ty} → {sig : List (List Ty)} → TBlocks rs sig →
+def countTBlocks : {rs : List Ty} → {sig : List (List Ty)} → TBlocks rs sig →
     Nat × Nat × Nat × Nat
   | _, _, .nil => (0, 0, 0, 0)
   | _, _, .cons b bs => add4 (countTFlat b) (countTBlocks bs)
@@ -76,7 +76,7 @@ end
 
 /-- `full_m6_sweep_sim`-shaped RMW diamond with GVN-matched address ops and `.ret` tail:
 `if (flag == 1) { sig[gv] |= mask; return 1; } else { sig[gv] &= ~mask; return 0; }`. -/
-@[expose] def fullM6SweepRmwDia : Func [i32, i64, i32, i64] [i64] :=
+def fullM6SweepRmwDia : Func [i32, i64, i32, i64] [i64] :=
   fun _ _ (flag, sig, gv, mask, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 1#32)) fun (cond, ()) =>
   .jnz (.var cond)
@@ -126,7 +126,7 @@ theorem fullM6SweepRmwDia_callsOk {allowed : List SigEntry} {exits : List Sym}
   Func.ifOptBits_callsOk fullM6SweepRmwDia_wf hc
 
 /-- `full_m6_sweep_sim.L33`-shaped loop with inner RMW diamond + post-store `i + 1` tail. -/
-@[expose] def fullM6SweepRmwLoop : Func [i32, i64, i64, i64] [i64] :=
+def fullM6SweepRmwLoop : Func [i32, i64, i64, i64] [i64] :=
   fun _ _ (nv, valsPtr, sigPtr, mask, ()) =>
   .group (sig := [[i32]])
     (fun (loop, ()) =>
@@ -172,7 +172,7 @@ theorem fullM6SweepRmwLoop_spec {Γ : Env} {xs m Q X}
   Func.ifOptBits_spec fullM6SweepRmwLoop_wf h
 
 /-- Non-RMW identical-address store diamond in a 1-block `.group` (`Func.ifOpt`). -/
-@[expose] def pureStoreGroupDia : Func [i32, i64, i64, i64] [i64] :=
+def pureStoreGroupDia : Func [i32, i64, i64, i64] [i64] :=
   fun _ _ (flag, addr, x, y, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 1#32)) fun (c, ()) =>
   .group (sig := [[i64]])
@@ -205,7 +205,7 @@ theorem pureStoreGroupDia_spec {Γ : Env} {xs m Q X}
     (Func.ifOpt_spec pureStoreGroupDia_wf h)
 
 /-- Two-load matched diamond with identical exit argument deduplication (`select` count = 1). -/
-@[expose] def twoLoadReuseDia : Func [i32, i64, i64, i64] [i64] :=
+def twoLoadReuseDia : Func [i32, i64, i64, i64] [i64] :=
   fun _ _ (flag, a1, a2, retv, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 0#32)) fun (c, ()) =>
   .jnz (.var c)
@@ -231,21 +231,21 @@ theorem twoLoadReuseDia_spec {Γ : Env} {xs m Q X}
 
 /-! ## Negative Guard Fixtures (must keep `.jnz`) -/
 
-@[expose] def negMismatchAddr : Func [i32, i64, i64, i64] [i64] :=
+def negMismatchAddr : Func [i32, i64, i64, i64] [i64] :=
   fun _ _ (flag, a1, a2, v, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 1#32)) fun (c, ()) =>
   .jnz (.var c)
     (.store (.var v) (.var a1) <| .ret (.imm 1#64, ()))
     (.store (.var v) (.var a2) <| .ret (.imm 0#64, ()))
 
-@[expose] def negMismatchTy : Func [i32, i64, i32, i64] [i64] :=
+def negMismatchTy : Func [i32, i64, i32, i64] [i64] :=
   fun _ _ (flag, a, v32, v64, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 1#32)) fun (c, ()) =>
   .jnz (.var c)
     (.store (t := i32) (.var v32) (.var a) <| .ret (.imm 1#64, ()))
     (.store (t := i64) (.var v64) (.var a) <| .ret (.imm 0#64, ()))
 
-@[expose] def negTrapDiv : Func [i32, i64, i64, i64] [i64] :=
+def negTrapDiv : Func [i32, i64, i64, i64] [i64] :=
   fun _ _ (flag, a, x, y, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 1#32)) fun (c, ()) =>
   .jnz (.var c)
@@ -253,14 +253,14 @@ theorem twoLoadReuseDia_spec {Γ : Env} {xs m Q X}
      .store (.var q) (.var a) <| .ret (.imm 1#64, ()))
     (.store (.var x) (.var a) <| .ret (.imm 0#64, ()))
 
-@[expose] def negOneArmStore : Func [i32, i64, i64] [i64] :=
+def negOneArmStore : Func [i32, i64, i64] [i64] :=
   fun _ _ (flag, a, x, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 1#32)) fun (c, ()) =>
   .jnz (.var c)
     (.store (.var x) (.var a) <| .ret (.imm 1#64, ()))
     (.ret (.imm 0#64, ()))
 
-@[expose] def negUnmatchedLoad : Func [i32, i64, i64, i64] [i64] :=
+def negUnmatchedLoad : Func [i32, i64, i64, i64] [i64] :=
   fun _ _ (flag, a1, a2, v, ()) =>
   .let_ (op2 (.cmp .eq i32) (.var flag) (.imm 1#32)) fun (c, ()) =>
   .jnz (.var c)

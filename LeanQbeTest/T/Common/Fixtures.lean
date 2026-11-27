@@ -9,8 +9,6 @@ public import LeanQbe.T.Logic.MemLemmas
 public import Std.Sat.CNF
 public import Kraken.Layout
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
 
 /-!
 # Shared Test Fixtures, Specifications, and Acyclic Modules (`Common.Fixtures`)

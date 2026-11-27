@@ -38,7 +38,7 @@ open LeanQbe.T LeanQbe.T.Arm64 LeanQbe.T.Xcap LeanQbe.T.BedrockWord
 open LeanQbe.T.Unified LeanQbe.T.ProofKit Kraken
 open LeanQbeTest.T.BedrockCfgStage2Test
 
-@[expose] def armCodec : AddrCodec armTarget where
+def armCodec : AddrCodec armTarget where
   toBits := Int64.toBitVec
   ofBits := Int64.ofBitVec
   of_to := Int64.ofBitVec_toBitVec
@@ -60,7 +60,7 @@ theorem armEx1_meta :
       armEx1Code armEx1Bounds (ex1Fns.map Fn.name) [haltSym] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def armEx1Compiled :
+def armEx1Compiled :
     Compiled armTarget armLegalTarget [] [haltSym] 0 ex1Fns armEx1Hints 2048 :=
   compileCheckedLit armTarget armLayout armLegalTarget armLabelClean
     [] [haltSym] 0 ex1Fns armEx1Hints 2048 armEx1Code armEx1Bounds armEx1_cm armEx1_meta
@@ -80,7 +80,7 @@ theorem armEx2a_meta :
       armEx2aCode armEx2aBounds (ex2aFns.map Fn.name) [haltSym] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def armEx2aCompiled :
+def armEx2aCompiled :
     Compiled armTarget armLegalTarget [] [haltSym] 0 ex2aFns armEx2aHints 2048 :=
   compileCheckedLit armTarget armLayout armLegalTarget armLabelClean
     [] [haltSym] 0 ex2aFns armEx2aHints 2048 armEx2aCode armEx2aBounds armEx2a_cm armEx2a_meta
@@ -100,7 +100,7 @@ theorem armEx2b_meta :
       armEx2bCode armEx2bBounds (ex2bFns.map Fn.name) [haltSym] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def armEx2bCompiled :
+def armEx2bCompiled :
     Compiled armTarget armLegalTarget [] [haltSym] 0 ex2bFns armEx2bHints 2048 :=
   compileCheckedLit armTarget armLayout armLegalTarget armLabelClean
     [] [haltSym] 0 ex2bFns armEx2bHints 2048 armEx2bCode armEx2bBounds armEx2b_cm armEx2b_meta
@@ -120,7 +120,7 @@ theorem armEx3Ro_meta :
       armEx3RoCode armEx3RoBounds (ex3RoFns.map Fn.name) [haltSym] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def armEx3RoCompiled :
+def armEx3RoCompiled :
     Compiled armTarget armLegalTarget [] [haltSym] 0 ex3RoFns armEx3RoHints 2048 :=
   compileCheckedLit armTarget armLayout armLegalTarget armLabelClean
     [] [haltSym] 0 ex3RoFns armEx3RoHints 2048
@@ -143,7 +143,7 @@ theorem armEx3Guarded_meta :
       true := by
   t_kernel_rfl
 
-@[expose] def armEx3GuardedCompiled :
+def armEx3GuardedCompiled :
     Compiled armTarget armLegalTarget [] [haltSym] 0 ex3GuardedFns armEx3GuardedHints 2048 :=
   compileCheckedLit armTarget armLayout armLegalTarget armLabelClean
     [] [haltSym] 0 ex3GuardedFns armEx3GuardedHints 2048
@@ -164,7 +164,7 @@ theorem armEx6_meta :
       armEx6Code armEx6Bounds (ex6Fns.map Fn.name) [haltSym] 2048 = true := by
   t_kernel_rfl
 
-@[expose] def armEx6Compiled :
+def armEx6Compiled :
     Compiled armTarget armLegalTarget [] [haltSym] 0 ex6Fns armEx6Hints 2048 :=
   compileCheckedLit armTarget armLayout armLegalTarget armLabelClean
     [] [haltSym] 0 ex6Fns armEx6Hints 2048 armEx6Code armEx6Bounds armEx6_cm armEx6_meta

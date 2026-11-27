@@ -62,48 +62,48 @@ public section
     .call "mode" (as := [i64, i64]) (bs := [i64]) (.imm 1#64, .var x, ()) fun (z, ()) =>
     .ret (.var z, ())⟩
 
-@[expose] def incSpec : Spec [i64] [i64] :=
+def incSpec : Spec [i64] [i64] :=
   fun (x, ()) m Q _ => Q (x + 1#64, ()) m
 
-@[expose] def incWeakSpec : Spec [i64] [i64] :=
+def incWeakSpec : Spec [i64] [i64] :=
   fun (x, ()) m Q _ => ∃ y, y = x + 1#64 ∧ Q (y, ()) m
 
-@[expose] def mode0Spec : Spec [i64, i64] [i64] :=
+def mode0Spec : Spec [i64, i64] [i64] :=
   fun (md, x, ()) m Q _ => md = 0#64 ∧ Q (x + 10#64, ()) m
 
-@[expose] def mode1Spec : Spec [i64, i64] [i64] :=
+def mode1Spec : Spec [i64, i64] [i64] :=
   fun (md, x, ()) m Q _ => md ≠ 0#64 ∧ Q (x + x, ()) m
 
-@[expose] def modeSpec : Spec [i64, i64] [i64] :=
+def modeSpec : Spec [i64, i64] [i64] :=
   Spec.or mode0Spec mode1Spec
 
-@[expose] def modeIdxSpec : Bool → Spec [i64, i64] [i64]
+def modeIdxSpec : Bool → Spec [i64, i64] [i64]
   | true => mode0Spec
   | false => mode1Spec
 
-@[expose] def call0Spec : Spec [i64] [i64] :=
+def call0Spec : Spec [i64] [i64] :=
   fun (x, ()) m Q _ => Q (x + 1#64 + 10#64, ()) m
 
-@[expose] def call1Spec : Spec [i64] [i64] :=
+def call1Spec : Spec [i64] [i64] :=
   fun (x, ()) m Q _ => Q (x + x, ()) m
 
-@[expose] def incRow : SpecEntry := ⟨"inc", [i64], [i64], incSpec, true⟩
-@[expose] def modeRow : SpecEntry := ⟨"mode", [i64, i64], [i64], modeSpec, true⟩
-@[expose] def call0Row : SpecEntry := ⟨"call0", [i64], [i64], call0Spec, true⟩
-@[expose] def call1Row : SpecEntry := ⟨"call1", [i64], [i64], call1Spec, true⟩
+def incRow : SpecEntry := ⟨"inc", [i64], [i64], incSpec, true⟩
+def modeRow : SpecEntry := ⟨"mode", [i64, i64], [i64], modeSpec, true⟩
+def call0Row : SpecEntry := ⟨"call0", [i64], [i64], call0Spec, true⟩
+def call1Row : SpecEntry := ⟨"call1", [i64], [i64], call1Spec, true⟩
 
-@[expose] def seg0Fns : List Fn := [incFn, modeFn]
-@[expose] def seg0Specs : List SpecEntry := [incRow, modeRow]
-@[expose] def seg1Fns : List Fn := [call0Fn, call1Fn]
-@[expose] def seg1Specs : List SpecEntry := [call0Row, call1Row]
+def seg0Fns : List Fn := [incFn, modeFn]
+def seg0Specs : List SpecEntry := [incRow, modeRow]
+def seg1Fns : List Fn := [call0Fn, call1Fn]
+def seg1Specs : List SpecEntry := [call0Row, call1Row]
 
-@[expose] def toyFns : List Fn := seg0Fns ++ seg1Fns
-@[expose] def toyTbl : List SpecEntry := seg0Specs ++ seg1Specs
-@[expose] def toyMod : LeanQbe.T.Module := ⟨toyFns, [], []⟩
+def toyFns : List Fn := seg0Fns ++ seg1Fns
+def toyTbl : List SpecEntry := seg0Specs ++ seg1Specs
+def toyMod : LeanQbe.T.Module := ⟨toyFns, [], []⟩
 
-theorem seg0_sigs : seg0Specs.map SpecEntry.sig = seg0Fns.map Fn.sig := rfl
-theorem seg1_sigs : seg1Specs.map SpecEntry.sig = seg1Fns.map Fn.sig := rfl
-theorem toy_sigs : toyTbl.map SpecEntry.sig = toyFns.map Fn.sig := rfl
+theorem seg0_sigs : seg0Specs.map SpecEntry.sig = seg0Fns.map Fn.sig := by rfl
+theorem seg1_sigs : seg1Specs.map SpecEntry.sig = seg1Fns.map Fn.sig := by rfl
+theorem toy_sigs : toyTbl.map SpecEntry.sig = toyFns.map Fn.sig := by rfl
 
 theorem inc_mem : incRow ∈ seg0Specs := .head _
 theorem mode_mem : modeRow ∈ seg0Specs := .tail _ (.head _)
@@ -230,10 +230,10 @@ theorem toy_has_mode1 : (Env.ofTable toyTbl).Has "mode" mode1Spec :=
 
 /-! ## 2. `Env.override` & `noExit := false` Capability Tests -/
 
-@[expose] def incPlus2Spec : Spec [i64] [i64] :=
+def incPlus2Spec : Spec [i64] [i64] :=
   fun (x, ()) m Q _ => Q (x + 2#64, ()) m
 
-@[expose] def incNewRow : SpecEntry := ⟨"inc", [i64], [i64], incPlus2Spec, false⟩
+def incNewRow : SpecEntry := ⟨"inc", [i64], [i64], incPlus2Spec, false⟩
 
 theorem override_sat_new :
     (Env.override ["inc"] (Env.ofTable [incNewRow]) (Env.ofTable toyTbl)).Sat [incNewRow] :=
@@ -308,10 +308,10 @@ elab "gen_410_gate " pfx:ident sizes:num* : command => do
       elabCommand (← `(command|
         theorem $wfNm : Fn.Wf $fnNm := fun _ _ _ _ _ _ => $wfBodyStx))
       elabCommand (← `(command|
-        @[expose] def $specNm : Spec [i64] [i64] :=
+        def $specNm : Spec [i64] [i64] :=
           fun (_x, ()) _m Q _ => ∀ r m', Q (r, ()) m'))
       elabCommand (← `(command|
-        @[expose] def $rowNm : SpecEntry := ⟨$symLit, [i64], [i64], $specNm, true⟩))
+        def $rowNm : SpecEntry := ⟨$symLit, [i64], [i64], $specNm, true⟩))
 
       let mut binders : Array (TSyntax `Lean.Parser.Term.bracketedBinder) := #[]
       let mut termStx ← `(term| hQ _ _)
@@ -340,8 +340,8 @@ elab "gen_410_gate " pfx:ident sizes:num* : command => do
       mkIdent (Name.mkSimple s!"{ns}_fn_{startIdx + k}")
     let rowElems : Array Term := (Array.range cnt).map fun k =>
       mkIdent (Name.mkSimple s!"{ns}_row_{startIdx + k}")
-    elabCommand (← `(command| @[expose] def $segFnsNm : List Fn := [$fnElems,*]))
-    elabCommand (← `(command| @[expose] def $segSpecsNm : List SpecEntry := [$rowElems,*]))
+    elabCommand (← `(command| def $segFnsNm : List Fn := [$fnElems,*]))
+    elabCommand (← `(command| def $segSpecsNm : List SpecEntry := [$rowElems,*]))
 
     for k in [:cnt] do
       let i := startIdx + k
@@ -414,9 +414,9 @@ elab "gen_410_gate " pfx:ident sizes:num* : command => do
   let sat0Nm := mkIdent (Name.mkSimple s!"{ns}_sat0")
   let satLastNm := mkIdent (Name.mkSimple s!"{ns}_sat{total - 1}")
 
-  elabCommand (← `(command| @[expose] def $fnsNm : List Fn := $allFnsTerm))
-  elabCommand (← `(command| @[expose] def $tblNm : List SpecEntry := $allSpecsTerm))
-  elabCommand (← `(command| @[expose] def $modNm : LeanQbe.T.Module := ⟨$fnsNm, [], []⟩))
+  elabCommand (← `(command| def $fnsNm : List Fn := $allFnsTerm))
+  elabCommand (← `(command| def $tblNm : List SpecEntry := $allSpecsTerm))
+  elabCommand (← `(command| def $modNm : LeanQbe.T.Module := ⟨$fnsNm, [], []⟩))
 
   for s in [:numSegs] do
     let segWfNm := mkIdent (Name.mkSimple s!"{ns}_seg{s}_wf")

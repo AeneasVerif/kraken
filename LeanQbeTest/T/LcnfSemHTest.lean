@@ -38,14 +38,14 @@ public theorem addNatDecl_mem_demoNatStrLcMod :
 
 /-- General Tier-H specification for `DemoNatStr.addNat` at runtime base `rt`,
 covering both tagged scalar fast addition and BigNum slow-path addition. -/
-@[expose] public def addNatHSpec (rt : BitVec 64) : HSpec :=
+public def addNatHSpec (rt : BitVec 64) : HSpec :=
   fun args σ Q X =>
     ∃ a b : BitVec 64,
       args = [Word.i64 a, Word.i64 b] ∧
       HNatPrimWp rt "add" [Word.i64 a, Word.i64 b] Q X σ
 
 /-- Runtime-parametric Tier-H spec for module-level `HModuleOk`. -/
-@[expose] public def addNatHSpecEnv : HSpec :=
+public def addNatHSpecEnv : HSpec :=
   fun args σ Q X =>
     ∀ rt : BitVec 64, HInv rt σ → addNatHSpec rt args σ Q X
 
@@ -112,9 +112,9 @@ public theorem demoNatStr_addNat_hwp (Δ : HEnv) (rt : BitVec 64)
 -- NV 1: Scalar fast-path execution of DemoNatStr.addNat (13 + 29 = 42)
 -- =========================================================================
 
-@[expose] public def scalarRtBase : BitVec 64 := 0x10000#64
+public def scalarRtBase : BitVec 64 := 0x10000#64
 
-@[expose] public def scalarInitState : HState :=
+public def scalarInitState : HState :=
   { st := initRtC0State scalarRtBase 8 256 (by decide) (by decide),
     objs := [],
     scr := 0x10000#64 + 64,
@@ -171,7 +171,7 @@ public theorem demoNatStr_addNat_scalar_liftEnv (m₀ : Mem 64)
 -- NV 2: BigNum slow-path execution on concrete nvBnMem
 -- =========================================================================
 
-@[expose] public def nvHState : HState :=
+public def nvHState : HState :=
   { st := nvBnRtState,
     objs := nvBnObjs,
     scr := nvBnScr,
@@ -284,7 +284,7 @@ public theorem demoNatStr_addNat_bignum_liftEnv :
 -- NV 3: HModuleOk, Frame, Join-Loop, and SpecNorm checks
 -- =========================================================================
 
-@[expose] public def addNatOnlyMod : LcModule :=
+public def addNatOnlyMod : LcModule :=
   { name := "addNatOnly",
     decls := [addNatDecl],
     externs := [],
@@ -301,7 +301,7 @@ public theorem addNatOnlyMod_hmoduleOk :
   simp only [↓reduceIte] at hspec
   exact demoNatStr_addNat_hwp _ rt _ σ Q X (hspec rt hinv)
 
-@[expose] public def jpLoopCode : LcCode :=
+public def jpLoopCode : LcCode :=
   LcCode.jp 10 [{ id := 20, ty := LcTy.tobject, borrow := true }]
     (LcCode.ret (LcArg.var 20))
     (LcCode.jmp 10 [LcArg.var 1])

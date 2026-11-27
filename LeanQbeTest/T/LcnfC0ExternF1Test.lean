@@ -52,20 +52,20 @@ open LeanQbe.T.Frontend.C0
 /-! ## 1. Tiny `2+2` `LinkedCert.weakenNoExit` Fixture (`Amd64`, 0 Recompilation) -/
 
 /-- Pure leaf function (`f1_leaf x = x + 7`), zero exits. -/
-@[expose] def fnF1Leaf : Fn :=
+def fnF1Leaf : Fn :=
   ⟨"f1_leaf", [i64], [i64], fun _ _ (x, ()) =>
     .let_ ⟨.add i64, (.var x, .imm 7#64, ())⟩ fun (r, ()) =>
     .ret (.var r, ())⟩
 
 /-- Pure caller (`f1_callee x = f1_leaf(x) + 1`), zero exits. -/
-@[expose] def fnF1Callee : Fn :=
+def fnF1Callee : Fn :=
   ⟨"f1_callee", [i64], [i64], fun _ _ (x, ()) =>
     .call "f1_leaf" (as := [i64]) (bs := [i64]) (.var x, ()) fun (y, ()) =>
     .let_ ⟨.add i64, (.var y, .imm 1#64, ())⟩ fun (r, ()) =>
     .ret (.var r, ())⟩
 
 /-- Exit-capable caller calling `.exit "lcnf_panic"` on `x = 0` else `f1_callee x`. -/
-@[expose] def fnF1Checked : Fn :=
+def fnF1Checked : Fn :=
   ⟨"f1_checked", [i64], [i64], fun _ _ (x, ()) =>
     .let_ ⟨.cmp .eq i64, (.var x, .imm 0#64, ())⟩ fun (b, ()) =>
     .jnz (.var b)
@@ -74,20 +74,20 @@ open LeanQbe.T.Frontend.C0
         .ret (.var y, ()))⟩
 
 /-- Second exit-capable wrapper (`f1_top x = f1_checked(x)`). -/
-@[expose] def fnF1Top : Fn :=
+def fnF1Top : Fn :=
   ⟨"f1_top", [i64], [i64], fun _ _ (x, ()) =>
     .call "f1_checked" (as := [i64]) (bs := [i64]) (.var x, ()) fun (y, ()) =>
     .ret (.var y, ())⟩
 
-@[expose] def noExitMod : Module :=
+def noExitMod : Module :=
   { fns := [fnF1Leaf, fnF1Callee], externs := [], exits := [] }
 
-@[expose] def exitRtMod : Module :=
+def exitRtMod : Module :=
   { fns := [fnF1Checked, fnF1Top]
     externs := [{ name := "f1_callee", as := [i64], rs := [i64] }]
     exits := rtExitSyms }
 
-@[expose] def fullF1Mod : Module :=
+def fullF1Mod : Module :=
   { fns := noExitMod.fns ++ exitRtMod.fns, externs := [], exits := rtExitSyms }
 
 compile_linked_chunks! x64NoExitCert
@@ -99,13 +99,13 @@ compile_linked_chunks! x64ExitCert
   (ext := x64NoExitCert.exportedExt) (exits := rtExitSyms) (nX := 64)
 
 /-- Lift zero-exit `x64NoExitCert` to `exits = rtExitSyms`, `nX = 64` with zero recompilation. -/
-@[expose] noncomputable def x64WeakCert :
+noncomputable def x64WeakCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       noExitMod [] rtExitSyms 64 2048 :=
   x64NoExitCert.weakenNoExit rtExitSyms 64 (by t_kernel_rfl) (by t_kernel_rfl)
 
 theorem x64WeakCert_numChunks : x64WeakCert.numChunks = x64NoExitCert.numChunks :=
-  rfl
+  by rfl
 
 theorem x64WeakCert_bounds : x64WeakCert.bounds = x64NoExitCert.bounds :=
   x64NoExitCert.weakenNoExit_bounds rtExitSyms 64 (by t_kernel_rfl) (by t_kernel_rfl)
@@ -113,13 +113,13 @@ theorem x64WeakCert_bounds : x64WeakCert.bounds = x64NoExitCert.bounds :=
 theorem x64WeakCert_code0 :
     (x64WeakCert.chunks[0]'(by decide)).compiled.code =
       (x64NoExitCert.chunks[0]'(by decide)).compiled.code :=
-  rfl
+  by rfl
 
 theorem x64WeakCert_defined_panic :
     x64Target.Defined x64WeakCert.host "lcnf_panic" :=
   x64WeakCert.defined_exit_host (by simp [rtExitSyms])
 
-@[expose] noncomputable def x64ComposedCert :
+noncomputable def x64ComposedCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       fullF1Mod [] rtExitSyms 64 2048 :=
   x64WeakCert.append x64ExitCert rfl (by t_kernel_rfl)
@@ -129,7 +129,7 @@ theorem x64ComposedCert_bounds_len : x64ComposedCert.bounds.length = 4 := by
   decide
 
 /-- Further lift `x64WeakCert` via `LinkedCert.weakenExits` at fixed `nX = 64`. -/
-@[expose] noncomputable def x64ExtraExitCert :
+noncomputable def x64ExtraExitCert :
     LinkedCert x64Target x64Layout x64LegalTarget x64LabelClean
       noExitMod [] (rtExitSyms ++ ["f1_extra_exit"]) 64 2048 :=
   x64WeakCert.weakenExits (rtExitSyms ++ ["f1_extra_exit"])
@@ -180,7 +180,7 @@ theorem weakenCheck_rejects_bad_exit :
 @[noinline] def pureAddDemo (x y : USize) : USize :=
   x + y
 
-@[expose] def demoExts : List C0Extern :=
+def demoExts : List C0Extern :=
   [ { leanName := "LeanQbeTest.T.LcnfC0ExternF1Test.stubBaPtr"
       c0Sym := "lcnf_ffi_ba_ptr"
       params := [.object]
@@ -225,7 +225,7 @@ lcnf_of_lean! pureNilLc [pureAddDemo]
 
 splice_lcnf_tflat_with_exts! demoTfs demoLc demoExts
 
-@[expose] def voidExts : List C0Extern :=
+def voidExts : List C0Extern :=
   [ { leanName := "LeanQbeTest.T.LcnfC0ExternF1Test.stubRestoreScratch"
       c0Sym := "lcnf_ffi_restore_scratch"
       params := [.usize]
@@ -235,7 +235,7 @@ splice_lcnf_tflat_with_exts! demoTfs demoLc demoExts
       c0Void := true }
   ]
 
-@[expose] def voidLcMod : LcModule :=
+def voidLcMod : LcModule :=
   { name := "voidDemo"
     roots := ["voidCaller"]
     decls :=

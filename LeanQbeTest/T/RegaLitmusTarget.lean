@@ -4,7 +4,7 @@ public import LeanQbe.T.TargetLemmas
 public import LeanQbe.T.Logic.MemLemmas
 public import LeanQbe.T.Logic.Bytes
 import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.AbiLemmas
 
 /-!
 # A Small Executable x64-Flavoured `Target` for the `Rega` Litmus Suite
@@ -348,7 +348,8 @@ def boolArm (k : BinK) (d : Nat) (a b : PArg Nat Nat Cond .bool) : Option (List 
 def addArm (n d : Nat) (a b : PArg Nat Nat Cond (.bits n)) (vh : VariantHint) :
     Option (List Instr × FlagMask) :=
   match vh, a, b with
-  | .disp _, .gpr ra, .imm c => if Nat.beq n 64 then some ([.lea d ra (c.setWidth 64)], 0#8) else none
+  | .disp _, .gpr ra, .imm c => if Nat.beq n 64 then some ([.lea d ra (c.setWidth 64)],
+    0#8) else none
   | _, _, _ => binArm .add n d a b
 
 def subArm (n d : Nat) (a b : PArg Nat Nat Cond (.bits n)) (vh : VariantHint) :
@@ -417,7 +418,8 @@ def gop : {sig rs : List Ty} → OpCode sig rs → Tup (PArg Nat Nat Cond) sig �
 
 def gprLoad (t : Ty) (rd : Nat) (a : AddrArg Nat) : Option (List Instr × FlagMask) :=
   if isGprTy t then some ([.ld t rd (addrOf a)], 0#8) else none
-def gprStore (t : Ty) (pa : PArg Nat Nat Cond t) (a : AddrArg Nat) : Option (List Instr × FlagMask) :=
+def gprStore (t : Ty) (pa : PArg Nat Nat Cond t)
+  (a : AddrArg Nat) : Option (List Instr × FlagMask) :=
   if !isGprTy t then none
   else match pa with
     | .gpr r => some ([.st t (.reg r) (addrOf a)], 0#8)
@@ -592,9 +594,8 @@ theorem cell64_region8 {a v : BitVec 64} {f : Mem 64} (h : cell64 a v f) : regio
 
 theorem store_region8 {a : BitVec 64} (v : BitVec 64) {G : Mem 64 → Prop} {m : Mem 64}
     (h : (region a 8 ⋆ G) m) : (cell64 a v ⋆ G) (storeMem m i64 a v) := by
-  obtain ⟨f1, f2, hu, hd, h1, h2⟩ := h
-  obtain ⟨v0, hv0⟩ := region8_cell64 h1
-  exact (store_cell64 v ⟨f1, f2, hu, hd, hv0, h2⟩).2
+  obtain ⟨v0, hv0⟩ := region_sep_cell64 h
+  exact (store_cell64 v hv0).2
 
 def framePreds : FramePreds mach where
   RetAddr a (ra : Nat) m := ra < 2 ^ 64 ∧ cell64 a (BitVec.ofNat 64 ra) m
@@ -656,7 +657,8 @@ theorem frameSpec_spec : FrameSpec mach frameIsa Cond.reads framePreds where
       (frame_mem _ _ _ _ _ _)
   slotLd_spec {h k i rd v s G post} _ _ hm := by
     have hl : loadVal s.mem i64 (s.gpr 4 + BitVec.ofNat 64 (8 * i)) = some v := loadVal_cell64 hm
-    refine fallsTo_one (s' := s.setGpr rd v) ?_ ⟨?_, rfl⟩ (frame_setGpr _ _ _ _ _ (by simp [frameIsa]) _ _)
+    refine fallsTo_one (s' :=
+      s.setGpr rd v) ?_ ⟨?_, rfl⟩ (frame_setGpr _ _ _ _ _ (by simp [frameIsa]) _ _)
     · show (loadValG memOps s.mem i64 (s.gpr 4 + BitVec.ofNat 64 (8 * i))).map _ = _
       rw [loadValG_memOps, hl]
       simp [valToGpr]
@@ -675,7 +677,8 @@ theorem frameSpec_spec : FrameSpec mach frameIsa Cond.reads framePreds where
       change (s.gpr r).setWidth n = v at hv
       rcases hn' with rfl | rfl | rfl | rfl
       all_goals first
-        | (refine fallsTo_one rfl ⟨⟨by decide, ?_⟩, rfl⟩ (frame_setGpr _ _ _ _ _ (by simp [frameIsa]) _ _)
+        | (refine fallsTo_one rfl ⟨⟨by decide, ?_⟩,
+          rfl⟩ (frame_setGpr _ _ _ _ _ (by simp [frameIsa]) _ _)
            show (if r = r then _ else _) = _
            simp only [ite_true, ← hv])
         | (refine Machine.FallsTo.nil ⟨⟨by decide, ?_⟩, rfl⟩
@@ -707,7 +710,8 @@ theorem frameSpec_spec : FrameSpec mach frameIsa Cond.reads framePreds where
       have e : (BitVec.ofNat 64 ra).toNat = ra :=
         (BitVec.toNat_ofNat (w := 64) (x := (ra : Nat))).trans (Nat.mod_eq_of_lt hlt)
       rw [loadValG_memOps, hl, Option.map_some, e]
-    · exact hk _ (frame_setGpr Cond.reads _ _ _ _ (by simp [frameIsa]) [] 0).1 (fun _ _ => rfl) rfl rfl
+    · exact hk _ (frame_setGpr Cond.reads _ _ _ _
+      (by simp [frameIsa]) [] 0).1 (fun _ _ => rfl) rfl rfl
 
 def frameSpec : FrameTarget mach frameIsa Cond.reads where
   toFramePreds := framePreds
@@ -786,7 +790,8 @@ theorem packWords_unpackSlotWords (w : SlotWidth) (bv : BitVec 512) :
 
 theorem vbin_spec (kk : BinK) (f : ∀ {n}, BitVec n → BitVec n → BitVec n) (g : Bool → Bool → Bool)
     (hk : ∀ t x y, vbinVal kk t x y =
-      (toBits t (lift2 f g t (ofBits t (x.setWidth t.size)) (ofBits t (y.setWidth t.size)))).setWidth 512)
+      (toBits t (lift2 f g t (ofBits t (x.setWidth t.size))
+        (ofBits t (y.setWidth t.size)))).setWidth 512)
     {t : Ty} {a b d : Nat} {h : LHost} {k : Nat} {c : List Instr} {clob : FlagMask}
     {va vb : Val t} {P : Tup Val [t] → Prop} {s : MData} {post : mach.State → Prop}
     (hop : vbinArm kk t d a b = some (c, clob))
@@ -808,7 +813,8 @@ theorem wp_bin {t : Ty} {P : Prop} (hw : (if t.hasFloat then False else P)) : P 
   · exact hw.elim
   · exact hw
 
-theorem vecSpec : VecTarget mach vecIsa Cond.reads frameIsa.sp frameIsa.scratch (fun _ => True) where
+theorem vecSpec : VecTarget mach vecIsa Cond.reads frameIsa.sp frameIsa.scratch (fun _ => True)
+  where
   vecScratch_disj := by decide
   vecArgRegs_nodup := by decide
   vecRetRegs_nodup := by decide
@@ -1003,7 +1009,8 @@ theorem jcc_spec {h : LHost} {k j : Nat} {c : Cond} {l : String} {s : MData}
 
 theorem jnzGpr_spec {h : LHost} {k j r : Nat} {l : String} {b : Bool} {s : MData}
     {post : mach.State → Prop}
-    (hc : (gprIsa.jnzGpr r l).1.IsInfixAt (mach.prog h) k) (hl : mach.labelAddr h l = mach.addrOf h j)
+    (hc : (gprIsa.jnzGpr r l).1.IsInfixAt (mach.prog h) k)
+      (hl : mach.labelAddr h l = mach.addrOf h j)
     (hb : GprHolds (mach.getGpr s r) .bool b)
     (hk : ∀ s', mach.Frame gprIsa.condReads s s' frameIsa.scratch [] (gprIsa.jnzGpr r l).2 →
       mach.mem s' = mach.mem s →
@@ -1151,7 +1158,8 @@ theorem trel3 {R : ∀ t, PArg Nat Nat Cond t → Val t → Prop} {t u w : Ty} {
   cases h with
   | cons h1 h2 => cases h2 with | cons h3 h4 => cases h4 with | cons h5 _ => exact ⟨h1, h3, h5⟩
 
-theorem binArm_spec {h : LHost} {k : Nat} {kk : BinK} {n d : Nat} {a b : PArg Nat Nat Cond (.bits n)}
+theorem binArm_spec {h : LHost} {k : Nat} {kk : BinK} {n d : Nat} {a b : PArg Nat Nat Cond (.bits
+  n)}
     {c : List Instr} {clob : FlagMask} {va vb : BitVec n} {s : MData}
     {P : Tup Val [.bits n] → Prop} {post : mach.State → Prop}
     (hop : binArm kk n d a b = some (c, clob)) (ha : mach.PArgHolds s (.bits n) a va)
@@ -1191,7 +1199,8 @@ theorem addArm_spec {h : LHost} {k : Nat} {n d : Nat} {a b : PArg Nat Nat Cond (
       have ea : s.gpr ra = va := (BitVec.setWidth_eq _).symm.trans ha.2
       have eb : c0 = vb := hb
       subst ea eb
-      refine fallsTo_steps ⟨_, rfl, rfl⟩ ⟨⟨(_, ()), hP, .cons (dst_bits (Nat.le_refl _) ?_) .nil⟩, rfl⟩
+      refine fallsTo_steps ⟨_, rfl, rfl⟩ ⟨⟨(_, ()), hP, .cons (dst_bits (Nat.le_refl _) ?_) .nil⟩,
+        rfl⟩
         (frame_mk (keeps_one (d := d) mem_hd (by intro r hr; simp [hr])) rfl (upd_eq rfl rfl rfl))
       simp
     · cases hop
@@ -1257,14 +1266,16 @@ theorem keeps_setGpr_of {s s₁ : MData} {d : Nat} {v : BitVec 64} {g : List Nat
 @[simp] theorem cmp_eval {o : CmpOp} {cc : Cond} (hcc : cmpCond o = some cc) (s : MData) {n : Nat}
     (x y : BitVec n) (o' : Bool) :
     ({ s with cf := x.ult y, zf := x == y, of := o' } : MData).evalCond cc = o.evalBits x y := by
-  cases o <;> simp [cmpCond] at hcc <;> subst hcc <;> simp [MDataG.evalCond, CmpOp.evalBits, beq_dec]
+  cases o <;> simp [cmpCond] at hcc <;> subst hcc <;> simp [MDataG.evalCond, CmpOp.evalBits,
+    beq_dec]
 
 theorem cmpArm_spec {h : LHost} {k : Nat} {o : CmpOp} {n : Nat} {a b : PArg Nat Nat Cond (.bits n)}
     {dst : PDst Nat Nat Cond .bool} {vh : VariantHint} {c : List Instr} {clob : FlagMask}
     {va vb : BitVec n} {s : MData} {P : Tup Val [.bool] → Prop} {post : mach.State → Prop}
     (hop : cmpArm o n a b dst vh = some (c, clob)) (ha : mach.PArgHolds s (.bits n) a va)
     (hb : mach.PArgHolds s (.bits n) b vb) (hP : P (o.evalBits va vb, ())) :
-    mach.FallsTo Cond.reads h k c (tupDstGprs (ts := [.bool]) (dst, ()) ++ frameIsa.scratch) [] clob s
+    mach.FallsTo Cond.reads h k c (tupDstGprs (ts :=
+      [.bool]) (dst, ()) ++ frameIsa.scratch) [] clob s
       (OpQ s (dst, ()) P) post := by
   unfold cmpArm at hop
   split at hop
@@ -1359,7 +1370,8 @@ theorem addcArm_spec {h : LHost} {k : Nat} {n d : Nat} {a b : PArg Nat Nat Cond 
         exact ⟨_, ⟨_, rfl, rfl⟩, by simp, rfl, by intro r hr; simp [hr], rfl, rfl⟩
       · have ec : false = vc := hc
         subst ec
-        exact ⟨_, ⟨_, rfl, rfl⟩, by simp [binEval], by simp [binCF], by intro r hr; simp [hr], rfl, rfl⟩
+        exact ⟨_, ⟨_, rfl, rfl⟩, by simp [binEval], by simp [binCF],
+          (by intro r hr; simp [hr]), rfl, rfl⟩
       · have ec := bool_of_setWidth8 hc
         subst ec
         exact ⟨_, ⟨_, rfl, _, rfl, rfl⟩, by simp, by simp, by intro r hr; simp [hr], rfl, rfl⟩
@@ -1463,7 +1475,8 @@ theorem movi_spec {h : LHost} {k rd : Nat} {c : BitVec 64} {s : MData} {post : m
     (frame_mk (keeps_one (d := rd) (by simp) (by intro r hr; simp [hr])) rfl (upd_eq rfl rfl rfl))
 
 theorem setcc_spec {h : LHost} {k rd : Nat} {c : Cond} {s : MData} {post : mach.State → Prop} :
-    mach.FallsTo gprIsa.condReads h k (gprIsa.setcc rd c) (rd :: frameIsa.scratch) [] FlagMask.none s
+    mach.FallsTo gprIsa.condReads h k (gprIsa.setcc rd c)
+      (rd :: frameIsa.scratch) [] FlagMask.none s
       (fun s' => GprHolds (mach.getGpr s' rd) .bool (mach.evalCond s c) ∧ mach.mem s' = mach.mem s)
       post :=
   fallsTo_steps ⟨_, rfl, rfl⟩ ⟨by simpa using gprHolds_bool (s.evalCond c), rfl⟩

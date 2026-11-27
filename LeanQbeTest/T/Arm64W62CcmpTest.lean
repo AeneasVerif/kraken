@@ -40,7 +40,7 @@ Arm64 Wave 6.2-B bundle (`OPT-8` conditional compare `CCMP`/`CCMN` and condition
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.Arm64W62CcmpTest
 

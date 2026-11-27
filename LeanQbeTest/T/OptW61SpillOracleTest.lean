@@ -35,7 +35,7 @@ Tests the untrusted `Spill.Cfg` extensions and `SpillCoalesce` passes on x86-64 
 
 set_option autoImplicit false
 
-@[expose] public section
+public section
 
 namespace LeanQbeTest.T.OptW61SpillOracleTest
 

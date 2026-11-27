@@ -137,7 +137,7 @@ private def basic3DisabledFlags : List (BitVec 64) :=
 
 /-! ## 2. Module Acyclicity, Codegen & 4-ISA Legalization `#guard`s -/
 
-@[expose] def closedCfgModule : LeanQbe.T.Module :=
+def closedCfgModule : LeanQbe.T.Module :=
   { fns := Float64.fns ++ Tiers.fns ++ Config.fns, externs := [], exits := [] }
 
 #guard Config.fns.length == 17

@@ -48,7 +48,7 @@ theorem mangle_nonascii_rfl : mangleLc "Sha256.σ₀" = "l_Sha256_u3c3_u2080_" :
 /-! ## 2. Kernel reduction of `lowerModule` (`decide +kernel`, `_lower`, `_perm`) -/
 
 /-- Hand-written `LcModule` exercising `fap` extern (`Nat.add`) and `ret`. -/
-@[expose] def tinyAddLcMod : LcModule :=
+def tinyAddLcMod : LcModule :=
   { name := "tinyAdd"
     roots := ["Tiny.add"]
     decls :=
@@ -61,7 +61,7 @@ theorem mangle_nonascii_rfl : mangleLc "Sha256.σ₀" = "l_Sha256_u3c3_u2080_" :
 
 /-- Hand-written `LcModule` exercising `cases`, `jp`/`jmp`, `lit` (`.str` and big `.nat`), and
 `pap`/`ap` (`lcnf_apply_1` generation + `LEnv` assoc-list lookups). -/
-@[expose] def tinyBranchLcMod : LcModule :=
+def tinyBranchLcMod : LcModule :=
   { name := "tinyBranch"
     roots := ["Tiny.branch"]
     decls :=
@@ -124,17 +124,17 @@ theorem all_scc_demos_lower :
 /-! ## 4. Non-vacuity of `LExpr.wp` and `lExprToTFlat_func_sound` -/
 
 /-- Parameter list `(x : i64, y : i64)` for the straight-line `LExpr` test. -/
-@[expose] def tinyAddParams : List LVar :=
+def tinyAddParams : List LVar :=
   [{ id := 0, name := "x", ty := i64 }, { id := 1, name := "y", ty := i64 }]
 
 /-- Straight-line `LExpr`: `r := x + y; ret r`. -/
-@[expose] def tinyAddLExpr : LExpr :=
+def tinyAddLExpr : LExpr :=
   .let_ { rs := [i64], sig := [i64, i64], code := .add i64, args := [.var 0 i64, .var 1 i64] }
     [{ id := 2, name := "r", ty := i64 }]
     (.ret [i64] [.var 2 i64])
 
 /-- De Bruijn `TFlat` lowered from `tinyAddLExpr`. -/
-@[expose] def tinyAddTf : TFlat [i64] :=
+def tinyAddTf : TFlat [i64] :=
   .let_ (op2 (.add i64) (.var 1) (.var 0)) (.ret (.var 0, ()))
 
 theorem tinyAddLExpr_toFlat :
@@ -150,18 +150,18 @@ theorem tinyAdd_tflat_wp (x y : BitVec 64) (m : Mem 64) :
   exact ⟨rfl, (x + y, ()), rfl, rfl, rfl⟩
 
 /-- Parameter list `(c : bool, x : i64, y : i64)` for the `.group`/`.jnz`/`.jump` test. -/
-@[expose] def tinyGroupParams : List LVar :=
+def tinyGroupParams : List LVar :=
   [ { id := 0, name := "c", ty := .bool }
   , { id := 1, name := "x", ty := i64 }
   , { id := 2, name := "y", ty := i64 } ]
 
 /-- Control-flow `LExpr` with `.group`, `.jnz`, and `.jump` to join label `10`. -/
-@[expose] def tinyGroupLExpr : LExpr :=
+def tinyGroupLExpr : LExpr :=
   .group [(10, [{ id := 3, name := "z", ty := i64 }], .ret [i64] [.var 3 i64])]
     (.jnz (.var 0 .bool) (.jump 10 [i64] [.var 1 i64]) (.jump 10 [i64] [.var 2 i64]))
 
 /-- De Bruijn `TFlat` lowered from `tinyGroupLExpr`. -/
-@[expose] def tinyGroupTf : TFlat [i64] :=
+def tinyGroupTf : TFlat [i64] :=
   .group (sig := [[i64]]) (.cons (.ret (.var 0, ())) .nil)
     (.jnz (Arg.var 2) (.jump (ts := [i64]) 0 (.var 1, ()))
       (.jump (ts := [i64]) 0 (.var 0, ())))

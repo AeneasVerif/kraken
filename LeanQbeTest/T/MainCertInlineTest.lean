@@ -4,7 +4,7 @@ public import LeanQbe.T.MainCertInline
 public import LeanQbe.T.MainCertFlat
 public import LeanQbe.T.Amd64.TargLemmas
 public import LeanQbe.T.Logic.MemLemmas
-import all Kraken.Separation
+import LeanQbe.T.BenchmarkCertKit
 public import LeanQbeTest.T.Common.Fixtures
 public import Std.Sat.CNF
 import LeanQbe.T.FlatLemmas
@@ -129,12 +129,7 @@ theorem entry_x64_ev [hh : Host] (k₀ : Nat)
   have hargs : x64Target.ArgsIn (as := [i64, i64]) (p, d, ()) s :=
     ⟨_, rfl, .cons ⟨by decide, by simpa using hrdi⟩
       (.cons ⟨by decide, by simpa using hrsi⟩ .nil)⟩
-  obtain ⟨mf, mR, hu1, hd1, ⟨mCell, f, hu2, hd2, hmCell, hf⟩, hmRest⟩ := hmem
-  have hmEq : s.dmem =⋆ Eq mCell ⋆
-      (region (s.regs.get64 .rsp - BitVec.ofNat 64 (certB5.bound "entry"))
-          (certB5.bound "entry") ⋆
-        cell64 (s.regs.get64 .rsp) ra.toBitVec) ⋆ R :=
-    ⟨mf, mR, hu1, hd1, ⟨mCell, f, hu2, hd2, rfl, hf⟩, hmRest⟩
+  obtain ⟨mCell, hmCell, hmEq⟩ := BenchmarkCertKit.sep_extract_eq hmem
   have hspec : entrySpec (p, d, ()) mCell (fun r m' => r = (entryVal v₀ d, ()) ∧ True)
       (fun _ _ _ _ => False) :=
     ⟨v₀, emp, by rwa [sep_emp], fun _ _ => ⟨rfl, trivial⟩⟩

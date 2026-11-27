@@ -7,8 +7,7 @@ import LeanQbe.T.BedrockWord.Ops
 import LeanQbe.T.OpsLemmas
 import LeanQbe.T.MainLemmas
 import LeanQbe.T.FlatLemmas
-import all Kraken.Mem
-import all Kraken.Separation
+import LeanQbe.T.Logic.MemLemmas
 public meta import Lean
 public meta import LeanQbe.T.Unified.CfgRecovery
 public meta import LeanQbe.T.Unified.CfgContify
@@ -523,20 +522,6 @@ theorem ex3_guarded_lift_eq :
   rw [ex3_guarded_check, ex3_guarded_res_eq]
   rfl
 
-private theorem ex3_tableMem_eq :
-    storeMem (storeMem (∅ : Mem 64) i64 0x1000#64 (8#64 : BitVec 64)) i64 0x1008#64
-        (16#64 : BitVec 64) =
-      ex3TableBytes.At 0x1000#64 := by
-  have hb8 : (Int.toBytes 8 (8#64 : BitVec 64).toInt).length = 8 := Int.toBytes_length _ _
-  have ha : (0x1000#64 : BitVec 64) + BitVec.ofNat 64
-      (Int.toBytes 8 (8#64 : BitVec 64).toInt).length = 0x1008#64 := by
-    rw [hb8]; decide
-  dsimp only [storeMem, Mem.storeInt, Mem.storeBytes, toBits, Ty.bytes, Ty.size, ex3TableBytes]
-  simp only [BitVec.setWidth_eq]
-  rw [List.At_append _ _ 0x1000#64 (by simp [Int.toBytes_length]), ha]
-  ext k
-  simp [Std.ExtHashMap.union_eq, Std.ExtHashMap.getElem?_union]
-
 theorem ex3_witRoOk : WitRoOk ex3RoWit (ex3TableBytes.At 0x1000#64) := by
   intro rw hRw ew hew
   simp only [ex3RoWit, List.mem_singleton] at hRw
@@ -544,28 +529,12 @@ theorem ex3_witRoOk : WitRoOk ex3RoWit (ex3TableBytes.At 0x1000#64) := by
   simp only [ex3RoRw, List.mem_singleton] at hew
   subst hew
   intro k hk
-  rw [← ex3_tableMem_eq]
-  match k, hk with
-  | 0, _ =>
-      have hneq : ∀ (i j : Nat), i < i64.bytes → j < i64.bytes →
-          (0x1000#64 : BitVec 64) + BitVec.ofNat 64 j ≠ 0x1008#64 + BitVec.ofNat 64 i := by
-        intro i j hi hj heq
-        simp only [Ty.bytes, Ty.size] at hi hj
-        have h2 := congrArg BitVec.toNat heq
-        simp [BitVec.toNat_add] at h2
-        omega
-      have hStep := loadVal_storeMem_disjoint
-        (storeMem (∅ : Mem 64) i64 0x1000#64 (8#64 : BitVec 64))
-        i64 i64 0x1008#64 0x1000#64 (16#64 : BitVec 64) hneq
-      simpa [Nat.mul_zero, BitVec.add_zero] using hStep.trans
-        (loadVal_storeMem (∅ : Mem 64) i64 0x1000#64 (8#64 : BitVec 64) (by decide))
-  | 1, _ =>
-      have ha : (0x1000#64 : BitVec 64) + BitVec.ofNat 64 (8 * 1) = 0x1008#64 := by decide
-      simpa [ha] using loadVal_storeMem
-        (storeMem (∅ : Mem 64) i64 0x1000#64 (8#64 : BitVec 64)) i64 0x1008#64 (16#64 : BitVec 64)
-        (by decide)
-  | n + 2, h =>
-      exfalso; dsimp only [List.length] at h; omega
+  have hex : ex3TableBytes = bytes64 [8#64, 16#64] := by
+    simp [ex3TableBytes, bytes64]
+  have harr : (array64 0x1000#64 [8#64, 16#64] ⋆ emp) (ex3TableBytes.At 0x1000#64) := by
+    rw [hex, sep_emp]
+    exact array64_bytes 0x1000#64 [8#64, 16#64] (by decide)
+  exact loadVal_array64 hk harr
 
 theorem ex3_cm_wp_0 (r₀ : Regs) (h0 : r₀.r1 = 0#64) :
     cmEx3Vm.wp (fun c _ => c = 100#64 ∨ c = 200#64 ∨ c = 99#64) 0#64
