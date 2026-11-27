@@ -68,7 +68,8 @@ def zeroMoveJump?Flat {rs : List Ty} (I : Isa) (h : I.Hints) (ip : Nat) (st : Sy
       (h.entry.find? jLvl).bind fun en =>
         (jumpTargets I (flatArgs vDepth vEnv args) en.ploc).bind fun argTgts =>
           if (en.live ++ argTgts).all
-              (fun (sa, loc) => jumpLocOk I h.nslots loc && holdsLoc I st sa loc) then
+              (fun (sa, loc) => jumpLocOk I h.nslots loc && holdsLoc I st sa loc) &&
+              entryZOk I st en argTgts then
             some jLvl
           else none
   | _ => none
@@ -101,7 +102,8 @@ def gprThread?Flat {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (ipT : Nat)
     let stB := { st1 with
       regs := killRegs I I.frame.scratch [] cl st1.regs
       zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
-      flags := killFlags I cl st1.flags }
+      flags := killFlags I cl st1.flags
+      scrConsts := [] }
     zeroMoveJump?Flat (rs := rs) I h ipT stB vDepth vEnv lEnv (.jump j args)
   | _ => none
 
@@ -116,7 +118,8 @@ def threadFusedArmFlat {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (ipA : 
       let stB := { st1 with
         regs := killRegs I I.frame.scratch [] cl st1.regs
         zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
-        flags := killFlags I cl st1.flags }
+        flags := killFlags I cl st1.flags
+        scrConsts := [] }
       if zeroMoveJump?Flat I h ipA stB vDepth vEnv lEnv arm == some jLvl then
         some (jLvl, br, stB)
       else none
@@ -131,7 +134,8 @@ def fuseJnzChoiceFlat {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT 
     let stNl := { st1 with
       regs := killRegs I I.frame.scratch [] clNl st1.regs
       zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
-      flags := killFlags I clNl st1.flags }
+      flags := killFlags I clNl st1.flags
+      scrConsts := [] }
     let fwd? := threadFusedArmFlat I h fn ipT st1 (emit false) vDepth vEnv lEnv t fwd
     let inv? := threadFusedArmFlat I h fn ipE st1 (emit true) vDepth vEnv lEnv e fwd
     match fwd?, inv? with
@@ -149,11 +153,13 @@ def finishCmpJnzFlat {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT i
   let stCmp := { st1 with
     regs := killRegs I I.frame.scratch [] cl st1.regs
     zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
-    flags := fl }
+    flags := fl
+    scrConsts := [] }
   let stB := { stCmp with
     regs := killRegs I I.frame.scratch [] FlagMask.none stCmp.regs
     zeroExt32 := killZeroExt I.frame.scratch stCmp.zeroExt32
-    flags := killFlags I FlagMask.none stCmp.flags }
+    flags := killFlags I FlagMask.none stCmp.flags
+    scrConsts := [] }
   let p := jnzModeFlat I h ipT ipE stB true vDepth vEnv lEnv t e ft fwd
   let sym := lname fn (match p.2 with | some j => tgtLab fwd j | none => nl)
   (p.1, p.2, cmpCode ++ I.gpr.jcc (if p.1 then I.gpr.negCond cc else cc) sym, stB)
@@ -167,7 +173,8 @@ def jnzSetupFlat {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE :
     let stB := { st1 with
       regs := killRegs I I.frame.scratch [] FlagMask.none st1.regs
       zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
-      flags := killFlags I FlagMask.none st1.flags }
+      flags := killFlags I FlagMask.none st1.flags
+      scrConsts := [] }
     let p := jnzModeFlat I h ipT ipE stB true vDepth vEnv lEnv t e ft fwd
     let sym := lname fn (match p.2 with | some j => tgtLab fwd j | none => nl)
     some (p.1, p.2, I.gpr.jcc (if p.1 then I.gpr.negCond cc else cc) sym, stB)
@@ -182,13 +189,15 @@ def jnzSetupFlat {rs : List Ty} (I : Isa) (h : I.Hints) (fn : Sym) (nl ipT ipE :
       let stB := { st1 with
         regs := killRegs I I.frame.scratch [] p.2 st1.regs
         zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
-        flags := killFlags I p.2 st1.flags }
+        flags := killFlags I p.2 st1.flags
+        scrConsts := [] }
       some (false, tg, p.1, stB)
   | .slot idx =>
     let stB := { st1 with
       regs := killRegs I I.frame.scratch [] FlagMask.all st1.regs
       zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
-      flags := killFlags I FlagMask.all st1.flags }
+      flags := killFlags I FlagMask.all st1.flags
+      scrConsts := [] }
     let p := jnzModeFlat I h ipT ipE stB true vDepth vEnv lEnv t e ft fwd
     let sym := lname fn (match p.2 with | some j => tgtLab fwd j | none => nl)
     (I.gpr.jnzMem (spAddr I idx) p.1 sym).bind fun (br, cl) =>
@@ -355,11 +364,11 @@ def blockTrampoline?Flat {rs : List Ty} (I : Isa) (h : I.Hints) (defs : Trie Def
   | none => none
   | some en =>
     if !entryScopeOk nv en then none
-    else match buildEntryBase I h.nslots vw en.live
+    else match buildEntryBaseZ I h.nslots vw en.live en.liveZ
         { regs := [], slots := .empty, defs := defs, vecWidths := vw } with
       | none => none
       | some baseSt =>
-        match bindBlockParams I h.nslots ts en.ploc nv baseSt with
+        match bindBlockParamsZ I h.nslots ts en.ploc en.plocZ nv baseSt with
         | none => none
         | some initSt =>
           match b with
@@ -375,7 +384,7 @@ def blockTrampoline?Flat {rs : List Ty} (I : Isa) (h : I.Hints) (defs : Trie Def
                 let tgts := en'.live ++ argTgts
                 if !(tgts.all fun (_, loc) => jumpLocOk I h.nslots loc) then none
                 else match shuffle I h.nslots h.saved st1 tgts with
-                  | some ([], _) => some jLvl'
+                  | some ([], st2) => if entryZOk I st2 en' argTgts then some jLvl' else none
                   | _ => none
             | _, _ => none
           | _ => none
@@ -432,7 +441,7 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
       let ve' := insertVLevels ts.length vDepth nv vEnv
       let df := deferJnzNextFlat I h fn vd' ve' nv nl ip st1 op' k ||
         deferLeaNextFlat I h vd' ve' nv ip st1 op' k
-      match lowerOp I h nv ip st1 op' df with
+      match lowerOp I h nv ip st1 op' df (h.mulHiIps.getD ip false) with
       | none => .error "let: op"
       | some (c, st2) =>
         prepend (mc ++ c)
@@ -529,10 +538,12 @@ def lowerFlatExpr (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} :
         if !(tgts.all fun (_, loc) => jumpLocOk I h.nslots loc) then .error "jump: loc"
         else match shuffle I h.nslots h.saved st1 tgts (h.deadFlags.getD ip false) with
           | none => .error "jump: shuffle"
-          | some (sc, _) =>
-            let jt := tgtLab fwd jLvl
-            .ok (mc ++ sc ++ (if ft == some jt then [] else I.gpr.jmp (lname fn jt)),
-                 nv, nl, ip + 1)
+          | some (sc, st2) =>
+            if !entryZOk I st2 en argTgts then .error "jump: zext"
+            else
+              let jt := tgtLab fwd jLvl
+              .ok (mc ++ sc ++ (if ft == some jt then [] else I.gpr.jmp (lname fn jt)),
+                   nv, nl, ip + 1)
     | _, _ => .error "jump: pre/entry"
   | .ret vs, vDepth, vEnv, _, nv, nl, ip, st, _, _, _ =>
     match stepPre I h ip st, I.assignRets rs with
@@ -579,10 +590,10 @@ def lowerFlatBlocks (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List Ty} 
       | none => .error "block: entry"
       | some en =>
         if !entryScopeOk nv en then .error "block: scope"
-        else match buildEntryBase I h.nslots vw en.live
+        else match buildEntryBaseZ I h.nslots vw en.live en.liveZ
             { regs := [], slots := .empty, defs := defs, vecWidths := vw } with
           | none => .error "block: live"
-          | some baseSt => match bindBlockParams I h.nslots ts en.ploc nv baseSt with
+          | some baseSt => match bindBlockParamsZ I h.nslots ts en.ploc en.plocZ nv baseSt with
             | none => .error "block: plocs"
             | some initSt =>
               let ftB := firstNonFwdFlat fwd bs (lid + 1) ft

@@ -98,7 +98,8 @@ theorem rematAddImm64_ok {zl : Bool} {G : VCtx} {nv x base k : Nat} {disp : BitV
         { st with
           regs := (.var x, .gpr d) ::
             killRegs T.toIsa (d :: T.frame.scratch) [] FlagMask.none st.regs
-          zeroExt32 := killZeroExt (d :: T.frame.scratch) st.zeroExt32 } s' σ →
+          zeroExt32 := killZeroExt (d :: T.frame.scratch) st.zeroExt32
+          scrConsts := [] } s' σ →
       Inv T hints s₀ ra n Rf m s' σ zl → T.mach.Run host (k + c.length) s' post) :
     T.mach.Run host k s post := by
   have hop := rematAddImm64_spec hrm
@@ -139,14 +140,16 @@ theorem rematAddImm64_ok {zl : Bool} {G : VCtx} {nv x base k : Nat} {disp : BitV
       { st with
         regs := (.var x, .gpr d) ::
           killRegs T.toIsa (d :: T.frame.scratch) [] FlagMask.none st.regs
-        zeroExt32 := killZeroExt (d :: T.frame.scratch) st.zeroExt32 } s' σ :=
+        zeroExt32 := killZeroExt (d :: T.frame.scratch) st.zeroExt32
+        scrConsts := [] } s' σ :=
     { hA with
       regs := fun p hp => (List.mem_cons.mp hp).elim
         (fun h => h ▸ hxGpr) (fun hp' => (kill_ok hA hfr' hp').1)
       regs_lt := fun p hp => (List.mem_cons.mp hp).elim
         (fun h => h ▸ hxLt) (fun hp' => (kill_ok hA hfr' hp').2)
       zeroExt32_ok := zeroExt32_frame hA hfr'
-      flags_ok := hA.flags_ok.frame hfr' rfl }
+      flags_ok := hA.flags_ok.frame hfr' rfl
+      scrConsts_ok := scrOk_nil _ _ _ }
   have hI' : Inv T hints s₀ ra n Rf m s' σ zl :=
     inv_of_frame hI hm hfr'.1 fun r hr =>
       (List.mem_cons.mp hr).elim (fun h => h ▸ isMoveGpr_of_alloc hd) isMoveGpr_scratch

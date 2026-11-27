@@ -86,6 +86,7 @@ structure SymState (I : Isa) where
   memDefs : Trie (Ty × Arg VNat i64) := .empty
   zeroExt32 : List I.Reg := []
   flags : Option FlagFact := none
+  scrConsts : List (I.Reg × BitVec 64) := []
 
 structure Ext where
   callees : List (Sym × List Ty × List Ty) := []

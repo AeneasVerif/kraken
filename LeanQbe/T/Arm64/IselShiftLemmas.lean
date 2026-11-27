@@ -298,7 +298,7 @@ theorem armShiftedAlu_fallsTo_eval (h : Host) {steps : Nat} {w : Nat}
 
 /-! ## 2. Shared `armCmpFinish` Combinator & Shifted `CMP` (`SUBS_s`) -/
 
-private theorem armCmpFinish_wp [Host] {cmpIns : Instr} {cond : ArmCond}
+theorem armCmpFinish_wp [Host] {cmpIns : Instr} {cond : ArmCond}
     {dst : PDst Reg Empty ArmCond .bool} {c : List Instr} {clob : FlagMask}
     {w : Nat} {x y : BitVec w} {res : Bool} {s : MachineData}
     (hw : w = 32 ∨ w = 64)
@@ -309,6 +309,7 @@ private theorem armCmpFinish_wp [Host] {cmpIns : Instr} {cond : ArmCond}
     (hfin : armCmpFinish cmpIns cond dst = some (c, clob)) :
     _root_.Program.wp (emitClean c) (fun s' =>
       armMach.PDstHolds s' .bool dst res ∧
+      (∀ rd, dst = .gpr rd → AbiGprHolds (armMach.getGpr s' rd) .bool res) ∧
       FlagCmpOk armMach armGpr s' x y false ∧
       armMach.mem s' = armMach.mem s ∧
       armMach.Frame armCondReads s s' (dst.gprs ++ armScratch) [] clob)
@@ -325,7 +326,8 @@ private theorem armCmpFinish_wp [Host] {cmpIns : Instr} {cond : ArmCond}
     · rename_i heq; simp only [beq_iff_eq] at heq; subst heq
       rcases Option.some.inj hfin with ⟨rfl, rfl⟩
       refine armWp_mono hcmp ?_; rintro sx ⟨hst, hdm, hfr⟩
-      exact ⟨by simpa [Machine.PDstHolds, Machine.evalCond, hst] using hres, hfc hst, hdm, hfr⟩
+      exact ⟨by simpa [Machine.PDstHolds, Machine.evalCond, hst] using hres,
+        (fun _ h => nomatch h), hfc hst, hdm, hfr⟩
     · cases hfin
   | gpr r => cases r with
     | SP => cases hfin
@@ -335,9 +337,12 @@ private theorem armCmpFinish_wp [Host] {cmpIns : Instr} {cond : ArmCond}
       refine armWp_cons (by simpa [emitClean_cons, emitClean_nil] using hcmp) ?_
       rintro sx ⟨hst, hdm, hfr⟩
       refine armWp_mono (armCset64_wp d cond sx) ?_; rintro sy rfl
-      refine ⟨?_, hfc hst, hdm, armFrame_nzcv fun r hr => ?_⟩
-      · have hcc : cond.interp sx.status = res := by rw [hst]; exact hres
-        simp only [Machine.PDstHolds, GprHolds, get_wr_same, hcc]; cases res <;> rfl
+      have hcc : cond.interp sx.status = res := by rw [hst]; exact hres
+      have habi : AbiGprHolds (armMach.getGpr (wr sx d
+          (BitVec.ofNat 64 (cond.interp sx.status).toNat)) (.reg d)) .bool res := by
+        simp only [AbiGprHolds, get_wr_same, hcc]
+      refine ⟨?_, (fun _ h => by cases h; exact habi), hfc hst, hdm, armFrame_nzcv fun r hr => ?_⟩
+      · exact habi.toGprHolds
       · have hne : r ≠ .reg d ∧ r ∉ armScratch :=
           ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
         rw [get_wr_of_ne sx d _ r hne.1]; exact hfr.1 r hne.2
@@ -404,7 +409,7 @@ theorem armShiftedCmp_noLab {o : CmpOp} {w : Nat} {ra rb : Reg} {sh : ArmShiftOp
     Kraken.Directive.label l ∉ dirs :=
   emitCleanPair_noLab h l
 
-/-- Full WP theorem for `armShiftedCmp?`, proving boolean destination semantics + `FlagCmpOk`. -/
+/-- Full WP theorem for `armShiftedCmp?`, proving boolean + ABI destination semantics + `FlagCmpOk`. -/
 theorem armShiftedCmp_wp [Host] {o : CmpOp} {w : Nat} {ra rb : Reg} {sh : ArmShiftOp} {k : Nat}
     {lhsShift : Bool} {dst : PDst Reg Empty ArmCond .bool}
     {dirs : List Directive} {clob : FlagMask}
@@ -417,6 +422,7 @@ theorem armShiftedCmp_wp [Host] {o : CmpOp} {w : Nat} {ra rb : Reg} {sh : ArmShi
     _root_.Program.wp dirs
       (fun s' =>
         armMach.PDstHolds s' .bool dst (o.evalBits lhs rhs) ∧
+        (∀ rd, dst = .gpr rd → AbiGprHolds (armMach.getGpr s' rd) .bool (o.evalBits lhs rhs)) ∧
         (∀ {lf}, armShiftedCmpFlagsOut o w lhsShift dst = some lf →
           FlagCmpOk armMach armGpr s' (if lf then lhs else rhs) (if lf then rhs else lhs) false) ∧
         armMach.mem s' = armMach.mem s ∧
@@ -450,8 +456,8 @@ theorem armShiftedCmp_wp [Host] {o : CmpOp} {w : Nat} {ra rb : Reg} {sh : ArmShi
                 (armCmpCond_subs (Or.inl rfl) o _ _) hci
               rw [ha', hb'] at hwp
               refine armWp_mono hwp ?_
-              rintro s' ⟨hpd, hfc, hdm, hfr⟩
-              refine ⟨hpd, fun {lf} hfl => ?_, hdm, hfr⟩
+              rintro s' ⟨hpd, habi, hfc, hdm, hfr⟩
+              refine ⟨hpd, habi, fun {lf} hfl => ?_, hdm, hfr⟩
               cases dst with
               | vec v => exact v.elim
               | gpr r => cases r <;> simp [armShiftedCmpFlagsOut] at hfl; subst hfl; exact hfc
@@ -465,8 +471,8 @@ theorem armShiftedCmp_wp [Host] {o : CmpOp} {w : Nat} {ra rb : Reg} {sh : ArmShi
                 (by rw [armCmpCond_subs (Or.inl rfl), CmpOp.swap_evalBits]) hci
               rw [ha', hb'] at hwp
               refine armWp_mono hwp ?_
-              rintro s' ⟨hpd, hfc, hdm, hfr⟩
-              refine ⟨hpd, fun {lf} hfl => ?_, hdm, hfr⟩
+              rintro s' ⟨hpd, habi, hfc, hdm, hfr⟩
+              refine ⟨hpd, habi, fun {lf} hfl => ?_, hdm, hfr⟩
               cases dst with
               | vec v => exact v.elim
               | gpr r => cases r <;> simp [armShiftedCmpFlagsOut] at hfl; subst hfl; exact hfc
@@ -492,8 +498,8 @@ theorem armShiftedCmp_wp [Host] {o : CmpOp} {w : Nat} {ra rb : Reg} {sh : ArmShi
                 (armCmpCond_subs (Or.inr rfl) o _ _) hci
               rw [ha', hb'] at hwp
               refine armWp_mono hwp ?_
-              rintro s' ⟨hpd, hfc, hdm, hfr⟩
-              refine ⟨hpd, fun {lf} hfl => ?_, hdm, hfr⟩
+              rintro s' ⟨hpd, habi, hfc, hdm, hfr⟩
+              refine ⟨hpd, habi, fun {lf} hfl => ?_, hdm, hfr⟩
               cases dst with
               | vec v => exact v.elim
               | gpr r => cases r <;> simp [armShiftedCmpFlagsOut] at hfl; subst hfl; exact hfc
@@ -507,8 +513,8 @@ theorem armShiftedCmp_wp [Host] {o : CmpOp} {w : Nat} {ra rb : Reg} {sh : ArmShi
                 (by rw [armCmpCond_subs (Or.inr rfl), CmpOp.swap_evalBits]) hci
               rw [ha', hb'] at hwp
               refine armWp_mono hwp ?_
-              rintro s' ⟨hpd, hfc, hdm, hfr⟩
-              refine ⟨hpd, fun {lf} hfl => ?_, hdm, hfr⟩
+              rintro s' ⟨hpd, habi, hfc, hdm, hfr⟩
+              refine ⟨hpd, habi, fun {lf} hfl => ?_, hdm, hfr⟩
               cases dst with
               | vec v => exact v.elim
               | gpr r => cases r <;> simp [armShiftedCmpFlagsOut] at hfl; subst hfl; exact hfc
@@ -537,7 +543,7 @@ theorem armShiftedCmp_spec (h : Host) {steps : Nat} {o : CmpOp} {w : Nat}
       post := by
   letI := h
   refine armFallsTo_of_wp (armWp_mono (armShiftedCmp_wp hins ha hb) ?_)
-  rintro s' ⟨hpd, hfc, hdm, hfr⟩
+  rintro s' ⟨hpd, _, hfc, hdm, hfr⟩
   exact ⟨⟨hpd, hfc, hdm⟩, hfr⟩
 
 /-! ## 3. Extended-Register Semantics & `ADD_e`/`SUB_e`/`SUBS_e` Correctness -/
@@ -857,7 +863,7 @@ theorem armExtCmp_wp [Host] {o : CmpOp} {w : Nat} {ra rb : Reg} {e : ArmExtType}
                 (armCmpCond_subs (Or.inl rfl) o _ _) hci
               rw [ha', hb'] at hwp
               refine armWp_mono hwp ?_
-              rintro s' ⟨hpd, hfc, hdm, hfr⟩
+              rintro s' ⟨hpd, _, hfc, hdm, hfr⟩
               refine ⟨hpd, fun {lf} hfl => ?_, hdm, hfr⟩
               cases dst with
               | vec v => exact v.elim
@@ -878,7 +884,7 @@ theorem armExtCmp_wp [Host] {o : CmpOp} {w : Nat} {ra rb : Reg} {e : ArmExtType}
                 (by rw [armCmpCond_subs (Or.inl rfl), CmpOp.swap_evalBits]) hci
               rw [ha', hb'] at hwp
               refine armWp_mono hwp ?_
-              rintro s' ⟨hpd, hfc, hdm, hfr⟩
+              rintro s' ⟨hpd, _, hfc, hdm, hfr⟩
               refine ⟨hpd, fun {lf} hfl => ?_, hdm, hfr⟩
               cases dst with
               | vec v => exact v.elim
@@ -900,7 +906,7 @@ theorem armExtCmp_wp [Host] {o : CmpOp} {w : Nat} {ra rb : Reg} {e : ArmExtType}
                 (armCmpCond_subs (Or.inr rfl) o _ _) hci
               rw [ha', hb'] at hwp
               refine armWp_mono hwp ?_
-              rintro s' ⟨hpd, hfc, hdm, hfr⟩
+              rintro s' ⟨hpd, _, hfc, hdm, hfr⟩
               refine ⟨hpd, fun {lf} hfl => ?_, hdm, hfr⟩
               cases dst with
               | vec v => exact v.elim
@@ -921,7 +927,7 @@ theorem armExtCmp_wp [Host] {o : CmpOp} {w : Nat} {ra rb : Reg} {e : ArmExtType}
                 (by rw [armCmpCond_subs (Or.inr rfl), CmpOp.swap_evalBits]) hci
               rw [ha', hb'] at hwp
               refine armWp_mono hwp ?_
-              rintro s' ⟨hpd, hfc, hdm, hfr⟩
+              rintro s' ⟨hpd, _, hfc, hdm, hfr⟩
               refine ⟨hpd, fun {lf} hfl => ?_, hdm, hfr⟩
               cases dst with
               | vec v => exact v.elim

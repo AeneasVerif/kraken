@@ -97,6 +97,7 @@ public import LeanQbe.T.LinkSccLemmas1
 public import LeanQbe.T.LinkSccLemmas2
 public import LeanQbe.T.LinkUtil
 public import LeanQbe.T.Live
+public import LeanQbe.T.LiveW62
 public import LeanQbe.T.Logic.Arith
 public import LeanQbe.T.Logic.BitVec
 public import LeanQbe.T.Logic.ByteArrayDecimal
@@ -190,6 +191,7 @@ public import LeanQbe.T.RegaCmpReuse
 public import LeanQbe.T.RegaDefs
 public import LeanQbe.T.RegaFlat
 public import LeanQbe.T.RegaFlatLemmas
+public import LeanQbe.T.RegaLabClean
 public import LeanQbe.T.RegaLemmas
 public import LeanQbe.T.RegaLemmas0
 public import LeanQbe.T.RegaLemmas1
@@ -202,6 +204,9 @@ public import LeanQbe.T.RegaLemmasCmpReuse
 public import LeanQbe.T.RegaLemmasRemat
 public import LeanQbe.T.RegaLemmasZero
 public import LeanQbe.T.RegaRemat
+public import LeanQbe.T.RegaW62
+public import LeanQbe.T.RegaW62Lemmas
+public import LeanQbe.T.RegaW62Lemmas2
 public import LeanQbe.T.RegaZero
 public import LeanQbe.T.RegaZext
 public import LeanQbe.T.Scc
@@ -214,6 +219,7 @@ public import LeanQbe.T.SpillCoalesce
 public import LeanQbe.T.SpillEmit
 public import LeanQbe.T.SpillFlags
 public import LeanQbe.T.SpillSnippet
+public import LeanQbe.T.SpillW62
 public import LeanQbe.T.StepSimp
 public import LeanQbe.T.TailDup
 public import LeanQbe.T.TailDupLemmas

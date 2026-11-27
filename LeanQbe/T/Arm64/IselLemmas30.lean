@@ -1157,7 +1157,7 @@ private theorem armZeroAndsFinish_wp [Host] {n : Nat} (hn' : n = 8 ∨ n = 16) (
         ⟨fun e => hr (e ▸ List.mem_cons_self), fun hm => hr (List.mem_cons_of_mem _ hm)⟩
       rw [get_wr_of_ne sx d _ r hne.1]; exact hfr.1 r hne.2
 
-private theorem armZeroCmp_wp [Host] {n : Nat} (hn : n ∈ [8, 16, 32, 64])
+theorem armZeroCmp_wp [Host] {n : Nat} (hn : n ∈ [8, 16, 32, 64])
     (o : CmpOp) (rx : XReg) (dst : PDst Reg Empty ArmCond .bool)
     {vr : BitVec n} {c : List Instr} {clob : FlagMask} {s : MachineData}
     (hc : armZeroCmpIns? o n rx dst = some (c, clob))

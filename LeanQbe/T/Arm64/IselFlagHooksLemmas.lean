@@ -214,7 +214,7 @@ theorem armTestOp_boolFlag_spec (_ : armGpr.hasTestFlags = true)
       exact hcc.symm
   subst hcond
   refine armFallsTo_of_wp (armWp_mono (armTestOp_wp neg pa pb pd hc0 hargs hd hpa hpb) ?_)
-  rintro s' ⟨⟨hpd, hst⟩, hdm, hfr⟩
+  rintro s' ⟨⟨hpd, _, hst⟩, hdm, hfr⟩
   exact ⟨⟨hpd, hst hcl, hdm⟩, hfr⟩
 
 /-- Vacuous memory-test flag reuse specification (`armGpr.testMem = none`). -/

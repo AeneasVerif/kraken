@@ -30,6 +30,7 @@ def LabJ (G : VCtx) (codeℓ entryℓ : Nat) {ts : List Ty} : Cont ts := fun xs 
   ∃ k en, (T.mach.prog host)[k]? = some (T.frame.label (lname fn codeℓ)) ∧
     hints.entry.find? entryℓ = some en ∧
     ∀ s σ, (∀ p ∈ en.live, LocOk T.mach G s σ p.1 p.2) → ParamsOk T.mach s σ ts xs en.ploc →
+      LiveZOk T.mach G s σ en.live en.liveZ → ParamsZOk T.mach s σ ts xs en.ploc en.plocZ →
       Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E) →
       T.mach.Run host k s (FnPost T host s₀ ra n nX Rf Q X)
 
@@ -163,6 +164,62 @@ theorem Agree.base {G : VCtx} {nvg nv : Nat} {st : SymState T.toIsa} {s : T.mach
   vt := hA.vt
   flags_ok := trivial
   flags_lt := trivial
+  scrConsts_ok := scrOk_nil _ _ _
+
+private theorem paramsZOk_frame_jump {s s' : T.mach.MData} {σ : List (BitVec 64)}
+    {g : List T.Reg} {v : List T.VReg} {f : FlagMask}
+    (hfr : T.mach.Frame T.gpr.condReads s s' g v f) :
+    ∀ {ts : List Ty} {args : Tup (Arg VNat) ts} {xs : Tup Val ts}
+      {ploc : List T.toIsa.Loc} {plocZ : List Bool} {argTgts : List (SymArg × T.toIsa.Loc)},
+    jumpTargets T.toIsa args ploc = some argTgts →
+    (∀ p ∈ argTgts, ∀ r, p.2 = .gpr r → r ∉ g) →
+    ParamsZOk T.mach s σ ts xs ploc plocZ → ParamsZOk T.mach s' σ ts xs ploc plocZ
+  | [], (), (), [], _, _, _, _, _ => trivial
+  | [], (), (), _ :: _, _, _, hj, _, _ => by simp [jumpTargets] at hj
+  | _ :: _, _, _, [], _, _, hj, _, _ => by simp [jumpTargets] at hj
+  | _ :: _, (_, _), (_, _), _ :: _, [], _, _, _, _ => trivial
+  | _ :: _, (_, _), (_, _), loc :: locs, _ :: zs, argTgts, hj, hloc, ⟨h1, h2⟩ => by
+    dsimp only [jumpTargets] at hj
+    split at hj
+    · rename_i sa rest hsa hrest
+      simp only [Option.some.injEq] at hj; subst hj
+      refine ⟨fun hz => ?_, paramsZOk_frame_jump hfr hrest
+        (fun p hp => hloc p (List.mem_cons_of_mem _ hp)) h2⟩
+      have hpz := h1 hz
+      cases loc with
+      | gpr r => simpa [ParamZVal, hfr.1 r (hloc _ List.mem_cons_self r rfl)] using hpz
+      | slot _ _ | vec _ | flag _ => exact hpz
+    · simp at hj
+
+private theorem buildEntryBaseZ_memDefs {I : Isa} {nslots : Nat} {vw : Trie SlotWidth} :
+    ∀ {xs : List (SymArg × I.Loc)} {zs : List Bool} {st0 st' : SymState I},
+    buildEntryBaseZ I nslots vw xs zs st0 = some st' → st'.memDefs = st0.memDefs
+  | [], _, _, _, h => by simp only [buildEntryBaseZ, Option.some.injEq] at h; rw [h]
+  | (_, loc) :: _, zs, _, _, h => by
+    cases loc <;> simp only [buildEntryBaseZ] at h
+    · split at h; · simpa using buildEntryBaseZ_memDefs h
+      · simp at h
+    · split at h; · simpa using buildEntryBaseZ_memDefs h
+      · simp at h
+    · simpa using buildEntryBaseZ_memDefs h
+    · split at h; · simp at h
+      · obtain ⟨_, -, h'⟩ := Option.bind_eq_some_iff.mp h; simpa using buildEntryBaseZ_memDefs h'
+
+private theorem bindBlockParamsZ_memDefs {I : Isa} {nslots : Nat} :
+    ∀ {ts : List Ty} {locs : List I.Loc} {zs : List Bool} {nv0 : Nat} {st0 st' : SymState I},
+    bindBlockParamsZ I nslots ts locs zs nv0 st0 = some st' → st'.memDefs = st0.memDefs
+  | [], [], _, _, _, _, h => by simp only [bindBlockParamsZ, Option.some.injEq] at h; rw [h]
+  | t :: _, loc :: _, _, _, _, _, h => by
+    cases loc <;> simp only [bindBlockParamsZ] at h
+    · split at h; · simpa using bindBlockParamsZ_memDefs h
+      · simp at h
+    · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h
+      split at h; · simpa using bindBlockParamsZ_memDefs h
+      · simp at h
+    · cases t <;> simp at h; simpa using bindBlockParamsZ_memDefs h
+    · split at h; · simp at h
+      · obtain ⟨_, -, h⟩ := Option.bind_eq_some_iff.mp h; simpa using bindBlockParamsZ_memDefs h
+  | [], _ :: _, _, _, _, _, h | _ :: _, [], _, _, _, _, h => by simp [bindBlockParamsZ] at h
 
 theorem symArgEq_var {sa : SymArg} {x : Nat} (h : symArgEq sa (.var x) = true) : sa = .var x := by
   cases sa <;> simp_all [symArgEq]
@@ -404,6 +461,8 @@ theorem enter_labJ (hy : Hyps T host hints E Γ s₀ n nX bound) {G G' : VCtx} (
     (hjt : jumpTargets T.toIsa args en.ploc = some argTgts)
     {s : T.mach.MData} {σ : List (BitVec 64)} {m : Mem 64}
     (hok : ∀ p ∈ en.live ++ argTgts, LocOk T.mach G s σ p.1 p.2)
+    (hokZ : LiveZOk T.mach G s σ en.live en.liveZ)
+    (hpZ : ParamsZOk T.mach s σ ts (vals args₁) en.ploc en.plocZ)
     (hI : Inv T hints s₀ ra n Rf m s σ (isZeroLeaf T.toIsa hints E))
     (hlab : (T.mach.prog host)[k]? = some (T.frame.label (lname fn codeℓ)))
     (hJ : LabJ T host hints E fn s₀ ra n nX Rf Q X G' codeℓ entryℓ (vals args₁) m) :
@@ -412,7 +471,8 @@ theorem enter_labJ (hy : Hyps T host hints E Γ s₀ n nX bound) {G G' : VCtx} (
   rw [hen] at hen'; cases hen'
   have hk := hy.unique _ _ _ hlab hlab'
   subst hk
-  refine hrun s σ (fun p hp => LocOk.mono hGs (hok p (List.mem_append_left _ hp))) ?_ hI
+  refine hrun s σ (fun p hp => LocOk.mono hGs (hok p (List.mem_append_left _ hp))) ?_
+    (LiveZOk.mono hGs hokZ) hpZ hI
   exact paramsOk_of_jumpTargets hargs hjt fun p hp => hok p (List.mem_append_right _ hp)
 
 theorem lowerBlocks_labelPos {I : Isa} {h : I.Hints} {E : Ext} {prog : List I.Directive} :
@@ -529,12 +589,12 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound)
           rw [hen] at hbt; dsimp only at hbt
           by_cases hsc : entryScopeOk nv en = true
           · simp only [hsc, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hbt
-            cases hbe : buildEntryBase T.toIsa hints.nslots stg.vecWidths en.live
+            cases hbe : buildEntryBaseZ T.toIsa hints.nslots stg.vecWidths en.live en.liveZ
                 { regs := [], slots := .empty, defs := stg.defs, vecWidths := stg.vecWidths } with
             | none => simp [hbe] at hbt
             | some baseSt =>
               rw [hbe] at hbt; dsimp only at hbt
-              cases hbp : bindBlockParams T.toIsa hints.nslots ts en.ploc nv baseSt with
+              cases hbp : bindBlockParamsZ T.toIsa hints.nslots ts en.ploc en.plocZ nv baseSt with
               | none => simp [hbp] at hbt
               | some initSt =>
                 rw [hbp] at hbt; dsimp only at hbt
@@ -562,36 +622,44 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound)
                               (en'.live ++ argTgts) with
                           | none => simp [hsh] at hbt
                           | some p2 =>
-                            rcases p2 with ⟨sc, _⟩
+                            rcases p2 with ⟨sc, st2⟩
                             cases sc with
                             | cons _ _ => simp [hsh] at hbt
                             | nil =>
-                              simp only [hsh, Option.some.injEq] at hbt
-                              subst hbt
-                              have hwf := hb0 xs₁ (Tup.levels ts nv)
-                              rw [heqb] at hwf
-                              obtain ⟨J₁, args₁, he1, hj1, hargs1⟩ := wf_jump_right hwf
-                              rw [he1] at hwpb
-                              obtain ⟨⟨kj', hlabj'⟩, G'', hG'', rfl⟩ := hD' _ J₁ j'' hj1
-                              have hlabF : (T.mach.prog host)[kj']? =
-                                  some (T.frame.label (lname fn (tgtLab fwd lid))) := by
-                                have h1 : tgtLab fwd lid = fwdTgt := by
-                                  simp [tgtLab, Trie.getD, hfw]
-                                rw [h1, ← htgtEq]
-                                exact hlabj'
-                              refine ⟨kj', en, hlabF, hen, fun s σ hlive hparams hI => ?_⟩
-                              have hσ : σ.length = hints.nslots := hI.1
-                              have hlt : ∀ p ∈ en.live, symArgScopeOk nv p.1 = true := by
-                                simpa [entryScopeOk, List.all_eq_true] using hsc
-                              have hA0 := buildEntryBase_ok hbe hlive hlt hσ (hAg.base hle s σ)
-                              have hA1 := bindBlockParams_ok hbp hparams hσ hA0
-                              refine stepPre_ok hy.spE hpre List.nil_prefix hA1 hI
-                                fun s1 σ1 hA2 hI2 => ?_
-                              refine shuffle_ok hy.spE hsh List.nil_prefix hA2 hI2
-                                fun s2 σ2 hok hA3 hI3 => ?_
-                              simp only [List.length_nil, Nat.add_zero] at *
-                              exact enter_labJ hy (fun p hp => List.mem_append_right _ (hG'' p hp))
-                                hargs1 hen' hjt hok hI3 hlabj' hwpb
+                              rw [hsh] at hbt; dsimp only at hbt
+                              split at hbt
+                              · rename_i hez
+                                simp only [Option.some.injEq] at hbt
+                                subst hbt
+                                have hwf := hb0 xs₁ (Tup.levels ts nv)
+                                rw [heqb] at hwf
+                                obtain ⟨J₁, args₁, he1, hj1, hargs1⟩ := wf_jump_right hwf
+                                rw [he1] at hwpb
+                                obtain ⟨⟨kj', hlabj'⟩, G'', hG'', rfl⟩ := hD' _ J₁ j'' hj1
+                                have hlabF : (T.mach.prog host)[kj']? =
+                                    some (T.frame.label (lname fn (tgtLab fwd lid))) := by
+                                  have h1 : tgtLab fwd lid = fwdTgt := by
+                                    simp [tgtLab, Trie.getD, hfw]
+                                  rw [h1, ← htgtEq]
+                                  exact hlabj'
+                                refine ⟨kj', en, hlabF, hen,
+                                  fun s σ hlive hparams hliveZ hparamsZ hI => ?_⟩
+                                have hσ : σ.length = hints.nslots := hI.1
+                                have hlt : ∀ p ∈ en.live, symArgScopeOk nv p.1 = true := by
+                                  simpa [entryScopeOk, List.all_eq_true] using hsc
+                                have hA0 := buildEntryBaseZ_ok hbe hlive hliveZ hlt hσ
+                                  (hAg.base hle s σ)
+                                have hA1 := bindBlockParamsZ_ok hbp hparams hparamsZ hσ hA0
+                                refine stepPre_ok hy.spE hpre List.nil_prefix hA1 hI
+                                  fun s1 σ1 hA2 hI2 => ?_
+                                refine shuffle_ok hy.spE hsh List.nil_prefix hA2 hI2
+                                  fun s2 σ2 hok hA3 hI3 => ?_
+                                simp only [List.length_nil, Nat.add_zero] at *
+                                obtain ⟨hlZ, hpZ⟩ := entryZOk_ok hA3 hargs1 hjt hez
+                                exact enter_labJ hy (fun p hp => List.mem_append_right _ (hG''
+                                  p hp))
+                                  hargs1 hen' hjt hok hlZ hpZ hI3 hlabj' hwpb
+                              · simp at hbt
                 | _ => simp [heqb] at hbt
           · simp [hsc] at hbt
     | none =>
@@ -602,12 +670,12 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound)
         simp only [hen] at hpb
         by_cases hsc : entryScopeOk nv en = true
         · simp only [hsc, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hpb
-          cases hbe : buildEntryBase T.toIsa hints.nslots stg.vecWidths en.live
+          cases hbe : buildEntryBaseZ T.toIsa hints.nslots stg.vecWidths en.live en.liveZ
               { regs := [], slots := .empty, defs := stg.defs, vecWidths := stg.vecWidths } with
           | none => simp [hbe] at hpb
           | some baseSt =>
             simp only [hbe] at hpb
-            cases hbp : bindBlockParams T.toIsa hints.nslots ts en.ploc nv baseSt with
+            cases hbp : bindBlockParamsZ T.toIsa hints.nslots ts en.ploc en.plocZ nv baseSt with
             | none => simp [hbp] at hpb
             | some initSt =>
               simp only [hbp] at hpb
@@ -626,15 +694,15 @@ theorem lowerBlocks_closed (hy : Hyps T host hints E Γ s₀ n nX bound)
                 refine ⟨?_, ?_⟩
                 · intro xs₁ m' hwpb
                   refine ⟨kb, en, by simpa [tgtLab, Trie.getD, hfw] using hlab, hen,
-                    fun s σ hlive hparams hI => ?_⟩
+                    fun s σ hlive hparams hliveZ hparamsZ hI => ?_⟩
                   refine T.frameSpec.label_spec hlab ?_
                   have hσ : σ.length = hints.nslots := hI.1
                   have hlt : ∀ p ∈ en.live, symArgScopeOk nv p.1 = true := by
                     simpa [entryScopeOk, List.all_eq_true] using hsc
-                  have hA0 := buildEntryBase_ok hbe hlive hlt hσ (hAg.base hle s σ)
-                  have hA1 := bindBlockParams_ok hbp hparams hσ hA0
+                  have hA0 := buildEntryBaseZ_ok hbe hlive hliveZ hlt hσ (hAg.base hle s σ)
+                  have hA1 := bindBlockParamsZ_ok hbp hparams hparamsZ hσ hA0
                   have hmd : initSt.memDefs = .empty :=
-                    (bindBlockParams_memDefs hbp).trans (buildEntryBase_memDefs hbe)
+                    (bindBlockParamsZ_memDefs hbp).trans (buildEntryBaseZ_memDefs hbe)
                   have hlabsR := lowerBlocks_labelPos (prog := T.mach.prog host) bs₂ (lid + 1)
                     nv1 nl1 ip1 stg.defs stg.vecWidths ft fwd fwdTgts cr nv' nl' ip'
                     (kb + (T.frame.label (lname fn lid) :: cbb).length) hpr hrest
@@ -699,13 +767,15 @@ theorem thread_ok (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCtx} {D : 
           simp only [hen, hjt, Option.bind_some] at hz
           split at hz
           · rename_i hall
+            simp only [Bool.and_eq_true] at hall
             simp only [Option.some.injEq] at hz; subst hz
             obtain ⟨⟨kℓ, hlab⟩, G', hGs, rfl⟩ := hD ts j₁ j₂ hj
             refine ⟨kℓ, hlab, fun hwp nv s σ hA hI => ?_⟩
             simp only [wp] at hwp
             have hJ := hwp
-            refine enter_labJ hy hGs hargs hen hjt (fun p hp => ?_) hI hlab hJ
-            have := List.all_eq_true.mp hall p hp
+            obtain ⟨hlZ, hpZ⟩ := entryZOk_ok hA hargs hjt hall.2
+            refine enter_labJ hy hGs hargs hen hjt (fun p hp => ?_) hlZ hpZ hI hlab hJ
+            have := List.all_eq_true.mp hall.1 p hp
             simp only [Bool.and_eq_true] at this
             exact holdsLoc_ok hA this.2
           · simp at hz
@@ -759,7 +829,8 @@ private theorem threadFusedArm_spec {I : Isa} {h : I.Hints} {fn : Sym} {ipA : Na
         stB = { st1 with
           regs := killRegs I I.frame.scratch [] cl st1.regs
           zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
-          flags := killFlags I cl st1.flags } := by
+          flags := killFlags I cl st1.flags
+          scrConsts := [] } := by
   unfold threadFusedArm at ht
   split at ht
   · simp only [Option.bind_eq_some_iff] at ht
@@ -784,7 +855,8 @@ private theorem fuseJnzChoice_spec {I : Isa} {h : I.Hints} {fn : Sym} {nl ipT ip
       stBr = { st1 with
         regs := killRegs I I.frame.scratch [] cl st1.regs
         zeroExt32 := killZeroExt I.frame.scratch st1.zeroExt32
-        flags := killFlags I cl st1.flags }) ∧
+        flags := killFlags I cl st1.flags
+        scrConsts := [] }) ∧
     (∀ j, tgt = some j →
       (inv = false → zeroMoveJump? I h ipT stBr t = some j) ∧
       (inv = true → zeroMoveJump? I h ipE stBr e = some j)) := by
@@ -952,13 +1024,15 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
         { st1 with
           regs := killRegs T.toIsa T.frame.scratch [] FlagMask.none st1.regs
           zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32
-          flags := killFlags T.toIsa FlagMask.none st1.flags } true t e ft fwd).1
+          flags := killFlags T.toIsa FlagMask.none st1.flags
+          scrConsts := [] } true t e ft fwd).1
         then T.gpr.negCond cc else cc) =
         (if (jnzMode T.toIsa hints ipT ipE
         { st1 with
           regs := killRegs T.toIsa T.frame.scratch [] FlagMask.none st1.regs
           zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32
-          flags := killFlags T.toIsa FlagMask.none st1.flags } true t e ft fwd).1
+          flags := killFlags T.toIsa FlagMask.none st1.flags
+          scrConsts := [] } true t e ft fwd).1
         then !cv else cv) := by
       split <;> simp_all [T.gprSpec.negCond_eval]
     rw [hev]; exact this
@@ -1031,7 +1105,8 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
           regs := killRegs T.toIsa T.frame.scratch [] cl st1.regs
           zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32
           flags := (cmpMemRes T.toIsa st1 co w (.var x) (.immBits w 0#64)
-            (.flag cc) cmpCode cl).2.2.1 } sCmp σ1 := by
+            (.flag cc) cmpCode cl).2.2.1
+          scrConsts := [] } sCmp σ1 := by
         simpa [cmpMemRes, hcmo] using hA1.kill hfr1
       have hI_cmp := hI1.keep hm1 (keep_of_frame_scratch hfr1)
       have hev1 : T.mach.evalCond sCmp cc = cv := by
@@ -1068,7 +1143,8 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
           regs := killRegs T.toIsa T.frame.scratch [] cl st1.regs
           zeroExt32 := killZeroExt T.frame.scratch st1.zeroExt32
           flags := (cmpMemRes T.toIsa st1 co w (.var x) (.immBits w 0#64)
-            (.flag cc) cmpCode cl).2.2.1 } sCmp σ1 :=
+            (.flag cc) cmpCode cl).2.2.1
+          scrConsts := [] } sCmp σ1 :=
         { hA1.kill hfr1 with flags_ok := hflOk, flags_lt := hflLt }
       have hI_cmp := hI1.keep hm1 (keep_of_frame_scratch hfr1)
       have hev1 : T.mach.evalCond sCmp cc = cv := by
@@ -1106,7 +1182,8 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
             | some lf => some (.cmp w (if lf then .var x else .immBits w 0#64)
                                        (if lf then .immBits w 0#64 else .var x) false)
             | none => killFlags T.toIsa cl st1.flags
-          else killFlags T.toIsa cl st1.flags } sCmp σ1 := by
+          else killFlags T.toIsa cl st1.flags
+          scrConsts := [] } sCmp σ1 := by
         simpa [hwBle, hcmo] using hA1.kill (by simpa [tupDstGprs] using hfr1)
       have hI_cmp := hI1.keep hm1 (keep_of_frame_scratch hfr1)
       have hev1 : T.mach.evalCond sCmp cc = cv := by
@@ -1156,7 +1233,8 @@ theorem branch_ok {zl : Bool} (hy : Hyps T host hints E Γ s₀ n nX bound) {G :
             | some lf => some (.cmp w (if lf then .var x else .immBits w 0#64)
                                        (if lf then .immBits w 0#64 else .var x) false)
             | none => killFlags T.toIsa cl st1.flags
-          else killFlags T.toIsa cl st1.flags } sCmp σ1 :=
+          else killFlags T.toIsa cl st1.flags
+          scrConsts := [] } sCmp σ1 :=
         { hA1.kill hfr1 with flags_ok := hflOk, flags_lt := hflLt }
       have hI_cmp := hI1.keep hm1 (keep_of_frame_scratch hfr1)
       have hev1 : T.mach.evalCond sCmp cc = cv := by
@@ -1204,12 +1282,12 @@ private theorem blockTrampoline_target {G : VCtx} {D : Ctx Cont LNat}
     rw [hen] at hbt; dsimp only at hbt
     by_cases hsc : entryScopeOk nv en = true
     · simp only [hsc, Bool.not_true, Bool.false_eq_true, ↓reduceIte] at hbt
-      cases hbe : buildEntryBase T.toIsa hints.nslots vw en.live
+      cases hbe : buildEntryBaseZ T.toIsa hints.nslots vw en.live en.liveZ
           { regs := [], slots := .empty, defs := defs, vecWidths := vw } with
       | none => simp [hbe] at hbt
       | some baseSt =>
         rw [hbe] at hbt; dsimp only at hbt
-        cases hbp : bindBlockParams T.toIsa hints.nslots ts en.ploc nv baseSt with
+        cases hbp : bindBlockParamsZ T.toIsa hints.nslots ts en.ploc en.plocZ nv baseSt with
         | none => simp [hbp] at hbt
         | some initSt =>
           rw [hbp] at hbt; dsimp only at hbt
@@ -1236,14 +1314,17 @@ private theorem blockTrampoline_target {G : VCtx} {D : Ctx Cont LNat}
                         (en'.live ++ argTgts) with
                     | none => simp [hsh] at hbt
                     | some p2 =>
-                      rcases p2 with ⟨sc, _⟩
+                      rcases p2 with ⟨sc, st2⟩
                       cases sc with
                       | cons _ _ => simp [hsh] at hbt
                       | nil =>
-                        simp only [hsh, Option.some.injEq] at hbt; subst hbt
-                        have hwf := hb (defaultValTup ts) (Tup.levels ts nv)
-                        rw [heqb] at hwf
-                        exact wf_jump_mem_D hwf
+                        rw [hsh] at hbt; dsimp only at hbt
+                        split at hbt
+                        · simp only [Option.some.injEq] at hbt; subst hbt
+                          have hwf := hb (defaultValTup ts) (Tup.levels ts nv)
+                          rw [heqb] at hwf
+                          exact wf_jump_mem_D hwf
+                        · simp at hbt
           | _ => rw [heqb] at hbt; simp at hbt
     · simp [hsc] at hbt
 
@@ -1478,7 +1559,8 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
       obtain ⟨mc, st1⟩ := p1
       cases hlop : lowerOp T.toIsa hints nv ip st1 op₂
           (deferJnzNext T.toIsa hints fn nv nl ip st1 op₂ (k₂ (Tup.levels ts nv)) ||
-            deferLeaNext T.toIsa hints nv ip st1 op₂ (k₂ (Tup.levels ts nv))) with
+            deferLeaNext T.toIsa hints nv ip st1 op₂ (k₂ (Tup.levels ts nv)))
+          (hints.mulHiIps.getD ip false) with
       | none => simp [hp, hlop] at hl
       | some p2 =>
         obtain ⟨co, st2⟩ := p2
@@ -1734,7 +1816,11 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
           | none => simp [hsh] at hl
           | some p2 =>
             obtain ⟨sc, st2⟩ := p2
-            simp only [hsh, Except.ok.injEq, Prod.mk.injEq] at hl
+            rw [hsh] at hl; dsimp only at hl
+            split at hl; · simp at hl
+            rename_i hez
+            have hez' : entryZOk T.toIsa st2 en argTgts = true := by simpa using hez
+            simp only [Except.ok.injEq, Prod.mk.injEq] at hl
             obtain ⟨rfl, -, -, -⟩ := hl
             obtain ⟨⟨kℓ, hlabℓ⟩, G', hGs, hJeq⟩ := hD ts j₁ j₂ hj
             subst hJeq
@@ -1745,14 +1831,22 @@ theorem lowerExpr_correct (hy : Hyps T host hints E Γ s₀ n nX bound) {G : VCt
             simp only [Bool.not_eq_true', Bool.not_eq_false, List.all_eq_true] at hlocs
             refine stepPre_ok hy.spE hp hmc hA hI fun s1 σ1 hA1 hI1 => ?_
             refine shuffle_ok hy.spE hsh hsc hA1 hI1 fun s2 σ2 hok hA2 hI2 => ?_
+            obtain ⟨hlZ, hpZ⟩ := entryZOk_ok hA2 hargs hjt hez'
             by_cases hfj : (ft == some (tgtLab fwd j₂)) = true
             · simp only [hfj, ite_true, List.append_nil] at hft hc3
               have hl0 := hft (tgtLab fwd j₂) (by simpa using hfj)
-              exact enter_labJ hy hGs hargs hen hjt hok hI2 (by simpa [Nat.add_assoc] using hl0) hwp
+              exact enter_labJ hy hGs hargs hen hjt hok hlZ hpZ hI2
+                (by simpa [Nat.add_assoc] using hl0) hwp
             · simp only [hfj, Bool.false_eq_true, ite_false] at hc3
               refine T.gprSpec.jmp_spec hc3 (labelAddr_of_unique hy.unique hlabℓ)
                 fun s3 hfr hm => ?_
+              have hjlLive : ∀ p ∈ en.live, ∀ r, p.2 = .gpr r → r ∉ T.frame.scratch :=
+                fun p hp r hr => (jumpLocOk_spec (hlocs p (List.mem_append_left _ hp))).1 r hr
+              have hjlArg : ∀ p ∈ argTgts, ∀ r, p.2 = .gpr r → r ∉ T.frame.scratch :=
+                fun p hp r hr => (jumpLocOk_spec (hlocs p (List.mem_append_right _ hp))).1 r hr
               refine enter_labJ hy hGs hargs hen hjt (fun p hp => ?_)
+                (LiveZOk.frame hfr (fun _ => Or.inr trivial) hjlLive hlZ)
+                (paramsZOk_frame_jump hfr hjt hjlArg hpZ)
                 (hI2.keep hm (keep_of_frame_scratch hfr))
                 hlabℓ hwp
               have hjl := jumpLocOk_spec (hlocs p hp)

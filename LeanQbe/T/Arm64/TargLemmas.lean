@@ -7,6 +7,7 @@ import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Arm64.IselLemmas4
 import LeanQbe.T.Arm64.IselNarrowLemmas
 import LeanQbe.T.Arm64.IselFlagHooksLemmas
+import LeanQbe.T.Arm64.IselScrLemmas5
 import LeanQbe.T.Arm64.FrameLemmas
 
 /-!
@@ -61,6 +62,12 @@ theorem armLabelClean : Rega.LabelClean armTarget.toIsa where
   cmpMem _ _ _ _ _ _ _ h l := armCmpMem_noLab h l
   shiftAlu _ _ _ _ _ _ _ _ _ h l := armShiftedAlu_noLab h l
   shiftCmp _ _ _ _ _ _ _ _ _ _ h l := armShiftedCmp_noLab h l
+  mulHi _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armMulHi_noLab h2 l
+  storeScr _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armStoreScr_noLab h2 l
+  storeZextIdxScr _ _ _ _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armStoreZextIdxScr_noLab h2 l
+  loadScr _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armLoadScr_noLab h2 l
+  loadZextIdxScr _ _ _ _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armLoadZextIdxScr_noLab h2 l
+  opScr _ _ _ _ _ _ _ _ _ _ _ h1 h2 l := by cases h1; exact armOpScr_noLab h2 l
   clearFlags := armClearFlags_noLab
   vmov _ d := d.elim
   vmovi _ d := d.elim

@@ -956,7 +956,7 @@ def emitAllocB {I : Isa} (c : Ctx I) (home : Trie (Home I.Cond))
     let st1 := emitAlloc c home bk slotOk clrAt r0 r1 b
       { pendFromArrivals home bk pvars pids with gDf := inDf }
       evL initSv (rin.map fun (x, r, _) => (x, r)) []
-      { st with entry := st.entry.insert l ⟨liveL, plocs⟩, usedCs := cs' }
+      { st with entry := st.entry.insert l { live := liveL, ploc := plocs }, usedCs := cs' }
     emitAllocB c home bk slotOk clrAt r0 r1 bs st1
 end
 

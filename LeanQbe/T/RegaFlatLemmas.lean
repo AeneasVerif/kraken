@@ -675,12 +675,12 @@ private theorem blockTrampoline?Flat_eq {rs : List Ty} (I : Isa) (h : I.Hints)
     dsimp only
     split
     · rfl
-    · cases buildEntryBase I h.nslots vw en.live
+    · cases buildEntryBaseZ I h.nslots vw en.live en.liveZ
           { regs := [], slots := .empty, defs := defs, vecWidths := vw } with
       | none => rfl
       | some baseSt =>
         dsimp only
-        cases bindBlockParams I h.nslots ts en.ploc nv baseSt with
+        cases bindBlockParamsZ I h.nslots ts en.ploc en.plocZ nv baseSt with
         | none => rfl
         | some initSt =>
           dsimp only
@@ -778,7 +778,8 @@ theorem lowerFlatExpr_eq (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : List
       have hvm' := trieProjMatch_insertVLevels (ts := ts) (nv := nv) hvm
       rw [deferJnzNextFlat_eq I h fn (ls := ls) hΓ' hvm' nv nl ip p.2 _ k hwf.2,
         deferLeaNextFlat_eq I h (ls := ls) hΓ' hvm' nv ip p.2 _ k hwf.2]
-      cases lowerOp I h nv ip p.2 ⟨op.code, flatArgs vDepth vEnv op.args⟩ _ with
+      cases lowerOp I h nv ip p.2 ⟨op.code, flatArgs vDepth vEnv op.args⟩ _
+          (h.mulHiIps.getD ip false) with
       | none => rfl
       | some q =>
         dsimp only
@@ -989,12 +990,12 @@ theorem lowerFlatBlocks_eq (I : Isa) (h : I.Hints) (E : Ext) (fn : Sym) {rs : Li
         dsimp only
         split
         · rfl
-        · cases buildEntryBase I h.nslots vw en.live
+        · cases buildEntryBaseZ I h.nslots vw en.live en.liveZ
               { regs := [], slots := .empty, defs := defs, vecWidths := vw } with
           | none => rfl
           | some baseSt =>
             dsimp only
-            cases bindBlockParams I h.nslots ts en.ploc nv baseSt with
+            cases bindBlockParamsZ I h.nslots ts en.ploc en.plocZ nv baseSt with
             | none => rfl
             | some initSt =>
               dsimp only

@@ -90,6 +90,8 @@ inductive SymArg where
 structure Entry (Reg VReg Cond : Type) where
   live : List (SymArg × Loc Reg VReg Cond) := []
   ploc : List (Loc Reg VReg Cond) := []
+  liveZ : List Bool := []
+  plocZ : List Bool := []
   deriving DecidableEq, Repr, Inhabited, Lean.ToExpr
 
 structure Hints (Reg VReg Cond : Type) where
@@ -108,6 +110,8 @@ structure Hints (Reg VReg Cond : Type) where
   /-- Untrusted hint: `true` at `ip`s where status flags are dead after `ip` (enabling
   flag-clobbering zero materialization via `GprIsa.moviDeadFlags?`). -/
   deadFlags : Trie Bool := .empty
+  /-- Untrusted hint: `true` at `umulw`/`smulw` `ip`s whose low result is dead (`mulHi?`). -/
+  mulHiIps : Trie Bool := .empty
   nslots : Nat := 0
   saved : List Reg := []
   deriving Repr, Lean.ToExpr
@@ -339,7 +343,8 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
   /-- Condition code carrying the `.bool` GPR result when simultaneously computed in flags. -/
   boolFlagOut? : {sig : List Ty} → OpCode sig [.bool] → Tup (PArg Reg VReg Cond) sig →
     PDst Reg VReg Cond .bool → Option Cond := fun _ _ _ => none
-  /-- For `.cmp co (.bits w) .bool _`, returns `some true` (`sub va vb`) or `some false` (`sub vb va`)
+  /-- For `.cmp co (.bits w) .bool _`,
+    returns `some true` (`sub va vb`) or `some false` (`sub vb va`)
   when flags hold `FlagCmpOk`. -/
   cmpFlagsOut? : (co : CmpOp) → (w : Nat) → PArg Reg VReg Cond (.bits w) →
     PArg Reg VReg Cond (.bits w) → PDst Reg VReg Cond .bool → Option Bool :=
@@ -390,6 +395,38 @@ structure GprIsa (Reg VReg Cond Directive : Type) where
   /-- Operand-order flag-reuse oracle (`some (!lhsShift)`) for `shiftCmp`. -/
   shiftCmpFlagsOut? : CmpOp → Nat → Bool → PDst Reg VReg Cond .bool → Option Bool :=
     fun _ _ _ _ => none
+  /-- `true` when `op` writes a single `.gpr rd` output in canonical `AbiGprHolds` form. -/
+  zeroExtOp : {sig rs : List Ty} → OpCode sig rs → Tup (PArg Reg VReg Cond) sig →
+    Tup (PDst Reg VReg Cond) rs → Bool := fun _ _ _ => false
+  /-- `true` when `testOp`/`cmpMem`/`testMem`/`shiftCmp` write `.gpr rd` in canonical
+    `AbiGprHolds` form. -/
+  zeroExtBoolCmp : Bool := false
+  /-- `true` when `setcc` writes `rd` in canonical `AbiGprHolds` form. -/
+  zeroExtSetcc : Bool := false
+  /-- Prefer a live GPR over an immediate for `op`'s `n`-bit immediate operand (`c64`). -/
+  preferRegImm? : Option ({sig rs : List Ty} → OpCode sig rs → Nat → BitVec 64 → Bool) := none
+  /-- Prefer a live GPR over an immediate for `store` of an `n`-bit immediate operand (`c64`). -/
+  preferStoreRegImm : Nat → BitVec 64 → Bool := fun _ _ => false
+  /-- High-half-only lowering for `umulw`/`smulw` when low output is dead. -/
+  mulHi? : Option ((isSigned : Bool) → (n : Nat) → PArg Reg VReg Cond (.bits n) →
+    PArg Reg VReg Cond (.bits n) → Reg → Option (List Directive × FlagMask)) := none
+  /-- Scratch-constant-tracking store lowering. -/
+  storeScr? : Option (List (Reg × BitVec 64) → (t : Ty) → PArg Reg VReg Cond t → AddrArg Reg →
+    Option (List Directive × FlagMask × List (Reg × BitVec 64))) := none
+  /-- Scratch-constant-tracking zero-extended indexed store lowering. -/
+  storeZextIdxScr? : Option (List (Reg × BitVec 64) → (t : Ty) → PArg Reg VReg Cond t →
+    Reg → Reg → AddrScale → Int64 → Option (List Directive × FlagMask × List (Reg × BitVec 64))) :=
+    none
+  /-- Scratch-constant-tracking load lowering. -/
+  loadScr? : Option (List (Reg × BitVec 64) → Ty → Reg → AddrArg Reg →
+    Option (List Directive × FlagMask × List (Reg × BitVec 64))) := none
+  /-- Scratch-constant-tracking zero-extended indexed load lowering. -/
+  loadZextIdxScr? : Option (List (Reg × BitVec 64) → Ty → Reg → Reg → Reg → AddrScale → Int64 →
+    Option (List Directive × FlagMask × List (Reg × BitVec 64))) := none
+  /-- Scratch-constant-tracking scalar `op` lowering. -/
+  opScr? : Option (List (Reg × BitVec 64) → {sig rs : List Ty} → OpCode sig rs →
+    Tup (PArg Reg VReg Cond) sig → Tup (PDst Reg VReg Cond) rs → VariantHint →
+    Option (List Directive × FlagMask × List (Reg × BitVec 64))) := none
 
 structure VecIsa (Reg VReg Cond Directive : Type) where
   vecScratch : List VReg
@@ -642,6 +679,11 @@ def FlagCmpOk {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
     (s : M.MData) {w : Nat} (va vb : BitVec w) (eqNeOnly : Bool) : Prop :=
   ∀ co cc, (!eqNeOnly || co == .eq || co == .ne) = true → g.condOfCmp? co = some cc →
     M.evalCond s cc = co.evalBits va vb
+
+/-- Known scratch-register 64-bit constants in machine state `s`. -/
+def ScrOk {R V C D : Type} (M : Machine R V C D) (scratch : List R)
+    (scr : List (R × BitVec 64)) (s : M.MData) : Prop :=
+  ∀ p ∈ scr, p.1 ∈ scratch ∧ M.getGpr s p.1 = p.2
 
 structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
     (scratch : List R) : Prop where
@@ -1018,6 +1060,137 @@ structure GprTarget {R V C D : Type} (M : Machine R V C D) (g : GprIsa R V C D)
       (fun s' => M.PDstHolds s' .bool pd (o.evalBits lhs rhs) ∧
         FlagCmpOk M g s' (if lf then lhs else rhs) (if lf then rhs else lhs) false ∧
         M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  setcc_zext : g.zeroExtSetcc = true →
+    ∀ {h k rd c s post}, rd ∉ scratch →
+    M.FallsTo g.condReads h k (g.setcc rd c) (rd :: scratch) [] FlagMask.none s
+      (fun s' => AbiGprHolds (M.getGpr s' rd) .bool (M.evalCond s c) ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  op_zext : ∀ {h k sig t0} {code : OpCode sig [t0]} {pas rd vh c clob vs P s post},
+    g.zeroExtOp code pas (.gpr rd, ()) = true →
+    g.op code pas (.gpr rd, ()) vh = some (c, clob) →
+    (∀ r ∈ tupArgGprs pas, r ∉ scratch) → rd ∉ scratch →
+    TRel (M.PArgHolds s) pas vs → code.wp vs P →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => (∃ rv : Val t0, P (rv, ()) ∧ AbiGprHolds (M.getGpr s' rd) t0 rv) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  testOp_zext : g.zeroExtBoolCmp = true →
+    ∀ {h k w neg pa pb rd c clob va vb s post},
+    g.testOp w neg pa pb (.gpr rd) = some (c, clob) →
+    (∀ r ∈ pa.gprs ++ pb.gprs, r ∉ scratch) → rd ∉ scratch →
+    M.PArgHolds s (.bits w) pa va → M.PArgHolds s (.bits w) pb vb →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' =>
+        AbiGprHolds (M.getGpr s' rd) .bool ((if neg then CmpOp.ne else CmpOp.eq).evalBits
+          (va &&& vb) 0#w) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  cmpMem_zext : g.zeroExtBoolCmp = true →
+    ∀ {h k co w a pb rd c clob va vb s post},
+    g.cmpMem co w a pb (.gpr rd) = some (c, clob) →
+    (∀ r ∈ a.regs ++ pb.gprs, r ∉ scratch) → rd ∉ scratch →
+    loadVal (M.mem s) (.bits w) (a.eval (M.getGpr s)) = some va →
+    M.PArgHolds s (.bits w) pb vb →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => AbiGprHolds (M.getGpr s' rd) .bool (co.evalBits va vb) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  testMem_zext : g.zeroExtBoolCmp = true →
+    ∀ {h k w neg a pb rd c clob va vb s post},
+    g.testMem w neg a pb (.gpr rd) = some (c, clob) →
+    (∀ r ∈ a.regs ++ pb.gprs, r ∉ scratch) → rd ∉ scratch →
+    loadVal (M.mem s) (.bits w) (a.eval (M.getGpr s)) = some va →
+    M.PArgHolds s (.bits w) pb vb →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' =>
+        AbiGprHolds (M.getGpr s' rd) .bool ((if neg then CmpOp.ne else CmpOp.eq).evalBits
+          (va &&& vb) 0#w) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  shiftCmp_zext : g.zeroExtBoolCmp = true →
+    ∀ {h k o w ra rb sh n lhsShift rd c clob va vb s post},
+    g.shiftCmp o w ra rb sh n lhsShift (.gpr rd) = some (c, clob) →
+    ra ∉ scratch → rb ∉ scratch → rd ∉ scratch →
+    GprHolds (M.getGpr s ra) (.bits w) va → GprHolds (M.getGpr s rb) (.bits w) vb →
+    let lhs := if lhsShift then sh.eval va n else va
+    let rhs := if lhsShift then vb else sh.eval vb n
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' => AbiGprHolds (M.getGpr s' rd) .bool (o.evalBits lhs rhs) ∧
+        M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  mulHi_spec : ∀ {fn h k isSigned n pa pb rd c clob va vb s post},
+    g.mulHi? = some fn → fn isSigned n pa pb rd = some (c, clob) →
+    (∀ r ∈ pa.gprs ++ pb.gprs, r ∉ scratch) → rd ∉ scratch →
+    M.PArgHolds s (.bits n) pa va → M.PArgHolds s (.bits n) pb vb →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' =>
+        let hi : BitVec n :=
+          if isSigned then (BitVec.ofInt (n + n) (va.toInt * vb.toInt)).extractLsb' n n
+          else BitVec.ofNat n (va.toNat * vb.toNat / 2 ^ n)
+        GprHolds (M.getGpr s' rd) (.bits n) hi ∧ M.mem s' = M.mem s) post :=
+    by intros; contradiction
+  storeScr_spec : ∀ {fn h k scr t pa a c clob scrOut v s post},
+    g.storeScr? = some fn → fn scr t pa a = some (c, clob, scrOut) →
+    (∀ r ∈ pa.gprs ++ a.regs, r ∉ scratch) →
+    ScrOk M scratch scr s → M.PArgHolds s t pa v → storeOk (M.mem s) t (a.eval (M.getGpr s)) →
+    M.FallsTo g.condReads h k c scratch [] clob s
+      (fun s' => M.mem s' = storeMem (M.mem s) t (a.eval (M.getGpr s)) v ∧
+        ScrOk M scratch scrOut s') post :=
+    by intros; contradiction
+  storeZextIdxScr_spec : ∀ {fn h k scr t pa base idx sc disp c clob scrOut v vb vi s post},
+    g.storeZextIdxScr? = some fn → fn scr t pa base idx sc disp = some (c, clob, scrOut) →
+    (∀ r ∈ pa.gprs, r ∉ scratch) → base ∉ scratch → idx ∉ scratch →
+    ScrOk M scratch scr s → M.PArgHolds s t pa v →
+    GprHolds (M.getGpr s base) (.bits 64) vb → GprHolds (M.getGpr s idx) (.bits 32) vi →
+    storeOk (M.mem s) t (vb + (vi.setWidth 64 <<< sc.shift) + disp.toBitVec) →
+    M.FallsTo g.condReads h k c scratch [] clob s
+      (fun s' => M.mem s' =
+          storeMem (M.mem s) t (vb + (vi.setWidth 64 <<< sc.shift) + disp.toBitVec) v ∧
+        ScrOk M scratch scrOut s') post :=
+    by intros; contradiction
+  loadScr_spec : ∀ {fn h k scr t rd a c clob scrOut v s post},
+    g.loadScr? = some fn → fn scr t rd a = some (c, clob, scrOut) →
+    rd ∉ scratch → (∀ r ∈ a.regs, r ∉ scratch) → ScrOk M scratch scr s →
+    loadVal (M.mem s) t (a.eval (M.getGpr s)) = some v →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' =>
+        (if g.zeroExtLoad then AbiGprHolds (M.getGpr s' rd) t v
+         else GprHolds (M.getGpr s' rd) t v) ∧
+        (g.zeroUpper32Load = true → ∀ (ht : t = .bits 32), M.getGpr s' rd = (ht ▸ v).setWidth 64) ∧
+        M.mem s' = M.mem s ∧ ScrOk M scratch scrOut s') post :=
+    by intros; contradiction
+  loadZextIdxScr_spec : ∀ {fn h k scr t rd base idx sc disp c clob scrOut v vb vi s post},
+    g.loadZextIdxScr? = some fn →
+    fn scr t rd base idx sc disp = some (c, clob, scrOut) →
+    rd ∉ scratch → base ∉ scratch → idx ∉ scratch → ScrOk M scratch scr s →
+    GprHolds (M.getGpr s base) (.bits 64) vb → GprHolds (M.getGpr s idx) (.bits 32) vi →
+    loadVal (M.mem s) t (vb + (vi.setWidth 64 <<< sc.shift) + disp.toBitVec) = some v →
+    M.FallsTo g.condReads h k c (rd :: scratch) [] clob s
+      (fun s' =>
+        (if g.zeroExtLoad then AbiGprHolds (M.getGpr s' rd) t v
+         else GprHolds (M.getGpr s' rd) t v) ∧
+        (g.zeroUpper32Load = true → ∀ (ht : t = .bits 32), M.getGpr s' rd = (ht ▸ v).setWidth 64) ∧
+        M.mem s' = M.mem s ∧ ScrOk M scratch scrOut s') post :=
+    by intros; contradiction
+  opScr_spec : ∀ {fn h k scr sig rs} {code : OpCode sig rs}
+      {pas : Tup (PArg R V C) sig} {dsts : Tup (PDst R V C) rs} {vh c clob scrOut vs P s post},
+    g.opScr? = some fn → fn scr code pas dsts vh = some (c, clob, scrOut) →
+    (∀ r ∈ tupArgGprs pas, r ∉ scratch) → (∀ r ∈ tupDstGprs dsts, r ∉ scratch) →
+    ScrOk M scratch scr s → TRel (M.PArgHolds s) pas vs → code.wp vs P →
+    M.FallsTo g.condReads h k c (tupDstGprs dsts ++ scratch) [] clob s
+      (fun s' => (∃ rvs, P rvs ∧ TRel (M.PDstHolds s') dsts rvs ∧
+          (∀ {t0} {ht : rs = [t0]} {rd}, dsts = ht ▸ (.gpr rd, ()) →
+            g.zeroExtOp code pas dsts = true →
+            AbiGprHolds (M.getGpr s' rd) t0 (ht ▸ rvs).1) ∧
+          (∀ {co w pa pb pd lf} {h1 : sig = [.bits w, .bits w]} {h2 : rs = [.bool]}
+              {_he : code = h1 ▸ h2 ▸ (.cmp co (.bits w) .bool rfl)},
+            pas = h1 ▸ (pa, pb, ()) → dsts = h2 ▸ (pd, ()) →
+            g.cmpFlagsOut? co w pa pb pd = some lf →
+            FlagCmpOk M g s'
+              (if lf then (h1 ▸ vs).1 else (h1 ▸ vs).2.1)
+              (if lf then (h1 ▸ vs).2.1 else (h1 ▸ vs).1) false)) ∧
+        M.mem s' = M.mem s ∧ ScrOk M scratch scrOut s') post :=
     by intros; contradiction
 
 structure FramePreds {R V C D : Type} (M : Machine R V C D) : Type where
