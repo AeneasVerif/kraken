@@ -282,7 +282,8 @@ theorem tryRematDirect_ok {G : VCtx} {nv k : Nat} {st : SymState T.toIsa} {s : T
     (hA : Agree T G nv st s σ) (hargs : TRel (ArgRel G) args₁ args)
     (hdg : ∀ r ∈ tupDstGprs dsts, r ∉ T.frame.scratch)
     (hwp : code.wp (vals args₁) P) (hc : c.IsInfixAt (T.mach.prog host) k)
-    (h : tryRematDirect T.toIsa st (recordDef st.defs code args) dsts = some (c, cl))
+    (h : tryRematDirect T.toIsa st
+      (recordDefC T.toIsa.gpr.addrCse st.defs code args) dsts = some (c, cl))
     (kont : ∀ s', (∃ rvs, P rvs ∧ TRel (T.mach.PDstHolds s') dsts rvs) ∧
         T.mach.mem s' = T.mach.mem s →
       T.mach.Frame T.gpr.condReads s s' (tupDstGprs dsts ++ T.frame.scratch) [] cl →
@@ -302,7 +303,7 @@ theorem tryRematDirect_ok {G : VCtx} {nv k : Nat} {st : SymState T.toIsa} {s : T
           cases d0 with
           | vec _ => simp [tryRematDirect] at h
           | gpr rd =>
-            cases hd : recordDef st.defs code args with
+            cases hd : recordDefC T.toIsa.gpr.addrCse st.defs code args with
             | none => simp [tryRematDirect, hd] at h
             | some df =>
               cases df with
@@ -313,7 +314,7 @@ theorem tryRematDirect_ok {G : VCtx} {nv k : Nat} {st : SymState T.toIsa} {s : T
                 simp only [Prod.mk.injEq] at hp
                 obtain ⟨rfl, rfl⟩ := hp
                 obtain ⟨w', hw', rvs, hP, hdef⟩ :=
-                  recordDef_elide_ok hA.defs hargs hA.ctx_lt hwp hd
+                  recordDefC_elide_ok hA.defs hargs hA.ctx_lt hwp hd
                 have h64 : w' = 64 := by cases hw'; rfl
                 subst h64
                 rcases rvs with ⟨rv, ⟨⟩⟩

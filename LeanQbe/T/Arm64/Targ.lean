@@ -50,7 +50,8 @@ theorem armTarget_toIsa :
         supportsAddrDisp := armSupportsAddrDisp,
         supportsAddrIdx := armSupportsAddrIdx,
         supportsTestFuse := true,
-        supportsAddrZextIdx := armSupportsAddrIdx } :=
+        supportsAddrZextIdx := armSupportsAddrIdx,
+        supportsCmpMem := armSupportsCmpMem } :=
   rfl
 
 /-! ## 2. Parity Theorems (`armLegalTarget` ↔ `armTarget.toIsa`) & Kernel Checks -/

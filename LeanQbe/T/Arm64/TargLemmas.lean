@@ -5,6 +5,7 @@ public import LeanQbe.T.MainLemmas
 import LeanQbe.T.RegaLemmas
 import LeanQbe.T.Logic.MemLemmas
 import LeanQbe.T.Arm64.IselLemmas4
+import LeanQbe.T.Arm64.IselNarrowLemmas
 import LeanQbe.T.Arm64.IselFlagHooksLemmas
 import LeanQbe.T.Arm64.FrameLemmas
 
@@ -57,6 +58,9 @@ theorem armLabelClean : Rega.LabelClean armTarget.toIsa where
   loadSextZextIdx _ _ _ _ _ _ _ _ _ h l := armLoadSextZextIdx_noLab h l
   storeZextIdx _ _ _ _ _ _ _ _ h l := armStoreZextIdx_noLab h l
   leaArithZext _ _ _ _ _ _ _ h l := armLeaArithZext_noLab h l
+  cmpMem _ _ _ _ _ _ _ h l := armCmpMem_noLab h l
+  shiftAlu _ _ _ _ _ _ _ _ _ h l := armShiftedAlu_noLab h l
+  shiftCmp _ _ _ _ _ _ _ _ _ _ h l := armShiftedCmp_noLab h l
   clearFlags := armClearFlags_noLab
   vmov _ d := d.elim
   vmovi _ d := d.elim
