@@ -7,7 +7,7 @@ public import LeanQbe.T.FlatLemmas
 public import LeanQbe.T.Logic.Rules
 public import LeanQbe.T.Examples.UnionFind
 public import LeanQbe.T.Examples.LratBytes
-public import LeanQbe.T.Examples.LratTrim
+public import LeanQbe.T.Examples.LratTrimProg
 public import LeanQbe.T.Examples.Kissat.Full1
 meta import LeanQbe.T.Licm
 meta import LeanQbe.T.Opt

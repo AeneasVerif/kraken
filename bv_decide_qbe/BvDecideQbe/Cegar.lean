@@ -4,18 +4,17 @@ public import BvDecideQbe.Prover
 public import Lean.Meta.Tactic.BVDecide.Prover.Cegar
 public import Lean.Meta.Tactic.BVDecide.Normalize
 public import Lean.Meta.Tactic.BVDecide.TacticContext
-import Lean.Meta.Tactic.BVDecide.External
 
 /-!
-# Phase-1 CEGAR Wrapper for `bv_decide_qbe` (`S3d`)
+# Single-Solve Phase-1 CEGAR Wrapper for `bv_decide_qbe` (`BB-07`)
 
-Reuses upstream incremental CaDiCaL (`BvSolverM` + `Cegar.checkUf` + `Cegar.processNewHyps`)
-solely for untrusted congruence-lemma discovery (every UF congruence lemma is kernel-checked and
-conjoined into `satExpr`), and swaps the final bitblaster check (`Cegar/BitVec.lean`) to the
-trust-pure `BvDecideQbe.unsatProver`!
-
-When `uf == false` (`!ctx.config.needsIncremental`), `cegarBlaster` bypasses CaDiCaL entirely and
-calls `BvDecideQbe.unsatProver` directly.
+Reuses upstream `Cegar.checkUf` + `Cegar.processNewHyps` solely for untrusted congruence-lemma
+discovery (every UF congruence lemma is kernel-checked and conjoined into `satExpr`), and checks
+every BitVec abstraction directly via `probeBVExpr` (`bv_solve_bytes` in-process):
+- Intermediate SAT rounds emit zero axioms (`witness.addAxiom` is never called) and feed the
+  `evalEfficient`-validated counterexample directly into `Cegar.checkUf`.
+- On final UNSAT, `commitUnsatWitness` emits a single `_leanqbe.bv_solve.ax` axiom and closes the
+  goal immediately with zero CaDiCaL invocations and zero double-solve.
 -/
 
 set_option autoImplicit false
@@ -35,48 +34,23 @@ structure CegarResult where
   proveResult? : Option ProveResult := none
   deriving Inhabited
 
-private def liftBvSolverM {α : Type} (x : BvSolverM α) : CegarM α := do
-  let ctx ← CegarM.getTacticContext
-  let state ← modifyGet fun s =>
-    let state : BitVecSolverState := {
-      bitvecState := s.theoryState.bitvecState
-      satSolver := s.theoryState.satSolver
-      solverTimeBudgetMs := s.solverTimeBudgetMs
-      assumptions := #[]
-    }
-    (state, { s with theoryState.bitvecState := {} })
-  let (x, state) ← BvSolverM.run ctx state x
-  modify fun s =>
-    { s with
-        theoryState.bitvecState := state.bitvecState
-        solverTimeBudgetMs := state.solverTimeBudgetMs
-    }
-  return x
-
 private def checkBitVecQbe (qbeCtx : QbeContext) :
     CegarM (Except (Array (Expr × Bool × BVExpr.PackedBitVec)) ProveResult) := do
   withTraceNode `Meta.Tactic.bv (fun _ => return m!"Checking BitVec abstraction") do
     let bvExpr := (← get).satExpr.bvExpr
-    let res ← liftBvSolverM do
-      BvSolverM.push #[bvExpr]
-      BvSolverM.solve
-    match res with
-    | .ok .. =>
+    match ← probeBVExpr bvExpr qbeCtx with
+    | .ok (witness, workUsed, attempts) =>
       CegarM.clearCaches
       let reflRes ← CegarM.getReflectionResult
-      let proverRes ← unsatProver qbeCtx (← read).goal reflRes
-      match proverRes with
-      | .ok proveRes => return .ok proveRes
-      | .error _ => throwError m!"Error during trust-pure QBE proof recovery"
-    | .error assignment =>
-      let atomsAssignment ← ReifyM.atomsAssignmentMap
-      let aig := (← CegarM.getTheoryState).bitvecState.aig
-      let equations := reconstructCounterExample aig assignment atomsAssignment
-      return .error equations
+      let proveRes ← commitUnsatWitness (← read).goal reflRes witness workUsed attempts
+        qbeCtx.axiomDeclRange?
+      return .ok proveRes
+    | .error eqs =>
+      return .error eqs
 
-/-- Trust-pure Phase-1 CEGAR wrapper: uses `unsatProver` directly unless `ctx.config.uf` is
-enabled, in which case incremental CEGAR discovers kernel-proved congruence lemmas and closes
-the final UNSAT goal via `unsatProver`. -/
+/-- Trust-pure single-solve Phase-1 CEGAR wrapper: uses `unsatProver` directly unless
+`ctx.config.needsIncremental` is enabled, in which case incremental CEGAR discovers kernel-proved
+congruence lemmas via zero-axiom `bv_solve_bytes` probes and commits once on UNSAT. -/
 def cegarBlaster (ctx : TacticContext) (qbeCtx : QbeContext := {}) : UnsatProver CegarResult :=
   if ctx.config.needsIncremental then
     cegarLoop
@@ -89,16 +63,9 @@ where
       throwError m!"bv_decide_qbe reached its round limit; increase `cegarRounds` if needed"
     CegarM.consumeRound
 
-  configureSolver : CegarM Unit := do
-    let solver ← CegarM.getSatSolver
-    let opts := External.SatOptions.ofMode (← CegarM.getTacticContext).config.solverMode
-    let opts := opts.addIncremental
-    opts.configureSolver solver
-
   cegarLoop : UnsatProver CegarResult := CegarM.run ctx do
     let mut lastCex := #[]
     CegarM.setDidChange true
-    configureSolver
     while ← CegarM.getDidChange do
       checkTermination
       match ← checkBitVecQbe qbeCtx with

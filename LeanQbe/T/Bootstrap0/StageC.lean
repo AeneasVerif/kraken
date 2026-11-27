@@ -252,17 +252,6 @@ theorem stageC_exec_i64 (tf : Frontend.C0.TFlatFn) (nm : String)
     y hb (by decide) (by decide)
     (Q := fun r _ => r = (y, ())) (Prod.ext hspec rfl) (fun _ _ h => h)
 
-/-! ## 5. Native Emission Utilities -/
-
-/-- Emit full AT&T assembly text with `.text`, `.globl`, and newline-terminated directives. -/
-def stageCEmitATT (fnNames : List String) (p : List _root_.Directive) : String :=
-  printModule0 fnNames p
-
-/-- Emit full AT&T assembly bytes directly via `PrintDir0.printModule0Bytes`. -/
-def stageCEmitBytes (symBytes : ByteArray) (symOffs : Array Nat) (fnSyms : List Sym0)
-    (ds : List Dir0) : ByteArray :=
-  printModule0Bytes symBytes symOffs fnSyms ds
-
 /-- Real C0 source code corresponding to the Stage C benchmark kernels. -/
 def stageCSource : String := "
 u64 c0_sqr(u64 x) {
