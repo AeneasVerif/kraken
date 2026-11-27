@@ -49,7 +49,6 @@ def evalBvDecideQbe : Tactic := fun
     let tacticCtx := mkQbeTacticContext cfg types
     let qbeCtx : QbeContext := {
       fuel := defaultFuel
-      solveFn := defaultSolveFn
       axiomDeclRange? := some ref
     }
     liftMetaFinishingTactic fun g => do

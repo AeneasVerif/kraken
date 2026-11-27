@@ -10,13 +10,13 @@
 
 #include "../../test/guarded_buf.h"
 
-extern uint64_t kissat_solve_bytes(const uint8_t *cnf_ptr, uint64_t cnf_len,
-                                   uint8_t *work_ptr, uint64_t work_cap,
-                                   uint64_t fuel);
+extern uint64_t bv_solve_bytes(const uint8_t *prog_ptr, uint64_t prog_len,
+                               uint8_t *work_ptr, uint64_t work_cap,
+                               uint64_t fuel);
 extern lean_obj_res leanqbe_alloc_work_buf(uint64_t n);
-extern lean_obj_res leanqbe_solve_dimacs_bytes(b_lean_obj_arg cnf,
-                                               lean_obj_arg work,
-                                               uint64_t fuel);
+extern lean_obj_res leanqbe_solve_bv_bytes(b_lean_obj_arg prog,
+                                             lean_obj_arg work,
+                                             uint64_t fuel);
 
 /* Minimal ASan-tracked Lean runtime stubs for standalone shim testing. */
 void lean_notify_assert(const char *fileName, int line, const char *condition) {
@@ -145,8 +145,8 @@ typedef struct {
   uint8_t *model;
 } unpacked_res_t;
 
-static unpacked_res_t run_shim(lean_object *cnf, lean_object *work, uint64_t fuel) {
-  lean_obj_res r = leanqbe_solve_dimacs_bytes(cnf, work, fuel);
+static unpacked_res_t run_shim(lean_object *prog, lean_object *work, uint64_t fuel) {
+  lean_obj_res r = leanqbe_solve_bv_bytes(prog, work, fuel);
   unpacked_res_t out = {0, 0, NULL};
   out.tag = lean_obj_tag(r);
   if (out.tag == 1) {
@@ -164,11 +164,24 @@ static unpacked_res_t run_shim(lean_object *cnf, lean_object *work, uint64_t fue
   return out;
 }
 
+static size_t pack_words_le(uint8_t *dst, const uint32_t *ws, size_t nw) {
+  for (size_t i = 0; i < nw; i++) {
+    uint32_t w = ws[i];
+    dst[4 * i + 0] = (uint8_t)(w & 0xFFu);
+    dst[4 * i + 1] = (uint8_t)((w >> 8) & 0xFFu);
+    dst[4 * i + 2] = (uint8_t)((w >> 16) & 0xFFu);
+    dst[4 * i + 3] = (uint8_t)((w >> 24) & 0xFFu);
+  }
+  return nw * 4u;
+}
+
 static void verify_4_mmap_determinism(const char *name,
-                                      const char *cnf_str,
+                                      const uint8_t *prog_bytes,
+                                      size_t prog_len,
                                       size_t wsize,
                                       uint64_t fuel,
                                       unsigned expected_tag,
+                                      int check_min_mv,
                                       size_t expected_mv) {
   static const uintptr_t kBases[4] = {
     0x510000000000ULL,
@@ -176,15 +189,14 @@ static void verify_4_mmap_determinism(const char *name,
     0x610000000000ULL,
     0x660000000000ULL,
   };
-  size_t cnf_len = strlen(cnf_str);
   uintptr_t seen_bases[4] = {0};
   unpacked_res_t ref = {0, 0, NULL};
   int have_ref = 0;
 
   for (int b = 0; b < 4; b++) {
     for (int run = 0; run < 2; run++) {
-      guarded_sarray_t g_cnf = alloc_guarded_sarray_at(
-          kBases[b] + 0x100000ULL, (const uint8_t *)cnf_str, cnf_len, 16, 0, 0);
+      guarded_sarray_t g_prog = alloc_guarded_sarray_at(
+          kBases[b] + 0x100000ULL, prog_bytes, prog_len, 16, 0, 0);
       /* Use m_rc = 2 so lean_dec_ref(work) in shim drops rc to 1 without freeing mmap. */
       guarded_sarray_t g_work = alloc_guarded_sarray_at(
           kBases[b] + 0x400000ULL, NULL, wsize, 16, 1, 2);
@@ -196,9 +208,11 @@ static void verify_4_mmap_determinism(const char *name,
         }
       }
 
-      unpacked_res_t cur = run_shim(g_cnf.obj, g_work.obj, fuel);
+      unpacked_res_t cur = run_shim(g_prog.obj, g_work.obj, fuel);
       assert(cur.tag == expected_tag);
-      if (expected_tag == 1) {
+      if (expected_tag == 1 && check_min_mv) {
+        assert(cur.model_len >= expected_mv);
+      } else if (expected_tag == 1) {
         assert(cur.model_len == expected_mv);
       }
 
@@ -215,123 +229,167 @@ static void verify_4_mmap_determinism(const char *name,
       }
 
       free_guarded_sarray(g_work);
-      free_guarded_sarray(g_cnf);
+      free_guarded_sarray(g_prog);
     }
   }
 
-  /* Also verify leanqbe_alloc_work_buf + leanqbe_solve_dimacs_bytes matches bit-identically. */
-  guarded_sarray_t g_cnf = alloc_guarded_sarray_at(
-      0, (const uint8_t *)cnf_str, cnf_len, 16, 0, 0);
+  /* Also verify leanqbe_alloc_work_buf + leanqbe_solve_bv_bytes matches bit-identically. */
+  guarded_sarray_t g_prog = alloc_guarded_sarray_at(
+      0, prog_bytes, prog_len, 16, 0, 0);
   lean_obj_res alloc_work = leanqbe_alloc_work_buf((uint64_t)wsize);
-  unpacked_res_t alloc_res = run_shim(g_cnf.obj, alloc_work, fuel);
+  unpacked_res_t alloc_res = run_shim(g_prog.obj, alloc_work, fuel);
   assert(alloc_res.tag == ref.tag);
   assert(alloc_res.model_len == ref.model_len);
   if (alloc_res.model_len > 0) {
     assert(memcmp(alloc_res.model, ref.model, alloc_res.model_len) == 0);
   }
   free(alloc_res.model);
-  free_guarded_sarray(g_cnf);
+  free_guarded_sarray(g_prog);
 
   free(ref.model);
-  printf("  [OK] %-20s 4-mmap x 2 runs + allocWorkBuf bit-identical (tag=%u, mv=%zu)\n",
-         name, expected_tag, expected_mv);
+  printf("  [OK] %-22s 4-mmap x 2 runs + allocWorkBuf bit-identical (tag=%u)\n",
+         name, expected_tag);
 }
 
-static void verify_direct_guarded_buf(const char *cnf_str, uint64_t expected_rc) {
-  size_t cnf_len = strlen(cnf_str);
+static void verify_direct_guarded_buf(const uint8_t *prog_bytes, size_t prog_len,
+                                      uint64_t expected_rc) {
   size_t work_len = 262144;
-  uint64_t rc_ref = 999;
-
   for (int i = 0; i < 4; i++) {
-    guarded_buf_t cnf = alloc_guarded((const uint8_t *)cnf_str, cnf_len, 0);
+    guarded_buf_t prog = alloc_guarded(prog_bytes, prog_len, 0);
     guarded_buf_t work = alloc_guarded(NULL, work_len, 1);
-    uint64_t rc = kissat_solve_bytes(cnf.ptr, cnf.len, work.ptr, work.len, 100000000ULL);
+    uint64_t rc = bv_solve_bytes(prog.ptr, prog.len, work.ptr, work.len, 100000000ULL);
     assert(rc == expected_rc);
-    if (i == 0) rc_ref = rc;
-    assert(rc == rc_ref);
     free_guarded(work);
-    free_guarded(cnf);
+    free_guarded(prog);
   }
 }
 
 int main(void) {
-  const char *unsat_2var =
-      "p cnf 2 4\n"
-      "1 2 0\n"
-      "1 -2 0\n"
-      "-1 2 0\n"
-      "-1 -2 0\n";
+  static const uint32_t w_triv_unsat[] = {
+    0x31505642u, 1u, 0u, 1u, 0u, 0u, 0u, 0u,
+    25u, 1u, 0u, 0u, 0u
+  };
+  static const uint32_t w_triv_sat[] = {
+    0x31505642u, 1u, 0u, 1u, 0u, 0u, 0u, 0u,
+    25u, 1u, 1u, 0u, 0u
+  };
+  static const uint32_t w_xor_self_unsat[] = {
+    0x31505642u, 1u, 1u, 5u, 1u, 4u, 0u, 0u,
+    0u, 2u,
+    0u,
+    0u, 2u, 0u, 0u, 0u,
+    5u, 2u, 0u, 0u, 0u,
+    1u, 2u, 0u, 0u, 0u,
+    22u, 1u, 1u, 2u, 0u,
+    26u, 1u, 3u, 0u, 0u
+  };
+  /* !( ((x & y) | (x & ~y)) == x ) on BitVec 8: requires Kissat CDCL (non-AIG-trivial) */
+  static const uint32_t w_dist8_unsat[] = {
+    0x31505642u, 1u, 2u, 8u, 0u, 7u, 0u, 0u,
+    0u, 8u, 1u, 8u,
+    0u, 8u, 0u, 0u, 0u,   /* 0: var 0 */
+    0u, 8u, 1u, 0u, 0u,   /* 1: var 1 */
+    3u, 8u, 0u, 1u, 0u,   /* 2: x & y */
+    10u, 8u, 1u, 0u, 0u,  /* 3: ~y */
+    3u, 8u, 0u, 3u, 0u,   /* 4: x & ~y */
+    4u, 8u, 2u, 4u, 0u,   /* 5: (x & y) | (x & ~y) */
+    22u, 1u, 5u, 0u, 0u,  /* 6: ... == x */
+    26u, 1u, 6u, 0u, 0u   /* 7: !... */
+  };
+  static const uint32_t w_sat_add1[] = {
+    0x31505642u, 1u, 1u, 5u, 2u, 4u, 0u, 0u,
+    0u, 4u,
+    1u, 0u,
+    0u, 4u, 0u, 0u, 0u,
+    1u, 4u, 0u, 0u, 0u,
+    6u, 4u, 0u, 1u, 0u,
+    1u, 4u, 1u, 0u, 0u,
+    22u, 1u, 2u, 3u, 0u
+  };
+  static const uint32_t w_bad_magic[] = {
+    0xDEADBEEFu, 1u, 0u, 1u, 0u, 0u, 0u, 0u,
+    25u, 1u, 0u, 0u, 0u
+  };
+  static const uint32_t w_bad_opcode[] = {
+    0x31505642u, 1u, 0u, 1u, 0u, 0u, 0u, 0u,
+    999u, 1u, 0u, 0u, 0u
+  };
 
-  const char *unsat_php32 =
-      "p cnf 6 9\n"
-      "1 2 0\n"
-      "3 4 0\n"
-      "5 6 0\n"
-      "-1 -3 0\n"
-      "-1 -5 0\n"
-      "-3 -5 0\n"
-      "-2 -4 0\n"
-      "-2 -6 0\n"
-      "-4 -6 0\n";
+  uint8_t p_triv_unsat[sizeof(w_triv_unsat)];
+  uint8_t p_triv_sat[sizeof(w_triv_sat)];
+  uint8_t p_xor_self[sizeof(w_xor_self_unsat)];
+  uint8_t p_dist8[sizeof(w_dist8_unsat)];
+  uint8_t p_sat_add1[sizeof(w_sat_add1)];
+  uint8_t p_bad_magic[sizeof(w_bad_magic)];
+  uint8_t p_bad_opcode[sizeof(w_bad_opcode)];
 
-  const char *sat_4var =
-      "p cnf 4 5\n"
-      "1 2 0\n"
-      "-1 3 0\n"
-      "-2 4 0\n"
-      "-3 -4 1 0\n"
-      "2 -4 0\n";
+  size_t l_triv_unsat = pack_words_le(p_triv_unsat, w_triv_unsat, sizeof(w_triv_unsat) / 4u);
+  size_t l_triv_sat = pack_words_le(p_triv_sat, w_triv_sat, sizeof(w_triv_sat) / 4u);
+  size_t l_xor_self = pack_words_le(p_xor_self, w_xor_self_unsat, sizeof(w_xor_self_unsat) / 4u);
+  size_t l_dist8 = pack_words_le(p_dist8, w_dist8_unsat, sizeof(w_dist8_unsat) / 4u);
+  size_t l_sat_add1 = pack_words_le(p_sat_add1, w_sat_add1, sizeof(w_sat_add1) / 4u);
+  size_t l_bad_magic = pack_words_le(p_bad_magic, w_bad_magic, sizeof(w_bad_magic) / 4u);
+  size_t l_bad_opcode = pack_words_le(p_bad_opcode, w_bad_opcode, sizeof(w_bad_opcode) / 4u);
 
-  const char *sat_8var =
-      "p cnf 8 8\n"
-      "1 2 0\n"
-      "-2 3 0\n"
-      "-3 4 0\n"
-      "-4 5 0\n"
-      "-5 6 0\n"
-      "-6 7 0\n"
-      "-7 8 0\n"
-      "-8 -1 2 0\n";
+  printf("== c_det_test: ASan/UBSan + 4-mmap determinism + bv_solve_bytes ==\n");
 
-  printf("== c_det_test: ASan/UBSan + 4-mmap determinism + guarded_buf.h ==\n");
+  verify_4_mmap_determinism("bv_triv_unsat", p_triv_unsat, l_triv_unsat, 262144, 100000000ULL, 0, 0, 0);
+  verify_4_mmap_determinism("bv_triv_sat", p_triv_sat, l_triv_sat, 262144, 100000000ULL, 1, 0, 0);
+  verify_4_mmap_determinism("bv_xor_self_unsat", p_xor_self, l_xor_self, 262144, 100000000ULL, 0, 0, 0);
+  verify_4_mmap_determinism("bv_dist8_unsat", p_dist8, l_dist8, 262144, 100000000ULL, 0, 0, 0);
+  verify_4_mmap_determinism("bv_sat_add1", p_sat_add1, l_sat_add1, 262144, 100000000ULL, 1, 1, 5);
 
-  verify_4_mmap_determinism("unsat_2var", unsat_2var, 262144, 100000000ULL, 0, 0);
-  verify_4_mmap_determinism("unsat_php32", unsat_php32, 262144, 100000000ULL, 0, 0);
-  verify_4_mmap_determinism("sat_4var", sat_4var, 262144, 100000000ULL, 1, 4);
-  verify_4_mmap_determinism("sat_8var", sat_8var, 262144, 100000000ULL, 1, 8);
-
-  /* workTooSmall edge cases */
-  verify_4_mmap_determinism("too_small_0", unsat_2var, 0, 100000000ULL, 3, 0);
-  verify_4_mmap_determinism("too_small_3519", unsat_2var, 64 + 3455, 100000000ULL, 3, 0);
-  verify_4_mmap_determinism("too_small_4096", unsat_php32, 4096, 100000000ULL, 3, 0);
-
-  /* unknown on fuel = 1 */
-  verify_4_mmap_determinism("unknown_fuel1", unsat_php32, 262144, 1ULL, 2, 0);
-
-  /* Explicit COW test: rc = 2 alloc'd object -> shim must not mutate caller's buffer. */
+  /* Verify decoded SAT model for (x + 1#4 == 0#4) sets bits 1..4 = 1 (x = 15). */
   {
-    size_t cnf_len = strlen(unsat_2var);
-    guarded_sarray_t g_cnf = alloc_guarded_sarray_at(
-        0, (const uint8_t *)unsat_2var, cnf_len, 16, 0, 0);
+    guarded_sarray_t g_prog = alloc_guarded_sarray_at(0, p_sat_add1, l_sat_add1, 16, 0, 0);
     lean_obj_res w = leanqbe_alloc_work_buf(262144);
-    lean_inc_ref(w); /* rc becomes 2 */
-    unpacked_res_t r = run_shim(g_cnf.obj, w, 100000000ULL);
-    assert(r.tag == 0);
-    assert(w->m_rc == 1);
-    /* Caller's buffer must remain untouched (all zeroes) because !lean_is_exclusive. */
-    uint8_t *p = lean_sarray_cptr(w);
-    for (size_t i = 0; i < 128; i++) {
-      assert(p[i] == 0);
+    unpacked_res_t r = run_shim(g_prog.obj, w, 100000000ULL);
+    assert(r.tag == 1);
+    assert(r.model_len >= 5);
+    for (int j = 0; j < 4; j++) {
+      assert(r.model[1 + j] == 1);
     }
-    lean_dec_ref(w);
-    free_guarded_sarray(g_cnf);
-    printf("  [OK] %-20s pure COW (rc=2) left shared work buffer untouched\n", "cow_shared");
+    free(r.model);
+    free_guarded_sarray(g_prog);
+    printf("  [OK] %-22s x + 1#4 == 0#4 decoded x = 15#4\n", "bv_sat_add1_val");
   }
 
-  /* Direct test/guarded_buf.h guard-page verification */
-  verify_direct_guarded_buf(unsat_2var, 20ULL);
-  verify_direct_guarded_buf(sat_4var, 10ULL);
-  printf("  [OK] %-20s test/guarded_buf.h direct calls passed\n", "guarded_buf");
+  /* workTooSmall edge cases */
+  verify_4_mmap_determinism("too_small_0", p_dist8, l_dist8, 0, 100000000ULL, 3, 0, 0);
+  verify_4_mmap_determinism("too_small_831", p_dist8, l_dist8, 64 + 767, 100000000ULL, 3, 0, 0);
+  verify_4_mmap_determinism("too_small_1024", p_dist8, l_dist8, 1024, 100000000ULL, 3, 0, 0);
+  verify_4_mmap_determinism("too_small_4096", p_dist8, l_dist8, 4096, 100000000ULL, 3, 0, 0);
+
+  /* unknown on fuel = 1 and invalid BVP1 (must NOT return workTooSmall!) */
+  verify_4_mmap_determinism("unknown_fuel1", p_dist8, l_dist8, 262144, 1ULL, 2, 0, 0);
+  verify_4_mmap_determinism("invalid_magic", p_bad_magic, l_bad_magic, 262144, 100000000ULL, 2, 0, 0);
+  verify_4_mmap_determinism("invalid_opcode", p_bad_opcode, l_bad_opcode, 262144, 100000000ULL, 2, 0, 0);
+
+  /* Explicit COW test (rc = 2 -> untouched) & dirty exclusive buffer clearing test (rc = 1). */
+  {
+    guarded_sarray_t g_prog = alloc_guarded_sarray_at(0, p_dist8, l_dist8, 16, 0, 0);
+    lean_obj_res w = leanqbe_alloc_work_buf(262144);
+    memset(lean_sarray_cptr(w), 0xA5, 262144);
+    lean_inc_ref(w); /* rc becomes 2 */
+    unpacked_res_t r = run_shim(g_prog.obj, w, 100000000ULL);
+    assert(r.tag == 0);
+    assert(w->m_rc == 1);
+    uint8_t *p = lean_sarray_cptr(w);
+    for (size_t i = 0; i < 128; i++) {
+      assert(p[i] == 0xA5);
+    }
+    /* Reuse same dirty buffer (now rc = 1) with fuel = 1 -> must clear header & return unknown. */
+    unpacked_res_t r2 = run_shim(g_prog.obj, w, 1ULL);
+    assert(r2.tag == 2);
+    free_guarded_sarray(g_prog);
+    printf("  [OK] %-22s COW (rc=2) untouched & exclusive dirty reuse (rc=1) clean\n", "cow_and_reuse");
+  }
+
+  /* Direct test/guarded_buf.h guard-page verification on bv_solve_bytes */
+  verify_direct_guarded_buf(p_triv_unsat, l_triv_unsat, 20ULL);
+  verify_direct_guarded_buf(p_dist8, l_dist8, 20ULL);
+  verify_direct_guarded_buf(p_sat_add1, l_sat_add1, 10ULL);
+  printf("  [OK] %-22s test/guarded_buf.h direct bv_solve_bytes calls passed\n", "guarded_buf");
 
   printf("c_det_test: ALL PASSED\n");
   return 0;
