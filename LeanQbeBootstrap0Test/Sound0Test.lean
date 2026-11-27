@@ -1,7 +1,7 @@
 module
 
 public import LeanQbe.T.Bootstrap0.Sound0
-public import LeanQbe.T.Bootstrap0.Dummies0
+public import LeanQbeBootstrap0Test.Dummies0
 public import LeanQbe.T.Amd64.ScalarTarg
 public import Kraken.X64.PrintATT
 import LeanQbe.T.FlatLemmas

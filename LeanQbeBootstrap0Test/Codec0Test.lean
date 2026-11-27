@@ -2,7 +2,7 @@ module
 
 public import LeanQbe.T.Bootstrap0.Codec0
 public import LeanQbe.T.Bootstrap0.Codec0Lemmas
-public import LeanQbe.T.Bootstrap0.Dummies0
+public import LeanQbeBootstrap0Test.Dummies0
 public import LeanQbe.T.Bootstrap0.Bridge0
 public import LeanQbe.T.Bootstrap0.Mod0
 public import LeanQbe.T.Bootstrap0.Splice0
@@ -10,7 +10,7 @@ public import LeanQbe.T.Amd64.Targ
 public import LeanQbeBootstrap0Test.Bootstrap0CleanTest
 meta import LeanQbe.T.Bootstrap0.Codec0
 meta import LeanQbe.T.Bootstrap0.Codec0Lemmas
-meta import LeanQbe.T.Bootstrap0.Dummies0
+meta import LeanQbeBootstrap0Test.Dummies0
 meta import LeanQbe.T.Bootstrap0.Bridge0
 meta import LeanQbe.T.Bootstrap0.Mod0
 meta import LeanQbe.T.Bootstrap0.Splice0
