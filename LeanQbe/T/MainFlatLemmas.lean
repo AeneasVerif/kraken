@@ -17,6 +17,8 @@ import LeanQbe.T.OptFlatAddrRangeLemmas
 import LeanQbe.T.OptFlatPathCondLemmas
 import LeanQbe.T.OptFlatBranchLemmas
 import LeanQbe.T.OptFlatLoopLemmas
+import LeanQbe.T.OptFlatSimplifyGroupLemmas
+import LeanQbe.T.OptFlatPeelLemmas
 import LeanQbe.T.FoldLemmas
 import LeanQbe.T.CopyLemmas
 import LeanQbe.T.DceParamLemmas
@@ -464,9 +466,7 @@ theorem simplifyGroupFastFlat_wfCheck {as rs : List Ty} (tf : TFlat rs)
     (simplifyGroupFastFlat as tf).wfCheck (pushTypes as []) [] = true := by
   dsimp only [simplifyGroupFastFlat]
   split
-  · split
-    · exact wfCheck_reifyBridge (Func.simplifyGroupWithPlan_wf _ (Func.wf_of_denote tf rfl))
-    · exact hwf
+  · exact OptFlatSimplifyGroup.simplifyGroupPlanFlat_wfCheck tf hwf
   · exact hwf
 
 /-- `denoteFunc (simplifyGroupFastFlat as tf) = Func.simplifyGroupFast (denoteFunc tf)` under
@@ -476,14 +476,12 @@ theorem denoteFunc_simplifyGroupFastFlat {as rs : List Ty} (tf : TFlat rs)
     denoteFunc (as := as) (simplifyGroupFastFlat as tf) =
       Func.simplifyGroupFast (denoteFunc (as := as) tf) := by
   rw [Func.simplifyGroupFast_eq, reifyFunc_denoteFunc_eq tf hwf]
-  dsimp only [simplifyGroupFastFlat, Func.simplifyGroupPlan]
-  rw [reifyFunc_denoteFunc_eq tf hwf]
+  dsimp only [simplifyGroupFastFlat]
   by_cases hsg : hasSimpGroup (tflatLoops tf ≤ 1) tf = true
   · simp only [hsg, ↓reduceIte]
-    by_cases hch : (SgpImpl.buildPlan 0 tf).2.changed = true
-    · simp only [hch, ↓reduceIte]; rfl
-    · simp only [hch, Bool.false_eq_true, ↓reduceIte]
-      exact (Func.renorm_denoteFunc tf hwf).symm
+    rw [OptFlatSimplifyGroup.denoteFunc_simplifyGroupPlanFlat tf hwf]
+    exact (Func.renorm_eq_self (Func.simplifyGroupPlan_wf
+      (Func.wf_of_denote tf rfl))).symm
   · simp only [hsg, Bool.false_eq_true, ↓reduceIte]
 
 /-- `simplifyGroupFastFlat as tf = reifyFunc (Func.simplifyGroupFast (denoteFunc tf))`. -/
@@ -500,7 +498,7 @@ theorem peelFastFlat_wfCheck {as rs : List Ty} (tf : TFlat rs) (budget : Nat := 
     (peelFastFlat as tf budget).wfCheck (pushTypes as []) [] = true := by
   dsimp only [peelFastFlat]
   split
-  · exact wfCheck_reifyBridge (Func.peel_wf (Func.wf_of_denote tf rfl) budget)
+  · exact OptFlatPeel.peelFlat_wfCheck tf budget hwf
   · exact hwf
 
 /-- `denoteFunc (peelFastFlat as tf budget) = Func.peelFast (denoteFunc tf) budget` under
@@ -510,7 +508,11 @@ theorem denoteFunc_peelFastFlat {as rs : List Ty} (tf : TFlat rs) (budget : Nat 
     denoteFunc (as := as) (peelFastFlat as tf budget) =
       Func.peelFast (denoteFunc (as := as) tf) budget := by
   rw [Func.peelFast_eq _ budget, reifyFunc_denoteFunc_eq tf hwf]
-  dsimp only [peelFastFlat]; split <;> rfl
+  dsimp only [peelFastFlat]
+  split
+  · rw [OptFlatPeel.denoteFunc_peelFlat tf budget hwf]
+    exact (Func.renorm_eq_self (Func.peel_wf (Func.wf_of_denote tf rfl) budget)).symm
+  · rfl
 
 /-- `peelFastFlat as tf budget = reifyFunc (Func.peelFast (denoteFunc tf) budget)`. -/
 theorem peelFastFlat_eq {as rs : List Ty} (tf : TFlat rs) (budget : Nat := 24)
