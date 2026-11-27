@@ -93,6 +93,7 @@ lean_lib BvDecideQbe where
     `BvDecideQbe.NormalizeRules,
     `BvDecideQbe.Prover,
     `BvDecideQbe.Cegar,
+    `BvDecideQbe.CutCore,
     `BvDecideQbe.Cut,
     `BvDecideQbe.Tactic
   ]

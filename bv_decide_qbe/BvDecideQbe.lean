@@ -3,11 +3,13 @@ module
 public import BvDecideQbe.NormalizeRules
 public import BvDecideQbe.Prover
 public import BvDecideQbe.Cegar
+public import BvDecideQbe.CutCore
 public import BvDecideQbe.Cut
 public import BvDecideQbe.Tactic
 public meta import BvDecideQbe.NormalizeRules
 public meta import BvDecideQbe.Prover
 public meta import BvDecideQbe.Cegar
+public meta import BvDecideQbe.CutCore
 public meta import BvDecideQbe.Cut
 public meta import BvDecideQbe.Tactic
 

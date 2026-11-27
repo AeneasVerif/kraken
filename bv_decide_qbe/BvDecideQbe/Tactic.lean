@@ -5,6 +5,7 @@ public import LeanQbe.T.Examples.Bitblast.Ref.BVProg
 public import BvDecideQbe.NormalizeRules
 public import BvDecideQbe.Prover
 public import BvDecideQbe.Cegar
+public import BvDecideQbe.CutCore
 public import BvDecideQbe.Cut
 public import Lean.Elab.Tactic.BVDecide
 public import Lean.Elab.Tactic.Grind.Basic
@@ -14,6 +15,7 @@ public meta import BvDecideQbe.FFI
 public meta import BvDecideQbe.NormalizeRules
 public meta import BvDecideQbe.Prover
 public meta import BvDecideQbe.Cegar
+public meta import BvDecideQbe.CutCore
 public meta import BvDecideQbe.Cut
 public meta import Lean.Elab.Tactic.BVDecide
 public meta import Lean.Elab.Tactic.Grind.Basic
