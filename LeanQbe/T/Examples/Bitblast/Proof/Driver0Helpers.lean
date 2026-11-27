@@ -39,7 +39,7 @@ abbrev BvEvalSubQ (cfg : BVWorkspaceCfg) (progPtr : BitVec 64) (progBytes : List
     (aigWords' : List (BitVec 64)) (htSlots' litsPool' : List (BitVec 32)) (m' : Mem 64),
     BVWorkspaceOk cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' →
     AigInv hdr' g' aigWords' htSlots' → g ≤ g' →
-    hdr'.lits_len.toNat ≤ cfg.lits_cap → hdr'.prog_ptr = progPtr →
+    hdr'.prog_ptr = progPtr →
     hdr'.n_cwords = hdr.n_cwords → hdr'.root_node = hdr.root_node →
     (ret = true → hdr'.oom = 0#32 ∧ BlastEvalInv cfg progPtr progBytes vars cwords nodes prog
       hdr' g' atomBases sliceOffs' aigWords' htSlots' litsPool' (nodeIdx.toNat + 1)) →
@@ -227,7 +227,7 @@ theorem drv0_var_post {cfg : BVWorkspaceCfg} {progPtr : BitVec 64} {progBytes : 
   have hcnt_lt := countAtoms_lt progBytes (u32At progBytes 2)
   have hl_cap' := hinv.lits_le_cap
   refine hQ true _ g (sliceOffs.set nodeIdx.toNat hdr.lits_len) aigWords htSlots lp _
-    hok2 haig1 (Aig.extends_rfl g) (by rw [hl1_len]; omega) hinv.prog_ptr_eq rfl rfl
+    hok2 haig1 (Aig.extends_rfl g) hinv.prog_ptr_eq rfl rfl
     (fun _ => ⟨hoom0, ?_⟩) hm_fin
   refine blastEvalInv_step hoom0 hinv hok2 haig1 (Aig.extends_rfl g) hni_lt hinv.prog_ptr_eq
     rfl rfl (by rw [hl1_len]; omega) (by rw [hl1_len]; omega) hagree ?_
@@ -382,7 +382,7 @@ theorem drv0_const_post {cfg : BVWorkspaceCfg} {progPtr : BitVec 64} {progBytes 
     (BVWorkspaceOk.set_sliceOffs nodeIdx.toNat hdr.lits_len hok1)
   have hl_cap' := hinv.lits_le_cap
   refine hQ true _ g (sliceOffs.set nodeIdx.toNat hdr.lits_len) aigWords htSlots lp _
-    hok2 haig1 (Aig.extends_rfl g) (by rw [hl1_len]; omega) hinv.prog_ptr_eq rfl rfl
+    hok2 haig1 (Aig.extends_rfl g) hinv.prog_ptr_eq rfl rfl
     (fun _ => ⟨hoom0, ?_⟩) hm_fin
   refine blastEvalInv_step hoom0 hinv hok2 haig1 (Aig.extends_rfl g) hni_lt hinv.prog_ptr_eq
     rfl rfl (by rw [hl1_len]; omega) (by rw [hl1_len]; omega) hagree ?_
@@ -476,7 +476,7 @@ theorem drv0_not_post {cfg : BVWorkspaceCfg} {progPtr : BitVec 64} {progBytes : 
     (BVWorkspaceOk.set_sliceOffs nodeIdx.toNat hdr.lits_len hok1)
   have hl_cap' := hinv.lits_le_cap
   refine hQ true _ g (sliceOffs.set nodeIdx.toNat hdr.lits_len) aigWords htSlots lp _
-    hok2 haig1 (Aig.extends_rfl g) (by rw [hl1_len]; omega) hinv.prog_ptr_eq rfl rfl
+    hok2 haig1 (Aig.extends_rfl g) hinv.prog_ptr_eq rfl rfl
     (fun _ => ⟨hoom0, ?_⟩) hm_fin
   refine blastEvalInv_step hoom0 hinv hok2 haig1 (Aig.extends_rfl g) hni_lt hinv.prog_ptr_eq
     rfl rfl (by rw [hl1_len]; omega) (by rw [hl1_len]; omega) hagree ?_
@@ -717,7 +717,7 @@ theorem drv0_eq_post {cfg : BVWorkspaceCfg} {progPtr : BitVec 64} {progBytes : L
   have hso_ptr : hdr'.slice_off_ptr = hdr.slice_off_ptr := hok'.hdr_so.trans hok.hdr_so.symm
   have hok2 := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat acc hok'
   refine hQ true hdr' g' (sliceOffs.set nodeIdx.toNat acc) aw' hts' litsPool _ hok2 haig'
-    hext' (by rw [hlits']; exact hinv.lits_le_cap) hpp' hnc' hrt' (fun _ => ⟨hoom', ?_⟩)
+    hext' hpp' hnc' hrt' (fun _ => ⟨hoom', ?_⟩)
     (blast_so_unfocus hok'.hdr_so (by rw [hso_ptr]; exact hm_so))
   refine blastEvalInv_step hoom0 hinv hok2 haig' hext' hni_lt hpp' hnc' hrt'
     (by rw [hlits']; exact Nat.le_refl _) (by rw [hlits']; exact hinv.lits_le_cap)
@@ -799,7 +799,7 @@ theorem drv0_oom_close {cfg : BVWorkspaceCfg} {progPtr : BitVec 64} {progBytes :
     Q (false, ⟨⟩) m1 :=
   hQ false { hdr with oom := 1#32 } g sliceOffs aigWords htSlots litsPool m1
     (bvWorkspaceOk_set_oom 1#32 hok) (aigInv_set_oom 1#32 haig) (Aig.extends_rfl g)
-    hinv.lits_le_cap hinv.prog_ptr_eq rfl rfl (fun hf => absurd hf Bool.false_ne_true) hm1
+    hinv.prog_ptr_eq rfl rfl (fun hf => absurd hf Bool.false_ne_true) hm1
 
 theorem drv0_eq_frame {cfg : BVWorkspaceCfg} {progPtr : BitVec 64}
     {hdr hdr' hdr1 hdr2 : BVHdrState} {g g' g1 g2 : Aig}

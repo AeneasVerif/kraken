@@ -181,6 +181,8 @@ private theorem add_oom_exit {h : BitVec 64} {a_off b_off w : BitVec 32}
       (∀ i < hdr.lits_len.toNat, lits'.getD i 0#32 = lits0.getD i 0#32) →
       hdr.lits_len.toNat ≤ hdr'.lits_len.toNat →
       hdr'.lits_len.toNat ≤ hdr.lits_len.toNat + w.toNat →
+      (hdr.lits_len.toNat ≤ hdr.lits_cap.toNat →
+        hdr'.lits_len.toNat ≤ hdr'.lits_cap.toNat) →
       (hdr.oom ≠ 0#32 → hdr'.oom ≠ 0#32) →
       (hdr.oom = 0#32 → sliceBoundsOk hdr a_off w = true →
         sliceBoundsOk hdr b_off w = true →
@@ -210,7 +212,8 @@ private theorem add_oom_exit {h : BitVec 64} {a_off b_off w : BitVec 32}
   have hlen_sum : hdr2.lits_len.toNat ≤ hdr.lits_len.toNat + w.toNat := by
     rw [hlen2, BitVec.toNat_add]; exact Nat.mod_le _ _
   refine hQ 0xFFFFFFFF#32 hdr2 g2 aig2 ht2 xs m2 hfr0 (Ref.Aig.extends_trans hgg01 hgg12)
-    (by omega) hinv2 hxlen hpref hlen_le hlen_sum (fun _ => hne) ?_
+    (by omega) hinv2 hxlen hpref hlen_le hlen_sum
+    (fun _ => by rw [hfr0.lits_cap]; omega) (fun _ => hne) ?_
     (fun h0' => absurd h0' hne) (fun _ => rfl) hm2
   intro _ _ _ _ haig_cap hmaxg
   apply hok ho1
@@ -324,7 +327,7 @@ theorem bv_blast_add_wp (Γ : Env)
           rfl, rfl, rfl, rfl, rfl, rfl⟩
       exact hQ 0xFFFFFFFF#32 hdr' g aigW htS lits0 _ hfr (oc2_aig_le_refl g)
         (Nat.le_add_right _ _) (aigInv_set_oom (1 : BitVec 32) hinv0) rfl (fun _ _ => rfl)
-        (Nat.le_refl _) (Nat.le_add_right _ _) (fun _ => by simp [hdr'])
+        (Nat.le_refl _) (Nat.le_add_right _ _) id (fun _ => by simp [hdr'])
         (fun h0 h1 h2 _ _ _ => False.elim (hfail ⟨h0, h1, h2⟩))
         (fun h0 => False.elim (by simp [hdr'] at h0)) (fun _ => rfl) (oc2_sep5_emp_all hm))
     (fun J hJ => by
@@ -658,6 +661,7 @@ theorem bv_blast_add_wp (Γ : Env)
                               hinv.2.1 hinv.2.2.2.2.1 (heq ▸ hinv.2.2.2.2.2.1)
                               hinv.2.2.2.2.2.2.1 hinv.2.2.2.2.2.2.2.1
                               hinv.2.2.2.2.2.2.2.2.1 hlen_le hlen_sum
+                              (fun _ => by rw [hinv.2.1.lits_cap]; omega)
                               (fun hne => absurd h0 hne) (fun _ _ _ _ _ _ => hinv.2.2.2.1)
                               ?_ (fun hne => absurd hinv.2.2.2.1 hne) hml2
                             intro _
@@ -680,7 +684,7 @@ theorem bv_blast_add_wp (Γ : Env)
                     · c0_hstraight
                       exact hQ 0xFFFFFFFF#32 hdr1 g aigW htS lits0 m1 hfr1
                         (oc2_aig_le_refl g) (Nat.le_add_right _ _) (aigInv_set_oom _ hinv0)
-                        rfl (fun _ _ => rfl) (Nat.le_refl _) (Nat.le_add_right _ _)
+                        rfl (fun _ _ => rfl) (Nat.le_refl _) (Nat.le_add_right _ _) id
                         (fun hne => absurd h0 hne)
                         (fun _ _ _ hr _ _ => False.elim (hnroom ⟨h0, hsA_cap, hr⟩))
                         (fun h0' => absurd h0' (by rw [hoom1]; decide)) (fun _ => rfl)

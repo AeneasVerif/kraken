@@ -400,6 +400,93 @@ private def nonTrivGateSat : BVLogicalExpr :=
   | .ok (0#64, ()) _ => true
   | _ => false
 
+/-! ## 4b. All-32-Opcode `BVExpr.eval` vs `bv_solve_bytes` Parity Suite -/
+
+private def checkEvalParity (e : BVLogicalExpr) (assign : BVExpr.Assignment)
+    (vars : List (Nat × (w : Nat) × BitVec w)) : Bool :=
+  let eqs := vars.foldl (fun acc ⟨id, w, v⟩ =>
+    BVLogicalExpr.gate .and acc (.literal (.bin (.var id : BVExpr w) .eq (.const v))))
+    (.const true)
+  let query := BVLogicalExpr.gate .and eqs (if e.eval assign then .not e else e)
+  (runSolveExpr query 0x1000#64 0x4000#64 65536 400000).map (·.1) == some 20
+
+private def mkAssign4 (v0 v1 : BitVec 4) (v2 : BitVec 3) : BVExpr.Assignment :=
+  Lean.RArray.branch 1 (.leaf ⟨v0⟩) (.branch 2 (.leaf ⟨v1⟩) (.leaf ⟨v2⟩))
+
+private def all32OpChecks : Bool :=
+  let x : BVExpr 4 := .var 0
+  let y : BVExpr 4 := .var 1
+  let s : BVExpr 3 := .var 2
+  let a := mkAssign4 0xB#4 0x5#4 2#3
+  let vs : List (Nat × (w : Nat) × BitVec w) := [(0, ⟨4, 0xB#4⟩), (1, ⟨4, 0x5#4⟩), (2, ⟨3, 2#3⟩)]
+  let a0 := mkAssign4 0xB#4 0#4 2#3
+  let vs0 : List (Nat × (w : Nat) × BitVec w) := [(0, ⟨4, 0xB#4⟩), (1, ⟨4, 0#4⟩), (2, ⟨3, 2#3⟩)]
+  let pEq {w : Nat} (e : BVExpr w) (v : BitVec w) : BVLogicalExpr :=
+    .literal (.bin e .eq (.const v))
+  let ops : List BVLogicalExpr :=
+    [ pEq x (x.eval a)
+    , pEq (.const 0xD#4) 0xD#4
+    , pEq (.extract 1 2 x) ((BVExpr.extract 1 2 x).eval a)
+    , pEq (.bin x .and y) ((BVExpr.bin x .and y).eval a)
+    , pEq (.bin x .or y) ((BVExpr.bin x .or y).eval a)
+    , pEq (.bin x .xor y) ((BVExpr.bin x .xor y).eval a)
+    , pEq (.bin x .add y) ((BVExpr.bin x .add y).eval a)
+    , pEq (.bin x .mul y) ((BVExpr.bin x .mul y).eval a)
+    , pEq (.bin x .udiv y) ((BVExpr.bin x .udiv y).eval a)
+    , pEq (.bin x .umod y) ((BVExpr.bin x .umod y).eval a)
+    , pEq (.un .not x) ((BVExpr.un .not x).eval a)
+    , pEq (.un (.rotateLeft 1) x) ((BVExpr.un (.rotateLeft 1) x).eval a)
+    , pEq (.un (.rotateRight 1) x) ((BVExpr.un (.rotateRight 1) x).eval a)
+    , pEq (.un (.arithShiftRightConst 1) x) ((BVExpr.un (.arithShiftRightConst 1) x).eval a)
+    , pEq (.un .reverse x) ((BVExpr.un .reverse x).eval a)
+    , pEq (.un .clz x) ((BVExpr.un .clz x).eval a)
+    , pEq (.un .cpop x) ((BVExpr.un .cpop x).eval a)
+    , pEq (.append x y rfl) ((BVExpr.append x y rfl).eval a)
+    , pEq (.replicate 2 x rfl) ((BVExpr.replicate 2 x rfl).eval a)
+    , pEq (.shiftLeft x s) ((BVExpr.shiftLeft x s).eval a)
+    , pEq (.shiftRight x s) ((BVExpr.shiftRight x s).eval a)
+    , pEq (.arithShiftRight x s) ((BVExpr.arithShiftRight x s).eval a)
+    , .literal (.bin x .ult y)
+    , .literal (.bin y .ult x)
+    , .literal (.getLsbD x 3)
+    , .literal (.getLsbD x 7)
+    , .const true
+    , .not (.const false)
+    , .gate .and (.literal (.bin y .ult x)) (.literal (.getLsbD x 0))
+    , .gate .xor (.literal (.bin y .ult x)) (.literal (.getLsbD x 2))
+    , .gate .beq (.literal (.bin y .ult x)) (.literal (.getLsbD x 3))
+    , .gate .or (.literal (.bin x .ult y)) (.literal (.getLsbD x 1))
+    , .ite (.literal (.getLsbD x 3)) (.literal (.bin y .ult x)) (.const false) ]
+  let div0 : List BVLogicalExpr :=
+    [ pEq (.bin x .udiv y) ((BVExpr.bin x .udiv y).eval a0)
+    , pEq (.bin x .umod y) ((BVExpr.bin x .umod y).eval a0) ]
+  ops.all (fun e => checkEvalParity e a vs) && div0.all (fun e => checkEvalParity e a0 vs0)
+
+#guard all32OpChecks
+
+-- Real symbolic 32-op UNSAT & SAT identities (not just fixed-assignment)
+private def symAddCommUnsat : BVLogicalExpr :=
+  let x : BVExpr 4 := .var 0; let y : BVExpr 4 := .var 1
+  .not (.literal (.bin (.bin x .add y) .eq (.bin y .add x)))
+
+private def symMulCommUnsat : BVLogicalExpr :=
+  let x : BVExpr 3 := .var 0; let y : BVExpr 3 := .var 1
+  .not (.literal (.bin (.bin x .mul y) .eq (.bin y .mul x)))
+
+private def symDivModUnsat : BVLogicalExpr :=
+  let x : BVExpr 3 := .var 0; let y : BVExpr 3 := .var 1
+  let lhs := BVExpr.bin (.bin (.bin x .udiv y) .mul y) .add (.bin x .umod y)
+  .not (.literal (.bin lhs .eq x))
+
+private def symCpopRevUnsat : BVLogicalExpr :=
+  let x : BVExpr 4 := .var 0
+  .not (.literal (.bin (.un .cpop x) .eq (.un .cpop (.un .reverse x))))
+
+#guard (runSolveExpr symAddCommUnsat 0x1000#64 0x4000#64 65536 500000).map (·.1) == some 20
+#guard (runSolveExpr symMulCommUnsat 0x1000#64 0x4000#64 65536 500000).map (·.1) == some 20
+#guard (runSolveExpr symDivModUnsat 0x1000#64 0x4000#64 65536 800000).map (·.1) == some 20
+#guard (runSolveExpr symCpopRevUnsat 0x1000#64 0x4000#64 65536 500000).map (·.1) == some 20
+
 /-! ## 5. Single-Line `#print axioms` Audit (`<= std3`, `< 115c`) -/
 
 theorem audit_validate_wf : ∀ f ∈ Validate.fns, f.Wf := Validate.fns_wf

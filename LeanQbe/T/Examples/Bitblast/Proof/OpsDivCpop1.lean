@@ -408,7 +408,7 @@ private theorem bv_udiv_post_alloc_wp (Γ : Env)
   have hwf_dZ : SliceLitsWf hdrInit lpZ d_off.toNat w.toNat :=
     sliceLitsWf_of_agree (fun p _ hp2 => hpresZ_0 p (by omega)) hwfd
   c0_hcall heq
-  refine ⟨hdrInit, g0, aw0, ht0, lpZ, R, hinvInit, by rw [hlenZ]; exact hcaplenInit,
+  refine ⟨hdrInit, g0, aw0, ht0, lpZ, R, hinvInit, by rw [hlenZ]; exact hcaplenInit, hlencapInit,
     ?_, hmZ, ?_⟩
   · intro _ _ _ _ _
     exact ⟨hwf_dZ, hwf_qZ⟩

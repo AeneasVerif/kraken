@@ -468,7 +468,6 @@ def bvEvalSubSpec : Spec [i64, i32] [.bool] :=
         BVWorkspaceOk cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' →
         AigInv hdr' g' aigWords' htSlots' →
         g ≤ g' →
-        hdr'.lits_len.toNat ≤ cfg.lits_cap →
         hdr'.prog_ptr = progPtr →
         hdr'.n_cwords = hdr.n_cwords →
         hdr'.root_node = hdr.root_node →
@@ -500,7 +499,6 @@ def bvEvalNodeSpec : Spec [i64, i32] [.bool] :=
         BVWorkspaceOk cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' →
         AigInv hdr' g' aigWords' htSlots' →
         g ≤ g' →
-        hdr'.lits_len.toNat ≤ cfg.lits_cap →
         hdr'.prog_ptr = progPtr →
         hdr'.n_cwords = hdr.n_cwords →
         hdr'.root_node = hdr.root_node →
@@ -615,90 +613,11 @@ def bvSolveBytesSpec : Spec [i64, i64, i64, i64, i64] [i64] :=
         (bvSolveTrivialUnsatCond progPtr progBytes workPtr workCap fuel → r = 20#64) →
         Q (r, ⟨⟩) m'
 
-/-! ## 6. Closed `31`-Row `bitblastSpecTable` and `bitblastEnv` -/
-
-/-- Closed `31`-row specification table for `bitblastModule` (`30` defined fns + `1` extern,
-all `noExit = true`). -/
-def bitblastSpecTable : List SpecEntry :=
-  -- Validate (4)
-  [ ⟨"bv_read_u32", [i64, i64], [i32], bvReadU32Spec, true⟩
-  , ⟨"bv_count_atoms", [i64, i32], [i64], bvCountAtomsSpec, true⟩
-  , ⟨"bv_validate_node", [i64, i64, i32, i32, i32], [.bool], bvValidateNodeSpec, true⟩
-  , ⟨"bv_validate", [i64, i64], [.bool], bvValidateSpec, true⟩
-  -- Aig (11)
-  , ⟨"bv_hash_pair", [i32, i32], [i32], bvHashPairSpec, true⟩
-  , ⟨"bv_aig_init", [i64, i64, i32, i64, i32, i32], [], bvAigInitSpec, true⟩
-  , ⟨"bv_mk_and", [i64, i32, i32], [i32], bvMkAndSpec, true⟩
-  , ⟨"bv_aig_not", [i32], [i32], bvAigNotSpec, true⟩
-  , ⟨"bv_aig_or", [i64, i32, i32], [i32], bvAigOrSpec, true⟩
-  , ⟨"bv_aig_xor", [i64, i32, i32], [i32], bvAigXorSpec, true⟩
-  , ⟨"bv_aig_beq", [i64, i32, i32], [i32], bvAigBeqSpec, true⟩
-  , ⟨"bv_aig_ite", [i64, i32, i32, i32], [i32], bvAigIteSpec, true⟩
-  , ⟨"bv_lits_mark", [i64], [i32], bvLitsMarkSpec, true⟩
-  , ⟨"bv_lits_release", [i64, i32], [], bvLitsReleaseSpec, true⟩
-  , ⟨"bv_lits_alloc", [i64, i32], [i32], bvLitsAllocSpec, true⟩
-  -- Tseitin (8)
-  , ⟨"bv_coi_mark", [i64, i32], [], bvCoiMarkSpec, true⟩
-  , ⟨"bv_dec_len", [i32], [i64], bvDecLenSpec, true⟩
-  , ⟨"bv_lit_bytes", [i32], [i64], bvLitBytesSpec, true⟩
-  , ⟨"bv_write_dec", [i64, i32], [i64], bvWriteDecSpec, true⟩
-  , ⟨"bv_write_lit", [i64, i32], [i64], bvWriteLitSpec, true⟩
-  , ⟨"bv_write_dimacs_hdr", [i64, i32, i32], [i64], bvWriteDimacsHdrSpec, true⟩
-  , ⟨"bv_write_clause_end", [i64], [i64], bvWriteClauseEndSpec, true⟩
-  , ⟨"bv_dimacs_write", [i64, i32], [.bool], bvDimacsWriteSpec, true⟩
-  -- Driver (7)
-  , ⟨"bv_eval_ops_core", [i64, i32], [.bool], bvEvalSubSpec, true⟩
-  , ⟨"bv_eval_ops_shift_mul", [i64, i32], [.bool], bvEvalSubSpec, true⟩
-  , ⟨"bv_eval_ops_div_cpop", [i64, i32], [.bool], bvEvalSubSpec, true⟩
-  , ⟨"bv_eval_node", [i64, i32], [.bool], bvEvalNodeSpec, true⟩
-  , ⟨"bv_eval_program", [i64], [.bool], bvEvalProgramSpec, true⟩
-  , ⟨"bv_init_workspace", [i64, i64, i64, i64], [.bool], bvInitWorkspaceSpec, true⟩
-  , ⟨"bv_solve_bytes", [i64, i64, i64, i64, i64], [i64], bvSolveBytesSpec, true⟩
-  -- Extern (1)
-  , ⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64], kissatSolveBytesUnsatSpec, true⟩ ]
-
-/-- Closed canonical `Env` for `bitblastModule`. -/
-def bitblastEnv : Env := Env.ofTable bitblastSpecTable
-
 end
 
-/-! ## 7. Key Pure, Framing & End-to-End Composition Lemmas -/
+/-! ## 6. Key Pure, Framing & End-to-End Composition Lemmas -/
 
 public section
-
-theorem bitblastSpecTable_length : bitblastSpecTable.length = 31 := rfl
-
-theorem bitblastSpecTable_nodup : (bitblastSpecTable.map SpecEntry.name).Nodup := by
-  show ([ "bv_read_u32", "bv_count_atoms", "bv_validate_node", "bv_validate"
-    , "bv_hash_pair", "bv_aig_init", "bv_mk_and", "bv_aig_not"
-    , "bv_aig_or", "bv_aig_xor", "bv_aig_beq", "bv_aig_ite"
-    , "bv_lits_mark", "bv_lits_release", "bv_lits_alloc"
-    , "bv_coi_mark", "bv_dec_len", "bv_lit_bytes", "bv_write_dec"
-    , "bv_write_lit", "bv_write_dimacs_hdr", "bv_write_clause_end", "bv_dimacs_write"
-    , "bv_eval_ops_core", "bv_eval_ops_shift_mul", "bv_eval_ops_div_cpop"
-    , "bv_eval_node", "bv_eval_program", "bv_init_workspace", "bv_solve_bytes"
-    , "kissat_solve_bytes" ] : List String).Nodup
-  decide
-
-theorem bitblastSpecTable_noExit : ∀ e ∈ bitblastSpecTable, e.noExit = true := by
-  intro e he
-  simp only [bitblastSpecTable, List.mem_cons, List.not_mem_nil, or_false] at he
-  rcases he with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
-    rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
-
-theorem bitblastEnv_noExit :
-    ∀ f as bs xs m Q X X',
-      bitblastEnv f as bs xs m Q X → bitblastEnv f as bs xs m Q X' :=
-  Env.ofTable_noExit bitblastSpecTable_noExit
-
-theorem bitblastEnv_row_at (i : Nat) (e : SpecEntry)
-    (hi : bitblastSpecTable[i]? = some e := by rfl)
-    (hno : ∀ xs m Q X, e.spec xs m Q X → e.eff xs m Q X := by
-      intro _ _ _ _ h; exact h) :
-    ∀ xs m Q X, e.spec xs m Q X → bitblastEnv e.name e.as e.rs xs m Q X :=
-  fun xs m Q X h =>
-    Env.ofTable_of_mem (List.mem_of_getElem? hi) bitblastSpecTable_nodup (hno xs m Q X h)
 
 theorem BVHdrState.AigFrame.rfl (h : BVHdrState) : h.AigFrame h :=
   ⟨_root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl, _root_.rfl,

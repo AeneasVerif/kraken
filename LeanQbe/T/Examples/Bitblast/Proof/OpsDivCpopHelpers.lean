@@ -134,6 +134,7 @@ def bvBlastEqSpec : Spec [i64, i32, i32, i32] [i32] :=
     ∃ hdr g aigWords htSlots litsPool R,
       AigInv hdr g aigWords htSlots ∧
       hdr.lits_cap.toNat ≤ litsPool.length ∧
+      hdr.lits_len.toNat ≤ hdr.lits_cap.toNat ∧
       (hdr.oom = 0#32 → hdr.lits_len.toNat ≤ hdr.lits_cap.toNat →
         (0 < w.toNat → hdr.lits_ptr ≠ 0#64) →
         a_off.toNat + w.toNat ≤ hdr.lits_len.toNat →

@@ -8,18 +8,25 @@ public import LeanQbe.T.Module
 public import LeanQbe.T.Examples.Bitblast.Src.Validate
 public import LeanQbe.T.Examples.Bitblast.Src.Aig
 public import LeanQbe.T.Examples.Bitblast.Src.Tseitin
+public import LeanQbe.T.Examples.Bitblast.Src.OpsCore
+public import LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
+public import LeanQbe.T.Examples.Bitblast.Src.OpsDivCpop
 public import LeanQbe.T.Examples.Bitblast.Src.Driver
 import LeanQbe.T.Examples.Bitblast.Src.Header
 meta import LeanQbe.T.Examples.Bitblast.Src.Header
 meta import LeanQbe.T.Examples.Bitblast.Src.Validate
 meta import LeanQbe.T.Examples.Bitblast.Src.Aig
 meta import LeanQbe.T.Examples.Bitblast.Src.Tseitin
+meta import LeanQbe.T.Examples.Bitblast.Src.OpsCore
+meta import LeanQbe.T.Examples.Bitblast.Src.OpsShiftMul
+meta import LeanQbe.T.Examples.Bitblast.Src.OpsDivCpop
 meta import LeanQbe.T.Examples.Bitblast.Src.Driver
 
 /-!
 # Flat Acyclic Bitblast C0 Module Assembly (`Bitblast/Src/Full.lean`)
 
-Direct acyclic list concatenation (`Validate.fns ++ Aig.fns ++ Tseitin.fns ++ Driver.fns`) with:
+Direct acyclic list concatenation (`Validate.fns ++ Aig.fns ++ Tseitin.fns ++ OpsCore.fns ++
+OpsShiftMul.fns ++ OpsDivCpop.fns ++ Driver.fns`, `64` live fns) with:
 - `0` `PatchModule`
 - `0` `exits`
 - exact single extern `kissat_solve_bytes : [i64, i64, i64, i64, i64] -> [i64]`
@@ -36,25 +43,28 @@ open LeanQbe.T.Examples.Bitblast.Src
 
 @[expose] public section
 
-/-- Flat topological concatenation of all `Bitblast/Src` C0 modules (`30` live fns). -/
+/-- Flat topological concatenation of all `Bitblast/Src` C0 modules (`64` live fns). -/
 def bitblastFns : List Fn :=
   Validate.fns
   ++ Aig.fns
   ++ Tseitin.fns
+  ++ OpsCore.fns
+  ++ OpsShiftMul.fns
+  ++ OpsDivCpop.fns
   ++ Driver.fns
 
 /-- Single external callee (`kissat_solve_bytes`) resolved via `LinkedCert.append`. -/
 def bitblastExterns : List Extern :=
   [⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64]⟩]
 
-/-- Closed acyclic `LeanQbe.T.Module` for the C0 bitblaster core. -/
+/-- Closed acyclic `LeanQbe.T.Module` for the full 32-op C0 bitblaster. -/
 def bitblastModule : LeanQbe.T.Module :=
   { fns := bitblastFns, externs := bitblastExterns, exits := [] }
 
 end
 
-#guard bitblastModule.fns.length == 30
-#guard (bitblastModule.fns.map Fn.name).eraseDups.length == 30
+#guard bitblastModule.fns.length == 64
+#guard (bitblastModule.fns.map Fn.name).eraseDups.length == 64
 #guard bitblastModule.checkAcyclic == true
 #guard bitblastModule.exits.isEmpty
 #guard bitblastModule.externs == [⟨"kissat_solve_bytes", [i64, i64, i64, i64, i64], [i64]⟩]
@@ -80,6 +90,9 @@ private theorem append_wf {xs ys : List Fn}
 theorem bitblastModule_wf : ∀ f ∈ bitblastModule.fns, f.Wf := by
   have h := append_wf Validate.fns_wf Aig.fns_wf
   have h := append_wf h Tseitin.fns_wf
+  have h := append_wf h OpsCore.fns_wf
+  have h := append_wf h OpsShiftMul.fns_wf
+  have h := append_wf h OpsDivCpop.fns_wf
   exact append_wf h Driver.fns_wf
 
 end

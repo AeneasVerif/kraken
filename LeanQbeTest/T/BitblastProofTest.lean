@@ -35,8 +35,8 @@ open LeanQbe.T.Examples.Bitblast.Proof
 
 #guard nvProgBytes.length == 52
 #guard BVProg.parse nvProgBytes == some (.const false)
-#guard bitblastModule.fns.length == 30
-#guard bitblastSpecTable.length == 31
+#guard bitblastModule.fns.length == 64
+#guard bitblastSpecTable.length == 65
 
 /-- `kissatSolveBytesUnsatSpec` refines `plainSolveBytesSpec` for `S2d` linking. -/
 theorem kissatSolveBytesUnsatSpec_refines_plain :

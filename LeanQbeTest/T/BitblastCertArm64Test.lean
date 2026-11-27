@@ -17,7 +17,7 @@ public meta import LeanQbeTest.T.BitblastCertArm64
 Kept separate from `BitblastCertX64Test.lean` so `Kraken.X64.Syntax` and
 `Kraken.AArch64.Syntax` remain strictly isolated in separate Lean modules.
 
-Verifies `89`-fn linked module invariants, kernel `bounds.length = 89`, executable AArch64
+Verifies `123`-fn linked module invariants, kernel `bounds.length = 123`, executable AArch64
 assembly lowering of `bitblastModule`, and strict `<= std3` `#print axioms` across
 `BitblastCertArm64`.
 -/
@@ -40,7 +40,7 @@ open LeanQbeTest.T.BitblastCertArm64
     s.contains "bv_solve_bytes:" && s.contains "kissat_solve_bytes"
   | .error _ => false
 
-theorem audit_bounds_len : bitblastArm64Cert.bounds.length = 89 :=
+theorem audit_bounds_len : bitblastArm64Cert.bounds.length = 123 :=
   bitblastArm64Cert.bounds_length.trans rfl
 
 theorem audit_maxBound_le : bitblastArm64Cert.bound "bv_solve_bytes" ≤ 2048 :=

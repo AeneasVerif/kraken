@@ -273,7 +273,7 @@ private theorem drv1_gate_oom {cfg : BVWorkspaceCfg} {progPtr : BitVec 64}
       (htSlots' litsPool' : List (BitVec 32)) (m' : Mem 64),
       BVWorkspaceOk cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' →
       AigInv hdr' g' aigWords' htSlots' → g ≤ g' →
-      hdr'.lits_len.toNat ≤ cfg.lits_cap → hdr'.prog_ptr = progPtr →
+      hdr'.prog_ptr = progPtr →
       hdr'.n_cwords = hdr.n_cwords → hdr'.root_node = hdr.root_node →
       (ret = true → hdr'.oom = 0#32 ∧ BlastEvalInv cfg progPtr progBytes vars cwords nodes prog
         hdr' g' atomBases sliceOffs' aigWords' htSlots' litsPool' (nodeIdx.toNat + 1)) →
@@ -289,7 +289,6 @@ private theorem drv1_gate_oom {cfg : BVWorkspaceCfg} {progPtr : BitVec 64}
       bvBlastMem cfg hdr1 atomBases sliceOffs aw1 hts1 litsPool ⋆ R) m1) :
     Q (false, ⟨⟩) m1 :=
   hQ false hdr1 g1 sliceOffs aw1 hts1 litsPool m1 hok1 haig1 hext1
-    (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
     (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
     (fun hf => absurd hf Bool.false_ne_true) (fun h => absurd h hno_ne25) hm1
 
@@ -321,7 +320,7 @@ private theorem drv1_gate_ok {cfg : BVWorkspaceCfg} {progPtr : BitVec 64}
       (htSlots' litsPool' : List (BitVec 32)) (m' : Mem 64),
       BVWorkspaceOk cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' →
       AigInv hdr' g' aigWords' htSlots' → g ≤ g' →
-      hdr'.lits_len.toNat ≤ cfg.lits_cap → hdr'.prog_ptr = progPtr →
+      hdr'.prog_ptr = progPtr →
       hdr'.n_cwords = hdr.n_cwords → hdr'.root_node = hdr.root_node →
       (ret = true → hdr'.oom = 0#32 ∧ BlastEvalInv cfg progPtr progBytes vars cwords nodes prog
         hdr' g' atomBases sliceOffs' aigWords' htSlots' litsPool' (nodeIdx.toNat + 1)) →
@@ -339,7 +338,6 @@ private theorem drv1_gate_ok {cfg : BVWorkspaceCfg} {progPtr : BitVec 64}
   let sliceOffs' := sliceOffs.set nodeIdx.toNat res
   have hok2 := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat res hok1
   refine hQ true hdr1 g1 sliceOffs' aw1 hts1 litsPool _ hok2 haig1 hext1
-    (by rw [hfr1.lits_len]; exact hinv.lits_le_cap)
     (hfr1.prog_ptr.trans hinv.prog_ptr_eq) hfr1.n_cwords hfr1.root_node
     (fun _ => ⟨hoom1, ?_⟩) (fun h => absurd h hno_ne25) ?_
   · refine blastEvalInv_step hoom0 hinv hok2 haig1 hext1 hni_lt
@@ -397,7 +395,7 @@ private theorem drv1_bconst_post {progBytes : List UInt8} {vars : BinTree VarEnt
       (htSlots' litsPool' : List (BitVec 32)) (m' : Mem 64),
       BVWorkspaceOk cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' →
       AigInv hdr' g' aigWords' htSlots' → g ≤ g' →
-      hdr'.lits_len.toNat ≤ cfg.lits_cap → hdr'.prog_ptr = progPtr →
+      hdr'.prog_ptr = progPtr →
       hdr'.n_cwords = hdr.n_cwords → hdr'.root_node = hdr.root_node →
       (ret = true → hdr'.oom = 0#32 ∧ BlastEvalInv cfg progPtr progBytes vars cwords nodes prog
         hdr' g' atomBases sliceOffs' aigWords' htSlots' litsPool' (nodeIdx.toNat + 1)) →
@@ -419,7 +417,7 @@ private theorem drv1_bconst_post {progBytes : List UInt8} {vars : BinTree VarEnt
     omega
   have hok' := BVWorkspaceOk.set_sliceOffs nodeIdx.toNat litv hok
   refine hQ true hdr g (sliceOffs.set nodeIdx.toNat litv) aigWords htSlots litsPool _ hok' haig
-    (Aig.extends_rfl g) hinv.lits_le_cap hinv.prog_ptr_eq rfl rfl (fun _ => ⟨hoom0, ?_⟩)
+    (Aig.extends_rfl g) hinv.prog_ptr_eq rfl rfl (fun _ => ⟨hoom0, ?_⟩)
     (fun _ => ⟨rfl, rfl, by rw [hlitv_eq, ← ha_eq]⟩) (blast_so_unfocus hok.hdr_so hm_so)
   refine blastEvalInv_step hoom0 hinv hok' haig (Aig.extends_rfl g) hni_lt hinv.prog_ptr_eq
     rfl rfl (Nat.le_refl _) hinv.lits_le_cap (fun _ _ => rfl) ?_
@@ -847,7 +845,7 @@ theorem bv_eval_node_wp (Γ : Env)
                     (htSlots' litsPool' : List (BitVec 32)) → (m' : Mem 64) →
                     BVWorkspaceOk cfg hdr' atomBases sliceOffs' aigWords' htSlots' litsPool' →
                     AigInv hdr' g' aigWords' htSlots' → g ≤ g' →
-                    hdr'.lits_len.toNat ≤ cfg.lits_cap → hdr'.prog_ptr = progPtr →
+                    hdr'.prog_ptr = progPtr →
                     hdr'.n_cwords = hdr.n_cwords → hdr'.root_node = hdr.root_node →
                     (ret = true → hdr'.oom = 0#32 ∧ BlastEvalInv cfg progPtr progBytes vars cwords
                       nodes prog hdr' g' atomBases sliceOffs' aigWords' htSlots' litsPool'
@@ -855,9 +853,9 @@ theorem bv_eval_node_wp (Γ : Env)
                     (bytes progPtr progBytes ⋆ bvBlastMem cfg hdr' atomBases
                       sliceOffs' aigWords' htSlots' litsPool' ⋆ R) m' →
                     Q (ret, ⟨⟩) m' :=
-                  fun ret hdr' g' sliceOffs' aw' hts' lp' m' hok' haig' hext' hlc' hpp'
+                  fun ret hdr' g' sliceOffs' aw' hts' lp' m' hok' haig' hext' hpp'
                     hnc' hrt' htr' hm' =>
-                    hQ ret hdr' g' sliceOffs' aw' hts' lp' m' hok' haig' hext' hlc' hpp' hnc' hrt'
+                    hQ ret hdr' g' sliceOffs' aw' hts' lp' m' hok' haig' hext' hpp' hnc' hrt'
                       htr' (fun h => absurd h hno_ne25) hm'
                 refine wp_join0 (fun ml => ml = m) ?_ ?_
                 · intro _ ml hml; subst hml
@@ -959,7 +957,7 @@ theorem bv_eval_program_wp (Γ : Env)
       refine ⟨cfg, progPtr, progBytes, vars, cwords, nodes, prog, hdr1, g1, atomBases, so1,
         aw1, hts1, lp1, R, hwb1, hni32, hoom1, ?_, hml1, ?_⟩
       · simpa only [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hi32] using hinv1
-      · intro ret hdr2 g2 so2 aw2 hts2 lp2 m2 hok2 haig2 hext2 _ hpp2 hnc2 hrt2 hret hbc2 hm2
+      · intro ret hdr2 g2 so2 aw2 hts2 lp2 m2 hok2 haig2 hext2 hpp2 hnc2 hrt2 hret hbc2 hm2
         c0_hstraight
         c0_hsplit
         · have hret_true : ret = true := hc
