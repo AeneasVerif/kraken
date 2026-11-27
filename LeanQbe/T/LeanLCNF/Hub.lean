@@ -70,7 +70,6 @@ public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof3a
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof3b
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof4
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof4a
-public import LeanQbe.T.LeanLCNF.LcnfC0StringsProofAlloc
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsSpec
 public import LeanQbe.T.LeanLCNF.LcnfC0TreeDemo
 public import LeanQbe.T.LeanLCNF.LcnfC0TreeDemoProof

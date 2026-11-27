@@ -272,22 +272,6 @@ def EnsureExclArrayOutcome (arrObj : LcnfObj) (expand : BitVec 64) (r : BitVec 6
 
 /-! ## 3. Function `Spec` Contracts (`rtR2SpecEntries`) -/
 
-/-- Progress-aware `lcnf_alloc` contract: like R0's `lcnfAllocSpec`, plus the lower bound
-`st.rem - bytes ≤ st'.rem` on the remaining bump capacity. -/
-def lcnfAllocRemSpec : Spec [i64, i64] [i64] := fun (rt, sz, ()) m Q _ =>
-  let bytes := align8 sz.toNat
-  ∃ (st : RtC0State) (R : Mem 64 → Prop),
-    sz.toNat ≤ 268435448 ∧
-      rtMinObjBytes ≤ bytes ∧
-      bytes < rtMaxObjBytes ∧
-      (st.hasFree bytes ∨ bytes ≤ st.rem) ∧
-      (rtC0Inv rt st ⋆ R) m ∧
-      ∀ p st' m',
-        p ≠ 0#64 → p.toNat % 8 = 0 → st'.PreservesMeta st →
-        st'.rem ≤ st.rem → st.rem - bytes ≤ st'.rem →
-        (rtC0Inv rt st' ⋆ region p bytes ⋆ R) m' → Q (p, ()) m'
-
-
 /-- `r2_inc_obj(o) -> ()`: increments non-zero, unsaturated `m_rc`; no-op on 0 or scalar. -/
 def r2IncObjSpec : Spec [i64] [] := fun (o, ()) m Q _ =>
   if o = 0#64 ∨ (o &&& 1#64) ≠ 0#64 then

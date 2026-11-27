@@ -5,7 +5,6 @@ public import LeanQbe.T.LeanLCNF.LcnfC0RtProof
 public import LeanQbe.T.LeanLCNF.LcnfC0BigNumProof
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsProof
-public import LeanQbe.T.LeanLCNF.LcnfC0StringsProofAlloc
 import all Kraken.Mem
 import all Kraken.Separation
 
@@ -89,14 +88,6 @@ theorem LcnfC0FullInv_eq_bigNumRtInv (rt : BitVec 64) (st : RtC0State) (scr : Bi
     (scrLimbs : List (BitVec 64)) :
     LcnfC0FullInv rt st scr scrLimbs = bigNumRtInv rt st scr scrLimbs := by
   unfold LcnfC0FullInv bigNumRtInv; rfl
-
-/-- Weakening from R0/R2 `lcnfAllocSpec` to R2b's progress-aware `lcnfAllocRemSpec`. -/
-theorem lcnfAllocSpec_to_rem {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
-    (h : lcnfAllocSpec xs m Q X) : lcnfAllocRemSpec xs m Q X := by
-  rcases xs with ⟨rt, sz, ⟨⟩⟩
-  rcases h with ⟨st, R, h1, h2, h3, h4, hm, hk⟩
-  exact ⟨st, R, h1, h2, h3, h4, hm, fun p st' m' hp0 hp8 hpr hle _ hm' =>
-    hk p st' m' hp0 hp8 hpr hle hm'⟩
 
 /-! ## 4. Unified `TableImpl` and `ModuleOk` Composition Across R0 + R1 + R2 + R2b -/
 

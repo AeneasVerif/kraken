@@ -2,7 +2,6 @@ module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0Strings
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsSpec
-public import LeanQbe.T.LeanLCNF.LcnfC0StringsProofAlloc
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof1
 public import LeanQbe.T.LeanLCNF.LcnfC0ContainersProof2
 public import LeanQbe.T.Logic.C0Step

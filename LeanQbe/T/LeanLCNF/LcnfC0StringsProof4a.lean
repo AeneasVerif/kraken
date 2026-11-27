@@ -2,7 +2,6 @@ module
 
 public import LeanQbe.T.LeanLCNF.LcnfC0Strings
 public import LeanQbe.T.LeanLCNF.LcnfC0StringsSpec
-import LeanQbe.T.LeanLCNF.LcnfC0StringsProofAlloc
 import LeanQbe.T.LeanLCNF.LcnfC0StringsProof1
 
 /-!

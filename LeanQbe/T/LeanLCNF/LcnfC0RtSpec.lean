@@ -1205,6 +1205,27 @@ def lcnfAllocSpec : Spec [i64, i64] [i64] := fun (rt, sz, ()) m Q _ =>
       st'.PreservesMeta st → st'.rem ≤ st.rem →
       (rtC0Inv rt st' ⋆ region p bytes ⋆ R) m' → Q (p, ()) m'
 
+/-- Progress-aware `lcnf_alloc` contract: `lcnfAllocSpec` plus the lower bound
+`st.rem - bytes ≤ st'.rem` on the remaining bump capacity (for multi-allocation callers). -/
+def lcnfAllocRemSpec : Spec [i64, i64] [i64] := fun (rt, sz, ()) m Q _ =>
+  let bytes := align8 sz.toNat
+  ∃ (st : RtC0State) (R : Mem 64 → Prop),
+    sz.toNat ≤ 268435448 ∧ rtMinObjBytes ≤ bytes ∧ bytes < rtMaxObjBytes ∧
+    (st.hasFree bytes ∨ bytes ≤ st.rem) ∧
+    (rtC0Inv rt st ⋆ R) m ∧
+    ∀ p st' m',
+      p ≠ 0#64 → p.toNat % 8 = 0 →
+      st'.PreservesMeta st → st'.rem ≤ st.rem → st.rem - bytes ≤ st'.rem →
+      (rtC0Inv rt st' ⋆ region p bytes ⋆ R) m' → Q (p, ()) m'
+
+/-- Weakening from `lcnfAllocSpec` to the progress-aware `lcnfAllocRemSpec`. -/
+theorem lcnfAllocSpec_to_rem {xs : Tup Val [i64, i64]} {m : Mem 64} {Q : Post [i64]} {X : XPost}
+    (h : lcnfAllocSpec xs m Q X) : lcnfAllocRemSpec xs m Q X := by
+  rcases xs with ⟨rt, sz, ⟨⟩⟩
+  rcases h with ⟨st, R, h1, h2, h3, h4, hm, hk⟩
+  exact ⟨st, R, h1, h2, h3, h4, hm, fun p st' m' hp0 hp8 hpr hle _ hm' =>
+    hk p st' m' hp0 hp8 hpr hle hm'⟩
+
 /-- `lcnf_free_obj(rt, o) -> ()`: shallowly frees cell `o` (no-op on tagged scalars). -/
 def lcnfFreeObjSpec : Spec [i64, i64] [] := fun (rt, o, ()) m Q _ =>
   if (o &&& 1#64) ≠ 0#64 then
