@@ -85,8 +85,8 @@ ASM_PATH=".lake/build/c/kissat_solver.s"
 test -f "$ASM_PATH"
 GLOBLS="$(grep -E '^[[:space:]]*\.globl[[:space:]]+' "$ASM_PATH" | awk '{print $2}' | tr '\n' ' ')"
 echo "assembly .globl symbols: $GLOBLS"
-if [ "$GLOBLS" != "kissat_solve_bytes " ]; then
-  echo "ERROR: expected ONLY '.globl kissat_solve_bytes', got: $GLOBLS" >&2
+if [ "$GLOBLS" != "bv_solve_bytes " ]; then
+  echo "ERROR: expected ONLY '.globl bv_solve_bytes', got: $GLOBLS" >&2
   exit 1
 fi
 tail -n 3 "$ASM_PATH" | grep -q '\.note\.GNU-stack'
