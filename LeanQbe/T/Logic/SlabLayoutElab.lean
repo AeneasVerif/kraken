@@ -17,14 +17,12 @@ Zero-string-templating, `withReducible`-safe replacement for manual C0 arena boi
    `AgreesExcept` integration) plus `c0_lens!` generating per-field `C0Lens` definitions and
    `LengthsOk.upd_*` / `LengthsOk.set_*` preservation one-liners for flat or nested sliced
    states (e.g. `core`/`scratch`).
-2. **`AddrKey` / `extractAddrKey`:** Structural address classification (`constOff`/`baseOnly`/
-   `any`) for `O(1)` offset-indexed memory-lemma dispatch.
-3. **`c0_slab_layout!` (Mode A — existing sliced `Cfg` / `State`):** Generates `*HdrWords`,
+2. **`c0_slab_layout!` (Mode A — existing sliced `Cfg` / `State`):** Generates `*HdrWords`,
    balanced `SepTree`-backed `*Tree` / `*Mem`, `O(log K)` `Rest` / `focus_*` / `unfocus_*`
    (zero `ecancel`), `@[scoped c0_load]` / `@[scoped c0_store]` header & array lemmas with
    concrete `BitVec.ofNat 64 $strideLit` (plus `i8` direct-byte forms and `_off` sub-buffer
    accessors), and optional `SlabChain.to_region`-backed `*_to_region`.
-4. **`c0_slab_layout! def` (Mode B — full sliced slab synthesis):** Generates sliced `<Pfx>Cfg`
+3. **`c0_slab_layout! def` (Mode B — full sliced slab synthesis):** Generates sliced `<Pfx>Cfg`
    (with contiguous chained `p*` pointers, `usedBytes`, `SizeOk`, `slack`), `<Pfx>State` (with
    `Nat`-backed and `BitVec 64` scalars + typed arrays), `<Pfx>State.LengthsOk` + `C0Lens` +
    `LengthsOk.{upd,set}_*`, balanced `SepTree`-backed `<Pfx>Mem` with integrated `align8` padding,
@@ -97,39 +95,7 @@ theorem get_of_agreesExcept {σ α : Type} (l : C0Lens σ α) {mask : σ → σ}
 
 end C0Lens
 
-/-! ## 2. Offset-Indexed Address Key (`AddrKey`) -/
-
-/-- Address dispatch key for `O(1)` bucket lookup in memory-lemma tables. -/
-inductive AddrKey where
-  | constOff (baseField : Lean.Name) (off : Nat)
-  | baseOnly (baseField : Lean.Name)
-  | any
-  deriving BEq, Hashable, Repr
-
-/-- Extract an `AddrKey` from an address expression (`c.hdr + 48`, `c.pArena + i * 4`, etc.). -/
-meta def extractAddrKey (addr : Lean.Expr) : AddrKey :=
-  let addr := addr.consumeMData.headBeta
-  if addr.isAppOf ``HAdd.hAdd && addr.getAppNumArgs == 6 then
-    let lhs := (addr.getArg! 4).consumeMData
-    let rhs := (addr.getArg! 5).consumeMData
-    match lhs.getAppFn.constName? with
-    | some b =>
-      if rhs.isAppOfArity ``BitVec.ofNat 2 then
-        match (rhs.getArg! 1).nat? with
-        | some k => .constOff b k
-        | none => .baseOnly b
-      else if rhs.isAppOfArity ``OfNat.ofNat 3 then
-        match (rhs.getArg! 1).nat? with
-        | some k => .constOff b k
-        | none => .baseOnly b
-      else .baseOnly b
-    | none => .any
-  else
-    match addr.getAppFn.constName? with
-    | some b => .constOff b 0
-    | none => .any
-
-/-! ## 3. Recursive `LengthsOk` Preservation Tactic (`c0_lengths_ok`) -/
+/-! ## 2. Recursive `LengthsOk` Preservation Tactic (`c0_lengths_ok`) -/
 
 section LengthsTactic
 open Lean Meta Elab Tactic
@@ -201,7 +167,7 @@ elab "c0_lengths_ok" hEq?:(ident)? : tactic => do
 
 end LengthsTactic
 
-/-! ## 4. Shared Typed Syntax Helpers (`CommandElabM`) -/
+/-! ## 3. Shared Typed Syntax Helpers (`CommandElabM`) -/
 
 section SlabElabHelpers
 open Lean Elab Command Meta
@@ -677,7 +643,7 @@ private meta def emitSlabCore (pfxStr : String) (cId : Ident) (cTy : Term)
 
 end SlabElabHelpers
 
-/-! ## 5. `c0_lens!` Command Macro (Typed `CommandElabM`, Zero String Parsing) -/
+/-! ## 4. `c0_lens!` Command Macro (Typed `CommandElabM`, Zero String Parsing) -/
 
 declare_syntax_cat c0_lens_field
 
@@ -724,7 +690,7 @@ elab_rules : command
 
 end LensElab
 
-/-! ## 6. `c0_slab_layout!` Command Macro (Mode A & Mode B) -/
+/-! ## 5. `c0_slab_layout!` Command Macro (Mode A & Mode B) -/
 
 declare_syntax_cat slab_hdr_field
 declare_syntax_cat slab_arr_entry
