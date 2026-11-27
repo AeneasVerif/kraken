@@ -483,6 +483,9 @@ abbrev Directive := Kraken.Directive Instr ConstExpr
 
 abbrev Program := List Directive
 
+abbrev Program.AssemblableWith (p : Program) (l : Kraken.Layout) :=
+  Kraken.Program.AssemblableWith p l
+
 abbrev Executable := Kraken.Executable Instr ConstExpr
 
 namespace RegOrSp
