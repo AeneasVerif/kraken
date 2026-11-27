@@ -76,9 +76,36 @@ public import LeanQbe.T.LeanLCNF.Sem.HPrim
 public import LeanQbe.T.LeanLCNF.Sem.P
 public import LeanQbe.T.LeanLCNF.Sem.PAdequacy
 public import LeanQbe.T.LeanLCNF.Sem.PLemmas
+public import LeanQbe.T.LeanLCNF.Sem.Perceus
+public import LeanQbe.T.LeanLCNF.Sem.Perceus1
+public import LeanQbe.T.LeanLCNF.Sem.Perceus2
+public import LeanQbe.T.LeanLCNF.Sem.Perceus3
+public import LeanQbe.T.LeanLCNF.Sem.Perceus4
+public import LeanQbe.T.LeanLCNF.Sem.PerceusCall
+public import LeanQbe.T.LeanLCNF.Sem.PerceusCases
+public import LeanQbe.T.LeanLCNF.Sem.PerceusDec
+public import LeanQbe.T.LeanLCNF.Sem.PerceusDel
+public import LeanQbe.T.LeanLCNF.Sem.PerceusInc
+public import LeanQbe.T.LeanLCNF.Sem.PerceusJp
+public import LeanQbe.T.LeanLCNF.Sem.PerceusJp1
+public import LeanQbe.T.LeanLCNF.Sem.PerceusJp2
+public import LeanQbe.T.LeanLCNF.Sem.PerceusJp3
+public import LeanQbe.T.LeanLCNF.Sem.PerceusJp4
+public import LeanQbe.T.LeanLCNF.Sem.PerceusJp5
+public import LeanQbe.T.LeanLCNF.Sem.PerceusLet
+public import LeanQbe.T.LeanLCNF.Sem.PerceusLet1
+public import LeanQbe.T.LeanLCNF.Sem.PerceusLet2
+public import LeanQbe.T.LeanLCNF.Sem.PerceusLet3
+public import LeanQbe.T.LeanLCNF.Sem.PerceusLetPrim
+public import LeanQbe.T.LeanLCNF.Sem.PerceusMut
+public import LeanQbe.T.LeanLCNF.Sem.PerceusMut1
+public import LeanQbe.T.LeanLCNF.Sem.PerceusPrims
+public import LeanQbe.T.LeanLCNF.Sem.PerceusPrims1
+public import LeanQbe.T.LeanLCNF.Sem.PerceusSim
 public import LeanQbe.T.LeanLCNF.Sem.RcCheck
 public import LeanQbe.T.LeanLCNF.Sem.SpecNorm
 public import LeanQbe.T.LeanLCNF.Sem.SpecNormProof
+public import LeanQbe.T.LeanLCNF.Sem.ValRep
 
 set_option autoImplicit false
 
